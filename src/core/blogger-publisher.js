@@ -1627,6 +1627,51 @@ async function uploadExternalImage(bloggerClient, blogId, imageUrl, onLog) {
   }
 }
 
+/**
+ * Post-publish verification: fetches the post via Blogger API to confirm it exists and title matches.
+ * @param {object} bloggerClient - Authenticated Blogger API client
+ * @param {string} blogId - Blog ID
+ * @param {string} postId - Post ID returned from insert
+ * @param {string} expectedTitle - Title to verify against
+ * @param {function} onLog - Optional logging callback
+ * @returns {{ verified: boolean, warning?: string }}
+ */
+async function verifyPost(bloggerClient, blogId, postId, expectedTitle, onLog) {
+  try {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    onLog?.('[VERIFY] 발행된 포스트 확인 중...');
+
+    const getResponse = await bloggerClient.posts.get({
+      blogId: blogId,
+      postId: postId
+    });
+
+    const fetchedTitle = getResponse?.data?.title;
+    if (!fetchedTitle) {
+      const warning = '포스트 검증 실패: 응답에 제목이 없습니다.';
+      console.warn(`[VERIFY] ⚠️ ${warning}`);
+      onLog?.(`⚠️ ${warning}`);
+      return { verified: false, warning };
+    }
+
+    if (fetchedTitle !== expectedTitle) {
+      const warning = `포스트 검증 경고: 제목 불일치 (예상: "${expectedTitle}", 실제: "${fetchedTitle}")`;
+      console.warn(`[VERIFY] ⚠️ ${warning}`);
+      onLog?.(`⚠️ ${warning}`);
+      return { verified: false, warning };
+    }
+
+    console.log(`[VERIFY] ✅ 포스트 검증 성공: "${fetchedTitle}"`);
+    onLog?.(`✅ 포스트 검증 완료: 제목 일치 확인됨`);
+    return { verified: true };
+  } catch (e) {
+    const warning = `포스트 검증 중 오류 발생: ${e?.message || String(e)}`;
+    console.warn(`[VERIFY] ⚠️ ${warning}`);
+    onLog?.(`⚠️ ${warning}`);
+    return { verified: false, warning };
+  }
+}
+
 async function publishToBlogger(payload, title, html, thumbnailUrl, onLog, postingStatus = 'publish', scheduleDate = null) {
   try {
     const { checkAndIncrement } = require('../utils/usage-quota.js');
@@ -4776,6 +4821,15 @@ html body .content-inner {
         onLog?.(`[DEBUG] 포스트 ID: "${postId || '없음'}"`);
         onLog?.(`[DEBUG] 포스트 URL: "${postUrl || '없음'}"`);
 
+        // 발행 후 포스트 존재 여부 및 제목 일치 검증
+        let verificationWarning;
+        if (postId && !isDraftMode && !isScheduleMode) {
+          const verifyResult = await verifyPost(blogger, blogId, postId, title, onLog);
+          if (!verifyResult.verified) {
+            verificationWarning = verifyResult.warning;
+          }
+        }
+
         // URL이 없어도 발행은 성공한 것으로 간주 (draft 모드일 수 있음)
         return {
           ok: true,
@@ -4785,7 +4839,8 @@ html body .content-inner {
           title: response.data.title,
           thumbnail: processedThumbnailUrl || '',
           published: response.data.published,
-          status: postStatus
+          status: postStatus,
+          ...(verificationWarning ? { verificationWarning } : {})
         };
       } else {
         throw new Error('Blogger API 응답이 올바르지 않습니다');

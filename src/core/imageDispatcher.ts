@@ -109,18 +109,59 @@ function enhancePrompt(basePrompt: string, isThumbnail: boolean): string {
 }
 
 function buildFallbackPrompt(koreanPrompt: string, isThumbnail: boolean): string {
-  // 간단 키워드 매핑
+  // 한국어→영어 키워드 매핑 (100+ 주요 블로그 키워드)
   const mappings: Record<string, string> = {
+    // 가전/IT
     '세탁기': 'washing machine', '냉장고': 'refrigerator', '노트북': 'laptop',
-    '스마트폰': 'smartphone', '여행': 'travel', '음식': 'food', '건강': 'health',
-    '뷰티': 'beauty', '패션': 'fashion', '자동차': 'car', '부동산': 'real estate',
-    '금융': 'finance', '기술': 'technology', '스포츠': 'sports', '게임': 'gaming',
+    '스마트폰': 'smartphone', '에어컨': 'air conditioner', '청소기': 'vacuum cleaner',
+    '모니터': 'monitor', '키보드': 'keyboard', '마우스': 'mouse', '태블릿': 'tablet',
+    '이어폰': 'earbuds', '헤드폰': 'headphones', '카메라': 'camera', '프린터': 'printer',
+    '공기청정기': 'air purifier', '건조기': 'dryer', '식기세척기': 'dishwasher',
+    '전자레인지': 'microwave', '로봇청소기': 'robot vacuum', '정수기': 'water purifier',
+    // 생활
+    '여행': 'travel', '음식': 'food', '건강': 'health', '운동': 'exercise',
+    '다이어트': 'diet', '요리': 'cooking', '레시피': 'recipe', '인테리어': 'interior design',
+    '청소': 'cleaning', '수납': 'storage organization', '이사': 'moving',
+    '반려동물': 'pet', '강아지': 'dog', '고양이': 'cat', '식물': 'plant',
+    '캠핑': 'camping', '등산': 'hiking', '낚시': 'fishing', '자전거': 'bicycle',
+    // 뷰티/패션
+    '뷰티': 'beauty', '패션': 'fashion', '화장품': 'cosmetics', '스킨케어': 'skincare',
+    '헤어': 'hair', '네일': 'nail art', '향수': 'perfume', '선크림': 'sunscreen',
+    '메이크업': 'makeup', '의류': 'clothing', '신발': 'shoes', '가방': 'bag',
+    // 금융/비즈니스
+    '금융': 'finance', '투자': 'investment', '주식': 'stocks', '부동산': 'real estate',
+    '보험': 'insurance', '대출': 'loan', '저축': 'savings', '연금': 'pension',
+    '세금': 'tax', '카드': 'credit card', '은행': 'bank', '창업': 'startup',
+    // 교육/자기개발
+    '공부': 'study', '영어': 'English', '자격증': 'certification', '시험': 'exam',
+    '독서': 'reading', '코딩': 'coding', '프로그래밍': 'programming',
+    // 자동차
+    '자동차': 'car', '전기차': 'electric vehicle', '중고차': 'used car',
+    '타이어': 'tire', '세차': 'car wash', '주차': 'parking',
+    // 음식/맛집
+    '맛집': 'restaurant', '카페': 'cafe', '배달': 'delivery', '디저트': 'dessert',
+    '커피': 'coffee', '빵': 'bakery', '라멘': 'ramen', '치킨': 'fried chicken',
+    '피자': 'pizza', '삼겹살': 'grilled pork belly', '회': 'sashimi',
+    // 기술/트렌드
+    '기술': 'technology', '인공지능': 'artificial intelligence', 'AI': 'AI',
+    '앱': 'app', '소프트웨어': 'software', '클라우드': 'cloud computing',
+    // 일반 수식어
     '추천': 'recommendation', '비교': 'comparison', '후기': 'review',
-    '방법': 'method', '효과': 'effect', '가격': 'price',
+    '방법': 'method', '효과': 'effect', '가격': 'price', '순위': 'ranking',
+    '장단점': 'pros and cons', '선택': 'choosing', '구매': 'buying guide',
+    '사용법': 'how to use', '설치': 'installation', '관리': 'maintenance',
+    '핵심': 'key points', '정리': 'summary', '완벽': 'complete',
+    '최신': 'latest', '트렌드': 'trend', '인기': 'popular', '필수': 'essential',
   };
   let result = koreanPrompt;
   for (const [ko, en] of Object.entries(mappings)) {
     result = result.replace(new RegExp(ko, 'gi'), en);
+  }
+  // 한국어가 여전히 남아있으면 generic prompt로 전환
+  if (/[\uAC00-\uD7AF]/.test(result)) {
+    // 매핑되지 않은 한국어가 있으면 주제를 추상적으로 해석
+    const cleanedKorean = koreanPrompt.replace(/[^\uAC00-\uD7AF\s]/g, '').trim();
+    result = `A professional, clean, modern blog illustration about "${cleanedKorean}", minimalist style, Korean aesthetic`;
   }
   return enhancePrompt(result, isThumbnail);
 }

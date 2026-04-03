@@ -45,6 +45,9 @@ export function generateCSSFinal(platform?: string, contentMode?: string): strin
 <style>
 /* ============================================
    💎 1-BILLION-POINT PREMIUM WHITE PAPER SKIN
+   ============================================
+   !important: only on layout/container overrides.
+   Typography uses specificity.
    ============================================ */
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css");
 
@@ -91,21 +94,21 @@ html { scroll-behavior: smooth !important; }
 /* === 타이포그래피 === */
 .white-paper h1.post-title {
   font-size: 32px !important;
-  font-weight: 900 !important;
-  color: ${theme.heading1} !important;
+  font-weight: 900;
+  color: ${theme.heading1};
   margin-bottom: 24px !important;
-  line-height: 1.4 !important;
+  line-height: 1.4;
   word-break: keep-all !important;
 }
 
 .white-paper h2 {
-  color: ${theme.primary} !important;
-  font-weight: 800 !important;
+  color: ${theme.primary};
+  font-weight: 800;
   font-size: 26px !important;
   margin: 60px 0 25px !important;
   border-left: 6px solid ${theme.heading2Border} !important;
   padding: 0 0 0 18px !important;
-  line-height: 1.4 !important;
+  line-height: 1.4;
   word-break: keep-all !important;
   background: transparent !important;
   border-top: none !important;
@@ -115,19 +118,19 @@ html { scroll-behavior: smooth !important; }
 
 .white-paper h3 {
   font-size: 21px !important;
-  font-weight: 700 !important;
-  color: #0f172a !important;
+  font-weight: 700;
+  color: #0f172a;
   margin: 40px 0 16px !important;
   padding: 0 !important;
-  letter-spacing: -0.01em !important;
-  line-height: 1.45 !important;
+  letter-spacing: -0.01em;
+  line-height: 1.45;
 }
 
 .white-paper p {
   font-size: 17px !important;
-  line-height: 1.95 !important;
+  line-height: 1.95;
   margin: 0 0 24px !important;
-  color: #1e293b !important;
+  color: #1e293b;
   word-break: keep-all !important;
 }
 
@@ -165,23 +168,23 @@ html { scroll-behavior: smooth !important; }
   padding: 18px 20px !important;
   border-radius: 14px !important;
   text-align: left !important;
-  font-weight: 700 !important;
-  color: #475569 !important;
+  font-weight: 700;
+  color: #475569;
   text-decoration: none !important;
   display: flex !important;
   align-items: center !important; /* 세로 중앙 정렬 */
   gap: 12px !important;
   width: 100% !important;
   box-sizing: border-box !important;
-  transition: all 0.2s ease !important;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
 }
 .toc-btn:hover {
   background: ${theme.gradientStart} !important;
-  color: ${theme.ctaAccent} !important;
+  color: ${theme.ctaAccent};
   border-color: ${theme.tocBtnHoverBorder} !important;
   transform: translateY(-2px) !important;
-  box-shadow: 0 6px 12px rgba(0,0,0,0.05) !important;
+  box-shadow: 0 6px 12px rgba(0,0,0,0.05);
 }
 .toc-number {
   display: flex !important;
@@ -233,9 +236,9 @@ html { scroll-behavior: smooth !important; }
   padding: 18px 20px !important;
   border-radius: 8px !important;
   font-size: 18px !important;
-  font-weight: 800 !important;
+  font-weight: 800;
   text-decoration: none !important;
-  transition: all 0.2s ease !important;
+  transition: all 0.2s ease;
   animation: pulse-cta 2s infinite !important; /* 박동 애니메이션 */
   box-sizing: border-box !important; /* 모바일 넘침 방지 */
   word-break: keep-all !important; /* 모바일 텍스트 줄바꿈 깔끔하게 */
@@ -248,9 +251,9 @@ html { scroll-behavior: smooth !important; }
   display: block !important;
   margin-top: 12px !important;
   font-size: 13px !important;
-  font-weight: 700 !important;
-  color: #ef4444 !important;
-  letter-spacing: -0.5px !important;
+  font-weight: 700;
+  color: #ef4444;
+  letter-spacing: -0.5px;
 }
 
 /* === 면책 조항 === */
@@ -324,7 +327,7 @@ article .entry-content,
   border-left: 4px solid var(--rv-primary) !important;
   border-radius: 0 12px 12px 0 !important;
   font-size: 16px !important;
-  color: #334155 !important;
+  color: #334155;
   font-style: normal !important;
 }
 
@@ -344,8 +347,8 @@ article .entry-content,
 }
 .white-paper th {
   background: #f1f5f9 !important;
-  color: #1e293b !important;
-  font-weight: 800 !important;
+  color: #1e293b;
+  font-weight: 800;
   padding: 16px 20px !important;
   text-align: left !important;
   border-bottom: 2px solid #cbd5e1 !important;
@@ -353,7 +356,7 @@ article .entry-content,
 .white-paper td {
   padding: 16px 20px !important;
   border-bottom: 1px solid #e2e8f0 !important;
-  color: #334155 !important;
+  color: #334155;
   background: #ffffff !important;
 }
 .white-paper tr:nth-child(even) td {
@@ -545,15 +548,15 @@ article .entry-content,
   padding: 16px 32px !important;
   border-radius: 12px !important;
   text-decoration: none !important;
-  font-weight: 700 !important;
+  font-weight: 700;
   font-size: 1.1em !important;
   margin: 20px 0 !important;
-  transition: all 0.3s ease !important;
-  box-shadow: 0 4px 15px rgba(79, 70, 229, 0.3) !important;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(79, 70, 229, 0.3);
 }
 .white-paper .cta-button:hover {
   transform: translateY(-2px) !important;
-  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.4) !important;
+  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.4);
 }
 .white-paper .tags {
   display: flex !important;
@@ -592,18 +595,18 @@ article .entry-content,
   margin: 32px 0 !important;
 }
 .takeaway-box .takeaway-title {
-  font-size: 17px !important; font-weight: 800 !important;
-  color: ${theme.primary} !important; margin-bottom: 12px !important;
+  font-size: 17px !important; font-weight: 800;
+  color: ${theme.primary}; margin-bottom: 12px !important;
 }
 .takeaway-box ul { padding-left: 20px !important; }
 .takeaway-box li {
-  color: ${theme.heading1} !important; font-size: 15px !important;
-  margin-bottom: 6px !important; line-height: 1.6 !important;
+  color: ${theme.heading1}; font-size: 15px !important;
+  margin-bottom: 6px !important; line-height: 1.6;
 }
 .takeaway-box .one-liner {
   margin-top: 12px !important; padding-top: 12px !important;
   border-top: 1px solid ${theme.tocBtnHoverBorder} !important;
-  font-weight: 700 !important; color: ${theme.ctaHover} !important;
+  font-weight: 700; color: ${theme.ctaHover};
 }
 .next-episode-card {
   background: linear-gradient(135deg, ${theme.gradientStart}, ${theme.gradientEnd}) !important;
@@ -613,15 +616,15 @@ article .entry-content,
   margin-top: 36px !important;
 }
 .next-episode-card .next-label {
-  font-size: 13px !important; font-weight: 700 !important;
-  color: ${theme.ctaAccent} !important; margin-bottom: 8px !important;
+  font-size: 13px !important; font-weight: 700;
+  color: ${theme.ctaAccent}; margin-bottom: 8px !important;
 }
 .next-episode-card .next-topic {
-  font-size: 18px !important; font-weight: 800 !important;
-  color: ${theme.heading1} !important; margin-bottom: 6px !important;
+  font-size: 18px !important; font-weight: 800;
+  color: ${theme.heading1}; margin-bottom: 6px !important;
 }
 .next-episode-card .next-reason {
-  font-size: 14px !important; color: ${theme.ctaHover} !important;
+  font-size: 14px !important; color: ${theme.ctaHover};
 }
 </style>
 `;

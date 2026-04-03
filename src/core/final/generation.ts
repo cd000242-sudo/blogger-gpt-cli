@@ -58,71 +58,36 @@ export async function generateH1TitleFinal(keyword: string, crawledTitles: strin
   const selected = shuffled.slice(0, 3);
   const archetypeGuide = selected.map((a, i) => `${i + 1}. **${a.name}형**: ${a.pattern}`).join('\n');
 
-  const prompt = `
-당신은 대한민국 최고의 바이럴 마케터입니다.
-
-🔴🔴🔴 **현재: ${currentYear}년 ${currentMonth}월** (반드시 이 날짜 기준!)
+  const prompt = `당신은 대한민국 최고의 바이럴 마케터입니다.
+현재: ${currentYear}년 ${currentMonth}월
 
 키워드: ${keyword}
 
 ${titleReference}
 
-🔥 **이번에 사용할 제목 스타일 (아래 중 하나 선택):**
+**이번에 사용할 제목 스타일 (아래 중 하나 선택):**
 ${archetypeGuide}
 
-📌 **제목 작성 핵심 규칙:**
+**작성 규칙:**
 - 위 스타일 중 하나를 골라 창의적으로 작성
 - 이모지 1개 필수 포함 (🔥💡🎯✅🚀📊💰🏆 등)
 - 키워드 "${keyword}"를 자연스럽게 포함
-- 매번 새롭고 독창적인 제목 생성 (같은 패턴 반복 금지)
-
-🔴🔴🔴 **스마트 연도 삽입 규칙 (필수 준수):**
-- 검색 키워드("${keyword}")의 성격을 분석하세요.
-  - **연도가 꼭 필요한 주제** (예: 정책, 지원금, 세금, 트렌드, 최신 정보, 가이드 등) → **반드시** "${currentYear}년"을 제목 맨 앞에 붙이세요. (예: "${currentYear}년 정부지원금 완벽 가이드")
-  - **연도가 불필요한 주제** (예: 맛집, 일상 꿀팁, 고전적인 정보, 개인적인 리뷰 등) → **절대** 연도를 붙이지 마세요. (예: "강남역 맛집 내돈내산 찐후기")
-- 만약 연도를 쓴다면, 무조건 제목의 첫 단어로 써야 합니다. 중간이나 끝에 넣지 마세요.
-
-🔴🔴🔴 **절대 금지 패턴 (너무 흔해서 클릭률 저하):**
-- "~~ 손해", "놓치면 손해", "모르면 손해" ❌
-- "~~ 후회", "안 하면 후회" ❌
-- "~~ 대박", "완전 대박" ❌
-- 위 표현은 절대 사용하지 마세요!
-
-🔴 **제목 길이: 25~45자**
-🔴 **오직 1개만 출력** (옵션/설명/번호 없이 제목만!)
-
-출력: 제목 텍스트만
+- 연도가 필요한 주제(정책·지원금·세금·트렌드 등)면 "${currentYear}년"을 제목 맨 앞에. 불필요한 주제(맛집·일상 꿀팁 등)면 연도 생략.
+- 연도를 쓸 때는 반드시 "2026년" 형태로 제목 맨 앞에. "년 2026" 같은 역순 금지.
+- 금지: ~손해, ~후회, ~대박 표현
+- 제목 길이: 25~45자
+- 오직 1개만 출력 (옵션/설명/번호 없이 제목만)
 `;
 
   const response = await callGeminiWithGrounding(prompt);
-  // 🔥 첫 번째 줄만 추출, 특수문자/번호 제거
+  // 첫 번째 줄만 추출, 특수문자/번호 제거
   const lines = response.trim().split('\n');
   let title = (lines[0] || response.trim())
     .replace(/^[\*\-\d\.\)\]]+\s*/g, '')  // 번호/기호 제거
     .replace(/["']/g, '')
     .trim();
 
-  // 🔥 연도 위치 후처리: "년 ... 2026" 패턴을 "2026년 ..." 으로 수정
-  const yearInMiddle = title.match(/^년\s*(.+?)\s*(20\d{2})\s*(.*)$/);
-  if (yearInMiddle) {
-    title = `${yearInMiddle[2]}년 ${yearInMiddle[1]} ${yearInMiddle[3]}`.replace(/\s+/g, ' ').trim();
-  }
-
-  // 🔥 "년 " 단독으로 시작하면 앞 연매 뽑아서 앞쪽으로
-  if (title.startsWith('년 ') || title.startsWith('년')) {
-    const yearInTitle = title.match(/20\d{2}/);
-    if (yearInTitle) {
-      title = title.replace(/^년\s*/, '').replace(yearInTitle[0], `${yearInTitle[0]}년`);
-      title = title.replace(new RegExp(`${yearInTitle[0]}년`), '').trim();
-      title = `${yearInTitle[0]}년 ${title}`;
-    } else {
-      title = title.replace(/^년\s*/, '').trim(); // 연도가 없으면 그냥 "년" 글자만 제거
-    }
-  }
-
-  // 강제 연도 삽입 로직(무조건 currentYear 넣는 부분) 삭제됨 - AI 판단에 맡김
-
-  // 🔥 50자 초과시만 자르기 (긴 제목 허용)
+  // 50자 초과시만 자르기 (긴 제목 허용)
   if (title.length > 50) {
     title = title.substring(0, 47) + '...';
   }
@@ -227,19 +192,44 @@ JSON만(${targetCount}개 문자열 배열):
   }
 }
 
-export async function generateH3TitlesFinal(h2: string, keyword: string): Promise<string[]> {
-  // 🔥 간단한 H3 제목 자동 생성 (API 호출 최소화)
-  const templates = [
-    [`${h2} 핵심 정리`, `이렇게 하면 돼요!`, `주의할 점은?`],
-    [`먼저 알아야 할 것`, `실제 방법 안내`, `꿀팁 모음`],
-    [`기본 개념 이해`, `단계별 가이드`, `자주 묻는 질문`],
-    [`시작하기 전에`, `실전 적용법`, `마무리 체크`],
-    [`왜 필요할까요?`, `구체적인 방법`, `추가 팁들`]
-  ];
+const h3Cache = new Map<string, string[]>();
 
-  // H2 인덱스에 따라 다른 템플릿 사용
-  const idx = Math.abs(h2.charCodeAt(0)) % templates.length;
-  return templates[idx] ?? templates[0] ?? [`${h2} 핵심 정리`, `이렇게 하면 돼요!`, `주의할 점은?`];
+export async function generateH3TitlesFinal(h2: string, keyword: string): Promise<string[]> {
+  const fallback = [`${h2} 핵심 정리`, `실전 적용 방법`, `주의사항 정리`];
+  const cacheKey = `${keyword}||${h2}`;
+
+  if (h3Cache.has(cacheKey)) {
+    return h3Cache.get(cacheKey)!;
+  }
+
+  const prompt = `키워드: ${keyword}
+H2 소제목: ${h2}
+
+위 소제목에 대한 H3 부제목 3개를 만드세요.
+- 각 H3는 서로 다른 관점 (개념/실전/주의점 등)
+- 10~20자, 순수 텍스트만
+- JSON 문자열 배열로만 출력: ["제목1", "제목2", "제목3"]`;
+
+  try {
+    const raw = await callGeminiWithRetry(prompt);
+    const match = raw.match(/\[[\s\S]*?\]/);
+    if (!match) return fallback;
+
+    const parsed: unknown = JSON.parse(match[0]);
+    if (!Array.isArray(parsed) || parsed.length < 3) return fallback;
+
+    const titles = parsed
+      .slice(0, 3)
+      .map((t) => String(t).replace(/^#+\s*/, '').replace(/^\d+[.\):\s]+/, '').trim())
+      .filter((t) => t.length > 0);
+
+    if (titles.length < 3) return fallback;
+
+    h3Cache.set(cacheKey, titles);
+    return titles;
+  } catch {
+    return fallback;
+  }
 }
 
 // 🔥🔥🔥 전체 글을 단 1회 API 호출로 생성하는 초고속 함수

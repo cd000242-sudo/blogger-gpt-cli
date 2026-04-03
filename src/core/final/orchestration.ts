@@ -26,6 +26,7 @@ import {
   generateCTAsFinal, generateSummaryTableFinal, generateHashtagsFinal,
 } from './generation';
 import { generateCSSFinal, generateTOCFinal } from './html';
+import { validateArticleQuality } from './quality-gate';
 
 export async function generateUltimateMaxModeArticleFinal(
   payload: any,
@@ -1094,6 +1095,33 @@ ${conclusionHTML}
     onLog?.(`[PROGRESS] 93% - ✅ 콘텐츠 생성 완료! (${duration}초)`);
     onLog?.(`   - 글자수: ${html.length}자`);
     onLog?.(`   - 썸네일: ${thumbnailUrl ? '생성됨' : '없음'}`);
+
+    // 품질 검증 게이트 — 발행을 막지 않고 경고만 로그한다
+    try {
+      const qualityReport = validateArticleQuality({
+        h1Title: h1,
+        introduction: introductionHTML || '',
+        conclusion: conclusionHTML || '',
+        sections: sections.map(s => ({
+          h2: s.h2,
+          h3Sections: s.h3Sections.map((h: any) => ({ h3: h.h3, content: h.content })),
+        })),
+        faqs: faqs ?? [],
+      });
+
+      const qualityStatus = qualityReport.passed ? '✅ PASS' : '⚠️ WARN';
+      onLog?.(`[QUALITY] ${qualityStatus} 품질 점수: ${qualityReport.score}/100`);
+      if (qualityReport.issues.length > 0) {
+        onLog?.(`[QUALITY] 발견된 문제 (${qualityReport.issues.length}건):`);
+        qualityReport.issues.forEach(issue => onLog?.(`   - ${issue}`));
+      }
+      if (!qualityReport.passed && qualityReport.suggestions.length > 0) {
+        onLog?.('[QUALITY] 개선 제안:');
+        qualityReport.suggestions.slice(0, 3).forEach(s => onLog?.(`   → ${s}`));
+      }
+    } catch (qualityErr: any) {
+      onLog?.(`[QUALITY] ⚠️ 품질 검증 오류 (발행 계속 진행): ${qualityErr.message}`);
+    }
 
     return {
       html,
