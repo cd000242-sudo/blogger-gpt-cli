@@ -1,0 +1,66 @@
+﻿
+> lba@2.0.0 build
+> node --max-old-space-size=8192 node_modules/typescript/bin/tsc && node --max-old-space-size=8192 node_modules/typescript/bin/tsc -p tsconfig.electron.json && node -e "const fs = require('fs'); const path = require('path'); if (!fs.existsSync('dist/core')) fs.mkdirSync('dist/core', { recursive: true }); fs.copyFileSync('src/core/blogger-publisher.js', 'dist/core/blogger-publisher.js'); if (fs.existsSync('dist/wordpress/wordpress-publisher.js')) { fs.copyFileSync('dist/wordpress/wordpress-publisher.js', 'src/wordpress/wordpress-publisher.js'); console.log('✅ wordpress-publisher.js synced from dist to src'); }" && node copy-ui.js
+
+✅ wordpress-publisher.js synced from dist to src
+UI 파일 복사 시작...
+electron/ui에서 UI 파일 복사...
+복사: electron\ui\admin-patch.js -> dist\ui\admin-patch.js
+바이너리 복사: electron\ui\assets\logo-icon.png -> dist\ui\assets\logo-icon.png
+복사: electron\ui\blogspot-cloud-skin-backup.css -> dist\ui\blogspot-cloud-skin-backup.css
+복사: electron\ui\blogspot-cloud-skin.css -> dist\ui\blogspot-cloud-skin.css
+복사: electron\ui\cache-manager.js -> dist\ui\cache-manager.js
+복사: electron\ui\cloud-skin.css -> dist\ui\cloud-skin.css
+복사: electron\ui\clouds.css -> dist\ui\clouds.css
+복사: electron\ui\disable-service-worker.js -> dist\ui\disable-service-worker.js
+복사: electron\ui\index.html -> dist\ui\index.html
+바이너리 복사: electron\ui\index.html.bak -> dist\ui\index.html.bak
+복사: electron\ui\internal-links-modal.js -> dist\ui\internal-links-modal.js
+복사: electron\ui\keyword-master.html -> dist\ui\keyword-master.html
+복사: electron\ui\lazy-loader.js -> dist\ui\lazy-loader.js
+복사: electron\ui\login-window.html -> dist\ui\login-window.html
+복사: electron\ui\memory-manager.js -> dist\ui\memory-manager.js
+복사: electron\ui\modules\api.js -> dist\ui\modules\api.js
+복사: electron\ui\modules\calendar.js -> dist\ui\modules\calendar.js
+복사: electron\ui\modules\content-stubs.js -> dist\ui\modules\content-stubs.js
+복사: electron\ui\modules\core.js -> dist\ui\modules\core.js
+복사: electron\ui\modules\excel.js -> dist\ui\modules\excel.js
+복사: electron\ui\modules\external-links.js -> dist\ui\modules\external-links.js
+복사: electron\ui\modules\guide.js -> dist\ui\modules\guide.js
+복사: electron\ui\modules\internal-links-global.js -> dist\ui\modules\internal-links-global.js
+복사: electron\ui\modules\internal-links.js -> dist\ui\modules\internal-links.js
+복사: electron\ui\modules\keyword-discover.js -> dist\ui\modules\keyword-discover.js
+복사: electron\ui\modules\main.js -> dist\ui\modules\main.js
+복사: electron\ui\modules\posting.js -> dist\ui\modules\posting.js
+복사: electron\ui\modules\preview.js -> dist\ui\modules\preview.js
+복사: electron\ui\modules\semi-auto.js -> dist\ui\modules\semi-auto.js
+복사: electron\ui\modules\settings.js -> dist\ui\modules\settings.js
+복사: electron\ui\modules\sidebar.js -> dist\ui\modules\sidebar.js
+복사: electron\ui\modules\thumbnail.js -> dist\ui\modules\thumbnail.js
+복사: electron\ui\modules\tutorial.js -> dist\ui\modules\tutorial.js
+복사: electron\ui\modules\ui.js -> dist\ui\modules\ui.js
+복사: electron\ui\modules\utils.js -> dist\ui\modules\utils.js
+복사: electron\ui\optimized-script.js -> dist\ui\optimized-script.js
+복사: electron\ui\performance-optimizer.js -> dist\ui\performance-optimizer.js
+바이너리 복사: electron\ui\preload.d.ts.map -> dist\ui\preload.d.ts.map
+복사: electron\ui\preload.js -> dist\ui\preload.js
+바이너리 복사: electron\ui\preload.js.map -> dist\ui\preload.js.map
+복사: electron\ui\premium-gradient-skin.css -> dist\ui\premium-gradient-skin.css
+바이너리 복사: electron\ui\renderer.d.ts.map -> dist\ui\renderer.d.ts.map
+복사: electron\ui\renderer.js -> dist\ui\renderer.js
+바이너리 복사: electron\ui\renderer.js.map -> dist\ui\renderer.js.map
+복사: electron\ui\script.js -> dist\ui\script.js
+복사: electron\ui\style.css -> dist\ui\style.css
+복사: electron\ui\styles.css -> dist\ui\styles.css
+복사: electron\ui\sw.js -> dist\ui\sw.js
+복사: electron\ui\test-content-cleanup.html -> dist\ui\test-content-cleanup.html
+복사: electron\ui\test-sandbox.html -> dist\ui\test-sandbox.html
+복사: electron\ui\wordpress-premium-skin.css -> dist\ui\wordpress-premium-skin.css
+컴파일된 preload.js 복사...
+복사: electron/preload.js -> electron/ui/preload.js
+✅ electron/preload.js -> electron/ui/preload.js 복사 완료
+복사: electron/preload.js -> dist/ui/preload.js
+✅ electron/preload.js -> dist/ui/preload.js 복사 완료
+blogger-publisher.js 파일 복사...
+복사: src/core/blogger-publisher.js -> dist/src/core/blogger-publisher.js
+UI 파일 복사 완료!

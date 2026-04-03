@@ -1,0 +1,13 @@
+﻿
+> lba@2.0.0 build
+> node --max-old-space-size=8192 node_modules/typescript/bin/tsc && node --max-old-space-size=8192 node_modules/typescript/bin/tsc -p tsconfig.electron.json && node -e "const fs = require('fs'); const path = require('path'); if (!fs.existsSync('dist/core')) fs.mkdirSync('dist/core', { recursive: true }); fs.copyFileSync('src/core/blogger-publisher.js', 'dist/core/blogger-publisher.js'); if (fs.existsSync('dist/wordpress/wordpress-publisher.js')) { fs.copyFileSync('dist/wordpress/wordpress-publisher.js', 'src/wordpress/wordpress-publisher.js'); console.log('✅ wordpress-publisher.js synced from dist to src'); }" && node copy-ui.js
+
+src/utils/keyword-verifier.ts(178,64): error TS18048: 'kw' is possibly 'undefined'.
+src/utils/keyword-verifier.ts(182,17): error TS18048: 'kw' is possibly 'undefined'.
+src/utils/keyword-verifier.ts(183,17): error TS18048: 'kw' is possibly 'undefined'.
+src/utils/keyword-verifier.ts(184,17): error TS18048: 'kw' is possibly 'undefined'.
+src/utils/keyword-verifier.ts(185,17): error TS18048: 'kw' is possibly 'undefined'.
+src/utils/keyword-verifier.ts(189,53): error TS18048: 'kw' is possibly 'undefined'.
+src/utils/keyword-verifier.ts(190,46): error TS18048: 'kw' is possibly 'undefined'.
+src/utils/keyword-verifier.ts(190,58): error TS18048: 'kw' is possibly 'undefined'.
+src/utils/keyword-verifier.ts(190,78): error TS18048: 'kw' is possibly 'undefined'.

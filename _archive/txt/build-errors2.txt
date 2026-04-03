@@ -1,0 +1,89 @@
+﻿src/core/content-modes/adsense/approval-checker.ts(230,20): error TS2379: Argument of type '{ id: string; category: "content" | "essential_pages" | "seo" | "design" | "policy" | "technical" | "quality"; name: string; status: "pass" | "warn" | "fail"; score: number; detail: string; fix: string | undefined; }' is not assignable to parameter of type 'CheckItem' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  Types of property 'fix' are incompatible.
+    Type 'string | undefined' is not assignable to type 'string'.
+      Type 'undefined' is not assignable to type 'string'.
+src/main/keywordMasterIpcHandlers.ts(7,149): error TS2305: Module '"../utils/naver-datalab-api"' has no exported member 'classifyKeywordIntent'.
+src/main/keywordMasterIpcHandlers.ts(15,36): error TS2307: Cannot find module '../utils/rising-keyword-finder' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(16,38): error TS2307: Cannot find module '../utils/realtime-rising-detector' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(20,54): error TS2307: Cannot find module '../utils/nate-realtime-api' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(21,35): error TS2307: Cannot find module '../utils/keyword-competition/naver-search-crawler' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(22,37): error TS2307: Cannot find module '../utils/mass-collection/fresh-keywords-api' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(25,33): error TS7016: Could not find a declaration file for module '../utils/licenseManager'. 'C:/Users/park/blogger-gpt-cli/src/utils/licenseManager.js' implicitly has an 'any' type.
+src/main/keywordMasterIpcHandlers.ts(34,8): error TS2307: Cannot find module '../utils/category-longtail-keyword-hunter' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(35,65): error TS2307: Cannot find module '../utils/pro-traffic-keyword-hunter' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(36,87): error TS2307: Cannot find module '../utils/lite-traffic-keyword-hunter' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(37,50): error TS2307: Cannot find module '../utils/naver-news-crawler' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(38,110): error TS2307: Cannot find module '../utils/api-reliability' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(39,38): error TS2307: Cannot find module '../utils/mdp-engine' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(40,67): error TS2307: Cannot find module '../utils/related-keyword-cache' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(41,43): error TS2307: Cannot find module '../utils/ultimate-niche-finder' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(1160,66): error TS7006: Parameter 'k' implicitly has an 'any' type.
+src/main/keywordMasterIpcHandlers.ts(1160,69): error TS7006: Parameter 'idx' implicitly has an 'any' type.
+src/main/keywordMasterIpcHandlers.ts(1242,47): error TS7006: Parameter 'k' implicitly has an 'any' type.
+src/main/keywordMasterIpcHandlers.ts(1242,50): error TS7006: Parameter 'idx' implicitly has an 'any' type.
+src/main/keywordMasterIpcHandlers.ts(2777,19): error TS2322: Type 'null' is not assignable to type 'number'.
+src/main/keywordMasterIpcHandlers.ts(2778,19): error TS2322: Type 'null' is not assignable to type 'number'.
+src/main/keywordMasterIpcHandlers.ts(2838,17): error TS2322: Type 'number | null' is not assignable to type 'number'.
+  Type 'null' is not assignable to type 'number'.
+src/main/keywordMasterIpcHandlers.ts(2839,17): error TS2322: Type 'number | null' is not assignable to type 'number'.
+  Type 'null' is not assignable to type 'number'.
+src/main/keywordMasterIpcHandlers.ts(2946,15): error TS2322: Type 'number | null' is not assignable to type 'number'.
+  Type 'null' is not assignable to type 'number'.
+src/main/keywordMasterIpcHandlers.ts(2947,15): error TS2322: Type 'number | null' is not assignable to type 'number'.
+  Type 'null' is not assignable to type 'number'.
+src/main/keywordMasterIpcHandlers.ts(2948,15): error TS2322: Type 'number | null' is not assignable to type 'number'.
+  Type 'null' is not assignable to type 'number'.
+src/main/keywordMasterIpcHandlers.ts(2949,15): error TS2322: Type 'number | null' is not assignable to type 'number'.
+  Type 'null' is not assignable to type 'number'.
+src/main/keywordMasterIpcHandlers.ts(3050,17): error TS2322: Type 'number | null' is not assignable to type 'number'.
+  Type 'null' is not assignable to type 'number'.
+src/main/keywordMasterIpcHandlers.ts(3051,17): error TS2322: Type 'number | null' is not assignable to type 'number'.
+  Type 'null' is not assignable to type 'number'.
+src/main/keywordMasterIpcHandlers.ts(3052,17): error TS2322: Type 'number | null' is not assignable to type 'number'.
+  Type 'null' is not assignable to type 'number'.
+src/main/keywordMasterIpcHandlers.ts(3053,17): error TS2322: Type 'number | null' is not assignable to type 'number'.
+  Type 'null' is not assignable to type 'number'.
+src/main/keywordMasterIpcHandlers.ts(4498,26): error TS2532: Object is possibly 'undefined'.
+src/main/keywordMasterIpcHandlers.ts(4608,19): error TS18048: 'last' is possibly 'undefined'.
+src/main/keywordMasterIpcHandlers.ts(4609,38): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/main/keywordMasterIpcHandlers.ts(4724,34): error TS2554: Expected 2 arguments, but got 3.
+src/main/keywordMasterIpcHandlers.ts(4900,36): error TS2554: Expected 2 arguments, but got 3.
+src/main/keywordMasterIpcHandlers.ts(4915,19): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/main/keywordMasterIpcHandlers.ts(5025,24): error TS2554: Expected 2 arguments, but got 3.
+src/main/keywordMasterIpcHandlers.ts(5070,68): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/main/keywordMasterIpcHandlers.ts(5087,37): error TS2554: Expected 2 arguments, but got 3.
+src/main/keywordMasterIpcHandlers.ts(5219,38): error TS2554: Expected 2 arguments, but got 3.
+src/main/keywordMasterIpcHandlers.ts(5234,21): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/main/keywordMasterIpcHandlers.ts(5455,27): error TS2554: Expected 2 arguments, but got 3.
+src/main/keywordMasterIpcHandlers.ts(5470,19): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/main/keywordMasterIpcHandlers.ts(5629,15): error TS2322: Type 'null' is not assignable to type 'number'.
+src/main/keywordMasterIpcHandlers.ts(5649,62): error TS18048: 'kw' is possibly 'undefined'.
+src/main/keywordMasterIpcHandlers.ts(5652,40): error TS18048: 'kw' is possibly 'undefined'.
+src/main/keywordMasterIpcHandlers.ts(5652,71): error TS18048: 'kw' is possibly 'undefined'.
+src/main/keywordMasterIpcHandlers.ts(5666,15): error TS2375: Type '{ documentCount: number; goldenRatio: number | null; keyword?: string; pcSearchVolume?: number | null; mobileSearchVolume?: number | null; searchVolume?: number | null; type?: "original" | "expansion" | "related" | "suggested"; }' is not assignable to type '{ keyword: string; pcSearchVolume?: number | null; mobileSearchVolume?: number | null; searchVolume?: number | null; documentCount?: number; goldenRatio?: number | null; type: "original" | "expansion" | "related" | "suggested"; }' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  Property 'keyword' is optional in type '{ documentCount: number; goldenRatio: number | null; keyword?: string; pcSearchVolume?: number | null; mobileSearchVolume?: number | null; searchVolume?: number | null; type?: "original" | "expansion" | "related" | "suggested"; }' but required in type '{ keyword: string; pcSearchVolume?: number | null; mobileSearchVolume?: number | null; searchVolume?: number | null; documentCount?: number; goldenRatio?: number | null; type: "original" | "expansion" | "related" | "suggested"; }'.
+src/main/keywordMasterIpcHandlers.ts(5921,49): error TS2307: Cannot find module '../utils/blog-index-crawler' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(5944,57): error TS2307: Cannot find module '../utils/blog-index-crawler' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(5946,65): error TS7006: Parameter 'current' implicitly has an 'any' type.
+src/main/keywordMasterIpcHandlers.ts(5946,74): error TS7006: Parameter 'total' implicitly has an 'any' type.
+src/main/keywordMasterIpcHandlers.ts(6006,58): error TS2307: Cannot find module '../utils/keyword-competition/competition-analyzer' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(6051,77): error TS2307: Cannot find module '../utils/keyword-mindmap' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(6119,11): error TS2353: Object literal may only specify known properties, and 'networkOptimization' does not exist in type 'Partial<EnvConfig>'.
+src/main/keywordMasterIpcHandlers.ts(6687,7): error TS18048: 'keywords' is possibly 'undefined'.
+src/main/keywordMasterIpcHandlers.ts(6694,12): error TS18048: 'keywords' is possibly 'undefined'.
+src/main/keywordMasterIpcHandlers.ts(7059,35): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/main/keywordMasterIpcHandlers.ts(7243,12): error TS18048: 'keywords' is possibly 'undefined'.
+src/main/keywordMasterIpcHandlers.ts(7798,61): error TS4111: Property 'finance' comes from an index signature, so it must be accessed with ['finance'].
+src/main/keywordMasterIpcHandlers.ts(7815,28): error TS18048: 'data' is possibly 'undefined'.
+src/main/keywordMasterIpcHandlers.ts(7844,56): error TS18048: 'data' is possibly 'undefined'.
+src/main/keywordMasterIpcHandlers.ts(7848,69): error TS18048: 'data' is possibly 'undefined'.
+src/main/keywordMasterIpcHandlers.ts(7854,29): error TS18048: 'data' is possibly 'undefined'.
+src/main/keywordMasterIpcHandlers.ts(7998,65): error TS7006: Parameter 'pw' implicitly has an 'any' type.
+src/main/keywordMasterIpcHandlers.ts(8191,26): error TS2307: Cannot find module '../utils/naver-kin-golden-hunter-v3' or its corresponding type declarations.
+src/main/keywordMasterIpcHandlers.ts(8251,53): error TS2307: Cannot find module '../utils/keyword-flow-analyzer' or its corresponding type declarations.

@@ -1,0 +1,46 @@
+{
+  "aiSettings": {
+    "preferredModel": "gemini",
+    "contentGeneration": {
+      "model": "gemini",
+      "temperature": 0.7,
+      "maxTokens": 4000,
+      "usePrecisePrompts": true
+    },
+    "ctaGeneration": {
+      "mode": "auto",
+      "model": "crawling",
+      "maxCTAs": 3,
+      "autoMode": true,
+      "useCrawling": true
+    },
+    "fallbackSettings": {
+      "enableFallback": true,
+      "fallbackModel": "gpt-3.5-turbo"
+    },
+    "uiSettings": {
+      "showModelSelector": true,
+      "showCTAModeSelector": true,
+      "defaultView": "simple"
+    }
+  },
+  "usageGuide": {
+    "gemini": "무료로 사용할 수 있는 Google의 AI 모델. 빠르고 효율적임",
+    "gpt-4": "고품질 결과를 원할 때 사용하는 OpenAI의 프리미엄 모델 (유료)",
+    "auto": "상황에 따라 자동으로 최적의 모델 선택 (Gemini 우선)"
+  },
+  "modelComparison": {
+    "gemini": {
+      "cost": "무료",
+      "speed": "빠름",
+      "quality": "우수",
+      "bestFor": "일반적인 콘텐츠 생성과 CTA 추천"
+    },
+    "gpt-4": {
+      "cost": "유료",
+      "speed": "중간",
+      "quality": "최상",
+      "bestFor": "고품질 콘텐츠와 복잡한 분석"
+    }
+  }
+}

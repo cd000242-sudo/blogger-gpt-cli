@@ -1,0 +1,398 @@
+/* ===================================
+   소프트 클라우드 스킨 - CSS Only
+   밝고 몽환적인 구름 테마
+   =================================== */
+
+/* 루트 변수 */
+:root {
+  --cloud-primary: #74b9ff;
+  --cloud-secondary: #a29bfe;
+  --cloud-accent: #fd79a8;
+  --cloud-yellow: #ffeaa7;
+  --cloud-gray: #dfe6e9;
+  --bg-white: rgba(255, 255, 255, 0.8);
+  --bg-white-solid: rgba(255, 255, 255, 0.9);
+  --text-primary: #444;
+  --text-secondary: #555;
+  --text-muted: #666;
+  --border-white: rgba(255, 255, 255, 0.95);
+}
+
+/* 전체 컨테이너 */
+.max-mode-article {
+  max-width: 900px;
+  margin: 0 auto;
+  background: linear-gradient(135deg, #ffeaa7 0%, #dfe6e9 50%, #74b9ff 100%);
+  border-radius: 30px;
+  padding: 50px;
+  box-shadow: 0 20px 60px rgba(223, 230, 233, 0.5);
+}
+
+/* 내부 컨텐츠 래퍼 (선택사항) */
+.max-mode-article > * {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(30px);
+  border-radius: 25px;
+  padding: 45px;
+  box-shadow: 0 10px 40px rgba(223, 230, 233, 0.4);
+  border: 3px solid var(--border-white);
+  margin-bottom: 30px;
+}
+
+/* 썸네일 컨테이너 */
+.thumbnail-container {
+  position: relative;
+  border-radius: 30px !important;
+  overflow: hidden;
+  margin: -45px -45px 45px -45px !important;
+  height: 380px;
+  box-shadow: 0 20px 60px rgba(116, 185, 255, 0.3) !important;
+  border: 4px solid rgba(255, 255, 255, 0.9) !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.main-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(1.1) saturate(0.95);
+  display: block;
+}
+
+.thumbnail-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 50px;
+  background: linear-gradient(to top, rgba(255, 255, 255, 0.98) 30%, transparent 100%);
+}
+
+/* 메인 제목 */
+.max-mode-article > h1,
+.thumbnail-overlay h1,
+.thumbnail-title {
+  font-size: 3.5rem;
+  margin-bottom: 35px;
+  color: #1a1a1a;
+  line-height: 1.15;
+  font-weight: 900;
+  letter-spacing: -1px;
+}
+
+/* 목차 */
+.table-of-contents {
+  background: rgba(255, 255, 255, 0.98) !important;
+  backdrop-filter: blur(15px);
+  border: 3px solid rgba(255, 255, 255, 1) !important;
+  border-radius: 25px !important;
+  padding: 40px !important;
+  margin: 45px 0 !important;
+  box-shadow: 0 15px 45px rgba(116, 185, 255, 0.2) !important;
+}
+
+.table-of-contents h2 {
+  font-size: 1.8rem;
+  margin-bottom: 30px;
+  color: #1a1a1a;
+  font-weight: 800;
+  text-align: center;
+  padding-bottom: 20px;
+  border-bottom: 3px solid rgba(116, 185, 255, 0.3);
+}
+
+.table-of-contents ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  align-items: flex-start;
+  padding: 0;
+}
+
+.table-of-contents li {
+  padding: 18px 25px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.8) 0%, rgba(116, 185, 255, 0.1) 100%);
+  border-radius: 15px;
+  transition: all 0.3s ease;
+  border: 2px solid rgba(116, 185, 255, 0.2);
+  text-align: left;
+  width: 100%;
+}
+
+.table-of-contents li:hover {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 1) 0%, rgba(116, 185, 255, 0.2) 100%);
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px rgba(116, 185, 255, 0.25);
+  border-color: #74b9ff;
+}
+
+.table-of-contents a {
+  color: #1a1a1a;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 1.15rem;
+  display: block;
+}
+
+/* 섹션 제목 */
+.main-section-title {
+  font-size: 2.8rem !important;
+  margin-bottom: 30px !important;
+  color: #1a1a1a !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.5px !important;
+  padding: 0 !important;
+}
+
+/* 섹션 카드 */
+.section-card {
+  margin: 50px 0;
+  background: rgba(255, 255, 255, 0.95) !important;
+  backdrop-filter: blur(20px);
+  border-radius: 25px !important;
+  padding: 50px !important;
+  border: 3px solid rgba(255, 255, 255, 1) !important;
+  box-shadow: 0 15px 45px rgba(116, 185, 255, 0.2) !important;
+}
+
+/* 섹션 본문 */
+.section-body {
+  color: #000000 !important;
+  line-height: 2.2;
+  font-size: 1.25rem;
+  margin-bottom: 35px;
+}
+
+.section-body h3 {
+  font-size: 2rem;
+  color: #000000 !important;
+  margin: 30px 0 15px 0;
+  font-weight: 800;
+}
+
+.section-body p {
+  color: #000000 !important;
+  line-height: 2.2;
+  margin-bottom: 20px;
+  font-weight: 500;
+}
+
+/* 핵심요약표 */
+.summary-table {
+  margin-top: 40px;
+  padding-top: 40px;
+  border-top: 3px solid rgba(116, 185, 255, 0.15);
+}
+
+.summary-table h3 {
+  font-size: 1.8rem;
+  margin-bottom: 30px;
+  color: #1a1a1a;
+  font-weight: 900;
+  text-align: center;
+}
+
+/* 요약 그리드 */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 25px;
+  background: transparent;
+}
+
+/* 요약 아이템 */
+.summary-item {
+  background: rgba(255, 255, 255, 0.98) !important;
+  backdrop-filter: blur(10px);
+  border: 3px solid rgba(116, 185, 255, 0.3) !important;
+  border-radius: 20px !important;
+  padding: 30px !important;
+  min-height: auto !important;
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: 0 8px 25px rgba(116, 185, 255, 0.15) !important;
+}
+
+.summary-item:hover {
+  transform: translateY(-12px) rotate(1deg);
+  box-shadow: 0 25px 55px rgba(116, 185, 255, 0.3) !important;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 1) 0%, rgba(116, 185, 255, 0.25) 100%) !important;
+  border-color: #74b9ff !important;
+}
+
+/* 요약 아이템 제목 */
+.summary-item-title {
+  font-weight: 900 !important;
+  color: #1a1a1a !important;
+  margin-bottom: 15px !important;
+  font-size: 1.5rem !important;
+}
+
+/* 요약 아이템 내용 */
+.summary-item-content {
+  color: #1a1a1a !important;
+  margin-bottom: 20px !important;
+  line-height: 2;
+  font-size: 1.1rem !important;
+  font-weight: 500;
+}
+
+/* 요약 아이템 링크 */
+.summary-item-link {
+  display: inline-flex !important;
+  align-items: center;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #74b9ff 0%, #a29bfe 100%) !important;
+  color: white !important;
+  text-decoration: none !important;
+  font-size: 0.9rem !important;
+  font-weight: 600;
+  border-radius: 20px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(116, 185, 255, 0.3);
+}
+
+.summary-item-link:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 20px rgba(116, 185, 255, 0.5);
+  background: linear-gradient(135deg, #a29bfe 0%, #fd79a8 100%) !important;
+  color: white !important;
+}
+
+/* 요약표 테이블 스타일 */
+.summary-table-content {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  margin: 25px 0;
+}
+
+.summary-table-content thead tr {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.summary-table-content th {
+  padding: 12px;
+  text-align: left;
+  color: white;
+  font-weight: 600;
+  width: 25%;
+}
+
+.summary-table-content th:nth-child(2) {
+  width: 55%;
+}
+
+.summary-table-content th:nth-child(3) {
+  width: 20%;
+  text-align: center;
+}
+
+.summary-table-content td {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.summary-table-content td:nth-child(1) {
+  font-weight: 600;
+}
+
+.summary-table-content td:nth-child(3) {
+  text-align: center;
+}
+
+.summary-link {
+  color: #2196f3;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+/* 메뉴 박스 버튼 */
+.menu-box-btn {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.menu-box-btn:hover {
+  background: #5a6fd8;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+/* 다음 섹션 힌트 */
+.next-section-hint {
+  display: none;
+  margin-top: 20px;
+  padding: 15px;
+  background: rgba(102, 126, 234, 0.1);
+  border-radius: 12px;
+  color: #667eea;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* CTA 훅 */
+.cta-hook {
+  margin-bottom: 20px;
+  font-size: 1.2rem;
+  color: #ffd700;
+  font-weight: 600;
+}
+
+.cta-description {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+  margin-bottom: 15px;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 768px) {
+  .max-mode-article {
+    padding: 30px 20px;
+  }
+
+  .max-mode-article > * {
+    padding: 25px;
+  }
+
+  .max-mode-article > h1,
+  .thumbnail-title {
+    font-size: 2rem;
+  }
+
+  .thumbnail-container {
+    margin: -25px -25px 30px -25px !important;
+    height: 250px;
+  }
+
+  .thumbnail-overlay {
+    padding: 30px;
+  }
+
+  .section-card {
+    padding: 25px !important;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .table-of-contents ul {
+    grid-template-columns: 1fr;
+  }
+
+  .main-section-title {
+    font-size: 1.8rem;
+  }
+}
+

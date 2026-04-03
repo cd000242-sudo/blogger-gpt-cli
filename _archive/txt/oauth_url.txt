@@ -1,0 +1,1 @@
+https://accounts.google.com/o/oauth2/v2/auth?client_id=73679010023-n1pm7tt9nonq4b8fn64ftglov06cdp7f.apps.googleusercontent.com&redirect_uri=http%3A%2F%2F127.0.0.1%3A58392%2Fcallback&response_type=code&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fblogger&access_type=offline&prompt=consent

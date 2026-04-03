@@ -1,0 +1,56 @@
+
+════════════════════════════════════════════════════════════
+🔬 [Temu] Stealth 크롤링 진단
+   URL: https://www.temu.com/kr/bluetooth-earphones.html
+════════════════════════════════════════════════════════════
+
+⏱  소요: 9.7초
+📄 HTML: 1495KB
+💾 HTML 저장: C:\Users\park\blogger-gpt-cli\diag-stealth-temu.html
+
+📰 제목: Temu Republic of Korea | Explore the Latest Clothing, Beauty, Home, Jewelry & More베스트셀러 상품별점 5점
+
+── 🏷 OG 태그 ──
+  title: Temu Republic of Korea | Explore the Latest Clothing, Beauty, Home, Jewelry & More
+  desc:  Make Temu your one-stop destination for the latest fashion products, cosmetics &
+  image: https://aimg.kwcdn.com/upload_aimg/th/17118177-aa57-4cb7-bd96-3dea184a6a83.png
+
+── 📋 JSON-LD (2개) ──
+  1. @type: Organization | name: Temu
+  2. @type: WebSite | name: 없음
+
+── 🔍 DOM 요소 ──
+  ✅ h1: 1개
+  ✅ h2: 2개
+  ✅ img: 282개
+  ❌ [class*=product]: 0개
+  ❌ [class*=price]: 0개
+  ❌ [class*=review]: 0개
+
+── 🖼 이미지 (282개) ──
+   1. https://aimg.kwcdn.com/material-put/212a0c35d4/613d8b2c-6cf3-42ce-a33e-52725d8bb8ff.png?imageView2/2 [image]
+   2. https://aimg.kwcdn.com/upload_aimg/openingemail/flags/ffce9555-9492-43c2-8c01-b1cdc6ed4a27.png.slim.
+   3. https://aimg.kwcdn.com/material-put/212a0c35d4/d8f08298-da59-46a5-9af0-49ff02506003.png?imageView2/q [d8f08298 da59 46a5 9af0 4]
+   4. https://img.kwcdn.com/local-image/s119/212a0c342c/8db950db-6e61-416a-b416-9627697bc9e0_1000x1000.jpe [품목 사진 단짠단짠 부산 대저토마토]
+   5. https://img.kwcdn.com/local-image/s119/212a0c342c/8db950db-6e61-416a-b416-9627697bc9e0_1000x1000.jpe [품목 사진 단짠단짠 부산 대저토마토]
+   6. https://img.kwcdn.com/local-image/s119/2079f65c67/3c852d56-1ac9-4fec-b0f4-561bdd8e6240_1000x1000.jpe [품목 사진 농심 봉지라면 혼합 30봉(신라면1]
+   7. https://img.kwcdn.com/local-image/s119/2079f65c67/3c852d56-1ac9-4fec-b0f4-561bdd8e6240_1000x1000.jpe [품목 사진 농심 봉지라면 혼합 30봉(신라면1]
+   8. https://aimg.kwcdn.com/material-put/212a0c35d4/ebafa317-602b-4c93-92da-422b89b55481.png?imageView2/q [ebafa317 602b 4c93 92da 4]
+   9. https://aimg.kwcdn.com/material-put/212a0c35d4/75bafce9-c97d-4b4d-85eb-4ba08ebc0328.png?imageView2/2 [75bafce9 c97d 4b4d 85eb 4]
+  10. https://img.kwcdn.com/product/fancy/163c14b9-7156-4be0-8381-7e7782f089e3.jpg?imageView2/2/w/250/q/10 [품목 사진 1개 초흡수 욕실 매트 - 빠른 건]
+  11. https://img.kwcdn.com/product/fancy/163c14b9-7156-4be0-8381-7e7782f089e3.jpg?imageView2/2/w/500/q/70 [품목 사진 1개 초흡수 욕실 매트 - 빠른 건]
+  12. https://img.kwcdn.com/product/fancy/48e68e94-8daf-4498-9b60-146a6d3676cb.jpg?imageView2/2/w/250/q/10 [품목 사진 다기능 접이식 와이어 스트리핑 플라]
+  13. https://img.kwcdn.com/product/fancy/48e68e94-8daf-4498-9b60-146a6d3676cb.jpg?imageView2/2/w/500/q/70 [품목 사진 다기능 접이식 와이어 스트리핑 플라]
+  14. https://aimg.kwcdn.com/upload_aimg_b/lightningdeal/0b336583-85af-44eb-99bc-0e482fe884db.png?imageVie [icon]
+  15. https://img.kwcdn.com/product/open/d2a6aff1c59a43549e467cb5701be315-goods.jpeg?imageView2/2/w/250/q/ [품목 사진 3개/세트 드릴 비트 내구성 - 코]
+  ... 외 267개
+
+── ⚠️ 실패 응답 (3개) ──
+  429: https://www.temu.com/api/poppy/v2/search_activation?scene=search_activation
+  424: https://www.temu.com/api/cusco/platform/chat/showQuickEntry
+  424: https://www.temu.com/api/passport/token/touch
+
+── ✅ [Temu] 판정 ──
+  콘텐츠: ✅ OK (1495KB)
+  제목:   ✅ OK
+  이미지: ✅ OK (282개)

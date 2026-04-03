@@ -1,0 +1,21 @@
+# 블로그 발행 테스트를 위한 환경변수 설정 예시
+# 이 파일을 .env로 복사하고 실제 API 키를 입력하세요
+
+# Gemini API 키 (필수)
+GEMINI_KEY=your-gemini-api-key-here
+
+# Blogger 발행용 (필수 - Blogger 테스트 시)
+BLOG_ID=your-blog-id-here
+GOOGLE_CLIENT_ID=your-google-client-id-here
+GOOGLE_CLIENT_SECRET=your-google-client-secret-here
+REDIRECT_URI=http://localhost:3000/oauth2callback
+
+# Blogger 테스트 옵션
+# TEST_PUBLISH=true  # 즉시 발행 테스트 실행 (기본: false)
+# TEST_SCHEDULE=true  # 예약 발행 테스트 실행 (기본: false)
+
+# WordPress 발행용 (선택)
+WORDPRESS_SITE_URL=https://your-wordpress-site.com
+WORDPRESS_USERNAME=your-wordpress-username
+WORDPRESS_PASSWORD=your-wordpress-application-password
+

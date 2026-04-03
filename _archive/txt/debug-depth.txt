@@ -1,0 +1,32 @@
+L319: d=1 +1/-0 | <div id="mainContent" class="main-content">
+L321: d=2 +1/-0 | <header class="app-header">
+L323: d=3 +1/-0 | <div class="header-badges">
+L327: d=3 +0/-1 | </div>
+L331: d=3 +0/-1 | </div>
+L335: d=3 +0/-1 | </div>
+L336: d=2 +0/-1 | </div>
+L341: d=1 +0/-1 | </header>
+L344: d=2 +1/-0 | <div id="tab-content-container">
+L356: d=3 +1/-0 | <div id="schedule-tab" class="tab-content">
+L365: d=3 +0/-1 | </div>
+L379: d=3 +0/-1 | </div>
+L390: d=3 +0/-1 | </div>
+L400: d=3 +0/-1 | </div>
+L417: d=3 +0/-1 | </div>
+L432: d=3 +0/-1 | </div>
+L446: d=3 +0/-1 | </div>
+L462: d=3 +0/-1 | </div>
+L476: d=3 +0/-1 | </div>
+L483: d=5 +1/-0 | <div id="scheduleH2ImageSections"
+L511: d=3 +0/-1 | </div>
+L532: d=3 +0/-1 | </div>
+L538: d=2 +0/-1 | </div>
+L543: d=3 +1/-0 | <div style="display: flex; align-items: center; margin-bottom: 32px;">
+L547: d=2 +0/-1 | </div>
+L549: d=1 +0/-1 | </div>
+L553: d=1 +1/-1 | <div style="font-size: 16px; font-weight: 600; color: #1e40af; margin-bottom: 12px;">⏰ 예약 포스팅</div>
+L554: d=2 +1/-0 | <div style="font-size: 14px; color: #3730a3; line-height: 1.6;">
+L558: d=1 +0/-1 | </div>
+L559: d=0 +0/-1 | </div>
+
+*** mainContent CLOSED at line 559 depth=0 ***

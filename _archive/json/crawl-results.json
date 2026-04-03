@@ -1,0 +1,103 @@
+{
+  "coupang_bots": {
+    "Kakaotalk": {
+      "status": 403,
+      "size": 397,
+      "accessDenied": true,
+      "ogTitle": null,
+      "ogImage": null,
+      "ogDesc": null,
+      "ok": false
+    },
+    "Facebook": {
+      "status": 403,
+      "size": 397,
+      "accessDenied": true,
+      "ogTitle": null,
+      "ogImage": null,
+      "ogDesc": null,
+      "ok": false
+    },
+    "Twitter": {
+      "status": 403,
+      "size": 395,
+      "accessDenied": true,
+      "ogTitle": null,
+      "ogImage": null,
+      "ogDesc": null,
+      "ok": false
+    },
+    "Telegram": {
+      "status": 403,
+      "size": 397,
+      "accessDenied": true,
+      "ogTitle": null,
+      "ogImage": null,
+      "ogDesc": null,
+      "ok": false
+    },
+    "Slack": {
+      "status": 403,
+      "size": 397,
+      "accessDenied": true,
+      "ogTitle": null,
+      "ogImage": null,
+      "ogDesc": null,
+      "ok": false
+    },
+    "Naver_Yeti": {
+      "status": 403,
+      "size": 397,
+      "accessDenied": true,
+      "ogTitle": null,
+      "ogImage": null,
+      "ogDesc": null,
+      "ok": false
+    },
+    "Googlebot": {
+      "status": 403,
+      "size": 397,
+      "accessDenied": true,
+      "ogTitle": null,
+      "ogImage": null,
+      "ogDesc": null,
+      "ok": false
+    }
+  },
+  "gmarket_facebook": {
+    "status": 403,
+    "size": 19151,
+    "accessDenied": false,
+    "ogTitle": null,
+    "ogImage": null,
+    "ogDesc": null,
+    "ok": false
+  },
+  "gmarket_googlebot": {
+    "status": 403,
+    "size": 19707,
+    "accessDenied": false,
+    "ogTitle": null,
+    "ogImage": null,
+    "ogDesc": null,
+    "ok": false
+  },
+  "st11_facebook": {
+    "status": 200,
+    "size": 200,
+    "accessDenied": false,
+    "ogTitle": null,
+    "ogImage": null,
+    "ogDesc": null,
+    "ok": false
+  },
+  "st11_googlebot": {
+    "status": 200,
+    "size": 200,
+    "accessDenied": false,
+    "ogTitle": null,
+    "ogImage": null,
+    "ogDesc": null,
+    "ok": false
+  }
+}

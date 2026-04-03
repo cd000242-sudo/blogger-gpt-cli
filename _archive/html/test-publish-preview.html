@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BloggerGPT - 발행 결과 미리보기 테스트</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <style>
+        /* ================================================
+       테스트 UI — 이 CSS는 앱과 무관, 테스트 전용
+       ================================================ */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background: #f0f2f5;
+            color: #1a1a1a;
+        }
+
+        .test-controls {
+            position: sticky;
+            top: 0;
+            z-index: 9999;
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            color: white;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .test-controls h1 {
+            font-size: 18px;
+            font-weight: 800;
+            color: #c9a96e;
+        }
+
+        .test-controls button {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-blogger {
+            background: #ff6b35;
+            color: white;
+        }
+
+        .btn-wordpress {
+            background: #3742fa;
+            color: white;
+        }
+
+        .btn-mobile {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-checker {
+            background: #f59e0b;
+            color: #000;
+        }
+
+        .test-controls button:hover {
+            transform: translateY(-2px);
+        }
+
+        .test-controls .status {
+            font-size: 13px;
+            color: #99f6e4;
+            margin-left: auto;
+        }
+
+        .platform-section {
+            max-width: 780px;
+            margin: 40px auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .platform-header {
+            padding: 20px 24px;
+            font-size: 16px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .platform-header.blogger {
+            background: linear-gradient(135deg, #ff6b35, #f7931e);
+            color: white;
+        }
+
+        .platform-header.wordpress {
+            background: linear-gradient(135deg, #2d4a3e, #3d6b5a);
+            color: #faf5eb;
+        }
+
+        .platform-body {
+            padding: 24px;
+        }
+
+        .checker-results {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            padding: 20px;
+            max-width: 400px;
+            z-index: 9998;
+            display: none;
+            max-height: 50vh;
+            overflow-y: auto;
+        }
+
+        .checker-results.visible {
+            display: block;
+        }
+
+        .checker-results h3 {
+            font-size: 16px;
+            margin-bottom: 12px;
+        }
+
+        .check-item {
+            padding: 6px 0;
+            font-size: 13px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .check-pass {
+            color: #10b981;
+        }
+
+        .check-fail {
+            color: #ef4444;
+            font-weight: 700;
+        }
+
+        /* ================================================
+       Blogger CSS — style.js의 generateBloggerLayoutCSS() 복사본
+       앱에서 이 CSS를 수정하면 여기서도 반영됨
+       ================================================ */
+        .blogger-gpt-content {
+            width: 100% !important;
+            max-width: 680px !important;
+            margin: 0 auto !important;
+            padding: 32px 24px !important;
+            background: #ffffff !important;
+            color: #1a1a1a !important;
+            font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+            font-size: 18px !important;
+            line-height: 1.85 !important;
+            word-break: keep-all !important;
+            counter-reset: section !important;
+        }
+
+        .blogger-gpt-content h2 {
+            color: #0f172a !important;
+            font-size: 22px !important;
+            font-weight: 700 !important;
+            margin: 64px 0 20px 0 !important;
+            padding: 16px 20px !important;
+            background: #f0fdfa !important;
+            border-left: 5px solid #0d9488 !important;
+            border-radius: 0 8px 8px 0 !important;
+            counter-increment: section !important;
+            position: relative !important;
+        }
+
+        .blogger-gpt-content h2::before {
+            content: counter(section, decimal-leading-zero) !important;
+            position: absolute !important;
+            right: 16px !important;
+            top: 50% !important;
+            transform: translateY(-50%) !important;
+            font-size: 32px !important;
+            font-weight: 900 !important;
+            color: rgba(13, 148, 136, 0.12) !important;
+            line-height: 1 !important;
+            pointer-events: none !important;
+        }
+
+        .blogger-gpt-content h3 {
+            color: #1e293b !important;
+            font-size: 19px !important;
+            font-weight: 600 !important;
+            margin: 36px 0 16px 0 !important;
+            padding: 12px 16px !important;
+            border-left: 4px solid #0891b2 !important;
+        }
+
+        .blogger-gpt-content p {
+            color: #1a1a1a !important;
+            font-size: 18px !important;
+            line-height: 1.85 !important;
+            margin: 0 0 24px 0 !important;
+        }
+
+        .blogger-gpt-content strong,
+        .blogger-gpt-content b {
+            color: #0f172a !important;
+            font-weight: 700 !important;
+        }
+
+        .blogger-gpt-content a {
+            color: #0891b2 !important;
+            text-decoration: none !important;
+            border-bottom: 1px solid #99f6e4 !important;
+            transition: color 0.2s ease, border-color 0.2s ease !important;
+        }
+
+        .blogger-gpt-content a:hover {
+            color: #0d9488 !important;
+            border-bottom-color: #0d9488 !important;
+        }
+
+        .blogger-gpt-content img {
+            max-width: 100% !important;
+            height: auto !important;
+            margin: 32px auto 48px auto !important;
+            border-radius: 6px !important;
+            display: block !important;
+        }
+
+        .blogger-gpt-content table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            margin: 32px 0 !important;
+            border-radius: 14px !important;
+            overflow: hidden !important;
+            border: 1px solid rgba(212, 168, 0, 0.2) !important;
+            table-layout: auto !important;
+        }
+
+        .blogger-gpt-content thead tr {
+            background: linear-gradient(135deg, #1a1a2e 0%, #2c3e50 100%) !important;
+        }
+
+        .blogger-gpt-content th {
+            padding: 20px 24px !important;
+            border: none !important;
+            color: #d4a800 !important;
+            font-weight: 900 !important;
+            font-size: 19px !important;
+            text-align: left !important;
+        }
+
+        .blogger-gpt-content td {
+            padding: 18px 24px !important;
+            border-bottom: 1px solid rgba(212, 168, 0, 0.15) !important;
+            font-size: 18px !important;
+            word-break: keep-all !important;
+            color: #2c3e50 !important;
+            transition: background 0.2s ease !important;
+        }
+
+        .blogger-gpt-content tbody tr {
+            background: linear-gradient(135deg, #fffbf0 0%, #fdf8f3 100%) !important;
+        }
+
+        .blogger-gpt-content tbody tr:nth-child(even) {
+            background: linear-gradient(135deg, #fdf8f3 0%, #fff9e6 100%) !important;
+        }
+
+        .blogger-gpt-content tbody tr:hover td {
+            background: rgba(13, 148, 136, 0.05) !important;
+        }
+
+        .ad-safe-zone {
+            margin: 40px 0 !important;
+            clear: both !important;
+            min-height: 1px !important;
+        }
+
+        .section-divider {
+            border: none !important;
+            height: 2px !important;
+            background: linear-gradient(90deg, transparent 0%, #0d9488 20%, #d4a800 50%, #0d9488 80%, transparent 100%) !important;
+            margin: 48px 0 !important;
+            position: relative !important;
+        }
+
+        .section-divider::after {
+            content: "▼" !important;
+            position: absolute !important;
+            left: 50% !important;
+            bottom: -20px !important;
+            transform: translateX(-50%) !important;
+            color: #0d9488 !important;
+            font-size: 12px !important;
+            animation: fadeFloat 2s ease-in-out infinite !important;
+        }
+
+        .key-insight {
+            margin: 32px 0 !important;
+            padding: 24px 28px !important;
+            background: linear-gradient(135deg, #fffbf0 0%, #fef9f0 100%) !important;
+            border-left: 5px solid #d4a800 !important;
+            border-radius: 0 12px 12px 0 !important;
+            font-size: 17px !important;
+            line-height: 1.8 !important;
+            color: #1a1a1a !important;
+            position: relative !important;
+        }
+
+        .key-insight::before {
+            content: "💡 핵심" !important;
+            display: inline-block !important;
+            font-size: 13px !important;
+            font-weight: 800 !important;
+            color: #d4a800 !important;
+            background: rgba(212, 168, 0, 0.1) !important;
+            padding: 2px 10px !important;
+            border-radius: 4px !important;
+            margin-bottom: 8px !important;
+        }
+
+        .section-preview {
+            margin: 0 0 28px 0 !important;
+            padding: 16px 20px !important;
+            background: #f0fdfa !important;
+            border-radius: 8px !important;
+            font-size: 15px !important;
+            color: #475569 !important;
+            border: 1px dashed #99f6e4 !important;
+            line-height: 1.7 !important;
+        }
+
+        .reading-time {
+            display: inline-block !important;
+            margin: 0 0 32px 0 !important;
+            padding: 6px 16px !important;
+            background: #f0fdfa !important;
+            color: #0d9488 !important;
+            border-radius: 20px !important;
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            border: 1px solid #99f6e4 !important;
+        }
+
+        .cta-responsive-box {
+            padding: 45px 40px !important;
+            border-radius: 18px !important;
+            text-align: center !important;
+            margin: 50px auto !important;
+            max-width: 95% !important;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25), 0 0 20px rgba(212, 168, 0, 0.3) !important;
+        }
+
+        .cta-responsive-text {
+            font-size: 28px !important;
+            font-weight: 900 !important;
+            margin-bottom: 25px !important;
+            line-height: 1.6 !important;
+        }
+
+        .cta-responsive-button {
+            color: #ffffff !important;
+            padding: 22px 50px !important;
+            text-decoration: none !important;
+            font-weight: 900 !important;
+            border-radius: 50px !important;
+            display: inline-block !important;
+            margin-top: 20px !important;
+            font-size: 22px !important;
+            transition: all 0.3s ease !important;
+            box-shadow: 0 8px 30px rgba(220, 38, 38, 0.4) !important;
+            letter-spacing: 0.5px !important;
+        }
+
+        .cta-responsive-button:hover {
+            transform: translateY(-3px) scale(1.02) !important;
+            box-shadow: 0 12px 40px rgba(220, 38, 38, 0.5) !important;
+        }
+
+        .toc-nav-item {
+            transition: all 0.3s ease;
+        }
+
+        .toc-nav-item:hover {
+            transform: translateY(-3px) !important;
+            box-shadow: 0 12px 35px rgba(255, 255, 255, 0.3) !important;
+        }
+
+        @keyframes fadeFloat {
+
+            0%,
+            100% {
+                opacity: 0.4;
+                transform: translateX(-50%) translateY(0);
+            }
+
+            50% {
+                opacity: 1;
+                transform: translateX(-50%) translateY(4px);
+            }
+        }
+
+        @keyframes ctaPulse {
+
+            0%,
+            100% {
+                box-shadow: 0 8px 30px rgba(220, 38, 38, 0.4);
+            }
+
+            50% {
+                box-shadow: 0 8px 40px rgba(220, 38, 38, 0.6), 0 0 20px rgba(220, 38, 38, 0.3);
+            }
+        }
+
+        @keyframes bounce {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-5px);
+            }
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.7;
+            }
+        }
+
+        @keyframes spin {
+            from {
+                transform: translate(-50%, -50%) rotate(0deg);
+            }
+
+            to {
+                transform: translate(-50%, -50%) rotate(360deg);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .blogger-gpt-content {
+                max-width: 100% !important;
+                padding: 0 16px !important;
+            }
+
+            .blogger-gpt-content h2 {
+                font-size: 19px !important;
+                margin: 48px 0 16px 0 !important;
+            }
+
+            .blogger-gpt-content h2::before {
+                font-size: 24px !important;
+            }
+
+            .blogger-gpt-content p {
+                font-size: 16px !important;
+                line-height: 1.8 !important;
+            }
+
+            .cta-responsive-box {
+                padding: 30px 20px !important;
+                margin: 35px auto !important;
+            }
+
+            .cta-responsive-text {
+                font-size: 22px !important;
+            }
+
+            .cta-responsive-button {
+                padding: 16px 32px !important;
+                font-size: 19px !important;
+                width: 85% !important;
+            }
+        }
+
+        @media (max-width: 375px) {
+            .blogger-gpt-content {
+                padding: 0 12px !important;
+            }
+
+            .blogger-gpt-content h2 {
+                font-size: 17px !important;
+                padding: 12px 16px !important;
+            }
+
+            .blogger-gpt-content h2::before {
+                display: none !important;
+            }
+
+            .blogger-gpt-content p {
+                font-size: 15px !important;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .section-divider::after {
+                animation: none !important;
+            }
+
+            .cta-responsive-button {
+                transition: none !important;
+                animation: none !important;
+            }
+
+            .cta-responsive-button:hover {
+                transform: none !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ================================================
+     테스트 컨트롤 바
+     ================================================ -->
+    <div class="test-controls">
+        <h1>🔍 발행 미리보기 테스트</h1>
+        <button class="btn-blogger" onclick="scrollTo('#blogger-section')">Blogger</button>
+        <button class="btn-wordpress" onclick="scrollTo('#wordpress-section')">WordPress</button>
+        <button class="btn-mobile" onclick="toggleMobile()">📱 모바일 토글</button>
+        <button class="btn-checker" onclick="runChecker()">🔎 호환성 검사</button>
+        <span class="status" id="status-text">Desktop 모드</span>
+    </div>
+
+    <!-- ================================================
+     SECTION 1: Blogger 발행 결과
+     ================================================ -->
+    <div class="platform-section" id="blogger-section">
+        <div class="platform-header blogger">🟠 Blogger 발행 결과 (프리미엄 럭셔리 스킨)</div>
+        <div class="platform-body">
+            <div class="blogger-gpt-content" itemscope itemtype="https://schema.org/Article">
+                <meta itemprop="headline" content="2026년 갤럭시 S26 완벽 가이드: 사전예약부터 최저가 구매까지">
+                <meta itemprop="author" content="BloggerGPT">
+                <meta itemprop="datePublished" content="2026-02-20">
+
+                <!-- 읽기 시간 -->
+                <div class="reading-time">⏱️ 읽기 시간: 약 8분</div>
+
+                <!-- H2 섹션 1 -->
+                <hr class="section-divider"
+                    style="border:none; height:2px; background:linear-gradient(90deg, transparent 0%, #0d9488 20%, #d4a800 50%, #0d9488 80%, transparent 100%); margin:48px 0;">
+                <div
+                    style="margin:64px 0 20px 0; padding:24px 32px; background:linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); border-radius:16px; box-shadow:0 8px 32px rgba(0,0,0,0.3), 0 0 0 1px rgba(212,168,0,0.2), inset 0 1px 0 rgba(255,255,255,0.1); border:2px solid transparent; position:relative; overflow:hidden;">
+                    <div
+                        style="position:absolute; top:0; right:0; width:200px; height:200px; background:radial-gradient(circle, rgba(212,168,0,0.15) 0%, transparent 70%); border-radius:50%; transform:translate(30%, -30%);">
+                    </div>
+                    <div
+                        style="position:absolute; bottom:0; left:0; width:150px; height:150px; background:radial-gradient(circle, rgba(212,168,0,0.1) 0%, transparent 70%); border-radius:50%; transform:translate(-20%, 20%);">
+                    </div>
+                    <h2
+                        style="font-size:1.8rem; margin:0; padding:0; color:#d4a800; text-align:left; font-weight:900; letter-spacing:-0.02em; line-height:1.3; word-break:keep-all; overflow-wrap:break-word; white-space:normal; position:relative; z-index:1;">
+                        갤럭시 S26 사전예약 완벽 정리</h2>
+                </div>
+
+                <!-- 섹션 프리뷰 -->
+                <div class="section-preview">이 섹션에서는 갤럭시 S26의 사전예약 방법, 혜택, 최적 타이밍을 상세히 알려드립니다.</div>
+
+                <!-- H3 소제목 -->
+                <div
+                    style="margin:30px 0 20px 0; padding:20px 28px; background:linear-gradient(135deg, #2c3e50 0%, #34495e 100%); border-radius:14px; box-shadow:0 6px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.1); border-left:4px solid #ffd700; position:relative; overflow:hidden;">
+                    <h3
+                        style="font-size:1.4rem; font-weight:800; color:#ffffff; margin:0; padding:0; position:relative; z-index:1; word-break:keep-all; overflow-wrap:break-word; letter-spacing:-0.01em;">
+                        사전예약 일정과 방법</h3>
+                </div>
+
+                <!-- 본문 -->
+                <div
+                    style="margin:24px 0; padding:28px 32px; background:linear-gradient(135deg, #fffbf0 0%, #fdf8f3 100%); border-radius:14px; border:1px solid rgba(255,215,0,0.15); box-shadow:0 4px 16px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.8); position:relative;">
+                    <p
+                        style="font-size:20px; line-height:1.9; color:#1a1a1a; margin:0 0 20px 0; font-weight:400; word-break:keep-all; overflow-wrap:break-word;">
+                        갤럭시 S26 사전예약은 <strong>2026년 2월 25일</strong>부터 시작됩니다. 삼성전자 공식 홈페이지를 통해 가장 먼저 사전예약을 진행할 수 있으며, 이통사
+                        3사(SKT, KT, LGU+)도 동시에 사전예약을 오픈합니다.</p>
+                    <p
+                        style="font-size:20px; line-height:1.9; color:#1a1a1a; margin:0 0 20px 0; font-weight:400; word-break:keep-all; overflow-wrap:break-word;">
+                        사전예약 고객에게는 <strong>갤럭시 버즈4 프로</strong>가 무상 제공되며, 추가로 정품 케이스도 증정됩니다. 과거 시리즈와 비교했을 때 역대급 혜택이라고 볼 수
+                        있습니다.</p>
+                    <p
+                        style="font-size:20px; line-height:1.9; color:#1a1a1a; margin:0; font-weight:400; word-break:keep-all; overflow-wrap:break-word;">
+                        삼성닷컴에서 사전예약 시 <strong>10% 추가 할인</strong>이 적용되어 실구매가 기준으로 가장 유리합니다. 자급제 구매를 고려하신다면 이 방법을 추천드립니다.
+                    </p>
+                </div>
+
+                <!-- 핵심 하이라이트 -->
+                <div class="key-insight">
+                    <br>사전예약 기간 중 삼성닷컴에서 구매하면 <strong>최대 30만원 할인</strong> + 갤럭시 버즈4 프로 증정! 가장 합리적인 구매 방법입니다.
+                </div>
+
+                <!-- 테이블 -->
+                <div
+                    style="width:100%; overflow-x:auto; margin:30px 0; border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,0.15);">
+                    <table
+                        style="width:100%; border-collapse:collapse; border-radius:14px; overflow:hidden; border:1px solid rgba(255,215,0,0.2); table-layout:auto;">
+                        <thead>
+                            <tr style="background:linear-gradient(135deg, #1a1a2e 0%, #2c3e50 100%);">
+                                <th
+                                    style="padding:20px 24px; border:none; color:#ffd700; font-weight:900; font-size:19px; text-align:left;">
+                                    구매 채널</th>
+                                <th
+                                    style="padding:20px 24px; border:none; color:#ffd700; font-weight:900; font-size:19px; text-align:left;">
+                                    혜택</th>
+                                <th
+                                    style="padding:20px 24px; border:none; color:#ffd700; font-weight:900; font-size:19px; text-align:left;">
+                                    가격</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style="background:linear-gradient(135deg, #fffbf0 0%, #fdf8f3 100%);">
+                                <td
+                                    style="padding:18px 24px; border-bottom:1px solid rgba(255,215,0,0.15); font-size:18px; font-weight:600; color:#1a1a1a;">
+                                    삼성닷컴</td>
+                                <td
+                                    style="padding:18px 24px; border-bottom:1px solid rgba(255,215,0,0.15); font-size:18px; color:#2c3e50;">
+                                    버즈4 프로 + 10% 할인</td>
+                                <td
+                                    style="padding:18px 24px; border-bottom:1px solid rgba(255,215,0,0.15); font-size:18px; color:#2c3e50;">
+                                    1,199,000원~</td>
+                            </tr>
+                            <tr style="background:linear-gradient(135deg, #fdf8f3 0%, #fff9e6 100%);">
+                                <td
+                                    style="padding:18px 24px; border-bottom:1px solid rgba(255,215,0,0.15); font-size:18px; font-weight:600; color:#1a1a1a;">
+                                    SKT</td>
+                                <td
+                                    style="padding:18px 24px; border-bottom:1px solid rgba(255,215,0,0.15); font-size:18px; color:#2c3e50;">
+                                    공시지원금 30만원</td>
+                                <td
+                                    style="padding:18px 24px; border-bottom:1px solid rgba(255,215,0,0.15); font-size:18px; color:#2c3e50;">
+                                    999,000원~</td>
+                            </tr>
+                            <tr style="background:linear-gradient(135deg, #fffbf0 0%, #fdf8f3 100%);">
+                                <td
+                                    style="padding:18px 24px; border-bottom:1px solid rgba(255,215,0,0.15); font-size:18px; font-weight:600; color:#1a1a1a;">
+                                    쿠팡</td>
+                                <td
+                                    style="padding:18px 24px; border-bottom:1px solid rgba(255,215,0,0.15); font-size:18px; color:#2c3e50;">
+                                    로켓배송 + 포인트 적립</td>
+                                <td
+                                    style="padding:18px 24px; border-bottom:1px solid rgba(255,215,0,0.15); font-size:18px; color:#2c3e50;">
+                                    1,149,000원~</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- AdSense 여백 -->
+                <div class="ad-safe-zone"></div>
+
+                <!-- H2 섹션 2 -->
+                <hr class="section-divider"
+                    style="border:none; height:2px; background:linear-gradient(90deg, transparent 0%, #0d9488 20%, #d4a800 50%, #0d9488 80%, transparent 100%); margin:48px 0;">
+                <div
+                    style="margin:64px 0 20px 0; padding:24px 32px; background:linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); border-radius:16px; box-shadow:0 8px 32px rgba(0,0,0,0.3), 0 0 0 1px rgba(212,168,0,0.2), inset 0 1px 0 rgba(255,255,255,0.1); border:2px solid transparent; position:relative; overflow:hidden;">
+                    <h2
+                        style="font-size:1.8rem; margin:0; padding:0; color:#d4a800; text-align:left; font-weight:900; letter-spacing:-0.02em; line-height:1.3; word-break:keep-all; overflow-wrap:break-word; white-space:normal; position:relative; z-index:1;">
+                        갤럭시 S26 스펙 총정리</h2>
+                </div>
+
+                <div class="section-preview">스냅드래곤 8 엘리트 2 프로세서, 200MP 카메라, AI 기능까지 — 핵심 스펙을 비교 분석합니다.</div>
+
+                <div
+                    style="margin:24px 0; padding:28px 32px; background:linear-gradient(135deg, #fffbf0 0%, #fdf8f3 100%); border-radius:14px; border:1px solid rgba(255,215,0,0.15); box-shadow:0 4px 16px rgba(0,0,0,0.08);">
+                    <p style="font-size:20px; line-height:1.9; color:#1a1a1a; margin:0 0 20px 0;">갤럭시 S26에는 퀄컴
+                        <strong>스냅드래곤 8 엘리트 2</strong> 프로세서가 탑재됩니다. 전작 대비 CPU 성능이 약 25% 향상되었으며, AI 연산 능력은 40% 이상
+                        개선되었습니다.
+                    </p>
+                    <p style="font-size:20px; line-height:1.9; color:#1a1a1a; margin:0;">카메라는 <strong>200MP 메인
+                            센서</strong>에 5배 광학 줌이 지원되며, Galaxy AI의 프로비주얼 엔진으로 야간 촬영이 혁신적으로 개선되었습니다.</p>
+                </div>
+
+                <!-- Blogger CTA (inline style + class) -->
+                <CENTER>
+                    <div class="cta-responsive-box"
+                        style="padding:45px 40px; background:linear-gradient(135deg, #1a1a2e 0%, #0f3460 50%, #2c3e50 100%); border-radius:18px; text-align:center; margin:50px auto; max-width:95%; box-shadow:0 12px 40px rgba(0,0,0,0.25), 0 0 20px rgba(212,168,0,0.3); position:relative; overflow:hidden;">
+                        <div
+                            style="position:absolute; top:0; left:0; width:100%; height:100%; background:radial-gradient(circle at 30% 70%, rgba(212,168,0,0.1) 0%, transparent 50%);">
+                        </div>
+                        <p class="cta-responsive-text"
+                            style="font-size:28px; font-weight:900; color:#ffd700; margin-bottom:25px; line-height:1.6; position:relative; z-index:1; animation:pulse 3s ease-in-out infinite;">
+                            💡 갤럭시 S26 최저가를 확인하세요!</p>
+                        <a href="https://www.samsung.com" class="cta-responsive-button"
+                            style="display:inline-block; padding:22px 50px; background:linear-gradient(45deg, #ffd700 0%, #d4a800 100%); color:#000000; font-size:22px; font-weight:900; text-decoration:none; border-radius:50px; box-shadow:0 8px 30px rgba(212,168,0,0.5); position:relative; z-index:2; transition:all 0.3s ease;">삼성닷컴
+                            바로가기 📖</a>
+                        <div
+                            style="margin-top:20px; font-size:16px; color:rgba(255,255,255,0.7); position:relative; z-index:1;">
+                            💪 지금이 가장 좋은 가격입니다!</div>
+                    </div>
+                </CENTER>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================
+     SECTION 2: WordPress 발행 결과
+     ================================================ -->
+    <div class="platform-section" id="wordpress-section">
+        <div class="platform-header wordpress">🔵 WordPress 발행 결과 (모던 미니멀 엘레강스 스킨)</div>
+        <div class="platform-body">
+
+            <!-- WordPress TOC 내비게이션 -->
+            <!-- wp:html -->
+            <div
+                style="margin:40px 0; padding:30px; background:linear-gradient(135deg, #2d4a3e 0%, #3d6b5a 50%, #1a3a2a 100%); border-radius:20px; box-shadow:0 15px 40px rgba(45,74,62,0.3), 0 0 0 3px rgba(255,255,255,0.06); position:relative; overflow:hidden;">
+                <div
+                    style="position:absolute; top:0; left:0; width:100%; height:100%; background:radial-gradient(circle at 30% 70%, rgba(212,187,140,0.08) 0%, transparent 50%);">
+                </div>
+                <h3
+                    style="text-align:center; margin-bottom:25px; color:#faf5eb; font-size:1.8rem; font-weight:900; text-shadow:0 2px 8px rgba(0,0,0,0.2); position:relative; z-index:1;">
+                    🚀 빠른 이동 목차</h3>
+                <div
+                    style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:15px; position:relative; z-index:1;">
+                    <a href="#toc1" class="toc-nav-item"
+                        style="padding:15px 25px; background:linear-gradient(45deg, rgba(255,255,255,0.92) 0%, rgba(250,245,235,0.85) 100%); color:#2d4a3e; text-decoration:none; border-radius:15px; font-weight:700; font-size:16px; transition:all 0.3s ease; border:2px solid rgba(212,187,140,0.3); text-align:center; box-shadow:0 6px 20px rgba(0,0,0,0.08);">1️⃣
+                        사전예약 가이드</a>
+                    <a href="#toc2" class="toc-nav-item"
+                        style="padding:15px 25px; background:linear-gradient(45deg, rgba(255,255,255,0.92) 0%, rgba(250,245,235,0.85) 100%); color:#2d4a3e; text-decoration:none; border-radius:15px; font-weight:700; font-size:16px; transition:all 0.3s ease; border:2px solid rgba(212,187,140,0.3); text-align:center; box-shadow:0 6px 20px rgba(0,0,0,0.08);">2️⃣
+                        스펙 비교</a>
+                    <a href="#toc3" class="toc-nav-item"
+                        style="padding:15px 25px; background:linear-gradient(45deg, rgba(255,255,255,0.92) 0%, rgba(250,245,235,0.85) 100%); color:#2d4a3e; text-decoration:none; border-radius:15px; font-weight:700; font-size:16px; transition:all 0.3s ease; border:2px solid rgba(212,187,140,0.3); text-align:center; box-shadow:0 6px 20px rgba(0,0,0,0.08);">3️⃣
+                        최저가 구매처</a>
+                </div>
+            </div>
+            <!-- /wp:html -->
+
+            <!-- WordPress H2 -->
+            <!-- wp:html -->
+            <div id="toc1"
+                style="margin:64px 0 20px 0; padding:40px 50px; background:linear-gradient(135deg, #2d4a3e 0%, #3d6b5a 40%, #1a3a2a 100%); border-radius:25px; box-shadow:0 20px 60px rgba(45,74,62,0.3), 0 0 0 3px rgba(255,255,255,0.08); position:relative; overflow:hidden;">
+                <div
+                    style="position:absolute; top:-60px; right:-60px; width:300px; height:300px; background:radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%); border-radius:50%;">
+                </div>
+                <div
+                    style="position:absolute; bottom:-40px; left:-40px; width:200px; height:200px; background:radial-gradient(circle, rgba(212,187,140,0.12) 0%, transparent 70%); border-radius:50%;">
+                </div>
+                <h2
+                    style="font-size:2.2rem; margin:0; padding:0; color:#faf5eb; text-align:left; font-weight:900; letter-spacing:-0.03em; line-height:1.2; word-break:keep-all; overflow-wrap:break-word; white-space:normal; position:relative; z-index:2; text-shadow:0 4px 12px rgba(0,0,0,0.3);">
+                    갤럭시 S26 사전예약 완벽 정리</h2>
+            </div>
+            <!-- /wp:html -->
+
+            <!-- WordPress H3 -->
+            <!-- wp:html -->
+            <div
+                style="margin:30px 0 20px 0; padding:22px 30px; background:linear-gradient(135deg, #c9a96e 0%, #b8956a 100%); border-radius:16px; box-shadow:0 8px 28px rgba(201,169,110,0.25); position:relative; overflow:hidden;">
+                <div
+                    style="position:absolute; top:10px; right:10px; width:100px; height:100px; background:radial-gradient(circle, rgba(255,255,255,0.15) 0%, transparent 70%); border-radius:50%;">
+                </div>
+                <h3
+                    style="font-size:1.5rem; font-weight:800; color:#ffffff; margin:0; padding:0; position:relative; z-index:1; word-break:keep-all; overflow-wrap:break-word; letter-spacing:-0.01em; text-shadow:0 2px 6px rgba(0,0,0,0.15);">
+                    1-1. 사전예약 일정과 방법</h3>
+            </div>
+            <!-- /wp:html -->
+
+            <!-- WP 본문 -->
+            <!-- wp:paragraph -->
+            <p style="font-size:18px; line-height:1.9; color:#1a1a1a; margin:0 0 24px 0;">갤럭시 S26 사전예약은 <strong>2026년 2월
+                    25일</strong>부터 시작됩니다. 삼성전자 공식 홈페이지를 통해 가장 먼저 사전예약을 진행할 수 있으며, 이통사 3사(SKT, KT, LGU+)도 동시에 사전예약을
+                오픈합니다.</p>
+            <!-- /wp:paragraph -->
+            <!-- wp:paragraph -->
+            <p style="font-size:18px; line-height:1.9; color:#1a1a1a; margin:0 0 24px 0;">사전예약 고객에게는 <strong>갤럭시 버즈4
+                    프로</strong>가 무상 제공되며, 추가로 정품 케이스도 증정됩니다.</p>
+            <!-- /wp:paragraph -->
+
+            <!-- WordPress 테이블 -->
+            <!-- wp:table -->
+            <div
+                style="width:100%; overflow-x:auto; margin:30px 0; border-radius:14px; box-shadow:0 8px 30px rgba(0,0,0,0.12);">
+                <table
+                    style="width:100%; border-collapse:collapse; border-radius:14px; overflow:hidden; border:1px solid #e5e7eb; table-layout:auto;">
+                    <thead>
+                        <tr style="background:linear-gradient(135deg, #2d4a3e 0%, #3d6b5a 100%);">
+                            <th
+                                style="padding:20px 24px; border:none; color:#faf5eb; font-weight:900; font-size:19px; text-align:left;">
+                                구매 채널</th>
+                            <th
+                                style="padding:20px 24px; border:none; color:#faf5eb; font-weight:900; font-size:19px; text-align:left;">
+                                혜택</th>
+                            <th
+                                style="padding:20px 24px; border:none; color:#faf5eb; font-weight:900; font-size:19px; text-align:left;">
+                                가격</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background:#ffffff;">
+                            <td
+                                style="padding:18px 24px; border-bottom:2px solid #e5e7eb; font-size:18px; font-weight:600; color:#374151;">
+                                삼성닷컴</td>
+                            <td
+                                style="padding:18px 24px; border-bottom:2px solid #e5e7eb; font-size:18px; color:#1f2937;">
+                                버즈4 프로 + 10%</td>
+                            <td
+                                style="padding:18px 24px; border-bottom:2px solid #e5e7eb; font-size:18px; color:#1f2937;">
+                                1,199,000원~</td>
+                        </tr>
+                        <tr style="background:#f9fafb;">
+                            <td
+                                style="padding:18px 24px; border-bottom:2px solid #e5e7eb; font-size:18px; font-weight:600; color:#374151;">
+                                SKT</td>
+                            <td
+                                style="padding:18px 24px; border-bottom:2px solid #e5e7eb; font-size:18px; color:#1f2937;">
+                                공시지원금 30만원</td>
+                            <td
+                                style="padding:18px 24px; border-bottom:2px solid #e5e7eb; font-size:18px; color:#1f2937;">
+                                999,000원~</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <!-- /wp:table -->
+
+            <!-- WordPress CTA -->
+            <!-- wp:html -->
+            <div
+                style="margin:60px 0; padding:50px 40px; background:linear-gradient(135deg, #2d4a3e 0%, #3d6b5a 50%, #1a3a2a 100%); border-radius:30px; box-shadow:0 25px 60px rgba(45,74,62,0.35), 0 0 0 3px rgba(255,255,255,0.08); text-align:center; position:relative; overflow:hidden;">
+                <div
+                    style="position:absolute; top:0; left:0; width:100%; height:100%; background:radial-gradient(circle at 20% 80%, rgba(212,187,140,0.08) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(255,255,255,0.06) 0%, transparent 50%);">
+                </div>
+                <div
+                    style="position:absolute; top:20px; right:20px; background:rgba(212,187,140,0.9); color:#2d4a3e; padding:10px 20px; border-radius:25px; font-size:16px; font-weight:900; box-shadow:0 4px 15px rgba(0,0,0,0.15);">
+                    ⚡ 지금 확인하세요</div>
+                <p
+                    style="font-size:32px; font-weight:900; color:#faf5eb; margin-bottom:30px; line-height:1.3; position:relative; z-index:2; text-shadow:0 3px 10px rgba(0,0,0,0.3);">
+                    💡 갤럭시 S26 최저가를 확인하세요!</p>
+                <a href="https://www.samsung.com" class="cta-responsive-button"
+                    style="display:inline-block; padding:25px 60px; background:linear-gradient(45deg, #d4bb8c 0%, #c9a96e 100%); color:#1a3a2a; font-size:24px; font-weight:900; text-decoration:none; border-radius:50px; box-shadow:0 12px 35px rgba(212,187,140,0.5), inset 0 2px 0 rgba(255,255,255,0.3); position:relative; z-index:2; transition:all 0.3s ease;">삼성닷컴
+                    바로가기 📖</a>
+                <div
+                    style="margin-top:20px; font-size:18px; color:rgba(250,245,235,0.8); position:relative; z-index:2;">
+                    💪 지금이 바로 실행할 때입니다!</div>
+            </div>
+            <!-- /wp:html -->
+
+        </div>
+    </div>
+
+    <!-- 호환성 검사 결과 패널 -->
+    <div class="checker-results" id="checker-panel">
+        <h3>🔎 호환성 검사 결과</h3>
+        <div id="checker-output"></div>
+    </div>
+
+    <script>
+        // 모바일 토글
+        let isMobile = false;
+        function toggleMobile() {
+            isMobile = !isMobile;
+            document.querySelectorAll('.platform-section').forEach(el => {
+                el.style.maxWidth = isMobile ? '375px' : '780px';
+            });
+            document.getElementById('status-text').textContent = isMobile ? '📱 Mobile (375px)' : '🖥️ Desktop 모드';
+        }
+
+        // 스크롤 이동
+        function scrollTo(selector) {
+            document.querySelector(selector).scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // 호환성 자동 검사
+        function runChecker() {
+            const results = [];
+            const html = document.documentElement.innerHTML;
+
+            // 1. clamp() 검사
+            const clampMatches = html.match(/clamp\(/g);
+            if (clampMatches) {
+                results.push({ pass: false, msg: `❌ clamp() 발견: ${clampMatches.length}개 — 호환성 위험!` });
+            } else {
+                results.push({ pass: true, msg: '✅ clamp() 없음 — 크로스 브라우저 안전' });
+            }
+
+            // 2. onmouseover 검사
+            const mouseoverEls = document.querySelectorAll('[onmouseover]');
+            if (mouseoverEls.length > 0) {
+                results.push({ pass: false, msg: `❌ onmouseover 발견: ${mouseoverEls.length}개 — CSP 위반!` });
+            } else {
+                results.push({ pass: true, msg: '✅ onmouseover 없음 — CSP 호환' });
+            }
+
+            // 3. background-clip:text 검사
+            const clipTextMatch = html.match(/background-clip\s*:\s*text/g);
+            if (clipTextMatch) {
+                results.push({ pass: false, msg: `❌ background-clip:text 발견: ${clipTextMatch.length}개` });
+            } else {
+                results.push({ pass: true, msg: '✅ background-clip:text 없음 — 안전' });
+            }
+
+            // 4. ADSENSE 뱃지 검사
+            const badgeMatch = html.match(/ADSENSE\s*최적화/g);
+            if (badgeMatch) {
+                results.push({ pass: false, msg: `❌ "ADSENSE 최적화" 뱃지 발견!` });
+            } else {
+                results.push({ pass: true, msg: '✅ ADSENSE 뱃지 없음' });
+            }
+
+            // 5. H2 margin 검사 (64px)
+            const h2Divs = document.querySelectorAll('div[style*="margin:64px"]');
+            if (h2Divs.length > 0) {
+                results.push({ pass: true, msg: `✅ H2 margin 64px 적용됨 (${h2Divs.length}개)` });
+            } else {
+                results.push({ pass: false, msg: '❌ H2 margin 64px 미적용' });
+            }
+
+            // 6. CTA hover 검사
+            const ctaButtons = document.querySelectorAll('.cta-responsive-button');
+            if (ctaButtons.length > 0) {
+                results.push({ pass: true, msg: `✅ CTA 버튼 CSS 클래스 적용 (${ctaButtons.length}개)` });
+            } else {
+                results.push({ pass: false, msg: '❌ CTA 버튼 클래스 미적용' });
+            }
+
+            // 7. TOC hover 검사
+            const tocItems = document.querySelectorAll('.toc-nav-item');
+            if (tocItems.length > 0) {
+                results.push({ pass: true, msg: `✅ TOC 내비게이션 CSS 클래스 적용 (${tocItems.length}개)` });
+            } else {
+                results.push({ pass: false, msg: '❌ TOC 내비게이션 클래스 미적용' });
+            }
+
+            // 8. section-divider 검사
+            const dividers = document.querySelectorAll('.section-divider');
+            if (dividers.length > 0) {
+                results.push({ pass: true, msg: `✅ 섹션 디바이더 적용 (${dividers.length}개)` });
+            } else {
+                results.push({ pass: false, msg: '❌ 섹션 디바이더 미적용' });
+            }
+
+            // 9. 읽기 시간 검사
+            const readingTime = document.querySelectorAll('.reading-time');
+            if (readingTime.length > 0) {
+                results.push({ pass: true, msg: '✅ 읽기 시간 표시 적용' });
+            } else {
+                results.push({ pass: false, msg: '❌ 읽기 시간 표시 미적용' });
+            }
+
+            // 10. Schema.org microdata 검사
+            const microdata = document.querySelector('[itemscope][itemtype*="schema.org"]');
+            if (microdata) {
+                results.push({ pass: true, msg: '✅ Schema.org microdata 적용' });
+            } else {
+                results.push({ pass: false, msg: '❌ Schema.org microdata 미적용' });
+            }
+
+            // 결과 출력
+            const output = document.getElementById('checker-output');
+            const passCount = results.filter(r => r.pass).length;
+            const totalCount = results.length;
+            const score = Math.round((passCount / totalCount) * 100);
+
+            output.innerHTML = `<div style="font-size:24px; font-weight:900; margin-bottom:12px; color:${score >= 90 ? '#10b981' : score >= 70 ? '#f59e0b' : '#ef4444'};">${score}/100</div>`;
+            output.innerHTML += results.map(r =>
+                `<div class="check-item ${r.pass ? 'check-pass' : 'check-fail'}">${r.msg}</div>`
+            ).join('');
+
+            document.getElementById('checker-panel').classList.add('visible');
+        }
+
+        // 페이지 로드 시 자동 검사
+        window.addEventListener('load', () => {
+            setTimeout(runChecker, 500);
+        });
+    </script>
+
+</body>
+
+</html>

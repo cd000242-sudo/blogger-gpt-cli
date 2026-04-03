@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>워드프레스 발행 스킨 미리보기</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        .preview-header {
+            text-align: center;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: #1e293b;
+            color: white;
+            border-radius: 12px;
+        }
+
+        .preview-header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+
+        .preview-header p {
+            margin: 8px 0 0;
+            opacity: 0.7;
+            font-size: 14px;
+        }
+
+        .preview-container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            padding: 30px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="preview-header">
+        <h1>📋 워드프레스 발행 스킨 미리보기</h1>
+        <p>generateCSSFinal() + generateUltimateMaxModeArticleFinal() 실제 출력 결과</p>
+    </div>
+
+    <div class="preview-container">
+
+        <!-- ========== generateCSSFinal() CSS 시작 ========== -->
+        <style>
+            /* 🎨 밝고 화사한 프리미엄 스킨 */
+            .bgpt-content {
+                width: 100%;
+                max-width: none;
+                margin: 0;
+                padding: 0;
+                font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+                color: #1e293b;
+                line-height: 2;
+                background: #ffffff;
+            }
+
+            /* 🖼️ 썸네일 박스 - 부드러운 그레이 */
+            .bgpt-thumbnail-box {
+                background: #f8fafc;
+                border-radius: 20px;
+                padding: 20px;
+                margin: 32px 0;
+                border: 1px solid #f1f5f9;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+            }
+
+            .bgpt-thumbnail-box img {
+                width: 100%;
+                height: auto;
+                border-radius: 12px;
+            }
+
+            /* H1 - 세련된 다크 그레이 */
+            .bgpt-content .h1 {
+                font-size: clamp(26px, 5.5vw, 36px);
+                font-weight: 800;
+                margin: 1.5em 0 1.2em;
+                padding: 1.4em 1.2em;
+                background: #f8fafc;
+                color: #0f172a;
+                border-radius: 24px;
+                text-align: center;
+                border: 1px solid #f1f5f9;
+                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.04);
+            }
+
+            /* 목차 - 깔끔한 파스텔 블루 */
+            .bgpt-content .toc {
+                margin: 2em 0;
+                padding: 2em;
+                background: #f0f9ff;
+                border-radius: 16px;
+                border: 1px solid #e0f2fe;
+            }
+
+            .bgpt-content .toc h3 {
+                font-size: 1.25em;
+                margin-bottom: 1.2em;
+                color: #0369a1;
+                font-weight: 700;
+            }
+
+            .bgpt-content .toc a {
+                display: block;
+                padding: 10px 16px;
+                margin: 8px 0;
+                background: #ffffff;
+                border-radius: 8px;
+                text-decoration: none;
+                color: #0c4a6e;
+                font-weight: 600;
+                transition: all 0.2s ease;
+                border: 1px solid #f1f5f9;
+            }
+
+            .bgpt-content .toc a:hover {
+                background: #0284c7;
+                color: white;
+                transform: translateX(4px);
+            }
+
+            /* H2 - 세련된 에메랄드/민트 포인트 */
+            .bgpt-content h2 {
+                font-size: clamp(24px, 5vw, 30px);
+                font-weight: 800;
+                margin: 2.5em 0 1.2em;
+                padding: 20px 24px;
+                background: #f0fdfa;
+                color: #065f46;
+                border-radius: 0 20px 20px 0;
+                border-left: 8px solid #0d9488;
+                letter-spacing: -0.02em;
+            }
+
+            /* H3 - 차분한 블루 그레이 */
+            .bgpt-content h3 {
+                font-size: clamp(20px, 4.5vw, 24px);
+                font-weight: 700;
+                margin: 2em 0 1em;
+                padding: 16px 20px;
+                background: #f8fafc;
+                color: #1e293b;
+                border-radius: 12px;
+                border-left: 5px solid #0284c7;
+            }
+
+            /* 본문 */
+            .bgpt-content .content p {
+                font-size: clamp(17px, 4vw, 19px);
+                line-height: 2.1;
+                margin-bottom: 24px;
+                word-break: keep-all;
+                color: #1e293b;
+            }
+
+            /* 섹션 이미지 - 밝은 그림자 */
+            .bgpt-content .section-image {
+                margin: 1.5em 0 2em;
+            }
+
+            .bgpt-content .section-image img {
+                width: 100%;
+                height: auto;
+                border-radius: 16px;
+                box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+                border: 3px solid #f1f5f9;
+            }
+
+            /* 표 - 밝고 눈에 띄는 스타일 */
+            .bgpt-content .table {
+                width: 100%;
+                margin: 2em 0;
+                border-collapse: collapse;
+                border-radius: 16px;
+                overflow: hidden;
+                box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+                font-size: clamp(14px, 3.5vw, 16px);
+                border: 2px solid #e5e7eb;
+            }
+
+            .bgpt-content .table th {
+                background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+                color: white;
+                padding: 1em 1.2em;
+                font-weight: 700;
+                text-align: left;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+            }
+
+            .bgpt-content .table td {
+                padding: 1em 1.2em;
+                border-bottom: 1px solid #e5e7eb;
+                background: #ffffff;
+            }
+
+            .bgpt-content .table tr:nth-child(even) td {
+                background: #f8fafc;
+            }
+
+            .bgpt-content .table tr:hover td {
+                background: #fef3c7;
+            }
+
+            /* 💡 CTA 네이티브 블로그 스타일 */
+            .bgpt-content .cta-native {
+                margin: 2em 0;
+                padding: 24px 28px;
+                background: #f0f9ff;
+                border-left: 4px solid #2563eb;
+                border-radius: 0 16px 16px 0;
+            }
+
+            .bgpt-content .cta-native p {
+                font-size: 17px;
+                font-weight: 700;
+                color: #1e293b;
+                margin: 0 0 12px 0;
+                line-height: 1.6;
+                word-break: keep-all;
+            }
+
+            .bgpt-content .cta-native a {
+                display: inline-block;
+                padding: 12px 32px;
+                background: #2563eb;
+                color: #ffffff;
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: 700;
+                font-size: 15px;
+                letter-spacing: 0.2px;
+                box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+                transition: background 0.2s ease;
+            }
+
+            .bgpt-content .cta-native a:hover {
+                background: #1d4ed8;
+            }
+
+            /* 요약표 */
+            .bgpt-content .summary {
+                margin: 2em 0;
+                padding: 1.2em;
+                background: rgba(0, 0, 0, 0.02);
+                border-radius: 8px;
+                border: 1px solid rgba(0, 0, 0, 0.08);
+            }
+
+            .bgpt-content .summary h3 {
+                font-size: 1.2em;
+                margin-bottom: 1em;
+            }
+
+            /* 면책 */
+            .bgpt-content .disclaimer {
+                margin: 2em 0;
+                padding: 1em 1.2em;
+                background: #fef3c7;
+                border-left: 4px solid #f59e0b;
+                border-radius: 6px;
+                font-size: 0.9em;
+                color: #92400e;
+            }
+
+            /* 📱 모바일 최적화 */
+            @media (max-width: 768px) {
+                .bgpt-content .h1 {
+                    margin: 1em 0 0.8em;
+                }
+
+                .bgpt-content h2 {
+                    margin: 1.5em 0 0.8em;
+                }
+
+                .bgpt-content h3 {
+                    margin: 1.2em 0 0.6em;
+                }
+
+                .bgpt-content .content p {
+                    margin-bottom: 1em;
+                }
+
+                .bgpt-content .table {
+                    display: block;
+                    overflow-x: auto;
+                }
+
+                .bgpt-content .cta-box {
+                    padding: 1em 1.2em;
+                }
+            }
+        </style>
+        <!-- ========== generateCSSFinal() CSS 끝 ========== -->
+
+        <!-- ========== 실제 HTML 구조 시작 ========== -->
+        <div class="bgpt-content">
+
+            <!-- 썸네일 -->
+            <div class="bgpt-thumbnail-box">
+                <img src="https://placehold.co/1200x630/3B82F6/FFFFFF?text=Thumbnail+%2F+%EC%8D%B8%EB%84%A4%EC%9D%BC"
+                    alt="썸네일">
+            </div>
+
+            <!-- H1 타이틀 -->
+            <div class="h1">2026년 최신 워드프레스 블로그 SEO 최적화 완벽 가이드</div>
+
+            <!-- 목차 (워드프레스용) -->
+            <div class="toc">
+                <h3>📋 목차</h3>
+                <a href="#section-0">1. 워드프레스 SEO 기본 설정 방법</a>
+                <a href="#section-1">2. 키워드 연구와 콘텐츠 전략</a>
+                <a href="#section-2">3. 페이지 속도 최적화 핵심 기법</a>
+                <a href="#section-3">4. 백링크 구축 실전 전략</a>
+            </div>
+
+            <!-- ===== H2 섹션 1 ===== -->
+            <div class="bgpt-section-card"
+                style="background:#ffffff !important;border-radius:20px !important;box-shadow:0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04) !important;margin:2em 0 !important;padding:0 !important;overflow:hidden !important;border:1px solid #f1f5f9 !important;">
+
+                <h2 id="section-0"
+                    style="font-size:24px !important;font-weight:800 !important;margin:0 !important;padding:1.2em 1.5em !important;background:linear-gradient(135deg, #fef2f2 0%, #fff1f2 100%) !important;color:#111827 !important;-webkit-text-fill-color:#111827 !important;border-radius:20px 20px 0 0 !important;display:block !important;letter-spacing:-0.02em !important;border-left:6px solid #dc2626 !important;border-top:none !important;border-right:none !important;border-bottom:1px solid #fee2e2 !important;">
+                    📌 1. 워드프레스 SEO 기본 설정 방법</h2>
+
+                <div style="padding:0 1.5em 1.5em 1.5em !important;">
+
+                    <!-- 섹션 이미지 -->
+                    <figure class="section-image" style="margin: 24px 0;">
+                        <img src="https://placehold.co/900x500/10B981/FFFFFF?text=Section+Image+1" alt="워드프레스 SEO 기본 설정"
+                            title="워드프레스 SEO 기본 설정"
+                            style="width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);"
+                            loading="lazy" />
+                        <figcaption
+                            style="text-align: center; font-size: 14px; color: #374151; margin-top: 12px; font-weight: 600;">
+                            📌 워드프레스 SEO 기본 설정 방법</figcaption>
+                    </figure>
+
+                    <h3
+                        style="font-size:20px !important;font-weight:700 !important;margin:2em 0 1em !important;padding:0.9em 1.2em !important;background:linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%) !important;color:#1f2937 !important;-webkit-text-fill-color:#1f2937 !important;border-radius:10px !important;box-shadow:0 2px 6px rgba(59,130,246,0.08) !important;display:block !important;border-left:5px solid #3b82f6 !important;border-top:none !important;border-right:none !important;border-bottom:none !important;">
+                        ✅ 1-1. 퍼머링크 구조 최적화</h3>
+                    <div class="content"
+                        style="margin:1.2em 0 !important;padding:20px 24px !important;background:#ffffff !important;border-left:4px solid #10b981 !important;border-radius:12px !important;box-shadow:0 2px 12px rgba(16,185,129,0.08) !important;border:1px solid #d1fae5 !important;border-left:4px solid #10b981 !important;">
+                        <p>워드프레스 SEO의 가장 기본적인 설정은 <strong>퍼머링크(Permalink) 구조</strong>를 올바르게 설정하는 것입니다. 구글과 네이버 모두 URL에
+                            포함된 키워드를 중요한 랭킹 시그널로 활용합니다.</p>
+                        <p>설정 → 고유주소에서 <strong>"글 이름"</strong> 옵션을 선택하면, URL이 <code>/slug-name/</code> 형태로 깔끔하게 생성됩니다.
+                            이는 검색엔진이 페이지 내용을 빠르게 파악하는 데 큰 도움이 됩니다.</p>
+                    </div>
+
+                    <h3
+                        style="font-size:20px !important;font-weight:700 !important;margin:2em 0 1em !important;padding:0.9em 1.2em !important;background:linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%) !important;color:#1f2937 !important;-webkit-text-fill-color:#1f2937 !important;border-radius:10px !important;box-shadow:0 2px 6px rgba(59,130,246,0.08) !important;display:block !important;border-left:5px solid #3b82f6 !important;border-top:none !important;border-right:none !important;border-bottom:none !important;">
+                        ✅ 1-2. 메타 태그와 스키마 마크업 설정</h3>
+                    <div class="content"
+                        style="margin:1.2em 0 !important;padding:20px 24px !important;background:#ffffff !important;border-left:4px solid #10b981 !important;border-radius:12px !important;box-shadow:0 2px 12px rgba(16,185,129,0.08) !important;border:1px solid #d1fae5 !important;border-left:4px solid #10b981 !important;">
+                        <p>메타 태그는 검색 결과에서 사용자가 처음 보게 되는 요소입니다. <strong>Yoast SEO</strong>나 <strong>Rank Math</strong>
+                            플러그인을 활용하면 각 페이지별로 최적화된 메타 타이틀과 디스크립션을 설정할 수 있습니다.</p>
+                        <p>특히 구조화 데이터(Schema Markup)를 추가하면 <strong>리치 스니펫</strong>으로 표시되어 클릭률(CTR)이 최대 30%까지 향상될 수 있습니다.
+                        </p>
+                    </div>
+
+                    <!-- 표 -->
+                    <div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:1.5em 0;">
+                        <table
+                            style="width:100%;min-width:500px;border-collapse:collapse;border-radius:12px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,0.08);font-size:15px;">
+                            <thead>
+                                <tr>
+                                    <th
+                                        style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;padding:14px 16px;font-weight:700;text-align:left;white-space:nowrap;">
+                                        설정 항목</th>
+                                    <th
+                                        style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;padding:14px 16px;font-weight:700;text-align:left;white-space:nowrap;">
+                                        권장값</th>
+                                    <th
+                                        style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;padding:14px 16px;font-weight:700;text-align:left;white-space:nowrap;">
+                                        효과</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td
+                                        style="padding:12px 16px;border-bottom:1px solid #e5e7eb;background:#fff;color:#374151;">
+                                        퍼머링크</td>
+                                    <td
+                                        style="padding:12px 16px;border-bottom:1px solid #e5e7eb;background:#fff;color:#374151;">
+                                        글 이름</td>
+                                    <td
+                                        style="padding:12px 16px;border-bottom:1px solid #e5e7eb;background:#fff;color:#374151;">
+                                        URL 가독성 향상</td>
+                                </tr>
+                                <tr>
+                                    <td
+                                        style="padding:12px 16px;border-bottom:1px solid #e5e7eb;background:#f8fafc;color:#374151;">
+                                        메타 타이틀</td>
+                                    <td
+                                        style="padding:12px 16px;border-bottom:1px solid #e5e7eb;background:#f8fafc;color:#374151;">
+                                        60자 이내</td>
+                                    <td
+                                        style="padding:12px 16px;border-bottom:1px solid #e5e7eb;background:#f8fafc;color:#374151;">
+                                        CTR 15% 증가</td>
+                                </tr>
+                                <tr>
+                                    <td
+                                        style="padding:12px 16px;border-bottom:1px solid #e5e7eb;background:#fff;color:#374151;">
+                                        스키마 마크업</td>
+                                    <td
+                                        style="padding:12px 16px;border-bottom:1px solid #e5e7eb;background:#fff;color:#374151;">
+                                        Article + FAQ</td>
+                                    <td
+                                        style="padding:12px 16px;border-bottom:1px solid #e5e7eb;background:#fff;color:#374151;">
+                                        리치 스니펫 획득</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                </div><!-- /card-padding -->
+            </div><!-- /bgpt-section-card -->
+
+            <!-- CTA (카드 바깥) -->
+            <div
+                style="margin:2em 0 !important;padding:24px 28px !important;background:#f0f9ff !important;border-left:4px solid #2563eb !important;border-radius:0 16px 16px 0 !important;box-sizing:border-box !important;">
+                <p
+                    style="font-size:17px !important;font-weight:700 !important;color:#1e293b !important;-webkit-text-fill-color:#1e293b !important;margin:0 0 12px 0 !important;line-height:1.6 !important;word-break:keep-all !important;">
+                    💡 워드프레스 SEO 플러그인 중 가장 인기 있는 Rank Math를 무료로 사용해보세요.</p>
+                <a href="https://rankmath.com" target="_blank" rel="nofollow noopener noreferrer"
+                    style="display:inline-block !important;padding:12px 32px !important;background:#2563eb !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;text-decoration:none !important;border-radius:8px !important;font-weight:700 !important;font-size:15px !important;letter-spacing:0.2px !important;box-shadow:0 2px 8px rgba(37,99,235,0.25) !important;transition:background 0.2s ease !important;">👉
+                    Rank Math 무료 다운로드</a>
+            </div>
+
+            <!-- 섹션 간 광고 슬롯 -->
+            <div style="margin:1.5em 0 !important;clear:both !important;"></div>
+
+            <!-- ===== H2 섹션 2 ===== -->
+            <div class="bgpt-section-card"
+                style="background:#ffffff !important;border-radius:20px !important;box-shadow:0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04) !important;margin:2em 0 !important;padding:0 !important;overflow:hidden !important;border:1px solid #f1f5f9 !important;">
+
+                <h2 id="section-1"
+                    style="font-size:24px !important;font-weight:800 !important;margin:0 !important;padding:1.2em 1.5em !important;background:linear-gradient(135deg, #fef2f2 0%, #fff1f2 100%) !important;color:#111827 !important;-webkit-text-fill-color:#111827 !important;border-radius:20px 20px 0 0 !important;display:block !important;letter-spacing:-0.02em !important;border-left:6px solid #dc2626 !important;border-top:none !important;border-right:none !important;border-bottom:1px solid #fee2e2 !important;">
+                    📌 2. 키워드 연구와 콘텐츠 전략</h2>
+
+                <div style="padding:0 1.5em 1.5em 1.5em !important;">
+
+                    <figure class="section-image" style="margin: 24px 0;">
+                        <img src="https://placehold.co/900x500/8B5CF6/FFFFFF?text=Section+Image+2" alt="키워드 연구"
+                            title="키워드 연구"
+                            style="width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);"
+                            loading="lazy" />
+                        <figcaption
+                            style="text-align: center; font-size: 14px; color: #374151; margin-top: 12px; font-weight: 600;">
+                            📌 키워드 연구와 콘텐츠 전략</figcaption>
+                    </figure>
+
+                    <h3
+                        style="font-size:20px !important;font-weight:700 !important;margin:2em 0 1em !important;padding:0.9em 1.2em !important;background:linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%) !important;color:#1f2937 !important;-webkit-text-fill-color:#1f2937 !important;border-radius:10px !important;box-shadow:0 2px 6px rgba(59,130,246,0.08) !important;display:block !important;border-left:5px solid #3b82f6 !important;border-top:none !important;border-right:none !important;border-bottom:none !important;">
+                        ✅ 2-1. 롱테일 키워드 발굴법</h3>
+                    <div class="content"
+                        style="margin:1.2em 0 !important;padding:20px 24px !important;background:#ffffff !important;border-left:4px solid #10b981 !important;border-radius:12px !important;box-shadow:0 2px 12px rgba(16,185,129,0.08) !important;border:1px solid #d1fae5 !important;border-left:4px solid #10b981 !important;">
+                        <p>효과적인 SEO 전략의 핵심은 <strong>롱테일 키워드</strong>를 발굴하는 것입니다. 경쟁이 적고 전환율이 높은 3~5단어 조합의 키워드를 찾아 콘텐츠를
+                            작성하면 빠르게 상위 노출될 수 있습니다.</p>
+                        <p>구글 키워드 플래너, Ubersuggest, Ahrefs 등의 도구를 활용하여 <strong>월 검색량 100~1,000건</strong> 사이의 키워드를 타겟팅하는
+                            것이 가장 효율적입니다. 특히 <em>"~하는 방법"</em>, <em>"~추천"</em>, <em>"~비교"</em> 같은 검색 의도가 명확한 키워드가 좋습니다.
+                        </p>
+                    </div>
+
+                </div><!-- /card-padding -->
+            </div><!-- /bgpt-section-card -->
+
+            <div style="margin:1.5em 0 !important;clear:both !important;"></div>
+
+            <!-- ===== H2 섹션 3 ===== -->
+            <div class="bgpt-section-card"
+                style="background:#ffffff !important;border-radius:20px !important;box-shadow:0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04) !important;margin:2em 0 !important;padding:0 !important;overflow:hidden !important;border:1px solid #f1f5f9 !important;">
+
+                <h2 id="section-2"
+                    style="font-size:24px !important;font-weight:800 !important;margin:0 !important;padding:1.2em 1.5em !important;background:linear-gradient(135deg, #fef2f2 0%, #fff1f2 100%) !important;color:#111827 !important;-webkit-text-fill-color:#111827 !important;border-radius:20px 20px 0 0 !important;display:block !important;letter-spacing:-0.02em !important;border-left:6px solid #dc2626 !important;border-top:none !important;border-right:none !important;border-bottom:1px solid #fee2e2 !important;">
+                    📌 3. 페이지 속도 최적화 핵심 기법</h2>
+
+                <div style="padding:0 1.5em 1.5em 1.5em !important;">
+
+                    <figure class="section-image" style="margin: 24px 0;">
+                        <img src="https://placehold.co/900x500/F59E0B/FFFFFF?text=Section+Image+3" alt="페이지 속도"
+                            title="페이지 속도"
+                            style="width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);"
+                            loading="lazy" />
+                        <figcaption
+                            style="text-align: center; font-size: 14px; color: #374151; margin-top: 12px; font-weight: 600;">
+                            📌 페이지 속도 최적화 핵심 기법</figcaption>
+                    </figure>
+
+                    <h3
+                        style="font-size:20px !important;font-weight:700 !important;margin:2em 0 1em !important;padding:0.9em 1.2em !important;background:linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%) !important;color:#1f2937 !important;-webkit-text-fill-color:#1f2937 !important;border-radius:10px !important;box-shadow:0 2px 6px rgba(59,130,246,0.08) !important;display:block !important;border-left:5px solid #3b82f6 !important;border-top:none !important;border-right:none !important;border-bottom:none !important;">
+                        ✅ 3-1. Core Web Vitals 완벽 대응</h3>
+                    <div class="content"
+                        style="margin:1.2em 0 !important;padding:20px 24px !important;background:#ffffff !important;border-left:4px solid #10b981 !important;border-radius:12px !important;box-shadow:0 2px 12px rgba(16,185,129,0.08) !important;border:1px solid #d1fae5 !important;border-left:4px solid #10b981 !important;">
+                        <p>구글은 2021년부터 <strong>Core Web Vitals</strong>를 공식 랭킹 팩터로 채택했습니다. LCP(Largest Contentful Paint)
+                            2.5초 이내, FID(First Input Delay) 100ms 이내, CLS(Cumulative Layout Shift) 0.1 이하를 목표로 최적화해야
+                            합니다.</p>
+                        <p>WP Rocket, Autoptimize, ShortPixel 같은 플러그인을 조합하면 대부분의 워드프레스 사이트에서 <strong>PageSpeed Insights
+                                90점 이상</strong>을 달성할 수 있습니다.</p>
+                    </div>
+
+                </div><!-- /card-padding -->
+            </div><!-- /bgpt-section-card -->
+
+            <!-- CTA -->
+            <div
+                style="margin:2em 0 !important;padding:24px 28px !important;background:#f0f9ff !important;border-left:4px solid #2563eb !important;border-radius:0 16px 16px 0 !important;box-sizing:border-box !important;">
+                <p
+                    style="font-size:17px !important;font-weight:700 !important;color:#1e293b !important;margin:0 0 12px 0 !important;line-height:1.6 !important;word-break:keep-all !important;">
+                    💡 워드프레스 속도 최적화의 핵심! WP Rocket으로 3초 안에 로딩되는 블로그를 만들어보세요.</p>
+                <a href="https://wp-rocket.me" target="_blank" rel="nofollow noopener noreferrer"
+                    style="display:inline-block !important;padding:12px 32px !important;background:#2563eb !important;color:#ffffff !important;text-decoration:none !important;border-radius:8px !important;font-weight:700 !important;font-size:15px !important;letter-spacing:0.2px !important;box-shadow:0 2px 8px rgba(37,99,235,0.25) !important;">👉
+                    WP Rocket 알아보기</a>
+            </div>
+
+            <div style="margin:1.5em 0 !important;clear:both !important;"></div>
+
+            <!-- 요약표 -->
+            <div
+                style="margin: 2em 0 !important; padding: 1.2em !important; background: rgba(0,0,0,0.02) !important; border-radius: 8px !important; border: 1px solid rgba(0,0,0,0.08) !important; display: block !important; visibility: visible !important;">
+                <h3
+                    style="font-size: 1.2em !important; margin-bottom: 1em !important; color: #1e293b !important; display: block !important; visibility: visible !important;">
+                    📊 전체 핵심 요약</h3>
+                <div
+                    style="overflow-x: auto !important; -webkit-overflow-scrolling: touch !important; width: 100% !important;">
+                    <table
+                        style="display: table !important; visibility: visible !important; width: 100% !important; min-width: 500px !important; border-collapse: collapse !important; border: 1px solid #cbd5e1 !important;">
+                        <thead>
+                            <tr>
+                                <th
+                                    style="color: #f8fafc !important; padding: 12px 14px !important; background: #1e293b !important; font-weight: 600 !important; text-align: left !important; font-size: 13px !important; border: 1px solid #334155 !important;">
+                                    항목</th>
+                                <th
+                                    style="color: #f8fafc !important; padding: 12px 14px !important; background: #1e293b !important; font-weight: 600 !important; text-align: left !important; font-size: 13px !important; border: 1px solid #334155 !important;">
+                                    핵심 내용</th>
+                                <th
+                                    style="color: #f8fafc !important; padding: 12px 14px !important; background: #1e293b !important; font-weight: 600 !important; text-align: left !important; font-size: 13px !important; border: 1px solid #334155 !important;">
+                                    기대 효과</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td
+                                    style="color: #475569 !important; padding: 11px 14px !important; background: #ffffff !important; border: 1px solid #e2e8f0 !important; font-size: 14px !important;">
+                                    SEO 기본 설정</td>
+                                <td
+                                    style="color: #475569 !important; padding: 11px 14px !important; background: #ffffff !important; border: 1px solid #e2e8f0 !important; font-size: 14px !important;">
+                                    퍼머링크 + 메타태그 + 스키마</td>
+                                <td
+                                    style="color: #475569 !important; padding: 11px 14px !important; background: #ffffff !important; border: 1px solid #e2e8f0 !important; font-size: 14px !important;">
+                                    검색 노출 30% 향상</td>
+                            </tr>
+                            <tr>
+                                <td
+                                    style="color: #475569 !important; padding: 11px 14px !important; background: #ffffff !important; border: 1px solid #e2e8f0 !important; font-size: 14px !important;">
+                                    키워드 전략</td>
+                                <td
+                                    style="color: #475569 !important; padding: 11px 14px !important; background: #ffffff !important; border: 1px solid #e2e8f0 !important; font-size: 14px !important;">
+                                    롱테일 키워드 100~1000건 타겟</td>
+                                <td
+                                    style="color: #475569 !important; padding: 11px 14px !important; background: #ffffff !important; border: 1px solid #e2e8f0 !important; font-size: 14px !important;">
+                                    빠른 상위 노출</td>
+                            </tr>
+                            <tr>
+                                <td
+                                    style="color: #475569 !important; padding: 11px 14px !important; background: #ffffff !important; border: 1px solid #e2e8f0 !important; font-size: 14px !important;">
+                                    속도 최적화</td>
+                                <td
+                                    style="color: #475569 !important; padding: 11px 14px !important; background: #ffffff !important; border: 1px solid #e2e8f0 !important; font-size: 14px !important;">
+                                    Core Web Vitals 통과</td>
+                                <td
+                                    style="color: #475569 !important; padding: 11px 14px !important; background: #ffffff !important; border: 1px solid #e2e8f0 !important; font-size: 14px !important;">
+                                    PageSpeed 90+</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 면책 -->
+            <div
+                style="margin: 2em 0 !important; padding: 1em 1.2em !important; background: #fef3c7 !important; border-left: 4px solid #f59e0b !important; border-radius: 6px !important; display: block !important; visibility: visible !important;">
+                <p
+                    style="font-size: 0.9em !important; color: #92400e !important; margin: 0 !important; line-height: 1.7 !important; display: block !important; visibility: visible !important;">
+                    <strong style="color: #92400e !important;">면책 조항:</strong> 본 글은 정보 제공 목적으로 작성되었으며, 전문적인 조언을 대체하지
+                    않습니다. 실제 적용 시 관련 전문가와 상담하시기 바랍니다.</p>
+            </div>
+
+            <!-- 공유 버튼 -->
+            <div style="margin:2.5em 0;text-align:center;">
+                <p style="font-size:16px;font-weight:700;color:#374151;margin-bottom:16px;">📢 이 글이 도움이 되셨나요? 공유해주세요!
+                </p>
+                <div style="display:flex;justify-content:center;gap:16px;flex-wrap:wrap;">
+                    <a href="#"
+                        style="display:inline-flex;align-items:center;gap:8px;padding:14px 28px;background:linear-gradient(135deg,#000000,#333333);color:#fff;text-decoration:none;border-radius:12px;font-weight:700;font-size:15px;box-shadow:0 4px 15px rgba(0,0,0,0.2);transition:transform 0.2s;">
+                        <span style="font-size:20px;">🧵</span> Threads
+                    </a>
+                    <a href="#"
+                        style="display:inline-flex;align-items:center;gap:8px;padding:14px 28px;background:linear-gradient(135deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff;text-decoration:none;border-radius:12px;font-weight:700;font-size:15px;box-shadow:0 4px 15px rgba(225,48,108,0.3);transition:transform 0.2s;">
+                        <span style="font-size:20px;">📷</span> Instagram
+                    </a>
+                </div>
+            </div>
+
+        </div><!-- /bgpt-content -->
+
+    </div><!-- /preview-container -->
+
+</body>
+
+</html>

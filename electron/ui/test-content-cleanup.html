@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com data:; connect-src 'self' https:; img-src 'self' data: blob: https:;">
+  <title>콘텐츠 정리 테스트 샌드박스</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .test-section {
+      background: white;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .test-input {
+      width: 100%;
+      min-height: 200px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .test-output {
+      width: 100%;
+      min-height: 200px;
+      padding: 10px;
+      border: 1px solid #4CAF50;
+      border-radius: 4px;
+      background: #f9f9f9;
+      font-family: monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+    button {
+      padding: 10px 20px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 5px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    .status {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+    }
+    .status.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .status.info {
+      background: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 콘텐츠 정리 테스트 샌드박스</h1>
+  
+  <div class="test-section">
+    <h2>테스트 HTML 입력</h2>
+    <textarea id="testInput" class="test-input" placeholder="테스트할 HTML을 입력하세요...">
+<h2>2026년, 미리보는 연말정산 핵심 사항</h2>
+<p>2026년, 연말정산의 계절이 다가오기 전에 미리 준비하는 것은 현명한 선택입니다.</p>
+<div style="margin:10px 0 0 0; display:flex; gap:12px;">
+  <a href="#prev">← 이전</a>
+  <span style="color:#9ca3af;">|</span>
+  <a href="#next">다음 →</a>
+</div>
+<div id="part-1" style="margin:24px 0 8px 0; font-weight:800; color:#111827;">Part 1</div>
+<h2>2026년, 미리보는 연말정산 핵심 사항</h2>
+<p>2026년, 연말정산의 계절이 다가오기 전에 미리 준비하는 것은 현명한 선택입니다.</p>
+<div style="text-align:center; margin:16px 0;">
+  <a href="#part-2" style="color:#2563eb; text-decoration:none; font-weight:700;">다음 파트로 이동 →</a>
+</div>
+<hr style="border:none; border-top:1px solid #e5e7eb; margin:24px 0;">
+<div id="part-2" style="margin:24px 0 8px 0; font-weight:800; color:#111827;">Part 2</div>
+<h2>2026년 연말정산, 달라지는 공제 항목은?</h2>
+<p>2026년 연말정산에서는 몇 가지 중요한 공제 항목에 변화가 예상됩니다.</p>
+<div style="margin:10px 0 0 0;">
+  <a href="#checklist" style="color:#065f46; text-decoration:none; font-weight:700;">체크리스트로 이동</a>
+</div>
+<div style="text-align:center; margin:28px 0 0 0;">
+  <a href="#checklist" style="color:#065f46; text-decoration:none; font-weight:700;">체크리스트로 이동</a>
+</div>
+    </textarea>
+    <button onclick="testCleanup()">🧹 정리 테스트 실행</button>
+    <button onclick="loadSample()">📋 샘플 HTML 로드</button>
+  </div>
+  
+  <div class="test-section">
+    <h2>정리 결과</h2>
+    <div id="status"></div>
+    <textarea id="testOutput" class="test-output" readonly></textarea>
+    <div id="stats" style="margin-top: 10px;"></div>
+  </div>
+  
+  <div class="test-section">
+    <h2>제거된 요소 목록</h2>
+    <div id="removedItems"></div>
+  </div>
+
+  <script>
+    function loadSample() {
+      const sample = `<h2>2026년, 미리보는 연말정산 핵심 사항</h2>
+<p>2026년, 연말정산의 계절이 다가오기 전에 미리 준비하는 것은 현명한 선택입니다.</p>
+<div style="margin:10px 0 0 0; display:flex; gap:12px;">
+  <a href="#prev">← 이전</a>
+  <span style="color:#9ca3af;">|</span>
+  <a href="#next">다음 →</a>
+</div>
+<div id="part-1" style="margin:24px 0 8px 0; font-weight:800; color:#111827;">Part 1</div>
+<h2>2026년, 미리보는 연말정산 핵심 사항</h2>
+<p>2026년, 연말정산의 계절이 다가오기 전에 미리 준비하는 것은 현명한 선택입니다.</p>
+<div style="text-align:center; margin:16px 0;">
+  <a href="#part-2" style="color:#2563eb; text-decoration:none; font-weight:700;">다음 파트로 이동 →</a>
+</div>
+<hr style="border:none; border-top:1px solid #e5e7eb; margin:24px 0;">
+<div id="part-2" style="margin:24px 0 8px 0; font-weight:800; color:#111827;">Part 2</div>
+<h2>2026년 연말정산, 달라지는 공제 항목은?</h2>
+<p>2026년 연말정산에서는 몇 가지 중요한 공제 항목에 변화가 예상됩니다.</p>
+<div style="margin:10px 0 0 0;">
+  <a href="#checklist" style="color:#065f46; text-decoration:none; font-weight:700;">체크리스트로 이동</a>
+</div>
+<div style="text-align:center; margin:28px 0 0 0;">
+  <a href="#checklist" style="color:#065f46; text-decoration:none; font-weight:700;">체크리스트로 이동</a>
+</div>`;
+      document.getElementById('testInput').value = sample;
+    }
+
+    function testCleanup() {
+      const input = document.getElementById('testInput').value;
+      const statusDiv = document.getElementById('status');
+      const outputDiv = document.getElementById('testOutput');
+      const statsDiv = document.getElementById('stats');
+      const removedDiv = document.getElementById('removedItems');
+      
+      if (!input.trim()) {
+        statusDiv.innerHTML = '<div class="status error">❌ 입력된 HTML이 없습니다.</div>';
+        return;
+      }
+      
+      statusDiv.innerHTML = '<div class="status info">⏳ 정리 중...</div>';
+      
+      let cleaned = input;
+      const removed = [];
+      const stats = {
+        originalLength: input.length,
+        removedNav: 0,
+        removedParts: 0,
+        removedChecklist: 0,
+        removedDuplicates: 0
+      };
+      
+      // 1. 네비게이션 제거
+      const navPatterns = [
+        /<div[^>]*style="[^"]*margin:10px 0 0 0[^"]*display:flex[^"]*gap:12px[^"]*">[\s\S]*?← 이전[\s\S]*?다음 →[\s\S]*?<\/div>/gi,
+        /<div[^>]*style="[^"]*margin:10px 0 0 0[^"]*">[\s\S]*?<a[^>]*>← 이전<\/a>[\s\S]*?<a[^>]*>다음 →<\/a>[\s\S]*?<\/div>/gi,
+        /<a[^>]*href="#[^"]*"[^>]*>[\s\S]*?← 이전[\s\S]*?<\/a>/gi,
+        /<a[^>]*href="#[^"]*"[^>]*>[\s\S]*?다음 →[\s\S]*?<\/a>/gi,
+        /<span[^>]*style="[^"]*color:#9ca3af[^"]*">\|<\/span>/gi
+      ];
+      
+      navPatterns.forEach(pattern => {
+        const matches = cleaned.match(pattern);
+        if (matches) {
+          stats.removedNav += matches.length;
+          matches.forEach(m => removed.push({ type: '네비게이션', content: m.substring(0, 100) + '...' }));
+          cleaned = cleaned.replace(pattern, '');
+        }
+      });
+      cleaned = cleaned.replace(/← 이전|다음 →/g, '');
+      
+      // 2. Part 1, Part 2 제거
+      const partPatterns = [
+        /<div[^>]*id="part-\d+"[^>]*>Part \d+<\/div>/gi,
+        /<div[^>]*aria-label="파트 \d+"[^>]*>Part \d+<\/div>/gi,
+        /<div[^>]*>[\s\S]*?<a[^>]*>다음 파트로 이동 →<\/a>[\s\S]*?<\/div>/gi,
+        /<hr[^>]*style="border:none; border-top:1px solid #e5e7eb; margin:24px 0;"[^"]*>/gi
+      ];
+      
+      partPatterns.forEach(pattern => {
+        const matches = cleaned.match(pattern);
+        if (matches) {
+          stats.removedParts += matches.length;
+          matches.forEach(m => removed.push({ type: '파트 분할', content: m.substring(0, 100) + '...' }));
+          cleaned = cleaned.replace(pattern, '');
+        }
+      });
+      cleaned = cleaned.replace(/Part \d+/gi, '');
+      
+      // 3. 중복된 체크리스트 링크 제거
+      const checklistMatches = cleaned.match(/<div[^>]*>[\s\S]*?<a[^>]*href="#checklist"[^>]*>[\s\S]*?체크리스트로 이동[\s\S]*?<\/a>[\s\S]*?<\/div>/gi);
+      if (checklistMatches && checklistMatches.length > 1) {
+        for (let i = 1; i < checklistMatches.length; i++) {
+          const match = checklistMatches[i];
+          if (match) {
+            stats.removedChecklist++;
+            removed.push({ type: '체크리스트 링크 중복', content: match.substring(0, 100) + '...' });
+            cleaned = cleaned.replace(match, '');
+          }
+        }
+      }
+      
+      // 4. 중복된 H2 제거
+      const h2Matches = cleaned.match(/<h2([^>]*)>([\s\S]*?)<\/h2>/gi);
+      if (h2Matches) {
+        const h2Texts = new Map();
+        h2Matches.forEach((match, idx) => {
+          const textOnly = match.replace(/<[^>]+>/g, '').trim().toLowerCase();
+          if (h2Texts.has(textOnly)) {
+            stats.removedDuplicates++;
+            removed.push({ type: '중복 H2', content: match.substring(0, 100) + '...' });
+            cleaned = cleaned.replace(match, '');
+          } else {
+            h2Texts.set(textOnly, true);
+          }
+        });
+      }
+      
+      // 5. 중복된 문단 제거
+      const pMatches = cleaned.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
+      if (pMatches) {
+        const seenParagraphs = new Set();
+        pMatches.forEach(para => {
+          const textOnly = para.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+          if (textOnly.length > 50 && seenParagraphs.has(textOnly)) {
+            stats.removedDuplicates++;
+            removed.push({ type: '중복 문단', content: para.substring(0, 100) + '...' });
+            cleaned = cleaned.replace(para, '');
+          } else if (textOnly.length > 50) {
+            seenParagraphs.add(textOnly);
+          }
+        });
+      }
+      
+      const finalLength = cleaned.length;
+      const removedChars = stats.originalLength - finalLength;
+      
+      outputDiv.value = cleaned;
+      statsDiv.innerHTML = `
+        <div class="status success">
+          <strong>✅ 정리 완료!</strong><br>
+          원본 길이: ${stats.originalLength.toLocaleString()}자<br>
+          정리 후 길이: ${finalLength.toLocaleString()}자<br>
+          제거된 문자: ${removedChars.toLocaleString()}자 (${((removedChars / stats.originalLength) * 100).toFixed(1)}%)<br>
+          <br>
+          <strong>제거 통계:</strong><br>
+          - 네비게이션: ${stats.removedNav}개<br>
+          - 파트 분할: ${stats.removedParts}개<br>
+          - 체크리스트 링크 중복: ${stats.removedChecklist}개<br>
+          - 중복 내용: ${stats.removedDuplicates}개
+        </div>
+      `;
+      
+      if (removed.length > 0) {
+        removedDiv.innerHTML = '<ul>' + removed.map(item => 
+          `<li><strong>${item.type}:</strong> ${item.content}</li>`
+        ).join('') + '</ul>';
+      } else {
+        removedDiv.innerHTML = '<div class="status info">제거된 요소가 없습니다.</div>';
+      }
+      
+      statusDiv.innerHTML = '<div class="status success">✅ 정리 완료!</div>';
+    }
+    
+    // 페이지 로드 시 샘플 로드
+    window.addEventListener('DOMContentLoaded', () => {
+      loadSample();
+    });
+  </script>
+</body>
+</html>
+
+
+
+

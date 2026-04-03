@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>LBA 테스트 샌드박스</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com data:; connect-src 'self' https:; img-src 'self' data: blob: https:;">
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    body { background:#f5f7fb; padding: 24px; font-family: 'Pretendard', system-ui, -apple-system, Segoe UI, Roboto, Arial, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif; }
+    .wrap { max-width: 980px; margin: 0 auto; background: #fff; border-radius: 16px; box-shadow: 0 10px 30px rgba(16,24,40,.06); padding: 28px; }
+    .toolbar { display:flex; gap:10px; justify-content:flex-end; margin-bottom: 16px;}
+    .toolbar button{ padding:10px 12px; border:none; background:#111827; color:#fff; border-radius:10px; cursor:pointer; font-weight:700;}
+    .report{ background:#0f172a; color:#fff; border-radius:12px; padding:14px 16px; margin: 12px 0; display:none; white-space:pre-wrap; font-size:13px;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="toolbar">
+      <button onclick="runChecks()">문제점 자동 점검</button>
+    </div>
+    <div id="report" class="report"></div>
+    <!-- 본문 시작 -->
+    <article class="max-mode-article" id="sandboxArticle">
+      <h1>테스트: 사람처럼 쓰는 자동 글쓰기 (에드센스 승인 최적화)</h1>
+      <p>이 페이지는 블로거/테마 환경을 모사하여, 본문 폭, 제목 스타일, 이미지, 표, 라벨/태그 제거 등 렌더링 문제를 빠르게 검증하기 위한 샌드박스입니다.</p>
+      <img src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1280&auto=format&fit=crop" alt="샘플 이미지" />
+      <h2>1. 핵심 이점 (2026년 기준)</h2>
+      <p>문장 패턴 다양화, 예시/표/체크리스트 자동 안배, 중복 구문 제거, 연도 포맷 보정 등.</p>
+      <h3>1-1. 표 렌더링</h3>
+      <table border="1" cellpadding="8">
+        <tr><th>항목</th><th>설명</th></tr>
+        <tr><td>텍스트</td><td>순수 텍스트/HTML 이중 제한 체크</td></tr>
+        <tr><td>이미지</td><td>DALL‑E→Pexels→CSE 폴백</td></tr>
+      </table>
+      <h2>2. 레이아웃 검증</h2>
+      <p>#태그 #제거 이 문장 내 해시태그는 최종 본문에서 보여선 안 됩니다.</p>
+    </article>
+    <!-- 본문 끝 -->
+  </div>
+  <script>
+    function runChecks(){
+      const report = [];
+      const root = document.getElementById('sandboxArticle');
+      // 폭/제목 스타일 간단 검사
+      const h2 = root.querySelector('h2');
+      const comp = window.getComputedStyle(h2);
+      if (comp.backgroundImage !== 'none' || comp.boxShadow !== 'none') {
+        report.push('⚠️ H2 배경/그림자 감지: 테마 오버라이드 가능성');
+      } else {
+        report.push('✅ H2 배경/그림자 없음(정상)');
+      }
+      // 이미지 폭
+      const img = root.querySelector('img');
+      if (img) {
+        if (Math.abs(img.clientWidth - root.clientWidth) < 8 || img.clientWidth <= root.clientWidth) {
+          report.push('✅ 이미지 폭 100% 내 반응형(정상)');
+        } else {
+          report.push('⚠️ 이미지 폭이 본문보다 큼');
+        }
+      }
+      // 태그 문자열 검사
+      const text = root.innerText;
+      if (/#\S+/.test(text)) {
+        report.push('⚠️ 본문 내 해시태그 문자열 발견');
+      } else {
+        report.push('✅ 본문 내 해시태그 노출 없음');
+      }
+      // 표 너비
+      const table = root.querySelector('table');
+      if (table){
+        const tw = table.clientWidth, rw = root.clientWidth;
+        if (tw <= rw) report.push('✅ 표가 본문 폭을 넘지 않음');
+        else report.push('⚠️ 표가 본문 폭을 초과');
+      }
+      const box = document.getElementById('report');
+      box.textContent = report.join('\n');
+      box.style.display = 'block';
+    }
+    
+    // 개발 환경에서 자동 테스트 실행
+    (function() {
+      try {
+        // 개발 환경 감지
+        const isDev = (function(){
+          try {
+            // Electron renderer에서 process.defaultApp 또는 NODE_ENV=development 감지
+            if (window.process && window.process.versions && window.process.versions.electron) {
+              if (window.process.defaultApp) return true;
+              const env = (window.process.env && window.process.env.NODE_ENV) || '';
+              if (String(env).toLowerCase() === 'development') return true;
+            }
+          } catch {}
+          // localhost에서 열렸다면 개발로 간주
+          try {
+            if (location && (location.hostname === 'localhost' || location.search.includes('dev=1'))) return true;
+          } catch {}
+          // 강제 개발 모드 플래그
+          try {
+            if (localStorage.getItem('DEV_FORCE') === 'true') return true;
+          } catch {}
+          return false;
+        })();
+        
+        // 개발 환경이면 자동으로 테스트 실행
+        if (isDev || localStorage.getItem('AUTO_TEST') === 'true') {
+          // DOM이 완전히 로드된 후 자동 실행
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+              setTimeout(() => {
+                console.log('[SANDBOX] 🧪 개발 환경 감지: 자동 테스트 실행');
+                runChecks();
+              }, 500); // 0.5초 후 실행 (스타일 적용 대기)
+            });
+          } else {
+            setTimeout(() => {
+              console.log('[SANDBOX] 🧪 개발 환경 감지: 자동 테스트 실행');
+              runChecks();
+            }, 500);
+          }
+        }
+      } catch (e) {
+        console.warn('[SANDBOX] 자동 테스트 실행 중 경고:', e);
+      }
+    })();
+  </script>
+</body>
+</html>
+
+

@@ -1,0 +1,77 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build outputs
+dist/
+release/
+*.exe
+*.dmg
+*.deb
+*.AppImage
+
+# TypeScript build info
+*.tsbuildinfo
+**/.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# User data
+userData/
+tokens/
+*.db
+
+# Configuration files (개인 설정)
+user-config.json
+token.json
+.env
+.env.local
+.env.*.local
+
+# Backup files
+backup_*/
+src_backup_*/
+*backup*
+*.backup.*
+
+# Temporary files
+*.tmp
+temp/
+tmp/
+
+# Backups (오래된 백업들)
+electron/ui/index.html.backup.original
+electron/ui/index.html.fixed2
+electron/ui/index_backup.html
+
+# Thumbnail files (임시 생성)
+thumb-*.png
+thumb-*.html
+
+# Test output files (may contain API keys)
+test-*-logs.txt
+test-*-output.txt
+test-*-result.txt
+.playwright-mcp/
+

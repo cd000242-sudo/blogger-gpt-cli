@@ -1,0 +1,27 @@
+{
+  "mainContentChildren": [
+    {
+      "i": 0,
+      "tag": "HEADER",
+      "id": "(none)",
+      "childCount": 3
+    },
+    {
+      "i": 1,
+      "tag": "DIV",
+      "id": "tab-content-container",
+      "childCount": 1
+    }
+  ],
+  "tabContentContainer": {
+    "parent": "mainContent",
+    "childCount": 1,
+    "children": [
+      {
+        "i": 0,
+        "tag": "DIV",
+        "id": "schedule-tab"
+      }
+    ]
+  }
+}

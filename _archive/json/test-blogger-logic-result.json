@@ -1,0 +1,24 @@
+{
+  "timestamp": "2025-11-21T03:18:52.551Z",
+  "title": "로직 테스트 - 2025. 11. 21. 오후 12:18:52",
+  "originalLength": 2053,
+  "finalLength": 4043,
+  "textLength": 1102,
+  "finalTextLength": 1399,
+  "hasBasicHtml": true,
+  "finalHasBasicHtml": true,
+  "hasCss": true,
+  "finalHasCss": true,
+  "hasTable": false,
+  "finalHasTable": false,
+  "ctaAdded": true,
+  "success": false,
+  "htmlSample": "\n<!DOCTYPE html>\n<html>\n<head>\n<style>\n.article-content { font-size: 16px; line-height: 1.6; }\n.test-table { border-collapse: collapse; width: 100%; border: 1px solid #ddd; }\n.test-table th, .test-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }\n.test-table th { background-color: #f2f2f2; }\n.progress-bar { width: 100%; background-color: #f0f0f0; height: 20px; border-radius: 10px; }\n.progress-fill { height: 100%; background-color: #4CAF50; border-radius: 10px; }\n.cta-button { ...",
+  "tableCheck": {
+    "originalHasTable": false,
+    "finalHasTable": false,
+    "originalTableIndex": -1,
+    "finalTableIndex": -1,
+    "finalContentEnd": "ation:none;background:#38a169;color:#fff;;font-weight:700;\">\n    배달의민족 방문하기\n  </a>\n  <div style=\"margin-top:8px;color:#888;font-size:13px\">※ 이 링크는 검증된 출처를 기반으로 제공됩니다.</div>\n</section>\n\n</body>\n</html>"
+  }
+}

@@ -1,0 +1,243 @@
+
+                    
+                      
+                        
+                      
+                      포스팅을 시작하면 실시간
+                        진행
+                        상황이
+                        여기에 표시됩니다.
+                    
+                  [오후 9:26:09] [MAIN] 애플리케이션 초기화 시작[오후 9:26:09] [MAIN] DOMCache 초기화 완료[오후 9:26:09] [MAIN] AppState 초기화 완료[오후 9:26:09] [MAIN] ButtonStateManager 초기화 완료[오후 9:26:09] [MAIN] ProgressManager 초기화 완료[오후 9:26:09] [MAIN] 작업 일기 초기화 완료[오후 9:26:09] [MAIN] 튜토리얼 모듈 초기화 완료[오후 9:26:09] [MAIN] 사이드바 초기화 완료[오후 9:26:09] [MAIN] 황금키워드 탐색기 초기화 완료[오후 9:26:09] [MAIN] 콘텐츠변환 stub 등록 완료[오후 9:26:09] [MAIN] 설정 로드 완료[오후 9:26:09] [MAIN] togglePlatformFields 호출 완료[오후 9:26:09] [CALENDAR] renderCalendar() 호출됨[오후 9:26:09] [AUTO-BACKUP] 자동 백업 시스템 시작[오후 9:26:09] [MAIN] 애플리케이션 초기화 완료[오후 9:26:09] ✅ 애플리케이션이 준비되었습니다.[오후 9:26:09] [MAIN] 세션 만료 이벤트 리스너 등록됨[오후 9:26:10] [CALENDAR] renderCalendar() 호출됨[오후 9:27:10] [CALENDAR] renderCalendar() 호출됨[오후 9:28:10] [CALENDAR] renderCalendar() 호출됨[오후 9:29:10] [CALENDAR] renderCalendar() 호출됨[오후 9:30:10] [CALENDAR] renderCalendar() 호출됨[오후 9:31:10] [CALENDAR] renderCalendar() 호출됨[오후 9:32:10] [CALENDAR] renderCalendar() 호출됨[오후 9:33:10] [CALENDAR] renderCalendar() 호출됨[오후 9:34:10] [CALENDAR] renderCalendar() 호출됨[오후 9:35:10] [CALENDAR] renderCalendar() 호출됨[오후 9:36:10] [CALENDAR] renderCalendar() 호출됨[오후 9:36:22] [PUBLISH] 발행 시작
+            📊 5%
+            [PROGRESS]  - 🔥 콘텐츠 생성 시작
+            [오후 9:36:23]
+          
+            📊 5%
+            [PROGRESS]  - 🔥 콘텐츠 생성 시작
+            [오후 9:36:23]
+          
+            📊 5%
+            [오후 9:36:23]  - 콘텐츠 생성 시작
+            [오후 9:36:23]
+          
+            📊 0%
+            [PROGRESS]  - 🔥 끝판왕 콘텐츠 생성 시작!
+            [오후 9:36:23]
+          
+            📊 0%
+            [PROGRESS]  - 🔥 끝판왕 콘텐츠 생성 시작!
+            [오후 9:36:23]
+          
+            📊 0%
+            [PROGRESS]  - 🎯 이미지 소스: nanobananapro (원본: nanobananapro)
+            [오후 9:36:23]
+          
+            📊 0%
+            [PROGRESS]  - 🎯 이미지 소스: nanobananapro (원본: nanobananapro)
+            [오후 9:36:23]
+          
+            📊 5%
+            [PROGRESS]  - 🌐 Search Grounding 모드 (AI가 Google 검색으로 직접 정보 수집)
+            [오후 9:36:23]
+          
+            📊 5%
+            [PROGRESS]  - 🌐 Search Grounding 모드 (AI가 Google 검색으로 직접 정보 수집)
+            [오후 9:36:23]
+          [오후 9:36:23] [5%]    🔍 Gemini + Google Search로 최신 정보를 실시간 검색합니다...[오후 9:36:23] [0%]    🔍 Gemini + Google Search로 최신 정보를 실시간 검색합니다...
+            📊 20%
+            [PROGRESS]  - 🌐 검색 기반 생성 모드 (크롤링 데이터 없음 → AI 직접 검색)
+            [오후 9:36:23]
+          
+            📊 20%
+            [PROGRESS]  - 🌐 검색 기반 생성 모드 (크롤링 데이터 없음 → AI 직접 검색)
+            [오후 9:36:23]
+          
+            📊 25%
+            [오후 9:36:23]  - [PROGRESS] 20% - 🌐 검색 기반 생성 모드 (크롤링 데이터 없음 → AI 직접 검색)
+            [오후 9:36:23]
+          
+            📊 25%
+            [PROGRESS]  - ✍️ AI가 제목(H1) 생성 중...
+            [오후 9:36:23]
+          
+            📊 25%
+            [PROGRESS]  - ✍️ AI가 제목(H1) 생성 중...
+            [오후 9:36:23]
+          
+            📊 40%
+            [오후 9:36:23]  - [PROGRESS] 25% - ✍️ AI가 제목(H1) 생성 중...
+            [오후 9:36:23]
+          
+            📊 30%
+            [PROGRESS]  - ✅ 제목 완료: "2026년 소상공인 고금리 대환대출 지원사업 조건 완벽 정리 가이드 ✅"
+            [오후 9:36:39]
+          
+            📊 30%
+            [PROGRESS]  - ✅ 제목 완료: "2026년 소상공인 고금리 대환대출 지원사업 조건 완벽 정리 가이드 ✅"
+            [오후 9:36:39]
+          
+            📊 100%
+            [오후 9:36:40]  - [PROGRESS] 30% - ✅ 제목 완료: "2026년 소상공인 고금리 대환대출 지원사업 조건 완벽 정리 가이드 ✅"
+            [오후 9:36:40]
+          
+            📊 35%
+            [PROGRESS]  - 📊 AI가 소제목(H2) 생성 중...
+            [오후 9:36:40]
+          
+            📊 35%
+            [PROGRESS]  - 📊 AI가 소제목(H2) 생성 중...
+            [오후 9:36:40]
+          
+            📊 40%
+            [PROGRESS]  - ✅ 소제목 5개 완료
+            [오후 9:36:54]
+          
+            📊 40%
+            [PROGRESS]  - ✅ 소제목 5개 완료
+            [오후 9:36:54]
+          
+            📊 45%
+            [PROGRESS]  - 📝 AI가 전체 본문 생성 중 (1회 호출)...
+            [오후 9:36:54]
+          
+            📊 45%
+            [PROGRESS]  - 📝 AI가 전체 본문 생성 중 (1회 호출)...
+            [오후 9:36:54]
+          
+            📊 50%
+            [PROGRESS]  - 🤖 AI 본문 생성 중...
+            [오후 9:36:54]
+          
+            📊 50%
+            [PROGRESS]  - 🤖 AI 본문 생성 중...
+            [오후 9:36:54]
+          [오후 9:37:10] [CALENDAR] renderCalendar() 호출됨[오후 9:38:10] [CALENDAR] renderCalendar() 호출됨
+            📊 65%
+            [PROGRESS]  - ✅ AI 본문 생성 완료!
+            [오후 9:38:20]
+          
+            📊 65%
+            [PROGRESS]  - ✅ AI 본문 생성 완료!
+            [오후 9:38:20]
+          
+            📊 67%
+            [PROGRESS]  - ❓ FAQ 생성 중...
+            [오후 9:38:20]
+          
+            📊 67%
+            [PROGRESS]  - ❓ FAQ 생성 중...
+            [오후 9:38:20]
+          
+            📊 68%
+            [PROGRESS]  - ✅ FAQ 5개 생성 완료
+            [오후 9:38:49]
+          
+            📊 68%
+            [PROGRESS]  - ✅ FAQ 5개 생성 완료
+            [오후 9:38:49]
+          
+            📊 70%
+            [PROGRESS]  - 💰 CTA 버튼 생성 중...
+            [오후 9:38:49]
+          
+            📊 70%
+            [PROGRESS]  - 💰 CTA 버튼 생성 중...
+            [오후 9:38:49]
+          [오후 9:39:10] [CALENDAR] renderCalendar() 호출됨
+            📊 75%
+            [PROGRESS]  - 🎨 HTML 구조 조립 중...
+            [오후 9:39:53]
+          
+            📊 75%
+            [PROGRESS]  - 🎨 HTML 구조 조립 중...
+            [오후 9:39:53]
+          
+            📊 75%
+            [PROGRESS]  - 🖼️ 섹션별 이미지 생성 중...
+            [오후 9:39:53]
+          
+            📊 75%
+            [PROGRESS]  - 🖼️ 섹션별 이미지 생성 중...
+            [오후 9:39:53]
+          [오후 9:39:53] [100%]    🎯 선택된 이미지 소스: nanobananapro[오후 9:39:53] [100%]    🎯 선택된 이미지 소스: nanobananapro
+            📊 75%
+            [PROGRESS]  - 📷 섹션 1/5 이미지 생성 중...
+            [오후 9:39:53]
+          
+            📊 75%
+            [PROGRESS]  - 📷 섹션 1/5 이미지 생성 중...
+            [오후 9:39:53]
+          [오후 9:39:53] [100%]    🍌 Nano Banana Pro 시도...[오후 9:39:53] [100%]    🍌 Nano Banana Pro 시도...[오후 9:40:10] [CALENDAR] renderCalendar() 호출됨[오후 9:40:21] [100%]    ✅ Nano Banana Pro 성공![오후 9:40:21] [100%]    ✅ Nano Banana Pro 성공!
+            📊 78%
+            [PROGRESS]  - ✅ 섹션 1 이미지 완료 (Nano Banana Pro)
+            [오후 9:40:21]
+          
+            📊 78%
+            [PROGRESS]  - ✅ 섹션 1 이미지 완료 (Nano Banana Pro)
+            [오후 9:40:21]
+          
+            📊 77%
+            [PROGRESS]  - 📷 섹션 2/5 이미지 생성 중...
+            [오후 9:40:21]
+          
+            📊 77%
+            [PROGRESS]  - 📷 섹션 2/5 이미지 생성 중...
+            [오후 9:40:21]
+          [오후 9:40:21] [100%]    🍌 Nano Banana Pro 시도...[오후 9:40:21] [100%]    🍌 Nano Banana Pro 시도...[오후 9:40:46] [100%]    ✅ Nano Banana Pro 성공![오후 9:40:46] [100%]    ✅ Nano Banana Pro 성공!
+            📊 80%
+            [PROGRESS]  - ✅ 섹션 2 이미지 완료 (Nano Banana Pro)
+            [오후 9:40:46]
+          
+            📊 80%
+            [PROGRESS]  - ✅ 섹션 2 이미지 완료 (Nano Banana Pro)
+            [오후 9:40:46]
+          
+            📊 79%
+            [PROGRESS]  - 📷 섹션 3/5 이미지 생성 중...
+            [오후 9:40:46]
+          
+            📊 79%
+            [PROGRESS]  - 📷 섹션 3/5 이미지 생성 중...
+            [오후 9:40:46]
+          [오후 9:40:46] [100%]    🍌 Nano Banana Pro 시도...[오후 9:40:46] [100%]    🍌 Nano Banana Pro 시도...[오후 9:41:08] [100%]    ✅ Nano Banana Pro 성공![오후 9:41:08] [100%]    ✅ Nano Banana Pro 성공!
+            📊 81%
+            [PROGRESS]  - ✅ 섹션 3 이미지 완료 (Nano Banana Pro)
+            [오후 9:41:08]
+          
+            📊 81%
+            [PROGRESS]  - ✅ 섹션 3 이미지 완료 (Nano Banana Pro)
+            [오후 9:41:08]
+          [오후 9:41:10] [CALENDAR] renderCalendar() 호출됨
+            📊 90%
+            [PROGRESS]  - 🎨 SVG 썸네일 생성 중...
+            [오후 9:41:13]
+          
+            📊 90%
+            [PROGRESS]  - 🎨 SVG 썸네일 생성 중...
+            [오후 9:41:13]
+          [오후 9:41:13] [100%]    ✅ SVG 썸네일 완료[오후 9:41:13] [100%]    ✅ SVG 썸네일 완료
+            📊 93%
+            [PROGRESS]  - ✅ 콘텐츠 생성 완료! (290.6초)
+            [오후 9:41:13]
+          
+            📊 93%
+            [PROGRESS]  - ✅ 콘텐츠 생성 완료! (290.6초)
+            [오후 9:41:13]
+          [오후 9:41:13] [100%]    - 글자수: 150766자[오후 9:41:13] [100%]    - 글자수: 150766자[오후 9:41:13] [100%]    - 썸네일: 생성됨[오후 9:41:13] [100%]    - 썸네일: 생성됨
+            📊 95%
+            [PROGRESS]  - 📤 블로그에 발행 중...
+            [오후 9:41:13]
+          
+            📊 95%
+            [PROGRESS]  - 📤 블로그에 발행 중...
+            [오후 9:41:13]
+          
+            📊 100%
+            [PROGRESS]  - ✅ 발행 완료!
+            [오후 9:41:29]
+          
+            📊 100%
+            [PROGRESS]  - ✅ 발행 완료!
+            [오후 9:41:29]
+          [오후 9:41:29] ✅ 콘텐츠 생성 및 발행 완료![오후 9:42:10] [CALENDAR] renderCalendar() 호출됨[오후 9:44:54] [CALENDAR] renderCalendar() 호출됨[오후 9:45:54] [CALENDAR] renderCalendar() 호출됨[오후 9:46:54] [CALENDAR] renderCalendar() 호출됨[오후 9:47:54] [CALENDAR] renderCalendar() 호출됨[오후 9:48:54] [CALENDAR] renderCalendar() 호출됨[오후 9:49:54] [CALENDAR] renderCalendar() 호출됨[오후 9:50:54] [CALENDAR] renderCalendar() 호출됨[오후 9:51:54] [CALENDAR] renderCalendar() 호출됨[오후 9:52:54] [CALENDAR] renderCalendar() 호출됨[오후 9:53:54] [CALENDAR] renderCalendar() 호출됨[오후 9:54:54] [CALENDAR] renderCalendar() 호출됨[오후 9:55:54] [CALENDAR] renderCalendar() 호출됨[오후 9:56:54] [CALENDAR] renderCalendar() 호출됨[오후 9:57:54] [CALENDAR] renderCalendar() 호출됨[오후 9:58:54] [CALENDAR] renderCalendar() 호출됨[오후 9:59:54] [CALENDAR] renderCalendar() 호출됨[오후 10:00:54] [CALENDAR] renderCalendar() 호출됨[오후 10:01:54] [CALENDAR] renderCalendar() 호출됨[오후 10:02:54] [CALENDAR] renderCalendar() 호출됨[오후 10:03:54] [CALENDAR] renderCalendar() 호출됨[오후 10:04:54] [CALENDAR] renderCalendar() 호출됨[오후 10:05:54] [CALENDAR] renderCalendar() 호출됨[오후 10:06:54] [CALENDAR] renderCalendar() 호출됨[오후 10:07:54] [CALENDAR] renderCalendar() 호출됨[오후 10:08:54] [CALENDAR] renderCalendar() 호출됨[오후 10:09:54] [CALENDAR] renderCalendar() 호출됨[오후 10:10:54] [CALENDAR] renderCalendar() 호출됨[오후 10:11:54] [CALENDAR] renderCalendar() 호출됨[오후 10:12:54] [CALENDAR] renderCalendar() 호출됨[오후 10:13:54] [CALENDAR] renderCalendar() 호출됨[오후 10:14:54] [CALENDAR] renderCalendar() 호출됨[오후 10:15:49] [CALENDAR] renderCalendar() 호출됨[오후 10:15:50] [CALENDAR] renderCalendar() 호출됨[오후 10:16:10] [CALENDAR] renderCalendar() 호출됨

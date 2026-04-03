@@ -1,0 +1,12 @@
+tab-content-container: L533 depth=-6
+semi-auto-tab: L537 depth=-5
+schedule-tab: L1229 depth=-23
+main-tab: L2668 depth=-63
+thumbnail-tab: L2782 depth=-68
+settings-tab: L3275 depth=-73
+content-tab: L4426 depth=-108
+excel-tab: L4498 depth=-108
+semi-auto-tab: L4702 depth=-116
+internal-links-tab: L4943 depth=-116
+
+tab-content-container closes at L606

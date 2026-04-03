@@ -1,0 +1,82 @@
+URL: file:///C:/Users/park/blogger-gpt-cli/electron/ui/index.html
+Screenshot saved
+WorkDiary keys: []
+ScheduledPosts count: 0
+Calendar dates: {
+  "exists": true,
+  "childCount": 28,
+  "samples": [
+    {
+      "text": "1",
+      "htmlLen": 26,
+      "style": "no-minHeight"
+    },
+    {
+      "text": "2",
+      "htmlLen": 26,
+      "style": "no-minHeight"
+    },
+    {
+      "text": "3",
+      "htmlLen": 26,
+      "style": "no-minHeight"
+    },
+    {
+      "text": "4",
+      "htmlLen": 26,
+      "style": "no-minHeight"
+    },
+    {
+      "text": "5",
+      "htmlLen": 26,
+      "style": "no-minHeight"
+    },
+    {
+      "text": "6",
+      "htmlLen": 26,
+      "style": "no-minHeight"
+    },
+    {
+      "text": "7",
+      "htmlLen": 26,
+      "style": "no-minHeight"
+    },
+    {
+      "text": "8",
+      "htmlLen": 26,
+      "style": "no-minHeight"
+    },
+    {
+      "text": "9",
+      "htmlLen": 26,
+      "style": "no-minHeight"
+    },
+    {
+      "text": "10",
+      "htmlLen": 27,
+      "style": "no-minHeight"
+    }
+  ]
+}
+Layout: {
+  "calendarRect": {
+    "x": 292.8000183105469,
+    "y": 337.6000061035156,
+    "width": 1018.4000244140625,
+    "height": 143.1999969482422,
+    "top": 337.6000061035156,
+    "right": 1311.2000427246094,
+    "bottom": 480.8000030517578,
+    "left": 292.8000183105469
+  },
+  "recentPostsRect": {
+    "x": 108.80000305175781,
+    "y": 563.2000122070312,
+    "width": 1222.4000244140625,
+    "height": 154.1999969482422,
+    "top": 563.2000122070312,
+    "right": 1331.2000274658203,
+    "bottom": 717.4000091552734,
+    "left": 108.80000305175781
+  }
+}

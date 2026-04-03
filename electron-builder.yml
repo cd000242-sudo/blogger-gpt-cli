@@ -1,0 +1,79 @@
+appId: com.leadernam.orbit
+productName: LEADERNAM Orbit
+copyright: Copyright © 2025 Leadernam
+
+directories:
+  buildResources: build
+  output: release
+
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+  - node_modules/**/*
+  - "!node_modules/**/*.{md,ts,map}"
+
+# Windows 빌드 설정
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - ia32
+  icon: build/icon.ico
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  publisherName: LEADERNAM
+
+# macOS 빌드 설정
+mac:
+  target:
+    - target: default
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.productivity
+  icon: build/icon.icns
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # 코드 서명이 필요한 경우 아래 주석 해제
+  # identity: "Developer ID Application: Your Name (TEAM_ID)"
+
+# Linux 빌드 설정
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  category: Utility
+  icon: build/icon.png
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# NSIS 인스톨러 설정 (Windows)
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ${productName}
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  menuCategory: true
+
+# 압축 설정
+compression: maximum
+
+# 추가 설정
+extraMetadata:
+  main: electron/main.js
+
+
+
+
+
+
+
+

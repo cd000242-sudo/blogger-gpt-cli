@@ -1,0 +1,30 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "src/utils/error-handler.ts",
+    "src/utils/logger.ts",
+    "src/utils/license-manager.ts",
+    "src/utils/license-manager-new.ts",
+    "src/utils/api-cache.ts",
+    "src/utils/puppeteer-pool.ts",
+    "src/utils/image-downloader.ts",
+    "src/core/schedule-manager.ts",
+    "src/core/ultimate-blog.ts",
+    "src/core/mass-crawler.ts",
+    "src/crawlers/types.ts",
+    "src/crawlers/parsers/parser-utils.ts",
+    "src/api/blog-index-api.ts",
+    "src/api/keyword-explorer-server.ts",
+    "src/config/constants.ts",
+    "src/types.ts"
+  ],
+  "out": "docs/api",
+  "name": "LEADERNAM Orbit API",
+  "readme": "none",
+  "excludePrivate": false,
+  "excludeProtected": false,
+  "excludeInternal": false,
+  "includeVersion": true,
+  "tsconfig": "tsconfig.json",
+  "skipErrorChecking": true
+}

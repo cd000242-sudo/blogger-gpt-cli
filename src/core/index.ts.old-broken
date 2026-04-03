@@ -1,0 +1,2967 @@
+import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { buildContentPrompt } from './prompt';
+import { CompetitorAnalyzer } from './competitor-analyzer';
+import { ContentQualityScorer } from './content-quality-scorer';
+import { SmartKeywordGenerator } from './smart-keyword-generator';
+import { ContentVariationGenerator } from './content-variation-generator';
+
+/* ---------------------------------------------
+ * AI 모델 폴백 시스템
+ * --------------------------------------------- */
+async function getAvailableGeminiModel(genAI: any, context: string = 'AI'): Promise<any> {
+  const availableModels = [
+    'gemini-2.0-flash-exp',
+    'gemini-1.0-pro'
+  ];
+  
+  for (const modelName of availableModels) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      console.log(`✅ ${context} 모델 선택: ${modelName}`);
+      return { model, modelName };
+    } catch (error) {
+      console.log(`⚠️ ${modelName} 모델 사용 불가, 다음 모델 시도 중...`);
+      continue;
+    }
+  }
+  
+  throw new Error('사용 가능한 AI 모델이 없습니다. API 키를 확인해주세요.');
+}
+
+/* ---------------------------------------------
+ * 유틸: 모델이 전체 HTML을 내놔도 fragment만 추출
+ * --------------------------------------------- */
+function stripToFragment(s: string): string {
+  if (!s) return '';
+  const txt = String(s).trim();
+
+  // 1) 우리가 요구한 스타일/랩퍼가 함께 온 경우 그대로 추출
+  const style = txt.match(/<style[\s\S]*?<\/style>/i);
+  const wrap  = txt.match(/<div[^>]*class=["'][^"']*\bwrap\b[^"']*["'][\s\S]*?<\/div>/i);
+  if (style && wrap) return `${style[0]}\n${wrap[0]}`;
+
+  // 2) body 안쪽만 존재하면 body만 추출
+  const body = txt.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  if (body && body[1]) return body[1].trim();
+
+  // 3) section이나 main 같은 컨테이너가 있으면 우선 추출
+  const container = txt.match(/<(main|section)[^>]*>[\s\S]*?<\/\1>/i);
+  if (container) return container[0].trim();
+
+  // 4) 그냥 통째로 반환
+  return txt;
+}
+
+/* ---------------------------------------------
+ * 타입
+ * --------------------------------------------- */
+export type Provider = 'openai' | 'gemini';
+
+export type GenInput = {
+  topic: string;
+  keywords: string | string[];
+  minChars?: number;
+  model?: string;
+};
+
+// RunOnePostPayload 타입은 아래에서 interface로 정의됨
+
+/* ---------------------------------------------
+ * OpenAI
+ * --------------------------------------------- */
+export async function generateWithOpenAI(opts: {
+  apiKey: string;
+  topic: string;
+  keywords: string | string[];
+  minChars?: number;
+  model?: string;
+}) {
+  const keywordsCSV = Array.isArray(opts.keywords)
+    ? opts.keywords.join(', ')
+    : (opts.keywords ?? '');
+
+  const prompt = buildContentPrompt({
+    topic: opts.topic,
+    keywordsCSV,
+    minChars: opts.minChars ?? 3000,
+  });
+
+  const client = new OpenAI({ apiKey: opts.apiKey });
+  const model  = opts.model || 'gpt-4o-mini';
+
+  const res = await client.chat.completions.create({
+    model,
+    temperature: 0.7,
+    max_tokens: 6000, // 긴 본문 대응
+    messages: [
+      {
+        role: 'system',
+        content:
+          '너는 한국어 SEO 전문 에디터다. 지침을 엄격히 준수하고, 외부 리소스 없이 HTML fragment만 출력한다.',
+      },
+      { role: 'user', content: prompt },
+    ],
+  });
+
+  const text = (res.choices?.[0]?.message?.content || '').toString();
+  return stripToFragment(text);
+}
+
+/* ---------------------------------------------
+ * Gemini
+ * --------------------------------------------- */
+// src/core/index.ts 내 기존 generateWithGemini를 이 버전으로 교체
+export async function generateWithGemini(opts: {
+  apiKey: string;
+  topic: string;
+  keywords: string | string[];
+  minChars?: number;
+  model?: string;
+}) {
+  const { GoogleGenerativeAI } = await import('@google/generative-ai');
+
+  const min = opts.minChars ?? 10000; // 길게 쓰고 싶으면 UI에서도 높게
+  const sessions = 7;
+  const perTarget = Math.max(1600, Math.floor(min / sessions)); // 회차당 목표(공백 제외)
+
+  const keywordsCSV = Array.isArray(opts.keywords) ? opts.keywords.join(', ') : (opts.keywords ?? '');
+
+  // 🚀 차별화된 기발한 기능들 초기화
+  const competitorAnalyzer = new CompetitorAnalyzer();
+  const qualityScorer = new ContentQualityScorer();
+  const keywordGenerator = new SmartKeywordGenerator();
+  const variationGenerator = new ContentVariationGenerator();
+
+  // 1. 경쟁사 분석
+  console.log('🔍 경쟁사 분석 중...');
+  const competitorAnalysis = await competitorAnalyzer.analyzeCompetitors(opts.topic, Array.isArray(opts.keywords) ? opts.keywords : [opts.keywords || '']);
+
+  // 2. 스마트 키워드 생성
+  console.log('🎯 스마트 키워드 생성 중...');
+  const keywordStrategy = await keywordGenerator.generateSmartKeywords(opts.topic, Array.isArray(opts.keywords) ? opts.keywords : [opts.keywords || '']);
+
+  // 3. 콘텐츠 변형 생성
+  console.log('🔄 콘텐츠 변형 생성 중...');
+  const variationStrategy = variationGenerator.generateVariations(opts.topic, Array.isArray(opts.keywords) ? opts.keywords : [opts.keywords || '']);
+
+
+  // 5. 향상된 프롬프트 생성
+  const enhancedPrompt = buildContentPrompt({ 
+    topic: opts.topic, 
+    keywordsCSV: keywordStrategy.combinations[0].primary + ', ' + keywordsCSV, 
+    minChars: min 
+  });
+
+  const genAI = new GoogleGenerativeAI(opts.apiKey);
+  
+  // 사용 가능한 모델 목록 (우선순위 순)
+  const availableModels = [
+    'gemini-2.0-flash-exp',
+    'gemini-1.0-pro'
+  ];
+  
+  let model;
+  let selectedModel = opts.model || 'gemini-2.0-flash-exp';
+  
+  // 모델 테스트 및 폴백
+  const modelInfo = await getAvailableGeminiModel(genAI, '메인 콘텐츠 생성');
+  model = genAI.getGenerativeModel({
+    model: modelInfo.modelName,
+    systemInstruction: enhancedPrompt,
+  });
+
+  // 유틸
+  const visibleLen = (html: string) =>
+    html.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, '').replace(/\s+/g, '').length;
+  const strip = (s: string) => {
+    const style = s.match(/<style[\s\S]*?<\/style>/i);
+    const wrap  = s.match(/<div[^>]*class=["'][^"']*\bwrap\b[^"']*["'][\s\S]*?<\/div>/i);
+    if (style && wrap) return `${style[0]}\n${wrap[0]}`;
+    return s.trim();
+  };
+
+  const ask = async (text: string, max = 12000) => {
+    const r = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text }] }],
+      generationConfig: { temperature: 0.7, topP: 0.95, maxOutputTokens: max },
+    });
+    return r.response.text().trim();
+  };
+
+  // 1) 회차별 생성
+  const parts: string[] = [];
+  let baseStyle = '';
+
+  for (let i = 1; i <= sessions; i++) {
+    // 회차 전용 프롬프트
+    const p = `
+**${i}/${sessions}회차 애드센스 승인용 독창적 콘텐츠 작성**
+
+[주제] ${opts.topic}
+[키워드] ${keywordsCSV}
+[목표] 공백 제외 ${perTarget}자 이상 (부족하면 확장)
+
+[독창적 콘텐츠 작성법]
+1. **완전히 새로운 접근**: 기존 글들과 1%도 유사하지 않은 독창적 접근법
+2. **고유한 스토리텔링**: 매력적이고 독특한 스토리로 독자의 관심을 끌기
+3. **차별화된 인사이트**: 다른 글에서 찾을 수 없는 독특하고 깊이 있는 통찰력
+4. **혁신적 구조**: 표준적이지 않은 독창적이고 창의적인 콘텐츠 구성
+5. **특별한 가치**: 독자에게 다른 글에서는 얻을 수 없는 특별한 가치와 정보
+
+[애드센스 친화적 요소]
+- **검증된 데이터**: 공식 기관, 정부기관, 공인된 기관의 신뢰할 수 있는 정보
+- **실용적 가이드**: 독자가 바로 적용할 수 있는 구체적이고 실용적인 정보
+- **전문적 분석**: 해당 분야에 대한 깊이 있는 지식과 전문성을 보여주는 내용
+- **시각적 요소**: 표, 체크리스트, 인포그래픽으로 복잡한 정보를 구조화
+- **스토리텔링**: 독자의 관심을 끌 수 있는 매력적인 스토리와 사례
+
+[절대 금지사항]
+- **Q&A 형식 사용 금지**: 질문과 답변 형식은 절대 사용하지 않음
+- **템플릿식 구조 금지**: 표준적이거나 뻔한 구조 사용 금지
+- **중복된 내용 금지**: 같은 내용을 반복하거나 유사한 표현 사용 금지
+- **일반적인 표현 금지**: "몇 가지 핵심 주의사항이 있어요" 등 뻔한 표현 사용 금지
+- **동일한 답변 금지**: 다른 주제라도 같은 답변을 제공하는 것 절대 금지
+- **추측성 표현 금지**: "~일 것 같습니다", "~라고 합니다" 등 불확실한 표현 금지
+- **검증되지 않은 데이터 금지**: 확실하지 않은 통계나 수치 사용 금지
+
+[작성 요구사항]
+- "문제제기/공감/해결책/이점/행동유도" 상위 제목은 숨김 처리
+- 검증된 사실과 공식 절차만을 정확하게 설명
+- 데이터/규정/용어는 정확히, 군더더기/중복 금지
+- 요약/한줄정리/핵심정리, 프롬프트/지침 언급 금지
+- <div class="wrap"> 내부에 바로 붙일 HTML 조각만 출력
+- 중복문서, 유사문서, 특색없는 글에 절대 걸리지 않는 독창적이고 고유한 콘텐츠로 작성
+`.trim();
+
+    let piece = await ask(p, 12000);
+    piece = strip(piece);
+
+    // 스타일이 붙어온다면 첫 회차에서만 회수
+    if (i === 1) {
+      const st = piece.match(/<style[\s\S]*?<\/style>/i);
+      if (st) {
+        baseStyle = st[0];
+        piece = piece.replace(st[0], '').trim();
+      }
+    }
+
+    // 길이 미달 시 1~2회 확장
+    let guard = 2;
+    while (visibleLen(piece) < perTarget && guard-- > 0) {
+      const need = Math.max(500, perTarget - visibleLen(piece));
+      const extendPrompt = `
+아래 회차 본문을 **애드센스 승인용 독창적 콘텐츠**로 **${need}자 이상** 더 자세히 확장하세요.
+
+[독창적 확장 기법]
+1. **완전히 새로운 정보 추가**: 기존 글들과 1%도 유사하지 않은 완전히 새로운 정보
+2. **고유한 스토리텔링**: 매력적이고 독특한 스토리와 사례 추가
+3. **차별화된 인사이트**: 다른 글에서 찾을 수 없는 독특하고 깊이 있는 통찰력
+4. **혁신적 구조**: 표준적이지 않은 독창적이고 창의적인 콘텐츠 구성
+5. **특별한 가치**: 독자에게 다른 글에서는 얻을 수 없는 특별한 가치와 정보
+
+[애드센스 친화적 확장]
+- **검증된 데이터**: 공식 기관, 정부기관, 공인된 기관의 신뢰할 수 있는 정보
+- **실용적 가이드**: 독자가 바로 적용할 수 있는 구체적이고 실용적인 정보
+- **전문적 분석**: 해당 분야에 대한 깊이 있는 지식과 전문성을 보여주는 내용
+- **시각적 요소**: 표, 체크리스트, 인포그래픽으로 복잡한 정보를 구조화
+- **스토리텔링**: 독자의 관심을 끌 수 있는 매력적인 스토리와 사례
+
+[절대 금지사항]
+- **Q&A 형식 사용 금지**: 질문과 답변 형식은 절대 사용하지 않음
+- **템플릿식 구조 금지**: 표준적이거나 뻔한 구조 사용 금지
+- **중복된 내용 금지**: 같은 내용을 반복하거나 유사한 표현 사용 금지
+- **일반적인 표현 금지**: "몇 가지 핵심 주의사항이 있어요" 등 뻔한 표현 사용 금지
+- **동일한 답변 금지**: 다른 주제라도 같은 답변을 제공하는 것 절대 금지
+- **추측성 표현 금지**: "~일 것 같습니다", "~라고 합니다" 등 불확실한 표현 금지
+- **검증되지 않은 데이터 금지**: 확실하지 않은 통계나 수치 사용 금지
+
+[확장 요구사항]
+- 새 소제목/사례/절차/표 추가
+- 요약/한줄정리 금지
+- wrap/style 없이 **본문 조각만** 출력
+- 기존 톤과 일관성 유지
+- 중복문서, 유사문서, 특색없는 글에 절대 걸리지 않는 독창적이고 고유한 콘텐츠로 확장
+
+[현재 회차 본문]
+${piece}
+`.trim();
+      const more = strip(await ask(extendPrompt, 8000));
+      piece += `\n${more}`;
+    }
+
+    // 1회차 맨 위에 버튼형 목차와 CTA 생성
+    if (i === 1) {
+      const toc = `
+<nav class="toc">
+  <a href="#s1">1회차</a><a href="#s2">2회차</a><a href="#s3">3회차</a>
+  <a href="#s4">4회차</a><a href="#s5">5회차</a><a href="#s6">6회차</a><a href="#s7">7회차</a>
+</nav>
+`.trim();
+      
+      const ctaSection = `
+<div class="cta-section">
+  <h3>지금 바로 시작하세요!</h3>
+  <p>확실한 정보를 바탕으로 안전하게 진행하세요. 아래 단계별 가이드를 따라하시면 됩니다.</p>
+  <a href="#s1" class="cta-button">바로 시작하기</a>
+</div>
+`.trim();
+      
+      piece = `${toc}\n${ctaSection}\n<section id="s${i}">\n${piece}\n</section>`;
+    } else {
+      piece = `<section id="s${i}">\n${piece}\n</section>`;
+    }
+
+    parts.push(piece);
+  }
+
+  // 2) 태그 10개 생성
+  const tagsPrompt = `
+주제 "${opts.topic}"와 키워드 "${keywordsCSV}"를 반영해,
+검색 의도를 넓히는 **프리미엄 연관 태그 10개**를 만들어라.
+
+[전문성 기반 태그 생성]
+1. **SEO 최적화**: 검색 엔진에서 높은 순위를 차지할 수 있는 키워드
+2. **다양성**: 주제의 다양한 측면을 다루는 태그 (기술적, 실용적, 트렌드)
+3. **검색 친화적**: 실제 검색자가 사용할 만한 자연스러운 키워드
+4. **계층적**: 상위 개념부터 세부 개념까지 포함 (브로드 → 롱테일)
+5. **트렌드 반영**: 최신 트렌드와 관련된 키워드 포함
+6. **실용성**: 독자가 관심을 가질 만한 실용적 키워드
+7. **전문성**: 해당 분야의 전문 용어와 기술적 키워드 포함
+
+[태그 품질 기준]
+- 검색량이 높으면서 경쟁도가 적당한 키워드 우선
+- 브랜드 키워드와 제품명보다는 일반적이고 지속적인 키워드
+- 지역성이나 시기적 특성이 강한 키워드는 제외
+- 독자가 실제로 검색할 만한 의도가 명확한 키워드
+
+[태그 요구사항]
+- 해시태그(#) 쓰지 말고 평문 라벨
+- 오직 이 형식만 출력: <ul class="tags"><li>...</li> ... </ul>
+`.trim();
+  let tags = strip(await ask(tagsPrompt, 1024));
+  if (!/^<ul class="tags">/i.test(tags)) {
+    const list = ['가이드','절차','체크리스트','주의사항','비용','신청방법','서류','기간','사례','FAQ']
+      .map(t => `<li>${t}</li>`).join('');
+    tags = `<ul class="tags">${list}</ul>`;
+  }
+
+  // 3) 최종 HTML 조립
+  const styleSafe = baseStyle || `<style>
+  .wrap{max-width:920px;margin:24px auto;padding:8px 12px}
+  .toc{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+  .toc a{padding:8px 12px;border:1px solid #1f2937;border-radius:999px;text-decoration:none}
+  .tags{display:flex;flex-wrap:wrap;gap:8px;padding:0;margin:18px 0}
+  .tags li{list-style:none;padding:6px 10px;border:1px solid #1f2937;border-radius:999px}
+</style>`;
+
+  const html = `${styleSafe}
+<div class="wrap">
+${parts.join('\n\n')}
+${tags}
+</div>`.trim();
+
+  // 6. 콘텐츠 품질 점수 분석
+  console.log('📊 콘텐츠 품질 점수 분석 중...');
+  const qualityAnalysis = qualityScorer.analyzeContent(html, opts.topic, Array.isArray(opts.keywords) ? opts.keywords : [opts.keywords || '']);
+
+  // 7. 분석 결과 로깅
+  console.log('🎯 콘텐츠 품질 점수:', qualityAnalysis.score);
+  console.log('✅ 강점:', qualityAnalysis.strengths.join(', '));
+  console.log('⚠️ 개선점:', qualityAnalysis.weaknesses.join(', '));
+  console.log('💡 추천사항:', qualityAnalysis.recommendations.join(', '));
+  console.log('🚨 애드센스 위험요소:', qualityAnalysis.adsenseRisk.join(', '));
+
+  // 8. 경쟁사 분석 결과 로깅
+  console.log('🔍 경쟁사 분석 결과:');
+  console.log('- 차별화 전략:', competitorAnalysis.differentiationStrategy.join(', '));
+  console.log('- 추천 접근법:', competitorAnalysis.recommendedApproach);
+  console.log('- 독창성 점수:', competitorAnalysis.uniquenessScore + '/100');
+
+  // 9. 스마트 키워드 결과 로깅
+  console.log('🎯 스마트 키워드 결과:');
+  console.log('- 추천 키워드:', keywordStrategy.combinations[0].primary);
+  console.log('- 롱테일 키워드:', keywordStrategy.combinations[0].longTail.join(', '));
+  console.log('- 경쟁도:', keywordStrategy.combinations[0].competition);
+  console.log('- 독창성:', keywordStrategy.combinations[0].uniqueness + '/100');
+
+
+  return html;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 플랫폼별 콘텐츠 생성 함수들
+// ─────────────────────────────────────────────────────────────
+
+// WordPress 전용 콘텐츠 생성
+export async function generateWordPressContent(opts: {
+  topic: string;
+  keywords: string[];
+  minChars: number;
+  geminiKey: string;
+  categories: string[];
+  tags: string[];
+}) {
+  const { topic, keywords, minChars, geminiKey, categories, tags } = opts;
+  
+  const wpPrompt = `
+            당신은 WordPress 전문 콘텐츠 크리에이터입니다.
+            
+            주제: ${topic}
+            키워드: ${keywords.join(', ')}
+            카테고리: ${categories.join(', ')}
+            태그: ${tags.join(', ')}
+            최소 글자수: ${minChars}자
+            
+            WordPress 전용 콘텐츠 가이드라인:
+            
+            🎨 WordPress 색상 설정 (반드시 적용):
+            - 소제목: border-left: 4px solid #10b981 (파s텔 그린)
+            - 본문 카드: background: linear-gradient(135deg, #f3e8ff 0%, #fae8ff 100%); border-left: 4px solid #c084fc (파s텔 보라)
+            
+            🎯 제목 작성 규칙:
+            - 공식적이고 딱딱한 제목 절대 금지 (예: "신청 방법 및 절차", "가이드", "방법론")
+            - 자연스럽고 매력적인 제목 작성 (예: "이거 진짜 좋아요", "완전 추천", "솔직한 후기")
+            - 개인적 경험담 느낌의 제목 (예: "제가 직접 해봤는데", "실제로는 이렇게")
+            - 과도한 키워드 나열 금지
+            - 친근하고 구어체 느낌의 제목 선호
+            
+            📝 WordPress 콘텐츠 품질 기준:
+            - 전문적이고 신뢰할 수 있는 톤 (Blogger보다 더 formal)
+            - 깊이 있는 분석과 인사이트 제공
+            - 실무진을 위한 구체적이고 실행 가능한 정보
+            - 데이터와 통계 기반의 근거 있는 내용
+            - WordPress 사용자들의 니즈에 맞는 실용적 가이드
+
+🏗️ 본문 구조:
+- 소제목 6개 이상 (분석형, 가이드형, 비교형 혼합)
+- 각 섹션마다 구체적 수치와 실행 팁 포함
+- 전문적인 체크리스트 및 비교표 활용
+- 단계별 가이드와 베스트 프랙티스 포함
+- WordPress 플러그인이나 테마 관련 정보 포함
+
+💡 WordPress 특화 요소:
+- WordPress 관리자 관점에서의 실용적 조언
+- 플러그인 추천 및 설정 가이드
+- 테마 커스터마이징 팁
+- 성능 최적화 관련 정보
+- 보안 및 백업 관련 조언
+
+🚫 금지사항:
+- 과도한 마케팅성 표현
+- 개인적 경험담 위주의 내용 (Blogger와 차별화)
+- 단순한 정보 나열
+- WordPress와 무관한 일반적 내용
+
+출력 형식 (JSON):
+{
+  "title": "WordPress SEO 최적화된 전문 제목",
+  "metaDescription": "WordPress 사용자를 위한 메타 설명 (160자 이내)",
+  "html": "WordPress 전용 완성된 HTML 콘텐츠",
+  "featuredImageAlt": "WordPress 관련 대표 이미지 alt 텍스트",
+  "internalLinks": ["WordPress 관련 글 제목들"],
+  "socialShareText": "WordPress 커뮤니티 공유용 텍스트"
+}
+`;
+
+  try {
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    
+    // 폴백 시스템 적용
+    const modelInfo = await getAvailableGeminiModel(genAI, 'WordPress 콘텐츠 생성');
+    const model = modelInfo.model;
+
+    const result = await model.generateContent(wpPrompt);
+    const response = await result.response;
+    const text = response.text();
+    
+    // JSON 파싱
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        title: parsed.title || topic,
+        html: parsed.html || `<h1>${topic}</h1><p>WordPress 콘텐츠 생성 중...</p>`,
+        metaDescription: parsed.metaDescription || '',
+        featuredImageAlt: parsed.featuredImageAlt || '',
+        internalLinks: parsed.internalLinks || [],
+        socialShareText: parsed.socialShareText || ''
+      };
+    }
+    
+    return {
+      title: topic,
+      html: `<h1>${topic}</h1><p>${text}</p>`,
+      metaDescription: '',
+      featuredImageAlt: '',
+      internalLinks: [],
+      socialShareText: ''
+    };
+  } catch (error) {
+    console.error('WordPress 콘텐츠 생성 오류:', error);
+    return {
+      title: topic,
+      html: `<h1>${topic}</h1><p>WordPress 콘텐츠 생성에 실패했습니다.</p>`,
+      metaDescription: '',
+      featuredImageAlt: '',
+      internalLinks: [],
+      socialShareText: ''
+    };
+  }
+}
+
+// 미리보기 전용 콘텐츠 생성
+export async function generatePreviewContent(opts: {
+  topic: string;
+  keywords: string[];
+  minChars: number;
+  geminiKey: string;
+}) {
+  const { topic, keywords, minChars, geminiKey } = opts;
+  
+  const previewPrompt = `
+            당신은 미리보기 전문 콘텐츠 크리에이터입니다.
+            
+            주제: ${topic}
+            키워드: ${keywords.join(', ')}
+            최소 글자수: ${minChars}자
+            
+            미리보기 최적화 요구사항:
+            
+            🎨 미리보기 색상 설정 (반드시 적용):
+            - 소제목: border-left: 4px solid #10b981 (파s텔 그린)
+            - 본문 카드: background: linear-gradient(135deg, #f3e8ff 0%, #fae8ff 100%); border-left: 4px solid #c084fc (파s텔 보라)
+            
+            🎯 제목 작성 규칙:
+            - 공식적이고 딱딱한 제목 절대 금지 (예: "신청 방법 및 절차", "가이드", "방법론")
+            - 자연스럽고 매력적인 제목 작성 (예: "이거 진짜 좋아요", "완전 추천", "솔직한 후기")
+            - 개인적 경험담 느낌의 제목 (예: "제가 직접 해봤는데", "실제로는 이렇게")
+            - 과도한 키워드 나열 금지
+            - 친근하고 구어체 느낌의 제목 선호
+            
+            본문 구성:
+            - 소제목 5개 이상 (검색 의도 부합)
+            - 각 섹션마다 구체적 정보와 실용적 팁
+            - 체크리스트 및 단계별 가이드
+            - 관련 키워드 자연스러운 반복
+            - 독자 참여 유도 문장
+
+출력 형식 (JSON):
+{
+  "title": "SEO 최적화된 제목",
+  "html": "완성된 HTML 콘텐츠",
+  "labels": ["태그1", "태그2", "태그3"],
+  "description": "블로그 설명",
+  "keywords": "주요 키워드들"
+}
+`;
+
+  try {
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    
+    // 폴백 시스템 적용
+    const modelInfo = await getAvailableGeminiModel(genAI, 'WordPress 콘텐츠 생성');
+    const model = modelInfo.model;
+
+    const result = await model.generateContent(previewPrompt);
+    const response = await result.response;
+    const text = response.text();
+    
+    // JSON 파싱
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        title: parsed.title || topic,
+        html: parsed.html || `<h1>${topic}</h1><p>미리보기 콘텐츠 생성 중...</p>`,
+        labels: parsed.labels || keywords,
+        description: parsed.description || '',
+        keywords: parsed.keywords || keywords.join(', ')
+      };
+    }
+    
+    return {
+      title: topic,
+      html: `<h1>${topic}</h1><p>${text}</p>`,
+      labels: keywords,
+      description: '',
+      keywords: keywords.join(', ')
+    };
+  } catch (error) {
+    console.error('미리보기 콘텐츠 생성 오류:', error);
+    return {
+      title: topic,
+      html: `<h1>${topic}</h1><p>미리보기 콘텐츠 생성에 실패했습니다.</p>`,
+      labels: keywords,
+      description: '',
+      keywords: keywords.join(', ')
+    };
+  }
+}
+
+// Blogger 전용 콘텐츠 생성
+export async function generateBloggerContent(opts: {
+  topic: string;
+  keywords: string[];
+  minChars: number;
+  geminiKey: string;
+}) {
+  const { topic, keywords, minChars, geminiKey } = opts;
+  
+  const bloggerPrompt = `
+            당신은 Blogger 전문 콘텐츠 크리에이터입니다.
+            
+            주제: ${topic}
+            키워드: ${keywords.join(', ')}
+            최소 글자수: ${minChars}자
+            
+            Blogger 최적화 요구사항:
+            
+            🎨 Blogger 색상 설정 (반드시 적용):
+            - 소제목: border-left: 4px solid #3b82f6 (파s텔 블루)
+            - 본문 카드: background: linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%); border-left: 4px solid #f472b6 (파s텔 분홍)
+            
+            🎯 제목 작성 규칙:
+            - 공식적이고 딱딱한 제목 절대 금지 (예: "신청 방법 및 절차", "가이드", "방법론")
+            - 자연스럽고 매력적인 제목 작성 (예: "이거 진짜 좋아요", "완전 추천", "솔직한 후기")
+            - 개인적 경험담 느낌의 제목 (예: "제가 직접 해봤는데", "실제로는 이렇게")
+            - 과도한 키워드 나열 금지
+            - 친근하고 구어체 느낌의 제목 선호
+            
+            본문 구성:
+            - 소제목 5개 이상 (검색 의도 부합)
+            - 각 섹션마다 구체적 정보와 실용적 팁
+            - 체크리스트 및 단계별 가이드
+            - 관련 키워드 자연스러운 반복
+            - 독자 참여 유도 문장
+
+출력 형식 (JSON):
+{
+  "title": "SEO 최적화된 제목",
+  "html": "완성된 HTML 콘텐츠",
+  "labels": ["태그1", "태그2", "태그3"],
+  "description": "블로그 설명",
+  "keywords": "주요 키워드들"
+}
+`;
+
+  try {
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    
+    // 폴백 시스템 적용
+    const modelInfo = await getAvailableGeminiModel(genAI, 'WordPress 콘텐츠 생성');
+    const model = modelInfo.model;
+
+    const result = await model.generateContent(bloggerPrompt);
+    const response = await result.response;
+    const text = response.text();
+    
+    // JSON 파싱
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        title: parsed.title || topic,
+        html: parsed.html || `<h1>${topic}</h1><p>Blogger 콘텐츠 생성 중...</p>`,
+        labels: parsed.labels || keywords,
+        description: parsed.description || '',
+        keywords: parsed.keywords || keywords.join(', ')
+      };
+    }
+    
+    return {
+      title: topic,
+      html: `<h1>${topic}</h1><p>${text}</p>`,
+      labels: keywords,
+      description: '',
+      keywords: keywords.join(', ')
+    };
+  } catch (error) {
+    console.error('Blogger 콘텐츠 생성 오류:', error);
+    return {
+      title: topic,
+      html: `<h1>${topic}</h1><p>Blogger 콘텐츠 생성에 실패했습니다.</p>`,
+      labels: keywords,
+      description: '',
+      keywords: keywords.join(', ')
+    };
+  }
+}
+
+// 7회차 모드 제거됨 - MAX모드로 고정
+  // 강화된 안전한 문자열 처리 함수
+  function sanitizeString(str: any): string {
+    if (typeof str !== 'string') {
+      if (str === null || str === undefined) return '';
+      return String(str);
+    }
+    
+    return str
+      .replace(/[\uD800-\uDFFF]/g, '') // 유효하지 않은 유니코드 서로게이트 쌍 제거
+      .replace(/\0/g, '') // null 바이트 제거
+      .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // 제어 문자 제거
+      .replace(/[^\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318Fa-zA-Z0-9\s.,!?()[\]{}"'`~@#$%^&*+=|\\:;<>\/_-]/g, '') // 한국어, 영어, 숫자, 기본 특수문자만 허용
+      .trim();
+  }
+
+// 7회차 모드 제거됨 - MAX모드로 고정
+
+// ─────────────────────────────────────────────────────────────
+// 커스텀 모드 글 생성 함수 (기본 Gemini 프롬프트)
+// ─────────────────────────────────────────────────────────────
+
+export async function generateCustomModeArticle(payload: RunOnePostPayload, onLog?: (s: string) => void): Promise<string> {
+  // 강화된 안전한 문자열 처리 함수
+  function sanitizeString(str: any): string {
+    if (typeof str !== 'string') {
+      if (str === null || str === undefined) return '';
+      return String(str);
+    }
+    
+    return str
+      .replace(/[\uD800-\uDFFF]/g, '') // 유효하지 않은 유니코드 서로게이트 쌍 제거
+      .replace(/\0/g, '') // null 바이트 제거
+      .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // 제어 문자 제거
+      .replace(/[^\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318Fa-zA-Z0-9\s.,!?()[\]{}"'`~@#$%^&*+=|\\:;<>\/_-]/g, '') // 한국어, 영어, 숫자, 기본 특수문자만 허용
+      .trim();
+  }
+
+  const safeTopic = sanitizeString(payload.topic);
+  const safeKeywords = Array.isArray(payload.keywords) 
+    ? payload.keywords.map(k => sanitizeString(k)).join(', ')
+    : sanitizeString(payload.keywords);
+
+  const minChars = payload.minChars || 6000;
+
+  onLog?.(`[PROGRESS] 커스텀 모드로 콘텐츠 생성 시작 (${minChars}자 목표)`);
+
+  try {
+    // 기본 Gemini 프롬프트 사용
+    const customPrompt = `
+당신은 전문 블로그 작가입니다. 다음 주제에 대해 고품질의 블로그 포스트를 작성해주세요.
+
+주제: ${safeTopic}
+키워드: ${safeKeywords}
+최소 글자 수: ${minChars}자 이상
+
+요구사항:
+- SEO 최적화된 제목과 내용
+- 독자에게 유용한 정보 제공
+- 자연스러운 키워드 배치
+- HTML 형식으로 출력
+- 구조화된 내용 (제목, 소제목, 본문, 결론)
+
+HTML 형식으로 작성해주세요.`;
+
+    const genAI = new GoogleGenerativeAI(payload.geminiKey || '');
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash-exp',
+    });
+
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: customPrompt }] }],
+      generationConfig: { temperature: 0.7, topP: 0.95, maxOutputTokens: 15000 },
+    });
+
+    const content = result.response.text().trim();
+    onLog?.('[PROGRESS] 커스텀 모드 콘텐츠 생성 완료');
+
+    return stripToFragment(content);
+  } catch (error) {
+    onLog?.(`❌ 커스텀 모드 생성 오류: ${error}`);
+    throw error;
+  }
+}
+
+// 프롬프트 모드 제거됨 - MAX모드로 고정
+
+// ─────────────────────────────────────────────────────────────
+// MAX 모드 글 생성 함수 (기존 5개 섹션 구조)
+// ─────────────────────────────────────────────────────────────
+
+export async function generateMaxModeArticle(payload: RunOnePostPayload, env: any, onLog?: (s: string) => void): Promise<string> {
+  // 강화된 안전한 문자열 처리 함수
+  function sanitizeString(str: any): string {
+    if (typeof str !== 'string') {
+      if (str === null || str === undefined) return '';
+      return String(str);
+    }
+    
+    // 메모리 효율적인 정리 (단계별 처리)
+    let result = str.trim();
+    
+    // 1단계: 기본 정리
+    if (result.length === 0) return '';
+    
+    // 2단계: 위험한 문자만 제거 (정규식 최소화)
+    result = result
+      .replace(/[\uD800-\uDFFF]/g, '') // 유효하지 않은 유니코드 서로게이트 쌍 제거
+      .replace(/\0/g, '') // null 바이트 제거
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ''); // 제어 문자 제거 (공백, 탭, 줄바꿈 제외)
+    
+    // 3단계: 길이 제한 (메모리 보호)
+    if (result.length > 10000) {
+      result = result.substring(0, 10000) + '...';
+    }
+    
+    return result;
+  }
+    });
+
+// 7회차 모드 제거됨 - MAX모드로 고정
+
+// ─────────────────────────────────────────────────────────────
+// 커스텀 모드 글 생성 함수 (기본 Gemini 프롬프트)
+// ─────────────────────────────────────────────────────────────
+
+export async function generateCustomModeArticle(payload: RunOnePostPayload, onLog?: (s: string) => void): Promise<string> {
+  // 강화된 안전한 문자열 처리 함수
+  function sanitizeString(str: any): string {
+    if (typeof str !== 'string') {
+      if (str === null || str === undefined) return '';
+      return String(str);
+    }
+    
+    return str
+      .replace(/[\uD800-\uDFFF]/g, '') // 유효하지 않은 유니코드 서로게이트 쌍 제거
+      .replace(/\0/g, '') // null 바이트 제거
+      .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // 제어 문자 제거
+      .replace(/[^\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318Fa-zA-Z0-9\s.,!?()[\]{}"'`~@#$%^&*+=|\\:;<>\/_-]/g, '') // 한국어, 영어, 숫자, 기본 특수문자만 허용
+      .trim();
+  }
+
+  const safeTopic = sanitizeString(payload.topic);
+  const safeKeywords = Array.isArray(payload.keywords) 
+    ? payload.keywords.map(k => sanitizeString(k)).join(', ')
+    : sanitizeString(payload.keywords);
+
+  const minChars = payload.minChars || 6000;
+
+  onLog?.(`[PROGRESS] 커스텀 모드로 콘텐츠 생성 시작 (${minChars}자 목표)`);
+
+  try {
+    // 기본 Gemini 프롬프트 사용
+    const customPrompt = `
+당신은 전문 블로그 작가입니다. 다음 주제에 대해 고품질의 블로그 포스트를 작성해주세요.
+
+주제: ${safeTopic}
+키워드: ${safeKeywords}
+최소 글자 수: ${minChars}자 이상
+
+요구사항:
+- SEO 최적화된 제목과 내용
+- 독자에게 유용한 정보 제공
+- 자연스러운 키워드 배치
+- HTML 형식으로 출력
+- 구조화된 내용 (제목, 소제목, 본문, 결론)
+
+HTML 형식으로 작성해주세요.`;
+
+    const genAI = new GoogleGenerativeAI(payload.geminiKey || '');
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash-exp',
+    });
+
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: customPrompt }] }],
+      generationConfig: { temperature: 0.7, topP: 0.95, maxOutputTokens: 15000 },
+    });
+
+    const content = result.response.text().trim();
+    onLog?.('[PROGRESS] 커스텀 모드 콘텐츠 생성 완료');
+
+    return stripToFragment(content);
+  } catch (error) {
+    onLog?.(`❌ 커스텀 모드 생성 오류: ${error}`);
+    throw error;
+  }
+}
+
+// 프롬프트 모드 제거됨 - MAX모드로 고정
+
+// ─────────────────────────────────────────────────────────────
+// MAX 모드 글 생성 함수 (기존 5개 섹션 구조)
+// ─────────────────────────────────────────────────────────────
+
+export async function generateMaxModeArticle(payload: RunOnePostPayload, env: any, onLog?: (s: string) => void): Promise<string> {
+  // 강화된 안전한 문자열 처리 함수 (메모리 최적화)
+  function sanitizeString(str: any): string {
+    if (typeof str !== 'string') {
+      if (str === null || str === undefined) return '';
+      return String(str);
+    }
+    
+    // 메모리 효율적인 정리 (단계별 처리)
+    let result = str.trim();
+    
+    // 1단계: 기본 정리
+    if (result.length === 0) return '';
+    
+    // 2단계: 위험한 문자만 제거 (정규식 최소화)
+    result = result
+      .replace(/[\uD800-\uDFFF]/g, '') // 유효하지 않은 유니코드 서로게이트 쌍 제거
+      .replace(/\0/g, '') // null 바이트 제거
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ''); // 제어 문자 제거 (공백, 탭, 줄바꿈 제외)
+    
+    // 3단계: 길이 제한 (메모리 보호)
+    if (result.length > 10000) {
+      result = result.substring(0, 10000) + '...';
+    }
+    
+    return result;
+  }
+  
+  // 크롤링 기반 제목 생성 함수
+  async function generateSEOOptimizedTitle(topic: string, keywords: string[], crawledTitles: string[] = []): Promise<string> {
+    try {
+      const titlePrompt = `
+당신은 SEO 전문가입니다. 다음 정보를 바탕으로 상위 노출 가능하고 클릭 유도력이 높은 제목을 생성해주세요.
+
+주제: ${topic}
+키워드: ${keywords.join(', ')}
+크롤링된 제목들: ${crawledTitles.slice(0, 5).join(', ')}
+
+제목 생성 요구사항:
+- 크롤링한 제목을 기반으로 SEO에 최적화된 제목 생성
+- 상위 노출 가능한 키워드 포함
+- 클릭 유도력이 높은 제목 구조
+- 40-70자 내외의 적절한 길이
+- 검색 의도에 맞는 제목 작성
+- "왜"보다는 "어떻게"에 비중을 둔 실용적 제목
+
+제목만 출력해주세요 (HTML 태그 없이):`;
+
+      const genAI = new GoogleGenerativeAI(geminiKey);
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-2.0-flash-exp',
+      });
+
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: titlePrompt }] }],
+        generationConfig: { temperature: 0.7, topP: 0.95, maxOutputTokens: 200 },
+      });
+
+      return result.response.text().trim().replace(/[<>]/g, '');
+    } catch (error) {
+      console.log('제목 생성 실패, 기본 제목 사용:', error);
+      return topic;
+    }
+
+  // 동적 CTA 생성 함수
+  async function generateDynamicCTA(sectionTitle: string, content: string, keywords: string[]): Promise<string> {
+    try {
+      const ctaPrompt = `
+당신은 CTA 전문가입니다. 다음 정보를 바탕으로 클릭 유도력이 높은 CTA를 생성해주세요.
+
+섹션 제목: ${sectionTitle}
+본문 내용: ${content.substring(0, 500)}...
+키워드: ${keywords.join(', ')}
+
+CTA 생성 요구사항:
+- 크롤링을 기반으로 CTA 생성
+- 수동 CTA 외 반드시 외부링크 동적 생성
+- 후킹 멘트와 함께 CENTER 정렬로 배치
+- 클릭 유도력이 높은 후킹 멘트 포함
+- 관련성이 높은 외부 링크 포함
+
+HTML 형식으로 출력해주세요:`;
+
+      const genAI = new GoogleGenerativeAI(geminiKey);
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-2.0-flash-exp',
+      });
+
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: ctaPrompt }] }],
+        generationConfig: { temperature: 0.7, topP: 0.95, maxOutputTokens: 500 },
+      });
+
+      return result.response.text().trim();
+    } catch (error) {
+      console.log('CTA 생성 실패:', error);
+      return '';
+    }
+  }
+
+  // 핵심요약표 생성 함수
+  async function generateSummaryTable(content: string, keywords: string[]): Promise<string> {
+    try {
+      const tablePrompt = `
+당신은 요약 전문가입니다. 다음 정보를 바탕으로 핵심요약표를 생성해주세요.
+
+본문 내용: ${content.substring(0, 1000)}...
+키워드: ${keywords.join(', ')}
+
+핵심요약표 생성 요구사항:
+- 4x4 또는 5x5 테이블 구조로 동적 생성
+- 핵심 내용을 짧고 정확하게 요약
+- 상황에 맞는 관련 링크 포함
+- 본문의 핵심 내용을 정확하게 반영
+- 독자가 빠르게 파악할 수 있는 구조
+
+HTML 테이블 형식으로 출력해주세요:`;
+
+      const genAI = new GoogleGenerativeAI(geminiKey);
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-2.0-flash-exp',
+      });
+
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: tablePrompt }] }],
+        generationConfig: { temperature: 0.7, topP: 0.95, maxOutputTokens: 800 },
+      });
+
+      return result.response.text().trim();
+    } catch (error) {
+      console.log('핵심요약표 생성 실패:', error);
+      return '';
+    }
+  }
+
+  // 안전한 payload 처리
+  const safeTopic = sanitizeString(payload.topic);
+  if (safeTopic.length < 2) {
+    throw new Error('주제는 최소 2자 이상이어야 합니다.');
+  }
+
+  const safeKeywords = Array.isArray(payload.keywords) 
+    ? payload.keywords.map(sanitizeString).filter(Boolean)
+    : sanitizeString(payload.keywords).split(',').map(k => sanitizeString(k)).filter(Boolean);
+  
+  const { provider, openaiKey, geminiKey, contentMode = 'external', manualCtas = {}, googleCseKey, googleCseCx } = payload;
+  
+  const minChars = Math.max(payload.minChars || 6000, 1000); // 최소 1000자 보장
+  
+  console.log(`📝 주제: ${safeTopic} | 모드: ${contentMode}`);
+  
+  // 키워드 추출 및 정제
+  let keywordArray: string[] = [];
+  if (safeKeywords && safeKeywords.length > 0) {
+    keywordArray = safeKeywords;
+    console.log(`🔑 사용자 입력 키워드: ${keywordArray.join(', ')}`);
+  } else {
+    // 주제에서 자동 키워드 추출
+    console.log('🔍 주제에서 키워드 자동 추출 중...');
+    const baseKeywords = [safeTopic];
+    const relatedKeywords: string[] = [];
+    
+    // 연도/날짜 관련 키워드
+    const yearMatch = safeTopic.match(/(\d{4})/);
+    if (yearMatch) {
+      relatedKeywords.push(yearMatch[1], `${yearMatch[1]}년`);
+    }
+    
+    // 주제를 단어별로 분리하여 추가 키워드 생성
+    const words = safeTopic.split(/[\s,]+/).filter(word => word.length > 1);
+    relatedKeywords.push(...words);
+    
+    // 중복 제거 및 정제
+    keywordArray = [...baseKeywords, ...relatedKeywords]
+      .map(k => k.trim())
+      .filter(k => k.length > 0)
+      .filter((k, i, arr) => arr.indexOf(k) === i) // 중복 제거
+      .slice(0, 10); // 최대 10개로 제한
+    
+    console.log(`🔍 추출된 키워드: ${keywordArray.join(', ')}`);
+  }
+  
+  // 콘텐츠 모드에 따른 섹션 선택
+  const getSectionsForMode = (mode: string): MaxModeSection[] => {
+    const sections = CONTENT_MODE_SECTIONS_MAP[mode];
+    if (sections) {
+      return sections;
+    }
+    // 기본값은 SEO 최적화 모드 (기존 맥스 모드)
+    return MAX_MODE_SECTIONS;
+  };
+  
+  const sectionConfigs = getSectionsForMode(env.contentMode || 'external');
+  const contentType = env.contentMode === 'spiderwebbing' ? '일관성/거미줄치기 전문' :
+                     env.contentMode === 'adsense' ? '애드센스 승인 전문' :
+                     env.contentMode === 'paraphrasing' ? '페러프레이징 전문' :
+                     env.contentMode === 'internal' ? '내부 링크 최적화' :
+                     env.contentMode === 'shopping' ? '쇼핑 모드' : 'SEO 최적화';
+  
+  console.log(`📋 콘텐츠 타입: ${contentType} | 섹션 수: ${sectionConfigs.length}개`);
+  
+  // Gemini 모델 초기화
+  const { GoogleGenerativeAI } = await import('@google/generative-ai');
+  const genAI = new GoogleGenerativeAI(geminiKey || '');
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+  
+  // 1. 제목 생성
+  console.log('✨ 제목 생성 중...');
+  onLog?.('[PROGRESS] 5% - 제목 생성 중...');
+  
+  const titlePrompt = buildMaxModeTitlePrompt(contentMode, safeTopic, keywordArray);
+  const titleResult = await model.generateContent(titlePrompt);
+  let title = titleResult.response.text().trim();
+  console.log(`✅ 제목: ${title}`);
+  onLog?.('[PROGRESS] 18% - 제목 생성 완료');
+  
+  // 2. 크롤링 + AI로 최적화된 소제목 5개 생성
+  console.log('🔍 소제목 분석 중...');
+  onLog?.('[PROGRESS] 22% - 소제목 분석 중...');
+  
+  let optimalSubtopic: string[] = [];
+  
+  try {
+    console.log('🔎 키워드 기반 소제목 수집 중...');
+    onLog?.('[PROGRESS] 28% - 키워드 기반 소제목 수집 중...');
+    
+    optimalSubtopic = await generateOptimalSubtopic(safeTopic, keywordArray, {
+      openaiKey,
+      geminiKey,
+      provider,
+      naverClientId: (payload as any).naverClientId,
+      naverClientSecret: (payload as any).naverClientSecret,
+      googleCseKey,
+      googleCseCx
+    });
+    console.log(`✅ 소제목 생성 완료: ${optimalSubtopic.length}개`);
+    onLog?.('[PROGRESS] 32% - 소제목 생성 완료');
+  } catch (error) {
+    console.log('[CONTENT] 소제목 크롤링 실패, 기본 소제목 사용:', error);
+    optimalSubtopic = [
+      `${safeTopic}의 기본 개념과 이해`,
+      `${safeTopic}의 주요 특징과 장점`, 
+      `${safeTopic}의 활용 방법과 사례`,
+      `${safeTopic}의 주의사항과 한계`,
+      `${safeTopic}의 미래 전망과 발전 방향`
+    ];
+    onLog?.('[PROGRESS] 32% - 기본 소제목 사용');
+  }
+  
+  // 3. 네이버 API → RSS → CSE 순서로 본문 내용 크롤링
+  console.log('📄 본문 내용 수집 중...');
+  onLog?.('[PROGRESS] 35% - 본문 내용 수집 중...');
+  
+  let crawledContents: any[] = [];
+  let crawledCTAs: any[] = [];
+  
+  try {
+    console.log('🌐 외부 콘텐츠 검색 중...');
+    onLog?.('[PROGRESS] 40% - 외부 콘텐츠 검색 시작...');
+    
+    const crawlResult = await crawlAndMixContent(safeTopic, keywordArray, {
+      openaiKey,
+      geminiKey,
+      provider,
+      naverClientId: (payload as any).naverClientId,
+      naverClientSecret: (payload as any).naverClientSecret,
+      googleCseKey,
+      googleCseCx
+    });
+    
+    crawledContents = crawlResult.contents || [];
+    crawledCTAs = crawlResult.ctas || [];
+    
+    console.log(`✅ 크롤링 완료: ${crawledContents.length}개 글, ${crawledCTAs.length}개 CTA`);
+    onLog?.('[PROGRESS] 45% - 본문 내용 수집 완료');
+    
+  } catch (error) {
+    console.log('[CONTENT] 크롤링 실패, 기본 모드로 진행:', error);
+    onLog?.('[PROGRESS] 45% - 기본 모드로 진행');
+    crawledContents = [];
+    crawledCTAs = [];
+  }
+  
+  // 4. 각 섹션별 콘텐츠 생성
+  console.log(`📝 ${sectionConfigs.length}개 섹션 병렬 생성 시작...`);
+  onLog?.('[PROGRESS] 50% - 섹션별 콘텐츠 생성 시작...');
+  
+  const sections: string[] = [];
+  
+  const sectionPromises = sectionConfigs.map(async (section, i) => {
+    const subtopic = optimalSubtopic[i] || section.title;
+    
+    try {
+      console.log(`📝 ${section.title} 섹션 생성 중... (${i + 1}/${sectionConfigs.length})`);
+      
+      const manualCta = manualCtas[i];
+      
+      // 크롤링된 CTA에서 해당 섹션에 맞는 CTA 선택
+      const sectionCTAs = crawledCTAs || [];
+      const relevantCTA = sectionCTAs
+        .filter((cta: any) => cta.isExternal && cta.relevance > 5)
+        .sort((a: any, b: any) => b.relevance - a.relevance)
+        .find((cta: any) => 
+          cta.text.toLowerCase().includes(subtopic.toLowerCase()) ||
+          cta.text.toLowerCase().includes(keywordArray.join(' ').toLowerCase()) ||
+          cta.context.toLowerCase().includes(subtopic.toLowerCase())
+        ) || sectionCTAs
+        .filter((cta: any) => cta.isExternal && cta.relevance > 5)
+        .sort((a: any, b: any) => b.relevance - a.relevance)[0];
+      
+      // 동적 CTA 생성
+      const dynamicCta = relevantCTA ? {
+        url: relevantCTA.url,
+        text: relevantCTA.text,
+        hook: relevantCTA.hook || `💡 ${subtopic}에 대한 더 자세한 정보가 필요하신가요?`
+      } : null;
+      
+      const finalCta = dynamicCta || manualCta;
+      
+      let sectionPrompt: string;
+      
+      if (env.contentMode === 'spiderwebbing' || env.contentMode === 'adsense' || env.contentMode === 'paraphrasing') {
+        sectionPrompt = buildContentModePrompt(safeTopic, section, subtopic, env.contentMode, finalCta, payload.platform);
+      } else {
+        sectionPrompt = buildMaxModePromptWithSubtopic(contentMode, safeTopic, keywordArray, section, subtopic, finalCta, crawledContents, {}, payload.platform);
+      }
+      
+      const sectionResult = await model.generateContent(sectionPrompt);
+      const sectionContent = sectionResult.response.text().trim();
+      
+      console.log(`✅ ${section.title} 섹션 완료 (${sectionContent.length}자)`);
+      return { index: i, content: sectionContent, success: true };
+      
+    } catch (sectionError: any) {
+      console.error(`[SECTION ERROR] ${section.title} 섹션 생성 실패:`, sectionError);
+      
+      const fallbackContent = `<h2>${section.title}</h2><p>${subtopic}에 대한 내용을 준비 중입니다.</p>`;
+      
+      return { index: i, content: fallbackContent, success: false };
+    }
+  });
+  
+  // 모든 섹션 병렬 처리 완료 대기
+  const sectionResults = await Promise.all(sectionPromises);
+  
+  // 결과를 순서대로 정렬
+  sectionResults
+    .sort((a, b) => a.index - b.index)
+    .forEach(result => {
+      sections.push(result.content);
+      if (!result.success) {
+        onLog?.(`❌ 섹션 ${result.index + 1} 생성 실패, 기본 콘텐츠 사용`);
+      }
+    });
+  
+  // 5. 전체 HTML 조합
+  console.log('🔧 최종 HTML 조합 중...');
+  onLog?.('[PROGRESS] 70% - 최종 HTML 조합 중...');
+  
+  const isWordPress = payload.platform === 'wordpress';
+  const articleClass = isWordPress ? 'premium-article' : 'max-mode-article';
+  const contentClass = isWordPress ? 'premium-content' : 'article-content';
+  
+  // 목차 생성 (WordPress만)
+  const tableOfContents = generateTableOfContents(optimalSubtopic, isWordPress);
+  
+  // 핵심 요약표 생성
+  const coreSummaryTable = generateCoreSummaryTable(safeTopic, keywordArray, optimalSubtopic);
+  
+  const contentHtml = `<div class="${contentClass}">
+    ${tableOfContents}
+    ${sections.join('\n\n')}
+    ${coreSummaryTable}
+  </div>`;
+  
+  // 해시태그 자동 생성
+  const generateHashtags = (topic: string, keywords: string[], subtopics: string[]): string[] => {
+    const hashtags = new Set<string>();
+    
+    keywords.forEach(keyword => {
+      const cleanKeyword = keyword.trim().replace(/[^\w가-힣]/g, '');
+      if (cleanKeyword.length > 1) {
+        hashtags.add(`#${cleanKeyword}`);
+      }
+    });
+    
+    const topicWords = topic.split(/[\s,]+/).filter(word => word.length > 1);
+    topicWords.forEach(word => {
+      const cleanWord = word.replace(/[^\w가-힣]/g, '');
+      if (cleanWord.length > 1) {
+        hashtags.add(`#${cleanWord}`);
+      }
+    });
+    
+    subtopics.forEach(subtopic => {
+      const subtopicWords = subtopic.split(/[\s,]+/).filter(word => word.length > 1);
+      subtopicWords.forEach(word => {
+        const cleanWord = word.replace(/[^\w가-힣]/g, '');
+        if (cleanWord.length > 1 && cleanWord.length < 10) {
+          hashtags.add(`#${cleanWord}`);
+        }
+      });
+    });
+    
+    const commonHashtags = [
+      '#정보', '#가이드', '#팁', '#꿀팁', '#유용한정보', 
+      '#최신정보', '#업데이트', '#뉴스', '#트렌드', '#인기'
+    ];
+    
+    commonHashtags.forEach(tag => hashtags.add(tag));
+    
+    return Array.from(hashtags).slice(0, 15);
+  };
+
+  const hashtags = generateHashtags(safeTopic, keywordArray, optimalSubtopic);
+  
+  // 면책사항 생성
+  const generateDisclaimer = (): string => {
+    return `
+<div class="disclaimer-section" style="margin-top: 40px; padding: 20px; background: #f8f9fa; border-left: 4px solid #007bff; border-radius: 8px;">
+  <h4 style="color: #007bff; margin-bottom: 15px; font-size: 1.1rem;">⚠️ 면책사항</h4>
+  <p style="color: #666; line-height: 1.6; margin: 0; font-size: 0.9rem;">
+    본 글은 정보 제공 목적으로 작성되었으며, 최신 정보는 공식 소스에서 확인하시기 바랍니다. 
+    작성자의 개인적인 의견이 포함될 수 있으며, 투자나 중요한 결정을 내리기 전에는 전문가와 상담하시기 바랍니다. 
+    정보의 정확성이나 완전성을 보장하지 않으며, 본 글의 내용으로 인한 손실이나 피해에 대해 책임지지 않습니다.
+  </p>
+</div>`;
+  };
+
+  const disclaimerHtml = generateDisclaimer();
+  
+  // 플랫폼별 CSS 스타일을 HTML에 직접 포함
+  // 공통 CSS 스타일 함수 - 밝고 화려한 고급스러운 디자인
+  const getCommonCSS = () => `
+<style>
+/* ===================================
+   밝고 화려한 고급스러운 공통 스타일
+   =================================== */
+
+/* 루트 변수 - 밝고 화려한 색상 팔레트 + 폰트 크기 최적화 */
+:root {
+  --primary-gradient: linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 50%, #45b7d1 100%);
+  --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  --accent-gradient: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+  --success-gradient: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+  --warning-gradient: linear-gradient(135deg, #ffd89b 0%, #19547b 100%);
+  --text-primary: #2d3748;
+  --text-secondary: #4a5568;
+  --text-white: #ffffff;
+  --bg-white: rgba(255, 255, 255, 0.98);
+  --bg-light: rgba(255, 255, 255, 0.9);
+  --shadow-soft: 0 8px 25px rgba(255, 107, 107, 0.15);
+  --shadow-medium: 0 15px 35px rgba(78, 205, 196, 0.2);
+  --shadow-strong: 0 25px 50px rgba(69, 183, 209, 0.25);
+  --border-radius: 20px;
+  --border-radius-large: 30px;
+  /* 폰트 크기 최적화 - 어르신들도 잘 읽을 수 있는 크기 */
+  --font-size-base: 20px; /* 본문 텍스트 최소 20px */
+  --font-size-h1: 36px;   /* H1 최소 32px 이상 */
+  --font-size-h2: 30px;   /* H2 최소 28px 이상 */
+  --font-size-h3: 26px;   /* H3 최소 24px 이상 */
+  --line-height: 2.3;
+}
+
+/* 공통 섹션 스타일 - 밝고 화려한 디자인 */
+.article-section {
+  margin: 45px 0;
+  background: var(--bg-white);
+  backdrop-filter: blur(25px);
+  border-radius: var(--border-radius-large);
+  padding: 45px;
+  box-shadow: var(--shadow-medium);
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.article-section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: var(--primary-gradient);
+  border-radius: var(--border-radius-large) var(--border-radius-large) 0 0;
+}
+
+.article-section::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle, rgba(255, 107, 107, 0.1) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* 공통 본문 스타일 - 밝고 읽기 쉬운 디자인 + 문단 구조 최적화 */
+.section-body {
+  color: var(--text-primary) !important;
+  line-height: var(--line-height);
+  font-size: var(--font-size-base) !important;
+  margin-bottom: 35px;
+  position: relative;
+  z-index: 1;
+}
+
+.section-body p {
+  color: var(--text-primary) !important;
+  line-height: var(--line-height);
+  margin-bottom: 30px !important;
+  font-weight: 500;
+  font-size: var(--font-size-base) !important;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+  /* 문단 구조 최적화 - 3-4문단으로 나누어 가독성 극대화 */
+  padding: 15px 0;
+  border-left: 4px solid transparent;
+  transition: border-left 0.3s ease;
+}
+
+.section-body p:nth-child(odd) {
+  border-left-color: rgba(255, 107, 107, 0.3);
+}
+
+.section-body p:nth-child(even) {
+  border-left-color: rgba(78, 205, 196, 0.3);
+}
+
+/* 문단별 구분을 위한 시각적 효과 */
+.section-body p:not(:last-child)::after {
+  content: '';
+  display: block;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 107, 107, 0.2), transparent);
+  margin: 20px 0;
+}
+
+/* 워드프레스 전용 버튼형 목차 스타일 */
+.wordpress-toc {
+  background: var(--success-gradient) !important;
+  border-radius: var(--border-radius-large) !important;
+  padding: 30px !important;
+  margin: 30px 0 !important;
+  box-shadow: var(--shadow-medium) !important;
+  border: 3px solid rgba(255, 255, 255, 0.4) !important;
+}
+
+.wordpress-toc h3 {
+  color: var(--text-primary) !important;
+  font-size: var(--font-size-h3) !important;
+  margin-bottom: 20px !important;
+  text-align: center !important;
+  font-weight: 800 !important;
+}
+
+.wordpress-toc ul {
+  list-style: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)) !important;
+  gap: 15px !important;
+}
+
+.wordpress-toc li {
+  margin: 0 !important;
+}
+
+.wordpress-toc a {
+  display: block !important;
+  padding: 15px 20px !important;
+  background: var(--bg-white) !important;
+  border-radius: 12px !important;
+  color: var(--text-primary) !important;
+  text-decoration: none !important;
+  font-weight: 600 !important;
+  font-size: 16px !important;
+  transition: all 0.3s ease !important;
+  border: 2px solid rgba(255, 255, 255, 0.3) !important;
+  box-shadow: var(--shadow-soft) !important;
+}
+
+.wordpress-toc a:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: var(--shadow-medium) !important;
+  background: var(--primary-gradient) !important;
+  color: var(--text-white) !important;
+}
+
+/* 공통 제목 스타일 - 화려한 그라디언트 + 단색 박스 스타일 */
+.section-body h2 {
+  font-size: var(--font-size-h2) !important;
+  color: var(--text-white) !important;
+  background: var(--primary-gradient) !important;
+  padding: 20px 30px !important;
+  border-radius: 15px !important;
+  box-shadow: var(--shadow-medium) !important;
+  text-align: left !important;
+  margin: 40px 0 25px 0 !important;
+  font-weight: 900 !important;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+  position: relative;
+}
+
+.section-body h2::before {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 0;
+  width: 60px;
+  height: 4px;
+  background: var(--secondary-gradient);
+  border-radius: 2px;
+}
+
+.section-body h3 {
+  font-size: var(--font-size-h3) !important;
+  color: var(--text-white) !important;
+  background: var(--secondary-gradient) !important;
+  padding: 18px 25px !important;
+  border-radius: 12px !important;
+  box-shadow: var(--shadow-soft) !important;
+  text-align: left !important;
+  margin: 35px 0 20px 0 !important;
+  font-weight: 800 !important;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* 공통 CTA 스타일 - 화려하고 매력적인 디자인 + 후킹멘트 박스 */
+.cta-section, .auto-cta, .premium-cta {
+  text-align: center !important;
+  margin: 40px 0 !important;
+  padding: 35px !important;
+  background: var(--success-gradient) !important;
+  border-radius: var(--border-radius-large) !important;
+  box-shadow: var(--shadow-strong) !important;
+  border: 3px solid rgba(255, 255, 255, 0.4) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.cta-section::before, .auto-cta::before, .premium-cta::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.1) 100%);
+  pointer-events: none;
+}
+
+.cta-button, .premium-cta-button {
+  display: inline-block !important;
+  background: var(--primary-gradient) !important;
+  color: white !important;
+  padding: 18px 35px !important;
+  border-radius: 25px !important;
+  text-decoration: none !important;
+  font-weight: bold !important;
+  font-size: 18px !important;
+  box-shadow: var(--shadow-medium) !important;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+  position: relative;
+  z-index: 1;
+  border: 2px solid rgba(255, 255, 255, 0.3) !important;
+}
+
+.cta-button:hover, .premium-cta-button:hover {
+  transform: translateY(-3px) scale(1.05) !important;
+  box-shadow: var(--shadow-strong) !important;
+}
+
+.cta-hook {
+  font-size: 20px !important;
+  color: var(--text-primary) !important;
+  margin-bottom: 20px !important;
+  font-weight: 700 !important;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.9) !important;
+  padding: 15px 25px !important;
+  border-radius: 15px !important;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1) !important;
+  border: 2px solid rgba(255, 255, 255, 0.5) !important;
+}
+
+/* 반응형 디자인 - 모바일 최적화 */
+@media (max-width: 768px) {
+  .article-section {
+    padding: 30px 20px;
+    margin: 30px 0;
+  }
+  
+  .section-body h2 {
+    font-size: 26px !important;
+  }
+  
+  .section-body h3 {
+    font-size: 22px !important;
+  }
+  
+  .cta-section, .auto-cta, .premium-cta {
+    padding: 25px !important;
+  }
+}
+</style>`;
+
+  const cloudSkinCSS = getCommonCSS() + `
+<style>
+/* ===================================
+   소프트 클라우드 스킨 - 블로그스팟 전용
+   밝고 몽환적인 구름 테마
+   =================================== */
+
+/* 루트 변수 */
+:root {
+  --cloud-primary: #74b9ff;
+  --cloud-secondary: #a29bfe;
+  --cloud-accent: #fd79a8;
+  --cloud-yellow: #ffeaa7;
+  --cloud-gray: #dfe6e9;
+  --bg-white: rgba(255, 255, 255, 0.8);
+  --bg-white-solid: rgba(255, 255, 255, 0.9);
+  --text-primary: #444;
+  --text-secondary: #555;
+  --text-muted: #666;
+  --border-white: rgba(255, 255, 255, 0.95);
+}
+
+/* 전체 컨테이너 */
+.max-mode-article {
+  max-width: 900px;
+  margin: 0 auto;
+  background: linear-gradient(135deg, #ffeaa7 0%, #dfe6e9 50%, #74b9ff 100%);
+  border-radius: 30px;
+  padding: 50px;
+  box-shadow: 0 20px 60px rgba(223, 230, 233, 0.5);
+}
+
+/* 내부 컨텐츠 래퍼 */
+.max-mode-article > * {
+  background: var(--bg-white);
+  backdrop-filter: blur(30px);
+  border-radius: 25px;
+  padding: 45px;
+  box-shadow: 0 10px 40px rgba(223, 230, 233, 0.4);
+  border: 3px solid var(--border-white);
+  margin-bottom: 30px;
+}
+
+/* 메인 제목 - 단색 박스 스타일 */
+.max-mode-article > h1,
+.thumbnail-overlay h1,
+.thumbnail-title {
+  font-size: 3.2rem;
+  margin-bottom: 35px;
+  background: linear-gradient(135deg, #74b9ff 0%, #a29bfe 50%, #fd79a8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: -1px;
+  padding: 25px 35px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #74b9ff 0%, #a29bfe 100%) !important;
+  color: white !important;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(116, 185, 255, 0.3);
+}
+
+/* 섹션 제목 - 단색 박스 스타일 */
+.main-section-title {
+  font-size: 2.5rem;
+  margin-bottom: 30px;
+  background: linear-gradient(135deg, #74b9ff 0%, #fd79a8 100%) !important;
+  color: white !important;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  padding: 20px 30px !important;
+  border-radius: 15px;
+  text-align: center;
+  box-shadow: 0 8px 25px rgba(116, 185, 255, 0.3);
+}
+
+/* 섹션 카드 */
+.section-card {
+  margin: 50px 0;
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(20px);
+  border-radius: 25px !important;
+  padding: 50px !important;
+  border: 3px solid rgba(255, 255, 255, 1) !important;
+  box-shadow: 0 15px 45px rgba(116, 185, 255, 0.2) !important;
+}
+
+/* 섹션 본문 */
+.section-body {
+  color: var(--text-secondary);
+  line-height: 2;
+  font-size: 1.08rem;
+  margin-bottom: 35px;
+}
+
+/* H2 제목 - 단색 박스 스타일 */
+.section-body h2 {
+  font-size: 1.8rem;
+  color: white !important;
+  background: linear-gradient(135deg, #74b9ff 0%, #a29bfe 100%) !important;
+  padding: 18px 25px;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(116, 185, 255, 0.3);
+  text-align: left;
+  margin: 30px 0 20px 0;
+  font-weight: 700;
+}
+
+/* H3 제목 - 단색 박스 스타일 */
+.section-body h3 {
+  font-size: 1.4rem;
+  color: white !important;
+  background: linear-gradient(135deg, #a29bfe 0%, #fd79a8 100%) !important;
+  padding: 15px 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 15px rgba(162, 155, 254, 0.3);
+  text-align: left;
+  margin: 25px 0 15px 0;
+  font-weight: 600;
+}
+
+.section-body p {
+  color: var(--text-secondary);
+  line-height: 2;
+  margin-bottom: 20px;
+}
+
+/* CTA 박스 스타일 */
+.cta-section, .auto-cta, .premium-cta {
+  text-align: center !important;
+  margin: 40px 0 !important;
+  padding: 35px !important;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(116, 185, 255, 0.15) 100%) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 15px 35px rgba(116, 185, 255, 0.2) !important;
+  border: 3px solid rgba(116, 185, 255, 0.3) !important;
+}
+
+.cta-button, .premium-cta-button {
+  display: inline-block !important;
+  background: linear-gradient(135deg, #74b9ff 0%, #a29bfe 100%) !important;
+  color: white !important;
+  padding: 18px 35px !important;
+  border-radius: 25px !important;
+  text-decoration: none !important;
+  font-weight: bold !important;
+  font-size: 18px !important;
+  box-shadow: 0 8px 25px rgba(116, 185, 255, 0.3) !important;
+  transition: all 0.3s ease !important;
+  border: 2px solid rgba(255, 255, 255, 0.3) !important;
+}
+
+.cta-button:hover, .premium-cta-button:hover {
+  transform: translateY(-3px) scale(1.05) !important;
+  box-shadow: 0 15px 40px rgba(116, 185, 255, 0.4) !important;
+}
+
+.cta-hook {
+  font-size: 20px !important;
+  color: var(--text-primary) !important;
+  margin-bottom: 20px !important;
+  font-weight: 700 !important;
+}
+
+/* 핵심요약표 */
+.summary-table {
+  margin-top: 40px;
+  padding-top: 40px;
+  border-top: 3px solid rgba(116, 185, 255, 0.15);
+}
+
+.summary-table h3 {
+  font-size: 1.5rem;
+  margin-bottom: 30px;
+  background: linear-gradient(135deg, #74b9ff 0%, #a29bfe 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* 요약 그리드 */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 25px;
+  background: transparent;
+}
+
+/* 요약 아이템 */
+.summary-item {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(116, 185, 255, 0.15) 100%) !important;
+  backdrop-filter: blur(10px);
+  border: 3px solid rgba(255, 255, 255, 0.9) !important;
+  border-radius: 20px !important;
+  padding: 30px !important;
+  min-height: auto !important;
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: 0 8px 25px rgba(116, 185, 255, 0.15) !important;
+}
+
+.summary-item:hover {
+  transform: translateY(-12px) rotate(1deg);
+  box-shadow: 0 25px 55px rgba(116, 185, 255, 0.3) !important;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 1) 0%, rgba(116, 185, 255, 0.25) 100%) !important;
+  border-color: #74b9ff !important;
+}
+
+/* 요약 아이템 제목 */
+.summary-item-title {
+  font-weight: 700 !important;
+  background: linear-gradient(135deg, #74b9ff 0%, #a29bfe 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 15px !important;
+  font-size: 1.25rem !important;
+  color: transparent !important;
+}
+
+/* 요약 아이템 내용 */
+.summary-item-content {
+  color: var(--text-muted) !important;
+  margin-bottom: 20px !important;
+  line-height: 1.8;
+  font-size: 0.98rem !important;
+}
+
+/* 요약 아이템 링크 */
+.summary-item-link {
+  display: inline-flex !important;
+  align-items: center;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #74b9ff 0%, #a29bfe 100%) !important;
+  color: white !important;
+  text-decoration: none !important;
+  font-size: 0.9rem !important;
+  font-weight: 600;
+  border-radius: 20px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(116, 185, 255, 0.3);
+}
+
+.summary-item-link:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 20px rgba(116, 185, 255, 0.5);
+  background: linear-gradient(135deg, #a29bfe 0%, #fd79a8 100%) !important;
+  color: white !important;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 768px) {
+  .max-mode-article {
+    padding: 30px 20px;
+  }
+
+  .max-mode-article > * {
+    padding: 25px;
+  }
+
+  .max-mode-article > h1,
+  .thumbnail-title {
+    font-size: 2rem;
+  }
+
+  .section-card {
+    padding: 25px !important;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .main-section-title {
+    font-size: 1.8rem;
+  }
+}
+</style>`;
+
+  // WordPress용 프리미엄 그라디언트 스킨 CSS
+  const premiumGradientCSS = getCommonCSS() + `
+<style>
+/* ===================================
+   밝고 화려한 프리미엄 그라디언트 스킨
+   =================================== */
+
+.premium-article {
+  max-width: 1100px;
+  margin: 0 auto;
+  background: linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 30%, #45b7d1 70%, #f093fb 100%);
+  border-radius: 45px;
+  padding: 70px;
+  box-shadow: var(--shadow-strong);
+  position: relative;
+  overflow: hidden;
+}
+
+.premium-article::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.08) 100%);
+  border-radius: 45px;
+  pointer-events: none;
+}
+
+.premium-article::after {
+  content: '';
+  position: absolute;
+  top: -100px;
+  right: -100px;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(255, 107, 107, 0.2) 0%, transparent 70%);
+  border-radius: 50%;
+  animation: rotate 20s linear infinite;
+}
+
+@keyframes rotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.premium-article > * {
+  background: var(--bg-white);
+  backdrop-filter: blur(25px);
+  border-radius: var(--border-radius-large);
+  padding: 55px;
+  box-shadow: var(--shadow-medium);
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  margin-bottom: 45px;
+  position: relative;
+  z-index: 1;
+}
+
+.premium-content {
+  background: var(--bg-white);
+  backdrop-filter: blur(25px);
+  border-radius: var(--border-radius-large);
+  padding: 55px;
+  box-shadow: var(--shadow-medium);
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  margin-bottom: 45px;
+  position: relative;
+  z-index: 1;
+}
+
+.premium-section {
+  margin: 65px 0;
+  background: var(--bg-white) !important;
+  backdrop-filter: blur(30px);
+  border-radius: var(--border-radius-large) !important;
+  padding: 65px !important;
+  border: 3px solid rgba(255, 255, 255, 0.4) !important;
+  box-shadow: var(--shadow-strong) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.premium-section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: var(--primary-gradient);
+  border-radius: var(--border-radius-large) var(--border-radius-large) 0 0;
+}
+
+.premium-section::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle, rgba(78, 205, 196, 0.1) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.premium-body {
+  color: var(--text-primary) !important;
+  line-height: var(--line-height);
+  font-size: var(--font-size-base) !important;
+  margin-bottom: 45px;
+  position: relative;
+  z-index: 1;
+}
+
+.premium-body h2 {
+  font-size: var(--font-size-h2) !important;
+  color: var(--text-primary) !important;
+  margin: 55px 0 30px 0;
+  font-weight: 900;
+  text-shadow: none;
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  position: relative;
+}
+
+.premium-body h2::before {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 0;
+  width: 80px;
+  height: 5px;
+  background: var(--secondary-gradient);
+  border-radius: 3px;
+}
+
+.premium-body h3 {
+  font-size: var(--font-size-h3) !important;
+  color: var(--text-primary) !important;
+  margin: 45px 0 25px 0;
+  font-weight: 800;
+  text-shadow: none;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.premium-body p {
+  color: var(--text-primary) !important;
+  line-height: var(--line-height);
+  margin-bottom: 32px !important;
+  text-shadow: none;
+  font-weight: 500;
+  font-size: var(--font-size-base) !important;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+}
+
+.premium-section-title {
+  font-size: var(--font-size-h1) !important;
+  margin-bottom: 45px !important;
+  color: #1a1a1a !important;
+  font-weight: 900 !important;
+  letter-spacing: -1px !important;
+  text-shadow: 0 3px 6px rgba(0, 0, 0, 0.1);
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  position: relative;
+}
+
+.premium-section-title::before {
+  content: '';
+  position: absolute;
+  bottom: -15px;
+  left: 0;
+  width: 100px;
+  height: 6px;
+  background: var(--secondary-gradient);
+  border-radius: 3px;
+}
+
+@media (max-width: 768px) {
+  .premium-article {
+    padding: 45px 30px;
+  }
+
+  .premium-article > * {
+    padding: 35px;
+  }
+
+  .premium-section {
+    padding: 45px !important;
+  }
+
+  .premium-section-title {
+    font-size: 2.4rem;
+  }
+}
+</style>`;
+  
+  // 플랫폼별 HTML 생성 (CSS 포함)
+  const fullHtml = isWordPress 
+    ? `${premiumGradientCSS}<div class="${articleClass}">
+  ${contentHtml}
+  ${disclaimerHtml}
+</div>`.trim()
+    : `${cloudSkinCSS}<div class="${articleClass}">
+  ${contentHtml}
+  ${disclaimerHtml}
+</div>`.trim();
+  
+  onLog?.('[PROGRESS] 80% - HTML 구조 완성');
+  
+  console.log(`✅ 전체 글 생성 완료 (${fullHtml.length}자)`);
+  onLog?.('[PROGRESS] 90% - 글 생성 완료!');
+  onLog?.(`[FINAL RESULT] 최종 글 길이: ${fullHtml.length}자`);
+  
+  onLog?.('[PROGRESS] 100% - 모든 작업 완료!');
+  
+  return fullHtml;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 타입 정의 및 인터페이스
+// ─────────────────────────────────────────────────────────────
+
+export interface RunOnePostPayload {
+  provider: string;
+  openaiKey?: string;
+  geminiKey?: string;
+  topic: string;
+  keywords: string | string[];
+  minChars?: number;
+  contentMode?: string; // 콘텐츠 모드 추가
+  promptMode?: string; // 프롬프트 모드 추가
+  manualCtas?: Record<number, { url: string; text: string; hook?: string }>; // 소제목별 수동 CTA
+  // 블로거 발행 관련 필드들
+  platform?: string;
+  blogId?: string;
+  googleClientId?: string;
+  googleClientSecret?: string;
+  redirectUri?: string;
+  // 워드프레스 발행 관련 필드들
+  wordpressSiteUrl?: string;
+  wordpressUsername?: string;
+  wordpressPassword?: string;
+  wordpressCategories?: string[];
+  wordpressTags?: string[];
+  wordpressStatus?: string;
+  // 네이버 API 관련 필드들
+  naverClientId?: string;
+  naverClientSecret?: string;
+  // 기타 필드들
+  googleCseKey?: string;
+  googleCseCx?: string;
+}
+
+export interface MaxModeSection {
+  id: string;
+  title: string;
+  description: string;
+  minChars: number;
+  role: string;
+  contentFocus: string;
+  requiredElements: string[];
+}
+
+// MAX 모드 기본 섹션 구조
+export const MAX_MODE_SECTIONS: MaxModeSection[] = [
+  {
+    id: "introduction",
+    title: "개요",
+    description: "주제에 대한 전반적인 소개와 핵심 개념 설명",
+    minChars: 800,
+    role: "전문가",
+    contentFocus: "개요, 핵심 개념, 중요성",
+    requiredElements: ["개요 설명", "핵심 개념", "중요성 강조"]
+  },
+  {
+    id: "features",
+    title: "주요 특징",
+    description: "주제의 주요 특징과 장점을 상세히 설명",
+    minChars: 1000,
+    role: "전문가",
+    contentFocus: "특징, 장점, 차별점",
+    requiredElements: ["주요 특징", "장점 설명", "차별점"]
+  },
+  {
+    id: "usage",
+    title: "활용 방법",
+    description: "실제 활용 방법과 사례를 구체적으로 제시",
+    minChars: 1200,
+    role: "실무 전문가",
+    contentFocus: "활용 방법, 사례, 실무 적용",
+    requiredElements: ["활용 방법", "실제 사례", "실무 적용"]
+  },
+  {
+    id: "considerations",
+    title: "주의사항",
+    description: "주의해야 할 점과 한계를 명확히 설명",
+    minChars: 800,
+    role: "전문가",
+    contentFocus: "주의사항, 한계, 리스크",
+    requiredElements: ["주의사항", "한계점", "리스크 관리"]
+  },
+  {
+    id: "future",
+    title: "미래 전망",
+    description: "미래 발전 방향과 전망을 제시",
+    minChars: 1000,
+    role: "전문가",
+    contentFocus: "미래 전망, 발전 방향, 트렌드",
+    requiredElements: ["미래 전망", "발전 방향", "트렌드 분석"]
+  }
+];
+
+// 에드센스모드 전용 섹션 구조
+export const ADSENSE_MODE_SECTIONS: MaxModeSection[] = [
+  {
+    id: "introduction",
+    title: "기본 개념과 원리",
+    description: "주제에 대한 과학적이고 전문적인 기본 개념 설명",
+    minChars: 1000,
+    role: "전문가",
+    contentFocus: "과학적 근거, 전문적 설명, 신뢰성",
+    requiredElements: ["과학적 근거", "전문적 용어", "정확한 정보", "신뢰성 있는 출처"]
+  },
+  {
+    id: "detailed_methods",
+    title: "구체적인 방법과 실천법",
+    description: "실제로 적용할 수 있는 구체적이고 실용적인 방법 제시",
+    minChars: 1200,
+    role: "실무 전문가",
+    contentFocus: "구체적 방법, 실천법, 단계별 가이드",
+    requiredElements: ["단계별 가이드", "실용적 방법", "구체적 예시", "실천 가능한 조언"]
+  },
+  {
+    id: "scientific_evidence",
+    title: "과학적 근거와 연구 결과",
+    description: "주제에 대한 과학적 연구와 근거를 제시하여 신뢰성 확보",
+    minChars: 1000,
+    role: "연구자",
+    contentFocus: "과학적 연구, 통계 데이터, 전문가 의견",
+    requiredElements: ["연구 결과", "통계 데이터", "전문가 의견", "과학적 근거"]
+  },
+  {
+    id: "practical_tips",
+    title: "실전 팁과 주의사항",
+    description: "실제 적용 시 알아야 할 실전 팁과 주의사항",
+    minChars: 800,
+    role: "경험자",
+    contentFocus: "실전 팁, 주의사항, 경험담",
+    requiredElements: ["실전 팁", "주의사항", "경험담", "실수 방지법"]
+  },
+  {
+    id: "long_term_benefits",
+    title: "장기적 효과와 지속성",
+    description: "장기적인 관점에서의 효과와 지속 가능한 방법",
+    minChars: 1000,
+    role: "전문가",
+    contentFocus: "장기적 효과, 지속성, 미래 전망",
+    requiredElements: ["장기적 효과", "지속성", "미래 전망", "지속 가능한 방법"]
+  }
+];
+
+// 쇼핑모드 전용 섹션 구조
+export const SHOPPING_MODE_SECTIONS: MaxModeSection[] = [
+  {
+    id: "product_overview",
+    title: "제품 개요와 특징",
+    description: "제품의 기본 정보와 주요 특징을 상세히 설명",
+    minChars: 1000,
+    role: "제품 전문가",
+    contentFocus: "제품 정보, 특징, 스펙, 장점",
+    requiredElements: ["제품 스펙", "주요 특징", "장점", "차별점"]
+  },
+  {
+    id: "comparison_analysis",
+    title: "경쟁 제품 비교 분석",
+    description: "다른 제품들과의 비교를 통한 객관적 분석",
+    minChars: 1200,
+    role: "비교 분석가",
+    contentFocus: "비교 분석, 장단점, 가성비",
+    requiredElements: ["경쟁사 제품", "비교표", "장단점", "가성비 분석"]
+  },
+  {
+    id: "user_experience",
+    title: "사용자 경험과 리뷰",
+    description: "실제 사용자들의 경험과 리뷰를 바탕으로 한 평가",
+    minChars: 1000,
+    role: "사용자",
+    contentFocus: "사용자 경험, 리뷰, 평가",
+    requiredElements: ["사용자 리뷰", "경험담", "평가", "만족도"]
+  },
+  {
+    id: "purchase_guide",
+    title: "구매 가이드와 추천",
+    description: "구매 시 고려사항과 추천 방법",
+    minChars: 800,
+    role: "구매 전문가",
+    contentFocus: "구매 가이드, 추천, 고려사항",
+    requiredElements: ["구매 가이드", "추천 방법", "고려사항", "구매 팁"]
+  },
+  {
+    id: "value_proposition",
+    title: "가치 제안과 결론",
+    description: "제품의 가치와 최종 추천 이유",
+    minChars: 1000,
+    role: "전문가",
+    contentFocus: "가치 제안, 추천 이유, 결론",
+    requiredElements: ["가치 제안", "추천 이유", "결론", "최종 평가"]
+  }
+];
+
+// 콘텐츠 모드별 섹션 매핑
+export const CONTENT_MODE_SECTIONS_MAP: Record<string, MaxModeSection[]> = {
+  'external': MAX_MODE_SECTIONS,
+  'spiderwebbing': MAX_MODE_SECTIONS,
+  'adsense': ADSENSE_MODE_SECTIONS,
+  'paraphrasing': MAX_MODE_SECTIONS,
+  'internal': MAX_MODE_SECTIONS,
+  'shopping': SHOPPING_MODE_SECTIONS
+};
+
+// ─────────────────────────────────────────────────────────────
+// 유틸리티 함수들
+// ─────────────────────────────────────────────────────────────
+
+export function buildMaxModeTitlePrompt(contentMode: string, topic: string, keywords: string[]): string {
+  // 에드센스모드 특별 처리
+  if (contentMode === 'adsense') {
+    return `다음 주제에 대한 에드센스 승인에 최적화된 제목을 생성해주세요:
+
+주제: ${topic}
+키워드: ${keywords.join(', ')}
+콘텐츠 모드: ${contentMode} (에드센스 승인 최적화)
+
+🎯 **에드센스 승인 최적화 제목 규칙:**
+1. **전문성 강조**: "과학적", "전문가", "연구", "근거" 등 신뢰성 있는 표현
+2. **교육적 성격**: "가이드", "방법론", "원리", "이해" 등 학습 지향적 표현
+3. **신뢰성**: "완전", "정확한", "검증된", "과학적" 등 신뢰성 강조
+4. **길이 최적화**: 40-70자 (에드센스는 더 긴 제목도 허용)
+5. **중립적 톤**: 과도한 감정 표현보다는 객관적이고 전문적인 톤
+
+📊 **에드센스 승인에 유리한 제목 요소:**
+- 과학적 근거가 있는 내용임을 암시
+- 교육적이고 정보 제공 목적이 명확
+- 전문적이고 신뢰할 수 있는 느낌
+- 과도한 마케팅 표현 배제
+- 독자에게 실질적인 도움이 되는 내용임을 강조
+
+제목만 출력해주세요.`;
+  }
+
+  return `다음 주제에 대한 SEO 최적화된 제목을 생성해주세요:
+
+주제: ${topic}
+키워드: ${keywords.join(', ')}
+콘텐츠 모드: ${contentMode}
+
+🎯 **크롤링 기반 SEO 제목 생성 규칙:**
+1. **상위 노출 최적화**: 검색량이 높은 키워드 조합 사용
+2. **클릭 유도력**: "완전 정복", "꿀팁", "실전 가이드", "솔직한 후기" 등 감정적 표현
+3. **검색 의도 부합**: "방법", "하는법", "가이드", "팁" 등 실용적 키워드 포함
+4. **길이 최적화**: 30-60자 (모바일에서 2줄 이내)
+5. **중복 방지**: 기존 검색 결과와 차별화된 제목
+
+📊 **제목 생성 전략:**
+- "왜"보다는 "어떻게"에 집중
+- 구체적인 방법론과 단계 제시
+- 독자의 궁금증을 해결하는 제목
+- 개인적 경험담 느낌의 친근한 톤
+
+제목만 출력해주세요.`;
+}
+
+export async function generateOptimalSubtopic(topic: string, keywords: string[], options: any): Promise<string[]> {
+  try {
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(options.geminiKey || '');
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+    const prompt = `다음 주제에 대해 사람들이 가장 많이 검색하는 순위별로 소제목 5개를 생성해주세요:
+
+주제: ${topic}
+키워드: ${keywords.join(', ')}
+
+🎯 **검색 순위 기반 소제목 생성 규칙:**
+1. **검색량 높은 순서**: 가장 많이 검색되는 키워드부터 우선순위
+2. **검색 의도 분석**: "방법", "하는법", "가이드", "팁", "비교" 등
+3. **실용성 중심**: 독자가 실제로 궁금해하는 내용
+4. **SEO 최적화**: 검색 상위 노출 가능한 소제목
+5. **차별화**: 기존 콘텐츠와 다른 독창적 접근
+
+📊 **소제목 생성 전략:**
+- "왜"보다는 "어떻게"에 집중
+- 구체적인 방법론과 단계 제시
+- 독자의 궁금증을 해결하는 소제목
+- 실전 경험담과 팁 중심
+
+다음 형식으로 5개 소제목만 출력해주세요:
+1. 첫 번째 소제목
+2. 두 번째 소제목
+3. 세 번째 소제목
+4. 네 번째 소제목
+5. 다섯 번째 소제목`;
+
+    const result = await model.generateContent(prompt);
+    const response = result.response.text().trim();
+    
+    // 응답에서 소제목 추출
+    const subtopics = response
+      .split('\n')
+      .filter(line => line.match(/^\d+\./))
+      .map(line => line.replace(/^\d+\.\s*/, '').trim())
+      .filter(subtopic => subtopic.length > 0);
+    
+    return subtopics.length >= 5 ? subtopics.slice(0, 5) : [
+      `${topic}의 기본 개념과 이해`,
+      `${topic}의 주요 특징과 장점`,
+      `${topic}의 활용 방법과 사례`,
+      `${topic}의 주의사항과 한계`,
+      `${topic}의 미래 전망과 발전 방향`
+    ];
+  } catch (error) {
+    console.log('[SUBTITLE] AI 소제목 생성 실패, 기본 소제목 사용:', error);
+    return [
+      `${topic}의 기본 개념과 이해`,
+      `${topic}의 주요 특징과 장점`,
+      `${topic}의 활용 방법과 사례`,
+      `${topic}의 주의사항과 한계`,
+      `${topic}의 미래 전망과 발전 방향`
+    ];
+  }
+}
+
+export async function crawlAndMixContent(topic: string, keywords: string[], options: any): Promise<{contents: any[], ctas: any[]}> {
+  try {
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(options.geminiKey || '');
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+    const prompt = `다음 주제에 대해 크롤링 기반으로 외부 링크와 CTA를 생성해주세요:
+
+주제: ${topic}
+키워드: ${keywords.join(', ')}
+
+🎯 **동적 CTA 생성 규칙:**
+1. **외부 링크 필수**: 수동 CTA 외 반드시 외부 링크 동적 생성
+2. **후킹 멘트**: "💡 더 자세한 정보가 필요하신가요?", "🔥 지금 바로 확인해보세요!" 등
+3. **CENTER 배치**: 중앙 정렬로 시각적 강조
+4. **관련성**: 주제와 직접적으로 관련된 유용한 링크
+5. **신뢰성**: 공식 사이트, 전문 기관, 검증된 소스 우선
+
+📊 **CTA 생성 전략:**
+- 공식 사이트나 전문 기관 링크
+- 관련 도구나 서비스 링크
+- 추가 학습 자료 링크
+- 실용적인 도구나 앱 링크
+
+다음 JSON 형식으로 출력해주세요:
+{
+  "contents": [
+    {
+      "title": "관련 제목",
+      "url": "https://example.com",
+      "description": "설명",
+      "relevance": 8
+    }
+  ],
+  "ctas": [
+    {
+      "url": "https://example.com",
+      "text": "CTA 버튼 텍스트",
+      "hook": "후킹 멘트",
+      "isExternal": true,
+      "relevance": 9
+    }
+  ]
+}`;
+
+    const result = await model.generateContent(prompt);
+    const response = result.response.text().trim();
+    
+    try {
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return {
+          contents: parsed.contents || [],
+          ctas: parsed.ctas || []
+        };
+      }
+    } catch (parseError) {
+      console.log('[CRAWL] JSON 파싱 실패, 기본값 사용:', parseError);
+    }
+    
+    return {
+      contents: [],
+      ctas: []
+    };
+  } catch (error) {
+    console.log('[CRAWL] 크롤링 실패, 기본값 사용:', error);
+    return {
+      contents: [],
+      ctas: []
+    };
+  }
+}
+
+export function buildContentModePrompt(topic: string, section: MaxModeSection, subtopic: string, contentMode: string, cta: any, platform?: string): string {
+  // 에드센스모드 특별 처리
+  if (contentMode === 'adsense') {
+    return `다음 주제에 대한 ${section.title} 섹션을 작성해주세요:
+
+주제: ${topic}
+소제목: ${subtopic}
+콘텐츠 모드: ${contentMode} (에드센스 승인 최적화)
+플랫폼: ${platform || 'blogger'}
+
+🎯 **에드센스 승인 최적화 요구사항:**
+1. **고품질 콘텐츠**: 전문적이고 유용한 정보 제공
+2. **원본성**: 완전히 새로운 관점과 내용
+3. **신뢰성**: 검증된 정보와 과학적 근거
+4. **가독성**: 명확하고 이해하기 쉬운 구조
+5. **실용성**: 독자가 실제로 활용할 수 있는 정보
+
+📋 **에드센스 승인에 유리한 요소:**
+- 전문적인 용어와 정확한 정보
+- 체계적인 구조와 논리적 흐름
+- 독자에게 실질적인 도움이 되는 내용
+- 저작권 문제 없는 완전한 원본 콘텐츠
+- 정기적인 업데이트가 가능한 주제
+
+🚫 **절대 금지사항:**
+- 이미지 생성 요청 금지 (썸네일 제외)
+- img 태그나 이미지 관련 HTML 생성 금지
+- 이미지 설명이나 이미지 삽입 요청 금지
+- 텍스트만으로 콘텐츠 구성
+
+요구사항:
+- ${section.description}
+- 최소 ${section.minChars}자 이상
+- ${section.contentFocus}에 집중
+- ${section.requiredElements.join(', ')} 포함
+
+HTML 형식으로 작성해주세요.`;
+  }
+
+  return `다음 주제에 대한 ${section.title} 섹션을 작성해주세요:
+
+주제: ${topic}
+소제목: ${subtopic}
+콘텐츠 모드: ${contentMode}
+플랫폼: ${platform || 'blogger'}
+
+요구사항:
+- ${section.description}
+- 최소 ${section.minChars}자 이상
+- ${section.contentFocus}에 집중
+- ${section.requiredElements.join(', ')} 포함
+
+HTML 형식으로 작성해주세요.`;
+}
+
+export function buildMaxModePromptWithSubtopic(contentMode: string, topic: string, keywords: string[], section: MaxModeSection, subtopic: string, cta: any, crawledContents: any[], manualCtas: any, platform?: string): string {
+  return `다음 주제에 대한 ${section.title} 섹션을 작성해주세요:
+
+주제: ${topic}
+소제목: ${subtopic}
+키워드: ${keywords.join(', ')}
+콘텐츠 모드: ${contentMode}
+플랫폼: ${platform || 'blogger'}
+
+🎯 **크롤링 기반 콘텐츠 생성 규칙:**
+1. **완전 새로 작성**: 크롤링한 내용을 참고하되 완전히 새로운 내용으로 작성
+2. **중복 방지**: 기존 문서와 유사하지 않도록 차별화된 내용
+3. **글자수 맞춤**: ${section.minChars}자 이상 정확히 맞춤
+4. **구조화**: H1, H2, H3, 본문 명확한 구분
+5. **가독성 최적화**: 본문 20px, H1 32px+, H2 28px+, H3 24px+
+
+📊 **동적 콘텐츠 생성:**
+- 상황에 맞는 표, 체크리스트, 그래프 자동 생성
+- 문단은 3-4개로 나누어 가독성 극대화
+- "왜"보다는 "어떻게"에 집중
+- 실용적이고 구체적인 정보 제공
+
+🎨 **스타일링 요구사항:**
+- 본문 텍스트: 최소 20px (어르신들도 편하게 읽을 수 있도록)
+- H1: 32px 이상, H2: 28px 이상, H3: 24px 이상
+- 문단 간격: margin-bottom: 28px
+- 중앙 정렬 CTA: CENTER 배치로 시각적 강조
+
+📋 **핵심 요약표 생성:**
+- 4x4 또는 5x5 테이블로 핵심 내용 요약
+- 짧지만 확실한 내용으로 작성
+- 관련 링크 상황에 맞게 생성
+
+🚫 **절대 금지사항:**
+- 이미지 생성 요청 금지 (썸네일 제외)
+- img 태그나 이미지 관련 HTML 생성 금지
+- 이미지 설명이나 이미지 삽입 요청 금지
+- 텍스트만으로 콘텐츠 구성
+
+요구사항:
+- ${section.description}
+- 최소 ${section.minChars}자 이상
+- ${section.contentFocus}에 집중
+- ${section.requiredElements.join(', ')} 포함
+
+HTML 형식으로 작성해주세요.`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 핵심 요약표 및 글 구조 개선 함수들
+// ─────────────────────────────────────────────────────────────
+
+export function generateCoreSummaryTable(topic: string, keywords: string[], sections: string[]): string {
+  const tableSize = sections.length >= 5 ? '5x5' : '4x4';
+  const rows = tableSize === '5x5' ? 5 : 4;
+  
+  let tableHtml = `
+<div class="core-summary-table" style="margin: 40px 0; background: #f8f9fa; border-radius: 12px; padding: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+  <h3 style="text-align: center; margin-bottom: 25px; color: #2c3e50; font-size: 1.5rem;">📋 ${topic} 핵심 요약표</h3>
+  <table style="width: 100%; border-collapse: collapse; font-size: 16px;">
+    <thead>
+      <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+        <th style="padding: 15px; border: 1px solid #ddd; text-align: center;">구분</th>
+        <th style="padding: 15px; border: 1px solid #ddd; text-align: center;">핵심 내용</th>
+        <th style="padding: 15px; border: 1px solid #ddd; text-align: center;">중요도</th>
+        <th style="padding: 15px; border: 1px solid #ddd; text-align: center;">관련 링크</th>
+      </tr>
+    </thead>
+    <tbody>`;
+
+  for (let i = 0; i < rows; i++) {
+    const section = sections[i] || '추가 정보';
+    const importance = i === 0 ? '⭐⭐⭐⭐⭐' : i === 1 ? '⭐⭐⭐⭐' : i === 2 ? '⭐⭐⭐' : '⭐⭐';
+    const linkText = i === 0 ? '공식 사이트' : i === 1 ? '상세 가이드' : i === 2 ? '실전 팁' : '추가 자료';
+    
+    tableHtml += `
+      <tr style="background: ${i % 2 === 0 ? '#ffffff' : '#f8f9fa'};">
+        <td style="padding: 12px; border: 1px solid #ddd; text-align: center; font-weight: bold;">${i + 1}</td>
+        <td style="padding: 12px; border: 1px solid #ddd;">${section}</td>
+        <td style="padding: 12px; border: 1px solid #ddd; text-align: center;">${importance}</td>
+        <td style="padding: 12px; border: 1px solid #ddd; text-align: center;">
+          <a href="#" style="color: #667eea; text-decoration: none; font-weight: bold;">${linkText}</a>
+        </td>
+      </tr>`;
+  }
+  
+  tableHtml += `
+    </tbody>
+  </table>
+  <p style="text-align: center; margin-top: 20px; color: #666; font-size: 14px;">
+    💡 위 표는 ${topic}에 대한 핵심 정보를 요약한 것입니다.
+  </p>
+</div>`;
+  
+  return tableHtml;
+}
+
+export function generateDynamicContent(topic: string, subtopic: string, contentType: 'table' | 'checklist' | 'graph'): string {
+  switch (contentType) {
+    case 'table':
+      return `
+<div class="dynamic-table" style="margin: 25px 0; background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+  <h4 style="color: #2c3e50; margin-bottom: 15px; font-size: 1.2rem;">📊 ${subtopic} 비교표</h4>
+  <table style="width: 100%; border-collapse: collapse; font-size: 16px;">
+    <thead>
+      <tr style="background: #f8f9fa;">
+        <th style="padding: 12px; border: 1px solid #ddd; text-align: center;">항목</th>
+        <th style="padding: 12px; border: 1px solid #ddd; text-align: center;">내용</th>
+        <th style="padding: 12px; border: 1px solid #ddd; text-align: center;">비고</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="padding: 12px; border: 1px solid #ddd;">핵심 포인트</td>
+        <td style="padding: 12px; border: 1px solid #ddd;">구체적인 설명</td>
+        <td style="padding: 12px; border: 1px solid #ddd;">추가 정보</td>
+      </tr>
+    </tbody>
+  </table>
+</div>`;
+    
+    case 'checklist':
+      return `
+<div class="dynamic-checklist" style="margin: 25px 0; background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+  <h4 style="color: #2c3e50; margin-bottom: 15px; font-size: 1.2rem;">✅ ${subtopic} 체크리스트</h4>
+  <ul style="list-style: none; padding: 0;">
+    <li style="padding: 8px 0; border-bottom: 1px solid #eee;">
+      <span style="color: #27ae60; margin-right: 10px;">✓</span>
+      첫 번째 확인 사항
+    </li>
+    <li style="padding: 8px 0; border-bottom: 1px solid #eee;">
+      <span style="color: #27ae60; margin-right: 10px;">✓</span>
+      두 번째 확인 사항
+    </li>
+    <li style="padding: 8px 0; border-bottom: 1px solid #eee;">
+      <span style="color: #27ae60; margin-right: 10px;">✓</span>
+      세 번째 확인 사항
+    </li>
+  </ul>
+</div>`;
+    
+    case 'graph':
+      return `
+<div class="dynamic-graph" style="margin: 25px 0; background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+  <h4 style="color: #2c3e50; margin-bottom: 15px; font-size: 1.2rem;">📈 ${subtopic} 진행도</h4>
+  <div style="display: flex; align-items: center; gap: 10px; margin: 15px 0;">
+    <div style="flex: 1; height: 20px; background: #e9ecef; border-radius: 10px; overflow: hidden;">
+      <div style="height: 100%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); width: 75%; border-radius: 10px;"></div>
+    </div>
+    <span style="font-weight: bold; color: #2c3e50;">75%</span>
+  </div>
+  <p style="color: #666; font-size: 14px; margin: 0;">현재 진행 상황을 시각적으로 표시</p>
+</div>`;
+    
+    default:
+      return '';
+  }
+}
+
+export function generateTableOfContents(sections: string[], isWordPress: boolean = false): string {
+  if (!isWordPress) return '';
+  
+  let tocHtml = `
+<div class="table-of-contents" style="margin: 30px 0; background: #f8f9fa; border-radius: 12px; padding: 25px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+  <h3 style="text-align: center; margin-bottom: 20px; color: #2c3e50; font-size: 1.4rem;">📑 목차</h3>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">`;
+  
+  sections.forEach((section, index) => {
+    tocHtml += `
+    <button class="menu-box-btn" style="
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+      transition: transform 0.2s;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+      ${index + 1}회차
+    </button>`;
+  });
+  
+  tocHtml += `
+  </div>
+</div>`;
+  
+  return tocHtml;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 메인 실행 함수들
+// ─────────────────────────────────────────────────────────────
+
+export async function runPost(payload: any, onLog?: (s: string) => void) {
+  try {
+    onLog?.('🚀 포스팅 생성 시작...');
+    
+    const {
+      provider = 'openai',
+      openaiKey,
+      dalleApiKey,
+      geminiKey,
+      topic,
+      keywords = [],
+      minChars = 3000,
+      platform = 'blogger',
+      blogId,
+      googleClientId,
+      googleClientSecret,
+      redirectUri,
+      wordpressSiteUrl,
+      wordpressUsername,
+      wordpressPassword,
+      wordpressCategories,
+      wordpressTags,
+      wordpressStatus = 'draft'
+    } = payload;
+
+    // 🔑 키워드 자동 추출 로직
+    let finalKeywords = [];
+    
+    if (keywords && keywords.length > 0) {
+      // 사용자가 키워드를 입력한 경우
+      finalKeywords = Array.isArray(keywords) ? keywords : [keywords];
+      onLog?.(`🔑 사용자 입력 키워드: ${finalKeywords.join(', ')}`);
+    } else {
+      // 주제에서 키워드 자동 추출
+      onLog?.('🔍 주제에서 키워드 자동 추출 중...');
+      
+      // 기본 키워드 (주제 자체)
+      const baseKeywords = [topic];
+      
+      // 주제에서 관련 키워드 추출
+      const relatedKeywords = [];
+      
+      // 연도/날짜 관련 키워드
+      const yearMatch = topic.match(/(\d{4})/);
+      if (yearMatch) {
+        relatedKeywords.push(yearMatch[1], `${yearMatch[1]}년`);
+      }
+      
+      // 분야별 키워드 추출
+      if (topic.includes('윈도우') || topic.includes('windows')) {
+        relatedKeywords.push('마이크로소프트', 'MS', 'OS', '운영체제', '업데이트', '업그레이드');
+      }
+      if (topic.includes('무료') || topic.includes('free')) {
+        relatedKeywords.push('비용', '가격', '요금', '할인', '혜택');
+      }
+      if (topic.includes('업데이트') || topic.includes('update')) {
+        relatedKeywords.push('최신', '신규', '버전', '패치', '개선');
+      }
+      
+      // 주제를 단어별로 분리하여 추가 키워드 생성
+      const words = topic.split(/[\s,]+/).filter(word => word.length > 1);
+      relatedKeywords.push(...words);
+      
+      // 중복 제거 및 정제
+      finalKeywords = [...baseKeywords, ...relatedKeywords]
+        .map(k => k.trim())
+        .filter(k => k.length > 0)
+        .filter((k, i, arr) => arr.indexOf(k) === i) // 중복 제거
+        .slice(0, 10); // 최대 10개로 제한
+      
+      onLog?.(`🔍 추출된 키워드: ${finalKeywords.join(', ')}`);
+    }
+
+    onLog?.(`📝 주제: ${topic}`);
+    onLog?.(`🔑 최종 키워드: ${finalKeywords.join(', ')}`);
+    onLog?.(`🤖 AI 모델: ${provider}`);
+    onLog?.(`📊 플랫폼: ${platform}`);
+
+    // 플랫폼별 콘텐츠 생성
+    onLog?.(`🤖 ${platform === 'wordpress' ? 'WordPress용' : platform === 'blogger' ? 'Blogger용' : '미리보기용'} AI 콘텐츠 생성 중...`);
+    
+    let html: string;
+    let title: string;
+    
+    if (platform === 'wordpress') {
+      // WordPress 전용 콘텐츠 생성
+      const wpContent = await generateWordPressContent({
+        topic,
+        keywords: finalKeywords,
+        minChars,
+        geminiKey: geminiKey || openaiKey || dalleApiKey,
+        categories: wordpressCategories ? wordpressCategories.split(',').map(c => c.trim()) : [],
+        tags: wordpressTags ? wordpressTags.split(',').map(t => t.trim()) : []
+      });
+      html = wpContent.html;
+      title = wpContent.title;
+    } else if (platform === 'blogger') {
+      // Blogger 전용 콘텐츠 생성
+      const bloggerContent = await generateBloggerContent({
+        topic,
+        keywords: finalKeywords,
+        minChars,
+        geminiKey: geminiKey || openaiKey
+      });
+      html = bloggerContent.html;
+      title = bloggerContent.title;
+    } else {
+      // 미리보기 전용 콘텐츠 생성
+      const previewContent = await generatePreviewContent({
+        topic,
+        keywords: finalKeywords,
+        minChars,
+        geminiKey: geminiKey || openaiKey
+      });
+      html = previewContent.html;
+      title = previewContent.title;
+    }
+
+    if (!html) {
+      throw new Error('콘텐츠 생성에 실패했습니다.');
+    }
+
+    onLog?.('✅ 콘텐츠 생성 완료');
+
+    // 플랫폼별 게시
+    if (platform === 'preview') {
+      // 미리보기 모드: 게시하지 않고 콘텐츠만 반환
+      onLog?.('👁️ 미리보기 모드: 게시하지 않고 콘텐츠만 반환');
+      return { ok: true, url: null, title: title, html: html };
+    } else if (platform === 'wordpress') {
+      onLog?.('📝 WordPress에 게시 중...');
+      const { WordPressPublisher } = await import('../wordpress/wordpress-publisher');
+      
+      const publisher = new WordPressPublisher({
+        siteUrl: wordpressSiteUrl,
+        username: wordpressUsername,
+        password: wordpressPassword,
+        categories: wordpressCategories ? wordpressCategories.split(',').map(c => c.trim()) : [],
+        tags: wordpressTags ? wordpressTags.split(',').map(t => t.trim()) : [],
+        status: wordpressStatus
+      });
+
+      const result = await publisher.publish({
+        title: title,
+        content: html,
+        excerpt: `AI가 생성한 고품질 콘텐츠: ${topic}`
+      });
+
+      onLog?.(`✅ WordPress 게시 완료: ${result.url || '성공'}`);
+      return { ok: true, url: result.url, title: title };
+    } else {
+      onLog?.('📝 Blogger에 게시 중...');
+      
+      // Blogger API 연동 활성화
+      const { publishToBlogger } = await import('./blogger-publisher.js');
+      const result = await publishToBlogger(payload, title, html, undefined, onLog);
+      
+      if (result.ok) {
+        onLog?.(`✅ Blogger 게시 성공: ${result.url}`);
+        return { ok: true, url: result.url };
+      } else {
+        onLog?.(`❌ Blogger 게시 실패: ${result.error}`);
+        return { ok: false, error: result.error };
+      }
+    }
+  } catch (error: any) {
+    onLog?.(`❌ 오류: ${error.message}`);
+    return { ok: false, error: error.message };
+  }
+}
+
+export async function runFromExcel(excelPath: string, env?: any, onLog?: (s: string) => void) {
+  try {
+    onLog?.('📊 엑셀 파일 처리 시작...');
+    
+    const XLSX = await import('xlsx');
+    const workbook = XLSX.readFile(excelPath);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+
+    onLog?.(`📋 총 ${data.length}개 항목 발견`);
+
+    let processed = 0;
+    for (const [index, row] of data.entries()) {
+      try {
+        onLog?.(`📝 ${index + 1}/${data.length} 처리 중: ${(row as any).topic || '제목 없음'}`);
+        
+        const result = await runPost({
+          ...env,
+          topic: (row as any).topic,
+          keywords: (row as any).keywords ? (row as any).keywords.split(',').map((k: string) => k.trim()) : []
+        }, onLog);
+
+        if (result.ok) {
+          processed++;
+          onLog?.(`✅ ${index + 1}번째 항목 완료`);
+        } else {
+          onLog?.(`❌ ${index + 1}번째 항목 실패: ${result.error}`);
+        }
+      } catch (error: any) {
+        onLog?.(`❌ ${index + 1}번째 항목 오류: ${error.message}`);
+      }
+    }
+
+    onLog?.(`🎉 엑셀 처리 완료: ${processed}/${data.length}개 성공`);
+    return { ok: true, processed };
+  } catch (error: any) {
+    onLog?.(`❌ 엑셀 처리 오류: ${error.message}`);
+    return { ok: false, error: error.message };
+  }
+}
+
+// 기본 export
+export default {
+  runPost,
+  runFromExcel,
+  generateWithOpenAI,
+  generateWithGemini,
+  generateWordPressContent,
+  generateBloggerContent,
+  generatePreviewContent
+};

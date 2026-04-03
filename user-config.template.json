@@ -1,0 +1,48 @@
+{
+  "appName": "Blogger GPT CLI",
+  "version": "1.0.0",
+  "settings": {
+    "defaultContentMode": "gpts-mode",
+    "defaultTone": "professional",
+    "defaultStyle": "informative",
+    "autoSave": true,
+    "backupEnabled": true,
+    "theme": "default",
+    "language": "ko",
+    "fontSize": 14
+  },
+  "apiKeys": {
+    "gemini": "YOUR_GEMINI_API_KEY_HERE",
+    "naverClientId": "YOUR_NAVER_CLIENT_ID_HERE",
+    "naverClientSecret": "YOUR_NAVER_CLIENT_SECRET_HERE",
+    "googleClientId": "YOUR_GOOGLE_CLIENT_ID_HERE",
+    "googleClientSecret": "YOUR_GOOGLE_CLIENT_SECRET_HERE"
+  },
+  "contentSettings": {
+    "minChars": 3000,
+    "maxChars": 10000,
+    "paragraphCount": 4,
+    "includeImages": false,
+    "includeCTA": true,
+    "includeSummary": true
+  },
+  "crawlingSettings": {
+    "delay": 1000,
+    "timeout": 30000,
+    "maxPages": 10,
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  },
+  "uiSettings": {
+    "theme": "default",
+    "language": "ko",
+    "fontSize": 14,
+    "autoSave": true,
+    "showTutorial": true
+  },
+  "backupSettings": {
+    "enabled": true,
+    "retentionDays": 30,
+    "autoBackup": true,
+    "backupDir": "backups"
+  }
+}

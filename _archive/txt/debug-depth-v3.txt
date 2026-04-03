@@ -1,0 +1,157 @@
+L319: d=0→1 | <div id="mainContent" class="main-content">
+L321: d=1→2 | <header class="app-header">
+L323: d=2→3 | <div class="header-badges">
+L324: d=3→4 | <div class="header-badge">
+L327: d=4→3 | </div>
+L328: d=3→4 | <div class="header-badge">
+L331: d=4→3 | </div>
+L332: d=3→4 | <div class="header-badge">
+L335: d=4→3 | </div>
+L336: d=3→2 | </div>
+L341: d=2→1 | </header>
+*** tab-content-container CLOSES at line 341 ***
+L344: d=1→2 | <div id="tab-content-container">
+L356: d=2→3 | <div id="schedule-tab" class="tab-content">
+L357: d=3→4 | <div style="padding: 40px; max-width: 1200px; margin: 0 auto;">
+L597: d=4→3 | </div>
+L598: d=3→2 | </div>
+L599: d=2→1 | </div>
+L614: d=1→2 | <div class="settings-modal" id="settingsModal"
+L616: d=2→3 | <div
+L620: d=3→4 | <div
+L634: d=4→3 | </div>
+L637: d=3→4 | <div style="display: flex; background: #f8fafc; border-bottom: 2px solid #e2e8f0; flex-shrink: 0;">
+L650: d=4→3 | </div>
+L653: d=3→4 | <div id="settingsModalBody" style="flex: 1; overflow-y: auto; padding: 32px;">
+L1274: d=4→3 | </div>
+L1277: d=3→4 | <div
+L1289: d=4→3 | </div>
+L1290: d=3→2 | </div>
+L1291: d=2→1 | </div>
+L1624: d=1→2 | <div id="externalLinksModal" class="settings-modal"
+L1626: d=2→3 | <div
+L1630: d=3→4 | <div
+L1657: d=4→3 | </div>
+L1660: d=3→4 | <div id="externalLinksContent"
+L1663: d=4→3 | </div>
+L1664: d=3→2 | </div>
+L1665: d=2→1 | </div>
+L1668: d=1→2 | <div id="guideModal" class="settings-modal"
+L1670: d=2→3 | <div
+L1674: d=3→4 | <div
+L1684: d=4→3 | </div>
+L1687: d=3→4 | <div id="guideModalContent" style="max-height: calc(90vh - 100px); overflow-y: auto; padding: 32px;"
+L1689: d=4→3 | </div>
+L1690: d=3→2 | </div>
+L1691: d=2→1 | </div>
+L1694: d=1→2 | <div id="bloggerAuthCodeModal" class="settings-modal"
+L1696: d=2→3 | <div
+L1700: d=3→4 | <div
+L1725: d=4→3 | </div>
+L1728: d=3→4 | <div style="padding: 40px;">
+L1761: d=4→3 | </div>
+L1762: d=3→2 | </div>
+L1763: d=2→1 | </div>
+L1782: d=1→2 | <div id="manualCtaModal" class="modal" style="display: none;">
+L1783: d=2→3 | <div class="modal-content" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+L1784: d=3→4 | <div class="modal-header">
+L1787: d=4→3 | </div>
+L1789: d=3→4 | <div style="padding: 20px;">
+L1810: d=4→3 | </div>
+L1811: d=3→2 | </div>
+L1812: d=2→1 | </div>
+L1816: d=1→2 | <div id="main-tab" class="tab-content active">
+L1817: d=2→3 | <div style="padding: 24px 28px; height: 100%; display: flex; flex-direction: column; gap: 20px;">
+L1820: d=3→4 | <div style="display: flex; align-items: center; gap: 12px;">
+L1838: d=4→3 | </div>
+L1841: d=3→4 | <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+L1857: d=4→3 | </div>
+L1860: d=3→4 | <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; min-height: 0;">
+L1972: d=4→3 | </div>
+L1975: d=3→4 | <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+L2015: d=4→3 | </div>
+L2017: d=3→2 | </div>
+L2018: d=2→1 | </div>
+L2021: d=1→2 | <div id="thumbnail-tab" class="tab-content">
+L2023: d=2→3 | <div style="display: flex; gap: 12px; margin-bottom: 24px; justify-content: center;">
+L2032: d=3→2 | </div>
+L2035: d=2→3 | <div id="thumbnail-generator-content"
+L2039: d=3→4 | <div class="card"
+L2249: d=4→3 | </div>
+L2252: d=3→4 | <div style="position: sticky; top: 20px;">
+L2309: d=4→3 | </div>
+L2311: d=3→2 | </div>
+L2314: d=2→3 | <div id="image-converter-content"
+L2318: d=3→4 | <div class="card"
+L2454: d=4→3 | </div>
+L2457: d=3→4 | <div style="position: sticky; top: 20px;">
+L2527: d=4→3 | </div>
+L2529: d=3→2 | </div>
+L2530: d=2→1 | </div>
+L2533: d=1→2 | <div id="settings-tab" class="tab-content">
+L2534: d=2→3 | <div style="max-width: 100%; width: 100%; position: relative;">
+L2538: d=3→4 | <div>
+L3372: d=4→3 | </div>
+L3375: d=3→4 | <div id="publishedPostsModal"
+L3396: d=4→3 | </div>
+L3399: d=3→4 | <div style="display: none;">
+L3727: d=4→3 | </div>
+L3728: d=3→2 | </div>
+L3729: d=2→1 | </div>
+L3732: d=1→2 | <div id="content-tab" class="tab-content">
+L3734: d=2→3 | <div class="grid">
+L3736: d=3→4 | <div class="card card-large">
+L3783: d=4→3 | </div>
+L3786: d=3→4 | <div class="card card-large">
+L3800: d=4→3 | </div>
+L3801: d=3→2 | </div>
+L3802: d=2→1 | </div>
+L3808: d=1→2 | <div id="semi-auto-tab" class="tab-content" style="display: none;">
+L3809: d=2→3 | <div class="container" style="max-width: 1600px; margin: 0 auto; padding: 40px 24px;">
+L3812: d=3→4 | <div class="card"
+L3842: d=4→3 | </div>
+L3845: d=3→4 | <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px;">
+L4049: d=4→3 | </div>
+L4050: d=3→2 | </div>
+L4051: d=2→1 | </div>
+L4054: d=1→2 | <div id="internal-links-tab" class="tab-content"
+L4056: d=2→3 | <div style="text-align: center; margin-bottom: 48px;">
+L4057: d=3→4 | <div
+L4060: d=4→3 | </div>
+L4063: d=3→2 | </div>
+L4066: d=2→3 | <div
+L4069: d=3→4 | <div id="urlInputsContainer" style="display: grid; gap: 16px;">
+L4071: d=4→3 | </div>
+L4072: d=3→4 | <div style="display: flex; gap: 12px; margin-top: 16px;">
+L4085: d=4→3 | </div>
+L4086: d=3→2 | </div>
+L4089: d=2→3 | <div
+L4092: d=3→4 | <div id="selectedPostsList" style="min-height: 100px;">
+L4097: d=4→3 | </div>
+L4098: d=3→2 | </div>
+L4101: d=2→3 | <div
+L4104: d=3→4 | <div style="margin-bottom: 24px;">
+L4115: d=4→3 | </div>
+L4120: d=3→2 | </div>
+L4123: d=2→3 | <div id="spiderWebPreview"
+L4126: d=3→4 | <div id="spiderWebPreviewContent"
+L4129: d=4→3 | </div>
+L4130: d=3→4 | <div style="display: flex; gap: 12px; margin-top: 24px;">
+L4139: d=4→3 | </div>
+L4140: d=3→2 | </div>
+L4143: d=2→3 | <div id="publishedPostsModal"
+L4145: d=3→4 | <div
+L4155: d=4→3 | </div>
+L4156: d=3→2 | </div>
+L4158: d=2→3 | <div id="ga4PropertyModal"
+L4160: d=3→4 | <div
+L4171: d=4→3 | </div>
+L4172: d=3→2 | </div>
+L4173: d=2→1 | </div>
+L4175: d=1→0 | </div> <!-- /tab-content-container -->
+*** mainContent CLOSES at line 4175 ***
+
+Summary:
+- mainContent opens at: L319
+- tab-content-container closes at: L341
+- mainContent closes at: L4175

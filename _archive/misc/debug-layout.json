@@ -1,0 +1,177 @@
+{
+  "appLayout": {
+    "w": 1368,
+    "l": 0,
+    "display": "flex",
+    "flexDirection": "row"
+  },
+  "children": [
+    {
+      "i": 0,
+      "tag": "ASIDE",
+      "id": "appSidebar",
+      "display": "flex",
+      "position": "fixed",
+      "w": 80,
+      "h": 671,
+      "l": 0
+    },
+    {
+      "i": 1,
+      "tag": "DIV",
+      "id": "mainContent",
+      "display": "flex",
+      "position": "static",
+      "w": 416,
+      "h": 671,
+      "l": 80
+    },
+    {
+      "i": 2,
+      "tag": "svg",
+      "id": "(none)",
+      "display": "block",
+      "position": "absolute",
+      "w": 0,
+      "h": 0,
+      "l": 0
+    },
+    {
+      "i": 3,
+      "tag": "DIV",
+      "id": "settingsModal",
+      "display": "none",
+      "position": "fixed",
+      "w": 0,
+      "h": 0,
+      "l": 0
+    },
+    {
+      "i": 4,
+      "tag": "SCRIPT",
+      "id": "(none)",
+      "display": "none",
+      "position": "static",
+      "w": 0,
+      "h": 0,
+      "l": 0
+    },
+    {
+      "i": 5,
+      "tag": "DIV",
+      "id": "externalLinksModal",
+      "display": "none",
+      "position": "fixed",
+      "w": 0,
+      "h": 0,
+      "l": 0
+    },
+    {
+      "i": 6,
+      "tag": "DIV",
+      "id": "guideModal",
+      "display": "none",
+      "position": "fixed",
+      "w": 0,
+      "h": 0,
+      "l": 0
+    },
+    {
+      "i": 7,
+      "tag": "DIV",
+      "id": "bloggerAuthCodeModal",
+      "display": "none",
+      "position": "fixed",
+      "w": 0,
+      "h": 0,
+      "l": 0
+    },
+    {
+      "i": 8,
+      "tag": "STYLE",
+      "id": "(none)",
+      "display": "none",
+      "position": "static",
+      "w": 0,
+      "h": 0,
+      "l": 0
+    },
+    {
+      "i": 9,
+      "tag": "DIV",
+      "id": "manualCtaModal",
+      "display": "none",
+      "position": "static",
+      "w": 0,
+      "h": 0,
+      "l": 0
+    },
+    {
+      "i": 10,
+      "tag": "DIV",
+      "id": "main-tab",
+      "display": "block",
+      "position": "static",
+      "w": 872,
+      "h": 671,
+      "l": 496
+    },
+    {
+      "i": 11,
+      "tag": "DIV",
+      "id": "thumbnail-tab",
+      "display": "none",
+      "position": "static",
+      "w": 0,
+      "h": 0,
+      "l": 0
+    },
+    {
+      "i": 12,
+      "tag": "DIV",
+      "id": "settings-tab",
+      "display": "none",
+      "position": "static",
+      "w": 0,
+      "h": 0,
+      "l": 0
+    },
+    {
+      "i": 13,
+      "tag": "DIV",
+      "id": "content-tab",
+      "display": "none",
+      "position": "static",
+      "w": 0,
+      "h": 0,
+      "l": 0
+    },
+    {
+      "i": 14,
+      "tag": "DIV",
+      "id": "semi-auto-tab",
+      "display": "none",
+      "position": "static",
+      "w": 0,
+      "h": 0,
+      "l": 0
+    },
+    {
+      "i": 15,
+      "tag": "DIV",
+      "id": "internal-links-tab",
+      "display": "none",
+      "position": "static",
+      "w": 0,
+      "h": 0,
+      "l": 0
+    }
+  ],
+  "mainContentStyle": {
+    "marginLeft": "80px",
+    "width": "415.975px",
+    "display": "flex",
+    "flexDirection": "column",
+    "alignItems": "stretch"
+  }
+}

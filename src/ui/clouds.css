@@ -1,0 +1,103 @@
+/* 추가 구름 레이어 */
+.cloud {
+  position: fixed;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 100px;
+  filter: blur(35px);
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.9;
+  box-shadow: 0 8px 32px rgba(255, 255, 255, 0.5);
+}
+
+.cloud-1 {
+  width: 350px;
+  height: 120px;
+  top: 15%;
+  left: 10%;
+  animation: cloudDrift1 60s ease-in-out infinite;
+}
+
+.cloud-2 {
+  width: 250px;
+  height: 90px;
+  top: 50%;
+  right: 15%;
+  animation: cloudDrift2 45s ease-in-out infinite;
+}
+
+.cloud-3 {
+  width: 180px;
+  height: 70px;
+  top: 70%;
+  left: 30%;
+  animation: cloudDrift3 55s ease-in-out infinite;
+}
+
+.cloud-4 {
+  width: 220px;
+  height: 85px;
+  top: 35%;
+  right: 40%;
+  animation: cloudDrift4 50s ease-in-out infinite;
+}
+
+.cloud-5 {
+  width: 160px;
+  height: 60px;
+  top: 60%;
+  right: 20%;
+  animation: cloudDrift5 65s ease-in-out infinite;
+}
+
+/* 별 반짝임 효과 */
+.star {
+  position: fixed;
+  width: 3px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  z-index: 1;
+  pointer-events: none;
+  animation: starTwinkle 3s ease-in-out infinite;
+}
+
+@keyframes cloudDrift1 {
+  0%, 100% { transform: translateX(0) translateY(0); }
+  33% { transform: translateX(100px) translateY(-20px); }
+  66% { transform: translateX(-50px) translateY(30px); }
+}
+
+@keyframes cloudDrift2 {
+  0%, 100% { transform: translateX(0) translateY(0); }
+  50% { transform: translateX(-80px) translateY(40px); }
+}
+
+@keyframes cloudDrift3 {
+  0%, 100% { transform: translateX(0) translateY(0); }
+  40% { transform: translateX(120px) translateY(-30px); }
+  80% { transform: translateX(-40px) translateY(20px); }
+}
+
+@keyframes cloudDrift4 {
+  0%, 100% { transform: translateX(0) translateY(0); }
+  50% { transform: translateX(60px) translateY(-50px); }
+}
+
+@keyframes cloudDrift5 {
+  0%, 100% { transform: translateX(0) translateY(0); }
+  33% { transform: translateX(-70px) translateY(35px); }
+  66% { transform: translateX(90px) translateY(-25px); }
+}
+
+@keyframes starTwinkle {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.5); }
+}
+
+/* 컨테이너를 구름 위로 */
+.container {
+  position: relative;
+  z-index: 2;
+}
+

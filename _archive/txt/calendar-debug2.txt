@@ -1,0 +1,136 @@
+renderCalendar source (first 300 chars): function renderCalendar() {
+  debugLog('CALENDAR', 'renderCalendar() 호출됨');
+
+  // script.js의 전역 변수 사용 (currentCalendarYear, currentCalendarMonth)
+  const now = new Date();
+  const year = window.currentCalendarYear || now.getFullYear();
+  const month = window.currentCalendarMonth !== undefined ? wind
+Test data injected
+renderCalendar() called
+Screenshot after re-render saved
+Calendar after re-render: {
+  "exists": true,
+  "childCount": 28,
+  "samples": [
+    {
+      "text": "1",
+      "htmlLen": 91,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "2",
+      "htmlLen": 91,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "3",
+      "htmlLen": 91,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "4",
+      "htmlLen": 91,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "5",
+      "htmlLen": 91,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "6",
+      "htmlLen": 91,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "7",
+      "htmlLen": 91,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "8",
+      "htmlLen": 91,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "9",
+      "htmlLen": 91,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "10",
+      "htmlLen": 92,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "11",
+      "htmlLen": 92,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "12",
+      "htmlLen": 92,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "13",
+      "htmlLen": 92,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "14\nSEO 분",
+      "htmlLen": 248,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "15\n블로그 포\n키워드 연\n맛집 추천",
+      "htmlLen": 560,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "16",
+      "htmlLen": 92,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "17\nAI 기술",
+      "htmlLen": 248,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "18",
+      "htmlLen": 92,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "19",
+      "htmlLen": 92,
+      "minHeight": "56px",
+      "display": "flex"
+    },
+    {
+      "text": "20\n건강 관리",
+      "htmlLen": 248,
+      "minHeight": "56px",
+      "display": "flex"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020", "DOM"],
+    "outDir": ".",
+    "rootDir": ".",
+    "incremental": true,
+    "tsBuildInfoFile": "./electron/.tsbuildinfo",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "sourceMap": false,
+    "declaration": false,
+    "removeComments": false,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "strictNullChecks": true
+  },
+  "include": ["electron/main.ts", "electron/main-login.ts", "electron/preload.ts", "electron/oneclickSetupIpcHandlers.ts", "electron/adsenseIpcHandlers.ts", "electron/adspowerIpcHandlers.ts", "electron/ipc/**/*.ts", "src/types/**/*.d.ts"],
+  "exclude": ["node_modules", "dist", "electron/ui"]
+}

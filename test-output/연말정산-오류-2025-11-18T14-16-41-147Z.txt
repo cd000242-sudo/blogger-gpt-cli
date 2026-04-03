@@ -1,0 +1,34 @@
+❌ 오류 발생: [GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent: [400 Bad Request] API key not valid. Please pass a valid API key. [{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID","domain":"googleapis.com","metadata":{"service":"generativelanguage.googleapis.com"}},{"@type":"type.googleapis.com/google.rpc.LocalizedMessage","locale":"en-US","message":"API key not valid. Please pass a valid API key."}]
+
+Error: [GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent: [400 Bad Request] API key not valid. Please pass a valid API key. [{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID","domain":"googleapis.com","metadata":{"service":"generativelanguage.googleapis.com"}},{"@type":"type.googleapis.com/google.rpc.LocalizedMessage","locale":"en-US","message":"API key not valid. Please pass a valid API key."}]
+    at handleResponseNotOk (C:\Users\park\blogger-gpt-cli\node_modules\@google\generative-ai\dist\index.js:434:11)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async makeRequest (C:\Users\park\blogger-gpt-cli\node_modules\@google\generative-ai\dist\index.js:403:9)
+    at async generateContent (C:\Users\park\blogger-gpt-cli\node_modules\@google\generative-ai\dist\index.js:867:22)
+    at async safeGenerateContent (C:\Users\park\blogger-gpt-cli\src\core\index.js:132:28)
+    at async generateMaxModeArticle (C:\Users\park\blogger-gpt-cli\src\core\index.js:2298:22)
+    at async testYearEndTaxContent (C:\Users\park\blogger-gpt-cli\test-sandbox-연말정산.ts:70:20)
+
+[2025-11-18T14:16:39.520Z] ================================================================================
+[2025-11-18T14:16:39.520Z] 글 생성 시작
+[2025-11-18T14:16:39.520Z] 주제: 2026년 연말정산 미리보기
+[2025-11-18T14:16:39.520Z] 키워드: 2026년, 연말정산, 미리보기, 절세, 환급
+[2025-11-18T14:16:39.520Z] 플랫폼: blogger
+[2025-11-18T14:16:39.520Z] 콘텐츠 모드: external
+[2025-11-18T14:16:39.520Z] ================================================================================
+[2025-11-18T14:16:39.533Z] 📋 콘텐츠 타입: SEO 최적화 | 섹션 수: 5개 | 총 목표 글자수: 5,200자
+[2025-11-18T14:16:39.533Z] [PROGRESS] 0% - 시스템 초기화 중
+[2025-11-18T14:16:39.533Z] [PROGRESS] 1% - API 키 확인 중
+[2025-11-18T14:16:40.995Z] [PROGRESS] 2% - API 키 확인 완료
+[2025-11-18T14:16:40.995Z] [PROGRESS] 3% - AI 모델 초기화 중
+[2025-11-18T14:16:40.996Z] [PROGRESS] 4% - AI 모델 초기화 완료
+[2025-11-18T14:16:40.996Z] [PROGRESS] 5% - 제목 생성 중
+[2025-11-18T14:16:41.147Z] ❌ 오류 발생: [GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent: [400 Bad Request] API key not valid. Please pass a valid API key. [{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID","domain":"googleapis.com","metadata":{"service":"generativelanguage.googleapis.com"}},{"@type":"type.googleapis.com/google.rpc.LocalizedMessage","locale":"en-US","message":"API key not valid. Please pass a valid API key."}]
+[2025-11-18T14:16:41.147Z] 스택: Error: [GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent: [400 Bad Request] API key not valid. Please pass a valid API key. [{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID","domain":"googleapis.com","metadata":{"service":"generativelanguage.googleapis.com"}},{"@type":"type.googleapis.com/google.rpc.LocalizedMessage","locale":"en-US","message":"API key not valid. Please pass a valid API key."}]
+    at handleResponseNotOk (C:\Users\park\blogger-gpt-cli\node_modules\@google\generative-ai\dist\index.js:434:11)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async makeRequest (C:\Users\park\blogger-gpt-cli\node_modules\@google\generative-ai\dist\index.js:403:9)
+    at async generateContent (C:\Users\park\blogger-gpt-cli\node_modules\@google\generative-ai\dist\index.js:867:22)
+    at async safeGenerateContent (C:\Users\park\blogger-gpt-cli\src\core\index.js:132:28)
+    at async generateMaxModeArticle (C:\Users\park\blogger-gpt-cli\src\core\index.js:2298:22)
+    at async testYearEndTaxContent (C:\Users\park\blogger-gpt-cli\test-sandbox-연말정산.ts:70:20)

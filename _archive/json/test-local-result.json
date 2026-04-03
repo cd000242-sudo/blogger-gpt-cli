@@ -1,0 +1,38 @@
+{
+  "timestamp": "2025-11-21T03:17:15.552Z",
+  "originalLength": 685,
+  "finalLength": 2013,
+  "ctaCount": 2,
+  "analysis": {
+    "mainTopic": "좋은글·이미지",
+    "subTopics": [
+      "테스트 서브타이틀",
+      "테이블 테스트",
+      "버튼 테스트"
+    ],
+    "keywords": [
+      "콘텐츠",
+      "테스트"
+    ]
+  },
+  "recommendations": [
+    {
+      "query": "인스타그램",
+      "intent": "바로가기",
+      "priority": 28
+    },
+    {
+      "query": "브런치",
+      "intent": "바로가기",
+      "priority": 27
+    },
+    {
+      "query": "네이버 포스트",
+      "intent": "바로가기",
+      "priority": 27
+    }
+  ],
+  "hasHtmlStructure": true,
+  "hasCss": true,
+  "hasTable": false
+}

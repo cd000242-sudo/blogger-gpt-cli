@@ -1,0 +1,197 @@
+<!-- Blogger HTML Content Start -->
+<div>
+
+/* ========================================
+   Blogger 테마 핵 오버라이드 - 완전 강제 적용
+   ======================================== */
+
+/* 핵 옵션 1: 모든 Blogger 컨테이너 완전 오버라이드 */
+html body .post-outer .post-body,
+html body .post-outer .entry-content,
+html body .post-outer .post-content,
+html body .blog-posts .post-outer .post,
+html body .blog-posts .post-outer .entry,
+html body div.post-outer div.post-body,
+html body div.post-outer div.entry-content,
+html body div.blog-post div.post-body,
+html body div.blog-post div.entry-content,
+.post-body, .entry-content, .post-content,
+.post-outer, .blog-post, .article-body, .content-section,
+.main, .content, .wrapper, .container, .row, .col, .column {
+  max-width: 100% !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+}
+
+/* 핵 옵션 2: 콘텐츠 영역 완전 강제 */
+.post-body .max-mode-article,
+.post-body .premium-article,
+.post-body .article-content,
+.entry-content .max-mode-article,
+.entry-content .premium-article,
+.entry-content .article-content,
+.post-content .max-mode-article,
+.post-content .premium-article,
+.post-content .article-content,
+.post-outer .post-body .max-mode-article,
+.post-outer .post-body .premium-article,
+.post-outer .post-body .article-content,
+.blog-post .post-body .max-mode-article,
+.blog-post .post-body .premium-article,
+.blog-post .post-body .article-content,
+.article-body .max-mode-article,
+.article-body .premium-article,
+.article-body .article-content,
+.content-section .max-mode-article,
+.content-section .premium-article,
+.content-section .article-content,
+.max-mode-article, .premium-article, .article-content {
+  max-width: 100% !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  margin: 0 auto !important;
+  padding: 0 0px 72px 0px !important;
+  box-sizing: border-box !important;
+  display: block !important;
+  text-align: left !important;
+  overflow: visible !important;
+  float: none !important;
+  clear: both !important;
+}
+
+/* 핵 옵션 3: ID 기반 고 우선순위 오버라이드 */
+#Blog1 .post-body,
+#Blog1 .entry-content,
+#Blog1 .post-content,
+#Blog1 .max-mode-article,
+#Blog1 .premium-article,
+#Blog1 .article-content,
+div[role="main"] .post-body,
+div[role="main"] .entry-content,
+div[role="main"] .post-content,
+div[role="main"] .max-mode-article,
+div[role="main"] .premium-article,
+div[role="main"] .article-content {
+  max-width: 100% !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 0px 72px 0px !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+}
+
+/* 핵 옵션 4: 모든 하위 div 요소 강제 */
+.post-body div, .entry-content div, .post-content div,
+.post-outer div, .blog-post div, .article-body div, .content-section div,
+.max-mode-article div, .premium-article div, .article-content div {
+  max-width: 100% !important;
+  width: 100% !important;
+  padding-left: 0px !important;
+  padding-right: 0px !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+}
+
+/* 핵 옵션 5: 미디어 쿼리별 완전 오버라이드 */
+@media (min-width: 1200px) {
+  html body .post-outer .post-body,
+  html body .post-outer .entry-content,
+  html body .post-outer .post-content,
+  .post-body, .entry-content, .post-content {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  .max-mode-article, .premium-article, .article-content {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 0px 72px 0px !important;
+    margin: 0 auto !important;
+    overflow: visible !important;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  html body .post-outer .post-body,
+  html body .post-outer .entry-content,
+  html body .post-outer .post-content,
+  .post-body, .entry-content, .post-content {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  .max-mode-article, .premium-article, .article-content {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 0px 72px 0px !important;
+    margin: 0 auto !important;
+    overflow: visible !important;
+  }
+}
+
+@media (max-width: 767px) {
+  html body .post-outer .post-body,
+  html body .post-outer .entry-content,
+  html body .post-outer .post-content,
+  .post-body, .entry-content, .post-content {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  .max-mode-article, .premium-article, .article-content {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 0px 72px 0px !important;
+    margin: 0 auto !important;
+    overflow: visible !important;
+  }
+}
+<div class="post-container">
+  <h1 class="article-title">핵 옵션 CSS 테스트 &#128202;</h1>
+
+  <div class="article-content">
+    <p>&#128200; 이 콘텐츠는 핵 옵션 CSS로 Blogger 테마를 완전히 오버라이드해야 합니다!</p>
+    <p>&#9989; 패딩이 0px로 설정되어 화면 가장자리까지 꽉 차야 합니다.</p>
+    <p>&#127919; 이모지들이 HTML 엔티티로 변환되어 깨지지 않아야 합니다.</p>
+    <p>&#128640; Blogger의 기본 테마가 완전히 무력화되어야 합니다.</p>
+
+    <div class="highlight-box">
+      <strong>핵 옵션 CSS 적용사항:</strong>
+      <ul>
+        <li>&#9989; 모든 Blogger 컨테이너 요소 100% 너비 강제</li>
+        <li>&#9989; 패딩 0px로 극단적 축소</li>
+        <li>&#9989; ID 기반 고 우선순위 선택자 사용</li>
+        <li>&#9989; 모든 미디어 쿼리별 오버라이드</li>
+        <li>&#9989; html body 최상위 선택자로 우선순위 극대화</li>
+        <li>&#9989; overflow: visible로 콘텐츠 잘림 방지</li>
+      </ul>
+    </div>
+
+    <p>이제 Blogger 테마가 아무리 강력해도 우리의 CSS가 이겨야 합니다! &#127881;</p>
+
+    <h2>실제 Blogger에서 기대되는 결과</h2>
+    <ul>
+      <li>콘텐츠가 화면 왼쪽 끝에서 오른쪽 끝까지 꽉 차게 표시</li>
+      <li>어떤 Blogger 테마를 사용해도 동일한 결과</li>
+      <li>모든 디바이스에서 동일한 꽉찬 레이아웃</li>
+      <li>텍스트 크기와 스타일이 우리가 설정한 대로 적용</li>
+    </ul>
+  </div>
+</div>
+</div>
+<!-- Blogger HTML Content End -->

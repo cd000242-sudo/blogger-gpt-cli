@@ -1,0 +1,58 @@
+﻿═══════════════════════════════════════
+🏆 AdSense 통합 테스트 — 이미지/CSS/후처리 포함
+═══════════════════════════════════════
+
+node : Fatal: Error: .e
+nv 파일이 없습니다
+위치 줄:1 문자:59
++ ... ystem.Text.Encodi
+ng]::UTF8; node test-ad
+sense-publish.js 2>&1 |
+ Out-F ...
++                      
+           ~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo     
+         : NotSpecifi  
+  ed: (Fatal: Error:   
+  .env 파일이 없습니다:Str    
+ing) [], RemoteExc    e
+ption
+    + FullyQualifiedEr 
+   rorId : NativeComm  
+  andError
+ 
+    at loadEnv (C:\User
+s\park\blogger-gpt-cli\
+test-adsense-publish.js
+:14:40)
+    at main (C:\Users\p
+ark\blogger-gpt-cli\tes
+t-adsense-publish.js:28
+7:17)
+    at Object.<anonymou
+s> (C:\Users\park\blogg
+er-gpt-cli\test-adsense
+-publish.js:425:1)
+    at Module._compile 
+(node:internal/modules/
+cjs/loader:1706:14)
+    at Object..js (node
+:internal/modules/cjs/l
+oader:1839:10)
+    at Module.load (nod
+e:internal/modules/cjs/
+loader:1441:32)
+    at Function._load (
+node:internal/modules/c
+js/loader:1263:12)
+    at TracingChannel.t
+raceSync (node:diagnost
+ics_channel:322:14)
+    at wrapModuleLoad (
+node:internal/modules/c
+js/loader:237:24)
+    at Function.execute
+UserEntryPoint [as runM
+ain] (node:internal/mod
+ules/run_main:171:5)

@@ -1,0 +1,27 @@
+tab-content-container opens at L343
+tab-content-container closes at L538
+Close line: </div>
+
+--- After TCC close ---
+L538:                     </div>
+L539: 
+L540:                     <div
+L541:                       style="background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); border-radius: 16px; padding: 24px; margin-bottom: 24px;">
+L542:                       <div style="font-size: 16px; font-weight: 600; color: #1e40af; margin-bottom: 12px;">⏰ 예약 포스팅
+L543:                       </div>
+L544:                       <div style="font-size: 14px; color: #3730a3; line-height: 1.6;">
+L545:                         • 지정된 시간에 자동으로 포스팅됩니다<br>
+L546:                         • 여러 개의 예약 포스팅을 동시에 관리할 수 있습니다<br>
+L547:                         • 실시간으로 스케줄 상태를 확인할 수 있습니다
+
+First <style> after tabs at L4176
+
+--- Lines around style block ---
+L4171:               <div id="ga4PropertyList" style="display: grid; gap: 10px;"></div>
+L4172:             </div>
+L4173:           </div>
+L4174:         </div>
+L4175: 
+L4176:         <style>
+L4177:           /* 반자동 이미지 관리 스타일 */
+L4178:           .semi-auto-image-source-btn.active {

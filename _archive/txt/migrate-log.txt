@@ -1,0 +1,43 @@
+Original: 6242 lines
+Delete ext-btn: L313 - L347 (35 lines)
+Delete settings-btn: L349 - L384 (36 lines)
+Delete intlinks-btn: L386 - L415 (30 lines)
+Delete multi-btn: L417 - L446 (30 lines)
+Delete admin-btn: L448 - L475 (28 lines)
+Delete shimmer-style: L477 - L487 (11 lines)
+Delete container: L489 - L530 (42 lines)
+Delete tcc-header: L532 - L534 (3 lines)
+Delete dup-semi-auto: L536 - L1226 (691 lines)
+Delete excel-tab: L4497 - L4697 (201 lines)
+Delete inline-showTab: L5247 - L5311 (65 lines)
+
+Total lines to delete: 1172
+Insert wrapper-open after L311
+Insert wrapper-close after L5059
+
+Wrapper open inserted: true
+Wrapper close inserted: true
+New file: 5107 lines
+
+=== ID Verification ===
+  tab-content-container: OK
+  schedule-tab: OK
+  main-tab: OK
+  thumbnail-tab: OK
+  settings-tab: OK
+  content-tab: OK
+  semi-auto-tab: OK
+  internal-links-tab: OK
+  appSidebar: OK
+  mainContent: OK
+  platformStatusBox: OK
+  licenseStatus: OK
+  aiModelStatus: OK
+  tutorialUploadBtn: OK
+  app-layout class: OK
+  semi-auto-tab count: 1 OK
+  excel-tab removed: OK
+  inline showTab removed: OK
+
+Backup: index.html.bak
+SAVED!

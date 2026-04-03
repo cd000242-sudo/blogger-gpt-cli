@@ -1,0 +1,25 @@
+ext-btn: L313 - L347
+settings-btn: L349 - L384
+intlinks-btn: L386 - L415
+multi-btn: L417 - L446
+admin-btn: L448 - L475
+shimmer-style: L477 - L487
+  shimmer content:     @keyframes shimmer {
+container: L489
+container-close: L530
+tcc-comment: L532
+tcc-open: L533
+tcc-inner-comment: L534
+dup-semi-auto-comment: L536
+schedule-comment: L1228
+schedule-tab: L1229
+excel-comment: L4497
+excel-tab: L4498
+real-semi-auto: L4702
+showTab-comment: L5247
+showTab-script-end: L5311
+style-after: L5061
+last-tab-close: L5059
+  context: </div> | </div> | 
+dev-badge-open: L308
+dev-badge-close: L311

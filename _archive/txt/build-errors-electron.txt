@@ -1,0 +1,8 @@
+﻿src/core/imageDispatcher.ts(303,60): error TS2339: Property 'error' does not exist on type '{ ok: true; dataUrl: string; } | { ok: false; error: string; }'.
+  Property 'error' does not exist on type '{ ok: true; dataUrl: string; }'.
+src/core/imageDispatcher.ts(327,59): error TS2339: Property 'error' does not exist on type '{ ok: true; dataUrl: string; } | { ok: false; error: string; }'.
+  Property 'error' does not exist on type '{ ok: true; dataUrl: string; }'.
+src/core/imageDispatcher.ts(351,58): error TS2339: Property 'error' does not exist on type '{ ok: true; dataUrl: string; } | { ok: false; error: string; }'.
+  Property 'error' does not exist on type '{ ok: true; dataUrl: string; }'.
+src/core/imageDispatcher.ts(376,56): error TS2339: Property 'error' does not exist on type '{ ok: true; dataUrl: string; } | { ok: false; error: string; }'.
+  Property 'error' does not exist on type '{ ok: true; dataUrl: string; }'.

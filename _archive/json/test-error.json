@@ -1,0 +1,7 @@
+{
+  "timestamp": "2025-11-21T03:53:22.145Z",
+  "title": "실제 포스팅 테스트 - 2025. 11. 21. 오후 12:53:22",
+  "error": "publishToBlogger is not defined",
+  "stack": "ReferenceError: publishToBlogger is not defined\n    at testLiveBloggerPosting (C:\\Users\\park\\blogger-gpt-cli\\test-live-blogger-posting.js:921:7)\n    at Object.<anonymous> (C:\\Users\\park\\blogger-gpt-cli\\test-live-blogger-posting.js:1043:3)\n    at Module._compile (node:internal/modules/cjs/loader:1706:14)\n    at Object.<anonymous> (node:internal/modules/cjs/loader:1839:10)\n    at Module.load (node:internal/modules/cjs/loader:1441:32)\n    at Function._load (node:internal/modules/cjs/loader:1263:12)\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:237:24)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49",
+  "logs": []
+}

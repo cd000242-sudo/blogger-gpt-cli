@@ -1,0 +1,68 @@
+{
+  "ctaSettings": [
+    {
+      "topic": "쇼핑",
+      "name": "쿠팡",
+      "url": "https://www.coupang.com",
+      "weight": 10,
+      "description": "쇼핑 관련 콘텐츠에 사용"
+    },
+    {
+      "topic": "여행",
+      "name": "대한항공",
+      "url": "https://www.koreanair.com",
+      "weight": 8,
+      "description": "여행/항공 관련 콘텐츠에 사용"
+    },
+    {
+      "topic": "신청",
+      "name": "정부24",
+      "url": "https://www.gov.kr",
+      "weight": 7,
+      "description": "민원/신청 관련 콘텐츠에 사용"
+    },
+    {
+      "topic": "예약",
+      "name": "SRT",
+      "url": "https://etk.srail.kr",
+      "weight": 9,
+      "description": "예약/예매 관련 콘텐츠에 사용"
+    },
+    {
+      "topic": "금융",
+      "name": "국민연금",
+      "url": "https://www.nps.or.kr",
+      "weight": 6,
+      "description": "금융/연금 관련 콘텐츠에 사용"
+    },
+    {
+      "topic": "배달",
+      "name": "배달의민족",
+      "url": "https://www.baemin.com",
+      "weight": 9,
+      "description": "음식 배달 관련 콘텐츠에 사용"
+    },
+    {
+      "topic": "의료",
+      "name": "국민건강보험",
+      "url": "https://www.nhis.or.kr",
+      "weight": 7,
+      "description": "건강/의료 관련 콘텐츠에 사용"
+    },
+    {
+      "topic": "교육",
+      "name": "나이스",
+      "url": "https://www.nice.go.kr",
+      "weight": 6,
+      "description": "교육/학습 관련 콘텐츠에 사용"
+    }
+  ],
+  "instructions": {
+    "maxCTAsPerContent": 3,
+    "enableAutoInsertion": true,
+    "enableChecklistGeneration": true,
+    "checklistOnlyForCTAFreeHeadings": true
+  }
+}
+
+

@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Revenue-Max Skin v3.0 Preview</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+            font-family: 'Noto Sans KR', sans-serif;
+        }
+
+        .preview-container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #fff;
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        /* === Revenue-Max Skin v3.0 CSS === */
+        .bgpt-content {
+            width: 100%;
+            max-width: none;
+            margin: 0;
+            padding: 0 24px;
+            font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color: #222;
+            line-height: 1.9;
+            letter-spacing: 0.01em;
+            word-spacing: 0.05em;
+            background: #ffffff;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            box-sizing: border-box;
+        }
+
+        .bgpt-thumbnail-box {
+            margin: 0;
+            padding: 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .bgpt-thumbnail-box img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .bgpt-content .toc {
+            margin: 24px 0 40px;
+            padding: 24px 28px;
+            background: #fafbfc;
+            border-radius: 8px;
+            border: 1px solid #eaeef2;
+        }
+
+        .bgpt-content .toc h3 {
+            font-size: 12px;
+            font-weight: 800;
+            color: #0066FF;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            margin-bottom: 16px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eaeef2;
+        }
+
+        .bgpt-content .toc a {
+            display: block;
+            padding: 9px 0 9px 14px;
+            text-decoration: none;
+            color: #333;
+            font-size: 15px;
+            font-weight: 500;
+            border-left: 3px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .bgpt-content .toc a:hover {
+            color: #0066FF;
+            border-left-color: #0066FF;
+            padding-left: 20px;
+            background: rgba(0, 102, 255, 0.03);
+        }
+
+        .bgpt-content h2 {
+            font-size: 26px;
+            font-weight: 800;
+            color: #111;
+            margin: 48px 0 20px;
+            padding: 0 0 14px 16px;
+            border-bottom: 2px solid #111;
+            border-left: 5px solid #0066FF;
+            letter-spacing: -0.02em;
+            line-height: 1.4;
+        }
+
+        .bgpt-content h3 {
+            font-size: 20px;
+            font-weight: 700;
+            color: #222;
+            margin: 36px 0 14px;
+            padding: 0;
+            letter-spacing: -0.01em;
+            line-height: 1.45;
+        }
+
+        .bgpt-content .content p {
+            font-size: 17px;
+            line-height: 1.95;
+            margin: 0 0 22px;
+            color: #333;
+            word-break: keep-all;
+        }
+
+        .bgpt-content .content strong {
+            color: #111;
+            font-weight: 700;
+        }
+
+        .bgpt-content .section-image {
+            margin: 28px 0;
+        }
+
+        .bgpt-content .section-image img {
+            width: 100%;
+            height: auto;
+            border-radius: 6px;
+            display: block;
+        }
+
+        .bgpt-content .section-image figcaption {
+            text-align: center;
+            font-size: 13px;
+            color: #999;
+            margin-top: 10px;
+            font-style: italic;
+        }
+
+        .bgpt-content .rv-highlight {
+            margin: 32px 0;
+            padding: 24px 28px;
+            background: #f8f9fa;
+            border-left: 3px solid #0066FF;
+            font-size: 17px;
+            line-height: 1.85;
+            color: #222;
+        }
+
+        .bgpt-content .rv-highlight strong {
+            color: #000;
+        }
+
+        .bgpt-content .table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 15px;
+        }
+
+        .bgpt-content .table th {
+            background: #f8f9fa;
+            color: #333;
+            font-weight: 700;
+            padding: 14px 16px;
+            text-align: left;
+            border-bottom: 2px solid #ddd;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .bgpt-content .table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid #f0f0f0;
+            color: #444;
+        }
+
+        .bgpt-content .table tr:hover td {
+            background: #fafafa;
+        }
+
+        .bgpt-content .rv-cta {
+            margin: 40px 0;
+            padding: 0;
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            overflow: hidden;
+            transition: all 0.25s ease;
+            background: #fff;
+            cursor: pointer;
+        }
+
+        .bgpt-content .rv-cta:hover {
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.1);
+            border-color: #0066FF;
+        }
+
+        .bgpt-content .rv-cta-body {
+            padding: 24px 28px;
+        }
+
+        .bgpt-content .rv-cta-label {
+            font-size: 11px;
+            font-weight: 800;
+            color: #0066FF;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            margin-bottom: 10px;
+        }
+
+        .bgpt-content .rv-cta-headline {
+            font-size: 18px;
+            font-weight: 700;
+            color: #111;
+            line-height: 1.5;
+            margin-bottom: 12px;
+            word-break: keep-all;
+        }
+
+        .bgpt-content .rv-cta-action {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 24px;
+            background: #FF6B35;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 700;
+            border-radius: 6px;
+            text-decoration: none;
+            transition: background 0.2s;
+        }
+
+        .bgpt-content .rv-cta-action:hover {
+            background: #e55a25;
+        }
+
+        .bgpt-content .rv-inline-cta {
+            margin: 28px 0;
+            padding: 20px 24px;
+            background: #f0f7ff;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .bgpt-content .rv-inline-cta-text {
+            font-size: 15px;
+            font-weight: 600;
+            color: #1e3a5f;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .bgpt-content .rv-inline-cta a {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 22px;
+            background: #0066FF;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 700;
+            white-space: nowrap;
+            transition: background 0.15s;
+        }
+
+        .bgpt-content .rv-inline-cta a:hover {
+            background: #0052cc;
+        }
+
+        .bgpt-content .rv-share {
+            margin: 36px 0 16px;
+            padding: 20px 0;
+            border-top: 1px solid #f0f0f0;
+            text-align: center;
+        }
+
+        .bgpt-content .rv-share-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #999;
+            margin-bottom: 12px;
+        }
+
+        .bgpt-content .rv-share a {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin: 0 8px;
+            padding: 8px 18px;
+            border: 1px solid #e0e0e0;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .bgpt-content .rv-share a:hover {
+            border-color: #0066FF;
+            color: #0066FF;
+            background: rgba(0, 102, 255, 0.04);
+        }
+
+        .bgpt-content .disclaimer {
+            margin: 24px 0 16px;
+            padding: 0;
+            font-size: 12px;
+            color: #bbb;
+            line-height: 1.7;
+        }
+
+        @media (max-width: 768px) {
+            .bgpt-content {
+                padding: 0 16px;
+            }
+
+            .bgpt-content h2 {
+                font-size: 20px;
+                margin: 32px 0 14px;
+                padding: 0 0 10px 12px;
+            }
+
+            .bgpt-content h3 {
+                font-size: 18px;
+                margin: 24px 0 10px;
+            }
+
+            .bgpt-content .content p {
+                font-size: 16px;
+                line-height: 1.85;
+                margin-bottom: 16px;
+            }
+
+            .bgpt-content .toc {
+                padding: 18px 20px;
+                margin-bottom: 28px;
+            }
+
+            .bgpt-content .toc a {
+                font-size: 14px;
+                padding: 7px 0 7px 12px;
+            }
+
+            .bgpt-content .rv-cta {
+                margin: 28px 0;
+            }
+
+            .bgpt-content .rv-cta-body {
+                padding: 20px 22px;
+            }
+
+            .bgpt-content .rv-cta-headline {
+                font-size: 16px;
+            }
+
+            .bgpt-content .rv-inline-cta {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .bgpt-content .table {
+                display: block;
+                overflow-x: auto;
+            }
+
+            .bgpt-content .table th,
+            .bgpt-content .table td {
+                padding: 10px 12px;
+                font-size: 13px;
+            }
+
+            .bgpt-content .section-image {
+                margin: 20px 0;
+            }
+
+            .bgpt-content .rv-highlight {
+                padding: 18px 20px;
+                font-size: 15px;
+            }
+
+            .bgpt-content .rv-share a {
+                padding: 6px 14px;
+                font-size: 12px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .bgpt-content h2 {
+                font-size: 18px;
+                margin: 24px 0 12px;
+                padding: 0 0 8px 10px;
+                border-left-width: 4px;
+            }
+
+            .bgpt-content h3 {
+                font-size: 16px;
+            }
+
+            .bgpt-content .content p {
+                font-size: 15px;
+                line-height: 1.8;
+            }
+
+            .bgpt-content .rv-cta-body {
+                padding: 16px 18px;
+            }
+
+            .bgpt-content .rv-cta-headline {
+                font-size: 15px;
+            }
+
+            .bgpt-content .rv-cta-action {
+                padding: 8px 18px;
+                font-size: 13px;
+            }
+
+            .bgpt-content .toc {
+                padding: 14px 16px;
+            }
+
+            .bgpt-content .toc a {
+                font-size: 13px;
+            }
+
+            .bgpt-content .rv-share a {
+                margin: 4px;
+                padding: 6px 12px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="preview-container">
+        <div class="bgpt-content">
+
+            <!-- 썸네일 -->
+            <div class="bgpt-thumbnail-box">
+                <img src="https://picsum.photos/1200/630?random=1" alt="2025년 최고의 무선 이어폰 추천" />
+            </div>
+
+            <!-- 목차 -->
+            <div class="toc">
+                <h3>목차</h3>
+                <a href="#section-0">1. 무선 이어폰 선택 기준</a>
+                <a href="#section-1">2. 가성비 TOP 5 추천</a>
+                <a href="#section-2">3. 프리미엄 모델 비교</a>
+                <a href="#section-3">4. 구매 전 반드시 체크할 사항</a>
+            </div>
+
+            <!-- H2 섹션 1 -->
+            <h2 id="section-0">1. 무선 이어폰 선택 기준</h2>
+
+            <figure class="section-image">
+                <img src="https://picsum.photos/800/450?random=2" alt="무선 이어폰 비교" />
+                <figcaption>무선 이어폰 비교</figcaption>
+            </figure>
+
+            <h3>1-1. 음질과 드라이버 크기의 관계</h3>
+            <div class="content">
+                <p>무선 이어폰을 선택할 때 <strong>가장 먼저 고려해야 할 요소는 드라이버 크기</strong>입니다. 일반적으로 드라이버가 클수록 저음 재생 능력이 뛰어나지만, 단순히
+                    크기만으로 음질을 판단해서는 안 됩니다.</p>
+                <p>최근에는 10mm 이하의 소형 드라이버에서도 놀라운 음질을 구현하는 제품들이 등장하고 있으며, 코덱 지원 여부가 체감 음질에 더 큰 영향을 미치는 경우도 많습니다.</p>
+            </div>
+
+            <h3>1-2. 배터리 수명과 충전 방식</h3>
+            <div class="content">
+                <p>배터리 수명은 일상 사용에서 <strong>가장 실질적인 차이</strong>를 만들어냅니다. 2025년 기준으로 대부분의 프리미엄 모델은 6-8시간 연속 재생을 지원하며, 급속
+                    충전 기능으로 10분 충전에 1시간 사용이 가능합니다.</p>
+            </div>
+
+            <!-- 하이라이트 박스 -->
+            <div class="rv-highlight">
+                <strong>핵심 포인트:</strong> 배터리 수명을 비교할 때는 반드시 ANC(능동형 노이즈 캔슬링) 사용 시와 미사용 시의 수치를 분리해서 확인하세요. ANC 활성화 시 약
+                20-30% 배터리 소모가 증가합니다.
+            </div>
+
+            <!-- 표 -->
+            <div style="overflow-x:auto; margin: 28px 0;">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>항목</th>
+                            <th>기본급</th>
+                            <th>중급</th>
+                            <th>프리미엄</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>음질</td>
+                            <td>SBC 코덱</td>
+                            <td>AAC/aptX</td>
+                            <td>LDAC/aptX HD</td>
+                        </tr>
+                        <tr>
+                            <td>배터리</td>
+                            <td>4-5시간</td>
+                            <td>6-7시간</td>
+                            <td>8시간+</td>
+                        </tr>
+                        <tr>
+                            <td>ANC</td>
+                            <td>없음</td>
+                            <td>기본</td>
+                            <td>멀티레벨</td>
+                        </tr>
+                        <tr>
+                            <td>방수</td>
+                            <td>IPX4</td>
+                            <td>IPX5</td>
+                            <td>IP57+</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- CTA 카드형 -->
+            <div class="rv-cta">
+                <div class="rv-cta-body">
+                    <div class="rv-cta-label">추천</div>
+                    <div class="rv-cta-headline">2025년 가장 많이 팔린 무선 이어폰 실시간 순위를 확인해보세요</div>
+                    <span class="rv-cta-action">최저가 비교하기</span>
+                </div>
+            </div>
+
+            <div style="margin:40px 0;clear:both;"></div>
+
+            <!-- H2 섹션 2 -->
+            <h2 id="section-1">2. 가성비 TOP 5 추천</h2>
+
+            <figure class="section-image">
+                <img src="https://picsum.photos/800/450?random=3" alt="가성비 이어폰 추천" />
+                <figcaption>가성비 이어폰 추천</figcaption>
+            </figure>
+
+            <h3>2-1. 5만원 이하 최강자</h3>
+            <div class="content">
+                <p>5만원 이하 가격대에서도 <strong>놀라운 음질과 기능을 제공하는 제품들</strong>이 있습니다. 특히 중국 브랜드들의 기술력 향상으로 저가형 시장의 품질이 크게
+                    개선되었습니다.</p>
+                <p>QCY T20, Nothing Ear (a), 그리고 Soundpeats Air4 Pro가 이 가격대에서 가장 주목할 만한 선택지입니다. 모두 ANC를 지원하며, 음질도 가격 대비
+                    뛰어납니다.</p>
+            </div>
+
+            <!-- 인라인 CTA -->
+            <div class="rv-inline-cta">
+                <span class="rv-inline-cta-text">지금 인기 급상승 중인 이어폰 할인 정보</span>
+                <a href="#">할인 확인하기</a>
+            </div>
+
+            <div style="margin:40px 0;clear:both;"></div>
+
+            <!-- H2 섹션 3 -->
+            <h2 id="section-2">3. 프리미엄 모델 비교</h2>
+
+            <h3>3-1. AirPods Pro 3 vs Galaxy Buds4 Pro</h3>
+            <div class="content">
+                <p>2025년 프리미엄 무선 이어폰 시장의 양대 산맥인 <strong>AirPods Pro 3와 Galaxy Buds4 Pro</strong>를 직접 비교해보았습니다. 두 제품 모두
+                    각자의 생태계에서 최적화된 경험을 제공합니다.</p>
+                <p>Apple 생태계 사용자라면 AirPods Pro 3의 공간 음향과 iCloud 연동이 압도적이며, Samsung 사용자라면 Galaxy Buds4 Pro의 360 Audio와
+                    SmartThings 연동이 매력적입니다.</p>
+            </div>
+
+            <div style="margin:40px 0;clear:both;"></div>
+
+            <!-- H2 섹션 4 -->
+            <h2 id="section-3">4. 구매 전 반드시 체크할 사항</h2>
+
+            <h3>4-1. 귀 형태에 맞는 이어팁 선택</h3>
+            <div class="content">
+                <p><strong>아무리 좋은 이어폰도 맞지 않는 이어팁을 사용하면 음질이 크게 저하됩니다.</strong> 대부분의 이어폰은 S/M/L 세 가지 크기의 실리콘 이어팁을 제공하지만, 폼
+                    이어팁으로 교체하면 착용감과 차음성 모두 개선할 수 있습니다.</p>
+            </div>
+
+            <!-- CTA 카드형 -->
+            <div class="rv-cta">
+                <div class="rv-cta-body">
+                    <div class="rv-cta-label">추천</div>
+                    <div class="rv-cta-headline">나에게 맞는 이어폰 찾기 - 30초 간편 테스트</div>
+                    <span class="rv-cta-action">테스트 시작하기</span>
+                </div>
+            </div>
+
+            <!-- 요약표 -->
+            <div style="margin:40px 0;">
+                <h3
+                    style="font-size:13px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:16px;">
+                    전체 핵심 요약</h3>
+                <div style="overflow-x:auto;">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>카테고리</th>
+                                <th>추천 제품</th>
+                                <th>핵심 장점</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>가성비</td>
+                                <td>QCY T20</td>
+                                <td>ANC + 긴 배터리</td>
+                            </tr>
+                            <tr>
+                                <td>밸런스</td>
+                                <td>Nothing Ear (2)</td>
+                                <td>디자인 + 음질</td>
+                            </tr>
+                            <tr>
+                                <td>프리미엄</td>
+                                <td>AirPods Pro 3</td>
+                                <td>생태계 연동</td>
+                            </tr>
+                            <tr>
+                                <td>안드로이드</td>
+                                <td>Galaxy Buds4 Pro</td>
+                                <td>360 Audio</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 면책 -->
+            <div class="disclaimer">
+                <p>※ 본 글은 정보 제공 목적으로 작성되었으며, 전문적인 조언을 대체하지 않습니다. 일부 링크는 제휴 링크가 포함되어 있습니다.</p>
+            </div>
+
+            <!-- 공유 버튼 -->
+            <div class="rv-share">
+                <div class="rv-share-label">이 글이 도움이 되셨다면 공유해보세요</div>
+                <a href="#">X 공유</a>
+                <a href="#">Facebook</a>
+                <a href="#">링크 복사</a>
+            </div>
+
+        </div>
+    </div>
+</body>
+
+</html>

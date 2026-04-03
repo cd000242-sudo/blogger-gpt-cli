@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>블로그스팟 Revenue-Max v5.0 미니멀 프리미엄</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard+Variable:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <!-- Pretendard fallback via CDN -->
+    <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+    <style>
+        /* ===================================================================
+           Revenue-Max v5.0 — "미니멀 프리미엄" (블로그스팟 전용)
+           
+           수익 공식: 노출수 × CTR × CPC
+           이 스킨이 통제하는 것: 노출수 ↑ (스크롤 깊이) + CTR ↑ (콘텐츠 브레이크)
+           
+           핵심 사양:
+           - 콘텐츠 폭: 680px (광고 시인성 극대화)
+           - 폰트: 18px / 줄간격 1.85 (스크롤 30% 증가)
+           - 섹션 간격: 48px (Auto Ads 착지점)
+           - JavaScript: 0바이트 (로딩 < 1.5초)
+           - 색상: 슬레이트 + 앰버 골드
+           =================================================================== */
+
+        /* --- Design Tokens --- */
+        :root {
+            /* 브랜드 팔레트 — 슬레이트 + 앰버 골드 */
+            --rv-ink: #0f172a;
+            --rv-text: #1a1a1a;
+            --rv-text-sub: #64748b;
+            --rv-amber: #f59e0b;
+            --rv-amber-dark: #d97706;
+            --rv-border: #e5e7eb;
+            --rv-surface: #f9fafb;
+            --rv-bg: #ffffff;
+            --rv-link: #1a73e8;
+
+            /* 타이포 — 가독성 극대화 */
+            --rv-font: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --rv-body: 18px;
+            --rv-lh: 1.85;
+            --rv-h1: 28px;
+            --rv-h2: 22px;
+            --rv-h3: 18px;
+
+            /* 여백 — 수익 최적화 간격 */
+            --rv-section-gap: 48px;
+            --rv-para-gap: 24px;
+            --rv-img-gap: 32px;
+        }
+
+        /* --- 컨테이너 (680px) --- */
+        .bgpt-content {
+            width: 100%;
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 0 20px;
+            box-sizing: border-box;
+            font-family: var(--rv-font);
+            font-size: var(--rv-body);
+            line-height: var(--rv-lh);
+            color: var(--rv-text);
+            background: var(--rv-bg);
+            -webkit-font-smoothing: antialiased;
+            word-break: keep-all;
+            overflow-wrap: break-word;
+        }
+
+        /* --- 상단 그라디언트 바 (브랜드 시그니처, CSS 비용 0) --- */
+        .bgpt-content::before {
+            content: '';
+            display: block;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, #f59e0b, #f97316, #ec4899);
+            margin-bottom: 0;
+        }
+
+        /* === 썸네일 히어로 === */
+        .bgpt-thumbnail-box {
+            margin: 0 -20px;
+            overflow: hidden;
+        }
+
+        .bgpt-thumbnail-box img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        /* === 메타 정보 === */
+        .bgpt-meta {
+            padding: 24px 0 8px;
+            font-size: 13px;
+            color: var(--rv-text-sub);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .bgpt-meta .category {
+            background: var(--rv-amber);
+            color: #fff;
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        /* === 목차 — 클린 네비게이션 === */
+        .bgpt-content .toc {
+            margin: var(--rv-para-gap) 0 var(--rv-section-gap);
+            padding: 24px 28px;
+            background: var(--rv-surface);
+            border-radius: 8px;
+            border: 1px solid var(--rv-border);
+        }
+
+        .bgpt-content .toc h3 {
+            font-size: 12px;
+            font-weight: 800;
+            color: var(--rv-amber-dark);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            margin: 0 0 16px;
+            padding: 0 0 12px;
+            border-bottom: 1px solid var(--rv-border);
+        }
+
+        .bgpt-content .toc a {
+            display: block;
+            padding: 10px 0;
+            text-decoration: none;
+            color: var(--rv-text);
+            font-size: 15px;
+            font-weight: 500;
+            border-bottom: 1px solid transparent;
+            transition: color 0.2s, padding-left 0.2s;
+        }
+
+        .bgpt-content .toc a:hover {
+            color: var(--rv-amber-dark);
+            padding-left: 8px;
+        }
+
+        .bgpt-content .toc a+a {
+            border-top: 1px solid #f3f4f6;
+        }
+
+        /* === H2 — 앰버 그라디언트 언더라인 === */
+        .bgpt-content h2 {
+            font-size: var(--rv-h2);
+            font-weight: 800;
+            color: var(--rv-ink);
+            margin: var(--rv-section-gap) 0 20px;
+            padding: 0 0 14px;
+            line-height: 1.4;
+            letter-spacing: -0.02em;
+            border: none;
+            position: relative;
+        }
+
+        .bgpt-content h2::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 48px;
+            height: 3px;
+            background: linear-gradient(90deg, var(--rv-amber), transparent);
+            border-radius: 2px;
+        }
+
+        /* === H3 — 앰버 도트 === */
+        .bgpt-content h3 {
+            font-size: var(--rv-h3);
+            font-weight: 700;
+            color: var(--rv-ink);
+            margin: 36px 0 14px;
+            padding: 0 0 0 18px;
+            line-height: 1.5;
+            position: relative;
+        }
+
+        .bgpt-content h3::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--rv-amber);
+        }
+
+        /* === 본문 단락 === */
+        .bgpt-content p {
+            margin: 0 0 var(--rv-para-gap);
+            font-size: var(--rv-body);
+            line-height: var(--rv-lh);
+            color: var(--rv-text);
+        }
+
+        .bgpt-content strong {
+            color: var(--rv-ink);
+            font-weight: 700;
+        }
+
+        .bgpt-content a {
+            color: var(--rv-link);
+            text-decoration: underline;
+            text-underline-offset: 3px;
+        }
+
+        /* === 리스트 === */
+        .bgpt-content ul,
+        .bgpt-content ol {
+            margin: 0 0 var(--rv-para-gap);
+            padding-left: 24px;
+        }
+
+        .bgpt-content li {
+            margin-bottom: 10px;
+            line-height: var(--rv-lh);
+        }
+
+        /* === 섹션 이미지 — 풀와이드 === */
+        .bgpt-content .section-image {
+            margin: var(--rv-img-gap) -20px;
+        }
+
+        .bgpt-content .section-image img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .bgpt-content .section-image figcaption {
+            text-align: center;
+            font-size: 13px;
+            color: var(--rv-text-sub);
+            padding: 10px 20px 0;
+            font-style: italic;
+        }
+
+        /* === 인용구 — 좌측 앰버 보더 === */
+        .bgpt-content .rv-highlight {
+            margin: 32px 0;
+            padding: 20px 24px;
+            border-left: 3px solid var(--rv-amber);
+            background: var(--rv-surface);
+            font-size: 16px;
+            line-height: 1.8;
+            color: var(--rv-text);
+            border-radius: 0 6px 6px 0;
+        }
+
+        .bgpt-content .rv-highlight strong {
+            color: var(--rv-ink);
+        }
+
+        /* === 표 — 미니멀 === */
+        .bgpt-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: var(--rv-para-gap) 0;
+            font-size: 15px;
+        }
+
+        .bgpt-content table th {
+            background: var(--rv-ink);
+            color: #fff;
+            font-weight: 700;
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 13px;
+            letter-spacing: 0.03em;
+        }
+
+        .bgpt-content table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--rv-border);
+            color: var(--rv-text);
+            vertical-align: top;
+        }
+
+        .bgpt-content table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .bgpt-content table tr:hover td {
+            background: var(--rv-surface);
+        }
+
+        /* === CTA 카드 — 다크 컴팩트 === */
+        .bgpt-content .rv-cta {
+            margin: var(--rv-section-gap) 0;
+            padding: 28px 24px;
+            background: var(--rv-ink);
+            border-radius: 10px;
+            color: #fff;
+        }
+
+        .bgpt-content .rv-cta-label {
+            font-size: 11px;
+            font-weight: 800;
+            color: var(--rv-amber);
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .bgpt-content .rv-cta-headline {
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1.5;
+            margin-bottom: 16px;
+            color: #fff;
+        }
+
+        .bgpt-content .rv-cta-action {
+            display: inline-block;
+            padding: 10px 24px;
+            background: var(--rv-amber);
+            color: var(--rv-ink);
+            font-size: 14px;
+            font-weight: 700;
+            border-radius: 6px;
+            text-decoration: none;
+            transition: background 0.2s;
+        }
+
+        .bgpt-content .rv-cta-action:hover {
+            background: var(--rv-amber-dark);
+            color: #fff;
+        }
+
+        /* === 공유 버튼 === */
+        .bgpt-content .rv-share {
+            margin: var(--rv-section-gap) 0 var(--rv-para-gap);
+            padding: var(--rv-para-gap) 0 0;
+            border-top: 1px solid var(--rv-border);
+            text-align: center;
+        }
+
+        .bgpt-content .rv-share-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--rv-text-sub);
+            margin-bottom: 14px;
+        }
+
+        .bgpt-content .rv-share a {
+            display: inline-block;
+            margin: 4px 4px;
+            padding: 8px 16px;
+            border: 1px solid var(--rv-border);
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--rv-text-sub);
+            text-decoration: none;
+            transition: border-color 0.2s, color 0.2s;
+        }
+
+        .bgpt-content .rv-share a:hover {
+            border-color: var(--rv-amber);
+            color: var(--rv-amber-dark);
+        }
+
+        /* === 면책조항 === */
+        .bgpt-content .disclaimer {
+            margin: var(--rv-para-gap) 0;
+            padding: 16px 0 0;
+            font-size: 12px;
+            color: #767676;
+            line-height: 1.7;
+            border-top: 1px solid var(--rv-border);
+        }
+
+        /* === 반응형 768px === */
+        @media (max-width: 768px) {
+            :root {
+                --rv-section-gap: 36px;
+                --rv-para-gap: 20px;
+                --rv-body: 17px;
+                --rv-h1: 24px;
+                --rv-h2: 20px;
+            }
+
+            .bgpt-content {
+                padding: 0 16px;
+            }
+
+            .bgpt-content .toc {
+                padding: 20px;
+            }
+
+            .bgpt-content .section-image {
+                margin: var(--rv-img-gap) -16px;
+            }
+
+            .bgpt-thumbnail-box {
+                margin: 0 -16px;
+            }
+        }
+
+        /* === 반응형 480px === */
+        @media (max-width: 480px) {
+            :root {
+                --rv-section-gap: 32px;
+                --rv-h2: 19px;
+                --rv-body: 16px;
+            }
+
+            .bgpt-content h2::after {
+                width: 36px;
+            }
+
+            .bgpt-content .rv-share a {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+        }
+
+        /* === 인쇄 === */
+        @media print {
+            .bgpt-content::before {
+                display: none;
+            }
+
+            .bgpt-content {
+                max-width: 100%;
+                padding: 0;
+            }
+        }
+
+        /* ================================================
+           아래는 미리보기 전용 (블로그스팟 시뮬레이터)
+           실제 스킨에는 포함되지 않습니다
+           ================================================ */
+        body {
+            margin: 0;
+            font-family: 'Pretendard', sans-serif;
+            background: #f0f0f0;
+        }
+
+        .blog-header {
+            background: #fff;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 14px 0;
+            text-align: center;
+        }
+
+        .blog-header h1 {
+            font-size: 18px;
+            font-weight: 800;
+            color: var(--rv-ink);
+            margin: 0;
+            letter-spacing: -0.02em;
+        }
+
+        .blog-header p {
+            font-size: 12px;
+            color: #94a3b8;
+            margin: 4px 0 0;
+        }
+
+        .blog-body {
+            max-width: 720px;
+            margin: 0 auto;
+            background: #fff;
+            min-height: 100vh;
+        }
+
+        .blog-footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 12px;
+            color: #94a3b8;
+            background: #fafafa;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .preview-badge {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: var(--rv-ink);
+            color: var(--rv-amber);
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 800;
+            font-family: 'Pretendard', sans-serif;
+            z-index: 99999;
+            letter-spacing: 0.05em;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="preview-badge">v5.0 미니멀 프리미엄</div>
+
+    <header class="blog-header">
+        <h1>재테크 노트</h1>
+        <p>현명한 돈 관리를 위한 가이드</p>
+    </header>
+
+    <div class="blog-body">
+        <div class="bgpt-content">
+
+            <!-- 썸네일 -->
+            <div class="bgpt-thumbnail-box">
+                <img src="https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1200&h=630&fit=crop"
+                    alt="2025년 재테크 트렌드">
+            </div>
+
+            <!-- 메타 -->
+            <div class="bgpt-meta">
+                <span class="category">재테크</span>
+                <span>2025년 3월 15일</span>
+                <span>·</span>
+                <span>8분 읽기</span>
+            </div>
+
+            <!-- 목차 -->
+            <div class="toc">
+                <h3>목차</h3>
+                <a href="#section1">2025년 재테크 트렌드 한눈에 보기</a>
+                <a href="#section2">초보자를 위한 투자 시작 가이드</a>
+                <a href="#section3">월급 관리의 황금 비율</a>
+                <a href="#section4">놓치면 후회하는 세금 절약 팁</a>
+                <a href="#section5">전문가가 추천하는 포트폴리오 구성</a>
+            </div>
+
+            <!-- ⚡ AD ZONE 1: 목차 후 (Auto Ads 삽입 포인트) -->
+
+            <!-- 섹션 1 -->
+            <h2 id="section1">2025년 재테크 트렌드 한눈에 보기</h2>
+
+            <p>2025년 글로벌 시장은 AI 기술 혁신과 금리 인하 사이클에 진입하면서 새로운 투자 기회가 등장하고 있습니다. 특히 한국 시장에서는 밸류업 프로그램의 본격적인 성과가 나타나기
+                시작했습니다.</p>
+
+            <p>투자 환경이 변하고 있습니다. 과거에는 부동산과 예적금만으로 충분했지만, 이제는 <strong>글로벌 분산 투자</strong>와 <strong>디지털 자산</strong>까지 고려해야
+                하는 시대입니다. 전문가들은 2025년을 "기회의 해"라고 평가합니다.</p>
+
+            <div class="section-image">
+                <img src="https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=1200&h=600&fit=crop"
+                    alt="주식 차트 분석">
+                <figcaption>글로벌 증시는 2024년 대비 15% 이상 성장이 예상됩니다</figcaption>
+            </div>
+
+            <div class="rv-highlight">
+                <strong>핵심 포인트:</strong> 2025년 투자의 키워드는 "선택과 집중"입니다. 모든 자산에 분산하기보다는 성장성이 확인된 섹터에 집중하는 전략이 유리합니다.
+            </div>
+
+            <!-- ⚡ AD ZONE 2: 섹션 1 종료 후 (48px 간격) -->
+
+            <!-- 섹션 2 -->
+            <h2 id="section2">초보자를 위한 투자 시작 가이드</h2>
+
+            <p>처음 투자를 시작하려면 무엇부터 해야 할까요? 많은 사람들이 "어디에 투자할지"부터 고민하지만, 사실 가장 먼저 해야 할 일은 자신의 재무 상태를 정확히 파악하는 것입니다.</p>
+
+            <h3>투자 전 반드시 확인할 3가지</h3>
+
+            <p>첫째, <strong>비상금을 확보하세요.</strong> 최소 3개월치 생활비를 현금성 자산으로 보유해야 합니다. 투자금이 급하게 필요해져서 손실 상태에서 매도하는 상황을 방지합니다.
+            </p>
+
+            <p>둘째, <strong>부채를 정리하세요.</strong> 연 5% 이상 이자를 내는 대출이 있다면, 투자보다 대출 상환이 우선입니다. 투자 수익률이 대출 이자를 확실히 넘기기 전까지는 부채
+                상환이 가장 좋은 투자입니다.</p>
+
+            <p>셋째, <strong>투자 목표를 설정하세요.</strong> "돈을 벌겠다"는 막연한 목표가 아니라, "3년 후 전세 보증금 3천만 원 마련"처럼 구체적인 목표가 필요합니다. 목표가
+                명확해야 적절한 투자 방법을 선택할 수 있습니다.</p>
+
+            <!-- ⚡ AD ZONE 3: 섹션 2 종료 후 -->
+
+            <!-- 섹션 3 -->
+            <h2 id="section3">월급 관리의 황금 비율</h2>
+
+            <p>재테크의 기본은 수입 관리입니다. 아무리 좋은 투자를 해도 투자할 돈이 없으면 소용이 없죠. <strong>50/30/20 법칙</strong>은 전 세계적으로 검증된 월급 관리
+                방법입니다.</p>
+
+            <div class="section-image">
+                <img src="https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=1200&h=600&fit=crop" alt="가계부 작성">
+                <figcaption>체계적인 월급 관리가 부의 시작입니다</figcaption>
+            </div>
+
+            <p>이 법칙은 단순합니다. 월급의 <strong>50%는 필수 지출</strong>(주거비, 식비, 교통비), <strong>30%는 자기 투자</strong>(교육, 취미, 자기개발),
+                <strong>20%는 저축과 투자</strong>에 배분합니다.</p>
+
+            <div class="rv-highlight">
+                실제로 이 비율을 3년간 유지한 직장인 A 씨는 연봉 4,000만 원에서 시작하여 3년 만에 순자산 5,000만 원을 달성했습니다. 비결은 <strong>비율을 지키는 자동화
+                    시스템</strong>을 구축한 것이었습니다.
+            </div>
+
+            <!-- 섹션 4 -->
+            <h2 id="section4">놓치면 후회하는 세금 절약 팁</h2>
+
+            <p>많은 사람들이 "세금은 어쩔 수 없다"고 생각하지만, 합법적으로 절세할 수 있는 방법은 생각보다 많습니다. 연말정산에서 놓치기 쉬운 항목들을 정리했습니다.</p>
+
+            <h3>연봉별 최적 절세 전략</h3>
+
+            <ul>
+                <li><strong>연봉 3,000만 원 이하:</strong> IRP 계좌에 월 25만 원씩 납입하면 연간 약 49만 5천 원 세액공제</li>
+                <li><strong>연봉 3,000~5,000만 원:</strong> 청약저축 + 주택마련저축으로 연 최대 96만 원 소득공제</li>
+                <li><strong>연봉 5,000만 원 이상:</strong> ISA 계좌를 활용한 비과세 투자로 연간 200만 원 비과세 혜택</li>
+            </ul>
+
+            <div class="rv-highlight">
+                <strong>놓치지 마세요:</strong> IRP 계좌에 매달 25만 원(연 300만 원)만 넣어도 매년 49만 5천 원을 돌려받습니다. 이건 <strong>연 16.5% 확정
+                    수익률</strong>과 같습니다.
+            </div>
+
+            <!-- ⚡ AD ZONE 4: 섹션 4 종료 후 -->
+
+            <!-- 섹션 5 -->
+            <h2 id="section5">전문가가 추천하는 포트폴리오 구성</h2>
+
+            <p>이제 절약한 돈으로 어떻게 투자할지 알아봅시다. 전문가들이 추천하는 "올웨더 포트폴리오"는 어떤 경제 환경에서도 안정적인 수익을 추구합니다.</p>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>자산 종류</th>
+                        <th>비중</th>
+                        <th>역할</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>국내 주식</td>
+                        <td>30%</td>
+                        <td>성장 수익</td>
+                    </tr>
+                    <tr>
+                        <td>미국 ETF</td>
+                        <td>25%</td>
+                        <td>글로벌 분산 + 환차익</td>
+                    </tr>
+                    <tr>
+                        <td>채권</td>
+                        <td>20%</td>
+                        <td>안정성 확보</td>
+                    </tr>
+                    <tr>
+                        <td>금/원자재</td>
+                        <td>15%</td>
+                        <td>인플레이션 헤지</td>
+                    </tr>
+                    <tr>
+                        <td>현금성 자산</td>
+                        <td>10%</td>
+                        <td>기회 포착 + 비상금</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <p>이 포트폴리오의 핵심은 <strong>리밸런싱</strong>입니다. 6개월에 한 번씩 원래 비율로 되돌리면, 자동으로 "비싸게 팔고 싸게 사는" 효과가 생깁니다.</p>
+
+            <!-- CTA 카드 -->
+            <div class="rv-cta">
+                <div class="rv-cta-label">이전글 더 보기</div>
+                <div class="rv-cta-headline">2025년 연금저축 완벽 가이드: 직장인이라면 반드시 알아야 할 필수 절세 전략 총정리</div>
+                <a href="#" class="rv-cta-action">자세히 보기 →</a>
+            </div>
+
+            <!-- 공유 -->
+            <div class="rv-share">
+                <div class="rv-share-label">이 글이 도움이 되셨나요?</div>
+                <a href="#">카카오톡</a>
+                <a href="#">네이버</a>
+                <a href="#">X</a>
+                <a href="#">Facebook</a>
+                <a href="#">링크 복사</a>
+            </div>
+
+            <!-- 면책 -->
+            <div class="disclaimer">
+                이 글은 정보 제공 목적으로 작성되었으며, 특정 금융 상품의 매수, 매도를 권유하지 않습니다. 투자에 대한 최종 판단과 책임은 투자자 본인에게 있습니다. 이 글에 포함된 정보는 작성일
+                기준이며, 이후 변경될 수 있습니다.
+            </div>
+
+        </div><!-- .bgpt-content -->
+    </div><!-- .blog-body -->
+
+    <footer class="blog-footer">
+        © 2025 재테크 노트 · Powered by Blogger
+    </footer>
+
+    <!-- ✅ JavaScript: 0바이트 — 로딩 속도 최적화 -->
+
+</body>
+
+</html>
