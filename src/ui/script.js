@@ -36,6 +36,28 @@ function showNotification(message, type = 'info') {
   }
 })();
 
+// 에러 메시지를 사용자 친화적으로 변환
+function friendlyErrorMessage(error) {
+  const msg = (error && error.message) ? error.message : String(error);
+
+  if (msg.includes('API key') || msg.includes('api_key') || msg.includes('PERMISSION_DENIED'))
+    return '🔑 API 키가 잘못되었어요. 설정에서 올바른 키를 입력해주세요.';
+  if (msg.includes('ENOTFOUND') || msg.includes('network') || msg.includes('fetch'))
+    return '🌐 인터넷 연결을 확인해주세요.';
+  if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota'))
+    return '⏰ API 사용량 초과예요. 잠시 후 다시 시도해주세요.';
+  if (msg.includes('license') || msg.includes('라이선스'))
+    return '🔒 라이선스가 유효하지 않아요. 스니펫 탭에서 활성화해주세요.';
+  if (msg.includes('timeout') || msg.includes('DEADLINE'))
+    return '⏳ 응답 시간이 초과되었어요. 다시 시도해주세요.';
+  if (msg.includes('blogId') || msg.includes('blog_id'))
+    return '📝 블로그 ID가 설정되지 않았어요. 설정에서 입력해주세요.';
+  if (msg.includes('WordPress') || msg.includes('wp-json'))
+    return '🌐 WordPress 연결에 실패했어요. URL과 비밀번호를 확인해주세요.';
+
+  return `오류가 발생했어요: ${msg.slice(0, 100)}`;
+}
+
 // H2 이미지 선택 함수
 function getH2ImageSections(context = 'default') {
   const sourceSelector = context === 'schedule'
@@ -8195,6 +8217,27 @@ async function generatePreview() {
   console.log('[NEW-PREVIEW] 미리보기 함수 시작');
 
   try {
+    // Crash recovery check
+    const savedContent = localStorage.getItem('lastGeneratedContent');
+    if (savedContent) {
+      try {
+        const saved = JSON.parse(savedContent);
+        // If content was saved less than 30 minutes ago, offer recovery
+        if (saved.timestamp && (Date.now() - saved.timestamp) < 30 * 60 * 1000) {
+          const recover = confirm(`이전에 생성한 글이 있어요 ("${(saved.title || '').slice(0, 30)}..."). 복구할까요?`);
+          if (recover) {
+            generatedContent.title = saved.title;
+            generatedContent.content = saved.content;
+            generatedContent.thumbnailUrl = saved.thumbnailUrl;
+            showNotification('✅ 이전 글이 복구되었어요!', 'success');
+            // Show preview
+            if (typeof showPreview === 'function') showPreview();
+            return;
+          }
+        }
+      } catch { /* corrupt data — ignore */ }
+    }
+
     // 0. 이전 캐시 삭제 (새로운 콘텐츠 생성을 위해)
     localStorage.removeItem('lastGeneratedContent');
     localStorage.removeItem('lastGeneratedTitle');
@@ -8225,15 +8268,29 @@ async function generatePreview() {
 
     console.log('[NEW-PREVIEW] 키워드:', keyword);
 
-    // 4. 상태 설정
+    // 4. 상태 설정 (race condition 방지: API 호출 전에 즉시 잠금)
     setRunning(true);
     isCanceled = false;
 
     // 5. 버튼 로딩 상태
     const generateBtn = document.getElementById('generateBtn');
+    const originalBtnText = generateBtn ? generateBtn.innerHTML : '📝 콘텐츠 생성 (미리보기)';
     if (generateBtn) {
       generateBtn.disabled = true;
       generateBtn.innerHTML = '⏳ 생성 중...';
+    }
+
+    // Pre-flight: API 키 확인
+    const settings = JSON.parse(localStorage.getItem('bloggerSettings') || '{}');
+    const geminiKey = settings.geminiKey || settings.GEMINI_API_KEY || '';
+    if (!geminiKey || geminiKey.length < 10) {
+      showNotification('⚠️ Gemini API 키가 설정되지 않았어요. 설정 > API 키에서 입력해주세요.', 'error');
+      if (generateBtn) {
+        generateBtn.disabled = false;
+        generateBtn.innerHTML = originalBtnText;
+      }
+      setRunning(false);
+      return;
     }
 
     addLog('[NEW-PREVIEW] 콘텐츠 생성 시작...');
@@ -8270,6 +8327,17 @@ async function generatePreview() {
       generatedContent.thumbnailUrl = result.thumbnailUrl || '';
       generatedContent.payload = payload;
 
+      // Auto-save for crash recovery
+      try {
+        localStorage.setItem('lastGeneratedContent', JSON.stringify({
+          title: generatedContent.title,
+          content: generatedContent.content,
+          thumbnailUrl: generatedContent.thumbnailUrl,
+          timestamp: Date.now(),
+          keyword: keyword
+        }));
+      } catch (e) { /* localStorage full — ignore */ }
+
       console.log('[NEW-PREVIEW] 저장된 콘텐츠:', {
         title: generatedContent.title,
         contentLength: generatedContent.content.length,
@@ -8279,7 +8347,10 @@ async function generatePreview() {
       // 9. 미리보기 표시 (데이터만 저장, 모달은 사용자가 선택)
       displayPreviewInModal();
 
-      addLog('[NEW-PREVIEW] 미리보기 데이터 준비 완료! 미리보기 버튼을 클릭하세요.', 'success');
+      addLog('✅ 글 생성 완료! 미리보기를 확인 후 "블로그 발행 Start" 버튼으로 발행하세요.', 'success');
+      if (typeof showNotification === 'function') {
+        showNotification('✅ 글 생성이 완료되었어요! 미리보기를 확인해보세요.', 'success');
+      }
 
     } else {
       throw new Error(result?.error || result?.logs || '콘텐츠 생성 실패');
@@ -8288,7 +8359,7 @@ async function generatePreview() {
   } catch (error) {
     console.error('[NEW-PREVIEW] 오류:', error);
     addLog(`❌ 오류: ${error.message}`, 'error');
-    alert('콘텐츠 생성 오류: ' + error.message);
+    showNotification(friendlyErrorMessage(error), 'error');
   } finally {
     // 버튼 복원
     const generateBtn = document.getElementById('generateBtn');
@@ -8532,6 +8603,27 @@ async function publishToPlatform() {
     if (isRunning) {
       alert('작업이 실행 중입니다. 잠시 후 다시 시도해주세요.');
       return;
+    }
+
+    // 플랫폼 인증 사전 검증
+    const settings = JSON.parse(localStorage.getItem('bloggerSettings') || '{}');
+    const platform = settings.platform || 'wordpress';
+
+    if (platform === 'wordpress') {
+      const wpUrl = settings.wordpressSiteUrl || settings.wpSiteUrl || '';
+      const wpUser = settings.wordpressUsername || settings.wpUsername || '';
+      const wpPass = settings.wordpressPassword || settings.wpPassword || '';
+      if (!wpUrl || !wpUser || !wpPass) {
+        showNotification('⚠️ WordPress 연결 정보가 없어요. 설정 > WordPress에서 URL, 아이디, 비밀번호를 입력해주세요.', 'error');
+        return;
+      }
+    } else if (platform === 'blogspot' || platform === 'blogger') {
+      const blogId = settings.blogId || '';
+      const clientId = settings.googleClientId || '';
+      if (!blogId) {
+        showNotification('⚠️ Blog ID가 설정되지 않았어요. 설정 > Blogger에서 입력해주세요.', 'error');
+        return;
+      }
     }
 
     // 생성된 콘텐츠 확인

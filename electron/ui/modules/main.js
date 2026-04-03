@@ -20,6 +20,7 @@ import { initKeywordDiscover } from './keyword-discover.js';
 import { initContentStubs } from './content-stubs.js';
 import './adsense-tools.js'; // 애드센스 도구 탭 모듈 (window.__initAdsenseTools 등록)
 import { renderOneclickSetupTab, initOneclickSetup } from './oneclick-setup.js'; // 🚀 원클릭 세팅 모듈
+import { initFirstRunWizard } from './first-run-wizard.js';
 
 // 🔐 세션 만료 모달 (중복 로그인 방지)
 function showSessionExpiredModal(reason) {
@@ -428,6 +429,9 @@ async function initializeApp() {
       oneclickContainer.innerHTML = renderOneclickSetupTab();
     }
     debugLog('MAIN', '원클릭 세팅 모듈 초기화 완료');
+
+    // 5.10. 첫 실행 마법사 초기화 (3분 세팅)
+    try { initFirstRunWizard(); } catch (e) { console.warn('[WIZARD] 초기화 실패:', e); }
 
     // 6. 설정 로드
     const settings = await loadSettings();
