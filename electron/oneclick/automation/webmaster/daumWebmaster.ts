@@ -1,5 +1,6 @@
 import type { WebmasterState } from '../../types';
 import { generateRandomPin } from '../../utils/pinGenerator';
+import { DAUM_SELECTORS } from '../../config/selectors';
 
 export async function automateDaumWebmaster(state: WebmasterState, page: any, blogUrl: string): Promise<void> {
     const results: Record<string, boolean> = {};
@@ -13,7 +14,7 @@ export async function automateDaumWebmaster(state: WebmasterState, page: any, bl
     state.message = 'PIN 코드 발급 중...';
     try {
       // verified: textbox "사이트 URL"
-      const siteUrlInput = await page.$('input[placeholder="사이트 URL"]') || await page.$('input:near(:text("사이트 URL"))');
+      const siteUrlInput = await page.$(DAUM_SELECTORS.siteUrlInput) || await page.$(DAUM_SELECTORS.siteUrlInputFallback);
       if (siteUrlInput) {
         await siteUrlInput.fill(blogUrl);
         await page.waitForTimeout(500);
@@ -24,7 +25,7 @@ export async function automateDaumWebmaster(state: WebmasterState, page: any, bl
       const pinCode = generateRandomPin(10);
 
       // verified: textbox "PIN코드 입력 (영문+숫자 8~12자)"
-      const pinInputs = await page.$$('input[placeholder*="PIN"]');
+      const pinInputs = await page.$$(DAUM_SELECTORS.pinInputAll);
       if (pinInputs.length >= 1) {
         // 첫 번째: PIN코드 입력
         await pinInputs[0].fill(pinCode);
@@ -37,14 +38,14 @@ export async function automateDaumWebmaster(state: WebmasterState, page: any, bl
       }
 
       // verified: checkbox "이용동의 확인"
-      const agreeCheckbox = await page.$('input[type="checkbox"]');
+      const agreeCheckbox = await page.$(DAUM_SELECTORS.agreeCheckbox);
       if (agreeCheckbox) {
         await agreeCheckbox.click();
         await page.waitForTimeout(300);
       }
 
       // verified: button "확인"
-      const confirmBtn = await page.$('button:has-text("확인")');
+      const confirmBtn = await page.$(DAUM_SELECTORS.confirmBtn);
       if (confirmBtn) {
         await confirmBtn.click();
         await page.waitForTimeout(5000);
@@ -62,19 +63,20 @@ export async function automateDaumWebmaster(state: WebmasterState, page: any, bl
 
     // 3) PIN 인증 시도 (/ 페이지)
     state.message = 'PIN 인증 중...';
+    results['PIN 인증'] = false; // 기본값: 실패 — 실제 인증 성공 시에만 true로 변경
     try {
       await page.goto('https://webmaster.daum.net/', { waitUntil: 'domcontentloaded', timeout: 15000 });
       await page.waitForTimeout(2000);
 
       // verified: textbox "사이트 URL" (메인 페이지에도 동일한 필드)
-      const authUrlInput = await page.$('input[placeholder="사이트 URL"]');
+      const authUrlInput = await page.$(DAUM_SELECTORS.authUrlInput);
       if (authUrlInput) {
         await authUrlInput.fill(blogUrl);
         await page.waitForTimeout(500);
       }
 
       // verified: textbox "PIN코드 입력 (영문+숫자 8~12자)"
-      const authPinInput = await page.$('input[placeholder*="PIN코드 입력"]');
+      const authPinInput = await page.$(DAUM_SELECTORS.authPinInput);
       if (authPinInput) {
         // 아까 생성한 PIN 사용 (사용자가 사이트에 넣어야 인증됨)
         state.message = '⚠️ 사이트 루트에 PIN 메타태그를 삽입 후 인증하기를 클릭하세요';
@@ -82,16 +84,28 @@ export async function automateDaumWebmaster(state: WebmasterState, page: any, bl
       }
 
       // verified: button "인증하기"
-      const authBtn = await page.$('button:has-text("인증하기")');
+      const authBtn = await page.$(DAUM_SELECTORS.authBtn);
       if (authBtn) {
         // 사용자가 직접 클릭하도록 안내 (PIN 파일/메타태그를 사이트에 넣어야 함)
         state.message = '📌 사이트에 PIN을 설정한 후 "인증하기" 버튼을 클릭하세요';
         await page.waitForTimeout(60000); // 1분 대기 (사용자 행동 기다림)
-      }
 
-      results['PIN 인증'] = true;
-    } catch {
-      results['PIN 인증'] = false;
+        // 인증 성공 여부 확인 — 성공 메시지 또는 완료 표시가 있어야 true
+        const successIndicator = await page.$('text="인증 완료"') ||
+          await page.$('text="등록이 완료"') ||
+          await page.$('.success') ||
+          await page.$('[class*="success"]');
+        if (successIndicator) {
+          console.log('[ONECLICK] Daum 웹마스터 PIN 인증 성공 확인됨');
+          results['PIN 인증'] = true;
+        } else {
+          console.warn('[ONECLICK] Daum 웹마스터 PIN 인증 완료 표시를 찾지 못함 — 수동 확인 필요');
+        }
+      } else {
+        console.warn('[ONECLICK] Daum 웹마스터 인증하기 버튼을 찾지 못함');
+      }
+    } catch (e) {
+      console.warn('[ONECLICK] Daum PIN 인증 오류:', e);
     }
 
     state.results = results;

@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.automateWordPressConnect = automateWordPressConnect;
+const selectors_1 = require("../../config/selectors");
 async function automateWordPressConnect(state, page, siteUrl) {
     const results = {};
     // 1) WP 로그인 페이지
@@ -78,14 +79,14 @@ async function automateWordPressConnect(state, page, siteUrl) {
         });
         await page.waitForTimeout(1000);
         // 앱 이름 입력
-        const nameInput = await page.$('#new_application_password_name');
+        const nameInput = await page.$(selectors_1.WORDPRESS_SELECTORS.newAppPasswordNameInput);
         if (!nameInput) {
             throw new Error('Application Password 입력 필드를 찾을 수 없습니다. WordPress 5.6+ 이상이 필요합니다.');
         }
         await nameInput.fill('리더남 블로거 GPT');
         await page.waitForTimeout(500);
         // "Add New Application Password" 버튼 클릭
-        const addBtn = await page.$('#do_new_application_password');
+        const addBtn = await page.$(selectors_1.WORDPRESS_SELECTORS.addNewAppPasswordBtn);
         if (!addBtn) {
             throw new Error('Application Password 추가 버튼을 찾을 수 없습니다.');
         }

@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.automateZumWebmaster = automateZumWebmaster;
+const selectors_1 = require("../../config/selectors");
 async function automateZumWebmaster(state, page, blogUrl) {
     const results = {};
     // 1) ZUM 웹마스터도구 열기
@@ -8,7 +9,7 @@ async function automateZumWebmaster(state, page, blogUrl) {
     await page.goto('https://webmaster.zum.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(2000);
     // 2) 로그인 확인
-    const loginBtnZum = await page.$('a:has-text("로그인")') || await page.$('.login') || await page.$('a:has-text("Sign")');
+    const loginBtnZum = await page.$(selectors_1.ZUM_SELECTORS.loginBtnKo) || await page.$(selectors_1.ZUM_SELECTORS.loginBtnClass) || await page.$(selectors_1.ZUM_SELECTORS.loginBtnSign);
     if (loginBtnZum) {
         await loginBtnZum.click();
         await page.waitForTimeout(2000);
@@ -27,11 +28,11 @@ async function automateZumWebmaster(state, page, blogUrl) {
     // 3) 사이트 등록
     state.message = '사이트 등록 중...';
     try {
-        const siteInput = await page.$('input[placeholder*="URL"]') || await page.$('input[type="url"]') || await page.$('input[type="text"]');
+        const siteInput = await page.$(selectors_1.ZUM_SELECTORS.siteInputUrl) || await page.$(selectors_1.ZUM_SELECTORS.siteInputType) || await page.$(selectors_1.ZUM_SELECTORS.siteInputText);
         if (siteInput) {
             await siteInput.fill(blogUrl);
             await page.waitForTimeout(500);
-            const addBtn = await page.$('button:has-text("등록")') || await page.$('button:has-text("추가")') || await page.$('button[type="submit"]');
+            const addBtn = await page.$(selectors_1.ZUM_SELECTORS.registerBtn) || await page.$(selectors_1.ZUM_SELECTORS.addBtn) || await page.$(selectors_1.ZUM_SELECTORS.submitBtn);
             if (addBtn) {
                 await addBtn.click();
                 await page.waitForTimeout(5000);
@@ -51,12 +52,12 @@ async function automateZumWebmaster(state, page, blogUrl) {
     state.message = 'RSS 피드 등록 중...';
     try {
         // RSS 메뉴 탐색
-        const rssLink = await page.$('a:has-text("RSS")') || await page.$('a[href*="rss"]');
+        const rssLink = await page.$(selectors_1.ZUM_SELECTORS.rssLink) || await page.$(selectors_1.ZUM_SELECTORS.rssLinkHref);
         if (rssLink) {
             await rssLink.click();
             await page.waitForTimeout(3000);
         }
-        const rssInput = await page.$('input[type="text"]') || await page.$('input[placeholder*="RSS"]');
+        const rssInput = await page.$(selectors_1.ZUM_SELECTORS.rssInput) || await page.$(selectors_1.ZUM_SELECTORS.rssInputPlaceholder);
         if (rssInput) {
             let rssUrl = blogUrl.endsWith('/') ? blogUrl : blogUrl + '/';
             if (blogUrl.includes('tistory.com')) {
@@ -70,7 +71,7 @@ async function automateZumWebmaster(state, page, blogUrl) {
             }
             await rssInput.fill(rssUrl);
             await page.waitForTimeout(500);
-            const submitBtn = await page.$('button:has-text("등록")') || await page.$('button:has-text("확인")') || await page.$('button[type="submit"]');
+            const submitBtn = await page.$(selectors_1.ZUM_SELECTORS.rssRegisterBtn) || await page.$(selectors_1.ZUM_SELECTORS.rssConfirmBtn) || await page.$(selectors_1.ZUM_SELECTORS.rssSubmitBtn);
             if (submitBtn) {
                 await submitBtn.click();
                 await page.waitForTimeout(3000);
@@ -89,16 +90,16 @@ async function automateZumWebmaster(state, page, blogUrl) {
     // 5) 수집 요청
     state.message = '수집 요청 중...';
     try {
-        const reqLink = await page.$('a:has-text("수집")') || await page.$('a[href*="request"]') || await page.$('a[href*="crawl"]');
+        const reqLink = await page.$(selectors_1.ZUM_SELECTORS.crawlLink) || await page.$(selectors_1.ZUM_SELECTORS.crawlLinkHref) || await page.$(selectors_1.ZUM_SELECTORS.crawlLinkHref2);
         if (reqLink) {
             await reqLink.click();
             await page.waitForTimeout(3000);
         }
-        const reqInput = await page.$('input[type="text"]');
+        const reqInput = await page.$(selectors_1.ZUM_SELECTORS.reqInput);
         if (reqInput) {
             await reqInput.fill(blogUrl);
             await page.waitForTimeout(500);
-            const reqBtn = await page.$('button:has-text("요청")') || await page.$('button:has-text("확인")') || await page.$('button[type="submit"]');
+            const reqBtn = await page.$(selectors_1.ZUM_SELECTORS.reqBtn) || await page.$(selectors_1.ZUM_SELECTORS.reqBtnFallback) || await page.$(selectors_1.ZUM_SELECTORS.reqBtnSubmit);
             if (reqBtn) {
                 await reqBtn.click();
                 await page.waitForTimeout(3000);

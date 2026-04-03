@@ -5,6 +5,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.applySkinCSS = applySkinCSS;
 const browser_1 = require("../../../utils/browser");
 const skinLoader_1 = require("../../../utils/skinLoader");
+const selectors_1 = require("../../../config/selectors");
 /**
  * Blogger 테마 HTML 에디터에서 <b:skin> 섹션에 클라우드 스킨 CSS를 삽입한다.
  */
@@ -17,11 +18,11 @@ async function applySkinCSS(state, page, blogId) {
             await page.goto(`https://www.blogger.com/blog/theme/edit/${blogId}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
         }
         else {
-            const themeLink = await page.locator('a:has-text("테마"), a:has-text("Theme")').first();
+            const themeLink = await page.locator(selectors_1.BLOGGER_SELECTORS.themeLink).first();
             if (await themeLink.isVisible({ timeout: 5000 })) {
                 await themeLink.click();
                 await (0, browser_1.sleep)(2000);
-                const editHtmlBtn = await page.locator('button:has-text("HTML 편집"), button:has-text("Edit HTML")').first();
+                const editHtmlBtn = await page.locator(selectors_1.BLOGGER_SELECTORS.editHtmlBtn).first();
                 if (await editHtmlBtn.isVisible({ timeout: 3000 })) {
                     await editHtmlBtn.click();
                 }
@@ -32,7 +33,7 @@ async function applySkinCSS(state, page, blogId) {
         if (skinCSS) {
             state.message = '클라우드 스킨 CSS 자동 적용 중...';
             try {
-                const editor = await page.locator('.CodeMirror, textarea, [contenteditable]').first();
+                const editor = await page.locator(selectors_1.BLOGGER_SELECTORS.codeEditor).first();
                 if (await editor.isVisible({ timeout: 5000 })) {
                     await page.evaluate((css) => {
                         const cm = document.querySelector('.CodeMirror')?.CodeMirror;
@@ -52,7 +53,7 @@ async function applySkinCSS(state, page, blogId) {
                     }, skinCSS);
                     await (0, browser_1.sleep)(1000);
                     try {
-                        const saveThemeBtn = await page.locator('button[aria-label*="저장"], button[aria-label*="Save"], button:has-text("💾")').first();
+                        const saveThemeBtn = await page.locator(selectors_1.BLOGGER_SELECTORS.saveThemeBtn).first();
                         if (await saveThemeBtn.isVisible({ timeout: 3000 })) {
                             await saveThemeBtn.click();
                             await (0, browser_1.sleep)(2000);

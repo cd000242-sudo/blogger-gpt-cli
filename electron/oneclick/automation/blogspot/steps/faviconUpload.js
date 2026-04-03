@@ -4,6 +4,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.uploadFavicon = uploadFavicon;
 const browser_1 = require("../../../utils/browser");
+const selectors_1 = require("../../../config/selectors");
 /**
  * Blogger 설정 페이지에서 파비콘을 업로드한다.
  */
@@ -13,15 +14,15 @@ async function uploadFavicon(state, page, config) {
     state.message = '파비콘 업로드 중...';
     try {
         if (config.faviconPath) {
-            const faviconSection = await page.locator('text="파비콘", text="Favicon"').first();
+            const faviconSection = await page.locator(selectors_1.BLOGGER_SELECTORS.faviconSection).first();
             if (await faviconSection.isVisible({ timeout: 3000 })) {
                 await faviconSection.click();
                 await (0, browser_1.sleep)(1000);
-                const fileInput = await page.locator('input[type="file"]').first();
+                const fileInput = await page.locator(selectors_1.BLOGGER_SELECTORS.fileInput).first();
                 if (await fileInput.count() > 0) {
                     await fileInput.setInputFiles(config.faviconPath);
                     await (0, browser_1.sleep)(2000);
-                    const saveBtn = await page.locator('button:has-text("저장"), button:has-text("Save")').first();
+                    const saveBtn = await page.locator(selectors_1.BLOGGER_SELECTORS.saveBtn).first();
                     if (await saveBtn.isVisible({ timeout: 3000 })) {
                         await saveBtn.click();
                         await (0, browser_1.sleep)(1500);

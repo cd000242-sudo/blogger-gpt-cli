@@ -1,8 +1,9 @@
 // electron/oneclick/automation/cloudwaysInfra.ts
 // Cloudways 인프라 자동화 (도메인 + SSL)
 
-import { launchBrowser, sleep } from '../utils/browser';
+import { launchBrowser, sleep, waitForPageStable } from '../utils/browser';
 import type { InfraState } from '../types';
+import { CLOUDWAYS_SELECTORS } from '../config/selectors';
 
 /**
  * Cloudways 인프라 세팅 (도메인 추가 + SSL 설치 + HTTPS 확인).
@@ -25,7 +26,7 @@ export async function runCloudwaysInfraSetup(
     state.message = 'Cloudways 로그인 페이지로 이동 중...';
 
     await page.goto('https://unified.cloudways.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await sleep(2000);
+    await waitForPageStable(page, 2000);
 
     state.stepStatus = 'waiting-login';
     state.message = 'Cloudways 계정으로 로그인해주세요';
@@ -61,7 +62,7 @@ export async function runCloudwaysInfraSetup(
       // 서버 목록에서 첫 번째 앱으로 이동
       try {
         // 앱 목록 탐색 — Cloudways 대시보드에서 앱 클릭
-        const appLink = await page.locator('a[href*="/apps/"]').first();
+        const appLink = await page.locator(CLOUDWAYS_SELECTORS.appLink).first();
         if (await appLink.isVisible({ timeout: 10000 })) {
           const href = await appLink.getAttribute('href');
           if (href) {
@@ -104,7 +105,7 @@ export async function runCloudwaysInfraSetup(
     try {
       // Domain Management 페이지로 이동 (appId 보장됨 — Issue #3에서 가드)
       await page.goto(`https://unified.cloudways.com/apps/${appId}/domain`, { waitUntil: 'domcontentloaded', timeout: 20000 });
-      await sleep(3000);
+      await waitForPageStable(page, 3000);
 
       // 도메인이 이미 등록되어 있는지 확인
       const existingDomain = await page.locator(`text="${domain}"`).first();
@@ -120,7 +121,7 @@ export async function runCloudwaysInfraSetup(
         state.message = `도메인 ${domain} 추가 중...`;
 
         // 도메인 입력 필드 찾기
-        const domainInput = await page.locator('input[placeholder*="domain"], input[placeholder*="Domain"], input[name*="domain"]').first();
+        const domainInput = await page.locator(CLOUDWAYS_SELECTORS.domainInput).first();
         if (await domainInput.isVisible({ timeout: 5000 })) {
           await domainInput.fill('');
           await sleep(300);
@@ -128,7 +129,7 @@ export async function runCloudwaysInfraSetup(
           await sleep(500);
 
           // 추가 버튼 클릭
-          const addBtn = await page.locator('button:has-text("Add Domain"), button:has-text("도메인 추가"), button:has-text("Save"), button[type="submit"]').first();
+          const addBtn = await page.locator(CLOUDWAYS_SELECTORS.addDomainBtn).first();
           if (await addBtn.isVisible({ timeout: 3000 })) {
             await addBtn.click();
             await sleep(3000);
@@ -139,7 +140,8 @@ export async function runCloudwaysInfraSetup(
         }
       }
     } catch (e) {
-      state.message = `도메인 관리 페이지 확인 완료 (수동 확인 권장)`;
+      const errMsg = e instanceof Error ? e.message : String(e);
+      state.message = `도메인 추가 실패 — ${errMsg} (수동 확인 권장)`;
       console.warn('[ONECLICK-INFRA] 도메인 추가 중 오류:', e);
     }
 
@@ -155,10 +157,10 @@ export async function runCloudwaysInfraSetup(
     try {
       // SSL Certificate 페이지로 이동 (appId 보장됨 — Issue #3에서 가드)
       await page.goto(`https://unified.cloudways.com/apps/${appId}/ssl`, { waitUntil: 'domcontentloaded', timeout: 20000 });
-      await sleep(4000);
+      await waitForPageStable(page, 4000);
 
       // 이미 SSL이 설치되어 있는지 확인
-      const sslInstalled = await page.locator('text="Certificate Installed"').first();
+      const sslInstalled = await page.locator(CLOUDWAYS_SELECTORS.certInstalledText).first();
       let alreadyInstalled = false;
       try {
         alreadyInstalled = await sslInstalled.isVisible({ timeout: 3000 });
@@ -208,7 +210,7 @@ export async function runCloudwaysInfraSetup(
         // 방법 2: 고유 ID 실패 시 일반 셀렉터 폴백
         if (!emailFilled) {
           try {
-            const emailInput = await page.locator('input[placeholder*="email"], input[type="email"]').first();
+            const emailInput = await page.locator(CLOUDWAYS_SELECTORS.emailInputFallback).first();
             if (await emailInput.isVisible({ timeout: 3000 })) {
               await emailInput.fill('');
               await emailInput.type(email, { delay: 30 });
@@ -220,7 +222,7 @@ export async function runCloudwaysInfraSetup(
 
         if (!domainFilled) {
           try {
-            const domainInput = await page.locator('input[placeholder*="www.domain"], input[placeholder*="domain.com"]').first();
+            const domainInput = await page.locator(CLOUDWAYS_SELECTORS.sslDomainInputFallback).first();
             if (await domainInput.isVisible({ timeout: 3000 })) {
               await domainInput.fill('');
               await domainInput.type(domain, { delay: 30 });
@@ -234,16 +236,16 @@ export async function runCloudwaysInfraSetup(
           state.message = 'SSL 인증서 설치 중... (1~2분 소요)';
 
           // Install Certificate 버튼 클릭
-          const installBtn = await page.locator('button:has-text("Install Certificate"), button:has-text("인증서 설치")').first();
+          const installBtn = await page.locator(CLOUDWAYS_SELECTORS.installCertBtn).first();
           if (await installBtn.isVisible({ timeout: 5000 })) {
             await installBtn.click();
 
             // 🟡 Issue #2 Fix: locator().or().waitFor() 사용 (waitForSelector는 text= 엔진 미지원)
             try {
-              await page.locator('text="Certificate Installed"')
-                .or(page.locator('text="Installed successfully"'))
-                .or(page.locator('.alert-success'))
-                .or(page.locator('[class*="success"]'))
+              await page.locator(CLOUDWAYS_SELECTORS.certInstalledText)
+                .or(page.locator(CLOUDWAYS_SELECTORS.installedSuccessText))
+                .or(page.locator(CLOUDWAYS_SELECTORS.alertSuccess))
+                .or(page.locator(CLOUDWAYS_SELECTORS.successClass))
                 .first()
                 .waitFor({ timeout: 120000 });
               state.message = '✅ SSL 인증서 설치 완료!';

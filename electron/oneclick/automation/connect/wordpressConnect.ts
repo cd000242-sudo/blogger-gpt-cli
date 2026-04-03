@@ -1,4 +1,5 @@
 import type { ConnectState } from '../../types';
+import { WORDPRESS_SELECTORS } from '../../config/selectors';
 
 export async function automateWordPressConnect(state: ConnectState, page: any, siteUrl: string): Promise<void> {
   const results: Record<string, string> = {};
@@ -81,7 +82,7 @@ export async function automateWordPressConnect(state: ConnectState, page: any, s
     await page.waitForTimeout(1000);
 
     // 앱 이름 입력
-    const nameInput = await page.$('#new_application_password_name');
+    const nameInput = await page.$(WORDPRESS_SELECTORS.newAppPasswordNameInput);
     if (!nameInput) {
       throw new Error('Application Password 입력 필드를 찾을 수 없습니다. WordPress 5.6+ 이상이 필요합니다.');
     }
@@ -90,7 +91,7 @@ export async function automateWordPressConnect(state: ConnectState, page: any, s
     await page.waitForTimeout(500);
 
     // "Add New Application Password" 버튼 클릭
-    const addBtn = await page.$('#do_new_application_password');
+    const addBtn = await page.$(WORDPRESS_SELECTORS.addNewAppPasswordBtn);
     if (!addBtn) {
       throw new Error('Application Password 추가 버튼을 찾을 수 없습니다.');
     }

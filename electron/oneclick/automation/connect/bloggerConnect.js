@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.automateBloggerConnect = automateBloggerConnect;
+const selectors_1 = require("../../config/selectors");
 async function automateBloggerConnect(state, page) {
     const results = {};
     // 1) GCP Console 이동
@@ -31,12 +32,12 @@ async function automateBloggerConnect(state, page) {
         await page.goto('https://console.cloud.google.com/projectcreate', { waitUntil: 'domcontentloaded', timeout: 15000 });
         await page.waitForTimeout(3000);
         // 프로젝트 이름 입력
-        const projectNameInput = await page.$('input[formcontrolname="projectName"], input[name="projectName"], #p6ntest-name-input, input[aria-label*="Project name"]');
+        const projectNameInput = await page.$(selectors_1.GCP_SELECTORS.projectNameInput);
         if (projectNameInput) {
             await projectNameInput.fill('blogger-gpt-app');
             await page.waitForTimeout(1000);
             // 만들기 버튼
-            const createBtn = await page.$('button:has-text("만들기")') || await page.$('button:has-text("CREATE")') || await page.$('button:has-text("Create")');
+            const createBtn = await page.$(selectors_1.GCP_SELECTORS.createBtnKo) || await page.$(selectors_1.GCP_SELECTORS.createBtnEn) || await page.$(selectors_1.GCP_SELECTORS.createBtnEn2);
             if (createBtn) {
                 await createBtn.click();
                 state.message = '프로젝트 생성 중... (30초 소요)';
@@ -60,7 +61,7 @@ async function automateBloggerConnect(state, page) {
         await page.goto('https://console.cloud.google.com/apis/library/blogger.googleapis.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
         await page.waitForTimeout(3000);
         // "사용" 또는 "ENABLE" 버튼
-        const enableBtn = await page.$('button:has-text("사용")') || await page.$('button:has-text("ENABLE")') || await page.$('button:has-text("Enable")');
+        const enableBtn = await page.$(selectors_1.GCP_SELECTORS.enableBtnKo) || await page.$(selectors_1.GCP_SELECTORS.enableBtnEn) || await page.$(selectors_1.GCP_SELECTORS.enableBtnEn2);
         if (enableBtn) {
             const isDisabled = await enableBtn.getAttribute('disabled');
             if (!isDisabled) {
@@ -74,7 +75,7 @@ async function automateBloggerConnect(state, page) {
         }
         else {
             // 이미 활성화된 경우 "관리" 또는 "MANAGE" 버튼이 표시됨
-            const manageBtn = await page.$('button:has-text("관리")') || await page.$('button:has-text("MANAGE")') || await page.$('button:has-text("Manage")');
+            const manageBtn = await page.$(selectors_1.GCP_SELECTORS.manageBtnKo) || await page.$(selectors_1.GCP_SELECTORS.manageBtnEn) || await page.$(selectors_1.GCP_SELECTORS.manageBtnEn2);
             if (manageBtn) {
                 state.message = 'Blogger API가 이미 활성화되어 있습니다.';
             }
@@ -94,34 +95,34 @@ async function automateBloggerConnect(state, page) {
         await page.goto('https://console.cloud.google.com/apis/credentials/consent', { waitUntil: 'domcontentloaded', timeout: 20000 });
         await page.waitForTimeout(3000);
         // "외부" (External) 선택 후 만들기
-        const externalRadio = await page.$('input[value="EXTERNAL"], label:has-text("외부"), label:has-text("External")');
+        const externalRadio = await page.$(selectors_1.GCP_SELECTORS.externalRadio);
         if (externalRadio) {
             await externalRadio.click();
             await page.waitForTimeout(1000);
-            const createBtn = await page.$('button:has-text("만들기")') || await page.$('button:has-text("CREATE")') || await page.$('button:has-text("Create")');
+            const createBtn = await page.$(selectors_1.GCP_SELECTORS.createBtnKo) || await page.$(selectors_1.GCP_SELECTORS.createBtnEn) || await page.$(selectors_1.GCP_SELECTORS.createBtnEn2);
             if (createBtn) {
                 await createBtn.click();
                 await page.waitForTimeout(5000);
                 // 앱 이름 입력
-                const appNameInput = await page.$('input[formcontrolname="displayName"], input[aria-label*="App name"], input[aria-label*="앱 이름"]');
+                const appNameInput = await page.$(selectors_1.GCP_SELECTORS.appNameInput);
                 if (appNameInput) {
                     await appNameInput.fill('Blogger GPT');
                     await page.waitForTimeout(500);
                 }
                 // 사용자 지원 이메일 — 이미 채워져 있을 수 있음
                 // 저장 버튼
-                const saveBtn = await page.$('button:has-text("저장 후 계속")') || await page.$('button:has-text("SAVE AND CONTINUE")') || await page.$('button:has-text("Save and continue")');
+                const saveBtn = await page.$(selectors_1.GCP_SELECTORS.saveAndContinueBtnKo) || await page.$(selectors_1.GCP_SELECTORS.saveAndContinueBtnEn) || await page.$(selectors_1.GCP_SELECTORS.saveAndContinueBtnEn2);
                 if (saveBtn) {
                     await saveBtn.click();
                     await page.waitForTimeout(3000);
                     // 범위 단계 — 건너뛰기
-                    const skipBtn = await page.$('button:has-text("저장 후 계속")') || await page.$('button:has-text("SAVE AND CONTINUE")');
+                    const skipBtn = await page.$(selectors_1.GCP_SELECTORS.saveAndContinueBtnKo) || await page.$(selectors_1.GCP_SELECTORS.saveAndContinueBtnEn);
                     if (skipBtn) {
                         await skipBtn.click();
                         await page.waitForTimeout(2000);
                     }
                     // 테스트 사용자 단계 — 건너뛰기
-                    const skipBtn2 = await page.$('button:has-text("저장 후 계속")') || await page.$('button:has-text("SAVE AND CONTINUE")');
+                    const skipBtn2 = await page.$(selectors_1.GCP_SELECTORS.saveAndContinueBtnKo) || await page.$(selectors_1.GCP_SELECTORS.saveAndContinueBtnEn);
                     if (skipBtn2) {
                         await skipBtn2.click();
                         await page.waitForTimeout(2000);
@@ -144,34 +145,34 @@ async function automateBloggerConnect(state, page) {
         await page.goto('https://console.cloud.google.com/apis/credentials', { waitUntil: 'domcontentloaded', timeout: 20000 });
         await page.waitForTimeout(3000);
         // "사용자 인증 정보 만들기" → "OAuth 클라이언트 ID"
-        const createCredBtn = await page.$('button:has-text("사용자 인증 정보 만들기")') || await page.$('button:has-text("CREATE CREDENTIALS")') || await page.$('button:has-text("Create credentials")');
+        const createCredBtn = await page.$(selectors_1.GCP_SELECTORS.createCredsBtnKo) || await page.$(selectors_1.GCP_SELECTORS.createCredsBtnEn) || await page.$(selectors_1.GCP_SELECTORS.createCredsBtnEn2);
         if (createCredBtn) {
             await createCredBtn.click();
             await page.waitForTimeout(1500);
             // 드롭다운 메뉴에서 "OAuth 클라이언트 ID" 선택
-            const oauthOption = await page.$('a:has-text("OAuth 클라이언트 ID")') || await page.$('a:has-text("OAuth client ID")') || await page.$('[data-value="oauth-client-id"]');
+            const oauthOption = await page.$(selectors_1.GCP_SELECTORS.oauthOptionKo) || await page.$(selectors_1.GCP_SELECTORS.oauthOptionEn) || await page.$(selectors_1.GCP_SELECTORS.oauthOptionData);
             if (oauthOption) {
                 await oauthOption.click();
                 await page.waitForTimeout(3000);
                 // 애플리케이션 유형 = "데스크톱 앱" 또는 "웹 애플리케이션"
-                const appTypeSelect = await page.$('select, [role="listbox"], mat-select');
+                const appTypeSelect = await page.$(selectors_1.GCP_SELECTORS.appTypeSelect);
                 if (appTypeSelect) {
                     await appTypeSelect.click();
                     await page.waitForTimeout(1000);
-                    const desktopOption = await page.$('mat-option:has-text("데스크톱 앱")') || await page.$('mat-option:has-text("Desktop app")') || await page.$('option:has-text("Desktop")');
+                    const desktopOption = await page.$(selectors_1.GCP_SELECTORS.desktopOptionKo) || await page.$(selectors_1.GCP_SELECTORS.desktopOptionEn) || await page.$(selectors_1.GCP_SELECTORS.desktopOptionEn2);
                     if (desktopOption) {
                         await desktopOption.click();
                         await page.waitForTimeout(1000);
                     }
                 }
                 // 이름 입력
-                const nameInput = await page.$('input[formcontrolname="displayName"], input[aria-label*="Name"], input[aria-label*="이름"]');
+                const nameInput = await page.$(selectors_1.GCP_SELECTORS.oauthClientNameInput);
                 if (nameInput) {
                     await nameInput.fill('Blogger GPT Desktop');
                     await page.waitForTimeout(500);
                 }
                 // 만들기 버튼
-                const createOAuthBtn = await page.$('button:has-text("만들기")') || await page.$('button:has-text("CREATE")') || await page.$('button:has-text("Create")');
+                const createOAuthBtn = await page.$(selectors_1.GCP_SELECTORS.createBtnKo) || await page.$(selectors_1.GCP_SELECTORS.createBtnEn) || await page.$(selectors_1.GCP_SELECTORS.createBtnEn2);
                 if (createOAuthBtn) {
                     await createOAuthBtn.click();
                     await page.waitForTimeout(5000);

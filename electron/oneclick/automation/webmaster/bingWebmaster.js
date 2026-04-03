@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.automateBingWebmaster = automateBingWebmaster;
 const bloggerThemeUtils_1 = require("../../utils/bloggerThemeUtils");
+const selectors_1 = require("../../config/selectors");
 async function automateBingWebmaster(state, page, blogUrl) {
     const results = {};
     // 1) Bing 웹마스터도구 열기
@@ -22,7 +23,7 @@ async function automateBingWebmaster(state, page, blogUrl) {
         await page.waitForTimeout(3000);
     }
     // 페이지에 Sign In 버튼이 있는 경우 (verified: class 'signInButton')
-    const signInBtn = await page.$('button.signInButton') || await page.$('button:has-text("Sign In")');
+    const signInBtn = await page.$(selectors_1.BING_SELECTORS.signInBtnClass) || await page.$(selectors_1.BING_SELECTORS.signInBtnText);
     if (signInBtn) {
         await signInBtn.click();
         await page.waitForTimeout(2000);
@@ -42,11 +43,11 @@ async function automateBingWebmaster(state, page, blogUrl) {
     state.message = '사이트 추가 중...';
     try {
         // "사이트 추가" 영역 — URL 입력 필드
-        const addSiteInput = await page.$('input[placeholder*="URL"]') || await page.$('input[type="url"]') || await page.$('input[type="text"]');
+        const addSiteInput = await page.$(selectors_1.BING_SELECTORS.addSiteInputUrl) || await page.$(selectors_1.BING_SELECTORS.addSiteInputType) || await page.$(selectors_1.BING_SELECTORS.addSiteInputText);
         if (addSiteInput) {
             await addSiteInput.fill(blogUrl);
             await page.waitForTimeout(500);
-            const addBtn = await page.$('button:has-text("Add")') || await page.$('button:has-text("추가")') || await page.$('input[type="submit"]');
+            const addBtn = await page.$(selectors_1.BING_SELECTORS.addBtnEn) || await page.$(selectors_1.BING_SELECTORS.addBtnKo) || await page.$(selectors_1.BING_SELECTORS.addBtnSubmit);
             if (addBtn) {
                 await addBtn.click();
                 await page.waitForTimeout(5000);
@@ -112,7 +113,7 @@ async function automateBingWebmaster(state, page, blogUrl) {
             }
             // 돌아와서 인증 확인 버튼 클릭
             await page.waitForTimeout(2000);
-            const verifyBtn = await page.$('button:has-text("Verify")') || await page.$('button:has-text("확인")');
+            const verifyBtn = await page.$(selectors_1.BING_SELECTORS.verifyBtnEn) || await page.$(selectors_1.BING_SELECTORS.verifyBtnKo);
             if (verifyBtn) {
                 await verifyBtn.click();
                 await page.waitForTimeout(5000);
@@ -143,12 +144,12 @@ async function automateBingWebmaster(state, page, blogUrl) {
         try {
             await page.goto('https://www.bing.com/webmasters/sitemaps', { waitUntil: 'domcontentloaded', timeout: 15000 });
             await page.waitForTimeout(3000);
-            const sitemapInput = await page.$('input[placeholder*="sitemap"]') || await page.$('input[type="text"]');
+            const sitemapInput = await page.$(selectors_1.BING_SELECTORS.sitemapInput) || await page.$(selectors_1.BING_SELECTORS.sitemapInputFallback);
             if (sitemapInput) {
                 const sitemapUrl = blogUrl.endsWith('/') ? blogUrl + sitemapName : blogUrl + '/' + sitemapName;
                 await sitemapInput.fill(sitemapUrl);
                 await page.waitForTimeout(500);
-                const submitBtn = await page.$('button:has-text("Submit")') || await page.$('button:has-text("제출")');
+                const submitBtn = await page.$(selectors_1.BING_SELECTORS.submitBtnEn) || await page.$(selectors_1.BING_SELECTORS.submitBtnKo);
                 if (submitBtn) {
                     await submitBtn.click();
                     await page.waitForTimeout(3000);
@@ -171,11 +172,11 @@ async function automateBingWebmaster(state, page, blogUrl) {
     try {
         await page.goto('https://www.bing.com/webmasters/submiturl', { waitUntil: 'domcontentloaded', timeout: 15000 });
         await page.waitForTimeout(3000);
-        const urlInput = await page.$('textarea') || await page.$('input[type="text"]');
+        const urlInput = await page.$(selectors_1.BING_SELECTORS.urlSubmitTextarea) || await page.$(selectors_1.BING_SELECTORS.urlSubmitInput);
         if (urlInput) {
             await urlInput.fill(blogUrl);
             await page.waitForTimeout(500);
-            const submitBtn = await page.$('button:has-text("Submit")') || await page.$('button:has-text("제출")');
+            const submitBtn = await page.$(selectors_1.BING_SELECTORS.submitBtnEn) || await page.$(selectors_1.BING_SELECTORS.submitBtnKo);
             if (submitBtn) {
                 await submitBtn.click();
                 await page.waitForTimeout(3000);

@@ -51,3 +51,59 @@ export async function launchBrowser(
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/**
+ * 페이지 이동 후 안정화 대기.
+ * networkidle 대기를 시도하고, 실패하면 fallback sleep을 실행한다.
+ */
+export async function waitForPageStable(page: any, fallbackMs: number = 2000): Promise<void> {
+  try {
+    await page.waitForLoadState('networkidle', { timeout: fallbackMs + 3000 });
+  } catch {
+    // networkidle 타임아웃 시 fallback sleep
+    await sleep(fallbackMs);
+  }
+}
+
+/**
+ * 셀렉터가 보일 때까지 대기.
+ * 타임아웃 시 false를 반환하며 예외를 던지지 않는다.
+ */
+export async function waitForVisible(
+  page: any,
+  selector: string,
+  timeout: number = 5000
+): Promise<boolean> {
+  try {
+    const el = await page.locator(selector).first();
+    await el.waitFor({ state: 'visible', timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 요소를 찾아서 클릭하고, 지정 셀렉터가 나타날 때까지 대기한다.
+ * 클릭 후 sleep 대신 사용한다.
+ */
+export async function clickAndWait(
+  page: any,
+  clickSelector: string,
+  waitSelector: string,
+  timeout: number = 5000
+): Promise<boolean> {
+  try {
+    const btn = await page.locator(clickSelector).first();
+    if (await btn.isVisible({ timeout: 3000 })) {
+      await btn.click();
+      if (waitSelector) {
+        return await waitForVisible(page, waitSelector, timeout);
+      }
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}

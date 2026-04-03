@@ -4,6 +4,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.setupSearchConsole = setupSearchConsole;
 const browser_1 = require("../../../utils/browser");
+const selectors_1 = require("../../../config/selectors");
 /**
  * Blogger 설정 페이지에서 Google Search Console 연동을 수행한다.
  */
@@ -16,11 +17,11 @@ async function setupSearchConsole(state, page, blogId, config) {
             await page.goto(`https://www.blogger.com/blog/settings/${blogId}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
             await (0, browser_1.sleep)(2000);
         }
-        const gscSection = await page.locator('text="Google Search Console", text="구글 서치 콘솔", text="Search Console"').first();
+        const gscSection = await page.locator(selectors_1.BLOGGER_SELECTORS.gscSection).first();
         if (await gscSection.isVisible({ timeout: 5000 })) {
             await gscSection.click();
             await (0, browser_1.sleep)(2000);
-            const domainInput = await page.locator('input[type="text"]').first();
+            const domainInput = await page.locator(selectors_1.BLOGGER_SELECTORS.domainInput).first();
             if (await domainInput.isVisible({ timeout: 3000 })) {
                 const blogUrl = config.blogAddress ? `https://${config.blogAddress}.blogspot.com` : '';
                 if (blogUrl) {
@@ -28,7 +29,7 @@ async function setupSearchConsole(state, page, blogId, config) {
                     await (0, browser_1.sleep)(1000);
                 }
             }
-            const verifyBtn = await page.locator('button:has-text("확인"), button:has-text("Verify"), button:has-text("등록")').first();
+            const verifyBtn = await page.locator(selectors_1.BLOGGER_SELECTORS.verifyBtn).first();
             if (await verifyBtn.isVisible({ timeout: 3000 })) {
                 await verifyBtn.click();
                 await (0, browser_1.sleep)(3000);

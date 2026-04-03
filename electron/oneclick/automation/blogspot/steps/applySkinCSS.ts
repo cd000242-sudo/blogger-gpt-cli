@@ -4,6 +4,7 @@
 import type { SetupState } from '../../../types';
 import { sleep } from '../../../utils/browser';
 import { loadSkinCSS } from '../../../utils/skinLoader';
+import { BLOGGER_SELECTORS } from '../../../config/selectors';
 
 /**
  * Blogger 테마 HTML 에디터에서 <b:skin> 섹션에 클라우드 스킨 CSS를 삽입한다.
@@ -21,11 +22,11 @@ export async function applySkinCSS(
     if (blogId) {
       await page.goto(`https://www.blogger.com/blog/theme/edit/${blogId}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
     } else {
-      const themeLink = await page.locator('a:has-text("테마"), a:has-text("Theme")').first();
+      const themeLink = await page.locator(BLOGGER_SELECTORS.themeLink).first();
       if (await themeLink.isVisible({ timeout: 5000 })) {
         await themeLink.click();
         await sleep(2000);
-        const editHtmlBtn = await page.locator('button:has-text("HTML 편집"), button:has-text("Edit HTML")').first();
+        const editHtmlBtn = await page.locator(BLOGGER_SELECTORS.editHtmlBtn).first();
         if (await editHtmlBtn.isVisible({ timeout: 3000 })) {
           await editHtmlBtn.click();
         }
@@ -38,7 +39,7 @@ export async function applySkinCSS(
       state.message = '클라우드 스킨 CSS 자동 적용 중...';
 
       try {
-        const editor = await page.locator('.CodeMirror, textarea, [contenteditable]').first();
+        const editor = await page.locator(BLOGGER_SELECTORS.codeEditor).first();
         if (await editor.isVisible({ timeout: 5000 })) {
           await page.evaluate((css: string) => {
             const cm = (document.querySelector('.CodeMirror') as any)?.CodeMirror;
@@ -59,7 +60,7 @@ export async function applySkinCSS(
 
           await sleep(1000);
           try {
-            const saveThemeBtn = await page.locator('button[aria-label*="저장"], button[aria-label*="Save"], button:has-text("💾")').first();
+            const saveThemeBtn = await page.locator(BLOGGER_SELECTORS.saveThemeBtn).first();
             if (await saveThemeBtn.isVisible({ timeout: 3000 })) {
               await saveThemeBtn.click();
               await sleep(2000);

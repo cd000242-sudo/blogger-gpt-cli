@@ -1,4 +1,5 @@
 import type { WebmasterState } from '../../types';
+import { GSC_SELECTORS } from '../../config/selectors';
 
 export async function automateGoogleSearchConsole(state: WebmasterState, page: any, blogUrl: string): Promise<void> {
     const results: Record<string, boolean> = {};
@@ -34,28 +35,30 @@ export async function automateGoogleSearchConsole(state: WebmasterState, page: a
 
       // URL 접두어 패널 클릭 (도메인 패널이 기본 활성화됨)
       // verified: 'URL 접두어' 텍스트를 포함하는 클릭 가능한 div
-      const urlPrefixPanel = await page.$('div:has-text("URL 접두어")') || await page.$('div:has-text("URL prefix")');
+      const urlPrefixPanel = await page.$(GSC_SELECTORS.urlPrefixPanelKo) || await page.$(GSC_SELECTORS.urlPrefixPanelEn);
       if (urlPrefixPanel) {
         await urlPrefixPanel.click();
         await page.waitForTimeout(1000);
       }
 
       // URL 입력 (verified: placeholder="https://www.example.com")
-      const urlInput = await page.$('input[placeholder="https://www.example.com"]') || await page.$('input[placeholder*="example.com"]');
+      const urlInput = await page.$(GSC_SELECTORS.urlInput) || await page.$(GSC_SELECTORS.urlInputFallback);
       if (urlInput) {
         await urlInput.fill(blogUrl);
         await page.waitForTimeout(1000);
 
         // 계속 버튼 (verified: button "계속" or "Continue" — initially disabled, enables after input)
-        const continueBtn = await page.$('button:has-text("계속"):not([disabled])') || await page.$('button:has-text("Continue"):not([disabled])');
+        const continueBtn = await page.$(GSC_SELECTORS.continueBtnKo) || await page.$(GSC_SELECTORS.continueBtnEn);
         if (continueBtn) {
           await continueBtn.click();
           await page.waitForTimeout(5000);
         }
         results['사이트 등록'] = true;
+        console.log('[ONECLICK] GSC 사이트 신규 등록 완료');
       } else {
         // 이미 등록된 사이트가 있으면 welcome 대신 대시보드로 감
         results['사이트 등록'] = true;
+        console.log('[ONECLICK] GSC 사이트 이미 등록됨 (기존 사이트)');
         state.message = '이미 등록된 사이트 — 사이트맵 확인으로 이동...';
       }
     } catch (err) {
@@ -81,18 +84,18 @@ export async function automateGoogleSearchConsole(state: WebmasterState, page: a
         await page.goto(`https://search.google.com/search-console/sitemaps?resource_id=${encodedUrl}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
         await page.waitForTimeout(3000);
 
-        const sitemapInput = await page.$('input[type="text"]');
+        const sitemapInput = await page.$(GSC_SELECTORS.sitemapInput);
         if (sitemapInput) {
           await sitemapInput.fill(sitemapPath);
           await page.waitForTimeout(500);
 
-          const submitBtn = await page.$('button:has-text("제출")') || await page.$('button:has-text("Submit")');
+          const submitBtn = await page.$(GSC_SELECTORS.submitBtnKo) || await page.$(GSC_SELECTORS.submitBtnEn);
           if (submitBtn) {
             await submitBtn.click();
             await page.waitForTimeout(3000);
 
             // 확인 모달 처리
-            const okBtn = await page.$('button:has-text("확인")') || await page.$('button:has-text("OK")') || await page.$('button:has-text("Got it")');
+            const okBtn = await page.$(GSC_SELECTORS.okBtnKo) || await page.$(GSC_SELECTORS.okBtnEn) || await page.$(GSC_SELECTORS.okBtnGotIt);
             if (okBtn) await okBtn.click();
             await page.waitForTimeout(1000);
           }
@@ -115,14 +118,14 @@ export async function automateGoogleSearchConsole(state: WebmasterState, page: a
       await page.goto(`https://search.google.com/search-console/inspect?resource_id=${encodedUrl2}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
       await page.waitForTimeout(3000);
 
-      const inspectInput = await page.$('input[type="text"]');
+      const inspectInput = await page.$(GSC_SELECTORS.inspectInput);
       if (inspectInput) {
         await inspectInput.fill(blogUrl);
         await page.keyboard.press('Enter');
         await page.waitForTimeout(8000);
 
         // "색인 생성 요청" 버튼 찾기
-        const requestBtn = await page.$('button:has-text("색인 생성 요청")') || await page.$('button:has-text("Request Indexing")');
+        const requestBtn = await page.$(GSC_SELECTORS.requestIndexingBtnKo) || await page.$(GSC_SELECTORS.requestIndexingBtnEn);
         if (requestBtn) {
           await requestBtn.click();
           await page.waitForTimeout(5000);

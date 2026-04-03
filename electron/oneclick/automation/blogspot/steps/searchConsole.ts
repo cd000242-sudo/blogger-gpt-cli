@@ -3,6 +3,7 @@
 
 import type { SetupState } from '../../../types';
 import { sleep } from '../../../utils/browser';
+import { BLOGGER_SELECTORS } from '../../../config/selectors';
 
 /**
  * Blogger 설정 페이지에서 Google Search Console 연동을 수행한다.
@@ -23,12 +24,12 @@ export async function setupSearchConsole(
       await sleep(2000);
     }
 
-    const gscSection = await page.locator('text="Google Search Console", text="구글 서치 콘솔", text="Search Console"').first();
+    const gscSection = await page.locator(BLOGGER_SELECTORS.gscSection).first();
     if (await gscSection.isVisible({ timeout: 5000 })) {
       await gscSection.click();
       await sleep(2000);
 
-      const domainInput = await page.locator('input[type="text"]').first();
+      const domainInput = await page.locator(BLOGGER_SELECTORS.domainInput).first();
       if (await domainInput.isVisible({ timeout: 3000 })) {
         const blogUrl = config.blogAddress ? `https://${config.blogAddress}.blogspot.com` : '';
         if (blogUrl) {
@@ -37,7 +38,7 @@ export async function setupSearchConsole(
         }
       }
 
-      const verifyBtn = await page.locator('button:has-text("확인"), button:has-text("Verify"), button:has-text("등록")').first();
+      const verifyBtn = await page.locator(BLOGGER_SELECTORS.verifyBtn).first();
       if (await verifyBtn.isVisible({ timeout: 3000 })) {
         await verifyBtn.click();
         await sleep(3000);

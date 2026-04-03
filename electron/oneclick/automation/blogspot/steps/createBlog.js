@@ -4,6 +4,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createBlog = createBlog;
 const browser_1 = require("../../../utils/browser");
+const selectors_1 = require("../../../config/selectors");
 /**
  * Blogger 대시보드에서 블로그를 생성하고 blogId를 반환한다.
  * 이미 블로그가 존재하면 URL에서 blogId를 추출한다.
@@ -28,9 +29,9 @@ async function createBlog(state, page, config) {
             // 새 블로그 만들기 (대시보드에서)
             state.message = '새 블로그 만들기 클릭 중...';
             try {
-                const createBlogLink = await page.locator('text="새 블로그"').first();
-                const createBlogBtn = await page.locator('text="블로그 만들기"').first();
-                const newBlogLink = await page.locator('a:has-text("새 블로그"), a:has-text("New blog")').first();
+                const createBlogLink = await page.locator(selectors_1.BLOGGER_SELECTORS.newBlogText).first();
+                const createBlogBtn = await page.locator(selectors_1.BLOGGER_SELECTORS.createBlogText).first();
+                const newBlogLink = await page.locator(selectors_1.BLOGGER_SELECTORS.newBlogLink).first();
                 let clicked = false;
                 for (const el of [createBlogLink, createBlogBtn, newBlogLink]) {
                     try {
@@ -47,14 +48,14 @@ async function createBlog(state, page, config) {
                     // 블로그 제목 입력
                     state.message = `블로그 제목 입력: "${config.blogTitle}"`;
                     try {
-                        const titleInput = await page.locator('input[aria-label*="제목"], input[aria-label*="Title"], input[placeholder*="제목"]').first();
+                        const titleInput = await page.locator(selectors_1.BLOGGER_SELECTORS.titleInput).first();
                         if (await titleInput.isVisible({ timeout: 5000 })) {
                             await titleInput.fill(config.blogTitle);
                             await (0, browser_1.sleep)(1000);
                         }
                     }
                     catch {
-                        const fallbackInput = await page.locator('input[type="text"]').first();
+                        const fallbackInput = await page.locator(selectors_1.BLOGGER_SELECTORS.titleInputFallback).first();
                         if (await fallbackInput.isVisible({ timeout: 3000 })) {
                             await fallbackInput.fill(config.blogTitle);
                             await (0, browser_1.sleep)(1000);
@@ -62,7 +63,7 @@ async function createBlog(state, page, config) {
                     }
                     // "다음" 버튼 클릭
                     try {
-                        const nextBtn = await page.locator('button:has-text("다음"), button:has-text("Next")').first();
+                        const nextBtn = await page.locator(selectors_1.BLOGGER_SELECTORS.nextBtn).first();
                         if (await nextBtn.isVisible({ timeout: 3000 })) {
                             await nextBtn.click();
                             await (0, browser_1.sleep)(2000);
@@ -72,7 +73,7 @@ async function createBlog(state, page, config) {
                     // 블로그 주소 입력
                     state.message = `블로그 주소 입력: "${config.blogAddress}"`;
                     try {
-                        const addressInput = await page.locator('input[aria-label*="주소"], input[aria-label*="Address"], input[aria-label*="URL"]').first();
+                        const addressInput = await page.locator(selectors_1.BLOGGER_SELECTORS.addressInput).first();
                         if (await addressInput.isVisible({ timeout: 5000 })) {
                             await addressInput.fill(config.blogAddress);
                             await (0, browser_1.sleep)(1500);
@@ -88,7 +89,7 @@ async function createBlog(state, page, config) {
                     }
                     // "저장" 또는 "만들기" 버튼 클릭
                     try {
-                        const saveBtn = await page.locator('button:has-text("저장"), button:has-text("Save"), button:has-text("만들기"), button:has-text("Create")').first();
+                        const saveBtn = await page.locator(selectors_1.BLOGGER_SELECTORS.saveOrCreateBtn).first();
                         if (await saveBtn.isVisible({ timeout: 5000 })) {
                             await saveBtn.click();
                             await (0, browser_1.sleep)(3000);

@@ -1,5 +1,6 @@
 import type { WebmasterState } from '../../types';
 import { insertMetaTagToBloggerTheme } from '../../utils/bloggerThemeUtils';
+import { NAVER_SELECTORS } from '../../config/selectors';
 
 export async function automateNaverSearchAdvisor(state: WebmasterState, page: any, blogUrl: string): Promise<void> {
     const results: Record<string, boolean> = {};
@@ -10,7 +11,7 @@ export async function automateNaverSearchAdvisor(state: WebmasterState, page: an
     await page.waitForTimeout(2000);
 
     // 2) 로그인 확인
-    const loginBtn = await page.$('a:has-text("로그인")') || await page.$('.login_area a');
+    const loginBtn = await page.$(NAVER_SELECTORS.loginBtnKo) || await page.$(NAVER_SELECTORS.loginBtnClass);
     if (loginBtn) {
       // 로그인 페이지로 이동
       await loginBtn.click();
@@ -40,13 +41,13 @@ export async function automateNaverSearchAdvisor(state: WebmasterState, page: an
       await page.waitForTimeout(3000);
 
       // "사이트 추가" 입력 필드 찾기
-      const siteInput = await page.$('input[placeholder*="사이트"]') || await page.$('input[type="url"]') || await page.$('.site_input input');
+      const siteInput = await page.$(NAVER_SELECTORS.siteInput) || await page.$(NAVER_SELECTORS.siteInputUrl) || await page.$(NAVER_SELECTORS.siteInputClass);
       if (siteInput) {
         await siteInput.fill(blogUrl);
         await page.waitForTimeout(500);
 
         // 추가 버튼
-        const addBtn = await page.$('button:has-text("추가")') || await page.$('.btn_add') || await page.$('button[type="submit"]');
+        const addBtn = await page.$(NAVER_SELECTORS.addBtnKo) || await page.$(NAVER_SELECTORS.addBtnClass) || await page.$(NAVER_SELECTORS.addBtnSubmit);
         if (addBtn) {
           await addBtn.click();
           await page.waitForTimeout(4000);
@@ -72,7 +73,7 @@ export async function automateNaverSearchAdvisor(state: WebmasterState, page: an
     state.message = '소유 확인 (HTML 태그) 진행 중...';
     try {
       // 소유 확인 페이지에서 HTML 태그 탭 클릭
-      const htmlTagTab = await page.$('a:has-text("HTML 태그"), button:has-text("HTML 태그"), li:has-text("HTML 태그")');
+      const htmlTagTab = await page.$(NAVER_SELECTORS.htmlTagTabA) || await page.$(NAVER_SELECTORS.htmlTagTabBtn) || await page.$(NAVER_SELECTORS.htmlTagTabLi);
       if (htmlTagTab) {
         await htmlTagTab.click();
         await page.waitForTimeout(2000);
@@ -123,7 +124,7 @@ export async function automateNaverSearchAdvisor(state: WebmasterState, page: an
 
         // 돌아와서 소유 확인 버튼 클릭
         await page.waitForTimeout(2000);
-        const verifyBtn = await page.$('button:has-text("소유확인"), button:has-text("확인")');
+        const verifyBtn = await page.$(NAVER_SELECTORS.ownerVerifyBtn);
         if (verifyBtn) {
           await verifyBtn.click();
           await page.waitForTimeout(5000);
@@ -150,13 +151,13 @@ export async function automateNaverSearchAdvisor(state: WebmasterState, page: an
       await page.goto(`https://searchadvisor.naver.com/console/sitemap?site=${encodeURIComponent(blogUrl)}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
       await page.waitForTimeout(3000);
 
-      const sitemapInput = await page.$('input[placeholder*="사이트맵"]') || await page.$('input[type="text"]');
+      const sitemapInput = await page.$(NAVER_SELECTORS.sitemapInput) || await page.$(NAVER_SELECTORS.sitemapInputFallback);
       if (sitemapInput) {
         const sitemapUrl = blogUrl.endsWith('/') ? blogUrl + 'sitemap.xml' : blogUrl + '/sitemap.xml';
         await sitemapInput.fill(sitemapUrl);
         await page.waitForTimeout(500);
 
-        const submitBtn = await page.$('button:has-text("확인")') || await page.$('button:has-text("제출")');
+        const submitBtn = await page.$(NAVER_SELECTORS.sitemapSubmitKo) || await page.$(NAVER_SELECTORS.sitemapSubmitKo2);
         if (submitBtn) {
           await submitBtn.click();
           await page.waitForTimeout(3000);
@@ -177,7 +178,7 @@ export async function automateNaverSearchAdvisor(state: WebmasterState, page: an
       await page.goto(`https://searchadvisor.naver.com/console/rss?site=${encodeURIComponent(blogUrl)}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
       await page.waitForTimeout(3000);
 
-      const rssInput = await page.$('input[placeholder*="RSS"]') || await page.$('input[type="text"]');
+      const rssInput = await page.$(NAVER_SELECTORS.rssInput) || await page.$(NAVER_SELECTORS.rssInputFallback);
       if (rssInput) {
         // RSS URL 자동 추론
         let rssUrl = blogUrl.endsWith('/') ? blogUrl : blogUrl + '/';
@@ -192,7 +193,7 @@ export async function automateNaverSearchAdvisor(state: WebmasterState, page: an
         await rssInput.fill(rssUrl);
         await page.waitForTimeout(500);
 
-        const submitBtn = await page.$('button:has-text("확인")') || await page.$('button:has-text("제출")');
+        const submitBtn = await page.$(NAVER_SELECTORS.sitemapSubmitKo) || await page.$(NAVER_SELECTORS.sitemapSubmitKo2);
         if (submitBtn) {
           await submitBtn.click();
           await page.waitForTimeout(3000);
@@ -213,12 +214,12 @@ export async function automateNaverSearchAdvisor(state: WebmasterState, page: an
       await page.goto(`https://searchadvisor.naver.com/console/request?site=${encodeURIComponent(blogUrl)}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
       await page.waitForTimeout(3000);
 
-      const reqInput = await page.$('input[placeholder*="URL"]') || await page.$('input[type="text"]');
+      const reqInput = await page.$(NAVER_SELECTORS.reqInput) || await page.$(NAVER_SELECTORS.reqInputFallback);
       if (reqInput) {
         await reqInput.fill(blogUrl);
         await page.waitForTimeout(500);
 
-        const reqBtn = await page.$('button:has-text("수집 요청")') || await page.$('button:has-text("확인")');
+        const reqBtn = await page.$(NAVER_SELECTORS.reqBtn) || await page.$(NAVER_SELECTORS.reqBtnFallback);
         if (reqBtn) {
           await reqBtn.click();
           await page.waitForTimeout(3000);
