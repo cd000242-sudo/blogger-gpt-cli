@@ -1,4 +1,3 @@
-// @ts-nocheck
 // electron/oneclick/automation/blogspot/steps/createBlog.ts
 // Step 1: 블로그 생성 (제목, 주소 입력 + blogId 추출)
 

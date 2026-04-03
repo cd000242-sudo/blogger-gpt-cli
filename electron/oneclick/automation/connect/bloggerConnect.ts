@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { ConnectState } from '../../types';
 
 export async function automateBloggerConnect(state: ConnectState, page: any): Promise<void> {
@@ -193,7 +192,7 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
           // 생성된 Client ID / Secret 추출 (팝업 대화상자)
           const clientId = await page.evaluate(() => {
             // 팝업에서 Client ID 찾기
-            const labels = document.querySelectorAll('label, .cfc-credential-label, span');
+            const labels = Array.from(document.querySelectorAll('label, .cfc-credential-label, span'));
             for (const label of labels) {
               const text = label.textContent?.trim();
               if (text?.includes('클라이언트 ID') || text?.includes('Client ID')) {
@@ -204,7 +203,7 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
               }
             }
             // 대화상자 내 input에서 직접 추출
-            const inputs = document.querySelectorAll('input[readonly]');
+            const inputs = Array.from(document.querySelectorAll('input[readonly]'));
             for (const input of inputs) {
               const val = (input as HTMLInputElement).value;
               if (val && val.includes('.apps.googleusercontent.com')) return val;
@@ -213,7 +212,7 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
           });
 
           const clientSecret = await page.evaluate(() => {
-            const labels = document.querySelectorAll('label, .cfc-credential-label, span');
+            const labels = Array.from(document.querySelectorAll('label, .cfc-credential-label, span'));
             for (const label of labels) {
               const text = label.textContent?.trim();
               if (text?.includes('클라이언트 보안 비밀번호') || text?.includes('Client secret')) {
@@ -224,7 +223,7 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
               }
             }
             // input에서 직접 추출 (Client ID가 아닌 것)
-            const inputs = document.querySelectorAll('input[readonly]');
+            const inputs = Array.from(document.querySelectorAll('input[readonly]'));
             for (const input of inputs) {
               const val = (input as HTMLInputElement).value;
               if (val && !val.includes('.apps.googleusercontent.com') && val.length > 10) return val;
@@ -268,7 +267,7 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
       await page.waitForTimeout(2000);
       const blogId2 = await page.evaluate(() => {
         // 대시보드 링크에서 추출
-        const links = document.querySelectorAll('a[href*="/blog/"]');
+        const links = Array.from(document.querySelectorAll('a[href*="/blog/"]'));
         for (const link of links) {
           const href = (link as HTMLAnchorElement).href;
           const match = href.match(/\/blog\/(?:posts|pages|stats|settings)\/(\d+)/);

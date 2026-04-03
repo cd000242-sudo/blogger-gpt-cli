@@ -1,5 +1,4 @@
 "use strict";
-// @ts-nocheck
 // electron/oneclick/automation/wordpressSetup.ts
 // WordPress 원클릭 세팅
 Object.defineProperty(exports, "__esModule", { value: true });
@@ -146,5 +145,13 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
     catch (e) {
         state.error = e instanceof Error ? e.message : String(e);
         state.stepStatus = 'error';
+    }
+    finally {
+        try {
+            await browser?.close();
+        }
+        catch { /* ignore */ }
+        state.browser = null;
+        state.page = null;
     }
 }

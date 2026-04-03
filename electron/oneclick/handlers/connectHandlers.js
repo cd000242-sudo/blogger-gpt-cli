@@ -1,5 +1,4 @@
 "use strict";
-// @ts-nocheck
 // electron/oneclick/handlers/connectHandlers.ts
 // IPC: 플랫폼 연동 (WordPress App Password / Blogger OAuth) — 3채널
 Object.defineProperty(exports, "__esModule", { value: true });

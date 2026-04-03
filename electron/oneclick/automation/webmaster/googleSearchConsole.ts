@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { WebmasterState } from '../../types';
 
 export async function automateGoogleSearchConsole(state: WebmasterState, page: any, blogUrl: string): Promise<void> {

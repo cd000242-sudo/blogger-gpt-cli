@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { WebmasterState } from '../../types';
 import { insertMetaTagToBloggerTheme } from '../../utils/bloggerThemeUtils';
 
@@ -88,7 +87,7 @@ export async function automateNaverSearchAdvisor(state: WebmasterState, page: an
           if (text.includes('naver-site-verification')) return text;
         }
         // input에서 추출
-        const inputs = document.querySelectorAll('input[readonly], input[type="text"]');
+        const inputs = Array.from(document.querySelectorAll('input[readonly], input[type="text"]'));
         for (const input of inputs) {
           const val = (input as HTMLInputElement).value;
           if (val && val.includes('naver-site-verification')) return val;

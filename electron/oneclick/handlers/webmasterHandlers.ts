@@ -1,4 +1,3 @@
-// @ts-nocheck
 // electron/oneclick/handlers/webmasterHandlers.ts
 // IPC: 웹마스터 도구 자동화 — 3채널
 

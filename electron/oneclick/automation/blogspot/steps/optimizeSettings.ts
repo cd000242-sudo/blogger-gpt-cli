@@ -1,4 +1,3 @@
-// @ts-nocheck
 // electron/oneclick/automation/blogspot/steps/optimizeSettings.ts
 // Step 2: 설정 자동 최적화 (13개 항목)
 

@@ -1,5 +1,4 @@
 "use strict";
-// @ts-nocheck
 // electron/oneclick/handlers/setupHandlers.ts
 // IPC: 플랫폼 세팅 (Blogspot / WordPress) — 4채널
 Object.defineProperty(exports, "__esModule", { value: true });

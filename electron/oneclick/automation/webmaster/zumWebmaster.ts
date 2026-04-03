@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { WebmasterState } from '../../types';
 
 export async function automateZumWebmaster(state: WebmasterState, page: any, blogUrl: string): Promise<void> {

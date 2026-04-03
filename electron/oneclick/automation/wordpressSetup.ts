@@ -1,4 +1,3 @@
-// @ts-nocheck
 // electron/oneclick/automation/wordpressSetup.ts
 // WordPress 원클릭 세팅
 
@@ -160,5 +159,9 @@ export async function runWordPressSetup(
   } catch (e) {
     state.error = e instanceof Error ? e.message : String(e);
     state.stepStatus = 'error';
+  } finally {
+    try { await browser?.close(); } catch { /* ignore */ }
+    state.browser = null;
+    state.page = null;
   }
 }

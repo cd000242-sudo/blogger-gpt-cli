@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { WebmasterState } from '../../types';
 import { insertMetaTagToBloggerTheme } from '../../utils/bloggerThemeUtils';
 
@@ -90,7 +89,7 @@ export async function automateBingWebmaster(state: WebmasterState, page: any, bl
           if (text.includes('msvalidate.01')) return text;
         }
         // input에서 추출
-        const inputs = document.querySelectorAll('input[readonly], input[type="text"]');
+        const inputs = Array.from(document.querySelectorAll('input[readonly], input[type="text"]'));
         for (const input of inputs) {
           const val = (input as HTMLInputElement).value;
           if (val && val.includes('msvalidate.01')) return val;

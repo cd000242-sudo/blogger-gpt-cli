@@ -112,13 +112,13 @@ async function automateWordPressConnect(state, page, siteUrl) {
             // 다시 시도 — 일부 WP 테마에서는 다른 위치에 표시
             await page.waitForTimeout(2000);
             const password2 = await page.evaluate(() => {
-                const inputs = document.querySelectorAll('input[readonly], input.code');
+                const inputs = Array.from(document.querySelectorAll('input[readonly], input.code'));
                 for (const input of inputs) {
                     const val = input.value;
                     if (val && val.length > 16)
                         return val.trim();
                 }
-                const codes = document.querySelectorAll('code');
+                const codes = Array.from(document.querySelectorAll('code'));
                 for (const code of codes) {
                     const text = code.textContent?.trim();
                     if (text && text.length > 16)

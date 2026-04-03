@@ -1,4 +1,3 @@
-// @ts-nocheck
 // electron/oneclick/automation/blogspot/blogspotSetup.ts
 // Blogspot 원클릭 세팅 오케스트레이터
 

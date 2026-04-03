@@ -1,5 +1,4 @@
 "use strict";
-// @ts-nocheck
 // electron/oneclick/automation/blogspot/steps/faviconUpload.ts
 // Step 4: 파비콘 업로드
 Object.defineProperty(exports, "__esModule", { value: true });

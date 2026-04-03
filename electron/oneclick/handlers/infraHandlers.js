@@ -1,5 +1,4 @@
 "use strict";
-// @ts-nocheck
 // electron/oneclick/handlers/infraHandlers.ts
 // IPC: 인프라 세팅 (Cloudways DNS + SSL) — 4채널
 Object.defineProperty(exports, "__esModule", { value: true });

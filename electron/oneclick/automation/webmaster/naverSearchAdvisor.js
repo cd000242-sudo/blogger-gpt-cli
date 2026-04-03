@@ -82,7 +82,7 @@ async function automateNaverSearchAdvisor(state, page, blogUrl) {
                     return text;
             }
             // input에서 추출
-            const inputs = document.querySelectorAll('input[readonly], input[type="text"]');
+            const inputs = Array.from(document.querySelectorAll('input[readonly], input[type="text"]'));
             for (const input of inputs) {
                 const val = input.value;
                 if (val && val.includes('naver-site-verification'))

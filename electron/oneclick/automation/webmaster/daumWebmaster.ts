@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { WebmasterState } from '../../types';
 import { generateRandomPin } from '../../utils/pinGenerator';
 

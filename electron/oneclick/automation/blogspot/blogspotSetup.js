@@ -1,5 +1,4 @@
 "use strict";
-// @ts-nocheck
 // electron/oneclick/automation/blogspot/blogspotSetup.ts
 // Blogspot 원클릭 세팅 오케스트레이터
 Object.defineProperty(exports, "__esModule", { value: true });

@@ -1,5 +1,4 @@
 "use strict";
-// @ts-nocheck
 // electron/oneclick/automation/blogspot/steps/searchConsole.ts
 // Step 6: 구글 서치 콘솔 자동 연동
 Object.defineProperty(exports, "__esModule", { value: true });

@@ -1,4 +1,3 @@
-// @ts-nocheck
 // electron/oneclick/automation/cloudwaysInfra.ts
 // Cloudways 인프라 자동화 (도메인 + SSL)
 

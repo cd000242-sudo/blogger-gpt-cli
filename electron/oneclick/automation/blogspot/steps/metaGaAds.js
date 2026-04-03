@@ -1,5 +1,4 @@
 "use strict";
-// @ts-nocheck
 // electron/oneclick/automation/blogspot/steps/metaGaAds.ts
 // Step 3: 메타태그 활성화 + Google Analytics + ads.txt
 Object.defineProperty(exports, "__esModule", { value: true });
