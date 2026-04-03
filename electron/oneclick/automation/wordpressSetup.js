@@ -37,7 +37,7 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
         try {
             const baseUrl = adminUrl.replace(/\/wp-admin\/?$/, '');
             await page.goto(`${baseUrl}/wp-admin/customize.php`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await (0, browser_1.sleep)(3000);
+            await (0, browser_1.waitForPageStable)(page, 3000);
             // "추가 CSS" 패널 클릭 시도
             try {
                 const cssPanel = await page.locator(selectors_1.WORDPRESS_SELECTORS.cssPanelOrAdditionalCss).first();
@@ -84,7 +84,7 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
         try {
             const baseUrl = adminUrl.replace(/\/wp-admin\/?$/, '');
             await page.goto(`${baseUrl}/wp-admin/plugin-install.php`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-            await (0, browser_1.sleep)(2000);
+            await (0, browser_1.waitForPageStable)(page, 2000);
             state.message = '플러그인 페이지를 열었습니다. Classic Editor, Yoast SEO 설치를 권장합니다.';
         }
         catch {
@@ -100,7 +100,7 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
         try {
             const baseUrl = adminUrl.replace(/\/wp-admin\/?$/, '');
             await page.goto(`${baseUrl}/wp-admin/options-permalink.php`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-            await (0, browser_1.sleep)(2000);
+            await (0, browser_1.waitForPageStable)(page, 2000);
             // "글 이름" 옵션 선택 시도
             try {
                 const postNameRadio = await page.locator(selectors_1.WORDPRESS_SELECTORS.postNameRadio).first();
@@ -133,7 +133,7 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
             const baseUrl = adminUrl.replace(/\/wp-admin\/?$/, '');
             const siteUrl = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
             await page.goto('https://searchadvisor.naver.com/console/board', { waitUntil: 'domcontentloaded', timeout: 20000 });
-            await (0, browser_1.sleep)(2000);
+            await (0, browser_1.waitForPageStable)(page, 2000);
             // 로그인 필요 여부 확인
             const loginBtn = await page.$('a:has-text("로그인")');
             if (loginBtn) {
@@ -177,7 +177,7 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
             if (!state.cancelled) {
                 try {
                     await page.goto(`https://searchadvisor.naver.com/console/sitemap?site=${encodeURIComponent(siteUrl)}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-                    await (0, browser_1.sleep)(2000);
+                    await (0, browser_1.waitForPageStable)(page, 2000);
                     const sitemapInput = await page.$('input[placeholder*="사이트맵"]') || await page.$('input[type="text"]');
                     if (sitemapInput) {
                         await sitemapInput.fill(siteUrl.endsWith('/') ? siteUrl + 'sitemap.xml' : siteUrl + '/sitemap.xml');
@@ -210,7 +210,7 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
             const baseUrl = adminUrl.replace(/\/wp-admin\/?$/, '');
             const siteUrl = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
             await page.goto('https://search.google.com/search-console/welcome', { waitUntil: 'domcontentloaded', timeout: 20000 });
-            await (0, browser_1.sleep)(3000);
+            await (0, browser_1.waitForPageStable)(page, 3000);
             // 로그인 필요 여부 확인
             const currentUrl = page.url();
             if (currentUrl.includes('accounts.google.com') || currentUrl.includes('signin')) {
@@ -252,7 +252,7 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
                 try {
                     const encodedUrl = encodeURIComponent(siteUrl.endsWith('/') ? siteUrl : siteUrl + '/');
                     await page.goto(`https://search.google.com/search-console/sitemaps?resource_id=${encodedUrl}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-                    await (0, browser_1.sleep)(3000);
+                    await (0, browser_1.waitForPageStable)(page, 3000);
                     const sitemapInput = await page.$('input[type="text"]');
                     if (sitemapInput) {
                         await sitemapInput.fill('sitemap.xml');

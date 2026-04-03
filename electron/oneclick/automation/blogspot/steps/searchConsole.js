@@ -15,7 +15,7 @@ async function setupSearchConsole(state, page, blogId, config) {
     try {
         if (blogId) {
             await page.goto(`https://www.blogger.com/blog/settings/${blogId}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-            await (0, browser_1.sleep)(2000);
+            await (0, browser_1.waitForPageStable)(page, 2000);
         }
         const gscSection = await page.locator(selectors_1.BLOGGER_SELECTORS.gscSection).first();
         if (await gscSection.isVisible({ timeout: 5000 })) {

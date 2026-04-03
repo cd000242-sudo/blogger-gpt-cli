@@ -2,7 +2,7 @@
 // Step 3: 메타태그 활성화 + Google Analytics + ads.txt
 
 import type { SetupState } from '../../../types';
-import { sleep } from '../../../utils/browser';
+import { sleep, waitForPageStable } from '../../../utils/browser';
 import { BLOGGER_SELECTORS } from '../../../config/selectors';
 
 /**
@@ -121,7 +121,7 @@ export async function setupMetaGaAds(
         // 설정 페이지로 복귀
         if (blogId) {
           await page.goto(`https://www.blogger.com/blog/settings/${blogId}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-          await sleep(2000);
+          await waitForPageStable(page, 2000);
         }
       } catch (e) {
         console.warn('[ONECLICK-BLOGSPOT] ads.txt 설정 실패:', e);

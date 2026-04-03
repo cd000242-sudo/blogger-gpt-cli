@@ -2,7 +2,7 @@
 // Step 6: 구글 서치 콘솔 자동 연동
 
 import type { SetupState } from '../../../types';
-import { sleep } from '../../../utils/browser';
+import { sleep, waitForPageStable } from '../../../utils/browser';
 import { BLOGGER_SELECTORS } from '../../../config/selectors';
 
 /**
@@ -21,7 +21,7 @@ export async function setupSearchConsole(
   try {
     if (blogId) {
       await page.goto(`https://www.blogger.com/blog/settings/${blogId}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      await sleep(2000);
+      await waitForPageStable(page, 2000);
     }
 
     const gscSection = await page.locator(BLOGGER_SELECTORS.gscSection).first();

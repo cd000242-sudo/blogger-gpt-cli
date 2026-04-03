@@ -277,13 +277,13 @@ export async function runCloudwaysInfraSetup(
     // 🟢 Issue #5 Fix: https:// 직접 접속 우선 → http:// 폴백 → 전부 실패 시 DNS 안내
     try {
       await page.goto(`https://${domain}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      await sleep(2000);
+      await waitForPageStable(page, 2000);
       state.message = `✅ HTTPS 접속 성공! (https://${domain})`;
     } catch {
       // HTTPS 직접 접속 실패 → HTTP 시도
       try {
         await page.goto(`http://${domain}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-        await sleep(2000);
+        await waitForPageStable(page, 2000);
         const finalUrl = page.url();
         if (finalUrl.startsWith('https://')) {
           state.message = `✅ HTTPS 리다이렉트 정상 작동! (${finalUrl})`;

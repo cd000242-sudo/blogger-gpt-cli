@@ -113,7 +113,7 @@ async function setupMetaGaAds(state, page, blogId, config) {
                 // 설정 페이지로 복귀
                 if (blogId) {
                     await page.goto(`https://www.blogger.com/blog/settings/${blogId}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-                    await (0, browser_1.sleep)(2000);
+                    await (0, browser_1.waitForPageStable)(page, 2000);
                 }
             }
             catch (e) {
