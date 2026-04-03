@@ -7418,8 +7418,10 @@ document.addEventListener('DOMContentLoaded', async function () {
         return;
       }
 
+      // 프로그레스 바 + 상태 텍스트 + 시간 모두 갱신
       updateProgressStatus(statusLabel);
-      updateTime(latestLogProgress || actualProgress);
+      applyProgressVisual(actualProgress, statusLabel);
+      latestLogProgress = actualProgress;
     });
   }
 
