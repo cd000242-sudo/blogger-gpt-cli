@@ -1943,6 +1943,11 @@ function showTab(tabName) {
     selectedButton.classList.add('active');
   }
 
+  // Accessibility: update aria-selected for all tab buttons
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.setAttribute('aria-selected', btn.classList.contains('active') ? 'true' : 'false');
+  });
+
 }
 
 window.showTab = showTab;
@@ -7173,6 +7178,12 @@ document.addEventListener('DOMContentLoaded', async function () {
   // localStorage 설정 로드
   loadSettings();
 
+  // UX: 초보자 스마트 기본값 적용 (첫 실행 시만)
+  applySmartDefaults();
+
+  // UX: 고급 설정 Progressive Disclosure 초기화
+  initProgressiveDisclosure();
+
   // 기본값 보장
   if (thumbnailTypeSelect && !thumbnailTypeSelect.value) {
     thumbnailTypeSelect.value = 'text';
@@ -9184,6 +9195,82 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+// ==========================================
+// UX 개선: Progressive Disclosure (고급 설정 접기/펼치기)
+// ==========================================
+function initProgressiveDisclosure() {
+  const postingMain = document.querySelector('.posting-main');
+  if (!postingMain) return;
+
+  const allCards = postingMain.querySelectorAll(':scope > div');
+  allCards.forEach((card, idx) => {
+    if (idx === 0 || idx === allCards.length - 1) return;
+    if (!card.id || !['keywordInput', 'generateBtn'].some(id => card.innerHTML.includes(id))) {
+      card.setAttribute('data-advanced', 'true');
+    }
+  });
+}
+
+function toggleAdvancedSettings() {
+  const advancedCards = document.querySelectorAll('[data-advanced="true"]');
+  const btn = document.getElementById('toggleAdvancedBtn');
+  const isHidden = advancedCards[0]?.style.display === 'none';
+
+  advancedCards.forEach(card => {
+    card.style.display = isHidden ? '' : 'none';
+    card.style.transition = 'all 0.3s ease';
+  });
+
+  if (btn) {
+    btn.textContent = isHidden ? '▲ 고급 설정 접기' : '▼ 고급 설정 펼치기';
+  }
+}
+
+// ==========================================
+// UX 개선: Smart Defaults (초보자를 위한 기본값)
+// ==========================================
+function applySmartDefaults() {
+  const hasSettings = localStorage.getItem('bloggerSettings');
+  if (hasSettings) return;
+
+  console.log('[UX] 첫 실행 감지 — 스마트 기본값 적용');
+
+  const modeSelect = document.getElementById('contentModeSelect');
+  if (modeSelect && !modeSelect.value) modeSelect.value = 'external';
+
+  const toneSelect = document.getElementById('toneSelect') || document.getElementById('toneStyleSelect');
+  if (toneSelect) {
+    const friendlyOption = Array.from(toneSelect.options).find(o =>
+      o.text.includes('친근') || o.value.includes('friendly') || o.value.includes('casual')
+    );
+    if (friendlyOption) toneSelect.value = friendlyOption.value;
+  }
+
+  const draftRadio = document.querySelector('input[name="postingMode"][value="draft"]') ||
+                     document.querySelector('input[value="draft"]');
+  if (draftRadio) draftRadio.checked = true;
+
+  const imageRadios = document.querySelectorAll('input[name="h2ImageSource"]');
+  if (imageRadios.length > 0) {
+    const imagefxRadio = Array.from(imageRadios).find(r => r.value === 'imagefx');
+    if (imagefxRadio) imagefxRadio.checked = true;
+  }
+}
+
+// ==========================================
+// UX 개선: Accessibility — focus trap for modals
+// ==========================================
+function trapFocus(modalElement) {
+  const focusable = modalElement.querySelectorAll('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])');
+  if (focusable.length === 0) return;
+  focusable[0].focus();
+}
+
+window.initProgressiveDisclosure = initProgressiveDisclosure;
+window.toggleAdvancedSettings = toggleAdvancedSettings;
+window.applySmartDefaults = applySmartDefaults;
+window.trapFocus = trapFocus;
 
 // ==================== 전역 함수 등록 ====================
 // HTML에서 onclick으로 호출되는 모든 함수를 window 객체에 등록

@@ -72,6 +72,30 @@
       background: #3b82f6 !important;
       color: #ffffff !important;
     }
+
+    /* 툴팁 스타일 */
+    .tooltip-help {
+      position: relative;
+      cursor: help;
+    }
+    .tooltip-help:hover::after {
+      content: attr(title);
+      position: absolute;
+      bottom: 120%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: white;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      white-space: nowrap;
+      max-width: 250px;
+      white-space: normal;
+      z-index: 10000;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      pointer-events: none;
+    }
   </style>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard/dist/web/static/pretendard.css">
@@ -491,7 +515,7 @@
             <!-- 콘텐츠 모드 선택 -->
             <div style="margin-bottom: 24px;">
               <label style="display: block; font-size: 14px; font-weight: 600; color: #374151; margin-bottom: 8px;">📝
-                콘텐츠 모드</label>
+                콘텐츠 모드<span class="tooltip-help" title="목적에 맞는 글 스타일이에요. 잘 모르면 '일반'이 좋아요." style="cursor: help; color: rgba(255,255,255,0.5); font-size: 12px; margin-left: 4px;">(?)</span></label>
               <select id="scheduleContentMode"
                 style="width: 100%; padding: 16px; border: 2px solid #e5e7eb; border-radius: 12px; font-size: 16px; background: #f9fafb; transition: all 0.3s ease; box-sizing: border-box;"
                 onfocus="this.style.borderColor='#10b981'; this.style.backgroundColor='#ffffff';"
@@ -507,7 +531,7 @@
             <!-- CTA 설정 -->
             <div style="margin-bottom: 24px;">
               <label style="display: block; font-size: 14px; font-weight: 600; color: #374151; margin-bottom: 8px;">🔗
-                CTA 설정</label>
+                CTA 설정<span class="tooltip-help" title="독자에게 '자세히 보기' 같은 버튼을 보여줄지 설정해요." style="cursor: help; color: rgba(255,255,255,0.5); font-size: 12px; margin-left: 4px;">(?)</span></label>
               <select id="scheduleCtaMode"
                 style="width: 100%; padding: 16px; border: 2px solid #e5e7eb; border-radius: 12px; font-size: 16px; background: #f9fafb; transition: all 0.3s ease; box-sizing: border-box;"
                 onfocus="this.style.borderColor='#10b981'; this.style.backgroundColor='#ffffff';"
@@ -1285,110 +1309,77 @@
   <!-- 메인 탭-->
   <div id="main-tab" class="tab-content active">
 
-    <!-- 1. 시간 & 날짜 (컴팩트) -->
-    <div
-      style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; padding: 24px; margin-bottom: 24px; box-shadow: 0 12px 40px rgba(102, 126, 234, 0.3); text-align: center; color: white;">
-      <!-- 실시간 시계 -->
-      <div id="realtime-clock"
-        style="font-size: 36px; font-weight: 700; color: white; text-shadow: 0 2px 8px rgba(0,0,0,0.3); letter-spacing: 2px; font-family: 'Segoe UI', sans-serif; margin-bottom: 8px;">
-        00:00:00</div>
-      <div id="realtime-date"
-        style="font-size: 16px; color: rgba(255,255,255,0.9); font-weight: 500; letter-spacing: 1px; margin-bottom: 16px;">
-        0000년 00월 00일 (월요일)</div>
+    <!-- 빠른 글 생성 -->
+    <div style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); border-radius: 20px; padding: 40px 32px; margin-bottom: 24px; box-shadow: 0 16px 48px rgba(99, 102, 241, 0.3); text-align: center; color: white;">
+      <h2 style="font-size: 28px; font-weight: 800; margin: 0 0 8px 0;">✨ AI 블로그 글 생성</h2>
+      <p style="font-size: 15px; opacity: 0.85; margin: 0 0 28px 0;">키워드만 입력하면 AI가 전문적인 블로그 글을 자동으로 써줘요</p>
 
-      <!-- 대형 달력 -->
-      <div id="mini-calendar"
-        style="background: rgba(255, 255, 255, 0.15); border-radius: 12px; padding: 12px; backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); width: 100%; margin: 0 auto;">
-        <div
-          style="text-align: center; font-weight: 700; margin-bottom: 12px; color: white; font-size: 16px; text-shadow: 0 2px 6px rgba(0,0,0,0.3);">
-          <span id="calendar-month">0월</span>
-          <div style="font-size: 11px; font-weight: 400; color: rgba(255, 255, 255, 0.8); margin-top: 4px;">📅 클릭: 작업일지
-            | Ctrl+클릭: 빠른 메모</div>
-        </div>
-        <div
-          style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; font-size: 12px; margin-bottom: 8px;">
-          <div
-            style="color: #ffd700; font-weight: 700; padding: 8px 0; background: rgba(255, 215, 0, 0.25); border-radius: 6px;">
-            일</div>
-          <div style="font-weight: 700; padding: 8px 0; background: rgba(255, 255, 255, 0.25); border-radius: 6px;">월
-          </div>
-          <div style="font-weight: 700; padding: 8px 0; background: rgba(255, 255, 255, 0.25); border-radius: 6px;">화
-          </div>
-          <div style="font-weight: 700; padding: 8px 0; background: rgba(255, 255, 255, 0.25); border-radius: 6px;">수
-          </div>
-          <div style="font-weight: 700; padding: 8px 0; background: rgba(255, 255, 255, 0.25); border-radius: 6px;">목
-          </div>
-          <div style="font-weight: 700; padding: 8px 0; background: rgba(255, 255, 255, 0.25); border-radius: 6px;">금
-          </div>
-          <div
-            style="color: #87ceeb; font-weight: 700; padding: 8px 0; background: rgba(135, 206, 235, 0.25); border-radius: 6px;">
-            토</div>
-        </div>
-        <div id="calendar-dates"
-          style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; font-size: 14px;">
-          <!-- 날짜가 자동으로 추가됩니다 -->
+      <div style="max-width: 500px; margin: 0 auto;">
+        <input type="text" id="quickKeywordInput"
+          placeholder="예: 2026년 신생아 특례 대출"
+          aria-label="블로그 키워드 입력"
+          style="width: 100%; padding: 16px 20px; font-size: 16px; border: 2px solid rgba(255,255,255,0.3); border-radius: 14px; background: rgba(255,255,255,0.15); color: white; outline: none; box-sizing: border-box; transition: all 0.3s; backdrop-filter: blur(8px);"
+          onfocus="this.style.borderColor='rgba(255,255,255,0.6)'; this.style.background='rgba(255,255,255,0.2)'"
+          onblur="this.style.borderColor='rgba(255,255,255,0.3)'; this.style.background='rgba(255,255,255,0.15)'"
+          onkeydown="if(event.key==='Enter') quickGenerate()" />
+        <div style="display: flex; gap: 10px; margin-top: 14px;">
+          <button onclick="quickGenerate()"
+            aria-label="AI 글 생성 시작"
+            style="flex: 1; padding: 14px 24px; font-size: 16px; font-weight: 700; background: white; color: #6366f1; border: none; border-radius: 12px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 15px rgba(0,0,0,0.15);"
+            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(0,0,0,0.2)'"
+            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(0,0,0,0.15)'">
+            ✨ AI 글 생성하기
+          </button>
+          <button onclick="showTab('settings')"
+            aria-label="고급 설정으로 이동"
+            style="padding: 14px 20px; font-size: 14px; font-weight: 600; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 12px; cursor: pointer; transition: all 0.2s; white-space: nowrap;"
+            onmouseover="this.style.background='rgba(255,255,255,0.3)'"
+            onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+            ⚙️ 고급 설정
+          </button>
         </div>
       </div>
     </div>
 
-
-    <!-- 3. 구매 및 문의 (전체 폭) -->
-    <div class="card"
-      style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; box-shadow: 0 20px 60px rgba(102, 126, 234, 0.3);">
-      <div class="card-header" style="border-bottom: 2px solid rgba(255, 255, 255, 0.2); padding-bottom: 20px;">
-        <h2 class="card-title"
-          style="color: white; font-size: 24px; font-weight: 700; display: flex; align-items: center; gap: 12px;">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path
-              d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z">
-            </path>
-          </svg>
-          구매 및 문의
-        </h2>
-      </div>
-
-      <div id="purchaseCardBody" class="card-body style=" padding: 22px;">
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
-          <button class="btn btn-primary" onclick="openMultiAccountModal()"
-            style="padding: 20px 24px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; border: 2px solid rgba(255, 255, 255, 0.5); border-radius: 12px; font-size: 16px; font-weight: 600; backdrop-filter: blur(10px); transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; box-shadow: 0 8px 25px rgba(139, 92, 246, 0.35);">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-              <circle cx="9" cy="7" r="4"></circle>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-            </svg>
-            다중계정 동시발행
-          </button>
-          <button class="btn btn-success" onclick="window.blogger.openExternal('https://leadernam.imweb.me')"
-            style="padding: 20px 24px; background: rgba(255, 255, 255, 0.25); color: white; border: 2px solid rgba(255, 255, 255, 0.5); border-radius: 12px; font-size: 16px; font-weight: 600; backdrop-filter: blur(10px); transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-              <polyline points="9 22 9 12 15 12 15 22"></polyline>
-            </svg>
-            구매 사이트
-          </button>
-          <button class="btn btn-warning" onclick="window.blogger.openExternal('https://open.kakao.com/o/sPcaslwh')"
-            style="padding: 20px 24px; background: rgba(255, 255, 255, 0.25); color: white; border: 2px solid rgba(255, 255, 255, 0.5); border-radius: 12px; font-size: 16px; font-weight: 600; backdrop-filter: blur(10px); transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path
-                d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z">
-              </path>
-            </svg>
-            1대1 문의
-          </button>
-          <button class="btn btn-secondary"
-            onclick="window.blogger.openExternal('https://www.youtube.com/@leadernam-s5e')"
-            style="padding: 20px 24px; background: rgba(255, 255, 255, 0.25); color: white; border: 2px solid rgba(255, 255, 255, 0.5); border-radius: 12px; font-size: 16px; font-weight: 600; backdrop-filter: blur(10px); transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path
-                d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z">
-              </path>
-              <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"></polygon>
-            </svg>
-            leadernam youtube
-          </button>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+      <!-- 최근 생성한 글 -->
+      <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 24px; border: 1px solid rgba(255,255,255,0.1);">
+        <h3 style="font-size: 16px; font-weight: 700; color: white; margin: 0 0 16px 0; display: flex; align-items: center; gap: 8px;">
+          📝 최근 생성한 글
+        </h3>
+        <div id="recentPostsList" style="color: rgba(255,255,255,0.7); font-size: 14px; line-height: 2;">
+          <p style="opacity: 0.5;">아직 생성한 글이 없어요. 위에서 키워드를 입력해 시작하세요!</p>
         </div>
       </div>
+
+      <!-- 시계 + 달력 (축소) -->
+      <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 24px; border: 1px solid rgba(255,255,255,0.1);">
+        <div id="realtime-clock" style="font-size: 28px; font-weight: 700; color: white; text-align: center; letter-spacing: 2px; margin-bottom: 4px;">00:00:00</div>
+        <div id="realtime-date" style="font-size: 13px; color: rgba(255,255,255,0.7); text-align: center; margin-bottom: 16px;">0000년 00월 00일 (월요일)</div>
+        <div id="mini-calendar" style="background: rgba(255,255,255,0.08); border-radius: 12px; padding: 12px;">
+          <div style="text-align: center; font-weight: 700; margin-bottom: 8px; color: white; font-size: 14px;">
+            <span id="calendar-month">0월</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; font-size: 11px; margin-bottom: 4px;">
+            <div style="color: #ffd700; font-weight: 600; padding: 4px 0;">일</div>
+            <div style="font-weight: 600; padding: 4px 0; color: rgba(255,255,255,0.8);">월</div>
+            <div style="font-weight: 600; padding: 4px 0; color: rgba(255,255,255,0.8);">화</div>
+            <div style="font-weight: 600; padding: 4px 0; color: rgba(255,255,255,0.8);">수</div>
+            <div style="font-weight: 600; padding: 4px 0; color: rgba(255,255,255,0.8);">목</div>
+            <div style="font-weight: 600; padding: 4px 0; color: rgba(255,255,255,0.8);">금</div>
+            <div style="color: #87ceeb; font-weight: 600; padding: 4px 0;">토</div>
+          </div>
+          <div id="calendar-dates" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; font-size: 12px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 구매 및 문의 (하단, 작게) -->
+    <div style="display: flex; gap: 10px; margin-top: 20px; justify-content: center; flex-wrap: wrap;">
+      <button onclick="openMultiAccountModal()" style="padding: 10px 16px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 13px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">👥 다중계정</button>
+      <button onclick="window.blogger.openExternal('https://leadernam.imweb.me')" style="padding: 10px 16px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 13px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">🏠 구매 사이트</button>
+      <button onclick="window.blogger.openExternal('https://open.kakao.com/o/sPcaslwh')" style="padding: 10px 16px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 13px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">💬 1:1 문의</button>
+      <button onclick="window.blogger.openExternal('https://www.youtube.com/@leadernam-s5e')" style="padding: 10px 16px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 13px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">📺 YouTube</button>
     </div>
 
   </div>
@@ -2079,7 +2070,7 @@
                     <div class="form-group" style="margin-bottom: 20px; position: relative; z-index: 1;">
                       <label class="form-label"
                         style="color: rgba(255, 255, 255, 0.9); font-weight: 600; font-size: 14px; margin-bottom: 10px; display: block;">콘텐츠
-                        모드</label>
+                        모드<span class="tooltip-help" title="목적에 맞는 글 스타일이에요. 잘 모르면 '일반'이 좋아요." style="cursor: help; color: rgba(255,255,255,0.5); font-size: 12px; margin-left: 4px;">(?)</span></label>
                       <select id="contentMode" class="form-input"
                         style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(51, 65, 85, 0.95) 100%); border: 2px solid rgba(255, 255, 255, 0.6); color: #ffffff; backdrop-filter: blur(15px); font-size: 14px; padding: 12px 16px; cursor: pointer; border-radius: 12px; width: 100%; font-weight: 600; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(30, 41, 59, 0.4);">
                         <option value="external"
@@ -2210,7 +2201,7 @@
                     <div class="form-group" style="margin-bottom: 20px; position: relative; z-index: 1;">
                       <label class="form-label"
                         style="color: rgba(255, 255, 255, 0.9); font-weight: 600; font-size: 14px; margin-bottom: 10px; display: block;">🎭
-                        말투/어투 선택</label>
+                        말투/어투 선택<span class="tooltip-help" title="글의 말투를 선택해요. 친근한(~해요체)이 가장 인기있어요." style="cursor: help; color: rgba(255,255,255,0.5); font-size: 12px; margin-left: 4px;">(?)</span></label>
                       <select id="toneStyle" class="form-input"
                         style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(51, 65, 85, 0.95) 100%); border: 2px solid rgba(255, 255, 255, 0.6); color: #ffffff; backdrop-filter: blur(15px); font-size: 14px; padding: 12px 16px; cursor: pointer; border-radius: 12px; width: 100%; font-weight: 600; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(30, 41, 59, 0.4);">
                         <option value="professional" selected
@@ -2235,8 +2226,7 @@
                       <!-- 이미지 소스 선택 -->
                       <div style="margin-bottom: 16px;">
                         <label
-                          style="display: block; font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.8); margin-bottom: 8px;">이미지
-                          소스</label>
+                          style="display: block; font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.8); margin-bottom: 8px;">본문 이미지 <span class="tooltip-help" title="글 중간에 들어갈 이미지를 어떤 AI로 만들지 선택해요." style="cursor: help; color: rgba(255,255,255,0.5); font-size: 12px; margin-left: 4px;">(?)</span></label>
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
                           <label
                             style="display: flex; align-items: center; gap: 8px; padding: 10px; background: rgba(139, 92, 246, 0.2); border-radius: 8px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;">
@@ -2386,7 +2376,7 @@
                           </svg>
                         </div>
                         <div>
-                          <div style="font-size: 18px; font-weight: 700;">CTA 설정</div>
+                          <div style="font-size: 18px; font-weight: 700;">CTA 설정<span class="tooltip-help" title="독자에게 '자세히 보기' 같은 버튼을 보여줄지 설정해요." style="cursor: help; color: rgba(255,255,255,0.5); font-size: 12px; margin-left: 4px;">(?)</span></div>
                           <div
                             style="font-size: 11px; font-weight: 500; color: rgba(255, 255, 255, 0.6); margin-top: 2px;">
                             자동 추천 또는 수동 등록 제어</div>
@@ -2889,6 +2879,32 @@
 
     <script src="script.js"></script>
   </div>
+<script>
+function quickGenerate() {
+  var input = document.getElementById('quickKeywordInput');
+  var keyword = (input ? input.value : '').trim();
+  if (!keyword) {
+    if (typeof showNotification === 'function') {
+      showNotification('키워드를 입력해주세요', 'warning');
+    } else {
+      alert('키워드를 입력해주세요');
+    }
+    return;
+  }
+  // Switch to settings tab and populate keyword
+  showTab('settings');
+  var keywordInput = document.getElementById('keywordInput');
+  if (keywordInput) {
+    keywordInput.value = keyword;
+    keywordInput.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  // Auto-scroll to generate button
+  setTimeout(function() {
+    var genBtn = document.getElementById('generateBtn') || document.querySelector('[onclick*="startGeneration"]');
+    if (genBtn) genBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 300);
+}
+</script>
 </body>
 
 </html>
