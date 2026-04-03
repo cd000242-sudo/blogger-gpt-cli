@@ -1,28 +1,20 @@
 // @ts-nocheck
+// electron/oneclick/automation/cloudwaysInfra.ts
+// Cloudways 인프라 자동화 (도메인 + SSL)
+
 import { launchBrowser, sleep } from '../utils/browser';
 import type { InfraState } from '../types';
 
-const infraLoginResolvers: Record<string, () => void> = {};
-
-async function waitForInfraLogin(timeout: number = 300000): Promise<boolean> {
-  console.log(`[ONECLICK-INFRA] 🔐 Cloudways 로그인 대기 시작...`);
-  return new Promise<boolean>((resolve) => {
-    const timer = setTimeout(() => {
-      delete infraLoginResolvers['infra'];
-      console.log('[ONECLICK-INFRA] ⏰ 로그인 대기 시간 초과');
-      resolve(false);
-    }, timeout);
-
-    infraLoginResolvers['infra'] = () => {
-      clearTimeout(timer);
-      delete infraLoginResolvers['infra'];
-      console.log('[ONECLICK-INFRA] ✅ Cloudways 로그인 완료 확인!');
-      resolve(true);
-    };
-  });
-}
-
-export async function runCloudwaysInfraSetup(state: InfraState, domain: string, email: string): Promise<void> {
+/**
+ * Cloudways 인프라 세팅 (도메인 추가 + SSL 설치 + HTTPS 확인).
+ * waitForLogin은 외부에서 주입받아 IPC 기반 로그인 대기를 수행한다.
+ */
+export async function runCloudwaysInfraSetup(
+  state: InfraState,
+  domain: string,
+  email: string,
+  waitForLogin?: (key: string, timeout?: number) => Promise<boolean>
+): Promise<void> {
   const { browser, page } = await launchBrowser();
   state.browser = browser;
   state.page = page;
@@ -39,7 +31,7 @@ export async function runCloudwaysInfraSetup(state: InfraState, domain: string, 
     state.stepStatus = 'waiting-login';
     state.message = 'Cloudways 계정으로 로그인해주세요';
 
-    const loggedIn = await waitForInfraLogin();
+    const loggedIn = waitForLogin ? await waitForLogin('infra') : false;
     if (state.cancelled) return;
     if (!loggedIn) {
       state.error = '로그인 대기 시간 초과';

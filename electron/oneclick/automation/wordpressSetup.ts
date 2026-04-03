@@ -1,32 +1,20 @@
 // @ts-nocheck
+// electron/oneclick/automation/wordpressSetup.ts
+// WordPress 원클릭 세팅
+
 import { launchBrowser, sleep } from '../utils/browser';
 import { loadSkinCSS } from '../utils/skinLoader';
 import type { SetupState } from '../types';
 
-const loginResolvers: Record<string, () => void> = {};
-
-async function waitForLogin(platform: string, timeout: number = 300000): Promise<boolean> {
-  console.log(`[ONECLICK] 🔐 로그인 대기 시작 (${platform}) — 사용자가 "로그인 완료" 버튼을 누를 때까지 대기`);
-
-  return new Promise<boolean>((resolve) => {
-    // 타임아웃 설정
-    const timer = setTimeout(() => {
-      delete loginResolvers[platform];
-      console.log(`[ONECLICK] ⏰ 로그인 대기 시간 초과 (${timeout / 1000}초)`);
-      resolve(false);
-    }, timeout);
-
-    // resolve 콜백 저장 — confirm-login IPC에서 호출됨
-    loginResolvers[platform] = () => {
-      clearTimeout(timer);
-      delete loginResolvers[platform];
-      console.log(`[ONECLICK] ✅ 로그인 완료 확인! (${platform})`);
-      resolve(true);
-    };
-  });
-}
-
-export async function runWordPressSetup(state: SetupState, adminUrl: string): Promise<void> {
+/**
+ * WordPress 원클릭 세팅 메인 함수.
+ * waitForLogin은 외부에서 주입받아 IPC 기반 로그인 대기를 수행한다.
+ */
+export async function runWordPressSetup(
+  state: SetupState,
+  adminUrl: string,
+  waitForLogin: (platform: string) => Promise<boolean>
+): Promise<void> {
   const { browser, page } = await launchBrowser();
   state.browser = browser;
   state.page = page;
