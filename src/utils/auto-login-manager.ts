@@ -47,16 +47,13 @@ export async function tryAutoLogin(): Promise<AutoLoginResult> {
     const licenseManager = getLicenseManager();
     const status = licenseManager.getLicenseStatus();
     
-    // 라이선스가 유효한 경우에도 항상 로그인 창 표시
-    // (사용자 요청: 앱 시작 시 항상 인증 화면 표시)
     if (status.valid === true) {
       // 기간제인 경우 만료 확인
       if (status.licenseData?.licenseType === 'temporary' && status.licenseData?.expiresAt) {
         const expiresDate = new Date(status.licenseData.expiresAt);
         const now = new Date();
-        
+
         if (expiresDate <= now) {
-          // 만료된 경우
           return {
             success: false,
             shouldShowLoginWindow: true,
@@ -64,8 +61,20 @@ export async function tryAutoLogin(): Promise<AutoLoginResult> {
           };
         }
       }
-      
-      // 라이선스 유효해도 항상 로그인 창 표시 (자동 로그인 비활성화)
+
+      // 자동 로그인 설정 확인 — 활성화되어 있으면 바로 진입
+      const autoConfig = loadAutoLoginConfig();
+      if (autoConfig.enabled) {
+        console.log('[AUTO-LOGIN] ✅ 라이선스 유효 + 자동 로그인 활성화 → 바로 진입');
+        return {
+          success: true,
+          shouldShowLoginWindow: false,
+          message: '자동 로그인 성공',
+          licenseData: status.licenseData
+        };
+      }
+
+      // 자동 로그인 비활성화 시 로그인 창 표시
       return {
         success: false,
         shouldShowLoginWindow: true,
