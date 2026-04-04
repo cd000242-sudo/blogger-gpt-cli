@@ -3084,6 +3084,7 @@ async function runPosting() {
         contentMode: contentMode, // 콘텐츠 모드 추가
         paraphraseUrl: paraphraseUrl, // 🔄 페러프레이징 URL 추가
         authorNickname: authorNickname, // 작성자 닉네임 추가
+        publishIntervalMinutes: parseInt(document.getElementById('publishIntervalMinutes')?.value || '3') || 3, // 연속 발행 간격 (분)
         env: env // 환경 변수 포함
       };
     }
