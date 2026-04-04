@@ -171,18 +171,26 @@ export class LicenseManager {
         return await this.registerLicense(userId, password, licenseCode);
       }
 
-      // 코드 없이 로그인 시도 - 친절한 안내 메시지
+      // 코드 없이 로그인 시도 → 서버에 아이디/비번으로 인증 시도
+      try {
+        const serverResult = await this.authenticateWithServer(userId, password);
+        if (serverResult) {
+          return serverResult;
+        }
+      } catch (e) {
+        console.warn('[AUTH] 서버 인증 실패, 로컬 체크로 폴백:', e);
+      }
+
+      // 서버 인증도 실패한 경우
       if (existingLicense) {
-        // 기존 라이선스가 있지만 인증 실패
         return {
           success: false,
-          message: '아이디, 비밀번호 또는 디바이스 정보가 일치하지 않습니다.\n\n새로운 디바이스에서 사용하시려면 라이선스 코드를 다시 입력해주세요.'
+          message: '아이디 또는 비밀번호가 일치하지 않습니다.\n새 기기에서는 라이선스 코드를 한 번 더 입력해주세요.'
         };
       } else {
-        // 라이선스가 전혀 없는 경우
         return {
           success: false,
-          message: '라이선스가 등록되지 않았습니다.\n\n아이디, 비밀번호와 함께 라이선스 코드를 입력해주세요.\n\n• 기간제: 발급받은 코드 입력\n• 영구제: 패치 파일 설치 후 코드 입력'
+          message: '등록된 라이선스가 없습니다.\n\n최초 사용 시 아이디 + 비밀번호 + 라이선스 코드를 함께 입력해주세요.\n\n또는 상단의 "무료체험하기" 버튼으로 체험할 수 있습니다.'
         };
       }
     } catch (error: any) {
@@ -190,6 +198,76 @@ export class LicenseManager {
         success: false,
         message: `라이선스 인증 실패: ${error.message || '알 수 없는 오류'}`
       };
+    }
+  }
+
+  /**
+   * 서버에 아이디/비밀번호로 인증 (코드 없이 로그인)
+   * 서버에 이미 등록된 사용자가 새 기기에서 로그인하거나,
+   * 로컬 라이선스 파일이 없는 경우에 사용.
+   */
+  private async authenticateWithServer(
+    userId: string,
+    password: string
+  ): Promise<LicenseAuthResult | null> {
+    try {
+      const { loadEnvFromFile } = await import('../env');
+      const env = loadEnvFromFile();
+      const redeemUrl = (env as any).licenseRedeemUrl ||
+                        (env as any).LICENSE_REDEEM_URL ||
+                        process.env['LICENSE_REDEEM_URL'] || '';
+
+      if (!redeemUrl) return null;
+
+      const axios = (await import('axios')).default;
+      const deviceId = this.getDeviceId();
+
+      console.log('[AUTH] 서버에 아이디/비번 인증 시도...');
+      const response = await axios.post(redeemUrl, {
+        action: 'login',
+        appId: 'com.ridernam.blogger.automation',
+        userId,
+        userPassword: password,
+        deviceId
+      }, { timeout: 10000, headers: { 'Content-Type': 'application/json' } });
+
+      if (response.data && (response.data.ok || response.data.valid)) {
+        const data = response.data;
+        const licenseType = data.licenseType || data.type || '';
+        const isPermanent = licenseType === 'LIFE' || licenseType === 'permanent' || !data.expiresAt;
+
+        // 로컬 라이선스 파일 생성 (다음 로그인부터 오프라인 가능)
+        const licenseData: LicenseData = {
+          userId,
+          passwordHash: this.hashPassword(password),
+          licenseType: isPermanent ? 'permanent' : 'temporary',
+          serverLicenseType: licenseType,
+          activatedAt: Date.now(),
+          deviceId,
+          ...(data.expiresAt && { expiresAt: new Date(data.expiresAt).getTime() })
+        };
+
+        fs.writeFileSync(this.licensePath, JSON.stringify(licenseData, null, 2), 'utf8');
+        console.log('[AUTH] ✅ 서버 인증 성공 + 로컬 라이선스 파일 생성');
+
+        // 세션 토큰 저장
+        if (data.sessionToken) {
+          const sessionManager = getSessionManager();
+          sessionManager.setSession(userId, data.sessionToken, deviceId);
+        }
+
+        return {
+          success: true,
+          message: `로그인 성공! (${isPermanent ? '영구제' : '기간제'})`,
+          licenseData,
+          previousSessionTerminated: data.previousSessionTerminated || false
+        };
+      }
+
+      return null; // 서버가 거부
+    } catch (e: any) {
+      console.warn('[AUTH] 서버 인증 오류:', e.message);
+      return null;
     }
   }
 
