@@ -163,5 +163,27 @@ export function registerAdsPowerIpcHandlers(): void {
     }
   });
 
-  console.log('[ADSPOWER-IPC] ✅ AdsPower IPC 핸들러 4개 등록 완료 (싱글톤 패턴)');
+  // 5. 프로필 생성
+  ipcMain.handle('adspower:create-profile', async (_evt, profileName: string) => {
+    try {
+      const manager = getOrCreateManager();
+      if (!manager) return { ok: false, error: 'AdsPower 설정이 없습니다.' };
+      return await manager.createProfile(profileName);
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // 6. 프로필 삭제
+  ipcMain.handle('adspower:delete-profile', async (_evt, profileIds: string[]) => {
+    try {
+      const manager = getOrCreateManager();
+      if (!manager) return { ok: false, error: 'AdsPower 설정이 없습니다.' };
+      return await manager.deleteProfile(profileIds);
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  console.log('[ADSPOWER-IPC] ✅ AdsPower IPC 핸들러 6개 등록 완료 (싱글톤 패턴)');
 }

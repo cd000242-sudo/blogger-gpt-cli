@@ -255,6 +255,9 @@ const api = {
     adspowerListProfiles: () => electron_1.ipcRenderer.invoke('adspower:list-profiles'),
     adspowerStartProfile: (profileId) => electron_1.ipcRenderer.invoke('adspower:start-profile', profileId),
     adspowerStopProfile: (profileId) => electron_1.ipcRenderer.invoke('adspower:stop-profile', profileId),
+    adspowerCreateProfile: (name) => electron_1.ipcRenderer.invoke('adspower:create-profile', name),
+    adspowerDeleteProfile: (ids) => electron_1.ipcRenderer.invoke('adspower:delete-profile', ids),
+    adspowerAutoInstall: () => electron_1.ipcRenderer.invoke('adspower:auto-install'),
     // 🔐 ImageFX Google 로그인
     imagefxCheckLogin: () => electron_1.ipcRenderer.invoke('imagefx:check-login'),
     imagefxLogin: () => electron_1.ipcRenderer.invoke('imagefx:login'),

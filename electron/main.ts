@@ -4442,6 +4442,18 @@ try {
   console.error('[APP] AdsPower IPC 핸들러 등록 실패:', e);
 }
 
+// AdsPower 자동 설치
+ipcMain.handle('adspower:auto-install', async () => {
+  try {
+    const { shell } = require('electron');
+    // AdsPower 공식 다운로드 페이지 열기
+    await shell.openExternal('https://www.adspower.com/download');
+    return { ok: true, message: 'AdsPower 다운로드 페이지가 열렸습니다. 설치 후 앱을 실행해주세요.' };
+  } catch (e: any) {
+    return { ok: false, error: e.message };
+  }
+});
+
 // 🚀 원클릭 세팅 IPC 핸들러 등록
 try {
   const { registerOneclickSetupIpcHandlers } = require('./oneclickSetupIpcHandlers');

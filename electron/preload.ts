@@ -307,6 +307,9 @@ export type BloggerApi = {
   adspowerListProfiles(): Promise<{ ok: boolean; profiles?: any[]; total?: number; error?: string }>;
   adspowerStartProfile(profileId: string): Promise<{ ok: boolean; wsUrl?: string; error?: string }>;
   adspowerStopProfile(profileId: string): Promise<{ ok: boolean; error?: string }>;
+  adspowerCreateProfile(name: string): Promise<{ ok: boolean; profileId?: string; serialNumber?: string; error?: string }>;
+  adspowerDeleteProfile(ids: string[]): Promise<{ ok: boolean; error?: string }>;
+  adspowerAutoInstall(): Promise<{ ok: boolean; error?: string }>;
 
   /** 🔐 ImageFX Google 로그인 */
   imagefxCheckLogin(): Promise<{ loggedIn: boolean; userName?: string; message: string }>;
@@ -600,6 +603,9 @@ const api: BloggerApi = {
   adspowerListProfiles: () => ipcRenderer.invoke('adspower:list-profiles'),
   adspowerStartProfile: (profileId: string) => ipcRenderer.invoke('adspower:start-profile', profileId),
   adspowerStopProfile: (profileId: string) => ipcRenderer.invoke('adspower:stop-profile', profileId),
+  adspowerCreateProfile: (name: string) => ipcRenderer.invoke('adspower:create-profile', name),
+  adspowerDeleteProfile: (ids: string[]) => ipcRenderer.invoke('adspower:delete-profile', ids),
+  adspowerAutoInstall: () => ipcRenderer.invoke('adspower:auto-install'),
 
   // 🔐 ImageFX Google 로그인
   imagefxCheckLogin: () => ipcRenderer.invoke('imagefx:check-login'),

@@ -207,6 +207,57 @@ export class AdsPowerManager {
   }
 
   /**
+   * 새 AdsPower 프로필 생성
+   */
+  async createProfile(profileName: string): Promise<{ ok: boolean; profileId?: string; serialNumber?: string; error?: string }> {
+    try {
+      const url = `${this.baseUrl}/user/create`;
+      const response = await axios.post(url, {
+        name: profileName || `Orbit_${Date.now()}`,
+        group_id: '0',
+        repeat_config: ['0'],
+        user_proxy_config: { proxy_soft: 'no_proxy' }
+      }, {
+        params: this.apiKey ? { api_key: this.apiKey } : {},
+        timeout: this.timeout
+      });
+
+      if (response.data && response.data.code === 0 && response.data.data) {
+        return {
+          ok: true,
+          profileId: response.data.data.id,
+          serialNumber: response.data.data.serial_number
+        };
+      }
+      return { ok: false, error: response.data?.msg || '프로필 생성 실패' };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  }
+
+  /**
+   * AdsPower 프로필 삭제
+   */
+  async deleteProfile(profileIds: string[]): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const url = `${this.baseUrl}/user/delete`;
+      const response = await axios.post(url, {
+        user_ids: profileIds
+      }, {
+        params: this.apiKey ? { api_key: this.apiKey } : {},
+        timeout: this.timeout
+      });
+
+      if (response.data && response.data.code === 0) {
+        return { ok: true };
+      }
+      return { ok: false, error: response.data?.msg || '프로필 삭제 실패' };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  }
+
+  /**
    * 프로필 브라우저 활성 상태 확인
    */
   async checkProfileStatus(profileId: string): Promise<{ active: boolean }> {
