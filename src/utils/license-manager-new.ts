@@ -213,23 +213,23 @@ export class LicenseManager {
     try {
       const { loadEnvFromFile } = await import('../env');
       const env = loadEnvFromFile();
+      const DEFAULT_SERVER = 'https://script.google.com/macros/s/AKfycbxBOGkjVj4p-6XZ4SEFYKhW3FBmo5gt7Fv6djWhB1TljnDDmx_qlfZ4YdlJNohzIZ8NJw/exec';
       const redeemUrl = (env as any).licenseRedeemUrl ||
                         (env as any).LICENSE_REDEEM_URL ||
-                        process.env['LICENSE_REDEEM_URL'] || '';
-
-      if (!redeemUrl) return null;
+                        process.env['LICENSE_REDEEM_URL'] ||
+                        DEFAULT_SERVER;
 
       const axios = (await import('axios')).default;
       const deviceId = this.getDeviceId();
 
-      console.log('[AUTH] 서버에 아이디/비번 인증 시도...');
+      console.log('[AUTH] 서버에 verify-credentials 인증 시도...');
       const response = await axios.post(redeemUrl, {
-        action: 'login',
+        action: 'verify-credentials',
         appId: 'com.ridernam.blogger.automation',
         userId,
         userPassword: password,
         deviceId
-      }, { timeout: 10000, headers: { 'Content-Type': 'application/json' } });
+      }, { timeout: 15000, headers: { 'Content-Type': 'application/json' } });
 
       if (response.data && (response.data.ok || response.data.valid)) {
         const data = response.data;
@@ -343,12 +343,13 @@ export class LicenseManager {
       // 환경 변수에서 서버 URL 가져오기
       const { loadEnvFromFile } = await import('../env');
       const env = loadEnvFromFile();
-      const redeemUrl = (env as any).licenseRedeemUrl || 
-                       (env as any).LICENSE_REDEEM_URL || 
-                       process.env['LICENSE_REDEEM_URL'] || 
-                       '';
-      
-      // 서버 URL이 설정되어 있으면 서버 검증 시도
+      const DEFAULT_SERVER = 'https://script.google.com/macros/s/AKfycbxBOGkjVj4p-6XZ4SEFYKhW3FBmo5gt7Fv6djWhB1TljnDDmx_qlfZ4YdlJNohzIZ8NJw/exec';
+      const redeemUrl = (env as any).licenseRedeemUrl ||
+                       (env as any).LICENSE_REDEEM_URL ||
+                       process.env['LICENSE_REDEEM_URL'] ||
+                       DEFAULT_SERVER;
+
+      // 서버 검증 시도
       if (redeemUrl) {
         try {
           // 서버 API를 통해 코드 검증 (관리 패널 API 형식 사용)
