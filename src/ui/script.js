@@ -2424,6 +2424,18 @@ async function loadLicenseInfo() {
     const licenseStatusElement = document.getElementById('licenseStatus');
     if (!licenseStatusElement) return;
 
+    // 개발 환경 체크 — 개발모드 배지 숨김
+    const devApi = window.electronAPI || window.electron;
+    if (devApi && devApi.isDeveloperMode) {
+      try {
+        const devResult = await devApi.isDeveloperMode();
+        if (devResult && devResult.isDeveloperMode) {
+          setLicenseStatusElement(licenseStatusElement, '✅ 인증완료', '#10b981', true);
+          return;
+        }
+      } catch { /* ignore */ }
+    }
+
     // Electron API를 통해 라이센스 파일 읽기
     if (window.blogger && window.blogger.readLicenseFile) {
       const result = await window.blogger.readLicenseFile();

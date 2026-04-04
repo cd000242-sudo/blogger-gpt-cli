@@ -282,16 +282,11 @@ window.wizardComplete = function() {
     setTimeout(() => overlay.remove(), 300);
   }
 
-  // 원클릭세팅 탭으로 안내
+  // 환경설정 모달 열기 → 원클릭세팅 안내
   setTimeout(() => {
-    if (typeof showTab === 'function') {
-      showTab('settings');
+    if (typeof openSettingsModal === 'function') {
+      openSettingsModal();
     }
-    // 원클릭세팅 모달 열기 시도
-    setTimeout(() => {
-      const oneclickBtn = document.querySelector('[onclick*="oneclick"], [onclick*="oneclickSetup"]');
-      if (oneclickBtn) oneclickBtn.click();
-    }, 500);
   }, 500);
 
   addLog('[WIZARD] 첫 실행 세팅 완료!');
