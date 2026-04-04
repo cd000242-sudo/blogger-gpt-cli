@@ -4175,16 +4175,20 @@ function clearLog() {
 }
 
 // 환경설정 모달 열기
+let _settingsContentLoaded = false;
+
 async function openSettingsModal(defaultTab = 'core') {
   console.log('🔧 환경설정 모달 열기 시도...');
   const modal = document.getElementById('settingsModal');
-  console.log('🔍 모달 요소:', modal);
 
   if (modal) {
-    console.log('✅ 모달 요소 찾음, 표시 중...');
     modal.style.display = 'flex';
     try {
-      await loadSettingsContent();
+      // 이미 로드된 적 있으면 재생성하지 않음 (입력 중인 값 보존)
+      if (!_settingsContentLoaded) {
+        await loadSettingsContent();
+        _settingsContentLoaded = true;
+      }
       if (defaultTab) {
         const tabButtons = document.querySelectorAll('.settings-tab');
         const tabContents = document.querySelectorAll('.settings-tab-content');
@@ -4373,6 +4377,9 @@ async function loadSettingsContent() {
   if (modalBody) {
     modalBody.innerHTML = `
       <div style="padding: 40px;">
+        <div style="color: rgba(255,255,255,0.5); font-size: 12px; margin-bottom: 16px; text-align: right;">
+          <span style="color: #ef4444;">*</span> 필수 항목
+        </div>
         <!-- 🤖 AI 엔진 선택 카드 (Full-Width) -->
         <div style="background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%); border-radius: 24px; padding: 36px; color: white; box-shadow: 0 24px 80px rgba(48, 43, 99, 0.5); border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 32px; position: relative; overflow: hidden;">
           <!-- 배경 장식 -->
@@ -4477,7 +4484,7 @@ async function loadSettingsContent() {
                 <input type="text" id="openaiKey" placeholder="sk-proj-..." style="width: 100%; padding: 12px 16px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; color: white; font-size: 14px; backdrop-filter: blur(10px);">
               </div>
               <div>
-                <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">Gemini API</label>
+                <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">Gemini API<span style="color: #ef4444; margin-left: 2px;">*</span></label>
                 <input type="text" id="geminiKey" placeholder="AIza..." style="width: 100%; padding: 12px 16px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; color: white; font-size: 14px; backdrop-filter: blur(10px);">
               </div>
               <div>
@@ -4491,6 +4498,7 @@ async function loadSettingsContent() {
               <div>
                 <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">네이버 Customer ID</label>
                 <input type="text" id="naverCustomerId" placeholder="3992868" style="width: 100%; padding: 12px 16px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; color: white; font-size: 14px; backdrop-filter: blur(10px);">
+                <small style="color:rgba(255,255,255,0.4);font-size:11px;">네이버 검색광고 API의 고객 ID</small>
               </div>
               <div>
                 <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">네이버 Secret Key</label>
@@ -4517,7 +4525,7 @@ async function loadSettingsContent() {
             <div style="display: flex; flex-direction: column; gap: 16px;">
               <!-- 플랫폼 선택 -->
               <div>
-                <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">플랫폼 선택</label>
+                <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">플랫폼 선택<span style="color: #ef4444; margin-left: 2px;">*</span></label>
                 <div style="display: flex; gap: 12px;">
                   <label style="flex: 1; padding: 12px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.3s ease;">
                     <input type="radio" id="platform-blogger" name="platform" value="blogger" onchange="togglePlatformFields(this.value);" style="width: 18px; height: 18px; cursor: pointer;">
@@ -4533,10 +4541,12 @@ async function loadSettingsContent() {
               <div>
                 <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">Google CSE Key</label>
                 <input type="text" id="googleCseKey" placeholder="AIza..." style="width: 100%; padding: 12px 16px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; color: white; font-size: 14px; backdrop-filter: blur(10px);">
+                <small style="color:rgba(255,255,255,0.4);font-size:11px;">Google Programmable Search Engine API 키 (검색 기능에 사용)</small>
               </div>
               <div>
                 <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">Google CSE CX</label>
                 <input type="text" id="googleCseCx" placeholder="ab12cd34efg:xyz123" style="width: 100%; padding: 12px 16px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; color: white; font-size: 14px; backdrop-filter: blur(10px);">
+                <small style="color:rgba(255,255,255,0.4);font-size:11px;">Google CSE 검색 엔진 ID (cx 값)</small>
               </div>
               <div>
                 <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">Blogger ID</label>
@@ -4606,7 +4616,8 @@ async function loadSettingsContent() {
               
               <div>
                 <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">최소 글자 수</label>
-                <input type="number" id="minChars" placeholder="2000" value="2000" style="width: 100%; padding: 12px 16px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; color: white; font-size: 14px; backdrop-filter: blur(10px);">
+                <input type="number" id="minChars" placeholder="2000" value="2000" min="500" max="10000" style="width: 100%; padding: 12px 16px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; color: white; font-size: 14px; backdrop-filter: blur(10px);">
+                <small style="color:rgba(255,255,255,0.4);font-size:11px;">AI가 생성할 글의 최소 글자수 (기본: 2000자)</small>
               </div>
             </div>
           </div>
@@ -4774,6 +4785,39 @@ async function loadSettingsContent() {
 
 // 설정 저장
 async function saveSettings() {
+  // 필수 필드 검증
+  const geminiKey = document.getElementById('geminiKey')?.value?.trim() || '';
+  if (!geminiKey) {
+    showNotification('⚠️ Gemini API 키는 필수예요. Google AI Studio에서 무료로 발급받을 수 있어요.', 'warning');
+    document.getElementById('geminiKey')?.focus();
+    return; // 저장 중단
+  }
+
+  const platform = document.querySelector('input[name="platform"]:checked')?.value || 'wordpress';
+  if (platform === 'wordpress') {
+    const wpUrl = document.getElementById('wordpressSiteUrl')?.value?.trim() || '';
+    if (wpUrl && !wpUrl.startsWith('http://') && !wpUrl.startsWith('https://')) {
+      // Auto-fix: prepend https://
+      document.getElementById('wordpressSiteUrl').value = 'https://' + wpUrl;
+      showNotification('WordPress URL에 https://를 자동으로 추가했어요.', 'info');
+    }
+  }
+
+  if (platform === 'blogspot' || platform === 'blogger') {
+    const blogId = document.getElementById('blogId')?.value?.trim() || '';
+    if (blogId && !/^\d+$/.test(blogId)) {
+      showNotification('⚠️ Blog ID는 숫자만 입력해주세요. (예: 1234567890123456789)', 'warning');
+      document.getElementById('blogId')?.focus();
+      return;
+    }
+  }
+
+  const minCharsVal = parseInt(document.getElementById('minChars')?.value || '2000');
+  if (isNaN(minCharsVal) || minCharsVal < 500 || minCharsVal > 10000) {
+    showNotification('⚠️ 최소 글자수는 500~10000 사이로 입력해주세요.', 'warning');
+    return;
+  }
+
   const settings = {
     openaiKey: document.getElementById('openaiKey')?.value || '',
     geminiKey: document.getElementById('geminiKey')?.value || '',
@@ -4837,12 +4881,9 @@ async function saveSettings() {
   const currentSettings = loadSettings();
   updateApiKeyStatus(currentSettings);
 
-  // 저장 후 플랫폼 연동 상태 자동 확인
-  // 설정 저장 후 간단한 메시지만 표시
-  setTimeout(() => {
-    alert('✅ 설정이 저장되었습니다.');
-  }, 1000);
-
+  // 저장 완료 후 처리
+  _settingsContentLoaded = false; // 다음 열기 시 최신 데이터 반영
+  showNotification('✅ 설정이 저장되었어요!', 'success');
   closeSettingsModal();
 }
 
@@ -4998,6 +5039,18 @@ function loadSettings() {
   }
   if (typeof togglePlatformFields === 'function') {
     togglePlatformFields(settings.platform);
+  }
+
+  // WordPress 요약 정보 업데이트
+  const wpSummaryUrl = document.getElementById('wpSummaryUrl');
+  const wpSummaryUser = document.getElementById('wpSummaryUser');
+  if (wpSummaryUrl) {
+    const url = settings.wordpressSiteUrl || '';
+    wpSummaryUrl.textContent = url ? `URL: ${url}` : 'URL: 미설정';
+  }
+  if (wpSummaryUser) {
+    const user = settings.wordpressUsername || '';
+    wpSummaryUser.textContent = user ? `계정: ${user}` : '계정: 미설정';
   }
 
   return settings;
