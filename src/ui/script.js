@@ -4513,7 +4513,7 @@ async function loadSettingsContent() {
         </div>
 
         <!-- 메인 설정 그리드 -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 32px; margin-bottom: 40px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 40px;">
           
           <!-- API 키 설정 카드 -->
           <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 20px; padding: 32px; color: white; box-shadow: 0 20px 60px rgba(102, 126, 234, 0.3); border: 1px solid rgba(255, 255, 255, 0.1);">
@@ -4618,35 +4618,7 @@ async function loadSettingsContent() {
                 <input type="password" id="googleClientSecret" placeholder="GOCSPX-..." style="width: 100%; padding: 12px 16px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; color: white; font-size: 14px; backdrop-filter: blur(10px);">
               </div>
               
-              <!-- Blogger 연결 테스트 및 가이드 버튼 -->
-              <div style="display: flex; gap: 12px; margin-top: 8px;">
-                <button type="button" onclick="testBloggerConnection()" style="flex: 1; padding: 12px 16px; background: linear-gradient(135deg, #4285f4 0%, #34a853 100%); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
-                  🔗 Blogger 연결 테스트
-                </button>
-                <button type="button" onclick="showBloggerGuide()" style="flex: 1; padding: 12px 16px; background: rgba(255, 255, 255, 0.2); color: white; border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; backdrop-filter: blur(10px); transition: all 0.3s ease;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
-                  📖 Blogger 설정 가이드
-                </button>
-              </div>
-              <div id="bloggerConnectionStatus" style="display: none; margin-top: 8px; padding: 12px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; text-align: center;"></div>
-            </div>
-          </div>
-
-          <!-- 고급 설정 카드 -->
-          <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 20px; padding: 32px; color: white; box-shadow: 0 20px 60px rgba(79, 172, 254, 0.3); border: 1px solid rgba(255, 255, 255, 0.1);">
-            <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">
-              <div style="width: 48px; height: 48px; background: rgba(255, 255, 255, 0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(10px);">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="3"></circle>
-                  <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"></path>
-                </svg>
-              </div>
-              <div>
-                <h3 style="font-size: 20px; font-weight: 700; margin: 0;">고급 설정</h3>
-                <p style="font-size: 14px; margin: 4px 0 0 0; opacity: 0.8;">추가 옵션 및 설정</p>
-              </div>
-            </div>
-            
-            <div style="display: flex; flex-direction: column; gap: 16px;">
+              <!-- WordPress 필드 -->
               <div>
                 <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">WordPress 사이트 URL</label>
                 <input type="text" id="wordpressSiteUrl" placeholder="https://yoursite.com" style="width: 100%; padding: 12px 16px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; color: white; font-size: 14px; backdrop-filter: blur(10px);">
@@ -4659,7 +4631,25 @@ async function loadSettingsContent() {
                 <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">Application Password</label>
                 <input type="password" id="wordpressPassword" placeholder="Application Password" style="width: 100%; padding: 12px 16px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; color: white; font-size: 14px; backdrop-filter: blur(10px);">
               </div>
-              
+
+              <!-- 최소 글자 수 -->
+              <div>
+                <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">최소 글자 수</label>
+                <input type="number" id="minChars" placeholder="2000" value="2000" min="500" max="10000" style="width: 100%; padding: 12px 16px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; color: white; font-size: 14px; backdrop-filter: blur(10px);">
+                <small style="color:rgba(255,255,255,0.4);font-size:11px;">AI가 생성할 글의 최소 글자수 (기본: 2000자)</small>
+              </div>
+
+              <!-- Blogger 연결 테스트 및 가이드 버튼 -->
+              <div style="display: flex; gap: 12px; margin-top: 8px;">
+                <button type="button" onclick="testBloggerConnection()" style="flex: 1; padding: 12px 16px; background: linear-gradient(135deg, #4285f4 0%, #34a853 100%); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                  🔗 Blogger 연결 테스트
+                </button>
+                <button type="button" onclick="showBloggerGuide()" style="flex: 1; padding: 12px 16px; background: rgba(255, 255, 255, 0.2); color: white; border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; backdrop-filter: blur(10px); transition: all 0.3s ease;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                  📖 Blogger 설정 가이드
+                </button>
+              </div>
+              <div id="bloggerConnectionStatus" style="display: none; margin-top: 8px; padding: 12px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; text-align: center;"></div>
+
               <!-- WordPress 연결 테스트 및 가이드 버튼 -->
               <div style="display: flex; gap: 12px; margin-top: 8px;">
                 <button type="button" onclick="testWordPressConnection()" style="flex: 1; padding: 12px 16px; background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
@@ -4670,51 +4660,10 @@ async function loadSettingsContent() {
                 </button>
               </div>
               <div id="wordpressConnectionStatus" style="display: none; margin-top: 8px; padding: 12px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; text-align: center;"></div>
-              
-              <div>
-                <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; opacity: 0.9;">최소 글자 수</label>
-                <input type="number" id="minChars" placeholder="2000" value="2000" min="500" max="10000" style="width: 100%; padding: 12px 16px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; color: white; font-size: 14px; backdrop-filter: blur(10px);">
-                <small style="color:rgba(255,255,255,0.4);font-size:11px;">AI가 생성할 글의 최소 글자수 (기본: 2000자)</small>
-              </div>
             </div>
           </div>
         </div>
 
-
-        <!-- 백업 기능 섹션 -->
-        <div style="margin-top: 32px; padding: 32px; background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(167, 139, 250, 0.1) 100%); border-radius: 20px; border: 2px solid rgba(139, 92, 246, 0.3); box-shadow: 0 8px 32px rgba(139, 92, 246, 0.2);">
-          <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 20px;">
-            <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%); border-radius: 16px; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 24px rgba(139, 92, 246, 0.4);">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7,10 12,15 17,10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-            </div>
-            <div>
-              <h3 style="color: #333; font-size: 24px; font-weight: 700; margin: 0 0 4px 0;">백업 관리</h3>
-              <p style="color: #666; font-size: 15px; font-weight: 500; margin: 0;">설정 및 데이터 백업 및 복원</p>
-            </div>
-          </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-            <button onclick="createBackup()" style="padding: 16px 24px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3); transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(16, 185, 129, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 16px rgba(16, 185, 129, 0.3)'">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7,10 12,15 17,10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-              백업 생성
-            </button>
-            <button onclick="restoreBackup()" style="padding: 16px 24px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: none; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 16px rgba(245, 158, 11, 0.3); transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(245, 158, 11, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 16px rgba(245, 158, 11, 0.3)'">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="17,10 12,15 7,10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-              백업 복원
-            </button>
-          </div>
-        </div>
 
         <!-- 하단 액션 버튼들 -->
         <div style="display: flex; justify-content: center; gap: 16px; padding-top: 32px; border-top: 2px solid rgba(0, 0, 0, 0.1);">
