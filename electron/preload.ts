@@ -314,6 +314,7 @@ export type BloggerApi = {
 
   /** 쿼터 상태 조회 */
   getQuotaStatus(): Promise<{ success: boolean; isFree?: boolean; quota?: any; message?: string }>;
+  getAppVersion(): Promise<string>;
 };
 
 /** ───────── 공통 유틸 ───────── */
@@ -606,6 +607,9 @@ const api: BloggerApi = {
 
   // ── 쿼터 관리 ──
   getQuotaStatus: () => ipcRenderer.invoke('quota:getStatus'),
+
+  // ── 앱 정보 ──
+  getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
 };
 
 // Electron API (개발자 모드 체크 포함)

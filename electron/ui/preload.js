@@ -260,6 +260,8 @@ const api = {
     imagefxLogin: () => electron_1.ipcRenderer.invoke('imagefx:login'),
     // ── 쿼터 관리 ──
     getQuotaStatus: () => electron_1.ipcRenderer.invoke('quota:getStatus'),
+    // ── 앱 정보 ──
+    getAppVersion: () => electron_1.ipcRenderer.invoke('app:getVersion'),
 };
 // Electron API (개발자 모드 체크 포함)
 const electronApi = {

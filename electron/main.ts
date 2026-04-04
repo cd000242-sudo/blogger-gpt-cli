@@ -4014,6 +4014,11 @@ ipcMain.handle('check-api-keys', async () => {
 });
 
 // ── 쿼터 관리 IPC ──
+// 앱 버전 조회
+ipcMain.handle('app:getVersion', () => {
+  return app.getVersion();
+});
+
 ipcMain.handle('quota:getStatus', async () => {
   try {
     const { isFreeTierUser, getFreeQuotaStatus } = require('./auth-utils');

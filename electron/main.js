@@ -3639,6 +3639,10 @@ electron_1.ipcMain.handle('check-api-keys', async () => {
     }
 });
 // ── 쿼터 관리 IPC ──
+// 앱 버전 조회
+electron_1.ipcMain.handle('app:getVersion', () => {
+    return electron_1.app.getVersion();
+});
 electron_1.ipcMain.handle('quota:getStatus', async () => {
     try {
         const { isFreeTierUser, getFreeQuotaStatus } = require('./auth-utils');

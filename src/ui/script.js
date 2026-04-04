@@ -7443,6 +7443,15 @@ document.addEventListener('DOMContentLoaded', async function () {
   // 쿼터 카운터 초기화
   updateFreeQuotaCounter();
 
+  // 앱 버전 표시
+  try {
+    if (window.blogger && window.blogger.getAppVersion) {
+      const ver = await window.blogger.getAppVersion();
+      const el = document.getElementById('appVersionText');
+      if (el && ver) el.textContent = ver;
+    }
+  } catch { /* ignore */ }
+
   // 초기 플랫폼 설정 (워드프레스가 기본값)
   const bloggerRadio = document.getElementById('platform-blogger');
   const wordpressRadio = document.getElementById('platform-wordpress');

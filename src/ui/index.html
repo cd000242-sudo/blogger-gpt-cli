@@ -158,6 +158,11 @@
     <span style="color: white; font-weight: 700;">라이센스</span>
   </button>
 
+  <!-- 버전 표시 (우측 하단) -->
+  <div id="appVersionBadge" style="position: fixed; bottom: 68px; right: 24px; z-index: 998; color: rgba(255,255,255,0.3); font-size: 11px; font-weight: 600; letter-spacing: 0.5px; pointer-events: none;">
+    v<span id="appVersionText">--</span>
+  </div>
+
   <!-- 환경 설정 버튼 (우측 하단) -->
   <div style="position: fixed; bottom: 24px; right: 24px; z-index: 999;">
     <button class="settings-btn" onclick="openSettingsModal()"
