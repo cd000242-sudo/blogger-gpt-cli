@@ -141,9 +141,9 @@ function showFirstRunWizard() {
             ">
               <div style="color: #a5b4fc; font-weight: 600; font-size: 13px; margin-bottom: 8px;">💡 시작하는 법</div>
               <ol style="color: rgba(255,255,255,0.8); font-size: 13px; margin: 0; padding-left: 20px; line-height: 2;">
+                <li>먼저 <strong style="color: #c4b5fd;">원클릭세팅</strong>으로 블로그를 설정</li>
                 <li>메인 화면에서 <strong style="color: #c4b5fd;">키워드</strong>를 입력</li>
                 <li><strong style="color: #c4b5fd;">AI 글 생성하기</strong> 버튼 클릭</li>
-                <li>3~5분 기다리면 글이 완성!</li>
               </ol>
             </div>
           </div>
@@ -235,7 +235,7 @@ window.wizardNext = function() {
     showWizardStep(3);
     // Change button text
     const nextBtn = document.getElementById('wizard-next-btn');
-    if (nextBtn) nextBtn.textContent = '시작하기 🚀';
+    if (nextBtn) nextBtn.textContent = '원클릭세팅 시작 🚀';
     const skipBtn = document.getElementById('wizard-skip-btn');
     if (skipBtn) skipBtn.style.display = 'none';
   } else if (wizardStep === 3) {
@@ -281,6 +281,18 @@ window.wizardComplete = function() {
     overlay.style.transition = 'opacity 0.3s ease';
     setTimeout(() => overlay.remove(), 300);
   }
+
+  // 원클릭세팅 탭으로 안내
+  setTimeout(() => {
+    if (typeof showTab === 'function') {
+      showTab('settings');
+    }
+    // 원클릭세팅 모달 열기 시도
+    setTimeout(() => {
+      const oneclickBtn = document.querySelector('[onclick*="oneclick"], [onclick*="oneclickSetup"]');
+      if (oneclickBtn) oneclickBtn.click();
+    }, 500);
+  }, 500);
 
   addLog('[WIZARD] 첫 실행 세팅 완료!');
 };

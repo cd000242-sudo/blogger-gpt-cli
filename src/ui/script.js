@@ -746,7 +746,7 @@ function executeSchedule(scheduleId) {
     topic: schedule.topic,
     title: schedule.topic, // 제목은 주제로 설정
     keywords: schedule.keywords ? schedule.keywords.split(',').map(k => k.trim()) : [schedule.topic],
-    platform: schedule.platform || 'wordpress',
+    platform: schedule.platform || 'blogspot',
     contentMode: schedule.contentMode || 'external',
     promptMode: 'max-mode',
     h2Images: schedule.h2Images || getH2ImageSections(),
@@ -1815,7 +1815,7 @@ function checkEnvironmentVariables() {
         // (사용자가 모달에서 저장한 값이 항상 우선)
         const mergedSettings = { ...envSettings, ...settings };
         if (!mergedSettings.platform) {
-          mergedSettings.platform = 'wordpress';
+          mergedSettings.platform = 'blogspot';
         }
 
         // .env에만 있고 localStorage에 없는 값 → localStorage로 동기화
@@ -2833,7 +2833,7 @@ async function runPosting() {
       previewPayload.previewOnly = false; // 발행 모드
 
       // 플랫폼 설정
-      const selectedPlatform = document.querySelector('input[name="platform"]:checked')?.value || 'wordpress';
+      const selectedPlatform = document.querySelector('input[name="platform"]:checked')?.value || 'blogspot';
       previewPayload.platform = selectedPlatform;
       successLog('POSTING', `플랫폼 설정: ${selectedPlatform}`);
 
@@ -3059,7 +3059,7 @@ async function runPosting() {
         provider: contentAI, // 본문 생성 AI 사용
         titleAI: titleAI, // 제목 생성 AI
         summaryAI: summaryAI, // 요약표 생성 AI
-        platform: document.querySelector('input[name="platform"]:checked')?.value || 'wordpress', // 현재 선택된 플랫폼 사용 (기본값: wordpress)
+        platform: document.querySelector('input[name="platform"]:checked')?.value || 'blogspot', // 현재 선택된 플랫폼 사용 (기본값: blogspot)
         publishType: publishType === 'schedule' ? 'schedule' : publishType === 'publish' ? 'now' : 'draft',
         schedule: scheduleDateTime,
         thumbnailMode: thumbnailModeValue,
@@ -3189,7 +3189,7 @@ async function runPosting() {
           // 작업 기록 자동 추가
           const keywords = getAllKeywords();
           const keywordCount = keywords.length;
-          const platform = document.querySelector('input[name="platform"]:checked')?.value || 'wordpress';
+          const platform = document.querySelector('input[name="platform"]:checked')?.value || 'blogspot';
           const platformName = platform === 'blogger' ? '블로거' : '워드프레스';
 
           let publishedUrl = result.url || result.postUrl || result.link || '';
@@ -4326,7 +4326,7 @@ async function createBackup() {
     // 백업할 내용 미리보기
     const settings = JSON.parse(localStorage.getItem('bloggerSettings') || '{}');
     const keyCount = Object.keys(settings).filter(k => settings[k] && String(settings[k]).trim()).length;
-    const platform = settings.platform || 'wordpress';
+    const platform = settings.platform || 'blogspot';
 
     const proceed = confirm(
       `📦 백업할 설정 미리보기\n\n` +
@@ -4414,7 +4414,7 @@ async function loadSettingsContent() {
   } else if (envSettings && envSettings.platform) {
     mergedSettings.platform = envSettings.platform;
   } else {
-    mergedSettings.platform = 'wordpress';
+    mergedSettings.platform = 'blogspot';
   }
   console.log('병합된 설정:', mergedSettings);
   const modalBody = document.getElementById('settingsModalBody');
@@ -4771,7 +4771,7 @@ async function loadSettingsContent() {
       }
 
       // 플랫폼 선택
-      const platform = mergedSettings.platform || 'wordpress';
+      const platform = mergedSettings.platform || 'blogspot';
       if (document.getElementById('platform-blogger')) document.getElementById('platform-blogger').checked = (platform === 'blogger');
       if (document.getElementById('platform-wordpress')) document.getElementById('platform-wordpress').checked = (platform === 'wordpress');
       // API 키 상태 확인 및 표시 (약간의 지연 후 실행하여 DOM이 완전히 렌더링된 후)
@@ -4837,7 +4837,7 @@ async function saveSettings() {
     return; // 저장 중단
   }
 
-  const platform = document.querySelector('input[name="platform"]:checked')?.value || 'wordpress';
+  const platform = document.querySelector('input[name="platform"]:checked')?.value || 'blogspot';
   if (platform === 'wordpress') {
     const wpUrl = document.getElementById('wordpressSiteUrl')?.value?.trim() || '';
     if (wpUrl && !wpUrl.startsWith('http://') && !wpUrl.startsWith('https://')) {
@@ -4880,7 +4880,7 @@ async function saveSettings() {
     wordpressUsername: document.getElementById('wordpressUsername')?.value || '',
     wordpressPassword: document.getElementById('wordpressPassword')?.value || '',
     wordpressCategories: document.getElementById('wordpressCategories')?.value || '',
-    platform: document.querySelector('input[name="platform"]:checked')?.value || 'wordpress',
+    platform: document.querySelector('input[name="platform"]:checked')?.value || 'blogspot',
     promptMode: 'max-mode', // MAX모드로 고정
     toneStyle: document.getElementById('toneStyle')?.value || 'professional', // 말투/어투 선택
     textModel: document.getElementById('textModelSelect')?.value || 'gemini-2.5-flash',
@@ -5024,7 +5024,7 @@ function updateApiKeyStatus(settings) {
 // 설정 로드
 function loadSettings() {
   const savedSettings = localStorage.getItem('bloggerSettings');
-  const settings = savedSettings ? JSON.parse(savedSettings) : { platform: 'wordpress' };
+  const settings = savedSettings ? JSON.parse(savedSettings) : { platform: 'blogspot' };
 
   if (savedSettings) {
     Object.keys(settings).forEach(key => {
@@ -5787,7 +5787,7 @@ function removeCtaItem(itemId) {
 
 // 플랫폼 필드 토글 (포스팅 작성 페이지)
 function togglePlatformFields(forcedPlatform) {
-  const selectedPlatform = forcedPlatform || document.querySelector('input[name="platform"]:checked')?.value || 'wordpress';
+  const selectedPlatform = forcedPlatform || document.querySelector('input[name="platform"]:checked')?.value || 'blogspot';
   const wordpressCategoryField = document.getElementById('wordpressCategoryField');
   const bloggerAuthBtn = document.getElementById('bloggerAuthBtn');
   const bloggerAuthBtn2 = document.getElementById('bloggerAuthBtn2');
@@ -5825,7 +5825,7 @@ function togglePlatformFields(forcedPlatform) {
 }
 // 플랫폼 연동 확인
 async function checkPlatformConnection() {
-  const selectedPlatform = document.querySelector('input[name="platform"]:checked')?.value || 'wordpress';
+  const selectedPlatform = document.querySelector('input[name="platform"]:checked')?.value || 'blogspot';
 
   console.log('플랫폼 연동 확인 시작:', selectedPlatform);
 
@@ -7425,7 +7425,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         } else if (envResult && envResult.data && envResult.data.platform) {
           mergedSettings.platform = envResult.data.platform;
         } else {
-          mergedSettings.platform = 'wordpress';
+          mergedSettings.platform = 'blogspot';
         }
         localStorage.setItem('bloggerSettings', JSON.stringify(mergedSettings));
         console.log('[ENV] API 키가 자동으로 로드되었습니다');
@@ -8767,7 +8767,7 @@ async function publishToPlatform() {
 
     // 플랫폼 인증 사전 검증
     const settings = JSON.parse(localStorage.getItem('bloggerSettings') || '{}');
-    const platform = settings.platform || 'wordpress';
+    const platform = settings.platform || 'blogspot';
 
     if (platform === 'wordpress') {
       const wpUrl = settings.wordpressSiteUrl || settings.wpSiteUrl || '';
@@ -8992,7 +8992,7 @@ function createPayloadFromForm() {
       return count;
     })(),
     contentMode: contentModeSelect?.value || 'external', // 콘텐츠 모드 추가
-    platform: selectedPlatform || savedSettings.platform || 'wordpress',
+    platform: selectedPlatform || savedSettings.platform || 'blogspot',
     publishType,
     // 수동 CTA 추가 (인덱스 기반 객체)
     manualCtas: Object.keys(manualCtas).length > 0 ? manualCtas : undefined,
@@ -9088,7 +9088,7 @@ function createPreviewPayload() {
     sectionCount: selectedSectionCount,
     titleMode: titleModeSelect ? titleModeSelect.value : 'auto',
     contentMode: contentModeSelect ? contentModeSelect.value : 'external', // 콘텐츠 모드 추가
-    platform: selectedPlatform || savedSettings.platform || 'wordpress',
+    platform: selectedPlatform || savedSettings.platform || 'blogspot',
     publishType,
     postingMode: postingModeSelect ? postingModeSelect.value : 'immediate', // 발행 모드 추가
     provider: contentAI, // 본문 생성 AI 사용

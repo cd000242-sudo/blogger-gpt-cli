@@ -4019,6 +4019,28 @@ ipcMain.handle('app:getVersion', () => {
   return app.getVersion();
 });
 
+// 무료 체험 접속 (라이선스 없이 앱 진입)
+ipcMain.handle('auth:free-trial', async () => {
+  console.log('[AUTH] 🆓 무료 체험 모드로 접속');
+  // Free trial: close login window and open main window
+  const { BrowserWindow } = require('electron');
+  const allWindows = BrowserWindow.getAllWindows();
+
+  // Close login window
+  allWindows.forEach((win: any) => {
+    if (win.getTitle().includes('인증') || win.webContents.getURL().includes('login-window')) {
+      win.close();
+    }
+  });
+
+  // Create main window (same as successful login)
+  if (typeof createWindow === 'function') {
+    createWindow();
+  }
+
+  return { ok: true };
+});
+
 ipcMain.handle('quota:getStatus', async () => {
   try {
     const { isFreeTierUser, getFreeQuotaStatus } = require('./auth-utils');
