@@ -27,6 +27,7 @@ import {
 } from './generation';
 import { generateCSSFinal, generateTOCFinal } from './html';
 import { validateArticleQuality } from './quality-gate';
+import { dispatchMode } from './mode-dispatcher';
 
 export async function generateUltimateMaxModeArticleFinal(
   payload: any,
@@ -204,9 +205,16 @@ export async function generateUltimateMaxModeArticleFinal(
     // 🔥 contentMode를 H2 생성 전에 추출 (내부 일관성 모드 지원)
     const contentMode = (payload as any).contentMode || 'external';
 
-    // 3. H2 생성 — 모드별 고정 구조 사용
+    // 3. H2 생성 — 모드 디스패처 우선, 없으면 기존 하드코딩 폴백
+    const modeResult = dispatchMode(contentMode, keyword);
+
     let h2Titles: string[];
-    if (contentMode === 'adsense') {
+    if (modeResult.handledByPlugin && modeResult.h2Titles) {
+      // 플러그인에서 H2 제목 제공
+      h2Titles = modeResult.h2Titles;
+      onLog?.(`[PROGRESS] 40% - ✅ ${contentMode} 모드: ${h2Titles.length}개 섹션 구조 적용`);
+    } else if (contentMode === 'adsense') {
+      // 폴백: 기존 하드코딩 (플러그인 미등록 시)
       // 🛡️ 애드센스 승인 모드: ADSENSE_ULTIMATE_SECTIONS 7섹션 고정 구조
       onLog?.('[PROGRESS] 35% - 🛡️ 애드센스 승인 모드: E-E-A-T 7섹션 구조 적용 중...');
       try {
@@ -229,6 +237,7 @@ export async function generateUltimateMaxModeArticleFinal(
         onLog?.(`[PROGRESS] 40% - ✅ 애드센스 기본 7섹션 적용 완료`);
       }
     } else if (contentMode === 'internal') {
+      // 폴백: 기존 하드코딩
       // 📝 내부 일관성(시리즈) 모드: INTERNAL_CONSISTENCY_SECTIONS 고정 구조 사용
       onLog?.('[PROGRESS] 35% - 📝 내부 일관성 모드: 시리즈 구조 적용 중...');
       h2Titles = INTERNAL_CONSISTENCY_SECTIONS.map(sec => {
@@ -268,7 +277,12 @@ export async function generateUltimateMaxModeArticleFinal(
       }
     }
 
-    const allSectionsObj = await generateAllSectionsFinal(keyword, h2Titles, factEnrichedContents, onLog, contentMode);
+    // 모드 디스패처의 섹션 프롬프트 블록이 있으면 reference 맨 앞에 삽입
+    const modeEnrichedContents = modeResult.sectionPromptBlock
+      ? [modeResult.sectionPromptBlock, ...factEnrichedContents]
+      : factEnrichedContents;
+
+    const allSectionsObj = await generateAllSectionsFinal(keyword, h2Titles, modeEnrichedContents, onLog, contentMode);
     const sections = allSectionsObj.sections;
     const introductionHTML = allSectionsObj.introduction;
     const conclusionHTML = allSectionsObj.conclusion;

@@ -20,6 +20,6 @@
     "noImplicitThis": true,
     "strictNullChecks": true
   },
-  "include": ["electron/main.ts", "electron/main-login.ts", "electron/preload.ts", "electron/oneclickSetupIpcHandlers.ts", "electron/adsenseIpcHandlers.ts", "electron/adspowerIpcHandlers.ts", "electron/ipc/**/*.ts", "src/types/**/*.d.ts"],
+  "include": ["electron/main.ts", "electron/main-login.ts", "electron/preload.ts", "electron/oneclickSetupIpcHandlers.ts", "electron/adsenseIpcHandlers.ts", "electron/adspowerIpcHandlers.ts", "electron/auth-utils.ts", "electron/quota-manager.ts", "electron/ipc/**/*.ts", "electron/oneclick/**/*.ts", "src/types/**/*.d.ts"],
   "exclude": ["node_modules", "dist", "electron/ui"]
 }

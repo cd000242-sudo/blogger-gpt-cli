@@ -33,8 +33,8 @@ export async function isFreeTierUser(): Promise<boolean> {
   }
 
   try {
-    // 동적 import — 순환 참조 방지
-    const { getLicenseManager } = require('../src/utils/license-manager-new');
+    // 동적 import — 빌드 후 dist/utils/에 컴파일됨
+    const { getLicenseManager } = require('../dist/utils/license-manager-new');
     const lm = getLicenseManager();
     if (!lm) return true;
 
