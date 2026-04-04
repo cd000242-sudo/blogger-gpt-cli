@@ -3884,6 +3884,59 @@ electron_1.app.whenReady().then(async () => {
             // 로그인 윈도우는 checkLicenseWithAutoLogin 내부에서 자동으로 표시됨
         }
     }
+    // 🔄 자동 업데이트 체크 (패키지 모드에서만)
+    if (electron_1.app.isPackaged) {
+        try {
+            const { autoUpdater } = require('electron-updater');
+            autoUpdater.autoDownload = true;
+            autoUpdater.autoInstallOnAppQuit = true;
+            autoUpdater.on('checking-for-update', () => {
+                console.log('[AUTO-UPDATE] 업데이트 확인 중...');
+            });
+            autoUpdater.on('update-available', (info) => {
+                console.log('[AUTO-UPDATE] 새 버전 발견:', info.version);
+                const focusedWindow = electron_2.BrowserWindow.getFocusedWindow();
+                if (focusedWindow) {
+                    focusedWindow.webContents.send('log-line', `[UPDATE] 새 버전 ${info.version} 다운로드 중...`);
+                }
+            });
+            autoUpdater.on('update-not-available', () => {
+                console.log('[AUTO-UPDATE] 최신 버전입니다.');
+            });
+            autoUpdater.on('download-progress', (progress) => {
+                console.log(`[AUTO-UPDATE] 다운로드: ${Math.round(progress.percent)}%`);
+            });
+            autoUpdater.on('update-downloaded', (info) => {
+                console.log('[AUTO-UPDATE] 다운로드 완료:', info.version);
+                const focusedWindow = electron_2.BrowserWindow.getFocusedWindow();
+                if (focusedWindow) {
+                    electron_1.dialog.showMessageBox(focusedWindow, {
+                        type: 'info',
+                        title: '업데이트 준비 완료',
+                        message: `새 버전 ${info.version}이 다운로드되었어요.\n앱을 재시작하면 자동으로 업데이트됩니다.`,
+                        buttons: ['지금 재시작', '나중에'],
+                        defaultId: 0,
+                    }).then((result) => {
+                        if (result.response === 0) {
+                            autoUpdater.quitAndInstall();
+                        }
+                    });
+                }
+            });
+            autoUpdater.on('error', (err) => {
+                console.error('[AUTO-UPDATE] 오류:', err.message);
+            });
+            // 5초 후 업데이트 체크 (앱 로딩 완료 대기)
+            setTimeout(() => {
+                autoUpdater.checkForUpdatesAndNotify().catch((e) => {
+                    console.error('[AUTO-UPDATE] 체크 실패:', e.message);
+                });
+            }, 5000);
+        }
+        catch (e) {
+            console.error('[AUTO-UPDATE] 초기화 실패:', e.message);
+        }
+    }
     // 🔥 관리자 모드 단축키 등록 (Ctrl+Shift+A)
     try {
         // 관리자 모드: Shift+Z (Enter는 prompt에서 처리)

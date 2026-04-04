@@ -63,6 +63,13 @@ nsis:
   installerHeaderIcon: build/icon.ico
   menuCategory: true
 
+# GitHub 자동 업데이트 배포
+publish:
+  provider: github
+  owner: cd000242-sudo
+  repo: blogger-gpt-cli
+  releaseType: release
+
 # 압축 설정
 compression: maximum
 

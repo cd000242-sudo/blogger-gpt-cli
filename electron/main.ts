@@ -1,4 +1,4 @@
-import { ipcMain, app, globalShortcut } from 'electron';
+import { ipcMain, app, globalShortcut, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import puppeteer from 'puppeteer-extra';
@@ -4295,6 +4295,61 @@ app.whenReady().then(async () => {
     } else {
       console.log('[APP] ⚠️ 라이선스 인증 실패 또는 로그인 필요');
       // 로그인 윈도우는 checkLicenseWithAutoLogin 내부에서 자동으로 표시됨
+    }
+  }
+
+  // 🔄 자동 업데이트 체크 (패키지 모드에서만)
+  if (app.isPackaged) {
+    try {
+      const { autoUpdater } = require('electron-updater');
+      autoUpdater.autoDownload = true;
+      autoUpdater.autoInstallOnAppQuit = true;
+
+      autoUpdater.on('checking-for-update', () => {
+        console.log('[AUTO-UPDATE] 업데이트 확인 중...');
+      });
+      autoUpdater.on('update-available', (info: any) => {
+        console.log('[AUTO-UPDATE] 새 버전 발견:', info.version);
+        const focusedWindow = BrowserWindow.getFocusedWindow();
+        if (focusedWindow) {
+          focusedWindow.webContents.send('log-line', `[UPDATE] 새 버전 ${info.version} 다운로드 중...`);
+        }
+      });
+      autoUpdater.on('update-not-available', () => {
+        console.log('[AUTO-UPDATE] 최신 버전입니다.');
+      });
+      autoUpdater.on('download-progress', (progress: any) => {
+        console.log(`[AUTO-UPDATE] 다운로드: ${Math.round(progress.percent)}%`);
+      });
+      autoUpdater.on('update-downloaded', (info: any) => {
+        console.log('[AUTO-UPDATE] 다운로드 완료:', info.version);
+        const focusedWindow = BrowserWindow.getFocusedWindow();
+        if (focusedWindow) {
+          dialog.showMessageBox(focusedWindow, {
+            type: 'info',
+            title: '업데이트 준비 완료',
+            message: `새 버전 ${info.version}이 다운로드되었어요.\n앱을 재시작하면 자동으로 업데이트됩니다.`,
+            buttons: ['지금 재시작', '나중에'],
+            defaultId: 0,
+          }).then((result) => {
+            if (result.response === 0) {
+              autoUpdater.quitAndInstall();
+            }
+          });
+        }
+      });
+      autoUpdater.on('error', (err: any) => {
+        console.error('[AUTO-UPDATE] 오류:', err.message);
+      });
+
+      // 5초 후 업데이트 체크 (앱 로딩 완료 대기)
+      setTimeout(() => {
+        autoUpdater.checkForUpdatesAndNotify().catch((e: any) => {
+          console.error('[AUTO-UPDATE] 체크 실패:', e.message);
+        });
+      }, 5000);
+    } catch (e: any) {
+      console.error('[AUTO-UPDATE] 초기화 실패:', e.message);
     }
   }
 
