@@ -1811,16 +1811,26 @@ function checkEnvironmentVariables() {
         const envSettings = envResult.data;
         console.log('✅ .env 파일 로드 성공:', envSettings);
 
-        // 병합된 설정 확인
-        const mergedSettings = { ...settings, ...envSettings };
-        if (settings && settings.platform) {
-          mergedSettings.platform = settings.platform;
-        } else if (envSettings && envSettings.platform) {
-          mergedSettings.platform = envSettings.platform;
-        } else {
+        // 병합: localStorage 우선, .env로 빈 값만 보충
+        // (사용자가 모달에서 저장한 값이 항상 우선)
+        const mergedSettings = { ...envSettings, ...settings };
+        if (!mergedSettings.platform) {
           mergedSettings.platform = 'wordpress';
         }
-        console.log('🔄 병합된 설정:', mergedSettings);
+
+        // .env에만 있고 localStorage에 없는 값 → localStorage로 동기화
+        let synced = false;
+        for (const key of Object.keys(envSettings)) {
+          if (envSettings[key] && (!settings[key] || !String(settings[key]).trim())) {
+            settings[key] = envSettings[key];
+            synced = true;
+          }
+        }
+        if (synced) {
+          localStorage.setItem('bloggerSettings', JSON.stringify(settings));
+          console.log('[SETTINGS] .env → localStorage 동기화 완료');
+        }
+        console.log('🔄 병합된 설정 (localStorage 우선):', mergedSettings);
 
         // 각 API키 상태 확인
         console.log('🔑 API키 상태:');
@@ -4308,36 +4318,70 @@ function closePreviewModal() {
 // 백업 시스템
 async function createBackup() {
   try {
-    if (window.blogger && window.blogger.createBackup) {
-      const result = await window.blogger.createBackup();
-      if (result.success) {
-        alert(`✅ 백업이 성공적으로 생성되었습니다!\n\n파일 위치: ${result.backupPath}`);
-      } else {
-        alert(`❌ 백업 생성 실패: ${result.error}`);
-      }
+    if (!window.blogger?.createBackup) {
+      showNotification('백업 기능을 사용할 수 없어요.', 'error');
+      return;
+    }
+
+    // 백업할 내용 미리보기
+    const settings = JSON.parse(localStorage.getItem('bloggerSettings') || '{}');
+    const keyCount = Object.keys(settings).filter(k => settings[k] && String(settings[k]).trim()).length;
+    const platform = settings.platform || 'wordpress';
+
+    const proceed = confirm(
+      `📦 백업할 설정 미리보기\n\n` +
+      `플랫폼: ${platform === 'wordpress' ? 'WordPress' : 'Blogger'}\n` +
+      `설정된 항목: ${keyCount}개\n` +
+      `API 키: ${settings.geminiKey ? 'Gemini ✅' : 'Gemini ❌'} ${settings.openaiKey ? 'OpenAI ✅' : ''}\n` +
+      `\n백업을 생성할까요?`
+    );
+    if (!proceed) return;
+
+    const result = await window.blogger.createBackup();
+    if (result.success) {
+      showNotification(`✅ 백업 완료! (${keyCount}개 설정)`, 'success');
+      console.log('[BACKUP] 저장 위치:', result.backupPath);
     } else {
-      alert('❌ 백업 기능을 사용할 수 없습니다.');
+      showNotification(`백업 실패: ${result.error}`, 'error');
     }
   } catch (error) {
     console.error('백업 생성 오류:', error);
-    alert('❌ 백업 생성 중 오류가 발생했습니다.');
+    showNotification('백업 생성 중 오류가 발생했어요.', 'error');
   }
 }
 
 async function restoreBackup() {
   try {
-    if (window.blogger && window.blogger.restoreBackup) {
-      const result = await window.blogger.restoreBackup();
-      if (result.success) {
-        alert(`✅ 백업이 성공적으로 복원되었습니다!\n\n복원된 파일: ${result.restoredPath}`);
-        // 설정 다시 로드
-        loadSettings();
-        location.reload();
-      } else {
-        alert(`❌ 백업 복원 실패: ${result.error}`);
-      }
+    if (!window.blogger?.restoreBackup) {
+      showNotification('복원 기능을 사용할 수 없어요.', 'error');
+      return;
+    }
+
+    const proceed = confirm(
+      '⚠️ 백업 복원 안내\n\n' +
+      '복원하면 현재 설정이 백업 시점의 설정으로 대체돼요.\n' +
+      '(현재 설정은 자동으로 임시 백업됩니다)\n\n' +
+      '계속할까요?'
+    );
+    if (!proceed) return;
+
+    // 현재 설정 임시 백업
+    const currentSettings = localStorage.getItem('bloggerSettings');
+    if (currentSettings) {
+      localStorage.setItem('bloggerSettings_pre_restore', currentSettings);
+    }
+
+    const result = await window.blogger.restoreBackup();
+    if (result.success) {
+      showNotification('✅ 설정이 복원되었어요! 새로고침합니다.', 'success');
+      loadSettings();
+      setTimeout(() => location.reload(), 1500);
     } else {
-      alert('❌ 백업 복원 기능을 사용할 수 없습니다.');
+      showNotification(`복원 실패: ${result.error}`, 'error');
+      // 실패 시 임시 백업 복구
+      if (currentSettings) {
+        localStorage.setItem('bloggerSettings', currentSettings);
+      }
     }
   } catch (error) {
     console.error('백업 복원 오류:', error);
