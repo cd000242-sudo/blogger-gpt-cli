@@ -311,6 +311,9 @@ export type BloggerApi = {
   /** 🔐 ImageFX Google 로그인 */
   imagefxCheckLogin(): Promise<{ loggedIn: boolean; userName?: string; message: string }>;
   imagefxLogin(): Promise<{ loggedIn: boolean; userName?: string; message: string }>;
+
+  /** 쿼터 상태 조회 */
+  getQuotaStatus(): Promise<{ success: boolean; isFree?: boolean; quota?: any; message?: string }>;
 };
 
 /** ───────── 공통 유틸 ───────── */
@@ -600,6 +603,9 @@ const api: BloggerApi = {
   // 🔐 ImageFX Google 로그인
   imagefxCheckLogin: () => ipcRenderer.invoke('imagefx:check-login'),
   imagefxLogin: () => ipcRenderer.invoke('imagefx:login'),
+
+  // ── 쿼터 관리 ──
+  getQuotaStatus: () => ipcRenderer.invoke('quota:getStatus'),
 };
 
 // Electron API (개발자 모드 체크 포함)

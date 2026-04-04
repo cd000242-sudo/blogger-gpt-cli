@@ -1,3 +1,44 @@
+// ── 무료 사용 쿼터 카운터 ──
+let freeQuotaInterval = null;
+
+async function updateFreeQuotaCounter() {
+  const counter = document.getElementById('freeQuotaCounter');
+  const text = document.getElementById('freeQuotaText');
+  if (!counter || !text) return;
+
+  try {
+    if (!window.blogger || !window.blogger.getQuotaStatus) {
+      counter.style.display = 'none';
+      return;
+    }
+
+    const status = await window.blogger.getQuotaStatus();
+
+    if (!status || !status.success || !status.isFree) {
+      counter.style.display = 'none';
+      if (freeQuotaInterval) { clearInterval(freeQuotaInterval); freeQuotaInterval = null; }
+      return;
+    }
+
+    const used = status.quota?.usage || 0;
+    const limit = status.quota?.limit || 2;
+    const remaining = Math.max(0, limit - used);
+    const isExhausted = remaining <= 0;
+
+    text.textContent = `${used}/${limit}`;
+    text.style.color = isExhausted ? '#fca5a5' : '#a5f3c4';
+    counter.style.display = 'flex';
+
+    // 30초마다 갱신 시작
+    if (!freeQuotaInterval) {
+      freeQuotaInterval = setInterval(updateFreeQuotaCounter, 30000);
+    }
+  } catch (e) {
+    console.warn('[QUOTA-UI] 쿼터 조회 실패:', e);
+    counter.style.display = 'none';
+  }
+}
+
 // 🔔 알림 표시 함수 (토스트 스타일)
 function showNotification(message, type = 'info') {
   const toast = document.createElement('div');
@@ -7302,6 +7343,9 @@ document.addEventListener('DOMContentLoaded', async function () {
   // 라이센스 정보 로드
   await loadLicenseInfo();
 
+  // 쿼터 카운터 초기화
+  updateFreeQuotaCounter();
+
   // 초기 플랫폼 설정 (워드프레스가 기본값)
   const bloggerRadio = document.getElementById('platform-blogger');
   const wordpressRadio = document.getElementById('platform-wordpress');
@@ -8315,6 +8359,13 @@ async function generatePreview() {
       logs: result?.logs
     });
 
+    // 페이월 체크
+    if (result && result.code === 'PAYWALL') {
+      showNotification(result.message || '⛔ 오늘의 무료 사용 한도를 초과했어요.', 'error');
+      updateFreeQuotaCounter();
+      return;
+    }
+
     if (result?.ok) {
       addLog('✅ 콘텐츠 생성 완료!', 'success');
 
@@ -8353,6 +8404,7 @@ async function generatePreview() {
       if (typeof showNotification === 'function') {
         showNotification('✅ 글 생성이 완료되었어요! 미리보기를 확인해보세요.', 'success');
       }
+      updateFreeQuotaCounter();
 
     } else {
       throw new Error(result?.error || result?.logs || '콘텐츠 생성 실패');
@@ -8675,9 +8727,18 @@ async function publishToPlatform() {
         generatedContent.thumbnailUrl
       );
 
+      // 페이월 체크
+      if (result && result.code === 'PAYWALL') {
+        showNotification(result.message || '⛔ 오늘의 무료 사용 한도를 초과했어요.', 'error');
+        updateFreeQuotaCounter();
+        hideProgressModal();
+        return;
+      }
+
       if (result && result.ok) {
         addLog('✅ 블로그 발행 완료!', 'success');
         showNotification('블로그 발행 완료! 🎉', 'success');
+        updateFreeQuotaCounter();
         if (result.url) {
           addLog(`📌 URL: ${result.url}`, 'info');
           if (typeof updatePreview === 'function') {

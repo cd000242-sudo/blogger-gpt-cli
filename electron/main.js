@@ -1815,6 +1815,7 @@ safeRegisterHandler('run-semi-auto-post', async (_evt, payload) => {
 });
 // 포스트 실행 (콘텐츠 생성 + 자동 발행)
 electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
+    let preConsumed = false;
     try {
         console.log('[RUN-POST] 포스트 실행 요청 받음');
         const { generateMaxModeArticle, publishGeneratedContent } = require('../dist/core/index');
@@ -1869,6 +1870,24 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
                 }
             }
         };
+        // 무료 사용자 쿼터 체크 (선차감)
+        try {
+            const { enforceFreeTier, isFreeTierUser } = require('./auth-utils');
+            const { consume, refund } = require('./quota-manager');
+            const enforcement = await enforceFreeTier();
+            if (!enforcement.allowed) {
+                return enforcement.response; // PAYWALL 응답
+            }
+            const isFree = await isFreeTierUser();
+            if (isFree) {
+                await consume(1);
+                preConsumed = true;
+                console.log('[QUOTA] 무료 사용자: 쿼터 선차감 완료');
+            }
+        }
+        catch (quotaError) {
+            console.error('[QUOTA] 쿼터 체크 오류 (무시):', quotaError.message);
+        }
         // 1. 콘텐츠 생성
         onLog('[PROGRESS] 5% - 🔥 콘텐츠 생성 시작');
         const result = await generateMaxModeArticle(payload, env, onLog);
@@ -1927,6 +1946,17 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
     }
     catch (error) {
         console.error('[RUN-POST] 실행 실패:', error);
+        // 실패 시 환불
+        if (preConsumed) {
+            try {
+                const { refund } = require('./quota-manager');
+                await refund(1);
+                console.log('[QUOTA] 발행 실패: 쿼터 환불 완료');
+            }
+            catch (e) {
+                console.error('[QUOTA] 환불 실패:', e);
+            }
+        }
         const errorMessage = error instanceof Error ? error.message : '실행 실패';
         return { ok: false, error: errorMessage, needsAuth: false };
     }
@@ -3606,6 +3636,22 @@ electron_1.ipcMain.handle('check-api-keys', async () => {
     catch (error) {
         console.error('[API-KEYS] 확인 실패:', error);
         return { ok: false, error: error instanceof Error ? error.message : '확인 실패', status: {} };
+    }
+});
+// ── 쿼터 관리 IPC ──
+electron_1.ipcMain.handle('quota:getStatus', async () => {
+    try {
+        const { isFreeTierUser, getFreeQuotaStatus } = require('./auth-utils');
+        const isFree = await isFreeTierUser();
+        if (!isFree) {
+            return { success: true, isFree: false };
+        }
+        const quota = await getFreeQuotaStatus();
+        return { success: true, isFree: true, quota };
+    }
+    catch (error) {
+        console.error('[QUOTA] 상태 조회 실패:', error);
+        return { success: false, message: error.message };
     }
 });
 // save-keyword-settings (키워드 마스터 설정 저장)

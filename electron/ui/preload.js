@@ -258,6 +258,8 @@ const api = {
     // 🔐 ImageFX Google 로그인
     imagefxCheckLogin: () => electron_1.ipcRenderer.invoke('imagefx:check-login'),
     imagefxLogin: () => electron_1.ipcRenderer.invoke('imagefx:login'),
+    // ── 쿼터 관리 ──
+    getQuotaStatus: () => electron_1.ipcRenderer.invoke('quota:getStatus'),
 };
 // Electron API (개발자 모드 체크 포함)
 const electronApi = {
