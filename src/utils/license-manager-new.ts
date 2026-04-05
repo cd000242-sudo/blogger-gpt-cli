@@ -154,13 +154,20 @@ export class LicenseManager {
               }
             }
             
-            // 패치 파일이 없거나 해시가 다르면 코드 재등록 필요
+            // 패치 파일이 없거나 해시가 다르면 → 서버 인증 시도
             if (licenseCode) {
               return await this.registerLicense(userId, password, licenseCode);
             }
+            // 서버에서 인증 시도 (패치 파일 없이도 로그인 가능)
+            try {
+              const serverResult = await this.authenticateWithServer(userId, password);
+              if (serverResult && serverResult.success) {
+                return serverResult;
+              }
+            } catch { /* 서버 실패 → 아래 폴백 */ }
             return {
               success: false,
-              message: '패치 파일이 없거나 유효하지 않습니다. 코드를 다시 등록해주세요.'
+              message: '서버 인증에 실패했습니다. 인터넷 연결을 확인하거나 라이선스 코드를 다시 입력해주세요.'
             };
           }
         }
