@@ -411,7 +411,7 @@ async function executeSchedule(scheduleId) {
         topic: schedule.topic,
         title: schedule.topic,
         keywords: schedule.keywords ? schedule.keywords.split(',').map(k => k.trim()) : [schedule.topic],
-        platform: schedule.platform || 'wordpress',
+        platform: schedule.platform || 'blogspot',
         contentMode: schedule.contentMode || 'external',
         h2ImageSource: schedule.h2ImageSource || 'pollinations',
         h2ImageSections: schedule.h2ImageSections || schedule.h2Images || [],
@@ -423,7 +423,7 @@ async function executeSchedule(scheduleId) {
       }
     }) : {
       // fallback: createPayload 미로딩시
-      topic: schedule.topic, title: schedule.topic, platform: schedule.platform || 'wordpress',
+      topic: schedule.topic, title: schedule.topic, platform: schedule.platform || 'blogspot',
       contentMode: schedule.contentMode || 'external', previewOnly: false
     };
 
@@ -1095,7 +1095,7 @@ function checkEnvironmentVariables() {
         console.log('  - 네이버 Secret Key:', mergedSettings.naverSecretKey ? '✅ 설정됨' : '❌ 미설정');
 
         console.log('🌐 플랫폼 설정:');
-        console.log('  - 플랫폼:', mergedSettings.platform || 'wordpress');
+        console.log('  - 플랫폼:', mergedSettings.platform || 'blogspot');
         console.log('  - Blogger ID:', mergedSettings.blogId ? '✅ 설정됨' : '❌ 미설정');
         console.log('  - Google Client ID:', mergedSettings.googleClientId ? '✅ 설정됨' : '❌ 미설정');
         console.log('  - Google Client Secret:', mergedSettings.googleClientSecret ? '✅ 설정됨' : '❌ 미설정');
@@ -1686,6 +1686,20 @@ async function loadLicenseInfo() {
   try {
     const licenseStatusElement = document.getElementById('licenseStatus');
     if (!licenseStatusElement) return;
+
+    // 무료 체험 모드 체크
+    try {
+      var api = window.blogger || window.electronAPI;
+      if (api && api.getQuotaStatus) {
+        var qs = await api.getQuotaStatus();
+        if (qs && qs.success && qs.isFree) {
+          var u = (qs.quota && qs.quota.usage) || 0;
+          var l = (qs.quota && qs.quota.limit) || 2;
+          setLicenseStatusElement(licenseStatusElement, '🆓 무료체험 (' + u + '/' + l + ')', '#10b981', true);
+          return;
+        }
+      }
+    } catch (e) { /* ignore */ }
 
     // Electron API를 통해 라이센스 파일 읽기
     if (window.blogger && window.blogger.readLicenseFile) {
@@ -3985,7 +3999,7 @@ async function loadSettingsContent() {
       // 최소 글자 수는 제거됨 (워드프레스에서는 콘텐츠 모드별로 자동 설정)
 
       // 플랫폼 선택 (가장 중요!)
-      const platform = mergedSettings.platform || 'wordpress';
+      const platform = mergedSettings.platform || 'blogspot';
       console.log('🔧 플랫폼 설정:', platform);
 
       const platformBloggerEl = document.getElementById('platform-blogger');
@@ -4085,7 +4099,7 @@ async function saveSettings() {
     wordpressUsername: document.getElementById('wordpressUsername')?.value || '',
     wordpressPassword: document.getElementById('wordpressPassword')?.value || '',
     wordpressCategories: document.getElementById('wordpressCategories')?.value || '',
-    platform: document.querySelector('input[name="platform"]:checked')?.value || 'wordpress',
+    platform: document.querySelector('input[name="platform"]:checked')?.value || 'blogspot',
     promptMode: 'max-mode', // MAX모드로 고정
     toneStyle: document.getElementById('toneStyle')?.value || 'professional', // 말투/어투 선택
   };
@@ -4977,7 +4991,7 @@ async function updatePlatformStatus() {
 
   // 먼저 현재 선택된 라디오 버튼 확인
   const selectedRadio = document.querySelector('input[name="platform"]:checked');
-  let selectedPlatform = 'wordpress'; // 기본값
+  let selectedPlatform = 'blogspot'; // 기본값
 
   if (selectedRadio) {
     selectedPlatform = selectedRadio.value;
@@ -4985,7 +4999,7 @@ async function updatePlatformStatus() {
     // 라디오 버튼이 없으면 저장된 설정에서 가져오기
     try {
       const settings = await loadSettings();
-      selectedPlatform = settings.platform || 'wordpress';
+      selectedPlatform = settings.platform || 'blogspot';
     } catch (e) {
       console.warn('[PLATFORM] 설정 로드 실패:', e);
     }
@@ -5084,7 +5098,7 @@ window.toggleBloggerGuide = toggleBloggerGuide;
 
 // 플랫폼 필드 토글 (포스팅 작성 페이지 + 환경설정) - 통합 버전
 function togglePlatformFields() {
-  const selectedPlatform = document.querySelector('input[name="platform"]:checked')?.value || 'wordpress';
+  const selectedPlatform = document.querySelector('input[name="platform"]:checked')?.value || 'blogspot';
   const isBlogger = selectedPlatform === 'blogger' || selectedPlatform === 'blogspot';
 
   console.log('[PLATFORM] togglePlatformFields 실행:', selectedPlatform, '-> isBlogger:', isBlogger);
@@ -5226,7 +5240,7 @@ function updateApiStatusIndicators() {
 
 // 플랫폼 연동 확인
 async function checkPlatformConnection() {
-  const selectedPlatform = document.querySelector('input[name="platform"]:checked')?.value || 'wordpress';
+  const selectedPlatform = document.querySelector('input[name="platform"]:checked')?.value || 'blogspot';
 
   console.log('플랫폼 연동 확인 시작:', selectedPlatform);
 
@@ -7695,7 +7709,7 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   // 저장된 설정에서 플랫폼 로드
   const savedSettings = loadSettings();
-  let platform = savedSettings.platform || 'wordpress';
+  let platform = savedSettings.platform || 'blogspot';
   // blogger와 blogspot은 동일하게 처리
   if (platform === 'blogger') {
     platform = 'blogspot';
@@ -8535,7 +8549,7 @@ function runExcelBatch() {
           fileData: data,
           settings: {
             // 현재 UI 설정값들 전달
-            platform: document.querySelector('input[name="platform"]:checked')?.value || 'wordpress',
+            platform: document.querySelector('input[name="platform"]:checked')?.value || 'blogspot',
             contentMode: DOMCache.getValue('contentMode') || 'external',
             promptMode: 'max-mode',
             h2Images: getH2ImageSections(),
@@ -9988,7 +10002,7 @@ function createPayloadFromForm() {
       return count;
     })(),
     contentMode: contentModeSelect?.value || 'external', // 콘텐츠 모드 추가
-    platform: platformSelect?.value || savedSettings.platform || 'wordpress', // 기본값: wordpress
+    platform: platformSelect?.value || savedSettings.platform || 'blogspot', // 기본값: wordpress
     publishType: publishTypeSelect?.value || 'publish',
     // 수동 CTA 추가 (인덱스 기반 객체)
     manualCtas: Object.keys(manualCtas).length > 0 ? manualCtas : undefined,

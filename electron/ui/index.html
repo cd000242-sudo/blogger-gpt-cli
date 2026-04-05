@@ -5818,6 +5818,40 @@
     </div>
   </div>
 
+<!-- 무료 사용 카운터 (고정 우상단) -->
+<div id="freeQuotaCounter" style="display: none; position: fixed; top: 16px; right: 20px; z-index: 9999; background: linear-gradient(135deg, rgba(99,102,241,0.95), rgba(168,85,247,0.95)); border-radius: 14px; padding: 10px 18px; box-shadow: 0 4px 20px rgba(99,102,241,0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.2); align-items: center; gap: 10px; color: white;">
+  <span style="font-size: 13px; font-weight: 600; opacity: 0.9;">오늘 발행</span>
+  <span id="freeQuotaText" style="font-size: 18px; font-weight: 900; letter-spacing: 1px;">0/2</span>
+</div>
+
+<script>
+// 무료 쿼터 카운터
+var freeQuotaInterval = null;
+async function updateFreeQuotaCounter() {
+  var counter = document.getElementById('freeQuotaCounter');
+  var text = document.getElementById('freeQuotaText');
+  if (!counter || !text) return;
+  try {
+    var api = window.blogger || window.electronAPI;
+    if (!api || !api.getQuotaStatus) { counter.style.display = 'none'; return; }
+    var status = await api.getQuotaStatus();
+    if (!status || !status.success || !status.isFree) {
+      counter.style.display = 'none';
+      if (freeQuotaInterval) { clearInterval(freeQuotaInterval); freeQuotaInterval = null; }
+      return;
+    }
+    var used = (status.quota && status.quota.usage) || 0;
+    var limit = (status.quota && status.quota.limit) || 2;
+    text.textContent = used + '/' + limit;
+    text.style.color = (limit - used <= 0) ? '#fca5a5' : '#a5f3c4';
+    counter.style.display = 'flex';
+    if (!freeQuotaInterval) { freeQuotaInterval = setInterval(updateFreeQuotaCounter, 30000); }
+  } catch (e) { counter.style.display = 'none'; }
+}
+// 앱 로드 후 쿼터 카운터 시작
+setTimeout(updateFreeQuotaCounter, 2000);
+</script>
+
 </body>
 
 </html>
