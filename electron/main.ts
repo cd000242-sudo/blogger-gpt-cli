@@ -2137,6 +2137,18 @@ ipcMain.handle('run-post', async (_evt, payload) => {
       if (publishResult && publishResult.ok) {
         onLog('[PROGRESS] 100% - ✅ 발행 완료!');
         console.log('[RUN-POST] ✅ 발행 성공:', publishResult.url);
+
+        // IndexNow 자동 색인 요청 (발행 성공 시)
+        if (publishResult.url) {
+          try {
+            const { submitToIndexNow } = require('../dist/core/indexnow');
+            const postUrl = publishResult.url;
+            submitToIndexNow(postUrl, [postUrl]).then((indexResult: any) => {
+              console.log('[INDEXNOW] 자동 색인 요청:', indexResult.ok ? '성공' : '실패');
+            }).catch(() => {});
+          } catch { /* ignore */ }
+        }
+
         return {
           ok: true,
           ...result,

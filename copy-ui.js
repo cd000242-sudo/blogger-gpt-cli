@@ -1,3 +1,14 @@
+/**
+ * ⚠️ IMPORTANT: This project has TWO UI file sets:
+ *   - src/ui/         → Source files (TypeScript project convention)
+ *   - electron/ui/    → ACTUAL served files (Electron loads these)
+ *
+ * This script copies electron/ui/ → dist/ui/ for packaging.
+ * It does NOT sync src/ui/ → electron/ui/.
+ *
+ * When modifying UI, ALWAYS edit electron/ui/ files directly.
+ * src/ui/ files are NOT used by the app.
+ */
 const fs = require('fs');
 const path = require('path');
 

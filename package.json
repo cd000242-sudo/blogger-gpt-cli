@@ -1,6 +1,6 @@
 {
   "name": "lba",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "LEADERNAM Orbit - AI-powered blog automation",
   "main": "electron/main.js",
   "scripts": {
@@ -38,7 +38,8 @@
     "dist:linux": "npm run build && electron-builder --linux",
     "dist:all": "npm run build && electron-builder --win --mac --linux",
     "pack": "npm run build && node setup-pack-env.js && electron-builder --dir",
-    "setup-pack-env": "node setup-pack-env.js"
+    "setup-pack-env": "node setup-pack-env.js",
+    "pre-release": "node scripts/pre-release-check.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
