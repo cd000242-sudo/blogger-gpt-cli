@@ -11,6 +11,20 @@ import * as quotaManager from './quota-manager';
 
 const FREE_DAILY_LIMIT = 2;
 
+// 무료 체험 세션 플래그 (앱 재시작 시 리셋)
+let _freeTrialSession = false;
+
+/** 무료 체험 모드 활성화 */
+export function activateFreeTrial(): void {
+  _freeTrialSession = true;
+  console.log('[AuthUtils] 🆓 무료 체험 세션 활성화');
+}
+
+/** 무료 체험 세션 여부 확인 */
+export function isFreeTrial(): boolean {
+  return _freeTrialSession;
+}
+
 export interface PaywallResponse {
   ok: false;
   code: 'PAYWALL';
@@ -26,6 +40,11 @@ export interface PaywallResponse {
  * - 유효한 라이선스: false (무제한)
  */
 export async function isFreeTierUser(): Promise<boolean> {
+  // 무료 체험 세션이면 항상 무료
+  if (_freeTrialSession) {
+    return true;
+  }
+
   // 개발 모드는 무제한
   const forceLicenseCheck = process.env.FORCE_LICENSE_CHECK === 'true';
   if (!app.isPackaged && !forceLicenseCheck) {

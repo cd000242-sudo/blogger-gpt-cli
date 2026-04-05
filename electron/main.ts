@@ -4022,6 +4022,15 @@ ipcMain.handle('app:getVersion', () => {
 // 무료 체험 접속 (라이선스 없이 앱 진입)
 ipcMain.handle('auth:free-trial', async () => {
   console.log('[AUTH] 🆓 무료 체험 모드로 접속');
+
+  // 무료 체험 세션 활성화
+  try {
+    const { activateFreeTrial } = require('./auth-utils');
+    activateFreeTrial();
+  } catch (e) {
+    console.error('[AUTH] activateFreeTrial 실패:', e);
+  }
+
   // Free trial: close login window and open main window
   const { BrowserWindow } = require('electron');
   const allWindows = BrowserWindow.getAllWindows();

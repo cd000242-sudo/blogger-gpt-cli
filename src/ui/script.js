@@ -2436,6 +2436,19 @@ async function loadLicenseInfo() {
       } catch { /* ignore */ }
     }
 
+    // 무료 체험 모드 체크
+    if (window.blogger && window.blogger.getQuotaStatus) {
+      try {
+        const quotaStatus = await window.blogger.getQuotaStatus();
+        if (quotaStatus && quotaStatus.success && quotaStatus.isFree) {
+          const used = quotaStatus.quota?.usage || 0;
+          const limit = quotaStatus.quota?.limit || 2;
+          setLicenseStatusElement(licenseStatusElement, `🆓 무료체험 (${used}/${limit})`, '#10b981', true);
+          return;
+        }
+      } catch { /* ignore */ }
+    }
+
     // Electron API를 통해 라이센스 파일 읽기
     if (window.blogger && window.blogger.readLicenseFile) {
       const result = await window.blogger.readLicenseFile();
