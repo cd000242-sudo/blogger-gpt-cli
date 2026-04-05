@@ -9,7 +9,7 @@ import { automateGoogleSearchConsole } from '../automation/webmaster/googleSearc
 import { automateNaverSearchAdvisor } from '../automation/webmaster/naverSearchAdvisor';
 import { automateDaumWebmaster } from '../automation/webmaster/daumWebmaster';
 import { automateBingWebmaster } from '../automation/webmaster/bingWebmaster';
-import { automateZumWebmaster } from '../automation/webmaster/zumWebmaster';
+// ZUM 웹마스터 서비스 종료됨 (2026-04 확인: webmaster.zum.com DNS 해결 불가)
 
 export function registerWebmasterHandlers(): void {
   // 웹마스터 세팅 시작
@@ -45,7 +45,7 @@ export function registerWebmasterHandlers(): void {
             case 'naver': await automateNaverSearchAdvisor(state, page, blogUrl); break;
             case 'daum': await automateDaumWebmaster(state, page, blogUrl); break;
             case 'bing': await automateBingWebmaster(state, page, blogUrl); break;
-            case 'zum': await automateZumWebmaster(state, page, blogUrl); break;
+            case 'zum': throw new Error('ZUM 웹마스터 서비스가 종료되었습니다.');
             default: throw new Error(`지원하지 않는 엔진: ${engine}`);
           }
 

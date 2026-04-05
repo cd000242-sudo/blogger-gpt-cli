@@ -163,14 +163,19 @@ export const NAVER_SELECTORS = {
 // ─── Daum Webmaster ───────────────────────────────────────────────────────────
 
 export const DAUM_SELECTORS = {
-  // daumWebmaster.ts
-  siteUrlInput: 'input[placeholder="사이트 URL"]',
-  siteUrlInputFallback: 'input:near(:text("사이트 URL"))',
-  pinInputAll: 'input[placeholder*="PIN"]',
-  agreeCheckbox: 'input[type="checkbox"]',
+  // daumWebmaster.ts — 2026-04 검증: placeholder 없음, name 속성 사용
+  siteUrlInput: 'input[name="siteUrl"]',
+  siteUrlInputFallback: 'input[type="text"]',
+  pinInputAll: 'input[name="authPinCode"], input[name="authPinCheck"]',
+  pinCodeInput: 'input[name="authPinCode"]',
+  pinCheckInput: 'input[name="authPinCheck"]',
+  agreeCheckbox: 'input[name="agree"], input[type="checkbox"]',
   confirmBtn: 'button:has-text("확인")',
-  authUrlInput: 'input[placeholder="사이트 URL"]',
-  authPinInput: 'input[placeholder*="PIN코드 입력"]',
+  // Daum 메인(/) = 로그인 폼 (j_username, j_password)
+  authUsernameInput: 'input[name="j_username"]',
+  authPasswordInput: 'input[name="j_password"]',
+  authUrlInput: 'input[name="siteUrl"]',
+  authPinInput: 'input[name="authPinCode"]',
   authBtn: 'button:has-text("인증하기")',
 } as const;
 

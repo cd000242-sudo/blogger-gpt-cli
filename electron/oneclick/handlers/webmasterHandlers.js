@@ -10,7 +10,7 @@ const googleSearchConsole_1 = require("../automation/webmaster/googleSearchConso
 const naverSearchAdvisor_1 = require("../automation/webmaster/naverSearchAdvisor");
 const daumWebmaster_1 = require("../automation/webmaster/daumWebmaster");
 const bingWebmaster_1 = require("../automation/webmaster/bingWebmaster");
-const zumWebmaster_1 = require("../automation/webmaster/zumWebmaster");
+// ZUM 웹마스터 서비스 종료됨 (2026-04 확인: webmaster.zum.com DNS 해결 불가)
 function registerWebmasterHandlers() {
     // 웹마스터 세팅 시작
     electron_1.ipcMain.handle('oneclick:start-webmaster', async (_evt, args) => {
@@ -49,9 +49,7 @@ function registerWebmasterHandlers() {
                         case 'bing':
                             await (0, bingWebmaster_1.automateBingWebmaster)(state, page, blogUrl);
                             break;
-                        case 'zum':
-                            await (0, zumWebmaster_1.automateZumWebmaster)(state, page, blogUrl);
-                            break;
+                        case 'zum': throw new Error('ZUM 웹마스터 서비스가 종료되었습니다.');
                         default: throw new Error(`지원하지 않는 엔진: ${engine}`);
                     }
                     if (!state.cancelled) {
