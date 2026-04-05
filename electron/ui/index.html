@@ -5750,7 +5750,22 @@ async function runBlogDiagnosis() {
   var urlInput = document.getElementById('diagnoseBlogUrl');
   var resultDiv = document.getElementById('diagnosisResult');
   var url = urlInput ? urlInput.value.trim() : '';
-  if (!url) { alert('블로그 URL을 입력해주세요'); return; }
+
+  // URL 비어있으면 환경설정에서 자동으로 가져오기
+  if (!url) {
+    try {
+      var settings = JSON.parse(localStorage.getItem('bloggerSettings') || '{}');
+      var platform = settings.platform || 'blogspot';
+      if (platform === 'wordpress' && settings.wordpressSiteUrl) {
+        url = settings.wordpressSiteUrl;
+      } else if (settings.blogUrl) {
+        url = settings.blogUrl;
+      }
+      if (url && urlInput) urlInput.value = url;
+    } catch(e) {}
+  }
+
+  if (!url) { alert('블로그 URL을 입력해주세요.\n\n환경설정에 블로그 URL이 저장되어 있으면 자동으로 채워집니다.'); return; }
   if (!url.startsWith('http')) url = 'https://' + url;
 
   resultDiv.style.display = 'block';

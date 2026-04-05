@@ -283,6 +283,99 @@ export async function diagnoseBlog(blogUrl: string, onLog?: (msg: string) => voi
     hasOG ? undefined : 'og:title, og:description 등이 없으면 SNS 공유 시 미리보기가 안 나옵니다.'
   ));
 
+  // ═══ 14-17. 플랫폼별 추가 진단 ═══
+  const isBlogspot = blogUrl.includes('blogspot.com') || blogUrl.includes('blogger.com');
+  const isWordPress = htmlContent.includes('wp-content') || htmlContent.includes('wordpress') || htmlContent.includes('wp-json');
+
+  if (isBlogspot) {
+    onLog?.('📝 Blogspot 추가 진단 중...');
+
+    // 14. Blogger 피드 (RSS)
+    try {
+      const feedUrl = blogUrl.replace(/\/$/, '') + '/feeds/posts/default';
+      const feedResp = await fetch(feedUrl, { signal: AbortSignal.timeout(5000) });
+      checks.push(makeCheck(
+        'indexing', 'Blogger RSS 피드',
+        feedResp.ok,
+        feedResp.ok ? '✅ 정상' : '❌ 없음',
+        6,
+        feedResp.ok ? undefined : 'RSS 피드가 비활성화되어 있습니다. 설정 > 사이트 피드에서 활성화하세요.'
+      ));
+    } catch {
+      checks.push(makeCheck('indexing', 'Blogger RSS 피드', false, '확인 불가', 3));
+    }
+
+    // 15. 블로그스팟 커스텀 도메인 여부
+    const hasCustomDomain = !blogUrl.includes('.blogspot.com');
+    checks.push(makeCheck(
+      'seo', '커스텀 도메인',
+      hasCustomDomain,
+      hasCustomDomain ? '✅ 사용 중' : '기본 blogspot.com 도메인',
+      4,
+      hasCustomDomain ? undefined : '커스텀 도메인(예: myblog.com)을 연결하면 브랜딩과 SEO에 유리합니다.'
+    ));
+
+    // 16. 리더남 스킨 적용 여부
+    const hasLeadernamSkin = htmlContent.includes('LEADERNAM CLOUD SKIN') || htmlContent.includes('rv-primary');
+    checks.push(makeCheck(
+      'content', '리더남 클라우드 스킨',
+      hasLeadernamSkin,
+      hasLeadernamSkin ? '✅ 적용됨' : '미적용',
+      3,
+      hasLeadernamSkin ? undefined : '원클릭세팅에서 클라우드 스킨을 적용하면 전문적인 디자인이 됩니다.'
+    ));
+  }
+
+  if (isWordPress) {
+    onLog?.('🌐 WordPress 추가 진단 중...');
+
+    // 14. WordPress REST API
+    try {
+      const apiUrl = blogUrl.replace(/\/$/, '') + '/wp-json/wp/v2/posts?per_page=1';
+      const apiResp = await fetch(apiUrl, { signal: AbortSignal.timeout(5000) });
+      checks.push(makeCheck(
+        'performance', 'WordPress REST API',
+        apiResp.ok,
+        apiResp.ok ? '✅ 활성화됨' : '❌ 비활성화',
+        6,
+        apiResp.ok ? undefined : 'REST API가 비활성화되어 있으면 자동 발행이 불가능합니다.'
+      ));
+    } catch {
+      checks.push(makeCheck('performance', 'WordPress REST API', false, '확인 불가', 3));
+    }
+
+    // 15. Yoast/SEO 플러그인
+    const hasYoast = htmlContent.includes('yoast') || htmlContent.includes('rank-math') || htmlContent.includes('all-in-one-seo');
+    checks.push(makeCheck(
+      'seo', 'SEO 플러그인',
+      hasYoast,
+      hasYoast ? '✅ 감지됨' : '미감지',
+      5,
+      hasYoast ? undefined : 'Yoast SEO 또는 Rank Math 플러그인을 설치하면 SEO가 크게 개선됩니다.'
+    ));
+
+    // 16. 퍼머링크 구조
+    const hasPostnamePermalink = htmlContent.includes('rel="canonical"') &&
+      (htmlContent.match(/href="[^"]*\/[^\/]+\/"/) !== null || htmlContent.match(/href="[^"]*\/[a-z0-9-]+\/?"/i) !== null);
+    checks.push(makeCheck(
+      'seo', '퍼머링크 구조',
+      true, // 홈페이지에서는 정확히 판단 어려움
+      '확인 필요 (관리자 > 설정 > 고유주소)',
+      4,
+      '/%postname%/ 구조를 사용하면 SEO에 유리합니다. 관리자 > 설정 > 고유주소에서 확인하세요.'
+    ));
+
+    // 17. 리더남 스킨
+    const hasLeadernamSkinWP = htmlContent.includes('LEADERNAM CLOUD SKIN') || htmlContent.includes('rv-primary');
+    checks.push(makeCheck(
+      'content', '리더남 클라우드 스킨',
+      hasLeadernamSkinWP,
+      hasLeadernamSkinWP ? '✅ 적용됨' : '미적용',
+      3,
+      hasLeadernamSkinWP ? undefined : '원클릭세팅에서 클라우드 스킨을 적용하면 전문적인 디자인이 됩니다.'
+    ));
+  }
+
   onLog?.('✅ 진단 완료!');
   return buildResult(checks);
 }
