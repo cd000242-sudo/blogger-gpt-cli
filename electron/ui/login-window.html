@@ -648,6 +648,7 @@
         <div class="logo-icon">🚀</div>
         <h1 class="logo-title">LEADERNAM Orbit</h1>
         <p class="logo-subtitle">Premium License</p>
+        <p id="loginVersionText" style="color: rgba(255,255,255,0.3); font-size: 11px; margin-top: 8px; letter-spacing: 1px;">v--</p>
       </div>
 
       <!-- 무료 체험 버튼 -->
@@ -923,15 +924,35 @@
         showError('앱 초기화 오류가 발생했습니다. 앱을 다시 시작해주세요.');
         return;
       }
-      
+
+      // 버전 표시
+      try {
+        const ver = await ipcApi.invoke('updater:getVersion');
+        const verEl = document.getElementById('loginVersionText');
+        if (verEl && ver) verEl.textContent = 'v' + ver;
+      } catch {}
+
+      // 업데이트 이벤트 수신 — 업데이트 시 인증창 숨기기
+      try {
+        if (ipcApi.on) {
+          ipcApi.on('auto-update-event', function(data) {
+            var loginCard = document.querySelector('.login-card');
+            if (data.type === 'available') {
+              // 업데이트 발견 → 인증창 숨기기
+              if (loginCard) loginCard.style.display = 'none';
+            }
+          });
+        }
+      } catch {}
+
       try {
         const config = await ipcApi.invoke('load-auto-login-config');
-        
+
         if (config && config.enabled) {
           const autoLoginSuccess = await checkAutoLoginOnLoad();
           if (autoLoginSuccess) return;
         }
-        
+
         if (config && config.userId) {
           userIdInput.value = config.userId;
         }
