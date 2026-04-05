@@ -739,10 +739,6 @@
               style="padding: 16px 20px; background: transparent; border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.5); font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s;">
               📝 블로그 플랫폼
             </button>
-            <button class="settings-tab" data-tab="advanced" onclick="switchSettingsTab('advanced')"
-              style="padding: 16px 20px; background: transparent; border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.5); font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s;">
-              ⚡ 고급 설정
-            </button>
             <button class="settings-tab" data-tab="adspower" onclick="switchSettingsTab('adspower')"
               style="padding: 16px 20px; background: transparent; border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.5); font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s;">
               🛡️ AdsPower
@@ -1335,133 +1331,15 @@
               </div>
             </div>
 
-            <!-- ⚡ 고급 설정 탭 -->
+            <!-- ⚡ 고급 설정 탭 (정리됨) -->
             <div id="tab-advanced" class="settings-tab-content" style="display: none;">
 
-              <!-- 네트워크 최적화 -->
-              <div
-                style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                  <div style="display: flex; align-items: center; gap: 12px;">
-                    <span style="font-size: 28px;">⚡</span>
-                    <div>
-                      <h4 style="margin: 0; font-weight: 700; color: white;">네트워크 최적화</h4>
-                      <p style="margin: 4px 0 0 0; font-size: 12px; color: #a78bfa;">API 연결 속도 및 안정성 개선</p>
-                    </div>
-                  </div>
-                  <button onclick="if(window.optimizeNetwork){window.optimizeNetwork();}else{alert('기능 로딩 중...');}"
-                    style="padding: 12px 24px; background: rgba(139, 92, 246, 0.2); color: #c4b5fd; border: 1px solid rgba(139, 92, 246, 0.4); border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(139, 92, 246, 0.3)';" onmouseout="this.style.background='rgba(139, 92, 246, 0.2)';">⚡
-                    최적화 실행</button>
-                </div>
-                <div id="networkOptStatus"
-                  style="padding: 10px; background: rgba(139, 92, 246, 0.1); border-radius: 6px; font-size: 12px; color: #c4b5fd;">
-                  💡 원클릭으로 API 연결 속도를 최적화합니다
-                </div>
+              <div style="text-align: center; padding: 40px 20px; color: rgba(255,255,255,0.5);">
+                <div style="font-size: 48px; margin-bottom: 12px;">✅</div>
+                <p style="font-size: 16px; font-weight: 600; color: rgba(255,255,255,0.7); margin: 0 0 8px 0;">모든 고급 기능이 자동으로 작동합니다</p>
+                <p style="font-size: 13px; margin: 0;">네트워크 최적화, SEO 최적화, 이미지 ALT, 중복 검사가 자동 적용됩니다</p>
               </div>
 
-
-              <!-- 🚀 스마트 자동화 -->
-              <div
-                style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-                  <span style="font-size: 28px;">🤖</span>
-                  <div>
-                    <h4 style="margin: 0; font-weight: 700; color: white;">스마트 자동화</h4>
-                    <p style="margin: 4px 0 0 0; font-size: 12px; color: #34d399;">자동 발행, 키워드 추천, 콘텐츠 최적화</p>
-                  </div>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                  <label
-                    style="display: flex; align-items: center; gap: 10px; padding: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 8px; cursor: pointer; border: 1px solid rgba(16, 185, 129, 0.2); transition: all 0.2s;" onmouseover="this.style.borderColor='rgba(16, 185, 129, 0.5)';" onmouseout="this.style.borderColor='rgba(16, 185, 129, 0.2)';">
-                    <input type="checkbox" id="autoKeywordSuggest"
-                      style="width: 18px; height: 18px; accent-color: #10b981;">
-                    <div>
-                      <div style="font-weight: 600; color: white; font-size: 13px;">🔮 AI 키워드 추천</div>
-                      <div style="font-size: 11px; color: #6ee7b7;">트렌드 기반 자동 추천</div>
-                    </div>
-                  </label>
-                  <label
-                    style="display: flex; align-items: center; gap: 10px; padding: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 8px; cursor: pointer; border: 1px solid rgba(16, 185, 129, 0.2); transition: all 0.2s;" onmouseover="this.style.borderColor='rgba(16, 185, 129, 0.5)';" onmouseout="this.style.borderColor='rgba(16, 185, 129, 0.2)';">
-                    <input type="checkbox" id="autoSeoOptimize"
-                      style="width: 18px; height: 18px; accent-color: #10b981;">
-                    <div>
-                      <div style="font-weight: 600; color: white; font-size: 13px;">📈 SEO 자동 최적화</div>
-                      <div style="font-size: 11px; color: #6ee7b7;">메타태그, 키워드 밀도 조정</div>
-                    </div>
-                  </label>
-                  <label
-                    style="display: flex; align-items: center; gap: 10px; padding: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 8px; cursor: pointer; border: 1px solid rgba(16, 185, 129, 0.2); transition: all 0.2s;" onmouseover="this.style.borderColor='rgba(16, 185, 129, 0.5)';" onmouseout="this.style.borderColor='rgba(16, 185, 129, 0.2)';">
-                    <input type="checkbox" id="autoImageAlt" checked
-                      style="width: 18px; height: 18px; accent-color: #10b981;">
-                    <div>
-                      <div style="font-weight: 600; color: white; font-size: 13px;">🖼️ 이미지 ALT 자동생성</div>
-                      <div style="font-size: 11px; color: #6ee7b7;">SEO 친화적 대체 텍스트</div>
-                    </div>
-                  </label>
-                  <label
-                    style="display: flex; align-items: center; gap: 10px; padding: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 8px; cursor: pointer; border: 1px solid rgba(16, 185, 129, 0.2); transition: all 0.2s;" onmouseover="this.style.borderColor='rgba(16, 185, 129, 0.5)';" onmouseout="this.style.borderColor='rgba(16, 185, 129, 0.2)';">
-                    <input type="checkbox" id="autoDuplicateCheck"
-                      style="width: 18px; height: 18px; accent-color: #10b981;">
-                    <div>
-                      <div style="font-weight: 600; color: white; font-size: 13px;">🔍 중복 콘텐츠 검사</div>
-                      <div style="font-size: 11px; color: #6ee7b7;">발행 전 유사도 체크</div>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <!-- 📊 API 사용량 모니터 -->
-              <div
-                style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-                  <div style="display: flex; align-items: center; gap: 12px;">
-                    <span style="font-size: 28px;">📊</span>
-                    <div>
-                      <h4 style="margin: 0; font-weight: 700; color: white;">API 사용량 모니터</h4>
-                      <p style="margin: 4px 0 0 0; font-size: 12px; color: #fbbf24;">오늘 사용량 및 잔여 크레딧</p>
-                    </div>
-                  </div>
-                  <button onclick="refreshApiUsage()"
-                    style="padding: 8px 16px; background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 12px; transition: all 0.2s;" onmouseover="this.style.background='rgba(245, 158, 11, 0.3)';" onmouseout="this.style.background='rgba(245, 158, 11, 0.2)';">🔄
-                    새로고침</button>
-                </div>
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
-                  <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; text-align: center;">
-                    <div style="font-size: 11px; color: #fbbf24; margin-bottom: 4px;">Gemini</div>
-                    <div style="font-size: 18px; font-weight: 700; color: #34d399;">무제한</div>
-                  </div>
-                  <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; text-align: center;">
-                    <div style="font-size: 11px; color: #fbbf24; margin-bottom: 4px;">Pollinations</div>
-                    <div style="font-size: 18px; font-weight: 700; color: #34d399;">무료</div>
-                  </div>
-                  <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; text-align: center;">
-                    <div style="font-size: 11px; color: #fbbf24; margin-bottom: 4px;">Pexels</div>
-                    <div style="font-size: 18px; font-weight: 700; color: #60a5fa;">200/h</div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 🖼️ 이미지 저장 경로 설정 -->
-              <div
-                style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-                  <span style="font-size: 28px;">📁</span>
-                  <div>
-                    <h4 style="margin: 0; font-weight: 700; color: white;">이미지 저장 경로</h4>
-                    <p style="margin: 4px 0 0 0; font-size: 12px; color: #7dd3fc;">반자동 발행에서 수집된 이미지가 저장될 폴더 경로</p>
-                  </div>
-                </div>
-                <div style="display: flex; gap: 8px; align-items: center;">
-                  <input type="text" id="imageFolderPath" placeholder="C:\Users\사용자명\Documents\BlogImages"
-                    style="flex: 1; padding: 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box; transition: all 0.3s;"
-                    onfocus="this.style.borderColor='rgba(56, 189, 248, 0.5)'; this.style.background='rgba(0,0,0,0.4)'; this.style.boxShadow='0 0 0 3px rgba(56, 189, 248, 0.15)';"
-                    onblur="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(0,0,0,0.2)'; this.style.boxShadow='none';">
-                  <button onclick="selectImageFolderPath()"
-                    style="padding: 14px 20px; background: rgba(14, 165, 233, 0.2); color: #7dd3fc; border: 1px solid rgba(14, 165, 233, 0.4); border-radius: 10px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.2s;" onmouseover="this.style.background='rgba(14, 165, 233, 0.3)';" onmouseout="this.style.background='rgba(14, 165, 233, 0.2)';">📂
-                    폴더 선택</button>
-                </div>
-                <p style="margin: 12px 0 0 0; font-size: 11px; color: rgba(255,255,255,0.5);">💡 경로를 설정하지 않으면 기본 경로(문서 폴더)에 저장됩니다</p>
-              </div>
 
             </div>
 
