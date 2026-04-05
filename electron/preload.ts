@@ -320,6 +320,11 @@ export type BloggerApi = {
   getAppVersion(): Promise<string>;
   onAutoUpdate(listener: (data: any) => void): () => void;
   installUpdate(): Promise<void>;
+
+  /** 블로그 진단 */
+  diagnoseBlog(url: string): Promise<any>;
+  /** IndexNow 즉시 색인 요청 */
+  submitIndexNow(siteUrl: string, urls: string[]): Promise<any>;
 };
 
 /** ───────── 공통 유틸 ───────── */
@@ -626,6 +631,10 @@ const api: BloggerApi = {
 
   // ── 앱 정보 ──
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
+
+  // ── 블로그 진단 & IndexNow ──
+  diagnoseBlog: (url: string) => ipcRenderer.invoke('blog:diagnose', url),
+  submitIndexNow: (siteUrl: string, urls: string[]) => ipcRenderer.invoke('indexnow:submit', siteUrl, urls),
 };
 
 // Electron API (개발자 모드 체크 포함)

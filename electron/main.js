@@ -4105,4 +4105,27 @@ try {
 catch (e) {
     console.warn('[APP] ⚠️ ImageFX IPC 핸들러 등록 실패 (imageFxGenerator 로드 불가):', e);
 }
+electron_1.ipcMain.handle('indexnow:submit', async (_evt, siteUrl, urls) => {
+    try {
+        const { submitToIndexNow } = loadCoreModule('indexnow');
+        return await submitToIndexNow(siteUrl, urls);
+    }
+    catch (e) {
+        return { ok: false, error: e.message };
+    }
+});
+electron_1.ipcMain.handle('blog:diagnose', async (_evt, blogUrl) => {
+    try {
+        const { diagnoseBlog } = loadCoreModule('blog-diagnostics');
+        const onLog = (msg) => {
+            if (_evt.sender && !_evt.sender.isDestroyed()) {
+                _evt.sender.send('log-line', msg);
+            }
+        };
+        return await diagnoseBlog(blogUrl, onLog);
+    }
+    catch (e) {
+        return { ok: false, error: e.message };
+    }
+});
 console.log('[APP] ✅ Electron 앱 초기화 완료');

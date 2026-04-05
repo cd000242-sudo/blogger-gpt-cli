@@ -275,6 +275,9 @@ const api = {
     installUpdate: () => electron_1.ipcRenderer.invoke('auto-update:install'),
     // ── 앱 정보 ──
     getAppVersion: () => electron_1.ipcRenderer.invoke('app:getVersion'),
+    // ── 블로그 진단 & IndexNow ──
+    diagnoseBlog: (url) => electron_1.ipcRenderer.invoke('blog:diagnose', url),
+    submitIndexNow: (siteUrl, urls) => electron_1.ipcRenderer.invoke('indexnow:submit', siteUrl, urls),
 };
 // Electron API (개발자 모드 체크 포함)
 const electronApi = {
