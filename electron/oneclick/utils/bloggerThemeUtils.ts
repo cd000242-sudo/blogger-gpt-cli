@@ -19,7 +19,7 @@ export async function insertMetaTagToBloggerTheme(
     // 테마 HTML 편집 페이지로 이동
     if (blogId) {
       await page.goto(
-        `https://www.blogger.com/blog/theme/edit/${blogId}`,
+        `https://www.blogger.com/blog/themes/edit/${blogId}`,
         { waitUntil: 'domcontentloaded', timeout: 20000 }
       );
     } else {

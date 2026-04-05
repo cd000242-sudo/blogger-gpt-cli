@@ -20,15 +20,24 @@ export async function applySkinCSS(
 
   try {
     if (blogId) {
-      await page.goto(`https://www.blogger.com/blog/theme/edit/${blogId}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      // 2026-04: /blog/theme/edit/ → /blog/themes/edit/ (Blogger URL 변경)
+      await page.goto(`https://www.blogger.com/blog/themes/edit/${blogId}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
     } else {
+      // blogId 없으면 사이드바 → 테마 → 추가 작업 → HTML 편집
       const themeLink = await page.locator(BLOGGER_SELECTORS.themeLink).first();
       if (await themeLink.isVisible({ timeout: 5000 })) {
         await themeLink.click();
-        await sleep(2000);
+        await sleep(3000);
+        // 2026-04: 드롭다운 메뉴에서 HTML 편집 접근
+        const moreBtn = await page.locator(BLOGGER_SELECTORS.themeMoreActions).first();
+        if (await moreBtn.isVisible({ timeout: 3000 })) {
+          await moreBtn.click();
+          await sleep(1000);
+        }
         const editHtmlBtn = await page.locator(BLOGGER_SELECTORS.editHtmlBtn).first();
         if (await editHtmlBtn.isVisible({ timeout: 3000 })) {
           await editHtmlBtn.click();
+          await sleep(3000);
         }
       }
     }

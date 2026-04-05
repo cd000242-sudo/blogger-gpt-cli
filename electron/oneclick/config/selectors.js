@@ -36,11 +36,12 @@ exports.BLOGGER_SELECTORS = {
     // faviconUpload.ts — 파비콘 업로드
     faviconSection: 'text="파비콘", text="Favicon"',
     fileInput: 'input[type="file"]',
-    // applySkinCSS.ts — 테마 HTML 에디터 (2026-04 검증: CodeMirror 없음, 에디터 변경)
+    // applySkinCSS.ts — 테마 HTML 에디터 (2026-04 검증: /blog/themes/edit/, CodeMirror ✅)
     themeLink: 'a:has-text("테마"), a:has-text("Theme")',
-    editHtmlBtn: 'button:has-text("HTML 편집"), button:has-text("Edit HTML")',
+    themeMoreActions: '[aria-label="추가 작업"]', // 드롭다운 메뉴 (테마 페이지)
+    editHtmlBtn: ':text("HTML 편집"), button:has-text("Edit HTML")', // 드롭다운 내부
     codeEditor: '.CodeMirror, textarea, [contenteditable], [role="textbox"], .ace_editor',
-    saveThemeBtn: 'button[aria-label*="저장"], button[aria-label*="Save"], button[aria-label*="돌아가기"]',
+    saveThemeBtn: '[aria-label="저장"], button[aria-label*="Save"]', // 2026-04: div[aria-label="저장"] (button 아님)
     // searchConsole.ts (Blogger 설정에서 GSC 연동)
     gscSection: 'text="Google Search Console", text="구글 서치 콘솔", text="Search Console"',
     domainInput: 'input[type="text"]',
