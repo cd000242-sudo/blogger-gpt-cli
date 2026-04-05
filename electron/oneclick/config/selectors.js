@@ -5,10 +5,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.GCP_SELECTORS = exports.ZUM_SELECTORS = exports.BING_SELECTORS = exports.DAUM_SELECTORS = exports.NAVER_SELECTORS = exports.GSC_SELECTORS = exports.CLOUDWAYS_SELECTORS = exports.WORDPRESS_SELECTORS = exports.BLOGGER_SELECTORS = void 0;
 // ─── Blogger / Blogspot ───────────────────────────────────────────────────────
 exports.BLOGGER_SELECTORS = {
-    // createBlog.ts — 블로그 생성
-    newBlogText: 'text="새 블로그"',
+    // createBlog.ts — 블로그 생성 (2026-04 검증)
+    newBlogText: 'text="새 블로그..."', // 실제: "새 블로그..." (끝에 ... 포함)
     createBlogText: 'text="블로그 만들기"',
-    newBlogLink: 'a:has-text("새 블로그"), a:has-text("New blog")',
+    newBlogLink: 'a:has-text("새 블로그"), a:has-text("New blog"), :text("새 블로그...")',
     titleInput: 'input[aria-label*="제목"], input[aria-label*="Title"], input[placeholder*="제목"]',
     titleInputFallback: 'input[type="text"]',
     nextBtn: 'button:has-text("다음"), button:has-text("Next")',
@@ -36,11 +36,11 @@ exports.BLOGGER_SELECTORS = {
     // faviconUpload.ts — 파비콘 업로드
     faviconSection: 'text="파비콘", text="Favicon"',
     fileInput: 'input[type="file"]',
-    // applySkinCSS.ts — 테마 HTML 에디터
+    // applySkinCSS.ts — 테마 HTML 에디터 (2026-04 검증: CodeMirror 없음, 에디터 변경)
     themeLink: 'a:has-text("테마"), a:has-text("Theme")',
     editHtmlBtn: 'button:has-text("HTML 편집"), button:has-text("Edit HTML")',
-    codeEditor: '.CodeMirror, textarea, [contenteditable]',
-    saveThemeBtn: 'button[aria-label*="저장"], button[aria-label*="Save"], button:has-text("💾")',
+    codeEditor: '.CodeMirror, textarea, [contenteditable], [role="textbox"], .ace_editor',
+    saveThemeBtn: 'button[aria-label*="저장"], button[aria-label*="Save"], button[aria-label*="돌아가기"]',
     // searchConsole.ts (Blogger 설정에서 GSC 연동)
     gscSection: 'text="Google Search Console", text="구글 서치 콘솔", text="Search Console"',
     domainInput: 'input[type="text"]',
@@ -87,11 +87,11 @@ exports.CLOUDWAYS_SELECTORS = {
 };
 // ─── Google Search Console (webmaster) ───────────────────────────────────────
 exports.GSC_SELECTORS = {
-    // googleSearchConsole.ts
+    // googleSearchConsole.ts (2026-04 검증: placeholder 없음, aria-label 사용)
     urlPrefixPanelKo: 'div:has-text("URL 접두어")',
     urlPrefixPanelEn: 'div:has-text("URL prefix")',
-    urlInput: 'input[placeholder="https://www.example.com"]',
-    urlInputFallback: 'input[placeholder*="example.com"]',
+    urlInput: 'input[aria-label="https://www.example.com"]', // placeholder → aria-label
+    urlInputFallback: 'input[aria-label*="example.com"], input[placeholder*="example"]',
     continueBtnKo: 'button:has-text("계속"):not([disabled])',
     continueBtnEn: 'button:has-text("Continue"):not([disabled])',
     sitemapInput: 'input[type="text"]',
@@ -100,7 +100,7 @@ exports.GSC_SELECTORS = {
     okBtnKo: 'button:has-text("확인")',
     okBtnEn: 'button:has-text("OK")',
     okBtnGotIt: 'button:has-text("Got it")',
-    inspectInput: 'input[type="text"]',
+    inspectInput: 'input[aria-label*="URL 검사"], input[aria-label*="Inspect"], input[type="text"]',
     requestIndexingBtnKo: 'button:has-text("색인 생성 요청")',
     requestIndexingBtnEn: 'button:has-text("Request Indexing")',
 };
@@ -109,9 +109,10 @@ exports.NAVER_SELECTORS = {
     // naverSearchAdvisor.ts
     loginBtnKo: 'a:has-text("로그인")',
     loginBtnClass: '.login_area a',
-    // 사이트 추가
+    // 사이트 추가 (2026-04 검증: placeholder 없음, visible text input 사용)
     siteInput: 'input[placeholder*="사이트"]',
     siteInputUrl: 'input[type="url"]',
+    siteInputText: 'input[type="text"]:visible',
     siteInputClass: '.site_input input',
     addBtnKo: 'button:has-text("추가")',
     addBtnClass: '.btn_add',

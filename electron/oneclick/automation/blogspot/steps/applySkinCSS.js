@@ -36,17 +36,53 @@ async function applySkinCSS(state, page, blogId) {
                 const editor = await page.locator(selectors_1.BLOGGER_SELECTORS.codeEditor).first();
                 if (await editor.isVisible({ timeout: 5000 })) {
                     await page.evaluate((css) => {
+                        // 2026-04: CodeMirror → 대안 에디터도 지원
+                        const marker = '/* === LEADERNAM CLOUD SKIN START === */';
+                        // 방법 1: CodeMirror (기존)
                         const cm = document.querySelector('.CodeMirror')?.CodeMirror;
                         if (cm) {
-                            const currentContent = cm.getValue();
-                            const marker = '/* === LEADERNAM CLOUD SKIN START === */';
-                            if (!currentContent.includes(marker)) {
-                                const insertPoint = currentContent.indexOf(']]></b:skin>');
+                            const content = cm.getValue();
+                            if (!content.includes(marker)) {
+                                const insertPoint = content.indexOf(']]></b:skin>');
                                 if (insertPoint > -1) {
-                                    const newContent = currentContent.slice(0, insertPoint) +
-                                        '\n' + marker + '\n' + css + '\n/* === LEADERNAM CLOUD SKIN END === */\n' +
-                                        currentContent.slice(insertPoint);
-                                    cm.setValue(newContent);
+                                    cm.setValue(content.slice(0, insertPoint) + '\n' + marker + '\n' + css + '\n/* === LEADERNAM CLOUD SKIN END === */\n' + content.slice(insertPoint));
+                                }
+                            }
+                            return;
+                        }
+                        // 방법 2: Ace Editor
+                        const ace = document.querySelector('.ace_editor')?.env?.editor;
+                        if (ace) {
+                            const content = ace.getValue();
+                            if (!content.includes(marker)) {
+                                const insertPoint = content.indexOf(']]></b:skin>');
+                                if (insertPoint > -1) {
+                                    ace.setValue(content.slice(0, insertPoint) + '\n' + marker + '\n' + css + '\n/* === LEADERNAM CLOUD SKIN END === */\n' + content.slice(insertPoint));
+                                }
+                            }
+                            return;
+                        }
+                        // 방법 3: textarea 직접
+                        const textarea = document.querySelector('textarea');
+                        if (textarea) {
+                            const content = textarea.value;
+                            if (!content.includes(marker)) {
+                                const insertPoint = content.indexOf(']]></b:skin>');
+                                if (insertPoint > -1) {
+                                    textarea.value = content.slice(0, insertPoint) + '\n' + marker + '\n' + css + '\n/* === LEADERNAM CLOUD SKIN END === */\n' + content.slice(insertPoint);
+                                    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                                }
+                            }
+                            return;
+                        }
+                        // 방법 4: contenteditable
+                        const editable = document.querySelector('[contenteditable="true"], [role="textbox"]');
+                        if (editable) {
+                            const content = editable.textContent || '';
+                            if (!content.includes(marker)) {
+                                const insertPoint = content.indexOf(']]></b:skin>');
+                                if (insertPoint > -1) {
+                                    editable.textContent = content.slice(0, insertPoint) + '\n' + marker + '\n' + css + '\n/* === LEADERNAM CLOUD SKIN END === */\n' + content.slice(insertPoint);
                                 }
                             }
                         }
