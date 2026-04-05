@@ -1,0 +1,4 @@
+owner: cd000242-sudo
+repo: blogger-gpt-cli
+provider: github
+updaterCacheDirName: leadernam-orbit-updater
