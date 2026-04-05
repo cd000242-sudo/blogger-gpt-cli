@@ -4322,24 +4322,60 @@ app.whenReady().then(async () => {
     console.log('[APP] 🚀 개발 모드: 라이선스 체크 건너뛰기, 무제한 모드');
     createWindow();
   } else {
-    // 배포 환경: 라이선스 체크 (자동 로그인 포함)
-    const licenseValid = await checkLicenseWithAutoLogin();
+    // 배포 환경: 업데이트 먼저 체크 → 최신이면 인증 → 구버전이면 업데이트 후 인증
+    let needsUpdate = false;
 
-    if (licenseValid) {
-      console.log('[APP] ✅ 라이선스 인증 완료, 메인 윈도우 생성');
-      createWindow();
-    } else {
-      console.log('[APP] ⚠️ 라이선스 인증 실패 또는 로그인 필요');
-      // 로그인 윈도우는 checkLicenseWithAutoLogin 내부에서 자동으로 표시됨
-    }
-  }
-
-  // 🔄 자동 업데이트 체크 (패키지 모드에서만)
-  if (app.isPackaged) {
     try {
       const { autoUpdater } = require('electron-updater');
       autoUpdater.autoDownload = true;
       autoUpdater.autoInstallOnAppQuit = true;
+
+      // 업데이트 체크 (3초 타임아웃으로 빠르게)
+      console.log('[APP] 🔄 업데이트 확인 중...');
+      const updateCheckResult = await Promise.race([
+        autoUpdater.checkForUpdates(),
+        new Promise((resolve) => setTimeout(() => resolve(null), 5000))
+      ]) as any;
+
+      if (updateCheckResult && updateCheckResult.updateInfo) {
+        const currentVersion = app.getVersion();
+        const latestVersion = updateCheckResult.updateInfo.version;
+        console.log(`[APP] 현재: v${currentVersion}, 최신: v${latestVersion}`);
+
+        if (latestVersion !== currentVersion) {
+          needsUpdate = true;
+          console.log('[APP] ⬆️ 업데이트 필요 → 인증창 숨기고 업데이트 먼저 진행');
+        } else {
+          console.log('[APP] ✅ 최신 버전입니다');
+        }
+      }
+    } catch (e: any) {
+      console.log('[APP] 업데이트 체크 실패 (무시):', e.message);
+    }
+
+    if (needsUpdate) {
+      // 업데이트 필요 → 업데이트 전용 윈도우로 진행
+      // 메인 윈도우를 먼저 만들어서 업데이트 모달을 표시
+      createWindow();
+      // 인증은 업데이트 완료 후 재시작 시 진행됨
+      console.log('[APP] 업데이트 다운로드 중 → 완료 후 재시작하면 인증 진행');
+    } else {
+      // 최신 버전 → 정상 인증 플로우
+      const licenseValid = await checkLicenseWithAutoLogin();
+
+      if (licenseValid) {
+        console.log('[APP] ✅ 라이선스 인증 완료, 메인 윈도우 생성');
+        createWindow();
+      } else {
+        console.log('[APP] ⚠️ 라이선스 인증 실패 또는 로그인 필요');
+      }
+    }
+  }
+
+  // 🔄 자동 업데이트 이벤트 핸들러 (패키지 모드에서만)
+  if (app.isPackaged) {
+    try {
+      const { autoUpdater } = require('electron-updater');
 
       autoUpdater.on('checking-for-update', () => {
         console.log('[AUTO-UPDATE] 업데이트 확인 중...');
@@ -4384,12 +4420,8 @@ app.whenReady().then(async () => {
         autoUpdater.quitAndInstall();
       });
 
-      // 5초 후 업데이트 체크 (앱 로딩 완료 대기)
-      setTimeout(() => {
-        autoUpdater.checkForUpdatesAndNotify().catch((e: any) => {
-          console.error('[AUTO-UPDATE] 체크 실패:', e.message);
-        });
-      }, 5000);
+      // 업데이트 체크는 앱 시작 시 이미 수행됨 (위 whenReady에서)
+      // 여기서는 이벤트 핸들러만 등록
     } catch (e: any) {
       console.error('[AUTO-UPDATE] 초기화 실패:', e.message);
     }
