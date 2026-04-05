@@ -318,6 +318,8 @@ export type BloggerApi = {
   /** 쿼터 상태 조회 */
   getQuotaStatus(): Promise<{ success: boolean; isFree?: boolean; quota?: any; message?: string }>;
   getAppVersion(): Promise<string>;
+  onAutoUpdate(listener: (data: any) => void): () => void;
+  installUpdate(): Promise<void>;
 };
 
 /** ───────── 공통 유틸 ───────── */
@@ -613,6 +615,14 @@ const api: BloggerApi = {
 
   // ── 쿼터 관리 ──
   getQuotaStatus: () => ipcRenderer.invoke('quota:getStatus'),
+
+  // ── 자동 업데이트 ──
+  onAutoUpdate: (listener: (data: any) => void) => {
+    const handler = (_e: unknown, data: any) => { try { listener(data); } catch {} };
+    ipcRenderer.on('auto-update-event', handler);
+    return () => ipcRenderer.off('auto-update-event', handler);
+  },
+  installUpdate: () => ipcRenderer.invoke('auto-update:install'),
 
   // ── 앱 정보 ──
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),

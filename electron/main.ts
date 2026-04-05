@@ -4346,36 +4346,42 @@ app.whenReady().then(async () => {
       });
       autoUpdater.on('update-available', (info: any) => {
         console.log('[AUTO-UPDATE] 새 버전 발견:', info.version);
-        const focusedWindow = BrowserWindow.getFocusedWindow();
-        if (focusedWindow) {
-          focusedWindow.webContents.send('log-line', `[UPDATE] 새 버전 ${info.version} 다운로드 중...`);
-        }
+        const wins = BrowserWindow.getAllWindows();
+        wins.forEach((w: any) => {
+          if (!w.isDestroyed()) {
+            w.webContents.send('auto-update-event', { type: 'available', version: info.version });
+          }
+        });
       });
       autoUpdater.on('update-not-available', () => {
         console.log('[AUTO-UPDATE] 최신 버전입니다.');
       });
       autoUpdater.on('download-progress', (progress: any) => {
-        console.log(`[AUTO-UPDATE] 다운로드: ${Math.round(progress.percent)}%`);
+        const percent = Math.round(progress.percent);
+        console.log(`[AUTO-UPDATE] 다운로드: ${percent}%`);
+        const wins = BrowserWindow.getAllWindows();
+        wins.forEach((w: any) => {
+          if (!w.isDestroyed()) {
+            w.webContents.send('auto-update-event', { type: 'progress', percent });
+          }
+        });
       });
       autoUpdater.on('update-downloaded', (info: any) => {
         console.log('[AUTO-UPDATE] 다운로드 완료:', info.version);
-        const focusedWindow = BrowserWindow.getFocusedWindow();
-        if (focusedWindow) {
-          dialog.showMessageBox(focusedWindow, {
-            type: 'info',
-            title: '업데이트 준비 완료',
-            message: `새 버전 ${info.version}이 다운로드되었어요.\n앱을 재시작하면 자동으로 업데이트됩니다.`,
-            buttons: ['지금 재시작', '나중에'],
-            defaultId: 0,
-          }).then((result) => {
-            if (result.response === 0) {
-              autoUpdater.quitAndInstall();
-            }
-          });
-        }
+        const wins = BrowserWindow.getAllWindows();
+        wins.forEach((w: any) => {
+          if (!w.isDestroyed()) {
+            w.webContents.send('auto-update-event', { type: 'downloaded', version: info.version });
+          }
+        });
       });
       autoUpdater.on('error', (err: any) => {
         console.error('[AUTO-UPDATE] 오류:', err.message);
+      });
+
+      // 업데이트 설치 IPC
+      ipcMain.handle('auto-update:install', () => {
+        autoUpdater.quitAndInstall();
       });
 
       // 5초 후 업데이트 체크 (앱 로딩 완료 대기)

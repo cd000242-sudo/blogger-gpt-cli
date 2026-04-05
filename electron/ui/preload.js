@@ -263,6 +263,16 @@ const api = {
     imagefxLogin: () => electron_1.ipcRenderer.invoke('imagefx:login'),
     // ── 쿼터 관리 ──
     getQuotaStatus: () => electron_1.ipcRenderer.invoke('quota:getStatus'),
+    // ── 자동 업데이트 ──
+    onAutoUpdate: (listener) => {
+        const handler = (_e, data) => { try {
+            listener(data);
+        }
+        catch { } };
+        electron_1.ipcRenderer.on('auto-update-event', handler);
+        return () => electron_1.ipcRenderer.off('auto-update-event', handler);
+    },
+    installUpdate: () => electron_1.ipcRenderer.invoke('auto-update:install'),
     // ── 앱 정보 ──
     getAppVersion: () => electron_1.ipcRenderer.invoke('app:getVersion'),
 };
