@@ -58,12 +58,39 @@ export async function diagnoseBlog(blogUrl: string, onLog?: (msg: string) => voi
     loadTimeMs = Date.now() - start;
     htmlContent = await resp.text();
 
+    if (!resp.ok) {
+      // 404/403 등 → 조기 중단 (나머지 체크가 무의미)
+      let suggestion = `HTTP ${resp.status} 오류. `;
+      if (resp.status === 404) {
+        suggestion += '블로그 주소가 올바른지 확인하세요. ';
+        if (blogUrl.includes('blogspot.com')) {
+          suggestion += 'Blogspot 블로그가 삭제되었거나 주소가 변경되었을 수 있습니다. Blogger 대시보드에서 실제 블로그 주소를 확인하세요.';
+        } else {
+          suggestion += '사이트가 존재하지 않거나 비공개일 수 있습니다.';
+        }
+      } else if (resp.status === 403) {
+        suggestion += '접근이 차단되었습니다. 서버 방화벽이나 Cloudflare 설정을 확인하세요.';
+      } else {
+        suggestion += '사이트 설정을 확인하세요.';
+      }
+
+      checks.push(makeCheck(
+        'performance', '사이트 접근',
+        false,
+        `❌ HTTP ${resp.status} (${loadTimeMs}ms)`,
+        10,
+        suggestion
+      ));
+
+      onLog?.(`❌ HTTP ${resp.status} — 사이트에 접근할 수 없어 나머지 진단을 중단합니다.`);
+      return buildResult(checks);
+    }
+
     checks.push(makeCheck(
       'performance', '사이트 접근',
-      resp.ok,
-      `${resp.status} (${loadTimeMs}ms)`,
-      10,
-      resp.ok ? undefined : `HTTP ${resp.status} 오류. 사이트 설정을 확인하세요.`
+      true,
+      `✅ ${resp.status} (${loadTimeMs}ms)`,
+      10
     ));
   } catch (e: any) {
     checks.push(makeCheck(
