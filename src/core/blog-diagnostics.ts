@@ -182,7 +182,10 @@ export async function diagnoseBlog(blogUrl: string, onLog?: (msg: string) => voi
     const robotsUrl = new URL('/robots.txt', blogUrl).href;
     const robotsResp = await fetch(robotsUrl, { signal: AbortSignal.timeout(5000) });
     const robotsTxt = robotsResp.ok ? await robotsResp.text() : '';
-    const blocksAll = robotsTxt.includes('Disallow: /') && !robotsTxt.includes('Disallow: /\n');
+    // "Disallow: /" 정확 매칭 (Disallow: /search 같은 건 제외)
+    const robotsLines = robotsTxt.split('\n').map(l => l.trim());
+    const blocksAll = robotsLines.some(l => l === 'Disallow: /' || l === 'Disallow: / ')
+      && !robotsLines.some(l => l === 'Allow: /' || l === 'Allow: / ');
     const robotsSuggestion = blocksAll
       ? 'robots.txt가 모든 크롤링을 차단하고 있습니다! "Disallow: /" 규칙을 제거하세요.'
       : !robotsResp.ok
