@@ -57,8 +57,11 @@ export async function isFreeTierUser(): Promise<boolean> {
     const lm = getLicenseManager();
     if (!lm) return true;
 
-    const license = lm.getLicenseData ? lm.getLicenseData() : null;
-    if (!license) return true; // 라이선스 없음 → 무료
+    // getLicenseStatus()로 라이선스 확인 (getLicenseData 메서드 없음)
+    const status = lm.getLicenseStatus ? lm.getLicenseStatus() : null;
+    if (!status || !status.valid) return true; // 무효 → 무료
+    const license = status.licenseData;
+    if (!license) return true; // 라이선스 데이터 없음 → 무료
 
     // 만료 체크
     if (license.licenseType === 'temporary' && license.expiresAt) {
