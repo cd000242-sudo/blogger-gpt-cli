@@ -771,89 +771,14 @@
                 </button>
               </div>
 
-              <!-- 🔥 연동 상태 대시보드 -->
-
-              <div id="apiStatusSummary"
-                style="background: rgba(30, 41, 59, 0.4); border-radius: 20px; padding: 24px; margin-bottom: 24px; border: 1px solid rgba(255,255,255,0.06); box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-                  <div style="display: flex; align-items: center; gap: 12px;">
-                    <span style="font-size: 22px;">📊</span>
-                    <span style="font-weight: 700; color: white; font-size: 16px; letter-spacing: -0.3px;">연동 상태 대시보드</span>
-                  </div>
-                  <button onclick="refreshConnectionStatus()"
-                    style="padding: 8px 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: rgba(255,255,255,0.9); font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px;"
-                    onmouseover="this.style.background='rgba(255,255,255,0.1)'"
-                    onmouseout="this.style.background='rgba(255,255,255,0.05)'">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.92-10.44l5.08 5.08"/></svg>
-                    새로고침
-                  </button>
-                </div>
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
-                  <!-- Gemini API -->
-                  <div id="status-card-gemini"
-                    style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 16px; padding: 16px; display: flex; align-items: center; gap: 14px; position: relative; overflow: hidden;">
-                    <div style="position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, transparent 70%); border-radius: 50%;"></div>
-                    <div
-                      style="width: 44px; height: 44px; background: linear-gradient(135deg, rgba(16, 185, 129, 0.8), rgba(5, 150, 105, 0.8)); border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); z-index: 1;">
-                      <span style="font-size: 20px;">🚀</span>
-                    </div>
-                    <div style="flex: 1; z-index: 1;">
-                      <div style="font-weight: 700; color: white; font-size: 14px;">Gemini API</div>
-                      <div id="status-gemini-text" style="font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 2px;">글 + 이미지 통합</div>
-                    </div>
-                    <span id="status-gemini" style="font-size: 20px; z-index: 1;">⏳</span>
-                  </div>
-
-                  <!-- Blogger/WordPress -->
-                  <div id="status-card-platform"
-                    style="background: rgba(99, 102, 241, 0.05); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 16px; padding: 16px; display: flex; align-items: center; gap: 14px; position: relative; overflow: hidden;">
-                    <div style="position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%); border-radius: 50%;"></div>
-                    <div
-                      style="width: 44px; height: 44px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.8), rgba(79, 70, 229, 0.8)); border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2); z-index: 1;">
-                      <span style="font-size: 20px;">📝</span>
-                    </div>
-                    <div style="flex: 1; z-index: 1;">
-                      <div style="font-weight: 700; color: white; font-size: 14px;">블로그 플랫폼</div>
-                      <div id="status-platform-text" style="font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 2px;">Blogger / WordPress</div>
-                    </div>
-                    <span id="status-platform" style="font-size: 20px; z-index: 1;">⏳</span>
-                  </div>
-
-                  <!-- 네이버 API -->
-                  <div id="status-card-naver"
-                    style="background: rgba(34, 197, 94, 0.05); border: 1px solid rgba(34, 197, 94, 0.2); border-radius: 16px; padding: 16px; display: flex; align-items: center; gap: 14px; position: relative; overflow: hidden;">
-                    <div style="position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; background: radial-gradient(circle, rgba(34, 197, 94, 0.15) 0%, transparent 70%); border-radius: 50%;"></div>
-                    <div
-                      style="width: 44px; height: 44px; background: linear-gradient(135deg, rgba(34, 197, 94, 0.8), rgba(22, 163, 74, 0.8)); border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(34, 197, 94, 0.2); z-index: 1;">
-                      <span style="font-size: 20px;">🟢</span>
-                    </div>
-                    <div style="flex: 1; z-index: 1;">
-                      <div style="font-weight: 700; color: white; font-size: 14px;">네이버 API</div>
-                      <div id="status-naver-text" style="font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 2px;">키워드 분석 (선택)</div>
-                    </div>
-                    <span id="status-naver" style="font-size: 20px; z-index: 1;">⚪</span>
-                  </div>
-
-                  <!-- Google CSE -->
-                  <div id="status-card-cse"
-                    style="background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 16px; padding: 16px; display: flex; align-items: center; gap: 14px; position: relative; overflow: hidden;">
-                    <div style="position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; background: radial-gradient(circle, rgba(245, 158, 11, 0.15) 0%, transparent 70%); border-radius: 50%;"></div>
-                    <div
-                      style="width: 44px; height: 44px; background: linear-gradient(135deg, rgba(245, 158, 11, 0.8), rgba(217, 119, 6, 0.8)); border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2); z-index: 1;">
-                      <span style="font-size: 20px;">🔍</span>
-                    </div>
-                    <div style="flex: 1; z-index: 1;">
-                      <div style="font-weight: 700; color: white; font-size: 14px;">Google CSE</div>
-                      <div id="status-cse-text" style="font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 2px;">이미지 검색 (선택)</div>
-                    </div>
-                    <span id="status-cse" style="font-size: 20px; z-index: 1;">⚪</span>
-                  </div>
-                </div>
-                <!-- 숨겨진 호환성 요소 -->
-                <span id="status-openai" style="display:none;">⚪</span>
-                <span id="status-pexels" style="display:none;">⚪</span>
-                <span id="status-stability" style="display:none;">⚪</span>
-              </div>
+              <!-- 숨겨진 호환성 요소 (JS에서 참조) -->
+              <span id="status-gemini" style="display:none;">⚪</span>
+              <span id="status-platform" style="display:none;">⚪</span>
+              <span id="status-naver" style="display:none;">⚪</span>
+              <span id="status-cse" style="display:none;">⚪</span>
+              <span id="status-openai" style="display:none;">⚪</span>
+              <span id="status-pexels" style="display:none;">⚪</span>
+              <span id="status-stability" style="display:none;">⚪</span>
 
               <!-- 🔥 통합 API 키 입력 섹션 -->
 
