@@ -5662,11 +5662,37 @@ async function updateFreeQuotaCounter() {
     var used = (status.quota && status.quota.usage) || 0;
     var limit = (status.quota && status.quota.limit) || 2;
     text.textContent = used + '/' + limit;
-    text.style.color = (limit - used <= 0) ? '#fca5a5' : '#a5f3c4';
+    var exhausted = (limit - used <= 0);
+    text.style.color = exhausted ? '#fca5a5' : '#a5f3c4';
     counter.style.display = 'flex';
+
+    // 2/2 소진 시 구매 유도 모달 (한 번만)
+    if (exhausted && !window._paywallShown) {
+      window._paywallShown = true;
+      showPaywallModal();
+    }
     if (!freeQuotaInterval) { freeQuotaInterval = setInterval(updateFreeQuotaCounter, 30000); }
   } catch (e) { counter.style.display = 'none'; }
 }
+// 구매 유도 모달
+function showPaywallModal() {
+  if (document.getElementById('paywallModal')) return;
+  var modal = document.createElement('div');
+  modal.id = 'paywallModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML = '<div style="background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:24px;padding:36px;width:90%;max-width:440px;box-shadow:0 25px 60px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);text-align:center;">'
+    + '<div style="font-size:56px;margin-bottom:12px;">🔒</div>'
+    + '<h2 style="color:white;font-size:22px;font-weight:800;margin:0 0 12px 0;">오늘의 무료 체험이 끝났어요</h2>'
+    + '<p style="color:rgba(255,255,255,0.7);font-size:14px;margin:0 0 24px 0;line-height:1.6;">하루 2회 무료 체험을 모두 사용했습니다.<br>라이선스를 등록하면 <strong style="color:#a5f3c4;">무제한</strong>으로 사용할 수 있어요!</p>'
+    + '<div style="display:flex;flex-direction:column;gap:10px;">'
+    + '<button onclick="window.blogger&&window.blogger.openExternal(\'https://leadernam.imweb.me\')" style="padding:14px 24px;background:linear-gradient(135deg,#6366f1,#a855f7);border:none;border-radius:12px;color:white;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(99,102,241,0.4);">🛒 라이선스 구매하기</button>'
+    + '<button onclick="document.getElementById(\'paywallModal\').remove()" style="padding:12px 24px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:12px;color:rgba(255,255,255,0.6);font-size:14px;cursor:pointer;">내일 다시 사용할게요</button>'
+    + '</div>'
+    + '<p style="color:rgba(255,255,255,0.4);font-size:11px;margin:16px 0 0 0;">내일 자정에 무료 체험이 다시 초기화됩니다</p>'
+    + '</div>';
+  document.body.appendChild(modal);
+}
+
 // 앱 로드 후 쿼터 카운터 시작
 setTimeout(updateFreeQuotaCounter, 2000);
 
