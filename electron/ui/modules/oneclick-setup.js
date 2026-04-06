@@ -1232,6 +1232,42 @@ function setSetupComplete(platformId) {
   addLog?.(`[원클릭] ✅ ${platform?.name || platformId} 세팅 완료!`);
   showToast(`✅ ${platform?.name || platformId} 원클릭 세팅이 완료되었습니다!`, 'success', 5000);
   localStorage.setItem('oneclick_setup_complete', 'true');
+
+  // blogId 자동 저장 (설정에 반영)
+  try {
+    var settings = JSON.parse(localStorage.getItem('bloggerSettings') || '{}');
+    // blogId는 status에서 못 가져오지만, Blogger URL에서 추출 가능
+    // 환경설정 저장 트리거
+    if (window.blogger && window.blogger.saveEnv) {
+      var envData = {};
+      if (settings.blogId) envData.blogId = settings.blogId;
+      if (settings.platform) envData.platform = settings.platform;
+      if (settings.geminiKey) envData.geminiKey = settings.geminiKey;
+      window.blogger.saveEnv(envData).catch(function() {});
+    }
+  } catch(e) { console.warn('[ONECLICK] .env 저장 실패:', e); }
+
+  // 완료 후 "다음 단계" 안내
+  setTimeout(function() {
+    var container = document.getElementById('oneclick-setup-container');
+    if (container) {
+      var nextStepDiv = document.createElement('div');
+      nextStepDiv.id = 'oneclick-next-step';
+      nextStepDiv.style.cssText = 'background:linear-gradient(135deg,rgba(99,102,241,0.2),rgba(168,85,247,0.2));border:1px solid rgba(99,102,241,0.4);border-radius:12px;padding:20px;margin-top:16px;text-align:center;';
+      nextStepDiv.innerHTML = '<div style="font-size:20px;margin-bottom:8px;">🎉 세팅 완료!</div>'
+        + '<p style="color:rgba(255,255,255,0.8);font-size:14px;margin:0 0 16px 0;">다음 단계: 블로그 발행을 위한 인증이 필요해요</p>'
+        + '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">'
+        + '<button onclick="if(typeof switchSettingsTab===\'function\')switchSettingsTab(\'platform\')" style="padding:10px 20px;background:linear-gradient(135deg,#6366f1,#a855f7);border:none;border-radius:8px;color:white;font-size:13px;font-weight:600;cursor:pointer;">🔐 플랫폼 인증하기</button>'
+        + '<button onclick="if(typeof switchSettingsTab===\'function\')switchSettingsTab(\'api-keys\')" style="padding:10px 20px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:white;font-size:13px;cursor:pointer;">🔑 API 키 설정</button>'
+        + '</div>';
+      // 기존 next-step이 있으면 제거
+      var old = document.getElementById('oneclick-next-step');
+      if (old) old.remove();
+      container.appendChild(nextStepDiv);
+    }
+    // 체크리스트도 갱신
+    if (typeof checkPostingReadiness === 'function') checkPostingReadiness();
+  }, 1000);
 }
 
 function setSetupFailed(platformId, errorMsg) {
