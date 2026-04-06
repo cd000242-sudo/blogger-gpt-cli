@@ -1231,6 +1231,7 @@ function setSetupComplete(platformId) {
 
   addLog?.(`[원클릭] ✅ ${platform?.name || platformId} 세팅 완료!`);
   showToast(`✅ ${platform?.name || platformId} 원클릭 세팅이 완료되었습니다!`, 'success', 5000);
+  localStorage.setItem('oneclick_setup_complete', 'true');
 }
 
 function setSetupFailed(platformId, errorMsg) {
