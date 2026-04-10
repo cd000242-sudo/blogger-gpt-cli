@@ -705,6 +705,20 @@ async function startSetup(platformId) {
     return;
   }
 
+  // 이미 세팅되어 있는지 체크
+  try {
+    const storage = getStorageManager();
+    const setupKey = `setup_complete_${platformId}`;
+    const already = await storage.get(setupKey, true);
+    if (already) {
+      const proceed = confirm(`✅ 이미 ${platformId === 'blogspot' ? 'Blogspot' : 'WordPress'} 원클릭 셋업이 완료되어 있습니다.\n\n다시 진행하시겠습니까?`);
+      if (!proceed) {
+        showToast(`✅ 이미 셋업이 완료되어 있습니다.`, 'success');
+        return;
+      }
+    }
+  } catch { /* 무시 */ }
+
   const platform = PLATFORMS[platformId];
   if (!platform) return;
 
@@ -835,6 +849,20 @@ async function startWebmasterSetup(engine) {
     showToast('⚠️ URL은 http:// 또는 https://로 시작해야 합니다.', 'warn');
     return;
   }
+
+  // 이미 등록되어 있는지 체크
+  try {
+    const storage = getStorageManager();
+    const wmKey = `webmaster_${engine}_${blogUrl}`;
+    const already = await storage.get(wmKey, true);
+    if (already) {
+      const proceed = confirm(`✅ 이미 ${ENGINE_NAMES[engine]}에 "${blogUrl}"이 등록되어 있습니다.\n\n다시 등록하시겠습니까?`);
+      if (!proceed) {
+        showToast(`✅ 이미 ${ENGINE_NAMES[engine]}에 등록되어 있습니다.`, 'success');
+        return;
+      }
+    }
+  } catch { /* 무시 */ }
 
   activeWebmaster = { engine, cancelled: false };
 
@@ -985,7 +1013,7 @@ function showWebmasterLoginGuide(engine, engineName) {
   attachModalDismiss(modal);
 }
 
-function setWebmasterComplete(engine, results) {
+async function setWebmasterComplete(engine, results) {
   activeWebmaster = null;
 
   // 상태 뱃지
@@ -1043,6 +1071,16 @@ function setWebmasterComplete(engine, results) {
   document.getElementById('oneclick-webmaster-login-modal')?.remove();
 
   addLog?.(`[원클릭] ✅ ${ENGINE_NAMES[engine]} 세팅 완료!`);
+  showToast(`🎉 ${ENGINE_NAMES[engine]} 웹마스터 등록 완료!`, 'success', 5000);
+
+  // 등록 정보 저장 (다음번 중복 체크용)
+  try {
+    const blogUrl = document.getElementById('oneclick-webmaster-url')?.value?.trim();
+    if (blogUrl) {
+      const storage = getStorageManager();
+      await storage.set(`webmaster_${engine}_${blogUrl}`, { registeredAt: Date.now(), results }, true);
+    }
+  } catch { /* 무시 */ }
 }
 
 function setWebmasterFailed(engine, errorMsg) {
@@ -1230,8 +1268,14 @@ function setSetupComplete(platformId) {
   }
 
   addLog?.(`[원클릭] ✅ ${platform?.name || platformId} 세팅 완료!`);
-  showToast(`✅ ${platform?.name || platformId} 원클릭 세팅이 완료되었습니다!`, 'success', 5000);
+  showToast(`🎉 ${platform?.name || platformId} 원클릭 세팅 완료!`, 'success', 5000);
   localStorage.setItem('oneclick_setup_complete', 'true');
+
+  // 다음번 중복 체크용 저장
+  try {
+    const storage = getStorageManager();
+    storage.set(`setup_complete_${platformId}`, { completedAt: Date.now() }, true);
+  } catch { /* 무시 */ }
 
   // blogId 자동 저장 (설정에 반영)
   try {
@@ -1338,6 +1382,29 @@ async function startPlatformConnect(platformId) {
     return;
   }
 
+  // 이미 세팅되어 있는지 체크
+  try {
+    const storage = getStorageManager();
+    const settings = await storage.get('bloggerSettings', true) || {};
+    if (platformId === 'blogger' || platformId === 'blogspot') {
+      if (settings.googleClientId && settings.googleClientSecret && settings.blogId) {
+        const proceed = confirm(`✅ 이미 Blogger OAuth가 세팅되어 있습니다.\n\nBlog ID: ${settings.blogId}\n\n다시 설정하시겠습니까?`);
+        if (!proceed) {
+          showToast('✅ 이미 세팅되어 있습니다.', 'success');
+          return;
+        }
+      }
+    } else if (platformId === 'wordpress') {
+      if (settings.wordpressSiteUrl && settings.wordpressUsername && settings.wordpressPassword) {
+        const proceed = confirm(`✅ 이미 WordPress가 세팅되어 있습니다.\n\nSite: ${settings.wordpressSiteUrl}\n\n다시 설정하시겠습니까?`);
+        if (!proceed) {
+          showToast('✅ 이미 세팅되어 있습니다.', 'success');
+          return;
+        }
+      }
+    }
+  } catch { /* 무시 */ }
+
   let siteUrl = '';
 
   // WordPress는 사이트 URL 필요
@@ -1424,13 +1491,25 @@ async function continuePlatformConnect(platformId, siteUrl) {
             // 환경설정에 자동 저장
             await saveConnectResults(platformId, status.results);
             if (msgDiv) {
-              // XSS 안전: DOM API로 추가
               msgDiv.appendChild(document.createElement('br'));
               const savedSpan = document.createElement('span');
               savedSpan.style.cssText = 'color: #22c55e; font-size: 11px;';
               savedSpan.textContent = '✅ 추출된 값이 환경설정에 자동 저장되었습니다!';
               msgDiv.appendChild(savedSpan);
             }
+            // 핵심 필드 검증
+            const platformName = platformId === 'wordpress' ? 'WordPress' : 'Blogger OAuth';
+            const requiredFields = platformId === 'wordpress'
+              ? ['wordpressSiteUrl', 'wordpressUsername', 'wordpressPassword']
+              : ['googleClientId', 'googleClientSecret', 'blogId'];
+            const missing = requiredFields.filter(f => !status.results[f]);
+            if (missing.length === 0) {
+              showToast(`🎉 ${platformName} 연동 완료! 환경설정에 자동 저장되었습니다.`, 'success', 5000);
+            } else {
+              showToast(`⚠️ ${platformName} 부분 완료: ${missing.join(', ')} 추출 실패. 화면에서 직접 복사해주세요.`, 'warn', 8000);
+            }
+          } else if (status.error) {
+            showToast(`❌ 연동 실패: ${status.error}`, 'error');
           }
 
           // 버튼 복원
@@ -1511,6 +1590,20 @@ async function saveConnectResults(platformId, results) {
       if (secretInput && results.googleClientSecret) secretInput.value = results.googleClientSecret;
       if (blogIdInput && results.blogId) blogIdInput.value = results.blogId;
     }
+
+    // 우상단 플랫폼/API 상태 배지 즉시 갱신
+    try {
+      if (typeof window.updatePlatformStatus === 'function') window.updatePlatformStatus();
+      if (typeof window.updateApiStatusIndicators === 'function') window.updateApiStatusIndicators();
+      if (typeof window.updatePlatformBadge === 'function') {
+        const platform = (platformId === 'wordpress') ? 'wordpress' : 'blogger';
+        window.updatePlatformBadge(platform);
+      }
+      // 환경설정 다시 로드
+      if (typeof window.loadSettings === 'function') window.loadSettings();
+    } catch (e) {
+      console.warn('[ONECLICK-CONNECT] 상태 배지 갱신 실패:', e);
+    }
   } catch (err) {
     console.error('[ONECLICK-CONNECT] 결과 저장 실패:', err);
   }
@@ -1553,6 +1646,20 @@ async function startInfraSetup() {
 
   // URL 프로토콜 제거 (순수 도메인만)
   const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  window.__lastInfraDomain = cleanDomain; // 폴링 콜백에서 사용
+
+  // 이미 인프라 세팅된 도메인인지 체크
+  try {
+    const storage = getStorageManager();
+    const already = await storage.get(`infra_complete_${cleanDomain}`, true);
+    if (already) {
+      const proceed = confirm(`✅ "${cleanDomain}"의 인프라 세팅(도메인+SSL)이 이미 완료되어 있습니다.\n\n다시 진행하시겠습니까?`);
+      if (!proceed) {
+        showToast(`✅ 이미 인프라 세팅이 완료되어 있습니다.`, 'success');
+        return;
+      }
+    }
+  } catch { /* 무시 */ }
 
   activeInfra = { cancelled: false };
 
@@ -1759,6 +1866,14 @@ function listenForInfraProgress() {
 
         showToast('🎉 인프라 세팅 완료! 도메인 + SSL이 설정되었습니다.', 'success');
         addLog?.('[원클릭] 🎉 인프라 세팅 완료 (도메인 + SSL)');
+
+        // 다음번 중복 체크용 저장
+        try {
+          const storage = getStorageManager();
+          const dom = window.__lastInfraDomain;
+          if (dom) await storage.set(`infra_complete_${dom}`, { completedAt: Date.now() }, true);
+        } catch { /* 무시 */ }
+
         activeInfra = null;
       } else if (status.error) {
         clearPoll('infra');

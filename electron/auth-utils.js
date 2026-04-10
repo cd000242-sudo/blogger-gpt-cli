@@ -48,6 +48,8 @@ exports.getFreeQuotaStatus = getFreeQuotaStatus;
 exports.enforceFreeTier = enforceFreeTier;
 exports.getPaywallResponse = getPaywallResponse;
 const electron_1 = require("electron");
+const path = __importStar(require("path"));
+const fs = __importStar(require("fs"));
 const quotaManager = __importStar(require("./quota-manager"));
 const FREE_DAILY_LIMIT = 2;
 // 무료 체험 세션 플래그 (앱 재시작 시 리셋)
@@ -79,25 +81,23 @@ async function isFreeTierUser() {
         return false;
     }
     try {
-        // 동적 import — 빌드 후 dist/utils/에 컴파일됨
-        const { getLicenseManager } = require('../dist/utils/license-manager-new');
-        const lm = getLicenseManager();
-        if (!lm)
-            return true;
-        // getLicenseStatus()로 라이선스 확인 (getLicenseData 메서드 없음)
-        const status = lm.getLicenseStatus ? lm.getLicenseStatus() : null;
-        if (!status || !status.valid)
-            return true; // 무효 → 무료
-        const license = status.licenseData;
-        if (!license)
-            return true; // 라이선스 데이터 없음 → 무료
-        // 만료 체크
+        // 라이선스 파일을 직접 읽어서 유료 여부 판단
+        // (getLicenseStatus()는 패치 파일 해시까지 검증하는 엄격한 체크라서,
+        //  서버 인증으로 로그인한 유료 사용자가 무료로 표시되는 버그가 있었음)
+        const licensePath = path.join(electron_1.app.getPath('userData'), 'license.json');
+        if (!fs.existsSync(licensePath))
+            return true; // 파일 없음 → 무료
+        const license = JSON.parse(fs.readFileSync(licensePath, 'utf8'));
+        if (!license || !license.licenseType)
+            return true; // 데이터 없음 → 무료
+        // 만료 체크 (기간제만)
         if (license.licenseType === 'temporary' && license.expiresAt) {
             if (Date.now() > license.expiresAt) {
                 return true; // 만료됨 → 무료
             }
         }
-        // 유효한 라이선스 → 유료 (무제한)
+        // 유효한 라이선스 파일 존재 → 유료 (무제한)
+        console.log('[AuthUtils] 유료 사용자 확인:', license.licenseType);
         return false;
     }
     catch (e) {

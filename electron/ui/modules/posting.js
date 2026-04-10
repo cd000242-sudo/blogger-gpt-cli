@@ -211,12 +211,8 @@ export async function runPosting() {
   try {
     debugLog('POSTING', '포스팅 실행 시작');
 
-    // 이미지 소스 설정 모달
-    const imageSettings = await showAutoImageSourceModal();
-    if (!imageSettings) {
-      addLog('발행이 취소되었습니다.', 'warning');
-      return;
-    }
+    // 이미지 소스: 기본값 자동 수집 (모달 없이 즉시 발행)
+    const imageSettings = { source: 'auto', contentUrl: '', shoppingUrl: '', aiSource: 'pollinations' };
 
     // ── 상태 전환 ──
     appState.isRunning = true;
@@ -316,6 +312,10 @@ export async function runPosting() {
 // 발행 함수 (원클릭 발행) — runPosting의 래퍼
 export async function publishToPlatform() {
   const appState = getAppState();
+  debugLog('PUBLISH', 'publishToPlatform 호출', {
+    hasContent: !!appState.generatedContent?.content?.trim(),
+    isRunning: appState.isRunning,
+  });
 
   // 이미 생성된 콘텐츠가 있으면 재발행 경로
   if (appState.generatedContent?.content?.trim()) {
@@ -376,7 +376,7 @@ export async function publishToPlatform() {
 
 /** 기본값 상수 */
 const PAYLOAD_DEFAULTS = {
-  provider: 'gemini',
+  provider: 'openai',
   titleMode: 'auto',
   contentMode: 'external',
   toneStyle: 'professional',

@@ -6,6 +6,7 @@
 import axios, { AxiosError } from 'axios';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getApiKey } from './api-keys';
+import { findTier } from './pricing';
 
 // ─── 응답 타입 ──────────────────────────────────
 interface ChatCompletionResponse {
@@ -109,6 +110,25 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
 
 const RATE_LIMIT_DELAY_MS = 3_000;
 
+/**
+ * 사용자 선택 티어가 해당 provider에 속하면, 그 모델을 1순위로 폴백 체인 재구성.
+ * 아니면 기본 PROVIDERS[provider].models 그대로 사용.
+ */
+function resolveModelChain(provider: keyof typeof PROVIDERS): string[] {
+  const baseModels = PROVIDERS[provider]!.models;
+  const tier = findTier(process.env['PRIMARY_TEXT_MODEL']);
+  if (!tier || tier.provider !== provider) {
+    return [...baseModels];
+  }
+  // 티어 폴백 체인 + 베이스 모델 (중복 제거)
+  const seen = new Set<string>();
+  const chain: string[] = [];
+  [...tier.fallback, ...baseModels].forEach(m => {
+    if (!seen.has(m)) { seen.add(m); chain.push(m); }
+  });
+  return chain;
+}
+
 function extractErrorMessage(error: unknown): string {
   if (error instanceof AxiosError) {
     return error.response?.data?.error?.message || error.message;
@@ -135,8 +155,9 @@ export async function callLLM(
   }
 
   let lastError: Error | null = null;
+  const modelChain = resolveModelChain(provider);
 
-  for (const model of config.models) {
+  for (const model of modelChain) {
     try {
       const response = await axios.post(
         config.endpoint,

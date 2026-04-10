@@ -9,18 +9,46 @@ import {
   getGenAI, getOpenAIApiKey, getClaudeApiKey, getPerplexityApiKey,
   callOpenAIAPI, callClaudeAPI, callPerplexityAPI,
 } from '../llm';
+import { findTier, DEFAULT_TIER_VALUE } from '../llm/pricing';
 
-// 🔥 Gemini 모델 리스트 (2.5+ 모델만 사용!)
-export const GEMINI_MODELS = [
+// 🔥 Gemini 모델 베이스 리스트 (2.5+ 모델만 사용!)
+const GEMINI_BASE_MODELS = [
+  'gemini-2.5-flash-lite',     // 가성비 (신규)
   'gemini-2.5-flash',          // 🔥 가장 안정적, 빠른 응답
   'gemini-2.5-pro',            // 고품질 폴백
 ];
 
-// 🌐 Grounding 모델
-export const GROUNDING_MODELS = [
-  'gemini-2.5-flash',          // Search Grounding에 가장 안정적
-  'gemini-2.5-pro',            // 고품질 폴백
-];
+/**
+ * 사용자 설정(PRIMARY_TEXT_MODEL)에 따라 Gemini 모델 폴백 체인을 동적 구성.
+ * 비-Gemini 티어 선택 시에도 Gemini 폴백은 균형 모델부터 시도.
+ */
+function buildGeminiChain(): string[] {
+  const tierValue = process.env['PRIMARY_TEXT_MODEL'] || DEFAULT_TIER_VALUE;
+  const tier = findTier(tierValue);
+  if (tier && tier.provider === 'gemini') {
+    // 1순위 = 사용자 선택, 나머지는 베이스 순서 유지
+    const seen = new Set<string>();
+    const chain: string[] = [];
+    [tier.modelId, ...GEMINI_BASE_MODELS].forEach(m => {
+      if (!seen.has(m)) { seen.add(m); chain.push(m); }
+    });
+    return chain;
+  }
+  return [...GEMINI_BASE_MODELS];
+}
+
+/**
+ * 사용자가 비-Gemini 티어를 선택했는지 확인.
+ * 그렇다면 해당 provider를 1순위로 호출해야 함.
+ */
+function getPrimaryProvider(): 'gemini' | 'openai' | 'claude' | 'perplexity' {
+  const tier = findTier(process.env['PRIMARY_TEXT_MODEL']);
+  return tier?.provider ?? 'gemini';
+}
+
+// 하위호환: 다른 모듈에서 import할 수 있도록 유지
+export const GEMINI_MODELS = GEMINI_BASE_MODELS;
+export const GROUNDING_MODELS = GEMINI_BASE_MODELS;
 
 // 🔥 API 호출 간격 제어 (할당량 초과 방지)
 let lastApiCallTime = 0;
@@ -44,14 +72,30 @@ async function enforceRateLimit(): Promise<void> {
 // 🔥 Gemini API 호출 헬퍼 (재시도 + 모델 폴백 + 지능형 대기)
 // 🔥 폴백 순서: Gemini(1순위) → OpenAI → Claude → Perplexity
 export async function callGeminiWithRetry(prompt: string, maxRetries: number = 2): Promise<string> {
-  const genAI = getGenAI();
   let lastError: any = null;
   let totalAttempts = 0;
 
   await enforceRateLimit();
 
-  // 🤖 1순위: Gemini 모델들 (기본 엔진)
-  for (const modelName of GEMINI_MODELS) {
+  // 🎯 사용자가 비-Gemini 티어를 선택한 경우 우선 호출 시도
+  const primaryProvider = getPrimaryProvider();
+  if (primaryProvider !== 'gemini') {
+    try {
+      console.log(`🎯 [Tier] 사용자 선택 provider 우선 호출: ${primaryProvider}`);
+      if (primaryProvider === 'openai' && getOpenAIApiKey()) return await callOpenAIAPI(prompt);
+      if (primaryProvider === 'claude' && getClaudeApiKey()) return await callClaudeAPI(prompt);
+      if (primaryProvider === 'perplexity' && getPerplexityApiKey()) return await callPerplexityAPI(prompt);
+    } catch (e: any) {
+      lastError = e;
+      console.warn(`⚠️ [Tier] ${primaryProvider} 우선 호출 실패, Gemini 폴백:`, e?.message?.substring(0, 100));
+    }
+  }
+
+  const genAI = getGenAI();
+  const geminiChain = buildGeminiChain();
+
+  // 🤖 Gemini 모델 폴백 체인 (사용자 선택 1순위)
+  for (const modelName of geminiChain) {
     for (let retry = 0; retry < maxRetries; retry++) {
       totalAttempts++;
       try {
@@ -141,7 +185,7 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 2
   await new Promise(resolve => setTimeout(resolve, 5000));
 
   try {
-    const model = genAI.getGenerativeModel({ model: GEMINI_MODELS[0]! });
+    const model = genAI.getGenerativeModel({ model: geminiChain[0]! });
     const result = await Promise.race([
       model.generateContent(prompt),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`최종 시도 ${GEMINI_TIMEOUT_MS / 1000}초 타임아웃`)), GEMINI_TIMEOUT_MS))
@@ -162,8 +206,9 @@ export async function callGeminiWithGrounding(prompt: string, maxRetries: number
   // 🌐 1순위: Gemini Search Grounding (기본 엔진)
   const genAI = getGenAI();
   let totalAttempts = 0;
+  const groundingChain = buildGeminiChain();
 
-  for (const modelName of GROUNDING_MODELS) {
+  for (const modelName of groundingChain) {
     for (let retry = 0; retry < maxRetries; retry++) {
       totalAttempts++;
       try {
@@ -210,10 +255,14 @@ export async function callGeminiWithGrounding(prompt: string, maxRetries: number
     }
   }
 
-  // 🔥 Grounding 실패 → callGeminiWithRetry (OpenAI/Claude/Perplexity 포함)
+  // 🔥 Grounding 실패 → 비-Grounding 폴백 시 할루시네이션 경고 주입
   console.log(`⚠️ [Grounding] 모두 실패! 일반 모델로 폴백... (총 ${totalAttempts}회 시도)`);
+  const safePrompt = prompt + `\n\n🔴🔴🔴 중요: 검색 기능을 사용할 수 없는 상태입니다. 반드시 아래 규칙을 지키세요:
+- 확실하지 않은 숫자/날짜/통계/URL은 절대 작성하지 마세요.
+- 검증할 수 없는 사실은 "정확한 수치는 공식 사이트에서 확인하세요"로 대체하세요.
+- 추측이나 허위 정보를 만들어내면 안 됩니다.`;
   try {
-    return await callGeminiWithRetry(prompt, maxRetries);
+    return await callGeminiWithRetry(safePrompt, maxRetries);
   } catch (fallbackError) {
     throw lastError || fallbackError || new Error('Gemini Grounding + 폴백 모두 실패');
   }

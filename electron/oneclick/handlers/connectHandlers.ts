@@ -59,9 +59,10 @@ export function registerConnectHandlers(): void {
             state.message = `❌ 오류: ${state.error}`;
           }
         } finally {
+          // 완료 후 3초 뒤 브라우저 자동 닫기
           setTimeout(async () => {
             try { await browser.close(); } catch { /* ignore */ }
-          }, 30000);
+          }, 3000);
         }
       };
       run().catch((e) => console.error('[ONECLICK-CONNECT] Unhandled:', e));

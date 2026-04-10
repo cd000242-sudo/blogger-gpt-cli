@@ -61,6 +61,18 @@ const AI_ARTIFACT_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
     pattern: /다양한 이점이 있습니다/g,
     label: '반복 필러 "다양한 이점이 있습니다"',
   },
+  {
+    pattern: /[\u4E00-\u9FFF\u3400-\u4DBF]/,
+    label: '중국어 한자(CJK) 문자 감지',
+  },
+  {
+    pattern: /10년차|20년차|현직자가 말하는|전문가가 알려주는/,
+    label: '허위 권위 주장 (경력/전문가 사칭)',
+  },
+  {
+    pattern: /제가 직접 해본|직접 겪어보고|직접 써본/,
+    label: '허위 경험 주장',
+  },
 ];
 
 /**

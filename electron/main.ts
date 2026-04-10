@@ -276,6 +276,15 @@ ipcMain.handle('license-activate', async (_evt, payload: { code: string }) => {
   }
 });
 
+// 종료 확인 핸들러
+ipcMain.handle('confirm-quit', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.removeAllListeners('close');
+    mainWindow.close();
+  }
+  return { ok: true };
+});
+
 // 새로운 라이선스 인증 (아이디/비밀번호/코드)
 ipcMain.handle('license-authenticate', async (_evt, payload: { userId: string; password: string; licenseCode?: string }) => {
   try {
@@ -2024,7 +2033,9 @@ ipcMain.handle('run-post', async (_evt, payload) => {
   let preConsumed = false;
   try {
     console.log('[RUN-POST] 포스트 실행 요청 받음');
+    console.log('[RUN-POST] payload keys:', Object.keys(payload || {}));
     const { generateMaxModeArticle, publishGeneratedContent } = require('../dist/core/index');
+    console.log('[RUN-POST] core/index 로드 완료');
 
     // env 객체 생성
     const env = {
@@ -2056,20 +2067,7 @@ ipcMain.handle('run-post', async (_evt, payload) => {
         _evt.sender.send('log-line', line);
       }
 
-      // 자동 진행률 추적 (로그 키워드 기반)
-      for (const [keyword, progress] of Object.entries(progressStages)) {
-        if (line.includes(`[${keyword}]`) || line.includes(keyword)) {
-          if (progress > currentProgress) {
-            currentProgress = progress;
-            if (_evt.sender && !_evt.sender.isDestroyed()) {
-              _evt.sender.send('run-progress', { p: currentProgress, label: line.substring(0, 100) });
-            }
-          }
-          break;
-        }
-      }
-
-      // [PROGRESS] 형식도 지원
+      // [PROGRESS] 형식 우선 처리 (백엔드에서 명시적 진행률)
       const progressMatch = line.match(/\[PROGRESS\]\s*(\d+)%\s*-\s*(.+)/);
       if (progressMatch) {
         const percent = parseInt(progressMatch[1], 10);
@@ -2079,6 +2077,20 @@ ipcMain.handle('run-post', async (_evt, payload) => {
           currentProgress = percent;
           _evt.sender.send('run-progress', { p: percent, label });
         }
+        return; // [PROGRESS] 형식이면 키워드 매칭 건너뜀
+      }
+
+      // 키워드 기반 자동 진행률 추적 ([PROGRESS] 형식이 아닌 로그만)
+      for (const [keyword, progress] of Object.entries(progressStages)) {
+        if (line.includes(`[${keyword}]`)) {
+          if (progress > currentProgress) {
+            currentProgress = progress;
+            if (_evt.sender && !_evt.sender.isDestroyed()) {
+              _evt.sender.send('run-progress', { p: currentProgress, label: line.substring(0, 100) });
+            }
+          }
+          break;
+        }
       }
     };
 
@@ -2087,12 +2099,15 @@ ipcMain.handle('run-post', async (_evt, payload) => {
       const { enforceFreeTier, isFreeTierUser } = require('./auth-utils');
       const { consume, refund } = require('./quota-manager');
 
+      console.log('[RUN-POST] enforceFreeTier 호출...');
       const enforcement = await enforceFreeTier();
+      console.log('[RUN-POST] enforceFreeTier 결과:', enforcement.allowed);
       if (!enforcement.allowed) {
         return enforcement.response; // PAYWALL 응답
       }
 
       const isFree = await isFreeTierUser();
+      console.log('[RUN-POST] isFreeTierUser:', isFree);
       if (isFree) {
         await consume(1);
         preConsumed = true;
@@ -2103,6 +2118,7 @@ ipcMain.handle('run-post', async (_evt, payload) => {
     }
 
     // 1. 콘텐츠 생성
+    console.log('[RUN-POST] generateMaxModeArticle 호출 시작...');
     onLog('[PROGRESS] 5% - 🔥 콘텐츠 생성 시작');
     const result = await generateMaxModeArticle(payload, env, onLog);
 
@@ -4315,6 +4331,22 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  // 창 닫기 전 확인 다이얼로그 (커스텀 HTML 모달)
+  let isQuittingConfirmed = false;
+  mainWindow.on('close', (e) => {
+    // 업데이트 중이면 그냥 닫음
+    try {
+      const { isUpdating } = require('./updater');
+      if (isUpdating()) return;
+    } catch {}
+    if (isQuittingConfirmed) return;
+    e.preventDefault();
+    // 렌더러에 커스텀 모달 표시 요청
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('show-quit-confirm');
+    }
+  });
+
   // 창 닫힘 이벤트
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -4334,26 +4366,25 @@ app.whenReady().then(async () => {
     console.log('[APP] 🚀 개발 모드: 라이선스 체크 건너뛰기, 무제한 모드');
     createWindow();
   } else {
-    // 배포 환경: updater 모듈 사용 (네이버 자동화 앱 구조)
-    const { initAutoUpdaterEarly, waitForUpdateCheck, registerUpdaterHandlers, isUpdating } = require('./updater');
+    // 배포 환경: 업데이트 체크 먼저 → 최신이면 인증창
+    const { initAutoUpdaterEarly, waitForUpdateCheck, registerUpdaterHandlers } = require('./updater');
     registerUpdaterHandlers();
 
+    // 1단계: 업데이트 체크 (인증창 없이)
+    console.log('[APP] 🔄 업데이트 확인 중... (인증창 대기)');
     try {
       initAutoUpdaterEarly();
-      console.log('[APP] 🔄 업데이트 확인 중...');
       const hasUpdate = await waitForUpdateCheck().catch(() => false);
-
       if (hasUpdate) {
-        console.log('[APP] ⬆️ 업데이트 발견 → 다운로드 진행 중, 인증창 생성 안 함');
-        // 업데이트 다운로드 중 → 완료 후 재시작하면 인증
-        return;
+        console.log('[APP] ⬆️ 업데이트 발견 → 다운로드 후 자동 재시작, 인증창 안 띄움');
+        return; // 다운로드 완료 후 자동 재시작
       }
     } catch (e: any) {
       console.log('[APP] 업데이트 체크 실패 (무시):', e.message);
     }
 
-    // 최신 버전 → 정상 인증 플로우
-    console.log('[APP] 업데이트 없음 → 인증창 표시 진행');
+    // 2단계: 최신 버전 → 인증창 표시
+    console.log('[APP] ✅ 최신 버전 → 인증창 표시');
     const licenseValid = await checkLicenseWithAutoLogin();
 
     if (licenseValid) {

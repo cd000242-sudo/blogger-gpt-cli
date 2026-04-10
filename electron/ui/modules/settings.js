@@ -61,6 +61,16 @@ export async function saveSettings() {
     wordpressCategories: document.getElementById('wordpressCategories')?.value || '',
     platform: document.querySelector('input[name="platform"]:checked')?.value || 'wordpress',
     generationEngine: document.getElementById('generationEngine')?.value || 'gemini',
+    primaryGeminiTextModel: document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value || 'gemini-2.5-flash',
+    defaultAiProvider: (() => {
+      const m = document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value;
+      if (!m) return 'gemini';
+      if (m.startsWith('gemini-')) return 'gemini';
+      if (m.startsWith('openai-')) return 'openai';
+      if (m.startsWith('claude-')) return 'claude';
+      if (m === 'perplexity-sonar') return 'perplexity';
+      return 'gemini';
+    })(),
     promptMode: 'max-mode',
     toneStyle: document.getElementById('toneStyle')?.value || 'professional',
     imageFolderPath: document.getElementById('imageFolderPath')?.value || '',
@@ -91,7 +101,9 @@ export async function saveSettings() {
         perplexityKey: settings.perplexityKey,
         leonardoKey: settings.leonardoKey,
         dalleApiKey: settings.dalleApiKey,
-        generationEngine: settings.generationEngine
+        generationEngine: settings.generationEngine,
+        primaryGeminiTextModel: settings.primaryGeminiTextModel,
+        defaultAiProvider: settings.defaultAiProvider
       };
 
       console.log('🔧 환경 설정 저장 데이터:', envData);
@@ -392,6 +404,14 @@ export async function loadSettingsContent() {
         'generationEngine': mergedSettings.generationEngine || mergedSettings.provider || 'gemini',
         'blogUrl': mergedSettings.blogUrl || ''
       };
+
+      // 라디오 카드 복원: primaryGeminiTextModel
+      const savedTier = mergedSettings.primaryGeminiTextModel || 'gemini-2.5-flash';
+      const tierRadios = document.querySelectorAll('input[name="primaryGeminiTextModel"]');
+      tierRadios.forEach(r => { r.checked = (r.value === savedTier); });
+      if (typeof window.refreshTierCards === 'function') {
+        try { window.refreshTierCards(); } catch (e) { /* ignore */ }
+      }
 
       Object.entries(fieldMappings).forEach(([fieldId, value]) => {
         const el = document.getElementById(fieldId);

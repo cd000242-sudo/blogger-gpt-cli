@@ -35,6 +35,11 @@ let loginWindowRef = null;
 /** 로그인 창 참조 설정 (main에서 호출) */
 function setUpdaterLoginWindow(win) {
     loginWindowRef = win;
+    // Race Condition 방지: 업데이트 진행 중인데 인증창이 나중에 설정된 경우 → 즉시 숨김
+    if (isUpdateInProgress && loginWindowRef && !loginWindowRef.isDestroyed()) {
+        loginWindowRef.hide();
+        console.log('[Updater] 인증창 즉시 숨김 (업데이트가 이미 진행 중)');
+    }
 }
 /** 업데이트 진행 중 여부 */
 function isUpdating() {
@@ -46,6 +51,7 @@ function waitForUpdateCheck() {
         updateCheckResolve = resolve;
         setTimeout(() => {
             if (updateCheckResolve) {
+                console.log('[Updater] 업데이트 체크 타임아웃 (15초) - 업데이트 없음으로 처리');
                 updateCheckResolve(false);
                 updateCheckResolve = null;
             }
@@ -121,19 +127,13 @@ function initAutoUpdaterEarly() {
         if (loginWindowRef && !loginWindowRef.isDestroyed()) {
             loginWindowRef.hide();
         }
-        // 렌더러에 알림
-        electron_1.BrowserWindow.getAllWindows().forEach((w) => {
-            if (!w.isDestroyed()) {
-                w.webContents.send('auto-update-event', { type: 'available', version: info.version });
-            }
-        });
         if (updateCheckResolve) {
             updateCheckResolve(true);
             updateCheckResolve = null;
         }
     });
     updater.on('update-not-available', () => {
-        console.log('[Updater] 최신 버전입니다.');
+        console.log('[Updater] ✅ 최신 버전입니다 → 인증 진행');
         if (updateCheckResolve) {
             updateCheckResolve(false);
             updateCheckResolve = null;
@@ -151,39 +151,86 @@ function initAutoUpdaterEarly() {
     });
     updater.on('update-downloaded', (info) => {
         console.log('[Updater] 다운로드 완료:', info.version);
-        closeProgressWindow();
-        electron_1.BrowserWindow.getAllWindows().forEach((w) => {
-            if (!w.isDestroyed()) {
-                w.webContents.send('auto-update-event', { type: 'downloaded', version: info.version });
+        // 중복 재시작 방지
+        let isRestarting = false;
+        const doRestart = () => {
+            if (isRestarting)
+                return;
+            isRestarting = true;
+            console.log('[Updater] 재시작 실행');
+            isUpdateInProgress = false;
+            // 인증창 닫기
+            if (loginWindowRef && !loginWindowRef.isDestroyed()) {
+                loginWindowRef.close();
             }
-        });
-        // 5초 후 자동 재시작 (사용자가 모달에서 선택할 수도 있음)
-        const focusedWin = electron_1.BrowserWindow.getFocusedWindow() || electron_1.BrowserWindow.getAllWindows()[0];
-        if (focusedWin && !focusedWin.isDestroyed()) {
-            electron_1.dialog.showMessageBox(focusedWin, {
-                type: 'info',
-                title: '✅ 업데이트 준비 완료',
-                message: `v${info.version} 다운로드 완료!\n재시작하면 자동으로 업데이트됩니다.`,
-                buttons: ['지금 재시작', '나중에'],
-                defaultId: 0,
-            }).then((result) => {
-                if (result.response === 0) {
-                    updater.quitAndInstall();
-                }
+            updater.quitAndInstall();
+        };
+        // 프로그레스 창이 있으면 → 완료 UI로 전환 (네이버 패턴)
+        if (progressWindow && !progressWindow.isDestroyed()) {
+            progressWindow.webContents.executeJavaScript(`
+        document.querySelector('h2').innerHTML = '✅ 업데이트 준비 완료';
+        document.querySelector('h2').style.fontSize = '17px';
+        document.getElementById('ver').textContent = 'LEADERNAM Orbit v${info.version}';
+        document.getElementById('ver').style.color = '#a78bfa';
+        document.querySelector('.bar-bg').style.display = 'none';
+        document.querySelector('.info').innerHTML = '<span style="color:#a78bfa;font-weight:600;">클릭하여 재시작</span><span style="color:rgba(255,255,255,0.4);">5초 후 자동 재시작</span>';
+        document.body.style.cursor = 'pointer';
+        document.body.onclick = function() { window.close(); };
+      `).catch(() => { });
+            // 프로그레스 창 닫히면 → 재시작
+            progressWindow.once('closed', () => {
+                progressWindow = null;
+                doRestart();
             });
+            // 5초 후 자동 재시작 (프로그레스 창 먼저 닫고 → closed 이벤트로 doRestart)
+            setTimeout(() => {
+                if (!isRestarting) {
+                    closeProgressWindow();
+                }
+            }, 5000);
         }
         else {
-            // 창이 없으면 5초 후 자동 재시작
-            setTimeout(() => updater.quitAndInstall(), 5000);
+            // 프로그레스 창 없으면 독립 다이얼로그
+            electron_1.dialog.showMessageBox({
+                type: 'info',
+                title: '업데이트 준비 완료',
+                message: `LEADERNAM Orbit v${info.version}`,
+                detail: '새로운 버전이 다운로드되었습니다.\n재시작하여 업데이트를 적용합니다.',
+                buttons: ['지금 재시작하여 업데이트'],
+                defaultId: 0,
+                noLink: true,
+            }).then(doRestart).catch(doRestart);
         }
     });
     updater.on('error', (err) => {
         console.error('[Updater] 오류:', err.message);
         isUpdateInProgress = false;
-        closeProgressWindow();
         if (updateCheckResolve) {
             updateCheckResolve(false);
             updateCheckResolve = null;
+        }
+        // 인증창 다시 표시
+        if (loginWindowRef && !loginWindowRef.isDestroyed()) {
+            loginWindowRef.show();
+            console.log('[Updater] 인증창 다시 표시 (업데이트 실패)');
+        }
+        // 프로그레스 창이 있으면 에러 UI로 전환 → 8초 후 자동 닫기
+        if (progressWindow && !progressWindow.isDestroyed()) {
+            const safeMsg = err.message.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, ' ');
+            progressWindow.webContents.executeJavaScript(`
+        document.querySelector('h2').innerHTML = '❌ 업데이트 실패';
+        document.querySelector('h2').style.color = '#ef4444';
+        document.getElementById('ver').textContent = '${safeMsg}';
+        document.getElementById('ver').style.color = '#fca5a5';
+        document.querySelector('.bar-bg').style.display = 'none';
+        document.querySelector('.info').innerHTML = '<span style="color:#fff;font-weight:600;">클릭하여 닫기</span>';
+        document.body.style.cursor = 'pointer';
+        document.body.onclick = function() { window.close(); };
+      `).catch(() => { });
+            setTimeout(() => closeProgressWindow(), 8000);
+        }
+        else {
+            closeProgressWindow();
         }
     });
     // 즉시 업데이트 체크 시작

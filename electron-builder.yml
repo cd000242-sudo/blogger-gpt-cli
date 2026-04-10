@@ -50,10 +50,12 @@ linux:
   icon: build/icon.png
   artifactName: ${productName}-${version}-${arch}.${ext}
 
-# NSIS 인스톨러 설정 (Windows)
+# NSIS 인스톨러 설정 (Windows) — 참고: Better Life Naver 구조
 nsis:
   oneClick: false
+  perMachine: false  # 🔥 사용자 폴더에 설치 (UAC 권한 불필요, 자동 업데이트 정상 작동)
   allowToChangeInstallationDirectory: true
+  allowElevation: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: ${productName}

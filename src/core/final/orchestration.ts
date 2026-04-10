@@ -18,7 +18,7 @@ import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
 import { fetchFactContext, type FactCheckMode } from '../perplexityFactCheck';
 import { uploadBase64ToImageHost } from './image-helpers';
 import { crawlSingleUrlFast } from './crawlers';
-import { callGeminiWithRetry, callGeminiWithGrounding } from './gemini-engine';
+import { callGeminiWithGrounding } from './gemini-engine';
 import { FinalCrawledPost, FinalTableData, FinalCTAData } from './types';
 import {
   generateH1TitleFinal, generateH2TitlesFinal,
@@ -228,7 +228,7 @@ export async function generateUltimateMaxModeArticleFinal(
         h2Titles = [
           '작성자 소개',
           `${keyword} 완전히 이해하기`,
-          `제가 직접 해본 ${keyword} 실전 경험`,
+          `${keyword} 실전 활용 가이드`,
           '단계별 실행 가이드',
           '비교 분석 및 추천',
           '자주 묻는 질문 (FAQ)',
@@ -401,9 +401,10 @@ export async function generateUltimateMaxModeArticleFinal(
 
       // 🔥 이미지 배치 섹션 선택 — idx=0은 썸네일과 중복(L4196 idx>0 필터)이므로
       //    기본값은 섹션 2,3,4 (idx=1,2,3)부터 시작하여 본문 이미지가 실제 표시되도록 함
+      // 모든 H2 섹션에 이미지 생성 (idx=1은 썸네일 중복 가능성으로 idx=2부터)
       const effectiveSelectedH2Sections = selectedH2Sections.length > 0
         ? selectedH2Sections
-        : Array.from({ length: Math.min(3, sections.length - 1) }, (_, i) => i + 2);
+        : Array.from({ length: Math.max(1, sections.length - 1) }, (_, i) => i + 2);
 
       const envData = loadEnvFromFile();
       const pexelsKey = envData['pexelsApiKey'] || envData['PEXELS_API_KEY'] || '';
@@ -416,8 +417,8 @@ export async function generateUltimateMaxModeArticleFinal(
       console.log('   - OpenAI:', openaiKey ? `있음 (${openaiKey.length}자)` : '없음');
       console.log('   - Pexels:', pexelsKey ? `있음 (${pexelsKey.length}자)` : '없음');
 
-      // 🔥 빠른 모드에서도 최소 3개 이미지 생성 (idx=0은 썸네일 중복으로 스킵되므로 2장 이상 필요)
-      const maxImages = fastMode ? Math.min(3, sections.length) : sections.length;
+      // 선택된 H2 섹션 수만큼 이미지 생성 (fastMode 제한 해제)
+      const maxImages = sections.length;
 
       // 🚀 병렬 이미지 생성 — 모든 섹션의 이미지를 동시에 생성 (유료 티어: 충분한 RPM)
       const imageGenStartTime = Date.now();
@@ -501,7 +502,7 @@ export async function generateUltimateMaxModeArticleFinal(
 
         // 병렬 진행률 업데이트
         completedCount++;
-        const progress = 76 + Math.round((completedCount / totalToGenerate) * 9);
+        const progress = 76 + Math.round((completedCount / totalToGenerate) * 12);
         if (imageResult.ok && imageResult.dataUrl) {
           onLog?.(`[PROGRESS] ${progress}% - ✅ 섹션 ${i + 1} 이미지 완료 (${usedSource}) [${completedCount}/${totalToGenerate}]`);
           return { dataUrl: imageResult.dataUrl, source: usedSource || 'AI 생성' };
@@ -529,7 +530,12 @@ export async function generateUltimateMaxModeArticleFinal(
 
       const imageGenElapsed = ((Date.now() - imageGenStartTime) / 1000).toFixed(1);
       const successCount = sectionImages.filter(img => img.length > 0).length;
-      onLog?.(`[PROGRESS] 85% - 🎉 이미지 ${successCount}/${totalToGenerate}장 완료 (${imageGenElapsed}초 — 병렬 처리)`);
+      const failCount = totalToGenerate - successCount;
+      if (failCount > 0) {
+        onLog?.(`[PROGRESS] 85% - ⚠️ 이미지 ${successCount}/${totalToGenerate}장 완료, ${failCount}장 실패 (${imageGenElapsed}초)`);
+      } else {
+        onLog?.(`[PROGRESS] 85% - 🎉 이미지 ${successCount}/${totalToGenerate}장 완료 (${imageGenElapsed}초 — 병렬 처리)`);
+      }
     } // 🔥 skipImages else 블록 종료
 
     // 🚀 Base64 이미지를 병렬로 URL 변환 (이미지 호스팅 업로드)
@@ -646,7 +652,7 @@ export async function generateUltimateMaxModeArticleFinal(
   <a class="cta-btn" href="${ctaUrl}" target="_blank" rel="nofollow noopener noreferrer">
     ${sectionCta.buttonText}
   </a>
-  <span class="cta-microcopy">※ 단, 예산 소진 시 조기 마감될 수 있습니다.</span>
+  <span class="cta-microcopy">※ 정확한 내용은 공식 사이트에서 확인해주세요.</span>
 </div>
 `;
       }
@@ -1144,8 +1150,15 @@ ${conclusionHTML}
       thumbnail: thumbnailUrl,
     };
 
-  } catch (error) {
-    onLog?.(`❌ [끝판왕] 오류: ${error}`);
+  } catch (error: any) {
+    const msg = error?.message || String(error);
+    const isApiError = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|timeout|ECONNREFUSED|ENOTFOUND/i.test(msg);
+    if (isApiError) {
+      onLog?.(`[PROGRESS] 0% - ❌ AI API 연결 실패: ${msg.substring(0, 100)}`);
+      onLog?.('💡 해결 방법: 잠시 후 다시 시도하거나, API 키와 인터넷 연결을 확인해주세요.');
+    } else {
+      onLog?.(`[PROGRESS] 0% - ❌ 콘텐츠 생성 오류: ${msg.substring(0, 100)}`);
+    }
     throw error;
   }
 }

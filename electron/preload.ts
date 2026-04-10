@@ -62,6 +62,8 @@ export type ProgressPayload = { p: number; label?: string };
 
 /** 렌더러에서 사용할 API 모음 */
 export type BloggerApi = {
+  onQuitConfirm?: (listener: () => void) => () => void;
+  confirmQuit?: () => Promise<{ ok: boolean }>;
   openLink(href: string): Promise<boolean>;
 
   saveEnv(env: EnvConfig): Promise<RunResult>;
@@ -393,6 +395,14 @@ const api: BloggerApi = {
     ipcRenderer.on('run-progress', handler);
     return () => ipcRenderer.off('run-progress', handler);
   },
+
+  // 종료 확인
+  onQuitConfirm: ((listener: () => void) => {
+    const handler = () => { try { listener(); } catch {} };
+    ipcRenderer.on('show-quit-confirm', handler);
+    return () => ipcRenderer.off('show-quit-confirm', handler);
+  }) as any,
+  confirmQuit: (() => ipcRenderer.invoke('confirm-quit')) as any,
   
   // 작업 취소
   cancelTask: () => ipcRenderer.send('cancel-task'),

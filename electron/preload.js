@@ -66,6 +66,16 @@ const api = {
         electron_1.ipcRenderer.on('run-progress', handler);
         return () => electron_1.ipcRenderer.off('run-progress', handler);
     },
+    // 종료 확인
+    onQuitConfirm: ((listener) => {
+        const handler = () => { try {
+            listener();
+        }
+        catch { } };
+        electron_1.ipcRenderer.on('show-quit-confirm', handler);
+        return () => electron_1.ipcRenderer.off('show-quit-confirm', handler);
+    }),
+    confirmQuit: (() => electron_1.ipcRenderer.invoke('confirm-quit')),
     // 작업 취소
     cancelTask: () => electron_1.ipcRenderer.send('cancel-task'),
     // 라이선스

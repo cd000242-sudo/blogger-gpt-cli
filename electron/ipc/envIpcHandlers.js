@@ -70,6 +70,9 @@ const ENV_KEY_MAP = {
     adspowerProfileId: 'ADSPOWER_PROFILE_ID',
     adspowerApiKey: 'ADSPOWER_API_KEY',
     crawlProxy: 'CRAWL_PROXY',
+    generationEngine: 'GENERATION_ENGINE',
+    primaryGeminiTextModel: 'PRIMARY_TEXT_MODEL',
+    defaultAiProvider: 'DEFAULT_AI_PROVIDER',
 };
 function parseEnvContent(content) {
     const envMap = new Map();

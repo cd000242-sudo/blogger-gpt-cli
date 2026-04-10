@@ -782,6 +782,228 @@
 
               <!-- 🔥 통합 API 키 입력 섹션 -->
 
+              <!-- 🤖 AI 텍스트 엔진 선택 (글 1편당 비용 + 가성비/균형/프리미엄) -->
+              <div id="textEnginePicker"
+                style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.6), rgba(15, 23, 42, 0.6)); border-top: 1px solid rgba(139, 92, 246, 0.25); border-left: 1px solid rgba(255,255,255,0.06); border-right: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 24px; margin-bottom: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 12px;">
+                  <div style="display: flex; align-items: center; gap: 14px;">
+                    <span style="font-size: 28px;">🤖</span>
+                    <div>
+                      <h4 style="margin: 0; font-size: 18px; font-weight: 800; color: white; letter-spacing: -0.3px;">AI 텍스트 엔진 선택</h4>
+                      <p style="margin: 4px 0 0 0; font-size: 13px; color: rgba(255,255,255,0.6);">글 1편당 예상 비용 · 가성비 / 균형 / 프리미엄</p>
+                    </div>
+                  </div>
+                  <div id="textEngineCurrent" style="font-size: 12px; font-weight: 700; color: #c4b5fd; background: rgba(139,92,246,0.12); border: 1px solid rgba(139,92,246,0.3); padding: 8px 14px; border-radius: 999px;">현재: Gemini 2.5 Flash · ~₩80/글</div>
+                </div>
+
+                <p style="margin: 0 0 14px 0; font-size: 11px; color: rgba(255,255,255,0.45); line-height: 1.5;">
+                  💡 표시 비용은 LLM 호출 1회 기준 추정치입니다. 실제 글 1편 발행 시 제목·H2·본문·FAQ·CTA·요약·해시태그 등 약 8회 호출이 발생하므로 실비용은 표시 금액의 약 8배입니다.
+                </p>
+
+                <!-- Gemini 그룹 -->
+                <div style="margin-bottom: 14px;">
+                  <div style="font-size: 11px; font-weight: 800; color: rgba(255,255,255,0.55); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">🔷 Google Gemini</div>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+                    <label class="tier-card" data-tier="가성비" data-cost="15"
+                      style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(56,189,248,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
+                      <input type="radio" name="primaryGeminiTextModel" value="gemini-2.5-flash-lite" style="display:none;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="font-weight: 800; color: white; font-size: 13px;">💰 Gemini 2.5 Flash-Lite</span>
+                        <span style="background: linear-gradient(135deg,#38bdf8,#0284c7); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">가성비</span>
+                      </div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">대량 발행 · 가장 저렴 · 빠른 속도</div>
+                      <div style="font-size: 12px; color: #7dd3fc; font-weight: 800;">~₩15/글</div>
+                    </label>
+
+                    <label class="tier-card" data-tier="균형" data-cost="80"
+                      style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(139,92,246,0.45); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
+                      <input type="radio" name="primaryGeminiTextModel" value="gemini-2.5-flash" checked style="display:none;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="font-weight: 800; color: white; font-size: 13px;">⚖️ Gemini 2.5 Flash</span>
+                        <span style="background: linear-gradient(135deg,#a78bfa,#7c3aed); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">균형 · 추천</span>
+                      </div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">품질·속도·가격 균형 · 일반 글에 최적</div>
+                      <div style="font-size: 12px; color: #c4b5fd; font-weight: 800;">~₩80/글</div>
+                    </label>
+
+                    <label class="tier-card" data-tier="프리미엄" data-cost="300"
+                      style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(245,158,11,0.4); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
+                      <input type="radio" name="primaryGeminiTextModel" value="gemini-2.5-pro" style="display:none;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="font-weight: 800; color: white; font-size: 13px;">👑 Gemini 2.5 Pro</span>
+                        <span style="background: linear-gradient(135deg,#fbbf24,#d97706); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">프리미엄</span>
+                      </div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">심층 추론 · 깊이 있는 글쓰기 · 최고 품질</div>
+                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩300/글</div>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- OpenAI 그룹 -->
+                <div style="margin-bottom: 14px;">
+                  <div style="font-size: 11px; font-weight: 800; color: rgba(255,255,255,0.55); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">🧠 OpenAI</div>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+                    <label class="tier-card" data-tier="가성비" data-cost="16"
+                      style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(16,185,129,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
+                      <input type="radio" name="primaryGeminiTextModel" value="openai-gpt4o-mini" style="display:none;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="font-weight: 800; color: white; font-size: 13px;">💰 GPT-4.1 mini</span>
+                        <span style="background: linear-gradient(135deg,#34d399,#059669); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">가성비</span>
+                      </div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">빠른 속도 · 합리적 가격 · 안정적 품질</div>
+                      <div style="font-size: 12px; color: #6ee7b7; font-weight: 800;">~₩16/글</div>
+                    </label>
+
+                    <label class="tier-card" data-tier="균형" data-cost="42"
+                      style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(139,92,246,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
+                      <input type="radio" name="primaryGeminiTextModel" value="openai-gpt41" style="display:none;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="font-weight: 800; color: white; font-size: 13px;">⚖️ GPT-4.1</span>
+                        <span style="background: linear-gradient(135deg,#a78bfa,#7c3aed); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">균형</span>
+                      </div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">균형 잡힌 품질 · 가격 대비 성능 우수</div>
+                      <div style="font-size: 12px; color: #c4b5fd; font-weight: 800;">~₩42/글</div>
+                    </label>
+
+                    <label class="tier-card" data-tier="프리미엄" data-cost="101"
+                      style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(245,158,11,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
+                      <input type="radio" name="primaryGeminiTextModel" value="openai-gpt4o" style="display:none;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="font-weight: 800; color: white; font-size: 13px;">🚀 GPT-4o</span>
+                        <span style="background: linear-gradient(135deg,#fbbf24,#d97706); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">프리미엄</span>
+                      </div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">강력한 추론 · 정확한 지시 이행</div>
+                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩101/글</div>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Claude 그룹 -->
+                <div style="margin-bottom: 14px;">
+                  <div style="font-size: 11px; font-weight: 800; color: rgba(255,255,255,0.55); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">🎭 Anthropic Claude</div>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+                    <label class="tier-card" data-tier="가성비" data-cost="39"
+                      style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(168,85,247,0.3); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
+                      <input type="radio" name="primaryGeminiTextModel" value="claude-haiku" style="display:none;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="font-weight: 800; color: white; font-size: 13px;">💜 Claude Haiku 4.5</span>
+                        <span style="background: linear-gradient(135deg,#c084fc,#9333ea); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">가성비</span>
+                      </div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">빠른 응답 · 자연스러운 한국어 · 창의적</div>
+                      <div style="font-size: 12px; color: #d8b4fe; font-weight: 800;">~₩39/글</div>
+                    </label>
+
+                    <label class="tier-card" data-tier="균형" data-cost="63"
+                      style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(168,85,247,0.45); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
+                      <input type="radio" name="primaryGeminiTextModel" value="claude-sonnet" style="display:none;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="font-weight: 800; color: white; font-size: 13px;">📜 Claude Sonnet 4.6</span>
+                        <span style="background: linear-gradient(135deg,#c084fc,#9333ea); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">균형</span>
+                      </div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">균형 잡힌 품질 · 안정적 한국어</div>
+                      <div style="font-size: 12px; color: #d8b4fe; font-weight: 800;">~₩63/글</div>
+                    </label>
+
+                    <label class="tier-card" data-tier="프리미엄" data-cost="735"
+                      style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(245,158,11,0.45); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
+                      <input type="radio" name="primaryGeminiTextModel" value="claude-opus" style="display:none;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="font-weight: 800; color: white; font-size: 13px;">👑 Claude Opus 4.6</span>
+                        <span style="background: linear-gradient(135deg,#fbbf24,#d97706); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">최고 품질</span>
+                      </div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">최상급 추론 · 완벽한 글쓰기</div>
+                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩735/글</div>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Perplexity 그룹 -->
+                <div>
+                  <div style="font-size: 11px; font-weight: 800; color: rgba(255,255,255,0.55); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">🔮 Perplexity</div>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+                    <label class="tier-card" data-tier="실시간" data-cost="15"
+                      style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(56,189,248,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
+                      <input type="radio" name="primaryGeminiTextModel" value="perplexity-sonar" style="display:none;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="font-weight: 800; color: white; font-size: 13px;">🔮 Perplexity Sonar</span>
+                        <span style="background: linear-gradient(135deg,#38bdf8,#0284c7); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">실시간 검색</span>
+                      </div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">최신 웹 정보 기반 실시간 검색 + AI 분석</div>
+                      <div style="font-size: 12px; color: #7dd3fc; font-weight: 800;">~₩15/글</div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <script>
+                (function() {
+                  // 라디오 카드 선택 시각 효과 + generationEngine select 동기화 + 상단 배지 갱신
+                  const tierCards = document.querySelectorAll('#textEnginePicker .tier-card');
+                  const currentBadge = document.getElementById('textEngineCurrent');
+                  const genSelect = document.getElementById('generationEngine');
+
+                  function deriveProvider(value) {
+                    if (value && value.startsWith('gemini-')) return 'gemini';
+                    if (value && value.startsWith('openai-')) return 'openai';
+                    if (value && value.startsWith('claude-')) return 'claude';
+                    if (value === 'perplexity-sonar') return 'perplexity';
+                    return 'gemini';
+                  }
+
+                  function refreshTierUI() {
+                    tierCards.forEach(card => {
+                      const input = card.querySelector('input[type="radio"]');
+                      if (!input) return;
+                      if (input.checked) {
+                        card.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.18), rgba(56,189,248,0.12))';
+                        card.style.boxShadow = '0 0 0 2px rgba(139,92,246,0.55), 0 8px 24px rgba(139,92,246,0.18)';
+                        card.style.transform = 'translateY(-1px)';
+                        const titleEl = card.querySelector('span');
+                        const cost = card.dataset.cost;
+                        if (currentBadge && titleEl) {
+                          currentBadge.textContent = '현재: ' + titleEl.textContent.replace(/^[💰⚖️👑🚀💜📜🔮]\s*/, '') + ' · ~₩' + cost + '/글';
+                        }
+                        // generationEngine select 동기화 (하위호환)
+                        if (genSelect) {
+                          genSelect.value = deriveProvider(input.value);
+                        }
+                      } else {
+                        card.style.background = 'rgba(15,23,42,0.55)';
+                        card.style.boxShadow = 'none';
+                        card.style.transform = 'translateY(0)';
+                      }
+                    });
+                  }
+
+                  tierCards.forEach(card => {
+                    card.addEventListener('click', () => {
+                      const input = card.querySelector('input[type="radio"]');
+                      if (input) {
+                        input.checked = true;
+                        refreshTierUI();
+                      }
+                    });
+                    card.addEventListener('mouseenter', () => {
+                      const input = card.querySelector('input[type="radio"]');
+                      if (input && !input.checked) {
+                        card.style.background = 'rgba(30,41,59,0.7)';
+                      }
+                    });
+                    card.addEventListener('mouseleave', () => {
+                      const input = card.querySelector('input[type="radio"]');
+                      if (input && !input.checked) {
+                        card.style.background = 'rgba(15,23,42,0.55)';
+                      }
+                    });
+                  });
+
+                  // 환경설정 모달이 열릴 때마다 한 번 더 동기화
+                  document.addEventListener('DOMContentLoaded', refreshTierUI);
+                  window.refreshTierCards = refreshTierUI;
+                  refreshTierUI();
+                })();
+              </script>
+
               <!-- 메인 AI API (필수) -->
               <div
                 style="background: rgba(30, 41, 59, 0.4); border-top: 1px solid rgba(255,255,255,0.12); border-left: 1px solid rgba(255,255,255,0.06); border-right: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 24px; margin-bottom: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
@@ -794,10 +1016,10 @@
                     </div>
                   </div>
                   <div>
-                    <select id="generationEngine" style="background: rgba(15, 23, 42, 0.8); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 600; outline: none; cursor: pointer; backdrop-filter: blur(4px);">
-                      <option value="gemini">Gemini (Default)</option>
+                    <select id="generationEngine" style="display:none; background: rgba(15, 23, 42, 0.8); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 600; outline: none; cursor: pointer; backdrop-filter: blur(4px);">
+                      <option value="openai">OpenAI (Default)</option>
+                      <option value="gemini">Gemini</option>
                       <option value="perplexity">Perplexity</option>
-                      <option value="openai">OpenAI</option>
                       <option value="claude">Claude</option>
                     </select>
                   </div>
@@ -5675,6 +5897,71 @@
   <span style="font-size: 13px; font-weight: 600; opacity: 0.9;">오늘 발행</span>
   <span id="freeQuotaText" style="font-size: 18px; font-weight: 900; letter-spacing: 1px;">0/2</span>
 </div>
+
+<!-- 종료 확인 프리미엄 모달 -->
+<div id="quitConfirmModal" style="display:none; position:fixed; inset:0; z-index:2147483647; background:rgba(8,8,16,0.75); backdrop-filter:blur(20px); align-items:center; justify-content:center; animation:quitFadeIn 0.25s ease;">
+  <style>
+    @keyframes quitFadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes quitSlideUp { from { opacity: 0; transform: translateY(20px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    #quitConfirmModal .qm-card { animation: quitSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+    #quitConfirmModal .qm-btn { transition: all 0.25s ease; cursor: pointer; }
+    #quitConfirmModal .qm-btn:hover { transform: translateY(-2px); }
+    #quitConfirmModal .qm-btn-cancel:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.4); }
+    #quitConfirmModal .qm-btn-quit:hover { box-shadow: 0 12px 32px rgba(239,68,68,0.5); }
+  </style>
+  <div class="qm-card" style="width:420px; max-width:90%; background:linear-gradient(145deg, #1e1b4b 0%, #312e81 100%); border-radius:24px; padding:36px 32px; box-shadow:0 30px 80px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.1);">
+    <div style="display:flex; align-items:center; justify-content:center; width:72px; height:72px; margin:0 auto 20px; background:linear-gradient(135deg, rgba(239,68,68,0.2), rgba(168,85,247,0.2)); border-radius:20px; border:1px solid rgba(239,68,68,0.3);">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#fca5a5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+    </div>
+    <h2 style="margin:0 0 10px; text-align:center; font-size:22px; font-weight:800; color:#ffffff; letter-spacing:-0.5px;">앱을 종료하시겠어요?</h2>
+    <p style="margin:0 0 28px; text-align:center; font-size:14px; line-height:1.6; color:rgba(255,255,255,0.65);">진행 중인 작업이 있다면<br>저장되지 않을 수 있습니다.</p>
+    <div style="display:flex; gap:12px;">
+      <button id="qmCancelBtn" class="qm-btn qm-btn-cancel" style="flex:1; padding:14px 0; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); border-radius:14px; color:#ffffff; font-size:15px; font-weight:600; font-family:inherit;">계속 사용</button>
+      <button id="qmQuitBtn" class="qm-btn qm-btn-quit" style="flex:1; padding:14px 0; background:linear-gradient(135deg, #ef4444, #dc2626); border:none; border-radius:14px; color:#ffffff; font-size:15px; font-weight:700; font-family:inherit; box-shadow:0 8px 24px rgba(239,68,68,0.35);">종료</button>
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  function showQuitModal() {
+    var modal = document.getElementById('quitConfirmModal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    document.getElementById('qmCancelBtn').onclick = function() { modal.style.display = 'none'; };
+    document.getElementById('qmQuitBtn').onclick = function() {
+      if (window.blogger && window.blogger.confirmQuit) {
+        window.blogger.confirmQuit();
+      } else if (window.electronAPI && window.electronAPI.confirmQuit) {
+        window.electronAPI.confirmQuit();
+      }
+    };
+  }
+  // 메인 프로세스 메시지 수신
+  function setupListener() {
+    if (window.blogger && window.blogger.onQuitConfirm) {
+      window.blogger.onQuitConfirm(showQuitModal);
+    } else if (window.electronAPI && window.electronAPI.onQuitConfirm) {
+      window.electronAPI.onQuitConfirm(showQuitModal);
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupListener);
+  } else {
+    setupListener();
+  }
+  // ESC로 닫기
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      var modal = document.getElementById('quitConfirmModal');
+      if (modal && modal.style.display === 'flex') modal.style.display = 'none';
+    }
+  });
+})();
+</script>
 
 <script>
 // 무료 쿼터 카운터

@@ -7967,7 +7967,14 @@ document.addEventListener('DOMContentLoaded', async function () {
       // 🔧 ProgressManager 사용
       const progressManager = getProgressManager();
 
-      // 진행률이 현재보다 낮으면 무시 (역행 방지) - 단, 100%는 예외
+      // 라벨(작업 단계)은 항상 업데이트
+      const progressStep = document.getElementById('progressStep');
+      if (progressStep && label) {
+        const cleanLabel = label.replace(/\[PROGRESS\]\s*\d+%\s*-\s*/, '').trim();
+        if (cleanLabel) progressStep.textContent = cleanLabel;
+      }
+
+      // 진행률이 현재보다 낮으면 퍼센트/바 업데이트만 스킵 (라벨은 위에서 이미 처리)
       if (actualProgress <= progressManager.overallProgress && actualProgress < 100) {
         console.log(`[PROGRESS] 역행 방지: ${actualProgress}% -> ${progressManager.overallProgress}%`);
         return;

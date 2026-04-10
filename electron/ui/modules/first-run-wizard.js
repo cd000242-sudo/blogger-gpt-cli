@@ -12,8 +12,18 @@ export function checkFirstRun() {
   const completed = localStorage.getItem(WIZARD_COMPLETE_KEY);
   if (completed === 'true') return;
 
-  // 약간의 딜레이 후 위저드 표시 (앱 로딩 완료 대기)
-  setTimeout(() => showFirstRunWizard(), 1500);
+  // 위저드 대신 바로 환경설정 탭으로 이동
+  localStorage.setItem(WIZARD_COMPLETE_KEY, 'true');
+  setTimeout(() => {
+    if (typeof window.showTab === 'function') {
+      window.showTab('settings');
+      // 설정 탭 내 API 키 탭 표시
+      if (typeof window.switchSettingsTab === 'function') {
+        window.switchSettingsTab('api-keys');
+      }
+    }
+    addLog('[WIZARD] 첫 실행 → 환경설정으로 이동', 'info');
+  }, 500);
 }
 
 function showFirstRunWizard() {

@@ -222,7 +222,26 @@ async function automateBloggerConnect(state, page) {
                         results['googleClientId'] = clientId;
                     if (clientSecret)
                         results['googleClientSecret'] = clientSecret;
-                    if (clientId && clientSecret) {
+                    // 추출 실패 시 강화된 폴백: 페이지 전체 텍스트에서 패턴 매칭
+                    if (!clientId || !clientSecret) {
+                        await page.waitForTimeout(2000);
+                        const fallback = await page.evaluate(() => {
+                            const text = document.body.innerText || '';
+                            // Client ID 패턴: 숫자-문자.apps.googleusercontent.com
+                            const idMatch = text.match(/[\d-]+\.apps\.googleusercontent\.com/);
+                            // Client Secret 패턴: GOCSPX-로 시작 (또는 24자 이상 random)
+                            const secretMatch = text.match(/GOCSPX-[A-Za-z0-9_-]+/);
+                            return {
+                                id: idMatch ? idMatch[0] : '',
+                                secret: secretMatch ? secretMatch[0] : '',
+                            };
+                        });
+                        if (!clientId && fallback.id)
+                            results['googleClientId'] = fallback.id;
+                        if (!clientSecret && fallback.secret)
+                            results['googleClientSecret'] = fallback.secret;
+                    }
+                    if (results['googleClientId'] && results['googleClientSecret']) {
                         state.message = '✅ OAuth 클라이언트 ID/Secret 생성 완료!';
                     }
                     else {

@@ -9,7 +9,7 @@ import axios from 'axios';
 import { loadEnvFromFile } from '../../env';
 import { getGeminiApiKey, getPerplexityApiKey } from '../llm';
 import { validateCtaUrl } from '../../cta/validate-cta-url';
-import { callGeminiWithRetry, callGeminiWithGrounding } from './gemini-engine';
+import { callGeminiWithGrounding } from './gemini-engine';
 import { FinalCrawledPost, FinalTableData, FinalCTAData, FAQItem } from './types';
 
 // 🔥 AI 응답에서 테이블 데이터를 안전하게 파싱
@@ -45,10 +45,10 @@ export async function generateH1TitleFinal(keyword: string, crawledTitles: strin
     { name: '숫자 리스트', pattern: '"OO 꼭 알아야 할 5가지", "전문가가 추천하는 OO 7선", "OO BEST 3 비교"' },
     { name: '질문형 호기심', pattern: '"OO 왜 아무도 안 알려줄까?", "OO 진짜 효과 있을까?", "OO 이래도 괜찮은 걸까?"' },
     { name: '비교/대조', pattern: '"OO vs OO 뭐가 더 좋을까", "OO 장단점 솔직 비교", "OO 전후 차이점 총정리"' },
-    { name: '경험담 공유', pattern: '"OO 직접 해본 솔직 후기", "OO 3개월 써본 결과", "OO 실패하고 깨달은 것"' },
+    { name: '핵심 정리', pattern: '"OO 핵심만 쏙쏙 정리", "OO 한눈에 보는 총정리", "OO 알아야 할 모든 것"' },
     { name: '트렌드/최신', pattern: `"${currentYear}년 OO 최신 트렌드", "올해 달라진 OO 핵심 변화", "${currentYear} OO 이렇게 바뀌었다"` },
     { name: '문제 해결', pattern: '"OO 안 될 때 해결법 총정리", "OO 실패하는 3가지 이유", "OO 흔한 실수와 해결책"' },
-    { name: '전문가 인사이트', pattern: '"전문가가 알려주는 OO 핵심", "현직자가 말하는 OO 비밀", "10년차가 추천하는 OO"' },
+    { name: '정보 분석', pattern: '"OO 공식 정보 핵심 정리", "OO 최신 변경사항 분석", "OO 데이터로 보는 현황"' },
     { name: '단계별 가이드', pattern: '"OO 3단계로 끝내기", "OO 따라하면 되는 5스텝", "OO 입문부터 실전까지"' },
     { name: '꿀팁/노하우', pattern: '"OO 꿀팁 모음", "OO 고수만 아는 비법", "OO 효율 200% 올리는 법"' },
   ];
@@ -58,8 +58,9 @@ export async function generateH1TitleFinal(keyword: string, crawledTitles: strin
   const selected = shuffled.slice(0, 3);
   const archetypeGuide = selected.map((a, i) => `${i + 1}. **${a.name}형**: ${a.pattern}`).join('\n');
 
+  const todayH1 = new Date().toISOString().slice(0, 10);
   const prompt = `당신은 대한민국 최고의 바이럴 마케터입니다.
-현재: ${currentYear}년 ${currentMonth}월
+현재: ${currentYear}년 ${currentMonth}월 (오늘: ${todayH1})
 
 키워드: ${keyword}
 
@@ -74,6 +75,8 @@ ${archetypeGuide}
 - 키워드 "${keyword}"를 자연스럽게 포함
 - 연도가 필요한 주제(정책·지원금·세금·트렌드 등)면 "${currentYear}년"을 제목 맨 앞에. 불필요한 주제(맛집·일상 꿀팁 등)면 연도 생략.
 - 연도를 쓸 때는 반드시 "2026년" 형태로 제목 맨 앞에. "년 2026" 같은 역순 금지.
+- 이미 마감된 사업/이벤트는 제목에 포함 금지. 현재 진행 중이거나 미래 일정만 다루세요.
+- 한글과 영문/숫자만 사용. 중국어 한자(漢字) 절대 금지!
 - 금지: ~손해, ~후회, ~대박 표현
 - 제목 길이: 25~45자
 - 오직 1개만 출력 (옵션/설명/번호 없이 제목만)
@@ -85,6 +88,7 @@ ${archetypeGuide}
   let title = (lines[0] || response.trim())
     .replace(/^[\*\-\d\.\)\]]+\s*/g, '')  // 번호/기호 제거
     .replace(/["']/g, '')
+    .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '')  // 한자 제거
     .trim();
 
   // 50자 초과시만 자르기 (긴 제목 허용)
@@ -161,7 +165,7 @@ ${subheadingReference}
    - [심층 분석형] "왜 전문가들은 OO를 추천할까?"
    - [체크리스트형] "시작하기 전 반드시 확인해야 할 5가지"
    - [비교 분석형] "OO vs OO, 나에게 맞는 것은?"
-   - [스토리텔링/경험형] "직접 겪어보고 알게 된 진짜 꿀팁"
+   - [핵심 정리형] "한눈에 보는 핵심 포인트 총정리"
 
 요구사항:
 1. 각 H2가 위 아키타입처럼 서로 완전히 다르고 흥미로운 정보를 다룰 것!
@@ -169,6 +173,8 @@ ${subheadingReference}
 3. 🔴🔴🔴 번호/접두어 금지! 순수한 제목 텍스트만!
 4. 검색자가 당장 클릭하고 싶을 만큼 매력적인 문장형 제목을 활용할 것
 5. 🔴 연도: ${currentYear}년 외 과거 연도 금지
+6. 이미 마감된 사업/이벤트/일정은 소제목에 포함 금지. 현재 진행 중이거나 미래 일정만!
+7. 한글과 영문/숫자만 사용. 중국어 한자(漢字) 절대 금지!
 
 JSON만(${targetCount}개 문자열 배열):
 `;
@@ -185,6 +191,7 @@ JSON만(${targetCount}개 문자열 배열):
       .replace(/^\d+[.\):\s]+/g, '')
       .replace(/^소제목[:\s]*/gi, '')
       .replace(/^제목[:\s]*/gi, '')
+      .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '')
       .trim()
     ).filter(t => t.length > 0);
   } catch {
@@ -211,7 +218,7 @@ H2 소제목: ${h2}
 - JSON 문자열 배열로만 출력: ["제목1", "제목2", "제목3"]`;
 
   try {
-    const raw = await callGeminiWithRetry(prompt);
+    const raw = await callGeminiWithGrounding(prompt);
     const match = raw.match(/\[[\s\S]*?\]/);
     if (!match) return fallback;
 
@@ -220,7 +227,7 @@ H2 소제목: ${h2}
 
     const titles = parsed
       .slice(0, 3)
-      .map((t) => String(t).replace(/^#+\s*/, '').replace(/^\d+[.\):\s]+/, '').trim())
+      .map((t) => String(t).replace(/^#+\s*/, '').replace(/^\d+[.\):\s]+/, '').replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '').trim())
       .filter((t) => t.length > 0);
 
     if (titles.length < 3) return fallback;
@@ -303,9 +310,9 @@ export async function generateAllSectionsFinal(
 4. **중립적/교육적 콘텐츠**: 상업적 의도가 전혀 보이지 않는 순수 정보 제공 글
 
 📝 **7섹션 구조별 작성 가이드**:
-- **섹션 1: 작성자 소개** (350자+): 해당 분야 전문 자격, 경력, 경험 연수를 자연스러운 1인칭으로. "2026년 N월 기준" 날짜 필수
+- **섹션 1: 주제 소개** (350자+): 이 주제가 왜 중요한지, 독자가 이 글에서 얻을 수 있는 핵심 가치를 설명. "2026년 N월 기준" 날짜 필수. (허위 경력/자격 주장 금지!)
 - **섹션 2: [주제] 완전히 이해하기** (1000자+): 핵심 개념 정의(초보자 눈높이) + 중요한 3가지 이유(데이터) + 흔한 오해 바로잡기 + 신뢰 출처 인용
-- **섹션 3: 직접 경험** (1500자+): Before/After 수치, 시행착오, 다른 곳에서 못 찾는 인사이트, 구체적 숫자
+- **섹션 3: 심층 분석** (1500자+): 검색에서 확인한 실제 데이터와 수치, 공식 출처 기반 인사이트, 구체적 팩트
 - **섹션 4: 단계별 실행 가이드** (1000자+): Step 1~N 상세 설명, 각 단계 주의점, 문제 해결 방법
 - **섹션 5: 비교 분석 및 추천** (1000자+): 장단점 공평 분석, 비교 표 포함, 객관적 추천
 - **섹션 6: FAQ** (800자+): 실제 검색되는 질문 6-8개, 각 답변 2-4문장, 간결하고 정확
@@ -320,8 +327,14 @@ export async function generateAllSectionsFinal(
 
 ` : '';
 
+  const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
   const prompt = `
 🎯 키워드: ${keyword}
+
+📅 오늘 날짜: ${todayStr}
+⚠️ 날짜 규칙: 오늘(${todayStr}) 이전에 마감된 사업/이벤트/일정은 언급하지 마세요. 현재 진행 중이거나 미래 일정만 다루세요. 과거 데이터를 인용할 때는 "~기준"을 반드시 명시하세요.
+⚠️ 언어 규칙: 반드시 한국어 한글과 영문/숫자만 사용하세요. 중국어 한자(漢字), 일본어는 절대 사용 금지!
 
 📌 구성해야 할 요소:
 1. 글 전체의 서론 (Introduction)
@@ -342,11 +355,11 @@ ${adsenseModePromptBlock}
 
 [2. '진짜 사람' 같은 극사실적 어조(Ultra-Human Tone)]
 - **완벽한 구어체 전환**: 기계 번역투, AI 특유의 장황한 설명체("중요한 사실입니다", "다양한 이점이 있습니다") 철저히 배제.
-- **디테일한 공감과 경험적 터치**: "많이들 헷갈리시죠?", "실제로 해보면 제일 당황스러운 부분이 바로 여깁니다" 와 같이, 직접 겪어본 듯한 실전 노하우 뉘앙스를 자연스럽게 녹여내세요.
+- **디테일한 공감**: "많이들 헷갈리시죠?", "이 부분이 가장 중요한 포인트예요" 와 같이 독자와 공감하는 어조를 사용하세요. 단, 직접 경험하지 않은 것을 경험한 것처럼 쓰지 마세요.
 - **결론부 여운 강화 (Conclusion)**: 서론은 300~500자로 매력적인 훅(Hook)을 넣고, 결론은 200~400자로 뻔한 인사말("도움이 되셨길 바랍니다") 대신 명확한 Next Action(다음 행동 유도)이나 꿀팁으로 강력하게 클로징하세요.
 
 [3. SEO 정보 밀도(Density)와 신뢰성(Trust) 극대화]
-- **밀도 높은 데이터 주입**: 두루뭉술한 표현 -> 구체적이고 확정적인 표현("실제 데이터에 따르면 10명 중 8명이")으로 치환 강제. 검색에서 들어온 숫자는 반드시 1회 이상 강조(<strong>)할 것.
+- **밀도 높은 데이터 주입**: 두루뭉술한 표현 -> 구체적인 표현으로 치환. 단, 숫자/통계는 반드시 Google 검색에서 확인한 실제 데이터만 사용! 출처를 알 수 없는 숫자는 절대 만들어내지 마세요.
 - **[전문가의 팁] 마이크로 요소**: 각 H2마다 본문 흐름 중 최소 1번은 시선을 확 끄는 인용구 <blockquote> (예: "앗, 여기서 꿀팁 한 가지!" 또는 "실전 주의사항:")를 배치하여 광고(Adsense) 체류시간을 높이세요.
 - 🔴 절대금지: 본문에 "20년차", "1억", "전문가" 등 작가의 자격증명/거짓 이력을 언급하지 마세요! E-E-A-T는 글의 구체성에서 나옵니다.
 
@@ -451,7 +464,7 @@ JSON만 출력 (설명/마크다운 금지):
     } catch (e) {
       onLog?.('[PROGRESS] 50% - 🔁 JSON 파싱 실패, 1회 재시도...');
       const retryPrompt = `${prompt}\n\nIMPORTANT: Return ONLY a valid JSON object starting with { and ending with }. No markdown, no code fences, no extra text.`;
-      response = await callGeminiWithRetry(retryPrompt);
+      response = await callGeminiWithGrounding(retryPrompt);
       json = extractJsonObject(response);
       allSectionsObj = JSON.parse(json);
     }
@@ -476,7 +489,9 @@ JSON만 출력 (설명/마크다운 금지):
 2) 각 H3의 content를 **600~1000자**로 확장 (현재 너무 짧음!)
 3) 각 content는 **<p> 태그 5개** 필수
 4) 중복 표현/반복 멘트 완전 제거
-5) 구체적인 숫자/사례/도구명 추가
+5) 숫자/통계는 Google 검색에서 확인된 실제 데이터만 사용! 출처 불명 숫자 만들기 금지!
+6) 직접 경험하지 않은 것을 경험한 것처럼 쓰지 마세요
+7) 한글과 영문/숫자만 사용. 중국어 한자(漢字) 절대 금지!
 
 🔥 [H3 본문 다양화 지침]
 - 딱딱한 5단계 구조를 버리고, **섹션의 성격에 맞게 톤과 구조를 다양하게** 섞으세요!
@@ -515,9 +530,9 @@ JSON만 출력:
       introduction: allSectionsObj.introduction || '',
       conclusion: allSectionsObj.conclusion || '',
       sections: (allSectionsObj.sections || []).map((sec, idx) => ({
-        h2: h2Titles[idx] || sec.h2,
+        h2: (h2Titles[idx] || sec.h2 || '').replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, ''),
         h3Sections: (sec.h3Sections || []).map(h3Sec => ({
-          h3: h3Sec.h3,
+          h3: (h3Sec.h3 || '').replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, ''),
           content: (h3Sec.content || '')
             // 친근한 말투 변환
             .replace(/입니다\./g, '이에요.')
@@ -551,7 +566,16 @@ JSON만 출력:
             .replace(/\"어떻게\"를 실제 실행 단계로 굳혀볼게요\./g, '')
             .replace(/체류시간\s*→\s*신뢰\s*→\s*수익/g, '')
             .replace(/노출→클릭→체류→전환/g, '')
-            .replace(/<p>\s*<\/p>/g, ''),
+            .replace(/<p>\s*<\/p>/g, '')
+            // 한자(漢字) → 한글 변환 (AI가 가끔 한자를 출력하는 문제)
+            .replace(/解答/g, '해답').replace(/質問/g, '질문').replace(/方法/g, '방법')
+            .replace(/完璧/g, '완벽').replace(/説明/g, '설명').replace(/活用/g, '활용')
+            .replace(/重要/g, '중요').replace(/必要/g, '필요').replace(/可能/g, '가능')
+            .replace(/問題/g, '문제').replace(/結果/g, '결과').replace(/情報/g, '정보')
+            .replace(/支援/g, '지원').replace(/申請/g, '신청').replace(/確認/g, '확인')
+            .replace(/製造/g, '제조').replace(/導入/g, '도입').replace(/自動/g, '자동')
+            // 남은 CJK 한자 일괄 제거 (한글/영문/숫자/기본 기호만 유지)
+            .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, ''),
           tables: parseTables((h3Sec as any).tables)
         }))
       }))
@@ -561,16 +585,16 @@ JSON만 출력:
     console.error('[generateAllSectionsFinal] 실패:', e);
     onLog?.('[PROGRESS] 50% - ⚠️ 폴백 콘텐츠 사용');
 
-    // 폴백: 기본 콘텐츠 (품질 강화 - 600자 이상)
+    // 폴백: 기본 콘텐츠 (허위 통계 제거 — 검증 불가능한 수치 사용 금지)
     return {
-      introduction: `<p>🔥 ${keyword}에 대해 궁금하셨죠? 많은 분들이 처음엔 어떻게 해야 할지 감을 잡기 어려워하십니다. 오늘은 이 문제를 완벽하게 해결해드릴 핵심 정보들을 모아봤어요.</p>`,
-      conclusion: `<p>오늘 ${keyword}에 대해 알아보았는데요. 이 글에서 알려드린 핵심 방법들을 하나씩 적용해보면 분명 좋은 결과를 얻으실 수 있을 거예요. 당장 오늘부터 작은 것 하나라도 실천해보는 건 어떨까요?</p>`,
-      sections: h2Titles.map((h2, idx) => ({
+      introduction: `<p>${keyword}에 대해 궁금하셨죠? 처음엔 어디서부터 시작해야 할지 막막할 수 있어요. 이 글에서 핵심만 정리해드릴게요.</p>`,
+      conclusion: `<p>${keyword}에 대해 핵심 내용을 정리해봤어요. 하나씩 실천해보시면 분명 도움이 될 거예요.</p>`,
+      sections: h2Titles.map((h2) => ({
         h2,
         h3Sections: [
-          { h3: '핵심 포인트 정리', content: `<p>🔥 ${keyword} 때문에 고민이신가요? 사실 10명 중 7명이 처음에 이 부분에서 막히더라고요. 저도 처음엔 뭐가 뭔지 몰라서 한참 헤맸거든요.</p><p>💡 핵심은 바로 기초부터 탄탄히 이해하는 거예요. 이게 왜 중요하냐면, 나중에 응용할 때 헷갈리지 않거든요. 실제로 기초를 대충 넘기면 나중에 문제가 생겨요.</p><p>📋 그래서 제가 추천하는 방법은 이거예요. 1단계: 먼저 개념을 정확히 이해하기. 2단계: 실제 예시로 확인하기. 3단계: 직접 적용해보기. 이렇게 하면 처음 하시는 분도 30분 안에 이해할 수 있어요.</p><p>✅ 참고로 저는 이 방법으로 처음에 시간을 많이 절약했어요. 주변에서도 해보고 효과 봤다는 분들이 많더라고요.</p><p>💎 이 핵심만 기억해도 절반은 성공이에요!</p>`, tables: [] },
-          { h3: '실전 방법 가이드', content: `<p>🔥 "이론은 알겠는데, 실제로 어떻게 해요?" 이런 질문 많이 받아요. 사실 대부분이 여기서 막히거든요. 저도 처음엔 이론만 알고 실전에서 헤맸어요.</p><p>💡 핵심은 작은 것부터 시작하는 거예요. 처음부터 큰 걸 하려면 부담되고 포기하기 쉽거든요. 그래서 작은 성공 경험을 쌓는 게 중요해요.</p><p>📋 구체적인 실전 방법: 1단계 - 가장 기본적인 것부터 시작해요. 2단계 - 매일 10분씩만 투자해요. 3단계 - 결과를 기록하고 개선점을 찾아요. 이 세 가지만 지키면 누구나 할 수 있어요.</p><p>✅ 실제로 이 방법으로 시작한 분들 중 80%가 1주일 안에 결과를 봤어요. 어렵지 않죠?</p><p>💎 실전에서는 이 3단계만 따라하면 돼요!</p>`, tables: [] },
-          { h3: '주의사항 체크', content: `<p>🔥 여기서 많은 분들이 실수해요. 저도 처음에 이걸 몰라서 시간을 낭비했거든요. 미리 알았으면 훨씬 빨리 했을 텐데 말이에요.</p><p>💡 가장 흔한 실수는 너무 급하게 하려는 거예요. 빨리 하려다 보면 기초를 놓치게 되고, 나중에 다시 처음부터 해야 할 수도 있어요.</p><p>📋 체크리스트로 확인해보세요: ✅ 기초 개념 이해했나요? ✅ 작은 것부터 시작했나요? ✅ 결과를 기록하고 있나요? 이 세 가지만 확인해도 대부분의 실수를 피할 수 있어요.</p><p>✅ 주변에서 이 체크리스트를 활용한 분들은 실수율이 70% 이상 줄었다고 해요. 간단하지만 효과적이죠!</p><p>💎 이 체크리스트만 잘 따라도 실수를 크게 줄일 수 있어요!</p>`, tables: [] },
+          { h3: '핵심 포인트', content: `<p>${keyword} 관련해서 가장 중요한 부분을 정리해드릴게요. 기초 개념부터 차근차근 이해하는 게 핵심이에요.</p><p>1단계: 먼저 개념을 정확히 파악하기. 2단계: 실제 사례로 확인하기. 3단계: 직접 적용해보기. 이 순서대로 진행하면 훨씬 수월해요.</p>`, tables: [] },
+          { h3: '실전 가이드', content: `<p>실제로 적용할 때는 작은 것부터 시작하는 게 좋아요. 처음부터 큰 걸 하려면 부담이 되거든요.</p><p>구체적인 방법: 가장 기본적인 것부터 시작하고, 꾸준히 진행하면서 결과를 기록해보세요. 개선점이 자연스럽게 보일 거예요.</p>`, tables: [] },
+          { h3: '주의사항', content: `<p>가장 흔한 실수는 너무 급하게 진행하는 거예요. 기초를 놓치면 나중에 다시 처음부터 해야 할 수 있어요.</p><p>체크리스트: 기초 개념 이해 완료, 단계별 진행 여부, 결과 기록 여부. 이것만 확인해도 불필요한 시행착오를 줄일 수 있어요.</p>`, tables: [] },
         ]
       }))
     };
@@ -583,20 +607,27 @@ export async function generateFAQFinal(
   h2Titles: string[],
   onLog?: (s: string) => void
 ): Promise<FAQItem[]> {
+  const faqToday = new Date().toISOString().slice(0, 10);
   const prompt = `
 키워드: ${keyword}
+📅 오늘 날짜: ${faqToday}
 
 H2 섹션 제목:
 ${h2Titles.map((h, i) => `${i + 1}. ${h}`).join('\n')}
 
 위 블로그 글에 대해 독자가 실제로 궁금해할 자주 묻는 질문(FAQ) 5개를 만들어주세요.
 
+🔴 반드시 Google 검색으로 "${keyword}"에 대한 최신 정보를 확인한 후 답변하세요!
+
 규칙:
 1. 질문은 실제 검색어처럼 자연스럽게 (예: "${keyword} 비용이 얼마인가요?")
 2. 답변은 3~4줄로 핵심만 간결하게
-3. 답변에 구체적인 숫자/기간/금액 포함
+3. 답변에 구체적인 숫자/기간/금액 포함 — 반드시 검색에서 확인한 실제 데이터만 사용!
 4. 본문 내용과 중복되지 않는 추가 정보 위주
 5. "~해요", "~거든요" 친근한 말투
+6. 이미 마감된 사업/이벤트/일정은 답변에 포함 금지. 현재 진행 중이거나 미래 일정만!
+7. 한글과 영문/숫자만 사용. 중국어 한자(漢字) 절대 금지!
+8. 🔴 추측/허위 데이터 절대 금지! 확인할 수 없는 숫자는 쓰지 마세요.
 
 JSON 형식:
 [
@@ -610,15 +641,20 @@ JSON만 출력:
 
   try {
     onLog?.('[PROGRESS] 67% - ❓ FAQ 생성 중...');
-    const response = await callGeminiWithRetry(prompt);
+    const response = await callGeminiWithGrounding(prompt);
     const cleaned = (response || '').trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
     const first = cleaned.indexOf('[');
     const last = cleaned.lastIndexOf(']');
     if (first === -1 || last === -1 || last <= first) throw new Error('No JSON array found');
 
     const items: FAQItem[] = JSON.parse(cleaned.slice(first, last + 1));
+    const cjkRegex = /[\u4E00-\u9FFF\u3400-\u4DBF]/g;
     const valid = items
-      .filter(f => f && typeof f.question === 'string' && typeof f.answer === 'string' && f.question.length > 5 && f.answer.length > 10)
+      .map(f => ({
+        question: (f.question || '').replace(cjkRegex, ''),
+        answer: (f.answer || '').replace(cjkRegex, ''),
+      }))
+      .filter(f => typeof f.question === 'string' && typeof f.answer === 'string' && f.question.length > 5 && f.answer.length > 10)
       .slice(0, 7);
 
     if (valid.length < 3) throw new Error(`Too few valid FAQs: ${valid.length}`);
@@ -629,9 +665,9 @@ JSON만 출력:
     onLog?.('[PROGRESS] 68% - ⚠️ FAQ 생성 실패, 기본 FAQ 사용');
     // 폴백: 키워드 기반 기본 FAQ
     return [
-      { question: `${keyword}이/가 정확히 무엇인가요?`, answer: `${keyword}은(는) 많은 분들이 관심을 가지는 주제예요. 핵심은 기초부터 차근차근 이해하는 것이 중요하거든요. 위 본문에 자세한 내용을 정리해 두었으니 참고해 주세요.` },
-      { question: `${keyword} 시작하려면 어떻게 해야 하나요?`, answer: `가장 중요한 건 작은 것부터 시작하는 거예요. 처음부터 완벽하게 하려고 하면 부담만 커지거든요. 위 가이드의 단계별 방법을 따라해 보시면 30분 안에 기본 틀을 잡을 수 있어요.` },
-      { question: `${keyword} 관련해서 주의할 점이 있나요?`, answer: `가장 흔한 실수는 기초를 건너뛰고 바로 실전에 뛰어드는 거예요. 기본 개념을 확실히 이해한 후에 시작하시면 시행착오를 크게 줄일 수 있어요.` },
+      { question: `${keyword}이/가 정확히 무엇인가요?`, answer: `${keyword}에 대한 자세한 내용은 위 본문에 정리해 두었어요. 핵심 개념부터 확인해보시면 이해가 빠를 거예요.` },
+      { question: `${keyword} 시작하려면 어떻게 해야 하나요?`, answer: `위 본문의 단계별 가이드를 참고해주세요. 공식 사이트에서 최신 정보를 확인하시는 것도 추천드려요.` },
+      { question: `${keyword} 관련해서 주의할 점이 있나요?`, answer: `기본 개념을 먼저 확인한 후 진행하시는 걸 추천드려요. 자세한 주의사항은 위 본문을 참고해주세요.` },
     ];
   }
 }
@@ -732,7 +768,7 @@ JSON만:
 `;
 
   try {
-    const response = await callGeminiWithRetry(prompt);
+    const response = await callGeminiWithGrounding(prompt);
     const json = response.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
     const sections = JSON.parse(json) as Array<{ h3: string; content: string }>;
 
@@ -756,7 +792,7 @@ JSON만:
     console.warn('[generateH2SectionFinal] JSON 파싱 실패, 기본 콘텐츠 사용');
     return h3s.map(h3 => ({
       h3,
-      content: `<p>${keyword}에 대해 알아볼게요. ${h3}는 많은 분들이 궁금해하는 부분이에요.</p><p>실제로 해보면 생각보다 간단해요. 차근차근 따라하면 누구나 할 수 있어요!</p>`,
+      content: `<p>${keyword}의 ${h3}에 대해 정리해드릴게요. 자세한 내용은 공식 사이트에서 최신 정보를 확인해주세요.</p>`,
       tables: []
     }));
   }
@@ -773,20 +809,24 @@ export async function generateH3ContentFinal(
   // 🔥 배치 생성으로 대체 - 이 함수는 호환성을 위해 유지
   const reference = crawledContents.join('\n\n').slice(0, 2000);
 
+  const h3Today = new Date().toISOString().slice(0, 10);
   const prompt = `
 키워드: ${keyword}
 소제목: ${h3}
+📅 오늘: ${h3Today}
 참고: ${reference.slice(0, 1500)}
 
 ${h3}에 대해 400자 내외로 작성하세요.
 - 친근한 말투 (~해요, ~거든요)
 - p태그 2~3개
-- 크롤링 데이터 기반
+- Google 검색으로 확인한 최신 정보 기반. 추측/허위 데이터 금지!
+- 마감된 사업/이벤트 언급 금지. 현재 진행 중이거나 미래 일정만!
+- 한글/영문/숫자만 사용. 중국어 한자 금지!
 
 HTML만:
 `;
 
-  let content = await callGeminiWithRetry(prompt);
+  let content = await callGeminiWithGrounding(prompt);
   content = content.trim()
     .replace(/^```html\n?/gi, '').replace(/```$/gi, '')
     .replace(/입니다\./g, '이에요.')
@@ -917,6 +957,7 @@ export async function generateCTAsFinal(
 당신은 한국 블로그 독자를 위한 CTA(Call-to-Action) 전문가입니다.
 
 🎯 키워드: "${keyword}"
+⚠️ 한글/영문만 사용. 중국어 한자 금지! 존재하지 않는 서비스/혜택을 만들어내지 마세요!
 
 🔴 **반드시 Google 검색으로** "${keyword}"에 대한 독자가 실제로 필요한 공식 사이트/서비스 페이지를 찾으세요.
 
@@ -950,7 +991,10 @@ JSON만 출력:
     const cleanJson = ctaResponse.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
 
     try {
+      const cjkCta = /[\u4E00-\u9FFF\u3400-\u4DBF]/g;
       const ctaData = JSON.parse(cleanJson);
+      if (ctaData.buttonText) ctaData.buttonText = ctaData.buttonText.replace(cjkCta, '');
+      if (ctaData.hookingMessage) ctaData.hookingMessage = ctaData.hookingMessage.replace(cjkCta, '');
 
       if (ctaData.url && ctaData.url.startsWith('http')) {
         // 🔴 검색엔진 결과 페이지인지 체크
@@ -961,15 +1005,24 @@ JSON만 출력:
           // 🔥 HTTP HEAD 검증
           const validation = await validateCtaUrl(ctaData.url, { timeout: 5000 });
           if (validation.isValid) {
+            // 파일 다운로드 URL 감지 → 버튼 텍스트 자동 변경
+            const isDownload = /\.(pdf|ppt|pptx|hwp|xlsx|xls|zip|docx|doc)(\?|$)/i.test(ctaData.url);
+            const finalButtonText = isDownload
+              ? (ctaData.buttonText || '📥 자료 다운받기')
+              : (ctaData.buttonText || `🔗 ${keyword} 바로가기`);
+            const finalHookMessage = isDownload
+              ? (ctaData.hookingMessage || '공식 자료를 다운받아 자세히 확인하세요!')
+              : (ctaData.hookingMessage || `${keyword}에 대해 더 알아보세요!`);
+
             safeCTAs.push({
-              hookingMessage: ctaData.hookingMessage || `${keyword}에 대해 더 알아보세요!`,
-              buttonText: ctaData.buttonText || `🔗 ${keyword} 바로가기`,
+              hookingMessage: finalHookMessage,
+              buttonText: finalButtonText,
               url: ctaData.url,
               position: 1,
               type: 'link',
               design: 'button',
-              text: ctaData.buttonText,
-              hook: ctaData.hookingMessage,
+              text: finalButtonText,
+              hook: finalHookMessage,
             });
             console.log(`[CTA] ✅ Search Grounding CTA 검증 성공! URL: ${ctaData.url} (${validation.statusCode || 'OK'}, ${validation.elapsedMs}ms)`);
           } else {
@@ -998,18 +1051,24 @@ JSON만 출력:
       const validation = await validateCtaUrl(officialLink.url, { timeout: 5000 });
       if (validation.isValid) {
         const shortKeyword2 = keyword.length > 15 ? keyword.split(/\s+/).slice(0, 2).join(' ') : keyword;
-        let btnText2 = `🔗 ${shortKeyword2} 공식 사이트`;
-        let hookText2 = `${shortKeyword2}에 대해 더 알아보세요!`;
+        const isDownloadUrl = /\.(pdf|ppt|pptx|hwp|xlsx|xls|zip|docx|doc)(\?|$)/i.test(officialLink.url);
+        let btnText2 = isDownloadUrl ? '📥 자료 다운받기' : `🔗 ${shortKeyword2} 공식 사이트`;
+        let hookText2 = isDownloadUrl ? '공식 자료를 다운받아 자세히 확인하세요!' : `${shortKeyword2}에 대해 더 알아보세요!`;
 
-        if (keyword.match(/신청|접수|등록|발급/)) {
-          btnText2 = '🚀 바로 신청하기';
-          hookText2 = '지금 바로 신청을 진행해보세요!';
-        } else if (keyword.match(/조회|확인|검색|계산/)) {
-          btnText2 = '🔍 바로 조회하기';
-          hookText2 = '간편하게 결과를 확인하세요.';
-        } else if (keyword.match(/예약|예매/)) {
-          btnText2 = '📅 바로 예약하기';
-          hookText2 = '매진되기 전에 빠르게 예약하세요!';
+        if (!isDownloadUrl) {
+          if (keyword.match(/신청|접수|등록|발급/)) {
+            btnText2 = '🚀 바로 신청하기';
+            hookText2 = '지금 바로 신청을 진행해보세요!';
+          } else if (keyword.match(/조회|확인|검색|계산/)) {
+            btnText2 = '🔍 바로 조회하기';
+            hookText2 = '간편하게 결과를 확인하세요.';
+          } else if (keyword.match(/예약|예매/)) {
+            btnText2 = '📅 바로 예약하기';
+            hookText2 = '매진되기 전에 빠르게 예약하세요!';
+          } else if (keyword.match(/보조금|지원금|지원사업|보조/)) {
+            btnText2 = '🚀 지원사업 신청하기';
+            hookText2 = '지금 바로 지원사업을 확인하고 신청하세요!';
+          }
         }
 
         safeCTAs.push({
@@ -1041,15 +1100,18 @@ JSON만 출력:
       if (isOfficial && !isBlog) {
         const validation = await validateCtaUrl(post.url || '', { timeout: 5000 });
         if (validation.isValid) {
+          const isDl = /\.(pdf|ppt|pptx|hwp|xlsx|xls|zip|docx|doc)(\?|$)/i.test(post.url || '');
+          const dlBtn = isDl ? '📥 자료 다운받기' : '🔗 공식 사이트 바로가기';
+          const dlHook = isDl ? '공식 자료를 다운받아 자세히 확인하세요!' : '정확한 정보는 공식 사이트에서 확인하세요!';
           safeCTAs.push({
-            hookingMessage: '정확한 정보는 공식 사이트에서 확인하세요!',
-            buttonText: '🔗 공식 사이트 바로가기',
+            hookingMessage: dlHook,
+            buttonText: dlBtn,
             url: post.url || '',
             position: 1,
             type: 'link',
             design: 'button',
-            text: '🔗 공식 사이트 바로가기',
-            hook: '정확한 정보는 공식 사이트에서 확인하세요!',
+            text: dlBtn,
+            hook: dlHook,
           });
           console.log(`[CTA] ✅ 크롤링 데이터 공식 링크 검증 성공: ${post.url} (${validation.statusCode || 'OK'}, ${validation.elapsedMs}ms)`);
           break;
@@ -1132,28 +1194,28 @@ JSON만 출력:
 }
 
 export async function generateSummaryTableFinal(allContent: string): Promise<FinalTableData> {
+  const tableToday = new Date().toISOString().slice(0, 10);
   const prompt = `
+📅 오늘: ${tableToday}
 전체 내용:
 
 ${allContent.slice(0, 2000)}
 
-핵심 요약표를 만드세요 (그리드 형식).
+위 본문 내용을 기반으로 핵심 요약표를 만드세요 (그리드 형식).
 
 요구사항:
-1. 한눈에 납득
-2. 알찬 실질적 내용
-3. 동적 생성
+1. 본문에 실제로 언급된 내용만 요약! 본문에 없는 정보 추가 금지!
+2. 숫자/통계는 본문에서 그대로 인용
+3. 한글/영문만 사용. 한자 금지!
 
 JSON:
 {
   "type": "summary",
   "headers": ["항목", "내용"],
   "rows": [
-    ["주요 내용", "핵심"],
-    ["대상", "누구"],
-    ["방법", "어떻게"],
-    ["주의사항", "주의"],
-    ["기대효과", "결과"]
+    ["주요 내용", "본문 기반 핵심"],
+    ["대상", "본문 기반"],
+    ...3~5행
   ]
 }
 
@@ -1161,20 +1223,25 @@ JSON만:
 `;
 
   try {
-    const response = await callGeminiWithRetry(prompt);
+    const response = await callGeminiWithGrounding(prompt);
     const json = response.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
-    return JSON.parse(json);
+    const parsed = JSON.parse(json);
+    // CJK 필터링
+    const cjk = /[\u4E00-\u9FFF\u3400-\u4DBF]/g;
+    if (parsed.rows) {
+      parsed.rows = parsed.rows.map((row: string[]) => row.map((cell: string) => (cell || '').replace(cjk, '')));
+    }
+    return parsed;
   } catch {
+    // 폴백: 본문에서 키워드 추출하여 최소한의 테이블 생성
+    const keywordMatch = allContent.match(/<h2[^>]*>([^<]+)<\/h2>/g);
+    const h2List = keywordMatch ? keywordMatch.map(h => h.replace(/<[^>]+>/g, '').trim()).slice(0, 3) : [];
     return {
       type: 'summary',
       headers: ['항목', '내용'],
-      rows: [
-        ['주요 내용', '핵심 정보'],
-        ['대상', '필요한 분'],
-        ['방법', '실행 방법'],
-        ['주의사항', '주의할 점'],
-        ['기대효과', '얻을 수 있는 것'],
-      ],
+      rows: h2List.length > 0
+        ? h2List.map((h, i) => [`핵심 ${i + 1}`, h])
+        : [['내용', '위 본문을 참고해주세요']],
     };
   }
 }
@@ -1184,12 +1251,13 @@ export async function generateHashtagsFinal(keyword: string, h2s: string[]): Pro
 키워드: ${keyword}
 H2들: ${h2s.join(', ')}
 
-최소 10개 이상 해시태그를 만드세요.
+위 키워드와 소제목을 기반으로 검색에 유리한 해시태그를 10개 이상 만드세요.
 
 요구사항:
 1. # 사용 금지
 2. , 로만 구분
-3. 동적 생성
+3. 키워드와 H2에서 파생된 실제 검색어만 사용. 허위/과장 태그 금지!
+4. 한글/영문만 사용. 한자 금지!
 
 예: 태그1, 태그2, 태그3, ...
 
@@ -1197,9 +1265,11 @@ H2들: ${h2s.join(', ')}
 `;
 
   try {
-    const response = await callGeminiWithRetry(prompt);
-    return response.trim();
+    const response = await callGeminiWithGrounding(prompt);
+    return response.trim().replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '');
   } catch {
-    return `${keyword}, 정보, 가이드, 팁, 방법, 알아보기, 핵심정리, 총정리`;
+    // 폴백: 키워드 + H2 기반 태그
+    const tags = [keyword, ...h2s.slice(0, 5)].join(', ');
+    return tags;
   }
 }
