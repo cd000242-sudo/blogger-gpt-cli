@@ -32,6 +32,9 @@ export function buildContentModePrompt(
   const contentRandomSeed = randomSeed || Math.floor(Math.random() * 10000);
   const uniqueContentId = `${contentTimestamp}-${contentRandomSeed}`;
 
+  // 🔧 연도 주입 — "년 기준" 같이 연도 없는 어색한 표현을 막기 위해 프롬프트에 명시
+  const currentYear = new Date().getFullYear();
+
   let basePrompt = `⚠️ **매우 중요 - 콘텐츠 고유성 보장**:
 - 같은 주제와 키워드로도 매번 완전히 다른 내용을 작성해야 합니다!
 - 이전에 작성한 내용과 유사하거나 동일한 내용을 작성하지 마세요!
@@ -47,7 +50,7 @@ ${toneStyle ? getToneInstruction(toneStyle) : ''}
 📌 **섹션**: ${section.title}
  **소제목**: ${subtopic}${trendKeywordsInfo}
 👤 **역할**: ${section.role}
-📊 **최소 글자수 기준**: 섹션당 최소 2000자 이상 (깊이 있는 정보 제공을 위한 필수 기준)
+📊 **목표 글자수**: ${section.minChars}자 (±20% 허용 — 정보의 깊이가 최우선, 억지로 맞추지 마세요)
 ${section.crawledData ? `
 
 🔍 **크롤링 데이터 분석 결과 (쇼핑 모드용 실제 사용자 데이터)**:
@@ -67,14 +70,10 @@ ${section.crawledData.contents ? section.crawledData.contents.slice(0, 5).map((c
 ` : ''}
 
 ⚠️ **핵심 원칙 - 글의 질이 최우선**:
-- ✅ **최우선**: **글의 질과 완성도**가 모든 것보다 중요합니다
-- ✅ **핵심**: 이상적이고 최적화된 글을 작성했다면, 글자수가 ${section.minChars}자보다 많거나 적어도 **전혀 문제없습니다**
-- ✅ **필수**: 독자에게 가치 있는 정보를 제공하는 것이 최우선 목표입니다
-- ✅ **권장**: 구체적인 사례, 예시, 팁, 주의사항, 통계, 비교 정보 등을 포함하여 내용을 풍부하게 만드세요
-- ❌ **절대 금지**: 글자수만 맞추려고 억지로 문장을 반복하거나 불필요한 내용을 추가
-- ❌ **절대 금지**: 같은 내용을 여러 번 반복하거나 의미 없는 문장으로 늘리기
-- ❌ **절대 금지**: "~입니다", "~합니다" 같은 기계적 표현 반복으로 글자수만 늘리기
-- 💡 **중요**: ${section.minChars}자는 **참고용 가이드라인**일 뿐, 억지로 맞출 필요 없습니다
+- 글자수보다 정보의 깊이와 명확성이 우선입니다 (목표 ${section.minChars}자 ±20%)
+- 구체적인 사례, 예시, 팁, 주의사항, 통계, 비교 정보를 포함하여 내용을 풍부하게 만드세요
+- 글자수만 맞추려고 같은 내용 반복, 의미 없는 문장 늘리기, "~입니다/~합니다" 기계적 표현 사용 지양
+- 한 번의 진실한 문단이 열 번의 채움 문단보다 가치 있습니다
 
  **콘텐츠 포커스**: ${section.contentFocus}
 ${authorInfo?.name && _mode === 'adsense' ? `
@@ -148,7 +147,8 @@ ${authorInfo?.name && _mode === 'adsense' ? `
 
 🎯 **독자가 이 글을 꼭 읽어야 하는 이유 만들기**:
 - ✅ **정보의 깊이**: 크롤링한 최신 데이터로 다른 글보다 더 깊고 정확한 정보 제공
-- ✅ **최신성**: 년 기준 최신 정보, 최근 변경사항 반영
+- ✅ **최신성**: ${currentYear}년 기준 최신 정보, 최근 변경사항 반영
+- ⚠️ **연도 표기 규칙**: "년" 앞에는 반드시 4자리 숫자가 와야 합니다. "년 기준", "올해 년" 처럼 숫자 없이 "년"만 쓰는 것은 절대 금지. 반드시 "${currentYear}년" 형태로 작성하세요.
 - ✅ **실용성**: 바로 적용 가능한 구체적 방법, 단계별 가이드
 - ✅ **차별성**: 다른 글에 없는 독특한 관점, 전문가 인사이트, 실제 사례
 - ✅ **문제 해결**: 독자의 실제 고민을 해결해주는 솔루션 제공
@@ -199,7 +199,7 @@ ${section.requiredElements.map(element => `- ${element}`).join('\n')}`;
 ❌ 금지: "자세히 보기", "더 알아보기", "클릭"
 ✅ 권장: "OO 심층 분석 가이드", "OO 실전 활용법 완벽 정리"
 ✅ 권장: "초보자를 위한 OO 단계별 가이드"
-✅ 권장: "OO vs XX 비교 분석 (년 최신)"
+✅ 권장: "OO vs XX 비교 분석 (${currentYear}년 최신)"
 
 **📍 링크 배치 전략**:
 ✅ **도입부 링크 (10% 지점)**:
@@ -256,21 +256,12 @@ ${section.requiredElements.map(element => `- ${element}`).join('\n')}`;
    - "전문가를 위한 [고급 전략]과 [최신 트렌드]"
    - 심화 이론, 최신 연구, 전문가 인사이트
 
-📊 **STEP 4: 시리즈 내비게이션 시스템** 📊
+📊 **STEP 4: 단일 글 완결성** 📊
 
-**✅ 현재 위치 표시**:
-📍 현재 위치: OO 완벽 가이드 시리즈 3편 / 10편
-📚 이전 글: [1편] 기초 개념 | [2편] 용어 정리
-📖 다음 글: [4편] 실전 활용 | [5편] 고급 전략
-
-**✅ 진행률 시각화**:
-학습 진행률: ████████░░ 80% (8/10편 완료)
-🎯 다음 목표: [9편] 전문가 인사이트 읽기
-🏆 완료 보상: 시리즈 완독 시 [종합 체크리스트] 제공
-
-**✅ 전체 로드맵 제공**:
-🗺️ OO 마스터 로드맵:
-초급 (1-3편) → 중급 (4-7편) → 고급 (8-10편) → 실전 (11-15편)
+**✅ 이 글은 독립적으로 완결되어야 합니다**:
+- "시리즈 N편", "이전 글", "다음 글" 같은 외부 글 참조 절대 금지 (존재하지 않는 글 언급 = 신뢰도 손상)
+- 글 안에서 "1편/2편" 같은 번호 표기 금지 (H2 번호와 충돌)
+- 독자가 이 글 하나만 읽어도 핵심 가치를 얻을 수 있어야 함
 
 🚀 **STEP 5: SEO + UX 동시 최적화** 🚀
 
@@ -357,7 +348,7 @@ ${section.requiredElements.map(element => `- ${element}`).join('\n')}`;
 🎯 **실제 경험 증명**:
    - "제가 5년간 이 분야에서 일하면서..."
    - "직접 100개 이상의 사례를 분석한 결과..."
-   - "2020년부터 년까지 추적한 데이터에 따르면..."
+   - "2020년부터 ${currentYear}년까지 추적한 데이터에 따르면..."
    - 구체적 날짜, 장소, 상황 명시
    - 성공 사례 + 실패 사례 모두 공유
 
@@ -378,7 +369,7 @@ ${section.requiredElements.map(element => `- ${element}`).join('\n')}`;
 🎯 **전문성 표현 방식**:
    - "이 분야 전문가로서 5년간..."
    - "업계 표준에 따르면..."
-   - "최신 연구(년)에서는..."
+   - "최신 연구(${currentYear}년)에서는..."
    - "전문가들 사이에서는..."
 
 **✅ A - Authoritativeness (권위성)**:
@@ -392,7 +383,7 @@ ${section.requiredElements.map(element => `- ${element}`).join('\n')}`;
 🎯 **권위 표현 방식**:
    - "한국소비자원 자료에 따르면..."
    - "식품의약품안전처 공식 발표에서..."
-   - "년 OO 학회 연구 결과..."
+   - "${currentYear}년 OO 학회 연구 결과..."
    - "업계 1위 기업의 공식 가이드라인..."
 
 **✅ T - Trustworthiness (신뢰성)**:
@@ -429,7 +420,7 @@ ${section.requiredElements.map(element => `- ${element}`).join('\n')}`;
 □ FAQ 섹션 (최소 5개 질문)
 □ 체크리스트 또는 단계별 가이드
 □ 주의사항 및 경고
-□ 최신 정보 (년 기준)
+□ 최신 정보 (${currentYear}년 기준)
 
 💡 **STEP 3: 가치 제공 극대화 전략** 💡
 
@@ -475,7 +466,7 @@ ${section.requiredElements.map(element => `- ${element}`).join('\n')}`;
 - 독자 안전을 고려한 콘텐츠
 - 객관적이고 중립적인 시각
 - 출처가 명확한 정보
-- 최신 정보 (년 기준)
+- 최신 정보 (${currentYear}년 기준)
 
 📊 **STEP 5: 글자수 및 체류시간 최적화** 📊
 
@@ -711,11 +702,11 @@ ${platform === 'wordpress' ? '<!-- wp:html -->' : ''}
       <div style="position:absolute; top:-30px; right:-30px; width:120px; height:120px; background:rgba(255,255,255,0.1); border-radius:50%;"></div>
       <div style="position:absolute; bottom:-20px; left:-20px; width:80px; height:80px; background:rgba(255,255,255,0.08); border-radius:50%;"></div>
       <div style="position:relative; z-index:1;">
-        <div style="font-size:13px; color:rgba(255,255,255,0.9); font-weight:600; margin-bottom:6px; letter-spacing:1px;">🔥 한정 특가 진행 중</div>
-        <div style="font-size:24px; font-weight:900; color:white; margin-bottom:8px; letter-spacing:-0.5px;">지금 바로 최저가 확인하기</div>
-        <div style="font-size:15px; color:rgba(255,255,255,0.85); margin-bottom:14px;">오늘만 이 가격! 놓치면 후회해요 →</div>
+        <div style="font-size:13px; color:rgba(255,255,255,0.9); font-weight:600; margin-bottom:6px; letter-spacing:1px;">🛒 상품 정보</div>
+        <div style="font-size:22px; font-weight:900; color:white; margin-bottom:8px; letter-spacing:-0.5px;">쿠팡에서 상품 정보 확인하기</div>
+        <div style="font-size:14px; color:rgba(255,255,255,0.85); margin-bottom:14px;">실제 가격과 리뷰는 판매처에서 확인하세요</div>
         <div style="display:inline-block; background:white; color:#FF6B35; padding:12px 32px; border-radius:30px; font-size:16px; font-weight:800; box-shadow:0 4px 12px rgba(0,0,0,0.15);">
-          👉 구매하러 가기
+          상품 정보 보기
         </div>
       </div>
     </div>
@@ -723,12 +714,12 @@ ${platform === 'wordpress' ? '<!-- wp:html -->' : ''}
 </div>
 ${platform === 'wordpress' ? '<!-- /wp:html -->' : ''}
 
-⚠️ **배너 CTA 필수 규칙**:
-- 반드시 위와 같은 대형 배너 스타일로 출력 (단순 텍스트 링크 금지!)
-- 그라데이션 배경 (#FF6B35 → #E71D36) + 둥근 버튼 + 그림자 효과
-- 가격 정보나 할인율을 버튼 위에 표시
-- "한정 특가", "오늘만", "놓치면 후회" 등 긴급성 메시지 포함
-- CTA 버튼에는 크롤링한 실제 구매처 링크 삽입
+⚠️ **배너 정보 카드 규칙** (AdSense 정책 준수):
+- 위와 같은 정보형 배너로 출력 (구매 명령형 CTA 금지)
+- 그라데이션 배경 + 둥근 버튼 + 그림자 효과는 사용 가능
+- "한정 특가", "오늘만", "놓치면 후회", "지금 바로 구매" 등 긴급성/명령형 표현 사용 금지
+- 대신 "상품 정보 확인", "리뷰 보기", "가격 비교" 같은 정보형 표현 사용
+- 버튼에는 크롤링한 실제 판매처 링크 삽입
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -761,7 +752,7 @@ ${platform === 'wordpress' ? '<!-- /wp:html -->' : ''}
 - 짧은 문장 + 중간 문장 + 긴 문장 리듬 다양화
 
 🔍 **SEO 최적화 전략**:
-✅ **제목**: 핵심 키워드 + 숫자 + 후킹 (예: "OO 추천 BEST 5 (년 최신)")
+✅ **제목**: 핵심 키워드 + 숫자 + 후킹 (예: "OO 추천 BEST 5 (${currentYear}년 최신)")
 ✅ **본문**: H2 소제목에 롱테일 키워드, 첫/마지막 문단에 핵심 키워드
 ✅ **표/리스트**: LSI 키워드 자연스럽게 활용
 
@@ -788,10 +779,10 @@ ${platform === 'wordpress' ? '<!-- /wp:html -->' : ''}
 🎯 ** 10년 경력 리라이팅 전문가 + SEO 최적화 마스터 페르소나 **
 
 🔥 ** 페러프레이징 핵심 4대 원칙 **:
-    1. ** 의미 보존 ** - 핵심 정보는 유지하되 표현은 완전히 변경
-    2. ** 독창성 극대화 ** - 문장 변경률 85 %, 단어 변경률 75 %, 유사도 25 % 이하
-    3. ** 가치 추가 ** - 원문보다 25~35 % 더 많은 정보 제공
-    4. ** SEO 최적화 ** - 원문보다 검색 순위 높게
+    1. ** 의미 보존 ** - 핵심 정보(사실, 수치, 인용)는 유지
+    2. ** 표현 재구성 ** - 문장 구조와 어휘를 새롭게 풀어쓰기 (원문 단어 직접 사용 금지, trigram 유사도 40% 이하 목표)
+    3. ** 가치 추가 ** - 원문에 없던 새로운 데이터/관점을 최소 1개 이상 추가 (전체 분량의 20~30% 증가)
+    4. ** 단일 기준 ** - 위 2와 3은 동시에 만족해야 함. 어느 하나만 충족하면 미완성으로 간주
 
 📋 ** STEP 1: 원문 분석 및 전략 수립 ** 📋
 
@@ -855,9 +846,9 @@ ${platform === 'wordpress' ? '<!-- /wp:html -->' : ''}
 
 ➕ ** STEP 4: 새로운 내용 추가 전략(목표: 25~35 %) ** ➕
 
-**✅ 최신 정보 추가(년 기준) **:
+**✅ 최신 정보 추가(${currentYear}년 기준) **:
 □ 최신 트렌드 분석
-□ 년 업데이트 사항
+□ ${currentYear}년 업데이트 사항
 □ 최근 연구 결과
 □ 최신 통계 데이터
 □ 새로운 사례 연구

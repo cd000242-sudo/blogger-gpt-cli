@@ -11,14 +11,17 @@ import {
 } from '../llm';
 import { makeNanoBananaProThumbnail } from '../../thumbnail';
 import { dispatchH2ImageGeneration, dispatchThumbnailGeneration } from '../imageDispatcher';
+import '../content-modes/register-all'; // 5개 모드 플러그인 자동 등록
 import { generateContentFromUrl, generateContentFromUrls } from '../url-content-generator';
 import { validateCtaUrl } from '../../cta/validate-cta-url';
 import { findRelatedPosts, insertInternalLinks } from '../internal-links';
 import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
+import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTIONS } from '../max-mode/mode-sections-extended';
 import { fetchFactContext, type FactCheckMode } from '../perplexityFactCheck';
+import { searchCoupangProducts, createCoupangDeeplink, formatProductsForPrompt, renderCoupangProductBlock } from '../coupang-partners';
 import { uploadBase64ToImageHost } from './image-helpers';
 import { crawlSingleUrlFast } from './crawlers';
-import { callGeminiWithGrounding } from './gemini-engine';
+import { callGeminiWithGrounding, callGeminiWithRetry } from './gemini-engine';
 import { FinalCrawledPost, FinalTableData, FinalCTAData } from './types';
 import {
   generateH1TitleFinal, generateH2TitlesFinal,
@@ -29,11 +32,50 @@ import { generateCSSFinal, generateTOCFinal } from './html';
 import { validateArticleQuality } from './quality-gate';
 import { dispatchMode } from './mode-dispatcher';
 
+// 🎯 동시 실행 시 process.env 충돌 방지 세마포어
+let engineLock: Promise<void> = Promise.resolve();
+
 export async function generateUltimateMaxModeArticleFinal(
   payload: any,
   env: any,
   onLog?: (s: string) => void
 ): Promise<{ html: string; title: string; labels: string[]; thumbnail: string }> {
+
+  // 🎯 동시 실행 시 순차 처리 (process.env 보호)
+  let releaseLock: () => void;
+  const prevLock = engineLock;
+  engineLock = new Promise<void>(resolve => { releaseLock = resolve; });
+  await prevLock;
+
+  // 🎯 사용자 선택 AI 엔진을 런타임에 반영
+  // 🔥 우선순위 수정: provider(드롭다운, 최신 UI)가 primaryGeminiTextModel(라디오, 모달)보다 우선
+  const previousTextModel = process.env['PRIMARY_TEXT_MODEL'] || '';
+  const providerModelMap: Record<string, string> = {
+    openai: 'openai-gpt41',
+    claude: 'claude-sonnet',
+    perplexity: 'perplexity-sonar',
+    gemini: 'gemini-2.5-flash',
+  };
+
+  if (payload.provider && providerModelMap[payload.provider]) {
+    // 🔥 1순위: 사용자가 포스팅 탭 드롭다운에서 직접 선택한 엔진
+    const mapped = providerModelMap[payload.provider];
+    // provider와 primaryGeminiTextModel이 일치하면 구체적 모델 사용
+    const isConsistent = payload.primaryGeminiTextModel &&
+      payload.primaryGeminiTextModel.startsWith(
+        payload.provider === 'gemini' ? 'gemini-' :
+        payload.provider === 'openai' ? 'openai-' :
+        payload.provider === 'claude' ? 'claude-' :
+        payload.provider === 'perplexity' ? 'perplexity-' : '__NO_MATCH__'
+      );
+    const finalModel = isConsistent ? payload.primaryGeminiTextModel : mapped;
+    process.env['PRIMARY_TEXT_MODEL'] = finalModel!;
+    onLog?.(`[PROGRESS] 0% - 🎯 AI 엔진: ${payload.provider} → ${finalModel}`);
+  } else if (payload.primaryGeminiTextModel) {
+    // 2순위: provider가 없으면 primaryGeminiTextModel 직접 사용
+    process.env['PRIMARY_TEXT_MODEL'] = payload.primaryGeminiTextModel;
+    onLog?.(`[PROGRESS] 0% - 🎯 AI 엔진 (모델 직접): ${payload.primaryGeminiTextModel}`);
+  }
 
   // 🔥 빠른 모드 설정 (이미지 생성 최소화)
   const fastMode = payload.fastMode === true || payload.skipImages === true;
@@ -65,6 +107,30 @@ export async function generateUltimateMaxModeArticleFinal(
       manualUrls.unshift(sourceUrl);
     }
 
+    // 🛒 쿠팡 URL은 자동으로 제휴 딥링크로 변환 (키가 있을 때만)
+    try {
+      const coupangUrls = manualUrls.filter(u => /(?:link\.)?coupang\.com/i.test(u));
+      if (coupangUrls.length > 0) {
+        const envForCoupang = loadEnvFromFile();
+        const ak = (payload as any).coupangAccessKey || envForCoupang['coupangAccessKey'] || envForCoupang['COUPANG_ACCESS_KEY'] || '';
+        const sk = (payload as any).coupangSecretKey || envForCoupang['coupangSecretKey'] || envForCoupang['COUPANG_SECRET_KEY'] || '';
+        if (ak && sk) {
+          onLog?.('[PROGRESS] 3% - 🛒 쿠팡 URL → 제휴 딥링크 자동 변환 중...');
+          const deeplinks = await createCoupangDeeplink(coupangUrls, ak, sk);
+          deeplinks.forEach(dl => {
+            const idx = manualUrls.indexOf(dl.originalUrl);
+            if (idx !== -1 && dl.shortenUrl) {
+              manualUrls[idx] = dl.shortenUrl;
+            }
+          });
+          (payload as any).coupangDeeplinks = deeplinks;
+          onLog?.(`[PROGRESS] 4% - ✅ 쿠팡 제휴 딥링크 ${deeplinks.length}개 변환 완료`);
+        }
+      }
+    } catch (dlErr: any) {
+      onLog?.(`[PROGRESS] 4% - ⚠️ 쿠팡 딥링크 변환 실패 (원본 URL 사용): ${dlErr.message?.slice(0, 60)}`);
+    }
+
     // 🔥 URL 전용 모드: URL만 있고 키워드가 없거나 URL 기반 생성 요청 시
     // 완전히 새로운 콘텐츠를 AI가 생성 (중복 문서 방지)
     const urlOnlyMode = (manualUrls.length > 0) && (!keyword || keyword.trim() === '' || payload.urlBasedGeneration === true);
@@ -84,21 +150,24 @@ export async function generateUltimateMaxModeArticleFinal(
           ? await generateContentFromUrl(firstUrl, keyword || undefined, onLog)
           : await generateContentFromUrls(manualUrls, keyword || undefined, onLog);
 
-        // 썸네일 생성 (기존 로직 활용)
+        // 썸네일 생성 — 🎯 사용자 선택 엔진 사용 (dispatcher 경유)
         let thumbnailUrl = '';
-        if (!skipImages) {
-          onLog?.('[PROGRESS] 92% - 🖼️ 썸네일 생성 중...');
+        const urlThumbnailSource = payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'imagefx';
+        const urlThumbnailDisabled = urlThumbnailSource === 'none' || urlThumbnailSource === 'skip';
+        if (!skipImages && !urlThumbnailDisabled) {
+          onLog?.(`[PROGRESS] 92% - 🖼️ 썸네일 생성 중 (${urlThumbnailSource})...`);
           try {
-            const nbApiKey = getGeminiApiKey();
-            if (nbApiKey) {
-              const thumbResult = await makeNanoBananaProThumbnail(urlResult.title, keyword || urlResult.title, {
-                apiKey: nbApiKey,
-                aspectRatio: '16:9',
-                isThumbnail: true
-              });
-              if (thumbResult.ok && thumbResult.dataUrl) {
-                thumbnailUrl = thumbResult.dataUrl;
-              }
+            const thumbResult = await dispatchThumbnailGeneration(
+              urlThumbnailSource,
+              urlResult.title,
+              keyword || urlResult.title,
+              (msg) => onLog?.(`   ${msg}`),
+            );
+            if (thumbResult.ok && thumbResult.dataUrl) {
+              thumbnailUrl = thumbResult.dataUrl;
+              onLog?.(`   ✅ ${thumbResult.source} 썸네일 완료`);
+            } else {
+              onLog?.(`   ⚠️ 썸네일 생성 실패: ${thumbResult.error || '알 수 없음'}`);
             }
           } catch (thumbErr: any) {
             onLog?.(`   ⚠️ 썸네일 생성 실패: ${thumbErr.message}`);
@@ -149,10 +218,91 @@ export async function generateUltimateMaxModeArticleFinal(
         }
       }
     } else {
-      // 🌐 2026 모드: 키워드 기반 → Search Grounding으로 전환! (크롤링 스킵)
-      onLog?.('[PROGRESS] 5% - 🌐 Search Grounding 모드 (AI가 Google 검색으로 직접 정보 수집)');
-      onLog?.('   🔍 Gemini + Google Search로 최신 정보를 실시간 검색합니다...');
-      // 크롤링 없이 빈 배열 → generateH1/H2/AllSections에서 AI가 직접 검색
+      // 🔥 2026 모드: 키워드 기반 → 네이버 API 실제 크롤링 + Grounding 병행
+      //   네이버 API 키 있으면 실제 블로그 데이터 수집 → 할루시네이션 원천 차단
+      //   네이버 없으면 RSS/CSE 폴백
+      onLog?.('[PROGRESS] 5% - 🔎 네이버/Google 실시간 크롤링 시작...');
+
+      try {
+        const envKw = loadEnvFromFile();
+        const naverClientId = (payload as any).naverClientId || (payload as any).naverCustomerId ||
+          envKw['naverClientId'] || envKw['NAVER_CLIENT_ID'] || envKw['naverCustomerId'] || '';
+        const naverClientSecret = (payload as any).naverClientSecret || (payload as any).naverSecretKey ||
+          envKw['naverClientSecret'] || envKw['NAVER_CLIENT_SECRET'] || envKw['naverSecretKey'] || '';
+        const googleCseKey = (payload as any).googleCseKey || envKw['googleCseKey'] || envKw['GOOGLE_CSE_KEY'] || '';
+        const googleCseCx = (payload as any).googleCseCx || envKw['googleCseCx'] || envKw['GOOGLE_CSE_CX'] || '';
+
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { ContentCrawler } = require('../content-crawler');
+        const crawler = new ContentCrawler();
+        const crawlerConfig = {
+          topic: keyword,
+          keywords: [keyword],
+          maxResults: 5,
+          naverClientId,
+          naverClientSecret,
+          googleCseKey,
+          googleCseCx,
+        };
+
+        let crawledFromAPI: any[] = [];
+
+        // 1순위: 네이버 API (키 있을 때)
+        if (naverClientId && naverClientSecret) {
+          try {
+            onLog?.(`   📘 네이버 블로그 API 검색 중...`);
+            crawledFromAPI = await crawler.crawlFromNaverAPI(crawlerConfig);
+            onLog?.(`   ✅ 네이버에서 ${crawledFromAPI.length}개 자료 수집`);
+          } catch (naverErr: any) {
+            onLog?.(`   ⚠️ 네이버 크롤링 실패: ${naverErr.message?.slice(0, 80)}`);
+          }
+        }
+
+        // 2순위: Google CSE (네이버 결과가 부족할 때)
+        if (crawledFromAPI.length < 2 && googleCseKey && googleCseCx) {
+          try {
+            onLog?.(`   🔍 Google CSE 검색 중...`);
+            const cseResults = await crawler.crawlFromCSE(crawlerConfig);
+            crawledFromAPI.push(...cseResults);
+            onLog?.(`   ✅ CSE에서 ${cseResults.length}개 추가 수집`);
+          } catch (cseErr: any) {
+            onLog?.(`   ⚠️ CSE 크롤링 실패: ${cseErr.message?.slice(0, 80)}`);
+          }
+        }
+
+        // 3순위: RSS 폴백 (API 키 없을 때)
+        if (crawledFromAPI.length === 0) {
+          try {
+            onLog?.(`   📡 RSS 폴백 검색 중...`);
+            const rssResults = await crawler.crawlFromRSS(crawlerConfig);
+            crawledFromAPI.push(...rssResults);
+            onLog?.(`   ✅ RSS에서 ${rssResults.length}개 수집`);
+          } catch (rssErr: any) {
+            onLog?.(`   ⚠️ RSS 실패: ${rssErr.message?.slice(0, 80)}`);
+          }
+        }
+
+        // CrawledContent → FinalCrawledPost 변환
+        if (crawledFromAPI.length > 0) {
+          for (const item of crawledFromAPI) {
+            crawledPosts.push({
+              title: item.title || '',
+              url: item.url || '',
+              content: item.content || '',
+              subheadings: item.subheadings || [],
+              source: 'external',
+            } as any);
+          }
+        }
+      } catch (crawlErr: any) {
+        onLog?.(`⚠️ 크롤링 모듈 오류: ${crawlErr.message?.slice(0, 80)}`);
+      }
+
+      if (crawledPosts.length === 0) {
+        onLog?.('[PROGRESS] 15% - 🌐 크롤링 결과 없음 → Grounding 폴백');
+      } else {
+        onLog?.(`[PROGRESS] 15% - ✅ 실시간 크롤링 ${crawledPosts.length}개 → 할루시네이션 차단`);
+      }
     }
 
     // 🌐 크롤링 데이터 유무와 상관없이 진행 (Search Grounding이 보완)
@@ -167,6 +317,26 @@ export async function generateUltimateMaxModeArticleFinal(
     const subheadings = crawledPosts.flatMap(p => p.subheadings);
 
     // 2. H1 생성 — 🔥 키워드 제목 옵션 체크박스 반영
+    // 🛡️ 제목 연도 복구기 — "년"이 숫자 없이 제목에 떠 있으면 currentYear를 주입.
+    //    단일 negative-lookbehind 패턴으로 다음을 모두 커버:
+    //      (a) "년 정부..." (선두 bare 년) → "{year}년 정부..."
+    //      (b) "올해 년 달라진..." (중간 bare 년) → "올해 {year}년 달라진..."
+    //      (c) "3년차", "20년 만에", "2026년 정부" (숫자-년) → 건드리지 않음
+    //      (d) "2026 년 조회" (숫자+공백+년) → "2026 {year}년 조회"가 되지 않도록 공백 앞 숫자도 차단
+    const currentYearForTitle = new Date().getFullYear();
+    const repairTitleYear = (title: string): string => {
+      if (!title) return title;
+      // Variable-length lookbehind `(?<!\d\s*)`: `년` 앞으로 임의 공백을 허용한 구간 직전이 숫자면 치환 차단.
+      //   - "2026년" (공백 0) → 차단: `(?<!\d\s*)` 매칭 시 \d\s{0} = "6" → 매치 → 부정 lookbehind 실패 → 치환 안 함 ✓
+      //   - "2026 년" (공백 1) → 차단: \d\s{1} = "6 " → 매치 → 실패 → 치환 안 함 ✓
+      //   - "3년차" / "20년" → 차단 ✓
+      //   - "년 정부" (선두) → 치환: 앞에 아무것도 없음 → 부정 lookbehind 성공 → `{year}년 정부` ✓
+      //   - "올해 년 달라진" (중간) → 치환: `년` 앞 공백 직전이 `해`(비숫자) → 성공 → 치환 ✓
+      return title.replace(/(?<!\d\s*)(\s*)년(?=[\s가-힣A-Za-z0-9])/g,
+        (_m, leadingSpace: string) => `${leadingSpace}${currentYearForTitle}년`
+      );
+    };
+
     let h1: string;
     if (payload.useKeywordAsTitle) {
       // ✅ 키워드를 제목 그대로 사용
@@ -176,6 +346,7 @@ export async function generateUltimateMaxModeArticleFinal(
       // 🤖 AI 자동 생성
       onLog?.('[PROGRESS] 25% - ✍️ AI가 제목(H1) 생성 중...');
       h1 = await generateH1TitleFinal(keyword, titles);
+      h1 = repairTitleYear(h1);
 
       // 📌 키워드를 제목 맨앞에 배치
       if (payload.keywordFront) {
@@ -194,6 +365,8 @@ export async function generateUltimateMaxModeArticleFinal(
           if (h1WithoutKeyword.length < 5) h1WithoutKeyword = h1;
           h1 = `${keyword} ${h1WithoutKeyword}`;
         }
+        // 키워드 재조립 후에도 한 번 더 연도 복구 적용
+        h1 = repairTitleYear(h1);
         // 50자 초과시 자르기
         if (h1.length > 50) h1 = h1.substring(0, 47) + '...';
         onLog?.(`[PROGRESS] 30% - 📌 키워드 맨앞 배치 제목: "${h1}"`);
@@ -206,7 +379,9 @@ export async function generateUltimateMaxModeArticleFinal(
     const contentMode = (payload as any).contentMode || 'external';
 
     // 3. H2 생성 — 모드 디스패처 우선, 없으면 기존 하드코딩 폴백
-    const modeResult = dispatchMode(contentMode, keyword);
+    const modeResult = dispatchMode(contentMode, keyword, {
+      authorInfo: (payload as any).adsenseAuthorInfo,
+    });
 
     let h2Titles: string[];
     if (modeResult.handledByPlugin && modeResult.h2Titles) {
@@ -237,14 +412,85 @@ export async function generateUltimateMaxModeArticleFinal(
         onLog?.(`[PROGRESS] 40% - ✅ 애드센스 기본 7섹션 적용 완료`);
       }
     } else if (contentMode === 'internal') {
-      // 폴백: 기존 하드코딩
-      // 📝 내부 일관성(시리즈) 모드: INTERNAL_CONSISTENCY_SECTIONS 고정 구조 사용
-      onLog?.('[PROGRESS] 35% - 📝 내부 일관성 모드: 시리즈 구조 적용 중...');
+      // 📝 내부 일관성 모드: 단일 글 정보 전달 구조
+      onLog?.('[PROGRESS] 35% - 📝 내부 일관성 모드: 정보 전달 구조 적용 중...');
       h2Titles = INTERNAL_CONSISTENCY_SECTIONS.map(sec => {
-        // 키워드를 반영한 제목 생성 (예: "② 핵심 지식 전달" → 키워드 맥락 유지)
-        return sec.title.replace('[주제]', keyword).replace('[소주제]', keyword);
+        return sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
       });
-      onLog?.(`[PROGRESS] 40% - ✅ 시리즈 구조 ${h2Titles.length}개 섹션 적용 완료`);
+      if (!modeResult.sectionPromptBlock) {
+        const guides = INTERNAL_CONSISTENCY_SECTIONS.map((sec, idx) => {
+          const t = sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
+          const reqs = (sec as any).requiredElements?.map((r: string) => `  - ${r}`).join('\n') || '';
+          return `[섹션 ${idx + 1}: ${t}] (최소 ${(sec as any).minChars || 600}자)\n역할: ${(sec as any).role || ''}\n핵심: ${(sec as any).contentFocus || ''}\n필수 요소:\n${reqs}`;
+        }).join('\n\n');
+        modeResult.sectionPromptBlock = `\n\n📋 [내부 일관성 모드 섹션별 상세 지시]\n${guides}`;
+      }
+      onLog?.(`[PROGRESS] 40% - ✅ 내부 일관성 구조 ${h2Titles.length}개 섹션 적용 완료`);
+    } else if (contentMode === 'shopping') {
+      // 🛍️ 쇼핑/구매유도 모드: 7단계 구매 퍼널 구조
+      onLog?.('[PROGRESS] 35% - 🛍️ 쇼핑 모드: 구매 퍼널 7섹션 구조 적용 중...');
+      h2Titles = SHOPPING_CONVERSION_MODE_SECTIONS.map(sec => {
+        return sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
+      });
+      // 섹션별 상세 지시 주입 (requiredElements/role/contentFocus/minChars)
+      if (!modeResult.sectionPromptBlock) {
+        const guides = SHOPPING_CONVERSION_MODE_SECTIONS.map((sec, idx) => {
+          const t = sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
+          const reqs = (sec as any).requiredElements?.map((r: string) => `  - ${r}`).join('\n') || '';
+          return `[섹션 ${idx + 1}: ${t}] (최소 ${(sec as any).minChars || 1000}자)\n역할: ${(sec as any).role || ''}\n핵심: ${(sec as any).contentFocus || ''}\n필수 요소:\n${reqs}`;
+        }).join('\n\n');
+        modeResult.sectionPromptBlock = `\n\n📋 [쇼핑 모드 섹션별 상세 지시]\n${guides}`;
+      }
+      // 🛒 쿠팡 파트너스 API로 실제 상품 데이터 수집 (키가 있으면)
+      try {
+        const envData = loadEnvFromFile();
+        const coupangAccessKey = (payload as any).coupangAccessKey || envData['coupangAccessKey'] || envData['COUPANG_ACCESS_KEY'] || '';
+        const coupangSecretKey = (payload as any).coupangSecretKey || envData['coupangSecretKey'] || envData['COUPANG_SECRET_KEY'] || '';
+        if (coupangAccessKey && coupangSecretKey) {
+          onLog?.('[PROGRESS] 37% - 🛒 쿠팡 파트너스 API: 실제 상품 데이터 조회 중...');
+          const products = await searchCoupangProducts(keyword, coupangAccessKey, coupangSecretKey, 10);
+          if (products.length > 0) {
+            (payload as any).coupangProducts = products;
+            // 상품 이미지를 썸네일/H2 이미지 소스로도 사용 가능
+            if (!(payload as any).productImages || (payload as any).productImages.length === 0) {
+              (payload as any).productImages = products.map(p => p.productImage).filter(Boolean);
+            }
+            // 섹션 가이드에 실제 상품 데이터 추가
+            modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') + formatProductsForPrompt(products);
+            onLog?.(`[PROGRESS] 38% - ✅ 쿠팡 상품 ${products.length}개 수집 완료 (할루시네이션 방지)`);
+          } else {
+            onLog?.('[PROGRESS] 38% - ℹ️ 쿠팡 검색 결과 없음');
+          }
+        }
+      } catch (coupangErr: any) {
+        onLog?.(`[PROGRESS] 38% - ⚠️ 쿠팡 API 오류 (계속 진행): ${coupangErr.message?.slice(0, 80)}`);
+      }
+      // 🛡️ 쿠팡 실제 데이터가 없으면 본문에 가격 숫자 직접 표기 금지 (할루시네이션 방지)
+      const hasRealProducts = Array.isArray((payload as any).coupangProducts) && (payload as any).coupangProducts.length > 0;
+      if (!hasRealProducts) {
+        modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') +
+          `\n\n🛡️ **가격 할루시네이션 방지 (실제 상품 데이터 없음)**:\n` +
+          `- 본문에 구체적 가격 숫자 직접 표기 절대 금지 ("12,900원", "₩50,000", "월 3만원" 등)\n` +
+          `- 가격은 "판매처별 상이", "가격대별 옵션", "예산에 맞게" 같은 추상 표현만 사용\n` +
+          `- 할인율, 정가, 세일가 등 임의 수치 생성 금지\n` +
+          `- 이유: 검증 불가능한 가격은 발행 시점에 틀려 신뢰도 즉시 붕괴\n`;
+      }
+      onLog?.(`[PROGRESS] 40% - ✅ 쇼핑 구매 퍼널 ${h2Titles.length}개 섹션 적용 완료`);
+    } else if (contentMode === 'paraphrasing') {
+      // 🔄 페러프레이징 모드: 6단계 재구성 구조
+      onLog?.('[PROGRESS] 35% - 🔄 페러프레이징 모드: 재구성 6섹션 구조 적용 중...');
+      h2Titles = PARAPHRASING_PROFESSIONAL_MODE_SECTIONS.map(sec => {
+        return sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
+      });
+      if (!modeResult.sectionPromptBlock) {
+        const guides = PARAPHRASING_PROFESSIONAL_MODE_SECTIONS.map((sec, idx) => {
+          const t = sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
+          const reqs = (sec as any).requiredElements?.map((r: string) => `  - ${r}`).join('\n') || '';
+          return `[섹션 ${idx + 1}: ${t}] (최소 ${(sec as any).minChars || 700}자)\n역할: ${(sec as any).role || ''}\n핵심: ${(sec as any).contentFocus || ''}\n필수 요소:\n${reqs}`;
+        }).join('\n\n');
+        modeResult.sectionPromptBlock = `\n\n📋 [페러프레이징 모드 섹션별 상세 지시]\n${guides}`;
+      }
+      onLog?.(`[PROGRESS] 40% - ✅ 페러프레이징 ${h2Titles.length}개 섹션 적용 완료`);
     } else {
       // 🤖 일반 모드: AI가 H2 소제목 생성
       onLog?.('[PROGRESS] 35% - 📊 AI가 소제목(H2) 생성 중...');
@@ -255,15 +501,82 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog?.(`[PROGRESS] 40% - ✅ 소제목 ${h2Titles.length}개 완료`);
     }
 
+    // 🛒 쇼핑 모드 사이드 이펙트: 수동 URL 우선 → API → 할루시 가드 (3단계)
+    // 🔥 API 키 없는 사용자 지원: payload.manualCoupangUrls 로 제휴 딥링크 직접 입력 가능
+    //    (쿠팡 파트너스 15만원 매출 조건 충족 전에도 수익화 시작)
+    if (contentMode === 'shopping') {
+      // ── 1순위: 사용자 수동 입력 URL (API 키 불필요) ──
+      const manualUrls: string[] = Array.isArray((payload as any).manualCoupangUrls)
+        ? (payload as any).manualCoupangUrls.filter((u: any) => typeof u === 'string' && u.trim().length > 0)
+        : [];
+      if (manualUrls.length > 0 && !(payload as any).coupangProducts) {
+        try {
+          onLog?.(`[PROGRESS] 41% - 🛒 쿠팡 수동 URL 크롤링 중... (${manualUrls.length}개)`);
+          const { crawlCoupangProductsFromUrls } = await import('../coupang-partners');
+          const products = await crawlCoupangProductsFromUrls(manualUrls, (msg) => onLog?.(`   ${msg}`));
+          if (products.length > 0) {
+            (payload as any).coupangProducts = products;
+            if (!(payload as any).productImages || (payload as any).productImages.length === 0) {
+              (payload as any).productImages = products.map(p => p.productImage).filter(Boolean);
+            }
+            modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') + formatProductsForPrompt(products);
+            onLog?.(`[PROGRESS] 42% - ✅ 수동 입력 쿠팡 상품 ${products.length}개 준비 완료 (제휴링크 그대로 유지)`);
+          } else {
+            onLog?.('[PROGRESS] 42% - ⚠️ 수동 URL 크롤링 결과 없음 — 다음 경로 시도');
+          }
+        } catch (manualErr: any) {
+          onLog?.(`[PROGRESS] 42% - ⚠️ 수동 URL 처리 오류: ${manualErr.message?.slice(0, 80)}`);
+        }
+      }
+
+      // ── 2순위: API 키 있는 경우 자동 검색 ──
+      try {
+        const envData = loadEnvFromFile();
+        const coupangAccessKey = (payload as any).coupangAccessKey || envData['coupangAccessKey'] || envData['COUPANG_ACCESS_KEY'] || '';
+        const coupangSecretKey = (payload as any).coupangSecretKey || envData['coupangSecretKey'] || envData['COUPANG_SECRET_KEY'] || '';
+        if (coupangAccessKey && coupangSecretKey && !(payload as any).coupangProducts) {
+          onLog?.('[PROGRESS] 41% - 🛒 쿠팡 파트너스 API: 실제 상품 데이터 조회 중...');
+          const products = await searchCoupangProducts(keyword, coupangAccessKey, coupangSecretKey, 10);
+          if (products.length > 0) {
+            (payload as any).coupangProducts = products;
+            if (!(payload as any).productImages || (payload as any).productImages.length === 0) {
+              (payload as any).productImages = products.map(p => p.productImage).filter(Boolean);
+            }
+            modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') + formatProductsForPrompt(products);
+            onLog?.(`[PROGRESS] 42% - ✅ 쿠팡 상품 ${products.length}개 수집 완료 (할루시네이션 방지)`);
+          } else {
+            onLog?.('[PROGRESS] 42% - ℹ️ 쿠팡 검색 결과 없음');
+          }
+        }
+      } catch (coupangErr: any) {
+        onLog?.(`[PROGRESS] 42% - ⚠️ 쿠팡 API 오류 (계속 진행): ${coupangErr.message?.slice(0, 80)}`);
+      }
+
+      // ── 3순위: 실제 상품 데이터 없으면 가격 할루시 가드 강제 ──
+      const hasRealProducts = Array.isArray((payload as any).coupangProducts) && (payload as any).coupangProducts.length > 0;
+      if (!hasRealProducts) {
+        modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') +
+          `\n\n🛡️ **가격 할루시네이션 방지 (실제 상품 데이터 없음)**:\n` +
+          `- 본문에 구체적 가격 숫자 직접 표기 절대 금지 ("12,900원", "₩50,000", "월 3만원" 등)\n` +
+          `- 가격은 "판매처별 상이", "가격대별 옵션", "예산에 맞게" 같은 추상 표현만 사용\n` +
+          `- 할인율, 정가, 세일가 등 임의 수치 생성 금지\n` +
+          `- 이유: 검증 불가능한 가격은 발행 시점에 틀려 신뢰도 즉시 붕괴\n`;
+      }
+    }
+
     // 4. 🔥 전체 본문 한 번에 생성 (API 호출 1회로 단축!)
     onLog?.('[PROGRESS] 45% - 📝 AI가 전체 본문 생성 중 (1회 호출)...');
 
     // 🔍 팩트체크: 글 생성 전 실시간 검색으로 팩트 수집 (할루시네이션 방지)
-    const factCheckMode: FactCheckMode = payload.factCheckMode || 'grounding';
+    const factCheckMode: FactCheckMode = payload.factCheckMode || 'auto';
     let factEnrichedContents = contents;
     if (factCheckMode !== 'off') {
       try {
-        onLog?.(`[PROGRESS] 46% - 🔍 팩트체크 실행 중 (${factCheckMode === 'perplexity' ? 'Perplexity' : 'Gemini Grounding'})...`);
+        const factModeLabel = factCheckMode === 'perplexity' ? 'Perplexity'
+          : factCheckMode === 'naver' ? 'Naver'
+          : factCheckMode === 'grounding' ? 'Gemini Grounding'
+          : '자동 (Naver → Perplexity → Gemini)';
+        onLog?.(`[PROGRESS] 46% - 🔍 팩트체크 실행 중 (${factModeLabel})...`);
         const factResult = await fetchFactContext(keyword, factCheckMode);
         if (factResult.success && factResult.context) {
           // 팩트 컨텍스트를 contents 맨 앞에 삽입 → generateAllSectionsFinal의 reference로 활용
@@ -277,12 +590,66 @@ export async function generateUltimateMaxModeArticleFinal(
       }
     }
 
-    // 모드 디스패처의 섹션 프롬프트 블록이 있으면 reference 맨 앞에 삽입
-    const modeEnrichedContents = modeResult.sectionPromptBlock
-      ? [modeResult.sectionPromptBlock, ...factEnrichedContents]
-      : factEnrichedContents;
+    // 섹션 프롬프트 블록은 "참고 데이터"가 아닌 별도 지시로 전달
+    const draftContent = (payload as any).draftContent || '';
+    let allSectionsObj = await generateAllSectionsFinal(
+      keyword,
+      h2Titles,
+      factEnrichedContents,
+      onLog,
+      contentMode,
+      draftContent,
+      modeResult.sectionPromptBlock || '',
+    );
 
-    const allSectionsObj = await generateAllSectionsFinal(keyword, h2Titles, modeEnrichedContents, onLog, contentMode);
+    // 🔄 페러프레이징 모드: 유사도 검증 + 임계값 초과 시 자동 재시도 1회
+    if (contentMode === 'paraphrasing' && draftContent) {
+      try {
+        const { checkParaphrasingSimilarity } = await import('../paraphrasing-validator');
+        const computeSimilarity = (obj: any) => {
+          const combined = [
+            obj.introduction,
+            ...obj.sections.flatMap((s: any) => (s.h3Sections || []).map((h: any) => h.content || '')),
+            obj.conclusion,
+          ].join(' ');
+          return checkParaphrasingSimilarity(draftContent, combined, 0.4);
+        };
+
+        let report = computeSimilarity(allSectionsObj);
+        onLog?.(`[PROGRESS] 68% - 🔄 페러프레이징 1차 검증: ${report.message}`);
+        console.log(`[PARAPHRASING] 1차: ${report.message}`);
+
+        if (!report.pass) {
+          // 자동 재시도 — 더 강력한 재구성 지시 추가
+          onLog?.('[PROGRESS] 69% - 🔄 유사도 초과 → 더 강한 재구성으로 재시도 중...');
+          const stricterPromptBlock = (modeResult.sectionPromptBlock || '') +
+            `\n\n🚨 **재시도 모드**: 이전 시도가 원문과 유사도 ${(report.similarity * 100).toFixed(0)}%로 너무 비슷했습니다. 이번엔 다음 규칙을 더 강하게 지키세요:\n` +
+            `- 원문의 어휘를 직접 사용하지 말고, 모든 명사·형용사·동사를 유의어로 교체\n` +
+            `- 문장 구조를 완전히 새로 짜기 (나열식 → 인과식, 시간순 → 중요도순 등)\n` +
+            `- 원문에 없던 새로운 데이터/관점/사례를 최소 2개 이상 추가\n` +
+            `- 원문이 다루지 않은 다른 측면을 30% 이상 비중으로 다루기\n`;
+          allSectionsObj = await generateAllSectionsFinal(
+            keyword,
+            h2Titles,
+            factEnrichedContents,
+            onLog,
+            contentMode,
+            draftContent,
+            stricterPromptBlock,
+          );
+          report = computeSimilarity(allSectionsObj);
+          onLog?.(`[PROGRESS] 70% - 🔄 페러프레이징 2차 검증: ${report.message}`);
+          console.log(`[PARAPHRASING] 2차: ${report.message}`);
+          if (!report.pass) {
+            console.warn('[PARAPHRASING] 🚨 2차 시도도 실패 — Scaled Content Abuse 리스크 그대로. 수동 검토 필수.');
+            onLog?.('[PROGRESS] 70% - 🚨 페러프레이징 2회 시도 모두 임계값 초과. 수동 검토 권장.');
+          }
+        }
+      } catch (e: any) {
+        console.warn(`[PARAPHRASING] 유사도 검증 실패: ${e.message}`);
+      }
+    }
+
     const sections = allSectionsObj.sections;
     const introductionHTML = allSectionsObj.introduction;
     const conclusionHTML = allSectionsObj.conclusion;
@@ -294,9 +661,24 @@ export async function generateUltimateMaxModeArticleFinal(
     onLog?.('[PROGRESS] 70% - 💰 CTA 버튼 생성 중...');
     let ctas: FinalCTAData[] = [];
 
-    // 🔥 수동 CTA가 있으면 우선 사용
-    if (payload.manualCtas && Object.keys(payload.manualCtas).length > 0) {
+    // 🔥 수동 CTA가 있으면 우선 사용 (애드센스 모드에서는 수동 CTA도 차단)
+    if (contentMode !== 'adsense' && payload.manualCtas && Object.keys(payload.manualCtas).length > 0) {
       const { validateCtaUrlFormat } = await import('../../cta/validate-cta-url');
+      // 📥 문서 URL이면 빈 텍스트를 다운로드 버튼으로 자동 채움
+      const manualDocMatch = (url: string) => {
+        const m = url.match(/\.(pdf|ppt|pptx|pps|ppsx|key|hwp|hwpx|xlsx|xls|ods|csv|tsv|zip|rar|7z|docx|doc|odt|rtf|txt|pages|numbers)(\?|#|$)/i);
+        if (!m) return null;
+        const ext = m[1]!.toLowerCase();
+        const label =
+          ext === 'pdf' ? 'PDF 자료' :
+          /^(ppt|pps|key)/.test(ext) ? '발표자료' :
+          /^doc|^odt|^rtf|^txt|pages/.test(ext) ? '문서' :
+          /^xls|^ods|csv|tsv|numbers/.test(ext) ? '엑셀 자료' :
+          /^hwp/.test(ext) ? '한글파일' :
+          /^(zip|rar|7z)/.test(ext) ? '압축파일' :
+          '자료';
+        return { btn: `📥 ${label} 다운받기`, hook: `${label}를 다운받아 자세히 확인하세요!` };
+      };
       Object.entries(payload.manualCtas).forEach(([position, ctaData]: [string, any]) => {
         if (ctaData && ctaData.url) {
           // 🔥 수동 CTA URL 형식 검증 (HTTP 요청 없이 빠른 검증)
@@ -305,13 +687,14 @@ export async function generateUltimateMaxModeArticleFinal(
             console.warn(`[CTA] ⚠️ 수동 CTA URL 형식 오류: ${ctaData.url} (${formatCheck.reason}) — 건너뜀`);
             return; // 이 CTA 건너뛰기
           }
+          const docInfo = manualDocMatch(ctaData.url);
           ctas.push({
-            hookingMessage: ctaData.hook || '더 자세한 정보가 궁금하시다면?',
-            buttonText: ctaData.text || '자세히 보기',
+            hookingMessage: ctaData.hook || (docInfo ? docInfo.hook : '더 자세한 정보가 궁금하시다면?'),
+            buttonText: ctaData.text || (docInfo ? docInfo.btn : '자세히 보기'),
             url: ctaData.url,
             position: parseInt(position) || 0
           });
-          console.log(`[CTA] ✅ 수동 CTA 사용: ${ctaData.url}`);
+          console.log(`[CTA] ✅ 수동 CTA 사용: ${ctaData.url}${docInfo ? ' (문서 감지 → 다운로드 버튼 자동 적용)' : ''}`);
         }
       });
     }
@@ -399,12 +782,13 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog?.('[PROGRESS] 75% - 🖼️ 섹션별 이미지 생성 중...');
       onLog?.(`   🎯 선택된 이미지 소스: ${imageSource}`);
 
-      // 🔥 이미지 배치 섹션 선택 — idx=0은 썸네일과 중복(L4196 idx>0 필터)이므로
-      //    기본값은 섹션 2,3,4 (idx=1,2,3)부터 시작하여 본문 이미지가 실제 표시되도록 함
-      // 모든 H2 섹션에 이미지 생성 (idx=1은 썸네일 중복 가능성으로 idx=2부터)
+      // 🔥 이미지 배치 섹션 선택 — 썸네일은 썸네일, 섹션 이미지는 섹션 이미지로 독립 생성
+      //    섹션 1(idx=0)도 포함하여 모든 선택 섹션에 이미지를 실제로 생성/렌더링한다.
+      //    🛡️ adsense 모드는 섹션1(author_intro) 이미지 제외 — E-E-A-T 저자 프로필 보호.
+      const defaultStart = contentMode === 'adsense' ? 2 : 1;
       const effectiveSelectedH2Sections = selectedH2Sections.length > 0
-        ? selectedH2Sections
-        : Array.from({ length: Math.max(1, sections.length - 1) }, (_, i) => i + 2);
+        ? (contentMode === 'adsense' ? selectedH2Sections.filter(n => n > 1) : selectedH2Sections)
+        : Array.from({ length: Math.max(1, sections.length - (defaultStart - 1)) }, (_, i) => i + defaultStart);
 
       const envData = loadEnvFromFile();
       const pexelsKey = envData['pexelsApiKey'] || envData['PEXELS_API_KEY'] || '';
@@ -428,6 +812,11 @@ export async function generateUltimateMaxModeArticleFinal(
         return i < maxImages && effectiveSelectedH2Sections.includes(h2Number);
       }).length;
 
+      // 이미지 섹션 설정이 실제 섹션 수와 맞지 않으면 경고
+      const maxSection = effectiveSelectedH2Sections.length > 0 ? Math.max(...effectiveSelectedH2Sections) : 0;
+      if (maxSection > sections.length) {
+        onLog?.(`[PROGRESS] 75% - ⚠️ 이미지 섹션 설정(최대 ${maxSection})이 실제 섹션 수(${sections.length})를 초과합니다. 초과분은 무시됩니다.`);
+      }
       onLog?.(`[PROGRESS] 75% - 🚀 이미지 ${totalToGenerate}장 병렬 생성 시작...`);
 
       // 각 섹션별 이미지 생성 함수
@@ -487,6 +876,7 @@ export async function generateUltimateMaxModeArticleFinal(
                 section.h2,
                 keyword,
                 (msg) => onLog?.(`   [IMG-${i + 1}] ${msg}`),
+                contentMode,
               );
               if (dispatchResult.ok) {
                 imageResult = { ok: true, dataUrl: dispatchResult.dataUrl };
@@ -562,21 +952,29 @@ export async function generateUltimateMaxModeArticleFinal(
     // H2 섹션들 — 💰 Revenue-Max: 카드 없이 플랫 구조
     sections.forEach((section, idx) => {
       // 🔥 H2 제목에서 접두어 제거 (h2:, H2-, 소제목: 등)
-      const cleanH2 = section.h2
+      let cleanH2 = (section.h2 || '')
         .replace(/^[hH]2[:\-\s]*/gi, '')
         .replace(/^소제목[:\s]*/gi, '')
         .replace(/^\d+[.\):\s]+/g, '')
         .trim();
+      // 🛡️ 빈 제목 폴백 (h2Titles 배열에서 복구)
+      if (!cleanH2 && h2Titles[idx]) {
+        cleanH2 = h2Titles[idx]!.replace(/^\d+[.\):\s]+/g, '').trim();
+      }
+      if (!cleanH2) {
+        cleanH2 = `섹션 ${idx + 1}`;
+      }
       const h2Number = `${idx + 1}.`;
 
       // 💰 H2 — 인라인 !important는 Blogger 테마 override 방지 필수 (CSS만으로는 부족)
       // 여백(Margin) 최적화: H2 직후 약간의 공백을 두어 자동광고가 붙기 좋게 설계
       html += `\n<h2 id="section-${idx}" style="font-size:26px !important;font-weight:800 !important;color:#111 !important;-webkit-text-fill-color:#111 !important;margin:60px 0 24px !important;padding:0 0 14px 16px !important;border-bottom:2px solid #111 !important;border-left:6px solid #FF6B35 !important;letter-spacing:-0.03em !important;line-height:1.4 !important;word-break:keep-all !important;">${h2Number} ${cleanH2}</h2>\n`;
 
-      // 🖼️ 섹션 이미지 — 플랫, 그림자 없음
-      // 🔥 첫 번째 섹션(idx===0) 이미지는 스킵 — nuclear separator 썸네일과 중복 방지
+      // 🖼️ 섹션 이미지 — 플랫, 그림자 없음 (썸네일과 독립적으로 1번 섹션부터 렌더)
+      // 🛡️ adsense 모드의 섹션1(author_intro)은 E-E-A-T 저자 프로필 영역이므로 이미지 삽입 제외
       const finalImageUrl = processedImageUrls[idx];
-      if (finalImageUrl && idx > 0) {
+      const skipFirstForAdsense = contentMode === 'adsense' && idx === 0;
+      if (finalImageUrl && !skipFirstForAdsense) {
         html += `
 <figure class="section-image" style="margin:32px 0 40px !important;">
   <img src="${finalImageUrl}" alt="${cleanH2}" title="${cleanH2}" style="width:100%;height:auto;border-radius:8px;display:block;" loading="lazy" />
@@ -601,12 +999,17 @@ export async function generateUltimateMaxModeArticleFinal(
         const optimizedContent = h3Sec.content.replace(/<p>/g, '<p style="margin-bottom:24px !important; line-height:1.8 !important;">');
         html += `<div class="content" style="margin:0 0 32px !important;padding:0 !important;background:none !important;border:none !important;border-radius:0 !important;box-shadow:none !important;font-size:16px !important;color:#333 !important;">\n${optimizedContent}\n</div>\n`;
 
-        // 표 — 미니멀 뉴스 스타일
+        // 표 — 미니멀 뉴스 스타일 + 모바일 반응형 + AdSense 광고 주입 차단
+        // 🔥 2026.04 수정:
+        //   - min-width:500px 제거 → 모바일에서 강제 스크롤 방지
+        //   - class="ad-safe-zone table-wrapper" 추가 → AdSense Auto-Ads가 표 내부에 광고 삽입 방지
+        //   - data-ad-region="no-ad" 시그널 추가 → AdSense 크롤러에게 광고 불가 영역임을 명시
+        //   - 모바일 CSS는 generateCSSFinal()의 @media 쿼리에서 처리
         if (h3Sec.tables.length > 0) {
           h3Sec.tables.forEach(table => {
-            html += `<div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:28px 0;">`;
-            html += `<table style="width:100%;min-width:500px;border-collapse:collapse;font-size:15px;">`;
-            html += `<thead><tr>${table.headers.map(h => `<th style="background:#f8f9fa;color:#333;font-weight:700;padding:14px 16px;text-align:left;border-bottom:2px solid #ddd;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;">${h}</th>`).join('')}</tr></thead>`;
+            html += `<div class="ad-safe-zone table-wrapper" data-ad-region="no-ad" style="width:100%;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:28px 0;position:relative;">`;
+            html += `<table class="responsive-table" style="width:100%;border-collapse:collapse;font-size:15px;">`;
+            html += `<thead><tr>${table.headers.map(h => `<th class="rt-th" style="background:#f8f9fa;color:#333;font-weight:700;padding:14px 16px;text-align:left;border-bottom:2px solid #ddd;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;">${h}</th>`).join('')}</tr></thead>`;
             html += `<tbody>${table.rows.map(row => `<tr>${row.map(cell => {
               const cellStr = String(cell ?? '');
               let formatted = cellStr
@@ -617,7 +1020,7 @@ export async function generateUltimateMaxModeArticleFinal(
                 .replace(/\s+([-–—]\s)/g, '<br>$1')
                 .replace(/^<br>/, '')
                 .trim();
-              return `<td style="padding:14px 16px;border-bottom:1px solid #f0f0f0;color:#444;background:#fff;">${formatted}</td>`;
+              return `<td class="rt-td" style="padding:14px 16px;border-bottom:1px solid #f0f0f0;color:#444;background:#fff;word-break:break-word;overflow-wrap:break-word;">${formatted}</td>`;
             }).join('')}</tr>`).join('')}</tbody>`;
             html += `</table></div>\n`;
           });
@@ -669,6 +1072,17 @@ export async function generateUltimateMaxModeArticleFinal(
       console.log(`[MAX-MODE] ✅ FAQ ${faqs.length}개 + Schema.org FAQPage 마크업 삽입 완료`);
     }
 
+    // 🛒 쇼핑 모드 — 쿠팡 상품 카드 블록 강제 삽입 (실제 제휴링크가 최종 HTML에 들어가도록 보장)
+    if (contentMode === 'shopping') {
+      const coupangProducts = (payload as any).coupangProducts;
+      if (Array.isArray(coupangProducts) && coupangProducts.length > 0) {
+        html += renderCoupangProductBlock(coupangProducts);
+        console.log(`[MAX-MODE] 🛒 쿠팡 상품 카드 ${Math.min(coupangProducts.length, 6)}개 삽입 완료 (제휴링크 활성화)`);
+      } else {
+        console.log('[MAX-MODE] ⚠️ 쇼핑 모드인데 쿠팡 상품 데이터 없음 — 카드 블록 스킵');
+      }
+    }
+
     // 💰 면책 — 섹션 끝, 요약표 전 (FAQ/질문 섹션 직후)
     html += `
 <div style="margin:24px 0 16px !important;padding:0 !important;display:block !important;visibility:visible !important;">
@@ -696,20 +1110,8 @@ export async function generateUltimateMaxModeArticleFinal(
       // 🔥 Step 1: Perplexity로 실제 관련 URL 심층 검색
       supplementalCtas = [];
       try {
-        const perplexityKey = getPerplexityApiKey();
-
-        if (perplexityKey) {
-          console.log(`[MAX-MODE] 🔍 Perplexity로 CTA 관련 URL 심층 검색 중...`);
-          const searchResponse = await axios.post(
-            'https://api.perplexity.ai/chat/completions',
-            {
-              model: 'sonar',
-              messages: [{
-                role: 'system',
-                content: 'You are a Korean web researcher. Find the most relevant, authoritative, and helpful URLs for the given topic. Output ONLY valid JSON array, nothing else. No markdown, no explanation.'
-              }, {
-                role: 'user',
-                content: `"${keyword}" 주제에 대해 독자가 클릭하고 싶은 관련 정보 페이지를 ${needMore}개 찾아줘.
+        console.log(`[MAX-MODE] 🔍 Gemini로 CTA 관련 URL 심층 검색 중...`);
+        const searchPrompt = `"${keyword}" 주제에 대해 독자가 클릭하고 싶은 관련 정보 페이지를 ${needMore}개 찾아줘.
 
 조건:
 1. 실제 존재하는 정부기관, 공식사이트, 대형 포털의 정보 페이지 URL
@@ -718,74 +1120,35 @@ export async function generateUltimateMaxModeArticleFinal(
 4. 각 URL과 함께 한줄 설명 포함
 
 JSON 형식: [{"url":"https://실제URL","title":"페이지제목","description":"한줄설명"}]
-JSON 배열만 반환해.`
-              }],
-              max_tokens: 500,
-              temperature: 0.3,
-              return_citations: true
-            },
-            {
-              headers: {
-                'Authorization': `Bearer ${perplexityKey}`,
-                'Content-Type': 'application/json',
-              },
-              timeout: 15000,
+JSON 배열만 반환해. 마크다운 없이 순수 JSON만.`;
+
+        const searchText = await callGeminiWithRetry(searchPrompt);
+
+        if (searchText) {
+          try {
+            const cleanJson = searchText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+            const parsed = JSON.parse(cleanJson);
+
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              // Gemini 검색 결과로 CTA 구성
+              supplementalCtas = parsed.slice(0, needMore).map((item: any, idx: number) => ({
+                label: idx === 0 ? '필독' : '혜택',
+                hookingMessage: item.description || item.title || `${keyword} 관련 핵심 정보`,
+                buttonText: '바로 확인하기 →',
+                url: item.url || `https://www.google.com/search?q=${encodedKeyword}`
+              }));
+              console.log(`[MAX-MODE] 🔍 Gemini URL 검색 완료: ${supplementalCtas.map(c => c.url.slice(0, 50)).join(' | ')}`);
             }
-          );
-
-          const searchText = searchResponse.data?.choices?.[0]?.message?.content?.trim() || '';
-          const citations: string[] = searchResponse.data?.citations || [];
-
-          if (searchText) {
-            try {
-              const cleanJson = searchText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-              const parsed = JSON.parse(cleanJson);
-
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                // Perplexity 검색 결과로 CTA 구성
-                supplementalCtas = parsed.slice(0, needMore).map((item: any, idx: number) => ({
-                  label: idx === 0 ? '필독' : '혜택',
-                  hookingMessage: item.description || item.title || `${keyword} 관련 핵심 정보`,
-                  buttonText: '바로 확인하기 →',
-                  url: item.url || citations[idx] || `https://www.google.com/search?q=${encodedKeyword}`
-                }));
-                console.log(`[MAX-MODE] 🔍 Perplexity URL 검색 완료: ${supplementalCtas.map(c => c.url.slice(0, 50)).join(' | ')}`);
-              }
-            } catch (parseErr) {
-              // JSON 파싱 실패 시 citations에서 직접 URL 추출
-              if (citations.length > 0) {
-                supplementalCtas = citations.slice(0, needMore).map((url: string, idx: number) => ({
-                  label: idx === 0 ? '필독' : '정보',
-                  hookingMessage: `${keyword} 관련 공식 정보를 확인하세요`,
-                  buttonText: '공식 사이트 보기 →',
-                  url: url
-                }));
-                console.log(`[MAX-MODE] 🔍 Perplexity citations URL 사용: ${citations.slice(0, needMore).join(' | ')}`);
-              }
-            }
+          } catch (parseErr) {
+            console.log(`[MAX-MODE] ⚠️ Gemini CTA URL 파싱 실패 — 폴백으로 진행`);
           }
+        }
 
-          // 🔥 Step 2: Perplexity URL 있으면 OpenAI로 CTA 카피 개선
+        {
+          // 🔥 Step 2: Gemini URL 있으면 CTA 카피 개선
           if (supplementalCtas.length > 0) {
             try {
-              const envData = loadEnvFromFile();
-              const openaiKey = (envData['openaiKey'] || envData['OPENAI_API_KEY'] || '').trim();
-
-              if (openaiKey && openaiKey.length > 20) {
-                const ctaCopyResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-                  method: 'POST',
-                  headers: {
-                    'Authorization': `Bearer ${openaiKey}`,
-                    'Content-Type': 'application/json'
-                  },
-                  body: JSON.stringify({
-                    model: 'gpt-4.1',
-                    messages: [{
-                      role: 'system',
-                      content: 'You are a Korean blog CTA copywriter. Improve CTA texts. Output ONLY valid JSON array.'
-                    }, {
-                      role: 'user',
-                      content: `블로그 키워드: "${keyword}"
+              const ctaCopyPrompt = `블로그 키워드: "${keyword}"
 아래 URL들에 대한 CTA 카피를 작성해줘:
 ${supplementalCtas.map((c, i) => `${i + 1}. URL: ${c.url} / 설명: ${c.hookingMessage}`).join('\n')}
 
@@ -794,30 +1157,25 @@ ${supplementalCtas.map((c, i) => `${i + 1}. URL: ${c.url} / 설명: ${c.hookingM
 - hookingMessage: 클릭을 유도하는 한줄 후킹 문장 (25자 내외, 궁금증/긴급성/혜택 강조)
 - buttonText: 버튼 텍스트 (8자 내외, 행동 유도)
 
-JSON: [{"label":"필독","hookingMessage":"...","buttonText":"..."}]`
-                    }],
-                    temperature: 0.8,
-                    max_tokens: 300
-                  })
-                });
+JSON: [{"label":"필독","hookingMessage":"...","buttonText":"..."}]
+마크다운 없이 순수 JSON 배열만 반환해.`;
 
-                if (ctaCopyResponse.ok) {
-                  const copyData = await ctaCopyResponse.json();
-                  const copyText = copyData.choices?.[0]?.message?.content?.trim();
-                  if (copyText) {
-                    const cleanCopy = copyText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-                    const copyParsed = JSON.parse(cleanCopy);
-                    if (Array.isArray(copyParsed)) {
-                      copyParsed.forEach((cp: any, idx: number) => {
-                        if (supplementalCtas[idx]) {
-                          supplementalCtas[idx].label = cp.label || supplementalCtas[idx].label;
-                          supplementalCtas[idx].hookingMessage = cp.hookingMessage || supplementalCtas[idx].hookingMessage;
-                          supplementalCtas[idx].buttonText = cp.buttonText || supplementalCtas[idx].buttonText;
-                        }
-                      });
-                      console.log(`[MAX-MODE] 🧠 OpenAI CTA 카피 개선 완료`);
+              const copyText = await callGeminiWithRetry(ctaCopyPrompt);
+              if (copyText) {
+                const cleanCopy = copyText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+                const copyParsed = JSON.parse(cleanCopy);
+                if (Array.isArray(copyParsed)) {
+                  copyParsed.forEach((cp: any, idx: number) => {
+                    if (supplementalCtas[idx]) {
+                      supplementalCtas[idx] = {
+                        ...supplementalCtas[idx],
+                        label: cp.label || supplementalCtas[idx].label,
+                        hookingMessage: cp.hookingMessage || supplementalCtas[idx].hookingMessage,
+                        buttonText: cp.buttonText || supplementalCtas[idx].buttonText,
+                      };
                     }
-                  }
+                  });
+                  console.log(`[MAX-MODE] 🧠 Gemini CTA 카피 개선 완료`);
                 }
               }
             } catch (copyErr: any) {
@@ -826,62 +1184,37 @@ JSON: [{"label":"필독","hookingMessage":"...","buttonText":"..."}]`
           }
         }
       } catch (e: any) {
-        console.log(`[MAX-MODE] ⚠️ Perplexity CTA 검색 실패: ${e.message}`);
+        console.log(`[MAX-MODE] ⚠️ Gemini CTA 검색 실패: ${e.message}`);
       }
 
-      // 🔥 Step 3: Perplexity 실패 시 OpenAI만으로 CTA 생성 (Google 검색 링크)
+      // 🔥 Step 3: Gemini 실패 시 Gemini만으로 CTA 생성 (Google 검색 링크)
       if (supplementalCtas.length < needMore) {
         try {
-          const envData = loadEnvFromFile();
-          const openaiKey = (envData['openaiKey'] || envData['OPENAI_API_KEY'] || '').trim();
-
-          if (openaiKey && openaiKey.length > 20) {
-            const remaining = needMore - supplementalCtas.length;
-            const ctaResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${openaiKey}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                model: 'gpt-4.1',
-                messages: [{
-                  role: 'system',
-                  content: 'You are a Korean blog CTA copywriter. Output ONLY valid JSON array.'
-                }, {
-                  role: 'user',
-                  content: `"${keyword}" 블로그 글에 대한 CTA ${remaining}개 생성.
+          const remaining = needMore - supplementalCtas.length;
+          const ctaFallbackPrompt = `"${keyword}" 블로그 글에 대한 CTA ${remaining}개 생성.
 - label: 추천/정보/필독/혜택 중 택1
 - hookingMessage: 한줄 후킹 (20자 내외)
 - buttonText: 버튼 텍스트 (10자 내외)
-JSON: [{"label":"추천","hookingMessage":"...","buttonText":"..."}]`
-                }],
-                temperature: 0.8,
-                max_tokens: 300
-              })
-            });
+JSON: [{"label":"추천","hookingMessage":"...","buttonText":"..."}]
+마크다운 없이 순수 JSON 배열만 반환해.`;
 
-            if (ctaResponse.ok) {
-              const ctaData = await ctaResponse.json();
-              const ctaText = ctaData.choices?.[0]?.message?.content?.trim();
-              if (ctaText) {
-                const cleanJson = ctaText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-                const parsed = JSON.parse(cleanJson);
-                if (Array.isArray(parsed)) {
-                  parsed.slice(0, remaining).forEach((c: any) => {
-                    supplementalCtas.push({
-                      label: c.label || '추천',
-                      hookingMessage: c.hookingMessage || `${keyword} 핵심 정보`,
-                      buttonText: c.buttonText || '자세히 보기',
-                      url: `https://www.google.com/search?q=${encodedKeyword}`
-                    });
-                  });
-                }
-              }
+          const ctaText = await callGeminiWithRetry(ctaFallbackPrompt);
+          if (ctaText) {
+            const cleanJson = ctaText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+            const parsed = JSON.parse(cleanJson);
+            if (Array.isArray(parsed)) {
+              parsed.slice(0, remaining).forEach((c: any) => {
+                supplementalCtas.push({
+                  label: c.label || '추천',
+                  hookingMessage: c.hookingMessage || `${keyword} 핵심 정보`,
+                  buttonText: c.buttonText || '자세히 보기',
+                  url: `https://www.google.com/search?q=${encodedKeyword}`
+                });
+              });
             }
           }
         } catch (e: any) {
-          console.log(`[MAX-MODE] ⚠️ OpenAI CTA 폴백 실패: ${e.message}`);
+          console.log(`[MAX-MODE] ⚠️ Gemini CTA 폴백 실패: ${e.message}`);
         }
       }
 
@@ -922,17 +1255,42 @@ JSON: [{"label":"추천","hookingMessage":"...","buttonText":"..."}]`
 
     // 🔥 실행 플랜 섹션 제거됨 (사용자 요청)
 
+    // 🧹 Summary Table 셀 sanitization
+    //   AI가 상품 카드 HTML(<div>, <img>, <button>)을 셀에 넣을 수 있음 → 모바일에서 표 폭 깨짐
+    //   모든 HTML 태그·엔티티 제거, 공백 정리, 최대 120자 컷
+    const sanitizeSummaryCell = (raw: unknown): string => {
+      const s = String(raw ?? '');
+      return s
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')           // 모든 HTML 태그 제거
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#\d+;/g, '')
+        .replace(/\s+/g, ' ')                // 연속 공백 단일화
+        .trim()
+        .slice(0, 120);                      // 너무 긴 셀 컷
+    };
+    const cleanedRows = (summaryTable.rows || [])
+      .map(row => row.map(sanitizeSummaryCell))
+      // 전체 셀이 빈 줄 제거
+      .filter(row => row.some(c => c.length > 0));
+    const cleanedHeaders = (summaryTable.headers || []).map(sanitizeSummaryCell);
+
     // 💰 요약표를 상단(TOP_SUMMARY_CTA_PLACEHOLDER)에 배치
-    const topSummaryHtml = `
-<div style="margin:0 0 30px !important;padding:24px !important;background:linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%) !important;border:2px solid #f59e0b !important;border-radius:16px !important;display:block !important;visibility:visible !important;">
+    const topSummaryHtml = cleanedRows.length === 0 ? '' : `
+<div class="summary-container" style="margin:0 0 30px !important;background:linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%) !important;border:2px solid #f59e0b !important;border-radius:16px !important;display:block !important;visibility:visible !important;box-sizing:border-box !important;max-width:100% !important;">
   <div style="display:flex !important;align-items:center !important;gap:10px !important;margin-bottom:16px !important;">
     <span style="font-size:24px !important;">⚡</span>
     <h3 style="margin:0 !important;font-size:20px !important;font-weight:800 !important;color:#92400e !important;-webkit-text-fill-color:#92400e !important;">성급한 분들을 위한 핵심 요약</h3>
   </div>
-  <div style="overflow-x:auto !important;-webkit-overflow-scrolling:touch !important;width:100% !important;">
-    <table style="display:table !important;visibility:visible !important;width:100% !important;min-width:500px !important;border-collapse:collapse !important;font-size:15px !important;">
-      <thead style="display:table-header-group !important;"><tr style="display:table-row !important;">${summaryTable.headers.map(h => `<th style="display:table-cell !important;visibility:visible !important;background:#fef3c7 !important;color:#92400e !important;-webkit-text-fill-color:#92400e !important;font-weight:700 !important;padding:14px 16px !important;text-align:left !important;border-bottom:2px solid #f59e0b !important;font-size:13px !important;text-transform:uppercase !important;letter-spacing:0.05em !important;">${h}</th>`).join('')}</tr></thead>
-      <tbody style="display:table-row-group !important;">${summaryTable.rows.map(row => `<tr style="display:table-row !important;">${row.map(cell => `<td style="display:table-cell !important;visibility:visible !important;padding:14px 16px !important;border-bottom:1px solid #fde68a !important;color:#78350f !important;-webkit-text-fill-color:#78350f !important;background:#fffbeb !important;font-size:14px !important;line-height:1.5 !important;">${cell}</td>`).join('')}</tr>`).join('')}</tbody>
+  <div class="ad-safe-zone table-wrapper" data-ad-region="no-ad" style="overflow-x:auto !important;-webkit-overflow-scrolling:touch !important;width:100% !important;max-width:100% !important;position:relative;">
+    <table class="responsive-table summary-table" style="display:table !important;visibility:visible !important;width:100% !important;border-collapse:collapse !important;font-size:15px !important;">
+      <thead style="display:table-header-group !important;"><tr style="display:table-row !important;">${cleanedHeaders.map(h => `<th class="rt-th" style="display:table-cell !important;visibility:visible !important;background:#fef3c7 !important;color:#92400e !important;-webkit-text-fill-color:#92400e !important;font-weight:700 !important;padding:14px 16px !important;text-align:left !important;border-bottom:2px solid #f59e0b !important;font-size:13px !important;text-transform:uppercase !important;letter-spacing:0.05em !important;">${h}</th>`).join('')}</tr></thead>
+      <tbody style="display:table-row-group !important;">${cleanedRows.map(row => `<tr style="display:table-row !important;">${row.map(cell => `<td class="rt-td" style="display:table-cell !important;visibility:visible !important;padding:14px 16px !important;border-bottom:1px solid #fde68a !important;color:#78350f !important;-webkit-text-fill-color:#78350f !important;background:#fffbeb !important;font-size:14px !important;line-height:1.5 !important;word-break:break-word !important;overflow-wrap:break-word !important;">${cell}</td>`).join('')}</tr>`).join('')}</tbody>
     </table>
   </div>
 </div>
@@ -1029,10 +1387,15 @@ ${conclusionHTML}
     // 💎 백서 컨테이너 닫기 (bgpt-content + gradient-frame + white-paper)
     html += '</div></div></div>';
 
-    // 🔗 내부 링크 자동 삽입 (H2 섹션 사이드)
+    // 🔗 내부 링크 자동 삽입 (H2 섹션 사이드) — 애드센스 모드에서는 생략
+    if (contentMode === 'adsense') {
+      console.log('[MAX-MODE] 🛡️ 애드센스 모드 — 내부 링크 삽입 생략 (승인 정책 준수)');
+    }
     try {
       const URLData = loadEnvFromFile();
-      const blogUrl = URLData['BLOGGER_URL'] || URLData['TISTORY_URL'] || URLData['WP_URL'] || payload.url || '';
+      const blogUrl = contentMode !== 'adsense'
+        ? (URLData['BLOGGER_URL'] || URLData['TISTORY_URL'] || URLData['WP_URL'] || payload.url || '')
+        : '';
 
       if (blogUrl) {
         onLog?.('[PROGRESS] 88% - 🔗 내부 링크 검색 및 삽입 중...');
@@ -1054,19 +1417,21 @@ ${conclusionHTML}
     // 🖼️ 썸네일 생성 - 수집 이미지 우선, 그 다음 나노 바나나 프로 또는 SVG
     let thumbnailUrl = '';
 
+    // 🔥 thumbnailSource: 사용자 선택 값 (imagefx, nanobananapro, text 등)
+    const thumbnailSource = payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'imagefx';
+    const thumbnailDisabled = thumbnailSource === 'none' || thumbnailSource === 'skip';
+
     // 🛒 1순위: 크롤러 수집 상품 이미지 (productImages가 있으면 첫 번째 이미지를 썸네일로 사용)
-    if (payload.productImages?.length > 0) {
-      thumbnailUrl = payload.productImages[0];
-      onLog?.(`[PROGRESS] 90% - 🛒 수집된 상품 이미지로 썸네일 설정 (${payload.productImages.length}장 중 1번째)`);
+    // 단, 사용자가 'none'을 선택한 경우에는 존중
+    if (!thumbnailDisabled && (payload.productImages as any)?.length > 0) {
+      thumbnailUrl = (payload.productImages as any)[0];
+      onLog?.(`[PROGRESS] 90% - 🛒 수집된 상품 이미지로 썸네일 설정 (${(payload.productImages as any).length}장 중 1번째)`);
       console.log(`[THUMBNAIL] ✅ 수집 이미지 썸네일: ${thumbnailUrl.substring(0, 60)}...`);
     }
 
-    // 🔥 thumbnailSource: 사용자 선택 값 (imagefx, nanobananapro, text 등)
-    const thumbnailSource = payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'imagefx';
-
     // 🎯 썸네일 디스패치: 사용자 선택 엔진 → 실패 시 폴백 → 최종 SVG
-    if (!thumbnailUrl) {
-      onLog?.(`[PROGRESS] 90% - 🖼️ 썸네일 생성 중 (${thumbnailSource})...`);
+    if (!thumbnailUrl && !thumbnailDisabled) {
+      onLog?.(`[PROGRESS] 90% - 🖼️ 썸네일 생성 중 (요청: ${thumbnailSource})...`);
       try {
         const thumbResult = await dispatchThumbnailGeneration(
           thumbnailSource,
@@ -1075,6 +1440,14 @@ ${conclusionHTML}
           (msg) => onLog?.(`   ${msg}`),
         );
         if (thumbResult.ok) {
+          // 🔀 다운그레이드 감지 — 사용자가 요청한 엔진과 실제 사용 엔진이 다르면 경고
+          const reqKey = String(thumbnailSource).toLowerCase().replace(/[^a-z]/g, '');
+          const actKey = String(thumbResult.source || '').toLowerCase().replace(/[^a-z]/g, '');
+          if (reqKey && reqKey !== 'auto' && !actKey.includes(reqKey) && !reqKey.includes(actKey)) {
+            console.warn(`[THUMBNAIL] 🔀 엔진 다운그레이드: 요청=${thumbnailSource} 실제=${thumbResult.source}`);
+            onLog?.(`   ⚠️ 요청 엔진(${thumbnailSource})과 실제 사용 엔진(${thumbResult.source})이 다릅니다.`);
+          }
+          onLog?.(`   📊 썸네일 최종 엔진: ${thumbResult.source}`);
           // Base64 이미지를 호스팅에 업로드
           if (thumbResult.dataUrl.startsWith('data:')) {
             const uploadedUrl = await uploadBase64ToImageHost(thumbResult.dataUrl, 'thumbnail');
@@ -1143,6 +1516,17 @@ ${conclusionHTML}
       onLog?.(`[QUALITY] ⚠️ 품질 검증 오류 (발행 계속 진행): ${qualityErr.message}`);
     }
 
+    // 🛡️ 모드별 후처리 (adsense: CTA 잔재 제거 + AI 감지 완화)
+    if (modeResult.postProcessPlugin?.postProcess) {
+      try {
+        const ppResult = modeResult.postProcessPlugin.postProcess(html);
+        html = ppResult.html;
+        onLog?.(`[PROGRESS] 99% - ✅ ${contentMode} 모드 후처리 완료`);
+      } catch (ppErr: any) {
+        console.warn(`[POST-PROCESS] ⚠️ 후처리 실패 (원본 유지): ${ppErr.message}`);
+      }
+    }
+
     return {
       html,
       title: h1,
@@ -1152,14 +1536,26 @@ ${conclusionHTML}
 
   } catch (error: any) {
     const msg = error?.message || String(error);
-    const isApiError = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|timeout|ECONNREFUSED|ENOTFOUND/i.test(msg);
-    if (isApiError) {
-      onLog?.(`[PROGRESS] 0% - ❌ AI API 연결 실패: ${msg.substring(0, 100)}`);
-      onLog?.('💡 해결 방법: 잠시 후 다시 시도하거나, API 키와 인터넷 연결을 확인해주세요.');
+    const isEngineError = /API 키가 설정되지|엔진 호출 실패|다른 엔진을 선택/i.test(msg);
+    if (isEngineError) {
+      // 엔진 선택 관련 에러 — 전체 메시지를 사용자에게 전달
+      msg.split('\n').forEach((line: string) => {
+        if (line.trim()) onLog?.(`[PROGRESS] 0% - ${line.trim()}`);
+      });
     } else {
-      onLog?.(`[PROGRESS] 0% - ❌ 콘텐츠 생성 오류: ${msg.substring(0, 100)}`);
+      const isApiError = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|timeout|ECONNREFUSED|ENOTFOUND/i.test(msg);
+      if (isApiError) {
+        onLog?.(`[PROGRESS] 0% - ❌ AI API 연결 실패: ${msg.substring(0, 150)}`);
+        onLog?.('💡 해결 방법: 잠시 후 다시 시도하거나, 다른 AI 엔진을 선택해주세요.');
+      } else {
+        onLog?.(`[PROGRESS] 0% - ❌ 콘텐츠 생성 오류: ${msg.substring(0, 150)}`);
+      }
     }
     throw error;
+  } finally {
+    // 🎯 AI 엔진 env 원복 (다음 요청에 영향 방지)
+    process.env['PRIMARY_TEXT_MODEL'] = previousTextModel;
+    releaseLock!();
   }
 }
 

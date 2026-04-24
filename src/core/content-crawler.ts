@@ -3,6 +3,7 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
+import { callGeminiWithRetry } from './final/gemini-engine';
 import pLimit from 'p-limit';
 import { MassCrawlingSystem, MassCrawledItem, MassCrawlingOptions } from './mass-crawler';
 
@@ -351,27 +352,8 @@ export class ContentCrawler {
     ctas.push(...this.generateDefaultCTAs(topic, keywords));
 
     // AI 기반 CTA 생성 (Gemini 사용)
-    if (this.gemini && contents.length > 0) {
+    if (contents.length > 0) {
       try {
-        // Gemini 2.0 이상 모델 사용 (할당량 초과 시 폴백)
-        const models = ['gemini-2.5-flash', 'gemini-2.5-pro'];
-        let model = null;
-        let lastError = null;
-
-        for (const modelName of models) {
-          try {
-            model = this.gemini.getGenerativeModel({ model: modelName });
-            break; // 성공하면 중단
-          } catch (error) {
-            lastError = error;
-            continue; // 다음 모델 시도
-          }
-        }
-
-        if (!model) {
-          throw lastError || new Error('사용 가능한 Gemini 모델이 없습니다.');
-        }
-
         const prompt = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎯 **CTA 끝판왕 시스템 - 크롤링 기반 동적 CTA 생성** 🎯
@@ -532,37 +514,7 @@ ${contents.slice(0, 10).map((c, i) => `
 **🏆 최종 목표: 크롤링된 콘텐츠에서 최적의 공식 링크를 추출하여 동적 CTA 생성! 🏆**
 `;
 
-        // 할당량 초과 시 폴백 모델로 재시도
-        let result;
-        try {
-          result = await model.generateContent(prompt);
-        } catch (error: any) {
-          const errorMsg = String(error?.message || error || '');
-          const isRateLimit = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded.*quota/i.test(errorMsg);
-
-          if (isRateLimit) {
-            // 폴백 모델 시도
-            const fallbackModels = ['gemini-2.5-flash', 'gemini-2.5-pro'];
-            for (const fallbackModelName of fallbackModels) {
-              try {
-                const fallbackModel = this.gemini.getGenerativeModel({ model: fallbackModelName });
-                result = await fallbackModel.generateContent(prompt);
-                console.log(`[CTA] 할당량 초과로 폴백 모델 ${fallbackModelName} 사용`);
-                break;
-              } catch (fallbackError) {
-                continue;
-              }
-            }
-            if (!result) {
-              throw error; // 모든 폴백 실패 시 원래 오류 throw
-            }
-          } else {
-            throw error; // 할당량 초과가 아닌 오류는 즉시 throw
-          }
-        }
-
-        const response = await result.response;
-        const text = response.text();
+        const text = await callGeminiWithRetry(prompt);
 
         // AI 응답 파싱하여 CTA 생성
         const aiCTAs = this.parseAIResponse(text);
@@ -1688,43 +1640,7 @@ ${contents.slice(0, 10).map((c, i) => `
 
       const prompt = this.buildContentMixingPrompt(topic, keywords, contents, ctas, section, contentMode);
 
-      let response: string | undefined;
-      if (provider === 'openai' && this.openai) {
-        const completion = await this.openai.chat.completions.create({
-          model: 'gpt-5.4',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.7
-        });
-        response = completion.choices[0]?.message?.content || '';
-      } else if (provider === 'gemini' && this.gemini) {
-        // Gemini 2.0 이상 모델 사용 (할당량 초과 시 폴백)
-        const models = ['gemini-2.5-flash', 'gemini-2.5-pro'];
-        let model = null;
-        let lastError = null;
-
-        for (const modelName of models) {
-          try {
-            model = this.gemini.getGenerativeModel({ model: modelName });
-            const result = await model.generateContent(prompt);
-            response = result.response.text();
-            break; // 성공하면 중단
-          } catch (error: any) {
-            const errorMsg = String(error?.message || error || '');
-            const isRateLimit = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded.*quota/i.test(errorMsg);
-            if (isRateLimit && models.indexOf(modelName) < models.length - 1) {
-              lastError = error;
-              continue; // 할당량 초과 시 다음 모델 시도
-            }
-            throw error; // 다른 오류는 즉시 throw
-          }
-        }
-
-        if (!response) {
-          throw lastError || new Error('사용 가능한 Gemini 모델이 없습니다.');
-        }
-      } else {
-        throw new Error('AI 모델이 설정되지 않았습니다.');
-      }
+      const response = await callGeminiWithRetry(prompt);
 
       console.log(`[AI MIXER] ${section.title} 섹션 내용 믹싱 완료`);
       return response;

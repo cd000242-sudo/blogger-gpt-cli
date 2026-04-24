@@ -2,6 +2,7 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import sharp from 'sharp';
+import { callGeminiWithRetry } from './core/final/gemini-engine';
 
 export type ThumbOptions = {
   width?: number;   // 기본 800 (최적화)
@@ -130,8 +131,8 @@ function extractKoreanKeywords(title: string): string[] {
 let _translationCache: Map<string, string> = new Map();
 let _translationApiKey: string = '';
 
-// Gemini API로 한국어→영어 번역
-async function translateToEnglish(koreanText: string, apiKey?: string): Promise<string> {
+// 한국어→영어 번역 (🔥 통합 디스패처 사용 — 선택된 엔진)
+async function translateToEnglish(koreanText: string, _apiKey?: string): Promise<string> {
   if (!koreanText) return '';
   // 이미 영어인 경우 그대로 반환
   if (!/[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF]/.test(koreanText)) return koreanText;
@@ -142,39 +143,18 @@ async function translateToEnglish(koreanText: string, apiKey?: string): Promise<
     return _translationCache.get(cacheKey)!;
   }
 
-  const key = apiKey || _translationApiKey;
-  if (!key) {
-    console.log('[TRANSLATE] ⚠️ API 키 없음, 폴백 키워드 매핑 사용');
-    return fallbackKeywordTranslate(koreanText);
-  }
-
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: `Translate the following Korean text to English. Return ONLY the English translation, nothing else. Keep proper nouns and brand names as-is.\n\nKorean: ${koreanText}`
-          }]
-        }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 256 }
-      })
-    });
-
-    if (!response.ok) {
-      console.log(`[TRANSLATE] ⚠️ 번역 API 실패 (${response.status}), 폴백 사용`);
-      return fallbackKeywordTranslate(koreanText);
-    }
-
-    const data = await response.json();
-    const translated = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-    if (translated && translated.length > 0) {
-      console.log(`[TRANSLATE] ✅ "${koreanText.slice(0, 30)}..." → "${translated.slice(0, 50)}..."`);
-      _translationCache.set(cacheKey, translated);
-      return translated;
+    // 🔥 통합 디스패처 사용 — 사용자가 선택한 엔진으로 번역 (Gemini/OpenAI/Claude/Perplexity)
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { callGeminiWithRetry } = require('./core/final/gemini-engine');
+    const translated = await callGeminiWithRetry(
+      `Translate the following Korean text to English. Return ONLY the English translation, nothing else. Keep proper nouns and brand names as-is.\n\nKorean: ${koreanText}`
+    );
+    const translatedText = (typeof translated === 'string' ? translated : translated?.text || '').trim();
+    if (translatedText && translatedText.length > 0) {
+      console.log(`[TRANSLATE] ✅ "${koreanText.slice(0, 30)}..." → "${translatedText.slice(0, 50)}..."`);
+      _translationCache.set(cacheKey, translatedText);
+      return translatedText;
     }
   } catch (e: any) {
     console.log(`[TRANSLATE] ⚠️ 번역 예외: ${e.message}, 폴백 사용`);
@@ -1830,28 +1810,12 @@ async function tryGeminiExperimentalImageGeneration(
   const translatedTitle = await translateToEnglish(title, apiKey);
   const translatedTopic = await translateToEnglish(topic, apiKey);
 
-  // 🔥 AI 추론으로 동적 프롬프트 생성 시도 (OpenAI GPT-5.4 — 최신 최강 모델)
+  // 🔥 AI 추론으로 동적 프롬프트 생성 시도 (Gemini — callGeminiWithRetry)
   let aiGeneratedPrompt: string | null = null;
   try {
-    const { loadEnvFromFile } = await import('./env');
-    const envData = loadEnvFromFile();
-    const openaiKey = (envData['openaiKey'] || envData['OPENAI_API_KEY'] || '').trim();
+    const aiPrompt = `You are an expert visual prompt engineer for AI image generation. The images are for a KOREAN blog targeting Korean audience. All people in the image MUST be Korean/East Asian. Output ONLY the English image prompt, nothing else. Max 100 words.
 
-    if (openaiKey && openaiKey.length > 20) {
-      const promptGenResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openaiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'gpt-5.4',
-          messages: [{
-            role: 'system',
-            content: 'You are an expert visual prompt engineer for AI image generation. The images are for a KOREAN blog targeting Korean audience. All people in the image MUST be Korean/East Asian. Output ONLY the English image prompt, nothing else. Max 100 words.'
-          }, {
-            role: 'user',
-            content: `Given the blog section title and topic below, create a SINGLE, highly specific visual scene description for a professional stock photograph.
+Given the blog section title and topic below, create a SINGLE, highly specific visual scene description for a professional stock photograph.
 
 Section Title: ${title}
 Topic/Keyword: ${topic}
@@ -1873,26 +1837,15 @@ Topic-to-Scene Examples:
 - "자동차 보험" (car insurance) → "Korean couple examining car insurance paperwork at a Korean insurance office desk, miniature car model nearby, soft professional lighting"
 - "주식 투자" (stock investing) → "Korean businessman analyzing stock charts on laptop at a Korean-style cafe, coffee cup beside, Seoul cityscape visible through window"
 
-Now generate a scene for "${topic}" — "${title}":`
-          }],
-          temperature: 0.7,
-          max_tokens: 200
-        })
-      });
+Now generate a scene for "${topic}" — "${title}":`;
 
-      if (promptGenResponse.ok) {
-        const promptGenData = await promptGenResponse.json();
-        const generated = promptGenData.choices?.[0]?.message?.content?.trim();
-        if (generated && generated.length > 20 && generated.length < 500) {
-          aiGeneratedPrompt = generated;
-          console.log(`[NANO-BANANA] 🧠 OpenAI 추론 프롬프트 생성 완료: "${aiGeneratedPrompt?.slice(0, 80)}..."`);
-        }
-      }
-    } else {
-      console.log(`[NANO-BANANA] ⚠️ OpenAI API 키 없음, 템플릿 프롬프트 사용`);
+    const generated = await callGeminiWithRetry(aiPrompt);
+    if (generated && generated.length > 20 && generated.length < 500) {
+      aiGeneratedPrompt = generated;
+      console.log(`[NANO-BANANA] 🧠 Gemini 추론 프롬프트 생성 완료: "${aiGeneratedPrompt?.slice(0, 80)}..."`);
     }
   } catch (e: any) {
-    console.log(`[NANO-BANANA] ⚠️ OpenAI 프롬프트 추론 실패 (폴백 사용): ${e.message}`);
+    console.log(`[NANO-BANANA] ⚠️ Gemini 프롬프트 추론 실패 (폴백 사용): ${e.message}`);
   }
 
   if (isThumbnail) {
@@ -2504,138 +2457,21 @@ Requirements:
 
   const userMessage = `Blog Title: ${title}\nTopic: ${topic}\n\nGenerate the image prompt:`;
 
-  // ===== 1. Gemini 2.5 Flash =====
-  const geminiKey = _translationApiKey || process.env['GEMINI_API_KEY'] || '';
-  if (geminiKey) {
-    try {
-      console.log(`[AI-PROMPT] 🔵 Gemini 2.5 Flash로 프롬프트 생성 시도...`);
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: `${systemInstruction}\n\n${userMessage}` }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 512 }
-        })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        const prompt = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        if (prompt && prompt.length > 20) {
-          console.log(`[AI-PROMPT] ✅ Gemini 2.5 Flash 성공!`);
-          return prompt;
-        }
-      }
-      console.log(`[AI-PROMPT] ⚠️ Gemini 실패 (${response.status})`);
-    } catch (e: any) {
-      console.log(`[AI-PROMPT] ⚠️ Gemini 오류: ${e.message}`);
+  // 🔥 통합 디스패처로 한 번만 호출 (사용자 선택 엔진 자동 사용)
+  try {
+    console.log(`[AI-PROMPT] 🔵 통합 디스패처로 프롬프트 생성 시도...`);
+    const combinedPrompt = `${systemInstruction}\n\n${userMessage}`;
+    const result: any = await callGeminiWithRetry(combinedPrompt);
+    const prompt: string = typeof result === 'string' ? result : (result?.text || '');
+    if (prompt && prompt.length > 20) {
+      console.log(`[AI-PROMPT] ✅ AI 프롬프트 생성 성공`);
+      return prompt.trim();
     }
+  } catch (e: any) {
+    console.log(`[AI-PROMPT] ⚠️ AI 오류: ${e.message}`);
   }
 
-  // ===== 2. OpenAI GPT-5.4 =====
-  const openaiKey = process.env['OPENAI_API_KEY'] || '';
-  if (openaiKey) {
-    try {
-      console.log(`[AI-PROMPT] 🟢 OpenAI GPT-5.4로 프롬프트 생성 시도...`);
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openaiKey}`
-        },
-        body: JSON.stringify({
-          model: 'gpt-5.4',
-          messages: [
-            { role: 'system', content: systemInstruction },
-            { role: 'user', content: userMessage }
-          ],
-          temperature: 0.7,
-          max_tokens: 512
-        })
-      });
-      if (response.ok) {
-        const data = await response.json() as any;
-        const prompt = data.choices?.[0]?.message?.content?.trim();
-        if (prompt && prompt.length > 20) {
-          console.log(`[AI-PROMPT] ✅ OpenAI GPT-5.4 성공!`);
-          return prompt;
-        }
-      }
-      console.log(`[AI-PROMPT] ⚠️ OpenAI 실패 (${response.status})`);
-    } catch (e: any) {
-      console.log(`[AI-PROMPT] ⚠️ OpenAI 오류: ${e.message}`);
-    }
-  }
-
-  // ===== 3. Claude 3.5 Haiku =====
-  const claudeKey = process.env['CLAUDE_API_KEY'] || process.env['ANTHROPIC_API_KEY'] || '';
-  if (claudeKey) {
-    try {
-      console.log(`[AI-PROMPT] 🟣 Claude 3.5 Haiku로 프롬프트 생성 시도...`);
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': claudeKey,
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-          model: 'claude-3-7-sonnet-20250219',
-          max_tokens: 512,
-          system: systemInstruction,
-          messages: [{ role: 'user', content: userMessage }]
-        })
-      });
-      if (response.ok) {
-        const data = await response.json() as any;
-        const prompt = data.content?.[0]?.text?.trim();
-        if (prompt && prompt.length > 20) {
-          console.log(`[AI-PROMPT] ✅ Claude 3.5 Haiku 성공!`);
-          return prompt;
-        }
-      }
-      console.log(`[AI-PROMPT] ⚠️ Claude 실패 (${response.status})`);
-    } catch (e: any) {
-      console.log(`[AI-PROMPT] ⚠️ Claude 오류: ${e.message}`);
-    }
-  }
-
-  // ===== 4. Perplexity =====
-  const perplexityKey = process.env['PERPLEXITY_API_KEY'] || '';
-  if (perplexityKey) {
-    try {
-      console.log(`[AI-PROMPT] 🔴 Perplexity로 프롬프트 생성 시도...`);
-      const response = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${perplexityKey}`
-        },
-        body: JSON.stringify({
-          model: 'sonar-reasoning-pro',
-          messages: [
-            { role: 'system', content: systemInstruction },
-            { role: 'user', content: userMessage }
-          ],
-          temperature: 0.7,
-          max_tokens: 512
-        })
-      });
-      if (response.ok) {
-        const data = await response.json() as any;
-        const prompt = data.choices?.[0]?.message?.content?.trim();
-        if (prompt && prompt.length > 20) {
-          console.log(`[AI-PROMPT] ✅ Perplexity 성공!`);
-          return prompt;
-        }
-      }
-      console.log(`[AI-PROMPT] ⚠️ Perplexity 실패 (${response.status})`);
-    } catch (e: any) {
-      console.log(`[AI-PROMPT] ⚠️ Perplexity 오류: ${e.message}`);
-    }
-  }
-
-  // ===== 5. 최종 폴백: 키워드 기반 번역 =====
+  // ===== 3. 최종 폴백: 키워드 기반 번역 =====
   console.log(`[AI-PROMPT] 📝 모든 AI 실패 → 키워드 기반 프롬프트 생성`);
   return generateEnglishPrompt(title, topic, isThumbnail);
 }

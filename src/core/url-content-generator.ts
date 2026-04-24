@@ -16,6 +16,7 @@ import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { loadEnvFromFile } from '../env';
+import { callGeminiWithRetry } from './final/gemini-engine';
 
 // ============================================
 // 타입 정의
@@ -217,9 +218,6 @@ export async function deepCrawlUrl(url: string): Promise<UrlCrawlResult> {
  * URL 콘텐츠를 참고하여 완전히 새로운 제목 생성
  */
 async function generateNewTitle(crawledData: UrlCrawlResult): Promise<string> {
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-
   const prompt = `당신은 SEO 전문 블로그 작가입니다.
 
 다음 참고 자료를 바탕으로, 완전히 새로운 블로그 제목을 생성하세요.
@@ -239,13 +237,10 @@ async function generateNewTitle(crawledData: UrlCrawlResult): Promise<string> {
 새로운 제목만 출력하세요 (따옴표 없이):`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
-    // 따옴표 제거
-    return text.replace(/^["']|["']$/g, '').trim();
+    const text = await callGeminiWithRetry(prompt);
+    return text.trim().replace(/^["']|["']$/g, '').trim();
   } catch (error: any) {
     console.error('[URL-GEN] 제목 생성 실패:', error.message);
-    // 폴백: 원본 제목 변형
     return `${crawledData.title} - 2025년 완벽 가이드`;
   }
 }
@@ -254,9 +249,6 @@ async function generateNewTitle(crawledData: UrlCrawlResult): Promise<string> {
  * 완전히 새로운 H2 소제목 5개 생성
  */
 async function generateNewH2Titles(crawledData: UrlCrawlResult, keyword: string): Promise<string[]> {
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-
   const prompt = `당신은 블로그 콘텐츠 구조 전문가입니다.
 
 다음 참고 자료를 바탕으로, 완전히 새로운 H2 소제목 5개를 생성하세요.
@@ -281,8 +273,7 @@ JSON 배열로 출력하세요:
 ["소제목1", "소제목2", "소제목3", "소제목4", "소제목5"]`;
 
   try {
-    const result = await model.generateContent(prompt);
-    let text = result.response.text().trim();
+    let text = (await callGeminiWithRetry(prompt)).trim();
 
     // JSON 파싱
     const jsonMatch = text.match(/\[[\s\S]*\]/);
@@ -315,9 +306,6 @@ async function generateH2Content(
   crawledData: UrlCrawlResult,
   keyword: string
 ): Promise<H3Section[]> {
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-
   const prompt = `당신은 전문 블로그 작가입니다.
 
 다음 H2 소제목에 대한 상세 내용을 작성하세요.
@@ -349,8 +337,7 @@ JSON 형식으로 출력:
 }`;
 
   try {
-    const result = await model.generateContent(prompt);
-    let text = result.response.text().trim();
+    let text = (await callGeminiWithRetry(prompt)).trim();
 
     // JSON 파싱
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -376,9 +363,6 @@ JSON 형식으로 출력:
  * 태그/라벨 자동 생성
  */
 async function generateTags(crawledData: UrlCrawlResult, keyword: string): Promise<string[]> {
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-
   const prompt = `다음 내용에 대한 블로그 태그 10개를 생성하세요.
 
 [주제]: ${keyword || crawledData.title}
@@ -389,8 +373,7 @@ JSON 배열로 태그만 출력:
 ["태그1", "태그2", ...]`;
 
   try {
-    const result = await model.generateContent(prompt);
-    let text = result.response.text().trim();
+    let text = (await callGeminiWithRetry(prompt)).trim();
 
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (jsonMatch) {

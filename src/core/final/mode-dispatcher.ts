@@ -31,7 +31,8 @@ export interface ModeDispatchResult {
  */
 export function dispatchMode(
   contentMode: string,
-  keyword: string
+  keyword: string,
+  options?: { authorInfo?: { name: string; title: string; credentials: string } }
 ): ModeDispatchResult {
   const defaultResult: ModeDispatchResult = {
     h2Titles: null,
@@ -41,7 +42,7 @@ export function dispatchMode(
     handledByPlugin: false,
   };
 
-  if (!contentMode || contentMode === 'external') {
+  if (!contentMode) {
     return defaultResult;
   }
 
@@ -54,10 +55,43 @@ export function dispatchMode(
 
   console.log(`[MODE-DISPATCH] 모드 '${contentMode}' 플러그인 발견: ${plugin.config.name}`);
 
-  // H2 제목: 플러그인의 sections에서 가져오기
+  // 🛡️ 애드센스 모드: 저자 프로필이 없으면 personal_experience 섹션 자동 제거
+  // (허위 1인칭 경험담 생성 방지 — 구글 E-E-A-T 위반 리스크)
+  let activeSections = plugin.sections || [];
+  const hasAuthorInfo = !!(options?.authorInfo?.name && options.authorInfo.name.trim());
+  if (contentMode === 'adsense' && !hasAuthorInfo) {
+    const before = activeSections.length;
+    activeSections = activeSections.filter(sec => sec.id !== 'personal_experience');
+    if (activeSections.length < before) {
+      console.log(`[MODE-DISPATCH] 🛡️ 저자 프로필 미입력 → personal_experience 섹션 자동 제외 (${before}→${activeSections.length})`);
+    }
+  }
+
+  // 🎲 애드센스 모드: 중간 섹션 셔플 + minChars ±20% 지터
+  // (patterned content 탐지 방지 — 같은 주제 여러 글이 동일 구조면 scaled abuse 플래그)
+  if (contentMode === 'adsense' && activeSections.length >= 4) {
+    const first = activeSections[0]!;          // author_intro 고정
+    const last = activeSections[activeSections.length - 1]!;  // conclusion 고정
+    const middle = activeSections.slice(1, -1);
+    // Fisher-Yates 셔플
+    for (let i = middle.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [middle[i], middle[j]] = [middle[j]!, middle[i]!];
+    }
+    // minChars 지터 (각 섹션 ±20%)
+    const jittered = [first, ...middle, last].map(sec => {
+      const original = (sec as any).minChars || 800;
+      const jitter = 1 + (Math.random() * 0.4 - 0.2); // 0.8 ~ 1.2
+      return { ...sec, minChars: Math.round(original * jitter) };
+    });
+    activeSections = jittered;
+    console.log(`[MODE-DISPATCH] 🎲 애드센스 섹션 셔플 + minChars 지터 적용 (patterned content 방지)`);
+  }
+
+  // H2 제목: 활성 섹션에서 가져오기 (빈 배열이면 null → AI 생성 위임)
   let h2Titles: string[] | null = null;
-  if (plugin.sections && plugin.sections.length > 0) {
-    h2Titles = plugin.sections.map(sec => {
+  if (activeSections.length > 0) {
+    h2Titles = activeSections.map(sec => {
       const title = sec.title || '';
       return title
         .replace(/\[주제\]/g, keyword)
@@ -69,23 +103,43 @@ export function dispatchMode(
   // 섹션 프롬프트 블록: buildSectionPrompt로 생성
   let sectionPromptBlock = '';
   try {
-    // 모든 섹션에 대한 통합 프롬프트 생성
-    const sectionGuides = (plugin.sections || []).map((sec, idx) => {
-      const params = {
-        topic: keyword,
-        keywords: [keyword],
-        section: sec,
-        subtopic: sec.title || '',
-      };
-      try {
-        return `[섹션 ${idx + 1}: ${sec.title}]\n${plugin.buildSectionPrompt(params)}`;
-      } catch {
-        return `[섹션 ${idx + 1}: ${sec.title}]\n${sec.description || ''}`;
-      }
-    });
+    if (activeSections.length > 0) {
+      // 섹션이 있는 모드 (adsense/internal/shopping/paraphrasing)
+      const sectionGuides = activeSections.map((sec, idx) => {
+        const params = {
+          topic: keyword,
+          keywords: [keyword],
+          section: sec,
+          subtopic: sec.title || '',
+          authorInfo: options?.authorInfo,
+        };
+        try {
+          return `[섹션 ${idx + 1}: ${sec.title}]\n${plugin.buildSectionPrompt(params)}`;
+        } catch {
+          return `[섹션 ${idx + 1}: ${sec.title}]\n${sec.description || ''}`;
+        }
+      });
 
-    if (sectionGuides.length > 0) {
-      sectionPromptBlock = `\n\n📋 [${plugin.config.name} 모드 — 플러그인 가이드]\n${sectionGuides.join('\n\n')}`;
+      if (sectionGuides.length > 0) {
+        sectionPromptBlock = `\n\n📋 [${plugin.config.name} — 플러그인 가이드]\n${sectionGuides.join('\n\n')}`;
+      }
+    } else {
+      // 섹션이 빈 모드 (external/SEO) — 주제 기반 종합 가이드 1회 호출
+      try {
+        const params = {
+          topic: keyword,
+          keywords: [keyword],
+          section: { id: 'general', title: keyword, description: '' } as any,
+          subtopic: keyword,
+          authorInfo: options?.authorInfo,
+        };
+        const generalGuide = plugin.buildSectionPrompt(params);
+        if (generalGuide && generalGuide.trim().length > 0) {
+          sectionPromptBlock = `\n\n📋 [${plugin.config.name} — 플러그인 가이드]\n${generalGuide}`;
+        }
+      } catch (e) {
+        console.warn(`[MODE-DISPATCH] 섹션 없는 모드 프롬프트 빌드 실패: ${e}`);
+      }
     }
   } catch (e) {
     console.warn(`[MODE-DISPATCH] 프롬프트 빌드 실패: ${e}`);

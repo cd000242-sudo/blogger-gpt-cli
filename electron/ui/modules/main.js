@@ -267,7 +267,17 @@ console.log('[MAIN] 워드프레스 함수 즉시 정의 완료');
   window.setRunning = setRunning;
   window.cancelProgress = cancelProgress;
 
-  // 상세설정 토글
+  // 상세설정(포스팅 상세) 탭 전환 — 환경설정 탭과 분리된 네임스페이스
+  window.switchPostingSettingsTab = function(tabId) {
+    document.querySelectorAll('.posting-settings-tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.posting-settings-tab').forEach(t => t.classList.remove('active'));
+    const panel = document.getElementById(tabId);
+    if (panel) panel.classList.add('active');
+    const tab = document.querySelector('.posting-settings-tab[data-tab="' + tabId + '"]');
+    if (tab) tab.classList.add('active');
+    try { localStorage.setItem('lastPostingSettingsTab', tabId); } catch(e) {}
+  };
+  // 상세설정 패널 토글 (열기/닫기 + 마지막 탭 복원)
   window.togglePostingSettingsPanel = function() {
     try {
       const panel = document.getElementById('postingSettingsAccordion');
@@ -281,34 +291,14 @@ console.log('[MAIN] 워드프레스 함수 즉시 정의 완료');
       }
       const chevron = document.getElementById('settingsChevron');
       if (chevron) chevron.style.transform = isVisible ? 'rotate(0deg)' : 'rotate(180deg)';
-    } catch (e) { console.error('[SETTINGS-PANEL] 토글 오류:', e); }
-  };
-  window.togglePostingAccordion = function(sectionId) {
-    const body = document.getElementById(sectionId);
-    if (!body) { console.warn('[ACCORDION] not found:', sectionId); return; }
-    const wasOpen = body.classList.contains('open');
-    body.classList.toggle('open');
-    // 인라인 스타일로 강제 (CSS max-height 트랜지션 실패 대비)
-    if (wasOpen) {
-      body.style.maxHeight = '0';
-      body.style.padding = '0 18px';
-      body.style.overflow = 'hidden';
-    } else {
-      body.style.maxHeight = 'none';
-      body.style.padding = '16px 18px';
-      body.style.overflow = 'visible';
-      body.style.display = 'block';
-      // 자식 요소 가시성 강제
-      Array.from(body.children).forEach(child => {
-        if (child.classList && child.classList.contains('acc-field')) {
-          child.style.display = child.style.display === 'none' ? 'block' : (child.style.display || 'block');
-          child.style.visibility = 'visible';
-          child.style.opacity = '1';
+      // 열릴 때 마지막 탭 복원
+      if (!isVisible) {
+        const last = localStorage.getItem('lastPostingSettingsTab');
+        if (last && document.getElementById(last)) {
+          window.switchPostingSettingsTab(last);
         }
-      });
-    }
-    const chevron = document.getElementById('chevron-' + sectionId);
-    if (chevron) chevron.style.transform = wasOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+      }
+    } catch (e) { console.error('[SETTINGS-PANEL] 토글 오류:', e); }
   };
 
   // 포스팅 함수들

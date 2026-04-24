@@ -1289,21 +1289,10 @@ function getGeminiApiKey(): string {
   }
 }
 
+// 🔥 모듈 레벨 Gemini 초기화 제거 — 사용자가 Gemini 아닌 엔진 선택 시에도 에러 안 찍힘
+// genAI는 더 이상 사용되지 않으며, 모든 AI 호출은 callGeminiWithRetry 디스패처로 라우팅됨
 const GEMINI_API_KEY = getGeminiApiKey();
-
-// API 키 검증 및 genAI 초기화
-if (!GEMINI_API_KEY || GEMINI_API_KEY.trim() === '') {
-  console.error('[CORE] ❌ Gemini API 키가 없습니다.');
-  console.error('[CORE] envData 확인 필요 - loadEnvFromFile() 결과를 확인하세요.');
-}
-
-if (!GEMINI_API_KEY || GEMINI_API_KEY.length < 20) {
-  console.error('[CORE] ❌ Gemini API 키가 유효하지 않습니다. (길이:', GEMINI_API_KEY?.length || 0, ')');
-}
-
-const genAI = GEMINI_API_KEY && GEMINI_API_KEY.trim().length >= 20
-  ? new GoogleGenerativeAI(GEMINI_API_KEY.trim())
-  : null;
+const genAI: any = null; // dead reference (for any lingering code); dispatcher handles engine resolution
 
 if (!genAI) {
   console.error('[CORE] ❌ GoogleGenerativeAI 초기화 실패 - API 키를 확인하세요.');
@@ -1840,8 +1829,19 @@ export async function publishGeneratedContent(
           featuredImageUrl: thumbnailUrl, // 🔥 썸네일 주소 전달
           status,
           scheduleDate: scheduleDate ? scheduleDate.toISOString() : undefined,
-          geminiKey: payload?.geminiKey || process.env['GEMINI_API_KEY'] // 🔥 AI SEO를 위한 키 전달
-        });
+          geminiKey: payload?.geminiKey || process.env['GEMINI_API_KEY'], // 🔥 AI SEO를 위한 키 전달
+          // 🔥 UI에서 선택한 카테고리 전달 (CSV/배열 모두 지원)
+          categories: (() => {
+            const cat = (payload as any)?.wordpressCategory || (payload as any)?.wordpressCategories || (payload as any)?.wpCategory;
+            if (!cat) return undefined;
+            if (Array.isArray(cat)) return cat;
+            return String(cat).split(',').map((s: string) => s.trim()).filter(Boolean);
+          })(),
+          // 🔥 오케스트레이션에서 생성한 AI labels를 태그로 재사용
+          preGeneratedTags: (payload as any)?.generatedLabels && Array.isArray((payload as any).generatedLabels) && (payload as any).generatedLabels.length > 0
+            ? (payload as any).generatedLabels
+            : undefined,
+        } as any);
 
         console.log('[PUBLISH] 워드프레스 발행 결과:', result);
 

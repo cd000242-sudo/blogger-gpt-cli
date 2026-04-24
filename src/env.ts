@@ -156,6 +156,10 @@ const MAP: Record<string, string> = {
   STABILITY_API_KEY: 'stabilityApiKey', // 🔥 Stability AI 추가
   PRODIA_API_KEY: 'prodiaApiKey',    // 🚀 Prodia AI 추가
 
+  // 🛒 쿠팡 파트너스 오픈 API (쇼핑 모드 실제 상품 데이터 + 제휴 딥링크)
+  COUPANG_ACCESS_KEY: 'coupangAccessKey',
+  COUPANG_SECRET_KEY: 'coupangSecretKey',
+
   // ✅ Google CSE (자동 링크/이미지용)
   GOOGLE_CSE_KEY: 'googleCseKey',
   GOOGLE_CSE_CX: 'googleCseCx',

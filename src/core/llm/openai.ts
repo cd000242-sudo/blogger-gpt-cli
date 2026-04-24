@@ -13,7 +13,7 @@ export async function genWithOpenAI(apiKey: string, input: Input): Promise<strin
   const prompt = buildContentPrompt(input);
 
   const res = await client.chat.completions.create({
-    model: 'gpt-5.4',
+    model: process.env['OPENAI_MODEL'] || 'gpt-5-mini',
     temperature: 0.7,
     messages: [
       {

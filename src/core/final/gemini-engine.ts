@@ -69,42 +69,85 @@ async function enforceRateLimit(): Promise<void> {
   return rateLimitLock;
 }
 
-// 🔥 Gemini API 호출 헬퍼 (재시도 + 모델 폴백 + 지능형 대기)
-// 🔥 폴백 순서: Gemini(1순위) → OpenAI → Claude → Perplexity
+// 🔥 Provider 표시명 + 빌링 URL 매핑
+const PROVIDER_NAMES: Record<string, string> = {
+  gemini: 'Gemini',
+  openai: 'OpenAI',
+  claude: 'Claude',
+  perplexity: 'Perplexity',
+};
+const BILLING_URLS: Record<string, string> = {
+  gemini: 'https://aistudio.google.com/plan_billing',
+  openai: 'https://platform.openai.com/settings/organization/billing',
+  claude: 'https://console.anthropic.com/settings/billing',
+  perplexity: 'https://www.perplexity.ai/settings/api',
+};
+
+// 🔥 선택된 엔진으로만 호출 — 실패 시 에러 (자동 폴백 없음)
 export async function callGeminiWithRetry(prompt: string, maxRetries: number = 2): Promise<string> {
+  await enforceRateLimit();
+
+  const primaryProvider = getPrimaryProvider();
+  const modelValue = process.env['PRIMARY_TEXT_MODEL'] || DEFAULT_TIER_VALUE;
+  const tier = findTier(modelValue);
+  const providerName = PROVIDER_NAMES[primaryProvider] || primaryProvider;
+
+  // ── 비-Gemini 엔진 선택 시: 해당 엔진만 호출 ──
+  if (primaryProvider !== 'gemini') {
+    // API 키 체크
+    const keyChecks: Record<string, () => string> = {
+      openai: getOpenAIApiKey,
+      claude: getClaudeApiKey,
+      perplexity: getPerplexityApiKey,
+    };
+    const getKey = keyChecks[primaryProvider];
+    if (!getKey || !getKey()) {
+      throw new Error(
+        `❌ ${providerName} API 키가 설정되지 않았습니다.\n` +
+        `설정 → API 키 발급받기에서 ${providerName} API 키를 입력하거나, 다른 엔진을 선택해주세요.`
+      );
+    }
+
+    // API 호출
+    try {
+      console.log(`🎯 [Engine] ${providerName} (${tier?.modelId || modelValue}) 호출 중...`);
+      if (primaryProvider === 'openai') return await callOpenAIAPI(prompt);
+      if (primaryProvider === 'claude') return await callClaudeAPI(prompt);
+      if (primaryProvider === 'perplexity') return await callPerplexityAPI(prompt);
+    } catch (e: any) {
+      const errorMsg = e?.message || String(e);
+      const isRateLimit = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded/i.test(errorMsg);
+      const isAuth = /401|403|auth|unauthorized|forbidden|invalid.*key/i.test(errorMsg);
+
+      let userMessage = `❌ ${providerName} 엔진 호출 실패\n`;
+      if (isAuth) {
+        userMessage += `원인: API 키가 유효하지 않습니다.\n해결: 올바른 ${providerName} API 키를 입력하거나, 다른 엔진을 선택해주세요.`;
+      } else if (isRateLimit) {
+        userMessage += `원인: API 할당량(크레딧)이 소진되었습니다.\n해결: 크레딧을 충전하거나, 다른 엔진을 선택해주세요.\n[BILLING:${primaryProvider}]`;
+      } else {
+        userMessage += `원인: ${errorMsg.substring(0, 150)}\n해결: 다른 엔진을 선택해주세요.`;
+      }
+      throw new Error(userMessage);
+    }
+
+    throw new Error(`❌ ${providerName} 엔진을 호출할 수 없습니다. 다른 엔진을 선택해주세요.`);
+  }
+
+  // ── Gemini 엔진 선택 시 ──
+  const genAI = getGenAI();
+  const geminiChain = buildGeminiChain();
   let lastError: any = null;
   let totalAttempts = 0;
 
-  await enforceRateLimit();
-
-  // 🎯 사용자가 비-Gemini 티어를 선택한 경우 우선 호출 시도
-  const primaryProvider = getPrimaryProvider();
-  if (primaryProvider !== 'gemini') {
-    try {
-      console.log(`🎯 [Tier] 사용자 선택 provider 우선 호출: ${primaryProvider}`);
-      if (primaryProvider === 'openai' && getOpenAIApiKey()) return await callOpenAIAPI(prompt);
-      if (primaryProvider === 'claude' && getClaudeApiKey()) return await callClaudeAPI(prompt);
-      if (primaryProvider === 'perplexity' && getPerplexityApiKey()) return await callPerplexityAPI(prompt);
-    } catch (e: any) {
-      lastError = e;
-      console.warn(`⚠️ [Tier] ${primaryProvider} 우선 호출 실패, Gemini 폴백:`, e?.message?.substring(0, 100));
-    }
-  }
-
-  const genAI = getGenAI();
-  const geminiChain = buildGeminiChain();
-
-  // 🤖 Gemini 모델 폴백 체인 (사용자 선택 1순위)
   for (const modelName of geminiChain) {
     for (let retry = 0; retry < maxRetries; retry++) {
       totalAttempts++;
       try {
         console.log(`🤖 [Gemini] ${modelName} 시도 중... (${retry + 1}/${maxRetries})`);
         const model = genAI.getGenerativeModel({ model: modelName });
-        // 🔥 30초 타임아웃 추가 (API 행 방지)
         const result = await Promise.race([
           model.generateContent(prompt),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${modelName} 30초 타임아웃`)), 30000))
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${modelName} 30초 타임아웃`)), GEMINI_TIMEOUT_MS))
         ]);
         const text = result.response.text();
         console.log(`✅ [Gemini] ${modelName} 성공!`);
@@ -115,18 +158,11 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 2
         const isRateLimit = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded.*quota/i.test(errorMsg);
 
         if (isRateLimit) {
-          // 🔥 빠른 대기 시간 (최대 10초)
           const waitTime = Math.min(3 * (retry + 1), 10);
-
           console.log(`⏳ [Gemini] ${modelName} 할당량 초과, ${waitTime}초 후 재시도...`);
           await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
-
-          if (retry >= maxRetries - 1) {
-            console.log(`⚠️ [Gemini] ${modelName} 할당량 소진, 다음 모델로 전환...`);
-            break; // 다음 모델로
-          }
+          if (retry >= maxRetries - 1) break;
         } else {
-          // 다른 에러는 즉시 다음 모델로
           console.error(`❌ [Gemini] ${modelName} 오류:`, errorMsg.substring(0, 100));
           break;
         }
@@ -134,71 +170,30 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 2
     }
   }
 
-  // 🧠 2순위: OpenAI 폴백 시도
-  const openaiKey = getOpenAIApiKey();
-  if (openaiKey) {
-    try {
-      console.log(`🧠 [Fallback] OpenAI로 폴백 시도...`);
-      const result = await callOpenAIAPI(prompt);
-      console.log(`✅ [Fallback] OpenAI 폴백 성공!`);
-      return result;
-    } catch (openaiError: any) {
-      lastError = openaiError;
-      console.error(`❌ [Fallback] OpenAI 폴백 실패:`, openaiError?.message?.substring(0, 100));
-    }
+  // Gemini 모든 모델 실패
+  const errorMsg = lastError?.message || '';
+  const isRateLimit = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded/i.test(errorMsg);
+  const isAuth = /401|403|auth|unauthorized|forbidden|invalid.*key/i.test(errorMsg);
+
+  let userMessage = `❌ Gemini 엔진 호출 실패 (${totalAttempts}회 시도)\n`;
+  if (isAuth) {
+    userMessage += `원인: Gemini API 키가 유효하지 않습니다.\n해결: 올바른 API 키를 입력하거나, 다른 엔진(OpenAI, Claude)을 선택해주세요.`;
+  } else if (isRateLimit) {
+    userMessage += `원인: Gemini API 할당량(크레딧)이 소진되었습니다.\n해결: 유료 플랜으로 업그레이드하거나, 다른 엔진을 선택해주세요.\n[BILLING:gemini]`;
   } else {
-    console.log(`⚠️ [Fallback] OpenAI API 키 없음, 건너뜀`);
+    userMessage += `원인: ${errorMsg.substring(0, 150)}\n해결: 다른 엔진을 선택해주세요.`;
   }
-
-  // 🟣 3순위: Claude 폴백 시도
-  const claudeKey = getClaudeApiKey();
-  if (claudeKey) {
-    console.log(`🟣 [Fallback] Claude로 폴백 시도...`);
-    try {
-      const result = await callClaudeAPI(prompt);
-      console.log(`✅ [Fallback] Claude 폴백 성공!`);
-      return result;
-    } catch (claudeError: any) {
-      console.error(`❌ [Fallback] Claude 폴백 실패:`, claudeError?.message?.substring(0, 100));
-    }
-  } else {
-    console.log(`⚠️ [Fallback] Claude API 키 없음, 건너뜀`);
-  }
-
-  // 🔮 4순위: Perplexity 폴백 시도
-  const perplexityKey = getPerplexityApiKey();
-  if (perplexityKey) {
-    console.log(`🔮 [Fallback] Perplexity로 폴백 시도...`);
-    try {
-      const result = await callPerplexityAPI(prompt);
-      console.log(`✅ [Fallback] Perplexity 폴백 성공!`);
-      return result;
-    } catch (perplexityError: any) {
-      console.error(`❌ [Fallback] Perplexity 폴백도 실패:`, perplexityError?.message?.substring(0, 100));
-    }
-  } else {
-    console.log(`⚠️ [Fallback] Perplexity API 키 없음, 건너뜀`);
-  }
-
-  // 🔥 최후의 시도: Gemini 재시도 (5초 쿨다운 후)
-  console.log(`⚠️ [Gemini] 모든 엔진 실패! 5초 대기 후 최종 Gemini 시도...`);
-  await new Promise(resolve => setTimeout(resolve, 5000));
-
-  try {
-    const model = genAI.getGenerativeModel({ model: geminiChain[0]! });
-    const result = await Promise.race([
-      model.generateContent(prompt),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`최종 시도 ${GEMINI_TIMEOUT_MS / 1000}초 타임아웃`)), GEMINI_TIMEOUT_MS))
-    ]);
-    console.log(`✅ [Gemini] 최종 시도 성공!`);
-    return result.response.text();
-  } catch (finalError) {
-    console.error(`❌ [ALL] 최종 시도도 실패. 총 ${totalAttempts}회 시도함.`);
-    throw lastError || new Error('Gemini + OpenAI + Claude + Perplexity 모두 실패 - API 키와 할당량을 확인하세요');
-  }
+  throw new Error(userMessage);
 }
 
 export async function callGeminiWithGrounding(prompt: string, maxRetries: number = 2): Promise<string> {
+  // 🎯 비-Gemini 엔진 선택 시 Grounding 스킵 → callGeminiWithRetry가 provider 분기 처리
+  const primaryProvider = getPrimaryProvider();
+  if (primaryProvider !== 'gemini') {
+    console.log(`🎯 [Grounding] 비-Gemini 엔진 선택 (${primaryProvider}), 선택 엔진 우선 호출`);
+    return callGeminiWithRetry(prompt, maxRetries);
+  }
+
   let lastError: any = null;
 
   await enforceRateLimit();
@@ -213,9 +208,14 @@ export async function callGeminiWithGrounding(prompt: string, maxRetries: number
       totalAttempts++;
       try {
         console.log(`🌐 [Grounding] ${modelName} + Google Search 시도 중... (${retry + 1}/${maxRetries})`);
+        // 🔥 Gemini 2.0+ 모델은 googleSearch 사용 (1.5는 googleSearchRetrieval)
+        const is2xOrNewer = /gemini-[2-9]/.test(modelName);
+        const groundingTool: any = is2xOrNewer
+          ? [{ googleSearch: {} }]
+          : [{ googleSearchRetrieval: {} }];
         const model = genAI.getGenerativeModel({
           model: modelName,
-          tools: [{ googleSearchRetrieval: {} }],
+          tools: groundingTool,
         });
         const result = await Promise.race([
           model.generateContent(prompt),
@@ -263,7 +263,14 @@ export async function callGeminiWithGrounding(prompt: string, maxRetries: number
 - 추측이나 허위 정보를 만들어내면 안 됩니다.`;
   try {
     return await callGeminiWithRetry(safePrompt, maxRetries);
-  } catch (fallbackError) {
-    throw lastError || fallbackError || new Error('Gemini Grounding + 폴백 모두 실패');
+  } catch (fallbackError: any) {
+    const msg = fallbackError?.message || lastError?.message || '';
+    const isCreditError = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded/i.test(msg);
+    throw new Error(
+      `❌ Gemini 엔진 호출 실패 (Grounding + 일반 모두 실패)\n` +
+      `원인: ${isCreditError ? 'Gemini API 할당량(크레딧)이 소진되었습니다.' : msg.substring(0, 150)}\n` +
+      `해결: ${isCreditError ? '유료 플랜으로 업그레이드하거나, 다른 엔진을 선택해주세요.' : '다른 엔진(OpenAI, Claude)을 선택해주세요.'}` +
+      (isCreditError ? '\n[BILLING:gemini]' : '')
+    );
   }
 }

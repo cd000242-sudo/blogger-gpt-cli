@@ -71,39 +71,43 @@ export const TIER_MODELS: readonly TierModel[] = [
     fallback: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'],
   },
 
-  // ─── OpenAI ───────────────────────────────
+  // ─── OpenAI (GPT-5 시리즈로 최신화, 2026-04) ───────────────────────────────
+  //   기존 value 키(openai-gpt4o-mini/openai-gpt41/openai-gpt4o)는 사용자 저장 설정 호환을 위해 유지,
+  //   modelId/title/description/costKrw만 최신 GPT-5 플래그십으로 업그레이드.
   {
     value: 'openai-gpt4o-mini',
-    title: 'GPT-4.1 mini',
+    title: 'GPT-5 nano',
     tier: '가성비',
-    description: '빠른 속도 · 합리적 가격 · 안정적 품질',
-    costKrw: 16,
+    description: '최신 GPT-5 nano · 초저비용 · 빠른 속도 · 대량 발행',
+    costKrw: 12,
     provider: 'openai',
-    modelId: 'gpt-4.1-mini',
-    fallback: ['gpt-4.1-mini', 'gpt-4.1'],
+    modelId: 'gpt-5-nano',
+    fallback: ['gpt-5-nano', 'gpt-5-mini', 'gpt-4.1-mini'],
   },
   {
     value: 'openai-gpt41',
-    title: 'GPT-4.1',
+    title: 'GPT-5 mini',
     tier: '균형',
-    description: '균형 잡힌 품질 · 안정적 · 가격 대비 성능 우수',
-    costKrw: 42,
+    description: '최신 GPT-5 mini · 품질/가격 균형 · 일반 블로그에 최적',
+    costKrw: 30,
     provider: 'openai',
-    modelId: 'gpt-4.1',
-    fallback: ['gpt-4.1', 'gpt-4.1-mini'],
+    modelId: 'gpt-5-mini',
+    fallback: ['gpt-5-mini', 'gpt-5-nano', 'gpt-4.1'],
   },
   {
     value: 'openai-gpt4o',
-    title: 'GPT-4o',
+    title: 'GPT-5',
     tier: '프리미엄',
-    description: '최신 GPT-4o · 강력한 추론 · 정확한 지시 이행',
-    costKrw: 101,
+    description: 'OpenAI 최신 플래그십 · 강력한 추론 · 정확한 지시 이행',
+    costKrw: 60,
     provider: 'openai',
-    modelId: 'gpt-4o',
-    fallback: ['gpt-4o', 'gpt-4.1', 'gpt-4.1-mini'],
+    modelId: 'gpt-5',
+    fallback: ['gpt-5', 'gpt-5-mini', 'gpt-4.1'],
   },
 
-  // ─── Claude ───────────────────────────────
+  // ─── Claude (2026-04 기준 최신 ID로 교정) ───────────────────────────────
+  //   기존 코드의 'claude-sonnet-4-20250514' / 'claude-opus-4-20250514'는 1년 전 버전.
+  //   최신: claude-sonnet-4-6 (2025-09-29), claude-opus-4-7 (2025-12, 1M context).
   {
     value: 'claude-haiku',
     title: 'Claude Haiku 4.5',
@@ -112,27 +116,27 @@ export const TIER_MODELS: readonly TierModel[] = [
     costKrw: 39,
     provider: 'claude',
     modelId: 'claude-haiku-4-5-20251001',
-    fallback: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-20250514'],
+    fallback: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6'],
   },
   {
     value: 'claude-sonnet',
     title: 'Claude Sonnet 4.6',
     tier: '균형',
-    description: '균형 잡힌 품질 · 자연스러운 한국어 · 안정적',
+    description: '최신 Sonnet 4.6 · 균형 잡힌 품질 · 자연스러운 한국어',
     costKrw: 63,
     provider: 'claude',
-    modelId: 'claude-sonnet-4-20250514',
-    fallback: ['claude-sonnet-4-20250514', 'claude-haiku-4-5-20251001'],
+    modelId: 'claude-sonnet-4-6',
+    fallback: ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
   },
   {
     value: 'claude-opus',
-    title: 'Claude Opus 4.6',
+    title: 'Claude Opus 4.7',
     tier: '프리미엄',
-    description: '최상급 추론 · 완벽한 글쓰기 · 프리미엄 품질',
+    description: '최신 Opus 4.7 (1M 컨텍스트) · 최상급 추론 · 완벽한 글쓰기',
     costKrw: 735,
     provider: 'claude',
-    modelId: 'claude-opus-4-20250514',
-    fallback: ['claude-opus-4-20250514', 'claude-sonnet-4-20250514'],
+    modelId: 'claude-opus-4-7',
+    fallback: ['claude-opus-4-7', 'claude-sonnet-4-6'],
   },
 
   // ─── Perplexity ───────────────────────────

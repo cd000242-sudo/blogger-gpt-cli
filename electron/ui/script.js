@@ -154,7 +154,7 @@ function getH2ImageSections() {
   // H2 이미지 소스와 섹션 정보 가져오기 (select 드롭다운 또는 라디오 버튼 모두 호환)
   const selectElement = document.getElementById('h2ImageSource');
   const radioElement = document.querySelector('input[name="h2ImageSource"]:checked');
-  const selectedSource = (selectElement ? selectElement.value : (radioElement ? radioElement.value : '')) || 'nanobananapro';
+  const selectedSource = (selectElement ? selectElement.value : (radioElement ? radioElement.value : '')) || 'imagefx';
   let selectedSections = Array.from(document.querySelectorAll('input[name="h2Sections"]:checked'))
     .map(input => parseInt(input.value));
 
@@ -179,7 +179,7 @@ function getH2ImageSections() {
   }
 
   const settings = {
-    source: selectedSource || 'nanobananapro',
+    source: selectedSource || 'imagefx',
     sections: selectedSections,
     totalSections: selectedSections.length
   };
@@ -294,6 +294,21 @@ async function addScheduledPost() {
 
   const h2ImageSettings = getH2ImageSections();
 
+  // AI 엔진 설정 (라디오버튼에서 직접 읽기)
+  const selectedModel = document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value || 'gemini-2.5-flash';
+  const deriveProvider = (m) => {
+    if (!m || m.startsWith('gemini-')) return 'gemini';
+    if (m.startsWith('openai-')) return 'openai';
+    if (m.startsWith('claude-')) return 'claude';
+    if (m === 'perplexity-sonar') return 'perplexity';
+    return 'gemini';
+  };
+
+  // 페러프레이징 모드일 때 초안 수집
+  const draftContent = contentMode === 'paraphrasing'
+    ? (document.getElementById('draftInput')?.value?.trim() || '')
+    : '';
+
   const scheduleData = {
     id: Date.now(),
     topic,
@@ -305,6 +320,9 @@ async function addScheduledPost() {
     publishType,
     thumbnailMode,
     platform,
+    primaryGeminiTextModel: selectedModel,
+    provider: deriveProvider(selectedModel),
+    draftContent: draftContent || undefined,
     h2Images: h2ImageSettings.sections, // 하위 호환성 유지
     h2ImageSource: h2ImageSettings.source,
     h2ImageSections: h2ImageSettings.sections,
@@ -404,8 +422,8 @@ async function executeSchedule(scheduleId) {
   await refreshScheduleList();
 
   try {
-    // createPayload 오버라이드 방식으로 통합 Payload 생성
-    const payload = window.createPayload ? window.createPayload({
+    // createPayload 오버라이드 방식으로 통합 Payload 생성 (🔥 async: await 필수)
+    const payload = window.createPayload ? await window.createPayload({
       previewOnly: false,
       overrides: {
         topic: schedule.topic,
@@ -413,18 +431,19 @@ async function executeSchedule(scheduleId) {
         keywords: schedule.keywords ? schedule.keywords.split(',').map(k => k.trim()) : [schedule.topic],
         platform: schedule.platform || 'blogspot',
         contentMode: schedule.contentMode || 'external',
-        h2ImageSource: schedule.h2ImageSource || 'pollinations',
+        h2ImageSource: schedule.h2ImageSource || 'imagefx',
         h2ImageSections: schedule.h2ImageSections || schedule.h2Images || [],
-        h2Images: { source: schedule.h2ImageSource || 'pollinations', sections: schedule.h2ImageSections || [] },
+        h2Images: { source: schedule.h2ImageSource || 'imagefx', sections: schedule.h2ImageSections || [] },
         publishType: schedule.publishType || 'single',
         postingMode: 'immediate',
-        thumbnailType: schedule.thumbnailMode || 'text',
+        thumbnailType: schedule.thumbnailMode || 'imagefx',
         ctaMode: schedule.ctaMode || 'auto',
+        draftContent: schedule.draftContent || undefined,
       }
     }) : {
       // fallback: createPayload 미로딩시
       topic: schedule.topic, title: schedule.topic, platform: schedule.platform || 'blogspot',
-      contentMode: schedule.contentMode || 'external', previewOnly: false
+      contentMode: schedule.contentMode || 'external', draftContent: schedule.draftContent || undefined, previewOnly: false
     };
 
     if (!window.blogger?.runPost) {
@@ -1065,11 +1084,11 @@ function openGoogleOAuthPage() {
 }
 
 // 환경변수 연동 상태 확인 함수
-function checkEnvironmentVariables() {
+async function checkEnvironmentVariables() {
   console.log('🔍 환경변수 연동 상태 확인 시작...');
 
-  // localStorage에서 설정 불러오기
-  const settings = loadSettings();
+  // localStorage에서 설정 불러오기 (🔥 async: await 필수)
+  const settings = await loadSettings();
   console.log('📦 localStorage 설정:', settings);
 
   // .env 파일에서 설정 불러오기
@@ -1172,7 +1191,7 @@ function handleH2ImageSourceChange() {
 
 // H2 섹션 선택 상태 확인
 function getH2ImageSettings() {
-  const selectedSource = document.getElementById('h2ImageSource')?.value || document.querySelector('input[name="h2ImageSource"]:checked')?.value || 'nanobananapro';
+  const selectedSource = document.getElementById('h2ImageSource')?.value || document.querySelector('input[name="h2ImageSource"]:checked')?.value || 'imagefx';
   const selectedSections = Array.from(document.querySelectorAll('input[name="h2Sections"]:checked'))
     .map(input => parseInt(input.value));
 
@@ -3709,8 +3728,8 @@ async function restoreBackup() {
 
 // 환경설정 내용 로드
 async function loadSettingsContent() {
-  // 먼저 localStorage에서 설정 불러오기
-  const settings = loadSettings();
+  // 먼저 localStorage에서 설정 불러오기 (🔥 async: await 필수)
+  const settings = await loadSettings();
 
   // .env 파일에서도 설정 불러오기
   let envSettings = {};
@@ -3910,6 +3929,18 @@ async function loadSettingsContent() {
         console.log('✅ Pexels Key 로드:', pexelsApiKeyEl.value ? '있음' : '없음');
       }
 
+      // 🛒 쿠팡 파트너스 API 키 로드
+      const coupangAccessKeyEl = document.getElementById('coupangAccessKey');
+      if (coupangAccessKeyEl) {
+        coupangAccessKeyEl.value = mergedSettings.coupangAccessKey || '';
+        console.log('✅ Coupang Access Key 로드:', coupangAccessKeyEl.value ? '있음' : '없음');
+      }
+      const coupangSecretKeyEl = document.getElementById('coupangSecretKey');
+      if (coupangSecretKeyEl) {
+        coupangSecretKeyEl.value = mergedSettings.coupangSecretKey || '';
+        console.log('✅ Coupang Secret Key 로드:', coupangSecretKeyEl.value ? '있음' : '없음');
+      }
+
       // Stability AI API Key
       const stabilityApiKeyEl = document.getElementById('stabilityApiKey');
       if (stabilityApiKeyEl) {
@@ -4023,6 +4054,10 @@ async function loadSettingsContent() {
         }
         if (typeof updatePlatformStatus === 'function') {
           updatePlatformStatus();
+        }
+        // 🔥 AI 모델 배지도 업데이트
+        if (typeof updateAiModelStatus === 'function') {
+          updateAiModelStatus();
         }
       } else {
         console.warn('⚠️ 플랫폼 라디오 버튼을 찾을 수 없습니다');
@@ -4157,6 +4192,7 @@ async function saveSettings() {
   }
 
   updatePlatformStatus(); // 플랫폼 상태 업데이트
+  updateAiModelStatus();  // 🔥 AI 모델 배지 업데이트
 
   // API 키 상태 업데이트
   const currentSettings = await loadSettings();
@@ -4986,6 +5022,97 @@ function addWorkRecordTemplate(templateType) {
 }
 
 // 플랫폼 상태 업데이트 (배지 + 필드)
+// 🔥 AI 모델/엔진 배지 업데이트 (상단 헤더 + 상단 카드 배지 + 포스팅 탭 칩)
+async function updateAiModelStatus() {
+  try {
+    // 1순위: 환경설정 라디오 버튼 (단일 진실 소스)
+    const tierRadio = document.querySelector('input[name="primaryGeminiTextModel"]:checked');
+    // 2순위: 저장된 설정
+    let savedEngine = '';
+    let savedModel = '';
+    try {
+      const settings = await loadSettings();
+      savedEngine = settings.generationEngine || settings.provider || '';
+      savedModel = settings.primaryGeminiTextModel || '';
+    } catch (e) { /* ignore */ }
+
+    const tierValue = tierRadio?.value || savedModel || '';
+    const deriveEngine = (v) => {
+      if (!v) return '';
+      if (v.startsWith('gemini-')) return 'gemini';
+      if (v.startsWith('openai-')) return 'openai';
+      if (v.startsWith('claude-')) return 'claude';
+      if (v === 'perplexity-sonar') return 'perplexity';
+      return '';
+    };
+    const engine = deriveEngine(tierValue) || savedEngine || 'gemini';
+
+    // 모델 → 표시명 매핑
+    const MODEL_DISPLAY = {
+      'gemini-2.5-flash-lite': { label: 'Gemini 2.5 Flash Lite', short: 'Gemini Lite', emoji: '⚡', color: '#10b981' },
+      'gemini-2.5-flash': { label: 'Gemini 2.5 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
+      'gemini-2.5-pro': { label: 'Gemini 2.5 Pro', short: 'Gemini Pro', emoji: '💎', color: '#10b981' },
+      'openai-gpt41-mini': { label: 'OpenAI GPT-4.1 Mini', short: 'GPT-4.1 Mini', emoji: '⚡', color: '#a855f7' },
+      'openai-gpt41': { label: 'OpenAI GPT-4.1', short: 'GPT-4.1', emoji: '🟢', color: '#a855f7' },
+      'openai-gpt4o': { label: 'OpenAI GPT-4o', short: 'GPT-4o', emoji: '💎', color: '#a855f7' },
+      'claude-haiku': { label: 'Claude Haiku 4.5', short: 'Claude Haiku', emoji: '⚡', color: '#f97316' },
+      'claude-sonnet': { label: 'Claude Sonnet 4', short: 'Claude Sonnet', emoji: '🟠', color: '#f97316' },
+      'claude-opus': { label: 'Claude Opus 4', short: 'Claude Opus', emoji: '💎', color: '#f97316' },
+      'perplexity-sonar': { label: 'Perplexity Sonar', short: 'Perplexity', emoji: '🔮', color: '#3b82f6' },
+    };
+
+    // engine → 기본 표시명
+    const ENGINE_DEFAULT = {
+      gemini: { label: 'Gemini AI', short: 'Gemini', emoji: '🤖', color: '#10b981' },
+      openai: { label: 'OpenAI', short: 'OpenAI', emoji: '🟢', color: '#a855f7' },
+      claude: { label: 'Claude', short: 'Claude', emoji: '🟠', color: '#f97316' },
+      perplexity: { label: 'Perplexity', short: 'Perplexity', emoji: '🔮', color: '#3b82f6' },
+    };
+
+    // 구체적 모델이 있으면 우선 사용, 아니면 엔진 기본값
+    const info = MODEL_DISPLAY[tierValue] || ENGINE_DEFAULT[engine] || ENGINE_DEFAULT.gemini;
+
+    // 상단 헤더 배지
+    const headerBadge = document.getElementById('aiModelStatus');
+    if (headerBadge) {
+      headerBadge.textContent = info.label;
+      headerBadge.style.color = info.color;
+      headerBadge.style.background = `${info.color}26`;
+      headerBadge.style.borderColor = `${info.color}66`;
+    }
+
+    // 상단 카드 배지
+    const engineBadge = document.getElementById('aiEngineBadge');
+    if (engineBadge) {
+      engineBadge.textContent = `${info.emoji} ${info.label}`;
+      engineBadge.style.color = info.color;
+      engineBadge.style.background = `${info.color}33`;
+      engineBadge.style.borderColor = `${info.color}4D`;
+    }
+
+    // 포스팅 탭의 읽기전용 엔진 칩
+    const engineLabelEl = document.getElementById('currentEngineLabel');
+    if (engineLabelEl) {
+      engineLabelEl.textContent = `${info.emoji} ${info.label}`;
+      engineLabelEl.style.color = info.color;
+    }
+
+    console.log(`[AI-BADGE] 업데이트: ${info.label} (engine=${engine}, tier=${tierValue})`);
+  } catch (e) {
+    console.warn('[AI-BADGE] 업데이트 실패:', e);
+  }
+}
+window.updateAiModelStatus = updateAiModelStatus;
+
+// 환경설정 라디오 변경 시 배지 자동 업데이트
+document.addEventListener('change', (e) => {
+  const target = e.target;
+  if (!target) return;
+  if (target.name === 'primaryGeminiTextModel') {
+    updateAiModelStatus();
+  }
+});
+
 async function updatePlatformStatus() {
   const platformStatusElement = document.getElementById('platformStatus');
 
@@ -5153,7 +5280,8 @@ function togglePlatformFields() {
 
   // 포스팅 페이지용 필드들
   const wordpressCategoryField = document.getElementById('wordpressCategoryField');
-  const wpCategorySection = document.getElementById('wpCategorySection');
+  const wpCategoryTab = document.getElementById('settingsTabCategory');
+  const wpCategoryPanel = document.getElementById('tab-category');
   const bloggerAuthBtn = document.getElementById('bloggerOAuthBtn');
   const bloggerAuthBtn2 = document.getElementById('bloggerAuthBtn2');
   const loadCategoriesBtn = document.getElementById('loadCategoriesBtn');
@@ -5161,8 +5289,12 @@ function togglePlatformFields() {
   if (wordpressCategoryField) {
     wordpressCategoryField.style.display = isBlogger ? 'none' : 'block';
   }
-  if (wpCategorySection) {
-    wpCategorySection.style.display = isBlogger ? 'none' : 'block';
+  if (wpCategoryTab) {
+    wpCategoryTab.style.display = isBlogger ? 'none' : 'flex';
+  }
+  if (wpCategoryPanel && isBlogger && wpCategoryPanel.classList.contains('active')) {
+    wpCategoryPanel.classList.remove('active');
+    if (window.switchPostingSettingsTab) window.switchPostingSettingsTab('tab-content');
   }
   if (bloggerAuthBtn) {
     bloggerAuthBtn.style.display = isBlogger ? 'inline-block' : 'none';
@@ -5260,8 +5392,8 @@ async function checkPlatformConnection() {
         alert('워드프레스 인증 확인 기능을 사용할 수 없습니다.');
       }
     } else if (selectedPlatform === 'blogger') {
-      // 블로그스팟 인증 확인 - 개선된 로직
-      const settings = loadSettings();
+      // 블로그스팟 인증 확인 - 개선된 로직 (🔥 async: await 필수)
+      const settings = await loadSettings();
       console.log('블로그스팟 설정 확인:', {
         blogId: settings.blogId,
         googleClientId: settings.googleClientId,
@@ -5306,7 +5438,7 @@ async function checkPlatformConnection() {
 // CSE 연동 확인
 async function checkCseConnection() {
   try {
-    const settings = loadSettings();
+    const settings = await loadSettings();
 
     if (!settings.googleCseKey || !settings.googleCseCx) {
       alert('❌ CSE 연동이 필요합니다.\n\n환경설정에서 구글 맞춤 검색 API 키와 검색 엔진 ID를 입력해주세요.');
@@ -5385,34 +5517,7 @@ function togglePostingSettingsPanel() {
 // 전역 등록 보장
 window.togglePostingSettingsPanel = togglePostingSettingsPanel;
 
-/** 아코디언 섹션 토글 */
-function togglePostingAccordion(sectionId) {
-  const body = document.getElementById(sectionId);
-  const header = body?.previousElementSibling;
-  if (!body) return;
-
-  const isOpen = body.style.maxHeight && body.style.maxHeight !== '0px';
-
-  if (isOpen) {
-    body.style.maxHeight = '0px';
-    body.style.padding = '0 16px';
-    body.style.opacity = '0';
-    if (header) {
-      const chevron = header.querySelector('.acc-chevron');
-      if (chevron) chevron.style.transform = 'rotate(0deg)';
-    }
-  } else {
-    body.style.maxHeight = body.scrollHeight + 100 + 'px';
-    body.style.padding = '16px';
-    body.style.opacity = '1';
-    if (header) {
-      const chevron = header.querySelector('.acc-chevron');
-      if (chevron) chevron.style.transform = 'rotate(180deg)';
-    }
-  }
-}
-// 전역 등록 보장
-window.togglePostingAccordion = togglePostingAccordion;
+// switchSettingsTab은 modules/main.js에서 정의됨 (단일 정의 원칙)
 
 // ========================================================
 // 🔐 ImageFX Google 로그인 핸들러
@@ -7562,10 +7667,10 @@ document.addEventListener('DOMContentLoaded', async function () {
   // 엑셀 드래그 앤 드롭 초기화
   setupExcelDropZone();
 
-  // 썸네일 타입을 항상 텍스트로 강제 설정
+  // 썸네일 타입 기본값: 이미지 FX (사용자가 다른 값을 저장했으면 그대로 유지)
   const thumbnailTypeSelect = DOMCache.get('thumbnailType');
-  if (thumbnailTypeSelect) {
-    thumbnailTypeSelect.value = 'text';
+  if (thumbnailTypeSelect && !thumbnailTypeSelect.value) {
+    thumbnailTypeSelect.value = 'imagefx';
   }
 
   // 🔐 이벤트 위임 방식으로 워드프레스 관련 버튼 처리
@@ -7616,28 +7721,29 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
   }, true); // capture 단계에서 처리
 
-  // localStorage 설정 로드
-  loadSettings();
+  // localStorage 설정 로드 (🔥 async: await 필수)
+  await loadSettings();
 
-  // 기본값 보장
+  // 기본값 보장: 사용자가 저장한 값이 없을 때만 imagefx로
   if (thumbnailTypeSelect && !thumbnailTypeSelect.value) {
-    thumbnailTypeSelect.value = 'text';
+    thumbnailTypeSelect.value = 'imagefx';
   }
 
 
-  // 🔧 StorageManager 사용 (3차 최종 보장)
+  // 🔧 StorageManager 사용 (저장된 값이 없을 때만 기본값 imagefx 설정)
   try {
     const storage = getStorageManager();
     const settings = await storage.get('bloggerSettings', true) || {};
 
-    // 기본값 보장 (무조건 강제)
-    settings.thumbnailType = 'text';
-    // 플랫폼 설정은 유지 (사용자 선택 존중)
+    // 기본값 보장: 사용자가 이전에 저장한 값이 있으면 존중, 없으면 imagefx
+    if (!settings.thumbnailType || settings.thumbnailType === 'text') {
+      settings.thumbnailType = 'imagefx';
+    }
 
     await storage.set('bloggerSettings', settings, true);
-    console.log('[INIT] localStorage에 기본값 최종 저장 완료 (3차):', settings);
+    console.log('[INIT] localStorage 썸네일 기본값 보장 완료:', settings.thumbnailType);
   } catch (e) {
-    console.error('[INIT] localStorage 저장 실패 (3차):', e);
+    console.error('[INIT] localStorage 저장 실패:', e);
   }
 
 
@@ -7687,8 +7793,8 @@ document.addEventListener('DOMContentLoaded', async function () {
       const envResult = await window.blogger.getEnv();
       if (envResult && envResult.ok && envResult.data) {
         console.log('[ENV] .env 파일에서 API 키 로드 성공');
-        // localStorage 설정과 병합 (env가 우선)
-        const savedSettings = loadSettings();
+        // localStorage 설정과 병합 (env가 우선) 🔥 async: await 필수
+        const savedSettings = await loadSettings();
         const mergedSettings = { ...savedSettings, ...envResult.data };
         localStorage.setItem('bloggerSettings', JSON.stringify(mergedSettings));
         console.log('[ENV] API 키가 자동으로 로드되었습니다');
@@ -7707,50 +7813,50 @@ document.addEventListener('DOMContentLoaded', async function () {
   const bloggerRadio = document.getElementById('platform-blogger');
   const wordpressRadio = document.getElementById('platform-wordpress');
 
-  // 저장된 설정에서 플랫폼 로드
-  const savedSettings = loadSettings();
-  let platform = savedSettings.platform || 'blogspot';
-  // blogger와 blogspot은 동일하게 처리
-  if (platform === 'blogger') {
-    platform = 'blogspot';
-  }
-  console.log('[INIT] 플랫폼 설정:', platform);
+  // 저장된 설정에서 플랫폼 로드 (🔥 async: await 필수)
+  const savedSettings = await loadSettings();
+  // 🔥 blogger와 blogspot을 "Blogger 계열"로 통합 처리
+  const rawPlatform = savedSettings.platform || 'wordpress';
+  const isBloggerPlatform = rawPlatform === 'blogger' || rawPlatform === 'blogspot';
+  console.log('[INIT] 플랫폼 설정:', rawPlatform, '→ Blogger 계열?', isBloggerPlatform);
 
   // 플랫폼 라디오 버튼 설정
   if (bloggerRadio && wordpressRadio) {
-    if (platform === 'blogger') {
+    if (isBloggerPlatform) {
       bloggerRadio.checked = true;
       wordpressRadio.checked = false;
     } else {
       bloggerRadio.checked = false;
       wordpressRadio.checked = true;
     }
-    console.log(`[INIT] 플랫폼 설정: ${platform}`);
+    console.log(`[INIT] 플랫폼 라디오 버튼 설정: ${isBloggerPlatform ? 'blogger' : 'wordpress'}`);
   } else {
     // 라디오 버튼이 아직 없으면 지연 설정
     setTimeout(() => {
       const delayedBloggerRadio = document.getElementById('platform-blogger');
       const delayedWordpressRadio = document.getElementById('platform-wordpress');
       if (delayedBloggerRadio && delayedWordpressRadio) {
-        if (platform === 'blogger') {
+        if (isBloggerPlatform) {
           delayedBloggerRadio.checked = true;
           delayedWordpressRadio.checked = false;
         } else {
           delayedBloggerRadio.checked = false;
           delayedWordpressRadio.checked = true;
         }
-        console.log(`[INIT] 플랫폼 지연 설정: ${platform}`);
+        console.log(`[INIT] 플랫폼 지연 설정: ${isBloggerPlatform ? 'blogger' : 'wordpress'}`);
       }
     }, 200);
   }
 
-  // 설정이 없거나 플랫폼이 유효하지 않으면 워드프레스로 기본값 설정
+  // 설정이 없거나 플랫폼이 유효하지 않으면 워드프레스로 기본값 설정 (🔥 사용자가 저장한 blogger/blogspot은 존중)
   const validPlatforms = ['wordpress', 'blogger', 'blogspot'];
   if (!savedSettings.platform || !validPlatforms.includes(savedSettings.platform)) {
     savedSettings.platform = 'wordpress';
     localStorage.setItem('bloggerSettings', JSON.stringify(savedSettings));
     console.log('[INIT] 플랫폼 기본값 설정: wordpress');
   }
+
+  const platform = isBloggerPlatform ? 'blogger' : 'wordpress';
 
   // 플랫폼 필드 토글 실행
   togglePlatformFields();
@@ -8013,11 +8119,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         console.error('❌ [DEBUG] progressPercentage 요소를 찾을 수 없습니다!');
       }
 
-      // 상태 텍스트
-      const progressStep = document.getElementById('progressStep');
-      if (progressStep && label) {
-        progressStep.textContent = label.replace(/\[PROGRESS\]\s*\d+%\s*-\s*/, '').trim() || '처리 중...';
-      }
+      // (상태 텍스트는 이미 위 라벨 업데이트 블록에서 처리됨 — 중복 선언 제거)
 
       // 로그 추가
       const progressLogContent = document.getElementById('progressLogContent');
@@ -8959,12 +9061,12 @@ async function runBulkPosting() {
     return;
   }
 
-  // 현재 설정 수집 (기본값 사용)
+  // 현재 설정 수집 (기본값 사용) — dispatcher가 인식하는 엔진명만 사용
   const currentSettings = {
     provider: document.getElementById('generationEngine')?.value || 'gemini',
     platform: 'blogspot',
-    thumbnailMode: 'auto',
-    imageProvider: 'auto',
+    thumbnailMode: document.getElementById('thumbnailType')?.value || 'imagefx',
+    imageProvider: document.getElementById('h2ImageSource')?.value || 'imagefx',
     wordCount: 2000,
     autoPublish: false,
     includeImages: true,
@@ -9379,7 +9481,7 @@ async function generatePreview() {
     addLog('[NEW-PREVIEW] 콘텐츠 생성 시작...');
 
     // 6. Payload 생성
-    const payload = createPreviewPayload();
+    const payload = await createPreviewPayload();
 
     console.log('[NEW-PREVIEW] Payload:', payload);
 
@@ -9953,8 +10055,8 @@ function startQuickTutorial() {
   alert('🎯 빠른 시작을 위해 SEO 최적화 모드로 설정되었습니다!\n\n1. 메인 키워드를 입력하세요\n2. 관련 키워드를 3-5개 추가하세요\n3. "완전 자동화 고품질 블로그 발행 시작" 버튼을 클릭하세요\n\nAI가 자동으로 고품질 콘텐츠를 생성하고 발행합니다!');
 }
 
-// Form에서 Payload 생성하는 헬퍼 함수
-function createPayloadFromForm() {
+// Form에서 Payload 생성하는 헬퍼 함수 (🔥 async)
+async function createPayloadFromForm() {
   const keywordInput = DOMCache.get('keywordInput');
   const keywordValue = keywordInput ? keywordInput.value.trim() : '';
 
@@ -9970,8 +10072,8 @@ function createPayloadFromForm() {
     titleValue = keywordValue.trim();
   }
 
-  // 저장된 설정 불러오기 (LocalStorage에서)
-  const savedSettings = loadSettings();
+  // 저장된 설정 불러오기 (LocalStorage에서) 🔥 async: await 필수
+  const savedSettings = await loadSettings();
 
   // 수동 CTA 데이터 변환 (인덱스 기반 객체로 변환)
   const manualCtas = {};
@@ -9992,7 +10094,7 @@ function createPayloadFromForm() {
       keyword: keywordValue,
       title: titleValue
     }],
-    thumbnailMode: thumbnailTypeSelect?.value || 'text',
+    thumbnailMode: thumbnailTypeSelect?.value || 'imagefx',
     sectionCount: (() => {
       let count = 5;
       if (sectionCountSelect) {
@@ -10035,8 +10137,8 @@ function createPayloadFromForm() {
   return payload;
 }
 
-// 미리보기용 Payload 생성 (WordPress 설정 불필요)
-function createPreviewPayload() {
+// 미리보기용 Payload 생성 (WordPress 설정 불필요) 🔥 async
+async function createPreviewPayload() {
   const keywordInput = DOMCache.get('keywordInput');
   const keywordValue = keywordInput ? keywordInput.value.trim() : '';
 
@@ -10058,8 +10160,8 @@ function createPreviewPayload() {
     titleValue = keywordValue;
   }
 
-  // 저장된 설정 로드
-  const savedSettings = loadSettings();
+  // 저장된 설정 로드 (🔥 async: await 필수)
+  const savedSettings = await loadSettings();
 
   // Gemini AI 모델 선택값 가져오기
   const titleAI = 'gemini';
@@ -10092,7 +10194,7 @@ function createPreviewPayload() {
   const payload = {
     topic: keywordValue,
     title: titleValue,
-    thumbnailType: savedThumbnail ? 'custom' : 'text', // 기본값을 텍스트 썸네일로 설정
+    thumbnailType: savedThumbnail ? 'custom' : 'imagefx', // 기본값: 이미지 FX
     customThumbnail: savedThumbnail, // 저장된 썸네일 데이터 URL
     customThumbnailText: savedThumbnailText, // 저장된 썸네일 텍스트
     promptMode: 'max-mode', // MAX모드로 고정

@@ -37,7 +37,7 @@ export async function checkApiKeys(payload: any): Promise<ApiKeyStatus> {
       await openai.models.list();
       status.openai = {
         valid: true,
-        model: 'gpt-5.4'
+        model: 'gpt-5-mini'
       };
       console.log('✅ OpenAI API 키 유효함');
     } catch (error: any) {

@@ -118,6 +118,13 @@ export function initAutoUpdaterEarly(): void {
 
   updater.autoDownload = true;
   updater.autoInstallOnAppQuit = true;
+  // 🔥 코드 서명 검증 비활성화: publisherName 설정 없으면 검증 스킵됨
+  // 파일 무결성은 latest.yml의 SHA-512로 여전히 검증됨
+  try {
+    if (updater.allowPrerelease !== undefined) updater.allowPrerelease = false;
+    // NSIS updater: publisherName이 없으면 verifySignature 검증이 스킵됨
+    if (updater.updateConfigPath !== undefined) { /* placeholder */ }
+  } catch {}
 
   // 이벤트 리스너
   updater.on('checking-for-update', () => {

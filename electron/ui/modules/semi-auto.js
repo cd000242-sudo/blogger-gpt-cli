@@ -1137,9 +1137,16 @@ window.generateSemiAutoContent = async function () {
     console.log(`[SEMI-AUTO] 🔗 수동 크롤링 URL: ${manualCrawlUrls.length}개`);
     manualCrawlUrls.forEach((url, i) => console.log(`   ${i + 1}. ${url}`));
 
-    // 🖼️ H2 이미지 설정 가져오기
-    const h2ImageSettings = window.getH2ImageSections ? window.getH2ImageSections() : { source: 'nanobananapro', sections: [] };
+    // 🖼️ H2 이미지 설정 가져오기 — dispatcher가 인식하는 엔진명 사용
+    const h2ImageSettings = window.getH2ImageSections ? window.getH2ImageSections() : { source: 'imagefx', sections: [] };
     console.log('[SEMI-AUTO] 🖼️ H2 이미지 설정:', h2ImageSettings);
+    const resolvedImageSource = h2ImageSettings.source || 'imagefx';
+
+    // 📸 썸네일 엔진: 독립 #thumbnailType select 값 사용 (H2 이미지 엔진과 분리)
+    const resolvedThumbnailSource = document.getElementById('thumbnailType')?.value
+      || resolvedImageSource
+      || 'imagefx';
+    console.log('[SEMI-AUTO] 📸 썸네일 엔진:', resolvedThumbnailSource);
 
     const payload = {
       topic: finalTopic,
@@ -1148,13 +1155,15 @@ window.generateSemiAutoContent = async function () {
       titleMode: title ? 'custom' : 'auto',
       titleValue: title || '',
       imageMode: h2ImageSettings.sections?.length > 0 ? 'h2' : 'none', // 🖼️ 이미지 모드 자동 설정
-      thumbnailMode: 'auto',
+      thumbnailMode: resolvedThumbnailSource,
+      thumbnailType: resolvedThumbnailSource,
+      thumbnailSource: resolvedThumbnailSource,
       toneStyle: toneStyle,
       contentMode: contentMode, // 🔥 콘텐츠 모드 추가!
       sourceUrl: sourceUrl || '',
       manualCrawlUrls: manualCrawlUrls, // 🔥 수동 크롤링 URL 배열
       // 🖼️ H2 이미지 설정 추가
-      h2ImageSource: h2ImageSettings.source || 'nanobananapro',
+      h2ImageSource: resolvedImageSource,
       h2ImageSections: h2ImageSettings.sections || [],
       h2Images: h2ImageSettings, // 전체 객체도 전달 (호환성)
       dryRun: true
@@ -2073,8 +2082,17 @@ window.publishSemiAutoContent = async function () {
       throw new Error(result.error || '발행 실패');
     }
 
-    alert('✅ 발행이 완료되었습니다!');
     console.log('[SEMI-AUTO] 발행 완료:', result.url);
+
+    // 🔥 진행률 모달 닫고 알림만 띄우기
+    if (window.hideProgressModal) {
+      try { window.hideProgressModal(); } catch {}
+    }
+    if (window.showNotification) {
+      try { window.showNotification('🎉 블로그 포스트 발행 완료!', 4000); } catch {}
+    } else {
+      alert('✅ 발행이 완료되었습니다!');
+    }
 
     // 상태 초기화
     resetSemiAutoState();

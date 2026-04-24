@@ -158,28 +158,44 @@ async function searchBlogspotPosts(blogUrl: string, keyword: string): Promise<In
 }
 
 /**
+ * 문자 trigram 집합 (한국어 형태소 분석 없이 동작)
+ */
+function trigramSetLocal(text: string): Set<string> {
+  const s = new Set<string>();
+  if (text.length < 3) return s;
+  for (let i = 0; i <= text.length - 3; i++) {
+    s.add(text.slice(i, i + 3));
+  }
+  return s;
+}
+
+/**
  * 키워드 관련도 계산 (0-100)
+ * 키워드 매칭 점수 + trigram Jaccard 유사도 가중 혼합
+ * — 키워드 매칭만 했던 기존 방식의 노이즈 제거
  */
 function calculateRelevance(title: string, keyword: string): number {
   const titleLower = title.toLowerCase();
   const keywordLower = keyword.toLowerCase();
   const keywordWords = keywordLower.split(/\s+/);
-  
-  let score = 0;
-  
-  // 정확히 일치하면 100점
-  if (titleLower.includes(keywordLower)) {
-    score += 80;
-  }
-  
-  // 키워드 단어별 포함 여부
+
+  let keywordScore = 0;
+  if (titleLower.includes(keywordLower)) keywordScore += 50;
   for (const word of keywordWords) {
-    if (word.length > 1 && titleLower.includes(word)) {
-      score += 20;
-    }
+    if (word.length > 1 && titleLower.includes(word)) keywordScore += 15;
   }
-  
-  return Math.min(100, score);
+  keywordScore = Math.min(70, keywordScore);
+
+  // trigram Jaccard 유사도 (제목 vs 키워드)
+  const titleGrams = trigramSetLocal(titleLower);
+  const keywordGrams = trigramSetLocal(keywordLower);
+  let intersection = 0;
+  for (const g of keywordGrams) if (titleGrams.has(g)) intersection++;
+  const union = titleGrams.size + keywordGrams.size - intersection;
+  const jaccard = union === 0 ? 0 : intersection / union;
+  const trigramScore = Math.round(jaccard * 30);
+
+  return Math.min(100, keywordScore + trigramScore);
 }
 
 // ============================================
@@ -212,11 +228,16 @@ export async function findRelatedPosts(
     links = await searchWordPressPosts(blogUrl, keyword);
   }
   
-  // 관련도 50% 이상만 필터링
-  const filteredLinks = links.filter(link => link.relevance >= 50);
-  
-  console.log(`[내부링크] ${filteredLinks.length}개 관련 글 발견`);
-  
+  // 🛡️ 검색 결과 자체가 적으면 내부링크 효과 없음 — 경고
+  if (links.length < 10) {
+    console.warn(`[내부링크] ⚠️ 블로그 글이 ${links.length}개로 부족함. 내부링크 효과를 보려면 최소 10개 이상의 기존 글이 필요합니다.`);
+  }
+
+  // 관련도 70점 이상만 통과 (기존 50점 → 70점으로 상향, 노이즈 제거)
+  const filteredLinks = links.filter(link => link.relevance >= 70);
+
+  console.log(`[내부링크] ${filteredLinks.length}개 고관련 글 발견 (임계값 70점, 전체 ${links.length}개 중)`);
+
   return filteredLinks.slice(0, maxResults);
 }
 

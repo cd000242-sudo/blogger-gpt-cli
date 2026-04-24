@@ -71,9 +71,15 @@ export function getH2ImageSections() {
   const selectedSections = Array.from(document.querySelectorAll('input[name="h2Sections"]:checked'))
     .map(input => parseInt(input.value));
 
-  // 현재 선택된 이미지 소스 가져오기 (라디오 버튼)
-  const sourceElement = document.querySelector('input[name="semiAutoImageSource"]:checked');
-  const source = sourceElement ? sourceElement.value : 'nanobananapro';
+  // 🔥 소스 우선순위: 환경설정의 #h2ImageSource select → h2ImageSource 라디오 → semiAutoImageSource 라디오 → 기본값
+  //    사용자가 상세설정에서 고른 값(select)이 반자동 모드 라디오보다 우선해야 함.
+  const selectEl = document.getElementById('h2ImageSource');
+  const h2Radio = document.querySelector('input[name="h2ImageSource"]:checked');
+  const semiAutoRadio = document.querySelector('input[name="semiAutoImageSource"]:checked');
+  const source = selectEl?.value
+    || h2Radio?.value
+    || semiAutoRadio?.value
+    || 'imagefx';
 
   return {
     source: source,

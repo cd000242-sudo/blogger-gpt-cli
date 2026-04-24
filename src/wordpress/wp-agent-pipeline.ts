@@ -540,29 +540,17 @@ function convertMarkdownToHtml(text: string): string {
     return result.trim();
 }
 
-// ─── Gemini API 호출 헬퍼 ──────────────────────────────────
+// ─── AI API 호출 헬퍼 ──────────────────────────────────
 
 /**
- * Gemini API 호출 (기존 코드베이스 패턴 재사용)
+ * 통합 AI 호출 (사용자가 선택한 엔진 사용 — Gemini/OpenAI/Claude/Perplexity)
+ * 🔥 하드코딩 Gemini 제거 → callGeminiWithRetry 디스패처 사용
  */
-async function callGemini(apiKey: string, prompt: string, model?: string): Promise<string> {
+async function callGemini(_apiKey: string, prompt: string, _model?: string): Promise<string> {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(apiKey);
-
-    const geminiModel = genAI.getGenerativeModel({
-        model: model || 'gemini-2.5-flash',
-        generationConfig: {
-            temperature: 0.9,       // 높은 온도로 더 창의적이고 다양한 표현
-            topP: 0.95,
-            topK: 40,
-            maxOutputTokens: 16384, // 긴 콘텐츠
-        },
-    });
-
-    const result = await geminiModel.generateContent(prompt);
-    const response = result.response;
-    let text = response.text();
+    const { callGeminiWithRetry } = require('../core/final/gemini-engine');
+    const result = await callGeminiWithRetry(prompt);
+    let text = typeof result === 'string' ? result : (result?.text || '');
 
     // 마크다운 → HTML 변환 (LLM이 마크다운을 혼합 출력하는 경우 처리)
     text = convertMarkdownToHtml(text);

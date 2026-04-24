@@ -14,8 +14,9 @@
  * 4. AI 추론 기반 이미지 프롬프트 생성 (OpenAI→Gemini→Claude 폴백)
  */
 
-import { makeNanoBananaProThumbnail, makeAutoThumbnail, makeDalleThumbnail, makeLeonardoPhoenixImage } from '../thumbnail';
+import { makeNanoBananaProThumbnail, makeAutoThumbnail, makeDalleThumbnail, makeLeonardoPhoenixImage, makePollinationsThumbnail } from '../thumbnail';
 import { makeImageFxImage } from './imageFxGenerator';
+import { makeFlowImage } from './flowGenerator';
 import { inferImagePrompt } from './imagePromptInference';
 import { loadEnvFromFile } from '../env';
 
@@ -25,6 +26,51 @@ export interface ImageResult {
   dataUrl: string;
   source: string;
   error?: string;
+}
+
+// ── 지원 엔진 목록 (단일 진실 소스) ──
+export const SUPPORTED_IMAGE_ENGINES = [
+  'imagefx',
+  'flow',
+  'nanobananapro',
+  'nanobanana',
+  'deepinfra',
+  'leonardo',
+  'dalle',
+  'pollinations',
+  'text',
+  'svg',
+  'none',
+  'skip',
+] as const;
+
+export type ImageEngine = typeof SUPPORTED_IMAGE_ENGINES[number];
+
+/**
+ * 사용자 입력(또는 UI 기본값)을 dispatcher가 인식하는 엔진명으로 정규화.
+ * 미지원 값 ('auto', 'default', 'pollinations' 이외 레거시 등)이 들어오면 경고 후 'imagefx'로 치환.
+ */
+export function normalizeImageEngine(raw: string | undefined | null): ImageEngine {
+  const value = (raw || '').trim().toLowerCase();
+  if (!value) return 'imagefx';
+  // 레거시 별칭 매핑
+  const aliasMap: Record<string, ImageEngine> = {
+    'auto': 'imagefx',
+    'default': 'imagefx',
+    'nb': 'nanobananapro',
+    'nano': 'nanobananapro',
+    'flux': 'deepinfra',
+    'openai': 'dalle',
+    'labs-flow': 'flow',
+    'labsflow': 'flow',
+    'googleflow': 'flow',
+  };
+  if (aliasMap[value]) return aliasMap[value];
+  if ((SUPPORTED_IMAGE_ENGINES as readonly string[]).includes(value)) {
+    return value as ImageEngine;
+  }
+  console.warn(`[DISPATCH] ⚠️ 미지원 이미지 엔진 '${raw}' → 'imagefx'로 폴백 (지원: ${SUPPORTED_IMAGE_ENGINES.join(', ')})`);
+  return 'imagefx';
 }
 
 // ── 환경 변수 캐시 (loadEnvFromFile 중복 호출 방지) ──
@@ -64,36 +110,23 @@ async function toEnglishImagePrompt(koreanPrompt: string, isThumbnail: boolean =
   const cacheKey = `${koreanPrompt.slice(0, 200)}_${isThumbnail}`;
   if (_translationCache.has(cacheKey)) return _translationCache.get(cacheKey)!;
 
-  const apiKey = getGeminiApiKey();
-  if (!apiKey || apiKey.length < 10) {
-    // API 키 없으면 간단 폴백
-    return buildFallbackPrompt(koreanPrompt, isThumbnail);
-  }
-
   try {
+    // 🔥 통합 디스패처 사용 — 사용자가 선택한 엔진으로 번역
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { callGeminiWithRetry } = require('./final/gemini-engine');
+
     const instruction = isThumbnail
       ? `Convert this Korean blog title into a concise English image generation prompt for a thumbnail. Focus on atmosphere and visual composition. Return ONLY the English prompt, nothing else.`
       : `Convert this Korean blog heading into a concise English image generation prompt. Focus on the scene, objects, and atmosphere. The image must have ZERO text. Return ONLY the English prompt, nothing else.`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: `${instruction}\n\nKorean: ${koreanPrompt}` }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 256 },
-      }),
-    });
+    const result = await callGeminiWithRetry(`${instruction}\n\nKorean: ${koreanPrompt}`);
+    const translated = (typeof result === 'string' ? result : result?.text || '').trim();
 
-    if (response.ok) {
-      const data = await response.json();
-      const translated = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-      if (translated && translated.length > 5) {
-        const enhanced = enhancePrompt(translated, isThumbnail);
-        _translationCache.set(cacheKey, enhanced);
-        console.log(`[DISPATCH] 🌐 프롬프트 번역: "${koreanPrompt.slice(0, 30)}..." → "${enhanced.slice(0, 50)}..."`);
-        return enhanced;
-      }
+    if (translated && translated.length > 5) {
+      const enhanced = enhancePrompt(translated, isThumbnail);
+      _translationCache.set(cacheKey, enhanced);
+      console.log(`[DISPATCH] 🌐 프롬프트 번역: "${koreanPrompt.slice(0, 30)}..." → "${enhanced.slice(0, 50)}..."`);
+      return enhanced;
     }
   } catch (e: any) {
     console.log(`[DISPATCH] ⚠️ 프롬프트 번역 실패: ${e.message}`);
@@ -184,7 +217,16 @@ export async function dispatchH2ImageGeneration(
   prompt: string,
   keyword: string,
   onLog?: (msg: string) => void,
+  contentMode?: string,
 ): Promise<ImageResult> {
+  // 🧹 입력 정규화 — 'auto'/'default'/미지원 값은 즉시 감지
+  const normalizedSource = normalizeImageEngine(imageSource);
+  if (normalizedSource !== imageSource) {
+    console.log(`[DISPATCH] 🔧 엔진명 정규화: '${imageSource}' → '${normalizedSource}'`);
+    onLog?.(`🔧 엔진명 정규화: '${imageSource}' → '${normalizedSource}'`);
+  }
+  imageSource = normalizedSource;
+
   // 🚫 '없음' 선택 → 즉시 빈 결과 (폴백 체인 실행 방지)
   if (imageSource === 'none' || imageSource === 'skip') {
     return { ok: false, dataUrl: '', source: '', error: '이미지 생성 스킵 (사용자 선택)' };
@@ -193,20 +235,23 @@ export async function dispatchH2ImageGeneration(
   const env = getCachedEnv();
 
   // ── 1순위: 사용자 선택 엔진 ──
-  const primaryResult = await tryEngine(imageSource, prompt, keyword, env, onLog);
+  const primaryResult = await tryEngine(imageSource, prompt, keyword, env, onLog, false, contentMode);
   if (primaryResult.ok) return primaryResult;
 
-  console.log(`[DISPATCH] ⚠️ 1순위 ${imageSource} 실패 → 폴백 체인 시작`);
-  onLog?.(`⚠️ ${imageSource} 실패 → 다른 엔진으로 폴백 중...`);
+  console.log(`[DISPATCH] ⚠️ 1순위 ${imageSource} 실패 (${primaryResult.error || '사유 미상'}) → 폴백 체인 시작`);
+  onLog?.(`⚠️ 사용자 선택 엔진(${imageSource}) 실패: ${primaryResult.error || '사유 미상'} → 다른 엔진으로 폴백 시도`);
 
-  // ── 2순위: 폴백 체인 (선택 엔진 제외) ──
-  const fallbackOrder = ['nanobananapro', 'imagefx', 'deepinfra', 'leonardo', 'dalle']
+  // ── 2순위: 폴백 체인 (선택 엔진 제외, NanoBanana는 최후의 수단) ──
+  // 🔥 사용자가 명시적으로 다른 엔진을 선택했으므로 NanoBanana는 맨 마지막에 시도
+  // flow는 imagefx 뒤에 배치 — 구독 필요 엔진이라 첫 폴백으로 두면 15-combo discovery 지연 위험
+  const fallbackOrder = ['imagefx', 'flow', 'deepinfra', 'leonardo', 'dalle', 'nanobananapro']
     .filter(e => e !== imageSource);
 
   for (const engine of fallbackOrder) {
-    const result = await tryEngine(engine, prompt, keyword, env, onLog);
+    const result = await tryEngine(engine, prompt, keyword, env, onLog, false, contentMode);
     if (result.ok) {
       console.log(`[DISPATCH] ✅ 폴백 성공: ${engine}`);
+      onLog?.(`ℹ️ 폴백 성공: ${engine} 엔진으로 이미지 생성됨`);
       return result;
     }
   }
@@ -228,11 +273,25 @@ export async function dispatchH2ImageGeneration(
  * @returns `{ok, dataUrl, source, error}`
  */
 export async function dispatchThumbnailGeneration(
-  thumbnailSource: string,
+  thumbnailSourceRaw: string,
   title: string,
   keyword: string,
   onLog?: (msg: string) => void,
 ): Promise<ImageResult> {
+  // 🔍 사용자가 특정 엔진을 명시 선택했는지(=폴백으로 다른 AI 엔진에 자동으로 넘어가면 안 됨)
+  //    'auto'/'default'/빈값 → 암묵적 선택, 폴백 체인 허용
+  //    그 외 값 → 명시 선택, 실패 시 SVG로만 대체(다른 AI 엔진 금지)
+  const rawLower = (thumbnailSourceRaw || '').trim().toLowerCase();
+  const userPickedExplicitly = !!rawLower && rawLower !== 'auto' && rawLower !== 'default';
+
+  // 🧹 입력 정규화 — 'auto'/'default'/미지원 값은 즉시 감지
+  const normalizedSource = normalizeImageEngine(thumbnailSourceRaw);
+  if (normalizedSource !== rawLower) {
+    console.log(`[DISPATCH-THUMB] 🔧 엔진명 정규화: '${thumbnailSourceRaw}' → '${normalizedSource}'`);
+    onLog?.(`🔧 썸네일 엔진명 정규화: '${thumbnailSourceRaw}' → '${normalizedSource}'`);
+  }
+  const thumbnailSource: ImageEngine = normalizedSource;
+
   // 🚫 '없음' 선택 → 즉시 빈 결과
   if (thumbnailSource === 'none' || thumbnailSource === 'skip') {
     return { ok: false, dataUrl: '', source: '', error: '썸네일 생성 스킵 (사용자 선택)' };
@@ -253,17 +312,38 @@ export async function dispatchThumbnailGeneration(
     return { ok: false, dataUrl: '', source: '', error: 'SVG 썸네일 생성 실패' };
   }
 
-  // AI 이미지 엔진
+  // AI 이미지 엔진 1순위
   const primaryResult = await tryEngine(thumbnailSource, title, keyword, env, onLog, true);
   if (primaryResult.ok) return primaryResult;
 
-  // 폴백
-  const fallbackOrder = ['nanobananapro', 'imagefx', 'leonardo']
+  console.error(`[DISPATCH-THUMB] ❌ 1순위 ${thumbnailSource} 실패: ${primaryResult.error || '사유 미상'}`);
+  onLog?.(`❌ ${thumbnailSource} 썸네일 실패: ${primaryResult.error || '사유 미상'}`);
+
+  // 🛡️ 명시 선택 시 다른 AI 엔진으로 몰래 넘어가지 않음 (사용자 기대 보호)
+  if (userPickedExplicitly) {
+    onLog?.(`🛡️ '${thumbnailSource}'을(를) 명시 선택하셨으므로 다른 AI 엔진으로 폴백하지 않고 SVG로 대체합니다.`);
+    try {
+      const svgResult = await makeAutoThumbnail(title, { width: 1200, height: 630 });
+      if (svgResult.ok) {
+        return { ok: true, dataUrl: svgResult.dataUrl, source: `SVG 텍스트 (${thumbnailSource} 실패 대체)` };
+      }
+    } catch { /* 무시 */ }
+    return { ok: false, dataUrl: '', source: '', error: `${thumbnailSource} 실패 (명시 선택 — 폴백 금지)` };
+  }
+
+  onLog?.(`ℹ️ 'auto' 모드 → 폴백 체인 시작`);
+
+  // auto 모드에서만 폴백 체인 실행 — NanoBanana는 맨 마지막, flow는 imagefx 뒤 (구독 의존성)
+  const fallbackOrder = ['imagefx', 'flow', 'deepinfra', 'leonardo', 'nanobananapro']
     .filter(e => e !== thumbnailSource);
 
   for (const engine of fallbackOrder) {
     const result = await tryEngine(engine, title, keyword, env, onLog, true);
-    if (result.ok) return result;
+    if (result.ok) {
+      console.log(`[DISPATCH-THUMB] ✅ 폴백 성공: ${engine} (원래 요청: ${rawLower || 'auto'})`);
+      onLog?.(`🔄 폴백 성공: ${engine} (auto → ${engine})`);
+      return result;
+    }
   }
 
   // 최종 폴백: SVG 텍스트 썸네일
@@ -288,13 +368,14 @@ async function tryEngine(
   env: Record<string, string>,
   onLog?: (msg: string) => void,
   isThumbnail: boolean = false,
+  contentMode?: string,
 ): Promise<ImageResult> {
   // 🧠 AI 추론 프롬프트: 1회만 호출하여 모든 엔진에서 재사용
-  // NanoBanana는 자체 번역이 있으므로 원본 prompt 사용
+  // NanoBanana와 Flow는 한국어 프롬프트 그대로 받아서 자체 번역 — 영어 추론 생략
   let inferredPrompt = prompt;
-  if (engine !== 'nanobananapro' && engine !== 'nanobanana') {
+  if (engine !== 'nanobananapro' && engine !== 'nanobanana' && engine !== 'flow') {
     try {
-      const inference = await inferImagePrompt(prompt, keyword, isThumbnail);
+      const inference = await inferImagePrompt(prompt, keyword, isThumbnail, contentMode);
       inferredPrompt = inference.prompt;
       if (!inference.cached) {
         onLog?.(`🧠 AI 프롬프트 추론 완료 (${inference.provider})`);
@@ -321,6 +402,27 @@ async function tryEngine(
         console.log(`[DISPATCH] ⚠️ ImageFX 예외: ${e.message}`);
       }
       return { ok: false, dataUrl: '', source: '', error: 'ImageFX 실패' };
+    }
+
+    // ═══ Flow (Google Labs Flow — Nano Banana Pro 무료, API 키 불필요) ═══
+    //    Google AI Pro 구독 + labs.google/flow 접근 권한 필요.
+    //    ImageFX와 동일한 labs.google 세션 재사용 (별도 로그인 불필요).
+    case 'flow': {
+      try {
+        console.log(`[DISPATCH] 🌊 Flow 시도...`);
+        const result = await makeFlowImage(inferredPrompt, {
+          aspectRatio: '16:9',
+          isThumbnail,
+        }, onLog);
+        if (result.ok) {
+          const modelTag = result.modelUsed ? ` (${result.modelUsed})` : '';
+          return { ok: true, dataUrl: result.dataUrl, source: `Flow${modelTag}` };
+        }
+        console.log(`[DISPATCH] ⚠️ Flow 실패: ${result.error}`);
+      } catch (e: any) {
+        console.log(`[DISPATCH] ⚠️ Flow 예외: ${e.message}`);
+      }
+      return { ok: false, dataUrl: '', source: '', error: 'Flow 실패' };
     }
 
     // ═══ Nano Banana Pro (Gemini Imagen — 자체 번역 내장) ═══
@@ -419,6 +521,24 @@ async function tryEngine(
         console.log(`[DISPATCH] ⚠️ DALL-E 예외: ${e.message}`);
       }
       return { ok: false, dataUrl: '', source: '', error: 'DALL-E 실패' };
+    }
+
+    // ═══ Pollinations (무료, API 키 불필요) ═══
+    case 'pollinations': {
+      try {
+        console.log(`[DISPATCH] 🌸 Pollinations 시도...`);
+        const result = await makePollinationsThumbnail(inferredPrompt, keyword, {
+          width: isThumbnail ? 1200 : 1024,
+          height: isThumbnail ? 630 : 576,
+        });
+        if (result.ok) {
+          return { ok: true, dataUrl: result.dataUrl, source: 'Pollinations' };
+        }
+        console.log(`[DISPATCH] ⚠️ Pollinations 실패: ${(result as any).error}`);
+      } catch (e: any) {
+        console.log(`[DISPATCH] ⚠️ Pollinations 예외: ${e.message}`);
+      }
+      return { ok: false, dataUrl: '', source: '', error: 'Pollinations 실패' };
     }
 
     default:

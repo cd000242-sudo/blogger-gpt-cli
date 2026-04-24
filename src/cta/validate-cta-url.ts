@@ -39,6 +39,37 @@ const BLOG_PATTERNS = [
     'medium.com', 'blogspot.com', 'wordpress.com',
 ];
 
+/**
+ * 세션/리퍼러 바인딩 URL 패턴 — 직접 접속 시 에러 페이지를 200 OK로 반환하는 URL들.
+ * 이런 URL은 HEAD/GET 모두 200을 돌려주므로 HTTP 코드만으로는 걸러지지 않아
+ * 패턴 기반으로 사전 차단해야 한다. 대신 도메인 루트로 폴백하도록 CTA 측에서 처리.
+ */
+const SESSION_BOUND_PATTERNS: RegExp[] = [
+    // 복지로 서비스 상세 — ssisTbuId 쿼리 기반 세션 필수
+    /bokjiro\.go\.kr\/.*\/svcinfoDtl\.do/i,
+    /bokjiro\.go\.kr\/.*[?&]ssisTbuId=/i,
+    // 정부24 서비스 상세 — 세션 없이 직접 접속 시 오류
+    /gov\.kr\/.*\/AA020InfoCappView\.do/i,
+    /gov\.kr\/.*[?&]CappBizCD=/i,
+    // 국민연금공단 민원 상세
+    /nps\.or\.kr\/.*\/jsppage\/.*\.jsp\?/i,
+];
+
+/** 세션 에러 페이지 본문 시그니처 — 200 OK로 응답하지만 실제로는 에러 */
+const ERROR_CONTENT_SIGNATURES: string[] = [
+    '요청하신 페이지를 바르게 표시',
+    '요청하신 페이지를 표시할 수 없',
+    '잘못된 접근입니다',
+    '정상적인 접근이 아닙',
+    '세션이 만료',
+    '비정상적인 접근',
+];
+
+/** GET 본문 검증이 필요한 호스트 접미사 — 200 OK 에러 페이지가 흔한 정부/공공 사이트 */
+const CONTENT_CHECK_SUFFIXES: string[] = [
+    '.go.kr', '.or.kr',
+];
+
 // ============================================================
 // Core Validation
 // ============================================================
@@ -89,17 +120,28 @@ export async function validateCtaUrl(
         }
     }
 
+    // 2.5단계: 세션 바인딩 URL 패턴 차단 (HEAD/GET이 200을 돌려줘도 에러 페이지인 케이스)
+    for (const pattern of SESSION_BOUND_PATTERNS) {
+        if (pattern.test(url)) {
+            console.warn(`[CTA-VALIDATE] 🚫 세션 바인딩 URL 차단: ${url}`);
+            return { isValid: false, reason: 'session-bound-url', elapsedMs: Date.now() - start };
+        }
+    }
+
     // 3단계: HTTP HEAD 검증 (옵션)
     if (skipHttp) {
         return { isValid: true, elapsedMs: Date.now() - start };
     }
+
+    // 3.5단계: 정부/공공 도메인은 본문 검증 필요 여부 플래그
+    const needsContentCheck = CONTENT_CHECK_SUFFIXES.some(suffix => hostname.endsWith(suffix));
 
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeout);
 
         const response = await fetch(url, {
-            method: 'HEAD',
+            method: needsContentCheck ? 'GET' : 'HEAD',
             signal: controller.signal,
             redirect: 'follow',
             headers: {
@@ -107,15 +149,75 @@ export async function validateCtaUrl(
             }
         });
 
-        clearTimeout(timeoutId);
-
         const statusCode = response.status;
-        const isValid = statusCode >= 200 && statusCode < 400; // 2xx + 3xx(리다이렉트) 허용
+        const httpOk = statusCode >= 200 && statusCode < 400;
+        if (!httpOk) {
+            clearTimeout(timeoutId);
+            return {
+                isValid: false,
+                statusCode,
+                reason: `http-${statusCode}`,
+                elapsedMs: Date.now() - start,
+            };
+        }
+
+        // 200 OK여도 본문에 에러 문구가 있으면 무효 처리 (정부/공공 사이트 대상)
+        // 본문 읽기도 동일한 AbortController 타임아웃 보호 아래 수행 (clearTimeout은 읽기 완료 후)
+        if (needsContentCheck) {
+            // 과대 응답 조기 차단 — Content-Length 500KB 초과 시 본문 스캔 생략
+            const contentLength = Number(response.headers.get('content-length') || '0');
+            if (contentLength > 0 && contentLength > 500_000) {
+                clearTimeout(timeoutId);
+                console.warn(`[CTA-VALIDATE] ⚠️ 대형 응답(${contentLength}B), 본문 스캔 생략: ${url}`);
+                return { isValid: true, statusCode, elapsedMs: Date.now() - start };
+            }
+            // Content-Type이 HTML이 아니면 본문 검증 무의미 — 헤더 기반 통과
+            const contentType = (response.headers.get('content-type') || '').toLowerCase();
+            if (contentType && !contentType.includes('html')) {
+                clearTimeout(timeoutId);
+                return { isValid: true, statusCode, elapsedMs: Date.now() - start };
+            }
+            try {
+                // 스트림 reader로 20KB까지만 읽고 조기 취소 (전체 버퍼링 방지)
+                const reader = response.body?.getReader();
+                if (!reader) {
+                    clearTimeout(timeoutId);
+                    return { isValid: true, statusCode, elapsedMs: Date.now() - start };
+                }
+                const decoder = new TextDecoder('utf-8', { fatal: false });
+                let accumulated = '';
+                const limit = 20_000;
+                while (accumulated.length < limit) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    accumulated += decoder.decode(value, { stream: true });
+                }
+                try { await reader.cancel(); } catch { /* 무시 */ }
+                clearTimeout(timeoutId);
+
+                const head = accumulated.slice(0, limit);
+                for (const sig of ERROR_CONTENT_SIGNATURES) {
+                    if (head.includes(sig)) {
+                        console.warn(`[CTA-VALIDATE] 🚫 200 OK이나 에러 본문 감지 (${sig}): ${url}`);
+                        return {
+                            isValid: false,
+                            statusCode,
+                            reason: 'error-content',
+                            elapsedMs: Date.now() - start,
+                        };
+                    }
+                }
+            } catch (bodyErr: any) {
+                clearTimeout(timeoutId);
+                console.warn(`[CTA-VALIDATE] ⚠️ 본문 읽기 실패, HTTP 코드만으로 판정: ${bodyErr.message}`);
+            }
+        } else {
+            clearTimeout(timeoutId);
+        }
 
         return {
-            isValid,
+            isValid: true,
             statusCode,
-            reason: isValid ? undefined : `http-${statusCode}`,
             elapsedMs: Date.now() - start,
         };
     } catch (error: any) {

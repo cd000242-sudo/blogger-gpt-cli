@@ -133,15 +133,20 @@ export function buildAdsenseSectionPrompt(params: PromptParams): string {
         ? `\n\n【네이버 데이터랩 트렌드 키워드】\n${trendKeywords.slice(0, 8).join(', ')}\n⚠️ 트렌드 키워드를 본문에 자연스럽게 포함하되, 강제로 넣지 마세요.`
         : '';
 
-    // 사용자 지정 저자 정보 (비어있으면 AI 자동 생성)
-    const authorInstruction = authorInfo?.name
+    // 사용자 지정 저자 정보 — 없으면 1인칭 경험담 생성 자체를 금지 (E-E-A-T 위조 방지)
+    const hasAuthor = !!(authorInfo?.name && authorInfo.name.trim());
+    const authorInstruction = hasAuthor
         ? `\n👤 **사용자 지정 저자 정보** (이 정보를 기반으로 일관된 저자 페르소나를 유지하세요):
-- 이름: ${authorInfo.name}
-- 직함/전문 분야: ${authorInfo.title || '(주제에 맞게 AI가 결정)'}
-- 자격/경력: ${authorInfo.credentials || '(주제에 맞게 AI가 결정)'}
+- 이름: ${authorInfo!.name}
+- 직함/전문 분야: ${authorInfo!.title || '(주제에 맞게 AI가 결정)'}
+- 자격/경력: ${authorInfo!.credentials || '(주제에 맞게 AI가 결정)'}
 ⚠️ 작성자 소개 섹션에서는 위 정보를 자연스러운 1인칭 서술로 풀어주세요.
 ⚠️ 다른 섹션에서도 이 저자의 관점과 전문성을 유지하세요.\n`
-        : '';
+        : `\n🛡️ **저자 프로필 미입력 — 1인칭 경험담 생성 절대 금지**:
+- "제가 직접 ~해본 결과", "저는 ~를 사용했더니" 같은 1인칭 경험 서술 사용 금지
+- 가상의 저자 페르소나 만들기 금지 (구글 E-E-A-T 위조 = 즉시 거절 사유)
+- 대신 "공식 자료에 따르면", "전문가들은 ~라고 말합니다", "한국소비자원 데이터에 의하면" 같은 객관적 3인칭 서술만 사용
+- 작성자 소개 섹션은 "이 글의 정보 출처와 검증 방식"으로 대체하여 작성\n`;
 
     // FAQ 섹션 특수 처리 — Schema.org JSON-LD 포함
     const faqSchemaInstruction = section.id === 'faq_section'

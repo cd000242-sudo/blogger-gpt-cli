@@ -10,6 +10,7 @@ import { writeSnippetLibrary, readSnippetLibrary } from '../utils/snippet-librar
 import { createStealthBrowser, loadPageWithStealth, setupStealthPage, randomDelay } from '../utils/stealth-browser';
 import PQueue from 'p-queue';
 import pLimit from 'p-limit';
+import { callGeminiWithRetry } from './final/gemini-engine';
 
 // 성능 모니터링을 위한 유틸리티
 class PerformanceMonitor {
@@ -1563,12 +1564,6 @@ export class MassCrawlingSystem {
               const lastItem = manualItems[manualItems.length - 1];
               if (lastItem) {
                 try {
-                  // generateSEOTitle 함수는 index.ts 내부 함수이므로 직접 호출 불가
-                  // 대신 간단한 AI 제목 생성 로직 사용
-                  const { GoogleGenerativeAI } = await import('@google/generative-ai');
-                  const genAI = new GoogleGenerativeAI(geminiKey);
-                  const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
-
                   const prompt = `다음 정보를 바탕으로 SEO에 최적화되고 클릭을 유발하는 제목을 생성해주세요.
 
 주제: ${topic}
@@ -1583,9 +1578,7 @@ export class MassCrawlingSystem {
 
 제목만 출력해주세요 (HTML 태그 없이):`;
 
-                  const result = await model.generateContent(prompt);
-                  const response = result.response;
-                  const aiTitle = response.text().trim();
+                  const aiTitle = (await callGeminiWithRetry(prompt)).trim();
 
                   if (aiTitle && aiTitle.length > 0) {
                     lastItem.title = aiTitle;

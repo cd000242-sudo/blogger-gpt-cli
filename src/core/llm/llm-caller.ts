@@ -80,7 +80,7 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
   claude: {
     name: 'Claude',
     endpoint: 'https://api.anthropic.com/v1/messages',
-    models: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514'],
+    models: ['claude-sonnet-4-6', 'claude-opus-4-7'],
     timeout: 90_000,
     rateLimitPattern: /429|rate.*limit|overloaded/i,
     authErrorPattern: /401|403|unauthorized|forbidden|invalid.*key|authentication/i,

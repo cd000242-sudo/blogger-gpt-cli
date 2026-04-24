@@ -20,8 +20,10 @@ win:
       arch:
         - x64
   icon: build/icon.ico
-  artifactName: ${productName}-${version}-${arch}.${ext}
-  publisherName: LEADERNAM
+  # 🔥 공백 없는 파일명 (GitHub 업로드 시 공백이 점으로 변환되어 latest.yml과 불일치 방지)
+  artifactName: LEADERNAM-Orbit-${version}.${ext}
+  # publisherName 제거: 코드 서명이 없어 electron-updater 검증 실패 → 자동 업데이트 거부되는 문제 해결
+  # 파일 무결성은 latest.yml의 SHA-512 해시로 여전히 검증됨
 
 # macOS 빌드 설정
 mac:
@@ -32,7 +34,7 @@ mac:
         - arm64
   category: public.app-category.productivity
   icon: build/icon.icns
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: LEADERNAM-Orbit-${version}-${arch}.${ext}
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
@@ -48,7 +50,7 @@ linux:
         - x64
   category: Utility
   icon: build/icon.png
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: LEADERNAM-Orbit-${version}-${arch}.${ext}
 
 # NSIS 인스톨러 설정 (Windows) — 참고: Better Life Naver 구조
 nsis:

@@ -151,16 +151,20 @@ export async function generateH2TitlesFinal(keyword: string, subheadings: string
     ? `🔍 참고할 크롤링 소제목:\n${sorted.join('\n')}\n\n===== H2 소제목 후보 =====\n${sorted.slice(0, targetCount).map((h, i) => `${i + 1}. ${h}`).join('\n')}\n=====\n\n위 크롤링 데이터를 분석하여 **서로 다른 정보**를 담은 H2 소제목 ${targetCount}개를 만드세요.`
     : `🌐 Google에서 "${keyword}"를 검색하여 이 주제에 대해 사람들이 가장 궁금해하는 핵심 소주제 ${targetCount}개를 파악하세요.\n검색 결과에서 발견된 실제 트렌드와 이슈를 기반으로 H2 소제목을 만드세요.`;
 
+  // 🎯 검색 의도 자동 분류 — 의도별로 다른 H2 아키타입 제시
+  const { buildIntentPromptBlock } = require('../search-intent-classifier');
+  const intentBlock = buildIntentPromptBlock(keyword);
+
   const prompt = `
 키워드: ${keyword}
-
+${intentBlock}
 ${subheadingReference}
 
 🔴🔴🔴 **핵심 규칙 - 중복 금지 & 다양성 확보!**:
 1. 각 H2는 완전히 다른 주제/관점을 다뤄야 함
 2. 같은 내용을 다르게 표현하지 마세요 (예: "방법", "하는 법" 1개만)
 3. **단조로운 패턴 피하기**: 모든 제목을 "OO란?", "OO 방법"으로 똑같이 끝내지 마세요.
-4. 아래의 다양한 아키타입 성격을 섞어서 구성하세요:
+4. **검색 의도에 맞는 아키타입 우선 사용** (위 "권장 H2 아키타입" 참조). 의도와 무관한 아래 일반 아키타입은 보조 용도:
    - [Q&A형] "사람들이 가장 많이 물어보는 질문 TOP 3"
    - [심층 분석형] "왜 전문가들은 OO를 추천할까?"
    - [체크리스트형] "시작하기 전 반드시 확인해야 할 5가지"
@@ -245,7 +249,9 @@ export async function generateAllSectionsFinal(
   h2Titles: string[],
   crawledContents: string[],
   onLog?: (s: string) => void,
-  contentMode?: string
+  contentMode?: string,
+  draftContent?: string,
+  sectionGuideBlock?: string
 ): Promise<{
   introduction: string;
   conclusion: string;
@@ -268,30 +274,27 @@ export async function generateAllSectionsFinal(
     ? `===== 참고 데이터 =====\n${reference}\n=====\n\n모든 정보는 위 참고 데이터 기반 + 논리적 확장만`
     : `🌐 Google에서 "${keyword}"를 검색하여 최신 정보를 찾은 뒤, 검색 결과에서 발견한 실제 데이터(숫자, 사례, 공식 정보)를 기반으로 작성하세요.\n검색에서 확인한 팩트만 사용하고, 추측이나 허위 정보를 작성하지 마세요.`;
 
-  // 🔥 내부 일관성 모드 전용 프롬프트 (시리즈형 글)
+  // 📝 내부 일관성 모드 — 단일 글 정보 전달 구조 (시리즈 지시 제거)
   const internalModePromptBlock = contentMode === 'internal' ? `
 
-📺📺📺 [시리즈형 내부 일관성 모드 — TV 에피소드 스타일] 📺📺📺
+📝📝📝 [내부 일관성 모드 — 체계적 정보 전달] 📝📝📝
 
-🎯 **이 글은 시리즈형 글입니다!** 하나의 대주제("${keyword}")로 연재되는 시리즈 중 한 편을 작성합니다.
+🎯 **"${keyword}" 주제를 체계적으로 전달하는 완결형 글을 작성합니다.**
 
-🔴🔴🔴 **시리즈 모드 핵심 규칙**:
-1. **일관된 톤 유지**: 지식을 나누는 선배 같은 따뜻하고 전문적인 톤, 시리즈 전체에서 동일
-2. **시리즈 맥락 제공**: 서론에서 "이번 시리즈에서는..." 또는 "지난번에 다룬 내용을 바탕으로..." 형식
-3. **고정 포맷 섹션 엄수**: ④번 "📌 오늘의 핵심"과 ⑤번 "📺 다음 편 예고"는 **매번 동일한 포맷**으로!
+🔴🔴🔴 **핵심 규칙**:
+1. **일관된 톤**: 지식을 나누는 선배 같은 따뜻하고 전문적인 톤
+2. **자기 완결성**: 이 한 편의 글만 읽어도 주제를 이해할 수 있게 작성
+3. **연결 문구 절대 금지**: "지난번에", "이전 글에서", "다음 편에서", "다음 장" 등 존재하지 않는 글을 언급하는 모든 표현 금지!
+4. **현재 시점 집중**: 오직 이 글의 주제만 다루며, 가공의 시리즈 맥락을 만들지 마세요
 
-📝 **각 섹션별 작성 가이드**:
-- **① 시리즈 위치 + 도입** (600자+): 시리즈 맥락 → 이전 글 간단 회고 → 오늘의 핵심 질문
-- **② 핵심 지식 전달** (1500자+): H3 소제목 3~4개로 구조화, 구체적 수치/데이터 5개+, 이전 글 내용과 연결
-- **③ 심화·사례 분석** (1000자+): 실제 사례 2개+, 단계별 가이드, 팁 2~3개
-- **④ 📌 오늘의 핵심** (400자+): 고정 포맷! 불릿 3~5개 + "한 줄 정리: [결론]" (매번 이 형식 유지!)
-- **⑤ 📺 다음 편 예고** (300자+): 고정 포맷! 다음 주제 1줄 소개 + 논리적 이유 + 기대감
+📝 **섹션 구조 가이드**:
+- 각 H2는 핵심 지식을 독립적으로 전달
+- 구체적 수치/데이터/사례를 풍부하게 활용
+- 불릿 포인트와 표로 가독성 극대화
 
-🔥 **시리즈 톤 규칙**:
+🔥 **톤 규칙**:
 - "~해요", "~거든요" 친근하면서도 전문적인 말투
-- 시리즈 전체에서 동일한 깊이와 용어 사용
-- 이전 글과의 자연스러운 연결: "지난 글에서 다룬 [개념]을 기반으로 하면..."
-- 다음 글 예고로 재방문 유도
+- 전체 글에서 동일한 깊이와 용어 일관성 유지
 
 ` : '';
 
@@ -327,6 +330,82 @@ export async function generateAllSectionsFinal(
 
 ` : '';
 
+  // 🛍️ 쇼핑/구매유도 모드 전용 프롬프트 블록
+  const shoppingModePromptBlock = contentMode === 'shopping' ? `
+
+🛍️🛍️🛍️ [쇼핑/구매유도 끝판왕 모드 — 7단계 구매 퍼널] 🛍️🛍️🛍️
+
+🎯 **이 글은 구매 전환을 목표로 합니다!** 독자가 자연스럽게 구매를 결심하도록 7단계 퍼널로 구성하세요.
+
+🔴🔴🔴 **쇼핑 모드 핵심 규칙**:
+1. **10년 경력 쇼핑몰 MD 페르소나**: 제품의 본질을 꿰뚫는 전문가 시점
+2. **구매 심리 자극**: FOMO(놓칠까봐 두려운 심리), 사회적 증거(후기/평점), 가격 앵커링
+3. **시각적 비교**: 스펙 비교표, 장단점 표, 별점 바를 적극 활용
+
+📝 **7단계 섹션별 가이드**:
+- **① 도입 — 문제 인식 & 후킹** (800자+): 독자의 구매 고민을 정확히 짚어내는 공감 도입
+- **② 제품 소개 & 핵심 스펙** (1200자+): 제품 스펙 카드 형태로 핵심 정보 정리, 경쟁 제품과 차별점
+- **③ 비교 분석 & 선택 가이드** (1500자+): 비교 테이블 필수! A vs B vs C 구조, 용도별 추천
+- **④ 실사용 후기 & 사회적 증거** (1200자+): 실제 사용 시나리오, 장단점 솔직 분석
+- **⑤ 가격 & 구매 꿀팁** (1000자+): 할인 정보, 구매 시기, 가성비 분석
+- **⑥ FAQ & 구매 저항 해소** (800자+): 실제 구매 전 궁금한 질문 5-7개
+- **⑦ 최종 구매 유도 & CTA** (500자+): 명확한 결론과 행동 유도
+
+🎨 **필수 시각 요소** (tables 필드 활용):
+- 제품 스펙 비교표 (최소 1개)
+- 장단점 정리 표 (최소 1개)
+` : '';
+
+  // 🔄 페러프레이징 모드 전용 프롬프트 블록
+  const draftReference = contentMode === 'paraphrasing' && draftContent
+    ? `\n===== 원본 초안 (페러프레이징 대상) =====\n${draftContent.slice(0, 8000)}\n=====\n`
+    : '';
+
+  const paraphrasingModePromptBlock = contentMode === 'paraphrasing' ? `
+
+🔄🔄🔄 [페러프레이징 끝판왕 모드 — 원문 완전 재구성] 🔄🔄🔄
+
+🎯 **목표: 원문 유사도 0% + 검색 순위 더 높게!**
+${draftContent ? '위의 ===== 원본 초안 ===== 을 기반으로 완전히 새로운 글을 작성하세요.' : '키워드를 기반으로 기존 글과 중복되지 않는 완전히 새로운 글을 작성하세요.'}
+
+🔴🔴🔴 **페러프레이징 핵심 규칙**:
+1. **문장 구조 85%+ 변경**: 원문의 문장 구조를 완전히 뒤집으세요 (능동↔수동, 주어 변경, 문장 합치기/쪼개기)
+2. **어휘 75%+ 교체**: 동의어, 유의어로 전면 교체. 전문 용어만 유지
+3. **새로운 콘텐츠 25-35% 추가**: 원문에 없는 새로운 인사이트, 데이터, 사례를 추가
+4. **구조적 재편성**: 섹션 순서, 논리 흐름을 원문과 완전히 다르게 재배치
+
+📝 **6단계 재구성 가이드** (각 섹션 최소 800자):
+- **① 핵심 개요**: 원문과 완전히 다른 도입부. 새로운 앵글에서 주제 접근
+- **② 심층 분석**: 원문 내용을 심화하되, 새로운 데이터와 사례 추가
+- **③ 다른 관점**: 원문과 다른 관점에서 주제 분석 (반대 의견, 다른 각도)
+- **④ 체계적 정리**: 원문의 핵심을 유지하면서 완전히 다른 논리 구조로 재배치
+- **⑤ 최신 트렌드 & 추가 정보**: 원문에 없는 최신 트렌드, 통계, 전문가 견해
+- **⑥ 종합 결론**: 원문과 다른 결론. 새로운 통찰과 행동 유도
+
+🚫 **절대 금지**: 원문 문장을 그대로 복사, 단순 단어 치환, 문장 순서만 바꾸기
+` : '';
+
+  // 🌐 SEO 최적화(외부 크롤링) 모드 — 검색 의도 기반 아키타입
+  const externalModePromptBlock = (contentMode === 'external' || !contentMode) ? `
+
+🌐🌐🌐 [SEO 최적화 모드 — 검색 의도 기반 정보 전달] 🌐🌐🌐
+
+🎯 **이 글의 목표: Google 검색 상위 노출 + 검색자의 의도 완벽 충족**
+
+🔴🔴🔴 **SEO 모드 핵심 규칙**:
+1. **검색 의도 파악**: "${keyword}"가 정보형(무엇인지 알고 싶다)·탐색형(비교하고 싶다)·거래형(구매/실행하고 싶다) 중 어느 의도인지 판단하여 구조를 맞추세요
+2. **두괄식 답변**: 각 H2 첫 문단에서 검색자가 찾는 핵심 답을 즉시 제공 (스크롤 없이 답 노출)
+3. **구체성 = 신뢰**: 두루뭉술한 일반론 금지. 숫자·사례·출처를 매 섹션에 주입
+4. **다양한 H2 아키타입 혼용**: [정의형] [비교분석형] [가이드형] [체크리스트형] [데이터형] 등을 섞어 단조로움 제거
+
+📝 **검색 의도별 권장 구조**:
+- **정보형 (~이란? ~뜻)**: 정의 → 원리 → 적용 → 주의점
+- **탐색형 (~추천, ~비교)**: 기준 → 비교표 → 장단점 → 용도별 추천
+- **거래형 (~사는 법, ~하는 법)**: 준비 → 절차 → 주의사항 → 대안
+
+🚫 **SEO 모드 금지**: 구매 명령형 CTA ("지금 사세요"), 과장 표현 ("최고", "무조건"), 개인 경험 허위 서술
+` : '';
+
   const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
   const prompt = `
@@ -342,10 +421,22 @@ export async function generateAllSectionsFinal(
 ${h2List}
 3. 글 전체의 결론 (Conclusion)
 
-${contentReference}
-${internalModePromptBlock}
-${adsenseModePromptBlock}
-🔴🔴🔴 [10억 점 수익화 블로그 완벽 작성 가이드] 🔴🔴🔴
+${contentMode === 'paraphrasing' && draftContent ? draftReference : contentReference}
+${contentMode === 'paraphrasing' && draftContent ? '' : draftReference}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔴🔴🔴 **[모드별 최우선 지시]** — 아래 모드 규칙이 이후 모든 일반 지시보다 우선입니다
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${externalModePromptBlock}${internalModePromptBlock}${adsenseModePromptBlock}${shoppingModePromptBlock}${paraphrasingModePromptBlock}${sectionGuideBlock || ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔴🔴🔴 [10억 점 ${
+  contentMode === 'adsense' ? '전문 정보/E-E-A-T'
+  : contentMode === 'shopping' ? '쇼핑 전환'
+  : contentMode === 'internal' ? '내부 일관성 정보 전달'
+  : contentMode === 'paraphrasing' ? '페러프레이징 재구성'
+  : '검색 의도 기반 SEO'
+} 블로그 완벽 작성 가이드 (일반 규칙)] 🔴🔴🔴
 
 [1. 가독성(Readability)의 극한화 - 체류시간 폭발]
 - **초단문 지향**: 모바일 독자를 위해 한 문장은 절대 2~3줄을 넘지 않게 짧게 끊어 치세요. (호흡을 짧게)
@@ -356,15 +447,15 @@ ${adsenseModePromptBlock}
 [2. '진짜 사람' 같은 극사실적 어조(Ultra-Human Tone)]
 - **완벽한 구어체 전환**: 기계 번역투, AI 특유의 장황한 설명체("중요한 사실입니다", "다양한 이점이 있습니다") 철저히 배제.
 - **디테일한 공감**: "많이들 헷갈리시죠?", "이 부분이 가장 중요한 포인트예요" 와 같이 독자와 공감하는 어조를 사용하세요. 단, 직접 경험하지 않은 것을 경험한 것처럼 쓰지 마세요.
-- **결론부 여운 강화 (Conclusion)**: 서론은 300~500자로 매력적인 훅(Hook)을 넣고, 결론은 200~400자로 뻔한 인사말("도움이 되셨길 바랍니다") 대신 명확한 Next Action(다음 행동 유도)이나 꿀팁으로 강력하게 클로징하세요.
+- **결론부 여운 강화 (Conclusion)**: 서론은 300~500자로 매력적인 훅(Hook)을 넣고, 결론은 200~400자로 뻔한 인사말("도움이 되셨길 바랍니다") 대신 ${contentMode === 'adsense' ? '핵심 요약과 추가 학습 리소스 제안으로 교육적으로 클로징하세요. CTA/행동 유도 문구는 절대 금지!' : '명확한 Next Action(다음 행동 유도)이나 꿀팁으로 강력하게 클로징하세요.'}
 
 [3. SEO 정보 밀도(Density)와 신뢰성(Trust) 극대화]
 - **밀도 높은 데이터 주입**: 두루뭉술한 표현 -> 구체적인 표현으로 치환. 단, 숫자/통계는 반드시 Google 검색에서 확인한 실제 데이터만 사용! 출처를 알 수 없는 숫자는 절대 만들어내지 마세요.
-- **[전문가의 팁] 마이크로 요소**: 각 H2마다 본문 흐름 중 최소 1번은 시선을 확 끄는 인용구 <blockquote> (예: "앗, 여기서 꿀팁 한 가지!" 또는 "실전 주의사항:")를 배치하여 광고(Adsense) 체류시간을 높이세요.
+- **[전문가의 팁] 마이크로 요소**: 각 H2마다 본문 흐름 중 최소 1번은 시선을 확 끄는 인용구 <blockquote> (예: "앗, 여기서 꿀팁 한 가지!" 또는 "실전 주의사항:")를 배치하여 체류시간을 높이세요.
 - 🔴 절대금지: 본문에 "20년차", "1억", "전문가" 등 작가의 자격증명/거짓 이력을 언급하지 마세요! E-E-A-T는 글의 구체성에서 나옵니다.
 
 [4. 본문(H3) 구조 및 길이 규칙]
-- **각 H3 본문은 반드시 600~1000자** 사이의 알찬 내용으로 채우세요. (전체 3000~4500자 완성 목적)
+- **각 H3 본문은 반드시 ${contentMode === 'shopping' || contentMode === 'adsense' || contentMode === 'paraphrasing' ? '800~1500자' : '600~1000자'}** 사이의 알찬 내용으로 채우세요.
 - 같은 내용 반복 절대 금지. 모든 H3는 독립적이고 100% 새로운 인사이트로 채우세요.
 - "결론적으로", "정리하면", "요약하면" 등 기계적인 반복 연결사 금지.
 
@@ -382,13 +473,17 @@ ${adsenseModePromptBlock}
   4. [스토리텔링형]: 개인적인 공감대에서 시작해 팩트로 넘어가는 자연스러운 구성.
   5. [데이터 전달형]: 정확한 수치와 팩트를 중심으로 한 신뢰감 있는 전개.
 
-  5. [데이터 전달형]: 정확한 수치와 팩트를 중심으로 한 신뢰감 있는 전개.
-
 🚫🚫🚫 [AI티 제거 - 최우선!] 🚫🚫🚫
 ⛔ 본문 content에 이모지 사용 절대 금지! (🔥💡📋✅💎👉 등 모든 이모지!)
 ⛔ 문단 앞에 라벨/접두어 붙이기 금지! ("후킹:", "핵심:", "실전:" 등)
 ⛔ 번호 이모지 금지! (1️⃣, 2️⃣ 등)
 ⛔ 글 흐름을 끊는 어떤 마커도 금지!
+⛔ h3Sections[].content 안에 <h1>, <h2>, <div>, <img>, <button>, <a href="구매">, <iframe>, <script>, <form>, <input> 태그 출력 절대 금지!
+   - H2는 시스템이 자동 삽입함
+   - 상품 카드/가격 표시/구매 버튼 HTML 절대 생성 금지 (시스템이 별도 블록으로 렌더)
+   - content는 오직 <p>, <ul>, <ol>, <li>, <blockquote>, <table>, <thead>, <tbody>, <tr>, <th>, <td>, <strong>, <em>, <br> 만 허용!
+⛔ 상품 링크 필요 시 <a href="..."> 텍스트 </a> 형태로만 (스타일/버튼/이미지 포함 금지)
+⛔ content 첫머리에 "1. ", "2. " 같은 숫자 접두어 금지! H2 번호는 시스템이 자동 부여함.
 ✅ 순수한 텍스트로만 자연스럽게 작성!
 
 🚫 [금지 사항] - 필수 준수!
@@ -406,7 +501,7 @@ JSON 형식 (이 구조 정확히 따르기!):
     {
       "h2": "첫 번째 H2 제목",
       "h3Sections": [
-        {"h3": "10~15자 H3 제목", "content": "<p>위 다채로운 본문 포맷 중 하나를 선택해 600~1000자 작성</p>...", "tables": []}
+        {"h3": "10~15자 H3 제목", "content": "<p>위 다채로운 본문 포맷 중 하나를 선택해 충분한 분량으로 작성</p>...", "tables": []}
       ]
     },
     ...총 ${h2Titles.length}개의 H2
@@ -416,9 +511,11 @@ JSON 형식 (이 구조 정확히 따르기!):
 🚨🚨🚨 최종 체크리스트 (10억 점 기준) 🚨🚨🚨
 □ 모바일 가독성을 위해 문장이 짧고 단락 구분이 확실한가? (<p> 떡칠 방지, 여백 최적화)
 □ "많이들 헷갈리시죠?" 같은 진짜 사람이 쓴 듯한 구어체가 묻어나는가?
-□ 각 H3 본문당 글자 수가 600자 이상 1000자 이내(충분한 분량)인가?
+□ 각 H3 본문당 글자 수가 ${contentMode === 'shopping' || contentMode === 'adsense' || contentMode === 'paraphrasing' ? '800자 이상 1500자 이내' : '600자 이상 1000자 이내'}(충분한 분량)인가?
 □ 중간중간 독자의 스크롤을 멈출 <blockquote> 꿀팁 박스와 <ul> 리스트가 존재하는가?
 □ 서론과 결론이 기계적이지 않고, 매력적인 훅과 네비게이션 역할을 하는가?
+
+🔴🔴🔴 **상단의 [모드별 최우선 지시] 블록이 이 일반 규칙보다 우선합니다.** 섹션별 상세 지시(필수 요소, 역할, 최소 글자수)가 있다면 반드시 해당 H2 섹션에 그대로 적용하세요.
 
 JSON만 출력 (설명/마크다운 금지):
 `;
@@ -534,6 +631,9 @@ JSON만 출력:
         h3Sections: (sec.h3Sections || []).map(h3Sec => ({
           h3: (h3Sec.h3 || '').replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, ''),
           content: (h3Sec.content || '')
+            // 🛡️ AI가 본문에 H1/H2 태그를 직접 출력하는 경우 강제 제거 (H2 번호 사라짐 버그 방지)
+            .replace(/<h1[^>]*>[\s\S]*?<\/h1>/gi, '')
+            .replace(/<h2[^>]*>[\s\S]*?<\/h2>/gi, '')
             // 친근한 말투 변환
             .replace(/입니다\./g, '이에요.')
             .replace(/습니다\./g, '어요.')
@@ -837,23 +937,29 @@ HTML만:
 }
 
 // 🔍 Google CSE를 사용해 공식 사이트 찾기
-async function searchOfficialSite(keyword: string, googleCseKey: string, googleCseCx: string): Promise<{ url: string; title: string } | null> {
+async function searchOfficialSite(keyword: string, googleCseKey: string, googleCseCx: string, contentMode?: string): Promise<{ url: string; title: string } | null> {
   if (!googleCseKey || !googleCseCx) return null;
 
   try {
-    const query = `${keyword} 공식 홈페이지`;
-    console.log(`[CTA] 🔍 공식 사이트 강제 검색 시도: "${query}"`);
+    // 🎯 모드별 쿼리 — 쇼핑 모드면 쇼핑 페이지를, 나머지는 공식 홈페이지를
+    const query = contentMode === 'shopping'
+      ? `${keyword} 최저가 구매`
+      : `${keyword} 공식 홈페이지`;
+    console.log(`[CTA] 🔍 ${contentMode === 'shopping' ? '쇼핑 페이지' : '공식 사이트'} 검색 시도: "${query}"`);
 
     const url = `https://www.googleapis.com/customsearch/v1?key=${googleCseKey}&cx=${googleCseCx}&q=${encodeURIComponent(query)}&num=5`;
     const response = await fetch(url);
     const data = await response.json();
 
     if (!data.items || data.items.length === 0) {
-      console.log(`[CTA] ⚠️ 공식 사이트 검색 결과 없음`);
+      console.log(`[CTA] ⚠️ 검색 결과 없음`);
       return null;
     }
 
-    const trustedDomains = ['.go.kr', '.or.kr', '.ac.kr', '.re.kr', '.edu', '.gov', '.mil'];
+    // 🎯 모드별 신뢰 도메인
+    const trustedDomains = contentMode === 'shopping'
+      ? ['coupang.com', 'smartstore.naver.com', 'shopping.naver.com', '11st.co.kr', 'gmarket.co.kr', 'auction.co.kr', 'danawa.com', 'apple.com/kr', 'samsung.com', 'lg.com', 'brand.naver.com']
+      : ['.go.kr', '.or.kr', '.ac.kr', '.re.kr', '.edu', '.gov', '.mil'];
     const excludeDomains = ['blog.naver.com', 'tistory.com', 'velog.io', 'brunch.co.kr', 'namu.wiki', 'wikipedia.org', 'youtube.com', 'facebook.com', 'instagram.com', 'twitter.com', 'kin.naver.com'];
 
     for (const item of data.items) {
@@ -863,7 +969,7 @@ async function searchOfficialSite(keyword: string, googleCseKey: string, googleC
       if (excludeDomains.some(d => link.includes(d))) continue;
 
       if (trustedDomains.some(d => link.includes(d))) {
-        console.log(`[CTA] ✅ 공식/신뢰 사이트 발견: ${link} (${title})`);
+        console.log(`[CTA] ✅ ${contentMode === 'shopping' ? '쇼핑 페이지' : '공식/신뢰 사이트'} 발견: ${link} (${title})`);
         return { url: link, title: title };
       }
     }
@@ -928,6 +1034,27 @@ export function applySmartLinkToContent(content: string, keyword: string, offici
   return newContent;
 }
 
+// 📥 문서/자료 URL 감지 헬퍼 — 파일 확장자별 버튼/훅 텍스트 자동 결정
+// AI가 반환한 버튼 텍스트가 문서 URL인데도 "사이트 바로가기" 같은 오류를 내는 경우를 방지
+function detectDocumentCta(url: string): { isDoc: boolean; btnText: string; hookText: string } {
+  const match = url.match(/\.(pdf|ppt|pptx|pps|ppsx|key|hwp|hwpx|xlsx|xls|ods|csv|tsv|zip|rar|7z|docx|doc|odt|rtf|txt|pages|numbers)(\?|#|$)/i);
+  if (!match) return { isDoc: false, btnText: '', hookText: '' };
+  const ext = match[1]!.toLowerCase();
+  const typeLabel =
+    ext === 'pdf' ? 'PDF 자료' :
+    /^(ppt|pps|key)/.test(ext) ? '발표자료' :
+    /^doc|^odt|^rtf|^txt|pages/.test(ext) ? '문서' :
+    /^xls|^ods|csv|tsv|numbers/.test(ext) ? '엑셀 자료' :
+    /^hwp/.test(ext) ? '한글파일' :
+    /^(zip|rar|7z)/.test(ext) ? '압축파일' :
+    '자료';
+  return {
+    isDoc: true,
+    btnText: `📥 ${typeLabel} 다운받기`,
+    hookText: `${typeLabel}를 다운받아 자세히 확인하세요!`,
+  };
+}
+
 export async function generateCTAsFinal(
   keyword: string,
   crawledPosts: FinalCrawledPost[],
@@ -953,15 +1080,44 @@ export async function generateCTAsFinal(
   console.log(`[CTA] 🌐 Search Grounding으로 "${keyword}" 관련 실질적 CTA URL 검색 중...`);
 
   try {
+    // 🎯 모드별 CTA 가이드 — 글 톤과 일치하는 CTA를 유도
+    const modeCtaHint = contentMode === 'shopping' ? `
+🛍️ **쇼핑 모드 CTA 특화 지시**:
+- **우선**: 가격 비교/리뷰/실제 구매 가능한 이커머스 페이지 (쿠팡/네이버쇼핑/브랜드 공식몰/다나와 등)
+- 검색어에 "후기/리뷰/비교"가 붙으면 비교 페이지 또는 신뢰도 높은 리뷰 랜딩 우선
+- 버튼 예시: "🛒 최저가 비교하기", "💰 가격 확인하기", "⭐ 실구매 후기 보기", "🛍️ 공식몰 바로가기"
+- 훅 예시: "실제 구매자들이 선택한 최저가를 확인하세요!", "솔직한 리뷰부터 가격까지 한눈에!"
+- actionType 권장: buy 또는 info
+` : contentMode === 'internal' ? `
+📝 **내부 정보 전달 모드 CTA 특화 지시**:
+- **우선**: 주제의 공식 리소스/가이드/정부 사이트 (교육·학습·참고용)
+- 구매 명령형 지양. 학습/탐색을 돕는 톤
+- 버튼 예시: "📚 공식 가이드 보기", "🔍 자세히 알아보기", "📖 원문 확인하기"
+- 훅 예시: "더 깊이 있는 정보는 공식 자료에서 확인하세요"
+- actionType 권장: info 또는 check
+` : contentMode === 'paraphrasing' ? `
+🔄 **페러프레이징 모드 CTA 특화 지시**:
+- **우선**: 주제의 원 출처가 아닌 "독자가 실행할 수 있는" 공식 사이트/서비스
+- 원문을 재구성했으므로 CTA도 원문과 다른 앵글의 랜딩 제시
+- 버튼 예시: "🚀 바로 시작하기", "🔍 실시간 확인하기"
+- actionType 권장: apply, check, 또는 info
+` : `
+🌐 **SEO/정보 제공 모드 CTA 특화 지시**:
+- **우선**: 정부·공공·기관 공식 사이트 (신청/조회/예약/등록 가능한 페이지)
+- 버튼 예시: "🚀 바로 신청하기", "🔍 실시간 조회하기", "📅 예약하기"
+- actionType 권장: apply, check, 또는 reserve
+`;
+
     const ctaPrompt = `
 당신은 한국 블로그 독자를 위한 CTA(Call-to-Action) 전문가입니다.
 
 🎯 키워드: "${keyword}"
+📌 글 모드: ${contentMode || 'external (SEO)'}
 ⚠️ 한글/영문만 사용. 중국어 한자 금지! 존재하지 않는 서비스/혜택을 만들어내지 마세요!
+${modeCtaHint}
+🔴 **반드시 Google 검색으로** "${keyword}"에 대한 독자가 실제로 필요한 페이지를 찾으세요. (위 모드별 지시에 맞는 유형)
 
-🔴 **반드시 Google 검색으로** "${keyword}"에 대한 독자가 실제로 필요한 공식 사이트/서비스 페이지를 찾으세요.
-
-🔥 CTA는 "클릭하면 바로 신청/조회/예약/구매가 가능한 실질적 페이지"이어야 합니다!
+🔥 CTA는 "클릭하면 바로 해당 액션(구매/비교/신청/조회/예약 등)이 가능한 실질적 페이지"이어야 합니다!
 
 ❌ 절대 하지 말 것:
 - 검색 결과 페이지 (search.naver.com, google.com/search 등) → 절대 금지!
@@ -969,19 +1125,26 @@ export async function generateCTAsFinal(
 - 404 에러, 존재하지 않는 페이지 → 절대 금지!
 - URL을 추측하거나 만들어내기 → 절대 금지! 검색에서 확인한 것만!
 
-✅ 좋은 CTA 예시:
-- "국민연금 조회" → https://www.nps.or.kr (실제 조회 가능)
-- "청년도약계좌 신청" → https://www.kinfa.or.kr (실제 신청 가능)
-- "KTX 예약" → https://www.letskorail.com (실제 예약 가능)
-- "아이폰 16 가격" → https://www.apple.com/kr/iphone-16 (실제 가격 확인)
+✅ 좋은 CTA 예시 (모드별):
+- 쇼핑: "아이폰 16" → https://www.apple.com/kr/iphone-16 또는 쿠팡/네이버쇼핑 상품 페이지
+- SEO/정보: "청년도약계좌 신청" → https://www.kinfa.or.kr
+- 정보/예약: "KTX 예약" → https://www.letskorail.com
+- 내부/정보: "국민연금 제도" → https://www.nps.or.kr (제도 설명 페이지)
 
 📋 아래 JSON 형식으로 **정확히 1개** 출력:
 {
-  "url": "검색에서 확인한 실제 공식 사이트 URL (존재가 확인된 것만!)",
-  "hookingMessage": "독자가 클릭하고 싶게 만드는 한 줄 (예: '지금 바로 신청하면 최대 70만원 혜택!')",
-  "buttonText": "행동 유발 버튼 텍스트 (예: '🚀 바로 신청하기', '🔍 실시간 조회', '📅 예약하기')",
+  "url": "검색에서 확인한 실제 URL (존재가 확인된 것만!)",
+  "hookingMessage": "독자가 클릭하고 싶게 만드는 한 줄",
+  "buttonText": "행동 유발 버튼 텍스트 (모드 톤에 맞게)",
   "actionType": "apply|check|reserve|buy|info 중 하나"
 }
+
+📥 **파일 URL 처리 규칙** (중요):
+- URL 끝이 .pdf/.ppt/.pptx/.hwp/.xlsx/.docx/.zip 등 문서 확장자면:
+  - buttonText: "📥 PDF 다운받기", "📥 발표자료 다운받기", "📥 한글파일 다운받기" 등 **다운로드 형식**으로 작성
+  - hookingMessage: "자료를 다운받아 자세히 확인하세요" 같은 **다운로드 유도** 문구
+  - actionType: "info" 사용
+- 절대 문서 URL에 "사이트 바로가기", "홈페이지 바로가기" 같은 웹사이트용 텍스트 사용 금지!
 
 🔴🔴🔴 핵심: URL은 **검색에서 실제로 확인한 것만** 사용! 추측 금지!
 JSON만 출력:
@@ -1005,14 +1168,27 @@ JSON만 출력:
           // 🔥 HTTP HEAD 검증
           const validation = await validateCtaUrl(ctaData.url, { timeout: 5000 });
           if (validation.isValid) {
-            // 파일 다운로드 URL 감지 → 버튼 텍스트 자동 변경
-            const isDownload = /\.(pdf|ppt|pptx|hwp|xlsx|xls|zip|docx|doc)(\?|$)/i.test(ctaData.url);
-            const finalButtonText = isDownload
-              ? (ctaData.buttonText || '📥 자료 다운받기')
-              : (ctaData.buttonText || `🔗 ${keyword} 바로가기`);
-            const finalHookMessage = isDownload
-              ? (ctaData.hookingMessage || '공식 자료를 다운받아 자세히 확인하세요!')
-              : (ctaData.hookingMessage || `${keyword}에 대해 더 알아보세요!`);
+            // 📥 파일 다운로드 URL 감지 — AI가 반환한 텍스트보다 우선 (AI가 "사이트 바로가기"로 잘못 생성하는 케이스 방지)
+            const doc = detectDocumentCta(ctaData.url);
+            // 🎯 모드별 기본 버튼/훅 텍스트
+            const modeDefaultButton = contentMode === 'shopping' ? `🛒 ${keyword} 최저가 확인`
+              : contentMode === 'internal' ? `📚 ${keyword} 자세히 알아보기`
+              : contentMode === 'paraphrasing' ? `🔍 ${keyword} 원문 확인하기`
+              : `🔗 ${keyword} 바로가기`;
+            const modeDefaultHook = contentMode === 'shopping' ? `실제 구매자들이 선택한 가격과 후기를 확인하세요!`
+              : contentMode === 'internal' ? `더 깊이 있는 정보는 공식 자료에서 확인하세요`
+              : contentMode === 'paraphrasing' ? `주제의 원 출처와 추가 자료를 살펴보세요`
+              : `${keyword}에 대해 더 알아보세요!`;
+            // 🔴 문서 URL이면 AI 텍스트 무시하고 강제로 다운로드 버튼 사용
+            const finalButtonText = doc.isDoc
+              ? doc.btnText
+              : (ctaData.buttonText || modeDefaultButton);
+            const finalHookMessage = doc.isDoc
+              ? doc.hookText
+              : (ctaData.hookingMessage || modeDefaultHook);
+            if (doc.isDoc && ctaData.buttonText && ctaData.buttonText !== doc.btnText) {
+              console.log(`[CTA] 🔧 문서 URL 감지 → AI 버튼 텍스트("${ctaData.buttonText}") 무시하고 "${doc.btnText}"로 교체`);
+            }
 
             safeCTAs.push({
               hookingMessage: finalHookMessage,
@@ -1042,7 +1218,7 @@ JSON만 출력:
   // 🔥 2단계: Grounding 실패 시 기존 Google CSE 폴백
   if (safeCTAs.length === 0 && googleCseKey && googleCseCx) {
     console.log('[CTA] 폴백: Google CSE로 공식 사이트 검색...');
-    const officialLink = await searchOfficialSite(keyword, googleCseKey, googleCseCx);
+    const officialLink = await searchOfficialSite(keyword, googleCseKey, googleCseCx, contentMode);
     if (officialLink) {
       const shortKeyword = keyword.length > 15 ? keyword.split(/\s+/).slice(0, 2).join(' ') : keyword;
       let btnText = `🔗 ${shortKeyword} 공식 사이트`;
@@ -1051,12 +1227,30 @@ JSON만 출력:
       const validation = await validateCtaUrl(officialLink.url, { timeout: 5000 });
       if (validation.isValid) {
         const shortKeyword2 = keyword.length > 15 ? keyword.split(/\s+/).slice(0, 2).join(' ') : keyword;
-        const isDownloadUrl = /\.(pdf|ppt|pptx|hwp|xlsx|xls|zip|docx|doc)(\?|$)/i.test(officialLink.url);
-        let btnText2 = isDownloadUrl ? '📥 자료 다운받기' : `🔗 ${shortKeyword2} 공식 사이트`;
-        let hookText2 = isDownloadUrl ? '공식 자료를 다운받아 자세히 확인하세요!' : `${shortKeyword2}에 대해 더 알아보세요!`;
+        const docCse = detectDocumentCta(officialLink.url);
+        let btnText2 = docCse.isDoc ? docCse.btnText : `🔗 ${shortKeyword2} 공식 사이트`;
+        let hookText2 = docCse.isDoc ? docCse.hookText : `${shortKeyword2}에 대해 더 알아보세요!`;
 
-        if (!isDownloadUrl) {
-          if (keyword.match(/신청|접수|등록|발급/)) {
+        if (!docCse.isDoc) {
+          // 🛍️ 쇼핑 모드 우선 매핑 (모드가 shopping이면 구매/비교 CTA 먼저)
+          if (contentMode === 'shopping') {
+            if (keyword.match(/최저가|가격|할인|세일/)) {
+              btnText2 = '💰 최저가 확인하기';
+              hookText2 = '실시간 가격을 비교하고 가장 저렴한 곳을 찾으세요!';
+            } else if (keyword.match(/비교|차이|vs|대비/)) {
+              btnText2 = '⚖️ 상세 비교하기';
+              hookText2 = '스펙과 가격을 한눈에 비교해보세요!';
+            } else if (keyword.match(/후기|리뷰|평가|사용기/)) {
+              btnText2 = '⭐ 실구매 후기 보기';
+              hookText2 = '실제 구매자들의 솔직한 후기를 확인하세요!';
+            } else if (keyword.match(/추천|best|베스트|인기/)) {
+              btnText2 = '🏆 베스트 상품 보기';
+              hookText2 = '실구매자들이 선택한 인기 상품을 확인하세요!';
+            } else {
+              btnText2 = '🛒 상품 정보 보기';
+              hookText2 = '가격·스펙·후기까지 한눈에 확인하세요!';
+            }
+          } else if (keyword.match(/신청|접수|등록|발급/)) {
             btnText2 = '🚀 바로 신청하기';
             hookText2 = '지금 바로 신청을 진행해보세요!';
           } else if (keyword.match(/조회|확인|검색|계산/)) {
@@ -1088,9 +1282,12 @@ JSON만 출력:
     }
   }
 
-  // 🔥 3단계: 크롤링 데이터에서 공식 링크 탐색
+  // 🔥 3단계: 크롤링 데이터에서 공식 링크 탐색 (모드별 도메인 우선순위)
   if (safeCTAs.length === 0 && crawledPosts.length > 0) {
-    const officialDomains = ['.go.kr', '.or.kr', '.ac.kr', '.re.kr', '.gov', '.edu', '.org'];
+    // 🎯 모드별 신뢰 도메인
+    const officialDomains = contentMode === 'shopping'
+      ? ['coupang.com', 'smartstore.naver.com', 'shopping.naver.com', '11st.co.kr', 'gmarket.co.kr', 'danawa.com', 'apple.com', 'samsung.com', 'lg.com']
+      : ['.go.kr', '.or.kr', '.ac.kr', '.re.kr', '.gov', '.edu', '.org'];
     const blogDomains = ['tistory', 'naver.com/blog', 'blog.naver', 'wordpress', 'blogspot', 'velog', 'brunch', 'medium.com'];
 
     for (const post of crawledPosts) {
@@ -1100,9 +1297,15 @@ JSON만 출력:
       if (isOfficial && !isBlog) {
         const validation = await validateCtaUrl(post.url || '', { timeout: 5000 });
         if (validation.isValid) {
-          const isDl = /\.(pdf|ppt|pptx|hwp|xlsx|xls|zip|docx|doc)(\?|$)/i.test(post.url || '');
-          const dlBtn = isDl ? '📥 자료 다운받기' : '🔗 공식 사이트 바로가기';
-          const dlHook = isDl ? '공식 자료를 다운받아 자세히 확인하세요!' : '정확한 정보는 공식 사이트에서 확인하세요!';
+          const docCrawled = detectDocumentCta(post.url || '');
+          const dlBtn = docCrawled.isDoc ? docCrawled.btnText
+            : contentMode === 'shopping' ? '🛒 상품 페이지 보기'
+            : contentMode === 'internal' ? '📚 공식 자료 보기'
+            : '🔗 공식 사이트 바로가기';
+          const dlHook = docCrawled.isDoc ? docCrawled.hookText
+            : contentMode === 'shopping' ? '가격과 실구매 후기를 확인하세요!'
+            : contentMode === 'internal' ? '신뢰할 수 있는 공식 자료를 확인하세요'
+            : '정확한 정보는 공식 사이트에서 확인하세요!';
           safeCTAs.push({
             hookingMessage: dlHook,
             buttonText: dlBtn,
@@ -1136,7 +1339,9 @@ JSON만 출력:
 
     for (const mapping of specificMappings) {
       if (mapping.pattern.test(keyword)) {
-        const validation = await validateCtaUrl(mapping.url, { timeout: 5000 });
+        // 🛡️ 최후 폴백 단계: 공식 기관 루트 URL은 형식 검증만 수행
+        //    (.go.kr 루트가 간헐적 에러 본문을 띄워 error-content로 탈락하면 CTA가 완전히 사라지는 회귀 방지)
+        const validation = await validateCtaUrl(mapping.url, { timeout: 5000, skipHttp: true });
         if (validation.isValid) {
           safeCTAs.push({
             hookingMessage: mapping.hookText,
@@ -1195,18 +1400,45 @@ JSON만 출력:
 
 export async function generateSummaryTableFinal(allContent: string): Promise<FinalTableData> {
   const tableToday = new Date().toISOString().slice(0, 10);
+  // 🧹 입력 전처리 — 상품 카드/버튼/이미지 같은 HTML 제거 후 AI에 전달
+  //    (그대로 넣으면 AI가 셀 값으로 HTML 조각을 복사해 넣음 → 모바일 레이아웃 깨짐)
+  const cleanedContent = String(allContent || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<img[^>]*>/gi, '')
+    .replace(/<a[^>]*>([\s\S]*?)<\/a>/gi, '$1')          // a 태그는 내용만 유지
+    .replace(/<button[^>]*>[\s\S]*?<\/button>/gi, '')
+    .replace(/<form[^>]*>[\s\S]*?<\/form>/gi, '')
+    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
+    // 광고/CTA/상품 카드로 보이는 div 블록 제거
+    .replace(/<div[^>]*class="[^"]*(cta|ad-|product|coupang|affiliate|price|buy)[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
+    .replace(/<[^>]+>/g, ' ')                              // 나머지 태그도 다 벗겨 순수 텍스트로
+    .replace(/\s+/g, ' ')
+    .trim();
+
   const prompt = `
 📅 오늘: ${tableToday}
-전체 내용:
+전체 내용 (순수 텍스트):
 
-${allContent.slice(0, 2000)}
+${cleanedContent.slice(0, 2000)}
 
 위 본문 내용을 기반으로 핵심 요약표를 만드세요 (그리드 형식).
 
-요구사항:
+🚫🚫🚫 **절대 규칙 — 반드시 지킬 것**:
 1. 본문에 실제로 언급된 내용만 요약! 본문에 없는 정보 추가 금지!
-2. 숫자/통계는 본문에서 그대로 인용
-3. 한글/영문만 사용. 한자 금지!
+2. **셀 값은 오직 평문(plain text)만!** HTML 태그, <div>, <img>, <a>, 버튼 등 절대 금지!
+3. 가격/상품명 나열 금지 — 상품 정보는 다른 섹션에 있음. 여기는 "핵심 요약"만.
+4. 각 셀은 30자 이내로 간결하게. 쉼표/접속사로 나열식 자제.
+5. 숫자/통계는 본문에서 그대로 인용
+6. 한글/영문/숫자만 사용. 한자 금지!
+
+✅ 좋은 예:
+  ["주요 대상", "30~40대 직장인"]
+  ["핵심 혜택", "세액공제 최대 700만원"]
+
+❌ 나쁜 예 (절대 출력 금지):
+  ["상품", "<div class='...'>조르쥬 레쉬 자켓 289,000원 <button>구매하기</button></div>"]
+  ["추천", "<img src='...'/><br>가격: 49,000원"]
 
 JSON:
 {
@@ -1219,17 +1451,28 @@ JSON:
   ]
 }
 
-JSON만:
+JSON만 (평문 셀):
 `;
 
   try {
     const response = await callGeminiWithGrounding(prompt);
     const json = response.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
     const parsed = JSON.parse(json);
-    // CJK 필터링
+    // CJK 필터링 + HTML 태그 2차 스트립 (AI가 지시 어기고 HTML 넣은 경우 방어)
     const cjk = /[\u4E00-\u9FFF\u3400-\u4DBF]/g;
+    const stripHtml = (cell: string) =>
+      String(cell || '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
     if (parsed.rows) {
-      parsed.rows = parsed.rows.map((row: string[]) => row.map((cell: string) => (cell || '').replace(cjk, '')));
+      parsed.rows = parsed.rows
+        .map((row: string[]) => row.map((cell: string) => stripHtml((cell || '').replace(cjk, ''))))
+        .filter((row: string[]) => row.some((c: string) => c.length > 0));
+    }
+    if (parsed.headers) {
+      parsed.headers = parsed.headers.map((h: string) => stripHtml((h || '').replace(cjk, '')));
     }
     return parsed;
   } catch {

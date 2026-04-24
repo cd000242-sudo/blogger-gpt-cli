@@ -574,7 +574,16 @@ if (!window.openKeywordMaster) window.openKeywordMaster = openKeywordMaster;
 
 // 플랫폼 필드 토글
 export function togglePlatformFields() {
-  const selectedPlatform = document.querySelector('input[name="platform"]:checked')?.value || 'wordpress';
+  // 🔥 라디오 값을 먼저 읽고, 없으면 DOM의 checked 상태를 이중 확인
+  let selectedPlatform = document.querySelector('input[name="platform"]:checked')?.value || '';
+  if (!selectedPlatform) {
+    // 직접 ID로 확인 (race condition 대비)
+    const bloggerEl = document.getElementById('platform-blogger');
+    const wpEl = document.getElementById('platform-wordpress');
+    if (bloggerEl?.checked) selectedPlatform = 'blogger';
+    else if (wpEl?.checked) selectedPlatform = 'wordpress';
+    else selectedPlatform = 'wordpress'; // 최종 기본값
+  }
   const bloggerOAuthBtn = document.getElementById('bloggerOAuthBtn');
   const wordpressSettings = document.getElementById('wordpressSettings');
   const bloggerSettings = document.getElementById('bloggerSettings');
@@ -608,15 +617,19 @@ export function togglePlatformFields() {
     }
   }
 
-  // 워드프레스 카테고리 섹션 표시/숨김
-  const wpCategorySection = document.getElementById('wpCategorySection');
-  if (wpCategorySection) {
+  // 워드프레스 카테고리 탭 표시/숨김
+  const wpCategoryTab = document.getElementById('settingsTabCategory');
+  const wpCategoryPanel = document.getElementById('tab-category');
+  if (wpCategoryTab) {
     if (selectedPlatform === 'wordpress') {
-      wpCategorySection.style.display = 'block';
-      console.log('워드프레스 카테고리 섹션: 표시');
+      wpCategoryTab.style.display = 'flex';
+      console.log('워드프레스 카테고리 탭: 표시');
     } else {
-      wpCategorySection.style.display = 'none';
-      console.log('워드프레스 카테고리 섹션: 숨김');
+      wpCategoryTab.style.display = 'none';
+      if (wpCategoryPanel && wpCategoryPanel.classList.contains('active')) {
+        if (window.switchPostingSettingsTab) window.switchPostingSettingsTab('tab-content');
+      }
+      console.log('워드프레스 카테고리 탭: 숨김');
     }
   }
 

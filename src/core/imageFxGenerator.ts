@@ -125,8 +125,11 @@ async function getSessionToken(page: any): Promise<{ token: string; userName?: s
 /**
  * 브라우저 페이지 확보 (캐시 재사용 + 자동 로그인)
  * 병렬 호출 시 mutex로 보호 — 첫 호출만 브라우저 생성, 나머지는 대기
+ *
+ * 🌊 Flow 이식 시 export: flowGenerator.ts가 동일 labs.google 세션을 공유하기 위해 이 함수를 직접 호출.
+ * Google OAuth 쿠키는 labs.google 도메인 전체에 유효하므로 /fx/와 /flow/ 모두 같은 페이지에서 접근 가능.
  */
-async function ensurePage(onLog?: (msg: string) => void): Promise<any> {
+export async function ensurePage(onLog?: (msg: string) => void): Promise<any> {
   // 🔒 다른 호출이 초기화 중이면 완료 대기
   if (_ensurePagePromise) {
     console.log('[ImageFX] ⏳ 다른 초기화 진행 중 — 대기...');

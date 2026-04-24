@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { callGeminiWithRetry } from './core/final/gemini-engine';
 import * as XLSX from 'xlsx';
 
 /* =========================
@@ -24,7 +24,7 @@ const DEFAULT_LABELS = (process.env['DEFAULT_LABELS'] || '').split(',').map(s =>
 const ALLOW_COMMENTS = (process.env['ALLOW_COMMENTS'] || 'true') === 'true';
 const RATE_LIMIT_SECONDS = parseInt(process.env['RATE_LIMIT_SECONDS'] || '30', 10);
 
-const OPENAI_MODEL = process.env['OPENAI_MODEL'] || 'gpt-5.4';
+const OPENAI_MODEL = process.env['OPENAI_MODEL'] || 'gpt-5-mini';
 const openai = new OpenAI({ apiKey: process.env['OPENAI_API_KEY'] });
 
 const GEMINI_API_KEY = process.env['GEMINI_API_KEY'] || '';
@@ -392,14 +392,7 @@ async function generatePost(topic: string, minWords = 1000, _lang = 'ko', _style
     return { title: `임시 제목: ${topic}`, html: `<article><h2>${topic}</h2><p>${cleanFallback}</p></article>` };
   }
 }
-let _gemini: GoogleGenerativeAI | null = null;
-function gemini() {
-  if (!_gemini) {
-    if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY 누락');
-    _gemini = new GoogleGenerativeAI(GEMINI_API_KEY);
-  }
-  return _gemini;
-}
+
 // ⚠️ 중복 함수: src/core/index.ts의 generateWithGemini와 기능 중복
 // TODO: core/index.ts의 함수로 통합 또는 제거 검토
 async function generatePostGemini(topic: string, minWords = 1000, _lang = 'ko', _style = '친절하고 친구에게 설명하듯 ~요체', keywords: string[] = []) {
@@ -409,9 +402,7 @@ async function generatePostGemini(topic: string, minWords = 1000, _lang = 'ko', 
 요구: 최소 ${minWords}자, 7섹션(체크리스트 포함, 금지: 용어사전/리스크관리/관련데이터/사례연구)
 출력: JSON {"title": string, "html": string}`;
 
-  const model = gemini().getGenerativeModel({ model: 'gemini-2.5-flash' });
-  const resp = await model.generateContent([{ text: sys }, { text: user }]);
-  const txt = resp.response.text();
+  const txt = await callGeminiWithRetry(`${sys}\n\n${user}`);
   let parsed: any;
   try { parsed = JSON.parse(txt); }
   catch { parsed = { title: `임시 제목: ${topic}`, html: `<article><h2>${topic}</h2><p>${txt}</p></article>` }; }
@@ -444,9 +435,7 @@ async function expandArticleHtmlGemini(topic: string, previousHtml: string, targ
 출력: 수정된 전체 HTML만(<article> 포함)
 원문:
 ${previousHtml}`;
-  const model = gemini().getGenerativeModel({ model: 'gemini-2.5-flash' });
-  const resp = await model.generateContent([{ text: sys }, { text: user }]);
-  const out = resp.response.text().trim();
+  const out = (await callGeminiWithRetry(`${sys}\n\n${user}`)).trim();
   return out.startsWith('<article') ? out : `<article>${out}</article>`;
 }
 // ⚠️ 중복 함수: src/core/index.ts의 generateWithOpenAI/generateWithGemini와 기능 중복

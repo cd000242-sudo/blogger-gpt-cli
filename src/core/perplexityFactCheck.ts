@@ -1,19 +1,21 @@
 /**
  * 🔍 팩트체크 모듈 — 할루시네이션 방지
- * 
+ *
  * 글 생성 전 키워드를 실시간 검색하여 팩트 기반 컨텍스트를 확보합니다.
- * 
+ *
  * 토글 옵션:
- * - 'grounding'  → Gemini Search Grounding (무료)
+ * - 'auto'       → 🔥 자동 선택 (네이버 > Perplexity > Gemini Grounding 순)
+ * - 'naver'      → 네이버 블로그 검색 API (무료, 한국 콘텐츠 최강)
  * - 'perplexity' → Perplexity Sonar (유료, 더 정확)
+ * - 'grounding'  → Gemini Search Grounding (무료)
  * - 'off'        → 팩트체크 비활성화
- * 
+ *
  * @module perplexityFactCheck
  */
 
 import { loadEnvFromFile } from '../env';
 
-export type FactCheckMode = 'grounding' | 'perplexity' | 'off';
+export type FactCheckMode = 'auto' | 'naver' | 'grounding' | 'perplexity' | 'off';
 
 export interface FactCheckResult {
   context: string;       // 팩트 기반 컨텍스트 (글 생성 프롬프트에 삽입)
@@ -47,13 +49,67 @@ function getCachedEnv(): Record<string, string> {
  */
 export async function fetchFactContext(
   keyword: string,
-  mode: FactCheckMode = 'grounding',
+  mode: FactCheckMode = 'auto',
 ): Promise<FactCheckResult> {
   if (mode === 'off' || !keyword.trim()) {
     return { context: '', provider: 'none', success: true };
   }
 
   const env = getCachedEnv();
+  const hasNaverKey = (
+    ((env['naverClientId'] || env['NAVER_CLIENT_ID'] || env['naverCustomerId'] || '').trim().length >= 5) &&
+    ((env['naverClientSecret'] || env['NAVER_CLIENT_SECRET'] || env['naverSecretKey'] || '').trim().length >= 5)
+  );
+  const hasPerplexityKey = ((env['perplexityKey'] || env['PERPLEXITY_API_KEY'] || '').trim().length >= 10);
+  const hasGeminiKey = ((env['geminiKey'] || env['GEMINI_API_KEY'] || '').trim().length >= 10);
+
+  // 🔥 'auto' 모드: 사용자가 가진 키에 따라 자동 선택
+  //   1순위: 네이버 (무료 + 한국 콘텐츠 최강)
+  //   2순위: Perplexity (유료, 가장 정확)
+  //   3순위: Gemini Grounding (무료지만 429 이슈 있음)
+  //   실패: 건너뜀 + 경고
+  if (mode === 'auto') {
+    if (hasNaverKey) {
+      mode = 'naver';
+      console.log('[FACT-CHECK] 🤖 auto → 네이버 블로그 검색 (무료, 한국 콘텐츠)');
+    } else if (hasPerplexityKey) {
+      mode = 'perplexity';
+      console.log('[FACT-CHECK] 🤖 auto → Perplexity (유료, 정확)');
+    } else if (hasGeminiKey) {
+      mode = 'grounding';
+      console.log('[FACT-CHECK] 🤖 auto → Gemini Grounding (무료)');
+    } else {
+      console.log('[FACT-CHECK] ⚠️ 네이버/Perplexity/Gemini 키 모두 없음 → 팩트체크 스킵');
+      return { context: '', provider: 'none', success: false };
+    }
+  }
+
+  // ── 네이버 블로그 검색 모드 ──
+  if (mode === 'naver') {
+    const naverClientId = (env['naverClientId'] || env['NAVER_CLIENT_ID'] || env['naverCustomerId'] || '').trim();
+    const naverClientSecret = (env['naverClientSecret'] || env['NAVER_CLIENT_SECRET'] || env['naverSecretKey'] || '').trim();
+    if (naverClientId && naverClientSecret) {
+      try {
+        const result = await callNaverFactCheck(naverClientId, naverClientSecret, keyword);
+        if (result) {
+          console.log(`[FACT-CHECK] ✅ 네이버 팩트체크 완료 (${result.length}자)`);
+          return { context: result, provider: 'Naver Blog Search', success: true };
+        }
+      } catch (e: any) {
+        console.log(`[FACT-CHECK] ⚠️ 네이버 실패: ${e.message?.slice(0, 80)} → Perplexity/Grounding 폴백`);
+      }
+    } else {
+      console.log(`[FACT-CHECK] ⚠️ 네이버 API 키 없음 → Perplexity/Grounding 폴백`);
+    }
+    // 네이버 실패 → 다음 옵션으로 폴백
+    if (hasPerplexityKey) {
+      mode = 'perplexity';
+    } else if (hasGeminiKey) {
+      mode = 'grounding';
+    } else {
+      return { context: '', provider: 'none', success: false };
+    }
+  }
 
   // ── Perplexity 모드 ──
   if (mode === 'perplexity') {
@@ -169,27 +225,69 @@ async function callPerplexityFactCheck(apiKey: string, keyword: string): Promise
   throw lastError || new Error('Perplexity 팩트체크 실패');
 }
 
-async function callGeminiGroundingFactCheck(apiKey: string, keyword: string): Promise<string | null> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: FACT_CHECK_PROMPT(keyword) }] }],
-      tools: [{ googleSearchRetrieval: {} }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 1024 },
-    }),
-  });
-
-  if (!res.ok) throw new Error(`Gemini Grounding ${res.status}`);
-  const data = await res.json();
-  const content = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-  // Grounding 메타데이터 로깅
-  const metadata = data.candidates?.[0]?.groundingMetadata;
-  if (metadata?.webSearchQueries?.length) {
-    console.log(`[FACT-CHECK] 🔍 Grounding 검색: ${metadata.webSearchQueries.join(', ')}`);
-  }
-
+async function callGeminiGroundingFactCheck(_apiKey: string, keyword: string): Promise<string | null> {
+  // 🔥 통합 디스패처 사용 — Gemini면 Grounding, 다른 엔진이면 일반 호출로 자동 폴백
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { callGeminiWithGrounding } = require('./final/gemini-engine');
+  const result = await callGeminiWithGrounding(FACT_CHECK_PROMPT(keyword));
+  const content = (typeof result === 'string' ? result : result?.text || '').trim();
   return content && content.length > 50 ? content : null;
+}
+
+/**
+ * 네이버 블로그 검색 API로 팩트 컨텍스트 수집
+ * - 무료 (일일 25,000회 한도)
+ * - 한국어 콘텐츠에 최적화
+ * - 실제 블로그 제목 + 요약(description)을 팩트 소스로 반환
+ */
+async function callNaverFactCheck(clientId: string, clientSecret: string, keyword: string): Promise<string | null> {
+  const url = `https://openapi.naver.com/v1/search/blog.json?query=${encodeURIComponent(keyword)}&display=10&sort=sim`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'X-Naver-Client-Id': clientId,
+        'X-Naver-Client-Secret': clientSecret,
+      },
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Naver API ${res.status}: ${body.slice(0, 100)}`);
+    }
+
+    const data: any = await res.json();
+    const items = Array.isArray(data?.items) ? data.items : [];
+    if (items.length === 0) return null;
+
+    // HTML 태그 제거 후 실제 블로그 자료를 팩트 컨텍스트로 포맷
+    const stripTags = (s: string) => String(s || '').replace(/<[^>]+>/g, '').replace(/&[^;]+;/g, ' ').trim();
+    const lines: string[] = [];
+    lines.push(`[네이버 블로그 실시간 검색 결과 — "${keyword}"]`);
+    lines.push(`총 ${items.length}개 블로그 자료 수집됨. 아래 정보를 팩트 소스로 활용:`);
+    lines.push('');
+
+    items.slice(0, 10).forEach((it: any, i: number) => {
+      const title = stripTags(it.title);
+      const desc = stripTags(it.description);
+      const bloggerName = it.bloggername || '';
+      const postdate = it.postdate || '';
+      if (title && desc) {
+        lines.push(`${i + 1}. ${title}`);
+        if (bloggerName) lines.push(`   작성자: ${bloggerName}${postdate ? ` · ${postdate}` : ''}`);
+        lines.push(`   요약: ${desc.slice(0, 200)}`);
+        lines.push('');
+      }
+    });
+
+    const result = lines.join('\n').trim();
+    return result.length > 50 ? result : null;
+  } catch (e: any) {
+    clearTimeout(timeoutId);
+    throw e;
+  }
 }

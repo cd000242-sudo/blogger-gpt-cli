@@ -95,6 +95,14 @@ function createLoginWindow(parent) {
             },
             show: false // 준비될 때까지 숨김
         });
+        // 🔥 업데이터에 로그인 창 참조 연결 (업데이트 발견 시 자동 숨김)
+        try {
+            const { setUpdaterLoginWindow } = require('./updater');
+            setUpdaterLoginWindow(loginWindow);
+        }
+        catch (e) {
+            console.log('[LOGIN] updater 연결 생략:', e);
+        }
         const loginHtmlPath = path.join(__dirname, 'ui', 'login-window.html');
         // 로그인 창 로드
         loginWindow.loadFile(loginHtmlPath).then(() => {

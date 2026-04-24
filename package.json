@@ -1,6 +1,6 @@
 {
   "name": "lba",
-  "version": "3.5.4",
+  "version": "3.5.37",
   "description": "LEADERNAM Orbit - AI-powered blog automation",
   "main": "electron/main.js",
   "scripts": {
@@ -39,7 +39,10 @@
     "dist:all": "npm run build && electron-builder --win --mac --linux",
     "pack": "npm run build && node setup-pack-env.js && electron-builder --dir",
     "setup-pack-env": "node setup-pack-env.js",
-    "pre-release": "node scripts/pre-release-check.js"
+    "pre-release": "node scripts/pre-release-check.js",
+    "release": "npm run build && electron-builder --win --publish always && node scripts/publish-release.js",
+    "release:mac": "npm run build && electron-builder --mac --publish always && node scripts/publish-release.js",
+    "release:all": "npm run build && electron-builder --win --mac --linux --publish always && node scripts/publish-release.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -124,14 +127,12 @@
         {
           "target": "nsis",
           "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
-      "publisherName": "Leadernam"
+      "artifactName": "LEADERNAM-Orbit-${version}.${ext}"
     },
     "mac": {
       "target": [
@@ -175,6 +176,14 @@
       "installerHeaderIcon": "build/icon.ico",
       "menuCategory": true
     },
-    "compression": "maximum"
+    "compression": "maximum",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "cd000242-sudo",
+        "repo": "blogger-gpt-cli",
+        "releaseType": "release"
+      }
+    ]
   }
 }

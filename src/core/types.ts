@@ -28,6 +28,8 @@ export interface RunOnePostPayload {
   googleClientSecret?: string;  // Google OAuth Client Secret
   toneStyle?: string;
   draftContent?: string;
+  coupangAccessKey?: string;      // 🛒 쿠팡 파트너스 Access Key
+  coupangSecretKey?: string;      // 🛒 쿠팡 파트너스 Secret Key
   h2Images?: {
     source: string;
     sections: number[];

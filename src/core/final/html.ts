@@ -7,19 +7,10 @@
  */
 
 export function generateCSSFinal(platform?: string, contentMode?: string): string {
-  // 🛡️ 애드센스 모드: 플러그인 전용 Clean CSS 우선 사용
-  if (contentMode === 'adsense') {
-    try {
-      const { getMode } = require('../content-modes/mode-registry');
-      const adsensePlugin = getMode('adsense');
-      if (adsensePlugin?.generateCSS) {
-        console.log('[CSS] 🛡️ 애드센스 Clean Mode CSS 적용');
-        return adsensePlugin.generateCSS();
-      }
-    } catch (e) {
-      console.warn('[CSS] ⚠️ 애드센스 플러그인 CSS 로드 실패, 기본 CSS 사용');
-    }
-  }
+  // 🛡️ 애드센스 모드 CSS는 publisher.js:270의 injectCSS()가 단일 소스로 주입한다.
+  //    과거 여기서도 adsensePlugin.generateCSS()를 반환하여 본문에 raw CSS가 새거나
+  //    <style> 블록이 중복 주입되어 Blogger가 본문을 텍스트로 노출하는 회귀가 있었다.
+  //    WordPress 경로는 adsense 분기를 원래 쓰지 않았으므로 제거해도 영향 없음.
 
   const isWP = platform === 'wordpress';
   // 📝 블로그스팟 기본 인디고 팔레트 (blogger-theme-injector.ts와 동기화)
@@ -405,7 +396,50 @@ article .entry-content,
   line-height: 1.7;
 }
 
-/* ===== 📱 스마트폰 반응형 ===== */
+/* ═══════════════════════════════════════════════════════════════
+   🛡️ AdSense Ad-Safe Zone — Auto-Ads가 표/CTA 내부에 광고를 삽입하지 못하도록 차단
+   (Google은 class="ad-safe-zone", data-ad-region, role 기반으로 광고 배치를 회피)
+   ═══════════════════════════════════════════════════════════════ */
+.ad-safe-zone {
+  position: relative !important;
+  isolation: isolate !important;  /* 광고 주입 stacking context 격리 */
+  contain: layout style !important;  /* 레이아웃 오염 방지 */
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+.ad-safe-zone[data-ad-region="no-ad"]::before {
+  /* AdSense 크롤러 시그널 — 이 영역은 광고 배치 불가 */
+  content: "";
+  display: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   📊 Responsive Table — 반응형 표 (모바일 최적화 + AdSense 침입 차단)
+   ═══════════════════════════════════════════════════════════════ */
+.table-wrapper {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  margin: 28px 0 !important;
+}
+.summary-container {
+  padding: 24px !important;
+}
+.responsive-table {
+  width: 100% !important;
+  max-width: 100% !important;
+  border-collapse: collapse !important;
+  table-layout: auto !important;
+}
+.responsive-table th,
+.responsive-table td {
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  white-space: normal !important;
+}
+
+/* ===== 📱 스마트폰 반응형 (max-width: 768px) ===== */
 @media (max-width: 768px) {
   .gradient-frame {
     padding: 0 !important;
@@ -419,16 +453,80 @@ article .entry-content,
   .white-paper h1.post-title { font-size: 26px !important; }
   .white-paper h2 { font-size: 22px !important; margin: 40px 0 20px !important; }
   .white-paper p { font-size: 16px !important; line-height: 1.8 !important; }
-  
+
   .toc-grid-container { padding: 20px !important; }
   .toc-btn { padding: 14px 16px !important; font-size: 15px !important; }
-  
+
   .cta-box { padding: 24px 16px !important; }
-  .cta-btn { 
-    padding: 14px 16px !important; 
-    font-size: 16px !important; 
-    width: 100% !important; 
+  .cta-btn {
+    padding: 14px 16px !important;
+    font-size: 16px !important;
+    width: 100% !important;
     white-space: normal !important; /* 모바일 좁은 화면에서 텍스트 자동으로 줄바꿈 되도록 허용 */
+  }
+
+  /* 📊 모바일 표 — 글자/패딩 축소 + 줄바꿈 강제 */
+  .table-wrapper {
+    margin: 20px -4px !important;  /* 좌우 여백 살짝 확장 → 화면 활용도 ↑ */
+    border-radius: 8px !important;
+  }
+  .responsive-table {
+    font-size: 14px !important;
+  }
+  .responsive-table th,
+  .responsive-table .rt-th {
+    padding: 10px 10px !important;
+    font-size: 12px !important;
+    letter-spacing: 0.02em !important;
+  }
+  .responsive-table td,
+  .responsive-table .rt-td {
+    padding: 10px 10px !important;
+    font-size: 13px !important;
+    line-height: 1.5 !important;
+  }
+  /* 이미지 — 모바일에서도 100% 유지 */
+  .white-paper img {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
+  /* 📊 상단 요약표 컨테이너 — 모바일 패딩 축소로 표 짤림 방지 */
+  .summary-container {
+    padding: 14px !important;
+    margin: 0 0 24px !important;
+    border-radius: 12px !important;
+  }
+  .summary-container .table-wrapper {
+    margin: 12px 0 0 !important;
+  }
+}
+
+/* ===== 📱 초소형 스마트폰 반응형 (max-width: 380px) ===== */
+@media (max-width: 380px) {
+  .white-paper { padding: 20px 14px !important; }
+  .white-paper h1.post-title { font-size: 22px !important; }
+  .white-paper h2 { font-size: 19px !important; }
+  .white-paper p { font-size: 15px !important; }
+
+  .responsive-table {
+    font-size: 12px !important;
+  }
+  .responsive-table th,
+  .responsive-table .rt-th {
+    padding: 8px 6px !important;
+    font-size: 11px !important;
+  }
+  .responsive-table td,
+  .responsive-table .rt-td {
+    padding: 8px 6px !important;
+    font-size: 12px !important;
+  }
+
+  /* 📊 초소형 화면 — 요약표 컨테이너 패딩 추가 축소 */
+  .summary-container {
+    padding: 10px !important;
+    border-radius: 10px !important;
   }
 }
 

@@ -4,6 +4,9 @@
 import type { MaxModeSection, ContentModeConfig } from './types-interfaces';
 import { MAX_MODE_SECTIONS } from './section-configs';
 
+// 🔧 모듈 로드 시점의 연도 (프롬프트에 전달되는 섹션 설명 문자열에서 bare "년" 방지용)
+const RESOLVED_YEAR = new Date().getFullYear();
+
 // ============================================================================
 // 새로운 콘텐츠 모드 구조 정의
 // ============================================================================
@@ -363,7 +366,7 @@ export const PARAPHRASING_MODE_SECTIONS: MaxModeSection[] = [
     contentFocus: "원문 내용 + 새로운 관점, 다른 순서로 재배치, 보충 내용",
     requiredElements: [
       "유의어/동의어 100% 치환",
-      "원문에 없던 최신 데이터 추가 (년)",
+      `원문에 없던 최신 데이터 추가 (${RESOLVED_YEAR}년)`,
       "원문 내용을 다른 순서로 재배치",
       "원문에 없던 보충 내용",
       "새로운 이미지/그래프 제작"
@@ -407,7 +410,7 @@ export const PARAPHRASING_MODE_SECTIONS: MaxModeSection[] = [
     role: "콘텐츠 확장 전문가",
     contentFocus: "최신 트렌드 반영, 반대 의견/비판적 시각, 실전 체크리스트",
     requiredElements: [
-      "최신 트렌드 반영 (2024-년 변화)",
+      `최신 트렌드 반영 (2024-${RESOLVED_YEAR}년 변화)`,
       "반대 의견/비판적 시각 (균형잡힌 시각)",
       "실전 체크리스트 (오늘 바로 실천 가능한 5가지)",
       "원문 대비 20-30% 새로운 정보",
@@ -444,7 +447,7 @@ export const UPDATED_CONTENT_MODE_CONFIGS: Record<string, ContentModeConfig> = {
   spiderwebbing: {
     name: "일관성/거미줄치기 전문 모드",
     description: "체계적이고 일관성 있는 정보 제공에 중점을 둔 모드",
-    titleStrategy: "완벽 가이드 형식, 년 최신 정보 강조",
+    titleStrategy: `완벽 가이드 형식, ${RESOLVED_YEAR}년 최신 정보 강조`,
     sectionStrategy: "기본 개념 → 종류 분류 → 실전 가이드 → 비교 추천 → FAQ 마무리",
     tone: "전문적이면서도 이해하기 쉬운 교육적 톤",
     ctaStrategy: "자연스러운 내부링크 연결과 관련 콘텐츠 추천"
@@ -610,7 +613,7 @@ export const ADSENSE_APPROVAL_MODE_SECTIONS: MaxModeSection[] = [
 export const SHOPPING_CONVERSION_MODE_SECTIONS: MaxModeSection[] = [
   {
     id: "hook_problem",
-    title: "🔥 도입 — 문제 인식 & 후킹",
+    title: "[주제] 고를 때 꼭 알아야 할 것",
     description: "독자의 고통 포인트를 정확히 짚어 관심을 끄는 도입부",
     minChars: 800,
     role: "마케팅 심리 전문가",
@@ -624,7 +627,7 @@ export const SHOPPING_CONVERSION_MODE_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "product_intro_spec",
-    title: "📦 제품 소개 & 핵심 스펙",
+    title: "[주제] 핵심 스펙 총정리",
     description: "제품의 핵심 정보와 스펙을 시각적으로 정리하는 섹션",
     minChars: 1200,
     role: "제품 전문가이자 기술 분석가",
@@ -638,7 +641,7 @@ export const SHOPPING_CONVERSION_MODE_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "comparison_guide",
-    title: "⚖️ 비교 분석 & 선택 가이드",
+    title: "[주제] 비교 분석 & 선택 가이드",
     description: "경쟁 제품과의 비교와 장단점을 표로 시각화하는 섹션",
     minChars: 1500,
     role: "비교 분석 전문가",
@@ -652,7 +655,7 @@ export const SHOPPING_CONVERSION_MODE_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "real_reviews",
-    title: "💬 실사용 후기 & 사회적 증거",
+    title: "[주제] 실사용 후기 & 솔직 평가",
     description: "실제 사용자 후기와 Before&After로 신뢰를 구축하는 섹션",
     minChars: 1200,
     role: "사용자 경험 분석가",
@@ -665,8 +668,22 @@ export const SHOPPING_CONVERSION_MODE_SECTIONS: MaxModeSection[] = [
     ]
   },
   {
+    id: "honest_cons",
+    title: "[주제] 솔직한 단점 — 이런 분에겐 비추천",
+    description: "신뢰 구축의 핵심 — 칭찬만 늘어놓으면 독자가 즉시 이탈. 단점을 솔직하게 짚어야 전환율 상승",
+    minChars: 800,
+    role: "객관적 리뷰어",
+    contentFocus: "구체적 단점 3개 이상, 어떤 사용자에게는 맞지 않는지 명시",
+    requiredElements: [
+      "이 제품의 명확한 단점 3가지 이상 (구체적 사례)",
+      "이런 사용자에게는 비추천 (사용 시나리오 명시)",
+      "대안 제품 1~2개 짧게 언급",
+      "단점에도 불구하고 추천하는 이유 (균형감)"
+    ]
+  },
+  {
     id: "price_deal",
-    title: "💰 가격 & 구매 꿀팁",
+    title: "[주제] 최저가 & 구매 꿀팁",
     description: "가격 비교와 할인 정보를 시각적으로 강조하는 섹션",
     minChars: 1000,
     role: "구매 전략 컨설턴트",
@@ -680,7 +697,7 @@ export const SHOPPING_CONVERSION_MODE_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "faq_objection",
-    title: "❓ FAQ & 구매 저항 해소",
+    title: "[주제] 자주 묻는 질문 (FAQ)",
     description: "구매 전 궁금증을 해소하고 불안 요소를 제거하는 섹션",
     minChars: 800,
     role: "고객 상담 전문가",
@@ -694,7 +711,7 @@ export const SHOPPING_CONVERSION_MODE_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "final_cta",
-    title: "🛒 최종 구매 유도 & CTA",
+    title: "[주제] 구매 전 최종 체크리스트",
     description: "강력한 배너 CTA 버튼으로 즉시 구매 행동을 유도하는 마지막 섹션",
     minChars: 500,
     role: "전환 퍼포먼스 리더",
@@ -711,74 +728,71 @@ export const SHOPPING_CONVERSION_MODE_SECTIONS: MaxModeSection[] = [
 // 📝 내부 일관성 모드 섹션 구조 (시리즈형 글 — TV 에피소드 스타일)
 export const INTERNAL_CONSISTENCY_SECTIONS: MaxModeSection[] = [
   {
-    id: "series_intro",
-    title: "① 시리즈 위치 + 도입",
-    description: "이 글이 시리즈 어디에 위치하는지 + 오늘 다룰 내용 소개",
+    id: "topic_intro",
+    title: "[주제] 핵심 개요",
+    description: "주제 소개와 독자가 얻을 핵심 가치 제시",
     minChars: 600,
-    role: "시리즈 진행자",
-    contentFocus: "시리즈 맥락 제공, 이전 글 간단 회고, 오늘의 핵심 질문 제시",
+    role: "정보 전달자",
+    contentFocus: "주제 소개, 독자 관점 질문, 오늘 글의 핵심 가치",
     requiredElements: [
-      "시리즈 맥락: '[대주제] 시리즈에서 이번에는 [소주제]를 다룹니다'",
-      "이전 글 간단 회고: '지난번에 [이전 소주제]를 알아봤는데요' (첫 글이면 시리즈 전체 소개)",
-      "오늘 글의 핵심 질문: '오늘은 ~는 어떻게 하는 걸까?에 대해 답해보겠습니다'",
-      "일관된 오프닝 패턴 유지 (독자가 시리즈임을 즉시 인식)"
+      "주제의 중요성과 독자가 이 글에서 얻을 가치",
+      "독자의 일반적 궁금증/고민 제시",
+      "글 전체의 로드맵 1문장 요약",
+      "과거/미래 시리즈 언급 절대 금지"
     ]
   },
   {
     id: "core_knowledge",
-    title: "② 핵심 지식 전달",
-    description: "이번 소주제의 핵심 정보를 체계적으로 전달 (글의 메인 가치)",
+    title: "[주제] 핵심 지식",
+    description: "주제의 핵심 정보를 체계적으로 전달",
     minChars: 1500,
     role: "해당 분야 전문가",
-    contentFocus: "H3 소제목 3~4개로 구조화, 구체적 수치/데이터, 이전 글 내용과의 연결",
+    contentFocus: "H3 소제목 3~4개로 구조화, 구체적 수치/데이터",
     requiredElements: [
       "H3 소제목 3~4개로 구조화",
       "구체적 수치/데이터 5개 이상",
-      "이전 글 내용과의 연결점 (자연스럽게 1~2회): '지난 글에서 다룬 [개념]을 기반으로 하면...'",
-      "일관된 설명 깊이 (시리즈 전체가 같은 수준)",
-      "일관된 용어 사용 (시리즈 내 동일 용어 통일)"
+      "일관된 설명 깊이와 용어",
+      "외부 글 참조 금지"
     ]
   },
   {
     id: "deep_dive_case",
-    title: "③ 심화·사례 분석",
+    title: "[주제] 심화 분석 & 사례",
     description: "실제 사례·적용법으로 핵심 지식 보강",
     minChars: 1000,
     role: "실무 경험자",
-    contentFocus: "실제 사례, 단계별 가이드, 팁, 다음 글 연결점",
+    contentFocus: "실제 사례, 단계별 가이드, 팁",
     requiredElements: [
       "실제 사례 또는 시나리오 2개 이상",
       "단계별 가이드 또는 체크리스트",
-      "'💡 팁:' 2~3개",
-      "시리즈 흐름 연결: '다음 글에서 다룰 [주제]와 연결되는 부분이기도 합니다'"
+      "실전 팁 2~3개",
+      "다른 글 언급 절대 금지"
     ]
   },
   {
     id: "key_takeaways",
-    title: "④ 📌 오늘의 핵심",
-    description: "빠른 복습용 핵심 정리 (매번 동일한 포맷!)",
+    title: "[주제] 핵심 요약",
+    description: "빠른 복습용 핵심 정리",
     minChars: 400,
     role: "정보 요약가",
-    contentFocus: "고정 포맷: 불릿 3~5개 + 한 줄 결론 (이 포맷은 절대 변경 금지)",
+    contentFocus: "불릿 리스트와 한 줄 결론",
     requiredElements: [
-      "📌 오늘의 핵심 제목 (매번 동일)",
       "불릿 3~5개로 핵심 요약",
-      "💬 한 줄 정리: '[한 문장 결론]'",
-      "이 섹션은 시리즈 모든 글에서 100% 동일 포맷"
+      "한 줄 정리 결론",
+      "독립적이고 완결된 마무리"
     ]
   },
   {
-    id: "next_episode",
-    title: "⑤ 📺 다음 편 예고",
-    description: "다음 글 주제 예고 → 재방문 동기 부여",
+    id: "additional_resources",
+    title: "[주제] 더 알아보기",
+    description: "독자가 추가로 탐색할 수 있는 가이드 제공",
     minChars: 300,
-    role: "시리즈 진행자",
-    contentFocus: "고정 포맷: 다음 주제 1줄 소개 + 왜 읽어야 하는지 (절대 변경 금지)",
+    role: "정보 안내자",
+    contentFocus: "추가 학습 포인트와 관련 개념 소개",
     requiredElements: [
-      "📺 다음 편 예고 제목 (매번 동일)",
-      "다음 글에서 다룰 주제 1줄 소개",
-      "왜 이번 글 다음에 그 주제를 다루는지 논리적 설명",
-      "기대감 형성 문구"
+      "추가 탐색 주제 2~3개 제안",
+      "각 주제가 왜 유용한지 짧은 설명",
+      "존재하지 않는 글 언급 금지"
     ]
   }
 ];
@@ -787,7 +801,7 @@ export const INTERNAL_CONSISTENCY_SECTIONS: MaxModeSection[] = [
 export const PARAPHRASING_PROFESSIONAL_MODE_SECTIONS: MaxModeSection[] = [
   {
     id: "introduction_paraphrase",
-    title: "서론 (페러프레이징)",
+    title: "[주제] 핵심 개요",
     description: "원문 서론을 완전히 다른 표현으로 재작성",
     minChars: 400, // 4,000자 목표를 위해 증가 (300 → 400)
     role: "페러프레이징 전문가",
@@ -802,14 +816,14 @@ export const PARAPHRASING_PROFESSIONAL_MODE_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "content_expansion",
-    title: "내용 확장 및 심화",
+    title: "[주제] 심층 분석",
     description: "원문 내용을 확장하고 심화하는 섹션",
     minChars: 700, // 4,000자 목표를 위해 감소 (1500 → 700)
     role: "콘텐츠 확장 전문가",
     contentFocus: "원문 내용 + 새로운 관점 추가, 다른 순서로 재배치, 보충 내용",
     requiredElements: [
       "유의어/동의어 100% 치환",
-      "원문에 없던 최신 데이터 추가 (년)",
+      `원문에 없던 최신 데이터 추가 (${RESOLVED_YEAR}년)`,
       "원문 내용을 다른 순서로 재배치",
       "설명 방식 전환 (리스트→서술형)",
       "나만의 예시로 교체",
@@ -820,7 +834,7 @@ export const PARAPHRASING_PROFESSIONAL_MODE_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "perspective_change",
-    title: "관점 전환 및 재구성",
+    title: "[주제] 다른 관점에서 보기",
     description: "원문을 다른 관점에서 재구성하는 섹션",
     minChars: 700, // 4,000자 목표를 위해 감소 (1500 → 700)
     role: "관점 전환 전문가",
@@ -837,7 +851,7 @@ export const PARAPHRASING_PROFESSIONAL_MODE_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "structural_reorganization",
-    title: "구조적 재편성",
+    title: "[주제] 체계적 정리",
     description: "원문 구조를 완전히 바꿔서 재구성",
     minChars: 700, // 4,000자 목표를 위해 감소 (1500 → 700)
     role: "구조 재편성 전문가",
@@ -855,13 +869,13 @@ export const PARAPHRASING_PROFESSIONAL_MODE_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "new_content_addition",
-    title: "새로운 내용 추가",
+    title: "[주제] 최신 트렌드 & 추가 정보",
     description: "원문에 없던 새로운 섹션 추가",
     minChars: 700, // 4,000자 목표를 위해 감소 (1500 → 700)
     role: "콘텐츠 확장 전문가",
     contentFocus: "최신 트렌드 반영, 반대 의견/비판적 시각, 실전 체크리스트",
     requiredElements: [
-      "2024-년 변화 내용",
+      `2024-${RESOLVED_YEAR}년 변화 내용`,
       "원문 작성 이후 달라진 점",
       "원문이 긍정적이면 → 한계점 추가",
       "원문이 부정적이면 → 장점 추가",
@@ -873,7 +887,7 @@ export const PARAPHRASING_PROFESSIONAL_MODE_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "conclusion_expansion",
-    title: "종합 정리 및 확장",
+    title: "[주제] 종합 정리 & 결론",
     description: "원문과 다른 결론으로 마무리",
     minChars: 800, // 4,000자 목표를 위해 감소 (1500 → 800) - 마무리는 조금 더 길게
     role: "결론 확장 전문가",

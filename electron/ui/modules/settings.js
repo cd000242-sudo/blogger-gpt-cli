@@ -47,6 +47,8 @@ export async function saveSettings() {
     leonardoKey: document.getElementById('leonardoKey')?.value || '',
     dalleApiKey: document.getElementById('dalleApiKey')?.value || '',
     pexelsApiKey: document.getElementById('pexelsApiKey')?.value || '',
+    coupangAccessKey: document.getElementById('coupangAccessKey')?.value || '',
+    coupangSecretKey: document.getElementById('coupangSecretKey')?.value || '',
     naverCustomerId: document.getElementById('naverCustomerId')?.value || '',
     naverSecretKey: document.getElementById('naverSecretKey')?.value || '',
     blogId: document.getElementById('blogId')?.value || '',
@@ -60,8 +62,17 @@ export async function saveSettings() {
     wordpressPassword: document.getElementById('wordpressPassword')?.value || '',
     wordpressCategories: document.getElementById('wordpressCategories')?.value || '',
     platform: document.querySelector('input[name="platform"]:checked')?.value || 'wordpress',
-    generationEngine: document.getElementById('generationEngine')?.value || 'gemini',
     primaryGeminiTextModel: document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value || 'gemini-2.5-flash',
+    generationEngine: (() => {
+      // 🔥 환경설정의 primaryGeminiTextModel 라디오를 단일 진실 소스로 사용
+      const m = document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value;
+      if (!m) return 'gemini';
+      if (m.startsWith('gemini-')) return 'gemini';
+      if (m.startsWith('openai-')) return 'openai';
+      if (m.startsWith('claude-')) return 'claude';
+      if (m === 'perplexity-sonar') return 'perplexity';
+      return 'gemini';
+    })(),
     defaultAiProvider: (() => {
       const m = document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value;
       if (!m) return 'gemini';
@@ -101,6 +112,11 @@ export async function saveSettings() {
         perplexityKey: settings.perplexityKey,
         leonardoKey: settings.leonardoKey,
         dalleApiKey: settings.dalleApiKey,
+        // 🔥 쿠팡 파트너스 키
+        coupangAccessKey: settings.coupangAccessKey,
+        coupangSecretKey: settings.coupangSecretKey,
+        // 🔥 톤스타일도 저장
+        toneStyle: settings.toneStyle,
         generationEngine: settings.generationEngine,
         primaryGeminiTextModel: settings.primaryGeminiTextModel,
         defaultAiProvider: settings.defaultAiProvider
@@ -402,7 +418,12 @@ export async function loadSettingsContent() {
         'wordpressPassword': mergedSettings.wordpressPassword || mergedSettings.wpPassword || mergedSettings.wordpressPass || '',
         'imageFolderPath': mergedSettings.imageFolderPath || '',
         'generationEngine': mergedSettings.generationEngine || mergedSettings.provider || 'gemini',
-        'blogUrl': mergedSettings.blogUrl || ''
+        'blogUrl': mergedSettings.blogUrl || '',
+        // 🔥 누락된 필드 보강
+        'coupangAccessKey': mergedSettings.coupangAccessKey || '',
+        'coupangSecretKey': mergedSettings.coupangSecretKey || '',
+        'toneStyle': mergedSettings.toneStyle || 'professional',
+        'wordpressCategories': mergedSettings.wordpressCategories || '',
       };
 
       // 라디오 카드 복원: primaryGeminiTextModel

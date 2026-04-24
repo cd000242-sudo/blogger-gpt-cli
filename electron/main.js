@@ -1566,7 +1566,9 @@ electron_1.ipcMain.handle('run-multi-account-post', async (_evt, payload) => {
             provider: 'gemini',
             geminiKey: geminiKey,
             publishType: 'now',
-            thumbnailMode: payload.imageSource === 'none' ? 'none' : 'default',
+            thumbnailMode: payload.imageSource || 'imagefx',
+            thumbnailType: payload.imageSource || 'imagefx',
+            thumbnailSource: payload.imageSource || 'imagefx',
             h2ImageSource: payload.imageSource,
             toneStyle: payload.toneStyle || 'professional',
             contentMode: payload.contentMode || 'external',
@@ -1700,7 +1702,25 @@ electron_1.ipcMain.handle('save-env', async (_evt, envData) => {
             'adspowerPort': 'ADSPOWER_PORT',
             'adspowerProfileId': 'ADSPOWER_PROFILE_ID',
             'adspowerApiKey': 'ADSPOWER_API_KEY',
-            'crawlProxy': 'CRAWL_PROXY'
+            'crawlProxy': 'CRAWL_PROXY',
+            // 🔥 누락 매핑 보강 — 누락되면 key.toUpperCase() 폴백으로 인해 `CLAUDEKEY` 같은 잘못된 언더스코어 없는 키가 저장되고 로더가 못 읽음
+            'claudeKey': 'CLAUDE_API_KEY',
+            'claudeApiKey': 'CLAUDE_API_KEY',
+            'anthropicApiKey': 'CLAUDE_API_KEY',
+            'perplexityKey': 'PERPLEXITY_API_KEY',
+            'perplexityApiKey': 'PERPLEXITY_API_KEY',
+            'leonardoKey': 'LEONARDO_API_KEY',
+            'leonardoApiKey': 'LEONARDO_API_KEY',
+            'coupangAccessKey': 'COUPANG_ACCESS_KEY',
+            'coupangSecretKey': 'COUPANG_SECRET_KEY',
+            'generationEngine': 'GENERATION_ENGINE',
+            'primaryGeminiTextModel': 'PRIMARY_TEXT_MODEL',
+            'defaultAiProvider': 'DEFAULT_AI_PROVIDER',
+            'toneStyle': 'TONE_STYLE',
+            'wordpressCategories': 'WORDPRESS_CATEGORIES',
+            'wordpressTags': 'WORDPRESS_TAGS',
+            'blogUrl': 'BLOG_URL',
+            'imageFolderPath': 'IMAGE_FOLDER_PATH',
         };
         // 기존 .env 파일 읽기
         const envMap = new Map();
@@ -1827,8 +1847,15 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
     try {
         console.log('[RUN-POST] 포스트 실행 요청 받음');
         console.log('[RUN-POST] payload keys:', Object.keys(payload || {}));
+        // 🔥 즉시 초기 progress 이벤트 전송 (프론트 watchdog 시작점)
+        if (_evt.sender && !_evt.sender.isDestroyed()) {
+            _evt.sender.send('run-progress', { p: 1, label: '백엔드 초기화 중...' });
+        }
         const { generateMaxModeArticle, publishGeneratedContent } = require('../dist/core/index');
         console.log('[RUN-POST] core/index 로드 완료');
+        if (_evt.sender && !_evt.sender.isDestroyed()) {
+            _evt.sender.send('run-progress', { p: 3, label: '모듈 로드 완료' });
+        }
         // env 객체 생성
         const env = {
             contentMode: payload?.contentMode || 'external',
@@ -1916,59 +1943,76 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
             onLog('[PROGRESS] 100% - ✅ 미리보기 생성 완료');
             return { ok: true, ...result, preview: true };
         }
-        // 2. 실제 발행 (블로그스팟/워드프레스)
+        // 2. 실제 발행 (블로그스팟/워드프레스) — 네트워크 오류 시 최대 2회 재시도
         onLog('[PROGRESS] 95% - 📤 블로그에 발행 중...');
-        try {
-            // 🔥 생성된 labels를 payload에 병합 (태그 자동 적용)
-            if (result.labels && Array.isArray(result.labels) && result.labels.length > 0) {
-                payload.generatedLabels = result.labels;
-                console.log(`[RUN-POST] ✅ 생성된 labels ${result.labels.length}개를 payload에 병합:`, result.labels.slice(0, 5));
-            }
-            const publishResult = await publishGeneratedContent(payload, result.title || payload.topic, result.html || result.content, result.thumbnail || result.thumbnailUrl || '');
-            if (publishResult && publishResult.ok) {
-                onLog('[PROGRESS] 100% - ✅ 발행 완료!');
-                console.log('[RUN-POST] ✅ 발행 성공:', publishResult.url);
-                // IndexNow 자동 색인 요청 (발행 성공 시)
-                if (publishResult.url) {
-                    try {
-                        const { submitToIndexNow } = require('../dist/core/indexnow');
-                        const postUrl = publishResult.url;
-                        submitToIndexNow(postUrl, [postUrl]).then((indexResult) => {
-                            console.log('[INDEXNOW] 자동 색인 요청:', indexResult.ok ? '성공' : '실패');
-                        }).catch(() => { });
-                    }
-                    catch { /* ignore */ }
+        // 🔥 생성된 labels를 payload에 병합 (태그 자동 적용)
+        if (result.labels && Array.isArray(result.labels) && result.labels.length > 0) {
+            payload.generatedLabels = result.labels;
+            console.log(`[RUN-POST] ✅ 생성된 labels ${result.labels.length}개를 payload에 병합:`, result.labels.slice(0, 5));
+        }
+        const MAX_PUBLISH_RETRIES = 2;
+        let lastPublishError = null;
+        for (let attempt = 0; attempt <= MAX_PUBLISH_RETRIES; attempt++) {
+            try {
+                if (attempt > 0) {
+                    const waitSec = attempt * 3;
+                    onLog(`[PROGRESS] 95% - 🔄 발행 재시도 (${attempt}/${MAX_PUBLISH_RETRIES})... ${waitSec}초 대기`);
+                    await new Promise(r => setTimeout(r, waitSec * 1000));
                 }
-                return {
-                    ok: true,
-                    ...result,
-                    url: publishResult.url,
-                    postId: publishResult.postId || publishResult.id,
-                    published: true
-                };
+                const publishResult = await publishGeneratedContent(payload, result.title || payload.topic, result.html || result.content, result.thumbnail || result.thumbnailUrl || '');
+                if (publishResult && publishResult.ok) {
+                    onLog('[PROGRESS] 100% - ✅ 발행 완료!');
+                    console.log('[RUN-POST] ✅ 발행 성공:', publishResult.url);
+                    // IndexNow 자동 색인 요청
+                    if (publishResult.url) {
+                        try {
+                            const { submitToIndexNow } = require('../dist/core/indexnow');
+                            submitToIndexNow(publishResult.url, [publishResult.url]).then((indexResult) => {
+                                console.log('[INDEXNOW] 자동 색인 요청:', indexResult.ok ? '성공' : '실패');
+                            }).catch(() => { });
+                        }
+                        catch { /* ignore */ }
+                    }
+                    return {
+                        ok: true,
+                        ...result,
+                        url: publishResult.url,
+                        postId: publishResult.postId || publishResult.id,
+                        published: true,
+                        needsAuth: publishResult.needsAuth || false
+                    };
+                }
+                else {
+                    lastPublishError = publishResult?.error || '발행 실패';
+                    const isNetworkError = /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|timeout|network/i.test(String(lastPublishError));
+                    // 인증 오류는 재시도 무의미
+                    const isAuthError = /401|403|auth|token|OAuth|needsAuth|invalid_grant/i.test(String(lastPublishError));
+                    if (isAuthError || !isNetworkError) {
+                        // 재시도 불가 에러 → 즉시 종료
+                        break;
+                    }
+                    // 네트워크 오류 → 재시도 계속
+                    console.warn(`[RUN-POST] 발행 실패 (네트워크, ${attempt + 1}/${MAX_PUBLISH_RETRIES + 1}):`, lastPublishError);
+                }
             }
-            else {
-                console.error('[RUN-POST] 발행 실패:', publishResult?.error);
-                onLog(`[PROGRESS] 100% - ⚠️ 발행 실패: ${publishResult?.error || '알 수 없는 오류'}`);
-                // 콘텐츠는 생성됨, 발행만 실패
-                return {
-                    ok: true,
-                    ...result,
-                    publishError: publishResult?.error || '발행 실패',
-                    published: false
-                };
+            catch (publishError) {
+                lastPublishError = publishError instanceof Error ? publishError.message : String(publishError);
+                const isNetworkError = /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|timeout|network/i.test(lastPublishError);
+                if (!isNetworkError)
+                    break;
+                console.warn(`[RUN-POST] 발행 에러 (네트워크, ${attempt + 1}/${MAX_PUBLISH_RETRIES + 1}):`, lastPublishError);
             }
         }
-        catch (publishError) {
-            console.error('[RUN-POST] 발행 에러:', publishError);
-            onLog(`[PROGRESS] 100% - ⚠️ 발행 에러: ${publishError}`);
-            return {
-                ok: true,
-                ...result,
-                publishError: publishError instanceof Error ? publishError.message : '발행 에러',
-                published: false
-            };
-        }
+        // 모든 시도 실패
+        console.error('[RUN-POST] 발행 최종 실패:', lastPublishError);
+        onLog(`[PROGRESS] 100% - ⚠️ 발행 실패: ${lastPublishError}`);
+        return {
+            ok: true,
+            ...result,
+            publishError: lastPublishError,
+            published: false,
+            needsAuth: /auth|token|OAuth|invalid_grant/i.test(String(lastPublishError))
+        };
     }
     catch (error) {
         console.error('[RUN-POST] 실행 실패:', error);
@@ -2234,9 +2278,14 @@ electron_1.ipcMain.handle('validate-env', async () => {
 // ============================================
 electron_1.ipcMain.handle('make-thumb', async (_evt, payload) => {
     try {
-        const { makeSmartThumbnail } = require('../dist/thumbnail');
-        const result = await makeSmartThumbnail(payload.topic, payload.mode || 'default');
-        return { ok: true, thumbnailUrl: result };
+        // 🎯 사용자 선택 엔진 → dispatcher 경유 (silent override 방지)
+        const { dispatchThumbnailGeneration } = require('../dist/core/imageDispatcher');
+        const source = payload.source || payload.thumbnailSource || payload.mode || 'imagefx';
+        const result = await dispatchThumbnailGeneration(source, payload.topic || payload.title || '', payload.keyword || payload.topic || '');
+        if (result.ok) {
+            return { ok: true, thumbnailUrl: result.dataUrl, source: result.source };
+        }
+        return { ok: false, error: result.error || '썸네일 생성 실패' };
     }
     catch (error) {
         console.error('[THUMBNAIL] 생성 실패:', error);
@@ -3422,27 +3471,35 @@ electron_1.ipcMain.handle('generate-smart-keywords', async (_evt, args) => {
 // ============================================
 // 누락 핸들러 Phase 3: 인증 관련 (6개)
 // ============================================
-// 워드프레스 인증 상태 확인
+// 워드프레스 인증 상태 확인 (🔥 WP_URL 또는 WORDPRESS_SITE_URL 둘 다 지원)
 electron_1.ipcMain.handle('wordpress-check-auth-status', async () => {
     try {
         const env = (0, env_1.loadEnvFromFile)();
-        const authenticated = !!(env.WP_URL && (env.WP_USERNAME || env.WP_JWT_TOKEN));
-        return { ok: true, authenticated, siteUrl: env.WP_URL };
+        const siteUrl = env.WP_URL || env.WORDPRESS_SITE_URL || env.wordpressSiteUrl || '';
+        const username = env.WP_USERNAME || env.WORDPRESS_USERNAME || env.wordpressUsername || '';
+        const password = env.WP_JWT_TOKEN || env.WORDPRESS_PASSWORD || env.wordpressPassword || '';
+        const authenticated = !!(siteUrl && (username || password));
+        return { ok: true, authenticated, siteUrl };
     }
     catch (error) {
         return { ok: false, authenticated: false, error: error instanceof Error ? error.message : '확인 실패' };
     }
 });
-// 플랫폼 인증 확인
+// 플랫폼 인증 확인 (🔥 env 키명 호환성)
 electron_1.ipcMain.handle('check-platform-auth', async (_evt, platform) => {
     try {
         const env = (0, env_1.loadEnvFromFile)();
         let authenticated = false;
         if (platform === 'blogger') {
-            authenticated = !!(env.BLOGGER_CLIENT_ID && env.BLOGGER_CLIENT_SECRET);
+            const clientId = env.BLOGGER_CLIENT_ID || env.GOOGLE_CLIENT_ID || env.googleClientId || '';
+            const clientSecret = env.BLOGGER_CLIENT_SECRET || env.GOOGLE_CLIENT_SECRET || env.googleClientSecret || '';
+            authenticated = !!(clientId && clientSecret);
         }
         else if (platform === 'wordpress') {
-            authenticated = !!(env.WP_URL && (env.WP_USERNAME || env.WP_JWT_TOKEN));
+            const siteUrl = env.WP_URL || env.WORDPRESS_SITE_URL || env.wordpressSiteUrl || '';
+            const username = env.WP_USERNAME || env.WORDPRESS_USERNAME || env.wordpressUsername || '';
+            const password = env.WP_JWT_TOKEN || env.WORDPRESS_PASSWORD || env.wordpressPassword || '';
+            authenticated = !!(siteUrl && (username || password));
         }
         return { ok: true, authenticated, platform };
     }
@@ -3648,8 +3705,8 @@ electron_1.ipcMain.handle('check-api-keys', async () => {
             gemini: !!env.GEMINI_API_KEY,
             openai: !!env.OPENAI_API_KEY,
             claude: !!env.CLAUDE_API_KEY,
-            blogger: !!(env.BLOGGER_CLIENT_ID && env.BLOGGER_CLIENT_SECRET),
-            wordpress: !!env.WP_URL
+            blogger: !!((env.BLOGGER_CLIENT_ID || env.GOOGLE_CLIENT_ID) && (env.BLOGGER_CLIENT_SECRET || env.GOOGLE_CLIENT_SECRET)),
+            wordpress: !!(env.WP_URL || env.WORDPRESS_SITE_URL)
         };
         console.log('[API-KEYS] 네이버 검색광고 API 상태:', {
             hasLicense: !!searchAdLicense,
@@ -3947,24 +4004,20 @@ electron_1.app.whenReady().then(async () => {
         createWindow();
     }
     else {
-        // 배포 환경: 업데이트 체크 먼저 → 최신이면 인증창
-        const { initAutoUpdaterEarly, waitForUpdateCheck, registerUpdaterHandlers } = require('./updater');
+        // 배포 환경: 인증창을 먼저 띄우고 업데이트 체크는 백그라운드 병렬 실행
+        // (업데이트 체크가 빈 화면으로 멈추는 UX 문제 방지)
+        const { initAutoUpdaterEarly, registerUpdaterHandlers, setUpdaterLoginWindow } = require('./updater');
         registerUpdaterHandlers();
-        // 1단계: 업데이트 체크 (인증창 없이)
-        console.log('[APP] 🔄 업데이트 확인 중... (인증창 대기)');
+        // 🔥 업데이트 체크를 비동기로 즉시 시작 (인증창과 병렬)
+        console.log('[APP] 🔄 업데이트 체크 백그라운드 시작...');
         try {
             initAutoUpdaterEarly();
-            const hasUpdate = await waitForUpdateCheck().catch(() => false);
-            if (hasUpdate) {
-                console.log('[APP] ⬆️ 업데이트 발견 → 다운로드 후 자동 재시작, 인증창 안 띄움');
-                return; // 다운로드 완료 후 자동 재시작
-            }
         }
         catch (e) {
-            console.log('[APP] 업데이트 체크 실패 (무시):', e.message);
+            console.log('[APP] 업데이트 체크 시작 실패 (무시):', e.message);
         }
-        // 2단계: 최신 버전 → 인증창 표시
-        console.log('[APP] ✅ 최신 버전 → 인증창 표시');
+        // 🔥 인증창을 즉시 표시 (업데이트 체크 대기하지 않음)
+        console.log('[APP] ✅ 인증창 표시 (업데이트는 백그라운드)');
         const licenseValid = await (0, main_login_1.checkLicenseWithAutoLogin)();
         if (licenseValid) {
             console.log('[APP] ✅ 라이선스 인증 완료, 메인 윈도우 생성');

@@ -1262,6 +1262,34 @@ const LogManager = {
     if (logContent) {
       const logEntry = document.createElement('div');
 
+      // 🔥 [BILLING:provider] 마커 → 충전 버튼 변환
+      const billingUrls = {
+        gemini: 'https://aistudio.google.com/plan_billing',
+        openai: 'https://platform.openai.com/settings/organization/billing',
+        claude: 'https://console.anthropic.com/settings/billing',
+        perplexity: 'https://www.perplexity.ai/settings/api',
+      };
+      const billingNames = { gemini: 'Google AI Studio', openai: 'OpenAI', claude: 'Anthropic', perplexity: 'Perplexity' };
+      const billingMatch = message.match(/\[BILLING:(\w+)\]/);
+      let billingHtml = '';
+      if (billingMatch) {
+        const provider = billingMatch[1];
+        const url = billingUrls[provider] || '';
+        const name = billingNames[provider] || provider;
+        message = message.replace(/\[BILLING:\w+\]/, '').trim();
+        if (url) {
+          billingHtml = `<button onclick="(window.electronAPI?.openExternal || window.open)('${url}')" style="margin-top:8px;padding:8px 16px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">💳 ${name} 크레딧 충전하기 →</button>`;
+        }
+      }
+
+      // 🔗 [LINK:url] 마커 → 클릭 가능한 링크 변환
+      const linkMatch = message.match(/\[LINK:(https?:\/\/[^\]]+)\]/);
+      if (linkMatch) {
+        const linkUrl = linkMatch[1];
+        message = message.replace(/\[LINK:https?:\/\/[^\]]+\]/, '');
+        billingHtml += `<a onclick="(window.electronAPI?.openExternal || window.open)('${linkUrl}')" style="margin-top:6px;padding:8px 16px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:none;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">🔗 발행된 글 바로가기 →</a>`;
+      }
+
       let autoType = type;
       if (message.includes('[PROGRESS]')) {
         autoType = 'progress';
@@ -1282,16 +1310,16 @@ const LogManager = {
             <span class="progress-indicator">📊 ${progressPercent}%</span>
             <span class="progress-message">${message.replace(/\d+%/, '').trim()}</span>
             <span class="log-timestamp">[${new Date().toLocaleTimeString()}]</span>
-          `;
+          ` + billingHtml;
         } else {
           logEntry.innerHTML = `
             <span class="progress-message">${message}</span>
             <span class="log-timestamp">[${new Date().toLocaleTimeString()}]</span>
-          `;
+          ` + billingHtml;
         }
       } else {
         logEntry.className = `log-entry ${autoType}`;
-        logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        logEntry.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}` + billingHtml;
       }
 
       logContent.appendChild(logEntry);

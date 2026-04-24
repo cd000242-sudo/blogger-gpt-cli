@@ -3,6 +3,7 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
+import { callGeminiWithRetry } from './final/gemini-engine';
 
 // 유틸리티 함수
 function getDateDaysAgo(days: number): string {
@@ -510,44 +511,8 @@ export class SubtopicCrawler {
       
       const prompt = this.buildAISubtopicPrompt(topic, keywords, crawledData, targetYear);
       
-      let response: string | undefined;
-      if (provider === 'openai' && this.openai) {
-        const completion = await this.openai.chat.completions.create({
-          model: 'gpt-4',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.7
-        });
-        response = completion.choices[0]?.message?.content || '';
-      } else if (provider === 'gemini' && this.gemini) {
-        // Gemini 2.0 이상 모델 사용 (할당량 초과 시 폴백)
-        const models = ['gemini-3-pro-preview', 'gemini-2.5-flash', 'gemini-2.5-pro'];
-        let model = null;
-        let lastError = null;
-        
-        for (const modelName of models) {
-          try {
-            model = this.gemini.getGenerativeModel({ model: modelName });
-            const result = await model.generateContent(prompt);
-            response = result.response.text();
-            break; // 성공하면 중단
-          } catch (error: any) {
-            const errorMsg = String(error?.message || error || '');
-            const isRateLimit = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded.*quota/i.test(errorMsg);
-            if (isRateLimit && models.indexOf(modelName) < models.length - 1) {
-              lastError = error;
-              continue; // 할당량 초과 시 다음 모델 시도
-            }
-            throw error; // 다른 오류는 즉시 throw
-          }
-        }
-        
-        if (!response) {
-          throw lastError || new Error('사용 가능한 Gemini 모델이 없습니다.');
-        }
-      } else {
-        throw new Error('AI 모델이 설정되지 않았습니다.');
-      }
-      
+      const response = await callGeminiWithRetry(prompt);
+
       // AI 응답에서 소제목 5개 추출
       const subtopic = this.extractSubtopicFromResponse(response);
       
@@ -677,44 +642,8 @@ ${topSubtopic.map((title, i) => `${i + 1}. ${title} (${frequencyData[i]})`).join
       
       const prompt = this.buildSmallSubtopicPrompt(mainSubtopic, topic, keywords);
       
-      let response: string | undefined;
-      if (provider === 'openai' && this.openai) {
-        const completion = await this.openai.chat.completions.create({
-          model: 'gpt-4',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.7
-        });
-        response = completion.choices[0]?.message?.content || '';
-      } else if (provider === 'gemini' && this.gemini) {
-        // Gemini 2.0 이상 모델 사용 (할당량 초과 시 폴백)
-        const models = ['gemini-3-pro-preview', 'gemini-2.5-flash', 'gemini-2.5-pro'];
-        let model = null;
-        let lastError = null;
-        
-        for (const modelName of models) {
-          try {
-            model = this.gemini.getGenerativeModel({ model: modelName });
-            const result = await model.generateContent(prompt);
-            response = result.response.text();
-            break; // 성공하면 중단
-          } catch (error: any) {
-            const errorMsg = String(error?.message || error || '');
-            const isRateLimit = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded.*quota/i.test(errorMsg);
-            if (isRateLimit && models.indexOf(modelName) < models.length - 1) {
-              lastError = error;
-              continue; // 할당량 초과 시 다음 모델 시도
-            }
-            throw error; // 다른 오류는 즉시 throw
-          }
-        }
-        
-        if (!response) {
-          throw lastError || new Error('사용 가능한 Gemini 모델이 없습니다.');
-        }
-      } else {
-        throw new Error('AI 모델이 설정되지 않았습니다.');
-      }
-      
+      const response = await callGeminiWithRetry(prompt);
+
       // AI 응답에서 작은 소제목 3-4개 추출
       const smallSubtopic = this.extractSmallSubtopicFromResponse(response);
       

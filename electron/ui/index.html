@@ -99,38 +99,66 @@
       }
     }
 
-    /* ⚙️ 상세설정 아코디언 스타일 */
-    .posting-accordion-header {
+    /* ⚙️ 상세설정 탭 스타일 (posting-settings-* 네임스페이스로 환경설정 탭과 분리) */
+    .posting-settings-tab-bar {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 14px 16px;
+      gap: 4px;
+      padding: 4px;
       background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 10px;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      overflow-x: auto;
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    .posting-settings-tab-bar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .posting-settings-tab {
+      flex: 0 0 auto;
+      min-width: 64px;
+      padding: 10px 12px;
+      background: transparent;
+      border: none;
+      border-radius: 8px;
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 12px;
+      font-weight: 600;
       cursor: pointer;
       transition: all 0.2s ease;
-      user-select: none;
-    }
-
-    .posting-accordion-header:hover {
-      background: rgba(255, 255, 255, 0.08);
-      border-color: rgba(99, 102, 241, 0.3);
-    }
-
-    .posting-accordion-body {
-      max-height: 0;
-      overflow: hidden;
-      opacity: 0;
-      padding: 0 16px;
-      transition: max-height 0.35s ease, opacity 0.3s ease, padding 0.3s ease;
       display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+
+    .posting-settings-tab:hover {
+      color: rgba(255, 255, 255, 0.8);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .posting-settings-tab.active {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.3) 0%, rgba(168, 85, 247, 0.3) 100%);
+      color: white;
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
+    }
+
+    .posting-settings-tab-panel {
+      display: none;
       flex-direction: column;
       gap: 14px;
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
     }
 
-    .acc-chevron {
-      transition: transform 0.3s ease;
+    .posting-settings-tab-panel.active {
+      display: flex;
     }
 
     .acc-field {
@@ -143,30 +171,6 @@
       font-size: 13px;
       font-weight: 600;
       color: rgba(255, 255, 255, 0.85);
-    }
-
-    .acc-select {
-      width: 100%;
-      padding: 10px 14px;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 8px;
-      color: white;
-      font-size: 13px;
-      outline: none;
-      cursor: pointer;
-      transition: border-color 0.2s ease;
-      -webkit-appearance: none;
-      appearance: none;
-    }
-
-    .acc-select:focus {
-      border-color: rgba(99, 102, 241, 0.5);
-    }
-
-    .acc-select option {
-      background: #1e293b;
-      color: white;
     }
 
 
@@ -544,10 +548,12 @@
                     style="width: 100%; padding: 16px; border: 2px solid #e5e7eb; border-radius: 12px; font-size: 16px; background: #f9fafb; color: #1e293b; transition: all 0.3s ease; box-sizing: border-box;"
                     onfocus="this.style.borderColor='#10b981'; this.style.backgroundColor='#ffffff';"
                     onblur="this.style.borderColor='#e5e7eb'; this.style.backgroundColor='#f9fafb';">
-                    <option value="auto">자동 생성</option>
-                    <option value="nanobananapro">🍌 Nano Banana Pro</option>
-                    <option value="deepinfra">🔥 DeepInfra</option>
-                    <option value="none">썸네일 없음</option>
+                    <option value="auto" selected>⚙️ 자동 (썸네일 타입 따름)</option>
+                    <option value="imagefx">🎨 이미지 FX (기본)</option>
+                    <option value="flow">🌊 Flow (Nano Banana Pro 무료 — AI Pro 구독 필요)</option>
+                    <option value="nanobananapro">🍌 Nano Banana Pro (Gemini API 유료)</option>
+                    <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
+                    <option value="none">❌ 썸네일 없음</option>
                   </select>
                 </div>
 
@@ -843,37 +849,37 @@
                 <div style="margin-bottom: 14px;">
                   <div style="font-size: 11px; font-weight: 800; color: rgba(255,255,255,0.55); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">🧠 OpenAI</div>
                   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
-                    <label class="tier-card" data-tier="가성비" data-cost="16"
+                    <label class="tier-card" data-tier="가성비" data-cost="12"
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(16,185,129,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="openai-gpt4o-mini" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span style="font-weight: 800; color: white; font-size: 13px;">💰 GPT-4.1 mini</span>
+                        <span style="font-weight: 800; color: white; font-size: 13px;">💰 GPT-5 nano</span>
                         <span style="background: linear-gradient(135deg,#34d399,#059669); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">가성비</span>
                       </div>
-                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">빠른 속도 · 합리적 가격 · 안정적 품질</div>
-                      <div style="font-size: 12px; color: #6ee7b7; font-weight: 800;">~₩16/글</div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">최신 GPT-5 nano · 초저비용 · 빠른 속도</div>
+                      <div style="font-size: 12px; color: #6ee7b7; font-weight: 800;">~₩12/글</div>
                     </label>
 
-                    <label class="tier-card" data-tier="균형" data-cost="42"
+                    <label class="tier-card" data-tier="균형" data-cost="30"
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(139,92,246,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="openai-gpt41" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span style="font-weight: 800; color: white; font-size: 13px;">⚖️ GPT-4.1</span>
+                        <span style="font-weight: 800; color: white; font-size: 13px;">⚖️ GPT-5 mini</span>
                         <span style="background: linear-gradient(135deg,#a78bfa,#7c3aed); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">균형</span>
                       </div>
-                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">균형 잡힌 품질 · 가격 대비 성능 우수</div>
-                      <div style="font-size: 12px; color: #c4b5fd; font-weight: 800;">~₩42/글</div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">최신 GPT-5 mini · 품질/가격 균형 · 일반 글에 최적</div>
+                      <div style="font-size: 12px; color: #c4b5fd; font-weight: 800;">~₩30/글</div>
                     </label>
 
-                    <label class="tier-card" data-tier="프리미엄" data-cost="101"
+                    <label class="tier-card" data-tier="프리미엄" data-cost="60"
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(245,158,11,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="openai-gpt4o" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span style="font-weight: 800; color: white; font-size: 13px;">🚀 GPT-4o</span>
-                        <span style="background: linear-gradient(135deg,#fbbf24,#d97706); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">프리미엄</span>
+                        <span style="font-weight: 800; color: white; font-size: 13px;">🚀 GPT-5</span>
+                        <span style="background: linear-gradient(135deg,#fbbf24,#d97706); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">최신 플래그십</span>
                       </div>
-                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">강력한 추론 · 정확한 지시 이행</div>
-                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩101/글</div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">OpenAI 최신 플래그십 · 강력한 추론 · 정확한 지시 이행</div>
+                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩60/글</div>
                     </label>
                   </div>
                 </div>
@@ -908,7 +914,7 @@
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(245,158,11,0.45); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="claude-opus" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span style="font-weight: 800; color: white; font-size: 13px;">👑 Claude Opus 4.6</span>
+                        <span style="font-weight: 800; color: white; font-size: 13px;">👑 Claude Opus 4.7</span>
                         <span style="background: linear-gradient(135deg,#fbbf24,#d97706); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">최고 품질</span>
                       </div>
                       <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">최상급 추론 · 완벽한 글쓰기</div>
@@ -966,6 +972,10 @@
                         // generationEngine select 동기화 (하위호환)
                         if (genSelect) {
                           genSelect.value = deriveProvider(input.value);
+                        }
+                        // 상단 배지 + 포스팅 탭 칩 즉시 갱신
+                        if (typeof window.updateAiModelStatus === 'function') {
+                          try { window.updateAiModelStatus(); } catch (e) { /* ignore */ }
                         }
                       } else {
                         card.style.background = 'rgba(15,23,42,0.55)';
@@ -1092,6 +1102,54 @@
                 </div>
               </div>
 
+              <!-- 🛒 쿠팡 파트너스 오픈 API (쇼핑 모드 전용) -->
+              <div style="background: rgba(30, 41, 59, 0.4); border-top: 1px solid rgba(255,255,255,0.12); border-left: 1px solid rgba(255,255,255,0.06); border-right: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 24px; margin-bottom: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+                <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
+                  <span style="font-size: 28px;">🛒</span>
+                  <div>
+                    <h4 style="margin: 0; font-size: 18px; font-weight: 800; color: white; letter-spacing: -0.3px;">쿠팡 파트너스 오픈 API</h4>
+                    <p style="margin: 4px 0 0 0; font-size: 13px; color: rgba(255,255,255,0.6);">쇼핑 모드에서 실제 상품 데이터 + 자동 제휴 딥링크 (선택)</p>
+                  </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                  <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(255, 107, 53, 0.15);">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                      <span style="font-size: 18px;">🔑</span>
+                      <label style="color: white; font-weight: 700; font-size: 14px;">ACCESS KEY
+                        <span style="background: rgba(255, 107, 53, 0.15); color: #ff6b35; padding: 2px 8px; border-radius: 20px; font-size: 11px; margin-left: 6px; font-weight: 500;">선택</span>
+                      </label>
+                    </div>
+                    <div style="position: relative; width: 100%;">
+                      <input type="password" id="coupangAccessKey" placeholder="쿠팡 파트너스 센터에서 발급한 Access Key"
+                        style="width: 100%; padding: 14px 44px 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box; transition: all 0.3s;"
+                        onfocus="this.style.borderColor='rgba(255, 107, 53, 0.5)'; this.style.background='rgba(0,0,0,0.4)'; this.style.boxShadow='0 0 0 3px rgba(255, 107, 53, 0.15)';"
+                        onblur="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(0,0,0,0.2)'; this.style.boxShadow='none';">
+                      <button onclick="togglePasswordVisibility(this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: rgba(255,255,255,0.4); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px;"><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path><circle cx='12' cy='12' r='3'></circle></svg></button>
+                    </div>
+                  </div>
+                  <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(255, 107, 53, 0.15);">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                      <span style="font-size: 18px;">🔒</span>
+                      <label style="color: white; font-weight: 700; font-size: 14px;">SECRET KEY
+                        <span style="background: rgba(255, 107, 53, 0.15); color: #ff6b35; padding: 2px 8px; border-radius: 20px; font-size: 11px; margin-left: 6px; font-weight: 500;">선택</span>
+                      </label>
+                    </div>
+                    <div style="position: relative; width: 100%;">
+                      <input type="password" id="coupangSecretKey" placeholder="쿠팡 파트너스 센터에서 발급한 Secret Key"
+                        style="width: 100%; padding: 14px 44px 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box; transition: all 0.3s;"
+                        onfocus="this.style.borderColor='rgba(255, 107, 53, 0.5)'; this.style.background='rgba(0,0,0,0.4)'; this.style.boxShadow='0 0 0 3px rgba(255, 107, 53, 0.15)';"
+                        onblur="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(0,0,0,0.2)'; this.style.boxShadow='none';">
+                      <button onclick="togglePasswordVisibility(this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: rgba(255,255,255,0.4); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px;"><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path><circle cx='12' cy='12' r='3'></circle></svg></button>
+                    </div>
+                  </div>
+                  <div style="padding: 12px 14px; background: rgba(255, 107, 53, 0.08); border-left: 3px solid #ff6b35; border-radius: 8px;">
+                    <p style="margin: 0; font-size: 12px; color: rgba(255,255,255,0.75); line-height: 1.6;">
+                      💡 <strong style="color:#ffa07a;">쿠팡 파트너스 오픈 API는 일정 실적 충족 후 발급됩니다.</strong> API 키를 입력하면 쇼핑 모드에서 실제 상품명/가격/이미지/제휴링크를 자동으로 가져와 할루시네이션 없이 글을 생성하고, 쿠팡 URL을 자동으로 제휴 링크로 변환합니다.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <!-- 이미지 생성 API (선택) -->
               <div
                 style="background: rgba(30, 41, 59, 0.4); border-top: 1px solid rgba(255,255,255,0.12); border-left: 1px solid rgba(255,255,255,0.06); border-right: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 24px; margin-bottom: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
@@ -1210,11 +1268,11 @@
                 </div>
               </div>
 
-              <!-- 숨겨진 호환성 필드 (기존 코드 호환용) -->
-              <input type="hidden" id="openaiKey" value="">
-              <input type="hidden" id="pexelsApiKey" value="">
-              <input type="hidden" id="stabilityApiKey" value="">
-              <input type="hidden" id="dalleApiKey" value="">
+              <!-- 🔥 DOM 충돌 방지: hidden fallback은 visible 입력과 다른 ID 사용 -->
+              <input type="hidden" id="openaiKeyHidden" value="">
+              <input type="hidden" id="pexelsApiKeyHidden" value="">
+              <input type="hidden" id="stabilityApiKeyHidden" value="">
+              <input type="hidden" id="dalleApiKeyHidden" value="">
             </div>
 
             <!-- 📝 블로그 플랫폼 탭 -->
@@ -3125,7 +3183,7 @@
                     </div>
                   </h2>
                   <div style="display: flex; gap: 8px;">
-                    <span
+                    <span id="aiEngineBadge"
                       style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.3); color: #10b981; padding: 6px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">
                       🤖 Gemini AI
                     </span>
@@ -3215,16 +3273,16 @@
 
                 <!-- 🔧 글 생성 엔진 + 연속 발행 간격 -->
                 <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-                  <!-- 글 생성 엔진 -->
+                  <!-- 글 생성 엔진 (환경설정 단일 소스) -->
                   <div style="flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 14px 16px;">
-                    <label style="font-size: 12px; color: rgba(255,255,255,0.6); font-weight: 600; display: block; margin-bottom: 6px;">🤖 글 생성 엔진</label>
-                    <select id="postingEngineSelect" onchange="document.getElementById('generationEngine') && (document.getElementById('generationEngine').value = this.value)"
-                      style="width: 100%; padding: 8px 10px; background: rgba(15,23,42,0.8); color: white; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; outline: none;">
-                      <option value="gemini">Gemini (기본)</option>
-                      <option value="perplexity">Perplexity</option>
-                      <option value="openai">OpenAI</option>
-                      <option value="claude">Claude</option>
-                    </select>
+                    <label style="font-size: 12px; color: rgba(255,255,255,0.6); font-weight: 600; display: block; margin-bottom: 6px;">🤖 글 생성 엔진 <span style="opacity: 0.55;">(환경설정에서 변경)</span></label>
+                    <button type="button" id="currentEngineDisplay"
+                      onclick="if(typeof openSettingsModal==='function') openSettingsModal();"
+                      title="클릭하면 환경설정이 열립니다"
+                      style="width: 100%; padding: 8px 12px; background: rgba(15,23,42,0.8); color: white; border: 1px solid rgba(139,92,246,0.35); border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; outline: none; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                      <span id="currentEngineLabel">🤖 Gemini 2.5 Flash</span>
+                      <span style="font-size: 11px; color: rgba(255,255,255,0.45); font-weight: 500;">⚙️ 변경</span>
+                    </button>
                   </div>
                   <!-- 연속 발행 간격 -->
                   <div style="flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 14px 16px;">
@@ -3294,85 +3352,17 @@
                 <div id="postingSettingsAccordion"
                   style="display: none; margin-bottom: 24px; transition: all 0.3s ease;">
 
-                  <!-- 아코디언 스타일 -->
+                  <!-- 탭 패널 내부 스타일 -->
                   <style>
-                    .posting-accordion-section {
-                      margin-bottom: 8px;
-                      border-radius: 12px;
-                      overflow: hidden;
-                      border: 1px solid rgba(255, 255, 255, 0.08);
-                      transition: all 0.2s ease;
-                    }
-
-                    .posting-accordion-section:hover {
-                      border-color: rgba(255, 255, 255, 0.15);
-                    }
-
-                    .posting-accordion-header {
-                      display: flex;
-                      align-items: center;
-                      justify-content: space-between;
-                      padding: 14px 18px;
-                      background: rgba(255, 255, 255, 0.04);
-                      cursor: pointer;
-                      transition: all 0.2s ease;
-                      user-select: none;
-                    }
-
-                    .posting-accordion-header:hover {
-                      background: rgba(255, 255, 255, 0.07);
-                    }
-
-                    .posting-accordion-header .acc-icon {
-                      width: 32px;
-                      height: 32px;
-                      border-radius: 8px;
-                      display: flex;
-                      align-items: center;
-                      justify-content: center;
-                      font-size: 16px;
-                      flex-shrink: 0;
-                    }
-
-                    .posting-accordion-header .acc-title {
-                      font-size: 14px;
-                      font-weight: 700;
-                      color: white;
-                    }
-
-                    .posting-accordion-header .acc-desc {
-                      font-size: 11px;
-                      color: rgba(255, 255, 255, 0.5);
-                      margin-top: 1px;
-                    }
-
-                    .posting-accordion-header .acc-chevron {
-                      transition: transform 0.3s ease;
-                      color: rgba(255, 255, 255, 0.4);
-                    }
-
-                    .posting-accordion-body {
-                      max-height: 0;
-                      overflow: hidden;
-                      transition: max-height 0.3s ease, padding 0.3s ease;
-                      padding: 0 18px;
-                      background: rgba(255, 255, 255, 0.02);
-                    }
-
-                    .posting-accordion-body.open {
-                      max-height: 2000px;
-                      padding: 16px 18px;
-                    }
-
-                    .posting-accordion-body .acc-field {
+                    .posting-settings-tab-panel .acc-field {
                       margin-bottom: 16px;
                     }
 
-                    .posting-accordion-body .acc-field:last-child {
+                    .posting-settings-tab-panel .acc-field:last-child {
                       margin-bottom: 0;
                     }
 
-                    .posting-accordion-body .acc-label {
+                    .posting-settings-tab-panel .acc-label {
                       color: rgba(255, 255, 255, 0.85);
                       font-weight: 600;
                       font-size: 13px;
@@ -3380,10 +3370,10 @@
                       display: block;
                     }
 
-                    .posting-accordion-body select,
-                    .posting-accordion-body input[type="text"],
-                    .posting-accordion-body input[type="datetime-local"],
-                    .posting-accordion-body textarea {
+                    .posting-settings-tab-panel select,
+                    .posting-settings-tab-panel input[type="text"],
+                    .posting-settings-tab-panel input[type="datetime-local"],
+                    .posting-settings-tab-panel textarea {
                       width: 100%;
                       background: rgba(255, 255, 255, 0.08);
                       border: 1px solid rgba(255, 255, 255, 0.15);
@@ -3396,401 +3386,345 @@
                       font-family: inherit;
                     }
 
-                    .posting-accordion-body select:focus,
-                    .posting-accordion-body input:focus,
-                    .posting-accordion-body textarea:focus {
+                    .posting-settings-tab-panel select:focus,
+                    .posting-settings-tab-panel input:focus,
+                    .posting-settings-tab-panel textarea:focus {
                       border-color: rgba(99, 102, 241, 0.6);
                       background: rgba(255, 255, 255, 0.12);
                       outline: none;
                     }
 
-                    .posting-accordion-body select option {
+                    .posting-settings-tab-panel select option {
                       background: #1e293b;
                       color: white;
                     }
-
-                    @keyframes shimmer {
-                      0% {
-                        left: -100%;
-                      }
-
-                      100% {
-                        left: 100%;
-                      }
-                    }
-
-                    @keyframes pulse {
-
-                      0%,
-                      100% {
-                        transform: scale(1);
-                      }
-
-                      50% {
-                        transform: scale(1.15);
-                      }
-                    }
                   </style>
 
+                  <!-- 탭 바 -->
+                  <div class="posting-settings-tab-bar">
+                    <button class="posting-settings-tab active" onclick="switchPostingSettingsTab('tab-content')" data-tab="tab-content">📝 콘텐츠</button>
+                    <button class="posting-settings-tab" onclick="switchPostingSettingsTab('tab-image')" data-tab="tab-image">🖼️ 이미지</button>
+                    <button class="posting-settings-tab" onclick="switchPostingSettingsTab('tab-publish')" data-tab="tab-publish">📌 발행</button>
+                    <button class="posting-settings-tab" onclick="switchPostingSettingsTab('tab-draft')" data-tab="tab-draft">📄 초안</button>
+                    <button class="posting-settings-tab" onclick="switchPostingSettingsTab('tab-category')" data-tab="tab-category" id="settingsTabCategory">🏷️ 카테고리</button>
+                  </div>
+
                   <!-- ① 콘텐츠 설정 -->
-                  <div class="posting-accordion-section">
-                    <div class="posting-accordion-header" onclick="togglePostingAccordion('acc-content')">
-                      <div style="display: flex; align-items: center; gap: 12px;">
-                        <div class="acc-icon" style="background: linear-gradient(135deg, #10b981, #059669);">📝</div>
-                        <div>
-                          <div class="acc-title">콘텐츠 설정</div>
-                          <div class="acc-desc">제목 모드 · 콘텐츠 모드 · 말투 · 제목 옵션</div>
-                        </div>
+                  <div class="posting-settings-tab-panel active" id="tab-content">
+                    <div class="acc-field">
+                      <label class="acc-label">🤖 제목 생성 모드</label>
+                      <select id="titleMode">
+                        <option value="auto">🤖 자동 생성 (키워드 기반)</option>
+                        <option value="custom">✏️ 직접 입력</option>
+                      </select>
+                      <div id="customTitleWrapper" style="display: none; margin-top: 8px;">
+                        <input type="text" id="customTitle" placeholder="원하는 제목을 직접 입력하세요">
+                        <small style="color: rgba(168,85,247,0.7); font-size: 11px; margin-top: 4px; display: block;">💡 키워드와 별도로 원하는 제목을 지정할 수 있습니다</small>
                       </div>
-                      <svg class="acc-chevron" id="chevron-acc-content" width="16" height="16" viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6,9 12,15 18,9"></polyline>
-                      </svg>
+                      <script>
+                        document.getElementById('titleMode').addEventListener('change', function () {
+                          const w = document.getElementById('customTitleWrapper');
+                          if (w) w.style.display = this.value === 'custom' ? 'block' : 'none';
+                        });
+                      </script>
                     </div>
-                    <div class="posting-accordion-body" id="acc-content">
-                      <!-- 제목 생성 모드 -->
-                      <div class="acc-field">
-                        <label class="acc-label">🤖 제목 생성 모드</label>
-                        <select id="titleMode">
-                          <option value="auto">🤖 자동 생성 (키워드 기반)</option>
-                          <option value="custom">✏️ 직접 입력</option>
-                        </select>
-                        <div id="customTitleWrapper" style="display: none; margin-top: 8px;">
-                          <input type="text" id="customTitle" placeholder="원하는 제목을 직접 입력하세요">
-                          <small
-                            style="color: rgba(168,85,247,0.7); font-size: 11px; margin-top: 4px; display: block;">💡
-                            키워드와 별도로 원하는 제목을 지정할 수 있습니다</small>
+
+                    <div class="acc-field">
+                      <label class="acc-label">🎯 콘텐츠 모드</label>
+                      <select id="contentMode">
+                        <option value="external">🎯 SEO 최적화 모드/정보전달</option>
+                        <option value="internal">📝 내부링크 일관성 모드/정보전달</option>
+                        <option value="shopping">🛍️ 쇼핑/구매유도 모드</option>
+                        <option value="adsense">🏆 에드센스승인 모드/정보전달</option>
+                        <option value="paraphrasing">🔄 페러프레이징 모드 (MAX 구조)</option>
+                      </select>
+                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 6px; display: block;">
+                        <strong>SEO:</strong> 검색 상위노출 중심 · <strong>일관:</strong> 내부 콘텐츠 연결 · <strong>쇼핑:</strong> 상품
+                        리뷰/비교 · <strong>애드센스:</strong> 전문성 중심
+                      </small>
+                      <div id="adsenseAuthorSection"
+                        style="display: none; margin-top: 14px; padding: 14px; background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(6, 78, 59, 0.12) 100%); border-radius: 10px; border: 1px solid rgba(16, 185, 129, 0.25);">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                          <span style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">E-E-A-T</span>
+                          <span style="font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.9);">저자 프로필 설정</span>
                         </div>
-                        <script>
-                          document.getElementById('titleMode').addEventListener('change', function () {
-                            const w = document.getElementById('customTitleWrapper');
-                            if (w) w.style.display = this.value === 'custom' ? 'block' : 'none';
-                          });
-                        </script>
-                      </div>
-
-                      <!-- 콘텐츠 모드 -->
-                      <div class="acc-field">
-                        <label class="acc-label">🎯 콘텐츠 모드</label>
-                        <select id="contentMode">
-                          <option value="external">🎯 SEO 최적화 모드/정보전달</option>
-                          <option value="internal">📝 내부링크 일관성 모드/정보전달</option>
-                          <option value="shopping">🛍️ 쇼핑/구매유도 모드</option>
-                          <option value="adsense">🏆 에드센스승인 모드/정보전달</option>
-                          <option value="paraphrasing">🔄 페러프레이징 모드 (MAX 구조)</option>
-                        </select>
-                        <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 6px; display: block;">
-                          <strong>SEO:</strong> 검색 상위노출 중심 · <strong>일관:</strong> 내부 콘텐츠 연결 · <strong>쇼핑:</strong> 상품
-                          리뷰/비교 · <strong>애드센스:</strong> 전문성 중심
-                        </small>
-
-                        <!-- 🏆 E-E-A-T 저자 정보 (adsense 모드 전용) -->
-                        <div id="adsenseAuthorSection"
-                          style="display: none; margin-top: 14px; padding: 14px; background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(6, 78, 59, 0.12) 100%); border-radius: 10px; border: 1px solid rgba(16, 185, 129, 0.25);">
-                          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                            <span
-                              style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">E-E-A-T</span>
-                            <span style="font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.9);">저자 프로필
-                              설정</span>
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                          <div>
+                            <label style="color: rgba(255,255,255,0.7); font-size: 11px; font-weight: 600; margin-bottom: 4px; display: block;">👤 저자 이름</label>
+                            <input type="text" id="adsenseAuthorName" placeholder="예: 김도현"
+                              style="width: 100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: white; font-size: 13px; padding: 9px 12px; border-radius: 8px; box-sizing: border-box;">
                           </div>
-                          <div style="display: flex; flex-direction: column; gap: 10px;">
-                            <div>
-                              <label
-                                style="color: rgba(255,255,255,0.7); font-size: 11px; font-weight: 600; margin-bottom: 4px; display: block;">👤
-                                저자 이름</label>
-                              <input type="text" id="adsenseAuthorName" placeholder="예: 김도현"
-                                style="width: 100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: white; font-size: 13px; padding: 9px 12px; border-radius: 8px; box-sizing: border-box;">
-                            </div>
-                            <div>
-                              <label
-                                style="color: rgba(255,255,255,0.7); font-size: 11px; font-weight: 600; margin-bottom: 4px; display: block;">🎓
-                                전문 분야 / 직함</label>
-                              <input type="text" id="adsenseAuthorTitle" placeholder="예: 공간 디자인 전문가"
-                                style="width: 100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: white; font-size: 13px; padding: 9px 12px; border-radius: 8px; box-sizing: border-box;">
-                            </div>
-                            <div>
-                              <label
-                                style="color: rgba(255,255,255,0.7); font-size: 11px; font-weight: 600; margin-bottom: 4px; display: block;">📋
-                                자격 / 경력</label>
-                              <input type="text" id="adsenseAuthorCredentials"
-                                placeholder="예: 홈오피스 컨설팅 5년 경력 | 인테리어 디자인 학사"
-                                style="width: 100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: white; font-size: 13px; padding: 9px 12px; border-radius: 8px; box-sizing: border-box;">
-                            </div>
+                          <div>
+                            <label style="color: rgba(255,255,255,0.7); font-size: 11px; font-weight: 600; margin-bottom: 4px; display: block;">🎓 전문 분야 / 직함</label>
+                            <input type="text" id="adsenseAuthorTitle" placeholder="예: 공간 디자인 전문가"
+                              style="width: 100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: white; font-size: 13px; padding: 9px 12px; border-radius: 8px; box-sizing: border-box;">
                           </div>
-                          <small
-                            style="color: rgba(255,255,255,0.4); font-size: 10px; margin-top: 8px; display: block;">💡
-                            비워두면 AI가 주제에 맞는 가상 전문가를 자동 생성합니다</small>
+                          <div>
+                            <label style="color: rgba(255,255,255,0.7); font-size: 11px; font-weight: 600; margin-bottom: 4px; display: block;">📋 자격 / 경력</label>
+                            <input type="text" id="adsenseAuthorCredentials" placeholder="예: 홈오피스 컨설팅 5년 경력 | 인테리어 디자인 학사"
+                              style="width: 100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: white; font-size: 13px; padding: 9px 12px; border-radius: 8px; box-sizing: border-box;">
+                          </div>
                         </div>
-                        <script>
-                          document.getElementById('contentMode').addEventListener('change', function () {
-                            const section = document.getElementById('adsenseAuthorSection');
-                            if (section) section.style.display = this.value === 'adsense' ? 'block' : 'none';
-                          });
-                        </script>
+                        <small style="color: rgba(255,255,255,0.4); font-size: 10px; margin-top: 8px; display: block;">💡 비워두면 AI가 주제에 맞는 가상 전문가를 자동 생성합니다</small>
                       </div>
+                      <script>
+                        document.getElementById('contentMode').addEventListener('change', function () {
+                          const section = document.getElementById('adsenseAuthorSection');
+                          if (section) section.style.display = this.value === 'adsense' ? 'block' : 'none';
+                          // 🔥 사용자가 고른 contentMode를 localStorage에 즉시 저장
+                          //   (DOM이 어떤 이유로 재렌더/리셋되더라도 createPayload가 이 값을 읽어 사용)
+                          try { localStorage.setItem('contentMode', this.value); } catch (e) { /* ignore */ }
+                        });
 
-                      <!-- 말투/어투 선택 -->
-                      <div class="acc-field">
-                        <label class="acc-label">🎭 말투/어투</label>
-                        <select id="toneStyle">
-                          <option value="professional" selected>💼 전문적</option>
-                          <option value="friendly">😊 친근한</option>
-                          <option value="casual">😎 캐주얼</option>
-                          <option value="formal">🎩 격식있는</option>
-                          <option value="conversational">💬 대화체</option>
-                        </select>
-                      </div>
+                        // 🔥 앱 시작 시 저장된 contentMode 복원
+                        (function restoreContentMode() {
+                          try {
+                            const saved = localStorage.getItem('contentMode');
+                            const el = document.getElementById('contentMode');
+                            if (el && saved && el.value !== saved) {
+                              el.value = saved;
+                              // 저자 섹션 표시 여부도 동기화
+                              const section = document.getElementById('adsenseAuthorSection');
+                              if (section) section.style.display = saved === 'adsense' ? 'block' : 'none';
+                            }
+                          } catch (e) { /* ignore */ }
+                        })();
 
-                      <!-- 제목 옵션 -->
-                      <div class="acc-field">
-                        <label class="acc-label">🎯 제목 옵션</label>
-                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                          <label
-                            style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: rgba(255,255,255,0.8); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); transition: all 0.2s ease;">
-                            <input type="checkbox" id="useKeywordAsTitle"
-                              style="width: 14px; height: 14px; accent-color: #a855f7;">
-                            키워드를 제목으로
-                          </label>
-                          <label
-                            style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: rgba(255,255,255,0.8); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); transition: all 0.2s ease;">
-                            <input type="checkbox" id="keywordFront"
-                              style="width: 14px; height: 14px; accent-color: #3b82f6;">
-                            키워드 맨앞 배치
-                          </label>
-                        </div>
+                        // 🔥 저자 프로필 자동 저장 + 앱 시작 시 복원
+                        (function() {
+                          const fields = ['adsenseAuthorName', 'adsenseAuthorTitle', 'adsenseAuthorCredentials'];
+                          const STORAGE_KEY = 'adsenseAuthorProfile';
+
+                          // 저장된 값 복원 (DOMContentLoaded + 즉시 실행)
+                          function restoreAuthorProfile() {
+                            try {
+                              const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+                              fields.forEach(id => {
+                                const el = document.getElementById(id);
+                                if (el && saved[id] && !el.value) el.value = saved[id];
+                              });
+                            } catch (e) { /* ignore */ }
+                          }
+
+                          // input에 타이핑할 때마다 저장
+                          function setupAutoSave() {
+                            fields.forEach(id => {
+                              const el = document.getElementById(id);
+                              if (!el || el.dataset.autoSaveAttached) return;
+                              el.dataset.autoSaveAttached = 'true';
+                              const saveHandler = () => {
+                                try {
+                                  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+                                  saved[id] = el.value.trim();
+                                  localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+                                } catch (e) { /* ignore */ }
+                              };
+                              el.addEventListener('input', saveHandler);
+                              el.addEventListener('change', saveHandler);
+                              el.addEventListener('blur', saveHandler);
+                            });
+                          }
+
+                          // 즉시 시도
+                          restoreAuthorProfile();
+                          setupAutoSave();
+                          // DOMContentLoaded 이후에도 한 번 더
+                          if (document.readyState !== 'complete') {
+                            window.addEventListener('load', () => {
+                              restoreAuthorProfile();
+                              setupAutoSave();
+                            });
+                          }
+                        })();
+                      </script>
+                    </div>
+
+                    <div class="acc-field">
+                      <label class="acc-label">🎭 말투/어투</label>
+                      <select id="toneStyle">
+                        <option value="professional" selected>💼 전문적</option>
+                        <option value="friendly">😊 친근한</option>
+                        <option value="casual">😎 캐주얼</option>
+                        <option value="formal">🎩 격식있는</option>
+                        <option value="conversational">💬 대화체</option>
+                      </select>
+                    </div>
+
+                    <div class="acc-field">
+                      <label class="acc-label">🎯 제목 옵션</label>
+                      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: rgba(255,255,255,0.8); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); transition: all 0.2s ease;">
+                          <input type="checkbox" id="useKeywordAsTitle" style="width: 14px; height: 14px; accent-color: #a855f7;">
+                          키워드를 제목으로
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: rgba(255,255,255,0.8); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); transition: all 0.2s ease;">
+                          <input type="checkbox" id="keywordFront" style="width: 14px; height: 14px; accent-color: #3b82f6;">
+                          키워드 맨앞 배치
+                        </label>
                       </div>
                     </div>
                   </div>
 
                   <!-- ② 이미지 설정 -->
-                  <div class="posting-accordion-section">
-                    <div class="posting-accordion-header" onclick="togglePostingAccordion('acc-image')">
-                      <div style="display: flex; align-items: center; gap: 12px;">
-                        <div class="acc-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">🖼️</div>
-                        <div>
-                          <div class="acc-title">이미지 설정</div>
-                          <div class="acc-desc">썸네일 타입 · 소제목 이미지</div>
-                        </div>
-                      </div>
-                      <svg class="acc-chevron" id="chevron-acc-image" width="16" height="16" viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6,9 12,15 18,9"></polyline>
-                      </svg>
+                  <div class="posting-settings-tab-panel" id="tab-image">
+                    <div class="acc-field">
+                      <label class="acc-label">📸 썸네일 타입</label>
+                      <select id="thumbnailType">
+                        <option value="imagefx" selected>🎨 이미지 FX (기본)</option>
+                        <option value="flow">🌊 Flow (Nano Banana Pro 무료 — AI Pro 구독 필요)</option>
+                        <option value="nanobananapro">🍌 Nano Banana Pro (Gemini API 유료)</option>
+                        <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
+                        <option value="none">❌ 썸네일 없음</option>
+                      </select>
                     </div>
-                    <div class="posting-accordion-body" id="acc-image">
-                      <div class="acc-field">
-                        <label class="acc-label">📸 썸네일 타입</label>
-                        <select id="thumbnailType">
-                          <option value="imagefx" selected>🎨 이미지 FX (기본)</option>
-                          <option value="nanobananapro">🍌 Nano Banana Pro (빠름)</option>
-                          <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
-                          <option value="none">❌ 썸네일 없음</option>
-                        </select>
+                    <div class="acc-field">
+                      <label class="acc-label">🖼️ 소제목 이미지</label>
+                      <select id="h2ImageSource">
+                        <option value="imagefx" selected>🎨 이미지 FX (기본)</option>
+                        <option value="flow">🌊 Flow (Nano Banana Pro 무료 — AI Pro 구독 필요)</option>
+                        <option value="nanobananapro">🍌 Nano Banana Pro (Gemini API 유료)</option>
+                        <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
+                        <option value="none">❌ 이미지 없음</option>
+                      </select>
+                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 모든 소제목에 자동으로 이미지가 배치됩니다</small>
+                    </div>
+                    <div class="acc-field">
+                      <label class="acc-label">🔐 ImageFX Google 로그인</label>
+                      <div style="display: flex; gap: 8px; align-items: center;">
+                        <button id="imagefxLoginBtn" type="button" onclick="handleImageFxLogin()"
+                          style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #4285f4, #34a853); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.3s ease;">
+                          <span style="font-size: 16px;">🔑</span> Google 로그인
+                        </button>
+                        <button id="imagefxCheckBtn" type="button" onclick="handleImageFxCheckLogin()"
+                          style="padding: 10px 16px; background: rgba(255,255,255,0.1); color: white; border: 2px solid rgba(66,133,244,0.4); border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.3s ease;">
+                          확인
+                        </button>
                       </div>
-                      <div class="acc-field">
-                        <label class="acc-label">🖼️ 소제목 이미지</label>
-                        <select id="h2ImageSource">
-                          <option value="imagefx" selected>🎨 이미지 FX (기본)</option>
-                          <option value="nanobananapro">🍌 Nano Banana Pro (빠름)</option>
-                          <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
-                          <option value="none">❌ 이미지 없음</option>
-                        </select>
-                        <small
-                          style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 모든
-                          소제목에 자동으로 이미지가 배치됩니다</small>
-                      </div>
-                      <div class="acc-field">
-                        <label class="acc-label">🔐 ImageFX Google 로그인</label>
-                        <div style="display: flex; gap: 8px; align-items: center;">
-                          <button id="imagefxLoginBtn" type="button" onclick="handleImageFxLogin()"
-                            style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #4285f4, #34a853); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.3s ease;">
-                            <span style="font-size: 16px;">🔑</span> Google 로그인
-                          </button>
-                          <button id="imagefxCheckBtn" type="button" onclick="handleImageFxCheckLogin()"
-                            style="padding: 10px 16px; background: rgba(255,255,255,0.1); color: white; border: 2px solid rgba(66,133,244,0.4); border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.3s ease;">
-                            확인
-                          </button>
-                        </div>
-                        <small id="imagefxLoginStatus"
-                          style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 ImageFX 사용 전 Google 계정으로 로그인해주세요</small>
-                      </div>
-                      <div class="acc-field">
-                        <label class="acc-label">🔍 할루시네이션 방지 (팩트체크)</label>
-                        <select id="factCheckMode">
-                          <option value="grounding" selected>🌐 Gemini Grounding (무료)</option>
-                          <option value="perplexity">🔮 Perplexity (유료, 더 정확)</option>
-                          <option value="off">❌ 끄기</option>
-                        </select>
-                        <small
-                          style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 글 생성 전 실시간 검색으로 팩트 검증</small>
-                      </div>
+                      <small id="imagefxLoginStatus" style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 ImageFX 사용 전 Google 계정으로 로그인해주세요</small>
+                    </div>
+                    <div class="acc-field">
+                      <label class="acc-label">🔍 할루시네이션 방지 (팩트체크)</label>
+                      <select id="factCheckMode">
+                        <option value="auto" selected>🤖 자동 (네이버 > Perplexity > Gemini 순 자동 선택)</option>
+                        <option value="naver">📘 네이버 블로그 검색 (무료, 한국 콘텐츠 최강)</option>
+                        <option value="perplexity">🔮 Perplexity Sonar (유료, 가장 정확)</option>
+                        <option value="grounding">🌐 Gemini Grounding (무료)</option>
+                        <option value="off">❌ 끄기 (할루시네이션 위험)</option>
+                      </select>
+                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 글 생성 전 실시간 검색으로 팩트 검증</small>
                     </div>
                   </div>
 
                   <!-- ③ 발행 설정 -->
-                  <div class="posting-accordion-section">
-                    <div class="posting-accordion-header" onclick="togglePostingAccordion('acc-publish')">
-                      <div style="display: flex; align-items: center; gap: 12px;">
-                        <div class="acc-icon" style="background: linear-gradient(135deg, #ef4444, #dc2626);">📌</div>
-                        <div>
-                          <div class="acc-title">발행 설정</div>
-                          <div class="acc-desc">발행 모드 · 예약 · CTA · 크롤링 링크</div>
-                        </div>
+                  <div class="posting-settings-tab-panel" id="tab-publish">
+                    <div class="acc-field">
+                      <label class="acc-label">🚀 포스팅 모드</label>
+                      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.9); padding: 8px 14px; background: rgba(255,255,255,0.06); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);">
+                          <input type="radio" name="postingMode" value="immediate" checked onchange="toggleScheduleSettings()" style="accent-color: #ef4444;">
+                          즉시 발행
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.9); padding: 8px 14px; background: rgba(255,255,255,0.06); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);">
+                          <input type="radio" name="postingMode" value="draft" onchange="toggleScheduleSettings()" style="accent-color: #ef4444;">
+                          임시 발행
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.9); padding: 8px 14px; background: rgba(255,255,255,0.06); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);">
+                          <input type="radio" name="postingMode" value="schedule" onchange="toggleScheduleSettings()" style="accent-color: #ef4444;">
+                          ⏰ 예약 발행
+                        </label>
                       </div>
-                      <svg class="acc-chevron" id="chevron-acc-publish" width="16" height="16" viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6,9 12,15 18,9"></polyline>
-                      </svg>
                     </div>
-                    <div class="posting-accordion-body" id="acc-publish">
-                      <!-- 포스팅 모드 -->
-                      <div class="acc-field">
-                        <label class="acc-label">🚀 포스팅 모드</label>
-                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                          <label
-                            style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.9); padding: 8px 14px; background: rgba(255,255,255,0.06); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);">
-                            <input type="radio" name="postingMode" value="immediate" checked
-                              onchange="toggleScheduleSettings()" style="accent-color: #ef4444;">
-                            즉시 발행
-                          </label>
-                          <label
-                            style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.9); padding: 8px 14px; background: rgba(255,255,255,0.06); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);">
-                            <input type="radio" name="postingMode" value="draft" onchange="toggleScheduleSettings()"
-                              style="accent-color: #ef4444;">
-                            임시 발행
-                          </label>
-                          <label
-                            style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.9); padding: 8px 14px; background: rgba(255,255,255,0.06); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);">
-                            <input type="radio" name="postingMode" value="schedule" onchange="toggleScheduleSettings()"
-                              style="accent-color: #ef4444;">
-                            ⏰ 예약 발행
-                          </label>
-                        </div>
-                      </div>
 
-                      <!-- 예약 설정 -->
-                      <div id="scheduleSettings" class="acc-field" style="display: none;">
-                        <label class="acc-label">⏰ 예약 시간</label>
-                        <input type="datetime-local" id="scheduleDateTime">
-                      </div>
+                    <div id="scheduleSettings" class="acc-field" style="display: none;">
+                      <label class="acc-label">⏰ 예약 시간</label>
+                      <input type="datetime-local" id="scheduleDateTime">
+                    </div>
 
-                      <!-- CTA 옵션 -->
-                      <div class="acc-field">
-                        <label class="acc-label">🔗 CTA 옵션</label>
-                        <div style="display: flex; gap: 12px;">
-                          <label
-                            style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.9); padding: 8px 14px; background: rgba(255,255,255,0.06); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);">
-                            <input type="radio" name="ctaMode" value="auto" checked onchange="toggleCtaSettings()"
-                              style="accent-color: #ef4444;">
-                            🤖 자동
-                          </label>
-                          <label
-                            style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.9); padding: 8px 14px; background: rgba(255,255,255,0.06); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);">
-                            <input type="radio" name="ctaMode" value="manual" onchange="toggleCtaSettings()"
-                              style="accent-color: #ef4444;">
-                            ✏️ 수동
-                          </label>
-                        </div>
+                    <div class="acc-field">
+                      <label class="acc-label">🔗 CTA 옵션</label>
+                      <div style="display: flex; gap: 12px;">
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.9); padding: 8px 14px; background: rgba(255,255,255,0.06); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);">
+                          <input type="radio" name="ctaMode" value="auto" checked onchange="toggleCtaSettings()" style="accent-color: #ef4444;">
+                          🤖 자동
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.9); padding: 8px 14px; background: rgba(255,255,255,0.06); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);">
+                          <input type="radio" name="ctaMode" value="manual" onchange="toggleCtaSettings()" style="accent-color: #ef4444;">
+                          ✏️ 수동
+                        </label>
                       </div>
+                    </div>
 
-                      <!-- 수동 CTA -->
-                      <div id="manualCtaSection" class="acc-field" style="display: none;">
-                        <button type="button" onclick="openManualCtaModal()"
-                          style="width: 100%; background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; border-radius: 10px; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer;">
-                          🔗 소제목별 CTA 설정하기
-                        </button>
-                        <div id="manualCtaStatus"
-                          style="margin-top: 8px; padding: 8px; background: rgba(59, 130, 246, 0.1); border-radius: 6px; font-size: 11px; color: rgba(255,255,255,0.8); display: none;">
-                          ✅ <span id="manualCtaCount">0</span>개의 수동 CTA가 설정되었습니다
-                        </div>
+                    <div id="manualCtaSection" class="acc-field" style="display: none;">
+                      <button type="button" onclick="openManualCtaModal()"
+                        style="width: 100%; background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; border-radius: 10px; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer;">
+                        🔗 소제목별 CTA 설정하기
+                      </button>
+                      <div id="manualCtaStatus" style="margin-top: 8px; padding: 8px; background: rgba(59, 130, 246, 0.1); border-radius: 6px; font-size: 11px; color: rgba(255,255,255,0.8); display: none;">
+                        ✅ <span id="manualCtaCount">0</span>개의 수동 CTA가 설정되었습니다
                       </div>
+                    </div>
 
-                      <!-- 수동 크롤링 링크 -->
-                      <div class="acc-field">
-                        <label class="acc-label">🔗 수동 크롤링 링크 (선택)</label>
-                        <div style="display: flex; flex-direction: column; gap: 6px;">
-                          <input type="text" id="manualCrawlUrl1" placeholder="제품 링크 1 (예: 쿠팡, 네이버 쇼핑 등)">
-                          <input type="text" id="manualCrawlUrl2" placeholder="제품 링크 2 (선택)">
-                          <input type="text" id="manualCrawlUrl3" placeholder="제품 링크 3 (선택)">
-                        </div>
-                        <small style="color:rgba(255,255,255,0.5); font-size:11px; margin-top:4px; display:block;">
-                          💡 <strong style="color:#fbbf24;">크롤링 실패해도 OK!</strong> 키워드 기반으로 고품질 콘텐츠 자동 생성됩니다.
-                        </small>
+                    <div class="acc-field">
+                      <label class="acc-label">🔗 수동 크롤링 링크 (선택)</label>
+                      <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <input type="text" id="manualCrawlUrl1" placeholder="제품 링크 1 (예: 쿠팡, 네이버 쇼핑 등)">
+                        <input type="text" id="manualCrawlUrl2" placeholder="제품 링크 2 (선택)">
+                        <input type="text" id="manualCrawlUrl3" placeholder="제품 링크 3 (선택)">
                       </div>
+                      <small style="color:rgba(255,255,255,0.5); font-size:11px; margin-top:4px; display:block;">
+                        💡 <strong style="color:#fbbf24;">크롤링 실패해도 OK!</strong> 키워드 기반으로 고품질 콘텐츠 자동 생성됩니다.
+                      </small>
+                    </div>
+
+                    <!-- 🛒 쿠팡 파트너스 수동 제휴 링크 (API 키 없어도 작동) -->
+                    <div class="acc-field" style="background: rgba(255, 107, 53, 0.08); border: 1px solid rgba(255, 107, 53, 0.3); border-radius: 10px; padding: 14px;">
+                      <label class="acc-label" style="color: #ff9966;">🛒 쿠팡 파트너스 제휴 링크 (shopping 모드)</label>
+                      <textarea id="manualCoupangUrls"
+                        placeholder="쿠팡 대시보드에서 생성한 제휴 딥링크를 한 줄에 하나씩 붙여넣기&#10;예:&#10;https://link.coupang.com/a/AbCdEf&#10;https://www.coupang.com/vp/products/123456789?itemId=..."
+                        style="width: 100%; min-height: 110px; resize: vertical; line-height: 1.5; font-size: 12px; padding: 10px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: white;"></textarea>
+                      <small style="color: rgba(255, 153, 102, 0.9); font-size: 11px; margin-top: 6px; display: block; line-height: 1.5;">
+                        💰 <strong>쿠팡 API 키가 없어도 OK!</strong> 파트너스 대시보드에서 직접 만든 딥링크를 넣으면 자동으로 상품 정보를 수집해서 카드로 넣어드려요.<br>
+                        🔑 <strong style="color:#fbbf24;">15만원 매출 달성 팁</strong>: 고가 상품(10~30만원) 2~3개 집중 공략이 저가 수십 개보다 훨씬 빠릅니다.
+                      </small>
                     </div>
                   </div>
 
                   <!-- ④ 초안 입력 -->
-                  <div class="posting-accordion-section">
-                    <div class="posting-accordion-header" onclick="togglePostingAccordion('acc-draft')">
-                      <div style="display: flex; align-items: center; gap: 12px;">
-                        <div class="acc-icon" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">📄</div>
-                        <div>
-                          <div class="acc-title">초안 입력</div>
-                          <div class="acc-desc">기존 글을 기반으로 새로운 콘텐츠 생성</div>
-                        </div>
-                      </div>
-                      <svg class="acc-chevron" id="chevron-acc-draft" width="16" height="16" viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6,9 12,15 18,9"></polyline>
-                      </svg>
-                    </div>
-                    <div class="posting-accordion-body" id="acc-draft">
-                      <div class="acc-field">
-                        <textarea id="draftInput" placeholder="기존 글의 초안을 입력하세요. AI가 이를 기반으로 새로운 콘텐츠를 생성합니다."
-                          style="min-height: 180px; resize: vertical; line-height: 1.6;"
-                          oninput="updateDraftCount()"></textarea>
-                        <div style="display: flex; justify-content: space-between; margin-top: 6px;">
-                          <small style="color:rgba(255,255,255,0.5); font-size:11px;">• 원본의 핵심 내용은 유지하면서 새로운 구조로
-                            재구성합니다</small>
-                          <span id="draftCount" style="font-size:11px; color:rgba(255,255,255,0.5);">0/5000</span>
-                        </div>
+                  <div class="posting-settings-tab-panel" id="tab-draft">
+                    <div class="acc-field">
+                      <textarea id="draftInput" placeholder="기존 글의 초안을 입력하세요. AI가 이를 기반으로 새로운 콘텐츠를 생성합니다."
+                        style="min-height: 180px; resize: vertical; line-height: 1.6;"
+                        oninput="updateDraftCount()"></textarea>
+                      <div style="display: flex; justify-content: space-between; margin-top: 6px;">
+                        <small style="color:rgba(255,255,255,0.5); font-size:11px;">• 원본의 핵심 내용은 유지하면서 새로운 구조로 재구성합니다</small>
+                        <span id="draftCount" style="font-size:11px; color:rgba(255,255,255,0.5);">0/5000</span>
                       </div>
                     </div>
                   </div>
 
                   <!-- ⑤ 카테고리 (워드프레스) -->
-                  <div class="posting-accordion-section" id="wpCategorySection">
-                    <div class="posting-accordion-header" onclick="togglePostingAccordion('acc-category')">
-                      <div style="display: flex; align-items: center; gap: 12px;">
-                        <div class="acc-icon" style="background: linear-gradient(135deg, #06b6d4, #0891b2);">🏷️</div>
-                        <div>
-                          <div class="acc-title">카테고리</div>
-                          <div class="acc-desc">워드프레스 카테고리 설정</div>
-                        </div>
+                  <div class="posting-settings-tab-panel" id="tab-category">
+                    <div class="acc-field">
+                      <label class="acc-label">📂 워드프레스 카테고리</label>
+                      <div style="display: flex; gap: 8px;">
+                        <select id="wpCategory" style="flex: 1;">
+                          <option value="">카테고리를 먼저 로드하세요</option>
+                        </select>
+                        <button type="button" id="loadWpCategoriesBtn"
+                          onclick="if(window.loadWpCategories){window.loadWpCategories();}else if(window.loadWordPressCategories){window.loadWordPressCategories();}else{alert('카테고리 로드 기능 로딩중입니다.');}"
+                          style="padding: 10px 14px; background: linear-gradient(135deg, #10b981, #059669); border: none; border-radius: 10px; color: white; font-size: 13px; cursor: pointer;">
+                          🔄
+                        </button>
                       </div>
-                      <svg class="acc-chevron" id="chevron-acc-category" width="16" height="16" viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6,9 12,15 18,9"></polyline>
-                      </svg>
-                    </div>
-                    <div class="posting-accordion-body" id="acc-category">
-                      <div class="acc-field">
-                        <label class="acc-label">📂 워드프레스 카테고리</label>
-                        <div style="display: flex; gap: 8px;">
-                          <select id="wpCategory" style="flex: 1;">
-                            <option value="">카테고리를 먼저 로드하세요</option>
-                          </select>
-                          <button type="button" id="loadWpCategoriesBtn"
-                            onclick="if(window.loadWpCategories){window.loadWpCategories();}else if(window.loadWordPressCategories){window.loadWordPressCategories();}else{alert('카테고리 로드 기능 로딩중입니다.');}"
-                            style="padding: 10px 14px; background: linear-gradient(135deg, #10b981, #059669); border: none; border-radius: 10px; color: white; font-size: 13px; cursor: pointer;">
-                            🔄
-                          </button>
-                        </div>
-                        <small style="color:rgba(255,255,255,0.5); font-size:11px; margin-top:4px; display:block;">워드프레스
-                          연결 정보를 입력한 후 카테고리를 로드하세요</small>
-                      </div>
+                      <small style="color:rgba(255,255,255,0.5); font-size:11px; margin-top:4px; display:block;">워드프레스 연결 정보를 입력한 후 카테고리를 로드하세요</small>
                     </div>
                   </div>
 
                   <!-- 수동 CTA 설정 (숨겨진 섹션) -->
                   <div id="manualCtaSettings"
                     style="display: none; margin-top: 12px; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08);">
-                    <label
-                      style="color: rgba(255,255,255,0.9); font-weight: 600; font-size: 14px; margin-bottom: 12px; display: block;">📌
-                      수동 CTA 설정</label>
-                    <div id="ctaItemsList"
-                      style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px;"></div>
+                    <label style="color: rgba(255,255,255,0.9); font-weight: 600; font-size: 14px; margin-bottom: 12px; display: block;">📌 수동 CTA 설정</label>
+                    <div id="ctaItemsList" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px;"></div>
                     <button onclick="addCtaItem()"
                       style="width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.08); border: 2px dashed rgba(255,255,255,0.2); border-radius: 8px; color: rgba(255,255,255,0.8); font-size: 13px; font-weight: 600; cursor: pointer;">
                       + CTA 항목 추가
@@ -5130,6 +5064,10 @@
       // 라디오 버튼 체크
       const radio = document.getElementById('platform-' + platform);
       if (radio) radio.checked = true;
+      // 반대편 라디오도 명시적으로 해제
+      const otherPlatform = platform === 'blogger' ? 'wordpress' : 'blogger';
+      const otherRadio = document.getElementById('platform-' + otherPlatform);
+      if (otherRadio) otherRadio.checked = false;
 
       // 선택 박스 스타일 업데이트
       const bloggerBox = document.getElementById('blogger-select-box');
@@ -5161,19 +5099,39 @@
         if (bloggerFields) bloggerFields.style.display = 'none';
       }
 
-      // 상태 박스 업데이트
+      // 설정 모달 내부의 플랫폼 설명 박스 (설정 모달용)
       const platformIcon = document.getElementById('platformIcon');
       const platformName = document.getElementById('platformName');
-      const platformStatus = document.getElementById('platformStatus');
-
       if (platform === 'blogger') {
         if (platformIcon) platformIcon.textContent = '🅱️';
         if (platformName) platformName.textContent = 'Blogger';
-        if (platformStatus) platformStatus.textContent = 'Google 블로그 플랫폼';
       } else {
         if (platformIcon) platformIcon.textContent = '🌐';
         if (platformName) platformName.textContent = 'WordPress';
-        if (platformStatus) platformStatus.textContent = '자체 호스팅 블로그';
+      }
+
+      // 🔥 상단 헤더 배지 업데이트 + 필드 토글 + localStorage 저장
+      try {
+        // 1. 상단 헤더의 platformStatus 배지 (updatePlatformStatus가 라디오 읽어서 업데이트)
+        if (typeof window.updatePlatformStatus === 'function') {
+          window.updatePlatformStatus();
+        }
+        // 2. 플랫폼별 필드 토글 (wpCategorySection 등)
+        if (typeof window.togglePlatformFields === 'function') {
+          window.togglePlatformFields();
+        }
+        // 3. localStorage에 플랫폼 즉시 저장 (새로고침 시 유지)
+        try {
+          const raw = localStorage.getItem('bloggerSettings');
+          const settings = raw ? JSON.parse(raw) : {};
+          settings.platform = platform;
+          localStorage.setItem('bloggerSettings', JSON.stringify(settings));
+          console.log('[SELECT-PLATFORM] 저장 완료:', platform);
+        } catch (e) {
+          console.warn('[SELECT-PLATFORM] localStorage 저장 실패:', e);
+        }
+      } catch (e) {
+        console.warn('[SELECT-PLATFORM] 업데이트 실패:', e);
       }
     }
 
@@ -5536,6 +5494,7 @@
               <label style="display: block; color: rgba(255,255,255,0.6); font-size: 11px; margin-bottom: 4px;">이미지 소스</label>
               <select onchange="updateMultiAccountSetting('${account.id}', 'imageSource', this.value)" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 13px;">
                 <option value="imagefx" ${account.settings.imageSource === 'imagefx' ? 'selected' : ''}>🎨 이미지 FX</option>
+                <option value="flow" ${account.settings.imageSource === 'flow' ? 'selected' : ''}>🌊 Flow (무료)</option>
                 <option value="nanobananapro" ${account.settings.imageSource === 'nanobananapro' ? 'selected' : ''}>🍌 Nano Banana Pro</option>
                 <option value="deepinfra" ${account.settings.imageSource === 'deepinfra' ? 'selected' : ''}>🔥 DeepInfra FLUX-2</option>
                 <option value="none" ${account.settings.imageSource === 'none' ? 'selected' : ''}>❌ 이미지 없음</option>
@@ -5773,121 +5732,110 @@
   <div id="apiKeyGuideModal"
     style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(20px); z-index: 10001; align-items: center; justify-content: center;">
     <div
-      style="width: 90%; max-width: 550px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 24px; padding: 40px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6); border: 2px solid rgba(255, 255, 255, 0.1);">
+      style="width: 90%; max-width: 480px; max-height: 85vh; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 20px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6); border: 2px solid rgba(255, 255, 255, 0.1); display: flex; flex-direction: column; overflow: hidden;">
 
-      <!-- 헤더 -->
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
-        <div style="display: flex; align-items: center; gap: 16px;">
-          <div
-            style="width: 56px; height: 56px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 16px; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4);">
-            <span style="font-size: 28px;">🔑</span>
+      <!-- 드래그바 + 헤더 (고정) -->
+      <div style="padding: 20px 24px 16px; flex-shrink: 0;">
+        <div style="width: 40px; height: 4px; background: rgba(255,255,255,0.3); border-radius: 2px; margin: 0 auto 16px;"></div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div
+              style="width: 44px; height: 44px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);">
+              <span style="font-size: 22px;">🔑</span>
+            </div>
+            <div>
+              <h2 style="font-size: 20px; font-weight: 800; color: white; margin: 0;">API 키 발급받기</h2>
+              <p style="font-size: 12px; color: rgba(255, 255, 255, 0.5); margin: 2px 0 0 0;">클릭하면 브라우저에서 열립니다</p>
+            </div>
           </div>
-          <div>
-            <h2 style="font-size: 24px; font-weight: 800; color: white; margin: 0;">API 키 발급받기</h2>
-            <p style="font-size: 13px; color: rgba(255, 255, 255, 0.6); margin: 4px 0 0 0;">클릭하면 브라우저에서 열립니다</p>
-          </div>
+          <button onclick="closeApiKeyGuideModal()"
+            style="width: 36px; height: 36px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; color: white; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease;"
+            onmouseover="this.style.background='rgba(239, 68, 68, 0.8)'"
+            onmouseout="this.style.background='rgba(255,255,255,0.1)'">✕</button>
         </div>
-        <button onclick="closeApiKeyGuideModal()"
-          style="width: 44px; height: 44px; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2); border-radius: 12px; color: white; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease;"
-          onmouseover="this.style.background='rgba(239, 68, 68, 0.8)'"
-          onmouseout="this.style.background='rgba(255,255,255,0.1)'">✕</button>
       </div>
 
-      <!-- API 발급 버튼들 -->
-      <div style="display: flex; flex-direction: column; gap: 14px;">
+      <!-- API 발급 버튼들 (스크롤 영역) -->
+      <div style="flex: 1; overflow-y: auto; padding: 0 24px 20px; display: flex; flex-direction: column; gap: 10px;">
 
         <!-- Gemini API -->
         <button onclick="openApiPage('gemini')"
-          style="width: 100%; padding: 20px 24px; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 16px; font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 16px; box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4); transition: all 0.3s ease;"
-          onmouseover="this.style.transform='translateX(8px)'; this.style.boxShadow='0 12px 35px rgba(239, 68, 68, 0.5)';"
-          onmouseout="this.style.transform='translateX(0)'; this.style.boxShadow='0 8px 25px rgba(239, 68, 68, 0.4)';">
-          <span style="font-size: 28px;">🚀</span>
+          style="width: 100%; padding: 14px 18px; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 12px; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3); transition: all 0.3s ease;"
+          onmouseover="this.style.transform='translateX(6px)'"
+          onmouseout="this.style.transform='translateX(0)'">
+          <span style="font-size: 22px;">🚀</span>
           <span style="flex: 1; text-align: left;">Gemini API 키 발급하러 가기</span>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M5 12h14M12 5l7 7-7 7" />
-          </svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
         </button>
 
         <!-- Perplexity API -->
         <button onclick="openApiPage('perplexity')"
-          style="width: 100%; padding: 20px 24px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; border: none; border-radius: 16px; font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 16px; box-shadow: 0 8px 25px rgba(139, 92, 246, 0.4); transition: all 0.3s ease;"
-          onmouseover="this.style.transform='translateX(8px)'; this.style.boxShadow='0 12px 35px rgba(139, 92, 246, 0.5)';"
-          onmouseout="this.style.transform='translateX(0)'; this.style.boxShadow='0 8px 25px rgba(139, 92, 246, 0.4)';">
-          <span style="font-size: 28px;">🔮</span>
+          style="width: 100%; padding: 14px 18px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 12px; box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3); transition: all 0.3s ease;"
+          onmouseover="this.style.transform='translateX(6px)'"
+          onmouseout="this.style.transform='translateX(0)'">
+          <span style="font-size: 22px;">🔮</span>
           <span style="flex: 1; text-align: left;">Perplexity API 키 발급하러 가기</span>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M5 12h14M12 5l7 7-7 7" />
-          </svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
         </button>
 
         <!-- OpenAI API -->
         <button onclick="openApiPage('openai')"
-          style="width: 100%; padding: 20px 24px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 16px; font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 16px; box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4); transition: all 0.3s ease;"
-          onmouseover="this.style.transform='translateX(8px)'; this.style.boxShadow='0 12px 35px rgba(16, 185, 129, 0.5)';"
-          onmouseout="this.style.transform='translateX(0)'; this.style.boxShadow='0 8px 25px rgba(16, 185, 129, 0.4)';">
-          <span style="font-size: 28px;">🧠</span>
+          style="width: 100%; padding: 14px 18px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 12px; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); transition: all 0.3s ease;"
+          onmouseover="this.style.transform='translateX(6px)'"
+          onmouseout="this.style.transform='translateX(0)'">
+          <span style="font-size: 22px;">🧠</span>
           <span style="flex: 1; text-align: left;">OpenAI API 키 발급하러 가기</span>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M5 12h14M12 5l7 7-7 7" />
-          </svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
         </button>
 
         <!-- Claude API -->
         <button onclick="openApiPage('claude')"
-          style="width: 100%; padding: 20px 24px; background: linear-gradient(135deg, #a855f7 0%, #9333ea 100%); color: white; border: none; border-radius: 16px; font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 16px; box-shadow: 0 8px 25px rgba(168, 85, 247, 0.4); transition: all 0.3s ease;"
-          onmouseover="this.style.transform='translateX(8px)'; this.style.boxShadow='0 12px 35px rgba(168, 85, 247, 0.5)';"
-          onmouseout="this.style.transform='translateX(0)'; this.style.boxShadow='0 8px 25px rgba(168, 85, 247, 0.4)';">
-          <span style="font-size: 28px;">🟣</span>
+          style="width: 100%; padding: 14px 18px; background: linear-gradient(135deg, #a855f7 0%, #9333ea 100%); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 12px; box-shadow: 0 4px 15px rgba(168, 85, 247, 0.3); transition: all 0.3s ease;"
+          onmouseover="this.style.transform='translateX(6px)'"
+          onmouseout="this.style.transform='translateX(0)'">
+          <span style="font-size: 22px;">🟣</span>
           <span style="flex: 1; text-align: left;">Claude API 키 발급하러 가기</span>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M5 12h14M12 5l7 7-7 7" />
-          </svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
         </button>
 
         <!-- DeepInfra API -->
         <button onclick="openApiPage('deepinfra')"
-          style="width: 100%; padding: 20px 24px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; border: none; border-radius: 16px; font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 16px; box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4); transition: all 0.3s ease;"
-          onmouseover="this.style.transform='translateX(8px)'; this.style.boxShadow='0 12px 35px rgba(59, 130, 246, 0.5)';"
-          onmouseout="this.style.transform='translateX(0)'; this.style.boxShadow='0 8px 25px rgba(59, 130, 246, 0.4)';">
-          <span style="font-size: 28px;">🔵</span>
+          style="width: 100%; padding: 14px 18px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 12px; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3); transition: all 0.3s ease;"
+          onmouseover="this.style.transform='translateX(6px)'"
+          onmouseout="this.style.transform='translateX(0)'">
+          <span style="font-size: 22px;">🔵</span>
           <span style="flex: 1; text-align: left;">DeepInfra API 키 발급하러 가기</span>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M5 12h14M12 5l7 7-7 7" />
-          </svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
         </button>
 
         <!-- 네이버 API -->
         <button onclick="openApiPage('naver')"
-          style="width: 100%; padding: 20px 24px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 16px; font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 16px; box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4); transition: all 0.3s ease;"
-          onmouseover="this.style.transform='translateX(8px)'; this.style.boxShadow='0 12px 35px rgba(16, 185, 129, 0.5)';"
-          onmouseout="this.style.transform='translateX(0)'; this.style.boxShadow='0 8px 25px rgba(16, 185, 129, 0.4)';">
-          <span style="font-size: 28px;">🟢</span>
+          style="width: 100%; padding: 14px 18px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 12px; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); transition: all 0.3s ease;"
+          onmouseover="this.style.transform='translateX(6px)'"
+          onmouseout="this.style.transform='translateX(0)'">
+          <span style="font-size: 22px;">🟢</span>
           <span style="flex: 1; text-align: left;">네이버 API 키 발급하러 가기</span>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M5 12h14M12 5l7 7-7 7" />
-          </svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
         </button>
 
         <!-- Google CSE -->
         <button onclick="openApiPage('cse')"
-          style="width: 100%; padding: 20px 24px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: none; border-radius: 16px; font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 16px; box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4); transition: all 0.3s ease;"
-          onmouseover="this.style.transform='translateX(8px)'; this.style.boxShadow='0 12px 35px rgba(245, 158, 11, 0.5)';"
-          onmouseout="this.style.transform='translateX(0)'; this.style.boxShadow='0 8px 25px rgba(245, 158, 11, 0.4)';">
-          <span style="font-size: 28px;">🟡</span>
+          style="width: 100%; padding: 14px 18px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 12px; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3); transition: all 0.3s ease;"
+          onmouseover="this.style.transform='translateX(6px)'"
+          onmouseout="this.style.transform='translateX(0)'">
+          <span style="font-size: 22px;">🟡</span>
           <span style="flex: 1; text-align: left;">Google CSE 발급하러 가기</span>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M5 12h14M12 5l7 7-7 7" />
-          </svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
         </button>
 
-      </div>
+        <!-- 안내 메시지 -->
+        <div
+          style="margin-top: 4px; padding: 12px; background: rgba(16, 185, 129, 0.15); border-radius: 10px; border-left: 3px solid #10b981;">
+          <p style="margin: 0; font-size: 12px; color: rgba(255, 255, 255, 0.8); line-height: 1.5;">
+            💡 <strong style="color: #6ee7b7;">Gemini API 키 하나만 있으면</strong> 글 생성과 이미지 생성 모두 가능합니다!
+          </p>
+        </div>
 
-      <!-- 안내 메시지 -->
-      <div
-        style="margin-top: 24px; padding: 16px; background: rgba(16, 185, 129, 0.15); border-radius: 12px; border-left: 4px solid #10b981;">
-        <p style="margin: 0; font-size: 13px; color: rgba(255, 255, 255, 0.8); line-height: 1.6;">
-          💡 <strong style="color: #6ee7b7;">Gemini API 키 하나만 있으면</strong> 글 생성과 이미지 생성 모두 가능합니다!
-        </p>
       </div>
     </div>
   </div>

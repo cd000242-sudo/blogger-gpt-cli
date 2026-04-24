@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.WordPressPublisher = void 0;
 exports.publishToWordPress = publishToWordPress;
 const wordpress_api_1 = require("./wordpress-api");
+const gemini_engine_1 = require("../core/final/gemini-engine");
 function wrapSectionsInCards(html) {
     if (!html)
         return html;
@@ -91,15 +92,15 @@ function applyWordPressInlineStyles(html) {
         });
         styledHtml = styledHtml.replace(/<table([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            return `<table${cleanAttrs ? ' ' + cleanAttrs : ''} style="width: 100% !important; border-collapse: separate !important; border-spacing: 0 !important; margin: 32px 0 !important; border-radius: 10px !important; overflow: hidden !important; border: 1px solid #e2e8f0 !important;">`;
+            return `<table${cleanAttrs ? ' ' + cleanAttrs : ''} style="width: 100% !important; max-width: 100% !important; border-collapse: separate !important; border-spacing: 0 !important; margin: 32px 0 !important; border-radius: 10px !important; overflow: hidden !important; border: 1px solid #e2e8f0 !important; table-layout: auto !important;">`;
         });
         styledHtml = styledHtml.replace(/<th([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            return `<th${cleanAttrs ? ' ' + cleanAttrs : ''} style="padding: 14px 16px !important; background: #f1f5f9 !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-weight: 700 !important; text-align: left !important; font-size: 15px !important; border-bottom: 2px solid #e2e8f0 !important;">`;
+            return `<th${cleanAttrs ? ' ' + cleanAttrs : ''} style="padding: 14px 16px !important; background: #f1f5f9 !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-weight: 700 !important; text-align: left !important; font-size: 15px !important; border-bottom: 2px solid #e2e8f0 !important; word-break: break-word !important; overflow-wrap: break-word !important;">`;
         });
         styledHtml = styledHtml.replace(/<td([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            return `<td${cleanAttrs ? ' ' + cleanAttrs : ''} style="padding: 12px 16px !important; border-bottom: 1px solid #f1f5f9 !important; color: #334155 !important; font-size: 16px !important; line-height: 1.7 !important;">`;
+            return `<td${cleanAttrs ? ' ' + cleanAttrs : ''} style="padding: 12px 16px !important; border-bottom: 1px solid #f1f5f9 !important; color: #334155 !important; font-size: 16px !important; line-height: 1.7 !important; word-break: break-word !important; overflow-wrap: break-word !important;">`;
         });
         styledHtml = styledHtml.replace(/<ul([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
@@ -209,8 +210,34 @@ function applyWordPressInlineStyles(html) {
       margin: 0 0 18px 0 !important;
     }
     .wp-styled-content table {
-      display: block !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      font-size: 14px !important;
+      table-layout: auto !important;
+    }
+    .wp-styled-content table th {
+      padding: 10px 10px !important;
+      font-size: 12px !important;
+      word-break: break-word !important;
+      overflow-wrap: break-word !important;
+    }
+    .wp-styled-content table td {
+      padding: 10px 10px !important;
+      font-size: 13px !important;
+      word-break: break-word !important;
+      overflow-wrap: break-word !important;
+    }
+    /* 🛡️ AdSense Ad-Safe Zone — 표/CTA 내부 광고 주입 차단 */
+    .wp-styled-content .ad-safe-zone,
+    .wp-styled-content .table-wrapper {
+      isolation: isolate !important;
+      contain: layout style !important;
       overflow-x: auto !important;
+      -webkit-overflow-scrolling: touch !important;
+    }
+    .wp-styled-content img {
+      max-width: 100% !important;
+      height: auto !important;
     }
   }
 
@@ -222,6 +249,25 @@ function applyWordPressInlineStyles(html) {
     .wp-styled-content h2 { font-size: 18px !important; }
     .wp-styled-content h3 { font-size: 16px !important; }
     .wp-styled-content p { font-size: 15px !important; line-height: 1.8 !important; }
+    .wp-styled-content table {
+      font-size: 12px !important;
+    }
+    .wp-styled-content table th,
+    .wp-styled-content table td {
+      padding: 8px 6px !important;
+      font-size: 11px !important;
+    }
+  }
+
+  /* 🛡️ AdSense Ad-Safe Zone — 데스크탑/모바일 공통 */
+  .wp-styled-content .ad-safe-zone,
+  .wp-styled-content .table-wrapper {
+    position: relative !important;
+    isolation: isolate !important;
+    contain: layout style !important;
+  }
+  .wp-styled-content .ad-safe-zone[data-ad-region="no-ad"] {
+    /* AdSense 크롤러 시그널: 이 블록 내부에는 광고 삽입 불가 */
   }
 </style>
 `;
@@ -447,7 +493,17 @@ class WordPressPublisher {
                     console.error(`[WP-PUBLISH] ❌ 대표 이미지 업로드 실패:`, mediaError.message);
                 }
             }
-            const finalStatus = options.status === 'draft' ? 'draft' : 'publish';
+            let finalStatus;
+            if (options.status === 'draft') {
+                finalStatus = 'draft';
+            }
+            else if (options.scheduleDate) {
+                const sDate = new Date(options.scheduleDate);
+                finalStatus = !isNaN(sDate.getTime()) && sDate.getTime() > Date.now() ? 'future' : 'publish';
+            }
+            else {
+                finalStatus = 'publish';
+            }
             console.log(`[WP-PUBLISH] 발행 상태: ${options.status} → ${finalStatus}`);
             const postData = {
                 title: options.title,
@@ -459,7 +515,7 @@ class WordPressPublisher {
                 const sDate = new Date(options.scheduleDate);
                 if (!isNaN(sDate.getTime())) {
                     postData.date = sDate.toISOString();
-                    console.log(`[WP-PUBLISH] 📅 예약 발행 설정: ${postData.date}`);
+                    console.log(`[WP-PUBLISH] 📅 예약 발행 설정: ${postData.date} (status=${finalStatus})`);
                 }
             }
             if (featuredMediaId) {
@@ -473,10 +529,17 @@ class WordPressPublisher {
             console.log(`[WP-PUBLISH] 📝 클린 제목: ${cleanTitle}`);
             let tagIds = [];
             try {
-                const generatedTags = await this.generateTagsSmart(cleanTitle, options.content, options.geminiKey);
+                let generatedTags;
+                if (options.preGeneratedTags && options.preGeneratedTags.length > 0) {
+                    generatedTags = options.preGeneratedTags;
+                    console.log(`[WP-PUBLISH] 🏷️ 오케스트레이션 태그 재사용: ${generatedTags.join(', ')}`);
+                }
+                else {
+                    generatedTags = await this.generateTagsSmart(cleanTitle, options.content, options.geminiKey);
+                }
                 if (generatedTags.length > 0) {
                     tagIds = await this.resolveTags(generatedTags);
-                    console.log(`[WP-PUBLISH] 🏷️ 태그 자동 생성 완료: ${generatedTags.join(', ')} (${tagIds.length}개 등록)`);
+                    console.log(`[WP-PUBLISH] 🏷️ 태그 등록 완료: ${generatedTags.join(', ')} (${tagIds.length}개 등록)`);
                 }
             }
             catch (tagErr) {
@@ -484,6 +547,33 @@ class WordPressPublisher {
             }
             if (tagIds.length > 0) {
                 postData.tags = tagIds;
+            }
+            if (options.categories && options.categories.length > 0) {
+                try {
+                    const numericIds = [];
+                    const names = [];
+                    options.categories.forEach(c => {
+                        const n = Number(c);
+                        if (Number.isFinite(n) && String(n) === String(c).trim()) {
+                            numericIds.push(n);
+                        }
+                        else {
+                            names.push(String(c).trim());
+                        }
+                    });
+                    let catIds = [...numericIds];
+                    if (names.length > 0) {
+                        const resolved = await this.resolveCategories(names);
+                        catIds = [...catIds, ...resolved];
+                    }
+                    if (catIds.length > 0) {
+                        postData.categories = catIds;
+                        console.log(`[WP-PUBLISH] 📂 카테고리 ${catIds.length}개 적용: ${catIds.join(', ')}`);
+                    }
+                }
+                catch (catErr) {
+                    console.warn('[WP-PUBLISH] ⚠️ 카테고리 처리 실패:', catErr.message);
+                }
             }
             postData.title = cleanTitle;
             const createdPost = await this.wpApi.createPost(postData);
@@ -631,14 +721,8 @@ class WordPressPublisher {
         }
         return results;
     }
-    async extractFocusKeywordSmart(title, content, apiKey) {
-        if (!apiKey || apiKey.length < 10) {
-            return this.extractFocusKeywordFallback(title);
-        }
+    async extractFocusKeywordSmart(title, content, _apiKey) {
         try {
-            const { GoogleGenerativeAI } = require('@google/generative-ai');
-            const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
             const currentYear = new Date().getFullYear();
             const nextYear = currentYear + 1;
             const prompt = `당신은 한국어 SEO 전문가입니다. 다음 블로그 제목과 본문에서 Yoast SEO '초점 키프레이즈(Focus Keyphrase)'를 추출하세요.
@@ -662,24 +746,16 @@ class WordPressPublisher {
 - "연금" (너무 짧음)
 - "${nextYear}년 노령연금" (연도 포함)
 - "BEST 7 꿀팁" (수식어만 추출)`;
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            return response.text().trim().replace(/["']/g, '');
+            return (await (0, gemini_engine_1.callGeminiWithRetry)(prompt)).trim().replace(/["']/g, '');
         }
         catch (err) {
             console.warn('[SEO] AI 키워드 추출 실패, 폴백 사용:', err);
             return this.extractFocusKeywordFallback(title);
         }
     }
-    async generateTagsSmart(title, content, apiKey) {
+    async generateTagsSmart(title, content, _apiKey) {
         const fallbackTags = this.extractTagsFallback(title);
-        if (!apiKey || apiKey.length < 10) {
-            return fallbackTags;
-        }
         try {
-            const { GoogleGenerativeAI } = require('@google/generative-ai');
-            const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
             const plainText = content.replace(/<[^>]*>/g, '').substring(0, 800);
             const prompt = `다음 블로그 글의 제목과 본문을 분석하여 WordPress 태그를 생성하세요.
 
@@ -697,9 +773,7 @@ class WordPressPublisher {
 좋은 예시:
 "노령연금, 국민연금, 수급 자격, 연금 신청, 노후 준비, 복지 혜택, 연금 계산"
 "연말정산, 소득공제, 세액공제, 직장인 절세, 의료비 공제, 교육비 공제"`;
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            const text = response.text().trim();
+            const text = (await (0, gemini_engine_1.callGeminiWithRetry)(prompt)).trim();
             const tags = text
                 .replace(/^["']|["']$/g, '')
                 .split(',')
@@ -735,15 +809,9 @@ class WordPressPublisher {
         const clean4 = clean3.split('-')[0] || clean3;
         return clean4.trim().substring(0, 30);
     }
-    async generateMetaDescriptionSmart(content, apiKey) {
+    async generateMetaDescriptionSmart(content, _apiKey) {
         const plainText = content.replace(/<[^>]*>/g, '').substring(0, 1000);
-        if (!apiKey || apiKey.length < 10) {
-            return plainText.substring(0, 155).trim();
-        }
         try {
-            const { GoogleGenerativeAI } = require('@google/generative-ai');
-            const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
             const prompt = `당신은 Google SERP CTR 전문가입니다. 다음 블로그 본문을 바탕으로 검색 결과에서 클릭률을 극대화하는 '메타 설명(Meta Description)'을 작성하세요.
 
 본문 일부: ${plainText}
@@ -759,9 +827,7 @@ class WordPressPublisher {
 🟢 좋은 예시:
 "2026년 노령연금 수급 자격과 신청 방법을 한눈에 정리했습니다. 월 최대 32만원까지 받을 수 있는 조건과 필요 서류를 지금 바로 확인하세요."
 "직장인 연말정산 환급금을 최대로 늘릴 수 있는 7가지 공제 항목을 전문 세무사가 쉽게 설명합니다. 놓치면 손해보는 핵심 정보를 확인하세요."`;
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            return response.text().trim().replace(/["']/g, '');
+            return (await (0, gemini_engine_1.callGeminiWithRetry)(prompt)).trim().replace(/["']/g, '');
         }
         catch (err) {
             return plainText.substring(0, 155).trim();

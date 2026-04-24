@@ -4483,11 +4483,14 @@ async function loadSettingsContent() {
                   <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (고품질)</option>
                 </optgroup>
                 <optgroup label="🟢 OpenAI">
-                  <option value="gpt-5.4">🚀 GPT-5.4 (최신 최강)</option>
+                  <option value="gpt-5-nano">⚡ GPT-5 nano (가성비)</option>
+                  <option value="gpt-5-mini">🚀 GPT-5 mini (균형)</option>
+                  <option value="gpt-5">👑 GPT-5 (최신 플래그십)</option>
                 </optgroup>
                 <optgroup label="🟣 Anthropic">
-                  <option value="claude-sonnet-4">💎 Claude Sonnet 4 (균형)</option>
-                  <option value="claude-opus-4">👑 Claude Opus 4 (최고 성능)</option>
+                  <option value="claude-haiku-4-5-20251001">💜 Claude Haiku 4.5 (가성비)</option>
+                  <option value="claude-sonnet-4-6">💎 Claude Sonnet 4.6 (균형)</option>
+                  <option value="claude-opus-4-7">👑 Claude Opus 4.7 (1M 컨텍스트)</option>
                 </optgroup>
                 <optgroup label="🔮 Perplexity">
                   <option value="sonar-pro">🔍 Sonar Pro (검색 기반)</option>
@@ -4909,11 +4912,15 @@ async function saveSettings() {
 // AI 모델 선택 배지 업데이트
 function updateModelBadge(type) {
   const MODEL_LABELS = {
+    'gemini-2.5-flash-lite': '💰 Gemini 2.5 Flash-Lite',
     'gemini-2.5-flash': '⚡ Gemini 2.5 Flash',
     'gemini-2.5-pro': '🧠 Gemini 2.5 Pro',
-    'gpt-5.4': '🚀 GPT-5.4',
-    'claude-sonnet-4': '💎 Claude Sonnet 4',
-    'claude-opus-4': '👑 Claude Opus 4',
+    'gpt-5-nano': '⚡ GPT-5 nano',
+    'gpt-5-mini': '🚀 GPT-5 mini',
+    'gpt-5': '👑 GPT-5',
+    'claude-haiku-4-5-20251001': '💜 Claude Haiku 4.5',
+    'claude-sonnet-4-6': '💎 Claude Sonnet 4.6',
+    'claude-opus-4-7': '👑 Claude Opus 4.7',
     'sonar-pro': '🔍 Sonar Pro',
     'gemini-3.1-flash-preview-image': '⚡ Gemini 3.1 Flash Image',
     'imagen-4': '🖼️ Imagen 4',
@@ -5767,7 +5774,8 @@ function togglePlatformFields(forcedPlatform) {
   const bloggerAuthBtn = document.getElementById('bloggerAuthBtn');
   const bloggerAuthBtn2 = document.getElementById('bloggerAuthBtn2');
   const loadCategoriesBtn = document.getElementById('loadCategoriesBtn');
-  const wpCategorySection = document.getElementById('wpCategorySection');
+  const wpCategoryTab = document.getElementById('settingsTabCategory');
+  const wpCategoryPanel = document.getElementById('tab-category');
 
   console.log('togglePlatformFields 실행:', selectedPlatform);
 
@@ -5776,9 +5784,12 @@ function togglePlatformFields(forcedPlatform) {
     console.log('워드프레스 카테고리 필드:', wordpressCategoryField.style.display);
   }
 
-  if (wpCategorySection) {
-    wpCategorySection.style.display = selectedPlatform === 'wordpress' ? 'block' : 'none';
-    console.log('통합 UI 워드프레스 카테고리 섹션:', wpCategorySection.style.display);
+  if (wpCategoryTab) {
+    wpCategoryTab.style.display = selectedPlatform === 'wordpress' ? 'flex' : 'none';
+    console.log('워드프레스 카테고리 탭:', wpCategoryTab.style.display);
+  }
+  if (wpCategoryPanel && selectedPlatform !== 'wordpress' && wpCategoryPanel.classList.contains('active')) {
+    if (window.switchSettingsTab) window.switchSettingsTab('tab-content');
   }
 
   if (bloggerAuthBtn) {
@@ -7162,6 +7173,8 @@ function getPostingModeText(mode) {
 function getImageModelDisplayName(provider) {
   const modelMap = {
     'nanobananapro': '🍌 NanoBananaPro (Gemini)',
+    'flow': '🌊 Flow (Nano Banana Pro 무료)',
+    'imagefx': '🎨 ImageFX (Google 무료)',
     'imagen4': '🎨 Imagen 4 (Google)',
     'deepinfra': '🔵 FLUX-2-dev (DeepInfra)',
     'flux': '🔵 FLUX (DeepInfra)',
