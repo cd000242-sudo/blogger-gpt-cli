@@ -75,7 +75,57 @@ export function registerSetupHandlers(): void {
       completed: state.completed,
       cancelled: state.cancelled,
       error: state.error,
+      stepResults: state.stepResults || [],
     };
+  });
+
+  // 🔁 Step 단위 재시도 — 특정 step부터 다시 실행 (처음부터 재시작 불필요)
+  ipcMain.handle('oneclick:retry-step', async (_evt, args: { platform: string; fromStep: number; blogspotConfig?: any }) => {
+    try {
+      const { platform, fromStep, blogspotConfig } = args;
+      const existing = setupStateManager.get(platform);
+      if (!existing) {
+        return { ok: false, error: '원본 세팅 기록이 없습니다 — 전체 실행부터 다시 시작하세요' };
+      }
+      const savedResults = existing.stepResults || [];
+      setupStateManager.reset(platform);
+
+      const state = setupStateManager.getOrCreate(platform, (): SetupState => ({
+        platform,
+        currentStep: fromStep,
+        totalSteps: existing.totalSteps,
+        stepStatus: 'idle',
+        message: `🔁 Step ${fromStep}부터 재시도`,
+        completed: false,
+        cancelled: false,
+        error: null,
+        browser: null,
+        page: null,
+        stepResults: savedResults.filter(r => r.index < fromStep),
+        resumeFromStep: fromStep,
+      }));
+
+      console.log(`[ONECLICK] 🔁 ${platform} Step ${fromStep}부터 재시도`);
+      const waitForLogin = (p: string) => setupStateManager.waitForLogin(p);
+
+      const run = async () => {
+        try {
+          if (platform === 'blogspot') {
+            await runBlogspotSetup(state, 'https://www.blogger.com/', blogspotConfig, waitForLogin);
+          } else {
+            state.error = `retry-step은 현재 blogspot만 지원합니다 (요청 플랫폼: ${platform})`;
+            state.stepStatus = 'error';
+          }
+        } catch (e) {
+          state.error = e instanceof Error ? e.message : String(e);
+          state.stepStatus = 'error';
+        }
+      };
+      run().catch((e) => console.error('[ONECLICK] retry-step Unhandled:', e));
+      return { ok: true, fromStep };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : '재시도 실패' };
+    }
   });
 
   // 세팅 취소

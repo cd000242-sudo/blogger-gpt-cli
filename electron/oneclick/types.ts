@@ -35,6 +35,10 @@ export interface SetupState extends BaseState {
   platform: string;
   currentStep: number;
   totalSteps: number;
+  /** 각 step 결과를 개별 기록 — 부분 실패 시 재시도 기준점으로 사용 */
+  stepResults?: Array<{ index: number; label: string; ok: boolean; message: string }>;
+  /** 재시작 시 이 step부터 재실행 (undefined이면 처음부터) */
+  resumeFromStep?: number;
 }
 
 export interface WebmasterState extends BaseState {

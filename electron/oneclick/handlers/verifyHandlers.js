@@ -373,5 +373,136 @@ function registerVerifyIpcHandlers() {
         console.log(`[ONECLICK-VERIFY] ✅ 검증 완료 (${report.elapsedMs}ms) — ok=${overallOk}`);
         return report;
     });
-    console.log('[ONECLICK-VERIFY] ✅ verify-only 핸들러 등록');
+    // ═══════════════════════════════════════════════
+    // 🔐 GCP 결제 계정 사전 검증 — 원클릭 연동 시작 전 차단용
+    // ═══════════════════════════════════════════════
+    //
+    // Cloud Billing API 의 `projects.getBillingInfo` 를 호출해 결제 계정 연결 여부를 확인한다.
+    // `billingEnabled: true` 인 경우만 Blogger API 활성화가 가능하다.
+    electron_1.ipcMain.handle('oneclick:preflight-gcp-billing', async (_evt, payload = {}) => {
+        const t0 = Date.now();
+        try {
+            const env = readEnv();
+            const clientId = payload.googleClientId || env.GOOGLE_CLIENT_ID || '';
+            const clientSecret = payload.googleClientSecret || env.GOOGLE_CLIENT_SECRET || '';
+            const refreshToken = payload.googleRefreshToken || env.GOOGLE_REFRESH_TOKEN || '';
+            let accessToken = payload.googleAccessToken || env.GOOGLE_ACCESS_TOKEN || '';
+            const projectId = payload.gcpProjectId || env.GCP_PROJECT_ID || '';
+            if (!accessToken && !(refreshToken && clientId && clientSecret)) {
+                return {
+                    ok: false,
+                    status: 'skip',
+                    reason: 'no-credentials',
+                    message: 'Google OAuth 자격증명이 없어 사전 검증을 건너뜁니다. 원클릭 연동부터 시작하세요.',
+                    elapsedMs: Date.now() - t0,
+                };
+            }
+            if (refreshToken && clientId && clientSecret) {
+                try {
+                    const r = await httpGet('https://oauth2.googleapis.com/token', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({
+                            client_id: clientId,
+                            client_secret: clientSecret,
+                            refresh_token: refreshToken,
+                            grant_type: 'refresh_token',
+                        }).toString(),
+                    });
+                    if (r.ok) {
+                        const j = (await r.json());
+                        if (j.access_token)
+                            accessToken = j.access_token;
+                    }
+                }
+                catch { /* 무시 */ }
+            }
+            if (!accessToken) {
+                return {
+                    ok: false,
+                    status: 'fail',
+                    reason: 'token-refresh-failed',
+                    message: 'OAuth 토큰 갱신 실패 — 원클릭 연동에서 재인증해 주세요.',
+                    elapsedMs: Date.now() - t0,
+                };
+            }
+            // 1) projectId가 있으면 직접 조회, 없으면 첫 번째 프로젝트 선택
+            let targetProject = projectId;
+            if (!targetProject) {
+                const lr = await httpGet('https://cloudresourcemanager.googleapis.com/v1/projects', {
+                    headers: { Authorization: `Bearer ${accessToken}` },
+                });
+                if (!lr.ok) {
+                    return {
+                        ok: false,
+                        status: 'fail',
+                        reason: `projects-list-http-${lr.status}`,
+                        message: `GCP 프로젝트 목록 조회 실패 (HTTP ${lr.status}). OAuth 스코프에 cloud-platform.read-only 가 포함돼 있는지 확인하세요.`,
+                        elapsedMs: Date.now() - t0,
+                    };
+                }
+                const lj = (await lr.json());
+                const firstActive = (lj.projects || []).find((p) => p.lifecycleState === 'ACTIVE');
+                if (!firstActive) {
+                    return {
+                        ok: false,
+                        status: 'fail',
+                        reason: 'no-active-project',
+                        message: 'GCP 프로젝트가 없습니다. console.cloud.google.com 에서 프로젝트를 먼저 생성하세요.',
+                        fix: 'https://console.cloud.google.com/projectcreate',
+                        elapsedMs: Date.now() - t0,
+                    };
+                }
+                targetProject = firstActive.projectId;
+            }
+            // 2) 결제 계정 연결 여부 조회
+            const br = await httpGet(`https://cloudbilling.googleapis.com/v1/projects/${encodeURIComponent(targetProject)}/billingInfo`, { headers: { Authorization: `Bearer ${accessToken}` } });
+            if (!br.ok) {
+                // 403 은 API 미활성화 또는 권한 부족 — 결제 계정 연결이 안 된 상태도 이 경로로 빠진다
+                return {
+                    ok: false,
+                    status: 'fail',
+                    reason: `billing-info-http-${br.status}`,
+                    projectId: targetProject,
+                    message: br.status === 403
+                        ? `프로젝트 "${targetProject}" 에 Cloud Billing API 권한이 없거나 결제 계정이 연결되어 있지 않습니다.`
+                        : `결제 정보 조회 실패 (HTTP ${br.status})`,
+                    fix: 'https://console.cloud.google.com/billing',
+                    elapsedMs: Date.now() - t0,
+                };
+            }
+            const bj = (await br.json());
+            const enabled = bj.billingEnabled === true;
+            const billingAccountName = bj.billingAccountName || '';
+            if (!enabled) {
+                return {
+                    ok: false,
+                    status: 'fail',
+                    reason: 'billing-not-enabled',
+                    projectId: targetProject,
+                    message: `프로젝트 "${targetProject}" 에 결제 계정이 연결되어 있지 않습니다. Blogger API 활성화가 차단될 수 있습니다.`,
+                    fix: `https://console.cloud.google.com/billing/linkedaccount?project=${encodeURIComponent(targetProject)}`,
+                    elapsedMs: Date.now() - t0,
+                };
+            }
+            return {
+                ok: true,
+                status: 'ok',
+                projectId: targetProject,
+                billingAccountName,
+                message: `프로젝트 "${targetProject}" 결제 계정 연결 확인 (${billingAccountName})`,
+                elapsedMs: Date.now() - t0,
+            };
+        }
+        catch (e) {
+            return {
+                ok: false,
+                status: 'fail',
+                reason: 'exception',
+                message: e?.message || '사전 검증 오류',
+                elapsedMs: Date.now() - t0,
+            };
+        }
+    });
+    console.log('[ONECLICK-VERIFY] ✅ verify-only + preflight-gcp-billing 핸들러 등록');
 }

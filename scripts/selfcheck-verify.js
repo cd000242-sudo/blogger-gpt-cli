@@ -191,6 +191,51 @@ function test(name, fn) {
     assert(src.includes('analytics.google.com'), 'GA 취득 경로 누락');
   });
 
+  // 18) GCP 결제 계정 사전 검증 IPC
+  await test('preflight-gcp-billing IPC 핸들러 등록됨', async () => {
+    const p = path.join(__dirname, '..', 'electron', 'oneclick', 'handlers', 'verifyHandlers.js');
+    const src = require('fs').readFileSync(p, 'utf-8');
+    assert(src.includes('oneclick:preflight-gcp-billing'), 'IPC 채널 누락');
+    assert(src.includes('cloudbilling.googleapis.com'), 'Cloud Billing API 호출 누락');
+    assert(src.includes('billingEnabled'), 'billingEnabled 확인 로직 누락');
+    assert(src.includes('cloudresourcemanager.googleapis.com'), '프로젝트 목록 API 호출 누락');
+  });
+
+  // 19) Step 단위 재시도 IPC + UI
+  await test('retry-step IPC 핸들러 + UI 재시도 버튼', async () => {
+    const handlerSrc = require('fs').readFileSync(
+      path.join(__dirname, '..', 'electron', 'oneclick', 'handlers', 'setupHandlers.js'), 'utf-8');
+    assert(handlerSrc.includes('oneclick:retry-step'), 'retry-step IPC 누락');
+    assert(handlerSrc.includes('resumeFromStep'), 'resumeFromStep 전달 누락');
+
+    const setupSrc = require('fs').readFileSync(
+      path.join(__dirname, '..', 'electron', 'oneclick', 'automation', 'blogspot', 'blogspotSetup.js'), 'utf-8');
+    assert(setupSrc.includes('resumeFromStep') || setupSrc.includes('resumeFrom'), 'blogspotSetup에 재시작 분기 없음');
+    assert(setupSrc.includes('recordStep') || setupSrc.includes('stepResults'), 'step 결과 기록 누락');
+
+    const uiSrc = require('fs').readFileSync(
+      path.join(__dirname, '..', 'electron', 'ui', 'modules', 'oneclick-setup.js'), 'utf-8');
+    assert(uiSrc.includes('oneclick-retry-btn'), 'UI 재시도 버튼 누락');
+    assert(uiSrc.includes("'oneclick:retry-step'"), 'UI에서 retry-step invoke 누락');
+  });
+
+  // 20) 완료 요약 화면 렌더러
+  await test('완료 요약 화면 renderSetupSummary 추가', async () => {
+    const p = path.join(__dirname, '..', 'electron', 'ui', 'modules', 'oneclick-setup.js');
+    const src = require('fs').readFileSync(p, 'utf-8');
+    assert(src.includes('renderSetupSummary'), 'renderSetupSummary 함수 누락');
+    assert(src.includes('📋 세팅 결과 요약') || src.includes('세팅 결과 요약'), '요약 헤더 누락');
+    assert(src.includes('stepResults'), 'stepResults 참조 누락');
+  });
+
+  // 21) Blogger 연동 진입 전 GCP preflight 호출
+  await test('startPlatformConnect — GCP preflight 호출', async () => {
+    const p = path.join(__dirname, '..', 'electron', 'ui', 'modules', 'oneclick-setup.js');
+    const src = require('fs').readFileSync(p, 'utf-8');
+    assert(src.includes("'oneclick:preflight-gcp-billing'"), 'preflight IPC 호출 누락');
+    assert(src.includes('GCP 결제 계정'), 'preflight 안내 문구 누락');
+  });
+
   console.log('\n════════════════════════════════════════════');
   const passed = results.filter(r => r.ok).length;
   const failed = results.filter(r => !r.ok).length;

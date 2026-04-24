@@ -1250,9 +1250,11 @@ function listenForProgress(platformId) {
 
       if (status.completed) {
         clearPoll('platform');
+        renderSetupSummary(platformId, status.stepResults || []);
         setSetupComplete(platformId);
       } else if (status.error) {
         clearPoll('platform');
+        renderSetupSummary(platformId, status.stepResults || [], { failedMessage: status.error, currentStep: status.currentStep });
         setSetupFailed(platformId, status.error);
       }
     } catch {
@@ -1296,6 +1298,80 @@ function updateStepUI(platformId, stepIndex, state, message) {
     if (iconEl) { iconEl.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)'; iconEl.style.color = 'white'; iconEl.textContent = '✕'; }
     if (statusEl) { statusEl.textContent = message || '오류'; statusEl.style.color = '#ef4444'; }
   }
+}
+
+// ═══════════════════════════════════════════════
+// 📋 완료 요약 화면 + Step 재시도
+// ═══════════════════════════════════════════════
+function renderSetupSummary(platformId, stepResults, opts = {}) {
+  const host = document.getElementById(`oneclick-steps-${platformId}`) || document.getElementById(`oneclick-progress-${platformId}`);
+  if (!host) return;
+
+  const summaryId = `oneclick-summary-${platformId}`;
+  const existing = document.getElementById(summaryId);
+  if (existing) existing.remove();
+
+  const ok = (stepResults || []).filter(r => r.ok);
+  const fail = (stepResults || []).filter(r => !r.ok);
+  const total = (stepResults || []).length;
+
+  const box = document.createElement('div');
+  box.id = summaryId;
+  box.style.cssText = 'margin-top: 14px; padding: 16px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 12px;';
+
+  const header = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
+      <div style="font-weight:800; color:white; font-size:14px;">📋 세팅 결과 요약</div>
+      <div style="font-size:12px; color:${fail.length ? '#fca5a5' : '#86efac'};">
+        성공 ${ok.length} / 실패 ${fail.length} / 총 ${total}
+      </div>
+    </div>
+  `;
+
+  const rows = (stepResults || []).map(r => `
+    <div style="display:flex; justify-content:space-between; gap:10px; padding:8px 10px; margin-bottom:4px; background:${r.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border:1px solid ${r.ok ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.25)'}; border-radius:8px; align-items:center;">
+      <div style="font-size:12px; color:${r.ok ? '#86efac' : '#fca5a5'}; font-weight:700;">
+        ${r.ok ? '✅' : '❌'} Step ${r.index}. ${r.label}
+      </div>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <div style="font-size:11px; color:#94a3b8; max-width: 260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.message || ''}</div>
+        ${!r.ok ? `<button class="oneclick-retry-btn" data-platform="${platformId}" data-step="${r.index}" style="padding:4px 10px; background:linear-gradient(135deg,#ef4444,#dc2626); color:white; border:none; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;">🔁 Step ${r.index} 재시도</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  const footer = opts.failedMessage
+    ? `<div style="margin-top:8px; padding:8px 10px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:8px; font-size:12px; color:#fca5a5;">❌ ${opts.failedMessage}${typeof opts.currentStep === 'number' ? ` (Step ${opts.currentStep}에서 중단)` : ''}</div>`
+    : `<div style="margin-top:8px; padding:8px 10px; background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.3); border-radius:8px; font-size:12px; color:#86efac;">🎉 모든 단계 완료 — 이제 글 작성 탭으로 이동해 포스팅을 시작하세요.</div>`;
+
+  box.innerHTML = header + rows + footer;
+  host.appendChild(box);
+
+  // Step 재시도 버튼 바인딩
+  box.querySelectorAll('.oneclick-retry-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const p = btn.dataset.platform;
+      const s = Number(btn.dataset.step);
+      if (!Number.isFinite(s)) return;
+      btn.disabled = true;
+      btn.textContent = '⏳ 재시도 중...';
+      try {
+        // 기존 입력값 재사용을 위해 localStorage에서 blogspotConfig 복원
+        const raw = localStorage.getItem(`oneclick_config_${p}`);
+        const cfg = raw ? JSON.parse(raw) : undefined;
+        const r = await window.electronAPI.invoke('oneclick:retry-step', { platform: p, fromStep: s, blogspotConfig: cfg });
+        if (!r?.ok) {
+          btn.textContent = `❌ 재시도 실패: ${r?.error || '알 수 없음'}`;
+        } else {
+          btn.textContent = `🔁 Step ${s}부터 재시작됨`;
+          // 재시도 후에는 기존 요약 박스 제거하고 재폴링 시작
+          setTimeout(() => { box.remove(); if (window.__oneclickSetup?.startPollSetupStatus) window.__oneclickSetup.startPollSetupStatus(p); }, 1500);
+        }
+      } catch (e) {
+        btn.textContent = `❌ ${e?.message || e}`;
+      }
+    });
+  });
 }
 
 function setSetupComplete(platformId) {
@@ -1438,6 +1514,43 @@ async function startPlatformConnect(platformId) {
   if (runningOp) {
     showToast(`⚠️ ${runningOp}이(가) 진행 중입니다. 완료 후 다시 시도해주세요.`, 'warn');
     return;
+  }
+
+  // 🛡️ Blogger 연동 시작 전 GCP 결제 계정 사전 검증 — 결제 미연결이면 Blogger API 활성화 차단되므로 미리 차단
+  if (platformId === 'blogger' || platformId === 'blogspot') {
+    try {
+      const storage = getStorageManager();
+      const settings = await storage.get('bloggerSettings', true) || {};
+      // 이미 OAuth 자격증명이 있을 때만 사전 검증 가능 (최초 연동은 스킵)
+      if (settings.googleClientId && settings.googleClientSecret && settings.googleRefreshToken) {
+        showToast('🔍 GCP 결제 계정 사전 확인 중...', 'info');
+        const preflight = await window.electronAPI.invoke('oneclick:preflight-gcp-billing', {
+          googleClientId: settings.googleClientId,
+          googleClientSecret: settings.googleClientSecret,
+          googleRefreshToken: settings.googleRefreshToken,
+          googleAccessToken: settings.googleAccessToken || '',
+          gcpProjectId: settings.gcpProjectId || '',
+        });
+        if (preflight && preflight.ok === false && preflight.status === 'fail') {
+          const proceed = confirm(
+            `⚠️ GCP 결제 계정 미연결 감지\n\n` +
+            `${preflight.message}\n\n` +
+            `[확인]: 먼저 결제 계정을 연결한 뒤 다시 시도 (권장)\n` +
+            `[취소]: 무시하고 계속 진행 (Blogger API 활성화 단계에서 실패할 수 있음)`,
+          );
+          if (proceed) {
+            if (preflight.fix && window.electronAPI?.openLink) {
+              window.electronAPI.openLink(preflight.fix);
+            }
+            return;
+          }
+        } else if (preflight && preflight.ok === true) {
+          showToast(`✅ 결제 계정 확인: ${preflight.billingAccountName || '연결됨'}`, 'success');
+        }
+      }
+    } catch (e) {
+      console.log('[ONECLICK] preflight 건너뜀:', e?.message || e);
+    }
   }
 
   // 이미 세팅되어 있는지 체크
