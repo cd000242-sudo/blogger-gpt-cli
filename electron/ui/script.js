@@ -8870,7 +8870,7 @@ function addKeyword() {
           <select id="${keywordId}_contentMode" style="background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); color: white; border-radius: 8px; padding: 8px 10px; font-size: 13px; width: 100%;">
             <option value="external">🔗 단일 외부링크 (SEO)</option>
             <option value="internal">🕸️ 내부링크 거미줄치기</option>
-            <option value="shopping">🛒 쇼핑/구매유도</option>
+            <option value="shopping" disabled>🛒 쇼핑/구매유도 (준비 중)</option>
           </select>
           <small style="color: rgba(255, 255, 255, 0.6); font-size: 10px; margin-top: 4px; display: block;">외부: 공식 사이트 유도, 내부: 관련 글 연결, 쇼핑: 제품 리뷰</small>
         </div>

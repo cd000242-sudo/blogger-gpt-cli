@@ -8,6 +8,7 @@ const webmasterHandlers_1 = require("./handlers/webmasterHandlers");
 const connectHandlers_1 = require("./handlers/connectHandlers");
 const infraHandlers_1 = require("./handlers/infraHandlers");
 const dialogHandler_1 = require("./handlers/dialogHandler");
+const verifyHandlers_1 = require("./handlers/verifyHandlers");
 /**
  * 원클릭 세팅 IPC 핸들러 15개를 등록한다.
  * - 세팅: 4채널 (start-setup, get-status, cancel, confirm-login)
@@ -23,5 +24,6 @@ function registerOneclickSetupIpcHandlers() {
     (0, connectHandlers_1.registerConnectHandlers)();
     (0, infraHandlers_1.registerInfraHandlers)();
     (0, dialogHandler_1.registerDialogHandler)();
-    console.log('[ONECLICK-IPC] ✅ 원클릭 세팅 IPC 핸들러 15개 등록 완료');
+    (0, verifyHandlers_1.registerVerifyIpcHandlers)();
+    console.log('[ONECLICK-IPC] ✅ 원클릭 세팅 IPC 핸들러 16개 등록 완료');
 }

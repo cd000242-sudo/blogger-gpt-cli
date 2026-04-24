@@ -25,6 +25,23 @@ async function createBlog(state, page, config) {
             blogId = postMatch[1];
         else if (dashMatch)
             blogId = dashMatch[2];
+        // 🛡️ 이미 블로그가 존재하거나 사용자가 "기존 블로그 사용"을 지정한 경우 신규 생성 차단
+        //    수동으로 세팅 완료한 사용자가 재실행 시 두 번째 블로그가 생성되는 회귀 방지
+        const useExisting = config.useExistingBlog === true || !!config.existingBlogId;
+        if (useExisting && (config.existingBlogId || blogId)) {
+            const effectiveBlogId = config.existingBlogId || blogId;
+            state.message = `기존 블로그 사용 (blogId: ${effectiveBlogId}) — 신규 생성 건너뜀`;
+            state.stepStatus = 'done';
+            await (0, browser_1.sleep)(1000);
+            return effectiveBlogId;
+        }
+        if (blogId && !config.forceCreateNew) {
+            // 이미 대시보드 URL에서 blogId가 감지됐는데 forceCreateNew가 명시되지 않으면 기존 블로그를 사용
+            state.message = `기존 블로그 감지 (blogId: ${blogId}) — 신규 생성 건너뜀 (설정에 forceCreateNew:true 지정 시 새로 생성)`;
+            state.stepStatus = 'done';
+            await (0, browser_1.sleep)(1000);
+            return blogId;
+        }
         if (config.blogTitle && config.blogAddress) {
             // 새 블로그 만들기 (대시보드에서)
             state.message = '새 블로그 만들기 클릭 중...';

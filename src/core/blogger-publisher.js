@@ -1958,7 +1958,7 @@ async function publishToBlogger(payload, title, html, thumbnailUrl, onLog, posti
 
     console.log('[PUBLISH] ✅ 필수 설정 확인 완료');
     console.log('[PUBLISH] Blog ID:', blogId);
-    console.log('[PUBLISH] Client ID:', clientId ? `${clientId.substring(0, 20)}...` : '없음');
+    console.log('[PUBLISH] Client ID:', clientId ? `[REDACTED] (길이 ${clientId.length})` : '없음');
 
     // OAuth2 클라이언트 설정
     const { OAuth2Client } = require('google-auth-library');
@@ -2056,7 +2056,7 @@ async function publishToBlogger(payload, title, html, thumbnailUrl, onLog, posti
               const refreshClientId = clientId || envVars.GOOGLE_CLIENT_ID;
               const refreshClientSecret = clientSecret || envVars.GOOGLE_CLIENT_SECRET;
 
-              console.log(`[PUBLISH] [토큰 갱신] 사용할 client_id: ${refreshClientId?.substring(0, 20)}...`);
+              console.log(`[PUBLISH] [토큰 갱신] client_id: [REDACTED] (길이 ${refreshClientId?.length || 0})`);
 
               const refreshResponse = await fetch('https://oauth2.googleapis.com/token', {
                 method: 'POST',

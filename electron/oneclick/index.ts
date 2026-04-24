@@ -6,6 +6,7 @@ import { registerWebmasterHandlers } from './handlers/webmasterHandlers';
 import { registerConnectHandlers } from './handlers/connectHandlers';
 import { registerInfraHandlers } from './handlers/infraHandlers';
 import { registerDialogHandler } from './handlers/dialogHandler';
+import { registerVerifyIpcHandlers } from './handlers/verifyHandlers';
 
 /**
  * 원클릭 세팅 IPC 핸들러 15개를 등록한다.
@@ -23,6 +24,7 @@ export function registerOneclickSetupIpcHandlers(): void {
   registerConnectHandlers();
   registerInfraHandlers();
   registerDialogHandler();
+  registerVerifyIpcHandlers();
 
-  console.log('[ONECLICK-IPC] ✅ 원클릭 세팅 IPC 핸들러 15개 등록 완료');
+  console.log('[ONECLICK-IPC] ✅ 원클릭 세팅 IPC 핸들러 16개 등록 완료');
 }

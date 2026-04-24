@@ -41,6 +41,13 @@ export async function generateUltimateMaxModeArticleFinal(
   onLog?: (s: string) => void
 ): Promise<{ html: string; title: string; labels: string[]; thumbnail: string }> {
 
+  // 🚧 쇼핑 모드 임시 차단 (점검 중) — UI에서 disabled 처리했지만 IPC/스케줄 경로로도 유입될 수 있으므로 이중 가드
+  if (payload?.contentMode === 'shopping') {
+    const blockMsg = '🚧 쇼핑/구매유도 모드는 현재 점검 중입니다. 다른 모드(SEO/내부링크/애드센스/페러프레이징)를 선택해 주세요.';
+    onLog?.(`[PROGRESS] 0% - ${blockMsg}`);
+    throw new Error(blockMsg);
+  }
+
   // 🎯 동시 실행 시 순차 처리 (process.env 보호)
   let releaseLock: () => void;
   const prevLock = engineLock;

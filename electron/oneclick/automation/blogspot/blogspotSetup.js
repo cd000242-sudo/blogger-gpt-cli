@@ -33,6 +33,13 @@ async function runBlogspotSetup(state, adminUrl, blogspotConfig, waitForLogin) {
         const loggedIn = await waitForLogin(state.platform);
         if (state.cancelled)
             return;
+        if (!loggedIn) {
+            // 🛡️ 로그인 타임아웃(5분 초과) 시 이후 단계로 넘어가지 않고 중단
+            // (이전에는 반환값을 체크하지 않아 미로그인 상태로 createBlog가 실행되는 회귀 존재)
+            state.error = '로그인 대기 시간이 초과되어 세팅을 중단합니다. 다시 시도해 주세요.';
+            state.stepStatus = 'error';
+            return;
+        }
         state.currentStep = 0;
         state.stepStatus = 'done';
         state.message = '로그인 완료';

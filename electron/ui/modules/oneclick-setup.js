@@ -473,6 +473,25 @@ export function renderOneclickSetupTab() {
         </p>
       </div>
 
+      <!-- 🔍 환경 헬스체크 (이미 수동 세팅한 사용자용) -->
+      <div id="oneclick-healthcheck" style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 16px; padding: 20px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(59, 130, 246, 0.25);">
+              <span style="font-size: 20px;">🔍</span>
+            </div>
+            <div>
+              <h4 style="margin: 0; font-weight: 800; color: white; font-size: 16px; letter-spacing: -0.3px;">환경 헬스체크</h4>
+              <p style="margin: 3px 0 0; font-size: 11px; color: #94a3b8;">이미 수동으로 세팅을 마쳤다면 — 원클릭을 다시 돌리지 않고 현재 상태만 검증합니다</p>
+            </div>
+          </div>
+          <button id="oneclick-healthcheck-btn" style="padding: 10px 16px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;">
+            🔍 검증만 실행
+          </button>
+        </div>
+        <div id="oneclick-healthcheck-results" style="margin-top: 8px;"></div>
+      </div>
+
       <!-- 블로그스팟 카드 -->
       ${renderPlatformCard(PLATFORMS.blogspot)}
 
@@ -1905,7 +1924,8 @@ export function initOneclickSetup() {
     startPlatformConnect,
     cancelPlatformConnect,
     startInfraSetup,
-    cancelInfraSetup
+    cancelInfraSetup,
+    runHealthcheck,
   };
 
   // 블로그 URL 불러오기 (이전 모듈 레벨 사이드이펙트 → init으로 이동)
@@ -1915,7 +1935,103 @@ export function initOneclickSetup() {
     if (urlInput && !urlInput.value) loadBlogUrlToInput(false);
   }, BLOG_URL_AUTO_LOAD_DELAY_MS);
 
-  console.log('[ONECLICK] ✅ 원클릭 세팅 모듈 초기화 완료 (웹마스터 자동화 + 플랫폼 연동 + 인프라 세팅 포함)');
+  // 🔍 헬스체크 버튼 바인딩 (탭 렌더 후 약간의 지연)
+  setTimeout(() => {
+    const btn = document.getElementById('oneclick-healthcheck-btn');
+    if (btn && !btn.dataset.bound) {
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', runHealthcheck);
+    }
+  }, 300);
+
+  console.log('[ONECLICK] ✅ 원클릭 세팅 모듈 초기화 완료 (웹마스터 자동화 + 플랫폼 연동 + 인프라 세팅 + 헬스체크 포함)');
+}
+
+// ═══════════════════════════════════════════════
+// 🔍 환경 헬스체크
+// ═══════════════════════════════════════════════
+async function runHealthcheck() {
+  const btn = document.getElementById('oneclick-healthcheck-btn');
+  const resultsEl = document.getElementById('oneclick-healthcheck-results');
+  if (!btn || !resultsEl) return;
+
+  btn.disabled = true;
+  btn.textContent = '🔄 검증 중...';
+  resultsEl.innerHTML = `
+    <div style="padding: 14px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 10px; color: #93c5fd; font-size: 13px;">
+      저장된 자격증명으로 5개 항목을 병렬 검증 중... (최대 15초)
+    </div>
+  `;
+
+  try {
+    // 저장된 설정에서 자격증명 수집
+    const settings = (() => {
+      try {
+        const raw = localStorage.getItem('bloggerSettings');
+        return raw ? JSON.parse(raw) : {};
+      } catch { return {}; }
+    })();
+
+    const payload = {
+      blogUrl: settings.blogUrl || settings.wordpressSiteUrl || '',
+      wordpressSiteUrl: settings.wordpressSiteUrl || '',
+      wordpressUsername: settings.wordpressUsername || '',
+      wordpressPassword: settings.wordpressPassword || '',
+      googleClientId: settings.googleClientId || '',
+      googleClientSecret: settings.googleClientSecret || '',
+      googleAccessToken: settings.googleAccessToken || '',
+      googleRefreshToken: settings.googleRefreshToken || '',
+    };
+
+    const report = await window.electronAPI.invoke('oneclick:verify-only', payload);
+    renderHealthcheckReport(resultsEl, report);
+  } catch (e) {
+    resultsEl.innerHTML = `
+      <div style="padding: 14px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 10px; color: #fca5a5; font-size: 13px;">
+        ❌ 검증 실행 실패: ${e?.message || e}
+      </div>
+    `;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 검증만 실행';
+  }
+}
+
+function renderHealthcheckReport(el, report) {
+  if (!report || !Array.isArray(report.items)) {
+    el.innerHTML = `<div style="padding: 12px; color: #94a3b8; font-size: 13px;">검증 결과가 없습니다.</div>`;
+    return;
+  }
+  const badge = (s) => s === 'ok' ? '🟢' : s === 'fail' ? '🔴' : '⚪';
+  const bgColor = (s) => s === 'ok'
+    ? 'rgba(34, 197, 94, 0.08)'
+    : s === 'fail' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(100, 116, 139, 0.08)';
+  const borderColor = (s) => s === 'ok'
+    ? 'rgba(34, 197, 94, 0.25)'
+    : s === 'fail' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(100, 116, 139, 0.25)';
+  const textColor = (s) => s === 'ok' ? '#86efac' : s === 'fail' ? '#fca5a5' : '#94a3b8';
+
+  const summary = `
+    <div style="padding: 10px 14px; margin-bottom: 10px; background: ${report.ok ? 'rgba(34, 197, 94, 0.08)' : 'rgba(234, 179, 8, 0.08)'}; border: 1px solid ${report.ok ? 'rgba(34, 197, 94, 0.3)' : 'rgba(234, 179, 8, 0.3)'}; border-radius: 10px; font-size: 13px; color: ${report.ok ? '#86efac' : '#fde68a'};">
+      ${report.ok ? '✅ 최소 운영 조건 충족 (Blogger 또는 WordPress 인증 성공)' : '⚠️ 일부 검증 실패 — 아래 항목 확인 필요'}
+      <span style="float:right; font-size: 11px; color: #94a3b8;">${report.elapsedMs}ms</span>
+    </div>
+  `;
+
+  const rows = report.items.map(it => `
+    <div style="padding: 10px 12px; margin-bottom: 6px; background: ${bgColor(it.status)}; border: 1px solid ${borderColor(it.status)}; border-radius: 8px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+        <div style="font-size: 13px; font-weight: 700; color: ${textColor(it.status)};">
+          ${badge(it.status)} ${it.label}
+        </div>
+        <div style="font-size: 10px; color: #64748b;">${it.elapsedMs}ms</div>
+      </div>
+      <div style="margin-top: 4px; font-size: 12px; color: rgba(255,255,255,0.65);">${it.detail || ''}</div>
+      ${it.fix ? `<div style="margin-top: 4px; font-size: 11px; color: #fbbf24;">💡 ${it.fix}</div>` : ''}
+    </div>
+  `).join('');
+
+  el.innerHTML = summary + rows;
 }
 
 
