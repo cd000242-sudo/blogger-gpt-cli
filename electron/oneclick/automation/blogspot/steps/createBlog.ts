@@ -123,7 +123,7 @@ export async function createBlog(
               state.message = '✅ 블로그 생성 완료!';
             }
           } catch {
-            state.message = '블로그 생성 시도 완료 (수동 확인 필요)';
+            state.message = '블로그 생성 버튼을 찾지 못했습니다 — blogger.com 에서 "새 블로그 만들기"를 직접 눌러주세요';
           }
         } else {
           state.message = '기존 블로그 감지됨 — 건너뜁니다';
@@ -143,7 +143,7 @@ export async function createBlog(
     if (newMatch) blogId = newMatch[1];
   } catch (e) {
     console.error('[ONECLICK-BLOGSPOT] Step 1 오류:', e);
-    state.message = '블로그 만들기 단계 완료 (수동 확인 필요)';
+    state.message = '블로그 만들기 실패 — 주소 중복일 수 있습니다. blogger.com 에서 "새 블로그 만들기"를 열어 다른 주소로 재시도하세요';
   }
 
   state.stepStatus = 'done';

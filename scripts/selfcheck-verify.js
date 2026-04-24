@@ -140,6 +140,57 @@ function test(name, fn) {
     assert(src.includes('renderHealthcheckReport'), '결과 렌더러 없음');
   });
 
+  // 13) 시작 전 준비사항 카드 + 헬프 링크 바인딩
+  await test('oneclick-setup.js — 시작 전 준비사항 카드 추가됨', async () => {
+    const p = path.join(__dirname, '..', 'electron', 'ui', 'modules', 'oneclick-setup.js');
+    const src = require('fs').readFileSync(p, 'utf-8');
+    assert(src.includes('oneclick-prereq'), '준비사항 카드 없음');
+    assert(src.includes('data-oneclick-help'), '헬프 링크 data attr 없음');
+    assert(src.includes('https://console.cloud.google.com/billing'), 'GCP 결제 링크 없음');
+    assert(src.includes('https://platform.cloudways.com/signup'), 'Cloudways 가입 링크 없음');
+    assert(src.includes('5~15분'), '예상 소요 시간 안내 없음');
+  });
+
+  // 14) 반자동 카피 수정 확인 ("로그인만 하면" 삭제)
+  await test('oneclick-setup.js — 오해 소지 UI 카피 수정됨', async () => {
+    const p = path.join(__dirname, '..', 'electron', 'ui', 'modules', 'oneclick-setup.js');
+    const src = require('fs').readFileSync(p, 'utf-8');
+    assert(!src.includes('로그인만 하면 나머지는 자동으로 세팅됩니다'), '기존 허위 카피 잔존');
+    assert(!src.includes('로그인만 하면 끝!'), '기존 허위 카피 잔존');
+    assert(src.includes('반자동 세팅'), '솔직한 카피 누락');
+  });
+
+  // 15) 애매 에러 메시지 5곳 교체 확인
+  await test('애매 문구 "수동 확인 필요" 5개 사용자 대면 메시지 교체됨', async () => {
+    const createBlog = require('fs').readFileSync(
+      path.join(__dirname, '..', 'electron', 'oneclick', 'automation', 'blogspot', 'steps', 'createBlog.ts'), 'utf-8');
+    const searchConsole = require('fs').readFileSync(
+      path.join(__dirname, '..', 'electron', 'oneclick', 'automation', 'blogspot', 'steps', 'searchConsole.ts'), 'utf-8');
+    const bloggerConnect = require('fs').readFileSync(
+      path.join(__dirname, '..', 'electron', 'oneclick', 'automation', 'connect', 'bloggerConnect.ts'), 'utf-8');
+    assert(createBlog.includes('새 블로그 만들기'), 'createBlog 안내 누락');
+    assert(createBlog.includes('주소 중복'), 'createBlog 주소중복 안내 누락');
+    assert(searchConsole.includes('Google Search Console'), 'searchConsole 구체 경로 누락');
+    assert(bloggerConnect.includes('결제 계정'), 'bloggerConnect 결제계정 안내 누락');
+    assert(bloggerConnect.includes('console.cloud.google.com/billing'), 'bloggerConnect 링크 누락');
+  });
+
+  // 16) 로그인 대기 UX — 브라우저 창 알림 + 예상 시간
+  await test('blogspotSetup — 브라우저 창 알림 + 예상 시간 명시', async () => {
+    const p = path.join(__dirname, '..', 'electron', 'oneclick', 'automation', 'blogspot', 'blogspotSetup.ts');
+    const src = require('fs').readFileSync(p, 'utf-8');
+    assert(src.includes('새로 열린 브라우저 창') || src.includes('🪟'), '브라우저 창 알림 누락');
+    assert(src.includes('5~15분') || src.includes('5분 이내'), '시간 안내 누락');
+  });
+
+  // 17) AdSense/GA 입력 필드 안내 강화
+  await test('AdSense/GA 입력 필드 — 승인 타임라인 고지', async () => {
+    const p = path.join(__dirname, '..', 'electron', 'ui', 'modules', 'oneclick-setup.js');
+    const src = require('fs').readFileSync(p, 'utf-8');
+    assert(src.includes('2~4주') || src.includes('2주~수개월'), 'AdSense 승인 타임라인 누락');
+    assert(src.includes('analytics.google.com'), 'GA 취득 경로 누락');
+  });
+
   console.log('\n════════════════════════════════════════════');
   const passed = results.filter(r => r.ok).length;
   const failed = results.filter(r => !r.ok).length;

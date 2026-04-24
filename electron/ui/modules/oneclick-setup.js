@@ -281,13 +281,13 @@ function showBlogspotSetupModal(onComplete) {
   ));
 
   card.appendChild(createField(
-    '📊 Google 애널리틱스 측정 ID', 'bs-ga-id', '예: G-XXXXXXXXXX',
-    false, 'GA 계정이 없으면 비워두세요. 나중에 설정에서 추가 가능합니다'
+    '📊 Google 애널리틱스 측정 ID (선택)', 'bs-ga-id', '예: G-XXXXXXXXXX',
+    false, 'GA4 속성이 없으면 비워두세요. 설정 위치: analytics.google.com → 관리(톱니) → 데이터 스트림 → 속성 선택 → "측정 ID" 복사. 나중에 환경설정에서도 추가 가능합니다'
   ));
 
   card.appendChild(createField(
-    '📄 ads.txt 코드', 'bs-adstxt', '예: google.com, pub-XXXXXXX, DIRECT, f08c47fec...',
-    false, '에드센스 승인 후 코드를 입력하세요. 미승인이면 비워두세요'
+    '📄 ads.txt 코드 (선택)', 'bs-adstxt', '예: google.com, pub-XXXXXXX, DIRECT, f08c47fec...',
+    false, '⚠️ AdSense 승인 전이라면 반드시 비워두세요. 승인 심사는 최소 2~4주, 때로는 수개월 걸립니다. 신규 블로그는 최소 20~30개 포스팅 후 신청 권장 — 승인 후 환경설정에서 추가하세요'
   ));
 
   // 파비콘 파일 선택
@@ -469,8 +469,47 @@ export function renderOneclickSetupTab() {
           원클릭 블로그 세팅
         </h3>
         <p style="margin: 8px 0 0; font-size: 13px; color: rgba(255,255,255,0.5); line-height: 1.6;">
-          초보자도 헤매지 않게! 로그인만 하면 나머지는 자동으로 세팅됩니다
+          반자동 세팅 — 로그인과 필수 입력은 직접, 설정·등록 반복작업은 자동으로 처리합니다
         </p>
+      </div>
+
+      <!-- 📋 시작 전 준비사항 (초보 구매자 기대치 관리) -->
+      <div id="oneclick-prereq" style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(234, 179, 8, 0.35); border-radius: 16px; padding: 20px;">
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
+          <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #eab308, #ca8a04); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+            <span style="font-size: 20px;">📋</span>
+          </div>
+          <div>
+            <h4 style="margin: 0; font-weight: 800; color: white; font-size: 16px; letter-spacing: -0.3px;">시작 전 준비사항</h4>
+            <p style="margin: 3px 0 0; font-size: 11px; color: #fde68a;">아래 항목이 준비되어야 원클릭이 끊기지 않고 완주됩니다</p>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: rgba(255,255,255,0.75);">
+          <div style="padding: 10px 12px; background: rgba(234, 179, 8, 0.08); border: 1px solid rgba(234, 179, 8, 0.2); border-radius: 8px;">
+            <div style="font-weight: 700; color: #fde047;">🔵 블로그스팟 쪽</div>
+            <ul style="margin: 6px 0 0; padding-left: 18px; line-height: 1.7;">
+              <li>Google 계정 (2단계 인증 해제 권장)</li>
+              <li>블로그 제목·주소 (신규 생성 시)</li>
+              <li>파비콘 이미지 (16×16 PNG/ICO, 선택)</li>
+              <li><strong>GA4 측정 ID</strong> — 선택. <a href="#" data-oneclick-help="ga" style="color:#93c5fd;">구하는 법</a></li>
+              <li><strong>AdSense pub-ID</strong> — 승인 후 입력 (승인 최소 2~4주, 지금은 비워두세요)</li>
+              <li><strong>GCP 결제 계정</strong> — Blogger OAuth 연동 시 필요. <a href="#" data-oneclick-help="gcp" style="color:#93c5fd;">연결하기</a></li>
+            </ul>
+          </div>
+          <div style="padding: 10px 12px; background: rgba(234, 179, 8, 0.08); border: 1px solid rgba(234, 179, 8, 0.2); border-radius: 8px;">
+            <div style="font-weight: 700; color: #fde047;">🟠 워드프레스/인프라 쪽</div>
+            <ul style="margin: 6px 0 0; padding-left: 18px; line-height: 1.7;">
+              <li>도메인 구입 (가비아·Namecheap 등에서 사전 구매)</li>
+              <li><strong>Cloudways 계정 + 앱 생성</strong> — 인프라 자동화는 앱이 이미 만들어진 상태에서 시작합니다. <a href="#" data-oneclick-help="cloudways" style="color:#93c5fd;">가입하기</a></li>
+              <li>도메인 DNS A레코드를 Cloudways 서버 IP로 변경 (전파 24~48시간)</li>
+              <li>WordPress 관리자 계정 (ID/비밀번호)</li>
+              <li>Gemini API 키 (무료). <a href="#" data-oneclick-help="gemini" style="color:#93c5fd;">발급</a></li>
+            </ul>
+          </div>
+        </div>
+        <div style="margin-top: 12px; padding: 10px 12px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px; font-size: 12px; color: #fca5a5;">
+          ⚠️ 위 항목이 준비되지 않은 채 원클릭을 시작하면 중간에 실패하거나 수동 작업이 발생할 수 있습니다. 예상 소요 시간: <strong>5~15분</strong> (로그인·입력 포함, DNS 전파 제외).
+        </div>
       </div>
 
       <!-- 🔍 환경 헬스체크 (이미 수동 세팅한 사용자용) -->
@@ -1942,9 +1981,31 @@ export function initOneclickSetup() {
       btn.dataset.bound = '1';
       btn.addEventListener('click', runHealthcheck);
     }
+    // 📋 시작 전 준비사항 내 도움말 링크 바인딩 (외부 URL 안전하게 열기)
+    document.querySelectorAll('[data-oneclick-help]').forEach(el => {
+      if (el.dataset.bound) return;
+      el.dataset.bound = '1';
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        const key = el.dataset.oneclickHelp;
+        const urls = {
+          ga: 'https://support.google.com/analytics/answer/9539598', // GA4 측정 ID 찾기
+          gcp: 'https://console.cloud.google.com/billing',           // GCP 결제 계정 연결
+          cloudways: 'https://platform.cloudways.com/signup',        // Cloudways 가입
+          gemini: 'https://aistudio.google.com/apikey',              // Gemini API 키 발급
+        };
+        const url = urls[key];
+        if (!url) return;
+        if (window.electronAPI?.openLink) {
+          window.electronAPI.openLink(url);
+        } else {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }
+      });
+    });
   }, 300);
 
-  console.log('[ONECLICK] ✅ 원클릭 세팅 모듈 초기화 완료 (웹마스터 자동화 + 플랫폼 연동 + 인프라 세팅 + 헬스체크 포함)');
+  console.log('[ONECLICK] ✅ 원클릭 세팅 모듈 초기화 완료 (웹마스터 자동화 + 플랫폼 연동 + 인프라 세팅 + 헬스체크 + 준비사항 포함)');
 }
 
 // ═══════════════════════════════════════════════
@@ -2052,7 +2113,7 @@ function renderPlatformCard(platform) {
               ${platform.name} 원클릭 세팅
             </h4>
             <p style="margin: 4px 0 0; font-size: 12px; color: rgba(255,255,255,0.5);">
-              ${stepCount}단계 자동 설정 • 로그인만 하면 끝!
+              ${stepCount}단계 반자동 설정 • 로그인·입력은 직접, 반복 설정은 자동
             </p>
           </div>
         </div>

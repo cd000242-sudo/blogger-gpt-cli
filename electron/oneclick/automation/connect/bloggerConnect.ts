@@ -84,11 +84,11 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
       if (manageBtn) {
         state.message = 'Blogger API가 이미 활성화되어 있습니다.';
       } else {
-        state.message = 'Blogger API 활성화 버튼을 찾지 못했습니다. 수동으로 활성화해주세요.';
+        state.message = '⚠️ Blogger API 활성화 버튼이 비활성(회색) 상태일 수 있습니다 — GCP 결제 계정이 프로젝트에 연결돼 있는지 확인하세요. console.cloud.google.com/billing 에서 결제 계정을 연결한 뒤 다시 시도해 주세요.';
       }
     }
   } catch (e) {
-    state.message = 'Blogger API 활성화 페이지 이동 실패. 수동으로 활성화해주세요.';
+    state.message = 'Blogger API 페이지 로딩 실패 — console.cloud.google.com/apis/library/blogger.googleapis.com 을 직접 열어 [사용] 버튼을 눌러주세요.';
   }
 
   if (state.cancelled) return;

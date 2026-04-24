@@ -38,7 +38,7 @@ export async function runBlogspotSetup(
     await page.goto('https://www.blogger.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     state.stepStatus = 'waiting-login';
-    state.message = '에드센스 계정과 동일한 Google 계정으로 로그인해주세요';
+    state.message = '🪟 새로 열린 브라우저 창에서 Google 계정(애드센스와 동일한 계정 권장)으로 로그인한 뒤, 앱 화면의 "✅ 로그인 완료" 버튼을 눌러주세요. (5분 이내, 예상 전체 소요 5~15분)';
 
     const loggedIn = await waitForLogin(state.platform);
     if (state.cancelled) return;

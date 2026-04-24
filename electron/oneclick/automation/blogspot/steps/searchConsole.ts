@@ -44,14 +44,14 @@ export async function setupSearchConsole(
         await sleep(3000);
         state.message = '✅ 구글 서치 콘솔 연동 완료!';
       } else {
-        state.message = '서치 콘솔이 이미 연동되어 있거나 수동 확인 필요';
+        state.message = '이미 연동되어 있을 수 있습니다 — search.google.com/search-console 에서 해당 블로그 URL이 속성에 표시되는지 확인하세요';
       }
     } else {
-      state.message = '서치 콘솔 섹션을 찾지 못함 (수동 연결 필요)';
+      state.message = '서치 콘솔 섹션 미발견 — Blogger 설정 → "검색 환경설정" → "Google Search Console" 섹션을 직접 클릭해 연결하세요';
     }
   } catch (e) {
     console.error('[ONECLICK-BLOGSPOT] 서치 콘솔 연동 오류:', e);
-    state.message = '서치 콘솔 연동 실패 (수동 설정 필요)';
+    state.message = '서치 콘솔 자동 연동 실패 — Blogger 설정 → 검색 환경설정 → Google Search Console에서 직접 연결해 주세요';
   }
 
   state.stepStatus = 'done';
