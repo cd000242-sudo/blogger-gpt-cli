@@ -4503,6 +4503,20 @@ app.on('will-quit', async () => {
   } catch (e) {
     // imageFxGenerator 로드 실패 시 무시 (모듈이 사용되지 않았을 수 있음)
   }
+
+  // 🛡️ 원클릭 자동화 Playwright orphan 방지 — 진행 중인 모든 StateManager 리셋
+  try {
+    const { setupStateManager, webmasterStateManager, connectStateManager, infraStateManager } = require('./oneclick/state/instances');
+    await Promise.allSettled([
+      setupStateManager.resetAll(),
+      webmasterStateManager.resetAll(),
+      connectStateManager.resetAll(),
+      infraStateManager.resetAll(),
+    ]);
+    console.log('[APP] ✅ 원클릭 Playwright 세션 전체 정리 완료');
+  } catch (e) {
+    console.warn('[APP] ⚠️ 원클릭 정리 중 예외(무시):', (e as Error)?.message || e);
+  }
 });
 
 // 🏆 애드센스 도구 IPC 핸들러 등록

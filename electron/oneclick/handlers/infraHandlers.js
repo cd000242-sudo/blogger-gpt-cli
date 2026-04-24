@@ -10,11 +10,15 @@ function registerInfraHandlers() {
     // 인프라 세팅 시작
     electron_1.ipcMain.handle('oneclick:start-infra', async (_evt, args) => {
         try {
-            const { domain, email } = args;
+            const { domain, email, preferredAppId } = args;
             if (!domain || !email) {
                 return { ok: false, error: '도메인과 이메일이 필요합니다.' };
             }
-            instances_1.infraStateManager.reset('infra');
+            // 🛡️ 중복 실행 차단
+            if (instances_1.infraStateManager.isBusy('infra')) {
+                return { ok: false, error: '인프라 세팅이 이미 진행 중입니다.' };
+            }
+            await instances_1.infraStateManager.reset('infra');
             const state = instances_1.infraStateManager.getOrCreate('infra', () => ({
                 currentStep: 0,
                 totalSteps: 5,
@@ -30,7 +34,7 @@ function registerInfraHandlers() {
             const run = async () => {
                 try {
                     const waitForLogin = (key, timeout) => instances_1.infraStateManager.waitForLogin(key, timeout);
-                    await (0, cloudwaysInfra_1.runCloudwaysInfraSetup)(state, domain, email, waitForLogin);
+                    await (0, cloudwaysInfra_1.runCloudwaysInfraSetup)(state, domain, email, waitForLogin, { preferredAppId });
                 }
                 catch (e) {
                     console.error('[ONECLICK-INFRA] ❌ 인프라 세팅 오류:', e);
@@ -70,7 +74,7 @@ function registerInfraHandlers() {
             state.cancelled = true;
             state.stepStatus = 'error';
             state.message = '사용자가 취소함';
-            instances_1.infraStateManager.reset('infra');
+            await instances_1.infraStateManager.reset('infra');
         }
         return { ok: true };
     });

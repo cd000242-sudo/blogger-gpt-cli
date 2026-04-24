@@ -16,7 +16,7 @@ export function registerWebmasterHandlers(): void {
   ipcMain.handle('oneclick:start-webmaster', async (_evt, args: { engine: string; blogUrl: string }) => {
     const { engine, blogUrl } = args;
 
-    webmasterStateManager.reset(engine);
+    await webmasterStateManager.reset(engine);
     const state = webmasterStateManager.getOrCreate(engine, (): WebmasterState => ({
       engine,
       blogUrl,
@@ -99,7 +99,7 @@ export function registerWebmasterHandlers(): void {
       state.cancelled = true;
       state.stepStatus = 'error';
       state.message = '사용자가 취소함';
-      webmasterStateManager.reset(args.engine);
+      await webmasterStateManager.reset(args.engine);
     }
     return { ok: true };
   });

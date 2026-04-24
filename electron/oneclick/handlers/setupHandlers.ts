@@ -6,6 +6,7 @@ import { setupStateManager } from '../state/instances';
 import type { SetupState } from '../types';
 import { runBlogspotSetup } from '../automation/blogspot/blogspotSetup';
 import { runWordPressSetup } from '../automation/wordpressSetup';
+import { getResumableCheckpoints, clearCheckpoint } from '../state/persistence';
 
 export function registerSetupHandlers(): void {
   // 세팅 시작
@@ -13,7 +14,14 @@ export function registerSetupHandlers(): void {
     try {
       const { platform, adminUrl, steps, blogspotConfig } = args;
 
-      setupStateManager.reset(platform);
+      // 🛡️ 중복 실행 차단 — 같은 플랫폼이 이미 running/waiting-login 이면 거절
+      //    (이중 Playwright 브라우저 실행 + profile lock 충돌 방지)
+      if (setupStateManager.isBusy(platform)) {
+        console.warn(`[ONECLICK] ⛔ ${platform} 세팅이 이미 실행 중 — 중복 호출 차단`);
+        return { ok: false, error: `${platform} 세팅이 이미 실행 중입니다. 완료하거나 취소한 뒤 다시 시도하세요.` };
+      }
+
+      await setupStateManager.reset(platform);
       const state = setupStateManager.getOrCreate(platform, (): SetupState => ({
         platform,
         currentStep: 0,
@@ -83,17 +91,26 @@ export function registerSetupHandlers(): void {
   ipcMain.handle('oneclick:retry-step', async (_evt, args: { platform: string; fromStep: number; blogspotConfig?: any }) => {
     try {
       const { platform, fromStep, blogspotConfig } = args;
+
+      // 🛡️ 중복 차단 — 이미 running 상태면 재시도 요청 거절
+      if (setupStateManager.isBusy(platform)) {
+        return { ok: false, error: `${platform} 세팅이 진행 중입니다. 완료 또는 취소 후 재시도하세요.` };
+      }
+
+      // 🛡️ TOCTOU 경합 방지 — existing 읽기와 reset 사이에 다른 IPC가 끼어들어 stepResults가 유실되지 않도록
+      //    savedResults를 먼저 복사하고 reset을 await 해서 완료된 뒤에만 새 state 생성
       const existing = setupStateManager.get(platform);
       if (!existing) {
         return { ok: false, error: '원본 세팅 기록이 없습니다 — 전체 실행부터 다시 시작하세요' };
       }
-      const savedResults = existing.stepResults || [];
-      setupStateManager.reset(platform);
+      const savedResults = [...(existing.stepResults || [])];
+      const savedTotalSteps = existing.totalSteps;
+      await setupStateManager.reset(platform);
 
       const state = setupStateManager.getOrCreate(platform, (): SetupState => ({
         platform,
         currentStep: fromStep,
-        totalSteps: existing.totalSteps,
+        totalSteps: savedTotalSteps,
         stepStatus: 'idle',
         message: `🔁 Step ${fromStep}부터 재시도`,
         completed: false,
@@ -135,9 +152,29 @@ export function registerSetupHandlers(): void {
       state.cancelled = true;
       state.stepStatus = 'error';
       state.message = '사용자가 취소함';
-      setupStateManager.reset(args.platform);
+      await setupStateManager.reset(args.platform);
     }
     return { ok: true };
+  });
+
+  // 🗂️ 재개 가능한 체크포인트 조회 — 앱 시작 시 UI가 호출해서 "이어서 계속하시겠습니까?" 모달 표시용
+  ipcMain.handle('oneclick:get-resume-info', async () => {
+    try {
+      const checkpoints = getResumableCheckpoints();
+      return { ok: true, checkpoints };
+    } catch (e) {
+      return { ok: false, error: (e as Error)?.message || '체크포인트 조회 실패', checkpoints: [] };
+    }
+  });
+
+  // 🗑️ 체크포인트 삭제 — 사용자가 "처음부터 다시"를 선택한 경우
+  ipcMain.handle('oneclick:clear-checkpoint', async (_evt, args: { platform: string }) => {
+    try {
+      clearCheckpoint(args.platform);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error)?.message || '삭제 실패' };
+    }
   });
 
   // 로그인 완료 확인

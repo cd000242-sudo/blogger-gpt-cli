@@ -8,14 +8,19 @@ import { runCloudwaysInfraSetup } from '../automation/cloudwaysInfra';
 
 export function registerInfraHandlers(): void {
   // 인프라 세팅 시작
-  ipcMain.handle('oneclick:start-infra', async (_evt, args: { domain: string; email: string }) => {
+  ipcMain.handle('oneclick:start-infra', async (_evt, args: { domain: string; email: string; preferredAppId?: string }) => {
     try {
-      const { domain, email } = args;
+      const { domain, email, preferredAppId } = args;
       if (!domain || !email) {
         return { ok: false, error: '도메인과 이메일이 필요합니다.' };
       }
 
-      infraStateManager.reset('infra');
+      // 🛡️ 중복 실행 차단
+      if (infraStateManager.isBusy('infra')) {
+        return { ok: false, error: '인프라 세팅이 이미 진행 중입니다.' };
+      }
+
+      await infraStateManager.reset('infra');
       const state = infraStateManager.getOrCreate('infra', (): InfraState => ({
         currentStep: 0,
         totalSteps: 5,
@@ -33,7 +38,7 @@ export function registerInfraHandlers(): void {
       const run = async () => {
         try {
           const waitForLogin = (key: string, timeout?: number) => infraStateManager.waitForLogin(key, timeout);
-          await runCloudwaysInfraSetup(state, domain, email, waitForLogin);
+          await runCloudwaysInfraSetup(state, domain, email, waitForLogin, { preferredAppId });
         } catch (e) {
           console.error('[ONECLICK-INFRA] ❌ 인프라 세팅 오류:', e);
           state.error = e instanceof Error ? e.message : String(e);
@@ -75,7 +80,7 @@ export function registerInfraHandlers(): void {
       state.cancelled = true;
       state.stepStatus = 'error';
       state.message = '사용자가 취소함';
-      infraStateManager.reset('infra');
+      await infraStateManager.reset('infra');
     }
     return { ok: true };
   });

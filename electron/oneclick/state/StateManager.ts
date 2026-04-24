@@ -39,13 +39,15 @@ export class StateManager<T extends BaseState> {
 
   /**
    * 상태를 리셋한다. 브라우저가 열려있으면 닫는다.
+   * async로 변경 — browser.close()를 await 해서 chromium 프로세스 정리가
+   * 완료된 뒤에야 새 state가 생성되도록 보장한다. (profile lock 충돌 방지)
    */
-  reset(key: string): void {
+  async reset(key: string): Promise<void> {
     const state = this.states.get(key);
     if (!state) return;
 
     try {
-      state.browser?.close();
+      await state.browser?.close();
     } catch {
       /* ignore — 이미 닫혔거나 프로세스 종료됨 */
     }
@@ -58,6 +60,24 @@ export class StateManager<T extends BaseState> {
     }
     this.loginResolvers.delete(key);
     this.states.delete(key);
+  }
+
+  /**
+   * 특정 키가 실행 중(running/waiting-login)인지 확인.
+   * 중복 `start-setup` 호출을 미리 차단하기 위해 사용.
+   */
+  isBusy(key: string): boolean {
+    const state = this.states.get(key);
+    if (!state) return false;
+    return state.stepStatus === 'running' || state.stepStatus === 'waiting-login';
+  }
+
+  /**
+   * 모든 활성 키를 순회하며 reset — will-quit 등 앱 종료 시 Playwright orphan 방지.
+   */
+  async resetAll(): Promise<void> {
+    const keys = Array.from(this.states.keys());
+    await Promise.allSettled(keys.map(k => this.reset(k)));
   }
 
   /**

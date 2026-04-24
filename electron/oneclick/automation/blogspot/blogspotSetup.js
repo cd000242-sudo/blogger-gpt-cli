@@ -10,6 +10,7 @@ const metaGaAds_1 = require("./steps/metaGaAds");
 const faviconUpload_1 = require("./steps/faviconUpload");
 const applySkinCSS_1 = require("./steps/applySkinCSS");
 const searchConsole_1 = require("./steps/searchConsole");
+const persistence_1 = require("../../state/persistence");
 /**
  * Blogspot 원클릭 세팅 메인 함수.
  * Step 0(로그인)~Step 7(완료)까지 순차 실행한다.
@@ -35,6 +36,11 @@ async function runBlogspotSetup(state, adminUrl, blogspotConfig, waitForLogin) {
             state.stepResults[existing] = entry;
         else
             state.stepResults.push(entry);
+        // 🗂️ 각 step 결과마다 체크포인트 저장 (재시작 후 재개 지원)
+        try {
+            (0, persistence_1.saveCheckpoint)(state, config);
+        }
+        catch { /* 무시 */ }
     };
     try {
         // ─── Step 0: Google 로그인 ───
@@ -109,6 +115,10 @@ async function runBlogspotSetup(state, adminUrl, blogspotConfig, waitForLogin) {
         state.message = '🎉 블로그스팟 세팅이 모두 완료되었습니다!';
         state.completed = true;
         recordStep(7, '완료', true, state.message);
+        try {
+            (0, persistence_1.clearCheckpoint)(state.platform);
+        }
+        catch { /* 무시 */ }
     }
     catch (e) {
         state.error = e instanceof Error ? e.message : String(e);

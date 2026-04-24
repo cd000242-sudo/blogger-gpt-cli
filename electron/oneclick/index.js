@@ -25,5 +25,5 @@ function registerOneclickSetupIpcHandlers() {
     (0, infraHandlers_1.registerInfraHandlers)();
     (0, dialogHandler_1.registerDialogHandler)();
     (0, verifyHandlers_1.registerVerifyIpcHandlers)();
-    console.log('[ONECLICK-IPC] ✅ 원클릭 세팅 IPC 핸들러 16개 등록 완료');
+    console.log('[ONECLICK-IPC] ✅ 원클릭 세팅 IPC 핸들러 18개 등록 완료');
 }

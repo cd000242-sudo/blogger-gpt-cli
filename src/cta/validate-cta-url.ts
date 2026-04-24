@@ -74,8 +74,24 @@ const CONTENT_CHECK_SUFFIXES: string[] = [
 // Core Validation
 // ============================================================
 
+// 🗂️ In-flight + 완료 결과 캐시 — 동일 URL 중복 HTTP 호출 방지 (rate-limit/과부하 차단)
+//    key: normalized URL, value: Promise of result. 완료 후 TTL 10분간 유지.
+const CTA_CACHE = new Map<string, { result: Promise<CtaValidationResult>; expireAt: number }>();
+const CTA_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function normalizeCacheKey(url: string): string {
+    // 공백 제거 + trailing slash 통일 정도의 가벼운 정규화
+    try {
+        const u = new URL(url);
+        const path = u.pathname.replace(/\/+$/, '') || '/';
+        return `${u.protocol}//${u.hostname}${path}${u.search}`.toLowerCase();
+    } catch {
+        return url.trim().toLowerCase();
+    }
+}
+
 /**
- * CTA URL 유효성 검증 (통합)
+ * CTA URL 유효성 검증 (통합) — in-flight dedup 포함
  * 1단계: 형식 검증
  * 2단계: 차단 호스트/블로그 필터
  * 3단계: HTTP HEAD 요청으로 실제 응답 확인
@@ -85,6 +101,32 @@ export async function validateCtaUrl(
     options: { timeout?: number; skipHttp?: boolean } = {}
 ): Promise<CtaValidationResult> {
     const { timeout = 5000, skipHttp = false } = options;
+
+    // 🗂️ 캐시 조회 — 같은 URL이 진행 중이면 해당 Promise 공유, 완료됐고 TTL 유효하면 재사용
+    const cacheKey = normalizeCacheKey(url);
+    const now = Date.now();
+    const cached = CTA_CACHE.get(cacheKey);
+    if (cached && cached.expireAt > now) {
+        return cached.result;
+    }
+
+    // 만료된 엔트리 정리 (맵 비대화 방지)
+    if (CTA_CACHE.size > 500) {
+        for (const [k, v] of CTA_CACHE.entries()) {
+            if (v.expireAt <= now) CTA_CACHE.delete(k);
+        }
+    }
+
+    const promise = performValidation(url, timeout, skipHttp);
+    CTA_CACHE.set(cacheKey, { result: promise, expireAt: now + CTA_CACHE_TTL_MS });
+    return promise;
+}
+
+async function performValidation(
+    url: string,
+    timeout: number,
+    skipHttp: boolean,
+): Promise<CtaValidationResult> {
     const start = Date.now();
 
     // 1단계: 형식 검증

@@ -12,7 +12,7 @@ function registerConnectHandlers() {
     // 플랫폼 연동 시작
     electron_1.ipcMain.handle('oneclick:platform-connect', async (_evt, args) => {
         const { platform, siteUrl } = args;
-        instances_1.connectStateManager.reset(platform);
+        await instances_1.connectStateManager.reset(platform);
         const state = instances_1.connectStateManager.getOrCreate(platform, () => ({
             platform,
             stepStatus: 'idle',
@@ -99,7 +99,7 @@ function registerConnectHandlers() {
             state.cancelled = true;
             state.stepStatus = 'error';
             state.message = '사용자가 취소함';
-            instances_1.connectStateManager.reset(args.platform);
+            await instances_1.connectStateManager.reset(args.platform);
         }
         return { ok: true };
     });

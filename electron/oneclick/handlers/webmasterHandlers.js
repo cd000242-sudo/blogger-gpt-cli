@@ -15,7 +15,7 @@ function registerWebmasterHandlers() {
     // 웹마스터 세팅 시작
     electron_1.ipcMain.handle('oneclick:start-webmaster', async (_evt, args) => {
         const { engine, blogUrl } = args;
-        instances_1.webmasterStateManager.reset(engine);
+        await instances_1.webmasterStateManager.reset(engine);
         const state = instances_1.webmasterStateManager.getOrCreate(engine, () => ({
             engine,
             blogUrl,
@@ -105,7 +105,7 @@ function registerWebmasterHandlers() {
             state.cancelled = true;
             state.stepStatus = 'error';
             state.message = '사용자가 취소함';
-            instances_1.webmasterStateManager.reset(args.engine);
+            await instances_1.webmasterStateManager.reset(args.engine);
         }
         return { ok: true };
     });

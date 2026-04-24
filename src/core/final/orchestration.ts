@@ -49,7 +49,8 @@ export async function generateUltimateMaxModeArticleFinal(
   }
 
   // 🎯 동시 실행 시 순차 처리 (process.env 보호)
-  let releaseLock: () => void;
+  // 🛡️ releaseLock을 항상 no-op으로 초기화 — 예외 경로에서 미할당 상태로 finally 진입 시 TypeError → 영구 데드락 방지
+  let releaseLock: () => void = () => { /* no-op until assigned */ };
   const prevLock = engineLock;
   engineLock = new Promise<void>(resolve => { releaseLock = resolve; });
   await prevLock;
@@ -1562,7 +1563,7 @@ ${conclusionHTML}
   } finally {
     // 🎯 AI 엔진 env 원복 (다음 요청에 영향 방지)
     process.env['PRIMARY_TEXT_MODEL'] = previousTextModel;
-    releaseLock!();
+    try { releaseLock(); } catch { /* no-op 보호 */ }
   }
 }
 

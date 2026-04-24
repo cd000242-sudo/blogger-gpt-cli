@@ -9,6 +9,7 @@ import { setupMetaGaAds } from './steps/metaGaAds';
 import { uploadFavicon } from './steps/faviconUpload';
 import { applySkinCSS } from './steps/applySkinCSS';
 import { setupSearchConsole } from './steps/searchConsole';
+import { saveCheckpoint, clearCheckpoint } from '../../state/persistence';
 
 /**
  * Blogspot 원클릭 세팅 메인 함수.
@@ -39,6 +40,8 @@ export async function runBlogspotSetup(
     const entry = { index, label, ok, message };
     if (existing >= 0) state.stepResults[existing] = entry;
     else state.stepResults.push(entry);
+    // 🗂️ 각 step 결과마다 체크포인트 저장 (재시작 후 재개 지원)
+    try { saveCheckpoint(state, config); } catch { /* 무시 */ }
   };
 
   try {
@@ -118,6 +121,7 @@ export async function runBlogspotSetup(
     state.message = '🎉 블로그스팟 세팅이 모두 완료되었습니다!';
     state.completed = true;
     recordStep(7, '완료', true, state.message);
+    try { clearCheckpoint(state.platform); } catch { /* 무시 */ }
   } catch (e) {
     state.error = e instanceof Error ? e.message : String(e);
     state.stepStatus = 'error';

@@ -13,7 +13,8 @@ export async function runCloudwaysInfraSetup(
   state: InfraState,
   domain: string,
   email: string,
-  waitForLogin?: (key: string, timeout?: number) => Promise<boolean>
+  waitForLogin?: (key: string, timeout?: number) => Promise<boolean>,
+  options?: { preferredAppId?: string }
 ): Promise<void> {
   const { browser, page } = await launchBrowser();
   state.browser = browser;
@@ -55,25 +56,48 @@ export async function runCloudwaysInfraSetup(
 
     // URL에서 앱 ID 추출 시도
     const appIdMatch = currentUrl.match(/\/apps\/(\d+)/);
+    const preferredAppId: string = (options?.preferredAppId || '').toString().trim();
+
     if (appIdMatch) {
       appId = appIdMatch[1];
-      state.message = `앱 ID ${appId} 감지됨`;
+      state.message = `앱 ID ${appId} 감지됨 (URL에서 추출)`;
     } else {
-      // 서버 목록에서 첫 번째 앱으로 이동
+      // 앱 목록을 스캔해서 여러 개면 사용자 선택 유도, 하나면 자동 사용
       try {
-        // 앱 목록 탐색 — Cloudways 대시보드에서 앱 클릭
-        const appLink = await page.locator(CLOUDWAYS_SELECTORS.appLink).first();
-        if (await appLink.isVisible({ timeout: 10000 })) {
-          const href = await appLink.getAttribute('href');
-          if (href) {
-            const match = href.match(/\/apps\/(\d+)/);
-            if (match) appId = match[1];
-          }
-          await appLink.click();
-          await sleep(3000);
+        const appLinks = await page.locator(CLOUDWAYS_SELECTORS.appLink).all();
+        const candidates: string[] = [];
+        for (const link of appLinks) {
+          try {
+            const href = await link.getAttribute('href');
+            const m = href ? href.match(/\/apps\/(\d+)/) : null;
+            if (m && m[1] && !candidates.includes(m[1])) candidates.push(m[1]);
+          } catch { /* 무시 */ }
+        }
+
+        if (preferredAppId && candidates.includes(preferredAppId)) {
+          // 사용자가 미리 지정한 앱이 있으면 그걸 사용
+          appId = preferredAppId;
+          state.message = `사용자 지정 앱 ${appId} 선택`;
+          await page.goto(`https://platform.cloudways.com/apps/${appId}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+          await sleep(2000);
+        } else if (candidates.length === 1) {
+          // 앱이 1개뿐이면 자동 선택
+          appId = candidates[0];
+          state.message = `앱 ${appId} 자동 선택 (목록에 1개만 있음)`;
+          await page.goto(`https://platform.cloudways.com/apps/${appId}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+          await sleep(2000);
+        } else if (candidates.length > 1) {
+          // 여러 앱이 있으면 선택 요구 — 임의 선택 금지
+          state.stepStatus = 'error';
+          state.error = `Cloudways 계정에 앱이 ${candidates.length}개 있습니다 (ID: ${candidates.join(', ')}). 원하는 앱의 ID를 "preferredAppId" 설정으로 지정하거나, 대시보드에서 해당 앱을 연 상태로 다시 시도하세요.`;
+          (state as any).candidateAppIds = candidates;
+          console.warn(`[ONECLICK-INFRA] ⚠️ 앱 후보 ${candidates.length}개 — 사용자 선택 필요`);
+          return;
+        } else {
+          state.message = '앱을 찾지 못했습니다. Cloudways 대시보드에서 앱을 먼저 생성해주세요.';
         }
       } catch {
-        state.message = '앱을 찾지 못했습니다. 대시보드에서 앱을 선택해주세요.';
+        state.message = '앱 목록 스캔 실패 — 대시보드에서 앱을 선택해주세요.';
       }
     }
 

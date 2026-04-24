@@ -49,6 +49,32 @@ export async function createBlog(
       return blogId;
     }
 
+    // 🛡️ 사전 형식 검증 — Blogger의 거절 메시지 UI를 감지하기 어려우므로 앱에서 미리 차단
+    //    1) blogAddress: 영문 소문자/숫자/하이픈만 허용, 4~63자
+    //    2) blogTitle: 1~200자
+    if (config.blogAddress) {
+      const addr = String(config.blogAddress).trim().toLowerCase();
+      const addrOk = /^[a-z0-9][a-z0-9-]{2,61}[a-z0-9]$/.test(addr);
+      if (!addrOk) {
+        state.stepStatus = 'error';
+        state.message = `블로그 주소 형식 오류: "${addr}" — 영문 소문자·숫자·하이픈만 가능하며 4~63자, 시작/끝은 영숫자여야 합니다.`;
+        state.error = state.message;
+        console.error('[ONECLICK-BLOGSPOT] ❌ 블로그 주소 형식 오류:', addr);
+        return '';
+      }
+      config.blogAddress = addr;
+    }
+    if (config.blogTitle) {
+      const title = String(config.blogTitle).trim();
+      if (title.length < 1 || title.length > 200) {
+        state.stepStatus = 'error';
+        state.message = `블로그 제목 길이 오류: ${title.length}자 — 1~200자여야 합니다.`;
+        state.error = state.message;
+        return '';
+      }
+      config.blogTitle = title;
+    }
+
     if (config.blogTitle && config.blogAddress) {
       // 새 블로그 만들기 (대시보드에서)
       state.message = '새 블로그 만들기 클릭 중...';

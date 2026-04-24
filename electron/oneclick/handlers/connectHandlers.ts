@@ -13,7 +13,7 @@ export function registerConnectHandlers(): void {
   ipcMain.handle('oneclick:platform-connect', async (_evt, args: { platform: string; siteUrl?: string }) => {
     const { platform, siteUrl } = args;
 
-    connectStateManager.reset(platform);
+    await connectStateManager.reset(platform);
     const state = connectStateManager.getOrCreate(platform, (): ConnectState => ({
       platform,
       stepStatus: 'idle',
@@ -98,7 +98,7 @@ export function registerConnectHandlers(): void {
       state.cancelled = true;
       state.stepStatus = 'error';
       state.message = '사용자가 취소함';
-      connectStateManager.reset(args.platform);
+      await connectStateManager.reset(args.platform);
     }
     return { ok: true };
   });
