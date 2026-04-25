@@ -134,17 +134,25 @@ export function buildAdsenseSectionPrompt(params: PromptParams): string {
         : '';
 
     // 사용자 지정 저자 정보 — 없으면 1인칭 경험담 생성 자체를 금지 (E-E-A-T 위조 방지)
+    // 🛡️ 비어있는 필드는 AI가 멋대로 채우지 못하도록 "언급 금지" 강제 (이전: "(주제에 맞게 AI가 결정)" → AI가 환각으로 가짜 직함/자격 생성)
     const hasAuthor = !!(authorInfo?.name && authorInfo.name.trim());
+    const titleProvided = !!(authorInfo?.title && authorInfo.title.trim());
+    const credentialsProvided = !!(authorInfo?.credentials && authorInfo.credentials.trim());
     const authorInstruction = hasAuthor
-        ? `\n👤 **사용자 지정 저자 정보** (이 정보를 기반으로 일관된 저자 페르소나를 유지하세요):
+        ? `\n👤 **사용자 지정 저자 정보** (아래 입력된 정보만 사용하세요. 입력 안 된 항목은 본문에 등장시키지 마세요):
 - 이름: ${authorInfo!.name}
-- 직함/전문 분야: ${authorInfo!.title || '(주제에 맞게 AI가 결정)'}
-- 자격/경력: ${authorInfo!.credentials || '(주제에 맞게 AI가 결정)'}
-⚠️ 작성자 소개 섹션에서는 위 정보를 자연스러운 1인칭 서술로 풀어주세요.
-⚠️ 다른 섹션에서도 이 저자의 관점과 전문성을 유지하세요.\n`
+${titleProvided ? `- 직함/전문 분야: ${authorInfo!.title}` : '- 직함/전문 분야: (입력 안 됨 — 본문에 직함이나 전문 분야를 절대 언급하지 마세요)'}
+${credentialsProvided ? `- 자격/경력: ${authorInfo!.credentials}` : '- 자격/경력: (입력 안 됨 — 자격증·경력·근무처·재직 연수 등을 절대 만들어내지 마세요)'}
+⚠️ 작성자 소개 섹션 작성 규칙:
+  1) 입력된 정보(이름${titleProvided ? '·직함' : ''}${credentialsProvided ? '·경력' : ''})만 자연스러운 1인칭 서술로 풀어주세요.
+  2) 입력되지 않은 항목을 추측·생성·언급하면 안 됩니다 (예: 입력 안 한 자격증을 만들어내거나 가상 회사를 언급 금지).
+  3) **HTML <img> 태그·프로필 사진·아바타 등 이미지 요소를 절대 생성하지 마세요.** 작성자 소개는 텍스트만으로 작성합니다.
+  4) 입력된 정보가 부족해 분량이 모자라면 "이 글의 정보 출처와 검증 방식"을 추가하여 보완하세요.
+⚠️ 다른 섹션에서도 입력된 저자 정보의 범위를 벗어나지 마세요.\n`
         : `\n🛡️ **저자 프로필 미입력 — 1인칭 경험담 생성 절대 금지**:
 - "제가 직접 ~해본 결과", "저는 ~를 사용했더니" 같은 1인칭 경험 서술 사용 금지
 - 가상의 저자 페르소나 만들기 금지 (구글 E-E-A-T 위조 = 즉시 거절 사유)
+- HTML <img> 태그·프로필 사진·아바타 절대 생성 금지
 - 대신 "공식 자료에 따르면", "전문가들은 ~라고 말합니다", "한국소비자원 데이터에 의하면" 같은 객관적 3인칭 서술만 사용
 - 작성자 소개 섹션은 "이 글의 정보 출처와 검증 방식"으로 대체하여 작성\n`;
 

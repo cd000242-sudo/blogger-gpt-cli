@@ -77,12 +77,12 @@ ${section.crawledData.contents ? section.crawledData.contents.slice(0, 5).map((c
 
  **콘텐츠 포커스**: ${section.contentFocus}
 ${authorInfo?.name && _mode === 'adsense' ? `
-👤 **사용자 지정 저자 정보 (E-E-A-T)**:
+👤 **사용자 지정 저자 정보 (E-E-A-T)** — 입력된 항목만 사용, 비어있는 항목은 본문에 등장 금지:
 - 이름: ${authorInfo.name}
-- 직함/전문 분야: ${authorInfo.title || '(주제에 맞게 AI가 결정)'}
-- 자격/경력: ${authorInfo.credentials || '(주제에 맞게 AI가 결정)'}
-⚠️ 위 저자 정보를 기반으로 일관된 전문가 페르소나를 유지하며 글을 작성하세요.
-작성자 소개 섹션에서는 이 정보를 자연스럽게 녹여 소개 문단을 구성하세요.
+${authorInfo.title && authorInfo.title.trim() ? `- 직함/전문 분야: ${authorInfo.title}` : '- 직함/전문 분야: (입력 안 됨 — 직함/전문 분야를 본문에 절대 언급하지 마세요)'}
+${authorInfo.credentials && authorInfo.credentials.trim() ? `- 자격/경력: ${authorInfo.credentials}` : '- 자격/경력: (입력 안 됨 — 자격증·경력·근무처를 만들어내지 마세요)'}
+⚠️ 위 입력된 정보 범위 내에서만 일관된 페르소나를 유지하세요.
+⚠️ 작성자 소개 섹션에서 HTML <img> 태그·프로필 사진·아바타를 절대 생성하지 마세요 (텍스트만).
 ` : ''}
 ⚠️ **AI 감지 방지 - 자연스러운 인간의 글쓰기 (신뢰성 유지)**:
 🚨 **핵심 목표**: 독자가 "이건 진짜 사람이 쓴 글이구나"라고 느끼면서도, 동시에 "신뢰할 수 있는 정보구나"라고 확신할 수 있어야 합니다.

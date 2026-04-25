@@ -171,6 +171,38 @@ function scanAIPatterns(text: string): { count: number; found: string[] } {
 /**
  * CTA/광고 잔여물 검출 및 제거
  */
+/**
+ * 작성자 소개/저자 박스 영역의 자동 생성 <img>·아바타·프로필 사진 제거.
+ * AI가 prompt 지시를 무시하고 임의로 이미지 태그를 박는 회귀 방어.
+ *
+ * 정화 대상 (둘 중 하나라도 매치):
+ *  1) class에 author / profile / avatar / writer / 작성자 가 포함된 컨테이너 내부의 모든 <img> 태그
+ *  2) 첫 번째 H2 "작성자 소개" 섹션 직전~직후 1500자 영역의 <img> 태그
+ */
+function stripAuthorImagesAndAvatars(html: string): { html: string; removed: number } {
+    let removed = 0;
+    let out = html;
+
+    // 1) author/profile/avatar 류 클래스 컨테이너 내부 <img> 제거
+    const containerRe = /<(div|section|figure|aside|p)[^>]*class=["'][^"']*(?:author|profile|avatar|writer|작성자)[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi;
+    out = out.replace(containerRe, (_match: string, tag: string, inner: string) => {
+        const cleaned = inner.replace(/<img\b[^>]*>/gi, () => { removed++; return ''; });
+        return `<${tag}${_match.slice(1 + tag.length, _match.indexOf('>') + 1)}${cleaned}</${tag}>`;
+    });
+
+    // 2) "작성자 소개" 텍스트가 포함된 H2/H3 섹션 직후 1500자 영역의 <img> 제거
+    const sectionRe = /<h[23][^>]*>[^<]*(?:작성자\s*소개|저자\s*소개|글쓴이|About\s+the\s+Author)[^<]*<\/h[23]>/gi;
+    out = out.replace(sectionRe, (m: string, offset: number, src: string) => {
+        const tail = src.slice(offset + m.length, offset + m.length + 1500);
+        const cleanedTail = tail.replace(/<img\b[^>]*>/gi, () => { removed++; return ''; });
+        // 원본 구조 유지를 위해 헤딩만 반환하고 이후 영역은 다음 패스에서 정화
+        out = out.slice(0, offset + m.length) + cleanedTail + out.slice(offset + m.length + 1500);
+        return m;
+    });
+
+    return { html: out, removed };
+}
+
 function cleanCTAResidues(html: string): { cleaned: string; removedCount: number; found: string[] } {
     let cleaned = html;
     let removedCount = 0;
@@ -204,8 +236,15 @@ export function postProcessForApproval(html: string): {
         details.push(`⚠️ CTA/광고 잔여물 ${removedCount}개 제거: ${ctaFound.join(', ')}`);
     }
 
+    // 1.2. 작성자 소개 섹션의 자동 생성 <img>·아바타·프로필 사진 제거
+    //      사용자가 프로필 이미지를 명시 입력하지 않았는데 AI가 임의로 박은 케이스 정화
+    const authorImgRemoval = stripAuthorImagesAndAvatars(cleaned);
+    if (authorImgRemoval.removed > 0) {
+        details.push(`🛡️ 작성자 영역 자동 생성 이미지 ${authorImgRemoval.removed}개 제거`);
+    }
+
     // 1.5. AI 패턴 자동 대체 (반복 접속사를 다양한 표현으로 교체)
-    let processedHtml = cleaned;
+    let processedHtml = authorImgRemoval.html;
     let replacedCount = 0;
     for (const { pattern, replacements } of AI_REPLACEMENT_MAP) {
         let matchIdx = 0;

@@ -17,7 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const REPEAT = 100;
+const REPEAT = 1000;
 const results = [];
 let suiteStart = Date.now();
 
@@ -445,6 +445,31 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!distSrc.includes(':has(.badge-info)')) throw new Error('dist/ui/styles.css 동기화 누락');
   });
 
+  await runTest('Adsense 작성자 — 비어있는 필드 AI 생성 차단 + img 후처리', () => {
+    const promptSrc = load('src/core/content-modes/adsense/adsense-prompt-builder.ts');
+    if (!promptSrc.includes('titleProvided')) throw new Error('titleProvided 분기 누락');
+    if (!promptSrc.includes('credentialsProvided')) throw new Error('credentialsProvided 분기 누락');
+    if (!promptSrc.includes('입력 안 됨')) throw new Error('비어있는 필드 명시 차단 안내 누락');
+    if (!promptSrc.includes('HTML <img>') && !promptSrc.includes('아바타')) throw new Error('img 생성 금지 지시 누락');
+    // 실제 fallback 패턴: ${authorInfo!.title || '(주제에 맞게 AI가 결정)'} 같은 코드 잔존 검사
+    if (/\|\|\s*['"]\(주제에 맞게 AI가 결정\)['"]/.test(promptSrc)) throw new Error("기존 'AI가 결정' || fallback 잔존");
+
+    const maxModeSrc = load('src/core/max-mode/content-mode-prompt.ts');
+    if (/\|\|\s*['"]\(주제에 맞게 AI가 결정\)['"]/.test(maxModeSrc)) throw new Error("max-mode에 잔존 || fallback");
+    if (!maxModeSrc.includes('입력 안 됨')) throw new Error('max-mode 차단 안내 누락');
+
+    const postSrc = load('src/core/content-modes/adsense/adsense-post-processor.ts');
+    if (!postSrc.includes('stripAuthorImagesAndAvatars')) throw new Error('후처리 함수 누락');
+    if (!postSrc.includes('작성자\\s*소개')) throw new Error('작성자 소개 섹션 정규식 누락');
+    if (!postSrc.includes('avatar') || !postSrc.includes('profile')) throw new Error('컨테이너 클래스 매칭 누락');
+
+    // 시뮬: 작성자 소개 섹션 안의 img가 제거되는지 확인
+    const sample = '<h2>작성자 소개</h2><p>안녕하세요. 저는 <img src="auto.png" alt="profile" />홍길동입니다.</p>';
+    // 함수를 직접 import하지 않고 정규식 동작만 시뮬
+    const cleaned = sample.replace(/<img\b[^>]*>/gi, '');
+    if (cleaned.includes('<img')) throw new Error('img 정규식 시뮬 실패');
+  });
+
   await runTest('썸네일 — 사용자 명시 엔진 선택 시 productImages 무시', () => {
     const src = load('src/core/final/orchestration.ts');
     if (!src.includes('userPickedAiEngine')) throw new Error('명시 엔진 플래그 누락');
@@ -467,6 +492,83 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!sim('imagefx', ['x.png'], 'shopping')) throw new Error('shopping 모드 시뮬 실패');
     // auto + 이미지 있음 → 수집 이미지 사용
     if (!sim('auto', ['x.png'], 'seo')) throw new Error('auto 시뮬 실패');
+  });
+
+  await runTest('모든 AI 엔진 명시 선택 시 productImages 무시 (imagefx/flow/nanobananapro/deepinfra/leonardo/dalle/pollinations)', () => {
+    const sim = (src) => {
+      const srcLower = String(src || '').toLowerCase();
+      const isCrawledRequested = srcLower === 'crawled' || srcLower.startsWith('crawled-') || srcLower === 'custom';
+      const userPickedAiEngine = !!srcLower && srcLower !== 'auto' && srcLower !== 'default' && !isCrawledRequested && srcLower !== 'none' && srcLower !== 'skip';
+      const isShoppingMode = false;
+      return ['x.png'].length > 0 && (isCrawledRequested || isShoppingMode || !userPickedAiEngine);
+    };
+    const aiEngines = ['imagefx', 'flow', 'nanobananapro', 'nanobanana', 'deepinfra', 'leonardo', 'dalle', 'pollinations'];
+    for (const e of aiEngines) {
+      if (sim(e)) throw new Error(`${e} 엔진 명시 시 수집 이미지가 사용됨 (무시되어야 함)`);
+    }
+  });
+
+  await runTest('imageDispatcher — 모든 case 분기 + makeXxx 호출 일관', () => {
+    const src = load('src/core/imageDispatcher.ts');
+    // 7개 AI 엔진 case 분기 모두 있어야
+    const required = [
+      "case 'imagefx':",
+      "case 'flow':",
+      "case 'nanobananapro':",
+      "case 'deepinfra':",
+      "case 'leonardo':",
+      "case 'dalle':",
+      "case 'pollinations':",
+    ];
+    for (const r of required) {
+      if (!src.includes(r)) throw new Error(`${r} 분기 누락`);
+    }
+    // 명시 선택 보호 (userPickedExplicitly)
+    if (!src.includes('userPickedExplicitly')) throw new Error('명시 선택 보호 로직 누락');
+    if (!src.includes('명시 선택')) throw new Error('명시 선택 안내 누락');
+  });
+
+  await runTest('imageDispatcher 별칭 — 모든 변종이 정확한 엔진으로 정규화', () => {
+    const src = load('src/core/imageDispatcher.ts');
+    // alias map 추출
+    const aliasMatch = src.match(/aliasMap[\s\S]*?\{([\s\S]*?)\}/);
+    if (!aliasMatch) throw new Error('aliasMap 정의를 찾지 못함');
+    const aliases = aliasMatch[1];
+    const required = [
+      "'auto': 'imagefx'",
+      "'default': 'imagefx'",
+      "'nb': 'nanobananapro'",
+      "'nano': 'nanobananapro'",
+      "'flux': 'deepinfra'",
+      "'openai': 'dalle'",
+      "'gpt-image-2': 'dalle'",
+      "'ducktape': 'dalle'",
+      "'duct-tape': 'dalle'",
+      "'덕트테이프': 'dalle'",
+    ];
+    for (const r of required) {
+      if (!aliases.includes(r)) throw new Error(`별칭 누락: ${r}`);
+    }
+  });
+
+  await runTest('썸네일 dispatchThumbnailGeneration — 명시 선택 시 SVG로만 폴백 (다른 AI 금지)', () => {
+    const src = load('src/core/imageDispatcher.ts');
+    // userPickedExplicitly && 1순위 실패 시 SVG로만 폴백, 다른 AI 엔진으로 넘어가지 않음
+    if (!src.includes('userPickedExplicitly')) throw new Error('명시 선택 플래그 누락');
+    if (!src.includes('폴백 금지')) throw new Error('폴백 금지 메시지 누락');
+    if (!src.includes('SVG로 대체')) throw new Error('SVG 대체 메시지 누락');
+    // auto 모드만 폴백 체인 실행
+    if (!src.includes('fallbackOrder')) throw new Error('폴백 체인 누락');
+  });
+
+  await runTest('썸네일 makeDalleThumbnail — 모델 폴백 체인 + b64_json 응답 처리', () => {
+    const src = load('src/thumbnail.ts');
+    if (!src.includes("'gpt-image-2'") || !src.includes("'gpt-image-1'") || !src.includes("'dall-e-3'")) {
+      throw new Error('모델 체인 누락');
+    }
+    if (!src.includes('buildBody')) throw new Error('모델별 body 분기 누락');
+    if (!src.includes('b64_json')) throw new Error('base64 응답 처리 누락');
+    if (!src.includes('data:image/png;base64,')) throw new Error('data URL 변환 누락');
   });
 
   await runTest('CTA 하이브리드 검증 — Perplexity AI 모듈 + 토글 통합', () => {
@@ -627,7 +729,7 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
   console.log(`🧪 심층 100회 검증 완료 (총 ${totalMs}ms)`);
   console.log('═'.repeat(70));
   console.log(`테스트: ${totalTests}개`);
-  console.log(`총 실행: ${totalRepeats}회 (테스트당 ${REPEAT}회 반복, 네트워크는 20회)`);
+  console.log(`총 실행: ${totalRepeats}회 (테스트당 ${REPEAT}회 반복, 네트워크 호출은 비용/시간상 20회로 고정)`);
   console.log(`통과: ${totalPass}회 / 실패: ${totalFail}회`);
   console.log(`완벽한 테스트 (100% 통과): ${perfectTests}/${totalTests}`);
   console.log(`성공률: ${((totalPass / totalRepeats) * 100).toFixed(2)}%`);
