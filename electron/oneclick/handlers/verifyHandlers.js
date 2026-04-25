@@ -304,32 +304,98 @@ async function verifyGscOwnership(input) {
             item.detail = !token ? 'access token 없음' : 'blogUrl 없음';
             return { ...item, elapsedMs: Date.now() - t0 };
         }
-        const siteUrl = encodeURIComponent(input.blogUrl.replace(/\/$/, '') + '/');
-        const r = await httpGet(`https://searchconsole.googleapis.com/webmasters/v3/sites/${siteUrl}`, {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-        if (r.status === 404) {
-            item.status = 'fail';
-            item.detail = 'GSC에 사이트가 등록되어 있지 않음';
-            item.fix = 'Search Console에서 URL 접두어 방식으로 사이트 추가';
+        // 🔍 0단계 — 토큰 스코프 사전 확인 (Blogger 전용 토큰이면 GSC 호출 자체가 403)
+        let hasWebmasterScope = false;
+        try {
+            const ti = await httpGet(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`);
+            if (ti.ok) {
+                const tij = (await ti.json());
+                const scopes = String(tij?.scope || '');
+                hasWebmasterScope = /webmasters/i.test(scopes) || /siteverification/i.test(scopes);
+            }
+        }
+        catch { /* 무시 — scope 확인 실패해도 본 호출 시도 */ }
+        // 🔍 1단계 — URL 변종으로 시도 (등록 형식 차이 흡수)
+        //   사용자는 보통 https://example.com/ 로 등록하지만, www 접두사 또는 sc-domain: 형식도 가능
+        const baseHost = input.blogUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+        const candidates = [];
+        const trimmed = input.blogUrl.replace(/\/$/, '');
+        // 1. URL 접두어 — 그대로
+        candidates.push(trimmed + '/');
+        // 2. URL 접두어 — www 토글
+        if (baseHost.startsWith('www.')) {
+            candidates.push(`https://${baseHost.slice(4)}/`);
+        }
+        else {
+            candidates.push(`https://www.${baseHost}/`);
+        }
+        // 3. 도메인 속성 (호스트만)
+        candidates.push(`sc-domain:${baseHost.replace(/^www\./, '')}`);
+        let lastStatus = 0;
+        let lastBody = '';
+        let okJson = null;
+        let okUrl = '';
+        for (const cand of candidates) {
+            const enc = encodeURIComponent(cand);
+            const r = await httpGet(`https://searchconsole.googleapis.com/webmasters/v3/sites/${enc}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            lastStatus = r.status;
+            if (r.ok) {
+                okJson = await r.json().catch(() => null);
+                okUrl = cand;
+                break;
+            }
+            try {
+                lastBody = await r.text().catch(() => '');
+            }
+            catch {
+                lastBody = '';
+            }
+            // 403 + 스코프 부족이면 이후 변종 시도해도 동일 결과 → 즉시 중단
+            if (r.status === 403 && !hasWebmasterScope)
+                break;
+        }
+        if (okJson) {
+            const level = okJson?.permissionLevel || 'unknown';
+            if (/owner/i.test(level)) {
+                item.status = 'ok';
+                item.detail = `소유권 확인 — ${okUrl} (${level})`;
+            }
+            else {
+                item.status = 'fail';
+                item.detail = `권한 부족 — ${okUrl} (${level})`;
+                item.fix = 'GSC에서 소유자(verified owner) 권한으로 재확인';
+            }
             return { ...item, elapsedMs: Date.now() - t0 };
         }
-        if (!r.ok) {
-            item.status = 'fail';
-            item.detail = `HTTP ${r.status}`;
-            item.fix = 'Search Console API 권한 확인 (webmasters.readonly 스코프 필요)';
-            return { ...item, elapsedMs: Date.now() - t0 };
+        // 모든 변종 실패 — 원인별 분류
+        if (lastStatus === 403) {
+            if (!hasWebmasterScope) {
+                // Blogger OAuth 토큰은 webmasters 스코프가 없는 게 정상 — fail이 아닌 skip 처리
+                item.status = 'skip';
+                item.detail = 'Blogger OAuth 토큰에 Search Console 스코프(webmasters)가 없어 검증 불가';
+                item.fix = 'GSC 검증을 원하면 webmasters 스코프 포함하여 OAuth 재인증 (정상 운영에는 영향 없음)';
+            }
+            else {
+                item.status = 'fail';
+                item.detail = `HTTP 403 — 권한 거부 (스코프는 있으나 GSC 접근 불가)`;
+                item.fix = 'OAuth 동의 화면에서 Search Console 접근을 허용했는지 확인';
+            }
         }
-        const j = (await r.json());
-        const level = j?.permissionLevel || 'unknown';
-        if (/owner/i.test(level)) {
-            item.status = 'ok';
-            item.detail = `소유권 확인 (${level})`;
+        else if (lastStatus === 404) {
+            item.status = 'fail';
+            item.detail = 'GSC에 사이트 미등록 (URL 접두어/www 토글/도메인 속성 모두 실패)';
+            item.fix = 'search.google.com/search-console 에서 사이트 추가';
+        }
+        else if (lastStatus === 0) {
+            item.status = 'skip';
+            item.detail = '네트워크 호출 실패 (스코프 사전 확인 단계 진입 못함)';
         }
         else {
             item.status = 'fail';
-            item.detail = `권한 부족 (${level})`;
-            item.fix = 'GSC에서 소유자 권한으로 재확인';
+            item.detail = `HTTP ${lastStatus}`;
+            item.fix = '잠시 후 재시도하거나 OAuth 자격증명 갱신';
         }
     }
     catch (e) {

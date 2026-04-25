@@ -445,6 +445,18 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!distSrc.includes(':has(.badge-info)')) throw new Error('dist/ui/styles.css 동기화 누락');
   });
 
+  await runTest('GSC 소유권 — 스코프 사전 확인 + URL 변종 + skip 처리', () => {
+    const src = load('electron/oneclick/handlers/verifyHandlers.js');
+    if (!src.includes('tokeninfo')) throw new Error('스코프 확인 호출 누락');
+    if (!src.includes('hasWebmasterScope')) throw new Error('스코프 플래그 누락');
+    if (!src.includes('sc-domain:')) throw new Error('도메인 속성 변종 누락');
+    if (!src.includes('candidates')) throw new Error('URL 후보 배열 누락');
+    // 403 + 스코프 없음 → skip 처리
+    if (!/스코프\(webmasters\)/.test(src)) throw new Error('스코프 없음 안내 누락');
+    // 변종 시도가 fail 보존하지 않고 skip으로 처리되는지
+    if (!src.includes("status = 'skip'")) throw new Error('skip 분기 누락');
+  });
+
   await runTest('헬스체크 — blogger-token.json 폴백 로드', () => {
     const src = load('electron/oneclick/handlers/verifyHandlers.js');
     if (!src.includes('blogger-token.json')) throw new Error('토큰 파일 경로 누락');
@@ -466,14 +478,19 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!src.includes('수동 입력 모달 표시')) throw new Error('모달 마지막 단계 마커 누락');
   });
 
-  await runTest('AdsPower 탭 비활성화 (display:none, 코드는 보존)', () => {
+  await runTest('AdsPower 탭 3중 제거 (hidden + display:none !important + JS removeChild)', () => {
     const html = load('electron/ui/index.html');
-    // 탭 버튼이 hidden 상태인지
-    const buttonMatch = html.match(/data-tab="adspower"[\s\S]{0,400}AdsPower\s*<\/button>/);
+    // 1. hidden 속성
+    const buttonMatch = html.match(/data-tab="adspower"[\s\S]{0,500}AdsPower\s*<\/button>/);
     if (!buttonMatch) throw new Error('AdsPower 탭 버튼을 찾지 못함');
-    if (!/display:\s*none/i.test(buttonMatch[0])) throw new Error('AdsPower 탭 버튼이 display:none 처리되지 않음');
-    // tab-adspower 컨텐츠 자체는 보존 (복원 가능)
-    if (!html.includes('id="tab-adspower"')) throw new Error('AdsPower 탭 컨텐츠가 삭제됨 — 보존되어야 함');
+    if (!/\bhidden\b/.test(buttonMatch[0])) throw new Error('hidden 속성 누락');
+    // 2. display:none !important
+    if (!/display:\s*none\s*!important/i.test(buttonMatch[0])) throw new Error('display:none !important 누락');
+    // 3. JS 제거 함수 (DOM에서 완전 제거)
+    if (!html.includes('removeAdsPowerTab')) throw new Error('JS 강제 제거 함수 누락');
+    if (!html.includes('removeChild') || !html.includes('adspowerTabBtn')) throw new Error('removeChild 호출 누락');
+    // 컨텐츠도 hidden
+    if (!html.includes('id="tab-adspower" class="settings-tab-content" hidden')) throw new Error('컨텐츠 hidden 누락');
   });
 
   await runTest('글쓰기 준비 — 핵심 4개 OK 시 세팅 완료 자동 인식', () => {

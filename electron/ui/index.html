@@ -746,9 +746,9 @@
               style="padding: 16px 20px; background: transparent; border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.5); font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s;">
               📝 블로그 플랫폼
             </button>
-            <!-- AdsPower 탭 — 비활성화 (필요 시 style="display:none" 제거하여 복원) -->
-            <button class="settings-tab" data-tab="adspower" onclick="switchSettingsTab('adspower')"
-              style="display: none; padding: 16px 20px; background: transparent; border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.5); font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s;">
+            <!-- AdsPower 탭 — 비활성화. hidden 속성 + display:none !important + JS 강제 제거의 3중 방어 -->
+            <button id="adspowerTabBtn" class="settings-tab" data-tab="adspower" hidden
+              style="display: none !important; visibility: hidden !important; padding: 16px 20px; background: transparent; border: none;">
               🛡️ AdsPower
             </button>
             <button class="settings-tab" data-tab="oneclick-setup" onclick="switchSettingsTab('oneclick-setup')"
@@ -1551,7 +1551,7 @@
             </div>
 
             <!-- 🛡️ AdsPower 탭 -->
-            <div id="tab-adspower" class="settings-tab-content" style="display: none;">
+            <div id="tab-adspower" class="settings-tab-content" hidden style="display: none !important;">
 
               <!-- 연결 상태 카드 -->
               <div id="adspowerStatusCard"
@@ -5964,6 +5964,26 @@ function showPaywallModal() {
     + '</div>';
   document.body.appendChild(modal);
 }
+
+// 🛡️ AdsPower 탭 강제 제거 — DOM/CSS/JS 어디에서도 다시 표시 못 하도록 완전 삭제
+(function removeAdsPowerTab() {
+  const remove = () => {
+    try {
+      const btn = document.getElementById('adspowerTabBtn') || document.querySelector('.settings-tab[data-tab="adspower"]');
+      if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
+      const content = document.getElementById('tab-adspower');
+      if (content && content.parentNode) content.parentNode.removeChild(content);
+    } catch (e) { /* 무시 */ }
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', remove);
+  } else {
+    remove();
+  }
+  // 다른 코드가 늦게 추가하는 경우까지 한 번 더 정리
+  setTimeout(remove, 500);
+  setTimeout(remove, 2000);
+})();
 
 // 앱 로드 후 쿼터 카운터 시작
 setTimeout(updateFreeQuotaCounter, 2000);
