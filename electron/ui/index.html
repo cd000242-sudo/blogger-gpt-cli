@@ -3593,6 +3593,17 @@
                       <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 모든 소제목에 자동으로 이미지가 배치됩니다</small>
                     </div>
                     <div class="acc-field">
+                      <label class="acc-label">🛡️ 썸네일 엔진 엄격 모드</label>
+                      <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.85); padding: 10px 14px; background: rgba(245,158,11,0.08); border-radius: 8px; border: 1px solid rgba(245,158,11,0.25);">
+                        <input type="checkbox" id="strictThumbnailEngine" style="accent-color: #f59e0b; transform: scale(1.2);">
+                        <span>선택한 엔진 실패 시 다른 AI 엔진 폴백 금지 (SVG 텍스트로만 대체)</span>
+                      </label>
+                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">
+                        💡 OFF (기본·권장): 선택한 엔진 실패 시 imagefx → flow → deepinfra → leonardo → nanobananapro → dalle 순으로 자동 폴백 ·
+                        ON: 선택 엔진 실패 시 SVG로만 떨어짐 (흰배경 텍스트 썸네일 — API 키 누락·세션 만료 시 발생)
+                      </small>
+                    </div>
+                    <div class="acc-field">
                       <label class="acc-label">🔐 ImageFX Google 로그인</label>
                       <div style="display: flex; gap: 8px; align-items: center;">
                         <button id="imagefxLoginBtn" type="button" onclick="handleImageFxLogin()"

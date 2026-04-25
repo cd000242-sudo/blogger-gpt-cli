@@ -51,6 +51,10 @@ export async function generateUltimateMaxModeArticleFinal(
   // 🛡️ CTA AI 엄격 모드 — UI 토글을 환경변수에 반영 (generation.ts의 hybridValidateCta가 읽음)
   process.env['CTA_AI_VALIDATE_STRICT'] = payload?.ctaAiStrictMode === true ? 'true' : 'false';
 
+  // 🖼️ 썸네일 엔진 엄격 모드 — UI 토글 (기본 OFF: 선택 엔진 실패 시 다른 AI로 자동 폴백)
+  //    OFF가 권장값. ON으로 두면 1순위 실패 시 SVG 텍스트로만 떨어짐.
+  process.env['STRICT_THUMBNAIL_ENGINE'] = payload?.strictThumbnailEngine === true ? 'true' : 'false';
+
   // 🎯 동시 실행 시 순차 처리 (process.env 보호)
   // 🛡️ releaseLock을 항상 no-op으로 초기화 — 예외 경로에서 미할당 상태로 finally 진입 시 TypeError → 영구 데드락 방지
   let releaseLock: () => void = () => { /* no-op until assigned */ };

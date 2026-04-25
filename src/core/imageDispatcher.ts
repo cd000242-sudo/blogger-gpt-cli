@@ -326,30 +326,40 @@ export async function dispatchThumbnailGeneration(
   console.error(`[DISPATCH-THUMB] ❌ 1순위 ${thumbnailSource} 실패: ${primaryResult.error || '사유 미상'}`);
   onLog?.(`❌ ${thumbnailSource} 썸네일 실패: ${primaryResult.error || '사유 미상'}`);
 
-  // 🛡️ 명시 선택 시 다른 AI 엔진으로 몰래 넘어가지 않음 (사용자 기대 보호)
-  if (userPickedExplicitly) {
-    onLog?.(`🛡️ '${thumbnailSource}'을(를) 명시 선택하셨으므로 다른 AI 엔진으로 폴백하지 않고 SVG로 대체합니다.`);
+  // 🛡️ 엄격 모드 — 환경변수 STRICT_THUMBNAIL_ENGINE=true 일 때만 SVG로만 폴백 (다른 AI 금지)
+  //    기본은 같은 AI 엔진군 내에서 자동 폴백 → "흰배경 SVG만 나오는 회귀" 해결
+  const strictMode = String(process.env['STRICT_THUMBNAIL_ENGINE'] || '').toLowerCase() === 'true';
+  if (userPickedExplicitly && strictMode) {
+    onLog?.(`🛡️ 엄격 모드: '${thumbnailSource}' 실패 → SVG로 대체 (다른 AI 엔진 금지)`);
     try {
       const svgResult = await makeAutoThumbnail(title, { width: 1200, height: 630 });
       if (svgResult.ok) {
         return { ok: true, dataUrl: svgResult.dataUrl, source: `SVG 텍스트 (${thumbnailSource} 실패 대체)` };
       }
     } catch { /* 무시 */ }
-    return { ok: false, dataUrl: '', source: '', error: `${thumbnailSource} 실패 (명시 선택 — 폴백 금지)` };
+    return { ok: false, dataUrl: '', source: '', error: `${thumbnailSource} 실패 (엄격 모드 — 폴백 금지)` };
   }
 
-  onLog?.(`ℹ️ 'auto' 모드 → 폴백 체인 시작`);
+  // 🔄 기본 동작: 명시 선택이든 auto든 다른 AI 엔진으로 자동 폴백 (사용 가능한 첫 엔진 사용)
+  if (userPickedExplicitly) {
+    onLog?.(`🔄 '${thumbnailSource}' 실패 → 다른 AI 엔진으로 자동 폴백 시도 (엄격 모드 OFF)`);
+  } else {
+    onLog?.(`ℹ️ 'auto' 모드 → 폴백 체인 시작`);
+  }
 
-  // auto 모드에서만 폴백 체인 실행 — NanoBanana는 맨 마지막, flow는 imagefx 뒤 (구독 의존성)
-  const fallbackOrder = ['imagefx', 'flow', 'deepinfra', 'leonardo', 'nanobananapro']
+  // 폴백 체인 — 1순위와 같은 엔진 + 'pollinations'(API 키 불필요) 제외
+  const fallbackOrder = ['imagefx', 'flow', 'deepinfra', 'leonardo', 'nanobananapro', 'dalle', 'pollinations']
     .filter(e => e !== thumbnailSource);
 
   for (const engine of fallbackOrder) {
     const result = await tryEngine(engine, title, keyword, env, onLog, true);
     if (result.ok) {
+      const sourceLabel = userPickedExplicitly
+        ? `${result.source} (요청한 ${thumbnailSource} 실패 → 자동 폴백)`
+        : result.source;
       console.log(`[DISPATCH-THUMB] ✅ 폴백 성공: ${engine} (원래 요청: ${rawLower || 'auto'})`);
-      onLog?.(`🔄 폴백 성공: ${engine} (auto → ${engine})`);
-      return result;
+      onLog?.(`🔄 폴백 성공: ${engine} (${rawLower || 'auto'} → ${engine})`);
+      return { ...result, source: sourceLabel };
     }
   }
 

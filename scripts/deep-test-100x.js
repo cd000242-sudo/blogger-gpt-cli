@@ -445,6 +445,29 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!distSrc.includes(':has(.badge-info)')) throw new Error('dist/ui/styles.css 동기화 누락');
   });
 
+  await runTest('썸네일 엔진 폴백 — 명시 선택 실패 시 자동 폴백 (엄격 모드는 옵트인)', () => {
+    const dispSrc = load('src/core/imageDispatcher.ts');
+    if (!dispSrc.includes('STRICT_THUMBNAIL_ENGINE')) throw new Error('엄격 모드 환경변수 누락');
+    if (!dispSrc.includes('strictMode')) throw new Error('엄격 모드 분기 누락');
+    // 핵심: userPickedExplicitly만으로 SVG 폴백하면 안 됨 (strictMode와 AND 조건이어야)
+    if (!dispSrc.includes('userPickedExplicitly && strictMode')) throw new Error('AND 조건 누락 — 명시 선택만으로 SVG 강제');
+    if (!dispSrc.includes('자동 폴백')) throw new Error('자동 폴백 로그 누락');
+    // 폴백 체인에 dalle도 포함
+    if (!/fallbackOrder\s*=\s*\[[^\]]*'dalle'/.test(dispSrc)) throw new Error('폴백 체인에 dalle 누락');
+    // 폴백 성공 시 출처 라벨에 원본 요청 명시
+    if (!dispSrc.includes('자동 폴백')) throw new Error('폴백 source 라벨 누락');
+
+    const orchSrc = load('src/core/final/orchestration.ts');
+    if (!orchSrc.includes("payload?.strictThumbnailEngine")) throw new Error('payload 토글 처리 누락');
+
+    const html = load('electron/ui/index.html');
+    if (!html.includes('strictThumbnailEngine')) throw new Error('UI 토글 input 누락');
+    if (!html.includes('썸네일 엔진 엄격 모드')) throw new Error('UI 라벨 누락');
+
+    const postingJs = load('electron/ui/modules/posting.js');
+    if (!postingJs.includes('strictThumbnailEngine')) throw new Error('posting payload 전달 누락');
+  });
+
   await runTest('Adsense 작성자 — 비어있는 필드 AI 생성 차단 + img 후처리', () => {
     const promptSrc = load('src/core/content-modes/adsense/adsense-prompt-builder.ts');
     if (!promptSrc.includes('titleProvided')) throw new Error('titleProvided 분기 누락');

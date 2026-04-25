@@ -782,6 +782,7 @@ export async function createPayload(options = {}) {
     // CTA
     ctaMode: ctaModeValue,
     ctaAiStrictMode: !!document.getElementById('ctaAiStrictMode')?.checked,
+    strictThumbnailEngine: !!document.getElementById('strictThumbnailEngine')?.checked,
     manualCtas: getManualCtas(ctaModeValue),
 
     // 발행
