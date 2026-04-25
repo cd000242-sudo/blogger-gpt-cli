@@ -133,6 +133,15 @@ export function buildAdsenseSectionPrompt(params: PromptParams): string {
         ? `\n\n【네이버 데이터랩 트렌드 키워드】\n${trendKeywords.slice(0, 8).join(', ')}\n⚠️ 트렌드 키워드를 본문에 자연스럽게 포함하되, 강제로 넣지 마세요.`
         : '';
 
+    // 🛡️ 외부 출처 인용 강제 — AdSense E-E-A-T·Trustworthiness 점수 직접 영향
+    //    AI 양산 글의 가장 큰 약점은 "출처 없는 일반론". 검증 가능한 한국 공공/기관 데이터 인용 강제.
+    const sourceMandate = `\n\n📊 **외부 출처 인용 필수 (E-E-A-T 강화)**:
+- 본문 중 최소 2회 이상 검증 가능한 한국 공공/기관 데이터를 인용하세요.
+  예: "통계청 KOSIS 자료에 따르면", "한국소비자원 2026년 조사", "한국은행 ECOS 데이터", "보건복지부 공식 발표", "국립국어원 표준국어대사전"
+- 인용 형식: "[기관명] [연도] [조사명]에 따르면 [구체 수치/내용]" — 추측·가짜 통계 절대 금지
+- 외국 데이터(McKinsey, Statista 등)는 1회까지만 허용. 한국 출처 우선.
+- 출처를 모르거나 확실치 않으면 "공식 자료를 참고하세요"라고만 표현, 가짜 수치 만들기 절대 금지.\n`;
+
     // 사용자 지정 저자 정보 — 없으면 1인칭 경험담 생성 자체를 금지 (E-E-A-T 위조 방지)
     // 🛡️ 비어있는 필드는 AI가 멋대로 채우지 못하도록 "언급 금지" 강제 (이전: "(주제에 맞게 AI가 결정)" → AI가 환각으로 가짜 직함/자격 생성)
     const hasAuthor = !!(authorInfo?.name && authorInfo.name.trim());
@@ -186,6 +195,7 @@ ${authorInstruction}
 🔑 **키워드**: ${keywords.join(', ')}
 📝 **주제**: ${topic}
 ${trendInfo}
+${sourceMandate}
 
 ${FORBIDDEN_EXPRESSIONS}
 ${EEAT_STRATEGY}

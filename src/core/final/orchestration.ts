@@ -72,6 +72,24 @@ export async function generateUltimateMaxModeArticleFinal(
     gemini: 'gemini-2.5-flash',
   };
 
+  // 🎲 LLM 모델 로테이션 (옵션) — adsense 모드에서 같은 모델로 양산하면 "scaled content abuse" 패턴 잡힘.
+  //    payload.llmRotation === true 이면 발행마다 사용 가능한 모델 중 1개 무작위 선택.
+  if (payload?.llmRotation === true && payload?.contentMode === 'adsense') {
+    const envCheck = (key: string) => !!(process.env[key] && String(process.env[key]).length > 10);
+    const candidates: string[] = [];
+    if (envCheck('GEMINI_API_KEY')) candidates.push('gemini');
+    if (envCheck('OPENAI_API_KEY')) candidates.push('openai');
+    if (envCheck('CLAUDE_API_KEY') || envCheck('ANTHROPIC_API_KEY')) candidates.push('claude');
+    if (envCheck('PERPLEXITY_API_KEY')) candidates.push('perplexity');
+    if (candidates.length >= 2) {
+      const picked = candidates[Math.floor(Math.random() * candidates.length)]!;
+      console.log(`[ROTATION] 🎲 LLM 로테이션 활성 — 후보 ${candidates.length}개 중 ${picked} 선택 (양산 패턴 방지)`);
+      onLog?.(`[PROGRESS] 0% - 🎲 이번 글 모델: ${picked} (로테이션)`);
+      payload.provider = picked;
+      payload.primaryGeminiTextModel = providerModelMap[picked];
+    }
+  }
+
   if (payload.provider && providerModelMap[payload.provider]) {
     // 🔥 1순위: 사용자가 포스팅 탭 드롭다운에서 직접 선택한 엔진
     const mapped = providerModelMap[payload.provider];
@@ -1555,13 +1573,39 @@ ${conclusionHTML}
     }
 
     // 🛡️ 모드별 후처리 (adsense: CTA 잔재 제거 + AI 감지 완화)
+    let postProcessReport: any = null;
     if (modeResult.postProcessPlugin?.postProcess) {
       try {
         const ppResult = modeResult.postProcessPlugin.postProcess(html);
         html = ppResult.html;
+        postProcessReport = ppResult.report;
         onLog?.(`[PROGRESS] 99% - ✅ ${contentMode} 모드 후처리 완료`);
       } catch (ppErr: any) {
         console.warn(`[POST-PROCESS] ⚠️ 후처리 실패 (원본 유지): ${ppErr.message}`);
+      }
+    }
+
+    // 🚦 AdSense 점수 게이트 — 임계값 미만이면 발행 차단 또는 경고 (옵트인)
+    //    payload.adsenseScoreGate (기본 비활성). adsenseMinScore 임계값(기본 70).
+    //    burstinessScore + endingDiversity + sentenceLengthStdDev + AI 패턴 카운트로 100점 환산.
+    if (contentMode === 'adsense' && postProcessReport && payload?.adsenseScoreGate === true) {
+      const minScore = Number(payload?.adsenseMinScore || 70);
+      // 4개 지표를 0-100 점수로 환산 (각 25점 만점)
+      const burst = Math.min(25, Math.max(0, Math.round((postProcessReport.burstinessScore || 0) / 1.0 * 25)));
+      const ending = Math.min(25, Math.max(0, Math.round((postProcessReport.endingDiversity || 0) / 6 * 25)));
+      const stdDev = Math.min(25, Math.max(0, Math.round((postProcessReport.sentenceLengthStdDev || 0) / 18 * 25)));
+      const aiPenalty = Math.max(0, 25 - (postProcessReport.aiPatternCount || 0) * 3);
+      const computedScore = burst + ending + stdDev + aiPenalty;
+      onLog?.(`[QUALITY] 🚦 AdSense 점수: ${computedScore}/100 (burstiness ${burst}, 종결어미 ${ending}, 표준편차 ${stdDev}, AI패턴 ${aiPenalty}, 임계값 ${minScore})`);
+      if (computedScore < minScore) {
+        const gateMode = payload?.adsenseGateMode || 'warn';
+        const msg = `🚦 AdSense 점수 미달 — 점수 ${computedScore}/100 (임계값 ${minScore}). 양산 패턴/AI 감지 위험.`;
+        if (gateMode === 'block') {
+          onLog?.(`[QUALITY] ❌ ${msg} (block 모드 — 발행 차단)`);
+          throw new Error(msg + ' 글을 다듬거나 임계값을 낮추세요.');
+        } else {
+          onLog?.(`[QUALITY] ⚠️ ${msg} (warn 모드 — 발행 계속)`);
+        }
       }
     }
 

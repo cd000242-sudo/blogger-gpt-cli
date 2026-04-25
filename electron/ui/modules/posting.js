@@ -783,6 +783,11 @@ export async function createPayload(options = {}) {
     ctaMode: ctaModeValue,
     ctaAiStrictMode: !!document.getElementById('ctaAiStrictMode')?.checked,
     strictThumbnailEngine: !!document.getElementById('strictThumbnailEngine')?.checked,
+    // 🏆 AdSense 강화 — adsense 모드일 때만 의미 있음
+    llmRotation: !!document.getElementById('llmRotation')?.checked,
+    adsenseScoreGate: !!document.getElementById('adsenseScoreGate')?.checked,
+    adsenseMinScore: Number(document.getElementById('adsenseMinScore')?.value || 70),
+    adsenseGateMode: document.getElementById('adsenseGateMode')?.value || 'warn',
     manualCtas: getManualCtas(ctaModeValue),
 
     // 발행

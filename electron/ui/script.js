@@ -334,6 +334,41 @@ async function addScheduledPost() {
   // 🔧 StorageManager 사용
   const storage = getStorageManager();
   const existingSchedules = await storage.get('scheduledPosts', true) || [];
+
+  // 🛡️ AdSense 모드 — 발행 간격 자동 분산 권고 (양산 패턴 방지)
+  //    같은 contentMode='adsense' 글이 12시간 이내로 잡혀 있으면 경고 후 자동으로 12-24h 뒤로 이동.
+  //    사용자가 명시적으로 같은 시간대를 원하면 confirm으로 무시 가능.
+  if (contentMode === 'adsense' && scheduleData.date && scheduleData.time) {
+    try {
+      const requested = new Date(`${scheduleData.date}T${scheduleData.time}`);
+      const tooClose = existingSchedules.find(s => {
+        if (s.contentMode !== 'adsense' || !s.date || !s.time) return false;
+        const t = new Date(`${s.date}T${s.time}`);
+        return Math.abs(t.getTime() - requested.getTime()) < 12 * 60 * 60 * 1000;
+      });
+      if (tooClose) {
+        const proceed = confirm(
+          `⚠️ AdSense 모드 양산 패턴 경고\n\n` +
+          `12시간 이내(${tooClose.date} ${tooClose.time})에 이미 AdSense 글이 예약되어 있습니다.\n` +
+          `구글은 동일 사이트에 12시간 이내 다수 AI 글이 발행되면 "scaled content abuse"로 분류할 수 있습니다.\n\n` +
+          `[확인]: 12-24시간 무작위 뒤로 자동 분산 (권장)\n` +
+          `[취소]: 그대로 진행 (양산 위험 감수)`,
+        );
+        if (proceed) {
+          // 12-24시간 무작위 분산 (마지막 adsense 스케줄 기준)
+          const lastTime = new Date(`${tooClose.date}T${tooClose.time}`).getTime();
+          const offsetHours = 12 + Math.random() * 12; // 12~24h
+          const newTime = new Date(lastTime + offsetHours * 60 * 60 * 1000);
+          scheduleData.date = newTime.toISOString().slice(0, 10);
+          scheduleData.time = newTime.toTimeString().slice(0, 5);
+          console.log(`[SCHEDULE] 🛡️ 양산 패턴 회피: ${scheduleData.date} ${scheduleData.time} 로 자동 분산 (+${offsetHours.toFixed(1)}h)`);
+        }
+      }
+    } catch (e) {
+      console.warn('[SCHEDULE] 분산 검사 오류(무시):', e?.message);
+    }
+  }
+
   existingSchedules.push(scheduleData);
   await storage.set('scheduledPosts', existingSchedules, true);
 

@@ -445,6 +445,47 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!distSrc.includes(':has(.badge-info)')) throw new Error('dist/ui/styles.css 동기화 누락');
   });
 
+  await runTest('AdSense 강화 — LLM 로테이션 + 외부 출처 강제 + 점수 게이트 + 발행 분산', () => {
+    const orchSrc = load('src/core/final/orchestration.ts');
+    if (!orchSrc.includes('llmRotation')) throw new Error('LLM 로테이션 처리 누락');
+    if (!orchSrc.includes('adsenseScoreGate')) throw new Error('점수 게이트 처리 누락');
+    if (!orchSrc.includes('computedScore')) throw new Error('점수 계산 누락');
+    if (!orchSrc.includes('adsenseMinScore')) throw new Error('임계값 처리 누락');
+    if (!orchSrc.includes('adsenseGateMode')) throw new Error('게이트 모드(warn/block) 누락');
+    if (!orchSrc.includes('block')) throw new Error('block 분기 누락');
+
+    const promptSrc = load('src/core/content-modes/adsense/adsense-prompt-builder.ts');
+    if (!promptSrc.includes('sourceMandate')) throw new Error('외부 출처 강제 변수 누락');
+    if (!promptSrc.includes('통계청 KOSIS')) throw new Error('출처 예시 누락');
+    if (!promptSrc.includes('가짜 통계 절대 금지')) throw new Error('환각 방지 안내 누락');
+
+    const scriptSrc = load('electron/ui/script.js');
+    if (!scriptSrc.includes('scaled content abuse')) throw new Error('스케줄 분산 안내 누락');
+    if (!scriptSrc.includes('12 * 60 * 60 * 1000')) throw new Error('12시간 윈도우 누락');
+    if (!scriptSrc.includes('12-24시간')) throw new Error('분산 안내 누락');
+
+    const html = load('electron/ui/index.html');
+    if (!html.includes('llmRotation')) throw new Error('UI 로테이션 토글 누락');
+    if (!html.includes('adsenseScoreGate')) throw new Error('UI 게이트 토글 누락');
+    if (!html.includes('adsenseMinScore')) throw new Error('UI 임계값 슬라이더 누락');
+    if (!html.includes('adsenseGateMode')) throw new Error('UI 게이트 모드 select 누락');
+
+    const postingJs = load('electron/ui/modules/posting.js');
+    if (!postingJs.includes('llmRotation')) throw new Error('posting payload 로테이션 누락');
+    if (!postingJs.includes('adsenseScoreGate')) throw new Error('posting payload 게이트 누락');
+
+    // 점수 계산 시뮬
+    const score = (b, e, s, ai) => {
+      const burst = Math.min(25, Math.max(0, Math.round(b / 1.0 * 25)));
+      const ending = Math.min(25, Math.max(0, Math.round(e / 6 * 25)));
+      const stdDev = Math.min(25, Math.max(0, Math.round(s / 18 * 25)));
+      const aiPenalty = Math.max(0, 25 - ai * 3);
+      return burst + ending + stdDev + aiPenalty;
+    };
+    if (score(0.8, 5, 15, 0) < 80) throw new Error('우수 글 점수 시뮬 실패');
+    if (score(0.3, 2, 5, 10) > 50) throw new Error('저품질 글 점수 시뮬 실패');
+  });
+
   await runTest('썸네일 엔진 폴백 — 명시 선택 실패 시 자동 폴백 (엄격 모드는 옵트인)', () => {
     const dispSrc = load('src/core/imageDispatcher.ts');
     if (!dispSrc.includes('STRICT_THUMBNAIL_ENGINE')) throw new Error('엄격 모드 환경변수 누락');
