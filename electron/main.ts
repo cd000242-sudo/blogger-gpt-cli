@@ -1298,43 +1298,63 @@ safeRegisterHandler('generate-ai-image', async (_evt: any, payload: { prompt: st
         };
       }
 
-      console.log('[AI-IMAGE] DALL-E API 호출 시작...');
-      const response = await fetch('https://api.openai.com/v1/images/generations', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${dalleApiKey}`
-        },
-        body: JSON.stringify({
-          model: 'dall-e-3',
-          prompt: prompt,
-          n: 1,
-          size: size,
-          quality: 'standard'
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        console.error('[AI-IMAGE] DALL-E API 오류:', response.status, errorText.substring(0, 200));
+      // 🆕 gpt-image-2 (구 "duct-tape" 코드명, 2026-04-21 출시 + API 즉시 사용 가능)
+      //    조직별 점진 롤아웃 + 파라미터 스키마가 dall-e-3와 다르므로 모델별로 body를 분기.
+      console.log('[AI-IMAGE] OpenAI 이미지 API 호출 시작 (gpt-image-2 우선)...');
+      const modelChain = ['gpt-image-2', 'gpt-image-1', 'dall-e-3'];
+      const buildBody = (m: string): any => {
+        if (m === 'gpt-image-2') {
+          return { model: m, prompt, n: 1, size };
+        }
+        return { model: m, prompt, n: 1, size, quality: 'standard' };
+      };
+      let response: Response | null = null;
+      let usedModel = '';
+      let lastErrorText = '';
+      for (const m of modelChain) {
+        const r = await fetch('https://api.openai.com/v1/images/generations', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${dalleApiKey}`
+          },
+          body: JSON.stringify(buildBody(m))
+        });
+        if (r.ok) { response = r; usedModel = m; break; }
+        lastErrorText = await r.text().catch(() => '');
+        const isModelMissing = r.status === 404
+          || /model_not_found|invalid_model|deprecated_model|unsupported_model/i.test(lastErrorText)
+          || (r.status === 403 && /access|permission/i.test(lastErrorText));
+        if (!isModelMissing) {
+          console.error('[AI-IMAGE] OpenAI 오류:', r.status, lastErrorText.substring(0, 200));
+          return {
+            success: false,
+            error: `OpenAI Image API 오류 (${r.status}): ${lastErrorText.substring(0, 150)}`
+          };
+        }
+        console.log(`[AI-IMAGE] ⚠️ ${m} 미지원/권한없음 — 다음 모델로 폴백`);
+      }
+      if (!response) {
         return {
           success: false,
-          error: `DALL-E API 오류 (${response.status}): ${errorText.substring(0, 100)}`
+          error: `OpenAI 이미지 모델 전체 실패. 마지막 응답: ${lastErrorText.substring(0, 150)}`
         };
       }
 
       const data = await response.json();
-      const imageUrl = data.data?.[0]?.url;
+      const first = data?.data?.[0];
+      const imageUrl = first?.url
+        || (first?.b64_json ? `data:image/png;base64,${first.b64_json}` : '');
 
       if (!imageUrl) {
-        console.error('[AI-IMAGE] DALL-E 응답에 이미지 URL 없음:', JSON.stringify(data).substring(0, 200));
+        console.error('[AI-IMAGE] 응답에 이미지 없음:', JSON.stringify(data).substring(0, 200));
         return {
           success: false,
-          error: 'DALL-E가 이미지 URL을 반환하지 않았습니다.'
+          error: `${usedModel} 응답에 이미지가 없습니다.`
         };
       }
 
-      console.log('[AI-IMAGE] ✅ DALL-E 이미지 생성 성공');
+      console.log(`[AI-IMAGE] ✅ 이미지 생성 성공 (모델: ${usedModel})`);
       return {
         success: true,
         imageUrl: imageUrl

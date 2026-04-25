@@ -66,6 +66,27 @@ function readEnv() {
         return {};
     }
 }
+/**
+ * Blogger OAuth 토큰 파일 (userData/blogger-token.json) 로드.
+ * UI(localStorage)나 .env 가 아닌 별도 파일에 저장되므로 헬스체크에서 직접 읽어야 한다.
+ */
+function readBloggerTokenFile() {
+    try {
+        const p = path.join(electron_1.app.getPath('userData'), 'blogger-token.json');
+        if (!fs.existsSync(p))
+            return {};
+        const raw = fs.readFileSync(p, 'utf-8');
+        const j = JSON.parse(raw);
+        return {
+            access_token: j?.access_token,
+            refresh_token: j?.refresh_token,
+            expires_at: j?.expires_at,
+        };
+    }
+    catch {
+        return {};
+    }
+}
 async function withTimeout(p, ms, label) {
     return Promise.race([
         p,
@@ -326,16 +347,21 @@ function registerVerifyIpcHandlers() {
         const startedAt = new Date().toISOString();
         const t0 = Date.now();
         console.log('[ONECLICK-VERIFY] 🔍 검증 시작');
-        // 환경값 로드 (payload 우선, 없으면 .env에서 읽기)
+        // 환경값 로드 (payload 우선 → .env → blogger-token.json 순서)
         const env = readEnv();
+        const tokenFile = readBloggerTokenFile();
         const blogUrl = payload.blogUrl || env.BLOG_URL || env.BLOGGER_URL || '';
         const siteUrl = payload.wordpressSiteUrl || env.WORDPRESS_SITE_URL || '';
         const wpUser = payload.wordpressUsername || env.WORDPRESS_USERNAME || '';
         const wpPass = payload.wordpressPassword || env.WORDPRESS_PASSWORD || '';
         const clientId = payload.googleClientId || env.GOOGLE_CLIENT_ID || '';
         const clientSecret = payload.googleClientSecret || env.GOOGLE_CLIENT_SECRET || '';
-        const accessToken = payload.googleAccessToken || env.GOOGLE_ACCESS_TOKEN || '';
-        const refreshToken = payload.googleRefreshToken || env.GOOGLE_REFRESH_TOKEN || '';
+        // 🛡️ access/refresh token 폴백 체인: payload(localStorage) → .env → blogger-token.json
+        const accessToken = payload.googleAccessToken || env.GOOGLE_ACCESS_TOKEN || tokenFile.access_token || '';
+        const refreshToken = payload.googleRefreshToken || env.GOOGLE_REFRESH_TOKEN || tokenFile.refresh_token || '';
+        if (tokenFile.access_token || tokenFile.refresh_token) {
+            console.log('[ONECLICK-VERIFY] 📁 blogger-token.json 에서 토큰 폴백 로드');
+        }
         const bloggerCreds = { accessToken, clientId, clientSecret, refreshToken };
         // 5개 검증을 병렬로 실행 (각각 독립적)
         const results = await Promise.all([
@@ -383,10 +409,12 @@ function registerVerifyIpcHandlers() {
         const t0 = Date.now();
         try {
             const env = readEnv();
+            const tokenFile = readBloggerTokenFile();
             const clientId = payload.googleClientId || env.GOOGLE_CLIENT_ID || '';
             const clientSecret = payload.googleClientSecret || env.GOOGLE_CLIENT_SECRET || '';
-            const refreshToken = payload.googleRefreshToken || env.GOOGLE_REFRESH_TOKEN || '';
-            let accessToken = payload.googleAccessToken || env.GOOGLE_ACCESS_TOKEN || '';
+            // 🛡️ blogger-token.json 폴백 추가
+            const refreshToken = payload.googleRefreshToken || env.GOOGLE_REFRESH_TOKEN || tokenFile.refresh_token || '';
+            let accessToken = payload.googleAccessToken || env.GOOGLE_ACCESS_TOKEN || tokenFile.access_token || '';
             const projectId = payload.gcpProjectId || env.GCP_PROJECT_ID || '';
             if (!accessToken && !(refreshToken && clientId && clientSecret)) {
                 return {

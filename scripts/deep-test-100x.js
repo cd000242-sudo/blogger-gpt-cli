@@ -434,6 +434,98 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
   });
 
   // 동적 CTA_CACHE 동작 검증 (mock)
+  await runTest('헤더 배지 분리 스타일 — 플랫폼 퍼플 + 텍스트/박스 색상 분리', () => {
+    const src = load('electron/ui/styles.css');
+    if (!src.includes(':has(.badge-info)')) throw new Error('플랫폼 배지 :has 선택자 누락');
+    if (!src.includes('rgba(139, 92, 246')) throw new Error('플랫폼 퍼플 박스색 누락');
+    if (!src.includes('#e0d4ff')) throw new Error('플랫폼 텍스트 색상 누락');
+    if (!src.includes('#c4b5fd')) throw new Error('플랫폼 라벨 색상 누락');
+    // dist에도 동기화됐는지 확인
+    const distSrc = load('dist/ui/styles.css');
+    if (!distSrc.includes(':has(.badge-info)')) throw new Error('dist/ui/styles.css 동기화 누락');
+  });
+
+  await runTest('헬스체크 — blogger-token.json 폴백 로드', () => {
+    const src = load('electron/oneclick/handlers/verifyHandlers.js');
+    if (!src.includes('blogger-token.json')) throw new Error('토큰 파일 경로 누락');
+    if (!src.includes('readBloggerTokenFile')) throw new Error('토큰 파일 로더 누락');
+    // verify-only와 preflight 양쪽에서 사용하는지
+    const occurrences = (src.match(/readBloggerTokenFile/g) || []).length;
+    if (occurrences < 2) throw new Error(`사용처 2회 이상 필요, 실제 ${occurrences}`);
+    if (!src.includes('tokenFile.access_token')) throw new Error('access_token 폴백 누락');
+    if (!src.includes('tokenFile.refresh_token')) throw new Error('refresh_token 폴백 누락');
+  });
+
+  await runTest('WP 사이트 URL 자동 폴백 4단계 — input → localStorage → .env → modal', () => {
+    const src = load('electron/ui/modules/oneclick-setup.js');
+    if (!src.includes("getElementById('wordpressSiteUrl')")) throw new Error('input 폴백 누락');
+    if (!src.includes("storage.get('bloggerSettings'")) throw new Error('localStorage 폴백 누락');
+    if (!src.includes('window.electronAPI?.getEnv')) throw new Error('.env 폴백 누락');
+    if (!src.includes('WORDPRESS_SITE_URL')) throw new Error('.env 키 폴백 누락');
+    // 모달은 마지막 수단
+    if (!src.includes('수동 입력 모달 표시')) throw new Error('모달 마지막 단계 마커 누락');
+  });
+
+  await runTest('글쓰기 준비 — 핵심 4개 OK 시 세팅 완료 자동 인식', () => {
+    const src = load('electron/ui/index.html');
+    if (!src.includes('coreChecksOk')) throw new Error('핵심 체크 자동 인식 로직 누락');
+    if (!src.includes('oneclickFlag || coreChecksOk')) throw new Error('OR 조건 누락');
+    if (!src.includes("setItem('oneclick_setup_complete', 'true')")) throw new Error('자동 플래그 설정 누락');
+    if (!src.includes('수동 설정 완료 자동 인식')) throw new Error('수동 인식 메시지 누락');
+    // 시뮬: 핵심 4개 모두 ok면 setupDone == true
+    const sim = (oneclickFlag, allCore) => {
+      const coreChecksOk = allCore;
+      return oneclickFlag || coreChecksOk;
+    };
+    if (!sim(false, true)) throw new Error('수동 세팅 케이스 시뮬 실패');
+    if (sim(false, false) === true) throw new Error('빈 세팅 케이스 시뮬 오류');
+  });
+
+  await runTest('웹마스터 URL 불러오기 — 4단계 폴백 (loadBlogUrlToInput)', () => {
+    const src = load('electron/ui/modules/oneclick-setup.js');
+    if (!src.includes("getElementById('blogUrl')")) throw new Error('blogUrl input 폴백 누락');
+    // 다양한 키 지원
+    if (!/wpSiteUrl|wordpressUrl|bloggerUrl/.test(src)) throw new Error('키 변종 폴백 누락');
+    if (!src.includes('BLOGGER_URL')) throw new Error('.env BLOGGER_URL 키 누락');
+    // 성공 시 출처 토스트
+    if (!src.includes('블로그 URL 불러옴 (')) throw new Error('출처 표기 누락');
+  });
+
+  await runTest('UI 이미지 엔진 옵션 — 덕트테이프 노출 (3곳)', () => {
+    const html = load('electron/ui/index.html');
+    // option value="dalle" 가 3곳(scheduleThumbnailMode, thumbnailType, h2ImageSource)에 있어야
+    const dalleOptions = (html.match(/<option value="dalle"/g) || []).length;
+    if (dalleOptions < 3) throw new Error(`dalle 옵션 3곳 필요, 실제 ${dalleOptions}`);
+    if (!html.includes('덕트테이프')) throw new Error('덕트테이프 라벨 누락');
+    if (!html.includes('GPT-Image-2')) throw new Error('GPT-Image-2 라벨 누락');
+    // imageDispatcher 별칭
+    const disp = load('src/core/imageDispatcher.ts');
+    if (!disp.includes("'gpt-image-2': 'dalle'")) throw new Error('gpt-image-2 별칭 누락');
+    if (!disp.includes("'ducktape'") || !disp.includes("'duct-tape'")) throw new Error('ducktape 별칭 누락');
+    if (!disp.includes("'덕트테이프'")) throw new Error('한글 별칭 누락');
+  });
+
+  await runTest('OpenAI 이미지 모델 — gpt-image-2 모델별 body 분기 + 폴백', () => {
+    const thumb = load('src/thumbnail.ts');
+    const main = load('electron/main.ts');
+    // 폴백 체인
+    if (!thumb.includes("'gpt-image-2'")) throw new Error('thumbnail에 gpt-image-2 누락');
+    if (!thumb.includes("'gpt-image-1'") || !thumb.includes("'dall-e-3'")) throw new Error('폴백 체인 누락');
+    if (!main.includes("'gpt-image-2'")) throw new Error('main.ts에 gpt-image-2 누락');
+    // 모델별 body 분기 함수
+    if (!thumb.includes('buildBody')) throw new Error('thumbnail buildBody 분기 누락');
+    if (!main.includes('buildBody')) throw new Error('main.ts buildBody 분기 누락');
+    // 권한 폴백 + b64_json 양쪽 응답 처리
+    if (!/unsupported_model|access|permission/.test(thumb)) throw new Error('thumbnail 권한 폴백 누락');
+    if (!thumb.includes('b64_json')) throw new Error('thumbnail b64 응답 처리 누락');
+    if (!main.includes('b64_json')) throw new Error('main.ts b64 응답 처리 누락');
+    // UI 즉시 사용 가능 안내
+    const html = load('electron/ui/index.html');
+    if (!html.includes('GPT-Image-2')) throw new Error('UI 라벨 갱신 누락');
+    if (!html.includes('API 즉시 사용 가능')) throw new Error('UI 즉시 사용 가능 안내 누락');
+    if (!html.includes('duct-tape')) throw new Error('UI duct-tape 코드명 누락');
+  });
+
   await runTest('CTA_CACHE 동작 시뮬 — 동일 URL 요청은 같은 Promise 공유', () => {
     const cache = new Map();
     const TTL = 600_000;

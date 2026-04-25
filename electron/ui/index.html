@@ -553,6 +553,7 @@
                     <option value="flow">🌊 Flow (Nano Banana Pro 무료 — AI Pro 구독 필요)</option>
                     <option value="nanobananapro">🍌 Nano Banana Pro (Gemini API 유료)</option>
                     <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
+                    <option value="dalle">🩹 덕트테이프 (OpenAI GPT-Image-2)</option>
                     <option value="none">❌ 썸네일 없음</option>
                   </select>
                 </div>
@@ -3574,6 +3575,7 @@
                         <option value="flow">🌊 Flow (Nano Banana Pro 무료 — AI Pro 구독 필요)</option>
                         <option value="nanobananapro">🍌 Nano Banana Pro (Gemini API 유료)</option>
                         <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
+                        <option value="dalle">🩹 덕트테이프 (OpenAI GPT-Image-2)</option>
                         <option value="none">❌ 썸네일 없음</option>
                       </select>
                     </div>
@@ -3584,6 +3586,7 @@
                         <option value="flow">🌊 Flow (Nano Banana Pro 무료 — AI Pro 구독 필요)</option>
                         <option value="nanobananapro">🍌 Nano Banana Pro (Gemini API 유료)</option>
                         <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
+                        <option value="dalle">🩹 덕트테이프 (OpenAI GPT-Image-2)</option>
                         <option value="none">❌ 이미지 없음</option>
                       </select>
                       <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 모든 소제목에 자동으로 이미지가 배치됩니다</small>
@@ -4035,11 +4038,11 @@
                         d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4">
                       </path>
                     </svg>
-                    DALL-E API
+                    🩹 덕트테이프 (GPT-Image-2)
                   </label>
-                  <input type="text" id="dalleApiKey" class="form-input" placeholder="OpenAI DALL-E API 키"
+                  <input type="text" id="dalleApiKey" class="form-input" placeholder="OpenAI API 키 — gpt-image-2 우선, 미지원 시 gpt-image-1 / dall-e-3 자동 폴백"
                     style="background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); color: white; backdrop-filter: blur(10px);">
-                  <small class="form-text" style="color: rgba(255, 255, 255, 0.7);">AI 이미지 생성 (유료)</small>
+                  <small class="form-text" style="color: rgba(255, 255, 255, 0.7);">OpenAI 신규 이미지 모델 "gpt-image-2" (구 코드명 duct-tape, 2026-04-21 출시 · API 즉시 사용 가능). 토큰 기반 과금: 이미지 출력 $30/M tokens, 이미지당 약 $0.04~$0.35. 조직 권한이 아직 없으면 자동으로 gpt-image-1 / dall-e-3 로 폴백됩니다.</small>
                 </div>
 
                 <div class="form-group">
@@ -6192,9 +6195,19 @@ function checkPostingReadiness() {
     }
   } catch(e) { checks.push({ name: '블로그 접근 가능', ok: false, action: '' }); }
 
-  // 5. 원클릭세팅 완료 여부
-  var setupDone = localStorage.getItem('oneclick_setup_complete') === 'true';
-  checks.push({ name: '원클릭 세팅 완료', ok: setupDone, action: setupDone ? '' : '<span style="color:rgba(255,255,255,0.4);font-size:11px;">위에서 원클릭세팅을 실행하세요</span>' });
+  // 5. 세팅 완료 여부 — 원클릭으로 했든 수동으로 했든 1~4가 모두 OK면 자동으로 완료 인정
+  //    (이전: 'oneclick_setup_complete' 플래그만 봐서 수동 세팅 사용자가 영구 X 표시되던 회귀)
+  var oneclickFlag = localStorage.getItem('oneclick_setup_complete') === 'true';
+  var coreChecksOk = checks.length === 4 && checks.every(function(c) { return c.ok; });
+  var setupDone = oneclickFlag || coreChecksOk;
+  // 핵심 체크가 모두 OK인데 플래그가 없으면 자동으로 플래그 설정 (수동 세팅 사용자 정상화)
+  if (coreChecksOk && !oneclickFlag) {
+    try { localStorage.setItem('oneclick_setup_complete', 'true'); } catch(e) {}
+  }
+  var actionMsg = setupDone
+    ? (oneclickFlag ? '' : '<span style="color:#86efac;font-size:11px;">✓ 수동 설정 완료 자동 인식</span>')
+    : '<span style="color:rgba(255,255,255,0.4);font-size:11px;">원클릭세팅 또는 수동으로 위 4개 항목 완료 시 자동 인식</span>';
+  checks.push({ name: '세팅 완료', ok: setupDone, action: actionMsg });
 
   // 렌더링
   var passedCount = checks.filter(function(c) { return c.ok; }).length;

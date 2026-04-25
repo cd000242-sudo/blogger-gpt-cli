@@ -1578,18 +1578,40 @@ async function startPlatformConnect(platformId) {
 
   let siteUrl = '';
 
-  // WordPress는 사이트 URL 필요
+  // WordPress는 사이트 URL 필요 — 4단계 폴백으로 자동 채움
   if (platformId === 'wordpress') {
-    // 환경설정에서 먼저 불러오기 시도
+    // 1순위: 플랫폼 설정 input (#wordpressSiteUrl) 현재 값
     try {
-      const storage = getStorageManager();
-      const settings = await storage.get('bloggerSettings', true);
-      if (settings?.wordpressSiteUrl) {
-        siteUrl = settings.wordpressSiteUrl;
+      const inputEl = document.getElementById('wordpressSiteUrl');
+      if (inputEl && inputEl.value && inputEl.value.trim()) {
+        siteUrl = inputEl.value.trim();
+        console.log('[ONECLICK-CONNECT] 📥 사이트 URL: 플랫폼 input에서 로드');
       }
-    } catch { /* 환경설정 미저장 시 무시 — 아래 모달에서 수동 입력 */ }
+    } catch { /* 무시 */ }
 
+    // 2순위: localStorage bloggerSettings (다양한 키명 지원)
     if (!siteUrl) {
+      try {
+        const storage = getStorageManager();
+        const settings = await storage.get('bloggerSettings', true);
+        siteUrl = settings?.wordpressSiteUrl || settings?.wpSiteUrl || settings?.wordpressUrl || '';
+        if (siteUrl) console.log('[ONECLICK-CONNECT] 📥 사이트 URL: bloggerSettings에서 로드');
+      } catch { /* 무시 */ }
+    }
+
+    // 3순위: .env (getEnv IPC) — 외부에서 수동 편집한 .env도 흡수
+    if (!siteUrl) {
+      try {
+        const envRes = await window.electronAPI?.getEnv?.();
+        const env = envRes?.data || envRes || {};
+        siteUrl = env.WORDPRESS_SITE_URL || env.WP_SITE_URL || env.WORDPRESS_URL || env.WP_URL || env.wordpressSiteUrl || '';
+        if (siteUrl) console.log('[ONECLICK-CONNECT] 📥 사이트 URL: .env에서 로드');
+      } catch { /* 무시 */ }
+    }
+
+    // 4순위: 모달 입력 — 위 모든 폴백 실패 시에만
+    if (!siteUrl) {
+      console.log('[ONECLICK-CONNECT] ⚠️ 사이트 URL 미발견 — 수동 입력 모달 표시');
       showInputModal({
         title: '워드프레스 사이트 URL 입력',
         placeholder: 'https://yourblog.com',
@@ -2289,30 +2311,69 @@ async function loadBlogUrlToInput(showWarning = false) {
   const urlInput = document.getElementById('oneclick-webmaster-url');
   if (!urlInput) return;
 
+  let blogUrl = '';
+  let source = '';
+
+  // 1순위: 플랫폼 설정 input (#blogUrl, #wordpressSiteUrl) — 사용자가 방금 입력하고 아직 저장 전인 값도 캐치
   try {
-    const storage = getStorageManager();
-    const settings = await storage.get('bloggerSettings', true);
-    
-    if (!settings || !settings.blogUrl) {
-      if (showWarning) {
-        showToast('⚠️ 환경설정 → 플랫폼 설정 → "내 블로그 주소"에 URL을 먼저 입력하고 저장해주세요.', 'warn', 6000);
-      }
-      return;
+    const blogUrlInput = document.getElementById('blogUrl');
+    const wpSiteUrlInput = document.getElementById('wordpressSiteUrl');
+    if (blogUrlInput?.value?.trim()) {
+      blogUrl = blogUrlInput.value.trim();
+      source = '플랫폼 설정 input(blogUrl)';
+    } else if (wpSiteUrlInput?.value?.trim()) {
+      blogUrl = wpSiteUrlInput.value.trim();
+      source = '플랫폼 설정 input(wordpressSiteUrl)';
     }
+  } catch { /* 무시 */ }
 
-    let blogUrl = settings.blogUrl.trim();
-    if (!blogUrl.startsWith('http')) blogUrl = 'https://' + blogUrl;
-
-    urlInput.value = blogUrl;
-    urlInput.style.borderColor = 'rgba(245, 158, 11, 0.5)';
-    addLog?.(`[원클릭] 설정에서 블로그 URL 불러옴: ${blogUrl}`);
-
-  } catch (err) {
-    console.error('[ONECLICK] 블로그 URL 불러오기 오류:', err);
-    if (showWarning) {
-      showToast('⚠️ 설정 읽기에 실패했습니다. 직접 URL을 입력해주세요.', 'warn');
-    }
+  // 2순위: localStorage bloggerSettings (다양한 키명 지원)
+  if (!blogUrl) {
+    try {
+      const storage = getStorageManager();
+      const settings = await storage.get('bloggerSettings', true);
+      blogUrl = settings?.blogUrl
+        || settings?.wordpressSiteUrl
+        || settings?.wpSiteUrl
+        || settings?.wordpressUrl
+        || settings?.bloggerUrl
+        || '';
+      if (blogUrl) source = 'bloggerSettings (저장된 설정)';
+    } catch { /* 무시 */ }
   }
+
+  // 3순위: .env (getEnv IPC) — 외부에서 수동 편집한 .env도 흡수
+  if (!blogUrl) {
+    try {
+      const envRes = await window.electronAPI?.getEnv?.();
+      const env = envRes?.data || envRes || {};
+      blogUrl = env.BLOG_URL
+        || env.BLOGGER_URL
+        || env.WORDPRESS_SITE_URL
+        || env.WP_SITE_URL
+        || env.WORDPRESS_URL
+        || env.WP_URL
+        || '';
+      if (blogUrl) source = '.env 파일';
+    } catch { /* 무시 */ }
+  }
+
+  if (!blogUrl) {
+    if (showWarning) {
+      showToast('⚠️ 환경설정 → 플랫폼 설정 → "내 블로그 주소" 또는 "워드프레스 사이트 URL"에 값을 먼저 입력하고 저장해주세요.', 'warn', 7000);
+    }
+    return;
+  }
+
+  blogUrl = blogUrl.trim();
+  if (!blogUrl.startsWith('http')) blogUrl = 'https://' + blogUrl;
+
+  urlInput.value = blogUrl;
+  urlInput.style.borderColor = 'rgba(245, 158, 11, 0.5)';
+  // input 이벤트 트리거 — 다른 리스너에 알림
+  urlInput.dispatchEvent(new Event('input', { bubbles: true }));
+  addLog?.(`[원클릭] 블로그 URL 불러옴 (${source}): ${blogUrl}`);
+  if (showWarning) showToast(`✅ 블로그 URL 불러옴 (${source}): ${blogUrl}`, 'success', 3500);
 }
 
 // (블로그 URL 로드 로직은 initOneclickSetup()으로 이동됨)

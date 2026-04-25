@@ -64,6 +64,13 @@ export function normalizeImageEngine(raw: string | undefined | null): ImageEngin
     'labs-flow': 'flow',
     'labsflow': 'flow',
     'googleflow': 'flow',
+    // 🆕 GPT-Image-2 (구 코드명 "duct-tape") — dalle 라우트로 통합 (model chain에서 gpt-image-2 우선 시도)
+    'gpt-image-2': 'dalle',
+    'gptimage2': 'dalle',
+    'ducktape': 'dalle',
+    'duct-tape': 'dalle',
+    '덕트테이프': 'dalle',
+    '덕테이프': 'dalle',
   };
   if (aliasMap[value]) return aliasMap[value];
   if ((SUPPORTED_IMAGE_ENGINES as readonly string[]).includes(value)) {

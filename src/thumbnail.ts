@@ -1061,26 +1061,71 @@ export async function makeDalleThumbnail(
     // 키워드나 제목을 기반으로 자동 영어 프롬프트 생성
     const prompt = generateEnglishPrompt(title, topic);
 
-    // DALL-E 3는 특정 크기만 지원: 1024x1024, 1024x1792, 1792x1024
-    // 썸네일용이므로 1024x1024 사용 (가장 일반적)
+    // gpt-image-2 (구 코드명 "duct-tape"): 2026-04-21 OpenAI 공식 출시, API 즉시 사용 가능.
+    // 다만 조직별 점진적 롤아웃 + 파라미터 스키마가 dall-e-3와 다르므로 모델별로 body를 분기한다.
+    //   - gpt-image-2: prompt/size/n만 안전 (style·response_format 거절 가능, 새 quality enum 사용)
+    //   - gpt-image-1: dall-e-3 호환 스키마
+    //   - dall-e-3   : style/quality/response_format 모두 지원
+    // 권한 없거나 미지원 모델이면 다음 후보로 자동 폴백.
     const dalleSize = '1024x1024';
+    const modelChain: string[] = ['gpt-image-2', 'gpt-image-1', 'dall-e-3'];
 
-    const response = await fetch('https://api.openai.com/v1/images/generations', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-image-1',
-        prompt: prompt,
+    const buildBody = (m: string): Record<string, any> => {
+      if (m === 'gpt-image-2') {
+        // 새 모델 — 검증된 파라미터만 전송
+        return { model: m, prompt, n: 1, size: dalleSize };
+      }
+      // dall-e-3 / gpt-image-1 — 기존 스키마 유지
+      return {
+        model: m,
+        prompt,
         n: 1,
         size: dalleSize,
         quality: options.quality || 'standard',
         style: options.style || 'natural',
-        response_format: 'url'  // 🔥 URL 직접 반환 (Base64 대신) - 용량 문제 해결!
-      }),
-    });
+        response_format: 'url',
+      };
+    };
+
+    let response: Response | null = null;
+    let usedModel = '';
+    let lastErrorBody: any = null;
+    for (const m of modelChain) {
+      const r = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(buildBody(m)),
+      });
+      if (r.ok) {
+        response = r;
+        usedModel = m;
+        break;
+      }
+      try {
+        lastErrorBody = await r.clone().json();
+      } catch { lastErrorBody = null; }
+      const code = lastErrorBody?.error?.code || '';
+      const msg = lastErrorBody?.error?.message || '';
+      // 모델 자체가 없거나 권한 없는 경우만 폴백 (인증·결제·rate-limit은 즉시 중단)
+      const isModelMissing = r.status === 404
+        || /model_not_found|invalid_model|deprecated_model|unsupported_model/i.test(String(code))
+        || (r.status === 403 && /access|permission/i.test(String(msg)));
+      if (!isModelMissing) {
+        response = r;
+        usedModel = m;
+        break;
+      }
+      console.log(`[OPENAI-IMG] ⚠️ ${m} 미지원/권한없음 — 다음 모델로 폴백`);
+    }
+    if (!response) {
+      return { ok: false, error: 'OpenAI 이미지 모델 후보 전체 실패' };
+    }
+    if (response.ok) {
+      console.log(`[OPENAI-IMG] 🎨 사용 모델: ${usedModel}`);
+    }
 
     if (!response.ok) {
       let errorMessage = 'Unknown error';
@@ -1114,15 +1159,16 @@ export async function makeDalleThumbnail(
     }
 
     const data = await response.json();
-    // 🔥 URL 모드: url 필드에서 직접 가져옴
-    const imageUrl = data.data?.[0]?.url;
+    // 🔥 응답 호환: dall-e-3/gpt-image-1은 url, gpt-image-2는 b64_json 기본 → 양쪽 모두 처리
+    const first = data?.data?.[0];
+    const imageUrl: string = first?.url
+      || (first?.b64_json ? `data:image/png;base64,${first.b64_json}` : '');
 
     if (!imageUrl) {
-      return { ok: false, error: 'DALL-E에서 이미지를 생성하지 못했습니다' };
+      return { ok: false, error: `${usedModel || 'OpenAI'} 응답에 이미지가 없습니다` };
     }
 
-    // 🔥 URL을 직접 반환 (dataUrl 형식 유지를 위해 그대로 반환)
-    console.log(`[DALL-E] ✅ 이미지 URL 생성 완료: ${imageUrl.substring(0, 60)}...`);
+    console.log(`[OPENAI-IMG] ✅ 이미지 생성 완료 (모델: ${usedModel}): ${imageUrl.substring(0, 60)}...`);
     return { ok: true, dataUrl: imageUrl };
   } catch (error: any) {
     return { ok: false, error: error.message || 'DALL-E 썸네일 생성 오류' };
