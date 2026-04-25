@@ -42,6 +42,38 @@ function buildAdsenseToolsHTML() {
     <div id="adsenseTopFixes" style="margin-top: 20px; display: grid; gap: 8px;"></div>
   </div>
 
+  <!-- 🏆 단기 승인 패키지 (4종 통합) -->
+  <div id="fastApprovalPackage" style="background: linear-gradient(135deg, rgba(34,197,94,0.08), rgba(16,185,129,0.06)); border: 2px solid rgba(34,197,94,0.4); border-radius: 20px; padding: 28px; margin-bottom: 24px;">
+    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
+      <div style="width: 56px; height: 56px; background: linear-gradient(135deg,#22c55e,#10b981); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 30px;">🚀</div>
+      <div>
+        <h3 style="margin: 0; font-size: 22px; font-weight: 800; color: white;">단기 승인 패키지</h3>
+        <p style="margin: 4px 0 0; font-size: 13px; color: #86efac;">2-4주 내 AdSense 승인 목표 · 필수 페이지 + 시드 25개 + 색인 가속 + 신청 가이드</p>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px;">
+      <button id="btnFastReadiness" style="padding: 14px 16px; background: linear-gradient(135deg,#3b82f6,#2563eb); color: white; border: none; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(59,130,246,0.3);">
+        🚦 ① 지금 신청 가능?
+      </button>
+      <button id="btnFastEssentialPages" style="padding: 14px 16px; background: linear-gradient(135deg,#8b5cf6,#7c3aed); color: white; border: none; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(139,92,246,0.3);">
+        📋 ② 필수 페이지 4종 자동
+      </button>
+      <button id="btnFastSeedPlan" style="padding: 14px 16px; background: linear-gradient(135deg,#f59e0b,#d97706); color: white; border: none; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(245,158,11,0.3);">
+        🚀 ③ 시드 25개 일정 생성
+      </button>
+      <button id="btnFastIndexNow" style="padding: 14px 16px; background: linear-gradient(135deg,#06b6d4,#0891b2); color: white; border: none; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(6,182,212,0.3);">
+        🔍 ④ 색인 가속 일괄 ping
+      </button>
+    </div>
+
+    <button id="btnFastOpenAdSense" style="width: 100%; padding: 14px 16px; background: linear-gradient(135deg,#22c55e,#10b981); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 800; cursor: pointer; box-shadow: 0 4px 12px rgba(34,197,94,0.4);">
+      ✅ AdSense 신청 페이지 열기 (사이트 URL 자동 복사)
+    </button>
+
+    <div id="fastApprovalResult" style="margin-top: 16px;"></div>
+  </div>
+
   <!-- 도구 그리드 -->
   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 24px;">
     
@@ -187,6 +219,176 @@ function buildAdsenseToolsHTML() {
  * 이벤트 바인딩 — IPC를 통해 메인 프로세스와 통신
  */
 function bindAdsenseToolsEvents(container) {
+  // ═══════════════════════════════════════════════
+  // 🚀 단기 승인 패키지 (4종 + 신청)
+  // ═══════════════════════════════════════════════
+  const fastResult = container.querySelector('#fastApprovalResult');
+  const showFastMsg = (html, color = '#86efac') => {
+    if (!fastResult) return;
+    fastResult.innerHTML = `<div style="padding: 14px; background: rgba(0,0,0,0.25); border: 1px solid ${color}55; border-radius: 10px; color: ${color}; font-size: 13px; line-height: 1.6;">${html}</div>`;
+  };
+
+  // ① 진단
+  container.querySelector('#btnFastReadiness')?.addEventListener('click', async () => {
+    showFastMsg('🔍 진단 중...', '#93c5fd');
+    try {
+      const url = container.querySelector('#adsenseBlogUrl')?.value?.trim()
+        || (() => { try { return JSON.parse(localStorage.getItem('bloggerSettings') || '{}').blogUrl || ''; } catch { return ''; } })();
+      if (!url) return showFastMsg('⚠️ 블로그 URL을 위 진단 카드에 먼저 입력하세요.', '#fca5a5');
+
+      // 기존 22개 항목 진단을 호출해 데이터 수집
+      const diagRes = await window.electronAPI?.invoke('adsense:check-blog', url);
+      const data = diagRes?.data || {};
+      const input = {
+        blogUrl: url,
+        hasPrivacy: !!data.hasPrivacyPage,
+        hasAbout: !!data.hasAboutPage,
+        hasContact: !!data.hasContactPage,
+        hasDisclaimer: !!data.hasDisclaimerPage,
+        postCount: data.postCount || 0,
+        avgPostLength: data.avgPostLength || 0,
+        recentPostCount: data.recentPostCount || 0,
+        categoryCount: data.categoryCount || 0,
+      };
+      const r = await window.electronAPI?.invoke('adsense:fast-approval-readiness', input);
+      if (!r?.ok) return showFastMsg(`❌ 진단 실패: ${r?.error}`, '#fca5a5');
+      const rep = r.report;
+      const color = rep.ready ? '#86efac' : rep.score >= 60 ? '#fde68a' : '#fca5a5';
+      const missingHtml = rep.missing.slice(0, 5).map(m => `<li>❌ <b>${m.label}</b> (${m.weight}점) — ${m.fix}</li>`).join('');
+      const passedHtml = rep.passed.slice(0, 5).map(p => `<li style="color:#86efac;">✅ ${p}</li>`).join('');
+      showFastMsg(
+        `<div style="font-weight:800; font-size:16px; margin-bottom:8px;">점수 <span style="color:${color};">${rep.score}/100</span> ${rep.ready ? '— ✅ 신청 가능' : '— 🔧 보강 필요'}</div>` +
+        `<div style="margin-bottom:8px;">${rep.recommendation}</div>` +
+        (missingHtml ? `<div style="margin-top:8px; font-size:12px;"><b>부족 항목 TOP 5:</b><ul style="margin:4px 0 0 16px;">${missingHtml}</ul></div>` : '') +
+        (passedHtml ? `<div style="margin-top:8px; font-size:12px;"><b>통과 항목:</b><ul style="margin:4px 0 0 16px;">${passedHtml}</ul></div>` : ''),
+        color,
+      );
+    } catch (e) {
+      showFastMsg(`❌ ${e?.message || e}`, '#fca5a5');
+    }
+  });
+
+  // ② 필수 페이지 4종 자동 생성·발행
+  container.querySelector('#btnFastEssentialPages')?.addEventListener('click', async () => {
+    const settings = (() => { try { return JSON.parse(localStorage.getItem('bloggerSettings') || '{}'); } catch { return {}; } })();
+    const blogName = prompt('블로그 이름을 입력하세요:', settings.blogTitle || '내 블로그');
+    if (!blogName) return;
+    const ownerName = prompt('운영자 이름:', settings.adsenseAuthorName || '운영자');
+    if (!ownerName) return;
+    const email = prompt('연락 이메일:', settings.email || 'contact@example.com');
+    if (!email) return;
+    const blogUrl = settings.blogUrl || '';
+
+    showFastMsg('📋 4종 페이지 생성 중...', '#c4b5fd');
+    try {
+      const gen = await window.electronAPI?.invoke('adsense:generate-essential-pages', { blogName, blogUrl, ownerName, email });
+      if (!gen?.ok) return showFastMsg(`❌ 생성 실패: ${gen?.error}`, '#fca5a5');
+
+      const blogId = settings.blogId || '';
+      const accessToken = settings.googleAccessToken || '';
+      if (!blogId || !accessToken) {
+        return showFastMsg(`✅ ${gen.pages.length}개 페이지 생성됨 — Blogger 연동(blogId+토큰)이 필요해 자동 발행은 건너뜀. 환경설정에서 OAuth 인증 후 다시 시도하세요.`, '#fde68a');
+      }
+
+      const pub = await window.electronAPI?.invoke('adsense:publish-essential-pages', { blogId, accessToken, pages: gen.pages });
+      if (!pub?.ok) return showFastMsg(`❌ 발행 실패: ${pub?.error}`, '#fca5a5');
+      const okCount = pub.results.filter(r => r.ok).length;
+      showFastMsg(`✅ ${okCount}/${pub.results.length}개 페이지 발행 완료`, '#86efac');
+    } catch (e) {
+      showFastMsg(`❌ ${e?.message || e}`, '#fca5a5');
+    }
+  });
+
+  // ③ 시드 25개 일정 생성
+  container.querySelector('#btnFastSeedPlan')?.addEventListener('click', async () => {
+    const keyword = prompt('블로그 핵심 키워드 1개 입력 (예: "복지 지원금"):', '');
+    if (!keyword || keyword.trim().length < 2) return;
+    const countStr = prompt('생성할 글 수 (15-30 권장, 기본 25):', '25');
+    const count = Math.max(5, Math.min(50, Number(countStr) || 25));
+    showFastMsg(`📅 ${count}개 시드 일정 생성 중...`, '#fde68a');
+    try {
+      const r = await window.electronAPI?.invoke('adsense:fast-approval-seed-plan', { keyword: keyword.trim(), count });
+      if (!r?.ok) return showFastMsg(`❌ ${r?.error}`, '#fca5a5');
+      const plan = r.plan;
+      // localStorage 'scheduledPosts'에 임시 추가 (사용자가 스케줄 탭에서 검수 후 활성화)
+      const existing = (() => { try { return JSON.parse(localStorage.getItem('scheduledPosts') || '[]'); } catch { return []; } })();
+      const seedSchedules = plan.schedules.map(s => ({
+        id: Date.now() + s.index,
+        topic: s.topic,
+        keywords: keyword.trim(),
+        date: s.scheduledAt.slice(0, 10),
+        time: s.scheduledAt.slice(11, 16),
+        contentMode: 'adsense',
+        ctaMode: 'auto',
+        publishType: 'scheduled',
+        thumbnailMode: 'imagefx',
+        platform: 'blogspot',
+        primaryGeminiTextModel: 'gemini-2.5-flash',
+        provider: 'gemini',
+        h2Images: [2, 3, 4],
+        h2ImageSource: 'imagefx',
+        h2ImageSections: [2, 3, 4],
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        seedPlan: true,
+      }));
+      localStorage.setItem('scheduledPosts', JSON.stringify([...existing, ...seedSchedules]));
+      showFastMsg(
+        `✅ <b>${plan.schedules.length}개 시드 일정 추가됨</b> (총 ${plan.totalDays}일 분산, 12-24h 무작위 간격)<br>` +
+        `📅 첫 글: ${plan.schedules[0]?.scheduledAt.replace('T', ' ').slice(0, 16)}<br>` +
+        `📅 마지막 글: ${plan.schedules[plan.schedules.length - 1]?.scheduledAt.replace('T', ' ').slice(0, 16)}<br>` +
+        `💡 스케줄 탭에서 확인·수정 후 자동 발행됩니다.`,
+        '#fde68a',
+      );
+    } catch (e) {
+      showFastMsg(`❌ ${e?.message || e}`, '#fca5a5');
+    }
+  });
+
+  // ④ 색인 가속
+  container.querySelector('#btnFastIndexNow')?.addEventListener('click', async () => {
+    const settings = (() => { try { return JSON.parse(localStorage.getItem('bloggerSettings') || '{}'); } catch { return {}; } })();
+    const blogUrl = settings.blogUrl || prompt('블로그 URL:', '');
+    if (!blogUrl) return;
+    showFastMsg('🔍 검색엔진에 사이트맵 ping 전송 중...', '#67e8f9');
+    try {
+      const r = await window.electronAPI?.invoke('adsense:fast-approval-indexnow', { blogUrl });
+      if (!r?.ok) return showFastMsg(`❌ ${r?.error}`, '#fca5a5');
+      const res = r.result;
+      const detailHtml = (res.details || []).map(d => `<li>${d}</li>`).join('');
+      showFastMsg(
+        `🔍 색인 ping 결과:<br>` +
+        `<ul style="margin:6px 0 0 16px;">` +
+        `<li>${res.google ? '✅' : '❌'} Google</li>` +
+        `<li>${res.bing ? '✅' : '❌'} Bing</li>` +
+        `<li>${res.naver ? '✅' : '❌'} Naver (수동)</li>` +
+        `<li>${res.daum ? '✅' : '❌'} Daum (수동)</li>` +
+        `</ul>` +
+        `<details style="margin-top:8px;"><summary style="cursor:pointer; color:#67e8f9;">상세 로그</summary><ul style="margin:6px 0 0 16px; font-size:11px;">${detailHtml}</ul></details>`,
+        '#67e8f9',
+      );
+    } catch (e) {
+      showFastMsg(`❌ ${e?.message || e}`, '#fca5a5');
+    }
+  });
+
+  // ⑤ AdSense 신청 페이지 열기 + URL 복사
+  container.querySelector('#btnFastOpenAdSense')?.addEventListener('click', async () => {
+    const settings = (() => { try { return JSON.parse(localStorage.getItem('bloggerSettings') || '{}'); } catch { return {}; } })();
+    const blogUrl = settings.blogUrl || '';
+    showFastMsg('🌐 AdSense 신청 페이지를 여는 중...', '#86efac');
+    try {
+      const r = await window.electronAPI?.invoke('adsense:fast-approval-open', { blogUrl });
+      if (!r?.ok) return showFastMsg(`❌ ${r?.error}`, '#fca5a5');
+      showFastMsg(
+        `✅ AdSense 신청 페이지가 브라우저에서 열렸습니다.${r.copied ? `<br>📋 사이트 URL 클립보드 복사됨: <code>${blogUrl}</code><br>신청 양식의 "사이트 URL" 칸에 붙여넣으세요.` : ''}`,
+        '#86efac',
+      );
+    } catch (e) {
+      showFastMsg(`❌ ${e?.message || e}`, '#fca5a5');
+    }
+  });
+
   // 1. 블로그 진단
   container.querySelector('#btnRunDiagnosis')?.addEventListener('click', async () => {
     const url = container.querySelector('#adsenseBlogUrl')?.value?.trim();

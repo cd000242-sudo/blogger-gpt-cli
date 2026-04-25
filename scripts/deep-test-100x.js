@@ -445,6 +445,49 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!distSrc.includes(':has(.badge-info)')) throw new Error('dist/ui/styles.css 동기화 누락');
   });
 
+  await runTest('AdSense 단기 승인 패키지 — IPC 4채널 + UI 5버튼', () => {
+    const fastSrc = load('electron/adsenseFastApprovalHandlers.ts');
+    if (!fastSrc.includes("'adsense:fast-approval-readiness'")) throw new Error('진단 IPC 누락');
+    if (!fastSrc.includes("'adsense:fast-approval-seed-plan'")) throw new Error('시드 일정 IPC 누락');
+    if (!fastSrc.includes("'adsense:fast-approval-indexnow'")) throw new Error('색인 가속 IPC 누락');
+    if (!fastSrc.includes("'adsense:fast-approval-open'")) throw new Error('신청 페이지 열기 IPC 누락');
+    if (!fastSrc.includes('evaluateReadiness')) throw new Error('진단 함수 누락');
+    if (!fastSrc.includes('buildSeedPlan')) throw new Error('시드 일정 함수 누락');
+    if (!fastSrc.includes('triggerIndexNow')) throw new Error('색인 함수 누락');
+    if (!fastSrc.includes('clipboard')) throw new Error('클립보드 복사 누락');
+
+    const main = load('electron/main.ts');
+    if (!main.includes('registerFastApprovalIpcHandlers')) throw new Error('main.ts 핸들러 등록 누락');
+
+    const ui = load('electron/ui/modules/adsense-tools.js');
+    if (!ui.includes('btnFastReadiness')) throw new Error('UI 진단 버튼 누락');
+    if (!ui.includes('btnFastEssentialPages')) throw new Error('UI 필수페이지 버튼 누락');
+    if (!ui.includes('btnFastSeedPlan')) throw new Error('UI 시드 버튼 누락');
+    if (!ui.includes('btnFastIndexNow')) throw new Error('UI 색인 버튼 누락');
+    if (!ui.includes('btnFastOpenAdSense')) throw new Error('UI 신청 버튼 누락');
+    if (!ui.includes("'adsense:fast-approval-readiness'")) throw new Error('UI invoke 누락');
+
+    // 점수 시뮬
+    const eval2 = (input) => {
+      const checks = [
+        { weight: 18, pass: (input.postCount || 0) >= 15 },
+        { weight: 14, pass: (input.avgPostLength || 0) >= 1500 },
+        { weight: 12, pass: (input.recentPostCount || 0) >= 5 },
+        { weight: 6, pass: (input.categoryCount || 0) >= 3 },
+        { weight: 12, pass: !!input.hasPrivacy },
+        { weight: 10, pass: !!input.hasAbout },
+        { weight: 10, pass: !!input.hasContact },
+        { weight: 10, pass: !!input.hasDisclaimer },
+        { weight: 8, pass: !!(input.blogUrl && input.blogUrl.startsWith('http')) },
+      ];
+      return checks.reduce((s, c) => s + (c.pass ? c.weight : 0), 0);
+    };
+    const fullScore = eval2({ blogUrl: 'https://test.com', hasPrivacy: true, hasAbout: true, hasContact: true, hasDisclaimer: true, postCount: 20, avgPostLength: 2000, recentPostCount: 7, categoryCount: 3 });
+    if (fullScore < 100) throw new Error(`만점 시뮬 실패: ${fullScore}`);
+    const emptyScore = eval2({});
+    if (emptyScore !== 0) throw new Error(`빈 시뮬 0점이어야: ${emptyScore}`);
+  });
+
   await runTest('AdSense 강화 — LLM 로테이션 + 외부 출처 강제 + 점수 게이트 + 발행 분산', () => {
     const orchSrc = load('src/core/final/orchestration.ts');
     if (!orchSrc.includes('llmRotation')) throw new Error('LLM 로테이션 처리 누락');

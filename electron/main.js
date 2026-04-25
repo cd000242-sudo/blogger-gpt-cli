@@ -4117,6 +4117,14 @@ try {
 catch (e) {
     console.error('[APP] 애드센스 IPC 핸들러 등록 실패:', e);
 }
+// 🏆 AdSense 단기 승인 패키지 IPC 핸들러 등록
+try {
+    const { registerFastApprovalIpcHandlers } = require('./adsenseFastApprovalHandlers');
+    registerFastApprovalIpcHandlers();
+}
+catch (e) {
+    console.error('[APP] AdSense 단기 승인 IPC 등록 실패:', e);
+}
 // 🛡️ AdsPower IPC 핸들러 등록
 try {
     const { registerAdsPowerIpcHandlers } = require('./adspowerIpcHandlers');
