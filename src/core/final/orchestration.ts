@@ -1428,16 +1428,39 @@ ${conclusionHTML}
     // 🖼️ 썸네일 생성 - 수집 이미지 우선, 그 다음 나노 바나나 프로 또는 SVG
     let thumbnailUrl = '';
 
-    // 🔥 thumbnailSource: 사용자 선택 값 (imagefx, nanobananapro, text 등)
+    // 🔥 thumbnailSource: 사용자 선택 값 (imagefx, nanobananapro, dalle, text 등)
     const thumbnailSource = payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'imagefx';
     const thumbnailDisabled = thumbnailSource === 'none' || thumbnailSource === 'skip';
 
-    // 🛒 1순위: 크롤러 수집 상품 이미지 (productImages가 있으면 첫 번째 이미지를 썸네일로 사용)
-    // 단, 사용자가 'none'을 선택한 경우에는 존중
-    if (!thumbnailDisabled && (payload.productImages as any)?.length > 0) {
+    // 🛡️ 사용자가 특정 AI 엔진을 명시 선택했는지 — auto/default가 아니고 'crawled'·'custom' 류도 아닌 경우
+    //    명시 선택했으면 사용자 의도를 존중해 productImages를 무시하고 해당 엔진으로 직행
+    //    (이전: productImages가 있으면 사용자 엔진 선택과 무관하게 무조건 수집 이미지 사용 — 회귀 수정)
+    const srcLower = String(thumbnailSource || '').toLowerCase();
+    const isCrawledRequested = srcLower === 'crawled'
+      || srcLower.startsWith('crawled-')
+      || srcLower === 'custom';
+    const userPickedAiEngine = !!srcLower
+      && srcLower !== 'auto'
+      && srcLower !== 'default'
+      && !isCrawledRequested
+      && !thumbnailDisabled;
+    const isShoppingMode = contentMode === 'shopping';
+
+    // 🛒 productImages 우선 조건:
+    //   1) 사용자가 'crawled'·'custom' 등 수집 이미지 사용을 명시 요청
+    //   2) 또는 shopping 모드 (의도된 동작)
+    //   3) 또는 사용자가 AI 엔진을 명시 선택하지 않은 자동 모드
+    const useProductImages = !thumbnailDisabled
+      && (payload.productImages as any)?.length > 0
+      && (isCrawledRequested || isShoppingMode || !userPickedAiEngine);
+
+    if (useProductImages) {
       thumbnailUrl = (payload.productImages as any)[0];
       onLog?.(`[PROGRESS] 90% - 🛒 수집된 상품 이미지로 썸네일 설정 (${(payload.productImages as any).length}장 중 1번째)`);
       console.log(`[THUMBNAIL] ✅ 수집 이미지 썸네일: ${thumbnailUrl.substring(0, 60)}...`);
+    } else if (userPickedAiEngine && (payload.productImages as any)?.length > 0) {
+      console.log(`[THUMBNAIL] 🛡️ 사용자 명시 엔진(${thumbnailSource}) 선택 — 수집 이미지 ${(payload.productImages as any).length}장 무시하고 AI 생성 진행`);
+      onLog?.(`[PROGRESS] 90% - 🛡️ 사용자가 ${thumbnailSource} 엔진을 선택해 수집 이미지를 무시합니다`);
     }
 
     // 🎯 썸네일 디스패치: 사용자 선택 엔진 → 실패 시 폴백 → 최종 SVG

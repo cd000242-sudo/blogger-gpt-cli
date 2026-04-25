@@ -445,6 +445,30 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!distSrc.includes(':has(.badge-info)')) throw new Error('dist/ui/styles.css 동기화 누락');
   });
 
+  await runTest('썸네일 — 사용자 명시 엔진 선택 시 productImages 무시', () => {
+    const src = load('src/core/final/orchestration.ts');
+    if (!src.includes('userPickedAiEngine')) throw new Error('명시 엔진 플래그 누락');
+    if (!src.includes('useProductImages')) throw new Error('useProductImages 가드 누락');
+    if (!src.includes('isCrawledRequested')) throw new Error('crawled 분기 누락');
+    if (!src.includes('수집 이미지') || !src.includes('무시하고')) throw new Error('무시 안내 로그 누락');
+    // 시뮬: dalle 명시 선택 + productImages 있음 → useProductImages = false
+    const sim = (src, productImages, contentMode) => {
+      const srcLower = String(src || '').toLowerCase();
+      const isCrawledRequested = srcLower === 'crawled' || srcLower.startsWith('crawled-') || srcLower === 'custom';
+      const userPickedAiEngine = !!srcLower && srcLower !== 'auto' && srcLower !== 'default' && !isCrawledRequested && srcLower !== 'none' && srcLower !== 'skip';
+      const isShoppingMode = contentMode === 'shopping';
+      return productImages?.length > 0 && (isCrawledRequested || isShoppingMode || !userPickedAiEngine);
+    };
+    // dalle 명시 + 이미지 있음 + seo 모드 → 수집 이미지 무시
+    if (sim('dalle', ['x.png'], 'seo')) throw new Error('dalle 명시 시뮬 실패: 수집 이미지 사용됨');
+    // crawled 명시 → 수집 이미지 사용
+    if (!sim('crawled', ['x.png'], 'seo')) throw new Error('crawled 명시 시뮬 실패: 수집 이미지 무시됨');
+    // shopping 모드 → 수집 이미지 사용
+    if (!sim('imagefx', ['x.png'], 'shopping')) throw new Error('shopping 모드 시뮬 실패');
+    // auto + 이미지 있음 → 수집 이미지 사용
+    if (!sim('auto', ['x.png'], 'seo')) throw new Error('auto 시뮬 실패');
+  });
+
   await runTest('CTA 하이브리드 검증 — Perplexity AI 모듈 + 토글 통합', () => {
     const aiSrc = load('src/cta/validate-cta-ai.ts');
     if (!aiSrc.includes('validateCtaUrlWithAi')) throw new Error('validateCtaUrlWithAi export 누락');
