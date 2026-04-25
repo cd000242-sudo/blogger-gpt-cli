@@ -48,6 +48,9 @@ export async function generateUltimateMaxModeArticleFinal(
     throw new Error(blockMsg);
   }
 
+  // 🛡️ CTA AI 엄격 모드 — UI 토글을 환경변수에 반영 (generation.ts의 hybridValidateCta가 읽음)
+  process.env['CTA_AI_VALIDATE_STRICT'] = payload?.ctaAiStrictMode === true ? 'true' : 'false';
+
   // 🎯 동시 실행 시 순차 처리 (process.env 보호)
   // 🛡️ releaseLock을 항상 no-op으로 초기화 — 예외 경로에서 미할당 상태로 finally 진입 시 TypeError → 영구 데드락 방지
   let releaseLock: () => void = () => { /* no-op until assigned */ };

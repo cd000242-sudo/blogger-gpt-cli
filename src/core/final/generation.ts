@@ -8,6 +8,38 @@
 import axios from 'axios';
 import { loadEnvFromFile } from '../../env';
 import { getGeminiApiKey, getPerplexityApiKey } from '../llm';
+import { validateCtaUrlWithAi } from '../../cta/validate-cta-ai';
+
+/**
+ * 🔀 하이브리드 CTA 검증 — HTTP 1차 + (옵션) Perplexity AI 2차
+ *
+ * 동작:
+ *  - HTTP 검증 실패 → 즉시 false (LLM 호출 안 함, 비용 절감)
+ *  - HTTP 통과 + 엄격 모드(CTA_AI_VALIDATE_STRICT=true) → AI 검증으로 의미 적합성까지 확인
+ *  - HTTP 통과 + 자동 모드 + aiRecommended=true(정부 사이트 등) → AI 검증
+ *  - HTTP 통과 + 자동 모드 + aiRecommended=false → 즉시 통과
+ */
+async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000): Promise<boolean> {
+  const httpResult = await validateCtaUrl(url, { timeout: timeoutMs });
+  if (!httpResult.isValid) return false;
+
+  const strictMode = String(process.env['CTA_AI_VALIDATE_STRICT'] || '').toLowerCase() === 'true';
+  const shouldAiCheck = strictMode || httpResult.aiRecommended === true;
+  if (!shouldAiCheck) return true;
+
+  try {
+    const aiResult = await validateCtaUrlWithAi(url, keyword, { strict: strictMode, timeoutMs: 12000 });
+    if (aiResult.skipped) return true; // API 키 없거나 호출 실패 시 차단 사유로 삼지 않음
+    if (!aiResult.ok) {
+      console.log(`[CTA] 🤖 AI 검증 실패 (conf=${aiResult.confidence.toFixed(2)}): ${aiResult.reason}`);
+      return false;
+    }
+    return true;
+  } catch (e: any) {
+    console.warn('[CTA] AI 검증 예외(통과 처리):', e?.message);
+    return true;
+  }
+}
 import { validateCtaUrl } from '../../cta/validate-cta-url';
 import { callGeminiWithGrounding } from './gemini-engine';
 import { FinalCrawledPost, FinalTableData, FinalCTAData, FAQItem } from './types';
@@ -1165,9 +1197,9 @@ JSON만 출력:
         const isBlogPage = /blog\.naver|tistory|brunch|velog|medium\.com|blogspot|wordpress\.com/i.test(ctaData.url);
 
         if (!isSearchPage && !isBlogPage) {
-          // 🔥 HTTP HEAD 검증
-          const validation = await validateCtaUrl(ctaData.url, { timeout: 5000 });
-          if (validation.isValid) {
+          // 🔀 하이브리드 검증: HTTP 1차 + (의심 시/엄격 모드) Perplexity AI 2차
+          const isValid = await hybridValidateCta(ctaData.url, keyword, 5000);
+          if (isValid) {
             // 📥 파일 다운로드 URL 감지 — AI가 반환한 텍스트보다 우선 (AI가 "사이트 바로가기"로 잘못 생성하는 케이스 방지)
             const doc = detectDocumentCta(ctaData.url);
             // 🎯 모드별 기본 버튼/훅 텍스트
@@ -1200,9 +1232,9 @@ JSON만 출력:
               text: finalButtonText,
               hook: finalHookMessage,
             });
-            console.log(`[CTA] ✅ Search Grounding CTA 검증 성공! URL: ${ctaData.url} (${validation.statusCode || 'OK'}, ${validation.elapsedMs}ms)`);
+            console.log(`[CTA] ✅ Search Grounding CTA 하이브리드 검증 통과: ${ctaData.url}`);
           } else {
-            console.log(`[CTA] ❌ Search Grounding CTA URL 검증 실패: ${ctaData.url} (${validation.reason})`);
+            console.log(`[CTA] ❌ Search Grounding CTA 검증 실패 (HTTP+AI 하이브리드): ${ctaData.url}`);
           }
         } else {
           console.log(`[CTA] ⚠️ 검색엔진/블로그 URL 감지, 필터링: ${ctaData.url}`);
@@ -1223,9 +1255,9 @@ JSON만 출력:
       const shortKeyword = keyword.length > 15 ? keyword.split(/\s+/).slice(0, 2).join(' ') : keyword;
       let btnText = `🔗 ${shortKeyword} 공식 사이트`;
       let hookText = `${shortKeyword}에 대해 더 알아보세요!`;
-      // 🔥 HTTP HEAD 검증
-      const validation = await validateCtaUrl(officialLink.url, { timeout: 5000 });
-      if (validation.isValid) {
+      // 🔀 하이브리드 검증
+      const isCseValid = await hybridValidateCta(officialLink.url, keyword, 5000);
+      if (isCseValid) {
         const shortKeyword2 = keyword.length > 15 ? keyword.split(/\s+/).slice(0, 2).join(' ') : keyword;
         const docCse = detectDocumentCta(officialLink.url);
         let btnText2 = docCse.isDoc ? docCse.btnText : `🔗 ${shortKeyword2} 공식 사이트`;
@@ -1275,9 +1307,9 @@ JSON만 출력:
           text: btnText2,
           hook: hookText2,
         });
-        console.log(`[CTA] ✅ CSE 폴백 CTA 검증 성공: ${officialLink.url} (${validation.statusCode || 'OK'}, ${validation.elapsedMs}ms)`);
+        console.log(`[CTA] ✅ CSE 폴백 CTA 하이브리드 검증 통과: ${officialLink.url}`);
       } else {
-        console.log(`[CTA] ❌ CSE 폴백 CTA URL 검증 실패: ${officialLink.url} (${validation.reason})`);
+        console.log(`[CTA] ❌ CSE 폴백 CTA 검증 실패 (HTTP+AI 하이브리드): ${officialLink.url}`);
       }
     }
   }
@@ -1295,8 +1327,8 @@ JSON만 출력:
       const isOfficial = officialDomains.some(d => url.includes(d));
       const isBlog = blogDomains.some(d => url.includes(d));
       if (isOfficial && !isBlog) {
-        const validation = await validateCtaUrl(post.url || '', { timeout: 5000 });
-        if (validation.isValid) {
+        const isCrawledValid = await hybridValidateCta(post.url || '', keyword, 5000);
+        if (isCrawledValid) {
           const docCrawled = detectDocumentCta(post.url || '');
           const dlBtn = docCrawled.isDoc ? docCrawled.btnText
             : contentMode === 'shopping' ? '🛒 상품 페이지 보기'
@@ -1316,10 +1348,10 @@ JSON만 출력:
             text: dlBtn,
             hook: dlHook,
           });
-          console.log(`[CTA] ✅ 크롤링 데이터 공식 링크 검증 성공: ${post.url} (${validation.statusCode || 'OK'}, ${validation.elapsedMs}ms)`);
+          console.log(`[CTA] ✅ 크롤링 데이터 공식 링크 하이브리드 검증 통과: ${post.url}`);
           break;
         } else {
-          console.log(`[CTA] ❌ 크롤링 데이터 공식 링크 검증 실패: ${post.url} (${validation.reason})`);
+          console.log(`[CTA] ❌ 크롤링 데이터 공식 링크 검증 실패 (HTTP+AI 하이브리드): ${post.url}`);
         }
       }
     }

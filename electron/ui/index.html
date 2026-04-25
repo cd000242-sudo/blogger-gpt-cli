@@ -3658,6 +3658,19 @@
                       </div>
                     </div>
 
+                    <!-- 🤖 AI 엄격 모드 (Perplexity 검증) -->
+                    <div class="acc-field">
+                      <label class="acc-label">🛡️ CTA AI 엄격 검증 (Perplexity)</label>
+                      <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.85); padding: 10px 14px; background: rgba(99,102,241,0.08); border-radius: 8px; border: 1px solid rgba(99,102,241,0.25);">
+                        <input type="checkbox" id="ctaAiStrictMode" style="accent-color: #6366f1; transform: scale(1.2);">
+                        <span>모든 CTA를 Perplexity로 추가 검증 (의미 적합성 + 죽은 링크)</span>
+                      </label>
+                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">
+                        💡 OFF (기본): HTTP 빠른 검증 + 의심 정부사이트만 AI 검증 (자동 하이브리드) ·
+                        ON: 모든 CTA URL에 LLM 의미 검증 (정확↑ 발행 시간↑ Perplexity 토큰 소비)
+                      </small>
+                    </div>
+
                     <div id="manualCtaSection" class="acc-field" style="display: none;">
                       <button type="button" onclick="openManualCtaModal()"
                         style="width: 100%; background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; border-radius: 10px; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer;">

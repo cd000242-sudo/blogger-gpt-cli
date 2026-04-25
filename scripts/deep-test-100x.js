@@ -445,6 +445,32 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!distSrc.includes(':has(.badge-info)')) throw new Error('dist/ui/styles.css 동기화 누락');
   });
 
+  await runTest('CTA 하이브리드 검증 — Perplexity AI 모듈 + 토글 통합', () => {
+    const aiSrc = load('src/cta/validate-cta-ai.ts');
+    if (!aiSrc.includes('validateCtaUrlWithAi')) throw new Error('validateCtaUrlWithAi export 누락');
+    if (!aiSrc.includes('callPerplexityAPI')) throw new Error('Perplexity 호출 누락');
+    if (!aiSrc.includes('AI_CACHE')) throw new Error('AI 캐시 누락');
+    if (!aiSrc.includes('getPerplexityApiKey')) throw new Error('API 키 부재 처리 누락');
+
+    const httpSrc = load('src/cta/validate-cta-url.ts');
+    if (!httpSrc.includes('aiRecommended')) throw new Error('aiRecommended 플래그 누락');
+
+    const genSrc = load('src/core/final/generation.ts');
+    if (!genSrc.includes('hybridValidateCta')) throw new Error('하이브리드 함수 누락');
+    if (!genSrc.includes('CTA_AI_VALIDATE_STRICT')) throw new Error('엄격 모드 환경변수 누락');
+    if (!genSrc.includes('validate-cta-ai')) throw new Error('AI 모듈 import 누락');
+
+    const orchSrc = load('src/core/final/orchestration.ts');
+    if (!orchSrc.includes("payload?.ctaAiStrictMode")) throw new Error('payload 토글 처리 누락');
+
+    const html = load('electron/ui/index.html');
+    if (!html.includes('ctaAiStrictMode')) throw new Error('UI 토글 input 누락');
+    if (!html.includes('CTA AI 엄격 검증')) throw new Error('UI 라벨 누락');
+
+    const postingJs = load('electron/ui/modules/posting.js');
+    if (!postingJs.includes('ctaAiStrictMode')) throw new Error('posting payload 전달 누락');
+  });
+
   await runTest('GSC 소유권 — 스코프 사전 확인 + URL 변종 + skip 처리', () => {
     const src = load('electron/oneclick/handlers/verifyHandlers.js');
     if (!src.includes('tokeninfo')) throw new Error('스코프 확인 호출 누락');

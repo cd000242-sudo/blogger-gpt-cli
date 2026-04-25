@@ -13,6 +13,12 @@ export interface CtaValidationResult {
     reason?: string | undefined;       // 실패 시: 'invalid-format' | 'blocked-host' | 'malformed-url' | 'http-XXX' | 'timeout'
     statusCode?: number | undefined;   // HTTP 상태 코드 (성공 시)
     elapsedMs?: number | undefined;    // 검증 소요 시간
+    /**
+     * AI 2차 검증 권장 플래그 — HTTP 검증은 통과했으나 의심 정황이 있는 경우 true.
+     * 호출자(generation.ts)가 strict 모드 또는 의심 케이스에서 추가 LLM 검증을 수행할 수 있도록 힌트.
+     * 예: .go.kr/.or.kr 200 OK + Content-Type HTML이지만 본문 시그니처는 없는 경우
+     */
+    aiRecommended?: boolean;
 }
 
 // ============================================================
@@ -261,6 +267,8 @@ async function performValidation(
             isValid: true,
             statusCode,
             elapsedMs: Date.now() - start,
+            // 정부/공공 사이트는 200 OK여도 의미적 적합성 의심 — AI 2차 검증 권장
+            aiRecommended: needsContentCheck,
         };
     } catch (error: any) {
         const elapsed = Date.now() - start;
