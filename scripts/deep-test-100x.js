@@ -466,6 +466,16 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!src.includes('수동 입력 모달 표시')) throw new Error('모달 마지막 단계 마커 누락');
   });
 
+  await runTest('AdsPower 탭 비활성화 (display:none, 코드는 보존)', () => {
+    const html = load('electron/ui/index.html');
+    // 탭 버튼이 hidden 상태인지
+    const buttonMatch = html.match(/data-tab="adspower"[\s\S]{0,400}AdsPower\s*<\/button>/);
+    if (!buttonMatch) throw new Error('AdsPower 탭 버튼을 찾지 못함');
+    if (!/display:\s*none/i.test(buttonMatch[0])) throw new Error('AdsPower 탭 버튼이 display:none 처리되지 않음');
+    // tab-adspower 컨텐츠 자체는 보존 (복원 가능)
+    if (!html.includes('id="tab-adspower"')) throw new Error('AdsPower 탭 컨텐츠가 삭제됨 — 보존되어야 함');
+  });
+
   await runTest('글쓰기 준비 — 핵심 4개 OK 시 세팅 완료 자동 인식', () => {
     const src = load('electron/ui/index.html');
     if (!src.includes('coreChecksOk')) throw new Error('핵심 체크 자동 인식 로직 누락');
