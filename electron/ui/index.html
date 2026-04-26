@@ -3594,13 +3594,13 @@
                     </div>
                     <div class="acc-field">
                       <label class="acc-label">🛡️ 썸네일 엔진 엄격 모드</label>
-                      <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.85); padding: 10px 14px; background: rgba(245,158,11,0.08); border-radius: 8px; border: 1px solid rgba(245,158,11,0.25);">
-                        <input type="checkbox" id="strictThumbnailEngine" style="accent-color: #f59e0b; transform: scale(1.2);">
-                        <span>선택한 엔진 실패 시 다른 AI 엔진 폴백 금지 (SVG 텍스트로만 대체)</span>
+                      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: rgba(255,255,255,0.85); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(245,158,11,0.08); border-radius: 8px; border: 1px solid rgba(245,158,11,0.25); transition: all 0.2s ease;">
+                        <input type="checkbox" id="strictThumbnailEngine" style="width: 14px; height: 14px; accent-color: #f59e0b; flex-shrink: 0;">
+                        <span style="line-height: 1.4;">선택한 엔진 실패 시 다른 AI 엔진 폴백 금지 (SVG로만 대체)</span>
                       </label>
-                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">
-                        💡 OFF (기본·권장): 선택한 엔진 실패 시 imagefx → flow → deepinfra → leonardo → nanobananapro → dalle 순으로 자동 폴백 ·
-                        ON: 선택 엔진 실패 시 SVG로만 떨어짐 (흰배경 텍스트 썸네일 — API 키 누락·세션 만료 시 발생)
+                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 6px; display: block; line-height: 1.5;">
+                        💡 <strong>OFF (기본·권장)</strong>: 선택 엔진 실패 시 imagefx → flow → deepinfra → leonardo → nanobananapro → dalle 자동 폴백<br>
+                        <strong>ON</strong>: 선택 엔진 실패 시 SVG로만 떨어짐 (흰배경 텍스트 썸네일)
                       </small>
                     </div>
                     <div class="acc-field">
@@ -3672,39 +3672,40 @@
                     <!-- 🛡️ AdSense 강화 옵션 (adsense 모드 전용) -->
                     <div class="acc-field" id="adsenseHardenField">
                       <label class="acc-label">🏆 AdSense 승인률 강화 (adsense 모드 전용)</label>
-                      <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.85); padding: 8px 12px; background: rgba(34,197,94,0.08); border-radius: 8px; border: 1px solid rgba(34,197,94,0.25); margin-bottom: 6px;">
-                        <input type="checkbox" id="llmRotation" style="accent-color: #22c55e; transform: scale(1.2);">
-                        <span>🎲 LLM 모델 로테이션 — 글마다 Gemini/OpenAI/Claude/Perplexity 무작위 선택 (양산 패턴 방지)</span>
-                      </label>
-                      <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.85); padding: 8px 12px; background: rgba(234,179,8,0.08); border-radius: 8px; border: 1px solid rgba(234,179,8,0.25); margin-bottom: 6px;">
-                        <input type="checkbox" id="adsenseScoreGate" style="accent-color: #eab308; transform: scale(1.2);">
-                        <span>🚦 발행 전 AdSense 점수 검사 — burstiness/종결어미/AI 패턴 합산 0-100점</span>
-                      </label>
-                      <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(99,102,241,0.06); border-radius: 8px; border: 1px solid rgba(99,102,241,0.18); margin-bottom: 6px;">
-                        <label style="font-size: 12px; color: rgba(255,255,255,0.7); white-space: nowrap;">임계값</label>
-                        <input type="range" id="adsenseMinScore" min="50" max="90" value="70" step="5" style="flex: 1; accent-color: #6366f1;" oninput="document.getElementById('adsenseMinScoreLabel').textContent = this.value + '점';">
-                        <span id="adsenseMinScoreLabel" style="font-size: 13px; font-weight: 700; color: #a5b4fc; min-width: 40px;">70점</span>
-                        <select id="adsenseGateMode" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; padding: 4px 8px; font-size: 11px;">
-                          <option value="warn">⚠️ 경고만</option>
-                          <option value="block">🚫 발행 차단</option>
-                        </select>
+                      <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: rgba(255,255,255,0.85); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(34,197,94,0.08); border-radius: 8px; border: 1px solid rgba(34,197,94,0.25); transition: all 0.2s ease;">
+                          <input type="checkbox" id="llmRotation" style="width: 14px; height: 14px; accent-color: #22c55e; flex-shrink: 0;">
+                          <span style="line-height: 1.4;">🎲 LLM 모델 로테이션 (Gemini/OpenAI/Claude/Perplexity 자동 분산)</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: rgba(255,255,255,0.85); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(234,179,8,0.08); border-radius: 8px; border: 1px solid rgba(234,179,8,0.25); transition: all 0.2s ease;">
+                          <input type="checkbox" id="adsenseScoreGate" style="width: 14px; height: 14px; accent-color: #eab308; flex-shrink: 0;">
+                          <span style="line-height: 1.4;">🚦 발행 전 AdSense 점수 검사 (burstiness/AI 패턴 합산)</span>
+                        </label>
+                        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(99,102,241,0.06); border-radius: 8px; border: 1px solid rgba(99,102,241,0.18);">
+                          <span style="font-size: 12px; color: rgba(255,255,255,0.7); white-space: nowrap; font-weight: 600;">임계값</span>
+                          <input type="range" id="adsenseMinScore" min="50" max="90" value="70" step="5" style="flex: 1; accent-color: #6366f1; min-width: 100px;" oninput="document.getElementById('adsenseMinScoreLabel').textContent = this.value + '점';">
+                          <span id="adsenseMinScoreLabel" style="font-size: 13px; font-weight: 700; color: #a5b4fc; min-width: 40px; white-space: nowrap;">70점</span>
+                          <select id="adsenseGateMode" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; padding: 4px 8px; font-size: 11px;">
+                            <option value="warn">⚠️ 경고만</option>
+                            <option value="block">🚫 발행 차단</option>
+                          </select>
+                        </div>
                       </div>
-                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; display: block;">
-                        💡 로테이션 ON: 사용 가능한 LLM 키가 2개 이상이면 자동 분산. 점수 게이트 ON: 임계값 미만이면 경고/차단.
-                        스케줄 추가 시 12시간 이내 같은 모드 글이 있으면 자동으로 12-24h 뒤로 분산 권고됩니다.
+                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 6px; display: block; line-height: 1.5;">
+                        💡 로테이션은 LLM 키 2개 이상일 때 동작 · 점수 게이트는 임계값 미만이면 경고/차단 · 스케줄 12h 이내 동일 모드는 12-24h 분산 권고
                       </small>
                     </div>
 
                     <!-- 🤖 AI 엄격 모드 (Perplexity 검증) -->
                     <div class="acc-field">
                       <label class="acc-label">🛡️ CTA AI 엄격 검증 (Perplexity)</label>
-                      <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.85); padding: 10px 14px; background: rgba(99,102,241,0.08); border-radius: 8px; border: 1px solid rgba(99,102,241,0.25);">
-                        <input type="checkbox" id="ctaAiStrictMode" style="accent-color: #6366f1; transform: scale(1.2);">
-                        <span>모든 CTA를 Perplexity로 추가 검증 (의미 적합성 + 죽은 링크)</span>
+                      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: rgba(255,255,255,0.85); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(99,102,241,0.08); border-radius: 8px; border: 1px solid rgba(99,102,241,0.25); transition: all 0.2s ease;">
+                        <input type="checkbox" id="ctaAiStrictMode" style="width: 14px; height: 14px; accent-color: #6366f1; flex-shrink: 0;">
+                        <span style="line-height: 1.4;">모든 CTA를 Perplexity로 추가 검증 (의미 적합성 + 죽은 링크)</span>
                       </label>
-                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">
-                        💡 OFF (기본): HTTP 빠른 검증 + 의심 정부사이트만 AI 검증 (자동 하이브리드) ·
-                        ON: 모든 CTA URL에 LLM 의미 검증 (정확↑ 발행 시간↑ Perplexity 토큰 소비)
+                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 6px; display: block; line-height: 1.5;">
+                        💡 <strong>OFF (기본)</strong>: HTTP 빠른 검증 + 의심 정부사이트만 AI 검증 (자동 하이브리드)<br>
+                        <strong>ON</strong>: 모든 CTA URL에 LLM 의미 검증 (정확↑ 발행 시간↑ Perplexity 토큰 소비)
                       </small>
                     </div>
 
