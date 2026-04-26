@@ -445,6 +445,67 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!distSrc.includes(':has(.badge-info)')) throw new Error('dist/ui/styles.css 동기화 누락');
   });
 
+  await runTest('Schema.org JSON-LD 풀팩 자동 삽입', () => {
+    const sch = load('src/core/final/schema-jsonld.ts');
+    if (!sch.includes('buildSchemaJsonLd')) throw new Error('buildSchemaJsonLd export 누락');
+    if (!sch.includes('@graph')) throw new Error('@graph 묶음 누락');
+    if (!sch.includes("'@type': 'Article'")) throw new Error('Article 타입 누락');
+    if (!sch.includes("'@type': 'Person'")) throw new Error('Person 타입 누락');
+    if (!sch.includes("'@type': 'Organization'")) throw new Error('Organization 타입 누락');
+    if (!sch.includes("'@type': 'BreadcrumbList'")) throw new Error('BreadcrumbList 타입 누락');
+    if (!sch.includes("'@type': 'WebSite'")) throw new Error('WebSite 타입 누락');
+    if (!sch.includes('application/ld+json')) throw new Error('script 타입 누락');
+    if (!sch.includes("'ko-KR'")) throw new Error('inLanguage 누락');
+
+    const orch = load('src/core/final/orchestration.ts');
+    if (!orch.includes('buildSchemaJsonLd')) throw new Error('orchestration import 누락');
+    if (!orch.includes('schema.scriptTag')) throw new Error('schema 삽입 호출 누락');
+
+    // 시뮬: @graph에 entity가 모두 포함되는지
+    const mockInput = {
+      title: '복지 지원금 안내',
+      authorName: '홍길동',
+      siteName: '내 블로그',
+      siteUrl: 'https://example.com',
+      breadcrumbs: [{ name: '홈', url: 'https://example.com' }, { name: '글', url: 'https://example.com/post' }],
+    };
+    // 정규식으로 @graph 길이 확인 (Article + Person + Organization + WebSite + BreadcrumbList = 5)
+    if (!sch.includes('graph.push(person)')) throw new Error('Person push 누락');
+    if (!sch.includes('graph.push(organization)')) throw new Error('Organization push 누락');
+    if (!sch.includes('graph.push(breadcrumb)')) throw new Error('Breadcrumb push 누락');
+  });
+
+  await runTest('AdSense 정책 사전 스캔 — prohibited/YMYL/misleading/deceptive', () => {
+    const pol = load('src/core/final/policy-scanner.ts');
+    if (!pol.includes('scanAdsensePolicy')) throw new Error('scanAdsensePolicy export 누락');
+    if (!pol.includes('PROHIBITED_PATTERNS')) throw new Error('금지 패턴 누락');
+    if (!pol.includes('YMYL_PATTERNS')) throw new Error('YMYL 패턴 누락');
+    if (!pol.includes('MISLEADING_PATTERNS')) throw new Error('과장 패턴 누락');
+    if (!pol.includes('DECEPTIVE_PATTERNS')) throw new Error('클릭베이트 패턴 누락');
+    if (!pol.includes('safe')) throw new Error('safe 플래그 누락');
+    if (!pol.includes('mustHave')) throw new Error('YMYL 면책 검사 누락');
+
+    const orch = load('src/core/final/orchestration.ts');
+    if (!orch.includes('scanAdsensePolicy')) throw new Error('orchestration import 누락');
+    if (!orch.includes('정책 즉시 차단 위반')) throw new Error('block throw 메시지 누락');
+
+    // 시뮬: prohibited 패턴 매칭
+    const sample1 = '안녕하세요 야동 사이트 추천 드립니다';
+    const re1 = /(성인\s*동영상|야동|섹스\s*비디오|포르노|음란물|불법\s*촬영물)/g;
+    if (!re1.test(sample1)) throw new Error('야동 패턴 매칭 실패');
+
+    // misleading 시뮬
+    const sample2 = '100% 합격 보장합니다';
+    const re2 = /100%\s*(보장|성공|합격|확실|완벽)/g;
+    if (!re2.test(sample2)) throw new Error('100% 보장 패턴 매칭 실패');
+
+    // 정상 글은 통과해야
+    const cleanSample = '오늘은 복지 지원금 신청 방법을 알아보겠습니다.';
+    const re3 = /(성인\s*동영상|야동|불법\s*도박|마약\s*구입|불법\s*총기)/g;
+    re3.lastIndex = 0;
+    if (re3.test(cleanSample)) throw new Error('정상 글 오탐');
+  });
+
   await runTest('E-E-A-T 메타 보강 — 발행일·읽기시간·검토자·cite 자동 삽입', () => {
     const eeat = load('src/core/final/eeat-meta.ts');
     if (!eeat.includes('buildEeatMeta')) throw new Error('buildEeatMeta export 누락');

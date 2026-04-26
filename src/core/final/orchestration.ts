@@ -30,6 +30,8 @@ import {
 } from './generation';
 import { generateCSSFinal, generateTOCFinal } from './html';
 import { buildEeatMeta, EEAT_META_CSS } from './eeat-meta';
+import { buildSchemaJsonLd } from './schema-jsonld';
+import { scanAdsensePolicy } from './policy-scanner';
 import { validateArticleQuality } from './quality-gate';
 import { dispatchMode } from './mode-dispatcher';
 
@@ -1600,6 +1602,65 @@ ${conclusionHTML}
       console.warn('[EEAT-META] ⚠️ 메타 보강 실패(원본 유지):', eeatErr?.message);
       // placeholder만 제거
       html = html.replace('<!-- EEAT_META_PLACEHOLDER -->', '');
+    }
+
+    // 🛡️ Schema.org JSON-LD 풀팩 자동 삽입 (Article + Person + Organization + WebSite + BreadcrumbList)
+    //    구글 검색·AdSense가 신뢰도 평가에 직접 사용. 글 한 편당 1개 <script>로 통합 그래프 출력.
+    try {
+      const authorInfo = (payload as any).adsenseAuthorInfo || {};
+      const env = loadEnvFromFile();
+      const baseSiteUrl = (payload as any).url || env['BLOGGER_URL'] || env['WP_URL'] || '';
+      const schema = buildSchemaJsonLd({
+        title: h1,
+        description: (introductionHTML || '').replace(/<[^>]+>/g, ' ').slice(0, 250) || undefined,
+        canonicalUrl: undefined,
+        imageUrl: thumbnailUrl || undefined,
+        publishedAt: new Date(),
+        keywords: [keyword, ...(payload?.keywords?.map((k: any) => k.keyword || k).filter(Boolean) || [])].slice(0, 8),
+        wordCount: html.replace(/<[^>]+>/g, '').length,
+        authorName: authorInfo.name || (payload as any).authorNickname || undefined,
+        authorTitle: authorInfo.title || undefined,
+        authorSameAs: (payload as any).authorSameAs || undefined,
+        siteName: (payload as any).siteName || undefined,
+        siteUrl: baseSiteUrl || undefined,
+      });
+      // <article> 시작 직전에 삽입
+      html = html.includes('<article')
+        ? html.replace(/(<article[^>]*>)/, `${schema.scriptTag}\n$1`)
+        : `${schema.scriptTag}\n${html}`;
+      onLog?.(`[PROGRESS] 98% - 🛡️ Schema.org JSON-LD 삽입 (${schema.nodeCount}개 엔티티)`);
+    } catch (schemaErr: any) {
+      console.warn('[SCHEMA-JSONLD] ⚠️ 스키마 생성 실패(원본 유지):', schemaErr?.message);
+    }
+
+    // 🛡️ AdSense 정책 사전 스캔 — adsense 모드 강제, 그 외 모드는 옵트인
+    if (contentMode === 'adsense' || payload?.adsensePolicyScan === true) {
+      try {
+        const policy = scanAdsensePolicy(html);
+        onLog?.(`[POLICY] ${policy.summary}`);
+        if (!policy.safe) {
+          // block 위반 — 발행 차단 또는 경고 (adsenseGateMode와 통합)
+          const gateMode = payload?.adsenseGateMode || 'warn';
+          const violationDetail = policy.violations
+            .filter(v => v.severity === 'block')
+            .map(v => `[${v.pattern}] ${v.matched} → ${v.fix}`)
+            .join('\n');
+          if (gateMode === 'block') {
+            onLog?.(`[POLICY] ❌ 정책 위반 발견 → 발행 차단:\n${violationDetail}`);
+            throw new Error(`AdSense 정책 즉시 차단 위반:\n${violationDetail}`);
+          } else {
+            onLog?.(`[POLICY] ⚠️ 정책 위반 발견(warn 모드 — 발행 계속):\n${violationDetail}`);
+          }
+        }
+        // warn 위반 로그
+        const warnList = policy.violations.filter(v => v.severity === 'warn');
+        if (warnList.length > 0) {
+          warnList.slice(0, 5).forEach(v => onLog?.(`[POLICY]   ⚠️ ${v.category}/${v.pattern}: ${v.matched}`));
+        }
+      } catch (policyErr: any) {
+        if (policyErr?.message?.includes('AdSense 정책')) throw policyErr;
+        console.warn('[POLICY-SCAN] ⚠️ 정책 스캔 오류(무시):', policyErr?.message);
+      }
     }
 
     // 🛡️ 모드별 후처리 (adsense: CTA 잔재 제거 + AI 감지 완화)
