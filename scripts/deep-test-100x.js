@@ -620,6 +620,33 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (score(0.3, 2, 5, 10) > 50) throw new Error('저품질 글 점수 시뮬 실패');
   });
 
+  await runTest('SVG 텍스트 썸네일 폐지 — 모든 폴백 경로 제거', () => {
+    const disp = load('src/core/imageDispatcher.ts');
+    // makeAutoThumbnail import 제거됐는지 확인
+    if (/import\s*\{[^}]*makeAutoThumbnail[^}]*\}\s*from/.test(disp)) throw new Error('makeAutoThumbnail import 잔존');
+    // 호출 자체가 없어야 함
+    if (/\bmakeAutoThumbnail\s*\(/.test(disp)) throw new Error('makeAutoThumbnail 호출 잔존');
+    // SVG 폐지 안내 메시지가 있어야 함
+    if (!disp.includes('SVG') || !disp.includes('폐지')) throw new Error('폐지 안내 메시지 누락');
+    // 1순위 case (text/svg)도 imagefx로 자동 전환
+    if (!disp.includes("thumbnailSource === 'text' || thumbnailSource === 'svg'")) throw new Error('text/svg 분기 누락');
+
+    // thumbnail.ts의 makeAutoThumbnail은 deprecated 처리 (호출 시 fail 반환)
+    const thumb = load('src/thumbnail.ts');
+    if (!thumb.includes('@deprecated')) throw new Error('deprecated 마커 누락');
+    if (!thumb.includes('SVG 텍스트 썸네일은 폐지')) throw new Error('폐지 메시지 누락');
+    // makeEnhancedThumbnail의 SVG 폴백도 제거
+    if (/배경 없음, 기본 SVG 생성/.test(thumb)) throw new Error('makeEnhancedThumbnail SVG 폴백 잔존');
+
+    // UI 안내 문구도 SVG 폐지 반영
+    const html = load('electron/ui/index.html');
+    if (!html.includes('SVG 텍스트 폴백은 v3.5.54부터 폐지')) throw new Error('UI 폐지 안내 누락');
+    // script.js의 svg/text 옵션 제거
+    const script = load('electron/ui/script.js');
+    if (script.includes('SVG 썸네일 (기본)')) throw new Error('script.js SVG 옵션 잔존');
+    if (script.includes('value="svg"') && script.includes('SVG 썸네일')) throw new Error('value="svg" 옵션 잔존');
+  });
+
   await runTest('썸네일 엔진 폴백 — 명시 선택 실패 시 자동 폴백 (엄격 모드는 옵트인)', () => {
     const dispSrc = load('src/core/imageDispatcher.ts');
     if (!dispSrc.includes('STRICT_THUMBNAIL_ENGINE')) throw new Error('엄격 모드 환경변수 누락');
@@ -749,13 +776,13 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     }
   });
 
-  await runTest('썸네일 dispatchThumbnailGeneration — 명시 선택 시 SVG로만 폴백 (다른 AI 금지)', () => {
+  await runTest('썸네일 dispatchThumbnailGeneration — 명시 선택 + 엄격 모드 처리', () => {
     const src = load('src/core/imageDispatcher.ts');
-    // userPickedExplicitly && 1순위 실패 시 SVG로만 폴백, 다른 AI 엔진으로 넘어가지 않음
     if (!src.includes('userPickedExplicitly')) throw new Error('명시 선택 플래그 누락');
+    if (!src.includes('strictMode')) throw new Error('엄격 모드 플래그 누락');
     if (!src.includes('폴백 금지')) throw new Error('폴백 금지 메시지 누락');
-    if (!src.includes('SVG로 대체')) throw new Error('SVG 대체 메시지 누락');
-    // auto 모드만 폴백 체인 실행
+    // SVG 대체 → 폐지로 변경됨
+    if (!src.includes('SVG 폐지')) throw new Error('SVG 폐지 안내 누락');
     if (!src.includes('fallbackOrder')) throw new Error('폴백 체인 누락');
   });
 

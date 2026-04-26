@@ -14,7 +14,7 @@
  * 4. AI 추론 기반 이미지 프롬프트 생성 (OpenAI→Gemini→Claude 폴백)
  */
 
-import { makeNanoBananaProThumbnail, makeAutoThumbnail, makeDalleThumbnail, makeLeonardoPhoenixImage, makePollinationsThumbnail } from '../thumbnail';
+import { makeNanoBananaProThumbnail, makeDalleThumbnail, makeLeonardoPhoenixImage, makePollinationsThumbnail } from '../thumbnail';
 import { makeImageFxImage } from './imageFxGenerator';
 import { makeFlowImage } from './flowGenerator';
 import { inferImagePrompt } from './imagePromptInference';
@@ -306,17 +306,12 @@ export async function dispatchThumbnailGeneration(
 
   const env = getCachedEnv();
 
-  // text/svg 모드 → SVG 텍스트 썸네일
+  // text/svg 모드 → 더 이상 지원하지 않음 (SVG 텍스트 썸네일 폐지)
   if (thumbnailSource === 'text' || thumbnailSource === 'svg') {
-    try {
-      const svgResult = await makeAutoThumbnail(title, { width: 1200, height: 630 });
-      if (svgResult.ok) {
-        return { ok: true, dataUrl: svgResult.dataUrl, source: 'SVG 텍스트' };
-      }
-    } catch (e: any) {
-      console.error('[DISPATCH-THUMB] SVG 실패:', e.message);
-    }
-    return { ok: false, dataUrl: '', source: '', error: 'SVG 썸네일 생성 실패' };
+    onLog?.(`ℹ️ 'text/svg' 모드는 폐지되었습니다 — imagefx로 자동 전환합니다.`);
+    const fallback = await tryEngine('imagefx', title, keyword, env, onLog, true);
+    if (fallback.ok) return fallback;
+    return { ok: false, dataUrl: '', source: '', error: 'SVG 텍스트 썸네일은 폐지되었고 imagefx 폴백도 실패했습니다.' };
   }
 
   // AI 이미지 엔진 1순위
@@ -326,18 +321,12 @@ export async function dispatchThumbnailGeneration(
   console.error(`[DISPATCH-THUMB] ❌ 1순위 ${thumbnailSource} 실패: ${primaryResult.error || '사유 미상'}`);
   onLog?.(`❌ ${thumbnailSource} 썸네일 실패: ${primaryResult.error || '사유 미상'}`);
 
-  // 🛡️ 엄격 모드 — 환경변수 STRICT_THUMBNAIL_ENGINE=true 일 때만 SVG로만 폴백 (다른 AI 금지)
-  //    기본은 같은 AI 엔진군 내에서 자동 폴백 → "흰배경 SVG만 나오는 회귀" 해결
+  // 🛡️ 엄격 모드 — STRICT_THUMBNAIL_ENGINE=true 일 때 명시 선택 엔진 실패 시 즉시 fail (다른 AI도 SVG도 사용 안 함)
+  //    SVG 텍스트 썸네일은 폐지됨. 흰배경 텍스트 결과 절대 안 나옴.
   const strictMode = String(process.env['STRICT_THUMBNAIL_ENGINE'] || '').toLowerCase() === 'true';
   if (userPickedExplicitly && strictMode) {
-    onLog?.(`🛡️ 엄격 모드: '${thumbnailSource}' 실패 → SVG로 대체 (다른 AI 엔진 금지)`);
-    try {
-      const svgResult = await makeAutoThumbnail(title, { width: 1200, height: 630 });
-      if (svgResult.ok) {
-        return { ok: true, dataUrl: svgResult.dataUrl, source: `SVG 텍스트 (${thumbnailSource} 실패 대체)` };
-      }
-    } catch { /* 무시 */ }
-    return { ok: false, dataUrl: '', source: '', error: `${thumbnailSource} 실패 (엄격 모드 — 폴백 금지)` };
+    onLog?.(`🛡️ 엄격 모드: '${thumbnailSource}' 실패 — 다른 엔진으로 폴백하지 않고 종료 (SVG 폐지)`);
+    return { ok: false, dataUrl: '', source: '', error: `${thumbnailSource} 실패 (엄격 모드 — 다른 AI/SVG 폴백 금지)` };
   }
 
   // 🔄 기본 동작: 명시 선택이든 auto든 다른 AI 엔진으로 자동 폴백 (사용 가능한 첫 엔진 사용)
@@ -363,15 +352,9 @@ export async function dispatchThumbnailGeneration(
     }
   }
 
-  // 최종 폴백: SVG 텍스트 썸네일
-  try {
-    const svgResult = await makeAutoThumbnail(title, { width: 1200, height: 630 });
-    if (svgResult.ok) {
-      return { ok: true, dataUrl: svgResult.dataUrl, source: 'SVG 텍스트 (폴백)' };
-    }
-  } catch { /* 무시 */ }
-
-  return { ok: false, dataUrl: '', source: '', error: '모든 썸네일 엔진 실패' };
+  // 모든 AI 엔진 실패 — SVG 폴백 폐지. 빈 결과 반환하여 호출자가 "썸네일 없음"으로 처리.
+  onLog?.(`❌ 모든 AI 엔진 실패 — SVG 폴백은 폐지됐으므로 썸네일 없이 진행합니다.`);
+  return { ok: false, dataUrl: '', source: '', error: '모든 AI 썸네일 엔진 실패 (SVG 폴백 폐지)' };
 }
 
 // ═══════════════════════════════════════════════════

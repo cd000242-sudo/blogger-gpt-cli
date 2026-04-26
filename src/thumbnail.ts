@@ -698,7 +698,18 @@ function wrapTitle(title: string, maxLen = 20, maxLines = 6) {
   return lines.filter(line => line.length > 0).slice(0, maxLines);
 }
 
-export async function makeAutoThumbnail(title: string, opt: ThumbOptions = {}) {
+/**
+ * @deprecated SVG 텍스트 썸네일은 v3.5.54부터 폐지됨.
+ * imageDispatcher 어디에서도 더 이상 호출하지 않습니다.
+ * 호출 시 빈 결과를 반환해 호출자가 "썸네일 없음"으로 처리하도록 합니다.
+ */
+export async function makeAutoThumbnail(_title: string, _opt: ThumbOptions = {}): Promise<{ ok: false; error: string }> {
+  console.warn('[THUMB] makeAutoThumbnail is deprecated and disabled. SVG 텍스트 썸네일 폐지.');
+  return { ok: false, error: 'SVG 텍스트 썸네일은 폐지되었습니다 (v3.5.54+).' };
+}
+
+/** @internal — 기존 본문 보존용 (호출 차단됨) */
+async function _disabledLegacyMakeAutoThumbnail(title: string, opt: ThumbOptions = {}) {
   const width = opt.width ?? 1200;   // ✅ 1200x630 최적화
   const height = opt.height ?? 630;    // ✅ 1200x630 최적화
   const outDir = opt.outDir ?? process.cwd();
@@ -851,11 +862,9 @@ export async function makeEnhancedThumbnail(
     const width = options.width ?? 1200;
     const height = options.height ?? 630;
 
-    // 배경 이미지 없으면 기본 SVG
+    // 배경 이미지 없으면 SVG 텍스트 폴백 — v3.5.54부터 폐지
     if (!options.background || options.background.type === 'none') {
-      console.log('[썸네일] 배경 없음, 기본 SVG 생성');
-      const result = await makeAutoThumbnail(title, options);
-      return { ok: true, dataUrl: result.dataUrl, path: result.path };
+      return { ok: false, error: '배경 이미지가 없습니다. SVG 텍스트 폴백은 폐지됐습니다 (v3.5.54+).' };
     }
 
     console.log('[썸네일] 배경 이미지 처리 시작:', options.background.type);
@@ -864,9 +873,7 @@ export async function makeEnhancedThumbnail(
     const backgroundBase64 = await getBackgroundImageBase64(keyword, options.background);
 
     if (!backgroundBase64) {
-      console.warn('[썸네일] 배경 이미지 로드 실패, 기본 SVG 사용');
-      const result = await makeAutoThumbnail(title, options);
-      return { ok: true, dataUrl: result.dataUrl, path: result.path };
+      return { ok: false, error: '배경 이미지 로드 실패 (SVG 텍스트 폴백 폐지)' };
     }
 
     // 배경 + 텍스트 합성

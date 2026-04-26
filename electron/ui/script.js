@@ -6540,12 +6540,12 @@ function addKeywordField() {
          <div style="display: flex; gap: 8px; align-items: center;">
            <label style="color: rgba(255, 255, 255, 0.8); font-size: 11px; font-weight: 500; min-width: 60px;">썸네일:</label>
            <select class="keyword-thumbnail-select form-input" style="background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.3); color: white; backdrop-filter: blur(10px); font-size: 12px; padding: 6px; border-radius: 4px; flex: 1;">
-             <option value="svg" style="background: #667eea; color: white;">📝 SVG 썸네일 (기본)</option>
+             <option value="imagefx" style="background: #667eea; color: white;">🎨 ImageFX (기본)</option>
              <option value="nanobananapro" style="background: #667eea; color: white;">🍌 Nano Banana Pro</option>
-             <option value="text" style="background: #667eea; color: white;">텍스트 썸네일</option>
-             <option value="pexels" style="background: #667eea; color: white;">Pexels 이미지</option>
-             <option value="dalle" style="background: #667eea; color: white;">DALL-E 이미지</option>
-             <option value="cse" style="background: #667eea; color: white;">CSE 이미지</option>
+             <option value="flow" style="background: #667eea; color: white;">🌊 Flow</option>
+             <option value="deepinfra" style="background: #667eea; color: white;">🔥 DeepInfra FLUX-2</option>
+             <option value="dalle" style="background: #667eea; color: white;">🩹 덕트테이프 (GPT-Image-2)</option>
+             <option value="none" style="background: #667eea; color: white;">❌ 썸네일 없음</option>
            </select>
          </div>
          
