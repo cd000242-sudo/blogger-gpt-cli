@@ -5,27 +5,13 @@
 import type { MaxModeSection } from '../../max-mode-structure';
 
 /**
- * 애드센스 승인 전문 모드 — 7개 섹션 구조
- * 기존 ADSENSE_APPROVAL_MODE_SECTIONS를 강화한 최종 버전
+ * 애드센스 승인 전문 모드 — 6개 섹션 구조
+ * v3.5.55부터 'author_intro' 섹션 제거.
+ * 작성자 정보는 H1 직후 메타 박스(eeat-meta.ts)에서 노출되므로 본문 H2로 중복 게재할 필요 없음.
+ * 본문 H2는 정보 가치 중심으로 구성 → AdSense 본문 평가 점수 ↑
  */
 export const ADSENSE_ULTIMATE_SECTIONS: MaxModeSection[] = [
-    // ── 1. 작성자 소개 ──
-    {
-        id: 'author_intro',
-        title: '작성자 소개',
-        description: '전문성과 경험을 간단히 제시하여 E-E-A-T의 Experience와 Expertise를 확립하는 섹션',
-        minChars: 350,
-        role: '해당 분야 전문가',
-        contentFocus: '전문 자격, 경력, 교육 배경, 직접 경험 연수 — 자연스러운 1인칭 서술',
-        requiredElements: [
-            '전문 자격증 또는 관련 경력 (구체적 연수)',
-            '이 주제를 다루게 된 개인적 계기',
-            '독자에게 약속하는 이 글의 가치',
-            '마지막 업데이트 날짜 (2026년 N월 기준)',
-        ],
-    },
-
-    // ── 2. 주제 완전 이해 ──
+    // ── 1. 주제 완전 이해 ──
     {
         id: 'understanding_topic',
         title: '[주제] 완전히 이해하기',
@@ -42,7 +28,7 @@ export const ADSENSE_ULTIMATE_SECTIONS: MaxModeSection[] = [
         ],
     },
 
-    // ── 3. 직접 경험 ──
+    // ── 2. 직접 경험 ──
     {
         id: 'personal_experience',
         title: '제가 직접 해본 [실전 경험]',
@@ -59,7 +45,7 @@ export const ADSENSE_ULTIMATE_SECTIONS: MaxModeSection[] = [
         ],
     },
 
-    // ── 4. 단계별 가이드 ──
+    // ── 3. 단계별 가이드 ──
     {
         id: 'step_by_step_guide',
         title: '단계별 실행 가이드',
@@ -76,7 +62,7 @@ export const ADSENSE_ULTIMATE_SECTIONS: MaxModeSection[] = [
         ],
     },
 
-    // ── 5. 비교 분석 ──
+    // ── 4. 비교 분석 ──
     {
         id: 'comparison_recommendation',
         title: '비교 분석 및 추천',
@@ -93,7 +79,7 @@ export const ADSENSE_ULTIMATE_SECTIONS: MaxModeSection[] = [
         ],
     },
 
-    // ── 6. FAQ (신규 독립 섹션) ──
+    // ── 5. FAQ ──
     {
         id: 'faq_section',
         title: '자주 묻는 질문 (FAQ)',
@@ -110,7 +96,7 @@ export const ADSENSE_ULTIMATE_SECTIONS: MaxModeSection[] = [
         ],
     },
 
-    // ── 7. 마무리 및 리소스 ──
+    // ── 6. 마무리 및 리소스 ──
     {
         id: 'conclusion_resources',
         title: '마무리 및 추가 리소스',

@@ -93,10 +93,15 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!/payload\?\.contentMode\s*===\s*['"]shopping['"]/.test(src)) throw new Error('쇼핑 차단 가드 누락');
   });
 
-  await runTest('orchestration.ts adsense 섹션1 보호', () => {
+  await runTest('orchestration.ts adsense 섹션 — author_intro 제거 후 첫 섹션 이미지 허용', () => {
     const src = load('src/core/final/orchestration.ts');
-    if (!src.includes('skipFirstForAdsense')) throw new Error('adsense 섹션1 스킵 누락');
-    if (!src.includes("contentMode === 'adsense' && idx === 0")) throw new Error('조건식 틀림');
+    // v3.5.55부터 첫 섹션도 이미지 정상 삽입 (skipFirstForAdsense 가드 제거)
+    if (/const\s+skipFirstForAdsense/.test(src)) throw new Error('skipFirstForAdsense 변수 잔존');
+    if (/contentMode === 'adsense' && idx === 0/.test(src)) throw new Error('첫 섹션 차단 조건 잔존');
+    // 첫 섹션부터 이미지 생성하는 패턴이 살아있어야
+    if (!/\(_, i\) =&gt; i \+ 1/.test(src) && !src.includes('(_, i) => i + 1')) {
+      throw new Error('첫 섹션부터 이미지 생성 로직 누락');
+    }
   });
 
   await runTest('orchestration.ts summary-container 클래스 + overflow:hidden 제거', () => {
@@ -618,6 +623,25 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     };
     if (score(0.8, 5, 15, 0) < 80) throw new Error('우수 글 점수 시뮬 실패');
     if (score(0.3, 2, 5, 10) > 50) throw new Error('저품질 글 점수 시뮬 실패');
+  });
+
+  await runTest('AdSense — author_intro 섹션 H2 제거 (메타 박스로 위임)', () => {
+    const sec = load('src/core/content-modes/adsense/adsense-sections.ts');
+    if (sec.includes("id: 'author_intro'")) throw new Error('author_intro 섹션 잔존');
+    if (sec.includes("title: '작성자 소개'")) throw new Error('"작성자 소개" 타이틀 잔존');
+    // 6개 섹션이어야
+    const idMatches = sec.match(/id: '[a-z_]+'/g) || [];
+    if (idMatches.length !== 6) throw new Error(`섹션 수 6개 필요, 실제 ${idMatches.length}`);
+
+    const prompt = load('src/core/content-modes/adsense/adsense-prompt-builder.ts');
+    if (prompt.includes('1. 작성자 소개')) throw new Error('outline에 작성자 소개 잔존');
+    if (!prompt.includes('절대 생성하지 마세요')) throw new Error('H2 작성자 소개 차단 안내 누락');
+    if (!prompt.includes('6개 섹션')) throw new Error('6개 섹션 안내 누락');
+
+    const orch = load('src/core/final/orchestration.ts');
+    // 변수/조건 사용은 제거됐는지 (주석만 남은 건 OK)
+    if (/const\s+skipFirstForAdsense\s*=/.test(orch)) throw new Error('skipFirstForAdsense 변수 잔존');
+    if (/!skipFirstForAdsense/.test(orch)) throw new Error('skipFirstForAdsense 가드 잔존');
   });
 
   await runTest('SVG 텍스트 썸네일 폐지 — 모든 폴백 경로 제거', () => {

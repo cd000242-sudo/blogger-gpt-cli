@@ -821,13 +821,12 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog?.('[PROGRESS] 75% - 🖼️ 섹션별 이미지 생성 중...');
       onLog?.(`   🎯 선택된 이미지 소스: ${imageSource}`);
 
-      // 🔥 이미지 배치 섹션 선택 — 썸네일은 썸네일, 섹션 이미지는 섹션 이미지로 독립 생성
-      //    섹션 1(idx=0)도 포함하여 모든 선택 섹션에 이미지를 실제로 생성/렌더링한다.
-      //    🛡️ adsense 모드는 섹션1(author_intro) 이미지 제외 — E-E-A-T 저자 프로필 보호.
-      const defaultStart = contentMode === 'adsense' ? 2 : 1;
+      // 🔥 이미지 배치 섹션 선택 — 썸네일은 썸네일, 섹션 이미지는 섹션 이미지로 독립 생성.
+      //    v3.5.55부터 adsense 모드에서도 섹션1(이젠 'understanding_topic')에 이미지 정상 삽입.
+      //    (이전 author_intro 섹션 제거되어 더 이상 첫 섹션 스킵 필요 없음)
       const effectiveSelectedH2Sections = selectedH2Sections.length > 0
-        ? (contentMode === 'adsense' ? selectedH2Sections.filter(n => n > 1) : selectedH2Sections)
-        : Array.from({ length: Math.max(1, sections.length - (defaultStart - 1)) }, (_, i) => i + defaultStart);
+        ? selectedH2Sections
+        : Array.from({ length: sections.length }, (_, i) => i + 1);
 
       const envData = loadEnvFromFile();
       const pexelsKey = envData['pexelsApiKey'] || envData['PEXELS_API_KEY'] || '';
@@ -1010,10 +1009,9 @@ export async function generateUltimateMaxModeArticleFinal(
       html += `\n<h2 id="section-${idx}" style="font-size:26px !important;font-weight:800 !important;color:#111 !important;-webkit-text-fill-color:#111 !important;margin:60px 0 24px !important;padding:0 0 14px 16px !important;border-bottom:2px solid #111 !important;border-left:6px solid #FF6B35 !important;letter-spacing:-0.03em !important;line-height:1.4 !important;word-break:keep-all !important;">${h2Number} ${cleanH2}</h2>\n`;
 
       // 🖼️ 섹션 이미지 — 플랫, 그림자 없음 (썸네일과 독립적으로 1번 섹션부터 렌더)
-      // 🛡️ adsense 모드의 섹션1(author_intro)은 E-E-A-T 저자 프로필 영역이므로 이미지 삽입 제외
+      // v3.5.55부터 adsense 첫 섹션에도 이미지 정상 삽입 (author_intro 섹션 제거됨)
       const finalImageUrl = processedImageUrls[idx];
-      const skipFirstForAdsense = contentMode === 'adsense' && idx === 0;
-      if (finalImageUrl && !skipFirstForAdsense) {
+      if (finalImageUrl) {
         html += `
 <figure class="section-image" style="margin:32px 0 40px !important;">
   <img src="${finalImageUrl}" alt="${cleanH2}" title="${cleanH2}" style="width:100%;height:auto;border-radius:8px;display:block;" loading="lazy" />
