@@ -29,6 +29,7 @@ import {
   generateCTAsFinal, generateSummaryTableFinal, generateHashtagsFinal,
 } from './generation';
 import { generateCSSFinal, generateTOCFinal } from './html';
+import { buildEeatMeta, EEAT_META_CSS } from './eeat-meta';
 import { validateArticleQuality } from './quality-gate';
 import { dispatchMode } from './mode-dispatcher';
 
@@ -787,6 +788,9 @@ export async function generateUltimateMaxModeArticleFinal(
     // 워드프레스 테마 등에 의해 h1이 외부에서 출력되는 경우를 위해,
     // 이 스크립트가 생성하는 H1은 확실하게 백서 컨테이너 안쪽에 랜딩 페이지 타이틀처럼 배치합니다.
     html += `\n<h1 class="post-title">${h1}</h1>\n`;
+
+    // 🛡️ E-E-A-T 메타 박스 자리 표시 — 후처리에서 채움 (작성자/검토자/발행일/읽기시간/출처)
+    html += `<!-- EEAT_META_PLACEHOLDER -->`;
 
     // 🔥 썸네일 자리 표시
     html += `<!-- THUMBNAIL_PLACEHOLDER -->`;
@@ -1570,6 +1574,32 @@ ${conclusionHTML}
       }
     } catch (qualityErr: any) {
       onLog?.(`[QUALITY] ⚠️ 품질 검증 오류 (발행 계속 진행): ${qualityErr.message}`);
+    }
+
+    // 🛡️ E-E-A-T 메타 박스 삽입 + 본문 cite 자동 변환
+    //    AdSense·구글 검색 신뢰 신호 가산 (작성자/검토자/발행일/읽기시간/출처 카운트)
+    try {
+      const authorInfo = (payload as any).adsenseAuthorInfo || {};
+      const eeat = buildEeatMeta({
+        contentHtml: html,
+        title: h1,
+        authorName: authorInfo.name || (payload as any).authorNickname || undefined,
+        authorTitle: authorInfo.title || undefined,
+        publishedAt: new Date(),
+        reviewerName: authorInfo.name || undefined,
+        reviewerTitle: authorInfo.title || undefined,
+      });
+      // placeholder 치환
+      html = eeat.contentHtml.replace('<!-- EEAT_META_PLACEHOLDER -->', eeat.metaBox);
+      // CSS 주입 — 이미 generateCSSFinal에 없으므로 inline <style>로 head 안에 추가
+      if (!html.includes('eeat-meta-box {')) {
+        html = `<style>${EEAT_META_CSS}</style>\n${html}`;
+      }
+      onLog?.(`[PROGRESS] 98% - 🛡️ E-E-A-T 메타 보강 완료 (${eeat.stats.readingTimeMinutes}분 / 출처 ${eeat.stats.citationCount}개)`);
+    } catch (eeatErr: any) {
+      console.warn('[EEAT-META] ⚠️ 메타 보강 실패(원본 유지):', eeatErr?.message);
+      // placeholder만 제거
+      html = html.replace('<!-- EEAT_META_PLACEHOLDER -->', '');
     }
 
     // 🛡️ 모드별 후처리 (adsense: CTA 잔재 제거 + AI 감지 완화)

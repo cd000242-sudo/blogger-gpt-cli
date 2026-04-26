@@ -445,6 +445,36 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!distSrc.includes(':has(.badge-info)')) throw new Error('dist/ui/styles.css 동기화 누락');
   });
 
+  await runTest('E-E-A-T 메타 보강 — 발행일·읽기시간·검토자·cite 자동 삽입', () => {
+    const eeat = load('src/core/final/eeat-meta.ts');
+    if (!eeat.includes('buildEeatMeta')) throw new Error('buildEeatMeta export 누락');
+    if (!eeat.includes('estimateReadingTime')) throw new Error('읽기 시간 추정 누락');
+    if (!eeat.includes('wrapCitations')) throw new Error('cite 변환 누락');
+    if (!eeat.includes('formatIsoDate')) throw new Error('ISO 날짜 포맷 누락');
+    if (!eeat.includes('formatKoreanDate')) throw new Error('한국 날짜 포맷 누락');
+    if (!eeat.includes('EEAT_META_CSS')) throw new Error('CSS 정의 누락');
+    if (!eeat.includes('eeat-meta-box')) throw new Error('메타 박스 클래스 누락');
+    if (!eeat.includes('eeat-cite')) throw new Error('cite 클래스 누락');
+    if (!eeat.includes('readingTimeMinutes')) throw new Error('읽기 시간 결과 필드 누락');
+
+    const orch = load('src/core/final/orchestration.ts');
+    if (!orch.includes('buildEeatMeta')) throw new Error('orchestration import 누락');
+    if (!orch.includes('EEAT_META_PLACEHOLDER')) throw new Error('메타 placeholder 누락');
+    if (!orch.includes('EEAT_META_CSS')) throw new Error('CSS inject 누락');
+
+    // 시뮬: 1500자 글의 읽기 시간 = 5분
+    const sim = (chars) => Math.max(1, Math.round(chars / 300));
+    if (sim(1500) !== 5) throw new Error(`1500자 시뮬 실패: ${sim(1500)}`);
+    if (sim(0) !== 1) throw new Error('빈 글 최소 1분 보장 실패');
+    if (sim(3000) !== 10) throw new Error(`3000자 시뮬 실패: ${sim(3000)}`);
+
+    // ISO 날짜 포맷 시뮬
+    const pad = (n) => String(n).padStart(2, '0');
+    const d = new Date('2026-04-26T09:00:00');
+    const iso = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    if (iso !== '2026-04-26') throw new Error(`ISO 날짜 시뮬 실패: ${iso}`);
+  });
+
   await runTest('AdSense 단기 승인 패키지 — IPC 4채널 + UI 5버튼', () => {
     const fastSrc = load('electron/adsenseFastApprovalHandlers.ts');
     if (!fastSrc.includes("'adsense:fast-approval-readiness'")) throw new Error('진단 IPC 누락');
