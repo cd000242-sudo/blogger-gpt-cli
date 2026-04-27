@@ -32,17 +32,23 @@ function getCurrentMode() {
 function syncBadge() {
   const badge = document.getElementById('publishQueueBadge');
   const countEl = document.getElementById('publishQueueCount');
+  const currentCountEl = document.getElementById('publishQueueCurrentCount');
+  const savedCountEl = document.getElementById('publishQueueSavedCount');
   const singleHint = document.getElementById('singleModeHint');
   const bulkHint = document.getElementById('bulkModeHint');
-  if (!badge || !countEl) return;
+  if (!badge) return;
 
   const mode = getCurrentMode();
   const list = getKeywordsFromTextarea();
+  const savedCount = STATE.keywords.length;
+
+  if (currentCountEl) currentCountEl.textContent = String(list.length);
+  if (savedCountEl) savedCountEl.textContent = String(savedCount);
+  if (countEl) countEl.textContent = String(savedCount);
 
   if (mode === 'bulk') {
     // 연속 발행 서브탭 — 큐 패널 항상 표시
     badge.style.display = 'flex';
-    countEl.textContent = String(list.length);
     if (singleHint) singleHint.style.display = 'none';
     if (bulkHint) bulkHint.style.display = 'inline-block';
   } else {
@@ -305,6 +311,7 @@ function bindModalEvents() {
     if (!confirm('대기열을 비우시겠습니까?')) return;
     STATE.keywords = [];
     refreshList();
+    syncBadge();
   });
 
   // 스케줄 추가 — 사용자가 선택한 발행 간격 사용
@@ -344,7 +351,9 @@ function bindModalEvents() {
       const existing = JSON.parse(localStorage.getItem('scheduledPosts') || '[]');
       localStorage.setItem('scheduledPosts', JSON.stringify([...existing, ...newSchedules]));
       alert(`✅ ${newSchedules.length}개 스케줄 추가됨\n첫 글: ${newSchedules[0].date} ${newSchedules[0].time}\n마지막: ${newSchedules[newSchedules.length - 1].date} ${newSchedules[newSchedules.length - 1].time}`);
+      STATE.keywords = [];
       close();
+      syncBadge();
     } catch (e) {
       alert('❌ 스케줄 저장 실패: ' + (e?.message || e));
     }
@@ -386,25 +395,73 @@ function bindModalEvents() {
 // ════════════════════════════════════════════
 // 공개 API
 // ════════════════════════════════════════════
-function open() {
+
+/** 현재 textarea의 키워드들을 STATE에 누적 추가 (덮어쓰기 X, 중복 제거) */
+function addCurrent() {
   const list = getKeywordsFromTextarea();
-  if (list.length < 2) {
-    alert('키워드를 줄바꿈으로 2개 이상 입력해 주세요.');
+  if (list.length < 1) {
+    alert('키워드를 1개 이상 입력해 주세요.');
     return;
   }
-  // 기본값으로 STATE 초기화 (현재 UI 설정 활용)
+
   const defaultMode = document.getElementById('contentMode')?.value || 'external';
   const defaultThumb = document.getElementById('thumbnailType')?.value || 'imagefx';
   const defaultCta = document.querySelector('input[name="ctaMode"]:checked')?.value || 'auto';
 
-  STATE.keywords = list.map((kw, i) => ({
-    id: `pq-${Date.now()}-${i}`,
-    keyword: kw,
-    mode: defaultMode,
-    thumb: defaultThumb,
-    ctaMode: defaultCta,
-    enabled: true,
-  }));
+  // 기존 STATE에 있는 키워드 문자열 집합
+  const existing = new Set(STATE.keywords.map(k => k.keyword.trim().toLowerCase()));
+  let added = 0;
+  let skipped = 0;
+
+  list.forEach((kw, i) => {
+    const norm = kw.trim().toLowerCase();
+    if (!norm) return;
+    if (existing.has(norm)) { skipped++; return; }
+    existing.add(norm);
+    STATE.keywords.push({
+      id: `pq-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+      keyword: kw.trim(),
+      mode: defaultMode,
+      thumb: defaultThumb,
+      ctaMode: defaultCta,
+      enabled: true,
+    });
+    added++;
+  });
+
+  // textarea 비우기 (다음 묶음 입력을 위해)
+  const ta = document.getElementById('keywordInput');
+  if (ta) ta.value = '';
+
+  syncBadge();
+
+  const msg = skipped > 0
+    ? `✅ ${added}개 추가됨 (중복 ${skipped}개 제외)\n현재 대기열: 총 ${STATE.keywords.length}개`
+    : `✅ ${added}개 추가됨\n현재 대기열: 총 ${STATE.keywords.length}개`;
+  alert(msg);
+}
+
+function open() {
+  // STATE가 비어있으면 textarea의 키워드로 초기 채움
+  if (STATE.keywords.length === 0) {
+    const list = getKeywordsFromTextarea();
+    if (list.length < 1) {
+      alert('대기열이 비어있습니다.\n키워드를 입력하고 "➕ 대기열에 추가"를 먼저 누르세요.');
+      return;
+    }
+    const defaultMode = document.getElementById('contentMode')?.value || 'external';
+    const defaultThumb = document.getElementById('thumbnailType')?.value || 'imagefx';
+    const defaultCta = document.querySelector('input[name="ctaMode"]:checked')?.value || 'auto';
+    STATE.keywords = list.map((kw, i) => ({
+      id: `pq-${Date.now()}-${i}`,
+      keyword: kw,
+      mode: defaultMode,
+      thumb: defaultThumb,
+      ctaMode: defaultCta,
+      enabled: true,
+    }));
+  }
+  // STATE에 이미 항목이 있으면 그대로 사용 (덮어쓰기 X)
 
   // 모달 렌더
   let host = document.getElementById('publishQueueModal');
@@ -413,6 +470,7 @@ function open() {
   STATE.isOpen = true;
   refreshList();
   bindModalEvents();
+  syncBadge();
 }
 
 function close() {
@@ -434,6 +492,6 @@ export function initPublishQueue() {
   bindPublishModeTabs();
 
   // 전역 노출
-  window.__publishQueue = { open, close, syncBadge, getCurrentMode, _state: STATE };
+  window.__publishQueue = { open, close, addCurrent, syncBadge, getCurrentMode, _state: STATE };
   console.log('[PUBLISH-QUEUE] ✅ 연속발행 대기열 모듈 + 서브탭 초기화 완료');
 }

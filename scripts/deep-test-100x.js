@@ -767,10 +767,15 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!queueSrc.includes('pq-action-publish')) throw new Error('즉시 발행 버튼 누락');
     if (!queueSrc.includes('scheduledPosts')) throw new Error('scheduledPosts 통합 누락');
     if (!queueSrc.includes('12 + Math.random() * 12')) throw new Error('12-24h 분산 로직 누락');
+    if (!queueSrc.includes('function addCurrent')) throw new Error('addCurrent 누적 함수 누락');
+    if (!/window\.__publishQueue\s*=\s*\{[^}]*addCurrent/.test(queueSrc)) throw new Error('addCurrent 전역 노출 누락');
 
     const html = load('electron/ui/index.html');
     if (!html.includes('publishQueueBadge')) throw new Error('배지 UI 누락');
-    if (!html.includes('publishQueueOpenBtn')) throw new Error('대기열 열기 버튼 누락');
+    if (!html.includes('publishQueueAddBtn')) throw new Error('대기열에 추가 버튼 누락');
+    if (!html.includes('publishQueueOpenBtn')) throw new Error('대기열 보기 버튼 누락');
+    if (!html.includes('publishQueueCurrentCount')) throw new Error('현재 입력 카운트 누락');
+    if (!html.includes('publishQueueSavedCount')) throw new Error('저장 큐 카운트 누락');
     if (!html.includes('publishQueueCount')) throw new Error('카운트 표시 누락');
 
     const main = load('electron/ui/modules/main.js');
