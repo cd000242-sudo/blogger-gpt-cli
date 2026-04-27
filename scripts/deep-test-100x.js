@@ -636,6 +636,42 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (score(0.3, 2, 5, 10) > 50) throw new Error('저품질 글 점수 시뮬 실패');
   });
 
+  await runTest('AdSense 강화 자동 ON + 발행 서브탭 분리', () => {
+    const orch = load('src/core/final/orchestration.ts');
+    if (!orch.includes("payload?.contentMode === 'adsense'")) throw new Error('adsense 자동 분기 누락');
+    if (!orch.includes('payload.llmRotation = payload.llmRotation !== false')) throw new Error('LLM 로테이션 자동 ON 누락');
+    if (!orch.includes('payload.adsenseScoreGate = payload.adsenseScoreGate !== false')) throw new Error('점수 게이트 자동 ON 누락');
+    if (!orch.includes('승인률 강화 자동 적용')) throw new Error('자동 적용 로그 누락');
+
+    const html = load('electron/ui/index.html');
+    // 사용자 노출 토글 카드 제거 (hidden input은 OK)
+    // label 클래스 acc-label에 노출되는 토글만 제거 확인 (hidden input/주석은 OK)
+    if (/<label\s+class="acc-label">🏆 AdSense 승인률 강화/.test(html)) throw new Error('AdSense 강화 카드 잔존');
+    if (/<label\s+class="acc-label">🛡️ CTA AI 엄격 검증/.test(html)) throw new Error('CTA 엄격 카드 잔존');
+    if (/<label\s+class="acc-label">🛡️ 썸네일 엔진 엄격 모드/.test(html)) throw new Error('썸네일 엄격 카드 잔존');
+    // 자동 안내 카드 추가
+    if (!html.includes('adsenseAutoHint')) throw new Error('자동 안내 카드 누락');
+    if (!html.includes('승인률 강화 자동 적용 중')) throw new Error('자동 안내 문구 누락');
+    // hidden input은 잔존해야 (payload 호환)
+    if (!html.includes('id="llmRotation" hidden')) throw new Error('llmRotation hidden input 누락');
+    if (!html.includes('id="adsenseScoreGate" hidden')) throw new Error('adsenseScoreGate hidden 누락');
+    if (!html.includes('id="strictThumbnailEngine" hidden')) throw new Error('strictThumbnailEngine hidden 누락');
+
+    // 서브탭 분리
+    if (!html.includes('publishModeTabSingle')) throw new Error('단일 발행 탭 누락');
+    if (!html.includes('publishModeTabBulk')) throw new Error('연속 발행 탭 누락');
+    if (!html.includes('data-publish-mode')) throw new Error('data-publish-mode 속성 누락');
+    if (!html.includes('singleModeHint')) throw new Error('단일 모드 안내 누락');
+    if (!html.includes('bulkModeHint')) throw new Error('연속 모드 안내 누락');
+
+    const queueJs = load('electron/ui/modules/publish-queue.js');
+    if (!queueJs.includes('bindPublishModeTabs')) throw new Error('서브탭 바인딩 함수 누락');
+    if (!queueJs.includes('getCurrentMode')) throw new Error('모드 조회 함수 누락');
+
+    const script = load('electron/ui/script.js');
+    if (!script.includes('adsenseAutoHint')) throw new Error('contentMode change 시 안내 표시 로직 누락');
+  });
+
   await runTest('Internal 모드 — 외부출처 강제 + postProcess + 폴백 + 라벨', () => {
     const mode = load('src/core/content-modes/internal/internal-mode.ts');
     if (!mode.includes('postProcessInternal')) throw new Error('postProcess import 누락');
@@ -779,9 +815,10 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     // makeEnhancedThumbnail의 SVG 폴백도 제거
     if (/배경 없음, 기본 SVG 생성/.test(thumb)) throw new Error('makeEnhancedThumbnail SVG 폴백 잔존');
 
-    // UI 안내 문구도 SVG 폐지 반영
+    // UI 안내 문구는 v3.5.60에서 토글 자체를 제거(자동 ON), SVG 폐지 안내는 더 이상 노출 X
+    // dispatcher 코드 레벨에서 SVG 폐지가 보장되므로 UI 검증은 hidden input 존재로 갈음
     const html = load('electron/ui/index.html');
-    if (!html.includes('SVG 텍스트 폴백은 v3.5.54부터 폐지')) throw new Error('UI 폐지 안내 누락');
+    if (!html.includes('id="strictThumbnailEngine"')) throw new Error('strictThumbnailEngine input 누락');
     // script.js의 svg/text 옵션 제거
     const script = load('electron/ui/script.js');
     if (script.includes('SVG 썸네일 (기본)')) throw new Error('script.js SVG 옵션 잔존');
@@ -956,8 +993,8 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!orchSrc.includes("payload?.ctaAiStrictMode")) throw new Error('payload 토글 처리 누락');
 
     const html = load('electron/ui/index.html');
-    if (!html.includes('ctaAiStrictMode')) throw new Error('UI 토글 input 누락');
-    if (!html.includes('CTA AI 엄격 검증')) throw new Error('UI 라벨 누락');
+    // v3.5.60에서 라벨 카드는 제거됐고 hidden input만 잔존 (백엔드 자동 ON)
+    if (!html.includes('id="ctaAiStrictMode"')) throw new Error('ctaAiStrictMode input 누락');
 
     const postingJs = load('electron/ui/modules/posting.js');
     if (!postingJs.includes('ctaAiStrictMode')) throw new Error('posting payload 전달 누락');

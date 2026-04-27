@@ -51,12 +51,21 @@ export async function generateUltimateMaxModeArticleFinal(
     throw new Error(blockMsg);
   }
 
-  // 🛡️ CTA AI 엄격 모드 — UI 토글을 환경변수에 반영 (generation.ts의 hybridValidateCta가 읽음)
-  process.env['CTA_AI_VALIDATE_STRICT'] = payload?.ctaAiStrictMode === true ? 'true' : 'false';
+  // 🛡️ CTA AI 엄격 모드 — adsense 모드면 자동 ON (초보자가 결정할 일 아님)
+  process.env['CTA_AI_VALIDATE_STRICT'] = (payload?.contentMode === 'adsense' || payload?.ctaAiStrictMode === true) ? 'true' : 'false';
 
-  // 🖼️ 썸네일 엔진 엄격 모드 — UI 토글 (기본 OFF: 선택 엔진 실패 시 다른 AI로 자동 폴백)
-  //    OFF가 권장값. ON으로 두면 1순위 실패 시 SVG 텍스트로만 떨어짐.
+  // 🖼️ 썸네일 엔진 엄격 모드 — 기본 OFF (다른 AI로 자동 폴백이 합리적)
   process.env['STRICT_THUMBNAIL_ENGINE'] = payload?.strictThumbnailEngine === true ? 'true' : 'false';
+
+  // 🏆 AdSense 승인률 강화 — adsense 모드면 모두 자동 ON (사용자가 토글하지 않아도 됨)
+  if (payload?.contentMode === 'adsense') {
+    payload.llmRotation = payload.llmRotation !== false; // 명시적 false 아니면 ON
+    payload.adsenseScoreGate = payload.adsenseScoreGate !== false;
+    payload.adsenseMinScore = Number(payload.adsenseMinScore) || 70;
+    payload.adsenseGateMode = payload.adsenseGateMode || 'warn'; // 초보자에게 안전한 warn 기본
+    payload.adsensePolicyScan = payload.adsensePolicyScan !== false;
+    onLog?.(`[PROGRESS] 0% - 🏆 adsense 모드 — 승인률 강화 자동 적용 (LLM 로테이션·점수 게이트·정책 스캔·외부 출처 강제)`);
+  }
 
   // 🎯 동시 실행 시 순차 처리 (process.env 보호)
   // 🛡️ releaseLock을 항상 no-op으로 초기화 — 예외 경로에서 미할당 상태로 finally 진입 시 TypeError → 영구 데드락 방지

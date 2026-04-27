@@ -24,17 +24,69 @@ function getKeywordsFromTextarea() {
     .filter(s => s.length > 0);
 }
 
+function getCurrentMode() {
+  const btn = document.querySelector('[data-publish-mode][aria-selected="true"]');
+  return btn?.dataset?.publishMode || 'single';
+}
+
 function syncBadge() {
   const badge = document.getElementById('publishQueueBadge');
   const countEl = document.getElementById('publishQueueCount');
+  const singleHint = document.getElementById('singleModeHint');
+  const bulkHint = document.getElementById('bulkModeHint');
   if (!badge || !countEl) return;
+
+  const mode = getCurrentMode();
   const list = getKeywordsFromTextarea();
-  if (list.length >= 2) {
+
+  if (mode === 'bulk') {
+    // 연속 발행 서브탭 — 큐 패널 항상 표시
     badge.style.display = 'flex';
     countEl.textContent = String(list.length);
+    if (singleHint) singleHint.style.display = 'none';
+    if (bulkHint) bulkHint.style.display = 'inline-block';
   } else {
+    // 단일 발행 서브탭 — 큐 패널 숨김
     badge.style.display = 'none';
+    if (singleHint) singleHint.style.display = 'block';
+    if (bulkHint) bulkHint.style.display = 'none';
   }
+}
+
+/** 서브탭 토글 — single ↔ bulk */
+function bindPublishModeTabs() {
+  const tabs = document.querySelectorAll('[data-publish-mode]');
+  if (!tabs.length) return;
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const mode = tab.dataset.publishMode;
+      tabs.forEach(t => {
+        const isActive = t === tab;
+        t.setAttribute('aria-selected', String(isActive));
+        if (isActive) {
+          t.style.background = 'linear-gradient(135deg,#6366f1,#8b5cf6)';
+          t.style.color = 'white';
+          t.style.boxShadow = '0 4px 12px rgba(99,102,241,0.3)';
+        } else {
+          t.style.background = 'transparent';
+          t.style.color = 'rgba(255,255,255,0.6)';
+          t.style.boxShadow = 'none';
+        }
+      });
+      syncBadge();
+      // 연속 발행 모드 진입 시 키워드 1개만 있으면 안내
+      if (mode === 'bulk') {
+        const list = getKeywordsFromTextarea();
+        if (list.length < 2) {
+          const ta = document.getElementById('keywordInput');
+          if (ta && !ta.value.includes('\n')) {
+            ta.placeholder = '예: 블로그 수익화 방법\nAI 마케팅 전략\n부수입 만들기';
+            ta.focus();
+          }
+        }
+      }
+    });
+  });
 }
 
 // ════════════════════════════════════════════
@@ -378,7 +430,10 @@ export function initPublishQueue() {
     setTimeout(syncBadge, 200);
   }
 
-  // 전역 노출 (HTML onclick·다른 모듈에서 호출)
-  window.__publishQueue = { open, close, syncBadge, _state: STATE };
-  console.log('[PUBLISH-QUEUE] ✅ 연속발행 대기열 모듈 초기화 완료');
+  // 서브탭 (단일 / 연속) 토글 바인딩
+  bindPublishModeTabs();
+
+  // 전역 노출
+  window.__publishQueue = { open, close, syncBadge, getCurrentMode, _state: STATE };
+  console.log('[PUBLISH-QUEUE] ✅ 연속발행 대기열 모듈 + 서브탭 초기화 완료');
 }

@@ -7792,6 +7792,10 @@ document.addEventListener('DOMContentLoaded', async function () {
       const selectedMode = this.value;
       console.log(`[콘텐츠 모드 변경] 선택된 모드: ${selectedMode}`);
 
+      // 🏆 adsense 모드일 때만 자동 강화 안내 카드 표시
+      const adsenseHint = document.getElementById('adsenseAutoHint');
+      if (adsenseHint) adsenseHint.style.display = selectedMode === 'adsense' ? 'block' : 'none';
+
       // 페러프레이징 모드일 때 초안 입력 필드 표시/숨김
       const draftInputSection = document.getElementById('draftInputSection');
       const keywordInputSection = document.querySelector('[style*="스마트 키워드 입력"]').parentElement;

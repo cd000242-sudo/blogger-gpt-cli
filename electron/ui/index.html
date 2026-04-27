@@ -3228,30 +3228,49 @@
                     </div>
                   </div>
 
+                  <!-- 📝 / 🚀 발행 모드 서브탭 -->
+                  <div role="tablist" aria-label="발행 모드 선택" style="display: inline-flex; gap: 4px; padding: 4px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; margin-bottom: 14px;">
+                    <button type="button" role="tab" aria-selected="true" id="publishModeTabSingle" data-publish-mode="single"
+                      style="padding: 8px 18px; border: none; background: linear-gradient(135deg,#6366f1,#8b5cf6); color: white; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 4px 12px rgba(99,102,241,0.3);">
+                      📝 단일 발행
+                    </button>
+                    <button type="button" role="tab" aria-selected="false" id="publishModeTabBulk" data-publish-mode="bulk"
+                      style="padding: 8px 18px; border: none; background: transparent; color: rgba(255,255,255,0.6); border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s ease;">
+                      🚀 연속 발행
+                    </button>
+                  </div>
+
                   <!-- 키워드 입력 -->
                   <div style="margin-bottom: 16px;">
                     <label
                       style="color: rgba(255,255,255,0.9); font-weight: 600; font-size: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">🔑
                       키워드 (필수)
-                      <span
-                        style="background: rgba(102, 126, 234, 0.2); color: #a5b4fc; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 500;">줄바꿈으로
-                        여러개 입력 시 연속발행</span>
+                      <span id="bulkModeHint"
+                        style="display: none; background: rgba(139,92,246,0.18); color: #ddd6fe; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 500;">줄바꿈으로
+                        키워드 여러 개 입력 (각 줄 = 1글)</span>
                     </label>
                     <textarea id="keywordInput" class="form-input" placeholder="예: 블로그 수익화 방법&#10;AI 마케팅 전략&#10;부수입 만들기"
                       rows="4"
                       style="width: 100%; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(102, 126, 234, 0.4); color: white; font-size: 15px; padding: 14px 18px; border-radius: 12px; transition: all 0.3s ease; resize: vertical; min-height: 100px; font-family: inherit; line-height: 1.6;"
                       onfocus="this.style.borderColor='rgba(102, 126, 234, 0.8)'; this.style.background='rgba(255,255,255,0.15)'"
                       onblur="this.style.borderColor='rgba(102, 126, 234, 0.4)'; this.style.background='rgba(255,255,255,0.1)'"></textarea>
-                    <!-- 🚀 대기열 자동 감지 배지 (2개 이상 키워드 시 표시) -->
-                    <div id="publishQueueBadge" style="display: none; margin-top: 8px; padding: 10px 14px; background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(139,92,246,0.18)); border: 1px solid rgba(139,92,246,0.5); border-radius: 10px; align-items: center; justify-content: space-between; gap: 10px;">
-                      <div style="display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 18px;">🚀</span>
-                        <div>
-                          <div style="color: #ddd6fe; font-size: 13px; font-weight: 700;"><span id="publishQueueCount">0</span>개 키워드 연속발행 대기</div>
-                          <div style="color: rgba(255,255,255,0.6); font-size: 11px; margin-top: 2px;">대기열 UI에서 개별/일괄 세팅 후 한 번에 발행</div>
+                    <!-- 🚀 연속 발행 대기열 인라인 패널 (서브탭이 'bulk'일 때만 표시) -->
+                    <div id="publishQueueBadge" style="display: none; margin-top: 12px; padding: 14px 16px; background: linear-gradient(135deg, rgba(99,102,241,0.10), rgba(139,92,246,0.10)); border: 1px solid rgba(139,92,246,0.35); border-radius: 12px; gap: 12px; flex-direction: column;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                          <span style="font-size: 20px;">🚀</span>
+                          <div>
+                            <div style="color: #ddd6fe; font-size: 14px; font-weight: 700;"><span id="publishQueueCount">0</span>개 키워드 대기 중</div>
+                            <div style="color: rgba(255,255,255,0.6); font-size: 11px; margin-top: 2px;">대기열에서 발행 간격·모드·CTA를 한 번에 설정</div>
+                          </div>
                         </div>
+                        <button id="publishQueueOpenBtn" type="button" onclick="window.__publishQueue && window.__publishQueue.open()" style="padding: 10px 16px; background: linear-gradient(135deg,#8b5cf6,#7c3aed); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; box-shadow: 0 4px 12px rgba(139,92,246,0.3);">📋 대기열 열기</button>
                       </div>
-                      <button id="publishQueueOpenBtn" type="button" onclick="window.__publishQueue && window.__publishQueue.open()" style="padding: 8px 14px; background: linear-gradient(135deg,#8b5cf6,#7c3aed); color: white; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;">📋 대기열 열기</button>
+                    </div>
+
+                    <!-- 단일 발행 모드 안내 (기본 표시) -->
+                    <div id="singleModeHint" style="margin-top: 10px; padding: 10px 14px; background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.18); border-radius: 8px; color: rgba(255,255,255,0.7); font-size: 12px; line-height: 1.5;">
+                      💡 키워드 1개를 입력하고 아래 발행 버튼을 누르면 즉시 글이 생성됩니다. 여러 개 키워드를 한 번에 발행하려면 위에서 <strong style="color: #c4b5fd;">"🚀 연속 발행"</strong>을 선택하세요.
                     </div>
                   </div>
 
@@ -3603,17 +3622,8 @@
                       </select>
                       <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 모든 소제목에 자동으로 이미지가 배치됩니다</small>
                     </div>
-                    <div class="acc-field">
-                      <label class="acc-label">🛡️ 썸네일 엔진 엄격 모드</label>
-                      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: rgba(255,255,255,0.85); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(245,158,11,0.08); border-radius: 8px; border: 1px solid rgba(245,158,11,0.25); transition: all 0.2s ease;">
-                        <input type="checkbox" id="strictThumbnailEngine" style="width: 14px; height: 14px; accent-color: #f59e0b; flex-shrink: 0;">
-                        <span style="line-height: 1.4;">선택한 엔진 실패 시 다른 AI 엔진 폴백 금지 (썸네일 없이 발행)</span>
-                      </label>
-                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 6px; display: block; line-height: 1.5;">
-                        💡 <strong>OFF (기본·권장)</strong>: 선택 엔진 실패 시 imagefx → flow → deepinfra → leonardo → nanobananapro → dalle 자동 폴백<br>
-                        <strong>ON</strong>: 선택 엔진 실패 시 썸네일 없이 발행 (SVG 텍스트 폴백은 v3.5.54부터 폐지됨)
-                      </small>
-                    </div>
+                    <!-- 🛡️ 썸네일 엔진 엄격 모드 — 초보자 노출 금지로 hidden 처리 (기본 OFF, 자동 폴백) -->
+                    <input type="checkbox" id="strictThumbnailEngine" hidden>
                     <div class="acc-field">
                       <label class="acc-label">🔐 ImageFX Google 로그인</label>
                       <div style="display: flex; gap: 8px; align-items: center;">
@@ -3680,45 +3690,19 @@
                       </div>
                     </div>
 
-                    <!-- 🛡️ AdSense 강화 옵션 (adsense 모드 전용) -->
-                    <div class="acc-field" id="adsenseHardenField">
-                      <label class="acc-label">🏆 AdSense 승인률 강화 (adsense 모드 전용)</label>
-                      <div style="display: flex; flex-direction: column; gap: 6px;">
-                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: rgba(255,255,255,0.85); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(34,197,94,0.08); border-radius: 8px; border: 1px solid rgba(34,197,94,0.25); transition: all 0.2s ease;">
-                          <input type="checkbox" id="llmRotation" style="width: 14px; height: 14px; accent-color: #22c55e; flex-shrink: 0;">
-                          <span style="line-height: 1.4;">🎲 LLM 모델 로테이션 (Gemini/OpenAI/Claude/Perplexity 자동 분산)</span>
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: rgba(255,255,255,0.85); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(234,179,8,0.08); border-radius: 8px; border: 1px solid rgba(234,179,8,0.25); transition: all 0.2s ease;">
-                          <input type="checkbox" id="adsenseScoreGate" style="width: 14px; height: 14px; accent-color: #eab308; flex-shrink: 0;">
-                          <span style="line-height: 1.4;">🚦 발행 전 AdSense 점수 검사 (burstiness/AI 패턴 합산)</span>
-                        </label>
-                        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(99,102,241,0.06); border-radius: 8px; border: 1px solid rgba(99,102,241,0.18);">
-                          <span style="font-size: 12px; color: rgba(255,255,255,0.7); white-space: nowrap; font-weight: 600;">임계값</span>
-                          <input type="range" id="adsenseMinScore" min="50" max="90" value="70" step="5" style="flex: 1; accent-color: #6366f1; min-width: 100px;" oninput="document.getElementById('adsenseMinScoreLabel').textContent = this.value + '점';">
-                          <span id="adsenseMinScoreLabel" style="font-size: 13px; font-weight: 700; color: #a5b4fc; min-width: 40px; white-space: nowrap;">70점</span>
-                          <select id="adsenseGateMode" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; padding: 4px 8px; font-size: 11px;">
-                            <option value="warn">⚠️ 경고만</option>
-                            <option value="block">🚫 발행 차단</option>
-                          </select>
-                        </div>
+                    <!-- 🏆 AdSense 모드 자동 안내 (initContent에서 contentMode === 'adsense'일 때만 표시) -->
+                    <div class="acc-field" id="adsenseAutoHint" style="display: none;">
+                      <div style="padding: 12px 14px; background: linear-gradient(135deg, rgba(34,197,94,0.10), rgba(99,102,241,0.10)); border: 1px solid rgba(34,197,94,0.3); border-radius: 10px; color: #86efac; font-size: 12px; line-height: 1.6;">
+                        🏆 <strong>AdSense 승인률 강화 자동 적용 중</strong> — LLM 모델 로테이션 · 점수 검사 (warn) · 정책 사전 스캔 · 외부 출처 강제 인용 · 12-24h 발행 분산 모두 백그라운드에서 자동으로 작동합니다. 별도 설정 필요 없음.
                       </div>
-                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 6px; display: block; line-height: 1.5;">
-                        💡 로테이션은 LLM 키 2개 이상일 때 동작 · 점수 게이트는 임계값 미만이면 경고/차단 · 스케줄 12h 이내 동일 모드는 12-24h 분산 권고
-                      </small>
                     </div>
 
-                    <!-- 🤖 AI 엄격 모드 (Perplexity 검증) -->
-                    <div class="acc-field">
-                      <label class="acc-label">🛡️ CTA AI 엄격 검증 (Perplexity)</label>
-                      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: rgba(255,255,255,0.85); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(99,102,241,0.08); border-radius: 8px; border: 1px solid rgba(99,102,241,0.25); transition: all 0.2s ease;">
-                        <input type="checkbox" id="ctaAiStrictMode" style="width: 14px; height: 14px; accent-color: #6366f1; flex-shrink: 0;">
-                        <span style="line-height: 1.4;">모든 CTA를 Perplexity로 추가 검증 (의미 적합성 + 죽은 링크)</span>
-                      </label>
-                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 6px; display: block; line-height: 1.5;">
-                        💡 <strong>OFF (기본)</strong>: HTTP 빠른 검증 + 의심 정부사이트만 AI 검증 (자동 하이브리드)<br>
-                        <strong>ON</strong>: 모든 CTA URL에 LLM 의미 검증 (정확↑ 발행 시간↑ Perplexity 토큰 소비)
-                      </small>
-                    </div>
+                    <!-- 🛡️ 백엔드 자동 ON 옵션들 (UI 노출 X, payload 호환용 hidden input) -->
+                    <input type="checkbox" id="llmRotation" hidden>
+                    <input type="checkbox" id="adsenseScoreGate" hidden>
+                    <input type="hidden" id="adsenseMinScore" value="70">
+                    <input type="hidden" id="adsenseGateMode" value="warn">
+                    <input type="checkbox" id="ctaAiStrictMode" hidden>
 
                     <div id="manualCtaSection" class="acc-field" style="display: none;">
                       <button type="button" onclick="openManualCtaModal()"
