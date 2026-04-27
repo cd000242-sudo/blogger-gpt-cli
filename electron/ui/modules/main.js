@@ -20,6 +20,7 @@ import { initKeywordDiscover } from './keyword-discover.js';
 import { initContentStubs } from './content-stubs.js';
 import './adsense-tools.js'; // 애드센스 도구 탭 모듈 (window.__initAdsenseTools 등록)
 import { renderOneclickSetupTab, initOneclickSetup } from './oneclick-setup.js'; // 🚀 원클릭 세팅 모듈
+import { initPublishQueue } from './publish-queue.js'; // 🚀 연속발행 대기열 모듈
 import { initFirstRunWizard } from './first-run-wizard.js';
 
 // 🔐 세션 만료 모달 (중복 로그인 방지)
@@ -462,6 +463,9 @@ async function initializeApp() {
     if (oneclickContainer) {
       oneclickContainer.innerHTML = renderOneclickSetupTab();
     }
+
+    // 5.10. 연속발행 대기열 초기화 (줄바꿈 키워드 감지)
+    initPublishQueue();
     debugLog('MAIN', '원클릭 세팅 모듈 초기화 완료');
 
     // 5.10. 첫 실행 마법사 초기화 (3분 세팅)

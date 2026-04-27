@@ -3242,6 +3242,17 @@
                       style="width: 100%; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(102, 126, 234, 0.4); color: white; font-size: 15px; padding: 14px 18px; border-radius: 12px; transition: all 0.3s ease; resize: vertical; min-height: 100px; font-family: inherit; line-height: 1.6;"
                       onfocus="this.style.borderColor='rgba(102, 126, 234, 0.8)'; this.style.background='rgba(255,255,255,0.15)'"
                       onblur="this.style.borderColor='rgba(102, 126, 234, 0.4)'; this.style.background='rgba(255,255,255,0.1)'"></textarea>
+                    <!-- 🚀 대기열 자동 감지 배지 (2개 이상 키워드 시 표시) -->
+                    <div id="publishQueueBadge" style="display: none; margin-top: 8px; padding: 10px 14px; background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(139,92,246,0.18)); border: 1px solid rgba(139,92,246,0.5); border-radius: 10px; align-items: center; justify-content: space-between; gap: 10px;">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 18px;">🚀</span>
+                        <div>
+                          <div style="color: #ddd6fe; font-size: 13px; font-weight: 700;"><span id="publishQueueCount">0</span>개 키워드 연속발행 대기</div>
+                          <div style="color: rgba(255,255,255,0.6); font-size: 11px; margin-top: 2px;">대기열 UI에서 개별/일괄 세팅 후 한 번에 발행</div>
+                        </div>
+                      </div>
+                      <button id="publishQueueOpenBtn" type="button" onclick="window.__publishQueue && window.__publishQueue.open()" style="padding: 8px 14px; background: linear-gradient(135deg,#8b5cf6,#7c3aed); color: white; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;">📋 대기열 열기</button>
+                    </div>
                   </div>
 
                   <!-- URL 입력 (선택) -->

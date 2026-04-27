@@ -636,6 +636,27 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (score(0.3, 2, 5, 10) > 50) throw new Error('저품질 글 점수 시뮬 실패');
   });
 
+  await runTest('연속발행 대기열 — 줄바꿈 키워드 자동 감지 + 모달 UI', () => {
+    const queueSrc = load('electron/ui/modules/publish-queue.js');
+    if (!queueSrc.includes('initPublishQueue')) throw new Error('initPublishQueue export 누락');
+    if (!queueSrc.includes('window.__publishQueue')) throw new Error('전역 노출 누락');
+    if (!queueSrc.includes('publishQueueModal')) throw new Error('모달 ID 누락');
+    if (!queueSrc.includes('pq-bulk-apply')) throw new Error('일괄 적용 버튼 누락');
+    if (!queueSrc.includes('pq-action-schedule')) throw new Error('스케줄 추가 버튼 누락');
+    if (!queueSrc.includes('pq-action-publish')) throw new Error('즉시 발행 버튼 누락');
+    if (!queueSrc.includes('scheduledPosts')) throw new Error('scheduledPosts 통합 누락');
+    if (!queueSrc.includes('12 + Math.random() * 12')) throw new Error('12-24h 분산 로직 누락');
+
+    const html = load('electron/ui/index.html');
+    if (!html.includes('publishQueueBadge')) throw new Error('배지 UI 누락');
+    if (!html.includes('publishQueueOpenBtn')) throw new Error('대기열 열기 버튼 누락');
+    if (!html.includes('publishQueueCount')) throw new Error('카운트 표시 누락');
+
+    const main = load('electron/ui/modules/main.js');
+    if (!main.includes('initPublishQueue')) throw new Error('main.js init 호출 누락');
+    if (!main.includes("import { initPublishQueue }")) throw new Error('main.js import 누락');
+  });
+
   await runTest('AdSense — author_intro 섹션 H2 제거 (메타 박스로 위임)', () => {
     const sec = load('src/core/content-modes/adsense/adsense-sections.ts');
     if (sec.includes("id: 'author_intro'")) throw new Error('author_intro 섹션 잔존');
