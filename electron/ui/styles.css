@@ -799,39 +799,50 @@ textarea::placeholder {
   margin-left: 6px;
 }
 
-/* 배지별 박스색·테두리·텍스트색을 분리해 시각적 구분 강화 */
+/* 배지별 박스색·테두리·텍스트색을 분리해 시각적 구분 강화
+   :has() 미지원 환경 대비 — 부모 .header-badge에 modifier 클래스를 추가하지 않고도
+   자식 `.badge-success/info/warning`을 보고 부모를 스타일링하기 위해
+   ".header-badge:has()" 와 더불어 직접 자식 셀렉터에 박스/텍스트 모두 강제 지정. */
+
 /* 라이선스: 그린 */
 .header-badge:has(.badge-success) {
-  background: rgba(34, 197, 94, 0.08);
-  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.10) !important;
+  border-color: rgba(34, 197, 94, 0.40) !important;
 }
-.header-badge .badge-success {
-  color: #86efac;
-  background: none;
+.badge-success {
+  color: #86efac !important;
+  background: transparent !important;
 }
 
-/* 플랫폼: 퍼플 (박스와 텍스트 색상 다르게) */
+/* 플랫폼: 퍼플 박스 + 밝은 라일락 텍스트 (박스와 텍스트 색 분리) */
 .header-badge:has(.badge-info) {
-  background: rgba(139, 92, 246, 0.1);
-  border-color: rgba(139, 92, 246, 0.4);
+  background: rgba(139, 92, 246, 0.16) !important;
+  border-color: rgba(139, 92, 246, 0.55) !important;
 }
-.header-badge .badge-info {
-  color: #e0d4ff;
-  background: none;
+.badge-info {
+  /* 텍스트 색을 박스(퍼플)와 명확히 다른 밝은 라일락으로 강제 */
+  color: #ddd6fe !important;
+  background: transparent !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.35);
 }
 .header-badge:has(.badge-info) .badge-label {
-  color: #c4b5fd;
+  color: #c4b5fd !important;
 }
 
 /* AI 모델: 오렌지 */
 .header-badge:has(.badge-warning) {
-  background: rgba(245, 158, 11, 0.08);
-  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.10) !important;
+  border-color: rgba(245, 158, 11, 0.40) !important;
 }
-.header-badge .badge-warning {
-  color: #fcd34d;
-  background: none;
+.badge-warning {
+  color: #fcd34d !important;
+  background: transparent !important;
 }
+
+/* :has() 미지원 환경 폴백 — 부모 클래스 modifier 직접 추가 시에도 동작 */
+.header-badge--success { background: rgba(34, 197, 94, 0.10) !important; border-color: rgba(34, 197, 94, 0.40) !important; }
+.header-badge--info    { background: rgba(139, 92, 246, 0.16) !important; border-color: rgba(139, 92, 246, 0.55) !important; }
+.header-badge--warning { background: rgba(245, 158, 11, 0.10) !important; border-color: rgba(245, 158, 11, 0.40) !important; }
 
 /* ===== Fallback Nav (에러 시) ===== */
 #fallback-nav {

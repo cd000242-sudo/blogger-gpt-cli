@@ -439,15 +439,26 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
   });
 
   // 동적 CTA_CACHE 동작 검증 (mock)
-  await runTest('헤더 배지 분리 스타일 — 플랫폼 퍼플 + 텍스트/박스 색상 분리', () => {
+  await runTest('헤더 배지 분리 스타일 — :has() + modifier 클래스 폴백 + !important', () => {
     const src = load('electron/ui/styles.css');
     if (!src.includes(':has(.badge-info)')) throw new Error('플랫폼 배지 :has 선택자 누락');
     if (!src.includes('rgba(139, 92, 246')) throw new Error('플랫폼 퍼플 박스색 누락');
-    if (!src.includes('#e0d4ff')) throw new Error('플랫폼 텍스트 색상 누락');
+    if (!src.includes('#ddd6fe')) throw new Error('플랫폼 텍스트 색상(밝은 라일락) 누락');
     if (!src.includes('#c4b5fd')) throw new Error('플랫폼 라벨 색상 누락');
-    // dist에도 동기화됐는지 확인
+    // !important로 강제됐는지
+    if (!/\.badge-info\s*\{[\s\S]*?color:\s*#ddd6fe\s*!important/.test(src)) throw new Error('badge-info color !important 누락');
+    // modifier 클래스 폴백
+    if (!src.includes('.header-badge--info')) throw new Error('header-badge--info modifier 누락');
+
+    // HTML에 modifier 클래스 부여됐는지
+    const html = load('electron/ui/index.html');
+    if (!html.includes('header-badge--info')) throw new Error('HTML에 header-badge--info modifier 누락');
+    if (!html.includes('header-badge--success')) throw new Error('HTML에 header-badge--success modifier 누락');
+    if (!html.includes('header-badge--warning')) throw new Error('HTML에 header-badge--warning modifier 누락');
+
+    // dist 동기화
     const distSrc = load('dist/ui/styles.css');
-    if (!distSrc.includes(':has(.badge-info)')) throw new Error('dist/ui/styles.css 동기화 누락');
+    if (!distSrc.includes('header-badge--info')) throw new Error('dist/ui/styles.css 동기화 누락');
   });
 
   await runTest('Schema.org JSON-LD 풀팩 자동 삽입', () => {
