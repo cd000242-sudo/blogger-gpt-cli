@@ -4623,111 +4623,88 @@
       </div>
     </div>
 
-    <!-- 거미줄치기 통합글 만들기 탭 -->
-    <div id="internal-links-tab" class="tab-content"
-      style="display: none; padding: 40px; max-width: 1200px; margin: 0 auto; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); min-height: 100vh;">
-      <div style="text-align: center; margin-bottom: 48px;">
-        <div
-          style="background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 48px; font-weight: 900; margin-bottom: 16px;">
-          🕸️ 거미줄치기 통합글 만들기
-        </div>
-        <p style="color: #64748b; font-size: 18px; font-weight: 500;">5개의 글을 선택하여 각 글의 70% 핵심 내용과 CTA가 포함된 통합글을
-          생성하세요
-        </p>
-      </div>
+    <!-- 🕸️ 거미줄치기 통합글 — v3.5.58 프리미엄 리팩토링 -->
+    <div id="internal-links-tab" class="tab-content sw-tab" style="display: none;">
+      <div class="sw-container">
+        <!-- 헤더 + Step 진행 인디케이터 -->
+        <header class="sw-header">
+          <h1 class="sw-title">🕸️ 거미줄치기 통합글 만들기</h1>
+          <p class="sw-subtitle">기존 글 5개를 골라 각 글의 핵심 70%와 CTA를 엮어 한 편의 권위 있는 통합글로 변환합니다.</p>
+          <ol class="sw-steps" aria-label="진행 단계">
+            <li class="sw-step is-active" data-step="1"><span class="sw-step-num">01</span><span class="sw-step-label">글 주소 입력</span></li>
+            <li class="sw-step" data-step="2"><span class="sw-step-num">02</span><span class="sw-step-label">선택 확인</span></li>
+            <li class="sw-step" data-step="3"><span class="sw-step-num">03</span><span class="sw-step-label">통합글 생성</span></li>
+            <li class="sw-step" data-step="4"><span class="sw-step-num">04</span><span class="sw-step-label">미리보기·발행</span></li>
+          </ol>
+        </header>
 
-      <!-- 글 주소 입력 섹션 -->
-      <div
-        style="background: white; border-radius: 24px; padding: 40px; margin-bottom: 32px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);">
-        <h3 style="font-size: 24px; font-weight: 700; color: #1e293b; margin-bottom: 24px;">📝 글 주소 입력 (최대 5개)</h3>
-        <div id="urlInputsContainer" style="display: grid; gap: 16px;">
-          <!-- 동적으로 생성됨 -->
-        </div>
-        <div style="display: flex; gap: 12px; margin-top: 16px;">
-          <button onclick="openPublishedPostsModal()"
-            style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">
-            📚 생성 글 목록에서 불러오기
-          </button>
-          <button onclick="addUrlInput()"
-            style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);">
-            ➕ 주소 추가
-          </button>
-          <button onclick="clearUrlInputs()"
-            style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);">
-            🗑️ 모두 지우기
-          </button>
-        </div>
-      </div>
-
-      <!-- 선택한 글 목록 (최대 5개) -->
-      <div
-        style="background: white; border-radius: 24px; padding: 40px; margin-bottom: 32px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);">
-        <h3 style="font-size: 24px; font-weight: 700; color: #1e293b; margin-bottom: 24px;">✅ 선택한 글 (최대 5개)</h3>
-        <div id="selectedPostsList" style="min-height: 100px;">
-          <div style="text-align: center; color: #94a3b8; padding: 40px;">
-            <div style="font-size: 48px; margin-bottom: 16px;">📝</div>
-            <div style="font-size: 16px;">위에서 글 주소를 입력하거나 생성 글 목록에서 불러오세요</div>
+        <!-- Step 1: 글 주소 입력 -->
+        <section class="sw-card" aria-labelledby="sw-step1-title">
+          <div class="sw-card-head">
+            <span class="sw-step-badge">Step 01</span>
+            <h2 id="sw-step1-title" class="sw-card-title">📝 글 주소 입력 (최대 5개)</h2>
           </div>
-        </div>
-      </div>
+          <div id="urlInputsContainer" class="sw-url-grid"></div>
+          <div class="sw-btn-group" role="toolbar" aria-label="입력 도구">
+            <button type="button" class="sw-btn sw-btn--primary" onclick="openPublishedPostsModal()" aria-label="생성 글 목록에서 불러오기">📚 목록에서 불러오기</button>
+            <button type="button" class="sw-btn sw-btn--secondary" onclick="addUrlInput()" aria-label="주소 입력란 추가">➕ 주소 추가</button>
+            <button type="button" class="sw-btn sw-btn--ghost" onclick="clearUrlInputs()" aria-label="모든 입력 지우기">🗑️ 모두 지우기</button>
+          </div>
+        </section>
 
-      <!-- 통합글 생성 섹션 -->
-      <div
-        style="background: white; border-radius: 24px; padding: 40px; margin-bottom: 32px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);">
-        <h3 style="font-size: 24px; font-weight: 700; color: #1e293b; margin-bottom: 24px;">🚀 통합글 생성</h3>
-        <div style="margin-bottom: 24px;">
-          <label style="display: block; font-size: 14px; font-weight: 600; color: #374151; margin-bottom: 8px;">📝
-            통합글
-            제목
-            (SEO 최적화, 5개 글 모두 충족)</label>
-          <input type="text" id="spiderWebTitle" placeholder="5개 글을 모두 포함하는 SEO 최적화된 제목을 입력하세요 (자동 생성 가능)"
-            style="width: 100%; padding: 16px; border: 2px solid #e5e7eb; border-radius: 12px; font-size: 16px; background: #f9fafb; transition: all 0.3s ease; box-sizing: border-box;"
-            onfocus="this.style.borderColor='#667eea'; this.style.backgroundColor='#ffffff';"
-            onblur="this.style.borderColor='#e5e7eb'; this.style.backgroundColor='#f9fafb';">
-          <small style="display: block; margin-top: 8px; font-size: 12px; color: #64748b;">제목을 비워두면 선택한 글들을 분석하여
-            자동으로
-            SEO
-            최적화된 제목을 생성합니다</small>
-        </div>
-        <button onclick="generateSpiderWebContent()"
-          style="width: 100%; background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%); color: white; border: none; padding: 20px; border-radius: 16px; font-size: 18px; font-weight: 700; cursor: pointer; box-shadow: 0 10px 30px rgba(255, 107, 107, 0.4); transition: all 0.3s ease;">
-          ✨ 글 생성하기
-        </button>
-      </div>
+        <!-- Step 2: 선택한 글 목록 -->
+        <section class="sw-card" aria-labelledby="sw-step2-title">
+          <div class="sw-card-head">
+            <span class="sw-step-badge">Step 02</span>
+            <h2 id="sw-step2-title" class="sw-card-title">✅ 선택한 글</h2>
+            <span id="selectedPostsCount" class="sw-pill" aria-live="polite">0 / 5</span>
+          </div>
+          <div id="selectedPostsList" class="sw-list" aria-live="polite">
+            <div class="sw-empty">
+              <div class="sw-empty-icon" aria-hidden="true">📝</div>
+              <p class="sw-empty-text">위에서 주소를 입력하거나 <strong>"목록에서 불러오기"</strong>를 사용해 글을 추가하세요.</p>
+            </div>
+          </div>
+        </section>
 
-      <!-- 미리보기 섹션 -->
-      <div id="spiderWebPreview"
-        style="display: none; background: white; border-radius: 24px; padding: 40px; margin-bottom: 32px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);">
-        <h3 style="font-size: 24px; font-weight: 700; color: #1e293b; margin-bottom: 24px;">👁️ 미리보기</h3>
-        <div id="spiderWebPreviewContent"
-          style="background: #f9fafb; border-radius: 16px; padding: 32px; max-height: 600px; overflow-y: auto; border: 2px solid #e5e7eb;">
-          <!-- 미리보기 내용이 여기에 표시됨 -->
-        </div>
-        <div style="display: flex; gap: 12px; margin-top: 24px;">
-          <button onclick="saveSpiderWebContent()"
-            style="flex: 1; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; border: none; padding: 16px; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);">
-            💾 글만 생성하기
+        <!-- Step 3: 통합글 생성 -->
+        <section class="sw-card" aria-labelledby="sw-step3-title">
+          <div class="sw-card-head">
+            <span class="sw-step-badge">Step 03</span>
+            <h2 id="sw-step3-title" class="sw-card-title">🚀 통합글 생성</h2>
+          </div>
+          <div class="sw-field">
+            <label for="spiderWebTitle" class="sw-label">📝 통합글 제목 <span class="sw-label-hint">(SEO 최적화 · 비워두면 자동 생성)</span></label>
+            <input type="text" id="spiderWebTitle" class="sw-input" placeholder="5개 글을 모두 포함하는 SEO 최적화된 제목" autocomplete="off">
+            <small class="sw-help">💡 비워두면 선택한 글들을 분석해 검색 친화적 제목을 자동 생성합니다.</small>
+          </div>
+          <button type="button" id="spiderWebGenerateBtn" class="sw-btn sw-btn--cta" onclick="generateSpiderWebContent()" aria-label="통합글 생성하기">
+            <span class="sw-btn-icon">✨</span> 통합글 생성하기
           </button>
-          <button onclick="saveAndPublishSpiderWebContent()"
-            style="flex: 1; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 16px; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);">
-            🚀 글 생성 및 발행
-          </button>
-        </div>
+        </section>
+
+        <!-- Step 4: 미리보기 -->
+        <section id="spiderWebPreview" class="sw-card" aria-labelledby="sw-step4-title" hidden>
+          <div class="sw-card-head">
+            <span class="sw-step-badge">Step 04</span>
+            <h2 id="sw-step4-title" class="sw-card-title">👁️ 미리보기</h2>
+          </div>
+          <div id="spiderWebPreviewContent" class="sw-preview" tabindex="0"></div>
+          <div class="sw-btn-group sw-btn-group--split">
+            <button type="button" class="sw-btn sw-btn--primary sw-btn--full" onclick="saveSpiderWebContent()">💾 글만 생성하기</button>
+            <button type="button" class="sw-btn sw-btn--success sw-btn--full" onclick="saveAndPublishSpiderWebContent()">🚀 생성 및 발행</button>
+          </div>
+        </section>
       </div>
 
       <!-- 발행글 목록 모달 -->
-      <div id="publishedPostsModal"
-        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 10001; backdrop-filter: blur(12px); align-items: center; justify-content: center;">
-        <div
-          style="width: 95%; max-width: 800px; max-height: 90vh; background: white; border-radius: 24px; padding: 40px; overflow-y: auto; box-shadow: 0 40px 100px rgba(0, 0, 0, 0.5);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-            <h2 style="font-size: 28px; font-weight: 700; color: #1e293b; margin: 0;">📚 발행한 글 목록</h2>
-            <button onclick="closePublishedPostsModal()"
-              style="background: #ef4444; color: white; border: none; padding: 12px 24px; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer;">
-              ✕ 닫기
-            </button>
+      <div id="publishedPostsModal" class="sw-modal" role="dialog" aria-modal="true" aria-labelledby="sw-pubmodal-title" hidden>
+        <div class="sw-modal-content">
+          <div class="sw-modal-head">
+            <h2 id="sw-pubmodal-title" class="sw-modal-title">📚 발행한 글 목록</h2>
+            <button type="button" class="sw-icon-btn sw-icon-btn--close" onclick="closePublishedPostsModal()" aria-label="모달 닫기">✕</button>
           </div>
-          <div id="publishedPostsList"></div>
+          <div id="publishedPostsList" class="sw-modal-body"></div>
         </div>
       </div>
 

@@ -81,9 +81,22 @@ function buildModalHtml() {
         </select>
         <button id="pq-bulk-apply" style="padding: 6px 14px; background: linear-gradient(135deg,#6366f1,#8b5cf6); color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer;">✓ 일괄 적용</button>
         <span style="flex: 1;"></span>
-        <label style="color: rgba(255,255,255,0.7); font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
-          <input type="checkbox" id="pq-spread" checked style="accent-color: #8b5cf6;"> 12-24h 자동 분산 (양산 패턴 회피)
-        </label>
+      </div>
+      <!-- 발행 간격 조절 -->
+      <div style="display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.08);">
+        <span style="color: #a5b4fc; font-size: 12px; font-weight: 700; white-space: nowrap;">⏰ 발행 간격:</span>
+        <select id="pq-interval-mode" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; padding: 6px 10px; font-size: 12px;">
+          <option value="seconds">초 단위 (즉시 발행용)</option>
+          <option value="minutes">분 단위</option>
+          <option value="hours" selected>시간 단위 (스케줄용)</option>
+          <option value="random">12-24h 무작위 분산 (adsense 권장)</option>
+        </select>
+        <div id="pq-interval-fixed" style="display: flex; align-items: center; gap: 8px;">
+          <input type="range" id="pq-interval-value" min="1" max="24" value="12" step="1" style="width: 180px; accent-color: #8b5cf6;" oninput="document.getElementById('pq-interval-label').textContent = this.value;">
+          <span id="pq-interval-label" style="color: white; font-weight: 700; font-size: 13px; min-width: 30px; text-align: right;">12</span>
+          <span id="pq-interval-unit" style="color: rgba(255,255,255,0.7); font-size: 12px; min-width: 30px;">시간</span>
+        </div>
+        <small style="color: rgba(255,255,255,0.45); font-size: 11px; flex-basis: 100%; margin-top: 2px;">💡 즉시 순차 발행: '초/분' 권장 · 스케줄 추가: '시간/무작위 분산' 권장 (양산 패턴 회피)</small>
       </div>
     </div>
 
@@ -177,7 +190,51 @@ function bindItemEvents() {
   });
 }
 
+/** 현재 UI 설정에서 발행 간격(ms) 계산 — 'random' 모드면 12-24h 사이 무작위 */
+function getIntervalMs() {
+  const mode = document.getElementById('pq-interval-mode')?.value || 'hours';
+  const value = Number(document.getElementById('pq-interval-value')?.value || 12);
+  if (mode === 'random') return (12 + Math.random() * 12) * 3600 * 1000;
+  if (mode === 'seconds') return Math.max(5, value) * 1000;        // 최소 5초 안전장치
+  if (mode === 'minutes') return Math.max(1, value) * 60 * 1000;
+  return Math.max(1, value) * 3600 * 1000;
+}
+
+/** 간격 모드 변경 시 슬라이더 범위/단위 라벨 동기화 */
+function syncIntervalControl() {
+  const mode = document.getElementById('pq-interval-mode')?.value || 'hours';
+  const slider = document.getElementById('pq-interval-value');
+  const unit = document.getElementById('pq-interval-unit');
+  const fixedWrap = document.getElementById('pq-interval-fixed');
+  if (!slider || !unit || !fixedWrap) return;
+
+  if (mode === 'random') {
+    fixedWrap.style.display = 'none';
+    return;
+  }
+  fixedWrap.style.display = 'flex';
+
+  if (mode === 'seconds') {
+    slider.min = '5'; slider.max = '300'; slider.step = '5';
+    if (Number(slider.value) > 300 || Number(slider.value) < 5) slider.value = '30';
+    unit.textContent = '초';
+  } else if (mode === 'minutes') {
+    slider.min = '1'; slider.max = '120'; slider.step = '1';
+    if (Number(slider.value) > 120) slider.value = '10';
+    unit.textContent = '분';
+  } else {
+    slider.min = '1'; slider.max = '24'; slider.step = '1';
+    if (Number(slider.value) > 24) slider.value = '12';
+    unit.textContent = '시간';
+  }
+  document.getElementById('pq-interval-label').textContent = slider.value;
+}
+
 function bindModalEvents() {
+  // 간격 컨트롤 동기화
+  document.getElementById('pq-interval-mode')?.addEventListener('change', syncIntervalControl);
+  syncIntervalControl();
+
   // 일괄 적용
   document.getElementById('pq-bulk-apply')?.addEventListener('click', () => {
     const m = document.getElementById('pq-bulk-mode')?.value;
@@ -198,11 +255,10 @@ function bindModalEvents() {
     refreshList();
   });
 
-  // 스케줄 추가 (12-24h 자동 분산)
+  // 스케줄 추가 — 사용자가 선택한 발행 간격 사용
   document.getElementById('pq-action-schedule')?.addEventListener('click', async () => {
     const enabled = STATE.keywords.filter(k => k.enabled && k.keyword.trim());
     if (enabled.length === 0) return alert('활성화된 키워드가 없습니다.');
-    const spread = document.getElementById('pq-spread')?.checked;
 
     let cursor = Date.now() + 60 * 60 * 1000; // 1시간 뒤부터 시작
     const newSchedules = enabled.map((it, i) => {
@@ -227,12 +283,8 @@ function bindModalEvents() {
         createdAt: new Date().toISOString(),
         fromQueue: true,
       };
-      if (spread) {
-        const offsetH = 12 + Math.random() * 12;
-        cursor += offsetH * 3600 * 1000;
-      } else {
-        cursor += 60 * 60 * 1000;
-      }
+      // 다음 항목 시각 = 현재 + 사용자 지정 간격
+      cursor += getIntervalMs();
       return item;
     });
 
@@ -246,27 +298,34 @@ function bindModalEvents() {
     }
   });
 
-  // 즉시 순차 발행
+  // 즉시 순차 발행 — 사용자가 선택한 발행 간격 사용
   document.getElementById('pq-action-publish')?.addEventListener('click', async () => {
     const enabled = STATE.keywords.filter(k => k.enabled && k.keyword.trim());
     if (enabled.length === 0) return alert('활성화된 키워드가 없습니다.');
-    if (!confirm(`${enabled.length}개 키워드를 즉시 순차 발행합니다. 각 글 사이 30초 간격. 진행할까요?`)) return;
+    const intervalMs = getIntervalMs();
+    const intervalLabel = intervalMs >= 3600_000
+      ? `${(intervalMs / 3600_000).toFixed(1)}시간`
+      : intervalMs >= 60_000
+        ? `${(intervalMs / 60_000).toFixed(1)}분`
+        : `${(intervalMs / 1000).toFixed(0)}초`;
+    if (!confirm(`${enabled.length}개 키워드를 즉시 순차 발행합니다.\n각 글 사이 간격: ${intervalLabel}\n\n진행할까요?`)) return;
     close();
 
     for (let i = 0; i < enabled.length; i++) {
       const it = enabled[i];
-      console.log(`[QUEUE] 🚀 ${i + 1}/${enabled.length}: ${it.keyword} (${it.mode}/${it.thumb})`);
+      console.log(`[QUEUE] 🚀 ${i + 1}/${enabled.length}: ${it.keyword} (${it.mode}/${it.thumb}) — 다음까지 ${intervalLabel}`);
       const ta = document.getElementById('keywordInput');
       if (ta) ta.value = it.keyword;
       const cmSel = document.getElementById('contentMode');
       if (cmSel) cmSel.value = it.mode;
       const thumbSel = document.getElementById('thumbnailType');
       if (thumbSel) thumbSel.value = it.thumb;
-      // 발행 버튼 클릭
       const btn = document.getElementById('publishBtn') || document.querySelector('[data-action="publish"]');
       if (btn) btn.click();
-      // 다음 발행까지 30초 대기 (실제 발행 완료 감지는 추후 폴링으로 보강)
-      await new Promise(r => setTimeout(r, 30000));
+      // 마지막 항목은 대기하지 않음
+      if (i < enabled.length - 1) {
+        await new Promise(r => setTimeout(r, intervalMs));
+      }
     }
     alert(`✅ 큐 ${enabled.length}개 발행 트리거 완료. 진행 상황은 로그/스케줄 탭에서 확인하세요.`);
   });

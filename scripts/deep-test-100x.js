@@ -636,6 +636,59 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (score(0.3, 2, 5, 10) > 50) throw new Error('저품질 글 점수 시뮬 실패');
   });
 
+  await runTest('연속발행 대기열 — 발행 간격 슬라이더 추가 (초/분/시간/무작위)', () => {
+    const src = load('electron/ui/modules/publish-queue.js');
+    if (!src.includes('pq-interval-mode')) throw new Error('간격 모드 select 누락');
+    if (!src.includes('pq-interval-value')) throw new Error('간격 슬라이더 누락');
+    if (!src.includes('getIntervalMs')) throw new Error('간격 계산 함수 누락');
+    if (!src.includes("'seconds'") || !src.includes("'minutes'") || !src.includes("'hours'") || !src.includes("'random'")) {
+      throw new Error('4개 모드(seconds/minutes/hours/random) 누락');
+    }
+    if (!src.includes('syncIntervalControl')) throw new Error('동기화 함수 누락');
+    if (!src.includes('cursor += getIntervalMs()')) throw new Error('스케줄에 간격 적용 누락');
+    if (!src.includes('intervalMs')) throw new Error('즉시 발행에 간격 적용 누락');
+
+    // 시뮬: 간격 계산 정확성
+    const simInterval = (mode, value) => {
+      if (mode === 'random') return -1; // 무작위는 검증 불가
+      if (mode === 'seconds') return Math.max(5, value) * 1000;
+      if (mode === 'minutes') return Math.max(1, value) * 60 * 1000;
+      return Math.max(1, value) * 3600 * 1000;
+    };
+    if (simInterval('seconds', 30) !== 30000) throw new Error('초 시뮬 실패');
+    if (simInterval('minutes', 10) !== 600000) throw new Error('분 시뮬 실패');
+    if (simInterval('hours', 6) !== 21600000) throw new Error('시간 시뮬 실패');
+    if (simInterval('seconds', 2) !== 5000) throw new Error('최소 5초 안전장치 실패');
+  });
+
+  await runTest('거미줄치기 탭 — 다크 톤 리팩토링 + Step Stepper + 접근성', () => {
+    const html = load('electron/ui/index.html');
+    // 신규 컴포넌트 클래스 (다른 클래스와 함께 chained 가능)
+    if (!/\bsw-tab\b/.test(html)) throw new Error('sw-tab 컨테이너 누락');
+    if (!/\bsw-steps\b/.test(html)) throw new Error('Step Stepper 누락');
+    if (!html.includes('Step 01') || !html.includes('Step 02') || !html.includes('Step 03') || !html.includes('Step 04')) {
+      throw new Error('4단계 Step badge 누락');
+    }
+    if (!html.includes('aria-labelledby')) throw new Error('aria-labelledby 누락 (접근성)');
+    if (!html.includes('aria-live')) throw new Error('aria-live 누락');
+    if (!html.includes('role="dialog"') || !html.includes('aria-modal')) throw new Error('모달 ARIA 누락');
+    // 기존 라이트 배경 제거
+    if (html.includes('background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); min-height: 100vh;')) {
+      throw new Error('기존 라이트 배경 잔존');
+    }
+
+    const css = load('electron/ui/styles.css');
+    if (!css.includes('.sw-tab')) throw new Error('CSS sw-tab 누락');
+    if (!css.includes('.sw-step.is-active')) throw new Error('Step active 상태 누락');
+    if (!css.includes('.sw-btn--cta.is-loading::before')) throw new Error('로딩 스피너 누락');
+    if (!css.includes(':focus-visible')) throw new Error('focus-visible 접근성 누락');
+    if (!css.includes('@keyframes sw-spin')) throw new Error('스피너 애니메이션 누락');
+    if (!css.includes('@media (max-width: 768px)') && !css.match(/@media \(max-width: 768px\)[\s\S]*?\.sw-/)) {
+      throw new Error('반응형 미디어쿼리 누락');
+    }
+    if (!css.includes('@media (max-width: 480px)')) throw new Error('480px 미디어쿼리 누락');
+  });
+
   await runTest('연속발행 대기열 — 줄바꿈 키워드 자동 감지 + 모달 UI', () => {
     const queueSrc = load('electron/ui/modules/publish-queue.js');
     if (!queueSrc.includes('initPublishQueue')) throw new Error('initPublishQueue export 누락');
