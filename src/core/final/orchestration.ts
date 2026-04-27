@@ -1441,6 +1441,19 @@ ${conclusionHTML}
           // H2 섹션 1번째 이후부터 삽입 (최대 2개 섹션)
           html = insertInternalLinks(html, relatedLinks, 1);
           console.log(`[MAX-MODE] ✅ 내부 링크 ${relatedLinks.length}개 삽입 완료 (대상: ${blogUrl})`);
+        } else if (contentMode === 'internal') {
+          // 🛡️ internal 모드 폴백 — 관련도 70+ 글이 0개면 같은 블로그 최근 글 3개라도 삽입
+          //    완전히 비워두면 "추가 탐색" 섹션이 무용지물이 되므로 신규 블로그 케이스 보강
+          console.log(`[MAX-MODE] 🔄 internal 모드 폴백: 관련도 70+ 글 0개 → 최근 글로 대체 시도`);
+          try {
+            const fallbackLinks = await findRelatedPosts(blogUrl, '', 3);
+            if (fallbackLinks.length > 0) {
+              html = insertInternalLinks(html, fallbackLinks, 1);
+              console.log(`[MAX-MODE] ✅ 폴백 링크 ${fallbackLinks.length}개 삽입 (최근 글)`);
+            } else {
+              console.log(`[MAX-MODE] ℹ️ 신규 블로그 — 내부 링크 후보 0개. 추가 탐색 섹션 그대로 유지.`);
+            }
+          } catch { /* 무시 */ }
         } else {
           console.log(`[MAX-MODE] ℹ️ 관련 내부 링크를 찾지 못했습니다.`);
         }

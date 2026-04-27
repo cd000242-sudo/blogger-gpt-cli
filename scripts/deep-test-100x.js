@@ -636,6 +636,38 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (score(0.3, 2, 5, 10) > 50) throw new Error('저품질 글 점수 시뮬 실패');
   });
 
+  await runTest('Internal 모드 — 외부출처 강제 + postProcess + 폴백 + 라벨', () => {
+    const mode = load('src/core/content-modes/internal/internal-mode.ts');
+    if (!mode.includes('postProcessInternal')) throw new Error('postProcess import 누락');
+    if (!mode.includes('SOURCE_MANDATE')) throw new Error('외부 출처 강제 변수 누락');
+    if (!mode.includes('통계청 KOSIS')) throw new Error('출처 예시 누락');
+    if (!mode.includes('단일 완결 모드')) throw new Error('새 모드 이름 누락');
+    if (!mode.includes('postProcess(html')) throw new Error('postProcess 메서드 누락');
+    if (!mode.includes("sec.id === 'additional_resources'")) throw new Error('additional 가드 누락');
+
+    const post = load('src/core/content-modes/internal/internal-post-processor.ts');
+    if (!post.includes('SERIES_PATTERNS')) throw new Error('시리즈 패턴 정의 누락');
+    if (!post.includes('EXTERNAL_REF_PATTERNS')) throw new Error('외부참조 패턴 정의 누락');
+    if (!post.includes('postProcessInternal')) throw new Error('postProcessInternal export 누락');
+
+    const orch = load('src/core/final/orchestration.ts');
+    if (!orch.includes("contentMode === 'internal'")) throw new Error('orchestration internal 분기 누락');
+    if (!orch.includes('internal 모드 폴백')) throw new Error('폴백 로직 누락');
+    if (!orch.includes('fallbackLinks')) throw new Error('fallback 변수 누락');
+
+    const html = load('electron/ui/index.html');
+    if (html.includes('📝 내부링크 일관성 모드/정보전달')) throw new Error('기존 모호 라벨 잔존');
+    if (!html.includes('🕸️ 단일 완결')) throw new Error('새 명확 라벨 누락');
+
+    // 시뮬: 시리즈 패턴 자동 제거 (한글 경계 처리)
+    const sample = '오늘은 1편입니다. 이전 글에서 다룬 내용을 확장합니다.';
+    const cleaned = sample
+      .replace(/\d+\s*편(?=[입니다은는이가\s,.\)])/g, '')
+      .replace(/(이전|다음|첫|마지막)\s*(편|글|포스트)/g, '');
+    if (cleaned.includes('1편')) throw new Error('시리즈 시뮬 실패');
+    if (cleaned.includes('이전 글')) throw new Error('이전 글 시뮬 실패');
+  });
+
   await runTest('연속발행 대기열 — 발행 간격 슬라이더 추가 (초/분/시간/무작위)', () => {
     const src = load('electron/ui/modules/publish-queue.js');
     if (!src.includes('pq-interval-mode')) throw new Error('간격 모드 select 누락');
