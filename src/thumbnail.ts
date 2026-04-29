@@ -1846,15 +1846,16 @@ async function tryGeminiExperimentalImageGeneration(
 ): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
   const startTime = Date.now();
 
-  // Gemini 이미지 생성 모델 우선순위 (2026-03-01 폴백 체인 최적화)
-  // 🍌 나노바나나2 → 나노바나나프로 → Imagen4 → 나노바나나
+  // Gemini 이미지 생성 모델 우선순위 (2026-04-29 — Pro 우선 폴백 체인)
+  // 🍌 나노바나나프로 → 나노바나나2 → Imagen4 → 나노바나나(레거시)
+  // 사용자가 'nanobananapro' 선택 시 가장 고품질(4K, $0.134~0.24)부터 시도
   const IMAGE_MODELS = [
+    { id: 'gemini-3-pro-image-preview', name: '나노바나나프로 (Gemini 3 Pro Image, 4K)' },
     { id: 'gemini-3.1-flash-image-preview', name: '나노바나나2 (Gemini 3.1 Flash Image)' },
-    { id: 'gemini-3-pro-image-preview', name: '나노바나나프로 (Gemini 3 Pro Image)' },
   ];
 
-  // 나노바나나 (최종 폴백용)
-  const FALLBACK_MODEL = { id: 'gemini-2.5-flash-image', name: '나노바나나 (Gemini 2.5 Flash Image)' };
+  // 나노바나나 (최종 폴백용 — 레거시 저비용)
+  const FALLBACK_MODEL = { id: 'gemini-2.5-flash-image', name: '나노바나나 레거시 (Gemini 2.5 Flash Image)' };
 
   // 프롬프트 생성 — 🔥 AI 추론 기반 동적 프롬프트 생성
   let prompt: string;
@@ -2051,7 +2052,7 @@ CRITICAL RULES:
       console.log(`[NANO-BANANA] ⚠️ ${FALLBACK_MODEL.name} 실패: ${fallbackErr.message}`);
     }
 
-    return { ok: false, error: '모든 이미지 모델 실패 (나노바나나2 → 나노바나나프로 → Imagen4 → 나노바나나)' };
+    return { ok: false, error: '모든 이미지 모델 실패 (나노바나나프로 → 나노바나나2 → Imagen4 → 나노바나나 레거시)' };
 
   } catch (error) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

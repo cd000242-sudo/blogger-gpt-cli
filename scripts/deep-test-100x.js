@@ -916,6 +916,31 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     }
   });
 
+  await runTest('Nano Banana 파이프라인 — Gemini 3 Pro Image 우선 + 폴백 체인', () => {
+    const src = load('src/thumbnail.ts');
+    // 최신 모델 ID 3개 모두 존재
+    if (!src.includes("id: 'gemini-3-pro-image-preview'")) throw new Error('Gemini 3 Pro Image 모델 ID 누락');
+    if (!src.includes("id: 'gemini-3.1-flash-image-preview'")) throw new Error('Gemini 3.1 Flash Image 모델 ID 누락');
+    if (!src.includes("id: 'gemini-2.5-flash-image'")) throw new Error('Gemini 2.5 Flash Image 폴백 ID 누락');
+    // deprecated ID는 사용 안 함
+    if (src.includes("'gemini-2.5-flash-image-preview'")) throw new Error('Deprecated -preview 접미사 모델 잔존');
+    // 순서: Pro 우선 — IMAGE_MODELS 배열에서 Pro가 Flash보다 먼저
+    const proIdx = src.indexOf("id: 'gemini-3-pro-image-preview'");
+    const flashIdx = src.indexOf("id: 'gemini-3.1-flash-image-preview'");
+    if (proIdx < 0 || flashIdx < 0 || proIdx > flashIdx) {
+      throw new Error('파이프라인 순서 오류: Pro가 Flash보다 먼저여야 함');
+    }
+    // responseModalities 사용 (image+text)
+    if (!src.includes("responseModalities")) throw new Error('responseModalities 설정 누락');
+  });
+
+  await runTest('UI — Nano Banana Pro 라벨에 Gemini 3 명시', () => {
+    const html = load('electron/ui/index.html');
+    if (!html.includes('Gemini 3 Pro Image')) throw new Error('Gemini 3 Pro Image 라벨 누락');
+    // 모호한 옛 라벨이 남아있으면 안 됨
+    if (html.includes('Nano Banana Pro (Gemini API 유료)')) throw new Error('옛 라벨 잔존');
+  });
+
   await runTest('imageDispatcher — 모든 case 분기 + makeXxx 호출 일관', () => {
     const src = load('src/core/imageDispatcher.ts');
     // 7개 AI 엔진 case 분기 모두 있어야

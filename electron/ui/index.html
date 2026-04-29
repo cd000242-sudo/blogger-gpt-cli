@@ -550,8 +550,8 @@
                     onblur="this.style.borderColor='#e5e7eb'; this.style.backgroundColor='#f9fafb';">
                     <option value="auto" selected>⚙️ 자동 (썸네일 타입 따름)</option>
                     <option value="imagefx">🎨 이미지 FX (기본)</option>
-                    <option value="flow">🌊 Flow (Nano Banana Pro 무료 — AI Pro 구독 필요)</option>
-                    <option value="nanobananapro">🍌 Nano Banana Pro (Gemini API 유료)</option>
+                    <option value="flow">🌊 Flow (Gemini 3 Pro Image 무료 — AI Pro 구독 필요)</option>
+                    <option value="nanobananapro">🍌 Nano Banana Pro (Gemini 3 Pro Image · 4K · 유료)</option>
                     <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
                     <option value="dalle">🩹 덕트테이프 (OpenAI GPT-Image-2)</option>
                     <option value="none">❌ 썸네일 없음</option>
@@ -3608,8 +3608,8 @@
                       <label class="acc-label">📸 썸네일 타입</label>
                       <select id="thumbnailType">
                         <option value="imagefx" selected>🎨 이미지 FX (기본)</option>
-                        <option value="flow">🌊 Flow (Nano Banana Pro 무료 — AI Pro 구독 필요)</option>
-                        <option value="nanobananapro">🍌 Nano Banana Pro (Gemini API 유료)</option>
+                        <option value="flow">🌊 Flow (Gemini 3 Pro Image 무료 — AI Pro 구독 필요)</option>
+                        <option value="nanobananapro">🍌 Nano Banana Pro (Gemini 3 Pro Image · 4K · 유료)</option>
                         <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
                         <option value="dalle">🩹 덕트테이프 (OpenAI GPT-Image-2)</option>
                         <option value="none">❌ 썸네일 없음</option>
@@ -3619,8 +3619,8 @@
                       <label class="acc-label">🖼️ 소제목 이미지</label>
                       <select id="h2ImageSource">
                         <option value="imagefx" selected>🎨 이미지 FX (기본)</option>
-                        <option value="flow">🌊 Flow (Nano Banana Pro 무료 — AI Pro 구독 필요)</option>
-                        <option value="nanobananapro">🍌 Nano Banana Pro (Gemini API 유료)</option>
+                        <option value="flow">🌊 Flow (Gemini 3 Pro Image 무료 — AI Pro 구독 필요)</option>
+                        <option value="nanobananapro">🍌 Nano Banana Pro (Gemini 3 Pro Image · 4K · 유료)</option>
                         <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
                         <option value="dalle">🩹 덕트테이프 (OpenAI GPT-Image-2)</option>
                         <option value="none">❌ 이미지 없음</option>
@@ -5527,7 +5527,7 @@
               <select onchange="updateMultiAccountSetting('${account.id}', 'imageSource', this.value)" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 13px;">
                 <option value="imagefx" ${account.settings.imageSource === 'imagefx' ? 'selected' : ''}>🎨 이미지 FX</option>
                 <option value="flow" ${account.settings.imageSource === 'flow' ? 'selected' : ''}>🌊 Flow (무료)</option>
-                <option value="nanobananapro" ${account.settings.imageSource === 'nanobananapro' ? 'selected' : ''}>🍌 Nano Banana Pro</option>
+                <option value="nanobananapro" ${account.settings.imageSource === 'nanobananapro' ? 'selected' : ''}>🍌 Nano Banana Pro (Gemini 3)</option>
                 <option value="deepinfra" ${account.settings.imageSource === 'deepinfra' ? 'selected' : ''}>🔥 DeepInfra FLUX-2</option>
                 <option value="none" ${account.settings.imageSource === 'none' ? 'selected' : ''}>❌ 이미지 없음</option>
               </select>

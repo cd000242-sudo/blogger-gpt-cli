@@ -127,7 +127,7 @@ function buildModalHtml() {
           <option value="">썸네일 엔진 (변경 안 함)</option>
           <option value="imagefx">🎨 이미지 FX</option>
           <option value="flow">🌊 Flow</option>
-          <option value="nanobananapro">🍌 Nano Banana Pro</option>
+          <option value="nanobananapro">🍌 Nano Banana Pro (Gemini 3)</option>
           <option value="deepinfra">🔥 DeepInfra</option>
           <option value="dalle">🩹 덕트테이프 (GPT-Image-2)</option>
           <option value="none">❌ 썸네일 없음</option>
@@ -193,7 +193,7 @@ function buildItemRow(item, idx) {
   <select class="pq-item-thumb" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); color: white; border-radius: 6px; padding: 6px 8px; font-size: 11px;">
     <option value="imagefx" ${item.thumb === 'imagefx' ? 'selected' : ''}>이미지 FX</option>
     <option value="flow" ${item.thumb === 'flow' ? 'selected' : ''}>Flow</option>
-    <option value="nanobananapro" ${item.thumb === 'nanobananapro' ? 'selected' : ''}>Nano Banana Pro</option>
+    <option value="nanobananapro" ${item.thumb === 'nanobananapro' ? 'selected' : ''}>Nano Banana Pro (G3)</option>
     <option value="deepinfra" ${item.thumb === 'deepinfra' ? 'selected' : ''}>DeepInfra</option>
     <option value="dalle" ${item.thumb === 'dalle' ? 'selected' : ''}>덕트테이프</option>
     <option value="none" ${item.thumb === 'none' ? 'selected' : ''}>❌ 없음</option>
