@@ -916,6 +916,75 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     }
   });
 
+  // ═════════════════════════════════════════════════════════════════
+  // 🚀 RUNTIME DRY-RUN — 정적 검증과 다르게 함수를 실제로 호출하여 출력 검증
+  //   정적 검증("문자열 존재")으론 못 잡는 진짜 버그 차단:
+  //   - undefined.map TypeError 등 런타임 크래시
+  //   - 정규식이 실제 입력에 매치 안 되는 false negative
+  //   - JSON-LD가 valid JSON이 아닌 경우
+  // ═════════════════════════════════════════════════════════════════
+  await runTest('🚀 RUNTIME — buildEeatMeta 실행 → cite 변환 + 메타박스 생성', () => {
+    const { buildEeatMeta } = require('../dist/core/final/eeat-meta.js');
+    const html = `<p>통계청 KOSIS 자료에 따르면 가입자 증가.</p><p>한국소비자원 2026년 조사에 의하면 만족도 높음.</p><p>한국은행 ECOS 데이터 발표.</p><article>${'본문 더미 '.repeat(50)}</article>`;
+    const r = buildEeatMeta({ contentHtml: html, title: 'T', authorName: '리더남', publishedAt: new Date('2026-04-29') });
+    if (r.stats.citationCount < 3) throw new Error(`citation 부족: ${r.stats.citationCount}`);
+    if (!r.contentHtml.includes('<cite class="eeat-cite">')) throw new Error('cite 변환 미작동');
+    if (!r.metaBox.includes('리더남')) throw new Error('메타박스에 작성자 누락');
+    if (!r.metaBox.includes('2026년')) throw new Error('메타박스에 발행일 누락');
+  }, 5);
+
+  await runTest('🚀 RUNTIME — buildSchemaJsonLd 실행 → valid JSON-LD @graph', () => {
+    const { buildSchemaJsonLd } = require('../dist/core/final/schema-jsonld.js');
+    const r = buildSchemaJsonLd({
+      title: '테스트 글', authorName: '저자', siteName: '사이트', siteUrl: 'https://example.com',
+      publishedAt: new Date('2026-04-29')
+    });
+    if (!r.scriptTag.startsWith('<script type="application/ld+json">')) throw new Error('script 태그 형식 오류');
+    if (!r.scriptTag.includes('"@graph"')) throw new Error('@graph 누락');
+    if (!/"@type"\s*:\s*"(Article|BlogPosting)"/.test(r.scriptTag)) throw new Error('Article 노드 누락');
+    if (!/"@type"\s*:\s*"Person"/.test(r.scriptTag)) throw new Error('Person 노드 누락');
+    if (!/"@type"\s*:\s*"Organization"/.test(r.scriptTag)) throw new Error('Organization 노드 누락');
+    if (!/"@type"\s*:\s*"BreadcrumbList"/.test(r.scriptTag)) throw new Error('BreadcrumbList 노드 누락');
+    const jsonStr = r.scriptTag.replace(/^<script[^>]*>\s*/, '').replace(/\s*<\/script>$/, '');
+    try { JSON.parse(jsonStr); } catch (e) { throw new Error('JSON 파싱 실패: ' + e.message); }
+    if (r.nodeCount < 4) throw new Error(`nodeCount 부족: ${r.nodeCount}`);
+  }, 5);
+
+  await runTest('🚀 RUNTIME — scanAdsensePolicy 실행 → 위반 정확 감지', () => {
+    const { scanAdsensePolicy } = require('../dist/core/final/policy-scanner.js');
+    // 정상
+    const safe = scanAdsensePolicy('<p>청년도약계좌 안내. 통계청 KOSIS 자료.</p>');
+    if (!safe.safe) throw new Error('정상 콘텐츠가 위반 판정됨');
+    // 저작권 위반
+    const v1 = scanAdsensePolicy('<p>토렌트 사이트에서 영화 무료 다운 가능</p>');
+    if (v1.violations.length === 0) throw new Error('저작권 위반 감지 실패 (토렌트/무료다운)');
+    // 과장 — 실제 사용자 문구
+    const v2 = scanAdsensePolicy('<p>무조건 100% 수익 보장!</p>');
+    if (v2.violations.length === 0) throw new Error('과장 표현 감지 실패 (무조건 100% 수익 보장)');
+    const v3 = scanAdsensePolicy('<p>100% 환급 보장</p>');
+    if (v3.violations.length === 0) throw new Error('과장 표현 감지 실패 (100% 환급 보장)');
+  }, 5);
+
+  await runTest('🚀 RUNTIME — buildAdsenseSectionPrompt 실행 → KOSIS 인용 강제 + 크래시 없음', () => {
+    const { buildAdsenseSectionPrompt } = require('../dist/core/content-modes/adsense/adsense-prompt-builder.js');
+    // 최소 fixture (caller가 일부 필드 누락 시뮬)
+    const p1 = buildAdsenseSectionPrompt({
+      section: { id: 'main', title: '핵심', role: '가이드', contentFocus: '개요', minChars: 1000 },
+      subtopic: '소제목', keywords: ['청년도약계좌'], topic: '청년도약계좌',
+      timestamp: Date.now(), randomSeed: 'r1', authorInfo: { name: '저자' }, trendKeywords: [], draftContext: ''
+    });
+    if (typeof p1 !== 'string' || p1.length < 500) throw new Error('프롬프트 미생성');
+    if (!p1.includes('통계청 KOSIS')) throw new Error('KOSIS 인용 강제 누락');
+    if (!p1.includes('한국소비자원')) throw new Error('한국소비자원 누락');
+    if (!p1.includes('가짜 통계 절대 금지') && !p1.includes('추측·가짜 통계 절대 금지')) throw new Error('환각 방지 누락');
+    // requiredElements/keywords 누락 시 크래시 안 남
+    const p2 = buildAdsenseSectionPrompt({
+      section: { id: 'x', title: 't', role: 'r', contentFocus: 'f', minChars: 800 },
+      subtopic: 's', topic: 'tp'
+    });
+    if (typeof p2 !== 'string') throw new Error('빈 fixture에서 크래시 (이전 회귀)');
+  }, 5);
+
   await runTest('AdSense 90% 승인 강화 — end-to-end chain 박제', () => {
     // ① UI: contentMode select에 change 핸들러가 localStorage 저장
     const html = load('electron/ui/index.html');

@@ -117,12 +117,27 @@ const REJECTION_PREVENTION = `
  * 섹션 프롬프트 생성 — 애드센스 전용
  */
 export function buildAdsenseSectionPrompt(params: PromptParams): string {
+    // 🛡️ 모든 호출자가 모든 필드를 채워주지는 않음 — 누락 시 빈 값으로 안전 폴백.
+    //    이전 회귀: caller가 keywords/section.requiredElements를 빠뜨리면 .join/.map에서 TypeError로
+    //    프롬프트 빌드 자체가 크래시 → orchestration.ts catch가 폴백 콘텐츠로 떨어짐 → 사용자가 본 H2 6개 동일 보일러플레이트의 진짜 원인 중 하나.
     const {
-        topic, keywords, section, subtopic,
-        platform, toneStyle, targetYear,
-        draftContext, timestamp, randomSeed, trendKeywords,
+        topic = '',
+        keywords = [],
+        section = {} as any,
+        subtopic = '',
+        platform,
+        toneStyle,
+        targetYear,
+        draftContext,
+        timestamp,
+        randomSeed,
+        trendKeywords,
         authorInfo,
-    } = params;
+    } = params || ({} as any);
+    const safeKeywords: string[] = Array.isArray(keywords) ? keywords : [];
+    const safeRequiredElements: string[] = Array.isArray((section as any)?.requiredElements)
+        ? (section as any).requiredElements
+        : [];
 
     const uniqueId = generateUniqueContentId(timestamp, randomSeed);
     const yearGuide = buildYearGuideline(targetYear);
@@ -187,12 +202,12 @@ ${yearGuide}
 ${toneGuide}
 ${authorInstruction}
 
-📌 **섹션**: ${section.title}
+📌 **섹션**: ${(section as any)?.title || ''}
 🔍 **소제목**: ${subtopic}
-👤 **역할**: ${section.role}
-🎯 **콘텐츠 포커스**: ${section.contentFocus}
-📊 **참고 글자수**: ${section.minChars}자 (글의 질이 최우선, 억지로 맞추지 마세요)
-🔑 **키워드**: ${keywords.join(', ')}
+👤 **역할**: ${(section as any)?.role || ''}
+🎯 **콘텐츠 포커스**: ${(section as any)?.contentFocus || ''}
+📊 **참고 글자수**: ${(section as any)?.minChars || 800}자 (글의 질이 최우선, 억지로 맞추지 마세요)
+🔑 **키워드**: ${safeKeywords.join(', ')}
 📝 **주제**: ${topic}
 ${trendInfo}
 ${sourceMandate}
@@ -205,7 +220,9 @@ ${REJECTION_PREVENTION}
 ${faqSchemaInstruction}
 
 ✅ **필수 포함 요소** (이 섹션에서 반드시 다뤄야 할 내용):
-${section.requiredElements.map((el, i) => `${i + 1}. ${el}`).join('\n')}
+${safeRequiredElements.length > 0
+    ? safeRequiredElements.map((el, i) => `${i + 1}. ${el}`).join('\n')
+    : '(섹션 정의에 별도 필수 요소 없음 — 위 콘텐츠 포커스에 맞춰 자유롭게 작성)'}
 
 ⚠️ **핵심 원칙**:
 - 글의 질과 완성도가 모든 것보다 중요합니다
