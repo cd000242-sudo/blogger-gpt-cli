@@ -916,6 +916,49 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     }
   });
 
+  await runTest('H1 연도 복구기 — 한글 합성어(청년/노년/작년) 보호', () => {
+    // orchestration.ts의 정규식이 한글 합성어를 깨뜨리지 않는지 검증
+    const src = load('src/core/final/orchestration.ts');
+    // 새 정규식 시그니처 존재
+    if (!src.includes("(?<!\\d)(^|\\s)년(?=\\s|$)")) {
+      throw new Error('H1 repairTitleYear 안전 정규식 누락');
+    }
+    // 옛 위험 패턴이 남아있으면 안 됨
+    if (src.includes("(?<!\\d\\s*)(\\s*)년(?=[\\s가-힣A-Za-z0-9])")) {
+      throw new Error('옛 위험 정규식 잔존 — 한글 합성어 깨뜨림');
+    }
+    // 시뮬레이션: 안전 정규식 동작 검증
+    const Y = 2026;
+    const repair = (t) => t.replace(/(?<!\d)(^|\s)년(?=\s|$)/g, (_m, p) => `${p}${Y}년`);
+    const cases = [
+      ['청년도약계좌', '청년도약계좌'],          // 한글 합성어 보호 (이전 버그: '청2026년도약계좌')
+      ['노년 보험 가이드', '노년 보험 가이드'],   // 한글-년 단어 끝 보호
+      ['작년 데이터', '작년 데이터'],
+      ['2026년 정부정책', '2026년 정부정책'],   // 숫자-년 보호
+      ['년 정부정책', '2026년 정부정책'],       // 선두 단독 → 치환
+      ['올해 년 달라진 것', '올해 2026년 달라진 것'], // 중간 단독 → 치환
+      ['2026 년 조회', '2026 년 조회'],         // 숫자+공백+년 보호
+      ['3년차 직장인', '3년차 직장인'],
+    ];
+    for (const [input, expected] of cases) {
+      const got = repair(input);
+      if (got !== expected) throw new Error(`H1 정규식 실패: "${input}" → "${got}" (예상: "${expected}")`);
+    }
+  });
+
+  await runTest('publish-queue — 즉시 순차 발행 시 change 이벤트 dispatch + busy 대기', () => {
+    const src = load('electron/ui/modules/publish-queue.js');
+    // change 이벤트 dispatch (페이로드 빌더 동기화)
+    if (!src.includes("dispatchEvent(new Event('change'")) throw new Error("change 이벤트 dispatch 누락");
+    if (!src.includes("dispatchEvent(new Event('input'")) throw new Error("input 이벤트 dispatch 누락");
+    // contentMode/thumbnailType/h2ImageSource/ctaMode 모두 sync
+    if (!src.includes("h2ImageSource")) throw new Error('h2ImageSource sync 누락');
+    if (!src.includes('input[name="ctaMode"]')) throw new Error('ctaMode 라디오 sync 누락');
+    // 발행 완료 대기 (busy 폴링)
+    if (!src.includes('!btn.disabled')) throw new Error('btn.disabled 폴링 누락');
+    if (!src.includes('maxWaitMs')) throw new Error('maxWaitMs 타임아웃 누락');
+  });
+
   await runTest('Nano Banana 파이프라인 — Gemini 3 Pro Image 우선 + 폴백 체인', () => {
     const src = load('src/thumbnail.ts');
     // 최신 모델 ID 3개 모두 존재

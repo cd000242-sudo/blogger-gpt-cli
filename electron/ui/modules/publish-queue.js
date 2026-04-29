@@ -369,26 +369,80 @@ function bindModalEvents() {
       : intervalMs >= 60_000
         ? `${(intervalMs / 60_000).toFixed(1)}분`
         : `${(intervalMs / 1000).toFixed(0)}초`;
-    if (!confirm(`${enabled.length}개 키워드를 즉시 순차 발행합니다.\n각 글 사이 간격: ${intervalLabel}\n\n진행할까요?`)) return;
+    if (!confirm(`${enabled.length}개 키워드를 즉시 순차 발행합니다.\n각 글 사이 간격: ${intervalLabel}\n(이전 발행 완료 후 추가 대기)\n\n진행할까요?`)) return;
     close();
 
     for (let i = 0; i < enabled.length; i++) {
       const it = enabled[i];
-      console.log(`[QUEUE] 🚀 ${i + 1}/${enabled.length}: ${it.keyword} (${it.mode}/${it.thumb}) — 다음까지 ${intervalLabel}`);
+      console.log(`[QUEUE] 🚀 ${i + 1}/${enabled.length}: ${it.keyword} (${it.mode}/${it.thumb})`);
+
+      // 1) 키워드 textarea — input 이벤트도 dispatch (DOMCache/state 동기화)
       const ta = document.getElementById('keywordInput');
-      if (ta) ta.value = it.keyword;
+      if (ta) {
+        ta.value = it.keyword;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        ta.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      // 2) contentMode select — change 이벤트 필수 (페이로드 빌더가 change 리스너로 상태 업데이트)
       const cmSel = document.getElementById('contentMode');
-      if (cmSel) cmSel.value = it.mode;
+      if (cmSel) {
+        cmSel.value = it.mode;
+        cmSel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      // 3) thumbnail engine select
       const thumbSel = document.getElementById('thumbnailType');
-      if (thumbSel) thumbSel.value = it.thumb;
+      if (thumbSel) {
+        thumbSel.value = it.thumb;
+        thumbSel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      // 4) h2ImageSource select (애드센스 모드는 H2 이미지도 함께 적용)
+      const h2Sel = document.getElementById('h2ImageSource');
+      if (h2Sel) {
+        h2Sel.value = it.thumb;
+        h2Sel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      // 5) ctaMode 라디오
+      const ctaRadio = document.querySelector(`input[name="ctaMode"][value="${it.ctaMode}"]`);
+      if (ctaRadio) {
+        ctaRadio.checked = true;
+        ctaRadio.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      // DOMCache 동기화를 위한 마이크로 대기
+      await new Promise(r => setTimeout(r, 200));
+
       const btn = document.getElementById('publishBtn') || document.querySelector('[data-action="publish"]');
-      if (btn) btn.click();
-      // 마지막 항목은 대기하지 않음
+      if (!btn) {
+        console.error('[QUEUE] ❌ publishBtn 미발견 — 중단');
+        alert('❌ 발행 버튼을 찾지 못했습니다. 콘솔 확인.');
+        return;
+      }
+      btn.click();
+      console.log(`[QUEUE] ⏳ ${i + 1}번 발행 시작 — 완료 대기 중...`);
+
+      // 발행 완료 대기 — publishBtn disabled 해제 또는 최대 30분 대기
+      const maxWaitMs = 30 * 60 * 1000;
+      const pollMs = 2000;
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < maxWaitMs) {
+        await new Promise(r => setTimeout(r, pollMs));
+        // 버튼이 다시 활성화되면 발행 완료
+        if (!btn.disabled && !btn.classList.contains('disabled') && !btn.hasAttribute('aria-busy')) {
+          console.log(`[QUEUE] ✅ ${i + 1}번 발행 완료 감지 (${((Date.now() - startedAt) / 1000).toFixed(0)}초)`);
+          break;
+        }
+      }
+      if (Date.now() - startedAt >= maxWaitMs) {
+        console.warn(`[QUEUE] ⚠️ ${i + 1}번 발행 30분 타임아웃 — 다음으로 진행`);
+      }
+
+      // 마지막이 아니면 사용자 지정 간격만큼 추가 대기 (양산 패턴 회피)
       if (i < enabled.length - 1) {
+        console.log(`[QUEUE] ⏰ 다음 항목까지 ${intervalLabel} 대기...`);
         await new Promise(r => setTimeout(r, intervalMs));
       }
     }
-    alert(`✅ 큐 ${enabled.length}개 발행 트리거 완료. 진행 상황은 로그/스케줄 탭에서 확인하세요.`);
+    alert(`✅ 큐 ${enabled.length}개 발행 완료. 로그/스케줄 탭에서 확인하세요.`);
   });
 }
 

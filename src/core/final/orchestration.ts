@@ -362,23 +362,25 @@ export async function generateUltimateMaxModeArticleFinal(
     const subheadings = crawledPosts.flatMap(p => p.subheadings);
 
     // 2. H1 생성 — 🔥 키워드 제목 옵션 체크박스 반영
-    // 🛡️ 제목 연도 복구기 — "년"이 숫자 없이 제목에 떠 있으면 currentYear를 주입.
-    //    단일 negative-lookbehind 패턴으로 다음을 모두 커버:
-    //      (a) "년 정부..." (선두 bare 년) → "{year}년 정부..."
-    //      (b) "올해 년 달라진..." (중간 bare 년) → "올해 {year}년 달라진..."
-    //      (c) "3년차", "20년 만에", "2026년 정부" (숫자-년) → 건드리지 않음
-    //      (d) "2026 년 조회" (숫자+공백+년) → "2026 {year}년 조회"가 되지 않도록 공백 앞 숫자도 차단
+    // 🛡️ 제목 연도 복구기 — 단독 토큰 '년'에만 currentYear 주입.
+    //    단독 토큰 = (문장 시작 또는 공백) + '년' + (공백 또는 문장 끝)
+    //    한글 합성어(청년/노년/작년/내년/올해)는 '년'이 한글 직후라 매치되지 않아 안전.
+    //
+    //    예시:
+    //      (a) "년 정부정책" (선두 단독)         → "2026년 정부정책" ✓
+    //      (b) "올해 년 달라진" (중간 단독)      → "올해 2026년 달라진" ✓
+    //      (c) "청년도약계좌" (한글합성어)        → 변경 없음 ✓ (이전 버그: "청2026년도약계좌")
+    //      (d) "노년 보험" (단어 끝 한글+년)     → 변경 없음 ✓ (`년` 앞이 한글)
+    //      (e) "3년차", "20년 만에", "2026년" (숫자-년) → 변경 없음 ✓
+    //      (f) "2026 년 조회" (숫자+공백+년)     → 변경 없음 ✓ (digit-space lookbehind)
     const currentYearForTitle = new Date().getFullYear();
     const repairTitleYear = (title: string): string => {
       if (!title) return title;
-      // Variable-length lookbehind `(?<!\d\s*)`: `년` 앞으로 임의 공백을 허용한 구간 직전이 숫자면 치환 차단.
-      //   - "2026년" (공백 0) → 차단: `(?<!\d\s*)` 매칭 시 \d\s{0} = "6" → 매치 → 부정 lookbehind 실패 → 치환 안 함 ✓
-      //   - "2026 년" (공백 1) → 차단: \d\s{1} = "6 " → 매치 → 실패 → 치환 안 함 ✓
-      //   - "3년차" / "20년" → 차단 ✓
-      //   - "년 정부" (선두) → 치환: 앞에 아무것도 없음 → 부정 lookbehind 성공 → `{year}년 정부` ✓
-      //   - "올해 년 달라진" (중간) → 치환: `년` 앞 공백 직전이 `해`(비숫자) → 성공 → 치환 ✓
-      return title.replace(/(?<!\d\s*)(\s*)년(?=[\s가-힣A-Za-z0-9])/g,
-        (_m, leadingSpace: string) => `${leadingSpace}${currentYearForTitle}년`
+      // 패턴: (문장시작 OR 공백)년(공백 OR 문장끝)
+      //   매치는 (^|\s) 위치에서 시작하므로 lookbehind `(?<!\d)`는 그 직전 한 글자가
+      //   숫자인지만 검사하면 충분 (예: "2026 년" — 매치는 공백 위치 시작 → 직전 '6' 차단)
+      return title.replace(/(?<!\d)(^|\s)년(?=\s|$)/g,
+        (_m, prefix: string) => `${prefix}${currentYearForTitle}년`
       );
     };
 
