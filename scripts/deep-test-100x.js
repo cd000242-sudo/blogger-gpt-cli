@@ -946,7 +946,7 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     }
   });
 
-  await runTest('publish-queue — 즉시 순차 발행 시 change 이벤트 dispatch + busy 대기', () => {
+  await runTest('publish-queue — 즉시 순차 발행 시 change 이벤트 dispatch + 완료 이벤트 await', () => {
     const src = load('electron/ui/modules/publish-queue.js');
     // change 이벤트 dispatch (페이로드 빌더 동기화)
     if (!src.includes("dispatchEvent(new Event('change'")) throw new Error("change 이벤트 dispatch 누락");
@@ -954,9 +954,37 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     // contentMode/thumbnailType/h2ImageSource/ctaMode 모두 sync
     if (!src.includes("h2ImageSource")) throw new Error('h2ImageSource sync 누락');
     if (!src.includes('input[name="ctaMode"]')) throw new Error('ctaMode 라디오 sync 누락');
-    // 발행 완료 대기 (busy 폴링)
-    if (!src.includes('!btn.disabled')) throw new Error('btn.disabled 폴링 누락');
+    // 발행 완료 — CustomEvent 기반 (publishBtn은 disabled 안 되므로 폴링 불가)
+    if (!src.includes("'bgpt:publish-complete'")) throw new Error('bgpt:publish-complete 이벤트 listener 누락');
+    if (!src.includes('addEventListener')) throw new Error('addEventListener 미사용');
+    if (!src.includes('removeEventListener')) throw new Error('removeEventListener 미사용 (leak 위험)');
     if (!src.includes('maxWaitMs')) throw new Error('maxWaitMs 타임아웃 누락');
+    // 옛 폴링 잔존 금지
+    if (src.includes('!btn.disabled && !btn.classList.contains')) throw new Error('옛 disabled 폴링 잔존 — CustomEvent로 교체되어야 함');
+  });
+
+  await runTest('posting.js — runPosting/publishToPlatform finally에서 bgpt:publish-complete 발사', () => {
+    const src = load('electron/ui/modules/posting.js');
+    const occurrences = (src.match(/bgpt:publish-complete/g) || []).length;
+    if (occurrences < 2) throw new Error(`bgpt:publish-complete 발사 ${occurrences}회 — 최소 2회 (runPosting + publishToPlatform finally) 필요`);
+    if (!src.includes("dispatchEvent(new CustomEvent('bgpt:publish-complete'")) throw new Error('CustomEvent 발사 누락');
+    // source 식별자
+    if (!src.includes("source: 'runPosting'")) throw new Error('runPosting source 누락');
+    if (!src.includes("source: 'publishToPlatform'")) throw new Error('publishToPlatform source 누락');
+  });
+
+  await runTest('generation.ts — 폴백 사일런트 페일 차단 (보일러플레이트 × N 발행 방지)', () => {
+    const src = load('src/core/final/generation.ts');
+    // 옛 폴백 보일러플레이트 텍스트 잔존 금지
+    if (src.includes('기초 개념부터 차근차근 이해하는 게 핵심이에요')) {
+      throw new Error('옛 폴백 보일러플레이트 잔존 — H2 N개가 동일 텍스트로 채워질 위험');
+    }
+    if (src.includes('가장 흔한 실수는 너무 급하게 진행하는 거예요')) {
+      throw new Error('옛 폴백 보일러플레이트 잔존 (주의사항)');
+    }
+    // throw 기반 명시적 실패
+    if (!src.includes('섹션 콘텐츠 생성 실패')) throw new Error('명시적 throw 메시지 누락');
+    if (!src.includes('폴백 콘텐츠는 모든 H2가 동일')) throw new Error('차단 사유 설명 누락');
   });
 
   await runTest('Nano Banana 파이프라인 — Gemini 3 Pro Image 우선 + 폴백 체인', () => {

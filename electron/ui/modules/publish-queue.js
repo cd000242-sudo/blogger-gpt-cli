@@ -417,23 +417,33 @@ function bindModalEvents() {
         alert('❌ 발행 버튼을 찾지 못했습니다. 콘솔 확인.');
         return;
       }
-      btn.click();
-      console.log(`[QUEUE] ⏳ ${i + 1}번 발행 시작 — 완료 대기 중...`);
-
-      // 발행 완료 대기 — publishBtn disabled 해제 또는 최대 30분 대기
+      // 발행 완료 이벤트(`bgpt:publish-complete`) await — posting.js finally에서 발사
+      // (publishBtn은 'ButtonStateManager.setLoading'에서 의도적으로 disabled=false로 유지되므로
+      //  disabled 폴링은 불가. CustomEvent 기반이 유일하게 신뢰 가능한 시그널.)
       const maxWaitMs = 30 * 60 * 1000;
-      const pollMs = 2000;
       const startedAt = Date.now();
-      while (Date.now() - startedAt < maxWaitMs) {
-        await new Promise(r => setTimeout(r, pollMs));
-        // 버튼이 다시 활성화되면 발행 완료
-        if (!btn.disabled && !btn.classList.contains('disabled') && !btn.hasAttribute('aria-busy')) {
-          console.log(`[QUEUE] ✅ ${i + 1}번 발행 완료 감지 (${((Date.now() - startedAt) / 1000).toFixed(0)}초)`);
-          break;
-        }
-      }
-      if (Date.now() - startedAt >= maxWaitMs) {
+      const completion = new Promise((resolve) => {
+        const handler = (e) => {
+          window.removeEventListener('bgpt:publish-complete', handler);
+          clearTimeout(timer);
+          resolve({ timeout: false, detail: e?.detail });
+        };
+        const timer = setTimeout(() => {
+          window.removeEventListener('bgpt:publish-complete', handler);
+          resolve({ timeout: true });
+        }, maxWaitMs);
+        window.addEventListener('bgpt:publish-complete', handler);
+      });
+
+      btn.click();
+      console.log(`[QUEUE] ⏳ ${i + 1}번 발행 시작 — bgpt:publish-complete 이벤트 대기...`);
+
+      const result = await completion;
+      const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(0);
+      if (result.timeout) {
         console.warn(`[QUEUE] ⚠️ ${i + 1}번 발행 30분 타임아웃 — 다음으로 진행`);
+      } else {
+        console.log(`[QUEUE] ✅ ${i + 1}번 발행 완료 감지 (${elapsedSec}초, source=${result.detail?.source || 'unknown'})`);
       }
 
       // 마지막이 아니면 사용자 지정 간격만큼 추가 대기 (양산 패턴 회피)

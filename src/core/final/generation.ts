@@ -714,22 +714,18 @@ JSON만 출력:
     };
 
   } catch (e) {
-    console.error('[generateAllSectionsFinal] 실패:', e);
-    onLog?.('[PROGRESS] 50% - ⚠️ 폴백 콘텐츠 사용');
-
-    // 폴백: 기본 콘텐츠 (허위 통계 제거 — 검증 불가능한 수치 사용 금지)
-    return {
-      introduction: `<p>${keyword}에 대해 궁금하셨죠? 처음엔 어디서부터 시작해야 할지 막막할 수 있어요. 이 글에서 핵심만 정리해드릴게요.</p>`,
-      conclusion: `<p>${keyword}에 대해 핵심 내용을 정리해봤어요. 하나씩 실천해보시면 분명 도움이 될 거예요.</p>`,
-      sections: h2Titles.map((h2) => ({
-        h2,
-        h3Sections: [
-          { h3: '핵심 포인트', content: `<p>${keyword} 관련해서 가장 중요한 부분을 정리해드릴게요. 기초 개념부터 차근차근 이해하는 게 핵심이에요.</p><p>1단계: 먼저 개념을 정확히 파악하기. 2단계: 실제 사례로 확인하기. 3단계: 직접 적용해보기. 이 순서대로 진행하면 훨씬 수월해요.</p>`, tables: [] },
-          { h3: '실전 가이드', content: `<p>실제로 적용할 때는 작은 것부터 시작하는 게 좋아요. 처음부터 큰 걸 하려면 부담이 되거든요.</p><p>구체적인 방법: 가장 기본적인 것부터 시작하고, 꾸준히 진행하면서 결과를 기록해보세요. 개선점이 자연스럽게 보일 거예요.</p>`, tables: [] },
-          { h3: '주의사항', content: `<p>가장 흔한 실수는 너무 급하게 진행하는 거예요. 기초를 놓치면 나중에 다시 처음부터 해야 할 수 있어요.</p><p>체크리스트: 기초 개념 이해 완료, 단계별 진행 여부, 결과 기록 여부. 이것만 확인해도 불필요한 시행착오를 줄일 수 있어요.</p>`, tables: [] },
-        ]
-      }))
-    };
+    // 🚨 LLM 실패 시 폴백을 사용하면 H2 N개가 모두 동일 보일러플레이트로 채워져
+    //    SEO/UX 모두 치명적. 사일런트 페일 대신 명시적으로 throw하여 사용자가
+    //    재시도하거나 LLM 키/할당량을 점검하도록 유도.
+    const errMsg = e instanceof Error ? e.message : String(e);
+    console.error('[generateAllSectionsFinal] LLM 섹션 생성 실패:', errMsg);
+    onLog?.(`[PROGRESS] 50% - ❌ LLM 섹션 생성 실패: ${errMsg.slice(0, 200)}`);
+    onLog?.('[PROGRESS] 50% - 💡 가능한 원인: LLM API 키 누락/만료, 할당량 초과, 네트워크 오류, JSON 파싱 실패');
+    throw new Error(
+      `섹션 콘텐츠 생성 실패: ${errMsg}\n` +
+      `폴백 콘텐츠는 모든 H2가 동일 보일러플레이트가 되어 SEO/UX에 치명적이므로 발행을 차단합니다.\n` +
+      `대처: ① API 키 확인 (Gemini/OpenAI/Perplexity) ② 할당량 확인 ③ 키워드 단순화 후 재시도`
+    );
   }
 }
 

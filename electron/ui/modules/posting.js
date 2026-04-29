@@ -376,6 +376,12 @@ export async function runPosting() {
     ButtonStateManager.setEnabled('runBtn', true);
     ButtonStateManager.restore('publishBtn');
     debugLog('POSTING', '상태 복구 완료');
+    // 🔥 큐 연동 — 연속발행 모드가 다음 항목으로 진행하도록 완료 이벤트 발사
+    try {
+      window.dispatchEvent(new CustomEvent('bgpt:publish-complete', {
+        detail: { source: 'runPosting', ts: Date.now() }
+      }));
+    } catch {}
   }
 }
 
@@ -435,9 +441,15 @@ export async function publishToPlatform() {
       setRunning(false);
       ButtonStateManager.restore('publishBtn');
       hideProgressModal();
+      // 🔥 큐 연동
+      try {
+        window.dispatchEvent(new CustomEvent('bgpt:publish-complete', {
+          detail: { source: 'publishToPlatform', ts: Date.now() }
+        }));
+      } catch {}
     }
   } else {
-    // 콘텐츠가 없으면 전체 생성+발행 흐름
+    // 콘텐츠가 없으면 전체 생성+발행 흐름 (runPosting의 finally가 이벤트 발사)
     await runPosting();
   }
 }
