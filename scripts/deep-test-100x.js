@@ -916,6 +916,71 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     }
   });
 
+  await runTest('AdSense 90% 승인 강화 — end-to-end chain 박제', () => {
+    // ① UI: contentMode select에 change 핸들러가 localStorage 저장
+    const html = load('electron/ui/index.html');
+    if (!html.includes("localStorage.setItem('contentMode', this.value)")) {
+      throw new Error('#contentMode change → localStorage 저장 누락 (publish-queue dispatchEvent가 무용지물 됨)');
+    }
+
+    // ② 페이로드 빌더: localStorage 1순위 + change 핸들러 결과 사용
+    const posting = load('electron/ui/modules/posting.js');
+    if (!posting.includes("localStorage.getItem('contentMode')")) {
+      throw new Error('posting.js — contentMode localStorage 읽기 누락');
+    }
+    if (!posting.includes('contentMode: contentModeValue')) {
+      throw new Error('posting.js — IPC 페이로드에 contentMode 포함 누락');
+    }
+
+    // ③ publish-queue: change 이벤트 dispatch (localStorage 핸들러 트리거)
+    const queue = load('electron/ui/modules/publish-queue.js');
+    if (!queue.includes("dispatchEvent(new Event('change'")) {
+      throw new Error('publish-queue — change 이벤트 dispatch 누락 (DOM만 변경되고 localStorage 미동기)');
+    }
+
+    // ④ orchestration: contentMode='adsense' 시 5개 강화 모듈 자동 ON
+    const orch = load('src/core/final/orchestration.ts');
+    if (!orch.includes("payload?.contentMode === 'adsense'")) throw new Error('자동 강화 분기 누락');
+    if (!orch.includes('payload.llmRotation = payload.llmRotation !== false')) throw new Error('LLM 로테이션 자동 ON 누락');
+    if (!orch.includes('payload.adsenseScoreGate = payload.adsenseScoreGate !== false')) throw new Error('점수 게이트 자동 ON 누락');
+    if (!orch.includes('payload.adsenseMinScore = Number(payload.adsenseMinScore) || 70')) throw new Error('임계값 70 자동 설정 누락');
+    if (!orch.includes('payload.adsensePolicyScan = payload.adsensePolicyScan !== false')) throw new Error('정책 스캔 자동 ON 누락');
+
+    // ⑤ orchestration: EEAT 메타박스 chain (placeholder 삽입 → buildEeatMeta → metaBox 치환)
+    if (!orch.includes('<!-- EEAT_META_PLACEHOLDER -->')) throw new Error('EEAT placeholder 삽입 누락');
+    if (!orch.includes('buildEeatMeta({')) throw new Error('buildEeatMeta 호출 누락');
+    if (!orch.includes("'<!-- EEAT_META_PLACEHOLDER -->', eeat.metaBox")) throw new Error('EEAT placeholder → metaBox 치환 누락');
+
+    // ⑥ orchestration: Schema.org JSON-LD 자동 삽입
+    if (!orch.includes('buildSchemaJsonLd({')) throw new Error('buildSchemaJsonLd 호출 누락');
+    if (!orch.includes('schema.scriptTag')) throw new Error('JSON-LD <script> 태그 삽입 누락');
+
+    // ⑦ orchestration: AdSense 정책 스캔 (adsense 모드 강제 + warn/block 분기)
+    if (!orch.includes("contentMode === 'adsense' || payload?.adsensePolicyScan === true")) {
+      throw new Error('정책 스캔 호출 분기 누락 (adsense 모드 강제 안 됨)');
+    }
+    if (!orch.includes('scanAdsensePolicy(html)')) throw new Error('scanAdsensePolicy 호출 누락');
+
+    // ⑧ adsense-prompt-builder: SOURCE_MANDATE가 실제 프롬프트에 결합
+    const prompt = load('src/core/content-modes/adsense/adsense-prompt-builder.ts');
+    if (!prompt.includes('sourceMandate')) throw new Error('sourceMandate 변수 누락');
+    if (!prompt.includes('통계청 KOSIS') || !prompt.includes('한국소비자원')) {
+      throw new Error('한국 공공/기관 출처 인용 예시 누락');
+    }
+    // 프롬프트 본문에 ${sourceMandate} 결합 확인
+    if (!prompt.includes('${sourceMandate}')) {
+      throw new Error('sourceMandate가 프롬프트에 결합되지 않음 (변수만 정의되고 미사용)');
+    }
+
+    // ⑨ adsense-mode plugin 등록 + max-mode side-effect import
+    const adsense = load('src/core/content-modes/adsense/adsense-mode.ts');
+    if (!adsense.includes('registerMode(adsenseModePlugin)')) throw new Error('adsense plugin 자동 등록 누락');
+    const maxIdx = load('src/core/max-mode/index.ts');
+    if (!maxIdx.includes("'../content-modes/adsense/adsense-mode'")) {
+      throw new Error('max-mode/index.ts에서 adsense-mode side-effect import 누락 (registerMode 미실행)');
+    }
+  });
+
   await runTest('H1 연도 복구기 — 한글 합성어(청년/노년/작년) 보호', () => {
     // orchestration.ts의 정규식이 한글 합성어를 깨뜨리지 않는지 검증
     const src = load('src/core/final/orchestration.ts');
