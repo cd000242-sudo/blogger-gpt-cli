@@ -57,6 +57,48 @@ export async function generateUltimateMaxModeArticleFinal(
   // 🖼️ 썸네일 엔진 엄격 모드 — 기본 OFF (다른 AI로 자동 폴백이 합리적)
   process.env['STRICT_THUMBNAIL_ENGINE'] = payload?.strictThumbnailEngine === true ? 'true' : 'false';
 
+  // 🆕 URL 이미지 자동 수집 (cd000242-sudo/naver v2.7.77 이식)
+  //    payload.urlImageSource = { url, aiCheckEnabled, aiFillEnabled, threshold }
+  //    수집 결과를 payload.manualCrawlUrls 풀에 합류하여 이후 imageDispatcher가 활용
+  if (payload?.urlImageSource?.url && /^https?:\/\//i.test(payload.urlImageSource.url)) {
+    try {
+      const { crawlAndCollect } = require('../url-image-crawler');
+      const { app } = require('electron');
+      const downloadsBase = (app && typeof app.getPath === 'function') ? app.getPath('downloads') : (process.env['USERPROFILE'] || '.') + '/Downloads';
+      onLog?.(`[PROGRESS] 1% - 🔗 URL 이미지 자동 수집 시작: ${String(payload.urlImageSource.url).slice(0, 80)}`);
+      const apiKeys = {
+        gemini: env?.GEMINI_API_KEY,
+        claude: env?.CLAUDE_API_KEY || env?.ANTHROPIC_API_KEY,
+        openai: env?.OPENAI_API_KEY,
+      };
+      const urlResult = await crawlAndCollect({
+        url: payload.urlImageSource.url,
+        postTitle: payload.keyword || payload.topic || '제목없음',
+        mainKeyword: payload.keyword || payload.topic || '',
+        downloadsBase,
+        projectName: 'LEADERNAM-Orbit',
+        aiCheckEnabled: !!payload.urlImageSource.aiCheckEnabled,
+        textGenerator: payload.provider || 'gemini-2.5-flash',
+        apiKeys,
+        threshold: Number(payload.urlImageSource.threshold) || 60,
+      });
+      if (urlResult.ok && urlResult.acceptedImages?.length > 0) {
+        const accepted: string[] = urlResult.acceptedImages;
+        // manualCrawlUrls에 통합 (orchestration이 이미 활용하는 풀)
+        payload.manualCrawlUrls = [...(payload.manualCrawlUrls || []), ...accepted];
+        onLog?.(`[PROGRESS] 3% - ✅ URL 이미지 ${accepted.length}개 수집 (raw ${urlResult.rawImages.length}개, vision ₩${urlResult.costKrw}, → ${urlResult.saveDir})`);
+        // aiFillEnabled가 false면 부족분 AI 생성 차단
+        if (payload.urlImageSource.aiFillEnabled === false) {
+          payload.h2ImageSource = 'none';
+        }
+      } else if (urlResult.error) {
+        onLog?.(`[PROGRESS] 3% - ⚠️ URL 이미지 수집 실패(폴백 진행): ${urlResult.error}`);
+      }
+    } catch (urlErr: any) {
+      onLog?.(`[PROGRESS] 3% - ⚠️ URL 이미지 수집 예외(폴백 진행): ${urlErr?.message || urlErr}`);
+    }
+  }
+
   // 🏆 AdSense 승인률 강화 — adsense 모드면 모두 자동 ON (사용자가 토글하지 않아도 됨)
   if (payload?.contentMode === 'adsense') {
     payload.llmRotation = payload.llmRotation !== false; // 명시적 false 아니면 ON

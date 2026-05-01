@@ -923,6 +923,49 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
   //   - 정규식이 실제 입력에 매치 안 되는 false negative
   //   - JSON-LD가 valid JSON이 아닌 경우
   // ═════════════════════════════════════════════════════════════════
+  await runTest('🚀 RUNTIME — URL 이미지 크롤러 visionRouter (글 생성 AI → vision 매핑)', () => {
+    const { routeTextToVision, VISION_MODELS } = require('../dist/core/url-image-crawler/visionRouter.js');
+    if (routeTextToVision('claude-sonnet').vendor !== 'claude') throw new Error('claude 라우팅 실패');
+    if (!routeTextToVision('perplexity-sonar').fellBack) throw new Error('Perplexity 폴백 누락');
+    if (routeTextToVision('openai-gpt41').model !== 'gpt-4.1') throw new Error('openai 모델 ID 오류');
+    if (!routeTextToVision('unknown').fellBack) throw new Error('미지원 키 폴백 누락');
+  }, 5);
+
+  await runTest('🚀 RUNTIME — visionBudgetGuard ₩500/₩1500 임계', () => {
+    const { resetVisionBudget, chargeAndCheck, getVisionBudget } = require('../dist/core/url-image-crawler/visionBudgetGuard.js');
+    resetVisionBudget();
+    if (getVisionBudget().krw !== 0) throw new Error('초기 누적 0 아님');
+    const claudeRoute = { provider: 'claude-sonnet', model: 'x', vendor: 'claude', fellBack: false };
+    for (let i = 0; i < 8; i++) chargeAndCheck(claudeRoute);
+    const r = chargeAndCheck(claudeRoute);
+    if (!r.warning) throw new Error('₩540 누적 시 경고 미발동');
+    resetVisionBudget();
+    const proRoute = { provider: 'gemini-pro', model: 'x', vendor: 'gemini', fellBack: false };
+    let blocked = false;
+    for (let i = 0; i < 4; i++) { const x = chargeAndCheck(proRoute); if (x.blocked) { blocked = true; break; } }
+    if (!blocked) throw new Error('Pro 4회 시 차단 미발동');
+    resetVisionBudget(); // 다음 테스트 격리
+  }, 5);
+
+  await runTest('🚀 RUNTIME — imageRelevanceScorer parseScoreJson + filterImagesByRelevance disabled', async () => {
+    const { parseScoreJson, detectMimeType, filterImagesByRelevance } = require('../dist/core/url-image-crawler/imageRelevanceScorer.js');
+    if (parseScoreJson('{"score":85}').score !== 85) throw new Error('정상 JSON 파싱 실패');
+    if (parseScoreJson('!!!').score !== 50) throw new Error('완전 실패 시 50 중립 미반환');
+    if (parseScoreJson('{"score":150}').score !== 100) throw new Error('100 초과 클램프 미작동');
+    if (detectMimeType(Buffer.from([0xFF, 0xD8, 0xFF, 0xE0])) !== 'image/jpeg') throw new Error('JPEG 감지 실패');
+    if (detectMimeType(Buffer.from([0x89, 0x50, 0x4E, 0x47])) !== 'image/png') throw new Error('PNG 감지 실패');
+    const r = await filterImagesByRelevance(['https://a.com/1.jpg'], 'h', 'k', { enabled: false, textGenerator: 'gemini-2.5-flash', apiKeys: {} });
+    if (r.filtered.length !== 1) throw new Error('disabled 패스스루 실패');
+  }, 3);
+
+  await runTest('🚀 RUNTIME — crawlAndCollect URL 가드 (빈/비-HTTP 거부)', async () => {
+    const { crawlAndCollect } = require('../dist/core/url-image-crawler/index.js');
+    const r1 = await crawlAndCollect({ url: '', postTitle: 't', mainKeyword: 'k', downloadsBase: '/tmp', projectName: 'P' });
+    if (r1.ok || !r1.error) throw new Error('빈 URL 가드 실패');
+    const r2 = await crawlAndCollect({ url: 'ftp://x.com', postTitle: 't', mainKeyword: 'k', downloadsBase: '/tmp', projectName: 'P' });
+    if (r2.ok) throw new Error('비-HTTP 프로토콜 가드 실패');
+  }, 3);
+
   await runTest('🚀 RUNTIME — buildEeatMeta 실행 → cite 변환 + 메타박스 생성', () => {
     const { buildEeatMeta } = require('../dist/core/final/eeat-meta.js');
     const html = `<p>통계청 KOSIS 자료에 따르면 가입자 증가.</p><p>한국소비자원 2026년 조사에 의하면 만족도 높음.</p><p>한국은행 ECOS 데이터 발표.</p><article>${'본문 더미 '.repeat(50)}</article>`;
@@ -984,6 +1027,70 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     });
     if (typeof p2 !== 'string') throw new Error('빈 fixture에서 크래시 (이전 회귀)');
   }, 5);
+
+  await runTest('URL 이미지 자동 수집 — 4모듈 + UI + IPC chain 박제 (cd000242-sudo/naver v2.7.77 이식)', () => {
+    // ① 모듈 4개 존재 + 핵심 export
+    const router = load('src/core/url-image-crawler/visionRouter.ts');
+    if (!router.includes('routeTextToVision')) throw new Error('routeTextToVision export 누락');
+    if (!router.includes('VISION_MODELS')) throw new Error('VISION_MODELS export 누락');
+
+    const guard = load('src/core/url-image-crawler/visionBudgetGuard.ts');
+    if (!guard.includes('WARN_THRESHOLD_KRW = 500')) throw new Error('₩500 경고 임계 누락');
+    if (!guard.includes('HARD_LIMIT_KRW = 1500')) throw new Error('₩1500 차단 임계 누락');
+    if (!guard.includes('chargeAndCheck')) throw new Error('chargeAndCheck export 누락');
+
+    const scorer = load('src/core/url-image-crawler/imageRelevanceScorer.ts');
+    if (!scorer.includes('PRIVATE_IP_PATTERNS')) throw new Error('SSRF 가드 누락');
+    if (!scorer.includes('10 * 1024 * 1024')) throw new Error('10MB OOM 가드 누락');
+    if (!scorer.includes('geminiStrategy') || !scorer.includes('claudeStrategy') || !scorer.includes('openaiStrategy')) {
+      throw new Error('3-vendor Strategy 누락');
+    }
+
+    const crawler = load('src/core/url-image-crawler/urlImageCrawler.ts');
+    if (!crawler.includes('PRIORITY_HOSTS')) throw new Error('네이버 CDN 우선 패턴 누락');
+    if (!crawler.includes('postfiles\\.pstatic\\.net')) throw new Error('postfiles 호스트 누락');
+    if (!crawler.includes('mblogthumb-phinf')) throw new Error('mblogthumb 호스트 누락');
+    if (!crawler.includes('BANNED')) throw new Error('BANNED 차단 패턴 누락');
+    if (!crawler.includes('gnb|navbar|footer|widget|profile|avatar')) throw new Error('UI 차단 패턴 누락');
+    if (!crawler.includes('bg_|btn_')) throw new Error('btn_/bg_ 차단 누락');
+    if (!crawler.includes('< 150')) throw new Error('150px 사이즈 필터 누락');
+    if (!crawler.includes('downloadImagesToFolder')) throw new Error('다운로드 함수 누락');
+    if (!crawler.includes('-images') || !crawler.includes('safeFilename')) throw new Error('Downloads 폴더 패턴 누락');
+
+    const idx = load('src/core/url-image-crawler/index.ts');
+    if (!idx.includes('crawlAndCollect')) throw new Error('통합 진입점 누락');
+
+    // ② IPC 핸들러
+    const main = load('electron/main.ts');
+    if (!main.includes("'url-image:crawl-and-collect'")) throw new Error('IPC 채널 등록 누락');
+    if (!main.includes("app.getPath('downloads')")) throw new Error('Downloads 경로 사용 누락');
+
+    // ③ preload bridge
+    const preload = load('electron/preload.ts');
+    if (!preload.includes('crawlUrlImages')) throw new Error('preload bridge 누락');
+    if (!preload.includes("'url-image:crawl-and-collect'")) throw new Error('preload IPC 채널 누락');
+
+    // ④ UI 입력란 + 체크박스
+    const html = load('electron/ui/index.html');
+    if (!html.includes('id="urlImageSource"')) throw new Error('URL 입력란 누락');
+    if (!html.includes('id="urlImageAiFill"')) throw new Error('부족분 AI 체크박스 누락');
+    if (!html.includes('id="urlImageAiCheck"')) throw new Error('AI 검증 체크박스 누락');
+
+    // ⑤ posting.js 페이로드 빌더 + force options
+    const posting = load('electron/ui/modules/posting.js');
+    if (!posting.includes('urlImageSource')) throw new Error('posting.js urlImageSource payload 누락');
+    if (!posting.includes('__publishForceOptions')) throw new Error('_publishForceOptions 전역 패턴 누락');
+
+    // ⑥ publish-queue 큐 항목별 url 상속
+    const queue = load('electron/ui/modules/publish-queue.js');
+    if (!queue.includes('url:')) throw new Error('큐 항목에 url 필드 누락');
+    if (!queue.includes('__publishForceOptions')) throw new Error('큐 force injection 누락');
+
+    // ⑦ orchestration.ts에서 payload.urlImageSource 처리
+    const orch = load('src/core/final/orchestration.ts');
+    if (!orch.includes('payload?.urlImageSource?.url')) throw new Error('orchestration이 urlImageSource 미처리');
+    if (!orch.includes("require('../url-image-crawler')")) throw new Error('orchestration이 url-image-crawler 미import');
+  });
 
   await runTest('AdSense 90% 승인 강화 — end-to-end chain 박제', () => {
     // ① UI: contentMode select에 change 핸들러가 localStorage 저장

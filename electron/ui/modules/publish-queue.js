@@ -408,6 +408,14 @@ function bindModalEvents() {
         ctaRadio.dispatchEvent(new Event('change', { bubbles: true }));
       }
 
+      // 🆕 URL 이미지 force injection — 큐 항목에 url 있으면 우선 사용
+      window.__publishForceOptions = {
+        urlImageSource: it.url || '',
+        urlImageAiCheck: !!it.urlAiCheck,
+        urlImageAiFill: !!it.urlAiFill,
+        urlImageThreshold: Number(it.urlThreshold) || 60,
+      };
+
       // DOMCache 동기화를 위한 마이크로 대기
       await new Promise(r => setTimeout(r, 200));
 
@@ -489,6 +497,11 @@ function addCurrent() {
       thumb: defaultThumb,
       ctaMode: defaultCta,
       enabled: true,
+      // 🆕 URL 이미지 — 단일 발행 UI 현재값을 큐 항목 기본값으로 상속
+      url: (document.getElementById('urlImageSource')?.value || '').trim() || '',
+      urlAiCheck: !!document.getElementById('urlImageAiCheck')?.checked,
+      urlAiFill: !!document.getElementById('urlImageAiFill')?.checked,
+      urlThreshold: 60,
     });
     added++;
   });

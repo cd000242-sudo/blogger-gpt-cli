@@ -778,6 +778,30 @@ export async function createPayload(options = {}) {
     // 수동 크롤링 URL
     manualCrawlUrls: manualUrls.length > 0 ? manualUrls : undefined,
 
+    // 🆕 URL 이미지 자동 수집 + AI 검증 (cd000242-sudo/naver v2.7.77 이식)
+    //   _publishForceOptions 전역 패턴 — 큐/세미오토/멀티계정이 덮어쓸 수 있음
+    urlImageSource: (() => {
+      const force = (window).__publishForceOptions || {};
+      // 1순위: force (큐가 항목별로 주입)
+      if (force.urlImageSource && /^https?:\/\//i.test(force.urlImageSource)) {
+        return {
+          url: force.urlImageSource,
+          aiCheckEnabled: !!force.urlImageAiCheck,
+          aiFillEnabled: !!force.urlImageAiFill,
+          threshold: Number(force.urlImageThreshold) || 60,
+        };
+      }
+      // 2순위: 단일 발행 UI 입력란
+      const url = (document.getElementById('urlImageSource')?.value || '').trim();
+      if (!/^https?:\/\//i.test(url)) return undefined;
+      return {
+        url,
+        aiCheckEnabled: !!document.getElementById('urlImageAiCheck')?.checked,
+        aiFillEnabled: !!document.getElementById('urlImageAiFill')?.checked,
+        threshold: 60,
+      };
+    })(),
+
     // 🛒 쿠팡 파트너스 수동 제휴 링크 (shopping 모드, API 키 없어도 사용 가능)
     manualCoupangUrls: (() => {
       const raw = document.getElementById('manualCoupangUrls')?.value || '';

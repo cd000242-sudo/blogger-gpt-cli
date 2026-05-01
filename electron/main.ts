@@ -4631,4 +4631,39 @@ ipcMain.handle('blog:diagnose', async (_evt, blogUrl: string) => {
   }
 });
 
+// 🆕 URL 이미지 자동 수집 + 부족분 AI 검증 (cd000242-sudo/naver v2.7.77 이식)
+ipcMain.handle('url-image:crawl-and-collect', async (_evt, payload: {
+  url: string;
+  postTitle: string;
+  mainKeyword: string;
+  aiCheckEnabled?: boolean;
+  textGenerator?: string;
+  threshold?: number;
+}) => {
+  try {
+    const { crawlAndCollect } = require('../dist/core/url-image-crawler/index.js');
+    const env = loadEnvFromFile() as any;
+    const apiKeys = {
+      gemini: env.GEMINI_API_KEY || env.geminiKey,
+      claude: env.CLAUDE_API_KEY || env.ANTHROPIC_API_KEY,
+      openai: env.OPENAI_API_KEY,
+    };
+    const downloadsBase = app.getPath('downloads');
+    const result = await crawlAndCollect({
+      url: payload.url,
+      postTitle: payload.postTitle || '제목없음',
+      mainKeyword: payload.mainKeyword || payload.postTitle || '',
+      downloadsBase,
+      projectName: 'LEADERNAM-Orbit',
+      aiCheckEnabled: !!payload.aiCheckEnabled,
+      textGenerator: payload.textGenerator || 'gemini-2.5-flash',
+      apiKeys,
+      threshold: payload.threshold ?? 60,
+    });
+    return result;
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e), rawImages: [], acceptedImages: [], savedFiles: [], saveDir: '', costKrw: 0 };
+  }
+});
+
 console.log('[APP] ✅ Electron 앱 초기화 완료');

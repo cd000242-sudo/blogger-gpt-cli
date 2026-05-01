@@ -327,6 +327,15 @@ export type BloggerApi = {
   diagnoseBlog(url: string): Promise<any>;
   /** IndexNow 즉시 색인 요청 */
   submitIndexNow(siteUrl: string, urls: string[]): Promise<any>;
+  /** URL 이미지 자동 수집 + AI 검증 (cd000242-sudo/naver v2.7.77 이식) */
+  crawlUrlImages(payload: {
+    url: string;
+    postTitle: string;
+    mainKeyword: string;
+    aiCheckEnabled?: boolean;
+    textGenerator?: string;
+    threshold?: number;
+  }): Promise<any>;
 };
 
 /** ───────── 공통 유틸 ───────── */
@@ -645,6 +654,16 @@ const api: BloggerApi = {
   // ── 블로그 진단 & IndexNow ──
   diagnoseBlog: (url: string) => ipcRenderer.invoke('blog:diagnose', url),
   submitIndexNow: (siteUrl: string, urls: string[]) => ipcRenderer.invoke('indexnow:submit', siteUrl, urls),
+
+  // ── URL 이미지 자동 수집 + AI 검증 (cd000242-sudo/naver v2.7.77 이식) ──
+  crawlUrlImages: (payload: {
+    url: string;
+    postTitle: string;
+    mainKeyword: string;
+    aiCheckEnabled?: boolean;
+    textGenerator?: string;
+    threshold?: number;
+  }) => ipcRenderer.invoke('url-image:crawl-and-collect', payload),
 };
 
 // Electron API (개발자 모드 체크 포함)
