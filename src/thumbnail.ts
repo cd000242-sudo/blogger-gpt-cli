@@ -1051,135 +1051,20 @@ export async function makePexelsThumbnail(
   }
 }
 
-// DALL-E 썸네일 생성 함수
+// OpenAI 이미지 라우트 비활성화 (2026-05-05 결정)
+//   - dall-e-2, dall-e-3: 2026-05-12 EOL
+//   - gpt-image-1 / 1-mini / 1.5 / 2: 전부 OpenAI Organization Verification (정부발급 신분증) 필수
+//   사용자가 verification 미진행 → 어떤 모델도 사용 불가 → 라우트 자체 비활성화
+//   이 함수는 backward-compat 위해 export만 유지, 호출 즉시 실패 반환.
 export async function makeDalleThumbnail(
-  title: string,
-  topic: string,
-  options: DalleThumbOptions
+  _title: string,
+  _topic: string,
+  _options: DalleThumbOptions
 ): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
-  try {
-    // API 키 trim 처리 (앞뒤 공백 제거)
-    const apiKey = (options.apiKey || '').trim();
-
-    if (!apiKey || apiKey.length < 20) {
-      return { ok: false, error: 'DALL-E API 키가 유효하지 않습니다' };
-    }
-
-    // 키워드나 제목을 기반으로 자동 영어 프롬프트 생성
-    const prompt = generateEnglishPrompt(title, topic);
-
-    // gpt-image-2 (구 코드명 "duct-tape"): 2026-04-21 OpenAI 공식 출시, API 즉시 사용 가능.
-    // 다만 조직별 점진적 롤아웃 + 파라미터 스키마가 dall-e-3와 다르므로 모델별로 body를 분기한다.
-    //   - gpt-image-2: prompt/size/n만 안전 (style·response_format 거절 가능, 새 quality enum 사용)
-    //   - gpt-image-1: dall-e-3 호환 스키마
-    //   - dall-e-3   : style/quality/response_format 모두 지원
-    // 권한 없거나 미지원 모델이면 다음 후보로 자동 폴백.
-    const dalleSize = '1024x1024';
-    const modelChain: string[] = ['gpt-image-2', 'gpt-image-1', 'dall-e-3'];
-
-    const buildBody = (m: string): Record<string, any> => {
-      if (m === 'gpt-image-2') {
-        // 새 모델 — 검증된 파라미터만 전송
-        return { model: m, prompt, n: 1, size: dalleSize };
-      }
-      // dall-e-3 / gpt-image-1 — 기존 스키마 유지
-      return {
-        model: m,
-        prompt,
-        n: 1,
-        size: dalleSize,
-        quality: options.quality || 'standard',
-        style: options.style || 'natural',
-        response_format: 'url',
-      };
-    };
-
-    let response: Response | null = null;
-    let usedModel = '';
-    let lastErrorBody: any = null;
-    for (const m of modelChain) {
-      const r = await fetch('https://api.openai.com/v1/images/generations', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(buildBody(m)),
-      });
-      if (r.ok) {
-        response = r;
-        usedModel = m;
-        break;
-      }
-      try {
-        lastErrorBody = await r.clone().json();
-      } catch { lastErrorBody = null; }
-      const code = lastErrorBody?.error?.code || '';
-      const msg = lastErrorBody?.error?.message || '';
-      // 모델 자체가 없거나 권한 없는 경우만 폴백 (인증·결제·rate-limit은 즉시 중단)
-      const isModelMissing = r.status === 404
-        || /model_not_found|invalid_model|deprecated_model|unsupported_model/i.test(String(code))
-        || (r.status === 403 && /access|permission/i.test(String(msg)));
-      if (!isModelMissing) {
-        response = r;
-        usedModel = m;
-        break;
-      }
-      console.log(`[OPENAI-IMG] ⚠️ ${m} 미지원/권한없음 — 다음 모델로 폴백`);
-    }
-    if (!response) {
-      return { ok: false, error: 'OpenAI 이미지 모델 후보 전체 실패' };
-    }
-    if (response.ok) {
-      console.log(`[OPENAI-IMG] 🎨 사용 모델: ${usedModel}`);
-    }
-
-    if (!response.ok) {
-      let errorMessage = 'Unknown error';
-      let errorDetails = '';
-
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error?.message || 'Unknown error';
-        errorDetails = errorData.error?.code || '';
-
-        // 상세한 에러 메시지 생성
-        if (response.status === 401) {
-          if (apiKey.startsWith('sk-proj-')) {
-            errorMessage = `인증 실패: Organization key의 DALL-E API 접근 권한이 없을 수 있습니다. OpenAI 대시보드(https://platform.openai.com/org-settings)에서 DALL-E API 권한을 확인하세요. 원본 에러: ${errorData.error?.message || 'Unknown error'}`;
-          } else {
-            errorMessage = `인증 실패: API 키가 올바르지 않거나 만료되었습니다. 원본 에러: ${errorData.error?.message || 'Unknown error'}`;
-          }
-        } else if (response.status === 429) {
-          errorMessage = `할당량 초과: 요청 한도가 초과되었습니다. 잠시 후 다시 시도하세요. 원본 에러: ${errorData.error?.message || 'Unknown error'}`;
-        } else if (response.status === 402) {
-          errorMessage = `결제 문제: 계정에 충분한 크레딧이 없습니다. https://platform.openai.com/account/billing 에서 확인하세요. 원본 에러: ${errorData.error?.message || 'Unknown error'}`;
-        } else {
-          errorMessage = `DALL-E API 오류 (${response.status}): ${errorData.error?.message || 'Unknown error'}`;
-        }
-      } catch (e) {
-        // JSON 파싱 실패 시 기본 메시지
-        errorMessage = `DALL-E API 오류 (${response.status}): 응답을 파싱할 수 없습니다`;
-      }
-
-      return { ok: false, error: errorMessage };
-    }
-
-    const data = await response.json();
-    // 🔥 응답 호환: dall-e-3/gpt-image-1은 url, gpt-image-2는 b64_json 기본 → 양쪽 모두 처리
-    const first = data?.data?.[0];
-    const imageUrl: string = first?.url
-      || (first?.b64_json ? `data:image/png;base64,${first.b64_json}` : '');
-
-    if (!imageUrl) {
-      return { ok: false, error: `${usedModel || 'OpenAI'} 응답에 이미지가 없습니다` };
-    }
-
-    console.log(`[OPENAI-IMG] ✅ 이미지 생성 완료 (모델: ${usedModel}): ${imageUrl.substring(0, 60)}...`);
-    return { ok: true, dataUrl: imageUrl };
-  } catch (error: any) {
-    return { ok: false, error: error.message || 'DALL-E 썸네일 생성 오류' };
-  }
+  return {
+    ok: false,
+    error: 'OpenAI 이미지 라우트 비활성화 (DALL-E 2/3는 2026-05-12 EOL, gpt-image-* 시리즈는 OpenAI 신분증 인증 필수). 다른 엔진을 사용하세요.',
+  };
 }
 
 // Stability AI 옵션 타입
@@ -1637,27 +1522,8 @@ export async function makeSmartThumbnail(
     cseId: process.env['GOOGLE_CSE_ID']
   };
 
-  // 1. DALL-E 우선 시도 (고품질 AI 생성 이미지)
-  const dalleKey = dalleOptions?.apiKey || envApiKeys.openai;
-  if (dalleKey) {
-    try {
-      // DALL-E 3는 1024x1024만 지원하므로 크기 무시
-      const dalleResult = await makeDalleThumbnail(title, topic, {
-        apiKey: dalleKey,
-        width: 1024,  // DALL-E 3는 1024x1024만 지원
-        height: 1024,
-        quality: dalleOptions?.quality || 'standard',
-        style: dalleOptions?.style || 'natural'
-      });
-      if (dalleResult.ok) {
-        console.log('[THUMBNAIL] DALL-E 이미지 생성 성공');
-        return { ...dalleResult, type: 'dalle' as const };
-      }
-      console.warn('[THUMBNAIL] DALL-E 실패, Pexels로 대체:', dalleResult.ok === false ? dalleResult.error : 'Unknown error');
-    } catch (error) {
-      console.warn('[THUMBNAIL] DALL-E 오류, Pexels로 대체:', error);
-    }
-  }
+  // OpenAI(DALL-E) 라우트 비활성화 — 2026-05-12 EOL + verification 장벽. Pexels로 직행.
+  void dalleOptions;
 
   // 2. Pexels 시도 (무료 고품질 스톡 이미지)
   const pexelsKey = pexelsOptions?.apiKey || envApiKeys.pexels;
@@ -1846,16 +1712,14 @@ async function tryGeminiExperimentalImageGeneration(
 ): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
   const startTime = Date.now();
 
-  // Gemini 이미지 생성 모델 우선순위 (2026-04-29 — Pro 우선 폴백 체인)
-  // 🍌 나노바나나프로 → 나노바나나2 → Imagen4 → 나노바나나(레거시)
-  // 사용자가 'nanobananapro' 선택 시 가장 고품질(4K, $0.134~0.24)부터 시도
+  // Gemini 이미지 모델 (2026-05-05 — 비용 효율 우선, 사용자 의도: 나노바나나2)
+  //   1순위: 나노바나나2 (Gemini 3.1 Flash Image) — Pro 품질·Flash 가격 ($0.067/1024)
+  //   2순위: 원조 나노바나나 (Gemini 2.5 Flash Image) — 저비용 ($0.039/1024)
+  // 제외: gemini-3-pro-image-preview (비용 $0.134~$0.24), Imagen 4 (2026-06-24 EOL)
   const IMAGE_MODELS = [
-    { id: 'gemini-3-pro-image-preview', name: '나노바나나프로 (Gemini 3 Pro Image, 4K)' },
-    { id: 'gemini-3.1-flash-image-preview', name: '나노바나나2 (Gemini 3.1 Flash Image)' },
+    { id: 'gemini-3.1-flash-image-preview', name: '나노바나나2 (Gemini 3.1 Flash Image · Pro 품질)' },
+    { id: 'gemini-2.5-flash-image',         name: '나노바나나 (Gemini 2.5 Flash Image · 저비용)' },
   ];
-
-  // 나노바나나 (최종 폴백용 — 레거시 저비용)
-  const FALLBACK_MODEL = { id: 'gemini-2.5-flash-image', name: '나노바나나 레거시 (Gemini 2.5 Flash Image)' };
 
   // 프롬프트 생성 — 🔥 AI 추론 기반 동적 프롬프트 생성
   let prompt: string;
@@ -2009,50 +1873,8 @@ CRITICAL RULES:
       }
     }
 
-    // 🔥 3순위: Imagen 4 폴백
-    console.log(`[NANO-BANANA] 🔄 3순위: Imagen 4 폴백 시도...`);
-    try {
-      const imagen4Result = await tryImagen4Generation(prompt, apiKey);
-      if (imagen4Result.ok) {
-        return imagen4Result;
-      }
-      console.log(`[NANO-BANANA] ⚠️ Imagen 4 실패: ${(imagen4Result as any).error}`);
-    } catch (e: any) {
-      console.log(`[NANO-BANANA] ⚠️ Imagen 4 예외: ${e.message}`);
-    }
-
-    // 🔥 4순위: 나노바나나 최종 폴백 (gemini-2.5-flash-image)
-    try {
-      console.log(`[NANO-BANANA] 🔄 4순위: ${FALLBACK_MODEL.name} 최종 폴백 시도...`);
-      const fallbackModel = genAI.getGenerativeModel({
-        model: FALLBACK_MODEL.id,
-        generationConfig: {
-          responseModalities: ['image', 'text'] as any,
-        } as any,
-      });
-
-      const fallbackResult = await fallbackModel.generateContent(prompt);
-      const fallbackResponse = fallbackResult.response;
-
-      for (const part of fallbackResponse.candidates?.[0]?.content?.parts || []) {
-        if ((part as any).inlineData) {
-          const imageData = (part as any).inlineData.data;
-          const mimeType = (part as any).inlineData.mimeType || 'image/png';
-          const dataUrl = `data:${mimeType};base64,${imageData}`;
-
-          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-          const sizeKB = Math.round(imageData.length / 1024);
-          console.log(`[NANO-BANANA] ✅ ${FALLBACK_MODEL.name} 성공! (${elapsed}초, ${sizeKB}KB)`);
-
-          return { ok: true, dataUrl };
-        }
-      }
-      console.log(`[NANO-BANANA] ⚠️ ${FALLBACK_MODEL.name} - 이미지 데이터 없음`);
-    } catch (fallbackErr: any) {
-      console.log(`[NANO-BANANA] ⚠️ ${FALLBACK_MODEL.name} 실패: ${fallbackErr.message}`);
-    }
-
-    return { ok: false, error: '모든 이미지 모델 실패 (나노바나나프로 → 나노바나나2 → Imagen4 → 나노바나나 레거시)' };
+    // IMAGE_MODELS 두 모델 모두 실패 — Imagen 4는 2026-06-24 EOL이라 폴백에서 제거됨
+    return { ok: false, error: '모든 Gemini 이미지 모델 실패 (나노바나나2 → 나노바나나)' };
 
   } catch (error) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -2062,64 +1884,8 @@ CRITICAL RULES:
   }
 }
 
-// 🎨 Imagen 4 이미지 생성 (Gemini API 키로 호출 가능한 REST API)
-async function tryImagen4Generation(
-  prompt: string,
-  apiKey: string
-): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
-  const startTime = Date.now();
-  const IMAGEN4_MODELS = [
-    'imagen-4.0-generate-001',      // 표준 (고품질)
-    'imagen-4.0-fast-generate-001',  // 빠른 생성
-  ];
-
-  for (const modelId of IMAGEN4_MODELS) {
-    try {
-      console.log(`[IMAGEN4] 🎨 ${modelId} 시도 중...`);
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:predict?key=${apiKey}`;
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          instances: [{ prompt }],
-          parameters: {
-            sampleCount: 1,
-            aspectRatio: '16:9',
-            personGeneration: 'allow_adult',
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const errText = await response.text().catch(() => '');
-        console.log(`[IMAGEN4] ⚠️ ${modelId} 실패 (${response.status}): ${errText.slice(0, 200)}`);
-        continue;
-      }
-
-      const data = await response.json();
-      const imageBase64 = data.predictions?.[0]?.bytesBase64Encoded;
-      if (!imageBase64) {
-        console.log(`[IMAGEN4] ⚠️ ${modelId} - 이미지 데이터 없음`);
-        continue;
-      }
-
-      const dataUrl = `data:image/png;base64,${imageBase64}`;
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      const sizeKB = Math.round(imageBase64.length / 1024);
-      console.log(`[IMAGEN4] ✅ ${modelId} 성공! (${elapsed}초, ${sizeKB}KB)`);
-
-      return { ok: true, dataUrl };
-    } catch (modelError: any) {
-      console.log(`[IMAGEN4] ⚠️ ${modelId} 예외: ${modelError.message}`);
-      continue;
-    }
-  }
-
-  return { ok: false, error: 'Imagen 4 모든 모델 실패' };
-}
+// Imagen 4 함수 제거 — 전체 라인업이 2026-06-24 EOL.
+//   Google 공식 마이그레이션 권장: → gemini-2.5-flash-image (이미 IMAGE_MODELS에 포함)
 
 // 🚀 Prodia AI 썸네일 생성 함수 (저렴하고 빠른 고품질)
 export async function makeProdiaThumbnail(

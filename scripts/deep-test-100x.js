@@ -837,8 +837,9 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     // 핵심: userPickedExplicitly만으로 SVG 폴백하면 안 됨 (strictMode와 AND 조건이어야)
     if (!dispSrc.includes('userPickedExplicitly && strictMode')) throw new Error('AND 조건 누락 — 명시 선택만으로 SVG 강제');
     if (!dispSrc.includes('자동 폴백')) throw new Error('자동 폴백 로그 누락');
-    // 폴백 체인에 dalle도 포함
-    if (!/fallbackOrder\s*=\s*\[[^\]]*'dalle'/.test(dispSrc)) throw new Error('폴백 체인에 dalle 누락');
+    // 폴백 체인에 nanobanana(메인 타겟) 포함 — dalle/leonardo/pollinations는 2026-05-05 제거됨
+    if (!/fallbackOrder\s*=\s*\[[^\]]*'nanobanana'/.test(dispSrc)) throw new Error('폴백 체인에 nanobanana 누락');
+    if (/fallbackOrder\s*=\s*\[[^\]]*'(dalle|leonardo|pollinations)'/.test(dispSrc)) throw new Error('제거된 엔진(dalle/leonardo/pollinations)이 폴백 체인 잔존');
     // 폴백 성공 시 출처 라벨에 원본 요청 명시
     if (!dispSrc.includes('자동 폴백')) throw new Error('폴백 source 라벨 누락');
 
@@ -902,7 +903,7 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!sim('auto', ['x.png'], 'seo')) throw new Error('auto 시뮬 실패');
   });
 
-  await runTest('모든 AI 엔진 명시 선택 시 productImages 무시 (imagefx/flow/nanobananapro/deepinfra/leonardo/dalle/pollinations)', () => {
+  await runTest('모든 AI 엔진 명시 선택 시 productImages 무시 (imagefx/flow/nanobanana/deepinfra)', () => {
     const sim = (src) => {
       const srcLower = String(src || '').toLowerCase();
       const isCrawledRequested = srcLower === 'crawled' || srcLower.startsWith('crawled-') || srcLower === 'custom';
@@ -910,7 +911,8 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
       const isShoppingMode = false;
       return ['x.png'].length > 0 && (isCrawledRequested || isShoppingMode || !userPickedAiEngine);
     };
-    const aiEngines = ['imagefx', 'flow', 'nanobananapro', 'nanobanana', 'deepinfra', 'leonardo', 'dalle', 'pollinations'];
+    // 2026-05-05: dalle/leonardo/pollinations/nanobananapro 라우트 제거됨
+    const aiEngines = ['imagefx', 'flow', 'nanobanana', 'deepinfra'];
     for (const e of aiEngines) {
       if (sim(e)) throw new Error(`${e} 엔진 명시 시 수집 이미지가 사용됨 (무시되어야 함)`);
     }
@@ -1228,71 +1230,86 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!src.includes('폴백 콘텐츠는 모든 H2가 동일')) throw new Error('차단 사유 설명 누락');
   });
 
-  await runTest('Nano Banana 파이프라인 — Gemini 3 Pro Image 우선 + 폴백 체인', () => {
+  await runTest('Nano Banana 파이프라인 — 나노바나나2 우선 + 2.5 폴백 (Pro/Imagen4 제거)', () => {
     const src = load('src/thumbnail.ts');
-    // 최신 모델 ID 3개 모두 존재
-    if (!src.includes("id: 'gemini-3-pro-image-preview'")) throw new Error('Gemini 3 Pro Image 모델 ID 누락');
-    if (!src.includes("id: 'gemini-3.1-flash-image-preview'")) throw new Error('Gemini 3.1 Flash Image 모델 ID 누락');
+    // 살아있는 모델 2개만 있어야 함
+    if (!src.includes("id: 'gemini-3.1-flash-image-preview'")) throw new Error('나노바나나2 (Gemini 3.1 Flash Image) 모델 ID 누락');
     if (!src.includes("id: 'gemini-2.5-flash-image'")) throw new Error('Gemini 2.5 Flash Image 폴백 ID 누락');
-    // deprecated ID는 사용 안 함
+    // 비용/EOL 사유로 제거된 모델 잔존 금지
+    if (src.includes("id: 'gemini-3-pro-image-preview'")) throw new Error('비용 사유로 제거된 Gemini 3 Pro Image 잔존');
     if (src.includes("'gemini-2.5-flash-image-preview'")) throw new Error('Deprecated -preview 접미사 모델 잔존');
-    // 순서: Pro 우선 — IMAGE_MODELS 배열에서 Pro가 Flash보다 먼저
-    const proIdx = src.indexOf("id: 'gemini-3-pro-image-preview'");
-    const flashIdx = src.indexOf("id: 'gemini-3.1-flash-image-preview'");
-    if (proIdx < 0 || flashIdx < 0 || proIdx > flashIdx) {
-      throw new Error('파이프라인 순서 오류: Pro가 Flash보다 먼저여야 함');
+    if (src.includes('imagen-4.0-')) throw new Error('Imagen 4 (2026-06-24 EOL) 코드 잔존');
+    if (src.includes('tryImagen4Generation')) throw new Error('tryImagen4Generation 함수 잔존');
+    // 순서: 나노바나나2가 1순위
+    const banana2Idx = src.indexOf("id: 'gemini-3.1-flash-image-preview'");
+    const banana1Idx = src.indexOf("id: 'gemini-2.5-flash-image'");
+    if (banana2Idx < 0 || banana1Idx < 0 || banana2Idx > banana1Idx) {
+      throw new Error('파이프라인 순서 오류: 나노바나나2(3.1)가 원조(2.5)보다 먼저여야 함');
     }
-    // responseModalities 사용 (image+text)
-    if (!src.includes("responseModalities")) throw new Error('responseModalities 설정 누락');
+    if (!src.includes('responseModalities')) throw new Error('responseModalities 설정 누락');
   });
 
-  await runTest('UI — Nano Banana Pro 라벨에 Gemini 3 명시', () => {
+  await runTest('UI — 나노바나나2 라벨 + DALL-E 옵션 제거', () => {
     const html = load('electron/ui/index.html');
-    if (!html.includes('Gemini 3 Pro Image')) throw new Error('Gemini 3 Pro Image 라벨 누락');
-    // 모호한 옛 라벨이 남아있으면 안 됨
-    if (html.includes('Nano Banana Pro (Gemini API 유료)')) throw new Error('옛 라벨 잔존');
+    if (!html.includes('나노바나나2')) throw new Error('나노바나나2 라벨 누락');
+    if (html.includes('value="dalle"')) throw new Error('비활성화된 DALL-E 옵션 잔존');
+    if (html.includes('value="nanobananapro"')) throw new Error('레거시 nanobananapro 옵션 잔존');
   });
 
-  await runTest('imageDispatcher — 모든 case 분기 + makeXxx 호출 일관', () => {
+  await runTest('imageDispatcher — case 분기 정리 (dalle/leonardo/pollinations 제거)', () => {
     const src = load('src/core/imageDispatcher.ts');
-    // 7개 AI 엔진 case 분기 모두 있어야
+    // 살아있는 4개 case만 있어야
     const required = [
       "case 'imagefx':",
       "case 'flow':",
-      "case 'nanobananapro':",
+      "case 'nanobanana':",
       "case 'deepinfra':",
-      "case 'leonardo':",
-      "case 'dalle':",
-      "case 'pollinations':",
     ];
     for (const r of required) {
       if (!src.includes(r)) throw new Error(`${r} 분기 누락`);
+    }
+    // 제거된 case 잔존 금지
+    const forbidden = ["case 'leonardo':", "case 'dalle':", "case 'pollinations':", "case 'nanobananapro':"];
+    for (const f of forbidden) {
+      if (src.includes(f)) throw new Error(`제거된 분기 잔존: ${f}`);
+    }
+    if (src.includes('makeDalleThumbnail') || src.includes('makeLeonardoPhoenixImage') || src.includes('makePollinationsThumbnail')) {
+      throw new Error('imageDispatcher에서 비활성 엔진 import 잔존');
     }
     // 명시 선택 보호 (userPickedExplicitly)
     if (!src.includes('userPickedExplicitly')) throw new Error('명시 선택 보호 로직 누락');
     if (!src.includes('명시 선택')) throw new Error('명시 선택 안내 누락');
   });
 
-  await runTest('imageDispatcher 별칭 — 모든 변종이 정확한 엔진으로 정규화', () => {
+  await runTest('imageDispatcher 별칭 — 모든 변종이 살아있는 엔진으로 정규화', () => {
     const src = load('src/core/imageDispatcher.ts');
-    // alias map 추출
     const aliasMatch = src.match(/aliasMap[\s\S]*?\{([\s\S]*?)\}/);
     if (!aliasMatch) throw new Error('aliasMap 정의를 찾지 못함');
     const aliases = aliasMatch[1];
+    // 2026-05-05 정책: 비활성 라우트(dalle/leonardo/pollinations) 별칭은 imagefx로, nanobananapro 별칭은 nanobanana로 흡수
     const required = [
       "'auto': 'imagefx'",
       "'default': 'imagefx'",
-      "'nb': 'nanobananapro'",
-      "'nano': 'nanobananapro'",
+      "'nb': 'nanobanana'",
+      "'nano': 'nanobanana'",
+      "'nanobanana2': 'nanobanana'",
+      "'nanobananapro': 'nanobanana'",
       "'flux': 'deepinfra'",
-      "'openai': 'dalle'",
-      "'gpt-image-2': 'dalle'",
-      "'ducktape': 'dalle'",
-      "'duct-tape': 'dalle'",
-      "'덕트테이프': 'dalle'",
+      "'openai': 'imagefx'",
+      "'dalle': 'imagefx'",
+      "'leonardo': 'imagefx'",
+      "'pollinations': 'imagefx'",
+      "'gpt-image-2': 'imagefx'",
+      "'ducktape': 'imagefx'",
+      "'duct-tape': 'imagefx'",
+      "'덕트테이프': 'imagefx'",
     ];
     for (const r of required) {
       if (!aliases.includes(r)) throw new Error(`별칭 누락: ${r}`);
+    }
+    // 비활성 엔진으로 다시 매핑되는 별칭 잔존 금지
+    if (/'[^']+'\s*:\s*'(dalle|leonardo|pollinations|nanobananapro)'/.test(aliases)) {
+      throw new Error('비활성 엔진(dalle/leonardo/pollinations/nanobananapro)으로 매핑되는 별칭 잔존');
     }
   });
 
@@ -1306,14 +1323,19 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!src.includes('fallbackOrder')) throw new Error('폴백 체인 누락');
   });
 
-  await runTest('썸네일 makeDalleThumbnail — 모델 폴백 체인 + b64_json 응답 처리', () => {
+  await runTest('썸네일 makeDalleThumbnail — 비활성 stub (DALL-E 5/12 EOL + GPT Image verification)', () => {
     const src = load('src/thumbnail.ts');
-    if (!src.includes("'gpt-image-2'") || !src.includes("'gpt-image-1'") || !src.includes("'dall-e-3'")) {
-      throw new Error('모델 체인 누락');
+    // 함수 자체는 backward-compat 위해 export 유지
+    if (!src.includes('export async function makeDalleThumbnail')) throw new Error('makeDalleThumbnail export 누락');
+    // 호출 시 즉시 비활성 에러 반환
+    if (!/OpenAI 이미지 라우트 비활성화/.test(src)) throw new Error('비활성 안내 메시지 누락');
+    // 실제 모델 호출 코드는 모두 제거됐어야
+    if (src.includes("'gpt-image-2'") || src.includes("'gpt-image-1'") || src.includes("'dall-e-3'")) {
+      throw new Error('비활성된 OpenAI 모델 ID가 코드 잔존');
     }
-    if (!src.includes('buildBody')) throw new Error('모델별 body 분기 누락');
-    if (!src.includes('b64_json')) throw new Error('base64 응답 처리 누락');
-    if (!src.includes('data:image/png;base64,')) throw new Error('data URL 변환 누락');
+    if (src.includes('api.openai.com/v1/images/generations')) {
+      throw new Error('OpenAI 이미지 엔드포인트 호출 코드 잔존');
+    }
   });
 
   await runTest('CTA 하이브리드 검증 — Perplexity AI 모듈 + 토글 통합', () => {
@@ -1415,39 +1437,35 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!src.includes('블로그 URL 불러옴 (')) throw new Error('출처 표기 누락');
   });
 
-  await runTest('UI 이미지 엔진 옵션 — 덕트테이프 노출 (3곳)', () => {
+  await runTest('UI 이미지 엔진 옵션 — 덕트테이프/DALL-E 옵션 비활성화 (2026-05-12 EOL + verification 장벽)', () => {
     const html = load('electron/ui/index.html');
-    // option value="dalle" 가 3곳(scheduleThumbnailMode, thumbnailType, h2ImageSource)에 있어야
+    // option value="dalle" 잔존 금지
     const dalleOptions = (html.match(/<option value="dalle"/g) || []).length;
-    if (dalleOptions < 3) throw new Error(`dalle 옵션 3곳 필요, 실제 ${dalleOptions}`);
-    if (!html.includes('덕트테이프')) throw new Error('덕트테이프 라벨 누락');
-    if (!html.includes('GPT-Image-2')) throw new Error('GPT-Image-2 라벨 누락');
-    // imageDispatcher 별칭
+    if (dalleOptions !== 0) throw new Error(`dalle 옵션 잔존: ${dalleOptions}곳`);
+    // dalleApiKey input은 호환성 위해 hidden 유지 가능, 단 disabled 처리되어야
+    if (html.includes('id="dalleApiKey"') && !/id="dalleApiKey"[^>]*disabled/.test(html)) {
+      throw new Error('dalleApiKey input이 disabled 처리 안 됨');
+    }
+    if (!html.includes('2026-05-12')) throw new Error('비활성 안내(5-12 EOL 일자) 누락');
+    // imageDispatcher 별칭이 imagefx로 흡수
     const disp = load('src/core/imageDispatcher.ts');
-    if (!disp.includes("'gpt-image-2': 'dalle'")) throw new Error('gpt-image-2 별칭 누락');
-    if (!disp.includes("'ducktape'") || !disp.includes("'duct-tape'")) throw new Error('ducktape 별칭 누락');
-    if (!disp.includes("'덕트테이프'")) throw new Error('한글 별칭 누락');
+    if (!disp.includes("'gpt-image-2': 'imagefx'")) throw new Error('gpt-image-2 → imagefx 흡수 별칭 누락');
+    if (!disp.includes("'덕테이프'")) throw new Error('한글 별칭(덕테이프) 누락');
   });
 
-  await runTest('OpenAI 이미지 모델 — gpt-image-2 모델별 body 분기 + 폴백', () => {
+  await runTest('OpenAI 이미지 라우트 — 5/12 EOL + verification 장벽으로 전체 비활성화', () => {
     const thumb = load('src/thumbnail.ts');
-    const main = load('electron/main.ts');
-    // 폴백 체인
-    if (!thumb.includes("'gpt-image-2'")) throw new Error('thumbnail에 gpt-image-2 누락');
-    if (!thumb.includes("'gpt-image-1'") || !thumb.includes("'dall-e-3'")) throw new Error('폴백 체인 누락');
-    if (!main.includes("'gpt-image-2'")) throw new Error('main.ts에 gpt-image-2 누락');
-    // 모델별 body 분기 함수
-    if (!thumb.includes('buildBody')) throw new Error('thumbnail buildBody 분기 누락');
-    if (!main.includes('buildBody')) throw new Error('main.ts buildBody 분기 누락');
-    // 권한 폴백 + b64_json 양쪽 응답 처리
-    if (!/unsupported_model|access|permission/.test(thumb)) throw new Error('thumbnail 권한 폴백 누락');
-    if (!thumb.includes('b64_json')) throw new Error('thumbnail b64 응답 처리 누락');
-    if (!main.includes('b64_json')) throw new Error('main.ts b64 응답 처리 누락');
-    // UI 즉시 사용 가능 안내
-    const html = load('electron/ui/index.html');
-    if (!html.includes('GPT-Image-2')) throw new Error('UI 라벨 갱신 누락');
-    if (!html.includes('API 즉시 사용 가능')) throw new Error('UI 즉시 사용 가능 안내 누락');
-    if (!html.includes('duct-tape')) throw new Error('UI duct-tape 코드명 누락');
+    // OpenAI 모델 ID 잔존 금지
+    if (thumb.includes("'gpt-image-2'") || thumb.includes("'gpt-image-1'") || thumb.includes("'dall-e-3'")) {
+      throw new Error('비활성된 OpenAI 모델 ID가 thumbnail.ts 잔존');
+    }
+    if (thumb.includes('api.openai.com/v1/images/generations')) {
+      throw new Error('OpenAI 이미지 엔드포인트 호출 코드 잔존');
+    }
+    // imageDispatcher에서도 dalle case 제거
+    const disp = load('src/core/imageDispatcher.ts');
+    if (disp.includes("case 'dalle':")) throw new Error('imageDispatcher에 dalle case 잔존');
+    if (disp.includes('makeDalleThumbnail')) throw new Error('imageDispatcher에 makeDalleThumbnail import 잔존');
   });
 
   await runTest('CTA_CACHE 동작 시뮬 — 동일 URL 요청은 같은 Promise 공유', () => {

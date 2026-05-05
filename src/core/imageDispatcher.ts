@@ -14,7 +14,7 @@
  * 4. AI 추론 기반 이미지 프롬프트 생성 (OpenAI→Gemini→Claude 폴백)
  */
 
-import { makeNanoBananaProThumbnail, makeDalleThumbnail, makeLeonardoPhoenixImage, makePollinationsThumbnail } from '../thumbnail';
+import { makeNanoBananaProThumbnail } from '../thumbnail';
 import { makeImageFxImage } from './imageFxGenerator';
 import { makeFlowImage } from './flowGenerator';
 import { inferImagePrompt } from './imagePromptInference';
@@ -29,15 +29,13 @@ export interface ImageResult {
 }
 
 // ── 지원 엔진 목록 (단일 진실 소스) ──
+//   2026-05-05 정리: dalle/leonardo/pollinations 제거 (verification 장벽 또는 좀비 코드).
+//   nanobananapro 별칭은 aliasMap에서 nanobanana로 흡수.
 export const SUPPORTED_IMAGE_ENGINES = [
   'imagefx',
   'flow',
-  'nanobananapro',
   'nanobanana',
   'deepinfra',
-  'leonardo',
-  'dalle',
-  'pollinations',
   'text',
   'svg',
   'none',
@@ -54,23 +52,29 @@ export function normalizeImageEngine(raw: string | undefined | null): ImageEngin
   const value = (raw || '').trim().toLowerCase();
   if (!value) return 'imagefx';
   // 레거시 별칭 매핑
+  //   - nanobananapro/leonardo/dalle/pollinations: 모두 제거됨 → 가까운 활성 엔진으로 흡수
+  //   - OpenAI 라우트는 verification 장벽 + dall-e 5/12 EOL로 비활성. 별칭은 'imagefx'로 안내성 폴백.
   const aliasMap: Record<string, ImageEngine> = {
     'auto': 'imagefx',
     'default': 'imagefx',
-    'nb': 'nanobananapro',
-    'nano': 'nanobananapro',
+    'nb': 'nanobanana',
+    'nano': 'nanobanana',
+    'nanobanana2': 'nanobanana',
+    'nanobananapro': 'nanobanana',
     'flux': 'deepinfra',
-    'openai': 'dalle',
+    'openai': 'imagefx',
+    'dalle': 'imagefx',
+    'leonardo': 'imagefx',
+    'pollinations': 'imagefx',
     'labs-flow': 'flow',
     'labsflow': 'flow',
     'googleflow': 'flow',
-    // 🆕 GPT-Image-2 (구 코드명 "duct-tape") — dalle 라우트로 통합 (model chain에서 gpt-image-2 우선 시도)
-    'gpt-image-2': 'dalle',
-    'gptimage2': 'dalle',
-    'ducktape': 'dalle',
-    'duct-tape': 'dalle',
-    '덕트테이프': 'dalle',
-    '덕테이프': 'dalle',
+    'gpt-image-2': 'imagefx',
+    'gptimage2': 'imagefx',
+    'ducktape': 'imagefx',
+    'duct-tape': 'imagefx',
+    '덕트테이프': 'imagefx',
+    '덕테이프': 'imagefx',
   };
   if (aliasMap[value]) return aliasMap[value];
   if ((SUPPORTED_IMAGE_ENGINES as readonly string[]).includes(value)) {
@@ -248,10 +252,10 @@ export async function dispatchH2ImageGeneration(
   console.log(`[DISPATCH] ⚠️ 1순위 ${imageSource} 실패 (${primaryResult.error || '사유 미상'}) → 폴백 체인 시작`);
   onLog?.(`⚠️ 사용자 선택 엔진(${imageSource}) 실패: ${primaryResult.error || '사유 미상'} → 다른 엔진으로 폴백 시도`);
 
-  // ── 2순위: 폴백 체인 (선택 엔진 제외, NanoBanana는 최후의 수단) ──
-  // 🔥 사용자가 명시적으로 다른 엔진을 선택했으므로 NanoBanana는 맨 마지막에 시도
-  // flow는 imagefx 뒤에 배치 — 구독 필요 엔진이라 첫 폴백으로 두면 15-combo discovery 지연 위험
-  const fallbackOrder = ['imagefx', 'flow', 'deepinfra', 'leonardo', 'dalle', 'nanobananapro']
+  // ── 2순위: 폴백 체인 ──
+  //   2026-05-05 정리: dalle/leonardo/pollinations 제거. nanobanana(나노바나나2) 우선.
+  //   사용자 메인 타겟인 'nanobanana'를 첫 폴백으로 둬서 다른 엔진 실패 시 즉시 회복.
+  const fallbackOrder = ['nanobanana', 'imagefx', 'flow', 'deepinfra']
     .filter(e => e !== imageSource);
 
   for (const engine of fallbackOrder) {
@@ -336,8 +340,8 @@ export async function dispatchThumbnailGeneration(
     onLog?.(`ℹ️ 'auto' 모드 → 폴백 체인 시작`);
   }
 
-  // 폴백 체인 — 1순위와 같은 엔진 + 'pollinations'(API 키 불필요) 제외
-  const fallbackOrder = ['imagefx', 'flow', 'deepinfra', 'leonardo', 'nanobananapro', 'dalle', 'pollinations']
+  // 폴백 체인 — 2026-05-05 정리: 사용자 메인 타겟(nanobanana) 우선, 무료/구독/유료 순.
+  const fallbackOrder = ['nanobanana', 'imagefx', 'flow', 'deepinfra']
     .filter(e => e !== thumbnailSource);
 
   for (const engine of fallbackOrder) {
@@ -373,7 +377,7 @@ async function tryEngine(
   // 🧠 AI 추론 프롬프트: 1회만 호출하여 모든 엔진에서 재사용
   // NanoBanana와 Flow는 한국어 프롬프트 그대로 받아서 자체 번역 — 영어 추론 생략
   let inferredPrompt = prompt;
-  if (engine !== 'nanobananapro' && engine !== 'nanobanana' && engine !== 'flow') {
+  if (engine !== 'nanobanana' && engine !== 'flow') {
     try {
       const inference = await inferImagePrompt(prompt, keyword, isThumbnail, contentMode);
       inferredPrompt = inference.prompt;
@@ -425,29 +429,28 @@ async function tryEngine(
       return { ok: false, dataUrl: '', source: '', error: 'Flow 실패' };
     }
 
-    // ═══ Nano Banana Pro (Gemini Imagen — 자체 번역 내장) ═══
-    case 'nanobananapro':
+    // ═══ Nano Banana 2 (Gemini 3.1 Flash Image · 자체 번역 내장) ═══
+    //   체인: gemini-3.1-flash-image-preview → gemini-2.5-flash-image (thumbnail.ts 내부)
     case 'nanobanana': {
       const apiKey = getGeminiApiKey();
       if (!apiKey || apiKey.length < 10) {
         return { ok: false, dataUrl: '', source: '', error: 'Gemini API 키 없음' };
       }
       try {
-        console.log(`[DISPATCH] 🍌 NanoBanana Pro 시도...`);
-        // NanoBanana는 내부에서 자체 프롬프트 생성 → 원본 전달
+        console.log(`[DISPATCH] 🍌 나노바나나2 시도...`);
         const result = await makeNanoBananaProThumbnail(prompt, keyword, {
           apiKey,
           aspectRatio: '16:9',
           isThumbnail,
         });
         if (result.ok) {
-          return { ok: true, dataUrl: result.dataUrl, source: 'Nano Banana Pro' };
+          return { ok: true, dataUrl: result.dataUrl, source: 'Nano Banana 2' };
         }
-        console.log(`[DISPATCH] ⚠️ NanoBanana 실패: ${(result as any).error}`);
+        console.log(`[DISPATCH] ⚠️ 나노바나나2 실패: ${(result as any).error}`);
       } catch (e: any) {
-        console.log(`[DISPATCH] ⚠️ NanoBanana 예외: ${e.message}`);
+        console.log(`[DISPATCH] ⚠️ 나노바나나2 예외: ${e.message}`);
       }
-      return { ok: false, dataUrl: '', source: '', error: 'NanoBanana Pro 실패' };
+      return { ok: false, dataUrl: '', source: '', error: '나노바나나2 실패' };
     }
 
     // ═══ DeepInfra FLUX-2 ═══
@@ -474,72 +477,10 @@ async function tryEngine(
       return { ok: false, dataUrl: '', source: '', error: 'DeepInfra 실패' };
     }
 
-    // ═══ Leonardo Phoenix ═══
-    case 'leonardo': {
-      const apiKey = (env['leonardoKey'] || env['LEONARDO_API_KEY'] || '').trim();
-      if (!apiKey || apiKey.length < 10) {
-        return { ok: false, dataUrl: '', source: '', error: 'Leonardo API 키 없음' };
-      }
-      try {
-        console.log(`[DISPATCH] 🦁 Leonardo Phoenix 시도...`);
-        const result = await makeLeonardoPhoenixImage(inferredPrompt, keyword, {
-          apiKey,
-          width: 1024,
-          height: 768,
-          isThumbnail,
-        });
-        if (result.ok) {
-          return { ok: true, dataUrl: result.dataUrl, source: 'Leonardo Phoenix' };
-        }
-        console.log(`[DISPATCH] ⚠️ Leonardo 실패: ${(result as any).error}`);
-      } catch (e: any) {
-        console.log(`[DISPATCH] ⚠️ Leonardo 예외: ${e.message}`);
-      }
-      return { ok: false, dataUrl: '', source: '', error: 'Leonardo Phoenix 실패' };
-    }
-
-    // ═══ DALL-E (OpenAI) ═══
-    case 'dalle': {
-      const apiKey = (env['dalleApiKey'] || env['DALLE_API_KEY'] || env['openaiKey'] || env['OPENAI_API_KEY'] || '').trim();
-      if (!apiKey || apiKey.length < 10) {
-        return { ok: false, dataUrl: '', source: '', error: 'OpenAI API 키 없음' };
-      }
-      try {
-        console.log(`[DISPATCH] 🎨 DALL-E 시도...`);
-        const result = await makeDalleThumbnail(inferredPrompt, keyword, {
-          apiKey,
-          width: 1024,
-          height: 1024,
-          quality: 'standard',
-          style: 'natural',
-        });
-        if (result.ok) {
-          return { ok: true, dataUrl: result.dataUrl, source: 'DALL-E' };
-        }
-        console.log(`[DISPATCH] ⚠️ DALL-E 실패: ${(result as any).error}`);
-      } catch (e: any) {
-        console.log(`[DISPATCH] ⚠️ DALL-E 예외: ${e.message}`);
-      }
-      return { ok: false, dataUrl: '', source: '', error: 'DALL-E 실패' };
-    }
-
-    // ═══ Pollinations (무료, API 키 불필요) ═══
-    case 'pollinations': {
-      try {
-        console.log(`[DISPATCH] 🌸 Pollinations 시도...`);
-        const result = await makePollinationsThumbnail(inferredPrompt, keyword, {
-          width: isThumbnail ? 1200 : 1024,
-          height: isThumbnail ? 630 : 576,
-        });
-        if (result.ok) {
-          return { ok: true, dataUrl: result.dataUrl, source: 'Pollinations' };
-        }
-        console.log(`[DISPATCH] ⚠️ Pollinations 실패: ${(result as any).error}`);
-      } catch (e: any) {
-        console.log(`[DISPATCH] ⚠️ Pollinations 예외: ${e.message}`);
-      }
-      return { ok: false, dataUrl: '', source: '', error: 'Pollinations 실패' };
-    }
+    // Leonardo / DALL-E / Pollinations 케이스 제거 (2026-05-05)
+    //   - DALL-E: dall-e 5/12 EOL + gpt-image-* verification 장벽
+    //   - Leonardo: UI에 노출 안 됨 (좀비 호출 방지)
+    //   - Pollinations: 저품질 → 사용자 메인 타겟(나노바나나2)으로 자동 폴백되도록 제거
 
     default:
       console.log(`[DISPATCH] ⚠️ 알 수 없는 엔진: ${engine}`);
