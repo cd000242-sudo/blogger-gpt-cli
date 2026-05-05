@@ -57,6 +57,10 @@ export interface CrawlAndCollectResult {
   routing?: VisionRouting | undefined;
   /** 누적 비용 (KRW) */
   costKrw: number;
+  /** 첫 12개 파일 base64 dataURL — UI 미리보기용 (v3.5.71) */
+  thumbnails?: string[];
+  /** 바이트 단위 중복 차단으로 제거된 개수 (v3.5.71) */
+  deduped?: number;
   /** 오류 메시지 */
   error?: string;
 }
@@ -128,5 +132,7 @@ export async function crawlAndCollect(opts: CrawlAndCollectOptions): Promise<Cra
     saveDir: dl.saveDir,
     routing,
     costKrw: getVisionBudget().krw,
+    thumbnails: dl.thumbnails,
+    deduped: dl.deduped,
   };
 }

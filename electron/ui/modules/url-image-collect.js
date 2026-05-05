@@ -16,13 +16,21 @@
     return firstLine || '제목없음';
   }
 
-  function showResult(html, isError) {
+  function showResult(html, isError, thumbnails) {
     const panel = $('urlImageCollectResult');
     if (!panel) return;
     panel.style.display = 'block';
     panel.style.borderColor = isError ? 'rgba(239,68,68,0.5)' : 'rgba(34,197,94,0.4)';
     panel.style.color = isError ? '#fecaca' : '#d1fae5';
-    panel.innerHTML = html;
+    let inner = html;
+    if (thumbnails && thumbnails.length > 0) {
+      const grid = thumbnails.map((dataUrl, idx) =>
+        `<img src="${dataUrl}" title="image-${String(idx + 1).padStart(3, '0')}"
+              style="width:78px;height:78px;object-fit:cover;border-radius:6px;border:1px solid rgba(34,197,94,0.45);background:rgba(0,0,0,0.3);" />`
+      ).join('');
+      inner += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">${grid}</div>`;
+    }
+    panel.innerHTML = inner;
   }
 
   function setBusy(busy) {
@@ -71,15 +79,19 @@
       const raw = (result.rawImages || []).length;
       const accepted = (result.acceptedImages || []).length;
       const saved = (result.savedFiles || []).length;
+      const deduped = result.deduped || 0;
       const dir = result.saveDir || '';
       const cost = result.costKrw || 0;
+      const thumbnails = result.thumbnails || [];
 
       const lines = [];
-      lines.push(`✅ <b>수집 완료</b> — 추출 ${raw}개 / AI 통과 ${accepted}개 / 저장 ${saved}개`);
-      if (dir) lines.push(`📁 저장 위치: <code style="background:rgba(0,0,0,0.4);padding:2px 6px;border-radius:4px;">${dir}</code>`);
+      const dedupeNote = deduped > 0 ? ` / 중복차단 ${deduped}개` : '';
+      lines.push(`✅ <b>수집 완료</b> — 추출 ${raw}개 / AI 통과 ${accepted}개 / 저장 ${saved}개${dedupeNote}`);
+      if (dir) lines.push(`📁 저장 위치: <code style="background:rgba(0,0,0,0.4);padding:2px 6px;border-radius:4px;font-size:11px;">${dir}</code>`);
       if (cost > 0) lines.push(`💰 vision 비용: ₩${cost.toFixed(1)}`);
       if (result.routing?.fellBack) lines.push(`⚠️ vision 라우팅 폴백: ${result.routing.reason || '미상'}`);
-      showResult(lines.join('<br>'));
+      if (saved > thumbnails.length) lines.push(`<span style="color:rgba(255,255,255,0.55);font-size:11px;">미리보기는 첫 ${thumbnails.length}개만 표시 (전체 ${saved}개는 폴더에서 확인)</span>`);
+      showResult(lines.join('<br>'), false, thumbnails);
     } catch (e) {
       showResult(`❌ 예외: ${e?.message || String(e)}`, true);
     } finally {
