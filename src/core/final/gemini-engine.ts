@@ -54,7 +54,12 @@ export const GROUNDING_MODELS = GEMINI_BASE_MODELS;
 let lastApiCallTime = 0;
 let rateLimitLock: Promise<void> = Promise.resolve();
 const MIN_API_INTERVAL = 500; // 최소 0.5초 간격
-const GEMINI_TIMEOUT_MS = 30_000;
+
+// 타임아웃 — 2.5 Pro는 긴 프롬프트/grounding에서 30초 자주 초과 (v3.5.72)
+//   일반 호출: 60초 (Pro도 대부분 30~50초에 끝남)
+//   Grounding: 90초 (검색+생성 2단계라 더 김)
+const GEMINI_TIMEOUT_MS = 60_000;
+const GROUNDING_TIMEOUT_MS = 90_000;
 
 async function enforceRateLimit(): Promise<void> {
   // 직렬화: 이전 호출의 대기가 끝난 후 실행
@@ -147,7 +152,7 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 2
         const model = genAI.getGenerativeModel({ model: modelName });
         const result = await Promise.race([
           model.generateContent(prompt),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${modelName} 30초 타임아웃`)), GEMINI_TIMEOUT_MS))
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${modelName} ${GEMINI_TIMEOUT_MS / 1000}초 타임아웃`)), GEMINI_TIMEOUT_MS))
         ]);
         const text = result.response.text();
         console.log(`✅ [Gemini] ${modelName} 성공!`);
@@ -219,7 +224,7 @@ export async function callGeminiWithGrounding(prompt: string, maxRetries: number
         });
         const result = await Promise.race([
           model.generateContent(prompt),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${modelName} Grounding ${GEMINI_TIMEOUT_MS / 1000}초 타임아웃`)), GEMINI_TIMEOUT_MS))
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${modelName} Grounding ${GROUNDING_TIMEOUT_MS / 1000}초 타임아웃`)), GROUNDING_TIMEOUT_MS))
         ]);
         const text = result.response.text();
 
