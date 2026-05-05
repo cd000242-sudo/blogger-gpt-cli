@@ -26,17 +26,21 @@ try {
   console.warn('[urlImageCrawler] puppeteer-extra 로드 실패 — 일반 puppeteer 폴백');
 }
 
-async function launchBrowser(): Promise<any> {
+async function launchBrowser(visible: boolean = false): Promise<any> {
   const launcher = puppeteerExtra || require('puppeteer');
+  // visible=true: 사용자가 수집 과정을 직접 관찰. 헤드리스 해제 + 정상 위치.
+  // visible=false (기본): 발행 흐름에서 호출. 헤드리스 + 오프스크린.
+  const args = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-blink-features=AutomationControlled',
+    '--disable-dev-shm-usage',
+  ];
+  if (!visible) args.push('--window-position=-2400,-2400');
   return await launcher.launch({
-    headless: 'new',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-dev-shm-usage',
-      '--window-position=-2400,-2400', // offscreen
-    ],
+    headless: visible ? false : 'new',
+    args,
+    defaultViewport: visible ? { width: 1280, height: 900 } : null,
   });
 }
 
@@ -53,14 +57,20 @@ export interface CrawlImageResult {
   framesScanned: number; // iframe 포함 frame 수
 }
 
+export interface CrawlOptions {
+  /** true면 보이는 브라우저로 실행 (사용자 검수용 단독 버튼). 기본 false (헤드리스 오프스크린) */
+  visible?: boolean;
+}
+
 /**
  * URL에서 본문 이미지 추출 (Puppeteer + iframe 순회).
  */
-export async function crawlImagesFromUrl(url: string): Promise<CrawlImageResult> {
+export async function crawlImagesFromUrl(url: string, options: CrawlOptions = {}): Promise<CrawlImageResult> {
+  const visible = !!options.visible;
   let browser: any;
   try {
-    console.log(`[urlImageCrawler] 🌐 페이지 로드: ${url.slice(0, 80)}`);
-    browser = await launchBrowser();
+    console.log(`[urlImageCrawler] 🌐 페이지 로드 (${visible ? '보이는 창' : '헤드리스'}): ${url.slice(0, 80)}`);
+    browser = await launchBrowser(visible);
     const page = await createOptimizedPage(browser);
 
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 }).catch(async () => {

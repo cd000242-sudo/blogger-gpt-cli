@@ -4639,6 +4639,7 @@ ipcMain.handle('url-image:crawl-and-collect', async (_evt, payload: {
   aiCheckEnabled?: boolean;
   textGenerator?: string;
   threshold?: number;
+  visible?: boolean;
 }) => {
   try {
     const { crawlAndCollect } = require('../dist/core/url-image-crawler/index.js');
@@ -4659,6 +4660,7 @@ ipcMain.handle('url-image:crawl-and-collect', async (_evt, payload: {
       textGenerator: payload.textGenerator || 'gemini-2.5-flash',
       apiKeys,
       threshold: payload.threshold ?? 60,
+      visible: !!payload.visible,
     });
     return result;
   } catch (e: any) {

@@ -39,6 +39,8 @@ export interface CrawlAndCollectOptions {
   apiKeys?: { gemini?: string; claude?: string; openai?: string };
   /** 60점 임계값 (기본 60) */
   threshold?: number;
+  /** 보이는 브라우저로 실행 (사용자 단독 버튼 클릭 시) */
+  visible?: boolean;
 }
 
 export interface CrawlAndCollectResult {
@@ -83,7 +85,7 @@ export async function crawlAndCollect(opts: CrawlAndCollectOptions): Promise<Cra
   const projectName = opts.projectName || 'LEADERNAM-Orbit';
 
   // 1) 크롤링
-  const crawled: CrawlImageResult = await crawlImagesFromUrl(opts.url);
+  const crawled: CrawlImageResult = await crawlImagesFromUrl(opts.url, { visible: !!opts.visible });
   if (crawled.images.length === 0) {
     return {
       ok: false,
