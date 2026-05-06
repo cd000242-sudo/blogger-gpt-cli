@@ -34,6 +34,7 @@ import { buildSchemaJsonLd } from './schema-jsonld';
 import { scanAdsensePolicy } from './policy-scanner';
 import { validateArticleQuality } from './quality-gate';
 import { dispatchMode } from './mode-dispatcher';
+import { applyFinalSeoEnhancements } from './seo-enhancements';
 
 // 🎯 동시 실행 시 process.env 충돌 방지 세마포어
 let engineLock: Promise<void> = Promise.resolve();
@@ -1764,6 +1765,18 @@ ${conclusionHTML}
           onLog?.(`[QUALITY] ⚠️ ${msg} (warn 모드 — 발행 계속)`);
         }
       }
+    }
+
+    // 🚀 v3.5.77: 본문 후처리 — SEO 메타·alt·lazy·SVG·itemprop·textLength 일괄 보강
+    try {
+      html = applyFinalSeoEnhancements(html, {
+        title: h1,
+        keyword,
+        thumbnailUrl,
+        description: (allSectionsObj?.introduction || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 155),
+      });
+    } catch (e: any) {
+      console.warn('[orchestration] applyFinalSeoEnhancements 실패 (skip):', e?.message);
     }
 
     return {

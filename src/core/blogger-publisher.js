@@ -2438,6 +2438,40 @@ async function publishToBlogger(payload, title, html, thumbnailUrl, onLog, posti
 
     let processedThumbnailUrl = thumbnailUrl;
 
+    // 🚀 v3.5.77: 본문 base64 이미지 → Blogger 미디어 API 업로드 후 URL 치환
+    //   기존엔 썸네일만 업로드되고 본문 H2 이미지는 base64로 발행됨 → 페이지 619KB까지 폭증
+    //   이제 본문 이미지도 일괄 업로드 → URL 치환으로 페이지 크기 약 100KB로 축소
+    try {
+      const bodyBase64Imgs = [...html.matchAll(/<img[^>]*src=['"](data:image\/[^'"]+)['"][^>]*>/gi)];
+      if (bodyBase64Imgs.length > 0) {
+        console.log(`[PUBLISH] 📤 본문 base64 이미지 ${bodyBase64Imgs.length}장 업로드 시작...`);
+        onLog?.(`📤 본문 이미지 ${bodyBase64Imgs.length}장 업로드 중...`);
+        let uploaded = 0;
+        let failed = 0;
+        for (const m of bodyBase64Imgs) {
+          const dataUrl = m[1];
+          if (!dataUrl) continue;
+          try {
+            const uploadedUrl = await uploadDataUrlThumbnail(blogger, blogId, dataUrl, onLog);
+            if (uploadedUrl) {
+              // 정확히 같은 dataUrl만 치환 (다른 이미지 건드리지 않게)
+              html = html.split(dataUrl).join(uploadedUrl);
+              uploaded++;
+            } else {
+              failed++;
+            }
+          } catch (e) {
+            failed++;
+            console.warn(`[PUBLISH] ⚠️ 본문 이미지 업로드 실패: ${e?.message || e}`);
+          }
+        }
+        console.log(`[PUBLISH] ✅ 본문 이미지 업로드: ${uploaded}/${bodyBase64Imgs.length}장 (실패 ${failed})`);
+        onLog?.(`✅ 본문 이미지 업로드: ${uploaded}/${bodyBase64Imgs.length}장`);
+      }
+    } catch (e) {
+      console.warn(`[PUBLISH] ⚠️ 본문 이미지 업로드 일괄 실패 (그대로 발행): ${e?.message || e}`);
+    }
+
     console.log(`[PUBLISH] [썸네일 초기화] 입력 thumbnailUrl: ${thumbnailUrl ? '있음' : '없음'}`);
     if (thumbnailUrl) {
       console.log(`[PUBLISH] [썸네일 초기화] 타입: ${typeof thumbnailUrl}`);

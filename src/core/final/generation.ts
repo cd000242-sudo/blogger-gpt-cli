@@ -568,7 +568,11 @@ JSON만 출력 (설명/마크다운 금지):
   };
 
   const textLength = (html: string): number => {
+    // v3.5.77: script/style 컨테이너 안 텍스트도 제거 (eeat-meta와 동일 정합)
     return (html || '')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim().length;

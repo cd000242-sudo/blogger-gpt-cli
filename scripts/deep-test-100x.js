@@ -1500,6 +1500,55 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     }
   });
 
+  await runTest('SEO 후처리 — 메타 태그 + alt + lazy + SVG 제거 + itemprop', () => {
+    const src = load('src/core/final/seo-enhancements.ts');
+    if (!src.includes('applyFinalSeoEnhancements')) throw new Error('export 함수 누락');
+    if (!src.includes('og:image') || !src.includes('og:title') || !src.includes('og:description')) throw new Error('OG 메타 누락');
+    if (!src.includes('twitter:card') || !src.includes('twitter:image')) throw new Error('Twitter 메타 누락');
+    if (!src.includes('canonical')) throw new Error('canonical 처리 누락');
+    if (!src.includes('robots')) throw new Error('robots 메타 누락');
+    if (!/loading="lazy"/.test(src)) throw new Error('lazy loading 추가 로직 누락');
+    if (!/itemprop="articleBody"/.test(src)) throw new Error('articleBody microdata 누락');
+    if (!src.includes('stripBodySvgs')) throw new Error('SVG 제거 함수 누락');
+
+    // orchestration이 호출
+    const orch = load('src/core/final/orchestration.ts');
+    if (!orch.includes('applyFinalSeoEnhancements')) throw new Error('orchestration이 함수 호출 안 함');
+    if (!orch.includes("from './seo-enhancements'")) throw new Error('import 누락');
+
+    // 런타임 시뮬: alt 채움
+    const fakeHtml = '<img src="x.jpg"><img src="y.jpg" alt=""><img src="z.jpg" alt="기존">';
+    let cnt = 0;
+    const altResult = fakeHtml.replace(/<img\b([^>]*)>/gi, (full, attrs) => {
+      cnt++;
+      const altMatch = attrs.match(/\balt\s*=\s*["']([^"']*)["']/i);
+      if (altMatch && altMatch[1].trim().length > 0) return full;
+      const fa = `kw 관련 이미지 ${cnt}`;
+      if (altMatch) return full.replace(altMatch[0], `alt="${fa}"`);
+      return `<img${attrs} alt="${fa}">`;
+    });
+    const altCount = (altResult.match(/alt=/g) || []).length;
+    if (altCount !== 3) throw new Error(`alt 개수 3 기대, 실제 ${altCount}`);
+  });
+
+  await runTest('blogger-publisher 본문 base64 이미지 일괄 업로드', () => {
+    const src = load('src/core/blogger-publisher.js');
+    if (!src.includes('본문 base64 이미지')) throw new Error('본문 이미지 업로드 블록 누락');
+    if (!/<img\[\^>\]\*src=\['"\]\(data:image/.test(src)) throw new Error('base64 매칭 정규식 누락');
+    if (!src.includes('uploadDataUrlThumbnail(blogger, blogId, dataUrl')) throw new Error('재사용 호출 누락');
+    if (!src.includes('html.split(dataUrl).join(uploadedUrl)')) throw new Error('치환 로직 누락');
+  });
+
+  await runTest('generation textLength — script/style 컨테이너 제외', () => {
+    const src = load('src/core/final/generation.ts');
+    // textLength 함수가 script/style/noscript 컨테이너 전체 제거
+    const fnMatch = src.match(/const textLength[\s\S]{0,400}?\.trim\(\)\.length;/);
+    if (!fnMatch) throw new Error('textLength 함수 정의 미발견');
+    const fn = fnMatch[0];
+    if (!/<script\[\\s\\S\]\*\?<\\\/script>/.test(fn)) throw new Error('script 컨테이너 제거 누락');
+    if (!/<style\[\\s\\S\]\*\?<\\\/style>/.test(fn)) throw new Error('style 컨테이너 제거 누락');
+  });
+
   await runTest('run-post 발행 직전 H2 무결성 검증 (이중 안전망)', () => {
     const src = load('electron/main.ts');
     if (!/h2Count\s*=\s*\(generatedHtml\.match/.test(src)) {
