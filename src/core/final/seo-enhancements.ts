@@ -86,20 +86,13 @@ function ensureImageAlt(html: string, keyword: string): string {
 }
 
 /**
- * 본문에 LLM이 직접 그린 <svg>...</svg> 제거.
- * Blogger 템플릿이 사이드바에 만드는 SVG와 구분이 어려우므로
- * 본문 영역(article-body / post-body / .se-main-container)에 한정해서 제거.
- * 실제론 LLM이 본문에 SVG를 넣는 케이스가 드물지만 안전망.
+ * v3.5.78: stripBodySvgs 비활성화.
+ *   class 매칭만으로는 사용자 의도 SVG(CTA 화살표·표 아이콘·글머리 기호 등)와
+ *   LLM 데이터 SVG를 구분할 수 없어 무차별 삭제 위험. 안전망 자체를 제거.
+ *   실제로 LLM이 본문에 SVG를 넣는 케이스는 거의 없음.
  */
 function stripBodySvgs(html: string): string {
-  return html.replace(/<svg\b[\s\S]*?<\/svg>/gi, (svg) => {
-    // class에 entry-thumb / sidebar / icon 같은 패턴 → Blogger 템플릿. 유지.
-    if (/class=['"][^'"]*(?:entry-thumb|sidebar|icon|widget|button)/i.test(svg)) return svg;
-    // viewBox 16x16 이하의 작은 아이콘 → 유지
-    if (/viewBox=['"]\s*0\s+0\s+(?:1[0-6]|[0-9])(?:\.\d+)?\s+(?:1[0-6]|[0-9])(?:\.\d+)?\s*['"]/i.test(svg)) return svg;
-    // 본문에 들어간 LLM SVG (이미지 대체용 큰 SVG) → 제거
-    return '';
-  });
+  return html;
 }
 
 /** itemprop="articleBody" 마크업 본문 article 또는 post-body div에 자동 추가 */
@@ -115,24 +108,22 @@ function ensureArticleBodyMicrodata(html: string): string {
 }
 
 /**
- * 메타 태그를 본문 HTML 시작 부분에 삽입.
- * Blogger 글 본문 안에 <meta>를 넣어도 Blogger가 페이지 head로 옮기진 않지만,
- * 검색 엔진/SNS 크롤러는 본문 내 OG 메타도 일부 인식 (최선의 방어).
- * 또한 향후 head 주입 경로가 추가되면 동일 함수를 재사용 가능.
+ * v3.5.78: prependMetaBlock 비활성화.
+ *   Blogger API에 본문으로 보낸 <meta>는 head로 이동하지 않음.
+ *   최악의 경우: HTML 엔티티 인코딩되어 평문 텍스트로 본문에 노출 ("<meta name=...>" 그대로 보임)
+ *   차악의 경우: 본문 첫 자식이 메타 태그라 :first-child CSS 셀렉터 마진 깨짐
+ *   SEO 메타는 Blogger 템플릿 편집 또는 Custom HTML 위젯으로 처리해야 함.
+ *
+ *   buildMetaBlock 함수는 향후 진짜 head 주입 경로가 생길 때 재사용 가능하므로 코드는 보존.
  */
-function prependMetaBlock(html: string, metaBlock: string): string {
-  if (html.includes(META_INSERT_MARKER)) return html;        // 중복 방지
-  return metaBlock + '\n' + html;
-}
-
 export function applyFinalSeoEnhancements(html: string, opts: SeoEnhanceOptions): string {
   if (!html) return html;
   let result = html;
-  result = stripBodySvgs(result);
+  // v3.5.78: stripBodySvgs / prependMetaBlock 호출 제거 — 구조 깨짐 위험
   result = ensureImageAlt(result, opts.keyword || opts.title || '관련 이미지');
   result = addLazyLoading(result);
   result = ensureArticleBodyMicrodata(result);
-  const metaBlock = buildMetaBlock(opts);
-  result = prependMetaBlock(result, metaBlock);
+  // 향후 buildMetaBlock 재사용 시 head 주입 경로에서 사용 — 현재는 호출 안 함
+  void buildMetaBlock;
   return result;
 }

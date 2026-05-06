@@ -1500,21 +1500,22 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     }
   });
 
-  await runTest('SEO 후처리 — 메타 태그 + alt + lazy + SVG 제거 + itemprop', () => {
+  await runTest('SEO 후처리 — alt + lazy + itemprop만 활성 (메타/SVG 비활성)', () => {
     const src = load('src/core/final/seo-enhancements.ts');
     if (!src.includes('applyFinalSeoEnhancements')) throw new Error('export 함수 누락');
-    if (!src.includes('og:image') || !src.includes('og:title') || !src.includes('og:description')) throw new Error('OG 메타 누락');
-    if (!src.includes('twitter:card') || !src.includes('twitter:image')) throw new Error('Twitter 메타 누락');
-    if (!src.includes('canonical')) throw new Error('canonical 처리 누락');
-    if (!src.includes('robots')) throw new Error('robots 메타 누락');
     if (!/loading="lazy"/.test(src)) throw new Error('lazy loading 추가 로직 누락');
     if (!/itemprop="articleBody"/.test(src)) throw new Error('articleBody microdata 누락');
-    if (!src.includes('stripBodySvgs')) throw new Error('SVG 제거 함수 누락');
+
+    // v3.5.78: 위험한 변환은 비활성화 — 호출되지 않아야 함
+    const applyMatch = src.match(/export function applyFinalSeoEnhancements[\s\S]*?\n\}/);
+    if (!applyMatch) throw new Error('applyFinalSeoEnhancements 함수 미발견');
+    const fnBody = applyMatch[0];
+    if (/result\s*=\s*stripBodySvgs\(/.test(fnBody)) throw new Error('stripBodySvgs가 비활성화되지 않음 (구조 깨짐 위험)');
+    if (/result\s*=\s*prependMetaBlock\(/.test(fnBody)) throw new Error('prependMetaBlock이 비활성화되지 않음 (구조 깨짐 위험)');
 
     // orchestration이 호출
     const orch = load('src/core/final/orchestration.ts');
     if (!orch.includes('applyFinalSeoEnhancements')) throw new Error('orchestration이 함수 호출 안 함');
-    if (!orch.includes("from './seo-enhancements'")) throw new Error('import 누락');
 
     // 런타임 시뮬: alt 채움
     const fakeHtml = '<img src="x.jpg"><img src="y.jpg" alt=""><img src="z.jpg" alt="기존">';
