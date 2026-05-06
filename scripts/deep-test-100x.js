@@ -1550,26 +1550,37 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!/<style\[\\s\\S\]\*\?<\\\/style>/.test(fn)) throw new Error('style 컨테이너 제거 누락');
   });
 
-  await runTest('run-post 발행 직전 H2 무결성 검증 (이중 안전망)', () => {
+  await runTest('run-post 발행 직전 H2 무결성 — 모드별 임계값 차등', () => {
     const src = load('electron/main.ts');
-    if (!/h2Count\s*=\s*\(generatedHtml\.match/.test(src)) {
-      throw new Error('main.ts에 H2 카운트 검증 누락');
+    if (!/h2Count\s*=\s*\(generatedHtml\.match/.test(src)) throw new Error('H2 카운트 검증 누락');
+    // 모드별 임계값 분기 박제
+    if (!/contentMode\s*===\s*'adsense'\s*\?\s*5/.test(src)) throw new Error('adsense minH2=5 분기 누락');
+    if (!/'external',\s*'internal',\s*'paraphrasing',\s*'shopping'/.test(src)) throw new Error('동적 모드 4종 배열 누락');
+    if (!/h2Count\s*<\s*minH2/.test(src)) throw new Error('H2 < minH2 차단 분기 누락');
+    if (!/모드 '\$\{contentMode/.test(src)) throw new Error('모드명 포함 차단 로그 누락');
+
+    // 시뮬레이션: 모드별 임계값 정확
+    const minH2For = (mode) =>
+      mode === 'adsense' ? 5
+      : ['external','internal','paraphrasing','shopping'].includes(mode) ? 4
+      : 3;
+    const blockIf = (mode, cnt) => cnt < minH2For(mode);
+
+    // adsense: 4개는 차단, 5개는 통과
+    if (!blockIf('adsense', 4)) throw new Error('adsense H2 4개 → 차단되어야 함');
+    if (blockIf('adsense', 5)) throw new Error('adsense H2 5개 → 통과해야 함');
+    if (blockIf('adsense', 6)) throw new Error('adsense H2 6개 → 통과해야 함');
+
+    // external/internal/paraphrasing/shopping: 3개는 차단, 4개는 통과
+    for (const mode of ['external','internal','paraphrasing','shopping']) {
+      if (!blockIf(mode, 3)) throw new Error(`${mode} H2 3개 → 차단되어야 함`);
+      if (blockIf(mode, 4)) throw new Error(`${mode} H2 4개 → 통과해야 함`);
+      if (blockIf(mode, 7)) throw new Error(`${mode} H2 7개 → 통과해야 함`);
     }
-    if (!/h2Count\s*<\s*3/.test(src)) {
-      throw new Error('H2 < 3 차단 분기 누락');
-    }
-    if (!/발행 차단[^\n]*본문 H2/.test(src)) {
-      throw new Error('차단 로그 메시지 누락');
-    }
-    // 시뮬레이션: H2 0개 / 2개 / 5개 입력 시 차단 여부
-    const sim = (html) => {
-      const cnt = (html.match(/<h2[^>]*>/gi) || []).length;
-      return cnt < 3;
-    };
-    if (!sim('<p>도입부만 있음</p>')) throw new Error('H2 0개 → 차단되어야 함');
-    if (!sim('<h2>1</h2><p>x</p><h2>2</h2>')) throw new Error('H2 2개 → 차단되어야 함');
-    if (sim('<h2>1</h2><h2>2</h2><h2>3</h2>')) throw new Error('H2 3개 → 통과해야 함');
-    if (sim('<h2>1</h2><h2>2</h2><h2>3</h2><h2>4</h2><h2>5</h2>')) throw new Error('H2 5개 → 통과해야 함');
+
+    // 미지정/기본: 2개 차단, 3개 통과 (기존 동작 호환)
+    if (!blockIf('', 2)) throw new Error('기본 모드 H2 2개 → 차단되어야 함');
+    if (blockIf('', 3)) throw new Error('기본 모드 H2 3개 → 통과해야 함');
   });
 
   await runTest('eeat-meta 읽기시간 — script/style 컨테이너 안 텍스트 제외', () => {

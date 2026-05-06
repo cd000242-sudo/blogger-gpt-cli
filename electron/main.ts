@@ -2177,15 +2177,21 @@ ipcMain.handle('run-post', async (_evt, payload) => {
       return { ok: false, error: '콘텐츠 생성 결과가 유효하지 않습니다.' };
     }
 
-    // 🛡️ v3.5.76: 발행 직전 본문 무결성 이중 검증 — H2 0~2개로는 발행 불가
-    //   generation.ts의 폴백 차단을 우회하더라도 publish 단계에서 한 번 더 막음
-    //   (실제 사례: 도입부+엔딩만 있는 빈 껍데기 글이 발행된 적 있음 — H2 0개)
+    // 🛡️ v3.5.76 / v3.5.79: 발행 직전 본문 무결성 이중 검증 — 모드별 H2 임계값 차등
+    //   adsense: 정형 6개 섹션 → minH2=5 (1개 누락만 허용)
+    //   external/internal/paraphrasing/shopping: AI 동적 5~7개 → minH2=4
+    //   기타/미설정: minH2=3 (관대)
     const generatedHtml = String((result as any).html || (result as any).content || '');
     const h2Count = (generatedHtml.match(/<h2[^>]*>/gi) || []).length;
-    if (h2Count < 3) {
-      const errMsg = `본문 H2 섹션이 ${h2Count}개 (최소 3개 필요) — LLM 응답이 잘렸거나 폴백 콘텐츠. 발행을 차단합니다.`;
+    const contentMode = String(payload?.contentMode || '').toLowerCase();
+    const minH2 =
+      contentMode === 'adsense' ? 5
+      : ['external', 'internal', 'paraphrasing', 'shopping'].includes(contentMode) ? 4
+      : 3;
+    if (h2Count < minH2) {
+      const errMsg = `본문 H2 섹션이 ${h2Count}개 (모드 '${contentMode || '기본'}' 최소 ${minH2}개 필요) — LLM 응답이 잘렸거나 폴백 콘텐츠. 발행을 차단합니다.`;
       console.error('[RUN-POST] 🛡️ 발행 차단:', errMsg);
-      onLog(`[PROGRESS] 0% - 🛡️ 발행 차단: 본문 H2 ${h2Count}개 (정상은 5~10개)`);
+      onLog(`[PROGRESS] 0% - 🛡️ 발행 차단: H2 ${h2Count}개 < 모드 '${contentMode || '기본'}' 최소 ${minH2}개`);
       onLog('[PROGRESS] 0% - 💡 LLM 호출이 타임아웃되었거나 응답이 잘렸습니다. 잠시 후 재시도하거나 다른 엔진을 선택하세요.');
       return { ok: false, error: errMsg };
     }
