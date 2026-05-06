@@ -52,8 +52,11 @@ export async function generateUltimateMaxModeArticleFinal(
     throw new Error(blockMsg);
   }
 
-  // 🛡️ CTA AI 엄격 모드 — adsense 모드면 자동 ON (초보자가 결정할 일 아님)
-  process.env['CTA_AI_VALIDATE_STRICT'] = (payload?.contentMode === 'adsense' || payload?.ctaAiStrictMode === true) ? 'true' : 'false';
+  // 🛡️ v3.5.82: CTA AI 엄격 모드 — 모든 모드에서 기본 ON (가짜·무관 URL 100% 차단)
+  //   사용자가 명시적으로 ctaAiStrictMode=false 지정한 경우만 비활성
+  //   기존: adsense만 자동 ON, 나머지는 토글 의존 → CTA URL이 키워드와 무관해도 통과될 수 있었음
+  //   변경: 기본 ON으로 모든 CTA가 Perplexity AI로 의미 관련성까지 검증됨 (CTA당 +12s, ~₩100~200)
+  process.env['CTA_AI_VALIDATE_STRICT'] = (payload?.ctaAiStrictMode === false) ? 'false' : 'true';
 
   // 🖼️ 썸네일 엔진 엄격 모드 — 기본 OFF (다른 AI로 자동 폴백이 합리적)
   process.env['STRICT_THUMBNAIL_ENGINE'] = payload?.strictThumbnailEngine === true ? 'true' : 'false';

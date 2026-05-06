@@ -1355,10 +1355,16 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
 
     const orchSrc = load('src/core/final/orchestration.ts');
     if (!orchSrc.includes("payload?.ctaAiStrictMode")) throw new Error('payload 토글 처리 누락');
+    // v3.5.82: 기본 ON 보장 — payload.ctaAiStrictMode === false 일 때만 비활성
+    if (!/payload\?\.ctaAiStrictMode\s*===\s*false\s*\)\s*\?\s*'false'\s*:\s*'true'/.test(orchSrc)) {
+      throw new Error('CTA AI 엄격 모드 기본값이 ON이 아님 (v3.5.82)');
+    }
 
     const html = load('electron/ui/index.html');
     // v3.5.60에서 라벨 카드는 제거됐고 hidden input만 잔존 (백엔드 자동 ON)
     if (!html.includes('id="ctaAiStrictMode"')) throw new Error('ctaAiStrictMode input 누락');
+    // v3.5.82: UI input checked 기본 ON (사용자가 끄지 않는 한 AI 검증 활성)
+    if (!/id="ctaAiStrictMode"\s+checked/.test(html)) throw new Error('ctaAiStrictMode input checked 누락');
 
     const postingJs = load('electron/ui/modules/posting.js');
     if (!postingJs.includes('ctaAiStrictMode')) throw new Error('posting payload 전달 누락');
