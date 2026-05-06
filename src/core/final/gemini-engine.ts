@@ -50,16 +50,19 @@ function getPrimaryProvider(): 'gemini' | 'openai' | 'claude' | 'perplexity' {
 export const GEMINI_MODELS = GEMINI_BASE_MODELS;
 export const GROUNDING_MODELS = GEMINI_BASE_MODELS;
 
-// 🔥 API 호출 간격 제어 (할당량 초과 방지)
+// 🔥 API 호출 간격 제어 (v3.5.73 — 연속 발행 안정화)
+//   Gemini 무료 티어 한도: 60 req/min (Pro), 1500 req/min (Flash 유료)
+//   1500ms 간격 = 40 req/min 안전 마진 (무료 + 그라운딩 검색까지 안전)
 let lastApiCallTime = 0;
 let rateLimitLock: Promise<void> = Promise.resolve();
-const MIN_API_INTERVAL = 500; // 최소 0.5초 간격
+const MIN_API_INTERVAL = 1500;
 
-// 타임아웃 — 2.5 Pro는 긴 프롬프트/grounding에서 30초 자주 초과 (v3.5.72)
-//   일반 호출: 60초 (Pro도 대부분 30~50초에 끝남)
-//   Grounding: 90초 (검색+생성 2단계라 더 김)
+// 타임아웃 — Pro는 긴 프롬프트/grounding에서 자주 초과
 const GEMINI_TIMEOUT_MS = 60_000;
 const GROUNDING_TIMEOUT_MS = 90_000;
+
+// 타임아웃 후 backoff (네트워크 일시 지연 회복용)
+const TIMEOUT_BACKOFF_MS = 3_000;
 
 async function enforceRateLimit(): Promise<void> {
   // 직렬화: 이전 호출의 대기가 끝난 후 실행
@@ -161,12 +164,23 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 2
         lastError = error;
         const errorMsg = error?.message || String(error);
         const isRateLimit = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded.*quota/i.test(errorMsg);
+        const isTimeout = /타임아웃|timeout/i.test(errorMsg);
 
         if (isRateLimit) {
           const waitTime = Math.min(3 * (retry + 1), 10);
           console.log(`⏳ [Gemini] ${modelName} 할당량 초과, ${waitTime}초 후 재시도...`);
           await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
           if (retry >= maxRetries - 1) break;
+        } else if (isTimeout) {
+          // v3.5.73: 타임아웃은 일시적 — 같은 모델 backoff 후 retry (사용자 모델 의도 보존)
+          if (retry < maxRetries - 1) {
+            console.log(`⏳ [Gemini] ${modelName} 타임아웃, ${TIMEOUT_BACKOFF_MS / 1000}초 backoff 후 같은 모델 재시도...`);
+            await new Promise(resolve => setTimeout(resolve, TIMEOUT_BACKOFF_MS));
+            // retry 계속 (break 없이)
+          } else {
+            console.warn(`⚠️ [Gemini] ${modelName} 타임아웃 ${maxRetries}회 — 폴백 모델로 전환`);
+            break;
+          }
         } else {
           console.error(`❌ [Gemini] ${modelName} 오류:`, errorMsg.substring(0, 100));
           break;
@@ -243,6 +257,7 @@ export async function callGeminiWithGrounding(prompt: string, maxRetries: number
         lastError = error;
         const errorMsg = error?.message || String(error);
         const isRateLimit = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded.*quota/i.test(errorMsg);
+        const isTimeout = /타임아웃|timeout/i.test(errorMsg);
 
         if (isRateLimit) {
           const waitTime = Math.min(3 * (retry + 1), 10);
@@ -250,6 +265,15 @@ export async function callGeminiWithGrounding(prompt: string, maxRetries: number
           await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
           if (retry >= maxRetries - 1) {
             console.log(`⚠️ [Grounding] ${modelName} 할당량 소진, 다음 모델로 전환...`);
+            break;
+          }
+        } else if (isTimeout) {
+          // v3.5.73: 타임아웃은 일시적 — 같은 모델 backoff 후 retry
+          if (retry < maxRetries - 1) {
+            console.log(`⏳ [Grounding] ${modelName} 타임아웃, ${TIMEOUT_BACKOFF_MS / 1000}초 backoff 후 같은 모델 재시도...`);
+            await new Promise(resolve => setTimeout(resolve, TIMEOUT_BACKOFF_MS));
+          } else {
+            console.warn(`⚠️ [Grounding] ${modelName} 타임아웃 ${maxRetries}회 — 폴백 모델로 전환`);
             break;
           }
         } else {

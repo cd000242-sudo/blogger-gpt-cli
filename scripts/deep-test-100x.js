@@ -1480,6 +1480,38 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (got.expireAt <= now) throw new Error('TTL 적용 안 됨');
   });
 
+  await runTest('Gemini 엔진 — 연속 발행 안정화 (rate limit 1.5초 + timeout retry + backoff)', () => {
+    const src = load('src/core/final/gemini-engine.ts');
+    // 1. Rate limit 강화: 1500ms (Gemini 무료 60 req/min 안전 마진)
+    if (!/MIN_API_INTERVAL\s*=\s*1500/.test(src)) throw new Error('MIN_API_INTERVAL이 1500ms로 강화되지 않음');
+    // 2. Timeout 별도 정의 (60초 일반 / 90초 grounding)
+    if (!/GEMINI_TIMEOUT_MS\s*=\s*60_?000/.test(src)) throw new Error('GEMINI_TIMEOUT_MS가 60초가 아님');
+    if (!/GROUNDING_TIMEOUT_MS\s*=\s*90_?000/.test(src)) throw new Error('GROUNDING_TIMEOUT_MS가 90초가 아님');
+    // 3. Timeout backoff 상수 정의
+    if (!/TIMEOUT_BACKOFF_MS\s*=\s*3_?000/.test(src)) throw new Error('TIMEOUT_BACKOFF_MS 정의 누락');
+    // 4. 타임아웃 시 같은 모델 retry 로직 — 양쪽 함수(callGeminiWithRetry + Grounding) 모두에
+    const isTimeoutMatches = (src.match(/isTimeout\s*=\s*\/타임아웃\|timeout\/i\.test/g) || []).length;
+    if (isTimeoutMatches < 2) throw new Error(`타임아웃 감지 분기가 부족: ${isTimeoutMatches}곳 (callGeminiWithRetry + Grounding 모두 필요)`);
+    const backoffMatches = (src.match(/TIMEOUT_BACKOFF_MS/g) || []).length;
+    if (backoffMatches < 3) throw new Error(`TIMEOUT_BACKOFF_MS 사용처 부족: ${backoffMatches}곳 (정의 1 + 사용 2 필요)`);
+    // 5. Cross-provider 폴백은 추가하지 않음 (사용자 의도 보존)
+    if (/callOpenAIAPI\s*\([^)]*\)\s*[,;]?\s*[\r\n]\s*if/i.test(src) && /Gemini.*실패.*OpenAI/i.test(src)) {
+      throw new Error('cross-provider 자동 폴백 추가됨 (사용자 의도 위반)');
+    }
+  });
+
+  await runTest('Gemini 엔진 — 모델 폴백 체인은 사용자 선택 모델 1순위 유지', () => {
+    const src = load('src/core/final/gemini-engine.ts');
+    // 사용자 선택 모델이 buildGeminiChain의 첫 자리
+    if (!/\[tier\.modelId,\s*\.\.\.GEMINI_BASE_MODELS\]/.test(src)) {
+      throw new Error('사용자 선택 모델이 1순위로 보존되지 않음');
+    }
+    // base 모델 3개 (2.5+ 라인업)
+    if (!/'gemini-2\.5-flash-lite'/.test(src)) throw new Error('flash-lite 누락');
+    if (!/'gemini-2\.5-flash'/.test(src)) throw new Error('flash 누락');
+    if (!/'gemini-2\.5-pro'/.test(src)) throw new Error('pro 누락');
+  });
+
   // ========== 최종 집계 ==========
   const totalMs = Date.now() - suiteStart;
   const totalTests = results.length;
