@@ -1580,6 +1580,41 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     }
   });
 
+  await runTest('5개 모드 모두 정형 sections 보유 (external 포함, v3.5.81)', () => {
+    // 모든 모드에 sections 배열이 있어야 mode-dispatcher가 h2Titles 직접 매핑
+    const modeFiles = {
+      adsense:      'src/core/content-modes/adsense/adsense-mode.ts',
+      shopping:     'src/core/content-modes/shopping/shopping-mode.ts',
+      internal:     'src/core/content-modes/internal/internal-mode.ts',
+      paraphrasing: 'src/core/content-modes/paraphrasing/paraphrasing-mode.ts',
+      external:     'src/core/content-modes/external/external-mode.ts',
+    };
+    for (const [mode, path] of Object.entries(modeFiles)) {
+      const src = load(path);
+      if (/sections:\s*\[\s*\]/.test(src)) {
+        throw new Error(`${mode} 모드 sections 빈 배열 — 정형 호출 안 됨`);
+      }
+      if (!/sections:\s*[A-Z_]+_SECTIONS/.test(src) && !/sections:\s*ADSENSE_ULTIMATE_SECTIONS/.test(src)) {
+        throw new Error(`${mode} 모드 sections에 정형 상수 연결 안 됨`);
+      }
+    }
+    // external 모드가 SEO_OPTIMIZED_MODE_SECTIONS 사용
+    const ext = load('src/core/content-modes/external/external-mode.ts');
+    if (!/SEO_OPTIMIZED_MODE_SECTIONS/.test(ext)) {
+      throw new Error('external 모드가 SEO_OPTIMIZED_MODE_SECTIONS import 안 함');
+    }
+    // 정의 자체 확인
+    const ext2 = load('src/core/max-mode/mode-sections-extended.ts');
+    if (!/export const SEO_OPTIMIZED_MODE_SECTIONS/.test(ext2)) {
+      throw new Error('SEO_OPTIMIZED_MODE_SECTIONS 정의 누락');
+    }
+    // 5섹션 id 확인
+    const expectedIds = ['concept_definition', 'core_features', 'practical_application', 'comparison_choice', 'faq_summary'];
+    for (const id of expectedIds) {
+      if (!ext2.includes(`id: "${id}"`)) throw new Error(`SEO sections에 id "${id}" 누락`);
+    }
+  });
+
   await runTest('orchestration 모드별 H2 강제 + 재시도 (v3.5.80)', () => {
     const src = load('src/core/final/orchestration.ts');
     if (!/MODE_H2_TARGETS\s*:\s*Record/.test(src)) throw new Error('MODE_H2_TARGETS 매트릭스 누락');

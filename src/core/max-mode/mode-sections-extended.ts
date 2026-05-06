@@ -726,6 +726,83 @@ export const SHOPPING_CONVERSION_MODE_SECTIONS: MaxModeSection[] = [
 ];
 
 // 📝 내부 일관성 모드 섹션 구조 (시리즈형 글 — TV 에피소드 스타일)
+// SEO 최적화 모드 섹션 구조 (v3.5.81)
+//   external 모드를 다른 모드와 동일한 정형 호출 구조로 통일.
+//   검색 의도 3종(정보형·탐색형·거래형) 모두 커버하는 일반 정보형 5섹션.
+//   mode-dispatcher가 이 sections에서 h2Titles를 직접 가져가므로 LLM 동적 생성 불필요.
+export const SEO_OPTIMIZED_MODE_SECTIONS: MaxModeSection[] = [
+  {
+    id: "concept_definition",
+    title: "[주제]란 무엇인가",
+    description: "검색자가 즉시 답을 얻는 두괄식 정의 + 핵심 개념 소개",
+    minChars: 700,
+    role: "SEO 콘텐츠 전문가",
+    contentFocus: "정의 → 배경 → 왜 알아야 하는가",
+    requiredElements: [
+      "두괄식 한 문단 정의 (스크롤 없이 답 노출)",
+      "핵심 개념 3가지 (불릿)",
+      "배경/맥락 설명 (왜 지금 중요한가)",
+      "구체적 수치 또는 인용 1개 이상"
+    ]
+  },
+  {
+    id: "core_features",
+    title: "[주제]의 핵심 특성과 원리",
+    description: "주제의 작동 원리·특징·종류를 체계적으로 설명",
+    minChars: 1000,
+    role: "전문 해설가",
+    contentFocus: "원리 → 종류·유형 → 장단점",
+    requiredElements: [
+      "H3 소제목 2~3개로 구조화",
+      "표로 정리할 수 있는 비교 데이터 1개",
+      "구체적 수치/통계 (출처 명시)",
+      "흔한 오해 1가지 바로잡기"
+    ]
+  },
+  {
+    id: "practical_application",
+    title: "[주제] 실전 활용 가이드",
+    description: "독자가 따라할 수 있는 단계별 실행 가이드",
+    minChars: 1000,
+    role: "실무 가이드 전문가",
+    contentFocus: "준비 → 절차 → 주의사항 → 대안",
+    requiredElements: [
+      "Step 1~N 명확한 단계 구분",
+      "각 단계 주의점·체크포인트",
+      "초보자가 자주 하는 실수 1가지 이상",
+      "실제 적용 사례 1개"
+    ]
+  },
+  {
+    id: "comparison_choice",
+    title: "[주제] 비교 및 선택 가이드",
+    description: "옵션 비교·상황별 추천으로 탐색형 검색 의도 충족",
+    minChars: 800,
+    role: "객관적 비교 분석가",
+    contentFocus: "옵션 비교 → 상황별 추천 → 선택 기준",
+    requiredElements: [
+      "비교 표 (3개 이상 옵션 또는 기준)",
+      "용도/예산/수준별 맞춤 추천",
+      "각 옵션의 장단점 공평 분석",
+      "과장 표현 0 (객관적 톤 유지)"
+    ]
+  },
+  {
+    id: "faq_summary",
+    title: "[주제] 자주 묻는 질문과 마무리",
+    description: "FAQ 4~6개 + 핵심 요약으로 거래형/정보형 모두 충족",
+    minChars: 700,
+    role: "종합 가이드 전문가",
+    contentFocus: "실제 검색되는 질문 + 핵심 3줄 요약",
+    requiredElements: [
+      "실제 검색되는 질문 4~6개 (H3 태그 사용)",
+      "각 답변 2~4문장 (간결하고 정확)",
+      "핵심 내용 3줄 요약 (불릿)",
+      "마지막 업데이트 날짜 또는 다음 단계 안내"
+    ]
+  }
+];
+
 export const INTERNAL_CONSISTENCY_SECTIONS: MaxModeSection[] = [
   {
     id: "topic_intro",

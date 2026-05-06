@@ -1,17 +1,20 @@
 // src/core/content-modes/external/external-mode.ts
-// SEO 최적화 모드 — 검색 의도 기반 H2 자동 생성
-// sections 배열은 비워두고, h2Titles 는 orchestration 의 AI 생성 경로에 위임
+// SEO 최적화 모드 — v3.5.81부터 정형 sections 적용
+//   기존: sections [] 비어있어 mode-dispatcher가 h2Titles=null 반환 → AI 동적 생성 → 매번 다른 구조
+//   변경: SEO_OPTIMIZED_MODE_SECTIONS (5섹션) 적용 → 다른 모드(adsense/shopping/internal/paraphrasing)와 동일하게
+//        매번 같은 정형 H2로 호출. 검색 의도 3종(정보형/탐색형/거래형) 모두 커버.
 
 import type { ContentModeConfig } from '../../max-mode-structure';
 import type { ContentModePlugin, PromptParams } from '../mode-interface';
 import { registerMode } from '../mode-registry';
 import { buildIntentPromptBlock } from '../../search-intent-classifier';
+import { SEO_OPTIMIZED_MODE_SECTIONS } from '../../max-mode/mode-sections-extended';
 
 const EXTERNAL_CONFIG: ContentModeConfig = {
   name: 'SEO 최적화 모드',
-  description: '검색 의도 자동 분류 + 의도별 H2 아키타입 + 크롤링 데이터 기반 정보 전달',
+  description: '5섹션 정형 (정의→원리→실전→비교→FAQ) + 검색 의도 자동 분류 + 크롤링 데이터',
   titleStrategy: '검색 의도(정보형/탐색형/거래형)에 맞는 클릭 유도형 제목',
-  sectionStrategy: 'AI 생성 — 검색 의도에 맞는 H2 아키타입 자동 선택',
+  sectionStrategy: '5섹션 정형 (개념→특성→실전→비교→FAQ) — 검색 의도 모두 커버',
   tone: '자연스러운 정보 전달, 구체적 수치와 사례 중심',
   ctaStrategy: '정보형 CTA만 사용 (구매 명령형 금지)',
 };
@@ -19,19 +22,23 @@ const EXTERNAL_CONFIG: ContentModeConfig = {
 const externalModePlugin: ContentModePlugin = {
   id: 'external',
   config: EXTERNAL_CONFIG,
-  // 빈 배열 — h2Titles 는 orchestration 의 generateH2TitlesFinal 이 AI 로 생성
-  sections: [],
+  sections: SEO_OPTIMIZED_MODE_SECTIONS,
 
   buildSectionPrompt(params: PromptParams): string {
+    const sec = params.section;
+    const reqs = (sec.requiredElements || []).map(r => `  - ${r}`).join('\n');
     const intentBlock = buildIntentPromptBlock(params.topic);
     return `${intentBlock}
-역할: SEO 콘텐츠 전문가
-핵심: 검색 의도에 맞는 정보의 깊이와 명확성
+역할: ${sec.role || 'SEO 콘텐츠 전문가'}
+핵심: ${sec.contentFocus || '검색 의도에 맞는 정보의 깊이와 명확성'}
 필수 요소:
-  - 검색자가 즉시 답을 얻을 수 있는 두괄식 구조
-  - 구체적 수치/통계/사례 (출처 명시)
-  - 의도가 정보형이면 정의→원리→적용, 탐색형이면 비교→장단점, 거래형이면 리뷰→구매가이드
-  - 모바일 가독성 (단락 3~4문장 단위)`;
+${reqs}
+(최소 ${sec.minChars || 700}자)
+🎯 SEO 4원칙:
+  - 두괄식 답변: 첫 문단에 핵심 답을 즉시 노출 (스크롤 없이 답 보이게)
+  - 구체성 우선: 수치·사례·출처를 매 섹션에 주입 (두루뭉술한 일반론 금지)
+  - 모바일 가독성: 단락 3~4문장 단위 + 불릿/표 적극 활용
+  - 검색 의도 반영: 정보형은 정의→원리, 탐색형은 비교→장단점, 거래형은 절차→대안`;
   },
 
   buildTitlePrompt(topic: string, _keywords: string[], _trendKeywords?: string[]): string {
@@ -39,7 +46,7 @@ const externalModePlugin: ContentModePlugin = {
   },
 
   buildOutlinePrompt(topic: string, _keywords: string[], _targetYear?: number | null): string {
-    return `"${topic}" 에 대한 H2 소제목 5~7개를 생성하세요. 검색 의도(정보형/탐색형/거래형)를 반영한 다양한 아키타입.`;
+    return `"${topic}" 5섹션 정형: 개념 정의 → 핵심 특성 → 실전 활용 → 비교 가이드 → FAQ + 마무리. 검색 의도(정보형/탐색형/거래형) 모두 커버.`;
   },
 };
 
