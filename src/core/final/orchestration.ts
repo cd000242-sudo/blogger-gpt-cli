@@ -86,6 +86,8 @@ export async function generateUltimateMaxModeArticleFinal(
         const accepted: string[] = urlResult.acceptedImages;
         // manualCrawlUrls에 통합 (orchestration이 이미 활용하는 풀)
         payload.manualCrawlUrls = [...(payload.manualCrawlUrls || []), ...accepted];
+        // v3.5.74: productImages에도 미러 — 'crawled' 이미지 소스 선택 시 즉시 사용
+        (payload as any).productImages = [...((payload as any).productImages || []), ...accepted];
         onLog?.(`[PROGRESS] 3% - ✅ URL 이미지 ${accepted.length}개 수집 (raw ${urlResult.rawImages.length}개, vision ₩${urlResult.costKrw}, → ${urlResult.saveDir})`);
         // aiFillEnabled가 false면 부족분 AI 생성 차단
         if (payload.urlImageSource.aiFillEnabled === false) {

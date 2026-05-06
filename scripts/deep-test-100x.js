@@ -1500,6 +1500,30 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     }
   });
 
+  await runTest('crawled 이미지 소스 — UI 옵션 + SUPPORTED_IMAGE_ENGINES + productImages 미러', () => {
+    const html = load('electron/ui/index.html');
+    // 3개 dropdown(scheduleThumbnailMode, thumbnailType, h2ImageSource)에 'crawled' 옵션
+    const crawledOptions = (html.match(/<option value="crawled"/g) || []).length;
+    if (crawledOptions < 3) throw new Error(`crawled 옵션 3곳 필요, 실제 ${crawledOptions}곳`);
+    if (!html.includes('URL 수집 이미지')) throw new Error('URL 수집 이미지 라벨 누락');
+
+    // SUPPORTED_IMAGE_ENGINES에 'crawled' 등록
+    const disp = load('src/core/imageDispatcher.ts');
+    if (!/SUPPORTED_IMAGE_ENGINES[\s\S]*?'crawled'[\s\S]*?\]/.test(disp)) {
+      throw new Error("SUPPORTED_IMAGE_ENGINES에 'crawled' 누락");
+    }
+
+    // orchestration: URL 크롤러 결과가 productImages에 미러
+    const orch = load('src/core/final/orchestration.ts');
+    if (!/productImages\s*=\s*\[\s*\.\.\.\(\(payload as any\)\.productImages\s*\|\|\s*\[\]\),\s*\.\.\.accepted\]/.test(orch)) {
+      throw new Error('URL 크롤러 결과가 productImages에 미러되지 않음');
+    }
+    // 'crawled' 분기는 이미 존재
+    if (!/imageSource === 'crawled'\s*&&\s*payload\.productImages/.test(orch)) {
+      throw new Error("orchestration의 'crawled' 분기 누락");
+    }
+  });
+
   await runTest('Gemini 엔진 — 모델 폴백 체인은 사용자 선택 모델 1순위 유지', () => {
     const src = load('src/core/final/gemini-engine.ts');
     // 사용자 선택 모델이 buildGeminiChain의 첫 자리

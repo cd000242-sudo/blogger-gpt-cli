@@ -553,6 +553,7 @@
                     <option value="flow">🌊 Flow (Gemini 3 Pro Image 무료 — AI Pro 구독 필요)</option>
                     <option value="nanobanana">🍌 나노바나나2 (Gemini 3.1 Flash Image · Pro 품질·Flash 가격)</option>
                     <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
+                    <option value="crawled">🔗 URL 수집 이미지 그대로 사용</option>
                     <option value="none">❌ 썸네일 없음</option>
                   </select>
                 </div>
@@ -3644,6 +3645,7 @@
                         <option value="flow">🌊 Flow (Gemini 3 Pro Image 무료 — AI Pro 구독 필요)</option>
                         <option value="nanobanana">🍌 나노바나나2 (Gemini 3.1 Flash Image · Pro 품질·Flash 가격)</option>
                         <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
+                        <option value="crawled">🔗 URL 수집 이미지 그대로 사용</option>
                         <option value="none">❌ 썸네일 없음</option>
                       </select>
                     </div>
@@ -3654,6 +3656,7 @@
                         <option value="flow">🌊 Flow (Gemini 3 Pro Image 무료 — AI Pro 구독 필요)</option>
                         <option value="nanobanana">🍌 나노바나나2 (Gemini 3.1 Flash Image · Pro 품질·Flash 가격)</option>
                         <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
+                        <option value="crawled">🔗 URL 수집 이미지 그대로 사용</option>
                         <option value="none">❌ 이미지 없음</option>
                       </select>
                       <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 모든 소제목에 자동으로 이미지가 배치됩니다</small>
@@ -5561,6 +5564,7 @@
                 <option value="flow" ${account.settings.imageSource === 'flow' ? 'selected' : ''}>🌊 Flow (무료)</option>
                 <option value="nanobanana" ${(account.settings.imageSource === 'nanobanana' || account.settings.imageSource === 'nanobananapro') ? 'selected' : ''}>🍌 나노바나나2 (Gemini 3.1)</option>
                 <option value="deepinfra" ${account.settings.imageSource === 'deepinfra' ? 'selected' : ''}>🔥 DeepInfra FLUX-2</option>
+                <option value="crawled" ${account.settings.imageSource === 'crawled' ? 'selected' : ''}>🔗 URL 수집 이미지</option>
                 <option value="none" ${account.settings.imageSource === 'none' ? 'selected' : ''}>❌ 이미지 없음</option>
               </select>
             </div>

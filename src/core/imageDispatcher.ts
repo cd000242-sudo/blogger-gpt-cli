@@ -31,11 +31,13 @@ export interface ImageResult {
 // ── 지원 엔진 목록 (단일 진실 소스) ──
 //   2026-05-05 정리: dalle/leonardo/pollinations 제거 (verification 장벽 또는 좀비 코드).
 //   nanobananapro 별칭은 aliasMap에서 nanobanana로 흡수.
+//   v3.5.74: 'crawled' 추가 — URL 수집 이미지를 그대로 사용 (orchestration이 분기 처리)
 export const SUPPORTED_IMAGE_ENGINES = [
   'imagefx',
   'flow',
   'nanobanana',
   'deepinfra',
+  'crawled',
   'text',
   'svg',
   'none',
