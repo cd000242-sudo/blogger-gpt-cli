@@ -1500,6 +1500,32 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     }
   });
 
+  await runTest('eeat-meta 읽기시간 — script/style 컨테이너 안 텍스트 제외', () => {
+    const src = load('src/core/final/eeat-meta.ts');
+    // script/style/noscript 컨테이너 전체 제거 정규식 박제
+    if (!/replace\(\/<script\[\\s\\S\]\*\?<\\\/script>\/gi/.test(src)) throw new Error('script 컨테이너 제거 누락');
+    if (!/replace\(\/<style\[\\s\\S\]\*\?<\\\/style>\/gi/.test(src)) throw new Error('style 컨테이너 제거 누락');
+    if (!/replace\(\/<noscript\[\\s\\S\]\*\?<\\\/noscript>\/gi/.test(src)) throw new Error('noscript 컨테이너 제거 누락');
+
+    // 런타임 검증: script/style 안 5000자 텍스트 → 읽기시간이 본문 700자 기준만 반영되어야
+    const fakeHtml = `
+      <style>${'a'.repeat(5000)}</style>
+      <script>{${'b'.repeat(3000)}}</script>
+      <p>${'한국어'.repeat(200)}</p>
+    `;
+    // 정규식 패턴 추출해서 직접 시뮬
+    const cleaned = fakeHtml
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&[a-z]+;/gi, ' ')
+      .replace(/\s+/g, ' ').trim();
+    const minutes = Math.max(1, Math.round(cleaned.length / 300));
+    if (minutes > 5) throw new Error(`script/style 제외 후에도 ${minutes}분 — 본문만으로는 1~3분이어야`);
+    if (cleaned.length > 1000) throw new Error(`정제 후 글자수 ${cleaned.length} — script/style이 안 제거됨`);
+  });
+
   await runTest('crawled 이미지 소스 — UI 옵션 + SUPPORTED_IMAGE_ENGINES + productImages 미러', () => {
     const html = load('electron/ui/index.html');
     // 3개 dropdown(scheduleThumbnailMode, thumbnailType, h2ImageSource)에 'crawled' 옵션

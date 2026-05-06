@@ -94,7 +94,14 @@ function formatIsoDate(d: Date): string {
 export function buildEeatMeta(input: EeatMetaInput): EeatMetaResult {
     const published = input.publishedAt || new Date();
     const modified = input.modifiedAt || published;
-    const text = input.contentHtml.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ');
+    // v3.5.75: script/style 컨테이너 안의 내용까지 제거 — 안 제거하면 JSON-LD/CSS가 글자수에 포함되어
+    // 읽기시간이 30~100분으로 부풀려짐 (예: 본문 700자 + CSS 5000자 + JSON-LD 3000자 → 97분)
+    const text = input.contentHtml
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&[a-z]+;/gi, ' ');
     const { minutes: readingTimeMinutes, chars: wordCount } = estimateReadingTime(text);
 
     const { html: citedHtml, count: citationCount } = wrapCitations(input.contentHtml);
