@@ -1500,6 +1500,28 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     }
   });
 
+  await runTest('run-post 발행 직전 H2 무결성 검증 (이중 안전망)', () => {
+    const src = load('electron/main.ts');
+    if (!/h2Count\s*=\s*\(generatedHtml\.match/.test(src)) {
+      throw new Error('main.ts에 H2 카운트 검증 누락');
+    }
+    if (!/h2Count\s*<\s*3/.test(src)) {
+      throw new Error('H2 < 3 차단 분기 누락');
+    }
+    if (!/발행 차단[^\n]*본문 H2/.test(src)) {
+      throw new Error('차단 로그 메시지 누락');
+    }
+    // 시뮬레이션: H2 0개 / 2개 / 5개 입력 시 차단 여부
+    const sim = (html) => {
+      const cnt = (html.match(/<h2[^>]*>/gi) || []).length;
+      return cnt < 3;
+    };
+    if (!sim('<p>도입부만 있음</p>')) throw new Error('H2 0개 → 차단되어야 함');
+    if (!sim('<h2>1</h2><p>x</p><h2>2</h2>')) throw new Error('H2 2개 → 차단되어야 함');
+    if (sim('<h2>1</h2><h2>2</h2><h2>3</h2>')) throw new Error('H2 3개 → 통과해야 함');
+    if (sim('<h2>1</h2><h2>2</h2><h2>3</h2><h2>4</h2><h2>5</h2>')) throw new Error('H2 5개 → 통과해야 함');
+  });
+
   await runTest('eeat-meta 읽기시간 — script/style 컨테이너 안 텍스트 제외', () => {
     const src = load('src/core/final/eeat-meta.ts');
     // script/style/noscript 컨테이너 전체 제거 정규식 박제
