@@ -742,6 +742,58 @@ export async function generateUltimateMaxModeArticleFinal(
       }
     }
 
+    // 🛡️ v3.5.80: 모드별 정확 H2 개수 강제 검증 + 부족 시 1회 재시도
+    //   사용자 prompt block에 명시된 섹션 구조를 LLM이 따르지 않을 때 안전망
+    //     adsense:      target=6 (정형 sections), min=5
+    //     shopping:     target=7 (7단계 퍼널),    min=6
+    //     paraphrasing: target=6 (6단계 재구성),  min=5
+    //     internal:     target=5 (자기완결형),     min=4
+    //     external:     target=5 (검색 의도 4단계 + 마무리), min=4
+    const MODE_H2_TARGETS: Record<string, { target: number; min: number }> = {
+      adsense:      { target: 6, min: 5 },
+      shopping:     { target: 7, min: 6 },
+      paraphrasing: { target: 6, min: 5 },
+      internal:     { target: 5, min: 4 },
+      external:     { target: 5, min: 4 },
+    };
+    const modeKey = String(contentMode || '').toLowerCase();
+    const modeTargets = MODE_H2_TARGETS[modeKey];
+    if (modeTargets) {
+      const currentH2Count = (allSectionsObj.sections || []).length;
+      if (currentH2Count < modeTargets.min) {
+        console.warn(`[H2-ENFORCE] ⚠️ 모드 '${modeKey}' H2 ${currentH2Count}개 < min ${modeTargets.min} — 더 엄격한 프롬프트로 1회 재시도`);
+        onLog?.(`[PROGRESS] 71% - 🛡️ H2 ${currentH2Count}개 부족 (모드 '${modeKey}' 최소 ${modeTargets.min}개) — 재시도 중...`);
+        const stricterBlock = (modeResult.sectionPromptBlock || '') +
+          `\n\n🚨🚨🚨 **재시도 — H2 개수 강제 규칙**: 직전 응답이 H2 ${currentH2Count}개로 부족했습니다.\n` +
+          `이번엔 반드시 H2를 정확히 ${modeTargets.target}개 만들어야 합니다.\n` +
+          `JSON의 "sections" 배열 길이가 정확히 ${modeTargets.target}이어야 통과됩니다.\n` +
+          `각 섹션은 prompt에 명시된 구조 가이드를 그대로 따르세요.\n`;
+        try {
+          const retried = await generateAllSectionsFinal(
+            keyword,
+            h2Titles,
+            factEnrichedContents,
+            onLog,
+            contentMode,
+            draftContent,
+            stricterBlock,
+          );
+          const retriedCount = (retried.sections || []).length;
+          if (retriedCount >= modeTargets.min) {
+            allSectionsObj = retried;
+            onLog?.(`[PROGRESS] 72% - ✅ 재시도 성공: H2 ${retriedCount}개`);
+          } else {
+            onLog?.(`[PROGRESS] 72% - ⚠️ 재시도도 H2 ${retriedCount}개 — main.ts 차단망에서 최종 거부됨`);
+          }
+        } catch (retryErr: any) {
+          console.warn(`[H2-ENFORCE] 재시도 실패: ${retryErr?.message?.slice(0, 100)}`);
+          onLog?.(`[PROGRESS] 72% - ⚠️ H2 재시도 실패 (그대로 진행): ${retryErr?.message?.slice(0, 80)}`);
+        }
+      } else if (currentH2Count < modeTargets.target) {
+        onLog?.(`[PROGRESS] 71% - ℹ️ H2 ${currentH2Count}/${modeTargets.target} (min ${modeTargets.min} 충족 — 통과)`);
+      }
+    }
+
     const sections = allSectionsObj.sections;
     const introductionHTML = allSectionsObj.introduction;
     const conclusionHTML = allSectionsObj.conclusion;

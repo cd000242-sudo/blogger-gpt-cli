@@ -1550,37 +1550,47 @@ async function httpGet(url, opts = {}, timeoutMs = 8000) {
     if (!/<style\[\\s\\S\]\*\?<\\\/style>/.test(fn)) throw new Error('style 컨테이너 제거 누락');
   });
 
-  await runTest('run-post 발행 직전 H2 무결성 — 모드별 임계값 차등', () => {
+  await runTest('run-post 발행 직전 H2 무결성 — 모드별 임계값 정밀화 (v3.5.80)', () => {
     const src = load('electron/main.ts');
     if (!/h2Count\s*=\s*\(generatedHtml\.match/.test(src)) throw new Error('H2 카운트 검증 누락');
-    // 모드별 임계값 분기 박제
-    if (!/contentMode\s*===\s*'adsense'\s*\?\s*5/.test(src)) throw new Error('adsense minH2=5 분기 누락');
-    if (!/'external',\s*'internal',\s*'paraphrasing',\s*'shopping'/.test(src)) throw new Error('동적 모드 4종 배열 누락');
-    if (!/h2Count\s*<\s*minH2/.test(src)) throw new Error('H2 < minH2 차단 분기 누락');
-    if (!/모드 '\$\{contentMode/.test(src)) throw new Error('모드명 포함 차단 로그 누락');
+    // 모드별 임계값 — 모드 prompt 설계와 일치
+    if (!/contentMode\s*===\s*'adsense'\s*\?\s*5/.test(src)) throw new Error('adsense minH2=5 누락');
+    if (!/contentMode\s*===\s*'shopping'\s*\?\s*6/.test(src)) throw new Error('shopping minH2=6 누락');
+    if (!/contentMode\s*===\s*'paraphrasing'\s*\?\s*5/.test(src)) throw new Error('paraphrasing minH2=5 누락');
+    if (!/'external',\s*'internal'\s*\]\.includes\(contentMode\)\s*\?\s*4/.test(src)) throw new Error('external/internal minH2=4 누락');
 
-    // 시뮬레이션: 모드별 임계값 정확
+    // 시뮬레이션: 모드별 정확한 임계값
     const minH2For = (mode) =>
       mode === 'adsense' ? 5
-      : ['external','internal','paraphrasing','shopping'].includes(mode) ? 4
+      : mode === 'shopping' ? 6
+      : mode === 'paraphrasing' ? 5
+      : ['external','internal'].includes(mode) ? 4
       : 3;
     const blockIf = (mode, cnt) => cnt < minH2For(mode);
 
-    // adsense: 4개는 차단, 5개는 통과
-    if (!blockIf('adsense', 4)) throw new Error('adsense H2 4개 → 차단되어야 함');
-    if (blockIf('adsense', 5)) throw new Error('adsense H2 5개 → 통과해야 함');
-    if (blockIf('adsense', 6)) throw new Error('adsense H2 6개 → 통과해야 함');
-
-    // external/internal/paraphrasing/shopping: 3개는 차단, 4개는 통과
-    for (const mode of ['external','internal','paraphrasing','shopping']) {
-      if (!blockIf(mode, 3)) throw new Error(`${mode} H2 3개 → 차단되어야 함`);
-      if (blockIf(mode, 4)) throw new Error(`${mode} H2 4개 → 통과해야 함`);
-      if (blockIf(mode, 7)) throw new Error(`${mode} H2 7개 → 통과해야 함`);
+    if (!blockIf('adsense', 4)) throw new Error('adsense H2 4개 → 차단');
+    if (blockIf('adsense', 5)) throw new Error('adsense H2 5개 → 통과');
+    if (!blockIf('shopping', 5)) throw new Error('shopping H2 5개 → 차단 (7단계 퍼널 min 6)');
+    if (blockIf('shopping', 7)) throw new Error('shopping H2 7개 → 통과');
+    if (!blockIf('paraphrasing', 4)) throw new Error('paraphrasing H2 4개 → 차단');
+    if (blockIf('paraphrasing', 6)) throw new Error('paraphrasing H2 6개 → 통과');
+    for (const m of ['external','internal']) {
+      if (!blockIf(m, 3)) throw new Error(`${m} H2 3개 → 차단`);
+      if (blockIf(m, 5)) throw new Error(`${m} H2 5개 → 통과`);
     }
+  });
 
-    // 미지정/기본: 2개 차단, 3개 통과 (기존 동작 호환)
-    if (!blockIf('', 2)) throw new Error('기본 모드 H2 2개 → 차단되어야 함');
-    if (blockIf('', 3)) throw new Error('기본 모드 H2 3개 → 통과해야 함');
+  await runTest('orchestration 모드별 H2 강제 + 재시도 (v3.5.80)', () => {
+    const src = load('src/core/final/orchestration.ts');
+    if (!/MODE_H2_TARGETS\s*:\s*Record/.test(src)) throw new Error('MODE_H2_TARGETS 매트릭스 누락');
+    if (!/adsense:\s*\{\s*target:\s*6,\s*min:\s*5\s*\}/.test(src)) throw new Error('adsense target/min 누락');
+    if (!/shopping:\s*\{\s*target:\s*7,\s*min:\s*6\s*\}/.test(src)) throw new Error('shopping target/min 누락');
+    if (!/paraphrasing:\s*\{\s*target:\s*6,\s*min:\s*5\s*\}/.test(src)) throw new Error('paraphrasing target/min 누락');
+    if (!/internal:\s*\{\s*target:\s*5,\s*min:\s*4\s*\}/.test(src)) throw new Error('internal target/min 누락');
+    if (!/external:\s*\{\s*target:\s*5,\s*min:\s*4\s*\}/.test(src)) throw new Error('external target/min 누락');
+    // 부족 시 재시도 호출 + 더 엄격한 prompt
+    if (!/H2 개수 강제 규칙/.test(src)) throw new Error('재시도 stricter prompt 누락');
+    if (!/generateAllSectionsFinal\([\s\S]*?stricterBlock/.test(src)) throw new Error('재시도 호출 누락');
   });
 
   await runTest('eeat-meta 읽기시간 — script/style 컨테이너 안 텍스트 제외', () => {

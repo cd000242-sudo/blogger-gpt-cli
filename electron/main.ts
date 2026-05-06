@@ -2177,16 +2177,21 @@ ipcMain.handle('run-post', async (_evt, payload) => {
       return { ok: false, error: '콘텐츠 생성 결과가 유효하지 않습니다.' };
     }
 
-    // 🛡️ v3.5.76 / v3.5.79: 발행 직전 본문 무결성 이중 검증 — 모드별 H2 임계값 차등
-    //   adsense: 정형 6개 섹션 → minH2=5 (1개 누락만 허용)
-    //   external/internal/paraphrasing/shopping: AI 동적 5~7개 → minH2=4
-    //   기타/미설정: minH2=3 (관대)
+    // 🛡️ v3.5.76 / v3.5.79 / v3.5.80: 발행 직전 본문 무결성 이중 검증 — 모드별 H2 임계값
+    //   orchestration.ts의 H2 개수 강제 + 재시도 후에도 부족하면 여기서 최종 차단
+    //     adsense: 정형 6개 → minH2=5
+    //     shopping: 7단계 퍼널 → minH2=6
+    //     paraphrasing: 6단계 → minH2=5
+    //     internal/external: 5섹션 → minH2=4
+    //     기타: minH2=3 (관대)
     const generatedHtml = String((result as any).html || (result as any).content || '');
     const h2Count = (generatedHtml.match(/<h2[^>]*>/gi) || []).length;
     const contentMode = String(payload?.contentMode || '').toLowerCase();
     const minH2 =
       contentMode === 'adsense' ? 5
-      : ['external', 'internal', 'paraphrasing', 'shopping'].includes(contentMode) ? 4
+      : contentMode === 'shopping' ? 6
+      : contentMode === 'paraphrasing' ? 5
+      : ['external', 'internal'].includes(contentMode) ? 4
       : 3;
     if (h2Count < minH2) {
       const errMsg = `본문 H2 섹션이 ${h2Count}개 (모드 '${contentMode || '기본'}' 최소 ${minH2}개 필요) — LLM 응답이 잘렸거나 폴백 콘텐츠. 발행을 차단합니다.`;
