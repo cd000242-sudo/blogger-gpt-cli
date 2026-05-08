@@ -372,6 +372,10 @@ function bindModalEvents() {
     if (!confirm(`${enabled.length}개 키워드를 즉시 순차 발행합니다.\n각 글 사이 간격: ${intervalLabel}\n(이전 발행 완료 후 추가 대기)\n\n진행할까요?`)) return;
     close();
 
+    // 🛡️ v3.5.84: 큐 모드 플래그 — posting.js가 단발 모달 대신 누적하도록 신호
+    window.__queueRunning = true;
+    try { window.clearQualityAccumulator?.(); } catch {}
+
     for (let i = 0; i < enabled.length; i++) {
       const it = enabled[i];
       console.log(`[QUEUE] 🚀 ${i + 1}/${enabled.length}: ${it.keyword} (${it.mode}/${it.thumb})`);
@@ -460,6 +464,10 @@ function bindModalEvents() {
         await new Promise(r => setTimeout(r, intervalMs));
       }
     }
+    // 🛡️ v3.5.84: 큐 종료 시 플래그 해제 + 종합 품질 리포트 1회
+    window.__queueRunning = false;
+    try { window.showQueueQualityReport?.(); } catch (e) { console.warn('[QUEUE] 종합 리포트 표시 실패:', e); }
+
     alert(`✅ 큐 ${enabled.length}개 발행 완료. 로그/스케줄 탭에서 확인하세요.`);
   });
 }

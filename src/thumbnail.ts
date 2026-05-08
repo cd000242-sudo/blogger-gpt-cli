@@ -1831,14 +1831,18 @@ CRITICAL RULES:
         try {
           console.log(`[NANO-BANANA] 🧪 ${modelInfo.name} 시도 중... (${retry + 1}/2)`);
 
+          // 🛡️ v3.5.83: temperature 명시로 결정론적 동일 이미지 재생성 방지 (이미지 중복 버그 차단)
           const model = genAI.getGenerativeModel({
             model: modelInfo.id,
             generationConfig: {
               responseModalities: ['image', 'text'] as any,
+              temperature: 1.2,
             } as any,
           });
 
-          const result = await model.generateContent(prompt);
+          // prompt 끝에 호출별 noise를 추가해 동일 요청 핑거프린트 분산 (이미지 모델은 무시할 수도 있지만 무해)
+          const noisedPrompt = `${prompt}\n\n[generation token: ${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}]`;
+          const result = await model.generateContent(noisedPrompt);
           const response = result.response;
 
           for (const part of response.candidates?.[0]?.content?.parts || []) {

@@ -172,6 +172,13 @@ export type BloggerApi = {
   /** OAuth2 토큰 교환 */
   exchangeOAuthToken(args: { client_id: string; client_secret: string; code: string; redirect_uri: string }): Promise<{ success: boolean; access_token?: string; refresh_token?: string; expires_in?: number; token_type?: string; error?: string }>;
   
+  /** LEWORD 외부 앱 런처 */
+  leword: {
+    launch(): Promise<{ ok: boolean; action?: 'launched' | 'installed_and_launched'; version?: string; error?: string }>;
+    getStatus(): Promise<{ installed: boolean; version?: string; exePath?: string; installedAt?: number }>;
+    onProgress(cb: (p: { phase: string; percent: number; message: string }) => void): () => void;
+  };
+
   /** 키워드 마스터 (leadernam 황금키워드) */
   openKeywordMasterWindow(): Promise<{ ok: boolean; error?: string }>;
   findGoldenKeywords(keyword: string): Promise<any[]>;
@@ -555,6 +562,17 @@ const api: BloggerApi = {
 
   // 이미지 라이브러리 관련 코드 제거됨
   saveImageAsPng: (payload) => ipcRenderer.invoke('save-image-as-png', payload),
+
+  // ── LEWORD 외부 앱 런처 ──
+  leword: {
+    launch: () => ipcRenderer.invoke('leword:launch'),
+    getStatus: () => ipcRenderer.invoke('leword:get-status'),
+    onProgress: (cb: (p: { phase: string; percent: number; message: string }) => void) => {
+      const listener = (_e: any, payload: any) => cb(payload);
+      ipcRenderer.on('leword:progress', listener);
+      return () => ipcRenderer.removeListener('leword:progress', listener);
+    }
+  },
 
   // ── 키워드 마스터 ──
   openKeywordMasterWindow: () => ipcRenderer.invoke('open-keyword-master-window'),

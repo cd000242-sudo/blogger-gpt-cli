@@ -14,7 +14,7 @@ export function initSidebar() {
         { id: 'nav-semiauto', icon: '🎨', label: '반자동', action: () => window.showTab?.('semi-auto'), hidden: true },
         { id: 'nav-schedule', icon: '📅', label: '스케줄', action: () => window.showTab?.('schedule'), hidden: true },
         { id: 'nav-intlinks-page', icon: '🕸️', label: '거미줄', action: () => window.showTab?.('internal-links') },
-        { id: 'nav-keyword-discover', icon: '🔍', label: '황금키워드', action: () => window.openKeywordMaster?.() },
+        { id: 'nav-keyword-discover', icon: '🔍', label: '황금키워드', action: () => window.runLewordLauncher?.() },
     ];
 
     const toolItems = [

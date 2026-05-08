@@ -673,8 +673,19 @@ class WordPressPublisher {
         return tagIds;
     }
     extractExcerpt(content, maxLength = 160) {
-        const textContent = content.replace(/<[^>]*>/g, '');
-        const cleanText = textContent.replace(/\s+/g, ' ').trim();
+        const stripped = content
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<!--[\s\S]*?-->/g, '');
+        const textContent = stripped.replace(/<[^>]*>/g, '');
+        const decoded = textContent
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'");
+        const cleanText = decoded.replace(/\s+/g, ' ').trim();
         if (cleanText.length <= maxLength) {
             return cleanText;
         }

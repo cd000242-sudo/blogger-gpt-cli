@@ -118,7 +118,10 @@ ${archetypeGuide}
   // 첫 번째 줄만 추출, 특수문자/번호 제거
   const lines = response.trim().split('\n');
   let title = (lines[0] || response.trim())
-    .replace(/^[\*\-\d\.\)\]]+\s*/g, '')  // 번호/기호 제거
+    // 🛡️ v3.5.83: 기호와 번호를 분리. 기존 통합 패턴이 "2026년..." 시작 제목에서
+    //   "2026"을 prefix로 잘못 제거하던 버그 수정. 번호는 구분자(. ) ] :)와 함께 있을 때만 제거.
+    .replace(/^[\*\-]+\s*/g, '')           // 기호 prefix 제거 (* -)
+    .replace(/^\d+[.\):\]]+\s*/g, '')      // 번호 prefix 제거 (1. 2) 3] 4:) — 구분자 필수
     .replace(/["']/g, '')
     .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '')  // 한자 제거
     .trim();

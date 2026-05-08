@@ -4040,62 +4040,13 @@ ipcMain.handle('load-environment-settings', async () => {
   }
 });
 
-// 키워드 마스터 창 열기
-ipcMain.handle('open-keyword-master-window', async () => {
-  try {
-    const { BrowserWindow } = require('electron');
-
-    // preload 경로 확인 (배포 환경 대응)
-    const preloadPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'app.asar', 'electron', 'preload.js')
-      : path.join(__dirname, 'preload.js');
-
-    console.log('[KEYWORD-WINDOW] Preload 경로:', preloadPath);
-    console.log('[KEYWORD-WINDOW] isPackaged:', app.isPackaged);
-
-    const keywordWindow = new BrowserWindow({
-      width: 1400,
-      height: 900,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        preload: preloadPath,
-        webSecurity: true, // 보안 강화
-        allowRunningInsecureContent: false // 보안 강화
-      }
-    });
-
-    // CSP 헤더 설정 (응답 헤더에 추가) - 모든 기능 지원
-    keywordWindow.webContents.session.webRequest.onHeadersReceived((details: Electron.OnHeadersReceivedListenerDetails, callback: (response: Electron.HeadersReceivedResponse) => void) => {
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          'Content-Security-Policy': [
-            "default-src 'self' data: blob:; " +
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; " +
-            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; " +
-            "font-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com https://fonts.gstatic.com data:; " +
-            "img-src 'self' data: blob: https: http:; " +  // 모든 이미지 허용
-            "connect-src 'self' https: wss: http:;"  // 모든 API 연결 허용
-          ]
-        }
-      });
-    });
-
-    const htmlPath = path.join(__dirname, 'ui', 'keyword-master.html');
-    console.log('[KEYWORD-WINDOW] HTML 경로:', htmlPath);
-
-    keywordWindow.loadFile(htmlPath);
-
-    // 개발자 도구 자동 열기 (디버깅용)
-    keywordWindow.webContents.openDevTools();
-
-    return { ok: true };
-  } catch (error) {
-    console.error('[KEYWORD-WINDOW] 열기 실패:', error);
-    return { ok: false, error: error instanceof Error ? error.message : '창 열기 실패' };
-  }
-});
+// LEWORD 외부 앱 런처 IPC 핸들러 등록
+try {
+  const { registerLewordLauncherHandlers } = require('./leword-launcher');
+  registerLewordLauncherHandlers();
+} catch (e) {
+  console.error('[APP] LEWORD 런처 IPC 등록 실패:', e);
+}
 
 // ============================================
 // 추가 핸들러: keyword-master 호환성

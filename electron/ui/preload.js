@@ -201,6 +201,16 @@ const api = {
     crawlProductSnapshot: (args) => electron_1.ipcRenderer.invoke('crawl-product-snapshot', args),
     // 이미지 라이브러리 관련 코드 제거됨
     saveImageAsPng: (payload) => electron_1.ipcRenderer.invoke('save-image-as-png', payload),
+    // ── LEWORD 외부 앱 런처 ──
+    leword: {
+        launch: () => electron_1.ipcRenderer.invoke('leword:launch'),
+        getStatus: () => electron_1.ipcRenderer.invoke('leword:get-status'),
+        onProgress: (cb) => {
+            const listener = (_e, payload) => cb(payload);
+            electron_1.ipcRenderer.on('leword:progress', listener);
+            return () => electron_1.ipcRenderer.removeListener('leword:progress', listener);
+        }
+    },
     // ── 키워드 마스터 ──
     openKeywordMasterWindow: () => electron_1.ipcRenderer.invoke('open-keyword-master-window'),
     findGoldenKeywords: (keyword, options) => electron_1.ipcRenderer.invoke('find-golden-keywords', keyword, options),

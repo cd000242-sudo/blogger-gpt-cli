@@ -1962,6 +1962,28 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
             console.error('[RUN-POST] generateMaxModeArticle이 유효하지 않은 값을 반환:', result);
             return { ok: false, error: '콘텐츠 생성 결과가 유효하지 않습니다.' };
         }
+        // 🛡️ v3.5.76 / v3.5.79 / v3.5.80: 발행 직전 본문 무결성 이중 검증 — 모드별 H2 임계값
+        //   orchestration.ts의 H2 개수 강제 + 재시도 후에도 부족하면 여기서 최종 차단
+        //     adsense: 정형 6개 → minH2=5
+        //     shopping: 7단계 퍼널 → minH2=6
+        //     paraphrasing: 6단계 → minH2=5
+        //     internal/external: 5섹션 → minH2=4
+        //     기타: minH2=3 (관대)
+        const generatedHtml = String(result.html || result.content || '');
+        const h2Count = (generatedHtml.match(/<h2[^>]*>/gi) || []).length;
+        const contentMode = String(payload?.contentMode || '').toLowerCase();
+        const minH2 = contentMode === 'adsense' ? 5
+            : contentMode === 'shopping' ? 6
+                : contentMode === 'paraphrasing' ? 5
+                    : ['external', 'internal'].includes(contentMode) ? 4
+                        : 3;
+        if (h2Count < minH2) {
+            const errMsg = `본문 H2 섹션이 ${h2Count}개 (모드 '${contentMode || '기본'}' 최소 ${minH2}개 필요) — LLM 응답이 잘렸거나 폴백 콘텐츠. 발행을 차단합니다.`;
+            console.error('[RUN-POST] 🛡️ 발행 차단:', errMsg);
+            onLog(`[PROGRESS] 0% - 🛡️ 발행 차단: H2 ${h2Count}개 < 모드 '${contentMode || '기본'}' 최소 ${minH2}개`);
+            onLog('[PROGRESS] 0% - 💡 LLM 호출이 타임아웃되었거나 응답이 잘렸습니다. 잠시 후 재시도하거나 다른 엔진을 선택하세요.');
+            return { ok: false, error: errMsg };
+        }
         // 미리보기 모드면 발행 안 함
         const isPreviewOnly = payload?.previewOnly === true || payload?.platform === 'preview';
         if (isPreviewOnly) {
@@ -3646,55 +3668,14 @@ electron_1.ipcMain.handle('load-environment-settings', async () => {
         return { ok: false, error: error instanceof Error ? error.message : '로드 실패', settings: {} };
     }
 });
-// 키워드 마스터 창 열기
-electron_1.ipcMain.handle('open-keyword-master-window', async () => {
-    try {
-        const { BrowserWindow } = require('electron');
-        // preload 경로 확인 (배포 환경 대응)
-        const preloadPath = electron_1.app.isPackaged
-            ? path.join(process.resourcesPath, 'app.asar', 'electron', 'preload.js')
-            : path.join(__dirname, 'preload.js');
-        console.log('[KEYWORD-WINDOW] Preload 경로:', preloadPath);
-        console.log('[KEYWORD-WINDOW] isPackaged:', electron_1.app.isPackaged);
-        const keywordWindow = new BrowserWindow({
-            width: 1400,
-            height: 900,
-            webPreferences: {
-                nodeIntegration: false,
-                contextIsolation: true,
-                preload: preloadPath,
-                webSecurity: true, // 보안 강화
-                allowRunningInsecureContent: false // 보안 강화
-            }
-        });
-        // CSP 헤더 설정 (응답 헤더에 추가) - 모든 기능 지원
-        keywordWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-            callback({
-                responseHeaders: {
-                    ...details.responseHeaders,
-                    'Content-Security-Policy': [
-                        "default-src 'self' data: blob:; " +
-                            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; " +
-                            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; " +
-                            "font-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com https://fonts.gstatic.com data:; " +
-                            "img-src 'self' data: blob: https: http:; " + // 모든 이미지 허용
-                            "connect-src 'self' https: wss: http:;" // 모든 API 연결 허용
-                    ]
-                }
-            });
-        });
-        const htmlPath = path.join(__dirname, 'ui', 'keyword-master.html');
-        console.log('[KEYWORD-WINDOW] HTML 경로:', htmlPath);
-        keywordWindow.loadFile(htmlPath);
-        // 개발자 도구 자동 열기 (디버깅용)
-        keywordWindow.webContents.openDevTools();
-        return { ok: true };
-    }
-    catch (error) {
-        console.error('[KEYWORD-WINDOW] 열기 실패:', error);
-        return { ok: false, error: error instanceof Error ? error.message : '창 열기 실패' };
-    }
-});
+// LEWORD 외부 앱 런처 IPC 핸들러 등록
+try {
+    const { registerLewordLauncherHandlers } = require('./leword-launcher');
+    registerLewordLauncherHandlers();
+}
+catch (e) {
+    console.error('[APP] LEWORD 런처 IPC 등록 실패:', e);
+}
 // ============================================
 // 추가 핸들러: keyword-master 호환성
 // ============================================

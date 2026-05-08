@@ -17,6 +17,8 @@ import { generateTextThumbnail, generateTextThumbnailWithBackground, downloadThu
 import { initTutorialModule } from './tutorial.js';
 import { initSidebar } from './sidebar.js';
 import { initKeywordDiscover } from './keyword-discover.js';
+import './leword-launcher.js'; // window.runLewordLauncher 등록
+import './quality-report-modal.js'; // window.showQualityReportModal / accumulateQualityReport / showQueueQualityReport 등록
 import { initContentStubs } from './content-stubs.js';
 import './adsense-tools.js'; // 애드센스 도구 탭 모듈 (window.__initAdsenseTools 등록)
 import { renderOneclickSetupTab, initOneclickSetup } from './oneclick-setup.js'; // 🚀 원클릭 세팅 모듈

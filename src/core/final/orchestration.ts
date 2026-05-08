@@ -32,6 +32,7 @@ import { generateCSSFinal, generateTOCFinal } from './html';
 import { buildEeatMeta, EEAT_META_CSS } from './eeat-meta';
 import { buildSchemaJsonLd } from './schema-jsonld';
 import { scanAdsensePolicy } from './policy-scanner';
+import { scanContentQuality } from './quality-gate';
 import { validateArticleQuality } from './quality-gate';
 import { dispatchMode } from './mode-dispatcher';
 import { applyFinalSeoEnhancements } from './seo-enhancements';
@@ -43,7 +44,7 @@ export async function generateUltimateMaxModeArticleFinal(
   payload: any,
   env: any,
   onLog?: (s: string) => void
-): Promise<{ html: string; title: string; labels: string[]; thumbnail: string }> {
+): Promise<{ html: string; title: string; labels: string[]; thumbnail: string; qualityReport?: any }> {
 
   // 🚧 쇼핑 모드 임시 차단 (점검 중) — UI에서 disabled 처리했지만 IPC/스케줄 경로로도 유입될 수 있으므로 이중 가드
   if (payload?.contentMode === 'shopping') {
@@ -1020,9 +1021,14 @@ export async function generateUltimateMaxModeArticleFinal(
           if (!imageResult.ok) {
             try {
               console.log(`[IMG-${i + 1}] 🎯 이미지 디스패치 (소스: ${imageSource})...`);
+              // 🛡️ v3.5.83: 섹션별 영어 variation hint 주입 — nanobanana 본문 이미지 중복 방지
+              //   같은 keyword 기반 H2 prompt가 비슷할 때 AI가 거의 동일한 이미지를 반복 생성하던 버그 차단
+              //   영어 hint는 translateToEnglish 캐시 키도 변경시켜 매 섹션마다 신규 추론 강제
+              const variationHint = ` [Section ${i + 1} of ${sections.length}: MUST show a unique scene visually distinct from all other sections — different angle, location, props, and composition; never repeat previous sections]`;
+              const promptForDispatch = section.h2 + variationHint;
               const dispatchResult = await dispatchH2ImageGeneration(
                 imageSource,
-                section.h2,
+                promptForDispatch,
                 keyword,
                 (msg) => onLog?.(`   [IMG-${i + 1}] ${msg}`),
                 contentMode,
@@ -1785,6 +1791,82 @@ ${conclusionHTML}
       }
     }
 
+    // 🛡️ v3.5.83: AdSense 저가치 콘텐츠 사후 검증 게이트 (경고만 로그)
+    //   prompt가 강제하는 글자수·외부출처·단락수가 실제로 충족됐는지 사후 측정.
+    //   사용자 결정: block 없이 경고 로그만 남김. 사용자가 보고 판단.
+    //   v3.5.84: length 경고 + 70% 미만이면 LLM 1회 자동 보강 (기본 ON, 옵트아웃: adsenseAutoEnrich===false)
+    let finalQualityReport: any = null;
+    if (contentMode === 'adsense' || payload?.adsenseQualityGate === true) {
+      try {
+        let quality = scanContentQuality(html);
+        onLog?.(`[QUALITY-GATE] ${quality.summary}`);
+        if (!quality.ok) {
+          quality.warnings.forEach(w => {
+            onLog?.(`[QUALITY-GATE]   ⚠️ ${w.metric}: ${w.message}`);
+          });
+        }
+
+        // 🔁 자동 보강 루프 — length 경고 + 임계값 70% 미만일 때만 1회 LLM 호출
+        const autoEnrichEnabled = contentMode === 'adsense'
+          ? (payload?.adsenseAutoEnrich !== false)
+          : (payload?.adsenseAutoEnrich === true);
+        const lengthWarning = quality.warnings.find(w => w.metric === 'length');
+        const needsEnrich = autoEnrichEnabled
+          && lengthWarning
+          && Number(lengthWarning.actual) < Number(lengthWarning.threshold) * 0.7;
+
+        if (needsEnrich) {
+          onLog?.(`[QUALITY-GATE] 🔁 본문 정보량 부족(${lengthWarning!.actual}/${lengthWarning!.threshold}) — LLM 자동 보강 1회 시도...`);
+          try {
+            const enrichPrompt = `당신은 한국어 SEO 전문가입니다. 아래 블로그 글의 정보 밀도가 부족합니다.
+독자에게 실질적 가치를 더 제공하는 추가 보충 섹션 1개를 작성해주세요.
+
+키워드: ${keyword}
+기존 글 요약: ${(html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 800))}
+
+요구사항:
+- 새 H2 제목으로 시작 (예: "📝 추가로 알아둘 점", "💡 실전 활용 팁", "📊 통계로 본 ${keyword}")
+- 본문 단락 4-6개, 각 2-3문장
+- 한국 공공기관(통계청·한국소비자원·한국은행 등) 데이터 1회 이상 인용 (가짜 수치 금지, 모르면 "공식 자료를 참고하세요"로)
+- 한국 독자에게 즉시 도움 되는 구체 정보
+- HTML 형식: <h2>...</h2><p>...</p><p>...</p> 만 사용. 다른 태그·이모지·CSS 금지
+- 분량: HTML 1500~2500자
+
+오직 HTML 결과만 출력 (설명·마크다운 금지).`;
+
+            const enrichedRaw = await callGeminiWithRetry(enrichPrompt, 1);
+            // 응답에서 HTML만 추출 (백틱 코드블럭 제거)
+            const enrichedHtml = enrichedRaw
+              .replace(/^```(?:html)?\s*/i, '')
+              .replace(/\s*```$/i, '')
+              .trim();
+            // 안전 검사: <h2>로 시작하고 충분히 길면 채택
+            if (enrichedHtml.length > 800 && /<h2[\s>]/i.test(enrichedHtml)) {
+              // 결론(맨 마지막 H2 또는 글 끝)이 있다면 그 직전에, 없으면 그냥 끝에 삽입
+              const conclusionMatch = html.match(/<h2[^>]*>(?:[^<]*)?(?:맺음말|결론|마무리|총정리|핵심\s*정리)[^<]*<\/h2>/i);
+              if (conclusionMatch && conclusionMatch.index !== undefined) {
+                html = html.slice(0, conclusionMatch.index) + '\n' + enrichedHtml + '\n' + html.slice(conclusionMatch.index);
+              } else {
+                html = html + '\n' + enrichedHtml + '\n';
+              }
+              onLog?.(`[QUALITY-GATE] ✅ 자동 보강 완료 (+${enrichedHtml.length} chars)`);
+              // 재측정
+              quality = scanContentQuality(html);
+              onLog?.(`[QUALITY-GATE] 🔁 보강 후 재측정: ${quality.summary}`);
+            } else {
+              onLog?.(`[QUALITY-GATE] ⚠️ 자동 보강 결과가 부적합(${enrichedHtml.length} chars, h2 ${/<h2/i.test(enrichedHtml) ? 'O' : 'X'}) — 원본 유지`);
+            }
+          } catch (enrichErr: any) {
+            onLog?.(`[QUALITY-GATE] ⚠️ 자동 보강 실패(원본 유지): ${enrichErr?.message?.slice(0, 100) || '알 수 없는 오류'}`);
+          }
+        }
+        // 최종 quality report를 result에 노출 (UI 모달용)
+        finalQualityReport = quality;
+      } catch (qErr: any) {
+        console.warn('[QUALITY-GATE] ⚠️ 품질 검사 오류(무시):', qErr?.message);
+      }
+    }
+
     // 🛡️ 모드별 후처리 (adsense: CTA 잔재 제거 + AI 감지 완화)
     let postProcessReport: any = null;
     if (modeResult.postProcessPlugin?.postProcess) {
@@ -1798,10 +1880,13 @@ ${conclusionHTML}
       }
     }
 
-    // 🚦 AdSense 점수 게이트 — 임계값 미만이면 발행 차단 또는 경고 (옵트인)
-    //    payload.adsenseScoreGate (기본 비활성). adsenseMinScore 임계값(기본 70).
+    // 🚦 AdSense 점수 게이트 — 임계값 미만이면 발행 차단 또는 경고
+    //    v3.5.83: adsense 모드에서 기본 ON (옵트아웃: payload.adsenseScoreGate === false 명시 시 비활성)
     //    burstinessScore + endingDiversity + sentenceLengthStdDev + AI 패턴 카운트로 100점 환산.
-    if (contentMode === 'adsense' && postProcessReport && payload?.adsenseScoreGate === true) {
+    const scoreGateEnabled = contentMode === 'adsense'
+      ? (payload?.adsenseScoreGate !== false)
+      : (payload?.adsenseScoreGate === true);
+    if (contentMode === 'adsense' && postProcessReport && scoreGateEnabled) {
       const minScore = Number(payload?.adsenseMinScore || 70);
       // 4개 지표를 0-100 점수로 환산 (각 25점 만점)
       const burst = Math.min(25, Math.max(0, Math.round((postProcessReport.burstinessScore || 0) / 1.0 * 25)));
@@ -1839,6 +1924,7 @@ ${conclusionHTML}
       title: h1,
       labels: hashtags.split(',').map(t => t.trim()).slice(0, 15),
       thumbnail: thumbnailUrl,
+      qualityReport: finalQualityReport, // v3.5.84: UI 모달 노출용 품질 리포트
     };
 
   } catch (error: any) {

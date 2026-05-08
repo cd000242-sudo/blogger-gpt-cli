@@ -859,11 +859,25 @@ export class WordPressPublisher {
   }
 
   private extractExcerpt(content: string, maxLength: number = 160): string {
-    // HTML 태그 제거
-    const textContent = content.replace(/<[^>]*>/g, '');
+    // 🛡️ v3.5.83: <style>/<script>/HTML 주석 블록은 태그뿐 아니라 내부 텍스트까지 통째로 제거
+    //   기존: /<[^>]*>/g 만 적용 → <style> 태그만 사라지고 CSS 코드/주석이 발췌로 노출되던 버그
+    const stripped = content
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, '');
 
-    // 공백 정리
-    const cleanText = textContent.replace(/\s+/g, ' ').trim();
+    // HTML 태그 제거
+    const textContent = stripped.replace(/<[^>]*>/g, '');
+
+    // HTML 엔티티 디코딩 (간이) + 공백 정리
+    const decoded = textContent
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    const cleanText = decoded.replace(/\s+/g, ' ').trim();
 
     if (cleanText.length <= maxLength) {
       return cleanText;

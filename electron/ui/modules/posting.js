@@ -4,6 +4,7 @@ import { showProgressModal, hideProgressModal, setRunning, showTab, showNotifica
 import { loadSettings } from './settings.js';
 import { addTodayWorkRecord } from './calendar.js';
 import { getAllKeywords, getH2ImageSections } from './utils.js';
+import { showQualityReportModal, accumulateQualityReport } from './quality-report-modal.js';
 
 // 🔥 완전자동 이미지 소스 설정 모달
 export function showAutoImageSourceModal() {
@@ -331,6 +332,19 @@ export async function runPosting() {
         // 🔥 발행 완료 시 모달 닫고 알림만 띄우기
         hideProgressModal();
         try { showNotification('🎉 블로그 포스트 발행 완료!', 4000); } catch {}
+
+        // 🛡️ v3.5.84: AdSense 품질 리포트 모달 — 단발은 즉시 표시, 큐 모드는 누적
+        if (result.qualityReport) {
+          try {
+            if (window.__queueRunning) {
+              accumulateQualityReport(result.qualityReport, { title: result.title });
+            } else {
+              setTimeout(() => showQualityReportModal(result.qualityReport), 600);
+            }
+          } catch (modalErr) {
+            console.warn('[QUALITY-MODAL] 표시 실패(무시):', modalErr);
+          }
+        }
       }
     } else {
       const errorMessage = result?.error || '알 수 없는 오류';
