@@ -610,8 +610,14 @@ export async function createPayload(options = {}) {
     || PAYLOAD_DEFAULTS.provider;
 
   // ── 키워드 / 제목 ──
-  const keywordInput = DOMCache.get('keywordInput');
+  // 🛡️ T-3 (v3.5.84): DOMCache stale 방지 — 큐 모드에서 직전 글 keyword가 살아 들어가는 회귀 차단
+  //   기존: DOMCache.get('keywordInput')만 사용 → 큐 항목 간 캐시된 노드가 stale 가능
+  //   변경: document.getElementById 직접 호출을 우선, fallback으로 DOMCache
+  const keywordInput = document.getElementById('keywordInput') || DOMCache.get('keywordInput');
   const keywordValue = keywordInput ? keywordInput.value.trim() : '';
+  if (DOMCache.get('keywordInput') && DOMCache.get('keywordInput') !== document.getElementById('keywordInput')) {
+    console.warn('[PAYLOAD] ⚠️ DOMCache keywordInput stale 감지 — 직접 DOM 사용');
+  }
 
   const titleModeSelect = document.getElementById('titleMode');
   const titleModeValue = titleModeSelect?.value || PAYLOAD_DEFAULTS.titleMode;
@@ -627,18 +633,19 @@ export async function createPayload(options = {}) {
   }
 
   // ── 콘텐츠/발행 모드 ──
-  // 🔥 우선순위: localStorage(사용자가 명시적으로 고른 값, 세션 간 영속) →
-  //             #contentMode select(현재 DOM 값) → #scheduleContentMode(예약 모달) → 기본값
-  //   localStorage를 1순위로 두는 이유: 어떤 이유로든(아코디언 재렌더, 다른 스크립트의 init 등)
-  //   DOM이 'external'로 초기화되더라도 사용자가 마지막에 고른 값이 살아남도록.
+  // 🛡️ T-3 (v3.5.84): localStorage 우선순위 강등 — DOM 최신값을 1순위로 변경
+  //   기존 우선순위: localStorage → contentModeFresh → DOMCache → schedule → default
+  //     문제: 큐 모드에서 직전 글의 contentMode가 localStorage에 저장됨 → 둘째 글 DOM 변경해도 무시
+  //   신규 우선순위: contentModeFresh(현재 DOM) → DOMCache → localStorage → schedule → default
+  //     큐가 cmSel.value=it.mode + change 이벤트 발사하면 DOM이 최신 → 정상 반영
   const contentModeSelect = DOMCache.get('contentMode');
   const contentModeFresh = document.getElementById('contentMode');
   const scheduleContentMode = document.getElementById('scheduleContentMode');
   let contentModeLS = '';
   try { contentModeLS = localStorage.getItem('contentMode') || ''; } catch {}
-  const contentModeValue = contentModeLS
-    || contentModeFresh?.value
+  const contentModeValue = contentModeFresh?.value
     || contentModeSelect?.value
+    || contentModeLS
     || scheduleContentMode?.value
     || PAYLOAD_DEFAULTS.contentMode;
   console.log('[PAYLOAD] contentMode 선택:', {
@@ -833,6 +840,8 @@ export async function createPayload(options = {}) {
     ctaMode: ctaModeValue,
     ctaAiStrictMode: !!document.getElementById('ctaAiStrictMode')?.checked,
     strictThumbnailEngine: !!document.getElementById('strictThumbnailEngine')?.checked,
+    // 🛡️ S-1 (v3.5.84): H2 섹션 이미지 엔진 strict 모드 — 폴백 차단
+    strictH2ImageEngine: !!document.getElementById('strictH2ImageEngine')?.checked,
     // 🏆 AdSense 강화 — adsense 모드일 때만 의미 있음
     llmRotation: !!document.getElementById('llmRotation')?.checked,
     adsenseScoreGate: !!document.getElementById('adsenseScoreGate')?.checked,

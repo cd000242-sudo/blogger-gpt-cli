@@ -100,6 +100,19 @@ function getCachedEnv(): Record<string, string> {
   return _envCache;
 }
 
+/** 🛡️ T-2 (v3.5.84): 글 단위 env 캐시 강제 reset
+ *  큐 모드에서 첫 글 실행 중 env 변경(API 키 추가 등)이 30초 캐시에 막혀
+ *  두 번째 글에서도 옛 캐시를 사용하던 문제 차단.
+ *  orchestration 시작부에서 호출.
+ */
+export function resetImageDispatcherEnvCache(): void {
+  if (_envCache !== null) {
+    console.log('[DISPATCH] 🔄 _envCache 글 단위 reset');
+    _envCache = null;
+    _envCacheTime = 0;
+  }
+}
+
 function getGeminiApiKey(): string {
   const env = getCachedEnv();
   return (env['geminiKey'] || env['GEMINI_API_KEY'] || env['geminiApiKey'] || '').trim();
@@ -246,15 +259,71 @@ export async function dispatchH2ImageGeneration(
   }
 
   const env = getCachedEnv();
+  const strictMode = String(process.env['STRICT_H2_IMAGE_ENGINE'] || '').toLowerCase() === 'true';
 
-  // ── 1순위: 사용자 선택 엔진 ──
+  // 🛡️ S-2 + S-4 (v3.5.84): Strict 모드 + 에러 분류기 통합
+  //   사용자 요구: "선택한 엔진이 반드시 성공" / "폴백 차단" / "에러 분류 후 우회 가능한 것만 우회"
+  //   동작:
+  //     1. tryEngine 실패 → classifyImageError로 분류
+  //     2. unrecoverable (Pro 미가입/billing/region) → 즉시 throw (사용자 알림)
+  //     3. bypassable (401/503/safety/network) → cooldown 후 재시도 (최대 3회)
+  //     4. 3회 모두 실패 → throw (발행 차단)
+  if (strictMode) {
+    const { classifyImageError, categoryLabel } = require('./image-error-classifier');
+    console.log(`[DISPATCH] 🛡️ Strict 모드 ON — '${imageSource}' 엔진 고정 (폴백 차단)`);
+    onLog?.(`🛡️ 엔진 고정 모드 ON — '${imageSource}'만 시도합니다 (폴백 차단)`);
+
+    const MAX_STRICT_RETRIES = 3;
+    let lastClassification: any = null;
+
+    for (let attempt = 1; attempt <= MAX_STRICT_RETRIES; attempt++) {
+      const result = await tryEngine(imageSource, prompt, keyword, env, onLog, false, contentMode);
+      if (result.ok) {
+        if (attempt > 1) onLog?.(`✅ '${imageSource}' ${attempt}회차 시도 성공`);
+        return result;
+      }
+
+      const classification = classifyImageError(result.error || '');
+      lastClassification = classification;
+      const label = categoryLabel(classification.category);
+
+      console.log(`[DISPATCH] ❌ ${imageSource} 시도 ${attempt}/${MAX_STRICT_RETRIES} — ${label}: ${(result.error || '').substring(0, 200)}`);
+      onLog?.(`❌ '${imageSource}' 시도 ${attempt}/${MAX_STRICT_RETRIES}: ${label} — ${classification.userMessage}`);
+
+      // 우회 불가 에러 — 즉시 throw
+      if (!classification.bypassable) {
+        console.error(`[DISPATCH] 🛑 우회 불가 에러 — 즉시 발행 차단`);
+        onLog?.(`🛑 ${label} — 자동 우회 불가, 발행 차단합니다`);
+        throw new Error(`STRICT_ENGINE_FAILED:${classification.category}:${classification.userMessage}`);
+      }
+
+      // 우회 가능 에러 — recommendedAction 따라 처리
+      if (attempt < MAX_STRICT_RETRIES) {
+        if (classification.cooldownMs > 0) {
+          const waitSec = Math.ceil(classification.cooldownMs / 1000);
+          onLog?.(`⏳ ${waitSec}초 대기 후 재시도 (${attempt + 1}/${MAX_STRICT_RETRIES})`);
+          await new Promise(r => setTimeout(r, classification.cooldownMs));
+        }
+      }
+    }
+
+    // 3회 모두 실패 → throw
+    const finalCategory = lastClassification?.category || 'unknown';
+    const finalMsg = lastClassification?.userMessage || '알 수 없는 에러';
+    console.error(`[DISPATCH] ❌ Strict 모드 ${MAX_STRICT_RETRIES}회 모두 실패: ${imageSource} (${finalCategory})`);
+    onLog?.(`❌ '${imageSource}' ${MAX_STRICT_RETRIES}회 시도 후 실패 — 발행 차단`);
+    throw new Error(`STRICT_ENGINE_FAILED:${finalCategory}:${finalMsg}`);
+  }
+
+  // ── 일반 모드 (strict OFF) ──
+  // 1순위: 사용자 선택 엔진
   const primaryResult = await tryEngine(imageSource, prompt, keyword, env, onLog, false, contentMode);
   if (primaryResult.ok) return primaryResult;
 
   console.log(`[DISPATCH] ⚠️ 1순위 ${imageSource} 실패 (${primaryResult.error || '사유 미상'}) → 폴백 체인 시작`);
   onLog?.(`⚠️ 사용자 선택 엔진(${imageSource}) 실패: ${primaryResult.error || '사유 미상'} → 다른 엔진으로 폴백 시도`);
 
-  // ── 2순위: 폴백 체인 ──
+  // 2순위: 폴백 체인
   //   2026-05-05 정리: dalle/leonardo/pollinations 제거. nanobanana(나노바나나2) 우선.
   //   사용자 메인 타겟인 'nanobanana'를 첫 폴백으로 둬서 다른 엔진 실패 시 즉시 회복.
   const fallbackOrder = ['nanobanana', 'imagefx', 'flow', 'deepinfra']

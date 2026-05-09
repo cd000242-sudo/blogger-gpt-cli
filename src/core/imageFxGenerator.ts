@@ -48,9 +48,13 @@ function toFxAspectRatio(ratio: string): string {
 }
 
 // ── 안전 필터 프롬프트 순화 ──
+// 🛡️ S-5 (v3.5.84): 한국어 위험 키워드 추가 (이전엔 영어만 처리 → 안전필터 차단율 5-15%)
+//   카테고리: 정치/선거, 건강/의료, 금융 위기, 사회 갈등, 폭력/범죄
 function sanitizePrompt(prompt: string): string {
+  const koreanRiskyPattern = /탄핵|시위|집회|폭동|폭력|범죄|사망|자살|부상|수술|혈액|마약|사기|도박|파산|폭락|성인|누드|공격|살인|테러|폭탄|전쟁|시신|음주|도박|마약|총기|칼|흉기/g;
   return prompt
     .replace(/\b(blood|gore|violence|weapon|knife|gun|drug|nude|naked|sexy|kill|murder|dead|death|war|fight|attack|bomb|terror|horror|scary|creepy|disturb)\b/gi, '')
+    .replace(koreanRiskyPattern, '')
     .replace(/[^\w\s가-힣.,!?'"()-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -61,7 +65,17 @@ function sanitizePrompt(prompt: string): string {
  * Chrome → Edge → Playwright Chromium 순서
  */
 async function launchBrowser(profileDir: string, headless: boolean): Promise<any> {
-  const { chromium } = await import('playwright') as any;
+  // 🛡️ T-1 (v3.5.84): playwright → patchright (Playwright drop-in fork, CDP Runtime.enable 누출 차단)
+  //   기존 playwright는 CDP 신호 노출로 reCAPTCHA Enterprise에 자동화로 감지됨 (효과 2/10)
+  //   patchright: HeadlessChrome 마커 + CDP 누출 빌드단계 제거 (효과 7/10, 활성 유지보수 2026)
+  let chromium: any;
+  try {
+    chromium = (await import('patchright' as any)).chromium;
+    console.log('[ImageFX] 🛡️ patchright 사용 (stealth 강화)');
+  } catch {
+    chromium = (await import('playwright')).chromium;
+    console.log('[ImageFX] ⚠️ patchright 미설치 → playwright fallback');
+  }
   
   const baseOptions = {
     headless,
@@ -323,7 +337,8 @@ export async function makeImageFxImage(
   } = {},
   onLog?: (msg: string) => void,
 ): Promise<ImageFxResult> {
-  const MAX_RETRIES = 3;
+  // 🛡️ S-5 (v3.5.84): 3 → 5로 상향. ImageFX는 무료 티어라 503/429 빈도 높음.
+  const MAX_RETRIES = 5;
   const fxAspectRatio = toFxAspectRatio(options.aspectRatio || '16:9');
   let currentPrompt = prompt;
   let lastError: Error | null = null;
@@ -414,16 +429,26 @@ export async function makeImageFxImage(
         const errorCode = genResult.error || 'UNKNOWN';
         const errorDetail = genResult.detail || '';
 
-        // 토큰 만료 (401) → 갱신
+        // 🛡️ S-5 (v3.5.84): 토큰 만료 (401) → 갱신 + 2초 대기 (페이지 로드 여유)
         if (errorCode === 'HTTP_401') {
           console.warn('[ImageFX] 🔑 토큰 만료 → 갱신 시도');
           onLog?.('🔑 [ImageFX] 토큰 갱신 중...');
           cachedToken = null;
           cachedTokenExpiry = null;
+          await new Promise(r => setTimeout(r, 2000)); // 페이지 로드 여유
           continue;
         }
 
-        // 안전 필터 차단 → 프롬프트 순화
+        // 🛡️ S-5 (v3.5.84): HTTP_429 분기 신설 — exponential backoff (30s, 60s, 120s, 240s, 300s)
+        if (errorCode === 'HTTP_429') {
+          const waitSec = Math.min(30 * Math.pow(2, attempt - 1), 300);
+          console.warn(`[ImageFX] ⏳ 요청 한도 초과(429) → ${waitSec}초 대기 (시도 ${attempt}/${MAX_RETRIES})`);
+          onLog?.(`⏳ [ImageFX] 요청 한도 초과 — ${waitSec}초 대기 중...`);
+          await new Promise(r => setTimeout(r, waitSec * 1000));
+          continue;
+        }
+
+        // 안전 필터 차단 → 프롬프트 순화 (한국어 + 영어)
         if (errorDetail.includes('safety') || errorDetail.includes('blocked') || errorDetail.includes('policy')) {
           console.warn(`[ImageFX] 🛡️ 안전 필터 차단 (시도 ${attempt}) → 프롬프트 순화`);
           onLog?.('🛡️ [ImageFX] 안전 필터 — 프롬프트 조정 중...');
@@ -431,10 +456,10 @@ export async function makeImageFxImage(
           continue;
         }
 
-        // 서버 과부하 (503) → 대기
+        // 🛡️ S-5 (v3.5.84): 서버 과부하 (503) → exponential backoff (5s, 10s, 20s, 40s, 60s)
         if (errorCode === 'HTTP_503') {
-          const waitSec = 5 * attempt;
-          console.warn(`[ImageFX] ⏳ 서버 과부하 → ${waitSec}초 대기`);
+          const waitSec = Math.min(5 * Math.pow(2, attempt - 1), 60);
+          console.warn(`[ImageFX] ⏳ 서버 과부하 → ${waitSec}초 대기 (시도 ${attempt}/${MAX_RETRIES})`);
           onLog?.(`⏳ [ImageFX] 서버 과부하 — ${waitSec}초 대기 중...`);
           await new Promise(r => setTimeout(r, waitSec * 1000));
           continue;

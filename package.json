@@ -1,6 +1,6 @@
 {
   "name": "lba",
-  "version": "3.5.83",
+  "version": "3.5.84",
   "description": "LEADERNAM Orbit - AI-powered blog automation",
   "main": "electron/main.js",
   "scripts": {
@@ -61,6 +61,7 @@
     "openai": "^4.20.0",
     "p-limit": "^5.0.0",
     "p-queue": "^8.0.1",
+    "patchright": "^1.59.4",
     "playwright": "^1.56.1",
     "puppeteer": "^21.11.0",
     "puppeteer-extra": "^3.3.6",

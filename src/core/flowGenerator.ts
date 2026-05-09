@@ -30,7 +30,31 @@ import { ensurePage } from './imageFxGenerator';
 // ═══════════════════════════════════════════════════
 
 let cachedProjectId: string | null = null;
-let _flowDisabledThisSession = false;
+// 🛡️ S-3 (v3.5.84): boolean 영구 플래그 → timestamp 기반 5분 쿨다운
+//   기존: _flowDisabledThisSession=true 한 번 세팅되면 프로세스 종료까지 영구 disable
+//   변경: 차단 시각 기록 → 5분 경과 시 자동 해제 → 큐 두번째 글부터 Flow 죽는 회귀 차단
+let _flowDisabledAt: number | null = null;
+const FLOW_COOLDOWN_MS = 5 * 60 * 1000; // 5분
+
+/** Flow 차단 상태 검사 (5분 쿨다운 자동 해제 포함) */
+function isFlowDisabled(): { disabled: boolean; remainingMs: number } {
+  if (_flowDisabledAt === null) return { disabled: false, remainingMs: 0 };
+  const elapsed = Date.now() - _flowDisabledAt;
+  if (elapsed >= FLOW_COOLDOWN_MS) {
+    // 쿨다운 만료 — 자동 해제
+    _flowDisabledAt = null;
+    return { disabled: false, remainingMs: 0 };
+  }
+  return { disabled: true, remainingMs: FLOW_COOLDOWN_MS - elapsed };
+}
+
+/** 외부에서 호출 가능한 수동 reset (글 단위로 강제 해제하고 싶을 때) */
+export function resetFlowDisabledFlag(): void {
+  if (_flowDisabledAt !== null) {
+    console.log('[FLOW] 🔄 _flowDisabledAt 수동 reset (글 단위)');
+    _flowDisabledAt = null;
+  }
+}
 
 const PROJECT_CACHE_FILE = 'flow-project-id.json';
 
@@ -99,8 +123,11 @@ export async function makeFlowImage(
   } = {},
   onLog?: (msg: string) => void,
 ): Promise<FlowResult> {
-  if (_flowDisabledThisSession) {
-    return { ok: false, dataUrl: '', error: 'FLOW_DISABLED_SESSION: 이번 세션에서 Flow 접근 불가 판정' };
+  // 🛡️ S-3 (v3.5.84): 5분 쿨다운 자동 해제
+  const flowState = isFlowDisabled();
+  if (flowState.disabled) {
+    const remainingSec = Math.ceil(flowState.remainingMs / 1000);
+    return { ok: false, dataUrl: '', error: `FLOW_COOLDOWN: 차단 후 ${remainingSec}초 후 자동 재시도 가능 (5분 쿨다운)` };
   }
 
   const sanitized = sanitizeFlowPrompt(prompt);
@@ -216,9 +243,14 @@ export async function makeFlowImage(
 
         // 특정 에러는 즉시 종료 (재시도 무의미)
         const msg = err.message || '';
-        if (msg.includes('FLOW_RECAPTCHA') || msg.includes('PERMISSION_DENIED') || msg.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY')) {
-          _flowDisabledThisSession = true;
-          return { ok: false, dataUrl: '', error: `FLOW_BLOCKED: ${msg.substring(0, 250)}` };
+        // 🛡️ S-3 (v3.5.84): PERMISSION_DENIED는 영구 차단 (Pro 미가입), reCAPTCHA는 5분 쿨다운만
+        if (msg.includes('PERMISSION_DENIED')) {
+          _flowDisabledAt = Date.now() + 24 * 60 * 60 * 1000; // 24시간 — 사실상 영구 (Pro 미가입은 재시도 무의미)
+          return { ok: false, dataUrl: '', error: `FLOW_PERMISSION_DENIED: Google AI Pro 미가입 또는 권한 없음 — ${msg.substring(0, 200)}` };
+        }
+        if (msg.includes('FLOW_RECAPTCHA') || msg.includes('PUBLIC_ERROR_UNUSUAL_ACTIVITY')) {
+          _flowDisabledAt = Date.now(); // 5분 쿨다운 (자동 해제)
+          return { ok: false, dataUrl: '', error: `FLOW_BLOCKED: reCAPTCHA 감지 — 5분 후 자동 재시도. ${msg.substring(0, 200)}` };
         }
         if (msg.includes('QUOTA') || msg.includes('429')) {
           return { ok: false, dataUrl: '', error: 'FLOW_QUOTA_EXCEEDED: Google AI Pro 일일 할당량 초과' };

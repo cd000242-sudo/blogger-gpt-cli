@@ -1845,7 +1845,14 @@ CRITICAL RULES:
           const result = await model.generateContent(noisedPrompt);
           const response = result.response;
 
-          for (const part of response.candidates?.[0]?.content?.parts || []) {
+          // 🛡️ S-6 (v3.5.84): finishReason='SAFETY' 별도 감지 (200 OK 응답이지만 차단된 케이스)
+          const candidate = response.candidates?.[0];
+          if (candidate?.finishReason === 'SAFETY') {
+            console.warn(`[NANO-BANANA] 🚫 ${modelInfo.name} 안전 필터 차단 (finishReason=SAFETY) — 다음 모델 시도`);
+            break;
+          }
+
+          for (const part of candidate?.content?.parts || []) {
             if ((part as any).inlineData) {
               const imageData = (part as any).inlineData.data;
               const mimeType = (part as any).inlineData.mimeType || 'image/png';
@@ -1863,16 +1870,68 @@ CRITICAL RULES:
           break; // 이미지 데이터 없으면 다음 모델로
 
         } catch (modelError: any) {
+          // 🛡️ S-6 (v3.5.84): Gemini 8종 에러 분류 — billing/auth는 즉시 fail-fast
           const errMsg = modelError.message || String(modelError);
-          const is429 = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded.*quota/i.test(errMsg);
-          if (is429 && retry < 1) {
-            const waitSec = 5;
-            console.log(`[NANO-BANANA] ⏳ ${modelInfo.name} 할당량 초과, ${waitSec}초 대기 후 다음 모델 시도...`);
-            await new Promise(r => setTimeout(r, waitSec * 1000));
-            break; // 즉시 다음 모델로 전환
+
+          // 빌링 미활성화 (FAILED_PRECONDITION) — 즉시 종료, 모델 다운그레이드 무의미
+          if (/FAILED_PRECONDITION|billing.*not.*enabled|Billing/i.test(errMsg)) {
+            console.error(`[NANO-BANANA] ❌ 빌링 미활성화 — Gemini 이미지는 유료 API. https://aistudio.google.com/plan_billing`);
+            return { ok: false, error: 'BILLING_REQUIRED: Google Cloud 빌링 활성화 필요 (https://aistudio.google.com/plan_billing)' };
           }
-          console.log(`[NANO-BANANA] ⚠️ ${modelInfo.name} 실패: ${errMsg.substring(0, 150)}, 다음 모델 시도...`);
-          break; // 다음 모델로
+          // 권한 거부 (PERMISSION_DENIED) — 즉시 종료
+          if (/PERMISSION_DENIED|403\b|forbidden|suspended|does not have permission/i.test(errMsg)) {
+            console.error(`[NANO-BANANA] ❌ API 키 권한 없음 또는 계정 정지`);
+            return { ok: false, error: 'PERMISSION_DENIED: Gemini API 키 권한 오류 — 키 재확인 필요' };
+          }
+          // 모델 없음 (NOT_FOUND) — 다음 모델로 즉시 전환 (preview 모델은 EOL 가능)
+          if (/NOT_FOUND|404\b|model.*not.*found/i.test(errMsg)) {
+            console.warn(`[NANO-BANANA] 🔄 ${modelInfo.name} 모델 없음 (EOL 가능) — 다음 모델 시도`);
+            break;
+          }
+          // 서버 과부하 (UNAVAILABLE 503) — 5초 대기 후 동일 모델 재시도 1회
+          if (/UNAVAILABLE|503\b|overloaded|Service unavailable/i.test(errMsg)) {
+            if (retry < 1) {
+              console.log(`[NANO-BANANA] ⏳ ${modelInfo.name} 서버 과부하 — 5초 후 동일 모델 재시도`);
+              await new Promise(r => setTimeout(r, 5000));
+              continue;
+            }
+            break;
+          }
+          // 서버 내부 (INTERNAL 500) — 3초 대기 후 동일 모델 재시도 1회
+          if (/INTERNAL|500\b/i.test(errMsg)) {
+            if (retry < 1) {
+              console.log(`[NANO-BANANA] ⏳ ${modelInfo.name} INTERNAL 에러 — 3초 후 재시도`);
+              await new Promise(r => setTimeout(r, 3000));
+              continue;
+            }
+            break;
+          }
+          // 타임아웃 (DEADLINE_EXCEEDED 504) — 다음 모델로 즉시 전환
+          if (/DEADLINE_EXCEEDED|504\b|Deadline expired|deadline exceeded/i.test(errMsg)) {
+            console.warn(`[NANO-BANANA] ⌛ ${modelInfo.name} 타임아웃 — 다음 모델 시도`);
+            break;
+          }
+          // 안전 필터 (200 OK 외 케이스 — 가끔 4xx로 옴)
+          if (/safety|SAFETY|safety_filter|blocked|policy/i.test(errMsg)) {
+            console.warn(`[NANO-BANANA] 🛡️ ${modelInfo.name} 안전 필터 차단 — 다음 모델 시도`);
+            break;
+          }
+          // RATE_LIMIT (429 RESOURCE_EXHAUSTED) — 5초 대기 후 다음 모델
+          const is429 = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded.*quota/i.test(errMsg);
+          if (is429) {
+            const waitSec = 5;
+            console.log(`[NANO-BANANA] ⏳ ${modelInfo.name} 할당량 초과 — ${waitSec}초 대기 후 다음 모델`);
+            await new Promise(r => setTimeout(r, waitSec * 1000));
+            break;
+          }
+          // 잘못된 요청 (INVALID_ARGUMENT) — 다음 모델로 (코드 문제일 수도)
+          if (/INVALID_ARGUMENT|400\b/i.test(errMsg)) {
+            console.warn(`[NANO-BANANA] ⚠️ ${modelInfo.name} INVALID_ARGUMENT — 다음 모델 시도`);
+            break;
+          }
+          // 분류 실패 — 다음 모델로
+          console.log(`[NANO-BANANA] ⚠️ ${modelInfo.name} 분류 미상: ${errMsg.substring(0, 150)} — 다음 모델 시도`);
+          break;
         }
       }
     }

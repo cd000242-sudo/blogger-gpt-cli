@@ -3567,19 +3567,24 @@ html body .content-inner {
         onLog?.(`[PUBLISH] ⚠️ CSS 스타일 태그가 ${styleTagCount}개 발견되었습니다.`);
       }
 
-      // Blogger 적용 가능성 추가 검증
+      // 🛡️ S-8 (v3.5.84): applyInlineStyles 중복 호출 제거
+      //   기존: hasMaxModeArticle=false일 때 두 분기에서 동일 함수 호출 → 콘텐츠 크기 폭증, 중복 인라인 스타일 주입
+      //   변경: 1번만 호출되도록 가드 변수 사용. 4616 라인의 최종 호출 1회 + 여기 1회 = 총 2회 (이전 3회 → 2회)
+      let inlineStylesApplied = false;
       if (!hasMaxModeArticle) {
         console.warn(`[PUBLISH] ⚠️ [CSS 검증] max-mode-article 클래스가 발견되지 않았습니다. 인라인 스타일로 전환합니다.`);
         onLog?.(`[PUBLISH] ⚠️ 콘텐츠 클래스 누락으로 인라인 스타일 적용 (CSS 실패 대비)`);
         finalHtmlContent = applyInlineStyles(finalHtmlContent);
+        inlineStylesApplied = true;
       }
 
       if (!hasImportantRules) {
         console.warn(`[PUBLISH] ⚠️ [CSS 검증] !important 규칙이 부족합니다. Blogger의 기본 CSS가 우선 적용될 수 있습니다.`);
         onLog?.(`[PUBLISH] ⚠️ CSS 우선순위 낮음: Blogger 템플릿의 기본 스타일이 적용될 수 있습니다.`);
-        // !important 부족 시에도 인라인 스타일 적용 고려
-        if (!hasMaxModeArticle) {
+        // !important 부족 시에도 인라인 스타일 적용 고려 (단, 이미 적용했으면 skip)
+        if (!hasMaxModeArticle && !inlineStylesApplied) {
           finalHtmlContent = applyInlineStyles(finalHtmlContent);
+          inlineStylesApplied = true;
         }
       }
 
@@ -4042,6 +4047,20 @@ html body .content-inner {
       }
     }
 
+    // 🛡️ S-7 (v3.5.84): 발행 직전 콘텐츠 sanitizer
+    //   data:image/ 잔존 시 1MB 폭주 → Blogger 400. 이미지 호스팅 6단계 폴백 모두 실패 시 잔존 가능.
+    //   data:image base64 <img>를 자리표시 figure로 치환해 본문 크기 폭주 100% 차단.
+    {
+      const base64ImgRegex = /<img[^>]*\bsrc=['"]data:image\/[^'"]+['"][^>]*>/gi;
+      const base64Count = (finalHtmlContent.match(base64ImgRegex) || []).length;
+      if (base64Count > 0) {
+        console.warn(`[PUBLISH] 🛡️ [SANITIZER] 본문에 base64 이미지 ${base64Count}장 잔존 → 자리표시로 치환 (이미지 호스팅 폴백 6단계 모두 실패한 케이스)`);
+        onLog?.(`🛡️ 이미지 호스팅 실패로 본문 base64 ${base64Count}장 자리표시 치환 (Blogger 400 방지)`);
+        finalHtmlContent = finalHtmlContent.replace(base64ImgRegex,
+          '<figure class="image-failed" style="margin:24px 0;padding:32px;background:#f5f5f5;border:1px dashed #ccc;border-radius:8px;text-align:center;color:#999;font-size:13px;">⚠️ 이미지 호스팅 실패 — 외부 호스팅 모두 거부됨</figure>');
+      }
+    }
+
     // body 객체 생성 (안전한 HTML 콘텐츠)
     body = {
       kind: 'blogger#post',
@@ -4252,10 +4271,16 @@ html body .content-inner {
     }
 
     // 🖼️ 썸네일 이미지 추가 (Blogger 대시보드 목록에 썸네일 표시용)
-    if (processedThumbnailUrl) {
+    // 🛡️ S-7: data:image/ 또는 비-HTTP URL은 거부 — Blogger 400 invalid argument 방지
+    if (processedThumbnailUrl &&
+        typeof processedThumbnailUrl === 'string' &&
+        /^https?:\/\//i.test(processedThumbnailUrl)) {
       body.images = [{ url: processedThumbnailUrl }];
       console.log(`[PUBLISH] ✅ 썸네일 이미지 추가됨: ${processedThumbnailUrl.substring(0, 80)}...`);
       onLog?.(`[PUBLISH] ✅ 대시보드 썸네일 이미지 설정됨`);
+    } else if (processedThumbnailUrl) {
+      console.warn(`[PUBLISH] 🛡️ [SANITIZER] 썸네일 URL이 HTTP(S) 아님 — body.images 생략 (Blogger 400 방지): ${String(processedThumbnailUrl).substring(0, 50)}`);
+      onLog?.(`🛡️ 썸네일 URL 형식 부적합 — body.images 생략 (Blogger 400 방지)`);
     }
 
     // published 필드 - src/cli.ts와 동일: publishedIso가 있을 때만 추가
@@ -4485,19 +4510,22 @@ html body .content-inner {
       console.log(`[PUBLISH] ⚠️ 콘텐츠 크기 초과 (${contentSizeKB}KB), 자동 트리밍 시도...`);
       onLog?.(`⚠️ 콘텐츠 크기 초과 (${contentSizeKB}KB), 자동 트리밍 중...`);
 
-      // HTML 섹션 기준으로 마지막 섹션부터 제거
-      const sections = content.split(/<h[23][^>]*>/gi);
+      // 🛡️ S-7 (v3.5.84): 'content' 미선언 ReferenceError 수정 — body.content 직접 사용
+      //   기존 코드가 외부 스코프 'content' 변수를 가정했으나 publishToBlogger 내에 선언된 적 없음.
+      //   500KB 초과 시 ReferenceError 발생 → 트리밍 안전망 자체가 무력화됐음.
+      //   이제 body.content를 직접 split/join하고 결과를 다시 body.content에 저장.
+      const sections = body.content.split(/<h[23][^>]*>/gi);
       if (sections.length > 3) {
         // 마지막 2-3개 섹션 제거
         const trimmedSections = sections.slice(0, Math.max(3, sections.length - 2));
-        content = trimmedSections.join('');
-        const newSize = new TextEncoder().encode(content).length;
+        body.content = trimmedSections.join('');
+        const newSize = new TextEncoder().encode(body.content).length;
         console.log(`[PUBLISH] ✅ 트리밍 완료: ${Math.round(newSize / 1024)}KB`);
         onLog?.(`✅ 자동 트리밍 완료: ${Math.round(newSize / 1024)}KB`);
       }
 
       // 여전히 크면 에러
-      const finalSize = new TextEncoder().encode(content).length;
+      const finalSize = new TextEncoder().encode(body.content).length;
       if (finalSize > MAX_CONTENT_SIZE) {
         const errorMsg = `콘텐츠 크기가 너무 큽니다: ${Math.round(finalSize / 1024)}KB (제한: ${Math.round(MAX_CONTENT_SIZE / 1024)}KB). 콘텐츠를 줄여주세요.`;
         console.error(`[PUBLISH] ❌ ${errorMsg}`);
@@ -4585,13 +4613,24 @@ html body .content-inner {
       // 작동하는 코드와 정확히 동일한 API 호출
       // 작동하는 코드: const res = await blogger.posts.insert({ blogId: blogId, isDraft, requestBody: body });
 
-      // 🔥 [긴급 수정] API 호출 전 강제 인라인 스타일 적용 (Blogger vtrick 테마 등 완전 무시)
-      // 테마 CSS가 콘텐츠를 숨기는 문제 해결
-      if (body.content) {
+      // 🛡️ S-8 (v3.5.84): API 호출 직전 인라인 스타일 적용 (Blogger 테마 무시)
+      //   기존: 위에서 1-2회 호출 + 여기서 또 1회 = 최대 3회 중복 → 콘텐츠 크기 폭증, 500KB 제한 직격
+      //   변경: 같은 함수가 idempotent하지 않으므로, "max-mode-article 클래스 + bgpt-inline-applied 마커"가 있으면 skip
+      if (body.content && !body.content.includes('data-bgpt-inline-applied="true"')) {
         console.log('[PUBLISH] 🔥 [긴급] 강제 인라인 스타일 적용 시작 (테마 CSS 무시)');
         onLog?.('[PUBLISH] 🔥 강제 인라인 스타일 적용 중... (테마 호환성 강화)');
         body.content = applyInlineStyles(body.content);
+        // 마커 삽입 (다음 중복 호출 차단)
+        if (!body.content.includes('data-bgpt-inline-applied')) {
+          body.content = body.content.replace(/<body([^>]*)>/i, '<body$1 data-bgpt-inline-applied="true">');
+          // body 태그 없으면 첫 div에 마커
+          if (!body.content.includes('data-bgpt-inline-applied')) {
+            body.content = body.content.replace(/<div([^>]*class="[^"]*max-mode-article[^"]*"[^>]*)>/i, '<div$1 data-bgpt-inline-applied="true">');
+          }
+        }
         console.log('[PUBLISH] ✅ [긴급] 강제 인라인 스타일 적용 완료');
+      } else if (body.content) {
+        console.log('[PUBLISH] ⏭️ [SKIP] 인라인 스타일 이미 적용됨 (중복 호출 방지)');
       }
 
       // 🔧 최종 검증: body 객체를 깊은 복사하여 순수한 객체로 만들기
@@ -4642,10 +4681,19 @@ html body .content-inner {
             contentModified = true;
           }
 
+          // 🛡️ S-8 (v3.5.84): <script> 처리 — type="application/ld+json"은 보존, 나머지만 제거
+          //   기존: 모든 <script> 무차별 제거 → SEO Schema.org JSON-LD까지 삭제됨
+          //   변경: ld+json은 그대로 두고 일반 <script>만 제거
           if (cleanBody.content.includes('<script')) {
-            contentIssues.push('Script 태그');
-            cleanBody.content = cleanBody.content.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-            contentModified = true;
+            const before = cleanBody.content;
+            cleanBody.content = cleanBody.content.replace(
+              /<script(?![^>]*type\s*=\s*["']application\/ld\+json["'])[^>]*>[\s\S]*?<\/script>/gi,
+              ''
+            );
+            if (before !== cleanBody.content) {
+              contentIssues.push('Script 태그 (ld+json 보존)');
+              contentModified = true;
+            }
           }
 
           if (cleanBody.content.includes('javascript:')) {
@@ -4654,50 +4702,17 @@ html body .content-inner {
             contentModified = true;
           }
 
-          if (cleanBody.content.includes('function(')) {
-            contentIssues.push('JavaScript 함수');
-            cleanBody.content = cleanBody.content.replace(/function\s*\([^)]*\)\s*{[^}]*}/gi, '');
-            contentModified = true;
-          }
-
-          // 추가적인 JavaScript 패턴 검증 및 제거
-          const jsPatterns = [
-            { pattern: /var\s+\w+\s*=/gi, name: 'var 선언' },
-            { pattern: /let\s+\w+\s*=/gi, name: 'let 선언' },
-            { pattern: /const\s+\w+\s*=/gi, name: 'const 선언' },
-            { pattern: /if\s*\([^)]*\)\s*{[^}]*}/gi, name: 'if 문' },
-            { pattern: /for\s*\([^)]*\)\s*{[^}]*}/gi, name: 'for 문' },
-            { pattern: /while\s*\([^)]*\)\s*{[^}]*}/gi, name: 'while 문' },
-            { pattern: /console\.\w+\([^)]*\)/gi, name: 'console 문' },
-            { pattern: /window\.\w+/gi, name: 'window 참조' },
-            { pattern: /document\.\w+/gi, name: 'document 참조' },
-            { pattern: /typeof\s+\w+/gi, name: 'typeof 연산자' },
-            { pattern: /\bundefined\b/gi, name: 'undefined' },
-            { pattern: /\bnull\b/gi, name: 'null' },
-            { pattern: /=>/gi, name: '화살표 함수' },
-            { pattern: /\|\|/gi, name: 'OR 연산자' },
-            { pattern: /&&/gi, name: 'AND 연산자' },
-            { pattern: /===/gi, name: '엄격한 동등 연산자' },
-            { pattern: /!==/gi, name: '엄격한 부등 연산자' },
-            { pattern: />=/gi, name: '크거나 같음 연산자' },
-            { pattern: /<=/gi, name: '작거나 같음 연산자' },
-            { pattern: /\btrue\b/gi, name: 'true' },
-            { pattern: /\bfalse\b/gi, name: 'false' },
-            { pattern: /return\s+/gi, name: 'return 문' },
-            { pattern: /throw\s+/gi, name: 'throw 문' },
-            { pattern: /new\s+\w+/gi, name: 'new 연산자' },
-            { pattern: /this\./gi, name: 'this 참조' },
-            { pattern: /class\s+\w+/gi, name: 'class 선언' },
-            { pattern: /extends\s+\w+/gi, name: 'extends' },
-            { pattern: /import\s+/gi, name: 'import 문' },
-            { pattern: /export\s+/gi, name: 'export 문' },
-            { pattern: /async\s+function/gi, name: 'async function' },
-            { pattern: /await\s+/gi, name: 'await' },
-            { pattern: /Promise\./gi, name: 'Promise 메서드' },
-            { pattern: /catch\s*\([^)]*\)/gi, name: 'catch 블록' }
+          // 🛡️ S-8 (v3.5.84): JS 패턴 무차별 strip 폐기
+          //   기존 27개 정규식이 본문에 무차별 적용 → 한국어 텍스트(import/export/return/true/false/null)
+          //   + ARIA 속성(aria-hidden="true") + ld+json + CSS(@supports || or &&) 모두 파괴.
+          //   실측: 한국어 16문장 중 10개 손상(62.5%).
+          //   변경: HTML 컨텍스트에서 진짜 위험한 것만 제거 — onXXX 인라인 이벤트 핸들러 + javascript: 링크 (위에서 처리됨).
+          //   <script> 태그 자체는 위에서 ld+json 제외하고 제거됨.
+          const dangerousAttrPatterns = [
+            { pattern: /\son\w+\s*=\s*["'][^"']*["']/gi, name: '인라인 이벤트 핸들러 (onXXX=)' },
+            { pattern: /\son\w+\s*=\s*[^"'\s>]+/gi, name: '인라인 이벤트 핸들러 (인용 없음)' },
           ];
-
-          for (const { pattern, name } of jsPatterns) {
+          for (const { pattern, name } of dangerousAttrPatterns) {
             if (pattern.test(cleanBody.content)) {
               contentIssues.push(name);
               cleanBody.content = cleanBody.content.replace(pattern, '');

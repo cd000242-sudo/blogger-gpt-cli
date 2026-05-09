@@ -62,6 +62,29 @@ export async function generateUltimateMaxModeArticleFinal(
   // 🖼️ 썸네일 엔진 엄격 모드 — 기본 OFF (다른 AI로 자동 폴백이 합리적)
   process.env['STRICT_THUMBNAIL_ENGINE'] = payload?.strictThumbnailEngine === true ? 'true' : 'false';
 
+  // 🛡️ S-1 (v3.5.84): H2 섹션 이미지 엔진 엄격 모드 — 사용자 요청
+  //   ON: 폴백 차단 — 선택한 엔진만 시도, 실패 시 자동 우회 가능한 에러만 우회, 우회 불가 시 발행 차단
+  //   OFF (기본): 기존 폴백 체인 유지 (nanobanana → imagefx → flow → deepinfra)
+  process.env['STRICT_H2_IMAGE_ENGINE'] = payload?.strictH2ImageEngine === true ? 'true' : 'false';
+
+  // 🛡️ S-3 (v3.5.84): 글 단위 Flow 차단 플래그 reset (5분 쿨다운 만료 전이라도 강제 해제)
+  //   큐 모드에서 첫 글이 reCAPTCHA 차단되면 둘째 글부터 즉시 disable 회귀 차단.
+  //   PERMISSION_DENIED(24h)는 reset 안 함 — Pro 미가입은 재시도 무의미.
+  try {
+    const { resetFlowDisabledFlag } = require('../flowGenerator');
+    resetFlowDisabledFlag();
+  } catch (e: any) {
+    console.warn('[orchestration] resetFlowDisabledFlag 호출 실패 (skip):', e?.message);
+  }
+
+  // 🛡️ T-2 (v3.5.84): 글 단위 env 캐시 reset (큐 연속 발행 시 옛 캐시 사용 차단)
+  try {
+    const { resetImageDispatcherEnvCache } = require('../imageDispatcher');
+    resetImageDispatcherEnvCache();
+  } catch (e: any) {
+    console.warn('[orchestration] resetImageDispatcherEnvCache 호출 실패 (skip):', e?.message);
+  }
+
   // 🆕 URL 이미지 자동 수집 (cd000242-sudo/naver v2.7.77 이식)
   //    payload.urlImageSource = { url, aiCheckEnabled, aiFillEnabled, threshold }
   //    수집 결과를 payload.manualCrawlUrls 풀에 합류하여 이후 imageDispatcher가 활용
@@ -1038,10 +1061,20 @@ export async function generateUltimateMaxModeArticleFinal(
                 usedSource = dispatchResult.source;
               }
             } catch (e: any) {
+              // 🛡️ S-2 (v3.5.84): Strict 모드 throw는 발행 차단으로 propagate
+              if (e?.message?.startsWith('STRICT_ENGINE_FAILED')) {
+                console.error(`[IMG-${i + 1}] ❌ Strict 모드 실패 — 발행 차단: ${e.message}`);
+                onLog?.(`[IMG-${i + 1}] ❌ Strict 모드 실패 — 발행 차단`);
+                throw e; // outer Promise.allSettled에서 rejected 상태로 캡처 → 후속 처리에서 발행 차단
+              }
               console.log(`[IMG-${i + 1}] ⚠️ 이미지 디스패치 실패: ${e.message}`);
             }
           }
-        } catch (err) {
+        } catch (err: any) {
+          // 🛡️ S-2: Strict 에러는 outer로 propagate
+          if (err?.message?.startsWith('STRICT_ENGINE_FAILED')) {
+            throw err;
+          }
           console.log(`[IMG-${i + 1}] ⚠️ 이미지 생성 오류: ${err}`);
         }
 
@@ -1060,6 +1093,22 @@ export async function generateUltimateMaxModeArticleFinal(
       // 🚀 모든 이미지 동시 생성
       const imagePromises = sections.map((_, i) => generateSingleSectionImage(i));
       const imageResults = await Promise.allSettled(imagePromises);
+
+      // 🛡️ S-2 (v3.5.84): Strict 모드에서 1장이라도 STRICT_ENGINE_FAILED 발생 시 발행 차단
+      const strictMode = String(process.env['STRICT_H2_IMAGE_ENGINE'] || '').toLowerCase() === 'true';
+      if (strictMode) {
+        const strictFailed = imageResults.find(r =>
+          r.status === 'rejected' && /STRICT_ENGINE_FAILED/.test(String((r as PromiseRejectedResult).reason?.message || ''))
+        );
+        if (strictFailed) {
+          const reason = (strictFailed as PromiseRejectedResult).reason?.message || '알 수 없음';
+          const errMsg = `🛡️ 엔진 고정 모드 — 이미지 생성 실패로 발행 차단됨: ${reason.substring(0, 300)}`;
+          console.error('[ORCHESTRATION] ❌', errMsg);
+          onLog?.(`❌ ${errMsg}`);
+          onLog?.(`💡 해결책: (1) 다른 이미지 엔진 선택 (2) 엔진 고정 모드 OFF (3) 인증/구독 확인`);
+          throw new Error(errMsg);
+        }
+      }
 
       // 결과 수집 (순서 보장)
       for (let i = 0; i < sections.length; i++) {
@@ -1094,8 +1143,10 @@ export async function generateUltimateMaxModeArticleFinal(
           return uploadedUrl;
         }
       } catch (e) { /* 무시 */ }
-      console.log(`[IMAGE] ⚠️ 호스팅 실패 → Base64 그대로 (섹션 ${idx + 1})`);
-      return img;
+      // 모든 호스팅 실패 — base64 그대로 사용하면 Blogger API 400 발생
+      // 빈 문자열 반환하여 이미지 없이 발행 (400보다 낫다)
+      console.warn(`[IMAGE] ⚠️ 모든 호스팅 실패 → 이미지 제거 (섹션 ${idx + 1}) — Blogger 400 방지`);
+      return '';
     });
     const uploadResults = await Promise.allSettled(uploadPromises);
     const processedImageUrls: string[] = uploadResults.map(r =>
@@ -1645,8 +1696,9 @@ ${conclusionHTML}
               thumbnailUrl = uploadedUrl;
               onLog?.(`   ✅ ${thumbResult.source} 썸네일 완료 (업로드됨)`);
             } else {
-              thumbnailUrl = thumbResult.dataUrl;
-              onLog?.(`   ✅ ${thumbResult.source} 썸네일 완료 (Base64)`);
+              // 모든 호스팅 실패 — 썸네일 없이 진행 (base64는 Blogger 400 유발)
+              thumbnailUrl = '';
+              onLog?.(`   ⚠️ ${thumbResult.source} 썸네일 호스팅 실패 — 썸네일 없이 진행`);
             }
           } else {
             thumbnailUrl = thumbResult.dataUrl;
