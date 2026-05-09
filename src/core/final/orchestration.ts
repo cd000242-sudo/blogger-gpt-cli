@@ -1098,7 +1098,13 @@ export async function generateUltimateMaxModeArticleFinal(
       let imageResults: PromiseSettledResult<{ dataUrl: string; source: string }>[];
 
       if (strictMode) {
+        // 🛡️ v3.5.86: 사용자에게 예상 소요 시간 미리 안내
+        //   1장당 평균 60초 생성 + 11.5초 jitter (마지막 제외) → 5장 기준 5*60 + 4*11.5 = 346초 ≈ 6분
+        //   안전망: 90초 생성 가정 시 5*90 + 4*15 = 510초 ≈ 9분
+        const estMinLow = Math.round((sections.length * 60 + (sections.length - 1) * 8) / 60);
+        const estMinHigh = Math.round((sections.length * 90 + (sections.length - 1) * 15) / 60);
         onLog?.(`🛡️ Strict 모드 — 순차 처리 + 8~15초 jitter (reCAPTCHA 회피)`);
+        onLog?.(`⏱️ 예상 이미지 처리 시간: ${estMinLow}~${estMinHigh}분 (${sections.length}장 순차)`);
         const seqResults: PromiseSettledResult<{ dataUrl: string; source: string }>[] = [];
         for (let i = 0; i < sections.length; i++) {
           try {
@@ -1162,8 +1168,16 @@ export async function generateUltimateMaxModeArticleFinal(
       if (failCount > 0) {
         onLog?.(`[PROGRESS] 85% - ⚠️ 이미지 ${successCount}/${totalToGenerate}장 완료, ${failCount}장 실패 (${imageGenElapsed}초)`);
       } else {
-        onLog?.(`[PROGRESS] 85% - 🎉 이미지 ${successCount}/${totalToGenerate}장 완료 (${imageGenElapsed}초 — 병렬 처리)`);
+        onLog?.(`[PROGRESS] 85% - 🎉 이미지 ${successCount}/${totalToGenerate}장 완료 (${imageGenElapsed}초${strictMode ? ' — 순차 처리' : ' — 병렬 처리'})`);
       }
+      // 🛡️ v3.5.86: 누적 통계 한 줄 요약 (실측 기반 튜닝용)
+      try {
+        const { summaryLine } = require('../engine-stats');
+        const summary = summaryLine();
+        if (summary && summary !== '기록 없음') {
+          onLog?.(`📊 누적 엔진 성공률 (오늘): ${summary}`);
+        }
+      } catch { /* ignore */ }
     } // 🔥 skipImages else 블록 종료
 
     // 🚀 Base64 이미지를 병렬로 URL 변환 (이미지 호스팅 업로드)

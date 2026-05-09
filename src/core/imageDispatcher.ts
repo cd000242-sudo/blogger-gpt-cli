@@ -239,39 +239,62 @@ function buildFallbackPrompt(koreanPrompt: string, isThumbnail: boolean): string
  * @returns `{ok, dataUrl, source, error}`
  */
 /**
- * 🛡️ R-5 (v3.5.85): 한국어 위험 키워드 사전 검출 + 안전 paraphrase
- *   안전 필터 차단을 사후 retry로 대응하던 구조 → 사전 차단으로 전환.
- *   이미지 엔진 호출 전에 위험 키워드를 안전한 표현으로 변환 → 안전 필터 차단율 ↓
+ * 🛡️ v3.5.86: 한국어 위험 키워드 처리 — 의미 보존 변환 + 의미 파괴 키워드는 문장 통째 제거
  *
- *   변환 예:
- *   - "탄핵 정국 분석" → "정치 변화 분석"
- *   - "사망 사고 통계" → "안전 사고 통계"
- *   - "파산 위험 점검" → "재무 건전성 점검"
+ *   기존 R-5의 문제: '시신' → '안전', '폭탄' → '안전' 같은 매핑이 의미 파괴 → 이미지 품질 저하
+ *
+ *   개선:
+ *   - SAFE_REPHRASE: 의미 보존 매핑만 — 안전 필터 회피하면서 원 의미 유지
+ *   - DROP_KEYWORDS: 의미 보존 변환 불가능한 강한 위험 키워드 — 해당 문장 통째 제거
  */
-const RISKY_KEYWORD_MAP: Record<string, string> = {
-  '탄핵': '정치 변화', '시위': '집회', '폭동': '소요', '폭력': '갈등',
-  '범죄': '사회 이슈', '사망': '안전', '자살': '위기 대응', '부상': '안전 사고',
-  '수술': '의료 처치', '혈액': '의료', '마약': '약물', '사기': '소비자 피해',
-  '도박': '레저', '파산': '재무 위기', '폭락': '하락', '성인': '미성년 보호',
-  '누드': '드레스', '공격': '대응', '살인': '안전 사고', '테러': '안전',
-  '폭탄': '안전', '전쟁': '국제 정세', '시신': '안전', '음주': '레저',
-  '총기': '안전', '흉기': '안전',
+const SAFE_REPHRASE: Record<string, string> = {
+  '탄핵': '정치 변화', '시위': '집회', '폭동': '소요',
+  '사기': '소비자 피해', '도박': '레저', '파산': '재무 위기',
+  '폭락': '하락', '음주': '음료',
 };
+
+const DROP_KEYWORDS = [
+  '폭력', '범죄', '사망', '자살', '부상', '혈액', '마약',
+  '공격', '살인', '테러', '폭탄', '전쟁', '시신', '총기', '흉기',
+  '성인', '누드', '수술',
+];
 
 function preSanitizePrompt(prompt: string, onLog?: (msg: string) => void): string {
   let sanitized = prompt;
-  let changedCount = 0;
-  for (const [risky, safe] of Object.entries(RISKY_KEYWORD_MAP)) {
+  let rephrased = 0;
+  let dropped = 0;
+
+  // 1단계: 의미 보존 변환
+  for (const [risky, safe] of Object.entries(SAFE_REPHRASE)) {
     if (sanitized.includes(risky)) {
       sanitized = sanitized.split(risky).join(safe);
-      changedCount++;
+      rephrased++;
     }
   }
-  if (changedCount > 0) {
-    console.log(`[DISPATCH] 🛡️ R-5 프롬프트 사전 안전화 — ${changedCount}개 키워드 변환`);
-    onLog?.(`🛡️ 프롬프트 사전 안전화 (${changedCount}개 위험 키워드 변환)`);
+
+  // 2단계: 의미 파괴 키워드 → 해당 문장 제거 (마침표/물음표/느낌표/줄바꿈 단위)
+  const dangerousFound = DROP_KEYWORDS.filter(kw => sanitized.includes(kw));
+  if (dangerousFound.length > 0) {
+    // 문장 단위로 split 후 위험 키워드 포함된 것만 제거
+    const sentences = sanitized.split(/(?<=[.!?。\n])/);
+    const safeSentences = sentences.filter(s => !DROP_KEYWORDS.some(kw => s.includes(kw)));
+    if (safeSentences.length < sentences.length) {
+      dropped = sentences.length - safeSentences.length;
+      sanitized = safeSentences.join('').trim();
+    }
+    // 문장 분리 후에도 남은 위험 키워드는 단순 제거 (안전망)
+    for (const kw of DROP_KEYWORDS) {
+      sanitized = sanitized.split(kw).join('');
+    }
   }
-  return sanitized;
+
+  if (rephrased > 0 || dropped > 0) {
+    console.log(`[DISPATCH] 🛡️ 프롬프트 사전 안전화 — ${rephrased}개 변환, ${dropped}개 문장 제거`);
+    onLog?.(`🛡️ 프롬프트 안전화 (변환 ${rephrased} / 문장 제거 ${dropped})`);
+  }
+
+  // 빈 문자열 방지
+  return sanitized.trim() || prompt; // 모든 문장이 제거되면 원본 반환 (이미지 엔진이 안전필터로 막아냄)
 }
 
 export async function dispatchH2ImageGeneration(
@@ -479,6 +502,37 @@ export async function dispatchThumbnailGeneration(
 // ═══════════════════════════════════════════════════
 
 async function tryEngine(
+  engine: string,
+  prompt: string,
+  keyword: string,
+  env: Record<string, string>,
+  onLog?: (msg: string) => void,
+  isThumbnail: boolean = false,
+  contentMode?: string,
+): Promise<ImageResult> {
+  // 🛡️ v3.5.86: 통계 자동 기록 — wrapper로 감싸 모든 return을 가로챔
+  const result = await _tryEngineInternal(engine, prompt, keyword, env, onLog, isThumbnail, contentMode);
+  try {
+    const { recordSuccess, recordFailure } = require('./engine-stats');
+    if (result.ok) {
+      recordSuccess(engine);
+    } else {
+      // 에러 메시지에서 카테고리 추출
+      let category = 'unknown';
+      try {
+        const { classifyImageError } = require('./image-error-classifier');
+        category = classifyImageError(result.error || '').category;
+      } catch { /* ignore */ }
+      recordFailure(engine, category);
+    }
+  } catch (e: any) {
+    console.warn('[DISPATCH] 통계 기록 실패 (무시):', e?.message);
+  }
+  return result;
+}
+
+/** tryEngine 실제 구현 — stats wrapper 분리용 */
+async function _tryEngineInternal(
   engine: string,
   prompt: string,
   keyword: string,

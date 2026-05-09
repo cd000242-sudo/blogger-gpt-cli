@@ -94,52 +94,30 @@ async function launchBrowser(profileDir: string, headless: boolean): Promise<any
     ],
     viewport: { width: 1280, height: 800 },
     locale: 'ko-KR',
-    timezoneId: 'Asia/Seoul',
+    // 🛡️ v3.5.86: timezoneId OS 동적 감지 (이전 'Asia/Seoul' 하드코딩은 해외/VPN 사용자에서 봇 신호)
+    timezoneId: (() => {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Seoul';
+      } catch { return 'Asia/Seoul'; }
+    })(),
     ignoreDefaultArgs: ['--enable-automation', '--enable-blink-features=IdleDetection'],
   };
 
-  // 🛡️ R-3 (v3.5.85): 모든 페이지에 자동 주입되는 stealth init script
-  //   webdriver=undefined, chrome.runtime mock, plugins 배열, languages, permissions
+  // 🛡️ v3.5.86: stealth init script 정리
+  //   기존 R-3에서 다음 패치들이 역효과/중복으로 판명되어 제거:
+  //     - navigator.webdriver mock: patchright가 빌드 단계에서 이미 처리 (중복 = 충돌 위험)
+  //     - chrome.runtime/loadTimes/csi mock: patchright 동일 (중복)
+  //     - navigator.plugins 3개 mock: 2026 Chrome 표준이 0개라 오히려 봇 신호 강화 (역효과)
+  //   유지하는 패치 (실효성 검증된 것만):
+  //     - languages: 한국어 우선 — 한국 콘텐츠 정상 사용자 패턴 강화
+  //     - permissions API mock: 일부 reCAPTCHA 검사 통과 보조
   const stealthInit = () => {
-    // 1. webdriver — undefined로 설정 (false도 탐지됨)
-    Object.defineProperty(navigator, 'webdriver', {
-      get: () => undefined,
-      configurable: true,
-    });
-    // 2. chrome 객체 — 확장 없어도 존재해야 정상 사용자
-    if (!(window as any).chrome) {
-      (window as any).chrome = {};
-    }
-    if (!(window as any).chrome.runtime) {
-      (window as any).chrome.runtime = {
-        id: undefined,
-        connect: () => ({}),
-        sendMessage: () => ({}),
-        OnInstalledReason: {},
-        PlatformOs: {},
-      };
-    }
-    if (!(window as any).chrome.loadTimes) {
-      (window as any).chrome.loadTimes = function () { return {}; };
-    }
-    if (!(window as any).chrome.csi) {
-      (window as any).chrome.csi = function () { return {}; };
-    }
-    // 3. plugins — 빈 배열은 봇 신호. PDF/NaCl 3개 채움
-    Object.defineProperty(navigator, 'plugins', {
-      get: () => [
-        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
-        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },
-        { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2 },
-      ],
-      configurable: true,
-    });
-    // 4. languages — 한국어 우선
+    // languages — 한국어 우선 (한국 사용자 패턴)
     Object.defineProperty(navigator, 'languages', {
       get: () => ['ko-KR', 'ko', 'en-US', 'en'],
       configurable: true,
     });
-    // 5. permissions API — Notification 권한 query 시 'default' 반환 (정상 사용자)
+    // permissions API — Notification 권한 query 시 'default' 반환 (정상 사용자)
     const origQuery = (window as any).navigator.permissions?.query;
     if (origQuery) {
       (window as any).navigator.permissions.query = (params: any) =>

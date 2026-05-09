@@ -372,6 +372,34 @@ function bindModalEvents() {
     if (!confirm(`${enabled.length}개 키워드를 즉시 순차 발행합니다.\n각 글 사이 간격: ${intervalLabel}\n(이전 발행 완료 후 추가 대기)\n\n진행할까요?`)) return;
     close();
 
+    // 🛡️ v3.5.86: ImageFX Preflight 체크 — 큐 시작 전 1번만 세션 검증
+    //   기존 문제: 첫 글에서 로그인 만료 발견 → 5장 전부 실패 후에야 알게 됨
+    //   개선: 큐 시작 전 1초 내에 세션 체크 → 만료면 사용자에게 재로그인 요청
+    try {
+      const usesImageFx = enabled.some(it => it.thumb === 'imagefx' || it.thumb === 'auto');
+      if (usesImageFx && window.blogger?.imagefxCheckLogin) {
+        const preflight = await window.blogger.imagefxCheckLogin();
+        if (!preflight?.loggedIn) {
+          const goLogin = confirm(
+            `⚠️ ImageFX 로그인이 만료되었습니다.\n\n` +
+            `${preflight?.message || '재로그인이 필요합니다.'}\n\n` +
+            `[확인] = 큐 일시정지 + 환경설정 탭으로 이동\n` +
+            `[취소] = 어쨌든 큐 시작 (이미지 실패 위험 큼)`
+          );
+          if (goLogin) {
+            // 큐 일시정지 + 사용자에게 재로그인 안내
+            try { window.showTab?.('settings'); } catch {}
+            return;
+          }
+          // 사용자가 [취소]로 강행 시 진행
+        } else {
+          console.log('[QUEUE] ✅ ImageFX preflight 통과');
+        }
+      }
+    } catch (preflightErr) {
+      console.warn('[QUEUE] ⚠️ Preflight 체크 실패 (무시하고 진행):', preflightErr);
+    }
+
     // 🛡️ v3.5.84: 큐 모드 플래그 — posting.js가 단발 모달 대신 누적하도록 신호
     window.__queueRunning = true;
     try { window.clearQualityAccumulator?.(); } catch {}
