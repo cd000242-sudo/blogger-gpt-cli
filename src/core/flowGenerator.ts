@@ -149,7 +149,8 @@ export async function makeFlowImage(
           onLog?.(`🌐 [FLOW] 프로젝트 페이지 로딩 중...`);
           await page.goto(`${FLOW_PROJECT_URL_PREFIX}${projectId}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
           // React 앱 + grecaptcha Enterprise 초기화 대기
-          await page.waitForTimeout(5000);
+          // 🛡️ R-2 (v3.5.85): page.waitForTimeout은 CDP 명령으로 자동화 신호 → setTimeout으로 교체
+          await new Promise(r => setTimeout(r, 5000));
         }
 
         console.log(`[FLOW] 🌊 이미지 생성 시도 ${attempt}/${MAX_RETRIES} (UI 자동 조작)`);
@@ -164,7 +165,8 @@ export async function makeFlowImage(
         await page.keyboard.press('Control+A');
         await page.keyboard.press('Delete');
         await page.keyboard.type(currentPrompt, { delay: 15 });
-        await page.waitForTimeout(800);
+        // 🛡️ R-2: CDP 신호 제거 — setTimeout 사용
+        await new Promise(r => setTimeout(r, 800));
 
         // Step B: batchGenerateImages 응답을 미리 대기 등록
         const responsePromise: Promise<any> = page.waitForResponse(
@@ -177,7 +179,25 @@ export async function makeFlowImage(
           has: page.locator('i', { hasText: 'arrow_forward' }),
         }).first();
         await generateBtn.waitFor({ state: 'visible', timeout: 10000 });
-        console.log(`[FLOW] 🖱️  생성 버튼 클릭`);
+
+        // 🛡️ R-2 (v3.5.85): 인간 행동 시뮬레이션 — reCAPTCHA Enterprise v3 행동 점수 상승
+        //   즉각적 클릭은 bot score 0.1로 트리거. hover→스크롤→hover→클릭 패턴이 정상 사용자.
+        try {
+          // 1. textbox에서 떨어져 hover
+          await textbox.hover().catch(() => {});
+          await new Promise(r => setTimeout(r, 300 + Math.random() * 400));
+          // 2. 살짝 스크롤 (페이지 확인 행동 모방)
+          await page.mouse.wheel(0, 80 + Math.random() * 60).catch(() => {});
+          await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
+          // 3. 위로 다시 스크롤
+          await page.mouse.wheel(0, -(80 + Math.random() * 60)).catch(() => {});
+          await new Promise(r => setTimeout(r, 400 + Math.random() * 400));
+          // 4. 버튼 hover 후 짧은 일시정지 (사람이 마우스 가져다 대고 누르는 패턴)
+          await generateBtn.hover().catch(() => {});
+          await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
+        } catch { /* 시뮬레이션 실패해도 진행 */ }
+
+        console.log(`[FLOW] 🖱️  생성 버튼 클릭 (인간 행동 시뮬레이션 후)`);
         await generateBtn.click({ timeout: 5000 });
 
         // Step D: 응답 대기
@@ -343,7 +363,8 @@ async function ensureFlowProject(page: any, onLog?: (msg: string) => void): Prom
   const url = page.url();
   if (!url.includes('labs.google')) {
     await page.goto(FLOW_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.waitForTimeout(2000);
+    // 🛡️ R-2: CDP 신호 제거
+    await new Promise(r => setTimeout(r, 2000));
   }
 
   const projectId = await page.evaluate(async () => {

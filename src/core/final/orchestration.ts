@@ -1090,12 +1090,46 @@ export async function generateUltimateMaxModeArticleFinal(
         }
       }
 
-      // 🚀 모든 이미지 동시 생성
-      const imagePromises = sections.map((_, i) => generateSingleSectionImage(i));
-      const imageResults = await Promise.allSettled(imagePromises);
+      // 🛡️ R-1 (v3.5.85): Strict 모드는 순차 처리 + 8~15초 jitter
+      //   reCAPTCHA Enterprise는 같은 IP/세션의 병렬 요청을 "비정상 활동"으로 즉시 감지.
+      //   첫 호출이 차단되면 _flowDisabledAt가 세팅되어 나머지 즉시 fail.
+      //   → 순차 + jitter 적용 시 인간 행동 패턴에 가까워져 차단율 ↓
+      const strictMode = String(process.env['STRICT_H2_IMAGE_ENGINE'] || '').toLowerCase() === 'true';
+      let imageResults: PromiseSettledResult<{ dataUrl: string; source: string }>[];
+
+      if (strictMode) {
+        onLog?.(`🛡️ Strict 모드 — 순차 처리 + 8~15초 jitter (reCAPTCHA 회피)`);
+        const seqResults: PromiseSettledResult<{ dataUrl: string; source: string }>[] = [];
+        for (let i = 0; i < sections.length; i++) {
+          try {
+            const value = await generateSingleSectionImage(i);
+            seqResults.push({ status: 'fulfilled' as const, value });
+          } catch (reason) {
+            seqResults.push({ status: 'rejected' as const, reason });
+            // STRICT_ENGINE_FAILED는 즉시 propagate — 후속 섹션 시도 무의미
+            if ((reason as any)?.message?.startsWith?.('STRICT_ENGINE_FAILED')) {
+              // 나머지 섹션은 빈 결과로 채움
+              for (let j = i + 1; j < sections.length; j++) {
+                seqResults.push({ status: 'rejected' as const, reason: new Error('SKIPPED_AFTER_STRICT_FAIL') });
+              }
+              break;
+            }
+          }
+          // 마지막 항목 아니면 8~15초 랜덤 대기
+          if (i < sections.length - 1) {
+            const jitterMs = 8000 + Math.floor(Math.random() * 7000);
+            console.log(`[ORCHESTRATION] ⏳ R-1 jitter ${jitterMs}ms (${i + 1}/${sections.length} 완료)`);
+            await new Promise(r => setTimeout(r, jitterMs));
+          }
+        }
+        imageResults = seqResults;
+      } else {
+        // 일반 모드 — 기존 병렬
+        const imagePromises = sections.map((_, i) => generateSingleSectionImage(i));
+        imageResults = await Promise.allSettled(imagePromises);
+      }
 
       // 🛡️ S-2 (v3.5.84): Strict 모드에서 1장이라도 STRICT_ENGINE_FAILED 발생 시 발행 차단
-      const strictMode = String(process.env['STRICT_H2_IMAGE_ENGINE'] || '').toLowerCase() === 'true';
       if (strictMode) {
         const strictFailed = imageResults.find(r =>
           r.status === 'rejected' && /STRICT_ENGINE_FAILED/.test(String((r as PromiseRejectedResult).reason?.message || ''))

@@ -77,36 +77,102 @@ async function launchBrowser(profileDir: string, headless: boolean): Promise<any
     console.log('[ImageFX] ⚠️ patchright 미설치 → playwright fallback');
   }
   
+  // 🛡️ R-3 (v3.5.85): Stealth args 강화 — reCAPTCHA Enterprise + Cloudflare 회피
   const baseOptions = {
     headless,
     args: [
       '--no-first-run',
       '--disable-blink-features=AutomationControlled',
       '--disable-infobars',
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--disable-site-isolation-trials',
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--lang=ko-KR,ko',
+      '--window-size=1280,800',
     ],
     viewport: { width: 1280, height: 800 },
-    ignoreDefaultArgs: ['--enable-automation'],
+    locale: 'ko-KR',
+    timezoneId: 'Asia/Seoul',
+    ignoreDefaultArgs: ['--enable-automation', '--enable-blink-features=IdleDetection'],
+  };
+
+  // 🛡️ R-3 (v3.5.85): 모든 페이지에 자동 주입되는 stealth init script
+  //   webdriver=undefined, chrome.runtime mock, plugins 배열, languages, permissions
+  const stealthInit = () => {
+    // 1. webdriver — undefined로 설정 (false도 탐지됨)
+    Object.defineProperty(navigator, 'webdriver', {
+      get: () => undefined,
+      configurable: true,
+    });
+    // 2. chrome 객체 — 확장 없어도 존재해야 정상 사용자
+    if (!(window as any).chrome) {
+      (window as any).chrome = {};
+    }
+    if (!(window as any).chrome.runtime) {
+      (window as any).chrome.runtime = {
+        id: undefined,
+        connect: () => ({}),
+        sendMessage: () => ({}),
+        OnInstalledReason: {},
+        PlatformOs: {},
+      };
+    }
+    if (!(window as any).chrome.loadTimes) {
+      (window as any).chrome.loadTimes = function () { return {}; };
+    }
+    if (!(window as any).chrome.csi) {
+      (window as any).chrome.csi = function () { return {}; };
+    }
+    // 3. plugins — 빈 배열은 봇 신호. PDF/NaCl 3개 채움
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => [
+        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
+        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },
+        { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2 },
+      ],
+      configurable: true,
+    });
+    // 4. languages — 한국어 우선
+    Object.defineProperty(navigator, 'languages', {
+      get: () => ['ko-KR', 'ko', 'en-US', 'en'],
+      configurable: true,
+    });
+    // 5. permissions API — Notification 권한 query 시 'default' 반환 (정상 사용자)
+    const origQuery = (window as any).navigator.permissions?.query;
+    if (origQuery) {
+      (window as any).navigator.permissions.query = (params: any) =>
+        params.name === 'notifications'
+          ? Promise.resolve({ state: 'default', onchange: null } as any)
+          : origQuery(params);
+    }
+  };
+
+  const attachStealth = async (ctx: any) => {
+    try { await ctx.addInitScript(stealthInit); } catch (e) { /* ignore */ }
+    return ctx;
   };
 
   // 1. 시스템 Chrome
   try {
     const ctx = await chromium.launchPersistentContext(profileDir, { ...baseOptions, channel: 'chrome' });
-    console.log('[ImageFX] ✅ 시스템 Chrome 사용');
-    return ctx;
+    console.log('[ImageFX] ✅ 시스템 Chrome 사용 (R-3 stealth 적용)');
+    return await attachStealth(ctx);
   } catch { /* Chrome 없음 */ }
 
   // 2. 시스템 Edge (Windows 기본)
   try {
     const ctx = await chromium.launchPersistentContext(profileDir, { ...baseOptions, channel: 'msedge' });
-    console.log('[ImageFX] ✅ 시스템 Edge 사용');
-    return ctx;
+    console.log('[ImageFX] ✅ 시스템 Edge 사용 (R-3 stealth 적용)');
+    return await attachStealth(ctx);
   } catch { /* Edge 없음 */ }
 
   // 3. Playwright 내장 Chromium
   try {
     const ctx = await chromium.launchPersistentContext(profileDir, baseOptions);
-    console.log('[ImageFX] ✅ Playwright Chromium 사용');
-    return ctx;
+    console.log('[ImageFX] ✅ Playwright Chromium 사용 (R-3 stealth 적용)');
+    return await attachStealth(ctx);
   } catch (err: any) {
     throw new Error(`브라우저를 실행할 수 없습니다. Chrome 또는 Edge를 설치해주세요. (${err.message?.substring(0, 80)})`);
   }
@@ -285,9 +351,23 @@ async function _ensurePageInternal(onLog?: (msg: string) => void): Promise<any> 
  * 세션 토큰 (캐시 + 갱신)
  */
 async function getToken(page: any, onLog?: (msg: string) => void): Promise<string> {
-  // 캐시된 토큰이 유효하면 반환
-  if (cachedToken && cachedTokenExpiry && cachedTokenExpiry > new Date()) {
-    return cachedToken;
+  // 🛡️ R-4 (v3.5.85): 토큰 만료 5분 전 사전 갱신 → 401 발생률 0에 수렴
+  //   기존: 만료 직전에 사용 → 1차 호출이 401 받고 갱신 → 시간 낭비 + 추가 자동화 신호
+  //   변경: 만료 5분 이내 → 미리 갱신 후 신선한 토큰 사용
+  const PROACTIVE_REFRESH_MS = 5 * 60 * 1000;
+  const now = Date.now();
+  const tokenStillValid = cachedToken
+    && cachedTokenExpiry
+    && cachedTokenExpiry.getTime() - now > PROACTIVE_REFRESH_MS;
+
+  if (tokenStillValid) {
+    return cachedToken!;
+  }
+
+  if (cachedToken && cachedTokenExpiry && cachedTokenExpiry.getTime() > now) {
+    const remainingMin = Math.round((cachedTokenExpiry.getTime() - now) / 60000);
+    console.log(`[ImageFX] 🔄 R-4 사전 갱신 — 토큰 ${remainingMin}분 후 만료`);
+    onLog?.(`🔄 [ImageFX] 토큰 사전 갱신 (${remainingMin}분 후 만료)`);
   }
 
   // 페이지에서 토큰 가져오기

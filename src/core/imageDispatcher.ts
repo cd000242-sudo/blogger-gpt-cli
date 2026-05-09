@@ -238,6 +238,42 @@ function buildFallbackPrompt(koreanPrompt: string, isThumbnail: boolean): string
  * @param onLog - 진행 로그 콜백
  * @returns `{ok, dataUrl, source, error}`
  */
+/**
+ * 🛡️ R-5 (v3.5.85): 한국어 위험 키워드 사전 검출 + 안전 paraphrase
+ *   안전 필터 차단을 사후 retry로 대응하던 구조 → 사전 차단으로 전환.
+ *   이미지 엔진 호출 전에 위험 키워드를 안전한 표현으로 변환 → 안전 필터 차단율 ↓
+ *
+ *   변환 예:
+ *   - "탄핵 정국 분석" → "정치 변화 분석"
+ *   - "사망 사고 통계" → "안전 사고 통계"
+ *   - "파산 위험 점검" → "재무 건전성 점검"
+ */
+const RISKY_KEYWORD_MAP: Record<string, string> = {
+  '탄핵': '정치 변화', '시위': '집회', '폭동': '소요', '폭력': '갈등',
+  '범죄': '사회 이슈', '사망': '안전', '자살': '위기 대응', '부상': '안전 사고',
+  '수술': '의료 처치', '혈액': '의료', '마약': '약물', '사기': '소비자 피해',
+  '도박': '레저', '파산': '재무 위기', '폭락': '하락', '성인': '미성년 보호',
+  '누드': '드레스', '공격': '대응', '살인': '안전 사고', '테러': '안전',
+  '폭탄': '안전', '전쟁': '국제 정세', '시신': '안전', '음주': '레저',
+  '총기': '안전', '흉기': '안전',
+};
+
+function preSanitizePrompt(prompt: string, onLog?: (msg: string) => void): string {
+  let sanitized = prompt;
+  let changedCount = 0;
+  for (const [risky, safe] of Object.entries(RISKY_KEYWORD_MAP)) {
+    if (sanitized.includes(risky)) {
+      sanitized = sanitized.split(risky).join(safe);
+      changedCount++;
+    }
+  }
+  if (changedCount > 0) {
+    console.log(`[DISPATCH] 🛡️ R-5 프롬프트 사전 안전화 — ${changedCount}개 키워드 변환`);
+    onLog?.(`🛡️ 프롬프트 사전 안전화 (${changedCount}개 위험 키워드 변환)`);
+  }
+  return sanitized;
+}
+
 export async function dispatchH2ImageGeneration(
   imageSource: string,
   prompt: string,
@@ -257,6 +293,9 @@ export async function dispatchH2ImageGeneration(
   if (imageSource === 'none' || imageSource === 'skip') {
     return { ok: false, dataUrl: '', source: '', error: '이미지 생성 스킵 (사용자 선택)' };
   }
+
+  // 🛡️ R-5 (v3.5.85): 모든 엔진 호출 전 프롬프트 사전 안전화
+  prompt = preSanitizePrompt(prompt, onLog);
 
   const env = getCachedEnv();
   const strictMode = String(process.env['STRICT_H2_IMAGE_ENGINE'] || '').toLowerCase() === 'true';
@@ -378,6 +417,9 @@ export async function dispatchThumbnailGeneration(
   if (thumbnailSource === 'none' || thumbnailSource === 'skip') {
     return { ok: false, dataUrl: '', source: '', error: '썸네일 생성 스킵 (사용자 선택)' };
   }
+
+  // 🛡️ R-5 (v3.5.85): 썸네일 prompt(=title)도 사전 안전화
+  title = preSanitizePrompt(title, onLog);
 
   const env = getCachedEnv();
 
