@@ -629,28 +629,42 @@
 
               <div style="display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
                 <label
-                  style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(16, 185, 129, 0.12); border-radius: 10px; border: 2px solid rgba(16, 185, 129, 0.25); cursor: pointer; font-size: 13px; font-weight: 600; color: #047857;">
-                  <input type="radio" name="scheduleH2ImageSource" value="nanobananapro" checked
+                  style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(34, 197, 94, 0.12); border-radius: 10px; border: 2px solid rgba(34, 197, 94, 0.25); cursor: pointer; font-size: 13px; font-weight: 600; color: #16803d;"
+                  title="Gemini 2.5 Flash Image · 저비용 원조">
+                  <input type="radio" name="scheduleH2ImageSource" value="nanobanana"
+                    style="width: 16px; height: 16px; accent-color: #22c55e;">
+                  🍌 나노바나나
+                </label>
+                <label
+                  style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(16, 185, 129, 0.12); border-radius: 10px; border: 2px solid rgba(16, 185, 129, 0.25); cursor: pointer; font-size: 13px; font-weight: 600; color: #047857;"
+                  title="Gemini 3.1 Flash Image · Pro 품질·Flash 가격 · 권장 기본">
+                  <input type="radio" name="scheduleH2ImageSource" value="nanobanana2" checked
                     style="width: 16px; height: 16px; accent-color: #10b981;">
-                  🍌 NanoBanana
+                  🍌 나노바나나 2
                 </label>
                 <label
-                  style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(139, 92, 246, 0.12); border-radius: 10px; border: 2px solid rgba(139, 92, 246, 0.25); cursor: pointer; font-size: 13px; font-weight: 600; color: #6d28d9;">
-                  <input type="radio" name="scheduleH2ImageSource" value="dalle"
+                  style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(139, 92, 246, 0.12); border-radius: 10px; border: 2px solid rgba(139, 92, 246, 0.25); cursor: pointer; font-size: 13px; font-weight: 600; color: #6d28d9;"
+                  title="Gemini 3 Pro Image · 최고 품질">
+                  <input type="radio" name="scheduleH2ImageSource" value="nanobananapro"
                     style="width: 16px; height: 16px; accent-color: #8b5cf6;">
-                  🎨 DALL-E
+                  🍌 나노바나나 Pro
                 </label>
                 <label
-                  style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(59, 130, 246, 0.12); border-radius: 10px; border: 2px solid rgba(59, 130, 246, 0.25); cursor: pointer; font-size: 13px; font-weight: 600; color: #1d4ed8;">
-                  <input type="radio" name="scheduleH2ImageSource" value="pexels"
+                  style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(59, 130, 246, 0.12); border-radius: 10px; border: 2px solid rgba(59, 130, 246, 0.25); cursor: pointer; font-size: 13px; font-weight: 600; color: #1d4ed8;"
+                  title="OpenAI gpt-image-1 · 신분증 인증 필수">
+                  <input type="radio" name="scheduleH2ImageSource" value="gptimage1"
                     style="width: 16px; height: 16px; accent-color: #3b82f6;">
-                  📸 Pexels
+                  🎯 GPT 이미지 1
                 </label>
                 <label
-                  style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(245, 158, 11, 0.12); border-radius: 10px; border: 2px solid rgba(245, 158, 11, 0.25); cursor: pointer; font-size: 13px; font-weight: 600; color: #b45309;">
-                  <input type="radio" name="scheduleH2ImageSource" value="leonardo"
+                  style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(245, 158, 11, 0.12); border-radius: 10px; border: 2px solid rgba(245, 158, 11, 0.25); cursor: pointer; font-size: 13px; font-weight: 600; color: #b45309;"
+                  title="OpenAI gpt-image-2 (덕테이프) · 신분증 인증 필수">
+                  <input type="radio" name="scheduleH2ImageSource" value="gptimage2"
                     style="width: 16px; height: 16px; accent-color: #f59e0b;">
-                  🦁 Leonardo
+                  🎯 GPT 이미지 2 (덕테이프)
+                  <button type="button" onclick="event.preventDefault(); event.stopPropagation(); openOpenAiVerification();"
+                    title="OpenAI 신분증 인증 페이지로 이동"
+                    style="margin-left: 4px; padding: 2px 8px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 6px; color: #b91c1c; font-size: 10px; font-weight: 700; cursor: pointer;">⚠️ 인증</button>
                 </label>
               </div>
 
@@ -2204,23 +2218,41 @@
                       <label class="form-label"
                         style="color: rgba(255, 255, 255, 0.9); font-weight: 600; font-size: 14px; margin-bottom: 10px; display: block;">썸네일
                         타입</label>
-                      <select id="thumbnailType" class="form-input"
+                      <select id="thumbnailType" class="form-input" onchange="handleThumbnailTypeChange(this.value)"
                         style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(51, 65, 85, 0.95) 100%); border: 2px solid rgba(255, 255, 255, 0.6); color: #ffffff; backdrop-filter: blur(15px); font-size: 14px; padding: 12px 16px; cursor: pointer; border-radius: 12px; width: 100%; font-weight: 600; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(30, 41, 59, 0.4);">
-                        <option value="text" selected
-                          style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">🎨 텍스트 썸네일 (기본)
-                        </option>
-                        <option value="cse"
-                          style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">🔍 CSE 이미지 검색
-                        </option>
-                        <option value="dalle"
-                          style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">🎨 DALL-E AI 이미지
-                        </option>
-                        <option value="pexels"
-                          style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">📸 Pexels 이미지
-                        </option>
-                        <option value="none"
-                          style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">❌ 썸네일 없음</option>
+                        <optgroup label="🍌 Gemini (나노바나나)"
+                          style="background: #1e293b; color: #fde68a;">
+                          <option value="nanobanana"
+                            style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">🍌 나노바나나 (저비용)</option>
+                          <option value="nanobanana2" selected
+                            style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">🍌 나노바나나 2 (권장 기본)</option>
+                          <option value="nanobananapro"
+                            style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">🍌 나노바나나 Pro (최고품질)</option>
+                        </optgroup>
+                        <optgroup label="🎯 OpenAI GPT 이미지 (신분증 인증 필수)"
+                          style="background: #1e293b; color: #fde68a;">
+                          <option value="gptimage1"
+                            style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">🎯 GPT 이미지 1</option>
+                          <option value="gptimage2"
+                            style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">🎯 GPT 이미지 2 (덕테이프)</option>
+                        </optgroup>
+                        <optgroup label="기타"
+                          style="background: #1e293b; color: #94a3b8;">
+                          <option value="text"
+                            style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">🎨 텍스트 썸네일</option>
+                          <option value="cse"
+                            style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">🔍 CSE 이미지 검색</option>
+                          <option value="pexels"
+                            style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">📸 Pexels 이미지</option>
+                          <option value="none"
+                            style="background: #1e293b; color: #ffffff; font-weight: 600; padding: 8px;">❌ 썸네일 없음</option>
+                        </optgroup>
                       </select>
+                      <div id="thumbnailVerifyNotice" style="display: none; margin-top: 8px; padding: 8px 12px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 8px; font-size: 12px; color: #fecaca;">
+                        <span>⚠️ GPT 이미지 2(덕테이프)는 OpenAI 신분증 인증이 필요합니다.</span>
+                        <button type="button" onclick="openOpenAiVerification()"
+                          style="margin-left: 8px; padding: 2px 8px; background: rgba(239, 68, 68, 0.3); border: 1px solid rgba(239, 68, 68, 0.6); border-radius: 6px; color: #fef2f2; font-size: 11px; font-weight: 700; cursor: pointer;">바로 인증하기 →</button>
+                      </div>
                     </div>
 
                     <div class="form-group" style="margin-bottom: 20px; position: relative; z-index: 1;">
@@ -2248,38 +2280,53 @@
                         style="color: rgba(255, 255, 255, 0.9); font-weight: 600; font-size: 14px; margin-bottom: 10px; display: block;">🖼️
                         H2 섹션 이미지 선택</label>
 
-                      <!-- 이미지 소스 선택 -->
+                      <!-- 이미지 소스 선택 (v3.5.88 — 나노바나나 3종 + GPT 이미지 2종) -->
                       <div style="margin-bottom: 16px;">
                         <label
-                          style="display: block; font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.8); margin-bottom: 8px;">본문 이미지 <span class="tooltip-help" title="글 중간에 들어갈 이미지를 어떤 AI로 만들지 선택해요." style="cursor: help; color: rgba(255,255,255,0.5); font-size: 12px; margin-left: 4px;">(?)</span></label>
+                          style="display: block; font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.8); margin-bottom: 8px;">본문 이미지 <span class="tooltip-help" title="글 중간에 들어갈 이미지를 어떤 AI로 만들지 선택해요. 선택한 엔진이 실패하면 폴백 없이 에러로 알려줍니다." style="cursor: help; color: rgba(255,255,255,0.5); font-size: 12px; margin-left: 4px;">(?)</span></label>
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
                           <label
-                            style="display: flex; align-items: center; gap: 8px; padding: 10px; background: rgba(139, 92, 246, 0.2); border-radius: 8px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;">
-                            <input type="radio" name="h2ImageSource" value="nanobananapro" checked
+                            style="display: flex; align-items: center; gap: 8px; padding: 10px; background: rgba(34, 197, 94, 0.15); border-radius: 8px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;"
+                            title="Gemini 2.5 Flash Image · 저비용 원조 ($0.039/장)">
+                            <input type="radio" name="h2ImageSource" value="nanobanana"
+                              onchange="handleH2ImageSourceChange()"
+                              style="width: 16px; height: 16px; accent-color: #22c55e;">
+                            <span style="font-size: 12px; font-weight: 600; color: white;">🍌 나노바나나</span>
+                          </label>
+                          <label
+                            style="display: flex; align-items: center; gap: 8px; padding: 10px; background: rgba(16, 185, 129, 0.2); border-radius: 8px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;"
+                            title="Gemini 3.1 Flash Image · Pro 품질·Flash 가격 ($0.067/장) · 권장 기본">
+                            <input type="radio" name="h2ImageSource" value="nanobanana2" checked
                               onchange="handleH2ImageSourceChange()"
                               style="width: 16px; height: 16px; accent-color: #10b981;">
-                            <span style="font-size: 12px; font-weight: 600; color: white;">🍌 NanoBanana</span>
+                            <span style="font-size: 12px; font-weight: 600; color: white;">🍌 나노바나나 2</span>
                           </label>
                           <label
-                            style="display: flex; align-items: center; gap: 8px; padding: 10px; background: rgba(139, 92, 246, 0.2); border-radius: 8px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;">
-                            <input type="radio" name="h2ImageSource" value="dalle"
+                            style="display: flex; align-items: center; gap: 8px; padding: 10px; background: rgba(139, 92, 246, 0.2); border-radius: 8px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;"
+                            title="Gemini 3 Pro Image · 최고 품질 ($0.134~$0.24/장)">
+                            <input type="radio" name="h2ImageSource" value="nanobananapro"
                               onchange="handleH2ImageSourceChange()"
                               style="width: 16px; height: 16px; accent-color: #8b5cf6;">
-                            <span style="font-size: 12px; font-weight: 600; color: white;">🎨 DALL-E</span>
+                            <span style="font-size: 12px; font-weight: 600; color: white;">🍌 나노바나나 Pro</span>
                           </label>
                           <label
-                            style="display: flex; align-items: center; gap: 8px; padding: 10px; background: rgba(59, 130, 246, 0.2); border-radius: 8px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;">
-                            <input type="radio" name="h2ImageSource" value="pexels"
+                            style="display: flex; align-items: center; gap: 8px; padding: 10px; background: rgba(59, 130, 246, 0.2); border-radius: 8px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;"
+                            title="OpenAI gpt-image-1 · 신분증 인증 필수">
+                            <input type="radio" name="h2ImageSource" value="gptimage1"
                               onchange="handleH2ImageSourceChange()"
                               style="width: 16px; height: 16px; accent-color: #3b82f6;">
-                            <span style="font-size: 12px; font-weight: 600; color: white;">📸 Pexels</span>
+                            <span style="font-size: 12px; font-weight: 600; color: white;">🎯 GPT 이미지 1</span>
                           </label>
                           <label
-                            style="display: flex; align-items: center; gap: 8px; padding: 10px; background: rgba(245, 158, 11, 0.2); border-radius: 8px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;">
-                            <input type="radio" name="h2ImageSource" value="leonardo"
+                            style="display: flex; align-items: center; gap: 8px; padding: 10px; background: rgba(245, 158, 11, 0.2); border-radius: 8px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;"
+                            title="OpenAI gpt-image-2 (덕테이프) · 신분증 인증 필수 — 인증 버튼 → OpenAI verification 페이지">
+                            <input type="radio" name="h2ImageSource" value="gptimage2"
                               onchange="handleH2ImageSourceChange()"
                               style="width: 16px; height: 16px; accent-color: #f59e0b;">
-                            <span style="font-size: 12px; font-weight: 600; color: white;">🦁 Leonardo</span>
+                            <span style="font-size: 12px; font-weight: 600; color: white;">🎯 GPT 이미지 2 (덕테이프)</span>
+                            <button type="button" onclick="event.preventDefault(); event.stopPropagation(); openOpenAiVerification();"
+                              title="OpenAI 신분증 인증 페이지로 이동 (gpt-image-2는 인증 완료된 조직만 사용 가능)"
+                              style="margin-left: auto; padding: 2px 8px; background: rgba(239, 68, 68, 0.25); border: 1px solid rgba(239, 68, 68, 0.5); border-radius: 6px; color: #fecaca; font-size: 10px; font-weight: 700; cursor: pointer;">⚠️ 인증</button>
                           </label>
                         </div>
                       </div>

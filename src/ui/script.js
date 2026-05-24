@@ -108,7 +108,8 @@ function getH2ImageSections(context = 'default') {
     ? '#scheduleH2ImageSections input[type="checkbox"]:checked'
     : 'input[name="h2Sections"]:checked';
 
-  const selectedSource = document.querySelector(sourceSelector)?.value || 'nanobananapro';
+  // v3.5.88: 기본값을 nanobanana2(Pro 품질·Flash 가격)로 변경 — 사용자 메인 타겟
+  const selectedSource = document.querySelector(sourceSelector)?.value || 'nanobanana2';
   const selectedSections = Array.from(document.querySelectorAll(sectionSelector))
     .map(input => parseInt(input.value, 10))
     .filter(value => !Number.isNaN(value));
@@ -690,7 +691,7 @@ function refreshScheduleList() {
       schedule.status === 'failed' ? '실패' :
         schedule.status === 'running' ? '실행중' : '대기중';
     const h2Info = schedule.h2Images && Array.isArray(schedule.h2Images.sections) && schedule.h2Images.sections.length > 0
-      ? `${(schedule.h2Images.source || 'nanobananapro').toUpperCase()} - ${schedule.h2Images.sections.join(', ')}번`
+      ? `${(schedule.h2Images.source || 'nanobanana2').toUpperCase()} - ${schedule.h2Images.sections.join(', ')}번`
       : '사용 안함';
     const draftInfo = schedule.draftContent && schedule.draftContent.length > 0
       ? `초안 ${schedule.draftContent.length}자 포함`
@@ -1881,7 +1882,7 @@ window.checkEnvironmentVariables = checkEnvironmentVariables;
 
 // H2 이미지 소스 변경 시 처리
 function handleH2ImageSourceChange() {
-  const selectedSource = document.querySelector('input[name="h2ImageSource"]:checked')?.value || 'nanobananapro';
+  const selectedSource = document.querySelector('input[name="h2ImageSource"]:checked')?.value || 'nanobanana2';
   console.log('🖼️ [H2 IMAGE] 선택된 이미지 소스:', selectedSource);
 
   // 선택된 소스에 따른 추가 설정 표시/숨김
@@ -1901,7 +1902,7 @@ function handleH2ImageSourceChange() {
 
 // H2 섹션 선택 상태 확인
 function getH2ImageSettings() {
-  const selectedSource = document.querySelector('input[name="h2ImageSource"]:checked')?.value || 'nanobananapro';
+  const selectedSource = document.querySelector('input[name="h2ImageSource"]:checked')?.value || 'nanobanana2';
   const selectedSections = Array.from(document.querySelectorAll('input[name="h2Sections"]:checked'))
     .map(input => parseInt(input.value));
 
@@ -7172,7 +7173,13 @@ function getPostingModeText(mode) {
 // 이미지 생성 모델 표시명 변환 (로그용)
 function getImageModelDisplayName(provider) {
   const modelMap = {
-    'nanobananapro': '🍌 NanoBananaPro (Gemini)',
+    // v3.5.88 — 나노바나나 3종 + GPT 이미지 2종 정식 분리
+    'nanobanana': '🍌 나노바나나 (Gemini 2.5 Flash Image · 저비용)',
+    'nanobanana2': '🍌 나노바나나 2 (Gemini 3.1 Flash Image · 권장)',
+    'nanobananapro': '🍌 나노바나나 Pro (Gemini 3 Pro Image · 최고품질)',
+    'gptimage1': '🎯 GPT 이미지 1 (OpenAI gpt-image-1)',
+    'gptimage2': '🎯 GPT 이미지 2 / 덕테이프 (OpenAI gpt-image-2)',
+    // 기타 활성 엔진
     'flow': '🌊 Flow (Nano Banana Pro 무료)',
     'imagefx': '🎨 ImageFX (Google 무료)',
     'imagen4': '🎨 Imagen 4 (Google)',
@@ -7185,6 +7192,35 @@ function getImageModelDisplayName(provider) {
     'AI 이미지': '🤖 AI 이미지'
   };
   return modelMap[provider?.toLowerCase?.()] || modelMap[provider] || provider || '알 수 없음';
+}
+
+// 🛡️ v3.5.88 — OpenAI 신분증 인증 페이지 진입
+//   gpt-image-1 / gpt-image-2(덕테이프) 사용을 위해 OpenAI Organization Verification 필요.
+//   Electron의 경우 shell.openExternal로 기본 브라우저 오픈, 아니면 window.open.
+function openOpenAiVerification() {
+  const url = 'https://platform.openai.com/settings/organization/general';
+  try {
+    if (window.electronAPI?.openExternal) {
+      window.electronAPI.openExternal(url);
+      return;
+    }
+    if (window.require) {
+      // Electron 환경 — shell.openExternal 사용
+      const { shell } = window.require('electron');
+      shell.openExternal(url);
+      return;
+    }
+  } catch (e) {
+    console.warn('[OPENAI-VERIFY] Electron 진입 실패 → window.open 폴백:', e?.message);
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+// thumbnailType select 변경 시 GPT 이미지 2(덕테이프) 인증 안내 토글
+function handleThumbnailTypeChange(value) {
+  const notice = document.getElementById('thumbnailVerifyNotice');
+  if (!notice) return;
+  notice.style.display = value === 'gptimage2' ? 'block' : 'none';
 }
 
 function getCurrentPublishType() {

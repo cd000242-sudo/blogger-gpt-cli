@@ -326,6 +326,8 @@ async function addScheduledPost() {
     h2Images: h2ImageSettings.sections, // 하위 호환성 유지
     h2ImageSource: h2ImageSettings.source,
     h2ImageSections: h2ImageSettings.sections,
+    // v3.5.89 — GPT 이미지 1/2(덕테이프) 사용 시 quality 옵션 전달
+    gptImageQuality: (typeof getGptImageQuality === 'function' ? getGptImageQuality() : 'medium'),
     status: 'pending',
     createdAt: new Date().toISOString()
   };
@@ -472,6 +474,8 @@ async function executeSchedule(scheduleId) {
         publishType: schedule.publishType || 'single',
         postingMode: 'immediate',
         thumbnailType: schedule.thumbnailMode || 'imagefx',
+        // v3.5.89 — GPT 이미지 quality 옵션 전달 (스케줄에 저장된 값이 우선)
+        gptImageQuality: schedule.gptImageQuality || (typeof getGptImageQuality === 'function' ? getGptImageQuality() : 'medium'),
         ctaMode: schedule.ctaMode || 'auto',
         draftContent: schedule.draftContent || undefined,
       }
@@ -1191,6 +1195,17 @@ function handleH2ImageSourceChange() {
   const selectedSource = document.getElementById('h2ImageSource')?.value || document.querySelector('input[name="h2ImageSource"]:checked')?.value;
   console.log('🖼️ [H2 IMAGE] 선택된 이미지 소스:', selectedSource);
 
+  // v3.5.88 — GPT 이미지 1/2(덕테이프) 선택 시 인증 안내 토글
+  const notice = document.getElementById('h2ImageVerifyNotice');
+  if (notice) {
+    notice.style.display = (selectedSource === 'gptimage1' || selectedSource === 'gptimage2') ? 'block' : 'none';
+  }
+  // v3.5.89 — GPT 이미지 선택 시 quality 라디오 표시
+  const qualityWrap = document.getElementById('gptImageQualityWrap');
+  if (qualityWrap) {
+    qualityWrap.style.display = (selectedSource === 'gptimage1' || selectedSource === 'gptimage2') ? 'block' : 'none';
+  }
+
   // 선택된 소스에 따른 추가 설정 표시/숨김
   const h2Sections = document.querySelectorAll('input[name="h2Sections"]');
 
@@ -1200,6 +1215,8 @@ function handleH2ImageSourceChange() {
       // 선택된 소스에 따라 라벨 스타일 변경
       switch (selectedSource) {
         case 'dalle':
+        case 'gptimage1':
+        case 'gptimage2':
           label.style.background = 'rgba(139, 92, 246, 0.2)';
           break;
         case 'pexels':
@@ -1215,6 +1232,9 @@ function handleH2ImageSourceChange() {
           label.style.background = 'rgba(239, 68, 68, 0.2)';
           break;
         case 'text':
+        case 'nanobanana':
+        case 'nanobanana2':
+        case 'nanobananapro':
           label.style.background = 'rgba(16, 185, 129, 0.2)';
           break;
         default:
@@ -1222,6 +1242,48 @@ function handleH2ImageSourceChange() {
       }
     }
   });
+}
+
+// v3.5.88 — thumbnailType select 변경 시 GPT 이미지 인증 안내 + quality 라디오 토글
+function handleThumbnailTypeChange(value) {
+  const notice = document.getElementById('thumbnailVerifyNotice');
+  if (notice) {
+    notice.style.display = (value === 'gptimage1' || value === 'gptimage2') ? 'block' : 'none';
+  }
+  // v3.5.89 — h2 quality 라디오를 썸네일 선택과도 연동 (같은 OPENAI quality 값을 공유)
+  const qualityWrap = document.getElementById('gptImageQualityWrap');
+  if (qualityWrap) {
+    const h2Source = document.getElementById('h2ImageSource')?.value;
+    const isGpt = (v) => v === 'gptimage1' || v === 'gptimage2';
+    qualityWrap.style.display = (isGpt(value) || isGpt(h2Source)) ? 'block' : 'none';
+  }
+}
+
+// v3.5.89 — 현재 UI에서 선택된 GPT 이미지 quality 읽기
+function getGptImageQuality() {
+  const checked = document.querySelector('input[name="gptImageQuality"]:checked');
+  return checked?.value || 'medium';
+}
+window.getGptImageQuality = getGptImageQuality;
+
+// 🛡️ v3.5.88 — OpenAI 신분증 인증 페이지 진입
+//   gpt-image-1 / gpt-image-2(덕테이프) 사용을 위해 OpenAI Organization Verification 필요.
+function openOpenAiVerification() {
+  const url = 'https://platform.openai.com/settings/organization/general';
+  try {
+    if (window.electronAPI?.openExternal) {
+      window.electronAPI.openExternal(url);
+      return;
+    }
+    if (window.require) {
+      const { shell } = window.require('electron');
+      shell.openExternal(url);
+      return;
+    }
+  } catch (e) {
+    console.warn('[OPENAI-VERIFY] Electron 진입 실패 → window.open 폴백:', e?.message);
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 // H2 섹션 선택 상태 확인
@@ -1242,6 +1304,8 @@ function getH2ImageSettings() {
 
 // 전역 함수로 등록
 window.handleH2ImageSourceChange = handleH2ImageSourceChange;
+window.handleThumbnailTypeChange = handleThumbnailTypeChange;
+window.openOpenAiVerification = openOpenAiVerification;
 window.getH2ImageSettings = getH2ImageSettings;
 
 // 📈 Search Console + GA4 성과 연동
@@ -10134,6 +10198,8 @@ async function createPayloadFromForm() {
       title: titleValue
     }],
     thumbnailMode: thumbnailTypeSelect?.value || 'imagefx',
+    // v3.5.89 — GPT 이미지 quality 옵션 (UI 라디오 선택값, 미선택 시 'medium')
+    gptImageQuality: (typeof getGptImageQuality === 'function' ? getGptImageQuality() : 'medium'),
     sectionCount: (() => {
       let count = 5;
       if (sectionCountSelect) {

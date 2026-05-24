@@ -56,6 +56,11 @@ export type NanoBananaProOptions = {
   height?: number;  // 기본 1024
   aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4'; // 기본 '16:9'
   isThumbnail?: boolean; // true: 썸네일용 (텍스트 허용), false: 소제목 이미지용 (텍스트 없음)
+  // v3.5.88: 사용자 명시 모델 선택. 미지정 시 기존 2단 폴백 체인(3.1 → 2.5) 유지.
+  //   'gemini-2.5-flash-image'         = 나노바나나 (저비용 원조)
+  //   'gemini-3.1-flash-image-preview' = 나노바나나2 (Pro 품질·Flash 가격)
+  //   'gemini-3-pro-image-preview'     = 나노바나나 프로 (Pro 모델)
+  modelId?: 'gemini-2.5-flash-image' | 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview';
 };
 
 // 🚀 Prodia AI 옵션 (저렴하고 빠른 고품질 이미지 생성)
@@ -1700,26 +1705,34 @@ export async function makeNanoBananaProThumbnail(
   console.log(`[NANO-BANANA-PRO] 📝 프롬프트: ${prompt.slice(0, 80)}...`);
 
   // Imagen 3 제거 → Gemini 네이티브 이미지 생성 직접 호출
-  return await tryGeminiExperimentalImageGeneration(title, topic, options.apiKey, isThumbnail);
+  return await tryGeminiExperimentalImageGeneration(title, topic, options.apiKey, isThumbnail, options.modelId);
 }
 
 // 🔥 Gemini 3 이미지 생성 (Nano Banana / Nano Banana Pro)
+//   v3.5.88: 사용자가 modelId를 명시하면 그 모델만 시도(폴백 X), 미지정 시 기존 2단 체인 유지.
 async function tryGeminiExperimentalImageGeneration(
   title: string,
   topic: string,
   apiKey: string,
-  isThumbnail: boolean = false
+  isThumbnail: boolean = false,
+  modelIdHint?: 'gemini-2.5-flash-image' | 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview'
 ): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
   const startTime = Date.now();
 
-  // Gemini 이미지 모델 (2026-05-05 — 비용 효율 우선, 사용자 의도: 나노바나나2)
-  //   1순위: 나노바나나2 (Gemini 3.1 Flash Image) — Pro 품질·Flash 가격 ($0.067/1024)
-  //   2순위: 원조 나노바나나 (Gemini 2.5 Flash Image) — 저비용 ($0.039/1024)
-  // 제외: gemini-3-pro-image-preview (비용 $0.134~$0.24), Imagen 4 (2026-06-24 EOL)
-  const IMAGE_MODELS = [
-    { id: 'gemini-3.1-flash-image-preview', name: '나노바나나2 (Gemini 3.1 Flash Image · Pro 품질)' },
-    { id: 'gemini-2.5-flash-image',         name: '나노바나나 (Gemini 2.5 Flash Image · 저비용)' },
-  ];
+  // Gemini 이미지 모델 카탈로그 — 명시 선택 vs 자동 폴백 분기
+  //   명시 선택(modelIdHint 지정): 그 모델만 1회 시도 (이미지 dispatcher가 폴백 차단 책임짐)
+  //   자동(미지정): 나노바나나2 → 나노바나나 폴백 체인 (기존 동작 유지)
+  const MODEL_CATALOG: Record<string, { id: string; name: string }> = {
+    'gemini-3-pro-image-preview':     { id: 'gemini-3-pro-image-preview',     name: '나노바나나 프로 (Gemini 3 Pro Image)' },
+    'gemini-3.1-flash-image-preview': { id: 'gemini-3.1-flash-image-preview', name: '나노바나나2 (Gemini 3.1 Flash Image)' },
+    'gemini-2.5-flash-image':         { id: 'gemini-2.5-flash-image',         name: '나노바나나 (Gemini 2.5 Flash Image · 저비용)' },
+  };
+  const IMAGE_MODELS = modelIdHint
+    ? [MODEL_CATALOG[modelIdHint]!]
+    : [
+        MODEL_CATALOG['gemini-3.1-flash-image-preview']!,
+        MODEL_CATALOG['gemini-2.5-flash-image']!,
+      ];
 
   // 프롬프트 생성 — 🔥 AI 추론 기반 동적 프롬프트 생성
   let prompt: string;
@@ -1949,6 +1962,129 @@ CRITICAL RULES:
 
 // Imagen 4 함수 제거 — 전체 라인업이 2026-06-24 EOL.
 //   Google 공식 마이그레이션 권장: → gemini-2.5-flash-image (이미 IMAGE_MODELS에 포함)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🎯 OpenAI GPT Image (gpt-image-1 / gpt-image-2 = 덕테이프)
+//   v3.5.88: makeDalleThumbnail 비활성화는 유지, 신규 라우트로 분리.
+//   가입자가 OpenAI Organization Verification(정부발급 신분증)을 완료한 경우만 사용 가능.
+//   인증 미완료 시 OpenAI는 403 "Your organization must be verified" 응답.
+//   → 그 응답을 OPENAI_VERIFICATION_REQUIRED 코드로 분류해 UI가 인증 페이지로 안내.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type GptImageOptions = {
+  apiKey: string;
+  modelId: 'gpt-image-1' | 'gpt-image-2';
+  isThumbnail?: boolean;
+  size?: '1024x1024' | '1536x1024' | '1024x1536';   // 16:9 본문 = 1536x1024
+  // v3.5.89: quality 옵션 — OpenAI 공식 가격은 quality별로 다름
+  //   low    ≈ $0.011/장 (저비용, 빠름, 품질 낮음)
+  //   medium ≈ $0.042/장 (기본)
+  //   high   ≈ $0.167/장 (최고품질, 느림)
+  //   미지정 시 'medium' 기본
+  quality?: 'low' | 'medium' | 'high';
+};
+
+/**
+ * OpenAI Images API 직접 호출 — gpt-image-1 / gpt-image-2(덕테이프)
+ *
+ * 반환:
+ *   ok: true  + dataUrl(base64)
+ *   ok: false + error
+ *     - 'OPENAI_VERIFICATION_REQUIRED: ...' → 신분증 인증 미완료 (UI가 인증 페이지로 안내)
+ *     - 'OPENAI_MODEL_NOT_FOUND: ...'        → 모델이 아직 출시 안 됐거나 권한 없음
+ *     - 'OPENAI_QUOTA: ...'                  → 할당량 초과
+ */
+export async function makeGptImageThumbnail(
+  title: string,
+  topic: string,
+  options: GptImageOptions
+): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
+  const startTime = Date.now();
+  const isThumbnail = options.isThumbnail ?? false;
+  const size = options.size ?? '1536x1024';
+  const quality = options.quality ?? 'medium';
+
+  if (!options.apiKey || options.apiKey.length < 10) {
+    return { ok: false, error: 'OPENAI_NO_API_KEY: OPENAI_API_KEY가 설정되지 않았습니다.' };
+  }
+
+  const prompt = generateEnglishPrompt(title, topic, isThumbnail);
+  console.log(`[GPT-IMAGE] 🎯 ${options.modelId} 시도 (quality=${quality}, size=${size}) — prompt(${prompt.length}자): ${prompt.slice(0, 80)}...`);
+
+  try {
+    const res = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${options.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: options.modelId,
+        prompt,
+        n: 1,
+        size,
+        quality,
+        // 기본 b64_json 반환
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      const status = res.status;
+      const lower = text.toLowerCase();
+
+      // OpenAI Organization Verification 미완료 — UI가 인증 페이지로 안내
+      if (status === 403 || /verif|must be verified|organization.*verif|insufficient.*verif/i.test(text)) {
+        return {
+          ok: false,
+          error: `OPENAI_VERIFICATION_REQUIRED: ${options.modelId}는 OpenAI 신분증 인증이 필요합니다. (${text.substring(0, 200)})`,
+        };
+      }
+      if (status === 404 || /model.*not.*found|does not exist|invalid_model/i.test(text)) {
+        return {
+          ok: false,
+          error: `OPENAI_MODEL_NOT_FOUND: ${options.modelId} 모델을 사용할 수 없습니다. (${text.substring(0, 200)})`,
+        };
+      }
+      if (status === 429 || lower.includes('quota') || lower.includes('rate_limit')) {
+        return {
+          ok: false,
+          error: `OPENAI_QUOTA: 할당량/레이트리밋 초과 (${text.substring(0, 200)})`,
+        };
+      }
+      return {
+        ok: false,
+        error: `OPENAI_HTTP_${status}: ${text.substring(0, 250)}`,
+      };
+    }
+
+    const data: any = await res.json();
+    const item = data?.data?.[0];
+    const b64: string | undefined = item?.b64_json;
+    if (!b64) {
+      const url: string | undefined = item?.url;
+      if (url) {
+        // url 모드 응답 — 다운로드해서 base64로 변환
+        const imgRes = await fetch(url);
+        if (!imgRes.ok) {
+          return { ok: false, error: `OPENAI_IMG_DOWNLOAD_FAIL: HTTP ${imgRes.status}` };
+        }
+        const buf = await imgRes.arrayBuffer();
+        const downloadedB64 = Buffer.from(buf).toString('base64');
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`[GPT-IMAGE] ✅ ${options.modelId} 성공(URL 다운로드) — ${elapsed}초`);
+        return { ok: true, dataUrl: `data:image/png;base64,${downloadedB64}` };
+      }
+      return { ok: false, error: 'OPENAI_NO_IMAGE_DATA: 응답에 b64_json/url 없음' };
+    }
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`[GPT-IMAGE] ✅ ${options.modelId} 성공 — ${elapsed}초`);
+    return { ok: true, dataUrl: `data:image/png;base64,${b64}` };
+  } catch (e: any) {
+    return { ok: false, error: `OPENAI_EXCEPTION: ${e?.message || String(e)}` };
+  }
+}
 
 // 🚀 Prodia AI 썸네일 생성 함수 (저렴하고 빠른 고품질)
 export async function makeProdiaThumbnail(

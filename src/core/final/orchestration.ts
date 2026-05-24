@@ -1049,12 +1049,18 @@ export async function generateUltimateMaxModeArticleFinal(
               //   영어 hint는 translateToEnglish 캐시 키도 변경시켜 매 섹션마다 신규 추론 강제
               const variationHint = ` [Section ${i + 1} of ${sections.length}: MUST show a unique scene visually distinct from all other sections — different angle, location, props, and composition; never repeat previous sections]`;
               const promptForDispatch = section.h2 + variationHint;
+              // v3.5.89: GPT 이미지 quality 옵션 — UI에서 사용자가 선택한 값을 그대로 전달
+              const dispatchExtra: { gptImageQuality?: 'low' | 'medium' | 'high' } = {};
+              if (payload.gptImageQuality === 'low' || payload.gptImageQuality === 'medium' || payload.gptImageQuality === 'high') {
+                dispatchExtra.gptImageQuality = payload.gptImageQuality;
+              }
               const dispatchResult = await dispatchH2ImageGeneration(
                 imageSource,
                 promptForDispatch,
                 keyword,
                 (msg) => onLog?.(`   [IMG-${i + 1}] ${msg}`),
                 contentMode,
+                dispatchExtra,
               );
               if (dispatchResult.ok) {
                 imageResult = { ok: true, dataUrl: dispatchResult.dataUrl };
@@ -1722,11 +1728,16 @@ ${conclusionHTML}
     if (!thumbnailUrl && !thumbnailDisabled) {
       onLog?.(`[PROGRESS] 90% - 🖼️ 썸네일 생성 중 (요청: ${thumbnailSource})...`);
       try {
+        const thumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high' } = {};
+        if (payload.gptImageQuality === 'low' || payload.gptImageQuality === 'medium' || payload.gptImageQuality === 'high') {
+          thumbExtra.gptImageQuality = payload.gptImageQuality;
+        }
         const thumbResult = await dispatchThumbnailGeneration(
           thumbnailSource,
           h1,
           keyword,
           (msg) => onLog?.(`   ${msg}`),
+          thumbExtra,
         );
         if (thumbResult.ok) {
           // 🔀 다운그레이드 감지 — 사용자가 요청한 엔진과 실제 사용 엔진이 다르면 경고

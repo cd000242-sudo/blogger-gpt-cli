@@ -30,12 +30,21 @@ export interface ImageResult {
 
 // ── 지원 엔진 목록 (단일 진실 소스) ──
 //   2026-05-05 정리: dalle/leonardo/pollinations 제거 (verification 장벽 또는 좀비 코드).
-//   nanobananapro 별칭은 aliasMap에서 nanobanana로 흡수.
 //   v3.5.74: 'crawled' 추가 — URL 수집 이미지를 그대로 사용 (orchestration이 분기 처리)
+//   v3.5.88: 나노바나나 3종 + GPT 이미지 2종을 독립 엔진으로 분리
+//     - nanobanana       = gemini-2.5-flash-image       (저비용 원조)
+//     - nanobanana2      = gemini-3.1-flash-image-preview (Pro 품질·Flash 가격, 현재 메인)
+//     - nanobananapro    = gemini-3-pro-image-preview    (Pro 모델, 비용 高)
+//     - gptimage1        = OpenAI gpt-image-1
+//     - gptimage2        = OpenAI gpt-image-2 (덕테이프) — 신분증 인증 필수
 export const SUPPORTED_IMAGE_ENGINES = [
   'imagefx',
   'flow',
   'nanobanana',
+  'nanobanana2',
+  'nanobananapro',
+  'gptimage1',
+  'gptimage2',
   'deepinfra',
   'crawled',
   'text',
@@ -54,29 +63,36 @@ export function normalizeImageEngine(raw: string | undefined | null): ImageEngin
   const value = (raw || '').trim().toLowerCase();
   if (!value) return 'imagefx';
   // 레거시 별칭 매핑
-  //   - nanobananapro/leonardo/dalle/pollinations: 모두 제거됨 → 가까운 활성 엔진으로 흡수
-  //   - OpenAI 라우트는 verification 장벽 + dall-e 5/12 EOL로 비활성. 별칭은 'imagefx'로 안내성 폴백.
+  //   v3.5.88: nanobanana 3종·gpt-image 2종이 정식 분리됨 → alias를 정식 엔진으로 매핑
+  //   - leonardo/dalle/pollinations: 제거됨 → 가까운 활성 엔진으로 흡수
   const aliasMap: Record<string, ImageEngine> = {
     'auto': 'imagefx',
     'default': 'imagefx',
     'nb': 'nanobanana',
     'nano': 'nanobanana',
-    'nanobanana2': 'nanobanana',
-    'nanobananapro': 'nanobanana',
+    // 나노바나나 별칭 — 정식 엔진으로 매핑
+    'nanobanana-2': 'nanobanana2',
+    'nano-banana-2': 'nanobanana2',
+    'nanobanana-pro': 'nanobananapro',
+    'nano-banana-pro': 'nanobananapro',
+    // GPT 이미지 별칭
+    'gpt-image-1': 'gptimage1',
+    'gptimage-1': 'gptimage1',
+    'gpt-image-2': 'gptimage2',
+    'gptimage-2': 'gptimage2',
+    'ducktape': 'gptimage2',
+    'duct-tape': 'gptimage2',
+    '덕트테이프': 'gptimage2',
+    '덕테이프': 'gptimage2',
+    // 기타 alias
     'flux': 'deepinfra',
-    'openai': 'imagefx',
-    'dalle': 'imagefx',
+    'openai': 'gptimage1',
+    'dalle': 'gptimage1',
     'leonardo': 'imagefx',
     'pollinations': 'imagefx',
     'labs-flow': 'flow',
     'labsflow': 'flow',
     'googleflow': 'flow',
-    'gpt-image-2': 'imagefx',
-    'gptimage2': 'imagefx',
-    'ducktape': 'imagefx',
-    'duct-tape': 'imagefx',
-    '덕트테이프': 'imagefx',
-    '덕테이프': 'imagefx',
   };
   if (aliasMap[value]) return aliasMap[value];
   if ((SUPPORTED_IMAGE_ENGINES as readonly string[]).includes(value)) {
@@ -297,13 +313,27 @@ function preSanitizePrompt(prompt: string, onLog?: (msg: string) => void): strin
   return sanitized.trim() || prompt; // 모든 문장이 제거되면 원본 반환 (이미지 엔진이 안전필터로 막아냄)
 }
 
+// v3.5.89: GPT 이미지(gpt-image-1/2) 사용자 선택 quality 전달용
+//   - low/medium/high — OpenAI 공식 가격은 quality 별로 다름
+//   - dispatcher signature 호환성 유지를 위해 새 옵션 객체로 받음
+export interface DispatchExtraOptions {
+  gptImageQuality?: 'low' | 'medium' | 'high';
+}
+
 export async function dispatchH2ImageGeneration(
   imageSource: string,
   prompt: string,
   keyword: string,
   onLog?: (msg: string) => void,
   contentMode?: string,
+  extra?: DispatchExtraOptions,
 ): Promise<ImageResult> {
+  // 🔍 raw 값에서 사용자 명시 선택 여부 판단 (정규화 전에 검사 — 'auto'/'default'/빈값은 imagefx로 normalize되기 때문)
+  const rawLower = (imageSource || '').trim().toLowerCase();
+  const userPickedExplicitly = !!rawLower
+    && rawLower !== 'auto'
+    && rawLower !== 'default';
+
   // 🧹 입력 정규화 — 'auto'/'default'/미지원 값은 즉시 감지
   const normalizedSource = normalizeImageEngine(imageSource);
   if (normalizedSource !== imageSource) {
@@ -321,7 +351,11 @@ export async function dispatchH2ImageGeneration(
   prompt = preSanitizePrompt(prompt, onLog);
 
   const env = getCachedEnv();
-  const strictMode = String(process.env['STRICT_H2_IMAGE_ENGINE'] || '').toLowerCase() === 'true';
+  // 🛡️ v3.5.87: 사용자 명시 선택 = 자동 strict 모드 (env var 없이도 폴백 차단)
+  //   기존: STRICT_H2_IMAGE_ENGINE=true 일 때만 폴백 차단 → 사용자가 'flow' 골라도 nanobanana 폴백
+  //   변경: 사용자가 명시 선택했으면 무조건 strict — "선택한 엔진이 안 되면 에러"가 사용자 의도
+  const envStrict = String(process.env['STRICT_H2_IMAGE_ENGINE'] || '').toLowerCase() === 'true';
+  const strictMode = userPickedExplicitly || envStrict;
 
   // 🛡️ S-2 + S-4 (v3.5.84): Strict 모드 + 에러 분류기 통합
   //   사용자 요구: "선택한 엔진이 반드시 성공" / "폴백 차단" / "에러 분류 후 우회 가능한 것만 우회"
@@ -339,7 +373,7 @@ export async function dispatchH2ImageGeneration(
     let lastClassification: any = null;
 
     for (let attempt = 1; attempt <= MAX_STRICT_RETRIES; attempt++) {
-      const result = await tryEngine(imageSource, prompt, keyword, env, onLog, false, contentMode);
+      const result = await tryEngine(imageSource, prompt, keyword, env, onLog, false, contentMode, extra);
       if (result.ok) {
         if (attempt > 1) onLog?.(`✅ '${imageSource}' ${attempt}회차 시도 성공`);
         return result;
@@ -379,7 +413,7 @@ export async function dispatchH2ImageGeneration(
 
   // ── 일반 모드 (strict OFF) ──
   // 1순위: 사용자 선택 엔진
-  const primaryResult = await tryEngine(imageSource, prompt, keyword, env, onLog, false, contentMode);
+  const primaryResult = await tryEngine(imageSource, prompt, keyword, env, onLog, false, contentMode, extra);
   if (primaryResult.ok) return primaryResult;
 
   console.log(`[DISPATCH] ⚠️ 1순위 ${imageSource} 실패 (${primaryResult.error || '사유 미상'}) → 폴백 체인 시작`);
@@ -392,7 +426,7 @@ export async function dispatchH2ImageGeneration(
     .filter(e => e !== imageSource);
 
   for (const engine of fallbackOrder) {
-    const result = await tryEngine(engine, prompt, keyword, env, onLog, false, contentMode);
+    const result = await tryEngine(engine, prompt, keyword, env, onLog, false, contentMode, extra);
     if (result.ok) {
       console.log(`[DISPATCH] ✅ 폴백 성공: ${engine}`);
       onLog?.(`ℹ️ 폴백 성공: ${engine} 엔진으로 이미지 생성됨`);
@@ -421,6 +455,7 @@ export async function dispatchThumbnailGeneration(
   title: string,
   keyword: string,
   onLog?: (msg: string) => void,
+  extra?: DispatchExtraOptions,
 ): Promise<ImageResult> {
   // 🔍 사용자가 특정 엔진을 명시 선택했는지(=폴백으로 다른 AI 엔진에 자동으로 넘어가면 안 됨)
   //    'auto'/'default'/빈값 → 암묵적 선택, 폴백 체인 허용
@@ -449,39 +484,40 @@ export async function dispatchThumbnailGeneration(
   // text/svg 모드 → 더 이상 지원하지 않음 (SVG 텍스트 썸네일 폐지)
   if (thumbnailSource === 'text' || thumbnailSource === 'svg') {
     onLog?.(`ℹ️ 'text/svg' 모드는 폐지되었습니다 — imagefx로 자동 전환합니다.`);
-    const fallback = await tryEngine('imagefx', title, keyword, env, onLog, true);
+    const fallback = await tryEngine('imagefx', title, keyword, env, onLog, true, undefined, extra);
     if (fallback.ok) return fallback;
     return { ok: false, dataUrl: '', source: '', error: 'SVG 텍스트 썸네일은 폐지되었고 imagefx 폴백도 실패했습니다.' };
   }
 
   // AI 이미지 엔진 1순위
-  const primaryResult = await tryEngine(thumbnailSource, title, keyword, env, onLog, true);
+  const primaryResult = await tryEngine(thumbnailSource, title, keyword, env, onLog, true, undefined, extra);
   if (primaryResult.ok) return primaryResult;
 
   console.error(`[DISPATCH-THUMB] ❌ 1순위 ${thumbnailSource} 실패: ${primaryResult.error || '사유 미상'}`);
   onLog?.(`❌ ${thumbnailSource} 썸네일 실패: ${primaryResult.error || '사유 미상'}`);
 
-  // 🛡️ 엄격 모드 — STRICT_THUMBNAIL_ENGINE=true 일 때 명시 선택 엔진 실패 시 즉시 fail (다른 AI도 SVG도 사용 안 함)
-  //    SVG 텍스트 썸네일은 폐지됨. 흰배경 텍스트 결과 절대 안 나옴.
-  const strictMode = String(process.env['STRICT_THUMBNAIL_ENGINE'] || '').toLowerCase() === 'true';
-  if (userPickedExplicitly && strictMode) {
-    onLog?.(`🛡️ 엄격 모드: '${thumbnailSource}' 실패 — 다른 엔진으로 폴백하지 않고 종료 (SVG 폐지)`);
-    return { ok: false, dataUrl: '', source: '', error: `${thumbnailSource} 실패 (엄격 모드 — 다른 AI/SVG 폴백 금지)` };
+  // 🛡️ v3.5.87: 사용자 명시 선택 = 자동 엄격 모드 (env var 없이도 폴백 차단)
+  //   기존: STRICT_THUMBNAIL_ENGINE=true 일 때만 차단 → 'flow' 골라도 nanobanana 폴백
+  //   변경: 명시 선택이면 무조건 차단 — 선택한 엔진이 안 되면 에러가 사용자 의도
+  //   'auto'/'default'/빈값일 때만 폴백 체인 허용.
+  if (userPickedExplicitly) {
+    onLog?.(`🛡️ 엄격 모드: '${thumbnailSource}' 실패 — 다른 엔진으로 폴백하지 않고 종료 (선택한 엔진 고정)`);
+    return {
+      ok: false,
+      dataUrl: '',
+      source: '',
+      error: `${thumbnailSource} 실패: ${primaryResult.error || '사유 미상'} (사용자 명시 선택 — 폴백 차단)`,
+    };
   }
 
-  // 🔄 기본 동작: 명시 선택이든 auto든 다른 AI 엔진으로 자동 폴백 (사용 가능한 첫 엔진 사용)
-  if (userPickedExplicitly) {
-    onLog?.(`🔄 '${thumbnailSource}' 실패 → 다른 AI 엔진으로 자동 폴백 시도 (엄격 모드 OFF)`);
-  } else {
-    onLog?.(`ℹ️ 'auto' 모드 → 폴백 체인 시작`);
-  }
+  onLog?.(`ℹ️ 'auto' 모드 → 폴백 체인 시작`);
 
   // 폴백 체인 — 2026-05-05 정리: 사용자 메인 타겟(nanobanana) 우선, 무료/구독/유료 순.
   const fallbackOrder = ['nanobanana', 'imagefx', 'flow', 'deepinfra']
     .filter(e => e !== thumbnailSource);
 
   for (const engine of fallbackOrder) {
-    const result = await tryEngine(engine, title, keyword, env, onLog, true);
+    const result = await tryEngine(engine, title, keyword, env, onLog, true, undefined, extra);
     if (result.ok) {
       const sourceLabel = userPickedExplicitly
         ? `${result.source} (요청한 ${thumbnailSource} 실패 → 자동 폴백)`
@@ -509,9 +545,10 @@ async function tryEngine(
   onLog?: (msg: string) => void,
   isThumbnail: boolean = false,
   contentMode?: string,
+  extra?: DispatchExtraOptions,
 ): Promise<ImageResult> {
   // 🛡️ v3.5.86: 통계 자동 기록 — wrapper로 감싸 모든 return을 가로챔
-  const result = await _tryEngineInternal(engine, prompt, keyword, env, onLog, isThumbnail, contentMode);
+  const result = await _tryEngineInternal(engine, prompt, keyword, env, onLog, isThumbnail, contentMode, extra);
   try {
     const { recordSuccess, recordFailure } = require('./engine-stats');
     if (result.ok) {
@@ -540,11 +577,20 @@ async function _tryEngineInternal(
   onLog?: (msg: string) => void,
   isThumbnail: boolean = false,
   contentMode?: string,
+  extra?: DispatchExtraOptions,
 ): Promise<ImageResult> {
   // 🧠 AI 추론 프롬프트: 1회만 호출하여 모든 엔진에서 재사용
-  // NanoBanana와 Flow는 한국어 프롬프트 그대로 받아서 자체 번역 — 영어 추론 생략
+  // NanoBanana 3종과 Flow는 한국어 프롬프트 그대로 받아서 자체 번역 — 영어 추론 생략
+  //   GPT Image 1/2는 makeGptImageThumbnail 내부에서 generateEnglishPrompt 호출하므로 추론 불필요
   let inferredPrompt = prompt;
-  if (engine !== 'nanobanana' && engine !== 'flow') {
+  if (
+    engine !== 'nanobanana' &&
+    engine !== 'nanobanana2' &&
+    engine !== 'nanobananapro' &&
+    engine !== 'gptimage1' &&
+    engine !== 'gptimage2' &&
+    engine !== 'flow'
+  ) {
     try {
       const inference = await inferImagePrompt(prompt, keyword, isThumbnail, contentMode);
       inferredPrompt = inference.prompt;
@@ -559,6 +605,7 @@ async function _tryEngineInternal(
   switch (engine) {
     // ═══ ImageFX (Google, API 키 불필요) ═══
     case 'imagefx': {
+      let detail = '사유 미상';
       try {
         console.log(`[DISPATCH] 🖼️ ImageFX 시도...`);
         const result = await makeImageFxImage(inferredPrompt, {
@@ -568,17 +615,22 @@ async function _tryEngineInternal(
         if (result.ok) {
           return { ok: true, dataUrl: result.dataUrl, source: 'ImageFX' };
         }
-        console.log(`[DISPATCH] ⚠️ ImageFX 실패: ${result.error}`);
+        detail = result.error || detail;
+        console.log(`[DISPATCH] ⚠️ ImageFX 실패: ${detail}`);
+        onLog?.(`⚠️ ImageFX 실패 원인: ${String(detail).substring(0, 300)}`);
       } catch (e: any) {
-        console.log(`[DISPATCH] ⚠️ ImageFX 예외: ${e.message}`);
+        detail = `예외: ${e?.message || e}`;
+        console.log(`[DISPATCH] ⚠️ ImageFX 예외: ${detail}`);
+        onLog?.(`⚠️ ImageFX ${detail.substring(0, 300)}`);
       }
-      return { ok: false, dataUrl: '', source: '', error: 'ImageFX 실패' };
+      return { ok: false, dataUrl: '', source: '', error: `ImageFX 실패: ${detail}` };
     }
 
     // ═══ Flow (Google Labs Flow — Nano Banana Pro 무료, API 키 불필요) ═══
     //    Google AI Pro 구독 + labs.google/flow 접근 권한 필요.
     //    ImageFX와 동일한 labs.google 세션 재사용 (별도 로그인 불필요).
     case 'flow': {
+      let detail = '사유 미상';
       try {
         console.log(`[DISPATCH] 🌊 Flow 시도...`);
         const result = await makeFlowImage(inferredPrompt, {
@@ -589,35 +641,95 @@ async function _tryEngineInternal(
           const modelTag = result.modelUsed ? ` (${result.modelUsed})` : '';
           return { ok: true, dataUrl: result.dataUrl, source: `Flow${modelTag}` };
         }
-        console.log(`[DISPATCH] ⚠️ Flow 실패: ${result.error}`);
+        detail = result.error || detail;
+        console.log(`[DISPATCH] ⚠️ Flow 실패: ${detail}`);
+        onLog?.(`⚠️ Flow 실패 원인: ${String(detail).substring(0, 300)}`);
       } catch (e: any) {
-        console.log(`[DISPATCH] ⚠️ Flow 예외: ${e.message}`);
+        detail = `예외: ${e?.message || e}`;
+        console.log(`[DISPATCH] ⚠️ Flow 예외: ${detail}`);
+        onLog?.(`⚠️ Flow ${detail.substring(0, 300)}`);
       }
-      return { ok: false, dataUrl: '', source: '', error: 'Flow 실패' };
+      return { ok: false, dataUrl: '', source: '', error: `Flow 실패: ${detail}` };
     }
 
-    // ═══ Nano Banana 2 (Gemini 3.1 Flash Image · 자체 번역 내장) ═══
-    //   체인: gemini-3.1-flash-image-preview → gemini-2.5-flash-image (thumbnail.ts 내부)
-    case 'nanobanana': {
+    // ═══ 나노바나나 3종 (v3.5.88: 모델별 독립 케이스로 분리) ═══
+    //   nanobanana    = gemini-2.5-flash-image        (저비용 원조)
+    //   nanobanana2   = gemini-3.1-flash-image-preview (Pro 품질·Flash 가격)
+    //   nanobananapro = gemini-3-pro-image-preview     (Pro 모델, 비용 高)
+    case 'nanobanana':
+    case 'nanobanana2':
+    case 'nanobananapro': {
       const apiKey = getGeminiApiKey();
       if (!apiKey || apiKey.length < 10) {
         return { ok: false, dataUrl: '', source: '', error: 'Gemini API 키 없음' };
       }
+      const modelMap = {
+        'nanobanana':    { id: 'gemini-2.5-flash-image' as const,         label: 'Nano Banana (2.5 저비용)' },
+        'nanobanana2':   { id: 'gemini-3.1-flash-image-preview' as const, label: 'Nano Banana 2' },
+        'nanobananapro': { id: 'gemini-3-pro-image-preview' as const,     label: 'Nano Banana Pro' },
+      };
+      const m = modelMap[engine as 'nanobanana' | 'nanobanana2' | 'nanobananapro'];
+      let detail = '사유 미상';
       try {
-        console.log(`[DISPATCH] 🍌 나노바나나2 시도...`);
+        console.log(`[DISPATCH] 🍌 ${m.label} 시도... (${m.id})`);
         const result = await makeNanoBananaProThumbnail(prompt, keyword, {
           apiKey,
           aspectRatio: '16:9',
           isThumbnail,
+          modelId: m.id,
         });
         if (result.ok) {
-          return { ok: true, dataUrl: result.dataUrl, source: 'Nano Banana 2' };
+          return { ok: true, dataUrl: result.dataUrl, source: m.label };
         }
-        console.log(`[DISPATCH] ⚠️ 나노바나나2 실패: ${(result as any).error}`);
+        detail = (result as any).error || detail;
+        console.log(`[DISPATCH] ⚠️ ${m.label} 실패: ${detail}`);
+        onLog?.(`⚠️ ${m.label} 실패 원인: ${String(detail).substring(0, 300)}`);
       } catch (e: any) {
-        console.log(`[DISPATCH] ⚠️ 나노바나나2 예외: ${e.message}`);
+        detail = `예외: ${e?.message || e}`;
+        console.log(`[DISPATCH] ⚠️ ${m.label} 예외: ${detail}`);
+        onLog?.(`⚠️ ${m.label} ${detail.substring(0, 300)}`);
       }
-      return { ok: false, dataUrl: '', source: '', error: '나노바나나2 실패' };
+      return { ok: false, dataUrl: '', source: '', error: `${m.label} 실패: ${detail}` };
+    }
+
+    // ═══ GPT Image 1 / 2 (OpenAI, 신분증 인증 필수) ═══
+    //   v3.5.88: gpt-image-1 / gpt-image-2(덕테이프) 정식 라우트.
+    //   인증 미완료 시 OPENAI_VERIFICATION_REQUIRED 코드 → UI가 인증 페이지로 안내.
+    case 'gptimage1':
+    case 'gptimage2': {
+      const openaiKey = (env['openaiKey'] || env['OPENAI_API_KEY'] || '').trim();
+      if (!openaiKey || openaiKey.length < 10) {
+        return { ok: false, dataUrl: '', source: '', error: 'OpenAI API 키 없음 (OPENAI_API_KEY 설정 필요)' };
+      }
+      const gptMap = {
+        'gptimage1': { id: 'gpt-image-1' as const, label: 'GPT Image 1' },
+        'gptimage2': { id: 'gpt-image-2' as const, label: 'GPT Image 2 (덕테이프)' },
+      };
+      const g = gptMap[engine as 'gptimage1' | 'gptimage2'];
+      const gptQuality = extra?.gptImageQuality ?? 'medium';
+      let detail = '사유 미상';
+      try {
+        console.log(`[DISPATCH] 🎯 ${g.label} 시도... (${g.id}, quality=${gptQuality})`);
+        const { makeGptImageThumbnail } = await import('../thumbnail');
+        const result = await makeGptImageThumbnail(prompt, keyword, {
+          apiKey: openaiKey,
+          modelId: g.id,
+          isThumbnail,
+          size: '1536x1024',
+          quality: gptQuality,
+        });
+        if (result.ok) {
+          return { ok: true, dataUrl: result.dataUrl, source: `${g.label} · ${gptQuality}` };
+        }
+        detail = (result as any).error || detail;
+        console.log(`[DISPATCH] ⚠️ ${g.label} 실패: ${detail}`);
+        onLog?.(`⚠️ ${g.label} 실패 원인: ${String(detail).substring(0, 300)}`);
+      } catch (e: any) {
+        detail = `예외: ${e?.message || e}`;
+        console.log(`[DISPATCH] ⚠️ ${g.label} 예외: ${detail}`);
+        onLog?.(`⚠️ ${g.label} ${detail.substring(0, 300)}`);
+      }
+      return { ok: false, dataUrl: '', source: '', error: `${g.label} 실패: ${detail}` };
     }
 
     // ═══ DeepInfra FLUX-2 ═══
@@ -626,6 +738,7 @@ async function _tryEngineInternal(
       if (!apiKey || apiKey.length < 10) {
         return { ok: false, dataUrl: '', source: '', error: 'DeepInfra API 키 없음' };
       }
+      let detail = '사유 미상';
       try {
         console.log(`[DISPATCH] 🔥 DeepInfra 시도...`);
         const { makeDeepInfraThumbnail } = await import('../thumbnail');
@@ -637,11 +750,15 @@ async function _tryEngineInternal(
         if (result.ok) {
           return { ok: true, dataUrl: result.dataUrl, source: 'DeepInfra FLUX-2' };
         }
-        console.log(`[DISPATCH] ⚠️ DeepInfra 실패: ${(result as any).error}`);
+        detail = (result as any).error || detail;
+        console.log(`[DISPATCH] ⚠️ DeepInfra 실패: ${detail}`);
+        onLog?.(`⚠️ DeepInfra 실패 원인: ${String(detail).substring(0, 300)}`);
       } catch (e: any) {
-        console.log(`[DISPATCH] ⚠️ DeepInfra 예외: ${e.message}`);
+        detail = `예외: ${e?.message || e}`;
+        console.log(`[DISPATCH] ⚠️ DeepInfra 예외: ${detail}`);
+        onLog?.(`⚠️ DeepInfra ${detail.substring(0, 300)}`);
       }
-      return { ok: false, dataUrl: '', source: '', error: 'DeepInfra 실패' };
+      return { ok: false, dataUrl: '', source: '', error: `DeepInfra 실패: ${detail}` };
     }
 
     // Leonardo / DALL-E / Pollinations 케이스 제거 (2026-05-05)

@@ -755,6 +755,10 @@
               style="padding: 16px 20px; background: transparent; border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.5); font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s;">
               🚀 원클릭 세팅
             </button>
+            <button class="settings-tab" data-tab="image-pricing" onclick="switchSettingsTab('image-pricing')"
+              style="padding: 16px 20px; background: transparent; border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.5); font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s;">
+              💰 이미지 비용표
+            </button>
           </div>
 
           <!-- 탭 콘텐츠 -->
@@ -1713,6 +1717,135 @@
                 </div>
                 <div id="readinessChecklist" style="display: flex; flex-direction: column; gap: 8px;">
                   <div style="color: rgba(255,255,255,0.5); font-size: 13px; text-align: center; padding: 12px;">새로고침을 클릭하세요</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 💰 이미지 비용표 탭 (v3.5.89 — 한글 텍스트 지원 + GPT quality 세분화) -->
+            <div id="tab-image-pricing" class="settings-tab-content" style="display: none;">
+              <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 24px; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                  <span style="font-size: 24px;">💰</span>
+                  <div>
+                    <h3 style="margin: 0; color: white; font-size: 18px; font-weight: 700;">이미지 엔진 비용 + 한글 텍스트 지원표</h3>
+                    <p style="margin: 4px 0 0 0; color: rgba(255,255,255,0.6); font-size: 13px;">
+                      장당 가격 · 1글(본문 5장 + 썸네일 1장 = 6장) 기준 · 한글 텍스트 렌더링 품질 포함
+                    </p>
+                  </div>
+                </div>
+
+                <!-- 한눈에 보기 테이블 -->
+                <div style="overflow-x: auto; margin-bottom: 20px;">
+                  <table style="width: 100%; border-collapse: collapse; color: white; font-size: 12px;">
+                    <thead>
+                      <tr style="background: rgba(99, 102, 241, 0.15); border-bottom: 2px solid rgba(99, 102, 241, 0.4);">
+                        <th style="padding: 10px 8px; text-align: left; font-weight: 700; color: #a5b4fc;">엔진</th>
+                        <th style="padding: 10px 8px; text-align: right; font-weight: 700; color: #a5b4fc;">장당</th>
+                        <th style="padding: 10px 8px; text-align: right; font-weight: 700; color: #a5b4fc;">1글(6장)</th>
+                        <th style="padding: 10px 8px; text-align: center; font-weight: 700; color: #a5b4fc;">🇰🇷 한글 텍스트</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.06);">
+                        <td style="padding: 10px 8px;">🎨 ImageFX</td>
+                        <td style="padding: 10px 8px; text-align: right; color: #34d399; font-weight: 700;">무료</td>
+                        <td style="padding: 10px 8px; text-align: right; color: #34d399; font-weight: 700;">0원</td>
+                        <td style="padding: 10px 8px; text-align: center; color: #fca5a5;">❌ 매우 약함</td>
+                      </tr>
+                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.06);">
+                        <td style="padding: 10px 8px;">🌊 Flow (Nano Banana Pro)</td>
+                        <td style="padding: 10px 8px; text-align: right; color: #34d399; font-weight: 700;">무료*</td>
+                        <td style="padding: 10px 8px; text-align: right; color: #34d399; font-weight: 700;">0원*</td>
+                        <td style="padding: 10px 8px; text-align: center; color: #6ee7b7;">✅ 최우수</td>
+                      </tr>
+                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(245,158,11,0.08);">
+                        <td style="padding: 10px 8px;">🔥 DeepInfra FLUX-2-dev <span style="background: #f59e0b; color: white; font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 800;">⭐ 유료 최저가</span></td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">$0.012</td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">≈100원</td>
+                        <td style="padding: 10px 8px; text-align: center; color: #fca5a5;">❌ 매우 약함 (영문 위주)</td>
+                      </tr>
+                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.06);">
+                        <td style="padding: 10px 8px;">🍌 나노바나나 (2.5 Flash)</td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">$0.039</td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">≈315원</td>
+                        <td style="padding: 10px 8px; text-align: center; color: #86efac;">🟢 양호</td>
+                      </tr>
+                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(34,197,94,0.06);">
+                        <td style="padding: 10px 8px;">🎯 GPT 이미지 1 · <span style="color:#86efac;">low</span></td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">$0.011</td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">≈90원</td>
+                        <td style="padding: 10px 8px; text-align: center; color: #86efac;" rowspan="3">🟢 양호 (영어/한글 모두)</td>
+                      </tr>
+                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(59,130,246,0.06);">
+                        <td style="padding: 10px 8px;">🎯 GPT 이미지 1 · <span style="color:#93c5fd;">medium</span> <span style="background: #3b82f6; color: white; font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 800;">기본</span></td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">$0.042</td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">≈335원</td>
+                      </tr>
+                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(239,68,68,0.06);">
+                        <td style="padding: 10px 8px;">🎯 GPT 이미지 1 · <span style="color:#fca5a5;">high</span></td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">$0.167</td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">≈1,330원</td>
+                      </tr>
+                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.06);">
+                        <td style="padding: 10px 8px;">🍌 나노바나나 2 (3.1 Flash) <span style="background: rgba(16,185,129,0.4); color: #d1fae5; font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 800;">권장</span></td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">$0.067</td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">≈540원</td>
+                        <td style="padding: 10px 8px; text-align: center; color: #6ee7b7;">✅ 우수</td>
+                      </tr>
+                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(34,197,94,0.06);">
+                        <td style="padding: 10px 8px;">🎯 GPT 이미지 2 (덕테이프) · <span style="color:#86efac;">low</span></td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">$0.011~</td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">≈90원~</td>
+                        <td style="padding: 10px 8px; text-align: center; color: #6ee7b7;" rowspan="3">✅ 우수 (개선됨)</td>
+                      </tr>
+                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(59,130,246,0.06);">
+                        <td style="padding: 10px 8px;">🎯 GPT 이미지 2 (덕테이프) · <span style="color:#93c5fd;">medium</span> <span style="background: #3b82f6; color: white; font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 800;">기본</span></td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">$0.042~</td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">≈335원~</td>
+                      </tr>
+                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(239,68,68,0.06);">
+                        <td style="padding: 10px 8px;">🎯 GPT 이미지 2 (덕테이프) · <span style="color:#fca5a5;">high</span></td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">$0.167~</td>
+                        <td style="padding: 10px 8px; text-align: right; font-weight: 700;">≈1,330원~</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 10px 8px;">🍌 나노바나나 Pro (3 Pro)</td>
+                        <td style="padding: 10px 8px; text-align: right; color: #fca5a5; font-weight: 700;">$0.134~0.24</td>
+                        <td style="padding: 10px 8px; text-align: right; color: #fca5a5; font-weight: 700;">≈1,080~1,940원</td>
+                        <td style="padding: 10px 8px; text-align: center; color: #6ee7b7;">✅ 최우수</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- 가이드 -->
+                <div style="padding: 16px 18px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); border-radius: 12px; margin-bottom: 12px;">
+                  <div style="color: #93c5fd; font-size: 13px; font-weight: 700; margin-bottom: 8px;">💡 어떤 엔진을 골라야 할까?</div>
+                  <ul style="margin: 0; padding-left: 20px; color: rgba(255,255,255,0.75); font-size: 12px; line-height: 1.8;">
+                    <li><b>완전 무료 + 한글 텍스트 필요</b> → <b>Flow</b> (Google AI Pro $19.99/월 구독자 한정)</li>
+                    <li><b>완전 무료 + 한글 텍스트 불필요</b> → <b>ImageFX</b> (Google 로그인만, 한글 텍스트 깨짐)</li>
+                    <li><b>최저가 유료</b> → <b>GPT 이미지 1 · low</b> ($0.011/장 ≈ 1글 90원) — 한글 텍스트도 양호</li>
+                    <li><b>한글 텍스트 없는 글</b> → <b>DeepInfra FLUX-2-dev</b> ($0.012/장 ≈ 100원) — 영문/이미지만</li>
+                    <li><b>한국 블로그 가성비</b> → <b>나노바나나 (2.5)</b> ($0.039/장 ≈ 315원)</li>
+                    <li><b>권장 기본</b> → <b>나노바나나 2</b> ($0.067/장 ≈ 540원, 품질·가격·한글 균형)</li>
+                    <li><b>최고 품질 + 한글 표지</b> → <b>나노바나나 Pro</b> 또는 <b>GPT 이미지 2(덕테이프) · high</b></li>
+                  </ul>
+                </div>
+
+                <!-- 한글 텍스트 등급 설명 -->
+                <div style="padding: 14px 18px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); border-radius: 12px;">
+                  <div style="color: #fbbf24; font-size: 12px; font-weight: 700; margin-bottom: 6px;">🇰🇷 한글 텍스트 등급 기준</div>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; color: rgba(255,255,255,0.7); font-size: 11px; line-height: 1.6;">
+                    <span><b style="color:#6ee7b7;">✅ 최우수</b> — 한글 문장도 정확히 렌더링</span>
+                    <span><b style="color:#86efac;">🟢 양호</b> — 짧은 한글 단어 OK</span>
+                    <span><b style="color:#fde68a;">🟡 보통</b> — 글자 일부 깨질 수 있음</span>
+                    <span><b style="color:#fca5a5;">❌ 매우 약함</b> — 한글 거의 못 그림</span>
+                  </div>
+                </div>
+
+                <!-- 출처 -->
+                <div style="margin-top: 16px; color: rgba(255,255,255,0.4); font-size: 11px; text-align: right;">
+                  ※ 1024×1024 기준 공식 가격 (2026-05 확인) · 환율 1,330원/$ 가정 · GPT 이미지 quality는 OpenAI API의 quality 옵션 (low/medium/high)으로 청구 · 실제 금액은 사용량·해상도에 따라 다를 수 있습니다
                 </div>
               </div>
             </div>
@@ -3640,26 +3773,82 @@
                   <div class="posting-settings-tab-panel" id="tab-image">
                     <div class="acc-field">
                       <label class="acc-label">📸 썸네일 타입</label>
-                      <select id="thumbnailType">
-                        <option value="imagefx" selected>🎨 이미지 FX (기본·무료)</option>
+                      <select id="thumbnailType" onchange="handleThumbnailTypeChange && handleThumbnailTypeChange(this.value)">
+                        <option value="imagefx">🎨 이미지 FX (기본·무료)</option>
                         <option value="flow">🌊 Flow (Gemini 3 Pro Image 무료 — AI Pro 구독 필요)</option>
-                        <option value="nanobanana">🍌 나노바나나2 (Gemini 3.1 Flash Image · Pro 품질·Flash 가격)</option>
+                        <optgroup label="🍌 나노바나나 (Gemini Image)">
+                          <option value="nanobanana">🍌 나노바나나 (Gemini 2.5 Flash · 저비용)</option>
+                          <option value="nanobanana2" selected>🍌 나노바나나 2 (Gemini 3.1 Flash · Pro 품질·Flash 가격 · 권장)</option>
+                          <option value="nanobananapro">🍌 나노바나나 Pro (Gemini 3 Pro · 최고품질·고비용)</option>
+                        </optgroup>
+                        <optgroup label="🎯 OpenAI GPT 이미지 (신분증 인증 필수)">
+                          <option value="gptimage1">🎯 GPT 이미지 1 (gpt-image-1)</option>
+                          <option value="gptimage2">🎯 GPT 이미지 2 / 덕테이프 (gpt-image-2)</option>
+                        </optgroup>
                         <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
                         <option value="crawled">🔗 URL 수집 이미지 그대로 사용</option>
                         <option value="none">❌ 썸네일 없음</option>
                       </select>
+                      <div id="thumbnailVerifyNotice" style="display: none; margin-top: 8px; padding: 8px 12px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 8px; font-size: 12px; color: #fecaca;">
+                        <span>⚠️ GPT 이미지 1/2(덕테이프)는 OpenAI 신분증 인증이 필요합니다.</span>
+                        <button type="button" onclick="openOpenAiVerification()"
+                          style="margin-left: 8px; padding: 2px 10px; background: rgba(239, 68, 68, 0.3); border: 1px solid rgba(239, 68, 68, 0.6); border-radius: 6px; color: #fef2f2; font-size: 11px; font-weight: 700; cursor: pointer;">바로 인증하기 →</button>
+                      </div>
                     </div>
                     <div class="acc-field">
                       <label class="acc-label">🖼️ 소제목 이미지</label>
-                      <select id="h2ImageSource">
-                        <option value="imagefx" selected>🎨 이미지 FX (기본·무료)</option>
+                      <select id="h2ImageSource" onchange="handleH2ImageSourceChange && handleH2ImageSourceChange(this.value)">
+                        <option value="imagefx">🎨 이미지 FX (기본·무료)</option>
                         <option value="flow">🌊 Flow (Gemini 3 Pro Image 무료 — AI Pro 구독 필요)</option>
-                        <option value="nanobanana">🍌 나노바나나2 (Gemini 3.1 Flash Image · Pro 품질·Flash 가격)</option>
+                        <optgroup label="🍌 나노바나나 (Gemini Image)">
+                          <option value="nanobanana">🍌 나노바나나 (Gemini 2.5 Flash · 저비용)</option>
+                          <option value="nanobanana2" selected>🍌 나노바나나 2 (Gemini 3.1 Flash · Pro 품질·Flash 가격 · 권장)</option>
+                          <option value="nanobananapro">🍌 나노바나나 Pro (Gemini 3 Pro · 최고품질·고비용)</option>
+                        </optgroup>
+                        <optgroup label="🎯 OpenAI GPT 이미지 (신분증 인증 필수)">
+                          <option value="gptimage1">🎯 GPT 이미지 1 (gpt-image-1)</option>
+                          <option value="gptimage2">🎯 GPT 이미지 2 / 덕테이프 (gpt-image-2)</option>
+                        </optgroup>
                         <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
                         <option value="crawled">🔗 URL 수집 이미지 그대로 사용</option>
                         <option value="none">❌ 이미지 없음</option>
                       </select>
-                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 모든 소제목에 자동으로 이미지가 배치됩니다</small>
+                      <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 모든 소제목에 자동으로 이미지가 배치됩니다 · 선택 엔진 실패 시 폴백 없이 즉시 에러로 알려줍니다</small>
+                      <div id="h2ImageVerifyNotice" style="display: none; margin-top: 8px; padding: 8px 12px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 8px; font-size: 12px; color: #fecaca;">
+                        <span>⚠️ GPT 이미지 1/2(덕테이프)는 OpenAI 신분증 인증이 필요합니다.</span>
+                        <button type="button" onclick="openOpenAiVerification()"
+                          style="margin-left: 8px; padding: 2px 10px; background: rgba(239, 68, 68, 0.3); border: 1px solid rgba(239, 68, 68, 0.6); border-radius: 6px; color: #fef2f2; font-size: 11px; font-weight: 700; cursor: pointer;">바로 인증하기 →</button>
+                      </div>
+                      <!-- v3.5.89: GPT 이미지 1/2 quality 선택 (선택 시에만 표시) -->
+                      <div id="gptImageQualityWrap" style="display: none; margin-top: 12px; padding: 12px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 10px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                          <span style="color: #c4b5fd; font-size: 12px; font-weight: 700;">🎚️ GPT 이미지 품질 선택 (가격 영향)</span>
+                          <span style="color: rgba(255,255,255,0.4); font-size: 10px;">실제 청구는 OpenAI 사용량 페이지 기준</span>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                          <label style="flex: 1; display: flex; flex-direction: column; gap: 4px; padding: 10px; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 8px; cursor: pointer;" title="가장 저렴 · 빠름 · 품질 낮음">
+                            <span style="display: flex; align-items: center; gap: 6px; color: white; font-size: 12px; font-weight: 600;">
+                              <input type="radio" name="gptImageQuality" value="low" style="accent-color: #22c55e;">
+                              💸 Low
+                            </span>
+                            <small style="color: rgba(255,255,255,0.6); font-size: 10px;">≈ $0.011/장 (≈15원)</small>
+                          </label>
+                          <label style="flex: 1; display: flex; flex-direction: column; gap: 4px; padding: 10px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; cursor: pointer;" title="기본 · 가격/품질 균형">
+                            <span style="display: flex; align-items: center; gap: 6px; color: white; font-size: 12px; font-weight: 600;">
+                              <input type="radio" name="gptImageQuality" value="medium" checked style="accent-color: #3b82f6;">
+                              ⚖️ Medium (기본)
+                            </span>
+                            <small style="color: rgba(255,255,255,0.6); font-size: 10px;">≈ $0.042/장 (≈56원)</small>
+                          </label>
+                          <label style="flex: 1; display: flex; flex-direction: column; gap: 4px; padding: 10px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; cursor: pointer;" title="최고품질 · 느림 · 비쌈">
+                            <span style="display: flex; align-items: center; gap: 6px; color: white; font-size: 12px; font-weight: 600;">
+                              <input type="radio" name="gptImageQuality" value="high" style="accent-color: #ef4444;">
+                              💎 High
+                            </span>
+                            <small style="color: rgba(255,255,255,0.6); font-size: 10px;">≈ $0.167/장 (≈222원)</small>
+                          </label>
+                        </div>
+                      </div>
                     </div>
                     <!-- 🛡️ 썸네일 엔진 엄격 모드 — 초보자 노출 금지로 hidden 처리 (기본 OFF, 자동 폴백) -->
                     <input type="checkbox" id="strictThumbnailEngine" hidden>

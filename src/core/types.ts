@@ -36,7 +36,10 @@ export interface RunOnePostPayload {
     totalSections?: number;
   };
   productImages?: string[];   // 크롤러에서 수집한 상품 이미지 URL 배열
-  h2ImageSource?: string;     // 'nanobananapro' | 'crawled' | 'crawled-ai-nanobananapro' | 'crawled-ai-nanobanana2'
+  h2ImageSource?: string;     // 'nanobanana'/'nanobanana2'/'nanobananapro'/'gptimage1'/'gptimage2' 등 (v3.5.88+)
+  // v3.5.89: GPT 이미지 1/2(덕테이프) quality 옵션 — UI 라디오에서 사용자 선택값
+  //   low ($0.011/장) · medium ($0.042/장 · 기본) · high ($0.167/장)
+  gptImageQuality?: 'low' | 'medium' | 'high';
 }
 
 export interface MaxModeSection {
