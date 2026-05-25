@@ -45,6 +45,7 @@ export const SUPPORTED_IMAGE_ENGINES = [
   'nanobananapro',
   'gptimage1',
   'gptimage2',
+  'prodia',       // v3.5.90: Prodia FLUX schnell (가성비 챔피언, ≈$0.001/장)
   'deepinfra',
   'crawled',
   'text',
@@ -86,6 +87,9 @@ export function normalizeImageEngine(raw: string | undefined | null): ImageEngin
     '덕테이프': 'gptimage2',
     // 기타 alias
     'flux': 'deepinfra',
+    'flux-schnell': 'prodia',     // FLUX schnell 기본 라우트 → Prodia
+    'flux_schnell': 'prodia',
+    'fluxschnell': 'prodia',
     'openai': 'gptimage1',
     'dalle': 'gptimage1',
     'leonardo': 'imagefx',
@@ -580,8 +584,7 @@ async function _tryEngineInternal(
   extra?: DispatchExtraOptions,
 ): Promise<ImageResult> {
   // 🧠 AI 추론 프롬프트: 1회만 호출하여 모든 엔진에서 재사용
-  // NanoBanana 3종과 Flow는 한국어 프롬프트 그대로 받아서 자체 번역 — 영어 추론 생략
-  //   GPT Image 1/2는 makeGptImageThumbnail 내부에서 generateEnglishPrompt 호출하므로 추론 불필요
+  // NanoBanana 3종 + Flow + GPT Image + Prodia는 내부에서 generateEnglishPrompt 호출하므로 추론 불필요
   let inferredPrompt = prompt;
   if (
     engine !== 'nanobanana' &&
@@ -589,7 +592,8 @@ async function _tryEngineInternal(
     engine !== 'nanobananapro' &&
     engine !== 'gptimage1' &&
     engine !== 'gptimage2' &&
-    engine !== 'flow'
+    engine !== 'flow' &&
+    engine !== 'prodia'
   ) {
     try {
       const inference = await inferImagePrompt(prompt, keyword, isThumbnail, contentMode);
@@ -730,6 +734,39 @@ async function _tryEngineInternal(
         onLog?.(`⚠️ ${g.label} ${detail.substring(0, 300)}`);
       }
       return { ok: false, dataUrl: '', source: '', error: `${g.label} 실패: ${detail}` };
+    }
+
+    // ═══ Prodia FLUX schnell (가성비 챔피언, v3.5.90) ═══
+    //   ≈$0.001/장 (DeepInfra의 1/12), 2~4초 생성, FLUX-1 schnell 2B 모델
+    //   디테일 약함 + 한국 인물 약함 + 한글 텍스트 못 그림 — 가격/속도 우선 옵션
+    case 'prodia': {
+      const apiKey = (env['prodiaApiKey'] || env['PRODIA_API_KEY'] || '').trim();
+      if (!apiKey || apiKey.length < 10) {
+        return { ok: false, dataUrl: '', source: '', error: 'Prodia API 키 없음 (PRODIA_API_KEY 설정 필요)' };
+      }
+      let detail = '사유 미상';
+      try {
+        console.log(`[DISPATCH] 🚀 Prodia FLUX schnell 시도...`);
+        const { makeProdiaThumbnail } = await import('../thumbnail');
+        const result = await makeProdiaThumbnail(inferredPrompt, keyword, {
+          apiKey,
+          width: isThumbnail ? 1280 : 1024,
+          height: isThumbnail ? 720 : 576,
+          model: 'flux-schnell',
+          steps: 4,
+        });
+        if (result.ok) {
+          return { ok: true, dataUrl: result.dataUrl, source: 'Prodia FLUX schnell' };
+        }
+        detail = (result as any).error || detail;
+        console.log(`[DISPATCH] ⚠️ Prodia 실패: ${detail}`);
+        onLog?.(`⚠️ Prodia 실패 원인: ${String(detail).substring(0, 300)}`);
+      } catch (e: any) {
+        detail = `예외: ${e?.message || e}`;
+        console.log(`[DISPATCH] ⚠️ Prodia 예외: ${detail}`);
+        onLog?.(`⚠️ Prodia ${detail.substring(0, 300)}`);
+      }
+      return { ok: false, dataUrl: '', source: '', error: `Prodia 실패: ${detail}` };
     }
 
     // ═══ DeepInfra FLUX-2 ═══

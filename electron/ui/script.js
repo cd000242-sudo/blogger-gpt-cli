@@ -1266,6 +1266,100 @@ function getGptImageQuality() {
 }
 window.getGptImageQuality = getGptImageQuality;
 
+// 🆕 v3.5.90 — 단일 발행 입력 소스 서브탭 (키워드 vs URL)
+//   사용자가 명시적으로 "이번 글은 키워드로 만들지, URL로 만들지" 결정하게 함.
+//   - keyword 모드: 키워드 입력이 메인(필수), URL은 숨김
+//   - url 모드: URL 입력이 메인(필수), 키워드는 옵션(보조)
+function switchSingleInputMode(mode) {
+  const validModes = ['keyword', 'url'];
+  if (!validModes.includes(mode)) mode = 'keyword';
+
+  // 탭 버튼 활성/비활성 스타일
+  const tabKw = document.getElementById('singleInputTabKeyword');
+  const tabUrl = document.getElementById('singleInputTabUrl');
+  const setActive = (btn, active, gradient) => {
+    if (!btn) return;
+    btn.setAttribute('aria-selected', String(active));
+    if (active) {
+      btn.style.background = gradient;
+      btn.style.color = 'white';
+      btn.style.boxShadow = '0 2px 8px rgba(16,185,129,0.3)';
+    } else {
+      btn.style.background = 'transparent';
+      btn.style.color = 'rgba(255,255,255,0.6)';
+      btn.style.boxShadow = 'none';
+    }
+  };
+  setActive(tabKw, mode === 'keyword', 'linear-gradient(135deg,#10b981,#059669)');
+  setActive(tabUrl, mode === 'url', 'linear-gradient(135deg,#f59e0b,#d97706)');
+
+  // 입력 블록 표시 + 라벨/배지/플레이스홀더 변경
+  const kwBlock = document.getElementById('keywordInputBlock');
+  const urlBlock = document.getElementById('referenceUrlBlock');
+  const kwLabel = document.getElementById('keywordInputLabel');
+  const urlLabel = document.getElementById('referenceUrlLabel');
+  const urlBadge = document.getElementById('referenceUrlBadge');
+  const urlHint = document.getElementById('referenceUrlHint');
+  const kwInput = document.getElementById('keywordInput');
+  const urlInput = document.getElementById('referenceUrl');
+
+  if (mode === 'keyword') {
+    // 키워드 모드 — URL 블록 숨김
+    if (kwBlock) kwBlock.style.display = '';
+    if (urlBlock) urlBlock.style.display = 'none';
+    if (kwLabel) {
+      kwLabel.innerHTML = '🔑 키워드 (필수) <span id="bulkModeHint" style="display:none;background:rgba(139,92,246,0.18);color:#ddd6fe;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:500;">줄바꿈으로 키워드 여러 개 입력 (각 줄 = 1글)</span>';
+    }
+    if (kwInput) {
+      kwInput.placeholder = '예: 블로그 수익화 방법\nAI 마케팅 전략\n부수입 만들기';
+    }
+  } else {
+    // url 모드 — 키워드 블록 숨김, URL이 필수
+    if (kwBlock) kwBlock.style.display = 'none';
+    if (urlBlock) urlBlock.style.display = '';
+    if (urlLabel) {
+      urlLabel.innerHTML = '🔗 원본 URL (필수) <span style="background:rgba(239,68,68,0.25);color:#fecaca;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;">URL 본문을 그대로 활용하여 글 생성</span>';
+    }
+    if (urlBadge) urlBadge.style.display = 'none';
+    if (urlHint) {
+      urlHint.innerHTML = '💡 입력한 URL의 본문을 그대로 분석해 글을 생성합니다 (키워드 자동 추출). 여러 URL은 줄바꿈으로 구분 — 각 URL이 1글이 됩니다.';
+    }
+    if (urlInput) {
+      urlInput.placeholder = '원본으로 사용할 URL을 입력하세요\n예: https://blog.naver.com/example/12345\n     https://tistory.com/example/67890';
+      // URL 모드 진입 시 자동 포커스
+      try { urlInput.focus(); } catch {}
+    }
+  }
+
+  // 메모리 — 다음 발행 시 어떤 모드로 진입할지 저장
+  try { localStorage.setItem('singleInputMode', mode); } catch {}
+}
+window.switchSingleInputMode = switchSingleInputMode;
+
+// 🆕 v3.5.90 — 발행 모드(single/bulk) 변경 시 입력 서브탭 표시 토글
+//   bulk(연속) 모드에서는 입력 서브탭(키워드/URL 분기)을 숨김 — 연속 발행은 키워드 중심
+function syncSingleInputTabsVisibility() {
+  const tabs = document.getElementById('singleInputModeTabs');
+  if (!tabs) return;
+  const activePublishBtn = document.querySelector('[data-publish-mode][aria-selected="true"]');
+  const mode = activePublishBtn?.dataset?.publishMode || 'single';
+  tabs.style.display = (mode === 'single') ? 'inline-flex' : 'none';
+}
+window.syncSingleInputTabsVisibility = syncSingleInputTabsVisibility;
+
+// DOMContentLoaded 후 초기 모드 복원 + 발행 모드 변경 감지
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    const saved = localStorage.getItem('singleInputMode') || 'keyword';
+    switchSingleInputMode(saved);
+  } catch { switchSingleInputMode('keyword'); }
+  syncSingleInputTabsVisibility();
+  // 발행 모드 버튼 클릭 시(publish-queue.js의 bindPublishModeTabs와 충돌 없이) 가시성 재동기화
+  document.querySelectorAll('[data-publish-mode]').forEach(btn => {
+    btn.addEventListener('click', () => setTimeout(syncSingleInputTabsVisibility, 0));
+  });
+});
+
 // 🛡️ v3.5.88 — OpenAI 신분증 인증 페이지 진입
 //   gpt-image-1 / gpt-image-2(덕테이프) 사용을 위해 OpenAI Organization Verification 필요.
 function openOpenAiVerification() {
@@ -4221,6 +4315,8 @@ async function saveSettings() {
     dalleApiKey: document.getElementById('dalleApiKey')?.value || '',
     pexelsApiKey: document.getElementById('pexelsApiKey')?.value || '',
     stabilityApiKey: document.getElementById('stabilityApiKey')?.value || '', // Stability AI
+    deepInfraApiKey: document.getElementById('deepInfraApiKey')?.value || '', // DeepInfra FLUX-2 (v3.5.90 명시 저장)
+    prodiaApiKey: document.getElementById('prodiaApiKey')?.value || '',       // 🚀 Prodia FLUX schnell (v3.5.90 신규)
     naverCustomerId: document.getElementById('naverCustomerId')?.value || '',
     naverSecretKey: document.getElementById('naverSecretKey')?.value || '',
     blogId: document.getElementById('blogId')?.value || '',
@@ -4264,7 +4360,10 @@ async function saveSettings() {
         naverClientId: settings.naverCustomerId || settings.naverClientId || '',
         naverClientSecret: settings.naverSecretKey || settings.naverClientSecret || '',
         openaiKey: settings.openaiKey,
-        dalleApiKey: settings.dalleApiKey
+        dalleApiKey: settings.dalleApiKey,
+        // v3.5.90 — DeepInfra/Prodia 키 .env 동기화
+        deepInfraApiKey: settings.deepInfraApiKey,
+        prodiaApiKey: settings.prodiaApiKey
       };
 
       console.log('🔧 환경 설정 저장 데이터:', envData);

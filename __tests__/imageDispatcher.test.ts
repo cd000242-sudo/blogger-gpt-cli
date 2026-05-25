@@ -15,6 +15,7 @@ jest.mock('../src/thumbnail', () => ({
   makeNanoBananaProThumbnail: jest.fn(),
   makeDeepInfraThumbnail: jest.fn(),
   makeGptImageThumbnail: jest.fn(),
+  makeProdiaThumbnail: jest.fn(),
 }));
 jest.mock('../src/core/imageFxGenerator', () => ({
   makeImageFxImage: jest.fn(),
@@ -36,6 +37,8 @@ jest.mock('../src/env', () => ({
     deepInfraApiKey: 'test-deepinfra-key-1234567890',
     openaiKey: 'test-openai-key-1234567890',
     OPENAI_API_KEY: 'test-openai-key-1234567890',
+    prodiaApiKey: 'test-prodia-key-1234567890',
+    PRODIA_API_KEY: 'test-prodia-key-1234567890',
   })),
 }));
 jest.mock('../src/core/image-error-classifier', () => ({
@@ -60,12 +63,13 @@ import {
 } from '../src/core/imageDispatcher';
 import { makeFlowImage } from '../src/core/flowGenerator';
 import { makeImageFxImage } from '../src/core/imageFxGenerator';
-import { makeNanoBananaProThumbnail, makeGptImageThumbnail } from '../src/thumbnail';
+import { makeNanoBananaProThumbnail, makeGptImageThumbnail, makeProdiaThumbnail } from '../src/thumbnail';
 
 const mockFlow = makeFlowImage as jest.MockedFunction<typeof makeFlowImage>;
 const mockImageFx = makeImageFxImage as jest.MockedFunction<typeof makeImageFxImage>;
 const mockNano = makeNanoBananaProThumbnail as jest.MockedFunction<typeof makeNanoBananaProThumbnail>;
 const mockGpt = makeGptImageThumbnail as jest.MockedFunction<typeof makeGptImageThumbnail>;
+const mockProdia = makeProdiaThumbnail as jest.MockedFunction<typeof makeProdiaThumbnail>;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -413,5 +417,52 @@ describe('v3.5.88 신규 엔진 — GPT 이미지 1/2', () => {
       expect.any(String),
       expect.objectContaining({ modelId: 'gpt-image-2', quality: 'medium' }),
     );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v3.5.90 — Prodia FLUX schnell (가성비 챔피언)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('v3.5.90 신규 엔진 — Prodia FLUX schnell', () => {
+  it('SUPPORTED_IMAGE_ENGINES에 prodia 포함', () => {
+    expect(SUPPORTED_IMAGE_ENGINES).toContain('prodia');
+  });
+
+  it('flux-schnell 별칭이 prodia로 정규화됨', () => {
+    expect(normalizeImageEngine('flux-schnell')).toBe('prodia');
+    expect(normalizeImageEngine('fluxschnell')).toBe('prodia');
+  });
+
+  it('prodia 선택 → makeProdiaThumbnail({model:"flux-schnell", steps:4}) 호출', async () => {
+    mockProdia.mockResolvedValue({
+      ok: true,
+      dataUrl: 'data:image/png;base64,PRODIA',
+    } as any);
+
+    const result = await dispatchH2ImageGeneration('prodia', 'test', 'kw');
+
+    expect(result.ok).toBe(true);
+    expect(result.source).toBe('Prodia FLUX schnell');
+    expect(mockProdia).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.objectContaining({ model: 'flux-schnell', steps: 4 }),
+    );
+  });
+
+  it('prodia 실패 → 폴백 차단 (사용자 명시 선택 = strict)', async () => {
+    mockProdia.mockResolvedValue({
+      ok: false,
+      error: 'PRODIA_HTTP_429: rate limited',
+    } as any);
+
+    await expect(
+      dispatchH2ImageGeneration('prodia', 'test', 'kw'),
+    ).rejects.toThrow(/STRICT_ENGINE_FAILED/);
+    // 다른 엔진으로 폴백되지 않음
+    expect(mockNano).not.toHaveBeenCalled();
+    expect(mockImageFx).not.toHaveBeenCalled();
+    expect(mockGpt).not.toHaveBeenCalled();
   });
 });
