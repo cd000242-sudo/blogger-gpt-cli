@@ -156,6 +156,9 @@ const MAP: Record<string, string> = {
   STABILITY_API_KEY: 'stabilityApiKey', // 🔥 Stability AI 추가
   PRODIA_API_KEY: 'prodiaApiKey',    // 🚀 Prodia AI 추가
 
+  // v3.5.92: 봇 회피 모드 — ImageFX/Flow 브라우저 visible 강제
+  VISIBLE_BROWSER: 'visibleBrowserMode',
+
   // 🛒 쿠팡 파트너스 오픈 API (쇼핑 모드 실제 상품 데이터 + 제휴 딥링크)
   COUPANG_ACCESS_KEY: 'coupangAccessKey',
   COUPANG_SECRET_KEY: 'coupangSecretKey',

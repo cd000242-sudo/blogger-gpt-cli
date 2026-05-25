@@ -136,7 +136,7 @@ export async function getGoogleTrendKeywords(): Promise<GoogleTrendKeyword[]> {
     
     console.log('[GOOGLE-TRENDS] 브라우저 실행 중...');
     browser = await puppeteer.default.launch({
-      headless: 'new',
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',

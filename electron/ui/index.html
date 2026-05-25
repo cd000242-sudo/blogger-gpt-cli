@@ -3911,6 +3911,18 @@
                         </button>
                       </div>
                       <small id="imagefxLoginStatus" style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 ImageFX 사용 전 Google 계정으로 로그인해주세요</small>
+                      <!-- v3.5.92: 봇 회피 모드 (브라우저 창 보이게) -->
+                      <div style="margin-top: 12px; padding: 10px 12px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.3); border-radius: 8px;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                          <input type="checkbox" id="visibleBrowserMode" style="width:16px; height:16px; accent-color:#f59e0b; cursor:pointer;">
+                          <span style="color:#fcd34d; font-size:12px; font-weight:700;">🖥️ 봇 회피 모드 — 브라우저 창 항상 보이게</span>
+                        </label>
+                        <small style="display:block; margin-top:6px; color:rgba(255,255,255,0.55); font-size:11px; line-height:1.5;">
+                          💡 ON 시 ImageFX/Flow 작업 중 Chrome 창이 화면에 표시됩니다.<br>
+                          reCAPTCHA가 visible 브라우저를 정상 사용자로 평가(점수 0.7+)해서 403 차단을 회피합니다.<br>
+                          단, 작업 중에는 창을 닫지 마세요 (작업 끝나면 자동 닫힘).
+                        </small>
+                      </div>
                     </div>
                     <div class="acc-field">
                       <label class="acc-label">🔍 할루시네이션 방지 (팩트체크)</label>

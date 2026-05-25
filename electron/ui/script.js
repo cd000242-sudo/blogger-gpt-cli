@@ -4116,6 +4116,14 @@ async function loadSettingsContent() {
         console.warn('⚠️ dalleApiKey 필드를 찾을 수 없습니다');
       }
 
+      // v3.5.92 — 봇 회피 모드 체크박스 복원
+      const visibleBrowserEl = document.getElementById('visibleBrowserMode');
+      if (visibleBrowserEl) {
+        const raw = mergedSettings.visibleBrowserMode ?? mergedSettings.VISIBLE_BROWSER ?? 'false';
+        visibleBrowserEl.checked = String(raw).toLowerCase() === 'true';
+        console.log('✅ 봇 회피 모드 (visible browser) 로드:', visibleBrowserEl.checked);
+      }
+
       const pexelsApiKeyEl = document.getElementById('pexelsApiKey');
       if (pexelsApiKeyEl) {
         pexelsApiKeyEl.value = mergedSettings.pexelsApiKey || mergedSettings.pexelsKey || '';
@@ -4317,6 +4325,8 @@ async function saveSettings() {
     stabilityApiKey: document.getElementById('stabilityApiKey')?.value || '', // Stability AI
     deepInfraApiKey: document.getElementById('deepInfraApiKey')?.value || '', // DeepInfra FLUX-2 (v3.5.90 명시 저장)
     prodiaApiKey: document.getElementById('prodiaApiKey')?.value || '',       // 🚀 Prodia FLUX schnell (v3.5.90 신규)
+    // v3.5.92: 봇 회피 모드 (브라우저 창 보이게)
+    visibleBrowserMode: document.getElementById('visibleBrowserMode')?.checked ? 'true' : 'false',
     naverCustomerId: document.getElementById('naverCustomerId')?.value || '',
     naverSecretKey: document.getElementById('naverSecretKey')?.value || '',
     blogId: document.getElementById('blogId')?.value || '',
@@ -4363,7 +4373,9 @@ async function saveSettings() {
         dalleApiKey: settings.dalleApiKey,
         // v3.5.90 — DeepInfra/Prodia 키 .env 동기화
         deepInfraApiKey: settings.deepInfraApiKey,
-        prodiaApiKey: settings.prodiaApiKey
+        prodiaApiKey: settings.prodiaApiKey,
+        // v3.5.92 — 봇 회피 모드 (.env에 VISIBLE_BROWSER로 저장 → backend launchBrowser가 읽음)
+        VISIBLE_BROWSER: settings.visibleBrowserMode || 'false'
       };
 
       console.log('🔧 환경 설정 저장 데이터:', envData);

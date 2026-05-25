@@ -608,7 +608,7 @@ async function crawlWithPuppeteer(url: string): Promise<string> {
   try {
     puppeteer.use(StealthPlugin());
     browser = await puppeteer.launch({
-      headless: "new",
+      headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
 

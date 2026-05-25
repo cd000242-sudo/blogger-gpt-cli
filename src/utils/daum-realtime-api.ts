@@ -24,7 +24,7 @@ export async function getDaumRealtimeKeywordsWithPuppeteer(limit: number = 10): 
     
     console.log('[DAUM-REALTIME] 브라우저 실행 중...');
     browser = await puppeteer.default.launch({
-      headless: 'new',
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',

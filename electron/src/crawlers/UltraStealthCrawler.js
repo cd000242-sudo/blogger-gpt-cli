@@ -19,7 +19,7 @@ class UltraStealthCrawler {
     }
     async initBrowser() {
         const browser = await puppeteer_extra_1.default.launch({
-            headless: 'new',
+            headless: true, // v3.5.92 Puppeteer 25: 'new' 리터럴 제거, true = 신규 headless
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -31,7 +31,7 @@ class UltraStealthCrawler {
                 '--disable-dev-shm-usage',
                 '--disable-gpu'
             ],
-            ignoreHTTPSErrors: true
+            acceptInsecureCerts: true, // v3.5.92 Puppeteer 25: ignoreHTTPSErrors 이름 변경
         });
         const page = await browser.newPage();
         // User-Agent 랜덤화

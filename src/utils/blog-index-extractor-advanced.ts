@@ -46,7 +46,7 @@ export class PuppeteerBlogIndexExtractor {
       const puppeteer = await import('puppeteer');
       
       browser = await puppeteer.launch({
-        headless: 'new',
+        headless: true,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',

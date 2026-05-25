@@ -144,8 +144,8 @@ export async function loadPageWithStealth(
         timeout
       });
       
-      // 추가 대기 (JavaScript 실행 대기)
-      await page.waitForTimeout(3000 + Math.random() * 2000);
+      // 추가 대기 (JavaScript 실행 대기) — Puppeteer 25에서 page.waitForTimeout 제거됨
+      await new Promise(r => setTimeout(r, 3000 + Math.random() * 2000));
       
       // 에러 페이지 체크
       const pageTitle = await page.title();
@@ -184,11 +184,12 @@ export async function loadPageWithStealth(
  * Stealth 브라우저 인스턴스 생성
  */
 export async function createStealthBrowser(options: {
-  headless?: boolean | 'new';
+  // v3.5.92 Puppeteer 25: 'new' 리터럴 제거, true(=new) / 'shell'(=old) / false 만 허용
+  headless?: boolean | 'shell';
   args?: string[];
 } = {}): Promise<puppeteer.Browser> {
   const {
-    headless = 'new',
+    headless = true,   // v3.5.92 Puppeteer 25: true = 신규 headless (이전 'new')
     args = []
   } = options;
   
@@ -205,7 +206,8 @@ export async function createStealthBrowser(options: {
   const browser = await puppeteer.launch({
     headless,
     args: [...defaultArgs, ...args],
-    ignoreHTTPSErrors: true
+    // v3.5.92 Puppeteer 25: ignoreHTTPSErrors → acceptInsecureCerts 로 이름 변경
+    acceptInsecureCerts: true,
   });
   
   return browser;

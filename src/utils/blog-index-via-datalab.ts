@@ -506,7 +506,7 @@ export class BlogIndexViaDatalab {
         
         // Puppeteer 설정 최적화 (성공률 향상)
         browser = await puppeteer.launch({
-          headless: 'new',
+          headless: true,
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',

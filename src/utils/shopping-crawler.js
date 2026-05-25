@@ -60,7 +60,7 @@ class ShoppingCrawler {
     if (!this.browser) {
       // 네이버 스마트스토어 크롤링을 위해 헤드리스 모드 비활성화 (더 인간처럼)
       this.browser = await puppeteer.launch({
-        headless: 'new', // 헤드리스 모드로 속도 향상
+        headless: true, // 헤드리스 모드로 속도 향상
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',

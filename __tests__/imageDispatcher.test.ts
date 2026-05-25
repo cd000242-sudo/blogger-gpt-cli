@@ -20,9 +20,13 @@ jest.mock('../src/thumbnail', () => ({
 jest.mock('../src/core/imageFxGenerator', () => ({
   makeImageFxImage: jest.fn(),
   ensurePage: jest.fn(),
+  // v3.5.92: dispatcher가 403 감지 시 dynamic import 하므로 mock 필요
+  resetSessionAndProfile: jest.fn(async () => {}),
 }));
 jest.mock('../src/core/flowGenerator', () => ({
   makeFlowImage: jest.fn(),
+  // v3.5.92: dispatcher가 Flow 403 감지 시 dynamic import
+  resetFlowDisabledFlag: jest.fn(() => {}),
 }));
 jest.mock('../src/core/imagePromptInference', () => ({
   inferImagePrompt: jest.fn(async (prompt: string) => ({

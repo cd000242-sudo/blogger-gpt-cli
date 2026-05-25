@@ -439,7 +439,7 @@ export class NaverMassCrawler {
       // Puppeteer는 별도 설치 필요
       const puppeteer = await import('puppeteer');
       browser = await puppeteer.launch({
-        headless: 'new',
+        headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
       });
       const page = await browser.newPage();
@@ -713,7 +713,7 @@ export class NaverMassCrawler {
     try {
       const puppeteer = await import('puppeteer');
       browser = await puppeteer.launch({
-        headless: 'new',
+        headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
       });
       const page = await browser.newPage();
@@ -2108,7 +2108,7 @@ export class MassCrawlingSystem {
     try {
       const puppeteer = await import('puppeteer');
       browser = await puppeteer.launch({
-        headless: 'new',
+        headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
       });
       const page = await browser.newPage();

@@ -195,7 +195,7 @@ async function createStealthBrowser(options = {}) {
     const browser = await puppeteer.launch({
         headless,
         args: [...defaultArgs, ...args],
-        ignoreHTTPSErrors: true
+        acceptInsecureCerts: true, // v3.5.92 Puppeteer 25: ignoreHTTPSErrors 이름 변경
     });
     return browser;
 }

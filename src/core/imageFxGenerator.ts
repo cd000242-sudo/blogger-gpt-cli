@@ -35,6 +35,51 @@ function getProfileDir(): string {
   return dir;
 }
 
+/**
+ * 🛡️ v3.5.92: 세션/프로필 자동 복구
+ *   - 403/PERMISSION_DENIED 감지 시 호출
+ *   - 1. cachedPage/Context/Token 무효화
+ *   - 2. profile 폴더를 .broken-<timestamp>로 백업 (삭제 X — 복구 가능)
+ *   - 3. 새 빈 profile 디렉토리 생성
+ *   - 다음 ensurePage() 호출 시 새 profile + visible 모드로 로그인 흐름 진입
+ */
+export async function resetSessionAndProfile(onLog?: (msg: string) => void): Promise<void> {
+  console.log('[ImageFX] 🛡️ resetSessionAndProfile — 세션/프로필 자동 복구 시작');
+  onLog?.('🛡️ [ImageFX] 세션 만료 감지 — 자동 복구 (프로필 백업 + 재로그인 유도)');
+
+  // 1. cached context 안전 종료
+  try {
+    if (cachedPage) {
+      try { await cachedPage.close({ runBeforeUnload: false }); } catch { /* ignore */ }
+    }
+    if (cachedContext) {
+      try { await cachedContext.close(); } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+  cachedPage = null;
+  cachedContext = null;
+  cachedToken = null;
+  cachedTokenExpiry = null;
+
+  // 2. profile 폴더 백업 (.broken-<ISO>)
+  try {
+    const profileDir = path.join(os.homedir(), '.blogger-gpt', 'imagefx-profile');
+    if (fs.existsSync(profileDir)) {
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupDir = `${profileDir}.broken-${ts}`;
+      fs.renameSync(profileDir, backupDir);
+      console.log(`[ImageFX] 🛡️ profile 백업 → ${backupDir}`);
+      onLog?.(`🛡️ [ImageFX] 기존 profile 백업됨: ${path.basename(backupDir)}`);
+    }
+    // 3. 새 빈 profile 디렉토리 생성
+    fs.mkdirSync(profileDir, { recursive: true });
+    console.log('[ImageFX] ✅ 새 profile 디렉토리 생성 완료');
+  } catch (e: any) {
+    console.warn('[ImageFX] ⚠️ profile 백업/생성 실패 (계속 진행):', e?.message);
+    onLog?.(`⚠️ profile 백업 실패: ${e?.message?.slice(0, 100) || ''}`);
+  }
+}
+
 // ── Aspect Ratio 매핑 ──
 function toFxAspectRatio(ratio: string): string {
   const map: Record<string, string> = {
@@ -77,9 +122,19 @@ async function launchBrowser(profileDir: string, headless: boolean): Promise<any
     console.log('[ImageFX] ⚠️ patchright 미설치 → playwright fallback');
   }
   
+  // 🛡️ v3.5.92: VISIBLE_BROWSER=true 환경변수 시 headless 강제 false (봇 회피 모드)
+  //   reCAPTCHA Enterprise는 visible 브라우저를 정상 사용자(score 0.7+)로 평가하지만
+  //   headless는 봇 의심(score 0.1~0.3)으로 평가 → 403 차단 가능성 ↑
+  //   사용자가 환경설정에서 토글하면 모든 ImageFX/Flow 호출이 visible 모드로 전환됨.
+  const forceVisible = String(process.env['VISIBLE_BROWSER'] || '').toLowerCase() === 'true';
+  const effectiveHeadless = forceVisible ? false : headless;
+  if (forceVisible && headless) {
+    console.log('[ImageFX] 🖥️ VISIBLE_BROWSER=true — headless 강제 false (봇 회피 모드)');
+  }
+
   // 🛡️ R-3 (v3.5.85): Stealth args 강화 — reCAPTCHA Enterprise + Cloudflare 회피
   const baseOptions = {
-    headless,
+    headless: effectiveHeadless,
     args: [
       '--no-first-run',
       '--disable-blink-features=AutomationControlled',

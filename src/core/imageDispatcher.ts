@@ -606,26 +606,53 @@ async function _tryEngineInternal(
     }
   }
 
+  // 🛡️ v3.5.92: 403/PERMISSION_DENIED 자동 복구 헬퍼
+  //   labs.google 세션이 만료되거나 reCAPTCHA로 차단되면 profile을 백업하고 visible 모드로 재로그인.
+  //   1회만 재시도 (무한 루프 방지).
+  const isLabsAuthError = (msg: string): boolean => {
+    if (!msg) return false;
+    return /403\b|forbidden|PERMISSION_DENIED|UNAUTHENTICATED|session.*expired|reCAPTCHA|PUBLIC_ERROR_UNUSUAL_ACTIVITY|FLOW_BLOCKED|FLOW_PERMISSION_DENIED/i.test(msg);
+  };
+
   switch (engine) {
     // ═══ ImageFX (Google, API 키 불필요) ═══
     case 'imagefx': {
       let detail = '사유 미상';
-      try {
-        console.log(`[DISPATCH] 🖼️ ImageFX 시도...`);
-        const result = await makeImageFxImage(inferredPrompt, {
-          aspectRatio: '16:9',
-          isThumbnail,
-        }, onLog);
-        if (result.ok) {
-          return { ok: true, dataUrl: result.dataUrl, source: 'ImageFX' };
+      let retried = false;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          console.log(`[DISPATCH] 🖼️ ImageFX 시도 ${attempt}/2...`);
+          const result = await makeImageFxImage(inferredPrompt, {
+            aspectRatio: '16:9',
+            isThumbnail,
+          }, onLog);
+          if (result.ok) {
+            return { ok: true, dataUrl: result.dataUrl, source: 'ImageFX' };
+          }
+          detail = result.error || detail;
+          console.log(`[DISPATCH] ⚠️ ImageFX 시도 ${attempt} 실패: ${detail}`);
+          onLog?.(`⚠️ ImageFX ${attempt}회 실패: ${String(detail).substring(0, 300)}`);
+          // 1회차 + Labs 인증 에러 → 자동 복구 후 재시도
+          if (attempt === 1 && isLabsAuthError(detail) && !retried) {
+            retried = true;
+            onLog?.(`🛡️ Labs 인증 에러 감지 — 프로필 자동 복구 후 재시도`);
+            const { resetSessionAndProfile } = await import('./imageFxGenerator');
+            await resetSessionAndProfile(onLog);
+            continue;
+          }
+          break;
+        } catch (e: any) {
+          detail = `예외: ${e?.message || e}`;
+          console.log(`[DISPATCH] ⚠️ ImageFX 예외: ${detail}`);
+          onLog?.(`⚠️ ImageFX ${detail.substring(0, 300)}`);
+          if (attempt === 1 && isLabsAuthError(detail) && !retried) {
+            retried = true;
+            const { resetSessionAndProfile } = await import('./imageFxGenerator');
+            await resetSessionAndProfile(onLog);
+            continue;
+          }
+          break;
         }
-        detail = result.error || detail;
-        console.log(`[DISPATCH] ⚠️ ImageFX 실패: ${detail}`);
-        onLog?.(`⚠️ ImageFX 실패 원인: ${String(detail).substring(0, 300)}`);
-      } catch (e: any) {
-        detail = `예외: ${e?.message || e}`;
-        console.log(`[DISPATCH] ⚠️ ImageFX 예외: ${detail}`);
-        onLog?.(`⚠️ ImageFX ${detail.substring(0, 300)}`);
       }
       return { ok: false, dataUrl: '', source: '', error: `ImageFX 실패: ${detail}` };
     }
@@ -635,23 +662,50 @@ async function _tryEngineInternal(
     //    ImageFX와 동일한 labs.google 세션 재사용 (별도 로그인 불필요).
     case 'flow': {
       let detail = '사유 미상';
-      try {
-        console.log(`[DISPATCH] 🌊 Flow 시도...`);
-        const result = await makeFlowImage(inferredPrompt, {
-          aspectRatio: '16:9',
-          isThumbnail,
-        }, onLog);
-        if (result.ok) {
-          const modelTag = result.modelUsed ? ` (${result.modelUsed})` : '';
-          return { ok: true, dataUrl: result.dataUrl, source: `Flow${modelTag}` };
+      let retried = false;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          console.log(`[DISPATCH] 🌊 Flow 시도 ${attempt}/2...`);
+          const result = await makeFlowImage(inferredPrompt, {
+            aspectRatio: '16:9',
+            isThumbnail,
+          }, onLog);
+          if (result.ok) {
+            const modelTag = result.modelUsed ? ` (${result.modelUsed})` : '';
+            return { ok: true, dataUrl: result.dataUrl, source: `Flow${modelTag}` };
+          }
+          detail = result.error || detail;
+          console.log(`[DISPATCH] ⚠️ Flow 시도 ${attempt} 실패: ${detail}`);
+          onLog?.(`⚠️ Flow ${attempt}회 실패: ${String(detail).substring(0, 300)}`);
+          if (attempt === 1 && isLabsAuthError(detail) && !retried) {
+            retried = true;
+            onLog?.(`🛡️ Labs 인증 에러 감지 — 프로필 자동 복구 후 재시도`);
+            const { resetSessionAndProfile } = await import('./imageFxGenerator');
+            await resetSessionAndProfile(onLog);
+            // Flow의 자체 cooldown flag도 함께 해제
+            try {
+              const { resetFlowDisabledFlag } = await import('./flowGenerator');
+              resetFlowDisabledFlag();
+            } catch { /* ignore */ }
+            continue;
+          }
+          break;
+        } catch (e: any) {
+          detail = `예외: ${e?.message || e}`;
+          console.log(`[DISPATCH] ⚠️ Flow 예외: ${detail}`);
+          onLog?.(`⚠️ Flow ${detail.substring(0, 300)}`);
+          if (attempt === 1 && isLabsAuthError(detail) && !retried) {
+            retried = true;
+            const { resetSessionAndProfile } = await import('./imageFxGenerator');
+            await resetSessionAndProfile(onLog);
+            try {
+              const { resetFlowDisabledFlag } = await import('./flowGenerator');
+              resetFlowDisabledFlag();
+            } catch { /* ignore */ }
+            continue;
+          }
+          break;
         }
-        detail = result.error || detail;
-        console.log(`[DISPATCH] ⚠️ Flow 실패: ${detail}`);
-        onLog?.(`⚠️ Flow 실패 원인: ${String(detail).substring(0, 300)}`);
-      } catch (e: any) {
-        detail = `예외: ${e?.message || e}`;
-        console.log(`[DISPATCH] ⚠️ Flow 예외: ${detail}`);
-        onLog?.(`⚠️ Flow ${detail.substring(0, 300)}`);
       }
       return { ok: false, dataUrl: '', source: '', error: `Flow 실패: ${detail}` };
     }
