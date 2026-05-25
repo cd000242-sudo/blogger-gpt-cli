@@ -10260,7 +10260,31 @@ function startQuickTutorial() {
 // Form에서 Payload 생성하는 헬퍼 함수 (🔥 async)
 async function createPayloadFromForm() {
   const keywordInput = DOMCache.get('keywordInput');
-  const keywordValue = keywordInput ? keywordInput.value.trim() : '';
+  let keywordValue = keywordInput ? keywordInput.value.trim() : '';
+
+  // v3.5.91 — URL 모드: keyword가 비어있으면 첫 URL의 호스트명을 임시 topic으로 사용
+  //   백엔드는 manualCrawlUrls로 본문 크롤링 → 진짜 키워드/제목을 자동 추출함
+  //   topic이 완전히 빈 값으로 가면 sectionCount 계산 등 일부 로직이 깨지므로 placeholder 필요
+  const _singleInputMode = (() => {
+    try { return localStorage.getItem('singleInputMode') || 'keyword'; }
+    catch { return 'keyword'; }
+  })();
+  if (!keywordValue && _singleInputMode === 'url') {
+    const refUrlEl = document.getElementById('referenceUrl');
+    const refValue = refUrlEl?.value?.trim() || '';
+    const firstUrl = refValue.split('\n')
+      .map(u => u.trim())
+      .find(u => u.startsWith('http://') || u.startsWith('https://'));
+    if (firstUrl) {
+      try {
+        const hostname = new URL(firstUrl).hostname.replace(/^www\./, '');
+        keywordValue = `[URL] ${hostname}`;
+        console.log('[POSTING] 🔗 URL 모드 — 키워드 자동 설정:', keywordValue);
+      } catch {
+        keywordValue = '[URL] 원본 크롤링';
+      }
+    }
+  }
 
   const thumbnailTypeSelect = DOMCache.get('thumbnailType');
   const sectionCountSelect = document.getElementById('sectionCount');

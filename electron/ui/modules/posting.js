@@ -201,12 +201,31 @@ export async function runPosting() {
     return;
   }
 
-  // ── Guard: 키워드 필수 ──
+  // ── Guard: 키워드 필수 (v3.5.91 — URL 모드는 키워드 대신 URL이 있으면 통과) ──
   const keywordInput = DOMCache.get('keywordInput');
   const keywordValue = keywordInput?.value?.trim();
+  // 단일 입력 모드 확인: 'url' 모드면 referenceUrl이 키워드 역할
+  const singleInputMode = (() => {
+    try { return localStorage.getItem('singleInputMode') || 'keyword'; }
+    catch { return 'keyword'; }
+  })();
+  const referenceUrlEl = document.getElementById('referenceUrl');
+  const referenceUrlValue = referenceUrlEl?.value?.trim() || '';
+  const hasValidUrl = referenceUrlValue.split('\n')
+    .map(u => u.trim())
+    .some(u => u.startsWith('http://') || u.startsWith('https://'));
+
   if (!keywordValue) {
-    getErrorHandler().showToast('키워드를 입력해주세요.', 'error');
-    return;
+    if (singleInputMode === 'url' && hasValidUrl) {
+      // URL 모드 + 유효 URL 존재 → 통과 (백엔드가 URL 본문에서 키워드 자동 추출)
+      console.log('[POSTING] 🔗 URL 모드 — 키워드 생략, URL 본문에서 자동 추출');
+    } else if (singleInputMode === 'url' && !hasValidUrl) {
+      getErrorHandler().showToast('URL 모드: 원본 URL을 입력해주세요.', 'error');
+      return;
+    } else {
+      getErrorHandler().showToast('키워드를 입력해주세요.', 'error');
+      return;
+    }
   }
 
   try {
