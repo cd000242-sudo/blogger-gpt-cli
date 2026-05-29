@@ -384,6 +384,35 @@
     🚀 개발 모드 (무제한)
   </div>
 
+  <!-- v3.5.98: 최소화된 진행률 표시 (우측 하단 floating bar) -->
+  <!-- 클릭 시 모달 다시 표시. progress 업데이트 시 자동 sync. -->
+  <div id="minimizedProgressBar" onclick="restoreProgressModal && restoreProgressModal()"
+    style="display: none; position: fixed; bottom: 20px; right: 20px; z-index: 2147483646;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    border-radius: 16px; padding: 14px 20px; min-width: 280px; max-width: 360px;
+    box-shadow: 0 10px 40px rgba(99, 102, 241, 0.5), 0 0 20px rgba(99, 102, 241, 0.3);
+    cursor: pointer; transition: all 0.25s ease; user-select: none;"
+    onmouseover="this.style.transform='translateY(-3px) scale(1.02)'; this.style.boxShadow='0 14px 50px rgba(99, 102, 241, 0.7), 0 0 30px rgba(99, 102, 241, 0.5)';"
+    onmouseout="this.style.transform='translateY(0) scale(1)'; this.style.boxShadow='0 10px 40px rgba(99, 102, 241, 0.5), 0 0 20px rgba(99, 102, 241, 0.3)';"
+    title="클릭하면 작업창이 다시 열립니다">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span style="font-size: 22px; animation: pulse 2s infinite;">⚡</span>
+      <div style="flex: 1; min-width: 0;">
+        <div style="color: white; font-size: 13px; font-weight: 800; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="minimizedProgressTitle">
+          작업 진행 중...
+        </div>
+        <div style="background: rgba(255,255,255,0.2); height: 6px; border-radius: 3px; overflow: hidden;">
+          <div id="minimizedProgressFill" style="height: 100%; background: linear-gradient(90deg, #34d399, #fcd34d); border-radius: 3px; width: 0%; transition: width 0.5s ease;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+          <span id="minimizedProgressLabel" style="color: rgba(255,255,255,0.8); font-size: 11px;">대기 중</span>
+          <span id="minimizedProgressPct" style="color: white; font-size: 12px; font-weight: 700;">0%</span>
+        </div>
+      </div>
+      <span style="font-size: 16px; color: rgba(255,255,255,0.7); transform: rotate(45deg);">⤢</span>
+    </div>
+  </div>
+
   <!-- ===== App Layout (사이드바 + 메인) ===== -->
   <div class="app-layout">
     <!-- 사이드바: sidebar.js 가 렌더링 -->
@@ -4229,10 +4258,27 @@
                         </div>
                       </div>
                     </div>
-                    <button onclick="hideProgressModal()"
-                      style="width: 38px; height: 38px; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.2); color: rgba(255, 255, 255, 0.8); border-radius: 12px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease;"
-                      onmouseover="this.style.background='rgba(239, 68, 68, 0.8)'; this.style.transform='rotate(90deg) scale(1.1)';"
-                      onmouseout="this.style.background='rgba(255, 255, 255, 0.1)'; this.style.transform='rotate(0deg) scale(1)';">✕</button>
+                    <!-- v3.5.98: 작업 모달 헤더 우측 버튼들 — 최소화 / 중지 / 닫기 -->
+                    <div style="display: flex; gap: 8px;">
+                      <!-- 🟡 최소화 버튼 — 모달 숨기고 하단 progress bar 표시 -->
+                      <button onclick="minimizeProgressModal && minimizeProgressModal()" type="button"
+                        title="최소화 (하단에서 진행 상황 확인)"
+                        style="width: 38px; height: 38px; background: rgba(245, 158, 11, 0.2); border: 2px solid rgba(245, 158, 11, 0.4); color: #fde68a; border-radius: 12px; cursor: pointer; font-size: 18px; font-weight: 800; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;"
+                        onmouseover="this.style.background='rgba(245, 158, 11, 0.4)'; this.style.transform='scale(1.05)';"
+                        onmouseout="this.style.background='rgba(245, 158, 11, 0.2)'; this.style.transform='scale(1)';">—</button>
+                      <!-- 🛑 중지 버튼 — cancel-task IPC + 모달 종료 -->
+                      <button onclick="cancelRunningTask && cancelRunningTask()" type="button"
+                        title="작업 중지"
+                        style="width: 38px; height: 38px; background: rgba(239, 68, 68, 0.2); border: 2px solid rgba(239, 68, 68, 0.4); color: #fecaca; border-radius: 12px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;"
+                        onmouseover="this.style.background='rgba(239, 68, 68, 0.6)'; this.style.transform='scale(1.05)';"
+                        onmouseout="this.style.background='rgba(239, 68, 68, 0.2)'; this.style.transform='scale(1)';">🛑</button>
+                      <!-- ✕ 닫기 (모달만 닫기, 작업은 계속) -->
+                      <button onclick="hideProgressModal()"
+                        title="닫기 (작업은 계속 진행)"
+                        style="width: 38px; height: 38px; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.2); color: rgba(255, 255, 255, 0.8); border-radius: 12px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease;"
+                        onmouseover="this.style.background='rgba(239, 68, 68, 0.8)'; this.style.transform='rotate(90deg) scale(1.1)';"
+                        onmouseout="this.style.background='rgba(255, 255, 255, 0.1)'; this.style.transform='rotate(0deg) scale(1)';">✕</button>
+                    </div>
                   </div>
 
                   <!-- 진행률 원형 표시 + 텍스트 -->
@@ -5096,6 +5142,157 @@
             GA4가 여러 개일 경우 자동 선택이 실패할 수 있어요. 한 번만 선택하면 이후 자동으로 기억합니다.
           </div>
           <div id="ga4PropertyList" style="display: grid; gap: 10px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v3.5.98: 🎨 대량 이미지 생성 탭 신규
+         프롬프트 여러 개 입력 → AI 엔진 선택 → API로 대량 생성 → 다운로드 ZIP
+         글 생성 흐름과 독립. 외부 LLM(ChatGPT/Claude/Perplexity)에서 글 받아 이미지만 본 앱으로. -->
+    <div id="image-batch-tab" class="tab-content" style="display: none;">
+      <div class="container" style="max-width: 1400px; margin: 0 auto; padding: 32px 24px;">
+        <!-- 상단 헤더 -->
+        <div style="background: linear-gradient(135deg, #f97316 0%, #ef4444 100%); border-radius: 20px; padding: 28px 32px; margin-bottom: 28px; color: white; box-shadow: 0 12px 40px rgba(249, 115, 22, 0.4);">
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <span style="font-size: 48px;">🎨</span>
+            <div style="flex: 1;">
+              <h2 style="margin: 0; font-size: 26px; font-weight: 800;">대량 이미지 생성</h2>
+              <p style="margin: 6px 0 0 0; font-size: 14px; opacity: 0.95;">
+                프롬프트 여러 개 → API로 한 번에 생성 → ZIP 다운로드. 글 작성과 독립.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 본문: 좌(설정+프롬프트) / 우(결과) 2열 레이아웃 -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+
+          <!-- 좌측: 설정 + 프롬프트 입력 -->
+          <div>
+            <!-- 1. AI 엔진 선택 -->
+            <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 20px; margin-bottom: 16px;">
+              <h3 style="margin: 0 0 12px 0; color: white; font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 8px;">
+                🤖 AI 엔진 선택
+              </h3>
+              <select id="batchImageEngine" onchange="window.updateBatchImageCost && window.updateBatchImageCost()"
+                style="width: 100%; padding: 12px 14px; background: linear-gradient(135deg, rgba(30,41,59,0.95) 0%, rgba(51,65,85,0.95) 100%); border: 2px solid rgba(255,255,255,0.4); color: white; font-size: 14px; font-weight: 600; border-radius: 10px; cursor: pointer;">
+                <option value="nanobanana">🍌 나노바나나 (Gemini 2.5 Flash · 저비용 ≈$0.039/장)</option>
+                <option value="nanobanana2" selected>🍌 나노바나나 2 (Gemini 3.1 Flash · 권장 ≈$0.067/장)</option>
+                <option value="nanobananapro">🍌 나노바나나 Pro (Gemini 3 Pro · 최고품질 ≈$0.134~/장)</option>
+                <option value="gptimage1">🎯 GPT 이미지 1 (gpt-image-1 · 신분증 인증 필요)</option>
+                <option value="gptimage2">🎯 GPT 이미지 2 / 덕테이프 (gpt-image-2)</option>
+                <option value="prodia">🚀 Prodia FLUX schnell (⭐ 최저가 ≈$0.001/장)</option>
+                <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질 ≈$0.012/장)</option>
+                <option value="imagefx">🎨 ImageFX (무료 · Google 로그인)</option>
+                <option value="flow">🌊 Flow (무료* · AI Pro 구독)</option>
+              </select>
+
+              <!-- GPT quality (gptimage1/2 선택 시) -->
+              <div id="batchGptQualityWrap" style="display: none; margin-top: 12px; padding: 10px; background: rgba(139,92,246,0.1); border: 1px solid rgba(139,92,246,0.3); border-radius: 8px;">
+                <label style="display: block; font-size: 12px; color: #c4b5fd; font-weight: 700; margin-bottom: 6px;">🎚️ GPT 이미지 품질</label>
+                <div style="display: flex; gap: 6px;">
+                  <label style="flex: 1; display: flex; align-items: center; gap: 4px; padding: 6px; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 6px; cursor: pointer; font-size: 11px; color: white;">
+                    <input type="radio" name="batchGptQuality" value="low" style="accent-color:#22c55e;"> 💸 Low ($0.011)
+                  </label>
+                  <label style="flex: 1; display: flex; align-items: center; gap: 4px; padding: 6px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); border-radius: 6px; cursor: pointer; font-size: 11px; color: white;">
+                    <input type="radio" name="batchGptQuality" value="medium" checked style="accent-color:#3b82f6;"> ⚖️ Medium ($0.042)
+                  </label>
+                  <label style="flex: 1; display: flex; align-items: center; gap: 4px; padding: 6px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; cursor: pointer; font-size: 11px; color: white;">
+                    <input type="radio" name="batchGptQuality" value="high" style="accent-color:#ef4444;"> 💎 High ($0.167)
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. 프롬프트 입력 -->
+            <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 20px; margin-bottom: 16px;">
+              <h3 style="margin: 0 0 12px 0; color: white; font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 8px; justify-content: space-between;">
+                <span>📝 프롬프트 (1줄 = 1이미지)</span>
+                <span id="batchPromptCount" style="font-size: 12px; color: #c4b5fd; font-weight: 700;">0장</span>
+              </h3>
+              <textarea id="batchPromptList" oninput="window.updateBatchImageCost && window.updateBatchImageCost()"
+                placeholder="여기에 프롬프트를 줄바꿈으로 여러 개 입력하세요.&#10;예시:&#10;A cozy Korean cafe with morning light&#10;An elderly Korean man reading newspaper&#10;Modern Seoul cityscape at sunset"
+                style="width: 100%; min-height: 200px; padding: 14px; background: rgba(0,0,0,0.25); border: 2px solid rgba(255,255,255,0.1); color: white; font-size: 13px; border-radius: 10px; font-family: 'SF Mono', monospace; line-height: 1.6; resize: vertical;"></textarea>
+              <small style="display: block; margin-top: 8px; color: rgba(255,255,255,0.5); font-size: 11px;">
+                💡 각 줄이 하나의 이미지가 됩니다 · 빈 줄은 무시됨 · 최대 50장
+              </small>
+            </div>
+
+            <!-- 3. 옵션 -->
+            <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 20px; margin-bottom: 16px;">
+              <h3 style="margin: 0 0 12px 0; color: white; font-size: 16px; font-weight: 800;">⚙️ 옵션</h3>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div>
+                  <label style="display: block; font-size: 12px; color: rgba(255,255,255,0.7); margin-bottom: 4px;">📐 가로세로 비율</label>
+                  <select id="batchAspectRatio" style="width: 100%; padding: 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); color: white; border-radius: 6px;">
+                    <option value="16:9" selected>16:9 (가로 - 썸네일)</option>
+                    <option value="1:1">1:1 (정사각)</option>
+                    <option value="9:16">9:16 (세로 - 모바일)</option>
+                    <option value="4:3">4:3</option>
+                    <option value="3:4">3:4</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="display: block; font-size: 12px; color: rgba(255,255,255,0.7); margin-bottom: 4px;">🔁 병렬 동시 생성</label>
+                  <select id="batchParallel" style="width: 100%; padding: 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); color: white; border-radius: 6px;">
+                    <option value="3" selected>3개 (안전)</option>
+                    <option value="5">5개 (빠름)</option>
+                    <option value="10">10개 (최대 — Rate Limit 주의)</option>
+                    <option value="1">1개 (순차)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4. 비용 미리보기 + 생성 시작 -->
+            <div style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.1)); border: 1px solid rgba(99,102,241,0.4); border-radius: 16px; padding: 20px;">
+              <div id="batchCostPreview" style="text-align: center; color: white; font-size: 14px; margin-bottom: 14px; font-weight: 700;">
+                💰 예상 비용: <span id="batchCostValue">0원</span>
+                <small style="display: block; margin-top: 4px; color: rgba(255,255,255,0.6); font-size: 11px; font-weight: 500;">
+                  <span id="batchCountLabel">0장</span> × 엔진 단가
+                </small>
+              </div>
+              <button id="batchGenerateBtn" type="button" onclick="window.startBatchImageGeneration && window.startBatchImageGeneration()"
+                style="width: 100%; padding: 16px; background: linear-gradient(135deg, #f97316 0%, #ef4444 100%); border: none; color: white; font-size: 16px; font-weight: 800; border-radius: 12px; cursor: pointer; box-shadow: 0 8px 24px rgba(249,115,22,0.4); transition: all 0.2s ease;"
+                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 12px 32px rgba(249,115,22,0.6)';"
+                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 8px 24px rgba(249,115,22,0.4)';">
+                🚀 이미지 대량 생성 시작
+              </button>
+            </div>
+          </div>
+
+          <!-- 우측: 결과 그리드 + 진행률 -->
+          <div>
+            <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 20px; margin-bottom: 16px; position: sticky; top: 20px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+                <h3 style="margin: 0; color: white; font-size: 16px; font-weight: 800;">📦 생성 결과</h3>
+                <button id="batchDownloadAllBtn" type="button" onclick="window.downloadBatchImagesAsZip && window.downloadBatchImagesAsZip()"
+                  disabled
+                  style="padding: 8px 14px; background: linear-gradient(135deg, #10b981, #059669); border: none; color: white; font-size: 12px; font-weight: 700; border-radius: 8px; cursor: pointer; opacity: 0.5;">
+                  📥 전체 ZIP 다운로드
+                </button>
+              </div>
+
+              <!-- 진행률 -->
+              <div id="batchProgressArea" style="display: none; margin-bottom: 14px;">
+                <div style="display: flex; justify-content: space-between; color: white; font-size: 12px; margin-bottom: 4px;">
+                  <span id="batchProgressLabel">대기 중...</span>
+                  <span id="batchProgressPct">0%</span>
+                </div>
+                <div style="background: rgba(255,255,255,0.1); height: 8px; border-radius: 4px; overflow: hidden;">
+                  <div id="batchProgressFill" style="height: 100%; background: linear-gradient(90deg, #f97316, #fbbf24); border-radius: 4px; width: 0%; transition: width 0.4s ease;"></div>
+                </div>
+              </div>
+
+              <!-- 결과 그리드 -->
+              <div id="batchResultGrid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-height: 60vh; overflow-y: auto;">
+                <div style="grid-column: 1 / -1; padding: 40px 20px; text-align: center; color: rgba(255,255,255,0.4); font-size: 13px;">
+                  프롬프트를 입력하고 "🚀 이미지 대량 생성 시작" 버튼을 눌러주세요.
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>

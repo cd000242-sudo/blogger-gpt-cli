@@ -191,60 +191,152 @@ html { scroll-behavior: smooth !important; }
   flex-shrink: 0 !important;
 }
 
-/* === CTA Box (Max-Adsense 가시성 극대화) === */
+/* === CTA Box v3.5.99 — 프리미엄 카드 (그라데이션 보더 + 골드 배지 + 화살표) === */
 @keyframes pulse-cta {
-  0% { transform: scale(1); box-shadow: 0 4px 6px rgba(255, 59, 59, 0.2); }
-  50% { transform: scale(1.02); box-shadow: 0 8px 15px rgba(255, 59, 59, 0.4); }
-  100% { transform: scale(1); box-shadow: 0 4px 6px rgba(255, 59, 59, 0.2); }
+  0%, 100% {
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.4) inset,
+      0 6px 18px rgba(220, 38, 38, 0.45),
+      0 12px 36px -8px rgba(220, 38, 38, 0.5);
+  }
+  50% {
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.55) inset,
+      0 8px 24px rgba(220, 38, 38, 0.6),
+      0 18px 48px -8px rgba(220, 38, 38, 0.7);
+  }
+}
+@keyframes cta-shimmer {
+  0%   { transform: translateX(-130%) skewX(-20deg); }
+  60%  { transform: translateX(220%)  skewX(-20deg); }
+  100% { transform: translateX(220%)  skewX(-20deg); }
 }
 
 .cta-box {
+  position: relative !important;
   width: 100% !important;
-  background: #fff8f8 !important; /* 초경고성 연분홍 배경 */
-  border: 3px dashed #ff3b3b !important; /* 강렬한 점선 박스 (쿠폰 은유) */
-  border-radius: 12px !important;
-  padding: 30px 20px !important;
+  max-width: 640px !important;
+  background: linear-gradient(180deg, #ffffff 0%, #fff7ed 100%) !important;
+  border: 1px solid rgba(220, 38, 38, 0.12) !important;
+  border-radius: 22px !important;
+  padding: 40px 28px 34px !important;
   text-align: center !important;
-  margin: 45px 0 !important;
+  margin: 56px auto !important;
   box-sizing: border-box !important;
-  position: relative;
+  isolation: isolate;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.9) inset,
+    0 2px 4px rgba(15, 23, 42, 0.04),
+    0 24px 56px -28px rgba(220, 38, 38, 0.25),
+    0 12px 32px -16px rgba(15, 23, 42, 0.12) !important;
+  overflow: hidden;
+}
+/* 부드러운 상단 광택 (글래스 느낌) */
+.cta-box::before {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 0 auto 0 !important;
+  height: 56% !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,255,255,0) 100%) !important;
+  pointer-events: none !important;
+  z-index: 0;
+}
+/* 좌측 골드 액센트 라인 (프리미엄 시그니처) */
+.cta-box::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 0; top: 18%; bottom: 18% !important;
+  width: 4px !important;
+  background: linear-gradient(180deg, #fbbf24 0%, #f59e0b 50%, #dc2626 100%) !important;
+  border-radius: 0 4px 4px 0 !important;
+  z-index: 1;
+}
+.cta-box > * { position: relative; z-index: 2; }
+/* 골드 배지 (LIMITED / 권장 표식) */
+.cta-box .cta-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 6px 14px !important;
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%) !important;
+  color: #78350f !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  letter-spacing: 1.5px !important;
+  border-radius: 999px !important;
+  margin-bottom: 16px !important;
+  text-transform: uppercase !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.6) inset,
+    0 4px 10px rgba(245, 158, 11, 0.4) !important;
 }
 .cta-box p {
-  margin-bottom: 20px !important;
-  font-size: 19px !important;
+  margin: 0 auto 22px !important;
+  font-size: 21px !important;
   font-weight: 800 !important;
-  color: #111827 !important;
-  line-height: 1.4 !important;
+  color: #0f172a !important;
+  line-height: 1.45 !important;
+  letter-spacing: -0.015em !important;
   word-break: keep-all;
+  max-width: 92% !important;
 }
 .cta-btn {
-  display: block !important;
-  width: 100% !important;
-  max-width: 400px !important;
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  min-width: 280px !important;
+  max-width: 100% !important;
   margin: 0 auto !important;
-  background: #ef4444 !important; /* 강렬한 레드 */
+  padding: 18px 36px !important;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%) !important;
   color: #ffffff !important;
-  padding: 18px 20px !important;
-  border-radius: 8px !important;
+  border: 2px solid rgba(255, 255, 255, 0.18) !important;
+  border-radius: 14px !important;
   font-size: 18px !important;
-  font-weight: 800;
+  font-weight: 900 !important;
   text-decoration: none !important;
-  transition: all 0.2s ease;
-  animation: pulse-cta 2s infinite !important; /* 박동 애니메이션 */
-  box-sizing: border-box !important; /* 모바일 넘침 방지 */
-  word-break: keep-all !important; /* 모바일 텍스트 줄바꿈 깔끔하게 */
+  letter-spacing: -0.005em !important;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease !important;
+  animation: pulse-cta 2.6s ease-in-out infinite !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.18);
+}
+/* 우측 화살표 — hover 시 미세 슬라이드 */
+.cta-btn::after {
+  content: "→" !important;
+  font-size: 20px !important;
+  font-weight: 900 !important;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  display: inline-block !important;
+}
+/* 광택 슬라이드 — 5초마다 한번 반짝 */
+.cta-btn::before {
+  content: "" !important;
+  position: absolute !important;
+  top: 0; left: 0; bottom: 0; width: 40% !important;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.35) 50%, rgba(255,255,255,0) 100%) !important;
+  animation: cta-shimmer 5s ease-in-out infinite !important;
+  pointer-events: none !important;
 }
 .cta-btn:hover {
-  background: #dc2626 !important;
-  transform: translateY(-2px) scale(1.02) !important;
+  transform: translateY(-3px) scale(1.015) !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.5) inset,
+    0 10px 26px rgba(220, 38, 38, 0.55),
+    0 22px 54px -10px rgba(220, 38, 38, 0.65) !important;
 }
+.cta-btn:hover::after { transform: translateX(6px) !important; }
 .cta-microcopy {
   display: block !important;
-  margin-top: 12px !important;
+  margin-top: 16px !important;
   font-size: 13px !important;
-  font-weight: 700;
-  color: #ef4444;
-  letter-spacing: -0.5px;
+  font-weight: 700 !important;
+  color: #ea580c !important;
+  letter-spacing: -0.01em !important;
+  opacity: 0.85;
 }
 
 /* === 면책 조항 === */

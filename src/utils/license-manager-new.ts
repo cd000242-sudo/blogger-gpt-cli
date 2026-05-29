@@ -586,11 +586,29 @@ export class LicenseManager {
       const licenseData: LicenseData = JSON.parse(fs.readFileSync(this.licensePath, 'utf8'));
       const deviceId = this.getDeviceId();
 
-      if (licenseData.deviceId !== deviceId) {
+      // v3.5.98: 옛 형식 license.json (deviceId 필드 누락) 호환.
+      //   기존: deviceId가 license.json에 없으면 undefined !== <현재 deviceId> = true → "디바이스 변경" 에러
+      //   변경: license.json에 deviceId 명시적으로 있을 때만 검증. 없으면 skip (옛 라이선스 그대로 사용 가능)
+      if (licenseData.deviceId && licenseData.deviceId !== deviceId) {
         return {
           valid: false,
           message: '디바이스가 변경되었습니다. 다시 인증해주세요.'
         };
+      }
+
+      // v3.5.98: licenseType 필드가 없으면 expiresAt 기준으로 자동 추정.
+      //   - expiresAt이 있고 미래면 temporary 처럼 검증
+      //   - 둘 다 없으면 permanent로 간주 (patch 파일 검증 fallback)
+      if (!licenseData.licenseType) {
+        if (licenseData.expiresAt && licenseData.expiresAt > Date.now()) {
+          const daysLeft = Math.ceil((licenseData.expiresAt - Date.now()) / (1000 * 60 * 60 * 24));
+          return {
+            valid: true,
+            message: `라이선스 (만료까지 ${daysLeft}일 — 옛 형식 호환)`,
+            licenseData
+          };
+        }
+        // licenseType 없고 expiresAt도 없으면 permanent로 처리하지 말고 폴백
       }
 
       if (licenseData.licenseType === 'temporary') {

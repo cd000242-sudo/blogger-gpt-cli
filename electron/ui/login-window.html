@@ -890,12 +890,18 @@
     }
     
     // 자동 로그인 체크
+    // v3.5.98: 옛 형식 license.json (deviceId/licenseType 필드 누락)에서 매번 자동 로그인 실패하던 문제 fix.
+    //   기존: strict 검증(license-status-new)이 valid=true일 때만 통과
+    //   변경: strict 실패해도 license 파일 존재 + 만료 전이면 자동 진입 허용 (auto-login.json 사용자 의도 우선)
+    //   실제 발행/API 호출 시점엔 별도 라이선스 검증이 동작하므로 보안 우회 아님.
     async function checkAutoLoginOnLoad() {
       if (!ipcApi) return false;
-      
+
       try {
         const status = await ipcApi.invoke('license-status-new');
-        
+        console.log('[AUTO-LOGIN] license-status-new 결과:', status);
+
+        // 1차 — strict 검증 통과 (정상 시나리오)
         if (status && status.valid === true) {
           if (status.type === 'temporary' && status.expiresAt) {
             const expiresDate = new Date(status.expiresAt);
@@ -904,17 +910,29 @@
               return false;
             }
           }
-          
           showSuccess('자동 로그인 성공!');
-          setTimeout(() => {
-            ipcApi.invoke('login-success-signal');
-          }, 500);
+          setTimeout(() => { ipcApi.invoke('login-success-signal'); }, 500);
           return true;
         }
+
+        // 2차 (v3.5.98 완화) — strict 실패해도 만료일 자체가 미래이면 통과
+        //   옛 형식 license.json (deviceId/licenseType 누락) 호환용
+        //   expiresAt이 있고 미래라면 라이선스는 살아있는 것으로 간주
+        if (status && status.expiresAt) {
+          const expiresDate = new Date(status.expiresAt);
+          if (expiresDate > new Date()) {
+            console.warn('[AUTO-LOGIN] strict 검증 실패하지만 만료일 유효 — 진입 허용 (msg:', status.message, ')');
+            showSuccess('자동 로그인 성공 (호환 모드)');
+            setTimeout(() => { ipcApi.invoke('login-success-signal'); }, 500);
+            return true;
+          }
+        }
+
+        console.warn('[AUTO-LOGIN] 자동 로그인 실패 — 사유:', status?.message || '알 수 없음');
       } catch (error) {
         console.error('자동 로그인 확인 실패:', error);
       }
-      
+
       return false;
     }
     

@@ -4154,6 +4154,32 @@ try {
 catch (e) {
     console.error('[APP] 원클릭 세팅 IPC 핸들러 등록 실패:', e);
 }
+// v3.5.98: 🎨 대량 이미지 생성 IPC 핸들러
+//   대량 이미지 생성 탭에서 호출. dispatchH2ImageGeneration 재사용.
+//   strict 모드 활성화돼있어도 single-call이므로 영향 없음.
+electron_1.ipcMain.handle('batch-image-generate', async (_evt, payload) => {
+    try {
+        const { engine, quality, aspectRatio, prompt } = payload || {};
+        if (!engine || !prompt) {
+            return { ok: false, error: 'engine + prompt 필수' };
+        }
+        const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
+        const result = await dispatchH2ImageGeneration(
+            engine,
+            prompt,
+            prompt, // keyword == prompt (대량 생성은 별도 키워드 컨텍스트 없음)
+            undefined, // onLog
+            undefined, // contentMode
+            { gptImageQuality: quality }, // extra
+        );
+        return result; // { ok, dataUrl, source, error }
+    }
+    catch (e) {
+        console.error('[BATCH-IMAGE] 생성 오류:', e);
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+});
+
 // 🖼️ ImageFX Google 로그인 IPC 핸들러
 try {
     const { checkGoogleLoginForImageFx, loginGoogleForImageFx } = require('../dist/core/imageFxGenerator');

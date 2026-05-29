@@ -961,6 +961,9 @@ const ProgressManager = (() => {
         if (percentageEl) {
           percentageEl.textContent = `${percentage}%`;
         }
+
+        // v3.5.98 — 최소화된 floating bar에도 sync
+        try { if (window.syncMinimizedProgress) window.syncMinimizedProgress(); } catch {}
         if (this.elements.textEl) {
           this.elements.textEl.textContent = `${percentage}%`;
         }

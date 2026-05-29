@@ -61,6 +61,21 @@ const SESSION_BOUND_PATTERNS: RegExp[] = [
     /nps\.or\.kr\/.*\/jsppage\/.*\.jsp\?/i,
 ];
 
+/**
+ * v3.5.99 — 명백한 에러 페이지 URL 패턴.
+ * 카탈로그/JSON/AI가 만든 URL이 직접 이 경로로 들어오는 케이스 + 정부/공공 사이트가
+ * 세션 만료 시 redirect로 보내는 최종 URL을 모두 잡는다.
+ */
+const ERROR_PAGE_PATTERNS: RegExp[] = [
+    /\/error\/error\.html/i,           // bokjiro: /error/error.html
+    /\/error\.html(\?|$)/i,             // 일반 에러 페이지
+    /\/error\/[^/]+\.(do|jsp|action)/i, // 정부 사이트 에러 액션
+    /\/errorPage\.(do|jsp|html|action)/i,
+    /\/common\/error/i,                  // /common/error.html 등
+    /\/notFound\.html/i,
+    /[?&](errMsg|errorCode|errCd)=/i,    // 에러 코드를 쿼리스트링으로 받는 페이지
+];
+
 /** 세션 에러 페이지 본문 시그니처 — 200 OK로 응답하지만 실제로는 에러 */
 const ERROR_CONTENT_SIGNATURES: string[] = [
     '요청하신 페이지를 바르게 표시',
@@ -69,6 +84,15 @@ const ERROR_CONTENT_SIGNATURES: string[] = [
     '정상적인 접근이 아닙',
     '세션이 만료',
     '비정상적인 접근',
+    // v3.5.99 추가 — bokjiro/gov.kr 에러 페이지 영문/한글 패턴
+    '시스템에 오류가 발생',
+    '관리자에게 문의',
+    'System Error',
+    '서비스 이용에 불편',
+    '일시적인 오류',
+    '다시 시도해',
+    'Page Not Found',
+    'errorMessage',     // JSP 에러 페이지 변수
 ];
 
 /** GET 본문 검증이 필요한 호스트 접미사 — 200 OK 에러 페이지가 흔한 정부/공공 사이트 */
@@ -176,6 +200,14 @@ async function performValidation(
         }
     }
 
+    // v3.5.99 — 2.6단계: 명백한 에러 페이지 URL 차단 (카탈로그/AI/JSON 모두 무관)
+    for (const pattern of ERROR_PAGE_PATTERNS) {
+        if (pattern.test(url)) {
+            console.warn(`[CTA-VALIDATE] 🚫 에러 페이지 URL 차단: ${url}`);
+            return { isValid: false, reason: 'error-page-url', elapsedMs: Date.now() - start };
+        }
+    }
+
     // 3단계: HTTP HEAD 검증 (옵션)
     if (skipHttp) {
         return { isValid: true, elapsedMs: Date.now() - start };
@@ -207,6 +239,24 @@ async function performValidation(
                 reason: `http-${statusCode}`,
                 elapsedMs: Date.now() - start,
             };
+        }
+
+        // v3.5.99 — redirect 최종 URL이 에러 페이지인지 검증
+        //   복지로처럼 세션 만료 시 서버가 /error/error.html로 자동 리다이렉트하는 케이스를 차단.
+        const finalUrl = response.url || url;
+        if (finalUrl !== url) {
+            for (const pattern of ERROR_PAGE_PATTERNS) {
+                if (pattern.test(finalUrl)) {
+                    clearTimeout(timeoutId);
+                    console.warn(`[CTA-VALIDATE] 🚫 redirect 최종 URL이 에러 페이지: ${url} → ${finalUrl}`);
+                    return {
+                        isValid: false,
+                        statusCode,
+                        reason: 'redirect-to-error',
+                        elapsedMs: Date.now() - start,
+                    };
+                }
+            }
         }
 
         // 200 OK여도 본문에 에러 문구가 있으면 무효 처리 (정부/공공 사이트 대상)

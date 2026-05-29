@@ -1360,6 +1360,170 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// v3.5.98 — 🎨 대량 이미지 생성 탭 로직
+//   탭에서 프롬프트 N개 입력 → AI 엔진 선택 → 병렬 호출 → 결과 그리드 + ZIP 다운로드
+//   글 생성 흐름과 독립. 외부 LLM에서 글 받은 사용자가 이미지만 본 앱으로 생성.
+const BATCH_IMAGE_ENGINE_COST = {
+  'imagefx': 0, 'flow': 0,
+  'nanobanana': 52, 'nanobanana2': 90, 'nanobananapro': 178,
+  'gptimage1-low': 15, 'gptimage1-medium': 56, 'gptimage1-high': 222,
+  'gptimage2-low': 15, 'gptimage2-medium': 56, 'gptimage2-high': 222,
+  'prodia': 1, 'deepinfra': 16,
+};
+
+window.updateBatchImageCost = function () {
+  const engine = document.getElementById('batchImageEngine')?.value || 'nanobanana2';
+  const quality = document.querySelector('input[name="batchGptQuality"]:checked')?.value || 'medium';
+  const promptList = document.getElementById('batchPromptList')?.value || '';
+  const prompts = promptList.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 50);
+  const count = prompts.length;
+
+  // quality 라디오 wrap 표시/숨김
+  const qualityWrap = document.getElementById('batchGptQualityWrap');
+  if (qualityWrap) {
+    qualityWrap.style.display = (engine === 'gptimage1' || engine === 'gptimage2') ? 'block' : 'none';
+  }
+
+  const unitCost = (engine === 'gptimage1' || engine === 'gptimage2')
+    ? (BATCH_IMAGE_ENGINE_COST[`${engine}-${quality}`] ?? 0)
+    : (BATCH_IMAGE_ENGINE_COST[engine] ?? 0);
+  const totalCost = unitCost * count;
+
+  const countLabel = document.getElementById('batchCountLabel');
+  if (countLabel) countLabel.textContent = `${count}장 × ${unitCost.toLocaleString()}원`;
+  const valueEl = document.getElementById('batchCostValue');
+  if (valueEl) valueEl.textContent = totalCost === 0 ? '🎉 무료' : `${totalCost.toLocaleString()}원`;
+  const promptCount = document.getElementById('batchPromptCount');
+  if (promptCount) promptCount.textContent = `${count}장`;
+};
+
+// 결과 저장 (ZIP 다운로드용)
+window.__batchImageResults = [];
+
+window.startBatchImageGeneration = async function () {
+  const engine = document.getElementById('batchImageEngine')?.value || 'nanobanana2';
+  const quality = document.querySelector('input[name="batchGptQuality"]:checked')?.value || 'medium';
+  const aspectRatio = document.getElementById('batchAspectRatio')?.value || '16:9';
+  const parallel = parseInt(document.getElementById('batchParallel')?.value || '3', 10);
+  const promptList = document.getElementById('batchPromptList')?.value || '';
+  const prompts = promptList.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 50);
+
+  if (prompts.length === 0) {
+    alert('프롬프트를 1개 이상 입력해주세요.');
+    return;
+  }
+  if (!confirm(`${prompts.length}장의 이미지를 ${engine} 엔진으로 생성합니다. 계속할까요?`)) {
+    return;
+  }
+
+  const grid = document.getElementById('batchResultGrid');
+  const progressArea = document.getElementById('batchProgressArea');
+  const progressFill = document.getElementById('batchProgressFill');
+  const progressPct = document.getElementById('batchProgressPct');
+  const progressLabel = document.getElementById('batchProgressLabel');
+  const generateBtn = document.getElementById('batchGenerateBtn');
+  const downloadBtn = document.getElementById('batchDownloadAllBtn');
+
+  if (grid) {
+    grid.innerHTML = prompts.map((p, i) => `
+      <div id="batch-img-${i}" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px; aspect-ratio: ${aspectRatio.replace(':', '/')};">
+        <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: rgba(255,255,255,0.4); font-size: 11px; text-align: center;">⏳ 대기 ${i + 1}/${prompts.length}</div>
+      </div>
+    `).join('');
+  }
+  if (progressArea) progressArea.style.display = 'block';
+  if (generateBtn) { generateBtn.disabled = true; generateBtn.textContent = '⏳ 생성 중...'; generateBtn.style.opacity = '0.6'; }
+  if (downloadBtn) { downloadBtn.disabled = true; downloadBtn.style.opacity = '0.5'; }
+  window.__batchImageResults = [];
+
+  let completed = 0;
+  const updateProgress = () => {
+    const pct = Math.round((completed / prompts.length) * 100);
+    if (progressFill) progressFill.style.width = `${pct}%`;
+    if (progressPct) progressPct.textContent = `${pct}%`;
+    if (progressLabel) progressLabel.textContent = `${completed} / ${prompts.length} 완료`;
+  };
+  updateProgress();
+
+  // 병렬 처리 — N개씩 묶어서 처리
+  async function processOne(prompt, idx) {
+    try {
+      if (!window.electronAPI?.invoke) throw new Error('electronAPI 없음');
+      const result = await window.electronAPI.invoke('batch-image-generate', {
+        engine, quality, aspectRatio, prompt,
+      });
+      const cell = document.getElementById(`batch-img-${idx}`);
+      if (result?.ok && result.dataUrl) {
+        window.__batchImageResults[idx] = { prompt, dataUrl: result.dataUrl };
+        if (cell) {
+          cell.innerHTML = `
+            <a href="${result.dataUrl}" download="image-${idx + 1}.png" style="display: block; height: 100%;">
+              <img src="${result.dataUrl}" alt="result ${idx + 1}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 6px; cursor: pointer;" title="${prompt.substring(0, 80)}">
+            </a>
+          `;
+        }
+      } else {
+        if (cell) cell.innerHTML = `<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #fca5a5; font-size: 11px; text-align: center; padding: 8px;">❌ 실패<br><small>${(result?.error || '알 수 없음').substring(0, 50)}</small></div>`;
+      }
+    } catch (e) {
+      const cell = document.getElementById(`batch-img-${idx}`);
+      if (cell) cell.innerHTML = `<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #fca5a5; font-size: 11px; padding: 8px;">❌ ${(e.message || '').substring(0, 50)}</div>`;
+    } finally {
+      completed++;
+      updateProgress();
+    }
+  }
+
+  // 병렬 worker pool
+  const queue = prompts.map((p, i) => ({ prompt: p, idx: i }));
+  const workers = Array.from({ length: parallel }, async () => {
+    while (queue.length > 0) {
+      const task = queue.shift();
+      if (!task) break;
+      await processOne(task.prompt, task.idx);
+    }
+  });
+  await Promise.all(workers);
+
+  if (generateBtn) { generateBtn.disabled = false; generateBtn.textContent = '🚀 이미지 대량 생성 시작'; generateBtn.style.opacity = '1'; }
+  const successCount = window.__batchImageResults.filter(r => r && r.dataUrl).length;
+  if (downloadBtn && successCount > 0) { downloadBtn.disabled = false; downloadBtn.style.opacity = '1'; }
+  if (progressLabel) progressLabel.textContent = `✅ 완료 — 성공 ${successCount}/${prompts.length}`;
+  alert(`✅ 이미지 생성 완료\n성공: ${successCount}장 / 전체: ${prompts.length}장`);
+};
+
+window.downloadBatchImagesAsZip = async function () {
+  const results = (window.__batchImageResults || []).filter(r => r && r.dataUrl);
+  if (results.length === 0) {
+    alert('다운로드할 이미지가 없습니다.');
+    return;
+  }
+
+  // 개별 다운로드 — 브라우저에서 ZIP 생성하려면 JSZip 등 라이브러리 필요.
+  // 일단 개별 .png를 순차 다운로드. 사용자가 한꺼번에 받을 수 있게.
+  if (!confirm(`${results.length}장의 이미지를 개별 다운로드합니다.\n(브라우저 다중 다운로드 권한 허용 필요)`)) return;
+
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const a = document.createElement('a');
+    a.href = r.dataUrl;
+    a.download = `image-${String(i + 1).padStart(3, '0')}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // 브라우저가 다중 다운로드 prompt 안 띄우게 200ms 간격
+    await new Promise(r => setTimeout(r, 200));
+  }
+};
+
+// 탭 표시될 때 초기 비용 계산
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => { if (window.updateBatchImageCost) window.updateBatchImageCost(); }, 800);
+  document.querySelectorAll('input[name="batchGptQuality"]').forEach(r => {
+    r.addEventListener('change', () => window.updateBatchImageCost && window.updateBatchImageCost());
+  });
+});
+
 // v3.5.96 — 이미지 비용 미리보기 (배치 모드 + 엔진 선택에 따라 동적 계산)
 //   환경설정의 이미지 비용표와 동일한 가격 사용. 실시간 업데이트.
 const IMAGE_ENGINE_COST_KRW_PER_IMAGE = {

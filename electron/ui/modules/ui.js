@@ -262,6 +262,8 @@ export function hideProgressModal() {
   const progressBar = document.getElementById('premiumProgressBar');
   const publishBtn = DOMCache.get('publishBtn');
   const cancelBtn = document.getElementById('cancelProgressBtn');
+  // v3.5.98: 모달 닫힐 때 하단 floating bar도 함께 숨김
+  const minBar = document.getElementById('minimizedProgressBar');
 
   if (progressBar) {
     console.log('✅ 프리미엄 진행 바 숨기기 시작');
@@ -275,6 +277,8 @@ export function hideProgressModal() {
     console.warn('⚠️ 진행 바 요소를 찾을 수 없습니다');
   }
 
+  if (minBar) minBar.style.display = 'none';
+
   ButtonStateManager.restore('publishBtn');
 
   if (cancelBtn) {
@@ -282,6 +286,81 @@ export function hideProgressModal() {
     cancelBtn.style.opacity = '0.6';
     cancelBtn.style.pointerEvents = 'none';
   }
+}
+
+// v3.5.98 — 모달 최소화 (작업은 계속 진행, UI만 하단 floating bar로 축소)
+export function minimizeProgressModal() {
+  console.log('🟡 minimizeProgressModal 호출됨');
+  const progressBar = document.getElementById('premiumProgressBar');
+  const minBar = document.getElementById('minimizedProgressBar');
+  if (progressBar) {
+    progressBar.style.display = 'none';
+  }
+  if (minBar) {
+    minBar.style.display = 'block';
+    // 현재 진행률 즉시 sync
+    syncMinimizedProgress();
+  }
+}
+
+// v3.5.98 — 최소화된 bar 클릭 시 모달 복원
+export function restoreProgressModal() {
+  console.log('🔵 restoreProgressModal 호출됨');
+  const progressBar = document.getElementById('premiumProgressBar');
+  const minBar = document.getElementById('minimizedProgressBar');
+  if (minBar) minBar.style.display = 'none';
+  if (progressBar) {
+    progressBar.style.display = 'flex';
+    progressBar.style.visibility = 'visible';
+    progressBar.style.opacity = '1';
+  }
+}
+
+// v3.5.98 — 모달의 진행률을 하단 bar로 sync (updateProgress 시 자동 호출)
+export function syncMinimizedProgress() {
+  const minBar = document.getElementById('minimizedProgressBar');
+  if (!minBar || minBar.style.display === 'none') return;
+
+  // 모달의 진행률 정보를 그대로 읽어와 sync
+  const pct = parseInt(document.getElementById('progressPercentage')?.textContent || '0', 10);
+  const label = document.getElementById('progressLabel')?.textContent
+    || document.getElementById('progressStatus')?.textContent
+    || '진행 중...';
+  // 제목 (현재 단계)
+  const titleEl = document.getElementById('progressStageTitle')
+    || document.getElementById('progressStatus');
+  const titleText = titleEl?.textContent?.substring(0, 50) || '작업 진행 중';
+
+  const fill = document.getElementById('minimizedProgressFill');
+  const pctEl = document.getElementById('minimizedProgressPct');
+  const labelEl = document.getElementById('minimizedProgressLabel');
+  const titleElMin = document.getElementById('minimizedProgressTitle');
+
+  if (fill) fill.style.width = `${pct}%`;
+  if (pctEl) pctEl.textContent = `${pct}%`;
+  if (labelEl) labelEl.textContent = label.substring(0, 60);
+  if (titleElMin) titleElMin.textContent = titleText;
+}
+
+// v3.5.98 — cancel-task IPC 전송 (모달의 🛑 버튼이 호출)
+export function cancelRunningTask() {
+  const confirmed = confirm('진행 중인 작업을 중지하시겠습니까?\n생성 중인 글은 저장되지 않습니다.');
+  if (!confirmed) return;
+
+  try {
+    if (window.electronAPI?.cancelTask) {
+      window.electronAPI.cancelTask();
+      console.log('[PROGRESS_MODAL] 🛑 cancel-task IPC 전송됨');
+    } else if (window.blogger?.cancelTask) {
+      window.blogger.cancelTask();
+    }
+  } catch (e) {
+    console.error('[PROGRESS_MODAL] cancel IPC 오류:', e);
+  }
+
+  // 모달 + 하단 bar 모두 종료
+  hideProgressModal();
+  setTimeout(() => { try { alert('🛑 작업 중지 요청을 보냈습니다.'); } catch {} }, 200);
 }
 
 // 실행 상태 설정
@@ -558,6 +637,11 @@ if (!window.showProgressModal) window.showProgressModal = showProgressModal;
 if (!window.createFallbackProgressModal) window.createFallbackProgressModal = createFallbackProgressModal;
 if (!window.hideProgressModal) window.hideProgressModal = hideProgressModal;
 if (!window.cancelProgress) window.cancelProgress = cancelProgress;
+// v3.5.98 — 최소화/복원/중지 함수 전역 노출
+if (!window.minimizeProgressModal) window.minimizeProgressModal = minimizeProgressModal;
+if (!window.restoreProgressModal) window.restoreProgressModal = restoreProgressModal;
+if (!window.cancelRunningTask) window.cancelRunningTask = cancelRunningTask;
+if (!window.syncMinimizedProgress) window.syncMinimizedProgress = syncMinimizedProgress;
 if (!window.openSettingsModal) window.openSettingsModal = openSettingsModal;
 if (!window.closeSettingsModal) window.closeSettingsModal = closeSettingsModal;
 if (!window.closePreviewModal) window.closePreviewModal = closePreviewModal;

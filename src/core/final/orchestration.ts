@@ -1343,6 +1343,7 @@ export async function generateUltimateMaxModeArticleFinal(
 
         html += `
 <div class="cta-box">
+  <span class="cta-badge">✨ 공식 권장 ✨</span>
   <p>${sectionCta.hookingMessage}</p>
   <a class="cta-btn" href="${ctaUrl}" target="_blank" rel="nofollow noopener noreferrer">
     ${sectionCta.buttonText}
@@ -1535,6 +1536,7 @@ JSON: [{"label":"추천","hookingMessage":"...","buttonText":"..."}]
         const cta = supplementalCtas[ci]!;
         html += `
 <div class="cta-box">
+  <span class="cta-badge">✨ 추천 링크 ✨</span>
   <p><strong>${cta.hookingMessage}</strong></p>
   <a class="cta-btn" href="${cta.url}" target="_blank" rel="nofollow noopener noreferrer">
     ${cta.buttonText}
@@ -1604,6 +1606,7 @@ JSON: [{"label":"추천","hookingMessage":"...","buttonText":"..."}]
         const topCta = topCtaSource;
         topCtaHtml = `
 <div class="cta-box" style="margin-top: 20px !important;">
+  <span class="cta-badge">✨ 핵심 바로가기 ✨</span>
   <p><strong>${topCta.hookingMessage}</strong></p>
   <a class="cta-btn" href="${topCta.url}" target="_blank" rel="nofollow noopener noreferrer">
     ${topCta.buttonText}
@@ -1668,6 +1671,7 @@ ${conclusionHTML}
           : { hookingMessage: `${keyword}에 대해 더 알고 싶다면?`, buttonText: '자세히 알아보기', url: `https://www.google.com/search?q=${encodeURIComponent(keyword)}` };
       html += `
 <div class="cta-box">
+  <span class="cta-badge">✨ 마무리 추천 ✨</span>
   <p><strong>${finalCta.hookingMessage}</strong></p>
   <a class="cta-btn" href="${finalCta.url}" target="_blank" rel="nofollow noopener noreferrer">
     ${finalCta.buttonText}
