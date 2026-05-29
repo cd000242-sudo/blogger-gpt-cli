@@ -555,14 +555,63 @@ JSON 형식 (이 구조 정확히 따르기!):
 JSON만 출력 (설명/마크다운 금지):
 `;
 
+  // v3.5.94 — JSON 추출 강화: brace counting + 문자열 내 escape 처리
+  //   기존: indexOf('{') + lastIndexOf('}') → AI가 JSON 끝에 explanation 붙이면 잘못된 } 위치 (position 8383 같은 버그)
+  //   변경: 첫 { 부터 시작해 brace depth 추적, 문자열 안의 } 는 무시 → 진짜 JSON 종료 위치 정확히 검출
+  //   추가: trailing comma 제거 + 0x00~0x1F 제어문자 제거 (JSON.parse가 거부하는 케이스)
   const extractJsonObject = (text: string): string => {
-    const cleaned = (text || '').trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
+    let cleaned = (text || '').trim()
+      .replace(/```json\s*\n?/g, '')
+      .replace(/```\s*\n?/g, '')
+      // 제어 문자 제거 (탭/CR/LF는 보존)
+      .replace(/[ --]/g, '');
+
     const first = cleaned.indexOf('{');
-    const last = cleaned.lastIndexOf('}');
-    if (first !== -1 && last !== -1 && last > first) {
-      return cleaned.slice(first, last + 1);
+    if (first === -1) return cleaned;
+
+    // Brace counting — 문자열 내 따옴표/escape 고려
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    let end = -1;
+
+    for (let i = first; i < cleaned.length; i++) {
+      const c = cleaned[i];
+      if (escape) { escape = false; continue; }
+      if (c === '\\') { escape = true; continue; }
+      if (c === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (c === '{') depth++;
+      else if (c === '}') {
+        depth--;
+        if (depth === 0) { end = i; break; }
+      }
     }
-    return cleaned;
+
+    let result = end !== -1 ? cleaned.slice(first, end + 1) : cleaned.slice(first);
+    // trailing comma 제거 — JSON spec 위반이지만 AI가 자주 출력
+    result = result.replace(/,(\s*[}\]])/g, '$1');
+    return result;
+  };
+
+  // JSON.parse 실패 시 자동 복구 시도 (best-effort)
+  const safeParseJson = (raw: string): any => {
+    try { return JSON.parse(raw); } catch (e1) {
+      // 1차: 흔한 escape 문제 — 문자열 내 unescaped newline → 공백
+      try {
+        const fixed = raw.replace(/("(?:[^"\\]|\\.)*")|(\n)/g, (m, str, nl) => str || ' ');
+        return JSON.parse(fixed);
+      } catch (e2) {
+        // 2차: 마지막 valid 위치까지 자르고 닫는 } 강제 추가 시도
+        try {
+          const lastValidBrace = raw.lastIndexOf('}');
+          if (lastValidBrace > 0) {
+            return JSON.parse(raw.substring(0, lastValidBrace + 1));
+          }
+        } catch {}
+        throw e1; // 원본 에러 throw
+      }
+    }
   };
 
   const countParagraphs = (html: string): number => {
@@ -596,13 +645,26 @@ JSON만 출력 (설명/마크다운 금지):
     };
 
     try {
-      allSectionsObj = JSON.parse(json);
+      allSectionsObj = safeParseJson(json);
     } catch (e) {
       onLog?.('[PROGRESS] 50% - 🔁 JSON 파싱 실패, 1회 재시도...');
-      const retryPrompt = `${prompt}\n\nIMPORTANT: Return ONLY a valid JSON object starting with { and ending with }. No markdown, no code fences, no extra text.`;
+      const retryPrompt = `${prompt}\n\nIMPORTANT: Return ONLY a valid JSON object starting with { and ending with }. No markdown, no code fences, no extra text. Do not add explanations after the closing brace.`;
       response = await callGeminiWithGrounding(retryPrompt);
       json = extractJsonObject(response);
-      allSectionsObj = JSON.parse(json);
+      try {
+        allSectionsObj = safeParseJson(json);
+      } catch (e2) {
+        // v3.5.94: 2회 모두 실패 시 디버그를 위해 문제 위치 로깅
+        const errMsg = (e2 as Error).message || '';
+        const posMatch = errMsg.match(/position (\d+)/i);
+        if (posMatch && posMatch[1]) {
+          const pos = parseInt(posMatch[1], 10);
+          const context = json.substring(Math.max(0, pos - 80), Math.min(json.length, pos + 80));
+          console.error(`[generateAllSections] JSON 파싱 실패 위치 ${pos} 주변:`, JSON.stringify(context));
+          onLog?.(`[PROGRESS] 50% - ⚠️ JSON 파싱 실패 위치 ${pos} 주변: ${context.substring(0, 100)}`);
+        }
+        throw e2;
+      }
     }
 
     onLog?.('[PROGRESS] 65% - ✅ AI 본문 생성 완료!');
@@ -657,7 +719,13 @@ JSON만 출력:
 `;
       const improved = await callGeminiWithGrounding(improvePrompt);
       const improvedJson = extractJsonObject(improved);
-      allSectionsObj = JSON.parse(improvedJson);
+      try {
+        allSectionsObj = safeParseJson(improvedJson);
+      } catch (parseErr) {
+        // v3.5.94: 보강 단계 JSON 실패 시 원본 유지 (보강 전 데이터로 fallback)
+        console.warn('[generateAllSections] 보강 JSON 파싱 실패 — 보강 전 데이터로 유지:', (parseErr as Error).message);
+        onLog?.('[PROGRESS] 65% - ⚠️ 본문 보강 JSON 파싱 실패 — 원본 유지');
+      }
       onLog?.('[PROGRESS] 65% - ✅ 본문 보강 완료!');
     }
 

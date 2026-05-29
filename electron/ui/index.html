@@ -3639,6 +3639,19 @@
                       background: #1e293b;
                       color: white;
                     }
+
+                    /* v3.5.94: 카테고리 등 select 클릭 안 먹는 버그 fix
+                       - 일부 환경에서 overlay 또는 stacking context 이슈로 select 클릭 차단됨
+                       - 명시적으로 pointer-events + cursor + z-index 강제 */
+                    .posting-settings-tab-panel select {
+                      cursor: pointer !important;
+                      pointer-events: auto !important;
+                      position: relative !important;
+                      z-index: 5 !important;
+                    }
+                    .posting-settings-tab-panel.active {
+                      pointer-events: auto !important;
+                    }
                   </style>
 
                   <!-- 탭 바 -->
@@ -4038,7 +4051,7 @@
                     <div class="acc-field">
                       <label class="acc-label">📂 워드프레스 카테고리</label>
                       <div style="display: flex; gap: 8px;">
-                        <select id="wpCategory" style="flex: 1;">
+                        <select id="wpCategory" style="flex: 1; cursor: pointer; pointer-events: auto; position: relative; z-index: 5;">
                           <option value="">카테고리를 먼저 로드하세요</option>
                         </select>
                         <button type="button" id="loadWpCategoriesBtn"
