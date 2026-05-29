@@ -940,10 +940,34 @@ export async function generateUltimateMaxModeArticleFinal(
     const sectionImages: string[] = [];
     const sectionImageSources: string[] = [];
 
-    const selectedH2SectionsRaw: any = payload.h2ImageSections || payload.h2Images?.sections || [];
+    // v3.5.96: 이미지 배치 모드 — 사용자가 비용 절감을 위해 일부 섹션만 이미지 생성
+    //   'all' (또는 미설정) → 모든 H2 섹션
+    //   'odd' → 홀수만 (1, 3, 5)
+    //   'even' → 짝수만 (2, 4)
+    //   'thumbnail-only' → 본문 이미지 0장, 썸네일만
+    //   'none' → 썸네일까지 모두 스킵 (이건 skipImages=true로 처리)
+    const h2ImageMode: string = String(payload.h2ImageMode || 'all').toLowerCase();
+    let selectedH2SectionsRaw: any = payload.h2ImageSections || payload.h2Images?.sections || [];
+
+    // 모드가 명시되면 sections 배열을 자동 계산 (UI에서 보낸 배열을 덮어씀)
+    if (h2ImageMode === 'odd') {
+      selectedH2SectionsRaw = Array.from({ length: sections.length }, (_, i) => i + 1).filter(n => n % 2 === 1);
+      onLog?.(`[PROGRESS] 75% - 🖼️ 이미지 배치: 홀수 섹션만 (${selectedH2SectionsRaw.join(', ')}번)`);
+    } else if (h2ImageMode === 'even') {
+      selectedH2SectionsRaw = Array.from({ length: sections.length }, (_, i) => i + 1).filter(n => n % 2 === 0);
+      onLog?.(`[PROGRESS] 75% - 🖼️ 이미지 배치: 짝수 섹션만 (${selectedH2SectionsRaw.join(', ')}번)`);
+    } else if (h2ImageMode === 'thumbnail-only' || h2ImageMode === 'thumbnail_only') {
+      selectedH2SectionsRaw = [-1]; // sentinel: 본문 이미지 0장, 썸네일만 유지
+      onLog?.(`[PROGRESS] 75% - 🖼️ 이미지 배치: 썸네일만 (본문 이미지 0장)`);
+    } else if (h2ImageMode === 'all' || !h2ImageMode) {
+      // 'all' 또는 미설정 — 기존 배열 그대로 사용 (또는 전체 fallback)
+    }
+
     const selectedH2Sections: number[] = Array.isArray(selectedH2SectionsRaw)
       ? selectedH2SectionsRaw.map((n: any) => Number(n)).filter((n: any) => Number.isFinite(n) && n > 0)
       : [];
+    // thumbnail-only 모드는 sentinel [-1]이라 위 filter에서 0개 통과 → effectiveSelectedH2Sections 빈 배열
+    const isThumbnailOnly = h2ImageMode === 'thumbnail-only' || h2ImageMode === 'thumbnail_only';
 
     // 🔥 빠른 모드: 이미지 생성 스킵
     if (skipImages) {
@@ -958,10 +982,12 @@ export async function generateUltimateMaxModeArticleFinal(
 
       // 🔥 이미지 배치 섹션 선택 — 썸네일은 썸네일, 섹션 이미지는 섹션 이미지로 독립 생성.
       //    v3.5.55부터 adsense 모드에서도 섹션1(이젠 'understanding_topic')에 이미지 정상 삽입.
-      //    (이전 author_intro 섹션 제거되어 더 이상 첫 섹션 스킵 필요 없음)
-      const effectiveSelectedH2Sections = selectedH2Sections.length > 0
-        ? selectedH2Sections
-        : Array.from({ length: sections.length }, (_, i) => i + 1);
+      //    v3.5.96: thumbnail-only 모드는 본문 이미지 0장 → 빈 배열로 명시 (전체 fallback 차단)
+      const effectiveSelectedH2Sections = isThumbnailOnly
+        ? []
+        : selectedH2Sections.length > 0
+          ? selectedH2Sections
+          : Array.from({ length: sections.length }, (_, i) => i + 1);
 
       const envData = loadEnvFromFile();
       const pexelsKey = envData['pexelsApiKey'] || envData['PEXELS_API_KEY'] || '';
@@ -1098,12 +1124,18 @@ export async function generateUltimateMaxModeArticleFinal(
 
       // 🛡️ R-1 (v3.5.85): Strict 모드는 순차 처리 + 8~15초 jitter
       //   reCAPTCHA Enterprise는 같은 IP/세션의 병렬 요청을 "비정상 활동"으로 즉시 감지.
-      //   첫 호출이 차단되면 _flowDisabledAt가 세팅되어 나머지 즉시 fail.
       //   → 순차 + jitter 적용 시 인간 행동 패턴에 가까워져 차단율 ↓
+      //
+      // 🚀 v3.5.95 OPT: Strict 모드여도 reCAPTCHA를 쓰지 않는 서버 API 엔진은 병렬 처리.
+      //   - ImageFX, Flow → Playwright + reCAPTCHA → 순차 + jitter 필요 (기존 유지)
+      //   - nanobanana 3종, gpt-image 1/2, prodia, deepinfra → 서버 API (REST) → 병렬 안전
+      //   사용자 보고: nanobanana2 5장 순차 처리에 5.8분 소요 — 병렬 시 ~1분으로 단축
       const strictMode = String(process.env['STRICT_H2_IMAGE_ENGINE'] || '').toLowerCase() === 'true';
+      const RECAPTCHA_ENGINES = new Set(['imagefx', 'flow']);
+      const needsSequential = strictMode && RECAPTCHA_ENGINES.has(String(imageSource).toLowerCase());
       let imageResults: PromiseSettledResult<{ dataUrl: string; source: string }>[];
 
-      if (strictMode) {
+      if (needsSequential) {
         // 🛡️ v3.5.86: 사용자에게 예상 소요 시간 미리 안내
         //   1장당 평균 60초 생성 + 11.5초 jitter (마지막 제외) → 5장 기준 5*60 + 4*11.5 = 346초 ≈ 6분
         //   안전망: 90초 생성 가정 시 5*90 + 4*15 = 510초 ≈ 9분
@@ -1142,6 +1174,7 @@ export async function generateUltimateMaxModeArticleFinal(
       }
 
       // 🛡️ S-2 (v3.5.84): Strict 모드에서 1장이라도 STRICT_ENGINE_FAILED 발생 시 발행 차단
+      //   (병렬/순차 무관 — 엔진 고정 정책은 동일하게 적용)
       if (strictMode) {
         const strictFailed = imageResults.find(r =>
           r.status === 'rejected' && /STRICT_ENGINE_FAILED/.test(String((r as PromiseRejectedResult).reason?.message || ''))
@@ -1174,7 +1207,7 @@ export async function generateUltimateMaxModeArticleFinal(
       if (failCount > 0) {
         onLog?.(`[PROGRESS] 85% - ⚠️ 이미지 ${successCount}/${totalToGenerate}장 완료, ${failCount}장 실패 (${imageGenElapsed}초)`);
       } else {
-        onLog?.(`[PROGRESS] 85% - 🎉 이미지 ${successCount}/${totalToGenerate}장 완료 (${imageGenElapsed}초${strictMode ? ' — 순차 처리' : ' — 병렬 처리'})`);
+        onLog?.(`[PROGRESS] 85% - 🎉 이미지 ${successCount}/${totalToGenerate}장 완료 (${imageGenElapsed}초${needsSequential ? ' — 순차 처리' : ' — 병렬 처리'})`);
       }
       // 🛡️ v3.5.86: 누적 통계 한 줄 요약 (실측 기반 튜닝용)
       try {

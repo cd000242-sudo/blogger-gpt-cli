@@ -1360,6 +1360,89 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// v3.5.96 — 이미지 비용 미리보기 (배치 모드 + 엔진 선택에 따라 동적 계산)
+//   환경설정의 이미지 비용표와 동일한 가격 사용. 실시간 업데이트.
+const IMAGE_ENGINE_COST_KRW_PER_IMAGE = {
+  'imagefx': 0,                                  // 무료
+  'flow': 0,                                     // Google AI Pro 구독자 무료
+  'nanobanana': 52,                              // $0.039
+  'nanobanana2': 90,                             // $0.067 (사용자 현재 기본)
+  'nanobananapro': 178,                          // $0.134
+  'gptimage1': 56,                               // medium 기본 ($0.042)
+  'gptimage1-low': 15,                           // $0.011
+  'gptimage1-high': 222,                         // $0.167
+  'gptimage2': 56,                               // medium 기본
+  'gptimage2-low': 15,
+  'gptimage2-high': 222,
+  'prodia': 1,                                   // $0.001 (≈1.3원)
+  'deepinfra': 16,                               // $0.012
+  'crawled': 0,
+  'text': 0,
+  'none': 0,
+};
+
+function getCurrentImageEngineCost() {
+  // 본문 이미지 엔진 + GPT quality 반영
+  const h2Engine = document.getElementById('h2ImageSource')?.value || 'imagefx';
+  const thumbEngine = document.getElementById('thumbnailType')?.value || 'imagefx';
+  const quality = (typeof getGptImageQuality === 'function' ? getGptImageQuality() : 'medium');
+
+  const resolveCost = (engine) => {
+    if (engine === 'gptimage1' || engine === 'gptimage2') {
+      return IMAGE_ENGINE_COST_KRW_PER_IMAGE[`${engine}-${quality}`] ?? IMAGE_ENGINE_COST_KRW_PER_IMAGE[engine] ?? 0;
+    }
+    return IMAGE_ENGINE_COST_KRW_PER_IMAGE[engine] ?? 0;
+  };
+
+  return {
+    h2: resolveCost(h2Engine),
+    thumb: resolveCost(thumbEngine),
+    h2Engine,
+    thumbEngine,
+  };
+}
+
+window.updateImageCostPreview = function () {
+  const previewEl = document.getElementById('imageCostPreviewValue');
+  if (!previewEl) return;
+
+  const mode = document.getElementById('h2ImageMode')?.value || 'all';
+  const { h2, thumb, h2Engine, thumbEngine } = getCurrentImageEngineCost();
+
+  // 본문 이미지 장수 (기본 5장 가정)
+  const h2CountByMode = {
+    'all': 5,
+    'odd': 3,
+    'even': 2,
+    'thumbnail-only': 0,
+    'none': 0,
+  };
+  const h2Count = h2CountByMode[mode] ?? 5;
+  const thumbCount = mode === 'none' ? 0 : 1;
+
+  const h2Total = h2 * h2Count;
+  const thumbTotal = thumb * thumbCount;
+  const total = h2Total + thumbTotal;
+
+  const breakdown = total === 0
+    ? '🎉 무료 (이미지 비용 0원)'
+    : `${total.toLocaleString()}원 (본문 ${h2Count}장 ${h2Total.toLocaleString()}원 + 썸네일 ${thumbCount}장 ${thumbTotal.toLocaleString()}원)`;
+
+  previewEl.textContent = breakdown;
+};
+
+// 초기 표시 + 엔진 변경 시 자동 업데이트
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => { if (window.updateImageCostPreview) window.updateImageCostPreview(); }, 500);
+  ['h2ImageSource', 'thumbnailType', 'h2ImageMode'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => { if (window.updateImageCostPreview) window.updateImageCostPreview(); });
+  });
+  document.querySelectorAll('input[name="gptImageQuality"]').forEach(r => {
+    r.addEventListener('change', () => { if (window.updateImageCostPreview) window.updateImageCostPreview(); });
+  });
+});
+
 // 🛡️ v3.5.88 — OpenAI 신분증 인증 페이지 진입
 //   gpt-image-1 / gpt-image-2(덕테이프) 사용을 위해 OpenAI Organization Verification 필요.
 function openOpenAiVerification() {
@@ -10386,6 +10469,10 @@ async function createPayloadFromForm() {
     thumbnailMode: thumbnailTypeSelect?.value || 'imagefx',
     // v3.5.89 — GPT 이미지 quality 옵션 (UI 라디오 선택값, 미선택 시 'medium')
     gptImageQuality: (typeof getGptImageQuality === 'function' ? getGptImageQuality() : 'medium'),
+    // v3.5.96 — 이미지 배치 모드 (비용 절감용)
+    h2ImageMode: (document.getElementById('h2ImageMode')?.value || 'all'),
+    // 'none' 모드는 skipImages=true로 처리 (썸네일까지 모두 스킵)
+    skipImages: (document.getElementById('h2ImageMode')?.value === 'none'),
     sectionCount: (() => {
       let count = 5;
       if (sectionCountSelect) {

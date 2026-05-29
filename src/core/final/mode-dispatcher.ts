@@ -89,16 +89,78 @@ export function dispatchMode(
   }
 
   // H2 제목: 활성 섹션에서 가져오기 (빈 배열이면 null → AI 생성 위임)
+  // v3.5.97: 단순 string replace로는 "방법란" 같은 어색한 조사 처리 불가.
+  //   - 받침 자동 검사로 "이란/란", "은/는", "을/를" 등 자연스럽게 치환
+  //   - 키워드가 매우 길면 (>15자) 후행 보일러플레이트("실전 활용 가이드" 등)를 더 간결하게 단축
+  //   - 같은 글마다 동일 H2 → 검색 의도 다양화 위해 패턴 풀에서 일부 랜덤 변형
+  const hasFinalConsonant = (word: string): boolean => {
+    if (!word) return false;
+    const lastChar = word.charCodeAt(word.length - 1);
+    if (lastChar < 0xAC00 || lastChar > 0xD7A3) return false; // 한글 음절이 아니면 받침 판정 불가
+    return (lastChar - 0xAC00) % 28 !== 0;
+  };
+  // 조사 자동 처리: 키워드 + 조사 패턴
+  const josa = (word: string, withFinal: string, withoutFinal: string): string =>
+    `${word}${hasFinalConsonant(word) ? withFinal : withoutFinal}`;
+
+  // 보일러플레이트 패턴 변형 풀 (같은 의미, 다양한 표현)
+  const variantPools: Record<string, string[]> = {
+    '란 무엇인가': ['란 무엇인가', '의 의미와 특징', '핵심 정리', ' 한눈에 보기', ' 완전 정복'],
+    '의 핵심 특성과 원리': ['의 핵심 특성과 원리', ' 작동 원리 알아보기', '의 주요 특징과 장점', ' 제대로 이해하기'],
+    ' 실전 활용 가이드': [' 실전 활용 가이드', ' 단계별 실행 방법', ' 실전 적용 노하우', ' 따라하기 쉬운 방법'],
+    ' 비교 및 선택 가이드': [' 비교 및 선택 가이드', ' 종류별 장단점 비교', ' 어떤 게 좋을까', ' 선택 기준 총정리'],
+    ' 자주 묻는 질문과 마무리': [' 자주 묻는 질문 (FAQ)', ' Q&A 핵심 정리', '에 대한 궁금증 해결', ' 자주 묻는 질문 모음'],
+  };
+  const pickVariant = (key: string, seed: number): string => {
+    const pool = variantPools[key];
+    if (!pool || pool.length === 0) return key;
+    return pool[seed % pool.length] || pool[0]!;
+  };
+
+  // 받침 처리: "[주제]란 무엇인가" → 받침 있으면 "[주제]이란 무엇인가"
+  const applyJosaAndVariant = (raw: string, seed: number): string => {
+    // 조사 처리: [주제]란 → 받침 있으면 [주제]이란
+    let result = raw;
+    if (/\[주제\]란\b/.test(result)) {
+      result = result.replace(/\[주제\]란\b/g, josa(keyword, '이란', '란'));
+      // 후행 패턴 변형 적용
+      const variantSuffix = pickVariant('란 무엇인가', seed);
+      result = result.replace(/(이란|란)\s*무엇인가/, variantSuffix.startsWith('란') || variantSuffix.startsWith('의') || variantSuffix.startsWith(' ')
+        ? variantSuffix.replace(/^(란|의)/, (m) => m === '란' ? josa('', '이란', '란') : ` ${m}`)
+        : ` ${variantSuffix}`);
+    } else {
+      result = result.replace(/\[주제\]/g, keyword);
+    }
+    // 다른 보일러플레이트 후행 패턴 변형
+    for (const [boilerplate, _] of Object.entries(variantPools)) {
+      if (boilerplate === '란 무엇인가') continue; // 위에서 처리
+      if (result.includes(boilerplate)) {
+        const variant = pickVariant(boilerplate, seed);
+        result = result.replace(boilerplate, variant);
+      }
+    }
+    result = result
+      .replace(/\[실전 경험\]/g, `${keyword} 실전 경험`)
+      .replace(/\[소주제\]/g, keyword);
+    return result;
+  };
+
+  // v3.5.97: external 모드는 AI 동적 H2 생성으로 회귀.
+  //   v3.5.81에서 정형 sections로 강제 → "예매하는 방법 작동 원리" 같은 의미 안 맞는 H2 발생
+  //   external은 키워드 다양성이 가장 큰 모드 (이벤트성/시간성/정보형 모두 포함) → 정형 강제는 부자연스러움
+  //   해결: sections는 prompt 가이드용으로만 유지(sectionPromptBlock), h2Titles는 null → AI가 키워드에 맞춰 동적 생성
+  //   다른 모드(adsense/shopping/internal/paraphrasing)는 정형 유지 (각 모드별 정형 구조가 필수)
   let h2Titles: string[] | null = null;
-  if (activeSections.length > 0) {
-    h2Titles = activeSections.map(sec => {
+  const isDynamicH2Mode = contentMode === 'external';
+  if (activeSections.length > 0 && !isDynamicH2Mode) {
+    // seed = 키워드 길이 + Date 한 자리 — 같은 키워드라도 매번 다른 변형
+    const seedBase = (keyword?.length || 0) + Math.floor(Date.now() / 86400000) % 7;
+    h2Titles = activeSections.map((sec, idx) => {
       const title = sec.title || '';
-      return title
-        .replace(/\[주제\]/g, keyword)
-        .replace(/\[실전 경험\]/g, `${keyword} 실전 경험`)
-        .replace(/\[소주제\]/g, keyword);
+      return applyJosaAndVariant(title, seedBase + idx);
     });
   }
+  // external 모드는 h2Titles=null 유지 → orchestration이 generateH2TitlesFinal로 AI 동적 생성
 
   // 섹션 프롬프트 블록: buildSectionPrompt로 생성
   let sectionPromptBlock = '';

@@ -49,11 +49,30 @@ function parseTables(raw: unknown): FinalTableData[] {
   if (!raw || !Array.isArray(raw)) return [];
   return (raw as Array<Record<string, unknown>>)
     .filter((t) => t && Array.isArray(t['headers']) && Array.isArray(t['rows']) && (t['headers'] as unknown[]).length > 0 && (t['rows'] as unknown[]).length > 0)
-    .map((t) => ({
-      type: (['feature', 'example', 'summary', 'info', 'comparison', 'checklist'].includes(t['type'] as string) ? t['type'] : 'info') as FinalTableData['type'],
-      headers: (t['headers'] as unknown[]).map(String),
-      rows: (t['rows'] as unknown[]).map((r) => Array.isArray(r) ? r.map(String) : [])
-    }))
+    .map((t) => {
+      const headers = (t['headers'] as unknown[]).map(String);
+      const colCount = headers.length;
+      // 🛡️ v3.5.95: row 길이를 headers 길이에 맞춰 정규화
+      //   사용자 보고 — AI가 첫 row의 cell을 누락하거나 별도 텍스트로 출력해서 표가 시각적으로 깨짐
+      //   ([이벤트명, ''] + 표 밖에 별도 텍스트 같은 패턴)
+      //   수정: row가 짧으면 빈 cell 추가, 길면 truncate, 비어있으면 헤더와 동일 길이로 채움
+      const rows = (t['rows'] as unknown[]).map((r) => {
+        if (!Array.isArray(r)) return new Array(colCount).fill('');
+        const cells = r.map(String);
+        if (cells.length === colCount) return cells;
+        if (cells.length < colCount) {
+          // padding — 빈 문자열로 채워서 td 칸 보존
+          return [...cells, ...new Array(colCount - cells.length).fill('')];
+        }
+        // truncate — 헤더 개수 초과한 cell 버림
+        return cells.slice(0, colCount);
+      });
+      return {
+        type: (['feature', 'example', 'summary', 'info', 'comparison', 'checklist'].includes(t['type'] as string) ? t['type'] : 'info') as FinalTableData['type'],
+        headers,
+        rows,
+      };
+    })
     .slice(0, 3);
 }
 
