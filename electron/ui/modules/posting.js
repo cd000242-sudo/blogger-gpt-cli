@@ -352,6 +352,46 @@ export async function runPosting() {
         hideProgressModal();
         try { showNotification('🎉 블로그 포스트 발행 완료!', 4000); } catch {}
 
+        // v3.5.93: 전체화면 성공 오버레이 — 작은 토스트만으로는 잘 안 보인다는 사용자 피드백 반영
+        //   풀스크린 오버레이 + 큰 글씨 + 자동 닫힘(4초) + 클릭 시 즉시 닫힘
+        try {
+          const platformLabel = String(platformName || '').toUpperCase() || '블로그';
+          const successOverlay = document.createElement('div');
+          successOverlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 10001; backdrop-filter: blur(8px);
+            cursor: pointer; animation: fadeIn 0.3s ease-out;
+          `;
+          successOverlay.innerHTML = `
+            <style>
+              @keyframes fadeIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+              @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 60% { transform: scale(1.05); } 100% { transform: scale(1); opacity: 1; } }
+            </style>
+            <div style="
+              background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+              border-radius: 24px;
+              padding: 60px 80px;
+              text-align: center;
+              box-shadow: 0 30px 80px rgba(16, 185, 129, 0.5);
+              max-width: 600px;
+              animation: popIn 0.5s ease-out;
+            ">
+              <div style="font-size: 100px; margin-bottom: 20px; line-height: 1;">🎉</div>
+              <h1 style="color: white; font-size: 48px; font-weight: 900; margin: 0 0 16px 0; letter-spacing: -1px;">발행 완료!</h1>
+              <p style="color: rgba(255,255,255,0.95); font-size: 22px; margin: 0 0 8px 0; font-weight: 700;">${platformLabel}에 정상 발행되었습니다</p>
+              <p style="color: rgba(255,255,255,0.75); font-size: 14px; margin: 24px 0 0 0;">화면을 클릭하면 닫힙니다 (자동 닫힘: 4초)</p>
+            </div>
+          `;
+          document.body.appendChild(successOverlay);
+          const closeOverlay = () => { try { if (successOverlay.parentNode) successOverlay.parentNode.removeChild(successOverlay); } catch {} };
+          successOverlay.addEventListener('click', closeOverlay);
+          setTimeout(closeOverlay, 4000);
+        } catch (overlayErr) {
+          console.warn('[SUCCESS-OVERLAY] 표시 실패(무시):', overlayErr);
+        }
+
         // 🛡️ v3.5.84: AdSense 품질 리포트 모달 — 단발은 즉시 표시, 큐 모드는 누적
         if (result.qualityReport) {
           try {

@@ -46,13 +46,11 @@ export class StateManager<T extends BaseState> {
     const state = this.states.get(key);
     if (!state) return;
 
-    try {
-      await state.browser?.close();
-    } catch {
-      /* ignore — 이미 닫혔거나 프로세스 종료됨 */
-    }
-
-    // 타이머 정리
+    // ── 동기 정리 먼저 ──
+    // browser.close()는 await 지점이라 여기서 중단되면 그 사이 다른 호출이
+    // 스테일 state를 보거나 중복 reset 할 수 있다. 맵 정리는 await 이전에
+    // 동기적으로 끝내 호출 즉시 "사라진" 상태가 되도록 보장한다.
+    const browser = state.browser;
     const timer = this.loginTimers.get(key);
     if (timer) {
       clearTimeout(timer);
@@ -60,6 +58,14 @@ export class StateManager<T extends BaseState> {
     }
     this.loginResolvers.delete(key);
     this.states.delete(key);
+
+    // 브라우저 종료는 비동기로 await — chromium 프로세스 정리가 완료된 뒤에야
+    // (await reset 한 호출자 기준) 새 state가 생성되도록 보장한다. (profile lock 충돌 방지)
+    try {
+      await browser?.close();
+    } catch {
+      /* ignore — 이미 닫혔거나 프로세스 종료됨 */
+    }
   }
 
   /**

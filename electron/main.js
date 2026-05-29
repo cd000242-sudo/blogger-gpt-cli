@@ -1867,7 +1867,27 @@ safeRegisterHandler('run-semi-auto-post', async (_evt, payload) => {
     }
 });
 // 포스트 실행 (콘텐츠 생성 + 자동 발행)
+// v3.5.93: 사용자가 진행 모달의 중지 버튼을 누르면 발송되는 cancel 시그널.
+//   현재 작업이 즉시 중단되지는 않지만(orchestration 중간 인터럽트 미지원),
+//   플래그를 set해 진행 중인 작업 직후/단계 경계에서 종료할 수 있게 함.
+//   UI는 모달을 즉시 닫고 "중지됨" 알림. 다음 단계로 넘어가지 않음.
+let _userCancelRequested = false;
+electron_1.ipcMain.on('cancel-task', (_evt) => {
+    try {
+        console.log('[CANCEL-TASK] 🛑 사용자 취소 요청 수신 — flag set');
+        _userCancelRequested = true;
+        // 모든 BrowserWindow에 알림 전송 (UI가 별도 처리할 수 있도록)
+        const { BrowserWindow } = require('electron');
+        BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) win.webContents.send('task-cancelled');
+        });
+    } catch (e) {
+        console.error('[CANCEL-TASK] 처리 중 오류:', e);
+    }
+});
+
 electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
+    _userCancelRequested = false; // 새 작업 시작 시 flag reset
     let preConsumed = false;
     try {
         console.log('[RUN-POST] 포스트 실행 요청 받음');

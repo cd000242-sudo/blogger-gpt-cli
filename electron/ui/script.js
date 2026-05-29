@@ -6715,9 +6715,9 @@ function addKeywordField() {
          <div style="display: flex; gap: 8px; align-items: center;">
            <label style="color: rgba(255, 255, 255, 0.8); font-size: 11px; font-weight: 500; min-width: 60px;">썸네일:</label>
            <select class="keyword-thumbnail-select form-input" style="background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.3); color: white; backdrop-filter: blur(10px); font-size: 12px; padding: 6px; border-radius: 4px; flex: 1;">
-             <option value="imagefx" style="background: #667eea; color: white;">🎨 ImageFX (기본)</option>
+             <option value="nanobanana2" style="background: #667eea; color: white;">🍌 Nano Banana 2 (권장)</option>
              <option value="nanobananapro" style="background: #667eea; color: white;">🍌 Nano Banana Pro</option>
-             <option value="flow" style="background: #667eea; color: white;">🌊 Flow</option>
+             <option value="prodia" style="background: #667eea; color: white;">🚀 Prodia (유료 최저가)</option>
              <option value="deepinfra" style="background: #667eea; color: white;">🔥 DeepInfra FLUX-2</option>
              <option value="dalle" style="background: #667eea; color: white;">🩹 덕트테이프 (GPT-Image-2)</option>
              <option value="none" style="background: #667eea; color: white;">❌ 썸네일 없음</option>
@@ -9470,7 +9470,14 @@ function createProgressModal(totalPosts) {
         <div id="progressPercent" style="color: white; font-size: 14px; margin-top: 8px;">0%</div>
       </div>
       <div id="currentPost" style="color: rgba(255, 255, 255, 0.9); font-size: 16px; margin-bottom: 10px;">대기 중...</div>
-      <div id="statusText" style="color: rgba(255, 255, 255, 0.7); font-size: 14px;">시작 중...</div>
+      <div id="statusText" style="color: rgba(255, 255, 255, 0.7); font-size: 14px; margin-bottom: 20px;">시작 중...</div>
+      <!-- v3.5.93: 중지 버튼 추가 (이전엔 작업 중간 취소 불가) -->
+      <button id="progressCancelBtn" type="button"
+        style="background: rgba(239, 68, 68, 0.9); color: white; border: 2px solid rgba(255,255,255,0.3); padding: 10px 24px; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4); transition: all 0.2s;"
+        onmouseover="this.style.background='rgba(220, 38, 38, 1)'; this.style.transform='translateY(-1px)';"
+        onmouseout="this.style.background='rgba(239, 68, 68, 0.9)'; this.style.transform='translateY(0)';">
+        🛑 작업 중지
+      </button>
     </div>
   `;
 
@@ -9500,6 +9507,46 @@ function createProgressModal(totalPosts) {
 
   // 모달에 cleanup 함수 저장 (제거할 때 호출 가능하도록)
   modal._cleanupEventListeners = cleanupEventListeners;
+
+  // v3.5.93: 중지 버튼 핸들러 — confirm 후 IPC로 cancel 전송 + 모달 종료
+  const cancelBtn = modal.querySelector('#progressCancelBtn');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', async () => {
+      const confirmed = confirm('진행 중인 작업을 중지하시겠습니까?\n생성 중인 글은 저장되지 않습니다.');
+      if (!confirmed) return;
+
+      cancelBtn.disabled = true;
+      cancelBtn.textContent = '⏳ 중지 요청 중...';
+      cancelBtn.style.opacity = '0.6';
+
+      try {
+        // 백엔드에 cancel 시그널 전송 (main.js의 cancel-task 핸들러에서 처리)
+        if (window.electronAPI && window.electronAPI.cancelTask) {
+          window.electronAPI.cancelTask();
+          console.log('[PROGRESS_MODAL] 🛑 cancel-task IPC 전송됨');
+        } else if (window.blogger && window.blogger.cancelTask) {
+          window.blogger.cancelTask();
+        } else {
+          console.warn('[PROGRESS_MODAL] cancelTask IPC 없음 — 모달만 종료');
+        }
+      } catch (err) {
+        console.error('[PROGRESS_MODAL] cancel IPC 오류:', err);
+      }
+
+      // 사용자 피드백 + 모달 종료
+      const statusEl = modal.querySelector('#statusText');
+      if (statusEl) statusEl.textContent = '🛑 사용자가 작업을 중지했습니다.';
+
+      setTimeout(() => {
+        try {
+          cleanupEventListeners();
+          if (modal.parentNode) modal.parentNode.removeChild(modal);
+        } catch {}
+        // 전체 화면 알림 (조용히 닫히지 않게)
+        try { alert('🛑 작업이 중지되었습니다.'); } catch {}
+      }, 1500);
+    });
+  }
 
   return modal;
 }
@@ -10302,7 +10349,11 @@ async function createPayloadFromForm() {
   const sectionCountSelect = document.getElementById('sectionCount');
   const titleModeSelect = document.getElementById('titleMode');
   const contentModeSelect = DOMCache.get('contentMode');
-  const platformSelect = document.getElementById('platformSelect');
+  // v3.5.93 BUGFIX: HTML에는 'platformSelect' ID가 없고 name="platform" 라디오 그룹만 존재.
+  //   기존 코드가 항상 null을 반환해 WordPress 선택해도 'blogspot' fallback으로 잘못 발행되던 치명적 버그.
+  //   getElementById('platformSelect') → querySelector('input[name="platform"]:checked')로 교체.
+  const platformSelectedRadio = document.querySelector('input[name="platform"]:checked');
+  const platformSelect = { value: platformSelectedRadio?.value || '' };
   const publishTypeSelect = document.querySelector('input[name="publishType"]:checked');
 
   let titleValue = null;
@@ -10387,7 +10438,9 @@ async function createPreviewPayload() {
 
   const titleModeSelect = document.getElementById('titleMode');
   const contentModeSelect = DOMCache.get('contentMode');
-  const platformSelect = document.getElementById('platformSelect');
+  // v3.5.93 BUGFIX: 위와 동일한 platform 라디오 ID 미스매치 버그 — 두 번째 payload 빌더에도 같은 fix.
+  const platformSelectedRadio = document.querySelector('input[name="platform"]:checked');
+  const platformSelect = { value: platformSelectedRadio?.value || '' };
   const publishTypeSelect = document.querySelector('input[name="publishType"]:checked');
   const postingModeSelect = document.querySelector('input[name="postingMode"]:checked');
 

@@ -125,9 +125,9 @@ function buildModalHtml() {
         </select>
         <select id="pq-bulk-thumb" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; padding: 6px 10px; font-size: 12px;">
           <option value="">썸네일 엔진 (변경 안 함)</option>
-          <option value="imagefx">🎨 이미지 FX</option>
-          <option value="flow">🌊 Flow</option>
+          <option value="nanobanana2">🍌 Nano Banana 2 (권장)</option>
           <option value="nanobananapro">🍌 Nano Banana Pro (Gemini 3)</option>
+          <option value="prodia">🚀 Prodia (유료 최저가)</option>
           <option value="deepinfra">🔥 DeepInfra</option>
           <option value="dalle">🩹 덕트테이프 (GPT-Image-2)</option>
           <option value="none">❌ 썸네일 없음</option>
@@ -191,9 +191,9 @@ function buildItemRow(item, idx) {
     <option value="paraphrasing" ${item.mode === 'paraphrasing' ? 'selected' : ''}>페러프레이징</option>
   </select>
   <select class="pq-item-thumb" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); color: white; border-radius: 6px; padding: 6px 8px; font-size: 11px;">
-    <option value="imagefx" ${item.thumb === 'imagefx' ? 'selected' : ''}>이미지 FX</option>
-    <option value="flow" ${item.thumb === 'flow' ? 'selected' : ''}>Flow</option>
+    <option value="nanobanana2" ${(!item.thumb || item.thumb === 'nanobanana2' || item.thumb === 'imagefx' || item.thumb === 'flow') ? 'selected' : ''}>Nano Banana 2 (권장)</option>
     <option value="nanobananapro" ${item.thumb === 'nanobananapro' ? 'selected' : ''}>Nano Banana Pro (G3)</option>
+    <option value="prodia" ${item.thumb === 'prodia' ? 'selected' : ''}>Prodia (최저가)</option>
     <option value="deepinfra" ${item.thumb === 'deepinfra' ? 'selected' : ''}>DeepInfra</option>
     <option value="dalle" ${item.thumb === 'dalle' ? 'selected' : ''}>덕트테이프</option>
     <option value="none" ${item.thumb === 'none' ? 'selected' : ''}>❌ 없음</option>

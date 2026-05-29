@@ -549,9 +549,9 @@
                     onfocus="this.style.borderColor='#10b981'; this.style.backgroundColor='#ffffff';"
                     onblur="this.style.borderColor='#e5e7eb'; this.style.backgroundColor='#f9fafb';">
                     <option value="auto" selected>⚙️ 자동 (썸네일 타입 따름)</option>
-                    <option value="imagefx">🎨 이미지 FX (기본·무료)</option>
-                    <option value="flow">🌊 Flow (Gemini 3 Pro Image 무료 — AI Pro 구독 필요)</option>
-                    <option value="nanobanana">🍌 나노바나나2 (Gemini 3.1 Flash Image · Pro 품질·Flash 가격)</option>
+                    <option value="nanobanana2">🍌 나노바나나2 (Gemini 3.1 Flash Image · Pro 품질·Flash 가격 · 권장)</option>
+                    <option value="nanobanana">🍌 나노바나나 (Gemini 2.5 Flash · 저비용)</option>
+                    <option value="prodia">🚀 Prodia FLUX schnell (유료 최저가)</option>
                     <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
                     <option value="crawled">🔗 URL 수집 이미지 그대로 사용</option>
                     <option value="none">❌ 썸네일 없음</option>
@@ -1846,8 +1846,7 @@
                 <div style="padding: 16px 18px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); border-radius: 12px; margin-bottom: 12px;">
                   <div style="color: #93c5fd; font-size: 13px; font-weight: 700; margin-bottom: 8px;">💡 어떤 엔진을 골라야 할까?</div>
                   <ul style="margin: 0; padding-left: 20px; color: rgba(255,255,255,0.75); font-size: 12px; line-height: 1.8;">
-                    <li><b>완전 무료 + 한글 텍스트 필요</b> → <b>Flow</b> (Google AI Pro $19.99/월 구독자 한정)</li>
-                    <li><b>완전 무료 + 한글 텍스트 불필요</b> → <b>ImageFX</b> (Google 로그인만, 한글 텍스트 깨짐)</li>
+                    <li style="color:#fca5a5;"><b>※ ImageFX / Flow 제거됨</b> — 브라우저 자동화는 reCAPTCHA로 자주 실패해 신뢰성이 없어 v3.6.0에서 삭제했습니다. 전부 공식 API 엔진으로 전환.</li>
                     <li><b>유료 최저가 (한글 텍스트 불필요)</b> → <b>🚀 Prodia FLUX schnell</b> ($0.001/장 ≈ 1글 8원, 2~4초) — 가성비 챔피언</li>
                     <li><b>최저가 + 한글 텍스트 필요</b> → <b>GPT 이미지 1 · low</b> ($0.011/장 ≈ 1글 90원)</li>
                     <li><b>고품질 + 한글 텍스트 없는 글</b> → <b>DeepInfra FLUX-2-dev</b> ($0.012/장 ≈ 100원) — 디테일 우수</li>
@@ -3812,8 +3811,6 @@
                     <div class="acc-field">
                       <label class="acc-label">📸 썸네일 타입</label>
                       <select id="thumbnailType" onchange="handleThumbnailTypeChange && handleThumbnailTypeChange(this.value)">
-                        <option value="imagefx">🎨 이미지 FX (기본·무료)</option>
-                        <option value="flow">🌊 Flow (Gemini 3 Pro Image 무료 — AI Pro 구독 필요)</option>
                         <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─────── 🍌 나노바나나 (Gemini Image) ───────</option>
                         <option value="nanobanana">　🍌 나노바나나 (Gemini 2.5 Flash · 저비용)</option>
                         <option value="nanobanana2" selected>　🍌 나노바나나 2 (Gemini 3.1 Flash · Pro 품질·Flash 가격 · 권장)</option>
@@ -3836,8 +3833,6 @@
                     <div class="acc-field">
                       <label class="acc-label">🖼️ 소제목 이미지</label>
                       <select id="h2ImageSource" onchange="handleH2ImageSourceChange && handleH2ImageSourceChange(this.value)">
-                        <option value="imagefx">🎨 이미지 FX (기본·무료)</option>
-                        <option value="flow">🌊 Flow (Gemini 3 Pro Image 무료 — AI Pro 구독 필요)</option>
                         <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─────── 🍌 나노바나나 (Gemini Image) ───────</option>
                         <option value="nanobanana">　🍌 나노바나나 (Gemini 2.5 Flash · 저비용)</option>
                         <option value="nanobanana2" selected>　🍌 나노바나나 2 (Gemini 3.1 Flash · Pro 품질·Flash 가격 · 권장)</option>
@@ -5682,7 +5677,7 @@
           // 공통 설정
           keyword: '',
           crawlUrl: '',
-          imageSource: 'imagefx',
+          imageSource: 'nanobanana2',
           toneStyle: 'professional',
           contentMode: 'external'
         }
@@ -5807,9 +5802,9 @@
             <div>
               <label style="display: block; color: rgba(255,255,255,0.6); font-size: 11px; margin-bottom: 4px;">이미지 소스</label>
               <select onchange="updateMultiAccountSetting('${account.id}', 'imageSource', this.value)" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 13px;">
-                <option value="imagefx" ${account.settings.imageSource === 'imagefx' ? 'selected' : ''}>🎨 이미지 FX</option>
-                <option value="flow" ${account.settings.imageSource === 'flow' ? 'selected' : ''}>🌊 Flow (무료)</option>
-                <option value="nanobanana" ${(account.settings.imageSource === 'nanobanana' || account.settings.imageSource === 'nanobananapro') ? 'selected' : ''}>🍌 나노바나나2 (Gemini 3.1)</option>
+                <option value="nanobanana2" ${(!account.settings.imageSource || account.settings.imageSource === 'nanobanana2' || account.settings.imageSource === 'imagefx' || account.settings.imageSource === 'flow') ? 'selected' : ''}>🍌 나노바나나2 (Gemini 3.1 · 권장)</option>
+                <option value="nanobanana" ${account.settings.imageSource === 'nanobanana' ? 'selected' : ''}>🍌 나노바나나 (Gemini 2.5 · 저비용)</option>
+                <option value="prodia" ${account.settings.imageSource === 'prodia' ? 'selected' : ''}>🚀 Prodia (유료 최저가)</option>
                 <option value="deepinfra" ${account.settings.imageSource === 'deepinfra' ? 'selected' : ''}>🔥 DeepInfra FLUX-2</option>
                 <option value="crawled" ${account.settings.imageSource === 'crawled' ? 'selected' : ''}>🔗 URL 수집 이미지</option>
                 <option value="none" ${account.settings.imageSource === 'none' ? 'selected' : ''}>❌ 이미지 없음</option>
@@ -5966,7 +5961,7 @@
         platform: account.type,
         keyword: account.settings.keyword,
         crawlUrl: account.settings.crawlUrl || '',
-        imageSource: account.settings.imageSource || 'imagefx',
+        imageSource: account.settings.imageSource || 'nanobanana2',
         toneStyle: account.settings.toneStyle || 'professional',
         contentMode: account.settings.contentMode || 'external',
         // Blogger 설정

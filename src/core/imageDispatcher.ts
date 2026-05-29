@@ -15,8 +15,6 @@
  */
 
 import { makeNanoBananaProThumbnail } from '../thumbnail';
-import { makeImageFxImage } from './imageFxGenerator';
-import { makeFlowImage } from './flowGenerator';
 import { inferImagePrompt } from './imagePromptInference';
 import { loadEnvFromFile } from '../env';
 
@@ -32,14 +30,16 @@ export interface ImageResult {
 //   2026-05-05 정리: dalle/leonardo/pollinations 제거 (verification 장벽 또는 좀비 코드).
 //   v3.5.74: 'crawled' 추가 — URL 수집 이미지를 그대로 사용 (orchestration이 분기 처리)
 //   v3.5.88: 나노바나나 3종 + GPT 이미지 2종을 독립 엔진으로 분리
+//   🎯 v3.6.0: ImageFX/Flow 완전 제거.
+//     이유: labs.google 브라우저 자동화는 reCAPTCHA/봇 차단과 끝없는 군비경쟁이라
+//     "무료지만 자주 실패" → 신뢰성 backbone이 될 수 없다. 전부 공식 API 엔진으로 전환.
+//     레거시 'imagefx'/'flow' 값은 normalizeImageEngine 에서 'nanobanana2'로 graceful redirect.
 //     - nanobanana       = gemini-2.5-flash-image       (저비용 원조)
 //     - nanobanana2      = gemini-3.1-flash-image-preview (Pro 품질·Flash 가격, 현재 메인)
 //     - nanobananapro    = gemini-3-pro-image-preview    (Pro 모델, 비용 高)
 //     - gptimage1        = OpenAI gpt-image-1
 //     - gptimage2        = OpenAI gpt-image-2 (덕테이프) — 신분증 인증 필수
 export const SUPPORTED_IMAGE_ENGINES = [
-  'imagefx',
-  'flow',
   'nanobanana',
   'nanobanana2',
   'nanobananapro',
@@ -62,13 +62,13 @@ export type ImageEngine = typeof SUPPORTED_IMAGE_ENGINES[number];
  */
 export function normalizeImageEngine(raw: string | undefined | null): ImageEngine {
   const value = (raw || '').trim().toLowerCase();
-  if (!value) return 'imagefx';
+  if (!value) return 'nanobanana2';
   // 레거시 별칭 매핑
   //   v3.5.88: nanobanana 3종·gpt-image 2종이 정식 분리됨 → alias를 정식 엔진으로 매핑
-  //   - leonardo/dalle/pollinations: 제거됨 → 가까운 활성 엔진으로 흡수
+  //   🎯 v3.6.0: imagefx/flow 제거 → 레거시 값은 신뢰성 메인 'nanobanana2'로 graceful redirect
   const aliasMap: Record<string, ImageEngine> = {
-    'auto': 'imagefx',
-    'default': 'imagefx',
+    'auto': 'nanobanana2',
+    'default': 'nanobanana2',
     'nb': 'nanobanana',
     'nano': 'nanobanana',
     // 나노바나나 별칭 — 정식 엔진으로 매핑
@@ -92,18 +92,21 @@ export function normalizeImageEngine(raw: string | undefined | null): ImageEngin
     'fluxschnell': 'prodia',
     'openai': 'gptimage1',
     'dalle': 'gptimage1',
-    'leonardo': 'imagefx',
-    'pollinations': 'imagefx',
-    'labs-flow': 'flow',
-    'labsflow': 'flow',
-    'googleflow': 'flow',
+    // 🎯 v3.6.0 제거 엔진 — 레거시 값 graceful redirect → 신뢰성 메인
+    'imagefx': 'nanobanana2',
+    'flow': 'nanobanana2',
+    'leonardo': 'nanobanana2',
+    'pollinations': 'nanobanana2',
+    'labs-flow': 'nanobanana2',
+    'labsflow': 'nanobanana2',
+    'googleflow': 'nanobanana2',
   };
   if (aliasMap[value]) return aliasMap[value];
   if ((SUPPORTED_IMAGE_ENGINES as readonly string[]).includes(value)) {
     return value as ImageEngine;
   }
-  console.warn(`[DISPATCH] ⚠️ 미지원 이미지 엔진 '${raw}' → 'imagefx'로 폴백 (지원: ${SUPPORTED_IMAGE_ENGINES.join(', ')})`);
-  return 'imagefx';
+  console.warn(`[DISPATCH] ⚠️ 미지원 이미지 엔진 '${raw}' → 'nanobanana2'로 폴백 (지원: ${SUPPORTED_IMAGE_ENGINES.join(', ')})`);
+  return 'nanobanana2';
 }
 
 // ── 환경 변수 캐시 (loadEnvFromFile 중복 호출 방지) ──
@@ -324,6 +327,102 @@ export interface DispatchExtraOptions {
   gptImageQuality?: 'low' | 'medium' | 'high';
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+// 🎯 v3.6.0: 신뢰성 우선 폴백 순서 (단일 진실 소스)
+//   목표 "거의 실패 없는 이미지 생성" — API 기반 안정 엔진을 앞에, 브라우저 기반(reCAPTCHA 취약) 엔진을 뒤에.
+//   nanobananapro(고비용) / gptimage2(신분증 인증 필수) / crawled / text / svg 는 자동 폴백에서 제외
+//   (비용 폭증·확정 실패 방지). 사용자가 직접 1순위로 고른 경우에만 시도된다.
+const RELIABILITY_FALLBACK_ORDER: ImageEngine[] = [
+  'nanobanana2',  // Pro 품질·Flash 가격 — 현재 메인
+  'nanobanana',   // 저비용 원조
+  'prodia',       // 초저가·2~4초
+  'deepinfra',    // FLUX-2
+  'gptimage1',    // OpenAI (대개 인증 완료된 키)
+];
+
+/** 엔진이 호출 가능한 API 키를 갖췄는지. (v3.6.0: 전 엔진 API 기반 — 키 필수) */
+function engineKeyAvailable(engine: string, env: Record<string, string>): boolean {
+  switch (engine) {
+    case 'nanobanana':
+    case 'nanobanana2':
+    case 'nanobananapro':
+      return getGeminiApiKey().length >= 10;
+    case 'prodia':
+      return (env['prodiaApiKey'] || env['PRODIA_API_KEY'] || '').trim().length >= 10;
+    case 'deepinfra':
+      return (env['deepInfraApiKey'] || env['DEEPINFRA_API_KEY'] || '').trim().length >= 10;
+    case 'gptimage1':
+    case 'gptimage2':
+      return (env['openaiKey'] || env['OPENAI_API_KEY'] || '').trim().length >= 10;
+    default:
+      return false;
+  }
+}
+
+/** 선택 엔진을 제외하고, 키가 준비된 엔진만 신뢰성 순으로 폴백 체인 구성. */
+function buildFallbackChain(chosen: string, env: Record<string, string>): string[] {
+  return RELIABILITY_FALLBACK_ORDER
+    .filter(e => e !== chosen)
+    .filter(e => engineKeyAvailable(e, env));
+}
+
+/**
+ * 'auto'/'default'/빈값(암묵적 선택) 시 1순위 엔진을 **키 인식**으로 결정한다.
+ *   - API 키가 설정된 신뢰성 엔진(nanobanana2→…→gptimage1)을 우선 → 성공률 ↑ (목표: 거의 실패 없음)
+ *   - 키가 하나도 없으면 'nanobanana2' 반환 → 호출 시 "Gemini 키 없음" 에러로 안내 후 로컬 placeholder 보장.
+ */
+function resolveAutoEngine(env: Record<string, string>): ImageEngine {
+  const API_PREFERENCE: ImageEngine[] = ['nanobanana2', 'nanobanana', 'prodia', 'deepinfra', 'gptimage1'];
+  for (const e of API_PREFERENCE) {
+    if (engineKeyAvailable(e, env)) return e;
+  }
+  return 'nanobanana2'; // 키 없음 → 가장 보편적인 Gemini 키 안내 후 placeholder 폴백
+}
+
+/**
+ * 한 엔진을 에러 분류 기반으로 (최대 maxAttempts회) 시도한다. 절대 throw 하지 않음.
+ *   - 우회 불가(billing/region/verification/permission_denied) → 재시도 무의미 → 즉시 반환
+ *   - 우회 가능(transient) → cooldown(상한 maxCooldownMs) 후 재시도
+ * 폴백을 빠르게 시작하기 위해 cooldown을 상한으로 캡한다 (strict 모드는 별도 경로에서 풀 cooldown 사용).
+ */
+async function attemptEngineWithRetry(
+  engine: string,
+  prompt: string,
+  keyword: string,
+  env: Record<string, string>,
+  onLog: ((msg: string) => void) | undefined,
+  isThumbnail: boolean,
+  contentMode: string | undefined,
+  extra: DispatchExtraOptions | undefined,
+  opts: { maxAttempts: number; maxCooldownMs: number },
+): Promise<ImageResult> {
+  let classifyImageError: (msg: string) => any = () => ({ bypassable: true, cooldownMs: 0 });
+  try {
+    ({ classifyImageError } = require('./image-error-classifier'));
+  } catch { /* 분류기 없으면 모두 우회 가능으로 간주 */ }
+
+  let last: ImageResult = { ok: false, dataUrl: '', source: '', error: '사유 미상' };
+  for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
+    const result = await tryEngine(engine, prompt, keyword, env, onLog, isThumbnail, contentMode, extra);
+    if (result.ok) return result;
+    last = result;
+
+    const c = classifyImageError(result.error || '');
+    if (!c.bypassable) break; // 우회 불가 → 재시도 무의미, 폴백으로
+    if (attempt < opts.maxAttempts) {
+      const wait = Math.min(c.cooldownMs || 0, opts.maxCooldownMs);
+      if (wait > 0) {
+        onLog?.(`⏳ ${Math.ceil(wait / 1000)}초 후 '${engine}' 재시도 (${attempt + 1}/${opts.maxAttempts})`);
+        await sleep(wait);
+      }
+    }
+  }
+  return last;
+}
+
 export async function dispatchH2ImageGeneration(
   imageSource: string,
   prompt: string,
@@ -355,11 +454,24 @@ export async function dispatchH2ImageGeneration(
   prompt = preSanitizePrompt(prompt, onLog);
 
   const env = getCachedEnv();
-  // 🛡️ v3.5.87: 사용자 명시 선택 = 자동 strict 모드 (env var 없이도 폴백 차단)
-  //   기존: STRICT_H2_IMAGE_ENGINE=true 일 때만 폴백 차단 → 사용자가 'flow' 골라도 nanobanana 폴백
-  //   변경: 사용자가 명시 선택했으면 무조건 strict — "선택한 엔진이 안 되면 에러"가 사용자 의도
+
+  // 🎯 v3.6.0: 암묵적 선택(auto/default/빈값)은 키 인식으로 신뢰성 API를 1순위로 (성공률 ↑)
+  if (!userPickedExplicitly) {
+    const auto = resolveAutoEngine(env);
+    if (auto !== imageSource) {
+      console.log(`[DISPATCH] 🎯 auto → 신뢰성 우선 1순위 '${auto}' 선택 (키 인식)`);
+      onLog?.(`🎯 자동 모드: 신뢰성 우선 '${auto}' 엔진으로 생성`);
+      imageSource = auto;
+    }
+  }
+
+  // 🎯 v3.6.0: 기본값 = 보장형 폴백 (near-100% 이미지 성공 목표)
+  //   v3.5.87에서 "사용자 명시 선택 = 자동 strict(폴백 차단)"로 바꿨으나, 이는 가장 취약한
+  //   엔진(flow/imagefx)을 고른 사용자가 가장 크게(글 발행 전체) 실패하는 역설을 낳았다.
+  //   → 명시 선택도 기본은 폴백 허용. 진짜 "엔진 고정·실패 시 차단"을 원하면 env var로 opt-in.
   const envStrict = String(process.env['STRICT_H2_IMAGE_ENGINE'] || '').toLowerCase() === 'true';
-  const strictMode = userPickedExplicitly || envStrict;
+  const strictMode = envStrict;
+  void userPickedExplicitly; // (로깅/향후 확장용으로 보존)
 
   // 🛡️ S-2 + S-4 (v3.5.84): Strict 모드 + 에러 분류기 통합
   //   사용자 요구: "선택한 엔진이 반드시 성공" / "폴백 차단" / "에러 분류 후 우회 가능한 것만 우회"
@@ -415,30 +527,35 @@ export async function dispatchH2ImageGeneration(
     throw new Error(`STRICT_ENGINE_FAILED:${finalCategory}:${finalMsg}`);
   }
 
-  // ── 일반 모드 (strict OFF) ──
-  // 1순위: 사용자 선택 엔진
-  const primaryResult = await tryEngine(imageSource, prompt, keyword, env, onLog, false, contentMode, extra);
+  // ── 기본: 보장형 폴백 모드 ──
+  // 1순위: 사용자 선택 엔진 — 우회 가능 에러는 짧게 재시도 후 폴백 (폴백을 빠르게 시작)
+  const primaryResult = await attemptEngineWithRetry(
+    imageSource, prompt, keyword, env, onLog, false, contentMode, extra,
+    { maxAttempts: 2, maxCooldownMs: 15000 },
+  );
   if (primaryResult.ok) return primaryResult;
 
-  console.log(`[DISPATCH] ⚠️ 1순위 ${imageSource} 실패 (${primaryResult.error || '사유 미상'}) → 폴백 체인 시작`);
-  onLog?.(`⚠️ 사용자 선택 엔진(${imageSource}) 실패: ${primaryResult.error || '사유 미상'} → 다른 엔진으로 폴백 시도`);
+  console.log(`[DISPATCH] ⚠️ 1순위 ${imageSource} 실패 (${primaryResult.error || '사유 미상'}) → 신뢰성 우선 폴백 체인 시작`);
+  onLog?.(`⚠️ 선택 엔진(${imageSource}) 실패: ${primaryResult.error || '사유 미상'} → 신뢰성 우선 폴백 시도`);
 
-  // 2순위: 폴백 체인
-  //   2026-05-05 정리: dalle/leonardo/pollinations 제거. nanobanana(나노바나나2) 우선.
-  //   사용자 메인 타겟인 'nanobanana'를 첫 폴백으로 둬서 다른 엔진 실패 시 즉시 회복.
-  const fallbackOrder = ['nanobanana', 'imagefx', 'flow', 'deepinfra']
-    .filter(e => e !== imageSource);
+  // 2순위: 신뢰성 우선 폴백 체인 (키 준비된 API 엔진 먼저, 브라우저 엔진 마지막)
+  const fallbackOrder = buildFallbackChain(imageSource, env);
+  if (fallbackOrder.length === 0) {
+    onLog?.(`❌ 폴백 가능한 엔진이 없습니다 (API 키 미설정)`);
+  }
 
   for (const engine of fallbackOrder) {
     const result = await tryEngine(engine, prompt, keyword, env, onLog, false, contentMode, extra);
     if (result.ok) {
-      console.log(`[DISPATCH] ✅ 폴백 성공: ${engine}`);
-      onLog?.(`ℹ️ 폴백 성공: ${engine} 엔진으로 이미지 생성됨`);
-      return result;
+      console.log(`[DISPATCH] ✅ 폴백 성공: ${imageSource} → ${engine}`);
+      onLog?.(`🔄 폴백 성공: ${imageSource} → ${engine} 엔진으로 이미지 생성됨`);
+      return { ...result, source: `${result.source} (${imageSource} 실패 → 폴백)` };
     }
   }
 
-  return { ok: false, dataUrl: '', source: '', error: '모든 이미지 엔진 실패' };
+  // 🛡️ 최종 안전망 (v3.6.0): 모든 원격 엔진 실패 → 네트워크 0 의존 로컬 placeholder 로 이미지 보장.
+  //   "이미지 항상 존재" — 글 발행이 이미지 부재로 깨지지 않도록 한다. (strict 모드는 위에서 throw)
+  return buildPlaceholderResult(imageSource, keyword, false, onLog);
 }
 
 // ═══════════════════════════════════════════════════
@@ -473,7 +590,7 @@ export async function dispatchThumbnailGeneration(
     console.log(`[DISPATCH-THUMB] 🔧 엔진명 정규화: '${thumbnailSourceRaw}' → '${normalizedSource}'`);
     onLog?.(`🔧 썸네일 엔진명 정규화: '${thumbnailSourceRaw}' → '${normalizedSource}'`);
   }
-  const thumbnailSource: ImageEngine = normalizedSource;
+  let thumbnailSource: ImageEngine = normalizedSource;
 
   // 🚫 '없음' 선택 → 즉시 빈 결과
   if (thumbnailSource === 'none' || thumbnailSource === 'skip') {
@@ -485,6 +602,16 @@ export async function dispatchThumbnailGeneration(
 
   const env = getCachedEnv();
 
+  // 🎯 v3.6.0: 암묵적 선택(auto)은 키 인식으로 신뢰성 API를 1순위로
+  if (!userPickedExplicitly) {
+    const auto = resolveAutoEngine(env);
+    if (auto !== thumbnailSource) {
+      console.log(`[DISPATCH-THUMB] 🎯 auto → 신뢰성 우선 1순위 '${auto}' 선택 (키 인식)`);
+      onLog?.(`🎯 자동 모드: 신뢰성 우선 '${auto}' 썸네일 엔진으로 생성`);
+      thumbnailSource = auto;
+    }
+  }
+
   // text/svg 모드 → 더 이상 지원하지 않음 (SVG 텍스트 썸네일 폐지)
   if (thumbnailSource === 'text' || thumbnailSource === 'svg') {
     onLog?.(`ℹ️ 'text/svg' 모드는 폐지되었습니다 — imagefx로 자동 전환합니다.`);
@@ -493,48 +620,68 @@ export async function dispatchThumbnailGeneration(
     return { ok: false, dataUrl: '', source: '', error: 'SVG 텍스트 썸네일은 폐지되었고 imagefx 폴백도 실패했습니다.' };
   }
 
-  // AI 이미지 엔진 1순위
-  const primaryResult = await tryEngine(thumbnailSource, title, keyword, env, onLog, true, undefined, extra);
+  // 🎯 v3.6.0: 기본값 = 보장형 폴백. 진짜 엔진 고정을 원하면 STRICT_THUMBNAIL_ENGINE=true 로 opt-in.
+  const envStrictThumb = String(process.env['STRICT_THUMBNAIL_ENGINE'] || '').toLowerCase() === 'true';
+
+  // AI 이미지 엔진 1순위 — 우회 가능 에러는 짧게 재시도 후 폴백
+  const primaryResult = await attemptEngineWithRetry(
+    thumbnailSource, title, keyword, env, onLog, true, undefined, extra,
+    { maxAttempts: 2, maxCooldownMs: 15000 },
+  );
   if (primaryResult.ok) return primaryResult;
 
   console.error(`[DISPATCH-THUMB] ❌ 1순위 ${thumbnailSource} 실패: ${primaryResult.error || '사유 미상'}`);
   onLog?.(`❌ ${thumbnailSource} 썸네일 실패: ${primaryResult.error || '사유 미상'}`);
 
-  // 🛡️ v3.5.87: 사용자 명시 선택 = 자동 엄격 모드 (env var 없이도 폴백 차단)
-  //   기존: STRICT_THUMBNAIL_ENGINE=true 일 때만 차단 → 'flow' 골라도 nanobanana 폴백
-  //   변경: 명시 선택이면 무조건 차단 — 선택한 엔진이 안 되면 에러가 사용자 의도
-  //   'auto'/'default'/빈값일 때만 폴백 체인 허용.
-  if (userPickedExplicitly) {
-    onLog?.(`🛡️ 엄격 모드: '${thumbnailSource}' 실패 — 다른 엔진으로 폴백하지 않고 종료 (선택한 엔진 고정)`);
+  // 🛡️ 엄격 모드(opt-in): 명시 선택 + STRICT_THUMBNAIL_ENGINE=true → 폴백 차단
+  if (envStrictThumb && userPickedExplicitly) {
+    onLog?.(`🛡️ 엄격 모드(STRICT_THUMBNAIL_ENGINE): '${thumbnailSource}' 실패 — 폴백하지 않고 종료`);
     return {
       ok: false,
       dataUrl: '',
       source: '',
-      error: `${thumbnailSource} 실패: ${primaryResult.error || '사유 미상'} (사용자 명시 선택 — 폴백 차단)`,
+      error: `${thumbnailSource} 실패: ${primaryResult.error || '사유 미상'} (엄격 모드 — 폴백 차단)`,
     };
   }
 
-  onLog?.(`ℹ️ 'auto' 모드 → 폴백 체인 시작`);
+  onLog?.(`🔄 신뢰성 우선 폴백 체인 시작`);
 
-  // 폴백 체인 — 2026-05-05 정리: 사용자 메인 타겟(nanobanana) 우선, 무료/구독/유료 순.
-  const fallbackOrder = ['nanobanana', 'imagefx', 'flow', 'deepinfra']
-    .filter(e => e !== thumbnailSource);
+  // 신뢰성 우선 폴백 체인 (키 준비된 API 엔진 먼저, 브라우저 엔진 마지막)
+  const fallbackOrder = buildFallbackChain(thumbnailSource, env);
 
   for (const engine of fallbackOrder) {
     const result = await tryEngine(engine, title, keyword, env, onLog, true, undefined, extra);
     if (result.ok) {
-      const sourceLabel = userPickedExplicitly
-        ? `${result.source} (요청한 ${thumbnailSource} 실패 → 자동 폴백)`
-        : result.source;
+      const sourceLabel = `${result.source} (요청한 ${thumbnailSource} 실패 → 폴백)`;
       console.log(`[DISPATCH-THUMB] ✅ 폴백 성공: ${engine} (원래 요청: ${rawLower || 'auto'})`);
       onLog?.(`🔄 폴백 성공: ${engine} (${rawLower || 'auto'} → ${engine})`);
       return { ...result, source: sourceLabel };
     }
   }
 
-  // 모든 AI 엔진 실패 — SVG 폴백 폐지. 빈 결과 반환하여 호출자가 "썸네일 없음"으로 처리.
-  onLog?.(`❌ 모든 AI 엔진 실패 — SVG 폴백은 폐지됐으므로 썸네일 없이 진행합니다.`);
-  return { ok: false, dataUrl: '', source: '', error: '모든 AI 썸네일 엔진 실패 (SVG 폴백 폐지)' };
+  // 🛡️ 최종 안전망 (v3.6.0): 모든 AI 엔진 실패 → 로컬 placeholder 썸네일로 이미지 보장.
+  return buildPlaceholderResult(thumbnailSource, keyword || title, true, onLog);
+}
+
+/** 모든 원격 엔진 실패 시 로컬 placeholder 이미지를 ImageResult 로 감싸 반환 (절대 실패 안 함). */
+function buildPlaceholderResult(
+  requested: string,
+  keyword: string,
+  isThumbnail: boolean,
+  onLog?: (msg: string) => void,
+): ImageResult {
+  onLog?.(`🛡️ 모든 원격 엔진 실패 — 로컬 placeholder 이미지로 대체 (이미지 보장)`);
+  console.log(`[DISPATCH] 🛡️ 로컬 placeholder 생성 (요청: ${requested}, thumbnail=${isThumbnail})`);
+  const { generatePlaceholderImage } = require('./imagePlaceholder');
+  const dataUrl = generatePlaceholderImage(keyword, {
+    width: isThumbnail ? 1280 : 1024,
+    height: isThumbnail ? 720 : 576,
+  });
+  return {
+    ok: true,
+    dataUrl,
+    source: `로컬 placeholder (모든 엔진 실패 — ${requested})`,
+  };
 }
 
 // ═══════════════════════════════════════════════════
@@ -606,110 +753,7 @@ async function _tryEngineInternal(
     }
   }
 
-  // 🛡️ v3.5.92: 403/PERMISSION_DENIED 자동 복구 헬퍼
-  //   labs.google 세션이 만료되거나 reCAPTCHA로 차단되면 profile을 백업하고 visible 모드로 재로그인.
-  //   1회만 재시도 (무한 루프 방지).
-  const isLabsAuthError = (msg: string): boolean => {
-    if (!msg) return false;
-    return /403\b|forbidden|PERMISSION_DENIED|UNAUTHENTICATED|session.*expired|reCAPTCHA|PUBLIC_ERROR_UNUSUAL_ACTIVITY|FLOW_BLOCKED|FLOW_PERMISSION_DENIED/i.test(msg);
-  };
-
   switch (engine) {
-    // ═══ ImageFX (Google, API 키 불필요) ═══
-    case 'imagefx': {
-      let detail = '사유 미상';
-      let retried = false;
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          console.log(`[DISPATCH] 🖼️ ImageFX 시도 ${attempt}/2...`);
-          const result = await makeImageFxImage(inferredPrompt, {
-            aspectRatio: '16:9',
-            isThumbnail,
-          }, onLog);
-          if (result.ok) {
-            return { ok: true, dataUrl: result.dataUrl, source: 'ImageFX' };
-          }
-          detail = result.error || detail;
-          console.log(`[DISPATCH] ⚠️ ImageFX 시도 ${attempt} 실패: ${detail}`);
-          onLog?.(`⚠️ ImageFX ${attempt}회 실패: ${String(detail).substring(0, 300)}`);
-          // 1회차 + Labs 인증 에러 → 자동 복구 후 재시도
-          if (attempt === 1 && isLabsAuthError(detail) && !retried) {
-            retried = true;
-            onLog?.(`🛡️ Labs 인증 에러 감지 — 프로필 자동 복구 후 재시도`);
-            const { resetSessionAndProfile } = await import('./imageFxGenerator');
-            await resetSessionAndProfile(onLog);
-            continue;
-          }
-          break;
-        } catch (e: any) {
-          detail = `예외: ${e?.message || e}`;
-          console.log(`[DISPATCH] ⚠️ ImageFX 예외: ${detail}`);
-          onLog?.(`⚠️ ImageFX ${detail.substring(0, 300)}`);
-          if (attempt === 1 && isLabsAuthError(detail) && !retried) {
-            retried = true;
-            const { resetSessionAndProfile } = await import('./imageFxGenerator');
-            await resetSessionAndProfile(onLog);
-            continue;
-          }
-          break;
-        }
-      }
-      return { ok: false, dataUrl: '', source: '', error: `ImageFX 실패: ${detail}` };
-    }
-
-    // ═══ Flow (Google Labs Flow — Nano Banana Pro 무료, API 키 불필요) ═══
-    //    Google AI Pro 구독 + labs.google/flow 접근 권한 필요.
-    //    ImageFX와 동일한 labs.google 세션 재사용 (별도 로그인 불필요).
-    case 'flow': {
-      let detail = '사유 미상';
-      let retried = false;
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          console.log(`[DISPATCH] 🌊 Flow 시도 ${attempt}/2...`);
-          const result = await makeFlowImage(inferredPrompt, {
-            aspectRatio: '16:9',
-            isThumbnail,
-          }, onLog);
-          if (result.ok) {
-            const modelTag = result.modelUsed ? ` (${result.modelUsed})` : '';
-            return { ok: true, dataUrl: result.dataUrl, source: `Flow${modelTag}` };
-          }
-          detail = result.error || detail;
-          console.log(`[DISPATCH] ⚠️ Flow 시도 ${attempt} 실패: ${detail}`);
-          onLog?.(`⚠️ Flow ${attempt}회 실패: ${String(detail).substring(0, 300)}`);
-          if (attempt === 1 && isLabsAuthError(detail) && !retried) {
-            retried = true;
-            onLog?.(`🛡️ Labs 인증 에러 감지 — 프로필 자동 복구 후 재시도`);
-            const { resetSessionAndProfile } = await import('./imageFxGenerator');
-            await resetSessionAndProfile(onLog);
-            // Flow의 자체 cooldown flag도 함께 해제
-            try {
-              const { resetFlowDisabledFlag } = await import('./flowGenerator');
-              resetFlowDisabledFlag();
-            } catch { /* ignore */ }
-            continue;
-          }
-          break;
-        } catch (e: any) {
-          detail = `예외: ${e?.message || e}`;
-          console.log(`[DISPATCH] ⚠️ Flow 예외: ${detail}`);
-          onLog?.(`⚠️ Flow ${detail.substring(0, 300)}`);
-          if (attempt === 1 && isLabsAuthError(detail) && !retried) {
-            retried = true;
-            const { resetSessionAndProfile } = await import('./imageFxGenerator');
-            await resetSessionAndProfile(onLog);
-            try {
-              const { resetFlowDisabledFlag } = await import('./flowGenerator');
-              resetFlowDisabledFlag();
-            } catch { /* ignore */ }
-            continue;
-          }
-          break;
-        }
-      }
-      return { ok: false, dataUrl: '', source: '', error: `Flow 실패: ${detail}` };
-    }
-
     // ═══ 나노바나나 3종 (v3.5.88: 모델별 독립 케이스로 분리) ═══
     //   nanobanana    = gemini-2.5-flash-image        (저비용 원조)
     //   nanobanana2   = gemini-3.1-flash-image-preview (Pro 품질·Flash 가격)

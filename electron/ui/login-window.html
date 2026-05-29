@@ -1003,12 +1003,43 @@
         }
         
         if (result.success) {
-          if (autoLogin) {
-            await ipcApi.invoke('save-auto-login-config', true, userId);
-          } else {
-            await ipcApi.invoke('save-auto-login-config', false);
+          // v3.5.93: 자동 로그인 저장 강화 — 실패 시 사용자에게 명시적 알림 + 재시도
+          //   기존 버그: save-auto-login-config 호출이 silent fail → 사용자 모르게 매번 재로그인
+          //   수정: 호출 결과 + 파일 존재 검증 + 실패 시 1회 재시도
+          console.log('[AUTO-LOGIN] 저장 시도 - autoLogin:', autoLogin, 'userId:', userId);
+          try {
+            if (autoLogin) {
+              const saveResult = await ipcApi.invoke('save-auto-login-config', true, userId);
+              console.log('[AUTO-LOGIN] save IPC 결과:', saveResult);
+
+              // 검증: 실제로 파일 저장됐는지 확인
+              const verify = await ipcApi.invoke('load-auto-login-config');
+              console.log('[AUTO-LOGIN] 검증 load 결과:', verify);
+
+              if (!verify || !verify.enabled) {
+                // 1회 재시도
+                console.warn('[AUTO-LOGIN] 1차 저장 검증 실패 → 1초 후 재시도');
+                await new Promise(r => setTimeout(r, 1000));
+                await ipcApi.invoke('save-auto-login-config', true, userId);
+                const verify2 = await ipcApi.invoke('load-auto-login-config');
+                if (!verify2 || !verify2.enabled) {
+                  // 재시도도 실패 — 사용자에게 알림 (자동 로그인 동작 안 함을 미리 알려줌)
+                  console.error('[AUTO-LOGIN] 재시도도 실패 — 자동 로그인 저장 불가');
+                  showError('⚠️ 자동 로그인 저장에 실패했습니다. 다음 실행 시 다시 로그인이 필요합니다.\n관리자에게 문의해주세요.');
+                } else {
+                  console.log('[AUTO-LOGIN] ✅ 재시도 후 저장 성공');
+                }
+              } else {
+                console.log('[AUTO-LOGIN] ✅ 저장 성공 (검증 통과)');
+              }
+            } else {
+              await ipcApi.invoke('save-auto-login-config', false);
+            }
+          } catch (saveErr) {
+            console.error('[AUTO-LOGIN] 저장 중 예외:', saveErr);
+            showError('⚠️ 자동 로그인 설정 저장 실패: ' + (saveErr.message || saveErr));
           }
-          
+
           // 중복 로그인 방지: 다른 기기 세션 종료 알림
           let welcomeMsg = result.message;
           if (result.previousSessionTerminated) {
