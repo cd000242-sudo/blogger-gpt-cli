@@ -1805,6 +1805,12 @@
                         <td style="padding: 10px 8px; text-align: right; color: #34d399; font-weight: 700;">0원*</td>
                         <td style="padding: 10px 8px; text-align: center; color: #6ee7b7;">✅ 최우수</td>
                       </tr>
+                      <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(251,191,36,0.08);">
+                        <td style="padding: 10px 8px;">🍌 Dropshot 나노바나나 Pro <span style="background: #fbbf24; color: #1e293b; font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 800;">i2i 지원</span></td>
+                        <td style="padding: 10px 8px; text-align: right; color: #34d399; font-weight: 700;">무료*</td>
+                        <td style="padding: 10px 8px; text-align: right; color: #34d399; font-weight: 700;">0원*</td>
+                        <td style="padding: 10px 8px; text-align: center; color: #6ee7b7;">✅ 최우수 (한글 텍스트)</td>
+                      </tr>
                       <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(34,197,94,0.12);">
                         <td style="padding: 10px 8px;">🚀 Prodia FLUX schnell <span style="background: #22c55e; color: white; font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 800;">⭐ 유료 최저가</span></td>
                         <td style="padding: 10px 8px; text-align: right; font-weight: 700; color: #6ee7b7;">$0.001</td>
@@ -3939,6 +3945,8 @@
                         <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─────── 🎯 OpenAI GPT 이미지 (신분증 인증 필수) ───────</option>
                         <option value="gptimage1">　🎯 GPT 이미지 1 (gpt-image-1)</option>
                         <option value="gptimage2">　🎯 GPT 이미지 2 / 덕테이프 (gpt-image-2)</option>
+                        <option disabled style="color:#34d399; background:#0f172a; font-weight:800;">─────── 🍌 Dropshot (사이트 로그인, UI 자동화) ───────</option>
+                        <option value="dropshot-nanobanana-pro">　🍌 Dropshot 나노바나나 Pro (Pro 구독자 무제한 · 0원)</option>
                         <option disabled style="color:#94a3b8; background:#0f172a; font-weight:800;">─────── 기타 ───────</option>
                         <option value="prodia">🚀 Prodia FLUX schnell (⭐ 유료 최저가 ≈8원/글, 빠름)</option>
                         <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질 ≈100원/글)</option>
@@ -3961,6 +3969,8 @@
                         <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─────── 🎯 OpenAI GPT 이미지 (신분증 인증 필수) ───────</option>
                         <option value="gptimage1">　🎯 GPT 이미지 1 (gpt-image-1)</option>
                         <option value="gptimage2">　🎯 GPT 이미지 2 / 덕테이프 (gpt-image-2)</option>
+                        <option disabled style="color:#34d399; background:#0f172a; font-weight:800;">─────── 🍌 Dropshot (사이트 로그인, UI 자동화) ───────</option>
+                        <option value="dropshot-nanobanana-pro">　🍌 Dropshot 나노바나나 Pro (Pro 구독자 무제한 · 0원)</option>
                         <option disabled style="color:#94a3b8; background:#0f172a; font-weight:800;">─────── 기타 ───────</option>
                         <option value="prodia">🚀 Prodia FLUX schnell (⭐ 유료 최저가 ≈8원/글, 빠름)</option>
                         <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질 ≈100원/글)</option>
@@ -5185,6 +5195,7 @@
                 <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질 ≈$0.012/장)</option>
                 <option value="imagefx">🎨 ImageFX (무료 · Google 로그인)</option>
                 <option value="flow">🌊 Flow (무료* · AI Pro 구독)</option>
+                <option value="dropshot-nanobanana-pro">🍌 Dropshot 나노바나나 Pro (무료* · 사이트 로그인, UI 자동화)</option>
               </select>
 
               <!-- GPT quality (gptimage1/2 선택 시) -->
@@ -6111,6 +6122,7 @@
               <select onchange="updateMultiAccountSetting('${account.id}', 'imageSource', this.value)" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 13px;">
                 <option value="nanobanana2" ${(!account.settings.imageSource || account.settings.imageSource === 'nanobanana2' || account.settings.imageSource === 'imagefx' || account.settings.imageSource === 'flow') ? 'selected' : ''}>🍌 나노바나나2 (Gemini 3.1 · 권장)</option>
                 <option value="nanobanana" ${account.settings.imageSource === 'nanobanana' ? 'selected' : ''}>🍌 나노바나나 (Gemini 2.5 · 저비용)</option>
+                <option value="dropshot-nanobanana-pro" ${account.settings.imageSource === 'dropshot-nanobanana-pro' ? 'selected' : ''}>🍌 Dropshot 나노바나나 Pro (Pro 구독자 무제한 · 0원)</option>
                 <option value="prodia" ${account.settings.imageSource === 'prodia' ? 'selected' : ''}>🚀 Prodia (유료 최저가)</option>
                 <option value="deepinfra" ${account.settings.imageSource === 'deepinfra' ? 'selected' : ''}>🔥 DeepInfra FLUX-2</option>
                 <option value="crawled" ${account.settings.imageSource === 'crawled' ? 'selected' : ''}>🔗 URL 수집 이미지</option>

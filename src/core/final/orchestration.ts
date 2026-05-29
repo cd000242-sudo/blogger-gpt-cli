@@ -1765,9 +1765,17 @@ ${conclusionHTML}
     if (!thumbnailUrl && !thumbnailDisabled) {
       onLog?.(`[PROGRESS] 90% - 🖼️ 썸네일 생성 중 (요청: ${thumbnailSource})...`);
       try {
-        const thumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high' } = {};
+        const thumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; referenceImageList?: string[] } = {};
         if (payload.gptImageQuality === 'low' || payload.gptImageQuality === 'medium' || payload.gptImageQuality === 'high') {
           thumbExtra.gptImageQuality = payload.gptImageQuality;
+        }
+        // v3.6.0: dropshot 엔진 + 쇼핑 모드 + productImages가 있으면 → i2i 자동 활성화
+        //   사용자 의도: "쇼핑커넥트도 사용가능" — 수집된 상품 이미지를 reference로 새 이미지 생성
+        const isDropshot = /^dropshot/i.test(String(thumbnailSource));
+        const productImgList = (payload.productImages as any) as string[] | undefined;
+        if (isDropshot && productImgList && productImgList.length > 0) {
+          thumbExtra.referenceImageList = productImgList.slice(0, 4);
+          onLog?.(`   🍌 i2i 모드: 쇼핑 상품 이미지 ${thumbExtra.referenceImageList.length}장을 reference로 사용`);
         }
         const thumbResult = await dispatchThumbnailGeneration(
           thumbnailSource,

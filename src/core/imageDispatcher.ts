@@ -47,6 +47,7 @@ export const SUPPORTED_IMAGE_ENGINES = [
   'gptimage2',
   'prodia',       // v3.5.90: Prodia FLUX schnell (가성비 챔피언, ≈$0.001/장)
   'deepinfra',
+  'dropshot-nanobanana-pro', // v3.6.0: Dropshot UI 자동화 (Pro 구독자 무제한)
   'crawled',
   'text',
   'svg',
@@ -100,6 +101,10 @@ export function normalizeImageEngine(raw: string | undefined | null): ImageEngin
     'labs-flow': 'nanobanana2',
     'labsflow': 'nanobanana2',
     'googleflow': 'nanobanana2',
+    // v3.6.0: Dropshot 별칭
+    'dropshot': 'dropshot-nanobanana-pro',
+    'dropshot-nano-banana-pro': 'dropshot-nanobanana-pro',
+    'dropshotnanobananapro': 'dropshot-nanobanana-pro',
   };
   if (aliasMap[value]) return aliasMap[value];
   if ((SUPPORTED_IMAGE_ENGINES as readonly string[]).includes(value)) {
@@ -325,6 +330,11 @@ function preSanitizePrompt(prompt: string, onLog?: (msg: string) => void): strin
 //   - dispatcher signature 호환성 유지를 위해 새 옵션 객체로 받음
 export interface DispatchExtraOptions {
   gptImageQuality?: 'low' | 'medium' | 'high';
+  /**
+   * v3.6.0: dropshot 엔진의 i2i 모드 — reference 이미지 URL 배열.
+   * 다른 엔진(nanobanana 등)은 무시한다. 쇼핑 모드의 productImages 자동 연결 등에 사용.
+   */
+  referenceImageList?: string[];
 }
 
 function sleep(ms: number): Promise<void> {
@@ -357,6 +367,10 @@ function engineKeyAvailable(engine: string, env: Record<string, string>): boolea
     case 'gptimage1':
     case 'gptimage2':
       return (env['openaiKey'] || env['OPENAI_API_KEY'] || '').trim().length >= 10;
+    // v3.6.0: Dropshot (UI 자동화 — API 키 불필요, 계정 로그인 기반)
+    case 'dropshot-nanobanana-pro':
+    case 'dropshot':
+      return true;
     default:
       return false;
   }
@@ -740,7 +754,9 @@ async function _tryEngineInternal(
     engine !== 'gptimage1' &&
     engine !== 'gptimage2' &&
     engine !== 'flow' &&
-    engine !== 'prodia'
+    engine !== 'prodia' &&
+    engine !== 'dropshot' &&
+    engine !== 'dropshot-nanobanana-pro' // v3.6.0: dropshot은 한국어 prompt 그대로가 더 자연스러움
   ) {
     try {
       const inference = await inferImagePrompt(prompt, keyword, isThumbnail, contentMode);
@@ -894,6 +910,37 @@ async function _tryEngineInternal(
         onLog?.(`⚠️ DeepInfra ${detail.substring(0, 300)}`);
       }
       return { ok: false, dataUrl: '', source: '', error: `DeepInfra 실패: ${detail}` };
+    }
+
+    // ═══ Dropshot nano-banana-pro (v3.6.0 — UI 자동화, API 키 불필요) ═══
+    //   사이트: aistudio.dropshot.io
+    //   인증: 계정 로그인 (1회 후 영구 세션, ~/.blogger-gpt/dropshot-profile/)
+    //   비용: Pro 구독자 무제한 / 무료 사용자 creditCost 75/장 (quota 소진 시 fail)
+    //   참조: docs/IMAGE_SITE_AUTOMATION_PORTING.md
+    case 'dropshot-nanobanana-pro':
+    case 'dropshot': {
+      try {
+        console.log(`[DISPATCH] 🍌 Dropshot nano-banana-pro (UI 자동화) 시도...`);
+        const { makeDropshotImage } = await import('./dropshotGenerator');
+        // v3.6.0: extra.referenceImageList로 i2i 모드 활성 (쇼핑 모드의 productImages 등)
+        const refImageList = (extra as any)?.referenceImageList as string[] | undefined;
+        const result = await makeDropshotImage(
+          inferredPrompt,
+          refImageList && refImageList.length > 0 ? { referenceImageList: refImageList } : {},
+          onLog,
+        );
+        if (result.ok) {
+          return { ok: true, dataUrl: result.dataUrl, source: refImageList?.length ? `Dropshot nano-banana-pro (i2i ${refImageList.length}장)` : 'Dropshot nano-banana-pro' };
+        }
+        const detail = result.error || '사유 미상';
+        console.log(`[DISPATCH] ⚠️ Dropshot 실패: ${detail}`);
+        onLog?.(`⚠️ Dropshot 실패: ${String(detail).substring(0, 300)}`);
+        return { ok: false, dataUrl: '', source: '', error: `Dropshot 실패: ${detail}` };
+      } catch (e: any) {
+        const detail = `예외: ${e?.message || e}`;
+        console.log(`[DISPATCH] ⚠️ Dropshot 예외: ${detail}`);
+        return { ok: false, dataUrl: '', source: '', error: `Dropshot ${detail}` };
+      }
     }
 
     // Leonardo / DALL-E / Pollinations 케이스 제거 (2026-05-05)
