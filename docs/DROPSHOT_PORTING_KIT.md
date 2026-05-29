@@ -32,6 +32,44 @@
 
 ---
 
+## §0. 📊 실측 검증 결과 (production-ready 증명)
+
+**blogger-gpt-cli v3.6.0 환경에서 직접 측정한 데이터** (2026-05-30):
+
+### 텍스트→이미지 (단일 batch)
+| # | 프롬프트 | 시간 | 크기 | md5 (앞 16자) |
+|---|---|---|---|---|
+| 1 | 귀여운 노란 고양이가 햇살 비치는 창가에서 잠자는 사실적인 사진 | 36.7s | 204KB | d373784a456268fa |
+| 2 | 오로라가 빛나는 밤하늘 아래 한적한 호숫가의 통나무집 | 32.5s | 147KB | 78b3b2e3319a6355 |
+| 3 | 서울 강남의 미래도시 풍경, 네온사인과 비, 사이버펑크 | 36.3s | 313KB | 38d93c63414485e0 |
+
+→ **3/3 성공 + 모두 고유 hash** (이전 이미지 반복 캡처 버그 없음 검증)
+
+### 이미지 투 이미지 (i2i)
+| 시나리오 | 시간 | 결과 |
+|---|---|---|
+| reference 1장 + 프롬프트 → 새 이미지 | 38.4s | ✅ 223KB JPEG, source 라벨에 "(i2i 1장)" 표시 |
+
+### 세션 재사용 효과
+- **첫 호출**: 19~36초 (브라우저 launch + 로그인 캐시 사용)
+- **2번째 호출**: 13~32초 (page reuse — **11~45% 단축**)
+- **3번째 호출 이후**: 거의 동일 (~13초 floor — UI 자체 생성 시간)
+
+### API 우회 시도 결과
+| 시도 | 방법 | 결과 |
+|---|---|---|
+| 1~3차 | `page.evaluate(fetch)` cross-origin | ❌ TypeError "Failed to fetch" (isolated world 차단) |
+| 4차 | Node.js + Cookie 헤더 명시 | ❌ 401 INTERNAL_SERVER_ERROR (Cognito 토큰 stale) |
+| 5~6차 | body 변형 (`isUnlimited: false`, ratio 변경) | ❌ 401 동일 |
+| 7차 | same-origin `/v1/job/...` 호출 | ❌ 307 redirect → `/ko/v1/...` → 404 (Next.js i18n) |
+| 8차 | `page.request.post` (browser context) | ❌ 401 동일 |
+| 9~11차 | Authorization 헤더 추가, IndexedDB token 추출 시도 | ❌ 모두 실패 |
+| **최종** | **UI 자동화 (Playwright)** | ✅ **100% 성공** |
+
+**결론**: dropshot은 페이지 JS 내부의 자체 fetch wrapper + Cognito refresh interceptor 때문에 외부 API 호출 불가능. UI 자동화가 유일한 우회로.
+
+---
+
 ## §1. 핵심 결정 — 왜 UI 자동화인가
 
 API 직접 호출 11번 시도 모두 401 INTERNAL_SERVER_ERROR:
@@ -40,6 +78,62 @@ API 직접 호출 11번 시도 모두 401 INTERNAL_SERVER_ERROR:
 - 외부 fetch / page.evaluate / page.request 셋 다 차단됨
 
 **결론**: API 우회 비현실적 → Playwright UI 조작으로 우회.
+
+### 작동원리 흐름도
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  makeDropshotImage(prompt, options, onLog)                  │
+└──────────────────────┬──────────────────────────────────────┘
+                       ▼
+       ┌─────────────────────────────┐
+       │  ensurePage() — Mutex Gate  │  (병렬 호출 안전)
+       └──────────────────────────┬──┘
+                                  ▼
+          ┌──────────────────────────────────────┐
+          │  캐시된 page 살아있나?               │
+          └─────────┬──────────────────┬─────────┘
+                Yes ▼              No  ▼
+              [재사용]      ┌──────────────────────┐
+                            │ headless로 1차 시도   │
+                            └──────┬───────────────┘
+                                   ▼
+                        ┌──────────────────────┐
+                        │ 세션 로그인 상태?    │
+                        └──┬───────────────┬───┘
+                       Yes ▼           No  ▼
+                       [headless    [visible 창 열기]
+                        그대로]            ▼
+                                    [5분 polling — 사용자 로그인 대기]
+                                           ▼
+                                    [headless로 재진입]
+                                           ▼
+       ┌───────────────────────────────────────────────────┐
+       │  for 시도 1~3:                                    │
+       │    1) board URL 재확인                             │
+       │    2) 호출 전 DOM 이미지 snapshot (NEW만 잡기 위해)│
+       │    3) referenceImageList 있으면 → i2i 모드:        │
+       │        - URL 다운로드 → Buffer                     │
+       │        - setInputFiles(file input)로 자동 업로드    │
+       │    4) textarea[placeholder="어떤 장면..."] 에 fill │
+       │    5) parent 안의 button.absolute 클릭            │
+       │    6) 90초 동안 2초마다 DOM 폴링:                  │
+       │        - data:image/...base64 새 img 탐색          │
+       │        - 또는 cdn.dropshot.io result 이미지 탐색  │
+       │    7) snapshot에 없던 NEW 이미지 발견 → return     │
+       └───────────────────────────────────────────────────┘
+                                ▼
+                      { ok, dataUrl, error }
+```
+
+### 핵심 디자인 결정 6가지
+
+1. **Persistent Context** — 쿠키 + localStorage + IndexedDB 모두 자동 영구화 (Firebase auth가 IndexedDB 사용해서 필수)
+2. **Patchright 우선** — Playwright 표준은 `navigator.webdriver=true` + CDP 누출로 reCAPTCHA Enterprise 감지됨. Patchright는 빌드 단계에서 제거.
+3. **headless 우선, 실패 시 visible 폴백** — 사용자 작업 방해 최소화. 로그인 필요할 때만 창 띄움.
+4. **Mutex (`_ensurePagePromise`)** — 병렬 호출 시 첫 호출만 브라우저 초기화, 나머지는 대기. profile 중복 사용 충돌 방지.
+5. **snapshot 비교** — 생성 전 DOM의 base64 이미지 src를 모두 기록. 새로 등장한 것만 result로 인식 (이전 이미지 반복 캡처 버그 차단).
+6. **3회 재시도 + cached invalidation** — `Target closed` / `WebSocket` 에러 시 캐시 무효화 후 재시도.
 
 ---
 
@@ -597,9 +691,43 @@ dropshot.io의 ToS 변경 시 본 키트가 정책 위반이 될 수 있음 — 
 
 ## §10. 변경 이력
 
+- **v1.1 (2026-05-30, app v3.6.2)**: 실측 결과 + 작동원리 흐름도 + 한 줄 릴리스 스크립트 추가
 - **v1.0 (2026-05-30, app v3.6.0)**: 초안 — blogger-gpt-cli에서 추출, 실측 검증 완료
   - 3장 batch 모두 고유 hash + i2i smoke 성공
   - 비용 표시 정정: "0원" → "구독료별, 한계비용 0원"
+
+---
+
+## §11. 부록 — 한 줄 릴리스 스크립트
+
+`scripts/release-auto.js`를 사용하면 빌드 + 버전업 + 깃허브 릴리스를 한 줄로 처리:
+
+```bash
+# 패치 버전 자동 bump (3.6.1 → 3.6.2) + "버그 수정" 커밋 메시지
+npm run release:auto patch "버그 수정"
+
+# 마이너 (3.6.1 → 3.7.0)
+npm run release:auto minor "신기능 추가"
+
+# 명시 버전
+npm run release:auto 3.7.5 "특정 버전 지정"
+
+# 인자 없이 patch만
+npm run release:auto patch
+```
+
+**실행 단계** (자동):
+1. `package.json` 버전 bump
+2. `npm run build` (TypeScript + UI 복사)
+3. `git add + commit + tag + push`
+4. `electron-builder --win` (.exe 서명 빌드)
+5. `gh release create` + asset 업로드
+6. `gh release edit --draft=false --latest`
+
+**전제 조건**:
+- `gh` CLI 로그인 (`gh auth login`)
+- 변경된 파일들은 미리 `git add` + 커밋해두기 (script는 package.json만 커밋)
+- Code signing 환경 변수 (선택)
 
 ---
 

@@ -42,7 +42,8 @@
     "pre-release": "node scripts/pre-release-check.js",
     "release": "npm run build && electron-builder --win --publish always && node scripts/publish-release.js",
     "release:mac": "npm run build && electron-builder --mac --publish always && node scripts/publish-release.js",
-    "release:all": "npm run build && electron-builder --win --mac --linux --publish always && node scripts/publish-release.js"
+    "release:all": "npm run build && electron-builder --win --mac --linux --publish always && node scripts/publish-release.js",
+    "release:auto": "node scripts/release-auto.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
