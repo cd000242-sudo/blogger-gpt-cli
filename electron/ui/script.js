@@ -1365,7 +1365,9 @@ document.addEventListener('DOMContentLoaded', () => {
 //   글 생성 흐름과 독립. 외부 LLM에서 글 받은 사용자가 이미지만 본 앱으로 생성.
 const BATCH_IMAGE_ENGINE_COST = {
   'imagefx': 0, 'flow': 0,
-  'dropshot-nanobanana-pro': 0, // v3.6.0: UI 자동화, Pro 구독자 무제한 (무료 사용자는 quota 소진 시 fail)
+  // v3.6.0: Dropshot은 "구독료별" — Pro 구독자 한정 한계비용 0원, 구독료(월 74,000~99,000원)는 별도.
+  // 이미지 1장당 추가 비용은 없음. UI에서 "구독료별"로 표시.
+  'dropshot-nanobanana-pro': 0,
   'nanobanana': 52, 'nanobanana2': 90, 'nanobananapro': 178,
   'gptimage1-low': 15, 'gptimage1-medium': 56, 'gptimage1-high': 222,
   'gptimage2-low': 15, 'gptimage2-medium': 56, 'gptimage2-high': 222,
@@ -1529,8 +1531,8 @@ document.addEventListener('DOMContentLoaded', () => {
 //   환경설정의 이미지 비용표와 동일한 가격 사용. 실시간 업데이트.
 const IMAGE_ENGINE_COST_KRW_PER_IMAGE = {
   'imagefx': 0,                                  // 무료
-  'flow': 0,                                     // Google AI Pro 구독자 무료
-  'dropshot-nanobanana-pro': 0,                  // v3.6.0: Dropshot Pro 구독자 무제한
+  'flow': 0,                                     // Google AI Pro 구독자 (월 구독료별)
+  'dropshot-nanobanana-pro': 0,                  // v3.6.0: Dropshot Pro 구독자 한정 — 구독료(월 74,000~99,000원) 별도, 이미지당 한계비용 0원
   'nanobanana': 52,                              // $0.039
   'nanobanana2': 90,                             // $0.067 (사용자 현재 기본)
   'nanobananapro': 178,                          // $0.134
