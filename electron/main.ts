@@ -4625,9 +4625,18 @@ ipcMain.handle('batch-image-generate', async (_evt, payload: any) => {
   try {
     const { engine, quality, aspectRatio, prompt, includeText, referenceImageList } = payload || {};
     if (!engine || !prompt) return { ok: false, error: 'engine + prompt 필수' };
-    const finalPrompt = includeText
-      ? `${prompt}\n\n[IMPORTANT: Include clear, legible Korean text overlay on the image that visually summarizes the topic]`
-      : prompt;
+
+    // v3.7.0: 모든 엔진 공통 — 매 호출 unique variation seed로 중복 이미지 방지.
+    //   nanobanana/gptimage/flow/imagefx/prodia/deepinfra/dropshot 모두 동일 prompt 받으면
+    //   비슷한 결과를 반환하던 문제 차단. timestamp+nonce를 한국어/영어 mixed로 명시.
+    const nonce = Math.random().toString(36).slice(2, 8);
+    const ts = Date.now().toString(36);
+    const variationTail = `\n\n[Gen-${ts}-${nonce}: unique composition, fresh angle, different subjects/setting/lighting — never duplicate previous outputs / 매번 완전히 다른 구도와 시점]`;
+    const textTail = includeText
+      ? `\n\n[IMPORTANT: Include clear, legible Korean text overlay on the image that visually summarizes the topic]`
+      : '';
+    const finalPrompt = `${prompt}${textTail}${variationTail}`;
+
     const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
     const extra: any = {};
     if (quality === 'low' || quality === 'medium' || quality === 'high') extra.gptImageQuality = quality;

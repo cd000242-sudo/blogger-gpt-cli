@@ -5313,14 +5313,14 @@
             <!-- 2. 프롬프트 입력 -->
             <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 20px; margin-bottom: 16px;">
               <h3 style="margin: 0 0 12px 0; color: white; font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 8px; justify-content: space-between;">
-                <span>📝 프롬프트 (1줄 = 1이미지)</span>
+                <span>📝 프롬프트</span>
                 <span id="batchPromptCount" style="font-size: 12px; color: #c4b5fd; font-weight: 700;">0장</span>
               </h3>
               <textarea id="batchPromptList" oninput="window.updateBatchImageCost && window.updateBatchImageCost()"
-                placeholder="여기에 프롬프트를 줄바꿈으로 여러 개 입력하세요.&#10;예시:&#10;A cozy Korean cafe with morning light&#10;An elderly Korean man reading newspaper&#10;Modern Seoul cityscape at sunset"
+                placeholder="✅ 짧은 키워드 N개 (각 줄 = 1이미지):&#10;숨은 보험금 3종&#10;내보험찾아줌 5단계&#10;스미싱 예방 보안 팁&#10;&#10;✅ 긴 프롬프트 1개 (자동으로 한 이미지):&#10;A cozy Korean cafe with morning light&#10;featuring a young woman reading book&#10;at a wooden table with warm tones&#10;&#10;✅ 여러 긴 프롬프트 (빈 줄로 구분):&#10;Detailed prompt A...&#10;여러 줄 가능&#10;&#10;Detailed prompt B...&#10;여러 줄 가능"
                 style="width: 100%; min-height: 200px; padding: 14px; background: rgba(0,0,0,0.25); border: 2px solid rgba(255,255,255,0.1); color: white; font-size: 13px; border-radius: 10px; font-family: 'SF Mono', monospace; line-height: 1.6; resize: vertical;"></textarea>
               <small style="display: block; margin-top: 8px; color: rgba(255,255,255,0.5); font-size: 11px;">
-                💡 각 줄이 하나의 이미지가 됩니다 · 빈 줄은 무시됨 · 최대 50장
+                💡 <b>자동 감지</b>: 짧은 줄(&lt;80자) 여러 개 → 각 줄 1이미지 · 긴 줄 또는 단락 → 그 단락 전체가 1이미지 · <b>빈 줄로 명시 구분</b> 가능 · 최대 50장 · <b>한국어 OK</b> (모든 엔진)
               </small>
             </div>
 

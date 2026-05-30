@@ -1374,11 +1374,36 @@ const BATCH_IMAGE_ENGINE_COST = {
   'prodia': 1, 'deepinfra': 16,
 };
 
+// v3.7.0: 프롬프트 파싱 — 빈 줄 구분 + 자동 감지
+//   - 빈 줄(\n\n)이 있으면: 빈 줄로 구분된 각 블록이 1 prompt (긴 영어/한국어 prompt 다중 줄 가능)
+//   - 빈 줄 없음 + 줄당 평균 길이 < 80자 + 모든 줄 < 150자: 각 줄 = 1 prompt (짧은 키워드 모드)
+//   - 빈 줄 없음 + 줄당 평균 길이 >= 80자 또는 한 줄 >= 150자: 전체 합쳐서 1 prompt (긴 단일 prompt)
+window.parseBatchPromptList = function (raw) {
+  const text = String(raw || '');
+  if (!text.trim()) return [];
+  // 빈 줄 (\n + whitespace + \n)이 하나라도 있으면 — explicit 구분
+  if (/\n\s*\n/.test(text)) {
+    return text.split(/\n\s*\n+/).map(s => s.trim()).filter(Boolean).slice(0, 50);
+  }
+  // 빈 줄 없음 — 길이로 자동 판단
+  const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+  if (lines.length === 0) return [];
+  if (lines.length === 1) return [lines[0]];
+  const avgLen = lines.reduce((sum, l) => sum + l.length, 0) / lines.length;
+  const hasLongLine = lines.some(l => l.length >= 150);
+  if (avgLen >= 80 || hasLongLine) {
+    // 긴 prompt 1개로 추정 — 모든 줄 합침
+    return [lines.join(' ')];
+  }
+  // 짧은 키워드 N개
+  return lines.slice(0, 50);
+};
+
 window.updateBatchImageCost = function () {
   const engine = document.getElementById('batchImageEngine')?.value || 'nanobanana2';
   const quality = document.querySelector('input[name="batchGptQuality"]:checked')?.value || 'medium';
   const promptList = document.getElementById('batchPromptList')?.value || '';
-  const prompts = promptList.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 50);
+  const prompts = window.parseBatchPromptList(promptList);
   const count = prompts.length;
 
   // quality 라디오 wrap 표시/숨김
@@ -1538,7 +1563,7 @@ window.startBatchImageGeneration = async function () {
   const aspectRatio = document.getElementById('batchAspectRatio')?.value || '16:9';
   const parallel = parseInt(document.getElementById('batchParallel')?.value || '3', 10);
   const promptList = document.getElementById('batchPromptList')?.value || '';
-  const prompts = promptList.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 50);
+  const prompts = window.parseBatchPromptList(promptList);
 
   if (prompts.length === 0) {
     alert('프롬프트를 1개 이상 입력해주세요.');
@@ -1686,7 +1711,7 @@ window.openManualH2MappingModal = function () {
   // 본 글의 H2 sections 추론: 메인 폼에 입력된 키워드 + 프롬프트 list를 기반으로 H2 이름 자동 생성
   // 단순화: 프롬프트 list 첫 줄들을 H2 후보로 사용 (사용자가 1줄 = 1소제목 패턴으로 입력했다 가정)
   const promptList = document.getElementById('batchPromptList')?.value || '';
-  const h2Names = promptList.split('\n').map(s => s.trim()).filter(Boolean).slice(0, results.length);
+  const h2Names = window.parseBatchPromptList(promptList).slice(0, results.length);
   // 부족하면 "H2 #N"으로 채움
   while (h2Names.length < results.length) h2Names.push(`H2 #${h2Names.length + 1}`);
 
