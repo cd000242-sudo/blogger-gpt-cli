@@ -305,7 +305,8 @@ export async function generateAllSectionsFinal(
   onLog?: (s: string) => void,
   contentMode?: string,
   draftContent?: string,
-  sectionGuideBlock?: string
+  sectionGuideBlock?: string,
+  skipQualityBoost?: boolean
 ): Promise<{
   introduction: string;
   conclusion: string;
@@ -583,7 +584,7 @@ JSON만 출력 (설명/마크다운 금지):
       .replace(/```json\s*\n?/g, '')
       .replace(/```\s*\n?/g, '')
       // 제어 문자 제거 (탭/CR/LF는 보존)
-      .replace(/[ --]/g, '');
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
 
     const first = cleaned.indexOf('{');
     if (first === -1) return cleaned;
@@ -694,8 +695,14 @@ JSON만 출력 (설명/마크다운 금지):
     const totalCount = flat.length || 1;
     const lowQualityRatio = lowQualityCount / totalCount;
 
-    // 🔥 30% 이상 저품질이면 보강
-    if (lowQualityRatio >= 0.30) {
+    // v3.7.8: 빠른 모드 — skipQualityBoost=true면 보강 스킵 (3~4분 절약)
+    //   기본은 보강 ON (품질 유지), 사용자가 메인 폼에서 토글 ON 시 빠른 모드
+    const skipBoost = skipQualityBoost === true;
+    if (skipBoost) {
+      onLog?.('[PROGRESS] 65% - ⚡ 빠른 모드: 본문 품질 보강 스킵');
+    }
+    // 🔥 30% 이상 저품질이면 보강 (빠른 모드는 스킵)
+    if (!skipBoost && lowQualityRatio >= 0.30) {
       onLog?.('[PROGRESS] 65% - 🔁 본문 품질 보강 중 (1회 호출)...');
       const improvePrompt = `
 키워드: ${keyword}

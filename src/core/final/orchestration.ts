@@ -711,6 +711,7 @@ export async function generateUltimateMaxModeArticleFinal(
 
     // 섹션 프롬프트 블록은 "참고 데이터"가 아닌 별도 지시로 전달
     const draftContent = (payload as any).draftContent || '';
+    const skipQualityBoost = (payload as any).skipQualityBoost === true;
     let allSectionsObj = await generateAllSectionsFinal(
       keyword,
       h2Titles,
@@ -719,6 +720,7 @@ export async function generateUltimateMaxModeArticleFinal(
       contentMode,
       draftContent,
       modeResult.sectionPromptBlock || '',
+      skipQualityBoost,
     );
 
     // 🔄 페러프레이징 모드: 유사도 검증 + 임계값 초과 시 자동 재시도 1회
@@ -755,6 +757,7 @@ export async function generateUltimateMaxModeArticleFinal(
             contentMode,
             draftContent,
             stricterPromptBlock,
+            skipQualityBoost,
           );
           report = computeSimilarity(allSectionsObj);
           onLog?.(`[PROGRESS] 70% - 🔄 페러프레이징 2차 검증: ${report.message}`);
@@ -804,6 +807,7 @@ export async function generateUltimateMaxModeArticleFinal(
             contentMode,
             draftContent,
             stricterBlock,
+            skipQualityBoost,
           );
           const retriedCount = (retried.sections || []).length;
           if (retriedCount >= modeTargets.min) {

@@ -934,6 +934,8 @@ export async function createPayload(options = {}) {
     strictThumbnailEngine: !!document.getElementById('strictThumbnailEngine')?.checked,
     // 🛡️ S-1 (v3.5.84): H2 섹션 이미지 엔진 strict 모드 — 폴백 차단
     strictH2ImageEngine: !!document.getElementById('strictH2ImageEngine')?.checked,
+    // v3.7.8: 빠른 모드 — 본문 품질 보강 스킵 (~3~4분 절약, 단 품질 다소 떨어질 수 있음)
+    skipQualityBoost: !!document.getElementById('skipQualityBoost')?.checked,
     // 🏆 AdSense 강화 — adsense 모드일 때만 의미 있음
     llmRotation: !!document.getElementById('llmRotation')?.checked,
     adsenseScoreGate: !!document.getElementById('adsenseScoreGate')?.checked,

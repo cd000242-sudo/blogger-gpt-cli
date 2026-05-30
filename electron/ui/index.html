@@ -4087,6 +4087,19 @@
                       </label>
                       <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 ON 시 선택한 이미지 엔진만 시도합니다 (선택 엔진이 반드시 사용됨). 실패 시 다른 엔진으로 자동 폴백되지 않고, 자동 우회 가능한 에러는 우회·우회 불가 에러는 발행 차단합니다.</small>
                     </div>
+
+                    <!-- v3.7.8: 빠른 모드 — 본문 품질 보강 스킵 (3~4분 절약) -->
+                    <div class="acc-field" style="margin-top:8px; padding: 12px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.3); border-radius: 10px;">
+                      <label class="acc-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" id="skipQualityBoost" style="width:18px;height:18px;cursor:pointer; accent-color: #f59e0b;">
+                        <span>⚡ 빠른 모드 — 본문 품질 보강 스킵 <span style="color:#fbbf24;font-size:10px;font-weight:700;">3~4분 절약</span></span>
+                      </label>
+                      <small style="color: rgba(255,255,255,0.55); font-size: 11px; margin-top: 4px; display: block; line-height: 1.5;">
+                        💡 본문 1차 생성 후 진행되는 품질 보강(저품질 H3 재작성, 600~1000자 확장) 단계를 스킵합니다.<br>
+                        ⏱️ 발행 시간 약 <b>3~4분 단축</b>. 1차 생성된 본문이 이미 양호하면 손실 없음.<br>
+                        ⚠️ 단, AI 1차 생성이 부실하면 본문 길이/품질이 다소 떨어질 수 있습니다.
+                      </small>
+                    </div>
                     <!-- v3.7.7: ImageFX/Flow 로그인 카드 — 해당 엔진 선택 시만 표시 -->
                     <div class="acc-field" id="imagefxLoginCardWrap" style="display: none;">
                       <label class="acc-label">🔐 ImageFX/Flow Google 로그인</label>

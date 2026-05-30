@@ -4171,6 +4171,65 @@ try {
 catch (e) {
     console.warn('[APP] ⚠️ ImageFX IPC 핸들러 등록 실패 (imageFxGenerator 로드 불가):', e);
 }
+// 🍌 v3.6.7: Dropshot 로그인/체크 IPC + 대량 이미지 생성 IPC
+//   main.ts에 직접 등록 (main.js만 수정 시 다음 빌드에서 덮어씌워지던 이전 버그 fix)
+try {
+    const { checkDropshotLogin, loginDropshot } = require('../dist/core/dropshotGenerator');
+    electron_1.ipcMain.handle('dropshot:check-login', async () => {
+        try {
+            return await checkDropshotLogin();
+        }
+        catch (e) {
+            return { loggedIn: false, message: e.message || 'Dropshot 로그인 확인 실패' };
+        }
+    });
+    electron_1.ipcMain.handle('dropshot:login', async () => {
+        try {
+            return await loginDropshot();
+        }
+        catch (e) {
+            return { loggedIn: false, message: e.message || 'Dropshot 로그인 실패' };
+        }
+    });
+    console.log('[APP] ✅ Dropshot IPC 핸들러 등록 완료');
+}
+catch (e) {
+    console.warn('[APP] ⚠️ Dropshot IPC 핸들러 등록 실패:', e?.message || e);
+}
+// 🎨 v3.6.7: 대량 이미지 생성 IPC (이미지 생성 탭 → dispatcher 경유)
+//   payload: { engine, quality, aspectRatio, prompt, includeText, referenceImageList }
+//   - includeText: 한글 텍스트 오버레이 hint (nanobanana/gptimage2만 깨지지 않음, 기본 OFF)
+//   - referenceImageList: i2i URL 배열 (dropshot 등 i2i 지원 엔진만)
+//   dispatcher가 inferImagePrompt + variation hint를 자동 적용 → 짧은 한국어 키워드도 확장
+electron_1.ipcMain.handle('batch-image-generate', async (_evt, payload) => {
+    try {
+        const { engine, quality, aspectRatio, prompt, includeText, referenceImageList } = payload || {};
+        if (!engine || !prompt)
+            return { ok: false, error: 'engine + prompt 필수' };
+        // v3.7.0: 모든 엔진 공통 — 매 호출 unique variation seed로 중복 이미지 방지.
+        //   nanobanana/gptimage/flow/imagefx/prodia/deepinfra/dropshot 모두 동일 prompt 받으면
+        //   비슷한 결과를 반환하던 문제 차단. timestamp+nonce를 한국어/영어 mixed로 명시.
+        const nonce = Math.random().toString(36).slice(2, 8);
+        const ts = Date.now().toString(36);
+        const variationTail = `\n\n[Gen-${ts}-${nonce}: unique composition, fresh angle, different subjects/setting/lighting — never duplicate previous outputs / 매번 완전히 다른 구도와 시점]`;
+        const textTail = includeText
+            ? `\n\n[IMPORTANT: Include clear, legible Korean text overlay on the image that visually summarizes the topic]`
+            : '';
+        const finalPrompt = `${prompt}${textTail}${variationTail}`;
+        const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
+        const extra = {};
+        if (quality === 'low' || quality === 'medium' || quality === 'high')
+            extra.gptImageQuality = quality;
+        if (Array.isArray(referenceImageList) && referenceImageList.length > 0)
+            extra.referenceImageList = referenceImageList;
+        void aspectRatio; // aspectRatio 옵션은 향후 엔진별 적용
+        return await dispatchH2ImageGeneration(engine, finalPrompt, prompt, undefined, undefined, extra);
+    }
+    catch (e) {
+        console.error('[BATCH-IMAGE] 생성 오류:', e);
+        return { ok: false, error: e?.message || String(e) };
+    }
+});
 electron_1.ipcMain.handle('indexnow:submit', async (_evt, siteUrl, urls) => {
     try {
         const { submitToIndexNow } = loadCoreModule('indexnow');
