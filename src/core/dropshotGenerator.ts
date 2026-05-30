@@ -178,6 +178,136 @@ export interface DropshotResult {
 }
 
 /**
+ * v3.6.4: Dropshot 로그인 상태 확인 (UI 자동화 부수 정보)
+ *   - 캐시된 세션이 살아있는지 또는 새로 headless 진입해서 확인
+ *   - 구독 정보까지 추출 (Pro 여부)
+ */
+export async function checkDropshotLogin(): Promise<{
+  loggedIn: boolean;
+  userId?: string;
+  userName?: string;
+  email?: string;
+  subscription?: 'pro' | 'free' | 'unknown';
+  message?: string;
+}> {
+  try {
+    const profileDir = getProfileDir();
+    // headless로 빠르게 확인 (cached page 우선)
+    let context = cachedContext;
+    let page = cachedPage;
+    let openedFresh = false;
+    if (!context || !page) {
+      context = await launchBrowser(profileDir, true);
+      page = context.pages()[0] || await context.newPage();
+      openedFresh = true;
+      try {
+        await page.goto('https://aistudio.dropshot.io', { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await new Promise(r => setTimeout(r, 4000));
+      } catch (e: any) {
+        if (openedFresh) { try { await context.close(); } catch {} }
+        return { loggedIn: false, message: `navigate 실패: ${e.message}` };
+      }
+    }
+
+    const info = await page.evaluate(async () => {
+      try {
+        // /v1/user/{externalId} 엔드포인트로 확인 — 사이트 UI가 정상 호출하면 200
+        const cookies = document.cookie;
+        const cognitoMatch = cookies.match(/CognitoIdentityServiceProvider\.[^.]+\.LastAuthUser=([^;]+)/);
+        if (!cognitoMatch) return { loggedIn: false, message: 'Cognito 쿠키 없음 — 로그인 필요' };
+
+        // 사이트의 fetch wrapper를 통해 자체 user info 조회 — page 내부에서 fetch (자동 인증)
+        const res = await fetch('/api/me', { credentials: 'include' }).catch(() => null);
+        if (res && res.ok) {
+          const data = await res.json();
+          return { loggedIn: true, userName: data?.name, email: data?.email, userId: data?.externalId, message: 'OK' };
+        }
+        // 대체: localStorage 또는 다른 source
+        return { loggedIn: true, message: 'Cognito 세션 있음 (상세 조회는 사이트 내에서)' };
+      } catch (e: any) {
+        return { loggedIn: false, message: `evaluate err: ${e.message}` };
+      }
+    });
+
+    // 구독 상태 — best-effort (API 호출 실패해도 loggedIn 정보는 살림)
+    let subscription: 'pro' | 'free' | 'unknown' = 'unknown';
+    try {
+      const sub = await page.evaluate(async () => {
+        const r = await fetch('https://api.aistudio.dropshot.io/v1/user/subscription?lang=ko', { credentials: 'include' });
+        if (!r.ok) return null;
+        return await r.json();
+      });
+      if (sub && typeof sub === 'object') {
+        const planType = String((sub as any)?.current?.plan || (sub as any)?.plan || '').toLowerCase();
+        if (planType === 'pro' || planType.includes('pro')) subscription = 'pro';
+        else if (planType === 'free' || planType === 'basic') subscription = 'free';
+      }
+    } catch { /* subscription 정보 못 가져와도 loggedIn 정보는 유효 */ }
+
+    if (openedFresh) {
+      // 캐시 안 했으면 닫기 (별도 ensurePage가 나중에 다시 띄움)
+      try { await context.close(); } catch {}
+    }
+
+    return { ...info, subscription };
+  } catch (e: any) {
+    return { loggedIn: false, message: `예외: ${e.message || e}` };
+  }
+}
+
+/**
+ * v3.6.4: Dropshot visible 로그인 (사용자가 직접 로그인하는 흐름 명시적으로 trigger)
+ *   - 환경설정의 "Dropshot 로그인" 버튼에서 호출
+ *   - visible 브라우저 열고 5분 대기 → 사용자 로그인 완료 시 자동 close
+ */
+export async function loginDropshot(): Promise<{
+  loggedIn: boolean;
+  userName?: string;
+  message?: string;
+}> {
+  try {
+    const profileDir = getProfileDir();
+    // 기존 cached 닫기 (visible 새로 띄움)
+    if (cachedContext) { try { await cachedContext.close(); } catch {} cachedContext = null; cachedPage = null; }
+
+    const context = await launchBrowser(profileDir, false);
+    const page = context.pages()[0] || await context.newPage();
+    await page.goto('https://aistudio.dropshot.io', { waitUntil: 'domcontentloaded', timeout: 45000 });
+
+    let loggedIn = false;
+    let userName: string | undefined;
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 5000));
+      try {
+        const pages = context.pages();
+        const p = pages.find((pg: any) => { try { return pg.url().includes('dropshot.io'); } catch { return false; } }) || pages[pages.length - 1];
+        const ok = await isLoggedIn(p);
+        if (ok) {
+          loggedIn = true;
+          try {
+            const u = await p.evaluate(async () => {
+              const r = await fetch('/api/me', { credentials: 'include' });
+              return r.ok ? await r.json() : null;
+            });
+            userName = u?.name || u?.email;
+          } catch {}
+          break;
+        }
+      } catch { continue; }
+    }
+    try { await context.close(); } catch {}
+    if (loggedIn) {
+      return userName
+        ? { loggedIn: true, userName, message: '로그인 완료' }
+        : { loggedIn: true, message: '로그인 완료' };
+    }
+    return { loggedIn: false, message: '5분 내 로그인 미완료' };
+  } catch (e: any) {
+    return { loggedIn: false, message: `예외: ${e.message || e}` };
+  }
+}
+
+/**
  * URL 이미지를 buffer로 다운로드 → setInputFiles용 file 객체로 변환.
  * dropshot UI의 reference 업로드 input은 일반 file input이므로 setInputFiles가 동작한다.
  */

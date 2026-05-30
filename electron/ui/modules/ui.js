@@ -64,6 +64,16 @@ export function showTab(tabName) {
         if (window.__initAdsenseTools) window.__initAdsenseTools();
       }
       break;
+    case 'image-batch':
+      // v3.6.4: 대량 이미지 생성 탭 (사이드바 nav-image-batch 클릭 시)
+      targetTab = document.getElementById('image-batch-tab');
+      if (targetTab && !targetTab.dataset.initialized) {
+        targetTab.dataset.initialized = 'true';
+        // 초기 비용 미리보기 / 엔진 상태 표시 등 1회 초기화
+        try { window.updateBatchImageCost?.(); } catch { /* ignore */ }
+        try { window.refreshDropshotLoginStatus?.(); } catch { /* ignore */ }
+      }
+      break;
     default:
       console.warn('⚠️ 알 수 없는 탭:', tabName);
   }
@@ -92,6 +102,7 @@ export function showTab(tabName) {
     'keyword-discover': 'nav-keyword-discover',
     'content': 'nav-convert',
     'adsense-tools': 'nav-adsense-tools',
+    'image-batch': 'nav-image-batch', // v3.6.4
   };
   window.__sidebarSetActive?.(tabToNavMap[tabName]);
 }

@@ -4180,6 +4180,31 @@ electron_1.ipcMain.handle('batch-image-generate', async (_evt, payload) => {
     }
 });
 
+// 🍌 v3.6.4 Dropshot 로그인 IPC 핸들러 (구독자 확인용)
+try {
+    const { checkDropshotLogin, loginDropshot } = require('../dist/core/dropshotGenerator');
+    electron_1.ipcMain.handle('dropshot:check-login', async () => {
+        try {
+            return await checkDropshotLogin();
+        }
+        catch (e) {
+            return { loggedIn: false, message: e.message || 'Dropshot 로그인 확인 실패' };
+        }
+    });
+    electron_1.ipcMain.handle('dropshot:login', async () => {
+        try {
+            return await loginDropshot();
+        }
+        catch (e) {
+            return { loggedIn: false, message: e.message || 'Dropshot 로그인 실패' };
+        }
+    });
+    console.log('[APP] ✅ Dropshot IPC 핸들러 등록 완료');
+}
+catch (e) {
+    console.warn('[APP] ⚠️ Dropshot IPC 핸들러 등록 실패:', e?.message || e);
+}
+
 // 🖼️ ImageFX Google 로그인 IPC 핸들러
 try {
     const { checkGoogleLoginForImageFx, loginGoogleForImageFx } = require('../dist/core/imageFxGenerator');

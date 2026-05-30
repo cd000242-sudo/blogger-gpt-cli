@@ -2310,25 +2310,47 @@
           console.log('[API-STATUS] ✅ 연동 상태 업데이트 완료');
         }
 
+        // v3.6.4: 선택 카드에 'SELECTED' 배지 + 체크 아이콘 추가 (강조 ON)
+        window.__applySelectedBadge = function (box) {
+          if (!box) return;
+          if (box.querySelector('.__selected-badge')) return; // 중복 방지
+          const badge = document.createElement('div');
+          badge.className = '__selected-badge';
+          badge.innerHTML = '✓ 선택됨';
+          badge.style.cssText = 'position:absolute; top:8px; right:8px; padding:4px 10px; background:linear-gradient(135deg,#8b5cf6,#6366f1); color:white; font-size:11px; font-weight:800; border-radius:999px; box-shadow:0 4px 12px rgba(139,92,246,0.5);';
+          box.appendChild(badge);
+        };
+        window.__removeSelectedBadge = function (box) {
+          if (!box) return;
+          const badge = box.querySelector('.__selected-badge');
+          if (badge) badge.remove();
+        };
+
         // 🔥 플랫폼 선택 함수 (전역)
         window.selectPlatform = function (platform) {
           console.log('[PLATFORM] selectPlatform 호출:', platform);
 
           const bloggerRadio = document.getElementById('platform-blogger');
           const wordpressRadio = document.getElementById('platform-wordpress');
+          const bloggerBox = document.getElementById('blogger-select-box');
+          const wordpressBox = document.getElementById('wordpress-select-box');
+
+          // v3.6.4: 시각적 강조 — 선택 카드를 명확히 표시
+          //   선택: 보라 그라데이션 + 두꺼운 보라 border + 체크 마크 + 살짝 위로 떠올리기
+          //   미선택: 회색 톤 + 옅은 border + 흐릿한 색
+          const SELECTED_STYLE = 'padding: 20px; border: 3px solid #8b5cf6; border-radius: 12px; cursor: pointer; background: linear-gradient(135deg, rgba(139,92,246,0.25), rgba(99,102,241,0.18)); transition: all 0.2s; transform: translateY(-2px); box-shadow: 0 10px 30px -8px rgba(139,92,246,0.5), 0 0 0 1px rgba(139,92,246,0.3) inset; position: relative;';
+          const UNSELECTED_STYLE = 'padding: 20px; border: 2px solid rgba(255,255,255,0.08); border-radius: 12px; cursor: pointer; background: rgba(15, 23, 42, 0.4); transition: all 0.2s; opacity: 0.55; position: relative;';
 
           if (platform === 'blogger') {
-            if (bloggerRadio) {
-              bloggerRadio.checked = true;
-              console.log('[PLATFORM] Blogger 라디오 체크됨');
-            }
+            if (bloggerRadio) bloggerRadio.checked = true;
             if (wordpressRadio) wordpressRadio.checked = false;
+            if (bloggerBox) { bloggerBox.style.cssText = SELECTED_STYLE; window.__applySelectedBadge?.(bloggerBox); }
+            if (wordpressBox) { wordpressBox.style.cssText = UNSELECTED_STYLE; window.__removeSelectedBadge?.(wordpressBox); }
           } else {
             if (bloggerRadio) bloggerRadio.checked = false;
-            if (wordpressRadio) {
-              wordpressRadio.checked = true;
-              console.log('[PLATFORM] WordPress 라디오 체크됨');
-            }
+            if (wordpressRadio) wordpressRadio.checked = true;
+            if (bloggerBox) { bloggerBox.style.cssText = UNSELECTED_STYLE; window.__removeSelectedBadge?.(bloggerBox); }
+            if (wordpressBox) { wordpressBox.style.cssText = SELECTED_STYLE; window.__applySelectedBadge?.(wordpressBox); }
           }
 
           // 환경설정 UI 업데이트
@@ -5202,6 +5224,27 @@
                 <option value="flow">🌊 Flow (무료* · AI Pro 구독)</option>
                 <option value="dropshot-nanobanana-pro">🍌 Dropshot 나노바나나 Pro (Pro 구독자 무제한 · 구독료별 · UI 자동화)</option>
               </select>
+
+              <!-- v3.6.4: Dropshot 선택 시 로그인 상태 카드 (구독자 확인) -->
+              <div id="batchDropshotStatusCard" style="display: none; margin-top: 12px; padding: 14px; background: linear-gradient(135deg, rgba(251,191,36,0.12), rgba(245,158,11,0.08)); border: 1px solid rgba(251,191,36,0.4); border-radius: 10px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                  <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;">
+                    <span id="batchDropshotStatusIcon" style="font-size: 22px;">⏳</span>
+                    <div style="flex: 1; min-width: 0;">
+                      <div id="batchDropshotStatusTitle" style="color: #fef3c7; font-size: 13px; font-weight: 800;">Dropshot 상태 확인 중...</div>
+                      <div id="batchDropshotStatusSub" style="color: rgba(255,255,255,0.7); font-size: 11px; margin-top: 2px;">잠시만 기다려주세요</div>
+                    </div>
+                  </div>
+                  <button id="batchDropshotLoginBtn" type="button" onclick="window.runDropshotLogin && window.runDropshotLogin()"
+                    style="display: none; padding: 8px 14px; background: linear-gradient(135deg, #fbbf24, #f59e0b); border: none; color: #78350f; font-size: 12px; font-weight: 800; border-radius: 8px; cursor: pointer; white-space: nowrap;">
+                    🔐 로그인하기
+                  </button>
+                  <button id="batchDropshotRecheckBtn" type="button" onclick="window.refreshDropshotLoginStatus && window.refreshDropshotLoginStatus()"
+                    style="padding: 6px 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px; border-radius: 6px; cursor: pointer; white-space: nowrap;">
+                    🔄 새로고침
+                  </button>
+                </div>
+              </div>
 
               <!-- GPT quality (gptimage1/2 선택 시) -->
               <div id="batchGptQualityWrap" style="display: none; margin-top: 12px; padding: 10px; background: rgba(139,92,246,0.1); border: 1px solid rgba(139,92,246,0.3); border-radius: 8px;">

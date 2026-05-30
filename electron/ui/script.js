@@ -1387,6 +1387,18 @@ window.updateBatchImageCost = function () {
     qualityWrap.style.display = (engine === 'gptimage1' || engine === 'gptimage2') ? 'block' : 'none';
   }
 
+  // v3.6.4: Dropshot 선택 시 로그인 상태 카드 보이기 + 자동 확인 트리거
+  const dropshotCard = document.getElementById('batchDropshotStatusCard');
+  if (dropshotCard) {
+    const isDropshot = /^dropshot/.test(engine);
+    dropshotCard.style.display = isDropshot ? 'block' : 'none';
+    if (isDropshot && !window.__dropshotStatusChecked) {
+      window.__dropshotStatusChecked = true;
+      // 첫 진입 시 자동 확인
+      setTimeout(() => window.refreshDropshotLoginStatus?.(), 200);
+    }
+  }
+
   const unitCost = (engine === 'gptimage1' || engine === 'gptimage2')
     ? (BATCH_IMAGE_ENGINE_COST[`${engine}-${quality}`] ?? 0)
     : (BATCH_IMAGE_ENGINE_COST[engine] ?? 0);
@@ -1395,9 +1407,83 @@ window.updateBatchImageCost = function () {
   const countLabel = document.getElementById('batchCountLabel');
   if (countLabel) countLabel.textContent = `${count}장 × ${unitCost.toLocaleString()}원`;
   const valueEl = document.getElementById('batchCostValue');
-  if (valueEl) valueEl.textContent = totalCost === 0 ? '🎉 무료' : `${totalCost.toLocaleString()}원`;
+  if (valueEl) {
+    if (/^dropshot/.test(engine)) {
+      valueEl.textContent = `🍌 Dropshot Pro 구독료 (월정액, 이미지당 추가 0원)`;
+    } else {
+      valueEl.textContent = totalCost === 0 ? '🎉 무료' : `${totalCost.toLocaleString()}원`;
+    }
+  }
   const promptCount = document.getElementById('batchPromptCount');
   if (promptCount) promptCount.textContent = `${count}장`;
+};
+
+// v3.6.4: Dropshot 로그인 상태 확인 (구독 정보까지)
+window.refreshDropshotLoginStatus = async function () {
+  const card = document.getElementById('batchDropshotStatusCard');
+  if (!card) return;
+  const icon = document.getElementById('batchDropshotStatusIcon');
+  const title = document.getElementById('batchDropshotStatusTitle');
+  const sub = document.getElementById('batchDropshotStatusSub');
+  const loginBtn = document.getElementById('batchDropshotLoginBtn');
+
+  if (icon) icon.textContent = '⏳';
+  if (title) title.textContent = '확인 중...';
+  if (sub) sub.textContent = 'Dropshot 로그인/구독 상태 조회 중';
+  if (loginBtn) loginBtn.style.display = 'none';
+
+  try {
+    const result = await window.electronAPI?.invoke?.('dropshot:check-login');
+    if (!result || !result.loggedIn) {
+      if (icon) icon.textContent = '🔐';
+      if (title) title.textContent = '로그인 필요';
+      if (sub) sub.textContent = result?.message || 'Dropshot 사이트 로그인이 필요합니다 (Google/이메일)';
+      if (loginBtn) loginBtn.style.display = 'inline-block';
+      return;
+    }
+
+    // 로그인 완료 — 구독 상태에 따라 분기
+    if (result.subscription === 'pro') {
+      if (icon) icon.textContent = '✅';
+      if (title) title.textContent = `Pro 구독자 — 무제한 사용 가능`;
+      if (sub) sub.textContent = `로그인: ${result.userName || result.email || result.userId || '확인됨'} · 이미지당 추가비용 0원`;
+      if (loginBtn) loginBtn.style.display = 'none';
+    } else if (result.subscription === 'free') {
+      if (icon) icon.textContent = '⚠️';
+      if (title) title.textContent = `무료 사용자 — 일일 quota 안에서 작동`;
+      if (sub) sub.textContent = `로그인: ${result.userName || result.email || '확인됨'} · creditCost 75/장 (quota 소진 시 자동 실패)`;
+      if (loginBtn) loginBtn.style.display = 'none';
+    } else {
+      if (icon) icon.textContent = '👤';
+      if (title) title.textContent = `로그인 완료 (구독 정보 미확인)`;
+      if (sub) sub.textContent = `${result.userName || result.email || result.userId || '확인됨'} — 사이트에서 직접 구독 확인 권장`;
+      if (loginBtn) loginBtn.style.display = 'none';
+    }
+  } catch (e) {
+    if (icon) icon.textContent = '❌';
+    if (title) title.textContent = '확인 실패';
+    if (sub) sub.textContent = e?.message?.slice(0, 100) || '네트워크 또는 IPC 오류';
+    if (loginBtn) loginBtn.style.display = 'inline-block';
+  }
+};
+
+// v3.6.4: Dropshot visible 로그인 (사용자 직접 로그인 트리거)
+window.runDropshotLogin = async function () {
+  const btn = document.getElementById('batchDropshotLoginBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 브라우저 열림...'; }
+  try {
+    const result = await window.electronAPI?.invoke?.('dropshot:login');
+    if (result?.loggedIn) {
+      alert('Dropshot 로그인 완료! ' + (result.userName ? '(' + result.userName + ')' : ''));
+      window.refreshDropshotLoginStatus?.();
+    } else {
+      alert('Dropshot 로그인 실패: ' + (result?.message || '시간 초과'));
+    }
+  } catch (e) {
+    alert('Dropshot 로그인 오류: ' + (e?.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔐 로그인하기'; }
+  }
 };
 
 // 결과 저장 (ZIP 다운로드용)
