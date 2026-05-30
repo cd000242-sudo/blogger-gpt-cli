@@ -1027,6 +1027,17 @@ export async function generateUltimateMaxModeArticleFinal(
         if (!effectiveSelectedH2Sections.includes(h2Number)) return { dataUrl: '', source: '' };
         if (i >= maxImages) return { dataUrl: '', source: '' };
 
+        // v3.6.5: 미리 생성한 이미지 우선 — 이미지 생성 탭에서 만든 이미지를 H2 #N에 매핑
+        //   사용자가 "📌 본 글 H2 소제목에 자동 배치" 토글을 켰을 때 publish payload에 포함됨.
+        //   API 재호출 없이 즉시 사용 → 시간/비용 절감 + 정확히 원하는 이미지 보장.
+        const preGen = (payload.preGeneratedImages as any[] | undefined) || [];
+        const preGenMatch = preGen.find((p: any) => Number(p?.h2Index) === h2Number && typeof p?.dataUrl === 'string' && p.dataUrl.length > 0);
+        if (preGenMatch) {
+          console.log(`[IMG-${i + 1}] 📌 미리 생성한 이미지 사용 (H2 #${h2Number}, 길이 ${preGenMatch.dataUrl.length}B)`);
+          onLog?.(`   📌 H2 #${h2Number}: 미리 생성한 이미지 사용 (API 호출 skip)`);
+          return { dataUrl: preGenMatch.dataUrl, source: '미리 생성 (이미지 생성 탭)' };
+        }
+
         let imageResult: { ok: boolean; dataUrl?: string; error?: string } = { ok: false };
         let usedSource = '';
 

@@ -3678,6 +3678,23 @@
                   </div>
                 </div>
 
+                <!-- v3.6.5: 미리 생성한 이미지 사용 중 배지 -->
+                <div id="preGeneratedImagesBadge" style="display: none; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 12px; background: linear-gradient(135deg, rgba(139,92,246,0.18), rgba(99,102,241,0.12)); border: 1px solid rgba(139,92,246,0.4); border-radius: 12px;">
+                  <span style="font-size: 24px;">📌</span>
+                  <div style="flex: 1;">
+                    <div style="color: white; font-size: 13px; font-weight: 800;">
+                      미리 생성한 이미지 <span id="preGeneratedImagesCount" style="color: #c4b5fd;">0</span>장 사용 중
+                    </div>
+                    <div style="color: rgba(255,255,255,0.65); font-size: 11px; margin-top: 2px;">
+                      글 생성 시 H2 #1, #2... 순서대로 자동 배치 (API 재호출 X)
+                    </div>
+                  </div>
+                  <button type="button" onclick="window.clearPreGeneratedImages && window.clearPreGeneratedImages()"
+                    style="padding: 6px 12px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px; border-radius: 6px; cursor: pointer; white-space: nowrap;">
+                    🗑️ 초기화
+                  </button>
+                </div>
+
                 <!-- 🚀 발행 버튼 + ⚙️ 상세설정 버튼 -->
                 <div style="display: flex; gap: 12px; margin-bottom: 16px; align-items: stretch;">
                   <!-- 메인 발행 버튼 -->
@@ -5301,6 +5318,19 @@
                   </select>
                 </div>
               </div>
+            </div>
+
+            <!-- v3.6.5: 본 글 H2 자동 배치 옵션 -->
+            <div style="background: linear-gradient(135deg, rgba(139,92,246,0.12), rgba(99,102,241,0.08)); border: 1px solid rgba(139,92,246,0.4); border-radius: 16px; padding: 16px; margin-bottom: 16px;">
+              <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                <input type="checkbox" id="batchAttachToArticle" style="width: 18px; height: 18px; accent-color: #8b5cf6;">
+                <div style="flex: 1;">
+                  <div style="color: white; font-size: 14px; font-weight: 800;">📌 본 글 H2 소제목에 자동 배치</div>
+                  <div style="color: rgba(255,255,255,0.65); font-size: 11px; margin-top: 2px;">
+                    각 이미지를 본 글 생성 시 H2 #1, #2... 순서대로 자동 배치 (API 재호출 없이 재사용)
+                  </div>
+                </div>
+              </label>
             </div>
 
             <!-- 4. 비용 미리보기 + 생성 시작 -->

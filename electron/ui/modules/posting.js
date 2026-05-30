@@ -852,6 +852,13 @@ export async function createPayload(options = {}) {
     customThumbnailText: savedThumbnailText || undefined,
     ...h2ImageSettings,
 
+    // v3.6.5: 이미지 생성 탭에서 미리 만든 이미지 자동 배치 (H2 #1, #2... 순서대로)
+    //   각 원소: { h2Index, dataUrl, prompt }
+    //   orchestration이 받으면 dispatchH2ImageGeneration 스킵하고 해당 dataUrl 사용
+    preGeneratedImages: (window.__preGeneratedImagesForArticle || []).length > 0
+      ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, dataUrl: img.dataUrl }))
+      : undefined,
+
     // 초안 (페러프레이징)
     draftContent: contentModeValue === 'paraphrasing' && draftContentValue ? draftContentValue : undefined,
 

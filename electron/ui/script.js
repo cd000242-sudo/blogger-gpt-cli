@@ -1545,7 +1545,14 @@ window.startBatchImageGeneration = async function () {
       if (result?.ok && result.dataUrl) {
         window.__batchImageResults[idx] = { prompt, dataUrl: result.dataUrl };
         if (cell) {
+          // v3.6.5: 본 글 자동 배치 모드면 H2 #N 라벨 표시
+          const attachOn = !!document.getElementById('batchAttachToArticle')?.checked;
+          const h2Label = attachOn
+            ? `<div style="position:absolute; top:6px; left:6px; padding:3px 8px; background:linear-gradient(135deg,#8b5cf6,#6366f1); color:white; font-size:10px; font-weight:800; border-radius:6px; box-shadow:0 2px 8px rgba(139,92,246,0.5);">H2 #${idx + 1}</div>`
+            : '';
+          cell.style.position = 'relative';
           cell.innerHTML = `
+            ${h2Label}
             <a href="${result.dataUrl}" download="image-${idx + 1}.png" style="display: block; height: 100%;">
               <img src="${result.dataUrl}" alt="result ${idx + 1}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 6px; cursor: pointer;" title="${prompt.substring(0, 80)}">
             </a>
@@ -1578,7 +1585,42 @@ window.startBatchImageGeneration = async function () {
   const successCount = window.__batchImageResults.filter(r => r && r.dataUrl).length;
   if (downloadBtn && successCount > 0) { downloadBtn.disabled = false; downloadBtn.style.opacity = '1'; }
   if (progressLabel) progressLabel.textContent = `✅ 완료 — 성공 ${successCount}/${prompts.length}`;
-  alert(`✅ 이미지 생성 완료\n성공: ${successCount}장 / 전체: ${prompts.length}장`);
+
+  // v3.6.5: 본 글 자동 배치 모드면 전역에 저장 + 메인 폼에 배지 표시
+  const attachOn = !!document.getElementById('batchAttachToArticle')?.checked;
+  if (attachOn && successCount > 0) {
+    const validImages = window.__batchImageResults.filter(r => r && r.dataUrl);
+    window.__preGeneratedImagesForArticle = validImages.map((r, i) => ({
+      h2Index: i + 1,
+      dataUrl: r.dataUrl,
+      prompt: r.prompt,
+    }));
+    window.refreshPreGeneratedBadge?.();
+    alert(`✅ 이미지 생성 완료\n성공: ${successCount}장 / 전체: ${prompts.length}장\n\n📌 본 글 H2 #1~${successCount}에 자동 배치됩니다.\n메인 탭으로 이동해서 글 생성하세요.`);
+  } else {
+    alert(`✅ 이미지 생성 완료\n성공: ${successCount}장 / 전체: ${prompts.length}장`);
+  }
+};
+
+// v3.6.5: 메인 폼 상단 "미리 생성한 이미지 N장 사용 중" 배지 갱신
+window.refreshPreGeneratedBadge = function () {
+  const arr = window.__preGeneratedImagesForArticle || [];
+  const badge = document.getElementById('preGeneratedImagesBadge');
+  const countEl = document.getElementById('preGeneratedImagesCount');
+  if (!badge) return;
+  if (arr.length > 0) {
+    badge.style.display = 'flex';
+    if (countEl) countEl.textContent = String(arr.length);
+  } else {
+    badge.style.display = 'none';
+  }
+};
+
+window.clearPreGeneratedImages = function () {
+  if (!confirm('미리 생성한 이미지를 모두 초기화합니다. 계속할까요?')) return;
+  window.__preGeneratedImagesForArticle = [];
+  window.refreshPreGeneratedBadge?.();
+  alert('초기화 완료. 다음 글 생성 시 이미지를 새로 생성합니다.');
 };
 
 window.downloadBatchImagesAsZip = async function () {
@@ -1607,7 +1649,11 @@ window.downloadBatchImagesAsZip = async function () {
 
 // 탭 표시될 때 초기 비용 계산
 document.addEventListener('DOMContentLoaded', () => {
-  setTimeout(() => { if (window.updateBatchImageCost) window.updateBatchImageCost(); }, 800);
+  setTimeout(() => {
+    if (window.updateBatchImageCost) window.updateBatchImageCost();
+    // v3.6.5: 페이지 로드 시 미리 생성한 이미지 배지 상태 동기화
+    if (window.refreshPreGeneratedBadge) window.refreshPreGeneratedBadge();
+  }, 800);
   document.querySelectorAll('input[name="batchGptQuality"]').forEach(r => {
     r.addEventListener('change', () => window.updateBatchImageCost && window.updateBatchImageCost());
   });
