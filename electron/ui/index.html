@@ -5247,6 +5247,27 @@
                 <div id="batchKoreanCompatBody"></div>
               </div>
 
+              <!-- v3.7.2: ImageFX/Flow 선택 시 Google 로그인 상태 카드 -->
+              <div id="batchImageFxStatusCard" style="display: none; margin-top: 12px; padding: 14px; background: linear-gradient(135deg, rgba(59,130,246,0.12), rgba(99,102,241,0.08)); border: 1px solid rgba(59,130,246,0.4); border-radius: 10px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                  <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;">
+                    <span id="batchImageFxStatusIcon" style="font-size: 22px;">⏳</span>
+                    <div style="flex: 1; min-width: 0;">
+                      <div id="batchImageFxStatusTitle" style="color: #dbeafe; font-size: 13px; font-weight: 800;">Google 로그인 확인 중...</div>
+                      <div id="batchImageFxStatusSub" style="color: rgba(255,255,255,0.7); font-size: 11px; margin-top: 2px;">잠시만 기다려주세요</div>
+                    </div>
+                  </div>
+                  <button id="batchImageFxLoginBtn" type="button" onclick="window.runImageFxLogin && window.runImageFxLogin()"
+                    style="display: none; padding: 8px 14px; background: linear-gradient(135deg, #3b82f6, #6366f1); border: none; color: white; font-size: 12px; font-weight: 800; border-radius: 8px; cursor: pointer; white-space: nowrap;">
+                    🔐 Google 로그인
+                  </button>
+                  <button id="batchImageFxRecheckBtn" type="button" onclick="window.refreshImageFxLoginStatus && window.refreshImageFxLoginStatus()"
+                    style="padding: 6px 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px; border-radius: 6px; cursor: pointer; white-space: nowrap;">
+                    🔄 새로고침
+                  </button>
+                </div>
+              </div>
+
               <!-- v3.6.4: Dropshot 선택 시 로그인 상태 카드 (구독자 확인) -->
               <div id="batchDropshotStatusCard" style="display: none; margin-top: 12px; padding: 14px; background: linear-gradient(135deg, rgba(251,191,36,0.12), rgba(245,158,11,0.08)); border: 1px solid rgba(251,191,36,0.4); border-radius: 10px;">
                 <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
