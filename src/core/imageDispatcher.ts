@@ -747,20 +747,19 @@ async function _tryEngineInternal(
   // 🧠 AI 추론 프롬프트: 1회만 호출하여 모든 엔진에서 재사용
   // NanoBanana 3종 + Flow + GPT Image + Prodia는 내부에서 generateEnglishPrompt 호출하므로 추론 불필요
   let inferredPrompt = prompt;
-  // v3.6.9: dropshot은 한국어 multilingual 처리 가능 — inferImagePrompt 다시 skip.
-  //   v3.6.7에서 적용했으나 Gemini quota 소진 시 fallback이 generic으로 변환되어
-  //   5장 동일 이미지 문제 발생 → 원복.
-  //   dropshot generator 내부에서 짧은 한국어 prompt를 한국어 enhance + 다양화.
+  // v3.7.1: 한국어 처리 호환성 분류
+  //   ✅ 한국어 OK (skip): nanobanana 3종, gptimage2(덕테이프), flow, imagefx, dropshot
+  //   ⚠️ 영어 변환 필수 (inferImagePrompt 적용): prodia, deepinfra, gptimage1
+  //   prodia(FLUX schnell), gptimage1은 영어 위주 모델이라 한국어 받으면 의미 못 잡음.
   if (
     engine !== 'nanobanana' &&
     engine !== 'nanobanana2' &&
     engine !== 'nanobananapro' &&
-    engine !== 'gptimage1' &&
-    engine !== 'gptimage2' &&
+    engine !== 'gptimage2' && // 덕테이프 — 한국어 OK
     engine !== 'flow' &&
-    engine !== 'prodia' &&
     engine !== 'dropshot' &&
     engine !== 'dropshot-nanobanana-pro'
+    // prodia, deepinfra, gptimage1, imagefx는 inferImagePrompt 적용 (영어 변환)
   ) {
     try {
       const inference = await inferImagePrompt(prompt, keyword, isThumbnail, contentMode);

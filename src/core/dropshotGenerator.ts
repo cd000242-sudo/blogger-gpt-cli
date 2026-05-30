@@ -80,6 +80,73 @@ async function launchBrowser(profileDir: string, headless: boolean): Promise<any
 }
 
 /** 사이트가 로그인 상태인지 — board 페이지 로드 후 "플랜 업그레이드" 또는 "이미지 생성" 메뉴 보이면 OK */
+/**
+ * v3.7.1: dropshot UI 컨트롤 자동 설정
+ *   - 무제한 모드 토글 ON (Pro 구독자 무제한 권한 활성화)
+ *   - 카운터(생성 장수)를 1로 (기본 2개씩 생성 → 1개로 변경 — 우리는 1프롬프트=1이미지)
+ *   호출 시점: makeDropshotImage 진입 시 매번 (idempotent — 이미 정상이면 no-op)
+ */
+async function ensureDropshotControls(page: any, onLog?: (m: string) => void): Promise<void> {
+  try {
+    // 1. 무제한 모드 토글 ON
+    const switchHandles = await page.$$('input[role="switch"]');
+    for (const sw of switchHandles) {
+      const isOn = await sw.evaluate((el: any) => el.checked === true || el.getAttribute('aria-checked') === 'true');
+      if (!isOn) {
+        // sr-only input은 직접 클릭 안 되므로 부모 label/button 클릭
+        const parent = await sw.evaluateHandle((el: any) => el.closest('label') || el.closest('button') || el.parentElement);
+        if (parent) {
+          try { await parent.click({ timeout: 2000 }); } catch {}
+          await new Promise(r => setTimeout(r, 300));
+          onLog?.('🎛️ [Dropshot] 무제한 모드 자동 ON');
+        }
+      }
+    }
+
+    // 2. 카운터(생성 장수) 1로 설정 — 우리는 1프롬프트=1이미지 정책
+    await page.evaluate(() => {
+      // input[type="number"] 직접 변경 + React 이벤트 dispatch
+      const numberInputs = Array.from(document.querySelectorAll('input[type="number"]')) as HTMLInputElement[];
+      for (const inp of numberInputs) {
+        const v = Number(inp.value);
+        // 의도된 카운터만 (1~10 범위)
+        if (v >= 2 && v <= 10) {
+          // React-controlled input은 native setter 호출 필요
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+          if (setter) setter.call(inp, '1');
+          else inp.value = '1';
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+      // 폴백: number input 없으면 - 버튼 반복 클릭
+      if (numberInputs.length === 0) {
+        const allBtns = Array.from(document.querySelectorAll('button'));
+        const minusBtns = allBtns.filter(b => {
+          const t = (b.textContent || '').trim();
+          if (t === '-' || t === '−') return true;
+          if (b.querySelector('img[src*="ic_minus"]')) return true;
+          return false;
+        });
+        for (const minus of minusBtns) {
+          // 같은 카운터 그룹의 숫자 찾기
+          const grp = minus.parentElement;
+          const numTxt = grp?.querySelector('span:not(:has(img))')?.textContent || '';
+          let cur = parseInt(numTxt, 10) || 0;
+          let safety = 10;
+          while (cur > 1 && safety-- > 0) {
+            (minus as HTMLButtonElement).click();
+            // 다시 읽기
+            cur = parseInt(grp?.querySelector('span:not(:has(img))')?.textContent || '0', 10);
+          }
+        }
+      }
+    });
+  } catch (e: any) {
+    onLog?.(`⚠️ [Dropshot] 컨트롤 자동 조정 실패 (무시): ${(e.message || '').slice(0, 80)}`);
+  }
+}
+
 async function isLoggedIn(page: any): Promise<boolean> {
   try {
     const has = await page.evaluate(() => {
@@ -369,6 +436,9 @@ export async function makeDropshotImage(
           await page.goto(BOARD_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
           await new Promise(r => setTimeout(r, 3000));
         }
+
+        // v3.7.1: 무제한 모드 토글 ON + 카운터 1로 자동 설정 (매 호출마다 idempotent)
+        await ensureDropshotControls(page, onLog);
 
         // 2. 호출 전 DOM의 result 이미지 snapshot (이전 이미지 반복 캡처 방지)
         const beforeSrcs: string[] = await page.evaluate(() => {

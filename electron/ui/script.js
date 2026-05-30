@@ -1424,6 +1424,39 @@ window.updateBatchImageCost = function () {
     }
   }
 
+  // v3.7.1: 한국어 호환성 안내 카드 — 엔진별 자동 표시
+  const compatCard = document.getElementById('batchKoreanCompatCard');
+  const compatBody = document.getElementById('batchKoreanCompatBody');
+  if (compatCard && compatBody) {
+    // ✅ 한국어 OK: nanobanana 3종 + gptimage2 (덕테이프) + flow + imagefx + dropshot
+    // ⚠️ 자동 영어 변환: prodia / deepinfra / gptimage1 (FLUX/DALL-E 계열은 영어 위주)
+    const koreanOk = ['nanobanana', 'nanobanana2', 'nanobananapro', 'gptimage2', 'flow', 'imagefx'];
+    const isKoreanOk = koreanOk.includes(engine) || /^dropshot/.test(engine);
+    if (isKoreanOk) {
+      compatCard.style.background = 'rgba(34, 197, 94, 0.10)';
+      compatCard.style.border = '1px solid rgba(34, 197, 94, 0.35)';
+      compatCard.style.display = 'block';
+      compatBody.innerHTML = `
+        <span style="color: #6ee7b7; font-weight: 800;">✅ 한국어 프롬프트 OK</span>
+        <span style="color: rgba(255,255,255,0.6); margin-left: 6px;">— 이 엔진은 한국어를 직접 처리합니다 (다국어 지원)</span>
+      `;
+    } else if (engine === 'prodia' || engine === 'deepinfra' || engine === 'gptimage1') {
+      compatCard.style.background = 'rgba(251, 191, 36, 0.12)';
+      compatCard.style.border = '1px solid rgba(251, 191, 36, 0.4)';
+      compatCard.style.display = 'block';
+      compatBody.innerHTML = `
+        <span style="color: #fbbf24; font-weight: 800;">⚠️ 한국어 약함 — 자동 영어 변환 적용</span>
+        <span style="color: rgba(255,255,255,0.6); display: block; margin-top: 3px;">
+          ${engine === 'gptimage1' ? 'GPT 이미지 1은 영어 위주' : 'FLUX 모델은 영어 위주'}.
+          Gemini API로 한국어 → 영어 자동 변환합니다.
+          <b>한국어 텍스트 오버레이는 깨질 수 있습니다</b> (다른 엔진 권장: 나노바나나/덕테이프/Dropshot)
+        </span>
+      `;
+    } else {
+      compatCard.style.display = 'none';
+    }
+  }
+
   const unitCost = (engine === 'gptimage1' || engine === 'gptimage2')
     ? (BATCH_IMAGE_ENGINE_COST[`${engine}-${quality}`] ?? 0)
     : (BATCH_IMAGE_ENGINE_COST[engine] ?? 0);
