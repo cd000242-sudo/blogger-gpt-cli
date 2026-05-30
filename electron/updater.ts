@@ -134,7 +134,9 @@ export function initAutoUpdaterEarly(): void {
   updater.on('update-available', (info: any) => {
     console.log('[Updater] 새 버전 발견:', info.version);
     isUpdateInProgress = true;
-    createProgressWindow(info.version);
+    // v3.7.6: 별도 progressWindow 생성 제거 — 메인 앱/인증창의 자체 progress UI가 표시하므로 중복 회피
+    //   (createProgressWindow가 만든 BrowserWindow가 메인 modal과 겹쳐서 사용자 경험 저하)
+    // createProgressWindow(info.version);
 
     // 로그인 창 숨기기
     if (loginWindowRef && !loginWindowRef.isDestroyed()) {
@@ -170,57 +172,39 @@ export function initAutoUpdaterEarly(): void {
   updater.on('update-downloaded', (info: any) => {
     console.log('[Updater] 다운로드 완료:', info.version);
 
-    // 중복 재시작 방지
-    let isRestarting = false;
-    const doRestart = () => {
-      if (isRestarting) return;
-      isRestarting = true;
-      console.log('[Updater] 재시작 실행');
-      isUpdateInProgress = false;
-      // 인증창 닫기
-      if (loginWindowRef && !loginWindowRef.isDestroyed()) {
-        loginWindowRef.close();
+    // v3.7.6: confirm dialog 제거 — 자동으로 NSIS installer 띄움.
+    //   사용자 요청: "앱 종료는 자동, NSIS 화면만 띄워줘"
+    //   2초 짧은 grace period (메인 앱이 progress UI를 "완료" 상태로 잠시 보여줄 시간) 후 quitAndInstall.
+    isUpdateInProgress = false;
+
+    // 메인 앱에 "다운로드 완료, 곧 NSIS 설치 화면 띄움" 알림
+    BrowserWindow.getAllWindows().forEach((w) => {
+      if (!w.isDestroyed()) {
+        w.webContents.send('auto-update-event', { type: 'downloaded', version: info.version });
       }
-      updater.quitAndInstall();
-    };
+    });
 
-    // 프로그레스 창이 있으면 → 완료 UI로 전환 (네이버 패턴)
+    // 잔존 progressWindow 있으면 즉시 닫기 (이전 버전 호환)
     if (progressWindow && !progressWindow.isDestroyed()) {
-      progressWindow.webContents.executeJavaScript(`
-        document.querySelector('h2').innerHTML = '✅ 업데이트 준비 완료';
-        document.querySelector('h2').style.fontSize = '17px';
-        document.getElementById('ver').textContent = 'LEADERNAM Orbit v${info.version}';
-        document.getElementById('ver').style.color = '#a78bfa';
-        document.querySelector('.bar-bg').style.display = 'none';
-        document.querySelector('.info').innerHTML = '<span style="color:#a78bfa;font-weight:600;">클릭하여 재시작</span><span style="color:rgba(255,255,255,0.4);">5초 후 자동 재시작</span>';
-        document.body.style.cursor = 'pointer';
-        document.body.onclick = function() { window.close(); };
-      `).catch(() => {});
-
-      // 프로그레스 창 닫히면 → 재시작
-      progressWindow.once('closed', () => {
-        progressWindow = null;
-        doRestart();
-      });
-
-      // 5초 후 자동 재시작 (프로그레스 창 먼저 닫고 → closed 이벤트로 doRestart)
-      setTimeout(() => {
-        if (!isRestarting) {
-          closeProgressWindow();
-        }
-      }, 5000);
-    } else {
-      // 프로그레스 창 없으면 독립 다이얼로그
-      dialog.showMessageBox({
-        type: 'info',
-        title: '업데이트 준비 완료',
-        message: `LEADERNAM Orbit v${info.version}`,
-        detail: '새로운 버전이 다운로드되었습니다.\n재시작하여 업데이트를 적용합니다.',
-        buttons: ['지금 재시작하여 업데이트'],
-        defaultId: 0,
-        noLink: true,
-      }).then(doRestart).catch(doRestart);
+      try { progressWindow.close(); } catch {}
+      progressWindow = null;
     }
+
+    // 인증창도 닫기 (열려 있으면)
+    if (loginWindowRef && !loginWindowRef.isDestroyed()) {
+      try { loginWindowRef.close(); } catch {}
+    }
+
+    // 2초 뒤 자동 quitAndInstall — confirm 다이얼로그 없이 NSIS installer 바로 띄움
+    setTimeout(() => {
+      console.log('[Updater] 자동 재시작 → NSIS installer');
+      try {
+        // isSilent=false → NSIS GUI 띄움 / isForceRunAfter=true → 설치 후 자동 실행
+        updater.quitAndInstall(false, true);
+      } catch (e: any) {
+        console.error('[Updater] quitAndInstall 실패:', e.message);
+      }
+    }, 2000);
   });
 
   updater.on('error', (err: any) => {

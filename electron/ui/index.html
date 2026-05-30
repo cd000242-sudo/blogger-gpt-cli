@@ -6882,12 +6882,16 @@ async function submitToIndexNow(siteUrl) {
       if (statusText) statusText.textContent = '다운로드 중... ' + data.percent + '%';
     }
     if (data.type === 'downloaded') {
+      // v3.7.6: confirm 버튼 제거 — 2초 카운트다운 후 자동으로 NSIS installer 띄움 (updater.ts 측에서 quitAndInstall).
+      //   사용자 요청: "앱 종료는 자동, NSIS 화면만 띄워줘"
       if (!modal) createModal();
       if (modal) modal.style.display = 'flex';
       if (progressBar) progressBar.style.width = '100%';
-      if (statusText) statusText.textContent = 'v' + data.version + ' 다운로드 완료! 재시작하면 업데이트됩니다.';
+      var title = document.getElementById('updateTitle');
+      if (title) title.textContent = '✅ v' + data.version + ' 준비 완료';
+      if (statusText) statusText.textContent = '곧 자동으로 설치 화면이 열립니다... (앱 자동 종료)';
       var btns = document.getElementById('updateButtons');
-      if (btns) btns.style.display = 'flex';
+      if (btns) btns.style.display = 'none'; // 사용자 선택 X — 자동 진행
     }
   });
 })();
