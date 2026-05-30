@@ -378,6 +378,10 @@ function engineKeyAvailable(engine: string, env: Record<string, string>): boolea
 
 /** 선택 엔진을 제외하고, 키가 준비된 엔진만 신뢰성 순으로 폴백 체인 구성. */
 function buildFallbackChain(chosen: string, env: Record<string, string>): string[] {
+  // v3.7.10 — dropshot 계열(리더스 나노바나나 프로 무제한)은 "비용 0" 의도로 선택된 엔진.
+  //   사용자의 Gemini/OpenAI/Prodia/DeepInfra quota를 자동 소진하면 의도 위반이라
+  //   유료 API 엔진으로 자동 폴백을 전부 차단한다. 실패 시엔 placeholder PNG로 직행.
+  if (chosen === 'dropshot' || chosen === 'dropshot-nanobanana-pro') return [];
   return RELIABILITY_FALLBACK_ORDER
     .filter(e => e !== chosen)
     .filter(e => engineKeyAvailable(e, env));
@@ -543,9 +547,14 @@ export async function dispatchH2ImageGeneration(
 
   // ── 기본: 보장형 폴백 모드 ──
   // 1순위: 사용자 선택 엔진 — 우회 가능 에러는 짧게 재시도 후 폴백 (폴백을 빠르게 시작)
+  // v3.7.10: dropshot 계열은 "비용 0" 엔진 — 다른 API 폴백 차단 대신 본인 엔진을 더 끈질기게 재시도.
+  //   2회 → 3회 + cooldown 15s → 30s (reCAPTCHA·잠깐의 사이트 흔들림에 회복 시간 확보).
+  const isDropshotPrimary = imageSource === 'dropshot-nanobanana-pro';
   const primaryResult = await attemptEngineWithRetry(
     imageSource, prompt, keyword, env, onLog, false, contentMode, extra,
-    { maxAttempts: 2, maxCooldownMs: 15000 },
+    isDropshotPrimary
+      ? { maxAttempts: 3, maxCooldownMs: 30000 }
+      : { maxAttempts: 2, maxCooldownMs: 15000 },
   );
   if (primaryResult.ok) return primaryResult;
 
@@ -638,9 +647,13 @@ export async function dispatchThumbnailGeneration(
   const envStrictThumb = String(process.env['STRICT_THUMBNAIL_ENGINE'] || '').toLowerCase() === 'true';
 
   // AI 이미지 엔진 1순위 — 우회 가능 에러는 짧게 재시도 후 폴백
+  // v3.7.10: dropshot은 "비용 0" 엔진 — 다른 API 폴백 대신 본인을 더 끈질기게 (3회·cooldown 30s).
+  const isDropshotPrimary = thumbnailSource === 'dropshot-nanobanana-pro';
   const primaryResult = await attemptEngineWithRetry(
     thumbnailSource, title, keyword, env, onLog, true, undefined, extra,
-    { maxAttempts: 2, maxCooldownMs: 15000 },
+    isDropshotPrimary
+      ? { maxAttempts: 3, maxCooldownMs: 30000 }
+      : { maxAttempts: 2, maxCooldownMs: 15000 },
   );
   if (primaryResult.ok) return primaryResult;
 
