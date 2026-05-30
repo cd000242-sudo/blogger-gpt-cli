@@ -691,10 +691,159 @@ dropshot.io의 ToS 변경 시 본 키트가 정책 위반이 될 수 있음 — 
 
 ## §10. 변경 이력
 
+- **v1.2 (2026-05-30, app v3.7.4)**: 실측 운영에서 발견된 핵심 fix 종합
+  - **generation mutex 추가** — 단일 브라우저 공유라 병렬 호출 시 textarea 덮어쓰기 → 1개씩 순차 강제
+  - **무제한 모드 자동 ON + 카운터 1로 설정** (`ensureDropshotControls`) — 매 호출 idempotent
+  - **한국어 prompt 자동 enhance** — 짧은 한국어(<50자)는 generator 내부에서 한국어 enhancer 추가
+  - **매 호출 unique variation hint** (timestamp + nonce) — 중복 이미지 차단
+  - **자동 visible 로그인** — `dropshot:check-login` 실패 시 600ms 후 자동 visible 창
+  - **i2i `setInputFiles` 자동 업로드** + **결과 lightbox** (UI 측)
+  - **engine-fixed 모드** UI 기본 ON 권장 (사용자 선택 엔진이 반드시 사용되게)
 - **v1.1 (2026-05-30, app v3.6.2)**: 실측 결과 + 작동원리 흐름도 + 한 줄 릴리스 스크립트 추가
 - **v1.0 (2026-05-30, app v3.6.0)**: 초안 — blogger-gpt-cli에서 추출, 실측 검증 완료
-  - 3장 batch 모두 고유 hash + i2i smoke 성공
-  - 비용 표시 정정: "0원" → "구독료별, 한계비용 0원"
+
+---
+
+## §12. v3.7.x 핵심 추가 패턴 (이식 시 함께 적용)
+
+### 12.1 Generation mutex (병렬 호출 안전화)
+
+dropshot은 단일 브라우저 페이지 공유 → 5번 병렬 호출 시 textarea 덮어쓰기로 **마지막 prompt 결과만 5번** 반환되던 버그. mutex로 직렬화:
+
+```typescript
+let _generationChain: Promise<any> = Promise.resolve();
+
+export async function makeDropshotImage(prompt, options, onLog): Promise<DropshotResult> {
+  // 모든 호출을 큐에 직렬화
+  const next = _generationChain.then(() => _makeDropshotImageInternal(prompt, options, onLog));
+  _generationChain = next.catch(() => undefined as any); // 한 호출 실패가 다음 호출 차단 안 되도록
+  return next;
+}
+
+async function _makeDropshotImageInternal(prompt, options, onLog) {
+  // 기존 makeDropshotImage 본문 그대로
+}
+```
+
+> UI 측 강제: 사용자가 5병렬 선택해도 자동으로 `parallel=1`로 변경 + select disable.
+
+### 12.2 Dropshot UI 컨트롤 자동 설정
+
+매 `makeDropshotImage` 진입 시 idempotent:
+- **무제한 모드 토글 ON** — Pro 구독자 권한 활성
+- **카운터(생성 장수) 1로** — 기본 2개씩 생성되던 것을 1로 (우리는 1프롬프트=1이미지 정책)
+
+```typescript
+async function ensureDropshotControls(page, onLog) {
+  // 1. 무제한 모드 토글
+  const switches = await page.$$('input[role="switch"]');
+  for (const sw of switches) {
+    const isOn = await sw.evaluate(el => el.checked || el.getAttribute('aria-checked') === 'true');
+    if (!isOn) {
+      const parent = await sw.evaluateHandle(el => el.closest('label') || el.closest('button') || el.parentElement);
+      if (parent) await parent.click({ timeout: 2000 }).catch(() => {});
+    }
+  }
+
+  // 2. 카운터 1로 (React-controlled input은 native setter 호출 필요)
+  await page.evaluate(() => {
+    const numberInputs = Array.from(document.querySelectorAll('input[type="number"]'));
+    for (const inp of numberInputs) {
+      const v = Number((inp as HTMLInputElement).value);
+      if (v >= 2 && v <= 10) {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+        if (setter) setter.call(inp, '1');
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+  });
+}
+```
+
+### 12.3 한국어 prompt 자동 enhance + variation hint
+
+```typescript
+// generator 내부에서 매 호출
+const hasKorean = /[가-힯]/.test(currentPrompt);
+const isShort = currentPrompt.length < 50;
+const enhancedPrompt = (hasKorean && isShort)
+  ? `${currentPrompt} — 본 주제를 직관적으로 표현하는 사실적 사진, 한국적 배경, 자연광, 시네마틱 4K, 텍스트 없음`
+  : currentPrompt;
+
+// 매 호출마다 unique variation seed
+const nonce = Math.random().toString(36).slice(2, 8);
+const variationSeed = Date.now().toString(36);
+const promptWithVariation = enhancedPrompt
+  + ` (버전-${variationSeed}-${nonce}: 매번 완전히 다른 구도와 시점, 다른 인물/배경/소품 — 이전 결과와 절대 같으면 안 됨)`;
+
+// 이 prompt를 textarea에 입력
+```
+
+### 12.4 자동 visible 로그인 (UX)
+
+```javascript
+// 클라이언트 측 (refreshDropshotLoginStatus 안)
+if (!result.loggedIn) {
+  // 버튼 표시 + 600ms 후 자동 trigger (한 번만)
+  if (!window.__dropshotAutoLoginTried) {
+    window.__dropshotAutoLoginTried = true;
+    setTimeout(() => window.runDropshotLogin(), 600);
+  }
+}
+```
+
+### 12.5 한국어 프롬프트 처리 매트릭스
+
+이식할 다른 앱에서 다른 이미지 엔진과 같이 쓸 때 참고:
+
+| 엔진 | 한국어 처리 | 권장 처리 |
+|---|---|---|
+| Dropshot nano-banana-pro | ✅ multilingual OK | **한국어 그대로** + 짧으면 enhance |
+| Gemini Image (nano-banana 3종) | ✅ multilingual OK | 한국어 그대로 |
+| GPT 이미지 2 (덕테이프) | ✅ multilingual OK | 한국어 그대로 |
+| labs.google ImageFX / Flow | ⚠️ 영어 위주 (자체 변환) | inferImagePrompt로 영어 변환 권장 |
+| Prodia (FLUX schnell) | ❌ 영어 위주 | **inferImagePrompt 필수** (영어로 변환) |
+| DeepInfra (FLUX-2) | ❌ 영어 위주 | inferImagePrompt 필수 |
+| OpenAI GPT 이미지 1 | ⚠️ 영어 위주 | inferImagePrompt 권장 |
+
+**dispatcher 통합 시**:
+```typescript
+// inferImagePrompt skip 분기 — 한국어 OK 엔진만 skip
+if (
+  engine !== 'nanobanana' && engine !== 'nanobanana2' && engine !== 'nanobananapro' &&
+  engine !== 'gptimage2' && engine !== 'flow' &&
+  engine !== 'dropshot' && engine !== 'dropshot-nanobanana-pro'
+) {
+  const inference = await inferImagePrompt(prompt, keyword, isThumbnail, contentMode);
+  // ...
+}
+```
+
+### 12.6 엔진 고정 모드 (UI default)
+
+사용자가 선택한 엔진이 반드시 사용되도록 — 폴백 차단 토글을 **HTML에서 default `checked`**:
+
+```html
+<input type="checkbox" id="strictH2ImageEngine" checked />
+🛡️ 엔진 고정 모드 (폴백 차단) <small>기본 ON</small>
+```
+
+`process.env.STRICT_H2_IMAGE_ENGINE === 'true'` 환경변수로 dispatcher에 전달.
+
+### 12.7 결과 이미지 lightbox (UX 추천)
+
+대량 생성 결과의 작은 thumbnail만 봐서 품질 판단 어려움 → 클릭 시 전체 화면 미리보기:
+
+```html
+<div id="imageLightbox" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:10000; cursor:zoom-out;" onclick="closeImageLightbox()">
+  <img id="lightboxImg" style="max-width:90vw; max-height:85vh; ...">
+  <button onclick="lightboxNavigate(-1)">←</button>
+  <button onclick="lightboxNavigate(1)">→</button>
+</div>
+```
+
+키보드: ESC 닫기, ←/→ 이전/다음.
 
 ---
 

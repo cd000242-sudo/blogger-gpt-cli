@@ -1435,14 +1435,15 @@ window.updateBatchImageCost = function () {
     }
   }
 
-  // v3.7.3: UI 자동화 엔진(dropshot/imagefx/flow)은 단일 브라우저라 병렬 X — parallel=1 강제
+  // v3.7.3+v3.7.4: UI 자동화 엔진(dropshot/imagefx/flow)은 단일 브라우저라 병렬 X — parallel=1 강제
+  //   ⚠️ multi-tab 병렬은 React state/rate limit 검증 필요 → 다음 라운드 실험 옵트인 검토 중
   const parallelSel = document.getElementById('batchParallel');
   if (parallelSel) {
     const isUiAuto = /^dropshot/.test(engine) || engine === 'imagefx' || engine === 'flow';
     if (isUiAuto) {
       parallelSel.value = '1';
       parallelSel.disabled = true;
-      parallelSel.title = 'UI 자동화 엔진은 단일 브라우저 공유 → 1개씩 순차 생성';
+      parallelSel.title = 'UI 자동화 엔진은 단일 브라우저 공유 — 병렬 시 textarea 덮어쓰기로 마지막 prompt만 처리됨. 1개씩 순차 안전.';
       parallelSel.style.opacity = '0.55';
       parallelSel.style.cursor = 'not-allowed';
     } else {
@@ -1798,15 +1799,35 @@ window.startBatchImageGeneration = async function () {
   }
 };
 
-// v3.6.5: 메인 폼 상단 "미리 생성한 이미지 N장 사용 중" 배지 갱신
+// v3.6.5+v3.7.4: 메인 폼 상단 "미리 생성한 이미지 N장 사용 중" 배지 갱신
+//   매핑 모드(수동/자동 순서)에 따라 표식 + 발행 안내 메시지 다르게 표시
 window.refreshPreGeneratedBadge = function () {
   const arr = window.__preGeneratedImagesForArticle || [];
+  const mode = window.__preGeneratedMappingMode || 'auto'; // 'manual' or 'auto'
   const badge = document.getElementById('preGeneratedImagesBadge');
   const countEl = document.getElementById('preGeneratedImagesCount');
+  const titleEl = document.getElementById('preGeneratedImagesTitle');
+  const subEl = document.getElementById('preGeneratedImagesSub');
   if (!badge) return;
   if (arr.length > 0) {
     badge.style.display = 'flex';
     if (countEl) countEl.textContent = String(arr.length);
+    if (titleEl) {
+      titleEl.innerHTML = mode === 'manual'
+        ? `🎛️ 수동 매핑 완료 — <span style="color:#86efac;">바로 발행 가능</span> (이미지 <span id="preGeneratedImagesCount" style="color:#c4b5fd;">${arr.length}</span>장)`
+        : `📌 미리 생성한 이미지 <span id="preGeneratedImagesCount" style="color:#c4b5fd;">${arr.length}</span>장 사용 중`;
+    }
+    if (subEl) {
+      subEl.textContent = mode === 'manual'
+        ? '✓ 사용자가 H2 ↔ 이미지를 직접 매핑함 — 글 생성 시 그대로 적용 (API 재호출 X)'
+        : '글 생성 시 H2 #1, #2... 순서대로 자동 배치 (API 재호출 X)';
+    }
+    badge.style.background = mode === 'manual'
+      ? 'linear-gradient(135deg, rgba(34,197,94,0.20), rgba(20,184,166,0.12))'
+      : 'linear-gradient(135deg, rgba(139,92,246,0.18), rgba(99,102,241,0.12))';
+    badge.style.border = mode === 'manual'
+      ? '1px solid rgba(34,197,94,0.45)'
+      : '1px solid rgba(139,92,246,0.4)';
   } else {
     badge.style.display = 'none';
   }
@@ -1815,6 +1836,7 @@ window.refreshPreGeneratedBadge = function () {
 window.clearPreGeneratedImages = function () {
   if (!confirm('미리 생성한 이미지를 모두 초기화합니다. 계속할까요?')) return;
   window.__preGeneratedImagesForArticle = [];
+  window.__preGeneratedMappingMode = 'auto';
   window.refreshPreGeneratedBadge?.();
   alert('초기화 완료. 다음 글 생성 시 이미지를 새로 생성합니다.');
 };
@@ -1925,9 +1947,11 @@ window.applyManualH2Mapping = function () {
     // -1(자동 생성)이면 mapping에서 제외 → orchestration이 그 H2는 자동 생성
   });
   window.__preGeneratedImagesForArticle = mapping;
+  // v3.7.4: 수동 매핑 표식 (자동 순서와 구분)
+  window.__preGeneratedMappingMode = 'manual';
   window.refreshPreGeneratedBadge?.();
   document.getElementById('manualH2MappingModal').style.display = 'none';
-  alert(`✅ 수동 매핑 적용 완료\n총 ${mapping.length}개 H2에 이미지 매핑됨.\n나머지 H2는 글 생성 시 자동 생성됩니다.`);
+  alert(`✅ 수동 매핑 적용 완료\n총 ${mapping.length}개 H2에 이미지 매핑됨.\n나머지 H2는 글 생성 시 자동 생성됩니다.\n\n📌 이제 메인 탭으로 가서 "🚀 블로그 글 작성 시작" 버튼을 누르면 매핑된 이미지가 그대로 사용됩니다.`);
 };
 
 window.resetManualH2Mapping = function () {
