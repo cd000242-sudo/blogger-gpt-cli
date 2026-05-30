@@ -4087,8 +4087,9 @@
                       </label>
                       <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 ON 시 선택한 이미지 엔진만 시도합니다 (선택 엔진이 반드시 사용됨). 실패 시 다른 엔진으로 자동 폴백되지 않고, 자동 우회 가능한 에러는 우회·우회 불가 에러는 발행 차단합니다.</small>
                     </div>
-                    <div class="acc-field">
-                      <label class="acc-label">🔐 ImageFX Google 로그인</label>
+                    <!-- v3.7.7: ImageFX/Flow 로그인 카드 — 해당 엔진 선택 시만 표시 -->
+                    <div class="acc-field" id="imagefxLoginCardWrap" style="display: none;">
+                      <label class="acc-label">🔐 ImageFX/Flow Google 로그인</label>
                       <div style="display: flex; gap: 8px; align-items: center;">
                         <button id="imagefxLoginBtn" type="button" onclick="handleImageFxLogin()"
                           style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #4285f4, #34a853); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.3s ease;">
@@ -4099,7 +4100,7 @@
                           확인
                         </button>
                       </div>
-                      <small id="imagefxLoginStatus" style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 ImageFX 사용 전 Google 계정으로 로그인해주세요</small>
+                      <small id="imagefxLoginStatus" style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 ImageFX/Flow 사용 전 Google 계정으로 로그인해주세요</small>
                       <!-- v3.5.92: 봇 회피 모드 (브라우저 창 보이게) -->
                       <div style="margin-top: 12px; padding: 10px 12px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.3); border-radius: 8px;">
                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
@@ -4112,6 +4113,22 @@
                           단, 작업 중에는 창을 닫지 마세요 (작업 끝나면 자동 닫힘).
                         </small>
                       </div>
+                    </div>
+
+                    <!-- v3.7.7: 리더스 나노바나나 무제한 로그인 카드 — 해당 엔진 선택 시만 표시 -->
+                    <div class="acc-field" id="dropshotLoginCardWrap" style="display: none;">
+                      <label class="acc-label">🍌 리더스 나노바나나 무제한 로그인</label>
+                      <div style="display: flex; gap: 8px; align-items: center;">
+                        <button id="dropshotLoginBtnSettings" type="button" onclick="window.handleDropshotLogin && window.handleDropshotLogin()"
+                          style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #78350f; border: none; border-radius: 10px; font-size: 13px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.3s ease;">
+                          <span style="font-size: 16px;">🔑</span> 리더스 나노바나나 로그인
+                        </button>
+                        <button id="dropshotCheckBtnSettings" type="button" onclick="window.handleDropshotCheckLogin && window.handleDropshotCheckLogin()"
+                          style="padding: 10px 16px; background: rgba(255,255,255,0.1); color: white; border: 2px solid rgba(251,191,36,0.4); border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.3s ease;">
+                          확인
+                        </button>
+                      </div>
+                      <small id="dropshotLoginStatusSettings" style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 사용 전 사이트 로그인 (Google/이메일). 구독자는 무제한 사용 가능.</small>
                     </div>
                     <div class="acc-field">
                       <label class="acc-label">🔍 할루시네이션 방지 (팩트체크)</label>

@@ -1206,6 +1206,11 @@ function handleH2ImageSourceChange() {
     qualityWrap.style.display = (selectedSource === 'gptimage1' || selectedSource === 'gptimage2') ? 'block' : 'none';
   }
 
+  // v3.7.7: 로그인 카드 자동 토글 — 선택 엔진에 따라 ImageFX/Flow 또는 Dropshot
+  if (typeof window.refreshEngineLoginCards === 'function') {
+    window.refreshEngineLoginCards();
+  }
+
   // 선택된 소스에 따른 추가 설정 표시/숨김
   const h2Sections = document.querySelectorAll('input[name="h2Sections"]');
 
@@ -1257,7 +1262,65 @@ function handleThumbnailTypeChange(value) {
     const isGpt = (v) => v === 'gptimage1' || v === 'gptimage2';
     qualityWrap.style.display = (isGpt(value) || isGpt(h2Source)) ? 'block' : 'none';
   }
+  // v3.7.7: 로그인 카드 자동 토글
+  if (typeof window.refreshEngineLoginCards === 'function') {
+    window.refreshEngineLoginCards();
+  }
 }
+
+// v3.7.7: 환경설정 이미지 탭의 로그인 카드 자동 토글
+//   - 썸네일 또는 소제목 select가 imagefx/flow → ImageFX/Flow 카드 표시
+//   - 썸네일 또는 소제목 select가 dropshot* → 리더스 나노바나나 카드 표시
+//   - 그 외 → 둘 다 숨김
+window.refreshEngineLoginCards = function () {
+  const thumb = document.getElementById('thumbnailType')?.value || '';
+  const h2 = document.getElementById('h2ImageSource')?.value || '';
+  const both = [thumb, h2];
+  const usesGoogle = both.some(v => v === 'imagefx' || v === 'flow');
+  const usesDropshot = both.some(v => /^dropshot/.test(v));
+  const imagefxCard = document.getElementById('imagefxLoginCardWrap');
+  const dropshotCard = document.getElementById('dropshotLoginCardWrap');
+  if (imagefxCard) imagefxCard.style.display = usesGoogle ? 'block' : 'none';
+  if (dropshotCard) dropshotCard.style.display = usesDropshot ? 'block' : 'none';
+};
+
+// v3.7.7: 환경설정의 리더스 나노바나나(dropshot) 로그인/확인 핸들러
+window.handleDropshotLogin = async function () {
+  const btn = document.getElementById('dropshotLoginBtnSettings');
+  const status = document.getElementById('dropshotLoginStatusSettings');
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.textContent = '⏳ 브라우저 열림...'; }
+  try {
+    const r = await window.electronAPI?.invoke?.('dropshot:login');
+    if (r?.loggedIn) {
+      if (status) { status.textContent = `✅ 로그인 완료${r.userName ? ' — ' + r.userName : ''}`; status.style.color = '#86efac'; }
+      alert('리더스 나노바나나 로그인 완료!' + (r.userName ? ' (' + r.userName + ')' : ''));
+    } else {
+      if (status) { status.textContent = '❌ ' + (r?.message || '시간 초과'); status.style.color = '#fca5a5'; }
+      alert('로그인 실패: ' + (r?.message || '시간 초과'));
+    }
+  } catch (e) {
+    if (status) { status.textContent = '❌ ' + (e?.message || e); status.style.color = '#fca5a5'; }
+    alert('오류: ' + (e?.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.innerHTML = '<span style="font-size: 16px;">🔑</span> 리더스 나노바나나 로그인'; }
+  }
+};
+
+window.handleDropshotCheckLogin = async function () {
+  const status = document.getElementById('dropshotLoginStatusSettings');
+  if (status) { status.textContent = '⏳ 확인 중...'; status.style.color = 'rgba(255,255,255,0.6)'; }
+  try {
+    const r = await window.electronAPI?.invoke?.('dropshot:check-login');
+    if (r?.loggedIn) {
+      const subTxt = r.subscription === 'pro' ? ' · ✅ Pro 구독자 무제한' : (r.subscription === 'free' ? ' · ⚠️ 무료 사용자' : '');
+      if (status) { status.textContent = `✅ 로그인됨${r.userName ? ' — ' + r.userName : ''}${subTxt}`; status.style.color = '#86efac'; }
+    } else {
+      if (status) { status.textContent = '🔐 ' + (r?.message || '로그인 필요 — 위 [로그인] 버튼 클릭'); status.style.color = '#fbbf24'; }
+    }
+  } catch (e) {
+    if (status) { status.textContent = '❌ ' + (e?.message || e); status.style.color = '#fca5a5'; }
+  }
+};
 
 // v3.5.89 — 현재 UI에서 선택된 GPT 이미지 quality 읽기
 function getGptImageQuality() {
@@ -2122,6 +2185,12 @@ function getH2ImageSettings() {
 // 전역 함수로 등록
 window.handleH2ImageSourceChange = handleH2ImageSourceChange;
 window.handleThumbnailTypeChange = handleThumbnailTypeChange;
+// v3.7.7: 페이지 로드 시 select 값에 따라 로그인 카드 자동 토글
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    if (window.refreshEngineLoginCards) window.refreshEngineLoginCards();
+  }, 1500);
+});
 window.openOpenAiVerification = openOpenAiVerification;
 window.getH2ImageSettings = getH2ImageSettings;
 
