@@ -831,6 +831,80 @@ if (
 
 `process.env.STRICT_H2_IMAGE_ENGINE === 'true'` 환경변수로 dispatcher에 전달.
 
+### 12.8 모든 엔진 공통 variation seed (dispatcher 외부에서 강제)
+
+dropshot generator 내부의 variation hint만으론 부족 — **batch IPC handler 자체**에서 모든 엔진(nanobanana/gptimage/prodia/deepinfra/flow/imagefx/dropshot)에 매 호출 unique seed 자동 적용. 같은 prompt 5번 호출해도 5장 다 다른 이미지.
+
+```typescript
+// electron/main.ts — batch-image-generate IPC handler
+ipcMain.handle('batch-image-generate', async (_evt, payload) => {
+  const { engine, quality, aspectRatio, prompt, includeText, referenceImageList } = payload;
+
+  // 모든 엔진 공통 — 매 호출 unique variation seed
+  const nonce = Math.random().toString(36).slice(2, 8);
+  const ts = Date.now().toString(36);
+  const variationTail = `\n\n[Gen-${ts}-${nonce}: unique composition, fresh angle, different subjects/setting/lighting — never duplicate previous outputs / 매번 완전히 다른 구도와 시점]`;
+  const textTail = includeText
+    ? `\n\n[IMPORTANT: Include clear, legible Korean text overlay on the image that visually summarizes the topic]`
+    : '';
+  const finalPrompt = `${prompt}${textTail}${variationTail}`;
+
+  const extra: any = {};
+  if (quality === 'low' || quality === 'medium' || quality === 'high') extra.gptImageQuality = quality;
+  if (Array.isArray(referenceImageList) && referenceImageList.length > 0) extra.referenceImageList = referenceImageList;
+
+  return await dispatchH2ImageGeneration(engine, finalPrompt, prompt, undefined, undefined, extra);
+});
+```
+
+### 12.9 프롬프트 파싱 자동 감지 (1줄 vs N줄)
+
+사용자 입력 모호성 해결 — 영어 긴 prompt 1개를 줄바꿈 입력해도 1이미지로, 한국어 짧은 키워드 N개도 그대로 N이미지로:
+
+```javascript
+// 자동 감지: 빈 줄 구분 → explicit / 평균 길이 ≥80자 → 단일 prompt / 그 외 → 각 줄 = 1 prompt
+window.parseBatchPromptList = function (raw) {
+  const text = String(raw || '');
+  if (!text.trim()) return [];
+  // 빈 줄 있으면 explicit 구분
+  if (/\n\s*\n/.test(text)) {
+    return text.split(/\n\s*\n+/).map(s => s.trim()).filter(Boolean).slice(0, 50);
+  }
+  const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+  if (lines.length <= 1) return lines;
+  const avgLen = lines.reduce((sum, l) => sum + l.length, 0) / lines.length;
+  const hasLongLine = lines.some(l => l.length >= 150);
+  // 긴 prompt 1개로 추정 → 합침
+  if (avgLen >= 80 || hasLongLine) return [lines.join(' ')];
+  // 짧은 키워드 N개
+  return lines.slice(0, 50);
+};
+```
+
+textarea placeholder 예시:
+```
+✅ 짧은 키워드 N개 (각 줄 = 1이미지):
+숨은 보험금 3종
+스미싱 예방 보안 팁
+
+✅ 긴 프롬프트 1개 (자동 합침):
+A beautiful Korean office worker
+sitting at desk with golden hour
+
+✅ 여러 긴 prompt — 빈 줄로 구분:
+Prompt A...
+
+Prompt B...
+```
+
+### 12.10 수동 H2 매핑 모달 (선택 — 글생성 통합)
+
+이미지 생성 탭에서 사용자가 H2 ↔ 이미지를 직접 매핑 후 본 글에 배치 가능. 매핑 완료 시 메인 폼 배지가 녹색으로 변하면서 "바로 발행 가능" 시각화. 실제 코드는 [main repo electron/ui/script.js](https://github.com/cd000242-sudo/blogger-gpt-cli/blob/master/electron/ui/script.js)의 `openManualH2MappingModal()` 참조.
+
+### 12.11 홈 달력 일기장 (선택 — UX 통합)
+
+자동 발행 트래킹 → localStorage `publishedPosts[dateKey]`에 push → 달력 cell에 📤 표식 + 클릭 시 모달에서 `🔗 열기` 버튼 → `open-external` IPC로 외부 브라우저. 메모 textarea + 저장. 실제 코드는 [electron/ui/modules/calendar.js](https://github.com/cd000242-sudo/blogger-gpt-cli/blob/master/electron/ui/modules/calendar.js) + [posting.js](https://github.com/cd000242-sudo/blogger-gpt-cli/blob/master/electron/ui/modules/posting.js) `publishedPosts` 트래킹 hook 참조.
+
 ### 12.7 결과 이미지 lightbox (UX 추천)
 
 대량 생성 결과의 작은 thumbnail만 봐서 품질 판단 어려움 → 클릭 시 전체 화면 미리보기:
