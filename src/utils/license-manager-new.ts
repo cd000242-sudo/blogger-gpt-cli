@@ -630,7 +630,30 @@ export class LicenseManager {
         if (fs.existsSync(this.patchFilePath)) {
           const patchContent = fs.readFileSync(this.patchFilePath, 'utf8');
           const patchHash = this.hashPatchFile(patchContent);
-          
+
+          // v3.6.3: 옛 형식 license.json은 patchFileHash 필드가 없음.
+          //   기존: licenseData.patchFileHash === patchHash → undefined !== hash = 항상 false → 매번 valid:false → 자동로그인 실패
+          //   변경: patchFileHash 없으면 patch 파일 자체를 decrypt해서 라이선스 데이터와 일치하는지 검증.
+          //         decrypt 통과 = 정상 발급된 patch + 같은 deviceId/userId → 신뢰 가능.
+          if (!licenseData.patchFileHash) {
+            const decoded = this.decryptPatchFile(patchContent, licenseData.userId, deviceId);
+            if (decoded
+              && typeof decoded === 'object'
+              && decoded.userId === licenseData.userId
+              && (!decoded.deviceId || decoded.deviceId === deviceId)) {
+              return {
+                valid: true,
+                message: '영구제 라이선스 (옛 형식 호환 — patch decrypt 통과)',
+                licenseData
+              };
+            }
+            // decrypt 실패 → patch 손상 또는 변조
+            return {
+              valid: false,
+              message: '패치 파일이 라이선스와 일치하지 않습니다 (decrypt 실패).'
+            };
+          }
+
           if (licenseData.patchFileHash === patchHash) {
             return {
               valid: true,
@@ -639,7 +662,7 @@ export class LicenseManager {
             };
           }
         }
-        
+
         return {
           valid: false,
           message: '패치 파일이 없거나 유효하지 않습니다.'
