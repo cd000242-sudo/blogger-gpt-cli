@@ -93,10 +93,13 @@ try {
   let fbName = process.env.GIT_AUTHOR_NAME || '';
   let fbEmail = process.env.GIT_AUTHOR_EMAIL || '';
   if (!fbName || !fbEmail) {
+    // v3.6.3 fix: 이전엔 --format=%an<%ae> 사용했으나 Windows shell이 '<'를 stdin redirect로 해석 → 실패
+    //   해결: %an, %ae 각각 별도 호출 (한 줄이라 빠름)
     try {
-      const lastAuthor = execSync('git log -1 --format=%an<%ae>', { cwd: ROOT }).toString().trim();
-      const m = lastAuthor.match(/^(.+)<(.+)>$/);
-      if (m) { fbName = fbName || m[1]; fbEmail = fbEmail || m[2]; }
+      const n = execSync('git log -1 --format=%an', { cwd: ROOT }).toString().trim();
+      const e = execSync('git log -1 --format=%ae', { cwd: ROOT }).toString().trim();
+      if (n) fbName = fbName || n;
+      if (e) fbEmail = fbEmail || e;
     } catch { /* ignore */ }
   }
   if (fbName && fbEmail) {
