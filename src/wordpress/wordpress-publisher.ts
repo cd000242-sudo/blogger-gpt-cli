@@ -315,6 +315,27 @@ function applyWordPressInlineStyles(html: string): string {
   .wp-styled-content .ad-safe-zone[data-ad-region="no-ad"] {
     /* AdSense 크롤러 시그널: 이 블록 내부에는 광고 삽입 불가 */
   }
+
+  /* v3.7.9 fix — summary-table 컬럼 강제 고정.
+     문제: WP 테마/KSES가 inline width를 통과시켜도 table-layout:auto면
+     긴 셀이 wrapper 밖으로 튀어나가 우측 오버플로우 발생. fixed로 강제. */
+  .wp-styled-content .summary-table {
+    table-layout: fixed !important;
+  }
+  .wp-styled-content .summary-table th:first-child,
+  .wp-styled-content .summary-table td:first-child {
+    width: 35% !important;
+  }
+  .wp-styled-content .summary-table th:nth-child(2),
+  .wp-styled-content .summary-table td:nth-child(2) {
+    width: 65% !important;
+  }
+  .wp-styled-content .summary-table th,
+  .wp-styled-content .summary-table td {
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+    white-space: normal !important;
+  }
 </style>
 `;
 

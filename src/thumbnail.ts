@@ -1705,7 +1705,7 @@ export async function makeNanoBananaProThumbnail(
   console.log(`[NANO-BANANA-PRO] 📝 프롬프트: ${prompt.slice(0, 80)}...`);
 
   // Imagen 3 제거 → Gemini 네이티브 이미지 생성 직접 호출
-  return await tryGeminiExperimentalImageGeneration(title, topic, options.apiKey, isThumbnail, options.modelId);
+  return await tryGeminiExperimentalImageGeneration(title, topic, options.apiKey, isThumbnail, options.modelId, options.aspectRatio);
 }
 
 // 🔥 Gemini 3 이미지 생성 (Nano Banana / Nano Banana Pro)
@@ -1715,7 +1715,8 @@ async function tryGeminiExperimentalImageGeneration(
   topic: string,
   apiKey: string,
   isThumbnail: boolean = false,
-  modelIdHint?: 'gemini-2.5-flash-image' | 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview'
+  modelIdHint?: 'gemini-2.5-flash-image' | 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview',
+  aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4'
 ): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
   const startTime = Date.now();
 
@@ -1835,6 +1836,17 @@ CRITICAL RULES:
 - A viewer must IMMEDIATELY understand this image is about "${translatedTopic}"`;
   }
 
+  // v3.7.9 — aspect ratio 강제: prompt에 명시 (SDK 옵션은 모델 버전마다 무시될 수 있어 prompt가 1차 신호)
+  //   기본 16:9 (블로그 본문/썸네일 모두 wide). UI에서 다른 값 전달 시 그대로 사용.
+  const ratio = aspectRatio || '16:9';
+  const ratioWord =
+    ratio === '16:9' ? 'widescreen landscape (16:9)' :
+    ratio === '9:16' ? 'tall portrait (9:16)' :
+    ratio === '4:3' ? 'landscape (4:3)' :
+    ratio === '3:4' ? 'portrait (3:4)' :
+    'square (1:1)';
+  prompt += `\n\nIMAGE OUTPUT FORMAT (MANDATORY): ${ratioWord} aspect ratio. The canvas MUST be ${ratio}. Compose the scene so it fills a ${ratioWord} frame without cropping key elements.`;
+
   try {
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(apiKey);
@@ -1845,11 +1857,13 @@ CRITICAL RULES:
           console.log(`[NANO-BANANA] 🧪 ${modelInfo.name} 시도 중... (${retry + 1}/2)`);
 
           // 🛡️ v3.5.83: temperature 명시로 결정론적 동일 이미지 재생성 방지 (이미지 중복 버그 차단)
+          // v3.7.9: imageConfig.aspectRatio 시도 — Gemini 3 Pro Image preview는 honor, 다른 모델은 무시 (prompt가 폴백)
           const model = genAI.getGenerativeModel({
             model: modelInfo.id,
             generationConfig: {
               responseModalities: ['image', 'text'] as any,
               temperature: 1.2,
+              imageConfig: { aspectRatio: ratio },
             } as any,
           });
 
