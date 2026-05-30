@@ -4599,6 +4599,47 @@ try {
   console.warn('[APP] ⚠️ ImageFX IPC 핸들러 등록 실패 (imageFxGenerator 로드 불가):', e);
 }
 
+// 🍌 v3.6.7: Dropshot 로그인/체크 IPC + 대량 이미지 생성 IPC
+//   main.ts에 직접 등록 (main.js만 수정 시 다음 빌드에서 덮어씌워지던 이전 버그 fix)
+try {
+  const { checkDropshotLogin, loginDropshot } = require('../dist/core/dropshotGenerator');
+  ipcMain.handle('dropshot:check-login', async () => {
+    try { return await checkDropshotLogin(); }
+    catch (e: any) { return { loggedIn: false, message: e.message || 'Dropshot 로그인 확인 실패' }; }
+  });
+  ipcMain.handle('dropshot:login', async () => {
+    try { return await loginDropshot(); }
+    catch (e: any) { return { loggedIn: false, message: e.message || 'Dropshot 로그인 실패' }; }
+  });
+  console.log('[APP] ✅ Dropshot IPC 핸들러 등록 완료');
+} catch (e) {
+  console.warn('[APP] ⚠️ Dropshot IPC 핸들러 등록 실패:', (e as any)?.message || e);
+}
+
+// 🎨 v3.6.7: 대량 이미지 생성 IPC (이미지 생성 탭 → dispatcher 경유)
+//   payload: { engine, quality, aspectRatio, prompt, includeText, referenceImageList }
+//   - includeText: 한글 텍스트 오버레이 hint (nanobanana/gptimage2만 깨지지 않음, 기본 OFF)
+//   - referenceImageList: i2i URL 배열 (dropshot 등 i2i 지원 엔진만)
+//   dispatcher가 inferImagePrompt + variation hint를 자동 적용 → 짧은 한국어 키워드도 확장
+ipcMain.handle('batch-image-generate', async (_evt, payload: any) => {
+  try {
+    const { engine, quality, aspectRatio, prompt, includeText, referenceImageList } = payload || {};
+    if (!engine || !prompt) return { ok: false, error: 'engine + prompt 필수' };
+    const finalPrompt = includeText
+      ? `${prompt}\n\n[IMPORTANT: Include clear, legible Korean text overlay on the image that visually summarizes the topic]`
+      : prompt;
+    const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
+    const extra: any = {};
+    if (quality === 'low' || quality === 'medium' || quality === 'high') extra.gptImageQuality = quality;
+    if (Array.isArray(referenceImageList) && referenceImageList.length > 0) extra.referenceImageList = referenceImageList;
+    void aspectRatio; // aspectRatio 옵션은 향후 엔진별 적용
+    return await dispatchH2ImageGeneration(engine, finalPrompt, prompt, undefined, undefined, extra);
+  } catch (e: any) {
+    console.error('[BATCH-IMAGE] 생성 오류:', e);
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
 ipcMain.handle('indexnow:submit', async (_evt, siteUrl: string, urls: string[]) => {
   try {
     const { submitToIndexNow } = loadCoreModule('indexnow');

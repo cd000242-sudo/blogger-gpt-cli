@@ -327,14 +327,8 @@ electron_1.ipcMain.handle('license-status-new', async () => {
                 timeDiff: validation.timeDiff
             };
         }
-
-        // 🛡️ v3.6.6: 영구제 lenient fallback — strict 실패해도 license.json 자체가 정상이면 통과
-        //   조건:
-        //     - license.json 파일이 존재 (licenseData가 로드됨)
-        //     - userId가 있음
-        //     - expiresAt이 없음 (영구제 시그니처)
-        //     - 또는 licenseType === 'permanent'
-        //   사용자가 한 번 등록한 영구제는 patchFileHash 누락/patch 손상 등 어떤 부수 이유로도 valid=false가 되지 않도록 보장.
+        // 🛡️ v3.6.6: 영구제 lenient fallback — strict 실패해도 license.json 자체가 정상이면 통과.
+        //   사용자가 한 번 등록한 영구제는 patchFileHash 누락 / patch 손상 등 어떤 부수 이유로도 valid=false가 되지 않도록 보장.
         //   본 컴퓨터의 license.json + deviceId는 외부 우회 불가능하므로 보안 실용적.
         const data = status.licenseData;
         if (data && data.userId && (!data.expiresAt || data.licenseType === 'permanent')) {
@@ -348,7 +342,6 @@ electron_1.ipcMain.handle('license-status-new', async () => {
                 timeDiff: validation.timeDiff
             };
         }
-
         // 만료 또는 무효
         return {
             valid: false,
@@ -1887,27 +1880,7 @@ safeRegisterHandler('run-semi-auto-post', async (_evt, payload) => {
     }
 });
 // 포스트 실행 (콘텐츠 생성 + 자동 발행)
-// v3.5.93: 사용자가 진행 모달의 중지 버튼을 누르면 발송되는 cancel 시그널.
-//   현재 작업이 즉시 중단되지는 않지만(orchestration 중간 인터럽트 미지원),
-//   플래그를 set해 진행 중인 작업 직후/단계 경계에서 종료할 수 있게 함.
-//   UI는 모달을 즉시 닫고 "중지됨" 알림. 다음 단계로 넘어가지 않음.
-let _userCancelRequested = false;
-electron_1.ipcMain.on('cancel-task', (_evt) => {
-    try {
-        console.log('[CANCEL-TASK] 🛑 사용자 취소 요청 수신 — flag set');
-        _userCancelRequested = true;
-        // 모든 BrowserWindow에 알림 전송 (UI가 별도 처리할 수 있도록)
-        const { BrowserWindow } = require('electron');
-        BrowserWindow.getAllWindows().forEach(win => {
-            if (!win.isDestroyed()) win.webContents.send('task-cancelled');
-        });
-    } catch (e) {
-        console.error('[CANCEL-TASK] 처리 중 오류:', e);
-    }
-});
-
 electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
-    _userCancelRequested = false; // 새 작업 시작 시 flag reset
     let preConsumed = false;
     try {
         console.log('[RUN-POST] 포스트 실행 요청 받음');
@@ -4174,57 +4147,6 @@ try {
 catch (e) {
     console.error('[APP] 원클릭 세팅 IPC 핸들러 등록 실패:', e);
 }
-// v3.5.98: 🎨 대량 이미지 생성 IPC 핸들러
-//   대량 이미지 생성 탭에서 호출. dispatchH2ImageGeneration 재사용.
-//   strict 모드 활성화돼있어도 single-call이므로 영향 없음.
-electron_1.ipcMain.handle('batch-image-generate', async (_evt, payload) => {
-    try {
-        const { engine, quality, aspectRatio, prompt } = payload || {};
-        if (!engine || !prompt) {
-            return { ok: false, error: 'engine + prompt 필수' };
-        }
-        const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
-        const result = await dispatchH2ImageGeneration(
-            engine,
-            prompt,
-            prompt, // keyword == prompt (대량 생성은 별도 키워드 컨텍스트 없음)
-            undefined, // onLog
-            undefined, // contentMode
-            { gptImageQuality: quality }, // extra
-        );
-        return result; // { ok, dataUrl, source, error }
-    }
-    catch (e) {
-        console.error('[BATCH-IMAGE] 생성 오류:', e);
-        return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-});
-
-// 🍌 v3.6.4 Dropshot 로그인 IPC 핸들러 (구독자 확인용)
-try {
-    const { checkDropshotLogin, loginDropshot } = require('../dist/core/dropshotGenerator');
-    electron_1.ipcMain.handle('dropshot:check-login', async () => {
-        try {
-            return await checkDropshotLogin();
-        }
-        catch (e) {
-            return { loggedIn: false, message: e.message || 'Dropshot 로그인 확인 실패' };
-        }
-    });
-    electron_1.ipcMain.handle('dropshot:login', async () => {
-        try {
-            return await loginDropshot();
-        }
-        catch (e) {
-            return { loggedIn: false, message: e.message || 'Dropshot 로그인 실패' };
-        }
-    });
-    console.log('[APP] ✅ Dropshot IPC 핸들러 등록 완료');
-}
-catch (e) {
-    console.warn('[APP] ⚠️ Dropshot IPC 핸들러 등록 실패:', e?.message || e);
-}
-
 // 🖼️ ImageFX Google 로그인 IPC 핸들러
 try {
     const { checkGoogleLoginForImageFx, loginGoogleForImageFx } = require('../dist/core/imageFxGenerator');

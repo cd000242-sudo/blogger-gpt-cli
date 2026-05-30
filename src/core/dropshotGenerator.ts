@@ -348,6 +348,14 @@ export async function makeDropshotImage(
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       onLog?.(`🍌 [Dropshot] 이미지 생성 중... (시도 ${attempt}/${MAX_RETRIES})`);
 
+      // v3.6.7: 중복 방지 — 매 호출마다 unique variation hint 추가.
+      //   같은 프롬프트면 dropshot이 비슷한 결과를 반환하던 문제 차단.
+      //   timestamp + random nonce + 영어 variation 지시어 → 매번 다른 컴포지션 강제.
+      const nonce = Math.random().toString(36).slice(2, 8);
+      const variationSeed = Date.now().toString(36);
+      const promptWithVariation = currentPrompt
+        + ` [variation-${variationSeed}-${nonce}: unique composition, distinct angle, fresh visual elements — never repeat previous outputs]`;
+
       try {
         // 1. board URL 재확인
         if (!page.url().includes('panel=image')) {
@@ -396,10 +404,10 @@ export async function makeDropshotImage(
           }
         }
 
-        // 3. 프롬프트 입력
+        // 3. 프롬프트 입력 (variation hint 포함)
         await page.waitForSelector(PROMPT_SELECTOR, { timeout: 10000 });
         await page.click(PROMPT_SELECTOR);
-        await page.fill(PROMPT_SELECTOR, currentPrompt);
+        await page.fill(PROMPT_SELECTOR, promptWithVariation);
         await new Promise(r => setTimeout(r, 1000));
 
         // 4. 생성 버튼 클릭 — parent absolute button

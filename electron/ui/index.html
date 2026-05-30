@@ -5263,6 +5263,36 @@
                 </div>
               </div>
 
+              <!-- v3.6.7: 텍스트 포함 + i2i 체크박스 -->
+              <div style="margin-top: 12px; padding: 12px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;">
+                <!-- 텍스트 포함 (기본 OFF) -->
+                <label style="display: flex; align-items: start; gap: 10px; cursor: pointer; margin-bottom: 8px;">
+                  <input type="checkbox" id="batchIncludeText" style="width: 16px; height: 16px; accent-color: #fbbf24; flex-shrink: 0; margin-top: 2px;">
+                  <div style="flex: 1;">
+                    <div style="color: white; font-size: 12px; font-weight: 800;">🔤 텍스트 포함</div>
+                    <div style="color: rgba(255,255,255,0.55); font-size: 10px; margin-top: 1px;">
+                      한글 텍스트 오버레이 추가 (⚠️ <b>나노바나나/GPT 이미지 2(덕테이프)</b>만 정상 렌더링, 다른 엔진은 깨짐)
+                    </div>
+                  </div>
+                </label>
+                <!-- i2i 모드 (dropshot 등 i2i 지원 엔진) -->
+                <label style="display: flex; align-items: start; gap: 10px; cursor: pointer;">
+                  <input type="checkbox" id="batchI2iEnabled" onchange="window.toggleBatchI2iUI && window.toggleBatchI2iUI()" style="width: 16px; height: 16px; accent-color: #ec4899; flex-shrink: 0; margin-top: 2px;">
+                  <div style="flex: 1;">
+                    <div style="color: white; font-size: 12px; font-weight: 800;">🎨 이미지 투 이미지 (i2i)</div>
+                    <div style="color: rgba(255,255,255,0.55); font-size: 10px; margin-top: 1px;">
+                      참조 이미지 업로드 → 스타일/인물 유지 (⚠️ <b>Dropshot 나노바나나 Pro</b>만 지원)
+                    </div>
+                  </div>
+                </label>
+                <!-- i2i reference 업로드 (i2i 체크 시 표시) -->
+                <div id="batchI2iRefArea" style="display: none; margin-top: 10px; padding: 10px; background: rgba(236,72,153,0.08); border: 1px dashed rgba(236,72,153,0.4); border-radius: 8px;">
+                  <input type="file" id="batchI2iFiles" accept="image/png,image/jpeg,image/webp" multiple onchange="window.handleBatchI2iFiles && window.handleBatchI2iFiles()"
+                    style="width: 100%; padding: 6px; background: rgba(0,0,0,0.3); color: white; font-size: 11px; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;">
+                  <div id="batchI2iPreview" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;"></div>
+                </div>
+              </div>
+
               <!-- GPT quality (gptimage1/2 선택 시) -->
               <div id="batchGptQualityWrap" style="display: none; margin-top: 12px; padding: 10px; background: rgba(139,92,246,0.1); border: 1px solid rgba(139,92,246,0.3); border-radius: 8px;">
                 <label style="display: block; font-size: 12px; color: #c4b5fd; font-weight: 700; margin-bottom: 6px;">🎚️ GPT 이미지 품질</label>
@@ -5320,7 +5350,7 @@
               </div>
             </div>
 
-            <!-- v3.6.5: 본 글 H2 자동 배치 옵션 -->
+            <!-- v3.6.5: 본 글 H2 자동 배치 옵션 + v3.6.7: 수동 배치 모달 버튼 -->
             <div style="background: linear-gradient(135deg, rgba(139,92,246,0.12), rgba(99,102,241,0.08)); border: 1px solid rgba(139,92,246,0.4); border-radius: 16px; padding: 16px; margin-bottom: 16px;">
               <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
                 <input type="checkbox" id="batchAttachToArticle" style="width: 18px; height: 18px; accent-color: #8b5cf6;">
@@ -5331,6 +5361,10 @@
                   </div>
                 </div>
               </label>
+              <button type="button" onclick="window.openManualH2MappingModal && window.openManualH2MappingModal()"
+                style="width: 100%; margin-top: 10px; padding: 9px; background: rgba(255,255,255,0.06); border: 1px solid rgba(139,92,246,0.5); color: white; font-size: 12px; font-weight: 700; border-radius: 8px; cursor: pointer;">
+                🎛️ 수동으로 소제목 ↔ 이미지 매핑하기
+              </button>
             </div>
 
             <!-- 4. 비용 미리보기 + 생성 시작 -->
@@ -6971,6 +7005,31 @@ if (origSwitchTab) {
   };
 }
 </script>
+
+<!-- v3.6.7: 수동 H2 ↔ 이미지 매핑 모달 -->
+<div id="manualH2MappingModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 9999; padding: 40px 20px; overflow-y: auto;">
+  <div style="max-width: 900px; margin: 0 auto; background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid rgba(139,92,246,0.4); border-radius: 20px; padding: 28px; box-shadow: 0 24px 64px -16px rgba(0,0,0,0.7);">
+    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 18px;">
+      <span style="font-size: 32px;">🎛️</span>
+      <div style="flex: 1;">
+        <h3 style="margin: 0; color: white; font-size: 20px; font-weight: 800;">소제목 ↔ 이미지 수동 매핑</h3>
+        <p style="margin: 4px 0 0; color: rgba(255,255,255,0.6); font-size: 13px;">각 H2 소제목 옆 드롭다운에서 사용할 이미지를 선택하세요. 선택 안 한 H2는 글 생성 시 자동 생성됩니다.</p>
+      </div>
+      <button onclick="document.getElementById('manualH2MappingModal').style.display='none';" style="padding: 8px 14px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); color: white; border-radius: 8px; cursor: pointer; font-weight: 700;">✕ 닫기</button>
+    </div>
+    <div id="manualH2MappingRows" style="display: flex; flex-direction: column; gap: 10px; max-height: 55vh; overflow-y: auto; padding-right: 6px;"></div>
+    <div style="display: flex; gap: 10px; margin-top: 18px;">
+      <button onclick="window.applyManualH2Mapping && window.applyManualH2Mapping()"
+        style="flex: 1; padding: 14px; background: linear-gradient(135deg, #8b5cf6, #6366f1); border: none; color: white; font-size: 14px; font-weight: 800; border-radius: 10px; cursor: pointer; box-shadow: 0 8px 24px -8px rgba(139,92,246,0.6);">
+        ✓ 이 매핑으로 적용
+      </button>
+      <button onclick="window.resetManualH2Mapping && window.resetManualH2Mapping()"
+        style="padding: 14px 20px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: white; font-size: 13px; font-weight: 700; border-radius: 10px; cursor: pointer;">
+        🔄 자동 순서로 리셋
+      </button>
+    </div>
+  </div>
+</div>
 
 </body>
 

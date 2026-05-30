@@ -1418,6 +1418,44 @@ window.updateBatchImageCost = function () {
   if (promptCount) promptCount.textContent = `${count}장`;
 };
 
+// v3.6.7: i2i UI 토글 + reference 파일 → dataURL 변환
+window.toggleBatchI2iUI = function () {
+  const checked = !!document.getElementById('batchI2iEnabled')?.checked;
+  const area = document.getElementById('batchI2iRefArea');
+  if (area) area.style.display = checked ? 'block' : 'none';
+  if (!checked) {
+    window.__batchI2iRefDataUrls = [];
+    const preview = document.getElementById('batchI2iPreview');
+    if (preview) preview.innerHTML = '';
+    const fileInput = document.getElementById('batchI2iFiles');
+    if (fileInput) fileInput.value = '';
+  }
+};
+
+window.__batchI2iRefDataUrls = [];
+window.handleBatchI2iFiles = async function () {
+  const input = document.getElementById('batchI2iFiles');
+  const preview = document.getElementById('batchI2iPreview');
+  if (!input || !preview) return;
+  const files = Array.from(input.files || []).slice(0, 4);
+  window.__batchI2iRefDataUrls = [];
+  preview.innerHTML = '';
+  for (const f of files) {
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = () => rej(new Error('파일 읽기 실패'));
+      r.readAsDataURL(f);
+    });
+    window.__batchI2iRefDataUrls.push(dataUrl);
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.style.cssText = 'width:60px; height:60px; object-fit:cover; border-radius:6px; border:1px solid rgba(255,255,255,0.2);';
+    img.title = f.name;
+    preview.appendChild(img);
+  }
+};
+
 // v3.6.4: Dropshot 로그인 상태 확인 (구독 정보까지)
 window.refreshDropshotLoginStatus = async function () {
   const card = document.getElementById('batchDropshotStatusCard');
@@ -1436,9 +1474,14 @@ window.refreshDropshotLoginStatus = async function () {
     const result = await window.electronAPI?.invoke?.('dropshot:check-login');
     if (!result || !result.loggedIn) {
       if (icon) icon.textContent = '🔐';
-      if (title) title.textContent = '로그인 필요';
-      if (sub) sub.textContent = result?.message || 'Dropshot 사이트 로그인이 필요합니다 (Google/이메일)';
+      if (title) title.textContent = '로그인 필요 — 브라우저 자동 열림';
+      if (sub) sub.textContent = result?.message || 'Dropshot 사이트 로그인 창이 곧 자동으로 열립니다';
       if (loginBtn) loginBtn.style.display = 'inline-block';
+      // v3.6.7: 첫 진단 시 자동으로 visible 로그인 창 trigger (1회만)
+      if (!window.__dropshotAutoLoginTried) {
+        window.__dropshotAutoLoginTried = true;
+        setTimeout(() => window.runDropshotLogin?.(), 600);
+      }
       return;
     }
 
@@ -1534,12 +1577,19 @@ window.startBatchImageGeneration = async function () {
   };
   updateProgress();
 
+  // v3.6.7: 새 옵션 수집 — 텍스트 포함 / i2i reference
+  const includeText = !!document.getElementById('batchIncludeText')?.checked;
+  const i2iEnabled = !!document.getElementById('batchI2iEnabled')?.checked;
+  const referenceImageList = i2iEnabled ? (window.__batchI2iRefDataUrls || []).slice(0, 4) : [];
+
   // 병렬 처리 — N개씩 묶어서 처리
   async function processOne(prompt, idx) {
     try {
       if (!window.electronAPI?.invoke) throw new Error('electronAPI 없음');
       const result = await window.electronAPI.invoke('batch-image-generate', {
         engine, quality, aspectRatio, prompt,
+        includeText, // v3.6.7
+        referenceImageList, // v3.6.7 i2i
       });
       const cell = document.getElementById(`batch-img-${idx}`);
       if (result?.ok && result.dataUrl) {
@@ -1621,6 +1671,76 @@ window.clearPreGeneratedImages = function () {
   window.__preGeneratedImagesForArticle = [];
   window.refreshPreGeneratedBadge?.();
   alert('초기화 완료. 다음 글 생성 시 이미지를 새로 생성합니다.');
+};
+
+// v3.6.7: 수동 H2 매핑 모달 — 각 소제목에 어떤 이미지 사용할지 사용자가 직접 선택
+window.openManualH2MappingModal = function () {
+  const results = (window.__batchImageResults || []).filter(r => r && r.dataUrl);
+  if (results.length === 0) {
+    alert('먼저 이미지를 생성해주세요.');
+    return;
+  }
+  const rows = document.getElementById('manualH2MappingRows');
+  if (!rows) return;
+
+  // 본 글의 H2 sections 추론: 메인 폼에 입력된 키워드 + 프롬프트 list를 기반으로 H2 이름 자동 생성
+  // 단순화: 프롬프트 list 첫 줄들을 H2 후보로 사용 (사용자가 1줄 = 1소제목 패턴으로 입력했다 가정)
+  const promptList = document.getElementById('batchPromptList')?.value || '';
+  const h2Names = promptList.split('\n').map(s => s.trim()).filter(Boolean).slice(0, results.length);
+  // 부족하면 "H2 #N"으로 채움
+  while (h2Names.length < results.length) h2Names.push(`H2 #${h2Names.length + 1}`);
+
+  rows.innerHTML = h2Names.map((h2, idx) => `
+    <div style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;">
+      <span style="min-width: 56px; padding: 4px 10px; background: linear-gradient(135deg,#8b5cf6,#6366f1); color: white; font-size: 11px; font-weight: 800; border-radius: 999px; text-align: center;">H2 #${idx + 1}</span>
+      <span style="flex: 1; color: white; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${h2}">${h2}</span>
+      <select id="manualH2Img-${idx}" style="padding: 8px 10px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.18); color: white; font-size: 12px; border-radius: 8px; cursor: pointer; min-width: 140px;">
+        <option value="-1">— 자동 생성 —</option>
+        ${results.map((r, ri) => `<option value="${ri}" ${ri === idx ? 'selected' : ''}>이미지 ${ri + 1} (${(r.prompt || '').slice(0, 24)})</option>`).join('')}
+      </select>
+      <img id="manualH2Thumb-${idx}" src="${results[idx]?.dataUrl || ''}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);">
+    </div>
+  `).join('');
+
+  // select 변경 시 썸네일 갱신
+  h2Names.forEach((_, idx) => {
+    const sel = document.getElementById(`manualH2Img-${idx}`);
+    const thumb = document.getElementById(`manualH2Thumb-${idx}`);
+    sel?.addEventListener('change', () => {
+      const v = Number(sel.value);
+      if (thumb) thumb.src = v >= 0 ? (results[v]?.dataUrl || '') : '';
+      if (thumb) thumb.style.opacity = v >= 0 ? '1' : '0.2';
+    });
+  });
+
+  document.getElementById('manualH2MappingModal').style.display = 'block';
+};
+
+window.applyManualH2Mapping = function () {
+  const results = (window.__batchImageResults || []).filter(r => r && r.dataUrl);
+  if (results.length === 0) return;
+  const rows = document.querySelectorAll('[id^="manualH2Img-"]');
+  const mapping = [];
+  rows.forEach((sel, idx) => {
+    const v = Number(sel.value);
+    if (v >= 0 && results[v]) {
+      mapping.push({ h2Index: idx + 1, dataUrl: results[v].dataUrl, prompt: results[v].prompt });
+    }
+    // -1(자동 생성)이면 mapping에서 제외 → orchestration이 그 H2는 자동 생성
+  });
+  window.__preGeneratedImagesForArticle = mapping;
+  window.refreshPreGeneratedBadge?.();
+  document.getElementById('manualH2MappingModal').style.display = 'none';
+  alert(`✅ 수동 매핑 적용 완료\n총 ${mapping.length}개 H2에 이미지 매핑됨.\n나머지 H2는 글 생성 시 자동 생성됩니다.`);
+};
+
+window.resetManualH2Mapping = function () {
+  const results = (window.__batchImageResults || []).filter(r => r && r.dataUrl);
+  results.forEach((_, idx) => {
+    const sel = document.getElementById(`manualH2Img-${idx}`);
+    if (sel) sel.value = String(idx); // 자동 순서로 리셋
+  });
+  alert('자동 순서로 리셋. "이 매핑으로 적용" 누르면 H2 #1 → 이미지 1, H2 #2 → 이미지 2... 적용됩니다.');
 };
 
 window.downloadBatchImagesAsZip = async function () {
