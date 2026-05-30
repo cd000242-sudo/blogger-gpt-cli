@@ -1435,6 +1435,24 @@ window.updateBatchImageCost = function () {
     }
   }
 
+  // v3.7.3: UI 자동화 엔진(dropshot/imagefx/flow)은 단일 브라우저라 병렬 X — parallel=1 강제
+  const parallelSel = document.getElementById('batchParallel');
+  if (parallelSel) {
+    const isUiAuto = /^dropshot/.test(engine) || engine === 'imagefx' || engine === 'flow';
+    if (isUiAuto) {
+      parallelSel.value = '1';
+      parallelSel.disabled = true;
+      parallelSel.title = 'UI 자동화 엔진은 단일 브라우저 공유 → 1개씩 순차 생성';
+      parallelSel.style.opacity = '0.55';
+      parallelSel.style.cursor = 'not-allowed';
+    } else {
+      parallelSel.disabled = false;
+      parallelSel.title = '';
+      parallelSel.style.opacity = '1';
+      parallelSel.style.cursor = 'pointer';
+    }
+  }
+
   // v3.7.1: 한국어 호환성 안내 카드 — 엔진별 자동 표시
   const compatCard = document.getElementById('batchKoreanCompatCard');
   const compatBody = document.getElementById('batchKoreanCompatBody');
@@ -1725,14 +1743,15 @@ window.startBatchImageGeneration = async function () {
           // v3.6.5: 본 글 자동 배치 모드면 H2 #N 라벨 표시
           const attachOn = !!document.getElementById('batchAttachToArticle')?.checked;
           const h2Label = attachOn
-            ? `<div style="position:absolute; top:6px; left:6px; padding:3px 8px; background:linear-gradient(135deg,#8b5cf6,#6366f1); color:white; font-size:10px; font-weight:800; border-radius:6px; box-shadow:0 2px 8px rgba(139,92,246,0.5);">H2 #${idx + 1}</div>`
+            ? `<div style="position:absolute; top:6px; left:6px; padding:3px 8px; background:linear-gradient(135deg,#8b5cf6,#6366f1); color:white; font-size:10px; font-weight:800; border-radius:6px; box-shadow:0 2px 8px rgba(139,92,246,0.5); z-index:2; pointer-events:none;">H2 #${idx + 1}</div>`
             : '';
+          // v3.7.3: 다운로드 + lightbox 두 가지 액션 동시 제공
+          const safePrompt = (prompt || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
           cell.style.position = 'relative';
           cell.innerHTML = `
             ${h2Label}
-            <a href="${result.dataUrl}" download="image-${idx + 1}.png" style="display: block; height: 100%;">
-              <img src="${result.dataUrl}" alt="result ${idx + 1}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 6px; cursor: pointer;" title="${prompt.substring(0, 80)}">
-            </a>
+            <img src="${result.dataUrl}" alt="result ${idx + 1}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 6px; cursor: zoom-in; display: block;" title="${safePrompt.substring(0, 80)} (클릭하여 크게 보기)" onclick="window.openImageLightbox && window.openImageLightbox(${idx})">
+            <a href="${result.dataUrl}" download="image-${idx + 1}.png" onclick="event.stopPropagation();" style="position: absolute; bottom: 6px; right: 6px; padding: 4px 8px; background: rgba(0,0,0,0.55); color: white; font-size: 10px; font-weight: 700; border-radius: 6px; text-decoration: none; backdrop-filter: blur(6px);" title="다운로드">⬇ 저장</a>
           `;
         }
       } else {
@@ -1798,6 +1817,56 @@ window.clearPreGeneratedImages = function () {
   window.__preGeneratedImagesForArticle = [];
   window.refreshPreGeneratedBadge?.();
   alert('초기화 완료. 다음 글 생성 시 이미지를 새로 생성합니다.');
+};
+
+// v3.7.3: 이미지 lightbox — 결과 클릭 시 전체 화면 미리보기 + ← → 네비게이션
+window.__lightboxIdx = 0;
+window.openImageLightbox = function (idx) {
+  const results = (window.__batchImageResults || []).filter(r => r && r.dataUrl);
+  if (results.length === 0) return;
+  // 원본 idx → results 안의 위치
+  const flatIdx = (window.__batchImageResults || []).slice(0, idx + 1).filter(r => r && r.dataUrl).length - 1;
+  window.__lightboxIdx = Math.max(0, flatIdx);
+  const lightbox = document.getElementById('imageLightbox');
+  const img = document.getElementById('lightboxImg');
+  const caption = document.getElementById('lightboxCaption');
+  const prevBtn = document.getElementById('lightboxPrev');
+  const nextBtn = document.getElementById('lightboxNext');
+  if (!lightbox || !img) return;
+  const r = results[window.__lightboxIdx];
+  img.src = r.dataUrl;
+  if (caption) caption.textContent = `${window.__lightboxIdx + 1} / ${results.length} — ${(r.prompt || '').slice(0, 80)}`;
+  // 1장이면 prev/next 숨김
+  if (prevBtn) prevBtn.style.display = results.length > 1 ? 'block' : 'none';
+  if (nextBtn) nextBtn.style.display = results.length > 1 ? 'block' : 'none';
+  lightbox.style.display = 'flex';
+  // ESC 키로 닫기
+  if (!window.__lightboxKeyBound) {
+    window.__lightboxKeyBound = true;
+    document.addEventListener('keydown', (e) => {
+      const lb = document.getElementById('imageLightbox');
+      if (!lb || lb.style.display === 'none') return;
+      if (e.key === 'Escape') window.closeImageLightbox?.();
+      else if (e.key === 'ArrowLeft') window.lightboxNavigate?.(-1);
+      else if (e.key === 'ArrowRight') window.lightboxNavigate?.(1);
+    });
+  }
+};
+
+window.closeImageLightbox = function () {
+  const lb = document.getElementById('imageLightbox');
+  if (lb) lb.style.display = 'none';
+};
+
+window.lightboxNavigate = function (delta) {
+  const results = (window.__batchImageResults || []).filter(r => r && r.dataUrl);
+  if (results.length === 0) return;
+  window.__lightboxIdx = (window.__lightboxIdx + delta + results.length) % results.length;
+  const r = results[window.__lightboxIdx];
+  const img = document.getElementById('lightboxImg');
+  const caption = document.getElementById('lightboxCaption');
+  if (img) img.src = r.dataUrl;
+  if (caption) caption.textContent = `${window.__lightboxIdx + 1} / ${results.length} — ${(r.prompt || '').slice(0, 80)}`;
 };
 
 // v3.6.7: 수동 H2 매핑 모달 — 각 소제목에 어떤 이미지 사용할지 사용자가 직접 선택

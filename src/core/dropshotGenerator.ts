@@ -25,6 +25,11 @@ let cachedContext: any = null;
 let cachedPage: any = null;
 let _ensurePagePromise: Promise<any> | null = null;
 
+// v3.7.3: generation mutex — dropshot은 단일 브라우저 페이지 공유하므로
+//   동시 호출 시 textarea가 덮어써져 마지막 prompt만 처리됨 (모든 결과가 마지막 prompt로 도배).
+//   해결: 한 번에 한 호출만 진행. 큐 기반 직렬화.
+let _generationChain: Promise<any> = Promise.resolve();
+
 function getProfileDir(): string {
   const dir = path.join(os.homedir(), '.blogger-gpt', PROFILE_NAME);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -401,6 +406,22 @@ export async function makeDropshotImage(
      * 빈 배열/미설정 = 텍스트→이미지, URL 배열 = i2i (최대 4장 권장).
      * 각 URL을 다운로드해서 dropshot UI의 reference 업로드 input에 setInputFiles로 주입.
      */
+    referenceImageList?: string[];
+  } = {},
+  onLog?: (m: string) => void,
+): Promise<DropshotResult> {
+  // v3.7.3: 모든 호출을 generation mutex로 직렬화.
+  //   dropshot은 단일 브라우저 페이지 공유 → 병렬 호출 시 textarea 덮어쓰기로 마지막 prompt만 처리됨.
+  //   chain에 .catch()로 ignore-error 부착해서 한 호출 실패가 다음 호출 차단하지 않도록.
+  const next = _generationChain.then(() => _makeDropshotImageInternal(prompt, options, onLog));
+  _generationChain = next.catch(() => undefined as any);
+  return next;
+}
+
+async function _makeDropshotImageInternal(
+  prompt: string,
+  options: {
+    aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
     referenceImageList?: string[];
   } = {},
   onLog?: (m: string) => void,
