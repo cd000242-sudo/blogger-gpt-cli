@@ -1291,6 +1291,11 @@ window.handleDropshotLogin = async function () {
   if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.textContent = '⏳ 브라우저 열림...'; }
   try {
     const r = await window.electronAPI?.invoke?.('dropshot:login');
+    // v3.7.11: PAYMENT_REQUIRED → 모달 + 상태 라벨 정리
+    if (window.handlePaymentRequiredResponse && window.handlePaymentRequiredResponse(r)) {
+      if (status) { status.textContent = '🛡️ 유료 라이선스 필요'; status.style.color = '#fbbf24'; }
+      return;
+    }
     if (r?.loggedIn) {
       if (status) { status.textContent = `✅ 로그인 완료${r.userName ? ' — ' + r.userName : ''}`; status.style.color = '#86efac'; }
       alert('리더스 나노바나나 로그인 완료!' + (r.userName ? ' (' + r.userName + ')' : ''));
@@ -1311,6 +1316,11 @@ window.handleDropshotCheckLogin = async function () {
   if (status) { status.textContent = '⏳ 확인 중...'; status.style.color = 'rgba(255,255,255,0.6)'; }
   try {
     const r = await window.electronAPI?.invoke?.('dropshot:check-login');
+    // v3.7.11: PAYMENT_REQUIRED → 모달 + 상태 라벨 정리
+    if (window.handlePaymentRequiredResponse && window.handlePaymentRequiredResponse(r)) {
+      if (status) { status.textContent = '🛡️ 유료 라이선스 필요'; status.style.color = '#fbbf24'; }
+      return;
+    }
     if (r?.loggedIn) {
       const subTxt = r.subscription === 'pro' ? ' · ✅ Pro 구독자 무제한' : (r.subscription === 'free' ? ' · ⚠️ 무료 사용자' : '');
       if (status) { status.textContent = `✅ 로그인됨${r.userName ? ' — ' + r.userName : ''}${subTxt}`; status.style.color = '#86efac'; }
@@ -1623,6 +1633,14 @@ window.refreshDropshotLoginStatus = async function () {
 
   try {
     const result = await window.electronAPI?.invoke?.('dropshot:check-login');
+    // v3.7.11: PAYMENT_REQUIRED → 모달 + 상태 라벨 정리
+    if (window.handlePaymentRequiredResponse && window.handlePaymentRequiredResponse(result)) {
+      if (icon) icon.textContent = '🛡️';
+      if (title) title.textContent = '유료 라이선스 필요';
+      if (sub) sub.textContent = '1개월 이상 유료 라이선스 결제 후 이용 가능';
+      if (loginBtn) loginBtn.style.display = 'none';
+      return;
+    }
     if (!result || !result.loggedIn) {
       if (icon) icon.textContent = '🔐';
       if (title) title.textContent = '로그인 필요 — 브라우저 자동 열림';
@@ -1725,6 +1743,10 @@ window.runDropshotLogin = async function () {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 브라우저 열림...'; }
   try {
     const result = await window.electronAPI?.invoke?.('dropshot:login');
+    // v3.7.11: PAYMENT_REQUIRED → 모달
+    if (window.handlePaymentRequiredResponse && window.handlePaymentRequiredResponse(result)) {
+      return;
+    }
     if (result?.loggedIn) {
       alert('리더스 나노바나나 로그인 완료! ' + (result.userName ? '(' + result.userName + ')' : ''));
       window.refreshDropshotLoginStatus?.();
@@ -1800,6 +1822,12 @@ window.startBatchImageGeneration = async function () {
         includeText, // v3.6.7
         referenceImageList, // v3.6.7 i2i
       });
+      // v3.7.11: PAYMENT_REQUIRED → 결제 모달 띄우고 cell은 비활성 상태 표시
+      if (window.handlePaymentRequiredResponse && window.handlePaymentRequiredResponse(result)) {
+        const cell = document.getElementById(`batch-img-${idx}`);
+        if (cell) cell.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#fbbf24;font-size:11px;text-align:center;padding:8px;">🛡️ 유료 라이선스 필요</div>`;
+        return;
+      }
       const cell = document.getElementById(`batch-img-${idx}`);
       if (result?.ok && result.dataUrl) {
         window.__batchImageResults[idx] = { prompt, dataUrl: result.dataUrl };
@@ -11814,3 +11842,76 @@ window.selectImageFolderPath = async function () {
   }
 };
 
+// ════════════════════════════════════════════════════════════════════
+// v3.7.11 — 결제 유도 모달 (AI 이미지 생성은 1개월 이상 유료 라이선스)
+// ════════════════════════════════════════════════════════════════════
+(function setupPaymentModal() {
+  if (window.showPaymentModal) return;
+  const DEFAULT_PAYMENT_URL = 'https://leaderspro.kr';
+  const DEFAULT_KAKAO_URL = 'https://open.kakao.com/o/sPcaslwh';
+
+  window.showPaymentModal = function showPaymentModal(opts) {
+    const o = opts || {};
+    const message = o.message || 'AI 이미지 생성은 1개월 이상 유료 라이선스가 필요합니다.';
+    const paymentUrl = o.paymentUrl || DEFAULT_PAYMENT_URL;
+    const kakaoUrl = o.kakaoUrl || DEFAULT_KAKAO_URL;
+    const reason = o.reason || '';
+
+    // 기존 모달 제거
+    const old = document.getElementById('payment-modal-overlay');
+    if (old) old.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'payment-modal-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);';
+    overlay.innerHTML = `
+      <div style="background:linear-gradient(135deg,#1e293b 0%,#0f172a 100%);color:#f1f5f9;max-width:520px;width:90%;padding:32px;border-radius:20px;box-shadow:0 24px 64px rgba(0,0,0,0.5);border:1px solid rgba(245,158,11,0.3);">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+          <span style="font-size:32px;">🛡️</span>
+          <h2 style="margin:0;font-size:22px;font-weight:800;color:#fbbf24;">AI 이미지 생성은 유료 기능입니다</h2>
+        </div>
+        <p style="margin:0 0 8px;font-size:14px;line-height:1.6;white-space:pre-line;color:#cbd5e1;">${message.replace(/</g, '&lt;')}</p>
+        ${reason === 'trial' ? '<p style="margin:8px 0 16px;font-size:13px;color:#94a3b8;">※ 무료 체험에서는 이미지 없이 글 발행만 가능합니다. 이미지 옵션을 "없음/skip"으로 설정하면 발행은 진행됩니다.</p>' : '<div style="height:16px;"></div>'}
+        <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">
+          <button id="payment-modal-pay" style="flex:1;min-width:140px;padding:14px 16px;background:linear-gradient(135deg,#f59e0b,#d97706);color:white;border:none;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 4px 12px rgba(245,158,11,0.4);">💳 결제 페이지 열기</button>
+          <button id="payment-modal-kakao" style="flex:1;min-width:140px;padding:14px 16px;background:linear-gradient(135deg,#fbbf24,#fde047);color:#422006;border:none;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 4px 12px rgba(251,191,36,0.4);">💬 1대1 문의</button>
+        </div>
+        <button id="payment-modal-close" style="margin-top:14px;width:100%;padding:10px 16px;background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.08);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;">닫기</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const openExt = (url) => {
+      try {
+        if (window.blogger && typeof window.blogger.openExternal === 'function') {
+          window.blogger.openExternal(url);
+        } else {
+          window.open(url, '_blank', 'noopener');
+        }
+      } catch { window.open(url, '_blank', 'noopener'); }
+    };
+
+    document.getElementById('payment-modal-pay').onclick = () => { openExt(paymentUrl); };
+    document.getElementById('payment-modal-kakao').onclick = () => { openExt(kakaoUrl); };
+    document.getElementById('payment-modal-close').onclick = () => { overlay.remove(); };
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  };
+
+  // IPC 응답에서 PAYMENT_REQUIRED 감지 → 모달 표시. 표준 호출 패턴 helper.
+  // 반환값: true이면 모달이 떴음(=호출자는 후속 처리 skip), false면 그대로 진행
+  window.handlePaymentRequiredResponse = function (result) {
+    if (!result) return false;
+    const err = result.error || result.message || '';
+    const code = result.code || '';
+    if (typeof err !== 'string' && typeof code !== 'string') return false;
+    if (!String(err).startsWith('PAYMENT_REQUIRED:') && !String(code).startsWith('PAYMENT_REQUIRED:')) return false;
+    const reason = (String(code || err).split(':')[1] || '').trim();
+    window.showPaymentModal({
+      message: result.message || '1개월 이상 유료 라이선스 결제 후 이용 가능합니다.',
+      paymentUrl: result.paymentUrl,
+      kakaoUrl: result.kakaoUrl,
+      reason,
+    });
+    return true;
+  };
+})();

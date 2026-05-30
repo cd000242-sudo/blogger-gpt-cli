@@ -4601,14 +4601,29 @@ try {
 
 // 🍌 v3.6.7: Dropshot 로그인/체크 IPC + 대량 이미지 생성 IPC
 //   main.ts에 직접 등록 (main.js만 수정 시 다음 빌드에서 덮어씌워지던 이전 버그 fix)
+// 🛡️ v3.7.11: license gate — 무료체험/none/expired는 dropshot 진입 자체 차단.
 try {
   const { checkDropshotLogin, loginDropshot } = require('../dist/core/dropshotGenerator');
   ipcMain.handle('dropshot:check-login', async () => {
-    try { return await checkDropshotLogin(); }
+    try {
+      const { checkImageGenAccess } = require('../dist/utils/license-tier-manager');
+      const access = checkImageGenAccess();
+      if (!access.allowed) {
+        return { loggedIn: false, message: access.message, code: `PAYMENT_REQUIRED:${access.reason}`, paymentUrl: access.paymentUrl, kakaoUrl: access.kakaoUrl };
+      }
+      return await checkDropshotLogin();
+    }
     catch (e: any) { return { loggedIn: false, message: e.message || 'Dropshot 로그인 확인 실패' }; }
   });
   ipcMain.handle('dropshot:login', async () => {
-    try { return await loginDropshot(); }
+    try {
+      const { checkImageGenAccess } = require('../dist/utils/license-tier-manager');
+      const access = checkImageGenAccess();
+      if (!access.allowed) {
+        return { loggedIn: false, message: access.message, code: `PAYMENT_REQUIRED:${access.reason}`, paymentUrl: access.paymentUrl, kakaoUrl: access.kakaoUrl };
+      }
+      return await loginDropshot();
+    }
     catch (e: any) { return { loggedIn: false, message: e.message || 'Dropshot 로그인 실패' }; }
   });
   console.log('[APP] ✅ Dropshot IPC 핸들러 등록 완료');
@@ -4625,6 +4640,20 @@ ipcMain.handle('batch-image-generate', async (_evt, payload: any) => {
   try {
     const { engine, quality, aspectRatio, prompt, includeText, referenceImageList } = payload || {};
     if (!engine || !prompt) return { ok: false, error: 'engine + prompt 필수' };
+
+    // 🛡️ v3.7.11 — license gate: 무료체험/none/expired는 일괄 이미지 생성 차단.
+    //   dispatcher 진입부에서도 막히지만 IPC 레벨에서 명시적으로 표준 응답 반환 → UI 모달 처리 단일화.
+    const { checkImageGenAccess } = require('../dist/utils/license-tier-manager');
+    const access = checkImageGenAccess();
+    if (!access.allowed) {
+      return {
+        ok: false,
+        error: `PAYMENT_REQUIRED:${access.reason}`,
+        message: access.message,
+        paymentUrl: access.paymentUrl,
+        kakaoUrl: access.kakaoUrl,
+      };
+    }
 
     // v3.7.0: 모든 엔진 공통 — 매 호출 unique variation seed로 중복 이미지 방지.
     //   nanobanana/gptimage/flow/imagefx/prodia/deepinfra/dropshot 모두 동일 prompt 받으면

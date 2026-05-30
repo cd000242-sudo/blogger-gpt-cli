@@ -434,6 +434,24 @@ export async function runPosting() {
     } else {
       const errorMessage = result?.error || '알 수 없는 오류';
 
+      // v3.7.11: PAYMENT_REQUIRED → 결제 유도 모달 (다른 에러 처리 우회)
+      if (typeof errorMessage === 'string' && errorMessage.startsWith('PAYMENT_REQUIRED:')) {
+        const parts = errorMessage.split(':');
+        const reason = parts[1] || 'none';
+        const tail = parts.slice(2).join(':');
+        addLog('🛡️ AI 이미지 생성은 1개월 이상 유료 라이선스가 필요합니다.', 'error');
+        hideProgressModal();
+        if (window.showPaymentModal) {
+          window.showPaymentModal({
+            message: tail || '1개월 이상 유료 라이선스 결제 후 이용 가능합니다.',
+            reason,
+            paymentUrl: result?.paymentUrl,
+            kakaoUrl: result?.kakaoUrl,
+          });
+        }
+        return;
+      }
+
       if (result?.needsAuth || /인증|auth|token|OAuth|Blogger/i.test(errorMessage)) {
         addLog('❌ 블로그 인증이 필요합니다. 환경설정 탭으로 이동합니다...', 'error');
         setTimeout(() => {
@@ -461,6 +479,23 @@ export async function runPosting() {
 
   } catch (error) {
     errorLog('POSTING', error, { function: 'runPosting' });
+    // v3.7.11: PAYMENT_REQUIRED → 결제 유도 모달
+    if (typeof error?.message === 'string' && error.message.startsWith('PAYMENT_REQUIRED:')) {
+      const parts = error.message.split(':');
+      const reason = parts[1] || 'none';
+      const tail = parts.slice(2).join(':');
+      addLog('🛡️ AI 이미지 생성은 1개월 이상 유료 라이선스가 필요합니다.', 'error');
+      hideProgressModal();
+      if (window.showPaymentModal) {
+        window.showPaymentModal({
+          message: tail || '1개월 이상 유료 라이선스 결제 후 이용 가능합니다.',
+          reason,
+          paymentUrl: error?.paymentUrl,
+          kakaoUrl: error?.kakaoUrl,
+        });
+      }
+      return;
+    }
     addLog('포스팅 오류: ' + error.message, 'error');
     hideProgressModal();
     // 🔥 예외 발생 시에도 사용자에게 명확히 알림

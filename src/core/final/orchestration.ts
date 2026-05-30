@@ -53,6 +53,33 @@ export async function generateUltimateMaxModeArticleFinal(
     throw new Error(blockMsg);
   }
 
+  // 🛡️ v3.7.11 — 라이선스 게이트: AI 이미지 사용 의도가 있으면 본문 생성 시작 전에 즉시 차단.
+  //   사용자가 모든 이미지 옵션을 'none'/'skip'으로 명시한 경우는 통과(이미지 없는 발행은 무료 체험에서도 허용).
+  //   throw 시 IPC 핸들러가 캐치 → UI는 error.message로 PAYMENT_REQUIRED:<reason> 감지 → 결제 유도 모달.
+  try {
+    const isSkip = (v: any) => v === 'none' || v === 'skip';
+    const wantsImage =
+      !isSkip(payload?.h2ImageSource) ||
+      !isSkip(payload?.thumbnailSource) ||
+      !isSkip(payload?.imageSource);
+    if (wantsImage) {
+      const { checkImageGenAccess } = require('../../utils/license-tier-manager');
+      const access = checkImageGenAccess();
+      if (!access.allowed) {
+        const blockMsg = `${access.message}\n\n결제: ${access.paymentUrl}\n1대1 문의: ${access.kakaoUrl}`;
+        onLog?.(`[PROGRESS] 0% - 🛡️ ${access.message.split('\n')[0]}`);
+        const err = new Error(`PAYMENT_REQUIRED:${access.reason}:${blockMsg}`);
+        (err as any).paymentUrl = access.paymentUrl;
+        (err as any).kakaoUrl = access.kakaoUrl;
+        (err as any).reason = access.reason;
+        throw err;
+      }
+    }
+  } catch (e: any) {
+    if (e?.message?.startsWith('PAYMENT_REQUIRED:')) throw e;
+    console.warn('[orchestration] license gate check skipped (init error):', e?.message);
+  }
+
   // 🛡️ v3.5.82: CTA AI 엄격 모드 — 모든 모드에서 기본 ON (가짜·무관 URL 100% 차단)
   //   사용자가 명시적으로 ctaAiStrictMode=false 지정한 경우만 비활성
   //   기존: adsense만 자동 ON, 나머지는 토글 의존 → CTA URL이 키워드와 무관해도 통과될 수 있었음

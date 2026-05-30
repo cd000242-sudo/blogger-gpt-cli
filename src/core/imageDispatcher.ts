@@ -468,6 +468,19 @@ export async function dispatchH2ImageGeneration(
     return { ok: false, dataUrl: '', source: '', error: '이미지 생성 스킵 (사용자 선택)' };
   }
 
+  // 🛡️ v3.7.11 — 라이선스 게이트: 무료체험/none/expired는 이미지 생성 차단 (유료 유도).
+  //   error 코드 'PAYMENT_REQUIRED:<reason>'으로 표준화 → orchestration·UI가 동일 처리.
+  {
+    const { checkImageGenAccess } = await import('../utils/license-tier-manager');
+    const access = checkImageGenAccess();
+    if (!access.allowed) {
+      const code = `PAYMENT_REQUIRED:${access.reason || 'none'}`;
+      console.log(`[DISPATCH] 🛡️ 라이선스 게이트 차단 (${access.reason}) — ${access.message.split('\n')[0]}`);
+      onLog?.(`🛡️ ${access.message.split('\n')[0]}`);
+      return { ok: false, dataUrl: '', source: '', error: code };
+    }
+  }
+
   // 🛡️ R-5 (v3.5.85): 모든 엔진 호출 전 프롬프트 사전 안전화
   prompt = preSanitizePrompt(prompt, onLog);
 
@@ -618,6 +631,18 @@ export async function dispatchThumbnailGeneration(
   // 🚫 '없음' 선택 → 즉시 빈 결과
   if (thumbnailSource === 'none' || thumbnailSource === 'skip') {
     return { ok: false, dataUrl: '', source: '', error: '썸네일 생성 스킵 (사용자 선택)' };
+  }
+
+  // 🛡️ v3.7.11 — 라이선스 게이트 (썸네일도 동일하게 무료체험/none/expired 차단)
+  {
+    const { checkImageGenAccess } = await import('../utils/license-tier-manager');
+    const access = checkImageGenAccess();
+    if (!access.allowed) {
+      const code = `PAYMENT_REQUIRED:${access.reason || 'none'}`;
+      console.log(`[DISPATCH-THUMB] 🛡️ 라이선스 게이트 차단 (${access.reason}) — ${access.message.split('\n')[0]}`);
+      onLog?.(`🛡️ ${access.message.split('\n')[0]}`);
+      return { ok: false, dataUrl: '', source: '', error: code };
+    }
   }
 
   // 🛡️ R-5 (v3.5.85): 썸네일 prompt(=title)도 사전 안전화

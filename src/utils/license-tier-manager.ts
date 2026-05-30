@@ -79,7 +79,9 @@ const TIER_DEFINITIONS: Record<LicenseTier, TierFeatures> = {
     features: {
       basicPosting: true,
       aiContent: true,
-      aiImages: false,
+      // v3.7.11: 사용자 정책 변경 — basic(1개월) 포함 모든 유료 티어가 AI 이미지 가능.
+      //   무료체험/none/expired만 차단 (checkImageGenAccess helper).
+      aiImages: true,
       keywordMaster: false,
       leword: false,
       scheduling: false,
@@ -444,6 +446,83 @@ export function canUseBulkPosting(): boolean {
 
 export function checkFeatureAccess(feature: keyof TierFeatures['features']): { allowed: boolean; error?: any } {
   return getLicenseTierManager().checkFeatureAccess(feature);
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// v3.7.11 — 이미지 생성 통합 게이트 (무료체험 + 라이선스 티어 한 번에 판단)
+// ────────────────────────────────────────────────────────────────────────
+export interface ImageGenAccessResult {
+  allowed: boolean;
+  reason?: 'trial' | 'expired' | 'none' | 'tier-low';
+  currentTier?: LicenseTier;
+  paymentUrl: string;
+  kakaoUrl: string;
+  message: string;
+}
+
+const PAYMENT_URL = 'https://leaderspro.kr';
+const KAKAO_OPENCHAT_URL = 'https://open.kakao.com/o/sPcaslwh';
+
+/**
+ * AI 이미지 생성 기능 사용 가능 여부 (무료체험 + 라이선스 티어 통합).
+ *
+ * 정책 (v3.7.11):
+ *  - 무료 체험 세션(_freeTrialSession=true) → 차단, reason='trial'
+ *  - 라이선스 없음(none) → 차단, reason='none'
+ *  - 만료됨(expired) → 차단, reason='expired'
+ *  - basic(1개월) 이상 유료 티어 → 허용
+ *
+ * 호출 컨텍스트가 Electron main 프로세스가 아닐 수 있어 require 실패 시 안전하게 허용 처리.
+ * (예: 단위 테스트에서 app.getPath 호출 불가)
+ */
+export function checkImageGenAccess(): ImageGenAccessResult {
+  // 무료 체험 1순위 체크 — 라이선스 자체가 없는 상태(=none)와 구분
+  try {
+    // electron context에서만 동작하는 require — 단위 테스트/CLI 환경에선 catch로 빠짐
+    const authUtils = require('../../electron/auth-utils');
+    if (typeof authUtils?.isFreeTrial === 'function' && authUtils.isFreeTrial()) {
+      return {
+        allowed: false,
+        reason: 'trial',
+        paymentUrl: PAYMENT_URL,
+        kakaoUrl: KAKAO_OPENCHAT_URL,
+        message: '무료 체험에서는 AI 이미지 생성을 사용할 수 없습니다.\n1개월 이상 유료 라이선스 결제 후 이용 가능합니다.',
+      };
+    }
+  } catch {
+    // auth-utils 못 찾으면(테스트 환경 등) 체험 체크 skip — 라이선스 체크로 위임
+  }
+
+  let tier: LicenseTier = 'basic';
+  try {
+    tier = getLicenseTierManager().getCurrentTier().tier;
+  } catch {
+    // tier manager 초기화 실패 → 보수적으로 허용 (테스트 환경)
+    return { allowed: true, paymentUrl: PAYMENT_URL, kakaoUrl: KAKAO_OPENCHAT_URL, message: '' };
+  }
+
+  if (tier === 'none') {
+    return {
+      allowed: false,
+      reason: 'none',
+      currentTier: tier,
+      paymentUrl: PAYMENT_URL,
+      kakaoUrl: KAKAO_OPENCHAT_URL,
+      message: '등록된 라이선스가 없습니다.\n1개월 이상 유료 라이선스 결제 후 이용 가능합니다.',
+    };
+  }
+  if (tier === 'expired') {
+    return {
+      allowed: false,
+      reason: 'expired',
+      currentTier: tier,
+      paymentUrl: PAYMENT_URL,
+      kakaoUrl: KAKAO_OPENCHAT_URL,
+      message: '라이선스가 만료되었습니다.\n갱신 후 AI 이미지 생성을 다시 사용할 수 있습니다.',
+    };
+  }
+  // basic(1개월) 이상 모든 유료 티어 허용
+  return { allowed: true, currentTier: tier, paymentUrl: PAYMENT_URL, kakaoUrl: KAKAO_OPENCHAT_URL, message: '' };
 }
 
 
