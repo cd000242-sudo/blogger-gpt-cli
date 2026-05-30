@@ -338,6 +338,32 @@ export async function runPosting() {
         addLog(`🔗 발행된 글: [LINK:${result.url}]`, 'success');
       }
 
+      // v3.7.5: 발행 완료 자동 트래킹 — 달력 일기장에 일별 발행 포스팅 표시
+      if (result.published !== false && result.url) {
+        try {
+          const stored = JSON.parse(localStorage.getItem('publishedPosts') || '{}');
+          const d = new Date();
+          const dateKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+          if (!Array.isArray(stored[dateKey])) stored[dateKey] = [];
+          const platform = document.querySelector('input[name="platform"]:checked')?.value || 'wordpress';
+          const platformName = (platform === 'blogger' || platform === 'blogspot') ? '블로거' : '워드프레스';
+          stored[dateKey].push({
+            title: result.title || keywordValue || '제목없음',
+            url: result.url,
+            platform: platformName,
+            time: d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+            timestamp: d.getTime(),
+          });
+          localStorage.setItem('publishedPosts', JSON.stringify(stored));
+          // 달력이 열려 있으면 갱신
+          if (typeof window.renderCalendar === 'function') {
+            try { window.renderCalendar(); } catch {}
+          }
+        } catch (e) {
+          console.warn('[PUBLISH-TRACK] 발행 트래킹 저장 실패:', e?.message);
+        }
+      }
+
       // 작업 기록 (실제 발행 성공 시만)
       if (result.published !== false) {
         const keywords = getAllKeywords();

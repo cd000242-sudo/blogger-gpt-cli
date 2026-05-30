@@ -125,6 +125,23 @@ export function renderCalendar() {
     console.warn('[CALENDAR] workDiary 파싱 실패:', e);
   }
 
+  // v3.7.5: 발행한 포스팅 데이터 로드 (일기장 모드)
+  let publishedLocal = {};
+  try {
+    const ppRaw = localStorage.getItem('publishedPosts');
+    if (ppRaw) publishedLocal = JSON.parse(ppRaw);
+  } catch (e) {
+    console.warn('[CALENDAR] publishedPosts 파싱 실패:', e);
+  }
+  // 메모 데이터 로드
+  let memoLocal = {};
+  try {
+    const mRaw = localStorage.getItem('dailyMemo');
+    if (mRaw) memoLocal = JSON.parse(mRaw);
+  } catch (e) {
+    console.warn('[CALENDAR] dailyMemo 파싱 실패:', e);
+  }
+
   // 이전 달의 빈 칸
   for (let i = 0; i < firstDayOfWeek; i++) {
     const emptyDay = document.createElement('div');
@@ -144,8 +161,12 @@ export function renderCalendar() {
     // 작업 기록 & 예약 스케줄 확인
     const records = workDiaryLocal[dateKey] || [];
     const daySchedules = allSchedules.filter(s => s.date === dateKey && s.status !== 'completed');
+    const dayPublished = Array.isArray(publishedLocal[dateKey]) ? publishedLocal[dateKey] : [];
+    const dayMemo = (memoLocal[dateKey] || '').trim();
     const hasWork = records.length > 0;
     const hasSchedule = daySchedules.length > 0;
+    const hasPublished = dayPublished.length > 0;
+    const hasMemo = dayMemo.length > 0;
 
     // 셀 스타일
     dayElement.style.cssText = `
@@ -180,12 +201,28 @@ export function renderCalendar() {
       if (daySchedules.length > 1) cellHtml += `<div style="font-size: 7px; color: #fbbf24; opacity: 0.6;">+${daySchedules.length - 1}</div>`;
     }
 
+    // v3.7.5: 🔵 발행한 포스팅 (최대 1건 + 카운트)
+    if (hasPublished) {
+      const p = dayPublished[0];
+      const txt = (p.title || '').substring(0, 5);
+      cellHtml += `<div style="font-size: 8px; color: #60a5fa; line-height: 1.15; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">📤${txt}</div>`;
+      if (dayPublished.length > 1) cellHtml += `<div style="font-size: 7px; color: #60a5fa; opacity: 0.7;">+${dayPublished.length - 1}건</div>`;
+    }
+
+    // v3.7.5: 💭 메모 표식 (한 줄, 4자)
+    if (hasMemo) {
+      const txt = dayMemo.substring(0, 4);
+      cellHtml += `<div style="font-size: 8px; color: #a78bfa; line-height: 1.15; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">💭${txt}</div>`;
+    }
+
     dayElement.innerHTML = cellHtml;
 
     // Tooltip
     let tip = [];
     if (hasWork) { tip.push('📝 작업기록:'); records.forEach(r => tip.push(`  · ${r.content || ''}`)); }
     if (hasSchedule) { tip.push('📌 예약:'); daySchedules.forEach(s => tip.push(`  · ${s.topic || ''} (${s.time || ''})`)); }
+    if (hasPublished) { tip.push('📤 발행한 글:'); dayPublished.forEach(p => tip.push(`  · ${p.title || ''} (${p.platform || ''}, ${p.time || ''})`)); }
+    if (hasMemo) { tip.push('💭 메모: ' + dayMemo.slice(0, 80)); }
     if (tip.length) dayElement.title = tip.join('\n');
 
     // 클릭 이벤트
@@ -222,6 +259,24 @@ export function showWorkDiary(date) {
     console.warn('[CALENDAR] scheduledPosts 파싱 실패:', e);
   }
 
+  // v3.7.5: 발행한 포스팅 + 메모 로드 (일기장)
+  let dayPublished = [];
+  let dailyMemoValue = '';
+  try {
+    const ppRaw = localStorage.getItem('publishedPosts');
+    if (ppRaw) {
+      const all = JSON.parse(ppRaw);
+      if (Array.isArray(all[dateKey])) dayPublished = all[dateKey];
+    }
+  } catch (e) { console.warn('[CALENDAR] publishedPosts 파싱 실패:', e); }
+  try {
+    const mRaw = localStorage.getItem('dailyMemo');
+    if (mRaw) {
+      const all = JSON.parse(mRaw);
+      if (typeof all[dateKey] === 'string') dailyMemoValue = all[dateKey];
+    }
+  } catch (e) { console.warn('[CALENDAR] dailyMemo 파싱 실패:', e); }
+
   // 요일/날짜 분리
   const dayOfWeek = date.toLocaleDateString('ko-KR', { weekday: 'long' });
   const monthDay = date.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' });
@@ -256,6 +311,36 @@ export function showWorkDiary(date) {
   // 완료된/미완료 작업 수
   const completedCount = workRecords.filter(r => r.completed).length;
   const totalCount = workRecords.length;
+
+  // v3.7.5: 발행한 포스팅 HTML — 클릭 시 외부 브라우저로 이동
+  //   각 항목: 제목 + 플랫폼 + 시간 + "열기" 버튼 (open-external IPC)
+  const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const publishedHtml = dayPublished.length > 0
+    ? dayPublished.map((p, idx) => `
+        <div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+             background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.18);
+             border-radius: 10px; margin-bottom: 6px;">
+          <span style="font-size: 16px;">📤</span>
+          <div style="flex: 1; min-width: 0;">
+            <div style="color: #dbeafe; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(p.title || '')}">
+              ${escapeHtml(p.title || '제목없음')}
+            </div>
+            <div style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 2px;">
+              ${escapeHtml(p.platform || '')} · ${escapeHtml(p.time || '')}
+            </div>
+          </div>
+          <button onclick="window.openPublishedLink && window.openPublishedLink('${encodeURIComponent(p.url || '')}')"
+                  style="padding: 6px 12px; background: linear-gradient(135deg, #3b82f6, #6366f1); color: white;
+                         border: none; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap;">
+            🔗 열기
+          </button>
+          <button onclick="window.removePublishedRecord && window.removePublishedRecord('${dateKey}', ${idx})"
+                  style="padding: 6px 8px; background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; font-size: 10px; cursor: pointer;" title="기록에서 삭제">
+            ✕
+          </button>
+        </div>
+      `).join('')
+    : '<div style="padding: 14px; text-align: center; color: rgba(255,255,255,0.35); font-size: 12px;">이 날 발행한 글이 없습니다</div>';
 
   // 키워드 기록 HTML (기존 작업 기록)
   const recordsHtml = workRecords.length > 0 ? workRecords.map(record => `
@@ -439,6 +524,32 @@ export function showWorkDiary(date) {
       <div id="workRecordsList">
         ${recordsHtml}
       </div>
+
+      <!-- v3.7.5: 발행한 포스팅 (일기장) -->
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(148,163,184,0.1);">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+          <span style="font-size: 14px;">📤</span>
+          <span style="color: #94a3b8; font-size: 12px; font-weight: 700; letter-spacing: 0.5px;">발행한 글 (${dayPublished.length}건)</span>
+        </div>
+        ${publishedHtml}
+      </div>
+
+      <!-- v3.7.5: 일일 메모 -->
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(148,163,184,0.1);">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 14px;">💭</span>
+            <span style="color: #94a3b8; font-size: 12px; font-weight: 700; letter-spacing: 0.5px;">오늘의 메모</span>
+          </div>
+          <button onclick="window.saveDailyMemo && window.saveDailyMemo('${dateKey}')"
+                  style="padding: 5px 11px; background: linear-gradient(135deg, #a78bfa, #8b5cf6); color: white; border: none; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
+            💾 저장
+          </button>
+        </div>
+        <textarea id="dailyMemoTextarea-${dateKey}" placeholder="이 날의 메모를 자유롭게 적어보세요...&#10;예: 오늘 잘된 키워드, 시도해볼 아이디어, 발행 후 반응 등"
+                  style="width: 100%; min-height: 90px; padding: 12px; background: rgba(167,139,250,0.06); border: 1px solid rgba(167,139,250,0.2); color: #e2e8f0; font-size: 13px; border-radius: 10px; resize: vertical; font-family: inherit; line-height: 1.5;">${escapeHtml(dailyMemoValue)}</textarea>
+      </div>
+
       <!-- 키워드 추가 -->
       <div style="display: flex; gap: 8px; margin-top: 8px;">
         <input id="workRecordInput" type="text" placeholder="키워드를 입력하세요..." 
@@ -762,5 +873,77 @@ export function saveScheduleEdit(scheduleId) {
     console.error('[CALENDAR] 예약 수정 실패:', e);
     alert('예약 수정에 실패했습니다.');
   }
+}
+
+// v3.7.5: 일기장 헬퍼 — 발행 글 외부 브라우저로 열기 / 메모 저장 / 발행 기록 삭제
+//   window 전역에 노출 (모달의 onclick에서 호출)
+if (typeof window !== 'undefined') {
+  window.openPublishedLink = async function (encodedUrl) {
+    try {
+      const url = decodeURIComponent(encodedUrl || '');
+      if (!url || !/^https?:\/\//i.test(url)) {
+        alert('잘못된 URL입니다.');
+        return;
+      }
+      if (window.electronAPI?.invoke) {
+        await window.electronAPI.invoke('open-external', url);
+      } else {
+        window.open(url, '_blank');
+      }
+    } catch (e) {
+      console.warn('[CALENDAR] open-external 실패:', e);
+      try { window.open(decodeURIComponent(encodedUrl || ''), '_blank'); } catch {}
+    }
+  };
+
+  window.saveDailyMemo = function (dateKey) {
+    try {
+      const ta = document.getElementById(`dailyMemoTextarea-${dateKey}`);
+      if (!ta) return;
+      const value = String(ta.value || '');
+      const all = JSON.parse(localStorage.getItem('dailyMemo') || '{}');
+      if (value.trim().length > 0) {
+        all[dateKey] = value;
+      } else {
+        delete all[dateKey];
+      }
+      localStorage.setItem('dailyMemo', JSON.stringify(all));
+      // 모달 닫고 달력 갱신
+      const modal = document.querySelector('.work-diary-modal');
+      if (modal) modal.remove();
+      try { renderCalendar(); } catch {}
+      // 저장 확인 미세 알림
+      try {
+        const tip = document.createElement('div');
+        tip.textContent = '💾 메모 저장됨';
+        tip.style.cssText = 'position: fixed; bottom: 24px; right: 24px; padding: 10px 16px; background: linear-gradient(135deg,#a78bfa,#8b5cf6); color: white; font-size: 13px; font-weight: 700; border-radius: 10px; z-index: 99999; box-shadow: 0 8px 24px rgba(139,92,246,0.5);';
+        document.body.appendChild(tip);
+        setTimeout(() => tip.remove(), 2000);
+      } catch {}
+    } catch (e) {
+      console.warn('[CALENDAR] 메모 저장 실패:', e);
+      alert('메모 저장 실패: ' + (e?.message || e));
+    }
+  };
+
+  window.removePublishedRecord = function (dateKey, idx) {
+    if (!confirm('이 발행 기록을 일기장에서 삭제할까요? (실제 발행한 글은 그대로 유지됩니다)')) return;
+    try {
+      const all = JSON.parse(localStorage.getItem('publishedPosts') || '{}');
+      if (Array.isArray(all[dateKey])) {
+        all[dateKey].splice(idx, 1);
+        if (all[dateKey].length === 0) delete all[dateKey];
+        localStorage.setItem('publishedPosts', JSON.stringify(all));
+      }
+      // 모달 새로고침
+      const modal = document.querySelector('.work-diary-modal');
+      if (modal) modal.remove();
+      const [y, m, d] = dateKey.split('-').map(Number);
+      showWorkDiary(new Date(y, m - 1, d));
+      renderCalendar();
+    } catch (e) {
+      console.warn('[CALENDAR] 발행 기록 삭제 실패:', e);
+    }
+  };
 }
 

@@ -1497,7 +1497,7 @@ window.updateBatchImageCost = function () {
   const valueEl = document.getElementById('batchCostValue');
   if (valueEl) {
     if (/^dropshot/.test(engine)) {
-      valueEl.textContent = `🍌 Dropshot Pro 구독료 (월정액, 이미지당 추가 0원)`;
+      valueEl.textContent = `🍌 리더스 나노바나나 무제한 (구독자 무제한, 추가비용 0원)`;
     } else {
       valueEl.textContent = totalCost === 0 ? '🎉 무료' : `${totalCost.toLocaleString()}원`;
     }
@@ -1555,7 +1555,7 @@ window.refreshDropshotLoginStatus = async function () {
 
   if (icon) icon.textContent = '⏳';
   if (title) title.textContent = '확인 중...';
-  if (sub) sub.textContent = 'Dropshot 로그인/구독 상태 조회 중';
+  if (sub) sub.textContent = '리더스 나노바나나 로그인/구독 상태 조회 중';
   if (loginBtn) loginBtn.style.display = 'none';
 
   try {
@@ -1563,7 +1563,7 @@ window.refreshDropshotLoginStatus = async function () {
     if (!result || !result.loggedIn) {
       if (icon) icon.textContent = '🔐';
       if (title) title.textContent = '로그인 필요 — 브라우저 자동 열림';
-      if (sub) sub.textContent = result?.message || 'Dropshot 사이트 로그인 창이 곧 자동으로 열립니다';
+      if (sub) sub.textContent = result?.message || '리더스 나노바나나 로그인 창이 곧 자동으로 열립니다';
       if (loginBtn) loginBtn.style.display = 'inline-block';
       // v3.6.7: 첫 진단 시 자동으로 visible 로그인 창 trigger (1회만)
       if (!window.__dropshotAutoLoginTried) {
@@ -1663,13 +1663,13 @@ window.runDropshotLogin = async function () {
   try {
     const result = await window.electronAPI?.invoke?.('dropshot:login');
     if (result?.loggedIn) {
-      alert('Dropshot 로그인 완료! ' + (result.userName ? '(' + result.userName + ')' : ''));
+      alert('리더스 나노바나나 로그인 완료! ' + (result.userName ? '(' + result.userName + ')' : ''));
       window.refreshDropshotLoginStatus?.();
     } else {
-      alert('Dropshot 로그인 실패: ' + (result?.message || '시간 초과'));
+      alert('리더스 나노바나나 로그인 실패: ' + (result?.message || '시간 초과'));
     }
   } catch (e) {
-    alert('Dropshot 로그인 오류: ' + (e?.message || e));
+    alert('리더스 나노바나나 로그인 오류: ' + (e?.message || e));
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '🔐 로그인하기'; }
   }

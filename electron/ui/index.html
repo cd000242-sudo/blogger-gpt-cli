@@ -1806,14 +1806,14 @@
                         <td style="padding: 10px 8px; text-align: center; color: #6ee7b7;">✅ 최우수</td>
                       </tr>
                       <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(251,191,36,0.08);">
-                        <td style="padding: 10px 8px;">🍌 Dropshot 나노바나나 Pro <span style="background: #fbbf24; color: #1e293b; font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 800;">i2i 지원</span></td>
+                        <td style="padding: 10px 8px;">🍌 리더스 나노바나나 무제한 <span style="background: #fbbf24; color: #1e293b; font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 800;">i2i 지원</span></td>
                         <td style="padding: 10px 8px; text-align: right; color: #fbbf24; font-weight: 700;">구독료별*</td>
                         <td style="padding: 10px 8px; text-align: right; color: #fbbf24; font-weight: 700;">구독자<br>무제한</td>
                         <td style="padding: 10px 8px; text-align: center; color: #6ee7b7;">✅ 최우수 (한글 텍스트)</td>
                       </tr>
                       <tr style="background: rgba(251,191,36,0.04);">
                         <td colspan="4" style="padding: 6px 12px; font-size: 11px; color: #fef3c7;">
-                          ※ Dropshot Pro 구독료: 월 74,000~99,000원 (사이트 직접 결제). 구독자는 이미지 무제한 + 이미지당 추가비용 0원.
+                          ※ 리더스 나노바나나 무제한: 구독자는 이미지 무제한 + 이미지당 추가비용 0원.
                         </td>
                       </tr>
                       <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(34,197,94,0.12);">
@@ -3990,7 +3990,7 @@
                         <option value="gptimage1">　🎯 GPT 이미지 1 (gpt-image-1)</option>
                         <option value="gptimage2">　🎯 GPT 이미지 2 / 덕테이프 (gpt-image-2)</option>
                         <option disabled style="color:#34d399; background:#0f172a; font-weight:800;">─────── 🍌 Dropshot (사이트 로그인, UI 자동화) ───────</option>
-                        <option value="dropshot-nanobanana-pro">　🍌 Dropshot 나노바나나 Pro (Pro 구독자 무제한 · 구독료별, 이미지당 추가비용 0원)</option>
+                        <option value="dropshot-nanobanana-pro">　🍌 리더스 나노바나나 무제한 (구독자 무제한 · 이미지당 추가비용 0원)</option>
                         <option disabled style="color:#94a3b8; background:#0f172a; font-weight:800;">─────── 기타 ───────</option>
                         <option value="prodia">🚀 Prodia FLUX schnell (⭐ 유료 최저가 ≈8원/글, 빠름)</option>
                         <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질 ≈100원/글)</option>
@@ -4014,7 +4014,7 @@
                         <option value="gptimage1">　🎯 GPT 이미지 1 (gpt-image-1)</option>
                         <option value="gptimage2">　🎯 GPT 이미지 2 / 덕테이프 (gpt-image-2)</option>
                         <option disabled style="color:#34d399; background:#0f172a; font-weight:800;">─────── 🍌 Dropshot (사이트 로그인, UI 자동화) ───────</option>
-                        <option value="dropshot-nanobanana-pro">　🍌 Dropshot 나노바나나 Pro (Pro 구독자 무제한 · 구독료별, 이미지당 추가비용 0원)</option>
+                        <option value="dropshot-nanobanana-pro">　🍌 리더스 나노바나나 무제한 (구독자 무제한 · 이미지당 추가비용 0원)</option>
                         <option disabled style="color:#94a3b8; background:#0f172a; font-weight:800;">─────── 기타 ───────</option>
                         <option value="prodia">🚀 Prodia FLUX schnell (⭐ 유료 최저가 ≈8원/글, 빠름)</option>
                         <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질 ≈100원/글)</option>
@@ -5308,7 +5308,7 @@
                   <div style="flex: 1;">
                     <div style="color: white; font-size: 12px; font-weight: 800;">🎨 이미지 투 이미지 (i2i)</div>
                     <div style="color: rgba(255,255,255,0.55); font-size: 10px; margin-top: 1px;">
-                      참조 이미지 업로드 → 스타일/인물 유지 (⚠️ <b>Dropshot 나노바나나 Pro</b>만 지원)
+                      참조 이미지 업로드 → 스타일/인물 유지 (⚠️ <b>리더스 나노바나나 무제한</b>만 지원)
                     </div>
                   </div>
                 </label>
@@ -6261,7 +6261,7 @@
               <select onchange="updateMultiAccountSetting('${account.id}', 'imageSource', this.value)" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 13px;">
                 <option value="nanobanana2" ${(!account.settings.imageSource || account.settings.imageSource === 'nanobanana2' || account.settings.imageSource === 'imagefx' || account.settings.imageSource === 'flow') ? 'selected' : ''}>🍌 나노바나나2 (Gemini 3.1 · 권장)</option>
                 <option value="nanobanana" ${account.settings.imageSource === 'nanobanana' ? 'selected' : ''}>🍌 나노바나나 (Gemini 2.5 · 저비용)</option>
-                <option value="dropshot-nanobanana-pro" ${account.settings.imageSource === 'dropshot-nanobanana-pro' ? 'selected' : ''}>🍌 Dropshot Pro (구독료별, 이미지당 추가비용 0원)</option>
+                <option value="dropshot-nanobanana-pro" ${account.settings.imageSource === 'dropshot-nanobanana-pro' ? 'selected' : ''}>🍌 리더스 나노바나나 무제한 (구독자 무제한)</option>
                 <option value="prodia" ${account.settings.imageSource === 'prodia' ? 'selected' : ''}>🚀 Prodia (유료 최저가)</option>
                 <option value="deepinfra" ${account.settings.imageSource === 'deepinfra' ? 'selected' : ''}>🔥 DeepInfra FLUX-2</option>
                 <option value="crawled" ${account.settings.imageSource === 'crawled' ? 'selected' : ''}>🔗 URL 수집 이미지</option>
