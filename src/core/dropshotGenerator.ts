@@ -348,13 +348,20 @@ export async function makeDropshotImage(
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       onLog?.(`🍌 [Dropshot] 이미지 생성 중... (시도 ${attempt}/${MAX_RETRIES})`);
 
-      // v3.6.7: 중복 방지 — 매 호출마다 unique variation hint 추가.
-      //   같은 프롬프트면 dropshot이 비슷한 결과를 반환하던 문제 차단.
-      //   timestamp + random nonce + 영어 variation 지시어 → 매번 다른 컴포지션 강제.
+      // v3.6.9: 한국어 짧은 prompt 자동 enhance (한국어 그대로 + 한국어 enhancer)
+      //   nano-banana-pro는 multilingual이라 한국어를 잘 처리.
+      //   짧으면 컨텍스트 부족 → 한국어로 시각적 디테일 자동 추가.
+      const hasKorean = /[가-힯]/.test(currentPrompt);
+      const isShort = currentPrompt.length < 50;
+      const enhancedPrompt = (hasKorean && isShort)
+        ? `${currentPrompt} — 본 주제를 직관적으로 표현하는 사실적 사진, 한국적 배경, 자연광, 시네마틱 4K, 텍스트 없음`
+        : currentPrompt;
+
+      // 매 호출마다 unique variation hint (한국어 + 영어 mixed, 강한 다양성 강제)
       const nonce = Math.random().toString(36).slice(2, 8);
       const variationSeed = Date.now().toString(36);
-      const promptWithVariation = currentPrompt
-        + ` [variation-${variationSeed}-${nonce}: unique composition, distinct angle, fresh visual elements — never repeat previous outputs]`;
+      const promptWithVariation = enhancedPrompt
+        + ` (버전-${variationSeed}-${nonce}: 매번 완전히 다른 구도, 다른 시점, 다른 인물/배경/소품 — 이전 결과와 절대 같으면 안 됨)`;
 
       try {
         // 1. board URL 재확인
