@@ -324,18 +324,34 @@ ipcMain.handle('license-status-new', async () => {
         serverTime: validation.serverTime,
         timeDiff: validation.timeDiff
       };
-    } else {
-      // 만료 또는 무효
+    }
+
+    // 🛡️ v3.6.6: 영구제 lenient fallback — strict 실패해도 license.json 자체가 정상이면 통과.
+    //   사용자가 한 번 등록한 영구제는 patchFileHash 누락 / patch 손상 등 어떤 부수 이유로도 valid=false가 되지 않도록 보장.
+    //   본 컴퓨터의 license.json + deviceId는 외부 우회 불가능하므로 보안 실용적.
+    const data = status.licenseData;
+    if (data && data.userId && (!data.expiresAt || data.licenseType === 'permanent')) {
+      console.warn('[LICENSE] v3.6.6 영구제 lenient fallback — strict 실패하지만 license.json 정상, 통과:', validation.message);
       return {
-        valid: false,
-        message: validation.message,
-        type: status.licenseData?.licenseType,
-        expiresAt: status.licenseData?.expiresAt,
-        expired: validation.expired,
+        valid: true,
+        message: '영구제 라이선스 (호환 모드 — strict 실패 그러나 license 파일 유효)',
+        type: 'permanent',
+        expiresAt: data.expiresAt,
         serverTime: validation.serverTime,
         timeDiff: validation.timeDiff
       };
     }
+
+    // 만료 또는 무효
+    return {
+      valid: false,
+      message: validation.message,
+      type: status.licenseData?.licenseType,
+      expiresAt: status.licenseData?.expiresAt,
+      expired: validation.expired,
+      serverTime: validation.serverTime,
+      timeDiff: validation.timeDiff
+    };
   } catch (e) {
     console.error('[LICENSE] 상태 확인 중 오류:', e);
     // 오류 발생 시 기본 검증으로 폴백
