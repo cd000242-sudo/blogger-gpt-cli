@@ -1838,14 +1838,17 @@ window.startBatchImageGeneration = async function () {
             ? `<div style="position:absolute; top:6px; left:6px; padding:3px 8px; background:linear-gradient(135deg,#8b5cf6,#6366f1); color:white; font-size:10px; font-weight:800; border-radius:6px; box-shadow:0 2px 8px rgba(139,92,246,0.5); z-index:2; pointer-events:none;">H2 #${idx + 1}</div>`
             : '';
           // v3.7.3: 다운로드 + lightbox 두 가지 액션 동시 제공
+          // v3.7.17: 그리드 클릭 → 큰 미리보기 박스에 표시 (lightbox는 미리보기 박스 클릭으로 트리거)
           const safePrompt = (prompt || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
           cell.style.position = 'relative';
           cell.innerHTML = `
             ${h2Label}
-            <img src="${result.dataUrl}" alt="result ${idx + 1}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 6px; cursor: zoom-in; display: block;" title="${safePrompt.substring(0, 80)} (클릭하여 크게 보기)" onclick="window.openImageLightbox && window.openImageLightbox(${idx})">
+            <img src="${result.dataUrl}" alt="result ${idx + 1}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 6px; cursor: pointer; display: block;" title="${safePrompt.substring(0, 80)} (클릭하여 미리보기)" onclick="window.updateBatchPreview && window.updateBatchPreview(${idx})">
             <a href="${result.dataUrl}" download="image-${idx + 1}.png" onclick="event.stopPropagation();" style="position: absolute; bottom: 6px; right: 6px; padding: 4px 8px; background: rgba(0,0,0,0.55); color: white; font-size: 10px; font-weight: 700; border-radius: 6px; text-decoration: none; backdrop-filter: blur(6px);" title="다운로드">⬇ 저장</a>
           `;
         }
+        // v3.7.17: 첫 이미지 생성 시 미리보기 자동 표시, 이후 새 이미지가 만들어지면 그쪽으로 전환
+        try { window.updateBatchPreview && window.updateBatchPreview(idx); } catch (e) { /* ignore */ }
       } else {
         if (cell) cell.innerHTML = `<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #fca5a5; font-size: 11px; text-align: center; padding: 8px;">❌ 실패<br><small>${(result?.error || '알 수 없음').substring(0, 50)}</small></div>`;
       }
@@ -11841,6 +11844,34 @@ window.selectImageFolderPath = async function () {
     alert('폴더 선택 중 오류가 발생했습니다: ' + error.message);
   }
 };
+
+// ════════════════════════════════════════════════════════════════════
+// v3.7.17 — 일괄 이미지 큰 미리보기 박스 업데이트 helper
+// ════════════════════════════════════════════════════════════════════
+(function setupBatchPreview() {
+  if (window.updateBatchPreview) return;
+  window.updateBatchPreview = function (idx) {
+    const list = window.__batchImageResults || [];
+    const item = list[idx];
+    const area = document.getElementById('batchPreviewArea');
+    const img = document.getElementById('batchPreviewImage');
+    const meta = document.getElementById('batchPreviewMeta');
+    const indexLabel = document.getElementById('batchPreviewIndex');
+    if (!area || !img) return;
+    if (!item || !item.dataUrl) { area.style.display = 'none'; return; }
+    area.style.display = 'block';
+    img.src = item.dataUrl;
+    img.onclick = () => { try { window.openImageLightbox && window.openImageLightbox(idx); } catch (e) { /* ignore */ } };
+    if (indexLabel) {
+      const total = list.filter(x => x && x.dataUrl).length;
+      indexLabel.textContent = `#${idx + 1}${total ? ` · 총 ${total}장` : ''}`;
+    }
+    if (meta) {
+      const p = (item.prompt || '').replace(/</g, '&lt;');
+      meta.textContent = p || '(프롬프트 없음)';
+    }
+  };
+})();
 
 // ════════════════════════════════════════════════════════════════════
 // v3.7.11 — 결제 유도 모달 (AI 이미지 생성은 1개월 이상 유료 라이선스)

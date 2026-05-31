@@ -5468,6 +5468,16 @@
                 </div>
               </div>
 
+              <!-- v3.7.17: 큰 미리보기 박스 — 첫 이미지 생성 시 자동 표시. 그리드 클릭으로 다른 이미지 전환. -->
+              <div id="batchPreviewArea" style="display: none; margin-bottom: 14px; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 10px; position: relative;">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; padding: 0 4px;">
+                  <span style="color: rgba(255,255,255,0.55); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;">🔎 미리보기</span>
+                  <span id="batchPreviewIndex" style="color: rgba(255,255,255,0.55); font-size: 11px;"></span>
+                </div>
+                <img id="batchPreviewImage" alt="미리보기" style="display: block; width: 100%; max-height: 56vh; object-fit: contain; border-radius: 8px; background: rgba(0,0,0,0.4); cursor: zoom-in;" />
+                <div id="batchPreviewMeta" style="margin-top: 8px; padding: 6px 10px; background: rgba(0,0,0,0.4); border-radius: 6px; color: #cbd5e1; font-size: 11px; line-height: 1.55; max-height: 64px; overflow: auto;"></div>
+              </div>
+
               <!-- 결과 그리드 -->
               <div id="batchResultGrid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-height: 60vh; overflow-y: auto;">
                 <div style="grid-column: 1 / -1; padding: 40px 20px; text-align: center; color: rgba(255,255,255,0.4); font-size: 13px;">
