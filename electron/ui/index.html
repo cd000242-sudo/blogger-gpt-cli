@@ -6884,10 +6884,7 @@ async function submitToIndexNow(siteUrl) {
       '<div style="background:rgba(255,255,255,0.1);border-radius:10px;height:12px;overflow:hidden;margin-bottom:20px;">' +
         '<div id="updateProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#6366f1,#a855f7);border-radius:10px;transition:width 0.3s ease;"></div>' +
       '</div>' +
-      '<div id="updateButtons" style="display:none;display:flex;gap:10px;justify-content:center;">' +
-        '<button onclick="if(window.blogger&&window.blogger.installUpdate)window.blogger.installUpdate();else if(window.electronAPI&&window.electronAPI.installUpdate)window.electronAPI.installUpdate();" style="padding:12px 24px;background:linear-gradient(135deg,#6366f1,#a855f7);border:none;border-radius:10px;color:white;font-size:14px;font-weight:700;cursor:pointer;">지금 재시작</button>' +
-        '<button onclick="document.getElementById(\'autoUpdateModal\').style.display=\'none\'" style="padding:12px 24px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:10px;color:rgba(255,255,255,0.7);font-size:14px;cursor:pointer;">나중에</button>' +
-      '</div>' +
+      // v3.7.14: updateButtons 영역 제거 — 자동 진행이라 사용자 선택 필요 없음 (이전엔 hidden div만 남아있었음)
     '</div>';
     document.body.appendChild(modal);
     progressBar = document.getElementById('updateProgressBar');
