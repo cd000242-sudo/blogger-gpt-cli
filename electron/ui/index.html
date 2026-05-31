@@ -4512,29 +4512,9 @@
           </div>
         </div>
 
-        <!-- 발행글 목록 모달 -->
-        <div id="publishedPostsModal"
-          style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 10001; backdrop-filter: blur(10px);">
-          <div
-            style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 1000px; max-height: 80vh; background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%); border-radius: 24px; padding: 40px; box-shadow: 0 30px 90px rgba(0, 0, 0, 0.3); overflow-y: auto;">
-            <!-- 모달 헤더 -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
-              <h2
-                style="font-size: 32px; font-weight: 900; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;">
-                📚 발행글 목록
-              </h2>
-              <button onclick="closePublishedPostsModal()"
-                style="background: #ef4444; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);">
-                ✕
-              </button>
-            </div>
-
-            <!-- 모달 바디 -->
-            <div id="publishedPostsList" style="display: grid; gap: 16px;">
-              <!-- 발행글 목록이 여기에 동적으로 추가됩니다 -->
-            </div>
-          </div>
-        </div>
+        <!-- v3.7.21: 중복 #publishedPostsModal 제거 — 정식 모달은 거미줄 탭(line ~5211)에 있음.
+             기존엔 같은 id를 가진 모달이 포스팅 탭에도 있어 getElementById가 이 쪽을 먼저 잡았고,
+             포스팅 탭으로 전환했을 때 모달 자식이 포스팅 탭 트리 안에서 떠 보이던 문제. -->
 
         <!-- 환경 설정 카드들 (숨김 처리) -->
         <div style="display: none;">

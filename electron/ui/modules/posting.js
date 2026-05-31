@@ -365,12 +365,21 @@ export async function runPosting() {
           if (!Array.isArray(stored[dateKey])) stored[dateKey] = [];
           const platform = document.querySelector('input[name="platform"]:checked')?.value || 'wordpress';
           const platformName = (platform === 'blogger' || platform === 'blogspot') ? '블로거' : '워드프레스';
+          // v3.7.21: 썸네일 URL 보존 — 거미줄 모달의 발행글 카드에 미리보기 표시용.
+          //   orchestration이 반환하는 result.thumbnail은 보통 공개 https URL이라
+          //   localStorage 용량 부담이 거의 없음. data: URL이면 길이가 크니까 잘라낸다.
+          let thumbForStore = '';
+          if (typeof result.thumbnail === 'string' && result.thumbnail) {
+            if (/^https?:/i.test(result.thumbnail)) thumbForStore = result.thumbnail;
+            else if (/^data:/i.test(result.thumbnail) && result.thumbnail.length < 200000) thumbForStore = result.thumbnail;
+          }
           stored[dateKey].push({
             title: result.title || keywordValue || '제목없음',
             url: result.url,
             platform: platformName,
             time: d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
             timestamp: d.getTime(),
+            thumbnail: thumbForStore,
           });
           localStorage.setItem('publishedPosts', JSON.stringify(stored));
           // 달력이 열려 있으면 갱신

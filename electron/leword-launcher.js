@@ -371,9 +371,9 @@ async function performLaunch(senderWin) {
     //   비로소 캐시본을 사용하는 비효율. 사용자 요구: "설치되어 있다면 자동으로 열리게".
     emitProgress(senderWin, 'locate', 30, '로컬 LEWORD 확인 중...');
     {
-        const cachedExe =
-            findDownloadedLewordExe() ||
-            (readMeta()?.exePath && fs.existsSync(readMeta().exePath) ? readMeta().exePath : null);
+        const cachedMeta = readMeta();
+        const cachedExe = findDownloadedLewordExe() ||
+            (cachedMeta?.exePath && fs.existsSync(cachedMeta.exePath) ? cachedMeta.exePath : null);
         if (cachedExe) {
             const cachedVersion = readLocalVersion(cachedExe);
             const cachedLabel = cachedVersion ? `v${cachedVersion}` : path.basename(cachedExe);

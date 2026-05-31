@@ -28,6 +28,7 @@ import {
   generateAllSectionsFinal, generateFAQFinal, buildFAQHtml,
   sanitizeCtaText,
   generateCTAsFinal, generateSummaryTableFinal, generateHashtagsFinal,
+  detectKeywordScope,
 } from './generation';
 import { generateCSSFinal, generateTOCFinal } from './html';
 import { buildEeatMeta, EEAT_META_CSS } from './eeat-meta';
@@ -583,13 +584,24 @@ export async function generateUltimateMaxModeArticleFinal(
         onLog?.(`[PROGRESS] 38% - ⚠️ LLM H2 생성 실패(${(e?.message || '').slice(0, 60)}) → placeholder fallback 사용`);
       }
       if (!modeResult.sectionPromptBlock) {
+        // v3.7.21: 키워드 한정자 감지 → INTERNAL_CONSISTENCY_SECTIONS의 role/contentFocus가
+        //   "자격·조건·핵심 정보", "단계별 가이드" 등 한정자와 충돌하는 지시를 박아 두기 때문에
+        //   본문 단계에서 신청방법/조건이 새어 나오는 문제가 있음. 한정자 감지 시 섹션별 가이드
+        //   최상단에 SCOPE OVERRIDE 블록을 prepend해 본문 LLM이 한정자에 어긋나는 부분을 무시하도록 강제.
+        const sectionScope = detectKeywordScope(keyword);
+        const sectionScopeOverride = sectionScope
+          ? `\n🎯🎯🎯 **SCOPE OVERRIDE — 절대 위반 금지!**\n키워드 "${keyword}"가 "${sectionScope.qualifier}"으로 끝납니다. ${sectionScope.instruction}\n\n⚠️ 아래 섹션별 상세 지시(역할/핵심/필수 요소)에 "${sectionScope.qualifier}" 외 다른 주제(예: ${sectionScope.qualifier === '혜택' ? '자격/조건/신청방법' : sectionScope.qualifier === '신청방법' ? '혜택/조건/대상' : '혜택/신청방법'})가 언급되어도 그 부분은 무시하고, 해당 섹션을 "${sectionScope.qualifier}" 관련 내용으로 재해석해서 작성하세요. 모든 섹션 본문 + 모든 H3 + 모든 본문 단락은 오직 "${sectionScope.qualifier}"만 다룹니다.\n`
+          : '';
+        if (sectionScope) {
+          console.log(`[SECTION-GUIDE] 🎯 한정자 "${sectionScope.qualifier}" → 본문 sectionPromptBlock에 SCOPE OVERRIDE 주입`);
+        }
         const guides = INTERNAL_CONSISTENCY_SECTIONS.map((sec, idx) => {
           // LLM이 만든 실제 H2 제목을 가이드에 그대로 사용 (없으면 fallback)
           const t = h2Titles[idx] || fallbackTitles[idx] || '';
           const reqs = (sec as any).requiredElements?.map((r: string) => `  - ${r}`).join('\n') || '';
           return `[섹션 ${idx + 1}: ${t}] (최소 ${(sec as any).minChars || 600}자)\n역할: ${(sec as any).role || ''}\n핵심: ${(sec as any).contentFocus || ''}\n필수 요소:\n${reqs}`;
         }).join('\n\n');
-        modeResult.sectionPromptBlock = `\n\n📋 [내부 일관성 모드 섹션별 상세 지시]\n${guides}`;
+        modeResult.sectionPromptBlock = `${sectionScopeOverride}\n\n📋 [내부 일관성 모드 섹션별 상세 지시]\n${guides}`;
       }
       onLog?.(`[PROGRESS] 40% - ✅ 내부 일관성 구조 ${h2Titles.length}개 섹션 적용 완료`);
     } else if (contentMode === 'shopping') {
@@ -759,6 +771,20 @@ export async function generateUltimateMaxModeArticleFinal(
     // 섹션 프롬프트 블록은 "참고 데이터"가 아닌 별도 지시로 전달
     const draftContent = (payload as any).draftContent || '';
     const skipQualityBoost = (payload as any).skipQualityBoost === true;
+
+    // v3.7.21: 글 전체 스코프 prepend — 모든 모드(애드센스/쇼핑/페러프레이징/외부유입/내부일관성)에
+    //   동일하게 적용. 키워드 한정자(혜택/신청방법/조건 등) 감지 시 sectionPromptBlock 최상단에
+    //   "이 글의 모든 H3·본문·결론·CTA·FAQ는 오직 X만 다룬다"를 박는다.
+    //   하드코딩 7섹션 모드(애드센스 등)도 본문 LLM 단계에서 한정자 외 내용을 막을 수 있다.
+    const overallScope = detectKeywordScope(keyword);
+    let scopedSectionBlock = modeResult.sectionPromptBlock || '';
+    if (overallScope) {
+      const scopePrepend = `\n🎯🎯🎯 **글 전체 스코프 한정 — 절대 위반 금지!**\n키워드 "${keyword}"가 "${overallScope.qualifier}"으로 끝납니다. ${overallScope.instruction}\n\n⚠️ 아래 섹션별 지시 중 "${overallScope.qualifier}" 외 주제(예: 신청방법/조건/대상자/혜택 등)가 언급되어도 그 부분은 "${overallScope.qualifier}" 관점으로 재해석해서 작성하세요. 모든 H3·본문 단락·결론·CTA·FAQ는 오직 "${overallScope.qualifier}"만 다룹니다.\n위반 시 즉시 실격 — 본문 어디에도 한정자 외 측면을 H3 제목/단락 주제로 만들면 안 됩니다.\n`;
+      scopedSectionBlock = `${scopePrepend}${scopedSectionBlock}`;
+      console.log(`[ORCHESTRATION] 🎯 글 전체 스코프 prepend (mode=${contentMode}, qualifier="${overallScope.qualifier}")`);
+      onLog?.(`[PROGRESS] 41% - 🎯 스코프 한정 "${overallScope.qualifier}" 적용 (모드: ${contentMode})`);
+    }
+
     let allSectionsObj = await generateAllSectionsFinal(
       keyword,
       h2Titles,
@@ -766,7 +792,7 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog,
       contentMode,
       draftContent,
-      modeResult.sectionPromptBlock || '',
+      scopedSectionBlock,
       skipQualityBoost,
     );
 
@@ -790,7 +816,7 @@ export async function generateUltimateMaxModeArticleFinal(
         if (!report.pass) {
           // 자동 재시도 — 더 강력한 재구성 지시 추가
           onLog?.('[PROGRESS] 69% - 🔄 유사도 초과 → 더 강한 재구성으로 재시도 중...');
-          const stricterPromptBlock = (modeResult.sectionPromptBlock || '') +
+          const stricterPromptBlock = scopedSectionBlock +
             `\n\n🚨 **재시도 모드**: 이전 시도가 원문과 유사도 ${(report.similarity * 100).toFixed(0)}%로 너무 비슷했습니다. 이번엔 다음 규칙을 더 강하게 지키세요:\n` +
             `- 원문의 어휘를 직접 사용하지 말고, 모든 명사·형용사·동사를 유의어로 교체\n` +
             `- 문장 구조를 완전히 새로 짜기 (나열식 → 인과식, 시간순 → 중요도순 등)\n` +
@@ -840,7 +866,7 @@ export async function generateUltimateMaxModeArticleFinal(
       if (currentH2Count < modeTargets.min) {
         console.warn(`[H2-ENFORCE] ⚠️ 모드 '${modeKey}' H2 ${currentH2Count}개 < min ${modeTargets.min} — 더 엄격한 프롬프트로 1회 재시도`);
         onLog?.(`[PROGRESS] 71% - 🛡️ H2 ${currentH2Count}개 부족 (모드 '${modeKey}' 최소 ${modeTargets.min}개) — 재시도 중...`);
-        const stricterBlock = (modeResult.sectionPromptBlock || '') +
+        const stricterBlock = scopedSectionBlock +
           `\n\n🚨🚨🚨 **재시도 — H2 개수 강제 규칙**: 직전 응답이 H2 ${currentH2Count}개로 부족했습니다.\n` +
           `이번엔 반드시 H2를 정확히 ${modeTargets.target}개 만들어야 합니다.\n` +
           `JSON의 "sections" 배열 길이가 정확히 ${modeTargets.target}이어야 통과됩니다.\n` +

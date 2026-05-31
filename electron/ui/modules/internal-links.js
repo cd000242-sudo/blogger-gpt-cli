@@ -192,6 +192,7 @@ function getPublishedPosts() {
           publishedAt: p.publishedAt || (p.timestamp ? new Date(p.timestamp).toISOString() : dateKey),
           timestamp: p.timestamp || 0,
           summary: p.summary || '',
+          thumbnail: p.thumbnail || '',
         });
       });
     });
@@ -204,69 +205,118 @@ function getPublishedPosts() {
 }
 
 /**
- * 발행글 목록 모달 열기
+ * v3.7.21: 모달 캐시 — 매번 getPublishedPosts() 호출하지 않고 열 때 한 번만 fetch.
+ * 체크박스 onChange 핸들러에서 인덱스로 빠르게 조회하기 위함.
+ */
+let modalPosts = [];
+
+const escapeHtml = (s) => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+/**
+ * 발행글 목록 모달 열기 (v3.7.21 — 체크박스 다중 선택)
+ *
+ * 변경 사항:
+ *  - 정식 모달은 거미줄 탭의 `.sw-modal` (HTML5 hidden 속성 사용) 한 곳뿐. 포스팅 탭의
+ *    중복 #publishedPostsModal은 index.html에서 제거됨.
+ *  - 기존 "한 줄마다 ✅ 선택" 버튼 → 체크박스로 교체, 최대 5개까지 한 번에 선택해
+ *    하단 액션 바의 "선택한 N개 추가" 버튼으로 일괄 URL 입력 필드에 주입.
+ *  - 모달 다크 테마(.sw-modal 계열 CSS)에 맞춰 카드 색감 슬레이트 톤으로 통일.
  */
 function openPublishedPostsModal() {
-  const posts = getPublishedPosts();
+  modalPosts = getPublishedPosts();
   const modal = document.getElementById('publishedPostsModal');
   const list = document.getElementById('publishedPostsList');
-  
+
   if (!modal || !list) {
     console.error('[SPIDER-WEB] 모달 요소를 찾을 수 없습니다');
     alert('❌ 발행글 목록 UI를 찾을 수 없습니다.');
     return;
   }
-  
-  console.log('[SPIDER-WEB] 발행글 목록 열기:', posts.length, '개');
-  
-  if (posts.length === 0) {
+
+  console.log('[SPIDER-WEB] 발행글 목록 열기:', modalPosts.length, '개');
+
+  if (modalPosts.length === 0) {
     list.innerHTML = `
       <div style="text-align: center; padding: 60px 20px; color: #94a3b8;">
         <div style="font-size: 64px; margin-bottom: 16px;">📭</div>
-        <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">발행한 글이 없습니다</div>
-        <div style="font-size: 14px;">먼저 글을 발행한 후 다시 시도해주세요</div>
+        <div style="font-size: 18px; font-weight: 700; color: #e2e8f0; margin-bottom: 8px;">발행한 글이 없습니다</div>
+        <div style="font-size: 13px; color: #94a3b8;">먼저 글을 발행한 후 다시 시도해주세요</div>
       </div>
     `;
   } else {
-    // 최신순으로 정렬
-    const sortedPosts = [...posts].reverse();
-    
+    // 최신순 정렬 (timestamp 역순으로 이미 정렬되어 있음)
+    const sortedPosts = modalPosts;
+    // 현재 입력 필드에 이미 들어가 있는 URL은 기본 체크 + 비활성화 처리
+    const existingUrls = new Set();
+    for (let i = 1; i <= 5; i++) {
+      const input = document.getElementById(`spiderWebUrl${i}`);
+      const v = (input && input.value || '').trim();
+      if (v) existingUrls.add(v);
+    }
+
     list.innerHTML = `
-      <div style="margin-bottom: 16px; padding: 12px 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white; text-align: center; font-weight: 700;">
-        총 ${posts.length}개의 발행글
-      </div>
-      ${sortedPosts.map((post, index) => `
-        <div style="background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); transition: all 0.3s ease; margin-bottom: 16px;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 25px rgba(0, 0, 0, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(0, 0, 0, 0.1)';">
-          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
-            <div style="flex: 1;">
-              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                <span style="font-size: 12px; color: #94a3b8; font-weight: 600;">#${sortedPosts.length - index}</span>
-                <h3 style="font-size: 18px; font-weight: 700; color: #1e293b; margin: 0;">${post.title}</h3>
-              </div>
-              <p style="font-size: 14px; color: #64748b; word-break: break-all; margin: 8px 0;">${post.url}</p>
-              <div style="display: flex; gap: 8px; margin-top: 8px;">
-                <span style="padding: 4px 12px; background: ${post.platform === 'wordpress' ? '#0073aa' : '#ff5722'}; color: white; border-radius: 20px; font-size: 12px; font-weight: 600;">${post.platform === 'wordpress' ? 'WordPress' : 'Blogger'}</span>
-                ${post.publishedAt ? `<span style="padding: 4px 12px; background: #e5e7eb; color: #64748b; border-radius: 20px; font-size: 12px; font-weight: 600;">📅 ${new Date(post.publishedAt).toLocaleDateString('ko-KR')}</span>` : ''}
-              </div>
-            </div>
-          </div>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button onclick="window.open('${post.url}', '_blank')" style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);">
-              🔗 바로가기
-            </button>
-            <button onclick="copyToClipboard('${post.url}')" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);">
-              📋 복사
-            </button>
-            <button onclick="selectPostFromModal(${posts.length - 1 - index})" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);">
-              ✅ 선택
-            </button>
-          </div>
+      <div style="margin-bottom: 14px; padding: 12px 16px; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; color: #c7d2fe; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+        <div style="font-weight: 700;">총 ${modalPosts.length}개 · <span id="pubModalSelectedCount" style="color: #fbbf24;">0</span>개 선택 (최대 5)</div>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" onclick="selectAllPublishedPosts(true)" style="padding: 6px 12px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">최근 5개 선택</button>
+          <button type="button" onclick="selectAllPublishedPosts(false)" style="padding: 6px 12px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">선택 해제</button>
         </div>
-      `).join('')}
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        ${sortedPosts.map((post, index) => {
+          const safeTitle = escapeHtml(post.title || '제목 없음');
+          const safeUrl = escapeHtml(post.url || '');
+          const safeThumb = escapeHtml(post.thumbnail || '');
+          const platformLabel = post.platform === 'wordpress' ? 'WordPress' : 'Blogger';
+          const platformColor = post.platform === 'wordpress' ? '#0073aa' : '#ff5722';
+          const dateLabel = post.publishedAt ? new Date(post.publishedAt).toLocaleDateString('ko-KR') : '';
+          const alreadyIn = existingUrls.has(post.url);
+          // v3.7.21: 우측 썸네일 미리보기 — 없으면 첫 글자로 그라데이션 placeholder
+          const titleInitial = (post.title || '?').trim().charAt(0) || '?';
+          const thumbBlock = safeThumb
+            ? `<img src="${safeThumb}" alt="" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" style="width: 88px; height: 88px; object-fit: cover; border-radius: 10px; flex-shrink: 0; background: #1e293b; border: 1px solid rgba(148, 163, 184, 0.15);">
+               <div style="width: 88px; height: 88px; border-radius: 10px; flex-shrink: 0; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); display: none; align-items: center; justify-content: center; color: white; font-size: 28px; font-weight: 900;">${escapeHtml(titleInitial)}</div>`
+            : `<div style="width: 88px; height: 88px; border-radius: 10px; flex-shrink: 0; background: linear-gradient(135deg, ${alreadyIn ? '#10b981 0%, #059669' : '#6366f1 0%, #8b5cf6'} 100%); display: flex; align-items: center; justify-content: center; color: white; font-size: 28px; font-weight: 900;">${escapeHtml(titleInitial)}</div>`;
+          // v3.7.21: 선택된 글은 카드 자체에 강조 테두리 + 좌측 액센트 바 + "✓ 선택됨" 배지
+          const selectedStyle = alreadyIn
+            ? 'background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(34, 197, 94, 0.45); box-shadow: inset 4px 0 0 0 #22c55e;'
+            : 'background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(148, 163, 184, 0.15);';
+          const hoverIn = alreadyIn
+            ? "this.style.background='rgba(16, 185, 129, 0.14)';"
+            : "this.style.background='rgba(51, 65, 85, 0.6)'; this.style.borderColor='rgba(99, 102, 241, 0.4)';";
+          const hoverOut = alreadyIn
+            ? "this.style.background='rgba(16, 185, 129, 0.08)';"
+            : "this.style.background='rgba(30, 41, 59, 0.6)'; this.style.borderColor='rgba(148, 163, 184, 0.15)';";
+          return `
+          <label for="pubChk${index}" style="display: flex; gap: 12px; align-items: stretch; padding: 14px 16px; ${selectedStyle} border-radius: 12px; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;" onmouseover="${hoverIn}" onmouseout="${hoverOut}">
+            <input type="checkbox" id="pubChk${index}" class="pub-modal-checkbox" data-index="${index}" ${alreadyIn ? 'checked disabled' : ''} onchange="updatePublishedSelectionCount()" style="margin-top: 4px; width: 18px; height: 18px; accent-color: ${alreadyIn ? '#22c55e' : '#6366f1'}; cursor: pointer; flex-shrink: 0;">
+            <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center;">
+              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+                <span style="padding: 2px 8px; background: ${platformColor}; color: white; border-radius: 6px; font-size: 10px; font-weight: 700;">${platformLabel}</span>
+                ${dateLabel ? `<span style="font-size: 11px; color: #94a3b8;">📅 ${dateLabel}</span>` : ''}
+                ${alreadyIn ? '<span style="padding: 2px 9px; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: white; border-radius: 6px; font-size: 10px; font-weight: 800; box-shadow: 0 2px 6px rgba(34, 197, 94, 0.35);">✓ 선택됨</span>' : ''}
+              </div>
+              <div style="font-size: 14px; font-weight: 700; color: ${alreadyIn ? '#d1fae5' : '#e2e8f0'}; margin-bottom: 4px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${safeTitle}</div>
+              <div style="font-size: 11px; color: #64748b; word-break: break-all; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;">${safeUrl}</div>
+            </div>
+            <button type="button" onclick="event.preventDefault(); event.stopPropagation(); window.open('${safeUrl}', '_blank');" title="새 창에서 열기" style="background: rgba(99, 102, 241, 0.15); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.3); padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0; align-self: center;">🔗 열기</button>
+            ${thumbBlock}
+          </label>
+          `;
+        }).join('')}
+      </div>
+      <div style="position: sticky; bottom: -24px; margin: 20px -24px -24px; padding: 16px 24px; background: linear-gradient(180deg, transparent 0%, rgba(15, 23, 42, 0.95) 30%); display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid rgba(148, 163, 184, 0.1);">
+        <button type="button" onclick="closePublishedPostsModal()" style="padding: 10px 18px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;">취소</button>
+        <button type="button" onclick="addSelectedPostsToInputs()" style="padding: 10px 22px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 800; cursor: pointer; box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);">✅ 선택한 글 추가</button>
+      </div>
     `;
+    updatePublishedSelectionCount();
   }
-  
-  modal.style.display = 'flex';
+
+  // .sw-modal은 HTML5 hidden 속성으로 토글. inline style.display 건드리지 말 것.
+  modal.removeAttribute('hidden');
 }
 
 /**
@@ -275,7 +325,109 @@ function openPublishedPostsModal() {
 function closePublishedPostsModal() {
   const modal = document.getElementById('publishedPostsModal');
   if (modal) {
-    modal.style.display = 'none';
+    modal.setAttribute('hidden', '');
+  }
+}
+
+/**
+ * 체크된 항목 수 + 5개 초과 시 비활성화 처리
+ */
+function updatePublishedSelectionCount() {
+  const checkboxes = Array.from(document.querySelectorAll('.pub-modal-checkbox'));
+  // 이미 입력 필드에 들어가 있는 disabled checked 는 계산에서 제외(추가 가능 카운트만 본다)
+  const newlyChecked = checkboxes.filter(cb => cb.checked && !cb.disabled);
+  // 입력 필드의 남은 슬롯 = 5 - 현재 입력된 URL 수
+  let usedSlots = 0;
+  for (let i = 1; i <= 5; i++) {
+    const input = document.getElementById(`spiderWebUrl${i}`);
+    if (input && input.value.trim()) usedSlots++;
+  }
+  const remainingSlots = Math.max(0, 5 - usedSlots);
+  const countEl = document.getElementById('pubModalSelectedCount');
+  if (countEl) countEl.textContent = String(newlyChecked.length);
+  // 슬롯 초과 시 추가 체크 불가
+  if (newlyChecked.length >= remainingSlots) {
+    checkboxes.forEach(cb => { if (!cb.checked && !cb.disabled) cb.disabled = true; });
+  } else {
+    checkboxes.forEach(cb => { if (!cb.checked && cb.disabled) cb.disabled = false; });
+  }
+}
+
+/**
+ * 최근 N개 자동 체크 / 전체 해제
+ */
+function selectAllPublishedPosts(autoCheckTopFive) {
+  const checkboxes = Array.from(document.querySelectorAll('.pub-modal-checkbox'));
+  if (!autoCheckTopFive) {
+    checkboxes.forEach(cb => { if (!cb.disabled || cb.checked) { /* keep disabled+checked alone */ } });
+    // 사용자 추가분만 해제 (already-added 항목은 disabled+checked 유지)
+    checkboxes.forEach(cb => {
+      if (!(cb.disabled && cb.checked)) cb.checked = false;
+    });
+  } else {
+    // 가용 슬롯 만큼 위에서부터 체크
+    let usedSlots = 0;
+    for (let i = 1; i <= 5; i++) {
+      const input = document.getElementById(`spiderWebUrl${i}`);
+      if (input && input.value.trim()) usedSlots++;
+    }
+    let remaining = Math.max(0, 5 - usedSlots);
+    for (const cb of checkboxes) {
+      if (remaining <= 0) break;
+      if (cb.disabled) continue;
+      if (!cb.checked) { cb.checked = true; remaining--; }
+      else remaining--;
+    }
+  }
+  updatePublishedSelectionCount();
+}
+
+/**
+ * 체크된 글을 URL 입력 필드에 일괄 주입.
+ *   - 빈 입력 필드부터 채움 → 모자라면 addUrlInput()으로 슬롯 추가 (최대 5)
+ *   - 채운 뒤 selectedPosts 동기화 + 모달 닫기
+ */
+function addSelectedPostsToInputs() {
+  const checked = Array.from(document.querySelectorAll('.pub-modal-checkbox'))
+    .filter(cb => cb.checked && !cb.disabled);
+  if (checked.length === 0) {
+    alert('⚠️ 선택한 글이 없습니다.');
+    return;
+  }
+
+  const picks = checked
+    .map(cb => modalPosts[parseInt(cb.dataset.index, 10)])
+    .filter(Boolean);
+
+  let added = 0;
+  for (const post of picks) {
+    // 빈 입력칸 우선 채움
+    let placed = false;
+    for (let i = 1; i <= 5; i++) {
+      const input = document.getElementById(`spiderWebUrl${i}`);
+      if (input && !input.value.trim()) {
+        input.value = post.url;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      // 빈 칸이 없으면 새 슬롯 추가 (최대 5 제한은 addUrlInput 내부에서)
+      if (urlInputCount >= 5) break;
+      addUrlInput();
+      const newInput = document.getElementById(`spiderWebUrl${urlInputCount}`);
+      if (newInput) {
+        newInput.value = post.url;
+        placed = true;
+      }
+    }
+    if (placed) added++;
+  }
+
+  updateSelectedPostsFromInputs();
+  closePublishedPostsModal();
+  if (added > 0) {
+    console.log(`[SPIDER-WEB] 발행글 ${added}개 일괄 추가 완료`);
   }
 }
 
@@ -654,5 +806,9 @@ window.clearUrlInputs = clearUrlInputs;
 window.generateSpiderWebContent = generateSpiderWebContent;
 window.saveSpiderWebContent = saveSpiderWebContent;
 window.saveAndPublishSpiderWebContent = saveAndPublishSpiderWebContent;
+// v3.7.21: 체크박스 다중 선택 헬퍼
+window.updatePublishedSelectionCount = updatePublishedSelectionCount;
+window.selectAllPublishedPosts = selectAllPublishedPosts;
+window.addSelectedPostsToInputs = addSelectedPostsToInputs;
 
 console.log('[SPIDER-WEB] 모듈 로드 완료');

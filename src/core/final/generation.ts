@@ -207,6 +207,111 @@ ${archetypeGuide}
   return title;
 }
 
+/**
+ * v3.7.21: 키워드 끝의 한정자(혜택/신청방법/조건/대상 등) 감지 → 스코프 제한 지시 생성.
+ *
+ * 문제: 사용자가 "2026년 청년내일저축계좌 혜택"으로 단일 발행했더니 AI가 혜택뿐 아니라
+ *   신청방법/대상자/조건까지 모두 다룬 종합 글을 출력.
+ *
+ * 해결: 키워드 우측에 한정자가 붙어 있으면 H2 outline + 본문 sectionPromptBlock + FAQ 생성에
+ *   모두 "그 한정자 외 범위는 다루지 말 것" 강제 지시 주입.
+ *
+ *  - 다중 토픽 구분자: 와/과/및/,/+///그리고/또는 모두 받음 (사용자가 둘 다 원한 경우 스코프 제한 X)
+ *  - 한정자가 없으면 종전과 동일하게 종합 글 허용
+ *
+ * v3.7.21+: orchestration.ts에서도 호출할 수 있도록 export.
+ */
+export function detectKeywordScope(keyword: string): { qualifier: string; instruction: string } | null {
+  const trimmed = String(keyword || '').trim();
+  if (!trimmed) return null;
+  // 명시적 다중 토픽 요청 → 스코프 제한 X (사용자가 둘 다 원했음)
+  //   가드: PRIMARY 한정자끼리 충돌만 검사. PRIMARY = 서로 배타적인 큰 축(혜택 ↔ 신청방법 ↔ 조건 등).
+  //   SECONDARY(사례/지원금/일정/추천/주의사항/종류 등)는 PRIMARY의 하위 측면이라
+  //   "혜택 사례", "노트북 추천 TOP 5" 같이 같이 쓰여도 충돌이 아니므로 guard 비활성.
+  const PRIMARY_SCOPES = '혜택|특혜|이점|메리트|신청|접수|등록|조건|자격|요건|기준|대상|수혜자|해당자|후기|리뷰|경험담|사용기|장점|단점|한계|문제점|아쉬운|방법|효과|결과|차이|비교|대비';
+  const multiTopicGuard = new RegExp(`(${PRIMARY_SCOPES})(\\s*[와과및,+/·]\\s*|\\s*(그리고|또는|or|and)\\s+|\\s+)(${PRIMARY_SCOPES})`, 'i');
+  if (multiTopicGuard.test(trimmed)) return null;
+
+  const patterns: Array<[RegExp, string, string]> = [
+    // 신청방법 변형 — 패턴 우선순위 위로 (단순 "신청"보다 "신청방법"이 더 구체적이므로 먼저 매치)
+    [/(신청\s*방법|신청\s*절차|신청\s*하는\s*법|신청\s*과정|접수\s*방법|접수\s*절차|접수\s*하는\s*법|등록\s*방법|등록\s*절차|신청법|접수법)\s*$/, '신청방법', '이 글의 모든 H2/본문/FAQ는 오직 "신청/접수/등록 절차와 방법"만 다룬다. 혜택 내용·금액·종류, 자격 요건·대상자 분류는 본문 주제로 만들지 말고 신청 단계·필요 서류·접수 플랫폼·기간·자주 하는 실수만 다룰 것.'],
+    [/(혜택|특혜|이점|메리트|어떤\s*혜택)\s*$/, '혜택', '이 글의 모든 H2/본문/FAQ는 오직 "혜택/이점/메리트/지원 내용" 측면만 다룬다. 신청방법·신청 절차·자격/조건·대상자 분류·접수 일정 같은 "방법/조건" 정보는 절대 본문 주제로 만들지 말 것.'],
+    [/(조건|자격|요건|기준|자격\s*요건|적용\s*기준)\s*$/, '조건', '이 글의 모든 H2/본문/FAQ는 오직 "자격/조건/요건/기준"만 다룬다. 혜택 상세, 신청 절차는 주제로 만들지 말 것.'],
+    [/(대상|대상자|수혜자|해당자|적용\s*대상)\s*$/, '대상', '이 글의 모든 H2/본문/FAQ는 오직 "대상자/수혜자/적용 범위"만 다룬다. 혜택 액수, 신청 단계는 본문 주제로 만들지 말 것.'],
+    [/(후기|리뷰|경험담|사용기|솔직\s*후기|실제\s*후기)\s*$/, '후기', '이 글의 모든 H2/본문/FAQ는 실제 사용자 "후기·경험·평가" 관점만 다룬다. 제품/서비스 스펙·기본 안내는 본문 주제로 만들지 말 것.'],
+    [/(장점|단점|한계|문제점|아쉬운\s*점|장단점)\s*$/, '장단점', '이 글의 모든 H2/본문/FAQ는 오직 "장점/단점/한계" 비교 관점만 다룬다.'],
+    [/(차이|비교|대비|비교\s*분석|vs\.?)\s*$/, '비교', '이 글의 모든 H2/본문/FAQ는 키워드 안의 두 대상 또는 동종 대안과의 "비교/차이/대비"만 다룬다.'],
+    [/(효과|결과|성과)\s*$/, '효과', '이 글의 모든 H2/본문/FAQ는 오직 "효과/결과/성과" 관점만 다룬다. 신청 방법·조건은 본문 주제로 다루지 말 것.'],
+    [/(지원금|지원금액|금액|한도|단가|지원\s*한도|월\s*한도|연\s*한도)\s*$/, '지원금', '이 글의 모든 H2/본문/FAQ는 오직 "지원금/금액/한도/단가" 관점만 다룬다. 신청 절차, 자격 조건은 본문 주제로 만들지 말 것.'],
+    [/(비용|가격|요금)\s*$/, '비용', '이 글의 모든 H2/본문/FAQ는 오직 "비용/가격/요금" 관점만 다룬다.'],
+    [/(일정|시기|기간|마감|마감일|마감일자|접수\s*기간|신청\s*기간)\s*$/, '일정', '이 글의 모든 H2/본문/FAQ는 오직 "일정/시기/기간/마감" 관점만 다룬다. 혜택 상세나 신청 단계 본론은 만들지 말 것.'],
+    [/(추천|순위|TOP\s*\d*|베스트|랭킹|TOP10|TOP5|TOP3)\s*$/i, '추천', '이 글의 모든 H2/본문/FAQ는 오직 "추천/순위/베스트 리스트" 관점만 다룬다.'],
+    [/(사례|예시|성공\s*사례|활용\s*사례|적용\s*사례)\s*$/, '사례', '이 글의 모든 H2/본문/FAQ는 오직 "실제 사례/예시/성공 사례" 관점만 다룬다. 일반 개요·정의는 본문 주제로 만들지 말 것.'],
+    [/(주의\s*사항|유의\s*사항|체크리스트|주의점|유의점|놓치기\s*쉬운)\s*$/, '주의사항', '이 글의 모든 H2/본문/FAQ는 오직 "주의사항/유의점/실수 방지/체크리스트" 관점만 다룬다. 혜택 상세는 본문 주제로 만들지 말 것.'],
+    [/(종류|유형|분류|타입)\s*$/, '종류', '이 글의 모든 H2/본문/FAQ는 오직 "종류/유형/분류" 관점만 다룬다.'],
+    // "신청" 단독(끝 토큰) — 신청방법 변형이 위에서 안 잡혔을 때 fallback
+    [/(?:^|\s)(신청|접수|등록)\s*$/, '신청방법', '이 글의 모든 H2/본문/FAQ는 오직 "신청/접수/등록 절차와 방법"만 다룬다.'],
+  ];
+  for (const [re, qualifier, instruction] of patterns) {
+    if (re.test(trimmed)) return { qualifier, instruction };
+  }
+  return null;
+}
+
+/**
+ * v3.7.21: 한정자별 금지 패턴 — H2 제목/FAQ 질문 응답이 한정자를 위반했는지 결정적으로 검사.
+ *
+ * 예: scope="혜택"인데 H2 제목이 "신청 방법"이면 위반. validateScopeText 가 false 반환 → 호출자가 재시도.
+ *
+ * 디자인 원칙: false positive 최소화. 단순 단어 매칭이 아니라
+ *   "신청 방법" 같이 명확히 다른 측면의 H2 주제로 굳어지는 패턴만 잡는다.
+ *   ("혜택 받는 조건" 같이 한정자에 종속된 표현은 잡지 말 것)
+ */
+export const FORBIDDEN_BY_SCOPE: Record<string, RegExp[]> = {
+  '혜택': [
+    /신청\s*방법/, /신청\s*절차/, /신청\s*하는/, /신청\s*단계/, /신청\s*과정/,
+    /접수\s*방법/, /접수\s*절차/, /등록\s*방법/, /등록\s*절차/,
+    /자격\s*요건/, /자격\s*조건/, /자격조건/, /자격요건/,
+  ],
+  '신청방법': [
+    /혜택\s*(?:내용|종류|금액|상세|소개)/, /(?:^|\s)이점(?:\s|$)/, /메리트/,
+    /수혜자(?:\s|$)/, /적용\s*대상/, /지원금\s*(?:내용|상세|금액)/,
+  ],
+  '조건': [
+    /신청\s*방법/, /신청\s*절차/, /신청\s*하는/, /신청\s*단계/,
+    /혜택\s*(?:내용|금액|상세)/, /대상자\s*분류/,
+  ],
+  '대상': [
+    /신청\s*방법/, /신청\s*절차/, /신청\s*하는/, /신청\s*단계/,
+    /혜택\s*(?:금액|종류|상세)/,
+  ],
+  '후기': [
+    /기본\s*(?:설명|안내|소개|개요)/, /^[^?!.]*정의(?:\s|$)/,
+    /스펙\s*(?:안내|소개)/,
+  ],
+  '장단점': [/기본\s*(?:설명|안내|소개|개요)/],
+  '비교': [],
+  '효과': [/신청\s*방법/, /신청\s*절차/, /자격\s*조건/, /자격\s*요건/],
+  '지원금': [/신청\s*방법/, /신청\s*절차/, /자격\s*조건/, /자격\s*요건/],
+  '비용': [],
+  '일정': [/혜택\s*(?:내용|상세)/, /신청\s*단계/, /신청\s*절차/, /자격\s*요건/],
+  '추천': [/기본\s*개요/, /^[^?!.]*정의(?:\s|$)/],
+  '사례': [/기본\s*개요/, /^[^?!.]*정의(?:\s|$)/, /기본\s*안내/],
+  '주의사항': [/혜택\s*(?:내용|상세)/, /기본\s*사용법/],
+  '종류': [/기본\s*개요/, /^[^?!.]*정의(?:\s|$)/],
+};
+
+/**
+ * 텍스트가 한정자 스코프를 위반하는지 검사.
+ * @returns true=위반 없음 (통과), false=위반 (재시도 필요)
+ */
+export function validateScopeText(text: string, scope: { qualifier: string } | null): boolean {
+  if (!scope) return true;
+  const forbidden = FORBIDDEN_BY_SCOPE[scope.qualifier];
+  if (!forbidden || forbidden.length === 0) return true;
+  return !forbidden.some((re) => re.test(text || ''));
+}
+
 export async function generateH2TitlesFinal(keyword: string, subheadings: string[], maxCount?: number): Promise<string[]> {
   // 빈도 분석
   const freq = new Map<string, number>();
@@ -263,9 +368,18 @@ export async function generateH2TitlesFinal(keyword: string, subheadings: string
   const { buildIntentPromptBlock } = require('../search-intent-classifier');
   const intentBlock = buildIntentPromptBlock(keyword);
 
+  // v3.7.21: 키워드 우측 한정자(혜택/신청방법/조건 등) 감지 → 강제 스코프 제한 블록
+  const scope = detectKeywordScope(keyword);
+  const scopeBlock = scope
+    ? `\n🎯🎯🎯 **스코프 한정 — 절대 위반 금지!**:\n키워드가 "${scope.qualifier}"으로 끝나므로 ${scope.instruction}\n위 지시를 어기고 다른 주제(예: ${scope.qualifier === '혜택' ? '신청방법/대상/조건' : scope.qualifier === '신청방법' ? '혜택/대상' : '혜택/신청방법'})를 H2에 포함하면 즉시 실격.\n`
+    : '';
+  if (scope) {
+    console.log(`[H2-OUTLINE] 🎯 키워드 한정자 감지: "${scope.qualifier}" → 스코프 제한 적용`);
+  }
+
   const prompt = `
 키워드: ${keyword}
-${intentBlock}
+${scopeBlock}${intentBlock}
 ${subheadingReference}
 
 🔴🔴🔴 **핵심 규칙 - 중복 금지 & 다양성 확보!**:
@@ -296,7 +410,7 @@ JSON만(${targetCount}개 문자열 배열):
     const json = response.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
     const titles = JSON.parse(json) as string[];
     // 🔥 모든 접두어 공격적으로 제거
-    return titles.map(t => t
+    const cleanedTitles = titles.map(t => t
       .replace(/^[hH]2[:\-\s]*/gi, '')
       .replace(/^[hH]3[:\-\s]*/gi, '')
       .replace(/^H2-?\d+[:\s]*/gi, '')
@@ -306,9 +420,54 @@ JSON만(${targetCount}개 문자열 배열):
       .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '')
       .trim()
     ).filter(t => t.length > 0);
+
+    // v3.7.21: \uC2A4\uCF54\uD504 \uC704\uBC18 \uAC80\uC99D + 1\uD68C \uC7AC\uC2DC\uB3C4
+    if (scope) {
+      const violations = scopedTitlesPostfix(cleanedTitles, scope);
+      if (violations.length > 0) {
+        console.warn(`[H2-OUTLINE] \u26A0\uFE0F \uC2A4\uCF54\uD504 "${scope.qualifier}" \uC704\uBC18 H2 ${violations.length}/${cleanedTitles.length}\uAC1C \uAC10\uC9C0: ${violations.join(' / ')} \u2014 \uC7AC\uC2DC\uB3C4`);
+        const retryPrompt = `${prompt}\n\n\uD83D\uDEA8\uD83D\uDEA8\uD83D\uDEA8 **\uC7AC\uC2DC\uB3C4 \u2014 \uC9C1\uC804 \uC751\uB2F5 \uC2A4\uCF54\uD504 \uC704\uBC18!**\n\uC9C1\uC804 \uC751\uB2F5\uC5D0 \uB2E4\uC74C H2\uAC00 \uB4E4\uC5B4 \uC788\uC5C8\uC74C (\uBAA8\uB450 "${scope.qualifier}" \uC2A4\uCF54\uD504 \uC704\uBC18):\n${violations.map((v) => `  - ${v}`).join('\n')}\n\n\uC774\uBC88\uC5D4 \uC704 \uC704\uBC18 H2\uB97C \uC808\uB300 \uB2E4\uC2DC \uB9CC\uB4E4\uC9C0 \uB9D0\uACE0, "${scope.qualifier}" \uCE21\uBA74\uB9CC \uB2E4\uB8E8\uB294 H2 ${targetCount}\uAC1C\uB97C \uB2E4\uC2DC \uB9CC\uB4E4\uC5B4 \uC8FC\uC138\uC694. \uC2E0\uCCAD/\uC870\uAC74/\uBC29\uBC95/\uB300\uC0C1\uC790 \uAC19\uC740 \uD0A4\uC6CC\uB4DC\uB294 H2 \uC81C\uBAA9\uC5D0 \uB4F1\uC7A5\uD558\uBA74 \uC548 \uB429\uB2C8\uB2E4.\nJSON\uB9CC \uBC18\uD658:`;
+        try {
+          const retryResponse = await callGeminiWithGrounding(retryPrompt);
+          const retryJson = retryResponse.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
+          const retryRaw = JSON.parse(retryJson) as string[];
+          const retryCleaned = retryRaw.map(t => t
+            .replace(/^[hH]2[:\-\s]*/gi, '')
+            .replace(/^[hH]3[:\-\s]*/gi, '')
+            .replace(/^H2-?\d+[:\s]*/gi, '')
+            .replace(/^\d+[.\):\s]+/g, '')
+            .replace(/^\uC18C\uC81C\uBAA9[:\s]*/gi, '')
+            .replace(/^\uC81C\uBAA9[:\s]*/gi, '')
+            .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '')
+            .trim()
+          ).filter(t => t.length > 0);
+          const stillViolating = scopedTitlesPostfix(retryCleaned, scope);
+          if (stillViolating.length === 0) {
+            console.log(`[H2-OUTLINE] \u2705 \uC7AC\uC2DC\uB3C4 \uC131\uACF5 \u2014 \uC2A4\uCF54\uD504 \uC704\uBC18 0\uAC74`);
+            return retryCleaned;
+          }
+          // \uB450 \uBC88\uC9F8\uB3C4 \uC704\uBC18 \uC794\uC874 \u2192 \uC704\uBC18\uB9CC \uD544\uD130\uB9C1\uD558\uC5EC \uBC18\uD658
+          const filtered = retryCleaned.filter((t) => validateScopeText(t, scope));
+          console.warn(`[H2-OUTLINE] \u26A0\uFE0F \uC7AC\uC2DC\uB3C4 \uD6C4\uC5D0\uB3C4 ${stillViolating.length}\uAC1C \uC704\uBC18 \uC794\uC874 \u2192 \uC704\uBC18 H2 \uD544\uD130\uB9C1\uD558\uC5EC ${filtered.length}\uAC1C \uBC18\uD658`);
+          return filtered.length > 0 ? filtered : retryCleaned;
+        } catch (retryErr) {
+          // \uC7AC\uC2DC\uB3C4 LLM \uD638\uCD9C \uC2E4\uD328 \uC2DC \uC6D0\uBCF8\uC758 \uC704\uBC18 H2\uB9CC \uD544\uD130\uB9C1\uD558\uC5EC \uBC18\uD658
+          const filtered = cleanedTitles.filter((t) => validateScopeText(t, scope));
+          console.warn(`[H2-OUTLINE] \u26A0\uFE0F \uC7AC\uC2DC\uB3C4 LLM \uD638\uCD9C \uC2E4\uD328 \u2014 \uC6D0\uBCF8\uC5D0\uC11C \uC704\uBC18 ${violations.length}\uAC1C \uD544\uD130\uB9C1\uD558\uC5EC ${filtered.length}\uAC1C \uBC18\uD658`);
+          return filtered.length > 0 ? filtered : cleanedTitles;
+        }
+      }
+    }
+    return cleanedTitles;
   } catch {
     return sorted.slice(0, targetCount).map(s => s.split(' (')[0]).filter((h): h is string => !!h);
   }
+}
+
+// v3.7.21: cleaned titles \uC911 \uC2A4\uCF54\uD504 \uC704\uBC18 \uD56D\uBAA9\uB9CC \uCD94\uCD9C\uD558\uB294 \uD5EC\uD37C (\uC778\uB77C\uC778 \uD074\uB85C\uC800\uBCF4\uB2E4 \uC7AC\uC0AC\uC6A9 \uAC00\uB2A5)
+function scopedTitlesPostfix(titles: string[], scope: { qualifier: string } | null): string[] {
+  if (!scope) return [];
+  return titles.filter((t) => !validateScopeText(t, scope));
 }
 
 const h3Cache = new Map<string, string[]>();
@@ -891,9 +1050,17 @@ export async function generateFAQFinal(
   onLog?: (s: string) => void
 ): Promise<FAQItem[]> {
   const faqToday = new Date().toISOString().slice(0, 10);
+  // v3.7.21: 키워드 한정자 감지 — FAQ도 본문과 동일 스코프 유지 (한정자 외 질문 금지)
+  const faqScope = detectKeywordScope(keyword);
+  const faqScopeBlock = faqScope
+    ? `\n🎯🎯🎯 **FAQ 스코프 한정 — 절대 위반 금지!**:\n키워드가 "${faqScope.qualifier}"으로 끝나므로 ${faqScope.instruction}\n위 지시 위반 시(예: "혜택"인데 "신청은 어떻게 하나요?" 질문 생성) 즉시 실격.\n`
+    : '';
+  if (faqScope) {
+    console.log(`[FAQ] 🎯 키워드 한정자 감지: "${faqScope.qualifier}" → FAQ 스코프 제한 적용`);
+  }
   const prompt = `
 키워드: ${keyword}
-📅 오늘 날짜: ${faqToday}
+${faqScopeBlock}📅 오늘 날짜: ${faqToday}
 
 H2 섹션 제목:
 ${h2Titles.map((h, i) => `${i + 1}. ${h}`).join('\n')}
@@ -922,6 +1089,22 @@ JSON 형식:
 JSON만 출력:
 `;
 
+  // v3.7.21: FAQ 응답 파싱 헬퍼 — 검증/재시도 흐름에서 재사용
+  const parseFaqRespToValid = (resp: string): FAQItem[] => {
+    const cleaned = (resp || '').trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
+    const first = cleaned.indexOf('[');
+    const last = cleaned.lastIndexOf(']');
+    if (first === -1 || last === -1 || last <= first) throw new Error('No JSON array found');
+    const items: FAQItem[] = JSON.parse(cleaned.slice(first, last + 1));
+    return items
+      .map(f => ({
+        question: (f.question || '').replace(/[一-鿿㐀-䶿]/g, ''),
+        answer: (f.answer || '').replace(/[一-鿿㐀-䶿]/g, ''),
+      }))
+      .filter(f => typeof f.question === 'string' && typeof f.answer === 'string' && f.question.length > 5 && f.answer.length > 10)
+      .slice(0, 7);
+  };
+
   try {
     onLog?.('[PROGRESS] 67% - ❓ FAQ 생성 중...');
     const response = await callGeminiWithGrounding(prompt);
@@ -939,6 +1122,47 @@ JSON만 출력:
       }))
       .filter(f => typeof f.question === 'string' && typeof f.answer === 'string' && f.question.length > 5 && f.answer.length > 10)
       .slice(0, 7);
+
+    // v3.7.21: FAQ 스코프 위반 검증 + 1회 재시도 — 질문 + 답변 모두 검사
+    if (faqScope && valid.length > 0) {
+      const isFaqViolation = (f: FAQItem) =>
+        !validateScopeText(f.question, faqScope) || !validateScopeText(f.answer, faqScope);
+      const violations = valid.filter(isFaqViolation);
+      if (violations.length > 0) {
+        console.warn(`[FAQ] ⚠️ 스코프 "${faqScope.qualifier}" 위반 FAQ ${violations.length}/${valid.length}개 감지: ${violations.map(v => v.question).join(' / ')} — 재시도`);
+        const retryPrompt = `${prompt}\n\n🚨🚨🚨 **재시도 — 직전 응답 스코프 위반!**\n직전 FAQ에 다음 질문이 들어 있었음 (모두 "${faqScope.qualifier}" 스코프 위반):\n${violations.map(v => `  - ${v.question}`).join('\n')}\n\n이번엔 위 질문을 절대 다시 만들지 말고, "${faqScope.qualifier}" 측면만 묻는 FAQ 5개를 다시 만들어 주세요. 질문 + 답변 모두 신청/조건/방법/대상자 같은 다른 측면 키워드가 등장하면 안 됩니다.\nJSON만 반환:`;
+        try {
+          const retryResp = await callGeminiWithGrounding(retryPrompt);
+          const retryValid = parseFaqRespToValid(retryResp);
+          const stillBad = retryValid.filter(isFaqViolation);
+          if (stillBad.length === 0 && retryValid.length >= 3) {
+            console.log(`[FAQ] ✅ 재시도 성공 — 스코프 위반 0건, ${retryValid.length}개 통과`);
+            onLog?.(`[PROGRESS] 68% - ✅ FAQ ${retryValid.length}개 생성 완료 (스코프 재시도 성공)`);
+            return retryValid;
+          }
+          const filtered = retryValid.filter(f => !isFaqViolation(f));
+          if (filtered.length >= 3) {
+            console.warn(`[FAQ] ⚠️ 재시도 후에도 ${stillBad.length}개 위반 잔존 → 위반 FAQ 필터링하여 ${filtered.length}개 반환`);
+            onLog?.(`[PROGRESS] 68% - ⚠️ FAQ ${filtered.length}개 (스코프 위반 ${stillBad.length}개 필터링)`);
+            return filtered;
+          }
+          const filteredOriginal = valid.filter(f => !isFaqViolation(f));
+          if (filteredOriginal.length >= 3) {
+            console.warn(`[FAQ] ⚠️ 재시도 결과 부족 → 1차 결과 필터링하여 ${filteredOriginal.length}개 반환`);
+            return filteredOriginal;
+          }
+          console.warn(`[FAQ] ⚠️ 재시도 + 필터링 모두 부족 → 원본 ${valid.length}개 반환 (일부 위반 포함)`);
+          return valid;
+        } catch (retryErr) {
+          const filteredOriginal = valid.filter(f => !isFaqViolation(f));
+          if (filteredOriginal.length >= 3) {
+            console.warn(`[FAQ] ⚠️ 재시도 LLM 실패 → 원본에서 위반 필터링하여 ${filteredOriginal.length}개 반환`);
+            return filteredOriginal;
+          }
+          return valid;
+        }
+      }
+    }
 
     if (valid.length < 3) throw new Error(`Too few valid FAQs: ${valid.length}`);
     onLog?.(`[PROGRESS] 68% - ✅ FAQ ${valid.length}개 생성 완료`);
