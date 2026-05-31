@@ -1422,9 +1422,31 @@ export async function generateUltimateMaxModeArticleFinal(
     });
 
     // 🔥 FAQ 섹션 삽입 (Schema.org FAQPage 마크업 포함)
+    //
+    // v3.7.20: H2 소제목 중 하나가 이미 FAQ/Q&A 섹션이면 본문 중복을 막기 위해
+    //   가시 FAQ 블록은 스킵. 단 Schema.org FAQPage JSON-LD는 SEO(리치 결과) 손실을
+    //   피하기 위해 별도로 한 번만 삽입.
+    //   기존 동작: 애드센스 모드는 H2 5번이 "자주 묻는 질문 (FAQ)"으로 하드코딩되고,
+    //   외부/내부 모드도 LLM이 FAQ 성격 H2를 자주 만들어내는데 그 위에 또
+    //   `buildFAQHtml` 가시 블록을 append → 같은 글에 FAQ가 두 번 노출되던 문제.
+    const hasFaqH2 = Array.isArray(h2Titles) && h2Titles.some((t: string) => /faq|자주\s*묻는|q\s*&\s*a|질의\s*응답/i.test(t || ''));
     if (faqs && faqs.length > 0) {
-      html += buildFAQHtml(faqs);
-      console.log(`[MAX-MODE] ✅ FAQ ${faqs.length}개 + Schema.org FAQPage 마크업 삽입 완료`);
+      if (!hasFaqH2) {
+        html += buildFAQHtml(faqs);
+        console.log(`[MAX-MODE] ✅ FAQ ${faqs.length}개 + Schema.org FAQPage 마크업 삽입 완료`);
+      } else {
+        const faqSchemaJson = JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'FAQPage',
+          'mainEntity': faqs.map(f => ({
+            '@type': 'Question',
+            'name': f.question,
+            'acceptedAnswer': { '@type': 'Answer', 'text': f.answer },
+          })),
+        });
+        html += `\n<script type="application/ld+json">${faqSchemaJson}</script>\n`;
+        console.log(`[MAX-MODE] ⏭️ H2에 이미 FAQ 섹션 존재 — 가시 FAQ 블록 스킵, JSON-LD만 ${faqs.length}건 삽입 (중복 방지 + SEO 유지)`);
+      }
     }
 
     // 🛒 쇼핑 모드 — 쿠팡 상품 카드 블록 강제 삽입 (실제 제휴링크가 최종 HTML에 들어가도록 보장)
@@ -2131,6 +2153,47 @@ ${conclusionHTML}
       });
     } catch (e: any) {
       console.warn('[orchestration] applyFinalSeoEnhancements 실패 (skip):', e?.message);
+    }
+
+    // 🛡️ v3.7.20: 본문 전역 HTML entity 정화 — LLM이 본문/CTA 어디든 `&#8594;`(→) 같은
+    //   numeric entity를 직접 박는 경우 + 다운스트림(KSES 등)에서 `&` → `&amp;` 재이스케이프되어
+    //   `&amp;#8594;` 형태로 굳어 브라우저에 raw 텍스트로 노출되는 경우까지 일괄 차단.
+    //   <style>/<script> 블록은 CSS/JS 내부 의미 보존을 위해 건드리지 않는다.
+    try {
+      const decodeEntities = (segment: string): string =>
+        segment
+          .replace(/&amp;#(\d+);/g, (_, n) => {
+            const code = parseInt(n, 10);
+            if (code > 0 && code < 0x110000) {
+              try { return String.fromCodePoint(code); } catch { return ''; }
+            }
+            return '';
+          })
+          .replace(/&amp;#[xX]([0-9a-fA-F]+);/g, (_, h) => {
+            const code = parseInt(h, 16);
+            if (code > 0 && code < 0x110000) {
+              try { return String.fromCodePoint(code); } catch { return ''; }
+            }
+            return '';
+          })
+          .replace(/&#(\d+);/g, (_, n) => {
+            const code = parseInt(n, 10);
+            if (code > 0 && code < 0x110000) {
+              try { return String.fromCodePoint(code); } catch { return ''; }
+            }
+            return '';
+          })
+          .replace(/&#[xX]([0-9a-fA-F]+);/g, (_, h) => {
+            const code = parseInt(h, 16);
+            if (code > 0 && code < 0x110000) {
+              try { return String.fromCodePoint(code); } catch { return ''; }
+            }
+            return '';
+          });
+      const parts = html.split(/(<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>)/gi);
+      html = parts.map((part, i) => (i % 2 === 0 ? decodeEntities(part) : part)).join('');
+    } catch (e: any) {
+      console.warn('[orchestration] entity 정화 실패 (skip):', e?.message);
     }
 
     return {

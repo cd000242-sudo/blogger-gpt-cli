@@ -167,11 +167,36 @@ function savePublishedPost(post) {
 
 /**
  * 발행글 목록 불러오기
+ *
+ * v3.7.20: 데이터 셰이프 호환성 — posting.js / calendar.js는 publishedPosts를
+ *   `{ [dateKey]: [posts] }` 객체로 저장하는데 이 함수는 평면 배열만 가정해서
+ *   "목록에서 불러오기" 모달이 항상 빈 결과로 떴음.
+ *   양쪽 셰이프(배열·dateKey 객체) 모두 받아 평면 배열로 정규화한다.
  */
 function getPublishedPosts() {
   try {
-    const posts = localStorage.getItem('publishedPosts');
-    return posts ? JSON.parse(posts) : [];
+    const raw = localStorage.getItem('publishedPosts');
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    if (!parsed || typeof parsed !== 'object') return [];
+    const flat = [];
+    Object.entries(parsed).forEach(([dateKey, list]) => {
+      if (!Array.isArray(list)) return;
+      list.forEach((p) => {
+        if (!p || !p.url) return;
+        flat.push({
+          title: p.title || '제목 없음',
+          url: p.url,
+          platform: p.platform || 'wordpress',
+          publishedAt: p.publishedAt || (p.timestamp ? new Date(p.timestamp).toISOString() : dateKey),
+          timestamp: p.timestamp || 0,
+          summary: p.summary || '',
+        });
+      });
+    });
+    flat.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    return flat;
   } catch (error) {
     console.error('[SPIDER-WEB] 발행글 불러오기 실패:', error);
     return [];

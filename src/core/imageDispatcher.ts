@@ -965,8 +965,23 @@ async function _tryEngineInternal(
         const { makeDropshotImage } = await import('./dropshotGenerator');
         // v3.6.0: extra.referenceImageList로 i2i 모드 활성 (쇼핑 모드의 productImages 등)
         const refImageList = (extra as any)?.referenceImageList as string[] | undefined;
+        // 🎨 v3.7.20: 썸네일 모드일 때 한글 제목 텍스트 오버레이 지시 주입.
+        //   기존 동작: dispatcher가 만든 `inferredPrompt`는 imagePromptInference의 시스템 프롬프트
+        //   "Clean negative space for potential text overlay"를 따라 텍스트 없는 이미지만 생성.
+        //   nano-banana 2(src/thumbnail.ts:1793)는 "TEXT OVERLAY: Include the title as stylish
+        //   KOREAN text overlay"를 명시해 제목이 박힌 썸네일이 나오는데, dropshot 무제한 경로만
+        //   이 지시가 빠져 텍스트 없는 일반 이미지로 떨어지던 문제.
+        //   dispatchThumbnailGeneration이 `prompt` 인자에 원본 한글 제목을 그대로 넣어주므로
+        //   isThumbnail=true 일 때 그 제목을 강제 오버레이 지시로 덧붙인다.
+        let dropshotPrompt = inferredPrompt;
+        if (isThumbnail && prompt) {
+          const titleSafe = String(prompt).replace(/["]/g, "'").trim().slice(0, 80);
+          if (titleSafe) {
+            dropshotPrompt = `${inferredPrompt}\n\nTEXT OVERLAY (MANDATORY): Render the exact KOREAN title "${titleSafe}" as a large, bold, high-contrast KOREAN typography prominently baked into the image as a hero design element. The title text must be clearly legible, well-balanced with the composition, with drop shadow or gradient fill, in a modern premium-blog-thumbnail style. Do NOT translate, paraphrase, or transliterate the title — preserve the Korean characters verbatim.`;
+          }
+        }
         const result = await makeDropshotImage(
-          inferredPrompt,
+          dropshotPrompt,
           refImageList && refImageList.length > 0 ? { referenceImageList: refImageList } : {},
           onLog,
         );

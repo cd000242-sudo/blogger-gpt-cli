@@ -165,7 +165,8 @@ function initAutoUpdaterEarly() {
         // v3.7.6: confirm dialog 제거 — 자동으로 NSIS installer 띄움.
         //   사용자 요청: "앱 종료는 자동, NSIS 화면만 띄워줘"
         //   2초 짧은 grace period (메인 앱이 progress UI를 "완료" 상태로 잠시 보여줄 시간) 후 quitAndInstall.
-        isUpdateInProgress = false;
+        // v3.7.14 fix: 이전엔 여기서 isUpdateInProgress=false로 풀어 mainWindow.close 핸들러가
+        //   "정말 종료?" confirm을 띄우는 버그가 있었음. quitAndInstall 직전까진 true 유지.
         // 메인 앱에 "다운로드 완료, 곧 NSIS 설치 화면 띄움" 알림
         electron_1.BrowserWindow.getAllWindows().forEach((w) => {
             if (!w.isDestroyed()) {
@@ -192,9 +193,12 @@ function initAutoUpdaterEarly() {
             console.log('[Updater] 자동 재시작 → NSIS installer');
             try {
                 // isSilent=false → NSIS GUI 띄움 / isForceRunAfter=true → 설치 후 자동 실행
+                // isUpdateInProgress는 호출 직전까지 true 유지해야 close 핸들러가 confirm 다이얼로그를 skip한다.
                 updater.quitAndInstall(false, true);
             }
             catch (e) {
+                // quitAndInstall 실패 시에만 플래그 해제 (앱 계속 사용 가능)
+                isUpdateInProgress = false;
                 console.error('[Updater] quitAndInstall 실패:', e.message);
             }
         }, 2000);

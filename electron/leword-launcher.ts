@@ -338,34 +338,43 @@ function findDownloadedLewordExe(): string | null {
 }
 
 async function performLaunch(senderWin: BrowserWindow | null): Promise<LaunchResult> {
-  // 1. 라이선스 검증
+  // 1. 라이선스 검증 — v3.7.20: getLicenseStatus()로 교체.
+  //   이전 코드는 license-manager에 존재하지 않는 `checkLicenseStatus`/`activated`를
+  //   호출해서 클릭 즉시 "oldLic.checkLicenseStatus is not a function" 토스트가 떴음.
   emitProgress(senderWin, 'license', 10, '라이선스 확인 중...');
   const oldLic = require('../dist/utils/license-manager');
-  const status = await oldLic.checkLicenseStatus();
-  if (!status?.activated) {
-    return { ok: false, error: '라이선스가 만료되었거나 활성화되지 않았습니다. 로그인 후 다시 시도하세요.' };
+  const status = oldLic.getLicenseManager().getLicenseStatus();
+  if (!status?.valid) {
+    return { ok: false, error: status?.message || '라이선스가 만료되었거나 활성화되지 않았습니다. 로그인 후 다시 시도하세요.' };
   }
 
-  // 2. GitHub에서 최신 버전 정보 가져오기
-  emitProgress(senderWin, 'version', 20, 'GitHub에서 최신 LEWORD 확인 중...');
-  const latestAsset = await fetchLatestReleaseAsset();
-  const latestVersion = latestAsset?.tag || await fetchLatestReleaseTag();
-
-  // 3. 캐시된 다운로드 .exe 우선 확인
-  emitProgress(senderWin, 'locate', 35, 'LEWORD 위치 확인 중...');
-  let exePath: string | null = null;
-
-  // 3-a. 다운로드 캐시 폴더에 최신 버전이 있으면 그걸 사용
-  const downloadedExe = findDownloadedLewordExe();
-  if (downloadedExe) {
-    const downloadedVersion = readLocalVersion(downloadedExe);
-    if (downloadedVersion && latestVersion && compareSemver(downloadedVersion, latestVersion) >= 0) {
-      exePath = downloadedExe;
-      console.log('[LEWORD] ✅ 다운로드 캐시 최신 버전 사용:', exePath);
+  // 2. 🚀 v3.7.20: 캐시 우선 즉시 실행 — 로컬에 LEWORD가 있으면 GitHub fetch 건너뛰고 바로 열기.
+  //   기존 동작은 GitHub `fetchLatestReleaseAsset` + `fetchLatestReleaseTag`를 항상 먼저 호출 →
+  //   네트워크가 느리거나 끊긴 환경에서 실행이 수 초~수십 초 지연되거나 실패 시 fallback까지 가야
+  //   비로소 캐시본을 사용하는 비효율. 사용자 요구: "설치되어 있다면 자동으로 열리게".
+  emitProgress(senderWin, 'locate', 30, '로컬 LEWORD 확인 중...');
+  {
+    const cachedMeta = readMeta();
+    const cachedExe =
+      findDownloadedLewordExe() ||
+      (cachedMeta?.exePath && fs.existsSync(cachedMeta.exePath) ? cachedMeta.exePath : null);
+    if (cachedExe) {
+      const cachedVersion = readLocalVersion(cachedExe);
+      const cachedLabel = cachedVersion ? `v${cachedVersion}` : path.basename(cachedExe);
+      console.log('[LEWORD] ⚡ 로컬 캐시 즉시 실행:', cachedExe, cachedLabel);
+      emitProgress(senderWin, 'launch', 100, `LEWORD ${cachedLabel} 실행 중...`);
+      writeMeta({ exePath: cachedExe, resolvedAt: Date.now() });
+      spawnDetached(cachedExe);
+      return { ok: true, action: 'launched', exePath: cachedExe, localVersion: cachedVersion || undefined };
     }
   }
 
-  // 3-b. 캐시가 없거나 구버전이면 GitHub에서 자동 다운로드
+  // 3. 캐시가 없으면 GitHub 최신 릴리스 fetch + 자동 다운로드 (최초 1회 설치 경로)
+  emitProgress(senderWin, 'version', 35, 'GitHub에서 최신 LEWORD 확인 중...');
+  const latestAsset = await fetchLatestReleaseAsset();
+  const latestVersion = latestAsset?.tag || await fetchLatestReleaseTag();
+  let exePath: string | null = null;
+
   if (!exePath && latestAsset) {
     try {
       emitProgress(senderWin, 'version', 50, `LEWORD v${latestAsset.tag} 다운로드 중...`);

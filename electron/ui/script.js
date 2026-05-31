@@ -154,7 +154,7 @@ function getH2ImageSections() {
   // H2 이미지 소스와 섹션 정보 가져오기 (select 드롭다운 또는 라디오 버튼 모두 호환)
   const selectElement = document.getElementById('h2ImageSource');
   const radioElement = document.querySelector('input[name="h2ImageSource"]:checked');
-  const selectedSource = (selectElement ? selectElement.value : (radioElement ? radioElement.value : '')) || 'imagefx';
+  const selectedSource = (selectElement ? selectElement.value : (radioElement ? radioElement.value : '')) || 'nanobanana2';
   let selectedSections = Array.from(document.querySelectorAll('input[name="h2Sections"]:checked'))
     .map(input => parseInt(input.value));
 
@@ -179,7 +179,7 @@ function getH2ImageSections() {
   }
 
   const settings = {
-    source: selectedSource || 'imagefx',
+    source: selectedSource || 'nanobanana2',
     sections: selectedSections,
     totalSections: selectedSections.length
   };
@@ -468,12 +468,12 @@ async function executeSchedule(scheduleId) {
         keywords: schedule.keywords ? schedule.keywords.split(',').map(k => k.trim()) : [schedule.topic],
         platform: schedule.platform || 'blogspot',
         contentMode: schedule.contentMode || 'external',
-        h2ImageSource: schedule.h2ImageSource || 'imagefx',
+        h2ImageSource: schedule.h2ImageSource || 'nanobanana2',
         h2ImageSections: schedule.h2ImageSections || schedule.h2Images || [],
-        h2Images: { source: schedule.h2ImageSource || 'imagefx', sections: schedule.h2ImageSections || [] },
+        h2Images: { source: schedule.h2ImageSource || 'nanobanana2', sections: schedule.h2ImageSections || [] },
         publishType: schedule.publishType || 'single',
         postingMode: 'immediate',
-        thumbnailType: schedule.thumbnailMode || 'imagefx',
+        thumbnailType: schedule.thumbnailMode || 'nanobanana2',
         // v3.5.89 — GPT 이미지 quality 옵션 전달 (스케줄에 저장된 값이 우선)
         gptImageQuality: schedule.gptImageQuality || (typeof getGptImageQuality === 'function' ? getGptImageQuality() : 'medium'),
         ctaMode: schedule.ctaMode || 'auto',
@@ -2117,8 +2117,8 @@ const IMAGE_ENGINE_COST_KRW_PER_IMAGE = {
 
 function getCurrentImageEngineCost() {
   // 본문 이미지 엔진 + GPT quality 반영
-  const h2Engine = document.getElementById('h2ImageSource')?.value || 'imagefx';
-  const thumbEngine = document.getElementById('thumbnailType')?.value || 'imagefx';
+  const h2Engine = document.getElementById('h2ImageSource')?.value || 'nanobanana2';
+  const thumbEngine = document.getElementById('thumbnailType')?.value || 'nanobanana2';
   const quality = (typeof getGptImageQuality === 'function' ? getGptImageQuality() : 'medium');
 
   const resolveCost = (engine) => {
@@ -2199,7 +2199,7 @@ function openOpenAiVerification() {
 
 // H2 섹션 선택 상태 확인
 function getH2ImageSettings() {
-  const selectedSource = document.getElementById('h2ImageSource')?.value || document.querySelector('input[name="h2ImageSource"]:checked')?.value || 'imagefx';
+  const selectedSource = document.getElementById('h2ImageSource')?.value || document.querySelector('input[name="h2ImageSource"]:checked')?.value || 'nanobanana2';
   const selectedSections = Array.from(document.querySelectorAll('input[name="h2Sections"]:checked'))
     .map(input => parseInt(input.value));
 
@@ -8700,10 +8700,11 @@ document.addEventListener('DOMContentLoaded', async function () {
   // 엑셀 드래그 앤 드롭 초기화
   setupExcelDropZone();
 
-  // 썸네일 타입 기본값: 이미지 FX (사용자가 다른 값을 저장했으면 그대로 유지)
+  // v3.7.20: 썸네일 타입 기본값 — 나노바나나 2 (Gemini 3.1 Flash, Pro 품질·Flash 가격).
+  //   기존엔 imagefx로 떨어져서 사용자가 매번 수동으로 바꿔야 했음.
   const thumbnailTypeSelect = DOMCache.get('thumbnailType');
   if (thumbnailTypeSelect && !thumbnailTypeSelect.value) {
-    thumbnailTypeSelect.value = 'imagefx';
+    thumbnailTypeSelect.value = 'nanobanana2';
   }
 
   // 🔐 이벤트 위임 방식으로 워드프레스 관련 버튼 처리
@@ -8757,20 +8758,20 @@ document.addEventListener('DOMContentLoaded', async function () {
   // localStorage 설정 로드 (🔥 async: await 필수)
   await loadSettings();
 
-  // 기본값 보장: 사용자가 저장한 값이 없을 때만 imagefx로
+  // v3.7.20: 기본값 보장 — 사용자가 저장한 값이 없을 때만 나노바나나 2로
   if (thumbnailTypeSelect && !thumbnailTypeSelect.value) {
-    thumbnailTypeSelect.value = 'imagefx';
+    thumbnailTypeSelect.value = 'nanobanana2';
   }
 
 
-  // 🔧 StorageManager 사용 (저장된 값이 없을 때만 기본값 imagefx 설정)
+  // 🔧 StorageManager 사용 (저장된 값이 없을 때만 기본값 나노바나나 2 설정)
   try {
     const storage = getStorageManager();
     const settings = await storage.get('bloggerSettings', true) || {};
 
-    // 기본값 보장: 사용자가 이전에 저장한 값이 있으면 존중, 없으면 imagefx
+    // 기본값 보장: 사용자가 이전에 저장한 값이 있으면 존중, 없으면 나노바나나 2
     if (!settings.thumbnailType || settings.thumbnailType === 'text') {
-      settings.thumbnailType = 'imagefx';
+      settings.thumbnailType = 'nanobanana2';
     }
 
     await storage.set('bloggerSettings', settings, true);
@@ -10102,8 +10103,8 @@ async function runBulkPosting() {
   const currentSettings = {
     provider: document.getElementById('generationEngine')?.value || 'gemini',
     platform: 'blogspot',
-    thumbnailMode: document.getElementById('thumbnailType')?.value || 'imagefx',
-    imageProvider: document.getElementById('h2ImageSource')?.value || 'imagefx',
+    thumbnailMode: document.getElementById('thumbnailType')?.value || 'nanobanana2',
+    imageProvider: document.getElementById('h2ImageSource')?.value || 'nanobanana2',
     wordCount: 2000,
     autoPublish: false,
     includeImages: true,
@@ -11206,7 +11207,7 @@ async function createPayloadFromForm() {
       keyword: keywordValue,
       title: titleValue
     }],
-    thumbnailMode: thumbnailTypeSelect?.value || 'imagefx',
+    thumbnailMode: thumbnailTypeSelect?.value || 'nanobanana2',
     // v3.5.89 — GPT 이미지 quality 옵션 (UI 라디오 선택값, 미선택 시 'medium')
     gptImageQuality: (typeof getGptImageQuality === 'function' ? getGptImageQuality() : 'medium'),
     // v3.5.96 — 이미지 배치 모드 (비용 절감용)
@@ -11314,7 +11315,7 @@ async function createPreviewPayload() {
   const payload = {
     topic: keywordValue,
     title: titleValue,
-    thumbnailType: savedThumbnail ? 'custom' : 'imagefx', // 기본값: 이미지 FX
+    thumbnailType: savedThumbnail ? 'custom' : 'nanobanana2', // v3.7.20: 기본값 나노바나나 2
     customThumbnail: savedThumbnail, // 저장된 썸네일 데이터 URL
     customThumbnailText: savedThumbnailText, // 저장된 썸네일 텍스트
     promptMode: 'max-mode', // MAX모드로 고정

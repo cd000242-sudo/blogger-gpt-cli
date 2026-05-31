@@ -68,12 +68,34 @@ export function generateRandomColorCTA(
     .replace(/&amp;#10022;/g, '')
     .replace(/&[#]?10022;/gi, '')
     .replace(/\u2726/g, '')
+    .replace(/&#(\d+);/g, (_, n) => {
+      const c = parseInt(n, 10);
+      if (c > 0 && c < 0x110000) { try { return String.fromCodePoint(c); } catch { return ''; } }
+      return '';
+    })
+    .replace(/&#[xX]([0-9a-fA-F]+);/g, (_, h) => {
+      const c = parseInt(h, 16);
+      if (c > 0 && c < 0x110000) { try { return String.fromCodePoint(c); } catch { return ''; } }
+      return '';
+    })
+    .replace(/&rarr;/gi, '\u2192').replace(/&larr;/gi, '\u2190').replace(/&hellip;/gi, '\u2026').replace(/&mdash;/gi, '\u2014').replace(/&ndash;/gi, '\u2013').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&')
     .trim();
   const cleanText = text
     .replace(/&#10022;/g, '')
     .replace(/&amp;#10022;/g, '')
     .replace(/&[#]?10022;/gi, '')
     .replace(/\u2726/g, '')
+    .replace(/&#(\d+);/g, (_, n) => {
+      const c = parseInt(n, 10);
+      if (c > 0 && c < 0x110000) { try { return String.fromCodePoint(c); } catch { return ''; } }
+      return '';
+    })
+    .replace(/&#[xX]([0-9a-fA-F]+);/g, (_, h) => {
+      const c = parseInt(h, 16);
+      if (c > 0 && c < 0x110000) { try { return String.fromCodePoint(c); } catch { return ''; } }
+      return '';
+    })
+    .replace(/&rarr;/gi, '\u2192').replace(/&larr;/gi, '\u2190').replace(/&hellip;/gi, '\u2026').replace(/&mdash;/gi, '\u2014').replace(/&ndash;/gi, '\u2013').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&')
     .trim();
 
   const ctaHTML = `

@@ -245,19 +245,7 @@ export function showWorkDiary(date) {
   debugLog('WORK_DIARY', 'showWorkDiary 호출됨', { date });
 
   const dateString = date.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-  const workRecords = getWorkRecords(date);
   const dateKey = formatDateKey(date);
-
-  // 예약 발행 데이터 (배열 형태)
-  let daySchedules = [];
-  try {
-    const allSchedules = JSON.parse(localStorage.getItem('scheduledPosts') || '[]');
-    if (Array.isArray(allSchedules)) {
-      daySchedules = allSchedules.filter(s => s.date === dateKey);
-    }
-  } catch (e) {
-    console.warn('[CALENDAR] scheduledPosts 파싱 실패:', e);
-  }
 
   // v3.7.5: 발행한 포스팅 + 메모 로드 (일기장)
   let dayPublished = [];
@@ -285,8 +273,6 @@ export function showWorkDiary(date) {
   // 오늘 여부
   const today = new Date();
   const isToday = date.getDate() === today.getDate() && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
-  // 과거 날짜 여부 (오늘 이전)
-  const isPast = date < new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
   const modal = document.createElement('div');
   modal.className = 'work-diary-modal';
@@ -307,10 +293,6 @@ export function showWorkDiary(date) {
     box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(148, 163, 184, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.04);
     transform: translateY(20px) scale(0.97); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   `;
-
-  // 완료된/미완료 작업 수
-  const completedCount = workRecords.filter(r => r.completed).length;
-  const totalCount = workRecords.length;
 
   // v3.7.5: 발행한 포스팅 HTML — 클릭 시 외부 브라우저로 이동
   //   각 항목: 제목 + 플랫폼 + 시간 + "열기" 버튼 (open-external IPC)
@@ -341,139 +323,6 @@ export function showWorkDiary(date) {
         </div>
       `).join('')
     : '<div style="padding: 14px; text-align: center; color: rgba(255,255,255,0.35); font-size: 12px;">이 날 발행한 글이 없습니다</div>';
-
-  // 키워드 기록 HTML (기존 작업 기록)
-  const recordsHtml = workRecords.length > 0 ? workRecords.map(record => `
-    <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; 
-         background: rgba(148, 163, 184, 0.05); border: 1px solid rgba(148, 163, 184, 0.08); 
-         border-radius: 12px; margin-bottom: 8px; transition: all 0.2s ease;"
-         onmouseover="this.style.background='rgba(148, 163, 184, 0.1)';this.style.borderColor='rgba(148, 163, 184, 0.15)'"
-         onmouseout="this.style.background='rgba(148, 163, 184, 0.05)';this.style.borderColor='rgba(148, 163, 184, 0.08)'">
-      <label style="display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; 
-             border-radius: 6px; border: 2px solid ${record.completed ? '#10b981' : 'rgba(148, 163, 184, 0.3)'}; 
-             background: ${record.completed ? 'rgba(16, 185, 129, 0.15)' : 'transparent'}; 
-             cursor: pointer; flex-shrink: 0; transition: all 0.2s ease;">
-        <input type="checkbox" ${record.completed ? 'checked' : ''} 
-               onchange="toggleWorkRecordCompletion(${record.id}, '${dateKey}', this.checked)"
-               style="display: none;">
-        ${record.completed ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ''}
-      </label>
-      <div style="flex: 1; min-width: 0;">
-        <div style="color: ${record.completed ? '#64748b' : '#e2e8f0'}; font-size: 13px; font-weight: 500; 
-             ${record.completed ? 'text-decoration: line-through;' : ''} line-height: 1.4;">
-          ${record.content}
-        </div>
-        <div style="color: #475569; font-size: 11px; margin-top: 2px;">${record.time}</div>
-      </div>
-      <button onclick="deleteWorkRecord(${record.id}, '${dateKey}')" 
-              style="background: transparent; color: #64748b; border: none; padding: 6px; border-radius: 8px; 
-                     cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; flex-shrink: 0;"
-              onmouseover="this.style.background='rgba(239, 68, 68, 0.1)';this.style.color='#f87171'"
-              onmouseout="this.style.background='transparent';this.style.color='#64748b'">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="3 6 5 6 21 6"></polyline>
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-        </svg>
-      </button>
-    </div>
-  `).join('') : `
-    <div style="text-align: center; padding: 16px 0; color: #475569; font-size: 12px;">
-      등록된 키워드가 없습니다
-    </div>
-  `;
-
-  // 예약 발행 HTML (수정/실행/삭제 기능 포함)
-  const schedulesHtml = daySchedules.length > 0 ? daySchedules.map(s => {
-    const sColor = s.status === 'completed' ? '#10b981' : s.status === 'failed' ? '#ef4444' : s.status === 'running' ? '#3b82f6' : '#f59e0b';
-    const sText = s.status === 'completed' ? '완료' : s.status === 'failed' ? '실패' : s.status === 'running' ? '실행중' : '대기중';
-    const isRunnable = s.status !== 'completed' && s.status !== 'running';
-    const isEditable = s.status !== 'completed' && s.status !== 'running';
-    return `
-    <div id="schedule-item-${s.id}" style="margin-bottom: 6px;">
-      <!-- 보기 모드 -->
-      <div id="schedule-view-${s.id}" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; 
-           background: rgba(148, 163, 184, 0.04); border: 1px solid rgba(148, 163, 184, 0.08); 
-           border-radius: 10px;">
-        <span style="width: 7px; height: 7px; background: ${sColor}; border-radius: 50%; flex-shrink: 0;"></span>
-        <div style="flex: 1; min-width: 0;">
-          <div style="color: #e2e8f0; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${s.topic || '미정'}</div>
-          <div style="color: #475569; font-size: 11px; margin-top: 1px;">${s.time || ''} · ${s.keywords || ''}</div>
-        </div>
-        <span style="padding: 2px 8px; background: ${sColor}20; color: ${sColor}; border-radius: 6px; font-size: 10px; font-weight: 600; flex-shrink: 0;">${sText}</span>
-        ${isEditable ? `
-        <button onclick="editScheduleFromModal(${s.id})" title="수정"
-                style="background: transparent; color: #94a3b8; border: none; padding: 4px; border-radius: 6px; cursor: pointer; display: flex; flex-shrink: 0;"
-                onmouseover="this.style.background='rgba(148, 163, 184, 0.1)';this.style.color='#e2e8f0'"
-                onmouseout="this.style.background='transparent';this.style.color='#94a3b8'">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-        </button>` : ''}
-        ${isRunnable ? `
-        <button onclick="executeSchedule(${s.id})" title="실행"
-                style="background: transparent; color: #3b82f6; border: none; padding: 4px; border-radius: 6px; cursor: pointer; display: flex; flex-shrink: 0;"
-                onmouseover="this.style.background='rgba(59, 130, 246, 0.1)'"
-                onmouseout="this.style.background='transparent'">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="#3b82f6"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-        </button>` : ''}
-        <button onclick="deleteSchedule(${s.id})" title="삭제"
-                style="background: transparent; color: #64748b; border: none; padding: 4px; border-radius: 6px; cursor: pointer; display: flex; flex-shrink: 0;"
-                onmouseover="this.style.background='rgba(239, 68, 68, 0.1)';this.style.color='#f87171'"
-                onmouseout="this.style.background='transparent';this.style.color='#64748b'">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-          </svg>
-        </button>
-      </div>
-      <!-- 수정 모드 (기본 숨김) -->
-      <div id="schedule-edit-${s.id}" style="display: none; padding: 12px; background: rgba(148, 163, 184, 0.06); 
-           border: 1px solid rgba(14, 165, 233, 0.2); border-radius: 10px;">
-        <!-- 날짜/시간 헤더 -->
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid rgba(148, 163, 184, 0.08);">
-          <span style="color: #64748b; font-size: 11px; font-weight: 500;">📅</span>
-          <input id="edit-date-${s.id}" type="date" value="${s.date || ''}"
-                 style="padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.12); 
-                        background: rgba(0, 0, 0, 0.2); color: #94a3b8; font-size: 11px; font-family: inherit; outline: none;">
-          <span style="color: #64748b; font-size: 11px; font-weight: 500;">⏰</span>
-          <input id="edit-time-${s.id}" type="time" value="${s.time || '09:00'}"
-                 style="padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.12); 
-                        background: rgba(0, 0, 0, 0.2); color: #94a3b8; font-size: 11px; font-family: inherit; outline: none;">
-        </div>
-        <!-- 주제 -->
-        <input id="edit-topic-${s.id}" type="text" value="${(s.topic || '').replace(/"/g, '&quot;')}" placeholder="주제"
-               style="width: 100%; padding: 9px 12px; border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.15); 
-                      background: rgba(0, 0, 0, 0.25); color: #e2e8f0; font-size: 13px; font-family: inherit; outline: none;
-                      margin-bottom: 8px; box-sizing: border-box;"
-               onfocus="this.style.borderColor='rgba(14, 165, 233, 0.3)'"
-               onblur="this.style.borderColor='rgba(148, 163, 184, 0.15)'">
-        <!-- 키워드 + 저장/취소 -->
-        <div style="display: flex; gap: 8px;">
-          <input id="edit-keywords-${s.id}" type="text" value="${(s.keywords || '').replace(/"/g, '&quot;')}" placeholder="키워드 (쉼표로 구분)"
-                 style="flex: 1; padding: 9px 12px; border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.15); 
-                        background: rgba(0, 0, 0, 0.25); color: #e2e8f0; font-size: 13px; font-family: inherit; outline: none;"
-                 onfocus="this.style.borderColor='rgba(14, 165, 233, 0.3)'"
-                 onblur="this.style.borderColor='rgba(148, 163, 184, 0.15)'">
-          <button onclick="saveScheduleEdit(${s.id})" title="저장"
-                  style="padding: 8px 14px; background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.2); 
-                         border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 12px; font-family: inherit; white-space: nowrap;
-                         transition: all 0.2s ease;"
-                  onmouseover="this.style.background='rgba(14, 165, 233, 0.25)'"
-                  onmouseout="this.style.background='rgba(14, 165, 233, 0.15)'">저장</button>
-          <button onclick="cancelScheduleEdit(${s.id})" title="취소"
-                  style="padding: 8px 10px; background: transparent; color: #64748b; border: 1px solid rgba(148, 163, 184, 0.1); 
-                         border-radius: 8px; cursor: pointer; font-size: 12px; font-family: inherit; white-space: nowrap;
-                         transition: all 0.2s ease;"
-                  onmouseover="this.style.background='rgba(148, 163, 184, 0.06)'"
-                  onmouseout="this.style.background='transparent'">취소</button>
-        </div>
-      </div>
-    </div>`;
-  }).join('') : '';
-
-  // 날짜 포맷 (input용)
-  const dateInputValue = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
   modalContent.innerHTML = `
     <!-- 헤더 -->
@@ -506,27 +355,9 @@ export function showWorkDiary(date) {
     <!-- 구분선 -->
     <div style="height: 1px; background: rgba(148, 163, 184, 0.08); margin: 16px 0;"></div>
 
-    <!-- 키워드 기록 섹션 -->
+    <!-- v3.7.5: 발행한 포스팅 (일기장) -->
     <div style="padding: 0 24px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; 
-                 background: rgba(16, 185, 129, 0.12); border-radius: 6px;">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5">
-              <polyline points="9 11 12 14 22 4"></polyline>
-              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-            </svg>
-          </span>
-          <span style="color: #94a3b8; font-size: 12px; font-weight: 700; letter-spacing: 0.5px;">키워드 기록</span>
-        </div>
-        ${totalCount > 0 ? `<span style="color: #475569; font-size: 11px; font-weight: 500;">${completedCount}/${totalCount} 완료</span>` : ''}
-      </div>
-      <div id="workRecordsList">
-        ${recordsHtml}
-      </div>
-
-      <!-- v3.7.5: 발행한 포스팅 (일기장) -->
-      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(148,163,184,0.1);">
+      <div>
         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
           <span style="font-size: 14px;">📤</span>
           <span style="color: #94a3b8; font-size: 12px; font-weight: 700; letter-spacing: 0.5px;">발행한 글 (${dayPublished.length}건)</span>
@@ -549,85 +380,6 @@ export function showWorkDiary(date) {
         <textarea id="dailyMemoTextarea-${dateKey}" placeholder="이 날의 메모를 자유롭게 적어보세요...&#10;예: 오늘 잘된 키워드, 시도해볼 아이디어, 발행 후 반응 등"
                   style="width: 100%; min-height: 90px; padding: 12px; background: rgba(167,139,250,0.06); border: 1px solid rgba(167,139,250,0.2); color: #e2e8f0; font-size: 13px; border-radius: 10px; resize: vertical; font-family: inherit; line-height: 1.5;">${escapeHtml(dailyMemoValue)}</textarea>
       </div>
-
-      <!-- 키워드 추가 -->
-      <div style="display: flex; gap: 8px; margin-top: 8px;">
-        <input id="workRecordInput" type="text" placeholder="키워드를 입력하세요..." 
-               style="flex: 1; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.1); 
-                      background: rgba(148, 163, 184, 0.04); color: #e2e8f0; font-size: 13px; font-family: inherit;
-                      outline: none; transition: all 0.2s ease;"
-               onfocus="this.style.borderColor='rgba(14, 165, 233, 0.3)';this.style.boxShadow='0 0 0 3px rgba(14, 165, 233, 0.06)'"
-               onblur="this.style.borderColor='rgba(148, 163, 184, 0.1)';this.style.boxShadow='none'">
-        <button onclick="saveWorkRecordFromModal(new Date(${date.getFullYear()}, ${date.getMonth()}, ${date.getDate()}))" 
-                style="padding: 10px 16px; background: linear-gradient(135deg, rgba(14, 165, 233, 0.15) 0%, rgba(59, 130, 246, 0.15) 100%); 
-                       color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.2); border-radius: 10px; 
-                       cursor: pointer; font-weight: 600; font-size: 12px; font-family: inherit; white-space: nowrap;
-                       transition: all 0.2s ease; display: flex; align-items: center; gap: 4px;"
-                onmouseover="this.style.background='linear-gradient(135deg, rgba(14, 165, 233, 0.25) 0%, rgba(59, 130, 246, 0.25) 100%)'"
-                onmouseout="this.style.background='linear-gradient(135deg, rgba(14, 165, 233, 0.15) 0%, rgba(59, 130, 246, 0.15) 100%)'">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          추가
-        </button>
-      </div>
-    </div>
-
-    <!-- 구분선 -->
-    <div style="height: 1px; background: rgba(148, 163, 184, 0.08); margin: 16px 0;"></div>
-
-    <!-- 예약 발행 섹션 -->
-    <div style="padding: 0 24px;">
-      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-        <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; 
-               background: rgba(245, 158, 11, 0.12); border-radius: 6px;">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5">
-            <circle cx="12" cy="12" r="10"></circle>
-            <polyline points="12 6 12 12 16 14"></polyline>
-          </svg>
-        </span>
-        <span style="color: #94a3b8; font-size: 12px; font-weight: 700; letter-spacing: 0.5px;">예약 발행</span>
-        ${daySchedules.length > 0 ? `<span style="color: #475569; font-size: 11px; font-weight: 500;">${daySchedules.length}건</span>` : ''}
-      </div>
-      
-      ${schedulesHtml || `<div style="text-align: center; padding: 12px 0; color: #475569; font-size: 12px;">예약된 발행이 없습니다</div>`}
-
-      ${!isPast ? `
-      <!-- 예약 추가 폼 -->
-      <div style="margin-top: 10px; padding: 14px; background: rgba(245, 158, 11, 0.04); border: 1px solid rgba(245, 158, 11, 0.1); border-radius: 12px;">
-        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-          <input id="scheduleTopicInput" type="text" placeholder="주제 (예: 다이어트 식단)" 
-                 style="flex: 1; padding: 9px 12px; border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.1); 
-                        background: rgba(0, 0, 0, 0.2); color: #e2e8f0; font-size: 12px; font-family: inherit; outline: none;"
-                 onfocus="this.style.borderColor='rgba(245, 158, 11, 0.3)'"
-                 onblur="this.style.borderColor='rgba(148, 163, 184, 0.1)'">
-          <input id="scheduleTimeInput" type="time" value="09:00"
-                 style="width: 90px; padding: 9px 8px; border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.1); 
-                        background: rgba(0, 0, 0, 0.2); color: #e2e8f0; font-size: 12px; font-family: inherit; outline: none;">
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <input id="scheduleKeywordsInput" type="text" placeholder="키워드 (쉼표로 구분)" 
-                 style="flex: 1; padding: 9px 12px; border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.1); 
-                        background: rgba(0, 0, 0, 0.2); color: #e2e8f0; font-size: 12px; font-family: inherit; outline: none;"
-                 onfocus="this.style.borderColor='rgba(245, 158, 11, 0.3)'"
-                 onblur="this.style.borderColor='rgba(148, 163, 184, 0.1)'">
-          <button onclick="addScheduleFromModal('${dateInputValue}')"
-                  style="padding: 9px 14px; background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(234, 88, 12, 0.15) 100%); 
-                         color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 8px; 
-                         cursor: pointer; font-weight: 600; font-size: 12px; font-family: inherit; white-space: nowrap;
-                         transition: all 0.2s ease; display: flex; align-items: center; gap: 4px;"
-                  onmouseover="this.style.background='linear-gradient(135deg, rgba(245, 158, 11, 0.25) 0%, rgba(234, 88, 12, 0.25) 100%)'"
-                  onmouseout="this.style.background='linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(234, 88, 12, 0.15) 100%)'">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <circle cx="12" cy="12" r="10"></circle>
-              <polyline points="12 6 12 12 16 14"></polyline>
-            </svg>
-            예약
-          </button>
-        </div>
-      </div>
-      ` : ''}
     </div>
 
     <div style="height: 20px;"></div>
@@ -640,21 +392,6 @@ export function showWorkDiary(date) {
   requestAnimationFrame(() => {
     modal.style.opacity = '1';
     modalContent.style.transform = 'translateY(0) scale(1)';
-  });
-
-  // Enter 키로 키워드 추가
-  requestAnimationFrame(() => {
-    const input = modal.querySelector('#workRecordInput');
-    if (input) {
-      input.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          const btn = modal.querySelector('#workRecordInput').parentElement.querySelector('button');
-          if (btn) btn.click();
-        }
-      });
-      input.focus();
-    }
   });
 
   // 배경 클릭시 닫기

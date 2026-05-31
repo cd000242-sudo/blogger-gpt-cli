@@ -16,7 +16,7 @@ export function initSidebar() {
         { id: 'nav-intlinks-page', icon: '🕸️', label: '거미줄', action: () => window.showTab?.('internal-links') },
         { id: 'nav-keyword-discover', icon: '🔍', label: '황금키워드', action: () => window.runLewordLauncher?.() },
         // v3.5.98: 대량 이미지 생성 탭 신규
-        { id: 'nav-image-batch', icon: '🎨', label: '이미지생성', action: () => window.showTab?.('image-batch') },
+        { id: 'nav-image-batch', icon: '✨', label: '이미지생성', action: () => window.showTab?.('image-batch') },
     ];
 
     const toolItems = [
