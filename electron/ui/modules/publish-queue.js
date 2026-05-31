@@ -441,11 +441,13 @@ function bindModalEvents() {
       }
 
       // 🆕 URL 이미지 force injection — 큐 항목에 url 있으면 우선 사용
+      // 🆕 v3.7.15: contentUrl도 force-inject → posting.js의 imageSettings.contentUrl로 자동 흐름
       window.__publishForceOptions = {
         urlImageSource: it.url || '',
         urlImageAiCheck: !!it.urlAiCheck,
         urlImageAiFill: !!it.urlAiFill,
         urlImageThreshold: Number(it.urlThreshold) || 60,
+        contentUrl: it.contentUrl || '',
       };
 
       // DOMCache 동기화를 위한 마이크로 대기
@@ -494,6 +496,8 @@ function bindModalEvents() {
     }
     // 🛡️ v3.5.84: 큐 종료 시 플래그 해제 + 종합 품질 리포트 1회
     window.__queueRunning = false;
+    // 🆕 v3.7.15: 큐 종료 후 force option cleanup — 다음 단일 발행이 큐 옵션에 오염되지 않도록.
+    try { window.__publishForceOptions = null; } catch (e) { /* ignore */ }
     try { window.showQueueQualityReport?.(); } catch (e) { console.warn('[QUEUE] 종합 리포트 표시 실패:', e); }
 
     alert(`✅ 큐 ${enabled.length}개 발행 완료. 로그/스케줄 탭에서 확인하세요.`);
@@ -538,6 +542,9 @@ function addCurrent() {
       urlAiCheck: !!document.getElementById('urlImageAiCheck')?.checked,
       urlAiFill: !!document.getElementById('urlImageAiFill')?.checked,
       urlThreshold: 60,
+      // 🆕 v3.7.15 — 본문 콘텐츠 소스 URL (URL 모드 연속발행). 빈 값이면 키워드 모드.
+      //   main form의 `#contentUrl` input 현재값을 항목별로 스냅샷.
+      contentUrl: (document.getElementById('contentUrl')?.value || '').trim() || '',
     });
     added++;
   });

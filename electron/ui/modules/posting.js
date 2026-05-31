@@ -249,7 +249,25 @@ export async function runPosting() {
     }
 
     // 이미지 소스: 기본값 자동 수집 (모달 없이 즉시 발행)
-    const imageSettings = { source: 'auto', contentUrl: '', shoppingUrl: '', aiSource: 'pollinations' };
+    // v3.7.15: contentUrl을 큐 force option 또는 main form `#contentUrl` input에서 자동 픽업.
+    //   이전엔 하드코딩 빈 값이라 모달 안 통과한 단일/연속발행에서 URL 모드가 동작 안 했음.
+    //   force가 set되어 있으면(=큐 실행 중) main form 무시 — 큐 항목이 키워드 모드(빈 contentUrl)
+    //   임을 명시했는데 이전 단일 발행의 main form URL을 잘못 끌어오는 오염 방지.
+    const __forceActive = typeof window !== 'undefined'
+      && window.__publishForceOptions != null
+      && typeof window.__publishForceOptions === 'object';
+    const __force = __forceActive ? window.__publishForceOptions : {};
+    const __mainContentUrl = (typeof document !== 'undefined'
+      ? (document.getElementById('contentUrl')?.value || '').trim()
+      : '');
+    const imageSettings = {
+      source: 'auto',
+      contentUrl: (__forceActive
+        ? (__force.contentUrl || '')
+        : __mainContentUrl).trim(),
+      shoppingUrl: '',
+      aiSource: 'pollinations',
+    };
 
     // ── 상태 전환 ──
     appState.isRunning = true;
