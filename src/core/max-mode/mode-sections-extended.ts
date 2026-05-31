@@ -804,9 +804,11 @@ export const SEO_OPTIMIZED_MODE_SECTIONS: MaxModeSection[] = [
 ];
 
 export const INTERNAL_CONSISTENCY_SECTIONS: MaxModeSection[] = [
+  // v3.7.12 — title을 fallback용 정보적 표현으로 수정. 실제 발행에선 orchestration이 LLM 기반
+  //   generateH2TitlesFinal로 더 구체적/검색의도 친화적 H2를 우선 사용. 이 title은 LLM 실패 시 안전망.
   {
     id: "topic_intro",
-    title: "[주제] 핵심 개요",
+    title: "[주제] 한눈에 보기 — 무엇이고 왜 중요할까",
     description: "주제 소개와 독자가 얻을 핵심 가치 제시",
     minChars: 600,
     role: "정보 전달자",
@@ -820,7 +822,7 @@ export const INTERNAL_CONSISTENCY_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "core_knowledge",
-    title: "[주제] 핵심 지식",
+    title: "[주제] 자세히 알아보기 — 자격·조건·핵심 정보",
     description: "주제의 핵심 정보를 체계적으로 전달",
     minChars: 1500,
     role: "해당 분야 전문가",
@@ -834,7 +836,7 @@ export const INTERNAL_CONSISTENCY_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "deep_dive_case",
-    title: "[주제] 심화 분석 & 사례",
+    title: "[주제] 실전 사례와 단계별 적용법",
     description: "실제 사례·적용법으로 핵심 지식 보강",
     minChars: 1000,
     role: "실무 경험자",
@@ -848,7 +850,7 @@ export const INTERNAL_CONSISTENCY_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "key_takeaways",
-    title: "[주제] 핵심 요약",
+    title: "[주제] 핵심 포인트 한 줄 정리",
     description: "빠른 복습용 핵심 정리",
     minChars: 400,
     role: "정보 요약가",
@@ -861,7 +863,7 @@ export const INTERNAL_CONSISTENCY_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "additional_resources",
-    title: "[주제] 더 알아보기",
+    title: "[주제] 함께 보면 좋은 관련 정보",
     description: "독자가 추가로 탐색할 수 있는 가이드 제공",
     minChars: 300,
     role: "정보 안내자",

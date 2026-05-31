@@ -559,13 +559,32 @@ export async function generateUltimateMaxModeArticleFinal(
       }
     } else if (contentMode === 'internal') {
       // 📝 내부 일관성 모드: 단일 글 정보 전달 구조
+      // v3.7.12: 이전엔 INTERNAL_CONSISTENCY_SECTIONS.title placeholder가 그대로 박혀
+      //   "[키워드] 핵심 개요/지식/심화/요약/더 알아보기" 같은 generic H2가 나옴.
+      //   → LLM 기반 generateH2TitlesFinal을 1차로 시도(키워드 검색의도 기반 구체 5개),
+      //     5개 미만/실패 시 placeholder fallback으로 안전망. sectionPromptBlock은 LLM이 만든
+      //     실제 title을 5섹션 역할(개요→지식→심화→요약→탐색)에 매핑해서 가이드 유지.
       onLog?.('[PROGRESS] 35% - 📝 내부 일관성 모드: 정보 전달 구조 적용 중...');
-      h2Titles = INTERNAL_CONSISTENCY_SECTIONS.map(sec => {
-        return sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
-      });
+      const fallbackTitles = INTERNAL_CONSISTENCY_SECTIONS.map(sec =>
+        sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword)
+      );
+      try {
+        const llmTitles = await generateH2TitlesFinal(keyword, subheadings, 5);
+        if (Array.isArray(llmTitles) && llmTitles.length >= 5) {
+          h2Titles = llmTitles.slice(0, 5);
+          onLog?.(`[PROGRESS] 38% - 🧠 LLM 기반 구체 H2 5개 생성: ${h2Titles.join(' / ')}`);
+        } else {
+          h2Titles = [...(llmTitles || []), ...fallbackTitles.slice((llmTitles || []).length)].slice(0, 5);
+          onLog?.(`[PROGRESS] 38% - ⚠️ LLM H2 ${llmTitles?.length || 0}개만 생성 → fallback 보완`);
+        }
+      } catch (e: any) {
+        h2Titles = fallbackTitles;
+        onLog?.(`[PROGRESS] 38% - ⚠️ LLM H2 생성 실패(${(e?.message || '').slice(0, 60)}) → placeholder fallback 사용`);
+      }
       if (!modeResult.sectionPromptBlock) {
         const guides = INTERNAL_CONSISTENCY_SECTIONS.map((sec, idx) => {
-          const t = sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
+          // LLM이 만든 실제 H2 제목을 가이드에 그대로 사용 (없으면 fallback)
+          const t = h2Titles[idx] || fallbackTitles[idx] || '';
           const reqs = (sec as any).requiredElements?.map((r: string) => `  - ${r}`).join('\n') || '';
           return `[섹션 ${idx + 1}: ${t}] (최소 ${(sec as any).minChars || 600}자)\n역할: ${(sec as any).role || ''}\n핵심: ${(sec as any).contentFocus || ''}\n필수 요소:\n${reqs}`;
         }).join('\n\n');
