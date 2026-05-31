@@ -54,6 +54,10 @@ const SESSION_BOUND_PATTERNS: RegExp[] = [
     // 복지로 서비스 상세 — ssisTbuId 쿼리 기반 세션 필수
     /bokjiro\.go\.kr\/.*\/svcinfoDtl\.do/i,
     /bokjiro\.go\.kr\/.*[?&]ssisTbuId=/i,
+    // v3.7.19 추가 — bokjiro ssis-tbu/detail.do (ssisCnId 쿼리). 직접 접속 시 /error/error.html로 리다이렉트.
+    /bokjiro\.go\.kr\/ssis-tbu\//i,
+    /bokjiro\.go\.kr\/.*\/detail\.do/i,
+    /bokjiro\.go\.kr\/.*[?&]ssisCnId=/i,
     // 정부24 서비스 상세 — 세션 없이 직접 접속 시 오류
     /gov\.kr\/.*\/AA020InfoCappView\.do/i,
     /gov\.kr\/.*[?&]CappBizCD=/i,
@@ -93,6 +97,10 @@ const ERROR_CONTENT_SIGNATURES: string[] = [
     '다시 시도해',
     'Page Not Found',
     'errorMessage',     // JSP 에러 페이지 변수
+    // v3.7.19 추가 — bokjiro 정확한 에러 문구
+    '복지로 이용에 불편',
+    '아래와 같은 경우 이 페이지가 표시',
+    '홈으로 바로가기',
 ];
 
 /** GET 본문 검증이 필요한 호스트 접미사 — 200 OK 에러 페이지가 흔한 정부/공공 사이트 */
