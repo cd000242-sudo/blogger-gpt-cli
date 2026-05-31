@@ -19,6 +19,60 @@ import { validateCtaUrlWithAi } from '../../cta/validate-cta-ai';
  *  - HTTP 통과 + 자동 모드 + aiRecommended=true(정부 사이트 등) → AI 검증
  *  - HTTP 통과 + 자동 모드 + aiRecommended=false → 즉시 통과
  */
+/**
+ * v3.7.13 — CTA 텍스트(buttonText/hookingMessage) 정화 helper.
+ *
+ * 문제: LLM이 buttonText에 `&#8594;`(→) 같은 HTML numeric entity를 문자열로 박으면
+ *   워드프레스 KSES sanitizer가 `&` → `&amp;` 다시 escape → raw 텍스트로 표시됨.
+ *
+ * 해결: numeric/named entity는 실제 유니코드 문자로 변환, 알 수 없는 entity는 제거.
+ *   추가로 CJK 한자, 제어 문자, 다중 공백도 정리.
+ */
+export function sanitizeCtaText(text: string): string {
+  if (!text) return '';
+  return String(text)
+    // numeric entity (&#NNNN;)
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = parseInt(n, 10);
+      if (code > 0 && code < 0x110000) {
+        try { return String.fromCodePoint(code); } catch { return ''; }
+      }
+      return '';
+    })
+    // hex entity (&#xHHHH;)
+    .replace(/&#[xX]([0-9a-fA-F]+);/g, (_, h) => {
+      const code = parseInt(h, 16);
+      if (code > 0 && code < 0x110000) {
+        try { return String.fromCodePoint(code); } catch { return ''; }
+      }
+      return '';
+    })
+    // 주요 named entity → 직접 문자
+    .replace(/&rarr;/gi, '→')
+    .replace(/&larr;/gi, '←')
+    .replace(/&uarr;/gi, '↑')
+    .replace(/&darr;/gi, '↓')
+    .replace(/&hellip;/gi, '…')
+    .replace(/&mdash;/gi, '—')
+    .replace(/&ndash;/gi, '–')
+    .replace(/&laquo;/gi, '«')
+    .replace(/&raquo;/gi, '»')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    // 그 외 알 수 없는 entity는 제거 (안전)
+    .replace(/&#?[a-zA-Z0-9]+;/g, '')
+    // CJK 한자 제거 (한글 0xAC00-0xD7AF, 한자 0x4E00-0x9FFF / 0x3400-0x4DBF)
+    .replace(/[一-鿿㐀-䶿]/g, '')
+    // 제어 문자 제거 (탭/줄바꿈은 공백으로)
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000): Promise<boolean> {
   const httpResult = await validateCtaUrl(url, { timeout: timeoutMs });
   if (!httpResult.isValid) return false;
@@ -1268,6 +1322,12 @@ ${modeCtaHint}
   "actionType": "apply|check|reserve|buy|info 중 하나"
 }
 
+🚫 **buttonText/hookingMessage 작성 규칙** (v3.7.13 — 워드프레스 출력 깨짐 방지):
+- HTML entity 절대 금지: &#8594; / &rarr; / &amp; / &nbsp; / &hellip; 등 entity 문자열 사용 X
+- 화살표/특수문자가 필요하면 직접 유니코드 문자로 작성: → ← ⚡ 🚀 ✅ 📌 (entity 변환 없이)
+- 따옴표·꺾쇠도 직접 사용: ( ) [ ] " ' (entity 변환 없이)
+- 한글/영문/숫자/이모지만 사용. 중국어 한자(漢字) 금지.
+
 📥 **파일 URL 처리 규칙** (중요):
 - URL 끝이 .pdf/.ppt/.pptx/.hwp/.xlsx/.docx/.zip 등 문서 확장자면:
   - buttonText: "📥 PDF 다운받기", "📥 발표자료 다운받기", "📥 한글파일 다운받기" 등 **다운로드 형식**으로 작성
@@ -1283,10 +1343,10 @@ JSON만 출력:
     const cleanJson = ctaResponse.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
 
     try {
-      const cjkCta = /[\u4E00-\u9FFF\u3400-\u4DBF]/g;
       const ctaData = JSON.parse(cleanJson);
-      if (ctaData.buttonText) ctaData.buttonText = ctaData.buttonText.replace(cjkCta, '');
-      if (ctaData.hookingMessage) ctaData.hookingMessage = ctaData.hookingMessage.replace(cjkCta, '');
+      // v3.7.13: HTML entity decode + CJK \uC81C\uAC70 + \uB2E4\uC911 \uACF5\uBC31 \uC815\uB9AC \uD1B5\uD569 (\uC774\uC804\uC5D4 CJK\uB9CC \uCC98\uB9AC)
+      if (ctaData.buttonText) ctaData.buttonText = sanitizeCtaText(ctaData.buttonText);
+      if (ctaData.hookingMessage) ctaData.hookingMessage = sanitizeCtaText(ctaData.hookingMessage);
 
       if (ctaData.url && ctaData.url.startsWith('http')) {
         // 🔴 검색엔진 결과 페이지인지 체크

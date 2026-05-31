@@ -26,6 +26,7 @@ import { FinalCrawledPost, FinalTableData, FinalCTAData } from './types';
 import {
   generateH1TitleFinal, generateH2TitlesFinal,
   generateAllSectionsFinal, generateFAQFinal, buildFAQHtml,
+  sanitizeCtaText,
   generateCTAsFinal, generateSummaryTableFinal, generateHashtagsFinal,
 } from './generation';
 import { generateCSSFinal, generateTOCFinal } from './html';
@@ -1405,9 +1406,9 @@ export async function generateUltimateMaxModeArticleFinal(
         html += `
 <div class="cta-box">
   <span class="cta-badge">✨ 공식 권장 ✨</span>
-  <p>${sectionCta.hookingMessage}</p>
+  <p>${sanitizeCtaText(sectionCta.hookingMessage)}</p>
   <a class="cta-btn" href="${ctaUrl}" target="_blank" rel="nofollow noopener noreferrer">
-    ${sectionCta.buttonText}
+    ${sanitizeCtaText(sectionCta.buttonText)}
   </a>
   <span class="cta-microcopy">※ 정확한 내용은 공식 사이트에서 확인해주세요.</span>
 </div>
@@ -1437,12 +1438,8 @@ export async function generateUltimateMaxModeArticleFinal(
       }
     }
 
-    // 💰 면책 — 섹션 끝, 요약표 전 (FAQ/질문 섹션 직후)
-    html += `
-<div style="margin:24px 0 16px !important;padding:0 !important;display:block !important;visibility:visible !important;">
-  <p style="font-size:12px !important;color:#767676 !important;-webkit-text-fill-color:#767676 !important;margin:0 !important;line-height:1.7 !important;display:block !important;visibility:visible !important;">※ 본 글은 정보 제공 목적으로 작성되었으며, 전문적인 조언을 대체하지 않습니다. 일부 링크는 제휴 링크가 포함되어 있습니다.</p>
-</div>
-`;
+    // v3.7.13 — 면책 중복 제거: 이전엔 여기(섹션 끝)와 line ~1701(결론 다음) 두 곳에 면책이 박혀
+    //   같은 글에 디스클레임이 2번 표시됨. 결론 다음의 .disclaimer 블록만 유지하고 여기는 삭제.
 
     // 🔥 CTA 최소 2개 보장 (사용자 요구사항) — 애드센스 모드에서는 완전 스킵
     const ctaBlockMatches = html.match(/class="rv-cta"/g) || [];
@@ -1598,9 +1595,9 @@ JSON: [{"label":"추천","hookingMessage":"...","buttonText":"..."}]
         html += `
 <div class="cta-box">
   <span class="cta-badge">✨ 추천 링크 ✨</span>
-  <p><strong>${cta.hookingMessage}</strong></p>
+  <p><strong>${sanitizeCtaText(cta.hookingMessage)}</strong></p>
   <a class="cta-btn" href="${cta.url}" target="_blank" rel="nofollow noopener noreferrer">
-    ${cta.buttonText}
+    ${sanitizeCtaText(cta.buttonText)}
   </a>
 </div>
 `;
@@ -1668,9 +1665,9 @@ JSON: [{"label":"추천","hookingMessage":"...","buttonText":"..."}]
         topCtaHtml = `
 <div class="cta-box" style="margin-top: 20px !important;">
   <span class="cta-badge">✨ 핵심 바로가기 ✨</span>
-  <p><strong>${topCta.hookingMessage}</strong></p>
+  <p><strong>${sanitizeCtaText(topCta.hookingMessage)}</strong></p>
   <a class="cta-btn" href="${topCta.url}" target="_blank" rel="nofollow noopener noreferrer">
-    ${topCta.buttonText}
+    ${sanitizeCtaText(topCta.buttonText)}
   </a>
 </div>
 `;
@@ -1733,9 +1730,9 @@ ${conclusionHTML}
       html += `
 <div class="cta-box">
   <span class="cta-badge">✨ 마무리 추천 ✨</span>
-  <p><strong>${finalCta.hookingMessage}</strong></p>
+  <p><strong>${sanitizeCtaText(finalCta.hookingMessage)}</strong></p>
   <a class="cta-btn" href="${finalCta.url}" target="_blank" rel="nofollow noopener noreferrer">
-    ${finalCta.buttonText}
+    ${sanitizeCtaText(finalCta.buttonText)}
   </a>
 </div>
 `;
