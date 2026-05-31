@@ -1332,27 +1332,29 @@
             <div id="tab-platform" class="settings-tab-content" style="display: none;">
 
               <!-- 현재 연동 상태 -->
+              <!-- v3.7.16: 기본 Blogger 톤(노랑). selectPlatform이 클릭 시 WP 톤(파랑)으로 전환. 연동 테스트 텍스트는 검은색. -->
               <div id="platformStatusBox"
-                style="background: rgba(30, 41, 59, 0.4); border-top: 1px solid rgba(255,255,255,0.12); border-left: 1px solid rgba(255,255,255,0.06); border-right: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 20px; margin-bottom: 24px; box-shadow: 0 4px 15px rgba(0,0,0,0.15);">
+                style="background: #fef3c7; border: 1px solid #fbbf24; border-radius: 12px; padding: 20px; margin-bottom: 24px; box-shadow: 0 4px 15px rgba(0,0,0,0.15);">
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                   <div style="display: flex; align-items: center; gap: 12px;">
-                    <span style="font-size: 32px;" id="platformIcon">📝</span>
+                    <span style="font-size: 32px;" id="platformIcon">🅱️</span>
                     <div>
-                      <div style="font-weight: 700; color: white; font-size: 18px;" id="platformName">플랫폼 선택 필요</div>
-                      <div style="font-size: 13px; color: #60a5fa;" id="platformStatus">아래에서 플랫폼을 선택하세요</div>
+                      <div style="font-weight: 700; color: #1e293b; font-size: 18px;" id="platformName">Blogger</div>
+                      <div style="font-size: 13px; color: #92400e;" id="platformStatus">Google 블로그 플랫폼</div>
                     </div>
                   </div>
-                  <button onclick="testPlatformConnection()"
-                    style="padding: 10px 20px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(59, 130, 246, 0.3)';" onmouseout="this.style.background='rgba(59, 130, 246, 0.2)';">🔗
+                  <button id="testPlatformBtn" onclick="testPlatformConnection()"
+                    style="padding: 10px 20px; background: white; color: #1e293b; border: 1px solid #cbd5e1; border-radius: 8px; font-weight: 700; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#f1f5f9';" onmouseout="this.style.background='white';">🔗
                     연동 테스트</button>
                 </div>
               </div>
 
               <!-- 플랫폼 선택 -->
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+                <!-- v3.7.16: 기본 플랫폼 Blogger로 변경 — Blogger=노랑, WordPress=파랑 -->
                 <div id="blogger-select-box" onclick="selectPlatform('blogger')"
-                  style="padding: 20px; border: 2px solid rgba(255,255,255,0.1); border-radius: 12px; cursor: pointer; background: rgba(15, 23, 42, 0.4); transition: all 0.2s;">
-                  <input type="radio" name="platform" id="platform-blogger" value="blogger" style="display: none;">
+                  style="padding: 20px; border: 2px solid #f97316; border-radius: 12px; cursor: pointer; background: #fff7ed; transition: all 0.2s;">
+                  <input type="radio" name="platform" id="platform-blogger" value="blogger" checked style="display: none;">
                   <div style="text-align: center; pointer-events: none;">
                     <div style="font-size: 40px; margin-bottom: 8px;">🅱️</div>
                     <div style="font-weight: 700; color: #1e293b; font-size: 16px;">Blogger</div>
@@ -1360,8 +1362,8 @@
                   </div>
                 </div>
                 <div id="wordpress-select-box" onclick="selectPlatform('wordpress')"
-                  style="padding: 20px; border: 2px solid rgba(99, 102, 241, 0.5); border-radius: 12px; cursor: pointer; background: rgba(79, 70, 229, 0.15); transition: all 0.2s;">
-                  <input type="radio" name="platform" id="platform-wordpress" value="wordpress" checked
+                  style="padding: 20px; border: 2px solid #e2e8f0; border-radius: 12px; cursor: pointer; background: white; transition: all 0.2s;">
+                  <input type="radio" name="platform" id="platform-wordpress" value="wordpress"
                     style="display: none;">
                   <div style="text-align: center; pointer-events: none;">
                     <div style="font-size: 40px; margin-bottom: 8px;">🌐</div>
@@ -1372,8 +1374,9 @@
               </div>
 
               <!-- Blogger 설정 -->
+              <!-- v3.7.16: 기본 플랫폼 Blogger이므로 초기에 노출 -->
               <div id="blogger-fields"
-                style="display: none; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px;">
+                style="display: block; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px;">
                 <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
                   <span style="font-size: 24px;">🅱️</span>
                   <div>
@@ -1539,8 +1542,9 @@
               </div>
 
               <!-- WordPress 설정 -->
+              <!-- v3.7.16: 기본 Blogger이므로 WP는 초기에 숨김 -->
               <div id="wordpress-fields"
-                style="display: block; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px;">
+                style="display: none; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px;">
                 <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
                   <span style="font-size: 24px;">🌐</span>
                   <div>
@@ -5746,37 +5750,93 @@
     }
 
     // 다중 계정 추가
+    // v3.7.16 — 계정 추가 진짜 모달 UI.
+    //   이전엔 현재 폼 값을 그대로 저장하고 "저장 완료" alert만 띄움 → UX 의미 없음.
+    //   이제 빈 입력 모달을 띄워 사용자가 새 블로그 정보를 직접 입력하게 함.
     function addBloggerAccount() {
-      const blogId = document.getElementById('blogId')?.value?.trim();
-      const clientId = document.getElementById('googleClientId')?.value?.trim();
-      const clientSecret = document.getElementById('googleClientSecret')?.value?.trim();
+      const existing = document.getElementById('addBloggerAccountModal');
+      if (existing) existing.remove();
 
-      if (!blogId || !clientId || !clientSecret) {
-        alert('❌ 먼저 Blog ID, Client ID, Client Secret을 입력하고 인증을 완료해주세요.');
-        return;
-      }
-
-      // 현재 계정 정보 저장
       const accounts = JSON.parse(localStorage.getItem('bloggerAccounts') || '[]');
-      const existingIndex = accounts.findIndex(a => a.blogId === blogId);
+      const defaultName = '블로그 ' + (accounts.length + 1);
 
-      const newAccount = {
-        blogId,
-        clientId,
-        clientSecret,
-        addedAt: new Date().toISOString(),
-        name: '블로그 ' + (accounts.length + 1)
+      const overlay = document.createElement('div');
+      overlay.id = 'addBloggerAccountModal';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;';
+      overlay.innerHTML = `
+        <div style="background:linear-gradient(135deg,#1e293b,#0f172a);color:white;width:90%;max-width:520px;padding:32px;border-radius:20px;border:1px solid rgba(245,158,11,0.4);box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+            <span style="font-size:28px;">🅱️</span>
+            <h2 style="margin:0;font-size:20px;font-weight:800;color:#fbbf24;">Blogger 계정 추가</h2>
+          </div>
+          <p style="margin:0 0 18px;font-size:13px;color:#cbd5e1;line-height:1.6;">새 블로그 정보를 입력하세요. 같은 Blog ID가 이미 있으면 덮어씁니다.</p>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            <div>
+              <label style="display:block;font-size:12px;color:#94a3b8;margin-bottom:4px;">표시 이름</label>
+              <input id="newAcc-name" type="text" value="${defaultName}" placeholder="예: 메인 블로그"
+                style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.3);border:1px solid #475569;border-radius:8px;color:white;font-size:14px;outline:none;" />
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;color:#94a3b8;margin-bottom:4px;">Blog ID *</label>
+              <input id="newAcc-blogId" type="text" placeholder="숫자 18자리 (예: 7313363217...)"
+                style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.3);border:1px solid #475569;border-radius:8px;color:white;font-size:14px;outline:none;font-family:monospace;" />
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;color:#94a3b8;margin-bottom:4px;">Google Client ID *</label>
+              <input id="newAcc-clientId" type="text" placeholder="xxxxx.apps.googleusercontent.com"
+                style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.3);border:1px solid #475569;border-radius:8px;color:white;font-size:14px;outline:none;font-family:monospace;" />
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;color:#94a3b8;margin-bottom:4px;">Google Client Secret *</label>
+              <input id="newAcc-clientSecret" type="password" placeholder="GOCSPX-..."
+                style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.3);border:1px solid #475569;border-radius:8px;color:white;font-size:14px;outline:none;font-family:monospace;" />
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:20px;">
+            <button id="newAcc-save" style="flex:1;padding:12px;background:linear-gradient(135deg,#f59e0b,#d97706);color:white;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">저장</button>
+            <button id="newAcc-fill-from-form" style="flex:1;padding:12px;background:rgba(255,255,255,0.08);color:#94a3b8;border:1px solid rgba(255,255,255,0.12);border-radius:10px;font-size:13px;cursor:pointer;">현재 폼 값으로 채우기</button>
+            <button id="newAcc-cancel" style="padding:12px 16px;background:transparent;color:#94a3b8;border:1px solid rgba(255,255,255,0.12);border-radius:10px;font-size:13px;cursor:pointer;">취소</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      const close = () => overlay.remove();
+      overlay.onclick = (e) => { if (e.target === overlay) close(); };
+      document.getElementById('newAcc-cancel').onclick = close;
+
+      // 편의: 현재 폼에 값이 있으면 즉시 채워주는 버튼
+      document.getElementById('newAcc-fill-from-form').onclick = () => {
+        const cur = {
+          blogId: document.getElementById('blogId')?.value?.trim() || '',
+          clientId: document.getElementById('googleClientId')?.value?.trim() || '',
+          clientSecret: document.getElementById('googleClientSecret')?.value?.trim() || '',
+        };
+        document.getElementById('newAcc-blogId').value = cur.blogId;
+        document.getElementById('newAcc-clientId').value = cur.clientId;
+        document.getElementById('newAcc-clientSecret').value = cur.clientSecret;
       };
 
-      if (existingIndex >= 0) {
-        accounts[existingIndex] = newAccount;
-      } else {
-        accounts.push(newAccount);
-      }
+      document.getElementById('newAcc-save').onclick = () => {
+        const name = document.getElementById('newAcc-name').value.trim() || defaultName;
+        const blogId = document.getElementById('newAcc-blogId').value.trim();
+        const clientId = document.getElementById('newAcc-clientId').value.trim();
+        const clientSecret = document.getElementById('newAcc-clientSecret').value.trim();
 
-      localStorage.setItem('bloggerAccounts', JSON.stringify(accounts));
-      renderBloggerAccounts();
-      alert('✅ 계정이 저장되었습니다.');
+        if (!blogId || !clientId || !clientSecret) {
+          alert('❌ Blog ID, Client ID, Client Secret은 필수입니다.');
+          return;
+        }
+
+        const list = JSON.parse(localStorage.getItem('bloggerAccounts') || '[]');
+        const idx = list.findIndex(a => a.blogId === blogId);
+        const entry = { blogId, clientId, clientSecret, name, addedAt: new Date().toISOString() };
+        if (idx >= 0) list[idx] = entry; else list.push(entry);
+        localStorage.setItem('bloggerAccounts', JSON.stringify(list));
+        renderBloggerAccounts();
+        close();
+        alert(idx >= 0 ? `✅ "${name}" 정보가 갱신되었습니다.` : `✅ "${name}" 계정이 추가되었습니다.`);
+      };
     }
 
     // 계정 목록 렌더링
@@ -5896,14 +5956,27 @@
       }
 
       // 설정 모달 내부의 플랫폼 설명 박스 (설정 모달용)
+      // v3.7.16: platformStatusBox 색상도 플랫폼별 변경 — Blogger 노랑 / WordPress 파랑
       const platformIcon = document.getElementById('platformIcon');
       const platformName = document.getElementById('platformName');
+      const platformStatus = document.getElementById('platformStatus');
+      const platformStatusBox = document.getElementById('platformStatusBox');
       if (platform === 'blogger') {
         if (platformIcon) platformIcon.textContent = '🅱️';
-        if (platformName) platformName.textContent = 'Blogger';
+        if (platformName) { platformName.textContent = 'Blogger'; platformName.style.color = '#1e293b'; }
+        if (platformStatus) { platformStatus.textContent = 'Google 블로그 플랫폼'; platformStatus.style.color = '#92400e'; }
+        if (platformStatusBox) {
+          platformStatusBox.style.background = '#fef3c7';
+          platformStatusBox.style.border = '1px solid #fbbf24';
+        }
       } else {
         if (platformIcon) platformIcon.textContent = '🌐';
-        if (platformName) platformName.textContent = 'WordPress';
+        if (platformName) { platformName.textContent = 'WordPress'; platformName.style.color = '#1e293b'; }
+        if (platformStatus) { platformStatus.textContent = '자체 호스팅 블로그 플랫폼'; platformStatus.style.color = '#1e3a8a'; }
+        if (platformStatusBox) {
+          platformStatusBox.style.background = '#dbeafe';
+          platformStatusBox.style.border = '1px solid #3b82f6';
+        }
       }
 
       // 🔥 상단 헤더 배지 업데이트 + 필드 토글 + localStorage 저장
