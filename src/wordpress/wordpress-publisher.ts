@@ -336,6 +336,52 @@ function applyWordPressInlineStyles(html: string): string {
     overflow-wrap: anywhere !important;
     white-space: normal !important;
   }
+
+  /* v3.7.18 fix — 요약표 셀 광고 강제 차단.
+     문제: 워드프레스 자동 광고/테마 광고 슬롯이 표 td 안에 광고 iframe·ins·div를
+     삽입하면 셀이 광고 폭에 맞춰 늘어나고 실제 텍스트는 우측 좁은 공간에 세로로 흘러내림.
+     해결: 셀 안에 들어온 광고성 element를 시각적·물리적으로 0 크기로 강제. */
+  .wp-styled-content .summary-table td ins,
+  .wp-styled-content .summary-table td iframe,
+  .wp-styled-content .summary-table td .adsbygoogle,
+  .wp-styled-content .summary-table td [class*="adsbygoogle"],
+  .wp-styled-content .summary-table td [class*="ad-container"],
+  .wp-styled-content .summary-table td [class*="adsense"],
+  .wp-styled-content .summary-table td [class*="advertisement"],
+  .wp-styled-content .summary-table td [class*="googleads"],
+  .wp-styled-content .summary-table td [class*="google_ads"],
+  .wp-styled-content .summary-table td [id*="adsense"],
+  .wp-styled-content .summary-table td [id*="google_ads"],
+  .wp-styled-content .summary-table td [id*="advertisement"],
+  .wp-styled-content .summary-table td [data-ad],
+  .wp-styled-content .summary-table td [data-ad-slot],
+  .wp-styled-content .summary-table td [data-ad-client],
+  .wp-styled-content .summary-table td script {
+    display: none !important;
+    visibility: hidden !important;
+    width: 0 !important;
+    height: 0 !important;
+    max-width: 0 !important;
+    max-height: 0 !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    position: absolute !important;
+    left: -9999px !important;
+    top: -9999px !important;
+    pointer-events: none !important;
+  }
+  /* 표 cell 자체의 폭 강제 — 광고가 어떻게든 들어와도 셀이 늘어나지 않도록 */
+  .wp-styled-content .summary-table {
+    contain: layout style !important;
+  }
+  .wp-styled-content .summary-table td {
+    max-width: 65% !important;
+    contain: layout !important;
+  }
+  .wp-styled-content .summary-table td:first-child {
+    max-width: 35% !important;
+  }
 </style>
 `;
 
