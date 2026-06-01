@@ -1556,6 +1556,42 @@ async function generateAndPublishSpiderWeb() {
     const platformInputEarly = document.querySelector('input[name="platform"]:checked');
     const platformEarly = (platformInputEarly && platformInputEarly.value) || 'blogspot';
 
+    // v3.8.13: 발행 시작 전 엔진별 사전 로그인 확인 (dropshot/imagefx 자동 로그인 대기 방지)
+    //   - dropshot 계열: dropshot:check-login으로 미로그인 확인 → 미로그인이면 안내 + 중단
+    //   - imagefx/flow: imagefx:check-login으로 확인 → 미로그인이면 안내 + 중단
+    const _swEngineNeedsLogin = async () => {
+      const thumbEng = (document.getElementById('swThumbnailEngine')?.value || '').toLowerCase();
+      const h2Eng = (document.getElementById('swH2ImageEngine')?.value || '').toLowerCase();
+      const usesDropshot = /dropshot/.test(thumbEng) || /dropshot/.test(h2Eng);
+      const usesImagefx = /^(imagefx|flow)$/.test(thumbEng) || /^(imagefx|flow)$/.test(h2Eng);
+      const issues = [];
+      if (usesDropshot && window.electronAPI?.invoke) {
+        try {
+          const r = await window.electronAPI.invoke('dropshot:check-login');
+          if (!r?.loggedIn) {
+            issues.push({ engine: '리더스 나노바나나 무제한', reason: r?.message || '로그인 필요', action: '거미줄 Step 03 카드의 [🔑 리더스 나노바나나 로그인] 버튼 클릭 후 사이트 로그인' });
+          }
+        } catch (e) { /* IPC 미지원 환경 — 통과 */ }
+      }
+      if (usesImagefx && window.electronAPI?.invoke) {
+        try {
+          const r = await window.electronAPI.invoke('imagefx:check-login');
+          if (!r?.loggedIn) {
+            issues.push({ engine: 'ImageFX/Flow', reason: r?.message || '로그인 필요', action: '거미줄 Step 03 카드의 [🔑 Google 로그인] 버튼 클릭 후 Google 계정 로그인' });
+          }
+        } catch (e) { /* 무시 */ }
+      }
+      return issues;
+    };
+
+    const loginIssues = await _swEngineNeedsLogin();
+    if (loginIssues.length > 0) {
+      const lines = loginIssues.map((it) => `• ${it.engine}: ${it.reason}\n  → ${it.action}`);
+      const msg = '⚠️ 선택한 이미지 엔진이 로그인 필요한 상태입니다.\n\n' + lines.join('\n\n') + '\n\n로그인 완료 후 다시 [통합글 생성 및 발행하기] 클릭.';
+      alert(msg);
+      return; // 발행 중단
+    }
+
     // v3.8.4: 이미지 정책 + 썸네일/본문 엔진 분리
     const policyInput = document.querySelector('input[name="swImagePolicy"]:checked');
     const imagePolicy = (policyInput && policyInput.value) || 'all';
