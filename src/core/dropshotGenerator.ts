@@ -526,11 +526,22 @@ async function _makeDropshotImageInternal(
 
         // 5. 결과 이미지 대기 — snapshot에 없던 NEW 이미지만 잡음 (최대 90초)
         // v3.8.57: 햄스터/sample placeholder 차단 — 5초 grace + size 더 엄격 + dataUrl 짧으면 거부
+        // v3.8.60: dropshot 서버 에러 페이지 감지 — "이런, 문제가 발생했습니다" / "환불되었으니" 텍스트 → 즉시 폴백
         await new Promise(r => setTimeout(r, 5000)); // grace period: dropshot이 sample/placeholder를 일찍 보여주는 시간 회피
         const startTs = Date.now();
         let foundDataUrl: string | null = null;
         while ((Date.now() - startTs) < 85_000) {
           await new Promise(r => setTimeout(r, 2000));
+
+          // v3.8.60: dropshot 에러 페이지 감지 — 즉시 폴백
+          const dropshotError = await page.evaluate(() => {
+            const bodyText = document.body?.innerText || '';
+            return /이런[,\s]*문제가\s*발생|환불되었으니|크레딧은\s*환불|다시\s*시도해주세요|something went wrong|please try again/i.test(bodyText);
+          });
+          if (dropshotError) {
+            console.warn('[DROPSHOT] ⚠️ dropshot 서버 에러 페이지 감지 — 즉시 폴백');
+            return { ok: false, error: 'dropshot 서버 에러: 잠시 후 재시도하거나 nanobanana2 엔진 사용' };
+          }
           const dataUrl = await page.evaluate((before: string[]) => {
             const beforeSet = new Set(before);
             const imgs = Array.from(document.querySelectorAll('img'));

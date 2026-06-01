@@ -1299,6 +1299,11 @@ function _swPushLog(message, level) {
 function _swUpdateMiniProgress() {
   const mini = document.getElementById('swMiniProgress');
   if (!mini) return;
+  // v3.8.60: 거미줄 탭 컨테이너 안에 있어 탭 전환 시 display:none으로 숨겨지던 문제 차단.
+  //   document.body로 1회 이동 → 어떤 탭에서든 fixed position으로 항상 표시.
+  if (mini.parentElement !== document.body) {
+    document.body.appendChild(mini);
+  }
   if (!_swProgressState.active) {
     mini.style.display = 'none';
     return;
