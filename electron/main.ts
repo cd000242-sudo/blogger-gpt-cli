@@ -755,7 +755,10 @@ ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
 ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
   urls: string[];
   title: string;
-  posts: Array<{ id: string; url: string; title: string; order: number }>
+  posts: Array<{ id: string; url: string; title: string; order: number }>;
+  imagePolicy?: string;            // v3.8.6: 'all' | 'thumbnail-only' | 'odd-only' | 'even-only' | 'none'
+  imageThumbnailEngine?: string;   // v3.8.6
+  imageH2Engine?: string;          // v3.8.6
 }) => {
   try {
     console.log('[INTERNAL-CONSISTENCY] 종합글 생성 요청:', payload);
@@ -1039,7 +1042,108 @@ URL: ${item.url}
       }
 
       console.log('[INTERNAL-CONSISTENCY] ✅ 종합글 생성 완료, 콘텐츠 길이:', generatedContent.length);
-      return { success: true, html: generatedContent, title };
+
+      // v3.8.6: 이미지 정책 적용 — 썸네일 + H2별 이미지 생성 + HTML 삽입
+      const imagePolicy = (payload.imagePolicy || 'all').toLowerCase();
+      const thumbEngine = (payload.imageThumbnailEngine || 'nanobanana2').toLowerCase();
+      const h2Engine = (payload.imageH2Engine || 'nanobanana2').toLowerCase();
+      const imageStats: { thumbnail: boolean; h2Generated: number; h2Failed: number; errors: string[] } = {
+        thumbnail: false, h2Generated: 0, h2Failed: 0, errors: [],
+      };
+      let thumbnailUrl = '';
+
+      if (imagePolicy !== 'none') {
+        try {
+          const dispatcher = require('../dist/core/imageDispatcher');
+          const { dispatchThumbnailGeneration, dispatchH2ImageGeneration } = dispatcher || {};
+
+          // 1) 썸네일 — 'none' 외 모든 정책에서 생성
+          if (typeof dispatchThumbnailGeneration === 'function' && thumbEngine !== 'none') {
+            try {
+              console.log('[INTERNAL-CONSISTENCY] 🖼️ 썸네일 생성 시작:', thumbEngine);
+              const thumbResult = await dispatchThumbnailGeneration(
+                thumbEngine,
+                title,
+                title,
+              );
+              if (thumbResult && thumbResult.ok && (thumbResult.dataUrl || thumbResult.url)) {
+                thumbnailUrl = thumbResult.dataUrl || thumbResult.url || '';
+                imageStats.thumbnail = true;
+                // 본문 시작에 <p><img></p> 삽입 (h1 다음)
+                const imgTag = `<p style="text-align:center;margin:24px 0;"><img src="${thumbnailUrl}" alt="${title.replace(/"/g, '&quot;')}" style="max-width:100%;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,0.12);"></p>`;
+                // 첫 <h1> 다음 또는 본문 맨 앞에 삽입
+                if (/<h1[^>]*>[\s\S]*?<\/h1>/i.test(generatedContent)) {
+                  generatedContent = generatedContent.replace(/(<h1[^>]*>[\s\S]*?<\/h1>)/i, `$1\n${imgTag}`);
+                } else {
+                  generatedContent = imgTag + '\n' + generatedContent;
+                }
+                console.log('[INTERNAL-CONSISTENCY] ✅ 썸네일 삽입 완료');
+              } else {
+                imageStats.errors.push(`썸네일 생성 실패: ${(thumbResult && thumbResult.error) || 'unknown'}`);
+              }
+            } catch (e: any) {
+              imageStats.errors.push(`썸네일 예외: ${e && e.message || e}`);
+            }
+          }
+
+          // 2) H2 이미지 — 정책 분기
+          if (imagePolicy !== 'thumbnail-only' && typeof dispatchH2ImageGeneration === 'function' && h2Engine !== 'none') {
+            const $ = cheerio.load(generatedContent);
+            const h2Nodes = $('h2').toArray();
+            console.log('[INTERNAL-CONSISTENCY] 🖼️ H2 헤더', h2Nodes.length, '개 발견 · 정책:', imagePolicy);
+
+            for (let i = 0; i < h2Nodes.length; i++) {
+              const idx1 = i + 1;
+              // 정책 필터
+              let shouldGenerate = false;
+              if (imagePolicy === 'all') shouldGenerate = true;
+              else if (imagePolicy === 'odd-only' && idx1 % 2 === 1) shouldGenerate = true;
+              else if (imagePolicy === 'even-only' && idx1 % 2 === 0) shouldGenerate = true;
+              if (!shouldGenerate) continue;
+
+              const h2El = h2Nodes[i];
+              const h2Text = $(h2El).text().trim();
+              if (!h2Text) continue;
+
+              try {
+                console.log(`[INTERNAL-CONSISTENCY] 🖼️ H2 ${idx1}/${h2Nodes.length} 이미지: "${h2Text.substring(0, 30)}…"`);
+                const h2Result = await dispatchH2ImageGeneration(
+                  h2Engine,
+                  h2Text,
+                  h2Text,
+                );
+                if (h2Result && h2Result.ok && (h2Result.dataUrl || h2Result.url)) {
+                  const h2Img = h2Result.dataUrl || h2Result.url || '';
+                  const imgTag = `<p style="text-align:center;margin:18px 0;"><img src="${h2Img}" alt="${h2Text.replace(/"/g, '&quot;')}" style="max-width:100%;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.1);"></p>`;
+                  $(h2El).after(imgTag);
+                  imageStats.h2Generated++;
+                } else {
+                  imageStats.h2Failed++;
+                  imageStats.errors.push(`H2 ${idx1} 실패: ${(h2Result && h2Result.error) || 'unknown'}`);
+                }
+              } catch (e: any) {
+                imageStats.h2Failed++;
+                imageStats.errors.push(`H2 ${idx1} 예외: ${e && e.message || e}`);
+              }
+            }
+
+            generatedContent = $.html();
+            // cheerio가 자동 래핑한 <html><head></head><body>...</body></html> 제거
+            generatedContent = generatedContent
+              .replace(/^[\s\S]*?<body[^>]*>/i, '')
+              .replace(/<\/body>[\s\S]*$/i, '')
+              .trim();
+            console.log('[INTERNAL-CONSISTENCY] ✅ H2 이미지 생성 완료:', imageStats.h2Generated, '성공 /', imageStats.h2Failed, '실패');
+          }
+        } catch (e: any) {
+          console.error('[INTERNAL-CONSISTENCY] 이미지 생성 블록 실패:', e);
+          imageStats.errors.push(`이미지 디스패처 실패: ${e && e.message || e}`);
+        }
+      } else {
+        console.log('[INTERNAL-CONSISTENCY] 이미지 정책 = none, 이미지 생성 스킵');
+      }
+
+      return { success: true, html: generatedContent, title, thumbnailUrl, imageStats };
 
     } catch (error) {
       console.error('[INTERNAL-CONSISTENCY] AI 종합글 생성 실패:', error);

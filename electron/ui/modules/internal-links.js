@@ -1451,6 +1451,15 @@ async function generateAndPublishSpiderWeb() {
       return;
     }
     _swPushLog('생성된 HTML 길이: ' + genResult.html.length + '자', 'info');
+    // v3.8.6: 이미지 생성 결과 로그
+    if (genResult.imageStats) {
+      const s = genResult.imageStats;
+      _swPushLog(`이미지 — 썸네일 ${s.thumbnail ? '✓' : '✗'} · H2 ${s.h2Generated || 0}성공/${s.h2Failed || 0}실패`,
+        (s.h2Failed && s.h2Failed > 0) ? 'warn' : 'success');
+      if (Array.isArray(s.errors) && s.errors.length > 0) {
+        s.errors.slice(0, 3).forEach((err) => _swPushLog('이미지 오류: ' + err, 'warn'));
+      }
+    }
 
     generatedContent = {
       html: genResult.html,
