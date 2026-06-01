@@ -1055,50 +1055,49 @@ URL: ${item.url}
         ? `\n\n[IMPORTANT: Include clear, legible Korean text overlay on the image that visually summarizes the topic]`
         : '';
 
-      // v3.8.8: dataURL → 호스팅 URL 변환 (WP 미디어 우선 + 외부 호스팅 폴백)
-      //   WordPress 발행이면 사용자 본인 wp-json/v2/media로 업로드 = 가장 안정적.
-      //   실패 시 외부 호스팅 6단계 폴백 (Cloudinary/ImgBB/ImgHippo/freeimage/Catbox/0x0).
+      // v3.8.8: dataURL → 호스팅 URL 변환
+      // v3.8.9: WP 자격증명 보유 시 platform 무관하게 WP 미디어 우선 (블로그스팟도 wp 사이트 URL 빌려 사용)
       const targetPlatform = String((payload as any).platform || '').toLowerCase();
       async function _hostImageDataUrl(dataUrl: string, label: string): Promise<{ url: string; provider: string }> {
         if (!dataUrl || !/^data:image/.test(dataUrl)) return { url: dataUrl, provider: 'passthrough' };
-        // 1) WordPress 발행 시 사용자 wp-json/v2/media 업로드
-        if (targetPlatform === 'wordpress') {
-          try {
-            const env = loadEnvFromFile() as any;
-            const wpUrl = (env.wordpressSiteUrl || env.WORDPRESS_SITE_URL || '').trim().replace(/\/+$/, '');
-            const wpUser = (env.wordpressUsername || env.WORDPRESS_USERNAME || '').trim();
-            const wpPass = (env.wordpressPassword || env.WORDPRESS_PASSWORD || '').trim();
-            if (wpUrl && wpUser && wpPass) {
-              const axios = (await import('axios')).default;
-              const m = dataUrl.match(/^data:(image\/[a-z+]+);base64,(.+)$/);
-              if (m) {
-                const mime = m[1];
-                const ext = (mime.split('/')[1] || 'png').replace('+xml', '');
-                const buf = Buffer.from(m[2], 'base64');
-                const filename = `${label || 'image'}-${Date.now()}.${ext}`;
-                const auth = Buffer.from(`${wpUser}:${wpPass}`).toString('base64');
-                const res = await axios.post(`${wpUrl}/wp-json/wp/v2/media`, buf, {
-                  headers: {
-                    Authorization: `Basic ${auth}`,
-                    'Content-Type': mime,
-                    'Content-Disposition': `attachment; filename="${filename}"`,
-                  },
-                  timeout: 30000,
-                  maxBodyLength: 30 * 1024 * 1024,
-                  maxContentLength: 30 * 1024 * 1024,
-                });
-                const src = res.data && (res.data.source_url || (res.data.guid && res.data.guid.rendered));
-                if (typeof src === 'string' && src) {
-                  console.log(`[IMG-HOST] ✅ WordPress 미디어 업로드 성공 (${label}):`, src.substring(0, 80));
-                  return { url: src, provider: 'wp-media' };
-                }
+        // 1) WP 자격증명 보유 시 wp-json/v2/media 업로드 (platform 무관)
+        //    워드프레스: 사용자 본인 사이트 → 가장 안정
+        //    블로그스팟: 사용자 워드프레스 사이트가 있으면 거기에 호스팅 후 URL만 가져옴 (Hot-link)
+        try {
+          const env = loadEnvFromFile() as any;
+          const wpUrl = (env.wordpressSiteUrl || env.WORDPRESS_SITE_URL || '').trim().replace(/\/+$/, '');
+          const wpUser = (env.wordpressUsername || env.WORDPRESS_USERNAME || '').trim();
+          const wpPass = (env.wordpressPassword || env.WORDPRESS_PASSWORD || '').trim();
+          if (wpUrl && wpUser && wpPass) {
+            const axios = (await import('axios')).default;
+            const m = dataUrl.match(/^data:(image\/[a-z+]+);base64,(.+)$/);
+            if (m) {
+              const mime = m[1];
+              const ext = (mime.split('/')[1] || 'png').replace('+xml', '');
+              const buf = Buffer.from(m[2], 'base64');
+              const filename = `${label || 'image'}-${Date.now()}.${ext}`;
+              const auth = Buffer.from(`${wpUser}:${wpPass}`).toString('base64');
+              const res = await axios.post(`${wpUrl}/wp-json/wp/v2/media`, buf, {
+                headers: {
+                  Authorization: `Basic ${auth}`,
+                  'Content-Type': mime,
+                  'Content-Disposition': `attachment; filename="${filename}"`,
+                },
+                timeout: 30000,
+                maxBodyLength: 30 * 1024 * 1024,
+                maxContentLength: 30 * 1024 * 1024,
+              });
+              const src = res.data && (res.data.source_url || (res.data.guid && res.data.guid.rendered));
+              if (typeof src === 'string' && src) {
+                console.log(`[IMG-HOST] ✅ WP 미디어 업로드 성공 (${label}, platform=${targetPlatform || 'unknown'}):`, src.substring(0, 80));
+                return { url: src, provider: targetPlatform === 'wordpress' ? 'wp-media' : 'wp-media-hotlink' };
               }
             }
-          } catch (e: any) {
-            console.warn(`[IMG-HOST] WP 미디어 업로드 실패 (${label}):`, e?.message?.substring(0, 200));
           }
+        } catch (e: any) {
+          console.warn(`[IMG-HOST] WP 미디어 업로드 실패 (${label}):`, e?.message?.substring(0, 200));
         }
-        // 2) 외부 호스팅 6단계 폴백
+        // 2) 외부 호스팅 6단계 폴백 (Cloudinary/ImgBB/ImgHippo/freeimage/Catbox/0x0)
         try {
           const { uploadBase64ToImageHost } = require('../dist/core/final/image-helpers');
           const hostedUrl = await uploadBase64ToImageHost(dataUrl, label);
@@ -1155,9 +1154,12 @@ URL: ${item.url}
 
           // 2) H2 이미지 — 정책 분기
           if (imagePolicy !== 'thumbnail-only' && typeof dispatchH2ImageGeneration === 'function' && h2Engine !== 'none') {
-            const $ = cheerio.load(generatedContent);
+            const $ = cheerio.load(generatedContent, { decodeEntities: false } as any);
             const h2Nodes = $('h2').toArray();
-            console.log('[INTERNAL-CONSISTENCY] 🖼️ H2 헤더', h2Nodes.length, '개 발견 · 정책:', imagePolicy);
+            console.log('[INTERNAL-CONSISTENCY] 🖼️ H2 헤더', h2Nodes.length, '개 발견 · 정책:', imagePolicy, '· 엔진:', h2Engine);
+            if (h2Nodes.length === 0) {
+              imageStats.errors.push('H2 헤더 0개 — LLM이 H2를 생성하지 않음');
+            }
 
             for (let i = 0; i < h2Nodes.length; i++) {
               const idx1 = i + 1;
@@ -1173,27 +1175,34 @@ URL: ${item.url}
               if (!h2Text) continue;
 
               try {
-                console.log(`[INTERNAL-CONSISTENCY] 🖼️ H2 ${idx1}/${h2Nodes.length} 이미지: "${h2Text.substring(0, 30)}…"`);
+                console.log(`[INTERNAL-CONSISTENCY] 🖼️ H2 ${idx1}/${h2Nodes.length} 이미지 시작: "${h2Text.substring(0, 30)}…"`);
                 const h2Result = await dispatchH2ImageGeneration(
                   h2Engine,
                   h2Text + textTail,
                   h2Text,
                 );
-                if (h2Result && h2Result.ok && (h2Result.dataUrl || h2Result.url)) {
+                const hasDataUrl = !!(h2Result && (h2Result.dataUrl || h2Result.url));
+                console.log(`[INTERNAL-CONSISTENCY] 🖼️ H2 ${idx1} 결과: ok=${h2Result && h2Result.ok}, hasDataUrl=${hasDataUrl}, source=${h2Result && h2Result.source}, error=${h2Result && h2Result.error ? String(h2Result.error).substring(0, 100) : 'none'}`);
+                if (h2Result && h2Result.ok && hasDataUrl) {
                   const rawH2 = h2Result.dataUrl || h2Result.url || '';
+                  console.log(`[INTERNAL-CONSISTENCY] H2 ${idx1} dataUrl 길이: ${rawH2.length}`);
                   // v3.8.8: dataURL → 호스팅 URL 변환
                   const hosted = await _hostImageDataUrl(rawH2, `sw-h2-${idx1}`);
                   const imgTag = `<p style="text-align:center;margin:18px 0;"><img src="${hosted.url}" alt="${h2Text.replace(/"/g, '&quot;')}" style="max-width:100%;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.1);"></p>`;
                   $(h2El).after(imgTag);
                   imageStats.h2Generated++;
-                  console.log(`[INTERNAL-CONSISTENCY] H2 ${idx1} 호스팅 provider:`, hosted.provider);
+                  console.log(`[INTERNAL-CONSISTENCY] ✅ H2 ${idx1} 삽입 완료 · provider=${hosted.provider}`);
                 } else {
                   imageStats.h2Failed++;
-                  imageStats.errors.push(`H2 ${idx1} 실패: ${(h2Result && h2Result.error) || 'unknown'}`);
+                  const errMsg = (h2Result && h2Result.error) || 'unknown (ok=' + (h2Result && h2Result.ok) + ', dataUrl=' + hasDataUrl + ')';
+                  imageStats.errors.push(`H2 ${idx1} 실패: ${errMsg}`);
+                  console.warn(`[INTERNAL-CONSISTENCY] ⚠️ H2 ${idx1} 실패:`, errMsg);
                 }
               } catch (e: any) {
                 imageStats.h2Failed++;
-                imageStats.errors.push(`H2 ${idx1} 예외: ${e && e.message || e}`);
+                const errMsg = e && e.message || e;
+                imageStats.errors.push(`H2 ${idx1} 예외: ${errMsg}`);
+                console.error(`[INTERNAL-CONSISTENCY] ❌ H2 ${idx1} 예외:`, errMsg);
               }
             }
 
