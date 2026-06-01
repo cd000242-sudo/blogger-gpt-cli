@@ -1280,6 +1280,14 @@ URL: ${item.url}
                 thumbnailUrl = hosted.url;
                 imageStats.thumbnail = true;
                 console.log('[INTERNAL-CONSISTENCY] 썸네일 호스팅 provider:', hosted.provider);
+                // v3.8.44: 실시간 이미지 UI push
+                try {
+                  const { BrowserWindow: BW } = await import('electron');
+                  const allWindows = BW.getAllWindows();
+                  allWindows.forEach((w) => w.webContents.send('sw-image-generated', {
+                    kind: 'thumbnail', label: '썸네일', url: hosted.url,
+                  }));
+                } catch {}
                 // v3.8.18: 본문 썸네일 삽입 제거 — publishToBlogger가 separator 구조로 자동 본문 앞 삽입
                 //   이전엔 본문에 <p><img></p> 박고 publisher도 separator 박아 중복 노출 버그.
                 //   thumbnailUrl만 반환하고 본문에는 박지 않음.
@@ -1342,6 +1350,14 @@ URL: ${item.url}
                   $(h2El).after(imgTag);
                   imageStats.h2Generated++;
                   console.log(`[INTERNAL-CONSISTENCY] ✅ H2 ${idx1} 삽입 완료 · provider=${hosted.provider}`);
+                  // v3.8.44: 실시간 이미지 UI push
+                  try {
+                    const { BrowserWindow: BW } = await import('electron');
+                    const allWindows = BW.getAllWindows();
+                    allWindows.forEach((w) => w.webContents.send('sw-image-generated', {
+                      kind: 'h2', label: `H2 ${idx1}: ${h2Text.substring(0, 30)}`, url: hosted.url,
+                    }));
+                  } catch {}
                 } else {
                   imageStats.h2Failed++;
                   const errMsg = (h2Result && h2Result.error) || 'unknown (ok=' + (h2Result && h2Result.ok) + ', dataUrl=' + hasDataUrl + ')';

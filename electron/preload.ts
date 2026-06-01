@@ -412,6 +412,13 @@ const api: BloggerApi = {
     return () => ipcRenderer.off('run-progress', handler);
   },
 
+  // v3.8.44: 거미줄 실시간 이미지 생성 이벤트 구독
+  onSwImageGenerated: ((listener: (payload: { kind: string; label: string; url: string }) => void) => {
+    const handler = (_e: unknown, payload: any) => { try { listener(payload); } catch {} };
+    ipcRenderer.on('sw-image-generated', handler);
+    return () => ipcRenderer.off('sw-image-generated', handler);
+  }) as any,
+
   // 종료 확인
   onQuitConfirm: ((listener: () => void) => {
     const handler = () => { try { listener(); } catch {} };

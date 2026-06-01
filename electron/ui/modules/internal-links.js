@@ -1374,6 +1374,44 @@ function _openSwProgressModal(sources) {
   // 로그 영역 초기화
   const logList = document.getElementById('swpmLogList');
   if (logList) logList.innerHTML = '';
+  // v3.8.44: 이미지 패널 초기화 + 이벤트 구독
+  const imgGrid = document.getElementById('swpmImageGrid');
+  if (imgGrid) imgGrid.innerHTML = '';
+  const imgBig = document.getElementById('swpmImageBig');
+  if (imgBig) imgBig.innerHTML = '<div id="swpmImageBigPlaceholder" style="display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding:20px;color:#94a3b8;font-size:13px;"><div style="font-size:28px;">🖼️</div><div>이미지 생성 대기 중…</div></div>';
+  const imgCountEl = document.getElementById('swpmImageCount');
+  if (imgCountEl) imgCountEl.textContent = '0';
+  _swProgressState.imageCount = 0;
+  if (!_swProgressState.imageUnsubscribe && window.electronAPI && typeof window.electronAPI.onSwImageGenerated === 'function') {
+    _swProgressState.imageUnsubscribe = window.electronAPI.onSwImageGenerated((payload) => {
+      if (!payload || !payload.url) return;
+      _swProgressState.imageCount = (_swProgressState.imageCount || 0) + 1;
+      const c = document.getElementById('swpmImageCount');
+      if (c) c.textContent = String(_swProgressState.imageCount);
+      // 큰 미리보기 — 가장 최근
+      const big = document.getElementById('swpmImageBig');
+      if (big) {
+        big.innerHTML = `<img src="${payload.url}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;"><div style="position:absolute;bottom:8px;left:8px;padding:4px 10px;background:rgba(0,0,0,0.7);color:#fff;font-size:11px;font-weight:700;border-radius:6px;">${(payload.label || '').substring(0, 40)}</div>`;
+        big.style.position = 'relative';
+      }
+      // 작은 그리드 — 추가
+      const grid = document.getElementById('swpmImageGrid');
+      if (grid) {
+        const card = document.createElement('div');
+        card.style.cssText = 'aspect-ratio:1/1;border-radius:6px;overflow:hidden;cursor:pointer;border:1px solid rgba(148,163,184,0.2);background:#0f172a;';
+        card.title = payload.label || '';
+        card.innerHTML = `<img src="${payload.url}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;">`;
+        card.onclick = () => {
+          const b = document.getElementById('swpmImageBig');
+          if (b) {
+            b.innerHTML = `<img src="${payload.url}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;"><div style="position:absolute;bottom:8px;left:8px;padding:4px 10px;background:rgba(0,0,0,0.7);color:#fff;font-size:11px;font-weight:700;border-radius:6px;">${(payload.label || '').substring(0, 40)}</div>`;
+            b.style.position = 'relative';
+          }
+        };
+        grid.appendChild(card);
+      }
+    });
+  }
   _swPushLog('거미줄 통합글 생성 시작 — 소스 ' + (sources || []).length + '개', 'info');
   _swUpdateMiniProgress();
 

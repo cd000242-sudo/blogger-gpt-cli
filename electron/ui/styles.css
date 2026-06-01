@@ -1420,11 +1420,19 @@ textarea::placeholder {
 /* Grid: 좌측 소스 + 우측 단계 */
 .sw-progress-grid {
   position: relative; z-index: 1;
-  display: grid; grid-template-columns: 340px 1fr;
-  gap: 24px;
+  display: grid; grid-template-columns: 280px 280px 1fr;
+  gap: 20px;
   padding: 24px 32px;
   overflow-y: auto;
   flex: 1; min-height: 0;
+}
+/* v3.8.44: 이미지 패널 — 큰 미리보기 + 그리드 */
+.sw-progress-panel--images {
+  display: flex; flex-direction: column;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 14px;
+  padding: 16px;
 }
 .sw-progress-panel {
   background: rgba(15, 23, 42, 0.55);
