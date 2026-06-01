@@ -1728,6 +1728,21 @@ async function generateAndPublishSpiderWeb() {
         : '';
       _swPushLog('IPC publish-content 호출 (제목: "' + safeTitle.substring(0, 40) + '"' + (safeTitle.length > 40 ? '…' : '') + ', 썸네일: ' + (safeThumbnail ? '✓' : '✗') + ', 라벨: ' + safeLabels.length + platformExtra + ')', 'info');
 
+      // v3.8.17: Blogger 전용 인증·메타 옵션
+      const isBlogger = /^(blogger|blogspot)$/i.test(platform);
+      let bloggerCreds = {};
+      if (isBlogger) {
+        try {
+          bloggerCreds = {
+            blogId: (localStorage.getItem('blogId') || '').trim() || undefined,
+            googleClientId: (localStorage.getItem('googleClientId') || '').trim() || undefined,
+            googleClientSecret: (localStorage.getItem('googleClientSecret') || '').trim() || undefined,
+            googleAccessToken: (localStorage.getItem('googleAccessToken') || '').trim() || undefined,
+            googleRefreshToken: (localStorage.getItem('googleRefreshToken') || '').trim() || undefined,
+          };
+        } catch (e) { /* localStorage 접근 실패 — publisher가 env로 폴백 */ }
+      }
+
       // 공통 payload 빌더
       const fullPayload = {
         platform,
@@ -1736,15 +1751,17 @@ async function generateAndPublishSpiderWeb() {
         generatedLabels: safeLabels,
         labels: safeLabels,
         topic: safeTitle,
+        // 메타 (Blogger는 직접 적용 안 되지만 일관성 위해 전달 — publisher가 무시)
+        excerpt: generatedContent.excerpt || undefined,
+        metaDescription: generatedContent.metaDescription || undefined,
+        featuredImageAlt: safeTitle,
+        geminiKey: geminiKeyFromUi || undefined,
+        // Blogger 전용 인증·식별자
+        ...(isBlogger ? bloggerCreds : {}),
         // WordPress 전용
         ...(isWordPress ? {
           wordpressCategory: wordpressCategory || undefined,
           wordpressCategories: wordpressCategory || undefined,
-          geminiKey: geminiKeyFromUi || undefined,
-          // v3.8.16: SEO 메타데이터 — WordPressPublisher.publish가 사용
-          excerpt: generatedContent.excerpt || undefined,
-          metaDescription: generatedContent.metaDescription || undefined,
-          featuredImageAlt: safeTitle,
         } : {}),
       };
 

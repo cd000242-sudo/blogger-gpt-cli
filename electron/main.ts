@@ -1348,6 +1348,19 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.warn('[INTERNAL-CONSISTENCY] excerpt/metaDescription 생성 실패:', e?.message);
       }
 
+      // v3.8.17: Blogger 발행 시 본문 상단에 schema.org description meta 자동 삽입
+      //   Blogger는 API에서 description 필드를 받지 않으나, 본문 내 itemprop="description"을
+      //   인식해 글 목록 미리보기·SEO 메타에 활용. WordPress에도 영향 없는 안전한 마크업.
+      if (metaDescription) {
+        const escapedDesc = metaDescription
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+        const descMeta = `<div style="display:none;" itemprop="description">${escapedDesc}</div>\n`;
+        // 본문 맨 앞에 삽입 (썸네일·H1 처리 이전)
+        generatedContent = descMeta + generatedContent;
+        console.log('[INTERNAL-CONSISTENCY] 본문 상단 schema.org description meta 삽입');
+      }
+
       return {
         success: true,
         html: generatedContent,
