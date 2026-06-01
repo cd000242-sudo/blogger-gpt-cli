@@ -204,40 +204,43 @@ export function applyPreset(bgColor, textColor, borderColor) {
 (function initThumbnailGeneratorSettings() {
   const bgTypeRadios = document.querySelectorAll('input[name="thumbnailGenBackgroundType"]');
   const localUpload = document.getElementById('thumbnailGenLocalUpload');
-  const urlInput = document.getElementById('thumbnailGenUrlInput');
+  // v3.7.23: urlInput 제거됨 — 더 이상 참조하지 않음
+  const aiEngineWrap = document.getElementById('thumbnailGenAiEngineWrap');
   const bgOpacitySlider = document.getElementById('thumbnailGenBgOpacity');
   const bgOpacityValue = document.getElementById('thumbnailGenBgOpacityValue');
   const bgBlurSlider = document.getElementById('thumbnailGenBgBlur');
   const bgBlurValue = document.getElementById('thumbnailGenBgBlurValue');
-  
+
   if (!bgTypeRadios || bgTypeRadios.length === 0) {
     console.log('[썸네일 생성기] 배경 설정 요소를 찾을 수 없습니다');
     return;
   }
-  
-  // 배경 타입 변경
+
+  // v3.7.23: 글로벌 핸들러 — inline onchange에서 호출
+  window.handleThumbnailBgTypeChange = function (type) {
+    if (localUpload) localUpload.style.display = type === 'local' ? 'block' : 'none';
+    if (aiEngineWrap) aiEngineWrap.style.display = type === 'ai' ? 'block' : 'none';
+    // 라벨 스타일 동기화
+    bgTypeRadios.forEach(r => {
+      const label = r.closest('label');
+      if (!label) return;
+      const span = label.querySelector('span');
+      if (r.checked) {
+        label.style.background = 'rgba(59, 130, 246, 0.3)';
+        label.style.borderColor = 'rgba(59, 130, 246, 0.6)';
+        if (span) span.style.color = '#ffffff';
+      } else {
+        label.style.background = 'rgba(255, 255, 255, 0.1)';
+        label.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+        if (span) span.style.color = 'rgba(255, 255, 255, 0.9)';
+      }
+    });
+  };
+
+  // 배경 타입 변경 (라디오 직접 change도 청취 — onchange와 중복 호출 방지를 위해 동일 핸들러로)
   bgTypeRadios.forEach(radio => {
     radio.addEventListener('change', (e) => {
-      const type = e.target.value;
-      
-      // 선택된 라디오 버튼의 부모 label 스타일 업데이트
-      bgTypeRadios.forEach(r => {
-        const label = r.closest('label');
-        if (label) {
-          if (r.checked) {
-            label.style.background = 'rgba(59, 130, 246, 0.3)';
-            label.style.borderColor = 'rgba(59, 130, 246, 0.6)';
-            label.querySelector('span').style.color = '#ffffff';
-          } else {
-            label.style.background = 'rgba(255, 255, 255, 0.1)';
-            label.style.borderColor = 'rgba(255, 255, 255, 0.3)';
-            label.querySelector('span').style.color = 'rgba(255, 255, 255, 0.9)';
-          }
-        }
-      });
-      
-      if (localUpload) localUpload.style.display = type === 'local' ? 'block' : 'none';
-      if (urlInput) urlInput.style.display = type === 'url' ? 'block' : 'none';
+      window.handleThumbnailBgTypeChange(e.target.value);
     });
   });
   

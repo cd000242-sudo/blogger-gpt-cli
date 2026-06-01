@@ -40,6 +40,8 @@ function initializeUrlInputs() {
 window.initSpiderWebTab = function() {
   console.log('[SPIDER-WEB] 탭 활성화 - 초기화 시작');
   initializeUrlInputs();
+  // v3.7.22: 마지막 통합글 미리보기 자동 복원 (새 생성 전까지 유지)
+  try { restoreSpiderWebLast(); } catch (e) { console.warn('[SPIDER-WEB] 복원 실패:', e); }
 };
 
 /**
@@ -57,24 +59,39 @@ function addUrlInput() {
   urlInputCount++;
   const inputId = `spiderWebUrl${urlInputCount}`;
   
+  // v3.7.23: 다크 글래스모피즘 URL 입력 — 텍스트 컬러 명시(흰 배경 흰 텍스트 가독성 0 문제 해결).
+  //   왼쪽 번호 배지 + 글래스 입력 + 호버 시 인디고 글로우 + 미니멀 삭제 버튼.
   const inputDiv = document.createElement('div');
-  inputDiv.style.display = 'flex';
-  inputDiv.style.gap = '8px';
-  inputDiv.style.alignItems = 'center';
+  inputDiv.className = 'sw-url-row';
+  inputDiv.style.cssText = 'display: flex; gap: 10px; align-items: center;';
   inputDiv.innerHTML = `
-    <input 
-      type="text" 
-      id="${inputId}" 
-      placeholder="글 주소를 입력하세요 (예: https://example.com/post)" 
-      style="flex: 1; padding: 14px; border: 2px solid #e5e7eb; border-radius: 12px; font-size: 14px; background: #f9fafb; transition: all 0.3s ease; box-sizing: border-box;"
-      onfocus="this.style.borderColor='#667eea'; this.style.backgroundColor='#ffffff';"
-      onblur="this.style.borderColor='#e5e7eb'; this.style.backgroundColor='#f9fafb'; this.dispatchEvent(new Event('input'));"
-    />
-    <button 
-      onclick="removeUrlInput('${inputId}')" 
-      style="background: #ef4444; color: white; border: none; padding: 14px 20px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);"
-    >
-      ❌
+    <span class="sw-url-num" aria-hidden="true">${urlInputCount}</span>
+    <div class="sw-url-input-wrap">
+      <span class="sw-url-input-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+        </svg>
+      </span>
+      <input
+        type="text"
+        id="${inputId}"
+        class="sw-url-input"
+        placeholder="https://blog.example.com/post-slug"
+        autocomplete="off"
+        spellcheck="false"
+      />
+    </div>
+    <button
+      type="button"
+      onclick="removeUrlInput('${inputId}')"
+      class="sw-url-remove"
+      aria-label="이 입력칸 삭제"
+      title="삭제">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
     </button>
   `;
   
@@ -398,6 +415,17 @@ function addSelectedPostsToInputs() {
   const picks = checked
     .map(cb => modalPosts[parseInt(cb.dataset.index, 10)])
     .filter(Boolean);
+
+  // v3.7.23: 외부유입 탭에서 호출한 single-pick 모드 — 첫 글만 콜백으로 넘기고 종료
+  if (window._extTrafficSinglePickMode) {
+    window._extTrafficSinglePickMode = false;
+    const first = picks[0];
+    if (first && typeof window.extTrafficSetSource === 'function') {
+      window.extTrafficSetSource(first);
+    }
+    if (typeof closePublishedPostsModal === 'function') closePublishedPostsModal();
+    return;
+  }
 
   let added = 0;
   for (const post of picks) {
@@ -792,6 +820,460 @@ async function saveAndPublishSpiderWebContent() {
   }
 }
 
+/**
+ * v3.7.22: 통합글 생성 + 자동 발행 일체화 + 고급 진행 모달
+ *
+ * 변경 요약:
+ *  - Step 03 단일 버튼 "통합글 생성 및 발행하기" 클릭 → 본 함수 진입
+ *  - Step 04 하단 두 버튼(글만/생성+발행) 제거됨
+ *  - 진행 모달: 좌측 원본 글 그리드 + 우측 6단계 진행 + 회전 링 + 경과 시간
+ *  - 백엔드 API는 progress event를 emit하지 않으므로 클라이언트가 단계를 시뮬레이션.
+ *    실제 응답 수신 시점에 100% 도달.
+ *  - 결과를 localStorage('spiderWebLastGenerated')에 저장 → 새 생성 전까지 미리보기 유지.
+ *  - 미리보기는 워드프레스/블로그스팟 발행 모양(흰 배경 + 글 너비 제한)으로 렌더링.
+ */
+
+const SW_STEPS = [
+  { id: 1, label: 'URL 분석',         detail: '입력한 글 주소가 유효한지 확인하고 있어요',           icon: '🔍', weight: 5  },
+  { id: 2, label: '콘텐츠 크롤링',     detail: '각 글의 본문·이미지·메타데이터를 읽어오는 중이에요',  icon: '📥', weight: 25 },
+  { id: 3, label: '통합 제목 생성',    detail: '5개 글을 모두 포함하는 SEO 제목을 만들고 있어요',     icon: '✍️', weight: 10 },
+  { id: 4, label: '본문 합성',         detail: '각 글의 핵심 70%를 추출해 통합 본문을 만들고 있어요', icon: '🧩', weight: 35 },
+  { id: 5, label: '이미지·CTA 처리',   detail: '썸네일, 본문 이미지, 내부 링크 CTA를 배치하고 있어요', icon: '🖼️', weight: 10 },
+  { id: 6, label: '발행',              detail: '워드프레스/블로그스팟에 자동 발행하고 있어요',          icon: '🚀', weight: 15 },
+];
+
+let _swProgressState = {
+  modal: null,
+  startedAt: 0,
+  timer: null,
+  currentStep: 0,
+  simInterval: null,
+  apiDone: false,
+};
+
+function _openSwProgressModal(sources) {
+  const modal = document.getElementById('spiderWebProgressModal');
+  if (!modal) return;
+  _swProgressState.modal = modal;
+  _swProgressState.startedAt = new Date().getTime();
+  _swProgressState.currentStep = 0;
+  _swProgressState.apiDone = false;
+
+  // 소스 그리드 채우기
+  const grid = document.getElementById('swpmSourceGrid');
+  const countEl = document.getElementById('swpmSourceCount');
+  if (countEl) countEl.textContent = String(sources.length);
+  if (grid) {
+    grid.innerHTML = sources.map((s, i) => {
+      const idx = String(i + 1).padStart(2, '0');
+      const safeTitle = escapeHtml(s.title || '제목 없음');
+      const safeUrl = escapeHtml(s.url || '');
+      const titleInitial = (s.title || '?').trim().charAt(0) || '?';
+      const thumbHtml = s.thumbnail
+        ? `<div class="sw-source-thumb" style="background-image:url('${escapeHtml(s.thumbnail)}')"></div>`
+        : `<div class="sw-source-thumb sw-source-thumb--placeholder">${escapeHtml(titleInitial)}</div>`;
+      return `
+        <div class="sw-source-card">
+          ${thumbHtml}
+          <div class="sw-source-meta">
+            <div class="sw-source-num">SOURCE ${idx}</div>
+            <div class="sw-source-title">${safeTitle}</div>
+            <div class="sw-source-url">${safeUrl}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // 단계 리스트 초기화
+  document.querySelectorAll('#swpmStepList .sw-step-item').forEach((li) => {
+    li.classList.remove('is-active', 'is-done', 'is-error');
+    li.classList.add('is-pending');
+    const state = li.querySelector('.sw-step-state');
+    if (state) state.textContent = '대기';
+  });
+
+  // 결과/닫기 버튼 초기화
+  const result = document.getElementById('swpmResult');
+  if (result) result.hidden = true;
+  const closeBtn = document.getElementById('swpmCloseBtn');
+  if (closeBtn) closeBtn.disabled = true;
+
+  // 진행률 초기화
+  _swUpdateProgress(0);
+  _swSetCurrent({ label: '대기 중', detail: '곧 시작합니다…', icon: '⏳' });
+  document.getElementById('swpmStepCounter').textContent = `0 / ${SW_STEPS.length}`;
+  document.getElementById('swpmElapsed').textContent = '00:00';
+
+  modal.removeAttribute('hidden');
+
+  // 경과 시간 timer
+  _swProgressState.timer = setInterval(() => {
+    const sec = Math.floor((new Date().getTime() - _swProgressState.startedAt) / 1000);
+    const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+    const ss = String(sec % 60).padStart(2, '0');
+    const el = document.getElementById('swpmElapsed');
+    if (el) el.textContent = `${mm}:${ss}`;
+  }, 1000);
+}
+
+function _swUpdateProgress(percent) {
+  const fill = document.getElementById('swpmProgressFill');
+  const ringFill = document.getElementById('swpmRingFill');
+  const percentEl = document.getElementById('swpmRingPercent');
+  const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+  if (fill) fill.style.width = clamped + '%';
+  if (ringFill) {
+    const circumference = 2 * Math.PI * 52; // ≈ 326.7
+    const offset = circumference - (circumference * clamped) / 100;
+    ringFill.setAttribute('stroke-dashoffset', String(offset));
+  }
+  if (percentEl) percentEl.textContent = String(clamped);
+}
+
+function _swSetCurrent({ label, detail, icon }) {
+  const lab = document.getElementById('swpmCurrentLabel');
+  const det = document.getElementById('swpmCurrentDetail');
+  const ic = document.getElementById('swpmCurrentIcon');
+  if (lab) lab.textContent = label;
+  if (det) det.textContent = detail;
+  if (ic) ic.textContent = icon;
+}
+
+function _swAdvanceStep(stepId, state) {
+  // state: 'active' | 'done' | 'error'
+  const li = document.querySelector(`#swpmStepList .sw-step-item[data-step="${stepId}"]`);
+  if (!li) return;
+  li.classList.remove('is-pending', 'is-active', 'is-done', 'is-error');
+  if (state === 'active') {
+    li.classList.add('is-active');
+    const st = li.querySelector('.sw-step-state');
+    if (st) st.textContent = '진행 중';
+  } else if (state === 'done') {
+    li.classList.add('is-done');
+    const st = li.querySelector('.sw-step-state');
+    if (st) st.textContent = '완료';
+  } else if (state === 'error') {
+    li.classList.add('is-error');
+    const st = li.querySelector('.sw-step-state');
+    if (st) st.textContent = '실패';
+  }
+}
+
+/**
+ * 단계 시뮬레이션 — API 응답 전까지 단계를 cumulative weight 기준으로 점진적으로 진행.
+ * 실제 API 응답 시점에 100%로 점프.
+ */
+function _swStartStepSimulation() {
+  // 1단계 즉시 active
+  const totalWeight = SW_STEPS.reduce((sum, s) => sum + s.weight, 0);
+  _swProgressState.currentStep = 0;
+
+  const advance = () => {
+    if (_swProgressState.apiDone) return;
+    const stepIdx = _swProgressState.currentStep;
+    if (stepIdx >= SW_STEPS.length - 1) {
+      // 마지막 발행 단계는 API 응답 후 처리하므로 5단계까지만 자동 진행
+      return;
+    }
+    const step = SW_STEPS[stepIdx];
+
+    // 직전 단계 done 처리
+    if (stepIdx > 0) {
+      _swAdvanceStep(SW_STEPS[stepIdx - 1].id, 'done');
+    }
+    // 현재 단계 active
+    _swAdvanceStep(step.id, 'active');
+    _swSetCurrent({ label: step.label, detail: step.detail, icon: step.icon });
+
+    document.getElementById('swpmStepCounter').textContent = `${stepIdx + 1} / ${SW_STEPS.length}`;
+
+    // 누적 weight 기준 percent (이 단계가 끝나는 시점의 percent)
+    const cumulative = SW_STEPS.slice(0, stepIdx + 1).reduce((s, x) => s + x.weight, 0);
+    const cap = Math.min(85, Math.round((cumulative / totalWeight) * 100)); // 5단계까지만 자동, 85% cap
+
+    // 현재 percent → cap까지 천천히 채움
+    let p = stepIdx === 0 ? 2 : Math.round(((SW_STEPS.slice(0, stepIdx).reduce((s, x) => s + x.weight, 0)) / totalWeight) * 100);
+    const tickIntervalMs = Math.max(120, Math.round(step.weight * 80)); // 단계 weight에 비례하는 속도
+    const stepInterval = setInterval(() => {
+      if (_swProgressState.apiDone) {
+        clearInterval(stepInterval);
+        return;
+      }
+      p += 1;
+      if (p >= cap) {
+        clearInterval(stepInterval);
+        _swProgressState.currentStep = stepIdx + 1;
+        if (_swProgressState.currentStep < SW_STEPS.length - 1) {
+          // 다음 단계로
+          setTimeout(advance, 200);
+        }
+      }
+      _swUpdateProgress(p);
+    }, tickIntervalMs);
+
+    _swProgressState.simInterval = stepInterval;
+  };
+
+  advance();
+}
+
+function _swMarkAllDoneUntil(stepId) {
+  for (let i = 1; i <= stepId; i++) {
+    _swAdvanceStep(i, 'done');
+  }
+}
+
+function _swFinishSuccess(publishedUrl) {
+  _swProgressState.apiDone = true;
+  if (_swProgressState.simInterval) clearInterval(_swProgressState.simInterval);
+
+  // 발행 단계 active → done
+  _swMarkAllDoneUntil(5);
+  _swAdvanceStep(6, 'active');
+  _swSetCurrent({ label: '발행', detail: '발행 완료!', icon: '🚀' });
+  document.getElementById('swpmStepCounter').textContent = `${SW_STEPS.length} / ${SW_STEPS.length}`;
+
+  // 0.5s 뒤 완료 UI
+  setTimeout(() => {
+    _swAdvanceStep(6, 'done');
+    _swUpdateProgress(100);
+    _swSetCurrent({ label: '완료', detail: '모든 작업이 끝났습니다 ✨', icon: '✅' });
+
+    const result = document.getElementById('swpmResult');
+    const link = document.getElementById('swpmResultLink');
+    if (link && publishedUrl) link.href = publishedUrl;
+    if (result) result.hidden = false;
+
+    const closeBtn = document.getElementById('swpmCloseBtn');
+    if (closeBtn) closeBtn.disabled = false;
+
+    if (_swProgressState.timer) clearInterval(_swProgressState.timer);
+  }, 500);
+}
+
+function _swFinishError(message) {
+  _swProgressState.apiDone = true;
+  if (_swProgressState.simInterval) clearInterval(_swProgressState.simInterval);
+  if (_swProgressState.timer) clearInterval(_swProgressState.timer);
+
+  const stepId = Math.min(_swProgressState.currentStep + 1, SW_STEPS.length);
+  _swAdvanceStep(stepId, 'error');
+  _swSetCurrent({ label: '오류 발생', detail: message || '알 수 없는 오류', icon: '❌' });
+
+  const closeBtn = document.getElementById('swpmCloseBtn');
+  if (closeBtn) closeBtn.disabled = false;
+}
+
+function closeSpiderWebProgressModal() {
+  const modal = document.getElementById('spiderWebProgressModal');
+  if (modal) modal.setAttribute('hidden', '');
+  if (_swProgressState.timer) clearInterval(_swProgressState.timer);
+  if (_swProgressState.simInterval) clearInterval(_swProgressState.simInterval);
+}
+
+/**
+ * 통합글 생성 + 자동 발행 일체화 (v3.7.22)
+ */
+async function generateAndPublishSpiderWeb() {
+  console.log('[SPIDER-WEB] generateAndPublishSpiderWeb 호출됨');
+
+  try {
+    updateSelectedPostsFromInputs();
+    const urls = selectedPosts.map(p => p.url).filter(u => u && u.trim());
+
+    if (urls.length === 0) {
+      alert('⚠️ 최소 1개 이상의 글 주소를 입력하거나 선택해주세요.');
+      return;
+    }
+    if (urls.length > 5) {
+      alert('⚠️ 최대 5개까지만 선택할 수 있습니다.');
+      return;
+    }
+
+    const titleInput = document.getElementById('spiderWebTitle');
+    const title = titleInput ? titleInput.value.trim() : '';
+
+    // 진행 모달 표시
+    _openSwProgressModal(selectedPosts);
+
+    // 단계 시뮬레이션 시작
+    _swStartStepSimulation();
+
+    // ── Stage 1: 생성 API ──
+    let genResult;
+    try {
+      const payload = {
+        urls,
+        title: title || '',
+        posts: selectedPosts.map((post, index) => ({
+          id: `post-${index + 1}`,
+          url: post.url,
+          title: post.title || post.url,
+          order: index + 1,
+        })),
+      };
+      if (window.electronAPI && window.electronAPI.invoke) {
+        genResult = await window.electronAPI.invoke('generate-internal-consistency', payload);
+      } else if (window.blogger && window.blogger.generateInternalLinkContent) {
+        genResult = await window.blogger.generateInternalLinkContent(payload);
+      } else {
+        throw new Error('생성 API를 사용할 수 없습니다.');
+      }
+    } catch (e) {
+      _swFinishError('통합글 생성 실패: ' + (e?.message || '알 수 없는 오류'));
+      return;
+    }
+
+    if (!genResult || !genResult.success) {
+      _swFinishError(genResult?.error || '통합글 생성에 실패했습니다.');
+      return;
+    }
+    if (!genResult.html) {
+      _swFinishError('생성된 HTML이 없습니다.');
+      return;
+    }
+
+    generatedContent = {
+      html: genResult.html,
+      title: genResult.title || title || '거미줄치기 통합글',
+      urls,
+    };
+    if (titleInput && genResult.title) titleInput.value = genResult.title;
+
+    // ── Stage 2: 자동 발행 ──
+    // 단계 5까지 done 처리, 6단계 active
+    _swMarkAllDoneUntil(5);
+    _swAdvanceStep(6, 'active');
+    _swSetCurrent({ label: '발행', detail: '워드프레스/블로그스팟에 자동 발행 중…', icon: '🚀' });
+    _swUpdateProgress(90);
+
+    // 발행 플랫폼: 메인 설정 또는 기본 blogspot
+    const platformInput = document.querySelector('input[name="platform"]:checked');
+    const platform = (platformInput && platformInput.value) || 'blogspot';
+
+    let pubResult;
+    try {
+      if (window.blogger && window.blogger.publishContent) {
+        pubResult = await window.blogger.publishContent({
+          title: generatedContent.title,
+          html: generatedContent.html,
+          platform,
+          publishType: 'publish',
+        });
+      } else if (window.electronAPI && window.electronAPI.invoke) {
+        pubResult = await window.electronAPI.invoke('publish-content', {
+          title: generatedContent.title,
+          content: generatedContent.html,
+          payload: { platform, publishType: 'publish' },
+        });
+      } else {
+        throw new Error('발행 API를 사용할 수 없습니다.');
+      }
+    } catch (e) {
+      _swFinishError('발행 실패: ' + (e?.message || '알 수 없는 오류'));
+      // 생성된 HTML은 미리보기에 그대로 표시 (재발행 가능하도록)
+      _renderSpiderWebPreview(generatedContent.html, null, null);
+      _persistSpiderWebLast({ title: generatedContent.title, html: generatedContent.html, urls, publishedUrl: '', publishedAt: '' });
+      return;
+    }
+
+    if (!pubResult || !pubResult.ok) {
+      _swFinishError(pubResult?.error || '발행에 실패했습니다.');
+      _renderSpiderWebPreview(generatedContent.html, null, null);
+      _persistSpiderWebLast({ title: generatedContent.title, html: generatedContent.html, urls, publishedUrl: '', publishedAt: '' });
+      return;
+    }
+
+    const publishedUrl = pubResult.url || pubResult.postUrl || '';
+    const publishedAt = new Date().toISOString();
+
+    // 발행한 글 저장 (publishedPosts에 추가 — 다른 탭에서 활용)
+    try {
+      savePublishedPost({
+        url: publishedUrl,
+        title: generatedContent.title,
+        publishedAt,
+        platform,
+      });
+    } catch (e) { console.warn('[SPIDER-WEB] savePublishedPost 실패:', e); }
+
+    // 미리보기 렌더 + localStorage 저장
+    _renderSpiderWebPreview(generatedContent.html, publishedUrl, publishedAt);
+    _persistSpiderWebLast({
+      title: generatedContent.title,
+      html: generatedContent.html,
+      urls,
+      publishedUrl,
+      publishedAt,
+      platform,
+    });
+
+    _swFinishSuccess(publishedUrl);
+
+  } catch (error) {
+    console.error('[SPIDER-WEB] generateAndPublishSpiderWeb 실패:', error);
+    _swFinishError(error?.message || '알 수 없는 오류');
+  }
+}
+
+/**
+ * Step 04 미리보기 영역 렌더 (워드프레스/블로그스팟 발행 모양 그대로)
+ */
+function _renderSpiderWebPreview(html, publishedUrl, publishedAt) {
+  const section = document.getElementById('spiderWebPreview');
+  const content = document.getElementById('spiderWebPreviewContent');
+  const badge = document.getElementById('spiderWebResultBadge');
+  const urlEl = document.getElementById('spiderWebResultUrl');
+  const timeEl = document.getElementById('spiderWebResultTime');
+
+  if (section) section.removeAttribute('hidden');
+  if (content) content.innerHTML = html;
+
+  if (badge && publishedUrl) {
+    badge.hidden = false;
+    if (urlEl) urlEl.href = publishedUrl;
+    if (timeEl && publishedAt) {
+      try {
+        const d = new Date(publishedAt);
+        timeEl.textContent = '· ' + d.toLocaleString('ko-KR');
+      } catch { timeEl.textContent = ''; }
+    }
+  } else if (badge) {
+    badge.hidden = true;
+  }
+}
+
+const SW_LAST_KEY = 'spiderWebLastGenerated';
+
+function _persistSpiderWebLast(data) {
+  try {
+    localStorage.setItem(SW_LAST_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.warn('[SPIDER-WEB] localStorage 저장 실패:', e);
+  }
+}
+
+/**
+ * v3.7.22: 거미줄 탭 진입 시 마지막 통합글 복원 (새 글 생성 전까지 미리보기 유지)
+ */
+function restoreSpiderWebLast() {
+  try {
+    const raw = localStorage.getItem(SW_LAST_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (!data || !data.html) return;
+    _renderSpiderWebPreview(data.html, data.publishedUrl || null, data.publishedAt || null);
+    const titleInput = document.getElementById('spiderWebTitle');
+    if (titleInput && data.title && !titleInput.value.trim()) {
+      titleInput.value = data.title;
+    }
+    console.log('[SPIDER-WEB] 마지막 통합글 미리보기 복원 완료');
+  } catch (e) {
+    console.warn('[SPIDER-WEB] 마지막 통합글 복원 실패:', e);
+  }
+}
+
 // 전역 스코프에 함수 노출
 window.savePublishedPost = savePublishedPost;
 window.getPublishedPosts = getPublishedPosts;
@@ -806,6 +1288,10 @@ window.clearUrlInputs = clearUrlInputs;
 window.generateSpiderWebContent = generateSpiderWebContent;
 window.saveSpiderWebContent = saveSpiderWebContent;
 window.saveAndPublishSpiderWebContent = saveAndPublishSpiderWebContent;
+// v3.7.22: 통합 생성+발행 + 진행 모달
+window.generateAndPublishSpiderWeb = generateAndPublishSpiderWeb;
+window.closeSpiderWebProgressModal = closeSpiderWebProgressModal;
+window.restoreSpiderWebLast = restoreSpiderWebLast;
 // v3.7.21: 체크박스 다중 선택 헬퍼
 window.updatePublishedSelectionCount = updatePublishedSelectionCount;
 window.selectAllPublishedPosts = selectAllPublishedPosts;

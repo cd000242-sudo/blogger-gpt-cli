@@ -7,21 +7,23 @@ export function initSidebar() {
         return;
     }
 
+    // v3.7.23: 좌측 탭 순서 재정렬 — 사용자 워크플로우 자연스러운 순서로 통일.
+    //   메인 → 썸네일 → 이미지생성 → 글포스팅 → 거미줄포스팅 → 외부유입글생성 → 황금키워드 → 외부유입사이트모음 → 다중계정 → 설정
     const navItems = [
         { id: 'nav-main', icon: '🏠', label: '메인', action: () => window.showTab?.('main') },
         { id: 'nav-thumbnail', icon: '🖼️', label: '썸네일', action: () => window.showTab?.('thumbnail') },
-        { id: 'nav-auto', icon: '⚡', label: '포스팅', action: () => window.showTab?.('settings') },
+        { id: 'nav-image-batch', icon: '✨', label: '이미지생성', action: () => window.showTab?.('image-batch') },
+        { id: 'nav-auto', icon: '⚡', label: '글포스팅', action: () => window.showTab?.('settings') },
+        { id: 'nav-intlinks-page', icon: '🕸️', label: '거미줄포스팅', action: () => window.showTab?.('internal-links') },
+        { id: 'nav-external-traffic', icon: '🚀', label: '외부유입글생성', action: () => window.showTab?.('external-traffic') },
+        { id: 'nav-keyword-discover', icon: '🔍', label: '황금키워드', action: () => window.runLewordLauncher?.() },
+        { id: 'nav-extlinks', icon: '🔗', label: '외부유입사이트모음', action: () => window.openExternalLinksModal?.() },
+        // 숨김 — 기존 메뉴 유지용
         { id: 'nav-semiauto', icon: '🎨', label: '반자동', action: () => window.showTab?.('semi-auto'), hidden: true },
         { id: 'nav-schedule', icon: '📅', label: '스케줄', action: () => window.showTab?.('schedule'), hidden: true },
-        { id: 'nav-intlinks-page', icon: '🕸️', label: '거미줄', action: () => window.showTab?.('internal-links') },
-        { id: 'nav-keyword-discover', icon: '🔍', label: '황금키워드', action: () => window.runLewordLauncher?.() },
-        // v3.5.98: 대량 이미지 생성 탭 신규
-        { id: 'nav-image-batch', icon: '✨', label: '이미지생성', action: () => window.showTab?.('image-batch') },
     ];
 
     const toolItems = [
-        { id: 'nav-extlinks', icon: '🔗', label: '외부유입', action: () => window.openExternalLinksModal?.() },
-
         { id: 'nav-multi', icon: '👥', label: '다중계정', action: () => window.openMultiAccountModal?.() },
         { id: 'nav-settings', icon: '⚙️', label: '설정', action: () => window.openSettingsModal?.() },
     ];

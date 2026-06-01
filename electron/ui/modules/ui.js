@@ -50,6 +50,13 @@ export function showTab(tabName) {
     case 'internal-links':
       targetTab = document.getElementById('internal-links-tab');
       break;
+    case 'external-traffic':
+      // v3.7.23: 외부유입 글 생성 신규 탭
+      targetTab = document.getElementById('external-traffic-tab');
+      if (targetTab && window.initExternalTrafficTab) {
+        try { window.initExternalTrafficTab(); } catch (e) { console.warn('[EXT-TRAFFIC] init 실패:', e); }
+      }
+      break;
     case 'keyword-discover':
       targetTab = document.getElementById('keyword-discover-tab');
       break;

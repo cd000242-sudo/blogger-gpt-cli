@@ -531,21 +531,21 @@ export function renderOneclickSetupTab() {
         <div id="oneclick-healthcheck-results" style="margin-top: 8px;"></div>
       </div>
 
-      <!-- 블로그스팟 카드 -->
-      ${renderPlatformCard(PLATFORMS.blogspot)}
+      <!-- v3.7.23: 카드 순서 재정렬 (1) 앱 연동 → (2) 플랫폼 → (3) 웹마스터 → (4) 인프라
+           블로그스팟/워드프레스 카드는 아래(STEP 2)로 이동됨. -->
 
-      <!-- 워드프레스 카드 -->
-      ${renderPlatformCard(PLATFORMS.wordpress)}
-
-      <!-- 🔗 앱 연동 (Blogger OAuth / WordPress 연결) -->
-      <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 16px; padding: 24px;">
-        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-          <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #8b5cf6, #6d28d9); border-radius: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(139, 92, 246, 0.3);">
-            <span style="font-size: 22px;">🔗</span>
+      <!-- v3.7.23: STEP 1 — 앱 ↔ 플랫폼 원클릭 연동 (모든 자동화의 전제이므로 1순위로 끌어올림) -->
+      <div style="background: rgba(30, 41, 59, 0.4); border: 2px solid rgba(139, 92, 246, 0.45); border-radius: 16px; padding: 24px; box-shadow: 0 12px 36px rgba(139, 92, 246, 0.18);">
+        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 16px;">
+          <div style="position: relative; flex-shrink: 0;">
+            <div style="width: 48px; height: 48px; background: linear-gradient(135deg, #8b5cf6, #6d28d9); border-radius: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(139, 92, 246, 0.4);">
+              <span style="font-size: 24px;">🔗</span>
+            </div>
+            <span style="position: absolute; top: -8px; right: -8px; padding: 3px 8px; background: linear-gradient(135deg, #a855f7, #ec4899); color: white; border-radius: 8px; font-size: 10px; font-weight: 900; letter-spacing: 0.05em; box-shadow: 0 4px 12px rgba(168, 85, 247, 0.5);">STEP 1</span>
           </div>
-          <div>
-            <h4 style="margin: 0; font-weight: 800; color: white; font-size: 17px; letter-spacing: -0.3px;">앱 ↔ 플랫폼 원클릭 연동</h4>
-            <p style="margin: 4px 0 0; font-size: 11px; color: #a78bfa;">GCP OAuth 자동 설정 + Blog ID 추출 / WordPress Application Password 생성</p>
+          <div style="flex: 1; min-width: 0;">
+            <h4 style="margin: 0; font-weight: 800; color: white; font-size: 17px; letter-spacing: -0.3px;">앱 ↔ 플랫폼 원클릭 연동 <span style="margin-left: 8px; padding: 2px 8px; background: rgba(239, 68, 68, 0.18); color: #fca5a5; border-radius: 6px; font-size: 10px; font-weight: 700;">필수 · 1순위</span></h4>
+            <p style="margin: 4px 0 0; font-size: 12px; color: #c4b5fd;">⚠️ 이 연동이 먼저 완료되어야 STEP 2(플랫폼 세팅)와 STEP 3(웹마스터) 자동화가 작동합니다.</p>
           </div>
         </div>
 
@@ -605,13 +605,25 @@ export function renderOneclickSetupTab() {
         </div>
       </div>
 
-      <!-- 🔍 웹마스터도구 자동 세팅 -->
+      <!-- v3.7.23: STEP 2 — 플랫폼 자동 세팅 (블로그스팟·워드프레스) -->
+      <div style="display: flex; align-items: center; gap: 14px; margin: 8px 0 4px;">
+        <span style="padding: 5px 12px; background: linear-gradient(135deg, #f97316, #ea580c); color: white; border-radius: 8px; font-size: 11px; font-weight: 900; letter-spacing: 0.05em; box-shadow: 0 4px 12px rgba(249, 115, 22, 0.4);">STEP 2</span>
+        <h4 style="margin: 0; color: #fed7aa; font-size: 15px; font-weight: 800; letter-spacing: -0.2px;">플랫폼 자동 세팅</h4>
+        <span style="color: rgba(254, 215, 170, 0.6); font-size: 11px;">STEP 1 연동 완료 후 진행하세요</span>
+      </div>
+      ${renderPlatformCard(PLATFORMS.blogspot)}
+      ${renderPlatformCard(PLATFORMS.wordpress)}
+
+      <!-- v3.7.23: STEP 3 — 🔍 웹마스터도구 자동 세팅 -->
       <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 16px; padding: 24px;">
-        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
-          <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(245, 158, 11, 0.3);">
-            <span style="font-size: 22px;">🔍</span>
+        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 8px;">
+          <div style="position: relative; flex-shrink: 0;">
+            <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(245, 158, 11, 0.3);">
+              <span style="font-size: 22px;">🔍</span>
+            </div>
+            <span style="position: absolute; top: -8px; right: -8px; padding: 3px 8px; background: linear-gradient(135deg, #fbbf24, #f59e0b); color: white; border-radius: 8px; font-size: 10px; font-weight: 900; letter-spacing: 0.05em; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.5);">STEP 3</span>
           </div>
-          <div>
+          <div style="flex: 1; min-width: 0;">
             <h4 style="margin: 0; font-weight: 800; color: white; font-size: 17px; letter-spacing: -0.3px;">웹마스터도구 최적 세팅</h4>
             <p style="margin: 4px 0 0; font-size: 11px; color: #fbbf24;">로그인만 해주세요! 사이트맵, RSS, 색인 요청까지 자동 설정 (4대 검색엔진)</p>
           </div>
@@ -658,14 +670,17 @@ export function renderOneclickSetupTab() {
         </div>
       </div>
 
-      <!-- 🔒 인프라 세팅 (Cloudways DNS + SSL) — 워드프레스 전용 -->
+      <!-- v3.7.23: STEP 4 — 🔒 인프라 세팅 (Cloudways DNS + SSL) — 워드프레스 전용 -->
       <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 16px; padding: 24px;">
-        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
-          <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #10b981, #059669); border-radius: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(16, 185, 129, 0.3);">
-            <span style="font-size: 22px;">🔒</span>
+        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 8px;">
+          <div style="position: relative; flex-shrink: 0;">
+            <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #10b981, #059669); border-radius: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(16, 185, 129, 0.3);">
+              <span style="font-size: 22px;">🔒</span>
+            </div>
+            <span style="position: absolute; top: -8px; right: -8px; padding: 3px 8px; background: linear-gradient(135deg, #34d399, #10b981); color: white; border-radius: 8px; font-size: 10px; font-weight: 900; letter-spacing: 0.05em; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.5);">STEP 4</span>
           </div>
-          <div>
-            <h4 style="margin: 0; font-weight: 800; color: white; font-size: 17px; letter-spacing: -0.3px;">인프라 원클릭 세팅</h4>
+          <div style="flex: 1; min-width: 0;">
+            <h4 style="margin: 0; font-weight: 800; color: white; font-size: 17px; letter-spacing: -0.3px;">인프라 원클릭 세팅 <span style="margin-left: 6px; padding: 2px 6px; background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border-radius: 5px; font-size: 9px; font-weight: 700;">WP 전용</span></h4>
             <p style="margin: 4px 0 0; font-size: 11px; color: #6ee7b7;">Cloudways 도메인 연결 + SSL 인증서 자동 설치 (워드프레스 전용)</p>
           </div>
         </div>
@@ -1193,6 +1208,11 @@ function cancelWebmasterSetup(engine) {
 function listenForProgress(platformId) {
   clearPoll('platform');
   let pfPollErrors = 0;
+  // v3.7.23+: silent stall watchdog — 3단계 에스컬레이션 (60초 → 3분 → 5분)
+  let _lastStepIdx = -1;
+  let _lastStepMsg = '';
+  let _stallSince = 0;
+  let _stallTier = 0; // 0=정상, 1=60초 알림, 2=3분 강한 알림, 3=5분 취소 권고
   platformPollId = setInterval(async () => {
     if (!activeSetup || activeSetup.cancelled || activeSetup.platform !== platformId) {
       clearPoll('platform');
@@ -1203,6 +1223,113 @@ function listenForProgress(platformId) {
       const status = await window.electronAPI?.invoke('oneclick:get-status', { platform: platformId });
       if (!status) return;
       pfPollErrors = 0;
+
+      // v3.7.23+: Stall 3단계 에스컬레이션 — 60초 / 3분 / 5분
+      const now = new Date().getTime();
+      if (status.currentStep === _lastStepIdx && status.message === _lastStepMsg && status.stepStatus === 'running') {
+        if (_stallSince === 0) {
+          _stallSince = now;
+          _stallTier = 0;
+        } else {
+          const elapsed = now - _stallSince;
+          const platLabel = platformId === 'blogspot' ? '🔵 블로그스팟' : '🟣 워드프레스';
+
+          // 1차 (60초): 부드러운 안내
+          if (_stallTier < 1 && elapsed > 60000) {
+            _stallTier = 1;
+            showManualWaitModalOnce({
+              modalKey: `stall-1-${platformId}-${status.currentStep}`,
+              platformLabel: platLabel,
+              stepLabel: '자동화가 잠시 멈춘 것 같아요',
+              expectedTime: '확인 후 보통 30초~1분 내 재개',
+              urgency: 'low',
+              faqType: 'stall',
+              instructions: [
+                { title: 'Chrome 브라우저 창을 확인해주세요',
+                  detail: '자동화가 <strong>60초 넘게</strong> 같은 단계에 머물러 있어요. 보통 브라우저에서 사용자 조치를 기다리고 있어요. 작업 표시줄에서 Chrome 아이콘을 클릭하거나 <strong>Alt + Tab</strong>으로 브라우저 창을 앞으로 가져오세요.',
+                  successCheck: 'Chrome 창이 보이고 어떤 페이지가 떠 있어요.',
+                  failHint: 'Chrome이 닫혔으면 자동화는 실패한 거예요. 아래 "취소 후 처음부터" 버튼을 누르세요.' },
+                { title: 'Chrome 화면에 다음 중 하나가 있는지 확인',
+                  detail: '<strong>① 캡차</strong> — "나는 로봇이 아닙니다" 체크박스<br><strong>② 2단계 인증</strong> — 휴대폰 인증번호 입력<br><strong>③ "계속" / "확인" / "다음" 버튼</strong> — 클릭이 필요<br><strong>④ 로그인 추가 확인</strong> — "내가 맞아요" 확인<br><strong>⑤ 팝업 차단 알림</strong> — 우측 상단 작은 알림',
+                  successCheck: '위 중 하나가 있으면 직접 처리해주세요.',
+                  failHint: '아무것도 없는데 멈춰 있으면 Chrome 자체 문제. 아래 FAQ "Chrome은 열려있는데 화면이 멈춰있어요" 참고.' },
+                { title: '해당 항목을 직접 처리해주세요',
+                  detail: '발견한 항목을 직접 눌러서 해결. 처리하면 자동화가 다시 알아서 진행됩니다.',
+                  successCheck: '처리 후 페이지가 다음으로 넘어가요. 이 앱으로 돌아오면 진행 메시지가 바뀝니다.',
+                  failHint: '' },
+              ],
+              warning: 'Chrome 창이 가려져 있으면 멈춘 것처럼 보여요. 가장 먼저 Chrome 창을 앞으로 가져와 확인하세요.',
+              hint: '자주 멈추는 곳 → 캡차 / 휴대폰 인증 / "확인" 버튼 / 새 탭 차단 알림 / 약관 동의 체크박스',
+              allowRetry: true,
+            });
+          }
+
+          // 2차 (3분): 조금 더 강하게 — 도움이 필요하신가요?
+          else if (_stallTier < 2 && elapsed > 180000) {
+            _stallTier = 2;
+            showManualWaitModalOnce({
+              modalKey: `stall-2-${platformId}-${status.currentStep}`,
+              platformLabel: platLabel,
+              stepLabel: '벌써 3분이 지났어요 · 도움이 필요하신가요?',
+              expectedTime: '지금 결정하면 1분 내 해결',
+              urgency: 'mid',
+              faqType: 'stall',
+              instructions: [
+                { title: 'Chrome 창에 무언가 떠 있는데 어떻게 해야 할지 모르겠다면',
+                  detail: '아래 <strong>"자주 발생하는 문제 4가지"</strong>를 펼쳐서 해당 상황을 찾아보세요. 거기에 정확한 해결책이 있어요.',
+                  successCheck: 'FAQ에서 답을 찾으면 그대로 따라하세요.',
+                  failHint: '답이 없으면 다음 단계로.' },
+                { title: 'Chrome 창이 아예 안 보이거나 닫혔다면',
+                  detail: '자동화가 실패한 상태예요. <strong style="color:#fca5a5;">아래 "취소 후 처음부터" 빨간 버튼</strong>을 눌러주세요. 1~2분 안에 다시 시도 가능합니다.',
+                  successCheck: '취소되면 옆 패널에서 다시 시작 버튼이 나타나요.',
+                  failHint: '버튼이 안 보이면 모달을 닫고 옆 패널을 살펴보세요.' },
+                { title: '같은 곳에서 계속 막힌다면 5~10분 대기 후 재시도',
+                  detail: 'Google/네이버가 일시적으로 차단했을 가능성이 커요. 같은 IP로 너무 자주 시도하면 더 오래 막혀요. 5~10분 기다린 뒤 다시 시작해주세요.',
+                  successCheck: '시간이 지나면 차단이 풀려요.',
+                  failHint: '30분 이상 막히면 IP가 변경되어야 풀려요. 라우터 재부팅 시도.' },
+              ],
+              warning: '⚠️ 3분이 넘었다는 건 단순 대기가 아니라 어딘가 문제가 생겼다는 신호예요. FAQ를 꼭 확인해주세요.',
+              hint: '취소해도 입력했던 정보(블로그 주소 등)는 그대로 남아 있어 다시 입력할 필요 없어요.',
+              allowRetry: true,
+            });
+          }
+
+          // 3차 (5분): 강력하게 — 거의 확실히 문제 있음
+          else if (_stallTier < 3 && elapsed > 300000) {
+            _stallTier = 3;
+            showManualWaitModalOnce({
+              modalKey: `stall-3-${platformId}-${status.currentStep}`,
+              platformLabel: platLabel,
+              stepLabel: '5분 넘게 진행이 없어요 · 다시 시작하는 게 좋겠어요',
+              expectedTime: '취소 → 재시작 1~2분',
+              urgency: 'high',
+              faqType: 'stall',
+              instructions: [
+                { title: '지금까지 진행된 내용은 보존됩니다',
+                  detail: '취소해도 이미 완료된 자동 단계는 그대로 유지돼요. 다시 시작하면 멈춘 지점부터(또는 가까운 지점부터) 진행됩니다. 처음부터 100% 다시 하는 게 아니에요.',
+                  successCheck: '안심하고 취소 후 다시 시작하세요.',
+                  failHint: '' },
+                { title: '아래 빨간 "취소 후 처음부터" 버튼을 눌러주세요',
+                  detail: '강제로 중단하고 처음 화면으로 돌아갑니다. 입력했던 블로그 주소·계정 정보는 그대로 남아 있어요.',
+                  successCheck: '취소 후 옆 패널에 "다시 시작" 옵션이 나타나면 성공.',
+                  failHint: '버튼이 안 보이면 페이지를 살짝 위로 스크롤하거나 모달을 닫고 옆 사이드를 살펴보세요.' },
+                { title: '재시작 전에 5분 정도 쉬어주세요',
+                  detail: 'Google·네이버가 너무 빠른 재시도를 막을 수 있어요. 휴식 후 시작하면 통과율이 훨씬 높아요.',
+                  successCheck: '재시작 시 같은 단계에서 빠르게 통과해요.',
+                  failHint: '여전히 같은 곳에서 막히면 IP·계정 차단 상태. 30분~1시간 더 기다리거나 다른 계정 사용.' },
+              ],
+              warning: '🚨 5분 이상 멈춰있다는 건 99% 자동화가 실패한 상태예요. 더 기다리는 건 의미가 없습니다. 취소 후 재시도하세요.',
+              hint: '계정이 일시 차단된 경우 강제로 더 시도하면 차단 기간이 더 길어집니다.',
+              allowRetry: true,
+            });
+          }
+        }
+      } else {
+        _stallSince = 0;
+        _stallTier = 0;
+      }
+      _lastStepIdx = status.currentStep;
+      _lastStepMsg = status.message || '';
 
       if (status.currentStep !== undefined) {
         for (let i = 0; i < status.currentStep; i++) {
@@ -1215,7 +1342,57 @@ function listenForProgress(platformId) {
           document.getElementById(`oneclick-login-btn-${platformId}`)?.remove();
         } else if (status.stepStatus === 'waiting-login') {
           updateStepUI(platformId, status.currentStep, 'waiting', '🔐 로그인을 완료한 뒤 아래 버튼을 눌러주세요');
-          
+
+          // v3.7.23+: 큰 안내 모달 — 초보자도 정확히 따라할 수 있게 화면 묘사·성공 체크·실패 대응 포함.
+          //   같은 platform·step 조합에 대해 1회만 띄움 (dismiss 추적).
+          showManualWaitModalOnce({
+            modalKey: `wait-login-${platformId}-${status.currentStep}`,
+            platformLabel: platformId === 'blogspot' ? '🔵 블로그스팟' : '🟣 워드프레스',
+            stepLabel: '로그인이 필요해요',
+            expectedTime: '약 1~2분',
+            instructions: platformId === 'blogspot'
+              ? [
+                { title: 'Chrome 브라우저 창을 찾아주세요',
+                  detail: '방금 자동으로 새 Chrome 창이 열렸어요. 안 보이면 화면 맨 아래 <strong>작업 표시줄</strong>에서 Chrome 아이콘을 찾아 클릭하거나, 키보드 <strong>Alt + Tab</strong>을 눌러 창을 전환하세요.',
+                  successCheck: '"Google에 로그인" 또는 "Google" 로고가 보이는 페이지가 나타나면 성공이에요.',
+                  failHint: 'Chrome이 한 개도 안 보이면 작업 표시줄에서 Chrome 아이콘 우클릭 → 새 창 열기 시도해보세요.' },
+                { title: 'Google 계정으로 로그인하세요',
+                  detail: '<strong>에드센스 승인받은 Google 계정</strong>(또는 받을 계정)의 이메일과 비밀번호를 입력해주세요. 다른 계정이면 안 돼요. 2단계 인증이 켜져 있으면 휴대폰으로 오는 인증번호까지 입력해야 합니다.',
+                  successCheck: '오른쪽 상단에 본인 프로필 사진/이니셜이 보이면 로그인 완료예요.',
+                  failHint: '비밀번호를 모르거나 인증이 막히면 이 모달을 닫고 옆에 "취소" 버튼을 눌러 처음부터 다시 시작해도 돼요.' },
+                { title: '이 앱 창으로 돌아오세요',
+                  detail: '<strong>이 앱(LEADERNAM Orbit)</strong>을 다시 화면 맨 위로 가져오세요. 작업 표시줄에서 이 앱 아이콘 클릭, 또는 Alt+Tab으로 전환.',
+                  successCheck: '이 모달이 보이면 정확히 돌아온 거예요.',
+                  failHint: '' },
+                { title: '아래 초록 버튼 "✅ 로그인 완료"를 클릭하세요',
+                  detail: '이 모달을 닫고, 화면 아래쪽에 표시된 <strong style="color:#34d399;">✅ 로그인 완료</strong> 초록 버튼을 눌러주세요. 그러면 다음 단계가 자동으로 시작됩니다.',
+                  successCheck: '"✅ 로그인 완료"를 누르면 자동으로 다음 단계로 넘어가요. 1~2초 기다리세요.',
+                  failHint: '버튼이 안 보이면 페이지를 살짝 위로 스크롤해보세요.' },
+              ]
+              : [
+                { title: 'Chrome 브라우저 창을 찾아주세요',
+                  detail: '방금 자동으로 새 Chrome 창이 열렸어요. 안 보이면 화면 맨 아래 <strong>작업 표시줄</strong>에서 Chrome 아이콘을 찾아 클릭하거나, 키보드 <strong>Alt + Tab</strong>을 눌러 창을 전환하세요.',
+                  successCheck: '본인 워드프레스 사이트의 "wp-admin" 로그인 페이지가 보여야 해요. (예: yourblog.com/wp-admin)',
+                  failHint: 'wp-admin 페이지가 안 뜨면 URL을 직접 확인해주세요. 주소가 틀렸을 수 있어요.' },
+                { title: '워드프레스 관리자 계정으로 로그인하세요',
+                  detail: '<strong>WordPress 설치 시 만든 관리자 ID/비밀번호</strong>를 입력하세요. 호스팅 가입 정보랑 다를 수 있어요 (Cloudways/카페24 계정 ≠ WP 관리자 계정).',
+                  successCheck: '왼쪽에 검은색 사이드바와 "대시보드"라는 글자가 보이면 로그인 완료예요.',
+                  failHint: '비밀번호 분실 시 wp-admin 로그인 페이지의 "Lost your password?" 링크로 재설정 가능.' },
+                { title: '이 앱 창으로 돌아오세요',
+                  detail: '<strong>이 앱(LEADERNAM Orbit)</strong>을 다시 화면 맨 위로 가져오세요. 작업 표시줄에서 이 앱 아이콘 클릭, 또는 Alt+Tab으로 전환.',
+                  successCheck: '이 모달이 보이면 정확히 돌아온 거예요.',
+                  failHint: '' },
+                { title: '아래 초록 버튼 "✅ 로그인 완료"를 클릭하세요',
+                  detail: '이 모달을 닫고, 화면 아래쪽에 표시된 <strong style="color:#34d399;">✅ 로그인 완료</strong> 초록 버튼을 눌러주세요. 다음 단계가 자동으로 시작됩니다.',
+                  successCheck: '"✅ 로그인 완료"를 누르면 자동으로 다음 단계로 넘어가요.',
+                  failHint: '버튼이 안 보이면 페이지를 살짝 위로 스크롤해보세요.' },
+              ],
+            warning: '⚠️ Chrome 창이 다른 창 뒤에 가려져 있을 수 있어요. 보이지 않으면 작업 표시줄에서 Chrome 아이콘을 클릭하거나 Alt + Tab으로 창을 전환해주세요.',
+            hint: '시간이 더 필요하면 천천히 하세요. 자동화는 무한정 기다려요. 3분 넘게 멈춰있으면 자동으로 도움말이 한 번 더 뜹니다.',
+            faqType: platformId === 'blogspot' ? 'blogspot-login' : 'wordpress-login',
+            allowRetry: true,
+          });
+
           // "로그인 완료" 버튼 추가 (이미 있으면 스킵)
           if (!document.getElementById(`oneclick-login-btn-${platformId}`)) {
             const stepEl = document.getElementById(`oneclick-step-${platformId}-${status.currentStep}`);
@@ -2084,6 +2261,210 @@ function listenForInfraProgress() {
   }, POLL_INTERVAL_MS);
 }
 
+
+// ═══════════════════════════════════════════════
+// v3.7.23: 수동 대기 안내 모달 + Silent stall watchdog
+// ═══════════════════════════════════════════════
+
+// 같은 (modalKey)는 1회만 노출 — 사용자가 닫은 뒤 다시 띄우지 않음
+const _oneclickShownModals = new Set();
+
+/**
+ * v3.7.23+: 초보자 친화 큰 안내 모달.
+ *   - z-index 2147483000 (브라우저 한도 근처) → 다른 모든 UI 위로 강제 노출
+ *   - 본문 폰트 16~17px / 굵게·고대비 색상
+ *   - 단계마다 (a) 무엇을 / (b) ✅ 성공 신호 / (c) ⚠️ 안 되면 가이드
+ *   - 신호등 색상: 단계 번호 = 보라, 성공 = 녹색, 실패 가이드 = 빨강
+ *   - 모달 자체에도 닫기/이해 버튼 외에 "다시 보지 않기" 옵션
+ */
+/**
+ * v3.7.23+: 자주 발생하는 문제 FAQ — 단계별로 다르게 노출.
+ *   loginType: 'blogspot-login' | 'wordpress-login' | 'stall' 등
+ */
+const _MANUAL_FAQ = {
+  'blogspot-login': [
+    { q: 'Chrome 창이 안 보여요',
+      a: '① 화면 맨 아래 작업 표시줄에서 Chrome 아이콘 찾아 클릭<br>② Alt + Tab으로 창 전환<br>③ Windows 키 + D로 모든 창 최소화 → Chrome만 다시 클릭<br>④ Chrome 아이콘이 아예 없으면 자동화가 실패한 거예요. "취소" 후 다시 시작하세요.' },
+    { q: 'Google 비밀번호를 모르겠어요',
+      a: 'Google 로그인 페이지의 <strong>"비밀번호를 잊으셨나요?"</strong> 링크를 클릭해서 휴대폰 인증으로 재설정하세요. 시간이 걸릴 수 있으니 처음부터 다시 시작해도 됩니다.' },
+    { q: '2단계 인증 휴대폰이 없어요',
+      a: 'Google 계정 복구 페이지(accounts.google.com/signin/recovery)에서 백업 코드나 다른 인증 방법으로 진행하세요. 정 안 되면 이 단계를 건너뛰고 다른 계정을 사용해주세요.' },
+    { q: '캡차(자동입력 방지) 이미지가 계속 떠요',
+      a: '천천히 정확하게 풀어주세요. 너무 자주 틀리면 일시적으로 차단될 수 있어요. 5~10분 기다린 뒤 처음부터 다시 시도하세요.' },
+    { q: '로그인 했는데 진행이 안 돼요',
+      a: '아래 초록색 "✅ 로그인 완료" 버튼을 누르셨나요? 못 보면 페이지를 살짝 위로 스크롤해보세요. 그래도 안 되면 "🔄 이 단계 다시 시도"를 눌러주세요.' },
+  ],
+  'wordpress-login': [
+    { q: 'wp-admin 페이지가 안 떠요',
+      a: '입력하신 URL이 맞는지 확인하세요 (예: https://yourblog.com/wp-admin). https:// 빼먹지 마세요. URL이 틀렸으면 옆 패널에서 다시 입력해주세요.' },
+    { q: '관리자 비밀번호를 모르겠어요',
+      a: 'wp-admin 로그인 페이지의 <strong>"Lost your password?"</strong> 링크로 이메일 재설정 가능. WP 관리자 계정 ≠ 호스팅(카페24/Cloudways) 계정이에요. 헷갈리지 마세요.' },
+    { q: 'WordPress 관리자 계정을 만든 적 없어요',
+      a: '워드프레스 설치를 안 했다는 의미예요. 호스팅사 가이드 따라 WordPress 설치 → 그 과정에서 관리자 계정 생성 → 이후 다시 시도하세요.' },
+    { q: '로그인 했는데 진행이 안 돼요',
+      a: '왼쪽 사이드바에 "대시보드"가 보이나요? 보이면 이 앱으로 돌아와 "✅ 로그인 완료" 버튼 클릭. 안 보이면 페이지 새로고침 후 다시 시도.' },
+  ],
+  'stall': [
+    { q: 'Chrome을 닫아버렸어요',
+      a: '자동화는 실패했어요. 옆 패널에서 "취소" 버튼 누른 뒤 처음부터 다시 시작하세요.' },
+    { q: 'Chrome은 열려있는데 화면이 멈춰있어요',
+      a: '브라우저 자체 문제일 수 있어요. Chrome 창에서 F5 (새로고침)을 한 번 눌러보세요. 그래도 안 되면 5분 기다린 뒤 옆 패널의 "취소" → 다시 시도.' },
+    { q: '캡차가 계속 떠서 진행이 안 돼요',
+      a: 'Google이 일시적으로 차단한 상태예요. 10~30분 정도 기다린 뒤 다시 시도해야 풀려요. 같은 IP로 너무 자주 시도하면 더 오래 막혀요.' },
+    { q: '여러 번 시도했는데 계속 같은 곳에서 멈춰요',
+      a: '브라우저 캐시·쿠키 문제일 수 있어요. Chrome 설정 → 인터넷 사용 기록 삭제 → 모두 삭제 후 처음부터 다시 시도하세요.' },
+  ],
+};
+
+function showManualWaitModalOnce({ modalKey, platformLabel, stepLabel, expectedTime, instructions, warning, hint, faqType, allowRetry, urgency }) {
+  if (_oneclickShownModals.has(modalKey)) return;
+  _oneclickShownModals.add(modalKey);
+
+  const id = 'oneclick-manual-wait-modal';
+  // 기존 모달이 있으면 제거 (중첩 방지)
+  const old = document.getElementById(id);
+  if (old) old.remove();
+
+  const modal = document.createElement('div');
+  modal.id = id;
+  // v3.7.23+: z-index 최상위 (2^31 - 1 근처). 다른 모달/팝업 위로 무조건 노출.
+  modal.style.cssText = `
+    position: fixed; inset: 0; z-index: 2147483000;
+    background: rgba(2, 6, 23, 0.88); backdrop-filter: blur(16px) saturate(120%);
+    -webkit-backdrop-filter: blur(16px) saturate(120%);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; animation: oneclickModalFadeIn 0.3s ease;
+  `;
+
+  // 새 데이터 구조 지원: [{ title, detail, successCheck, failHint }, ...]
+  //   하위 호환: 그냥 문자열 배열이면 단순 형태로 표시
+  const safeInstructions = Array.isArray(instructions) ? instructions : [String(instructions || '')];
+  const instructionsHtml = safeInstructions.map((step, i) => {
+    const isStructured = step && typeof step === 'object';
+    const title = isStructured ? (step.title || '') : '';
+    const detail = isStructured ? (step.detail || '') : String(step || '');
+    const successCheck = isStructured ? (step.successCheck || '') : '';
+    const failHint = isStructured ? (step.failHint || '') : '';
+
+    return `
+      <div style="background: linear-gradient(165deg, rgba(30, 41, 59, 0.85), rgba(15, 23, 42, 0.92)); border: 1px solid rgba(99, 102, 241, 0.32); border-radius: 14px; padding: 18px 20px; margin-bottom: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.25);">
+        <div style="display: flex; gap: 14px; align-items: flex-start; margin-bottom: ${(successCheck || failHint) ? '12px' : '0'};">
+          <div style="flex-shrink: 0; width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; font-size: 16px; font-weight: 900; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);">${i + 1}</div>
+          <div style="flex: 1; min-width: 0;">
+            ${title ? `<h3 style="margin: 4px 0 8px; color: #f1f5f9; font-size: 16px; font-weight: 800; line-height: 1.4; letter-spacing: -0.2px;">${escapeHtml(title)}</h3>` : ''}
+            <div style="color: #cbd5e1; font-size: 14px; line-height: 1.75; font-weight: 500;">${detail /* 의도적으로 HTML 허용 — 화면 묘사용 <strong> */}</div>
+          </div>
+        </div>
+        ${successCheck ? `
+        <div style="margin-left: 50px; padding: 10px 14px; background: rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981; border-radius: 0 8px 8px 0; font-size: 13px; color: #6ee7b7; line-height: 1.6;">
+          <span style="font-weight: 900; color: #34d399;">✅ 이렇게 되면 성공:</span> ${escapeHtml(successCheck)}
+        </div>` : ''}
+        ${failHint ? `
+        <div style="margin-left: 50px; margin-top: 8px; padding: 10px 14px; background: rgba(239, 68, 68, 0.08); border-left: 3px solid #ef4444; border-radius: 0 8px 8px 0; font-size: 13px; color: #fca5a5; line-height: 1.6;">
+          <span style="font-weight: 900; color: #f87171;">⚠️ 잘 안되면:</span> ${escapeHtml(failHint)}
+        </div>` : ''}
+      </div>`;
+  }).join('');
+
+  modal.innerHTML = `
+    <div style="position: relative; width: 100%; max-width: 720px; max-height: 92vh; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); border: 2px solid rgba(168, 85, 247, 0.45); border-radius: 24px; padding: 0; box-shadow: 0 60px 160px -20px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.06) inset, 0 0 80px rgba(168, 85, 247, 0.18); animation: oneclickModalZoom 0.45s cubic-bezier(0.16, 1, 0.3, 1); display: flex; flex-direction: column; overflow: hidden;">
+
+      <!-- 헤더 -->
+      <div style="padding: 28px 32px 22px; border-bottom: 1px solid rgba(148, 163, 184, 0.12); background: linear-gradient(180deg, rgba(168, 85, 247, 0.08), transparent);">
+        <div style="display: flex; align-items: flex-start; gap: 18px;">
+          <div style="position: relative; flex-shrink: 0;">
+            <div style="width: 64px; height: 64px; border-radius: 18px; background: linear-gradient(135deg, #f59e0b, #ef4444); display: flex; align-items: center; justify-content: center; font-size: 34px; box-shadow: 0 10px 30px rgba(245, 158, 11, 0.5); animation: oneclickPulse 1.8s ease-in-out infinite;">⏸</div>
+          </div>
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: inline-block; padding: 5px 12px; background: linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(236, 72, 153, 0.2)); border: 1px solid rgba(168, 85, 247, 0.5); border-radius: 8px; color: #e9d5ff; font-size: 11px; font-weight: 900; letter-spacing: 0.12em; margin-bottom: 10px;">⏸ 자동화 일시 정지 · 직접 해주세요</div>
+            <h2 style="margin: 0 0 6px; color: #ffffff; font-size: 24px; font-weight: 900; letter-spacing: -0.4px; line-height: 1.25;">${escapeHtml(platformLabel)} — ${escapeHtml(stepLabel || '수동 작업이 필요해요')}</h2>
+            <p style="margin: 0; color: #cbd5e1; font-size: 15px; font-weight: 500; line-height: 1.5;">아래 단계를 <strong style="color: #fbbf24;">순서대로 천천히</strong> 따라하시면 자동화가 다시 진행됩니다. ${expectedTime ? `<span style="display: inline-block; margin-left: 8px; padding: 2px 10px; background: rgba(251, 191, 36, 0.15); border: 1px solid rgba(251, 191, 36, 0.35); border-radius: 6px; color: #fde047; font-size: 12px; font-weight: 700;">⏱ 예상 ${escapeHtml(expectedTime)}</span>` : ''}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 본문 (스크롤) -->
+      <div style="padding: 24px 32px; overflow-y: auto; flex: 1; min-height: 0;">
+        ${instructionsHtml}
+        ${warning ? `
+        <div style="margin-top: 16px; padding: 16px 20px; background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(245, 158, 11, 0.08)); border: 2px solid rgba(239, 68, 68, 0.4); border-radius: 12px; display: flex; gap: 14px; align-items: flex-start; box-shadow: 0 4px 16px rgba(239, 68, 68, 0.15);">
+          <span style="font-size: 28px; flex-shrink: 0; line-height: 1;">⚠️</span>
+          <div style="flex: 1; min-width: 0; color: #fef2f2; font-size: 14px; font-weight: 600; line-height: 1.65;">${escapeHtml(warning)}</div>
+        </div>` : ''}
+        ${hint ? `
+        <div style="margin-top: 12px; padding: 14px 18px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.32); border-radius: 11px; display: flex; gap: 12px; align-items: flex-start;">
+          <span style="font-size: 20px; flex-shrink: 0; line-height: 1;">💡</span>
+          <div style="flex: 1; min-width: 0; color: #dbeafe; font-size: 13px; font-weight: 500; line-height: 1.6;">${escapeHtml(hint)}</div>
+        </div>` : ''}
+
+        ${faqType && _MANUAL_FAQ[faqType] ? `
+        <details style="margin-top: 18px; background: rgba(0,0,0,0.25); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 12px; overflow: hidden;">
+          <summary style="padding: 14px 20px; cursor: pointer; color: #fbbf24; font-size: 14px; font-weight: 800; display: flex; align-items: center; gap: 10px; user-select: none; list-style: none;">
+            <span style="font-size: 18px;">❓</span>
+            <span>자주 발생하는 문제 ${_MANUAL_FAQ[faqType].length}가지 — 클릭해서 펼치기</span>
+            <span style="margin-left: auto; font-size: 12px; color: #94a3b8;">▼</span>
+          </summary>
+          <div style="padding: 4px 20px 18px;">
+            ${_MANUAL_FAQ[faqType].map((f, idx) => `
+              <details style="margin-top: 8px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.12); border-radius: 10px; overflow: hidden;">
+                <summary style="padding: 12px 16px; cursor: pointer; color: #e2e8f0; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 10px; list-style: none;">
+                  <span style="flex-shrink: 0; width: 22px; height: 22px; border-radius: 6px; background: rgba(251, 191, 36, 0.2); border: 1px solid rgba(251, 191, 36, 0.4); color: #fde047; font-size: 11px; font-weight: 900; display: inline-flex; align-items: center; justify-content: center;">Q${idx + 1}</span>
+                  <span style="flex: 1; min-width: 0;">${escapeHtml(f.q)}</span>
+                  <span style="font-size: 11px; color: #94a3b8;">▼</span>
+                </summary>
+                <div style="padding: 0 16px 14px 48px; color: #cbd5e1; font-size: 13px; line-height: 1.7; font-weight: 500;">${f.a}</div>
+              </details>
+            `).join('')}
+          </div>
+        </details>` : ''}
+      </div>
+
+      <!-- 푸터 — v3.7.23+: 회복 버튼 추가 (다시 시도 / 취소) -->
+      <div style="padding: 18px 28px 24px; border-top: 1px solid rgba(148, 163, 184, 0.12); display: flex; gap: 10px; flex-wrap: wrap; justify-content: space-between; align-items: center; background: rgba(0, 0, 0, 0.25);">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          ${allowRetry ? `
+          <button type="button" onclick="this.closest('#${id}').remove(); window.__oneclickSetup?.cancelSetup && window.__oneclickSetup.cancelSetup();" style="padding: 11px 18px; background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.15s ease;" onmouseover="this.style.background='rgba(239,68,68,0.25)'" onmouseout="this.style.background='rgba(239,68,68,0.15)'">
+            🚫 취소 후 처음부터
+          </button>` : ''}
+        </div>
+        <button type="button" onclick="this.closest('#${id}').remove()" style="padding: 14px 30px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 12px; font-size: 16px; font-weight: 900; cursor: pointer; box-shadow: 0 8px 24px rgba(16, 185, 129, 0.45); letter-spacing: -0.2px; transition: transform 0.15s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+          ✅ 알겠어요 · 따라할게요
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // ESC로 닫기
+  const escHandler = (e) => {
+    if (e.key === 'Escape') {
+      modal.remove();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+}
+
+// 헬퍼: escapeHtml — 모듈 자체에서 정의 (의존성 없이)
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// CSS 키프레임 1회 주입
+(function injectOneclickManualCSS() {
+  if (document.getElementById('oneclick-manual-css')) return;
+  const style = document.createElement('style');
+  style.id = 'oneclick-manual-css';
+  style.textContent = `
+    @keyframes oneclickModalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes oneclickModalZoom { from { transform: translateY(20px) scale(0.95); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+    @keyframes oneclickPulse { 0%,100% { transform: scale(1); box-shadow: 0 8px 24px rgba(245, 158, 11, 0.4); } 50% { transform: scale(1.06); box-shadow: 0 8px 32px rgba(245, 158, 11, 0.6); } }
+  `;
+  document.head.appendChild(style);
+})();
 
 // ═══════════════════════════════════════════════
 // 전역 등록

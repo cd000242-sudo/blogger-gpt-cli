@@ -108,25 +108,49 @@ function showSuccess(version) {
 }
 
 export async function runLewordLauncher() {
+  // v3.7.23: 진단 강화 — 사용자가 "무반응"으로 보고하면 어디서 막혔는지 console에 남기고
+  //   API 누락 시 alert가 빠르게 사라져 못 본 케이스를 대응 (모달 자체로 에러 표시).
+  console.log('[LEWORD] runLewordLauncher 호출됨');
   const api = window.blogger || window.electronAPI;
+  console.log('[LEWORD] API 체크:', {
+    hasBlogger: !!window.blogger,
+    hasElectronAPI: !!window.electronAPI,
+    hasLeword: !!(api && api.leword)
+  });
+
+  // 항상 다이얼로그 먼저 띄움 — alert가 사라져서 못 보는 무반응 패턴 차단
+  ensureDialog();
+
   if (!api || !api.leword) {
-    alert('LEWORD 런처 API를 찾을 수 없습니다. 앱을 재시작해주세요.');
+    console.error('[LEWORD] LEWORD 런처 API 누락');
+    showError('LEWORD 런처 API를 찾을 수 없습니다. 앱을 완전히 종료 후 재시작해주세요.\n(개발자 도구 콘솔에 [LEWORD] 로그가 있으면 함께 공유해 주세요)');
     return;
   }
 
-  ensureDialog();
   setProgress({ phase: 'license', percent: 0, message: '시작 중...' });
 
-  const unsubscribe = api.leword.onProgress((payload) => setProgress(payload));
+  let unsubscribe = null;
+  try {
+    if (typeof api.leword.onProgress === 'function') {
+      unsubscribe = api.leword.onProgress((payload) => setProgress(payload));
+    } else {
+      console.warn('[LEWORD] onProgress 미구현 — 진행률 이벤트 없이 launch만 수행');
+    }
+  } catch (e) {
+    console.warn('[LEWORD] onProgress 등록 실패:', e?.message);
+  }
 
   try {
+    console.log('[LEWORD] launch() 호출');
     const result = await api.leword.launch();
+    console.log('[LEWORD] launch 결과:', result);
     if (result?.ok) {
       showSuccess(result.version);
     } else {
       showError(result?.error || 'LEWORD 실행에 실패했습니다.');
     }
   } catch (e) {
+    console.error('[LEWORD] launch 예외:', e);
     showError(e?.message || String(e));
   } finally {
     if (typeof unsubscribe === 'function') unsubscribe();

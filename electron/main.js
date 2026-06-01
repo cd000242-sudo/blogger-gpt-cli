@@ -62,6 +62,113 @@ const URL_FETCH_TIMEOUT_MS = 10000;
 const MAX_TITLE_LENGTH = 30;
 const MIN_TITLE_LENGTH = 5;
 const MAX_OUTPUT_TOKENS_TITLE = 500;
+/**
+ * v3.7.22: 거미줄 통합글 폴백 헬퍼 — LLM 실패 시에도 cornerstone 구조 유지.
+ *   도입 카드 + 요약표 + 원본별 카드 + 강력한 CTA 박스 + 종합 거미줄 그리드를 생성한다.
+ */
+function buildSpiderWebFallbackHtml(title, sortedContents) {
+    const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth() + 1;
+    // v3.7.22+: 폴백도 끝판왕 회유 — 30% 노출 + 이미지 미끼 + 구체 결핍 3개 + 다음 H2 전환
+    const sectionsHtml = sortedContents.map((item, index) => {
+        const safeTitle = escapeHtml(item.title || '제목 없음');
+        const safeUrl = escapeHtml(item.url || '#');
+        const safeImg = escapeHtml(item.image || '');
+        const teaser = escapeHtml((item.content || '').substring(0, 400).trim()) + '…';
+        const next = sortedContents[index + 1];
+        const nextTitle = next ? escapeHtml((next.title || '').substring(0, 30)) : '';
+        const imageBlock = safeImg ? `
+<a href="${safeUrl}" target="_blank" rel="noopener" style="display:block;margin:20px 0;position:relative;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.12);">
+  <img src="${safeImg}" alt="${safeTitle}" style="display:block;width:100%;height:auto;">
+  <span style="position:absolute;bottom:12px;right:12px;padding:6px 12px;background:rgba(220,38,38,0.92);color:#fff;border-radius:8px;font-size:12px;font-weight:800;">📖 원본 보기 →</span>
+</a>` : '';
+        const transitionCard = nextTitle ? `
+<div style="margin:24px 0;padding:14px 18px;background:rgba(148,163,184,0.08);border-radius:10px;border-left:3px solid #64748b;font-size:14px;color:#475569;line-height:1.6;">
+  👉 이제 다음은 <strong>${nextTitle}</strong> 차례예요. 많은 분들이 여기서 헷갈리는 부분이 있어요.
+</div>` : '';
+        return `
+<h2 style="font-size:24px;font-weight:800;color:#0f172a;margin:48px 0 18px;padding:14px 20px;background:#f0fdfa;border-left:5px solid #0d9488;border-radius:0 10px 10px 0;line-height:1.4;">
+  ${index + 1}. ${safeTitle}
+</h2>${imageBlock}
+<p style="font-size:16px;line-height:1.85;color:#1a1a1a;margin:0 0 20px;">${teaser}</p>
+<div class="cta-box" style="margin:32px 0;padding:24px 28px;background:linear-gradient(135deg,#fff7ed,#fef3c7);border-radius:14px;border:2px solid #f59e0b;text-align:center;">
+  <p style="margin:0 0 12px;font-size:17px;font-weight:800;color:#92400e;line-height:1.5;">💡 위에 다 못 담은 핵심 디테일이 원본에 있어요</p>
+  <p style="margin:0 0 16px;font-size:14px;color:#78350f;line-height:1.7;text-align:left;">
+    원본에만 있는 것:<br>
+    ① 실제 사례·캡처 자료<br>
+    ② 단계별 상세 가이드와 체크리스트<br>
+    ③ 자주 놓치는 함정·예외 케이스
+  </p>
+  <a href="${safeUrl}" target="_blank" rel="noopener" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff !important;text-decoration:none;border-radius:10px;font-weight:800;font-size:15px;box-shadow:0 6px 20px rgba(220,38,38,0.35);">📖 ${safeTitle} 전체 보기 →</a>
+</div>${transitionCard}`;
+    }).join('\n');
+    const tableRowsHtml = sortedContents.map((item, idx) => `
+      <tr style="background:${idx % 2 === 0 ? '#fff' : '#f8fafc'};">
+        <td style="padding:14px 18px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;width:30%;">${idx + 1}. ${escapeHtml((item.title || '').substring(0, 30))}</td>
+        <td style="padding:14px 18px;border-bottom:1px solid #e2e8f0;color:#334155;line-height:1.6;">${escapeHtml((item.content || '').substring(0, 120))}…</td>
+      </tr>`).join('');
+    const gridHtml = sortedContents.map((item) => {
+        const safeTitle = escapeHtml(item.title || '제목 없음');
+        const safeUrl = escapeHtml(item.url || '#');
+        const safeImg = escapeHtml(item.image || '');
+        const short = escapeHtml((item.content || '').substring(0, 80)) + '…';
+        const thumb = safeImg
+            ? `<div style="width:100%;height:140px;background:url('${safeImg}') center/cover;border-radius:10px 10px 0 0;"></div>`
+            : `<div style="width:100%;height:140px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:10px 10px 0 0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:48px;font-weight:900;">${escapeHtml((item.title || '?').trim().charAt(0))}</div>`;
+        return `
+      <a href="${safeUrl}" target="_blank" rel="noopener" style="display:block;background:#fff;border-radius:12px;border:1px solid #e2e8f0;text-decoration:none;color:#1a1a1a;box-shadow:0 2px 8px rgba(0,0,0,0.04);transition:all 0.2s ease;overflow:hidden;">
+        ${thumb}
+        <div style="padding:14px 16px;">
+          <div style="font-size:15px;font-weight:800;color:#0f172a;margin-bottom:6px;line-height:1.4;">${safeTitle}</div>
+          <div style="font-size:12px;color:#64748b;line-height:1.5;">${short}</div>
+          <div style="font-size:12px;color:#dc2626;font-weight:700;margin-top:10px;">📖 원본 보기 →</div>
+        </div>
+      </a>`;
+    }).join('');
+    return `
+<div class="sw-cornerstone" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR','Malgun Gothic',sans-serif;color:#1a1a1a;line-height:1.8;">
+
+  <h1 style="font-size:30px;font-weight:900;color:#0f172a;line-height:1.3;margin:24px 0 14px;letter-spacing:-0.02em;">
+    ${escapeHtml(title)}
+  </h1>
+
+  <div style="background:linear-gradient(135deg,#eef2ff,#fce7f3);border-radius:14px;padding:24px 28px;margin:24px 0;border-left:5px solid #6366f1;">
+    <p style="margin:0 0 14px;font-size:16px;font-weight:700;color:#312e81;line-height:1.6;">📌 이 가이드는 ${currentYear}년 ${currentMonth}월 기준으로 ${sortedContents.length}개의 핵심 정보를 한 편으로 정리한 종합 가이드입니다.</p>
+    <ul style="margin:0;padding-left:22px;color:#1a1a1a;font-size:15px;line-height:1.8;">
+      ${sortedContents.map((s, i) => `<li><strong>${i + 1}.</strong> ${escapeHtml((s.title || '').substring(0, 50))}</li>`).join('')}
+    </ul>
+  </div>
+
+  <table style="width:100%;border-collapse:collapse;margin:32px 0;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.08);border-radius:12px;overflow:hidden;">
+    <thead>
+      <tr style="background:linear-gradient(135deg,#0d9488,#0891b2);color:#fff;">
+        <th style="padding:14px 18px;text-align:left;font-size:14px;font-weight:800;">항목</th>
+        <th style="padding:14px 18px;text-align:left;font-size:14px;font-weight:800;">핵심 요약</th>
+      </tr>
+    </thead>
+    <tbody>${tableRowsHtml}</tbody>
+  </table>
+
+  ${sectionsHtml}
+
+  <h2 style="font-size:22px;font-weight:800;color:#0f172a;margin:48px 0 18px;padding:14px 20px;background:#fef3c7;border-left:5px solid #f59e0b;border-radius:0 10px 10px 0;">
+    🔗 한눈에 보는 거미줄 — 관련 글 모음
+  </h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:24px 0;">
+    ${gridHtml}
+  </div>
+
+  <p style="font-size:16px;font-weight:700;color:#1a1a1a;margin:32px 0 24px;padding:20px 24px;background:#f0fdfa;border-left:4px solid #0d9488;border-radius:0 10px 10px 0;line-height:1.7;">
+    💡 위 ${sortedContents.length}편을 차례로 읽으면 ${escapeHtml(title.substring(0, 50))}에 대해 가장 빠르게 핵심을 잡을 수 있습니다.
+  </p>
+
+  <p style="font-size:12px;color:#767676;line-height:1.6;margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;">
+    ※ 본 글은 정보 제공 목적으로 작성되었으며, 실제 적용 시 ${currentYear}년 ${currentMonth}월 기준 최신 정보를 공식 사이트에서 재확인하시기 바랍니다.
+  </p>
+
+</div>`;
+}
 // ============================================
 // 🔥 통합 모듈 경로 해석기 (404 방지)
 // 개발/배포 환경 모두에서 동일하게 작동
@@ -238,10 +345,50 @@ try {
         console.log('[INTERNAL-CONSISTENCY] 기존 종합글 생성 핸들러 제거 중...');
         electron_1.ipcMain.removeHandler('generate-internal-consistency');
     }
+    // v3.7.23: 외부유입 글 생성 핸들러 중복 방지
+    if (electron_1.ipcMain.listenerCount('generate-external-traffic-text') > 0) {
+        electron_1.ipcMain.removeHandler('generate-external-traffic-text');
+    }
 }
 catch (e) {
     // 무시 (핸들러가 없을 수 있음)
 }
+
+// v3.7.23: 외부유입 글 생성 IPC 핸들러
+//   payload: { system, user } — Gemini로 변환 글 1개 생성하여 반환.
+electron_1.ipcMain.handle('generate-external-traffic-text', async (_evt, payload) => {
+    try {
+        const system = (payload && payload.system) || '';
+        const user = (payload && payload.user) || '';
+        if (!user.trim()) {
+            return { success: false, error: '프롬프트가 비어있습니다.' };
+        }
+        const envData = (0, env_1.loadEnvFromFile)();
+        const geminiKey = (envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '').trim();
+        if (!geminiKey || geminiKey.length < 20) {
+            return { success: false, error: 'Gemini API 키가 필요합니다. 설정 탭에서 입력해주세요.' };
+        }
+        const { GoogleGenerativeAI } = await Promise.resolve().then(() => __importStar(require('@google/generative-ai')));
+        const genAI = new GoogleGenerativeAI(geminiKey);
+        const model = await selectGeminiModel(genAI);
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: `${system}\n\n${user}` }] }],
+            generationConfig: {
+                maxOutputTokens: 4000,
+                temperature: 0.85,
+            },
+        });
+        const response = await result.response;
+        const text = (response.text() || '').trim();
+        if (!text) return { success: false, error: '빈 응답이 반환됐어요. 다시 시도해주세요.' };
+        return { success: true, text };
+    }
+    catch (e) {
+        console.error('[EXT-TRAFFIC] 생성 실패:', e);
+        const msg = e instanceof Error ? e.message : String(e);
+        return { success: false, error: msg };
+    }
+});
 // 라이선스 상태 조회
 electron_1.ipcMain.handle('license-status', async () => {
     try {
@@ -701,6 +848,33 @@ electron_1.ipcMain.handle('generate-internal-consistency', async (_evt, payload)
                     // 제목 추출 (정밀)
                     let extractedTitle = $('title').text().trim() || post.title || '제목 없음';
                     extractedTitle = extractedTitle.replace(/\s*\|\s*.*$/, '').replace(/\s*-\s*.*$/, '').trim();
+                    // v3.7.22: 대표 이미지 추출 (og:image → twitter:image → 본문 첫 큰 이미지)
+                    //   끝판왕 거미줄 회유: 각 H2 섹션 헤더에 이 이미지를 클릭 가능한 미끼로 배치한다.
+                    let representativeImage = '';
+                    try {
+                        const ogImg = $('meta[property="og:image"]').attr('content')
+                            || $('meta[name="og:image"]').attr('content')
+                            || $('meta[property="og:image:url"]').attr('content');
+                        const twImg = $('meta[name="twitter:image"]').attr('content')
+                            || $('meta[property="twitter:image"]').attr('content');
+                        if (ogImg && /^https?:/i.test(ogImg)) {
+                            representativeImage = ogImg;
+                        } else if (twImg && /^https?:/i.test(twImg)) {
+                            representativeImage = twImg;
+                        } else {
+                            const candidates = [];
+                            $('article img, .entry-content img, .post-content img, .se-main-container img, main img, .view_content img').each((_, el) => {
+                                const src = $(el).attr('src') || $(el).attr('data-src') || '';
+                                if (src && /^https?:/i.test(src) && !/icon|logo|avatar|emoji|btn|button|placeholder/i.test(src)) {
+                                    candidates.push(src);
+                                }
+                            });
+                            if (candidates.length > 0) representativeImage = candidates[0];
+                        }
+                    } catch (imgErr) {
+                        console.warn(`[INTERNAL-CONSISTENCY] 이미지 추출 실패 (${url}):`, imgErr?.message);
+                    }
+
                     // 본문 내용 추출 (정밀)
                     // 불필요한 요소 제거
                     $('script, style, iframe, nav, footer, header, aside, .ads, .comments').remove();
@@ -734,7 +908,8 @@ electron_1.ipcMain.handle('generate-internal-consistency', async (_evt, payload)
                         crawledContents.push({
                             url,
                             title: extractedTitle,
-                            content: content.substring(0, MAX_CONTENT_LENGTH * 2), // 요약 품질을 위해 길이 확장
+                            content: content.substring(0, MAX_CONTENT_LENGTH * 3),
+                            image: representativeImage,
                             order: post.order
                         });
                         console.log(`[INTERNAL-CONSISTENCY] ✅ 크롤링 성공 (${post.order}번째): ${extractedTitle.substring(0, 30)}... (${content.length}자)`);
@@ -797,54 +972,171 @@ electron_1.ipcMain.handle('generate-internal-consistency', async (_evt, payload)
             }
             // 크롤링된 콘텐츠를 순서대로 정렬
             const sortedContents = crawledContents.sort((a, b) => a.order - b.order);
-            const prompt = `
-당신은 블로그 내부 링크 구조(거미줄치기)를 전문적으로 설계하는 SEO 전문가 및 카피라이터입니다.
-다음 ${sortedContents.length}개의 블로그 글을 분석하여, 독자가 이 글들을 모두 읽고 싶게 만드는 강력한 '종합 가이드' 또는 '인사이트 리포트' 형태의 통합글을 작성해주세요.
-
-【종합 글 제목】
-${title}
-
-【분석 대상 글 정보】
-${sortedContents.map((item, idx) => `
-[글 ${idx + 1}]
+            // v3.7.22+: 끝판왕 회유 프롬프트 — "정보 30% + 결핍 70% 미끼" 전략
+            //   사용자 요구의 본질: "독자가 5개 원본을 하나씩 클릭할 수밖에 없게 만들어야 한다"
+            //     → 종합글 = "지도" 역할만, 본론은 원본에 있음을 구체적으로 명시 (누락 정보 3개를 hook으로)
+            //     → H2 간 문맥 흐름 (이전 → 다음 자연스러운 전환)
+            //     → 각 H2에 og:image로 추출한 대표 이미지를 클릭 가능 미끼로 배치
+            //     → 본문 80~90%가 아니라 30~40%만 노출, 나머지 60~70%는 원본 URL로 유도
+            const currentYear = new Date().getFullYear();
+            const currentMonthHint = new Date().getMonth() + 1;
+            const sourceCount = sortedContents.length;
+            const sourceList = sortedContents.map((item, idx) => `
+══════════════════════════
+원본 #${idx + 1}
 제목: ${item.title}
 URL: ${item.url}
-핵심 본문 데이터: ${item.content.substring(0, 5000)}...
-`).join('\n')}
+대표 이미지: ${item.image || '(없음)'}
+본문 발췌(분석용·9000자 한도, 출력에는 30%만 노출):
+${(item.content || '').substring(0, 9000)}
+══════════════════════════`).join('\n');
 
-📌 **필수 고도화 지침 (CRITICAL):**
+            const prompt = `
+당신은 한국 애드센스 블로그의 **끝판왕 회유형 cornerstone 콘텐츠** 설계자입니다.
+다음 ${sourceCount}개의 연관 글(같은 주제 클러스터)을 종합해 독자가 ${sourceCount}개 모두를 클릭할 수밖에 없는 종합 가이드를 작성하세요.
 
-1. **내용의 풍부함 (70% 포함 원칙)**:
-   - 각 글에 대해 단순한 한두 줄 요약이 아닌, **본문 핵심 내용의 약 70% 수준을 상세하게 정리**하여 포함하세요.
-   - 독자가 이 통합글만 읽어도 각 주제에 대해 깊이 있는 정보를 얻을 수 있어야 합니다.
-   - 전문적인 용어와 구체적인 수치, 핵심 인사이트를 그대로 살리세요.
+【통합글 제목】 ${title}
 
-2. **심리적 트리거 기반 CTA (Call To Action)**:
-   - 각 섹션 끝에 독자의 호기심을 자극하는 **'심리적 후킹 문구'**를 만드세요 (예: "이 비법을 모르면 손해 보는 3가지 이유", "전문가가 숨겨둔 마지막 팁 확인하기").
-   - 단순한 링크가 아닌, 클릭하고 싶게 만드는 **세련된 버튼 형태의 HTML**을 포함하세요.
-   - 각 글의 성격(정보형, 후기형, 팁 등)에 맞춘 맞춤형 카피라이팅을 적용하세요.
+【원본 ${sourceCount}편】
+${sourceList}
 
-3. **거미줄식 연결 (Spiderweb Linking)**:
-   - 각 섹션이 독립적으로 존재하지 않고, 다른 섹션과의 연관성을 언급하며 자연스럽게 흐르도록 작성하세요 (예: "위에서 언급한 A 기술이 실제 현장에서 어떻게 구현되는지, 아래의 B 사례를 통해 확인해 보세요").
+═══════════════════════════════════════
+🔥 **본질 (절대 지킬 것)**:
+이 종합글은 "본론"이 아니라 **"지도(map)"**입니다.
+독자가 종합글을 다 읽어도 만족하면 실패입니다. 다 읽고 나서
+"어 이건 원본에 가서 봐야겠다"가 ${sourceCount}번 일어나야 성공입니다.
 
-4. **SEO 및 가독성 최적화**:
-   - <h1>~<h3> 태그를 계층적으로 사용하고, 독자가 읽기 편하도록 요점 정리(Bullet points)나 표(Table)를 적극 활용하세요.
-   - 5,000자 이상의 고품질 롱폼 콘텐츠로 구성하세요.
+→ **정보 노출은 30~40%만**. 핵심 결론·정답·구체 수치는 원본에 있음을 명시.
+→ 각 H2 끝에 "원본에만 있는 디테일 3가지"를 구체 hook으로 박을 것:
+   예: "위에 다루지 않은 1) 실제 신청 화면 캡처, 2) 거절 사례 5건, 3) 절세 조합표가 원본에 있어요"
+   ❌ "더 자세한 내용은 원본에" (모호함 = 클릭 0)
+   ✅ "원본에만 있는 [구체 정보 3개]가 정리돼 있어요" (구체성 = 클릭 ↑)
 
-⚠️ **출력 가이드 (HTML Fragment):**
-- 완전한 HTML 문서(<html>, <body>)가 아닌, 게시판 본문에 바로 삽입 가능한 **<div> 기반 Fragment**만 출력하세요.
-- 스타일은 인라인(Inline Style) 또는 미리 약속된 클래스(\`cta-container\`, \`cta-hook\`, \`cta-button\`)만 사용하세요.
-- **반응형 디자인**을 고려하여 여백과 폰트 크기를 설정하세요.
+═══════════════════════════════════════
+📐 **필수 출력 구조** (HTML fragment, <div> wrapper 시작):
 
-지금 바로 최고의 통합글을 HTML로 작성해주세요.
+<div class="sw-cornerstone" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR',sans-serif;color:#1a1a1a;line-height:1.85;">
+
+  **[1] H1 후킹 제목** (60자 이내, ${currentYear} 포함, 숫자/반전/이익)
+  <h1 style="font-size:32px;font-weight:900;color:#0f172a;line-height:1.3;margin:24px 0 14px;letter-spacing:-0.02em;">…</h1>
+
+  **[2] 도입부 카드** (지도 역할 명시)
+  <div style="background:linear-gradient(135deg,#eef2ff,#fce7f3);border-radius:14px;padding:24px 28px;margin:24px 0;border-left:5px solid #6366f1;">
+    <p style="margin:0 0 14px;font-size:16px;font-weight:700;color:#312e81;">
+      📌 이 글은 [주제]를 1편으로 빠르게 훑는 지도예요. 진짜 디테일은 ${sourceCount}편의 원본에 있어요.
+    </p>
+    <ul style="margin:0;padding-left:22px;font-size:15px;line-height:1.9;">
+      ${sourceCount}개 원본의 "핵심 1줄 후킹"을 불릿 ${sourceCount}개로 (각 줄 끝에 →[원본 #N])
+    </ul>
+  </div>
+
+  **[3] 한눈에 비교 요약표** (각 원본의 핵심 한 줄씩 비교)
+  <table style="width:100%;border-collapse:collapse;margin:32px 0;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.08);border-radius:12px;overflow:hidden;">
+    <thead><tr style="background:linear-gradient(135deg,#0d9488,#0891b2);color:#fff;">
+      <th style="padding:14px 18px;text-align:left;">구분</th>
+      <th style="padding:14px 18px;text-align:left;">한 줄 요약</th>
+      <th style="padding:14px 18px;text-align:left;">원본 클릭하면 얻는 것</th>
+    </tr></thead>
+    <tbody>
+      원본 ${sourceCount}개 행 — 마지막 컬럼은 "구체적 미끼" (예: "신청 화면 캡처 + 거절 사례 5건")
+    </tbody>
+  </table>
+
+  **[4] H2 본론 ${sourceCount}개** — 원본에 1:1 대응. 다음 구조 정확히:
+
+  <!-- 각 H2 시작 -->
+  <h2 style="font-size:24px;font-weight:800;color:#0f172a;margin:48px 0 18px;padding:14px 20px;background:#f0fdfa;border-left:5px solid #0d9488;border-radius:0 10px 10px 0;line-height:1.4;">
+    [N번] 강력한 후킹 H2 (원본 키워드 + 호기심 트리거)
+  </h2>
+
+  <!-- 클릭 가능한 대표 이미지 미끼 (대표 이미지가 있을 때만) -->
+  <a href="[원본 #N URL]" target="_blank" rel="noopener" style="display:block;margin:20px 0;position:relative;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.12);">
+    <img src="[대표 이미지 URL]" alt="[원본 제목]" style="display:block;width:100%;height:auto;">
+    <span style="position:absolute;bottom:12px;right:12px;padding:6px 12px;background:rgba(220,38,38,0.92);color:#fff;border-radius:8px;font-size:12px;font-weight:800;">📖 원본 보기 →</span>
+  </a>
+
+  <!-- 본문 600~900자만 (전체의 30~40%, 결론·정답은 숨김) -->
+  <p>핵심 결론 1줄 (속도감) + 짧은 인사이트</p>
+  <p>핵심 데이터 1~2개 <strong>수치 강조</strong> + 짧은 해석 → "그런데 이게 왜 그런지 진짜 이유는 원본 #N에 있어요"</p>
+
+  <h3 style="font-size:18px;font-weight:700;color:#1e293b;margin:28px 0 12px;padding:10px 14px;border-left:4px solid #0891b2;background:transparent;">한 가지만 미리 (전체 X)</h3>
+  <p>핵심 단계 1개만 짧게. "나머지 [구체 단계 3개]는 원본에"</p>
+
+  <!-- 거미줄 회유 CTA 박스 (구체 미끼 3개 필수) -->
+  <div class="cta-box" style="margin:32px 0;padding:24px 28px;background:linear-gradient(135deg,#fff7ed,#fef3c7);border-radius:14px;border:2px solid #f59e0b;text-align:center;">
+    <p style="margin:0 0 12px;font-size:17px;font-weight:800;color:#92400e;line-height:1.5;">
+      💡 [구체적 결핍 후킹 1줄 — 예: "조건 잘못 알면 100만원 손해보는 함정 케이스"]
+    </p>
+    <p style="margin:0 0 16px;font-size:14px;color:#78350f;line-height:1.7;text-align:left;">
+      원본에만 있는 디테일:<br>
+      ① [구체 정보 1 — 예: "거절당한 5건의 실제 사유"]<br>
+      ② [구체 정보 2 — 예: "신청 화면 단계별 캡처 12장"]<br>
+      ③ [구체 정보 3 — 예: "타 제도와 조합 시 절세 시뮬레이션 표"]
+    </p>
+    <a href="[원본 #N URL]" target="_blank" rel="noopener" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff !important;text-decoration:none;border-radius:10px;font-weight:800;font-size:15px;box-shadow:0 6px 20px rgba(220,38,38,0.35);">
+      📖 [원본 #N 제목] 전체 보기 →
+    </a>
+  </div>
+
+  <!-- 다음 H2로 가는 자연스러운 전환 카드 (마지막 H2 제외) -->
+  <div style="margin:24px 0;padding:14px 18px;background:rgba(148,163,184,0.08);border-radius:10px;border-left:3px solid #64748b;font-size:14px;color:#475569;line-height:1.6;">
+    👉 지금까지 [#N 키워드]를 봤다면, 다음은 자연스럽게 [#N+1 키워드] 차례입니다.
+       특히 많은 분들이 여기서 [실수/혼동]하는 함정이 있어요.
+  </div>
+  <!-- /각 H2 끝 -->
+
+  **[5] 종합 비교 + FAQ H2**
+  <h2>한눈에 ${sourceCount}편 비교 & 자주 묻는 질문</h2>
+  - <h3>${sourceCount}편 비교표</h3> (모든 원본의 핵심 차이 한눈에)
+  - <h3>자주 묻는 질문 5개</h3> Q&A
+     (각 답변 끝에 "이 부분의 디테일은 원본 #N에" 거미줄 미끼)
+
+  **[6] 실전 적용 체크리스트 H2**
+  <h2>${currentYear}년 ${currentMonthHint}월 실전 적용 가이드</h2>
+  - ✅ 체크박스 5~7개 (각 단계마다 관련 원본 #N 인용)
+
+  **[7] 종합 거미줄 카드 그리드 H2**
+  <h2>📚 ${sourceCount}편 한자리에 — 순서대로 읽기 좋아요</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:24px 0;">
+    원본 ${sourceCount}개 카드 (이미지 + 제목 + 1줄 후킹 + "원본 보기" 빨간 버튼)
+  </div>
+
+  **[8] 결론 + 면책**
+  <p style="…">결론 1~2줄 (행동 유도 — "위 ${sourceCount}편을 순서대로 클릭하면 ${currentYear}년 [주제] 100% 마스터")</p>
+  <p style="font-size:12px;color:#767676;">면책 조항</p>
+
+</div>
+
+═══════════════════════════════════════
+🚫 **절대 금지**:
+- 원본의 핵심 정답·수치·결론을 종합글에 다 노출 (회유 실패)
+- "더 자세한 내용은…" 모호한 미끼 (구체 정보 3개 명시 필수)
+- "이 글은 ${sourceCount}편을 종합한 글입니다" 메타 멘트
+- <html>, <body> 태그 / 마크다운 (\`\`\`html)
+- 중국어 한자 (漢字 X)
+- 빈 검색바, 빈 입력칸, placeholder 박스
+- 자극·낚시 카피 ("충격!", "이걸 모르면 인생 망함" 등 금지)
+
+═══════════════════════════════════════
+✅ **품질 기준**:
+- 총 본문 6,000~9,000자 (원본 70% 노출 X — 30%만, 나머지는 미끼)
+- H2 = 정확히 ${sourceCount + 3}개 (본론 ${sourceCount} + 비교/FAQ + 실전 + 종합)
+- 모든 H2에 대표 이미지(있으면) + 구체 미끼 3개 + 빨간 CTA 박스
+- H2 사이에 전환 카드 (이전 → 다음 자연스러운 흐름, 마지막 H2 제외)
+- 본문 마다 자연스럽게 "이건 원본 #N에" 회유 문장 1~2개
+
+🎯 **${currentYear}년 ${currentMonthHint}월 기준 cornerstone**.
+
+지금 위 구조를 정확히 지켜 HTML fragment를 작성하세요. <div class="sw-cornerstone"...> 으로 시작.
 `;
             let generatedContent = '';
             try {
                 const result = await model.generateContent({
                     contents: [{ role: 'user', parts: [{ text: prompt }] }],
                     generationConfig: {
-                        maxOutputTokens: MAX_OUTPUT_TOKENS,
-                        temperature: 0.8,
+                        // v3.7.22: 8000 → 16000 토큰 (Gemini 2.x 한도 내). 기존 8000으론 출력 잘림.
+                        maxOutputTokens: 16000,
+                        temperature: 0.75,
                     }
                 });
                 const response = await result.response;
@@ -862,16 +1154,8 @@ URL: ${item.url}
                 if (errorMessage.includes('403') || errorMessage.includes('API Key') || errorMessage.includes('unregistered callers')) {
                     throw new Error(`Gemini API 키가 유효하지 않거나 권한이 없습니다.\n\n에러: ${errorMessage}\n\n해결 방법:\n1. 환경 설정에서 Gemini API 키를 확인하세요\n2. API 키가 올바른지 확인하세요 (https://aistudio.google.com/app/apikey)\n3. API 키에 필요한 권한이 있는지 확인하세요`);
                 }
-                // 폴백: 간단한 종합글 생성
-                generatedContent = `<h1>${title}</h1><p>이 글은 ${sortedContents.length}개의 관련 글을 종합한 내용입니다.</p>`;
-                sortedContents.forEach((item, index) => {
-                    generatedContent += `<h2>${index + 1}. ${item.title}</h2>`;
-                    generatedContent += `<p>${item.content.substring(0, 500)}...</p>`;
-                    generatedContent += `<div class="cta-container">
-            <p class="cta-hook">💡 ${item.title}에 대한 더 자세한 정보가 필요하신가요?</p>
-            <a href="${item.url}" class="cta-button">${item.title} 확인하기</a>
-          </div>`;
-                });
+                // v3.7.22: 폴백 강화 — cornerstone 카드 구조 + 거미줄 CTA + 표 (단순 요약 반복 X)
+                generatedContent = buildSpiderWebFallbackHtml(title, sortedContents);
             }
             console.log('[INTERNAL-CONSISTENCY] ✅ 종합글 생성 완료, 콘텐츠 길이:', generatedContent.length);
             return { success: true, html: generatedContent, title };
@@ -883,18 +1167,10 @@ URL: ${item.url}
             if (errorMessage.includes('403') || errorMessage.includes('API Key') || errorMessage.includes('unregistered callers')) {
                 throw new Error(`Gemini API 키가 유효하지 않거나 권한이 없습니다.\n\n에러: ${errorMessage}\n\n해결 방법:\n1. 환경 설정에서 Gemini API 키를 확인하세요\n2. API 키가 올바른지 확인하세요 (https://aistudio.google.com/app/apikey)\n3. API 키에 필요한 권한이 있는지 확인하세요`);
             }
-            // 폴백: 간단한 종합글 생성
+            // v3.7.22: 폴백 강화 — cornerstone 카드 구조 + 거미줄 CTA + 표
             const sortedContents = crawledContents.sort((a, b) => a.order - b.order);
-            let generatedContent = `<h1>${title}</h1><p>이 글은 ${sortedContents.length}개의 관련 글을 종합한 내용입니다.</p>`;
-            sortedContents.forEach((item, index) => {
-                generatedContent += `<h2>${index + 1}. ${item.title}</h2>`;
-                generatedContent += `<p>${item.content.substring(0, 500)}...</p>`;
-                generatedContent += `<div class="cta-container">
-          <p class="cta-hook">💡 ${item.title}에 대한 더 자세한 정보가 필요하신가요?</p>
-          <a href="${item.url}" class="cta-button">${item.title} 확인하기</a>
-        </div>`;
-            });
-            console.log('[INTERNAL-CONSISTENCY] ✅ 폴백 종합글 생성 완료');
+            const generatedContent = buildSpiderWebFallbackHtml(title, sortedContents);
+            console.log('[INTERNAL-CONSISTENCY] ✅ 폴백 종합글 생성 완료 (강화)');
             return { success: true, html: generatedContent, title };
         }
     }

@@ -18,6 +18,7 @@ import { initTutorialModule } from './tutorial.js';
 import { initSidebar } from './sidebar.js';
 import { initKeywordDiscover } from './keyword-discover.js';
 import './leword-launcher.js'; // window.runLewordLauncher 등록
+import './external-traffic.js'; // v3.7.23: window.initExternalTrafficTab + 플랫폼 변환 함수들
 import './quality-report-modal.js'; // window.showQualityReportModal / accumulateQualityReport / showQueueQualityReport 등록
 import { initContentStubs } from './content-stubs.js';
 import './adsense-tools.js'; // 애드센스 도구 탭 모듈 (window.__initAdsenseTools 등록)
