@@ -980,12 +980,15 @@ URL: ${item.url}
      - <h3> 2~3개 세부 섹션
      - 본문 중 통계/수치 강조 <strong>
      - **H2 끝에 거미줄 회유 CTA 박스** (그라데이션 박스 + 후킹 카피 + 빨간 그라데이션 버튼)
-  5. <h2> 비교/FAQ — 한눈에 비교 표 + 자주 묻는 질문 Q&A 3~5개
-  6. <h2> 실전 적용 가이드 (체크리스트 ✅ 5~7개)
-  7. <h2> 종합 거미줄 — 모든 원본 ${sortedContents.length}개 카드 그리드
+  5. <h2> 비교 / 자주 묻는 질문 — 한눈에 비교 표 + Q&A 3~5개
+  6. <h2> 실전 적용 가이드 — 체크리스트 ✅ 5~7개
+  7. <h2> 더 깊이 알아보기 — 모든 원본 ${sortedContents.length}개 카드 그리드 (관련 글 회유)
   8. 결론 1~2줄 + 면책 조항
 
-🚫 **금지**: 메타 멘트("이 글은 ${sortedContents.length}개 글을 종합") / <html><body> / 마크다운 / 중국어 한자 / 빈 검색바·입력칸 / 자극·낚시
+🚫 **절대 금지** (위반 시 재작성 요구됨):
+- H2 제목 끝에 "(종합 거미줄)", "(요약)", "(FAQ)", "(가이드)" 등 메타 라벨/괄호 절대 추가 금지
+- H2 제목은 사용자가 검색할 만한 자연스러운 표현만 사용 (예: "5. 청년내일저축계좌, 더 깊이 알아보기" O / "5. 청년내일저축계좌, 더 깊이 알아보기 (종합 거미줄)" X)
+- 메타 멘트("이 글은 ${sortedContents.length}개 글을 종합") / <html><body> / 마크다운 / 중국어 한자 / 빈 검색바·입력칸 / 자극·낚시
 
 ✅ **품질 기준**: 총 8,000~12,000자, H2 정확히 ${sortedContents.length + 3}개, 모든 H2에 거미줄 CTA, 검색 의도 1편 완전 커버
 
@@ -1011,6 +1014,16 @@ URL: ${item.url}
           .replace(/```html\n?/gi, '')
           .replace(/```\n?/gi, '')
           .trim();
+
+        // v3.8.5: H1~H6 제목 끝의 메타 라벨 자동 제거
+        //   LLM이 가끔 "(종합 거미줄)", "(요약)", "(FAQ)", "(가이드)", "(개요)" 등 라벨을 제목 끝에 포함
+        //   사용자에게 노출되면 어색하므로 일괄 제거 (한·일 괄호 모두).
+        const metaLabelPattern = /\s*[\(（]\s*(종합\s*거미줄|관련\s*글\s*회유|관련\s*글\s*모음|요약|FAQ|자주\s*묻는\s*질문|가이드|개요|총정리|결론|면책|체크리스트|비교)[^)）]*[\)）]\s*$/i;
+        generatedContent = generatedContent
+          .replace(/<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/gi, (_full, level, attrs, inner) => {
+            const cleaned = String(inner).replace(metaLabelPattern, '').trim();
+            return `<h${level}${attrs}>${cleaned}</h${level}>`;
+          });
 
       } catch (error) {
         console.error('[INTERNAL-CONSISTENCY] AI 종합글 생성 실패:', error);
