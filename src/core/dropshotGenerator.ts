@@ -540,7 +540,7 @@ async function _makeDropshotImageInternal(
           });
           if (dropshotError) {
             console.warn('[DROPSHOT] ⚠️ dropshot 서버 에러 페이지 감지 — 즉시 폴백');
-            return { ok: false, error: 'dropshot 서버 에러: 잠시 후 재시도하거나 nanobanana2 엔진 사용' };
+            return { ok: false, dataUrl: '', error: 'dropshot 서버 에러: 잠시 후 재시도하거나 nanobanana2 엔진 사용' };
           }
           const dataUrl = await page.evaluate((before: string[]) => {
             const beforeSet = new Set(before);
