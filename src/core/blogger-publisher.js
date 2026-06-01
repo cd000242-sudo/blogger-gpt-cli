@@ -3574,24 +3574,35 @@ html body .content-inner {
     console.log(`[PUBLISH]    - CSS 크기: ${cssSize.toLocaleString()}자`);
     console.log(`[PUBLISH]    - 핵 옵션 포함: ${finalHtmlContent.includes('핵 옵션') ? '✅' : '❌'}`);
 
-    // v3.8.42: 거미줄 진단 로그 — 사용자가 콘솔 로그 보내주면 원인 확정 가능.
+    // v3.8.42/v3.8.46: 거미줄 진단 로그 — IPC로 renderer 콘솔에 push (사용자 콘솔에서 확인 가능)
     const isSpiderWeb = finalHtmlContent.includes('sw-cornerstone') || finalHtmlContent.includes('SW_SPIDER_WEB');
     if (isSpiderWeb) {
       const firstH2Match = finalHtmlContent.match(/<h2[^>]*style\s*=\s*["']([^"']{0,200})/i);
       const firstH3Match = finalHtmlContent.match(/<h3[^>]*style\s*=\s*["']([^"']{0,200})/i);
       const firstPMatch = finalHtmlContent.match(/<p[^>]*style\s*=\s*["']([^"']{0,150})/i);
       const styleTagFirst = finalHtmlContent.match(/<style[^>]*>([\s\S]{0,300})/i);
-      console.log(`[PUBLISH-SPIDER] 🕸️ === 거미줄 통합글 진단 로그 ===`);
-      console.log(`[PUBLISH-SPIDER]    - 거미줄 마커 sw-cornerstone: ${finalHtmlContent.includes('sw-cornerstone') ? '✅' : '❌'}`);
-      console.log(`[PUBLISH-SPIDER]    - max-mode-article: ${hasMaxModeArticle ? '✅ publisher applyInlineStyles SKIP' : '❌ publisher applyInlineStyles 발동됨 (이게 원인!)'}`);
-      console.log(`[PUBLISH-SPIDER]    - <style> 스킨 CSS: ${hasStyleTag ? `✅ ${styleTagCount}개` : '❌ 누락 (v3.8.41 안전망 실패)'}`);
-      console.log(`[PUBLISH-SPIDER]    - 첫 <h2> inline style: ${firstH2Match ? firstH2Match[1].substring(0, 150) : '❌ inline style 없음 (publisher가 덮음 가능)'}`);
-      console.log(`[PUBLISH-SPIDER]    - 첫 <h3> inline style: ${firstH3Match ? firstH3Match[1].substring(0, 150) : '❌'}`);
-      console.log(`[PUBLISH-SPIDER]    - 첫 <p> inline style: ${firstPMatch ? firstPMatch[1].substring(0, 100) : '❌'}`);
-      console.log(`[PUBLISH-SPIDER]    - <style> 내용 첫 300자: ${styleTagFirst ? styleTagFirst[1].substring(0, 300) : '없음'}`);
-      console.log(`[PUBLISH-SPIDER]    - HTML 총 길이: ${finalHtmlContent.length.toLocaleString()}자`);
-      console.log(`[PUBLISH-SPIDER]    - 본문 첫 500자: ${finalHtmlContent.substring(0, 500)}`);
-      console.log(`[PUBLISH-SPIDER] 🕸️ === 진단 끝 ===`);
+      const diagLines = [
+        `[PUBLISH-SPIDER] 🕸️ === 거미줄 통합글 진단 로그 ===`,
+        `[PUBLISH-SPIDER]    - 거미줄 마커 sw-cornerstone: ${finalHtmlContent.includes('sw-cornerstone') ? '✅' : '❌'}`,
+        `[PUBLISH-SPIDER]    - max-mode-article: ${hasMaxModeArticle ? '✅ publisher applyInlineStyles SKIP' : '❌ publisher applyInlineStyles 발동됨 (이게 원인!)'}`,
+        `[PUBLISH-SPIDER]    - <style> 스킨 CSS: ${hasStyleTag ? `✅ ${styleTagCount}개` : '❌ 누락 (v3.8.41 안전망 실패)'}`,
+        `[PUBLISH-SPIDER]    - 첫 <h2> inline style: ${firstH2Match ? firstH2Match[1].substring(0, 150) : '❌ inline style 없음 (publisher가 덮음 가능)'}`,
+        `[PUBLISH-SPIDER]    - 첫 <h3> inline style: ${firstH3Match ? firstH3Match[1].substring(0, 150) : '❌'}`,
+        `[PUBLISH-SPIDER]    - 첫 <p> inline style: ${firstPMatch ? firstPMatch[1].substring(0, 100) : '❌'}`,
+        `[PUBLISH-SPIDER]    - <style> 내용 첫 300자: ${styleTagFirst ? styleTagFirst[1].substring(0, 300) : '없음'}`,
+        `[PUBLISH-SPIDER]    - HTML 총 길이: ${finalHtmlContent.length.toLocaleString()}자`,
+        `[PUBLISH-SPIDER]    - 본문 첫 500자: ${finalHtmlContent.substring(0, 500)}`,
+        `[PUBLISH-SPIDER] 🕸️ === 진단 끝 ===`,
+      ];
+      diagLines.forEach((line) => console.log(line));
+      try {
+        const { BrowserWindow } = require('electron');
+        BrowserWindow.getAllWindows().forEach((w) => {
+          diagLines.forEach((line) => { try { w.webContents.send('log-line', line); } catch {} });
+        });
+      } catch {}
+      // onLog 콜백도 호출 (UI 로그 패널)
+      if (typeof onLog === 'function') diagLines.forEach((line) => { try { onLog(line); } catch {} });
     }
 
     if (!hasStyleTag && cssContent) {

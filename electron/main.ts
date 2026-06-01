@@ -1632,7 +1632,8 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.warn('[INTERNAL-CONSISTENCY] ⚠️ inline style 보강 실패:', skinErr?.message);
       }
 
-      // v3.8.42: 거미줄 진단 로그 — 백엔드 결과 직전 상태 (사용자가 콘솔 로그 보내주면 원인 확정)
+      // v3.8.42/v3.8.46: 거미줄 진단 로그 — IPC로 renderer 콘솔에 전달.
+      //   main 프로세스 console.log는 패키지 빌드에서 renderer 콘솔에 안 보이므로 IPC로 push.
       const hasSwCornerstone = generatedContent.includes('sw-cornerstone');
       const hasMaxMode = generatedContent.includes('max-mode-article');
       const hasStyleTag = /<style[^>]*>/i.test(generatedContent);
@@ -1640,16 +1641,25 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
       const firstH2 = generatedContent.match(/<h2[^>]*>/i);
       const firstH3 = generatedContent.match(/<h3[^>]*>/i);
       const wrapperMatch = generatedContent.match(/<div\s+class\s*=\s*["']([^"']*)["']/i);
-      console.log(`[INTERNAL-CONSISTENCY-SPIDER] 🕸️ === 거미줄 백엔드 결과 진단 ===`);
-      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - sw-cornerstone 마커: ${hasSwCornerstone ? '✅' : '❌'}`);
-      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - max-mode-article 클래스: ${hasMaxMode ? '✅' : '❌ 안전망 실패'}`);
-      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - <style> 스킨 CSS: ${hasStyleTag ? `✅ ${styleCount}개` : '❌ 주입 실패'}`);
-      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - 첫 wrapper class: ${wrapperMatch ? wrapperMatch[1] : '❌'}`);
-      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - 첫 <h2> tag: ${firstH2 ? firstH2[0].substring(0, 200) : '❌'}`);
-      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - 첫 <h3> tag: ${firstH3 ? firstH3[0].substring(0, 200) : '❌'}`);
-      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - HTML 총 길이: ${generatedContent.length.toLocaleString()}자`);
-      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - 시작 500자: ${generatedContent.substring(0, 500)}`);
-      console.log(`[INTERNAL-CONSISTENCY-SPIDER] 🕸️ === 진단 끝 ===`);
+      const diagLines = [
+        `[INTERNAL-CONSISTENCY-SPIDER] 🕸️ === 거미줄 백엔드 결과 진단 ===`,
+        `[INTERNAL-CONSISTENCY-SPIDER]    - sw-cornerstone 마커: ${hasSwCornerstone ? '✅' : '❌'}`,
+        `[INTERNAL-CONSISTENCY-SPIDER]    - max-mode-article 클래스: ${hasMaxMode ? '✅' : '❌ 안전망 실패'}`,
+        `[INTERNAL-CONSISTENCY-SPIDER]    - <style> 스킨 CSS: ${hasStyleTag ? `✅ ${styleCount}개` : '❌ 주입 실패'}`,
+        `[INTERNAL-CONSISTENCY-SPIDER]    - 첫 wrapper class: ${wrapperMatch ? wrapperMatch[1] : '❌'}`,
+        `[INTERNAL-CONSISTENCY-SPIDER]    - 첫 <h2> tag: ${firstH2 ? firstH2[0].substring(0, 200) : '❌'}`,
+        `[INTERNAL-CONSISTENCY-SPIDER]    - 첫 <h3> tag: ${firstH3 ? firstH3[0].substring(0, 200) : '❌'}`,
+        `[INTERNAL-CONSISTENCY-SPIDER]    - HTML 총 길이: ${generatedContent.length.toLocaleString()}자`,
+        `[INTERNAL-CONSISTENCY-SPIDER]    - 시작 500자: ${generatedContent.substring(0, 500)}`,
+        `[INTERNAL-CONSISTENCY-SPIDER] 🕸️ === 진단 끝 ===`,
+      ];
+      diagLines.forEach((line) => console.log(line));
+      try {
+        const { BrowserWindow: BW } = await import('electron');
+        BW.getAllWindows().forEach((w) => {
+          diagLines.forEach((line) => w.webContents.send('log-line', line));
+        });
+      } catch {}
 
       return {
         success: true,
