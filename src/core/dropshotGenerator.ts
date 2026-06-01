@@ -525,16 +525,24 @@ async function _makeDropshotImageInternal(
         }
 
         // 5. 결과 이미지 대기 — snapshot에 없던 NEW 이미지만 잡음 (최대 90초)
+        // v3.8.57: 햄스터/sample placeholder 차단 — 5초 grace + size 더 엄격 + dataUrl 짧으면 거부
+        await new Promise(r => setTimeout(r, 5000)); // grace period: dropshot이 sample/placeholder를 일찍 보여주는 시간 회피
         const startTs = Date.now();
         let foundDataUrl: string | null = null;
-        while ((Date.now() - startTs) < 90_000) {
+        while ((Date.now() - startTs) < 85_000) {
           await new Promise(r => setTimeout(r, 2000));
           const dataUrl = await page.evaluate((before: string[]) => {
             const beforeSet = new Set(before);
             const imgs = Array.from(document.querySelectorAll('img'));
             const result = imgs.find(i => {
               const src = i.src || '';
-              return src.startsWith('data:image/') && i.naturalWidth > 200 && !src.includes('icons/') && !beforeSet.has(src);
+              // v3.8.57: sample/placeholder/stock 이미지 차단 + 픽셀 800+ 강제 + dataUrl 최소 50KB
+              if (!src.startsWith('data:image/')) return false;
+              if (src.includes('icons/') || src.includes('/sample/') || src.includes('placeholder')) return false;
+              if (beforeSet.has(src)) return false;
+              if (i.naturalWidth < 800 || i.naturalHeight < 400) return false; // 작은 이미지(stock thumbnail) 거부
+              if (src.length < 50_000) return false; // dataUrl 너무 짧으면(< ~50KB) sample/placeholder
+              return true;
             });
             return result ? result.src : null;
           }, beforeSrcs);
