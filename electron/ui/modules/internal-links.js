@@ -419,6 +419,15 @@ function openPublishedPostsModal(opts) {
     return;
   }
 
+  // v3.8.29: 모달이 거미줄 탭 안에 위치해 다른 탭(외부유입 등)에서는 부모 탭의
+  //   display:none 때문에 안 보이던 문제 차단. document.body 직속으로 이동해
+  //   어떤 탭에서든 정상 표시. closePublishedPostsModal에서 hidden 처리만 하므로
+  //   재호출 시에도 안전 (한 번 옮기면 그대로 유지).
+  if (modal.parentElement !== document.body) {
+    document.body.appendChild(modal);
+    console.log('[PUB-MODAL] 모달을 document.body로 이동 (탭 무관 표시 보장)');
+  }
+
   // 헤더 텍스트도 mode에 따라
   const titleEl = document.getElementById('sw-pubmodal-title');
   if (titleEl) {
