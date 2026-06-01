@@ -5181,6 +5181,38 @@
             <input type="text" id="spiderWebTitle" class="sw-input" placeholder="5개 글을 모두 포함하는 SEO 최적화된 제목" autocomplete="off">
             <small class="sw-help">💡 비워두면 선택한 글들을 분석해 검색 친화적 제목을 자동 생성합니다.</small>
           </div>
+
+          <!-- v3.8.3: 이미지 정책 + 엔진 선택 -->
+          <div class="sw-field" style="margin-top: 14px; padding: 14px 16px; background: rgba(15,23,42,0.5); border: 1px solid rgba(148,163,184,0.12); border-radius: 12px;">
+            <label class="sw-label" style="display:block; margin-bottom: 10px;">🎨 이미지 생성 정책</label>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin-bottom: 14px;">
+              <label style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 8px; cursor: pointer; font-size: 13px; color: #e2e8f0;">
+                <input type="radio" name="swImagePolicy" value="all" checked style="margin: 0;"> 전체 (썸네일+모든 H2)
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 8px; cursor: pointer; font-size: 13px; color: #e2e8f0;">
+                <input type="radio" name="swImagePolicy" value="thumbnail-only" style="margin: 0;"> 썸네일만
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 8px; cursor: pointer; font-size: 13px; color: #e2e8f0;">
+                <input type="radio" name="swImagePolicy" value="odd-only" style="margin: 0;"> 홀수 H2만
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 8px; cursor: pointer; font-size: 13px; color: #e2e8f0;">
+                <input type="radio" name="swImagePolicy" value="even-only" style="margin: 0;"> 짝수 H2만
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 8px; cursor: pointer; font-size: 13px; color: #e2e8f0;">
+                <input type="radio" name="swImagePolicy" value="none" style="margin: 0;"> 이미지 없이
+              </label>
+            </div>
+            <label for="swImageEngine" class="sw-label" style="display:block; margin-bottom: 8px; font-size: 13px;">🖌️ 이미지 생성 엔진</label>
+            <select id="swImageEngine" class="sw-input" style="width: 100%; padding: 10px 12px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 8px; color: #e2e8f0; font-size: 13px;">
+              <option value="nanobanana2" selected>🍌 Nano Banana 2 (Gemini 3.1 Flash · 추천)</option>
+              <option value="imagefx">🎨 ImageFX (Google)</option>
+              <option value="dropshot">🎯 Dropshot (Genspark)</option>
+              <option value="leonardo">🦁 Leonardo AI</option>
+              <option value="prodia">🎭 Prodia</option>
+              <option value="dalle3">🖼️ DALL-E 3 (OpenAI)</option>
+            </select>
+          </div>
+
           <button type="button" id="spiderWebGenerateBtn" class="sw-btn sw-btn--cta" onclick="generateAndPublishSpiderWeb()" aria-label="통합글 생성 및 발행하기">
             <span class="sw-btn-icon">🚀</span> 통합글 생성 및 발행하기
           </button>
@@ -5278,7 +5310,18 @@
                 <li class="sw-step-item is-pending" data-step="6"><span class="sw-step-dot">6</span><span class="sw-step-name">발행</span><span class="sw-step-state">대기</span></li>
               </ol>
 
-              <p class="sw-progress-hint">💡 평균 소요 시간 약 2~3분 · 창을 닫지 말고 잠시만 기다려주세요.</p>
+              <p class="sw-progress-hint">💡 평균 소요 시간 약 2~3분 · 창을 닫아도 하단에서 다시 열 수 있습니다.</p>
+
+              <!-- v3.8.3: 실시간 로그 패널 (접기/펴기) -->
+              <div id="swpmLogWrap" style="margin-top: 18px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 10px; overflow: hidden;">
+                <button type="button" id="swpmLogToggle" onclick="(function(){var b=document.getElementById('swpmLogBody'); var t=document.getElementById('swpmLogToggleIcon'); var hidden=b.style.display==='none'; b.style.display=hidden?'block':'none'; t.textContent=hidden?'▾':'▸';})()" style="width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(15,23,42,0.5); border: none; cursor: pointer; color: #cbd5e1; font-size: 13px; font-weight: 700; font-family: inherit;">
+                  <span>📜 실시간 로그</span>
+                  <span id="swpmLogToggleIcon">▾</span>
+                </button>
+                <div id="swpmLogBody" style="display: block; padding: 12px 14px; max-height: 220px; overflow: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 11px; line-height: 1.7; color: #cbd5e1; background: rgba(0,0,0,0.3);">
+                  <div id="swpmLogList" style="display: flex; flex-direction: column; gap: 3px;"></div>
+                </div>
+              </div>
             </section>
           </div>
 
@@ -7406,6 +7449,19 @@ if (origSwitchTab) {
       </button>
     </div>
   </div>
+</div>
+
+<!-- v3.8.3: 거미줄 mini progress bar (모달 닫혀도 진행 표시) -->
+<div id="swMiniProgress" style="display:none; position:fixed; bottom:16px; right:16px; z-index:9999; background:linear-gradient(135deg, #0f172a, #1e293b); border:1px solid rgba(99,102,241,0.45); border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,0.45); padding:12px 16px; min-width:260px; cursor:pointer; font-family:'Noto Sans KR', sans-serif;" onclick="(typeof reopenSpiderWebProgressModal==='function')&&reopenSpiderWebProgressModal()">
+  <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+    <span id="swMiniIcon" style="font-size:18px;">🕷️</span>
+    <span id="swMiniLabel" style="flex:1; color:#e2e8f0; font-size:13px; font-weight:700;">진행 중…</span>
+    <span id="swMiniPercent" style="color:#fbbf24; font-size:12px; font-weight:800;">0%</span>
+  </div>
+  <div style="height:6px; background:rgba(148,163,184,0.18); border-radius:99px; overflow:hidden;">
+    <div id="swMiniFill" style="height:100%; width:0%; background:linear-gradient(90deg, #6366f1, #ec4899); transition:width 0.3s;"></div>
+  </div>
+  <div style="margin-top:6px; color:#94a3b8; font-size:10px;">👆 클릭하면 모달 다시 열기</div>
 </div>
 
 </body>

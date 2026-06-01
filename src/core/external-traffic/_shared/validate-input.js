@@ -4,7 +4,7 @@
 
 'use strict';
 
-const CHANNEL_ID_RE = /^[a-z0-9-]{2,40}$/;
+const CHANNEL_ID_RE = /^[a-z0-9-]{1,40}$/;
 const SUBCHANNEL_RE = /^[\p{L}\p{N}\-_]{1,40}$/u;
 
 /**

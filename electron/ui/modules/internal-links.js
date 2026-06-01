@@ -992,7 +992,81 @@ let _swProgressState = {
   currentStep: 0,
   simInterval: null,
   apiDone: false,
+  // v3.8.3: 닫혀도 진행상태 보존 (mini progress + 재오픈 위함)
+  active: false,
+  finished: false,
+  status: 'idle', // 'idle' | 'running' | 'success' | 'error'
+  lastLabel: '',
+  lastDetail: '',
+  lastIcon: '⏳',
+  lastPercent: 0,
+  publishedUrl: '',
+  errorMessage: '',
+  sources: [],
 };
+
+// v3.8.3: 실시간 로그 라인 추가
+function _swPushLog(message, level) {
+  level = level || 'info';
+  try {
+    const list = document.getElementById('swpmLogList');
+    if (!list) return;
+    const ts = new Date();
+    const hh = String(ts.getHours()).padStart(2, '0');
+    const mm = String(ts.getMinutes()).padStart(2, '0');
+    const ss = String(ts.getSeconds()).padStart(2, '0');
+    const color = level === 'error' ? '#fca5a5' : (level === 'warn' ? '#fbbf24' : (level === 'success' ? '#34d399' : '#cbd5e1'));
+    const icon = level === 'error' ? '❌' : (level === 'warn' ? '⚠️' : (level === 'success' ? '✅' : 'ℹ️'));
+    const line = document.createElement('div');
+    line.style.cssText = 'color: ' + color + ';';
+    line.textContent = `[${hh}:${mm}:${ss}] ${icon} ${message}`;
+    list.appendChild(line);
+    list.parentElement.scrollTop = list.parentElement.scrollHeight;
+  } catch (e) { /* 무시 */ }
+}
+
+// v3.8.3: mini progress bar 갱신
+function _swUpdateMiniProgress() {
+  const mini = document.getElementById('swMiniProgress');
+  if (!mini) return;
+  if (!_swProgressState.active) {
+    mini.style.display = 'none';
+    return;
+  }
+  mini.style.display = 'block';
+  const fill = document.getElementById('swMiniFill');
+  const label = document.getElementById('swMiniLabel');
+  const percent = document.getElementById('swMiniPercent');
+  const icon = document.getElementById('swMiniIcon');
+  if (fill) fill.style.width = _swProgressState.lastPercent + '%';
+  if (label) label.textContent = _swProgressState.lastLabel || '진행 중…';
+  if (percent) percent.textContent = _swProgressState.lastPercent + '%';
+  if (icon) icon.textContent = _swProgressState.lastIcon || '🕷️';
+  if (_swProgressState.status === 'success') {
+    mini.style.borderColor = 'rgba(34,197,94,0.55)';
+  } else if (_swProgressState.status === 'error') {
+    mini.style.borderColor = 'rgba(239,68,68,0.55)';
+  } else {
+    mini.style.borderColor = 'rgba(99,102,241,0.45)';
+  }
+}
+
+// v3.8.3: 모달 재오픈 (사용자가 닫았다 다시 열기)
+function reopenSpiderWebProgressModal() {
+  const modal = document.getElementById('spiderWebProgressModal');
+  if (!modal) return;
+  modal.removeAttribute('hidden');
+  // 상태 UI 복원 — 단계는 그대로, 결과 영역 표시 여부도 finished에 따라.
+  if (_swProgressState.finished && _swProgressState.status === 'success') {
+    const result = document.getElementById('swpmResult');
+    if (result) result.hidden = false;
+    const link = document.getElementById('swpmResultLink');
+    if (link && _swProgressState.publishedUrl) link.href = _swProgressState.publishedUrl;
+    const closeBtn = document.getElementById('swpmCloseBtn');
+    if (closeBtn) closeBtn.disabled = false;
+  }
+}
+window.reopenSpiderWebProgressModal = reopenSpiderWebProgressModal;
 
 function _openSwProgressModal(sources) {
   const modal = document.getElementById('spiderWebProgressModal');
@@ -1001,6 +1075,18 @@ function _openSwProgressModal(sources) {
   _swProgressState.startedAt = new Date().getTime();
   _swProgressState.currentStep = 0;
   _swProgressState.apiDone = false;
+  _swProgressState.active = true;
+  _swProgressState.finished = false;
+  _swProgressState.status = 'running';
+  _swProgressState.lastPercent = 0;
+  _swProgressState.publishedUrl = '';
+  _swProgressState.errorMessage = '';
+  _swProgressState.sources = sources || [];
+  // 로그 영역 초기화
+  const logList = document.getElementById('swpmLogList');
+  if (logList) logList.innerHTML = '';
+  _swPushLog('거미줄 통합글 생성 시작 — 소스 ' + (sources || []).length + '개', 'info');
+  _swUpdateMiniProgress();
 
   // 소스 그리드 채우기
   const grid = document.getElementById('swpmSourceGrid');
@@ -1072,6 +1158,9 @@ function _swUpdateProgress(percent) {
     ringFill.setAttribute('stroke-dashoffset', String(offset));
   }
   if (percentEl) percentEl.textContent = String(clamped);
+  // v3.8.3: mini 진행률 동기화
+  _swProgressState.lastPercent = clamped;
+  _swUpdateMiniProgress();
 }
 
 function _swSetCurrent({ label, detail, icon }) {
@@ -1081,6 +1170,12 @@ function _swSetCurrent({ label, detail, icon }) {
   if (lab) lab.textContent = label;
   if (det) det.textContent = detail;
   if (ic) ic.textContent = icon;
+  // v3.8.3: 상태 저장 + 로그 + mini 동기화
+  _swProgressState.lastLabel = label || '';
+  _swProgressState.lastDetail = detail || '';
+  _swProgressState.lastIcon = icon || '⏳';
+  if (label) _swPushLog(label + (detail ? ': ' + detail : ''), 'info');
+  _swUpdateMiniProgress();
 }
 
 function _swAdvanceStep(stepId, state) {
@@ -1176,6 +1271,7 @@ function _swFinishSuccess(publishedUrl) {
   _swAdvanceStep(6, 'active');
   _swSetCurrent({ label: '발행', detail: '발행 완료!', icon: '🚀' });
   document.getElementById('swpmStepCounter').textContent = `${SW_STEPS.length} / ${SW_STEPS.length}`;
+  _swPushLog('워드프레스/블로그스팟에 발행 완료', 'success');
 
   // 0.5s 뒤 완료 UI
   setTimeout(() => {
@@ -1192,6 +1288,14 @@ function _swFinishSuccess(publishedUrl) {
     if (closeBtn) closeBtn.disabled = false;
 
     if (_swProgressState.timer) clearInterval(_swProgressState.timer);
+
+    // v3.8.3: 상태 저장 + 토스트 + 미리보기 자동 스크롤
+    _swProgressState.finished = true;
+    _swProgressState.status = 'success';
+    _swProgressState.publishedUrl = publishedUrl || '';
+    _swUpdateMiniProgress();
+    _swShowToast('🎉 거미줄 통합글 발행 완료!', 'success');
+    _swScrollToPreview();
   }, 500);
 }
 
@@ -1203,16 +1307,63 @@ function _swFinishError(message) {
   const stepId = Math.min(_swProgressState.currentStep + 1, SW_STEPS.length);
   _swAdvanceStep(stepId, 'error');
   _swSetCurrent({ label: '오류 발생', detail: message || '알 수 없는 오류', icon: '❌' });
+  _swPushLog('실패: ' + (message || '알 수 없는 오류'), 'error');
 
   const closeBtn = document.getElementById('swpmCloseBtn');
   if (closeBtn) closeBtn.disabled = false;
+
+  // v3.8.3: 상태 저장 + 실패 토스트
+  _swProgressState.finished = true;
+  _swProgressState.status = 'error';
+  _swProgressState.errorMessage = message || '';
+  _swUpdateMiniProgress();
+  _swShowToast('❌ 실패: ' + (message || '알 수 없는 오류'), 'error');
 }
 
 function closeSpiderWebProgressModal() {
   const modal = document.getElementById('spiderWebProgressModal');
   if (modal) modal.setAttribute('hidden', '');
-  if (_swProgressState.timer) clearInterval(_swProgressState.timer);
-  if (_swProgressState.simInterval) clearInterval(_swProgressState.simInterval);
+  // v3.8.3: timer/sim은 작업이 끝났을 때만 정리. 진행 중인 동안에는 backstage 유지.
+  if (_swProgressState.finished) {
+    if (_swProgressState.timer) clearInterval(_swProgressState.timer);
+    if (_swProgressState.simInterval) clearInterval(_swProgressState.simInterval);
+    // 완료 후 닫음 → mini도 일정 시간 후 hide
+    setTimeout(() => {
+      _swProgressState.active = false;
+      _swUpdateMiniProgress();
+    }, 8000);
+  } else {
+    // 진행 중인 동안 닫음 → mini는 계속 보임
+    _swUpdateMiniProgress();
+  }
+}
+
+// v3.8.3: 토스트 알림
+function _swShowToast(message, level) {
+  const color = level === 'error' ? '#fca5a5' : (level === 'success' ? '#34d399' : '#cbd5e1');
+  const border = level === 'error' ? 'rgba(239,68,68,0.5)' : (level === 'success' ? 'rgba(34,197,94,0.5)' : 'rgba(99,102,241,0.4)');
+  const toast = document.createElement('div');
+  toast.textContent = message;
+  toast.style.cssText = 'position: fixed; bottom: 88px; left: 50%; transform: translateX(-50%); padding: 14px 26px; background: linear-gradient(135deg, #0f172a, #1e293b); border: 1px solid ' + border + '; border-radius: 12px; color: ' + color + '; font-size: 14px; font-weight: 800; box-shadow: 0 12px 32px rgba(0,0,0,0.5); z-index: 100051; opacity: 0; transition: opacity 0.25s, transform 0.25s;';
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => {
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateX(-50%) translateY(-4px)';
+  });
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  }, 4500);
+}
+
+// v3.8.3: 미리보기 영역으로 자동 스크롤
+function _swScrollToPreview() {
+  setTimeout(() => {
+    const preview = document.getElementById('spiderWebPreview');
+    if (preview && !preview.hidden) {
+      preview.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, 800);
 }
 
 /**
@@ -1237,8 +1388,15 @@ async function generateAndPublishSpiderWeb() {
     const titleInput = document.getElementById('spiderWebTitle');
     const title = titleInput ? titleInput.value.trim() : '';
 
+    // v3.8.3: 이미지 정책 + 엔진 옵션 수집
+    const policyInput = document.querySelector('input[name="swImagePolicy"]:checked');
+    const imagePolicy = (policyInput && policyInput.value) || 'all';
+    const engineSelect = document.getElementById('swImageEngine');
+    const imageEngine = (engineSelect && engineSelect.value) || 'nanobanana2';
+
     // 진행 모달 표시
     _openSwProgressModal(selectedPosts);
+    _swPushLog(`URL ${urls.length}개 · 제목 "${title || '자동 생성'}" · 이미지 ${imagePolicy} (${imageEngine})`, 'info');
 
     // 단계 시뮬레이션 시작
     _swStartStepSimulation();
@@ -1255,7 +1413,11 @@ async function generateAndPublishSpiderWeb() {
           title: post.title || post.url,
           order: index + 1,
         })),
+        // v3.8.3: 이미지 옵션 전달 (백엔드 미반영 시 무시되어도 백워드)
+        imagePolicy,
+        imageEngine,
       };
+      _swPushLog('IPC generate-internal-consistency 호출…', 'info');
       if (window.electronAPI && window.electronAPI.invoke) {
         genResult = await window.electronAPI.invoke('generate-internal-consistency', payload);
       } else if (window.blogger && window.blogger.generateInternalLinkContent) {
@@ -1263,19 +1425,24 @@ async function generateAndPublishSpiderWeb() {
       } else {
         throw new Error('생성 API를 사용할 수 없습니다.');
       }
+      _swPushLog('IPC 응답 수신 (success=' + (genResult && genResult.success) + ')', genResult && genResult.success ? 'success' : 'error');
     } catch (e) {
+      _swPushLog('IPC 호출 예외: ' + (e?.message || e), 'error');
       _swFinishError('통합글 생성 실패: ' + (e?.message || '알 수 없는 오류'));
       return;
     }
 
     if (!genResult || !genResult.success) {
+      _swPushLog('백엔드 실패 사유: ' + (genResult?.error || '응답 없음'), 'error');
       _swFinishError(genResult?.error || '통합글 생성에 실패했습니다.');
       return;
     }
     if (!genResult.html) {
+      _swPushLog('백엔드가 HTML을 반환하지 않음', 'error');
       _swFinishError('생성된 HTML이 없습니다.');
       return;
     }
+    _swPushLog('생성된 HTML 길이: ' + genResult.html.length + '자', 'info');
 
     generatedContent = {
       html: genResult.html,
