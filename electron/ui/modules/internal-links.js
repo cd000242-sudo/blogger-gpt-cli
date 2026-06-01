@@ -155,28 +155,73 @@ function updateSelectedPostsFromInputs() {
 
 /**
  * 발행글 저장 (발행 완료 후 자동 호출)
+ * v3.8.11: publishedPosts 데이터 셰이프 통일 — calendar.js/posting.js 호환 위한 객체 셰이프 {dateKey: [posts]} 보존.
+ *   이전엔 평면 배열로 덮어써서 calendar의 이전달 조회가 모두 빈 셀로 보이던 버그 수정.
  */
 function savePublishedPost(post) {
   try {
-    const posts = getPublishedPosts();
-    
-    // 중복 체크 (URL 기준)
-    const exists = posts.find(p => p.url === post.url);
-    if (exists) {
+    if (!post || !post.url) return;
+    const raw = localStorage.getItem('publishedPosts');
+    /** @type {Record<string, any[]>} */
+    let store = {};
+
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          // 이전 버그로 배열 저장된 데이터 → 객체로 복원 (날짜별 그룹화)
+          for (const p of parsed) {
+            if (!p || !p.url) continue;
+            const d = new Date(p.publishedAt || p.timestamp || Date.now());
+            const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            if (!Array.isArray(store[dk])) store[dk] = [];
+            store[dk].push(p);
+          }
+          console.warn('[SPIDER-WEB] publishedPosts 배열 셰이프 감지 → 객체로 복원');
+        } else if (parsed && typeof parsed === 'object') {
+          store = parsed;
+        }
+      } catch {
+        store = {};
+      }
+    }
+
+    // 중복 체크 (URL 기준) — 모든 날짜 검색
+    let alreadyExists = false;
+    for (const dk of Object.keys(store)) {
+      const list = store[dk];
+      if (Array.isArray(list) && list.some((p) => p && p.url === post.url)) {
+        alreadyExists = true;
+        break;
+      }
+    }
+    if (alreadyExists) {
       console.log('[SPIDER-WEB] 이미 저장된 글:', post.url);
       return;
     }
-    
-    posts.push({
-      title: post.title,
+
+    const now = new Date(post.publishedAt || Date.now());
+    const dateKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    if (!Array.isArray(store[dateKey])) store[dateKey] = [];
+    store[dateKey].push({
+      title: post.title || '제목 없음',
       url: post.url,
+      // platform: posting.js는 한글('워드프레스'/'블로거')로 저장 — 통일
       platform: post.platform || 'wordpress',
-      publishedAt: new Date().toISOString(),
-      summary: post.summary || ''
+      publishedAt: now.toISOString(),
+      timestamp: now.getTime(),
+      time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+      summary: post.summary || '',
+      thumbnail: post.thumbnail || '',
     });
-    
-    localStorage.setItem('publishedPosts', JSON.stringify(posts));
-    console.log('[SPIDER-WEB] 발행글 저장 완료:', post.title);
+
+    localStorage.setItem('publishedPosts', JSON.stringify(store));
+    console.log('[SPIDER-WEB] 발행글 저장 완료 (객체 셰이프):', post.title, 'on', dateKey);
+
+    // 달력이 열려 있으면 갱신
+    if (typeof window.renderCalendar === 'function') {
+      try { window.renderCalendar(); } catch {}
+    }
   } catch (error) {
     console.error('[SPIDER-WEB] 발행글 저장 실패:', error);
   }
