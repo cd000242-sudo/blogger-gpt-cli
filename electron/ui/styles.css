@@ -1420,12 +1420,17 @@ textarea::placeholder {
 /* Grid: 좌측 소스 + 우측 단계 */
 .sw-progress-grid {
   position: relative; z-index: 1;
-  /* v3.8.49: 세로 1열 — 패널들이 위→아래 순서로 쌓임 (사용자 요청) */
+  /* v3.8.55: 세로 1열 + 패널 간 공간 충분히 (gap 40px) */
   display: grid; grid-template-columns: 1fr;
-  gap: 20px;
-  padding: 24px 32px;
+  gap: 40px;
+  padding: 32px 40px 80px;
   overflow-y: auto;
   flex: 1; min-height: 0;
+}
+.sw-progress-panel {
+  /* v3.8.55: 패널 내부 padding 키움 */
+  padding: 24px 28px !important;
+  min-height: 200px;
 }
 /* v3.8.44: 이미지 패널 — 큰 미리보기 + 그리드 */
 .sw-progress-panel--images {
