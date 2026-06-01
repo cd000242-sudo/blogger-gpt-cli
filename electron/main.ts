@@ -765,7 +765,7 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
   try {
     console.log('[INTERNAL-CONSISTENCY] 종합글 생성 요청:', payload);
     const urls = payload.urls || [];
-    const title = payload.title || '종합 가이드';
+    let title = payload.title || '종합 가이드';
     const posts = payload.posts || [];
 
     if (urls.length === 0) {
@@ -1029,6 +1029,35 @@ URL: ${item.url}
             const cleaned = String(inner).replace(metaLabelPattern, '').trim();
             return `<h${level}${attrs}>${cleaned}</h${level}>`;
           });
+
+        // v3.8.10: 본문 H1을 제목 필드로 추출 + 본문에서 제거 (글포스팅과 동일 정책)
+        //   LLM이 본문에 H1 출력 → 거기에 멋진 제목 들어가지만 발행 제목 필드에는 fallback '종합 가이드'만 들어가던 버그.
+        //   → 사용자 입력 title이 비어있으면 H1 텍스트를 추출해 제목으로 사용.
+        //   → H1 태그는 본문에서 제거 (블로그 플랫폼이 자동으로 제목을 H1로 렌더하므로 중복 방지).
+        const h1Match = generatedContent.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+        let extractedTitleFromH1 = '';
+        if (h1Match && h1Match[1]) {
+          extractedTitleFromH1 = h1Match[1]
+            .replace(/<[^>]+>/g, '')           // 내부 태그 제거
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/\s+/g, ' ')
+            .trim();
+          // 본문에서 H1 태그 통째 제거 + 인접 공백·br 정리
+          generatedContent = generatedContent
+            .replace(/\s*<h1[^>]*>[\s\S]*?<\/h1>\s*(<br\s*\/?>\s*)*/i, '')
+            .trim();
+          console.log('[INTERNAL-CONSISTENCY] 본문 H1 추출:', extractedTitleFromH1.substring(0, 60));
+        }
+        // title 우선순위: 사용자 명시 입력 > H1 추출 > 폴백
+        const userTitleTrimmed = (payload.title || '').trim();
+        if (!userTitleTrimmed && extractedTitleFromH1) {
+          title = extractedTitleFromH1;
+          console.log('[INTERNAL-CONSISTENCY] title 자동 설정 (H1 추출):', title);
+        }
 
       } catch (error) {
         console.error('[INTERNAL-CONSISTENCY] AI 종합글 생성 실패:', error);
