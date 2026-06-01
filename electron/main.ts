@@ -1321,7 +1321,43 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.warn('[INTERNAL-CONSISTENCY] 라벨 생성 실패 (라벨 없이 발행):', e?.message?.substring(0, 200));
       }
 
-      return { success: true, html: generatedContent, title, thumbnailUrl, imageStats, labels: generatedLabels };
+      // v3.8.16: WordPress 발행을 위한 SEO 메타데이터 자동 생성 (excerpt, metaDescription)
+      //   글포스팅 워드프레스 발행 흐름과 동일하게 보존 — WordPressPublisher.publish가 사용
+      let excerpt = '';
+      let metaDescription = '';
+      try {
+        const plainText = (generatedContent || '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/\s+/g, ' ')
+          .trim();
+        // 첫 두 문장 또는 첫 200자를 excerpt로
+        const sentences = plainText.split(/(?<=[.。!?])\s+/);
+        excerpt = sentences.slice(0, 2).join(' ').substring(0, 200).trim();
+        if (excerpt.length < 50 && plainText.length > 50) {
+          excerpt = plainText.substring(0, 200).trim();
+        }
+        // metaDescription: 첫 150자 + 키워드 자연 포함
+        metaDescription = plainText.substring(0, 155).trim();
+        if (metaDescription.length > 152) {
+          metaDescription = metaDescription.substring(0, 152) + '…';
+        }
+      } catch (e: any) {
+        console.warn('[INTERNAL-CONSISTENCY] excerpt/metaDescription 생성 실패:', e?.message);
+      }
+
+      return {
+        success: true,
+        html: generatedContent,
+        title,
+        thumbnailUrl,
+        imageStats,
+        labels: generatedLabels,
+        excerpt,
+        metaDescription,
+      };
 
     } catch (error) {
       console.error('[INTERNAL-CONSISTENCY] AI 종합글 생성 실패:', error);

@@ -1680,6 +1680,9 @@ async function generateAndPublishSpiderWeb() {
       // v3.8.15: 썸네일 + 라벨(해시태그) 보존 → publish-content에 전달
       thumbnailUrl: genResult.thumbnailUrl || '',
       labels: Array.isArray(genResult.labels) ? genResult.labels : [],
+      // v3.8.16: WordPress 발행용 SEO 메타데이터 (excerpt, metaDescription)
+      excerpt: genResult.excerpt || '',
+      metaDescription: genResult.metaDescription || '',
     };
     if (titleInput && genResult.title) titleInput.value = genResult.title;
     if (generatedContent.thumbnailUrl) _swPushLog('썸네일 URL 수신: ' + generatedContent.thumbnailUrl.substring(0, 60) + (generatedContent.thumbnailUrl.length > 60 ? '…' : ''), 'info');
@@ -1706,24 +1709,56 @@ async function generateAndPublishSpiderWeb() {
       // v3.8.15: 썸네일 + 라벨(해시태그) payload 보존 — 일반 글포스팅과 동일하게 Blogger에 정확 등록
       const safeThumbnail = generatedContent.thumbnailUrl || '';
       const safeLabels = Array.isArray(generatedContent.labels) ? generatedContent.labels : [];
-      _swPushLog('IPC publish-content 호출 (제목: "' + safeTitle.substring(0, 40) + '"' + (safeTitle.length > 40 ? '…' : '') + ', 썸네일: ' + (safeThumbnail ? '✓' : '✗') + ', 라벨: ' + safeLabels.length + ')', 'info');
+
+      // v3.8.16: WordPress 발행 전용 세팅 — 글포스팅탭과 동일하게 카테고리 + geminiKey + 메타 전달
+      //   publishGeneratedContent → WordPressPublisher.publish가 사용:
+      //   · payload.wordpressCategory → categories 옵션
+      //   · payload.generatedLabels → preGeneratedTags (AI 태그 건너뜀)
+      //   · payload.geminiKey → AI SEO (focusKeyword·metaDescription) 자동 처리
+      const isWordPress = /wordpress/i.test(platform);
+      const wpCategoryEl = isWordPress ? document.getElementById('wpCategory') : null;
+      const wordpressCategory = (wpCategoryEl && wpCategoryEl.value) || '';
+      // geminiKey는 localStorage에서 (환경설정 로드 결과)
+      let geminiKeyFromUi = '';
+      try {
+        geminiKeyFromUi = (localStorage.getItem('geminiKey') || localStorage.getItem('geminiApiKey') || '').trim();
+      } catch {}
+      const platformExtra = isWordPress
+        ? ' · WP 카테고리: ' + (wordpressCategory || '(미선택)')
+        : '';
+      _swPushLog('IPC publish-content 호출 (제목: "' + safeTitle.substring(0, 40) + '"' + (safeTitle.length > 40 ? '…' : '') + ', 썸네일: ' + (safeThumbnail ? '✓' : '✗') + ', 라벨: ' + safeLabels.length + platformExtra + ')', 'info');
+
+      // 공통 payload 빌더
+      const fullPayload = {
+        platform,
+        publishType: 'publish',
+        // Blogger 라벨 우선순위 (publisher가 generatedLabels → labels → topic+keywords 순서로 사용)
+        generatedLabels: safeLabels,
+        labels: safeLabels,
+        topic: safeTitle,
+        // WordPress 전용
+        ...(isWordPress ? {
+          wordpressCategory: wordpressCategory || undefined,
+          wordpressCategories: wordpressCategory || undefined,
+          geminiKey: geminiKeyFromUi || undefined,
+          // v3.8.16: SEO 메타데이터 — WordPressPublisher.publish가 사용
+          excerpt: generatedContent.excerpt || undefined,
+          metaDescription: generatedContent.metaDescription || undefined,
+          featuredImageAlt: safeTitle,
+        } : {}),
+      };
+
       if (window.electronAPI && window.electronAPI.invoke) {
         pubResult = await window.electronAPI.invoke('publish-content', {
           title: safeTitle,
           content: safeHtml,
           thumbnailUrl: safeThumbnail,
-          payload: {
-            platform,
-            publishType: 'publish',
-            generatedLabels: safeLabels,           // Blogger publisher 라벨 우선순위 1
-            labels: safeLabels,                    // 폴백 라벨
-            topic: safeTitle,                      // 라벨 폴백용
-          },
+          payload: fullPayload,
         });
       } else if (window.blogger && window.blogger.publishContent) {
         // 폴백: preload 4-인자 시그니처 정확히 사용
         pubResult = await window.blogger.publishContent(
-          { platform, publishType: 'publish', generatedLabels: safeLabels, labels: safeLabels, topic: safeTitle },
+          fullPayload,
           safeTitle,
           safeHtml,
           safeThumbnail

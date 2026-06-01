@@ -1841,6 +1841,10 @@ export async function publishGeneratedContent(
           preGeneratedTags: (payload as any)?.generatedLabels && Array.isArray((payload as any).generatedLabels) && (payload as any).generatedLabels.length > 0
             ? (payload as any).generatedLabels
             : undefined,
+          // v3.8.16: 거미줄 발행이 백엔드에서 미리 생성한 SEO 메타데이터 전달
+          excerpt: (payload as any)?.excerpt || undefined,
+          metaDescription: (payload as any)?.metaDescription || undefined,
+          featuredImageAlt: (payload as any)?.featuredImageAlt || undefined,
         } as any);
 
         console.log('[PUBLISH] 워드프레스 발행 결과:', result);
