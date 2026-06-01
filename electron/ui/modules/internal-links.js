@@ -555,6 +555,56 @@ function _updateThumbnailInDom(url, imageUrl) {
   }
 }
 
+// v3.8.12: 거미줄 전용 ImageFX/Dropshot 로그인 확인 wrapper
+//   글포스팅탭의 ID(dropshotLoginStatusSettings, imagefxLoginStatus)와 별개로
+//   거미줄 카드의 status element(swDropshotLoginStatus, swImagefxLoginStatus)를 직접 갱신.
+async function spiderHandleDropshotCheckLogin() {
+  const status = document.getElementById('swDropshotLoginStatus');
+  if (!status) return;
+  status.textContent = '⏳ 확인 중...';
+  status.style.color = 'rgba(255,255,255,0.6)';
+  try {
+    const r = await window.electronAPI?.invoke?.('dropshot:check-login');
+    if (window.handlePaymentRequiredResponse && window.handlePaymentRequiredResponse(r)) {
+      status.textContent = '🛡️ 유료 라이선스 필요';
+      status.style.color = '#fbbf24';
+      return;
+    }
+    if (r?.loggedIn) {
+      const subTxt = r.subscription === 'pro' ? ' · ✅ Pro 구독자 무제한' : (r.subscription === 'free' ? ' · ⚠️ 무료 사용자' : '');
+      status.textContent = `✅ 로그인됨${r.userName ? ' — ' + r.userName : ''}${subTxt}`;
+      status.style.color = '#86efac';
+    } else {
+      status.textContent = '🔐 ' + (r?.message || '로그인 필요 — 위 [로그인] 버튼 클릭');
+      status.style.color = '#fbbf24';
+    }
+  } catch (e) {
+    status.textContent = '❌ ' + (e?.message || e);
+    status.style.color = '#fca5a5';
+  }
+}
+async function spiderHandleImageFxCheckLogin() {
+  const status = document.getElementById('swImagefxLoginStatus');
+  if (!status) return;
+  status.textContent = '⏳ 확인 중...';
+  status.style.color = 'rgba(255,255,255,0.6)';
+  try {
+    const r = await window.electronAPI?.invoke?.('imagefx:check-login');
+    if (r?.loggedIn) {
+      status.textContent = `✅ 로그인됨${r.userEmail ? ' — ' + r.userEmail : ''}`;
+      status.style.color = '#86efac';
+    } else {
+      status.textContent = '🔐 ' + (r?.message || '로그인 필요 — 위 [Google 로그인] 버튼 클릭');
+      status.style.color = '#fbbf24';
+    }
+  } catch (e) {
+    status.textContent = '❌ ' + (e?.message || e);
+    status.style.color = '#fca5a5';
+  }
+}
+window.spiderHandleDropshotCheckLogin = spiderHandleDropshotCheckLogin;
+window.spiderHandleImageFxCheckLogin = spiderHandleImageFxCheckLogin;
+
 // v3.8.7: 엔진 선택 카드 토글 (Google 로그인 / 리더스 나노바나나 무제한)
 function _spiderWebUpdateEngineCards() {
   const thumbEngine = (document.getElementById('swThumbnailEngine')?.value || '').toLowerCase();
@@ -1104,7 +1154,7 @@ function _swPushLog(message, level) {
   } catch (e) { /* 무시 */ }
 }
 
-// v3.8.3: mini progress bar 갱신
+// v3.8.3/v3.8.12: mini progress bar 갱신 (디자인 고도화 + 모달 visibility 동기화)
 function _swUpdateMiniProgress() {
   const mini = document.getElementById('swMiniProgress');
   if (!mini) return;
@@ -1112,21 +1162,40 @@ function _swUpdateMiniProgress() {
     mini.style.display = 'none';
     return;
   }
+  // 모달이 열려 있으면 mini는 숨김 (중복 표시 방지)
+  const modal = document.getElementById('spiderWebProgressModal');
+  const modalOpen = modal && !modal.hasAttribute('hidden');
+  if (modalOpen) {
+    mini.style.display = 'none';
+    return;
+  }
   mini.style.display = 'block';
   const fill = document.getElementById('swMiniFill');
   const label = document.getElementById('swMiniLabel');
+  const detail = document.getElementById('swMiniDetail');
   const percent = document.getElementById('swMiniPercent');
   const icon = document.getElementById('swMiniIcon');
+  const elapsed = document.getElementById('swMiniElapsed');
   if (fill) fill.style.width = _swProgressState.lastPercent + '%';
   if (label) label.textContent = _swProgressState.lastLabel || '진행 중…';
+  if (detail) detail.textContent = _swProgressState.lastDetail || '';
   if (percent) percent.textContent = _swProgressState.lastPercent + '%';
   if (icon) icon.textContent = _swProgressState.lastIcon || '🕷️';
+  if (elapsed && _swProgressState.startedAt) {
+    const sec = Math.floor((Date.now() - _swProgressState.startedAt) / 1000);
+    const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+    const ss = String(sec % 60).padStart(2, '0');
+    elapsed.textContent = `${mm}:${ss}`;
+  }
   if (_swProgressState.status === 'success') {
-    mini.style.borderColor = 'rgba(34,197,94,0.55)';
+    mini.style.borderColor = 'rgba(34,197,94,0.6)';
+    if (percent) percent.style.color = '#34d399';
   } else if (_swProgressState.status === 'error') {
-    mini.style.borderColor = 'rgba(239,68,68,0.55)';
+    mini.style.borderColor = 'rgba(239,68,68,0.6)';
+    if (percent) percent.style.color = '#f87171';
   } else {
-    mini.style.borderColor = 'rgba(99,102,241,0.45)';
+    mini.style.borderColor = 'rgba(99,102,241,0.55)';
+    if (percent) percent.style.color = '#fbbf24';
   }
 }
 
@@ -1378,8 +1447,19 @@ function _swFinishSuccess(publishedUrl) {
     _swProgressState.status = 'success';
     _swProgressState.publishedUrl = publishedUrl || '';
     _swUpdateMiniProgress();
-    _swShowToast('🎉 거미줄 통합글 발행 완료!', 'success');
-    _swScrollToPreview();
+    _swShowToast('🎉 거미줄 통합글 발행 완료! 미리보기로 이동합니다…', 'success');
+
+    // v3.8.12: 발행 완료 시 1.8초 후 모달 자동 닫기 + 미리보기 자동 스크롤
+    setTimeout(() => {
+      const modal = document.getElementById('spiderWebProgressModal');
+      if (modal) modal.setAttribute('hidden', '');
+      _swScrollToPreview();
+      // mini bar 4초 후 자동 hide
+      setTimeout(() => {
+        _swProgressState.active = false;
+        _swUpdateMiniProgress();
+      }, 4000);
+    }, 1800);
   }, 500);
 }
 

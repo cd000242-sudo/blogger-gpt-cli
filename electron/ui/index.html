@@ -5264,7 +5264,7 @@
                   style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #4285f4, #34a853); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
                   <span style="font-size: 16px;">🔑</span> Google 로그인
                 </button>
-                <button type="button" onclick="window.handleImageFxCheckLogin && window.handleImageFxCheckLogin()"
+                <button type="button" onclick="window.spiderHandleImageFxCheckLogin && window.spiderHandleImageFxCheckLogin()"
                   style="padding: 10px 16px; background: rgba(255,255,255,0.1); color: white; border: 2px solid rgba(66,133,244,0.4); border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;">
                   확인
                 </button>
@@ -5280,7 +5280,7 @@
                   style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #78350f; border: none; border-radius: 10px; font-size: 13px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
                   <span style="font-size: 16px;">🔑</span> 리더스 나노바나나 로그인
                 </button>
-                <button type="button" onclick="window.handleDropshotCheckLogin && window.handleDropshotCheckLogin()"
+                <button type="button" onclick="window.spiderHandleDropshotCheckLogin && window.spiderHandleDropshotCheckLogin()"
                   style="padding: 10px 16px; background: rgba(255,255,255,0.1); color: white; border: 2px solid rgba(251,191,36,0.4); border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;">
                   확인
                 </button>
@@ -7527,17 +7527,27 @@ if (origSwitchTab) {
   </div>
 </div>
 
-<!-- v3.8.3: 거미줄 mini progress bar (모달 닫혀도 진행 표시) -->
-<div id="swMiniProgress" style="display:none; position:fixed; bottom:16px; right:16px; z-index:9999; background:linear-gradient(135deg, #0f172a, #1e293b); border:1px solid rgba(99,102,241,0.45); border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,0.45); padding:12px 16px; min-width:260px; cursor:pointer; font-family:'Noto Sans KR', sans-serif;" onclick="(typeof reopenSpiderWebProgressModal==='function')&&reopenSpiderWebProgressModal()">
-  <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
-    <span id="swMiniIcon" style="font-size:18px;">🕷️</span>
-    <span id="swMiniLabel" style="flex:1; color:#e2e8f0; font-size:13px; font-weight:700;">진행 중…</span>
-    <span id="swMiniPercent" style="color:#fbbf24; font-size:12px; font-weight:800;">0%</span>
+<!-- v3.8.12: 거미줄 mini progress bar 고도화 — 모달 닫혀도 진행 표시, 클릭 시 재오픈 -->
+<div id="swMiniProgress" style="display:none; position:fixed; bottom:20px; right:20px; z-index:9999; background:linear-gradient(135deg, rgba(15,23,42,0.98), rgba(30,41,59,0.98)); backdrop-filter: blur(20px); border:1px solid rgba(99,102,241,0.55); border-radius:16px; box-shadow:0 20px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(99,102,241,0.1); padding:14px 18px; min-width:300px; max-width:340px; cursor:pointer; font-family:'Noto Sans KR', sans-serif; transition: transform 0.2s, box-shadow 0.2s;" onclick="(typeof reopenSpiderWebProgressModal==='function')&&reopenSpiderWebProgressModal()" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 24px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(99,102,241,0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 20px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(99,102,241,0.1)';">
+  <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
+    <div id="swMiniIconWrap" style="width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg, rgba(99,102,241,0.25), rgba(236,72,153,0.25)); display:flex; align-items:center; justify-content:center; font-size:20px;">
+      <span id="swMiniIcon">🕷️</span>
+    </div>
+    <div style="flex:1; min-width:0;">
+      <div id="swMiniLabel" style="color:#f1f5f9; font-size:13px; font-weight:800; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">진행 중…</div>
+      <div id="swMiniDetail" style="color:#94a3b8; font-size:11px; font-weight:500; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">곧 시작합니다</div>
+    </div>
+    <div style="text-align:right;">
+      <div id="swMiniPercent" style="color:#fbbf24; font-size:18px; font-weight:900; line-height:1; letter-spacing:-0.5px;">0%</div>
+    </div>
   </div>
-  <div style="height:6px; background:rgba(148,163,184,0.18); border-radius:99px; overflow:hidden;">
-    <div id="swMiniFill" style="height:100%; width:0%; background:linear-gradient(90deg, #6366f1, #ec4899); transition:width 0.3s;"></div>
+  <div style="height:8px; background:rgba(148,163,184,0.15); border-radius:99px; overflow:hidden; position:relative;">
+    <div id="swMiniFill" style="height:100%; width:0%; background:linear-gradient(90deg, #6366f1, #8b5cf6 50%, #ec4899); transition:width 0.4s ease-out; box-shadow: 0 0 12px rgba(139,92,246,0.5);"></div>
   </div>
-  <div style="margin-top:6px; color:#94a3b8; font-size:10px;">👆 클릭하면 모달 다시 열기</div>
+  <div style="margin-top:10px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+    <span style="color:#64748b; font-size:10px; font-weight:600;">👆 클릭하면 다시 열기</span>
+    <span id="swMiniElapsed" style="color:#64748b; font-size:10px; font-weight:700; font-variant-numeric: tabular-nums;">00:00</span>
+  </div>
 </div>
 
 </body>
