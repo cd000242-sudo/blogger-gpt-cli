@@ -1841,8 +1841,17 @@ function _renderSpiderWebPreview(html, publishedUrl, publishedAt) {
   const urlEl = document.getElementById('spiderWebResultUrl');
   const timeEl = document.getElementById('spiderWebResultTime');
 
+  // v3.8.18: 본문에는 썸네일 안 박지만 미리보기에서는 보이도록 별도 prepend
+  //   발행 시에는 publisher가 separator 구조로 자동 본문 앞 삽입.
   if (section) section.removeAttribute('hidden');
-  if (content) content.innerHTML = html;
+  if (content) {
+    const thumb = (generatedContent && generatedContent.thumbnailUrl) || '';
+    const safeThumb = escapeHtml(thumb);
+    const thumbBlock = thumb
+      ? `<p style="text-align:center;margin:0 0 24px 0;"><img src="${safeThumb}" alt="" style="max-width:100%;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,0.12);"></p>`
+      : '';
+    content.innerHTML = thumbBlock + (html || '');
+  }
 
   if (badge && publishedUrl) {
     badge.hidden = false;

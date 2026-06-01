@@ -1197,13 +1197,10 @@ URL: ${item.url}
                 thumbnailUrl = hosted.url;
                 imageStats.thumbnail = true;
                 console.log('[INTERNAL-CONSISTENCY] 썸네일 호스팅 provider:', hosted.provider);
-                const imgTag = `<p style="text-align:center;margin:24px 0;"><img src="${thumbnailUrl}" alt="${title.replace(/"/g, '&quot;')}" style="max-width:100%;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,0.12);"></p>`;
-                if (/<h1[^>]*>[\s\S]*?<\/h1>/i.test(generatedContent)) {
-                  generatedContent = generatedContent.replace(/(<h1[^>]*>[\s\S]*?<\/h1>)/i, `$1\n${imgTag}`);
-                } else {
-                  generatedContent = imgTag + '\n' + generatedContent;
-                }
-                console.log('[INTERNAL-CONSISTENCY] ✅ 썸네일 삽입 완료 (provider=' + hosted.provider + ')');
+                // v3.8.18: 본문 썸네일 삽입 제거 — publishToBlogger가 separator 구조로 자동 본문 앞 삽입
+                //   이전엔 본문에 <p><img></p> 박고 publisher도 separator 박아 중복 노출 버그.
+                //   thumbnailUrl만 반환하고 본문에는 박지 않음.
+                console.log('[INTERNAL-CONSISTENCY] ✅ 썸네일 URL 보관 (본문 삽입은 publisher 위임)');
               } else {
                 imageStats.errors.push(`썸네일 생성 실패: ${(thumbResult && thumbResult.error) || 'unknown'}`);
               }
