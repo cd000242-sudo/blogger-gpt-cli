@@ -1523,15 +1523,11 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.warn('[INTERNAL-CONSISTENCY] ⚠️ 목차 삽입 실패:', tocErr?.message);
       }
 
-      // v3.8.33: v3.8.26 방향 reversal — 미리보기를 publisher 결과로 맞추는 게 아니라
-      //   발행이 미리보기를 따르도록 변경. 거미줄 LLM이 만든 sw-cornerstone 디자인 그대로 보존.
-      //
-      // 전략: 거미줄 wrapper에 max-mode-article 클래스 부여 → publisher의 applyInlineStyles 자동 skip.
-      //   blogger-publisher.js line 3592 조건 (max-mode-article 없으면 발동)을 활용해
-      //   거미줄 HTML은 추가 변환 없이 그대로 발행되도록 함.
-      //   publisher의 다른 단계(<p>/<h2> 강제 인라인)는 v3.8.24부터 inline style 있으면 보존 모드라 안전.
+      // v3.8.33: 미리보기 → 발행 일치를 위해 wrapper에 max-mode-article 클래스 부여 → publisher applyInlineStyles skip.
+      // v3.8.36: 빠진 요소(<p>/<h2>/<li>/<td>/<a> 등)에 inline style + !important 자동 보강 →
+      //   Blogger 테마 CSS 무관 표시 보장. 이미 inline style 있는 요소는 보존(미리보기 디자인 그대로).
       try {
-        // sw-cornerstone wrapper에 max-mode-article 클래스 추가 (이미 있으면 skip)
+        // sw-cornerstone wrapper에 max-mode-article 클래스 추가
         generatedContent = generatedContent.replace(
           /(<div\s+class\s*=\s*["'])([^"']*\bsw-cornerstone\b[^"']*)(["'])/i,
           (match, p1, classes, p3) => {
@@ -1539,9 +1535,35 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
             return `${p1}${classes} max-mode-article${p3}`;
           }
         );
-        console.log('[INTERNAL-CONSISTENCY] ✅ sw-cornerstone wrapper에 max-mode-article 클래스 부여 (publisher 추가 변환 skip)');
+
+        // v3.8.36: 빠진 요소에 가독성 inline style + !important 보강 (이미 있으면 보존)
+        const enforceInlineStyle = (html: string, tag: string, defaultStyle: string): string => {
+          const regex = new RegExp(`<${tag}((?:\\s[^>]*)?)>`, 'gi');
+          return html.replace(regex, (match: string, attrs: string) => {
+            if (attrs && /style\s*=/i.test(attrs)) return match; // 보존
+            return `<${tag}${attrs || ''} style="${defaultStyle}">`;
+          });
+        };
+
+        generatedContent = enforceInlineStyle(generatedContent, 'p', 'color:#1a1a1a !important;font-size:17px !important;line-height:1.85 !important;margin:0 0 18px !important;word-break:keep-all !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'h2', 'color:#0f172a !important;font-size:26px !important;font-weight:800 !important;margin:40px 0 20px !important;padding:14px 18px !important;background:linear-gradient(135deg,#f0f4ff 0%,#e0e7ff 100%) !important;border-left:5px solid #6366f1 !important;border-radius:0 14px 14px 0 !important;line-height:1.4 !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'h3', 'color:#1e293b !important;font-size:20px !important;font-weight:700 !important;margin:30px 0 14px !important;line-height:1.4 !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'h4', 'color:#334155 !important;font-size:17px !important;font-weight:700 !important;margin:24px 0 12px !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'li', 'color:#1a1a1a !important;font-size:17px !important;line-height:1.85 !important;margin:0 0 8px !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'ul', 'margin:18px 0 !important;padding-left:24px !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'ol', 'margin:18px 0 !important;padding-left:24px !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'table', 'width:100% !important;border-collapse:collapse !important;margin:24px 0 !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'th', 'padding:12px 14px !important;color:#0f172a !important;background:#f8fafc !important;border:1px solid #e2e8f0 !important;font-weight:800 !important;text-align:left !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'td', 'padding:12px 14px !important;color:#1a1a1a !important;border:1px solid #e2e8f0 !important;font-size:15px !important;line-height:1.6 !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'strong', 'color:#0f172a !important;font-weight:800 !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'em', 'color:#475569 !important;font-style:italic !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'blockquote', 'margin:24px 0 !important;padding:18px 22px !important;background:#f8fafc !important;border-left:4px solid #94a3b8 !important;border-radius:0 12px 12px 0 !important;color:#475569 !important;font-style:italic !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'a', 'color:#4f46e5 !important;text-decoration:underline !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'img', 'max-width:100% !important;height:auto !important;border-radius:12px !important;margin:18px auto !important;display:block !important;');
+
+        console.log('[INTERNAL-CONSISTENCY] ✅ wrapper 클래스 부여 + 빠진 요소 inline style 보강 완료 (Blogger 테마 무관 표시)');
       } catch (skinErr: any) {
-        console.warn('[INTERNAL-CONSISTENCY] ⚠️ wrapper 클래스 부여 실패:', skinErr?.message);
+        console.warn('[INTERNAL-CONSISTENCY] ⚠️ inline style 보강 실패:', skinErr?.message);
       }
 
       return {
