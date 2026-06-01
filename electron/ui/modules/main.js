@@ -16,7 +16,7 @@ import { downloadExcelTemplate, runExcelBatch, downloadExcelResults, clearExcelR
 import { generateTextThumbnail, generateTextThumbnailWithBackground, downloadThumbnail, applyPreset, updateThumbnailPreview } from './thumbnail.js';
 import { initTutorialModule } from './tutorial.js';
 import { initSidebar } from './sidebar.js';
-import { initKeywordDiscover } from './keyword-discover.js';
+// v3.8.39: initKeywordDiscover 제거 — LEWORD 외부 앱으로 대체.
 import './leword-launcher.js'; // window.runLewordLauncher 등록
 import './external-traffic.js'; // v3.7.23: window.initExternalTrafficTab + 플랫폼 변환 함수들
 import './quality-report-modal.js'; // window.showQualityReportModal / accumulateQualityReport / showQueueQualityReport 등록
@@ -451,9 +451,7 @@ async function initializeApp() {
     initSidebar();
     debugLog('MAIN', '사이드바 초기화 완료');
 
-    // 5.7. 황금키워드 탐색기 초기화
-    initKeywordDiscover();
-    debugLog('MAIN', '황금키워드 탐색기 초기화 완료');
+    // v3.8.39: 황금키워드 탐색기 초기화 제거 — LEWORD 외부 앱으로 대체.
 
     // 5.8. 콘텐츠변환 stub 함수 등록
     initContentStubs();
