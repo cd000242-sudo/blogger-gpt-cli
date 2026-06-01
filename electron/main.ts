@@ -1172,9 +1172,10 @@ URL: ${item.url}
       const thumbEngine = (payload.imageThumbnailEngine || 'nanobanana2').toLowerCase();
       const h2Engine = (payload.imageH2Engine || 'nanobanana2').toLowerCase();
       // v3.8.7: 텍스트 포함 옵션 → prompt에 직접 지시
+      // v3.8.35: 영문 instruction은 이미지에 그대로 글자로 박히는 문제 차단 — 한국어 지시문 + negative
       const imageIncludeText = !!payload.imageIncludeText;
       const textTail = imageIncludeText
-        ? `\n\n[IMPORTANT: Include clear, legible Korean text overlay on the image that visually summarizes the topic]`
+        ? `\n\n주제를 한눈에 표현하는 굵고 또렷한 한국어 큰 글자 텍스트 오버레이를 이미지 위에 포함. 영어 단어·문장·instruction·metadata·대괄호·콜론은 절대로 그리지 마세요. 한국어만 쓰세요.`
         : '';
 
       // v3.8.8: dataURL → 호스팅 URL 변환
@@ -1477,10 +1478,9 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.log('[INTERNAL-CONSISTENCY] 본문 상단 schema.org description meta 삽입');
       }
 
-      // v3.8.31: 거미줄 통합글에 목차(TOC) 자동 삽입 — 글포스팅과 동일 UI.
-      //   1) <h2>에 순서 id 부여 (목차 anchor 동작)
-      //   2) generateTOCFinal로 버튼형 화이트페이퍼 목차 HTML 생성
-      //   3) 첫 H2 직전에 삽입 (도입부 카드 다음 자연스러운 위치)
+      // v3.8.31/v3.8.35: 거미줄 통합글 목차 — 모든 스타일 inline으로 직접 박음 (CSS 누락 시에도 정상).
+      //   기존 generateTOCFinal은 .toc-grid/.toc-btn/.toc-number CSS 클래스 기반 → 거미줄엔
+      //   CSS가 별도로 주입되지 않아 plain text로 보이던 문제 차단.
       try {
         const h2RegexAll = /<h2([^>]*)>([\s\S]*?)<\/h2>/gi;
         const h2Titles: string[] = [];
@@ -1496,15 +1496,27 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         });
 
         if (h2Titles.length >= 2) {
-          const { generateTOCFinal } = require('../dist/core/final/html.js');
-          const tocHtml = typeof generateTOCFinal === 'function' ? generateTOCFinal(h2Titles) : '';
-          if (tocHtml) {
-            // 첫 <h2 id="section-0"> 직전에 삽입
-            const firstH2Pos = generatedContent.search(/<h2[^>]*\bid\s*=\s*["']section-0["'][^>]*>/i);
-            if (firstH2Pos > 0) {
-              generatedContent = generatedContent.slice(0, firstH2Pos) + tocHtml + '\n' + generatedContent.slice(firstH2Pos);
-              console.log(`[INTERNAL-CONSISTENCY] ✅ 목차 자동 삽입 완료 (H2 ${h2Titles.length}개)`);
-            }
+          const escapeHtmlText = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const tocItems = h2Titles.map((h2, i) =>
+            `<a href="#section-${i}" style="display:flex !important;align-items:center !important;gap:12px !important;padding:18px 20px !important;background:#ffffff !important;border:1px solid #e2e8f0 !important;border-radius:14px !important;text-decoration:none !important;color:#475569 !important;font-weight:700 !important;font-size:16px !important;box-shadow:0 2px 4px rgba(0,0,0,0.04) !important;transition:all 0.2s ease !important;">
+  <span style="display:inline-flex !important;align-items:center !important;justify-content:center !important;width:28px !important;height:28px !important;background:#e0e7ff !important;color:#4f46e5 !important;border-radius:8px !important;font-size:13px !important;font-weight:800 !important;flex-shrink:0 !important;">${i + 1}</span>
+  <span style="flex:1 !important;line-height:1.4 !important;color:#475569 !important;">${escapeHtmlText(h2)}</span>
+</a>`
+          ).join('\n  ');
+
+          const tocHtml = `
+<div style="margin:40px 0 !important;padding:30px !important;background:#f8fafc !important;border-radius:20px !important;border:1px solid #e2e8f0 !important;">
+  <h3 style="margin:0 0 20px 0 !important;font-size:20px !important;font-weight:800 !important;color:#0f172a !important;display:flex !important;align-items:center !important;gap:8px !important;">📌 전체 읽어보기 절차</h3>
+  <div style="display:flex !important;flex-direction:column !important;gap:12px !important;">
+  ${tocItems}
+  </div>
+</div>
+`;
+
+          const firstH2Pos = generatedContent.search(/<h2[^>]*\bid\s*=\s*["']section-0["'][^>]*>/i);
+          if (firstH2Pos > 0) {
+            generatedContent = generatedContent.slice(0, firstH2Pos) + tocHtml + '\n' + generatedContent.slice(firstH2Pos);
+            console.log(`[INTERNAL-CONSISTENCY] ✅ 목차 자동 삽입 완료 (H2 ${h2Titles.length}개, 인라인 style)`);
           }
         }
       } catch (tocErr: any) {
@@ -5259,7 +5271,7 @@ ipcMain.handle('batch-image-generate', async (_evt, payload: any) => {
     const ts = Date.now().toString(36);
     const variationTail = `\n\n[Gen-${ts}-${nonce}: unique composition, fresh angle, different subjects/setting/lighting — never duplicate previous outputs / 매번 완전히 다른 구도와 시점]`;
     const textTail = includeText
-      ? `\n\n[IMPORTANT: Include clear, legible Korean text overlay on the image that visually summarizes the topic]`
+      ? `\n\n주제를 한눈에 표현하는 굵고 또렷한 한국어 큰 글자 텍스트 오버레이를 이미지 위에 포함. 영어 단어·문장·instruction·metadata·대괄호·콜론은 절대로 그리지 마세요. 한국어만 쓰세요.`
       : '';
     const finalPrompt = `${prompt}${textTail}${variationTail}`;
 
