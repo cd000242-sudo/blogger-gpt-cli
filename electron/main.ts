@@ -1015,6 +1015,7 @@ URL: ${item.url}
 - 메타 멘트("이 글은 ${sortedContents.length}개 글을 종합") / <html><body> / 마크다운 / 중국어 한자 / 빈 검색바·입력칸 / 자극·낚시
 - 5/6/7/8번 H2에 거미줄 CTA 박스 추가 X (4번 H2에만)
 - <button> 태그 X (Blogger가 sanitize) — <a href> + 인라인 style만
+- 인용 자리표시자 절대 금지: [cite: provided data], [citation: 1], [ref: ...], [source: ...] 등 본문 노출 X (자연스러운 한국어 문장으로만)
 
 ✅ **품질 기준**: 총 8,000~12,000자, H2 정확히 ${sortedContents.length + 3}개, **거미줄 CTA는 원본 대응 H2(1~${sortedContents.length}번)에만**, 검색 의도 1편 완전 커버
 
@@ -1050,6 +1051,13 @@ URL: ${item.url}
             const cleaned = String(inner).replace(metaLabelPattern, '').trim();
             return `<h${level}${attrs}>${cleaned}</h${level}>`;
           });
+
+        // v3.8.22: LLM이 본문에 남기는 인용 자리표시자 자동 제거
+        //   예: "[cite: provided data]", "[citation: 1]", "[ref: source]" 등.
+        //   Gemini가 가끔 출처 참조를 본문에 그대로 남겨 독자에게 노출되는 문제 차단.
+        generatedContent = generatedContent
+          .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*[:：][^\]]*\]/gi, '')
+          .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*\d*\s*\]/gi, '');
 
         // v3.8.19: LLM이 CTA HTML 가이드를 무시하고 평문으로 출력한 경우 자동 박스 변환
         //   패턴: H2 본문 끝부분에 "더 자세한 ~을 알고 싶다면?" + 다음 줄에 글 제목·"자세히 보기"·URL이 나오는 평문
@@ -1244,6 +1252,10 @@ URL: ${item.url}
               imageStats.errors.push('H2 헤더 0개 — LLM이 H2를 생성하지 않음');
             }
 
+            // v3.8.22: "핵심 요약 / 성급한 / 한눈에 / TLDR / 총정리 / 결론" 패턴 H2엔 이미지 스킵.
+            //   이 섹션들은 짧은 요약표·체크리스트라 이미지가 시각적으로 부적절 (햄스터 사진 등 무관한 그림).
+            const SKIP_IMAGE_H2_PATTERN = /(성급한|핵심\s*요약|한\s*눈에|한눈에|TLDR|tl;dr|총\s*정리|결론|요약\s*표|마치며|마무리)/i;
+
             for (let i = 0; i < h2Nodes.length; i++) {
               const idx1 = i + 1;
               // 정책 필터
@@ -1256,6 +1268,12 @@ URL: ${item.url}
               const h2El = h2Nodes[i];
               const h2Text = $(h2El).text().trim();
               if (!h2Text) continue;
+
+              // v3.8.22: 요약/결론 류 H2 스킵
+              if (SKIP_IMAGE_H2_PATTERN.test(h2Text)) {
+                console.log(`[INTERNAL-CONSISTENCY] ⏭️ H2 ${idx1} 이미지 스킵 (요약/결론 패턴): "${h2Text.substring(0, 30)}…"`);
+                continue;
+              }
 
               try {
                 console.log(`[INTERNAL-CONSISTENCY] 🖼️ H2 ${idx1}/${h2Nodes.length} 이미지 시작: "${h2Text.substring(0, 30)}…"`);
