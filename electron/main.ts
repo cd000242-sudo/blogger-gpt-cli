@@ -791,26 +791,27 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
     // v3.8.28/v3.8.30: WordPress wp-admin URL → 공개 글 URL 정규화 (백엔드 안전망)
     //   v3.8.30: Pretty Permalinks 사이트에선 ?p=N도 404 → WP REST API로 정확한 link 가져옴.
     //   API 실패 시 ?p=N 폴백 (REST API 비활성·인증 필요 사이트 대비).
+    // v3.8.59: timeout 8 → 5초 (빠른 실패) + 진단 로그
     const _normalizeWpUrl = async (u: string): Promise<string> => {
       if (!u || typeof u !== 'string') return u || '';
       const m = u.match(/^(https?:\/\/[^/]+)\/wp-admin\/post\.php\?[^#]*\bpost=(\d+)/i);
       if (!m) return u;
       try {
         const axios = (await import('axios')).default;
-        const r = await axios.get(`${m[1]}/wp-json/wp/v2/posts/${m[2]}`, { timeout: 8000, validateStatus: () => true });
+        const r = await axios.get(`${m[1]}/wp-json/wp/v2/posts/${m[2]}`, { timeout: 5000, validateStatus: () => true });
         const link = r?.data?.link;
         if (typeof link === 'string' && /^https?:\/\//i.test(link) && !/\/wp-admin\//i.test(link)) {
-          console.log(`[INTERNAL-CONSISTENCY] wp-admin URL → REST API link: ${link}`);
           return link;
         }
-      } catch (e: any) {
-        console.warn(`[INTERNAL-CONSISTENCY] WP REST API 실패 — ?p=N 폴백:`, e?.message);
-      }
+      } catch {}
       return `${m[1]}/?p=${m[2]}`;
     };
+    sendDiag('🔗 URL 정규화 시작');
     const urls = await Promise.all((payload.urls || []).map(_normalizeWpUrl));
+    sendDiag(`✅ URL 정규화 완료 — ${urls.length}개`);
     let title = payload.title || '종합 가이드';
     const posts = await Promise.all((payload.posts || []).map(async (p) => ({ ...p, url: await _normalizeWpUrl(p.url) })));
+    sendDiag(`✅ posts 정규화 완료 — ${posts.length}개`);
 
     if (urls.length === 0) {
       return { success: false, error: 'URL이 필요합니다.' };
@@ -853,6 +854,7 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
     let browser: any = null;
 
     try {
+      sendDiag('🕷️ 크롤링 시작 (Puppeteer 실행)');
       browser = await puppeteer.launch({
         headless: true, // "new" is deprecated in latest puppeteer
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
@@ -990,6 +992,7 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
       }
 
       // 크롤링된 콘텐츠를 순서대로 정렬
+      sendDiag(`✅ 크롤링 완료 — ${crawledContents.length}개 글, LLM 호출 준비`);
       const sortedContents = crawledContents.sort((a, b) => a.order - b.order);
       // v3.7.22: 통합글 프롬프트 전면 재작성
       //   기존 프롬프트는 "5개 글 70% 요약 + CTA" 수준이라 사용자 의도(애드센스 + 외부유입 + 거미줄)가 반영 안 됨.
@@ -1082,6 +1085,7 @@ URL: ${item.url}
 
       let generatedContent = '';
       try {
+        sendDiag('🤖 Gemini LLM 호출 시작 (본문 생성)');
         const result = await model.generateContent({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           generationConfig: {
@@ -1283,7 +1287,9 @@ URL: ${item.url}
           const { dispatchThumbnailGeneration, dispatchH2ImageGeneration } = dispatcher || {};
 
           // 1) 썸네일 — 'none' 외 모든 정책에서 생성
+          sendDiag(`🎨 LLM 생성 완료 (${generatedContent.length}자) — 이미지 단계 진입`);
           if (typeof dispatchThumbnailGeneration === 'function' && thumbEngine !== 'none') {
+            sendDiag(`🖼️ 썸네일 생성 시작 (엔진: ${thumbEngine})`);
             try {
               console.log('[INTERNAL-CONSISTENCY] 🖼️ 썸네일 생성 시작:', thumbEngine);
               const thumbResult = await dispatchThumbnailGeneration(
