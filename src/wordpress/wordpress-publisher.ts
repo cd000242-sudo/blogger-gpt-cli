@@ -167,8 +167,16 @@ export function applyWordPressInlineStyles(html: string): string {
       return `<a${cleanAttrs ? ' ' + cleanAttrs : ''} style="color: #0891b2 !important; -webkit-text-fill-color: #0891b2 !important; text-decoration: none !important; border-bottom: 1px solid #99f6e4 !important; font-weight: 600 !important;">`;
     });
 
-    // 소제목별 카드 래핑
-    styledHtml = wrapSectionsInCards(styledHtml);
+    // v3.8.37: 거미줄 통합글(sw-cornerstone)은 카드 래핑 skip — 미리보기 디자인 보존.
+    //   기존엔 모든 WP 발행물에 wp-section-card 자동 wrap → 거미줄 sw-cornerstone HTML도
+    //   카드로 분할되어 미리보기와 실제 발행이 달라졌음.
+    //   sw-cornerstone 또는 max-mode-article 클래스 감지 시 wrap skip.
+    //   inline style 보강(p/h2/a 등) + CSS 주입은 그대로 유지 (WP 테마 무관 표시 보장).
+    if (!/\b(sw-cornerstone|max-mode-article)\b/.test(styledHtml)) {
+      styledHtml = wrapSectionsInCards(styledHtml);
+    } else {
+      console.log('[WP-PUBLISH] sw-cornerstone/max-mode-article 감지 → 카드 래핑 skip (미리보기 디자인 보존)');
+    }
 
     // 수익 최적화 CSS — 통일 디자인
     const themeFriendlyCSS = `
