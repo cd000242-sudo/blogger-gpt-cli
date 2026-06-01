@@ -1420,33 +1420,24 @@ textarea::placeholder {
 /* Grid: 좌측 소스 + 우측 단계 */
 .sw-progress-grid {
   position: relative; z-index: 1;
-  /* v3.8.55: 세로 1열 + 패널 간 공간 충분히 (gap 40px) */
+  /* v3.8.58: 세로 1열, gap 32px, 모달 가운데 정렬 padding */
   display: grid; grid-template-columns: 1fr;
-  gap: 40px;
-  padding: 32px 40px 80px;
+  gap: 32px;
+  padding: 32px 40px 60px;
   overflow-y: auto;
   flex: 1; min-height: 0;
 }
+/* v3.8.58: 패널 단일 정의 (중복 제거) — display:block으로 자연 흐름, min-height 제거 */
 .sw-progress-panel {
-  /* v3.8.55: 패널 내부 padding 키움 */
-  padding: 24px 28px !important;
-  min-height: 200px;
-}
-/* v3.8.44: 이미지 패널 — 큰 미리보기 + 그리드 */
-.sw-progress-panel--images {
-  display: flex; flex-direction: column;
-  background: rgba(15, 23, 42, 0.45);
-  border: 1px solid rgba(148, 163, 184, 0.12);
-  border-radius: 14px;
-  padding: 16px;
-}
-.sw-progress-panel {
+  display: block;
   background: rgba(15, 23, 42, 0.55);
   border: 1px solid rgba(148, 163, 184, 0.1);
   border-radius: 16px;
-  padding: 20px;
-  display: flex; flex-direction: column;
-  min-height: 0;
+  padding: 28px 32px;
+}
+.sw-progress-panel--images {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.12);
 }
 .sw-progress-panel-title {
   display: flex; align-items: center; gap: 10px;
