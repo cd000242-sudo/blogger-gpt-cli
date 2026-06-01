@@ -89,6 +89,8 @@ export type BloggerApi = {
   /** 로그/진행률 구독 */
   onLog(listener: (line: string) => void): () => void;
   onProgress(listener: (payload: ProgressPayload) => void): () => void;
+  /** v3.8.44: 거미줄 실시간 이미지 생성 이벤트 */
+  onSwImageGenerated?(listener: (payload: { kind: string; label: string; url: string }) => void): () => void;
   
   /** 작업 취소 */
   cancelTask(): void;
