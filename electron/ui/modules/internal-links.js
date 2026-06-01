@@ -1584,10 +1584,17 @@ async function generateAndPublishSpiderWeb() {
       return issues;
     };
 
+    // v3.8.24: 진행 모달을 login check 전에 먼저 표시 — 사용자가 클릭 후 즉시 반응 확인
+    //   기존엔 login check IPC(Playwright 사이트 확인, 5~10초)가 동기로 끝난 후에야 모달 표시 → "10초 대기" 체감.
+    //   이제 모달 먼저 → 안에서 login check 진행 → 실패 시 모달 안에서 중단 안내.
+    _openSwProgressModal(selectedPosts);
+    _swPushLog('이미지 엔진 로그인 상태 확인 중…', 'info');
+
     const loginIssues = await _swEngineNeedsLogin();
     if (loginIssues.length > 0) {
       const lines = loginIssues.map((it) => `• ${it.engine}: ${it.reason}\n  → ${it.action}`);
       const msg = '⚠️ 선택한 이미지 엔진이 로그인 필요한 상태입니다.\n\n' + lines.join('\n\n') + '\n\n로그인 완료 후 다시 [통합글 생성 및 발행하기] 클릭.';
+      _swFinishError('이미지 엔진 로그인 필요 — ' + loginIssues.map((it) => it.engine).join(', '));
       alert(msg);
       return; // 발행 중단
     }
@@ -1603,8 +1610,6 @@ async function generateAndPublishSpiderWeb() {
     const includeTextCb = document.getElementById('swImageIncludeText');
     const imageIncludeText = !!(includeTextCb && includeTextCb.checked);
 
-    // 진행 모달 표시
-    _openSwProgressModal(selectedPosts);
     _swPushLog(`URL ${urls.length}개 · 제목 "${title || '자동 생성'}" · 정책 ${imagePolicy} · 썸네일 ${imageThumbnailEngine} · 본문 ${imageH2Engine}${imageIncludeText ? ' · 텍스트포함' : ''}`, 'info');
 
     // 단계 시뮬레이션 시작

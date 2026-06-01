@@ -3770,68 +3770,52 @@ html body .content-inner {
     //    CSS 텍스트가 본문에 노출되는 버그 수정 (applyInlineStyles()의 CSS가 이미 충분)
     console.log('[PUBLISH] 🔥 인라인 스타일 강제 주입 시작...');
 
-    // p 태그에 인라인 스타일 추가 (더 넓은 줄간격, 큰 글자)
+    // v3.8.24: 이미 inline style을 가진 요소는 LLM/저자 의도 보존 — publisher가 덮어쓰지 않음.
+    //   이전엔 박스 wrapper 안의 후킹 <p style="color:#1e3a8a;...">까지 #1a1a1a !important로 덮어
+    //   미리보기와 실제 발행의 색·정렬이 달라지던 문제 차단.
+    //   inline style 없는 평문 요소엔 가독성 기본 스타일 주입(기존 동작 유지).
+
+    // p 태그
     finalHtmlContent = finalHtmlContent.replace(/<p(\s[^>]*)?>/gi, (match, attrs) => {
-      const existingStyle = attrs && attrs.match(/style\s*=\s*["']([^"']*)["']/i);
-      if (existingStyle) {
-        return match.replace(existingStyle[0], `style="${existingStyle[1]}; color: #1a1a1a !important; font-size: 18px !important; line-height: 2 !important; display: block !important; visibility: visible !important; opacity: 1 !important; word-break: keep-all !important;"`);
-      }
-      return `<p${attrs || ''} style="color: #1a1a1a !important; font-size: 18px !important; line-height: 2 !important; display: block !important; visibility: visible !important; opacity: 1 !important; margin-bottom: 20px !important; word-break: keep-all !important;">`;
+      if (attrs && /style\s*=/i.test(attrs)) return match; // 저자 의도 보존
+      return `<p${attrs || ''} style="color: #1a1a1a; font-size: 18px; line-height: 2; display: block; margin-bottom: 20px; word-break: keep-all;">`;
     });
 
-    // h2 태그에 인라인 스타일 추가 (더 넓은 패딩, 큰 마진)
+    // h2 태그
     finalHtmlContent = finalHtmlContent.replace(/<h2(\s[^>]*)?>/gi, (match, attrs) => {
-      const existingStyle = attrs && attrs.match(/style\s*=\s*["']([^"']*)["']/i);
-      if (existingStyle) {
-        return match.replace(existingStyle[0], `style="${existingStyle[1]}; color: #991b1b !important; font-size: 26px !important; font-weight: 700 !important; display: block !important; visibility: visible !important; opacity: 1 !important;"`);
-      }
-      return `<h2${attrs || ''} style="color: #991b1b !important; font-size: 26px !important; font-weight: 700 !important; display: block !important; visibility: visible !important; opacity: 1 !important; margin: 40px 0 20px 0 !important; padding: 18px 22px !important; background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%) !important; border-left: 5px solid #ef4444 !important; border-radius: 0 16px 16px 0 !important; line-height: 1.4 !important;">`;
+      if (attrs && /style\s*=/i.test(attrs)) return match;
+      return `<h2${attrs || ''} style="color: #991b1b; font-size: 26px; font-weight: 700; display: block; margin: 40px 0 20px 0; padding: 18px 22px; background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%); border-left: 5px solid #ef4444; border-radius: 0 16px 16px 0; line-height: 1.4;">`;
     });
 
-    // h3 태그에 인라인 스타일 추가 (더 넓은 패딩)
+    // h3 태그
     finalHtmlContent = finalHtmlContent.replace(/<h3(\s[^>]*)?>/gi, (match, attrs) => {
-      const existingStyle = attrs && attrs.match(/style\s*=\s*["']([^"']*)["']/i);
-      if (existingStyle) {
-        return match.replace(existingStyle[0], `style="${existingStyle[1]}; color: #1e293b !important; font-size: 21px !important; font-weight: 600 !important; display: block !important; visibility: visible !important; opacity: 1 !important;"`);
-      }
-      return `<h3${attrs || ''} style="color: #1e293b !important; font-size: 21px !important; font-weight: 600 !important; display: block !important; visibility: visible !important; opacity: 1 !important; margin: 32px 0 16px 0 !important; padding: 14px 18px !important; background: #f8fafc !important; border-left: 4px solid #10b981 !important; border-radius: 0 12px 12px 0 !important; line-height: 1.4 !important;">`;
+      if (attrs && /style\s*=/i.test(attrs)) return match;
+      return `<h3${attrs || ''} style="color: #1e293b; font-size: 21px; font-weight: 600; display: block; margin: 32px 0 16px 0; padding: 14px 18px; background: #f8fafc; border-left: 4px solid #10b981; border-radius: 0 12px 12px 0; line-height: 1.4;">`;
     });
 
-    // h1 태그에 인라인 스타일 추가 (더 큰 사이즈)
+    // h1 태그
     finalHtmlContent = finalHtmlContent.replace(/<h1(\s[^>]*)?>/gi, (match, attrs) => {
-      const existingStyle = attrs && attrs.match(/style\s*=\s*["']([^"']*)["']/i);
-      if (existingStyle) {
-        return match.replace(existingStyle[0], `style="${existingStyle[1]}; color: #0f172a !important; font-size: 34px !important; font-weight: 800 !important; display: block !important; visibility: visible !important; opacity: 1 !important;"`);
-      }
-      return `<h1${attrs || ''} style="color: #0f172a !important; font-size: 34px !important; font-weight: 800 !important; display: block !important; visibility: visible !important; opacity: 1 !important; margin: 0 0 32px 0 !important; line-height: 1.3 !important;">`;
+      if (attrs && /style\s*=/i.test(attrs)) return match;
+      return `<h1${attrs || ''} style="color: #0f172a; font-size: 34px; font-weight: 800; display: block; margin: 0 0 32px 0; line-height: 1.3;">`;
     });
 
-    // li 태그에 인라인 스타일 추가 (더 넓은 간격)
+    // li 태그
     finalHtmlContent = finalHtmlContent.replace(/<li(\s[^>]*)?>/gi, (match, attrs) => {
-      const existingStyle = attrs && attrs.match(/style\s*=\s*["']([^"']*)["']/i);
-      if (existingStyle) {
-        return match.replace(existingStyle[0], `style="${existingStyle[1]}; color: #1a1a1a !important; font-size: 17px !important; display: list-item !important; visibility: visible !important; opacity: 1 !important;"`);
-      }
-      return `<li${attrs || ''} style="color: #1a1a1a !important; font-size: 17px !important; line-height: 1.9 !important; display: list-item !important; visibility: visible !important; opacity: 1 !important; margin-bottom: 12px !important;">`;
+      if (attrs && /style\s*=/i.test(attrs)) return match;
+      return `<li${attrs || ''} style="color: #1a1a1a; font-size: 17px; line-height: 1.9; display: list-item; margin-bottom: 12px;">`;
     });
 
-    // ul, ol 태그 스타일 (넓은 패딩)
+    // ul, ol — inline style 있으면 보존
     finalHtmlContent = finalHtmlContent.replace(/<(ul|ol)(\s[^>]*)?>/gi, (match, tag, attrs) => {
-      const existingStyle = attrs && attrs.match(/style\s*=\s*["']([^"']*)["']/i);
-      if (existingStyle) {
-        return match.replace(existingStyle[0], `style="${existingStyle[1]}; padding-left: 24px !important; margin: 20px 0 !important;"`);
-      }
-      return `<${tag}${attrs || ''} style="padding-left: 24px !important; margin: 20px 0 !important;">`;
+      if (attrs && /style\s*=/i.test(attrs)) return match;
+      return `<${tag}${attrs || ''} style="padding-left: 24px; margin: 20px 0;">`;
     });
 
-    // div에도 기본 스타일 추가 (콘텐츠 컨테이너용 - 전체 너비)
+    // div 컨테이너 — inline style이 이미 있으면 보존 (CTA 박스 wrapper 등)
     finalHtmlContent = finalHtmlContent.replace(/<div(\s[^>]*class\s*=\s*["'][^"']*(?:content|article|section|container)[^"']*["'][^>]*)?>/gi, (match, attrs) => {
       if (!attrs) return match;
-      const existingStyle = attrs.match(/style\s*=\s*["']([^"']*)["']/i);
-      if (existingStyle) {
-        return match.replace(existingStyle[0], `style="${existingStyle[1]}; display: block !important; visibility: visible !important; opacity: 1 !important; max-width: 100% !important; width: 100% !important;"`);
-      }
-      return match.replace('>', ' style="display: block !important; visibility: visible !important; opacity: 1 !important; max-width: 100% !important; width: 100% !important;">');
+      if (/style\s*=/i.test(attrs)) return match;
+      return match.replace('>', ' style="display: block; max-width: 100%; width: 100%;">');
     });
 
     // strong 태그 스타일

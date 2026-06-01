@@ -953,14 +953,18 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
       const currentYear = new Date().getFullYear();
       const prompt = `
 당신은 한국 애드센스 블로그 cornerstone 콘텐츠를 설계하는 SEO + UX 전문가입니다.
-다음 ${sortedContents.length}개의 원본 글을 통합해 **검색 의도 1편 완전 커버 + 애드센스 수익 최적화 + 거미줄 회유**가 동시에 작동하는 종합 가이드를 작성하세요.
+**중요 — 피아식별**: 아래 ${sortedContents.length}개 원본 글은 모두 **작성자 본인이 직접 쓴 본인의 글**입니다. 타인/경쟁사 글 절대 아님.
+따라서 통합글 전반에서 "원글 N", "원본 N", "관점", "출처", "참고", "발췌" 같은 표현·메타 표기를 **절대 사용하지 마세요**.
+본인이 처음부터 끝까지 직접 쓴 하나의 완성된 종합 가이드처럼 자연스럽게 풀어내세요.
+
+다음 ${sortedContents.length}개 본인 글을 통합해 **검색 의도 1편 완전 커버 + 애드센스 수익 최적화 + 거미줄 회유**가 동시에 작동하는 종합 가이드를 작성하세요.
 
 【통합글 제목】
 ${title}
 
-【원본 글 ${sortedContents.length}개】
+【본인이 작성한 글 ${sortedContents.length}개 — 자료원】
 ${sortedContents.map((item, idx) => `
-═══ 원본 ${idx + 1} ═══
+═══ 자료 ${idx + 1} ═══
 제목: ${item.title}
 URL: ${item.url}
 본문(8000자 한도): ${item.content.substring(0, 8000)}
@@ -1016,6 +1020,7 @@ URL: ${item.url}
 - 5/6/7/8번 H2에 거미줄 CTA 박스 추가 X (4번 H2에만)
 - <button> 태그 X (Blogger가 sanitize) — <a href> + 인라인 style만
 - 인용 자리표시자 절대 금지: [cite: provided data], [citation: 1], [ref: ...], [source: ...] 등 본문 노출 X (자연스러운 한국어 문장으로만)
+- 🚨 **피아식별 위반 절대 금지**: "(원글 1 관점)", "(원본 N 관점)", "원문 N", "출처 1", "참고 자료 1", "(자료 N 관점)", "(원글 N 강조)" 등 다른 글에서 가져왔음을 암시하는 모든 표기 절대 금지. 본문·표 셀·헤더 어디서도 절대 사용 X. 단일 작성자가 처음부터 쓴 글처럼 자연스러운 표현만 사용 (예: "혜택 강조 관점" O / "원글 1 관점" X)
 
 ✅ **품질 기준**: 총 8,000~12,000자, H2 정확히 ${sortedContents.length + 3}개, **거미줄 CTA는 원본 대응 H2(1~${sortedContents.length}번)에만**, 검색 의도 1편 완전 커버
 
@@ -1058,6 +1063,13 @@ URL: ${item.url}
         generatedContent = generatedContent
           .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*[:：][^\]]*\]/gi, '')
           .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*\d*\s*\]/gi, '');
+
+        // v3.8.24: 피아식별 위반 메타 표기 자동 제거 — "(원글 1 관점)", "(원본 N 강조)" 등.
+        //   거미줄은 본인 글 통합이므로 다른 글 출처 암시는 절대 노출되면 안 됨.
+        //   비교표 셀, 헤더, 본문 어디든 등장 시 괄호째 제거.
+        generatedContent = generatedContent
+          .replace(/\s*[\(（]\s*(원글|원본|원문|자료|출처|참고|발췌)\s*\d+\s*(관점|강조|입장|시각|기준|중심)?\s*[\)）]/gi, '')
+          .replace(/\s*[\(（]\s*(원글|원본|원문|자료|출처|참고|발췌)\s*[\)）]/gi, '');
 
         // v3.8.19: LLM이 CTA HTML 가이드를 무시하고 평문으로 출력한 경우 자동 박스 변환
         //   패턴: H2 본문 끝부분에 "더 자세한 ~을 알고 싶다면?" + 다음 줄에 글 제목·"자세히 보기"·URL이 나오는 평문
