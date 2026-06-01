@@ -1860,6 +1860,34 @@ function _renderSpiderWebPreview(html, publishedUrl, publishedAt) {
       ? `<p style="text-align:center;margin:0 0 24px 0;"><img src="${safeThumb}" alt="" style="max-width:100%;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,0.12);"></p>`
       : '';
     content.innerHTML = thumbBlock + (html || '');
+
+    // v3.8.25: 미리보기 내 모든 a[href] 링크를 외부 브라우저로 강제 — Electron 내부 네비게이션 방지.
+    //   기존엔 CTA 버튼 클릭 시 Electron BrowserWindow가 그 URL로 이동해 뒤로가기/종료 불가.
+    //   이제 클릭 가로채기 → window.electronAPI.openExternal() → 기본 브라우저에서 열림.
+    try {
+      const anchors = content.querySelectorAll('a[href]');
+      anchors.forEach((a) => {
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const href = a.getAttribute('href');
+          if (!href || href === '#' || href.startsWith('javascript:')) return;
+          try {
+            if (window.electronAPI && typeof window.electronAPI.openExternal === 'function') {
+              window.electronAPI.openExternal(href);
+            } else {
+              window.open(href, '_blank', 'noopener,noreferrer');
+            }
+          } catch (err) {
+            console.warn('[SPIDER-WEB] 외부 브라우저 열기 실패:', err);
+          }
+        });
+      });
+    } catch (e) {
+      console.warn('[SPIDER-WEB] 링크 클릭 가로채기 실패:', e);
+    }
   }
 
   if (badge && publishedUrl) {

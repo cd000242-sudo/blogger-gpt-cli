@@ -991,7 +991,10 @@ URL: ${item.url}
      - **H2 끝에 거미줄 회유 CTA 박스** (아래 CTA 패턴 정확히 사용)
   5. <h2> 비교 / 자주 묻는 질문 — 한눈에 비교 표 + Q&A 3~5개 (CTA 불필요)
   6. <h2> 실전 적용 가이드 — 체크리스트 ✅ 5~7개 (CTA 불필요)
-  7. <h2> 더 깊이 알아보기 — 모든 원본 ${sortedContents.length}개 카드 그리드 (이 섹션이 종합 회유)
+  7. <h2> 더 깊이 알아보기 — 모든 자료 ${sortedContents.length}개 카드 그리드 (이 섹션이 종합 회유)
+     - 카드 그리드는 모바일 친화 <table> 기반으로 작성 (Blogger 테마와 무관하게 무너지지 않음)
+     - 패턴: <table style="width:100% !important;border-collapse:separate !important;border-spacing:12px !important;"><tr><td style="vertical-align:top !important;background-color:#f8fafc !important;padding:20px !important;border-radius:12px !important;border:1px solid #e2e8f0 !important;">카드 내용</td>...</tr></table>
+     - 모바일 1열, 데스크탑 2열로 보이려면 td를 width:50%로 하되 max-width:100%로 폴백
   8. 결론 1~2줄 + 면책 조항
 
 🎯 **CTA 정책 (v3.8.14 변경)**:
@@ -999,19 +1002,21 @@ URL: ${item.url}
 - 5/6/7/8번엔 CTA 박스 추가 금지 (글 흐름·체류시간 보존)
 - 7번 (더 깊이 알아보기 카드 그리드)이 이미 종합 회유 역할
 
-🎨 **CTA HTML 패턴 — Blogger·WordPress 호환 (인라인 style 강제)**:
+🎨 **CTA HTML 패턴 — Blogger·WordPress 호환 (모든 핵심 속성에 !important 강제)**:
 \`\`\`
-<div style="margin:28px 0;padding:24px 20px;background:linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%);border:1px solid #93c5fd;border-radius:14px;text-align:center;">
-  <p style="margin:0 0 14px;color:#1e3a8a;font-size:16px;font-weight:700;line-height:1.5;">[후킹 멘트 — 예: "더 자세한 ~을 알고 싶다면?"]</p>
-  <p style="margin:0;">
-    <a href="[원본URL]" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#ef4444 0%,#f97316 100%);color:#ffffff !important;text-decoration:none;font-size:15px;font-weight:800;border-radius:10px;box-shadow:0 4px 14px rgba(239,68,68,0.35);">[버튼 텍스트 — 예: "2026년 청년내일저축계좌 혜택 상세 보기 🔥"]</a>
+<div style="margin:28px 0 !important;padding:24px 20px !important;background-color:#dbeafe !important;background:linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%) !important;border:2px solid #93c5fd !important;border-radius:14px !important;text-align:center !important;max-width:100% !important;box-sizing:border-box !important;">
+  <p style="margin:0 0 14px !important;color:#1e3a8a !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">[후킹 멘트 — 예: "더 자세한 ~을 알고 싶다면?"]</p>
+  <p style="margin:0 !important;text-align:center !important;">
+    <a href="[원본URL]" style="display:inline-block !important;padding:14px 28px !important;background-color:#ef4444 !important;background:linear-gradient(135deg,#ef4444 0%,#f97316 100%) !important;color:#ffffff !important;text-decoration:none !important;font-size:15px !important;font-weight:800 !important;border-radius:10px !important;box-shadow:0 4px 14px rgba(239,68,68,0.35) !important;">[버튼 텍스트 — 예: "2026년 청년내일저축계좌 혜택 상세 보기 🔥"]</a>
   </p>
 </div>
 \`\`\`
 - 반드시 \`<button>\` 태그가 아닌 \`<a href>\` 사용 (Blogger sanitize 호환)
 - 인라인 style만 사용 (class 사용 금지 — 블로그 RTE가 class 제거)
-- 색상 명시: 빨간/주황 그라데이션 버튼 + 연한 파랑 배경 박스
-- 후킹 멘트는 1줄, 버튼 텍스트는 원본 글 핵심을 담은 한 줄
+- 모든 핵심 속성(background, color, padding, text-align, border-radius)에 \`!important\` 필수 (Blogger 테마 CSS 우회)
+- \`background:gradient\` 옆에 \`background-color:단색\` 폴백 함께 — 그라데이션 미지원 클라이언트 대비
+- 후킹 멘트·버튼 모두 \`text-align:center !important\` 중앙 정렬
+- \`max-width:100% !important; box-sizing:border-box !important\` 모바일 친화
 
 🚫 **절대 금지** (위반 시 재작성 요구됨):
 - H2 제목 끝에 "(종합 거미줄)", "(요약)", "(FAQ)", "(가이드)" 등 메타 라벨/괄호 절대 추가 금지
@@ -1085,10 +1090,11 @@ URL: ${item.url}
             urlPtr++;
             const safeHook = String(hook).replace(/[<>]/g, '').trim();
             const safeBtn = String(btn).replace(/[<>]/g, '').trim();
-            return `<div style="margin:28px 0;padding:24px 20px;background:linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%);border:1px solid #93c5fd;border-radius:14px;text-align:center;">
-  <p style="margin:0 0 14px;color:#1e3a8a;font-size:16px;font-weight:700;line-height:1.5;">${safeHook}</p>
-  <p style="margin:0;">
-    <a href="${url}" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#ef4444 0%,#f97316 100%);color:#ffffff !important;text-decoration:none;font-size:15px;font-weight:800;border-radius:10px;box-shadow:0 4px 14px rgba(239,68,68,0.35);">${safeBtn}</a>
+            // v3.8.25: 모든 핵심 속성에 !important + background-color 단색 폴백 + 중앙정렬 강제
+            return `<div style="margin:28px 0 !important;padding:24px 20px !important;background-color:#dbeafe !important;background:linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%) !important;border:2px solid #93c5fd !important;border-radius:14px !important;text-align:center !important;max-width:100% !important;box-sizing:border-box !important;">
+  <p style="margin:0 0 14px !important;color:#1e3a8a !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
+  <p style="margin:0 !important;text-align:center !important;">
+    <a href="${url}" style="display:inline-block !important;padding:14px 28px !important;background-color:#ef4444 !important;background:linear-gradient(135deg,#ef4444 0%,#f97316 100%) !important;color:#ffffff !important;text-decoration:none !important;font-size:15px !important;font-weight:800 !important;border-radius:10px !important;box-shadow:0 4px 14px rgba(239,68,68,0.35) !important;">${safeBtn}</a>
   </p>
 </div>`;
           });
