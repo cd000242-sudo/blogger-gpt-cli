@@ -1427,6 +1427,10 @@ async function generateAndPublishSpiderWeb() {
     const titleInput = document.getElementById('spiderWebTitle');
     const title = titleInput ? titleInput.value.trim() : '';
 
+    // v3.8.8: platform을 먼저 결정 (이미지 호스팅 분기에 활용)
+    const platformInputEarly = document.querySelector('input[name="platform"]:checked');
+    const platformEarly = (platformInputEarly && platformInputEarly.value) || 'blogspot';
+
     // v3.8.4: 이미지 정책 + 썸네일/본문 엔진 분리
     const policyInput = document.querySelector('input[name="swImagePolicy"]:checked');
     const imagePolicy = (policyInput && policyInput.value) || 'all';
@@ -1463,6 +1467,8 @@ async function generateAndPublishSpiderWeb() {
         imageH2Engine,
         // v3.8.7: 텍스트 포함 (나노바나나·GPT 덕테이프 등에서 한글 텍스트 오버레이)
         imageIncludeText,
+        // v3.8.8: 발행 플랫폼 — 백엔드가 WP 미디어 우선 업로드 결정
+        platform: platformEarly,
       };
       _swPushLog('IPC generate-internal-consistency 호출…', 'info');
       if (window.electronAPI && window.electronAPI.invoke) {
