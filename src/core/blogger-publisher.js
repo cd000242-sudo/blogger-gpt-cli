@@ -165,7 +165,18 @@ function calculateTextLength(htmlStr) {
 }
 
 // 🔥 경쟁 블로그 링크 제거 함수 (트래픽 유출 방지)
-function removeCompetitorLinks(htmlStr) {
+function removeCompetitorLinks(htmlStr, whitelistUrls = []) {
+  // v3.8.20: 거미줄 통합글 CTA — 본인 직전 발행한 본인 글 URL은 보존 (whitelist).
+  //   기존엔 본인 blogspot.com / tistory.com / wordpress.com 도메인도 경쟁사로 분류해
+  //   <a> 태그가 통째로 제거되면서 CTA 박스 버튼이 평문화되던 문제 차단.
+  const cleanWhitelist = Array.isArray(whitelistUrls)
+    ? whitelistUrls.filter((u) => typeof u === 'string' && u.length > 0)
+    : [];
+  const isWhitelisted = (href) => {
+    if (!href || cleanWhitelist.length === 0) return false;
+    return cleanWhitelist.some((wl) => href.includes(wl));
+  };
+
   // 제거할 경쟁 블로그 도메인 목록
   const competitorDomains = [
     // 네이버 블로그/카페
@@ -198,26 +209,33 @@ function removeCompetitorLinks(htmlStr) {
   let removedCount = 0;
 
   // <a> 태그에서 경쟁 블로그 링크 제거 (텍스트는 유지)
+  // v3.8.20: whitelist URL은 보존
   competitorDomains.forEach(domain => {
     // href에 경쟁 도메인이 있는 <a> 태그를 찾아서 텍스트만 남기고 링크 제거
     const regex = new RegExp(
-      `<a[^>]*href=["'][^"']*${domain.replace(/\./g, '\\.')}[^"']*["'][^>]*>(.*?)<\\/a>`,
+      `<a[^>]*href=["']([^"']*${domain.replace(/\./g, '\\.')}[^"']*)["'][^>]*>(.*?)<\\/a>`,
       'gis'
     );
-    const matches = result.match(regex);
-    if (matches) {
-      removedCount += matches.length;
-    }
-    result = result.replace(regex, '$1');
+    result = result.replace(regex, (match, href, inner) => {
+      if (isWhitelisted(href)) {
+        return match; // 본인 글 URL — 그대로 보존
+      }
+      removedCount += 1;
+      return inner; // 경쟁 블로그 — a 태그 제거하고 텍스트만
+    });
   });
 
   // 남아있는 경쟁 블로그 URL도 제거 (텍스트로 된 URL)
+  // v3.8.20: whitelist URL과 동일한 prefix는 보존
   competitorDomains.forEach(domain => {
     const urlRegex = new RegExp(
       `https?://[^\\s<>"']*${domain.replace(/\./g, '\\.')}[^\\s<>"']*`,
       'gi'
     );
-    result = result.replace(urlRegex, '');
+    result = result.replace(urlRegex, (match) => {
+      if (isWhitelisted(match)) return match;
+      return '';
+    });
   });
 
   if (removedCount > 0) {
@@ -3604,7 +3622,8 @@ html body .content-inner {
     const commonTags = ['div', 'p', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'table', 'tr', 'td', 'th', 'a', 'img', 'strong', 'em', 'b', 'i'];
 
     // 🛡️ 경쟁 블로그 링크 제거 (트래픽 유출 방지)
-    finalHtmlContent = removeCompetitorLinks(finalHtmlContent);
+    // v3.8.20: payload.sourceUrls (거미줄 통합글 CTA 본인 글 URL) 화이트리스트 전달 — CTA 박스 버튼 보존
+    finalHtmlContent = removeCompetitorLinks(finalHtmlContent, Array.isArray(payload?.sourceUrls) ? payload.sourceUrls : []);
 
     // 🎯 [안전 최우선] JavaScript 코드 제거 - 텍스트 콘텐츠 절대 손상 방지
     console.log('[PUBLISH] JavaScript 코드 제거 전 HTML 길이:', finalHtmlContent.length);

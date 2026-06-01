@@ -1756,6 +1756,10 @@ async function generateAndPublishSpiderWeb() {
         metaDescription: generatedContent.metaDescription || undefined,
         featuredImageAlt: safeTitle,
         geminiKey: geminiKeyFromUi || undefined,
+        // v3.8.20: 거미줄 통합글 CTA URL 화이트리스트 — publisher의 removeCompetitorLinks가
+        //   본인 blogspot/tistory/wordpress 도메인을 경쟁사로 잘못 분류해 <a> 태그를 제거하던
+        //   문제를 차단. 통합글 소스 URL은 본인이 직전 발행한 본인 글이므로 무조건 보존.
+        sourceUrls: Array.isArray(urls) ? urls.filter(Boolean) : [],
         // Blogger 전용 인증·식별자
         ...(isBlogger ? bloggerCreds : {}),
         // WordPress 전용
