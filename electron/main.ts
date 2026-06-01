@@ -1616,6 +1616,25 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.warn('[INTERNAL-CONSISTENCY] ⚠️ inline style 보강 실패:', skinErr?.message);
       }
 
+      // v3.8.42: 거미줄 진단 로그 — 백엔드 결과 직전 상태 (사용자가 콘솔 로그 보내주면 원인 확정)
+      const hasSwCornerstone = generatedContent.includes('sw-cornerstone');
+      const hasMaxMode = generatedContent.includes('max-mode-article');
+      const hasStyleTag = /<style[^>]*>/i.test(generatedContent);
+      const styleCount = (generatedContent.match(/<style[^>]*>/gi) || []).length;
+      const firstH2 = generatedContent.match(/<h2[^>]*>/i);
+      const firstH3 = generatedContent.match(/<h3[^>]*>/i);
+      const wrapperMatch = generatedContent.match(/<div\s+class\s*=\s*["']([^"']*)["']/i);
+      console.log(`[INTERNAL-CONSISTENCY-SPIDER] 🕸️ === 거미줄 백엔드 결과 진단 ===`);
+      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - sw-cornerstone 마커: ${hasSwCornerstone ? '✅' : '❌'}`);
+      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - max-mode-article 클래스: ${hasMaxMode ? '✅' : '❌ 안전망 실패'}`);
+      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - <style> 스킨 CSS: ${hasStyleTag ? `✅ ${styleCount}개` : '❌ 주입 실패'}`);
+      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - 첫 wrapper class: ${wrapperMatch ? wrapperMatch[1] : '❌'}`);
+      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - 첫 <h2> tag: ${firstH2 ? firstH2[0].substring(0, 200) : '❌'}`);
+      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - 첫 <h3> tag: ${firstH3 ? firstH3[0].substring(0, 200) : '❌'}`);
+      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - HTML 총 길이: ${generatedContent.length.toLocaleString()}자`);
+      console.log(`[INTERNAL-CONSISTENCY-SPIDER]    - 시작 500자: ${generatedContent.substring(0, 500)}`);
+      console.log(`[INTERNAL-CONSISTENCY-SPIDER] 🕸️ === 진단 끝 ===`);
+
       return {
         success: true,
         html: generatedContent,
