@@ -241,7 +241,19 @@ const escapeHtml = (s) => String(s == null ? '' : s)
  *    하단 액션 바의 "선택한 N개 추가" 버튼으로 일괄 URL 입력 필드에 주입.
  *  - 모달 다크 테마(.sw-modal 계열 CSS)에 맞춰 카드 색감 슬레이트 톤으로 통일.
  */
-function openPublishedPostsModal() {
+// v3.8.2: 모달 mode 정식 통합
+//   - 'spider-web' (기본): 다중 선택(최대 5개) + 거미줄 URL 입력칸 채우기
+//   - 'external-traffic': 단일 선택 + 외부유입 탭으로 자동 복귀
+// 양쪽 탭에서 동일한 modal DOM을 공유하되 mode에 따라 UI·버튼·동작 분기.
+let _modalMode = 'spider-web';
+let _modalSinglePick = false;
+
+function openPublishedPostsModal(opts) {
+  // v3.8.2: opts.mode로 분기. 백워드: window._extTrafficSinglePickMode 플래그 호환.
+  const isExtTraffic = !!(opts && opts.mode === 'external-traffic') || !!window._extTrafficSinglePickMode;
+  _modalMode = isExtTraffic ? 'external-traffic' : 'spider-web';
+  _modalSinglePick = isExtTraffic; // external-traffic은 단일 선택
+
   modalPosts = getPublishedPosts();
   const modal = document.getElementById('publishedPostsModal');
   const list = document.getElementById('publishedPostsList');
@@ -252,7 +264,16 @@ function openPublishedPostsModal() {
     return;
   }
 
-  console.log('[SPIDER-WEB] 발행글 목록 열기:', modalPosts.length, '개');
+  // 헤더 텍스트도 mode에 따라
+  const titleEl = document.getElementById('sw-pubmodal-title');
+  if (titleEl) {
+    titleEl.textContent = isExtTraffic ? '📖 외부유입 — 원본 글 1개 선택' : '📚 발행한 글 목록';
+  }
+
+  console.log('[PUB-MODAL] mode:', _modalMode, '글:', modalPosts.length, '개');
+
+  // 모달 열린 후 백그라운드로 누락 썸네일 fetch (v3.8.2)
+  setTimeout(() => _enrichMissingThumbnails(modalPosts), 100);
 
   if (modalPosts.length === 0) {
     list.innerHTML = `
@@ -273,21 +294,32 @@ function openPublishedPostsModal() {
       if (v) existingUrls.add(v);
     }
 
-    list.innerHTML = `
-      <div style="margin-bottom: 14px; padding: 12px 16px; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; color: #c7d2fe; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+    // v3.8.2: 상단 안내 배너 mode 분기
+    const topBanner = _modalSinglePick
+      ? `<div style="margin-bottom: 14px; padding: 12px 16px; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; color: #c7d2fe; font-weight: 700;">📖 외부유입 모드 — 총 ${modalPosts.length}개. 글 1개를 클릭하면 외부유입 변환 탭으로 자동 복귀합니다.</div>`
+      : `<div style="margin-bottom: 14px; padding: 12px 16px; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; color: #c7d2fe; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
         <div style="font-weight: 700;">총 ${modalPosts.length}개 · <span id="pubModalSelectedCount" style="color: #fbbf24;">0</span>개 선택 (최대 5)</div>
         <div style="display: flex; gap: 8px;">
           <button type="button" onclick="selectAllPublishedPosts(true)" style="padding: 6px 12px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">최근 5개 선택</button>
           <button type="button" onclick="selectAllPublishedPosts(false)" style="padding: 6px 12px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">선택 해제</button>
         </div>
-      </div>
+      </div>`;
+
+    list.innerHTML = `
+      ${topBanner}
       <div style="display: flex; flex-direction: column; gap: 8px;">
         ${sortedPosts.map((post, index) => {
           const safeTitle = escapeHtml(post.title || '제목 없음');
           const safeUrl = escapeHtml(post.url || '');
           const safeThumb = escapeHtml(post.thumbnail || '');
-          const platformLabel = post.platform === 'wordpress' ? 'WordPress' : 'Blogger';
-          const platformColor = post.platform === 'wordpress' ? '#0073aa' : '#ff5722';
+          // v3.8.2: platform 정규화 — 한글·영문·URL 패턴 모두 인식
+          const platformLower = String(post.platform || '').toLowerCase();
+          const isWordPress = ['wordpress', '워드프레스', 'wp'].includes(platformLower)
+            || /\/wp-admin\/|\/wp-content\/|wordpress\.com/i.test(post.url || '');
+          const isBlogger = ['blogger', 'blogspot', '블로거'].includes(platformLower)
+            || /\.blogspot\.com|blogger\.com/i.test(post.url || '');
+          const platformLabel = isWordPress ? 'WordPress' : (isBlogger ? 'Blogger' : (post.platform || 'Blog'));
+          const platformColor = isWordPress ? '#0073aa' : (isBlogger ? '#ff5722' : '#64748b');
           const dateLabel = post.publishedAt ? new Date(post.publishedAt).toLocaleDateString('ko-KR') : '';
           const alreadyIn = existingUrls.has(post.url);
           // v3.7.21: 우측 썸네일 미리보기 — 없으면 첫 글자로 그라데이션 placeholder
@@ -306,8 +338,26 @@ function openPublishedPostsModal() {
           const hoverOut = alreadyIn
             ? "this.style.background='rgba(16, 185, 129, 0.08)';"
             : "this.style.background='rgba(30, 41, 59, 0.6)'; this.style.borderColor='rgba(148, 163, 184, 0.15)';";
+          // v3.8.2: single-pick 모드에서는 카드 자체 클릭 = 즉시 선택+모달 닫기
+          if (_modalSinglePick) {
+            return `
+            <div data-pubidx="${index}" data-puburl="${safeUrl}" onclick="extTrafficPickSingleFromModal(${index})" style="display: flex; gap: 12px; align-items: stretch; padding: 14px 16px; background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(148, 163, 184, 0.15); border-radius: 12px; cursor: pointer; transition: background 0.15s, border-color 0.15s, transform 0.15s;" onmouseover="this.style.background='rgba(99, 102, 241, 0.18)'; this.style.borderColor='rgba(99, 102, 241, 0.5)'; this.style.transform='translateY(-1px)';" onmouseout="this.style.background='rgba(30, 41, 59, 0.6)'; this.style.borderColor='rgba(148, 163, 184, 0.15)'; this.style.transform='translateY(0)';">
+              <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center;">
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+                  <span style="padding: 2px 8px; background: ${platformColor}; color: white; border-radius: 6px; font-size: 10px; font-weight: 700;">${platformLabel}</span>
+                  ${dateLabel ? `<span style="font-size: 11px; color: #94a3b8;">📅 ${dateLabel}</span>` : ''}
+                </div>
+                <div style="font-size: 14px; font-weight: 700; color: #e2e8f0; margin-bottom: 4px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${safeTitle}</div>
+                <div style="font-size: 11px; color: #64748b; word-break: break-all; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;">${safeUrl}</div>
+              </div>
+              <button type="button" onclick="event.preventDefault(); event.stopPropagation(); window.open('${safeUrl}', '_blank');" title="새 창에서 열기" style="background: rgba(99, 102, 241, 0.15); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.3); padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0; align-self: center;">🔗 열기</button>
+              ${thumbBlock}
+            </div>
+            `;
+          }
+          // spider-web 모드: 다중 선택 체크박스
           return `
-          <label for="pubChk${index}" style="display: flex; gap: 12px; align-items: stretch; padding: 14px 16px; ${selectedStyle} border-radius: 12px; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;" onmouseover="${hoverIn}" onmouseout="${hoverOut}">
+          <label for="pubChk${index}" data-puburl="${safeUrl}" style="display: flex; gap: 12px; align-items: stretch; padding: 14px 16px; ${selectedStyle} border-radius: 12px; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;" onmouseover="${hoverIn}" onmouseout="${hoverOut}">
             <input type="checkbox" id="pubChk${index}" class="pub-modal-checkbox" data-index="${index}" ${alreadyIn ? 'checked disabled' : ''} onchange="updatePublishedSelectionCount()" style="margin-top: 4px; width: 18px; height: 18px; accent-color: ${alreadyIn ? '#22c55e' : '#6366f1'}; cursor: pointer; flex-shrink: 0;">
             <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center;">
               <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
@@ -325,11 +375,11 @@ function openPublishedPostsModal() {
         }).join('')}
       </div>
       <div style="position: sticky; bottom: -24px; margin: 20px -24px -24px; padding: 16px 24px; background: linear-gradient(180deg, transparent 0%, rgba(15, 23, 42, 0.95) 30%); display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid rgba(148, 163, 184, 0.1);">
-        <button type="button" onclick="closePublishedPostsModal()" style="padding: 10px 18px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;">취소</button>
-        <button type="button" onclick="addSelectedPostsToInputs()" style="padding: 10px 22px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 800; cursor: pointer; box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);">✅ 선택한 글 추가</button>
+        <button type="button" onclick="closePublishedPostsModal()" style="padding: 10px 18px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;">${_modalSinglePick ? '닫기' : '취소'}</button>
+        ${_modalSinglePick ? '' : '<button type="button" onclick="addSelectedPostsToInputs()" style="padding: 10px 22px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 800; cursor: pointer; box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);">✅ 선택한 글 추가</button>'}
       </div>
     `;
-    updatePublishedSelectionCount();
+    if (!_modalSinglePick) updatePublishedSelectionCount();
   }
 
   // .sw-modal은 HTML5 hidden 속성으로 토글. inline style.display 건드리지 말 것.
@@ -344,20 +394,98 @@ function closePublishedPostsModal() {
   if (modal) {
     modal.setAttribute('hidden', '');
   }
-  // v3.8.1: 외부유입 single-pick 모드에서 변경된 헤더·배너 원복
-  const title = document.getElementById('sw-pubmodal-title');
-  if (title && title.dataset.originalText) {
-    title.textContent = title.dataset.originalText;
-    delete title.dataset.originalText;
-  }
-  const list = document.getElementById('publishedPostsList');
-  if (list) {
-    const banner = list.querySelector('[data-pub-banner]');
-    if (banner) banner.remove();
-  }
-  // single-pick 플래그도 정리 (사용자가 모달을 명시 닫은 경우)
+  // v3.8.2: 모달 mode 정식 통합 — 별도 헤더 원복 불필요 (mode 분기 시 항상 적절 헤더 출력)
+  _modalMode = 'spider-web';
+  _modalSinglePick = false;
   if (window._extTrafficSinglePickMode) {
     window._extTrafficSinglePickMode = false;
+  }
+}
+
+// v3.8.2: single-pick 모드 카드 클릭 핸들러
+function extTrafficPickSingleFromModal(index) {
+  const post = modalPosts[index];
+  if (!post) {
+    console.warn('[PUB-MODAL] single-pick 글 못 찾음:', index);
+    return;
+  }
+  console.log('[PUB-MODAL] single-pick 선택:', post.title);
+  // 외부유입 탭의 setSource 호출 + 모달 닫기
+  if (typeof window.extTrafficSetSource === 'function') {
+    window.extTrafficSetSource(post);
+  }
+  closePublishedPostsModal();
+}
+window.extTrafficPickSingleFromModal = extTrafficPickSingleFromModal;
+
+// v3.8.2: 누락 썸네일 백그라운드 fetch
+async function _enrichMissingThumbnails(posts) {
+  if (!window.electronAPI || !window.electronAPI.invoke) return;
+  const targets = posts.filter((p) => !p.thumbnail && p.url).slice(0, 20);
+  if (!targets.length) return;
+  for (const post of targets) {
+    try {
+      const result = await window.electronAPI.invoke('fetch-og-image', { url: post.url });
+      if (result && result.success && result.imageUrl) {
+        post.thumbnail = result.imageUrl;
+        // localStorage에도 반영 (다음 모달 진입 시 캐시)
+        _saveThumbnailToCache(post.url, result.imageUrl);
+        // 카드의 placeholder를 실제 이미지로 교체
+        _updateThumbnailInDom(post.url, result.imageUrl);
+      }
+    } catch (e) {
+      // 무시 (썸네일 fetch 실패는 비치명적)
+    }
+  }
+}
+
+function _saveThumbnailToCache(url, imageUrl) {
+  try {
+    const raw = localStorage.getItem('publishedPosts');
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      for (const p of parsed) {
+        if (p && p.url === url && !p.thumbnail) p.thumbnail = imageUrl;
+      }
+    } else if (parsed && typeof parsed === 'object') {
+      for (const dateKey of Object.keys(parsed)) {
+        const list = parsed[dateKey];
+        if (!Array.isArray(list)) continue;
+        for (const p of list) {
+          if (p && p.url === url && !p.thumbnail) p.thumbnail = imageUrl;
+        }
+      }
+    }
+    localStorage.setItem('publishedPosts', JSON.stringify(parsed));
+  } catch (e) {
+    console.warn('[PUB-MODAL] 썸네일 캐싱 실패:', e?.message);
+  }
+}
+
+function _updateThumbnailInDom(url, imageUrl) {
+  const list = document.getElementById('publishedPostsList');
+  if (!list) return;
+  const cards = list.querySelectorAll('[data-puburl]');
+  for (const card of cards) {
+    if (card.getAttribute('data-puburl') === url) {
+      const placeholder = card.querySelector('div[style*="placeholder"]') || card.querySelector('div[style*="linear-gradient(135deg, #6366f1"]');
+      const img = card.querySelector('img');
+      if (img) {
+        img.src = imageUrl;
+        img.style.display = 'block';
+        if (placeholder) placeholder.style.display = 'none';
+      } else if (placeholder) {
+        // placeholder 자리에 img 삽입
+        const newImg = document.createElement('img');
+        newImg.src = imageUrl;
+        newImg.loading = 'lazy';
+        newImg.style.cssText = 'width: 88px; height: 88px; object-fit: cover; border-radius: 10px; flex-shrink: 0; background: #1e293b; border: 1px solid rgba(148, 163, 184, 0.15);';
+        placeholder.parentNode.insertBefore(newImg, placeholder);
+        placeholder.style.display = 'none';
+      }
+      break;
+    }
   }
 }
 

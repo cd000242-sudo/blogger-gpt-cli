@@ -4977,6 +4977,68 @@ try {
   console.warn('[EXT-TRAFFIC SCHED] 시동 실패:', e?.message);
 }
 
+// ─── v3.8.2: og:image / twitter:image fetch (발행글 모달 썸네일용) ────
+//   axios + cheerio로 외부 URL의 메타 이미지 추출. CORS 우회.
+const _ogImageCache = new Map<string, { imageUrl: string; ts: number }>();
+const OG_CACHE_TTL = 24 * 60 * 60 * 1000;
+
+if (ipcMain.listenerCount('fetch-og-image') > 0) {
+  ipcMain.removeHandler('fetch-og-image');
+}
+ipcMain.handle('fetch-og-image', async (_evt, payload: { url: string }) => {
+  try {
+    const url = String(payload && payload.url || '').trim();
+    if (!url || !/^https?:\/\//i.test(url)) {
+      return { success: false, error: 'INVALID_URL' };
+    }
+    const cached = _ogImageCache.get(url);
+    if (cached && Date.now() - cached.ts < OG_CACHE_TTL) {
+      return { success: true, imageUrl: cached.imageUrl, cached: true };
+    }
+    const axios = (await import('axios')).default;
+    const res = await axios.get(url, {
+      timeout: 8000,
+      responseType: 'text',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      maxContentLength: 5 * 1024 * 1024,
+      validateStatus: (s) => s < 500,
+    });
+    const html = String(res.data || '');
+    const $ = cheerio.load(html);
+    // 우선순위: og:image → twitter:image → 첫 본문 img
+    let imageUrl =
+      $('meta[property="og:image"]').attr('content') ||
+      $('meta[name="og:image"]').attr('content') ||
+      $('meta[property="og:image:url"]').attr('content') ||
+      $('meta[name="twitter:image"]').attr('content') ||
+      $('meta[name="twitter:image:src"]').attr('content') ||
+      $('article img').first().attr('src') ||
+      $('main img').first().attr('src') ||
+      $('body img').first().attr('src') ||
+      '';
+    imageUrl = String(imageUrl || '').trim();
+    // 상대 URL → 절대 URL 변환
+    if (imageUrl && !/^https?:\/\//i.test(imageUrl)) {
+      try {
+        imageUrl = new URL(imageUrl, url).href;
+      } catch {
+        imageUrl = '';
+      }
+    }
+    if (!imageUrl) {
+      return { success: false, error: 'NO_IMAGE_FOUND' };
+    }
+    _ogImageCache.set(url, { imageUrl, ts: Date.now() });
+    return { success: true, imageUrl, cached: false };
+  } catch (e: any) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, error: msg };
+  }
+});
+
 ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) => {
   try {
     const dispatcher = require('../src/core/external-traffic');
