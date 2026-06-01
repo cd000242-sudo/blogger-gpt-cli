@@ -1282,7 +1282,46 @@ URL: ${item.url}
         console.log('[INTERNAL-CONSISTENCY] 이미지 정책 = none, 이미지 생성 스킵');
       }
 
-      return { success: true, html: generatedContent, title, thumbnailUrl, imageStats };
+      // v3.8.15: 라벨(해시태그) 5개 자동 생성 — Blogger 라벨/카테고리에 정확 등록
+      //   1순위: LLM 응답에서 H1/H2 + 본문 키워드 추출
+      //   2순위: 원본 글들의 제목에서 명사 추출
+      //   실패해도 발행은 진행 (라벨 없이)
+      let generatedLabels: string[] = [];
+      try {
+        const labelPrompt = `다음 한국어 블로그 글의 SEO 라벨(태그) 5개를 정확히 JSON 배열로만 출력하세요.
+- 각 라벨은 2~10자 한글/영문/숫자, 검색 가능한 명사·핵심어 위주
+- 띄어쓰기 포함 가능, 특수문자(#, ?, ! 등) 금지
+- 글의 주제와 직결되는 표현만
+- 중복 X, 너무 일반적인 단어("정보", "가이드" 단독) X
+
+제목: ${title}
+본문 일부 (앞 2000자):
+${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 2000)}
+
+출력 형식 — JSON 배열만 (다른 텍스트 X):
+["라벨1", "라벨2", "라벨3", "라벨4", "라벨5"]`;
+        const labelResult = await model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: labelPrompt }] }],
+          generationConfig: { maxOutputTokens: 300, temperature: 0.3 },
+        });
+        const labelText = ((await labelResult.response).text() || '').trim();
+        // ```json ... ``` 또는 [..] 둘 다 처리
+        const arrayMatch = labelText.match(/\[[\s\S]*?\]/);
+        if (arrayMatch) {
+          const parsed = JSON.parse(arrayMatch[0]);
+          if (Array.isArray(parsed)) {
+            generatedLabels = parsed
+              .map((s: any) => String(s || '').trim())
+              .filter((s) => s.length >= 2 && s.length <= 40)
+              .slice(0, 5);
+          }
+        }
+        console.log('[INTERNAL-CONSISTENCY] 자동 라벨', generatedLabels.length, '개:', generatedLabels.join(', '));
+      } catch (e: any) {
+        console.warn('[INTERNAL-CONSISTENCY] 라벨 생성 실패 (라벨 없이 발행):', e?.message?.substring(0, 200));
+      }
+
+      return { success: true, html: generatedContent, title, thumbnailUrl, imageStats, labels: generatedLabels };
 
     } catch (error) {
       console.error('[INTERNAL-CONSISTENCY] AI 종합글 생성 실패:', error);

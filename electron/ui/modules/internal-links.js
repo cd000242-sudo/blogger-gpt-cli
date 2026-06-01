@@ -1677,8 +1677,13 @@ async function generateAndPublishSpiderWeb() {
       html: genResult.html,
       title: genResult.title || title || '거미줄치기 통합글',
       urls,
+      // v3.8.15: 썸네일 + 라벨(해시태그) 보존 → publish-content에 전달
+      thumbnailUrl: genResult.thumbnailUrl || '',
+      labels: Array.isArray(genResult.labels) ? genResult.labels : [],
     };
     if (titleInput && genResult.title) titleInput.value = genResult.title;
+    if (generatedContent.thumbnailUrl) _swPushLog('썸네일 URL 수신: ' + generatedContent.thumbnailUrl.substring(0, 60) + (generatedContent.thumbnailUrl.length > 60 ? '…' : ''), 'info');
+    if (generatedContent.labels.length > 0) _swPushLog('자동 라벨 ' + generatedContent.labels.length + '개: ' + generatedContent.labels.join(', '), 'info');
 
     // ── Stage 2: 자동 발행 ──
     // 단계 5까지 done 처리, 6단계 active
@@ -1698,21 +1703,30 @@ async function generateAndPublishSpiderWeb() {
       //   → invoke 직접 호출로 통일 (페이로드 객체 형식 일관 + 4-인자 함정 회피).
       const safeTitle = (generatedContent.title && String(generatedContent.title).trim()) || '거미줄치기 통합글';
       const safeHtml = generatedContent.html || '';
-      _swPushLog('IPC publish-content 호출 (제목: "' + safeTitle.substring(0, 40) + '"' + (safeTitle.length > 40 ? '…' : '') + '")', 'info');
+      // v3.8.15: 썸네일 + 라벨(해시태그) payload 보존 — 일반 글포스팅과 동일하게 Blogger에 정확 등록
+      const safeThumbnail = generatedContent.thumbnailUrl || '';
+      const safeLabels = Array.isArray(generatedContent.labels) ? generatedContent.labels : [];
+      _swPushLog('IPC publish-content 호출 (제목: "' + safeTitle.substring(0, 40) + '"' + (safeTitle.length > 40 ? '…' : '') + ', 썸네일: ' + (safeThumbnail ? '✓' : '✗') + ', 라벨: ' + safeLabels.length + ')', 'info');
       if (window.electronAPI && window.electronAPI.invoke) {
         pubResult = await window.electronAPI.invoke('publish-content', {
           title: safeTitle,
           content: safeHtml,
-          thumbnailUrl: '',
-          payload: { platform, publishType: 'publish' },
+          thumbnailUrl: safeThumbnail,
+          payload: {
+            platform,
+            publishType: 'publish',
+            generatedLabels: safeLabels,           // Blogger publisher 라벨 우선순위 1
+            labels: safeLabels,                    // 폴백 라벨
+            topic: safeTitle,                      // 라벨 폴백용
+          },
         });
       } else if (window.blogger && window.blogger.publishContent) {
         // 폴백: preload 4-인자 시그니처 정확히 사용
         pubResult = await window.blogger.publishContent(
-          { platform, publishType: 'publish' },
+          { platform, publishType: 'publish', generatedLabels: safeLabels, labels: safeLabels, topic: safeTitle },
           safeTitle,
           safeHtml,
-          ''
+          safeThumbnail
         );
       } else {
         throw new Error('발행 API를 사용할 수 없습니다.');
