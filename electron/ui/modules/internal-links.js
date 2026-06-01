@@ -418,10 +418,10 @@ function extTrafficPickSingleFromModal(index) {
 }
 window.extTrafficPickSingleFromModal = extTrafficPickSingleFromModal;
 
-// v3.8.2: 누락 썸네일 백그라운드 fetch
+// v3.8.2: 누락 썸네일 백그라운드 fetch (v3.8.7: 진행 모달 그리드도 동시 갱신)
 async function _enrichMissingThumbnails(posts) {
   if (!window.electronAPI || !window.electronAPI.invoke) return;
-  const targets = posts.filter((p) => !p.thumbnail && p.url).slice(0, 20);
+  const targets = (posts || []).filter((p) => p && !p.thumbnail && p.url).slice(0, 20);
   if (!targets.length) return;
   for (const post of targets) {
     try {
@@ -430,7 +430,7 @@ async function _enrichMissingThumbnails(posts) {
         post.thumbnail = result.imageUrl;
         // localStorage에도 반영 (다음 모달 진입 시 캐시)
         _saveThumbnailToCache(post.url, result.imageUrl);
-        // 카드의 placeholder를 실제 이미지로 교체
+        // 카드의 placeholder를 실제 이미지로 교체 (발행글 모달 + 거미줄 진행 모달)
         _updateThumbnailInDom(post.url, result.imageUrl);
       }
     } catch (e) {
@@ -464,30 +464,64 @@ function _saveThumbnailToCache(url, imageUrl) {
 }
 
 function _updateThumbnailInDom(url, imageUrl) {
-  const list = document.getElementById('publishedPostsList');
-  if (!list) return;
-  const cards = list.querySelectorAll('[data-puburl]');
-  for (const card of cards) {
-    if (card.getAttribute('data-puburl') === url) {
-      const placeholder = card.querySelector('div[style*="placeholder"]') || card.querySelector('div[style*="linear-gradient(135deg, #6366f1"]');
-      const img = card.querySelector('img');
-      if (img) {
-        img.src = imageUrl;
-        img.style.display = 'block';
-        if (placeholder) placeholder.style.display = 'none';
-      } else if (placeholder) {
-        // placeholder 자리에 img 삽입
+  // v3.8.7: 발행글 모달 + 거미줄 진행 모달 swpmSourceGrid 둘 다 갱신
+  const containers = [
+    document.getElementById('publishedPostsList'),
+    document.getElementById('swpmSourceGrid'),
+  ].filter(Boolean);
+  for (const container of containers) {
+    const cards = container.querySelectorAll('[data-puburl]');
+    for (const card of cards) {
+      if (card.getAttribute('data-puburl') !== url) continue;
+      // 이미 <img>면 src만 교체
+      if (card.tagName === 'IMG') {
+        card.setAttribute('src', imageUrl);
+        card.style.display = '';
+        // 다음 형제 placeholder가 있으면 hide
+        const sib = card.nextElementSibling;
+        if (sib && /placeholder/i.test(sib.className || '')) sib.style.display = 'none';
+        continue;
+      }
+      // placeholder div면 부모에서 형제 img 찾기, 없으면 img 삽입
+      const parent = card.parentElement;
+      if (!parent) continue;
+      const existingImg = parent.querySelector('img[data-puburl="' + url.replace(/"/g, '&quot;') + '"]');
+      if (existingImg) {
+        existingImg.src = imageUrl;
+        existingImg.style.display = '';
+        card.style.display = 'none';
+      } else {
+        // placeholder 앞에 img 삽입 (swpmSourceGrid는 background-image용 .sw-source-thumb 사용 가능 → img로 통일)
         const newImg = document.createElement('img');
         newImg.src = imageUrl;
+        newImg.setAttribute('data-puburl', url);
         newImg.loading = 'lazy';
-        newImg.style.cssText = 'width: 88px; height: 88px; object-fit: cover; border-radius: 10px; flex-shrink: 0; background: #1e293b; border: 1px solid rgba(148, 163, 184, 0.15);';
-        placeholder.parentNode.insertBefore(newImg, placeholder);
-        placeholder.style.display = 'none';
+        // swpmSourceGrid의 카드 vs 발행글 모달의 카드 스타일 분기
+        if (card.classList.contains('sw-source-thumb')) {
+          newImg.className = 'sw-source-thumb';
+          newImg.style.objectFit = 'cover';
+        } else {
+          newImg.style.cssText = 'width: 88px; height: 88px; object-fit: cover; border-radius: 10px; flex-shrink: 0; background: #1e293b; border: 1px solid rgba(148, 163, 184, 0.15);';
+        }
+        parent.insertBefore(newImg, card);
+        card.style.display = 'none';
       }
-      break;
     }
   }
 }
+
+// v3.8.7: 엔진 선택 카드 토글 (Google 로그인 / 리더스 나노바나나 무제한)
+function _spiderWebUpdateEngineCards() {
+  const thumbEngine = (document.getElementById('swThumbnailEngine')?.value || '').toLowerCase();
+  const h2Engine = (document.getElementById('swH2ImageEngine')?.value || '').toLowerCase();
+  const imagefxCard = document.getElementById('swImagefxLoginCard');
+  const dropshotCard = document.getElementById('swDropshotLoginCard');
+  const needsImagefx = /^(imagefx|flow)$/i.test(thumbEngine) || /^(imagefx|flow)$/i.test(h2Engine);
+  const needsDropshot = /dropshot/i.test(thumbEngine) || /dropshot/i.test(h2Engine);
+  if (imagefxCard) imagefxCard.style.display = needsImagefx ? 'block' : 'none';
+  if (dropshotCard) dropshotCard.style.display = needsDropshot ? 'block' : 'none';
+}
+window._spiderWebUpdateEngineCards = _spiderWebUpdateEngineCards;
 
 /**
  * 체크된 항목 수 + 5개 초과 시 비활성화 처리
@@ -1400,10 +1434,13 @@ async function generateAndPublishSpiderWeb() {
     const h2EngineSel = document.getElementById('swH2ImageEngine');
     const imageThumbnailEngine = (thumbEngineSel && thumbEngineSel.value) || 'nanobanana2';
     const imageH2Engine = (h2EngineSel && h2EngineSel.value) || 'nanobanana2';
+    // v3.8.7: 텍스트 포함 옵션
+    const includeTextCb = document.getElementById('swImageIncludeText');
+    const imageIncludeText = !!(includeTextCb && includeTextCb.checked);
 
     // 진행 모달 표시
     _openSwProgressModal(selectedPosts);
-    _swPushLog(`URL ${urls.length}개 · 제목 "${title || '자동 생성'}" · 정책 ${imagePolicy} · 썸네일 ${imageThumbnailEngine} · 본문 ${imageH2Engine}`, 'info');
+    _swPushLog(`URL ${urls.length}개 · 제목 "${title || '자동 생성'}" · 정책 ${imagePolicy} · 썸네일 ${imageThumbnailEngine} · 본문 ${imageH2Engine}${imageIncludeText ? ' · 텍스트포함' : ''}`, 'info');
 
     // 단계 시뮬레이션 시작
     _swStartStepSimulation();
@@ -1424,6 +1461,8 @@ async function generateAndPublishSpiderWeb() {
         imagePolicy,
         imageThumbnailEngine,
         imageH2Engine,
+        // v3.8.7: 텍스트 포함 (나노바나나·GPT 덕테이프 등에서 한글 텍스트 오버레이)
+        imageIncludeText,
       };
       _swPushLog('IPC generate-internal-consistency 호출…', 'info');
       if (window.electronAPI && window.electronAPI.invoke) {

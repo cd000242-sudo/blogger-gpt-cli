@@ -759,6 +759,7 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
   imagePolicy?: string;            // v3.8.6: 'all' | 'thumbnail-only' | 'odd-only' | 'even-only' | 'none'
   imageThumbnailEngine?: string;   // v3.8.6
   imageH2Engine?: string;          // v3.8.6
+  imageIncludeText?: boolean;      // v3.8.7
 }) => {
   try {
     console.log('[INTERNAL-CONSISTENCY] 종합글 생성 요청:', payload);
@@ -1047,6 +1048,11 @@ URL: ${item.url}
       const imagePolicy = (payload.imagePolicy || 'all').toLowerCase();
       const thumbEngine = (payload.imageThumbnailEngine || 'nanobanana2').toLowerCase();
       const h2Engine = (payload.imageH2Engine || 'nanobanana2').toLowerCase();
+      // v3.8.7: 텍스트 포함 옵션 → prompt에 직접 지시
+      const imageIncludeText = !!payload.imageIncludeText;
+      const textTail = imageIncludeText
+        ? `\n\n[IMPORTANT: Include clear, legible Korean text overlay on the image that visually summarizes the topic]`
+        : '';
       const imageStats: { thumbnail: boolean; h2Generated: number; h2Failed: number; errors: string[] } = {
         thumbnail: false, h2Generated: 0, h2Failed: 0, errors: [],
       };
@@ -1063,7 +1069,7 @@ URL: ${item.url}
               console.log('[INTERNAL-CONSISTENCY] 🖼️ 썸네일 생성 시작:', thumbEngine);
               const thumbResult = await dispatchThumbnailGeneration(
                 thumbEngine,
-                title,
+                title + textTail,
                 title,
               );
               if (thumbResult && thumbResult.ok && (thumbResult.dataUrl || thumbResult.url)) {
@@ -1109,7 +1115,7 @@ URL: ${item.url}
                 console.log(`[INTERNAL-CONSISTENCY] 🖼️ H2 ${idx1}/${h2Nodes.length} 이미지: "${h2Text.substring(0, 30)}…"`);
                 const h2Result = await dispatchH2ImageGeneration(
                   h2Engine,
-                  h2Text,
+                  h2Text + textTail,
                   h2Text,
                 );
                 if (h2Result && h2Result.ok && (h2Result.dataUrl || h2Result.url)) {
