@@ -272,6 +272,93 @@ function getPublishedPosts() {
  */
 let modalPosts = [];
 
+/**
+ * v3.8.27: 발행글 삭제 — publishedPosts 객체 셰이프 {dateKey: [posts]}에서
+ *   url 매칭으로 글을 제거. 빈 dateKey는 키 자체 삭제.
+ *   배열 셰이프(레거시)도 처리. 삭제 후 캘린더·posting 다른 탭도 자동 반영됨.
+ */
+function deletePublishedPostsByUrls(urlsToDelete) {
+  try {
+    const urlSet = new Set((urlsToDelete || []).filter(Boolean));
+    if (urlSet.size === 0) return 0;
+    const raw = localStorage.getItem('publishedPosts');
+    if (!raw) return 0;
+    const parsed = JSON.parse(raw);
+    let removed = 0;
+    if (Array.isArray(parsed)) {
+      const next = parsed.filter((p) => {
+        if (!p || !p.url) return true;
+        if (urlSet.has(p.url)) { removed++; return false; }
+        return true;
+      });
+      localStorage.setItem('publishedPosts', JSON.stringify(next));
+      return removed;
+    }
+    if (!parsed || typeof parsed !== 'object') return 0;
+    Object.keys(parsed).forEach((dateKey) => {
+      const list = parsed[dateKey];
+      if (!Array.isArray(list)) return;
+      const next = list.filter((p) => {
+        if (!p || !p.url) return true;
+        if (urlSet.has(p.url)) { removed++; return false; }
+        return true;
+      });
+      if (next.length === 0) {
+        delete parsed[dateKey];
+      } else {
+        parsed[dateKey] = next;
+      }
+    });
+    localStorage.setItem('publishedPosts', JSON.stringify(parsed));
+    return removed;
+  } catch (e) {
+    console.error('[PUB-MODAL] 삭제 실패:', e);
+    return 0;
+  }
+}
+
+/**
+ * 현재 열린 모달에서 체크된 글들을 일괄 삭제.
+ * 확인 alert 후 진행. 삭제 후 모달 자동 새로고침.
+ */
+function deleteSelectedPublishedPosts() {
+  const checkboxes = document.querySelectorAll('.pub-modal-checkbox:checked');
+  const urlsToDelete = [];
+  checkboxes.forEach((cb) => {
+    const idx = parseInt(cb.dataset.index, 10);
+    if (Number.isNaN(idx)) return;
+    const post = modalPosts[idx];
+    if (post && post.url) urlsToDelete.push(post.url);
+  });
+  if (urlsToDelete.length === 0) {
+    alert('⚠️ 삭제할 글을 먼저 체크하세요.');
+    return;
+  }
+  if (!confirm(`선택한 ${urlsToDelete.length}개 글을 발행 글 목록에서 삭제할까요?\n\n· 발행된 실제 글은 그대로 유지됩니다 (목록 기록만 삭제)\n· 거미줄·외부유입·캘린더 등 다른 탭에도 즉시 반영됩니다`)) return;
+  const removed = deletePublishedPostsByUrls(urlsToDelete);
+  alert(`✅ ${removed}개 글이 목록에서 삭제되었습니다.`);
+  // 모달 새로고침
+  openPublishedPostsModal({ mode: _modalMode === 'external-traffic' ? 'external-traffic' : 'spider-web' });
+}
+
+/**
+ * 단일 글 삭제 — 카드 우측 휴지통 버튼에서 호출.
+ */
+function deletePublishedPostByIndex(index) {
+  const post = modalPosts[index];
+  if (!post || !post.url) return;
+  if (!confirm(`이 글을 발행 글 목록에서 삭제할까요?\n\n· "${(post.title || '').substring(0, 50)}"\n· 발행된 실제 글은 그대로 유지됩니다 (목록 기록만 삭제)`)) return;
+  const removed = deletePublishedPostsByUrls([post.url]);
+  if (removed > 0) {
+    openPublishedPostsModal({ mode: _modalMode === 'external-traffic' ? 'external-traffic' : 'spider-web' });
+  } else {
+    alert('⚠️ 삭제 실패 — 글을 찾을 수 없습니다.');
+  }
+}
+
+window.deleteSelectedPublishedPosts = deleteSelectedPublishedPosts;
+window.deletePublishedPostByIndex = deletePublishedPostByIndex;
+
 const escapeHtml = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -340,6 +427,7 @@ function openPublishedPostsModal(opts) {
     }
 
     // v3.8.2: 상단 안내 배너 mode 분기
+    // v3.8.27: 일괄 삭제 버튼 추가 (spider-web 모드)
     const topBanner = _modalSinglePick
       ? `<div style="margin-bottom: 14px; padding: 12px 16px; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; color: #c7d2fe; font-weight: 700;">📖 외부유입 모드 — 총 ${modalPosts.length}개. 글 1개를 클릭하면 외부유입 변환 탭으로 자동 복귀합니다.</div>`
       : `<div style="margin-bottom: 14px; padding: 12px 16px; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; color: #c7d2fe; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
@@ -347,6 +435,7 @@ function openPublishedPostsModal(opts) {
         <div style="display: flex; gap: 8px;">
           <button type="button" onclick="selectAllPublishedPosts(true)" style="padding: 6px 12px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">최근 5개 선택</button>
           <button type="button" onclick="selectAllPublishedPosts(false)" style="padding: 6px 12px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">선택 해제</button>
+          <button type="button" onclick="deleteSelectedPublishedPosts()" title="체크한 글들을 발행 글 목록에서 삭제 (실제 발행글은 그대로 유지)" style="padding: 6px 12px; background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: white; border: 1px solid rgba(220, 38, 38, 0.6); border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 6px rgba(220, 38, 38, 0.35);">🗑️ 선택 삭제</button>
         </div>
       </div>`;
 
@@ -395,7 +484,10 @@ function openPublishedPostsModal(opts) {
                 <div style="font-size: 14px; font-weight: 700; color: #e2e8f0; margin-bottom: 4px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${safeTitle}</div>
                 <div style="font-size: 11px; color: #64748b; word-break: break-all; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;">${safeUrl}</div>
               </div>
-              <button type="button" onclick="event.preventDefault(); event.stopPropagation(); window.open('${safeUrl}', '_blank');" title="새 창에서 열기" style="background: rgba(99, 102, 241, 0.15); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.3); padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0; align-self: center;">🔗 열기</button>
+              <div style="display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; align-self: center;">
+                <button type="button" onclick="event.preventDefault(); event.stopPropagation(); window.open('${safeUrl}', '_blank');" title="새 창에서 열기" style="background: rgba(99, 102, 241, 0.15); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.3); padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer;">🔗 열기</button>
+                <button type="button" onclick="event.preventDefault(); event.stopPropagation(); deletePublishedPostByIndex(${index});" title="발행 글 목록에서 삭제 (실제 발행글은 그대로 유지)" style="background: rgba(220, 38, 38, 0.15); color: #fca5a5; border: 1px solid rgba(220, 38, 38, 0.4); padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer;">🗑️ 삭제</button>
+              </div>
               ${thumbBlock}
             </div>
             `;
@@ -413,7 +505,10 @@ function openPublishedPostsModal(opts) {
               <div style="font-size: 14px; font-weight: 700; color: ${alreadyIn ? '#d1fae5' : '#e2e8f0'}; margin-bottom: 4px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${safeTitle}</div>
               <div style="font-size: 11px; color: #64748b; word-break: break-all; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;">${safeUrl}</div>
             </div>
-            <button type="button" onclick="event.preventDefault(); event.stopPropagation(); window.open('${safeUrl}', '_blank');" title="새 창에서 열기" style="background: rgba(99, 102, 241, 0.15); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.3); padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0; align-self: center;">🔗 열기</button>
+            <div style="display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; align-self: center;">
+              <button type="button" onclick="event.preventDefault(); event.stopPropagation(); window.open('${safeUrl}', '_blank');" title="새 창에서 열기" style="background: rgba(99, 102, 241, 0.15); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.3); padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer;">🔗 열기</button>
+              <button type="button" onclick="event.preventDefault(); event.stopPropagation(); deletePublishedPostByIndex(${index});" title="발행 글 목록에서 삭제 (실제 발행글은 그대로 유지)" style="background: rgba(220, 38, 38, 0.15); color: #fca5a5; border: 1px solid rgba(220, 38, 38, 0.4); padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer;">🗑️ 삭제</button>
+            </div>
             ${thumbBlock}
           </label>
           `;
