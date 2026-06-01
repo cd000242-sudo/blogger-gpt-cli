@@ -17,7 +17,21 @@ export function initSidebar() {
         { id: 'nav-intlinks-page', icon: '🕸️', label: '거미줄포스팅', action: () => window.showTab?.('internal-links') },
         { id: 'nav-external-traffic', icon: '🚀', label: '외부유입글생성', action: () => window.showTab?.('external-traffic') },
         { id: 'nav-keyword-discover', icon: '🔍', label: '황금키워드', action: () => window.runLewordLauncher?.() },
-        { id: 'nav-extlinks', icon: '🔗', label: '외부유입사이트모음', action: () => window.openExternalLinksModal?.() },
+        { id: 'nav-extlinks', icon: '🔗', label: '외부유입사이트모음', action: () => {
+            // v3.8.0: 외부유입 탭의 사이트 서브탭으로 라우팅 (모달은 폴백)
+            if (typeof window.showTab === 'function') {
+              window.showTab('external-traffic');
+              setTimeout(() => {
+                if (typeof window.extTrafficShowSubtab === 'function') {
+                  window.extTrafficShowSubtab('sites');
+                } else if (typeof window.openExternalLinksModal === 'function') {
+                  window.openExternalLinksModal();
+                }
+              }, 50);
+            } else if (typeof window.openExternalLinksModal === 'function') {
+              window.openExternalLinksModal();
+            }
+          } },
         // 숨김 — 기존 메뉴 유지용
         { id: 'nav-semiauto', icon: '🎨', label: '반자동', action: () => window.showTab?.('semi-auto'), hidden: true },
         { id: 'nav-schedule', icon: '📅', label: '스케줄', action: () => window.showTab?.('schedule'), hidden: true },

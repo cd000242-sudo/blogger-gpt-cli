@@ -5343,6 +5343,33 @@
           </div>
         </div>
 
+        <!-- 서브탭 네비게이션 -->
+        <nav id="extTrafficSubtabNav" style="display: flex; gap: 8px; margin-bottom: 18px; padding: 6px; background: rgba(15,23,42,0.7); border: 1px solid rgba(148,163,184,0.12); border-radius: 12px;">
+          <button type="button" data-subtab="generate" onclick="extTrafficShowSubtab('generate')"
+            class="ext-subtab-btn active"
+            style="flex: 1; padding: 11px 16px; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">
+            🚀 글 생성
+          </button>
+          <button type="button" data-subtab="sites" onclick="extTrafficShowSubtab('sites')"
+            class="ext-subtab-btn"
+            style="flex: 1; padding: 11px 16px; background: rgba(255,255,255,0.04); color: #cbd5e1; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">
+            🔗 사이트 모음
+          </button>
+          <button type="button" data-subtab="usage" onclick="extTrafficShowSubtab('usage')"
+            class="ext-subtab-btn"
+            style="flex: 1; padding: 11px 16px; background: rgba(255,255,255,0.04); color: #cbd5e1; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">
+            📊 사용량·비용
+          </button>
+          <button type="button" data-subtab="patterns" onclick="extTrafficShowSubtab('patterns')"
+            class="ext-subtab-btn"
+            style="flex: 1; padding: 11px 16px; background: rgba(255,255,255,0.04); color: #cbd5e1; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">
+            ⚙️ 패턴·동의
+          </button>
+        </nav>
+
+        <!-- 서브탭: 글 생성 -->
+        <div id="extTrafficSubtab-generate" class="ext-subtab-content">
+
         <!-- Step 1: 원본 글 선택 -->
         <section style="background: linear-gradient(160deg, rgba(15,23,42,0.96), rgba(30,41,59,0.96)); border: 1px solid rgba(148,163,184,0.12); border-radius: 16px; padding: 22px 26px; margin-bottom: 20px;">
           <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
@@ -5386,6 +5413,29 @@
           </main>
 
         </section>
+        </div><!-- /extTrafficSubtab-generate -->
+
+        <!-- 서브탭: 사이트 모음 -->
+        <div id="extTrafficSubtab-sites" class="ext-subtab-content" style="display: none;">
+          <div id="extTrafficInlineExtLinks" style="background: linear-gradient(160deg, rgba(15,23,42,0.96), rgba(30,41,59,0.96)); border: 1px solid rgba(148,163,184,0.12); border-radius: 16px; padding: 24px 28px; min-height: 400px;">
+            <div style="text-align: center; padding: 40px 20px; color: #64748b;">사이트 목록 로딩 중…</div>
+          </div>
+        </div>
+
+        <!-- 서브탭: 사용량·비용 -->
+        <div id="extTrafficSubtab-usage" class="ext-subtab-content" style="display: none;">
+          <div id="extTrafficUsagePanel" style="background: linear-gradient(160deg, rgba(15,23,42,0.96), rgba(30,41,59,0.96)); border: 1px solid rgba(148,163,184,0.12); border-radius: 16px; padding: 24px 28px; min-height: 300px;">
+            <div style="text-align: center; padding: 40px 20px; color: #64748b;">사용량 로딩 중…</div>
+          </div>
+        </div>
+
+        <!-- 서브탭: 패턴·동의 -->
+        <div id="extTrafficSubtab-patterns" class="ext-subtab-content" style="display: none;">
+          <div id="extTrafficPatternsPanel" style="background: linear-gradient(160deg, rgba(15,23,42,0.96), rgba(30,41,59,0.96)); border: 1px solid rgba(148,163,184,0.12); border-radius: 16px; padding: 24px 28px; min-height: 300px;">
+            <div style="text-align: center; padding: 40px 20px; color: #64748b;">설정 로딩 중…</div>
+          </div>
+        </div>
+
       </div>
     </div>
 

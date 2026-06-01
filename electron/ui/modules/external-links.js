@@ -189,5 +189,9 @@ function renderExternalLinks() {
 window.openExternalLinksModal = openExternalLinksModal;
 window.closeExternalLinksModal = closeExternalLinksModal;
 
+// v3.8.0: 외부유입 탭 인라인 렌더용 데이터 노출
+window._externalLinksData = externalLinksData;
+window.getExternalLinksData = function () { return externalLinksData; };
+
 
 

@@ -4820,4 +4820,300 @@ ipcMain.handle('url-image:crawl-and-collect', async (_evt, payload: {
   }
 });
 
+// ─── v3.8.0: 외부유입 v2 핸들러 (v2.3 플랜) ────────────────────────────────
+try {
+  if (ipcMain.listenerCount('generate-external-traffic-text') > 0) {
+    ipcMain.removeHandler('generate-external-traffic-text');
+  }
+  if (ipcMain.listenerCount('generate-external-traffic-text-v2') > 0) {
+    ipcMain.removeHandler('generate-external-traffic-text-v2');
+  }
+  if (ipcMain.listenerCount('external-traffic-list-channels') > 0) {
+    ipcMain.removeHandler('external-traffic-list-channels');
+  }
+} catch {
+  /* 핸들러 없음 — 무시 */
+}
+
+ipcMain.handle('external-traffic-list-channels', async () => {
+  try {
+    const dispatcher = require('../src/core/external-traffic');
+    return { success: true, channels: dispatcher.listChannels() };
+  } catch (e: any) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[EXT-TRAFFIC v2] listChannels 실패:', msg);
+    return { success: false, error: msg };
+  }
+});
+
+// ─── 동의 / 약관 ────────────────────────────────────────────────
+ipcMain.handle('external-traffic-consent-check', async (_evt, payload: any) => {
+  try {
+    const consent = require('../src/core/external-traffic/_shared/consent-store');
+    const key = String((payload && payload.key) || 'general').slice(0, 80);
+    return { success: true, ...consent.checkConsent(key) };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('external-traffic-consent-record', async (_evt, payload: any) => {
+  try {
+    const consent = require('../src/core/external-traffic/_shared/consent-store');
+    const log = require('../src/core/external-traffic/_shared/usage-log');
+    const key = String((payload && payload.key) || 'general').slice(0, 80);
+    const consents = (payload && payload.consents) || {};
+    const channels = Array.isArray(payload && payload.channels) ? payload.channels : undefined;
+    const record = consent.recordConsent(key, consents, channels);
+    log.logConsent({ consentKey: key, termsVersion: record.version, consents });
+    if (key.startsWith('channel:')) {
+      log.logCriticalConsent({ channel: key.slice('channel:'.length), consentSteps: Object.keys(consents).filter((k) => consents[k]) });
+    }
+    return { success: true, record };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('external-traffic-consent-list', async () => {
+  try {
+    const consent = require('../src/core/external-traffic/_shared/consent-store');
+    return { success: true, records: consent.listConsents() };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('external-traffic-consent-revoke', async (_evt, payload: any) => {
+  try {
+    const consent = require('../src/core/external-traffic/_shared/consent-store');
+    const key = String((payload && payload.key) || '').slice(0, 80);
+    consent.revokeConsent(key);
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+// ─── 피드백 ────────────────────────────────────────────────
+ipcMain.handle('external-traffic-feedback-record', async (_evt, payload: any) => {
+  try {
+    const feedback = require('../src/core/external-traffic/feedback-store');
+    const record = feedback.recordFeedback(payload || {});
+    return { success: true, record };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+// ─── 비용 ────────────────────────────────────────────────
+ipcMain.handle('external-traffic-cost-summary', async () => {
+  try {
+    const cost = require('../src/core/external-traffic/cost-tracker');
+    return { success: true, currentMonth: cost.currentMonth(), limits: cost.getLimits(), blockState: cost.checkBlockOnLimit() };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('external-traffic-cost-set-limit', async (_evt, payload: any) => {
+  try {
+    const cost = require('../src/core/external-traffic/cost-tracker');
+    const partial = (payload && typeof payload === 'object') ? payload : {};
+    return { success: true, limits: cost.setLimits(partial) };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+// ─── 협력 풀 옵트인 ────────────────────────────────────────────────
+ipcMain.handle('external-traffic-pool-state', async () => {
+  try {
+    const pool = require('../src/core/external-traffic/pool-store');
+    return { success: true, optedIn: pool.isOptedIn() };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('external-traffic-pool-opt-in', async (_evt, payload: any) => {
+  try {
+    const pool = require('../src/core/external-traffic/pool-store');
+    return { success: true, ...pool.setOptIn(!!(payload && payload.value)) };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+// ─── 스케줄러 상태 조회 / 수동 실행 ────────────────────────────────────────────────
+ipcMain.handle('external-traffic-scheduler-state', async () => {
+  try {
+    const sched = require('../src/core/external-traffic/schedulers');
+    return { success: true, state: sched.getState() };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('external-traffic-scheduler-run-now', async () => {
+  try {
+    const sched = require('../src/core/external-traffic/schedulers');
+    const calibration = sched.runCalibration();
+    const revalidation = sched.runRevalidationCheck();
+    const prune = sched.runPrune();
+    return { success: true, calibration, revalidation, prune };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+// 앱 시작 시 스케줄러 자동 시동
+try {
+  const sched = require('../src/core/external-traffic/schedulers');
+  sched.startScheduler({
+    onLog: (msg: string) => console.log('[EXT-TRAFFIC SCHED]', msg),
+  });
+} catch (e: any) {
+  console.warn('[EXT-TRAFFIC SCHED] 시동 실패:', e?.message);
+}
+
+ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) => {
+  try {
+    const dispatcher = require('../src/core/external-traffic');
+    const cost = require('../src/core/external-traffic/cost-tracker');
+    const usageLog = require('../src/core/external-traffic/_shared/usage-log');
+    let validated: any;
+    try {
+      validated = dispatcher.validateGenerateV2Payload(payload);
+    } catch (ve: any) {
+      return { success: false, error: 'INVALID_INPUT: ' + (ve instanceof Error ? ve.message : String(ve)) };
+    }
+
+    // 월간 사용량 상한 검사
+    const blockState = cost.checkBlockOnLimit();
+    if (blockState.exceeded) {
+      return { success: false, error: `COST_LIMIT_EXCEEDED: 이번 달 사용량 상한 도달 (${blockState.used.toLocaleString()} / ${blockState.limit.toLocaleString()} tokens). 설정에서 상한 변경 또는 다음 달 갱신 대기.` };
+    }
+
+    const envData = loadEnvFromFile() as any;
+    const geminiKey = (envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '').trim();
+    if (!geminiKey || geminiKey.length < 20) {
+      return { success: false, error: 'Gemini API 키가 필요합니다. 설정 탭에서 입력해주세요.' };
+    }
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    const model = await selectGeminiModel(genAI);
+
+    const sourceSummary = dispatcher.buildMinimalSummary(validated.sourceTitle, validated.sourceUrl);
+    const results: Record<string, any> = {};
+    for (const ch of validated.channels) {
+      try {
+        const channelObj = dispatcher.getChannel(ch.id);
+        if (!channelObj) {
+          results[ch.id] = { error: 'UNKNOWN_CHANNEL' };
+          continue;
+        }
+        const promptPair = dispatcher.buildPromptPair(ch.id, {
+          sourceSummary,
+          sourceUrl: validated.sourceUrl,
+          sourceTitle: validated.sourceTitle,
+          subChannel: ch.subChannel,
+          userCustomRule: ch.userCustomRule,
+        });
+        let userPrompt: string = promptPair.user;
+        let attempt = 0;
+        let lastResult: any = null;
+        while (attempt < 2) {
+          const fullPrompt = `${promptPair.system}\n\n${userPrompt}`;
+          const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+            generationConfig: {
+              maxOutputTokens: promptPair.maxOutputTokens || 2000,
+              temperature: 0.85,
+            },
+          });
+          const response = await result.response;
+          const text = (response.text() || '').trim();
+          // 토큰 추정: chars/2.5 (한국어 평균) — usageMetadata가 있으면 사용
+          const usageMeta: any = (response as any).usageMetadata || {};
+          const inputTokens = usageMeta.promptTokenCount || Math.ceil(fullPrompt.length / 2.5);
+          const outputTokens = usageMeta.candidatesTokenCount || Math.ceil(text.length / 2.5);
+          cost.recordUsage({ provider: 'gemini', inputTokens, outputTokens, channel: ch.id });
+          if (!text) {
+            attempt++;
+            continue;
+          }
+          const processed = dispatcher.processResponse(ch.id, text);
+          lastResult = {
+            rawText: text,
+            formatted: processed.formatted,
+            risk: processed.risk,
+            lengthViolations: processed.lengthViolations,
+            retried: attempt > 0,
+            attempt: attempt + 1,
+          };
+          if (processed.lengthViolations.length === 0) break;
+          userPrompt = promptPair.user + dispatcher.buildRetryHint(processed.lengthViolations);
+          attempt++;
+        }
+        if (!lastResult) {
+          results[ch.id] = { error: 'EMPTY_LLM_RESPONSE' };
+        } else {
+          results[ch.id] = lastResult;
+          try {
+            usageLog.logGenerate({
+              channel: ch.id,
+              subChannel: ch.subChannel,
+              riskScore: lastResult.risk && lastResult.risk.score,
+              band: lastResult.risk && lastResult.risk.band,
+              sourceUrl: validated.sourceUrl,
+              violationCount: (lastResult.lengthViolations || []).length,
+            });
+          } catch { /* 로그 실패는 무시 */ }
+        }
+      } catch (chErr: any) {
+        const msg = chErr instanceof Error ? chErr.message : String(chErr);
+        console.error(`[EXT-TRAFFIC v2] ${ch.id} 실패:`, msg);
+        results[ch.id] = { error: msg };
+      }
+    }
+    return { success: true, results };
+  } catch (e: any) {
+    console.error('[EXT-TRAFFIC v2] 핸들러 실패:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, error: msg };
+  }
+});
+
+// v3.7.23: 외부유입 v1 핸들러 — deprecation 기간 유지 (UI 점진 전환 중)
+ipcMain.handle('generate-external-traffic-text', async (_evt, payload: any) => {
+  try {
+    const system = (payload && payload.system) || '';
+    const user = (payload && payload.user) || '';
+    if (!user.trim()) {
+      return { success: false, error: '프롬프트가 비어있습니다.' };
+    }
+    const envData = loadEnvFromFile() as any;
+    const geminiKey = (envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '').trim();
+    if (!geminiKey || geminiKey.length < 20) {
+      return { success: false, error: 'Gemini API 키가 필요합니다. 설정 탭에서 입력해주세요.' };
+    }
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    const model = await selectGeminiModel(genAI);
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: `${system}\n\n${user}` }] }],
+      generationConfig: { maxOutputTokens: 4000, temperature: 0.85 },
+    });
+    const response = await result.response;
+    const text = (response.text() || '').trim();
+    if (!text) return { success: false, error: '빈 응답이 반환됐어요. 다시 시도해주세요.' };
+    return { success: true, text };
+  } catch (e: any) {
+    console.error('[EXT-TRAFFIC v1] 생성 실패:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, error: msg };
+  }
+});
+
 console.log('[APP] ✅ Electron 앱 초기화 완료');

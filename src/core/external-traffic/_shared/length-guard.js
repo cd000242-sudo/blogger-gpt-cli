@@ -1,0 +1,124 @@
+// src/core/external-traffic/_shared/length-guard.js
+// v2.3 보강: 채널별 maxOutputTokens + 길이 초과 검증·재시도.
+
+'use strict';
+
+/** @typedef {import('./types').ChannelPrompt} ChannelPrompt */
+/** @typedef {import('./types').FormattedOutput} FormattedOutput */
+
+const HASHTAG_RE = /#[\p{L}\p{N}_]+/gu;
+
+/**
+ * 채널별 길이 제한 정의 (글자수 기준).
+ * 토큰이 아닌 글자수로 통일 — 사용자에게 노출할 단위.
+ */
+const CHANNEL_LENGTH_LIMITS = {
+  instagram: { body: { max: 2200 }, hashtags: { min: 5, max: 30 } },
+  threads: { body: { max: 500 } },
+  x: {
+    parts: {
+      tweet1: { max: 280 },
+      tweet2: { max: 280 },
+    },
+  },
+  facebook: {
+    parts: {
+      personal: { max: 1500 },
+      'group-comment': { max: 500 },
+    },
+  },
+  pinterest: {
+    parts: {
+      pinTitle: { max: 100 },
+      description: { max: 500 },
+      boardSuggestion: { max: 200 },
+      imagePrompt: { max: 500 },
+    },
+  },
+  'youtube-shorts': {
+    parts: {
+      script: { max: 800 },
+      description: { max: 500 },
+      pinnedComment: { max: 280 },
+    },
+  },
+  tiktok: {
+    parts: {
+      script: { max: 400 },
+      caption: { max: 150 },
+      hashtags: { max: 200 },
+    },
+  },
+  'kakao-openchat': { body: { max: 120 } },
+  'naver-blog': { body: { max: 2500, min: 800 } },
+  'naver-cafe': { body: { max: 2500, min: 800 } },
+};
+
+/**
+ * formatted output에 대해 채널별 길이 검증.
+ * 위반 항목 배열 반환 (재시도 프롬프트에 합성).
+ *
+ * @param {FormattedOutput} formatted
+ * @param {ChannelPrompt} channel
+ * @returns {string[]}
+ */
+function validateLength(formatted, channel) {
+  const limits = CHANNEL_LENGTH_LIMITS[channel.id];
+  if (!limits) return [];
+  const violations = [];
+
+  if (limits.body && typeof formatted.body === 'string') {
+    if (limits.body.max && formatted.body.length > limits.body.max) {
+      violations.push(`본문 ${formatted.body.length}자 (상한 ${limits.body.max})`);
+    }
+    if (limits.body.min && formatted.body.length < limits.body.min) {
+      violations.push(`본문 ${formatted.body.length}자 (하한 ${limits.body.min})`);
+    }
+  }
+
+  if (limits.hashtags && Array.isArray(formatted.hashtags)) {
+    const n = formatted.hashtags.length;
+    if (limits.hashtags.max && n > limits.hashtags.max) {
+      violations.push(`해시태그 ${n}개 (상한 ${limits.hashtags.max})`);
+    }
+    if (limits.hashtags.min && n < limits.hashtags.min) {
+      violations.push(`해시태그 ${n}개 (하한 ${limits.hashtags.min})`);
+    }
+  }
+
+  if (limits.parts && formatted.parts) {
+    for (const [k, range] of Object.entries(limits.parts)) {
+      const v = formatted.parts[k];
+      if (typeof v !== 'string') continue;
+      if (range.max && v.length > range.max) {
+        violations.push(`${k} ${v.length}자 (상한 ${range.max})`);
+      }
+      if (range.min && v.length < range.min) {
+        violations.push(`${k} ${v.length}자 (하한 ${range.min})`);
+      }
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * 길이 초과 시 재시도 프롬프트에 추가할 보강 문장.
+ *
+ * @param {string[]} violations
+ * @returns {string}
+ */
+function buildRetryHint(violations) {
+  if (!violations.length) return '';
+  return (
+    '\n\n앞서 출력이 길이 제약을 초과했습니다. 다음 항목을 더 짧게 다시 작성하세요:\n- ' +
+    violations.join('\n- ')
+  );
+}
+
+module.exports = {
+  CHANNEL_LENGTH_LIMITS,
+  validateLength,
+  buildRetryHint,
+  HASHTAG_RE,
+};

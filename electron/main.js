@@ -349,12 +349,123 @@ try {
     if (electron_1.ipcMain.listenerCount('generate-external-traffic-text') > 0) {
         electron_1.ipcMain.removeHandler('generate-external-traffic-text');
     }
+    // v3.8.0: 외부유입 v2 핸들러 (병존)
+    if (electron_1.ipcMain.listenerCount('generate-external-traffic-text-v2') > 0) {
+        electron_1.ipcMain.removeHandler('generate-external-traffic-text-v2');
+    }
+    if (electron_1.ipcMain.listenerCount('external-traffic-list-channels') > 0) {
+        electron_1.ipcMain.removeHandler('external-traffic-list-channels');
+    }
 }
 catch (e) {
     // 무시 (핸들러가 없을 수 있음)
 }
 
-// v3.7.23: 외부유입 글 생성 IPC 핸들러
+// ─── v3.8.0: 외부유입 v2 핸들러 (v2.3 플랜) ────────────────────────────────
+//   채널 등록 목록 조회.
+electron_1.ipcMain.handle('external-traffic-list-channels', async () => {
+    try {
+        const dispatcher = require('../src/core/external-traffic');
+        return { success: true, channels: dispatcher.listChannels() };
+    }
+    catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[EXT-TRAFFIC v2] listChannels 실패:', msg);
+        return { success: false, error: msg };
+    }
+});
+
+//   v2 생성: { sourceUrl, sourceTitle, channels[{id,subChannel?,userCustomRule?}], options? }
+//   → { success, results: { [channelId]: { formatted, risk, lengthViolations, retried? } } }
+electron_1.ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload) => {
+    try {
+        const dispatcher = require('../src/core/external-traffic');
+        let validated;
+        try {
+            validated = dispatcher.validateGenerateV2Payload(payload);
+        }
+        catch (ve) {
+            return { success: false, error: 'INVALID_INPUT: ' + (ve instanceof Error ? ve.message : String(ve)) };
+        }
+        const envData = (0, env_1.loadEnvFromFile)();
+        const geminiKey = (envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '').trim();
+        if (!geminiKey || geminiKey.length < 20) {
+            return { success: false, error: 'Gemini API 키가 필요합니다. 설정 탭에서 입력해주세요.' };
+        }
+        const { GoogleGenerativeAI } = await Promise.resolve().then(() => __importStar(require('@google/generative-ai')));
+        const genAI = new GoogleGenerativeAI(geminiKey);
+        const model = await selectGeminiModel(genAI);
+
+        const sourceSummary = dispatcher.buildMinimalSummary(validated.sourceTitle, validated.sourceUrl);
+        const results = {};
+        for (const ch of validated.channels) {
+            try {
+                const channelObj = dispatcher.getChannel(ch.id);
+                if (!channelObj) {
+                    results[ch.id] = { error: 'UNKNOWN_CHANNEL' };
+                    continue;
+                }
+                const { system, user, maxOutputTokens } = dispatcher.buildPromptPair(ch.id, {
+                    sourceSummary,
+                    sourceUrl: validated.sourceUrl,
+                    sourceTitle: validated.sourceTitle,
+                    subChannel: ch.subChannel,
+                    userCustomRule: ch.userCustomRule,
+                });
+
+                let userPrompt = user;
+                let attempt = 0;
+                let lastResult = null;
+                while (attempt < 2) {
+                    const result = await model.generateContent({
+                        contents: [{ role: 'user', parts: [{ text: `${system}\n\n${userPrompt}` }] }],
+                        generationConfig: {
+                            maxOutputTokens: maxOutputTokens || 2000,
+                            temperature: 0.85,
+                        },
+                    });
+                    const response = await result.response;
+                    const text = (response.text() || '').trim();
+                    if (!text) {
+                        attempt++;
+                        continue;
+                    }
+                    const processed = dispatcher.processResponse(ch.id, text);
+                    lastResult = {
+                        rawText: text,
+                        formatted: processed.formatted,
+                        risk: processed.risk,
+                        lengthViolations: processed.lengthViolations,
+                        retried: attempt > 0,
+                        attempt: attempt + 1,
+                    };
+                    if (processed.lengthViolations.length === 0) break;
+                    userPrompt = user + dispatcher.buildRetryHint(processed.lengthViolations);
+                    attempt++;
+                }
+                if (!lastResult) {
+                    results[ch.id] = { error: 'EMPTY_LLM_RESPONSE' };
+                }
+                else {
+                    results[ch.id] = lastResult;
+                }
+            }
+            catch (chErr) {
+                const msg = chErr instanceof Error ? chErr.message : String(chErr);
+                console.error(`[EXT-TRAFFIC v2] ${ch.id} 실패:`, msg);
+                results[ch.id] = { error: msg };
+            }
+        }
+        return { success: true, results };
+    }
+    catch (e) {
+        console.error('[EXT-TRAFFIC v2] 핸들러 실패:', e);
+        const msg = e instanceof Error ? e.message : String(e);
+        return { success: false, error: msg };
+    }
+});
+
+// v3.7.23: 외부유입 v1 핸들러 — deprecation 유지 (UI 점진 전환 중)
 //   payload: { system, user } — Gemini로 변환 글 1개 생성하여 반환.
 electron_1.ipcMain.handle('generate-external-traffic-text', async (_evt, payload) => {
     try {
