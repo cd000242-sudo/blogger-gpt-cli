@@ -15,6 +15,7 @@ export interface WordPressPost {
   date?: string; // ISO 8601 형식 (예: "2024-12-25T10:00:00")
   date_gmt?: string; // GMT 시간
   slug?: string;
+  link?: string; // v3.8.30: WordPress API가 반환하는 공개 글 URL (Pretty Permalinks 정확)
   meta?: Record<string, any>;
   // SEO 필드 추가
   yoast_seo_title?: string;

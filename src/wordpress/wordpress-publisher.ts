@@ -819,9 +819,18 @@ export class WordPressPublisher {
         }
       }
 
+      // v3.8.30: WordPress API 응답의 link 필드(정확한 공개 글 URL) 우선 사용.
+      //   기존엔 항상 wp-admin 편집 URL 반환 → 거미줄·외부유입·발행 글 목록 모두 글편집 화면으로.
+      //   Pretty Permalinks 설정 사이트에서는 ?p=N도 404 → link만 정확.
+      //   link 없거나 비정상이면 ?p=N 폴백.
+      const wpSiteUrl = this.wpApi['config'].siteUrl;
+      const apiLink = (createdPost as any).link;
+      const publicUrl = (typeof apiLink === 'string' && /^https?:\/\//i.test(apiLink) && !/\/wp-admin\//i.test(apiLink))
+        ? apiLink
+        : `${wpSiteUrl}/?p=${createdPost.id}`;
       const result: { success: boolean; url?: string; postId?: number; error?: string } = {
         success: true,
-        url: `${this.wpApi['config'].siteUrl}/wp-admin/post.php?post=${createdPost.id}&action=edit`
+        url: publicUrl,
       };
 
       if (createdPost.id) {
@@ -1408,7 +1417,11 @@ export async function publishToWordPress(
     const post = await wpApi.createPost(postData);
 
     if (post && post.id) {
-      const postUrl = `${options.siteUrl}/wp-admin/post.php?post=${post.id}&action=edit`;
+      // v3.8.30: API 응답의 link 필드(공개 글 URL) 우선 사용. Pretty Permalinks 사이트에선 ?p=N도 404.
+      const apiLink2 = (post as any).link;
+      const postUrl = (typeof apiLink2 === 'string' && /^https?:\/\//i.test(apiLink2) && !/\/wp-admin\//i.test(apiLink2))
+        ? apiLink2
+        : `${options.siteUrl}/?p=${post.id}`;
       onLog?.(`✅ WordPress 포스트 생성 완료: ${postUrl}`);
 
       // 🔧 Yoast SEO 필드 자동 설정 (초점 키프레이즈, 메타설명)

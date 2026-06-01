@@ -764,17 +764,29 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
 }) => {
   try {
     console.log('[INTERNAL-CONSISTENCY] 종합글 생성 요청:', payload);
-    // v3.8.28: WordPress wp-admin URL → 공개 글 URL 정규화 (백엔드 안전망)
-    //   wp-admin 편집 URL은 og:image 없고 사용자가 클릭하면 글편집으로 가서 CTA 동작 안 함.
-    //   거미줄 통합글의 CTA 박스에 공개 URL 사용 + 크롤링도 공개 페이지에서.
-    const _normalizeWpUrl = (u: string): string => {
+    // v3.8.28/v3.8.30: WordPress wp-admin URL → 공개 글 URL 정규화 (백엔드 안전망)
+    //   v3.8.30: Pretty Permalinks 사이트에선 ?p=N도 404 → WP REST API로 정확한 link 가져옴.
+    //   API 실패 시 ?p=N 폴백 (REST API 비활성·인증 필요 사이트 대비).
+    const _normalizeWpUrl = async (u: string): Promise<string> => {
       if (!u || typeof u !== 'string') return u || '';
       const m = u.match(/^(https?:\/\/[^/]+)\/wp-admin\/post\.php\?[^#]*\bpost=(\d+)/i);
-      return m ? `${m[1]}/?p=${m[2]}` : u;
+      if (!m) return u;
+      try {
+        const axios = (await import('axios')).default;
+        const r = await axios.get(`${m[1]}/wp-json/wp/v2/posts/${m[2]}`, { timeout: 8000, validateStatus: () => true });
+        const link = r?.data?.link;
+        if (typeof link === 'string' && /^https?:\/\//i.test(link) && !/\/wp-admin\//i.test(link)) {
+          console.log(`[INTERNAL-CONSISTENCY] wp-admin URL → REST API link: ${link}`);
+          return link;
+        }
+      } catch (e: any) {
+        console.warn(`[INTERNAL-CONSISTENCY] WP REST API 실패 — ?p=N 폴백:`, e?.message);
+      }
+      return `${m[1]}/?p=${m[2]}`;
     };
-    const urls = (payload.urls || []).map(_normalizeWpUrl);
+    const urls = await Promise.all((payload.urls || []).map(_normalizeWpUrl));
     let title = payload.title || '종합 가이드';
-    const posts = (payload.posts || []).map((p) => ({ ...p, url: _normalizeWpUrl(p.url) }));
+    const posts = await Promise.all((payload.posts || []).map(async (p) => ({ ...p, url: await _normalizeWpUrl(p.url) })));
 
     if (urls.length === 0) {
       return { success: false, error: 'URL이 필요합니다.' };
