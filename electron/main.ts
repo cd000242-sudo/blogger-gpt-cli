@@ -4987,9 +4987,19 @@ if (ipcMain.listenerCount('fetch-og-image') > 0) {
 }
 ipcMain.handle('fetch-og-image', async (_evt, payload: { url: string }) => {
   try {
-    const url = String(payload && payload.url || '').trim();
+    let url = String(payload && payload.url || '').trim();
     if (!url || !/^https?:\/\//i.test(url)) {
       return { success: false, error: 'INVALID_URL' };
+    }
+    // v3.8.4: WordPress wp-admin URL → 공개 URL 변환
+    //   leadernam.com/wp-admin/post.php?post=4514&action=edit → leadernam.com/?p=4514
+    //   wp-admin 페이지에는 og:image가 없으므로 변환 후 fetch 시도.
+    const wpAdminMatch = url.match(/^(https?:\/\/[^/]+)\/wp-admin\/post\.php\?[^#]*\bpost=(\d+)/i);
+    if (wpAdminMatch) {
+      const origin = wpAdminMatch[1];
+      const postId = wpAdminMatch[2];
+      url = `${origin}/?p=${postId}`;
+      console.log('[OG-IMAGE] wp-admin URL 감지, 공개 URL로 변환:', url);
     }
     const cached = _ogImageCache.get(url);
     if (cached && Date.now() - cached.ts < OG_CACHE_TTL) {
@@ -5026,6 +5036,28 @@ ipcMain.handle('fetch-og-image', async (_evt, payload: { url: string }) => {
         imageUrl = new URL(imageUrl, url).href;
       } catch {
         imageUrl = '';
+      }
+    }
+    // v3.8.4: WordPress REST API 폴백 — og:image 없으면 wp/v2/posts/{id}?_embed
+    if (!imageUrl && /^https?:\/\/[^/]+\/\?p=(\d+)/.test(url)) {
+      try {
+        const m = url.match(/^(https?:\/\/[^/]+)\/\?p=(\d+)/);
+        if (m) {
+          const origin = m[1];
+          const postId = m[2];
+          const apiRes = await axios.get(`${origin}/wp-json/wp/v2/posts/${postId}?_embed`, {
+            timeout: 6000,
+            validateStatus: (s) => s < 500,
+          });
+          const featured = apiRes.data
+            && apiRes.data._embedded
+            && apiRes.data._embedded['wp:featuredmedia']
+            && apiRes.data._embedded['wp:featuredmedia'][0]
+            && apiRes.data._embedded['wp:featuredmedia'][0].source_url;
+          if (typeof featured === 'string') imageUrl = featured;
+        }
+      } catch {
+        // 무시
       }
     }
     if (!imageUrl) {

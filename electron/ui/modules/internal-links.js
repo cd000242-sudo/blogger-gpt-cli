@@ -1098,9 +1098,12 @@ function _openSwProgressModal(sources) {
       const safeTitle = escapeHtml(s.title || '제목 없음');
       const safeUrl = escapeHtml(s.url || '');
       const titleInitial = (s.title || '?').trim().charAt(0) || '?';
-      const thumbHtml = s.thumbnail
-        ? `<div class="sw-source-thumb" style="background-image:url('${escapeHtml(s.thumbnail)}')"></div>`
-        : `<div class="sw-source-thumb sw-source-thumb--placeholder">${escapeHtml(titleInitial)}</div>`;
+      const safeThumb = escapeHtml(s.thumbnail || '');
+      // v3.8.4: img 태그 + onerror 폴백 (background-image는 cache miss 시 깨짐)
+      const thumbHtml = safeThumb
+        ? `<img class="sw-source-thumb" data-puburl="${safeUrl}" src="${safeThumb}" alt="" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" style="object-fit: cover;">
+           <div class="sw-source-thumb sw-source-thumb--placeholder" style="display: none;">${escapeHtml(titleInitial)}</div>`
+        : `<div class="sw-source-thumb sw-source-thumb--placeholder" data-puburl="${safeUrl}">${escapeHtml(titleInitial)}</div>`;
       return `
         <div class="sw-source-card">
           ${thumbHtml}
@@ -1112,6 +1115,8 @@ function _openSwProgressModal(sources) {
         </div>
       `;
     }).join('');
+    // v3.8.4: 모달 진입 후 누락된 썸네일 자동 fetch
+    setTimeout(() => _enrichMissingThumbnails(sources), 100);
   }
 
   // 단계 리스트 초기화
@@ -1388,15 +1393,17 @@ async function generateAndPublishSpiderWeb() {
     const titleInput = document.getElementById('spiderWebTitle');
     const title = titleInput ? titleInput.value.trim() : '';
 
-    // v3.8.3: 이미지 정책 + 엔진 옵션 수집
+    // v3.8.4: 이미지 정책 + 썸네일/본문 엔진 분리
     const policyInput = document.querySelector('input[name="swImagePolicy"]:checked');
     const imagePolicy = (policyInput && policyInput.value) || 'all';
-    const engineSelect = document.getElementById('swImageEngine');
-    const imageEngine = (engineSelect && engineSelect.value) || 'nanobanana2';
+    const thumbEngineSel = document.getElementById('swThumbnailEngine');
+    const h2EngineSel = document.getElementById('swH2ImageEngine');
+    const imageThumbnailEngine = (thumbEngineSel && thumbEngineSel.value) || 'nanobanana2';
+    const imageH2Engine = (h2EngineSel && h2EngineSel.value) || 'nanobanana2';
 
     // 진행 모달 표시
     _openSwProgressModal(selectedPosts);
-    _swPushLog(`URL ${urls.length}개 · 제목 "${title || '자동 생성'}" · 이미지 ${imagePolicy} (${imageEngine})`, 'info');
+    _swPushLog(`URL ${urls.length}개 · 제목 "${title || '자동 생성'}" · 정책 ${imagePolicy} · 썸네일 ${imageThumbnailEngine} · 본문 ${imageH2Engine}`, 'info');
 
     // 단계 시뮬레이션 시작
     _swStartStepSimulation();
@@ -1413,9 +1420,10 @@ async function generateAndPublishSpiderWeb() {
           title: post.title || post.url,
           order: index + 1,
         })),
-        // v3.8.3: 이미지 옵션 전달 (백엔드 미반영 시 무시되어도 백워드)
+        // v3.8.4: 이미지 옵션 전달 (썸네일/본문 분리 + 정책)
         imagePolicy,
-        imageEngine,
+        imageThumbnailEngine,
+        imageH2Engine,
       };
       _swPushLog('IPC generate-internal-consistency 호출…', 'info');
       if (window.electronAPI && window.electronAPI.invoke) {
@@ -1464,22 +1472,31 @@ async function generateAndPublishSpiderWeb() {
 
     let pubResult;
     try {
-      if (window.blogger && window.blogger.publishContent) {
-        pubResult = await window.blogger.publishContent({
-          title: generatedContent.title,
-          html: generatedContent.html,
-          platform,
-          publishType: 'publish',
-        });
-      } else if (window.electronAPI && window.electronAPI.invoke) {
+      // v3.8.4: window.blogger.publishContent는 4-인자 시그니처 (payload, title, content, thumbnailUrl).
+      //   이전엔 단일 객체로 호출해서 title=undefined → 백엔드 validateTitle 거부 → "제목이 비었습니다" 에러.
+      //   → invoke 직접 호출로 통일 (페이로드 객체 형식 일관 + 4-인자 함정 회피).
+      const safeTitle = (generatedContent.title && String(generatedContent.title).trim()) || '거미줄치기 통합글';
+      const safeHtml = generatedContent.html || '';
+      _swPushLog('IPC publish-content 호출 (제목: "' + safeTitle.substring(0, 40) + '"' + (safeTitle.length > 40 ? '…' : '') + '")', 'info');
+      if (window.electronAPI && window.electronAPI.invoke) {
         pubResult = await window.electronAPI.invoke('publish-content', {
-          title: generatedContent.title,
-          content: generatedContent.html,
+          title: safeTitle,
+          content: safeHtml,
+          thumbnailUrl: '',
           payload: { platform, publishType: 'publish' },
         });
+      } else if (window.blogger && window.blogger.publishContent) {
+        // 폴백: preload 4-인자 시그니처 정확히 사용
+        pubResult = await window.blogger.publishContent(
+          { platform, publishType: 'publish' },
+          safeTitle,
+          safeHtml,
+          ''
+        );
       } else {
         throw new Error('발행 API를 사용할 수 없습니다.');
       }
+      _swPushLog('publish-content 응답 수신 (ok=' + (pubResult && pubResult.ok) + ')', pubResult && pubResult.ok ? 'success' : 'error');
     } catch (e) {
       _swFinishError('발행 실패: ' + (e?.message || '알 수 없는 오류'));
       // 생성된 HTML은 미리보기에 그대로 표시 (재발행 가능하도록)

@@ -5202,15 +5202,48 @@
                 <input type="radio" name="swImagePolicy" value="none" style="margin: 0;"> 이미지 없이
               </label>
             </div>
-            <label for="swImageEngine" class="sw-label" style="display:block; margin-bottom: 8px; font-size: 13px;">🖌️ 이미지 생성 엔진</label>
-            <select id="swImageEngine" class="sw-input" style="width: 100%; padding: 10px 12px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 8px; color: #e2e8f0; font-size: 13px;">
-              <option value="nanobanana2" selected>🍌 Nano Banana 2 (Gemini 3.1 Flash · 추천)</option>
-              <option value="imagefx">🎨 ImageFX (Google)</option>
-              <option value="dropshot">🎯 Dropshot (Genspark)</option>
-              <option value="leonardo">🦁 Leonardo AI</option>
-              <option value="prodia">🎭 Prodia</option>
-              <option value="dalle3">🖼️ DALL-E 3 (OpenAI)</option>
-            </select>
+            <!-- v3.8.4: 썸네일 / 본문 엔진 분리 (글포스팅탭과 동일 옵션) -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div>
+                <label for="swThumbnailEngine" class="sw-label" style="display:block; margin-bottom: 6px; font-size: 13px;">📸 썸네일 엔진</label>
+                <select id="swThumbnailEngine" class="sw-input" style="width: 100%; padding: 10px 12px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 8px; color: #e2e8f0; font-size: 13px;">
+                  <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─── 🍌 나노바나나 ───</option>
+                  <option value="nanobanana">　🍌 나노바나나 (Gemini 2.5 · 저비용)</option>
+                  <option value="nanobanana2" selected>　🍌 나노바나나 2 (Gemini 3.1 · 권장)</option>
+                  <option value="nanobananapro">　🍌 나노바나나 Pro (Gemini 3 · 최고품질)</option>
+                  <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─── 🎯 OpenAI GPT ───</option>
+                  <option value="gptimage1">　🎯 GPT 이미지 1</option>
+                  <option value="gptimage2">　🎯 GPT 이미지 2 (덕테이프)</option>
+                  <option disabled style="color:#34d399; background:#0f172a; font-weight:800;">─── 🍌 Dropshot ───</option>
+                  <option value="dropshot-nanobanana-pro">　🍌 리더스 나노바나나 무제한</option>
+                  <option disabled style="color:#94a3b8; background:#0f172a; font-weight:800;">─── 기타 ───</option>
+                  <option value="prodia">🚀 Prodia FLUX schnell</option>
+                  <option value="deepinfra">🔥 DeepInfra FLUX-2</option>
+                  <option value="crawled">🔗 URL 수집 이미지</option>
+                  <option value="none">❌ 썸네일 없음</option>
+                </select>
+              </div>
+              <div>
+                <label for="swH2ImageEngine" class="sw-label" style="display:block; margin-bottom: 6px; font-size: 13px;">🖼️ 본문 이미지 엔진</label>
+                <select id="swH2ImageEngine" class="sw-input" style="width: 100%; padding: 10px 12px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 8px; color: #e2e8f0; font-size: 13px;">
+                  <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─── 🍌 나노바나나 ───</option>
+                  <option value="nanobanana">　🍌 나노바나나 (Gemini 2.5 · 저비용)</option>
+                  <option value="nanobanana2" selected>　🍌 나노바나나 2 (Gemini 3.1 · 권장)</option>
+                  <option value="nanobananapro">　🍌 나노바나나 Pro (Gemini 3 · 최고품질)</option>
+                  <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─── 🎯 OpenAI GPT ───</option>
+                  <option value="gptimage1">　🎯 GPT 이미지 1</option>
+                  <option value="gptimage2">　🎯 GPT 이미지 2 (덕테이프)</option>
+                  <option disabled style="color:#34d399; background:#0f172a; font-weight:800;">─── 🍌 Dropshot ───</option>
+                  <option value="dropshot-nanobanana-pro">　🍌 리더스 나노바나나 무제한</option>
+                  <option disabled style="color:#94a3b8; background:#0f172a; font-weight:800;">─── 기타 ───</option>
+                  <option value="prodia">🚀 Prodia FLUX schnell</option>
+                  <option value="deepinfra">🔥 DeepInfra FLUX-2</option>
+                  <option value="crawled">🔗 URL 수집 이미지</option>
+                  <option value="none">❌ 본문 이미지 없음</option>
+                </select>
+              </div>
+            </div>
+            <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 8px; display: block;">💡 정책에 따라 적용 위치가 달라집니다 (홀수/짝수/썸네일만/없이). 본문 엔진은 H2 헤더 다음에 자동 배치.</small>
           </div>
 
           <button type="button" id="spiderWebGenerateBtn" class="sw-btn sw-btn--cta" onclick="generateAndPublishSpiderWeb()" aria-label="통합글 생성 및 발행하기">
