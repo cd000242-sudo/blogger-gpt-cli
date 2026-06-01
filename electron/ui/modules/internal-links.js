@@ -161,6 +161,8 @@ function updateSelectedPostsFromInputs() {
 function savePublishedPost(post) {
   try {
     if (!post || !post.url) return;
+    // v3.8.28: WordPress wp-admin URL → 공개 글 URL 정규화 (저장 시점)
+    if (post && post.url) post.url = _normalizePostUrl(post.url);
     const raw = localStorage.getItem('publishedPosts');
     /** @type {Record<string, any[]>} */
     let store = {};
@@ -249,7 +251,8 @@ function getPublishedPosts() {
         if (!p || !p.url) return;
         flat.push({
           title: p.title || '제목 없음',
-          url: p.url,
+          // v3.8.28: 레거시 wp-admin URL은 표시·CTA·열기 모두 공개 URL로 (레거시 데이터 호환)
+          url: _normalizePostUrl(p.url),
           platform: p.platform || 'wordpress',
           publishedAt: p.publishedAt || (p.timestamp ? new Date(p.timestamp).toISOString() : dateKey),
           timestamp: p.timestamp || 0,
@@ -271,6 +274,26 @@ function getPublishedPosts() {
  * 체크박스 onChange 핸들러에서 인덱스로 빠르게 조회하기 위함.
  */
 let modalPosts = [];
+
+/**
+ * v3.8.28: WordPress wp-admin URL을 공개 글 URL로 변환.
+ *   `https://site.com/wp-admin/post.php?post=4514&action=edit` → `https://site.com/?p=4514`
+ *   레거시 publishedPosts·새 저장·거미줄 CTA URL 모두 동일 함수 사용.
+ *   wp-admin이 아닌 URL은 그대로 반환 (Blogger·외부 등).
+ */
+function _normalizePostUrl(url) {
+  if (!url || typeof url !== 'string') return url || '';
+  try {
+    const m = url.match(/^(https?:\/\/[^/]+)\/wp-admin\/post\.php\?[^#]*\bpost=(\d+)/i);
+    if (m) {
+      return `${m[1]}/?p=${m[2]}`;
+    }
+    return url;
+  } catch {
+    return url;
+  }
+}
+window._normalizePostUrl = _normalizePostUrl;
 
 /**
  * v3.8.27: 발행글 삭제 — publishedPosts 객체 셰이프 {dateKey: [posts]}에서
@@ -1633,7 +1656,9 @@ async function generateAndPublishSpiderWeb() {
 
   try {
     updateSelectedPostsFromInputs();
-    const urls = selectedPosts.map(p => p.url).filter(u => u && u.trim());
+    // v3.8.28: 입력 URL 정규화 — wp-admin URL은 공개 URL로 변환해 거미줄 CTA에 사용
+    //   기존엔 wp-admin URL이 그대로 CTA <a href="...wp-admin/...">로 들어가 클릭 시 글편집으로 가던 문제 차단.
+    const urls = selectedPosts.map(p => _normalizePostUrl(p.url)).filter(u => u && u.trim());
 
     if (urls.length === 0) {
       alert('⚠️ 최소 1개 이상의 글 주소를 입력하거나 선택해주세요.');

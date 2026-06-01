@@ -764,9 +764,17 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
 }) => {
   try {
     console.log('[INTERNAL-CONSISTENCY] 종합글 생성 요청:', payload);
-    const urls = payload.urls || [];
+    // v3.8.28: WordPress wp-admin URL → 공개 글 URL 정규화 (백엔드 안전망)
+    //   wp-admin 편집 URL은 og:image 없고 사용자가 클릭하면 글편집으로 가서 CTA 동작 안 함.
+    //   거미줄 통합글의 CTA 박스에 공개 URL 사용 + 크롤링도 공개 페이지에서.
+    const _normalizeWpUrl = (u: string): string => {
+      if (!u || typeof u !== 'string') return u || '';
+      const m = u.match(/^(https?:\/\/[^/]+)\/wp-admin\/post\.php\?[^#]*\bpost=(\d+)/i);
+      return m ? `${m[1]}/?p=${m[2]}` : u;
+    };
+    const urls = (payload.urls || []).map(_normalizeWpUrl);
     let title = payload.title || '종합 가이드';
-    const posts = payload.posts || [];
+    const posts = (payload.posts || []).map((p) => ({ ...p, url: _normalizeWpUrl(p.url) }));
 
     if (urls.length === 0) {
       return { success: false, error: 'URL이 필요합니다.' };
