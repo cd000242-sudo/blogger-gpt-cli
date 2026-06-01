@@ -984,18 +984,39 @@ URL: ${item.url}
      - 본문 1,000~1,500자 (원본 70% 핵심 + 인사이트)
      - <h3> 2~3개 세부 섹션
      - 본문 중 통계/수치 강조 <strong>
-     - **H2 끝에 거미줄 회유 CTA 박스** (그라데이션 박스 + 후킹 카피 + 빨간 그라데이션 버튼)
-  5. <h2> 비교 / 자주 묻는 질문 — 한눈에 비교 표 + Q&A 3~5개
-  6. <h2> 실전 적용 가이드 — 체크리스트 ✅ 5~7개
-  7. <h2> 더 깊이 알아보기 — 모든 원본 ${sortedContents.length}개 카드 그리드 (관련 글 회유)
+     - **H2 끝에 거미줄 회유 CTA 박스** (아래 CTA 패턴 정확히 사용)
+  5. <h2> 비교 / 자주 묻는 질문 — 한눈에 비교 표 + Q&A 3~5개 (CTA 불필요)
+  6. <h2> 실전 적용 가이드 — 체크리스트 ✅ 5~7개 (CTA 불필요)
+  7. <h2> 더 깊이 알아보기 — 모든 원본 ${sortedContents.length}개 카드 그리드 (이 섹션이 종합 회유)
   8. 결론 1~2줄 + 면책 조항
+
+🎯 **CTA 정책 (v3.8.14 변경)**:
+- 거미줄 회유 CTA는 **4번 항목(원본 대응 H2 1~${sortedContents.length}번)에만** 배치
+- 5/6/7/8번엔 CTA 박스 추가 금지 (글 흐름·체류시간 보존)
+- 7번 (더 깊이 알아보기 카드 그리드)이 이미 종합 회유 역할
+
+🎨 **CTA HTML 패턴 — Blogger·WordPress 호환 (인라인 style 강제)**:
+\`\`\`
+<div style="margin:28px 0;padding:24px 20px;background:linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%);border:1px solid #93c5fd;border-radius:14px;text-align:center;">
+  <p style="margin:0 0 14px;color:#1e3a8a;font-size:16px;font-weight:700;line-height:1.5;">[후킹 멘트 — 예: "더 자세한 ~을 알고 싶다면?"]</p>
+  <p style="margin:0;">
+    <a href="[원본URL]" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#ef4444 0%,#f97316 100%);color:#ffffff !important;text-decoration:none;font-size:15px;font-weight:800;border-radius:10px;box-shadow:0 4px 14px rgba(239,68,68,0.35);">[버튼 텍스트 — 예: "2026년 청년내일저축계좌 혜택 상세 보기 🔥"]</a>
+  </p>
+</div>
+\`\`\`
+- 반드시 \`<button>\` 태그가 아닌 \`<a href>\` 사용 (Blogger sanitize 호환)
+- 인라인 style만 사용 (class 사용 금지 — 블로그 RTE가 class 제거)
+- 색상 명시: 빨간/주황 그라데이션 버튼 + 연한 파랑 배경 박스
+- 후킹 멘트는 1줄, 버튼 텍스트는 원본 글 핵심을 담은 한 줄
 
 🚫 **절대 금지** (위반 시 재작성 요구됨):
 - H2 제목 끝에 "(종합 거미줄)", "(요약)", "(FAQ)", "(가이드)" 등 메타 라벨/괄호 절대 추가 금지
 - H2 제목은 사용자가 검색할 만한 자연스러운 표현만 사용 (예: "5. 청년내일저축계좌, 더 깊이 알아보기" O / "5. 청년내일저축계좌, 더 깊이 알아보기 (종합 거미줄)" X)
 - 메타 멘트("이 글은 ${sortedContents.length}개 글을 종합") / <html><body> / 마크다운 / 중국어 한자 / 빈 검색바·입력칸 / 자극·낚시
+- 5/6/7/8번 H2에 거미줄 CTA 박스 추가 X (4번 H2에만)
+- <button> 태그 X (Blogger가 sanitize) — <a href> + 인라인 style만
 
-✅ **품질 기준**: 총 8,000~12,000자, H2 정확히 ${sortedContents.length + 3}개, 모든 H2에 거미줄 CTA, 검색 의도 1편 완전 커버
+✅ **품질 기준**: 총 8,000~12,000자, H2 정확히 ${sortedContents.length + 3}개, **거미줄 CTA는 원본 대응 H2(1~${sortedContents.length}번)에만**, 검색 의도 1편 완전 커버
 
 지금 위 구조를 정확히 지켜 8,000자+ HTML을 작성하세요.
 `;
@@ -1089,55 +1110,65 @@ URL: ${item.url}
       const targetPlatform = String((payload as any).platform || '').toLowerCase();
       async function _hostImageDataUrl(dataUrl: string, label: string): Promise<{ url: string; provider: string }> {
         if (!dataUrl || !/^data:image/.test(dataUrl)) return { url: dataUrl, provider: 'passthrough' };
-        // 1) WP 자격증명 보유 시 wp-json/v2/media 업로드 (platform 무관)
-        //    워드프레스: 사용자 본인 사이트 → 가장 안정
-        //    블로그스팟: 사용자 워드프레스 사이트가 있으면 거기에 호스팅 후 URL만 가져옴 (Hot-link)
-        try {
-          const env = loadEnvFromFile() as any;
-          const wpUrl = (env.wordpressSiteUrl || env.WORDPRESS_SITE_URL || '').trim().replace(/\/+$/, '');
-          const wpUser = (env.wordpressUsername || env.WORDPRESS_USERNAME || '').trim();
-          const wpPass = (env.wordpressPassword || env.WORDPRESS_PASSWORD || '').trim();
-          if (wpUrl && wpUser && wpPass) {
+
+        // 1) WP 자격증명 보유 시 wp-json/v2/media 업로드 (platform 무관 hotlink 허용)
+        //    v3.8.14: timeout 60s + 1회 retry (네트워크 흔들림 대응)
+        const env = loadEnvFromFile() as any;
+        const wpUrl = (env.wordpressSiteUrl || env.WORDPRESS_SITE_URL || '').trim().replace(/\/+$/, '');
+        const wpUser = (env.wordpressUsername || env.WORDPRESS_USERNAME || '').trim();
+        const wpPass = (env.wordpressPassword || env.WORDPRESS_PASSWORD || '').trim();
+        if (wpUrl && wpUser && wpPass) {
+          const m = dataUrl.match(/^data:(image\/[a-z+]+);base64,(.+)$/);
+          if (m) {
+            const mime = m[1];
+            const ext = (mime.split('/')[1] || 'png').replace('+xml', '');
+            const buf = Buffer.from(m[2], 'base64');
+            const filename = `${label || 'image'}-${Date.now()}.${ext}`;
+            const auth = Buffer.from(`${wpUser}:${wpPass}`).toString('base64');
             const axios = (await import('axios')).default;
-            const m = dataUrl.match(/^data:(image\/[a-z+]+);base64,(.+)$/);
-            if (m) {
-              const mime = m[1];
-              const ext = (mime.split('/')[1] || 'png').replace('+xml', '');
-              const buf = Buffer.from(m[2], 'base64');
-              const filename = `${label || 'image'}-${Date.now()}.${ext}`;
-              const auth = Buffer.from(`${wpUser}:${wpPass}`).toString('base64');
-              const res = await axios.post(`${wpUrl}/wp-json/wp/v2/media`, buf, {
-                headers: {
-                  Authorization: `Basic ${auth}`,
-                  'Content-Type': mime,
-                  'Content-Disposition': `attachment; filename="${filename}"`,
-                },
-                timeout: 30000,
-                maxBodyLength: 30 * 1024 * 1024,
-                maxContentLength: 30 * 1024 * 1024,
-              });
-              const src = res.data && (res.data.source_url || (res.data.guid && res.data.guid.rendered));
-              if (typeof src === 'string' && src) {
-                console.log(`[IMG-HOST] ✅ WP 미디어 업로드 성공 (${label}, platform=${targetPlatform || 'unknown'}):`, src.substring(0, 80));
-                return { url: src, provider: targetPlatform === 'wordpress' ? 'wp-media' : 'wp-media-hotlink' };
+            for (let attempt = 1; attempt <= 2; attempt++) {
+              try {
+                const res = await axios.post(`${wpUrl}/wp-json/wp/v2/media`, buf, {
+                  headers: {
+                    Authorization: `Basic ${auth}`,
+                    'Content-Type': mime,
+                    'Content-Disposition': `attachment; filename="${filename}"`,
+                  },
+                  timeout: 60000,
+                  maxBodyLength: 50 * 1024 * 1024,
+                  maxContentLength: 50 * 1024 * 1024,
+                });
+                const src = res.data && (res.data.source_url || (res.data.guid && res.data.guid.rendered));
+                if (typeof src === 'string' && src) {
+                  console.log(`[IMG-HOST] ✅ WP 미디어 업로드 성공 (${label}, attempt=${attempt}, platform=${targetPlatform || 'unknown'}):`, src.substring(0, 80));
+                  return { url: src, provider: targetPlatform === 'wordpress' ? 'wp-media' : 'wp-media-hotlink' };
+                }
+                console.warn(`[IMG-HOST] WP 응답에 source_url 없음 (${label}, attempt=${attempt})`);
+              } catch (e: any) {
+                console.warn(`[IMG-HOST] WP 업로드 실패 (${label}, attempt=${attempt}):`, e?.message?.substring(0, 200));
+                if (attempt < 2) await new Promise((r) => setTimeout(r, 1500));
               }
             }
           }
-        } catch (e: any) {
-          console.warn(`[IMG-HOST] WP 미디어 업로드 실패 (${label}):`, e?.message?.substring(0, 200));
         }
-        // 2) 외부 호스팅 6단계 폴백 (Cloudinary/ImgBB/ImgHippo/freeimage/Catbox/0x0)
-        try {
-          const { uploadBase64ToImageHost } = require('../dist/core/final/image-helpers');
-          const hostedUrl = await uploadBase64ToImageHost(dataUrl, label);
-          if (typeof hostedUrl === 'string' && hostedUrl) {
-            console.log(`[IMG-HOST] ✅ 외부 호스팅 성공 (${label}):`, hostedUrl.substring(0, 80));
-            return { url: hostedUrl, provider: 'external' };
+
+        // 2) 외부 호스팅 6단계 폴백 (Cloudinary/ImgBB/ImgHippo/freeimage/Catbox/0x0) + 1회 retry
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            const { uploadBase64ToImageHost } = require('../dist/core/final/image-helpers');
+            const hostedUrl = await uploadBase64ToImageHost(dataUrl, label);
+            if (typeof hostedUrl === 'string' && hostedUrl) {
+              console.log(`[IMG-HOST] ✅ 외부 호스팅 성공 (${label}, attempt=${attempt}):`, hostedUrl.substring(0, 80));
+              return { url: hostedUrl, provider: 'external' };
+            }
+          } catch (e: any) {
+            console.warn(`[IMG-HOST] 외부 호스팅 예외 (${label}, attempt=${attempt}):`, e?.message?.substring(0, 200));
           }
-        } catch (e: any) {
-          console.warn(`[IMG-HOST] 외부 호스팅 실패 (${label}):`, e?.message?.substring(0, 200));
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 2000));
         }
-        // 3) 폴백: dataUrl 그대로 (publisher가 sanitize 처리)
+
+        // 3) 최종 폴백: dataUrl 그대로 (publisher가 sanitize 처리)
+        console.error(`[IMG-HOST] ❌ 모든 호스팅 실패 (${label}) — base64 그대로 반환 (publisher placeholder 치환 위험)`);
         return { url: dataUrl, provider: 'datauri' };
       }
       const imageStats: { thumbnail: boolean; h2Generated: number; h2Failed: number; errors: string[] } = {
