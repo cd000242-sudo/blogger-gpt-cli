@@ -77,6 +77,26 @@ export function initSidebar() {
         adminItem.style.display = '';
     };
 
+    // v3.8.56: 사이드바 하단 버전 배지 (사용자가 현재 버전 확인)
+    const verBadge = document.createElement('div');
+    verBadge.id = 'sidebarVersionBadge';
+    verBadge.style.cssText = 'margin-top:auto;padding:10px 8px;text-align:center;font-size:11px;color:#94a3b8;font-weight:700;letter-spacing:0.5px;background:rgba(99,102,241,0.08);border-top:1px solid rgba(148,163,184,0.1);';
+    verBadge.textContent = 'v...';
+    container.appendChild(verBadge);
+    // 비동기로 버전 불러오기
+    (async () => {
+      try {
+        let ver = '';
+        if (window.electronAPI?.invoke) {
+          const r = await window.electronAPI.invoke('app:getVersion').catch(() => null);
+          if (typeof r === 'string') ver = r;
+          else if (r && r.version) ver = r.version;
+        }
+        if (!ver) ver = 'unknown';
+        verBadge.textContent = 'v' + ver;
+      } catch { verBadge.textContent = 'v?'; }
+    })();
+
     // 초기 active
     setActiveSidebarItem('nav-main');
 
