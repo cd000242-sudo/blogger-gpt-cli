@@ -1507,16 +1507,17 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
 
         if (h2Titles.length >= 2) {
           const escapeHtmlText = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          // v3.8.40: 목차 톤도 일반 글포스팅과 통일 (빨간 H3 헤더 + 베이지 배경 박스)
           const tocItems = h2Titles.map((h2, i) =>
-            `<a href="#section-${i}" style="display:flex !important;align-items:center !important;gap:12px !important;padding:18px 20px !important;background:#ffffff !important;border:1px solid #e2e8f0 !important;border-radius:14px !important;text-decoration:none !important;color:#475569 !important;font-weight:700 !important;font-size:16px !important;box-shadow:0 2px 4px rgba(0,0,0,0.04) !important;transition:all 0.2s ease !important;">
-  <span style="display:inline-flex !important;align-items:center !important;justify-content:center !important;width:28px !important;height:28px !important;background:#e0e7ff !important;color:#4f46e5 !important;border-radius:8px !important;font-size:13px !important;font-weight:800 !important;flex-shrink:0 !important;">${i + 1}</span>
+            `<a href="#section-${i}" style="display:flex !important;align-items:center !important;gap:12px !important;padding:18px 20px !important;background:#ffffff !important;border:1px solid #e2e8f0 !important;border-radius:14px !important;text-decoration:none !important;color:#475569 !important;font-weight:700 !important;font-size:16px !important;box-shadow:0 2px 4px rgba(0,0,0,0.04) !important;">
+  <span style="display:inline-flex !important;align-items:center !important;justify-content:center !important;width:28px !important;height:28px !important;background:#fee2e2 !important;color:#dc2626 !important;border-radius:8px !important;font-size:13px !important;font-weight:800 !important;flex-shrink:0 !important;">${i + 1}</span>
   <span style="flex:1 !important;line-height:1.4 !important;color:#475569 !important;">${escapeHtmlText(h2)}</span>
 </a>`
           ).join('\n  ');
 
           const tocHtml = `
-<div style="margin:40px 0 !important;padding:30px !important;background:#f8fafc !important;border-radius:20px !important;border:1px solid #e2e8f0 !important;">
-  <h3 style="margin:0 0 20px 0 !important;font-size:20px !important;font-weight:800 !important;color:#0f172a !important;display:flex !important;align-items:center !important;gap:8px !important;">📌 전체 읽어보기 절차</h3>
+<div style="margin:40px 0 !important;padding:30px !important;background:#fff7f7 !important;border-radius:20px !important;border:1px solid #fecaca !important;">
+  <h3 style="margin:0 0 20px 0 !important;font-size:20px !important;font-weight:800 !important;color:#991b1b !important;display:flex !important;align-items:center !important;gap:8px !important;background:none !important;border:none !important;padding:0 !important;">📌 전체 읽어보기 절차</h3>
   <div style="display:flex !important;flex-direction:column !important;gap:12px !important;">
   ${tocItems}
   </div>
@@ -1555,20 +1556,23 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
           });
         };
 
-        generatedContent = enforceInlineStyle(generatedContent, 'p', 'color:#1a1a1a !important;font-size:17px !important;line-height:1.85 !important;margin:0 0 18px !important;word-break:keep-all !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'h2', 'color:#0f172a !important;font-size:26px !important;font-weight:800 !important;margin:40px 0 20px !important;padding:14px 18px !important;background:linear-gradient(135deg,#f0f4ff 0%,#e0e7ff 100%) !important;border-left:5px solid #6366f1 !important;border-radius:0 14px 14px 0 !important;line-height:1.4 !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'h3', 'color:#1e293b !important;font-size:20px !important;font-weight:700 !important;margin:30px 0 14px !important;line-height:1.4 !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'h4', 'color:#334155 !important;font-size:17px !important;font-weight:700 !important;margin:24px 0 12px !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'li', 'color:#1a1a1a !important;font-size:17px !important;line-height:1.85 !important;margin:0 0 8px !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'ul', 'margin:18px 0 !important;padding-left:24px !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'ol', 'margin:18px 0 !important;padding-left:24px !important;');
+        // v3.8.40: 일반 글포스팅 publisher applyInlineStyles와 동일한 빨간/베이지 톤으로 통일.
+        //   v3.8.36은 파란/보라 톤으로 다르게 박아 미리보기(빨간)와 발행(파란)이 달라지던 문제 차단.
+        //   같은 색상 톤이면 LLM이 박은 inline style이 있든 enforceInlineStyle이 박든 결과 일관.
+        generatedContent = enforceInlineStyle(generatedContent, 'p', 'color:#1a1a1a !important;font-size:18px !important;line-height:1.85 !important;margin:0 0 20px !important;word-break:keep-all !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'h2', 'color:#991b1b !important;font-size:26px !important;font-weight:700 !important;margin:40px 0 20px !important;padding:18px 22px !important;background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%) !important;border-left:5px solid #ef4444 !important;border-radius:0 16px 16px 0 !important;line-height:1.4 !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'h3', 'color:#1e293b !important;font-size:21px !important;font-weight:600 !important;margin:32px 0 16px !important;padding:14px 18px !important;background:#f8fafc !important;border-left:4px solid #10b981 !important;border-radius:0 12px 12px 0 !important;line-height:1.4 !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'h4', 'color:#334155 !important;font-size:18px !important;font-weight:700 !important;margin:24px 0 12px !important;line-height:1.4 !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'li', 'color:#1a1a1a !important;font-size:17px !important;line-height:1.9 !important;margin:0 0 12px !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'ul', 'margin:20px 0 !important;padding-left:24px !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'ol', 'margin:20px 0 !important;padding-left:24px !important;');
         generatedContent = enforceInlineStyle(generatedContent, 'table', 'width:100% !important;border-collapse:collapse !important;margin:24px 0 !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'th', 'padding:12px 14px !important;color:#0f172a !important;background:#f8fafc !important;border:1px solid #e2e8f0 !important;font-weight:800 !important;text-align:left !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'td', 'padding:12px 14px !important;color:#1a1a1a !important;border:1px solid #e2e8f0 !important;font-size:15px !important;line-height:1.6 !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'strong', 'color:#0f172a !important;font-weight:800 !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'th', 'padding:14px 16px !important;color:#0f172a !important;background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%) !important;border:1px solid #fecaca !important;font-weight:800 !important;text-align:left !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'td', 'padding:14px 16px !important;color:#1a1a1a !important;border:1px solid #e2e8f0 !important;font-size:15px !important;line-height:1.7 !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'strong', 'color:#0f172a !important;font-weight:700 !important;');
         generatedContent = enforceInlineStyle(generatedContent, 'em', 'color:#475569 !important;font-style:italic !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'blockquote', 'margin:24px 0 !important;padding:18px 22px !important;background:#f8fafc !important;border-left:4px solid #94a3b8 !important;border-radius:0 12px 12px 0 !important;color:#475569 !important;font-style:italic !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'a', 'color:#4f46e5 !important;text-decoration:underline !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'blockquote', 'margin:24px 0 !important;padding:18px 22px !important;background:#fef2f2 !important;border-left:4px solid #f87171 !important;border-radius:0 12px 12px 0 !important;color:#7f1d1d !important;font-style:italic !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'a', 'color:#dc2626 !important;text-decoration:underline !important;');
         generatedContent = enforceInlineStyle(generatedContent, 'img', 'max-width:100% !important;height:auto !important;border-radius:12px !important;margin:18px auto !important;display:block !important;');
 
         console.log('[INTERNAL-CONSISTENCY] ✅ wrapper 클래스 부여 + 빠진 요소 inline style 보강 완료 (Blogger 테마 무관 표시)');
