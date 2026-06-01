@@ -1535,17 +1535,53 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
       }
 
       // v3.8.33: 미리보기 → 발행 일치를 위해 wrapper에 max-mode-article 클래스 부여 → publisher applyInlineStyles skip.
-      // v3.8.36: 빠진 요소(<p>/<h2>/<li>/<td>/<a> 등)에 inline style + !important 자동 보강 →
-      //   Blogger 테마 CSS 무관 표시 보장. 이미 inline style 있는 요소는 보존(미리보기 디자인 그대로).
+      // v3.8.36: 빠진 요소(<p>/<h2>/<li>/<td>/<a> 등)에 inline style + !important 자동 보강.
+      // v3.8.41: max-mode-article 안전망 강화 + <style> 스킨 CSS 본문 주입
+      //   사용자 보고: 미리보기 빨간 H2 vs 발행 보라 H2 차이는 publisher가 max-mode-article 못 찾아
+      //   applyInlineStyles(보라 톤)을 발동시킨 결과. LLM이 sw-cornerstone 클래스를 빠뜨리면
+      //   v3.8.33 정규식 매칭 실패 → max-mode-article 추가 안 됨 → publisher가 변환.
+      //   안전망: 어떤 wrapper든 max-mode-article 없으면 전체를 <div class="max-mode-article">로 wrap.
+      //   추가: <style> 스킨 CSS를 본문에 박음 → publisher가 separator 뒤로 옮겨 Blogger 정상 적용.
       try {
-        // sw-cornerstone wrapper에 max-mode-article 클래스 추가
+        // 1) sw-cornerstone 매칭 시 max-mode-article 클래스 추가
+        let hasWrapperApplied = false;
         generatedContent = generatedContent.replace(
           /(<div\s+class\s*=\s*["'])([^"']*\bsw-cornerstone\b[^"']*)(["'])/i,
           (match, p1, classes, p3) => {
+            hasWrapperApplied = true;
             if (/\bmax-mode-article\b/.test(classes)) return match;
             return `${p1}${classes} max-mode-article${p3}`;
           }
         );
+
+        // 2) 안전망: sw-cornerstone 없거나 매칭 실패 시 max-mode-article가 본문 어디에도 없으면 전체 wrap
+        if (!hasWrapperApplied && !/\bmax-mode-article\b/.test(generatedContent)) {
+          generatedContent = `<div class="max-mode-article" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR',sans-serif;color:#1a1a1a;line-height:1.8;">${generatedContent}</div>`;
+          console.log('[INTERNAL-CONSISTENCY] ✅ max-mode-article 안전망 wrapper 자동 추가 (LLM 클래스 누락 대응)');
+        }
+
+        // 3) v3.8.41: 스킨 CSS <style> 본문 주입 — publisher가 추출해서 separator 뒤로 배치 → Blogger 적용.
+        //   .max-mode-article scoped 셀렉터로 미리보기/발행 양쪽에 동일 적용.
+        const skinCss = `<style>
+.max-mode-article h1{color:#0f172a !important;font-size:34px !important;font-weight:800 !important;margin:0 0 32px !important;line-height:1.3 !important;}
+.max-mode-article h2{color:#991b1b !important;font-size:26px !important;font-weight:700 !important;margin:40px 0 20px !important;padding:18px 22px !important;background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%) !important;border-left:5px solid #ef4444 !important;border-radius:0 16px 16px 0 !important;line-height:1.4 !important;}
+.max-mode-article h3{color:#1e293b !important;font-size:21px !important;font-weight:600 !important;margin:32px 0 16px !important;padding:14px 18px !important;background:#f8fafc !important;border-left:4px solid #10b981 !important;border-radius:0 12px 12px 0 !important;line-height:1.4 !important;}
+.max-mode-article h4{color:#334155 !important;font-size:18px !important;font-weight:700 !important;margin:24px 0 12px !important;line-height:1.4 !important;}
+.max-mode-article p{color:#1a1a1a !important;font-size:18px !important;line-height:1.85 !important;margin:0 0 20px !important;word-break:keep-all !important;}
+.max-mode-article li{color:#1a1a1a !important;font-size:17px !important;line-height:1.9 !important;margin:0 0 12px !important;}
+.max-mode-article ul,.max-mode-article ol{margin:20px 0 !important;padding-left:24px !important;}
+.max-mode-article table{width:100% !important;border-collapse:collapse !important;margin:24px 0 !important;}
+.max-mode-article th{padding:14px 16px !important;color:#0f172a !important;background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%) !important;border:1px solid #fecaca !important;font-weight:800 !important;text-align:left !important;}
+.max-mode-article td{padding:14px 16px !important;color:#1a1a1a !important;border:1px solid #e2e8f0 !important;font-size:15px !important;line-height:1.7 !important;}
+.max-mode-article strong{color:#0f172a !important;font-weight:700 !important;}
+.max-mode-article em{color:#475569 !important;font-style:italic !important;}
+.max-mode-article blockquote{margin:24px 0 !important;padding:18px 22px !important;background:#fef2f2 !important;border-left:4px solid #f87171 !important;border-radius:0 12px 12px 0 !important;color:#7f1d1d !important;font-style:italic !important;}
+.max-mode-article a{color:#dc2626 !important;text-decoration:underline !important;}
+.max-mode-article img{max-width:100% !important;height:auto !important;border-radius:12px !important;margin:18px auto !important;display:block !important;}
+</style>
+`;
+        generatedContent = skinCss + generatedContent;
+        console.log('[INTERNAL-CONSISTENCY] ✅ 스킨 CSS <style> 본문 주입 (publisher가 separator 뒤 배치)');
 
         // v3.8.36: 빠진 요소에 가독성 inline style + !important 보강 (이미 있으면 보존)
         const enforceInlineStyle = (html: string, tag: string, defaultStyle: string): string => {
