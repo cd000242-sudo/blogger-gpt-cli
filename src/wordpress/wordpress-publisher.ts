@@ -4,7 +4,8 @@ import { callGeminiWithRetry } from '../core/final/gemini-engine';
 // wp-agent-pipeline는 더 이상 사용하지 않음 (unused import 제거)
 
 // 🃏 소제목별 카드 래핑 함수
-function wrapSectionsInCards(html: string): string {
+// v3.8.26: 거미줄 미리보기 = 발행 일치를 위해 export
+export function wrapSectionsInCards(html: string): string {
   if (!html) return html;
 
   try {
@@ -54,7 +55,8 @@ function wrapSectionsInCards(html: string): string {
 }
 
 // WordPress 수익 최적화 스킨 v5.0 - Full-Width/18px/1.85/틸 통일 + !important
-function applyWordPressInlineStyles(html: string): string {
+// v3.8.26: 거미줄에서도 동일 스킨 적용 가능하도록 export
+export function applyWordPressInlineStyles(html: string): string {
   if (!html) return html;
 
   try {

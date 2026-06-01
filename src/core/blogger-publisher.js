@@ -5490,7 +5490,9 @@ module.exports = {
   getBloggerAuthUrl,
   getBloggerInfo,
   checkBloggerAuthStatus,
-  clearAuthCache
+  clearAuthCache,
+  // v3.8.26: 거미줄 미리보기 = 발행 일치 — applyInlineStyles를 거미줄 백엔드에서도 호출 가능하도록
+  applyInlineStyles,
 };
 
 

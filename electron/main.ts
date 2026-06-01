@@ -1457,6 +1457,32 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.log('[INTERNAL-CONSISTENCY] 본문 상단 schema.org description meta 삽입');
       }
 
+      // v3.8.26: 플랫폼별 publisher 스킨을 거미줄 결과에 사전 적용 → 미리보기 = 발행 일치 보장.
+      //   원인: 일반 글포스팅 HTML엔 <style>스킨</style> + <div class="max-mode-article">가 이미 포함되어
+      //   publisher가 두 번 변환하지 않음. 거미줄은 wrapper·스킨 없이 publisher로 가서 publisher의
+      //   기본 스타일 주입이 LLM 박스 inline style과 충돌 → 미리보기와 발행이 달라짐.
+      //   → 거미줄 백엔드에서 글포스팅과 동일한 publisher 변환 함수를 미리 호출해서 결과로 반환.
+      try {
+        const platform = (payload.platform || 'blogspot').toLowerCase();
+        if (platform === 'wordpress' || platform === 'wp') {
+          const { applyWordPressInlineStyles, wrapSectionsInCards } = require('../dist/wordpress/wordpress-publisher.js');
+          if (typeof applyWordPressInlineStyles === 'function') {
+            const wrapped = typeof wrapSectionsInCards === 'function' ? wrapSectionsInCards(generatedContent) : generatedContent;
+            generatedContent = applyWordPressInlineStyles(wrapped);
+            console.log('[INTERNAL-CONSISTENCY] ✅ WordPress 글포스팅 스킨 사전 적용 완료');
+          }
+        } else {
+          // blogspot/blogger
+          const { applyInlineStyles } = require('../dist/core/blogger-publisher.js');
+          if (typeof applyInlineStyles === 'function') {
+            generatedContent = applyInlineStyles(generatedContent);
+            console.log('[INTERNAL-CONSISTENCY] ✅ Blogger 글포스팅 스킨 사전 적용 완료 (max-mode-article wrapper 포함)');
+          }
+        }
+      } catch (skinErr: any) {
+        console.warn('[INTERNAL-CONSISTENCY] ⚠️ 플랫폼 스킨 사전 적용 실패 (publisher가 폴백 처리):', skinErr?.message);
+      }
+
       return {
         success: true,
         html: generatedContent,
