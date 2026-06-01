@@ -1403,10 +1403,12 @@ function _openSwProgressModal(sources) {
   });
 
   // 결과/닫기 버튼 초기화
+  // v3.8.34: 작업 진행 중에도 닫기 가능(mini progress bar로 백그라운드 진행).
+  //   기존엔 disabled=true로 막혀서 사용자가 닫지 못해 불편.
   const result = document.getElementById('swpmResult');
   if (result) result.hidden = true;
   const closeBtn = document.getElementById('swpmCloseBtn');
-  if (closeBtn) closeBtn.disabled = true;
+  if (closeBtn) closeBtn.disabled = false;
 
   // 진행률 초기화
   _swUpdateProgress(0);
