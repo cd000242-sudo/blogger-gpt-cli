@@ -1477,6 +1477,40 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.log('[INTERNAL-CONSISTENCY] 본문 상단 schema.org description meta 삽입');
       }
 
+      // v3.8.31: 거미줄 통합글에 목차(TOC) 자동 삽입 — 글포스팅과 동일 UI.
+      //   1) <h2>에 순서 id 부여 (목차 anchor 동작)
+      //   2) generateTOCFinal로 버튼형 화이트페이퍼 목차 HTML 생성
+      //   3) 첫 H2 직전에 삽입 (도입부 카드 다음 자연스러운 위치)
+      try {
+        const h2RegexAll = /<h2([^>]*)>([\s\S]*?)<\/h2>/gi;
+        const h2Titles: string[] = [];
+        let h2Idx = 0;
+        generatedContent = generatedContent.replace(h2RegexAll, (match: string, attrs: string, inner: string) => {
+          const plainTitle = String(inner).replace(/<[^>]+>/g, '').trim();
+          if (!plainTitle) return match;
+          const hasId = /\bid\s*=/i.test(attrs || '');
+          const newAttrs = hasId ? attrs : `${attrs || ''} id="section-${h2Idx}"`;
+          h2Titles.push(plainTitle);
+          h2Idx++;
+          return `<h2${newAttrs}>${inner}</h2>`;
+        });
+
+        if (h2Titles.length >= 2) {
+          const { generateTOCFinal } = require('../dist/core/final/html.js');
+          const tocHtml = typeof generateTOCFinal === 'function' ? generateTOCFinal(h2Titles) : '';
+          if (tocHtml) {
+            // 첫 <h2 id="section-0"> 직전에 삽입
+            const firstH2Pos = generatedContent.search(/<h2[^>]*\bid\s*=\s*["']section-0["'][^>]*>/i);
+            if (firstH2Pos > 0) {
+              generatedContent = generatedContent.slice(0, firstH2Pos) + tocHtml + '\n' + generatedContent.slice(firstH2Pos);
+              console.log(`[INTERNAL-CONSISTENCY] ✅ 목차 자동 삽입 완료 (H2 ${h2Titles.length}개)`);
+            }
+          }
+        }
+      } catch (tocErr: any) {
+        console.warn('[INTERNAL-CONSISTENCY] ⚠️ 목차 삽입 실패:', tocErr?.message);
+      }
+
       // v3.8.26: 플랫폼별 publisher 스킨을 거미줄 결과에 사전 적용 → 미리보기 = 발행 일치 보장.
       //   원인: 일반 글포스팅 HTML엔 <style>스킨</style> + <div class="max-mode-article">가 이미 포함되어
       //   publisher가 두 번 변환하지 않음. 거미줄은 wrapper·스킨 없이 publisher로 가서 publisher의
