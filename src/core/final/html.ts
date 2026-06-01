@@ -302,7 +302,14 @@ html { scroll-behavior: smooth !important; }
   animation: pulse-cta 2.6s ease-in-out infinite !important;
   box-sizing: border-box !important;
   overflow: hidden;
-  text-shadow: 0 1px 1px rgba(0,0,0,0.18);
+  /* v3.8.32: 텍스트 가독성 강화 — 그림자 진하게(0.18→0.55) + z-index로 광택 위에 텍스트 */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 1px rgba(0, 0, 0, 0.35) !important;
+  z-index: 0 !important;
+}
+/* v3.8.32: cta-btn 내부 텍스트는 광택보다 위에 — 흐릿함 차단 */
+.cta-btn > * {
+  position: relative !important;
+  z-index: 2 !important;
 }
 /* 우측 화살표 — hover 시 미세 슬라이드 */
 .cta-btn::after {
@@ -311,15 +318,18 @@ html { scroll-behavior: smooth !important; }
   font-weight: 900 !important;
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
   display: inline-block !important;
+  position: relative !important;
+  z-index: 2 !important;
 }
-/* 광택 슬라이드 — 5초마다 한번 반짝 */
+/* 광택 슬라이드 — v3.8.32: alpha 35%→15%로 약화 + z-index 1 (텍스트 뒤로) */
 .cta-btn::before {
   content: "" !important;
   position: absolute !important;
   top: 0; left: 0; bottom: 0; width: 40% !important;
-  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.35) 50%, rgba(255,255,255,0) 100%) !important;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0) 100%) !important;
   animation: cta-shimmer 5s ease-in-out infinite !important;
   pointer-events: none !important;
+  z-index: 1 !important;
 }
 .cta-btn:hover {
   transform: translateY(-3px) scale(1.015) !important;
