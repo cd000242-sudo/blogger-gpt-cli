@@ -999,7 +999,7 @@ URL: ${item.url}
 📐 **필수 출력 구조 (HTML fragment, <div> 래퍼 시작)**:
 
 ═══════════════════════════════════════
-<div class="sw-cornerstone" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR',sans-serif;color:#1a1a1a;line-height:1.8;">
+<div class="sw-cornerstone max-mode-article" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR',sans-serif;color:#1a1a1a;line-height:1.8;">
 
   1. <h1> 강력한 후킹 제목 (60자 이내, ${currentYear} 포함, 숫자/반전/이익)
   2. 도입부 카드 — 1줄 후킹 + "이 글에서 다루는 ${sortedContents.length}가지 핵심" 불릿 + 결론 1줄
@@ -1511,30 +1511,25 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.warn('[INTERNAL-CONSISTENCY] ⚠️ 목차 삽입 실패:', tocErr?.message);
       }
 
-      // v3.8.26: 플랫폼별 publisher 스킨을 거미줄 결과에 사전 적용 → 미리보기 = 발행 일치 보장.
-      //   원인: 일반 글포스팅 HTML엔 <style>스킨</style> + <div class="max-mode-article">가 이미 포함되어
-      //   publisher가 두 번 변환하지 않음. 거미줄은 wrapper·스킨 없이 publisher로 가서 publisher의
-      //   기본 스타일 주입이 LLM 박스 inline style과 충돌 → 미리보기와 발행이 달라짐.
-      //   → 거미줄 백엔드에서 글포스팅과 동일한 publisher 변환 함수를 미리 호출해서 결과로 반환.
+      // v3.8.33: v3.8.26 방향 reversal — 미리보기를 publisher 결과로 맞추는 게 아니라
+      //   발행이 미리보기를 따르도록 변경. 거미줄 LLM이 만든 sw-cornerstone 디자인 그대로 보존.
+      //
+      // 전략: 거미줄 wrapper에 max-mode-article 클래스 부여 → publisher의 applyInlineStyles 자동 skip.
+      //   blogger-publisher.js line 3592 조건 (max-mode-article 없으면 발동)을 활용해
+      //   거미줄 HTML은 추가 변환 없이 그대로 발행되도록 함.
+      //   publisher의 다른 단계(<p>/<h2> 강제 인라인)는 v3.8.24부터 inline style 있으면 보존 모드라 안전.
       try {
-        const platform = (payload.platform || 'blogspot').toLowerCase();
-        if (platform === 'wordpress' || platform === 'wp') {
-          const { applyWordPressInlineStyles, wrapSectionsInCards } = require('../dist/wordpress/wordpress-publisher.js');
-          if (typeof applyWordPressInlineStyles === 'function') {
-            const wrapped = typeof wrapSectionsInCards === 'function' ? wrapSectionsInCards(generatedContent) : generatedContent;
-            generatedContent = applyWordPressInlineStyles(wrapped);
-            console.log('[INTERNAL-CONSISTENCY] ✅ WordPress 글포스팅 스킨 사전 적용 완료');
+        // sw-cornerstone wrapper에 max-mode-article 클래스 추가 (이미 있으면 skip)
+        generatedContent = generatedContent.replace(
+          /(<div\s+class\s*=\s*["'])([^"']*\bsw-cornerstone\b[^"']*)(["'])/i,
+          (match, p1, classes, p3) => {
+            if (/\bmax-mode-article\b/.test(classes)) return match;
+            return `${p1}${classes} max-mode-article${p3}`;
           }
-        } else {
-          // blogspot/blogger
-          const { applyInlineStyles } = require('../dist/core/blogger-publisher.js');
-          if (typeof applyInlineStyles === 'function') {
-            generatedContent = applyInlineStyles(generatedContent);
-            console.log('[INTERNAL-CONSISTENCY] ✅ Blogger 글포스팅 스킨 사전 적용 완료 (max-mode-article wrapper 포함)');
-          }
-        }
+        );
+        console.log('[INTERNAL-CONSISTENCY] ✅ sw-cornerstone wrapper에 max-mode-article 클래스 부여 (publisher 추가 변환 skip)');
       } catch (skinErr: any) {
-        console.warn('[INTERNAL-CONSISTENCY] ⚠️ 플랫폼 스킨 사전 적용 실패 (publisher가 폴백 처리):', skinErr?.message);
+        console.warn('[INTERNAL-CONSISTENCY] ⚠️ wrapper 클래스 부여 실패:', skinErr?.message);
       }
 
       return {
