@@ -302,16 +302,30 @@ window._normalizePostUrl = _normalizePostUrl;
  */
 function deletePublishedPostsByUrls(urlsToDelete) {
   try {
-    const urlSet = new Set((urlsToDelete || []).filter(Boolean));
+    // v3.8.43: 양쪽 URL을 정규화 후 비교 — wp-admin 원본 URL이 저장되어 있고
+    //   모달이 정규화된 ?p=N URL을 넘기면 매칭 실패하던 버그 차단.
+    const normalizeKey = (u) => {
+      if (typeof window._normalizePostUrl === 'function') return window._normalizePostUrl(u);
+      return u;
+    };
+    const urlSet = new Set((urlsToDelete || []).filter(Boolean).map(normalizeKey));
     if (urlSet.size === 0) return 0;
     const raw = localStorage.getItem('publishedPosts');
     if (!raw) return 0;
     const parsed = JSON.parse(raw);
     let removed = 0;
+    const matches = (pUrl) => {
+      if (!pUrl) return false;
+      // 원본 URL 매칭 + 정규화된 URL 매칭 (양방향 호환)
+      if (urlSet.has(pUrl)) return true;
+      const normalized = normalizeKey(pUrl);
+      if (urlSet.has(normalized)) return true;
+      return false;
+    };
     if (Array.isArray(parsed)) {
       const next = parsed.filter((p) => {
         if (!p || !p.url) return true;
-        if (urlSet.has(p.url)) { removed++; return false; }
+        if (matches(p.url)) { removed++; return false; }
         return true;
       });
       localStorage.setItem('publishedPosts', JSON.stringify(next));
@@ -323,7 +337,7 @@ function deletePublishedPostsByUrls(urlsToDelete) {
       if (!Array.isArray(list)) return;
       const next = list.filter((p) => {
         if (!p || !p.url) return true;
-        if (urlSet.has(p.url)) { removed++; return false; }
+        if (matches(p.url)) { removed++; return false; }
         return true;
       });
       if (next.length === 0) {
