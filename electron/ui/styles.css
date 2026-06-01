@@ -1325,7 +1325,7 @@ textarea::placeholder {
 /* Shell — 메인 패널 */
 .sw-progress-shell {
   position: relative;
-  width: 100%; max-width: 1480px; max-height: 92vh; /* v3.8.47: 1080→1480 시원하게 */
+  width: 100%; max-width: 900px; max-height: 92vh; /* v3.8.49: 세로 1열이라 적절한 폭으로 */
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.94) 0%, rgba(9, 14, 30, 0.96) 100%);
   border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: 24px;
@@ -1420,9 +1420,9 @@ textarea::placeholder {
 /* Grid: 좌측 소스 + 우측 단계 */
 .sw-progress-grid {
   position: relative; z-index: 1;
-  /* v3.8.47: 1fr/1fr/1fr 균등 분배로 시원하게 + gap 늘림 */
-  display: grid; grid-template-columns: 1fr 1.1fr 1fr;
-  gap: 24px;
+  /* v3.8.49: 세로 1열 — 패널들이 위→아래 순서로 쌓임 (사용자 요청) */
+  display: grid; grid-template-columns: 1fr;
+  gap: 20px;
   padding: 24px 32px;
   overflow-y: auto;
   flex: 1; min-height: 0;
