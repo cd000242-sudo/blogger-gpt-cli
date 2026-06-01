@@ -1460,10 +1460,9 @@ textarea::placeholder {
 
 /* 좌측 — 원본 글 그리드 (큰 썸네일) */
 .sw-source-grid {
-  /* v3.8.47: 카드 가로 그리드 (auto-fill 200px) — 카드 가로 펼침 */
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 10px;
-  overflow-y: auto; min-height: 0;
+  /* v3.8.47/v3.8.53: 카드 가로 그리드 — 모든 카드 자연스럽게 펼침 (내부 스크롤 X) */
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
 }
 .sw-source-card {
   display: flex; gap: 12px; padding: 10px;
