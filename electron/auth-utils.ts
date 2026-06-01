@@ -125,3 +125,27 @@ export async function getPaywallResponse(message?: string): Promise<PaywallRespo
     quota,
   };
 }
+
+/**
+ * v3.8.38: 글포스팅 외 기능들 무료 체험 차단.
+ *   무료 체험은 글포스팅 탭의 글포스팅(2회/일)만 사용 가능.
+ *   거미줄·외부유입·일괄 이미지 등은 모두 paywall.
+ *   quota 소모 없이 차단만 (quota는 글포스팅 전용).
+ */
+export async function blockIfFreeTier(featureName: string = '이 기능'): Promise<
+  { allowed: true } |
+  { allowed: false; response: PaywallResponse }
+> {
+  const isFree = await isFreeTierUser();
+  if (!isFree) return { allowed: true };
+  const quota = await getFreeQuotaStatus();
+  return {
+    allowed: false,
+    response: {
+      ok: false,
+      code: 'PAYWALL',
+      message: `⛔ ${featureName}은(는) 무료 체험으로 사용할 수 없습니다.\n\n무료 체험: 글포스팅 탭의 글포스팅만 일일 2회 사용 가능.\n${featureName} 사용은 라이선스 등록 후 가능합니다.`,
+      quota,
+    },
+  };
+}

@@ -577,6 +577,11 @@ ipcMain.handle('load-auto-login-config', async () => {
 // 내부일관성글 제목 생성 핸들러
 ipcMain.handle('generate-internal-consistency-title', async (_evt, payload: { urls: string[] }) => {
   try {
+    // v3.8.38: 무료 체험은 글포스팅만 허용 — 거미줄 제목 자동 생성 차단
+    const { blockIfFreeTier } = require('./auth-utils');
+    const gate = await blockIfFreeTier('거미줄 통합글 제목 자동 생성');
+    if (!gate.allowed) return gate.response;
+
     console.log('[INTERNAL-CONSISTENCY] 제목 생성 요청:', payload);
     const urls = payload.urls || [];
 
@@ -763,6 +768,11 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
   platform?: string;               // v3.8.8: 'wordpress' | 'blogspot' (이미지 호스팅 분기)
 }) => {
   try {
+    // v3.8.38: 무료 체험은 글포스팅만 허용 — 거미줄 통합글 생성 차단
+    const { blockIfFreeTier } = require('./auth-utils');
+    const gate = await blockIfFreeTier('거미줄 통합글 생성');
+    if (!gate.allowed) return gate.response;
+
     console.log('[INTERNAL-CONSISTENCY] 종합글 생성 요청:', payload);
     // v3.8.28/v3.8.30: WordPress wp-admin URL → 공개 글 URL 정규화 (백엔드 안전망)
     //   v3.8.30: Pretty Permalinks 사이트에선 ?p=N도 404 → WP REST API로 정확한 link 가져옴.
@@ -5622,6 +5632,11 @@ ipcMain.handle('fetch-og-image', async (_evt, payload: { url: string }) => {
 
 ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) => {
   try {
+    // v3.8.38: 무료 체험은 글포스팅만 허용 — 외부유입 변환 차단
+    const { blockIfFreeTier } = require('./auth-utils');
+    const gate = await blockIfFreeTier('외부유입 글 생성');
+    if (!gate.allowed) return gate.response;
+
     const dispatcher = require('../src/core/external-traffic');
     const cost = require('../src/core/external-traffic/cost-tracker');
     const usageLog = require('../src/core/external-traffic/_shared/usage-log');
@@ -5807,6 +5822,11 @@ async function callLLMWithPreference(opts: {
 // v3.7.23: 외부유입 v1 핸들러 — deprecation 기간 유지 (UI 점진 전환 중)
 ipcMain.handle('generate-external-traffic-text', async (_evt, payload: any) => {
   try {
+    // v3.8.38: 무료 체험은 글포스팅만 허용 — 외부유입 변환(구버전) 차단
+    const { blockIfFreeTier } = require('./auth-utils');
+    const gate = await blockIfFreeTier('외부유입 글 생성');
+    if (!gate.allowed) return gate.response;
+
     const system = (payload && payload.system) || '';
     const user = (payload && payload.user) || '';
     if (!user.trim()) {
