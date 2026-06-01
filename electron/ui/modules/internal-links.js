@@ -344,6 +344,21 @@ function closePublishedPostsModal() {
   if (modal) {
     modal.setAttribute('hidden', '');
   }
+  // v3.8.1: 외부유입 single-pick 모드에서 변경된 헤더·배너 원복
+  const title = document.getElementById('sw-pubmodal-title');
+  if (title && title.dataset.originalText) {
+    title.textContent = title.dataset.originalText;
+    delete title.dataset.originalText;
+  }
+  const list = document.getElementById('publishedPostsList');
+  if (list) {
+    const banner = list.querySelector('[data-pub-banner]');
+    if (banner) banner.remove();
+  }
+  // single-pick 플래그도 정리 (사용자가 모달을 명시 닫은 경우)
+  if (window._extTrafficSinglePickMode) {
+    window._extTrafficSinglePickMode = false;
+  }
 }
 
 /**

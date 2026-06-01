@@ -4982,6 +4982,7 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
     const dispatcher = require('../src/core/external-traffic');
     const cost = require('../src/core/external-traffic/cost-tracker');
     const usageLog = require('../src/core/external-traffic/_shared/usage-log');
+    const fallback = require('../src/core/external-traffic/_shared/llm-fallback');
     let validated: any;
     try {
       validated = dispatcher.validateGenerateV2Payload(payload);
@@ -4995,17 +4996,22 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
       return { success: false, error: `COST_LIMIT_EXCEEDED: 이번 달 사용량 상한 도달 (${blockState.used.toLocaleString()} / ${blockState.limit.toLocaleString()} tokens). 설정에서 상한 변경 또는 다음 달 갱신 대기.` };
     }
 
+    // v3.8.1: 환경설정의 모델/엔진 선호 + llm-fallback 통합
     const envData = loadEnvFromFile() as any;
     const geminiKey = (envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '').trim();
-    if (!geminiKey || geminiKey.length < 20) {
-      return { success: false, error: 'Gemini API 키가 필요합니다. 설정 탭에서 입력해주세요.' };
+    const openaiKey = (envData.openaiKey || envData.OPENAI_API_KEY || process.env['OPENAI_API_KEY'] || '').trim();
+    const claudeKey = (envData.claudeKey || envData.CLAUDE_API_KEY || envData.ANTHROPIC_API_KEY || process.env['CLAUDE_API_KEY'] || '').trim();
+    const preferredEngine = String(envData.generationEngine || envData.GENERATION_ENGINE || 'gemini').toLowerCase();
+    const preferredGeminiModel = (envData.primaryGeminiTextModel || envData.PRIMARY_TEXT_MODEL || '').trim();
+
+    // 최소 1개 키 필요
+    if (!geminiKey && !openaiKey && !claudeKey) {
+      return { success: false, error: 'API 키가 필요합니다. 설정 탭에서 Gemini / OpenAI / Claude 중 하나 이상 입력해주세요.' };
     }
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = await selectGeminiModel(genAI);
 
     const sourceSummary = dispatcher.buildMinimalSummary(validated.sourceTitle, validated.sourceUrl);
     const results: Record<string, any> = {};
+
     for (const ch of validated.channels) {
       try {
         const channelObj = dispatcher.getChannel(ch.id);
@@ -5024,21 +5030,24 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
         let attempt = 0;
         let lastResult: any = null;
         while (attempt < 2) {
-          const fullPrompt = `${promptPair.system}\n\n${userPrompt}`;
-          const result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
-            generationConfig: {
-              maxOutputTokens: promptPair.maxOutputTokens || 2000,
-              temperature: 0.85,
-            },
+          // 사용자 선호 엔진 우선, 실패 시 fallback chain
+          const callRes = await callLLMWithPreference({
+            system: promptPair.system,
+            user: userPrompt,
+            maxOutputTokens: promptPair.maxOutputTokens || 2000,
+            temperature: 0.85,
+            geminiKey,
+            openaiKey,
+            claudeKey,
+            preferredEngine,
+            preferredGeminiModel,
+            fallback,
           });
-          const response = await result.response;
-          const text = (response.text() || '').trim();
-          // 토큰 추정: chars/2.5 (한국어 평균) — usageMetadata가 있으면 사용
-          const usageMeta: any = (response as any).usageMetadata || {};
-          const inputTokens = usageMeta.promptTokenCount || Math.ceil(fullPrompt.length / 2.5);
-          const outputTokens = usageMeta.candidatesTokenCount || Math.ceil(text.length / 2.5);
-          cost.recordUsage({ provider: 'gemini', inputTokens, outputTokens, channel: ch.id });
+          const text = (callRes.text || '').trim();
+          const fullPrompt = `${promptPair.system}\n\n${userPrompt}`;
+          const inputTokens = Math.ceil(fullPrompt.length / 2.5);
+          const outputTokens = Math.ceil(text.length / 2.5);
+          cost.recordUsage({ provider: callRes.provider || 'gemini', inputTokens, outputTokens, channel: ch.id });
           if (!text) {
             attempt++;
             continue;
@@ -5051,6 +5060,8 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
             lengthViolations: processed.lengthViolations,
             retried: attempt > 0,
             attempt: attempt + 1,
+            provider: callRes.provider,
+            model: callRes.model,
           };
           if (processed.lengthViolations.length === 0) break;
           userPrompt = promptPair.user + dispatcher.buildRetryHint(processed.lengthViolations);
@@ -5084,6 +5095,71 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
     return { success: false, error: msg };
   }
 });
+
+// v3.8.1: 환경설정 모델 선호 + llm-fallback 통합 호출
+async function callLLMWithPreference(opts: {
+  system: string;
+  user: string;
+  maxOutputTokens: number;
+  temperature: number;
+  geminiKey: string;
+  openaiKey: string;
+  claudeKey: string;
+  preferredEngine: string;
+  preferredGeminiModel: string;
+  fallback: any;
+}): Promise<{ text: string; provider: string; model: string }> {
+  const params = {
+    system: opts.system,
+    user: opts.user,
+    maxOutputTokens: opts.maxOutputTokens,
+    temperature: opts.temperature,
+  };
+  const keys = {
+    gemini: opts.geminiKey,
+    openai: opts.openaiKey,
+    claude: opts.claudeKey,
+  };
+
+  // 사용자가 환경설정에서 명시 선택한 엔진/모델 우선 시도
+  const preferred = opts.preferredEngine;
+  if (preferred === 'gemini' && opts.geminiKey) {
+    try {
+      // primaryGeminiTextModel 우선
+      if (opts.preferredGeminiModel) {
+        const { GoogleGenerativeAI } = await import('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(opts.geminiKey);
+        const m = genAI.getGenerativeModel({ model: opts.preferredGeminiModel });
+        const r = await m.generateContent({
+          contents: [{ role: 'user', parts: [{ text: `${opts.system}\n\n${opts.user}` }] }],
+          generationConfig: { maxOutputTokens: opts.maxOutputTokens, temperature: opts.temperature },
+        });
+        const text = ((await r.response).text() || '').trim();
+        if (text) return { text, provider: 'gemini', model: opts.preferredGeminiModel };
+      }
+    } catch (e: any) {
+      console.warn('[EXT-TRAFFIC v2] 환경설정 모델 실패, fallback 시도:', e?.message?.slice(0, 100));
+    }
+  } else if (preferred === 'openai' && opts.openaiKey) {
+    try {
+      const r = await opts.fallback.callOpenAI(params, opts.openaiKey);
+      return { text: r.text, provider: r.provider, model: r.model };
+    } catch (e: any) {
+      console.warn('[EXT-TRAFFIC v2] OpenAI 실패, fallback 시도:', e?.message?.slice(0, 100));
+    }
+  } else if (preferred === 'claude' && opts.claudeKey) {
+    try {
+      const r = await opts.fallback.callClaude(params, opts.claudeKey);
+      return { text: r.text, provider: r.provider, model: r.model };
+    } catch (e: any) {
+      console.warn('[EXT-TRAFFIC v2] Claude 실패, fallback 시도:', e?.message?.slice(0, 100));
+    }
+  }
+
+  // 환경설정 시도 실패 또는 선호 미설정 → 전체 fallback chain
+  const fr = await opts.fallback.callLLMWithFallback(params, keys);
+  return { text: fr.text, provider: fr.provider, model: fr.model };
+}
 
 // v3.7.23: 외부유입 v1 핸들러 — deprecation 기간 유지 (UI 점진 전환 중)
 ipcMain.handle('generate-external-traffic-text', async (_evt, payload: any) => {

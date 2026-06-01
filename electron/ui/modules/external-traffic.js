@@ -115,6 +115,26 @@ function openExtTrafficSourceModal() {
   // single-select 모드 마커 — 이후 선택 시 extTrafficOnSourcePicked로 콜백
   window._extTrafficSinglePickMode = true;
   window.openPublishedPostsModal();
+  // 모달 헤더를 외부유입용으로 임시 변경 (v3.8.1)
+  setTimeout(() => {
+    const title = document.getElementById('sw-pubmodal-title');
+    if (title) {
+      title.dataset.originalText = title.dataset.originalText || title.textContent;
+      title.textContent = '📖 외부유입 — 원본 글 1개 선택';
+    }
+    const list = document.getElementById('publishedPostsList');
+    if (list) {
+      const banner = list.querySelector('[data-pub-banner]');
+      if (banner) banner.textContent = '글 1개를 선택하면 외부유입 변환 탭으로 자동 복귀합니다.';
+      else {
+        const note = document.createElement('div');
+        note.dataset.pubBanner = '1';
+        note.style.cssText = 'margin-bottom: 12px; padding: 10px 14px; background: rgba(99,102,241,0.14); border: 1px solid rgba(99,102,241,0.35); border-radius: 10px; color: #c7d2fe; font-size: 12px; font-weight: 700;';
+        note.textContent = '📖 외부유입 모드 — 글 1개를 선택하면 외부유입 변환 탭으로 자동 복귀합니다.';
+        list.insertBefore(note, list.firstChild);
+      }
+    }
+  }, 50);
 }
 
 // 거미줄 모달에서 글 선택 시 호출됨 (모달 측 윈도우 함수에서 분기 호출 가능)
