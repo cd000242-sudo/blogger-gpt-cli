@@ -1051,6 +1051,32 @@ URL: ${item.url}
             return `<h${level}${attrs}>${cleaned}</h${level}>`;
           });
 
+        // v3.8.19: LLM이 CTA HTML 가이드를 무시하고 평문으로 출력한 경우 자동 박스 변환
+        //   패턴: H2 본문 끝부분에 "더 자세한 ~을 알고 싶다면?" + 다음 줄에 글 제목·"자세히 보기"·URL이 나오는 평문
+        //   사용자 의도(빨간 그라데이션 박스 + 후킹 + 버튼)를 강제 적용해 안전망 제공.
+        try {
+          // 패턴 1: <p>후킹멘트?</p><p>[글제목 + 자세히 보기 …</p> 또는
+          //         <p>후킹멘트?</p>\n<p>[글제목 + 🔥]</p>
+          const ctaTextPattern = /<p[^>]*>\s*([^<]{8,80}?(?:\?|싶다면|\s궁금|\s더\s알고|\s확인하고)\s*[?<])\s*<\/p>\s*(?:<p[^>]*>\s*)?([^<]{8,120}?(?:🔥|✨|💡|자세히\s*보기|상세\s*보기|>>|»))\s*<\/p>/gi;
+          const sourceUrls = sortedContents.map((c) => c.url).filter(Boolean);
+          let urlPtr = 0;
+          generatedContent = generatedContent.replace(ctaTextPattern, (_match, hook, btn) => {
+            const url = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
+            urlPtr++;
+            const safeHook = String(hook).replace(/[<>]/g, '').trim();
+            const safeBtn = String(btn).replace(/[<>]/g, '').trim();
+            return `<div style="margin:28px 0;padding:24px 20px;background:linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%);border:1px solid #93c5fd;border-radius:14px;text-align:center;">
+  <p style="margin:0 0 14px;color:#1e3a8a;font-size:16px;font-weight:700;line-height:1.5;">${safeHook}</p>
+  <p style="margin:0;">
+    <a href="${url}" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#ef4444 0%,#f97316 100%);color:#ffffff !important;text-decoration:none;font-size:15px;font-weight:800;border-radius:10px;box-shadow:0 4px 14px rgba(239,68,68,0.35);">${safeBtn}</a>
+  </p>
+</div>`;
+          });
+          console.log('[INTERNAL-CONSISTENCY] CTA 후처리 변환 시도 (안전망)');
+        } catch (e: any) {
+          console.warn('[INTERNAL-CONSISTENCY] CTA 후처리 실패:', e?.message);
+        }
+
         // v3.8.10: 본문 H1을 제목 필드로 추출 + 본문에서 제거 (글포스팅과 동일 정책)
         //   LLM이 본문에 H1 출력 → 거기에 멋진 제목 들어가지만 발행 제목 필드에는 fallback '종합 가이드'만 들어가던 버그.
         //   → 사용자 입력 title이 비어있으면 H1 텍스트를 추출해 제목으로 사용.
@@ -1279,10 +1305,10 @@ URL: ${item.url}
         console.log('[INTERNAL-CONSISTENCY] 이미지 정책 = none, 이미지 생성 스킵');
       }
 
-      // v3.8.15: 라벨(해시태그) 5개 자동 생성 — Blogger 라벨/카테고리에 정확 등록
-      //   1순위: LLM 응답에서 H1/H2 + 본문 키워드 추출
-      //   2순위: 원본 글들의 제목에서 명사 추출
-      //   실패해도 발행은 진행 (라벨 없이)
+      // v3.8.15/v3.8.19: 라벨(해시태그) 5개 자동 생성 — robust 폴백 추가
+      //   1순위: LLM JSON 배열 (temperature 0.3)
+      //   2순위: 원본 글 제목 + 통합 제목 키워드 명사 추출
+      //   최후: 빈 배열 (발행은 정상 진행)
       let generatedLabels: string[] = [];
       try {
         const labelPrompt = `다음 한국어 블로그 글의 SEO 라벨(태그) 5개를 정확히 JSON 배열로만 출력하세요.
@@ -1313,9 +1339,46 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
               .slice(0, 5);
           }
         }
-        console.log('[INTERNAL-CONSISTENCY] 자동 라벨', generatedLabels.length, '개:', generatedLabels.join(', '));
+        console.log('[INTERNAL-CONSISTENCY] LLM 라벨', generatedLabels.length, '개:', generatedLabels.join(', '));
       } catch (e: any) {
-        console.warn('[INTERNAL-CONSISTENCY] 라벨 생성 실패 (라벨 없이 발행):', e?.message?.substring(0, 200));
+        console.warn('[INTERNAL-CONSISTENCY] LLM 라벨 생성 실패:', e?.message?.substring(0, 200));
+      }
+
+      // v3.8.19: LLM 실패 또는 라벨 < 3 → 제목·소스 키워드 기반 자동 추출 폴백
+      if (generatedLabels.length < 3) {
+        try {
+          const fallbackSet = new Set<string>();
+          // 통합 제목에서 명사 추출 (2~10자 한글/영문 단어)
+          const titleWords = String(title || '')
+            .replace(/[\(\)\[\]【】〈〉:!?,.\-—–·!?​]/g, ' ')
+            .split(/\s+/)
+            .map((w) => w.trim())
+            .filter((w) => w.length >= 2 && w.length <= 10);
+          for (const w of titleWords) {
+            if (!/^\d+$/.test(w)) fallbackSet.add(w);
+          }
+          // 원본 글 제목에서도 키워드 추출
+          for (const c of sortedContents) {
+            const words = String(c.title || '')
+              .replace(/[\(\)\[\]【】〈〉:!?,.\-—–·!?​]/g, ' ')
+              .split(/\s+/)
+              .map((w) => w.trim())
+              .filter((w) => w.length >= 2 && w.length <= 10);
+            for (const w of words) {
+              if (!/^\d+$/.test(w)) fallbackSet.add(w);
+              if (fallbackSet.size >= 8) break;
+            }
+            if (fallbackSet.size >= 8) break;
+          }
+          // 기존 LLM 라벨 + 폴백 합치고 5개로
+          const merged = Array.from(new Set([...generatedLabels, ...fallbackSet])).slice(0, 5);
+          if (merged.length > generatedLabels.length) {
+            console.log('[INTERNAL-CONSISTENCY] 라벨 폴백 보강:', merged.join(', '));
+            generatedLabels = merged;
+          }
+        } catch (e: any) {
+          console.warn('[INTERNAL-CONSISTENCY] 라벨 폴백 추출 실패:', e?.message);
+        }
       }
 
       // v3.8.16: WordPress 발행을 위한 SEO 메타데이터 자동 생성 (excerpt, metaDescription)
