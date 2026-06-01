@@ -768,10 +768,24 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
   platform?: string;               // v3.8.8: 'wordpress' | 'blogspot' (이미지 호스팅 분기)
 }) => {
   try {
+    // v3.8.54: 단계별 IPC 진단 로그 — 사용자 콘솔에 실시간 진행 위치 표시
+    const sendDiag = (msg: string) => {
+      try {
+        const { BrowserWindow: BW } = require('electron');
+        BW.getAllWindows().forEach((w: any) => { try { w.webContents.send('log-line', `[SPIDER-STEP] ${msg}`); } catch {} });
+      } catch {}
+      console.log(`[SPIDER-STEP] ${msg}`);
+    };
+    sendDiag('🚀 거미줄 핸들러 진입 — payload 수신');
+
     // v3.8.38: 무료 체험은 글포스팅만 허용 — 거미줄 통합글 생성 차단
     const { blockIfFreeTier } = require('./auth-utils');
     const gate = await blockIfFreeTier('거미줄 통합글 생성');
-    if (!gate.allowed) return gate.response;
+    if (!gate.allowed) {
+      sendDiag('⛔ 무료 체험 차단 — 종료');
+      return gate.response;
+    }
+    sendDiag('✅ 라이선스 게이트 통과');
 
     console.log('[INTERNAL-CONSISTENCY] 종합글 생성 요청:', payload);
     // v3.8.28/v3.8.30: WordPress wp-admin URL → 공개 글 URL 정규화 (백엔드 안전망)
