@@ -1325,7 +1325,7 @@ textarea::placeholder {
 /* Shell — 메인 패널 */
 .sw-progress-shell {
   position: relative;
-  width: 100%; max-width: 900px; max-height: 92vh; /* v3.8.49: 세로 1열이라 적절한 폭으로 */
+  width: 100%; max-width: 1400px; max-height: 92vh; /* v3.8.52: 가로 시원, 세로 스크롤 */
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.94) 0%, rgba(9, 14, 30, 0.96) 100%);
   border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: 24px;
