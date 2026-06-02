@@ -1764,6 +1764,40 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
           });
           console.log(`[INTERNAL-CONSISTENCY] ✅ HowTo Schema 추출 (${howto.steps.length}단계)`);
         }
+        // v3.8.70 (Phase 3 작업 9): DefinedTerm + Speakable + ImageObject 신규 schema (2026 트렌드)
+        try {
+          const newEnv = loadEnvFromFile() as any;
+          const newAuthor = (newEnv.authorName || newEnv.adsenseAuthorInfo || newEnv.authorNickname || '에디터').toString().trim() || '에디터';
+          const newSiteName = (newEnv.wordpressSiteName || newEnv.blogTitle || '').toString().trim() || 'LEADERNAM';
+          const newSiteUrl = (newEnv.wordpressSiteUrl || newEnv.blogUrl || '').toString().trim();
+          additionalSchemas.push({
+            '@type': 'DefinedTerm',
+            name: title,
+            description: (excerpt || metaDescription || title).substring(0, 250),
+            inDefinedTermSet: { '@type': 'DefinedTermSet', name: `${title} 용어집` },
+          });
+          additionalSchemas.push({
+            '@type': 'SpeakableSpecification',
+            cssSelector: ['.tldr-answer-box', '.tldr-answer-box p:first-of-type'],
+          });
+          if (thumbnailUrl) {
+            additionalSchemas.push({
+              '@type': 'ImageObject',
+              contentUrl: thumbnailUrl,
+              license: 'https://creativecommons.org/licenses/by-nc/4.0/',
+              acquireLicensePage: newSiteUrl,
+              caption: title,
+              creator: { '@type': 'Person', name: newAuthor },
+              copyrightHolder: { '@type': 'Organization', name: newSiteName },
+              width: 1200,
+              height: 630,
+            });
+          }
+          console.log(`[INTERNAL-CONSISTENCY] ✅ 2026 신규 schema 추가 (DefinedTerm + Speakable${thumbnailUrl ? ' + ImageObject' : ''})`);
+        } catch (newSchemaErr: any) {
+          console.warn('[INTERNAL-CONSISTENCY] 2026 신규 schema 실패:', newSchemaErr?.message);
+        }
+
         // v3.8.67 (Phase 2 작업 6): 주제별 schema 자동 매칭
         //   본문 키워드로 도메인 감지 → GovernmentService/FinancialProduct/MedicalEntity 추가
         try {
