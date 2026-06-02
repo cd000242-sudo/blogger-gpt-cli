@@ -1574,6 +1574,77 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.warn('[INTERNAL-CONSISTENCY] ⚠️ 목차 삽입 실패:', tocErr?.message);
       }
 
+      // v3.8.62 (Phase 1 작업 1): 일반 글포스팅의 GEO 시스템(JSON-LD + E-E-A-T) 거미줄 이식.
+      //   Agent A·B 분석: 거미줄 GEO 10점 / Blogger 글포스팅 85점 — 동일 시스템 이식하면 75점 점프.
+      //   Schema.org Article + Person + Organization + BreadcrumbList @graph 자동 주입.
+      //   E-E-A-T 메타 박스 (작성자/검토자/발행일/읽기시간/출처 인용수) 자동 삽입.
+      try {
+        const env = loadEnvFromFile() as any;
+        const { buildSchemaJsonLd } = require('../dist/core/final/schema-jsonld.js');
+        const { buildEeatMeta } = require('../dist/core/final/eeat-meta.js');
+
+        const authorName = (env.authorName || env.adsenseAuthorInfo || env.authorNickname || '에디터').toString().trim() || '에디터';
+        const siteName = (env.wordpressSiteName || env.blogTitle || '').toString().trim() || 'LEADERNAM';
+        const siteUrl = (env.wordpressSiteUrl || env.blogUrl || '').toString().trim();
+        const canonicalUrl = ''; // 발행 후 URL은 publisher가 가짐 — 거미줄 시점엔 미정
+        const isoNow = new Date();
+
+        // E-E-A-T 메타 박스 → H1 다음 삽입 + 본문 cite 처리 (citations 적용 결과 사용)
+        try {
+          const eeat = buildEeatMeta({
+            authorName,
+            authorTitle: '콘텐츠 에디터',
+            publishedAt: isoNow,
+            contentHtml: generatedContent,
+          });
+          if (eeat) {
+            // 1) citations 처리된 본문으로 교체 (한국 공공기관 인용에 <cite> 자동 마킹)
+            if (eeat.contentHtml && typeof eeat.contentHtml === 'string' && eeat.contentHtml.length > 0) {
+              generatedContent = eeat.contentHtml;
+            }
+            // 2) H1 직후에 메타 박스 삽입
+            if (eeat.metaBox) {
+              if (/<\/h1>/i.test(generatedContent)) {
+                generatedContent = generatedContent.replace(/<\/h1>/i, (m) => m + '\n' + eeat.metaBox);
+              } else {
+                generatedContent = eeat.metaBox + '\n' + generatedContent;
+              }
+            }
+            console.log(`[INTERNAL-CONSISTENCY] ✅ E-E-A-T 메타 박스 + 본문 citations 적용 (인용 ${eeat.stats?.citationCount || 0}개, 읽기 ${eeat.stats?.readingTimeMinutes || 0}분)`);
+          }
+        } catch (eeatErr: any) {
+          console.warn('[INTERNAL-CONSISTENCY] E-E-A-T 메타 삽입 실패:', eeatErr?.message);
+        }
+
+        // JSON-LD @graph → 본문 맨 앞 <script> 단일 블록
+        try {
+          const cleanText = generatedContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+          const wordCount = cleanText.length;
+          const schema = buildSchemaJsonLd({
+            title,
+            description: excerpt || metaDescription || cleanText.substring(0, 150),
+            canonicalUrl,
+            imageUrl: thumbnailUrl,
+            publishedAt: isoNow,
+            modifiedAt: isoNow,
+            keywords: generatedLabels,
+            wordCount,
+            authorName,
+            authorTitle: '콘텐츠 에디터',
+            siteName,
+            siteUrl,
+          });
+          if (schema && schema.scriptTag) {
+            generatedContent = schema.scriptTag + '\n' + generatedContent;
+            console.log(`[INTERNAL-CONSISTENCY] ✅ JSON-LD @graph 삽입 (노드 ${schema.nodeCount}개)`);
+          }
+        } catch (schemaErr: any) {
+          console.warn('[INTERNAL-CONSISTENCY] JSON-LD 삽입 실패:', schemaErr?.message);
+        }
+      } catch (geoErr: any) {
+        console.warn('[INTERNAL-CONSISTENCY] GEO 시스템 이식 실패:', geoErr?.message);
+      }
+
       // v3.8.33: 미리보기 → 발행 일치를 위해 wrapper에 max-mode-article 클래스 부여 → publisher applyInlineStyles skip.
       // v3.8.36: 빠진 요소(<p>/<h2>/<li>/<td>/<a> 등)에 inline style + !important 자동 보강.
       // v3.8.41: max-mode-article 안전망 강화 + <style> 스킨 CSS 본문 주입
