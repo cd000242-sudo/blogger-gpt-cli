@@ -1029,6 +1029,19 @@ URL: ${item.url}
 <div class="sw-cornerstone max-mode-article" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR',sans-serif;color:#1a1a1a;line-height:1.8;">
 
   1. <h1> 강력한 후킹 제목 (60자 이내, ${currentYear} 포함, 숫자/반전/이익)
+  1-A. 🎯 **TL;DR 답변 박스** (v3.8.62 AEO/GEO 필수) — H1 직후 즉시 배치, 다음 정확한 구조:
+     <div class="tldr-answer-box" style="margin:24px 0;padding:20px 24px;background:linear-gradient(135deg,#fef3c7 0%,#fde68a 100%);border:2px solid #f59e0b;border-radius:14px;">
+       <p style="margin:0 0 8px;color:#78350f;font-size:13px;font-weight:800;letter-spacing:0.5px;">💡 한눈에 답변</p>
+       <p style="margin:0 0 14px;color:#0f172a;font-size:17px;font-weight:700;line-height:1.5;">[정의형 직답 40~60단어: "[주제]는 [카테고리]로서 [핵심 차별점]이며, [핵심 수치/기간/조건]." 패턴 정확히 사용]</p>
+       <ul style="margin:0;padding-left:20px;color:#1e293b;font-size:14px;line-height:1.8;">
+         <li><strong>핵심 수치 1:</strong> [구체적 숫자 + 단위]</li>
+         <li><strong>핵심 수치 2:</strong> [구체적 숫자 + 단위]</li>
+         <li><strong>핵심 수치 3:</strong> [구체적 숫자 + 단위]</li>
+       </ul>
+     </div>
+     - 정의형 직답 패턴 예: "청년내일저축계좌는 만 19~34세 저소득 청년의 자산 형성을 돕는 정부 매칭 적금 제도로, 월 10만원 저축 시 정부가 매월 30만원을 추가 지원해 3년 만기 시 1,440만원 + 이자를 받습니다."
+     - 핵심 수치 3개는 검색 의도 직답 (금액·기간·자격 등)
+     - 🚨 이 TL;DR 박스는 AI Overview/Perplexity가 첫 단락에서 답변을 추출하므로 **절대 누락 금지**
   2. 도입부 카드 — 1줄 후킹 + "이 글에서 다루는 ${sortedContents.length}가지 핵심" 불릿 + 결론 1줄
   3. 핵심 요약표 (원본 ${sortedContents.length}개의 핵심을 한 줄씩 표 행으로)
   4. <h2> 1~${sortedContents.length}번 (원본 글에 1:1 대응)
@@ -3094,6 +3107,66 @@ ipcMain.handle('run-post', async (_evt, payload) => {
     if (result.labels && Array.isArray(result.labels) && result.labels.length > 0) {
       payload.generatedLabels = result.labels;
       console.log(`[RUN-POST] ✅ 생성된 labels ${result.labels.length}개를 payload에 병합:`, result.labels.slice(0, 5));
+    }
+
+    // v3.8.62 (Phase1 작업3): TL;DR 답변 박스 자동 생성 → H1 직후 삽입 (AEO/GEO Tier 1)
+    //   일반 글포스팅의 H1 직후에 정의형 직답 + 핵심 수치 3개 박스 자동 주입.
+    //   거미줄은 LLM 프롬프트에 강제 반영 — 일반 글포스팅은 후처리로 보장.
+    try {
+      const htmlSrc = String(result.html || result.content || '');
+      const alreadyHasTldr = /class\s*=\s*["'][^"']*tldr-answer-box/i.test(htmlSrc);
+      if (!alreadyHasTldr && /<\/h1>/i.test(htmlSrc)) {
+        const titleForTldr = result.title || payload.topic || '';
+        const plainForTldr = htmlSrc
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        const envForTldr = loadEnvFromFile() as any;
+        const apiKeyTldr = envForTldr.geminiKey || envForTldr.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '';
+        if (apiKeyTldr && plainForTldr.length > 500) {
+          const { GoogleGenerativeAI: GGA_T } = require('@google/generative-ai');
+          const tldrGenAI = new GGA_T(apiKeyTldr);
+          const tldrModel = await selectGeminiModel(tldrGenAI);
+          const tldrPrompt = `다음 블로그 글의 "TL;DR 답변 박스" HTML을 정확히 출력하세요.
+
+【제목】 ${titleForTldr}
+【본문 첫 800자】 ${plainForTldr.substring(0, 800)}
+
+엄격 출력 규칙:
+- 출력은 아래 HTML 1개만 (코드블록·설명·마크다운 X)
+- 직답은 40~60단어, 패턴: "[주제]는 [카테고리]로서 [핵심 차별점]이며, [핵심 수치/기간/조건]."
+- 핵심 수치 3개는 본문에서 추출한 실제 숫자+단위 (금액·기간·인원·자격 등)
+
+<div class="tldr-answer-box" style="margin:24px 0;padding:20px 24px;background:linear-gradient(135deg,#fef3c7 0%,#fde68a 100%);border:2px solid #f59e0b;border-radius:14px;">
+  <p style="margin:0 0 8px;color:#78350f;font-size:13px;font-weight:800;letter-spacing:0.5px;">💡 한눈에 답변</p>
+  <p style="margin:0 0 14px;color:#0f172a;font-size:17px;font-weight:700;line-height:1.5;">[정의형 직답 40~60단어]</p>
+  <ul style="margin:0;padding-left:20px;color:#1e293b;font-size:14px;line-height:1.8;">
+    <li><strong>[핵심1 라벨]:</strong> [숫자+단위]</li>
+    <li><strong>[핵심2 라벨]:</strong> [숫자+단위]</li>
+    <li><strong>[핵심3 라벨]:</strong> [숫자+단위]</li>
+  </ul>
+</div>`;
+          const tldrResult = await tldrModel.generateContent({
+            contents: [{ role: 'user', parts: [{ text: tldrPrompt }] }],
+            generationConfig: { maxOutputTokens: 600, temperature: 0.5 },
+          });
+          let tldrHtml = ((await tldrResult.response).text() || '').trim()
+            .replace(/^```html\n?/gi, '').replace(/^```\n?/gi, '').replace(/```\n?$/gi, '').trim();
+          // tldr-answer-box class 포함 확인
+          if (/class\s*=\s*["'][^"']*tldr-answer-box/i.test(tldrHtml) && tldrHtml.length > 200) {
+            const newHtml = htmlSrc.replace(/<\/h1>/i, (m) => m + '\n' + tldrHtml);
+            (result as any).html = newHtml;
+            (result as any).content = newHtml;
+            console.log(`[RUN-POST] ✅ TL;DR 답변 박스 H1 직후 삽입 (${tldrHtml.length}자)`);
+          } else {
+            console.warn(`[RUN-POST] TL;DR HTML 검증 실패 (길이 ${tldrHtml.length}, class 미포함 가능)`);
+          }
+        }
+      }
+    } catch (tldrErr: any) {
+      console.warn('[RUN-POST] TL;DR 자동 삽입 실패:', tldrErr?.message);
     }
 
     // v3.8.62 (Phase1 작업2): metaDescription을 Gemini AI로 별도 생성 → payload에 병합
