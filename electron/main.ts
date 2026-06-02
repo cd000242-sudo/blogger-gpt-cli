@@ -3449,6 +3449,146 @@ ipcMain.handle('run-post', async (_evt, payload) => {
       console.log(`[RUN-POST] ✅ 생성된 labels ${result.labels.length}개를 payload에 병합:`, result.labels.slice(0, 5));
     }
 
+    // v3.8.75: 글포스팅에도 작업 5-12 후처리 일괄 이식 (FAQPage/HowTo/주제schema/DefinedTerm/Speakable/ImageObject/네이버SEO/Freshness/진단요약)
+    try {
+      let htmlPost = String(result.html || result.content || '');
+      const titlePost = result.title || payload.topic || '';
+      const labelsPost = result.labels || payload.generatedLabels || [];
+      const thumbPost = result.thumbnail || result.thumbnailUrl || '';
+      const excerptPost = String(result.excerpt || '').substring(0, 250);
+      const metaDescPost = String(result.metaDescription || payload.metaDescription || '').substring(0, 250);
+      const envP = loadEnvFromFile() as any;
+      const authorP = (envP.authorName || envP.adsenseAuthorInfo || envP.authorNickname || '에디터').toString().trim() || '에디터';
+      const siteNameP = (envP.wordpressSiteName || envP.blogTitle || '').toString().trim() || 'LEADERNAM';
+      const siteUrlP = (envP.wordpressSiteUrl || envP.blogUrl || '').toString().trim();
+      const additionalSchemasP: any[] = [];
+
+      // 작업 5: FAQPage + HowTo 자동 추출
+      try {
+        const faqs: Array<{ q: string; a: string }> = [];
+        const h3Re = /<h3[^>]*>([^<]*\?)<\/h3>\s*<p[^>]*>([\s\S]*?)<\/p>/gi;
+        let m;
+        while ((m = h3Re.exec(htmlPost)) !== null) {
+          const q = (m[1] || '').trim();
+          const a = (m[2] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          if (q.length > 5 && q.length < 200 && a.length > 20 && a.length < 800) faqs.push({ q, a });
+        }
+        if (faqs.length >= 2) {
+          additionalSchemasP.push({
+            '@type': 'FAQPage',
+            mainEntity: faqs.slice(0, 8).map(({ q, a }) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
+          });
+        }
+        // HowTo
+        const olRe = /<ol[^>]*>([\s\S]*?)<\/ol>/gi;
+        let olMatch;
+        while ((olMatch = olRe.exec(htmlPost)) !== null) {
+          const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+          const steps: Array<{ name: string; text: string }> = [];
+          let li;
+          while ((li = liRe.exec(olMatch[1]!)) !== null) {
+            const txt = (li[1] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            if (txt.length > 10 && txt.length < 400) steps.push({ name: `단계 ${steps.length + 1}`, text: txt });
+          }
+          if (steps.length >= 3 && steps.length <= 15) {
+            additionalSchemasP.push({
+              '@type': 'HowTo',
+              name: `${titlePost} 단계별 가이드`,
+              step: steps.map((s, i) => ({ '@type': 'HowToStep', position: i + 1, name: s.name, text: s.text })),
+            });
+            break;
+          }
+        }
+      } catch {}
+
+      // 작업 6: 주제별 schema 자동 매칭
+      try {
+        const plainBody = htmlPost.replace(/<[^>]+>/g, ' ').toLowerCase();
+        if (/(정부|복지|지원금|보조금|수당|연금|국가|공공|바우처|혜택|신청|자격|모집|선정|복지로|bokjiro|gov\.kr|보건복지부|행정복지센터)/.test(plainBody)) {
+          additionalSchemasP.push({ '@type': 'GovernmentService', name: titlePost, description: (excerptPost || metaDescPost || titlePost).substring(0, 200), provider: { '@type': 'GovernmentOrganization', name: '대한민국 정부' }, serviceType: '복지·정부지원' });
+        } else if (/(적금|예금|투자|펀드|주식|보험|대출|이자|금리|은행|증권|연금|저축|배당|수익률|매칭|만기|원금)/.test(plainBody)) {
+          additionalSchemasP.push({ '@type': 'FinancialProduct', name: titlePost, description: (excerptPost || metaDescPost || titlePost).substring(0, 200), category: '금융상품·저축·투자' });
+        } else if (/(건강|의료|병원|치료|진료|증상|질환|약|처방|예방|검진|의사|환자|보험.*의료|국민건강)/.test(plainBody)) {
+          additionalSchemasP.push({ '@type': 'MedicalWebPage', name: titlePost, description: (excerptPost || metaDescPost || titlePost).substring(0, 200), lastReviewed: new Date().toISOString().split('T')[0] });
+        }
+      } catch {}
+
+      // 작업 9: DefinedTerm + Speakable + ImageObject
+      try {
+        additionalSchemasP.push({ '@type': 'DefinedTerm', name: titlePost, description: (excerptPost || metaDescPost || titlePost).substring(0, 250), inDefinedTermSet: { '@type': 'DefinedTermSet', name: `${titlePost} 용어집` } });
+        additionalSchemasP.push({ '@type': 'SpeakableSpecification', cssSelector: ['.tldr-answer-box', '.tldr-answer-box p:first-of-type'] });
+        if (thumbPost) {
+          additionalSchemasP.push({ '@type': 'ImageObject', contentUrl: thumbPost, license: 'https://creativecommons.org/licenses/by-nc/4.0/', acquireLicensePage: siteUrlP, caption: titlePost, creator: { '@type': 'Person', name: authorP }, copyrightHolder: { '@type': 'Organization', name: siteNameP }, width: 1200, height: 630 });
+        }
+      } catch {}
+
+      if (additionalSchemasP.length > 0) {
+        const extraScript = `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@graph': additionalSchemasP })}</script>`;
+        htmlPost = extraScript + '\n' + htmlPost;
+      }
+
+      // 작업 10: 네이버 SEO + 한국어 NLP
+      try {
+        const naverMeta = `<meta property="og:locale" content="ko_KR" />
+<meta property="article:section" content="${(labelsPost[0] || '').toString().replace(/[<>"']/g, '')}" />
+<meta property="og:site_name" content="${siteNameP.replace(/[<>"']/g, '')}" />
+${labelsPost.slice(0, 6).map((kw: string) => `<meta property="article:tag" content="${String(kw).replace(/[<>"']/g, '')}" />`).join('\n')}
+`;
+        htmlPost = naverMeta + htmlPost;
+      } catch {}
+
+      // 작업 11: Freshness Last updated 표
+      try {
+        if (!/class\s*=\s*["'][^"']*freshness-meta/i.test(htmlPost)) {
+          const nowISO = new Date().toISOString();
+          const nowKo = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+          const freshness = `<div class="freshness-meta" style="margin:12px 0 20px;padding:10px 14px;background:#f0fdf4;border-left:3px solid #10b981;border-radius:0 8px 8px 0;font-size:12px;color:#065f46;line-height:1.6;">
+  <span style="font-weight:800;">🔄 최신 업데이트</span>
+  <time datetime="${nowISO}" itemprop="dateModified" style="margin-left:8px;color:#047857;font-weight:700;">${nowKo}</time>
+  <span style="margin-left:12px;color:#6b7280;">· 본 정보는 정기적으로 검토·갱신됩니다</span>
+</div>`;
+          if (/<\/h1>/i.test(htmlPost)) htmlPost = htmlPost.replace(/<\/h1>/i, (mm) => mm + '\n' + freshness);
+          else htmlPost = freshness + '\n' + htmlPost;
+        }
+      } catch {}
+
+      // 작업 12: GEO/AEO 진단 요약
+      try {
+        const checks: Record<string, boolean> = {
+          'TL;DR 답변 박스': /class\s*=\s*["'][^"']*tldr-answer-box/i.test(htmlPost),
+          'Freshness Last updated': /class\s*=\s*["'][^"']*freshness-meta/i.test(htmlPost),
+          'JSON-LD Article': /"@type"\s*:\s*"Article"/i.test(htmlPost),
+          'FAQPage Schema': /"@type"\s*:\s*"FAQPage"/i.test(htmlPost),
+          'HowTo Schema': /"@type"\s*:\s*"HowTo"/i.test(htmlPost),
+          '주제별 Schema': /"@type"\s*:\s*"(GovernmentService|FinancialProduct|MedicalWebPage)"/i.test(htmlPost),
+          'DefinedTerm Schema': /"@type"\s*:\s*"DefinedTerm"/i.test(htmlPost),
+          'Speakable Schema': /"@type"\s*:\s*"SpeakableSpecification"/i.test(htmlPost),
+          'ImageObject Schema': /"@type"\s*:\s*"ImageObject"/i.test(htmlPost),
+          '네이버 og:locale': /og:locale.+ko_KR/i.test(htmlPost),
+        };
+        const passed = Object.values(checks).filter(Boolean).length;
+        const total = Object.keys(checks).length;
+        const passRate = Math.round((passed / total) * 100);
+        const lines = [
+          `[GEO-AEO-AUDIT-POST] ════════ 글포스팅 GEO/AEO 적용 진단 ════════`,
+          `[GEO-AEO-AUDIT-POST] 종합 점수: ${passed}/${total} (${passRate}%)`,
+          ...Object.entries(checks).map(([k, v]) => `[GEO-AEO-AUDIT-POST] ${v ? '✅' : '❌'} ${k}`),
+          `[GEO-AEO-AUDIT-POST] ══════════════════════════════════════`,
+        ];
+        lines.forEach((l) => console.log(l));
+        try {
+          const { BrowserWindow: BW_P } = await import('electron');
+          BW_P.getAllWindows().forEach((w) => { lines.forEach((line) => { try { w.webContents.send('log-line', line); } catch {} }); });
+        } catch {}
+      } catch {}
+
+      (result as any).html = htmlPost;
+      (result as any).content = htmlPost;
+      console.log(`[RUN-POST] ✅ 작업 5-12 후처리 일괄 적용 완료 (HTML ${htmlPost.length}자)`);
+    } catch (postSuiteErr: any) {
+      console.warn('[RUN-POST] 작업 5-12 후처리 일괄 적용 실패:', postSuiteErr?.message);
+    }
+
     // v3.8.62 (Phase1 작업3): TL;DR 답변 박스 자동 생성 → H1 직후 삽입 (AEO/GEO Tier 1)
     //   일반 글포스팅의 H1 직후에 정의형 직답 + 핵심 수치 3개 박스 자동 주입.
     //   거미줄은 LLM 프롬프트에 강제 반영 — 일반 글포스팅은 후처리로 보장.

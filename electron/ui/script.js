@@ -8981,7 +8981,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     window.blogger.onLog((line) => {
       // v3.8.51/v3.8.54/v3.8.73: 거미줄 진단 로그를 콘솔에 직접 출력
       try {
-        if (/\[(SPIDER-STEP|PUBLISH-SPIDER|INTERNAL-CONSISTENCY-SPIDER|DISPATCH|DISPATCH-THUMB|PUBLISH-SPIDER-WEB|INTERNAL-CONSISTENCY|GEO-AEO-AUDIT)\]/.test(line)) {
+        if (/\[(SPIDER-STEP|PUBLISH-SPIDER|INTERNAL-CONSISTENCY-SPIDER|DISPATCH|DISPATCH-THUMB|PUBLISH-SPIDER-WEB|INTERNAL-CONSISTENCY|GEO-AEO-AUDIT|GEO-AEO-AUDIT-POST|RUN-POST)\]/.test(line)) {
           console.log(line);
         }
       } catch {}
