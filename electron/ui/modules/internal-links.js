@@ -994,12 +994,13 @@ async function generateSpiderWebContent() {
     // 선택한 글 URL 수집
     const urls = selectedPosts.map(p => p.url).filter(url => url && url.trim());
     console.log('[SPIDER-WEB] 수집된 URL:', urls);
-    
-    if (urls.length === 0) {
-      alert('⚠️ 최소 1개 이상의 글 주소를 입력하거나 선택해주세요.');
+
+    // v3.8.76: 거미줄 통합글은 최소 2개 이상 글 필요 (1개는 통합 의미 없음)
+    if (urls.length < 2) {
+      alert('⚠️ 거미줄 통합글은 최소 2개 이상의 글이 필요합니다.\n현재 ' + urls.length + '개 — 더 추가해주세요.');
       return;
     }
-    
+
     if (urls.length > 5) {
       alert('⚠️ 최대 5개까지만 선택할 수 있습니다.');
       return;
@@ -1728,8 +1729,9 @@ async function generateAndPublishSpiderWeb() {
     //   기존엔 wp-admin URL이 그대로 CTA <a href="...wp-admin/...">로 들어가 클릭 시 글편집으로 가던 문제 차단.
     const urls = selectedPosts.map(p => _normalizePostUrl(p.url)).filter(u => u && u.trim());
 
-    if (urls.length === 0) {
-      alert('⚠️ 최소 1개 이상의 글 주소를 입력하거나 선택해주세요.');
+    // v3.8.76: 거미줄 통합글은 최소 2개 이상 글 필요 (1개는 통합 의미 없음)
+    if (urls.length < 2) {
+      alert('⚠️ 거미줄 통합글은 최소 2개 이상의 글이 필요합니다.\n현재 ' + urls.length + '개 — 더 추가해주세요.');
       return;
     }
     if (urls.length > 5) {

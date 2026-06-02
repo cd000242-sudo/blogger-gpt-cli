@@ -862,8 +862,9 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
     const posts = await Promise.all((payload.posts || []).map(async (p) => ({ ...p, url: await _normalizeWpUrl(p.url) })));
     sendDiag(`✅ posts 정규화 완료 — ${posts.length}개`);
 
-    if (urls.length === 0) {
-      return { success: false, error: 'URL이 필요합니다.' };
+    // v3.8.76: 거미줄 통합글은 최소 2개 이상 글 필요 (백엔드 안전망)
+    if (urls.length < 2) {
+      return { success: false, error: `거미줄 통합글은 최소 2개 이상의 글이 필요합니다. 현재 ${urls.length}개.` };
     }
 
     // 1단계: 환경변수에서 API 키 가져오기
