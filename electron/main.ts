@@ -675,45 +675,94 @@ ipcMain.handle('generate-internal-consistency-title', async (_evt, payload: { ur
       throw new Error(`Gemini 2.0 이상 모델을 사용할 수 없습니다. ${errorMsg}`);
     }
 
-    const prompt = `
-다음 URL들에서 추출한 제목들을 분석하여, 이 글들을 모두 포함하는 SEO에 최적화되고 클릭을 유발하는 종합 글 제목을 생성해주세요.
+    // v3.8.65 (Phase1 작업4): 제목 A/B 3변형 동시 생성 + CTR 점수로 자동 선택
+    //   기존: 1개 제목만 생성, 패턴 고정
+    //   개선: 긴급/호기심/숫자 3가지 변형 → 점수화 → 최고 선택
+    //   기준 (Backlinko 누적): 50-60자 / 키워드 앞쪽 / 이모지 1개 이하 / 숫자+연도
+    const prompt = `다음 URL들에서 추출한 제목들을 분석하여, 종합 글 제목 **3가지 변형**을 JSON 배열로 생성하세요.
 
 【추출된 제목들】
 ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
 
-📌 **제목 생성 요구사항:**
-- 위 제목들을 모두 포함하는 종합적인 주제를 파악하여 반영
-- SEO에 최적화 (핵심 키워드 포함)
-- 클릭을 유발하는 강력한 제목 (20-30자)
-- "종합", "가이드", "모든 것" 같은 흔한 표현 지양
-- 구체적 숫자나 질문형, 긴급성 요소 포함 가능
-- 자연스럽고 읽기 쉬운 제목
+📌 **3가지 변형 패턴 (정확히 3개)**:
+1. **긴급성형(urgency)**: 시간/마감/한정 요소 강조 ("지금 신청 마감 임박", "${new Date().getFullYear()} 마지막 기회")
+2. **호기심형(curiosity)**: 의외성/반전/궁금증 ("아무도 모르는", "진짜 이유", "숨겨진 조건")
+3. **숫자형(numeric)**: 구체적 수치 강조 ("월 10만원으로 1,440만원", "3년 만기 N% 수익")
 
-⚠️ **출력 형식:**
-- 단 하나의 제목만 출력
-- 마크다운 형식 사용 금지
-- 번호나 설명 없이 제목만 출력
+📐 **공통 규칙 (각 제목 적용)**:
+- 50-60자 (한글 기준, 모바일 SERP 잘림 방지)
+- 핵심 검색 키워드를 앞쪽 30% 안에 배치
+- ${new Date().getFullYear()}년 표기 포함
+- 이모지 1개 이하 (과사용 시 신뢰도↓)
+- "종합", "모든 것" 같은 진부한 표현 금지
 
-제목만 출력해주세요.
+⚠️ **출력 형식 (엄격)**:
+정확히 다음 JSON 형식 1줄로만 출력 (마크다운·설명 금지):
+{"urgency":"제목1","curiosity":"제목2","numeric":"제목3"}
 `;
 
-    // safeGenerateContent 직접 구현 (간단한 버전)
+    // CTR 점수 함수 — 50-60자 적정, 숫자/연도 포함, 이모지 1개 이하, 키워드 위치
+    const scoreTitle = (t: string): number => {
+      if (!t || typeof t !== 'string') return 0;
+      let score = 0;
+      const len = t.length;
+      // 길이 (50-60자 최적)
+      if (len >= 50 && len <= 60) score += 30;
+      else if (len >= 40 && len <= 70) score += 20;
+      else if (len >= 30 && len <= 80) score += 10;
+      // 숫자 포함
+      if (/\d/.test(t)) score += 15;
+      // 연도 포함
+      if (new RegExp(`${new Date().getFullYear()}`).test(t)) score += 15;
+      // 이모지 개수 (1개 이하 권장)
+      const emojiCount = (t.match(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{27BF}]/gu) || []).length;
+      if (emojiCount === 0) score += 8;
+      else if (emojiCount === 1) score += 10;
+      else if (emojiCount === 2) score += 3;
+      // 호기심·긴급성 키워드
+      if (/(지금|마감|임박|놓치지|꼭|반드시|독점|단독|진짜|숨겨진|아무도|비밀|총정리|완벽)/.test(t)) score += 12;
+      // 구체적 수치 패턴 (XX원, X개월, X% 등)
+      if (/\d+\s*(만원|원|개월|년|%|위|위안|배|일)/.test(t)) score += 10;
+      return score;
+    };
+
     let generatedTitle = '';
     try {
       const result = await model.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens: MAX_OUTPUT_TOKENS_TITLE,
-          temperature: 0.9,
-        }
+        generationConfig: { maxOutputTokens: 600, temperature: 0.9 }
       });
-
       const response = await result.response;
-      generatedTitle = response.text();
+      const raw = (response.text() || '').trim();
+      // JSON 추출 (마크다운 백틱 제거)
+      const cleaned = raw.replace(/^```json\n?/gi, '').replace(/^```\n?/gi, '').replace(/```\n?$/gi, '').trim();
+      let variants: { urgency?: string; curiosity?: string; numeric?: string } = {};
+      try {
+        variants = JSON.parse(cleaned);
+      } catch {
+        // JSON 파싱 실패 → 단일 제목으로 폴백
+        const fallbackLine = cleaned.split(/\n+/).find((l: string) => l.length >= 20 && l.length <= 80) || cleaned;
+        variants = { urgency: fallbackLine };
+      }
+      const candidates: Array<{ title: string; type: string; score: number }> = [];
+      for (const type of ['urgency', 'curiosity', 'numeric'] as const) {
+        const t = (variants[type] || '').trim().replace(/^["'`]|["'`]$/g, '');
+        if (t && t.length >= 15 && t.length <= 100) {
+          candidates.push({ title: t, type, score: scoreTitle(t) });
+        }
+      }
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => b.score - a.score);
+        generatedTitle = candidates[0]!.title;
+        console.log(`[INTERNAL-CONSISTENCY] ✅ 제목 A/B 3변형 점수`,
+          candidates.map((c) => `${c.type}(${c.score}점): "${c.title.substring(0, 40)}…"`).join(' | '));
+        console.log(`[INTERNAL-CONSISTENCY] 🏆 선택: ${candidates[0]!.type} (${candidates[0]!.score}점)`);
+      } else {
+        generatedTitle = cleaned.split(/\n+/)[0]!.trim();
+      }
     } catch (error) {
       console.error('[INTERNAL-CONSISTENCY] AI 제목 생성 실패:', error);
-      // 폴백: 크롤링한 제목들을 조합
-      const topKeywords = crawledTitles[0].split(/\s+/).slice(0, 3);
+      const topKeywords = crawledTitles[0]!.split(/\s+/).slice(0, 3);
       generatedTitle = `${topKeywords.join(' ')} 종합 가이드 ${new Date().getFullYear()}`;
     }
 
