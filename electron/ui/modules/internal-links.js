@@ -2047,7 +2047,14 @@ function _renderSpiderWebPreview(html, publishedUrl, publishedAt) {
     const thumbBlock = thumb
       ? `<p style="text-align:center;margin:0 0 24px 0;"><img src="${safeThumb}" alt="" style="max-width:100%;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,0.12);"></p>`
       : '';
-    content.innerHTML = thumbBlock + (html || '');
+    // v3.8.74: Blogger 테마 충돌 안내 (미리보기 ≠ 발행글일 수 있는 이유 명시)
+    const themeWarning = `<div style="margin:0 0 18px;padding:12px 16px;background:linear-gradient(135deg,#fff7ed 0%,#ffedd5 100%);border:1px solid #fdba74;border-radius:10px;color:#7c2d12;font-size:12px;line-height:1.6;">
+  <strong style="color:#9a3412;">⚠️ 참고:</strong> 이 미리보기는 LLM이 만든 HTML 그대로입니다.
+  <strong>Blogger</strong>로 발행 시 사용자 블로그의 <strong>기존 테마 CSS</strong>가 일부 inline style을 덮어쓸 수 있어
+  <strong>완전 동일하지 않을 수 있습니다</strong>. (Blogger 발췌 영역의 평문화는 플랫폼 기본 동작이라 우회 불가)
+  <br><strong style="color:#9a3412;">WordPress</strong>는 wp-section-card 카드 분할은 거미줄 모드에서 skip하지만 테마 색은 일부 영향 받을 수 있습니다.
+</div>`;
+    content.innerHTML = themeWarning + thumbBlock + (html || '');
 
     // v3.8.25: 미리보기 내 모든 a[href] 링크를 외부 브라우저로 강제 — Electron 내부 네비게이션 방지.
     //   기존엔 CTA 버튼 클릭 시 Electron BrowserWindow가 그 URL로 이동해 뒤로가기/종료 불가.

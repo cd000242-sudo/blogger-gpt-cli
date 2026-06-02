@@ -1091,8 +1091,8 @@ URL: ${item.url}
      - 정의형 직답 패턴 예: "청년내일저축계좌는 만 19~34세 저소득 청년의 자산 형성을 돕는 정부 매칭 적금 제도로, 월 10만원 저축 시 정부가 매월 30만원을 추가 지원해 3년 만기 시 1,440만원 + 이자를 받습니다."
      - 핵심 수치 3개는 검색 의도 직답 (금액·기간·자격 등)
      - 🚨 이 TL;DR 박스는 AI Overview/Perplexity가 첫 단락에서 답변을 추출하므로 **절대 누락 금지**
-  2. 도입부 카드 — 1줄 후킹 + "이 글에서 다루는 ${sortedContents.length}가지 핵심" 불릿 + 결론 1줄
-  3. 핵심 요약표 (원본 ${sortedContents.length}개의 핵심을 한 줄씩 표 행으로)
+     - 🚨 **도입부 카드 중복 금지**: TL;DR 박스가 이미 도입부 역할이므로 별도 "도입부 카드"·"이 글에서 다루는 N가지" 같은 추가 박스 절대 생성 금지 (중복 노출 방지)
+  2. 핵심 요약표 (자료 ${sortedContents.length}개의 핵심을 한 줄씩 표 행으로) — TL;DR 박스 바로 다음에 배치
   4. <h2> 1~${sortedContents.length}번 (원본 글에 1:1 대응)
      - 본문 1,000~1,500자 (원본 70% 핵심 + 인사이트)
      - <h3> 2~3개 세부 섹션
@@ -1201,11 +1201,27 @@ URL: ${item.url}
         //   패턴: H2 본문 끝부분에 "더 자세한 ~을 알고 싶다면?" + 다음 줄에 글 제목·"자세히 보기"·URL이 나오는 평문
         //   사용자 의도(빨간 그라데이션 박스 + 후킹 + 버튼)를 강제 적용해 안전망 제공.
         try {
-          // 패턴 1: <p>후킹멘트?</p><p>[글제목 + 자세히 보기 …</p> 또는
-          //         <p>후킹멘트?</p>\n<p>[글제목 + 🔥]</p>
-          const ctaTextPattern = /<p[^>]*>\s*([^<]{8,80}?(?:\?|싶다면|\s궁금|\s더\s알고|\s확인하고)\s*[?<])\s*<\/p>\s*(?:<p[^>]*>\s*)?([^<]{8,120}?(?:🔥|✨|💡|자세히\s*보기|상세\s*보기|>>|»))\s*<\/p>/gi;
           const sourceUrls = sortedContents.map((c) => c.url).filter(Boolean);
           let urlPtr = 0;
+
+          // v3.8.74: 패턴 2 — <p>후킹?</p>\s*<a href="…">버튼 텍스트</a> (wrap 없는 a 태그 단독)
+          //   사용자 보고: 박스 wrap 없이 후킹+버튼만 왼쪽 정렬로 나옴 → 정규식이 a 태그 단독 케이스 매칭 못함
+          const ctaAnchorPattern = /<p[^>]*>\s*([^<]{8,80}?(?:\?|싶다면|\s궁금|\s더\s알고|\s확인하고)\s*[?<])\s*<\/p>\s*<a[^>]*href=["']([^"']+)["'][^>]*>\s*([^<]{8,120}?)\s*<\/a>/gi;
+          generatedContent = generatedContent.replace(ctaAnchorPattern, (_match, hook, _href, btn) => {
+            const url = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
+            urlPtr++;
+            const safeHook = String(hook).replace(/[<>]/g, '').trim();
+            const safeBtn = String(btn).replace(/[<>]/g, '').trim();
+            return `<div style="margin:28px 0 !important;padding:24px 20px !important;background-color:#dbeafe !important;background:linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%) !important;border:2px solid #93c5fd !important;border-radius:14px !important;text-align:center !important;max-width:100% !important;box-sizing:border-box !important;">
+  <p style="margin:0 0 14px !important;color:#1e3a8a !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
+  <p style="margin:0 !important;text-align:center !important;">
+    <a href="${url}" style="display:inline-block !important;padding:14px 28px !important;background-color:#ef4444 !important;background:linear-gradient(135deg,#ef4444 0%,#f97316 100%) !important;color:#ffffff !important;text-decoration:none !important;font-size:15px !important;font-weight:800 !important;border-radius:10px !important;box-shadow:0 4px 14px rgba(239,68,68,0.35) !important;">${safeBtn}</a>
+  </p>
+</div>`;
+          });
+
+          // 패턴 1 (기존): <p>후킹?</p><p>버튼 텍스트</p>
+          const ctaTextPattern = /<p[^>]*>\s*([^<]{8,80}?(?:\?|싶다면|\s궁금|\s더\s알고|\s확인하고)\s*[?<])\s*<\/p>\s*(?:<p[^>]*>\s*)?([^<]{8,120}?(?:🔥|✨|💡|자세히\s*보기|상세\s*보기|>>|»))\s*<\/p>/gi;
           generatedContent = generatedContent.replace(ctaTextPattern, (_match, hook, btn) => {
             const url = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
             urlPtr++;
