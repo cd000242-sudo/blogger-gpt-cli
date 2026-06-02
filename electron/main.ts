@@ -1488,28 +1488,70 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         }
       }
 
-      // v3.8.16: WordPress 발행을 위한 SEO 메타데이터 자동 생성 (excerpt, metaDescription)
-      //   글포스팅 워드프레스 발행 흐름과 동일하게 보존 — WordPressPublisher.publish가 사용
+      // v3.8.16/v3.8.62 (Phase1 작업2): SEO 메타데이터 자동 생성 — Gemini AI 별도 호출로 품질 향상
+      //   기존: 첫 155자 단순 자름 → 검색 의도 무시
+      //   개선: Gemini AI로 [검색 키워드 + 이익 + CTA] 패턴 140-160자 생성 (Backlinko CTR +8.9%)
+      //   excerpt도 자연스러운 첫 두 문장 요약으로 별도 생성.
       let excerpt = '';
       let metaDescription = '';
       try {
         const plainText = (generatedContent || '')
           .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
           .replace(/<[^>]+>/g, ' ')
           .replace(/&nbsp;/g, ' ')
           .replace(/&amp;/g, '&')
           .replace(/\s+/g, ' ')
           .trim();
-        // 첫 두 문장 또는 첫 200자를 excerpt로
+        // excerpt: 첫 두 문장 (자연스러운 요약)
         const sentences = plainText.split(/(?<=[.。!?])\s+/);
         excerpt = sentences.slice(0, 2).join(' ').substring(0, 200).trim();
         if (excerpt.length < 50 && plainText.length > 50) {
           excerpt = plainText.substring(0, 200).trim();
         }
-        // metaDescription: 첫 150자 + 키워드 자연 포함
-        metaDescription = plainText.substring(0, 155).trim();
-        if (metaDescription.length > 152) {
-          metaDescription = metaDescription.substring(0, 152) + '…';
+
+        // v3.8.62: metaDescription — Gemini AI 별도 호출로 검색 최적화 패턴 생성
+        try {
+          const { GoogleGenerativeAI: GGA_META } = require('@google/generative-ai');
+          const metaGenAI = new GGA_META(geminiKey);
+          const metaModel = await selectGeminiModel(metaGenAI);
+          const metaPrompt = `다음 블로그 글의 메타 디스크립션을 정확히 1줄로 작성하세요.
+
+【글 제목】 ${title}
+【본문 첫 500자】 ${plainText.substring(0, 500)}
+【핵심 키워드】 ${(generatedLabels || []).slice(0, 5).join(', ') || '(없음)'}
+
+요구사항:
+- 정확히 140~160자 (한글 기준)
+- 핵심 검색 키워드 1~2개 자연스럽게 포함
+- 독자가 이 글을 클릭해서 얻을 수 있는 이익(혜택/방법/결과) 1줄 명시
+- 끝에 행동 유도(CTA) 짧게 ("자세히 보기", "지금 확인" 등)
+- 출력은 메타 디스크립션 텍스트 1줄만 (앞뒤 따옴표·마크다운 X)
+
+예시: "2026년 청년내일저축계좌 자격조건과 신청방법을 한눈에 정리. 월 10만원 적금으로 1,440만원 목돈을 만드는 모든 방법, 지금 확인하세요."`;
+          const metaResult = await metaModel.generateContent({
+            contents: [{ role: 'user', parts: [{ text: metaPrompt }] }],
+            generationConfig: { maxOutputTokens: 200, temperature: 0.4 },
+          });
+          let aiMeta = ((await metaResult.response).text() || '').trim();
+          // 따옴표·마크다운·앞뒤 공백 제거
+          aiMeta = aiMeta.replace(/^["'`「『]+|["'`」』]+$/g, '').replace(/^\*+|\*+$/g, '').trim();
+          // 첫 줄만 사용
+          aiMeta = aiMeta.split(/\n+/)[0]!.trim();
+          if (aiMeta.length >= 100 && aiMeta.length <= 200) {
+            metaDescription = aiMeta;
+            console.log(`[INTERNAL-CONSISTENCY] ✅ metaDescription Gemini AI 생성 (${aiMeta.length}자): ${aiMeta.substring(0, 60)}…`);
+          } else {
+            // AI 응답이 길이 미달 → 폴백
+            throw new Error(`AI meta 길이 부적절: ${aiMeta.length}자`);
+          }
+        } catch (aiErr: any) {
+          // 폴백: 첫 155자 자름 (기존 방식)
+          metaDescription = plainText.substring(0, 155).trim();
+          if (metaDescription.length > 152) {
+            metaDescription = metaDescription.substring(0, 152) + '…';
+          }
+          console.warn(`[INTERNAL-CONSISTENCY] metaDescription Gemini 실패 → 폴백 자름: ${aiErr?.message}`);
         }
       } catch (e: any) {
         console.warn('[INTERNAL-CONSISTENCY] excerpt/metaDescription 생성 실패:', e?.message);
@@ -3052,6 +3094,55 @@ ipcMain.handle('run-post', async (_evt, payload) => {
     if (result.labels && Array.isArray(result.labels) && result.labels.length > 0) {
       payload.generatedLabels = result.labels;
       console.log(`[RUN-POST] ✅ 생성된 labels ${result.labels.length}개를 payload에 병합:`, result.labels.slice(0, 5));
+    }
+
+    // v3.8.62 (Phase1 작업2): metaDescription을 Gemini AI로 별도 생성 → payload에 병합
+    //   기존: WP는 publisher가 generateMetaDescriptionSmart 호출, Blogger는 미생성.
+    //   개선: 일반 글포스팅도 거미줄과 동일한 [키워드+이익+CTA] 패턴 140-160자 생성.
+    if (!payload.metaDescription) {
+      try {
+        const titleForMeta = result.title || payload.topic || '';
+        const htmlForMeta = String(result.html || result.content || '');
+        const plainText = htmlForMeta
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        const keywordsForMeta = (result.labels || payload.generatedLabels || []).slice(0, 5).join(', ');
+        const envData = loadEnvFromFile() as any;
+        const apiKey = envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '';
+        if (apiKey && plainText.length > 200) {
+          const { GoogleGenerativeAI: GGA_RP } = require('@google/generative-ai');
+          const rpGenAI = new GGA_RP(apiKey);
+          const rpModel = await selectGeminiModel(rpGenAI);
+          const rpPrompt = `다음 블로그 글의 메타 디스크립션을 정확히 1줄로 작성하세요.
+
+【글 제목】 ${titleForMeta}
+【본문 첫 500자】 ${plainText.substring(0, 500)}
+【핵심 키워드】 ${keywordsForMeta || '(없음)'}
+
+요구사항:
+- 정확히 140~160자 (한글 기준)
+- 핵심 검색 키워드 1~2개 자연스럽게 포함
+- 독자가 얻을 이익(혜택/방법/결과) 1줄 명시
+- 끝에 행동 유도(CTA) 짧게 ("자세히 보기", "지금 확인" 등)
+- 출력은 메타 디스크립션 텍스트 1줄만 (앞뒤 따옴표·마크다운 X)`;
+          const rpResult = await rpModel.generateContent({
+            contents: [{ role: 'user', parts: [{ text: rpPrompt }] }],
+            generationConfig: { maxOutputTokens: 200, temperature: 0.4 },
+          });
+          let aiMeta = ((await rpResult.response).text() || '').trim()
+            .replace(/^["'`「『]+|["'`」』]+$/g, '').replace(/^\*+|\*+$/g, '').trim();
+          aiMeta = aiMeta.split(/\n+/)[0]!.trim();
+          if (aiMeta.length >= 100 && aiMeta.length <= 200) {
+            payload.metaDescription = aiMeta;
+            console.log(`[RUN-POST] ✅ metaDescription Gemini AI 생성 (${aiMeta.length}자): ${aiMeta.substring(0, 60)}…`);
+          }
+        }
+      } catch (mdErr: any) {
+        console.warn('[RUN-POST] metaDescription AI 생성 실패 (publisher가 폴백):', mdErr?.message);
+      }
     }
 
     const MAX_PUBLISH_RETRIES = 2;
