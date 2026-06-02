@@ -1857,6 +1857,40 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.warn('[INTERNAL-CONSISTENCY] FAQPage/HowTo 자동 추출 실패:', faqHowtoErr?.message);
       }
 
+      // v3.8.71 (Phase 3 작업 10): 네이버 SEO + 한국어 NLP 최적화
+      //   - 네이버 검색 60%+ 점유 + AI Briefing(2025.3) 출시 → 별도 메타 강화
+      //   - Naver Open Graph 추가 + Naver Search Advisor meta
+      //   - 한국어 명사 원형 키워드 (조사 제거) → 네이버 키워드 매칭 정확성
+      try {
+        // 네이버용 메타 태그 (head용 — 본문에 박아도 Blogger/WP가 자동 인식)
+        const naverMeta = `<meta name="naver-site-verification" content="" />
+<meta property="og:locale" content="ko_KR" />
+<meta property="article:section" content="${(generatedLabels[0] || '').toString().replace(/[<>"']/g, '')}" />
+<meta property="og:site_name" content="${((loadEnvFromFile() as any).wordpressSiteName || (loadEnvFromFile() as any).blogTitle || 'LEADERNAM').toString().replace(/[<>"']/g, '')}" />
+${generatedLabels.slice(0, 6).map((kw) => `<meta property="article:tag" content="${String(kw).replace(/[<>"']/g, '')}" />`).join('\n')}
+`;
+        generatedContent = naverMeta + generatedContent;
+
+        // 한국어 NLP: 키워드 명사 원형 추출 (조사·어미 제거)
+        const cleanKoreanKeyword = (kw: string): string => {
+          if (!kw || typeof kw !== 'string') return kw;
+          // 조사 제거: 은/는/이/가/을/를/에/에서/으로/로/와/과/의 등 (단어 끝에서)
+          return kw
+            .replace(/(은|는|이|가|을|를|에서|에게|에|으로|로서|로|와|과|의|도|만|까지|부터|마저|조차)$/g, '')
+            .replace(/(하다|되다|이다|입니다|합니다|됩니다)$/g, '')
+            .trim();
+        };
+        const normalizedLabels = generatedLabels.map(cleanKoreanKeyword).filter((k) => k.length >= 2);
+        if (normalizedLabels.length > 0) {
+          // 정규화된 키워드도 라벨에 추가 (중복 제거)
+          const merged = Array.from(new Set([...generatedLabels, ...normalizedLabels])).slice(0, 10);
+          generatedLabels = merged;
+          console.log(`[INTERNAL-CONSISTENCY] ✅ 네이버 SEO 메타 + 한국어 NLP 키워드 정규화 (${normalizedLabels.length}개)`);
+        }
+      } catch (naverErr: any) {
+        console.warn('[INTERNAL-CONSISTENCY] 네이버 SEO/한국어 NLP 실패:', naverErr?.message);
+      }
+
       // v3.8.62 (Phase 1 작업 1): 일반 글포스팅의 GEO 시스템(JSON-LD + E-E-A-T) 거미줄 이식.
       //   Agent A·B 분석: 거미줄 GEO 10점 / Blogger 글포스팅 85점 — 동일 시스템 이식하면 75점 점프.
       //   Schema.org Article + Person + Organization + BreadcrumbList @graph 자동 주입.
