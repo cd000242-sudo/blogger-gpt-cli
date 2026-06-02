@@ -779,6 +779,48 @@ export class WordPressPublisher {
       }
 
       // 🔥 카테고리: 사용자가 선택한 카테고리를 포스트에 적용
+      // v3.8.68 (Phase 2 작업 7): 사용자 선택 없으면 AI가 기존 카테고리 분석 → 자동 매칭
+      if ((!options.categories || options.categories.length === 0) && options.geminiKey) {
+        try {
+          const existingCats = await this.wpApi.getCategories();
+          const catNames = existingCats.slice(0, 60).map(c => c.name).filter(Boolean);
+          if (catNames.length > 0) {
+            const plainBody = (options.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            const aiCatPrompt = `다음 블로그 글의 내용을 분석하여 가장 적합한 카테고리 1개를 정확히 선택하세요.
+
+【글 제목】 ${options.title}
+【본문 첫 500자】 ${plainBody.substring(0, 500)}
+【선택 가능한 카테고리 목록】
+${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
+
+엄격 출력 규칙:
+- 위 목록 중 가장 적합한 카테고리 이름 1개만 출력 (정확히 일치)
+- 설명·번호·따옴표·마크다운 X
+- 출력 예: "금융/저축"`;
+            try {
+              const { GoogleGenerativeAI: GGA_C } = require('@google/generative-ai');
+              const catGenAI = new GGA_C(options.geminiKey);
+              const catModel = catGenAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+              const catResult = await catModel.generateContent({
+                contents: [{ role: 'user', parts: [{ text: aiCatPrompt }] }],
+                generationConfig: { maxOutputTokens: 100, temperature: 0.2 },
+              });
+              let aiCat = ((await catResult.response).text() || '').trim().replace(/^["'`]+|["'`]+$/g, '').split('\n')[0]!.trim();
+              if (aiCat && catNames.includes(aiCat)) {
+                const resolved = await this.resolveCategories([aiCat]);
+                if (resolved.length > 0) {
+                  (postData as any).categories = resolved;
+                  console.log(`[WP-PUBLISH] 🤖 AI 카테고리 자동 매칭: "${aiCat}" (ID ${resolved.join(',')})`);
+                }
+              }
+            } catch (aiCatErr: any) {
+              console.warn('[WP-PUBLISH] AI 카테고리 매칭 실패:', aiCatErr?.message);
+            }
+          }
+        } catch (autoErr: any) {
+          console.warn('[WP-PUBLISH] 카테고리 자동 매칭 흐름 실패:', autoErr?.message);
+        }
+      }
       if (options.categories && options.categories.length > 0) {
         try {
           // 숫자 ID 문자열과 이름을 구분
