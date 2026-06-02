@@ -1155,24 +1155,36 @@ URL: ${item.url}
 
       let generatedContent = '';
       try {
+        // v3.8.81: LLM 짧은 응답 자동 재시도 (사용자 보고: 1,118자만 응답)
+        //   원인: 프롬프트 복잡도↑ → LLM이 TL;DR 박스만 작성하고 H2 본문 누락
+        //   해결: 응답 < 3000자 또는 H2 < 3개면 최대 2회 재시도 (temperature 변경)
+        const callLLM = async (temp: number): Promise<string> => {
+          const r = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { maxOutputTokens: 16000, temperature: temp }
+          });
+          return ((await r.response).text() || '')
+            .replace(/```html\n?/gi, '').replace(/```\n?/gi, '').trim();
+        };
+
         sendDiag('🤖 Gemini LLM 호출 시작 (본문 생성)');
-        const result = await model.generateContent({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: {
-            // v3.7.22: 8000 → 16000 토큰 (Gemini 2.x 한도 내). 기존 8000으론 출력 잘림.
-            maxOutputTokens: 16000,
-            temperature: 0.75,
-          }
-        });
+        generatedContent = await callLLM(0.75);
+        let plainLen = generatedContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+        let h2Count = (generatedContent.match(/<h2[^>]*>/gi) || []).length;
+        sendDiag(`📏 LLM 응답: ${generatedContent.length}자 (평문 ${plainLen}자, H2 ${h2Count}개)`);
 
-        const response = await result.response;
-        generatedContent = response.text();
-
-        // HTML 태그 정리
-        generatedContent = generatedContent
-          .replace(/```html\n?/gi, '')
-          .replace(/```\n?/gi, '')
-          .trim();
+        // 짧으면 재시도 (최대 2회)
+        for (let retry = 1; retry <= 2 && (plainLen < 3000 || h2Count < 3); retry++) {
+          sendDiag(`⚠️ 본문 너무 짧음 (평문 ${plainLen}자, H2 ${h2Count}개) — ${retry}/2 재시도`);
+          const newTemp = retry === 1 ? 0.85 : 0.65; // 다양화 → 안정화
+          generatedContent = await callLLM(newTemp);
+          plainLen = generatedContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+          h2Count = (generatedContent.match(/<h2[^>]*>/gi) || []).length;
+          sendDiag(`📏 재시도 ${retry} 응답: ${generatedContent.length}자 (평문 ${plainLen}자, H2 ${h2Count}개)`);
+        }
+        if (plainLen < 3000 || h2Count < 3) {
+          sendDiag(`❌ 재시도 후에도 본문 너무 짧음 (평문 ${plainLen}자, H2 ${h2Count}개) — 폴백 사용`);
+        }
 
         // v3.8.5: H1~H6 제목 끝의 메타 라벨 자동 제거
         //   LLM이 가끔 "(종합 거미줄)", "(요약)", "(FAQ)", "(가이드)", "(개요)" 등 라벨을 제목 끝에 포함
