@@ -1097,6 +1097,13 @@ URL: ${item.url}
      - 본문 1,000~1,500자 (원본 70% 핵심 + 인사이트)
      - <h3> 2~3개 세부 섹션
      - 본문 중 통계/수치 강조 <strong>
+     - 🔥 **각 H2당 1개 통계 박스 필수 (v3.8.69 GEO Tier 1, 정확한 구조)**:
+       <aside style="margin:20px 0;padding:16px 20px;background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);border-left:4px solid #2563eb;border-radius:0 10px 10px 0;">
+         <p style="margin:0 0 6px;color:#1e3a8a;font-size:12px;font-weight:800;letter-spacing:0.5px;">📊 핵심 통계</p>
+         <p style="margin:0 0 8px;color:#0f172a;font-size:18px;font-weight:800;line-height:1.4;">[구체적 숫자 + 단위 (예: "월 30만원 매칭 지원", "3년 만기 1,440만원")]</p>
+         <p style="margin:0;color:#475569;font-size:13px;line-height:1.6;">출처: <a href="[정부/공공 사이트 URL]" target="_blank" rel="noopener" style="color:#2563eb;">[기관명: 복지로 / 보건복지부 / 통계청 / 국세청 등]</a> (${new Date().getFullYear()}년 기준)</p>
+       </aside>
+     - **claim → evidence → source 패턴**: 주장 → 구체 수치 → 정부·공공기관 출처 (.go.kr / .or.kr 우선)
      - **H2 끝에 거미줄 회유 CTA 박스** (아래 CTA 패턴 정확히 사용)
   5. <h2> 비교 / 자주 묻는 질문 — 한눈에 비교 표 + Q&A 3~5개 (CTA 불필요)
   6. <h2> 실전 적용 가이드 — 체크리스트 ✅ 5~7개 (CTA 불필요)
