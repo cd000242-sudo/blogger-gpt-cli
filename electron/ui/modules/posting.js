@@ -201,6 +201,15 @@ export async function runPosting() {
     return;
   }
 
+  // v3.8.80: API 한도 보호 — 직전 발행 후 90초 미만이면 자동 대기 또는 중단
+  if (typeof window._enforcePublishGap === 'function') {
+    const okGap = await window._enforcePublishGap(90);
+    if (!okGap) {
+      addLog('발행 취소 (API 한도 보호 안내)', 'warning');
+      return;
+    }
+  }
+
   // ── Guard: 키워드 필수 (v3.5.91 — URL 모드는 키워드 대신 URL이 있으면 통과) ──
   const keywordInput = DOMCache.get('keywordInput');
   const keywordValue = keywordInput?.value?.trim();

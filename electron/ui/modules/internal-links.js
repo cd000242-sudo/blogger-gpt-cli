@@ -1720,8 +1720,34 @@ function _swScrollToPreview() {
 /**
  * 통합글 생성 + 자동 발행 일체화 (v3.7.22)
  */
+// v3.8.80: 발행 간격 가드 (OpenAI Tier 1 TPM 30K 보호 — 16K 본문 호출이 50% 점유)
+//   localStorage 'lastPublishStartAt'에 직전 발행 시작 시각 저장.
+//   90초 미만이면 사용자 안내 + 자동 대기 (취소 가능).
+//   거미줄 + 일반 글포스팅 양쪽 동일 키 공유 → 어느 모드 발행이든 다음 발행은 90초 후.
+async function _enforcePublishGap(minSec) {
+  const minMs = (minSec || 90) * 1000;
+  const lastAt = parseInt(localStorage.getItem('lastPublishStartAt') || '0', 10);
+  const now = Date.now();
+  const elapsed = now - lastAt;
+  if (lastAt && elapsed < minMs) {
+    const waitMs = minMs - elapsed;
+    const waitSec = Math.ceil(waitMs / 1000);
+    const ok = confirm('⏱️ OpenAI Tier 1 API 한도 보호\n\n직전 발행 후 ' + Math.floor(elapsed/1000) + '초 경과 (권장: 90초+).\n지금 발행하면 TPM 한도(분당 30,000토큰) 초과 가능.\n\n• 확인: ' + waitSec + '초 자동 대기 후 발행\n• 취소: 발행 중단');
+    if (!ok) return false;
+    // 안내 + 대기
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+  // 발행 시작 시각 기록
+  try { localStorage.setItem('lastPublishStartAt', String(Date.now())); } catch {}
+  return true;
+}
+window._enforcePublishGap = _enforcePublishGap;
+
 async function generateAndPublishSpiderWeb() {
   console.log('[SPIDER-WEB] generateAndPublishSpiderWeb 호출됨');
+  // v3.8.80: API 한도 보호 — 직전 발행 후 90초 미만이면 자동 대기 또는 중단
+  const okGap = await _enforcePublishGap(90);
+  if (!okGap) return;
 
   try {
     updateSelectedPostsFromInputs();
