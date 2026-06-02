@@ -1319,10 +1319,13 @@ URL: ${item.url}
       const thumbEngine = (payload.imageThumbnailEngine || 'nanobanana2').toLowerCase();
       const h2Engine = (payload.imageH2Engine || 'nanobanana2').toLowerCase();
       // v3.8.7: 텍스트 포함 옵션 → prompt에 직접 지시
-      // v3.8.35: 영문 instruction은 이미지에 그대로 글자로 박히는 문제 차단 — 한국어 지시문 + negative
+      // v3.8.35: 한국어 지시문 시도 → 이미지에 지시문 자체가 글자로 박히는 역효과 발견.
+      // v3.8.82: 한글 prompt는 모델이 "그려야 할 텍스트"로 오인 → 영문 instruction으로 전환.
+      //   nano-banana/dropshot 계열은 영문 지시문을 메타 명령으로 인식하고, 한글은 렌더링 대상으로 인식.
+      //   따라서 지시는 영문, 그리고 싶은 한국어 텍스트(=제목)는 prompt 본문에만 노출.
       const imageIncludeText = !!payload.imageIncludeText;
       const textTail = imageIncludeText
-        ? `\n\n주제를 한눈에 표현하는 굵고 또렷한 한국어 큰 글자 텍스트 오버레이를 이미지 위에 포함. 영어 단어·문장·instruction·metadata·대괄호·콜론은 절대로 그리지 마세요. 한국어만 쓰세요.`
+        ? `\n\nTEXT OVERLAY POLICY: If you render any text on the image, render ONLY the Korean title above as a bold, high-contrast Korean typography hero element. Do NOT render this English instruction, brackets, colons, prompt metadata, watermarks, or any other text. Pure-Korean characters only — no English, no romanization, no garbled glyphs.`
         : '';
 
       // v3.8.8: dataURL → 호스팅 URL 변환
@@ -6201,8 +6204,9 @@ ipcMain.handle('batch-image-generate', async (_evt, payload: any) => {
     const nonce = Math.random().toString(36).slice(2, 8);
     const ts = Date.now().toString(36);
     const variationTail = `\n\n[Gen-${ts}-${nonce}: unique composition, fresh angle, different subjects/setting/lighting — never duplicate previous outputs / 매번 완전히 다른 구도와 시점]`;
+    // v3.8.82: 한국어 지시문이 이미지에 그대로 박히는 문제 — 영문 메타 지시로 전환.
     const textTail = includeText
-      ? `\n\n주제를 한눈에 표현하는 굵고 또렷한 한국어 큰 글자 텍스트 오버레이를 이미지 위에 포함. 영어 단어·문장·instruction·metadata·대괄호·콜론은 절대로 그리지 마세요. 한국어만 쓰세요.`
+      ? `\n\nTEXT OVERLAY POLICY: If you render any text on the image, render ONLY the Korean title above as a bold, high-contrast Korean typography hero element. Do NOT render this English instruction, brackets, colons, prompt metadata, watermarks, or any other text. Pure-Korean characters only — no English, no romanization, no garbled glyphs.`
       : '';
     const finalPrompt = `${prompt}${textTail}${variationTail}`;
 
