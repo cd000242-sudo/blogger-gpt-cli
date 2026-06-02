@@ -78,31 +78,36 @@ export function applyWordPressInlineStyles(html: string): string {
     // 구조: 680px 폭 → 60~70자/줄 / 48px 섹션 간격
     // !important 필수 — WP 테마 오버라이드 방지
 
-    // H2 - 틸 악센트
+    // v3.8.78 (Agent A+B 2026 권장): 타이포 계층 재정립
+    //   - H2 24px / H3 20px / P 17px (Material Design 3 CJK + 한국 GeneratePress 표준)
+    //   - line-height 1.8 (CJK 권장 1.7-1.85 중앙값)
+    //   - letter-spacing -0.01em (한국어 가독성)
+
+    // H2 - 틸 악센트, 24px
     styledHtml = styledHtml.replace(/<h2([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      const newStyle = `color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-size: 22px !important; font-weight: 700 !important; margin: 48px 0 20px 0 !important; padding: 16px 20px !important; background: #f0fdfa !important; border-left: 5px solid #0d9488 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 8px 8px 0 !important; line-height: 1.4 !important; letter-spacing: -0.02em !important;`;
+      const newStyle = `color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-size: 24px !important; font-weight: 800 !important; margin: 56px 0 24px 0 !important; padding: 18px 22px !important; background: #f0fdfa !important; border-left: 5px solid #0d9488 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 10px 10px 0 !important; line-height: 1.4 !important; letter-spacing: -0.02em !important;`;
       return `<h2${cleanAttrs ? ' ' + cleanAttrs : ''} style="${newStyle}">`;
     });
 
-    // H3 - 시안 악센트
+    // H3 - 시안 악센트, 20px (P와 명확 분리)
     styledHtml = styledHtml.replace(/<h3([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      const newStyle = `color: #1e293b !important; -webkit-text-fill-color: #1e293b !important; font-size: 19px !important; font-weight: 600 !important; margin: 36px 0 16px 0 !important; padding: 12px 16px !important; background: transparent !important; border-left: 4px solid #0891b2 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 !important; line-height: 1.4 !important;`;
+      const newStyle = `color: #1e293b !important; -webkit-text-fill-color: #1e293b !important; font-size: 20px !important; font-weight: 700 !important; margin: 40px 0 18px 0 !important; padding: 12px 18px !important; background: transparent !important; border-left: 4px solid #0891b2 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 !important; line-height: 1.4 !important;`;
       return `<h3${cleanAttrs ? ' ' + cleanAttrs : ''} style="${newStyle}">`;
     });
 
-    // H4
+    // H4 — 18px
     styledHtml = styledHtml.replace(/<h4([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      const newStyle = `color: #334155 !important; font-size: 17px !important; font-weight: 700 !important; margin: 28px 0 12px 0 !important; padding-left: 12px !important; border-left: 3px solid #94a3b8 !important; line-height: 1.4 !important;`;
+      const newStyle = `color: #334155 !important; font-size: 18px !important; font-weight: 700 !important; margin: 30px 0 14px 0 !important; padding-left: 14px !important; border-left: 3px solid #94a3b8 !important; line-height: 1.4 !important;`;
       return `<h4${cleanAttrs ? ' ' + cleanAttrs : ''} style="${newStyle}">`;
     });
 
-    // P - 수익 최적화 가독성
+    // P — 17px / line-height 1.8 (한국어 CJK 권장)
     styledHtml = styledHtml.replace(/<p([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      const newStyle = `color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; font-size: 18px !important; line-height: 1.85 !important; margin: 0 0 24px 0 !important; word-break: keep-all !important; letter-spacing: -0.01em !important;`;
+      const newStyle = `color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; font-size: 17px !important; line-height: 1.8 !important; margin: 0 0 20px 0 !important; word-break: keep-all !important; letter-spacing: -0.01em !important;`;
       return `<p${cleanAttrs ? ' ' + cleanAttrs : ''} style="${newStyle}">`;
     });
 
@@ -150,9 +155,10 @@ export function applyWordPressInlineStyles(html: string): string {
       return `<ol${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 20px 0 !important; padding: 20px 20px 20px 40px !important; background: #fafafa !important; border-left: 3px solid #e2e8f0 !important; border-radius: 0 6px 6px 0 !important;">`;
     });
 
+    // v3.8.78: LI 17→16px, line-height 1.8 (CJK)
     styledHtml = styledHtml.replace(/<li([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      return `<li${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 8px 0 !important; line-height: 1.85 !important; font-size: 17px !important; color: #1a1a1a !important;">`;
+      return `<li${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 6px 0 !important; line-height: 1.8 !important; font-size: 16px !important; color: #1a1a1a !important; letter-spacing: -0.01em !important;">`;
     });
 
     // 인용구
@@ -181,18 +187,46 @@ export function applyWordPressInlineStyles(html: string): string {
     // 수익 최적화 CSS — 통일 디자인
     const themeFriendlyCSS = `
 <style>
-  /* 수익 최적화 WordPress 레이아웃 - Full-Width */
+  /* 수익 최적화 WordPress 레이아웃 v3.8.78 (2026 모바일 가독성 + AdSense 권장)
+     - max-width 720px (60-70자/줄, GeneratePress 표준)
+     - font 17px / line-height 1.8 (CJK 권장)
+     - Pretendard 우선 (HTTP Archive 2024 한국 최다 사용) → Noto Sans KR → 시스템 폴백 */
   .wp-styled-content {
-    max-width: 100% !important;
-    margin: 0 !important;
-    padding: 20px 5% !important;
+    max-width: 720px !important;
+    margin: 0 auto !important;
+    padding: 20px 24px !important;
     box-sizing: border-box !important;
-    font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-    font-size: 18px !important;
-    line-height: 1.85 !important;
+    font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    font-size: 17px !important;
+    line-height: 1.8 !important;
     color: #1a1a1a !important;
     word-break: keep-all !important;
     background: #ffffff !important;
+    letter-spacing: -0.01em !important;
+  }
+  /* v3.8.78: 도입부 카드 P 정렬 — 첫 P margin-top 0, 마지막 P margin-bottom 0 */
+  .wp-intro-card > p:first-child { margin-top: 0 !important; }
+  .wp-intro-card > p:last-child { margin-bottom: 0 !important; }
+  /* v3.8.78: 광고 전후 단락 margin 제거 (광고 공백 누적 차단) */
+  .wp-styled-content ins.adsbygoogle + p,
+  .wp-styled-content p + ins.adsbygoogle,
+  .wp-styled-content .adsbygoogle + p,
+  .wp-styled-content p:has(+ .adsbygoogle) { margin-top: 8px !important; margin-bottom: 8px !important; }
+  /* v3.8.78: TL;DR / E-E-A-T / CTA 박스 내부 광고 차단 */
+  .wp-styled-content .tldr-answer-box ins,
+  .wp-styled-content .tldr-answer-box .adsbygoogle,
+  .wp-styled-content .eeat-meta-box ins,
+  .wp-styled-content .eeat-meta-box .adsbygoogle,
+  .wp-styled-content .freshness-meta ins,
+  .wp-styled-content .freshness-meta .adsbygoogle,
+  .wp-styled-content [class*="cta"] ins,
+  .wp-styled-content [class*="cta"] .adsbygoogle {
+    display: none !important;
+    visibility: hidden !important;
+    width: 0 !important; height: 0 !important;
+    overflow: hidden !important;
+    position: absolute !important;
+    left: -9999px !important;
   }
   .wp-styled-content * {
     box-sizing: border-box !important;
@@ -234,8 +268,21 @@ export function applyWordPressInlineStyles(html: string): string {
     background: #f8fafc !important;
     border: 1px solid #e2e8f0 !important;
     border-radius: 12px !important;
-    padding: 28px 32px !important;
-    margin: 0 0 24px 0 !important;
+    padding: 24px 28px !important;
+    margin: 0 0 28px 0 !important;
+  }
+  /* v3.8.78: CTA 박스 모바일 48px 터치 타깃 + 풀폭 버튼 (WCAG 2.5.5) */
+  @media screen and (max-width: 768px) {
+    .wp-styled-content [class*="cta"] a,
+    .wp-styled-content a[style*="background:linear-gradient(135deg,#ef4444"],
+    .wp-styled-content a[style*="background-color:#ef4444"] {
+      display: block !important;
+      width: 100% !important;
+      min-height: 48px !important;
+      padding: 16px 20px !important;
+      font-size: 16px !important;
+      box-sizing: border-box !important;
+    }
   }
 
   /* 모바일 (≤768px) */
@@ -250,20 +297,24 @@ export function applyWordPressInlineStyles(html: string): string {
       margin: 16px 0 !important;
       border-radius: 10px !important;
     }
+    /* v3.8.78 모바일 (≤768px): H2 22→데스크탑 24px의 모바일 비율 유지 */
     .wp-styled-content h2 {
-      font-size: 19px !important;
-      padding: 12px 0 12px 16px !important;
-      margin: 36px 0 16px 0 !important;
+      font-size: 22px !important;
+      padding: 14px 18px !important;
+      margin: 40px 0 18px 0 !important;
     }
     .wp-styled-content h3 {
-      font-size: 17px !important;
-      padding: 10px 0 10px 12px !important;
-      margin: 24px 0 12px 0 !important;
+      font-size: 19px !important;
+      padding: 10px 14px !important;
+      margin: 28px 0 14px 0 !important;
     }
     .wp-styled-content p {
       font-size: 16px !important;
       line-height: 1.8 !important;
       margin: 0 0 18px 0 !important;
+    }
+    .wp-styled-content li {
+      font-size: 15px !important;
     }
     .wp-styled-content table {
       width: 100% !important;
