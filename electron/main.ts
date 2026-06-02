@@ -2066,6 +2066,46 @@ ${generatedLabels.slice(0, 6).map((kw) => `<meta property="article:tag" content=
         console.warn('[INTERNAL-CONSISTENCY] ⚠️ inline style 보강 실패:', skinErr?.message);
       }
 
+      // v3.8.73 (Phase 3 작업 12): GEO/AEO 적용 진단 요약 — 발행 직전 적용 상태 한눈에 확인
+      try {
+        const checks = {
+          'TL;DR 답변 박스': /class\s*=\s*["'][^"']*tldr-answer-box/i.test(generatedContent),
+          'Freshness Last updated': /class\s*=\s*["'][^"']*freshness-meta/i.test(generatedContent),
+          'E-E-A-T 메타 박스': /class\s*=\s*["'][^"']*eeat-meta-box/i.test(generatedContent),
+          'JSON-LD Article': /"@type"\s*:\s*"Article"/i.test(generatedContent),
+          'JSON-LD Person': /"@type"\s*:\s*"Person"/i.test(generatedContent),
+          'JSON-LD Organization': /"@type"\s*:\s*"Organization"/i.test(generatedContent),
+          'FAQPage Schema': /"@type"\s*:\s*"FAQPage"/i.test(generatedContent),
+          'HowTo Schema': /"@type"\s*:\s*"HowTo"/i.test(generatedContent),
+          '주제별 Schema (Government/Financial/Medical)': /"@type"\s*:\s*"(GovernmentService|FinancialProduct|MedicalWebPage)"/i.test(generatedContent),
+          'DefinedTerm Schema': /"@type"\s*:\s*"DefinedTerm"/i.test(generatedContent),
+          'Speakable Schema': /"@type"\s*:\s*"SpeakableSpecification"/i.test(generatedContent),
+          'ImageObject Schema': /"@type"\s*:\s*"ImageObject"/i.test(generatedContent),
+          '통계 박스 (Quotable Stat)': /class\s*=\s*["'][^"']*[^>]*<p[^>]*>📊\s*핵심\s*통계/i.test(generatedContent) || /📊\s*핵심\s*통계/i.test(generatedContent),
+          '한국어 NLP 라벨 정규화': generatedLabels.length >= 5,
+          'CTA 빨간 박스': /background[^"']*linear-gradient[^"']*ef4444/i.test(generatedContent),
+          '인라인 스킨 CSS': /<style>[\s\S]*?\.max-mode-article/i.test(generatedContent),
+        };
+        const passed = Object.entries(checks).filter(([_, v]) => v).length;
+        const total = Object.keys(checks).length;
+        const passRate = Math.round((passed / total) * 100);
+        const summaryLines = [
+          `[GEO-AEO-AUDIT] ════════ 발행 직전 GEO/AEO 적용 진단 ════════`,
+          `[GEO-AEO-AUDIT] 종합 점수: ${passed}/${total} (${passRate}%)`,
+          ...Object.entries(checks).map(([k, v]) => `[GEO-AEO-AUDIT] ${v ? '✅' : '❌'} ${k}`),
+          `[GEO-AEO-AUDIT] ══════════════════════════════════════`,
+        ];
+        summaryLines.forEach((l) => console.log(l));
+        try {
+          const { BrowserWindow: BW_A } = await import('electron');
+          BW_A.getAllWindows().forEach((w) => {
+            summaryLines.forEach((line) => { try { w.webContents.send('log-line', line); } catch {} });
+          });
+        } catch {}
+      } catch (auditErr: any) {
+        console.warn('[INTERNAL-CONSISTENCY] GEO/AEO 진단 요약 실패:', auditErr?.message);
+      }
+
       // v3.8.42/v3.8.46: 거미줄 진단 로그 — IPC로 renderer 콘솔에 전달.
       //   main 프로세스 console.log는 패키지 빌드에서 renderer 콘솔에 안 보이므로 IPC로 push.
       const hasSwCornerstone = generatedContent.includes('sw-cornerstone');

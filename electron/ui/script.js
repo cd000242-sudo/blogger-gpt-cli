@@ -8979,9 +8979,9 @@ document.addEventListener('DOMContentLoaded', async function () {
   // 로그 메시지 수신 (진행률과 동기화)
   if (window.blogger && window.blogger.onLog) {
     window.blogger.onLog((line) => {
-      // v3.8.51/v3.8.54: 거미줄 진단 로그를 콘솔에 직접 출력 (SPIDER-STEP/PUBLISH-SPIDER/INTERNAL-CONSISTENCY-SPIDER/DISPATCH)
+      // v3.8.51/v3.8.54/v3.8.73: 거미줄 진단 로그를 콘솔에 직접 출력
       try {
-        if (/\[(SPIDER-STEP|PUBLISH-SPIDER|INTERNAL-CONSISTENCY-SPIDER|DISPATCH|DISPATCH-THUMB|PUBLISH-SPIDER-WEB|INTERNAL-CONSISTENCY)\]/.test(line)) {
+        if (/\[(SPIDER-STEP|PUBLISH-SPIDER|INTERNAL-CONSISTENCY-SPIDER|DISPATCH|DISPATCH-THUMB|PUBLISH-SPIDER-WEB|INTERNAL-CONSISTENCY|GEO-AEO-AUDIT)\]/.test(line)) {
           console.log(line);
         }
       } catch {}
