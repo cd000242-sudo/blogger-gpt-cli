@@ -1205,6 +1205,23 @@ URL: ${item.url}
           const sourceUrls = sortedContents.map((c) => c.url).filter(Boolean);
           let urlPtr = 0;
 
+          // v3.8.77 추가 패턴: 다양한 후킹·버튼 케이스 모두 매칭
+          //   - 후킹 문구가 ?로 끝나거나 "싶다면" 등으로 끝나는 단락
+          //   - 다음에 <a> 또는 <p><a> 또는 <p>버튼 텍스트</p>
+          const ctaBroadPattern = /<p[^>]*>\s*([^<]{6,120}?(?:\?|싶다면|궁금하시다면|더\s*알고|상세히|자세히|확인하|놓치지\s*마)\s*[?!]?\s*[\.。]?)\s*<\/p>\s*(?:<p[^>]*>\s*)?(?:<a[^>]*href=["']([^"']*)["'][^>]*>\s*)?([^<\n]{6,150}?(?:🔥|✨|💡|👉|→|>>|»|자세히|상세|보기|확인|신청|받기|클릭|GO))(?:\s*<\/a>)?(?:\s*<\/p>)?/gi;
+          generatedContent = generatedContent.replace(ctaBroadPattern, (_match, hook, href, btn) => {
+            const url = (href && /^https?:\/\//i.test(href)) ? href : (sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#');
+            urlPtr++;
+            const safeHook = String(hook).replace(/[<>]/g, '').trim();
+            const safeBtn = String(btn).replace(/[<>]/g, '').trim();
+            return `<div style="margin:32px 0 !important;padding:28px 24px !important;background-color:#dbeafe !important;background:linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%) !important;border:2px solid #93c5fd !important;border-radius:16px !important;text-align:center !important;max-width:100% !important;box-sizing:border-box !important;box-shadow:0 6px 20px rgba(59,130,246,0.18) !important;">
+  <p style="margin:0 0 16px !important;color:#1e3a8a !important;font-size:17px !important;font-weight:800 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
+  <p style="margin:0 !important;text-align:center !important;">
+    <a href="${url}" target="_blank" rel="noopener" style="display:inline-block !important;padding:16px 32px !important;background-color:#ef4444 !important;background:linear-gradient(135deg,#ef4444 0%,#f97316 100%) !important;color:#ffffff !important;text-decoration:none !important;font-size:16px !important;font-weight:800 !important;border-radius:12px !important;box-shadow:0 6px 16px rgba(239,68,68,0.4) !important;">${safeBtn}</a>
+  </p>
+</div>`;
+          });
+
           // v3.8.74: 패턴 2 — <p>후킹?</p>\s*<a href="…">버튼 텍스트</a> (wrap 없는 a 태그 단독)
           //   사용자 보고: 박스 wrap 없이 후킹+버튼만 왼쪽 정렬로 나옴 → 정규식이 a 태그 단독 케이스 매칭 못함
           const ctaAnchorPattern = /<p[^>]*>\s*([^<]{8,80}?(?:\?|싶다면|\s궁금|\s더\s알고|\s확인하고)\s*[?<])\s*<\/p>\s*<a[^>]*href=["']([^"']+)["'][^>]*>\s*([^<]{8,120}?)\s*<\/a>/gi;
@@ -1929,6 +1946,17 @@ ${generatedLabels.slice(0, 6).map((kw) => `<meta property="article:tag" content=
       } catch (naverErr: any) {
         console.warn('[INTERNAL-CONSISTENCY] 네이버 SEO/한국어 NLP 실패:', naverErr?.message);
       }
+
+      // v3.8.77: 평문 "한눈에 답변" 중복 자동 제거 (LLM이 박스 wrap 빠뜨린 경우)
+      try {
+        const beforeLen = generatedContent.length;
+        generatedContent = generatedContent
+          .replace(/<p[^>]*>\s*💡\s*한눈에\s*답변[\s\S]{0,500}?<\/p>/gi, '')
+          .replace(/<div(?![^>]*tldr-answer-box)[^>]*>\s*💡\s*한눈에\s*답변[\s\S]{0,500}?<\/div>/gi, '');
+        if (generatedContent.length !== beforeLen) {
+          console.log(`[INTERNAL-CONSISTENCY] ✅ 평문 "한눈에 답변" 중복 제거 (${beforeLen - generatedContent.length}자)`);
+        }
+      } catch {}
 
       // v3.8.62 (Phase 1 작업 1): 일반 글포스팅의 GEO 시스템(JSON-LD + E-E-A-T) 거미줄 이식.
       //   Agent A·B 분석: 거미줄 GEO 10점 / Blogger 글포스팅 85점 — 동일 시스템 이식하면 75점 점프.
@@ -3593,8 +3621,22 @@ ${labelsPost.slice(0, 6).map((kw: string) => `<meta property="article:tag" conte
     // v3.8.62 (Phase1 작업3): TL;DR 답변 박스 자동 생성 → H1 직후 삽입 (AEO/GEO Tier 1)
     //   일반 글포스팅의 H1 직후에 정의형 직답 + 핵심 수치 3개 박스 자동 주입.
     //   거미줄은 LLM 프롬프트에 강제 반영 — 일반 글포스팅은 후처리로 보장.
+    // v3.8.77: 중복 차단 강화
+    //   LLM이 도입부에 박은 평문 "한눈에 답변" / "💡 한눈에 답변" 비슷한 텍스트를 자동 제거.
+    //   사용자 보고: TL;DR 박스 위에 같은 내용의 평문 단락이 또 노출됨 → 본문 정리 후 박스 삽입.
     try {
-      const htmlSrc = String(result.html || result.content || '');
+      let htmlSrc0 = String(result.html || result.content || '');
+      const before = htmlSrc0.length;
+      htmlSrc0 = htmlSrc0
+        // 평문 "💡 한눈에 답변 ..." 패턴 (박스 wrap 없는 p 또는 div)
+        .replace(/<p[^>]*>\s*💡\s*한눈에\s*답변[\s\S]{0,500}?<\/p>/gi, '')
+        .replace(/<div(?![^>]*tldr-answer-box)[^>]*>\s*💡\s*한눈에\s*답변[\s\S]{0,500}?<\/div>/gi, '');
+      if (htmlSrc0.length !== before) {
+        (result as any).html = htmlSrc0;
+        (result as any).content = htmlSrc0;
+        console.log(`[RUN-POST] ✅ 평문 "한눈에 답변" 중복 제거 (${before - htmlSrc0.length}자)`);
+      }
+      const htmlSrc = htmlSrc0;
       const alreadyHasTldr = /class\s*=\s*["'][^"']*tldr-answer-box/i.test(htmlSrc);
       if (!alreadyHasTldr && /<\/h1>/i.test(htmlSrc)) {
         const titleForTldr = result.title || payload.topic || '';
