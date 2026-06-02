@@ -1150,6 +1150,13 @@ URL: ${item.url}
    - 결론·면책 포함 모든 섹션을 끝까지 완성 (중간에 끊지 마세요)
    - H2 정확히 ${sortedContents.length + 3}개, **거미줄 CTA는 원본 대응 H2(1~${sortedContents.length}번)에만**, 검색 의도 1편 완전 커버
 
+🚨 **잘림(truncation) 절대 금지 — v3.8.83 사용자 반복 보고**:
+   - 가장 자주 잘리는 위치: 마지막 H2 (5번 "실전 적용 가이드"의 H3 "신청 전 반드시 확인해야 할 체크리스트")
+   - **반드시** 마지막 \`</div>\` 닫기 태그까지 한 번에 완성. "(이하 생략)", "...", "[계속]", "(다음 편에서)" 절대 금지.
+   - 모든 <ul>·<table>·<aside>·<div>의 여는 태그와 닫는 태그가 1:1 일치하는지 출력 직전 자체 검사.
+   - 본문 후반(7번 "더 깊이 알아보기 카드 그리드"와 8번 "결론·면책")부터 작성한 뒤 앞으로 채우는 전략은 금지 — 1번부터 순서대로, **마지막 면책 조항의 마침표까지** 한 호흡에 완성.
+   - 출력은 반드시 \`</div>\` (sw-cornerstone 닫기)로 끝나야 함.
+
 지금 위 구조를 정확히 지켜 8,000자+ HTML을 작성하세요.
 `;
 
@@ -1184,6 +1191,61 @@ URL: ${item.url}
         }
         if (plainLen < 3000 || h2Count < 3) {
           sendDiag(`❌ 재시도 후에도 본문 너무 짧음 (평문 ${plainLen}자, H2 ${h2Count}개) — 폴백 사용`);
+        }
+
+        // v3.8.83: 잘림 자동 감지 + continuation 호출 (사용자 보고: 5-1 체크리스트 잘림)
+        //   판별: 끝 200자가 </div> 닫기로 끝나지 않거나, 마지막 토큰이 문장 중간으로 보이는 경우.
+        //   조치: "다음 부분부터 이어서 끝까지 완성" 후속 호출 1회 (최대 1회).
+        const looksTruncated = (html: string): boolean => {
+          if (!html) return false;
+          const tail = html.slice(-400).trim();
+          // 닫는 </div> 또는 </p>로 끝나지 않으면 잘림 의심
+          if (!/<\/(div|p|li|table|ul|ol|aside)>\s*$/i.test(tail)) return true;
+          // <ul>/<table>/<div> 여닫이 짝 불일치 검사
+          const openDivs = (html.match(/<div\b/gi) || []).length;
+          const closeDivs = (html.match(/<\/div>/gi) || []).length;
+          if (openDivs - closeDivs > 2) return true;
+          const openUls = (html.match(/<ul\b/gi) || []).length;
+          const closeUls = (html.match(/<\/ul>/gi) || []).length;
+          if (openUls - closeUls > 0) return true;
+          // 마침표·물음표·느낌표 없이 한국어 음절로 끝나면 의심
+          const lastVisible = html.replace(/<[^>]+>/g, '').trim().slice(-30);
+          if (/[가-힣]$/.test(lastVisible) && !/[\.\?\!。？！」』]\s*$/.test(lastVisible)) return true;
+          return false;
+        };
+
+        if (looksTruncated(generatedContent) && plainLen >= 3000) {
+          sendDiag(`⚠️ HTML 잘림 감지 (총 ${generatedContent.length}자) — continuation 호출`);
+          try {
+            const tail = generatedContent.slice(-1200);
+            const contPrompt = `방금 작성하다 끊긴 HTML을 자연스럽게 이어 끝까지 완성해주세요.
+
+[지금까지 작성된 마지막 부분]
+${tail}
+
+[규칙]
+- 위 텍스트의 마지막 미완성 문장/태그를 자연스럽게 이어 작성
+- 누락된 H2, H3, 체크리스트, 결론, 면책 조항을 모두 채워 완성
+- 마지막 줄은 반드시 \`</div>\` (sw-cornerstone 닫기)
+- 절대 처음부터 다시 쓰지 말 것 — 끊긴 다음 부분만 출력
+- 인사말, "이어서 작성하겠습니다" 같은 메타 멘트 금지
+- HTML fragment만 출력 (\`\`\`html 마크다운 금지)`;
+            const contResult = await model.generateContent({
+              contents: [{ role: 'user', parts: [{ text: contPrompt }] }],
+              generationConfig: { maxOutputTokens: 8000, temperature: 0.7 }
+            });
+            const contText = ((await contResult.response).text() || '')
+              .replace(/```html\n?/gi, '').replace(/```\n?/gi, '').trim();
+            if (contText && contText.length > 100) {
+              generatedContent = generatedContent + '\n' + contText;
+              plainLen = generatedContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+              sendDiag(`✅ continuation 결합 완료 (총 평문 ${plainLen}자)`);
+            } else {
+              sendDiag(`⚠️ continuation 응답 부족 (${contText.length}자) — 그대로 진행`);
+            }
+          } catch (contErr: any) {
+            sendDiag(`⚠️ continuation 호출 실패: ${contErr?.message || contErr}`);
+          }
         }
 
         // v3.8.5: H1~H6 제목 끝의 메타 라벨 자동 제거
@@ -1749,9 +1811,15 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
 </a>`
           ).join('\n  ');
 
+          // v3.8.83: H3 → DIV로 변경 (WP applyWordPressInlineStyles가 H3 inline style을 덮어쓰는 문제 차단)
+          //   기존 H3는 WP CSS 적용 시 cyan border-left만 남아 📌이 별도 줄로 떨어졌음.
+          //   sw-toc-header class로 publisher가 inline style 보존하도록 가드도 추가됨.
           const tocHtml = `
-<div style="margin:40px 0 !important;padding:30px !important;background:#fff7f7 !important;border-radius:20px !important;border:1px solid #fecaca !important;">
-  <h3 style="margin:0 0 20px 0 !important;font-size:20px !important;font-weight:800 !important;color:#991b1b !important;display:flex !important;align-items:center !important;gap:8px !important;background:none !important;border:none !important;padding:0 !important;">📌 전체 읽어보기 절차</h3>
+<div class="sw-toc-box" style="margin:40px 0 !important;padding:30px !important;background:#fff7f7 !important;border-radius:20px !important;border:1px solid #fecaca !important;">
+  <div class="sw-toc-header" style="margin:0 0 20px 0 !important;font-size:22px !important;font-weight:800 !important;color:#991b1b !important;display:flex !important;align-items:center !important;gap:10px !important;background:none !important;border:none !important;padding:0 !important;line-height:1.4 !important;">
+    <span style="display:inline-flex !important;align-items:center !important;justify-content:center !important;flex-shrink:0 !important;width:32px !important;height:32px !important;background:#fee2e2 !important;border-radius:50% !important;font-size:18px !important;">📌</span>
+    <span style="flex:1 !important;">전체 읽어보기 절차</span>
+  </div>
   <div style="display:flex !important;flex-direction:column !important;gap:12px !important;">
   ${tocItems}
   </div>

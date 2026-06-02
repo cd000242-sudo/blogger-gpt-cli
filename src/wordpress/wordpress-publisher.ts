@@ -83,31 +83,34 @@ export function applyWordPressInlineStyles(html: string): string {
     //   - line-height 1.8 (CJK 권장 1.7-1.85 중앙값)
     //   - letter-spacing -0.01em (한국어 가독성)
 
-    // H2 - 틸 악센트, 24px
+    // v3.8.83: 전체 +2px 가독성 강화 (사용자 요청)
+    // H2 - 틸 악센트, 26px (was 24px)
     styledHtml = styledHtml.replace(/<h2([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      const newStyle = `color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-size: 24px !important; font-weight: 800 !important; margin: 56px 0 24px 0 !important; padding: 18px 22px !important; background: #f0fdfa !important; border-left: 5px solid #0d9488 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 10px 10px 0 !important; line-height: 1.4 !important; letter-spacing: -0.02em !important;`;
+      const newStyle = `color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-size: 26px !important; font-weight: 800 !important; margin: 56px 0 24px 0 !important; padding: 18px 22px !important; background: #f0fdfa !important; border-left: 5px solid #0d9488 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 10px 10px 0 !important; line-height: 1.4 !important; letter-spacing: -0.02em !important;`;
       return `<h2${cleanAttrs ? ' ' + cleanAttrs : ''} style="${newStyle}">`;
     });
 
-    // H3 - 시안 악센트, 20px (P와 명확 분리)
+    // H3 - 시안 악센트, 22px (was 20px) — 단 sw-toc-header 클래스는 inline style 보존 (목차 핀 정렬)
     styledHtml = styledHtml.replace(/<h3([^>]*)>/gi, (match, attrs) => {
+      // v3.8.83: 목차 H3는 inline style 그대로 유지 (📌 핀이 같은 줄에 표시되도록)
+      if (/class\s*=\s*["'][^"']*sw-toc-header/i.test(attrs || '')) return match;
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      const newStyle = `color: #1e293b !important; -webkit-text-fill-color: #1e293b !important; font-size: 20px !important; font-weight: 700 !important; margin: 40px 0 18px 0 !important; padding: 12px 18px !important; background: transparent !important; border-left: 4px solid #0891b2 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 !important; line-height: 1.4 !important;`;
+      const newStyle = `color: #1e293b !important; -webkit-text-fill-color: #1e293b !important; font-size: 22px !important; font-weight: 700 !important; margin: 40px 0 18px 0 !important; padding: 12px 18px !important; background: transparent !important; border-left: 4px solid #0891b2 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 !important; line-height: 1.4 !important;`;
       return `<h3${cleanAttrs ? ' ' + cleanAttrs : ''} style="${newStyle}">`;
     });
 
-    // H4 — 18px
+    // H4 — 20px (was 18px)
     styledHtml = styledHtml.replace(/<h4([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      const newStyle = `color: #334155 !important; font-size: 18px !important; font-weight: 700 !important; margin: 30px 0 14px 0 !important; padding-left: 14px !important; border-left: 3px solid #94a3b8 !important; line-height: 1.4 !important;`;
+      const newStyle = `color: #334155 !important; font-size: 20px !important; font-weight: 700 !important; margin: 30px 0 14px 0 !important; padding-left: 14px !important; border-left: 3px solid #94a3b8 !important; line-height: 1.4 !important;`;
       return `<h4${cleanAttrs ? ' ' + cleanAttrs : ''} style="${newStyle}">`;
     });
 
-    // P — 17px / line-height 1.8 (한국어 CJK 권장)
+    // P — 19px (was 17px) / line-height 1.8 (한국어 CJK 권장)
     styledHtml = styledHtml.replace(/<p([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      const newStyle = `color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; font-size: 17px !important; line-height: 1.8 !important; margin: 0 0 20px 0 !important; word-break: keep-all !important; letter-spacing: -0.01em !important;`;
+      const newStyle = `color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; font-size: 19px !important; line-height: 1.8 !important; margin: 0 0 20px 0 !important; word-break: keep-all !important; letter-spacing: -0.01em !important;`;
       return `<p${cleanAttrs ? ' ' + cleanAttrs : ''} style="${newStyle}">`;
     });
 
@@ -134,14 +137,15 @@ export function applyWordPressInlineStyles(html: string): string {
       return `<table${cleanAttrs ? ' ' + cleanAttrs : ''} style="width: 100% !important; max-width: 100% !important; border-collapse: separate !important; border-spacing: 0 !important; margin: 32px 0 !important; border-radius: 10px !important; overflow: hidden !important; border: 1px solid #e2e8f0 !important; table-layout: auto !important;">`;
     });
 
+    // v3.8.83: TH 17px (was 15px), TD 18px (was 16px) — +2px 가독성 강화
     styledHtml = styledHtml.replace(/<th([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      return `<th${cleanAttrs ? ' ' + cleanAttrs : ''} style="padding: 14px 16px !important; background: #f1f5f9 !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-weight: 700 !important; text-align: left !important; font-size: 15px !important; border-bottom: 2px solid #e2e8f0 !important; word-break: break-word !important; overflow-wrap: break-word !important;">`;
+      return `<th${cleanAttrs ? ' ' + cleanAttrs : ''} style="padding: 14px 16px !important; background: #f1f5f9 !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-weight: 700 !important; text-align: left !important; font-size: 17px !important; border-bottom: 2px solid #e2e8f0 !important; word-break: break-word !important; overflow-wrap: break-word !important;">`;
     });
 
     styledHtml = styledHtml.replace(/<td([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      return `<td${cleanAttrs ? ' ' + cleanAttrs : ''} style="padding: 12px 16px !important; border-bottom: 1px solid #f1f5f9 !important; color: #334155 !important; font-size: 16px !important; line-height: 1.7 !important; word-break: break-word !important; overflow-wrap: break-word !important;">`;
+      return `<td${cleanAttrs ? ' ' + cleanAttrs : ''} style="padding: 12px 16px !important; border-bottom: 1px solid #f1f5f9 !important; color: #334155 !important; font-size: 18px !important; line-height: 1.7 !important; word-break: break-word !important; overflow-wrap: break-word !important;">`;
     });
 
     // 리스트
@@ -155,10 +159,10 @@ export function applyWordPressInlineStyles(html: string): string {
       return `<ol${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 20px 0 !important; padding: 20px 20px 20px 40px !important; background: #fafafa !important; border-left: 3px solid #e2e8f0 !important; border-radius: 0 6px 6px 0 !important;">`;
     });
 
-    // v3.8.78: LI 17→16px, line-height 1.8 (CJK)
+    // v3.8.83: LI 16→18px (+2px 가독성 강화), line-height 1.8 (CJK)
     styledHtml = styledHtml.replace(/<li([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      return `<li${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 6px 0 !important; line-height: 1.8 !important; font-size: 16px !important; color: #1a1a1a !important; letter-spacing: -0.01em !important;">`;
+      return `<li${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 6px 0 !important; line-height: 1.8 !important; font-size: 18px !important; color: #1a1a1a !important; letter-spacing: -0.01em !important;">`;
     });
 
     // 인용구
@@ -212,6 +216,25 @@ export function applyWordPressInlineStyles(html: string): string {
   .wp-styled-content p + ins.adsbygoogle,
   .wp-styled-content .adsbygoogle + p,
   .wp-styled-content p:has(+ .adsbygoogle) { margin-top: 8px !important; margin-bottom: 8px !important; }
+  /* v3.8.83: TL;DR 박스 안 ul/li가 회색 sub-box로 분리 보이던 문제 차단 — 노란 박스 한 덩어리로 통합 */
+  .wp-styled-content .tldr-answer-box ul,
+  .wp-styled-content .tldr-answer-box ol {
+    background: transparent !important;
+    border: none !important;
+    border-left: none !important;
+    border-radius: 0 !important;
+    padding: 0 0 0 20px !important;
+    margin: 0 !important;
+  }
+  .wp-styled-content .tldr-answer-box li {
+    background: transparent !important;
+    color: #1e293b !important;
+    font-size: 16px !important;
+    line-height: 1.8 !important;
+  }
+  .wp-styled-content .tldr-answer-box li::marker { color: #b45309 !important; }
+  .wp-styled-content .tldr-answer-box p { color: #0f172a !important; }
+
   /* v3.8.78: TL;DR / E-E-A-T / CTA 박스 내부 광고 차단 */
   .wp-styled-content .tldr-answer-box ins,
   .wp-styled-content .tldr-answer-box .adsbygoogle,
@@ -297,24 +320,24 @@ export function applyWordPressInlineStyles(html: string): string {
       margin: 16px 0 !important;
       border-radius: 10px !important;
     }
-    /* v3.8.78 모바일 (≤768px): H2 22→데스크탑 24px의 모바일 비율 유지 */
+    /* v3.8.83 모바일 (≤768px): 데스크탑 +2px 반영 */
     .wp-styled-content h2 {
-      font-size: 22px !important;
+      font-size: 24px !important;
       padding: 14px 18px !important;
       margin: 40px 0 18px 0 !important;
     }
     .wp-styled-content h3 {
-      font-size: 19px !important;
+      font-size: 21px !important;
       padding: 10px 14px !important;
       margin: 28px 0 14px 0 !important;
     }
     .wp-styled-content p {
-      font-size: 16px !important;
+      font-size: 18px !important;
       line-height: 1.8 !important;
       margin: 0 0 18px 0 !important;
     }
     .wp-styled-content li {
-      font-size: 15px !important;
+      font-size: 17px !important;
     }
     .wp-styled-content table {
       width: 100% !important;
@@ -445,6 +468,15 @@ export function applyWordPressInlineStyles(html: string): string {
   }
 </style>
 `;
+
+    // v3.8.83: 사용자 요청 후처리
+    // (a) 표 위 빈 캡션/빈 첫 행 제거 — LLM이 가끔 표 위에 빈 분홍 배경 줄을 만듦
+    styledHtml = styledHtml.replace(/<caption[^>]*>\s*<\/caption>/gi, '');
+    styledHtml = styledHtml.replace(/<table([^>]*)>\s*(?:<thead[^>]*>\s*)?<tr[^>]*>\s*(?:<t[hd][^>]*>\s*(?:&nbsp;|\s|<br\s*\/?>)*\s*<\/t[hd]>\s*)+<\/tr>\s*(?:<\/thead>\s*)?/gi, '<table$1>');
+    // (b) CTA 버튼 텍스트 끝 "보기 🔥" / " 🔥" 정리 — 단순 박스 버튼만
+    styledHtml = styledHtml.replace(/(<a\b[^>]*>)([^<]*?)\s*🔥\s*(<\/a>)/gi, '$1$2$3');
+    // (c) CTA 위/아래에 있는 "보기 🔥" / "더보기 🔥" 단독 p/span 라인 제거
+    styledHtml = styledHtml.replace(/<(p|span|div)[^>]*>\s*(?:보기|더보기|자세히\s*보기|상세\s*보기)\s*🔥?\s*<\/\1>/gi, '');
 
     // 컨테이너 스타일
     const containerStyle = `max-width: 100% !important; margin: 0 !important; padding: 20px 5% !important; font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important; font-size: 18px !important; line-height: 1.85 !important; color: #1a1a1a !important; word-break: keep-all !important;`;
