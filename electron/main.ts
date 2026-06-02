@@ -1757,6 +1757,53 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
           });
           console.log(`[INTERNAL-CONSISTENCY] ✅ HowTo Schema 추출 (${howto.steps.length}단계)`);
         }
+        // v3.8.67 (Phase 2 작업 6): 주제별 schema 자동 매칭
+        //   본문 키워드로 도메인 감지 → GovernmentService/FinancialProduct/MedicalEntity 추가
+        try {
+          const plainBody = generatedContent.replace(/<[^>]+>/g, ' ').toLowerCase();
+          const topicKeywords = {
+            government: /(정부|복지|지원금|보조금|수당|연금|국가|공공|바우처|혜택|신청|자격|모집|선정|복지로|bokjiro|gov\.kr|보건복지부|행정복지센터)/,
+            financial: /(적금|예금|투자|펀드|주식|보험|대출|이자|금리|은행|증권|연금|저축|배당|수익률|매칭|월 \d+만원|만기|원금)/,
+            medical: /(건강|의료|병원|치료|진료|증상|질환|약|처방|예방|검진|의사|환자|보험.*의료|국민건강)/,
+          };
+          for (const [domain, regex] of Object.entries(topicKeywords)) {
+            if (!regex.test(plainBody)) continue;
+            if (domain === 'government') {
+              additionalSchemas.push({
+                '@type': 'GovernmentService',
+                name: title,
+                description: (excerpt || metaDescription || title).substring(0, 200),
+                provider: { '@type': 'GovernmentOrganization', name: '대한민국 정부' },
+                serviceType: '복지·정부지원',
+                audience: { '@type': 'Audience', audienceType: '대한민국 국민' },
+              });
+              console.log('[INTERNAL-CONSISTENCY] ✅ GovernmentService Schema 자동 매칭');
+              break;
+            } else if (domain === 'financial') {
+              additionalSchemas.push({
+                '@type': 'FinancialProduct',
+                name: title,
+                description: (excerpt || metaDescription || title).substring(0, 200),
+                category: '금융상품·저축·투자',
+              });
+              console.log('[INTERNAL-CONSISTENCY] ✅ FinancialProduct Schema 자동 매칭');
+              break;
+            } else if (domain === 'medical') {
+              additionalSchemas.push({
+                '@type': 'MedicalWebPage',
+                name: title,
+                description: (excerpt || metaDescription || title).substring(0, 200),
+                lastReviewed: new Date().toISOString().split('T')[0],
+                medicalAudience: { '@type': 'MedicalAudience', audienceType: 'patient' },
+              });
+              console.log('[INTERNAL-CONSISTENCY] ✅ MedicalWebPage Schema 자동 매칭');
+              break;
+            }
+          }
+        } catch (topicErr: any) {
+          console.warn('[INTERNAL-CONSISTENCY] 주제별 schema 매칭 실패:', topicErr?.message);
+        }
+
         if (additionalSchemas.length > 0) {
           const extraGraph = {
             '@context': 'https://schema.org',
