@@ -1554,40 +1554,74 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.warn('[INTERNAL-CONSISTENCY] LLM 라벨 생성 실패:', e?.message?.substring(0, 200));
       }
 
-      // v3.8.19: LLM 실패 또는 라벨 < 3 → 제목·소스 키워드 기반 자동 추출 폴백
+      // v3.8.19/v3.8.79: 라벨 폴백 + 한국어 NLP 정규화 통합 (사용자 보고 "엉뚱한 태그" fix)
+      //   사용자 보고 예: "10만원", "10만원으로", "440만원", "만드" — 조사/어미 포함 + 중복 + 무효 어간
+      //   원인:
+      //     1. 폴백이 단순 split → "10만원으로", "만드는" 등 조사·어미 통과
+      //     2. v3.8.71 정규화가 원본 + 정규화 둘 다 추가 → "10만원" + "10만원으로" 중복
+      //   수정: cleanKoreanKeyword 강화 + 정규화 결과만 사용 (원본 폐기) + 무효 어간 차단
+
+      // v3.8.79: 강화된 한국어 키워드 정규화 함수
+      const cleanKoreanKeyword = (kw: string): string => {
+        if (!kw || typeof kw !== 'string') return '';
+        let cleaned = kw.trim();
+        // 조사 제거 (반복 적용 — "으로서" 같은 복합 조사)
+        for (let i = 0; i < 3; i++) {
+          cleaned = cleaned.replace(/(은|는|이|가|을|를|에서|에게|에|으로서|으로|로서|로|와|과|의|도|만|까지|부터|마저|조차|이나|이며|이고|이라|이지)$/g, '');
+        }
+        // 어미·서술어 제거
+        cleaned = cleaned
+          .replace(/(하다|되다|이다|입니다|합니다|됩니다|있다|없다|아니다)$/g, '')
+          .replace(/(하는|되는|있는|없는|이라는|라는|이라고|라고|이고|이며)$/g, '')
+          .replace(/(하면|되면|있으면|없으면|이면|라면)$/g, '')
+          .replace(/(하기|되기|이기)$/g, '')
+          .replace(/(는|던|을|들의)$/g, '');
+        cleaned = cleaned.trim();
+        // 무효 (어간만 남은) 단어 차단
+        if (cleaned.length < 2) return '';
+        if (/^(만드|만들|되|하|있|없|그|이|저|것|수|등|및|또|또한|즉|예|예를|위해|통해|대해|관해|한|두|세|네|다섯)$/.test(cleaned)) return '';
+        // 순수 숫자 또는 1자만 단위 (예: "5명", "1개") 차단
+        if (/^\d{1,4}$/.test(cleaned)) return '';
+        // 끝이 부적절한 단어 (예: "만드" — '들' 누락된 어간)
+        if (/(되|는|기|면)$/.test(cleaned) && cleaned.length <= 3) return '';
+        return cleaned;
+      };
+
       if (generatedLabels.length < 3) {
         try {
           const fallbackSet = new Set<string>();
-          // 통합 제목에서 명사 추출 (2~10자 한글/영문 단어)
-          const titleWords = String(title || '')
-            .replace(/[\(\)\[\]【】〈〉:!?,.\-—–·!?​]/g, ' ')
-            .split(/\s+/)
-            .map((w) => w.trim())
-            .filter((w) => w.length >= 2 && w.length <= 10);
-          for (const w of titleWords) {
-            if (!/^\d+$/.test(w)) fallbackSet.add(w);
-          }
-          // 원본 글 제목에서도 키워드 추출
-          for (const c of sortedContents) {
-            const words = String(c.title || '')
-              .replace(/[\(\)\[\]【】〈〉:!?,.\-—–·!?​]/g, ' ')
+          // 통합 제목 + 원본 글 제목에서 명사 추출 → 정규화
+          const allTitles = [title || '', ...sortedContents.map((c) => c.title || '')];
+          for (const t of allTitles) {
+            const words = String(t)
+              .replace(/[\(\)\[\]【】〈〉:!?,.\-—–·!?​"']/g, ' ')
               .split(/\s+/)
-              .map((w) => w.trim())
-              .filter((w) => w.length >= 2 && w.length <= 10);
+              .map((w) => w.trim());
             for (const w of words) {
-              if (!/^\d+$/.test(w)) fallbackSet.add(w);
+              if (w.length < 2 || w.length > 12) continue;
+              const normalized = cleanKoreanKeyword(w);
+              if (normalized && normalized.length >= 2 && normalized.length <= 10) {
+                fallbackSet.add(normalized);
+              }
               if (fallbackSet.size >= 8) break;
             }
             if (fallbackSet.size >= 8) break;
           }
-          // 기존 LLM 라벨 + 폴백 합치고 5개로
-          const merged = Array.from(new Set([...generatedLabels, ...fallbackSet])).slice(0, 5);
-          if (merged.length > generatedLabels.length) {
-            console.log('[INTERNAL-CONSISTENCY] 라벨 폴백 보강:', merged.join(', '));
+          // LLM 라벨도 정규화
+          const normalizedLLM = generatedLabels.map(cleanKoreanKeyword).filter((k) => k && k.length >= 2);
+          const merged = Array.from(new Set([...normalizedLLM, ...fallbackSet])).slice(0, 5);
+          if (merged.length > 0) {
+            console.log('[INTERNAL-CONSISTENCY] 라벨 정규화·폴백 보강:', merged.join(', '));
             generatedLabels = merged;
           }
         } catch (e: any) {
           console.warn('[INTERNAL-CONSISTENCY] 라벨 폴백 추출 실패:', e?.message);
+        }
+      } else {
+        // LLM 라벨이 충분해도 정규화는 적용 (조사·어미 제거)
+        const normalized = generatedLabels.map(cleanKoreanKeyword).filter((k) => k && k.length >= 2);
+        if (normalized.length > 0) {
+          generatedLabels = Array.from(new Set(normalized)).slice(0, 5);
         }
       }
 
@@ -1927,22 +1961,8 @@ ${generatedLabels.slice(0, 6).map((kw) => `<meta property="article:tag" content=
 `;
         generatedContent = naverMeta + generatedContent;
 
-        // 한국어 NLP: 키워드 명사 원형 추출 (조사·어미 제거)
-        const cleanKoreanKeyword = (kw: string): string => {
-          if (!kw || typeof kw !== 'string') return kw;
-          // 조사 제거: 은/는/이/가/을/를/에/에서/으로/로/와/과/의 등 (단어 끝에서)
-          return kw
-            .replace(/(은|는|이|가|을|를|에서|에게|에|으로|로서|로|와|과|의|도|만|까지|부터|마저|조차)$/g, '')
-            .replace(/(하다|되다|이다|입니다|합니다|됩니다)$/g, '')
-            .trim();
-        };
-        const normalizedLabels = generatedLabels.map(cleanKoreanKeyword).filter((k) => k.length >= 2);
-        if (normalizedLabels.length > 0) {
-          // 정규화된 키워드도 라벨에 추가 (중복 제거)
-          const merged = Array.from(new Set([...generatedLabels, ...normalizedLabels])).slice(0, 10);
-          generatedLabels = merged;
-          console.log(`[INTERNAL-CONSISTENCY] ✅ 네이버 SEO 메타 + 한국어 NLP 키워드 정규화 (${normalizedLabels.length}개)`);
-        }
+        // v3.8.79: 한국어 NLP 키워드 정규화는 위 라벨 생성 단계에서 이미 적용됨 (중복 처리 제거)
+        console.log(`[INTERNAL-CONSISTENCY] ✅ 네이버 SEO 메타 적용 (라벨 ${generatedLabels.length}개)`);
       } catch (naverErr: any) {
         console.warn('[INTERNAL-CONSISTENCY] 네이버 SEO/한국어 NLP 실패:', naverErr?.message);
       }
