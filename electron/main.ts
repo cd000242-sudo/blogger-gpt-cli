@@ -1678,6 +1678,97 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.warn('[INTERNAL-CONSISTENCY] ⚠️ 목차 삽입 실패:', tocErr?.message);
       }
 
+      // v3.8.66 (Phase 2 작업 5): FAQPage + HowTo Schema 자동 주입
+      //   본문에서 자동 추출:
+      //   - Q&A 패턴 → FAQPage JSON-LD (AI Overview Tier 1 인용)
+      //   - 단계 패턴(1. ... 2. ... 또는 <ol>) → HowTo JSON-LD
+      try {
+        const extractFAQs = (html: string): Array<{ q: string; a: string }> => {
+          const faqs: Array<{ q: string; a: string }> = [];
+          // 패턴 1: <h3>질문?</h3><p>답변</p>
+          const h3Re = /<h3[^>]*>([^<]*\?)<\/h3>\s*<p[^>]*>([\s\S]*?)<\/p>/gi;
+          let m;
+          while ((m = h3Re.exec(html)) !== null) {
+            const q = (m[1] || '').trim();
+            const a = (m[2] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            if (q.length > 5 && q.length < 200 && a.length > 20 && a.length < 800) {
+              faqs.push({ q, a });
+            }
+          }
+          // 패턴 2: <h2>자주 묻는 질문</h2> 아래 dt/dd 또는 strong+p
+          if (faqs.length < 2) {
+            const strongRe = /<(strong|b)[^>]*>([^<]*\?)<\/(strong|b)>\s*[:：]?\s*([\s\S]*?)(?=<(strong|b|h\d|hr)|$)/gi;
+            while ((m = strongRe.exec(html)) !== null && faqs.length < 8) {
+              const q = (m[2] || '').trim();
+              const a = (m[4] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+              if (q.length > 5 && q.length < 200 && a.length > 20 && a.length < 800) {
+                faqs.push({ q, a: a.substring(0, 500) });
+              }
+            }
+          }
+          return faqs.slice(0, 8);
+        };
+
+        const extractHowToSteps = (html: string, title: string): { name: string; steps: Array<{ name: string; text: string }> } | null => {
+          // <ol> 패턴 (5-15개 단계)
+          const olRe = /<ol[^>]*>([\s\S]*?)<\/ol>/gi;
+          let olMatch;
+          while ((olMatch = olRe.exec(html)) !== null) {
+            const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+            const steps: Array<{ name: string; text: string }> = [];
+            let li;
+            while ((li = liRe.exec(olMatch[1]!)) !== null) {
+              const text = (li[1] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+              if (text.length > 10 && text.length < 400) {
+                steps.push({ name: `단계 ${steps.length + 1}`, text });
+              }
+            }
+            if (steps.length >= 3 && steps.length <= 15) {
+              return { name: `${title} 단계별 가이드`, steps };
+            }
+          }
+          return null;
+        };
+
+        const faqs = extractFAQs(generatedContent);
+        const howto = extractHowToSteps(generatedContent, title);
+        const additionalSchemas: any[] = [];
+        if (faqs.length >= 2) {
+          additionalSchemas.push({
+            '@type': 'FAQPage',
+            mainEntity: faqs.map(({ q, a }) => ({
+              '@type': 'Question',
+              name: q,
+              acceptedAnswer: { '@type': 'Answer', text: a },
+            })),
+          });
+          console.log(`[INTERNAL-CONSISTENCY] ✅ FAQPage Schema 추출 (${faqs.length}개 Q&A)`);
+        }
+        if (howto) {
+          additionalSchemas.push({
+            '@type': 'HowTo',
+            name: howto.name,
+            step: howto.steps.map((s, i) => ({
+              '@type': 'HowToStep',
+              position: i + 1,
+              name: s.name,
+              text: s.text,
+            })),
+          });
+          console.log(`[INTERNAL-CONSISTENCY] ✅ HowTo Schema 추출 (${howto.steps.length}단계)`);
+        }
+        if (additionalSchemas.length > 0) {
+          const extraGraph = {
+            '@context': 'https://schema.org',
+            '@graph': additionalSchemas,
+          };
+          const extraScript = `<script type="application/ld+json">${JSON.stringify(extraGraph)}</script>`;
+          generatedContent = extraScript + '\n' + generatedContent;
+        }
+      } catch (faqHowtoErr: any) {
+        console.warn('[INTERNAL-CONSISTENCY] FAQPage/HowTo 자동 추출 실패:', faqHowtoErr?.message);
+      }
+
       // v3.8.62 (Phase 1 작업 1): 일반 글포스팅의 GEO 시스템(JSON-LD + E-E-A-T) 거미줄 이식.
       //   Agent A·B 분석: 거미줄 GEO 10점 / Blogger 글포스팅 85점 — 동일 시스템 이식하면 75점 점프.
       //   Schema.org Article + Person + Organization + BreadcrumbList @graph 자동 주입.
