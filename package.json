@@ -1,6 +1,6 @@
 {
   "name": "lba",
-  "version": "3.8.83",
+  "version": "3.8.103",
   "description": "LEADERNAM Orbit - AI-powered blog automation",
   "main": "electron/main.js",
   "scripts": {
@@ -34,16 +34,23 @@
     "watch": "tsc --watch",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
-    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:mac": "node scripts/build-mac.js --arch universal",
     "dist:linux": "npm run build && electron-builder --linux",
     "dist:all": "npm run build && electron-builder --win --mac --linux",
     "pack": "npm run build && node setup-pack-env.js && electron-builder --dir",
     "setup-pack-env": "node setup-pack-env.js",
     "pre-release": "node scripts/pre-release-check.js",
     "release": "npm run build && electron-builder --win --publish always && node scripts/publish-release.js",
-    "release:mac": "npm run build && electron-builder --mac --publish always && node scripts/publish-release.js",
+    "release:mac": "node scripts/build-mac.js --arch universal --publish",
     "release:all": "npm run build && electron-builder --win --mac --linux --publish always && node scripts/publish-release.js",
-    "release:auto": "node scripts/release-auto.js"
+    "release:auto": "node scripts/release-auto.js",
+    "dist:mac:arm64": "node scripts/build-mac.js --arch arm64",
+    "dist:mac:x64": "node scripts/build-mac.js --arch x64",
+    "dist:mac:universal": "node scripts/build-mac.js --arch universal",
+    "dist:mac:unsigned": "node scripts/build-mac.js --arch universal --unsigned",
+    "dist:mac:arm64:unsigned": "node scripts/build-mac.js --arch arm64 --unsigned",
+    "dist:mac:universal:unsigned": "node scripts/build-mac.js --arch universal --unsigned",
+    "release:mac:unsigned": "node scripts/build-mac.js --arch universal --unsigned --publish"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -139,20 +146,31 @@
     "mac": {
       "target": [
         {
-          "target": "default",
+          "target": "dmg",
           "arch": [
-            "x64",
-            "arm64"
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
           ]
         }
       ],
       "category": "public.app-category.productivity",
       "icon": "build/icon.icns",
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "artifactName": "LEADERNAM-Orbit-${version}-${arch}.${ext}",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSDownloadsFolderUsageDescription": "LEADERNAM Orbit saves generated and collected blog images to Downloads.",
+        "NSDocumentsFolderUsageDescription": "LEADERNAM Orbit may open or save user-selected blog automation files."
+      }
     },
     "linux": {
       "target": [
@@ -186,6 +204,10 @@
         "repo": "blogger-gpt-cli",
         "releaseType": "release"
       }
-    ]
+    ],
+    "dmg": {
+      "title": "LEADERNAM Orbit ${version}",
+      "artifactName": "LEADERNAM-Orbit-${version}-${arch}.${ext}"
+    }
   }
 }
