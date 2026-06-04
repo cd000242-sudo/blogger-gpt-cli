@@ -165,6 +165,8 @@
       "artifactName": "LEADERNAM-Orbit-${version}-${arch}.${ext}",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
+      "singleArchFiles": "**/node_modules/@img/*darwin*/**/*",
+      "x64ArchFiles": "**/node_modules/@img/*darwin*/**/*",
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
