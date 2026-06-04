@@ -104,6 +104,10 @@ function saveApiKeys(keys: Map<string, ApiKey>): void {
 
 const apiKeys = loadApiKeys();
 
+function getRouteParam(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? value[0] ?? '' : value ?? '';
+}
+
 // API 키 인증 미들웨어
 function authenticateApiKey(req: Request, res: Response, next: NextFunction): void {
   const apiKey = req.headers['x-api-key'] as string | undefined;
@@ -217,9 +221,9 @@ app.get('/api/blog-index/:blogId', authenticateApiKey, async (req: Request, res:
   try {
     await initExtractors();
     
-    const { blogId } = req.params;
+    const blogId = getRouteParam(req.params['blogId']).trim();
     
-    if (!blogId || blogId.trim().length === 0) {
+    if (blogId.length === 0) {
       res.status(400).json({
         success: false,
         error: '블로그 ID가 필요합니다.'
@@ -531,5 +535,3 @@ export function startApiServer(port?: number): void {
 if (require.main === module) {
   startApiServer();
 }
-
-
