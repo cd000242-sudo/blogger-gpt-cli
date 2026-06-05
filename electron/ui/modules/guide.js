@@ -600,6 +600,11 @@ const guideData = {
 
 // 가이드 모달 표시
 export function showGuide(guideType) {
+  if (guideType === 'platform' && window.__oneclickSetup?.showPlatformGuideHub) {
+    window.__oneclickSetup.showPlatformGuideHub();
+    return;
+  }
+
   const guide = guideData[guideType];
   if (!guide) {
     console.error('가이드를 찾을 수 없습니다:', guideType);

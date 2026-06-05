@@ -62,6 +62,237 @@ const URL_FETCH_TIMEOUT_MS = 10000;
 const MAX_TITLE_LENGTH = 30;
 const MIN_TITLE_LENGTH = 5;
 const MAX_OUTPUT_TOKENS_TITLE = 500;
+const SPIDER_EYE_COMFORT_PALETTES = [
+    {
+        primary: '#2f6f61',
+        primaryDark: '#17443b',
+        primaryLight: '#d9eee6',
+        primarySoft: '#eef8f4',
+        heading: '#173f37',
+        text: '#1f2933',
+        muted: '#587169',
+        border: '#a9d3c5',
+        borderSoft: '#d6e9e2',
+        surface: '#ffffff',
+        surfaceAlt: '#f6fbf8',
+        gradientStart: '#f2faf6',
+        gradientEnd: '#e6f3ee',
+        ctaBg: '#eef8f4',
+        ctaBorder: '#a9d3c5',
+        ctaBadgeBg: '#d9eee6',
+        ctaNote: '#46685f',
+        ctaButtonStart: '#2f6f61',
+        ctaButtonEnd: '#44735f',
+        ctaShadow: 'rgba(47,111,97,0.24)',
+    },
+    {
+        primary: '#3f6f91',
+        primaryDark: '#233f54',
+        primaryLight: '#dcebf6',
+        primarySoft: '#f0f7fb',
+        heading: '#233f54',
+        text: '#1f2933',
+        muted: '#5b7080',
+        border: '#b7d0df',
+        borderSoft: '#dae8f0',
+        surface: '#ffffff',
+        surfaceAlt: '#f7fbfd',
+        gradientStart: '#f4f9fc',
+        gradientEnd: '#e7f1f7',
+        ctaBg: '#f0f7fb',
+        ctaBorder: '#b7d0df',
+        ctaBadgeBg: '#dcebf6',
+        ctaNote: '#4b6272',
+        ctaButtonStart: '#3f6f91',
+        ctaButtonEnd: '#506f88',
+        ctaShadow: 'rgba(63,111,145,0.22)',
+    },
+    {
+        primary: '#68764b',
+        primaryDark: '#3f4a2e',
+        primaryLight: '#e4ebd6',
+        primarySoft: '#f5f8ee',
+        heading: '#354029',
+        text: '#252b20',
+        muted: '#68735a',
+        border: '#c5d3aa',
+        borderSoft: '#e1e9d2',
+        surface: '#ffffff',
+        surfaceAlt: '#fafbf6',
+        gradientStart: '#fafcf5',
+        gradientEnd: '#edf4df',
+        ctaBg: '#f5f8ee',
+        ctaBorder: '#c5d3aa',
+        ctaBadgeBg: '#e4ebd6',
+        ctaNote: '#5f6d4f',
+        ctaButtonStart: '#68764b',
+        ctaButtonEnd: '#7b7a55',
+        ctaShadow: 'rgba(104,118,75,0.22)',
+    },
+    {
+        primary: '#8a5967',
+        primaryDark: '#55343f',
+        primaryLight: '#f0dde3',
+        primarySoft: '#fbf4f6',
+        heading: '#4b2e38',
+        text: '#2d2428',
+        muted: '#755d65',
+        border: '#d9b7c2',
+        borderSoft: '#ecd8df',
+        surface: '#ffffff',
+        surfaceAlt: '#fdf9fa',
+        gradientStart: '#fdf8fa',
+        gradientEnd: '#f4e7ec',
+        ctaBg: '#fbf4f6',
+        ctaBorder: '#d9b7c2',
+        ctaBadgeBg: '#f0dde3',
+        ctaNote: '#6f5360',
+        ctaButtonStart: '#8a5967',
+        ctaButtonEnd: '#7e6674',
+        ctaShadow: 'rgba(138,89,103,0.22)',
+    },
+    {
+        primary: '#43536f',
+        primaryDark: '#252f43',
+        primaryLight: '#dfe6f0',
+        primarySoft: '#f3f6fa',
+        heading: '#253047',
+        text: '#202734',
+        muted: '#59677a',
+        border: '#bcc8d8',
+        borderSoft: '#dde4ee',
+        surface: '#ffffff',
+        surfaceAlt: '#f8fafc',
+        gradientStart: '#f7f9fc',
+        gradientEnd: '#e9eef6',
+        ctaBg: '#f3f6fa',
+        ctaBorder: '#bcc8d8',
+        ctaBadgeBg: '#dfe6f0',
+        ctaNote: '#526074',
+        ctaButtonStart: '#43536f',
+        ctaButtonEnd: '#576277',
+        ctaShadow: 'rgba(67,83,111,0.22)',
+    },
+    {
+        primary: '#6d6552',
+        primaryDark: '#443d2f',
+        primaryLight: '#e8e2d3',
+        primarySoft: '#f7f4ed',
+        heading: '#40392d',
+        text: '#28241d',
+        muted: '#6b6354',
+        border: '#d1c6ac',
+        borderSoft: '#e8dfcf',
+        surface: '#ffffff',
+        surfaceAlt: '#fbfaf6',
+        gradientStart: '#fbfaf6',
+        gradientEnd: '#f0eadc',
+        ctaBg: '#f7f4ed',
+        ctaBorder: '#d1c6ac',
+        ctaBadgeBg: '#e8e2d3',
+        ctaNote: '#635947',
+        ctaButtonStart: '#6d6552',
+        ctaButtonEnd: '#79705f',
+        ctaShadow: 'rgba(109,101,82,0.22)',
+    },
+];
+function hashSpiderPaletteSeed(seed) {
+    let hash = 2166136261;
+    for (let i = 0; i < seed.length; i++) {
+        hash ^= seed.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+}
+function pickSpiderEyeComfortPalette(seed) {
+    const source = String(seed || '').trim() || `${Date.now()}-${Math.random()}`;
+    const index = hashSpiderPaletteSeed(source) % SPIDER_EYE_COMFORT_PALETTES.length;
+    return SPIDER_EYE_COMFORT_PALETTES[index] || SPIDER_EYE_COMFORT_PALETTES[0];
+}
+function buildSpiderCtaBoxStyle(theme, large = false) {
+    return [
+        `margin:${large ? '32px 0' : '28px 0'} !important`,
+        `padding:${large ? '28px 24px' : '24px 20px'} !important`,
+        `background-color:${theme.ctaBg} !important`,
+        `background:linear-gradient(135deg,${theme.gradientStart} 0%,${theme.gradientEnd} 100%) !important`,
+        `border:2px solid ${theme.ctaBorder} !important`,
+        `border-radius:${large ? '16px' : '14px'} !important`,
+        'text-align:center !important',
+        'max-width:100% !important',
+        'box-sizing:border-box !important',
+        `box-shadow:0 6px 20px ${theme.ctaShadow} !important`,
+    ].join(';');
+}
+function buildSpiderCtaButtonStyle(theme, large = false) {
+    return [
+        'display:inline-block !important',
+        `padding:${large ? '16px 32px' : '14px 28px'} !important`,
+        `background-color:${theme.ctaButtonStart} !important`,
+        `background:linear-gradient(135deg,${theme.ctaButtonStart} 0%,${theme.ctaButtonEnd} 100%) !important`,
+        'color:#ffffff !important',
+        'text-decoration:none !important',
+        `font-size:${large ? '16px' : '15px'} !important`,
+        'font-weight:800 !important',
+        `border-radius:${large ? '12px' : '10px'} !important`,
+        `box-shadow:0 ${large ? '6px 16px' : '4px 14px'} ${theme.ctaShadow} !important`,
+    ].join(';');
+}
+function applySpiderEyeComfortColors(html, theme) {
+    const replacements = [
+        [/#0f172a/gi, theme.heading],
+        [/#1e293b/gi, theme.heading],
+        [/#334155/gi, theme.muted],
+        [/#475569/gi, theme.muted],
+        [/#64748b/gi, theme.muted],
+        [/#767676/gi, theme.muted],
+        [/#1a1a1a/gi, theme.text],
+        [/#111827/gi, theme.heading],
+        [/#e2e8f0/gi, theme.borderSoft],
+        [/#e5e7eb/gi, theme.borderSoft],
+        [/#f8fafc/gi, theme.surfaceAlt],
+        [/#fef2f2/gi, theme.gradientStart],
+        [/#fff7f7/gi, theme.gradientStart],
+        [/#fee2e2/gi, theme.primaryLight],
+        [/#fecaca/gi, theme.border],
+        [/#991b1b/gi, theme.heading],
+        [/#7f1d1d/gi, theme.primaryDark],
+        [/#dc2626/gi, theme.primary],
+        [/#b91c1c/gi, theme.ctaButtonEnd],
+        [/#ef4444/gi, theme.ctaButtonStart],
+        [/#f97316/gi, theme.ctaButtonEnd],
+        [/#f87171/gi, theme.primary],
+        [/#fff7ed/gi, theme.gradientStart],
+        [/#fef3c7/gi, theme.gradientStart],
+        [/#fde68a/gi, theme.gradientEnd],
+        [/#f59e0b/gi, theme.primary],
+        [/#92400e/gi, theme.heading],
+        [/#78350f/gi, theme.ctaNote],
+        [/#eef2ff/gi, theme.gradientStart],
+        [/#fce7f3/gi, theme.gradientEnd],
+        [/#6366f1/gi, theme.primary],
+        [/#312e81/gi, theme.heading],
+        [/#eff6ff/gi, theme.gradientStart],
+        [/#e0f2fe/gi, theme.gradientStart],
+        [/#dbeafe/gi, theme.gradientEnd],
+        [/#93c5fd/gi, theme.border],
+        [/#1e3a8a/gi, theme.heading],
+        [/#2563eb/gi, theme.primary],
+        [/#f0fdfa/gi, theme.primarySoft],
+        [/#ecfeff/gi, theme.gradientStart],
+        [/#f0fdf4/gi, theme.gradientEnd],
+        [/#99f6e4/gi, theme.border],
+        [/#0d9488/gi, theme.primary],
+        [/#0891b2/gi, theme.ctaButtonEnd],
+        [/#0f766e/gi, theme.ctaButtonStart],
+        [/#115e59/gi, theme.heading],
+        [/#10b981/gi, theme.primary],
+        [/rgba\(220,\s*38,\s*38,\s*0\.\d+\)/gi, theme.ctaShadow],
+        [/rgba\(239,\s*68,\s*68,\s*0\.\d+\)/gi, theme.ctaShadow],
+        [/rgba\(59,\s*130,\s*246,\s*0\.\d+\)/gi, theme.ctaShadow],
+        [/rgba\(15,\s*118,\s*110,\s*0\.\d+\)/gi, theme.ctaShadow],
+    ];
+    return replacements.reduce((next, [pattern, value]) => next.replace(pattern, value), String(html || ''));
+}
 /**
  * v3.7.22: 거미줄 통합글 폴백 헬퍼 — LLM 실패 시에도 cornerstone 구조 유지.
  *   도입 카드 + 요약표 + 원본별 카드 + 강력한 CTA 박스 + 종합 거미줄 그리드를 생성한다.
@@ -70,79 +301,55 @@ function buildSpiderWebFallbackHtml(title, sortedContents) {
     const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const currentYear = new Date().getFullYear();
     const currentMonth = new Date().getMonth() + 1;
-    // v3.7.22+: 폴백도 끝판왕 회유 — 30% 노출 + 이미지 미끼 + 구체 결핍 3개 + 다음 H2 전환
+    const theme = pickSpiderEyeComfortPalette(`${title}|${sortedContents.map((item) => `${item.title}|${item.url}`).join('|')}`);
     const sectionsHtml = sortedContents.map((item, index) => {
         const safeTitle = escapeHtml(item.title || '제목 없음');
         const safeUrl = escapeHtml(item.url || '#');
-        const safeImg = escapeHtml(item.image || '');
-        const teaser = escapeHtml((item.content || '').substring(0, 400).trim()) + '…';
-        const next = sortedContents[index + 1];
-        const nextTitle = next ? escapeHtml((next.title || '').substring(0, 30)) : '';
-        const imageBlock = safeImg ? `
-<a href="${safeUrl}" target="_blank" rel="noopener" style="display:block;margin:20px 0;position:relative;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.12);">
-  <img src="${safeImg}" alt="${safeTitle}" style="display:block;width:100%;height:auto;">
-  <span style="position:absolute;bottom:12px;right:12px;padding:6px 12px;background:rgba(220,38,38,0.92);color:#fff;border-radius:8px;font-size:12px;font-weight:800;">📖 원본 보기 →</span>
-</a>` : '';
-        const transitionCard = nextTitle ? `
-<div style="margin:24px 0;padding:14px 18px;background:rgba(148,163,184,0.08);border-radius:10px;border-left:3px solid #64748b;font-size:14px;color:#475569;line-height:1.6;">
-  👉 이제 다음은 <strong>${nextTitle}</strong> 차례예요. 많은 분들이 여기서 헷갈리는 부분이 있어요.
-</div>` : '';
+        const excerpt = escapeHtml((item.content || '').substring(0, 1200).trim()) + '…';
         return `
-<h2 style="font-size:24px;font-weight:800;color:#0f172a;margin:48px 0 18px;padding:14px 20px;background:#f0fdfa;border-left:5px solid #0d9488;border-radius:0 10px 10px 0;line-height:1.4;">
+<h2 style="font-size:22px;font-weight:800;color:${theme.heading};margin:48px 0 18px;padding:14px 20px;background:${theme.primarySoft};border-left:5px solid ${theme.primary};border-radius:0 10px 10px 0;line-height:1.4;">
   ${index + 1}. ${safeTitle}
-</h2>${imageBlock}
-<p style="font-size:16px;line-height:1.85;color:#1a1a1a;margin:0 0 20px;">${teaser}</p>
-<div class="cta-box" style="margin:32px 0;padding:24px 28px;background:linear-gradient(135deg,#fff7ed,#fef3c7);border-radius:14px;border:2px solid #f59e0b;text-align:center;">
-  <p style="margin:0 0 12px;font-size:17px;font-weight:800;color:#92400e;line-height:1.5;">💡 위에 다 못 담은 핵심 디테일이 원본에 있어요</p>
-  <p style="margin:0 0 16px;font-size:14px;color:#78350f;line-height:1.7;text-align:left;">
-    원본에만 있는 것:<br>
-    ① 실제 사례·캡처 자료<br>
-    ② 단계별 상세 가이드와 체크리스트<br>
-    ③ 자주 놓치는 함정·예외 케이스
-  </p>
-  <a href="${safeUrl}" target="_blank" rel="noopener" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff !important;text-decoration:none;border-radius:10px;font-weight:800;font-size:15px;box-shadow:0 6px 20px rgba(220,38,38,0.35);">📖 ${safeTitle} 전체 보기 →</a>
-</div>${transitionCard}`;
+</h2>
+<p style="font-size:16px;line-height:1.85;color:${theme.text};margin:0 0 20px;">${excerpt}</p>
+<div class="cta-box" style="${buildSpiderCtaBoxStyle(theme)}">
+  <p style="margin:0 0 10px;font-size:16px;font-weight:700;color:${theme.heading};">💡 ${safeTitle}에 대한 디테일이 더 궁금하다면?</p>
+  <p style="margin:0 0 16px;font-size:14px;color:${theme.ctaNote};line-height:1.7;">원본 글에는 위 본문에 다 담지 못한 실전 사례·수치·체크리스트가 정리돼 있어요.</p>
+  <a href="${safeUrl}" target="_blank" rel="noopener" style="${buildSpiderCtaButtonStyle(theme)}">📖 ${safeTitle} 자세히 보기 →</a>
+</div>`;
     }).join('\n');
     const tableRowsHtml = sortedContents.map((item, idx) => `
-      <tr style="background:${idx % 2 === 0 ? '#fff' : '#f8fafc'};">
-        <td style="padding:14px 18px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;width:30%;">${idx + 1}. ${escapeHtml((item.title || '').substring(0, 30))}</td>
-        <td style="padding:14px 18px;border-bottom:1px solid #e2e8f0;color:#334155;line-height:1.6;">${escapeHtml((item.content || '').substring(0, 120))}…</td>
+      <tr style="background:${idx % 2 === 0 ? theme.surface : theme.surfaceAlt};">
+        <td style="padding:14px 18px;border-bottom:1px solid ${theme.borderSoft};font-weight:700;color:${theme.heading};width:30%;">${idx + 1}. ${escapeHtml((item.title || '').substring(0, 30))}</td>
+        <td style="padding:14px 18px;border-bottom:1px solid ${theme.borderSoft};color:${theme.muted};line-height:1.6;">${escapeHtml((item.content || '').substring(0, 120))}…</td>
       </tr>`).join('');
     const gridHtml = sortedContents.map((item) => {
         const safeTitle = escapeHtml(item.title || '제목 없음');
         const safeUrl = escapeHtml(item.url || '#');
-        const safeImg = escapeHtml(item.image || '');
         const short = escapeHtml((item.content || '').substring(0, 80)) + '…';
-        const thumb = safeImg
-            ? `<div style="width:100%;height:140px;background:url('${safeImg}') center/cover;border-radius:10px 10px 0 0;"></div>`
-            : `<div style="width:100%;height:140px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:10px 10px 0 0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:48px;font-weight:900;">${escapeHtml((item.title || '?').trim().charAt(0))}</div>`;
         return `
-      <a href="${safeUrl}" target="_blank" rel="noopener" style="display:block;background:#fff;border-radius:12px;border:1px solid #e2e8f0;text-decoration:none;color:#1a1a1a;box-shadow:0 2px 8px rgba(0,0,0,0.04);transition:all 0.2s ease;overflow:hidden;">
-        ${thumb}
-        <div style="padding:14px 16px;">
-          <div style="font-size:15px;font-weight:800;color:#0f172a;margin-bottom:6px;line-height:1.4;">${safeTitle}</div>
-          <div style="font-size:12px;color:#64748b;line-height:1.5;">${short}</div>
-          <div style="font-size:12px;color:#dc2626;font-weight:700;margin-top:10px;">📖 원본 보기 →</div>
-        </div>
+      <a href="${safeUrl}" target="_blank" rel="noopener" style="display:block;padding:18px 20px;background:${theme.surface};border-radius:12px;border:1px solid ${theme.borderSoft};text-decoration:none;color:${theme.text};box-shadow:0 2px 8px rgba(0,0,0,0.04);transition:all 0.2s ease;">
+        <div style="font-size:15px;font-weight:800;color:${theme.heading};margin-bottom:6px;line-height:1.4;">${safeTitle}</div>
+        <div style="font-size:12px;color:${theme.muted};line-height:1.5;">${short}</div>
+        <div style="font-size:12px;color:${theme.primary};font-weight:700;margin-top:10px;">자세히 보기 →</div>
       </a>`;
     }).join('');
     return `
-<div class="sw-cornerstone" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR','Malgun Gothic',sans-serif;color:#1a1a1a;line-height:1.8;">
+<div class="sw-cornerstone" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR','Malgun Gothic',sans-serif;color:${theme.text};line-height:1.8;">
 
-  <h1 style="font-size:30px;font-weight:900;color:#0f172a;line-height:1.3;margin:24px 0 14px;letter-spacing:-0.02em;">
+  <h1 style="font-size:30px;font-weight:900;color:${theme.heading};line-height:1.3;margin:24px 0 14px;letter-spacing:-0.02em;">
     ${escapeHtml(title)}
   </h1>
 
-  <div style="background:linear-gradient(135deg,#eef2ff,#fce7f3);border-radius:14px;padding:24px 28px;margin:24px 0;border-left:5px solid #6366f1;">
-    <p style="margin:0 0 14px;font-size:16px;font-weight:700;color:#312e81;line-height:1.6;">📌 이 가이드는 ${currentYear}년 ${currentMonth}월 기준으로 ${sortedContents.length}개의 핵심 정보를 한 편으로 정리한 종합 가이드입니다.</p>
-    <ul style="margin:0;padding-left:22px;color:#1a1a1a;font-size:15px;line-height:1.8;">
+  <div style="background:linear-gradient(135deg,${theme.gradientStart},${theme.gradientEnd});border-radius:14px;padding:24px 28px;margin:24px 0;border-left:5px solid ${theme.primary};">
+    <p style="margin:0 0 14px;font-size:16px;font-weight:700;color:${theme.heading};line-height:1.6;">📌 이 가이드는 ${currentYear}년 ${currentMonth}월 기준으로 ${sortedContents.length}개의 핵심 정보를 한 편으로 정리한 종합 가이드입니다.</p>
+    <ul style="margin:0;padding-left:22px;color:${theme.text};font-size:15px;line-height:1.8;">
       ${sortedContents.map((s, i) => `<li><strong>${i + 1}.</strong> ${escapeHtml((s.title || '').substring(0, 50))}</li>`).join('')}
     </ul>
   </div>
 
-  <table style="width:100%;border-collapse:collapse;margin:32px 0;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.08);border-radius:12px;overflow:hidden;">
+  <table style="width:100%;border-collapse:collapse;margin:32px 0;background:${theme.surface};box-shadow:0 4px 16px rgba(0,0,0,0.08);border-radius:12px;overflow:hidden;">
     <thead>
-      <tr style="background:linear-gradient(135deg,#0d9488,#0891b2);color:#fff;">
+      <tr style="background:linear-gradient(135deg,${theme.primary},${theme.ctaButtonEnd});color:#fff;">
         <th style="padding:14px 18px;text-align:left;font-size:14px;font-weight:800;">항목</th>
         <th style="padding:14px 18px;text-align:left;font-size:14px;font-weight:800;">핵심 요약</th>
       </tr>
@@ -152,18 +359,18 @@ function buildSpiderWebFallbackHtml(title, sortedContents) {
 
   ${sectionsHtml}
 
-  <h2 style="font-size:22px;font-weight:800;color:#0f172a;margin:48px 0 18px;padding:14px 20px;background:#fef3c7;border-left:5px solid #f59e0b;border-radius:0 10px 10px 0;">
+  <h2 style="font-size:22px;font-weight:800;color:${theme.heading};margin:48px 0 18px;padding:14px 20px;background:${theme.primarySoft};border-left:5px solid ${theme.primary};border-radius:0 10px 10px 0;">
     🔗 한눈에 보는 거미줄 — 관련 글 모음
   </h2>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:24px 0;">
     ${gridHtml}
   </div>
 
-  <p style="font-size:16px;font-weight:700;color:#1a1a1a;margin:32px 0 24px;padding:20px 24px;background:#f0fdfa;border-left:4px solid #0d9488;border-radius:0 10px 10px 0;line-height:1.7;">
+  <p style="font-size:16px;font-weight:700;color:${theme.text};margin:32px 0 24px;padding:20px 24px;background:${theme.primarySoft};border-left:4px solid ${theme.primary};border-radius:0 10px 10px 0;line-height:1.7;">
     💡 위 ${sortedContents.length}편을 차례로 읽으면 ${escapeHtml(title.substring(0, 50))}에 대해 가장 빠르게 핵심을 잡을 수 있습니다.
   </p>
 
-  <p style="font-size:12px;color:#767676;line-height:1.6;margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:${theme.muted};line-height:1.6;margin-top:32px;padding-top:16px;border-top:1px solid ${theme.borderSoft};">
     ※ 본 글은 정보 제공 목적으로 작성되었으며, 실제 적용 시 ${currentYear}년 ${currentMonth}월 기준 최신 정보를 공식 사이트에서 재확인하시기 바랍니다.
   </p>
 
@@ -345,161 +552,10 @@ try {
         console.log('[INTERNAL-CONSISTENCY] 기존 종합글 생성 핸들러 제거 중...');
         electron_1.ipcMain.removeHandler('generate-internal-consistency');
     }
-    // v3.7.23: 외부유입 글 생성 핸들러 중복 방지
-    if (electron_1.ipcMain.listenerCount('generate-external-traffic-text') > 0) {
-        electron_1.ipcMain.removeHandler('generate-external-traffic-text');
-    }
-    // v3.8.0: 외부유입 v2 핸들러 (병존)
-    if (electron_1.ipcMain.listenerCount('generate-external-traffic-text-v2') > 0) {
-        electron_1.ipcMain.removeHandler('generate-external-traffic-text-v2');
-    }
-    if (electron_1.ipcMain.listenerCount('external-traffic-list-channels') > 0) {
-        electron_1.ipcMain.removeHandler('external-traffic-list-channels');
-    }
 }
 catch (e) {
     // 무시 (핸들러가 없을 수 있음)
 }
-
-// ─── v3.8.0: 외부유입 v2 핸들러 (v2.3 플랜) ────────────────────────────────
-//   채널 등록 목록 조회.
-electron_1.ipcMain.handle('external-traffic-list-channels', async () => {
-    try {
-        const dispatcher = require('../src/core/external-traffic');
-        return { success: true, channels: dispatcher.listChannels() };
-    }
-    catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error('[EXT-TRAFFIC v2] listChannels 실패:', msg);
-        return { success: false, error: msg };
-    }
-});
-
-//   v2 생성: { sourceUrl, sourceTitle, channels[{id,subChannel?,userCustomRule?}], options? }
-//   → { success, results: { [channelId]: { formatted, risk, lengthViolations, retried? } } }
-electron_1.ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload) => {
-    try {
-        const dispatcher = require('../src/core/external-traffic');
-        let validated;
-        try {
-            validated = dispatcher.validateGenerateV2Payload(payload);
-        }
-        catch (ve) {
-            return { success: false, error: 'INVALID_INPUT: ' + (ve instanceof Error ? ve.message : String(ve)) };
-        }
-        const envData = (0, env_1.loadEnvFromFile)();
-        const geminiKey = (envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '').trim();
-        if (!geminiKey || geminiKey.length < 20) {
-            return { success: false, error: 'Gemini API 키가 필요합니다. 설정 탭에서 입력해주세요.' };
-        }
-        const { GoogleGenerativeAI } = await Promise.resolve().then(() => __importStar(require('@google/generative-ai')));
-        const genAI = new GoogleGenerativeAI(geminiKey);
-        const model = await selectGeminiModel(genAI);
-
-        const sourceSummary = dispatcher.buildMinimalSummary(validated.sourceTitle, validated.sourceUrl);
-        const results = {};
-        for (const ch of validated.channels) {
-            try {
-                const channelObj = dispatcher.getChannel(ch.id);
-                if (!channelObj) {
-                    results[ch.id] = { error: 'UNKNOWN_CHANNEL' };
-                    continue;
-                }
-                const { system, user, maxOutputTokens } = dispatcher.buildPromptPair(ch.id, {
-                    sourceSummary,
-                    sourceUrl: validated.sourceUrl,
-                    sourceTitle: validated.sourceTitle,
-                    subChannel: ch.subChannel,
-                    userCustomRule: ch.userCustomRule,
-                });
-
-                let userPrompt = user;
-                let attempt = 0;
-                let lastResult = null;
-                while (attempt < 2) {
-                    const result = await model.generateContent({
-                        contents: [{ role: 'user', parts: [{ text: `${system}\n\n${userPrompt}` }] }],
-                        generationConfig: {
-                            maxOutputTokens: maxOutputTokens || 2000,
-                            temperature: 0.85,
-                        },
-                    });
-                    const response = await result.response;
-                    const text = (response.text() || '').trim();
-                    if (!text) {
-                        attempt++;
-                        continue;
-                    }
-                    const processed = dispatcher.processResponse(ch.id, text);
-                    lastResult = {
-                        rawText: text,
-                        formatted: processed.formatted,
-                        risk: processed.risk,
-                        lengthViolations: processed.lengthViolations,
-                        retried: attempt > 0,
-                        attempt: attempt + 1,
-                    };
-                    if (processed.lengthViolations.length === 0) break;
-                    userPrompt = user + dispatcher.buildRetryHint(processed.lengthViolations);
-                    attempt++;
-                }
-                if (!lastResult) {
-                    results[ch.id] = { error: 'EMPTY_LLM_RESPONSE' };
-                }
-                else {
-                    results[ch.id] = lastResult;
-                }
-            }
-            catch (chErr) {
-                const msg = chErr instanceof Error ? chErr.message : String(chErr);
-                console.error(`[EXT-TRAFFIC v2] ${ch.id} 실패:`, msg);
-                results[ch.id] = { error: msg };
-            }
-        }
-        return { success: true, results };
-    }
-    catch (e) {
-        console.error('[EXT-TRAFFIC v2] 핸들러 실패:', e);
-        const msg = e instanceof Error ? e.message : String(e);
-        return { success: false, error: msg };
-    }
-});
-
-// v3.7.23: 외부유입 v1 핸들러 — deprecation 유지 (UI 점진 전환 중)
-//   payload: { system, user } — Gemini로 변환 글 1개 생성하여 반환.
-electron_1.ipcMain.handle('generate-external-traffic-text', async (_evt, payload) => {
-    try {
-        const system = (payload && payload.system) || '';
-        const user = (payload && payload.user) || '';
-        if (!user.trim()) {
-            return { success: false, error: '프롬프트가 비어있습니다.' };
-        }
-        const envData = (0, env_1.loadEnvFromFile)();
-        const geminiKey = (envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '').trim();
-        if (!geminiKey || geminiKey.length < 20) {
-            return { success: false, error: 'Gemini API 키가 필요합니다. 설정 탭에서 입력해주세요.' };
-        }
-        const { GoogleGenerativeAI } = await Promise.resolve().then(() => __importStar(require('@google/generative-ai')));
-        const genAI = new GoogleGenerativeAI(geminiKey);
-        const model = await selectGeminiModel(genAI);
-        const result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: `${system}\n\n${user}` }] }],
-            generationConfig: {
-                maxOutputTokens: 4000,
-                temperature: 0.85,
-            },
-        });
-        const response = await result.response;
-        const text = (response.text() || '').trim();
-        if (!text) return { success: false, error: '빈 응답이 반환됐어요. 다시 시도해주세요.' };
-        return { success: true, text };
-    }
-    catch (e) {
-        console.error('[EXT-TRAFFIC] 생성 실패:', e);
-        const msg = e instanceof Error ? e.message : String(e);
-        return { success: false, error: msg };
-    }
-});
 // 라이선스 상태 조회
 electron_1.ipcMain.handle('license-status', async () => {
     try {
@@ -740,6 +796,11 @@ electron_1.ipcMain.handle('load-auto-login-config', async () => {
 // 내부일관성글 제목 생성 핸들러
 electron_1.ipcMain.handle('generate-internal-consistency-title', async (_evt, payload) => {
     try {
+        // v3.8.38: 무료 체험은 글포스팅만 허용 — 거미줄 제목 자동 생성 차단
+        const { blockIfFreeTier } = require('./auth-utils');
+        const gate = await blockIfFreeTier('거미줄 통합글 제목 자동 생성');
+        if (!gate.allowed)
+            return gate.response;
         console.log('[INTERNAL-CONSISTENCY] 제목 생성 요청:', payload);
         const urls = payload.urls || [];
         if (urls.length === 0) {
@@ -820,43 +881,104 @@ electron_1.ipcMain.handle('generate-internal-consistency-title', async (_evt, pa
             console.error('[INTERNAL-CONSISTENCY] ❌ 모든 2.0 이상 모델 실패:', errorMsg);
             throw new Error(`Gemini 2.0 이상 모델을 사용할 수 없습니다. ${errorMsg}`);
         }
-        const prompt = `
-다음 URL들에서 추출한 제목들을 분석하여, 이 글들을 모두 포함하는 SEO에 최적화되고 클릭을 유발하는 종합 글 제목을 생성해주세요.
+        // v3.8.65 (Phase1 작업4): 제목 A/B 3변형 동시 생성 + CTR 점수로 자동 선택
+        //   기존: 1개 제목만 생성, 패턴 고정
+        //   개선: 긴급/호기심/숫자 3가지 변형 → 점수화 → 최고 선택
+        //   기준 (Backlinko 누적): 50-60자 / 키워드 앞쪽 / 이모지 1개 이하 / 숫자+연도
+        const prompt = `다음 URL들에서 추출한 제목들을 분석하여, 종합 글 제목 **3가지 변형**을 JSON 배열로 생성하세요.
 
 【추출된 제목들】
 ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
 
-📌 **제목 생성 요구사항:**
-- 위 제목들을 모두 포함하는 종합적인 주제를 파악하여 반영
-- SEO에 최적화 (핵심 키워드 포함)
-- 클릭을 유발하는 강력한 제목 (20-30자)
-- "종합", "가이드", "모든 것" 같은 흔한 표현 지양
-- 구체적 숫자나 질문형, 긴급성 요소 포함 가능
-- 자연스럽고 읽기 쉬운 제목
+📌 **3가지 변형 패턴 (정확히 3개)**:
+1. **긴급성형(urgency)**: 시간/마감/한정 요소 강조 ("지금 신청 마감 임박", "${new Date().getFullYear()} 마지막 기회")
+2. **호기심형(curiosity)**: 의외성/반전/궁금증 ("아무도 모르는", "진짜 이유", "숨겨진 조건")
+3. **숫자형(numeric)**: 구체적 수치 강조 ("월 10만원으로 1,440만원", "3년 만기 N% 수익")
 
-⚠️ **출력 형식:**
-- 단 하나의 제목만 출력
-- 마크다운 형식 사용 금지
-- 번호나 설명 없이 제목만 출력
+📐 **공통 규칙 (각 제목 적용)**:
+- 50-60자 (한글 기준, 모바일 SERP 잘림 방지)
+- 핵심 검색 키워드를 앞쪽 30% 안에 배치
+- ${new Date().getFullYear()}년 표기 포함
+- 이모지 1개 이하 (과사용 시 신뢰도↓)
+- "종합", "모든 것" 같은 진부한 표현 금지
 
-제목만 출력해주세요.
+⚠️ **출력 형식 (엄격)**:
+정확히 다음 JSON 형식 1줄로만 출력 (마크다운·설명 금지):
+{"urgency":"제목1","curiosity":"제목2","numeric":"제목3"}
 `;
-        // safeGenerateContent 직접 구현 (간단한 버전)
+        // CTR 점수 함수 — 50-60자 적정, 숫자/연도 포함, 이모지 1개 이하, 키워드 위치
+        const scoreTitle = (t) => {
+            if (!t || typeof t !== 'string')
+                return 0;
+            let score = 0;
+            const len = t.length;
+            // 길이 (50-60자 최적)
+            if (len >= 50 && len <= 60)
+                score += 30;
+            else if (len >= 40 && len <= 70)
+                score += 20;
+            else if (len >= 30 && len <= 80)
+                score += 10;
+            // 숫자 포함
+            if (/\d/.test(t))
+                score += 15;
+            // 연도 포함
+            if (new RegExp(`${new Date().getFullYear()}`).test(t))
+                score += 15;
+            // 이모지 개수 (1개 이하 권장)
+            const emojiCount = (t.match(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{27BF}]/gu) || []).length;
+            if (emojiCount === 0)
+                score += 8;
+            else if (emojiCount === 1)
+                score += 10;
+            else if (emojiCount === 2)
+                score += 3;
+            // 호기심·긴급성 키워드
+            if (/(지금|마감|임박|놓치지|꼭|반드시|독점|단독|진짜|숨겨진|아무도|비밀|총정리|완벽)/.test(t))
+                score += 12;
+            // 구체적 수치 패턴 (XX원, X개월, X% 등)
+            if (/\d+\s*(만원|원|개월|년|%|위|위안|배|일)/.test(t))
+                score += 10;
+            return score;
+        };
         let generatedTitle = '';
         try {
             const result = await model.generateContent({
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: {
-                    maxOutputTokens: MAX_OUTPUT_TOKENS_TITLE,
-                    temperature: 0.9,
-                }
+                generationConfig: { maxOutputTokens: 600, temperature: 0.9 }
             });
             const response = await result.response;
-            generatedTitle = response.text();
+            const raw = (response.text() || '').trim();
+            // JSON 추출 (마크다운 백틱 제거)
+            const cleaned = raw.replace(/^```json\n?/gi, '').replace(/^```\n?/gi, '').replace(/```\n?$/gi, '').trim();
+            let variants = {};
+            try {
+                variants = JSON.parse(cleaned);
+            }
+            catch {
+                // JSON 파싱 실패 → 단일 제목으로 폴백
+                const fallbackLine = cleaned.split(/\n+/).find((l) => l.length >= 20 && l.length <= 80) || cleaned;
+                variants = { urgency: fallbackLine };
+            }
+            const candidates = [];
+            for (const type of ['urgency', 'curiosity', 'numeric']) {
+                const t = (variants[type] || '').trim().replace(/^["'`]|["'`]$/g, '');
+                if (t && t.length >= 15 && t.length <= 100) {
+                    candidates.push({ title: t, type, score: scoreTitle(t) });
+                }
+            }
+            if (candidates.length > 0) {
+                candidates.sort((a, b) => b.score - a.score);
+                generatedTitle = candidates[0].title;
+                console.log(`[INTERNAL-CONSISTENCY] ✅ 제목 A/B 3변형 점수`, candidates.map((c) => `${c.type}(${c.score}점): "${c.title.substring(0, 40)}…"`).join(' | '));
+                console.log(`[INTERNAL-CONSISTENCY] 🏆 선택: ${candidates[0].type} (${candidates[0].score}점)`);
+            }
+            else {
+                generatedTitle = cleaned.split(/\n+/)[0].trim();
+            }
         }
         catch (error) {
             console.error('[INTERNAL-CONSISTENCY] AI 제목 생성 실패:', error);
-            // 폴백: 크롤링한 제목들을 조합
             const topKeywords = crawledTitles[0].split(/\s+/).slice(0, 3);
             generatedTitle = `${topKeywords.join(' ')} 종합 가이드 ${new Date().getFullYear()}`;
         }
@@ -899,12 +1021,58 @@ ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
 // 내부일관성글 종합글 생성 핸들러
 electron_1.ipcMain.handle('generate-internal-consistency', async (_evt, payload) => {
     try {
+        // v3.8.54: 단계별 IPC 진단 로그 — 사용자 콘솔에 실시간 진행 위치 표시
+        const sendDiag = (msg) => {
+            try {
+                const { BrowserWindow: BW } = require('electron');
+                BW.getAllWindows().forEach((w) => { try {
+                    w.webContents.send('log-line', `[SPIDER-STEP] ${msg}`);
+                }
+                catch { } });
+            }
+            catch { }
+            console.log(`[SPIDER-STEP] ${msg}`);
+        };
+        sendDiag('🚀 거미줄 핸들러 진입 — payload 수신');
+        // v3.8.38: 무료 체험은 글포스팅만 허용 — 거미줄 통합글 생성 차단
+        const { blockIfFreeTier } = require('./auth-utils');
+        const gate = await blockIfFreeTier('거미줄 통합글 생성');
+        if (!gate.allowed) {
+            sendDiag('⛔ 무료 체험 차단 — 종료');
+            return gate.response;
+        }
+        sendDiag('✅ 라이선스 게이트 통과');
         console.log('[INTERNAL-CONSISTENCY] 종합글 생성 요청:', payload);
-        const urls = payload.urls || [];
-        const title = payload.title || '종합 가이드';
-        const posts = payload.posts || [];
-        if (urls.length === 0) {
-            return { success: false, error: 'URL이 필요합니다.' };
+        // v3.8.28/v3.8.30: WordPress wp-admin URL → 공개 글 URL 정규화 (백엔드 안전망)
+        //   v3.8.30: Pretty Permalinks 사이트에선 ?p=N도 404 → WP REST API로 정확한 link 가져옴.
+        //   API 실패 시 ?p=N 폴백 (REST API 비활성·인증 필요 사이트 대비).
+        // v3.8.59: timeout 8 → 5초 (빠른 실패) + 진단 로그
+        const _normalizeWpUrl = async (u) => {
+            if (!u || typeof u !== 'string')
+                return u || '';
+            const m = u.match(/^(https?:\/\/[^/]+)\/wp-admin\/post\.php\?[^#]*\bpost=(\d+)/i);
+            if (!m)
+                return u;
+            try {
+                const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+                const r = await axios.get(`${m[1]}/wp-json/wp/v2/posts/${m[2]}`, { timeout: 5000, validateStatus: () => true });
+                const link = r?.data?.link;
+                if (typeof link === 'string' && /^https?:\/\//i.test(link) && !/\/wp-admin\//i.test(link)) {
+                    return link;
+                }
+            }
+            catch { }
+            return `${m[1]}/?p=${m[2]}`;
+        };
+        sendDiag('🔗 URL 정규화 시작');
+        const urls = await Promise.all((payload.urls || []).map(_normalizeWpUrl));
+        sendDiag(`✅ URL 정규화 완료 — ${urls.length}개`);
+        let title = payload.title || '종합 가이드';
+        const posts = await Promise.all((payload.posts || []).map(async (p) => ({ ...p, url: await _normalizeWpUrl(p.url) })));
+        sendDiag(`✅ posts 정규화 완료 — ${posts.length}개`);
+        // v3.8.76: 거미줄 통합글은 최소 2개 이상 글 필요 (백엔드 안전망)
+        if (urls.length < 2) {
+            return { success: false, error: `거미줄 통합글은 최소 2개 이상의 글이 필요합니다. 현재 ${urls.length}개.` };
         }
         // 1단계: 환경변수에서 API 키 가져오기
         const envData = (0, env_1.loadEnvFromFile)();
@@ -937,6 +1105,7 @@ electron_1.ipcMain.handle('generate-internal-consistency', async (_evt, payload)
         puppeteer_extra_1.default.use((0, puppeteer_extra_plugin_stealth_1.default)());
         let browser = null;
         try {
+            sendDiag('🕷️ 크롤링 시작 (Puppeteer 실행)');
             browser = await puppeteer_extra_1.default.launch({
                 headless: true, // "new" is deprecated in latest puppeteer
                 args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
@@ -959,33 +1128,6 @@ electron_1.ipcMain.handle('generate-internal-consistency', async (_evt, payload)
                     // 제목 추출 (정밀)
                     let extractedTitle = $('title').text().trim() || post.title || '제목 없음';
                     extractedTitle = extractedTitle.replace(/\s*\|\s*.*$/, '').replace(/\s*-\s*.*$/, '').trim();
-                    // v3.7.22: 대표 이미지 추출 (og:image → twitter:image → 본문 첫 큰 이미지)
-                    //   끝판왕 거미줄 회유: 각 H2 섹션 헤더에 이 이미지를 클릭 가능한 미끼로 배치한다.
-                    let representativeImage = '';
-                    try {
-                        const ogImg = $('meta[property="og:image"]').attr('content')
-                            || $('meta[name="og:image"]').attr('content')
-                            || $('meta[property="og:image:url"]').attr('content');
-                        const twImg = $('meta[name="twitter:image"]').attr('content')
-                            || $('meta[property="twitter:image"]').attr('content');
-                        if (ogImg && /^https?:/i.test(ogImg)) {
-                            representativeImage = ogImg;
-                        } else if (twImg && /^https?:/i.test(twImg)) {
-                            representativeImage = twImg;
-                        } else {
-                            const candidates = [];
-                            $('article img, .entry-content img, .post-content img, .se-main-container img, main img, .view_content img').each((_, el) => {
-                                const src = $(el).attr('src') || $(el).attr('data-src') || '';
-                                if (src && /^https?:/i.test(src) && !/icon|logo|avatar|emoji|btn|button|placeholder/i.test(src)) {
-                                    candidates.push(src);
-                                }
-                            });
-                            if (candidates.length > 0) representativeImage = candidates[0];
-                        }
-                    } catch (imgErr) {
-                        console.warn(`[INTERNAL-CONSISTENCY] 이미지 추출 실패 (${url}):`, imgErr?.message);
-                    }
-
                     // 본문 내용 추출 (정밀)
                     // 불필요한 요소 제거
                     $('script, style, iframe, nav, footer, header, aside, .ads, .comments').remove();
@@ -1019,8 +1161,9 @@ electron_1.ipcMain.handle('generate-internal-consistency', async (_evt, payload)
                         crawledContents.push({
                             url,
                             title: extractedTitle,
+                            // v3.7.22: 종합 가이드 품질 향상을 위해 원본 인풋 확장 (3000 → 9000자/글, 5글 = 45K자 인풋)
+                            //   Gemini 2.x 1M 컨텍스트 한도 내. 종합글이 5개 원본의 70%+ 핵심을 충분히 흡수하도록.
                             content: content.substring(0, MAX_CONTENT_LENGTH * 3),
-                            image: representativeImage,
                             order: post.order
                         });
                         console.log(`[INTERNAL-CONSISTENCY] ✅ 크롤링 성공 (${post.order}번째): ${extractedTitle.substring(0, 30)}... (${content.length}자)`);
@@ -1082,181 +1225,321 @@ electron_1.ipcMain.handle('generate-internal-consistency', async (_evt, payload)
                 throw new Error(`Gemini 2.0 이상 모델을 사용할 수 없습니다. ${errorMsg}`);
             }
             // 크롤링된 콘텐츠를 순서대로 정렬
+            sendDiag(`✅ 크롤링 완료 — ${crawledContents.length}개 글, LLM 호출 준비`);
             const sortedContents = crawledContents.sort((a, b) => a.order - b.order);
-            // v3.7.22+: 끝판왕 회유 프롬프트 — "정보 30% + 결핍 70% 미끼" 전략
-            //   사용자 요구의 본질: "독자가 5개 원본을 하나씩 클릭할 수밖에 없게 만들어야 한다"
-            //     → 종합글 = "지도" 역할만, 본론은 원본에 있음을 구체적으로 명시 (누락 정보 3개를 hook으로)
-            //     → H2 간 문맥 흐름 (이전 → 다음 자연스러운 전환)
-            //     → 각 H2에 og:image로 추출한 대표 이미지를 클릭 가능 미끼로 배치
-            //     → 본문 80~90%가 아니라 30~40%만 노출, 나머지 60~70%는 원본 URL로 유도
+            // v3.7.22: 통합글 프롬프트 전면 재작성
+            //   기존 프롬프트는 "5개 글 70% 요약 + CTA" 수준이라 사용자 의도(애드센스 + 외부유입 + 거미줄)가 반영 안 됨.
+            //   → cornerstone 가이드 구조 + 광고 친화 H2 6~7개 + 거미줄 회유 CTA + FAQ + 표 강제.
             const currentYear = new Date().getFullYear();
-            const currentMonthHint = new Date().getMonth() + 1;
-            const sourceCount = sortedContents.length;
-            const sourceList = sortedContents.map((item, idx) => `
-══════════════════════════
-원본 #${idx + 1}
+            const spiderTheme = pickSpiderEyeComfortPalette(`${title}|${sortedContents.map((item) => `${item.title}|${item.url}`).join('|')}`);
+            const prompt = `
+당신은 한국 애드센스 블로그 cornerstone 콘텐츠를 설계하는 SEO + UX 전문가입니다.
+**중요 — 피아식별**: 아래 ${sortedContents.length}개 원본 글은 모두 **작성자 본인이 직접 쓴 본인의 글**입니다. 타인/경쟁사 글 절대 아님.
+따라서 통합글 전반에서 "원글 N", "원본 N", "관점", "출처", "참고", "발췌" 같은 표현·메타 표기를 **절대 사용하지 마세요**.
+본인이 처음부터 끝까지 직접 쓴 하나의 완성된 종합 가이드처럼 자연스럽게 풀어내세요.
+
+다음 ${sortedContents.length}개 본인 글을 통합해 **검색 의도 1편 완전 커버 + 애드센스 수익 최적화 + 거미줄 회유**가 동시에 작동하는 종합 가이드를 작성하세요.
+
+【통합글 제목】
+${title}
+
+【본인이 작성한 글 ${sortedContents.length}개 — 자료원】
+${sortedContents.map((item, idx) => `
+═══ 자료 ${idx + 1} ═══
 제목: ${item.title}
 URL: ${item.url}
-대표 이미지: ${item.image || '(없음)'}
-본문 발췌(분석용·9000자 한도, 출력에는 30%만 노출):
-${(item.content || '').substring(0, 9000)}
-══════════════════════════`).join('\n');
+본문(8000자 한도): ${item.content.substring(0, 8000)}
+`).join('\n')}
 
-            const prompt = `
-당신은 한국 애드센스 블로그의 **끝판왕 회유형 cornerstone 콘텐츠** 설계자입니다.
-다음 ${sourceCount}개의 연관 글(같은 주제 클러스터)을 종합해 독자가 ${sourceCount}개 모두를 클릭할 수밖에 없는 종합 가이드를 작성하세요.
+🎯 **3대 핵심 목표** (반드시 동시 충족):
 
-【통합글 제목】 ${title}
+① **검색 1페이지 진입**: 8,000자+ 롱폼 + E-E-A-T 신뢰성 + ${currentYear}년 최신성
+② **애드센스 수익 최적화**: H2 6~7개로 광고 슬롯 자연 호흡 + 표·체크리스트로 체류시간 ↑
+③ **거미줄 회유 (외부유입 핵심)**: 각 H2 끝에 해당 원본 글로 가는 강력한 CTA로 독자 회유
 
-【원본 ${sourceCount}편】
-${sourceList}
+📐 **필수 출력 구조 (HTML fragment, <div> 래퍼 시작)**:
 
 ═══════════════════════════════════════
-🔥 **본질 (절대 지킬 것)**:
-이 종합글은 "본론"이 아니라 **"지도(map)"**입니다.
-독자가 종합글을 다 읽어도 만족하면 실패입니다. 다 읽고 나서
-"어 이건 원본에 가서 봐야겠다"가 ${sourceCount}번 일어나야 성공입니다.
+<div class="sw-cornerstone max-mode-article" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR',sans-serif;color:#1a1a1a;line-height:1.8;">
 
-→ **정보 노출은 30~40%만**. 핵심 결론·정답·구체 수치는 원본에 있음을 명시.
-→ 각 H2 끝에 "원본에만 있는 디테일 3가지"를 구체 hook으로 박을 것:
-   예: "위에 다루지 않은 1) 실제 신청 화면 캡처, 2) 거절 사례 5건, 3) 절세 조합표가 원본에 있어요"
-   ❌ "더 자세한 내용은 원본에" (모호함 = 클릭 0)
-   ✅ "원본에만 있는 [구체 정보 3개]가 정리돼 있어요" (구체성 = 클릭 ↑)
+  1. <h1> 강력한 후킹 제목 (60자 이내, ${currentYear} 포함, 숫자/반전/이익)
+  1-A. 🎯 **TL;DR 답변 박스** (v3.8.62 AEO/GEO 필수) — H1 직후 즉시 배치, 다음 정확한 구조:
+     <div class="tldr-answer-box" style="margin:24px 0;padding:20px 24px;background:linear-gradient(135deg,#fef3c7 0%,#fde68a 100%);border:2px solid #f59e0b;border-radius:14px;">
+       <p style="margin:0 0 8px;color:#78350f;font-size:13px;font-weight:800;letter-spacing:0.5px;">💡 한눈에 답변</p>
+       <p style="margin:0 0 14px;color:#0f172a;font-size:17px;font-weight:700;line-height:1.5;">[정의형 직답 40~60단어: "[주제]는 [카테고리]로서 [핵심 차별점]이며, [핵심 수치/기간/조건]." 패턴 정확히 사용]</p>
+       <ul style="margin:0;padding-left:20px;color:#1e293b;font-size:14px;line-height:1.8;">
+         <li><strong>핵심 수치 1:</strong> [구체적 숫자 + 단위]</li>
+         <li><strong>핵심 수치 2:</strong> [구체적 숫자 + 단위]</li>
+         <li><strong>핵심 수치 3:</strong> [구체적 숫자 + 단위]</li>
+       </ul>
+     </div>
+     - 정의형 직답 패턴 예: "청년내일저축계좌는 만 19~34세 저소득 청년의 자산 형성을 돕는 정부 매칭 적금 제도로, 월 10만원 저축 시 정부가 매월 30만원을 추가 지원해 3년 만기 시 1,440만원 + 이자를 받습니다."
+     - 핵심 수치 3개는 검색 의도 직답 (금액·기간·자격 등)
+     - 🚨 이 TL;DR 박스는 AI Overview/Perplexity가 첫 단락에서 답변을 추출하므로 **절대 누락 금지**
+     - 🚨 **도입부 카드 중복 금지**: TL;DR 박스가 이미 도입부 역할이므로 별도 "도입부 카드"·"이 글에서 다루는 N가지" 같은 추가 박스 절대 생성 금지 (중복 노출 방지)
+  2. 핵심 요약표 (자료 ${sortedContents.length}개의 핵심을 한 줄씩 표 행으로) — TL;DR 박스 바로 다음에 배치
+  4. <h2> 1~${sortedContents.length}번 (원본 글에 1:1 대응)
+     - 본문 1,000~1,500자 (원본 70% 핵심 + 인사이트)
+     - <h3> 2~3개 세부 섹션
+     - 본문 중 통계/수치 강조 <strong>
+     - 🔥 **각 H2당 1개 통계 박스 필수 (v3.8.69 GEO Tier 1, 정확한 구조)**:
+       <aside style="margin:20px 0;padding:16px 20px;background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);border-left:4px solid #2563eb;border-radius:0 10px 10px 0;">
+         <p style="margin:0 0 6px;color:#1e3a8a;font-size:12px;font-weight:800;letter-spacing:0.5px;">📊 핵심 통계</p>
+         <p style="margin:0 0 8px;color:#0f172a;font-size:18px;font-weight:800;line-height:1.4;">[구체적 숫자 + 단위 (예: "월 30만원 매칭 지원", "3년 만기 1,440만원")]</p>
+         <p style="margin:0;color:#475569;font-size:13px;line-height:1.6;">출처: <a href="[정부/공공 사이트 URL]" target="_blank" rel="noopener" style="color:#2563eb;">[기관명: 복지로 / 보건복지부 / 통계청 / 국세청 등]</a> (${new Date().getFullYear()}년 기준)</p>
+       </aside>
+     - **claim → evidence → source 패턴**: 주장 → 구체 수치 → 정부·공공기관 출처 (.go.kr / .or.kr 우선)
+     - **H2 끝에 거미줄 회유 CTA 박스** (아래 CTA 패턴 정확히 사용)
+  5. <h2> 비교 / 자주 묻는 질문 — 한눈에 비교 표 + Q&A 3~5개 (CTA 불필요)
+  6. <h2> 실전 적용 가이드 — 체크리스트 ✅ 5~7개 (CTA 불필요)
+  7. <h2> 더 깊이 알아보기 — 모든 자료 ${sortedContents.length}개 카드 그리드 (이 섹션이 종합 회유)
+     - 카드 그리드는 모바일 친화 <table> 기반으로 작성 (Blogger 테마와 무관하게 무너지지 않음)
+     - 패턴: <table style="width:100% !important;border-collapse:separate !important;border-spacing:12px !important;"><tr><td style="vertical-align:top !important;background-color:#f8fafc !important;padding:20px !important;border-radius:12px !important;border:1px solid #e2e8f0 !important;">카드 내용</td>...</tr></table>
+     - 모바일 1열, 데스크탑 2열로 보이려면 td를 width:50%로 하되 max-width:100%로 폴백
+  8. 결론 1~2줄 + 면책 조항
 
-═══════════════════════════════════════
-📐 **필수 출력 구조** (HTML fragment, <div> wrapper 시작):
+🎯 **CTA 정책 (v3.8.14 변경)**:
+- 거미줄 회유 CTA는 **4번 항목(원본 대응 H2 1~${sortedContents.length}번)에만** 배치
+- 5/6/7/8번엔 CTA 박스 추가 금지 (글 흐름·체류시간 보존)
+- 7번 (더 깊이 알아보기 카드 그리드)이 이미 종합 회유 역할
 
-<div class="sw-cornerstone" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR',sans-serif;color:#1a1a1a;line-height:1.85;">
-
-  **[1] H1 후킹 제목** (60자 이내, ${currentYear} 포함, 숫자/반전/이익)
-  <h1 style="font-size:32px;font-weight:900;color:#0f172a;line-height:1.3;margin:24px 0 14px;letter-spacing:-0.02em;">…</h1>
-
-  **[2] 도입부 카드** (지도 역할 명시)
-  <div style="background:linear-gradient(135deg,#eef2ff,#fce7f3);border-radius:14px;padding:24px 28px;margin:24px 0;border-left:5px solid #6366f1;">
-    <p style="margin:0 0 14px;font-size:16px;font-weight:700;color:#312e81;">
-      📌 이 글은 [주제]를 1편으로 빠르게 훑는 지도예요. 진짜 디테일은 ${sourceCount}편의 원본에 있어요.
-    </p>
-    <ul style="margin:0;padding-left:22px;font-size:15px;line-height:1.9;">
-      ${sourceCount}개 원본의 "핵심 1줄 후킹"을 불릿 ${sourceCount}개로 (각 줄 끝에 →[원본 #N])
-    </ul>
-  </div>
-
-  **[3] 한눈에 비교 요약표** (각 원본의 핵심 한 줄씩 비교)
-  <table style="width:100%;border-collapse:collapse;margin:32px 0;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.08);border-radius:12px;overflow:hidden;">
-    <thead><tr style="background:linear-gradient(135deg,#0d9488,#0891b2);color:#fff;">
-      <th style="padding:14px 18px;text-align:left;">구분</th>
-      <th style="padding:14px 18px;text-align:left;">한 줄 요약</th>
-      <th style="padding:14px 18px;text-align:left;">원본 클릭하면 얻는 것</th>
-    </tr></thead>
-    <tbody>
-      원본 ${sourceCount}개 행 — 마지막 컬럼은 "구체적 미끼" (예: "신청 화면 캡처 + 거절 사례 5건")
-    </tbody>
-  </table>
-
-  **[4] H2 본론 ${sourceCount}개** — 원본에 1:1 대응. 다음 구조 정확히:
-
-  <!-- 각 H2 시작 -->
-  <h2 style="font-size:24px;font-weight:800;color:#0f172a;margin:48px 0 18px;padding:14px 20px;background:#f0fdfa;border-left:5px solid #0d9488;border-radius:0 10px 10px 0;line-height:1.4;">
-    [N번] 강력한 후킹 H2 (원본 키워드 + 호기심 트리거)
-  </h2>
-
-  <!-- 클릭 가능한 대표 이미지 미끼 (대표 이미지가 있을 때만) -->
-  <a href="[원본 #N URL]" target="_blank" rel="noopener" style="display:block;margin:20px 0;position:relative;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.12);">
-    <img src="[대표 이미지 URL]" alt="[원본 제목]" style="display:block;width:100%;height:auto;">
-    <span style="position:absolute;bottom:12px;right:12px;padding:6px 12px;background:rgba(220,38,38,0.92);color:#fff;border-radius:8px;font-size:12px;font-weight:800;">📖 원본 보기 →</span>
-  </a>
-
-  <!-- 본문 600~900자만 (전체의 30~40%, 결론·정답은 숨김) -->
-  <p>핵심 결론 1줄 (속도감) + 짧은 인사이트</p>
-  <p>핵심 데이터 1~2개 <strong>수치 강조</strong> + 짧은 해석 → "그런데 이게 왜 그런지 진짜 이유는 원본 #N에 있어요"</p>
-
-  <h3 style="font-size:18px;font-weight:700;color:#1e293b;margin:28px 0 12px;padding:10px 14px;border-left:4px solid #0891b2;background:transparent;">한 가지만 미리 (전체 X)</h3>
-  <p>핵심 단계 1개만 짧게. "나머지 [구체 단계 3개]는 원본에"</p>
-
-  <!-- 거미줄 회유 CTA 박스 (구체 미끼 3개 필수) -->
-  <div class="cta-box" style="margin:32px 0;padding:24px 28px;background:linear-gradient(135deg,#fff7ed,#fef3c7);border-radius:14px;border:2px solid #f59e0b;text-align:center;">
-    <p style="margin:0 0 12px;font-size:17px;font-weight:800;color:#92400e;line-height:1.5;">
-      💡 [구체적 결핍 후킹 1줄 — 예: "조건 잘못 알면 100만원 손해보는 함정 케이스"]
-    </p>
-    <p style="margin:0 0 16px;font-size:14px;color:#78350f;line-height:1.7;text-align:left;">
-      원본에만 있는 디테일:<br>
-      ① [구체 정보 1 — 예: "거절당한 5건의 실제 사유"]<br>
-      ② [구체 정보 2 — 예: "신청 화면 단계별 캡처 12장"]<br>
-      ③ [구체 정보 3 — 예: "타 제도와 조합 시 절세 시뮬레이션 표"]
-    </p>
-    <a href="[원본 #N URL]" target="_blank" rel="noopener" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff !important;text-decoration:none;border-radius:10px;font-weight:800;font-size:15px;box-shadow:0 6px 20px rgba(220,38,38,0.35);">
-      📖 [원본 #N 제목] 전체 보기 →
-    </a>
-  </div>
-
-  <!-- 다음 H2로 가는 자연스러운 전환 카드 (마지막 H2 제외) -->
-  <div style="margin:24px 0;padding:14px 18px;background:rgba(148,163,184,0.08);border-radius:10px;border-left:3px solid #64748b;font-size:14px;color:#475569;line-height:1.6;">
-    👉 지금까지 [#N 키워드]를 봤다면, 다음은 자연스럽게 [#N+1 키워드] 차례입니다.
-       특히 많은 분들이 여기서 [실수/혼동]하는 함정이 있어요.
-  </div>
-  <!-- /각 H2 끝 -->
-
-  **[5] 종합 비교 + FAQ H2**
-  <h2>한눈에 ${sourceCount}편 비교 & 자주 묻는 질문</h2>
-  - <h3>${sourceCount}편 비교표</h3> (모든 원본의 핵심 차이 한눈에)
-  - <h3>자주 묻는 질문 5개</h3> Q&A
-     (각 답변 끝에 "이 부분의 디테일은 원본 #N에" 거미줄 미끼)
-
-  **[6] 실전 적용 체크리스트 H2**
-  <h2>${currentYear}년 ${currentMonthHint}월 실전 적용 가이드</h2>
-  - ✅ 체크박스 5~7개 (각 단계마다 관련 원본 #N 인용)
-
-  **[7] 종합 거미줄 카드 그리드 H2**
-  <h2>📚 ${sourceCount}편 한자리에 — 순서대로 읽기 좋아요</h2>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:24px 0;">
-    원본 ${sourceCount}개 카드 (이미지 + 제목 + 1줄 후킹 + "원본 보기" 빨간 버튼)
-  </div>
-
-  **[8] 결론 + 면책**
-  <p style="…">결론 1~2줄 (행동 유도 — "위 ${sourceCount}편을 순서대로 클릭하면 ${currentYear}년 [주제] 100% 마스터")</p>
-  <p style="font-size:12px;color:#767676;">면책 조항</p>
-
+🎨 **CTA HTML 패턴 — Blogger·WordPress 호환 (모든 핵심 속성에 !important 강제)**:
+\`\`\`
+<div style="${buildSpiderCtaBoxStyle(spiderTheme)}">
+  <p style="margin:0 0 14px !important;color:${spiderTheme.heading} !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">[후킹 멘트 — 예: "더 자세한 ~을 알고 싶다면?"]</p>
+  <p style="margin:0 !important;text-align:center !important;">
+    <a href="[원본URL]" style="${buildSpiderCtaButtonStyle(spiderTheme)}">[버튼 텍스트 — 예: "2026년 청년내일저축계좌 혜택 상세 보기 🔥"]</a>
+  </p>
 </div>
+\`\`\`
+- 반드시 \`<button>\` 태그가 아닌 \`<a href>\` 사용 (Blogger sanitize 호환)
+- 인라인 style만 사용 (class 사용 금지 — 블로그 RTE가 class 제거)
+- 모든 핵심 속성(background, color, padding, text-align, border-radius)에 \`!important\` 필수 (Blogger 테마 CSS 우회)
+- \`background:gradient\` 옆에 \`background-color:단색\` 폴백 함께 — 그라데이션 미지원 클라이언트 대비
+- 후킹 멘트·버튼 모두 \`text-align:center !important\` 중앙 정렬
+- \`max-width:100% !important; box-sizing:border-box !important\` 모바일 친화
 
-═══════════════════════════════════════
-🚫 **절대 금지**:
-- 원본의 핵심 정답·수치·결론을 종합글에 다 노출 (회유 실패)
-- "더 자세한 내용은…" 모호한 미끼 (구체 정보 3개 명시 필수)
-- "이 글은 ${sourceCount}편을 종합한 글입니다" 메타 멘트
-- <html>, <body> 태그 / 마크다운 (\`\`\`html)
-- 중국어 한자 (漢字 X)
-- 빈 검색바, 빈 입력칸, placeholder 박스
-- 자극·낚시 카피 ("충격!", "이걸 모르면 인생 망함" 등 금지)
+🚫 **절대 금지** (위반 시 재작성 요구됨):
+- H2 제목 끝에 "(종합 거미줄)", "(요약)", "(FAQ)", "(가이드)" 등 메타 라벨/괄호 절대 추가 금지
+- H2 제목은 사용자가 검색할 만한 자연스러운 표현만 사용 (예: "5. 청년내일저축계좌, 더 깊이 알아보기" O / "5. 청년내일저축계좌, 더 깊이 알아보기 (종합 거미줄)" X)
+- 메타 멘트("이 글은 ${sortedContents.length}개 글을 종합") / <html><body> / 마크다운 / 중국어 한자 / 빈 검색바·입력칸 / 자극·낚시
+- 5/6/7/8번 H2에 거미줄 CTA 박스 추가 X (4번 H2에만)
+- <button> 태그 X (Blogger가 sanitize) — <a href> + 인라인 style만
+- 인용 자리표시자 절대 금지: [cite: provided data], [citation: 1], [ref: ...], [source: ...] 등 본문 노출 X (자연스러운 한국어 문장으로만)
+- 🚨 **피아식별 위반 절대 금지**: "(원글 1 관점)", "(원본 N 관점)", "원문 N", "출처 1", "참고 자료 1", "(자료 N 관점)", "(원글 N 강조)" 등 다른 글에서 가져왔음을 암시하는 모든 표기 절대 금지. 본문·표 셀·헤더 어디서도 절대 사용 X. 단일 작성자가 처음부터 쓴 글처럼 자연스러운 표현만 사용 (예: "혜택 강조 관점" O / "원글 1 관점" X)
 
-═══════════════════════════════════════
-✅ **품질 기준**:
-- 총 본문 6,000~9,000자 (원본 70% 노출 X — 30%만, 나머지는 미끼)
-- H2 = 정확히 ${sourceCount + 3}개 (본론 ${sourceCount} + 비교/FAQ + 실전 + 종합)
-- 모든 H2에 대표 이미지(있으면) + 구체 미끼 3개 + 빨간 CTA 박스
-- H2 사이에 전환 카드 (이전 → 다음 자연스러운 흐름, 마지막 H2 제외)
-- 본문 마다 자연스럽게 "이건 원본 #N에" 회유 문장 1~2개
+✅ **품질 기준 (필수)**: **본문 총 글자수 8,000~12,000자 절대 미달 금지** (HTML 태그 제외 순수 텍스트 기준).
+   - 5,000자 이하면 SEO 효과 X → 반드시 8,000자 이상 작성
+   - 각 H2 본문 1,000~1,500자, H3 세부 섹션 500~700자씩 보장
+   - 결론·면책 포함 모든 섹션을 끝까지 완성 (중간에 끊지 마세요)
+   - H2 정확히 ${sortedContents.length + 3}개, **거미줄 CTA는 원본 대응 H2(1~${sortedContents.length}번)에만**, 검색 의도 1편 완전 커버
 
-🎯 **${currentYear}년 ${currentMonthHint}월 기준 cornerstone**.
+🚨 **잘림(truncation) 절대 금지 — v3.8.83 사용자 반복 보고**:
+   - 가장 자주 잘리는 위치: 마지막 H2 (5번 "실전 적용 가이드"의 H3 "신청 전 반드시 확인해야 할 체크리스트")
+   - **반드시** 마지막 \`</div>\` 닫기 태그까지 한 번에 완성. "(이하 생략)", "...", "[계속]", "(다음 편에서)" 절대 금지.
+   - 모든 <ul>·<table>·<aside>·<div>의 여는 태그와 닫는 태그가 1:1 일치하는지 출력 직전 자체 검사.
+   - 본문 후반(7번 "더 깊이 알아보기 카드 그리드"와 8번 "결론·면책")부터 작성한 뒤 앞으로 채우는 전략은 금지 — 1번부터 순서대로, **마지막 면책 조항의 마침표까지** 한 호흡에 완성.
+   - 출력은 반드시 \`</div>\` (sw-cornerstone 닫기)로 끝나야 함.
 
-지금 위 구조를 정확히 지켜 HTML fragment를 작성하세요. <div class="sw-cornerstone"...> 으로 시작.
+지금 위 구조를 정확히 지켜 8,000자+ HTML을 작성하세요.
 `;
             let generatedContent = '';
             try {
-                const result = await model.generateContent({
-                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        // v3.7.22: 8000 → 16000 토큰 (Gemini 2.x 한도 내). 기존 8000으론 출력 잘림.
-                        maxOutputTokens: 16000,
-                        temperature: 0.75,
+                // v3.8.81: LLM 짧은 응답 자동 재시도 (사용자 보고: 1,118자만 응답)
+                //   원인: 프롬프트 복잡도↑ → LLM이 TL;DR 박스만 작성하고 H2 본문 누락
+                //   해결: 응답 < 3000자 또는 H2 < 3개면 최대 2회 재시도 (temperature 변경)
+                const callLLM = async (temp) => {
+                    const r = await model.generateContent({
+                        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                        generationConfig: { maxOutputTokens: 16000, temperature: temp }
+                    });
+                    return ((await r.response).text() || '')
+                        .replace(/```html\n?/gi, '').replace(/```\n?/gi, '').trim();
+                };
+                sendDiag('🤖 Gemini LLM 호출 시작 (본문 생성)');
+                generatedContent = await callLLM(0.75);
+                let plainLen = generatedContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+                let h2Count = (generatedContent.match(/<h2[^>]*>/gi) || []).length;
+                sendDiag(`📏 LLM 응답: ${generatedContent.length}자 (평문 ${plainLen}자, H2 ${h2Count}개)`);
+                // 짧으면 재시도 (최대 2회)
+                for (let retry = 1; retry <= 2 && (plainLen < 3000 || h2Count < 3); retry++) {
+                    sendDiag(`⚠️ 본문 너무 짧음 (평문 ${plainLen}자, H2 ${h2Count}개) — ${retry}/2 재시도`);
+                    const newTemp = retry === 1 ? 0.85 : 0.65; // 다양화 → 안정화
+                    generatedContent = await callLLM(newTemp);
+                    plainLen = generatedContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+                    h2Count = (generatedContent.match(/<h2[^>]*>/gi) || []).length;
+                    sendDiag(`📏 재시도 ${retry} 응답: ${generatedContent.length}자 (평문 ${plainLen}자, H2 ${h2Count}개)`);
+                }
+                if (plainLen < 3000 || h2Count < 3) {
+                    sendDiag(`❌ 재시도 후에도 본문 너무 짧음 (평문 ${plainLen}자, H2 ${h2Count}개) — 폴백 사용`);
+                }
+                // v3.8.83: 잘림 자동 감지 + continuation 호출 (사용자 보고: 5-1 체크리스트 잘림)
+                //   판별: 끝 200자가 </div> 닫기로 끝나지 않거나, 마지막 토큰이 문장 중간으로 보이는 경우.
+                //   조치: "다음 부분부터 이어서 끝까지 완성" 후속 호출 1회 (최대 1회).
+                const looksTruncated = (html) => {
+                    if (!html)
+                        return false;
+                    const tail = html.slice(-400).trim();
+                    // 닫는 </div> 또는 </p>로 끝나지 않으면 잘림 의심
+                    if (!/<\/(div|p|li|table|ul|ol|aside)>\s*$/i.test(tail))
+                        return true;
+                    // <ul>/<table>/<div> 여닫이 짝 불일치 검사
+                    const openDivs = (html.match(/<div\b/gi) || []).length;
+                    const closeDivs = (html.match(/<\/div>/gi) || []).length;
+                    if (openDivs - closeDivs > 2)
+                        return true;
+                    const openUls = (html.match(/<ul\b/gi) || []).length;
+                    const closeUls = (html.match(/<\/ul>/gi) || []).length;
+                    if (openUls - closeUls > 0)
+                        return true;
+                    // 마침표·물음표·느낌표 없이 한국어 음절로 끝나면 의심
+                    const lastVisible = html.replace(/<[^>]+>/g, '').trim().slice(-30);
+                    if (/[가-힣]$/.test(lastVisible) && !/[\.\?\!。？！」』]\s*$/.test(lastVisible))
+                        return true;
+                    return false;
+                };
+                if (looksTruncated(generatedContent) && plainLen >= 3000) {
+                    sendDiag(`⚠️ HTML 잘림 감지 (총 ${generatedContent.length}자) — continuation 호출`);
+                    try {
+                        const tail = generatedContent.slice(-1200);
+                        const contPrompt = `방금 작성하다 끊긴 HTML을 자연스럽게 이어 끝까지 완성해주세요.
+
+[지금까지 작성된 마지막 부분]
+${tail}
+
+[규칙]
+- 위 텍스트의 마지막 미완성 문장/태그를 자연스럽게 이어 작성
+- 누락된 H2, H3, 체크리스트, 결론, 면책 조항을 모두 채워 완성
+- 마지막 줄은 반드시 \`</div>\` (sw-cornerstone 닫기)
+- 절대 처음부터 다시 쓰지 말 것 — 끊긴 다음 부분만 출력
+- 인사말, "이어서 작성하겠습니다" 같은 메타 멘트 금지
+- HTML fragment만 출력 (\`\`\`html 마크다운 금지)`;
+                        const contResult = await model.generateContent({
+                            contents: [{ role: 'user', parts: [{ text: contPrompt }] }],
+                            generationConfig: { maxOutputTokens: 8000, temperature: 0.7 }
+                        });
+                        const contText = ((await contResult.response).text() || '')
+                            .replace(/```html\n?/gi, '').replace(/```\n?/gi, '').trim();
+                        if (contText && contText.length > 100) {
+                            generatedContent = generatedContent + '\n' + contText;
+                            plainLen = generatedContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+                            sendDiag(`✅ continuation 결합 완료 (총 평문 ${plainLen}자)`);
+                        }
+                        else {
+                            sendDiag(`⚠️ continuation 응답 부족 (${contText.length}자) — 그대로 진행`);
+                        }
                     }
-                });
-                const response = await result.response;
-                generatedContent = response.text();
-                // HTML 태그 정리
+                    catch (contErr) {
+                        sendDiag(`⚠️ continuation 호출 실패: ${contErr?.message || contErr}`);
+                    }
+                }
+                // v3.8.5: H1~H6 제목 끝의 메타 라벨 자동 제거
+                //   LLM이 가끔 "(종합 거미줄)", "(요약)", "(FAQ)", "(가이드)", "(개요)" 등 라벨을 제목 끝에 포함
+                //   사용자에게 노출되면 어색하므로 일괄 제거 (한·일 괄호 모두).
+                const metaLabelPattern = /\s*[\(（]\s*(종합\s*거미줄|관련\s*글\s*회유|관련\s*글\s*모음|요약|FAQ|자주\s*묻는\s*질문|가이드|개요|총정리|결론|면책|체크리스트|비교)[^)）]*[\)）]\s*$/i;
                 generatedContent = generatedContent
-                    .replace(/```html\n?/gi, '')
-                    .replace(/```\n?/gi, '')
-                    .trim();
+                    .replace(/<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/gi, (_full, level, attrs, inner) => {
+                    const cleaned = String(inner).replace(metaLabelPattern, '').trim();
+                    return `<h${level}${attrs}>${cleaned}</h${level}>`;
+                });
+                // v3.8.22: LLM이 본문에 남기는 인용 자리표시자 자동 제거
+                //   예: "[cite: provided data]", "[citation: 1]", "[ref: source]" 등.
+                //   Gemini가 가끔 출처 참조를 본문에 그대로 남겨 독자에게 노출되는 문제 차단.
+                generatedContent = generatedContent
+                    .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*[:：][^\]]*\]/gi, '')
+                    .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*\d*\s*\]/gi, '');
+                // v3.8.24: 피아식별 위반 메타 표기 자동 제거 — "(원글 1 관점)", "(원본 N 강조)" 등.
+                //   거미줄은 본인 글 통합이므로 다른 글 출처 암시는 절대 노출되면 안 됨.
+                //   비교표 셀, 헤더, 본문 어디든 등장 시 괄호째 제거.
+                generatedContent = generatedContent
+                    .replace(/\s*[\(（]\s*(원글|원본|원문|자료|출처|참고|발췌)\s*\d+\s*(관점|강조|입장|시각|기준|중심)?\s*[\)）]/gi, '')
+                    .replace(/\s*[\(（]\s*(원글|원본|원문|자료|출처|참고|발췌)\s*[\)）]/gi, '');
+                // v3.8.19: LLM이 CTA HTML 가이드를 무시하고 평문으로 출력한 경우 자동 박스 변환
+                //   패턴: H2 본문 끝부분에 "더 자세한 ~을 알고 싶다면?" + 다음 줄에 글 제목·"자세히 보기"·URL이 나오는 평문
+                //   사용자 의도(빨간 그라데이션 박스 + 후킹 + 버튼)를 강제 적용해 안전망 제공.
+                try {
+                    const sourceUrls = sortedContents.map((c) => c.url).filter(Boolean);
+                    let urlPtr = 0;
+                    // v3.8.77 추가 패턴: 다양한 후킹·버튼 케이스 모두 매칭
+                    //   - 후킹 문구가 ?로 끝나거나 "싶다면" 등으로 끝나는 단락
+                    //   - 다음에 <a> 또는 <p><a> 또는 <p>버튼 텍스트</p>
+                    const ctaBroadPattern = /<p[^>]*>\s*([^<]{6,120}?(?:\?|싶다면|궁금하시다면|더\s*알고|상세히|자세히|확인하|놓치지\s*마)\s*[?!]?\s*[\.。]?)\s*<\/p>\s*(?:<p[^>]*>\s*)?(?:<a[^>]*href=["']([^"']*)["'][^>]*>\s*)?([^<\n]{6,150}?(?:🔥|✨|💡|👉|→|>>|»|자세히|상세|보기|확인|신청|받기|클릭|GO))(?:\s*<\/a>)?(?:\s*<\/p>)?/gi;
+                    generatedContent = generatedContent.replace(ctaBroadPattern, (_match, hook, href, btn) => {
+                        const url = (href && /^https?:\/\//i.test(href)) ? href : (sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#');
+                        urlPtr++;
+                        const safeHook = String(hook).replace(/[<>]/g, '').trim();
+                        const safeBtn = String(btn).replace(/[<>]/g, '').trim();
+                        return `<div style="${buildSpiderCtaBoxStyle(spiderTheme, true)}">
+  <p style="margin:0 0 16px !important;color:${spiderTheme.heading} !important;font-size:17px !important;font-weight:800 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
+  <p style="margin:0 !important;text-align:center !important;">
+    <a href="${url}" target="_blank" rel="noopener" style="${buildSpiderCtaButtonStyle(spiderTheme, true)}">${safeBtn}</a>
+  </p>
+</div>`;
+                    });
+                    // v3.8.74: 패턴 2 — <p>후킹?</p>\s*<a href="…">버튼 텍스트</a> (wrap 없는 a 태그 단독)
+                    //   사용자 보고: 박스 wrap 없이 후킹+버튼만 왼쪽 정렬로 나옴 → 정규식이 a 태그 단독 케이스 매칭 못함
+                    const ctaAnchorPattern = /<p[^>]*>\s*([^<]{8,80}?(?:\?|싶다면|\s궁금|\s더\s알고|\s확인하고)\s*[?<])\s*<\/p>\s*<a[^>]*href=["']([^"']+)["'][^>]*>\s*([^<]{8,120}?)\s*<\/a>/gi;
+                    generatedContent = generatedContent.replace(ctaAnchorPattern, (_match, hook, _href, btn) => {
+                        const url = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
+                        urlPtr++;
+                        const safeHook = String(hook).replace(/[<>]/g, '').trim();
+                        const safeBtn = String(btn).replace(/[<>]/g, '').trim();
+                        return `<div style="${buildSpiderCtaBoxStyle(spiderTheme)}">
+  <p style="margin:0 0 14px !important;color:${spiderTheme.heading} !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
+  <p style="margin:0 !important;text-align:center !important;">
+    <a href="${url}" style="${buildSpiderCtaButtonStyle(spiderTheme)}">${safeBtn}</a>
+  </p>
+</div>`;
+                    });
+                    // 패턴 1 (기존): <p>후킹?</p><p>버튼 텍스트</p>
+                    const ctaTextPattern = /<p[^>]*>\s*([^<]{8,80}?(?:\?|싶다면|\s궁금|\s더\s알고|\s확인하고)\s*[?<])\s*<\/p>\s*(?:<p[^>]*>\s*)?([^<]{8,120}?(?:🔥|✨|💡|자세히\s*보기|상세\s*보기|>>|»))\s*<\/p>/gi;
+                    generatedContent = generatedContent.replace(ctaTextPattern, (_match, hook, btn) => {
+                        const url = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
+                        urlPtr++;
+                        const safeHook = String(hook).replace(/[<>]/g, '').trim();
+                        const safeBtn = String(btn).replace(/[<>]/g, '').trim();
+                        // v3.8.25: 모든 핵심 속성에 !important + background-color 단색 폴백 + 중앙정렬 강제
+                        return `<div style="${buildSpiderCtaBoxStyle(spiderTheme)}">
+  <p style="margin:0 0 14px !important;color:${spiderTheme.heading} !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
+  <p style="margin:0 !important;text-align:center !important;">
+    <a href="${url}" style="${buildSpiderCtaButtonStyle(spiderTheme)}">${safeBtn}</a>
+  </p>
+</div>`;
+                    });
+                    console.log('[INTERNAL-CONSISTENCY] CTA 후처리 변환 시도 (안전망)');
+                }
+                catch (e) {
+                    console.warn('[INTERNAL-CONSISTENCY] CTA 후처리 실패:', e?.message);
+                }
+                generatedContent = applySpiderEyeComfortColors(generatedContent, spiderTheme);
+                // v3.8.10: 본문 H1을 제목 필드로 추출 + 본문에서 제거 (글포스팅과 동일 정책)
+                //   LLM이 본문에 H1 출력 → 거기에 멋진 제목 들어가지만 발행 제목 필드에는 fallback '종합 가이드'만 들어가던 버그.
+                //   → 사용자 입력 title이 비어있으면 H1 텍스트를 추출해 제목으로 사용.
+                //   → H1 태그는 본문에서 제거 (블로그 플랫폼이 자동으로 제목을 H1로 렌더하므로 중복 방지).
+                const h1Match = generatedContent.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+                let extractedTitleFromH1 = '';
+                if (h1Match && h1Match[1]) {
+                    extractedTitleFromH1 = h1Match[1]
+                        .replace(/<[^>]+>/g, '') // 내부 태그 제거
+                        .replace(/&nbsp;/g, ' ')
+                        .replace(/&amp;/g, '&')
+                        .replace(/&lt;/g, '<')
+                        .replace(/&gt;/g, '>')
+                        .replace(/&quot;/g, '"')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                    // 본문에서 H1 태그 통째 제거 + 인접 공백·br 정리
+                    generatedContent = generatedContent
+                        .replace(/\s*<h1[^>]*>[\s\S]*?<\/h1>\s*(<br\s*\/?>\s*)*/i, '')
+                        .trim();
+                    console.log('[INTERNAL-CONSISTENCY] 본문 H1 추출:', extractedTitleFromH1.substring(0, 60));
+                }
+                // title 우선순위: 사용자 명시 입력 > H1 추출 > 폴백
+                const userTitleTrimmed = (payload.title || '').trim();
+                if (!userTitleTrimmed && extractedTitleFromH1) {
+                    title = extractedTitleFromH1;
+                    console.log('[INTERNAL-CONSISTENCY] title 자동 설정 (H1 추출):', title);
+                }
             }
             catch (error) {
                 console.error('[INTERNAL-CONSISTENCY] AI 종합글 생성 실패:', error);
@@ -1269,7 +1552,951 @@ ${sourceList}
                 generatedContent = buildSpiderWebFallbackHtml(title, sortedContents);
             }
             console.log('[INTERNAL-CONSISTENCY] ✅ 종합글 생성 완료, 콘텐츠 길이:', generatedContent.length);
-            return { success: true, html: generatedContent, title };
+            // v3.8.6: 이미지 정책 적용 — 썸네일 + H2별 이미지 생성 + HTML 삽입
+            const imagePolicy = (payload.imagePolicy || 'all').toLowerCase();
+            const thumbEngine = (payload.imageThumbnailEngine || 'nanobanana2').toLowerCase();
+            const h2Engine = (payload.imageH2Engine || 'nanobanana2').toLowerCase();
+            // v3.8.7: 텍스트 포함 옵션 → prompt에 직접 지시
+            // v3.8.35: 한국어 지시문 시도 → 이미지에 지시문 자체가 글자로 박히는 역효과 발견.
+            // v3.8.82: 한글 prompt는 모델이 "그려야 할 텍스트"로 오인 → 영문 instruction으로 전환.
+            //   nano-banana/dropshot 계열은 영문 지시문을 메타 명령으로 인식하고, 한글은 렌더링 대상으로 인식.
+            //   따라서 지시는 영문, 그리고 싶은 한국어 텍스트(=제목)는 prompt 본문에만 노출.
+            const imageIncludeText = !!payload.imageIncludeText;
+            const textTail = imageIncludeText
+                ? `\n\nTEXT OVERLAY POLICY: If you render any text on the image, render ONLY the Korean title above as a bold, high-contrast Korean typography hero element. Do NOT render this English instruction, brackets, colons, prompt metadata, watermarks, or any other text. Pure-Korean characters only — no English, no romanization, no garbled glyphs.`
+                : '';
+            // v3.8.8: dataURL → 호스팅 URL 변환
+            // v3.8.9: WP 자격증명 보유 시 platform 무관하게 WP 미디어 우선 (블로그스팟도 wp 사이트 URL 빌려 사용)
+            const targetPlatform = String(payload.platform || '').toLowerCase();
+            async function _hostImageDataUrl(dataUrl, label) {
+                if (!dataUrl || !/^data:image/.test(dataUrl))
+                    return { url: dataUrl, provider: 'passthrough' };
+                // 1) WP 자격증명 보유 시 wp-json/v2/media 업로드 (platform 무관 hotlink 허용)
+                //    v3.8.14: timeout 60s + 1회 retry (네트워크 흔들림 대응)
+                const env = (0, env_1.loadEnvFromFile)();
+                const wpUrl = (env.wordpressSiteUrl || env.WORDPRESS_SITE_URL || '').trim().replace(/\/+$/, '');
+                const wpUser = (env.wordpressUsername || env.WORDPRESS_USERNAME || '').trim();
+                const wpPass = (env.wordpressPassword || env.WORDPRESS_PASSWORD || '').trim();
+                if (wpUrl && wpUser && wpPass) {
+                    const m = dataUrl.match(/^data:(image\/[a-z+]+);base64,(.+)$/);
+                    if (m) {
+                        const mime = m[1];
+                        const ext = (mime.split('/')[1] || 'png').replace('+xml', '');
+                        const buf = Buffer.from(m[2], 'base64');
+                        const filename = `${label || 'image'}-${Date.now()}.${ext}`;
+                        const auth = Buffer.from(`${wpUser}:${wpPass}`).toString('base64');
+                        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+                        for (let attempt = 1; attempt <= 2; attempt++) {
+                            try {
+                                const res = await axios.post(`${wpUrl}/wp-json/wp/v2/media`, buf, {
+                                    headers: {
+                                        Authorization: `Basic ${auth}`,
+                                        'Content-Type': mime,
+                                        'Content-Disposition': `attachment; filename="${filename}"`,
+                                    },
+                                    timeout: 60000,
+                                    maxBodyLength: 50 * 1024 * 1024,
+                                    maxContentLength: 50 * 1024 * 1024,
+                                });
+                                const src = res.data && (res.data.source_url || (res.data.guid && res.data.guid.rendered));
+                                if (typeof src === 'string' && src) {
+                                    console.log(`[IMG-HOST] ✅ WP 미디어 업로드 성공 (${label}, attempt=${attempt}, platform=${targetPlatform || 'unknown'}):`, src.substring(0, 80));
+                                    return { url: src, provider: targetPlatform === 'wordpress' ? 'wp-media' : 'wp-media-hotlink' };
+                                }
+                                console.warn(`[IMG-HOST] WP 응답에 source_url 없음 (${label}, attempt=${attempt})`);
+                            }
+                            catch (e) {
+                                console.warn(`[IMG-HOST] WP 업로드 실패 (${label}, attempt=${attempt}):`, e?.message?.substring(0, 200));
+                                if (attempt < 2)
+                                    await new Promise((r) => setTimeout(r, 1500));
+                            }
+                        }
+                    }
+                }
+                // 2) 외부 호스팅 6단계 폴백 (Cloudinary/ImgBB/ImgHippo/freeimage/Catbox/0x0) + 1회 retry
+                for (let attempt = 1; attempt <= 2; attempt++) {
+                    try {
+                        const { uploadBase64ToImageHost } = require('../dist/core/final/image-helpers');
+                        const hostedUrl = await uploadBase64ToImageHost(dataUrl, label);
+                        if (typeof hostedUrl === 'string' && hostedUrl) {
+                            console.log(`[IMG-HOST] ✅ 외부 호스팅 성공 (${label}, attempt=${attempt}):`, hostedUrl.substring(0, 80));
+                            return { url: hostedUrl, provider: 'external' };
+                        }
+                    }
+                    catch (e) {
+                        console.warn(`[IMG-HOST] 외부 호스팅 예외 (${label}, attempt=${attempt}):`, e?.message?.substring(0, 200));
+                    }
+                    if (attempt < 2)
+                        await new Promise((r) => setTimeout(r, 2000));
+                }
+                // 3) 최종 폴백: dataUrl 그대로 (publisher가 sanitize 처리)
+                console.error(`[IMG-HOST] ❌ 모든 호스팅 실패 (${label}) — base64 그대로 반환 (publisher placeholder 치환 위험)`);
+                return { url: dataUrl, provider: 'datauri' };
+            }
+            const imageStats = {
+                thumbnail: false, h2Generated: 0, h2Failed: 0, errors: [],
+            };
+            let thumbnailUrl = '';
+            if (imagePolicy !== 'none') {
+                try {
+                    const dispatcher = require('../dist/core/imageDispatcher');
+                    const { dispatchThumbnailGeneration, dispatchH2ImageGeneration } = dispatcher || {};
+                    // 1) 썸네일 — 'none' 외 모든 정책에서 생성
+                    sendDiag(`🎨 LLM 생성 완료 (${generatedContent.length}자) — 이미지 단계 진입`);
+                    if (typeof dispatchThumbnailGeneration === 'function' && thumbEngine !== 'none') {
+                        sendDiag(`🖼️ 썸네일 생성 시작 (엔진: ${thumbEngine})`);
+                        try {
+                            console.log('[INTERNAL-CONSISTENCY] 🖼️ 썸네일 생성 시작:', thumbEngine);
+                            const thumbResult = await dispatchThumbnailGeneration(thumbEngine, title + textTail, title);
+                            if (thumbResult && thumbResult.ok && (thumbResult.dataUrl || thumbResult.url)) {
+                                const rawThumb = thumbResult.dataUrl || thumbResult.url || '';
+                                // v3.8.8: dataURL → 호스팅 URL 변환 (WP 미디어 우선)
+                                const hosted = await _hostImageDataUrl(rawThumb, 'sw-thumb');
+                                thumbnailUrl = hosted.url;
+                                imageStats.thumbnail = true;
+                                console.log('[INTERNAL-CONSISTENCY] 썸네일 호스팅 provider:', hosted.provider);
+                                // v3.8.44: 실시간 이미지 UI push
+                                try {
+                                    const { BrowserWindow: BW } = await Promise.resolve().then(() => __importStar(require('electron')));
+                                    const allWindows = BW.getAllWindows();
+                                    allWindows.forEach((w) => w.webContents.send('sw-image-generated', {
+                                        kind: 'thumbnail', label: '썸네일', url: hosted.url,
+                                    }));
+                                }
+                                catch { }
+                                // v3.8.18: 본문 썸네일 삽입 제거 — publishToBlogger가 separator 구조로 자동 본문 앞 삽입
+                                //   이전엔 본문에 <p><img></p> 박고 publisher도 separator 박아 중복 노출 버그.
+                                //   thumbnailUrl만 반환하고 본문에는 박지 않음.
+                                console.log('[INTERNAL-CONSISTENCY] ✅ 썸네일 URL 보관 (본문 삽입은 publisher 위임)');
+                            }
+                            else {
+                                imageStats.errors.push(`썸네일 생성 실패: ${(thumbResult && thumbResult.error) || 'unknown'}`);
+                            }
+                        }
+                        catch (e) {
+                            imageStats.errors.push(`썸네일 예외: ${e && e.message || e}`);
+                        }
+                    }
+                    // 2) H2 이미지 — 정책 분기
+                    if (imagePolicy !== 'thumbnail-only' && typeof dispatchH2ImageGeneration === 'function' && h2Engine !== 'none') {
+                        const $ = cheerio.load(generatedContent, { decodeEntities: false });
+                        const h2Nodes = $('h2').toArray();
+                        console.log('[INTERNAL-CONSISTENCY] 🖼️ H2 헤더', h2Nodes.length, '개 발견 · 정책:', imagePolicy, '· 엔진:', h2Engine);
+                        if (h2Nodes.length === 0) {
+                            imageStats.errors.push('H2 헤더 0개 — LLM이 H2를 생성하지 않음');
+                        }
+                        // v3.8.22: "핵심 요약 / 성급한 / 한눈에 / TLDR / 총정리 / 결론" 패턴 H2엔 이미지 스킵.
+                        //   이 섹션들은 짧은 요약표·체크리스트라 이미지가 시각적으로 부적절 (햄스터 사진 등 무관한 그림).
+                        const SKIP_IMAGE_H2_PATTERN = /(성급한|핵심\s*요약|한\s*눈에|한눈에|TLDR|tl;dr|총\s*정리|결론|요약\s*표|마치며|마무리)/i;
+                        for (let i = 0; i < h2Nodes.length; i++) {
+                            const idx1 = i + 1;
+                            // 정책 필터
+                            let shouldGenerate = false;
+                            if (imagePolicy === 'all')
+                                shouldGenerate = true;
+                            else if (imagePolicy === 'odd-only' && idx1 % 2 === 1)
+                                shouldGenerate = true;
+                            else if (imagePolicy === 'even-only' && idx1 % 2 === 0)
+                                shouldGenerate = true;
+                            if (!shouldGenerate)
+                                continue;
+                            const h2El = h2Nodes[i];
+                            const h2Text = $(h2El).text().trim();
+                            if (!h2Text)
+                                continue;
+                            // v3.8.22: 요약/결론 류 H2 스킵
+                            if (SKIP_IMAGE_H2_PATTERN.test(h2Text)) {
+                                console.log(`[INTERNAL-CONSISTENCY] ⏭️ H2 ${idx1} 이미지 스킵 (요약/결론 패턴): "${h2Text.substring(0, 30)}…"`);
+                                continue;
+                            }
+                            try {
+                                console.log(`[INTERNAL-CONSISTENCY] 🖼️ H2 ${idx1}/${h2Nodes.length} 이미지 시작: "${h2Text.substring(0, 30)}…"`);
+                                const h2Result = await dispatchH2ImageGeneration(h2Engine, h2Text + textTail, h2Text);
+                                const hasDataUrl = !!(h2Result && (h2Result.dataUrl || h2Result.url));
+                                console.log(`[INTERNAL-CONSISTENCY] 🖼️ H2 ${idx1} 결과: ok=${h2Result && h2Result.ok}, hasDataUrl=${hasDataUrl}, source=${h2Result && h2Result.source}, error=${h2Result && h2Result.error ? String(h2Result.error).substring(0, 100) : 'none'}`);
+                                if (h2Result && h2Result.ok && hasDataUrl) {
+                                    const rawH2 = h2Result.dataUrl || h2Result.url || '';
+                                    console.log(`[INTERNAL-CONSISTENCY] H2 ${idx1} dataUrl 길이: ${rawH2.length}`);
+                                    // v3.8.8: dataURL → 호스팅 URL 변환
+                                    const hosted = await _hostImageDataUrl(rawH2, `sw-h2-${idx1}`);
+                                    const imgTag = `<p style="text-align:center;margin:18px 0;"><img src="${hosted.url}" alt="${h2Text.replace(/"/g, '&quot;')}" style="max-width:100%;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.1);"></p>`;
+                                    $(h2El).after(imgTag);
+                                    imageStats.h2Generated++;
+                                    console.log(`[INTERNAL-CONSISTENCY] ✅ H2 ${idx1} 삽입 완료 · provider=${hosted.provider}`);
+                                    // v3.8.44: 실시간 이미지 UI push
+                                    try {
+                                        const { BrowserWindow: BW } = await Promise.resolve().then(() => __importStar(require('electron')));
+                                        const allWindows = BW.getAllWindows();
+                                        allWindows.forEach((w) => w.webContents.send('sw-image-generated', {
+                                            kind: 'h2', label: `H2 ${idx1}: ${h2Text.substring(0, 30)}`, url: hosted.url,
+                                        }));
+                                    }
+                                    catch { }
+                                }
+                                else {
+                                    imageStats.h2Failed++;
+                                    const errMsg = (h2Result && h2Result.error) || 'unknown (ok=' + (h2Result && h2Result.ok) + ', dataUrl=' + hasDataUrl + ')';
+                                    imageStats.errors.push(`H2 ${idx1} 실패: ${errMsg}`);
+                                    console.warn(`[INTERNAL-CONSISTENCY] ⚠️ H2 ${idx1} 실패:`, errMsg);
+                                }
+                            }
+                            catch (e) {
+                                imageStats.h2Failed++;
+                                const errMsg = e && e.message || e;
+                                imageStats.errors.push(`H2 ${idx1} 예외: ${errMsg}`);
+                                console.error(`[INTERNAL-CONSISTENCY] ❌ H2 ${idx1} 예외:`, errMsg);
+                            }
+                        }
+                        generatedContent = $.html();
+                        // cheerio가 자동 래핑한 <html><head></head><body>...</body></html> 제거
+                        generatedContent = generatedContent
+                            .replace(/^[\s\S]*?<body[^>]*>/i, '')
+                            .replace(/<\/body>[\s\S]*$/i, '')
+                            .trim();
+                        console.log('[INTERNAL-CONSISTENCY] ✅ H2 이미지 생성 완료:', imageStats.h2Generated, '성공 /', imageStats.h2Failed, '실패');
+                    }
+                }
+                catch (e) {
+                    console.error('[INTERNAL-CONSISTENCY] 이미지 생성 블록 실패:', e);
+                    imageStats.errors.push(`이미지 디스패처 실패: ${e && e.message || e}`);
+                }
+            }
+            else {
+                console.log('[INTERNAL-CONSISTENCY] 이미지 정책 = none, 이미지 생성 스킵');
+            }
+            // v3.8.15/v3.8.19: 라벨(해시태그) 5개 자동 생성 — robust 폴백 추가
+            //   1순위: LLM JSON 배열 (temperature 0.3)
+            //   2순위: 원본 글 제목 + 통합 제목 키워드 명사 추출
+            //   최후: 빈 배열 (발행은 정상 진행)
+            let generatedLabels = [];
+            try {
+                const labelPrompt = `다음 한국어 블로그 글의 SEO 라벨(태그) 5개를 정확히 JSON 배열로만 출력하세요.
+- 각 라벨은 2~10자 한글/영문/숫자, 검색 가능한 명사·핵심어 위주
+- 띄어쓰기 포함 가능, 특수문자(#, ?, ! 등) 금지
+- 글의 주제와 직결되는 표현만
+- 중복 X, 너무 일반적인 단어("정보", "가이드" 단독) X
+
+제목: ${title}
+본문 일부 (앞 2000자):
+${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 2000)}
+
+출력 형식 — JSON 배열만 (다른 텍스트 X):
+["라벨1", "라벨2", "라벨3", "라벨4", "라벨5"]`;
+                const labelResult = await model.generateContent({
+                    contents: [{ role: 'user', parts: [{ text: labelPrompt }] }],
+                    generationConfig: { maxOutputTokens: 300, temperature: 0.3 },
+                });
+                const labelText = ((await labelResult.response).text() || '').trim();
+                // ```json ... ``` 또는 [..] 둘 다 처리
+                const arrayMatch = labelText.match(/\[[\s\S]*?\]/);
+                if (arrayMatch) {
+                    const parsed = JSON.parse(arrayMatch[0]);
+                    if (Array.isArray(parsed)) {
+                        generatedLabels = parsed
+                            .map((s) => String(s || '').trim())
+                            .filter((s) => s.length >= 2 && s.length <= 40)
+                            .slice(0, 5);
+                    }
+                }
+                console.log('[INTERNAL-CONSISTENCY] LLM 라벨', generatedLabels.length, '개:', generatedLabels.join(', '));
+            }
+            catch (e) {
+                console.warn('[INTERNAL-CONSISTENCY] LLM 라벨 생성 실패:', e?.message?.substring(0, 200));
+            }
+            // v3.8.19/v3.8.79: 라벨 폴백 + 한국어 NLP 정규화 통합 (사용자 보고 "엉뚱한 태그" fix)
+            //   사용자 보고 예: "10만원", "10만원으로", "440만원", "만드" — 조사/어미 포함 + 중복 + 무효 어간
+            //   원인:
+            //     1. 폴백이 단순 split → "10만원으로", "만드는" 등 조사·어미 통과
+            //     2. v3.8.71 정규화가 원본 + 정규화 둘 다 추가 → "10만원" + "10만원으로" 중복
+            //   수정: cleanKoreanKeyword 강화 + 정규화 결과만 사용 (원본 폐기) + 무효 어간 차단
+            // v3.8.79: 강화된 한국어 키워드 정규화 함수
+            const cleanKoreanKeyword = (kw) => {
+                if (!kw || typeof kw !== 'string')
+                    return '';
+                let cleaned = kw.trim();
+                // 조사 제거 (반복 적용 — "으로서" 같은 복합 조사)
+                for (let i = 0; i < 3; i++) {
+                    cleaned = cleaned.replace(/(은|는|이|가|을|를|에서|에게|에|으로서|으로|로서|로|와|과|의|도|만|까지|부터|마저|조차|이나|이며|이고|이라|이지)$/g, '');
+                }
+                // 어미·서술어 제거
+                cleaned = cleaned
+                    .replace(/(하다|되다|이다|입니다|합니다|됩니다|있다|없다|아니다)$/g, '')
+                    .replace(/(하는|되는|있는|없는|이라는|라는|이라고|라고|이고|이며)$/g, '')
+                    .replace(/(하면|되면|있으면|없으면|이면|라면)$/g, '')
+                    .replace(/(하기|되기|이기)$/g, '')
+                    .replace(/(는|던|을|들의)$/g, '');
+                cleaned = cleaned.trim();
+                // 무효 (어간만 남은) 단어 차단
+                if (cleaned.length < 2)
+                    return '';
+                if (/^(만드|만들|되|하|있|없|그|이|저|것|수|등|및|또|또한|즉|예|예를|위해|통해|대해|관해|한|두|세|네|다섯)$/.test(cleaned))
+                    return '';
+                // 순수 숫자 또는 1자만 단위 (예: "5명", "1개") 차단
+                if (/^\d{1,4}$/.test(cleaned))
+                    return '';
+                // 끝이 부적절한 단어 (예: "만드" — '들' 누락된 어간)
+                if (/(되|는|기|면)$/.test(cleaned) && cleaned.length <= 3)
+                    return '';
+                return cleaned;
+            };
+            if (generatedLabels.length < 3) {
+                try {
+                    const fallbackSet = new Set();
+                    // 통합 제목 + 원본 글 제목에서 명사 추출 → 정규화
+                    const allTitles = [title || '', ...sortedContents.map((c) => c.title || '')];
+                    for (const t of allTitles) {
+                        const words = String(t)
+                            .replace(/[\(\)\[\]【】〈〉:!?,.\-—–·!?​"']/g, ' ')
+                            .split(/\s+/)
+                            .map((w) => w.trim());
+                        for (const w of words) {
+                            if (w.length < 2 || w.length > 12)
+                                continue;
+                            const normalized = cleanKoreanKeyword(w);
+                            if (normalized && normalized.length >= 2 && normalized.length <= 10) {
+                                fallbackSet.add(normalized);
+                            }
+                            if (fallbackSet.size >= 8)
+                                break;
+                        }
+                        if (fallbackSet.size >= 8)
+                            break;
+                    }
+                    // LLM 라벨도 정규화
+                    const normalizedLLM = generatedLabels.map(cleanKoreanKeyword).filter((k) => k && k.length >= 2);
+                    const merged = Array.from(new Set([...normalizedLLM, ...fallbackSet])).slice(0, 5);
+                    if (merged.length > 0) {
+                        console.log('[INTERNAL-CONSISTENCY] 라벨 정규화·폴백 보강:', merged.join(', '));
+                        generatedLabels = merged;
+                    }
+                }
+                catch (e) {
+                    console.warn('[INTERNAL-CONSISTENCY] 라벨 폴백 추출 실패:', e?.message);
+                }
+            }
+            else {
+                // LLM 라벨이 충분해도 정규화는 적용 (조사·어미 제거)
+                const normalized = generatedLabels.map(cleanKoreanKeyword).filter((k) => k && k.length >= 2);
+                if (normalized.length > 0) {
+                    generatedLabels = Array.from(new Set(normalized)).slice(0, 5);
+                }
+            }
+            // v3.8.16/v3.8.62 (Phase1 작업2): SEO 메타데이터 자동 생성 — Gemini AI 별도 호출로 품질 향상
+            //   기존: 첫 155자 단순 자름 → 검색 의도 무시
+            //   개선: Gemini AI로 [검색 키워드 + 이익 + CTA] 패턴 140-160자 생성 (Backlinko CTR +8.9%)
+            //   excerpt도 자연스러운 첫 두 문장 요약으로 별도 생성.
+            let excerpt = '';
+            let metaDescription = '';
+            try {
+                const plainText = (generatedContent || '')
+                    .replace(/<style[\s\S]*?<\/style>/gi, '')
+                    .replace(/<script[\s\S]*?<\/script>/gi, '')
+                    .replace(/<[^>]+>/g, ' ')
+                    .replace(/&nbsp;/g, ' ')
+                    .replace(/&amp;/g, '&')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                // excerpt: 첫 두 문장 (자연스러운 요약)
+                const sentences = plainText.split(/(?<=[.。!?])\s+/);
+                excerpt = sentences.slice(0, 2).join(' ').substring(0, 200).trim();
+                if (excerpt.length < 50 && plainText.length > 50) {
+                    excerpt = plainText.substring(0, 200).trim();
+                }
+                // v3.8.62: metaDescription — Gemini AI 별도 호출로 검색 최적화 패턴 생성
+                try {
+                    const { GoogleGenerativeAI: GGA_META } = require('@google/generative-ai');
+                    const metaGenAI = new GGA_META(geminiKey);
+                    const metaModel = await selectGeminiModel(metaGenAI);
+                    const metaPrompt = `다음 블로그 글의 메타 디스크립션을 정확히 1줄로 작성하세요.
+
+【글 제목】 ${title}
+【본문 첫 500자】 ${plainText.substring(0, 500)}
+【핵심 키워드】 ${(generatedLabels || []).slice(0, 5).join(', ') || '(없음)'}
+
+요구사항:
+- 정확히 140~160자 (한글 기준)
+- 핵심 검색 키워드 1~2개 자연스럽게 포함
+- 독자가 이 글을 클릭해서 얻을 수 있는 이익(혜택/방법/결과) 1줄 명시
+- 끝에 행동 유도(CTA) 짧게 ("자세히 보기", "지금 확인" 등)
+- 출력은 메타 디스크립션 텍스트 1줄만 (앞뒤 따옴표·마크다운 X)
+
+예시: "2026년 청년내일저축계좌 자격조건과 신청방법을 한눈에 정리. 월 10만원 적금으로 1,440만원 목돈을 만드는 모든 방법, 지금 확인하세요."`;
+                    const metaResult = await metaModel.generateContent({
+                        contents: [{ role: 'user', parts: [{ text: metaPrompt }] }],
+                        generationConfig: { maxOutputTokens: 200, temperature: 0.4 },
+                    });
+                    let aiMeta = ((await metaResult.response).text() || '').trim();
+                    // 따옴표·마크다운·앞뒤 공백 제거
+                    aiMeta = aiMeta.replace(/^["'`「『]+|["'`」』]+$/g, '').replace(/^\*+|\*+$/g, '').trim();
+                    // 첫 줄만 사용
+                    aiMeta = aiMeta.split(/\n+/)[0].trim();
+                    if (aiMeta.length >= 100 && aiMeta.length <= 200) {
+                        metaDescription = aiMeta;
+                        console.log(`[INTERNAL-CONSISTENCY] ✅ metaDescription Gemini AI 생성 (${aiMeta.length}자): ${aiMeta.substring(0, 60)}…`);
+                    }
+                    else {
+                        // AI 응답이 길이 미달 → 폴백
+                        throw new Error(`AI meta 길이 부적절: ${aiMeta.length}자`);
+                    }
+                }
+                catch (aiErr) {
+                    // 폴백: 첫 155자 자름 (기존 방식)
+                    metaDescription = plainText.substring(0, 155).trim();
+                    if (metaDescription.length > 152) {
+                        metaDescription = metaDescription.substring(0, 152) + '…';
+                    }
+                    console.warn(`[INTERNAL-CONSISTENCY] metaDescription Gemini 실패 → 폴백 자름: ${aiErr?.message}`);
+                }
+            }
+            catch (e) {
+                console.warn('[INTERNAL-CONSISTENCY] excerpt/metaDescription 생성 실패:', e?.message);
+            }
+            // v3.8.17: Blogger 발행 시 본문 상단에 schema.org description meta 자동 삽입
+            //   Blogger는 API에서 description 필드를 받지 않으나, 본문 내 itemprop="description"을
+            //   인식해 글 목록 미리보기·SEO 메타에 활용. WordPress에도 영향 없는 안전한 마크업.
+            if (metaDescription) {
+                const escapedDesc = metaDescription
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;');
+                const descMeta = `<div style="display:none;" itemprop="description">${escapedDesc}</div>\n`;
+                // 본문 맨 앞에 삽입 (썸네일·H1 처리 이전)
+                generatedContent = descMeta + generatedContent;
+                console.log('[INTERNAL-CONSISTENCY] 본문 상단 schema.org description meta 삽입');
+            }
+            // v3.8.31/v3.8.35: 거미줄 통합글 목차 — 모든 스타일 inline으로 직접 박음 (CSS 누락 시에도 정상).
+            //   기존 generateTOCFinal은 .toc-grid/.toc-btn/.toc-number CSS 클래스 기반 → 거미줄엔
+            //   CSS가 별도로 주입되지 않아 plain text로 보이던 문제 차단.
+            try {
+                const h2RegexAll = /<h2([^>]*)>([\s\S]*?)<\/h2>/gi;
+                const h2Titles = [];
+                let h2Idx = 0;
+                generatedContent = generatedContent.replace(h2RegexAll, (match, attrs, inner) => {
+                    const plainTitle = String(inner).replace(/<[^>]+>/g, '').trim();
+                    if (!plainTitle)
+                        return match;
+                    const hasId = /\bid\s*=/i.test(attrs || '');
+                    const newAttrs = hasId ? attrs : `${attrs || ''} id="section-${h2Idx}"`;
+                    h2Titles.push(plainTitle);
+                    h2Idx++;
+                    return `<h2${newAttrs}>${inner}</h2>`;
+                });
+                if (h2Titles.length >= 2) {
+                    const escapeHtmlText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    // v3.8.40: 목차 톤도 일반 글포스팅과 통일 (빨간 H3 헤더 + 베이지 배경 박스)
+                    const tocItems = h2Titles.map((h2, i) => `<a href="#section-${i}" style="display:flex !important;align-items:center !important;gap:10px !important;width:100% !important;box-sizing:border-box !important;padding:14px 16px !important;background:${spiderTheme.surface} !important;border:1px solid ${spiderTheme.borderSoft} !important;border-radius:10px !important;text-decoration:none !important;color:${spiderTheme.muted} !important;font-weight:700 !important;font-size:16px !important;line-height:1.45 !important;text-align:left !important;box-shadow:0 2px 4px rgba(0,0,0,0.02) !important;">
+  <span style="display:inline-flex !important;align-items:center !important;justify-content:center !important;width:26px !important;height:26px !important;min-width:26px !important;background:${spiderTheme.primaryLight} !important;color:${spiderTheme.primary} !important;border-radius:999px !important;font-size:13px !important;font-weight:800 !important;line-height:1 !important;flex-shrink:0 !important;">${i + 1}</span>
+  <span style="flex:1 !important;line-height:1.45 !important;color:${spiderTheme.muted} !important;">${escapeHtmlText(h2)}</span>
+</a>`).join('\n  ');
+                    // v3.8.83: H3 → DIV로 변경 (WP applyWordPressInlineStyles가 H3 inline style을 덮어쓰는 문제 차단)
+                    //   기존 H3는 WP CSS 적용 시 cyan border-left만 남아 📌이 별도 줄로 떨어졌음.
+                    //   sw-toc-header class로 publisher가 inline style 보존하도록 가드도 추가됨.
+                    const tocHtml = `
+<div class="sw-toc-box" style="margin:40px 0 !important;padding:30px !important;background:linear-gradient(135deg,${spiderTheme.gradientStart} 0%,${spiderTheme.gradientEnd} 100%) !important;border-radius:20px !important;border:1px solid ${spiderTheme.border} !important;">
+  <div class="sw-toc-header" style="margin:0 0 20px 0 !important;font-size:22px !important;font-weight:800 !important;color:${spiderTheme.heading} !important;display:flex !important;align-items:center !important;gap:10px !important;background:none !important;border:none !important;padding:0 !important;line-height:1.4 !important;">
+    <span style="display:inline-flex !important;align-items:center !important;justify-content:center !important;flex-shrink:0 !important;width:32px !important;height:32px !important;background:${spiderTheme.primaryLight} !important;border-radius:50% !important;font-size:18px !important;">📌</span>
+    <span style="flex:1 !important;">전체 읽어보기 절차</span>
+  </div>
+  <div style="display:flex !important;flex-direction:column !important;gap:8px !important;width:100% !important;">
+  ${tocItems}
+  </div>
+</div>
+`;
+                    const firstH2Pos = generatedContent.search(/<h2[^>]*\bid\s*=\s*["']section-0["'][^>]*>/i);
+                    if (firstH2Pos > 0) {
+                        generatedContent = generatedContent.slice(0, firstH2Pos) + tocHtml + '\n' + generatedContent.slice(firstH2Pos);
+                        console.log(`[INTERNAL-CONSISTENCY] ✅ 목차 자동 삽입 완료 (H2 ${h2Titles.length}개, 인라인 style)`);
+                    }
+                }
+            }
+            catch (tocErr) {
+                console.warn('[INTERNAL-CONSISTENCY] ⚠️ 목차 삽입 실패:', tocErr?.message);
+            }
+            // v3.8.66 (Phase 2 작업 5): FAQPage + HowTo Schema 자동 주입
+            //   본문에서 자동 추출:
+            //   - Q&A 패턴 → FAQPage JSON-LD (AI Overview Tier 1 인용)
+            //   - 단계 패턴(1. ... 2. ... 또는 <ol>) → HowTo JSON-LD
+            try {
+                const extractFAQs = (html) => {
+                    const faqs = [];
+                    // 패턴 1: <h3>질문?</h3><p>답변</p>
+                    const h3Re = /<h3[^>]*>([^<]*\?)<\/h3>\s*<p[^>]*>([\s\S]*?)<\/p>/gi;
+                    let m;
+                    while ((m = h3Re.exec(html)) !== null) {
+                        const q = (m[1] || '').trim();
+                        const a = (m[2] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                        if (q.length > 5 && q.length < 200 && a.length > 20 && a.length < 800) {
+                            faqs.push({ q, a });
+                        }
+                    }
+                    // 패턴 2: <h2>자주 묻는 질문</h2> 아래 dt/dd 또는 strong+p
+                    if (faqs.length < 2) {
+                        const strongRe = /<(strong|b)[^>]*>([^<]*\?)<\/(strong|b)>\s*[:：]?\s*([\s\S]*?)(?=<(strong|b|h\d|hr)|$)/gi;
+                        while ((m = strongRe.exec(html)) !== null && faqs.length < 8) {
+                            const q = (m[2] || '').trim();
+                            const a = (m[4] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                            if (q.length > 5 && q.length < 200 && a.length > 20 && a.length < 800) {
+                                faqs.push({ q, a: a.substring(0, 500) });
+                            }
+                        }
+                    }
+                    return faqs.slice(0, 8);
+                };
+                const extractHowToSteps = (html, title) => {
+                    // <ol> 패턴 (5-15개 단계)
+                    const olRe = /<ol[^>]*>([\s\S]*?)<\/ol>/gi;
+                    let olMatch;
+                    while ((olMatch = olRe.exec(html)) !== null) {
+                        const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+                        const steps = [];
+                        let li;
+                        while ((li = liRe.exec(olMatch[1])) !== null) {
+                            const text = (li[1] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                            if (text.length > 10 && text.length < 400) {
+                                steps.push({ name: `단계 ${steps.length + 1}`, text });
+                            }
+                        }
+                        if (steps.length >= 3 && steps.length <= 15) {
+                            return { name: `${title} 단계별 가이드`, steps };
+                        }
+                    }
+                    return null;
+                };
+                const faqs = extractFAQs(generatedContent);
+                const howto = extractHowToSteps(generatedContent, title);
+                const additionalSchemas = [];
+                if (faqs.length >= 2) {
+                    additionalSchemas.push({
+                        '@type': 'FAQPage',
+                        mainEntity: faqs.map(({ q, a }) => ({
+                            '@type': 'Question',
+                            name: q,
+                            acceptedAnswer: { '@type': 'Answer', text: a },
+                        })),
+                    });
+                    console.log(`[INTERNAL-CONSISTENCY] ✅ FAQPage Schema 추출 (${faqs.length}개 Q&A)`);
+                }
+                if (howto) {
+                    additionalSchemas.push({
+                        '@type': 'HowTo',
+                        name: howto.name,
+                        step: howto.steps.map((s, i) => ({
+                            '@type': 'HowToStep',
+                            position: i + 1,
+                            name: s.name,
+                            text: s.text,
+                        })),
+                    });
+                    console.log(`[INTERNAL-CONSISTENCY] ✅ HowTo Schema 추출 (${howto.steps.length}단계)`);
+                }
+                // v3.8.70 (Phase 3 작업 9): DefinedTerm + Speakable + ImageObject 신규 schema (2026 트렌드)
+                try {
+                    const newEnv = (0, env_1.loadEnvFromFile)();
+                    const newAuthor = (newEnv.authorName || newEnv.adsenseAuthorInfo || newEnv.authorNickname || '에디터').toString().trim() || '에디터';
+                    const newSiteName = (newEnv.wordpressSiteName || newEnv.blogTitle || '').toString().trim() || 'LEADERNAM';
+                    const newSiteUrl = (newEnv.wordpressSiteUrl || newEnv.blogUrl || '').toString().trim();
+                    additionalSchemas.push({
+                        '@type': 'DefinedTerm',
+                        name: title,
+                        description: (excerpt || metaDescription || title).substring(0, 250),
+                        inDefinedTermSet: { '@type': 'DefinedTermSet', name: `${title} 용어집` },
+                    });
+                    additionalSchemas.push({
+                        '@type': 'SpeakableSpecification',
+                        cssSelector: ['.tldr-answer-box', '.tldr-answer-box p:first-of-type'],
+                    });
+                    if (thumbnailUrl) {
+                        additionalSchemas.push({
+                            '@type': 'ImageObject',
+                            contentUrl: thumbnailUrl,
+                            license: 'https://creativecommons.org/licenses/by-nc/4.0/',
+                            acquireLicensePage: newSiteUrl,
+                            caption: title,
+                            creator: { '@type': 'Person', name: newAuthor },
+                            copyrightHolder: { '@type': 'Organization', name: newSiteName },
+                            width: 1200,
+                            height: 630,
+                        });
+                    }
+                    console.log(`[INTERNAL-CONSISTENCY] ✅ 2026 신규 schema 추가 (DefinedTerm + Speakable${thumbnailUrl ? ' + ImageObject' : ''})`);
+                }
+                catch (newSchemaErr) {
+                    console.warn('[INTERNAL-CONSISTENCY] 2026 신규 schema 실패:', newSchemaErr?.message);
+                }
+                // v3.8.67 (Phase 2 작업 6): 주제별 schema 자동 매칭
+                //   본문 키워드로 도메인 감지 → GovernmentService/FinancialProduct/MedicalEntity 추가
+                try {
+                    const plainBody = generatedContent.replace(/<[^>]+>/g, ' ').toLowerCase();
+                    const topicKeywords = {
+                        government: /(정부|복지|지원금|보조금|수당|연금|국가|공공|바우처|혜택|신청|자격|모집|선정|복지로|bokjiro|gov\.kr|보건복지부|행정복지센터)/,
+                        financial: /(적금|예금|투자|펀드|주식|보험|대출|이자|금리|은행|증권|연금|저축|배당|수익률|매칭|월 \d+만원|만기|원금)/,
+                        medical: /(건강|의료|병원|치료|진료|증상|질환|약|처방|예방|검진|의사|환자|보험.*의료|국민건강)/,
+                    };
+                    for (const [domain, regex] of Object.entries(topicKeywords)) {
+                        if (!regex.test(plainBody))
+                            continue;
+                        if (domain === 'government') {
+                            additionalSchemas.push({
+                                '@type': 'GovernmentService',
+                                name: title,
+                                description: (excerpt || metaDescription || title).substring(0, 200),
+                                provider: { '@type': 'GovernmentOrganization', name: '대한민국 정부' },
+                                serviceType: '복지·정부지원',
+                                audience: { '@type': 'Audience', audienceType: '대한민국 국민' },
+                            });
+                            console.log('[INTERNAL-CONSISTENCY] ✅ GovernmentService Schema 자동 매칭');
+                            break;
+                        }
+                        else if (domain === 'financial') {
+                            additionalSchemas.push({
+                                '@type': 'FinancialProduct',
+                                name: title,
+                                description: (excerpt || metaDescription || title).substring(0, 200),
+                                category: '금융상품·저축·투자',
+                            });
+                            console.log('[INTERNAL-CONSISTENCY] ✅ FinancialProduct Schema 자동 매칭');
+                            break;
+                        }
+                        else if (domain === 'medical') {
+                            additionalSchemas.push({
+                                '@type': 'MedicalWebPage',
+                                name: title,
+                                description: (excerpt || metaDescription || title).substring(0, 200),
+                                lastReviewed: new Date().toISOString().split('T')[0],
+                                medicalAudience: { '@type': 'MedicalAudience', audienceType: 'patient' },
+                            });
+                            console.log('[INTERNAL-CONSISTENCY] ✅ MedicalWebPage Schema 자동 매칭');
+                            break;
+                        }
+                    }
+                }
+                catch (topicErr) {
+                    console.warn('[INTERNAL-CONSISTENCY] 주제별 schema 매칭 실패:', topicErr?.message);
+                }
+                if (additionalSchemas.length > 0) {
+                    const extraGraph = {
+                        '@context': 'https://schema.org',
+                        '@graph': additionalSchemas,
+                    };
+                    const extraScript = `<script type="application/ld+json">${JSON.stringify(extraGraph)}</script>`;
+                    generatedContent = extraScript + '\n' + generatedContent;
+                }
+            }
+            catch (faqHowtoErr) {
+                console.warn('[INTERNAL-CONSISTENCY] FAQPage/HowTo 자동 추출 실패:', faqHowtoErr?.message);
+            }
+            // v3.8.72 (Phase 3 작업 11): Freshness 시그널 — Last updated 표 가시화
+            //   Perplexity <13주 인용 50% / ChatGPT <30일 인용 76.4% (Rank-and-Convert·APIServent)
+            //   본문 상단에 "마지막 업데이트" 표 + ISO datetime + 갱신 이력 안내
+            try {
+                const nowISO = new Date().toISOString();
+                const nowKo = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+                const freshnessBlock = `<div class="freshness-meta" style="margin:12px 0 20px;padding:10px 14px;background:#f0fdf4;border-left:3px solid #10b981;border-radius:0 8px 8px 0;font-size:12px;color:#065f46;line-height:1.6;">
+  <span style="font-weight:800;">🔄 최신 업데이트</span>
+  <time datetime="${nowISO}" itemprop="dateModified" style="margin-left:8px;color:#047857;font-weight:700;">${nowKo}</time>
+  <span style="margin-left:12px;color:#6b7280;">· 본 정보는 정기적으로 검토·갱신됩니다</span>
+</div>`;
+                // H1 직후에 freshness 블록 삽입 (TL;DR 박스 위)
+                if (/<\/h1>/i.test(generatedContent)) {
+                    generatedContent = generatedContent.replace(/<\/h1>/i, (m) => m + '\n' + freshnessBlock);
+                }
+                else {
+                    generatedContent = freshnessBlock + '\n' + generatedContent;
+                }
+                console.log(`[INTERNAL-CONSISTENCY] ✅ Freshness 시그널 (Last updated ${nowKo}) 삽입`);
+            }
+            catch (freshErr) {
+                console.warn('[INTERNAL-CONSISTENCY] Freshness 시그널 실패:', freshErr?.message);
+            }
+            // v3.8.71 (Phase 3 작업 10): 네이버 SEO + 한국어 NLP 최적화
+            //   - 네이버 검색 60%+ 점유 + AI Briefing(2025.3) 출시 → 별도 메타 강화
+            //   - Naver Open Graph 추가 + Naver Search Advisor meta
+            //   - 한국어 명사 원형 키워드 (조사 제거) → 네이버 키워드 매칭 정확성
+            try {
+                // 네이버용 메타 태그 (head용 — 본문에 박아도 Blogger/WP가 자동 인식)
+                const naverMeta = `<meta name="naver-site-verification" content="" />
+<meta property="og:locale" content="ko_KR" />
+<meta property="article:section" content="${(generatedLabels[0] || '').toString().replace(/[<>"']/g, '')}" />
+<meta property="og:site_name" content="${((0, env_1.loadEnvFromFile)().wordpressSiteName || (0, env_1.loadEnvFromFile)().blogTitle || 'LEADERNAM').toString().replace(/[<>"']/g, '')}" />
+${generatedLabels.slice(0, 6).map((kw) => `<meta property="article:tag" content="${String(kw).replace(/[<>"']/g, '')}" />`).join('\n')}
+`;
+                generatedContent = naverMeta + generatedContent;
+                // v3.8.79: 한국어 NLP 키워드 정규화는 위 라벨 생성 단계에서 이미 적용됨 (중복 처리 제거)
+                console.log(`[INTERNAL-CONSISTENCY] ✅ 네이버 SEO 메타 적용 (라벨 ${generatedLabels.length}개)`);
+            }
+            catch (naverErr) {
+                console.warn('[INTERNAL-CONSISTENCY] 네이버 SEO/한국어 NLP 실패:', naverErr?.message);
+            }
+            // v3.8.77: 평문 "한눈에 답변" 중복 자동 제거 (LLM이 박스 wrap 빠뜨린 경우)
+            try {
+                const beforeLen = generatedContent.length;
+                generatedContent = generatedContent
+                    .replace(/<p[^>]*>\s*💡\s*한눈에\s*답변[\s\S]{0,500}?<\/p>/gi, '')
+                    .replace(/<div(?![^>]*tldr-answer-box)[^>]*>\s*💡\s*한눈에\s*답변[\s\S]{0,500}?<\/div>/gi, '');
+                if (generatedContent.length !== beforeLen) {
+                    console.log(`[INTERNAL-CONSISTENCY] ✅ 평문 "한눈에 답변" 중복 제거 (${beforeLen - generatedContent.length}자)`);
+                }
+            }
+            catch { }
+            // v3.8.62 (Phase 1 작업 1): 일반 글포스팅의 GEO 시스템(JSON-LD + E-E-A-T) 거미줄 이식.
+            //   Agent A·B 분석: 거미줄 GEO 10점 / Blogger 글포스팅 85점 — 동일 시스템 이식하면 75점 점프.
+            //   Schema.org Article + Person + Organization + BreadcrumbList @graph 자동 주입.
+            //   E-E-A-T 메타 박스 (작성자/검토자/발행일/읽기시간/출처 인용수) 자동 삽입.
+            try {
+                const env = (0, env_1.loadEnvFromFile)();
+                const { buildSchemaJsonLd } = require('../dist/core/final/schema-jsonld.js');
+                const { buildEeatMeta } = require('../dist/core/final/eeat-meta.js');
+                const authorName = (env.authorName || env.adsenseAuthorInfo || env.authorNickname || '에디터').toString().trim() || '에디터';
+                const siteName = (env.wordpressSiteName || env.blogTitle || '').toString().trim() || 'LEADERNAM';
+                const siteUrl = (env.wordpressSiteUrl || env.blogUrl || '').toString().trim();
+                const canonicalUrl = ''; // 발행 후 URL은 publisher가 가짐 — 거미줄 시점엔 미정
+                const isoNow = new Date();
+                // E-E-A-T 메타 박스 → H1 다음 삽입 + 본문 cite 처리 (citations 적용 결과 사용)
+                try {
+                    const eeat = buildEeatMeta({
+                        authorName,
+                        authorTitle: '콘텐츠 에디터',
+                        publishedAt: isoNow,
+                        contentHtml: generatedContent,
+                    });
+                    if (eeat) {
+                        // 1) citations 처리된 본문으로 교체 (한국 공공기관 인용에 <cite> 자동 마킹)
+                        if (eeat.contentHtml && typeof eeat.contentHtml === 'string' && eeat.contentHtml.length > 0) {
+                            generatedContent = eeat.contentHtml;
+                        }
+                        // 2) H1 직후에 메타 박스 삽입
+                        if (eeat.metaBox) {
+                            if (/<\/h1>/i.test(generatedContent)) {
+                                generatedContent = generatedContent.replace(/<\/h1>/i, (m) => m + '\n' + eeat.metaBox);
+                            }
+                            else {
+                                generatedContent = eeat.metaBox + '\n' + generatedContent;
+                            }
+                        }
+                        console.log(`[INTERNAL-CONSISTENCY] ✅ E-E-A-T 메타 박스 + 본문 citations 적용 (인용 ${eeat.stats?.citationCount || 0}개, 읽기 ${eeat.stats?.readingTimeMinutes || 0}분)`);
+                    }
+                }
+                catch (eeatErr) {
+                    console.warn('[INTERNAL-CONSISTENCY] E-E-A-T 메타 삽입 실패:', eeatErr?.message);
+                }
+                // JSON-LD @graph → 본문 맨 앞 <script> 단일 블록
+                try {
+                    const cleanText = generatedContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+                    const wordCount = cleanText.length;
+                    const schema = buildSchemaJsonLd({
+                        title,
+                        description: excerpt || metaDescription || cleanText.substring(0, 150),
+                        canonicalUrl,
+                        imageUrl: thumbnailUrl,
+                        publishedAt: isoNow,
+                        modifiedAt: isoNow,
+                        keywords: generatedLabels,
+                        wordCount,
+                        authorName,
+                        authorTitle: '콘텐츠 에디터',
+                        siteName,
+                        siteUrl,
+                    });
+                    if (schema && schema.scriptTag) {
+                        generatedContent = schema.scriptTag + '\n' + generatedContent;
+                        console.log(`[INTERNAL-CONSISTENCY] ✅ JSON-LD @graph 삽입 (노드 ${schema.nodeCount}개)`);
+                    }
+                }
+                catch (schemaErr) {
+                    console.warn('[INTERNAL-CONSISTENCY] JSON-LD 삽입 실패:', schemaErr?.message);
+                }
+            }
+            catch (geoErr) {
+                console.warn('[INTERNAL-CONSISTENCY] GEO 시스템 이식 실패:', geoErr?.message);
+            }
+            // v3.8.33: 미리보기 → 발행 일치를 위해 wrapper에 max-mode-article 클래스 부여 → publisher applyInlineStyles skip.
+            // v3.8.36: 빠진 요소(<p>/<h2>/<li>/<td>/<a> 등)에 inline style + !important 자동 보강.
+            // v3.8.41: max-mode-article 안전망 강화 + <style> 스킨 CSS 본문 주입
+            //   사용자 보고: 미리보기 빨간 H2 vs 발행 보라 H2 차이는 publisher가 max-mode-article 못 찾아
+            //   applyInlineStyles(보라 톤)을 발동시킨 결과. LLM이 sw-cornerstone 클래스를 빠뜨리면
+            //   v3.8.33 정규식 매칭 실패 → max-mode-article 추가 안 됨 → publisher가 변환.
+            //   안전망: 어떤 wrapper든 max-mode-article 없으면 전체를 <div class="max-mode-article">로 wrap.
+            //   추가: <style> 스킨 CSS를 본문에 박음 → publisher가 separator 뒤로 옮겨 Blogger 정상 적용.
+            try {
+                // 1) sw-cornerstone 매칭 시 max-mode-article 클래스 추가
+                let hasWrapperApplied = false;
+                generatedContent = generatedContent.replace(/(<div\s+class\s*=\s*["'])([^"']*\bsw-cornerstone\b[^"']*)(["'])/i, (match, p1, classes, p3) => {
+                    hasWrapperApplied = true;
+                    if (/\bmax-mode-article\b/.test(classes))
+                        return match;
+                    return `${p1}${classes} max-mode-article${p3}`;
+                });
+                // 2) 안전망: sw-cornerstone 없거나 매칭 실패 시 max-mode-article가 본문 어디에도 없으면 전체 wrap
+                if (!hasWrapperApplied && !/\bmax-mode-article\b/.test(generatedContent)) {
+                    generatedContent = `<div class="max-mode-article" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR',sans-serif;color:${spiderTheme.text};line-height:1.8;">${generatedContent}</div>`;
+                    console.log('[INTERNAL-CONSISTENCY] ✅ max-mode-article 안전망 wrapper 자동 추가 (LLM 클래스 누락 대응)');
+                }
+                // 3) v3.8.41: 스킨 CSS <style> 본문 주입 — publisher가 추출해서 separator 뒤로 배치 → Blogger 적용.
+                //   .max-mode-article scoped 셀렉터로 미리보기/발행 양쪽에 동일 적용.
+                const spiderParagraphStyle = `color:${spiderTheme.text} !important;font-size:18px !important;line-height:1.85 !important;margin:0 0 20px !important;word-break:keep-all !important;`;
+                const spiderH2Style = `color:${spiderTheme.heading} !important;font-size:26px !important;font-weight:700 !important;margin:40px 0 20px !important;padding:18px 22px !important;background:linear-gradient(135deg,${spiderTheme.gradientStart} 0%,${spiderTheme.gradientEnd} 100%) !important;border-left:5px solid ${spiderTheme.primary} !important;border-radius:0 16px 16px 0 !important;line-height:1.4 !important;`;
+                const spiderH3Style = `color:${spiderTheme.heading} !important;font-size:21px !important;font-weight:600 !important;margin:32px 0 16px !important;padding:14px 18px !important;background:${spiderTheme.surfaceAlt} !important;border-left:4px solid ${spiderTheme.primary} !important;border-radius:0 12px 12px 0 !important;line-height:1.4 !important;`;
+                const spiderH4Style = `color:${spiderTheme.muted} !important;font-size:18px !important;font-weight:700 !important;margin:24px 0 12px !important;line-height:1.4 !important;`;
+                const spiderLiStyle = `color:${spiderTheme.text} !important;font-size:17px !important;line-height:1.9 !important;margin:0 0 12px !important;`;
+                const spiderThStyle = `padding:14px 16px !important;color:${spiderTheme.heading} !important;background:linear-gradient(135deg,${spiderTheme.gradientStart} 0%,${spiderTheme.gradientEnd} 100%) !important;border:1px solid ${spiderTheme.border} !important;font-weight:800 !important;text-align:left !important;`;
+                const spiderTdStyle = `padding:14px 16px !important;color:${spiderTheme.text} !important;border:1px solid ${spiderTheme.borderSoft} !important;font-size:15px !important;line-height:1.7 !important;`;
+                const skinCss = `<style>
+.max-mode-article h1{color:${spiderTheme.heading} !important;font-size:34px !important;font-weight:800 !important;margin:0 0 32px !important;line-height:1.3 !important;}
+.max-mode-article h2{${spiderH2Style}}
+.max-mode-article h3{${spiderH3Style}}
+.max-mode-article h4{${spiderH4Style}}
+.max-mode-article p{${spiderParagraphStyle}}
+.max-mode-article li{${spiderLiStyle}}
+.max-mode-article ul,.max-mode-article ol{margin:20px 0 !important;padding-left:24px !important;}
+.max-mode-article table{width:100% !important;border-collapse:collapse !important;margin:24px 0 !important;}
+.max-mode-article th{${spiderThStyle}}
+.max-mode-article td{${spiderTdStyle}}
+.max-mode-article strong{color:${spiderTheme.heading} !important;font-weight:700 !important;}
+.max-mode-article em{color:${spiderTheme.muted} !important;font-style:italic !important;}
+.max-mode-article blockquote{margin:24px 0 !important;padding:18px 22px !important;background:${spiderTheme.primarySoft} !important;border-left:4px solid ${spiderTheme.primary} !important;border-radius:0 12px 12px 0 !important;color:${spiderTheme.primaryDark} !important;font-style:italic !important;}
+.max-mode-article a{color:${spiderTheme.primary} !important;text-decoration:underline !important;}
+.max-mode-article img{max-width:100% !important;height:auto !important;border-radius:12px !important;margin:18px auto !important;display:block !important;}
+@media (max-width:768px){
+  .max-mode-article{width:100vw !important;max-width:100vw !important;margin-left:calc(50% - 50vw) !important;margin-right:calc(50% - 50vw) !important;padding:18px 14px 52px !important;box-sizing:border-box !important;background:#ffffff !important;overflow:visible !important;}
+  .max-mode-article h1{font-size:26px !important;margin:0 0 24px !important;line-height:1.35 !important;}
+  .max-mode-article h2{font-size:22px !important;margin:38px 0 18px !important;padding:14px 16px !important;border-radius:0 12px 12px 0 !important;}
+  .max-mode-article h3{font-size:19px !important;margin:28px 0 14px !important;padding:12px 14px !important;}
+  .max-mode-article p{font-size:16px !important;line-height:1.78 !important;margin:0 0 16px !important;}
+  .max-mode-article li{font-size:15.5px !important;line-height:1.78 !important;}
+  .max-mode-article table{width:max-content !important;min-width:100% !important;max-width:none !important;}
+  .max-mode-article th,.max-mode-article td{min-width:86px !important;padding:9px 10px !important;font-size:13px !important;line-height:1.45 !important;}
+  .max-mode-article .tldr-answer-box,
+  .max-mode-article .freshness-meta,
+  .max-mode-article .eeat-meta-box,
+  .max-mode-article .sw-toc-box,
+  .max-mode-article .cta-box,
+  .max-mode-article aside,
+  .max-mode-article blockquote{max-width:100% !important;margin-left:0 !important;margin-right:0 !important;padding:16px 14px !important;border-radius:10px !important;box-sizing:border-box !important;}
+}
+@media (max-width:380px){
+  .max-mode-article{padding:16px 10px 48px !important;}
+  .max-mode-article h1{font-size:23px !important;}
+  .max-mode-article h2{font-size:19px !important;padding:12px 14px !important;}
+  .max-mode-article p{font-size:15px !important;}
+}
+</style>
+`;
+                generatedContent = skinCss + generatedContent;
+                console.log('[INTERNAL-CONSISTENCY] ✅ 스킨 CSS <style> 본문 주입 (publisher가 separator 뒤 배치)');
+                // v3.8.36: 빠진 요소에 가독성 inline style + !important 보강 (이미 있으면 보존)
+                const enforceInlineStyle = (html, tag, defaultStyle) => {
+                    const regex = new RegExp(`<${tag}((?:\\s[^>]*)?)>`, 'gi');
+                    return html.replace(regex, (match, attrs) => {
+                        if (attrs && /style\s*=/i.test(attrs))
+                            return match; // 보존
+                        return `<${tag}${attrs || ''} style="${defaultStyle}">`;
+                    });
+                };
+                // v3.8.40: 일반 글포스팅 publisher applyInlineStyles와 동일한 빨간/베이지 톤으로 통일.
+                //   v3.8.36은 파란/보라 톤으로 다르게 박아 미리보기(빨간)와 발행(파란)이 달라지던 문제 차단.
+                //   같은 색상 톤이면 LLM이 박은 inline style이 있든 enforceInlineStyle이 박든 결과 일관.
+                generatedContent = enforceInlineStyle(generatedContent, 'p', spiderParagraphStyle);
+                generatedContent = enforceInlineStyle(generatedContent, 'h2', spiderH2Style);
+                generatedContent = enforceInlineStyle(generatedContent, 'h3', spiderH3Style);
+                generatedContent = enforceInlineStyle(generatedContent, 'h4', spiderH4Style);
+                generatedContent = enforceInlineStyle(generatedContent, 'li', spiderLiStyle);
+                generatedContent = enforceInlineStyle(generatedContent, 'ul', 'margin:20px 0 !important;padding-left:24px !important;');
+                generatedContent = enforceInlineStyle(generatedContent, 'ol', 'margin:20px 0 !important;padding-left:24px !important;');
+                generatedContent = enforceInlineStyle(generatedContent, 'table', 'width:100% !important;border-collapse:collapse !important;margin:24px 0 !important;');
+                generatedContent = enforceInlineStyle(generatedContent, 'th', spiderThStyle);
+                generatedContent = enforceInlineStyle(generatedContent, 'td', spiderTdStyle);
+                generatedContent = enforceInlineStyle(generatedContent, 'strong', `color:${spiderTheme.heading} !important;font-weight:700 !important;`);
+                generatedContent = enforceInlineStyle(generatedContent, 'em', `color:${spiderTheme.muted} !important;font-style:italic !important;`);
+                generatedContent = enforceInlineStyle(generatedContent, 'blockquote', `margin:24px 0 !important;padding:18px 22px !important;background:${spiderTheme.primarySoft} !important;border-left:4px solid ${spiderTheme.primary} !important;border-radius:0 12px 12px 0 !important;color:${spiderTheme.primaryDark} !important;font-style:italic !important;`);
+                generatedContent = enforceInlineStyle(generatedContent, 'a', `color:${spiderTheme.primary} !important;text-decoration:underline !important;`);
+                generatedContent = enforceInlineStyle(generatedContent, 'img', 'max-width:100% !important;height:auto !important;border-radius:12px !important;margin:18px auto !important;display:block !important;');
+                console.log('[INTERNAL-CONSISTENCY] ✅ wrapper 클래스 부여 + 빠진 요소 inline style 보강 완료 (Blogger 테마 무관 표시)');
+            }
+            catch (skinErr) {
+                console.warn('[INTERNAL-CONSISTENCY] ⚠️ inline style 보강 실패:', skinErr?.message);
+            }
+            // v3.8.73 (Phase 3 작업 12): GEO/AEO 적용 진단 요약 — 발행 직전 적용 상태 한눈에 확인
+            try {
+                const checks = {
+                    'TL;DR 답변 박스': /class\s*=\s*["'][^"']*tldr-answer-box/i.test(generatedContent),
+                    'Freshness Last updated': /class\s*=\s*["'][^"']*freshness-meta/i.test(generatedContent),
+                    'E-E-A-T 메타 박스': /class\s*=\s*["'][^"']*eeat-meta-box/i.test(generatedContent),
+                    'JSON-LD Article': /"@type"\s*:\s*"Article"/i.test(generatedContent),
+                    'JSON-LD Person': /"@type"\s*:\s*"Person"/i.test(generatedContent),
+                    'JSON-LD Organization': /"@type"\s*:\s*"Organization"/i.test(generatedContent),
+                    'FAQPage Schema': /"@type"\s*:\s*"FAQPage"/i.test(generatedContent),
+                    'HowTo Schema': /"@type"\s*:\s*"HowTo"/i.test(generatedContent),
+                    '주제별 Schema (Government/Financial/Medical)': /"@type"\s*:\s*"(GovernmentService|FinancialProduct|MedicalWebPage)"/i.test(generatedContent),
+                    'DefinedTerm Schema': /"@type"\s*:\s*"DefinedTerm"/i.test(generatedContent),
+                    'Speakable Schema': /"@type"\s*:\s*"SpeakableSpecification"/i.test(generatedContent),
+                    'ImageObject Schema': /"@type"\s*:\s*"ImageObject"/i.test(generatedContent),
+                    '통계 박스 (Quotable Stat)': /class\s*=\s*["'][^"']*[^>]*<p[^>]*>📊\s*핵심\s*통계/i.test(generatedContent) || /📊\s*핵심\s*통계/i.test(generatedContent),
+                    '한국어 NLP 라벨 정규화': generatedLabels.length >= 5,
+                    'CTA 빨간 박스': /background[^"']*linear-gradient[^"']*ef4444/i.test(generatedContent),
+                    '인라인 스킨 CSS': /<style>[\s\S]*?\.max-mode-article/i.test(generatedContent),
+                };
+                const passed = Object.entries(checks).filter(([_, v]) => v).length;
+                const total = Object.keys(checks).length;
+                const passRate = Math.round((passed / total) * 100);
+                const summaryLines = [
+                    `[GEO-AEO-AUDIT] ════════ 발행 직전 GEO/AEO 적용 진단 ════════`,
+                    `[GEO-AEO-AUDIT] 종합 점수: ${passed}/${total} (${passRate}%)`,
+                    ...Object.entries(checks).map(([k, v]) => `[GEO-AEO-AUDIT] ${v ? '✅' : '❌'} ${k}`),
+                    `[GEO-AEO-AUDIT] ══════════════════════════════════════`,
+                ];
+                summaryLines.forEach((l) => console.log(l));
+                try {
+                    const { BrowserWindow: BW_A } = await Promise.resolve().then(() => __importStar(require('electron')));
+                    BW_A.getAllWindows().forEach((w) => {
+                        summaryLines.forEach((line) => { try {
+                            w.webContents.send('log-line', line);
+                        }
+                        catch { } });
+                    });
+                }
+                catch { }
+            }
+            catch (auditErr) {
+                console.warn('[INTERNAL-CONSISTENCY] GEO/AEO 진단 요약 실패:', auditErr?.message);
+            }
+            // v3.8.42/v3.8.46: 거미줄 진단 로그 — IPC로 renderer 콘솔에 전달.
+            //   main 프로세스 console.log는 패키지 빌드에서 renderer 콘솔에 안 보이므로 IPC로 push.
+            const hasSwCornerstone = generatedContent.includes('sw-cornerstone');
+            const hasMaxMode = generatedContent.includes('max-mode-article');
+            const hasStyleTag = /<style[^>]*>/i.test(generatedContent);
+            const styleCount = (generatedContent.match(/<style[^>]*>/gi) || []).length;
+            const firstH2 = generatedContent.match(/<h2[^>]*>/i);
+            const firstH3 = generatedContent.match(/<h3[^>]*>/i);
+            const wrapperMatch = generatedContent.match(/<div\s+class\s*=\s*["']([^"']*)["']/i);
+            const diagLines = [
+                `[INTERNAL-CONSISTENCY-SPIDER] 🕸️ === 거미줄 백엔드 결과 진단 ===`,
+                `[INTERNAL-CONSISTENCY-SPIDER]    - sw-cornerstone 마커: ${hasSwCornerstone ? '✅' : '❌'}`,
+                `[INTERNAL-CONSISTENCY-SPIDER]    - max-mode-article 클래스: ${hasMaxMode ? '✅' : '❌ 안전망 실패'}`,
+                `[INTERNAL-CONSISTENCY-SPIDER]    - <style> 스킨 CSS: ${hasStyleTag ? `✅ ${styleCount}개` : '❌ 주입 실패'}`,
+                `[INTERNAL-CONSISTENCY-SPIDER]    - 첫 wrapper class: ${wrapperMatch ? wrapperMatch[1] : '❌'}`,
+                `[INTERNAL-CONSISTENCY-SPIDER]    - 첫 <h2> tag: ${firstH2 ? firstH2[0].substring(0, 200) : '❌'}`,
+                `[INTERNAL-CONSISTENCY-SPIDER]    - 첫 <h3> tag: ${firstH3 ? firstH3[0].substring(0, 200) : '❌'}`,
+                `[INTERNAL-CONSISTENCY-SPIDER]    - HTML 총 길이: ${generatedContent.length.toLocaleString()}자`,
+                `[INTERNAL-CONSISTENCY-SPIDER]    - 시작 500자: ${generatedContent.substring(0, 500)}`,
+                `[INTERNAL-CONSISTENCY-SPIDER] 🕸️ === 진단 끝 ===`,
+            ];
+            diagLines.forEach((line) => console.log(line));
+            try {
+                const { BrowserWindow: BW } = await Promise.resolve().then(() => __importStar(require('electron')));
+                BW.getAllWindows().forEach((w) => {
+                    diagLines.forEach((line) => w.webContents.send('log-line', line));
+                });
+            }
+            catch { }
+            return {
+                success: true,
+                html: generatedContent,
+                title,
+                thumbnailUrl,
+                imageStats,
+                labels: generatedLabels,
+                excerpt,
+                metaDescription,
+            };
         }
         catch (error) {
             console.error('[INTERNAL-CONSISTENCY] AI 종합글 생성 실패:', error);
@@ -2117,6 +3344,9 @@ electron_1.ipcMain.handle('save-env', async (_evt, envData) => {
             'pexelsApiKey': 'PEXELS_API_KEY',
             'stabilityApiKey': 'STABILITY_API_KEY', // 🔥 Stability AI 추가
             'stabilityKey': 'STABILITY_API_KEY',
+            'deepInfraApiKey': 'DEEPINFRA_API_KEY',
+            'deepinfraApiKey': 'DEEPINFRA_API_KEY',
+            'prodiaApiKey': 'PRODIA_API_KEY',
             'googleCseKey': 'GOOGLE_CSE_KEY',
             'googleCseCx': 'GOOGLE_CSE_CX',
             'youtubeApiKey': 'YOUTUBE_API_KEY',
@@ -2397,6 +3627,278 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
             payload.generatedLabels = result.labels;
             console.log(`[RUN-POST] ✅ 생성된 labels ${result.labels.length}개를 payload에 병합:`, result.labels.slice(0, 5));
         }
+        // v3.8.75: 글포스팅에도 작업 5-12 후처리 일괄 이식 (FAQPage/HowTo/주제schema/DefinedTerm/Speakable/ImageObject/네이버SEO/Freshness/진단요약)
+        try {
+            let htmlPost = String(result.html || result.content || '');
+            const titlePost = result.title || payload.topic || '';
+            const labelsPost = result.labels || payload.generatedLabels || [];
+            const thumbPost = result.thumbnail || result.thumbnailUrl || '';
+            const excerptPost = String(result.excerpt || '').substring(0, 250);
+            const metaDescPost = String(result.metaDescription || payload.metaDescription || '').substring(0, 250);
+            const envP = (0, env_1.loadEnvFromFile)();
+            const authorP = (envP.authorName || envP.adsenseAuthorInfo || envP.authorNickname || '에디터').toString().trim() || '에디터';
+            const siteNameP = (envP.wordpressSiteName || envP.blogTitle || '').toString().trim() || 'LEADERNAM';
+            const siteUrlP = (envP.wordpressSiteUrl || envP.blogUrl || '').toString().trim();
+            const additionalSchemasP = [];
+            // 작업 5: FAQPage + HowTo 자동 추출
+            try {
+                const faqs = [];
+                const h3Re = /<h3[^>]*>([^<]*\?)<\/h3>\s*<p[^>]*>([\s\S]*?)<\/p>/gi;
+                let m;
+                while ((m = h3Re.exec(htmlPost)) !== null) {
+                    const q = (m[1] || '').trim();
+                    const a = (m[2] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                    if (q.length > 5 && q.length < 200 && a.length > 20 && a.length < 800)
+                        faqs.push({ q, a });
+                }
+                if (faqs.length >= 2) {
+                    additionalSchemasP.push({
+                        '@type': 'FAQPage',
+                        mainEntity: faqs.slice(0, 8).map(({ q, a }) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
+                    });
+                }
+                // HowTo
+                const olRe = /<ol[^>]*>([\s\S]*?)<\/ol>/gi;
+                let olMatch;
+                while ((olMatch = olRe.exec(htmlPost)) !== null) {
+                    const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+                    const steps = [];
+                    let li;
+                    while ((li = liRe.exec(olMatch[1])) !== null) {
+                        const txt = (li[1] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                        if (txt.length > 10 && txt.length < 400)
+                            steps.push({ name: `단계 ${steps.length + 1}`, text: txt });
+                    }
+                    if (steps.length >= 3 && steps.length <= 15) {
+                        additionalSchemasP.push({
+                            '@type': 'HowTo',
+                            name: `${titlePost} 단계별 가이드`,
+                            step: steps.map((s, i) => ({ '@type': 'HowToStep', position: i + 1, name: s.name, text: s.text })),
+                        });
+                        break;
+                    }
+                }
+            }
+            catch { }
+            // 작업 6: 주제별 schema 자동 매칭
+            try {
+                const plainBody = htmlPost.replace(/<[^>]+>/g, ' ').toLowerCase();
+                if (/(정부|복지|지원금|보조금|수당|연금|국가|공공|바우처|혜택|신청|자격|모집|선정|복지로|bokjiro|gov\.kr|보건복지부|행정복지센터)/.test(plainBody)) {
+                    additionalSchemasP.push({ '@type': 'GovernmentService', name: titlePost, description: (excerptPost || metaDescPost || titlePost).substring(0, 200), provider: { '@type': 'GovernmentOrganization', name: '대한민국 정부' }, serviceType: '복지·정부지원' });
+                }
+                else if (/(적금|예금|투자|펀드|주식|보험|대출|이자|금리|은행|증권|연금|저축|배당|수익률|매칭|만기|원금)/.test(plainBody)) {
+                    additionalSchemasP.push({ '@type': 'FinancialProduct', name: titlePost, description: (excerptPost || metaDescPost || titlePost).substring(0, 200), category: '금융상품·저축·투자' });
+                }
+                else if (/(건강|의료|병원|치료|진료|증상|질환|약|처방|예방|검진|의사|환자|보험.*의료|국민건강)/.test(plainBody)) {
+                    additionalSchemasP.push({ '@type': 'MedicalWebPage', name: titlePost, description: (excerptPost || metaDescPost || titlePost).substring(0, 200), lastReviewed: new Date().toISOString().split('T')[0] });
+                }
+            }
+            catch { }
+            // 작업 9: DefinedTerm + Speakable + ImageObject
+            try {
+                additionalSchemasP.push({ '@type': 'DefinedTerm', name: titlePost, description: (excerptPost || metaDescPost || titlePost).substring(0, 250), inDefinedTermSet: { '@type': 'DefinedTermSet', name: `${titlePost} 용어집` } });
+                additionalSchemasP.push({ '@type': 'SpeakableSpecification', cssSelector: ['.tldr-answer-box', '.tldr-answer-box p:first-of-type'] });
+                if (thumbPost) {
+                    additionalSchemasP.push({ '@type': 'ImageObject', contentUrl: thumbPost, license: 'https://creativecommons.org/licenses/by-nc/4.0/', acquireLicensePage: siteUrlP, caption: titlePost, creator: { '@type': 'Person', name: authorP }, copyrightHolder: { '@type': 'Organization', name: siteNameP }, width: 1200, height: 630 });
+                }
+            }
+            catch { }
+            if (additionalSchemasP.length > 0) {
+                const extraScript = `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@graph': additionalSchemasP })}</script>`;
+                htmlPost = extraScript + '\n' + htmlPost;
+            }
+            // 작업 10: 네이버 SEO + 한국어 NLP
+            try {
+                const naverMeta = `<meta property="og:locale" content="ko_KR" />
+<meta property="article:section" content="${(labelsPost[0] || '').toString().replace(/[<>"']/g, '')}" />
+<meta property="og:site_name" content="${siteNameP.replace(/[<>"']/g, '')}" />
+${labelsPost.slice(0, 6).map((kw) => `<meta property="article:tag" content="${String(kw).replace(/[<>"']/g, '')}" />`).join('\n')}
+`;
+                htmlPost = naverMeta + htmlPost;
+            }
+            catch { }
+            // 작업 11: Freshness Last updated 표
+            try {
+                if (!/class\s*=\s*["'][^"']*freshness-meta/i.test(htmlPost)) {
+                    const nowISO = new Date().toISOString();
+                    const nowKo = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+                    const freshness = `<div class="freshness-meta" style="margin:12px 0 20px;padding:10px 14px;background:#f0fdf4;border-left:3px solid #10b981;border-radius:0 8px 8px 0;font-size:12px;color:#065f46;line-height:1.6;">
+  <span style="font-weight:800;">🔄 최신 업데이트</span>
+  <time datetime="${nowISO}" itemprop="dateModified" style="margin-left:8px;color:#047857;font-weight:700;">${nowKo}</time>
+  <span style="margin-left:12px;color:#6b7280;">· 본 정보는 정기적으로 검토·갱신됩니다</span>
+</div>`;
+                    if (/<\/h1>/i.test(htmlPost))
+                        htmlPost = htmlPost.replace(/<\/h1>/i, (mm) => mm + '\n' + freshness);
+                    else
+                        htmlPost = freshness + '\n' + htmlPost;
+                }
+            }
+            catch { }
+            // 작업 12: GEO/AEO 진단 요약
+            try {
+                const checks = {
+                    'TL;DR 답변 박스': /class\s*=\s*["'][^"']*tldr-answer-box/i.test(htmlPost),
+                    'Freshness Last updated': /class\s*=\s*["'][^"']*freshness-meta/i.test(htmlPost),
+                    'JSON-LD Article': /"@type"\s*:\s*"Article"/i.test(htmlPost),
+                    'FAQPage Schema': /"@type"\s*:\s*"FAQPage"/i.test(htmlPost),
+                    'HowTo Schema': /"@type"\s*:\s*"HowTo"/i.test(htmlPost),
+                    '주제별 Schema': /"@type"\s*:\s*"(GovernmentService|FinancialProduct|MedicalWebPage)"/i.test(htmlPost),
+                    'DefinedTerm Schema': /"@type"\s*:\s*"DefinedTerm"/i.test(htmlPost),
+                    'Speakable Schema': /"@type"\s*:\s*"SpeakableSpecification"/i.test(htmlPost),
+                    'ImageObject Schema': /"@type"\s*:\s*"ImageObject"/i.test(htmlPost),
+                    '네이버 og:locale': /og:locale.+ko_KR/i.test(htmlPost),
+                };
+                const passed = Object.values(checks).filter(Boolean).length;
+                const total = Object.keys(checks).length;
+                const passRate = Math.round((passed / total) * 100);
+                const lines = [
+                    `[GEO-AEO-AUDIT-POST] ════════ 글포스팅 GEO/AEO 적용 진단 ════════`,
+                    `[GEO-AEO-AUDIT-POST] 종합 점수: ${passed}/${total} (${passRate}%)`,
+                    ...Object.entries(checks).map(([k, v]) => `[GEO-AEO-AUDIT-POST] ${v ? '✅' : '❌'} ${k}`),
+                    `[GEO-AEO-AUDIT-POST] ══════════════════════════════════════`,
+                ];
+                lines.forEach((l) => console.log(l));
+                try {
+                    const { BrowserWindow: BW_P } = await Promise.resolve().then(() => __importStar(require('electron')));
+                    BW_P.getAllWindows().forEach((w) => { lines.forEach((line) => { try {
+                        w.webContents.send('log-line', line);
+                    }
+                    catch { } }); });
+                }
+                catch { }
+            }
+            catch { }
+            result.html = htmlPost;
+            result.content = htmlPost;
+            console.log(`[RUN-POST] ✅ 작업 5-12 후처리 일괄 적용 완료 (HTML ${htmlPost.length}자)`);
+        }
+        catch (postSuiteErr) {
+            console.warn('[RUN-POST] 작업 5-12 후처리 일괄 적용 실패:', postSuiteErr?.message);
+        }
+        // v3.8.62 (Phase1 작업3): TL;DR 답변 박스 자동 생성 → H1 직후 삽입 (AEO/GEO Tier 1)
+        //   일반 글포스팅의 H1 직후에 정의형 직답 + 핵심 수치 3개 박스 자동 주입.
+        //   거미줄은 LLM 프롬프트에 강제 반영 — 일반 글포스팅은 후처리로 보장.
+        // v3.8.77: 중복 차단 강화
+        //   LLM이 도입부에 박은 평문 "한눈에 답변" / "💡 한눈에 답변" 비슷한 텍스트를 자동 제거.
+        //   사용자 보고: TL;DR 박스 위에 같은 내용의 평문 단락이 또 노출됨 → 본문 정리 후 박스 삽입.
+        try {
+            let htmlSrc0 = String(result.html || result.content || '');
+            const before = htmlSrc0.length;
+            htmlSrc0 = htmlSrc0
+                // 평문 "💡 한눈에 답변 ..." 패턴 (박스 wrap 없는 p 또는 div)
+                .replace(/<p[^>]*>\s*💡\s*한눈에\s*답변[\s\S]{0,500}?<\/p>/gi, '')
+                .replace(/<div(?![^>]*tldr-answer-box)[^>]*>\s*💡\s*한눈에\s*답변[\s\S]{0,500}?<\/div>/gi, '');
+            if (htmlSrc0.length !== before) {
+                result.html = htmlSrc0;
+                result.content = htmlSrc0;
+                console.log(`[RUN-POST] ✅ 평문 "한눈에 답변" 중복 제거 (${before - htmlSrc0.length}자)`);
+            }
+            const htmlSrc = htmlSrc0;
+            const alreadyHasTldr = /class\s*=\s*["'][^"']*tldr-answer-box/i.test(htmlSrc);
+            if (!alreadyHasTldr && /<\/h1>/i.test(htmlSrc)) {
+                const titleForTldr = result.title || payload.topic || '';
+                const plainForTldr = htmlSrc
+                    .replace(/<style[\s\S]*?<\/style>/gi, '')
+                    .replace(/<script[\s\S]*?<\/script>/gi, '')
+                    .replace(/<[^>]+>/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                const envForTldr = (0, env_1.loadEnvFromFile)();
+                const apiKeyTldr = envForTldr.geminiKey || envForTldr.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '';
+                if (apiKeyTldr && plainForTldr.length > 500) {
+                    const { GoogleGenerativeAI: GGA_T } = require('@google/generative-ai');
+                    const tldrGenAI = new GGA_T(apiKeyTldr);
+                    const tldrModel = await selectGeminiModel(tldrGenAI);
+                    const tldrPrompt = `다음 블로그 글의 "TL;DR 답변 박스" HTML을 정확히 출력하세요.
+
+【제목】 ${titleForTldr}
+【본문 첫 800자】 ${plainForTldr.substring(0, 800)}
+
+엄격 출력 규칙:
+- 출력은 아래 HTML 1개만 (코드블록·설명·마크다운 X)
+- 직답은 40~60단어, 패턴: "[주제]는 [카테고리]로서 [핵심 차별점]이며, [핵심 수치/기간/조건]."
+- 핵심 수치 3개는 본문에서 추출한 실제 숫자+단위 (금액·기간·인원·자격 등)
+
+<div class="tldr-answer-box" style="margin:24px 0;padding:20px 24px;background:linear-gradient(135deg,#fef3c7 0%,#fde68a 100%);border:2px solid #f59e0b;border-radius:14px;">
+  <p style="margin:0 0 8px;color:#78350f;font-size:13px;font-weight:800;letter-spacing:0.5px;">💡 한눈에 답변</p>
+  <p style="margin:0 0 14px;color:#0f172a;font-size:17px;font-weight:700;line-height:1.5;">[정의형 직답 40~60단어]</p>
+  <ul style="margin:0;padding-left:20px;color:#1e293b;font-size:14px;line-height:1.8;">
+    <li><strong>[핵심1 라벨]:</strong> [숫자+단위]</li>
+    <li><strong>[핵심2 라벨]:</strong> [숫자+단위]</li>
+    <li><strong>[핵심3 라벨]:</strong> [숫자+단위]</li>
+  </ul>
+</div>`;
+                    const tldrResult = await tldrModel.generateContent({
+                        contents: [{ role: 'user', parts: [{ text: tldrPrompt }] }],
+                        generationConfig: { maxOutputTokens: 600, temperature: 0.5 },
+                    });
+                    let tldrHtml = ((await tldrResult.response).text() || '').trim()
+                        .replace(/^```html\n?/gi, '').replace(/^```\n?/gi, '').replace(/```\n?$/gi, '').trim();
+                    // tldr-answer-box class 포함 확인
+                    if (/class\s*=\s*["'][^"']*tldr-answer-box/i.test(tldrHtml) && tldrHtml.length > 200) {
+                        const newHtml = htmlSrc.replace(/<\/h1>/i, (m) => m + '\n' + tldrHtml);
+                        result.html = newHtml;
+                        result.content = newHtml;
+                        console.log(`[RUN-POST] ✅ TL;DR 답변 박스 H1 직후 삽입 (${tldrHtml.length}자)`);
+                    }
+                    else {
+                        console.warn(`[RUN-POST] TL;DR HTML 검증 실패 (길이 ${tldrHtml.length}, class 미포함 가능)`);
+                    }
+                }
+            }
+        }
+        catch (tldrErr) {
+            console.warn('[RUN-POST] TL;DR 자동 삽입 실패:', tldrErr?.message);
+        }
+        // v3.8.62 (Phase1 작업2): metaDescription을 Gemini AI로 별도 생성 → payload에 병합
+        //   기존: WP는 publisher가 generateMetaDescriptionSmart 호출, Blogger는 미생성.
+        //   개선: 일반 글포스팅도 거미줄과 동일한 [키워드+이익+CTA] 패턴 140-160자 생성.
+        if (!payload.metaDescription) {
+            try {
+                const titleForMeta = result.title || payload.topic || '';
+                const htmlForMeta = String(result.html || result.content || '');
+                const plainText = htmlForMeta
+                    .replace(/<style[\s\S]*?<\/style>/gi, '')
+                    .replace(/<script[\s\S]*?<\/script>/gi, '')
+                    .replace(/<[^>]+>/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                const keywordsForMeta = (result.labels || payload.generatedLabels || []).slice(0, 5).join(', ');
+                const envData = (0, env_1.loadEnvFromFile)();
+                const apiKey = envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '';
+                if (apiKey && plainText.length > 200) {
+                    const { GoogleGenerativeAI: GGA_RP } = require('@google/generative-ai');
+                    const rpGenAI = new GGA_RP(apiKey);
+                    const rpModel = await selectGeminiModel(rpGenAI);
+                    const rpPrompt = `다음 블로그 글의 메타 디스크립션을 정확히 1줄로 작성하세요.
+
+【글 제목】 ${titleForMeta}
+【본문 첫 500자】 ${plainText.substring(0, 500)}
+【핵심 키워드】 ${keywordsForMeta || '(없음)'}
+
+요구사항:
+- 정확히 140~160자 (한글 기준)
+- 핵심 검색 키워드 1~2개 자연스럽게 포함
+- 독자가 얻을 이익(혜택/방법/결과) 1줄 명시
+- 끝에 행동 유도(CTA) 짧게 ("자세히 보기", "지금 확인" 등)
+- 출력은 메타 디스크립션 텍스트 1줄만 (앞뒤 따옴표·마크다운 X)`;
+                    const rpResult = await rpModel.generateContent({
+                        contents: [{ role: 'user', parts: [{ text: rpPrompt }] }],
+                        generationConfig: { maxOutputTokens: 200, temperature: 0.4 },
+                    });
+                    let aiMeta = ((await rpResult.response).text() || '').trim()
+                        .replace(/^["'`「『]+|["'`」』]+$/g, '').replace(/^\*+|\*+$/g, '').trim();
+                    aiMeta = aiMeta.split(/\n+/)[0].trim();
+                    if (aiMeta.length >= 100 && aiMeta.length <= 200) {
+                        payload.metaDescription = aiMeta;
+                        console.log(`[RUN-POST] ✅ metaDescription Gemini AI 생성 (${aiMeta.length}자): ${aiMeta.substring(0, 60)}…`);
+                    }
+                }
+            }
+            catch (mdErr) {
+                console.warn('[RUN-POST] metaDescription AI 생성 실패 (publisher가 폴백):', mdErr?.message);
+            }
+        }
         const MAX_PUBLISH_RETRIES = 2;
         let lastPublishError = null;
         for (let attempt = 0; attempt <= MAX_PUBLISH_RETRIES; attempt++) {
@@ -2479,6 +3981,36 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
     }
 });
 // 컨텐츠 발행
+electron_1.ipcMain.handle('prepare-publish-content', async (_evt, data) => {
+    try {
+        const payload = data?.payload || {};
+        const platform = String(data?.platform || payload.platform || payload.targetPlatform || '').toLowerCase();
+        const content = typeof data?.content === 'string' ? data.content : '';
+        if (!content) {
+            return { ok: true, content: '' };
+        }
+        if (/blogger|blogspot|\ube14\ub85c\uac70|\ube14\ub85c\uadf8\uc2a4\ud31f/i.test(platform)) {
+            const { applyInlineStyles } = require('../dist/core/blogger-publisher.js');
+            return {
+                ok: true,
+                content: typeof applyInlineStyles === 'function' ? applyInlineStyles(content) : content,
+            };
+        }
+        if (!/wordpress|wp|워드프레스/i.test(platform)) {
+            return { ok: true, content };
+        }
+        const { applyWordPressInlineStyles } = require('../dist/wordpress/wordpress-publisher');
+        return {
+            ok: true,
+            content: applyWordPressInlineStyles(content),
+        };
+    }
+    catch (error) {
+        console.error('[PREPARE-PUBLISH] 콘텐츠 준비 실패:', error);
+        const message = error instanceof Error ? error.message : '콘텐츠 준비 실패';
+        return { ok: false, error: message, content: data?.content || '' };
+    }
+});
 electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
     try {
         console.log('[PUBLISH] 컨텐츠 발행 요청');
@@ -4259,57 +5791,344 @@ safeRegisterHandler('publish-internal-link-content', async (_evt, request) => {
         console.log('[INTERNAL-LINKS] 내부 링크 콘텐츠 발행 요청');
         const { html, title, publish } = request;
         const env = (0, env_1.loadEnvFromFile)();
-        // 플랫폼 확인 - 환경변수에서 가져오기
-        const platform = env.platform || env.blogPlatform || 'blogspot';
+        const normalizePlatform = (value) => {
+            const raw = String(value || '').toLowerCase();
+            if (/wordpress|wp|워드프레스/.test(raw))
+                return 'wordpress';
+            if (/blogger|blogspot|블로거|블로그스팟/.test(raw))
+                return 'blogspot';
+            return raw || 'blogspot';
+        };
+        const normalizePostingMode = (value) => {
+            const raw = String(value || '').toLowerCase();
+            if (raw === 'scheduled')
+                return 'schedule';
+            if (raw === 'immediate' || raw === 'now' || raw === 'live' || raw === 'single')
+                return 'publish';
+            if (raw === 'draft' || raw === 'save')
+                return 'draft';
+            if (raw === 'schedule' || raw === 'publish')
+                return raw;
+            return publish ? 'publish' : 'draft';
+        };
+        const platform = normalizePlatform(request.platform || env.platform || env.blogPlatform || 'blogspot');
+        const postingMode = normalizePostingMode(request.postingMode || request.publishType);
+        const payload = {
+            ...request,
+            platform,
+            publishType: postingMode,
+            postingMode,
+            scheduleDate: postingMode === 'schedule' ? request.scheduleDate : undefined,
+            blogId: request.blogId || env.blogId,
+            bloggerAccessToken: request.bloggerAccessToken || env.bloggerAccessToken,
+            bloggerRefreshToken: request.bloggerRefreshToken || env.bloggerRefreshToken,
+            bloggerClientId: request.bloggerClientId || env.bloggerClientId,
+            bloggerClientSecret: request.bloggerClientSecret || env.bloggerClientSecret,
+        };
         console.log('[INTERNAL-LINKS] 발행 플랫폼:', platform);
-        if (platform === 'wordpress') {
-            // WordPress 발행
-            const { WordPressPublisher } = require('../dist/wordpress/wordpress-publisher');
-            if (!env.wpSiteUrl || !env.wpUsername || !env.wpPassword) {
-                throw new Error('워드프레스 설정이 완료되지 않았습니다. 설정에서 워드프레스 정보를 입력해주세요.');
-            }
-            const wpConfig = {
-                siteUrl: env.wpSiteUrl,
-                username: env.wpUsername,
-                password: env.wpPassword
-            };
-            const publisher = new WordPressPublisher(wpConfig);
-            const result = await publisher.publish({
-                title,
-                content: html,
-                status: publish ? 'publish' : 'draft'
-            });
-            console.log('[INTERNAL-LINKS] ✅ WordPress 발행 완료:', result.url);
-            return { ok: true, url: result.url, platform: 'wordpress' };
+        console.log('[INTERNAL-LINKS] 발행 모드:', postingMode);
+        console.log('[INTERNAL-LINKS] 예약 시간:', payload.scheduleDate || '없음');
+        const { publishGeneratedContent } = require('../dist/core/index');
+        const result = await publishGeneratedContent(payload, title, html, request.thumbnailUrl || '');
+        if (!result?.ok) {
+            throw new Error(result?.error || '내부 링크 콘텐츠 발행 실패');
         }
-        else {
-            // Blogger 발행 (기본값)
-            const { publishToBlogger } = require('../dist/core/blogger-publisher.js');
-            // payload 구성
-            const payload = {
-                blogId: env.blogId,
-                bloggerAccessToken: env.bloggerAccessToken,
-                bloggerRefreshToken: env.bloggerRefreshToken,
-                bloggerClientId: env.bloggerClientId,
-                bloggerClientSecret: env.bloggerClientSecret
-            };
-            const postingMode = publish ? 'publish' : 'draft';
-            const result = await publishToBlogger(payload, title, html, '', // thumbnailUrl
-            (msg) => console.log('[INTERNAL-LINKS]', msg), postingMode, null // scheduleDate
-            );
-            if (result.ok) {
-                console.log('[INTERNAL-LINKS] ✅ Blogger 발행 완료:', result.postUrl);
-                return { ok: true, url: result.postUrl || result.url, platform: 'blogspot' };
-            }
-            else {
-                throw new Error(result.error || 'Blogger 발행 실패');
-            }
-        }
+        const url = result.url || result.postUrl || result.postId || result.id || '';
+        console.log('[INTERNAL-LINKS] ✅ 발행 완료:', url || '(URL 없음)');
+        return { ...result, ok: true, url, platform };
     }
     catch (error) {
         console.error('[INTERNAL-LINKS] ❌ 발행 실패:', error);
         throw error;
     }
+});
+const SPIDER_HUB_CTA_START = '<!-- BGPT_SPIDER_HUB_CTA_START -->';
+const SPIDER_HUB_CTA_END = '<!-- BGPT_SPIDER_HUB_CTA_END -->';
+function pickText(...values) {
+    for (const value of values) {
+        const text = value === undefined || value === null ? '' : String(value).trim();
+        if (text)
+            return text;
+    }
+    return '';
+}
+function normalizeBacklinkPlatform(platform, url) {
+    const raw = String(platform || '').toLowerCase();
+    if (/wordpress|wp|워드프레스/.test(raw) || /\/wp-admin\/|\/wp-content\/|wordpress\.com/i.test(url || ''))
+        return 'wordpress';
+    if (/blogger|blogspot|블로거|블로그스팟/.test(raw) || /\.blogspot\.com|blogger\.com/i.test(url || ''))
+        return 'blogspot';
+    return '';
+}
+function escapeHtmlInline(value) {
+    return String(value || '').replace(/[&<>"']/g, (char) => {
+        const table = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;',
+        };
+        return table[char] || char;
+    });
+}
+function escapeRegExpInline(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+function normalizeSiteUrl(siteUrl) {
+    const raw = String(siteUrl || '').trim();
+    if (!raw)
+        return '';
+    const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    return withProtocol
+        .replace(/\/wp-admin\/?$/i, '')
+        .replace(/\/wp-login\.php$/i, '')
+        .replace(/\/+$/, '');
+}
+function deriveOriginFromUrl(url) {
+    try {
+        return new URL(url).origin;
+    }
+    catch {
+        return '';
+    }
+}
+function resolveBacklinkPostId(post, platform) {
+    const direct = pickText(post.postId, post.id, post.post_id);
+    if (direct)
+        return direct;
+    const url = String(post.url || '');
+    if (platform === 'wordpress') {
+        const wpAdmin = url.match(/\/wp-admin\/post\.php\?[^#]*\bpost=(\d+)/i);
+        if (wpAdmin)
+            return wpAdmin[1] || '';
+        const queryPost = url.match(/[?&]p=(\d+)/i);
+        if (queryPost)
+            return queryPost[1] || '';
+    }
+    const bloggerEdit = url.match(/blogger\.com\/blog\/post\/edit\/([^/?#]+)\/([^/?#]+)/i);
+    if (bloggerEdit)
+        return bloggerEdit[2] || '';
+    return '';
+}
+function buildSpiderHubCtaBlock(hub) {
+    const safeUrl = escapeHtmlInline(hub.url || '#');
+    const safeTitle = escapeHtmlInline(hub.title || '종합 가이드');
+    const theme = pickSpiderEyeComfortPalette(`${hub.title || ''}|${hub.url || ''}`);
+    return `${SPIDER_HUB_CTA_START}
+<div class="bgpt-spider-hub-cta" data-bgpt-role="spider-hub-backlink" style="margin:42px 0 34px;padding:24px 26px;background:linear-gradient(135deg,${theme.gradientStart} 0%,${theme.gradientEnd} 100%);border:1px solid ${theme.border};border-left:5px solid ${theme.primary};border-radius:14px;box-shadow:0 8px 22px ${theme.ctaShadow};font-family:'Noto Sans KR','Malgun Gothic',sans-serif;">
+  <p style="margin:0 0 8px;color:${theme.heading};font-size:14px;font-weight:800;line-height:1.55;">이 글은 종합 가이드의 일부입니다</p>
+  <p style="margin:0 0 16px;color:${theme.muted};font-size:14px;line-height:1.75;">관련 글 전체 흐름과 핵심 비교표는 종합글에서 한 번에 확인할 수 있습니다.</p>
+  <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:13px 22px;background:linear-gradient(135deg,${theme.ctaButtonStart} 0%,${theme.ctaButtonEnd} 100%);color:#fff !important;text-decoration:none;border-radius:10px;font-size:14px;font-weight:900;line-height:1.3;box-shadow:0 6px 16px ${theme.ctaShadow};">종합글로 돌아가기: ${safeTitle}</a>
+</div>
+${SPIDER_HUB_CTA_END}`;
+}
+function insertOrReplaceSpiderHubCta(html, ctaBlock) {
+    const original = String(html || '');
+    const markerRegex = new RegExp(`${escapeRegExpInline(SPIDER_HUB_CTA_START)}[\\s\\S]*?${escapeRegExpInline(SPIDER_HUB_CTA_END)}`, 'i');
+    if (markerRegex.test(original)) {
+        const next = original.replace(markerRegex, ctaBlock);
+        return { html: next, action: next === original ? 'unchanged' : 'replaced' };
+    }
+    const oldBlockRegex = /<div[^>]+data-bgpt-role=["']spider-hub-backlink["'][\s\S]*?<\/div>/i;
+    if (oldBlockRegex.test(original)) {
+        return { html: original.replace(oldBlockRegex, ctaBlock), action: 'replaced' };
+    }
+    return { html: `${original.trim()}\n\n${ctaBlock}`, action: 'inserted' };
+}
+async function updateWordPressSpiderBacklink(post, hub, settings) {
+    const env = (0, env_1.loadEnvFromFile)();
+    const postId = resolveBacklinkPostId(post, 'wordpress');
+    if (!postId)
+        throw new Error('WordPress postId가 없어 기존 글을 수정할 수 없습니다.');
+    const siteUrl = normalizeSiteUrl(pickText(post.wordpressSiteUrl, post.siteUrl, settings.wordpressSiteUrl, settings.wpSiteUrl, settings.WORDPRESS_SITE_URL, settings.WP_SITE_URL, env.wordpressSiteUrl, env.wpSiteUrl, env.WORDPRESS_SITE_URL, env.WP_SITE_URL, env.siteUrl, deriveOriginFromUrl(post.url || '')));
+    const username = pickText(settings.wordpressUsername, settings.wpUsername, settings.WORDPRESS_USERNAME, settings.WP_USERNAME, env.wordpressUsername, env.wpUsername, env.WORDPRESS_USERNAME, env.WP_USERNAME);
+    const password = pickText(settings.wordpressPassword, settings.wpPassword, settings.WORDPRESS_PASSWORD, settings.WP_PASSWORD, settings.WORDPRESS_APP_PASSWORD, env.wordpressPassword, env.wpPassword, env.WORDPRESS_PASSWORD, env.WP_PASSWORD, env.WORDPRESS_APP_PASSWORD);
+    const jwtToken = pickText(settings.jwtToken, settings.wordpressJwtToken, settings.WP_JWT_TOKEN, env.jwtToken, env.wordpressJwtToken, env.WP_JWT_TOKEN);
+    if (!siteUrl)
+        throw new Error('WordPress 사이트 URL이 없습니다.');
+    if (!jwtToken && (!username || !password))
+        throw new Error('WordPress 수정 권한 정보가 없습니다.');
+    const headers = {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'LEADERNAM-Orbit/SpiderBacklink',
+    };
+    if (jwtToken) {
+        headers.Authorization = `Bearer ${jwtToken}`;
+    }
+    else {
+        headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+    }
+    const getUrl = `${siteUrl}/wp-json/wp/v2/posts/${encodeURIComponent(postId)}?context=edit`;
+    const getResponse = await fetch(getUrl, { headers });
+    const getText = await getResponse.text();
+    if (!getResponse.ok) {
+        throw new Error(`WordPress 글 조회 실패 (${getResponse.status}): ${getText.substring(0, 160)}`);
+    }
+    const wpPost = getText ? JSON.parse(getText) : {};
+    const contentValue = wpPost?.content;
+    const currentHtml = typeof contentValue === 'string'
+        ? contentValue
+        : pickText(contentValue?.raw, contentValue?.rendered);
+    if (!currentHtml)
+        throw new Error('WordPress 글 본문을 읽지 못했습니다.');
+    const patch = insertOrReplaceSpiderHubCta(currentHtml, buildSpiderHubCtaBlock(hub));
+    if (patch.action === 'unchanged') {
+        return { action: 'unchanged', url: wpPost.link || post.url || '' };
+    }
+    const putResponse = await fetch(`${siteUrl}/wp-json/wp/v2/posts/${encodeURIComponent(postId)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ content: patch.html }),
+    });
+    const putText = await putResponse.text();
+    if (!putResponse.ok) {
+        throw new Error(`WordPress 글 수정 실패 (${putResponse.status}): ${putText.substring(0, 160)}`);
+    }
+    const updated = putText ? JSON.parse(putText) : {};
+    return { action: patch.action, url: updated.link || wpPost.link || post.url || '' };
+}
+async function getBloggerBacklinkClient(post, settings) {
+    const env = (0, env_1.loadEnvFromFile)();
+    const blogId = pickText(post.blogId, settings.blogId, settings.bloggerBlogId, settings.googleBlogId, settings.BLOG_ID, settings.BLOGGER_BLOG_ID, env.blogId, env.bloggerBlogId, env.googleBlogId, env.BLOG_ID, env.BLOGGER_BLOG_ID, env.GOOGLE_BLOG_ID);
+    const clientId = pickText(settings.googleClientId, settings.bloggerClientId, settings.clientId, settings.GOOGLE_CLIENT_ID, env.googleClientId, env.bloggerClientId, env.GOOGLE_CLIENT_ID);
+    const clientSecret = pickText(settings.googleClientSecret, settings.bloggerClientSecret, settings.clientSecret, settings.GOOGLE_CLIENT_SECRET, env.googleClientSecret, env.bloggerClientSecret, env.GOOGLE_CLIENT_SECRET);
+    let accessToken = pickText(settings.googleAccessToken, settings.bloggerAccessToken, env.googleAccessToken, env.bloggerAccessToken);
+    let refreshToken = pickText(settings.googleRefreshToken, settings.bloggerRefreshToken, env.googleRefreshToken, env.bloggerRefreshToken);
+    if (!blogId)
+        throw new Error('Blogger Blog ID가 없습니다.');
+    if (!clientId || !clientSecret)
+        throw new Error('Google Client ID/Secret이 없습니다.');
+    try {
+        const authUtils = require('../src/core/blogger-modules/auth.js');
+        const authStatus = await authUtils.checkBloggerAuthStatus();
+        if (authStatus?.tokenData) {
+            accessToken = pickText(authStatus.tokenData.access_token, accessToken);
+            refreshToken = pickText(authStatus.tokenData.refresh_token, refreshToken);
+        }
+        if (authStatus?.needsRefresh && refreshToken && typeof authUtils.refreshAccessToken === 'function') {
+            const refresh = await authUtils.refreshAccessToken(refreshToken, clientId, clientSecret);
+            if (refresh?.ok && refresh.tokenData) {
+                accessToken = pickText(refresh.tokenData.access_token, accessToken);
+                refreshToken = pickText(refresh.tokenData.refresh_token, refreshToken);
+                if (typeof authUtils.saveTokenData === 'function') {
+                    authUtils.saveTokenData({ ...authStatus.tokenData, ...refresh.tokenData, refresh_token: refreshToken });
+                }
+            }
+        }
+    }
+    catch (authError) {
+        console.warn('[SPIDER-BACKLINK] Blogger auth util 확인 실패, 전달 토큰으로 계속 시도:', authError?.message || authError);
+    }
+    if (!accessToken && !refreshToken)
+        throw new Error('Blogger OAuth 토큰이 없습니다.');
+    const { google } = require('googleapis');
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, 'http://127.0.0.1:58392/callback');
+    oauth2Client.setCredentials({
+        access_token: accessToken || undefined,
+        refresh_token: refreshToken || undefined,
+    });
+    try {
+        await oauth2Client.getAccessToken();
+    }
+    catch (tokenError) {
+        throw new Error(`Blogger 토큰 갱신 실패: ${tokenError?.message || tokenError}`);
+    }
+    return {
+        blogger: google.blogger({ version: 'v3', auth: oauth2Client }),
+        blogId,
+    };
+}
+async function updateBloggerSpiderBacklink(post, hub, settings) {
+    const postId = resolveBacklinkPostId(post, 'blogspot');
+    if (!postId)
+        throw new Error('Blogger postId가 없어 기존 글을 수정할 수 없습니다.');
+    const { blogger, blogId } = await getBloggerBacklinkClient(post, settings);
+    const getResponse = await blogger.posts.get({
+        blogId,
+        postId,
+        fetchBody: true,
+        fetchImages: false,
+    });
+    const current = getResponse?.data || {};
+    const currentHtml = pickText(current.content);
+    if (!currentHtml)
+        throw new Error('Blogger 글 본문을 읽지 못했습니다.');
+    const patch = insertOrReplaceSpiderHubCta(currentHtml, buildSpiderHubCtaBlock(hub));
+    if (patch.action === 'unchanged') {
+        return { action: 'unchanged', url: current.url || post.url || '' };
+    }
+    const patchResponse = await blogger.posts.patch({
+        blogId,
+        postId,
+        fetchBody: false,
+        fetchImages: false,
+        requestBody: {
+            content: patch.html,
+        },
+    });
+    return { action: patch.action, url: patchResponse?.data?.url || current.url || post.url || '' };
+}
+safeRegisterHandler('internal-links:sync-backlinks', async (_evt, request) => {
+    const posts = Array.isArray(request?.posts) ? request.posts : [];
+    const hub = request?.hub || {};
+    const settings = request?.settings || {};
+    const defaultPlatform = normalizeBacklinkPlatform(request?.platform || settings.platform);
+    const results = [];
+    if (!hub.url) {
+        return { ok: false, updated: 0, skipped: posts.length, failed: 0, error: '종합글 URL이 없습니다.', results };
+    }
+    for (let index = 0; index < posts.length; index += 1) {
+        const post = posts[index] || {};
+        const platform = normalizeBacklinkPlatform(post.platform, post.url) || defaultPlatform;
+        const postId = resolveBacklinkPostId(post, platform);
+        const baseResult = {
+            index,
+            title: post.title || '',
+            url: post.url || '',
+            postId,
+            platform,
+        };
+        if (!platform) {
+            results.push({ ...baseResult, ok: false, skipped: true, error: '플랫폼을 확인할 수 없습니다.' });
+            continue;
+        }
+        if (!postId) {
+            results.push({ ...baseResult, ok: false, skipped: true, error: 'postId 없음' });
+            continue;
+        }
+        try {
+            const updated = platform === 'wordpress'
+                ? await updateWordPressSpiderBacklink(post, hub, settings)
+                : await updateBloggerSpiderBacklink(post, hub, settings);
+            results.push({ ...baseResult, ok: true, action: updated.action, updatedUrl: updated.url });
+        }
+        catch (error) {
+            console.error('[SPIDER-BACKLINK] 기존 글 수정 실패:', {
+                title: post.title,
+                url: post.url,
+                postId,
+                platform,
+                error: error?.message || error,
+            });
+            results.push({ ...baseResult, ok: false, error: error?.message || String(error) });
+        }
+        if (index < posts.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 350));
+        }
+    }
+    const updated = results.filter((item) => item.ok).length;
+    const skipped = results.filter((item) => item.skipped).length;
+    const failed = results.filter((item) => !item.ok && !item.skipped).length;
+    return {
+        ok: failed === 0,
+        total: posts.length,
+        updated,
+        skipped,
+        failed,
+        results,
+    };
 });
 console.log('[MAIN] ✅ 모든 IPC 핸들러 등록 완료! (총 92+ 핸들러)');
 // ============================================
@@ -4337,6 +6156,7 @@ function createWindow() {
             contextIsolation: true,
             preload: preloadPath,
             webSecurity: true,
+            backgroundThrottling: true,
             allowRunningInsecureContent: false
         },
         title: 'LEADERNAM Orbit',
@@ -4623,8 +6443,9 @@ electron_1.ipcMain.handle('batch-image-generate', async (_evt, payload) => {
         const nonce = Math.random().toString(36).slice(2, 8);
         const ts = Date.now().toString(36);
         const variationTail = `\n\n[Gen-${ts}-${nonce}: unique composition, fresh angle, different subjects/setting/lighting — never duplicate previous outputs / 매번 완전히 다른 구도와 시점]`;
+        // v3.8.82: 한국어 지시문이 이미지에 그대로 박히는 문제 — 영문 메타 지시로 전환.
         const textTail = includeText
-            ? `\n\n[IMPORTANT: Include clear, legible Korean text overlay on the image that visually summarizes the topic]`
+            ? `\n\nTEXT OVERLAY POLICY: If you render any text on the image, render ONLY the Korean title above as a bold, high-contrast Korean typography hero element. Do NOT render this English instruction, brackets, colons, prompt metadata, watermarks, or any other text. Pure-Korean characters only — no English, no romanization, no garbled glyphs.`
             : '';
         const finalPrompt = `${prompt}${textTail}${variationTail}`;
         const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
@@ -4691,6 +6512,489 @@ electron_1.ipcMain.handle('url-image:crawl-and-collect', async (_evt, payload) =
     }
     catch (e) {
         return { ok: false, error: e?.message || String(e), rawImages: [], acceptedImages: [], savedFiles: [], saveDir: '', costKrw: 0 };
+    }
+});
+// ─── v3.8.0: 외부유입 v2 핸들러 (v2.3 플랜) ────────────────────────────────
+try {
+    if (electron_1.ipcMain.listenerCount('generate-external-traffic-text') > 0) {
+        electron_1.ipcMain.removeHandler('generate-external-traffic-text');
+    }
+    if (electron_1.ipcMain.listenerCount('generate-external-traffic-text-v2') > 0) {
+        electron_1.ipcMain.removeHandler('generate-external-traffic-text-v2');
+    }
+    if (electron_1.ipcMain.listenerCount('external-traffic-list-channels') > 0) {
+        electron_1.ipcMain.removeHandler('external-traffic-list-channels');
+    }
+}
+catch {
+    /* 핸들러 없음 — 무시 */
+}
+electron_1.ipcMain.handle('external-traffic-list-channels', async () => {
+    try {
+        const dispatcher = require('../src/core/external-traffic');
+        return { success: true, channels: dispatcher.listChannels() };
+    }
+    catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[EXT-TRAFFIC v2] listChannels 실패:', msg);
+        return { success: false, error: msg };
+    }
+});
+// ─── 동의 / 약관 ────────────────────────────────────────────────
+electron_1.ipcMain.handle('external-traffic-consent-check', async (_evt, payload) => {
+    try {
+        const consent = require('../src/core/external-traffic/_shared/consent-store');
+        const key = String((payload && payload.key) || 'general').slice(0, 80);
+        return { success: true, ...consent.checkConsent(key) };
+    }
+    catch (e) {
+        return { success: false, error: e?.message || String(e) };
+    }
+});
+electron_1.ipcMain.handle('external-traffic-consent-record', async (_evt, payload) => {
+    try {
+        const consent = require('../src/core/external-traffic/_shared/consent-store');
+        const log = require('../src/core/external-traffic/_shared/usage-log');
+        const key = String((payload && payload.key) || 'general').slice(0, 80);
+        const consents = (payload && payload.consents) || {};
+        const channels = Array.isArray(payload && payload.channels) ? payload.channels : undefined;
+        const record = consent.recordConsent(key, consents, channels);
+        log.logConsent({ consentKey: key, termsVersion: record.version, consents });
+        if (key.startsWith('channel:')) {
+            log.logCriticalConsent({ channel: key.slice('channel:'.length), consentSteps: Object.keys(consents).filter((k) => consents[k]) });
+        }
+        return { success: true, record };
+    }
+    catch (e) {
+        return { success: false, error: e?.message || String(e) };
+    }
+});
+electron_1.ipcMain.handle('external-traffic-consent-list', async () => {
+    try {
+        const consent = require('../src/core/external-traffic/_shared/consent-store');
+        return { success: true, records: consent.listConsents() };
+    }
+    catch (e) {
+        return { success: false, error: e?.message || String(e) };
+    }
+});
+electron_1.ipcMain.handle('external-traffic-consent-revoke', async (_evt, payload) => {
+    try {
+        const consent = require('../src/core/external-traffic/_shared/consent-store');
+        const key = String((payload && payload.key) || '').slice(0, 80);
+        consent.revokeConsent(key);
+        return { success: true };
+    }
+    catch (e) {
+        return { success: false, error: e?.message || String(e) };
+    }
+});
+// ─── 피드백 ────────────────────────────────────────────────
+electron_1.ipcMain.handle('external-traffic-feedback-record', async (_evt, payload) => {
+    try {
+        const feedback = require('../src/core/external-traffic/feedback-store');
+        const record = feedback.recordFeedback(payload || {});
+        return { success: true, record };
+    }
+    catch (e) {
+        return { success: false, error: e?.message || String(e) };
+    }
+});
+// ─── 비용 ────────────────────────────────────────────────
+electron_1.ipcMain.handle('external-traffic-cost-summary', async () => {
+    try {
+        const cost = require('../src/core/external-traffic/cost-tracker');
+        return { success: true, currentMonth: cost.currentMonth(), limits: cost.getLimits(), blockState: cost.checkBlockOnLimit() };
+    }
+    catch (e) {
+        return { success: false, error: e?.message || String(e) };
+    }
+});
+electron_1.ipcMain.handle('external-traffic-cost-set-limit', async (_evt, payload) => {
+    try {
+        const cost = require('../src/core/external-traffic/cost-tracker');
+        const partial = (payload && typeof payload === 'object') ? payload : {};
+        return { success: true, limits: cost.setLimits(partial) };
+    }
+    catch (e) {
+        return { success: false, error: e?.message || String(e) };
+    }
+});
+// ─── 협력 풀 옵트인 ────────────────────────────────────────────────
+electron_1.ipcMain.handle('external-traffic-pool-state', async () => {
+    try {
+        const pool = require('../src/core/external-traffic/pool-store');
+        return { success: true, optedIn: pool.isOptedIn() };
+    }
+    catch (e) {
+        return { success: false, error: e?.message || String(e) };
+    }
+});
+electron_1.ipcMain.handle('external-traffic-pool-opt-in', async (_evt, payload) => {
+    try {
+        const pool = require('../src/core/external-traffic/pool-store');
+        return { success: true, ...pool.setOptIn(!!(payload && payload.value)) };
+    }
+    catch (e) {
+        return { success: false, error: e?.message || String(e) };
+    }
+});
+// ─── 스케줄러 상태 조회 / 수동 실행 ────────────────────────────────────────────────
+electron_1.ipcMain.handle('external-traffic-scheduler-state', async () => {
+    try {
+        const sched = require('../src/core/external-traffic/schedulers');
+        return { success: true, state: sched.getState() };
+    }
+    catch (e) {
+        return { success: false, error: e?.message || String(e) };
+    }
+});
+electron_1.ipcMain.handle('external-traffic-scheduler-run-now', async () => {
+    try {
+        const sched = require('../src/core/external-traffic/schedulers');
+        const calibration = sched.runCalibration();
+        const revalidation = sched.runRevalidationCheck();
+        const prune = sched.runPrune();
+        return { success: true, calibration, revalidation, prune };
+    }
+    catch (e) {
+        return { success: false, error: e?.message || String(e) };
+    }
+});
+// 앱 시작 시 스케줄러 자동 시동
+try {
+    const sched = require('../src/core/external-traffic/schedulers');
+    sched.startScheduler({
+        onLog: (msg) => console.log('[EXT-TRAFFIC SCHED]', msg),
+    });
+}
+catch (e) {
+    console.warn('[EXT-TRAFFIC SCHED] 시동 실패:', e?.message);
+}
+// ─── v3.8.2: og:image / twitter:image fetch (발행글 모달 썸네일용) ────
+//   axios + cheerio로 외부 URL의 메타 이미지 추출. CORS 우회.
+const _ogImageCache = new Map();
+const OG_CACHE_TTL = 24 * 60 * 60 * 1000;
+if (electron_1.ipcMain.listenerCount('fetch-og-image') > 0) {
+    electron_1.ipcMain.removeHandler('fetch-og-image');
+}
+electron_1.ipcMain.handle('fetch-og-image', async (_evt, payload) => {
+    try {
+        let url = String(payload && payload.url || '').trim();
+        if (!url || !/^https?:\/\//i.test(url)) {
+            return { success: false, error: 'INVALID_URL' };
+        }
+        // v3.8.4: WordPress wp-admin URL → 공개 URL 변환
+        //   leadernam.com/wp-admin/post.php?post=4514&action=edit → leadernam.com/?p=4514
+        //   wp-admin 페이지에는 og:image가 없으므로 변환 후 fetch 시도.
+        const wpAdminMatch = url.match(/^(https?:\/\/[^/]+)\/wp-admin\/post\.php\?[^#]*\bpost=(\d+)/i);
+        if (wpAdminMatch) {
+            const origin = wpAdminMatch[1];
+            const postId = wpAdminMatch[2];
+            url = `${origin}/?p=${postId}`;
+            console.log('[OG-IMAGE] wp-admin URL 감지, 공개 URL로 변환:', url);
+        }
+        const cached = _ogImageCache.get(url);
+        if (cached && Date.now() - cached.ts < OG_CACHE_TTL) {
+            return { success: true, imageUrl: cached.imageUrl, cached: true };
+        }
+        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const res = await axios.get(url, {
+            timeout: 8000,
+            responseType: 'text',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+            maxContentLength: 5 * 1024 * 1024,
+            validateStatus: (s) => s < 500,
+        });
+        const html = String(res.data || '');
+        const $ = cheerio.load(html);
+        // 우선순위: og:image → twitter:image → 첫 본문 img
+        let imageUrl = $('meta[property="og:image"]').attr('content') ||
+            $('meta[name="og:image"]').attr('content') ||
+            $('meta[property="og:image:url"]').attr('content') ||
+            $('meta[name="twitter:image"]').attr('content') ||
+            $('meta[name="twitter:image:src"]').attr('content') ||
+            $('article img').first().attr('src') ||
+            $('main img').first().attr('src') ||
+            $('body img').first().attr('src') ||
+            '';
+        imageUrl = String(imageUrl || '').trim();
+        // 상대 URL → 절대 URL 변환
+        if (imageUrl && !/^https?:\/\//i.test(imageUrl)) {
+            try {
+                imageUrl = new URL(imageUrl, url).href;
+            }
+            catch {
+                imageUrl = '';
+            }
+        }
+        // v3.8.4: WordPress REST API 폴백 — og:image 없으면 wp/v2/posts/{id}?_embed
+        if (!imageUrl && /^https?:\/\/[^/]+\/\?p=(\d+)/.test(url)) {
+            try {
+                const m = url.match(/^(https?:\/\/[^/]+)\/\?p=(\d+)/);
+                if (m) {
+                    const origin = m[1];
+                    const postId = m[2];
+                    const apiRes = await axios.get(`${origin}/wp-json/wp/v2/posts/${postId}?_embed`, {
+                        timeout: 6000,
+                        validateStatus: (s) => s < 500,
+                    });
+                    const featured = apiRes.data
+                        && apiRes.data._embedded
+                        && apiRes.data._embedded['wp:featuredmedia']
+                        && apiRes.data._embedded['wp:featuredmedia'][0]
+                        && apiRes.data._embedded['wp:featuredmedia'][0].source_url;
+                    if (typeof featured === 'string')
+                        imageUrl = featured;
+                }
+            }
+            catch {
+                // 무시
+            }
+        }
+        if (!imageUrl) {
+            return { success: false, error: 'NO_IMAGE_FOUND' };
+        }
+        _ogImageCache.set(url, { imageUrl, ts: Date.now() });
+        return { success: true, imageUrl, cached: false };
+    }
+    catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { success: false, error: msg };
+    }
+});
+electron_1.ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload) => {
+    try {
+        // v3.8.38: 무료 체험은 글포스팅만 허용 — 외부유입 변환 차단
+        const { blockIfFreeTier } = require('./auth-utils');
+        const gate = await blockIfFreeTier('외부유입 글 생성');
+        if (!gate.allowed)
+            return gate.response;
+        const dispatcher = require('../src/core/external-traffic');
+        const cost = require('../src/core/external-traffic/cost-tracker');
+        const usageLog = require('../src/core/external-traffic/_shared/usage-log');
+        const fallback = require('../src/core/external-traffic/_shared/llm-fallback');
+        let validated;
+        try {
+            validated = dispatcher.validateGenerateV2Payload(payload);
+        }
+        catch (ve) {
+            return { success: false, error: 'INVALID_INPUT: ' + (ve instanceof Error ? ve.message : String(ve)) };
+        }
+        // 월간 사용량 상한 검사
+        const blockState = cost.checkBlockOnLimit();
+        if (blockState.exceeded) {
+            return { success: false, error: `COST_LIMIT_EXCEEDED: 이번 달 사용량 상한 도달 (${blockState.used.toLocaleString()} / ${blockState.limit.toLocaleString()} tokens). 설정에서 상한 변경 또는 다음 달 갱신 대기.` };
+        }
+        // v3.8.1: 환경설정의 모델/엔진 선호 + llm-fallback 통합
+        const envData = (0, env_1.loadEnvFromFile)();
+        const geminiKey = (envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '').trim();
+        const openaiKey = (envData.openaiKey || envData.OPENAI_API_KEY || process.env['OPENAI_API_KEY'] || '').trim();
+        const claudeKey = (envData.claudeKey || envData.CLAUDE_API_KEY || envData.ANTHROPIC_API_KEY || process.env['CLAUDE_API_KEY'] || '').trim();
+        const preferredEngine = String(envData.generationEngine || envData.GENERATION_ENGINE || 'gemini').toLowerCase();
+        const preferredGeminiModel = (envData.primaryGeminiTextModel || envData.PRIMARY_TEXT_MODEL || '').trim();
+        // 최소 1개 키 필요
+        if (!geminiKey && !openaiKey && !claudeKey) {
+            return { success: false, error: 'API 키가 필요합니다. 설정 탭에서 Gemini / OpenAI / Claude 중 하나 이상 입력해주세요.' };
+        }
+        const sourceSummary = dispatcher.buildMinimalSummary(validated.sourceTitle, validated.sourceText || validated.sourceUrl);
+        const results = {};
+        for (const ch of validated.channels) {
+            try {
+                const channelObj = dispatcher.getChannel(ch.id);
+                if (!channelObj) {
+                    results[ch.id] = { error: 'UNKNOWN_CHANNEL' };
+                    continue;
+                }
+                const promptPair = dispatcher.buildPromptPair(ch.id, {
+                    sourceSummary,
+                    sourceUrl: validated.sourceUrl,
+                    sourceTitle: validated.sourceTitle,
+                    sourceText: validated.sourceText,
+                    sourceKeywords: validated.sourceKeywords,
+                    sourceType: validated.sourceType,
+                    subChannel: ch.subChannel,
+                    userCustomRule: ch.userCustomRule,
+                });
+                let userPrompt = promptPair.user;
+                let attempt = 0;
+                let lastResult = null;
+                while (attempt < 2) {
+                    // 사용자 선호 엔진 우선, 실패 시 fallback chain
+                    const callRes = await callLLMWithPreference({
+                        system: promptPair.system,
+                        user: userPrompt,
+                        maxOutputTokens: promptPair.maxOutputTokens || 2000,
+                        temperature: 0.85,
+                        geminiKey,
+                        openaiKey,
+                        claudeKey,
+                        preferredEngine,
+                        preferredGeminiModel,
+                        fallback,
+                    });
+                    const text = (callRes.text || '').trim();
+                    const fullPrompt = `${promptPair.system}\n\n${userPrompt}`;
+                    const inputTokens = Math.ceil(fullPrompt.length / 2.5);
+                    const outputTokens = Math.ceil(text.length / 2.5);
+                    cost.recordUsage({ provider: callRes.provider || 'gemini', inputTokens, outputTokens, channel: ch.id });
+                    if (!text) {
+                        attempt++;
+                        continue;
+                    }
+                    const processed = dispatcher.processResponse(ch.id, text);
+                    lastResult = {
+                        rawText: text,
+                        formatted: processed.formatted,
+                        risk: processed.risk,
+                        lengthViolations: processed.lengthViolations,
+                        instagram: processed.instagram || null,
+                        threads: processed.threads || null,
+                        naverBlog: processed.naverBlog || null,
+                        naverCafe: processed.naverCafe || null,
+                        x: processed.x || null,
+                        facebook: processed.facebook || null,
+                        kakaoOpenChat: processed.kakaoOpenChat || null,
+                        youtubeShorts: processed.youtubeShorts || null,
+                        tiktok: processed.tiktok || null,
+                        pinterest: processed.pinterest || null,
+                        retried: attempt > 0,
+                        attempt: attempt + 1,
+                        provider: callRes.provider,
+                        model: callRes.model,
+                    };
+                    if (processed.lengthViolations.length === 0)
+                        break;
+                    userPrompt = promptPair.user + dispatcher.buildRetryHint(processed.lengthViolations);
+                    attempt++;
+                }
+                if (!lastResult) {
+                    results[ch.id] = { error: 'EMPTY_LLM_RESPONSE' };
+                }
+                else {
+                    results[ch.id] = lastResult;
+                    try {
+                        usageLog.logGenerate({
+                            channel: ch.id,
+                            subChannel: ch.subChannel,
+                            riskScore: lastResult.risk && lastResult.risk.score,
+                            band: lastResult.risk && lastResult.risk.band,
+                            sourceUrl: validated.sourceUrl,
+                            violationCount: (lastResult.lengthViolations || []).length,
+                        });
+                    }
+                    catch { /* 로그 실패는 무시 */ }
+                }
+            }
+            catch (chErr) {
+                const msg = chErr instanceof Error ? chErr.message : String(chErr);
+                console.error(`[EXT-TRAFFIC v2] ${ch.id} 실패:`, msg);
+                results[ch.id] = { error: msg };
+            }
+        }
+        return { success: true, results };
+    }
+    catch (e) {
+        console.error('[EXT-TRAFFIC v2] 핸들러 실패:', e);
+        const msg = e instanceof Error ? e.message : String(e);
+        return { success: false, error: msg };
+    }
+});
+// v3.8.1: 환경설정 모델 선호 + llm-fallback 통합 호출
+async function callLLMWithPreference(opts) {
+    const params = {
+        system: opts.system,
+        user: opts.user,
+        maxOutputTokens: opts.maxOutputTokens,
+        temperature: opts.temperature,
+    };
+    const keys = {
+        gemini: opts.geminiKey,
+        openai: opts.openaiKey,
+        claude: opts.claudeKey,
+    };
+    // 사용자가 환경설정에서 명시 선택한 엔진/모델 우선 시도
+    const preferred = opts.preferredEngine;
+    if (preferred === 'gemini' && opts.geminiKey) {
+        try {
+            // primaryGeminiTextModel 우선
+            if (opts.preferredGeminiModel) {
+                const { GoogleGenerativeAI } = await Promise.resolve().then(() => __importStar(require('@google/generative-ai')));
+                const genAI = new GoogleGenerativeAI(opts.geminiKey);
+                const m = genAI.getGenerativeModel({ model: opts.preferredGeminiModel });
+                const r = await m.generateContent({
+                    contents: [{ role: 'user', parts: [{ text: `${opts.system}\n\n${opts.user}` }] }],
+                    generationConfig: { maxOutputTokens: opts.maxOutputTokens, temperature: opts.temperature },
+                });
+                const text = ((await r.response).text() || '').trim();
+                if (text)
+                    return { text, provider: 'gemini', model: opts.preferredGeminiModel };
+            }
+        }
+        catch (e) {
+            console.warn('[EXT-TRAFFIC v2] 환경설정 모델 실패, fallback 시도:', e?.message?.slice(0, 100));
+        }
+    }
+    else if (preferred === 'openai' && opts.openaiKey) {
+        try {
+            const r = await opts.fallback.callOpenAI(params, opts.openaiKey);
+            return { text: r.text, provider: r.provider, model: r.model };
+        }
+        catch (e) {
+            console.warn('[EXT-TRAFFIC v2] OpenAI 실패, fallback 시도:', e?.message?.slice(0, 100));
+        }
+    }
+    else if (preferred === 'claude' && opts.claudeKey) {
+        try {
+            const r = await opts.fallback.callClaude(params, opts.claudeKey);
+            return { text: r.text, provider: r.provider, model: r.model };
+        }
+        catch (e) {
+            console.warn('[EXT-TRAFFIC v2] Claude 실패, fallback 시도:', e?.message?.slice(0, 100));
+        }
+    }
+    // 환경설정 시도 실패 또는 선호 미설정 → 전체 fallback chain
+    const fr = await opts.fallback.callLLMWithFallback(params, keys);
+    return { text: fr.text, provider: fr.provider, model: fr.model };
+}
+// v3.7.23: 외부유입 v1 핸들러 — deprecation 기간 유지 (UI 점진 전환 중)
+electron_1.ipcMain.handle('generate-external-traffic-text', async (_evt, payload) => {
+    try {
+        // v3.8.38: 무료 체험은 글포스팅만 허용 — 외부유입 변환(구버전) 차단
+        const { blockIfFreeTier } = require('./auth-utils');
+        const gate = await blockIfFreeTier('외부유입 글 생성');
+        if (!gate.allowed)
+            return gate.response;
+        const system = (payload && payload.system) || '';
+        const user = (payload && payload.user) || '';
+        if (!user.trim()) {
+            return { success: false, error: '프롬프트가 비어있습니다.' };
+        }
+        const envData = (0, env_1.loadEnvFromFile)();
+        const geminiKey = (envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '').trim();
+        if (!geminiKey || geminiKey.length < 20) {
+            return { success: false, error: 'Gemini API 키가 필요합니다. 설정 탭에서 입력해주세요.' };
+        }
+        const { GoogleGenerativeAI } = await Promise.resolve().then(() => __importStar(require('@google/generative-ai')));
+        const genAI = new GoogleGenerativeAI(geminiKey);
+        const model = await selectGeminiModel(genAI);
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: `${system}\n\n${user}` }] }],
+            generationConfig: { maxOutputTokens: 4000, temperature: 0.85 },
+        });
+        const response = await result.response;
+        const text = (response.text() || '').trim();
+        if (!text)
+            return { success: false, error: '빈 응답이 반환됐어요. 다시 시도해주세요.' };
+        return { success: true, text };
+    }
+    catch (e) {
+        console.error('[EXT-TRAFFIC v1] 생성 실패:', e);
+        const msg = e instanceof Error ? e.message : String(e);
+        return { success: false, error: msg };
     }
 });
 console.log('[APP] ✅ Electron 앱 초기화 완료');

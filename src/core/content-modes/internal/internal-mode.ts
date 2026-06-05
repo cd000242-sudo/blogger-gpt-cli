@@ -26,6 +26,18 @@ const SOURCE_MANDATE = `
 - 출처를 모르는 데이터는 "공식 자료를 참고하세요"라고만 표현. 추측 통계 절대 금지.
 - 수치를 본문에 넣을 때 출처를 함께 명시하지 못하면 그 수치는 빼세요.`;
 
+function buildTopicScopeGuard(topic: string): string {
+  const safeTopic = (topic || '').trim() || '입력 키워드';
+  return `
+🎯 **내부 일관성 범위 고정**:
+- 이 글의 유일한 중심 범위는 "${safeTopic}"입니다.
+- "${safeTopic}"가 신청방법이면 신청 절차·준비물·단계·주의사항만 깊게 다루고, 혜택·대상·서류·기간은 신청방법을 이해하는 데 필요한 만큼만 짧게 언급하세요.
+- "${safeTopic}"가 혜택이면 혜택 종류·금액·한도·활용 조건만 깊게 다루고, 신청방법·서류·기간을 총정리처럼 섞지 마세요.
+- "${safeTopic}"가 대상/조건/서류/기간/사용처 중 하나라면 그 범위만 깊게 파고, 다른 축은 배경 설명 1~2문장으로 제한하세요.
+- 키워드에 "총정리", "종합", "전체", "완벽 가이드"가 직접 포함되지 않는 한 여러 주제를 얕게 나열하지 마세요.
+- H2/H3는 모두 "${safeTopic}"의 하위 의도만 사용하세요.`;
+}
+
 const internalModePlugin: ContentModePlugin = {
   id: 'internal',
   config: INTERNAL_CONFIG,
@@ -44,16 +56,17 @@ const internalModePlugin: ContentModePlugin = {
 필수 요소:
 ${reqs}
 (최소 ${sec.minChars || 600}자)
+${buildTopicScopeGuard(params.topic)}
 🔴 절대 금지: 과거/미래 시리즈 언급, 다른 글 참조, "1편/2편" 같은 시리즈 번호 표기${additionalGuard}
 ${SOURCE_MANDATE}`;
   },
 
   buildTitlePrompt(topic: string): string {
-    return `"${topic}" 에 대한 단일 완결형 정보 글 제목 1개. 독립적이고 자기충족적인 표현. "1편/2편/시리즈" 표기 절대 금지.`;
+    return `"${topic}" 에 대한 단일 완결형 정보 글 제목 1개. 제목은 입력 주제의 범위만 드러내야 하며, 혜택·대상·서류·기간·신청방법을 총정리처럼 섞지 마세요. "1편/2편/시리즈" 표기 절대 금지.`;
   },
 
   buildOutlinePrompt(topic: string): string {
-    return `"${topic}" 에 대한 5섹션 구조: 개요 → 핵심 지식 → 심화 사례 → 요약 → 추가 탐색. 시리즈 번호·다른 글 언급 금지.`;
+    return `"${topic}" 에 대한 5섹션 구조를 만드세요. ${buildTopicScopeGuard(topic)}\n구조: 개요 → 핵심 지식 → 심화 사례 → 요약 → 추가 탐색. 시리즈 번호·다른 글 언급 금지.`;
   },
 
   /** 후처리 — 시리즈 번호·외부 글 참조·AI 패턴 자동 정화 */

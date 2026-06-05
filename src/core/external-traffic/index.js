@@ -54,6 +54,7 @@ const MEDIUM = require('./prompts/international/medium');
 const { postFormat } = require('./_shared/post-format');
 const { validateLength, buildRetryHint } = require('./_shared/length-guard');
 const { validateGenerateV2Payload } = require('./_shared/validate-input');
+const { applyCommonResponseGuard } = require('./prompts/_shared/common-context-guard');
 
 /** @type {Record<string, import('./_shared/types').ChannelPrompt>} */
 const CHANNEL_REGISTRY = {
@@ -171,12 +172,70 @@ function buildPromptPair(channelId, params) {
 function processResponse(channelId, rawText) {
   const channel = getChannel(channelId);
   if (!channel) throw new Error('UNKNOWN_CHANNEL');
-  const formatted = postFormat(rawText, channel);
+  let formatted = postFormat(rawText, channel);
+  let extra = {};
+  if (typeof channel.processStructuredResponse === 'function') {
+    const structured = channel.processStructuredResponse(rawText);
+    if (structured && structured.formatted) {
+      formatted = structured.formatted;
+    }
+    if (structured && structured.extra && typeof structured.extra === 'object') {
+      extra = structured.extra;
+    }
+  }
+  const commonGuard = applyCommonResponseGuard(channelId, formatted, extra);
+  formatted = commonGuard.formatted || formatted;
+  extra = commonGuard.extra || extra;
   const lengthViolations = validateLength(formatted, channel);
+  if (commonGuard.review && commonGuard.review.violations && commonGuard.review.violations.length) {
+    lengthViolations.push(...commonGuard.review.violations.map((item) => `공통 안전검수: ${item}`));
+  }
+  if (channelId === 'instagram') {
+    const variants = Array.isArray(extra.instagram && extra.instagram.variants)
+      ? extra.instagram.variants
+      : [];
+    if (variants.length > 0 && variants.length < 3) {
+      lengthViolations.push(`인스타그램 A/B/C ${variants.length}/3안 생성됨 (3안 모두 필요)`);
+    }
+  }
   // 위험 평가는 평탄화된 단일 문자열에 대해 (multi-output은 모든 parts 합쳐서)
+  if (channelId === 'threads') {
+    const variants = Array.isArray(extra.threads && extra.threads.variants)
+      ? extra.threads.variants
+      : [];
+    if (variants.length > 0 && variants.length < 3) {
+      lengthViolations.push(`Threads A/B/C ${variants.length}/3 generated (all 3 variants required)`);
+    }
+  }
+  if (channelId === 'naver-blog') {
+    const variants = Array.isArray(extra.naverBlog && extra.naverBlog.variants)
+      ? extra.naverBlog.variants
+      : [];
+    if (variants.length > 0 && variants.length < 3) {
+      lengthViolations.push(`Naver Blog A/B/C ${variants.length}/3 generated (all 3 variants required)`);
+    }
+  }
+  const structuredVariantKeys = {
+    'naver-cafe': ['naverCafe', 'Naver Cafe'],
+    x: ['x', 'X'],
+    facebook: ['facebook', 'Facebook'],
+    'kakao-openchat': ['kakaoOpenChat', 'Kakao OpenChat'],
+    'youtube-shorts': ['youtubeShorts', 'YouTube Shorts'],
+    tiktok: ['tiktok', 'TikTok'],
+    pinterest: ['pinterest', 'Pinterest'],
+  };
+  if (structuredVariantKeys[channelId]) {
+    const [extraKey, label] = structuredVariantKeys[channelId];
+    const variants = Array.isArray(extra[extraKey] && extra[extraKey].variants)
+      ? extra[extraKey].variants
+      : [];
+    if (variants.length > 0 && variants.length < 3) {
+      lengthViolations.push(`${label} A/B/C ${variants.length}/3 generated (all 3 variants required)`);
+    }
+  }
   const flat = flatten(formatted);
   const risk = channel.assessRisk(flat);
-  return { formatted, lengthViolations, risk, channel };
+  return { formatted, lengthViolations, risk, channel, ...extra };
 }
 
 /**

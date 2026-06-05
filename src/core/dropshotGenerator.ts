@@ -162,13 +162,102 @@ async function isLoggedIn(page: any): Promise<boolean> {
   } catch { return false; }
 }
 
+async function wait(ms: number): Promise<void> {
+  await new Promise(r => setTimeout(r, ms));
+}
+
+async function resetDropshotBoard(page: any, onLog?: (m: string) => void): Promise<void> {
+  await page.goto(BOARD_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await wait(3000);
+  if (!(await isLoggedIn(page))) {
+    throw new Error('Dropshot 로그인 세션 만료 또는 board 진입 실패');
+  }
+  onLog?.('🔄 [Dropshot] 새 board 화면으로 초기화');
+}
+
+async function fillDropshotPrompt(page: any, prompt: string): Promise<void> {
+  const selectors = [
+    PROMPT_SELECTOR,
+    'textarea[placeholder*="장면"]',
+    'textarea[placeholder*="만들"]',
+    'textarea',
+  ];
+  for (const selector of selectors) {
+    try {
+      const el = await page.$(selector);
+      if (!el) continue;
+      await el.click({ timeout: 3000 });
+      await el.fill(prompt, { timeout: 5000 });
+      return;
+    } catch { /* try next selector */ }
+  }
+
+  const editable = await page.$('[contenteditable="true"]');
+  if (editable) {
+    await editable.click({ timeout: 3000 });
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type(prompt);
+    return;
+  }
+
+  throw new Error('Dropshot 프롬프트 입력창을 찾지 못했습니다');
+}
+
+async function clickDropshotGenerate(page: any): Promise<boolean> {
+  const clicked = await page.evaluate(() => {
+    const findPrompt = (): Element | null => {
+      const exact = document.querySelector('textarea[placeholder="어떤 장면을 만들고 싶나요?"]');
+      if (exact) return exact;
+      const textareas = Array.from(document.querySelectorAll('textarea'));
+      return textareas.find((ta: any) => {
+        const p = String(ta.getAttribute('placeholder') || '');
+        return /장면|만들|prompt|describe|image/i.test(p) || String(ta.value || '').length > 0;
+      }) || document.querySelector('[contenteditable="true"]');
+    };
+
+    const promptEl = findPrompt();
+    if (promptEl) {
+      let parent: Element | null = promptEl.parentElement;
+      for (let depth = 0; depth < 7 && parent; depth++) {
+        const btn = Array.from(parent.querySelectorAll('button')).find((b: any) => {
+          const text = String(b.textContent || b.getAttribute('aria-label') || b.title || '');
+          return !b.disabled && (
+            b.classList.contains('absolute')
+            || /생성|만들|전송|generate|create|submit|send/i.test(text)
+          );
+        }) as HTMLButtonElement | undefined;
+        if (btn) { btn.click(); return true; }
+        parent = parent.parentElement;
+      }
+    }
+
+    const allButtons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
+    const fallback = allButtons.find((b: HTMLButtonElement) => {
+      const text = String(b.textContent || b.getAttribute('aria-label') || b.title || '');
+      return !b.disabled && /이미지\s*생성|생성|만들|전송|generate|create|submit|send/i.test(text);
+    });
+    if (fallback) { fallback.click(); return true; }
+    return false;
+  });
+  if (!clicked) {
+    await page.keyboard.press('Enter');
+  }
+  return !!clicked;
+}
+
 export async function ensurePage(onLog?: (m: string) => void): Promise<any> {
   if (_ensurePagePromise) {
     await _ensurePagePromise;
     if (cachedPage && cachedContext) {
       try {
         await cachedPage.evaluate(() => document.readyState);
-        return cachedPage;
+        if (!cachedPage.url().includes('dropshot.io') || !cachedPage.url().includes('panel=image')) {
+          await cachedPage.goto(BOARD_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          await wait(3000);
+        }
+        if (await isLoggedIn(cachedPage)) return cachedPage;
+        try { await cachedContext.close(); } catch { /* ignore */ }
+        cachedPage = null; cachedContext = null;
       } catch { /* 죽음 → 재초기화 */ }
     }
   }
@@ -182,11 +271,14 @@ async function _ensurePageInternal(onLog?: (m: string) => void): Promise<any> {
   if (cachedPage && cachedContext) {
     try {
       await cachedPage.evaluate(() => document.readyState);
-      if (!cachedPage.url().includes('dropshot.io')) {
+      if (!cachedPage.url().includes('dropshot.io') || !cachedPage.url().includes('panel=image')) {
         await cachedPage.goto(BOARD_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
         await new Promise(r => setTimeout(r, 3000));
       }
-      return cachedPage;
+      if (await isLoggedIn(cachedPage)) return cachedPage;
+      onLog?.('🔐 [Dropshot] 캐시 세션 만료 감지 — 로그인 흐름으로 전환');
+      try { await cachedContext.close(); } catch { /* ignore */ }
+      cachedPage = null; cachedContext = null;
     } catch {
       cachedPage = null; cachedContext = null;
     }
@@ -413,6 +505,7 @@ export async function makeDropshotImage(
   // v3.7.3: 모든 호출을 generation mutex로 직렬화.
   //   dropshot은 단일 브라우저 페이지 공유 → 병렬 호출 시 textarea 덮어쓰기로 마지막 prompt만 처리됨.
   //   chain에 .catch()로 ignore-error 부착해서 한 호출 실패가 다음 호출 차단하지 않도록.
+  onLog?.('🍌 [Dropshot] 순차 대기열 등록 — 1개씩 처리합니다.');
   const next = _generationChain.then(() => _makeDropshotImageInternal(prompt, options, onLog));
   _generationChain = next.catch(() => undefined as any);
   return next;
@@ -431,7 +524,8 @@ async function _makeDropshotImageInternal(
   let lastError: string | null = null;
 
   try {
-    const page = await ensurePage(onLog);
+    let page = await ensurePage(onLog);
+    onLog?.('🍌 [Dropshot] 단일 실행 잠금 획득 — 현재 이미지만 생성합니다.');
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       onLog?.(`🍌 [Dropshot] 이미지 생성 중... (시도 ${attempt}/${MAX_RETRIES})`);
@@ -452,11 +546,8 @@ async function _makeDropshotImageInternal(
         + ` (버전-${variationSeed}-${nonce}: 매번 완전히 다른 구도, 다른 시점, 다른 인물/배경/소품 — 이전 결과와 절대 같으면 안 됨)`;
 
       try {
-        // 1. board URL 재확인
-        if (!page.url().includes('panel=image')) {
-          await page.goto(BOARD_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
-          await new Promise(r => setTimeout(r, 3000));
-        }
+        // 1. board URL 재진입. 이전 reference 업로드, 에러 화면, prompt 잔여 상태를 매번 비운다.
+        await resetDropshotBoard(page, onLog);
 
         // v3.7.1: 무제한 모드 토글 ON + 카운터 1로 자동 설정 (매 호출마다 idempotent)
         await ensureDropshotControls(page, onLog);
@@ -503,26 +594,11 @@ async function _makeDropshotImageInternal(
         }
 
         // 3. 프롬프트 입력 (variation hint 포함)
-        await page.waitForSelector(PROMPT_SELECTOR, { timeout: 10000 });
-        await page.click(PROMPT_SELECTOR);
-        await page.fill(PROMPT_SELECTOR, promptWithVariation);
-        await new Promise(r => setTimeout(r, 1000));
+        await fillDropshotPrompt(page, promptWithVariation);
+        await wait(1000);
 
-        // 4. 생성 버튼 클릭 — parent absolute button
-        const clicked = await page.evaluate(() => {
-          const ta = document.querySelector('textarea[placeholder="어떤 장면을 만들고 싶나요?"]') as HTMLTextAreaElement | null;
-          if (!ta) return false;
-          let parent = ta.parentElement;
-          for (let depth = 0; depth < 5 && parent; depth++) {
-            const btn = parent.querySelector('button.absolute') as HTMLButtonElement | null;
-            if (btn && !btn.disabled) { btn.click(); return true; }
-            parent = parent.parentElement;
-          }
-          return false;
-        });
-        if (!clicked) {
-          await page.keyboard.press('Enter');
-        }
+        // 4. 생성 버튼 클릭 — UI 변경 대비 다중 fallback
+        await clickDropshotGenerate(page);
 
         // 5. 결과 이미지 대기 — snapshot에 없던 NEW 이미지만 잡음 (최대 90초)
         // v3.8.57: 햄스터/sample placeholder 차단 — 5초 grace + size 더 엄격 + dataUrl 짧으면 거부
@@ -540,7 +616,7 @@ async function _makeDropshotImageInternal(
           });
           if (dropshotError) {
             console.warn('[DROPSHOT] ⚠️ dropshot 서버 에러 페이지 감지 — 즉시 폴백');
-            return { ok: false, dataUrl: '', error: 'dropshot 서버 에러: 잠시 후 재시도하거나 nanobanana2 엔진 사용' };
+            throw new Error('dropshot 서버 에러: 잠시 후 재시도 필요');
           }
           const dataUrl = await page.evaluate((before: string[]) => {
             const beforeSet = new Set(before);
@@ -596,8 +672,12 @@ async function _makeDropshotImageInternal(
       } catch (e: any) {
         lastError = e.message || String(e);
         onLog?.(`❌ [Dropshot] 시도 ${attempt} 실패: ${lastError}`);
-        if (lastError && (lastError.includes('Target closed') || lastError.includes('WebSocket'))) {
+        if (lastError && /Target closed|WebSocket|frame was detached|로그인 세션|board 진입|프롬프트 입력창|서버 에러|Timeout/i.test(lastError)) {
+          try { await cachedContext?.close?.(); } catch { /* ignore */ }
           cachedPage = null; cachedContext = null;
+          if (attempt < MAX_RETRIES) {
+            try { page = await ensurePage(onLog); } catch { /* next loop will return final error */ }
+          }
         }
       }
     }

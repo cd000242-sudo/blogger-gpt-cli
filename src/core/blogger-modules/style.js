@@ -9,6 +9,70 @@
  * @param {string} html - HTML 문자열
  * @returns {string} - 인라인 스타일이 적용된 HTML
  */
+function normalizeBloggerTables(html) {
+  if (!html) return html;
+
+  const emptyCellContent = [
+    '&nbsp;',
+    '&#160;',
+    '\\s',
+    '<br\\s*\\/?>',
+    '<p\\b[^>]*>\\s*<\\/p>',
+    '<span\\b[^>]*>\\s*<\\/span>',
+    '<strong\\b[^>]*>\\s*<\\/strong>',
+    '<b\\b[^>]*>\\s*<\\/b>'
+  ].join('|');
+  const emptyTableRow = new RegExp(
+    `<tr\\b[^>]*>\\s*(?:<t[hd]\\b[^>]*>\\s*(?:${emptyCellContent})*\\s*<\\/t[hd]>\\s*)+<\\/tr>\\s*`,
+    'gi'
+  );
+
+  return html
+    .replace(/<caption\b[^>]*>\s*(?:&nbsp;|&#160;|\s|<br\s*\/?>)*\s*<\/caption>/gi, '')
+    .replace(emptyTableRow, '')
+    .replace(/<thead\b[^>]*>\s*<\/thead>/gi, '')
+    .replace(/<tbody\b[^>]*>\s*<\/tbody>/gi, '');
+}
+
+const BGPT_TABLE_SCROLL_STYLE = [
+  'display: block',
+  'width: 100%',
+  'max-width: 100%',
+  'box-sizing: border-box',
+  'overflow-x: auto',
+  '-webkit-overflow-scrolling: touch',
+  'overscroll-behavior-x: contain',
+  'margin: 28px 0',
+  'padding: 0 0 8px 0',
+  'background: #ffffff',
+  'border: 1px solid #dbe4ee',
+  'border-radius: 10px'
+].join('; ');
+
+function addClassToAttrs(attrs, className) {
+  const source = String(attrs || '').trim();
+  const classPattern = new RegExp(`\\b${className}\\b`);
+  if (classPattern.test(source)) return source;
+  if (/\bclass\s*=/i.test(source)) {
+    return source.replace(/\bclass\s*=\s*(["'])(.*?)\1/i, (_match, quote, classes) => (
+      `class=${quote}${classes} ${className}${quote}`
+    ));
+  }
+  return `${source ? source + ' ' : ''}class="${className}"`;
+}
+
+function wrapBloggerTables(html) {
+  if (!html || !/<table\b/i.test(html)) return html;
+
+  return html.replace(/<table\b[\s\S]*?<\/table>/gi, (tableHtml) => {
+    if (/\bbgpt-mobile-table\b/i.test(tableHtml)) return tableHtml;
+    const table = tableHtml.replace(/<table\b([^>]*)>/i, (_match, attrs = '') => (
+      `<table ${addClassToAttrs(attrs, 'bgpt-mobile-table')}>`
+    ));
+    return `<div class="bgpt-table-scroll" data-bgpt-table-scroll="true" style="${BGPT_TABLE_SCROLL_STYLE}">${table}</div>`;
+  });
+}
+
 function applyInlineStyles(html) {
   if (!html) return html;
 
@@ -17,24 +81,25 @@ function applyInlineStyles(html) {
       'h1': 'color: #0f172a !important; font-size: 28px !important; font-weight: 800 !important; margin: 0 0 32px 0 !important; padding: 24px 0 !important; line-height: 1.3 !important; border-bottom: 3px solid #6366f1 !important;',
       'h2': 'color: #0f172a !important; font-size: 22px !important; font-weight: 700 !important; margin: 64px 0 20px 0 !important; padding: 16px 20px !important; background: linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 100%) !important; border-left: 5px solid #6366f1 !important; border-radius: 0 12px 12px 0 !important; line-height: 1.4 !important;',
       'h3': 'color: #1e293b !important; font-size: 19px !important; font-weight: 600 !important; margin: 36px 0 16px 0 !important; padding: 12px 16px !important; border-left: 4px solid #818cf8 !important; line-height: 1.4 !important;',
-      'p': 'color: #1a1a1a !important; font-size: 18px !important; line-height: 1.85 !important; margin: 0 0 24px 0 !important; word-break: keep-all !important;',
+      'p': 'color: #1a1a1a !important; font-size: 16px !important; line-height: 1.72 !important; margin: 0 0 16px 0 !important; word-break: keep-all !important; overflow-wrap: break-word !important; letter-spacing: 0 !important;',
       'ul': 'margin: 20px 0 !important; padding: 20px 20px 20px 40px !important; background: #fafafa !important; border-left: 3px solid #e2e8f0 !important; border-radius: 0 6px 6px 0 !important;',
       'ol': 'margin: 20px 0 !important; padding: 20px 20px 20px 40px !important; background: #fafafa !important; border-left: 3px solid #e2e8f0 !important; border-radius: 0 6px 6px 0 !important;',
-      'li': 'margin: 8px 0 !important; line-height: 1.85 !important; font-size: 17px !important; color: #1a1a1a !important;',
-      'table': 'width: 100% !important; border-collapse: collapse !important; margin: 32px 0 !important; border-radius: 10px !important; overflow: hidden !important; border: 1px solid #e2e8f0 !important;',
-      'th': 'padding: 14px 16px !important; background: #f1f5f9 !important; font-weight: 700 !important; color: #0f172a !important; border-bottom: 2px solid #e2e8f0 !important;',
-      'td': 'padding: 12px 16px !important; border-bottom: 1px solid #f1f5f9 !important; color: #334155 !important; font-size: 16px !important;',
+      'li': 'margin: 7px 0 !important; line-height: 1.72 !important; font-size: 15.5px !important; color: #1a1a1a !important; overflow-wrap: break-word !important;',
+      'table': 'width: max-content !important; min-width: 100% !important; max-width: none !important; border-collapse: separate !important; border-spacing: 0 !important; margin: 0 !important; border-radius: 10px !important; overflow: hidden !important; border: 1px solid #cbd5e1 !important; background: #ffffff !important; table-layout: auto !important;',
+      'th': 'min-width: 88px !important; padding: 10px 12px !important; background: #f1f5f9 !important; font-weight: 700 !important; color: #0f172a !important; border: 1px solid #cbd5e1 !important; border-bottom: 2px solid #cbd5e1 !important; font-size: 13px !important; line-height: 1.45 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word !important;',
+      'td': 'min-width: 88px !important; padding: 10px 12px !important; border: 1px solid #dbe4ee !important; color: #334155 !important; font-size: 13px !important; line-height: 1.45 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word !important;',
       'blockquote': 'margin: 28px 0 !important; padding: 20px 24px !important; background: #f8fafc !important; border-left: 4px solid #94a3b8 !important; border-radius: 0 6px 6px 0 !important; color: #334155 !important;',
     };
 
-    let styledHtml = html;
+    let styledHtml = normalizeBloggerTables(html);
     for (const [tagName, styles] of Object.entries(inlineStyleMap)) {
       // 이미 style 속성이 있는 태그는 건너뛰기 (Gemini가 생성한 인라인 스타일 보존)
       const regex = new RegExp(`<${tagName}(\\s*>)`, 'gi');
       styledHtml = styledHtml.replace(regex, `<${tagName} style="${styles}"$1`);
     }
+    styledHtml = wrapBloggerTables(styledHtml);
 
-    console.log('[STYLE] ✅ 수익 최적화 인라인 스타일 적용 (680px/18px/1.85) - 기존 스타일 보존');
+    console.log('[STYLE] ✅ 수익 최적화 인라인 스타일 적용 (720px/clamp/1.72) - 기존 스타일 보존');
     return styledHtml;
   } catch (error) {
     console.warn('[STYLE] ⚠️ 인라인 스타일 적용 실패:', error.message);
@@ -51,21 +116,21 @@ function generateBloggerLayoutCSS() {
   return `
     /* ========================================
        BLOGGER-GPT 수익 최적화 스킨 v5.0
-       680px / 18px / 1.85 / 틸 악센트
+       720px / mobile clamp / 1.72 / 틸 악센트
        AdSense + Engagement + 접근성
        ======================================== */
 
     /* === 기본 레이아웃 === */
     .blogger-gpt-content {
       width: 100% !important;
-      max-width: 680px !important;
+      max-width: 760px !important;
       margin: 0 auto !important;
-      padding: 32px 24px !important;
+      padding: 30px 18px !important;
       background: #ffffff !important;
       color: #1a1a1a !important;
       font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-      font-size: 18px !important;
-      line-height: 1.85 !important;
+      font-size: 16px !important;
+      line-height: 1.72 !important;
       word-break: keep-all !important;
       counter-reset: section !important;
     }
@@ -115,11 +180,13 @@ function generateBloggerLayoutCSS() {
 
     /* === P — 1-BILLION-POINT QUALITY === */
     .blogger-gpt-content p {
-      line-height: 1.8 !important;
-      margin-bottom: 24px !important;
-      font-size: 1.05rem !important;
+      line-height: 1.72 !important;
+      margin-bottom: 16px !important;
+      font-size: 16px !important;
       color: #2c2c2c !important;
       word-break: keep-all !important;
+      overflow-wrap: break-word !important;
+      letter-spacing: 0 !important;
       font-weight: 400 !important;
     }
 
@@ -139,6 +206,23 @@ function generateBloggerLayoutCSS() {
     .blogger-gpt-content a:hover {
       color: #6366f1 !important;
       border-bottom-color: #6366f1 !important;
+    }
+
+    .blogger-gpt-content a.cta-responsive-button,
+    .blogger-gpt-content a.cta-btn,
+    .blogger-gpt-content a[class*="button"],
+    .blogger-gpt-content a[class*="btn"] {
+      display: inline-block !important;
+      border-bottom: none !important;
+      color: #ffffff !important;
+      -webkit-text-fill-color: #ffffff !important;
+      text-decoration: none !important;
+    }
+
+    .blogger-gpt-content a.toc-nav-item {
+      display: block !important;
+      border-bottom: none !important;
+      text-decoration: none !important;
     }
 
     .blogger-gpt-content blockquote {
@@ -168,7 +252,7 @@ function generateBloggerLayoutCSS() {
     }
 
     .max-mode-article {
-      max-width: 680px !important;
+      max-width: 720px !important;
       margin: 0 auto !important;
     }
 
@@ -180,8 +264,43 @@ function generateBloggerLayoutCSS() {
       margin: 32px 0 !important;
       border-radius: 8px !important;
       overflow: hidden !important;
+      border: 1px solid #cbd5e1 !important;
+      background: #ffffff !important;
       box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05) !important;
       table-layout: auto !important;
+    }
+
+    .blogger-gpt-content .bgpt-table-scroll {
+      display: block !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      box-sizing: border-box !important;
+      overflow-x: auto !important;
+      -webkit-overflow-scrolling: touch !important;
+      overscroll-behavior-x: contain !important;
+      margin: 28px 0 !important;
+      padding: 0 0 8px 0 !important;
+      background: #ffffff !important;
+      border: 1px solid #dbe4ee !important;
+      border-radius: 10px !important;
+    }
+
+    .blogger-gpt-content .bgpt-table-scroll table,
+    .blogger-gpt-content table.bgpt-mobile-table {
+      width: max-content !important;
+      min-width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
+      table-layout: auto !important;
+    }
+
+    .blogger-gpt-content .bgpt-table-scroll::-webkit-scrollbar {
+      height: 7px !important;
+    }
+
+    .blogger-gpt-content .bgpt-table-scroll::-webkit-scrollbar-thumb {
+      background: #cbd5e1 !important;
+      border-radius: 999px !important;
     }
 
     .blogger-gpt-content thead tr {
@@ -192,20 +311,28 @@ function generateBloggerLayoutCSS() {
       color: #334155 !important;
       font-weight: 700 !important;
       text-align: center !important;
-      padding: 14px 16px !important;
-      border-bottom: 2px solid #E2E8F0 !important;
-      border-top: none !important;
-      border-left: none !important;
-      border-right: none !important;
+      min-width: 92px !important;
+      padding: 10px 12px !important;
+      font-size: 13px !important;
+      line-height: 1.45 !important;
+      border: 1px solid #cbd5e1 !important;
+      border-bottom: 2px solid #cbd5e1 !important;
+      white-space: normal !important;
+      word-break: keep-all !important;
+      overflow-wrap: break-word !important;
     }
 
     .blogger-gpt-content td {
-      padding: 14px 16px !important;
-      border-bottom: 1px solid #E2E8F0 !important;
+      min-width: 92px !important;
+      padding: 10px 12px !important;
+      border: 1px solid #dbe4ee !important;
       color: #475569 !important;
       text-align: center !important;
-      font-size: 16px !important;
+      font-size: 13px !important;
+      line-height: 1.45 !important;
+      white-space: normal !important;
       word-break: keep-all !important;
+      overflow-wrap: break-word !important;
       transition: background 0.2s ease !important;
     }
 
@@ -357,16 +484,64 @@ function generateBloggerLayoutCSS() {
 
     /* === 반응형 === */
     @media (max-width: 768px) {
-      .blogger-gpt-content {
-        max-width: 100% !important;
-        padding: 0 16px !important;
+      html, body {
+        overflow-x: hidden !important;
+        -webkit-text-size-adjust: 100% !important;
+        text-size-adjust: 100% !important;
       }
-      .blogger-gpt-content h2 { font-size: 19px !important; margin: 48px 0 16px 0 !important; }
-      .blogger-gpt-content h2::before { font-size: 24px !important; }
-      .blogger-gpt-content p { font-size: 16px !important; line-height: 1.8 !important; }
+      #content-wrapper, #main-wrapper, #outer-wrapper,
+      .content-wrapper, .main-wrapper, .outer-wrapper,
+      .container, .container.row-x1, .row, .col, .column,
+      .post-outer, .blog-post, .item-post-inner,
+      .post-body, .entry-content, .post-content {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        box-sizing: border-box !important;
+      }
+      .blogger-gpt-content {
+        width: 100vw !important;
+        max-width: 100vw !important;
+        min-width: 0 !important;
+        padding: 18px 10px 52px !important;
+        margin-left: calc(50% - 50vw) !important;
+        margin-right: calc(50% - 50vw) !important;
+      }
+      .blogger-gpt-content h2 { font-size: 19px !important; margin: 42px 0 14px 0 !important; }
+      .blogger-gpt-content h2::before { font-size: 22px !important; }
+      .blogger-gpt-content p {
+        font-size: 16px !important;
+        line-height: 1.72 !important;
+        margin-bottom: 15px !important;
+        letter-spacing: 0 !important;
+        overflow-wrap: break-word !important;
+      }
       .blogger-gpt-content table { font-size: 14px !important; }
-      .blogger-gpt-content th { padding: 12px 16px !important; font-size: 15px !important; }
-      .blogger-gpt-content td { padding: 12px 16px !important; font-size: 14px !important; }
+      .blogger-gpt-content .bgpt-table-scroll {
+        width: calc(100vw - 12px) !important;
+        max-width: calc(100vw - 12px) !important;
+        margin-left: calc(50% - 50vw + 6px) !important;
+        margin-right: calc(50% - 50vw + 6px) !important;
+        margin-top: 24px !important;
+        margin-bottom: 24px !important;
+        border-radius: 8px !important;
+      }
+      .blogger-gpt-content .bgpt-table-scroll th,
+      .blogger-gpt-content .bgpt-table-scroll td,
+      .blogger-gpt-content table.bgpt-mobile-table th,
+      .blogger-gpt-content table.bgpt-mobile-table td {
+        min-width: 86px !important;
+        padding: 9px 10px !important;
+        font-size: 13px !important;
+        line-height: 1.45 !important;
+        white-space: normal !important;
+        word-break: keep-all !important;
+        overflow-wrap: break-word !important;
+      }
       .cta-responsive-box { padding: 30px 20px !important; margin: 35px auto !important; }
       .cta-responsive-text { font-size: 22px !important; }
       .cta-responsive-button { padding: 16px 32px !important; font-size: 19px !important; width: 85% !important; }
@@ -375,10 +550,10 @@ function generateBloggerLayoutCSS() {
     }
 
     @media (max-width: 375px) {
-      .blogger-gpt-content { padding: 0 12px !important; }
+      .blogger-gpt-content { padding: 16px 8px 48px !important; }
       .blogger-gpt-content h2 { font-size: 17px !important; padding: 12px 16px !important; }
       .blogger-gpt-content h2::before { display: none !important; }
-      .blogger-gpt-content p { font-size: 15px !important; }
+      .blogger-gpt-content p { font-size: 15.5px !important; line-height: 1.7 !important; }
     }
 
     /* === 접근성: 모션 감소 === */
@@ -529,6 +704,8 @@ function injectCSS(html, css) {
 module.exports = {
   applyInlineStyles,
   generateBloggerLayoutCSS,
+  normalizeBloggerTables,
+  wrapBloggerTables,
   compressCSS,
   injectCSS,
   insertAdBreathingSpace,

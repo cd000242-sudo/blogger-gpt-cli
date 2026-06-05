@@ -454,6 +454,38 @@ async function expandArticleHtmlByProvider(topic: string, prev: string, targetCh
 /* =========================
  * 6) Blogger API: 게시
  * ========================= */
+const BLOGGER_BROKEN_TEXT_PATTERN = /\uFFFD|&#(?:65533|xfffd);|%EF%BF%BD/gi;
+
+function repairBrokenBloggerText(label: string, value?: string | null): string | undefined | null {
+  if (!value) return value;
+  const matches = value.match(BLOGGER_BROKEN_TEXT_PATTERN);
+  if (!matches || matches.length === 0) return value;
+
+  const preview = value
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(BLOGGER_BROKEN_TEXT_PATTERN, '[replacement]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 140);
+
+  const broken = BLOGGER_BROKEN_TEXT_PATTERN.source;
+  const brokenRe = new RegExp(broken, 'gi');
+  const repaired = value
+    .replace(new RegExp(`청년내(?:${broken})+저축계좌`, 'gi'), '청년내일저축계좌')
+    .replace(new RegExp(`청년내(?:${broken})+저축`, 'gi'), '청년내일저축')
+    .replace(new RegExp(`폭넓(?:${broken})+`, 'gi'), '폭넓게')
+    .replace(new RegExp(`([가-힣])니(?:${broken})+`, 'gi'), '$1니다')
+    .replace(brokenRe, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/>\s+</g, '><')
+    .trim();
+
+  console.warn(`[TEXT-REPAIR] ${label}: repaired ${matches.length} broken replacement marker(s) before Blogger publish. Preview: ${preview}`);
+  return repaired;
+}
+
 export async function postToBlogger(
   data: { title: string; html: string; thumbnailUrl?: string },
   publishedIso?: string,
@@ -476,6 +508,11 @@ export async function postToBlogger(
     console.log('[postToBlogger] 제목:', data.title);
     console.log('[postToBlogger] 콘텐츠 길이:', data.html.length);
     console.log('[postToBlogger] isDraft:', isDraft);
+    data.title = repairBrokenBloggerText('Blogger title', data.title) || '';
+    data.html = repairBrokenBloggerText('Blogger content', data.html) || '';
+    labels = labels
+      .map((label, index) => repairBrokenBloggerText(`Blogger label ${index + 1}`, label) || '')
+      .filter(Boolean);
 
     if (!blogId || !clientId || !clientSecret) {
       throw new Error('Blogger 인증 정보가 설정되지 않았습니다. 환경 설정에서 Blog ID, Client ID, Client Secret을 입력해주세요.');
@@ -512,6 +549,13 @@ export async function postToBlogger(
 
     console.log('[postToBlogger] 요청 본문 준비 완료');
     console.log('[postToBlogger] 요청 본문 크기:', JSON.stringify(body).length);
+    body.title = repairBrokenBloggerText('Blogger request title', body.title) || '';
+    body.content = repairBrokenBloggerText('Blogger request content', body.content) || '';
+    body.labels = Array.isArray(body.labels)
+      ? body.labels
+          .map((label: string, index: number) => repairBrokenBloggerText(`Blogger request label ${index + 1}`, label) || '')
+          .filter(Boolean)
+      : body.labels;
 
     const res = await blogger.posts.insert({
       blogId: blogId,

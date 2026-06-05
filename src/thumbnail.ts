@@ -228,7 +228,8 @@ SCENE FOCUS (priority order):
 
 CONTEXT: This is for a Korean audience. All people must look Korean. Setting should feel Korean (Korean office, Korean street, Korean home, etc.)
 Concept: ${title}.
-Style: modern, clean, engaging, photorealistic, professional stock photo quality. ${noTextRule}`;
+Style: modern, clean, engaging, photorealistic, professional stock photo quality.
+OUTPUT FORMAT: widescreen landscape 16:9 composition, wide blog hero image, fill the horizontal frame without empty margins. ${noTextRule}`;
   }
 
   // 한국어인 경우 — 폴백 키워드 매핑 사용 (비동기 번역은 별도 경로)
@@ -244,7 +245,8 @@ SCENE FOCUS (priority order):
 4. PEOPLE: If people appear, they MUST be Korean/East Asian. Natural, relatable Korean people.
 
 CONTEXT: For Korean audience. All people must look Korean. Korean setting.
-Style: modern, clean, photorealistic, commercial quality, well-lit, sharp focus.`
+Style: modern, clean, photorealistic, commercial quality, well-lit, sharp focus.
+OUTPUT FORMAT: widescreen landscape 16:9 composition, wide blog hero image, fill the horizontal frame without empty margins.`
     : `Generate a cinematic, photorealistic image representing: "${englishPrompt}"
 
 IMAGE COMPOSITION PRIORITY:
@@ -255,6 +257,7 @@ IMAGE COMPOSITION PRIORITY:
 
 CONTEXT: This is for a KOREAN blog. All people depicted must be Korean/East Asian.
 Style: Cinematic quality, dramatic lighting, rich colors, editorial photography, 8K.
+OUTPUT FORMAT: widescreen landscape 16:9 composition, wide blog section image, fill the horizontal frame without empty margins.
 ${noTextRule}`;
 
   return basePrompt;
@@ -2508,4 +2511,3 @@ Requirements:
   console.log(`[AI-PROMPT] 📝 모든 AI 실패 → 키워드 기반 프롬프트 생성`);
   return generateEnglishPrompt(title, topic, isThumbnail);
 }
-

@@ -4,7 +4,9 @@ exports.automateWordPressConnect = automateWordPressConnect;
 const selectors_1 = require("../../config/selectors");
 async function automateWordPressConnect(state, page, siteUrl) {
     const results = {};
+    state.totalSteps = 7;
     // 1) WP 로그인 페이지
+    state.currentStep = 1;
     state.message = 'WordPress 로그인 페이지로 이동 중...';
     const baseUrl = siteUrl.replace(/\/wp-admin\/?$/, '').replace(/\/$/, '');
     await page.goto(`${baseUrl}/wp-login.php`, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -25,6 +27,7 @@ async function automateWordPressConnect(state, page, siteUrl) {
     if (state.cancelled)
         return;
     // 3) 사이트 URL 저장
+    state.currentStep = 2;
     results['wordpressSiteUrl'] = baseUrl;
     // 4) 사용자명 추출
     state.message = '사용자명 추출 중...';
@@ -51,6 +54,7 @@ async function automateWordPressConnect(state, page, siteUrl) {
     if (state.cancelled)
         return;
     // 5) 프로필 페이지로 이동
+    state.currentStep = 3;
     state.message = '프로필 페이지로 이동 중...';
     await page.goto(`${baseUrl}/wp-admin/profile.php`, { waitUntil: 'domcontentloaded', timeout: 15000 });
     await page.waitForTimeout(2000);
@@ -69,6 +73,7 @@ async function automateWordPressConnect(state, page, siteUrl) {
     if (state.cancelled)
         return;
     // 6) Application Password 생성
+    state.currentStep = 4;
     state.message = 'Application Password 생성 중...';
     try {
         // Application Password 섹션으로 스크롤
@@ -141,5 +146,6 @@ async function automateWordPressConnect(state, page, siteUrl) {
         state.message = `⚠️ Application Password 생성 실패: ${errMsg}`;
         state.error = errMsg;
     }
+    state.currentStep = 6;
     state.results = results;
 }

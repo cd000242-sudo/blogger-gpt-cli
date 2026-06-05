@@ -146,6 +146,33 @@ function getGeminiApiKey(): string {
   return (env['geminiKey'] || env['GEMINI_API_KEY'] || env['geminiApiKey'] || '').trim();
 }
 
+function firstEnvValue(env: Record<string, string>, keys: string[]): string {
+  for (const key of keys) {
+    const value = env[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function getProdiaApiKey(env: Record<string, string>): string {
+  return firstEnvValue(env, [
+    'prodiaApiKey',
+    'prodiaKey',
+    'prodia_api_key',
+    'PRODIA_API_KEY',
+  ]);
+}
+
+function getDeepInfraApiKey(env: Record<string, string>): string {
+  return firstEnvValue(env, [
+    'deepInfraApiKey',
+    'deepinfraApiKey',
+    'deepinfra_api_key',
+    'DEEPINFRA_API_KEY',
+    'DEEP_INFRA_API_KEY',
+  ]);
+}
+
 // ── 한국어 → 영어 프롬프트 번역 (Gemini 기반) ──
 let _translationCache = new Map<string, string>();
 
@@ -353,6 +380,32 @@ const RELIABILITY_FALLBACK_ORDER: ImageEngine[] = [
   'gptimage1',    // OpenAI (대개 인증 완료된 키)
 ];
 
+const TEXT_CAPABLE_IMAGE_ENGINES = new Set<string>([
+  'nanobanana',
+  'nanobanana2',
+  'nanobananapro',
+  'dropshot',
+  'dropshot-nanobanana-pro',
+  'gptimage2',
+]);
+
+function engineAllowsImageText(engine: string): boolean {
+  return TEXT_CAPABLE_IMAGE_ENGINES.has(engine);
+}
+
+function promptModeAllowsImageText(engine: string, isThumbnail: boolean): boolean {
+  return isThumbnail && engineAllowsImageText(engine);
+}
+
+function enforceNoTextPrompt(prompt: string): string {
+  const noTextRule = 'CRITICAL: Generate pure visual imagery only. Absolutely NO Korean text, NO English text, NO letters, NO words, NO numbers, NO signs, NO labels, NO typography, NO logos, and NO watermarks.';
+  const lower = String(prompt || '').toLowerCase();
+  if (lower.includes('no korean text') || lower.includes('absolutely no text')) {
+    return prompt;
+  }
+  return `${prompt}\n\n${noTextRule}`;
+}
+
 /** 엔진이 호출 가능한 API 키를 갖췄는지. (v3.6.0: 전 엔진 API 기반 — 키 필수) */
 function engineKeyAvailable(engine: string, env: Record<string, string>): boolean {
   switch (engine) {
@@ -361,9 +414,9 @@ function engineKeyAvailable(engine: string, env: Record<string, string>): boolea
     case 'nanobananapro':
       return getGeminiApiKey().length >= 10;
     case 'prodia':
-      return (env['prodiaApiKey'] || env['PRODIA_API_KEY'] || '').trim().length >= 10;
+      return getProdiaApiKey(env).length >= 10;
     case 'deepinfra':
-      return (env['deepInfraApiKey'] || env['DEEPINFRA_API_KEY'] || '').trim().length >= 10;
+      return getDeepInfraApiKey(env).length >= 10;
     case 'gptimage1':
     case 'gptimage2':
       return (env['openaiKey'] || env['OPENAI_API_KEY'] || '').trim().length >= 10;
@@ -785,6 +838,8 @@ async function _tryEngineInternal(
   // 🧠 AI 추론 프롬프트: 1회만 호출하여 모든 엔진에서 재사용
   // NanoBanana 3종 + Flow + GPT Image + Prodia는 내부에서 generateEnglishPrompt 호출하므로 추론 불필요
   let inferredPrompt = prompt;
+  const allowImageText = promptModeAllowsImageText(engine, isThumbnail);
+  const promptIsThumbnail = allowImageText;
   // v3.7.1: 한국어 처리 호환성 분류
   //   ✅ 한국어 OK (skip): nanobanana 3종, gptimage2(덕테이프), flow, imagefx, dropshot
   //   ⚠️ 영어 변환 필수 (inferImagePrompt 적용): prodia, deepinfra, gptimage1
@@ -800,8 +855,8 @@ async function _tryEngineInternal(
     // prodia, deepinfra, gptimage1, imagefx는 inferImagePrompt 적용 (영어 변환)
   ) {
     try {
-      const inference = await inferImagePrompt(prompt, keyword, isThumbnail, contentMode);
-      inferredPrompt = inference.prompt;
+      const inference = await inferImagePrompt(prompt, keyword, promptIsThumbnail, contentMode);
+      inferredPrompt = allowImageText ? inference.prompt : enforceNoTextPrompt(inference.prompt);
       if (!inference.cached) {
         onLog?.(`🧠 AI 프롬프트 추론 완료 (${inference.provider})`);
       }
@@ -873,7 +928,7 @@ async function _tryEngineInternal(
         const result = await makeGptImageThumbnail(prompt, keyword, {
           apiKey: openaiKey,
           modelId: g.id,
-          isThumbnail,
+          isThumbnail: promptIsThumbnail,
           size: '1536x1024',
           quality: gptQuality,
         });
@@ -895,7 +950,7 @@ async function _tryEngineInternal(
     //   ≈$0.001/장 (DeepInfra의 1/12), 2~4초 생성, FLUX-1 schnell 2B 모델
     //   디테일 약함 + 한국 인물 약함 + 한글 텍스트 못 그림 — 가격/속도 우선 옵션
     case 'prodia': {
-      const apiKey = (env['prodiaApiKey'] || env['PRODIA_API_KEY'] || '').trim();
+      const apiKey = getProdiaApiKey(env);
       if (!apiKey || apiKey.length < 10) {
         return { ok: false, dataUrl: '', source: '', error: 'Prodia API 키 없음 (PRODIA_API_KEY 설정 필요)' };
       }
@@ -926,7 +981,7 @@ async function _tryEngineInternal(
 
     // ═══ DeepInfra FLUX-2 ═══
     case 'deepinfra': {
-      const apiKey = (env['deepInfraApiKey'] || env['DEEPINFRA_API_KEY'] || '').trim();
+      const apiKey = getDeepInfraApiKey(env);
       if (!apiKey || apiKey.length < 10) {
         return { ok: false, dataUrl: '', source: '', error: 'DeepInfra API 키 없음' };
       }
@@ -938,6 +993,7 @@ async function _tryEngineInternal(
           apiKey,
           width: 1024,
           height: 576,
+          skipOverlay: true,
         });
         if (result.ok) {
           return { ok: true, dataUrl: result.dataUrl, source: 'DeepInfra FLUX-2' };

@@ -1,118 +1,177 @@
 // src/core/external-traffic/prompts/sns/threads.js
-// Threads — 500자 한도, 첫 1~2줄 후킹, 댓글 답변으로 +42% engagement.
-// R1 deep-research (2026-06-01) 결과 반영 — confidence: verified.
+// Threads external-traffic generation: comment-first A/B/C posts with JSON recovery.
 
 'use strict';
 
 const { assessRiskMultiAxis } = require('../../_shared/risk-assess');
 const { appendUserNoteSafely } = require('../../_shared/sanitize');
+const {
+  buildInstagramContext,
+  buildContextPromptBlock,
+  ARTICLE_TYPES,
+} = require('./instagramContextAnalyzer');
+const {
+  buildStructuredOutputInstructions,
+  parseThreadsResult,
+  buildFormattedFromThreadsResult,
+} = require('./threadsRewrite');
+const {
+  buildPlatformSystemPrompt,
+  buildPlatformUserPrompt,
+  buildStructuredJsonInstructions,
+} = require('../_shared/common-context-guard');
 
-/** @type {import('../../_shared/types').ChannelPrompt} */
+const THREADS_BANNED_PHRASES = [
+  '자세한 내용은 링크에서 확인해보세요',
+  '자세한 내용은 링크 확인',
+  '확인해보시기 바랍니다',
+  '확인하시기 바랍니다',
+  '부탁드립니다',
+  '지금 바로 클릭',
+  '무조건',
+  '100% 보장',
+  '좋아요 눌러주세요',
+  '댓글 부탁드려요',
+  '리포스트 부탁드려요',
+  '할인',
+  '판매중',
+];
+
+/** @type {import('../../_shared/types').ChannelPrompt & { processStructuredResponse?: Function }} */
 const THREADS = {
   id: 'threads',
   name: 'Threads',
   category: 'sns',
   riskTier: 'medium',
   confidence: 'verified',
-  icon: '🧵',
+  icon: 'Th',
   color: '#000000',
   openUrl: 'https://www.threads.com/',
 
-  // R1 검증: 첫 1~2줄 후킹이 모바일 가독성 'more' 잘림 전에 curiosity/tension 생성 필수.
   killerHookPatterns: [
-    '~ 한 사람만 좋아요',
-    '솔직히 ~ 인 사람?',
-    '나만 ~ 라고 생각함?',
-    '~ 했더니 ~ 됐다',
-    '결론부터: ~',
-    '아직 ~ 하는 사람 있음?',
-    '진짜 ~ 모르는 사람 많은 듯',
-    '~ 잘 모르겠어서 정리해봤어요',
-    '오늘 알게 된 ~ 한 가지',
-    '~ 인데 다들 어떻게 함?',
+    '나만 이거 헷갈렸나?',
+    '솔직히 이 부분 놓치는 사람 많음',
+    '이거 알고 나면 기준이 좀 달라짐',
+    '근데 여기서 제일 애매한 게 있음',
+    '이건 저장보다 댓글이 먼저 달릴 주제임',
+    '다들 이럴 때 어떻게 함?',
+    '이거 그냥 넘어가면 나중에 피곤해짐',
+    '헷갈리는 기준만 딱 정리하면 이거임',
+    '주변에 이 케이스 있으면 같이 봐야 함',
+    '결론부터 말하면 여기서 갈림',
   ],
-  // R1 검증: Meta engagement bait penalty + 셀링 카피보다 정보·브랜딩 우세.
-  bannedPhrases: [
-    '제 블로그',
-    '방문해주세요',
-    '더 자세한 내용은',
-    '구독해주세요',
-    '좋아요 눌러주세요',  // Meta engagement bait
-    '댓글 부탁드려요',     // Meta engagement bait
-    '리포스트 부탁드려요', // Meta engagement bait
-    '판매중',              // 셀링 카피 페널티 (Buffer 분석)
-    '할인',                // 명시적 셀링 표현 (도달 감소)
-  ],
-  // R1 검증: 댓글 답변이 전 플랫폼 최고 +42% engagement (Buffer 128K Threads 포스트 분석).
+  bannedPhrases: THREADS_BANNED_PHRASES,
   popularityTriggers: [
-    '질문으로 끝내기 (댓글 유도)',
-    '논쟁 유도 (의견 양분)',
-    '본인 경험 1줄',
-    '인사이트 압축 1줄',
-    '댓글 답변 +42% engagement',
-    '키워드 검색 후 진정성 댓글 10개/일',
+    '댓글로 의견이 갈리는 질문',
+    '독자의 실제 상황을 먼저 건드리는 공감',
+    '저장보다 공유하고 싶은 체크 포인트',
+    '링크 클릭보다 대화가 먼저 생기는 첫 줄',
+    '광고처럼 보이지 않는 개인 메모 톤',
   ],
   toneSignature: {
-    formality: 'mixed',
+    formality: 'casual',
     emoji: 'minimal',
-    slang: ['진짜', '솔직히', '근데', '결국'],
-    pronouns: ['저', '나'],
+    slang: ['솔직히', '근데', '나만', '다들', '이거'],
+    pronouns: ['나', '우리'],
   },
   transformationAxes: {
-    titleRule: '첫 1~2줄 = 질문 또는 반전. 모바일 \'more\' 잘림 전에 후킹 완성.',
-    bodyRule: '500자 이내. 짧은 punchy 문장 + 줄바꿈으로 가독성. 정보·브랜딩 톤이 셀링보다 우세.',
+    titleRule: '첫 줄은 질문, 반전, 공감, 논쟁 중 하나로 만든다. 링크/클릭을 첫 줄에 넣지 않는다.',
+    bodyRule: '블로그 요약문이 아니라 Threads 대화 시작문으로 쓴다. 짧은 문장, 가벼운 반말, 댓글 유도 우선.',
     ctaPlacement: 'inline',
     linkBait: [
-      '전체 글:',
-      '풀버전:',
-      '정리:',
-      '자세히는:',
+      '원문은 여기',
+      '정리글은 여기',
+      '기준 확인용 링크',
+      '전체 글',
     ],
   },
   paragraphRule: {
-    maxLineChars: 28,
-    paragraphBreak: 'single',
-    emptyLineMaxConsecutive: 0,
-    maxLines: 14,
+    maxLineChars: 34,
+    paragraphBreak: 'double',
+    emptyLineMaxConsecutive: 1,
+    maxLines: 16,
     ctaSection: 'end-of-body',
   },
   bandThresholds: { low: 40, medium: 65, high: 85, critical: 100 },
-  maxOutputTokens: 500,
+  maxOutputTokens: 9000,
 
   buildSystemPrompt: (subChannel, userCustomRule) => {
-    const base = `당신은 한국 Threads 사용자입니다 (2025~2026 알고리즘 검증).
+    const base = `당신은 한국 Threads 외부유입 글을 만드는 전문 에디터다.
 
-[글 형식 — R1 검증 기반]
-- 500자 이내 (한도)
-- 첫 1~2줄 = 질문/반전/도발적 1줄 (모바일 'more' 잘림 전에 hook 완성 필수)
-- 짧은 punchy 문장 + 과감한 줄바꿈 (Mosseri/Buffer 권장)
-- 빈 줄 0개 (single break — 호흡만 \n)
-- 인라인 링크 1개 (Mosseri 2025-06: "한 달 이상 링크가 훨씬 잘 작동 중" 공식 확인)
+이번 작업 범위는 Threads 글 생성만이다.
+Instagram, 네이버 블로그, 네이버 카페, X, Facebook, 블로그스팟, 워드프레스 문체를 따라 하지 않는다.
 
-[Threads 핵심 KPI — R1 검증]
-- 팔로워 수가 KPI 아님. 포스트별 조회수·인게이지먼트.
-- 알고리즘이 슬롯머신처럼 비팔로워에도 분배.
-- 댓글 답변 시 +42% engagement (전 플랫폼 최고치, Buffer 128K 포스트 분석)
-- 정보·브랜딩 톤이 셀링 카피보다 우세 (광고 피로감)
+[Threads 핵심]
+- 목표 우선순위: 댓글 > 공감 > 공유 > 링크 클릭.
+- 블로그 요약문, 공손한 안내문, 홍보문처럼 쓰지 않는다.
+- 친구에게 툭 말하듯 자연스러운 반말/혼잣말 톤으로 쓴다.
+- "확인해보시기 바랍니다", "자세한 내용은 링크", "부탁드립니다", "지금 바로 클릭" 같은 문구는 금지한다.
+- 원문에 없는 금액, 제도, 조건, 날짜, 대상, 효과를 만들지 않는다.
+- 특정 예시를 하드코딩하지 말고 원문 맥락에서 자동 추출한다.
+- 해시태그는 쓰지 않는다.
+- 링크는 글 끝에 자연스럽게 1개만 둔다. CTA 박스처럼 꾸미지 않는다.
 
-[CTA]
-- 본문 끝 1줄 "전체 글: [URL]"
-- 자기 홍보 어투 금지 — 정보 공유 톤 유지
+[분석 순서]
+1. 원문 제목, 본문/요약, URL, 키워드, 글 유형을 먼저 분석한다.
+2. articleType을 아래 유형 중 가장 가까운 것으로 자동 분류한다.
+3. 예상 독자와 독자가 처한 상황을 추정한다.
+4. 댓글이 달릴 질문, 공감 포인트, 공유 이유를 만든다.
+5. A/B/C 각 variant마다 첫 줄 후보 10개를 만들고 점수화한다.
+6. 후보/점수/비평은 JSON 내부 검토용이다. 최종 게시문에는 포함하지 않는다.
 
-[금지 — Meta engagement bait 페널티]
-- "좋아요 눌러주세요" / "댓글 부탁드려요" / "리포스트 부탁드려요"
-- 명시적 셀링 표현 ("할인", "판매중") = distribution demotion`;
+[글 유형]
+${ARTICLE_TYPES.map((type) => `- ${type}`).join('\n')}
+
+[A/B/C 역할]
+- A안 댓글형: 사람마다 의견이 갈릴 질문으로 시작한다.
+- B안 공감형: 독자의 현실적인 답답함이나 헷갈림을 먼저 건드린다.
+- C안 공유형: 주변 사람에게 알려주고 싶은 체크 포인트로 만든다.
+
+[최종 글 규칙]
+- 최종 글은 URL 포함 500자 이내.
+- 첫 줄은 14~46자 권장.
+- 문장마다 너무 친절하게 설명하지 말고 여백을 둔다.
+- "이거 나만 헷갈렸나?", "근데", "솔직히", "다들" 같은 대화형 표현은 자연스러울 때만 쓴다.
+- 링크는 마지막에 URL 단독 또는 "원문은 여기: URL"처럼 짧게 둔다.
+- 댓글 유도는 강요하지 말고 실제로 궁금한 질문처럼 둔다.`;
     return appendUserNoteSafely(base, userCustomRule);
   },
 
-  buildUserPrompt: ({ sourceSummary, sourceUrl, sourceTitle }) => `원본 글: "${sourceTitle}"
-URL: ${sourceUrl}
+  buildUserPrompt: ({ sourceSummary, sourceUrl, sourceTitle, sourceText, sourceKeywords, sourceType }) => {
+    const context = buildInstagramContext({
+      sourceSummary,
+      sourceUrl,
+      sourceTitle,
+      sourceText,
+      sourceKeywords,
+      sourceType,
+    });
+    return `${buildContextPromptBlock(context)}
 
-[원본 요약]
-- 핵심 가치: ${sourceSummary.coreValue}
-- 후킹 후보: ${sourceSummary.hooks.join(' / ')}
+[Threads 생성 지시]
+원문 URL: ${sourceUrl}
 
-Threads 게시물 1개를 500자 이내로 작성하세요. 첫 1~2줄 = 질문 또는 반전 (모바일 'more' 잘림 전 hook 완성). 짧은 punchy 문장 + 과감한 줄바꿈. 본문 = 핵심 인사이트 1~2개. 정보·브랜딩 톤 (셀링 X). 끝에 "전체 글: ${sourceUrl}".`,
+1. 위 context를 Threads 기준으로 다시 해석하라.
+2. 자동분류, 핵심주제, 예상독자, 독자상황을 context에 채워라.
+3. A/B/C 3개를 모두 생성하라.
+4. 각 A/B/C마다 첫 줄 후보 10개를 만들고 점수를 매긴 뒤, 최고 점수 하나를 selectedFirstLine으로 골라라.
+5. finalRevision은 사용자가 복사해서 바로 게시할 최종 글만 담아라.
+6. 링크는 finalRevision.linkPrompt에 반드시 "${sourceUrl}"을 포함해 자연스럽게 넣어라.
+7. 원문에 없는 예시, 금액, 제도명, 조건을 만들지 마라.
+8. 출력은 반드시 JSON 태그 형식만 지켜라.
+
+${buildStructuredOutputInstructions()}`;
+  },
+
+  processStructuredResponse(rawText) {
+    const threads = parseThreadsResult(rawText);
+    if (!threads) return null;
+    const formatted = buildFormattedFromThreadsResult(threads);
+    return {
+      formatted,
+      extra: { threads },
+    };
+  },
 
   assessRisk(response) {
     return assessRiskMultiAxis(response, THREADS);
@@ -120,20 +179,45 @@ Threads 게시물 1개를 500자 이내로 작성하세요. 첫 1~2줄 = 질문 
 
   userWarning: null,
   operationalNotes: [
-    '인스타와 다르게 텍스트 우선 — 영상·이미지 없어도 도달',
-    '인라인 링크 5개 이상이면 도달 감소',
-    '댓글 답변 시 +42% engagement (Buffer 검증)',
-    '자기 포스트 1개당 키워드 검색 진정성 댓글 10개 권장 전략',
-    '2025 engagement -18% 추세 (4.4%→3.6%) — 답글·댓글이 회복 핵심',
+    'Threads는 링크 클릭보다 댓글/공감/공유 신호가 먼저다.',
+    '최종 복사문에는 후보, 점수, 비평, JSON 설명을 넣지 않는다.',
+    '해시태그와 홍보형 CTA는 사용하지 않는다.',
   ],
   researchSources: [
     'https://buffer.com/resources/threads-comments-engagement/',
     'https://buffer.com/resources/replying-to-comments-boosts-engagement/',
-    'https://miraflow.ai/blog/threads-algorithm-2026-how-to-grow-meta-text-platform',
     'https://socialmediatoday.com/news/meta-says-link-posts-ranked-properly-threads-reach/750126/',
     'https://www.threads.com/@mosseri/post/DCpQG0hz0m8',
   ],
-  lastVerified: '2026-06-01',
+  lastVerified: '2026-06-03',
 };
+
+function buildThreadsOutputInstructions() {
+  return buildStructuredJsonInstructions({
+    jsonStart: '<THREADS_RESULT_JSON>',
+    jsonEnd: '</THREADS_RESULT_JSON>',
+    variantLabels: { A: '공감형', B: '논쟁형', C: '정보 티저형' },
+    candidateKey: 'firstLineCandidates',
+    selectedKey: 'selectedFirstLine',
+    scoreKey: 'firstLineScore',
+    finalRevision: {
+      firstLine: '최종 첫 줄',
+      body: '최종 본문',
+      commentPrompt: '댓글 유도 문장',
+      sharePrompt: '재게시 유도 문장',
+      linkPrompt: '자연스러운 링크 유도 문장',
+    },
+  });
+}
+
+THREADS.buildSystemPrompt = (subChannel, userCustomRule) => appendUserNoteSafely(
+  buildPlatformSystemPrompt('threads'),
+  userCustomRule
+);
+THREADS.buildUserPrompt = (params) => buildPlatformUserPrompt(
+  'threads',
+  { ...params, platformId: 'threads' },
+  buildThreadsOutputInstructions()
+);
 
 module.exports = THREADS;

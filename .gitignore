@@ -59,6 +59,7 @@ src_backup_*/
 *.tmp
 temp/
 tmp/
+.tmp-tests/
 
 # Backups (오래된 백업들)
 electron/ui/index.html.backup.original
@@ -74,4 +75,3 @@ test-*-logs.txt
 test-*-output.txt
 test-*-result.txt
 .playwright-mcp/
-

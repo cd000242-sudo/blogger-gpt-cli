@@ -8,7 +8,11 @@ const instances_1 = require("../state/instances");
 const blogspotSetup_1 = require("../automation/blogspot/blogspotSetup");
 const wordpressSetup_1 = require("../automation/wordpressSetup");
 const persistence_1 = require("../state/persistence");
+const browser_1 = require("../utils/browser");
 function registerSetupHandlers() {
+    electron_1.ipcMain.handle('oneclick:browser-check', async (_evt, args = {}) => {
+        return (0, browser_1.checkBrowserReadiness)(args.autoInstall !== false);
+    });
     // 세팅 시작
     electron_1.ipcMain.handle('oneclick:start-setup', async (_evt, args) => {
         try {
@@ -33,7 +37,7 @@ function registerSetupHandlers() {
                 page: null,
             }));
             console.log(`[ONECLICK] 🚀 ${platform} 세팅 시작, 총 ${steps.length}단계`);
-            const waitForLogin = (p) => instances_1.setupStateManager.waitForLogin(p);
+            const waitForLogin = (p, timeout) => instances_1.setupStateManager.waitForLogin(p, timeout);
             const run = async () => {
                 try {
                     switch (platform) {
@@ -112,7 +116,7 @@ function registerSetupHandlers() {
                 resumeFromStep: fromStep,
             }));
             console.log(`[ONECLICK] 🔁 ${platform} Step ${fromStep}부터 재시도`);
-            const waitForLogin = (p) => instances_1.setupStateManager.waitForLogin(p);
+            const waitForLogin = (p, timeout) => instances_1.setupStateManager.waitForLogin(p, timeout);
             const run = async () => {
                 try {
                     if (platform === 'blogspot') {

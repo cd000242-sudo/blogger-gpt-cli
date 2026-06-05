@@ -39,6 +39,127 @@ const BLOCKED = new Set<string>(["bit.ly","t.co","shorturl.at","tinyurl.com","wa
 function host(u: string) { try { return new URL(u).host.replace(/^www\./,''); } catch { return ''; } }
 function norm(s: string) { return (s||'').toLowerCase().replace(/\s+/g,''); }
 
+const MIN_DIRECT_SCORE = 6;
+
+function detectCategoryV2(query: string): string[] {
+  const q = norm(query);
+  const categories = new Set<string>();
+
+  if (/(여행|관광|항공|항공권|비행기|숙박|호텔|렌터카|ktx|srt|코레일|철도|기차|여권|비자|입국|출국|해외여행|국내여행)/i.test(q)) categories.add('travel');
+  if (/(예약|예매|티켓|공연|영화관|좌석|발권|취소|환불)/i.test(q)) categories.add('booking');
+  if (/(쇼핑|구매|가격|최저가|할인|상품|제품|리뷰|후기|비교|배송|쿠폰|공식몰|선물|가전|패션|뷰티)/i.test(q)) categories.add('shopping');
+  if (/(정부|공공|민원|증명|발급|신청|접수|등록|지원금|보조금|복지|연금|수당|장려금|바우처|정책)/i.test(q)) categories.add('government');
+  if (/(세금|국세|지방세|종소세|종합소득세|부가세|연말정산|홈택스|위택스|환급|신고)/i.test(q)) categories.add('tax');
+  if (/(건강|의료|병원|진료|보험료|건강보험|의료보험|요양|검진|약값|질병)/i.test(q)) categories.add('health');
+  if (/(고용|취업|구직|채용|실업급여|일자리|이력서|hrd|직업훈련)/i.test(q)) categories.add('jobs');
+  if (/(부동산|아파트|청약|주택|전세|월세|매매|실거래|분양|임대)/i.test(q)) categories.add('realestate');
+  if (/(교육|학교|대학|입시|강의|수능|학습|자격증|인강|hrd)/i.test(q)) categories.add('education');
+  if (/(금융|은행|대출|적금|예금|카드|보험|투자|송금|이체|간편결제)/i.test(q)) categories.add('finance');
+  if (/(음식|맛집|배달|레시피|식품|카페|커피|치킨|피자|주문)/i.test(q)) categories.add('food');
+  if (/(날씨|기상|예보|태풍|미세먼지|대기질|환경)/i.test(q)) categories.add('weather');
+
+  return [...categories];
+}
+
+function hostMatchesCategory(category: string, h: string, url: string): boolean {
+  const target = `${h}${url}`.toLowerCase();
+  switch (category) {
+    case 'travel':
+      return /(visitkorea|kto\.visitkorea|letskorail|srail|korail|koreanair|flyasiana|jinair|jejuair|twayair|airbusan|skyscanner|kayak|triple|myrealtrip|yanolja|goodchoice|airbnb|hotelscombined|hotel|flight)/i.test(target);
+    case 'booking':
+      return /(ticket|interpark|yes24|cgv|megabox|lottecinema|booking\.naver|yanolja|goodchoice|srail|letskorail)/i.test(target);
+    case 'shopping':
+      return /(coupang|shopping\.naver|smartstore|11st|gmarket|auction|ssg|lotteon|danawa|musinsa|oliveyoung|kurly|wemakeprice|tmon|daiso|emart|homeplus|lottemart)/i.test(target);
+    case 'government':
+      return h.endsWith('.go.kr') || h.endsWith('.or.kr') || /(gov\.kr|korea\.kr|bokjiro|nps|nhis|mohw|kinfa|work\.go\.kr|ei\.go\.kr|hrd\.go\.kr)/i.test(target);
+    case 'tax':
+      return /(hometax|wetax|nts\.go\.kr)/i.test(target);
+    case 'health':
+      return /(nhis|hira|mohw|amc|snuh|samsunghospital|yuhs|longtermcare)/i.test(target);
+    case 'jobs':
+      return /(work\.go\.kr|ei\.go\.kr|hrd\.go\.kr|saramin|jobkorea|linkedin)/i.test(target);
+    case 'realestate':
+      return /(molit|rt\.molit|applyhome|r114|zigbang|dabang)/i.test(target);
+    case 'education':
+      return /(moe\.go\.kr|neis|adiga|ebs|hrd\.go\.kr)/i.test(target);
+    case 'finance':
+      return /(fss|kbstar|shinhan|wooribank|kebhana|kakaobank|toss|pay\.naver|samsungfire|hi\.co\.kr|idbins)/i.test(target);
+    case 'food':
+      return /(baemin|coupangeats|yogiyo|map\.kakao|map\.naver|booking\.naver|mcdonalds|kfc|lotteria|starbucks|ediya)/i.test(target);
+    case 'weather':
+      return /(kma\.go\.kr|me\.go\.kr)/i.test(target);
+    default:
+      return false;
+  }
+}
+
+function scoreOfficialCandidate(
+  it: CTALink,
+  q: string,
+  expandedQueries: string[],
+  categories: string[],
+  input: { intent?: string; preferHosts?: string[] },
+): number {
+  const h = host(it.url).toLowerCase();
+  const prefer = new Set((input.preferHosts ?? []).map(x => x.toLowerCase()));
+  let score = 0;
+  let hasDirectSignal = false;
+
+  for (const t of it.tags || []) {
+    const T = norm(String(t));
+    if (!T) continue;
+
+    if (q.includes(T)) { score += 3; hasDirectSignal = true; }
+    if (T.length >= 2 && T.includes(q)) { score += 2; hasDirectSignal = true; }
+    if (T === q) { score += 5; hasDirectSignal = true; }
+
+    for (const expQ of expandedQueries) {
+      const expQNorm = norm(expQ);
+      if (expQNorm && expQNorm !== q && expQNorm.includes(T)) {
+        score += 2;
+        hasDirectSignal = true;
+      }
+    }
+  }
+
+  const itemName = norm(it.name || '');
+  if (itemName) {
+    if (itemName === q) { score += 10; hasDirectSignal = true; }
+    if (q.includes(itemName)) { score += 5; hasDirectSignal = true; }
+    if (q.length >= 2 && itemName.includes(q)) { score += 4; hasDirectSignal = true; }
+
+    for (const expQ of expandedQueries) {
+      const expQNorm = norm(expQ);
+      if (expQNorm && expQNorm !== q && itemName.includes(expQNorm)) {
+        score += 3;
+        hasDirectSignal = true;
+      }
+    }
+  }
+
+  if (input.intent) {
+    const I = norm(input.intent);
+    if (I && (q.includes(I) || (it.tags || []).some(t => norm(t) === I))) {
+      score += 3;
+      hasDirectSignal = true;
+    }
+  }
+
+  if (prefer.has(h)) {
+    score += 10;
+    hasDirectSignal = true;
+  }
+
+  const categoryMatchCount = categories.filter(c => hostMatchesCategory(c, h, it.url)).length;
+  if (categoryMatchCount > 0) {
+    score += hasDirectSignal ? categoryMatchCount * 3 : categoryMatchCount * 2;
+  }
+
+  if (!hasDirectSignal) return 0;
+  score += Math.min(it.weight ?? 1, 3);
+  return score;
+}
+
 // 유사어/동의어 매핑 (매칭 정확도 향상)
 const SYNONYMS: Record<string, string[]> = {
   '예매': ['예약', '티켓', '구매', '발권'],
@@ -106,75 +227,24 @@ export function resolveOfficialLink(input: {
   preferHosts?: string[];        // 예: ["etk.srail.kr","letskorail.com"]
 }): { name: string; url: string } | null {
   const q = norm(input.query);
-  const prefer = new Set((input.preferHosts ?? []).map(h => h.toLowerCase()));
   
   // 유사어 확장으로 매칭률 향상
   const expandedQueries = expandWithSynonyms(input.query);
-  const categories = detectCategory(input.query);
+  const categories = detectCategoryV2(input.query);
 
   let best: CTALink | null = null;
-  let bestScore = -1;
+  let bestScore = 0;
 
   for (const it of CATALOG) {
     if (!it.url.startsWith('https://')) continue;
     const h = host(it.url).toLowerCase();
     if (BLOCKED.has(h)) continue;
 
-    let score = 0;
-
-    // 1) 태그 매칭 강화 (유사어 포함)
-    for (const t of it.tags || []) {
-      const T = norm(String(t));
-      if (!T) continue;
-      
-      // 원본 쿼리 매칭
-      if (q.includes(T)) score += 3;
-      
-      // 확장 쿼리 매칭 (유사어)
-      for (const expQ of expandedQueries) {
-        if (norm(expQ).includes(T)) score += 2;
-      }
-      
-      // 정확히 일치
-      if (T === q) score += 5;
-    }
-
-    // 2) 이름 매칭 강화
-    const itemName = norm(it.name || '');
-    if (itemName) {
-      // 정확히 일치
-      if (itemName === q) score += 10;
-      // 부분 일치
-      if (q.includes(itemName)) score += 5;
-      if (itemName.includes(q)) score += 4;
-      // 확장 쿼리 매칭
-      for (const expQ of expandedQueries) {
-        const expQNorm = norm(expQ);
-        if (itemName.includes(expQNorm)) score += 3;
-      }
-    }
-
-    // 3) 의도 단어 가산
-    if (input.intent) {
-      const I = norm(input.intent);
-      if (I && (q.includes(I) || (it.tags||[]).some(t => norm(t) === I))) score += 3;
-    }
-
-    // 4) 카테고리 우선순위 (정부/공공 최우선)
-    if (h.includes('.go.kr') || h.includes('.or.kr')) score += 8;
-    if (categories.includes('government') && (h.includes('.go.kr') || h.includes('.or.kr'))) score += 5;
-    if (categories.includes('shopping') && (h.includes('coupang') || h.includes('gmarket') || h.includes('11st'))) score += 4;
-    if (categories.includes('booking') && (h.includes('yanolja') || h.includes('yes24') || h.includes('cgv'))) score += 4;
-
-    // 5) 호스트 선호
-    if (prefer.has(h)) score += 10;
-
-    // 6) 가중치
-    score += (it.weight ?? 1);
+    const score = scoreOfficialCandidate(it, q, expandedQueries, categories, input);
 
     if (score > bestScore) { best = it; bestScore = score; }
   }
-  return best ? { name: best.name, url: best.url } : null;
+  return best && bestScore >= MIN_DIRECT_SCORE ? { name: best.name, url: best.url } : null;
 }
 
 // 여러 개 검색해서 상위 N개 반환 (선택지 제공)
@@ -185,11 +255,10 @@ export function resolveMultipleOfficialLinks(input: {
   limit?: number; // 기본 3개
 }): { name: string; url: string; score: number }[] {
   const q = norm(input.query);
-  const prefer = new Set((input.preferHosts ?? []).map(h => h.toLowerCase()));
   const limit = input.limit ?? 3;
   
   const expandedQueries = expandWithSynonyms(input.query);
-  const categories = detectCategory(input.query);
+  const categories = detectCategoryV2(input.query);
 
   const scored: { item: CTALink; score: number }[] = [];
 
@@ -198,49 +267,9 @@ export function resolveMultipleOfficialLinks(input: {
     const h = host(it.url).toLowerCase();
     if (BLOCKED.has(h)) continue;
 
-    let score = 0;
+    const score = scoreOfficialCandidate(it, q, expandedQueries, categories, input);
 
-    // 태그 매칭
-    for (const t of it.tags || []) {
-      const T = norm(String(t));
-      if (!T) continue;
-      if (q.includes(T)) score += 3;
-      for (const expQ of expandedQueries) {
-        if (norm(expQ).includes(T)) score += 2;
-      }
-      if (T === q) score += 5;
-    }
-
-    // 이름 매칭
-    const itemName = norm(it.name || '');
-    if (itemName) {
-      if (itemName === q) score += 10;
-      if (q.includes(itemName)) score += 5;
-      if (itemName.includes(q)) score += 4;
-      for (const expQ of expandedQueries) {
-        const expQNorm = norm(expQ);
-        if (itemName.includes(expQNorm)) score += 3;
-      }
-    }
-
-    // 의도 단어
-    if (input.intent) {
-      const I = norm(input.intent);
-      if (I && (q.includes(I) || (it.tags||[]).some(t => norm(t) === I))) score += 3;
-    }
-
-    // 카테고리 우선순위
-    if (h.includes('.go.kr') || h.includes('.or.kr')) score += 8;
-    if (categories.includes('government') && (h.includes('.go.kr') || h.includes('.or.kr'))) score += 5;
-    if (categories.includes('shopping') && (h.includes('coupang') || h.includes('gmarket') || h.includes('11st'))) score += 4;
-
-    // 호스트 선호
-    if (prefer.has(h)) score += 10;
-
-    // 가중치
-    score += (it.weight ?? 1);
-
-    if (score > 0) {
+    if (score >= MIN_DIRECT_SCORE) {
       scored.push({ item: it, score });
     }
   }

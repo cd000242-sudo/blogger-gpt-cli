@@ -55,6 +55,9 @@ function makeChannel(spec) {
     assessRisk: spec.assessRisk
       || ((response) => assessRiskMultiAxis(response, channel)),
   };
+  if (typeof spec.processStructuredResponse === 'function') {
+    channel.processStructuredResponse = spec.processStructuredResponse;
+  }
   return channel;
 }
 

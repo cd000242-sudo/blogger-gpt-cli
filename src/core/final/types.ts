@@ -51,6 +51,7 @@ export interface FinalCTAData {
   design?: string;   // 'button' | 'text'
   text?: string;     // buttonText 별칭
   hook?: string;     // hookingMessage 별칭
+  searchFallback?: boolean; // 검증된 직접 URL을 못 찾았을 때 쓰는 투명한 검색 fallback
 }
 
 export interface FinalArticleStructure {

@@ -47,6 +47,9 @@ export async function saveSettings() {
     leonardoKey: document.getElementById('leonardoKey')?.value || '',
     dalleApiKey: document.getElementById('dalleApiKey')?.value || '',
     pexelsApiKey: document.getElementById('pexelsApiKey')?.value || '',
+    stabilityApiKey: document.getElementById('stabilityApiKey')?.value || document.getElementById('stabilityApiKeyHidden')?.value || '',
+    deepInfraApiKey: document.getElementById('deepInfraApiKey')?.value || '',
+    prodiaApiKey: document.getElementById('prodiaApiKey')?.value || '',
     coupangAccessKey: document.getElementById('coupangAccessKey')?.value || '',
     coupangSecretKey: document.getElementById('coupangSecretKey')?.value || '',
     naverCustomerId: document.getElementById('naverCustomerId')?.value || '',
@@ -105,6 +108,9 @@ export async function saveSettings() {
         googleCseCx: settings.googleCseCx,
         geminiKey: settings.geminiKey,
         pexelsApiKey: settings.pexelsApiKey,
+        stabilityApiKey: settings.stabilityApiKey,
+        deepInfraApiKey: settings.deepInfraApiKey,
+        prodiaApiKey: settings.prodiaApiKey,
         naverClientId: settings.naverCustomerId || settings.naverClientId || '',
         naverClientSecret: settings.naverSecretKey || settings.naverClientSecret || '',
         openaiKey: settings.openaiKey,
@@ -122,7 +128,19 @@ export async function saveSettings() {
         defaultAiProvider: settings.defaultAiProvider
       };
 
-      console.log('🔧 환경 설정 저장 데이터:', envData);
+      const maskEnvValue = (value) => {
+        const s = String(value || '');
+        if (!s) return '';
+        return `${s.slice(0, 4)}...(${s.length})`;
+      };
+      const redactedEnvData = Object.fromEntries(
+        Object.entries(envData).map(([key, value]) => (
+          /key|secret|password|token/i.test(key)
+            ? [key, maskEnvValue(value)]
+            : [key, value]
+        ))
+      );
+      console.log('🔧 환경 설정 저장 데이터:', redactedEnvData);
       console.log('📋 네이버 데이터랩 저장 확인:', {
         naverCustomerId: envData.naverClientId ? `있음 (${envData.naverClientId.length}자)` : '없음',
         naverSecretKey: envData.naverClientSecret ? `있음 (${envData.naverClientSecret.length}자)` : '없음'
@@ -406,6 +424,10 @@ export async function loadSettingsContent() {
         'leonardoKey': mergedSettings.leonardoKey || mergedSettings.leonardoApiKey || '',
         'dalleApiKey': mergedSettings.dalleApiKey || mergedSettings.dalleKey || mergedSettings.openaiKey || mergedSettings.openaiApiKey || '',
         'pexelsApiKey': mergedSettings.pexelsApiKey || mergedSettings.pexelsKey || '',
+        'stabilityApiKey': mergedSettings.stabilityApiKey || mergedSettings.STABILITY_API_KEY || '',
+        'stabilityApiKeyHidden': mergedSettings.stabilityApiKey || mergedSettings.STABILITY_API_KEY || '',
+        'deepInfraApiKey': mergedSettings.deepInfraApiKey || mergedSettings.DEEPINFRA_API_KEY || mergedSettings.DEEP_INFRA_API_KEY || mergedSettings.deepinfraApiKey || '',
+        'prodiaApiKey': mergedSettings.prodiaApiKey || mergedSettings.PRODIA_API_KEY || '',
         'naverCustomerId': mergedSettings.naverCustomerId || mergedSettings.naverId || mergedSettings.naverClientId || '',
         'naverSecretKey': mergedSettings.naverSecretKey || mergedSettings.naverSecret || mergedSettings.naverClientSecret || '',
         'googleCseKey': mergedSettings.googleCseKey || mergedSettings.cseKey || mergedSettings.googleApiKey || '',
@@ -942,4 +964,3 @@ window.submitBloggerAuthCode = async function () {
     alert('❌ 인증 코드 제출 중 오류가 발생했습니다: ' + error.message);
   }
 };
-

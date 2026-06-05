@@ -1,70 +1,111 @@
-// src/core/external-traffic/prompts/sns/x.js
-// X (Twitter) — Musk 인수 후 외부 링크 도달 50~90% 감소 검증.
-// 본문 트윗 = 미끼 (URL X), 첫 댓글 = URL + 가치 한 줄.
-// R1 deep-research (2026-06-01) 결과 반영 — confidence: verified.
-
 'use strict';
 
 const { assessRiskMultiAxis } = require('../../_shared/risk-assess');
 const { appendUserNoteSafely } = require('../../_shared/sanitize');
+const {
+  createStructuredPlatformProcessor,
+  buildSourceInputBlock,
+} = require('../_shared/structured-platform-rewrite');
+const {
+  buildPlatformSystemPrompt,
+  buildPlatformUserPrompt,
+} = require('../_shared/common-context-guard');
 
-/** @type {import('../../_shared/types').ChannelPrompt} */
+const structured = createStructuredPlatformProcessor({
+  marker: 'X_TWITTER',
+  contextFields: [
+    'sourceTitle',
+    'sourceUrl',
+    'autoCategory',
+    'coreTopic',
+    'targetReader',
+    'readerSituation',
+    'quoteAngle',
+    'linkReason',
+  ],
+  variantLabels: {
+    A: '무링크 본문형',
+    B: '링크 클릭형',
+    C: '인용/댓글 유도형',
+  },
+  candidateFields: [
+    {
+      key: 'firstLineCandidates',
+      selectedKey: 'selectedFirstLine',
+      scoreKey: 'firstLineScore',
+      label: '첫 문장 후보',
+    },
+  ],
+  copyFields: [
+    { key: 'firstLine' },
+    { key: 'body' },
+    { key: 'quotePrompt' },
+    { key: 'repostPrompt' },
+    { key: 'linkPrompt', appendSourceUrl: true },
+    { key: 'hashtags', style: 'inline', max: 2 },
+  ],
+  formattedParts: [
+    {
+      key: 'tweet1',
+      fields: ['firstLine', 'body', 'quotePrompt', 'repostPrompt', { key: 'hashtags', style: 'inline', max: 2 }],
+      stripUrls: true,
+    },
+    {
+      key: 'tweet2',
+      fields: [{ key: 'linkPrompt', appendSourceUrl: true }],
+      appendSourceUrl: true,
+    },
+  ],
+  arrayFields: ['hashtags'],
+  appendSourceUrl: false,
+  copyMin: 80,
+  copyMax: 560,
+  hashtagMax: 2,
+  looseWindow: 2600,
+});
+
+/** @type {import('../../_shared/types').ChannelPrompt & { processStructuredResponse?: Function }} */
 const X = {
   id: 'x',
   name: 'X (트위터)',
   category: 'sns',
   riskTier: 'medium',
   confidence: 'verified',
-  icon: '🐦',
+  icon: 'X',
   color: '#1da1f2',
   openUrl: 'https://x.com/compose/post',
 
-  // R1 검증: 첫 트윗 미끼 + 댓글 링크 분리 패턴은 X의 외부 링크 페널티 우회 표준 전술.
   killerHookPatterns: [
-    '~ 인 사람만 보는 글',
-    '솔직히 ~ 임',
-    '진짜 ~ 모르고 사는 사람 많음',
-    '결론부터: ~',
-    '오늘 알게 된 ~',
-    '아무도 안 알려준 ~',
-    '~ 한 사람 손',
-    '내가 ~ 해봤는데',
-    '근데 ~ 인 거 알아?',
-    '~ 라고 하면 다 깜짝 놀라는데',
+    '이거 모르는 사람 많더라',
+    '결론부터 말하면',
+    '진짜 헷갈리는 지점은 이거',
+    '댓글로 갈릴 만한 포인트',
   ],
-  // R1 검증: X의 외부 링크 reach 50~90% 감소 (Musk 'lazy linking' 인정).
-  // 본문 트윗 URL = 도달 페널티 강력.
   bannedPhrases: [
-    '제 블로그',
-    '방문해주세요',
+    '블로그 방문',
     '구독 부탁',
-    'http',  // 본문 트윗에 URL 자체 차단 (도달 감소 50~90%)
-    '판매중',
-    '할인',
+    '지금 바로 클릭',
+    '무조건',
+    '100% 보장',
+    '세일',
   ],
   popularityTriggers: [
-    '결론 우선',
-    '리스트 1-2-3',
-    '반전 정보',
-    '논쟁 유도',
-    'reply 유도 질문',
-    '본문 미끼 + 첫 댓글 링크 분리 (도달 우회)',
+    '첫 문장 정지력',
+    '인용/댓글 유도',
+    '리포스트할 만한 한 줄',
+    '링크는 답글 또는 마지막 줄',
   ],
   toneSignature: {
     formality: 'mixed',
     emoji: 'minimal',
-    slang: ['진짜', '솔직히', '근데', '결국'],
-    pronouns: ['나', '저'],
+    slang: ['진짜', '근데', '솔직히'],
+    pronouns: ['나', '우리'],
   },
   transformationAxes: {
-    titleRule: '첫 트윗 = 미끼. 결론을 살짝만, 본문 호기심 유지.',
-    bodyRule: '본문 트윗 280자 — URL 절대 X (검증된 50~90% 도달 감소). 첫 댓글에 URL.',
-    ctaPlacement: 'comment',
-    linkBait: [
-      '↓ 댓글에 전체 내용',
-      '↓ 자세한 정리는 댓글에',
-      '↓ 풀버전 링크 댓글에',
-    ],
+    titleRule: '첫 문장은 링크보다 관점, 반전, 질문을 우선한다.',
+    bodyRule: '한 트윗은 280자 안에 들어오게 쓰고 과장된 홍보 표현을 피한다.',
+    ctaPlacement: 'reply',
+    linkBait: ['원문 링크는 답글에', '전체 정리는 여기'],
   },
   paragraphRule: {
     maxLineChars: 'no-limit',
@@ -74,41 +115,49 @@ const X = {
     ctaSection: 'first-comment',
   },
   bandThresholds: { low: 40, medium: 65, high: 85, critical: 100 },
-  maxOutputTokens: 500,
+  maxOutputTokens: 7000,
 
   buildSystemPrompt: (subChannel, userCustomRule) => {
-    const base = `당신은 한국 X(트위터) 사용자입니다 (2025~2026 알고리즘 검증).
+    const base = `당신은 X(트위터) 외부유입 글을 만드는 짧은 글 에디터입니다.
 
-[글 형식 — R1 검증 기반]
-- 2-트윗 구성:
-  Tweet 1 (본문 미끼): 280자 이내, URL 절대 X, 끝에 "↓ 댓글에 전체 내용"
-  Tweet 2 (첫 댓글): 280자 이내, URL + 한 줄 가치 안내
-- Musk 인수 후 외부 링크 reach 50~90% 감소 (Musk 본인 'lazy linking' 인정)
-- 본문 트윗에 URL = distribution 페널티 강력 (검증된 데이터)
-- 2025-10 iOS 'link experience' 테스트로 UX 변경 있으나 알고리즘은 그대로
+[X 핵심]
+- 짧고 선명해야 하며, 블로그 홍보문처럼 쓰면 실패입니다.
+- 우선순위는 첫 문장 정지력 > 인용/댓글 > 리포스트 > 링크 클릭입니다.
+- 각 트윗은 가능하면 280자 이내로 유지합니다.
+- 해시태그는 0~2개만 사용하고 대부분 생략해도 됩니다.
+- 원문에 없는 사실, 금액, 날짜, 조건, 효과를 만들지 않습니다.
 
-[후킹]
-- 첫 줄 = 결론·반전·숫자 중 하나
-- 본문 트윗에 핵심 인사이트 1~2개, 호기심 유지
+[A/B/C 역할]
+- A: 무링크 본문형. 본문 트윗에는 URL을 넣지 않고, linkPrompt로 답글 링크를 둡니다.
+- B: 링크 클릭형. 짧은 이유와 함께 링크를 자연스럽게 둡니다.
+- C: 인용/댓글 유도형. 의견이 갈릴 만한 질문이나 관점을 제시합니다.
 
-[출력 형식 — 반드시 헤더 사용]
-Tweet 1:
-[본문 미끼 280자 이내, 링크 X]
-
-Tweet 2:
-[URL + 한 줄 안내, 280자 이내]`;
-    return appendUserNoteSafely(base, userCustomRule);
+[복사본 규칙]
+- finalRevision에는 게시할 문장만 넣습니다.
+- 후보 10개, 점수, critique는 UI 검토용입니다.
+- JSON 밖 설명문은 절대 출력하지 않습니다.`;
+    return appendUserNoteSafely(`${base}\n\n${structured.buildStructuredOutputInstructions()}`, userCustomRule);
   },
 
-  buildUserPrompt: ({ sourceSummary, sourceUrl, sourceTitle }) => `원본 글: "${sourceTitle}"
-URL (Tweet 2에만 사용): ${sourceUrl}
+  buildUserPrompt: (params) => `${buildSourceInputBlock(params)}
 
-[원본 요약]
-- 핵심 가치: ${sourceSummary.coreValue}
-- 후킹 후보: ${sourceSummary.hooks.join(' / ')}
-- 데이터: ${sourceSummary.dataPoints.join(', ')}
+[X 생성 지시]
+1. context에 자동분류, 핵심주제, 예상독자, 독자상황을 채우세요.
+2. A/B/C 3개를 모두 생성하세요.
+3. 각 안마다 firstLineCandidates 10개를 만들고 점수를 매긴 뒤 selectedFirstLine을 고르세요.
+4. finalRevision.firstLine/body/quotePrompt/repostPrompt/linkPrompt/hashtags만 최종 복사 요소로 채우세요.
+5. finalRevision.linkPrompt에는 원문 URL "${params.sourceUrl}"을 포함하세요.
+6. A안의 본문 문장에는 URL을 넣지 말고 링크는 linkPrompt에만 둡니다.`,
 
-X 2-tweet을 작성하세요. "Tweet 1:" 헤더 + 본문 미끼 (URL 절대 X), "Tweet 2:" 헤더 + URL + 한 줄.`,
+  processStructuredResponse(rawText) {
+    const x = structured.parseResult(rawText);
+    if (!x) return null;
+    const formatted = structured.buildFormattedFromResult(x);
+    return {
+      formatted,
+      extra: { x },
+    };
+  },
 
   assessRisk(response) {
     return assessRiskMultiAxis(response, X);
@@ -116,20 +165,23 @@ X 2-tweet을 작성하세요. "Tweet 1:" 헤더 + 본문 미끼 (URL 절대 X), 
 
   userWarning: null,
   operationalNotes: [
-    'Musk 인수 후 본문 트윗 URL reach 50~90% 감소 (Jesse Colombo 분석 94%)',
-    '2025-10 iOS link experience 테스트 — UX 변경 (알고리즘 X)',
-    '인용 트윗 + 댓글 형식이 알고리즘 친화적',
-    '2025 engagement +44% 상대 증가 (1.96%→2.83%) — 텍스트 콘텐츠 회복',
-    '저널리스트 distribution channel에 \'seismic\' 타격 보고',
+    '본문 트윗과 링크 답글을 분리하면 홍보 냄새와 도달 리스크를 줄일 수 있습니다.',
+    '해시태그는 0~2개만 사용합니다.',
   ],
   researchSources: [
-    'https://tomorrowspublisher.today/content-creation/x-softens-stance-on-external-links/',
-    'https://x.com/nikitabier/status/1979994223224209709',
-    'https://www.engadget.com/x-is-testing-a-new-way-of-opening-links-in-posts-to-improve-engagement-211210520.html',
-    'https://www.socialmediatoday.com/news/x-formerly-twitter-testing-links-in-app-link-post-penalties/803176/',
-    'https://hashmeta.com/insights/twitter-algorithm-changes-2025',
+    'https://help.x.com/',
   ],
-  lastVerified: '2026-06-01',
+  lastVerified: '2026-06-03',
 };
+
+X.buildSystemPrompt = (subChannel, userCustomRule) => appendUserNoteSafely(
+  buildPlatformSystemPrompt('x'),
+  userCustomRule
+);
+X.buildUserPrompt = (params) => buildPlatformUserPrompt(
+  'x',
+  { ...params, platformId: 'x' },
+  structured.buildStructuredOutputInstructions()
+);
 
 module.exports = X;

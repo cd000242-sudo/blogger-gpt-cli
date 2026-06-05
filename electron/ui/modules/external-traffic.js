@@ -14,8 +14,8 @@ const PLATFORMS = [
     icon: '📷',
     openUrl: 'https://www.instagram.com/',
     color: '#e1306c',
-    promptSystem: `당신은 한국 인스타그램 마케터입니다. 캡션 ≤2,200자, 친근한 존댓말, 이모지 3~5개, 줄바꿈 자주. 본문 링크 클릭 불가 → "프로필 링크 클릭 ✨" CTA로 유도. 끝에 해시태그 메인1+중간5~10+롱테일5~10.`,
-    promptUser: (src) => `원본 블로그: "${src.title}"\n원본 URL: ${src.url}\n\n인스타 캡션 본문(2,200자 이내) + 마지막에 "프로필 링크 클릭" CTA + 해시태그를 만드세요. 자극·낚시 금지, 정보 70% + 호기심 30%.`,
+    promptSystem: `당신은 한국 인스타그램 외부유입 캡션 전문가입니다. 원문 문맥을 먼저 분석하고 A/B/C 3안(저장형·공감형·경고형)을 만드세요. 특정 주제 문장을 하드코딩하지 말고, 원문에 없는 금액·조건·기간·대상자·효과를 만들지 마세요. 각 안은 첫 줄 후보 10개와 점수, 최종 개선안을 포함합니다. 복사용 최종안은 첫 줄·본문·저장/공유/댓글/링크 유도·해시태그만 포함합니다.`,
+    promptUser: (src) => `원본 블로그: "${src.title}"\n원본 URL: ${src.url}\n원본 요약: ${_extractExtTrafficSourceText(src) || '(요약 없음)'}\n\n인스타그램 A/B/C 3안을 생성하세요. 글 유형을 자동 분류하고, 첫 줄 후보 10개를 점수화한 뒤 최고 점수 첫 줄을 선택하세요. 해시태그는 8~12개, 이모지는 최대 3개, CTA는 프로필/링크 확인 문장으로만 작성하세요.`,
   },
   {
     id: 'threads',
@@ -23,8 +23,8 @@ const PLATFORMS = [
     icon: '🧵',
     openUrl: 'https://www.threads.com/',
     color: '#000000',
-    promptSystem: `당신은 한국 Threads 마케터입니다. 500자 이내, 첫 줄은 강한 후킹 질문/반전, inline 링크는 1~2개만 (게시물당 5개 cap). 어조는 친근한 존댓말 또는 반말 (페르소나에 맞게).`,
-    promptUser: (src) => `원본 블로그: "${src.title}"\n원본 URL: ${src.url}\n\nThreads 게시물 1개를 작성하세요 (500자 이내). 첫 줄은 도발적 질문 또는 반전 정보. 끝에 "전체 글: ${src.url}".`,
+    promptSystem: `당신은 한국 Threads 외부유입 글 에디터입니다. 블로그 요약문이나 홍보문이 아니라 댓글이 먼저 달리는 대화형 글을 씁니다. 500자 이내, 자연스러운 반말/친구 말투, 해시태그 금지, 강한 클릭 유도 금지. "자세한 내용은 링크 확인", "확인해보시기 바랍니다", "부탁드립니다" 같은 문구는 쓰지 않습니다.`,
+    promptUser: (src) => `원문 제목: "${src.title}"\n원문 URL: ${src.url}\n원문 내용: ${_extractExtTrafficSourceText(src) || '(요약 없음)'}\n\nThreads 게시문 1개를 작성하세요. 첫 줄은 질문/공감/반전 중 하나로 시작하고, 댓글이 자연스럽게 달릴 만한 관점으로 씁니다. 마지막 줄에는 URL만 자연스럽게 포함하세요: ${src.url}`,
   },
   {
     id: 'naver-blog',
@@ -32,8 +32,8 @@ const PLATFORMS = [
     icon: '📝',
     openUrl: 'https://blog.naver.com/',
     color: '#03c75a',
-    promptSystem: `당신은 한국 네이버 블로그 운영자입니다. 정보 공유체 + 친근한 존댓말, 이모지 적당. 본문 1,200~2,500자. 사진 자리 표시는 [사진 자리] 로. 키워드 자연 분포, SEO 친화.`,
-    promptUser: (src) => `원본 블로그: "${src.title}"\n원본 URL: ${src.url}\n\n네이버 블로그 글 1편을 작성하세요. 본문 1,200~2,500자 + 자연스러운 [사진 자리] 표시 2~3곳 + 말미 "더 자세한 내용: ${src.url}". 검색 친화적 어조.`,
+    promptSystem: `당신은 한국 네이버 블로그 외부유입 글 에디터입니다. SNS 홍보문이 아니라 검색형 미니 포스트를 씁니다. 700~1200자, 존댓말 정보글, 검색 의도에 맞는 제목, 소제목 2~3개, 자연스러운 원문 유도, 해시태그 5~8개. 반말, 과장, 클릭 강요, 원문에 없는 조건 생성은 금지합니다.`,
+    promptUser: (src) => `원문 제목: "${src.title}"\n원문 URL: ${src.url}\n원문 내용: ${_extractExtTrafficSourceText(src) || '(요약 없음)'}\n\n네이버 블로그 검색형 미니 포스트 1편을 작성하세요. 제목 1개, 도입부, 소제목 2~3개, 핵심 정리, 자연스러운 원문 유도 문장, 댓글 유도 문장, 해시태그 5~8개를 포함하세요. 원문 유도 문장에는 ${src.url}을 자연스럽게 넣으세요.`,
   },
   {
     id: 'naver-cafe',
@@ -101,6 +101,52 @@ const PLATFORMS = [
 ];
 
 // ─── 상태 ────────────────────────────────────────────────
+const PLATFORM_LOGOS = {
+  instagram: { slug: 'instagram', color: 'E4405F', fallback: 'IG' },
+  threads: { slug: 'threads', color: 'FFFFFF', fallback: 'Th' },
+  'naver-blog': { slug: 'naver', color: '03C75A', fallback: 'N' },
+  'naver-cafe': { slug: 'naver', color: '03C75A', fallback: 'N' },
+  x: { slug: 'x', color: 'FFFFFF', fallback: 'X' },
+  facebook: { slug: 'facebook', color: '1877F2', fallback: 'f' },
+  'kakao-openchat': { slug: 'kakaotalk', color: '000000', fallback: 'K' },
+  'youtube-shorts': { slug: 'youtubeshorts', color: 'FF0000', fallback: '▶' },
+  tiktok: { slug: 'tiktok', color: 'FFFFFF', fallback: '♪' },
+  pinterest: { slug: 'pinterest', color: 'E60023', fallback: 'P' },
+};
+
+function _getPlatformLogoMeta(platform) {
+  return PLATFORM_LOGOS[platform.id] || {
+    slug: String(platform.id || '').replace(/[^a-z0-9-]/gi, '').toLowerCase(),
+    color: String(platform.color || '#94a3b8').replace('#', '') || '94A3B8',
+    fallback: platform.icon || '?',
+  };
+}
+
+function _renderPlatformLogo(platform, size = 'list') {
+  const meta = _getPlatformLogoMeta(platform);
+  const isHeader = size === 'header';
+  const boxSize = isHeader ? 48 : 24;
+  const imgSize = isHeader ? 26 : 16;
+  const bg = platform.id === 'instagram'
+    ? 'linear-gradient(135deg, rgba(245,133,41,0.22), rgba(221,42,123,0.24), rgba(81,91,212,0.20))'
+    : platform.id === 'kakao-openchat'
+      ? 'rgba(254,229,0,0.95)'
+      : `${platform.color || '#64748b'}22`;
+  const border = platform.id === 'kakao-openchat'
+    ? 'rgba(254,229,0,0.45)'
+    : `${platform.color || '#64748b'}55`;
+  const iconUrl = `https://cdn.simpleicons.org/${meta.slug}/${meta.color}`;
+  return `
+    <span class="ext-platform-logo ext-platform-logo-${escapeHtml(platform.id)}"
+      title="${escapeHtml(platform.label)} 공식 로고"
+      style="width:${boxSize}px;height:${boxSize}px;border-radius:${isHeader ? 12 : 7}px;background:${bg};border:1px solid ${border};display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;">
+      <img src="${iconUrl}" alt="${escapeHtml(platform.label)} logo" loading="lazy"
+        style="width:${imgSize}px;height:${imgSize}px;display:block;object-fit:contain;"
+        onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';">
+      <span style="display:none;align-items:center;justify-content:center;width:100%;height:100%;font-size:${isHeader ? 15 : 10}px;font-weight:900;color:${platform.id === 'kakao-openchat' ? '#000' : '#f8fafc'};">${escapeHtml(meta.fallback)}</span>
+    </span>`;
+}
+
 let _selectedSource = null; // { title, url, html, thumbnail, ... }
 let _activePlatformId = null;
 const _generatedCache = new Map(); // platformId → { text, generatedAt }
@@ -151,7 +197,7 @@ function _renderPlatformList() {
         style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: ${isActive ? 'linear-gradient(135deg, rgba(99,102,241,0.22), rgba(168,85,247,0.18))' : 'rgba(255,255,255,0.04)'}; border: 1px solid ${isActive ? 'rgba(99,102,241,0.4)' : 'rgba(148,163,184,0.1)'}; border-radius: 10px; color: #e2e8f0; font-size: 13px; font-weight: 600; cursor: pointer; width: 100%; text-align: left; transition: all 0.15s ease;"
         onmouseover="if(!this.classList.contains('is-active')) { this.style.background='rgba(255,255,255,0.08)'; }"
         onmouseout="if(!this.classList.contains('is-active')) { this.style.background='rgba(255,255,255,0.04)'; }">
-        <span style="font-size: 18px; flex-shrink: 0;">${p.icon}</span>
+        ${_renderPlatformLogo(p, 'list')}
         <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.label}</span>
         ${hasCache ? '<span style="font-size: 10px; color: #34d399;" title="생성됨">✓</span>' : ''}
       </button>`;
@@ -183,12 +229,11 @@ function _renderResultPanel(platform) {
   const wrap = document.getElementById('extTrafficResult');
   if (!wrap) return;
   const cached = _generatedCache.get(platform.id);
-  const safeIcon = platform.icon;
   const safeLabel = escapeHtml(platform.label);
 
   wrap.innerHTML = `
     <header style="display: flex; align-items: center; gap: 14px; margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid rgba(148,163,184,0.1);">
-      <div style="width: 48px; height: 48px; border-radius: 12px; background: ${platform.color}22; border: 1px solid ${platform.color}44; display: flex; align-items: center; justify-content: center; font-size: 26px;">${safeIcon}</div>
+      ${_renderPlatformLogo(platform, 'header')}
       <div style="flex: 1; min-width: 0;">
         <h2 style="margin: 0; color: #f1f5f9; font-size: 20px; font-weight: 800;">${safeLabel} ${_renderConfidenceBadge(platform.id)}</h2>
         <p style="margin: 4px 0 0; color: #94a3b8; font-size: 12px;">선택 글을 ${safeLabel} 맞춤 글로 변환합니다.</p>
@@ -246,6 +291,42 @@ function _renderV1ResultCard(platform, text) {
 }
 
 function _renderV2ResultCard(platform, cached) {
+  if (platform.id === 'instagram') {
+    const normalized = _normalizeInstagramCachedForDisplay(cached);
+    if (normalized !== cached) {
+      cached = normalized;
+      _generatedCache.set(platform.id, normalized);
+    }
+  }
+  if (platform.id === 'threads') {
+    const normalized = _normalizeThreadsCachedForDisplay(cached);
+    if (normalized !== cached) {
+      cached = normalized;
+      _generatedCache.set(platform.id, normalized);
+    }
+  }
+  if (platform.id === 'naver-blog') {
+    const normalized = _normalizeNaverBlogCachedForDisplay(cached);
+    if (normalized !== cached) {
+      cached = normalized;
+      _generatedCache.set(platform.id, normalized);
+    }
+  }
+
+  if (platform.id === 'instagram' && cached.instagram && Array.isArray(cached.instagram.variants) && cached.instagram.variants.length > 0) {
+    return _renderInstagramResultCard(platform, cached);
+  }
+  if (platform.id === 'threads' && cached.threads && Array.isArray(cached.threads.variants) && cached.threads.variants.length > 0) {
+    return _renderThreadsResultCard(platform, cached);
+  }
+  if (platform.id === 'naver-blog' && cached.naverBlog && Array.isArray(cached.naverBlog.variants) && cached.naverBlog.variants.length > 0) {
+    return _renderNaverBlogResultCard(platform, cached);
+  }
+  const structuredCard = _renderStructuredPlatformResultCard(platform, cached);
+  if (structuredCard) {
+    return structuredCard;
+  }
+
   const formatted = cached.formatted || {};
   const risk = cached.risk;
   const violations = cached.lengthViolations || [];
@@ -295,6 +376,1579 @@ function _renderV2ResultCard(platform, cached) {
     </div>
     <p style="margin: 14px 0 0; font-size: 11px; color: #64748b; line-height: 1.6;">${tipText}</p>
   `;
+}
+
+function _renderInstagramResultCard(platform, cached) {
+  const instagram = cached.instagram || {};
+  const context = instagram.context || {};
+  const variants = _orderUniqueInstagramVariants(Array.isArray(instagram.variants) ? instagram.variants : []);
+  const safeLabel = escapeHtml(platform.label);
+  const contextRows = [
+    ['자동 분류', context.articleType],
+    ['핵심 주제', context.coreTopic],
+    ['예상 독자', context.targetReader],
+    ['독자 상황', context.readerSituation],
+  ].filter((row) => row[1]);
+
+  const tabs = variants.map((variant, idx) => {
+    const score = Number(variant?.critique?.score || 0);
+    const recommended = variant.recommended || score >= 95;
+    const activeStyle = idx === 0
+      ? 'background: linear-gradient(135deg, #e1306c, #f97316); color: white; border-color: rgba(255,255,255,0.2);'
+      : 'background: rgba(255,255,255,0.05); color: #cbd5e1; border-color: rgba(148,163,184,0.14);';
+    return `
+      <button type="button" id="igVariantTab_${idx}" onclick="extTrafficShowInstagramVariant(${idx})"
+        style="flex: 1; min-width: 120px; padding: 10px 12px; border: 1px solid; border-radius: 10px; font-size: 12px; font-weight: 800; cursor: pointer; ${activeStyle}">
+        ${escapeHtml(variant.key || String.fromCharCode(65 + idx))}안 · ${escapeHtml(variant.label || '')}
+        <span style="margin-left: 6px; font-size: 11px;">${score}점</span>
+        ${recommended ? '<span style="margin-left: 6px;">추천</span>' : ''}
+      </button>`;
+  }).join('');
+
+  return `
+    <div style="margin-bottom: 14px; padding: 14px 16px; background: linear-gradient(135deg, rgba(225,48,108,0.16), rgba(249,115,22,0.10)); border: 1px solid rgba(225,48,108,0.38); border-radius: 12px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: ${contextRows.length ? '12px' : '0'};">
+        <div>
+          <div style="color: #fdf2f8; font-size: 14px; font-weight: 900;">문맥 추론형 인스타그램 A/B/C 결과</div>
+          <div style="color: #fbcfe8; font-size: 12px; margin-top: 3px;">최종 개선안만 복사되며, 후보/점수/비평은 게시문에 포함되지 않습니다.</div>
+        </div>
+        <button type="button" onclick="extTrafficGenerateOne('instagram')"
+          style="padding: 9px 13px; background: rgba(255,255,255,0.12); color: #fff7ed; border: 1px solid rgba(255,255,255,0.22); border-radius: 9px; font-size: 12px; font-weight: 800; cursor: pointer;">
+          인스타그램만 다시 생성
+        </button>
+      </div>
+      ${contextRows.length ? `
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;">
+          ${contextRows.map(([label, value]) => `
+            <div style="min-width:0;padding: 8px 10px; background: rgba(15,23,42,0.38); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;">
+              <div style="color: #f9a8d4; font-size: 10px; font-weight: 900; margin-bottom: 4px; white-space: nowrap;">${escapeHtml(label)}</div>
+              <div title="${escapeHtml(value)}" style="color: #f8fafc; font-size: 12px; line-height: 1.35; max-height: 32px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${escapeHtml(value)}</div>
+            </div>`).join('')}
+        </div>` : ''}
+    </div>
+
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;">
+      ${tabs}
+    </div>
+
+    <div id="instagramVariantPanels">
+      ${variants.map((variant, idx) => _renderInstagramVariantPanel(variant, idx, cached.sourceUrl || _getExtTrafficSourceUrl())).join('')}
+    </div>
+
+    ${_renderPreviewSimulation(platform.id, cached.formatted || {})}
+    ${_renderFeedbackRow(platform.id, cached.risk?.score || 0, cached.risk?.band || 'low')}
+    <div style="display: flex; gap: 10px; margin-top: 14px;">
+      <button type="button" onclick="extTrafficOpenPlatform('instagram')"
+        style="flex: 1; padding: 13px 18px; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 800; cursor: pointer; box-shadow: 0 4px 14px rgba(99,102,241,0.35);">
+        🔗 ${safeLabel} 바로가기
+      </button>
+    </div>
+  `;
+}
+
+function _renderInstagramVariantPanel(variant, idx, sourceUrl = '') {
+  const score = Number(variant?.critique?.score || 0);
+  const firstLineScore = Number(variant?.firstLineScore || 0);
+  const recommended = variant.recommended || score >= 95;
+  const passed = variant.passed || score >= 90;
+  const display = idx === 0 ? 'block' : 'none';
+  const finalCopy = _getInstagramVariantCopy(variant, sourceUrl);
+  const copyId = `instagramFinalCopy_${idx}`;
+  const badgeBg = recommended
+    ? 'linear-gradient(135deg, rgba(16,185,129,0.24), rgba(34,197,94,0.16))'
+    : passed
+      ? 'linear-gradient(135deg, rgba(59,130,246,0.22), rgba(99,102,241,0.14))'
+      : 'linear-gradient(135deg, rgba(251,191,36,0.18), rgba(245,158,11,0.12))';
+  const badgeColor = recommended ? '#86efac' : passed ? '#93c5fd' : '#fbbf24';
+
+  return `
+    <section id="igVariantPanel_${idx}" style="display: ${display}; padding: 16px; background: rgba(15,23,42,0.55); border: 1px solid rgba(148,163,184,0.12); border-radius: 12px;">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <h3 style="margin: 0; color: #f8fafc; font-size: 17px; font-weight: 900;">${escapeHtml(variant.key || '')}안 · ${escapeHtml(variant.label || '')}</h3>
+            <span style="padding: 4px 9px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid rgba(255,255,255,0.12); border-radius: 999px; font-size: 11px; font-weight: 900;">
+              ${score}점${recommended ? ' · 추천' : passed ? ' · 최종 개선안' : ' · 개선 필요'}
+            </span>
+          </div>
+          <div style="color: #94a3b8; font-size: 12px; margin-top: 5px;">
+            ${escapeHtml(variant.articleType || '')} · ${escapeHtml(variant.tone || '')} · ${escapeHtml(variant.hookEngine || '')}
+          </div>
+        </div>
+        <button type="button" onclick="extTrafficCopyInstagramFinal(${idx})"
+          style="padding: 10px 14px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 9px; font-size: 12px; font-weight: 900; cursor: pointer;">
+          📋 최종 개선안 복사
+        </button>
+      </div>
+
+      ${_renderInstagramInfoGrid(variant)}
+
+      <details style="margin: 12px 0; background: rgba(2,6,23,0.32); border: 1px solid rgba(148,163,184,0.1); border-radius: 10px; padding: 10px 12px;">
+        <summary style="cursor: pointer; color: #cbd5e1; font-size: 12px; font-weight: 800;">첫 줄 후보 10개 보기 · 선택 점수 ${firstLineScore}점</summary>
+        ${_renderInstagramCandidates(variant.firstLineCandidates || [], variant.selectedFirstLine)}
+      </details>
+
+      <div style="margin-top: 12px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px;">
+          <label style="color: #cbd5e1; font-size: 12px; font-weight: 900;">최종 개선안</label>
+          <span style="color: #64748b; font-size: 11px;">복사본 글자수: ${finalCopy.length}</span>
+        </div>
+        <textarea id="${copyId}" readonly
+          style="width: 100%; min-height: 260px; padding: 15px 16px; background: rgba(2,6,23,0.62); border: 1px solid rgba(148,163,184,0.16); border-radius: 11px; color: #e2e8f0; font-size: 14px; line-height: 1.7; font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; resize: vertical; box-sizing: border-box; white-space: pre-wrap;">${escapeHtml(finalCopy)}</textarea>
+      </div>
+
+      ${_renderInstagramCritique(variant)}
+    </section>`;
+}
+
+function _renderInstagramInfoGrid(variant) {
+  const rows = [
+    ['예상 독자', variant.targetReader],
+    ['주요 목표', variant.goal],
+    ['선택된 첫 줄', variant.selectedFirstLine],
+    ['선택 이유', variant.selectedReason],
+    ['예상 클릭 강도', variant.expectedClickStrength],
+  ].filter((row) => row[1]);
+  if (!rows.length) return '';
+  return `
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-bottom: 12px;">
+      ${rows.map(([label, value]) => `
+        <div style="padding: 10px 11px; background: rgba(30,41,59,0.55); border: 1px solid rgba(148,163,184,0.1); border-radius: 9px;">
+          <div style="color: #94a3b8; font-size: 10px; font-weight: 900; margin-bottom: 4px;">${escapeHtml(label)}</div>
+          <div style="color: #e2e8f0; font-size: 12px; line-height: 1.45;">${escapeHtml(value)}</div>
+        </div>`).join('')}
+    </div>`;
+}
+
+function _renderInstagramCandidates(candidates, selectedFirstLine) {
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return `<div style="color: #64748b; font-size: 12px; margin-top: 8px;">후보 데이터가 없습니다.</div>`;
+  }
+  return `
+    <ol style="margin: 10px 0 0; padding-left: 20px; color: #cbd5e1; font-size: 12px; line-height: 1.65;">
+      ${candidates.map((candidate) => {
+        const isSelected = candidate.text === selectedFirstLine;
+        return `<li style="margin-bottom: 5px; ${isSelected ? 'color: #86efac; font-weight: 900;' : ''}">
+          ${escapeHtml(candidate.text || '')}
+          <span style="color: ${isSelected ? '#86efac' : '#94a3b8'}; font-size: 11px;"> · ${Number(candidate.score || 0)}점${isSelected ? ' · 선택' : ''}</span>
+        </li>`;
+      }).join('')}
+    </ol>`;
+}
+
+function _renderInstagramCritique(variant) {
+  const critique = variant.critique || {};
+  const breakdown = critique.breakdown || {};
+  const common = variant.commonReview || {};
+  const commonViolations = common.violations || critique.commonViolations || [];
+  const commonRows = Object.entries(common.breakdown || critique.commonBreakdown || {}).map(([key, value]) => `
+    <span style="display: inline-block; margin: 3px 4px 0 0; padding: 4px 7px; background: rgba(16,185,129,0.10); border: 1px solid rgba(16,185,129,0.16); border-radius: 7px; color: #bbf7d0; font-size: 11px;">
+      ${escapeHtml(key)} ${escapeHtml(value)}
+    </span>`).join('');
+  const violationRows = commonViolations.length
+    ? `<div style="margin-top: 8px; color: #fbbf24; font-size: 12px; line-height: 1.6;">${commonViolations.map((item) => `- ${escapeHtml(item)}`).join('<br>')}</div>`
+    : '';
+  const breakdownRows = Object.entries(breakdown).map(([key, value]) => `
+    <span style="display: inline-block; margin: 3px 4px 0 0; padding: 4px 7px; background: rgba(148,163,184,0.10); border: 1px solid rgba(148,163,184,0.12); border-radius: 7px; color: #cbd5e1; font-size: 11px;">
+      ${escapeHtml(key)} ${escapeHtml(value)}
+    </span>`).join('');
+  return `
+    <details style="margin-top: 12px; background: rgba(2,6,23,0.32); border: 1px solid rgba(148,163,184,0.1); border-radius: 10px; padding: 10px 12px;">
+      <summary style="cursor: pointer; color: #cbd5e1; font-size: 12px; font-weight: 800;">자체 비평 접기/펼치기 · ${Number(critique.score || 0)}점${common.score ? ` · 공통 ${Number(common.score)}점` : ''}</summary>
+      <div style="margin-top: 9px; color: #94a3b8; font-size: 12px; line-height: 1.6;">${escapeHtml(critique.notes || '비평 메모 없음')}</div>
+      ${breakdownRows ? `<div style="margin-top: 8px;">${breakdownRows}</div>` : ''}
+      ${commonRows ? `<div style="margin-top: 8px;">${commonRows}</div>` : ''}
+      ${violationRows}
+    </details>`;
+}
+
+function _getInstagramVariantCopy(variant, sourceUrl = _getExtTrafficSourceUrl()) {
+  if (!variant) return '';
+  const finalRevision = variant.finalRevision || {};
+  const hashtags = Array.isArray(finalRevision.hashtags)
+    ? finalRevision.hashtags
+    : (Array.isArray(variant.hashtags) ? variant.hashtags : []);
+  const copy = [
+    finalRevision.firstLine || variant.selectedFirstLine,
+    finalRevision.body || variant.body,
+    finalRevision.savePrompt || variant.savePrompt,
+    finalRevision.sharePrompt || variant.sharePrompt,
+    finalRevision.commentPrompt || variant.commentPrompt,
+    finalRevision.linkPrompt || variant.linkPrompt,
+    hashtags.join(' '),
+  ].filter(Boolean).join('\n\n').trim();
+  return _appendExtTrafficSourceUrl(copy, sourceUrl);
+}
+
+function _renderThreadsResultCard(platform, cached) {
+  const threads = cached.threads || {};
+  const context = threads.context || {};
+  const variants = _orderUniqueThreadsVariants(Array.isArray(threads.variants) ? threads.variants : []);
+  const safeLabel = escapeHtml(platform.label);
+  const contextRows = [
+    ['자동분류', context.articleType],
+    ['핵심주제', context.coreTopic],
+    ['예상 독자', context.targetReader],
+    ['독자 상황', context.readerSituation],
+  ].filter((row) => row[1]);
+
+  const tabs = variants.map((variant, idx) => {
+    const score = Number(variant?.critique?.score || 0);
+    const activeStyle = idx === 0
+      ? 'background: #f8fafc; color: #020617; border-color: rgba(255,255,255,0.35);'
+      : 'background: rgba(255,255,255,0.05); color: #cbd5e1; border-color: rgba(148,163,184,0.16);';
+    return `
+      <button type="button" id="threadsVariantTab_${idx}" onclick="extTrafficShowThreadsVariant(${idx})"
+        style="flex: 1; min-width: 120px; padding: 10px 12px; border: 1px solid; border-radius: 10px; font-size: 12px; font-weight: 900; cursor: pointer; ${activeStyle}">
+        ${escapeHtml(variant.key || String.fromCharCode(65 + idx))}안 · ${escapeHtml(variant.label || '')}
+        ${score ? `<span style="margin-left: 6px; font-size: 11px;">${score}점</span>` : ''}
+      </button>`;
+  }).join('');
+
+  return `
+    <div style="margin-bottom: 14px; padding: 14px 16px; background: linear-gradient(135deg, rgba(15,23,42,0.94), rgba(30,41,59,0.84)); border: 1px solid rgba(248,250,252,0.18); border-radius: 12px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: ${contextRows.length ? '12px' : '0'};">
+        <div>
+          <div style="color: #f8fafc; font-size: 14px; font-weight: 900;">Threads A/B/C 결과</div>
+          <div style="color: #94a3b8; font-size: 12px; margin-top: 3px;">최종 글만 복사됩니다. 후보, 점수, JSON은 게시문에 포함되지 않습니다.</div>
+        </div>
+        <button type="button" onclick="extTrafficGenerateOne('threads')"
+          style="padding: 9px 13px; background: rgba(255,255,255,0.10); color: #f8fafc; border: 1px solid rgba(255,255,255,0.22); border-radius: 9px; font-size: 12px; font-weight: 800; cursor: pointer;">
+          Threads만 다시 생성
+        </button>
+      </div>
+      ${contextRows.length ? `
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;">
+          ${contextRows.map(([label, value]) => `
+            <div style="min-width:0;padding: 8px 10px; background: rgba(2,6,23,0.42); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;">
+              <div style="color: #cbd5e1; font-size: 10px; font-weight: 900; margin-bottom: 4px; white-space: nowrap;">${escapeHtml(label)}</div>
+              <div title="${escapeHtml(value)}" style="color: #f8fafc; font-size: 12px; line-height: 1.35; max-height: 32px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${escapeHtml(value)}</div>
+            </div>`).join('')}
+        </div>` : ''}
+    </div>
+
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;">
+      ${tabs}
+    </div>
+
+    <div id="threadsVariantPanels">
+      ${variants.map((variant, idx) => _renderThreadsVariantPanel(variant, idx, cached.sourceUrl || _getExtTrafficSourceUrl())).join('')}
+    </div>
+
+    ${_renderPreviewSimulation(platform.id, cached.formatted || {})}
+    ${_renderFeedbackRow(platform.id, cached.risk?.score || 0, cached.risk?.band || 'low')}
+    <div style="display: flex; gap: 10px; margin-top: 14px;">
+      <button type="button" onclick="extTrafficOpenPlatform('threads')"
+        style="flex: 1; padding: 13px 18px; background: linear-gradient(135deg, #111827, #334155); color: white; border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; font-size: 14px; font-weight: 800; cursor: pointer; box-shadow: 0 4px 14px rgba(15,23,42,0.45);">
+        ${safeLabel} 바로가기
+      </button>
+    </div>
+  `;
+}
+
+function _renderThreadsVariantPanel(variant, idx, sourceUrl = '') {
+  const score = Number(variant?.critique?.score || 0);
+  const display = idx === 0 ? 'block' : 'none';
+  const finalCopy = _getThreadsVariantCopy(variant, sourceUrl);
+  const copyId = `threadsFinalCopy_${idx}`;
+  const metaRows = [
+    ['선택 첫 줄', variant.selectedFirstLine],
+    ['목표', variant.goal],
+    ['훅', variant.hookEngine],
+  ].filter((row) => row[1]);
+  return `
+    <section id="threadsVariantPanel_${idx}" style="display: ${display}; padding: 16px; background: rgba(15,23,42,0.55); border: 1px solid rgba(148,163,184,0.12); border-radius: 12px;">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <h3 style="margin: 0; color: #f8fafc; font-size: 17px; font-weight: 900;">${escapeHtml(variant.key || '')}안 · ${escapeHtml(variant.label || '')}</h3>
+            ${score ? `<span style="padding: 4px 9px; background: rgba(248,250,252,0.10); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.12); border-radius: 999px; font-size: 11px; font-weight: 900;">${score}점</span>` : ''}
+          </div>
+          <div style="color: #94a3b8; font-size: 12px; margin-top: 5px;">${escapeHtml(variant.tone || 'Threads 대화체')}</div>
+        </div>
+        <button type="button" onclick="extTrafficCopyThreadsFinal(${idx})"
+          style="padding: 10px 14px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 9px; font-size: 12px; font-weight: 900; cursor: pointer;">
+          최종 글 복사
+        </button>
+      </div>
+
+      ${metaRows.length ? `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-bottom: 12px;">
+          ${metaRows.map(([label, value]) => `
+            <div style="padding: 10px 11px; background: rgba(30,41,59,0.55); border: 1px solid rgba(148,163,184,0.1); border-radius: 9px;">
+              <div style="color: #94a3b8; font-size: 10px; font-weight: 900; margin-bottom: 4px;">${escapeHtml(label)}</div>
+              <div style="color: #e2e8f0; font-size: 12px; line-height: 1.45;">${escapeHtml(value)}</div>
+            </div>`).join('')}
+        </div>` : ''}
+
+      <div style="margin-top: 12px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px;">
+          <label style="color: #cbd5e1; font-size: 12px; font-weight: 900;">최종 게시문</label>
+          <span style="color: #64748b; font-size: 11px;">글자수: ${finalCopy.length}</span>
+        </div>
+        <textarea id="${copyId}" readonly
+          style="width: 100%; min-height: 220px; padding: 15px 16px; background: rgba(2,6,23,0.62); border: 1px solid rgba(148,163,184,0.16); border-radius: 11px; color: #e2e8f0; font-size: 14px; line-height: 1.7; font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; resize: vertical; box-sizing: border-box; white-space: pre-wrap;">${escapeHtml(finalCopy)}</textarea>
+      </div>
+      ${_renderStructuredCritique(variant)}
+    </section>`;
+}
+
+function _getThreadsVariantCopy(variant, sourceUrl = _getExtTrafficSourceUrl()) {
+  if (!variant) return '';
+  const finalRevision = variant.finalRevision || {};
+  const copy = [
+    finalRevision.firstLine || variant.selectedFirstLine,
+    finalRevision.body || variant.body,
+    finalRevision.commentPrompt || variant.commentPrompt,
+    finalRevision.sharePrompt || variant.sharePrompt,
+    finalRevision.linkPrompt || variant.linkPrompt,
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+    .replace(/<THREADS_RESULT_JSON>|<\/THREADS_RESULT_JSON>/g, '')
+    .replace(/```(?:json)?|```/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return _appendExtTrafficSourceUrl(copy, sourceUrl);
+}
+
+function _renderNaverBlogResultCard(platform, cached) {
+  const naverBlog = cached.naverBlog || {};
+  const context = naverBlog.context || {};
+  const variants = _orderUniqueNaverBlogVariants(Array.isArray(naverBlog.variants) ? naverBlog.variants : []);
+  const safeLabel = escapeHtml(platform.label);
+  const contextRows = [
+    ['자동 분류', context.articleType],
+    ['핵심 키워드', context.primaryKeyword],
+    ['보조 키워드', Array.isArray(context.secondaryKeywords) ? context.secondaryKeywords.join(', ') : context.secondaryKeywords],
+    ['검색 의도', Array.isArray(context.searchTerms) ? context.searchTerms.slice(0, 3).join(', ') : context.readerQuestion],
+  ].filter((row) => row[1]);
+
+  const tabs = variants.map((variant, idx) => {
+    const score = Number(variant?.critique?.score || 0);
+    const titleScore = Number(variant?.titleScore || 0);
+    const recommended = variant.recommended || score >= 95;
+    const activeStyle = idx === 0
+      ? 'background: linear-gradient(135deg, #03c75a, #14b8a6); color: white; border-color: rgba(255,255,255,0.24);'
+      : 'background: rgba(255,255,255,0.05); color: #cbd5e1; border-color: rgba(148,163,184,0.16);';
+    return `
+      <button type="button" id="naverBlogVariantTab_${idx}" onclick="extTrafficShowNaverBlogVariant(${idx})"
+        style="flex: 1; min-width: 130px; padding: 10px 12px; border: 1px solid; border-radius: 10px; font-size: 12px; font-weight: 900; cursor: pointer; ${activeStyle}">
+        ${escapeHtml(variant.key || String.fromCharCode(65 + idx))}안 · ${escapeHtml(variant.label || '')}
+        <span style="margin-left: 6px; font-size: 11px;">제목 ${titleScore}점</span>
+        ${recommended ? '<span style="margin-left: 6px;">추천</span>' : score ? `<span style="margin-left: 6px;">${score}점</span>` : ''}
+      </button>`;
+  }).join('');
+
+  return `
+    <div style="margin-bottom: 14px; padding: 14px 16px; background: linear-gradient(135deg, rgba(3,199,90,0.15), rgba(20,184,166,0.09)); border: 1px solid rgba(3,199,90,0.36); border-radius: 12px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: ${contextRows.length ? '12px' : '0'};">
+        <div>
+          <div style="color: #ecfdf5; font-size: 14px; font-weight: 900;">네이버 블로그 A/B/C 검색형 미니 포스트</div>
+          <div style="color: #a7f3d0; font-size: 12px; margin-top: 3px;">제목 후보와 점수는 검토용입니다. 복사 버튼은 최종 개선안만 복사합니다.</div>
+        </div>
+        <button type="button" onclick="extTrafficGenerateOne('naver-blog')"
+          style="padding: 9px 13px; background: rgba(255,255,255,0.12); color: #f0fdf4; border: 1px solid rgba(255,255,255,0.22); border-radius: 9px; font-size: 12px; font-weight: 800; cursor: pointer;">
+          네이버 블로그만 다시 생성
+        </button>
+      </div>
+      ${contextRows.length ? `
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;">
+          ${contextRows.map(([label, value]) => `
+            <div style="min-width:0;padding: 8px 10px; background: rgba(15,23,42,0.36); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;">
+              <div style="color: #86efac; font-size: 10px; font-weight: 900; margin-bottom: 4px; white-space: nowrap;">${escapeHtml(label)}</div>
+              <div title="${escapeHtml(value)}" style="color: #f8fafc; font-size: 12px; line-height: 1.35; max-height: 32px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${escapeHtml(value)}</div>
+            </div>`).join('')}
+        </div>` : ''}
+    </div>
+
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;">
+      ${tabs}
+    </div>
+
+    <div id="naverBlogVariantPanels">
+      ${variants.map((variant, idx) => _renderNaverBlogVariantPanel(variant, idx, cached.sourceUrl || _getExtTrafficSourceUrl())).join('')}
+    </div>
+
+    ${_renderPreviewSimulation(platform.id, cached.formatted || {})}
+    ${_renderFeedbackRow(platform.id, cached.risk?.score || 0, cached.risk?.band || 'low')}
+    <div style="display: flex; gap: 10px; margin-top: 14px;">
+      <button type="button" onclick="extTrafficOpenPlatform('naver-blog')"
+        style="flex: 1; padding: 13px 18px; background: linear-gradient(135deg, #03c75a, #059669); color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 800; cursor: pointer; box-shadow: 0 4px 14px rgba(3,199,90,0.28);">
+        ${safeLabel} 바로가기
+      </button>
+    </div>
+  `;
+}
+
+function _renderNaverBlogVariantPanel(variant, idx, sourceUrl = '') {
+  const score = Number(variant?.critique?.score || 0);
+  const titleScore = Number(variant?.titleScore || 0);
+  const display = idx === 0 ? 'block' : 'none';
+  const finalCopy = _getNaverBlogVariantCopy(variant, sourceUrl);
+  const copyId = `naverBlogFinalCopy_${idx}`;
+  const metaRows = [
+    ['선택 제목', variant.selectedTitle || variant.finalRevision?.title],
+    ['제목 점수', titleScore ? `${titleScore}점` : ''],
+    ['선택 이유', variant.selectedReason],
+    ['예상 클릭 강도', variant.expectedClickStrength],
+  ].filter((row) => row[1]);
+  const badgeBg = variant.recommended || score >= 95
+    ? 'linear-gradient(135deg, rgba(16,185,129,0.24), rgba(34,197,94,0.16))'
+    : score >= 90
+      ? 'linear-gradient(135deg, rgba(59,130,246,0.22), rgba(99,102,241,0.14))'
+      : 'linear-gradient(135deg, rgba(251,191,36,0.18), rgba(245,158,11,0.12))';
+  const badgeColor = variant.recommended || score >= 95 ? '#86efac' : score >= 90 ? '#93c5fd' : '#fbbf24';
+
+  return `
+    <section id="naverBlogVariantPanel_${idx}" style="display: ${display}; padding: 16px; background: rgba(15,23,42,0.55); border: 1px solid rgba(148,163,184,0.12); border-radius: 12px;">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <h3 style="margin: 0; color: #f8fafc; font-size: 17px; font-weight: 900;">${escapeHtml(variant.key || '')}안 · ${escapeHtml(variant.label || '')}</h3>
+            ${score ? `<span style="padding: 4px 9px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid rgba(255,255,255,0.12); border-radius: 999px; font-size: 11px; font-weight: 900;">${score}점${variant.recommended || score >= 95 ? ' · 추천' : ''}</span>` : ''}
+          </div>
+          <div style="color: #94a3b8; font-size: 12px; margin-top: 5px;">
+            ${escapeHtml(variant.articleType || '')} · ${escapeHtml(variant.primaryKeyword || '')}
+          </div>
+        </div>
+        <button type="button" onclick="extTrafficCopyNaverBlogFinal(${idx})"
+          style="padding: 10px 14px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 9px; font-size: 12px; font-weight: 900; cursor: pointer;">
+          최종 개선안 복사
+        </button>
+      </div>
+
+      ${metaRows.length ? `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-bottom: 12px;">
+          ${metaRows.map(([label, value]) => `
+            <div style="padding: 10px 11px; background: rgba(30,41,59,0.55); border: 1px solid rgba(148,163,184,0.1); border-radius: 9px;">
+              <div style="color: #94a3b8; font-size: 10px; font-weight: 900; margin-bottom: 4px;">${escapeHtml(label)}</div>
+              <div style="color: #e2e8f0; font-size: 12px; line-height: 1.45;">${escapeHtml(value)}</div>
+            </div>`).join('')}
+        </div>` : ''}
+
+      <details style="margin: 12px 0; background: rgba(2,6,23,0.32); border: 1px solid rgba(148,163,184,0.1); border-radius: 10px; padding: 10px 12px;">
+        <summary style="cursor: pointer; color: #cbd5e1; font-size: 12px; font-weight: 800;">제목 후보 10개 보기 · 선택 제목 ${titleScore}점</summary>
+        ${_renderNaverBlogTitleCandidates(variant.titleCandidates || [], variant.selectedTitle || variant.finalRevision?.title)}
+      </details>
+
+      <div style="margin-top: 12px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px;">
+          <label style="color: #cbd5e1; font-size: 12px; font-weight: 900;">최종 개선안</label>
+          <span style="color: #64748b; font-size: 11px;">복사본 글자수: ${finalCopy.length}</span>
+        </div>
+        <textarea id="${copyId}" readonly
+          style="width: 100%; min-height: 360px; padding: 15px 16px; background: rgba(2,6,23,0.62); border: 1px solid rgba(148,163,184,0.16); border-radius: 11px; color: #e2e8f0; font-size: 14px; line-height: 1.75; font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; resize: vertical; box-sizing: border-box; white-space: pre-wrap;">${escapeHtml(finalCopy)}</textarea>
+      </div>
+
+      ${_renderNaverBlogCritique(variant)}
+    </section>`;
+}
+
+function _renderNaverBlogTitleCandidates(candidates, selectedTitle) {
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return `<div style="color: #64748b; font-size: 12px; margin-top: 8px;">제목 후보 데이터가 없습니다.</div>`;
+  }
+  return `
+    <ol style="margin: 10px 0 0; padding-left: 20px; color: #cbd5e1; font-size: 12px; line-height: 1.65;">
+      ${candidates.map((candidate) => {
+        const isSelected = candidate.text === selectedTitle;
+        return `<li style="margin-bottom: 5px; ${isSelected ? 'color: #86efac; font-weight: 900;' : ''}">
+          ${escapeHtml(candidate.text || '')}
+          <span style="color: ${isSelected ? '#86efac' : '#94a3b8'}; font-size: 11px;"> · ${Number(candidate.score || 0)}점${isSelected ? ' · 선택' : ''}</span>
+        </li>`;
+      }).join('')}
+    </ol>`;
+}
+
+function _renderNaverBlogCritique(variant) {
+  const critique = variant.critique || {};
+  const breakdown = critique.breakdown || {};
+  const common = variant.commonReview || {};
+  const commonViolations = common.violations || critique.commonViolations || [];
+  const commonRows = Object.entries(common.breakdown || critique.commonBreakdown || {}).map(([key, value]) => `
+    <span style="display: inline-block; margin: 3px 4px 0 0; padding: 4px 7px; background: rgba(16,185,129,0.10); border: 1px solid rgba(16,185,129,0.16); border-radius: 7px; color: #bbf7d0; font-size: 11px;">
+      ${escapeHtml(key)} ${escapeHtml(value)}
+    </span>`).join('');
+  const violationRows = commonViolations.length
+    ? `<div style="margin-top: 8px; color: #fbbf24; font-size: 12px; line-height: 1.6;">${commonViolations.map((item) => `- ${escapeHtml(item)}`).join('<br>')}</div>`
+    : '';
+  const breakdownRows = Object.entries(breakdown).map(([key, value]) => `
+    <span style="display: inline-block; margin: 3px 4px 0 0; padding: 4px 7px; background: rgba(148,163,184,0.10); border: 1px solid rgba(148,163,184,0.12); border-radius: 7px; color: #cbd5e1; font-size: 11px;">
+      ${escapeHtml(key)} ${escapeHtml(value)}
+    </span>`).join('');
+  return `
+    <details style="margin-top: 12px; background: rgba(2,6,23,0.32); border: 1px solid rgba(148,163,184,0.1); border-radius: 10px; padding: 10px 12px;">
+      <summary style="cursor: pointer; color: #cbd5e1; font-size: 12px; font-weight: 800;">자체 비평 접기/펼치기 · ${Number(critique.score || 0)}점${common.score ? ` · 공통 ${Number(common.score)}점` : ''}</summary>
+      <div style="margin-top: 9px; color: #94a3b8; font-size: 12px; line-height: 1.6;">${escapeHtml(critique.notes || '비평 메모 없음')}</div>
+      ${breakdownRows ? `<div style="margin-top: 8px;">${breakdownRows}</div>` : ''}
+      ${commonRows ? `<div style="margin-top: 8px;">${commonRows}</div>` : ''}
+      ${violationRows}
+    </details>`;
+}
+
+function _getNaverBlogVariantCopy(variant, sourceUrl = _getExtTrafficSourceUrl()) {
+  if (!variant) return '';
+  const finalRevision = variant.finalRevision || {};
+  const sections = Array.isArray(finalRevision.sections) && finalRevision.sections.length
+    ? finalRevision.sections
+    : (Array.isArray(variant.sections) ? variant.sections : []);
+  const hashtags = Array.isArray(finalRevision.hashtags)
+    ? finalRevision.hashtags
+    : (Array.isArray(variant.hashtags) ? variant.hashtags : []);
+  const copy = [
+    finalRevision.title || variant.selectedTitle,
+    finalRevision.intro || variant.intro,
+    ...sections.flatMap((section) => [section.heading, section.body]),
+    finalRevision.sourceLead || variant.sourceLead,
+    finalRevision.commentPrompt || variant.commentPrompt,
+    hashtags.join(' '),
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+    .replace(/<NAVER_BLOG_RESULT_JSON>|<\/NAVER_BLOG_RESULT_JSON>/g, '')
+    .replace(/```(?:json)?|```/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return _appendExtTrafficSourceUrl(copy, sourceUrl);
+}
+
+function _getExtTrafficSourceUrl() {
+  return String(_selectedSource?.url || '').trim();
+}
+
+function _appendExtTrafficSourceUrl(text, sourceUrl = _getExtTrafficSourceUrl()) {
+  const body = String(text || '').trim();
+  const url = String(sourceUrl || '').trim();
+  if (!body || !url) return body;
+  if (body.includes(url)) return body;
+  return `${body}\n\n${url}`;
+}
+
+const EXT_STRUCTURED_PLATFORM_UI = {
+  'naver-cafe': {
+    extraKey: 'naverCafe',
+    title: '네이버 카페 A/B/C 결과',
+    accent: '#03c75a',
+    candidateKey: 'titleCandidates',
+    selectedKey: 'selectedTitle',
+    scoreKey: 'titleScore',
+    candidateLabel: '제목 후보',
+    copyLabel: '최종 카페 글',
+    copyFields: ['title', 'body', 'commentPrompt', { key: 'linkPrompt', appendSourceUrl: true }, { key: 'hashtags', style: 'inline' }],
+    appendSourceUrl: false,
+  },
+  x: {
+    extraKey: 'x',
+    title: 'X A/B/C 결과',
+    accent: '#1da1f2',
+    candidateKey: 'firstLineCandidates',
+    selectedKey: 'selectedFirstLine',
+    scoreKey: 'firstLineScore',
+    candidateLabel: '첫 문장 후보',
+    copyLabel: '최종 X 글',
+    copyFields: ['firstLine', 'body', 'quotePrompt', 'repostPrompt', { key: 'linkPrompt', appendSourceUrl: true }, { key: 'hashtags', style: 'inline' }],
+    appendSourceUrl: false,
+  },
+  facebook: {
+    extraKey: 'facebook',
+    title: 'Facebook A/B/C 결과',
+    accent: '#1877f2',
+    candidateKey: 'firstLineCandidates',
+    selectedKey: 'selectedFirstLine',
+    scoreKey: 'firstLineScore',
+    candidateLabel: '첫 문장 후보',
+    copyLabel: '최종 Facebook 글',
+    copyFields: ['firstLine', 'body', 'sharePrompt', 'commentPrompt', { key: 'linkPrompt', appendSourceUrl: true }, { key: 'hashtags', style: 'inline' }],
+    appendSourceUrl: false,
+  },
+  'kakao-openchat': {
+    extraKey: 'kakaoOpenChat',
+    title: '카카오 오픈채팅 A/B/C 결과',
+    accent: '#fee500',
+    candidateKey: 'firstLineCandidates',
+    selectedKey: 'selectedFirstLine',
+    scoreKey: 'firstLineScore',
+    candidateLabel: '첫 줄 후보',
+    copyLabel: '최종 오픈채팅 글',
+    copyFields: ['firstLine', 'body', 'entryPrompt', { key: 'linkPrompt', appendSourceUrl: true }],
+    appendSourceUrl: false,
+  },
+  'youtube-shorts': {
+    extraKey: 'youtubeShorts',
+    title: '유튜브 쇼츠 A/B/C 결과',
+    accent: '#ff0000',
+    candidateKey: 'first3SecCandidates',
+    selectedKey: 'first3SecHook',
+    scoreKey: 'hookScore',
+    candidateLabel: '첫 3초 훅 후보',
+    copyLabel: '최종 쇼츠 스크립트',
+    copyFields: ['videoTitle', 'first3SecHook', 'bodyScript', { key: 'onScreenCaptions', numbered: true }, 'commentPrompt', { key: 'pinnedComment', appendSourceUrl: true }, { key: 'description', appendSourceUrl: true }, { key: 'hashtags', style: 'inline' }],
+    appendSourceUrl: false,
+  },
+  tiktok: {
+    extraKey: 'tiktok',
+    title: '틱톡 A/B/C 결과',
+    accent: '#ff0050',
+    candidateKey: 'first2SecCandidates',
+    selectedKey: 'first2SecHook',
+    scoreKey: 'hookScore',
+    candidateLabel: '첫 2초 훅 후보',
+    copyLabel: '최종 틱톡 스크립트',
+    copyFields: ['videoTitle', 'first2SecHook', 'bodyScript', { key: 'cutCaptions', numbered: true }, 'commentPrompt', 'savePrompt', { key: 'profileLinkPrompt', appendSourceUrl: true }, { key: 'hashtags', style: 'inline' }],
+    appendSourceUrl: false,
+  },
+  pinterest: {
+    extraKey: 'pinterest',
+    title: 'Pinterest A/B/C 결과',
+    accent: '#e60023',
+    candidateKey: 'titleCandidates',
+    selectedKey: 'pinTitle',
+    scoreKey: 'titleScore',
+    candidateLabel: '핀 제목 후보',
+    copyLabel: '최종 Pinterest 핀',
+    copyFields: ['pinTitle', { key: 'pinDescription', appendSourceUrl: true }, { key: 'imageTextLines', numbered: true }, 'imageDesignDirection', { key: 'blogLead', appendSourceUrl: true }, { key: 'keywordTags', style: 'inline' }],
+    appendSourceUrl: false,
+  },
+};
+
+function _structuredDomKey(platformId) {
+  return String(platformId || '').replace(/[^a-z0-9]/gi, '_');
+}
+
+function _getStructuredPlatformConfig(platformId) {
+  return EXT_STRUCTURED_PLATFORM_UI[platformId] || null;
+}
+
+function _getStructuredPlatformPayload(platform, cached) {
+  const cfg = _getStructuredPlatformConfig(platform.id);
+  if (!cfg || !cached) return null;
+  const payload = cached[cfg.extraKey];
+  if (!payload || !Array.isArray(payload.variants) || payload.variants.length === 0) return null;
+  return payload;
+}
+
+function _getStructuredField(variant, key) {
+  if (!variant || !key) return '';
+  const finalRevision = variant.finalRevision || {};
+  if (finalRevision[key] != null && finalRevision[key] !== '') return finalRevision[key];
+  if (variant[key] != null && variant[key] !== '') return variant[key];
+  if (key === 'title') return finalRevision.title || variant.selectedTitle || variant.pinTitle || variant.videoTitle || '';
+  if (key === 'firstLine') return finalRevision.firstLine || variant.selectedFirstLine || '';
+  return '';
+}
+
+function _formatStructuredField(field, variant, sourceUrl) {
+  const spec = typeof field === 'string' ? { key: field } : field;
+  const key = spec.key;
+  let value = _getStructuredField(variant, key);
+  if (Array.isArray(value)) {
+    if (key === 'hashtags' || key === 'keywordTags' || spec.style === 'inline') {
+      return value.filter(Boolean).join(' ');
+    }
+    if (spec.numbered) {
+      return value.filter(Boolean).map((item, idx) => `${idx + 1}. ${item}`).join('\n');
+    }
+    return value.filter(Boolean).join('\n');
+  }
+  if (key === 'sections' && Array.isArray(value)) {
+    return value.flatMap((section) => [section.heading, section.body].filter(Boolean)).join('\n\n');
+  }
+  let text = String(value || '').trim();
+  if (spec.appendSourceUrl) text = _appendExtTrafficSourceUrl(text, sourceUrl);
+  return text;
+}
+
+function _getStructuredVariantCopy(platformId, variant, sourceUrl = _getExtTrafficSourceUrl()) {
+  const cfg = _getStructuredPlatformConfig(platformId);
+  if (!cfg || !variant) return '';
+  let copy = (cfg.copyFields || [])
+    .map((field) => _formatStructuredField(field, variant, sourceUrl))
+    .filter(Boolean)
+    .join('\n\n')
+    .replace(/<[^>]+_RESULT_JSON>|<\/[^>]+_RESULT_JSON>/g, '')
+    .replace(/```(?:json)?|```/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (cfg.appendSourceUrl) copy = _appendExtTrafficSourceUrl(copy, sourceUrl);
+  return copy;
+}
+
+function _renderStructuredPlatformResultCard(platform, cached) {
+  const cfg = _getStructuredPlatformConfig(platform.id);
+  const payload = _getStructuredPlatformPayload(platform, cached);
+  if (!cfg || !payload) return '';
+  const context = payload.context || {};
+  const variants = _orderStructuredVariants(payload.variants);
+  if (!variants.length) return '';
+  const safeLabel = escapeHtml(platform.label);
+  const domKey = _structuredDomKey(platform.id);
+  const contextRows = [
+    ['자동분류', context.autoCategory || context.articleType],
+    ['핵심주제', context.coreTopic || context.primaryKeyword],
+    ['예상 독자', context.targetReader],
+    ['독자 상황', context.readerSituation || context.readerQuestion],
+  ].filter((row) => row[1]);
+  const tabs = variants.map((variant, idx) => {
+    const score = Number(variant?.critique?.score || variant?.score || 0);
+    const activeStyle = idx === 0
+      ? `background: linear-gradient(135deg, ${cfg.accent}, #8b5cf6); color: white; border-color: rgba(255,255,255,0.24);`
+      : 'background: rgba(255,255,255,0.05); color: #cbd5e1; border-color: rgba(148,163,184,0.16);';
+    return `
+      <button type="button" id="${domKey}VariantTab_${idx}" onclick="extTrafficShowStructuredVariant('${platform.id}', ${idx})"
+        style="flex:1;min-width:130px;padding:10px 12px;border:1px solid;border-radius:10px;font-size:12px;font-weight:900;cursor:pointer;${activeStyle}">
+        ${escapeHtml(variant.key || String.fromCharCode(65 + idx))}안 · ${escapeHtml(variant.label || '')}
+        ${score ? `<span style="margin-left:6px;font-size:11px;">${score}점</span>` : ''}
+        ${variant.recommended ? '<span style="margin-left:6px;">추천</span>' : ''}
+      </button>`;
+  }).join('');
+
+  return `
+    <div style="margin-bottom:14px;padding:14px 16px;background:linear-gradient(135deg, ${cfg.accent}28, rgba(139,92,246,0.10));border:1px solid ${cfg.accent}66;border-radius:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:${contextRows.length ? '12px' : '0'};">
+        <div>
+          <div style="color:#f8fafc;font-size:14px;font-weight:900;">${escapeHtml(cfg.title)}</div>
+          <div style="color:#cbd5e1;font-size:12px;margin-top:3px;">최종 개선안만 복사되며, 후보/점수/비평은 게시문에 포함되지 않습니다.</div>
+        </div>
+        <button type="button" onclick="extTrafficGenerateOne('${platform.id}')"
+          style="padding:9px 13px;background:rgba(255,255,255,0.12);color:#f8fafc;border:1px solid rgba(255,255,255,0.22);border-radius:9px;font-size:12px;font-weight:800;cursor:pointer;">
+          ${safeLabel}만 다시 생성
+        </button>
+      </div>
+      ${contextRows.length ? `
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;">
+          ${contextRows.map(([label, value]) => `
+            <div style="min-width:0;padding:8px 10px;background:rgba(15,23,42,0.38);border:1px solid rgba(255,255,255,0.08);border-radius:8px;">
+              <div style="color:${cfg.accent};font-size:10px;font-weight:900;margin-bottom:4px;white-space:nowrap;">${escapeHtml(label)}</div>
+              <div title="${escapeHtml(value)}" style="color:#f8fafc;font-size:12px;line-height:1.35;max-height:34px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${escapeHtml(value)}</div>
+            </div>`).join('')}
+        </div>` : ''}
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">${tabs}</div>
+    <div id="${domKey}VariantPanels">
+      ${variants.map((variant, idx) => _renderStructuredVariantPanel(platform, cfg, variant, idx, cached.sourceUrl || _getExtTrafficSourceUrl())).join('')}
+    </div>
+    ${_renderPreviewSimulation(platform.id, cached.formatted || {})}
+    ${_renderFeedbackRow(platform.id, cached.risk?.score || 0, cached.risk?.band || 'low')}
+    <div style="display:flex;gap:10px;margin-top:14px;">
+      <button type="button" onclick="extTrafficOpenPlatform('${platform.id}')"
+        style="flex:1;padding:13px 18px;background:linear-gradient(135deg, ${cfg.accent}, #6366f1);color:white;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 4px 14px rgba(99,102,241,0.28);">
+        ${safeLabel} 바로가기
+      </button>
+    </div>`;
+}
+
+function _renderStructuredVariantPanel(platform, cfg, variant, idx, sourceUrl = '') {
+  const display = idx === 0 ? 'block' : 'none';
+  const domKey = _structuredDomKey(platform.id);
+  const finalCopy = _getStructuredVariantCopy(platform.id, variant, sourceUrl);
+  const candidateScore = Number(variant?.[cfg.scoreKey] || 0);
+  const selected = _getStructuredField(variant, cfg.selectedKey);
+  const score = Number(variant?.critique?.score || variant?.score || 0);
+  const metaRows = [
+    [cfg.selectedKey && cfg.selectedKey.includes('Title') || cfg.selectedKey === 'pinTitle' ? '선택 제목' : '선택 문구', selected],
+    ['후보 점수', candidateScore ? `${candidateScore}점` : ''],
+    ['선택 이유', variant.selectedReason],
+    ['목표', variant.goal],
+    ['광고 위험', variant.adRiskLevel],
+  ].filter((row) => row[1]);
+  return `
+    <section id="${domKey}VariantPanel_${idx}" style="display:${display};padding:16px;background:rgba(15,23,42,0.55);border:1px solid rgba(148,163,184,0.12);border-radius:12px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <h3 style="margin:0;color:#f8fafc;font-size:17px;font-weight:900;">${escapeHtml(variant.key || '')}안 · ${escapeHtml(variant.label || '')}</h3>
+            ${score ? `<span style="padding:4px 9px;background:rgba(16,185,129,0.16);color:#86efac;border:1px solid rgba(16,185,129,0.28);border-radius:999px;font-size:11px;font-weight:900;">${score}점${variant.recommended ? ' · 추천' : ''}</span>` : ''}
+          </div>
+          <div style="color:#94a3b8;font-size:12px;margin-top:5px;">${escapeHtml(variant.tone || variant.videoAngle || variant.searchIntent || '')}</div>
+        </div>
+        <button type="button" onclick="extTrafficCopyStructuredFinal('${platform.id}', ${idx})"
+          style="padding:10px 14px;background:linear-gradient(135deg,#10b981,#059669);color:white;border:none;border-radius:9px;font-size:12px;font-weight:900;cursor:pointer;">
+          최종 글 복사
+        </button>
+      </div>
+
+      ${metaRows.length ? `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-bottom:12px;">
+          ${metaRows.map(([label, value]) => `
+            <div style="padding:10px 11px;background:rgba(30,41,59,0.55);border:1px solid rgba(148,163,184,0.1);border-radius:9px;">
+              <div style="color:#94a3b8;font-size:10px;font-weight:900;margin-bottom:4px;">${escapeHtml(label)}</div>
+              <div style="color:#e2e8f0;font-size:12px;line-height:1.45;">${escapeHtml(value)}</div>
+            </div>`).join('')}
+        </div>` : ''}
+
+      <details style="margin:12px 0;background:rgba(2,6,23,0.32);border:1px solid rgba(148,163,184,0.1);border-radius:10px;padding:10px 12px;">
+        <summary style="cursor:pointer;color:#cbd5e1;font-size:12px;font-weight:800;">${escapeHtml(cfg.candidateLabel)} 10개 보기${candidateScore ? ` · 선택 ${candidateScore}점` : ''}</summary>
+        ${_renderStructuredCandidates(variant[cfg.candidateKey] || [], selected)}
+      </details>
+
+      <div style="margin-top:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;">
+          <label style="color:#cbd5e1;font-size:12px;font-weight:900;">${escapeHtml(cfg.copyLabel)}</label>
+          <span style="color:#64748b;font-size:11px;">글자수: ${finalCopy.length}</span>
+        </div>
+        <textarea id="${domKey}FinalCopy_${idx}" readonly
+          style="width:100%;min-height:280px;padding:15px 16px;background:rgba(2,6,23,0.62);border:1px solid rgba(148,163,184,0.16);border-radius:11px;color:#e2e8f0;font-size:14px;line-height:1.7;font-family:'Noto Sans KR','Malgun Gothic',sans-serif;resize:vertical;box-sizing:border-box;white-space:pre-wrap;">${escapeHtml(finalCopy)}</textarea>
+      </div>
+      ${_renderStructuredCritique(variant)}
+    </section>`;
+}
+
+function _renderStructuredCandidates(candidates, selected) {
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return `<div style="color:#64748b;font-size:12px;margin-top:8px;">후보 데이터가 없습니다.</div>`;
+  }
+  return `
+    <ol style="margin:10px 0 0;padding-left:20px;color:#cbd5e1;font-size:12px;line-height:1.65;">
+      ${candidates.slice(0, 10).map((candidate) => {
+        const isSelected = candidate.text === selected || candidate.selected;
+        return `<li style="margin-bottom:5px;${isSelected ? 'color:#86efac;font-weight:900;' : ''}">
+          ${escapeHtml(candidate.text || '')}
+          <span style="color:${isSelected ? '#86efac' : '#94a3b8'};font-size:11px;"> · ${Number(candidate.score || 0)}점${isSelected ? ' · 선택' : ''}</span>
+        </li>`;
+      }).join('')}
+    </ol>`;
+}
+
+function _renderStructuredCritique(variant) {
+  const critique = variant.critique || {};
+  const breakdown = critique.breakdown || {};
+  const common = variant.commonReview || {};
+  const commonBreakdown = common.breakdown || critique.commonBreakdown || {};
+  const commonViolations = common.violations || critique.commonViolations || [];
+  const rows = Object.entries(breakdown).map(([key, value]) => `
+    <span style="display:inline-block;margin:3px 4px 0 0;padding:4px 7px;background:rgba(148,163,184,0.10);border:1px solid rgba(148,163,184,0.12);border-radius:7px;color:#cbd5e1;font-size:11px;">
+      ${escapeHtml(key)} ${escapeHtml(value)}
+    </span>`).join('');
+  const commonRows = Object.entries(commonBreakdown).map(([key, value]) => `
+    <span style="display:inline-block;margin:3px 4px 0 0;padding:4px 7px;background:rgba(16,185,129,0.10);border:1px solid rgba(16,185,129,0.16);border-radius:7px;color:#bbf7d0;font-size:11px;">
+      ${escapeHtml(key)} ${escapeHtml(value)}
+    </span>`).join('');
+  const violationRows = commonViolations.length
+    ? `<div style="margin-top:8px;color:#fbbf24;font-size:12px;line-height:1.6;">${commonViolations.map((item) => `- ${escapeHtml(item)}`).join('<br>')}</div>`
+    : '';
+  return `
+    <details style="margin-top:12px;background:rgba(2,6,23,0.32);border:1px solid rgba(148,163,184,0.1);border-radius:10px;padding:10px 12px;">
+      <summary style="cursor:pointer;color:#cbd5e1;font-size:12px;font-weight:800;">비평/검수 · ${Number(critique.score || 0)}점${common.score ? ` · 공통 ${Number(common.score)}점` : ''}</summary>
+      <div style="margin-top:9px;color:#94a3b8;font-size:12px;line-height:1.6;">${escapeHtml(critique.notes || '검수 메모 없음')}</div>
+      ${rows ? `<div style="margin-top:8px;">${rows}</div>` : ''}
+      ${commonRows ? `<div style="margin-top:8px;">${commonRows}</div>` : ''}
+      ${violationRows}
+    </details>`;
+}
+
+function _orderStructuredVariants(variants) {
+  const order = { A: 0, B: 1, C: 2 };
+  const seen = new Set();
+  return (Array.isArray(variants) ? variants : [])
+    .filter(Boolean)
+    .sort((a, b) => (order[a.key] ?? 99) - (order[b.key] ?? 99))
+    .filter((variant) => {
+      const key = variant.key || '';
+      if (key && seen.has(key)) return false;
+      if (key) seen.add(key);
+      return true;
+    });
+}
+
+function extTrafficShowStructuredVariant(platformId, idx) {
+  const domKey = _structuredDomKey(platformId);
+  const cfg = _getStructuredPlatformConfig(platformId) || {};
+  const panels = document.querySelectorAll(`[id^="${domKey}VariantPanel_"]`);
+  const tabs = document.querySelectorAll(`[id^="${domKey}VariantTab_"]`);
+  panels.forEach((panel, index) => {
+    panel.style.display = index === idx ? 'block' : 'none';
+  });
+  tabs.forEach((tab, index) => {
+    if (index === idx) {
+      tab.style.background = `linear-gradient(135deg, ${cfg.accent || '#6366f1'}, #8b5cf6)`;
+      tab.style.color = 'white';
+      tab.style.borderColor = 'rgba(255,255,255,0.24)';
+    } else {
+      tab.style.background = 'rgba(255,255,255,0.05)';
+      tab.style.color = '#cbd5e1';
+      tab.style.borderColor = 'rgba(148,163,184,0.16)';
+    }
+  });
+}
+
+function extTrafficCopyStructuredFinal(platformId, idx) {
+  const cfg = _getStructuredPlatformConfig(platformId);
+  const cached = _generatedCache.get(platformId);
+  const variant = cfg && cached && cached[cfg.extraKey] && cached[cfg.extraKey].variants && cached[cfg.extraKey].variants[idx];
+  const value = _getStructuredVariantCopy(platformId, variant, cached?.sourceUrl || _getExtTrafficSourceUrl());
+  if (!value) {
+    _flashToast('복사할 최종 글이 없습니다');
+    return;
+  }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(value).then(() => {
+        _flashToast('최종 글만 복사됐어요');
+      }).catch(() => _flashToast('복사 실패'));
+    } else {
+      const ta = document.getElementById(`${_structuredDomKey(platformId)}FinalCopy_${idx}`);
+      if (ta) {
+        ta.select();
+        document.execCommand && document.execCommand('copy');
+        _flashToast('최종 글만 복사됐어요');
+      }
+    }
+  } catch {
+    _flashToast('복사 실패. 직접 선택해서 Ctrl+C 해주세요');
+  }
+}
+
+function _decodeExtTrafficLooseJsonText(value) {
+  return String(value || '')
+    .replace(/\\n/g, '\n')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+    .split('\n')
+    .map((line) => line.trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function _extractExtTrafficLooseStringField(block, field) {
+  const re = new RegExp(`"${field}"\\s*:\\s*"([\\s\\S]*?)"\\s*(?:,\\s*(?="[_A-Za-z][_A-Za-z0-9]*"\\s*:)|(?=\\s*[}\\]]))`);
+  const match = re.exec(String(block || ''));
+  return match ? _decodeExtTrafficLooseJsonText(match[1]) : '';
+}
+
+function _extractExtTrafficLooseArrayField(block, field) {
+  const re = new RegExp(`"${field}"\\s*:\\s*\\[([\\s\\S]*?)\\]`);
+  const match = re.exec(String(block || ''));
+  if (!match) return [];
+  const inner = match[1];
+  const quoted = Array.from(inner.matchAll(/"([\s\S]*?)"/g))
+    .map((item) => _decodeExtTrafficLooseJsonText(item[1]))
+    .filter(Boolean);
+  const inlineTags = inner.match(/#[\p{L}\p{N}_-]+/gu) || [];
+  return quoted.length ? quoted : inlineTags;
+}
+
+function _normalizeExtTrafficHashtags(tags) {
+  const list = Array.isArray(tags) ? tags : String(tags || '').split(/\s+/);
+  return list
+    .flatMap((tag) => String(tag || '').split(/\s+/))
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .map((tag) => tag.startsWith('#') ? tag : `#${tag.replace(/^#+/, '')}`)
+    .filter((tag, idx, arr) => arr.indexOf(tag) === idx)
+    .slice(0, 12);
+}
+
+const EXT_TRAFFIC_FALLBACK_HASHTAGS = [
+  '#정보공유',
+  '#생활정보',
+  '#꿀팁',
+  '#체크리스트',
+  '#저장필수',
+  '#오늘의정보',
+  '#정리글',
+  '#블로그정보',
+];
+
+function _buildExtTrafficFallbackHashtags(context, text) {
+  const stop = new Set(['있는', '없는', '그리고', '하지만', '입니다', '합니다', '대한', '위해', '확인', '정보', '정리', '본문', '최종', '기준', '방법']);
+  const source = [
+    context?.sourceTitle,
+    context?.coreTopic,
+    context?.articleType,
+    context?.targetReader,
+    text,
+  ].filter(Boolean).join(' ');
+  const keywords = source
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length >= 2 && word.length <= 14 && !stop.has(word))
+    .filter((word, idx, arr) => arr.indexOf(word) === idx)
+    .slice(0, 6)
+    .map((word) => `#${word}`);
+  return _normalizeExtTrafficHashtags([...keywords, ...EXT_TRAFFIC_FALLBACK_HASHTAGS]).slice(0, 12);
+}
+
+function _findExtTrafficLooseObjectBlocks(rawText, key) {
+  const text = String(rawText || '');
+  const blocks = [];
+  let searchFrom = 0;
+  const needle = `"${key}"`;
+  while (searchFrom < text.length) {
+    const keyIndex = text.indexOf(needle, searchFrom);
+    if (keyIndex < 0) break;
+    const openIndex = text.indexOf('{', keyIndex);
+    if (openIndex < 0) break;
+    let depth = 0;
+    let endIndex = -1;
+    for (let i = openIndex; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          endIndex = i + 1;
+          break;
+        }
+      }
+    }
+    if (endIndex < 0) break;
+    blocks.push({
+      start: keyIndex,
+      end: endIndex,
+      block: text.slice(openIndex, endIndex),
+    });
+    searchFrom = endIndex;
+  }
+  return blocks;
+}
+
+function _findExtTrafficLooseVariantSections(rawText) {
+  const text = String(rawText || '');
+  const markers = Array.from(text.matchAll(/"key"\s*:\s*"([ABC])"/g))
+    .map((match) => ({ key: match[1], start: match.index || 0 }));
+  return markers.map((marker, idx) => {
+    const end = idx + 1 < markers.length ? markers[idx + 1].start : text.length;
+    return {
+      key: marker.key,
+      block: text.slice(marker.start, end),
+    };
+  });
+}
+
+function _recoverInstagramDisplayFromJsonText(rawText, fallbackHashtags = []) {
+  const text = String(rawText || '');
+  if (!text.includes('<INSTAGRAM_RESULT_JSON>') && !text.includes('"finalRevision"')) return null;
+  const contextBlock = _findExtTrafficLooseObjectBlocks(text, 'context')[0]?.block || '';
+  const context = {
+    sourceTitle: _extractExtTrafficLooseStringField(contextBlock, 'sourceTitle'),
+    coreTopic: _extractExtTrafficLooseStringField(contextBlock, 'coreTopic'),
+    articleType: _extractExtTrafficLooseStringField(contextBlock, 'articleType'),
+    targetReader: _extractExtTrafficLooseStringField(contextBlock, 'targetReader'),
+    readerSituation: _extractExtTrafficLooseStringField(contextBlock, 'readerSituation'),
+    clickReason: _extractExtTrafficLooseStringField(contextBlock, 'clickReason'),
+  };
+  const variantSections = _findExtTrafficLooseVariantSections(text);
+  const finalBlocks = _findExtTrafficLooseObjectBlocks(text, 'finalRevision');
+  if (!variantSections.length && !finalBlocks.length) return null;
+
+  const recoverEntries = variantSections.length
+    ? variantSections
+    : finalBlocks.map((entry, idx) => ({ key: ['A', 'B', 'C'][idx], block: text.slice(Math.max(0, entry.start - 2500), entry.end) }));
+
+  const variants = recoverEntries.map((entry, idx) => {
+    const finalBlock = _findExtTrafficLooseObjectBlocks(entry.block, 'finalRevision')[0]?.block || '';
+    const finalSource = finalBlock || entry.block;
+    const recoveredTags = _normalizeExtTrafficHashtags(_extractExtTrafficLooseArrayField(finalSource, 'hashtags'));
+    const finalRevision = {
+      firstLine: _extractExtTrafficLooseStringField(finalSource, 'firstLine') || _extractExtTrafficLooseStringField(entry.block, 'selectedFirstLine'),
+      body: _extractExtTrafficLooseStringField(finalSource, 'body'),
+      savePrompt: _extractExtTrafficLooseStringField(finalSource, 'savePrompt'),
+      sharePrompt: _extractExtTrafficLooseStringField(finalSource, 'sharePrompt'),
+      commentPrompt: _extractExtTrafficLooseStringField(finalSource, 'commentPrompt'),
+      linkPrompt: _extractExtTrafficLooseStringField(finalSource, 'linkPrompt'),
+      hashtags: recoveredTags.length ? recoveredTags : fallbackHashtags,
+    };
+    return {
+      key: _extractExtTrafficLooseStringField(entry.block, 'key') || entry.key || ['A', 'B', 'C'][idx] || 'A',
+      label: _extractExtTrafficLooseStringField(entry.block, 'label') || ['저장형', '공감형', '경고형'][idx] || '',
+      tone: _extractExtTrafficLooseStringField(entry.block, 'tone'),
+      articleType: _extractExtTrafficLooseStringField(entry.block, 'articleType') || context.articleType,
+      targetReader: _extractExtTrafficLooseStringField(entry.block, 'targetReader') || context.targetReader,
+      goal: _extractExtTrafficLooseStringField(entry.block, 'goal'),
+      hookEngine: _extractExtTrafficLooseStringField(entry.block, 'hookEngine'),
+      selectedFirstLine: _extractExtTrafficLooseStringField(entry.block, 'selectedFirstLine') || finalRevision.firstLine,
+      selectedReason: _extractExtTrafficLooseStringField(entry.block, 'selectedReason'),
+      firstLineCandidates: [],
+      firstLineScore: 0,
+      body: _extractExtTrafficLooseStringField(entry.block, 'body'),
+      savePrompt: _extractExtTrafficLooseStringField(entry.block, 'savePrompt'),
+      sharePrompt: _extractExtTrafficLooseStringField(entry.block, 'sharePrompt'),
+      commentPrompt: _extractExtTrafficLooseStringField(entry.block, 'commentPrompt'),
+      linkPrompt: _extractExtTrafficLooseStringField(entry.block, 'linkPrompt'),
+      hashtags: finalRevision.hashtags,
+      expectedClickStrength: _extractExtTrafficLooseStringField(entry.block, 'expectedClickStrength'),
+      critique: { score: 0, notes: 'JSON 원문에서 최종 게시문만 자동 복구했습니다.' },
+      finalRevision,
+      passed: true,
+      recommended: idx === 0,
+    };
+  }).filter((variant) => _getInstagramVariantCopy(variant));
+  const orderedVariants = _orderUniqueInstagramVariants(variants);
+
+  if (!orderedVariants.length) return null;
+  const firstCopy = _getInstagramVariantCopy(orderedVariants[0]);
+  const hashtags = _normalizeExtTrafficHashtags(orderedVariants[0].finalRevision?.hashtags || orderedVariants[0].hashtags);
+  const safeHashtags = hashtags.length ? hashtags : _buildExtTrafficFallbackHashtags(context, firstCopy);
+  if (!hashtags.length && orderedVariants[0]) {
+    orderedVariants[0].hashtags = safeHashtags;
+    orderedVariants[0].finalRevision = {
+      ...(orderedVariants[0].finalRevision || {}),
+      hashtags: safeHashtags,
+    };
+  }
+  return {
+    context,
+    variants: orderedVariants.slice(0, 3),
+    formatted: {
+      body: firstCopy.replace(/\n\n(#[\p{L}\p{N}_-]+.*)$/u, '').trim(),
+      hashtags: safeHashtags,
+    },
+  };
+}
+
+function _orderUniqueInstagramVariants(variants) {
+  const order = { A: 0, B: 1, C: 2 };
+  const seen = new Set();
+  return (Array.isArray(variants) ? variants : [])
+    .filter(Boolean)
+    .sort((a, b) => (order[a.key] ?? 99) - (order[b.key] ?? 99))
+    .filter((variant) => {
+      const key = variant.key || '';
+      if (key && seen.has(key)) return false;
+      if (key) seen.add(key);
+      return true;
+    });
+}
+
+function _normalizeInstagramCachedForDisplay(cached) {
+  if (!cached || (cached.instagram && Array.isArray(cached.instagram.variants) && cached.instagram.variants.length > 0)) {
+    return cached;
+  }
+  const formatted = cached.formatted || {};
+  const fallbackHashtags = _normalizeExtTrafficHashtags(formatted.hashtags || []);
+  const raw = [cached.rawText, formatted.body].filter(Boolean).join('\n\n');
+  const recovered = _recoverInstagramDisplayFromJsonText(raw, fallbackHashtags);
+  if (!recovered) return cached;
+  return {
+    ...cached,
+    instagram: {
+      context: recovered.context,
+      variants: recovered.variants,
+    },
+    formatted: {
+      ...formatted,
+      ...recovered.formatted,
+    },
+  };
+}
+
+function _recoverThreadsDisplayFromJsonText(rawText) {
+  const text = String(rawText || '');
+  if (!text.includes('<THREADS_RESULT_JSON>') && !text.includes('"finalRevision"')) return null;
+
+  const contextBlock = _findExtTrafficLooseObjectBlocks(text, 'context')[0]?.block || '';
+  const context = {
+    sourceTitle: _extractExtTrafficLooseStringField(contextBlock, 'sourceTitle'),
+    coreTopic: _extractExtTrafficLooseStringField(contextBlock, 'coreTopic'),
+    articleType: _extractExtTrafficLooseStringField(contextBlock, 'articleType'),
+    targetReader: _extractExtTrafficLooseStringField(contextBlock, 'targetReader'),
+    readerSituation: _extractExtTrafficLooseStringField(contextBlock, 'readerSituation'),
+    mainQuestion: _extractExtTrafficLooseStringField(contextBlock, 'mainQuestion'),
+    commentAngle: _extractExtTrafficLooseStringField(contextBlock, 'commentAngle'),
+    shareReason: _extractExtTrafficLooseStringField(contextBlock, 'shareReason'),
+    linkReason: _extractExtTrafficLooseStringField(contextBlock, 'linkReason'),
+  };
+
+  const variantSections = _findExtTrafficLooseVariantSections(text);
+  const finalBlocks = _findExtTrafficLooseObjectBlocks(text, 'finalRevision');
+  if (!variantSections.length && !finalBlocks.length) return null;
+
+  const recoverEntries = variantSections.length
+    ? variantSections
+    : finalBlocks.map((entry, idx) => ({ key: ['A', 'B', 'C'][idx], block: text.slice(Math.max(0, entry.start - 2200), entry.end) }));
+
+  const variants = recoverEntries.map((entry, idx) => {
+    const finalBlock = _findExtTrafficLooseObjectBlocks(entry.block, 'finalRevision')[0]?.block || '';
+    const finalSource = finalBlock || entry.block;
+    const finalRevision = {
+      firstLine: _extractExtTrafficLooseStringField(finalSource, 'firstLine') || _extractExtTrafficLooseStringField(entry.block, 'selectedFirstLine'),
+      body: _extractExtTrafficLooseStringField(finalSource, 'body'),
+      commentPrompt: _extractExtTrafficLooseStringField(finalSource, 'commentPrompt'),
+      sharePrompt: _extractExtTrafficLooseStringField(finalSource, 'sharePrompt'),
+      linkPrompt: _extractExtTrafficLooseStringField(finalSource, 'linkPrompt'),
+    };
+    return {
+      key: _extractExtTrafficLooseStringField(entry.block, 'key') || entry.key || ['A', 'B', 'C'][idx] || 'A',
+      label: _extractExtTrafficLooseStringField(entry.block, 'label') || ['댓글형', '공감형', '공유형'][idx] || '',
+      tone: _extractExtTrafficLooseStringField(entry.block, 'tone'),
+      goal: _extractExtTrafficLooseStringField(entry.block, 'goal'),
+      hookEngine: _extractExtTrafficLooseStringField(entry.block, 'hookEngine'),
+      selectedFirstLine: _extractExtTrafficLooseStringField(entry.block, 'selectedFirstLine') || finalRevision.firstLine,
+      selectedReason: _extractExtTrafficLooseStringField(entry.block, 'selectedReason'),
+      firstLineCandidates: [],
+      firstLineScore: Number(_extractExtTrafficLooseStringField(entry.block, 'firstLineScore')) || 0,
+      body: _extractExtTrafficLooseStringField(entry.block, 'body'),
+      commentPrompt: _extractExtTrafficLooseStringField(entry.block, 'commentPrompt'),
+      sharePrompt: _extractExtTrafficLooseStringField(entry.block, 'sharePrompt'),
+      linkPrompt: _extractExtTrafficLooseStringField(entry.block, 'linkPrompt'),
+      critique: { score: Number(_extractExtTrafficLooseStringField(entry.block, 'score')) || 0 },
+      finalRevision,
+      passed: true,
+      recommended: idx === 0,
+    };
+  }).filter((variant) => _getThreadsVariantCopy(variant));
+  const orderedVariants = _orderUniqueThreadsVariants(variants);
+
+  if (!orderedVariants.length) return null;
+  return {
+    context,
+    variants: orderedVariants.slice(0, 3),
+    formatted: {
+      body: _getThreadsVariantCopy(orderedVariants[0]),
+    },
+  };
+}
+
+function _orderUniqueThreadsVariants(variants) {
+  const order = { A: 0, B: 1, C: 2 };
+  const seen = new Set();
+  return (Array.isArray(variants) ? variants : [])
+    .filter(Boolean)
+    .sort((a, b) => (order[a.key] ?? 99) - (order[b.key] ?? 99))
+    .filter((variant) => {
+      const key = variant.key || '';
+      if (key && seen.has(key)) return false;
+      if (key) seen.add(key);
+      return true;
+    });
+}
+
+function _normalizeThreadsCachedForDisplay(cached) {
+  if (!cached || (cached.threads && Array.isArray(cached.threads.variants) && cached.threads.variants.length > 0)) {
+    return cached;
+  }
+  const formatted = cached.formatted || {};
+  const raw = [cached.rawText, formatted.body].filter(Boolean).join('\n\n');
+  const recovered = _recoverThreadsDisplayFromJsonText(raw);
+  if (!recovered) return cached;
+  return {
+    ...cached,
+    threads: {
+      context: recovered.context,
+      variants: recovered.variants,
+    },
+    formatted: {
+      ...formatted,
+      ...recovered.formatted,
+    },
+  };
+}
+
+function extTrafficShowThreadsVariant(idx) {
+  const panels = document.querySelectorAll('[id^="threadsVariantPanel_"]');
+  const tabs = document.querySelectorAll('[id^="threadsVariantTab_"]');
+  panels.forEach((panel, index) => {
+    panel.style.display = index === idx ? 'block' : 'none';
+  });
+  tabs.forEach((tab, index) => {
+    if (index === idx) {
+      tab.style.background = '#f8fafc';
+      tab.style.color = '#020617';
+      tab.style.borderColor = 'rgba(255,255,255,0.35)';
+    } else {
+      tab.style.background = 'rgba(255,255,255,0.05)';
+      tab.style.color = '#cbd5e1';
+      tab.style.borderColor = 'rgba(148,163,184,0.16)';
+    }
+  });
+}
+
+function extTrafficCopyThreadsFinal(idx) {
+  const cached = _generatedCache.get('threads');
+  const variant = cached?.threads?.variants?.[idx];
+  const value = _getThreadsVariantCopy(variant, cached?.sourceUrl || _getExtTrafficSourceUrl());
+  if (!value) {
+    _flashToast('복사할 Threads 최종 글이 없습니다');
+    return;
+  }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(value).then(() => {
+        _flashToast('Threads 최종 글만 복사됐어요');
+      }).catch(() => {
+        _flashToast('복사 실패');
+      });
+    } else {
+      const ta = document.getElementById(`threadsFinalCopy_${idx}`);
+      if (ta) {
+        ta.select();
+        document.execCommand && document.execCommand('copy');
+        _flashToast('Threads 최종 글만 복사됐어요');
+      }
+    }
+  } catch {
+    _flashToast('복사 실패. 직접 선택해서 Ctrl+C 해주세요');
+  }
+}
+
+function _recoverNaverBlogDisplayFromJsonText(rawText) {
+  const text = String(rawText || '');
+  if (!text.includes('<NAVER_BLOG_RESULT_JSON>') && !text.includes('"finalRevision"')) return null;
+  const parsed = _parseNaverBlogJsonForDisplay(text);
+  if (parsed && Array.isArray(parsed.variants)) {
+    const context = parsed.context || {};
+    const variants = parsed.variants
+      .slice(0, 3)
+      .map((variant, idx) => _normalizeNaverBlogVariantForDisplay(variant, idx, context))
+      .filter((variant) => _getNaverBlogVariantCopy(variant));
+    if (variants.length) {
+      return {
+        context,
+        variants: _orderUniqueNaverBlogVariants(variants),
+        formatted: {
+          body: _getNaverBlogVariantCopy(variants[0]).replace(/\n\n(#[\p{L}\p{N}_-]+.*)$/u, '').trim(),
+          hashtags: variants[0].finalRevision?.hashtags || variants[0].hashtags || [],
+        },
+      };
+    }
+  }
+
+  const contextBlock = _findExtTrafficLooseObjectBlocks(text, 'context')[0]?.block || '';
+  const context = {
+    sourceTitle: _extractExtTrafficLooseStringField(contextBlock, 'sourceTitle'),
+    coreTopic: _extractExtTrafficLooseStringField(contextBlock, 'coreTopic'),
+    articleType: _extractExtTrafficLooseStringField(contextBlock, 'articleType'),
+    primaryKeyword: _extractExtTrafficLooseStringField(contextBlock, 'primaryKeyword'),
+    secondaryKeywords: _extractExtTrafficLooseArrayField(contextBlock, 'secondaryKeywords'),
+    searchTerms: _extractExtTrafficLooseArrayField(contextBlock, 'searchTerms'),
+    targetReader: _extractExtTrafficLooseStringField(contextBlock, 'targetReader'),
+    readerQuestion: _extractExtTrafficLooseStringField(contextBlock, 'readerQuestion'),
+  };
+  const variantSections = _findExtTrafficLooseVariantSections(text);
+  const finalBlocks = _findExtTrafficLooseObjectBlocks(text, 'finalRevision');
+  if (!variantSections.length && !finalBlocks.length) return null;
+  const recoverEntries = variantSections.length
+    ? variantSections
+    : finalBlocks.map((entry, idx) => ({ key: ['A', 'B', 'C'][idx], block: text.slice(Math.max(0, entry.start - 4000), entry.end) }));
+  const variants = recoverEntries.map((entry, idx) => {
+    const finalBlock = _findExtTrafficLooseObjectBlocks(entry.block, 'finalRevision')[0]?.block || '';
+    const finalSource = finalBlock || entry.block;
+    return _normalizeNaverBlogVariantForDisplay({
+      key: _extractExtTrafficLooseStringField(entry.block, 'key') || entry.key,
+      label: _extractExtTrafficLooseStringField(entry.block, 'label'),
+      articleType: _extractExtTrafficLooseStringField(entry.block, 'articleType'),
+      primaryKeyword: _extractExtTrafficLooseStringField(entry.block, 'primaryKeyword'),
+      selectedTitle: _extractExtTrafficLooseStringField(entry.block, 'selectedTitle'),
+      titleScore: Number(_extractExtTrafficLooseStringField(entry.block, 'titleScore')) || 0,
+      selectedReason: _extractExtTrafficLooseStringField(entry.block, 'selectedReason'),
+      intro: _extractExtTrafficLooseStringField(entry.block, 'intro'),
+      sourceLead: _extractExtTrafficLooseStringField(entry.block, 'sourceLead'),
+      commentPrompt: _extractExtTrafficLooseStringField(entry.block, 'commentPrompt'),
+      hashtags: _extractExtTrafficLooseArrayField(entry.block, 'hashtags'),
+      finalRevision: {
+        title: _extractExtTrafficLooseStringField(finalSource, 'title'),
+        intro: _extractExtTrafficLooseStringField(finalSource, 'intro'),
+        sourceLead: _extractExtTrafficLooseStringField(finalSource, 'sourceLead'),
+        commentPrompt: _extractExtTrafficLooseStringField(finalSource, 'commentPrompt'),
+        hashtags: _extractExtTrafficLooseArrayField(finalSource, 'hashtags'),
+      },
+    }, idx, context);
+  }).filter((variant) => _getNaverBlogVariantCopy(variant));
+  const orderedVariants = _orderUniqueNaverBlogVariants(variants);
+  if (!orderedVariants.length) return null;
+  return {
+    context,
+    variants: orderedVariants.slice(0, 3),
+    formatted: {
+      body: _getNaverBlogVariantCopy(orderedVariants[0]).replace(/\n\n(#[\p{L}\p{N}_-]+.*)$/u, '').trim(),
+      hashtags: orderedVariants[0].finalRevision?.hashtags || orderedVariants[0].hashtags || [],
+    },
+  };
+}
+
+function _parseNaverBlogJsonForDisplay(rawText) {
+  const text = String(rawText || '');
+  const start = text.indexOf('<NAVER_BLOG_RESULT_JSON>');
+  const end = text.indexOf('</NAVER_BLOG_RESULT_JSON>');
+  let jsonText = '';
+  if (start >= 0 && end > start) {
+    jsonText = text.slice(start + '<NAVER_BLOG_RESULT_JSON>'.length, end).trim();
+  } else {
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      jsonText = text.slice(firstBrace, lastBrace + 1).trim();
+    }
+  }
+  if (!jsonText) return null;
+  jsonText = jsonText.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+  try {
+    return JSON.parse(jsonText);
+  } catch {
+    return null;
+  }
+}
+
+function _normalizeNaverBlogVariantForDisplay(raw, idx, context = {}) {
+  const key = String(raw?.key || ['A', 'B', 'C'][idx] || 'A').slice(0, 1).toUpperCase();
+  const labels = { A: '검색 정리형', B: '경험 공감형', C: '체크리스트형' };
+  const finalRevision = raw?.finalRevision && typeof raw.finalRevision === 'object' ? raw.finalRevision : {};
+  const sections = Array.isArray(finalRevision.sections) && finalRevision.sections.length
+    ? finalRevision.sections
+    : (Array.isArray(raw?.sections) ? raw.sections : []);
+  const titleCandidates = Array.isArray(raw?.titleCandidates) ? raw.titleCandidates : [];
+  const selectedTitle = raw?.selectedTitle || finalRevision.title || titleCandidates[0]?.text || context.sourceTitle || '';
+  return {
+    key,
+    label: raw?.label || labels[key] || '',
+    articleType: raw?.articleType || context.articleType || '',
+    primaryKeyword: raw?.primaryKeyword || context.primaryKeyword || '',
+    secondaryKeywords: Array.isArray(raw?.secondaryKeywords) ? raw.secondaryKeywords : [],
+    titleCandidates,
+    selectedTitle,
+    titleScore: Number(raw?.titleScore || titleCandidates.find((item) => item.text === selectedTitle)?.score || 0),
+    selectedReason: raw?.selectedReason || '',
+    intro: raw?.intro || '',
+    sections,
+    sourceLead: raw?.sourceLead || '',
+    commentPrompt: raw?.commentPrompt || '',
+    hashtags: Array.isArray(raw?.hashtags) ? raw.hashtags : [],
+    expectedClickStrength: raw?.expectedClickStrength || '',
+    critique: raw?.critique && typeof raw.critique === 'object' ? raw.critique : {},
+    finalRevision: {
+      title: finalRevision.title || selectedTitle,
+      intro: finalRevision.intro || raw?.intro || '',
+      sections,
+      sourceLead: finalRevision.sourceLead || raw?.sourceLead || '',
+      commentPrompt: finalRevision.commentPrompt || raw?.commentPrompt || '',
+      hashtags: Array.isArray(finalRevision.hashtags) ? finalRevision.hashtags : (Array.isArray(raw?.hashtags) ? raw.hashtags : []),
+    },
+    recommended: raw?.recommended || Number(raw?.critique?.score || 0) >= 95,
+    passed: raw?.passed || Number(raw?.critique?.score || 0) >= 90,
+  };
+}
+
+function _orderUniqueNaverBlogVariants(variants) {
+  const order = { A: 0, B: 1, C: 2 };
+  const seen = new Set();
+  return (Array.isArray(variants) ? variants : [])
+    .filter(Boolean)
+    .sort((a, b) => (order[a.key] ?? 99) - (order[b.key] ?? 99))
+    .filter((variant) => {
+      const key = variant.key || '';
+      if (key && seen.has(key)) return false;
+      if (key) seen.add(key);
+      return true;
+    });
+}
+
+function _normalizeNaverBlogCachedForDisplay(cached) {
+  if (!cached || (cached.naverBlog && Array.isArray(cached.naverBlog.variants) && cached.naverBlog.variants.length > 0)) {
+    return cached;
+  }
+  const formatted = cached.formatted || {};
+  const raw = [cached.rawText, formatted.body].filter(Boolean).join('\n\n');
+  const recovered = _recoverNaverBlogDisplayFromJsonText(raw);
+  if (!recovered) return cached;
+  return {
+    ...cached,
+    naverBlog: {
+      context: recovered.context,
+      variants: recovered.variants,
+    },
+    formatted: {
+      ...formatted,
+      ...recovered.formatted,
+    },
+  };
+}
+
+function extTrafficShowNaverBlogVariant(idx) {
+  const panels = document.querySelectorAll('[id^="naverBlogVariantPanel_"]');
+  const tabs = document.querySelectorAll('[id^="naverBlogVariantTab_"]');
+  panels.forEach((panel, index) => {
+    panel.style.display = index === idx ? 'block' : 'none';
+  });
+  tabs.forEach((tab, index) => {
+    if (index === idx) {
+      tab.style.background = 'linear-gradient(135deg, #03c75a, #14b8a6)';
+      tab.style.color = 'white';
+      tab.style.borderColor = 'rgba(255,255,255,0.24)';
+    } else {
+      tab.style.background = 'rgba(255,255,255,0.05)';
+      tab.style.color = '#cbd5e1';
+      tab.style.borderColor = 'rgba(148,163,184,0.16)';
+    }
+  });
+}
+
+function extTrafficCopyNaverBlogFinal(idx) {
+  const cached = _generatedCache.get('naver-blog');
+  const variant = cached?.naverBlog?.variants?.[idx];
+  const value = _getNaverBlogVariantCopy(variant, cached?.sourceUrl || _getExtTrafficSourceUrl());
+  if (!value) {
+    _flashToast('복사할 네이버 블로그 최종 개선안이 없습니다');
+    return;
+  }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(value).then(() => {
+        _flashToast('네이버 블로그 최종 개선안만 복사됐어요');
+      }).catch(() => {
+        _flashToast('복사 실패');
+      });
+    } else {
+      const ta = document.getElementById(`naverBlogFinalCopy_${idx}`);
+      if (ta) {
+        ta.select();
+        document.execCommand && document.execCommand('copy');
+        _flashToast('네이버 블로그 최종 개선안만 복사됐어요');
+      }
+    }
+  } catch {
+    _flashToast('복사 실패. 직접 선택해서 Ctrl+C 해주세요');
+  }
+}
+
+function extTrafficShowInstagramVariant(idx) {
+  const panels = document.querySelectorAll('[id^="igVariantPanel_"]');
+  const tabs = document.querySelectorAll('[id^="igVariantTab_"]');
+  panels.forEach((panel, index) => {
+    panel.style.display = index === idx ? 'block' : 'none';
+  });
+  tabs.forEach((tab, index) => {
+    if (index === idx) {
+      tab.style.background = 'linear-gradient(135deg, #e1306c, #f97316)';
+      tab.style.color = 'white';
+      tab.style.borderColor = 'rgba(255,255,255,0.2)';
+    } else {
+      tab.style.background = 'rgba(255,255,255,0.05)';
+      tab.style.color = '#cbd5e1';
+      tab.style.borderColor = 'rgba(148,163,184,0.14)';
+    }
+  });
+}
+
+function extTrafficCopyInstagramFinal(idx) {
+  const cached = _generatedCache.get('instagram');
+  const variant = cached?.instagram?.variants?.[idx];
+  const value = _getInstagramVariantCopy(variant, cached?.sourceUrl || _getExtTrafficSourceUrl());
+  if (!value) {
+    _flashToast('⚠️ 복사할 최종 개선안이 없습니다');
+    return;
+  }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(value).then(() => {
+        _flashToast('✅ 최종 개선안만 복사됐어요');
+      }).catch(() => {
+        _flashToast('⚠️ 복사 실패');
+      });
+    } else {
+      const ta = document.getElementById(`instagramFinalCopy_${idx}`);
+      if (ta) {
+        ta.select();
+        document.execCommand && document.execCommand('copy');
+        _flashToast('✅ 최종 개선안만 복사됐어요');
+      }
+    }
+  } catch {
+    _flashToast('⚠️ 복사 실패 — 직접 선택 후 Ctrl+C 해주세요');
+  }
 }
 
 function _renderFeedbackRow(platformId, riskScore, band) {
@@ -670,6 +2324,7 @@ function _flashToast(message) {
 //   v2 IPC에서 동적으로 로드. 실패 시 fallback set 사용.
 let _V2_CHANNELS = new Set([
   'instagram', 'threads', 'x', 'facebook', 'pinterest', 'naver-blog',
+  'naver-cafe', 'kakao-openchat', 'youtube-shorts', 'tiktok',
 ]);
 let _v2ChannelsLoaded = false;
 let _v2ChannelMeta = {};  // id → {confidence, riskTier, category, ...}
@@ -698,12 +2353,217 @@ function _getV2Meta(platformId) {
   return _v2ChannelMeta[platformId] || null;
 }
 
+function _stripExtTrafficHtml(value) {
+  return String(value || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function _extractExtTrafficSourceText(source) {
+  if (!source || typeof source !== 'object') return '';
+  const raw = [
+    source.summary,
+    source.excerpt,
+    source.metaDescription,
+    source.description,
+    source.content,
+    source.html,
+  ].filter(Boolean).join('\n\n');
+  return _stripExtTrafficHtml(raw).slice(0, 8000);
+}
+
+function _extractExtTrafficSourceKeywords(source) {
+  if (!source || typeof source !== 'object') return [];
+  const direct = source.keywords || source.labels || source.tags || source.generatedLabels;
+  if (Array.isArray(direct)) {
+    return direct.map((kw) => String(kw || '').trim()).filter(Boolean).slice(0, 30);
+  }
+  if (typeof direct === 'string') {
+    return direct.split(/[,#\s]+/).map((kw) => kw.trim()).filter(Boolean).slice(0, 30);
+  }
+  const text = `${source.title || ''} ${source.summary || ''}`;
+  const stop = new Set(['그리고', '하지만', '입니다', '합니다', '있는', '없는', '방법', '정리', '확인']);
+  return text
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .map((kw) => kw.trim())
+    .filter((kw) => kw.length >= 2 && kw.length <= 20 && !stop.has(kw))
+    .filter((kw, idx, arr) => arr.indexOf(kw) === idx)
+    .slice(0, 12);
+}
+
+const EXT_TRAFFIC_ALL_PROGRESS_PLATFORM = {
+  id: 'all-platforms',
+  label: '전체 플랫폼',
+  icon: '⚡',
+  color: '#8b5cf6',
+};
+
+let _extTrafficProgressTimer = null;
+let _extTrafficProgressState = null;
+
+function _clearExtTrafficProgressTimer() {
+  if (_extTrafficProgressTimer) {
+    clearInterval(_extTrafficProgressTimer);
+    _extTrafficProgressTimer = null;
+  }
+}
+
+function _ensureExtTrafficProgressHost(platform) {
+  let body = document.getElementById('extTrafficResultBody');
+  if (!body && platform && platform.id !== 'all-platforms') {
+    _activePlatformId = platform.id;
+    _renderResultPanel(platform);
+    body = document.getElementById('extTrafficResultBody');
+  }
+  if (!body && PLATFORMS[0]) {
+    _activePlatformId = PLATFORMS[0].id;
+    _renderResultPanel(PLATFORMS[0]);
+    body = document.getElementById('extTrafficResultBody');
+  }
+  return body;
+}
+
+function _startExtTrafficProgress({ platform, total = 1, phase = '준비 중' }) {
+  _clearExtTrafficProgressTimer();
+  _extTrafficProgressState = {
+    platform,
+    total,
+    current: 0,
+    percent: 6,
+    softCap: 86,
+    phase,
+    startedAt: Date.now(),
+    logs: [],
+  };
+  _addExtTrafficProgressLog(`${platform.label} 생성 준비`, 'info', false);
+  _renderExtTrafficProgress();
+  _extTrafficProgressTimer = setInterval(() => {
+    if (document.hidden) return;
+    if (!_extTrafficProgressState) return;
+    const cap = _extTrafficProgressState.softCap || 86;
+    if (_extTrafficProgressState.percent < cap) {
+      const inc = _extTrafficProgressState.total > 1 ? 1 : 2;
+      _extTrafficProgressState.percent = Math.min(cap, _extTrafficProgressState.percent + inc);
+      _renderExtTrafficProgress();
+    }
+  }, 850);
+}
+
+function _updateExtTrafficProgress(patch = {}) {
+  if (!_extTrafficProgressState) return;
+  _extTrafficProgressState = { ..._extTrafficProgressState, ...patch };
+  if (typeof _extTrafficProgressState.percent === 'number') {
+    _extTrafficProgressState.percent = Math.max(0, Math.min(100, Math.round(_extTrafficProgressState.percent)));
+  }
+  _renderExtTrafficProgress();
+}
+
+function _addExtTrafficProgressLog(message, type = 'info', rerender = true) {
+  if (!_extTrafficProgressState) return;
+  const time = new Date().toLocaleTimeString('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  _extTrafficProgressState.logs.push({ time, message, type });
+  if (_extTrafficProgressState.logs.length > 18) {
+    _extTrafficProgressState.logs = _extTrafficProgressState.logs.slice(-18);
+  }
+  if (rerender) _renderExtTrafficProgress();
+}
+
+function _finishExtTrafficProgress() {
+  _clearExtTrafficProgressTimer();
+  if (_extTrafficProgressState) {
+    _extTrafficProgressState.percent = 100;
+    _extTrafficProgressState.phase = '완료';
+    _renderExtTrafficProgress();
+  }
+}
+
+function _getExtTrafficProgressLogsHtml(logs) {
+  const color = {
+    info: '#93c5fd',
+    success: '#86efac',
+    warning: '#fbbf24',
+    error: '#fca5a5',
+  };
+  const rows = (logs || []).map((log) => `
+    <div style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid rgba(148,163,184,0.06);">
+      <span style="width:66px;flex-shrink:0;color:#64748b;font-size:11px;font-variant-numeric:tabular-nums;">${escapeHtml(log.time)}</span>
+      <span style="color:${color[log.type] || color.info};font-size:12px;line-height:1.45;">${escapeHtml(log.message)}</span>
+    </div>`).join('');
+  return rows || '<div style="color:#64748b;font-size:12px;">아직 로그가 없습니다.</div>';
+}
+
+function _renderExtTrafficProgress() {
+  const state = _extTrafficProgressState;
+  if (!state) return;
+  const body = _ensureExtTrafficProgressHost(state.platform);
+  if (!body) return;
+  const platform = state.platform || EXT_TRAFFIC_ALL_PROGRESS_PLATFORM;
+  const elapsed = Math.max(0, Math.floor((Date.now() - state.startedAt) / 1000));
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+  const ss = String(elapsed % 60).padStart(2, '0');
+  const percent = Math.max(0, Math.min(100, Math.round(state.percent || 0)));
+  const currentLabel = state.total > 1
+    ? `${Math.min(state.current || 0, state.total)} / ${state.total}`
+    : '1 / 1';
+  body.innerHTML = `
+    <div style="max-width: 760px; margin: 22px auto; padding: 22px; background: rgba(15,23,42,0.72); border: 1px solid rgba(148,163,184,0.14); border-radius: 16px; box-shadow: 0 18px 45px rgba(2,6,23,0.24);">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
+        ${_renderPlatformLogo(platform, 'header')}
+        <div style="min-width:0;flex:1;">
+          <div style="color:#f8fafc;font-size:17px;font-weight:900;">${escapeHtml(platform.label)} 글 생성 중</div>
+          <div style="color:#94a3b8;font-size:12px;margin-top:4px;">${escapeHtml(state.phase || '진행 중')} · 경과 ${mm}:${ss}</div>
+        </div>
+        <div style="color:#e2e8f0;font-size:22px;font-weight:900;font-variant-numeric:tabular-nums;">${percent}%</div>
+      </div>
+
+      <div style="height:12px;background:rgba(148,163,184,0.14);border-radius:999px;overflow:hidden;margin-bottom:14px;">
+        <div style="height:100%;width:${percent}%;background:linear-gradient(90deg,#10b981,#6366f1,#a855f7);border-radius:999px;transition:width 0.35s ease;"></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:16px;">
+        <div style="padding:10px 12px;background:rgba(30,41,59,0.55);border:1px solid rgba(148,163,184,0.10);border-radius:10px;">
+          <div style="color:#64748b;font-size:10px;font-weight:900;margin-bottom:3px;">진행</div>
+          <div style="color:#e2e8f0;font-size:13px;font-weight:800;">${currentLabel}</div>
+        </div>
+        <div style="padding:10px 12px;background:rgba(30,41,59,0.55);border:1px solid rgba(148,163,184,0.10);border-radius:10px;">
+          <div style="color:#64748b;font-size:10px;font-weight:900;margin-bottom:3px;">상태</div>
+          <div style="color:#e2e8f0;font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(state.phase || '진행 중')}</div>
+        </div>
+        <div style="padding:10px 12px;background:rgba(30,41,59,0.55);border:1px solid rgba(148,163,184,0.10);border-radius:10px;">
+          <div style="color:#64748b;font-size:10px;font-weight:900;margin-bottom:3px;">대기</div>
+          <div style="color:#e2e8f0;font-size:13px;font-weight:800;">응답 수신 중</div>
+        </div>
+      </div>
+
+      <div style="padding:13px 14px;background:rgba(2,6,23,0.42);border:1px solid rgba(148,163,184,0.10);border-radius:12px;max-height:210px;overflow:auto;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;">
+          <div style="color:#cbd5e1;font-size:12px;font-weight:900;">실시간 로그</div>
+          <div style="color:#64748b;font-size:11px;">생성 흐름 확인용</div>
+        </div>
+        ${_getExtTrafficProgressLogsHtml(state.logs)}
+      </div>
+    </div>`;
+}
+
 // ─── LLM 호출 ────────────────────────────────────────────────
 //   v2 채널 → 새 IPC (multi-output 분리·해시태그·riskScore 포함)
 //   v1 채널 → 기존 IPC (단일 텍스트 반환)
 async function _callLLM(platform, source) {
   const systemPrompt = platform.promptSystem;
   const userPrompt = platform.promptUser(source);
+  const sourceText = _extractExtTrafficSourceText(source);
+  const sourceKeywords = _extractExtTrafficSourceKeywords(source);
+  const sourceType = source && (source.type || source.category || source.contentType || '');
 
   // v2 IPC 시도
   if (_isV2Channel(platform.id) && window.electronAPI && window.electronAPI.invoke) {
@@ -711,6 +2571,9 @@ async function _callLLM(platform, source) {
       const result = await window.electronAPI.invoke('generate-external-traffic-text-v2', {
         sourceUrl: source.url,
         sourceTitle: source.title,
+        sourceText,
+        sourceKeywords,
+        sourceType,
         channels: [{ id: platform.id }],
       });
       if (result && result.success && result.results && result.results[platform.id]) {
@@ -722,6 +2585,16 @@ async function _callLLM(platform, source) {
           formatted: r.formatted || {},
           risk: r.risk || null,
           lengthViolations: r.lengthViolations || [],
+          instagram: r.instagram || null,
+          threads: r.threads || null,
+          naverBlog: r.naverBlog || null,
+          naverCafe: r.naverCafe || null,
+          x: r.x || null,
+          facebook: r.facebook || null,
+          kakaoOpenChat: r.kakaoOpenChat || null,
+          youtubeShorts: r.youtubeShorts || null,
+          tiktok: r.tiktok || null,
+          pinterest: r.pinterest || null,
           attempt: r.attempt || 1,
         };
       }
@@ -779,11 +2652,31 @@ async function extTrafficGenerateOne(platformId) {
   }
 
   try {
+    _startExtTrafficProgress({
+      platform,
+      total: 1,
+      phase: '원본 글 분석 준비',
+    });
+    _updateExtTrafficProgress({ percent: 14, phase: '원본 글 분석 중', softCap: 88 });
+    _addExtTrafficProgressLog('원본 제목, URL, 본문 요약을 정리합니다.', 'info');
+    _addExtTrafficProgressLog(`${platform.label} 문체와 길이 규칙을 적용합니다.`, 'info');
+    _updateExtTrafficProgress({ percent: 42, phase: 'AI 응답 대기 중', softCap: 88 });
+    _addExtTrafficProgressLog('AI 생성 요청을 보냈습니다. 응답을 기다리는 중입니다.', 'info');
     const result = await _callLLM(platform, _selectedSource);
-    _generatedCache.set(platformId, { ...result, generatedAt: new Date().toISOString() });
+    _updateExtTrafficProgress({ percent: 90, phase: 'JSON 자동 복구 및 검증 중', softCap: 94 });
+    _addExtTrafficProgressLog('응답을 받았습니다. JSON 구조와 최종 복사본을 검증합니다.', 'success');
+    if (result && result.isV2) {
+      const violations = Array.isArray(result.lengthViolations) ? result.lengthViolations.length : 0;
+      _addExtTrafficProgressLog(`A/B/C 구조 파싱 완료 · 시도 ${result.attempt || 1}회 · 길이 검증 ${violations}건`, violations ? 'warning' : 'success');
+    }
+    _updateExtTrafficProgress({ percent: 96, phase: 'UI 결과 렌더링 중', softCap: 98 });
+    _generatedCache.set(platformId, { ...result, sourceUrl: _getExtTrafficSourceUrl(), generatedAt: new Date().toISOString() });
+    _finishExtTrafficProgress();
     _renderPlatformList(); // ✓ 마커 갱신
     _renderResultPanel(platform);
   } catch (e) {
+    _clearExtTrafficProgressTimer();
+    _addExtTrafficProgressLog(`생성 실패: ${e?.message || '알 수 없는 오류'}`, 'error');
     console.error('[EXT-TRAFFIC] 생성 실패:', e);
     if (body) {
       body.innerHTML = `
@@ -801,14 +2694,51 @@ async function extTrafficGenerateAll() {
     _flashToast('⚠️ 원본 글을 먼저 선택해주세요');
     return;
   }
-  for (const platform of PLATFORMS) {
+  await _ensureGeneralConsent();
+  _startExtTrafficProgress({
+    platform: EXT_TRAFFIC_ALL_PROGRESS_PLATFORM,
+    total: PLATFORMS.length,
+    phase: '전체 플랫폼 생성 준비',
+  });
+  _addExtTrafficProgressLog(`총 ${PLATFORMS.length}개 플랫폼을 순서대로 생성합니다.`, 'info');
+
+  for (const [index, platform] of PLATFORMS.entries()) {
     try {
+      const current = index + 1;
+      const basePercent = Math.round((index / PLATFORMS.length) * 100);
+      const softCap = Math.min(96, Math.round(((index + 0.82) / PLATFORMS.length) * 100));
+      _updateExtTrafficProgress({
+        platform,
+        current: index,
+        total: PLATFORMS.length,
+        percent: Math.max(basePercent, 8),
+        phase: `${current}/${PLATFORMS.length} ${platform.label} 생성 중`,
+        softCap,
+      });
+      _addExtTrafficProgressLog(`${current}/${PLATFORMS.length} ${platform.label} 생성 요청`, 'info');
       const result = await _callLLM(platform, _selectedSource);
-      _generatedCache.set(platform.id, { ...result, generatedAt: new Date().toISOString() });
+      _generatedCache.set(platform.id, { ...result, sourceUrl: _getExtTrafficSourceUrl(), generatedAt: new Date().toISOString() });
+      _updateExtTrafficProgress({
+        current,
+        percent: Math.round((current / PLATFORMS.length) * 100),
+        phase: `${platform.label} 완료`,
+        softCap: Math.min(99, Math.round(((current + 0.15) / PLATFORMS.length) * 100)),
+      });
+      _addExtTrafficProgressLog(`${platform.label} 생성 완료`, 'success');
       _renderPlatformList(); // ✓ 진행 실시간 표시
     } catch (e) {
+      _addExtTrafficProgressLog(`${platform.label} 생성 실패: ${e?.message || '알 수 없는 오류'}`, 'error');
       console.warn(`[EXT-TRAFFIC] ${platform.label} 생성 실패:`, e?.message);
     }
+  }
+  _finishExtTrafficProgress();
+  _renderPlatformList();
+  const active = PLATFORMS.find((p) => p.id === _activePlatformId && _generatedCache.has(p.id))
+    || PLATFORMS.find((p) => _generatedCache.has(p.id))
+    || PLATFORMS[0];
+  if (active) {
+    _activePlatformId = active.id;
+    _renderResultPanel(active);
   }
   _flashToast(`✅ ${_generatedCache.size}개 플랫폼 생성 완료`);
 }
@@ -1281,5 +3211,13 @@ window.extTrafficCopyFromTextarea = extTrafficCopyFromTextarea;
 window.extTrafficCopyCombined = extTrafficCopyCombined;
 window.extTrafficOpenPlatform = extTrafficOpenPlatform;
 window.extTrafficSendFeedback = extTrafficSendFeedback;
+window.extTrafficShowInstagramVariant = extTrafficShowInstagramVariant;
+window.extTrafficCopyInstagramFinal = extTrafficCopyInstagramFinal;
+window.extTrafficShowThreadsVariant = extTrafficShowThreadsVariant;
+window.extTrafficCopyThreadsFinal = extTrafficCopyThreadsFinal;
+window.extTrafficShowNaverBlogVariant = extTrafficShowNaverBlogVariant;
+window.extTrafficCopyNaverBlogFinal = extTrafficCopyNaverBlogFinal;
+window.extTrafficShowStructuredVariant = extTrafficShowStructuredVariant;
+window.extTrafficCopyStructuredFinal = extTrafficCopyStructuredFinal;
 
 console.log('[EXT-TRAFFIC] v3.8.0 모듈 로드 완료 (v2 IPC + multi-output + risk badge)');

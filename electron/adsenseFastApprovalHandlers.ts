@@ -85,62 +85,70 @@ function evaluateReadiness(input: ReadinessInput): ReadinessReport {
   return { score, ready, passed, missing, recommendation };
 }
 
-/** 시드 발행 일정 생성 — 25개 글을 12-24h 무작위 간격으로 분산 */
+/** 시드 발행 일정 생성 — 하루 1-5개를 08-22시 사이에 자연스럽게 분산 */
 function buildSeedPlan(args: {
   keyword: string;
   startDate?: string;          // ISO yyyy-mm-dd, 미지정 시 오늘+1일
   count?: number;              // 기본 25
   hourMin?: number;            // 기본 12
   hourMax?: number;            // 기본 24
-}): { schedules: Array<{ index: number; topic: string; scheduledAt: string }>; totalDays: number } {
+  postsPerDay?: number;         // 기본 3, 최대 5
+  dayStartHour?: number;        // 기본 8
+  dayEndHour?: number;          // 기본 22
+}): { schedules: Array<{ index: number; topic: string; scheduledAt: string; angle?: string; cluster?: string }>; totalDays: number; postsPerDay: number; dayStartHour: number; dayEndHour: number } {
   const count = Math.max(5, Math.min(50, args.count || 25));
-  const hourMin = args.hourMin || 12;
-  const hourMax = args.hourMax || 24;
   const start = args.startDate ? new Date(args.startDate + 'T09:00:00') : new Date(Date.now() + 24 * 3600 * 1000);
-  const schedules: Array<{ index: number; topic: string; scheduledAt: string }> = [];
+  const schedules: Array<{ index: number; topic: string; scheduledAt: string; angle?: string; cluster?: string }> = [];
+  const postsPerDay = Math.max(1, Math.min(5, Number(args.postsPerDay) || 3));
+  const dayStartHour = Math.max(5, Math.min(18, Number(args.dayStartHour) || 8));
+  const dayEndHour = Math.max(dayStartHour + 4, Math.min(23, Number(args.dayEndHour) || 22));
+  const activeSpanMs = Math.max(4 * 3600 * 1000, (dayEndHour - dayStartHour) * 3600 * 1000);
+  const slotMs = activeSpanMs / postsPerDay;
+  const slotMarginMs = Math.min(45 * 60 * 1000, slotMs * 0.22);
+  const minAllowed = Date.now() + 60 * 60 * 1000;
+  const startDay = new Date(start);
+  startDay.setHours(0, 0, 0, 0);
 
-  // 25개 다양한 서브 토픽 (양산 패턴 회피)
-  const seedTopics = [
-    `${args.keyword} 완벽 가이드`,
-    `${args.keyword} 시작하는 법`,
-    `${args.keyword} 자주 묻는 질문`,
-    `${args.keyword} 비교 분석`,
-    `${args.keyword} 실전 후기`,
-    `${args.keyword} 핵심 팁`,
-    `${args.keyword} 흔한 실수`,
-    `${args.keyword} 단계별 진행`,
-    `${args.keyword} 최신 동향`,
-    `${args.keyword} 추천 리스트`,
-    `${args.keyword} 비용·시간 분석`,
-    `${args.keyword} 체크리스트`,
-    `${args.keyword} 사례 연구`,
-    `${args.keyword} 전문가 의견`,
-    `${args.keyword} 통계와 데이터`,
-    `${args.keyword} 미리 알아두면 좋은 것`,
-    `${args.keyword} 직접 해본 경험`,
-    `${args.keyword} Q&A`,
-    `${args.keyword} 도구·자료`,
-    `${args.keyword} 자가 진단`,
-    `${args.keyword} 안전 주의사항`,
-    `${args.keyword} 정부 지원·정책`,
-    `${args.keyword} 가성비 분석`,
-    `${args.keyword} 종합 정리`,
-    `${args.keyword} 더 알아보기`,
+  const angleTopics = [
+    { id: 'guide', cluster: 'foundation', title: '기본 개념과 시작 가이드' },
+    { id: 'checklist', cluster: 'action', title: '실전 체크리스트' },
+    { id: 'mistakes', cluster: 'risk', title: '자주 놓치는 실수와 주의사항' },
+    { id: 'comparison', cluster: 'decision', title: '선택 기준과 비교표' },
+    { id: 'faq', cluster: 'support', title: '자주 묻는 질문 정리' },
+    { id: 'case', cluster: 'example', title: '상황별 예시와 적용 방법' },
+    { id: 'data', cluster: 'evidence', title: '공식 자료와 최신 기준' },
+    { id: 'roadmap', cluster: 'planning', title: '단계별 준비 순서' },
   ];
 
-  let cursor = start.getTime();
   for (let i = 0; i < count; i++) {
+    const dayIndex = Math.floor(i / postsPerDay);
+    const slotIndex = i % postsPerDay;
+    const dayBase = startDay.getTime() + dayIndex * 24 * 3600 * 1000;
+    const slotStart = dayBase + dayStartHour * 3600 * 1000 + slotIndex * slotMs;
+    const slotEnd = slotStart + slotMs;
+    const jitter = (Math.random() * 2 - 1) * slotMarginMs;
+    let scheduledAtMs = slotStart + slotMs * 0.5 + jitter;
+    scheduledAtMs = Math.max(slotStart + 10 * 60 * 1000, Math.min(slotEnd - 10 * 60 * 1000, scheduledAtMs));
+    if (scheduledAtMs < minAllowed) {
+      scheduledAtMs = minAllowed + i * Math.max(90 * 60 * 1000, slotMs * 0.6);
+    }
+    const angle = angleTopics[i % angleTopics.length]!;
     schedules.push({
       index: i + 1,
-      topic: seedTopics[i % seedTopics.length] || `${args.keyword} ${i + 1}편`,
-      scheduledAt: new Date(cursor).toISOString(),
+      topic: `${args.keyword} ${angle.title}`,
+      scheduledAt: new Date(scheduledAtMs).toISOString(),
+      angle: angle.id,
+      cluster: angle.cluster,
     });
-    const offsetHours = hourMin + Math.random() * (hourMax - hourMin);
-    cursor += offsetHours * 3600 * 1000;
   }
 
-  const totalDays = Math.ceil((cursor - start.getTime()) / (24 * 3600 * 1000));
-  return { schedules, totalDays };
+  return {
+    schedules,
+    totalDays: Math.max(1, Math.ceil(count / postsPerDay)),
+    postsPerDay,
+    dayStartHour,
+    dayEndHour,
+  };
 }
 
 /** 색인 가속 — Google IndexNow, Bing IndexNow, Naver/Daum 사이트맵 ping */
@@ -194,7 +202,7 @@ export function registerFastApprovalIpcHandlers(): void {
   });
 
   // 2️⃣ 시드 일정
-  ipcMain.handle('adsense:fast-approval-seed-plan', async (_evt, args: { keyword: string; startDate?: string; count?: number; hourMin?: number; hourMax?: number }) => {
+  ipcMain.handle('adsense:fast-approval-seed-plan', async (_evt, args: { keyword: string; startDate?: string; count?: number; hourMin?: number; hourMax?: number; postsPerDay?: number; dayStartHour?: number; dayEndHour?: number }) => {
     try {
       if (!args?.keyword || args.keyword.trim().length < 2) {
         return { ok: false, error: '키워드를 2자 이상 입력하세요' };

@@ -98,6 +98,9 @@
  * @property {Stage1Summary} sourceSummary
  * @property {string} sourceUrl
  * @property {string} sourceTitle
+ * @property {string} [sourceText]
+ * @property {string[]} [sourceKeywords]
+ * @property {string} [sourceType]
  * @property {string} [subChannel]
  * @property {string} [userCustomRule]
  */

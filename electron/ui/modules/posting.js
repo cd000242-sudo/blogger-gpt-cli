@@ -194,11 +194,28 @@ export function showAutoImageSourceModal() {
 
 export async function runPosting() {
   const appState = getAppState();
+  let finalResult = {
+    ok: false,
+    source: 'runPosting',
+    published: false,
+    error: 'not_started',
+    ts: Date.now(),
+  };
+  const setFinalResult = (next = {}) => {
+    finalResult = {
+      ...finalResult,
+      ...next,
+      ts: Date.now(),
+    };
+    try { window.__lastPublishResult = finalResult; } catch {}
+    return finalResult;
+  };
+  setFinalResult();
 
   // ── Guard: 중복 실행 방지 ──
   if (appState.isRunning) {
     addLog('작업이 실행 중입니다. 잠시 후 다시 시도해주세요.', 'warning');
-    return;
+    return setFinalResult({ error: 'already_running' });
   }
 
   // v3.8.80: API 한도 보호 — 직전 발행 후 90초 미만이면 자동 대기 또는 중단
@@ -206,7 +223,7 @@ export async function runPosting() {
     const okGap = await window._enforcePublishGap(90);
     if (!okGap) {
       addLog('발행 취소 (API 한도 보호 안내)', 'warning');
-      return;
+      return setFinalResult({ error: 'publish_gap_rejected' });
     }
   }
 
@@ -230,10 +247,10 @@ export async function runPosting() {
       console.log('[POSTING] 🔗 URL 모드 — 키워드 생략, URL 본문에서 자동 추출');
     } else if (singleInputMode === 'url' && !hasValidUrl) {
       getErrorHandler().showToast('URL 모드: 원본 URL을 입력해주세요.', 'error');
-      return;
+      return setFinalResult({ error: 'missing_reference_url' });
     } else {
       getErrorHandler().showToast('키워드를 입력해주세요.', 'error');
-      return;
+      return setFinalResult({ error: 'missing_keyword' });
     }
   }
 
@@ -253,7 +270,7 @@ export async function runPosting() {
       );
       if (!proceed) {
         debugLog('POSTING', '사용자 취소: AdSense 저자 프로필 미입력');
-        return;
+        return setFinalResult({ error: 'user_cancelled_adsense_author_warning' });
       }
     }
 
@@ -282,10 +299,14 @@ export async function runPosting() {
     appState.isRunning = true;
     appState.isCanceled = false;
     setRunning(true);
-    showProgressModal();
+    const isQueueRun = !!(window.__queueRunning || window.__queueProgressActive);
+    if (!isQueueRun) showProgressModal();
 
     // ── Payload 생성 (통합 함수 사용) ──
-    const payload = await createPayload({ previewOnly: false });
+    const queueOverrides = (window.__publishQueuePayloadOverrides && typeof window.__publishQueuePayloadOverrides === 'object')
+      ? window.__publishQueuePayloadOverrides
+      : {};
+    const payload = await createPayload({ previewOnly: false, overrides: queueOverrides });
 
     // 이미지 설정 오버라이드
     payload.imageSettings = imageSettings;
@@ -337,8 +358,27 @@ export async function runPosting() {
 
     // ── 성공/실패 처리 ──
     if (result?.ok || result?.success) {
+      setFinalResult({
+        ok: result.published !== false,
+        published: result.published !== false,
+        title: result.title || '',
+        url: result.url || '',
+        error: result.published === false
+          ? (result.publishError || result.error || 'publish_failed_after_generation')
+          : '',
+        needsAuth: !!result.needsAuth,
+      });
       // 발행 실패 (콘텐츠는 생성됨) 체크
-      if (result.published === false && result.publishError) {
+      if (result.published === false) {
+        const publishErrorMessage = result.publishError || result.error || 'publish_failed_after_generation';
+        setFinalResult({
+          ok: false,
+          published: false,
+          title: result.title || '',
+          url: result.url || '',
+          error: publishErrorMessage,
+          needsAuth: !!result.needsAuth,
+        });
         addLog('⚠️ 콘텐츠는 생성되었지만 발행에 실패했습니다.', 'error');
         addLog('발행 오류: ' + result.publishError, 'error');
 
@@ -382,6 +422,22 @@ export async function runPosting() {
             if (/^https?:/i.test(result.thumbnail)) thumbForStore = result.thumbnail;
             else if (/^data:/i.test(result.thumbnail) && result.thumbnail.length < 200000) thumbForStore = result.thumbnail;
           }
+          let savedSettingsForPost = {};
+          try {
+            savedSettingsForPost = JSON.parse(localStorage.getItem('bloggerSettings') || '{}') || {};
+          } catch {}
+          const postId = result.postId || result.id || result.post_id || '';
+          const blogIdForStore =
+            result.blogId ||
+            savedSettingsForPost.blogId ||
+            document.getElementById('blogId')?.value ||
+            '';
+          const wpSiteUrlForStore =
+            result.wordpressSiteUrl ||
+            result.siteUrl ||
+            savedSettingsForPost.wordpressSiteUrl ||
+            document.getElementById('wordpressSiteUrl')?.value ||
+            '';
           stored[dateKey].push({
             title: result.title || keywordValue || '제목없음',
             url: result.url,
@@ -389,6 +445,11 @@ export async function runPosting() {
             time: d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
             timestamp: d.getTime(),
             thumbnail: thumbForStore,
+            postId: postId ? String(postId) : '',
+            id: postId ? String(postId) : '',
+            blogId: blogIdForStore ? String(blogIdForStore) : '',
+            siteUrl: wpSiteUrlForStore ? String(wpSiteUrlForStore) : '',
+            wordpressSiteUrl: wpSiteUrlForStore ? String(wpSiteUrlForStore) : '',
           });
           localStorage.setItem('publishedPosts', JSON.stringify(stored));
           // 달력이 열려 있으면 갱신
@@ -412,46 +473,49 @@ export async function runPosting() {
 
         // 🔥 발행 완료 시 모달 닫고 알림만 띄우기
         hideProgressModal();
-        try { showNotification('🎉 블로그 포스트 발행 완료!', 4000); } catch {}
+        const suppressSingleSuccessUi = !!(window.__queueRunning || window.__queueProgressActive);
+        if (!suppressSingleSuccessUi) {
+          try { showNotification('🎉 블로그 포스트 발행 완료!', 4000); } catch {}
 
-        // v3.5.93: 전체화면 성공 오버레이 — 작은 토스트만으로는 잘 안 보인다는 사용자 피드백 반영
-        //   풀스크린 오버레이 + 큰 글씨 + 자동 닫힘(4초) + 클릭 시 즉시 닫힘
-        try {
-          const platformLabel = String(platformName || '').toUpperCase() || '블로그';
-          const successOverlay = document.createElement('div');
-          successOverlay.style.cssText = `
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.85);
-            display: flex; align-items: center; justify-content: center;
-            z-index: 10001; backdrop-filter: blur(8px);
-            cursor: pointer; animation: fadeIn 0.3s ease-out;
-          `;
-          successOverlay.innerHTML = `
-            <style>
-              @keyframes fadeIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
-              @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 60% { transform: scale(1.05); } 100% { transform: scale(1); opacity: 1; } }
-            </style>
-            <div style="
-              background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-              border-radius: 24px;
-              padding: 60px 80px;
-              text-align: center;
-              box-shadow: 0 30px 80px rgba(16, 185, 129, 0.5);
-              max-width: 600px;
-              animation: popIn 0.5s ease-out;
-            ">
-              <div style="font-size: 100px; margin-bottom: 20px; line-height: 1;">🎉</div>
-              <h1 style="color: white; font-size: 48px; font-weight: 900; margin: 0 0 16px 0; letter-spacing: -1px;">발행 완료!</h1>
-              <p style="color: rgba(255,255,255,0.95); font-size: 22px; margin: 0 0 8px 0; font-weight: 700;">${platformLabel}에 정상 발행되었습니다</p>
-              <p style="color: rgba(255,255,255,0.75); font-size: 14px; margin: 24px 0 0 0;">화면을 클릭하면 닫힙니다 (자동 닫힘: 4초)</p>
-            </div>
-          `;
-          document.body.appendChild(successOverlay);
-          const closeOverlay = () => { try { if (successOverlay.parentNode) successOverlay.parentNode.removeChild(successOverlay); } catch {} };
-          successOverlay.addEventListener('click', closeOverlay);
-          setTimeout(closeOverlay, 4000);
-        } catch (overlayErr) {
-          console.warn('[SUCCESS-OVERLAY] 표시 실패(무시):', overlayErr);
+          // v3.5.93: 전체화면 성공 오버레이 — 작은 토스트만으로는 잘 안 보인다는 사용자 피드백 반영
+          //   풀스크린 오버레이 + 큰 글씨 + 자동 닫힘(4초) + 클릭 시 즉시 닫힘
+          try {
+            const platformLabel = String(platformName || '').toUpperCase() || '블로그';
+            const successOverlay = document.createElement('div');
+            successOverlay.style.cssText = `
+              position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+              background: rgba(0, 0, 0, 0.85);
+              display: flex; align-items: center; justify-content: center;
+              z-index: 10001; backdrop-filter: blur(8px);
+              cursor: pointer; animation: fadeIn 0.3s ease-out;
+            `;
+            successOverlay.innerHTML = `
+              <style>
+                @keyframes fadeIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+                @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 60% { transform: scale(1.05); } 100% { transform: scale(1); opacity: 1; } }
+              </style>
+              <div style="
+                background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                border-radius: 24px;
+                padding: 60px 80px;
+                text-align: center;
+                box-shadow: 0 30px 80px rgba(16, 185, 129, 0.5);
+                max-width: 600px;
+                animation: popIn 0.5s ease-out;
+              ">
+                <div style="font-size: 100px; margin-bottom: 20px; line-height: 1;">🎉</div>
+                <h1 style="color: white; font-size: 48px; font-weight: 900; margin: 0 0 16px 0; letter-spacing: -1px;">발행 완료!</h1>
+                <p style="color: rgba(255,255,255,0.95); font-size: 22px; margin: 0 0 8px 0; font-weight: 700;">${platformLabel}에 정상 발행되었습니다</p>
+                <p style="color: rgba(255,255,255,0.75); font-size: 14px; margin: 24px 0 0 0;">화면을 클릭하면 닫힙니다 (자동 닫힘: 4초)</p>
+              </div>
+            `;
+            document.body.appendChild(successOverlay);
+            const closeOverlay = () => { try { if (successOverlay.parentNode) successOverlay.parentNode.removeChild(successOverlay); } catch {} };
+            successOverlay.addEventListener('click', closeOverlay);
+            setTimeout(closeOverlay, 4000);
+          } catch (overlayErr) {
+            console.warn('[SUCCESS-OVERLAY] 표시 실패(무시):', overlayErr);
+          }
         }
 
         // 🛡️ v3.5.84: AdSense 품질 리포트 모달 — 단발은 즉시 표시, 큐 모드는 누적
@@ -514,6 +578,11 @@ export async function runPosting() {
     }
 
   } catch (error) {
+    setFinalResult({
+      ok: false,
+      published: false,
+      error: error?.message || String(error || 'publish_error'),
+    });
     errorLog('POSTING', error, { function: 'runPosting' });
     // v3.7.11: PAYMENT_REQUIRED → 결제 유도 모달
     if (typeof error?.message === 'string' && error.message.startsWith('PAYMENT_REQUIRED:')) {
@@ -549,19 +618,27 @@ export async function runPosting() {
     // 🔥 큐 연동 — 연속발행 모드가 다음 항목으로 진행하도록 완료 이벤트 발사
     try {
       window.dispatchEvent(new CustomEvent('bgpt:publish-complete', {
-        detail: { source: 'runPosting', ts: Date.now() }
+        detail: { source: 'runPosting', ts: Date.now(), result: finalResult, ok: finalResult.ok }
       }));
     } catch {}
   }
+  return finalResult;
 }
 
 // 발행 함수 (원클릭 발행) — runPosting의 래퍼
 export async function publishToPlatform() {
   const appState = getAppState();
+  const isQueueRun = !!(window.__queueRunning || window.__queueProgressActive);
   debugLog('PUBLISH', 'publishToPlatform 호출', {
     hasContent: !!appState.generatedContent?.content?.trim(),
     isRunning: appState.isRunning,
+    isQueueRun,
   });
+
+  if (isQueueRun) {
+    await runPosting();
+    return;
+  }
 
   // 이미 생성된 콘텐츠가 있으면 재발행 경로
   if (appState.generatedContent?.content?.trim()) {
@@ -581,13 +658,35 @@ export async function publishToPlatform() {
       ButtonStateManager.setLoading('publishBtn');
       showProgressModal();
 
+      const currentPayload = await createPayload({ previewOnly: false });
       const publishPayload = {
-        ...appState.generatedContent.payload,
+        ...(appState.generatedContent.payload || {}),
+        ...currentPayload,
         previewOnly: false,
       };
+      const titleToPublish = appState.generatedContent.title || currentPayload.title || currentPayload.topic || '';
+      const htmlToPublish = appState.generatedContent.content || '';
+      const thumbnailToPublish = appState.generatedContent.thumbnailUrl || appState.generatedContent.thumbnail || '';
 
       addLog('블로그 발행 시작...', 'info');
-      const result = await window.blogger.runPost(publishPayload);
+      let result;
+      if (window.electronAPI?.invoke) {
+        result = await window.electronAPI.invoke('publish-content', {
+          payload: publishPayload,
+          title: titleToPublish,
+          content: htmlToPublish,
+          thumbnailUrl: thumbnailToPublish,
+        });
+      } else if (window.blogger?.publishContent) {
+        result = await window.blogger.publishContent(
+          publishPayload,
+          titleToPublish,
+          htmlToPublish,
+          thumbnailToPublish
+        );
+      } else {
+        throw new Error('발행 API를 찾을 수 없습니다.');
+      }
 
       if (result?.ok || result?.success) {
         addLog('✅ 콘텐츠 발행 완료!', 'success');
@@ -598,6 +697,33 @@ export async function publishToPlatform() {
             thumbnail: result.thumbnail || '',
             payload: publishPayload,
           };
+        }
+        if (result.url) {
+          try {
+            const stored = JSON.parse(localStorage.getItem('publishedPosts') || '{}');
+            const d = new Date();
+            const dateKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            if (!Array.isArray(stored[dateKey])) stored[dateKey] = [];
+            const platform = publishPayload.platform || document.querySelector('input[name="platform"]:checked')?.value || 'wordpress';
+            const platformName = (platform === 'blogger' || platform === 'blogspot') ? '블로거' : '워드프레스';
+            const postId = result.postId || result.id || result.post_id || '';
+            stored[dateKey].push({
+              title: result.title || titleToPublish || '제목없음',
+              url: result.url,
+              platform: platformName,
+              time: d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+              timestamp: d.getTime(),
+              thumbnail: result.thumbnail || thumbnailToPublish || '',
+              postId: postId ? String(postId) : '',
+              id: postId ? String(postId) : '',
+              blogId: publishPayload.blogId || '',
+              siteUrl: publishPayload.wordpressSiteUrl || publishPayload.siteUrl || '',
+              wordpressSiteUrl: publishPayload.wordpressSiteUrl || publishPayload.siteUrl || '',
+            });
+            localStorage.setItem('publishedPosts', JSON.stringify(stored));
+          } catch (e) {
+            console.warn('[PUBLISH-TRACK] 재발행 경로 저장 실패:', e?.message);
+          }
         }
         // 🔥 발행 완료 알림 (모달은 finally에서 닫힘)
         try { showNotification('🎉 블로그 포스트 발행 완료!', 4000); } catch {}
@@ -836,7 +962,9 @@ export async function createPayload(options = {}) {
 
   // ── CTA ──
   const scheduleCtaMode = document.getElementById('scheduleCtaMode');
-  const ctaModeValue = scheduleCtaMode?.value || PAYLOAD_DEFAULTS.ctaMode;
+  const mainCtaModeValue = document.querySelector('input[name="ctaMode"]:checked')?.value || '';
+  const scheduleCtaRaw = scheduleCtaMode?.value || '';
+  const ctaModeValue = mainCtaModeValue || scheduleCtaRaw || PAYLOAD_DEFAULTS.ctaMode;
 
   // ── 기타 설정 ──
   const toneStyleValue = document.getElementById('toneStyle')?.value || PAYLOAD_DEFAULTS.toneStyle;
@@ -844,6 +972,10 @@ export async function createPayload(options = {}) {
   const h2ImageSettings = getH2ImageSettingsFromDOM();
 
   // ── 플랫폼 ── 🔥 저장된 설정을 라디오 버튼보다 우선시 (race condition 대비)
+  const platformRadio = document.querySelector('input[name="platform"]:checked');
+  const platformRadioValue = platformRadio?.value || '';
+  const savedPlatformValue = savedSettings.platform || '';
+  const publishTargetPlatform = normalizePlatform(savedPlatformValue || platformRadioValue || 'wordpress');
   let selectedPlatform;
   if (platformOverride) {
     selectedPlatform = platformOverride;
@@ -1009,13 +1141,18 @@ export async function createPayload(options = {}) {
     skipQualityBoost: !!document.getElementById('skipQualityBoost')?.checked,
     // 🏆 AdSense 강화 — adsense 모드일 때만 의미 있음
     llmRotation: !!document.getElementById('llmRotation')?.checked,
-    adsenseScoreGate: !!document.getElementById('adsenseScoreGate')?.checked,
-    adsenseMinScore: Number(document.getElementById('adsenseMinScore')?.value || 70),
+    adsenseScoreGate: contentModeValue === 'adsense' ? true : !!document.getElementById('adsenseScoreGate')?.checked,
+    adsenseMinScore: contentModeValue === 'adsense'
+      ? Math.max(Number(document.getElementById('adsenseMinScore')?.value || 78), 78)
+      : Number(document.getElementById('adsenseMinScore')?.value || 78),
     adsenseGateMode: document.getElementById('adsenseGateMode')?.value || 'warn',
+    adsensePolicyScan: contentModeValue === 'adsense',
+    adsenseHardeningScan: contentModeValue === 'adsense',
     manualCtas: getManualCtas(ctaModeValue),
 
     // 발행
     platform: selectedPlatform,
+    targetPlatform: platformOverride === 'preview' ? publishTargetPlatform : selectedPlatform,
     publishType: previewOnly ? 'single' : publishTypeValue,
     postingMode: previewOnly ? 'single' : publishTypeValue,
     previewOnly,

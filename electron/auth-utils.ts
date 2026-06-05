@@ -3,7 +3,7 @@
  * 무료/유료 사용자 판별 + 쿼터 가드 + 페이월 응답
  *
  * 기존 license-manager-new.ts의 라이선스 정보를 활용하여
- * 무료 체험 사용자에게 일일 2회 제한을 적용한다.
+ * 무료 체험 사용자에게 일일 1회 제한을 적용한다.
  */
 
 import { app } from 'electron';
@@ -11,7 +11,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as quotaManager from './quota-manager';
 
-const FREE_DAILY_LIMIT = 2;
+const FREE_DAILY_LIMIT = 1;
 
 // 무료 체험 세션 플래그 (앱 재시작 시 리셋)
 let _freeTrialSession = false;
@@ -121,14 +121,14 @@ export async function getPaywallResponse(message?: string): Promise<PaywallRespo
   return {
     ok: false,
     code: 'PAYWALL',
-    message: message || '⛔ 오늘의 무료 사용 한도(2회)를 모두 사용했어요.\n라이선스를 등록하면 무제한으로 사용할 수 있습니다.',
+    message: message || '⛔ 오늘의 무료 사용 한도(1회)를 모두 사용했어요.\n라이선스를 등록하면 무제한으로 사용할 수 있습니다.',
     quota,
   };
 }
 
 /**
  * v3.8.38: 글포스팅 외 기능들 무료 체험 차단.
- *   무료 체험은 글포스팅 탭의 글포스팅(2회/일)만 사용 가능.
+ *   무료 체험은 글포스팅 탭의 글포스팅(1회/일)만 사용 가능.
  *   거미줄·외부유입·일괄 이미지 등은 모두 paywall.
  *   quota 소모 없이 차단만 (quota는 글포스팅 전용).
  */
@@ -144,7 +144,7 @@ export async function blockIfFreeTier(featureName: string = '이 기능'): Promi
     response: {
       ok: false,
       code: 'PAYWALL',
-      message: `⛔ ${featureName}은(는) 무료 체험으로 사용할 수 없습니다.\n\n무료 체험: 글포스팅 탭의 글포스팅만 일일 2회 사용 가능.\n${featureName} 사용은 라이선스 등록 후 가능합니다.`,
+      message: `⛔ ${featureName}은(는) 무료 체험으로 사용할 수 없습니다.\n\n무료 체험: 글포스팅 탭의 글포스팅만 일일 1회 사용 가능.\n${featureName} 사용은 라이선스 등록 후 가능합니다.`,
       quota,
     },
   };

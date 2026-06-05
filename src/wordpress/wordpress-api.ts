@@ -47,6 +47,50 @@ export interface WordPressTag {
   count: number;
 }
 
+const WP_API_BROKEN_TEXT_PATTERN = /\uFFFD|&#(?:65533|xfffd);|%EF%BF%BD/gi;
+
+function repairBrokenTextValue(label: string, value: string): string {
+  const matches = value.match(WP_API_BROKEN_TEXT_PATTERN);
+  if (!matches || matches.length === 0) return value;
+
+  const marker = '(?:\\uFFFD|&#(?:65533|xfffd);|%EF%BF%BD)+';
+  const mk = (source: string, flags = 'gi') => new RegExp(source.replace(/\[BAD\]/g, marker), flags);
+  const repaired = value
+    .replace(mk('청년내[BAD]저축계좌', 'g'), '청년내일저축계좌')
+    .replace(mk('청년내[BAD]저축', 'g'), '청년내일저축')
+    .replace(mk('폭넓[BAD]'), '폭넓게')
+    .replace(mk('답니[BAD]'), '답니다')
+    .replace(mk('합니[BAD]'), '합니다')
+    .replace(mk('됩니[BAD]'), '됩니다')
+    .replace(mk('입니[BAD]'), '입니다')
+    .replace(mk('습니[BAD]'), '습니다')
+    .replace(mk('([가-힣])니[BAD]'), '$1니다')
+    .replace(WP_API_BROKEN_TEXT_PATTERN, '');
+
+  console.warn(`[WP-API] ${label}: repaired ${matches.length} broken replacement marker(s).`);
+  return repaired;
+}
+
+function repairBrokenTextPayload(value: unknown, path = 'payload'): unknown {
+  if (typeof value === 'string') {
+    return repairBrokenTextValue(path, value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item, index) => repairBrokenTextPayload(item, `${path}[${index}]`));
+  }
+
+  if (value && typeof value === 'object') {
+    const repaired: Record<string, unknown> = {};
+    Object.entries(value as Record<string, unknown>).forEach(([key, item]) => {
+      repaired[key] = repairBrokenTextPayload(item, `${path}.${key}`);
+    });
+    return repaired;
+  }
+
+  return value;
+}
+
 export class WordPressAPI {
   private config: WordPressConfig;
   private baseUrl: string;
@@ -101,6 +145,7 @@ export class WordPressAPI {
     }
 
     if (data && (method === 'POST' || method === 'PUT')) {
+      data = repairBrokenTextPayload(data);
       options.body = JSON.stringify(data);
     }
 
@@ -327,3 +372,97 @@ export async function getWordPressTags(args: {
   return api.getTags();
 }
 
+export async function testWordPressConnection(args: {
+  siteUrl: string;
+  username?: string;
+  password?: string;
+  jwtToken?: string;
+}): Promise<{ success: boolean; message: string }> {
+  const rawUrl = String(args.siteUrl || '').trim();
+  if (!rawUrl) {
+    return { success: false, message: 'WordPress 사이트 URL이 비어 있습니다.' };
+  }
+
+  const siteUrl = (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') ? rawUrl : `https://${rawUrl}`)
+    .replace(/\/wp-admin\/?$/i, '')
+    .replace(/\/wp-login\.php$/i, '')
+    .replace(/\/+$/, '');
+
+  const username = String(args.username || '').trim();
+  const password = String(args.password || '').trim();
+  const jwtToken = String(args.jwtToken || '').trim();
+
+  if (!jwtToken && (!username || !password)) {
+    return { success: false, message: 'WordPress 관리자 ID와 Application Password가 필요합니다.' };
+  }
+
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'User-Agent': 'WordPress-Auto-Blogger/1.0'
+  };
+
+  if (jwtToken) {
+    headers['Authorization'] = `Bearer ${jwtToken}`;
+  } else {
+    headers['Authorization'] = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+  }
+
+  const authCheckUrl = `${siteUrl}/wp-json/wp/v2/users/me?context=edit`;
+  const restRootUrl = `${siteUrl}/wp-json/`;
+
+  try {
+    const response = await fetch(authCheckUrl, { method: 'GET', headers });
+
+    if (response.ok) {
+      const user: any = await response.json().catch(() => ({}));
+      const label = user?.name || user?.slug || username;
+      return { success: true, message: `WordPress REST API 인증 성공${label ? ` (${label})` : ''}` };
+    }
+
+    const body = await response.text().catch(() => '');
+    const shortBody = body.replace(/\s+/g, ' ').trim().slice(0, 180);
+
+    if (response.status === 401) {
+      return {
+        success: false,
+        message: '401 인증 실패: 관리자 ID 또는 Application Password가 맞지 않습니다. 일반 로그인 비밀번호가 아니라 프로필에서 만든 Application Password를 넣어야 합니다.'
+      };
+    }
+
+    if (response.status === 403) {
+      return {
+        success: false,
+        message: '403 권한 차단: 보안 플러그인, WAF, REST API 차단, 또는 계정 권한 문제를 확인해주세요.'
+      };
+    }
+
+    if (response.status === 404) {
+      return {
+        success: false,
+        message: '404 REST API 경로 없음: /wp-json/ 접근 가능 여부와 고유주소/REST API 차단 설정을 확인해주세요.'
+      };
+    }
+
+    return {
+      success: false,
+      message: `WordPress REST API 인증 실패 (HTTP ${response.status})${shortBody ? `: ${shortBody}` : ''}`
+    };
+  } catch (error: any) {
+    try {
+      const restRoot = await fetch(restRootUrl, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      if (!restRoot.ok) {
+        return {
+          success: false,
+          message: `/wp-json/ 연결 실패 (HTTP ${restRoot.status}). 사이트 URL, HTTPS, 보안 플러그인, 방화벽 설정을 확인해주세요.`
+        };
+      }
+    } catch {
+      // 아래 공통 메시지로 처리
+    }
+
+    return {
+      success: false,
+      message: `WordPress 연결 실패: ${error?.message || '알 수 없는 오류'}`
+    };
+  }
+}

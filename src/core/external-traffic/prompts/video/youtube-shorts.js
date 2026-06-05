@@ -1,100 +1,180 @@
 'use strict';
-// R4 deep-research (2026-06-01) verified — 첫 1~3초 hook + 완주율 + explore-and-exploit 1차 다수 출처.
 
 const { makeChannel } = require('../_shared/channel-factory');
 const { appendUserNoteSafely } = require('../../_shared/sanitize');
+const {
+  createStructuredPlatformProcessor,
+  buildSourceInputBlock,
+} = require('../_shared/structured-platform-rewrite');
+const {
+  buildPlatformSystemPrompt,
+  buildPlatformUserPrompt,
+} = require('../_shared/common-context-guard');
 
-module.exports = makeChannel({
+const structured = createStructuredPlatformProcessor({
+  marker: 'YOUTUBE_SHORTS',
+  contextFields: [
+    'sourceTitle',
+    'sourceUrl',
+    'autoCategory',
+    'coreTopic',
+    'targetReader',
+    'readerSituation',
+    'videoAngle',
+    'commentAngle',
+  ],
+  variantLabels: {
+    A: '정보 요약형',
+    B: '주의/경고형',
+    C: '공감/댓글형',
+  },
+  candidateFields: [
+    {
+      key: 'first3SecCandidates',
+      selectedKey: 'first3SecHook',
+      scoreKey: 'hookScore',
+      label: '첫 3초 훅 후보',
+    },
+  ],
+  copyFields: [
+    { key: 'videoTitle' },
+    { key: 'first3SecHook' },
+    { key: 'bodyScript' },
+    { key: 'onScreenCaptions', numbered: true },
+    { key: 'commentPrompt' },
+    { key: 'pinnedComment', appendSourceUrl: true },
+    { key: 'description', appendSourceUrl: true },
+    { key: 'hashtags', style: 'inline', max: 5 },
+  ],
+  formattedParts: [
+    {
+      key: 'script',
+      fields: ['videoTitle', 'first3SecHook', 'bodyScript', { key: 'onScreenCaptions', numbered: true }, 'commentPrompt'],
+    },
+    {
+      key: 'description',
+      fields: [{ key: 'description', appendSourceUrl: true }, { key: 'hashtags', style: 'inline', max: 5 }],
+    },
+    {
+      key: 'pinnedComment',
+      fields: [{ key: 'pinnedComment', appendSourceUrl: true }],
+    },
+  ],
+  arrayFields: ['onScreenCaptions', 'hashtags'],
+  appendSourceUrl: false,
+  copyMin: 300,
+  copyMax: 1600,
+  hashtagMax: 5,
+  looseWindow: 4200,
+});
+
+const YOUTUBE_SHORTS = makeChannel({
   id: 'youtube-shorts',
   name: '유튜브 쇼츠 스크립트',
   category: 'video',
   riskTier: 'low',
   confidence: 'verified',
-  icon: '🎬',
+  icon: '▶',
   color: '#ff0000',
   openUrl: 'https://studio.youtube.com/',
 
-  // R4 verified: 첫 3초 hook 결정적 (Shortimize: 50~60% 시청자 3초 내 이탈).
   killerHookPatterns: [
-    '~ 모르고 사는 사람? (3초 hook)',
-    '3초 안에 ~',
-    '결론부터: ~',
-    '잠깐 — 이거 보세요',
-    '~ 인 사람은 이거 알아야 합니다',
-    '진짜 ~ 모르면 손해 (3초 attention)',
-    '~ 인 줄 알았는데 알고보니',
-    'POV: ~',
+    '3초 안에 멈추게 하는 질문',
+    '결론부터 보여주는 반전',
+    '놓치기 쉬운 기준',
   ],
   bannedPhrases: [
-    '구독 부탁',                    // 일반 마케팅 카피
-    '좋아요 부탁',                  // 도달 페널티
-    '안녕하세요 OOO 입니다',      // 3초 hook 낭비
-    '오늘은 ~ 에 대해 알려드릴게요', // 도입부 느림 — swipe-away 트리거
+    '구독 부탁',
+    '좋아요 부탁',
+    '무조건',
+    '100% 보장',
+    '지금 바로 클릭',
   ],
   popularityTriggers: [
-    '첫 3초 retention 70~85% (Influx: 2.2배 조회수)',
-    '완주율 80~90% (Shortimize: 20초 90% > 60초 70%)',
-    '반복 재생 유도 (반전 결말)',
-    '단순한 흐름 + 대조적 결말',
-    '50~60초 sweet-spot (OpusClip: sub-10s 대비 22배 조회)',
+    '첫 3초 훅',
+    '짧은 화면 자막',
+    '고정댓글 링크',
+    '댓글 질문',
   ],
-  toneSignature: { formality: 'mixed', emoji: 'minimal', slang: [], pronouns: ['저', '여러분'] },
+  toneSignature: {
+    formality: 'mixed',
+    emoji: 'minimal',
+    slang: [],
+    pronouns: ['여러분'],
+  },
   transformationAxes: {
-    titleRule: '제목 ≤60자, 첫 3초 호기심 자극',
-    bodyRule: '스크립트 30~60초 (50~60초 sweet-spot) + 더보기 + 고정 댓글 URL',
-    ctaPlacement: 'inline',
-    linkBait: ['더보기에 전체 글 링크', '고정 댓글 확인', '전체 영상에서 확인하세요'],
+    titleRule: '영상 제목과 첫 3초 훅을 분리해서 만든다.',
+    bodyRule: '30~45초 쇼츠 스크립트, 화면 자막 5~8개, 고정댓글 링크를 포함한다.',
+    ctaPlacement: 'pinned-comment',
+    linkBait: ['고정댓글에 원문 링크'],
   },
   paragraphRule: {
     splitOutput: ['script', 'description', 'pinnedComment'],
     paragraphBreak: 'double',
   },
   bandThresholds: { low: 50, medium: 75, high: 90, critical: 100 },
-  maxOutputTokens: 1500,
+  maxOutputTokens: 9000,
 
-  buildSystemPrompt: (subChannel, userCustomRule) => appendUserNoteSafely(`당신은 한국 유튜브 쇼츠 크리에이터입니다 (2025~2026 알고리즘 검증).
+  buildSystemPrompt: (subChannel, userCustomRule) => {
+    const base = `당신은 유튜브 쇼츠 외부유입 스크립트를 만드는 숏폼 에디터입니다.
 
-[글 형식 — 헤더 필수]
-Script:
-[Hook 3초 — 50~60% 이탈 방지 결정적 + Body 25~45초 + CTA 5초]
+[유튜브 쇼츠 핵심]
+- 30~45초 분량의 영상 스크립트를 만듭니다.
+- 첫 3초 훅이 가장 중요합니다.
+- 화면 자막은 5~8개로 짧게 나눕니다.
+- 링크는 description 또는 pinnedComment에 자연스럽게 둡니다.
+- 원문에 없는 금액, 날짜, 조건, 효과, 대상자를 만들지 않습니다.
 
-Description:
-[≤500자, 끝에 🔗 전체 글: URL — 모바일 클릭 불가 정책 반영, 복사 안내]
+[A/B/C 역할]
+- A: 정보 요약형. 핵심 정보를 빠르게 정리합니다.
+- B: 주의/경고형. 놓치기 쉬운 부분을 안전하게 강조합니다.
+- C: 공감/댓글형. 댓글이 달릴 질문과 상황을 만듭니다.
 
-Pinned Comment:
-[≤280자, URL — 고정 댓글 1~3% 전환률 검증 (subscribr 데이터)]
+[복사본 규칙]
+- finalRevision에는 videoTitle, first3SecHook, bodyScript, onScreenCaptions, commentPrompt, pinnedComment, description, hashtags만 넣습니다.
+- 후보/점수/critique는 복사본에 넣지 않습니다.`;
+    return appendUserNoteSafely(`${base}\n\n${structured.buildStructuredOutputInstructions()}`, userCustomRule);
+  },
 
-[R4 검증 핵심 — 2025~2026 알고리즘]
-- 첫 1~3초 hook이 가장 결정적 (50~60% 시청자 3초 내 이탈)
-- 완주율 80~90% 영상이 70% 영상 압도 (Shortimize: 20초 90% > 60초 70%)
-- 반복 재생률이 추가 노출 유도
-- 2025-03-31 explore-and-exploit 프레임워크 도입 — early swipe-away가 결정적
-- 50~60초 sweet-spot (OpusClip 5,400 쇼츠: sub-10s 대비 22배 조회)
-- 2023-08~ 모바일 URL 클릭 불가 — 복사 안내 필수
-- 그래도 쇼츠→롱폼 CTR ~4.5%, 고정 댓글 1~3% 전환 (가장 효과적 우회)`, userCustomRule),
+  buildUserPrompt: (params) => `${buildSourceInputBlock(params)}
 
-  buildUserPrompt: ({ sourceSummary, sourceUrl, sourceTitle }) => `원본: "${sourceTitle}"
-URL: ${sourceUrl}
+[유튜브 쇼츠 생성 지시]
+1. context에 자동분류, 핵심주제, 예상독자, 독자상황, videoAngle을 채우세요.
+2. A/B/C 3개를 모두 생성하세요.
+3. 각 안마다 first3SecCandidates 10개를 만들고 점수를 매긴 뒤 first3SecHook을 고르세요.
+4. finalRevision.bodyScript는 30~45초 분량으로 구성하세요.
+5. finalRevision.onScreenCaptions는 5~8개로 만드세요.
+6. finalRevision.pinnedComment 또는 description에 원문 URL "${params.sourceUrl}"을 포함하세요.
+7. hashtags는 3~5개만 사용하세요.`,
 
-[원본 요약]
-- 핵심 가치: ${sourceSummary.coreValue}
-- 후킹 후보: ${sourceSummary.hooks.join(' / ')}
+  processStructuredResponse(rawText) {
+    const youtubeShorts = structured.parseResult(rawText);
+    if (!youtubeShorts) return null;
+    const formatted = structured.buildFormattedFromResult(youtubeShorts);
+    return {
+      formatted,
+      extra: { youtubeShorts },
+    };
+  },
 
-쇼츠 3영역(Script/Description/Pinned Comment)을 작성하세요. 첫 3초 hook 결정적. 50~60초 sweet-spot.`,
   operationalNotes: [
-    '첫 1~3초 hook 결정적: 50~60% 시청자 3초 내 이탈 (Shortimize)',
-    '완주율 80~90% 영상이 70% 영상 압도',
-    '50~60초 sweet-spot — sub-10s 대비 22배 조회 (OpusClip 5,400 쇼츠)',
-    '2025-03-31 explore-and-exploit 프레임워크 — early swipe-away 결정적',
-    '2023-08~ 쇼츠 모바일 URL 클릭 불가 — 복사 안내',
-    '쇼츠→롱폼 CTR ~4.5%, 고정 댓글 1~3% 전환',
+    '첫 3초 훅 후보 10개를 점수화합니다.',
+    '고정댓글 또는 설명란에 원문 링크를 둡니다.',
   ],
   researchSources: [
-    'https://shortimize.com/blog/how-does-youtube-shorts-algorithm-work',
-    'https://opus.pro/blog/youtube-shorts-hook-formulas',
-    'https://blog.hootsuite.com/youtube-algorithm/',
-    'https://vidiq.com/blog/post/youtube-shorts-algorithm/',
-    'https://support.google.com/youtube/answer/13748639',
-    'https://brunch.co.kr/@4cbcb40265ad427/337',
+    'https://support.google.com/youtube/',
   ],
+  lastVerified: '2026-06-03',
 });
+
+YOUTUBE_SHORTS.buildSystemPrompt = (subChannel, userCustomRule) => appendUserNoteSafely(
+  buildPlatformSystemPrompt('youtube-shorts'),
+  userCustomRule
+);
+YOUTUBE_SHORTS.buildUserPrompt = (params) => buildPlatformUserPrompt(
+  'youtube-shorts',
+  { ...params, platformId: 'youtube-shorts' },
+  structured.buildStructuredOutputInstructions()
+);
+
+module.exports = YOUTUBE_SHORTS;

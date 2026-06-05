@@ -247,12 +247,46 @@ export class ScheduleManager {
     this.updateSchedule(schedule.id, { status: 'processing' });
 
     try {
-      // 포스팅 로직 실행
-      const { runPost } = await import('./index');
-      
-      const result = await runPost(schedule.payload);
-      
+      // 포스팅 생성 후 실제 플랫폼 발행까지 실행
+      const { runPost, publishGeneratedContent } = await import('./index');
+      const normalizePlatform = (platform: string | undefined) => {
+        const raw = String(platform || '').toLowerCase();
+        if (raw === 'blogger') return 'blogspot';
+        if (raw === 'wordpress' || raw === 'blogspot') return raw;
+        return 'blogspot';
+      };
+      const normalizePostingMode = (mode: string | undefined) => {
+        const raw = String(mode || '').toLowerCase();
+        if (raw === 'scheduled') return 'schedule';
+        if (raw === 'immediate' || raw === 'now' || raw === 'live' || raw === 'single') return 'publish';
+        if (raw === 'draft' || raw === 'save') return 'draft';
+        if (raw === 'schedule') return 'schedule';
+        return 'publish';
+      };
+      const postingMode = normalizePostingMode(schedule.payload?.postingMode || schedule.payload?.publishType || schedule.publishType);
+      const schedulePayload = {
+        ...schedule.payload,
+        platform: normalizePlatform(schedule.payload?.platform || schedule.platform),
+        publishType: postingMode,
+        postingMode,
+        scheduleDate: postingMode === 'schedule'
+          ? (schedule.payload?.scheduleDate || schedule.scheduleDateTime)
+          : undefined,
+        previewOnly: false,
+      };
+
+      const result = await runPost(schedulePayload);
+
       if (result.ok) {
+        const publishResult = await publishGeneratedContent(
+          schedulePayload,
+          result.title || schedulePayload.title || schedule.topic,
+          result.html || result.content || '',
+          result.thumbnail || result.thumbnailUrl || ''
+        );
+        if (!publishResult.ok) {
+          throw new Error(publishResult.error || '발행 실패');
+        }
         const updates: Partial<ScheduledPost> = { status: 'completed' };
         // errorMessage가 있으면 제거하기 위해 명시적으로 설정하지 않음
         this.updateSchedule(schedule.id, updates);

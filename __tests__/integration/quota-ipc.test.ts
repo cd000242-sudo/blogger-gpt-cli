@@ -8,7 +8,7 @@ jest.mock('electron', () => {
   const handlers = new Map<string, Function>();
   return {
     app: {
-      getPath: jest.fn(() => '/tmp/test-quota-ipc'),
+      getPath: jest.fn(() => '.tmp-tests/test-quota-ipc'),
       isPackaged: true, // 패키지 모드로 테스트 (체험판 활성)
     },
     ipcMain: {
@@ -27,13 +27,14 @@ jest.mock('electron', () => {
 import * as fs from 'fs';
 import * as path from 'path';
 
-const QUOTA_DIR = '/tmp/test-quota-ipc';
+const QUOTA_DIR = path.resolve('.tmp-tests/test-quota-ipc');
 const QUOTA_FILE = path.join(QUOTA_DIR, 'quota-state.json');
 const BACKUP_FILE = path.join(QUOTA_DIR, 'quota-state.backup.json');
 
 function cleanFiles() {
   try { fs.unlinkSync(QUOTA_FILE); } catch { /* ignore */ }
   try { fs.unlinkSync(BACKUP_FILE); } catch { /* ignore */ }
+  try { fs.rmdirSync(QUOTA_DIR); } catch { /* ignore */ }
 }
 
 describe('Quota IPC Integration', () => {
@@ -44,6 +45,17 @@ describe('Quota IPC Integration', () => {
 
   afterAll(() => {
     cleanFiles();
+  });
+
+  it('free trial app limit is 1 publish per day', async () => {
+    const authUtils = require('../../electron/auth-utils.js');
+
+    expect(authUtils.getFreeQuotaLimit()).toBe(1);
+
+    const status = await authUtils.getFreeQuotaStatus();
+    expect(status.limit).toBe(1);
+    expect(status.usage).toBe(0);
+    expect(status.isPaywalled).toBe(false);
   });
 
   it('consume → getQuotaStatus → isPaywalled 플로우', async () => {

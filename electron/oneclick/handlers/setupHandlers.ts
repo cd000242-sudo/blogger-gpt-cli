@@ -7,8 +7,13 @@ import type { SetupState } from '../types';
 import { runBlogspotSetup } from '../automation/blogspot/blogspotSetup';
 import { runWordPressSetup } from '../automation/wordpressSetup';
 import { getResumableCheckpoints, clearCheckpoint } from '../state/persistence';
+import { checkBrowserReadiness } from '../utils/browser';
 
 export function registerSetupHandlers(): void {
+  ipcMain.handle('oneclick:browser-check', async (_evt, args: { autoInstall?: boolean } = {}) => {
+    return checkBrowserReadiness(args.autoInstall !== false);
+  });
+
   // 세팅 시작
   ipcMain.handle('oneclick:start-setup', async (_evt, args: { platform: string; adminUrl: string; steps: string[]; blogspotConfig?: any }) => {
     try {
@@ -37,7 +42,7 @@ export function registerSetupHandlers(): void {
 
       console.log(`[ONECLICK] 🚀 ${platform} 세팅 시작, 총 ${steps.length}단계`);
 
-      const waitForLogin = (p: string) => setupStateManager.waitForLogin(p);
+      const waitForLogin = (p: string, timeout?: number) => setupStateManager.waitForLogin(p, timeout);
 
       const run = async () => {
         try {
@@ -123,7 +128,7 @@ export function registerSetupHandlers(): void {
       }));
 
       console.log(`[ONECLICK] 🔁 ${platform} Step ${fromStep}부터 재시도`);
-      const waitForLogin = (p: string) => setupStateManager.waitForLogin(p);
+      const waitForLogin = (p: string, timeout?: number) => setupStateManager.waitForLogin(p, timeout);
 
       const run = async () => {
         try {

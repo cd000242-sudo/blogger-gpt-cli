@@ -11,6 +11,9 @@ const SUBCHANNEL_RE = /^[\p{L}\p{N}\-_]{1,40}$/u;
  * @typedef {Object} GenerateV2Payload
  * @property {string} sourceUrl
  * @property {string} sourceTitle
+ * @property {string} [sourceText]
+ * @property {string[]} [sourceKeywords]
+ * @property {string} [sourceType]
  * @property {Array<{ id: string, subChannel?: string, userCustomRule?: string }>} channels
  * @property {{ safeMode?: boolean, addUtm?: boolean, englishMode?: boolean }} [options]
  */
@@ -25,7 +28,7 @@ function validateGenerateV2Payload(payload) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('INVALID_PAYLOAD');
   }
-  const { sourceUrl, sourceTitle, channels, options } = payload;
+  const { sourceUrl, sourceTitle, sourceText, sourceKeywords, sourceType, channels, options } = payload;
 
   if (typeof sourceUrl !== 'string' || sourceUrl.length === 0 || sourceUrl.length > 2000) {
     throw new Error('INVALID_SOURCE_URL');
@@ -35,6 +38,31 @@ function validateGenerateV2Payload(payload) {
   }
   if (typeof sourceTitle !== 'string' || sourceTitle.length === 0 || sourceTitle.length > 300) {
     throw new Error('INVALID_SOURCE_TITLE');
+  }
+  let cleanSourceText = '';
+  if (sourceText != null) {
+    if (typeof sourceText !== 'string' || sourceText.length > 12000) {
+      throw new Error('INVALID_SOURCE_TEXT');
+    }
+    cleanSourceText = sourceText;
+  }
+  let cleanSourceKeywords = [];
+  if (sourceKeywords != null) {
+    if (!Array.isArray(sourceKeywords) || sourceKeywords.length > 30) {
+      throw new Error('INVALID_SOURCE_KEYWORDS');
+    }
+    cleanSourceKeywords = sourceKeywords
+      .filter((kw) => typeof kw === 'string')
+      .map((kw) => kw.trim())
+      .filter(Boolean)
+      .slice(0, 30);
+  }
+  let cleanSourceType = '';
+  if (sourceType != null) {
+    if (typeof sourceType !== 'string' || sourceType.length > 80) {
+      throw new Error('INVALID_SOURCE_TYPE');
+    }
+    cleanSourceType = sourceType.trim();
   }
   if (!Array.isArray(channels) || channels.length === 0 || channels.length > 15) {
     throw new Error('INVALID_CHANNELS_COUNT');
@@ -74,6 +102,9 @@ function validateGenerateV2Payload(payload) {
   return {
     sourceUrl,
     sourceTitle,
+    sourceText: cleanSourceText,
+    sourceKeywords: cleanSourceKeywords,
+    sourceType: cleanSourceType,
     channels: cleanChannels,
     options: cleanOptions,
   };

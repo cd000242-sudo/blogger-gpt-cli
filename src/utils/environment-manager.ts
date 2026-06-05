@@ -11,6 +11,8 @@ export interface EnvConfig {
   pexelsApiKey?: string;
   dalleApiKey?: string;
   stabilityApiKey?: string;  // 🔥 Stability AI API 키
+  deepInfraApiKey?: string;
+  prodiaApiKey?: string;
   naverClientId?: string;
   naverClientSecret?: string;
   naverSearchAdAccessLicense?: string;
@@ -118,6 +120,17 @@ export class EnvironmentManager {
           if (apiKeys['googleClientId']) out['GOOGLE_CLIENT_ID'] = apiKeys['googleClientId'];
           if (apiKeys['googleClientSecret']) out['GOOGLE_CLIENT_SECRET'] = apiKeys['googleClientSecret'];
           if (apiKeys['youtubeApiKey']) out['YOUTUBE_API_KEY'] = apiKeys['youtubeApiKey'];
+          if (apiKeys['deepInfraApiKey'] || apiKeys['deepinfraApiKey'] || apiKeys['deepinfra_api_key'] || apiKeys['DEEPINFRA_API_KEY'] || apiKeys['DEEP_INFRA_API_KEY']) {
+            const deepInfraKey = apiKeys['deepInfraApiKey'] || apiKeys['deepinfraApiKey'] || apiKeys['deepinfra_api_key'] || apiKeys['DEEPINFRA_API_KEY'] || apiKeys['DEEP_INFRA_API_KEY'];
+            out['DEEPINFRA_API_KEY'] = deepInfraKey;
+            out['DEEP_INFRA_API_KEY'] = deepInfraKey;
+            out['deepInfraApiKey'] = deepInfraKey;
+          }
+          if (apiKeys['prodiaApiKey'] || apiKeys['prodia_api_key'] || apiKeys['PRODIA_API_KEY']) {
+            const prodiaKey = apiKeys['prodiaApiKey'] || apiKeys['prodia_api_key'] || apiKeys['PRODIA_API_KEY'];
+            out['PRODIA_API_KEY'] = prodiaKey;
+            out['prodiaApiKey'] = prodiaKey;
+          }
         }
         return out;
       } catch (e) {
@@ -194,6 +207,8 @@ export class EnvironmentManager {
       pexelsApiKey: envFileConfig['PEXELS_API_KEY'] || process.env['PEXELS_API_KEY'] || '',
       dalleApiKey: envFileConfig['DALLE_API_KEY'] || envFileConfig['OPENAI_API_KEY'] || process.env['DALLE_API_KEY'] || process.env['OPENAI_API_KEY'] || '',
       stabilityApiKey: envFileConfig['STABILITY_API_KEY'] || envFileConfig['stabilityApiKey'] || process.env['STABILITY_API_KEY'] || '',
+      deepInfraApiKey: envFileConfig['DEEPINFRA_API_KEY'] || envFileConfig['DEEP_INFRA_API_KEY'] || envFileConfig['deepInfraApiKey'] || process.env['DEEPINFRA_API_KEY'] || process.env['DEEP_INFRA_API_KEY'] || '',
+      prodiaApiKey: envFileConfig['PRODIA_API_KEY'] || envFileConfig['prodiaApiKey'] || process.env['PRODIA_API_KEY'] || '',
       naverClientId: envFileConfig['NAVER_CLIENT_ID'] || process.env['NAVER_CLIENT_ID'] || '',
       naverClientSecret: envFileConfig['NAVER_CLIENT_SECRET'] || process.env['NAVER_CLIENT_SECRET'] || '',
       naverSearchAdAccessLicense: envFileConfig['NAVER_SEARCH_AD_ACCESS_LICENSE'] || envFileConfig['naverSearchAdAccessLicense'] || envFileConfig['naver_search_ad_access_license'] ||

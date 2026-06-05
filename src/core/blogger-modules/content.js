@@ -10,6 +10,39 @@ const {
 } = require('./constants');
 const { calculateTextLength } = require('./utils');
 
+const BROKEN_TEXT_PATTERN = /\uFFFD|&#(?:65533|xfffd);|%EF%BF%BD/gi;
+
+function repairBrokenText(label, value) {
+  if (typeof value !== 'string' || value.length === 0) return value;
+
+  const matches = value.match(BROKEN_TEXT_PATTERN);
+  if (!matches || matches.length === 0) return value;
+
+  const preview = value
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(BROKEN_TEXT_PATTERN, '[replacement]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 140);
+
+  const broken = BROKEN_TEXT_PATTERN.source;
+  const brokenRe = new RegExp(broken, 'gi');
+  const repaired = value
+    .replace(new RegExp(`청년내(?:${broken})+저축계좌`, 'gi'), '청년내일저축계좌')
+    .replace(new RegExp(`청년내(?:${broken})+저축`, 'gi'), '청년내일저축')
+    .replace(new RegExp(`폭넓(?:${broken})+`, 'gi'), '폭넓게')
+    .replace(new RegExp(`([가-힣])니(?:${broken})+`, 'gi'), '$1니다')
+    .replace(brokenRe, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/>\s+</g, '><')
+    .trim();
+
+  console.warn(`[TEXT-REPAIR] ${label}: repaired ${matches.length} broken replacement marker(s) before Blogger publish. Preview: ${preview}`);
+  return repaired;
+}
+
 /**
  * 임시 CTA 추가 함수 (content-generators 모듈이 없을 경우 대체)
  * @param {string} content - HTML 콘텐츠
@@ -40,7 +73,7 @@ function validateTitle(title) {
       error: `제목이 너무 깁니다. (${title.length}자 / 최대 ${MAX_TITLE_LENGTH}자)`
     };
   }
-  
+
   return { ok: true };
 }
 
@@ -56,7 +89,7 @@ function validateHtml(html) {
       error: '콘텐츠가 비어있습니다. 콘텐츠를 입력해주세요.'
     };
   }
-  
+
   return { ok: true };
 }
 
@@ -209,6 +242,7 @@ function processLabels(labels) {
 
 module.exports = {
   addAutoCTAs,
+  repairBrokenText,
   validateTitle,
   validateHtml,
   analyzeContentSize,

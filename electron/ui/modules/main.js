@@ -26,6 +26,41 @@ import { renderOneclickSetupTab, initOneclickSetup } from './oneclick-setup.js';
 import { initPublishQueue } from './publish-queue.js'; // 🚀 연속발행 대기열 모듈
 import { initFirstRunWizard } from './first-run-wizard.js';
 
+window.__bgptUseModuleProgressListener = true;
+
+function startSharedRealtimeUpdates(source = 'module-main') {
+  if (typeof window.__bgptStartRealtimeUpdates === 'function') {
+    window.__bgptStartRealtimeUpdates(source);
+    return;
+  }
+
+  const tickClock = () => {
+    if (!document.hidden) updateRealtimeClock();
+  };
+  const tickDate = () => {
+    if (!document.hidden) updateRealtimeDate();
+  };
+
+  tickClock();
+  tickDate();
+
+  if (!window.__bgptRealtimeClockTimer) {
+    window.__bgptRealtimeClockTimer = setInterval(tickClock, 1000);
+  }
+  if (!window.__bgptRealtimeDateTimer) {
+    window.__bgptRealtimeDateTimer = setInterval(tickDate, 60000);
+  }
+  if (!window.__bgptRealtimeVisibilityBound) {
+    window.__bgptRealtimeVisibilityBound = true;
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        tickClock();
+        tickDate();
+      }
+    });
+  }
+}
+
 // 🔐 세션 만료 모달 (중복 로그인 방지)
 function showSessionExpiredModal(reason) {
   // 기존 모달 제거
@@ -119,6 +154,10 @@ function openInternalLinksManagerModalFallback() {
 
 // 🔥 워드프레스 관련 함수들 즉시 정의
 window.showWordPressAppPasswordGuide = function () {
+  if (window.__oneclickSetup?.showPlatformConnectGuide) {
+    window.__oneclickSetup.showPlatformConnectGuide('wordpress');
+    return;
+  }
   console.log('[WP 가이드] 함수 호출됨');
   const modal = document.createElement('div');
   modal.id = 'wpAppPasswordGuideModal';
@@ -491,10 +530,8 @@ async function initializeApp() {
     // 10. 라이선스 정보 로드
     await loadLicenseInfo();
 
-    // 11. 실시간 시계 및 날짜 초기화
-    updateRealtimeClock();
-    updateRealtimeDate();
-    setInterval(updateRealtimeClock, 1000);
+    // 11. 실시간 시계 및 날짜 초기화 (legacy/module 중복 interval 방지)
+    startSharedRealtimeUpdates('module-main');
 
     // 12. 달력 렌더링
     renderCalendar();
@@ -514,9 +551,16 @@ async function initializeApp() {
     });
 
     // 14. 백엔드 진행 상황 리스너 등록
+    let lastProgressLogAt = 0;
+    let lastProgressLoggedValue = -1;
     onProgress((data) => {
       const { p, label } = data;
-      console.log(`[PROGRESS] ${p}% - ${label || ''}`);
+      const now = Date.now();
+      if (p >= 100 || p !== lastProgressLoggedValue || now - lastProgressLogAt > 1200) {
+        console.log(`[PROGRESS] ${p}% - ${label || ''}`);
+        lastProgressLogAt = now;
+        lastProgressLoggedValue = p;
+      }
 
       const actualProgress = Math.min(100, Math.max(0, p));
       progressManager.updateProgress(actualProgress, actualProgress, label || '');

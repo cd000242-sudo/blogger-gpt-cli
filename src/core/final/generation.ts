@@ -9,6 +9,7 @@ import axios from 'axios';
 import { loadEnvFromFile } from '../../env';
 import { getGeminiApiKey, getPerplexityApiKey } from '../llm';
 import { validateCtaUrlWithAi } from '../../cta/validate-cta-ai';
+import { resolveOfficialLink } from '../../cta/resolve';
 
 /**
  * 🔀 하이브리드 CTA 검증 — HTTP 1차 + (옵션) Perplexity AI 2차
@@ -73,7 +74,91 @@ export function sanitizeCtaText(text: string): string {
     .trim();
 }
 
-async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000): Promise<boolean> {
+type CtaContextCategory =
+  | 'travel' | 'welfare' | 'tax' | 'health' | 'jobs' | 'realestate'
+  | 'education' | 'finance' | 'shopping' | 'food' | 'entertainment'
+  | 'electronics' | 'weather' | 'shipping' | 'public';
+
+const CTA_CONTEXT_RULES: Array<{ id: CtaContextCategory; keyword: RegExp; url: RegExp }> = [
+  { id: 'travel', keyword: /여행|관광|항공|항공권|비행기|숙박|호텔|렌터카|ktx|srt|코레일|철도|기차|여권|비자|입국|출국|해외여행|국내여행|휴가|캠핑/i, url: /kto\.visitkorea|visitkorea|letskorail|srail|korail|koreanair|flyasiana|jinair|jejuair|twayair|airbusan|skyscanner|kayak|triple|myrealtrip|yanolja|goodchoice|airbnb|hotelscombined|flight|hotel/i },
+  { id: 'welfare', keyword: /지원금|보조금|복지|연금|수당|장려금|바우처|혜택|청년|돌봄|급여/i, url: /bokjiro|mohw|nps\.or\.kr|kinfa|longtermcare/i },
+  { id: 'tax', keyword: /세금|국세|지방세|종소세|종합소득세|부가세|연말정산|홈택스|위택스|환급|신고/i, url: /hometax|wetax|nts\.go\.kr/i },
+  { id: 'health', keyword: /건강|의료|병원|진료|보험료|건강보험|의료보험|요양|검진|약값|질병/i, url: /nhis|hira|mohw|amc|snuh|samsunghospital|yuhs|longtermcare/i },
+  { id: 'jobs', keyword: /고용|취업|구직|채용|실업급여|일자리|이력서|hrd|직업훈련/i, url: /work\.go\.kr|ei\.go\.kr|hrd\.go\.kr|saramin|jobkorea|linkedin/i },
+  { id: 'realestate', keyword: /부동산|아파트|청약|주택|전세|월세|매매|실거래|분양|임대/i, url: /molit|rt\.molit|applyhome|r114|zigbang|dabang/i },
+  { id: 'education', keyword: /교육|학교|대학|입시|강의|수능|학습|자격증|인강|ebs/i, url: /moe\.go\.kr|neis|adiga|ebs|hrd\.go\.kr/i },
+  { id: 'finance', keyword: /금융|은행|대출|적금|예금|카드|보험|투자|송금|이체|간편결제/i, url: /fss|kbstar|shinhan|wooribank|kebhana|kakaobank|toss|pay\.naver|samsungfire|hi\.co\.kr|idbins/i },
+  { id: 'shopping', keyword: /쇼핑|구매|가격|최저가|할인|상품|제품|리뷰|후기|비교|배송|쿠폰|공식몰|선물|가전|패션|뷰티/i, url: /coupang|shopping\.naver|smartstore|11st|gmarket|auction|ssg|lotteon|danawa|musinsa|oliveyoung|kurly|wemakeprice|tmon|daiso|emart|homeplus|lottemart/i },
+  { id: 'food', keyword: /음식|맛집|배달|레시피|식품|카페|커피|치킨|피자|주문/i, url: /baemin|coupangeats|yogiyo|map\.kakao|map\.naver|booking\.naver|mcdonalds|kfc|lotteria|starbucks|ediya/i },
+  { id: 'entertainment', keyword: /영화|드라마|공연|콘서트|뮤지컬|전시|티켓|예매|ott|넷플릭스|디즈니|티빙|웨이브/i, url: /cgv|megabox|lottecinema|ticket|interpark|yes24|netflix|disneyplus|tving|wavve|watcha|movie\.naver/i },
+  { id: 'electronics', keyword: /전자|가전|스마트폰|아이폰|갤럭시|맥북|아이패드|컴퓨터|조립pc|냉장고|세탁기|tv|에어컨/i, url: /samsung\.com|lge\.co\.kr|apple\.com|danawa|compuzone|himart|etland/i },
+  { id: 'weather', keyword: /날씨|기상|예보|태풍|미세먼지|대기질|환경/i, url: /kma\.go\.kr|me\.go\.kr/i },
+  { id: 'shipping', keyword: /택배|배송|운송장|우체국|대한통운|한진|로젠|물류/i, url: /cjlogistics|hanjin|ilogen|epost|lotteglogis/i },
+  { id: 'public', keyword: /정부|공공|민원|증명|발급|신청|접수|등록|정책|공고|법령|고시/i, url: /\.go\.kr|\.or\.kr|gov\.kr|korea\.kr|law\.go\.kr/i },
+];
+
+function inferCtaKeywordCategories(keyword: string, contentMode?: string): Set<CtaContextCategory> {
+  const categories = new Set<CtaContextCategory>();
+  const text = `${keyword || ''} ${contentMode || ''}`;
+  for (const rule of CTA_CONTEXT_RULES) {
+    if (rule.keyword.test(text)) categories.add(rule.id);
+  }
+  if (contentMode === 'shopping') categories.add('shopping');
+  return categories;
+}
+
+function inferCtaUrlCategories(url: string): Set<CtaContextCategory> {
+  const categories = new Set<CtaContextCategory>();
+  try {
+    const parsed = new URL(url);
+    const target = `${parsed.hostname}${parsed.pathname}${parsed.search}`.toLowerCase();
+    for (const rule of CTA_CONTEXT_RULES) {
+      if (rule.url.test(target)) categories.add(rule.id);
+    }
+  } catch {
+    return categories;
+  }
+  return categories;
+}
+
+function inferCtaIntent(keyword: string): '예매' | '예약' | '다운로드' | '신청' | '바로가기' {
+  if (/예매|티켓|공연|영화|ktx|srt|철도|기차/i.test(keyword)) return '예매';
+  if (/예약|숙박|호텔|병원|진료|렌터카/i.test(keyword)) return '예약';
+  if (/다운로드|자료|양식|서식|pdf|hwp|엑셀/i.test(keyword)) return '다운로드';
+  if (/신청|접수|등록|발급|지원금|보조금|복지|청약/i.test(keyword)) return '신청';
+  return '바로가기';
+}
+
+export function isContextuallySafeCtaUrl(url: string, keyword: string, contentMode?: string): boolean {
+  if (!url || !/^https?:\/\//i.test(url)) return false;
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const full = `${host}${parsed.pathname}${parsed.search}`.toLowerCase();
+    if (/google\.com\/search|search\.naver\.com|search\.daum\.net|bing\.com\/search|m\.search/i.test(full)) return false;
+    if (/blog\.naver|tistory|brunch|velog|medium\.com|blogspot|wordpress\.com/i.test(full)) return false;
+    if (/\/error\/|\/error\.html|notfound|404|err(code|msg|cd)=/i.test(full)) return false;
+  } catch {
+    return false;
+  }
+
+  const urlCategories = inferCtaUrlCategories(url);
+  if (urlCategories.size === 0) return true;
+
+  const keywordCategories = inferCtaKeywordCategories(keyword, contentMode);
+  const specificUrlCategories = [...urlCategories].filter(c => c !== 'public');
+  const categoriesToMatch = specificUrlCategories.length > 0 ? specificUrlCategories : [...urlCategories];
+
+  return categoriesToMatch.some(c => keywordCategories.has(c));
+}
+
+async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000, contentMode?: string): Promise<boolean> {
+  if (!isContextuallySafeCtaUrl(url, keyword, contentMode)) {
+    console.log(`[CTA] 🚫 주제-링크 불일치로 차단: ${url}`);
+    return false;
+  }
+
   const httpResult = await validateCtaUrl(url, { timeout: timeoutMs });
   if (!httpResult.isValid) return false;
 
@@ -1474,8 +1559,6 @@ export async function generateCTAsFinal(
     return [];
   }
 
-  const encodedKeyword = encodeURIComponent(keyword);
-
   // 환경변수 로드
   const envData = loadEnvFromFile();
   const googleCseKey = envData['googleCseKey'] || envData['GOOGLE_CSE_KEY'] || (process.env as any)['GOOGLE_CSE_KEY'] || '';
@@ -1579,7 +1662,7 @@ JSON만 출력:
 
         if (!isSearchPage && !isBlogPage) {
           // 🔀 하이브리드 검증: HTTP 1차 + (의심 시/엄격 모드) Perplexity AI 2차
-          const isValid = await hybridValidateCta(ctaData.url, keyword, 5000);
+          const isValid = await hybridValidateCta(ctaData.url, keyword, 5000, contentMode);
           if (isValid) {
             // 📥 파일 다운로드 URL 감지 — AI가 반환한 텍스트보다 우선 (AI가 "사이트 바로가기"로 잘못 생성하는 케이스 방지)
             const doc = detectDocumentCta(ctaData.url);
@@ -1637,7 +1720,7 @@ JSON만 출력:
       let btnText = `🔗 ${shortKeyword} 공식 사이트`;
       let hookText = `${shortKeyword}에 대해 더 알아보세요!`;
       // 🔀 하이브리드 검증
-      const isCseValid = await hybridValidateCta(officialLink.url, keyword, 5000);
+      const isCseValid = await hybridValidateCta(officialLink.url, keyword, 5000, contentMode);
       if (isCseValid) {
         const shortKeyword2 = keyword.length > 15 ? keyword.split(/\s+/).slice(0, 2).join(' ') : keyword;
         const docCse = detectDocumentCta(officialLink.url);
@@ -1708,7 +1791,7 @@ JSON만 출력:
       const isOfficial = officialDomains.some(d => url.includes(d));
       const isBlog = blogDomains.some(d => url.includes(d));
       if (isOfficial && !isBlog) {
-        const isCrawledValid = await hybridValidateCta(post.url || '', keyword, 5000);
+        const isCrawledValid = await hybridValidateCta(post.url || '', keyword, 5000, contentMode);
         if (isCrawledValid) {
           const docCrawled = detectDocumentCta(post.url || '');
           const dlBtn = docCrawled.isDoc ? docCrawled.btnText
@@ -1742,6 +1825,32 @@ JSON만 출력:
   if (safeCTAs.length === 0) {
     console.log(`[CTA] ⚠️ 모든 검색 실패. 키워드 맞춤형 공식 서비스 매핑 시도...`);
 
+    const catalogLink = resolveOfficialLink({
+      query: keyword,
+      intent: inferCtaIntent(keyword),
+    });
+    if (catalogLink) {
+      const catalogValid = await hybridValidateCta(catalogLink.url, keyword, 5000, contentMode);
+      if (catalogValid) {
+        const docCatalog = detectDocumentCta(catalogLink.url);
+        const btnText = docCatalog.isDoc ? docCatalog.btnText : `🔗 ${catalogLink.name} 바로가기`;
+        const hookText = docCatalog.isDoc ? docCatalog.hookText : `${keyword} 관련 공식 정보를 확인하세요.`;
+        safeCTAs.push({
+          hookingMessage: hookText,
+          buttonText: btnText,
+          url: catalogLink.url,
+          position: 1,
+          type: 'link',
+          design: 'button',
+          text: btnText,
+          hook: hookText,
+        });
+        console.log(`[CTA] ✅ 공식 카탈로그 CTA 검증 통과: ${catalogLink.url}`);
+      } else {
+        console.log(`[CTA] ❌ 공식 카탈로그 CTA 검증 실패: ${catalogLink.url}`);
+      }
+    }
+
     const specificMappings: { pattern: RegExp; url: string; btnText: string; hookText: string }[] = [
       { pattern: /지원금|보조금|연금|수당|청년|장려금|바우처|복지/, url: 'https://www.bokjiro.go.kr/', btnText: '🎁 복지로에서 혜택 찾기', hookText: '나에게 맞는 복지 혜택을 복지로에서 확인하세요!' },
       { pattern: /세금|국세|종소세|부가세|연말정산|원천징수/, url: 'https://www.hometax.go.kr/', btnText: '💰 홈택스 바로가기', hookText: '세금 관련 신고·조회를 홈택스에서 바로 처리하세요.' },
@@ -1750,27 +1859,27 @@ JSON만 출력:
       { pattern: /부동산|아파트|전세|월세|집값|매매|실거래/, url: 'https://rt.molit.go.kr/', btnText: '🏠 실거래가 조회하기', hookText: '국토교통부 실거래가 공개시스템에서 확인하세요.' },
     ];
 
-    for (const mapping of specificMappings) {
-      if (mapping.pattern.test(keyword)) {
-        // 🛡️ 최후 폴백 단계: 공식 기관 루트 URL은 형식 검증만 수행
-        //    (.go.kr 루트가 간헐적 에러 본문을 띄워 error-content로 탈락하면 CTA가 완전히 사라지는 회귀 방지)
-        const validation = await validateCtaUrl(mapping.url, { timeout: 5000, skipHttp: true });
-        if (validation.isValid) {
-          safeCTAs.push({
-            hookingMessage: mapping.hookText,
-            buttonText: mapping.btnText,
-            url: mapping.url,
-            position: 1,
-            type: 'link',
-            design: 'button',
-            text: mapping.btnText,
-            hook: mapping.hookText,
-          });
-          console.log(`[CTA] ✅ 키워드 매핑 CTA 검증 성공: ${mapping.url} (${validation.statusCode || 'OK'}, ${validation.elapsedMs}ms)`);
-        } else {
-          console.log(`[CTA] ❌ 키워드 매핑 CTA 검증 실패: ${mapping.url} (${validation.reason})`);
+    if (safeCTAs.length === 0) {
+      for (const mapping of specificMappings) {
+        if (mapping.pattern.test(keyword)) {
+          const mappingValid = await hybridValidateCta(mapping.url, keyword, 5000, contentMode);
+          if (mappingValid) {
+            safeCTAs.push({
+              hookingMessage: mapping.hookText,
+              buttonText: mapping.btnText,
+              url: mapping.url,
+              position: 1,
+              type: 'link',
+              design: 'button',
+              text: mapping.btnText,
+              hook: mapping.hookText,
+            });
+            console.log(`[CTA] ✅ 키워드 매핑 CTA 검증 성공: ${mapping.url}`);
+          } else {
+            console.log(`[CTA] ❌ 키워드 매핑 CTA 검증 실패: ${mapping.url}`);
+          }
+          break;
         }
-        break;
       }
     }
 
@@ -1794,18 +1903,39 @@ JSON만 출력:
 
       const hasKeyword = tool.keywords.some(k => fullText.toLowerCase().includes(k) || keyword.toLowerCase().includes(k));
       if (hasKeyword) {
-        safeCTAs.push({
-          type: 'link',
-          text: tool.btn,
-          url: tool.url,
-          design: 'button',
-          hook: tool.hook,
-          hookingMessage: tool.hook,
-          buttonText: tool.btn
-        });
+        const toolValid = await hybridValidateCta(tool.url, keyword, 4000, contentMode);
+        if (toolValid) {
+          safeCTAs.push({
+            type: 'link',
+            text: tool.btn,
+            url: tool.url,
+            design: 'button',
+            hook: tool.hook,
+            hookingMessage: tool.hook,
+            buttonText: tool.btn
+          });
+        } else {
+          console.log(`[CTA] ❌ 스마트 툴 CTA 검증 실패: ${tool.url}`);
+        }
         break;
       }
     }
+  }
+
+  if (safeCTAs.length === 0) {
+    const fallbackUrl = `https://www.google.com/search?q=${encodeURIComponent(`${keyword} 공식 사이트`)}`;
+    safeCTAs.push({
+      hookingMessage: '자동 검증 링크를 찾지 못했다면 최신 공식 정보를 직접 확인해보세요.',
+      buttonText: '공식 정보 검색하기',
+      url: fallbackUrl,
+      position: 1,
+      type: 'link',
+      design: 'button',
+      text: '공식 정보 검색하기',
+      hook: '자동 검증 링크를 찾지 못했다면 최신 공식 정보를 직접 확인해보세요.',
+      searchFallback: true,
+    });
+    console.log(`[CTA] 🔎 직접 검증 URL 없음 — 검색 fallback CTA 사용: ${fallbackUrl}`);
   }
 
   return safeCTAs;

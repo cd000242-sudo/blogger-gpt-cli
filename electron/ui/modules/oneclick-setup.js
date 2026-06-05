@@ -22,11 +22,17 @@ const ENGINE_GRADIENTS = {
   bing: 'linear-gradient(135deg, #f28e26, #e67e22)'
 };
 
+const BLOGGER_OAUTH_REDIRECT_URI = 'http://127.0.0.1:58392/callback';
+const GOOGLE_AUTH_CLIENTS_URL = 'https://console.cloud.google.com/auth/clients';
+const GOOGLE_AUTH_OVERVIEW_URL = 'https://console.cloud.google.com/auth/overview';
+const GOOGLE_AUTH_AUDIENCE_URL = 'https://console.cloud.google.com/auth/audience';
+const GOOGLE_BLOGGER_API_URL = 'https://console.cloud.google.com/apis/library/blogger.googleapis.com';
+
 // ═══════════════════════════════════════════════
 // 타이밍 상수
 // ═══════════════════════════════════════════════
 
-const POLL_INTERVAL_MS = 1500;
+const POLL_INTERVAL_MS = 3000;
 const BUTTON_RESET_DELAY_MS = 5000;
 const BLOG_URL_AUTO_LOAD_DELAY_MS = 1000;
 const MAX_CONSECUTIVE_POLL_ERRORS = 10;
@@ -416,6 +422,193 @@ function attachModalDismiss(modal) {
   observer.observe(document.body, { childList: true });
 }
 
+const PLATFORM_CONNECT_GUIDES = {
+  blogspot: {
+    id: 'blogspot',
+    modalId: 'oneclick-blogger-oauth-guide-modal',
+    title: '블로그스팟 앱 연동 따라하기',
+    subtitle: '가이드 시작과 자동 연동이 같은 순서로 진행됩니다. 앱은 필요한 화면을 열고, 가능한 값은 자동으로 가져오며, 막히는 구간은 바로 붙여넣기/저장으로 이어갑니다.',
+    accent: '#FF7043',
+    badgeBg: 'rgba(255,112,67,0.16)',
+    badgeBorder: 'rgba(255,112,67,0.34)',
+    note: '완전 무인 자동화는 아닙니다. Google 로그인, 2FA, CAPTCHA, 권한 승인, 결제 계정 확인은 보안상 직접 완료해야 합니다.',
+    autoLabel: '가이드 순서대로 OAuth 연동 시작',
+    steps: [
+      { title: 'Google Cloud 열기', desc: '자동 연동이 Google Cloud Console을 열고 로그인 상태를 확인합니다.', btn: 'Cloud 열기', action: "window.__oneclickSetup?.openGoogleOAuthConsole('clients')", manual: true },
+      { title: '프로젝트 확인', desc: '기존 프로젝트를 쓰거나 blogger-gpt-app 프로젝트 생성을 시도합니다.', btn: '프로젝트', action: "window.__oneclickSetup?.openGoogleOAuthConsole('clients')", manual: false },
+      { title: 'Blogger API 활성화', desc: 'Blogger API v3 화면에서 사용/Enable 또는 관리/Manage 상태를 확인합니다.', btn: 'API 열기', action: "window.__oneclickSetup?.openGoogleOAuthConsole('bloggerApi')", manual: false },
+      { title: 'OAuth 동의 화면', desc: '앱 이름, 지원 이메일, 외부/External 선택이 나오면 화면 안내대로 저장합니다.', btn: '동의 화면', action: "window.__oneclickSetup?.openGoogleOAuthConsole('consent')", manual: true },
+      { title: '테스트 사용자 등록', desc: 'OAuth 앱이 테스트 상태이면 로그인한 Gmail을 Test users에 추가해야 403 access_denied가 나지 않습니다.', btn: '테스트 사용자', action: "window.__oneclickSetup?.openGoogleOAuthConsole('audience')", manual: true },
+      { title: 'OAuth Client 생성', desc: '데스크톱 앱 OAuth Client를 만들고 Client ID/Secret 자동 추출을 시도합니다.', btn: 'Client 만들기', action: "window.__oneclickSetup?.openGoogleOAuthConsole('clients')", manual: false },
+      { title: 'Redirect URI 확인', desc: 'Google 화면에서 Redirect URI를 요구할 때만 아래 값을 복사해 붙여넣습니다.', btn: 'Redirect 복사', action: "window.__oneclickSetup?.copyBloggerOAuthRedirectUri()", manual: true },
+      { title: 'Blog ID 가져오기', desc: 'Blogger 관리자 화면에서 Blog ID 자동 추출을 시도합니다. 로그인/2FA/CAPTCHA가 나오면 완료할 때까지 최대 15분 기다립니다.', btn: 'Blog ID 자동', action: "window.__oneclickSetup?.startBloggerBlogIdExtract()", manual: false },
+      { title: '저장 후 인증', desc: '자동 추출이 막히면 Client ID/Secret/Blog ID를 붙여넣고 저장 후 인증을 누릅니다.', btn: '입력칸 이동', action: "document.getElementById('oneclick-blogger-oauth-guide-modal')?.remove(); document.getElementById('oneclick-oauth-client-id')?.focus()", manual: true },
+    ],
+  },
+  wordpress: {
+    id: 'wordpress',
+    modalId: 'oneclick-wordpress-guide-modal',
+    title: '워드프레스 앱 연동 따라하기',
+    subtitle: '가이드 시작과 자동 연동이 같은 순서로 진행됩니다. 앱은 wp-admin과 프로필 화면을 열고, Application Password 생성/추출과 REST 검증까지 이어갑니다.',
+    accent: '#38bdf8',
+    badgeBg: 'rgba(14,165,233,0.16)',
+    badgeBorder: 'rgba(14,165,233,0.34)',
+    note: '완전 무인 자동화는 아닙니다. 관리자 로그인, 2FA, CAPTCHA, 보안 플러그인 확인, 한 번만 보이는 비밀번호 복사는 직접 처리해야 할 수 있습니다.',
+    autoLabel: '가이드 순서대로 App Password 생성',
+    steps: [
+      { title: '사이트 URL 입력', desc: 'WordPress 주소를 입력합니다. /wp-admin이 붙어 있어도 앱이 자동 정리합니다.', btn: 'URL 입력칸', action: "document.getElementById('oneclick-wordpress-guide-modal')?.remove(); document.getElementById('oneclick-wp-site-url')?.focus()", manual: true },
+      { title: 'wp-admin 로그인', desc: '앱이 관리자 로그인 화면을 엽니다. 보안 플러그인, 2FA, CAPTCHA가 나오면 직접 완료하세요.', btn: 'wp-admin 열기', action: "window.__oneclickSetup?.openWordPressAdmin('login')", manual: true },
+      { title: '사용자명 확인', desc: '로그인 후 관리자명/사용자명을 자동 추출하고 입력칸에 반영합니다.', btn: '불러오기', action: "window.__oneclickSetup?.loadWordPressFields()", manual: false },
+      { title: '프로필 열기', desc: '프로필 하단 Application Passwords 영역으로 이동합니다.', btn: '프로필 열기', action: "window.__oneclickSetup?.openWordPressAdmin('profile')", manual: false },
+      { title: 'Application Password 생성', desc: '이름을 LEADERNAM Orbit 등으로 넣고 Add New Application Password를 누릅니다.', btn: 'App Password', action: "window.__oneclickSetup?.openWordPressAdmin('profile')", manual: true },
+      { title: '비밀번호 복사', desc: '한 번만 표시되는 비밀번호를 앱 입력칸에 붙여넣습니다. 일반 로그인 비밀번호가 아닙니다.', btn: '입력칸 이동', action: "document.getElementById('oneclick-wordpress-guide-modal')?.remove(); document.getElementById('oneclick-wp-app-password')?.focus()", manual: true },
+      { title: '저장 후 REST 검증', desc: '/wp-json/wp/v2/users/me로 REST 인증을 확인하고 발행 준비 상태를 저장합니다.', btn: '저장 후 검증', action: "window.__oneclickSetup?.saveWordPressCredentials(true)", manual: false },
+    ],
+  },
+};
+
+function normalizeConnectPlatformId(platformId) {
+  return platformId === 'blogger' ? 'blogspot' : platformId;
+}
+
+function getPlatformConnectGuide(platformId) {
+  return PLATFORM_CONNECT_GUIDES[normalizeConnectPlatformId(platformId)];
+}
+
+function renderConnectStepRail(platformId, options = {}) {
+  const guide = getPlatformConnectGuide(platformId);
+  if (!guide) return '';
+  const maxSteps = options.maxSteps || guide.steps.length;
+  const steps = guide.steps.slice(0, maxSteps);
+  const compact = Boolean(options.compact);
+  const columns = compact ? 'repeat(auto-fit, minmax(136px, 1fr))' : 'repeat(auto-fit, minmax(168px, 1fr))';
+  return `
+    <div class="oneclick-connect-guide-rail" style="display:grid; grid-template-columns:${columns}; gap:8px; margin:${compact ? '8px 0 10px' : '12px 0'};">
+      ${steps.map((step, index) => `
+        <div style="min-width:0; padding:${compact ? '9px 10px' : '11px 12px'}; background:rgba(15,23,42,0.42); border:1px solid rgba(255,255,255,0.09); border-radius:10px;">
+          <div style="display:flex; align-items:center; gap:7px; color:#f8fafc; font-size:${compact ? '10px' : '11px'}; font-weight:850;">
+            <span style="width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; border-radius:7px; background:${guide.badgeBg}; border:1px solid ${guide.badgeBorder}; color:${guide.accent}; font-size:10px; font-weight:900;">${index + 1}</span>
+            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(step.title)}</span>
+            ${step.manual ? '<span style="flex-shrink:0; color:#fde68a; font-size:9px; font-weight:800;">직접</span>' : ''}
+          </div>
+          ${compact ? '' : `<div style="margin-top:5px; color:#94a3b8; font-size:10px; line-height:1.45;">${escapeHtml(step.desc)}</div>`}
+        </div>
+      `).join('')}
+    </div>
+    ${options.hideNote ? '' : `<div style="padding:9px 11px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.23); border-radius:9px; color:#fde68a; font-size:11px; line-height:1.55;">${escapeHtml(guide.note)}</div>`}
+  `;
+}
+
+function showUnifiedPlatformConnectGuide(platformId) {
+  const guide = getPlatformConnectGuide(platformId);
+  if (!guide) return;
+
+  const existing = document.getElementById(guide.modalId);
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = guide.modalId;
+  modal.style.cssText = `
+    position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(8px);
+    z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 18px;
+  `;
+
+  const card = document.createElement('div');
+  card.style.cssText = `
+    width: min(860px, 96vw); max-height: 90vh; overflow-y: auto;
+    background: linear-gradient(145deg, #172033, #0f172a); border: 1px solid rgba(255,255,255,0.13);
+    border-radius: 18px; box-shadow: 0 28px 80px rgba(0,0,0,0.55); padding: 24px;
+  `;
+
+  card.innerHTML = `
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:18px;">
+      <div>
+        <div style="font-size:19px; font-weight:900; color:white; letter-spacing:-0.2px;">${escapeHtml(guide.title)}</div>
+        <div style="font-size:12px; color:#94a3b8; line-height:1.6; margin-top:5px;">${escapeHtml(guide.subtitle)}</div>
+      </div>
+      <button type="button" data-guide-close style="padding:8px 12px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; border-radius:9px; cursor:pointer; font-size:12px; font-weight:700;">닫기</button>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      ${guide.steps.map((step, index) => `
+        <div style="display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; padding:14px; background:rgba(255,255,255,0.045); border:1px solid rgba(255,255,255,0.08); border-radius:12px;">
+          <div style="width:30px; height:30px; display:flex; align-items:center; justify-content:center; background:${guide.badgeBg}; border:1px solid ${guide.badgeBorder}; color:${guide.accent}; border-radius:9px; font-size:12px; font-weight:900;">${index + 1}</div>
+          <div style="min-width:0;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <div style="font-size:13px; font-weight:850; color:#f8fafc;">${escapeHtml(step.title)}</div>
+              ${step.manual ? '<span style="padding:2px 7px; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.26); border-radius:999px; color:#fde68a; font-size:10px; font-weight:800;">직접 확인</span>' : '<span style="padding:2px 7px; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.24); border-radius:999px; color:#bbf7d0; font-size:10px; font-weight:800;">자동 시도</span>'}
+            </div>
+            <div style="font-size:11px; color:#cbd5e1; line-height:1.55; margin-top:3px;">${escapeHtml(step.desc)}</div>
+          </div>
+          <button type="button" onclick="${step.action}" style="padding:9px 11px; background:rgba(59,130,246,0.16); border:1px solid rgba(59,130,246,0.35); color:#bfdbfe; border-radius:9px; cursor:pointer; font-size:11px; font-weight:800; white-space:nowrap;">${escapeHtml(step.btn)}</button>
+        </div>
+      `).join('')}
+    </div>
+
+    <div style="margin-top:14px; padding:12px 14px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.24); border-radius:11px; color:#fde68a; font-size:12px; line-height:1.65;">
+      ${escapeHtml(guide.note)}
+    </div>
+  `;
+
+  card.querySelector('[data-guide-close]')?.addEventListener('click', () => modal.remove());
+  modal.appendChild(card);
+  document.body.appendChild(modal);
+  attachModalDismiss(modal);
+}
+
+function showPlatformConnectGuide(platformId) {
+  showUnifiedPlatformConnectGuide(platformId);
+}
+
+function showPlatformGuideHub() {
+  const existing = document.getElementById('oneclick-platform-guide-hub-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'oneclick-platform-guide-hub-modal';
+  modal.style.cssText = `
+    position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(8px);
+    z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 18px;
+  `;
+
+  const card = document.createElement('div');
+  card.style.cssText = `
+    width: min(900px, 96vw); max-height: 90vh; overflow-y: auto;
+    background: linear-gradient(145deg, #172033, #0f172a); border: 1px solid rgba(255,255,255,0.13);
+    border-radius: 18px; box-shadow: 0 28px 80px rgba(0,0,0,0.55); padding: 24px;
+  `;
+
+  card.innerHTML = `
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:18px;">
+      <div>
+        <div style="font-size:19px; font-weight:900; color:white;">앱 연동 통합 가이드</div>
+        <div style="font-size:12px; color:#94a3b8; line-height:1.6; margin-top:5px;">가이드 시작, 빠른 준비, 자동 연동 버튼이 모두 아래와 같은 단계표를 사용합니다.</div>
+      </div>
+      <button type="button" data-guide-close style="padding:8px 12px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; border-radius:9px; cursor:pointer; font-size:12px; font-weight:700;">닫기</button>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:14px;">
+      ${['blogspot', 'wordpress'].map((id) => {
+        const guide = getPlatformConnectGuide(id);
+        return `
+          <div style="padding:16px; background:rgba(255,255,255,0.045); border:1px solid rgba(255,255,255,0.09); border-radius:14px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;">
+              <div style="font-size:15px; font-weight:900; color:${guide.accent};">${escapeHtml(guide.title)}</div>
+              <button type="button" onclick="document.getElementById('oneclick-platform-guide-hub-modal')?.remove(); window.__oneclickSetup?.showPlatformConnectGuide('${id}')" style="padding:7px 10px; background:${guide.badgeBg}; border:1px solid ${guide.badgeBorder}; color:#f8fafc; border-radius:8px; cursor:pointer; font-size:11px; font-weight:850;">가이드 열기</button>
+            </div>
+            ${renderConnectStepRail(id, { compact: true, hideNote: true })}
+            <div style="margin-top:8px; color:#cbd5e1; font-size:11px; line-height:1.55;">${escapeHtml(guide.note)}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  card.querySelector('[data-guide-close]')?.addEventListener('click', () => modal.remove());
+  modal.appendChild(card);
+  document.body.appendChild(modal);
+  attachModalDismiss(modal);
+}
+
 const PLATFORMS = {
   blogspot: {
     id: 'blogspot',
@@ -458,6 +651,303 @@ const PLATFORMS = {
 // ═══════════════════════════════════════════════
 // UI 렌더링
 // ═══════════════════════════════════════════════
+
+const LIVE_GUIDE_PANEL_ID = 'oneclick-live-guide-panel';
+let liveGuideState = null;
+
+function getLiveGuideSteps(kind, platformId) {
+  if (kind === 'connect') {
+    const guide = getPlatformConnectGuide(platformId);
+    return (guide?.steps || []).map((step, index) => ({
+      title: step.title,
+      desc: step.desc,
+      manual: Boolean(step.manual),
+      icon: step.manual ? '☝' : '⚙',
+      index,
+    }));
+  }
+
+  if (kind === 'blogger-blog-id') {
+    return [
+      { title: 'Blogger 열기', desc: 'Blogger 관리자 화면을 열고 Google 로그인 상태를 확인합니다.', manual: false, icon: '↗', index: 0 },
+      { title: '로그인 확인', desc: '로그인, 2단계 인증, CAPTCHA가 나오면 창을 닫지 말고 완료합니다.', manual: true, icon: '🔐', index: 1 },
+      { title: 'Blog ID 찾기', desc: '블로그를 선택하면 앱이 URL과 화면에서 Blog ID를 자동으로 추출합니다.', manual: false, icon: '🔎', index: 2 },
+    ];
+  }
+
+  const platform = PLATFORMS[platformId];
+  return (platform?.steps || []).map((step, index) => ({
+    title: step.title,
+    desc: step.desc,
+    manual: Boolean(step.manual),
+    icon: step.icon || (step.manual ? '☝' : '⚙'),
+    index,
+  }));
+}
+
+function getLiveGuideLabels(kind, platformId) {
+  if (kind === 'connect') {
+    const guide = getPlatformConnectGuide(platformId);
+    return {
+      title: `${guide?.title || '앱 연동'} 진행 가이드`,
+      subtitle: '자동화가 진행되는 동안 필요한 수동 작업만 차례대로 안내합니다.',
+      accent: guide?.accent || '#8b5cf6',
+    };
+  }
+
+  if (kind === 'blogger-blog-id') {
+    return {
+      title: 'Blog ID 자동 가져오기',
+      subtitle: '로그인 창을 닫지 않고 블로그 선택까지 순서대로 기다립니다.',
+      accent: '#ff5722',
+    };
+  }
+
+  const platform = PLATFORMS[platformId];
+  return {
+    title: `${platform?.name || '원클릭'} 세팅 가이드`,
+    subtitle: '자동 세팅 진행 상황을 실시간으로 표시합니다.',
+    accent: platform?.color || '#8b5cf6',
+  };
+}
+
+function getLiveGuideStatusMeta(state) {
+  if (state === 'done') {
+    return { icon: '✓', label: '완료', bg: 'rgba(16,185,129,0.14)', border: 'rgba(16,185,129,0.36)', color: '#86efac', dot: 'linear-gradient(135deg,#10b981,#059669)' };
+  }
+  if (state === 'waiting') {
+    return { icon: '!', label: '사용자 확인', bg: 'rgba(245,158,11,0.13)', border: 'rgba(245,158,11,0.36)', color: '#fde68a', dot: 'linear-gradient(135deg,#f59e0b,#d97706)' };
+  }
+  if (state === 'error') {
+    return { icon: '×', label: '확인 필요', bg: 'rgba(239,68,68,0.13)', border: 'rgba(239,68,68,0.36)', color: '#fca5a5', dot: 'linear-gradient(135deg,#ef4444,#dc2626)' };
+  }
+  if (state === 'running') {
+    return { icon: '…', label: '진행 중', bg: 'rgba(59,130,246,0.13)', border: 'rgba(59,130,246,0.36)', color: '#bfdbfe', dot: 'linear-gradient(135deg,#3b82f6,#2563eb)' };
+  }
+  return { icon: '', label: '대기', bg: 'rgba(15,23,42,0.52)', border: 'rgba(148,163,184,0.18)', color: '#94a3b8', dot: 'rgba(100,116,139,0.35)' };
+}
+
+function ensureLiveGuidePanel(kind, platformId, options = {}) {
+  const steps = options.steps || getLiveGuideSteps(kind, platformId);
+  const labels = getLiveGuideLabels(kind, platformId);
+  let panel = document.getElementById(LIVE_GUIDE_PANEL_ID);
+
+  if (!panel || liveGuideState?.kind !== kind || liveGuideState?.platformId !== platformId) {
+    panel?.remove();
+    panel = document.createElement('aside');
+    panel.id = LIVE_GUIDE_PANEL_ID;
+    panel.setAttribute('aria-live', 'polite');
+    panel.style.cssText = `
+      position: fixed; right: 18px; top: 82px; width: min(430px, calc(100vw - 28px));
+      max-height: calc(100vh - 108px); z-index: 99998; display: flex; flex-direction: column;
+      background: linear-gradient(180deg, rgba(15,23,42,0.98), rgba(2,6,23,0.98));
+      border: 1px solid rgba(255,255,255,0.14); border-radius: 18px;
+      box-shadow: 0 26px 90px rgba(0,0,0,0.48), 0 0 0 1px rgba(255,255,255,0.04) inset;
+      overflow: hidden; backdrop-filter: blur(18px);
+    `;
+    panel.innerHTML = `
+      <div style="padding:15px 16px 13px; border-bottom:1px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.035);">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+          <div style="min-width:0;">
+            <div style="font-size:15px; font-weight:900; color:#f8fafc; line-height:1.35;">${escapeHtml(labels.title)}</div>
+            <div style="margin-top:4px; font-size:11px; color:#94a3b8; line-height:1.45;">${escapeHtml(labels.subtitle)}</div>
+          </div>
+          <div style="display:flex; gap:6px; flex-shrink:0;">
+            <button type="button" data-live-minimize title="가이드 접기" style="width:30px; height:30px; border-radius:9px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.07); color:#cbd5e1; cursor:pointer; font-size:14px; font-weight:800;">−</button>
+            <button type="button" data-live-close title="가이드 닫기" style="width:30px; height:30px; border-radius:9px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.07); color:#cbd5e1; cursor:pointer; font-size:14px; font-weight:800;">×</button>
+          </div>
+        </div>
+        <div style="margin-top:12px; height:8px; background:rgba(148,163,184,0.18); border-radius:999px; overflow:hidden;">
+          <div data-live-progress style="height:100%; width:0%; background:linear-gradient(90deg, ${labels.accent}, #22c55e); border-radius:999px; transition:width .28s ease;"></div>
+        </div>
+      </div>
+      <div data-live-body style="overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px;">
+        <div data-live-current style="padding:12px 13px; border-radius:13px; background:rgba(59,130,246,0.10); border:1px solid rgba(59,130,246,0.28);">
+          <div data-live-current-title style="font-size:13px; font-weight:900; color:#f8fafc;">준비 중</div>
+          <div data-live-current-msg style="margin-top:5px; font-size:12px; line-height:1.55; color:#bfdbfe;">자동화 상태를 확인하고 있습니다.</div>
+        </div>
+        <div data-live-steps style="display:flex; flex-direction:column; gap:8px;"></div>
+      </div>
+    `;
+    document.body.appendChild(panel);
+    panel.querySelector('[data-live-close]')?.addEventListener('click', () => {
+      panel.remove();
+      liveGuideState = null;
+    });
+    panel.querySelector('[data-live-minimize]')?.addEventListener('click', () => {
+      const body = panel.querySelector('[data-live-body]');
+      const hidden = body.style.display === 'none';
+      body.style.display = hidden ? 'flex' : 'none';
+      panel.querySelector('[data-live-minimize]').textContent = hidden ? '−' : '+';
+    });
+  }
+
+  const previousStep = liveGuideState?.kind === kind && liveGuideState?.platformId === platformId
+    ? liveGuideState.currentStep
+    : undefined;
+  liveGuideState = { kind, platformId, steps, currentStep: previousStep };
+  renderLiveGuideSteps(panel, steps);
+  return panel;
+}
+
+function renderLiveGuideSteps(panel, steps) {
+  const host = panel.querySelector('[data-live-steps]');
+  if (!host) return;
+  host.innerHTML = steps.map((step, index) => `
+    <div data-live-step="${index}" style="display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center; padding:11px; border-radius:12px; background:rgba(15,23,42,0.52); border:1px solid rgba(148,163,184,0.18); transition:all .22s ease;">
+      <div data-live-step-dot="${index}" style="width:28px; height:28px; border-radius:9px; display:flex; align-items:center; justify-content:center; background:rgba(100,116,139,0.35); color:#cbd5e1; font-size:12px; font-weight:900;">${index + 1}</div>
+      <div style="min-width:0;">
+        <div style="display:flex; gap:7px; align-items:center; min-width:0;">
+          <span style="font-size:13px; flex-shrink:0;">${escapeHtml(step.icon || '')}</span>
+          <span style="font-size:12px; font-weight:850; color:#f8fafc; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(step.title)}</span>
+          ${step.manual ? '<span style="flex-shrink:0; padding:2px 6px; border-radius:999px; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.28); color:#fde68a; font-size:9px; font-weight:850;">직접</span>' : ''}
+        </div>
+        <div style="margin-top:3px; font-size:10px; line-height:1.45; color:#94a3b8;">${escapeHtml(step.desc || '')}</div>
+      </div>
+      <div data-live-step-label="${index}" style="font-size:10px; font-weight:850; color:#94a3b8; white-space:nowrap;">대기</div>
+    </div>
+  `).join('');
+}
+
+function updateLiveOneclickGuide(kind, platformId, status = {}) {
+  const panel = ensureLiveGuidePanel(kind, platformId);
+  if (!panel || !liveGuideState) return;
+
+  const steps = liveGuideState.steps || [];
+  const total = Math.max(steps.length, Number(status.totalSteps) || 0, 1);
+  const currentStepRaw = Number(status.currentStep);
+  const currentStep = Number.isFinite(currentStepRaw) ? Math.max(0, Math.min(currentStepRaw, total - 1)) : 0;
+  liveGuideState.currentStep = currentStep;
+  const completed = Boolean(status.completed);
+  const error = status.error || null;
+  const stepStatus = status.stepStatus || 'running';
+
+  steps.forEach((_, index) => {
+    let state = 'idle';
+    if (completed || index < currentStep) state = 'done';
+    else if (error && index === currentStep) state = 'error';
+    else if (index === currentStep) {
+      state = stepStatus === 'done' ? 'done' : stepStatus === 'waiting-login' ? 'waiting' : stepStatus === 'error' ? 'error' : 'running';
+    }
+
+    const meta = getLiveGuideStatusMeta(state);
+    const row = panel.querySelector(`[data-live-step="${index}"]`);
+    const dot = panel.querySelector(`[data-live-step-dot="${index}"]`);
+    const label = panel.querySelector(`[data-live-step-label="${index}"]`);
+    if (row) {
+      row.style.background = meta.bg;
+      row.style.borderColor = meta.border;
+    }
+    if (dot) {
+      dot.textContent = meta.icon || String(index + 1);
+      dot.style.background = meta.dot;
+      dot.style.color = state === 'idle' ? '#cbd5e1' : '#fff';
+    }
+    if (label) {
+      label.textContent = meta.label;
+      label.style.color = meta.color;
+    }
+  });
+
+  const activeStep = steps[currentStep] || steps[steps.length - 1] || { title: '진행 중', desc: '' };
+  const currentTitle = panel.querySelector('[data-live-current-title]');
+  const currentMsg = panel.querySelector('[data-live-current-msg]');
+  const progress = panel.querySelector('[data-live-progress]');
+  const currentBox = panel.querySelector('[data-live-current]');
+  const activeMeta = getLiveGuideStatusMeta(error ? 'error' : completed ? 'done' : stepStatus === 'waiting-login' ? 'waiting' : 'running');
+
+  if (currentTitle) currentTitle.textContent = completed ? '모든 단계 완료' : error ? '확인이 필요한 단계' : activeStep.title;
+  if (currentMsg) currentMsg.textContent = error || status.message || activeStep.desc || '다음 상태를 기다리는 중입니다.';
+  if (currentBox) {
+    currentBox.style.background = activeMeta.bg;
+    currentBox.style.borderColor = activeMeta.border;
+  }
+  if (progress) {
+    const doneCount = completed ? total : Math.min(currentStep + (stepStatus === 'done' ? 1 : 0), total);
+    progress.style.width = `${Math.max(0, Math.min(100, Math.round((doneCount / total) * 100)))}%`;
+  }
+}
+
+function finishLiveOneclickGuide(kind, platformId, message, ok = true) {
+  const fallbackStep = Number.isFinite(Number(liveGuideState?.currentStep)) ? liveGuideState.currentStep : 0;
+  updateLiveOneclickGuide(kind, platformId, {
+    currentStep: ok ? 999 : fallbackStep,
+    stepStatus: ok ? 'done' : 'error',
+    completed: ok,
+    error: ok ? null : message,
+    message,
+  });
+}
+
+let liveGuideDemoRunId = 0;
+
+function waitForDemo(ms, runId) {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve(runId === liveGuideDemoRunId), ms);
+  });
+}
+
+async function startOneclickGuideDemo(kind = 'connect', platformId = 'blogspot') {
+  const runningOp = isAnyOperationRunning();
+  if (runningOp) {
+    showToast(`진행 중인 작업(${runningOp})이 끝난 뒤 촬영용 테스트를 실행해주세요.`, 'warn', 6000);
+    return;
+  }
+
+  const runId = ++liveGuideDemoRunId;
+  const steps = getLiveGuideSteps(kind, platformId);
+  const demoTitleMap = {
+    setup: '원클릭 세팅',
+    connect: '앱 연동',
+    'blogger-blog-id': 'Blog ID 자동 가져오기',
+  };
+  const demoName = `${demoTitleMap[kind] || '가이드'} 촬영 테스트`;
+
+  ensureLiveGuidePanel(kind, platformId, { steps });
+  showToast(`${demoName}를 시작합니다. 실제 설정값은 변경하지 않습니다.`, 'info', 5000);
+  addLog?.(`[원클릭] ${demoName} 시작 (실제 자동화 미실행)`);
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    updateLiveOneclickGuide(kind, platformId, {
+      currentStep: i,
+      totalSteps: steps.length,
+      stepStatus: 'running',
+      message: `촬영용 테스트: ${step.title} 단계로 이동합니다.`,
+    });
+    if (!(await waitForDemo(900, runId))) return;
+
+    if (step.manual) {
+      updateLiveOneclickGuide(kind, platformId, {
+        currentStep: i,
+        totalSteps: steps.length,
+        stepStatus: 'waiting-login',
+        message: `사용자가 직접 처리하는 구간입니다. 영상에서는 이 설명을 읽고 로그인, 권한 승인, 복사 같은 행동을 보여주면 됩니다.`,
+      });
+      if (!(await waitForDemo(1700, runId))) return;
+    }
+
+    updateLiveOneclickGuide(kind, platformId, {
+      currentStep: i,
+      totalSteps: steps.length,
+      stepStatus: 'done',
+      message: `${step.title} 완료 처리 예시입니다.`,
+    });
+    if (!(await waitForDemo(700, runId))) return;
+  }
+
+  finishLiveOneclickGuide(kind, platformId, `${demoName}가 완료되었습니다. 실제 계정, 브라우저, 저장값은 건드리지 않았습니다.`, true);
+  showToast(`${demoName} 완료`, 'success', 4000);
+}
+
+function stopOneclickGuideDemo() {
+  liveGuideDemoRunId++;
+  if (!liveGuideState) {
+    showToast('진행 중인 촬영용 테스트가 없습니다.', 'info', 3000);
+    return;
+  }
+  finishLiveOneclickGuide(liveGuideState?.kind || 'connect', liveGuideState?.platformId || 'blogspot', '촬영용 테스트를 중지했습니다.', false);
+}
 
 export function renderOneclickSetupTab() {
   return `
@@ -531,6 +1021,48 @@ export function renderOneclickSetupTab() {
         <div id="oneclick-healthcheck-results" style="margin-top: 8px;"></div>
       </div>
 
+      <div id="oneclick-demo-card" style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(168, 85, 247, 0.32); border-radius: 16px; padding: 20px;">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:14px;">
+          <div style="display:flex; align-items:flex-start; gap:12px;">
+            <div style="width:40px; height:40px; background:linear-gradient(135deg,#8b5cf6,#6366f1); border-radius:12px; display:flex; align-items:center; justify-content:center; box-shadow:0 8px 24px rgba(139,92,246,0.25);">
+              <span style="font-size:20px;">🎬</span>
+            </div>
+            <div>
+              <h4 style="margin:0; font-weight:900; color:white; font-size:16px; letter-spacing:-0.2px;">영상 촬영 / 초보자 연습 모드</h4>
+              <p style="margin:4px 0 0; font-size:12px; color:#c4b5fd; line-height:1.55;">
+                이미 세팅된 상태에서도 처음 세팅하는 흐름을 다시 보여줍니다. 실제 브라우저 실행, 계정 로그인, 저장값 변경은 하지 않습니다.
+              </p>
+            </div>
+          </div>
+          <button type="button" onclick="window.__oneclickSetup?.stopOneclickGuideDemo()"
+            style="padding:9px 12px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.32); color:#fecaca; border-radius:10px; font-size:12px; font-weight:800; cursor:pointer; white-space:nowrap;">
+            테스트 중지
+          </button>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px;">
+          <button type="button" onclick="window.__oneclickSetup?.startOneclickGuideDemo('setup','blogspot')"
+            style="padding:11px 12px; background:rgba(255,87,34,0.13); border:1px solid rgba(255,87,34,0.34); color:#fed7aa; border-radius:11px; font-size:12px; font-weight:850; cursor:pointer;">
+            Blogspot 세팅 테스트
+          </button>
+          <button type="button" onclick="window.__oneclickSetup?.startOneclickGuideDemo('setup','wordpress')"
+            style="padding:11px 12px; background:rgba(33,117,155,0.14); border:1px solid rgba(33,117,155,0.34); color:#bae6fd; border-radius:11px; font-size:12px; font-weight:850; cursor:pointer;">
+            WordPress 세팅 테스트
+          </button>
+          <button type="button" onclick="window.__oneclickSetup?.startOneclickGuideDemo('connect','blogspot')"
+            style="padding:11px 12px; background:rgba(139,92,246,0.14); border:1px solid rgba(139,92,246,0.34); color:#ddd6fe; border-radius:11px; font-size:12px; font-weight:850; cursor:pointer;">
+            Blogspot 앱연동 테스트
+          </button>
+          <button type="button" onclick="window.__oneclickSetup?.startOneclickGuideDemo('connect','wordpress')"
+            style="padding:11px 12px; background:rgba(14,165,233,0.14); border:1px solid rgba(14,165,233,0.34); color:#bae6fd; border-radius:11px; font-size:12px; font-weight:850; cursor:pointer;">
+            WordPress 앱연동 테스트
+          </button>
+          <button type="button" onclick="window.__oneclickSetup?.startOneclickGuideDemo('blogger-blog-id','blogger-blog-id')"
+            style="padding:11px 12px; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.34); color:#fde68a; border-radius:11px; font-size:12px; font-weight:850; cursor:pointer;">
+            Blog ID 자동 테스트
+          </button>
+        </div>
+      </div>
+
       <!-- v3.7.23: 카드 순서 재정렬 (1) 앱 연동 → (2) 플랫폼 → (3) 웹마스터 → (4) 인프라
            블로그스팟/워드프레스 카드는 아래(STEP 2)로 이동됨. -->
 
@@ -555,23 +1087,85 @@ export function renderOneclickSetupTab() {
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
               <div>
                 <div style="font-size: 14px; font-weight: 800; color: #FF7043;">🔵 블로그스팟 앱 연동</div>
-                <div style="font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px;">GCP 프로젝트 생성 → Blogger API 활성화 → OAuth 설정 → Blog ID 추출</div>
+                <div style="font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px;">Google Cloud 자동 시도 + 실패 시 바로 붙여넣기 저장 → OAuth 인증</div>
               </div>
               <div id="oneclick-connect-status-blogger" style="padding: 4px 10px; background: rgba(100,116,139,0.2); border: 1px solid rgba(100,116,139,0.3); border-radius: 12px; font-size: 10px; font-weight: 600; color: #94a3b8;">
                 ⏳ 미연동
               </div>
             </div>
             <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px;">
-              <span style="padding: 4px 8px; background: rgba(255,255,255,0.06); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ GCP 프로젝트 자동 생성</span>
-              <span style="padding: 4px 8px; background: rgba(255,255,255,0.06); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ Blogger API 활성화</span>
-              <span style="padding: 4px 8px; background: rgba(255,255,255,0.06); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ OAuth Client ID/Secret 추출</span>
-              <span style="padding: 4px 8px; background: rgba(255,255,255,0.06); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ Blog ID 자동 추출</span>
+              <span style="padding: 4px 8px; background: rgba(255,255,255,0.06); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ Google Cloud 자동화 시도</span>
+              <span style="padding: 4px 8px; background: rgba(255,255,255,0.06); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ Blogger API 활성화 확인</span>
+              <span style="padding: 4px 8px; background: rgba(255,255,255,0.06); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ Client ID/Secret 자동 추출 시도</span>
+              <span style="padding: 4px 8px; background: rgba(255,255,255,0.06); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ 실패 시 앱에서 즉시 저장</span>
             </div>
+            ${renderConnectStepRail('blogspot', { compact: true })}
             <div id="oneclick-connect-msg-blogger" style="display: none; padding: 10px 14px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-bottom: 10px; font-size: 12px; color: #a78bfa; transition: all 0.3s;"></div>
+            <div id="oneclick-blogger-oauth-helper" style="padding: 14px; background: rgba(15, 23, 42, 0.45); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; margin-bottom: 12px;">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px;">
+                <div>
+                  <div style="font-size: 12px; font-weight: 800; color: #fed7aa;">Google OAuth 빠른 준비</div>
+                  <div style="font-size: 10px; color: rgba(255,255,255,0.45); margin-top: 3px; line-height: 1.5;">
+                    자동 추출이 막히면 여기서 Client ID/Secret을 붙여넣고 바로 인증까지 진행합니다.
+                  </div>
+                </div>
+                <button type="button" onclick="window.__oneclickSetup?.loadBloggerOAuthFields()"
+                  style="padding: 7px 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; border-radius: 8px; font-size: 10px; font-weight: 700; cursor: pointer; white-space: nowrap;">
+                  불러오기
+                </button>
+                <button type="button" onclick="window.__oneclickSetup?.showBloggerOAuthGuide()"
+                  style="padding: 7px 10px; background: rgba(251,191,36,0.16); border: 1px solid rgba(251,191,36,0.35); color: #fde68a; border-radius: 8px; font-size: 10px; font-weight: 800; cursor: pointer; white-space: nowrap;">
+                  가이드 시작
+                </button>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px;">
+                <input id="oneclick-oauth-redirect" type="text" readonly value="${BLOGGER_OAUTH_REDIRECT_URI}"
+                  style="width: 100%; padding: 9px 10px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #93c5fd; font-size: 11px; box-sizing: border-box;" />
+                <button type="button" onclick="window.__oneclickSetup?.copyBloggerOAuthRedirectUri()"
+                  style="padding: 9px 12px; background: rgba(59,130,246,0.18); border: 1px solid rgba(59,130,246,0.35); color: #bfdbfe; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
+                  Redirect 복사
+                </button>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                <input id="oneclick-oauth-client-id" type="text" placeholder="Google Client ID"
+                  style="width: 100%; padding: 10px 12px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; font-size: 12px; box-sizing: border-box;" />
+                <input id="oneclick-oauth-client-secret" type="password" placeholder="Google Client Secret"
+                  style="width: 100%; padding: 10px 12px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; font-size: 12px; box-sizing: border-box;" />
+              </div>
+              <input id="oneclick-oauth-blog-id" type="text" placeholder="Blog ID (있으면 입력, 없으면 자동 추출 시도)"
+                style="width: 100%; padding: 10px 12px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; font-size: 12px; box-sizing: border-box; margin-bottom: 10px;" />
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" onclick="window.__oneclickSetup?.openGoogleOAuthConsole('clients')"
+                  style="flex: 1; min-width: 120px; padding: 9px 10px; background: rgba(255,112,67,0.16); border: 1px solid rgba(255,112,67,0.35); color: #fed7aa; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
+                  Client 만들기
+                </button>
+                <button type="button" onclick="window.__oneclickSetup?.openGoogleOAuthConsole('bloggerApi')"
+                  style="flex: 1; min-width: 120px; padding: 9px 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
+                  Blogger API 열기
+                </button>
+                <button type="button" onclick="window.__oneclickSetup?.openGoogleOAuthConsole('audience')"
+                  style="flex: 1; min-width: 128px; padding: 9px 10px; background: rgba(251,191,36,0.16); border: 1px solid rgba(251,191,36,0.35); color: #fde68a; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;">
+                  테스트 사용자
+                </button>
+                <button type="button" onclick="window.__oneclickSetup?.startBloggerBlogIdExtract()"
+                  style="flex: 1; min-width: 130px; padding: 9px 10px; background: rgba(14,165,233,0.16); border: 1px solid rgba(14,165,233,0.35); color: #bae6fd; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
+                  Blog ID 자동
+                </button>
+                <button type="button" onclick="window.__oneclickSetup?.saveBloggerOAuthCredentials(false)"
+                  style="flex: 1; min-width: 120px; padding: 9px 10px; background: rgba(16,185,129,0.16); border: 1px solid rgba(16,185,129,0.35); color: #bbf7d0; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
+                  저장
+                </button>
+                <button type="button" onclick="window.__oneclickSetup?.saveBloggerOAuthCredentials(true)"
+                  style="flex: 1.3; min-width: 140px; padding: 9px 10px; background: linear-gradient(135deg, #8b5cf6, #6366f1); border: none; color: white; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;">
+                  저장 후 인증
+                </button>
+              </div>
+              <div id="oneclick-oauth-helper-msg" style="display: none; margin-top: 10px; padding: 9px 10px; background: rgba(0,0,0,0.18); border-radius: 8px; color: #c4b5fd; font-size: 11px; line-height: 1.5;"></div>
+            </div>
             <button id="oneclick-connect-btn-blogger" onclick="window.__oneclickSetup?.startPlatformConnect('blogger')"
               style="width: 100%; padding: 11px; background: linear-gradient(135deg, #FF5722, #FF7043); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.2); transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 6px;"
               onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
-              <span>▶</span><span>자동 연동 시작</span>
+              <span>▶</span><span>가이드 순서대로 OAuth 연동 시작</span>
             </button>
           </div>
 
@@ -580,7 +1174,7 @@ export function renderOneclickSetupTab() {
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
               <div>
                 <div style="font-size: 14px; font-weight: 800; color: #4fc3f7;">🟣 워드프레스 앱 연동</div>
-                <div style="font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px;">관리자 로그인 → Application Password 자동 생성</div>
+                <div style="font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px;">관리자 로그인 → Application Password 자동 생성 → REST 발행 검증</div>
               </div>
               <div id="oneclick-connect-status-wordpress" style="padding: 4px 10px; background: rgba(100,116,139,0.2); border: 1px solid rgba(100,116,139,0.3); border-radius: 12px; font-size: 10px; font-weight: 600; color: #94a3b8;">
                 ⏳ 미연동
@@ -590,8 +1184,55 @@ export function renderOneclickSetupTab() {
               <span style="padding: 4px 8px; background: rgba(255,255,255,0.06); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ wp-admin 자동 접속</span>
               <span style="padding: 4px 8px; background: rgba(255,255,255,0.06); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ Application Password 생성</span>
               <span style="padding: 4px 8px; background: rgba(255,255,255,0.06); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ 자격증명 자동 저장</span>
+              <span style="padding: 4px 8px; background: rgba(255,255,255,0.06); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ REST API 검증</span>
             </div>
+            ${renderConnectStepRail('wordpress', { compact: true })}
             <div id="oneclick-connect-msg-wordpress" style="display: none; padding: 10px 14px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-bottom: 10px; font-size: 12px; color: #4fc3f7; transition: all 0.3s;"></div>
+            <div id="oneclick-wordpress-helper" style="padding: 14px; background: rgba(15, 23, 42, 0.45); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; margin-bottom: 12px;">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 220px;">
+                  <div style="font-size: 12px; font-weight: 800; color: #bae6fd;">WordPress 빠른 준비</div>
+                  <div style="font-size: 10px; color: rgba(255,255,255,0.45); margin-top: 3px; line-height: 1.5;">
+                    자동 생성이 막히면 프로필을 열어 Application Password만 복사한 뒤 저장/검증합니다.
+                  </div>
+                </div>
+                <button type="button" onclick="window.__oneclickSetup?.loadWordPressFields()"
+                  style="padding: 7px 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; border-radius: 8px; font-size: 10px; font-weight: 700; cursor: pointer; white-space: nowrap;">
+                  불러오기
+                </button>
+                <button type="button" onclick="window.__oneclickSetup?.showWordPressGuide()"
+                  style="padding: 7px 10px; background: rgba(251,191,36,0.16); border: 1px solid rgba(251,191,36,0.35); color: #fde68a; border-radius: 8px; font-size: 10px; font-weight: 800; cursor: pointer; white-space: nowrap;">
+                  가이드 시작
+                </button>
+              </div>
+              <input id="oneclick-wp-site-url" type="text" placeholder="https://yourblog.com"
+                style="width: 100%; padding: 10px 12px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; font-size: 12px; box-sizing: border-box; margin-bottom: 8px;" />
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                <input id="oneclick-wp-username" type="text" placeholder="WordPress 관리자 ID"
+                  style="width: 100%; padding: 10px 12px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; font-size: 12px; box-sizing: border-box;" />
+                <input id="oneclick-wp-app-password" type="password" placeholder="Application Password"
+                  style="width: 100%; padding: 10px 12px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; font-size: 12px; box-sizing: border-box;" />
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" onclick="window.__oneclickSetup?.openWordPressAdmin('login')"
+                  style="flex: 1; min-width: 120px; padding: 9px 10px; background: rgba(14,165,233,0.16); border: 1px solid rgba(14,165,233,0.35); color: #bae6fd; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
+                  wp-admin 열기
+                </button>
+                <button type="button" onclick="window.__oneclickSetup?.openWordPressAdmin('profile')"
+                  style="flex: 1.2; min-width: 145px; padding: 9px 10px; background: rgba(59,130,246,0.16); border: 1px solid rgba(59,130,246,0.35); color: #bfdbfe; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
+                  App Password 열기
+                </button>
+                <button type="button" onclick="window.__oneclickSetup?.saveWordPressCredentials(false)"
+                  style="flex: 1; min-width: 100px; padding: 9px 10px; background: rgba(16,185,129,0.16); border: 1px solid rgba(16,185,129,0.35); color: #bbf7d0; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
+                  저장
+                </button>
+                <button type="button" onclick="window.__oneclickSetup?.saveWordPressCredentials(true)"
+                  style="flex: 1.2; min-width: 130px; padding: 9px 10px; background: linear-gradient(135deg, #0ea5e9, #2563eb); border: none; color: white; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;">
+                  저장 후 검증
+                </button>
+              </div>
+              <div id="oneclick-wp-helper-msg" style="display: none; margin-top: 10px; padding: 9px 10px; background: rgba(0,0,0,0.18); border-radius: 8px; color: #bae6fd; font-size: 11px; line-height: 1.5;"></div>
+            </div>
             <div id="oneclick-connect-wp-url-wrap" style="margin-bottom: 10px;">
               <input id="oneclick-connect-wp-url" type="text" placeholder="https://yourblog.com/wp-admin"
                 style="width: 100%; padding: 10px 14px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; color: white; font-size: 13px; outline: none; box-sizing: border-box;" />
@@ -599,7 +1240,7 @@ export function renderOneclickSetupTab() {
             <button id="oneclick-connect-btn-wordpress" onclick="window.__oneclickSetup?.startPlatformConnect('wordpress')"
               style="width: 100%; padding: 11px; background: linear-gradient(135deg, #21759B, #0073AA); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.2); transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 6px;"
               onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
-              <span>▶</span><span>자동 연동 시작</span>
+              <span>▶</span><span>가이드 순서대로 App Password 생성</span>
             </button>
           </div>
         </div>
@@ -826,6 +1467,12 @@ async function startSetup(platformId) {
 
 async function continueSetup(platformId, platform, adminUrl) {
   activeSetup = { platform: platformId, stepIndex: 0, cancelled: false };
+  updateLiveOneclickGuide('setup', platformId, {
+    currentStep: 0,
+    totalSteps: platform.steps.length,
+    stepStatus: 'running',
+    message: '원클릭 세팅을 시작합니다. 필요한 수동 단계가 나오면 이 가이드가 함께 안내합니다.',
+  });
 
   // UI 업데이트 — 진행 모드
   const btn = document.getElementById(`oneclick-btn-${platformId}`);
@@ -1223,6 +1870,14 @@ function listenForProgress(platformId) {
       const status = await window.electronAPI?.invoke('oneclick:get-status', { platform: platformId });
       if (!status) return;
       pfPollErrors = 0;
+      updateLiveOneclickGuide('setup', platformId, {
+        currentStep: status.currentStep,
+        totalSteps: PLATFORMS[platformId]?.steps?.length || status.totalSteps,
+        stepStatus: status.stepStatus,
+        message: status.message,
+        completed: status.completed,
+        error: status.error,
+      });
 
       // v3.7.23+: Stall 3단계 에스컬레이션 — 60초 / 3분 / 5분
       const now = new Date().getTime();
@@ -1428,10 +2083,18 @@ function listenForProgress(platformId) {
       if (status.completed) {
         clearPoll('platform');
         renderSetupSummary(platformId, status.stepResults || []);
+        finishLiveOneclickGuide('setup', platformId, '원클릭 세팅이 완료되었습니다.', true);
         setSetupComplete(platformId);
       } else if (status.error) {
         clearPoll('platform');
         renderSetupSummary(platformId, status.stepResults || [], { failedMessage: status.error, currentStep: status.currentStep });
+        updateLiveOneclickGuide('setup', platformId, {
+          currentStep: status.currentStep,
+          totalSteps: PLATFORMS[platformId]?.steps?.length || status.totalSteps,
+          stepStatus: 'error',
+          error: status.error,
+          message: status.error,
+        });
         setSetupFailed(platformId, status.error);
       }
     } catch {
@@ -1628,6 +2291,7 @@ function setSetupComplete(platformId) {
 function setSetupFailed(platformId, errorMsg) {
   activeSetup = null;
   const platform = PLATFORMS[platformId];
+  finishLiveOneclickGuide('setup', platformId, errorMsg || '원클릭 세팅이 중단되었습니다.', false);
 
   const btn = document.getElementById(`oneclick-btn-${platformId}`);
   const status = document.getElementById(`oneclick-status-${platformId}`);
@@ -1677,6 +2341,7 @@ function cancelSetup(platformId) {
   }
 
   if (progress) progress.style.display = 'none';
+  finishLiveOneclickGuide('setup', platformId, '사용자가 원클릭 세팅을 취소했습니다.', false);
   activeSetup = null;
 }
 
@@ -1757,16 +2422,24 @@ async function startPlatformConnect(platformId) {
 
   // WordPress는 사이트 URL 필요 — 4단계 폴백으로 자동 채움
   if (platformId === 'wordpress') {
-    // 1순위: 플랫폼 설정 input (#wordpressSiteUrl) 현재 값
+    // 1순위: 원클릭 카드 입력값 (사용자가 바로 입력한 값)
+    try {
+      const quickInput = document.getElementById('oneclick-wp-site-url');
+      const cardInput = document.getElementById('oneclick-connect-wp-url');
+      siteUrl = quickInput?.value?.trim() || cardInput?.value?.trim() || '';
+      if (siteUrl) console.log('[ONECLICK-CONNECT] 📥 사이트 URL: 원클릭 카드에서 로드');
+    } catch { /* 무시 */ }
+
+    // 2순위: 플랫폼 설정 input (#wordpressSiteUrl) 현재 값
     try {
       const inputEl = document.getElementById('wordpressSiteUrl');
-      if (inputEl && inputEl.value && inputEl.value.trim()) {
+      if (!siteUrl && inputEl && inputEl.value && inputEl.value.trim()) {
         siteUrl = inputEl.value.trim();
         console.log('[ONECLICK-CONNECT] 📥 사이트 URL: 플랫폼 input에서 로드');
       }
     } catch { /* 무시 */ }
 
-    // 2순위: localStorage bloggerSettings (다양한 키명 지원)
+    // 3순위: localStorage bloggerSettings (다양한 키명 지원)
     if (!siteUrl) {
       try {
         const storage = getStorageManager();
@@ -1776,7 +2449,7 @@ async function startPlatformConnect(platformId) {
       } catch { /* 무시 */ }
     }
 
-    // 3순위: .env (getEnv IPC) — 외부에서 수동 편집한 .env도 흡수
+    // 4순위: .env (getEnv IPC) — 외부에서 수동 편집한 .env도 흡수
     if (!siteUrl) {
       try {
         const envRes = await window.electronAPI?.getEnv?.();
@@ -1786,7 +2459,7 @@ async function startPlatformConnect(platformId) {
       } catch { /* 무시 */ }
     }
 
-    // 4순위: 모달 입력 — 위 모든 폴백 실패 시에만
+    // 5순위: 모달 입력 — 위 모든 폴백 실패 시에만
     if (!siteUrl) {
       console.log('[ONECLICK-CONNECT] ⚠️ 사이트 URL 미발견 — 수동 입력 모달 표시');
       showInputModal({
@@ -1808,11 +2481,17 @@ async function startPlatformConnect(platformId) {
 
 async function continuePlatformConnect(platformId, siteUrl) {
   activeConnect = { platform: platformId, cancelled: false };
+  updateLiveOneclickGuide('connect', platformId, {
+    currentStep: 0,
+    totalSteps: getLiveGuideSteps('connect', platformId).length,
+    stepStatus: 'running',
+    message: '앱 연동을 시작합니다. 필요한 로그인과 복사 작업은 이 가이드가 순서대로 안내합니다.',
+  });
 
   // UI 업데이트
   const btn = document.getElementById(`oneclick-connect-btn-${platformId}`);
   const progressDiv = document.getElementById(`oneclick-connect-progress-${platformId}`);
-  const msgDiv = document.getElementById(`oneclick-connect-msg-${platformId}`);
+  let msgDiv = document.getElementById(`oneclick-connect-msg-${platformId}`);
 
   if (btn) {
     setButtonContent(btn, '⏸', '연동 취소');
@@ -1820,7 +2499,18 @@ async function continuePlatformConnect(platformId, siteUrl) {
     btn.style.borderColor = 'rgba(239, 68, 68, 0.4)';
     btn.onclick = () => cancelPlatformConnect(platformId);
   }
-  if (progressDiv) progressDiv.style.display = 'block';
+  if (progressDiv) {
+    progressDiv.style.display = 'block';
+    if (!document.getElementById(`oneclick-connect-steps-${platformId}`)) {
+      progressDiv.innerHTML = `
+        <div id="oneclick-connect-msg-${platformId}" style="font-size: 12px; color: #c4b5fd; line-height:1.55;">준비 중...</div>
+        <div id="oneclick-connect-steps-${platformId}">
+          ${renderConnectStepRail(platformId, { compact: true })}
+        </div>
+      `;
+      msgDiv = document.getElementById(`oneclick-connect-msg-${platformId}`);
+    }
+  }
   if (msgDiv) { msgDiv.style.display = 'block'; msgDiv.textContent = '🔄 브라우저를 여는 중...'; }
 
   try {
@@ -1844,6 +2534,14 @@ async function continuePlatformConnect(platformId, siteUrl) {
         const status = await window.electronAPI?.invoke('oneclick:get-connect-status', { platform: platformId });
         if (!status?.ok) return;
         cnPollErrors = 0;
+        updateLiveOneclickGuide('connect', platformId, {
+          currentStep: status.currentStep,
+          totalSteps: status.totalSteps || getLiveGuideSteps('connect', platformId).length,
+          stepStatus: status.stepStatus,
+          message: status.message,
+          completed: status.completed,
+          error: status.error,
+        });
 
         // UI 메시지 업데이트 (textContent로 XSS 방지)
         if (msgDiv) {
@@ -1858,6 +2556,7 @@ async function continuePlatformConnect(platformId, siteUrl) {
           clearPoll('connect');
 
           if (status.completed && status.results) {
+            finishLiveOneclickGuide('connect', platformId, '앱 연동이 완료되었습니다. 추출된 값은 환경 설정에 저장됩니다.', true);
             // 환경설정에 자동 저장
             await saveConnectResults(platformId, status.results);
             if (msgDiv) {
@@ -1879,6 +2578,13 @@ async function continuePlatformConnect(platformId, siteUrl) {
               showToast(`⚠️ ${platformName} 부분 완료: ${missing.join(', ')} 추출 실패. 화면에서 직접 복사해주세요.`, 'warn', 8000);
             }
           } else if (status.error) {
+            updateLiveOneclickGuide('connect', platformId, {
+              currentStep: status.currentStep,
+              totalSteps: status.totalSteps || getLiveGuideSteps('connect', platformId).length,
+              stepStatus: 'error',
+              error: status.error,
+              message: status.error,
+            });
             showToast(`❌ 연동 실패: ${status.error}`, 'error');
           }
 
@@ -1891,6 +2597,7 @@ async function continuePlatformConnect(platformId, siteUrl) {
         if (cnPollErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
           clearPoll('connect');
           if (msgDiv) msgDiv.textContent = '❌ 연결 시간 초과';
+          finishLiveOneclickGuide('connect', platformId, '연동 상태 확인이 지연되어 중단되었습니다.', false);
           resetConnectUI(platformId);
         }
       }
@@ -1899,6 +2606,7 @@ async function continuePlatformConnect(platformId, siteUrl) {
   } catch (error) {
     console.error('[ONECLICK-CONNECT] 연동 시작 실패:', error);
     if (msgDiv) msgDiv.textContent = `❌ ${error.message}`;
+    finishLiveOneclickGuide('connect', platformId, error.message || '연동 시작에 실패했습니다.', false);
     resetConnectUI(platformId);
   }
 }
@@ -1912,18 +2620,730 @@ async function cancelPlatformConnect(platformId) {
   resetConnectUI(platformId);
   const msgDiv = document.getElementById(`oneclick-connect-msg-${platformId}`);
   if (msgDiv) msgDiv.textContent = '⏹ 취소됨';
+  finishLiveOneclickGuide('connect', platformId, '사용자가 앱 연동을 취소했습니다.', false);
 }
 
 function resetConnectUI(platformId) {
   const btn = document.getElementById(`oneclick-connect-btn-${platformId}`);
   if (btn) {
-    const label = platformId === 'wordpress' ? 'Application Password 자동 생성' : 'GCP OAuth 자동 설정 (API 연동)';
+    const guide = getPlatformConnectGuide(platformId);
+    const label = guide?.autoLabel || (platformId === 'wordpress' ? '가이드대로 App Password 생성' : '가이드대로 OAuth 연동 시작');
     setButtonContent(btn, '🔗', label);
     btn.style.background = 'linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(99, 102, 241, 0.3))';
     btn.style.borderColor = 'rgba(139, 92, 246, 0.4)';
     btn.onclick = () => startPlatformConnect(platformId);
   }
   activeConnect = null;
+}
+
+function getOneclickStoredSettingsSync() {
+  try {
+    const raw = localStorage.getItem('bloggerSettings');
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function getStoredBloggerOAuthSettings() {
+  let settings = {};
+  try {
+    const storage = getStorageManager();
+    settings = await storage.get('bloggerSettings', true) || {};
+  } catch {
+    settings = getOneclickStoredSettingsSync();
+  }
+
+  let env = {};
+  try {
+    const envRes = await window.electronAPI?.getEnv?.();
+    env = envRes?.data || {};
+  } catch { /* .env 로드는 선택 */ }
+
+  return {
+    googleClientId: settings.googleClientId || env.GOOGLE_CLIENT_ID || env.googleClientId || '',
+    googleClientSecret: settings.googleClientSecret || env.GOOGLE_CLIENT_SECRET || env.googleClientSecret || '',
+    blogId: settings.blogId || env.BLOG_ID || env.BLOGGER_ID || env.blogId || '',
+    googleRefreshToken: settings.googleRefreshToken || env.GOOGLE_REFRESH_TOKEN || '',
+    googleAccessToken: settings.googleAccessToken || env.GOOGLE_ACCESS_TOKEN || '',
+  };
+}
+
+function setOAuthHelperMessage(message, type = 'info') {
+  const msg = document.getElementById('oneclick-oauth-helper-msg');
+  if (!msg) return;
+  const colorMap = {
+    info: '#c4b5fd',
+    success: '#bbf7d0',
+    warn: '#fde68a',
+    error: '#fca5a5',
+  };
+  msg.style.display = 'block';
+  msg.style.color = colorMap[type] || colorMap.info;
+  msg.textContent = message;
+}
+
+function updateBloggerConnectStatusFromCredentials(creds) {
+  const status = document.getElementById('oneclick-connect-status-blogger');
+  if (!status) return;
+
+  if (creds?.googleClientId && creds?.googleClientSecret && creds?.blogId) {
+    status.textContent = '✅ 저장됨';
+    status.style.background = 'rgba(16,185,129,0.2)';
+    status.style.borderColor = 'rgba(16,185,129,0.35)';
+    status.style.color = '#6ee7b7';
+  } else if (creds?.googleClientId && creds?.googleClientSecret) {
+    status.textContent = '🔐 OAuth 준비';
+    status.style.background = 'rgba(59,130,246,0.18)';
+    status.style.borderColor = 'rgba(59,130,246,0.35)';
+    status.style.color = '#93c5fd';
+  }
+}
+
+async function loadBloggerOAuthFields(showResult = true) {
+  const creds = await getStoredBloggerOAuthSettings();
+  const clientIdInput = document.getElementById('oneclick-oauth-client-id');
+  const secretInput = document.getElementById('oneclick-oauth-client-secret');
+  const blogIdInput = document.getElementById('oneclick-oauth-blog-id');
+  const redirectInput = document.getElementById('oneclick-oauth-redirect');
+
+  if (clientIdInput && creds.googleClientId) clientIdInput.value = creds.googleClientId;
+  if (secretInput && creds.googleClientSecret) secretInput.value = creds.googleClientSecret;
+  if (blogIdInput && creds.blogId) blogIdInput.value = creds.blogId;
+  if (redirectInput) redirectInput.value = BLOGGER_OAUTH_REDIRECT_URI;
+
+  updateBloggerConnectStatusFromCredentials(creds);
+  if (showResult) {
+    const ready = creds.googleClientId && creds.googleClientSecret;
+    setOAuthHelperMessage(ready ? '저장된 Google OAuth 값을 불러왔습니다.' : '저장된 Google OAuth 값이 아직 없습니다. Client ID/Secret을 붙여넣어 주세요.', ready ? 'success' : 'warn');
+  }
+  return creds;
+}
+
+async function copyBloggerOAuthRedirectUri() {
+  const text = BLOGGER_OAUTH_REDIRECT_URI;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const input = document.getElementById('oneclick-oauth-redirect');
+    if (input) {
+      input.select();
+      document.execCommand('copy');
+    }
+  }
+  setOAuthHelperMessage(`Redirect URI를 복사했습니다: ${text}`, 'success');
+  showToast('Redirect URI가 복사되었습니다.', 'success');
+}
+
+function openGoogleOAuthConsole(target = 'clients') {
+  const urls = {
+    clients: GOOGLE_AUTH_CLIENTS_URL,
+    consent: GOOGLE_AUTH_OVERVIEW_URL,
+    audience: GOOGLE_AUTH_AUDIENCE_URL,
+    testUsers: GOOGLE_AUTH_AUDIENCE_URL,
+    bloggerApi: GOOGLE_BLOGGER_API_URL,
+  };
+  const url = urls[target] || GOOGLE_AUTH_CLIENTS_URL;
+  if (window.electronAPI?.openLink) {
+    window.electronAPI.openLink(url);
+  } else if (window.electronAPI?.openExternal) {
+    window.electronAPI.openExternal(url);
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
+
+function validateBloggerOAuthInputs(clientId, clientSecret) {
+  if (!clientId || !clientSecret) {
+    return 'Google Client ID와 Client Secret을 모두 입력해주세요.';
+  }
+  if (!/\.apps\.googleusercontent\.com$/.test(clientId)) {
+    return 'Google Client ID 형식이 이상합니다. 보통 .apps.googleusercontent.com 으로 끝납니다.';
+  }
+  if (clientSecret.length < 8) {
+    return 'Google Client Secret 값이 너무 짧습니다. 다시 복사해 주세요.';
+  }
+  return '';
+}
+
+async function saveBloggerOAuthCredentials(startAuthAfterSave = false) {
+  const clientId = document.getElementById('oneclick-oauth-client-id')?.value?.trim() || '';
+  const clientSecret = document.getElementById('oneclick-oauth-client-secret')?.value?.trim() || '';
+  const blogId = document.getElementById('oneclick-oauth-blog-id')?.value?.trim() || '';
+
+  const validationError = validateBloggerOAuthInputs(clientId, clientSecret);
+  if (validationError) {
+    setOAuthHelperMessage(validationError, 'error');
+    showToast(validationError, 'warn');
+    return { ok: false, error: validationError };
+  }
+
+  const storage = getStorageManager();
+  const settings = await storage.get('bloggerSettings', true) || {};
+  settings.googleClientId = clientId;
+  settings.googleClientSecret = clientSecret;
+  if (blogId) settings.blogId = blogId;
+  settings.platform = 'blogger';
+  settings.redirectUri = BLOGGER_OAUTH_REDIRECT_URI;
+  await storage.set('bloggerSettings', settings, true);
+
+  const envPayload = {
+    googleClientId: clientId,
+    googleClientSecret: clientSecret,
+    googleRedirectUri: BLOGGER_OAUTH_REDIRECT_URI,
+    platform: 'blogger',
+  };
+  if (blogId) envPayload.blogId = blogId;
+
+  try {
+    if (!window.blogger?.saveEnv) {
+      throw new Error('환경 저장 IPC를 찾지 못했습니다');
+    }
+    const saveRes = await window.blogger?.saveEnv?.(envPayload);
+    if (saveRes && saveRes.ok === false) {
+      throw new Error(saveRes.error || '환경 파일 저장 실패');
+    }
+  } catch (e) {
+    setOAuthHelperMessage(`저장소에는 저장했지만 .env 저장에 실패했습니다: ${e?.message || e}`, 'warn');
+    showToast('.env 저장에 실패했습니다. 환경설정을 다시 저장해주세요.', 'warn');
+    return { ok: false, error: e?.message || String(e) };
+  }
+
+  const results = { googleClientId: clientId, googleClientSecret: clientSecret, blogId };
+  updateBloggerConnectStatusFromCredentials(results);
+  ['googleClientId', 'googleClientSecret', 'blogId'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (id === 'googleClientId') el.value = clientId;
+    if (id === 'googleClientSecret') el.value = clientSecret;
+    if (id === 'blogId' && blogId) el.value = blogId;
+  });
+
+  setOAuthHelperMessage('Google OAuth 값이 앱 설정과 .env에 저장되었습니다.', 'success');
+  showToast('Google OAuth 값 저장 완료', 'success');
+
+  if (startAuthAfterSave) {
+    await startBloggerOAuthFromOneclick({ clientId, clientSecret, blogId });
+  }
+
+  return { ok: true };
+}
+
+async function startBloggerOAuthFromOneclick({ clientId, clientSecret, blogId }) {
+  if (!window.electronAPI?.startBloggerAuth) {
+    setOAuthHelperMessage('Blogger OAuth IPC를 찾지 못했습니다. 앱을 재시작한 뒤 다시 시도해주세요.', 'error');
+    return;
+  }
+
+  setOAuthHelperMessage('브라우저를 열고 Google 권한 승인을 기다리는 중입니다. 403 access_denied가 뜨면 [테스트 사용자]에서 로그인 Gmail을 추가한 뒤 다시 인증하세요.', 'info');
+  const result = await window.electronAPI.startBloggerAuth({
+    blogId,
+    googleClientId: clientId,
+    googleClientSecret: clientSecret,
+  });
+
+  if (!result?.ok) {
+    setOAuthHelperMessage(`OAuth 인증 시작 실패: ${result?.error || '알 수 없는 오류'}`, 'error');
+    showToast(`OAuth 인증 시작 실패: ${result?.error || '알 수 없는 오류'}`, 'error');
+    return;
+  }
+
+  setOAuthHelperMessage(`브라우저에서 Google 권한을 승인해주세요. "테스터만 액세스" 403이 뜨면 [테스트 사용자] 버튼으로 Gmail을 추가한 뒤 다시 누르세요. Redirect URI: ${result.redirectUri || BLOGGER_OAUTH_REDIRECT_URI}`, 'info');
+  showToast('브라우저에서 Google 권한을 승인해주세요.', 'info', 6000);
+}
+
+async function startBloggerBlogIdExtract() {
+  const runningOp = isAnyOperationRunning();
+  if (runningOp) {
+    showToast(`⚠️ ${runningOp}이(가) 진행 중입니다. 완료 후 다시 시도해주세요.`, 'warn');
+    return;
+  }
+
+  activeConnect = { platform: 'blogger-blog-id', cancelled: false };
+  updateLiveOneclickGuide('blogger-blog-id', 'blogger-blog-id', {
+    currentStep: 0,
+    totalSteps: 3,
+    stepStatus: 'running',
+    message: 'Blogger 관리자 화면을 열고 Blog ID 자동 추출을 준비합니다.',
+  });
+  setOAuthHelperMessage('Blogger 관리자 화면을 열고 Blog ID를 찾는 중입니다. Google 로그인/2FA/CAPTCHA가 나오면 창을 닫지 말고 완료해주세요. 최대 15분까지 기다립니다.', 'info');
+  showToast('Blogger Blog ID 자동 가져오기를 시작합니다. 로그인 창은 오래 열어둡니다.', 'info', 6000);
+
+  try {
+    updateLiveOneclickGuide('blogger-blog-id', 'blogger-blog-id', {
+      currentStep: 0,
+      totalSteps: 3,
+      stepStatus: 'running',
+      message: '자동화 브라우저 구성요소를 확인합니다. 포맷 후 첫 실행이면 자동 설치를 진행할 수 있습니다.',
+    });
+    setOAuthHelperMessage('자동화 브라우저를 확인하는 중입니다. 처음 실행하는 PC에서는 Chromium 설치 때문에 몇 분 걸릴 수 있습니다.', 'info');
+
+    const browserCheck = await window.electronAPI?.invoke('oneclick:browser-check', { autoInstall: true });
+    if (!browserCheck?.ok) {
+      throw new Error([
+        browserCheck?.detail || '자동화 브라우저 준비에 실패했습니다.',
+        browserCheck?.fix || '인터넷 연결을 확인한 뒤 다시 눌러주세요.',
+      ].filter(Boolean).join('\n'));
+    }
+
+    setOAuthHelperMessage(`자동화 브라우저 준비 완료: ${browserCheck.browser || 'Chromium'}. Blogger 관리자 화면을 여는 중입니다.`, 'success');
+
+    const result = await window.electronAPI?.invoke('oneclick:extract-blogger-blog-id');
+    if (!result?.ok) throw new Error(result?.error || 'Blog ID 자동 가져오기 시작 실패');
+  } catch (e) {
+    activeConnect = null;
+    finishLiveOneclickGuide('blogger-blog-id', 'blogger-blog-id', e?.message || 'Blog ID 자동 가져오기 시작에 실패했습니다.', false);
+    setOAuthHelperMessage(`Blog ID 자동 가져오기 시작 실패: ${e?.message || e}`, 'error');
+    showToast(`Blog ID 자동 가져오기 실패: ${e?.message || e}`, 'error');
+    return;
+  }
+
+  clearPoll('connect');
+  let pollErrors = 0;
+  connectPollId = setInterval(async () => {
+    if (activeConnect?.cancelled) {
+      clearPoll('connect');
+      return;
+    }
+
+    try {
+      const status = await window.electronAPI?.invoke('oneclick:get-connect-status', { platform: 'blogger-blog-id' });
+      if (!status?.ok) return;
+      pollErrors = 0;
+      updateLiveOneclickGuide('blogger-blog-id', 'blogger-blog-id', {
+        currentStep: status.currentStep,
+        totalSteps: status.totalSteps || 3,
+        stepStatus: status.stepStatus,
+        message: status.message,
+        completed: status.completed,
+        error: status.error,
+      });
+
+      const icon = status.stepStatus === 'waiting-login' ? '🔐' :
+                   status.stepStatus === 'running' ? '🔎' :
+                   status.stepStatus === 'done' ? '✅' : '❌';
+      setOAuthHelperMessage(`${icon} ${status.message}`, status.stepStatus === 'error' ? 'error' : 'info');
+
+      if (status.completed || status.error) {
+        clearPoll('connect');
+        activeConnect = null;
+
+        if (status.completed && status.results?.blogId) {
+          await saveBloggerBlogIdOnly(status.results.blogId);
+          finishLiveOneclickGuide('blogger-blog-id', 'blogger-blog-id', `Blog ID를 자동으로 가져와 저장했습니다: ${status.results.blogId}`, true);
+          setOAuthHelperMessage(`Blog ID를 자동으로 가져와 저장했습니다: ${status.results.blogId}`, 'success');
+          showToast('Blog ID 자동 저장 완료', 'success');
+        } else if (status.error) {
+          updateLiveOneclickGuide('blogger-blog-id', 'blogger-blog-id', {
+            currentStep: status.currentStep,
+            totalSteps: status.totalSteps || 3,
+            stepStatus: 'error',
+            error: status.error,
+            message: status.error,
+          });
+          setOAuthHelperMessage(status.error, 'error');
+          showToast(`Blog ID 자동 가져오기 실패: ${status.error}`, 'error', 8000);
+        }
+      }
+    } catch (e) {
+      pollErrors++;
+      if (pollErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+        clearPoll('connect');
+        activeConnect = null;
+        finishLiveOneclickGuide('blogger-blog-id', 'blogger-blog-id', 'Blog ID 자동 가져오기 상태 확인이 끊겼습니다. 다시 시도해주세요.', false);
+        setOAuthHelperMessage('Blog ID 자동 가져오기 상태 확인이 끊겼습니다. 다시 시도해주세요.', 'error');
+      }
+    }
+  }, POLL_INTERVAL_MS);
+}
+
+async function saveBloggerBlogIdOnly(blogId) {
+  if (!blogId) return;
+  const storage = getStorageManager();
+  const settings = await storage.get('bloggerSettings', true) || {};
+  settings.blogId = blogId;
+  settings.platform = 'blogger';
+  settings.redirectUri = BLOGGER_OAUTH_REDIRECT_URI;
+  await storage.set('bloggerSettings', settings, true);
+
+  const helperBlogId = document.getElementById('oneclick-oauth-blog-id');
+  const settingsBlogId = document.getElementById('blogId');
+  if (helperBlogId) helperBlogId.value = blogId;
+  if (settingsBlogId) settingsBlogId.value = blogId;
+
+  try {
+    const envRes = await window.blogger?.saveEnv?.({
+      blogId,
+      platform: 'blogger',
+      googleRedirectUri: BLOGGER_OAUTH_REDIRECT_URI,
+    });
+    if (envRes && envRes.ok === false) throw new Error(envRes.error || '환경 파일 저장 실패');
+  } catch (e) {
+    setOAuthHelperMessage(`Blog ID는 저장했지만 .env 저장에 실패했습니다: ${e?.message || e}`, 'warn');
+  }
+
+  const creds = await getStoredBloggerOAuthSettings();
+  updateBloggerConnectStatusFromCredentials({ ...creds, blogId });
+}
+
+function showBloggerOAuthGuide() {
+  return showUnifiedPlatformConnectGuide('blogspot');
+  const existing = document.getElementById('oneclick-blogger-oauth-guide-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'oneclick-blogger-oauth-guide-modal';
+  modal.style.cssText = `
+    position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(8px);
+    z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 18px;
+  `;
+
+  const card = document.createElement('div');
+  card.style.cssText = `
+    width: min(720px, 96vw); max-height: 90vh; overflow-y: auto;
+    background: linear-gradient(145deg, #172033, #0f172a); border: 1px solid rgba(255,255,255,0.13);
+    border-radius: 18px; box-shadow: 0 28px 80px rgba(0,0,0,0.55); padding: 24px;
+  `;
+
+  card.innerHTML = `
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:18px;">
+      <div>
+        <div style="font-size:18px; font-weight:900; color:white; letter-spacing:-0.2px;">블로그스팟 OAuth 따라하기</div>
+        <div style="font-size:12px; color:#94a3b8; line-height:1.6; margin-top:5px;">
+          앱이 필요한 화면을 순서대로 열어줍니다. 사용자는 Google 화면에서 클릭하고 Client ID/Secret만 복사하면 됩니다.
+        </div>
+      </div>
+      <button type="button" data-guide-close style="padding:8px 12px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; border-radius:9px; cursor:pointer; font-size:12px; font-weight:700;">닫기</button>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      ${[
+        ['1', 'Blogger API 열기', 'Google Cloud에서 Blogger API 화면이 열리면 [사용] 또는 [Enable]을 눌러주세요. 이미 [관리]가 보이면 넘어가면 됩니다.', 'Blogger API 열기', "window.__oneclickSetup?.openGoogleOAuthConsole('bloggerApi')"],
+        ['2', 'OAuth 동의 화면 확인', '앱 이름, 지원 이메일을 요구하면 화면 안내대로 채워 저장하세요. 외부/External 선택이 나오면 외부를 선택합니다.', '동의 화면 열기', "window.__oneclickSetup?.openGoogleOAuthConsole('consent')"],
+        ['3', 'Client ID 만들기', '사용자 인증 정보에서 OAuth 클라이언트 ID를 만듭니다. 앱 유형은 데스크톱 앱을 권장하고, Redirect URI 입력칸이 나오면 아래 값을 붙여넣으세요.', 'Client 만들기', "window.__oneclickSetup?.openGoogleOAuthConsole('clients')"],
+        ['4', 'Redirect URI 복사', 'Google 화면에서 Redirect URI를 요구할 때만 붙여넣습니다. 데스크톱 앱 유형이면 입력칸이 안 나올 수 있고 그 경우 정상입니다.', 'Redirect 복사', "window.__oneclickSetup?.copyBloggerOAuthRedirectUri()"],
+        ['5', 'Blog ID 자동 가져오기', 'Blogger 관리자 화면을 앱이 열어 Blog ID를 자동으로 가져옵니다. 로그인/2FA/CAPTCHA가 나오면 창을 닫지 말고 완료해주세요. 최대 15분 기다립니다.', 'Blog ID 자동', "window.__oneclickSetup?.startBloggerBlogIdExtract()"],
+        ['6', 'Client ID/Secret 붙여넣기', 'Google에서 생성된 Client ID와 Client Secret을 이 화면의 입력칸에 붙여넣고 [저장 후 인증]을 누르면 끝입니다.', '입력칸으로 이동', "document.getElementById('oneclick-blogger-oauth-guide-modal')?.remove(); document.getElementById('oneclick-oauth-client-id')?.focus()"],
+      ].map(([num, title, desc, btn, action]) => `
+        <div style="display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; padding:14px; background:rgba(255,255,255,0.045); border:1px solid rgba(255,255,255,0.08); border-radius:12px;">
+          <div style="width:28px; height:28px; display:flex; align-items:center; justify-content:center; background:rgba(251,191,36,0.16); border:1px solid rgba(251,191,36,0.32); color:#fde047; border-radius:8px; font-size:12px; font-weight:900;">${num}</div>
+          <div style="min-width:0;">
+            <div style="font-size:13px; font-weight:850; color:#f8fafc;">${title}</div>
+            <div style="font-size:11px; color:#cbd5e1; line-height:1.55; margin-top:3px;">${desc}</div>
+          </div>
+          <button type="button" onclick="${action}" style="padding:9px 11px; background:rgba(59,130,246,0.16); border:1px solid rgba(59,130,246,0.35); color:#bfdbfe; border-radius:9px; cursor:pointer; font-size:11px; font-weight:800; white-space:nowrap;">${btn}</button>
+        </div>
+      `).join('')}
+    </div>
+
+    <div style="margin-top:14px; padding:12px 14px; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.24); border-radius:11px; color:#bbf7d0; font-size:12px; line-height:1.65;">
+      영상 안내 문구 추천: “이 화면에서 순서대로 버튼을 누르고, Google에서 Client ID와 Secret 두 값만 복사해 붙여넣으면 됩니다.”
+    </div>
+  `;
+
+  card.querySelector('[data-guide-close]')?.addEventListener('click', () => modal.remove());
+  modal.appendChild(card);
+  document.body.appendChild(modal);
+  attachModalDismiss(modal);
+}
+
+function normalizeWordPressSiteUrl(url) {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  const withProtocol = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
+  return withProtocol
+    .replace(/\/wp-admin\/?$/i, '')
+    .replace(/\/wp-login\.php$/i, '')
+    .replace(/\/+$/, '');
+}
+
+async function getStoredWordPressSettings() {
+  let settings = {};
+  try {
+    const storage = getStorageManager();
+    settings = await storage.get('bloggerSettings', true) || {};
+  } catch {
+    settings = getOneclickStoredSettingsSync();
+  }
+
+  let env = {};
+  try {
+    const envRes = await window.electronAPI?.getEnv?.();
+    env = envRes?.data || {};
+  } catch { /* .env 로드는 선택 */ }
+
+  return {
+    wordpressSiteUrl: normalizeWordPressSiteUrl(
+      settings.wordpressSiteUrl || settings.wpSiteUrl || env.WORDPRESS_SITE_URL || env.WP_SITE_URL || env.wordpressSiteUrl || ''
+    ),
+    wordpressUsername: settings.wordpressUsername || env.WORDPRESS_USERNAME || env.WP_USERNAME || env.wordpressUsername || '',
+    wordpressPassword: settings.wordpressPassword || env.WORDPRESS_PASSWORD || env.WP_PASSWORD || env.wordpressPassword || '',
+  };
+}
+
+function setWordPressHelperMessage(message, type = 'info') {
+  const msg = document.getElementById('oneclick-wp-helper-msg');
+  if (!msg) return;
+  const colorMap = {
+    info: '#bae6fd',
+    success: '#bbf7d0',
+    warn: '#fde68a',
+    error: '#fca5a5',
+  };
+  msg.style.display = 'block';
+  msg.style.color = colorMap[type] || colorMap.info;
+  msg.textContent = message;
+}
+
+function updateWordPressConnectStatusFromCredentials(creds) {
+  const status = document.getElementById('oneclick-connect-status-wordpress');
+  if (!status) return;
+
+  if (creds?.wordpressSiteUrl && creds?.wordpressUsername && creds?.wordpressPassword) {
+    status.textContent = '✅ 저장됨';
+    status.style.background = 'rgba(16,185,129,0.2)';
+    status.style.borderColor = 'rgba(16,185,129,0.35)';
+    status.style.color = '#6ee7b7';
+  } else if (creds?.wordpressSiteUrl) {
+    status.textContent = '🔐 준비 중';
+    status.style.background = 'rgba(59,130,246,0.18)';
+    status.style.borderColor = 'rgba(59,130,246,0.35)';
+    status.style.color = '#93c5fd';
+  }
+}
+
+async function loadWordPressFields(showResult = true) {
+  const creds = await getStoredWordPressSettings();
+  const siteInput = document.getElementById('oneclick-wp-site-url');
+  const legacySiteInput = document.getElementById('oneclick-connect-wp-url');
+  const usernameInput = document.getElementById('oneclick-wp-username');
+  const passwordInput = document.getElementById('oneclick-wp-app-password');
+
+  if (siteInput && creds.wordpressSiteUrl) siteInput.value = creds.wordpressSiteUrl;
+  if (legacySiteInput && creds.wordpressSiteUrl) legacySiteInput.value = `${creds.wordpressSiteUrl}/wp-admin`;
+  if (usernameInput && creds.wordpressUsername) usernameInput.value = creds.wordpressUsername;
+  if (passwordInput && creds.wordpressPassword) passwordInput.value = creds.wordpressPassword;
+
+  updateWordPressConnectStatusFromCredentials(creds);
+  if (showResult) {
+    const ready = creds.wordpressSiteUrl && creds.wordpressUsername && creds.wordpressPassword;
+    setWordPressHelperMessage(ready ? '저장된 WordPress 연동 값을 불러왔습니다.' : '저장된 값이 부족합니다. 사이트 URL, 관리자 ID, Application Password를 확인해주세요.', ready ? 'success' : 'warn');
+  }
+  return creds;
+}
+
+function getWordPressFieldsFromUi() {
+  const siteUrl = normalizeWordPressSiteUrl(
+    document.getElementById('oneclick-wp-site-url')?.value?.trim()
+      || document.getElementById('oneclick-connect-wp-url')?.value?.trim()
+      || document.getElementById('wordpressSiteUrl')?.value?.trim()
+      || ''
+  );
+  const username = document.getElementById('oneclick-wp-username')?.value?.trim()
+    || document.getElementById('wordpressUsername')?.value?.trim()
+    || '';
+  const password = document.getElementById('oneclick-wp-app-password')?.value?.trim()
+    || document.getElementById('wordpressPassword')?.value?.trim()
+    || '';
+  return { siteUrl, username, password };
+}
+
+async function openWordPressAdmin(target = 'login') {
+  let { siteUrl } = getWordPressFieldsFromUi();
+  if (!siteUrl) {
+    const stored = await getStoredWordPressSettings();
+    siteUrl = stored.wordpressSiteUrl;
+  }
+
+  if (!siteUrl) {
+    setWordPressHelperMessage('먼저 WordPress 사이트 URL을 입력해주세요. 예: https://yourblog.com', 'warn');
+    document.getElementById('oneclick-wp-site-url')?.focus();
+    return;
+  }
+
+  const paths = {
+    login: '/wp-admin',
+    profile: '/wp-admin/profile.php#application-passwords-section',
+    rest: '/wp-json/wp/v2',
+  };
+  const url = `${siteUrl}${paths[target] || paths.login}`;
+  if (window.electronAPI?.openLink) {
+    await window.electronAPI.openLink(url);
+  } else if (window.electronAPI?.openExternal) {
+    await window.electronAPI.openExternal(url);
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+  setWordPressHelperMessage(`${url} 화면을 열었습니다.`, 'info');
+}
+
+function validateWordPressInputs(siteUrl, username, password) {
+  if (!siteUrl) return 'WordPress 사이트 URL을 입력해주세요.';
+  if (!/^https?:\/\//i.test(siteUrl)) return 'WordPress 사이트 URL 형식이 이상합니다.';
+  if (!username) return 'WordPress 관리자 ID를 입력해주세요.';
+  if (!password) return 'Application Password를 입력해주세요.';
+  if (password.length < 8) return 'Application Password 값이 너무 짧습니다. 프로필 화면에서 새로 복사해주세요.';
+  return '';
+}
+
+async function saveWordPressCredentials(testAfterSave = false) {
+  const { siteUrl, username, password } = getWordPressFieldsFromUi();
+  const validationError = validateWordPressInputs(siteUrl, username, password);
+  if (validationError) {
+    setWordPressHelperMessage(validationError, 'error');
+    showToast(validationError, 'warn');
+    return { ok: false, error: validationError };
+  }
+
+  const storage = getStorageManager();
+  const settings = await storage.get('bloggerSettings', true) || {};
+  settings.wordpressSiteUrl = siteUrl;
+  settings.wordpressUsername = username;
+  settings.wordpressPassword = password;
+  settings.platform = 'wordpress';
+  await storage.set('bloggerSettings', settings, true);
+
+  try {
+    if (!window.blogger?.saveEnv) {
+      throw new Error('환경 저장 IPC를 찾지 못했습니다');
+    }
+    const saveRes = await window.blogger.saveEnv({
+      wordpressSiteUrl: siteUrl,
+      wordpressUsername: username,
+      wordpressPassword: password,
+      platform: 'wordpress',
+    });
+    if (saveRes && saveRes.ok === false) {
+      throw new Error(saveRes.error || '환경 파일 저장 실패');
+    }
+  } catch (e) {
+    setWordPressHelperMessage(`저장소에는 저장했지만 .env 저장에 실패했습니다: ${e?.message || e}`, 'warn');
+    showToast('.env 저장에 실패했습니다. 환경설정을 다시 저장해주세요.', 'warn');
+    return { ok: false, error: e?.message || String(e) };
+  }
+
+  const fields = {
+    wordpressSiteUrl: siteUrl,
+    wordpressUsername: username,
+    wordpressPassword: password,
+  };
+  updateWordPressConnectStatusFromCredentials(fields);
+  const siteInput = document.getElementById('wordpressSiteUrl');
+  const usernameInput = document.getElementById('wordpressUsername');
+  const passwordInput = document.getElementById('wordpressPassword');
+  const legacySiteInput = document.getElementById('oneclick-connect-wp-url');
+  if (siteInput) siteInput.value = siteUrl;
+  if (usernameInput) usernameInput.value = username;
+  if (passwordInput) passwordInput.value = password;
+  if (legacySiteInput) legacySiteInput.value = `${siteUrl}/wp-admin`;
+
+  setWordPressHelperMessage('WordPress 연동 값이 앱 설정과 .env에 저장되었습니다.', 'success');
+  showToast('WordPress 연동 값 저장 완료', 'success');
+
+  if (testAfterSave) {
+    await testWordPressRestConnection(fields);
+  }
+  return { ok: true };
+}
+
+async function testWordPressRestConnection(fields) {
+  const input = fields || (() => {
+    const { siteUrl, username, password } = getWordPressFieldsFromUi();
+    return { wordpressSiteUrl: siteUrl, wordpressUsername: username, wordpressPassword: password };
+  })();
+
+  const siteUrl = normalizeWordPressSiteUrl(input.wordpressSiteUrl || input.siteUrl || '');
+  const username = input.wordpressUsername || input.username || '';
+  const password = input.wordpressPassword || input.password || '';
+  const validationError = validateWordPressInputs(siteUrl, username, password);
+  if (validationError) {
+    setWordPressHelperMessage(validationError, 'error');
+    return { ok: false, error: validationError };
+  }
+
+  setWordPressHelperMessage('WordPress REST API 연결을 검증 중입니다...', 'info');
+  try {
+    const result = window.electronAPI?.testWordPressConnection
+      ? await window.electronAPI.testWordPressConnection({ siteUrl, username, password })
+      : await window.electronAPI?.invoke('test-wordpress-connection', { siteUrl, username, password });
+
+    if (result?.connected || result?.ok && result?.message && !result?.error) {
+      setWordPressHelperMessage(result.message || 'WordPress REST API 연결 검증 성공. 발행 준비가 됐습니다.', 'success');
+      showToast('WordPress REST API 검증 성공', 'success');
+      return { ok: true };
+    }
+
+    const error = result?.error || result?.message || 'REST API 연결 검증 실패';
+    setWordPressHelperMessage(error, 'error');
+    showToast(`WordPress 검증 실패: ${error}`, 'error', 8000);
+    return { ok: false, error };
+  } catch (e) {
+    setWordPressHelperMessage(`WordPress 검증 실패: ${e?.message || e}`, 'error');
+    showToast(`WordPress 검증 실패: ${e?.message || e}`, 'error', 8000);
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+function showWordPressGuide() {
+  return showUnifiedPlatformConnectGuide('wordpress');
+  const existing = document.getElementById('oneclick-wordpress-guide-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'oneclick-wordpress-guide-modal';
+  modal.style.cssText = `
+    position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(8px);
+    z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 18px;
+  `;
+
+  const card = document.createElement('div');
+  card.style.cssText = `
+    width: min(740px, 96vw); max-height: 90vh; overflow-y: auto;
+    background: linear-gradient(145deg, #12263a, #0f172a); border: 1px solid rgba(255,255,255,0.13);
+    border-radius: 18px; box-shadow: 0 28px 80px rgba(0,0,0,0.55); padding: 24px;
+  `;
+
+  const steps = [
+    ['1', '사이트 URL 입력', 'WordPress 주소를 입력합니다. /wp-admin까지 붙어 있어도 앱이 자동 정리합니다.', 'URL 입력칸', "document.getElementById('oneclick-wordpress-guide-modal')?.remove(); document.getElementById('oneclick-wp-site-url')?.focus()"],
+    ['2', 'wp-admin 로그인', '앱이 관리자 화면을 열어줍니다. 보안 플러그인, 2FA, CAPTCHA가 나오면 화면에서 직접 완료하세요.', 'wp-admin 열기', "window.__oneclickSetup?.openWordPressAdmin('login')"],
+    ['3', 'Application Password 화면', '프로필 하단의 Application Passwords 영역으로 이동합니다. 이름은 LEADERNAM Orbit 또는 원하는 이름으로 넣으면 됩니다.', 'App Password 열기', "window.__oneclickSetup?.openWordPressAdmin('profile')"],
+    ['4', '비밀번호 복사', 'Add New Application Password를 누른 뒤 한 번만 표시되는 비밀번호를 복사해 앱 입력칸에 붙여넣습니다.', '입력칸으로 이동', "document.getElementById('oneclick-wordpress-guide-modal')?.remove(); document.getElementById('oneclick-wp-app-password')?.focus()"],
+    ['5', '저장 후 검증', '앱이 /wp-json/wp/v2/users/me로 REST 인증을 확인합니다. 이 검증이 통과해야 발행 기능이 안정적으로 동작합니다.', '저장 후 검증', "window.__oneclickSetup?.saveWordPressCredentials(true)"],
+  ];
+
+  card.innerHTML = `
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:18px;">
+      <div>
+        <div style="font-size:18px; font-weight:900; color:white; letter-spacing:-0.2px;">워드프레스 연동 따라하기</div>
+        <div style="font-size:12px; color:#94a3b8; line-height:1.6; margin-top:5px;">
+          막히는 구간은 로그인/보안/REST API입니다. 앱이 필요한 화면을 열고, 사용자는 Application Password만 복사합니다.
+        </div>
+      </div>
+      <button type="button" data-guide-close style="padding:8px 12px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; border-radius:9px; cursor:pointer; font-size:12px; font-weight:700;">닫기</button>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      ${steps.map(([num, title, desc, btn, action]) => `
+        <div style="display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; padding:14px; background:rgba(255,255,255,0.045); border:1px solid rgba(255,255,255,0.08); border-radius:12px;">
+          <div style="width:28px; height:28px; display:flex; align-items:center; justify-content:center; background:rgba(14,165,233,0.16); border:1px solid rgba(14,165,233,0.32); color:#bae6fd; border-radius:8px; font-size:12px; font-weight:900;">${num}</div>
+          <div style="min-width:0;">
+            <div style="font-size:13px; font-weight:850; color:#f8fafc;">${title}</div>
+            <div style="font-size:11px; color:#cbd5e1; line-height:1.55; margin-top:3px;">${desc}</div>
+          </div>
+          <button type="button" onclick="${action}" style="padding:9px 11px; background:rgba(59,130,246,0.16); border:1px solid rgba(59,130,246,0.35); color:#bfdbfe; border-radius:9px; cursor:pointer; font-size:11px; font-weight:800; white-space:nowrap;">${btn}</button>
+        </div>
+      `).join('')}
+    </div>
+
+    <div style="margin-top:14px; padding:12px 14px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.24); border-radius:11px; color:#fde68a; font-size:12px; line-height:1.65;">
+      Application Password가 안 보이면 HTTPS 미설정, WordPress 5.6 미만, 관리자 권한 부족, 보안 플러그인 또는 REST API 차단을 먼저 확인해야 합니다.
+    </div>
+  `;
+
+  card.querySelector('[data-guide-close]')?.addEventListener('click', () => modal.remove());
+  modal.appendChild(card);
+  document.body.appendChild(modal);
+  attachModalDismiss(modal);
 }
 
 async function saveConnectResults(platformId, results) {
@@ -1944,14 +3364,49 @@ async function saveConnectResults(platformId, results) {
     await storage.set('bloggerSettings', settings, true);
     addLog?.(`[원클릭] ${platformId} 연동 정보 환경설정에 저장 완료`);
 
+    try {
+      const envPayload = { platform: platformId === 'wordpress' ? 'wordpress' : 'blogger' };
+      if (platformId === 'wordpress') {
+        if (results.wordpressSiteUrl) envPayload.wordpressSiteUrl = results.wordpressSiteUrl;
+        if (results.wordpressUsername) envPayload.wordpressUsername = results.wordpressUsername;
+        if (results.wordpressPassword) envPayload.wordpressPassword = results.wordpressPassword;
+      } else if (platformId === 'blogger' || platformId === 'blogspot') {
+        if (results.googleClientId) envPayload.googleClientId = results.googleClientId;
+        if (results.googleClientSecret) envPayload.googleClientSecret = results.googleClientSecret;
+        if (results.blogId) envPayload.blogId = results.blogId;
+        envPayload.googleRedirectUri = BLOGGER_OAUTH_REDIRECT_URI;
+      }
+      const envRes = await window.blogger?.saveEnv?.(envPayload);
+      if (envRes && envRes.ok === false) {
+        throw new Error(envRes.error || '환경 파일 저장 실패');
+      }
+      addLog?.(`[원클릭] ${platformId} 연동 정보 .env 저장 완료`);
+    } catch (envErr) {
+      console.warn('[ONECLICK-CONNECT] .env 저장 실패:', envErr);
+      showToast('연동 값은 저장했지만 .env 저장에 실패했습니다. 환경설정 저장을 한 번 눌러주세요.', 'warn', 8000);
+    }
+
     // 환경설정 UI도 업데이트 (열려 있다면)
     if (platformId === 'wordpress') {
       const siteUrlInput = document.getElementById('wordpressSiteUrl');
       const usernameInput = document.getElementById('wordpressUsername');
       const passwordInput = document.getElementById('wordpressPassword');
+      const quickSiteInput = document.getElementById('oneclick-wp-site-url');
+      const quickUsernameInput = document.getElementById('oneclick-wp-username');
+      const quickPasswordInput = document.getElementById('oneclick-wp-app-password');
+      const cardSiteInput = document.getElementById('oneclick-connect-wp-url');
       if (siteUrlInput && results.wordpressSiteUrl) siteUrlInput.value = results.wordpressSiteUrl;
       if (usernameInput && results.wordpressUsername) usernameInput.value = results.wordpressUsername;
       if (passwordInput && results.wordpressPassword) passwordInput.value = results.wordpressPassword;
+      if (quickSiteInput && results.wordpressSiteUrl) quickSiteInput.value = normalizeWordPressSiteUrl(results.wordpressSiteUrl);
+      if (quickUsernameInput && results.wordpressUsername) quickUsernameInput.value = results.wordpressUsername;
+      if (quickPasswordInput && results.wordpressPassword) quickPasswordInput.value = results.wordpressPassword;
+      if (cardSiteInput && results.wordpressSiteUrl) cardSiteInput.value = `${normalizeWordPressSiteUrl(results.wordpressSiteUrl)}/wp-admin`;
+      updateWordPressConnectStatusFromCredentials({
+        wordpressSiteUrl: results.wordpressSiteUrl,
+        wordpressUsername: results.wordpressUsername,
+        wordpressPassword: results.wordpressPassword,
+      });
     } else if (platformId === 'blogger' || platformId === 'blogspot') {
       const clientIdInput = document.getElementById('googleClientId');
       const secretInput = document.getElementById('googleClientSecret');
@@ -2478,9 +3933,24 @@ export function initOneclickSetup() {
     cancelWebmasterSetup,
     startPlatformConnect,
     cancelPlatformConnect,
+    loadBloggerOAuthFields,
+    copyBloggerOAuthRedirectUri,
+    openGoogleOAuthConsole,
+    saveBloggerOAuthCredentials,
+    startBloggerBlogIdExtract,
+    showBloggerOAuthGuide,
+    showPlatformConnectGuide,
+    showPlatformGuideHub,
+    loadWordPressFields,
+    openWordPressAdmin,
+    saveWordPressCredentials,
+    testWordPressRestConnection,
+    showWordPressGuide,
     startInfraSetup,
     cancelInfraSetup,
     runHealthcheck,
+    startOneclickGuideDemo,
+    stopOneclickGuideDemo,
   };
 
   // 블로그 URL 불러오기 (이전 모듈 레벨 사이드이펙트 → init으로 이동)
@@ -2519,6 +3989,31 @@ export function initOneclickSetup() {
         }
       });
     });
+
+    loadBloggerOAuthFields(false).catch((e) => {
+      console.warn('[ONECLICK] Blogger OAuth 필드 자동 로드 실패:', e);
+    });
+    loadWordPressFields(false).catch((e) => {
+      console.warn('[ONECLICK] WordPress 필드 자동 로드 실패:', e);
+    });
+
+    if (window.electronAPI?.onBloggerAuthComplete && !window.__oneclickBloggerAuthListenerBound) {
+      window.__oneclickBloggerAuthListenerBound = true;
+      window.electronAPI.onBloggerAuthComplete((result) => {
+        if (result?.ok) {
+          setOAuthHelperMessage('Blogger OAuth 인증이 완료되었습니다. 이제 블로그스팟 발행을 사용할 수 있습니다.', 'success');
+          showToast('Blogger OAuth 인증 완료', 'success', 5000);
+          loadBloggerOAuthFields(false).catch(() => {});
+        } else {
+          const authError = result?.error || '알 수 없는 오류';
+          const helper = /access_denied|tester|테스터|테스트 사용자/i.test(authError)
+            ? 'Blogger OAuth 인증 실패: Google OAuth 앱이 테스트 상태입니다. [테스트 사용자] 버튼을 눌러 현재 로그인한 Gmail을 Test users에 추가한 뒤 다시 인증하세요.'
+            : `Blogger OAuth 인증 실패: ${authError}`;
+          setOAuthHelperMessage(helper, 'error');
+          showToast(`Blogger OAuth 인증 실패: ${result?.error || '알 수 없는 오류'}`, 'error', 8000);
+        }
+      });
+    }
   }, 300);
 
   console.log('[ONECLICK] ✅ 원클릭 세팅 모듈 초기화 완료 (웹마스터 자동화 + 플랫폼 연동 + 인프라 세팅 + 헬스체크 + 준비사항 포함)');
@@ -2560,7 +4055,31 @@ async function runHealthcheck() {
       googleRefreshToken: settings.googleRefreshToken || '',
     };
 
+    const browserStartedAt = Date.now();
+    let browserCheck = null;
+    try {
+      browserCheck = await window.electronAPI.invoke('oneclick:browser-check', { autoInstall: true });
+    } catch (browserError) {
+      browserCheck = {
+        ok: false,
+        detail: browserError?.message || String(browserError || ''),
+        fix: 'Chrome/Edge 설치 또는 Playwright Chromium 설치가 필요합니다.',
+      };
+    }
+
     const report = await window.electronAPI.invoke('oneclick:verify-only', payload);
+    if (report && Array.isArray(report.items) && browserCheck) {
+      report.items.unshift({
+        label: '자동화 브라우저',
+        status: browserCheck.ok ? 'ok' : 'fail',
+        detail: browserCheck.ok
+          ? `${browserCheck.browser || 'Browser'} 실행 가능`
+          : (browserCheck.detail || '브라우저 실행 실패'),
+        fix: browserCheck.ok ? '' : (browserCheck.fix || 'Chrome/Edge 설치 후 다시 시도하세요.'),
+        elapsedMs: Date.now() - browserStartedAt,
+      });
+      report.ok = !!report.ok && !!browserCheck.ok;
+    }
     renderHealthcheckReport(resultsEl, report);
   } catch (e) {
     resultsEl.innerHTML = `
@@ -2614,6 +4133,7 @@ function renderHealthcheckReport(el, report) {
 
 function renderPlatformCard(platform) {
   const stepCount = platform.steps.length;
+  const connectGuide = getPlatformConnectGuide(platform.id);
   return `
     <div id="oneclick-card-${platform.id}"
       style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 24px; transition: all 0.3s;">
@@ -2651,24 +4171,41 @@ function renderPlatformCard(platform) {
         `).join('')}
       </div>
 
+      <div style="margin-bottom: 12px; padding: 10px 12px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.22); border-radius: 10px; color: #fde68a; font-size: 11px; line-height: 1.55;">
+        창을 띄워두면 반복 설정은 자동으로 진행하지만, 로그인·2FA·CAPTCHA·권한 승인·새 블로그 이름 입력처럼 보안상 막히는 화면은 직접 완료해야 합니다.
+      </div>
+
       <!-- 시작 버튼 -->
       <button id="oneclick-btn-${platform.id}" onclick="window.__oneclickSetup?.startSetup('${platform.id}')"
         style="width: 100%; padding: 14px; background: ${platform.gradient}; color: white; border: none; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; box-shadow: 0 6px 20px ${platform.color}40; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px;"
         onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 10px 30px ${platform.color}50'"
         onmouseout="this.style.transform='none'; this.style.boxShadow='0 6px 20px ${platform.color}40'">
         <span>▶</span>
-        <span>세팅 시작</span>
+        <span>단계별 세팅 시작</span>
       </button>
 
       ${(platform.id === 'blogspot' || platform.id === 'wordpress') ? `
       <!-- 🔗 앱 연동 자동 설정 버튼 -->
+      <div style="margin-top: 8px; padding: 12px; background: rgba(15, 23, 42, 0.32); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px;">
+          <div style="font-size:12px; font-weight:850; color:#e2e8f0;">앱 연동 단계</div>
+          <div style="font-size:10px; color:#94a3b8;">가이드와 자동연동이 같은 순서로 진행됩니다</div>
+        </div>
+        ${renderConnectStepRail(platform.id, { compact: true })}
+      </div>
+      <div style="display:grid; grid-template-columns:minmax(110px, 0.7fr) minmax(0, 1.3fr); gap:8px; margin-top:8px;">
+        <button type="button" onclick="window.__oneclickSetup?.showPlatformConnectGuide('${platform.id}')"
+          style="width: 100%; padding: 12px; background: rgba(251,191,36,0.13); border: 1px solid rgba(251,191,36,0.34); color: #fde68a; border-radius: 12px; font-size: 13px; font-weight: 800; cursor: pointer; transition: all 0.3s;">
+          가이드 보기
+        </button>
       <button id="oneclick-connect-btn-${platform.id}" onclick="window.__oneclickSetup?.startPlatformConnect('${platform.id}')"
-        style="width: 100%; padding: 12px; margin-top: 8px; background: linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(99, 102, 241, 0.3)); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px;"
+        style="width: 100%; padding: 12px; background: linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(99, 102, 241, 0.3)); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px;"
         onmouseover="this.style.background='linear-gradient(135deg, rgba(139, 92, 246, 0.5), rgba(99, 102, 241, 0.5))'; this.style.transform='translateY(-1px)'"
         onmouseout="this.style.background='linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(99, 102, 241, 0.3))'; this.style.transform='none'">
         <span>🔗</span>
-        <span>${platform.id === 'wordpress' ? 'Application Password 자동 생성' : 'GCP OAuth 자동 설정 (API 연동)'}</span>
+        <span>${connectGuide?.autoLabel || (platform.id === 'wordpress' ? '가이드대로 App Password 생성' : '가이드대로 OAuth 연동 시작')}</span>
       </button>
+      </div>
       <div id="oneclick-connect-progress-${platform.id}" style="display: none; margin-top: 8px; padding: 12px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.2); border-radius: 10px;">
         <div id="oneclick-connect-msg-${platform.id}" style="font-size: 12px; color: #c4b5fd;">준비 중...</div>
       </div>

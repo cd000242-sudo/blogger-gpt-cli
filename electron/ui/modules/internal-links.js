@@ -5,6 +5,128 @@ let selectedPosts = [];
 let generatedContent = null;
 let urlInputCount = 0;
 
+function _firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = value === undefined || value === null ? '' : String(value).trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function _normalizeStoredPlatform(platform, url) {
+  const raw = String(platform || '').toLowerCase();
+  if (/wordpress|wp|워드프레스/.test(raw) || /\/wp-admin\/|\/wp-content\/|wordpress\.com/i.test(url || '')) return 'wordpress';
+  if (/blogger|blogspot|블로거|블로그스팟/.test(raw) || /\.blogspot\.com|blogger\.com/i.test(url || '')) return 'blogspot';
+  return raw || '';
+}
+
+function _getPublishedPostId(post) {
+  return _firstNonEmpty(post?.postId, post?.id, post?.post_id, post?.wpPostId, post?.bloggerPostId);
+}
+
+function _normalizePostRecord(post, fallbackOrder) {
+  const normalizedUrl = _normalizePostUrl(post?.url || post?.postUrl || '');
+  const postId = _getPublishedPostId(post);
+  const platform = _normalizeStoredPlatform(post?.platform || post?.targetPlatform, normalizedUrl);
+  const record = {
+    ...post,
+    title: post?.title || normalizedUrl || '제목 없음',
+    url: normalizedUrl,
+    platform: platform || post?.platform || '',
+    order: Number.isFinite(post?.order) ? post.order : fallbackOrder,
+  };
+  if (postId) {
+    record.postId = String(postId);
+    record.id = String(postId);
+  }
+  const blogId = _firstNonEmpty(post?.blogId, post?.bloggerBlogId, post?.googleBlogId);
+  if (blogId) record.blogId = blogId;
+  const siteUrl = _firstNonEmpty(post?.siteUrl, post?.wordpressSiteUrl, post?.wpSiteUrl);
+  if (siteUrl) {
+    record.siteUrl = siteUrl;
+    record.wordpressSiteUrl = siteUrl;
+  }
+  return record;
+}
+
+function _findPublishedPostByUrl(url) {
+  const target = _normalizePostUrl(url || '');
+  if (!target) return null;
+  try {
+    return getPublishedPosts().find((post) => _normalizePostUrl(post.url || '') === target) || null;
+  } catch {
+    return null;
+  }
+}
+
+function _getSavedBloggerSettings() {
+  try {
+    return JSON.parse(localStorage.getItem('bloggerSettings') || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+
+function _buildSourcePostsForSync() {
+  return selectedPosts
+    .map((post, index) => _normalizePostRecord(post, index + 1))
+    .filter((post) => post.url);
+}
+
+function normalizeSpiderPublishPlatform(platform) {
+  const raw = String(platform || '').toLowerCase();
+  if (/wordpress|wp|워드프레스/.test(raw)) return 'wordpress';
+  if (/blogger|blogspot|블로거|블로그스팟/.test(raw)) return 'blogspot';
+  return raw || 'blogspot';
+}
+
+function normalizeSpiderPostingMode(mode) {
+  const raw = String(mode || '').toLowerCase();
+  if (raw === 'scheduled') return 'schedule';
+  if (raw === 'immediate' || raw === 'now' || raw === 'live' || raw === 'single') return 'publish';
+  if (raw === 'draft' || raw === 'save') return 'draft';
+  if (raw === 'schedule') return 'schedule';
+  return 'publish';
+}
+
+function getSpiderPublishPlatform() {
+  const radioValue = document.querySelector('input[name="platform"]:checked')?.value || '';
+  let savedPlatform = '';
+  try {
+    savedPlatform = localStorage.getItem('platform') || '';
+  } catch {}
+  return normalizeSpiderPublishPlatform(radioValue || savedPlatform || 'blogspot');
+}
+
+function getSpiderPublishIntent(defaultMode = 'publish') {
+  const postingModeValue = document.querySelector('input[name="postingMode"]:checked')?.value || '';
+  const publishTypeValue = document.querySelector('input[name="publishType"]:checked')?.value || '';
+  const postingMode = normalizeSpiderPostingMode(postingModeValue || publishTypeValue || defaultMode);
+  const scheduleDateTime = document.getElementById('scheduleDateTime')?.value
+    ? String(document.getElementById('scheduleDateTime').value).trim()
+    : '';
+  return {
+    publishType: postingMode,
+    postingMode,
+    scheduleDate: postingMode === 'schedule' && scheduleDateTime ? scheduleDateTime : undefined,
+  };
+}
+
+async function publishSpiderContent(payload, title, html, thumbnailUrl = '') {
+  if (window.electronAPI && window.electronAPI.invoke) {
+    return await window.electronAPI.invoke('publish-content', {
+      title,
+      content: html,
+      thumbnailUrl,
+      payload,
+    });
+  }
+  if (window.blogger && window.blogger.publishContent) {
+    return await window.blogger.publishContent(payload, title, html, thumbnailUrl);
+  }
+  throw new Error('발행 API를 사용할 수 없습니다.');
+}
+
 // 페이지 로드 시 초기화 (모듈 import 시점에 따라 다르게 처리)
 function initModule() {
   console.log('[SPIDER-WEB] 모듈 초기화 시작');
@@ -133,23 +255,31 @@ function clearUrlInputs() {
  * 입력 필드에서 선택한 글 목록 업데이트
  */
 function updateSelectedPostsFromInputs() {
-  selectedPosts = [];
+  const previousByUrl = new Map();
+  selectedPosts.forEach((post) => {
+    const key = _normalizePostUrl(post?.url || '');
+    if (key) previousByUrl.set(key, post);
+  });
+  const nextPosts = [];
   
   for (let i = 1; i <= 5; i++) {
     const input = document.getElementById(`spiderWebUrl${i}`);
     if (input && input.value.trim()) {
-      const url = input.value.trim();
+      const url = _normalizePostUrl(input.value.trim());
       // 중복 체크
-      if (!selectedPosts.find(p => p.url === url)) {
-        selectedPosts.push({
-          url: url,
-          title: url, // 크롤링 시 실제 제목으로 업데이트됨
-          order: selectedPosts.length + 1
-        });
+      if (!nextPosts.find(p => p.url === url)) {
+        const known = previousByUrl.get(url) || _findPublishedPostByUrl(url);
+        nextPosts.push(_normalizePostRecord({
+          ...(known || {}),
+          url,
+          title: known?.title || url, // 크롤링 시 실제 제목으로 업데이트됨
+          order: nextPosts.length + 1
+        }, nextPosts.length + 1));
       }
     }
   }
   
+  selectedPosts = nextPosts;
   updateSelectedPostsList();
 }
 
@@ -188,34 +318,48 @@ function savePublishedPost(post) {
       }
     }
 
-    // 중복 체크 (URL 기준) — 모든 날짜 검색
-    let alreadyExists = false;
-    for (const dk of Object.keys(store)) {
-      const list = store[dk];
-      if (Array.isArray(list) && list.some((p) => p && p.url === post.url)) {
-        alreadyExists = true;
-        break;
-      }
-    }
-    if (alreadyExists) {
-      console.log('[SPIDER-WEB] 이미 저장된 글:', post.url);
-      return;
-    }
-
+    const postId = _getPublishedPostId(post);
+    const siteUrl = _firstNonEmpty(post.siteUrl, post.wordpressSiteUrl, post.wpSiteUrl);
+    const blogId = _firstNonEmpty(post.blogId, post.bloggerBlogId, post.googleBlogId);
+    const platform = _normalizeStoredPlatform(post.platform, post.url) || post.platform || 'wordpress';
     const now = new Date(post.publishedAt || Date.now());
     const dateKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    if (!Array.isArray(store[dateKey])) store[dateKey] = [];
-    store[dateKey].push({
+    const record = {
       title: post.title || '제목 없음',
       url: post.url,
-      // platform: posting.js는 한글('워드프레스'/'블로거')로 저장 — 통일
-      platform: post.platform || 'wordpress',
+      // platform: posting.js는 한글('워드프레스'/'블로거')로 저장 — 내부 수정 자동화 위해 영문으로 정규화
+      platform,
       publishedAt: now.toISOString(),
       timestamp: now.getTime(),
       time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
       summary: post.summary || '',
       thumbnail: post.thumbnail || '',
-    });
+      ...(postId ? { postId: String(postId), id: String(postId) } : {}),
+      ...(blogId ? { blogId } : {}),
+      ...(siteUrl ? { siteUrl, wordpressSiteUrl: siteUrl } : {}),
+    };
+
+    // 중복 체크 (URL 기준) — 기존 URL-only 레코드는 postId 등 메타를 병합
+    for (const dk of Object.keys(store)) {
+      const list = store[dk];
+      if (!Array.isArray(list)) continue;
+      const idx = list.findIndex((p) => p && _normalizePostUrl(p.url) === post.url);
+      if (idx >= 0) {
+        list[idx] = {
+          ...list[idx],
+          ...record,
+          title: record.title || list[idx].title,
+          summary: record.summary || list[idx].summary || '',
+          thumbnail: record.thumbnail || list[idx].thumbnail || '',
+        };
+        localStorage.setItem('publishedPosts', JSON.stringify(store));
+        console.log('[SPIDER-WEB] 기존 발행글 메타 병합 완료:', post.title || post.url);
+        return;
+      }
+    }
+
+    if (!Array.isArray(store[dateKey])) store[dateKey] = [];
+    store[dateKey].push(record);
 
     localStorage.setItem('publishedPosts', JSON.stringify(store));
     console.log('[SPIDER-WEB] 발행글 저장 완료 (객체 셰이프):', post.title, 'on', dateKey);
@@ -242,23 +386,39 @@ function getPublishedPosts() {
     const raw = localStorage.getItem('publishedPosts');
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed;
+    const normalizeFlatPost = (p, dateKey) => {
+      if (!p || !p.url) return null;
+      const postId = _getPublishedPostId(p) || '';
+      const siteUrl = _firstNonEmpty(p.siteUrl, p.wordpressSiteUrl, p.wpSiteUrl);
+      return {
+        title: p.title || '제목 없음',
+        // v3.8.28: 레거시 wp-admin URL은 표시·CTA·열기 모두 공개 URL로 (레거시 데이터 호환)
+        url: _normalizePostUrl(p.url),
+        platform: _normalizeStoredPlatform(p.platform, p.url) || p.platform || 'wordpress',
+        publishedAt: p.publishedAt || (p.timestamp ? new Date(p.timestamp).toISOString() : dateKey),
+        timestamp: p.timestamp || 0,
+        summary: p.summary || '',
+        thumbnail: p.thumbnail || '',
+        postId,
+        id: postId,
+        blogId: _firstNonEmpty(p.blogId, p.bloggerBlogId, p.googleBlogId),
+        siteUrl,
+        wordpressSiteUrl: siteUrl,
+      };
+    };
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((p) => normalizeFlatPost(p, ''))
+        .filter(Boolean)
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    }
     if (!parsed || typeof parsed !== 'object') return [];
     const flat = [];
     Object.entries(parsed).forEach(([dateKey, list]) => {
       if (!Array.isArray(list)) return;
       list.forEach((p) => {
-        if (!p || !p.url) return;
-        flat.push({
-          title: p.title || '제목 없음',
-          // v3.8.28: 레거시 wp-admin URL은 표시·CTA·열기 모두 공개 URL로 (레거시 데이터 호환)
-          url: _normalizePostUrl(p.url),
-          platform: p.platform || 'wordpress',
-          publishedAt: p.publishedAt || (p.timestamp ? new Date(p.timestamp).toISOString() : dateKey),
-          timestamp: p.timestamp || 0,
-          summary: p.summary || '',
-          thumbnail: p.thumbnail || '',
-        });
+        const normalized = normalizeFlatPost(p, dateKey);
+        if (normalized) flat.push(normalized);
       });
     });
     flat.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
@@ -501,6 +661,10 @@ function openPublishedPostsModal(opts) {
           const platformLabel = isWordPress ? 'WordPress' : (isBlogger ? 'Blogger' : (post.platform || 'Blog'));
           const platformColor = isWordPress ? '#0073aa' : (isBlogger ? '#ff5722' : '#64748b');
           const dateLabel = post.publishedAt ? new Date(post.publishedAt).toLocaleDateString('ko-KR') : '';
+          const canAutoBacklink = !!_getPublishedPostId(post);
+          const backlinkBadge = canAutoBacklink
+            ? '<span style="padding: 2px 8px; background: rgba(34,197,94,0.16); color: #86efac; border: 1px solid rgba(34,197,94,0.35); border-radius: 6px; font-size: 10px; font-weight: 800;">↩ 자동 돌아가기</span>'
+            : '<span style="padding: 2px 8px; background: rgba(251,191,36,0.14); color: #fde68a; border: 1px solid rgba(251,191,36,0.28); border-radius: 6px; font-size: 10px; font-weight: 800;">URL만</span>';
           const alreadyIn = existingUrls.has(post.url);
           // v3.7.21: 우측 썸네일 미리보기 — 없으면 첫 글자로 그라데이션 placeholder
           const titleInitial = (post.title || '?').trim().charAt(0) || '?';
@@ -526,6 +690,7 @@ function openPublishedPostsModal(opts) {
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
                   <span style="padding: 2px 8px; background: ${platformColor}; color: white; border-radius: 6px; font-size: 10px; font-weight: 700;">${platformLabel}</span>
                   ${dateLabel ? `<span style="font-size: 11px; color: #94a3b8;">📅 ${dateLabel}</span>` : ''}
+                  ${backlinkBadge}
                 </div>
                 <div style="font-size: 14px; font-weight: 700; color: #e2e8f0; margin-bottom: 4px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${safeTitle}</div>
                 <div style="font-size: 11px; color: #64748b; word-break: break-all; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;">${safeUrl}</div>
@@ -546,6 +711,7 @@ function openPublishedPostsModal(opts) {
               <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
                 <span style="padding: 2px 8px; background: ${platformColor}; color: white; border-radius: 6px; font-size: 10px; font-weight: 700;">${platformLabel}</span>
                 ${dateLabel ? `<span style="font-size: 11px; color: #94a3b8;">📅 ${dateLabel}</span>` : ''}
+                ${backlinkBadge}
                 ${alreadyIn ? '<span style="padding: 2px 9px; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: white; border-radius: 6px; font-size: 10px; font-weight: 800; box-shadow: 0 2px 6px rgba(34, 197, 94, 0.35);">✓ 선택됨</span>' : ''}
               </div>
               <div style="font-size: 14px; font-weight: 700; color: ${alreadyIn ? '#d1fae5' : '#e2e8f0'}; margin-bottom: 4px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${safeTitle}</div>
@@ -937,11 +1103,20 @@ function updateSelectedPostsList() {
     return;
   }
   
-  list.innerHTML = selectedPosts.map((post, index) => `
+  list.innerHTML = selectedPosts.map((post, index) => {
+    const canAutoBacklink = !!_getPublishedPostId(post);
+    const platformLabel = _normalizeStoredPlatform(post.platform, post.url) === 'wordpress' ? 'WordPress'
+      : (_normalizeStoredPlatform(post.platform, post.url) === 'blogspot' ? 'Blogger' : 'Blog');
+    const backlinkBadge = canAutoBacklink
+      ? '<span style="display:inline-flex;align-items:center;padding:3px 8px;background:#dcfce7;color:#166534;border-radius:999px;font-size:11px;font-weight:800;margin-left:8px;">자동 돌아가기 가능</span>'
+      : '<span style="display:inline-flex;align-items:center;padding:3px 8px;background:#fef3c7;color:#92400e;border-radius:999px;font-size:11px;font-weight:800;margin-left:8px;">URL만 선택됨</span>';
+    return `
     <div style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-radius: 12px; padding: 20px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; border: 2px solid #3b82f6;">
       <div style="flex: 1;">
         <span style="font-weight: 700; color: #1e40af; margin-right: 12px;">${index + 1}.</span>
-        <span style="font-weight: 600; color: #1e293b; margin-right: 12px;">${post.title || post.url}</span>
+        <span style="font-weight: 600; color: #1e293b; margin-right: 12px;">${escapeHtml(post.title || post.url)}</span>
+        <span style="display:inline-flex;align-items:center;padding:3px 8px;background:#dbeafe;color:#1d4ed8;border-radius:999px;font-size:11px;font-weight:800;">${platformLabel}</span>
+        ${backlinkBadge}
         <span style="font-size: 12px; color: #64748b; word-break: break-all;">${post.url}</span>
       </div>
       <div style="display: flex; gap: 8px;">
@@ -956,7 +1131,8 @@ function updateSelectedPostsList() {
         </button>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 /**
@@ -992,7 +1168,8 @@ async function generateSpiderWebContent() {
     updateSelectedPostsFromInputs();
     
     // 선택한 글 URL 수집
-    const urls = selectedPosts.map(p => p.url).filter(url => url && url.trim());
+    const sourcePosts = _buildSourcePostsForSync();
+    const urls = sourcePosts.map(p => p.url).filter(url => url && url.trim());
     console.log('[SPIDER-WEB] 수집된 URL:', urls);
 
     // v3.8.76: 거미줄 통합글은 최소 2개 이상 글 필요 (1개는 통합 의미 없음)
@@ -1039,22 +1216,30 @@ async function generateSpiderWebContent() {
         result = await window.electronAPI.invoke('generate-internal-consistency', {
           urls: urls,
           title: title || '', // 비어있으면 자동 생성
-          posts: selectedPosts.map((post, index) => ({
-            id: `post-${index + 1}`,
+          posts: sourcePosts.map((post, index) => ({
+            id: post.postId || post.id || `post-${index + 1}`,
+            postId: post.postId || post.id || '',
             url: post.url,
             title: post.title || post.url,
-            order: index + 1
+            order: index + 1,
+            platform: post.platform || '',
+            blogId: post.blogId || '',
+            siteUrl: post.siteUrl || post.wordpressSiteUrl || '',
           }))
         });
       } else if (window.blogger && window.blogger.generateInternalLinkContent) {
         result = await window.blogger.generateInternalLinkContent({
           urls: urls,
           title: title || '',
-          posts: selectedPosts.map((post, index) => ({
-            id: `post-${index + 1}`,
+          posts: sourcePosts.map((post, index) => ({
+            id: post.postId || post.id || `post-${index + 1}`,
+            postId: post.postId || post.id || '',
             url: post.url,
             title: post.title || post.url,
-            order: index + 1
+            order: index + 1,
+            platform: post.platform || '',
+            blogId: post.blogId || '',
+            siteUrl: post.siteUrl || post.wordpressSiteUrl || '',
           }))
         });
       } else {
@@ -1134,26 +1319,20 @@ async function saveSpiderWebContent() {
       htmlLength: generatedContent.html?.length || 0
     });
     
-    let result;
-    if (window.blogger && window.blogger.publishContent) {
-      result = await window.blogger.publishContent({
-        title: generatedContent.title,
-        html: generatedContent.html,
-        platform: 'blogspot',
-        publishType: 'draft' // 임시저장
-      });
-    } else if (window.electronAPI && window.electronAPI.invoke) {
-      result = await window.electronAPI.invoke('publish-content', {
-        title: generatedContent.title,
-        content: generatedContent.html,
-        payload: {
-          platform: 'blogspot',
-          publishType: 'draft'
-        }
-      });
-    } else {
-      throw new Error('발행 API를 사용할 수 없습니다.');
-    }
+    const platform = getSpiderPublishPlatform();
+    const payload = {
+      platform,
+      publishType: 'draft',
+      postingMode: 'draft',
+      topic: generatedContent.title,
+      sourceUrls: Array.isArray(generatedContent.urls) ? generatedContent.urls.filter(Boolean) : [],
+    };
+    const result = await publishSpiderContent(
+      payload,
+      generatedContent.title,
+      generatedContent.html,
+      generatedContent.thumbnailUrl || ''
+    );
     
     console.log('[SPIDER-WEB] 임시저장 결과:', result);
     
@@ -1191,39 +1370,43 @@ async function saveAndPublishSpiderWebContent() {
       htmlLength: generatedContent.html?.length || 0
     });
     
-    let result;
-    if (window.blogger && window.blogger.publishContent) {
-      result = await window.blogger.publishContent({
-        title: generatedContent.title,
-        html: generatedContent.html,
-        platform: 'blogspot', // 기본 플랫폼
-        publishType: 'publish'
-      });
-    } else if (window.electronAPI && window.electronAPI.invoke) {
-      result = await window.electronAPI.invoke('publish-content', {
-        title: generatedContent.title,
-        content: generatedContent.html,
-        payload: {
-          platform: 'blogspot',
-          publishType: 'publish'
-        }
-      });
-    } else {
-      throw new Error('발행 API를 사용할 수 없습니다.');
-    }
+    const platform = getSpiderPublishPlatform();
+    const publishIntent = getSpiderPublishIntent('publish');
+    const result = await publishSpiderContent(
+      {
+        platform,
+        ...publishIntent,
+        topic: generatedContent.title,
+        sourceUrls: Array.isArray(generatedContent.urls) ? generatedContent.urls.filter(Boolean) : [],
+      },
+      generatedContent.title,
+      generatedContent.html,
+      generatedContent.thumbnailUrl || ''
+    );
     
     console.log('[SPIDER-WEB] 발행 결과:', result);
     
     if (result && result.ok) {
+      const publishedUrl = result.url || result.postUrl || '';
+      const publishedPostId = _firstNonEmpty(result.postId, result.id, result.post_id);
       // 발행한 글 저장
       savePublishedPost({
-        url: result.url || result.postUrl || '',
+        url: publishedUrl,
         title: generatedContent.title,
         publishedAt: new Date().toISOString(),
-        platform: 'blogspot'
+        platform,
+        postId: publishedPostId,
+        id: publishedPostId,
       });
+
+      await _syncSpiderBacklinksToSources({
+        url: publishedUrl,
+        title: generatedContent.title,
+        postId: publishedPostId,
+        platform,
+      }, _buildSourcePostsForSync(), { platform });
       
-      alert(`✅ 글이 성공적으로 발행되었습니다!\n\n${result.url || result.postUrl || ''}`);
+      alert(`✅ 글이 성공적으로 발행되었습니다!\n\n${publishedUrl}`);
     } else {
       throw new Error(result?.error || '발행에 실패했습니다.');
     }
@@ -1478,6 +1661,7 @@ function _openSwProgressModal(sources) {
 
   // 경과 시간 timer
   _swProgressState.timer = setInterval(() => {
+    if (document.hidden) return;
     const sec = Math.floor((new Date().getTime() - _swProgressState.startedAt) / 1000);
     const mm = String(Math.floor(sec / 60)).padStart(2, '0');
     const ss = String(sec % 60).padStart(2, '0');
@@ -1574,6 +1758,7 @@ function _swStartStepSimulation() {
     let p = stepIdx === 0 ? 2 : Math.round(((SW_STEPS.slice(0, stepIdx).reduce((s, x) => s + x.weight, 0)) / totalWeight) * 100);
     const tickIntervalMs = Math.max(120, Math.round(step.weight * 80)); // 단계 weight에 비례하는 속도
     const stepInterval = setInterval(() => {
+      if (document.hidden) return;
       if (_swProgressState.apiDone) {
         clearInterval(stepInterval);
         return;
@@ -1743,6 +1928,77 @@ async function _enforcePublishGap(minSec) {
 }
 window._enforcePublishGap = _enforcePublishGap;
 
+async function _syncSpiderBacklinksToSources(hubPost, sourcePosts, publishPayload) {
+  const hubUrl = _normalizePostUrl(hubPost?.url || '');
+  if (!hubUrl) {
+    _swPushLog('종합글 URL이 없어 돌아가기 CTA 삽입을 건너뜁니다.', 'warn');
+    return { ok: false, skipped: sourcePosts.length, reason: 'NO_HUB_URL' };
+  }
+
+  const normalizedSources = (sourcePosts || [])
+    .map((post, index) => _normalizePostRecord(post, index + 1))
+    .filter((post) => post.url);
+  const eligible = normalizedSources.filter((post) => !!_getPublishedPostId(post));
+  const skipped = normalizedSources.length - eligible.length;
+
+  if (eligible.length === 0) {
+    _swPushLog('선택 글에 저장된 postId가 없어 자동 돌아가기 삽입을 건너뜁니다. 앞으로 발행되는 글부터 자동 지원됩니다.', 'warn');
+    return { ok: true, updated: 0, skipped };
+  }
+
+  if (!window.electronAPI || typeof window.electronAPI.invoke !== 'function') {
+    _swPushLog('앱 수정 API를 사용할 수 없어 자동 돌아가기 삽입을 건너뜁니다.', 'warn');
+    return { ok: false, updated: 0, skipped, reason: 'NO_ELECTRON_API' };
+  }
+
+  const settings = _getSavedBloggerSettings();
+  const request = {
+    platform: normalizeSpiderPublishPlatform(hubPost.platform || publishPayload?.platform || getSpiderPublishPlatform()),
+    hub: {
+      title: hubPost.title || '종합글',
+      url: hubUrl,
+      postId: _firstNonEmpty(hubPost.postId, hubPost.id),
+    },
+    posts: normalizedSources,
+    settings: {
+      ...settings,
+      ...(publishPayload || {}),
+    },
+  };
+
+  try {
+    _swSetCurrent({ label: '돌아가기 링크 삽입', detail: `${eligible.length}개 글에 종합글 CTA를 1개씩 순차 반영 중…`, icon: '↩' });
+    _swPushLog('기존 개별 글에 종합글 돌아가기 CTA 자동 삽입 시작', 'info');
+    const result = await window.electronAPI.invoke('internal-links:sync-backlinks', request);
+    const updated = Number(result?.updated || 0);
+    const failed = Number(result?.failed || 0);
+    const resultSkipped = Number(result?.skipped || skipped || 0);
+
+    if (updated > 0) {
+      _swPushLog(`돌아가기 CTA 삽입 완료: ${updated}개 글`, 'success');
+    }
+    if (resultSkipped > 0) {
+      _swPushLog(`돌아가기 CTA 건너뜀: ${resultSkipped}개 글(ID 없음/수정 불가)`, 'warn');
+    }
+    if (failed > 0) {
+      _swPushLog(`돌아가기 CTA 삽입 실패: ${failed}개 글 — 발행은 완료 상태로 유지됩니다.`, 'warn');
+    }
+    if (Array.isArray(result?.results)) {
+      result.results.forEach((item) => {
+        if (!item) return;
+        const label = item.title || item.url || item.postId || '선택 글';
+        if (item.ok) _swPushLog(`↩ ${label}: 반영 완료`, 'success');
+        else if (item.skipped) _swPushLog(`↩ ${label}: 건너뜀 (${item.error || 'ID 없음'})`, 'warn');
+        else _swPushLog(`↩ ${label}: 실패 (${item.error || '알 수 없는 오류'})`, 'warn');
+      });
+    }
+    return result;
+  } catch (error) {
+    _swPushLog('돌아가기 CTA 자동 삽입 중 오류: ' + (error?.message || error), 'warn');
+    return { ok: false, updated: 0, skipped, failed: eligible.length, error: error?.message || String(error) };
+  }
+}
+
 async function generateAndPublishSpiderWeb() {
   console.log('[SPIDER-WEB] generateAndPublishSpiderWeb 호출됨');
   // v3.8.80: API 한도 보호 — 직전 발행 후 90초 미만이면 자동 대기 또는 중단
@@ -1753,7 +2009,8 @@ async function generateAndPublishSpiderWeb() {
     updateSelectedPostsFromInputs();
     // v3.8.28: 입력 URL 정규화 — wp-admin URL은 공개 URL로 변환해 거미줄 CTA에 사용
     //   기존엔 wp-admin URL이 그대로 CTA <a href="...wp-admin/...">로 들어가 클릭 시 글편집으로 가던 문제 차단.
-    const urls = selectedPosts.map(p => _normalizePostUrl(p.url)).filter(u => u && u.trim());
+    const sourcePosts = _buildSourcePostsForSync();
+    const urls = sourcePosts.map(p => _normalizePostUrl(p.url)).filter(u => u && u.trim());
 
     // v3.8.76: 거미줄 통합글은 최소 2개 이상 글 필요 (1개는 통합 의미 없음)
     if (urls.length < 2) {
@@ -1769,8 +2026,7 @@ async function generateAndPublishSpiderWeb() {
     const title = titleInput ? titleInput.value.trim() : '';
 
     // v3.8.8: platform을 먼저 결정 (이미지 호스팅 분기에 활용)
-    const platformInputEarly = document.querySelector('input[name="platform"]:checked');
-    const platformEarly = (platformInputEarly && platformInputEarly.value) || 'blogspot';
+    const platformEarly = getSpiderPublishPlatform();
 
     // v3.8.13: 발행 시작 전 엔진별 사전 로그인 확인 (dropshot/imagefx 자동 로그인 대기 방지)
     //   - dropshot 계열: dropshot:check-login으로 미로그인 확인 → 미로그인이면 안내 + 중단
@@ -1803,7 +2059,7 @@ async function generateAndPublishSpiderWeb() {
     // v3.8.24: 진행 모달을 login check 전에 먼저 표시 — 사용자가 클릭 후 즉시 반응 확인
     //   기존엔 login check IPC(Playwright 사이트 확인, 5~10초)가 동기로 끝난 후에야 모달 표시 → "10초 대기" 체감.
     //   이제 모달 먼저 → 안에서 login check 진행 → 실패 시 모달 안에서 중단 안내.
-    _openSwProgressModal(selectedPosts);
+    _openSwProgressModal(sourcePosts);
     _swPushLog('이미지 엔진 로그인 상태 확인 중…', 'info');
 
     const loginIssues = await _swEngineNeedsLogin();
@@ -1837,11 +2093,15 @@ async function generateAndPublishSpiderWeb() {
       const payload = {
         urls,
         title: title || '',
-        posts: selectedPosts.map((post, index) => ({
-          id: `post-${index + 1}`,
+        posts: sourcePosts.map((post, index) => ({
+          id: post.postId || post.id || `post-${index + 1}`,
+          postId: post.postId || post.id || '',
           url: post.url,
           title: post.title || post.url,
           order: index + 1,
+          platform: post.platform || '',
+          blogId: post.blogId || '',
+          siteUrl: post.siteUrl || post.wordpressSiteUrl || '',
         })),
         // v3.8.4: 이미지 옵션 전달 (썸네일/본문 분리 + 정책)
         imagePolicy,
@@ -1894,8 +2154,27 @@ async function generateAndPublishSpiderWeb() {
       _swPushLog('⚠️ 백엔드가 imageStats를 반환하지 않음 — 이미지 생성 코드 미통합?', 'warn');
     }
 
+    let publishHtml = genResult.html;
+    const preparePlatform = normalizeSpiderPublishPlatform(platformEarly);
+    if (preparePlatform && window.electronAPI?.invoke) {
+      const prepareLabel = preparePlatform === 'wordpress' ? 'WordPress' : 'Blogspot';
+      try {
+        const prepared = await window.electronAPI.invoke('prepare-publish-content', {
+          platform: preparePlatform,
+          payload: { platform: preparePlatform },
+          content: publishHtml,
+        });
+        if (prepared?.ok && typeof prepared.content === 'string' && prepared.content.trim()) {
+          publishHtml = prepared.content;
+          _swPushLog(`${prepareLabel} 발행용 HTML 정리 완료`, 'info');
+        }
+      } catch (prepareError) {
+        console.warn(`[SPIDER-WEB] ${prepareLabel} HTML 준비 실패:`, prepareError);
+      }
+    }
+
     generatedContent = {
-      html: genResult.html,
+      html: publishHtml,
       title: genResult.title || title || '거미줄치기 통합글',
       urls,
       // v3.8.15: 썸네일 + 라벨(해시태그) 보존 → publish-content에 전달
@@ -1917,10 +2196,11 @@ async function generateAndPublishSpiderWeb() {
     _swUpdateProgress(90);
 
     // 발행 플랫폼: 메인 설정 또는 기본 blogspot
-    const platformInput = document.querySelector('input[name="platform"]:checked');
-    const platform = (platformInput && platformInput.value) || 'blogspot';
+    const platform = getSpiderPublishPlatform();
+    const publishIntent = getSpiderPublishIntent('publish');
 
     let pubResult;
+    let fullPayloadForSync = null;
     try {
       // v3.8.4: window.blogger.publishContent는 4-인자 시그니처 (payload, title, content, thumbnailUrl).
       //   이전엔 단일 객체로 호출해서 title=undefined → 백엔드 validateTitle 거부 → "제목이 비었습니다" 에러.
@@ -1967,7 +2247,7 @@ async function generateAndPublishSpiderWeb() {
       // 공통 payload 빌더
       const fullPayload = {
         platform,
-        publishType: 'publish',
+        ...publishIntent,
         // Blogger 라벨 우선순위 (publisher가 generatedLabels → labels → topic+keywords 순서로 사용)
         generatedLabels: safeLabels,
         labels: safeLabels,
@@ -1989,6 +2269,7 @@ async function generateAndPublishSpiderWeb() {
           wordpressCategories: wordpressCategory || undefined,
         } : {}),
       };
+      fullPayloadForSync = fullPayload;
 
       if (window.electronAPI && window.electronAPI.invoke) {
         pubResult = await window.electronAPI.invoke('publish-content', {
@@ -2025,6 +2306,7 @@ async function generateAndPublishSpiderWeb() {
     }
 
     const publishedUrl = pubResult.url || pubResult.postUrl || '';
+    const publishedPostId = _firstNonEmpty(pubResult.postId, pubResult.id, pubResult.post_id);
     const publishedAt = new Date().toISOString();
 
     // 발행한 글 저장 (publishedPosts에 추가 — 다른 탭에서 활용)
@@ -2034,8 +2316,19 @@ async function generateAndPublishSpiderWeb() {
         title: generatedContent.title,
         publishedAt,
         platform,
+        postId: publishedPostId,
+        id: publishedPostId,
+        blogId: fullPayloadForSync?.blogId,
+        siteUrl: fullPayloadForSync?.wordpressSiteUrl || fullPayloadForSync?.siteUrl,
       });
     } catch (e) { console.warn('[SPIDER-WEB] savePublishedPost 실패:', e); }
+
+    const backlinkSync = await _syncSpiderBacklinksToSources({
+      url: publishedUrl,
+      title: generatedContent.title,
+      postId: publishedPostId,
+      platform,
+    }, sourcePosts, fullPayloadForSync || { platform });
 
     // 미리보기 렌더 + localStorage 저장
     _renderSpiderWebPreview(generatedContent.html, publishedUrl, publishedAt);
@@ -2046,6 +2339,8 @@ async function generateAndPublishSpiderWeb() {
       publishedUrl,
       publishedAt,
       platform,
+      postId: publishedPostId,
+      backlinkSync,
     });
 
     _swFinishSuccess(publishedUrl);

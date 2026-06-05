@@ -61,7 +61,29 @@ export async function generatePreview() {
     if (result?.ok) {
       addLog('✅ 콘텐츠 생성 완료!', 'success');
       
-      const htmlContent = result.html || result.content || '';
+      let htmlContent = result.html || result.content || '';
+      const targetPlatform = String(payload.targetPlatform || payload.platform || '').toLowerCase();
+      const preparePlatform = /wordpress|wp|워드프레스/i.test(targetPlatform)
+        ? 'wordpress'
+        : (/blogger|blogspot|블로거|블로그스팟/i.test(targetPlatform) ? 'blogspot' : '');
+      if (preparePlatform && window.electronAPI?.invoke) {
+        const prepareLabel = preparePlatform === 'wordpress' ? 'WordPress' : 'Blogspot';
+        try {
+          const prepared = await window.electronAPI.invoke('prepare-publish-content', {
+            payload: { ...payload, platform: preparePlatform },
+            platform: preparePlatform,
+            content: htmlContent,
+          });
+          if (prepared?.ok && typeof prepared.content === 'string' && prepared.content.trim()) {
+            htmlContent = prepared.content;
+            addLog(`${prepareLabel} 발행용 HTML 정리 완료`, 'info');
+          } else if (prepared?.error) {
+            console.warn(`[NEW-PREVIEW] ${prepareLabel} HTML 준비 실패:`, prepared.error);
+          }
+        } catch (prepareError) {
+          console.warn(`[NEW-PREVIEW] ${prepareLabel} HTML 준비 중 예외:`, prepareError);
+        }
+      }
       const textLength = getTextLength(htmlContent);
       const htmlSizeKB = (htmlContent.length / 1024).toFixed(2);
       console.log(`[NEW-PREVIEW] HTML 콘텐츠 크기: ${textLength}자 (순수 텍스트, HTML: ${htmlContent.length}자, ${htmlSizeKB}KB)`);
@@ -200,22 +222,27 @@ export function displayPreviewInModal() {
       
       // Sanitize 적용
       let sanitizedContent;
+      const previewSanitizeOptions = {
+        allowTags: ['p', 'br', 'strong', 'b', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'img', 'div', 'span', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'figure', 'figcaption', 'section', 'aside', 'hr'],
+        allowAttributes: ['href', 'src', 'alt', 'title', 'class', 'style', 'id', 'role', 'aria-label', 'target', 'rel', 'width', 'height', 'colspan', 'rowspan'],
+      };
       if (displayContent.includes('<') && displayContent.includes('>')) {
-        sanitizedContent = sanitizeHTML(displayContent);
+        sanitizedContent = sanitizeHTML(displayContent, previewSanitizeOptions);
       } else {
-        sanitizedContent = `<div style="padding: 20px; font-size: 14px; line-height: 1.6; color: #374151;">${sanitizeHTML(displayContent)}</div>`;
+        sanitizedContent = `<div style="padding: 20px; font-size: 14px; line-height: 1.6; color: #374151;">${sanitizeHTML(displayContent, previewSanitizeOptions)}</div>`;
       }
+      const isPublishReadyContent = /\b(?:wp-styled-content|bgpt-wp-ready|blogger-gpt-content|bgpt-blogger-ready)\b|data-bgpt-(?:wp|blogger)-ready/i.test(displayContent);
       
       // 프리미엄 스킨 적용된 콘텐츠로 래핑
       const wrappedContent = `
         <div class="preview-content-wrapper" style="
           background: #f8fafc !important;
           color: #1e293b !important;
-          padding: 40px !important;
-          border-radius: 16px !important;
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1) !important;
-          margin: 20px 0 !important;
-          min-height: 500px !important;
+          padding: ${isPublishReadyContent ? '0' : '40px'} !important;
+          border-radius: ${isPublishReadyContent ? '0' : '16px'} !important;
+          box-shadow: ${isPublishReadyContent ? 'none' : '0 8px 32px rgba(0, 0, 0, 0.1)'} !important;
+          margin: ${isPublishReadyContent ? '0' : '20px 0'} !important;
+          min-height: ${isPublishReadyContent ? '0' : '500px'} !important;
           font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
         ">
           <style>
@@ -503,5 +530,3 @@ export function closePreviewModal() {
   if (overlay) overlay.style.display = 'none';
   if (modal) modal.style.display = 'none';
 }
-
-

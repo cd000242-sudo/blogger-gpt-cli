@@ -1,118 +1,160 @@
-// src/core/external-traffic/prompts/sns/facebook.js
-// Facebook — 개인/그룹 2변형. Meta engagement bait 페널티 명시 반영.
-// R1 deep-research (2026-06-01) 결과 반영 — confidence: verified.
-
 'use strict';
 
 const { assessRiskMultiAxis } = require('../../_shared/risk-assess');
 const { appendUserNoteSafely } = require('../../_shared/sanitize');
+const {
+  createStructuredPlatformProcessor,
+  buildSourceInputBlock,
+} = require('../_shared/structured-platform-rewrite');
+const {
+  buildPlatformSystemPrompt,
+  buildPlatformUserPrompt,
+} = require('../_shared/common-context-guard');
 
-/** @type {import('../../_shared/types').ChannelPrompt} */
+const structured = createStructuredPlatformProcessor({
+  marker: 'FACEBOOK',
+  contextFields: [
+    'sourceTitle',
+    'sourceUrl',
+    'autoCategory',
+    'coreTopic',
+    'targetReader',
+    'readerSituation',
+    'shareReason',
+    'commentAngle',
+    'linkReason',
+  ],
+  variantLabels: {
+    A: '생활정보 공유형',
+    B: '가족/지인 공유형',
+    C: '주의사항 정리형',
+  },
+  candidateFields: [
+    {
+      key: 'firstLineCandidates',
+      selectedKey: 'selectedFirstLine',
+      scoreKey: 'firstLineScore',
+      label: '첫 문장 후보',
+    },
+  ],
+  copyFields: [
+    { key: 'firstLine' },
+    { key: 'body' },
+    { key: 'sharePrompt' },
+    { key: 'commentPrompt' },
+    { key: 'linkPrompt', appendSourceUrl: true },
+    { key: 'hashtags', style: 'inline', max: 5 },
+  ],
+  formattedParts: [
+    {
+      key: 'personal',
+      fields: ['firstLine', 'body', 'sharePrompt', 'commentPrompt', { key: 'linkPrompt', appendSourceUrl: true }, { key: 'hashtags', style: 'inline', max: 5 }],
+      appendSourceUrl: false,
+    },
+    {
+      key: 'group-comment',
+      fields: ['firstLine', 'commentPrompt', { key: 'linkPrompt', appendSourceUrl: true }],
+      appendSourceUrl: false,
+    },
+  ],
+  arrayFields: ['hashtags'],
+  appendSourceUrl: false,
+  copyMin: 500,
+  copyMax: 1200,
+  hashtagMax: 5,
+  looseWindow: 3600,
+});
+
+/** @type {import('../../_shared/types').ChannelPrompt & { processStructuredResponse?: Function }} */
 const FACEBOOK = {
   id: 'facebook',
   name: 'Facebook',
   category: 'sns',
   riskTier: 'medium',
   confidence: 'verified',
-  icon: '👥',
+  icon: 'f',
   color: '#1877f2',
   openUrl: 'https://www.facebook.com/',
 
   killerHookPatterns: [
-    '오늘 ~ 한 일',
-    '~ 인 분들께 도움이 됐으면',
-    '진짜 ~ 한 사람 손',
-    '제가 ~ 해본 결과',
-    '~ 알고 계신 분 있으세요?',
-    '~ 정리해봤어요',
-    '경험상 ~ 더라고요',
-    '~ 한 이야기 공유',
+    '주변에 이런 상황이면 참고하면 좋겠어요',
+    '저도 정리하다가 헷갈렸던 부분인데요',
+    '가족한테 공유하려고 정리해봤어요',
   ],
-  // R1 검증: Meta 'engagement bait' Transparency Center 공식 명시 페널티.
   bannedPhrases: [
-    '이거 광고 아니에요',
-    '제발 봐주세요',
-    '좋아요 눌러주세요',  // Meta engagement bait
-    '댓글 부탁드려요',     // Meta engagement bait
-    '친구 태그해주세요',   // Meta engagement bait
-    '공유 부탁드려요',     // Meta engagement bait
-    '리액션 부탁드려요',   // Meta engagement bait
+    '좋아요 눌러주세요',
+    '댓글 부탁드려요',
+    '공유 부탁드려요',
+    '친구 태그해주세요',
+    '지금 바로 클릭',
+    '100% 보장',
   ],
   popularityTriggers: [
-    '스토리텔링',
-    '경험 공유',
-    '체크리스트',
-    '비교 정리',
-    '본인 후기 사진',
-    'specific call to action (engagement bait 예외)',
+    '생활정보 공유',
+    '지인에게 전달할 만한 맥락',
+    '주의사항 정리',
+    '자연스러운 댓글 질문',
   ],
   toneSignature: {
     formality: 'polite',
-    emoji: 'medium',
+    emoji: 'minimal',
     slang: [],
-    pronouns: ['저', '저희'],
+    pronouns: ['저', '우리'],
   },
   transformationAxes: {
-    titleRule: '첫 문장 = 개인 경험 또는 공감 유도.',
-    bodyRule: '본문 500~1,500자, 빈 줄로 호흡 분리. 진성 톤 (광고 어투 페널티).',
+    titleRule: '첫 문장은 생활 맥락과 공유 이유를 먼저 보여준다.',
+    bodyRule: '500~1000자. 지인에게 설명하듯 쉽게 쓰고 참여 강요 문구를 피한다.',
     ctaPlacement: 'inline',
-    linkBait: [
-      '전체 정리는 여기:',
-      '자세한 내용 정리해뒀어요:',
-      '제 글 정리:',
-    ],
+    linkBait: ['정리된 원문도 함께 남깁니다'],
   },
   paragraphRule: {
-    maxLineChars: 40,
+    maxLineChars: 48,
     paragraphBreak: 'double',
     emptyLineMaxConsecutive: 1,
     splitOutput: ['personal', 'group-comment'],
   },
   bandThresholds: { low: 40, medium: 65, high: 85, critical: 100 },
-  maxOutputTokens: 1500,
+  maxOutputTokens: 9000,
 
   buildSystemPrompt: (subChannel, userCustomRule) => {
-    const base = `당신은 한국 Facebook 사용자입니다 (2025~2026 알고리즘 검증).
+    const base = `당신은 Facebook 외부유입 글을 만드는 생활정보 공유 에디터입니다.
 
-[글 형식 — 두 변형 출력]
-[개인 계정] 500~1,500자
-  - 친근한 존댓말 + 본인 경험 분위기
-  - 본문 끝에 URL 직접 박기 OK
-  - 줄당 35~40자, 문단 사이 빈 줄 1줄
+[Facebook 핵심]
+- 짧은 광고 문구가 아니라 가족, 지인, 커뮤니티에 공유하는 생활정보 글이어야 합니다.
+- 500~1000자 안에서 쉬운 단어와 자연스러운 존댓말을 사용합니다.
+- 좋아요/댓글/공유를 직접 강요하는 engagement bait 문구는 금지합니다.
+- 원문에 없는 금액, 날짜, 조건, 효과, 대상자를 만들지 않습니다.
 
-[그룹 댓글] 미끼 글 + 별도 댓글 링크
-  - 본문은 미끼만 (URL 없이 300~500자)
-  - 댓글에 박을 한 줄 + URL
+[A/B/C 역할]
+- A: 생활정보 공유형. 실생활에서 바로 확인할 이유를 줍니다.
+- B: 가족/지인 공유형. 주변 사람에게 전달하는 톤으로 씁니다.
+- C: 주의사항 정리형. 놓치기 쉬운 기준과 확인 포인트를 정리합니다.
 
-[금지 — Meta engagement bait 공식 페널티 (Transparency Center)]
-- "좋아요 눌러주세요" / "댓글 부탁드려요" / "친구 태그해주세요" / "공유 부탁드려요"
-- 명확한 call-to-action 목적 없는 engagement 요청 = distribution demotion
-- 'specific call to action' 예외만 인정 (실제 행동 유도 — 예: "응급키트 신청은 댓글로")
-
-[2025 추세]
-- Facebook engagement +11% 증가 (5.6%) — 텍스트 콘텐츠 회복
-- Page는 외부 링크 도달 감소 → 댓글 링크 권장
-- 개인 계정은 본문 URL OK
-
-[출력 형식 — 반드시 두 헤더 사용]
-[개인 계정]
-[본문...]
-
-[그룹 댓글]
-[미끼 본문...]
-댓글:
-[한 줄 + URL]`;
-    return appendUserNoteSafely(base, userCustomRule);
+[복사본 규칙]
+- finalRevision에는 최종 게시글 요소만 넣습니다.
+- 후보 10개, 점수, critique는 UI에서만 보여주고 복사본에는 포함하지 않습니다.`;
+    return appendUserNoteSafely(`${base}\n\n${structured.buildStructuredOutputInstructions()}`, userCustomRule);
   },
 
-  buildUserPrompt: ({ sourceSummary, sourceUrl, sourceTitle }) => `원본 글: "${sourceTitle}"
-URL: ${sourceUrl}
+  buildUserPrompt: (params) => `${buildSourceInputBlock(params)}
 
-[원본 요약]
-- 핵심 가치: ${sourceSummary.coreValue}
-- 후킹 후보: ${sourceSummary.hooks.join(' / ')}
+[Facebook 생성 지시]
+1. context에 자동분류, 핵심주제, 예상독자, 독자상황을 채우세요.
+2. A/B/C 3개를 모두 생성하세요.
+3. 각 안마다 firstLineCandidates 10개를 만들고 점수를 매긴 뒤 selectedFirstLine을 고르세요.
+4. finalRevision.firstLine/body/sharePrompt/commentPrompt/linkPrompt/hashtags만 최종 복사 요소로 채우세요.
+5. finalRevision.linkPrompt에는 원문 URL "${params.sourceUrl}"을 자연스럽게 포함하세요.
+6. 댓글/공유를 강요하지 말고 자연스러운 질문형으로 마무리하세요.`,
 
-Facebook 2변형을 작성하세요. "[개인 계정]" 헤더 + 본문 500~1,500자 + URL, "[그룹 댓글]" 헤더 + 미끼 본문 (URL X) + 댓글 한 줄. engagement bait 카피 절대 금지.`,
+  processStructuredResponse(rawText) {
+    const facebook = structured.parseResult(rawText);
+    if (!facebook) return null;
+    const formatted = structured.buildFormattedFromResult(facebook);
+    return {
+      formatted,
+      extra: { facebook },
+    };
+  },
 
   assessRisk(response) {
     return assessRiskMultiAxis(response, FACEBOOK);
@@ -120,18 +162,23 @@ Facebook 2변형을 작성하세요. "[개인 계정]" 헤더 + 본문 500~1,500
 
   userWarning: null,
   operationalNotes: [
-    'Page는 외부 링크 도달 감소 → 댓글 링크 권장',
-    '개인 계정은 본문 URL OK',
-    '동일 그룹 24h 내 재게시 시 도배 처리',
-    '2025 engagement +11% (5.6%) — 텍스트 회복',
-    'Meta engagement bait 공식 페널티 (2017-12 발효 이후 유지)',
+    'Meta engagement bait 표현은 피합니다.',
+    '개인 계정 톤과 그룹 댓글 톤을 모두 만들 수 있게 parts를 유지합니다.',
   ],
   researchSources: [
     'https://transparency.meta.com/features/approach-to-ranking/content-distribution-guidelines/engagement-bait',
-    'https://hashmeta.com/insights/facebook-algorithm-changes-2025',
-    'https://buffer.com/resources/state-of-social-media-engagement-2026/',
   ],
-  lastVerified: '2026-06-01',
+  lastVerified: '2026-06-03',
 };
+
+FACEBOOK.buildSystemPrompt = (subChannel, userCustomRule) => appendUserNoteSafely(
+  buildPlatformSystemPrompt('facebook'),
+  userCustomRule
+);
+FACEBOOK.buildUserPrompt = (params) => buildPlatformUserPrompt(
+  'facebook',
+  { ...params, platformId: 'facebook' },
+  structured.buildStructuredOutputInstructions()
+);
 
 module.exports = FACEBOOK;

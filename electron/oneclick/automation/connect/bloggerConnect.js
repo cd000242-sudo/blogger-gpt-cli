@@ -2,9 +2,114 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.automateBloggerConnect = automateBloggerConnect;
 const selectors_1 = require("../../config/selectors");
+const GOOGLE_AUTH_AUDIENCE_URL = 'https://console.cloud.google.com/auth/audience';
+async function clickFirstVisible(page, selectors, timeout = 2500) {
+    for (const selector of selectors) {
+        try {
+            const locator = page.locator(selector).first();
+            if (await locator.isVisible({ timeout })) {
+                await locator.click();
+                return true;
+            }
+        }
+        catch { /* try next selector */ }
+    }
+    return false;
+}
+async function getCurrentGoogleAccountEmail(page) {
+    try {
+        const emails = await page.evaluate(() => {
+            const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+            const values = [
+                document.body?.innerText || '',
+                ...Array.from(document.querySelectorAll('[aria-label], [title], [data-email]')).map((el) => [
+                    el.getAttribute('aria-label') || '',
+                    el.getAttribute('title') || '',
+                    el.getAttribute('data-email') || '',
+                    el.textContent || '',
+                ].join(' ')),
+            ];
+            return values
+                .flatMap((value) => value.match(emailPattern) || [])
+                .map((email) => email.toLowerCase())
+                .filter((email, index, arr) => arr.indexOf(email) === index)
+                .filter((email) => !email.includes('gserviceaccount.com') && !email.includes('example.com'));
+        });
+        return emails?.[0] || '';
+    }
+    catch {
+        return '';
+    }
+}
+async function addOAuthTestUserIfPossible(state, page, email) {
+    if (!email) {
+        state.message = 'OAuth 테스트 사용자 이메일을 자동 확인하지 못했습니다. [테스트 사용자] 화면에서 로그인한 Gmail을 직접 추가해주세요.';
+        return false;
+    }
+    try {
+        state.message = `OAuth 테스트 사용자 등록 확인 중: ${email}`;
+        await page.goto(GOOGLE_AUTH_AUDIENCE_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        await page.waitForTimeout(4000);
+        const alreadyAdded = await page.evaluate((targetEmail) => {
+            return (document.body?.innerText || '').toLowerCase().includes(targetEmail.toLowerCase());
+        }, email);
+        if (alreadyAdded) {
+            state.message = `✅ OAuth 테스트 사용자에 ${email} 계정이 이미 등록되어 있습니다.`;
+            return true;
+        }
+        const opened = await clickFirstVisible(page, [
+            'button:has-text("사용자 추가")',
+            'button:has-text("테스트 사용자 추가")',
+            'button:has-text("Add users")',
+            'button:has-text("ADD USERS")',
+            'button:has-text("Add user")',
+            'button:has-text("Add")',
+        ], 4000);
+        if (!opened) {
+            state.message = `OAuth 테스트 사용자 추가 버튼을 찾지 못했습니다. Google Cloud의 Audience/Test users 화면에서 ${email} 계정을 직접 추가해주세요.`;
+            return false;
+        }
+        await page.waitForTimeout(1500);
+        const input = page.locator([
+            'textarea',
+            'input[type="email"]',
+            'input[aria-label*="email"]',
+            'input[aria-label*="Email"]',
+            'input[aria-label*="이메일"]',
+            'input[type="text"]',
+            '[contenteditable="true"]',
+        ].join(', ')).last();
+        await input.fill(email).catch(async () => {
+            await input.click();
+            await page.keyboard.type(email);
+        });
+        await page.keyboard.press('Enter').catch(() => { });
+        await page.waitForTimeout(700);
+        const saved = await clickFirstVisible(page, [
+            'button:has-text("저장")',
+            'button:has-text("Save")',
+            'button:has-text("SAVE")',
+            'button:has-text("추가")',
+            'button:has-text("Add")',
+        ], 4000);
+        if (!saved) {
+            state.message = `OAuth 테스트 사용자 이메일은 입력했습니다. Google Cloud 화면에서 저장 버튼을 눌러 ${email} 계정을 등록해주세요.`;
+            return false;
+        }
+        await page.waitForTimeout(2500);
+        state.message = `✅ OAuth 테스트 사용자 등록을 확인했습니다: ${email}`;
+        return true;
+    }
+    catch {
+        state.message = `OAuth 테스트 사용자 자동 등록을 완료하지 못했습니다. Google Cloud의 Audience/Test users 화면에서 ${email} 계정을 직접 추가해주세요.`;
+        return false;
+    }
+}
 async function automateBloggerConnect(state, page) {
     const results = {};
+    state.totalSteps = 9;
     // 1) GCP Console 이동
+    state.currentStep = 0;
     state.message = 'Google Cloud Console로 이동 중...';
     await page.goto('https://console.cloud.google.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(3000);
@@ -24,6 +129,7 @@ async function automateBloggerConnect(state, page) {
     if (state.cancelled)
         return;
     // 3) 프로젝트 생성 (blogger-gpt 이름으로)
+    state.currentStep = 1;
     state.message = '프로젝트 확인 중...';
     try {
         // 프로젝트 셀렉터에서 현재 프로젝트 이름 확인
@@ -56,6 +162,7 @@ async function automateBloggerConnect(state, page) {
     if (state.cancelled)
         return;
     // 4) Blogger API 활성화
+    state.currentStep = 2;
     state.message = 'Blogger API 활성화 중...';
     try {
         await page.goto('https://console.cloud.google.com/apis/library/blogger.googleapis.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -90,6 +197,7 @@ async function automateBloggerConnect(state, page) {
     if (state.cancelled)
         return;
     // 5) OAuth 동의 화면 구성
+    state.currentStep = 3;
     state.message = 'OAuth 동의 화면 구성 중...';
     try {
         await page.goto('https://console.cloud.google.com/apis/credentials/consent', { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -121,10 +229,15 @@ async function automateBloggerConnect(state, page) {
                         await skipBtn.click();
                         await page.waitForTimeout(2000);
                     }
-                    // 테스트 사용자 단계 — 건너뛰기
+                    // 테스트 사용자 단계 — 초보자 차단 방지를 위해 현재 로그인 계정을 추가 시도
                     const skipBtn2 = await page.$(selectors_1.GCP_SELECTORS.saveAndContinueBtnKo) || await page.$(selectors_1.GCP_SELECTORS.saveAndContinueBtnEn);
                     if (skipBtn2) {
-                        await skipBtn2.click();
+                        const email = await getCurrentGoogleAccountEmail(page);
+                        const added = await addOAuthTestUserIfPossible(state, page, email);
+                        if (!added) {
+                            state.message = 'OAuth 테스트 사용자 단계에서 로그인한 Gmail을 추가한 뒤 저장/계속을 눌러주세요.';
+                        }
+                        await skipBtn2.click().catch(() => { });
                         await page.waitForTimeout(2000);
                     }
                 }
@@ -139,7 +252,19 @@ async function automateBloggerConnect(state, page) {
     }
     if (state.cancelled)
         return;
-    // 6) OAuth 클라이언트 ID 생성
+    // 6) OAuth 테스트 사용자 보강
+    state.currentStep = 4;
+    try {
+        const email = await getCurrentGoogleAccountEmail(page);
+        await addOAuthTestUserIfPossible(state, page, email);
+    }
+    catch {
+        state.message = 'OAuth 테스트 사용자 자동 확인을 건너뜁니다. access_denied가 뜨면 Audience/Test users 화면에서 로그인 Gmail을 추가해주세요.';
+    }
+    if (state.cancelled)
+        return;
+    // 7) OAuth 클라이언트 ID 생성
+    state.currentStep = 5;
     state.message = 'OAuth 클라이언트 ID 생성 중...';
     try {
         await page.goto('https://console.cloud.google.com/apis/credentials', { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -245,21 +370,22 @@ async function automateBloggerConnect(state, page) {
                         state.message = '✅ OAuth 클라이언트 ID/Secret 생성 완료!';
                     }
                     else {
-                        state.message = '⚠️ 자격증명이 생성되었지만 자동 추출 실패. 화면에서 직접 복사해주세요.';
+                        state.message = '⚠️ 자격증명이 생성되었지만 자동 추출 실패. 앱의 Google OAuth 빠른 준비 칸에 Client ID/Secret을 붙여넣고 [저장 후 인증]을 눌러주세요.';
                     }
                 }
             }
         }
         else {
-            state.message = '사용자 인증 정보 만들기 버튼을 찾지 못했습니다.';
+            state.message = '사용자 인증 정보 만들기 버튼을 찾지 못했습니다. 앱의 Google OAuth 빠른 준비 칸에서 콘솔을 열어 Client ID/Secret을 저장해주세요.';
         }
     }
     catch (e) {
-        state.message = 'OAuth 클라이언트 ID 생성 중 오류. 수동으로 설정해주세요.';
+        state.message = 'OAuth 클라이언트 ID 자동 생성 중 오류. 앱의 Google OAuth 빠른 준비 칸에 Client ID/Secret을 붙여넣고 [저장 후 인증]을 눌러주세요.';
     }
     if (state.cancelled)
         return;
-    // 7) Blog ID 추출 (Blogger.com에서)
+    // 8) Blog ID 추출 (Blogger.com에서)
+    state.currentStep = 7;
     state.message = 'Blogger에서 Blog ID 추출 중...';
     try {
         await page.goto('https://www.blogger.com/', { waitUntil: 'domcontentloaded', timeout: 15000 });
@@ -297,5 +423,6 @@ async function automateBloggerConnect(state, page) {
     catch {
         state.message = 'Blog ID 추출 실패. Blogger 대시보드에서 확인해주세요.';
     }
+    state.currentStep = 8;
     state.results = results;
 }

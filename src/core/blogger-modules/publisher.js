@@ -18,7 +18,8 @@ const {
   validateContentSize,
   preprocessContent,
   determinePostingStatus,
-  processLabels
+  processLabels,
+  repairBrokenText
 } = require('./content');
 const {
   uploadDataUrlThumbnail,
@@ -53,6 +54,9 @@ const { diagnoseBloggerError, logDetailedError } = require('./error-handler');
  * @returns {Promise<Object>} - {ok, postUrl?, postId?, error?, needsAuth?}
  */
 async function publishToBlogger(payload, title, html, thumbnailUrl, onLog, postingStatus = 'publish', scheduleDate = null) {
+  title = repairBrokenText('Blogger title', title);
+  html = repairBrokenText('Blogger content', html);
+
   // 할당량 체크 (선택적)
   try {
     const { checkAndIncrement } = require('../utils/usage-quota.js');
@@ -341,6 +345,13 @@ async function publishToBlogger(payload, title, html, thumbnailUrl, onLog, posti
     console.log('[PUBLISH] Blog ID:', blogId);
     console.log('[PUBLISH] Status:', status);
     console.log('[PUBLISH] isDraft:', isDraftMode);
+    body.title = repairBrokenText('Blogger title', body.title);
+    body.content = repairBrokenText('Blogger content', body.content);
+    if (Array.isArray(body.labels)) {
+      body.labels = body.labels
+        .map((label, index) => repairBrokenText(`Blogger label ${index + 1}`, String(label)))
+        .filter(Boolean);
+    }
 
     const response = await blogger.posts.insert({
       blogId: blogId,

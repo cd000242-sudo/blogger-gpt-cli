@@ -162,7 +162,7 @@ export class SessionManager {
         {
           userId: this.sessionData.userId,
           sessionToken: this.sessionData.sessionToken,
-          appId: 'com.ridernam.blogger.automation'
+          appId: 'com.leadernam.orbit'
         },
         {
           timeout: 10000,

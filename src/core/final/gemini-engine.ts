@@ -91,6 +91,36 @@ const BILLING_URLS: Record<string, string> = {
   perplexity: 'https://www.perplexity.ai/settings/api',
 };
 
+const LLM_BROKEN_TEXT_PATTERN = /\uFFFD|&#(?:65533|xfffd);|%EF%BF%BD/gi;
+
+function repairBrokenGeneratedText(label: string, text: string): string {
+  const matches = text.match(LLM_BROKEN_TEXT_PATTERN);
+  if (!matches || matches.length === 0) return text;
+
+  const preview = text
+    .replace(/<[^>]*>/g, ' ')
+    .replace(LLM_BROKEN_TEXT_PATTERN, '[replacement]')
+    .replace(/\s+/g, ' ')
+    .slice(0, 120);
+
+  const broken = LLM_BROKEN_TEXT_PATTERN.source;
+  const brokenRe = new RegExp(broken, 'gi');
+  let repaired = text;
+
+  repaired = repaired
+    .replace(new RegExp(`청년내(?:${broken})+저축계좌`, 'gi'), '청년내일저축계좌')
+    .replace(new RegExp(`청년내(?:${broken})+저축`, 'gi'), '청년내일저축')
+    .replace(new RegExp(`폭넓(?:${broken})+`, 'gi'), '폭넓게')
+    .replace(new RegExp(`([가-힣])니(?:${broken})+`, 'gi'), '$1니다')
+    .replace(brokenRe, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/>\s+</g, '><')
+    .trim();
+
+  console.warn(`[TEXT-REPAIR] ${label}: repaired ${matches.length} broken replacement marker(s). Preview: ${preview}`);
+  return repaired;
+}
+
 // 🔥 선택된 엔진으로만 호출 — 실패 시 에러 (자동 폴백 없음)
 export async function callGeminiWithRetry(prompt: string, maxRetries: number = 2): Promise<string> {
   await enforceRateLimit();
@@ -119,9 +149,9 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 2
     // API 호출
     try {
       console.log(`🎯 [Engine] ${providerName} (${tier?.modelId || modelValue}) 호출 중...`);
-      if (primaryProvider === 'openai') return await callOpenAIAPI(prompt);
-      if (primaryProvider === 'claude') return await callClaudeAPI(prompt);
-      if (primaryProvider === 'perplexity') return await callPerplexityAPI(prompt);
+      if (primaryProvider === 'openai') return repairBrokenGeneratedText(`${providerName} 응답`, await callOpenAIAPI(prompt));
+      if (primaryProvider === 'claude') return repairBrokenGeneratedText(`${providerName} 응답`, await callClaudeAPI(prompt));
+      if (primaryProvider === 'perplexity') return repairBrokenGeneratedText(`${providerName} 응답`, await callPerplexityAPI(prompt));
     } catch (e: any) {
       const errorMsg = e?.message || String(e);
       const isRateLimit = /429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded/i.test(errorMsg);
@@ -159,7 +189,7 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 2
         ]);
         const text = result.response.text();
         console.log(`✅ [Gemini] ${modelName} 성공!`);
-        return text;
+        return repairBrokenGeneratedText(`${modelName} 응답`, text);
       } catch (error: any) {
         lastError = error;
         const errorMsg = error?.message || String(error);
@@ -252,7 +282,7 @@ export async function callGeminiWithGrounding(prompt: string, maxRetries: number
         }
 
         console.log(`✅ [Grounding] ${modelName} 성공! (${text.length}자)`);
-        return text;
+        return repairBrokenGeneratedText(`${modelName} grounding 응답`, text);
       } catch (error: any) {
         lastError = error;
         const errorMsg = error?.message || String(error);

@@ -31,6 +31,8 @@ export interface UnifiedEnvConfig {
   
   // Image API Keys
   pexelsApiKey: string;
+  deepInfraApiKey: string;
+  prodiaApiKey: string;
   
   // App Settings
   minChars: number;
@@ -110,6 +112,8 @@ export class UnifiedEnvManager {
         wordpressUsername: '',
         wordpressPassword: '',
         pexelsApiKey: '',
+        deepInfraApiKey: '',
+        prodiaApiKey: '',
         minChars: 2000,
         platform: 'wordpress',
         massCrawlingEnabled: true,
@@ -164,6 +168,8 @@ export class UnifiedEnvManager {
         wordpressUsername: process.env['WORDPRESS_USERNAME'] || '',
         wordpressPassword: process.env['WORDPRESS_PASSWORD'] || '',
         pexelsApiKey: process.env['PEXELS_API_KEY'] || '',
+        deepInfraApiKey: process.env['DEEPINFRA_API_KEY'] || process.env['DEEP_INFRA_API_KEY'] || '',
+        prodiaApiKey: process.env['PRODIA_API_KEY'] || '',
         minChars: parseInt(process.env['MIN_CHARS'] || '2000'),
         platform: (process.env['PLATFORM'] || 'wordpress') as 'blogger' | 'wordpress',
         massCrawlingEnabled: process.env['MASS_CRAWLING_ENABLED'] !== 'false',
@@ -260,6 +266,13 @@ export class UnifiedEnvManager {
               break;
             case 'PEXELS_API_KEY':
               config.pexelsApiKey = value;
+              break;
+            case 'DEEPINFRA_API_KEY':
+            case 'DEEP_INFRA_API_KEY':
+              config.deepInfraApiKey = value;
+              break;
+            case 'PRODIA_API_KEY':
+              config.prodiaApiKey = value;
               break;
             case 'MIN_CHARS':
               config.minChars = parseInt(value) || 2000;
@@ -361,6 +374,8 @@ WORDPRESS_PASSWORD=
 
 # Image API Keys
 PEXELS_API_KEY=
+DEEPINFRA_API_KEY=
+PRODIA_API_KEY=
 
 # App Settings
 MIN_CHARS=2000
@@ -489,6 +504,8 @@ WORDPRESS_PASSWORD=${config.wordpressPassword}
 
 # Image API Keys
 PEXELS_API_KEY=${config.pexelsApiKey}
+DEEPINFRA_API_KEY=${config.deepInfraApiKey}
+PRODIA_API_KEY=${config.prodiaApiKey}
 
 # App Settings
 MIN_CHARS=${config.minChars}

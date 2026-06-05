@@ -11,6 +11,43 @@ import { applySkinCSS } from './steps/applySkinCSS';
 import { setupSearchConsole } from './steps/searchConsole';
 import { saveCheckpoint, clearCheckpoint } from '../../state/persistence';
 
+const SETUP_LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
+const LOGIN_POLL_MS = 1500;
+
+async function waitForBloggerLoginOrReady(
+  state: SetupState,
+  page: any,
+  waitForLogin: (platform: string, timeout?: number) => Promise<boolean>
+): Promise<boolean> {
+  const manual = waitForLogin(state.platform, SETUP_LOGIN_TIMEOUT_MS);
+  const auto = (async () => {
+    const deadline = Date.now() + SETUP_LOGIN_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (state.cancelled) return false;
+      try {
+        const url = page.url();
+        const parsed = new URL(url);
+        const isGoogleLogin = /accounts\.google\.com|signin|ServiceLogin/i.test(url);
+        const isBlogger = /(^|\.)blogger\.com/i.test(parsed.hostname);
+        if (isBlogger && !isGoogleLogin) return true;
+
+        const hasBloggerShell = await page.evaluate(() => {
+          const bodyText = document.body?.innerText || '';
+          const hasBlogLink = !!document.querySelector('a[href*="/blog/"], a[href*="/home"], a[href*="blogger.com"]');
+          return hasBlogLink || /Blogger|블로그|새 블로그|게시물/.test(bodyText);
+        }).catch(() => false);
+        if (hasBloggerShell) return true;
+      } catch {
+        // User may still be inside the Google login flow.
+      }
+      await sleep(LOGIN_POLL_MS);
+    }
+    return false;
+  })();
+
+  return Promise.race([manual, auto]);
+}
+
 /**
  * Blogspot 원클릭 세팅 메인 함수.
  * Step 0(로그인)~Step 7(완료)까지 순차 실행한다.
@@ -21,7 +58,7 @@ export async function runBlogspotSetup(
   state: SetupState,
   adminUrl: string,
   blogspotConfig: any,
-  waitForLogin: (platform: string) => Promise<boolean>
+  waitForLogin: (platform: string, timeout?: number) => Promise<boolean>
 ): Promise<void> {
   const { browser, page } = await launchBrowser();
   state.browser = browser;
@@ -56,7 +93,7 @@ export async function runBlogspotSetup(
       state.stepStatus = 'waiting-login';
       state.message = '🪟 새로 열린 브라우저 창에서 Google 계정(애드센스와 동일한 계정 권장)으로 로그인한 뒤, 앱 화면의 "✅ 로그인 완료" 버튼을 눌러주세요. (5분 이내, 예상 전체 소요 5~15분)';
 
-      const loggedIn = await waitForLogin(state.platform);
+      const loggedIn = await waitForBloggerLoginOrReady(state, page, waitForLogin);
       if (state.cancelled) return;
       if (!loggedIn) {
         state.error = '로그인 대기 시간이 초과되어 세팅을 중단합니다. 다시 시도해 주세요.';
@@ -127,7 +164,12 @@ export async function runBlogspotSetup(
     state.stepStatus = 'error';
     recordStep(state.currentStep ?? -1, `step ${state.currentStep} 예외`, false, state.error);
   } finally {
-    try { await browser?.close(); } catch { /* ignore */ }
+    const closeDelayMs = state.cancelled
+      ? 0
+      : (state.stepStatus === 'error' || state.error ? 5 * 60 * 1000 : 15 * 1000);
+    setTimeout(async () => {
+      try { await browser?.close(); } catch { /* ignore */ }
+    }, closeDelayMs);
     state.browser = null;
     state.page = null;
   }

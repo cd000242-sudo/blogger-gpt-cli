@@ -13,7 +13,7 @@ import { makeNanoBananaProThumbnail } from '../../thumbnail';
 import { dispatchH2ImageGeneration, dispatchThumbnailGeneration } from '../imageDispatcher';
 import '../content-modes/register-all'; // 5개 모드 플러그인 자동 등록
 import { generateContentFromUrl, generateContentFromUrls } from '../url-content-generator';
-import { validateCtaUrl } from '../../cta/validate-cta-url';
+import { validateCtaUrl, validateCtaUrlFormat } from '../../cta/validate-cta-url';
 import { findRelatedPosts, insertInternalLinks } from '../internal-links';
 import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
 import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTIONS } from '../max-mode/mode-sections-extended';
@@ -29,11 +29,13 @@ import {
   sanitizeCtaText,
   generateCTAsFinal, generateSummaryTableFinal, generateHashtagsFinal,
   detectKeywordScope,
+  isContextuallySafeCtaUrl,
 } from './generation';
 import { generateCSSFinal, generateTOCFinal } from './html';
 import { buildEeatMeta, EEAT_META_CSS } from './eeat-meta';
 import { buildSchemaJsonLd } from './schema-jsonld';
 import { scanAdsensePolicy } from './policy-scanner';
+import { scanAdsenseHardening } from './adsense-hardening';
 import { scanContentQuality } from './quality-gate';
 import { validateArticleQuality } from './quality-gate';
 import { dispatchMode } from './mode-dispatcher';
@@ -41,6 +43,170 @@ import { applyFinalSeoEnhancements } from './seo-enhancements';
 
 // 🎯 동시 실행 시 process.env 충돌 방지 세마포어
 let engineLock: Promise<void> = Promise.resolve();
+
+const FINAL_CTA_BOX_STYLE = 'margin:32px auto !important;padding:26px 24px !important;background:var(--rv-cta-bg,linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%)) !important;border:1px solid var(--rv-cta-border,#93c5fd) !important;border-radius:10px !important;text-align:center !important;display:flex !important;flex-direction:column !important;align-items:center !important;gap:12px !important;box-sizing:border-box !important;max-width:100% !important;';
+const FINAL_CTA_BADGE_STYLE = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;padding:5px 12px !important;background:var(--rv-cta-badge-bg,#eff6ff) !important;color:var(--rv-cta-note,#0369a1) !important;-webkit-text-fill-color:var(--rv-cta-note,#0369a1) !important;border:1px solid var(--rv-cta-border,#bae6fd) !important;border-radius:999px !important;font-size:12px !important;font-weight:800 !important;line-height:1.2 !important;margin:0 !important;';
+const FINAL_CTA_HOOK_STYLE = 'margin:0 !important;color:#0f172a !important;-webkit-text-fill-color:#0f172a !important;font-size:16px !important;font-weight:700 !important;line-height:1.55 !important;word-break:keep-all !important;max-width:92% !important;';
+const FINAL_CTA_BUTTON_STYLE = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;min-width:220px !important;max-width:100% !important;min-height:48px !important;margin:2px auto 0 !important;padding:14px 28px !important;background:linear-gradient(135deg,var(--rv-cta-button-start,#0891b2) 0%,var(--rv-cta-button-end,#0284c7) 100%) !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;border:0 !important;border-radius:8px !important;text-decoration:none !important;font-size:16px !important;font-weight:800 !important;line-height:1.35 !important;box-shadow:0 8px 18px var(--rv-cta-shadow,rgba(2,132,199,0.24)) !important;box-sizing:border-box !important;white-space:normal !important;word-break:keep-all !important;';
+const FINAL_CTA_MICROCOPY_STYLE = 'display:block !important;width:100% !important;margin:0 !important;color:var(--rv-cta-note,#0369a1) !important;-webkit-text-fill-color:var(--rv-cta-note,#0369a1) !important;font-size:12px !important;font-weight:600 !important;line-height:1.5 !important;opacity:.86 !important;text-align:center !important;';
+const FINAL_CTA_ACTION_STACK_STYLE = 'display:flex !important;flex-direction:column !important;align-items:center !important;justify-content:center !important;gap:8px !important;width:100% !important;max-width:100% !important;margin:0 auto !important;text-align:center !important;';
+
+const CTA_PLACEHOLDER_DOMAINS = [
+  'example.com', 'your-site.com', 'placeholder.com', 'test.com',
+  'yoursite.com', 'yourblog.com', 'myblog.com', 'mysite.com',
+  'domain.com', 'website.com', 'sample.com', 'xxx.com',
+  'abc.com', 'url.com', 'link.com'
+];
+
+type RenderableCtaCandidate = {
+  label?: string;
+  hookingMessage: string;
+  buttonText: string;
+  url: string;
+  searchFallback?: boolean;
+};
+
+function isCtaUrlShapeSafe(url?: string): boolean {
+  const value = String(url || '').trim();
+  if (!value) return false;
+  const formatCheck = validateCtaUrlFormat(value);
+  if (!formatCheck.isValid) return false;
+  const lower = value.toLowerCase();
+  return !CTA_PLACEHOLDER_DOMAINS.some(d => lower.includes(d)) &&
+    !value.includes('{{') && !value.includes('}}') &&
+    !value.includes('[') && !value.includes(']') &&
+    !/google\.com\/search|search\.naver\.com|search\.daum\.net|bing\.com\/search|m\.search/i.test(lower);
+}
+
+function isSearchFallbackUrl(url?: string): boolean {
+  const value = String(url || '').trim().toLowerCase();
+  return /^https:\/\//.test(value) &&
+    /google\.com\/search|search\.naver\.com|search\.daum\.net|bing\.com\/search/i.test(value);
+}
+
+function isRenderableCta(item?: { url?: string; searchFallback?: boolean }): boolean {
+  if (!item) return false;
+  if (item.searchFallback === true) return isSearchFallbackUrl(item.url);
+  return isCtaUrlShapeSafe(item.url);
+}
+
+function normalizeCtaUrlKey(url?: string): string {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  try {
+    const u = new URL(value);
+    u.hash = '';
+    u.pathname = u.pathname.replace(/\/+$/, '') || '/';
+    return u.toString().toLowerCase();
+  } catch {
+    return value.replace(/#.*$/, '').replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+function markRenderedCta(usedUrls: Set<string>, url?: string): void {
+  const key = normalizeCtaUrlKey(url);
+  if (key) usedUrls.add(key);
+}
+
+function pickRenderableCta<T extends { url: string; searchFallback?: boolean }>(
+  items: T[],
+  usedUrls?: Set<string>,
+): T | undefined {
+  return items.find(item => {
+    if (!isRenderableCta(item)) return false;
+    const key = normalizeCtaUrlKey(item.url);
+    return !key || !usedUrls?.has(key);
+  });
+}
+
+function toRenderableCtaCandidate(
+  cta: FinalCTAData,
+  fallbackHook: string,
+  fallbackButton: string,
+  label?: string,
+): RenderableCtaCandidate {
+  const candidate: RenderableCtaCandidate = {
+    hookingMessage: cta.hookingMessage || fallbackHook,
+    buttonText: cta.buttonText || fallbackButton,
+    url: cta.url,
+  };
+  if (label) candidate.label = label;
+  if (cta.searchFallback === true) candidate.searchFallback = true;
+  return candidate;
+}
+
+function escapeHtmlText(value: string): string {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeHtmlAttr(value: string): string {
+  return escapeHtmlText(value)
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderFinalCtaBlock(input: {
+  badge?: string;
+  hook?: string;
+  buttonText?: string;
+  url?: string;
+  microcopy?: string;
+  marginTop?: number;
+}): string {
+  const badge = input.badge ? escapeHtmlText(sanitizeCtaText(input.badge)) : '';
+  const hook = escapeHtmlText(sanitizeCtaText(input.hook || ''));
+  const buttonText = escapeHtmlText(sanitizeCtaText(input.buttonText || 'Details'));
+  const url = escapeHtmlAttr(input.url || '#');
+  const ariaLabel = escapeHtmlAttr(sanitizeCtaText(input.buttonText || 'Details'));
+  const microcopy = input.microcopy ? escapeHtmlText(sanitizeCtaText(input.microcopy)) : '';
+  const boxStyle = input.marginTop != null
+    ? FINAL_CTA_BOX_STYLE.replace(/margin:[^;]+;/, `margin:${input.marginTop}px auto 32px !important;`)
+    : FINAL_CTA_BOX_STYLE;
+
+  return `
+<div class="cta-box" style="${boxStyle}">
+  ${badge ? `<span class="cta-badge" style="${FINAL_CTA_BADGE_STYLE}">${badge}</span>` : ''}
+  <p class="cta-hook" style="${FINAL_CTA_HOOK_STYLE}"><strong>${hook}</strong></p>
+  <div class="cta-action-stack" style="${FINAL_CTA_ACTION_STACK_STYLE}">
+    <a class="cta-btn" href="${url}" target="_blank" rel="nofollow noopener noreferrer" role="button" aria-label="${ariaLabel}" style="${FINAL_CTA_BUTTON_STYLE}">
+      <span style="position:relative !important;z-index:2 !important;">${buttonText}</span>
+    </a>
+    ${microcopy ? `<span class="cta-microcopy" style="${FINAL_CTA_MICROCOPY_STYLE}">${microcopy}</span>` : ''}
+  </div>
+</div>
+`;
+}
+
+function normalizeArticleBodySpacing(content: string): string {
+  const addArticleClass = (attrs: string): string => {
+    let nextAttrs = (attrs || '').replace(/style\s*=\s*(["'])[\s\S]*?\1/gi, '').trim();
+    if (/class\s*=\s*(["'])[\s\S]*?\1/i.test(nextAttrs)) {
+      nextAttrs = nextAttrs.replace(/class\s*=\s*(["'])([\s\S]*?)\1/i, (_m, quote, className) => {
+        const classes = String(className || '').split(/\s+/).filter(Boolean);
+        if (!classes.includes('article-p')) classes.push('article-p');
+        return `class=${quote}${classes.join(' ')}${quote}`;
+      });
+    } else {
+      nextAttrs = `class="article-p"${nextAttrs ? ' ' + nextAttrs : ''}`;
+    }
+    return nextAttrs;
+  };
+
+  return String(content || '')
+    .replace(/<!--\s*\/?wp:[\s\S]*?-->/gi, '')
+    .replace(/<p\b[^>]*>\s*(?:&nbsp;|\s|<br\s*\/?>)*\s*<\/p>/gi, '')
+    .replace(/<div\b[^>]*(?:height\s*:|min-height\s*:|clear\s*:|margin\s*:)[^>]*>\s*(?:&nbsp;|\s|<br\s*\/?>)*<\/div>/gi, '')
+    .replace(/(?:<br\s*\/?>\s*){2,}/gi, '<br>')
+    .replace(/<p\b([^>]*)>/gi, (_match, attrs) => {
+      const nextAttrs = addArticleClass(attrs);
+      return `<p ${nextAttrs} style="margin:0 0 14px !important;line-height:1.75 !important;">`;
+    })
+    .replace(/(<\/p>)\s*<br\s*\/?>/gi, '$1')
+    .trim();
+}
 
 export async function generateUltimateMaxModeArticleFinal(
   payload: any,
@@ -162,10 +328,14 @@ export async function generateUltimateMaxModeArticleFinal(
   if (payload?.contentMode === 'adsense') {
     payload.llmRotation = payload.llmRotation !== false; // 명시적 false 아니면 ON
     payload.adsenseScoreGate = payload.adsenseScoreGate !== false;
-    payload.adsenseMinScore = Number(payload.adsenseMinScore) || 70;
+    const requestedAdsenseMinScore = Number(payload.adsenseMinScore);
+    payload.adsenseMinScore = Number.isFinite(requestedAdsenseMinScore)
+      ? Math.max(requestedAdsenseMinScore, 78)
+      : 78;
     payload.adsenseGateMode = payload.adsenseGateMode || 'warn'; // 초보자에게 안전한 warn 기본
     payload.adsensePolicyScan = payload.adsensePolicyScan !== false;
-    onLog?.(`[PROGRESS] 0% - 🏆 adsense 모드 — 승인률 강화 자동 적용 (LLM 로테이션·점수 게이트·정책 스캔·외부 출처 강제)`);
+    payload.adsenseHardeningScan = payload.adsenseHardeningScan !== false;
+    onLog?.(`[PROGRESS] 0% - 🏆 adsense 모드 — 승인률 강화 자동 적용 (LLM 로테이션·점수 ${payload.adsenseMinScore}+·정책/반복 스캔·외부 출처 강제)`);
   }
 
   // 🎯 동시 실행 시 순차 처리 (process.env 보호)
@@ -911,7 +1081,6 @@ export async function generateUltimateMaxModeArticleFinal(
 
     // 🔥 수동 CTA가 있으면 우선 사용 (애드센스 모드에서는 수동 CTA도 차단)
     if (contentMode !== 'adsense' && payload.manualCtas && Object.keys(payload.manualCtas).length > 0) {
-      const { validateCtaUrlFormat } = await import('../../cta/validate-cta-url');
       // 📥 문서 URL이면 빈 텍스트를 다운로드 버튼으로 자동 채움
       const manualDocMatch = (url: string) => {
         const m = url.match(/\.(pdf|ppt|pptx|pps|ppsx|key|hwp|hwpx|xlsx|xls|ods|csv|tsv|zip|rar|7z|docx|doc|odt|rtf|txt|pages|numbers)(\?|#|$)/i);
@@ -927,13 +1096,17 @@ export async function generateUltimateMaxModeArticleFinal(
           '자료';
         return { btn: `📥 ${label} 다운받기`, hook: `${label}를 다운받아 자세히 확인하세요!` };
       };
-      Object.entries(payload.manualCtas).forEach(([position, ctaData]: [string, any]) => {
+      for (const [position, ctaData] of Object.entries(payload.manualCtas) as Array<[string, any]>) {
         if (ctaData && ctaData.url) {
-          // 🔥 수동 CTA URL 형식 검증 (HTTP 요청 없이 빠른 검증)
           const formatCheck = validateCtaUrlFormat(ctaData.url);
           if (!formatCheck.isValid) {
             console.warn(`[CTA] ⚠️ 수동 CTA URL 형식 오류: ${ctaData.url} (${formatCheck.reason}) — 건너뜀`);
-            return; // 이 CTA 건너뛰기
+            continue;
+          }
+          const urlCheck = await validateCtaUrl(ctaData.url, { timeout: 5000 });
+          if (!urlCheck.isValid) {
+            console.warn(`[CTA] ⚠️ 수동 CTA URL 접속 검증 실패: ${ctaData.url} (${urlCheck.reason}) — 건너뜀`);
+            continue;
           }
           const docInfo = manualDocMatch(ctaData.url);
           ctas.push({
@@ -942,9 +1115,9 @@ export async function generateUltimateMaxModeArticleFinal(
             url: ctaData.url,
             position: parseInt(position) || 0
           });
-          console.log(`[CTA] ✅ 수동 CTA 사용: ${ctaData.url}${docInfo ? ' (문서 감지 → 다운로드 버튼 자동 적용)' : ''}`);
+          console.log(`[CTA] ✅ 수동 CTA 접속 검증 통과: ${ctaData.url}${docInfo ? ' (문서 감지 → 다운로드 버튼 자동 적용)' : ''}`);
         }
-      });
+      }
     }
 
     // 수동 CTA가 없으면 자동 생성
@@ -1093,7 +1266,9 @@ export async function generateUltimateMaxModeArticleFinal(
       if (maxSection > sections.length) {
         onLog?.(`[PROGRESS] 75% - ⚠️ 이미지 섹션 설정(최대 ${maxSection})이 실제 섹션 수(${sections.length})를 초과합니다. 초과분은 무시됩니다.`);
       }
-      onLog?.(`[PROGRESS] 75% - 🚀 이미지 ${totalToGenerate}장 병렬 생성 시작...`);
+      const imageSourceKey = String(imageSource).toLowerCase();
+      const dropshotSequential = imageSourceKey === 'dropshot' || imageSourceKey === 'dropshot-nanobanana-pro';
+      onLog?.(`[PROGRESS] 75% - ${dropshotSequential ? '🍌 리더스 이미지 순차 생성 시작' : '🚀 이미지 병렬 생성 시작'} (${totalToGenerate}장)...`);
 
       // 각 섹션별 이미지 생성 함수
       async function generateSingleSectionImage(i: number): Promise<{ dataUrl: string; source: string }> {
@@ -1220,7 +1395,8 @@ export async function generateUltimateMaxModeArticleFinal(
       //   사용자 보고: nanobanana2 5장 순차 처리에 5.8분 소요 — 병렬 시 ~1분으로 단축
       const strictMode = String(process.env['STRICT_H2_IMAGE_ENGINE'] || '').toLowerCase() === 'true';
       const RECAPTCHA_ENGINES = new Set(['imagefx', 'flow']);
-      const needsSequential = strictMode && RECAPTCHA_ENGINES.has(String(imageSource).toLowerCase());
+      const DROPSHOT_ENGINES = new Set(['dropshot', 'dropshot-nanobanana-pro']);
+      const needsSequential = DROPSHOT_ENGINES.has(imageSourceKey) || (strictMode && RECAPTCHA_ENGINES.has(imageSourceKey));
       let imageResults: PromiseSettledResult<{ dataUrl: string; source: string }>[];
 
       if (needsSequential) {
@@ -1229,7 +1405,11 @@ export async function generateUltimateMaxModeArticleFinal(
         //   안전망: 90초 생성 가정 시 5*90 + 4*15 = 510초 ≈ 9분
         const estMinLow = Math.round((sections.length * 60 + (sections.length - 1) * 8) / 60);
         const estMinHigh = Math.round((sections.length * 90 + (sections.length - 1) * 15) / 60);
-        onLog?.(`🛡️ Strict 모드 — 순차 처리 + 8~15초 jitter (reCAPTCHA 회피)`);
+        if (DROPSHOT_ENGINES.has(imageSourceKey)) {
+          onLog?.(`🍌 리더스 나노바나나프로 — 본문 이미지도 1장씩 완전 순차 처리합니다`);
+        } else {
+          onLog?.(`🛡️ Strict 모드 — 순차 처리 + 8~15초 jitter (reCAPTCHA 회피)`);
+        }
         onLog?.(`⏱️ 예상 이미지 처리 시간: ${estMinLow}~${estMinHigh}분 (${sections.length}장 순차)`);
         const seqResults: PromiseSettledResult<{ dataUrl: string; source: string }>[] = [];
         for (let i = 0; i < sections.length; i++) {
@@ -1247,7 +1427,7 @@ export async function generateUltimateMaxModeArticleFinal(
               break;
             }
           }
-          // 마지막 항목 아니면 8~15초 랜덤 대기
+          // 마지막 항목 아니면 짧은 랜덤 대기. Dropshot도 UI 자동화라 즉시 연타를 피한다.
           if (i < sections.length - 1) {
             const jitterMs = 8000 + Math.floor(Math.random() * 7000);
             console.log(`[ORCHESTRATION] ⏳ R-1 jitter ${jitterMs}ms (${i + 1}/${sections.length} 완료)`);
@@ -1331,6 +1511,7 @@ export async function generateUltimateMaxModeArticleFinal(
     console.log(`[IMAGE] 🚀 이미지 업로드 완료 (${uploadElapsed}초 — 병렬 처리)`);
 
     // H2 섹션들 — 💰 Revenue-Max: 카드 없이 플랫 구조
+    const renderedCtaUrls = new Set<string>();
     sections.forEach((section, idx) => {
       // 🔥 H2 제목에서 접두어 제거 (h2:, H2-, 소제목: 등)
       let cleanH2 = (section.h2 || '')
@@ -1356,8 +1537,10 @@ export async function generateUltimateMaxModeArticleFinal(
       const finalImageUrl = processedImageUrls[idx];
       if (finalImageUrl) {
         html += `
-<figure class="section-image" style="margin:32px 0 40px !important;">
-  <img src="${finalImageUrl}" alt="${cleanH2}" title="${cleanH2}" style="width:100%;height:auto;border-radius:8px;display:block;" loading="lazy" />
+<figure class="section-image" style="width:100% !important;margin:32px 0 40px !important;padding:0 !important;">
+  <div class="section-image-frame" style="width:100% !important;aspect-ratio:16/9 !important;overflow:hidden !important;border-radius:10px !important;background:#f8fafc !important;">
+    <img src="${finalImageUrl}" alt="${cleanH2}" title="${cleanH2}" style="width:100% !important;height:100% !important;aspect-ratio:16/9 !important;object-fit:cover !important;border-radius:0 !important;display:block !important;margin:0 !important;" loading="lazy" />
+  </div>
   <figcaption style="text-align:center;font-size:13px;color:#999;margin-top:12px;font-style:italic;">${cleanH2}</figcaption>
 </figure>
 `;
@@ -1372,12 +1555,12 @@ export async function generateUltimateMaxModeArticleFinal(
         const h3Number = `${idx + 1}-${h3Idx + 1}.`;
 
         // 💰 H3 — 볼드, 여백 최적화
-        html += `\n<h3 style="font-size:21px !important;font-weight:800 !important;color:#222 !important;-webkit-text-fill-color:#222 !important;margin:44px 0 16px !important;padding:0 !important;letter-spacing:-0.02em !important;line-height:1.5 !important;background:none !important;border:none !important;border-radius:0 !important;box-shadow:none !important;display:block !important;word-break:keep-all !important;">${h3Number} ${cleanH3}</h3>\n`;
+        html += `\n<h3 style="font-size:21px !important;font-weight:800 !important;color:#222 !important;-webkit-text-fill-color:#222 !important;margin:30px 0 12px !important;padding:0 !important;letter-spacing:-0.02em !important;line-height:1.5 !important;background:none !important;border:none !important;border-radius:0 !important;box-shadow:none !important;display:block !important;word-break:keep-all !important;">${h3Number} ${cleanH3}</h3>\n`;
 
         // 💰 본문 — 줄간격 1.8, 단락간 여백 확보로 가독성 극대화
         // <p> 간 간격이 자동으로 커지도록 CSS를 인젝트했지만, 인라인 스타일도 확실히 잡아줌
-        const optimizedContent = h3Sec.content.replace(/<p>/g, '<p style="margin-bottom:24px !important; line-height:1.8 !important;">');
-        html += `<div class="content" style="margin:0 0 32px !important;padding:0 !important;background:none !important;border:none !important;border-radius:0 !important;box-shadow:none !important;font-size:16px !important;color:#333 !important;">\n${optimizedContent}\n</div>\n`;
+        const optimizedContent = normalizeArticleBodySpacing(h3Sec.content);
+        html += `<div class="content" style="margin:0 0 14px !important;padding:0 !important;background:none !important;border:none !important;border-radius:0 !important;box-shadow:none !important;font-size:16px !important;color:#333 !important;">\n${optimizedContent}\n</div>\n`;
 
         // 표 — 미니멀 뉴스 스타일 + 모바일 반응형 + AdSense 광고 주입 차단
         // 🔥 2026.04 수정:
@@ -1410,35 +1593,22 @@ export async function generateUltimateMaxModeArticleFinal(
       // 💰 CTA — 박동하는 쿠폰형 Max-Adsense 스타일
       const sectionCta = section.h3Sections.find(h3 => h3.cta)?.cta;
       if (sectionCta) {
-        // 🔥 CTA URL 검증
-        const encodedKw = encodeURIComponent(keyword);
-        const fakeDomains = [
-          'example.com', 'your-site.com', 'placeholder.com', 'test.com',
-          'yoursite.com', 'yourblog.com', 'myblog.com', 'mysite.com',
-          'domain.com', 'website.com', 'sample.com', 'xxx.com',
-          'abc.com', 'url.com', 'link.com'
-        ];
-        const isValidUrl = sectionCta.url &&
-          /^https?:\/\/[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(sectionCta.url) &&
-          !fakeDomains.some(d => sectionCta.url.toLowerCase().includes(d)) &&
-          !sectionCta.url.includes('{{') && !sectionCta.url.includes('}}') &&
-          !sectionCta.url.includes('[') && !sectionCta.url.includes(']');
-
-        const ctaUrl = isValidUrl ? sectionCta.url : `https://www.google.com/search?q=${encodedKw}`;
-        if (!isValidUrl) {
-          console.log(`[MAX-MODE] ⚠️ CTA URL 무효 → 구글 검색으로 대체: ${sectionCta.url}`);
+        if (!isRenderableCta(sectionCta)) {
+          console.log(`[MAX-MODE] ⚠️ CTA URL 무효 → 렌더링 생략: ${sectionCta.url}`);
+        } else if (renderedCtaUrls.has(normalizeCtaUrlKey(sectionCta.url))) {
+          console.log(`[MAX-MODE] ℹ️ 중복 CTA URL 생략: ${sectionCta.url}`);
+        } else {
+          html += renderFinalCtaBlock({
+            badge: sectionCta.searchFallback ? '직접 확인' : '공식 권장',
+            hook: sectionCta.hookingMessage,
+            buttonText: sectionCta.buttonText,
+            url: sectionCta.url,
+            microcopy: sectionCta.searchFallback
+              ? '검색 결과에서 공식 사이트 여부를 확인한 뒤 이용해주세요.'
+              : '정확한 내용은 공식 사이트에서 확인해주세요.'
+          });
+          markRenderedCta(renderedCtaUrls, sectionCta.url);
         }
-
-        html += `
-<div class="cta-box">
-  <span class="cta-badge">✨ 공식 권장 ✨</span>
-  <p>${sanitizeCtaText(sectionCta.hookingMessage)}</p>
-  <a class="cta-btn" href="${ctaUrl}" target="_blank" rel="nofollow noopener noreferrer">
-    ${sanitizeCtaText(sectionCta.buttonText)}
-  </a>
-  <span class="cta-microcopy">※ 정확한 내용은 공식 사이트에서 확인해주세요.</span>
-</div>
-`;
       }
 
       // 💰 섹션 간 광고 안착 공간 (넉넉한 여백)
@@ -1490,12 +1660,11 @@ export async function generateUltimateMaxModeArticleFinal(
     //   같은 글에 디스클레임이 2번 표시됨. 결론 다음의 .disclaimer 블록만 유지하고 여기는 삭제.
 
     // 🔥 CTA 최소 2개 보장 (사용자 요구사항) — 애드센스 모드에서는 완전 스킵
-    const ctaBlockMatches = html.match(/class="rv-cta"/g) || [];
-    const currentCtaCount = ctaBlockMatches.length;
+    const currentCtaCount = renderedCtaUrls.size;
     console.log(`[MAX-MODE] CTA 현재 ${currentCtaCount}개 렌더링됨`);
 
     // 🔥 CTA 데이터 (상단 CTA에도 사용하기 위해 블록 밖에 선언)
-    let supplementalCtas: Array<{ label: string; hookingMessage: string; buttonText: string; url: string }> = [];
+    let supplementalCtas: Array<{ label: string; hookingMessage: string; buttonText: string; url: string; searchFallback?: boolean }> = [];
 
     if (contentMode === 'adsense') {
       // 🛡️ 애드센스 모드: 보충 CTA 완전 차단
@@ -1503,8 +1672,6 @@ export async function generateUltimateMaxModeArticleFinal(
     } else if (currentCtaCount < 2) {
       const needMore = 2 - currentCtaCount;
       console.log(`[MAX-MODE] 🔥 CTA ${needMore}개 추가 필요 (최소 2개 보장)`);
-
-      const encodedKeyword = encodeURIComponent(keyword);
 
       // 🔥 Step 1: Perplexity로 실제 관련 URL 심층 검색
       supplementalCtas = [];
@@ -1529,14 +1696,30 @@ JSON 배열만 반환해. 마크다운 없이 순수 JSON만.`;
             const parsed = JSON.parse(cleanJson);
 
             if (Array.isArray(parsed) && parsed.length > 0) {
-              // Gemini 검색 결과로 CTA 구성
-              supplementalCtas = parsed.slice(0, needMore).map((item: any, idx: number) => ({
-                label: idx === 0 ? '필독' : '혜택',
-                hookingMessage: item.description || item.title || `${keyword} 관련 핵심 정보`,
-                buttonText: '바로 확인하기 →',
-                url: item.url || `https://www.google.com/search?q=${encodedKeyword}`
-              }));
-              console.log(`[MAX-MODE] 🔍 Gemini URL 검색 완료: ${supplementalCtas.map(c => c.url.slice(0, 50)).join(' | ')}`);
+              for (const item of parsed) {
+                if (supplementalCtas.length >= needMore) break;
+                const candidateUrl = String(item?.url || '').trim();
+                if (!isCtaUrlShapeSafe(candidateUrl)) {
+                  console.log(`[MAX-MODE] ⚠️ 보충 CTA URL 형식/차단 필터 실패: ${candidateUrl}`);
+                  continue;
+                }
+                if (!isContextuallySafeCtaUrl(candidateUrl, keyword, contentMode)) {
+                  console.log(`[MAX-MODE] ⚠️ 보충 CTA 주제 불일치 차단: ${candidateUrl}`);
+                  continue;
+                }
+                const validation = await validateCtaUrl(candidateUrl, { timeout: 5000 });
+                if (!validation.isValid) {
+                  console.log(`[MAX-MODE] ⚠️ 보충 CTA 접속 검증 실패: ${candidateUrl} (${validation.reason})`);
+                  continue;
+                }
+                supplementalCtas.push({
+                  label: supplementalCtas.length === 0 ? '필독' : '혜택',
+                  hookingMessage: item.description || item.title || `${keyword} 관련 핵심 정보`,
+                  buttonText: '바로 확인하기',
+                  url: candidateUrl
+                });
+              }
+              console.log(`[MAX-MODE] 🔍 Gemini URL 검증 완료: ${supplementalCtas.map(c => c.url.slice(0, 50)).join(' | ') || '유효 후보 없음'}`);
             }
           } catch (parseErr) {
             console.log(`[MAX-MODE] ⚠️ Gemini CTA URL 파싱 실패 — 폴백으로 진행`);
@@ -1586,71 +1769,23 @@ JSON: [{"label":"필독","hookingMessage":"...","buttonText":"..."}]
         console.log(`[MAX-MODE] ⚠️ Gemini CTA 검색 실패: ${e.message}`);
       }
 
-      // 🔥 Step 3: Gemini 실패 시 Gemini만으로 CTA 생성 (Google 검색 링크)
       if (supplementalCtas.length < needMore) {
-        try {
-          const remaining = needMore - supplementalCtas.length;
-          const ctaFallbackPrompt = `"${keyword}" 블로그 글에 대한 CTA ${remaining}개 생성.
-- label: 추천/정보/필독/혜택 중 택1
-- hookingMessage: 한줄 후킹 (20자 내외)
-- buttonText: 버튼 텍스트 (10자 내외)
-JSON: [{"label":"추천","hookingMessage":"...","buttonText":"..."}]
-마크다운 없이 순수 JSON 배열만 반환해.`;
-
-          const ctaText = await callGeminiWithRetry(ctaFallbackPrompt);
-          if (ctaText) {
-            const cleanJson = ctaText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-            const parsed = JSON.parse(cleanJson);
-            if (Array.isArray(parsed)) {
-              parsed.slice(0, remaining).forEach((c: any) => {
-                supplementalCtas.push({
-                  label: c.label || '추천',
-                  hookingMessage: c.hookingMessage || `${keyword} 핵심 정보`,
-                  buttonText: c.buttonText || '자세히 보기',
-                  url: `https://www.google.com/search?q=${encodedKeyword}`
-                });
-              });
-            }
-          }
-        } catch (e: any) {
-          console.log(`[MAX-MODE] ⚠️ Gemini CTA 폴백 실패: ${e.message}`);
-        }
-      }
-
-      // 최종 폴백: 모든 AI 실패 시 기본 텍스트
-      if (supplementalCtas.length < needMore) {
-        const fallbackCtas = [
-          {
-            label: '추천',
-            hookingMessage: `${keyword}에 대해 더 자세히 알고 싶다면?`,
-            buttonText: `${keyword} 더 알아보기`,
-            url: `https://www.google.com/search?q=${encodedKeyword}`
-          },
-          {
-            label: '정보',
-            hookingMessage: `최신 정보를 놓치지 마세요`,
-            buttonText: `${keyword} 최신 정보 확인`,
-            url: `https://www.google.com/search?q=${encodedKeyword}+최신`
-          }
-        ];
-        while (supplementalCtas.length < needMore && fallbackCtas.length > 0) {
-          supplementalCtas.push(fallbackCtas.shift()!);
-        }
+        console.log(`[MAX-MODE] ℹ️ 보충 CTA ${needMore}개 중 ${supplementalCtas.length}개만 검증 통과 — 나머지는 생략`);
       }
 
       for (let ci = 0; ci < needMore && ci < supplementalCtas.length; ci++) {
         const cta = supplementalCtas[ci]!;
-        html += `
-<div class="cta-box">
-  <span class="cta-badge">✨ 추천 링크 ✨</span>
-  <p><strong>${sanitizeCtaText(cta.hookingMessage)}</strong></p>
-  <a class="cta-btn" href="${cta.url}" target="_blank" rel="nofollow noopener noreferrer">
-    ${sanitizeCtaText(cta.buttonText)}
-  </a>
-</div>
-`;
+        if (!isRenderableCta(cta)) continue;
+        if (renderedCtaUrls.has(normalizeCtaUrlKey(cta.url))) continue;
+        html += renderFinalCtaBlock({
+          badge: cta.searchFallback ? '직접 확인' : '추천 링크',
+          hook: cta.hookingMessage,
+          buttonText: cta.buttonText,
+          url: cta.url
+        });
+        markRenderedCta(renderedCtaUrls, cta.url);
       }
-      console.log(`[MAX-MODE] ✅ CTA ${needMore}개 보충 완료`);
+      console.log(`[MAX-MODE] ✅ CTA ${Math.min(needMore, supplementalCtas.length)}개 보충 완료`);
     }
 
     // 🔥 실행 플랜 섹션 제거됨 (사용자 요청)
@@ -1682,15 +1817,15 @@ JSON: [{"label":"추천","hookingMessage":"...","buttonText":"..."}]
 
     // 💰 요약표를 상단(TOP_SUMMARY_CTA_PLACEHOLDER)에 배치
     const topSummaryHtml = cleanedRows.length === 0 ? '' : `
-<div class="summary-container" style="margin:0 0 30px !important;background:linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%) !important;border:2px solid #f59e0b !important;border-radius:16px !important;display:block !important;visibility:visible !important;box-sizing:border-box !important;max-width:100% !important;">
+<div class="summary-container" style="margin:0 0 30px !important;background:linear-gradient(135deg,var(--rv-gradient-start,#f8fafc) 0%,var(--rv-gradient-end,#eef2f7) 100%) !important;border:2px solid var(--rv-heading-2-border,#cbd5e1) !important;border-radius:16px !important;display:block !important;visibility:visible !important;box-sizing:border-box !important;max-width:100% !important;">
   <div style="display:flex !important;align-items:center !important;gap:10px !important;margin-bottom:16px !important;">
     <span style="font-size:24px !important;">⚡</span>
-    <h3 style="margin:0 !important;font-size:20px !important;font-weight:800 !important;color:#92400e !important;-webkit-text-fill-color:#92400e !important;">성급한 분들을 위한 핵심 요약</h3>
+    <h3 style="margin:0 !important;font-size:20px !important;font-weight:800 !important;color:var(--rv-heading-1,#334155) !important;-webkit-text-fill-color:var(--rv-heading-1,#334155) !important;">성급한 분들을 위한 핵심 요약</h3>
   </div>
   <div class="ad-safe-zone table-wrapper" data-ad-region="no-ad" style="overflow-x:auto !important;-webkit-overflow-scrolling:touch !important;width:100% !important;max-width:100% !important;position:relative;">
     <table class="responsive-table summary-table" style="display:table !important;visibility:visible !important;width:100% !important;border-collapse:collapse !important;font-size:15px !important;">
-      <thead style="display:table-header-group !important;"><tr style="display:table-row !important;">${cleanedHeaders.map(h => `<th class="rt-th" style="display:table-cell !important;visibility:visible !important;background:#fef3c7 !important;color:#92400e !important;-webkit-text-fill-color:#92400e !important;font-weight:700 !important;padding:14px 16px !important;text-align:left !important;border-bottom:2px solid #f59e0b !important;font-size:13px !important;text-transform:uppercase !important;letter-spacing:0.05em !important;">${h}</th>`).join('')}</tr></thead>
-      <tbody style="display:table-row-group !important;">${cleanedRows.map(row => `<tr style="display:table-row !important;">${row.map(cell => `<td class="rt-td" style="display:table-cell !important;visibility:visible !important;padding:14px 16px !important;border-bottom:1px solid #fde68a !important;color:#78350f !important;-webkit-text-fill-color:#78350f !important;background:#fffbeb !important;font-size:14px !important;line-height:1.5 !important;word-break:break-word !important;overflow-wrap:break-word !important;">${cell}</td>`).join('')}</tr>`).join('')}</tbody>
+      <thead style="display:table-header-group !important;"><tr style="display:table-row !important;">${cleanedHeaders.map(h => `<th class="rt-th" style="display:table-cell !important;visibility:visible !important;background:var(--rv-primary-light,#f1f5f9) !important;color:var(--rv-heading-1,#334155) !important;-webkit-text-fill-color:var(--rv-heading-1,#334155) !important;font-weight:700 !important;padding:14px 16px !important;text-align:left !important;border-bottom:2px solid var(--rv-heading-2-border,#cbd5e1) !important;font-size:13px !important;text-transform:uppercase !important;letter-spacing:0.05em !important;">${h}</th>`).join('')}</tr></thead>
+      <tbody style="display:table-row-group !important;">${cleanedRows.map(row => `<tr style="display:table-row !important;">${row.map(cell => `<td class="rt-td" style="display:table-cell !important;visibility:visible !important;padding:14px 16px !important;border-bottom:1px solid var(--rv-toc-hover-border,#e2e8f0) !important;color:#334155 !important;-webkit-text-fill-color:#334155 !important;background:rgba(255,255,255,0.72) !important;font-size:14px !important;line-height:1.5 !important;word-break:break-word !important;overflow-wrap:break-word !important;">${cell}</td>`).join('')}</tr>`).join('')}</tbody>
     </table>
   </div>
 </div>
@@ -1702,28 +1837,25 @@ JSON: [{"label":"추천","hookingMessage":"...","buttonText":"..."}]
       // 🛡️ 애드센스 모드: 상단 CTA 완전 차단
       console.log('[MAX-MODE] 🛡️ 애드센스 모드 — 상단 CTA 생성 생략 (승인 정책 준수)');
     } else {
-      // ctas 배열(AI 섹션 CTA)에서 가져오거나, 보충 CTA에서 가져오거나, 키워드 구글 검색 폴백
-      const topCtaSource = ctas.length > 0
-        ? { label: '핵심', hookingMessage: ctas[0]!.hookingMessage || `${keyword} 핵심 정보 바로가기`, buttonText: ctas[0]!.buttonText || '자세히 보기', url: ctas[0]!.url || `https://www.google.com/search?q=${encodeURIComponent(keyword)}` }
-        : supplementalCtas.length > 0
-          ? supplementalCtas[0]!
-          : { label: '추천', hookingMessage: `${keyword}에 대해 더 알고 싶다면?`, buttonText: '자세히 알아보기', url: `https://www.google.com/search?q=${encodeURIComponent(keyword)}` };
-      {
-        const topCta = topCtaSource;
-        topCtaHtml = `
-<div class="cta-box" style="margin-top: 20px !important;">
-  <span class="cta-badge">✨ 핵심 바로가기 ✨</span>
-  <p><strong>${sanitizeCtaText(topCta.hookingMessage)}</strong></p>
-  <a class="cta-btn" href="${topCta.url}" target="_blank" rel="nofollow noopener noreferrer">
-    ${sanitizeCtaText(topCta.buttonText)}
-  </a>
-</div>
-`;
+      const topCandidates: RenderableCtaCandidate[] = [
+        ...ctas.map(c => toRenderableCtaCandidate(c, `${keyword} 핵심 정보 바로가기`, '자세히 보기', '핵심')),
+        ...supplementalCtas
+      ];
+      const topCta = pickRenderableCta(topCandidates, renderedCtaUrls);
+
+      if (topCta) {
+        topCtaHtml = renderFinalCtaBlock({
+          badge: topCta.searchFallback ? '직접 확인' : '핵심 바로가기',
+          hook: topCta.hookingMessage,
+          buttonText: topCta.buttonText,
+          url: topCta.url,
+          marginTop: 20
+        });
+        markRenderedCta(renderedCtaUrls, topCta.url);
+      } else {
+        console.log('[MAX-MODE] ℹ️ 본문 CTA와 겹치지 않는 상단 CTA 없음 — 상단 CTA 생략');
       }
     } // end of non-adsense CTA block
-
-    // 🔥 항상 상단 CTA가 나오도록 보장
-    // (위 블록은 항상 실행되므로 topCtaHtml에 값이 있음)
 
     const formattedIntro = introductionHTML ? `
 <div class="content intro-section" style="margin:24px 0 32px !important;padding:0 !important;background:none !important;border:none !important;border-radius:0 !important;box-shadow:none !important;font-size:16px !important;line-height:1.6 !important;color:#333 !important;">
@@ -1770,20 +1902,22 @@ ${conclusionHTML}
 
     // 💰 하단 최종 CTA 버튼 (마지막 클릭 유도) — 에드센스 모드에서는 생략
     if (contentMode !== 'adsense') {
-      const finalCta = ctas.length > 0
-        ? { hookingMessage: ctas[0]!.hookingMessage || `${keyword} 핵심 정보 바로가기`, buttonText: ctas[0]!.buttonText || '자세히 보기', url: ctas[0]!.url || `https://www.google.com/search?q=${encodeURIComponent(keyword)}` }
-        : supplementalCtas.length > 0
-          ? supplementalCtas[0]!
-          : { hookingMessage: `${keyword}에 대해 더 알고 싶다면?`, buttonText: '자세히 알아보기', url: `https://www.google.com/search?q=${encodeURIComponent(keyword)}` };
-      html += `
-<div class="cta-box">
-  <span class="cta-badge">✨ 마무리 추천 ✨</span>
-  <p><strong>${sanitizeCtaText(finalCta.hookingMessage)}</strong></p>
-  <a class="cta-btn" href="${finalCta.url}" target="_blank" rel="nofollow noopener noreferrer">
-    ${sanitizeCtaText(finalCta.buttonText)}
-  </a>
-</div>
-`;
+      const finalCandidates: RenderableCtaCandidate[] = [
+        ...ctas.map(c => toRenderableCtaCandidate(c, `${keyword} 핵심 정보 바로가기`, '자세히 보기')),
+        ...supplementalCtas
+      ];
+      const finalCta = pickRenderableCta(finalCandidates, renderedCtaUrls);
+      if (finalCta) {
+        html += renderFinalCtaBlock({
+          badge: finalCta.searchFallback ? '직접 확인' : '마무리 추천',
+          hook: finalCta.hookingMessage,
+          buttonText: finalCta.buttonText,
+          url: finalCta.url
+        });
+        markRenderedCta(renderedCtaUrls, finalCta.url);
+      } else {
+        console.log('[MAX-MODE] ℹ️ 본문/상단 CTA와 겹치지 않는 하단 CTA 없음 — 하단 CTA 생략');
+      }
     }
 
     // 💎 백서 컨테이너 닫기 (bgpt-content + gradient-frame + white-paper)
@@ -1929,8 +2063,8 @@ ${conclusionHTML}
     // 💰 썸네일 — 풀블리드 (패딩/그림자 없음)
     if (thumbnailUrl) {
       const thumbnailHtml = `
-<div class="bgpt-thumbnail-box" style="margin:0;padding:0;overflow:hidden;">
-  <img src="${thumbnailUrl}" alt="${h1}" style="width:100%;height:auto;display:block;" loading="lazy" />
+<div class="bgpt-thumbnail-box" style="width:100% !important;aspect-ratio:16/9 !important;margin:0;padding:0;overflow:hidden !important;border-radius:10px !important;background:#f8fafc !important;">
+  <img src="${thumbnailUrl}" alt="${h1}" style="width:100% !important;height:100% !important;aspect-ratio:16/9 !important;object-fit:cover !important;display:block !important;margin:0 !important;" loading="lazy" />
 </div>`;
       html = html.replace('<!-- THUMBNAIL_PLACEHOLDER -->', thumbnailHtml);
     } else {
@@ -2139,6 +2273,30 @@ ${conclusionHTML}
         onLog?.(`[PROGRESS] 99% - ✅ ${contentMode} 모드 후처리 완료`);
       } catch (ppErr: any) {
         console.warn(`[POST-PROCESS] ⚠️ 후처리 실패 (원본 유지): ${ppErr.message}`);
+      }
+    }
+
+    if (contentMode === 'adsense' && payload?.adsenseHardeningScan !== false) {
+      try {
+        const hardening = scanAdsenseHardening(html);
+        onLog?.(`[ADSENSE-HARDENING] ${hardening.summary}`);
+        if (!hardening.ok) {
+          hardening.warnings.slice(0, 8).forEach(w => {
+            onLog?.(`[ADSENSE-HARDENING]   ⚠️ ${w.metric}: ${w.message}`);
+          });
+          const gateMode = payload?.adsenseGateMode || 'warn';
+          const hardWarnings = hardening.warnings.filter(w => w.severity === 'hard');
+          if (gateMode === 'block' && hardWarnings.length > 0) {
+            throw new Error(`AdSense hardening block: ${hardWarnings.map(w => w.metric).join(', ')}`);
+          }
+        }
+        finalQualityReport = {
+          ...(finalQualityReport || {}),
+          adsenseHardening: hardening,
+        };
+      } catch (hardeningErr: any) {
+        if (hardeningErr?.message?.startsWith('AdSense hardening block:')) throw hardeningErr;
+        console.warn('[ADSENSE-HARDENING] scan skipped:', hardeningErr?.message);
       }
     }
 

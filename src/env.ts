@@ -73,6 +73,17 @@ function parseDotEnv(str: string): Record<string, string> {
           out['STABILITY_API_KEY'] = apiKeys['stabilityApiKey'] || apiKeys['stability_api_key'] || apiKeys['STABILITY_API_KEY'];
           out['stabilityApiKey'] = apiKeys['stabilityApiKey'] || apiKeys['stability_api_key'] || apiKeys['STABILITY_API_KEY'];
         }
+        if (apiKeys['deepInfraApiKey'] || apiKeys['deepinfraApiKey'] || apiKeys['deepinfra_api_key'] || apiKeys['DEEPINFRA_API_KEY'] || apiKeys['DEEP_INFRA_API_KEY']) {
+          const deepInfraKey = apiKeys['deepInfraApiKey'] || apiKeys['deepinfraApiKey'] || apiKeys['deepinfra_api_key'] || apiKeys['DEEPINFRA_API_KEY'] || apiKeys['DEEP_INFRA_API_KEY'];
+          out['DEEPINFRA_API_KEY'] = deepInfraKey;
+          out['DEEP_INFRA_API_KEY'] = deepInfraKey;
+          out['deepInfraApiKey'] = deepInfraKey;
+        }
+        if (apiKeys['prodiaApiKey'] || apiKeys['prodia_api_key'] || apiKeys['PRODIA_API_KEY']) {
+          const prodiaKey = apiKeys['prodiaApiKey'] || apiKeys['prodia_api_key'] || apiKeys['PRODIA_API_KEY'];
+          out['PRODIA_API_KEY'] = prodiaKey;
+          out['prodiaApiKey'] = prodiaKey;
+        }
         // OpenAI API Key (DALL-E용)
         if (apiKeys['openaiKey'] || apiKeys['openai_api_key'] || apiKeys['OPENAI_API_KEY']) {
           out['OPENAI_API_KEY'] = apiKeys['openaiKey'] || apiKeys['openai_api_key'] || apiKeys['OPENAI_API_KEY'];
@@ -154,6 +165,8 @@ const MAP: Record<string, string> = {
   LEONARDO_API_KEY: 'leonardoKey',      // Leonardo.ai 키 추가
   PEXELS_API_KEY: 'pexelsApiKey',
   STABILITY_API_KEY: 'stabilityApiKey', // 🔥 Stability AI 추가
+  DEEPINFRA_API_KEY: 'deepInfraApiKey',
+  DEEP_INFRA_API_KEY: 'deepInfraApiKey',
   PRODIA_API_KEY: 'prodiaApiKey',    // 🚀 Prodia AI 추가
 
   // v3.5.92: 봇 회피 모드 — ImageFX/Flow 브라우저 visible 강제
@@ -302,10 +315,12 @@ export function loadEnvFromFile(): Record<string, any> {
   for (const [UP, camel] of Object.entries(MAP)) {
     // mergedUpper에서 대문자 키로 찾고, 없으면 camelCase 키로 직접 찾기
     const value = mergedUpper[UP] ?? mergedUpper[camel] ?? '';
-    out[camel] = value;
     // 대문자 키도 함께 저장 (호환성을 위해)
     if (value && typeof value === 'string' && value.trim()) {
+      out[camel] = value;
       out[UP] = value;
+    } else if (!(camel in out)) {
+      out[camel] = '';
     }
   }
 

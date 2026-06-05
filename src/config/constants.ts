@@ -41,5 +41,5 @@ export const DEFAULT_RETRY_DELAY_MS = 1_000;
 export const DEFAULT_BACKOFF_MULTIPLIER = 2;
 
 // ─── 라이선스 ────────────────────────────────────
-export const LICENSE_APP_ID = 'com.ridernam.blogger.automation';
+export const LICENSE_APP_ID = 'com.leadernam.orbit';
 export const BCRYPT_SALT_ROUNDS = 12;

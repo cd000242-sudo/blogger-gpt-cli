@@ -20,6 +20,10 @@ window.togglePasswordVisibility = function(button) {
 // 🔥 워드프레스 관련 함수들 즉시 정의 (로딩 타이밍 문제 해결)
 // 워드프레스 애플리케이션 비밀번호 가이드
 window.showWordPressAppPasswordGuide = function () {
+  if (window.__oneclickSetup?.showPlatformConnectGuide) {
+    window.__oneclickSetup.showPlatformConnectGuide('wordpress');
+    return;
+  }
   console.log('[WP 가이드] 함수 호출됨');
   const modal = document.createElement('div');
   modal.id = 'wpAppPasswordGuideModal';
@@ -276,6 +280,34 @@ async function generateH2SectionImages(sections, title) {
 }
 
 // 스케줄 포스트 추가 함수
+function normalizePublishPlatformIntent(platform) {
+  const raw = String(platform || '').toLowerCase();
+  if (/wordpress|wp|워드프레스/.test(raw)) return 'wordpress';
+  if (/blogger|blogspot|블로거|블로그스팟/.test(raw)) return 'blogspot';
+  return raw || 'blogspot';
+}
+
+function normalizePostingModeIntent(mode) {
+  const raw = String(mode || '').toLowerCase();
+  if (raw === 'scheduled') return 'schedule';
+  if (raw === 'immediate' || raw === 'now' || raw === 'live' || raw === 'single') return 'publish';
+  if (raw === 'draft' || raw === 'save') return 'draft';
+  if (raw === 'schedule') return 'schedule';
+  return 'publish';
+}
+
+function getSelectedPublishPlatformIntent() {
+  const radioValue = document.querySelector('input[name="platform"]:checked')?.value;
+  const scheduleValue = document.getElementById('schedulePlatform')?.value;
+  return normalizePublishPlatformIntent(radioValue || scheduleValue || 'blogspot');
+}
+
+function getSelectedPostingModeIntent() {
+  const postingMode = document.querySelector('input[name="postingMode"]:checked')?.value;
+  const publishType = document.querySelector('input[name="publishType"]:checked')?.value;
+  return normalizePostingModeIntent(postingMode || publishType || 'publish');
+}
+
 async function addScheduledPost() {
   const topic = document.getElementById('scheduleTopic')?.value;
   const keywords = document.getElementById('scheduleKeywords')?.value;
@@ -283,9 +315,9 @@ async function addScheduledPost() {
   const time = document.getElementById('scheduleTime')?.value;
   const contentMode = document.getElementById('scheduleContentMode')?.value;
   const ctaMode = document.getElementById('scheduleCtaMode')?.value;
-  const publishType = document.getElementById('schedulePublishType')?.value;
+  const publishType = normalizePostingModeIntent(document.getElementById('schedulePublishType')?.value);
   const thumbnailMode = document.getElementById('scheduleThumbnailMode')?.value;
-  const platform = document.getElementById('schedulePlatform')?.value;
+  const platform = normalizePublishPlatformIntent(document.getElementById('schedulePlatform')?.value);
 
   if (!topic || !date || !time) {
     alert('주제, 날짜, 시간을 모두 입력해주세요.');
@@ -315,9 +347,12 @@ async function addScheduledPost() {
     keywords,
     date,
     time,
+    scheduleDateTime: `${date}T${time}`,
+    scheduleDate: publishType === 'schedule' ? `${date}T${time}` : undefined,
     contentMode,
     ctaMode,
     publishType,
+    postingMode: publishType,
     thumbnailMode,
     platform,
     primaryGeminiTextModel: selectedModel,
@@ -459,55 +494,103 @@ async function executeSchedule(scheduleId) {
   await refreshScheduleList();
 
   try {
+    const storedPayload = schedule.payload || {};
+    const resolveKeywordText = (keywords) => {
+      if (Array.isArray(keywords)) {
+        return keywords
+          .map((item) => typeof item === 'string' ? item : item?.keyword || item?.title || '')
+          .filter(Boolean)
+          .join(',');
+      }
+      return keywords || '';
+    };
+    const scheduleTopic = schedule.topic
+      || storedPayload.topic
+      || storedPayload.title
+      || (Array.isArray(storedPayload.keywords) ? resolveKeywordText(storedPayload.keywords).split(',')[0] : '')
+      || '';
+    const scheduleKeywords = schedule.keywords || resolveKeywordText(storedPayload.keywords) || scheduleTopic;
+    const schedulePlatform = normalizePublishPlatformIntent(schedule.platform || storedPayload.platform || 'blogspot');
+    const schedulePostingMode = normalizePostingModeIntent(
+      schedule.postingMode || schedule.publishType || storedPayload.postingMode || storedPayload.publishType || 'publish'
+    );
+    const scheduleDateValue = schedule.scheduleDate
+      || schedule.scheduleDateTime
+      || storedPayload.scheduleDate
+      || storedPayload.scheduleDateTime
+      || (schedule.date && schedule.time ? `${schedule.date}T${schedule.time}` : undefined);
+    const scheduleSourceUrl = schedule.sourceUrl
+      || schedule.contentUrl
+      || storedPayload.sourceUrl
+      || storedPayload.contentUrl
+      || '';
+    const scheduleManualCrawlUrls = [
+      ...(Array.isArray(schedule.manualCrawlUrls) ? schedule.manualCrawlUrls : []),
+      ...(Array.isArray(storedPayload.manualCrawlUrls) ? storedPayload.manualCrawlUrls : []),
+      scheduleSourceUrl,
+    ].filter((url, index, arr) => /^https?:\/\//i.test(String(url || '')) && arr.indexOf(url) === index);
+
     // createPayload 오버라이드 방식으로 통합 Payload 생성 (🔥 async: await 필수)
     const payload = window.createPayload ? await window.createPayload({
       previewOnly: false,
       overrides: {
-        topic: schedule.topic,
-        title: schedule.topic,
-        keywords: schedule.keywords ? schedule.keywords.split(',').map(k => k.trim()) : [schedule.topic],
-        platform: schedule.platform || 'blogspot',
-        contentMode: schedule.contentMode || 'external',
-        h2ImageSource: schedule.h2ImageSource || 'nanobanana2',
-        h2ImageSections: schedule.h2ImageSections || schedule.h2Images || [],
-        h2Images: { source: schedule.h2ImageSource || 'nanobanana2', sections: schedule.h2ImageSections || [] },
-        publishType: schedule.publishType || 'single',
-        postingMode: 'immediate',
-        thumbnailType: schedule.thumbnailMode || 'nanobanana2',
+        topic: scheduleTopic,
+        title: scheduleTopic,
+        keywords: scheduleKeywords ? scheduleKeywords.split(',').map(k => k.trim()).filter(Boolean) : [scheduleTopic],
+        platform: schedulePlatform,
+        contentMode: schedule.contentMode || storedPayload.contentMode || 'external',
+        h2ImageSource: schedule.h2ImageSource || storedPayload.h2ImageSource || 'nanobanana2',
+        h2ImageSections: schedule.h2ImageSections || schedule.h2Images || storedPayload.h2ImageSections || storedPayload.h2Images || [],
+        h2Images: { source: schedule.h2ImageSource || storedPayload.h2ImageSource || 'nanobanana2', sections: schedule.h2ImageSections || storedPayload.h2ImageSections || [] },
+        publishType: schedulePostingMode,
+        postingMode: schedulePostingMode,
+        scheduleDate: schedulePostingMode === 'schedule' ? scheduleDateValue : undefined,
+        thumbnailType: schedule.thumbnailMode || storedPayload.thumbnailMode || 'nanobanana2',
         // v3.5.89 — GPT 이미지 quality 옵션 전달 (스케줄에 저장된 값이 우선)
-        gptImageQuality: schedule.gptImageQuality || (typeof getGptImageQuality === 'function' ? getGptImageQuality() : 'medium'),
-        ctaMode: schedule.ctaMode || 'auto',
-        draftContent: schedule.draftContent || undefined,
+        gptImageQuality: schedule.gptImageQuality || storedPayload.gptImageQuality || (typeof getGptImageQuality === 'function' ? getGptImageQuality() : 'medium'),
+        ctaMode: schedule.ctaMode || storedPayload.ctaMode || 'auto',
+        draftContent: schedule.draftContent || storedPayload.draftContent || undefined,
+        sourceUrl: scheduleSourceUrl || undefined,
+        manualCrawlUrls: scheduleManualCrawlUrls.length > 0 ? scheduleManualCrawlUrls : undefined,
       }
     }) : {
       // fallback: createPayload 미로딩시
-      topic: schedule.topic, title: schedule.topic, platform: schedule.platform || 'blogspot',
-      contentMode: schedule.contentMode || 'external', draftContent: schedule.draftContent || undefined, previewOnly: false
+      topic: scheduleTopic,
+      title: scheduleTopic,
+      platform: schedulePlatform,
+      contentMode: schedule.contentMode || storedPayload.contentMode || 'external',
+      publishType: schedulePostingMode,
+      postingMode: schedulePostingMode,
+      scheduleDate: schedulePostingMode === 'schedule' ? scheduleDateValue : undefined,
+      draftContent: schedule.draftContent || storedPayload.draftContent || undefined,
+      sourceUrl: scheduleSourceUrl || undefined,
+      manualCrawlUrls: scheduleManualCrawlUrls.length > 0 ? scheduleManualCrawlUrls : undefined,
+      previewOnly: false
     };
 
     if (!window.blogger?.runPost) {
       throw new Error('백엔드 연결 실패');
     }
 
-    addLog(`🚀 스케줄 실행 시작: ${schedule.topic}`, 'info');
+    addLog(`🚀 스케줄 실행 시작: ${scheduleTopic}`, 'info');
     const result = await window.blogger.runPost(payload);
 
     if (result?.ok) {
       schedule.status = 'completed';
       schedule.completedAt = new Date().toISOString();
       schedule.result = result;
-      addLog(`✅ 스케줄 실행 완료: ${schedule.topic}`, 'success');
+      addLog(`✅ 스케줄 실행 완료: ${scheduleTopic}`, 'success');
     } else {
       schedule.status = 'failed';
       schedule.failedAt = new Date().toISOString();
       schedule.error = result?.error || '알 수 없는 오류';
-      addLog(`❌ 스케줄 실행 실패: ${schedule.topic} - ${schedule.error}`, 'error');
+      addLog(`❌ 스케줄 실행 실패: ${scheduleTopic} - ${schedule.error}`, 'error');
     }
   } catch (error) {
     schedule.status = 'failed';
     schedule.failedAt = new Date().toISOString();
     schedule.error = error.message;
-    addLog(`❌ 스케줄 실행 오류: ${schedule.topic} - ${error.message}`, 'error');
+    addLog(`❌ 스케줄 실행 오류: ${scheduleTopic || schedule.topic || storedPayload.topic || ''} - ${error.message}`, 'error');
   } finally {
     // StorageManager로 상태 저장 + UI 갱신
     await storage.set('scheduledPosts', schedules, true);
@@ -596,13 +679,46 @@ function updateRealtimeClock() {
 }
 
 // 실시간 업데이트 시작
+function startSharedRealtimeUpdates(source = 'legacy') {
+  const win = window;
+  const tickClock = () => {
+    if (!document.hidden) updateRealtimeClock();
+  };
+  const tickDate = () => {
+    if (!document.hidden) updateRealtimeDate();
+  };
+
+  tickClock();
+  tickDate();
+
+  if (!win.__bgptRealtimeClockTimer) {
+    win.__bgptRealtimeClockTimer = setInterval(tickClock, 1000);
+  }
+  if (!win.__bgptRealtimeDateTimer) {
+    win.__bgptRealtimeDateTimer = setInterval(tickDate, 60000);
+  }
+  if (!win.__bgptRealtimeVisibilityBound) {
+    win.__bgptRealtimeVisibilityBound = true;
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        tickClock();
+        tickDate();
+      }
+    });
+  }
+  win.__bgptRealtimeSource = win.__bgptRealtimeSource || source;
+}
+window.__bgptStartRealtimeUpdates = startSharedRealtimeUpdates;
+
 function startRealtimeUpdates() {
+  startSharedRealtimeUpdates('legacy-start');
+  return;
   // 즉시 업데이트
   updateRealtimeClock();
   updateRealtimeDate();
 
   // 1초마다 시계 업데이트
-  setInterval(updateRealtimeClock, 1000);
+  startSharedRealtimeUpdates('legacy-init');
 
   // 1분마다 날짜 업데이트 (자정 넘어갈 때를 대비)
   setInterval(updateRealtimeDate, 60000);
@@ -1398,7 +1514,7 @@ function switchSingleInputMode(mode) {
       urlHint.innerHTML = '💡 입력한 URL의 본문을 그대로 분석해 글을 생성합니다 (키워드 자동 추출). 여러 URL은 줄바꿈으로 구분 — 각 URL이 1글이 됩니다.';
     }
     if (urlInput) {
-      urlInput.placeholder = '원본으로 사용할 URL을 입력하세요\n예: https://blog.naver.com/example/12345\n     https://tistory.com/example/67890';
+      urlInput.placeholder = 'Reference URL example: https://leadernam.com/%ea%b8%88%ec%9c%b5-%eb%b3%b4%ed%97%98/%ec%83%9d%ed%99%9c%c2%b7%ec%a0%95%ec%b1%85/2026%eb%85%84-%ec%84%b8%ea%b8%88-%ec%b6%94%ec%a7%95%ea%b3%bc-%ed%83%88%ec%84%b8%ec%9d%98-%ec%b0%a8%ec%9d%b4%ec%a0%90-%ed%95%b5%ec%8b%ac-3%ea%b0%80%ec%a7%80/';
       // URL 모드 진입 시 자동 포커스
       try { urlInput.focus(); } catch {}
     }
@@ -1406,6 +1522,7 @@ function switchSingleInputMode(mode) {
 
   // 메모리 — 다음 발행 시 어떤 모드로 진입할지 저장
   try { localStorage.setItem('singleInputMode', mode); } catch {}
+  try { window.__publishQueue?.syncBadge?.(); } catch {}
 }
 window.switchSingleInputMode = switchSingleInputMode;
 
@@ -1416,7 +1533,9 @@ function syncSingleInputTabsVisibility() {
   if (!tabs) return;
   const activePublishBtn = document.querySelector('[data-publish-mode][aria-selected="true"]');
   const mode = activePublishBtn?.dataset?.publishMode || 'single';
-  tabs.style.display = (mode === 'single') ? 'inline-flex' : 'none';
+  tabs.style.display = 'inline-flex';
+  tabs.setAttribute('data-active-publish-mode', mode);
+  try { window.__publishQueue?.syncBadge?.(); } catch {}
 }
 window.syncSingleInputTabsVisibility = syncSingleInputTabsVisibility;
 
@@ -2729,7 +2848,7 @@ async function loadLicenseInfo() {
         var qs = await api.getQuotaStatus();
         if (qs && qs.success && qs.isFree) {
           var u = (qs.quota && qs.quota.usage) || 0;
-          var l = (qs.quota && qs.quota.limit) || 2;
+          var l = (qs.quota && qs.quota.limit) || 1;
           setLicenseStatusElement(licenseStatusElement, '🆓 무료체험 (' + u + '/' + l + ')', '#10b981', true);
           return;
         }
@@ -8927,8 +9046,8 @@ document.addEventListener('DOMContentLoaded', async function () {
   updateRealtimeClock();
   renderCalendar();
 
-  // 1초마다 시계 업데이트
-  setInterval(updateRealtimeClock, 1000);
+  // 1초마다 시계 업데이트 (중복 interval 방지)
+  startSharedRealtimeUpdates('legacy-init');
 
   // 자동 백업 시스템 시작 (30분마다)
   startAutoBackup();
@@ -9104,7 +9223,9 @@ document.addEventListener('DOMContentLoaded', async function () {
   console.log('🔧 [DEBUG] window.blogger:', !!window.blogger);
   console.log('🔧 [DEBUG] window.blogger.onProgress:', !!(window.blogger && window.blogger.onProgress));
 
-  if (window.blogger && window.blogger.onProgress) {
+  if (window.__bgptUseModuleProgressListener) {
+    console.log('[PROGRESS] legacy progress listener skipped (module listener active)');
+  } else if (window.blogger && window.blogger.onProgress) {
     console.log('✅ [DEBUG] onProgress 리스너 등록 성공!');
     window.blogger.onProgress((data) => {
       const { p, label } = data;
@@ -10106,9 +10227,15 @@ async function runBulkPosting() {
   }
 
   // 현재 설정 수집 (기본값 사용) — dispatcher가 인식하는 엔진명만 사용
+  const bulkPostingMode = getSelectedPostingModeIntent();
+  const bulkScheduleDate = document.getElementById('scheduleDateTime')?.value || undefined;
+
   const currentSettings = {
     provider: document.getElementById('generationEngine')?.value || 'gemini',
-    platform: 'blogspot',
+    platform: getSelectedPublishPlatformIntent(),
+    publishType: bulkPostingMode,
+    postingMode: bulkPostingMode,
+    scheduleDate: bulkPostingMode === 'schedule' ? bulkScheduleDate : undefined,
     thumbnailMode: document.getElementById('thumbnailType')?.value || 'nanobanana2',
     imageProvider: document.getElementById('h2ImageSource')?.value || 'nanobanana2',
     wordCount: 2000,
@@ -10210,6 +10337,9 @@ async function createSinglePost(setting, currentSettings) {
     platform: currentSettings.platform,
     thumbnailMode: currentSettings.thumbnailMode,
     imageProvider: imageProvider,
+    publishType: currentSettings.publishType,
+    postingMode: currentSettings.postingMode,
+    scheduleDate: currentSettings.postingMode === 'schedule' ? currentSettings.scheduleDate : undefined,
     wordCount: currentSettings.wordCount,
     autoPublish: setting.autoPublish !== undefined ? setting.autoPublish : currentSettings.autoPublish,
     includeImages: currentSettings.includeImages,
@@ -10223,6 +10353,10 @@ async function createSinglePost(setting, currentSettings) {
 
 // 예약 포스트 스케줄링 함수
 async function schedulePost(setting, currentSettings) {
+  const postingMode = normalizePostingModeIntent(currentSettings.postingMode || currentSettings.publishType || 'publish');
+  const scheduleDate = postingMode === 'schedule'
+    ? (setting.scheduledTime?.toISOString?.() || currentSettings.scheduleDate)
+    : undefined;
   const payload = {
     keywords: [{
       keyword: setting.keyword,
@@ -10230,8 +10364,11 @@ async function schedulePost(setting, currentSettings) {
       imageMode: setting.imageMode,
       imagePrompt: setting.imagePrompt
     }],
+    ...currentSettings,
     scheduledTime: setting.scheduledTime,
-    ...currentSettings
+    publishType: postingMode,
+    postingMode,
+    scheduleDate
   };
 
   // StorageManager 통일
@@ -10239,6 +10376,18 @@ async function schedulePost(setting, currentSettings) {
   const scheduledPosts = await storage.get('scheduledPosts', true) || [];
   scheduledPosts.push({
     id: Date.now(),
+    topic: setting.keyword,
+    keywords: setting.keyword,
+    date: setting.scheduledTime.toISOString().slice(0, 10),
+    time: setting.scheduledTime.toTimeString().slice(0, 5),
+    platform: normalizePublishPlatformIntent(currentSettings.platform),
+    publishType: postingMode,
+    postingMode,
+    scheduleDate,
+    scheduleDateTime: setting.scheduledTime.toISOString(),
+    contentMode: setting.contentMode || currentSettings.contentMode || 'external',
+    thumbnailMode: currentSettings.thumbnailMode,
+    ctaMode: setting.ctaMode || currentSettings.ctaMode || 'auto',
     payload: payload,
     scheduledTime: setting.scheduledTime.toISOString(),
     status: 'scheduled'
@@ -10883,6 +11032,10 @@ async function publishToPlatform() {
 
 // 워드프레스 애플리케이션 비밀번호 발급 가이드 모달
 window.showWordPressAppPasswordGuide = function showWordPressAppPasswordGuide() {
+  if (window.__oneclickSetup?.showPlatformConnectGuide) {
+    window.__oneclickSetup.showPlatformConnectGuide('wordpress');
+    return;
+  }
   const modal = document.createElement('div');
   modal.id = 'wpAppPasswordGuideModal';
   modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); display: flex; align-items: center; justify-content: center; z-index: 10000; backdrop-filter: blur(10px);';
@@ -11185,6 +11338,9 @@ async function createPayloadFromForm() {
   const platformSelectedRadio = document.querySelector('input[name="platform"]:checked');
   const platformSelect = { value: platformSelectedRadio?.value || '' };
   const publishTypeSelect = document.querySelector('input[name="publishType"]:checked');
+  const postingModeSelect = document.querySelector('input[name="postingMode"]:checked');
+  const publishMode = normalizePostingModeIntent(postingModeSelect?.value || publishTypeSelect?.value || 'publish');
+  const scheduleDateTime = document.getElementById('scheduleDateTime')?.value || '';
 
   let titleValue = null;
   if (titleModeSelect?.value === 'custom') {
@@ -11236,8 +11392,10 @@ async function createPayloadFromForm() {
       return count;
     })(),
     contentMode: contentModeSelect?.value || 'external', // 콘텐츠 모드 추가
-    platform: platformSelect?.value || savedSettings.platform || 'blogspot', // 기본값: wordpress
-    publishType: publishTypeSelect?.value || 'publish',
+    platform: normalizePublishPlatformIntent(platformSelect?.value || savedSettings.platform || 'blogspot'), // 기본값: wordpress
+    publishType: publishMode,
+    postingMode: publishMode,
+    scheduleDate: publishMode === 'schedule' && scheduleDateTime ? scheduleDateTime : undefined,
     // 수동 CTA 추가 (인덱스 기반 객체)
     manualCtas: Object.keys(manualCtas).length > 0 ? manualCtas : undefined,
     // API 키들은 저장된 설정에서 로드

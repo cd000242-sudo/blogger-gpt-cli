@@ -232,7 +232,7 @@ export class LicenseManager {
       console.log('[AUTH] 서버에 verify-credentials 인증 시도...');
       const response = await axios.post(redeemUrl, {
         action: 'verify-credentials',
-        appId: 'com.ridernam.blogger.automation',
+        appId: 'com.leadernam.orbit',
         userId,
         userPassword: password,
         deviceId
@@ -366,7 +366,7 @@ export class LicenseManager {
             redeemUrl,
             {
               action: 'register',
-              appId: 'com.ridernam.blogger.automation',
+              appId: 'com.leadernam.orbit',
               licenseCode: code,
               userId,
               userPassword: password,
@@ -713,7 +713,7 @@ export class LicenseManager {
         serverUrl,
         {
           action: 'verify',
-          appId: 'com.ridernam.blogger.automation',
+          appId: 'com.leadernam.orbit',
           code: licenseData.licenseCode,
           deviceId: this.getDeviceId()
         },

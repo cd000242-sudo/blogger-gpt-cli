@@ -96,9 +96,9 @@ describe('Golden — Instagram', () => {
   test('body 정의됨', () => {
     expect(result.body).toBeTruthy();
   });
-  test('hashtags 5~30개', () => {
-    expect(result.hashtags.length).toBeGreaterThanOrEqual(5);
-    expect(result.hashtags.length).toBeLessThanOrEqual(30);
+  test('hashtags 8~12개', () => {
+    expect(result.hashtags.length).toBeGreaterThanOrEqual(8);
+    expect(result.hashtags.length).toBeLessThanOrEqual(12);
   });
   test('연속 빈 줄 1개 이하', () => {
     expect(result.body).not.toMatch(/\n{3,}/);
@@ -129,8 +129,8 @@ describe('Golden — Threads', () => {
   test('500자 이내', () => {
     expect(result.body.length).toBeLessThanOrEqual(500);
   });
-  test('연속 빈 줄 없음 (single break)', () => {
-    expect(result.body).not.toMatch(/\n{2,}/);
+  test('가독성을 위한 문단 구분 허용', () => {
+    expect(result.body).not.toMatch(/\n{3,}/);
   });
   test('URL 포함 (CTA)', () => {
     expect(result.body).toContain('example.com');
@@ -204,17 +204,15 @@ describe('Golden — Naver Blog', () => {
   const channel = dispatcher.getChannel('naver-blog');
   const result = postFormat(SAMPLE_NAVER_BLOG_RAW, channel);
 
-  test('[사진 자리] 자동 삽입 (3문단마다)', () => {
-    expect(result.body).toContain('[사진 자리]');
-    const photoCount = (result.body.match(/\[사진 자리\]/g) || []).length;
-    expect(photoCount).toBeGreaterThanOrEqual(1);
+  test('검색형 미니 포스트는 사진 자리 자동 삽입 없음', () => {
+    expect(result.body).not.toContain('[사진 자리]');
   });
   test('CTA 박스 (📌 더 자세한 내용) 포함', () => {
     expect(result.body).toContain('📌');
     expect(result.body).toContain('example.com');
   });
-  test('800자 이상 (D.I.A 임계)', () => {
-    expect(result.body.length).toBeGreaterThan(800);
+  test('700자 이상 미니 포스트', () => {
+    expect(result.body.length).toBeGreaterThan(700);
   });
 });
 

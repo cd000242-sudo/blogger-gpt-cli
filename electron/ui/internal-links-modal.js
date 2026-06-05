@@ -1,3 +1,50 @@
+function normalizeInternalLinkPublishPlatform(platform) {
+  const raw = String(platform || '').toLowerCase();
+  if (/wordpress|wp|워드프레스/.test(raw)) return 'wordpress';
+  if (/blogger|blogspot|블로거|블로그스팟/.test(raw)) return 'blogspot';
+  return raw || 'wordpress';
+}
+
+function normalizeInternalLinkPostingMode(mode, fallback = 'publish') {
+  const raw = String(mode || '').toLowerCase();
+  if (raw === 'scheduled') return 'schedule';
+  if (raw === 'immediate' || raw === 'now' || raw === 'live' || raw === 'single') return 'publish';
+  if (raw === 'draft' || raw === 'save') return 'draft';
+  if (raw === 'schedule' || raw === 'publish') return raw;
+  return fallback;
+}
+
+function getInternalLinkPublishIntent(defaultMode = 'publish') {
+  const selectedMode =
+    document.querySelector('input[name="postingMode"]:checked')?.value ||
+    document.querySelector('input[name="publishType"]:checked')?.value ||
+    defaultMode;
+  const postingMode = normalizeInternalLinkPostingMode(selectedMode, defaultMode);
+  const scheduleDateTime = document.getElementById('scheduleDateTime')?.value
+    ? String(document.getElementById('scheduleDateTime').value).trim()
+    : '';
+  return {
+    publishType: postingMode,
+    postingMode,
+    scheduleDate: postingMode === 'schedule' && scheduleDateTime ? scheduleDateTime : undefined,
+  };
+}
+
+async function publishInternalLinkHtml(payload, title, html, thumbnailUrl = '') {
+  if (window.electronAPI?.invoke) {
+    return await window.electronAPI.invoke('publish-content', {
+      title,
+      content: html,
+      thumbnailUrl,
+      payload,
+    });
+  }
+  if (window.blogger?.publishContent) {
+    return await window.blogger.publishContent(payload, title, html, thumbnailUrl);
+  }
+  throw new Error('발행 API를 사용할 수 없습니다.');
+}
+
 // 전역 함수: 내부링크 관리 모달 열기
 function openInternalLinksManagerModal() {
   console.log('[INTERNAL-LINKS] 내부링크 관리 모달 열기');
@@ -350,15 +397,16 @@ async function publishInternalLinkContent(shouldPublish = false) {
         topic: title,
         title: title,
         html: window.internalLinkState.html,
-        platform: document.querySelector('input[name="platform"]:checked')?.value || 'wordpress',
+        platform: normalizeInternalLinkPublishPlatform(document.querySelector('input[name="platform"]:checked')?.value || 'wordpress'),
+        ...getInternalLinkPublishIntent('publish'),
         previewOnly: false
       };
       
       console.log('[INTERNAL-LINKS] 📤 발행 시작');
       
       // runPost 호출 또는 직접 발행
-      if (window.blogger && window.blogger.runPost) {
-        const result = await window.blogger.runPost(payload);
+      {
+        const result = await publishInternalLinkHtml(payload, title, window.internalLinkState.html, '');
         if (result && result.ok) {
           alert('✅ 종합글이 성공적으로 발행되었습니다!');
           closeInternalLinksManagerModal();
@@ -396,11 +444,6 @@ async function publishInternalLinkContent(shouldPublish = false) {
 function openPublishedPostsModal() {
   alert('📚 발행한 글 목록 기능은 준비 중입니다.\n\n직접 URL을 입력해주세요.');
 }
-
-
-
-
-
 
 
 

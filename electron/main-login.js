@@ -681,16 +681,39 @@ function startBloggerOAuthServer(onCodeReceived) {
                 if (url.pathname === '/callback') {
                     const code = url.searchParams.get('code');
                     const error = url.searchParams.get('error');
+                    const errorDescription = url.searchParams.get('error_description') || '';
                     if (error) {
-                        console.error('[BLOGGER-OAUTH-SERVER] OAuth 오류:', error);
+                        const detail = errorDescription ? `${error}: ${errorDescription}` : error;
+                        const isTesterBlocked = /access_denied|tester|test/i.test(detail);
+                        const helper = isTesterBlocked
+                            ? 'Google OAuth 앱이 테스트 상태입니다. 앱의 [테스트 사용자] 버튼을 눌러 현재 로그인한 Gmail을 Test users에 추가한 뒤 다시 인증하세요.'
+                            : '이 창을 닫고 앱으로 돌아가 안내를 확인한 뒤 다시 시도해주세요.';
+                        console.error('[BLOGGER-OAUTH-SERVER] OAuth 오류:', detail);
+                        if (mainWindow) {
+                            mainWindow.webContents.send('blogger-auth-complete', {
+                                ok: false,
+                                error: isTesterBlocked ? `${detail}\n${helper}` : detail,
+                            });
+                        }
+                        const escapedDetail = detail.replace(/[<>&"]/g, (ch) => {
+                            if (ch === '<')
+                                return '&lt;';
+                            if (ch === '>')
+                                return '&gt;';
+                            if (ch === '&')
+                                return '&amp;';
+                            if (ch === '"')
+                                return '&quot;';
+                            return ch;
+                        });
                         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
                         res.end(`
               <html>
               <head><title>인증 실패</title></head>
               <body style="font-family: -apple-system, sans-serif; text-align: center; padding: 50px; background: #fef2f2;">
                 <h1 style="color: #dc2626;">❌ 인증 실패</h1>
-                <p>오류: ${error}</p>
-                <p>이 창을 닫고 다시 시도해주세요.</p>
+                <p>오류: ${escapedDetail}</p>
+                <p>${helper}</p>
               </body>
               </html>
             `);

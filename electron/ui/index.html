@@ -580,6 +580,10 @@
                     <option value="auto" selected>⚙️ 자동 (썸네일 타입 따름)</option>
                     <option value="nanobanana2">🍌 나노바나나2 (Gemini 3.1 Flash Image · Pro 품질·Flash 가격 · 권장)</option>
                     <option value="nanobanana">🍌 나노바나나 (Gemini 2.5 Flash · 저비용)</option>
+                    <option value="nanobananapro">🍌 나노바나나 Pro (Gemini 3 Pro · 최고품질)</option>
+                    <option value="gptimage1">🎯 GPT 이미지 1 (gpt-image-1)</option>
+                    <option value="gptimage2">🎯 GPT 이미지 2 / 덕테이프 (gpt-image-2)</option>
+                    <option value="dropshot-nanobanana-pro">🍌 리더스 나노바나나 무제한</option>
                     <option value="prodia">🚀 Prodia FLUX schnell (유료 최저가)</option>
                     <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질)</option>
                     <option value="crawled">🔗 URL 수집 이미지 그대로 사용</option>
@@ -3591,7 +3595,7 @@
                         <span style="background: rgba(34,197,94,0.2); color: #6ee7b7; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 500;">선택</span>
                       </label>
                       <div style="display: flex; gap: 8px; align-items: stretch;">
-                        <input type="url" id="urlImageSource" placeholder="https://blog.naver.com/... (네이버/티스토리/일반 블로그 URL)"
+                        <input type="url" id="urlImageSource" placeholder="https://tjdgus24280.blogspot.com/2026/06/2026-5.html" data-example-image-url="https://iili.io/CKuxTSj.jpg" title="Blogspot representative image: https://iili.io/CKuxTSj.jpg"
                           style="flex: 1; background: rgba(0,0,0,0.25); border: 1px solid rgba(34,197,94,0.3); color: white; font-size: 13px; padding: 10px 14px; border-radius: 8px; font-family: inherit;" />
                         <button id="urlImageCollectBtn" type="button" onclick="window.__urlImageCollect && window.__urlImageCollect.runNow()"
                           style="padding: 10px 16px; background: linear-gradient(135deg, #22c55e, #16a34a); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; box-shadow: 0 4px 12px rgba(34,197,94,0.3);">
@@ -3652,7 +3656,7 @@
                         여러개 입력 시 연속발행</span>
                     </label>
                     <textarea id="referenceUrl" class="form-input"
-                      placeholder="참고할 URL을 입력하세요 (쿠팡, 네이버 쇼핑, 블로그 등)&#10;여러 URL 입력 시 키워드와 1:1 매핑&#10;예: https://example.com/product1&#10;https://example.com/product2"
+                      placeholder="Reference URL example: https://leadernam.com/%ea%b8%88%ec%9c%b5-%eb%b3%b4%ed%97%98/%ec%83%9d%ed%99%9c%c2%b7%ec%a0%95%ec%b1%85/2026%eb%85%84-%ec%84%b8%ea%b8%88-%ec%b6%94%ec%a7%95%ea%b3%bc-%ed%83%88%ec%84%b8%ec%9d%98-%ec%b0%a8%ec%9d%b4%ec%a0%90-%ed%95%b5%ec%8b%ac-3%ea%b0%80%ec%a7%80/"
                       rows="3"
                       style="width: 100%; background: rgba(255, 255, 255, 0.08); border: 2px solid rgba(245, 158, 11, 0.3); color: white; font-size: 14px; padding: 12px 16px; border-radius: 12px; transition: all 0.3s ease; resize: vertical; min-height: 80px; font-family: inherit; line-height: 1.6; box-sizing: border-box;"
                       onfocus="this.style.borderColor='rgba(245, 158, 11, 0.6)'; this.style.background='rgba(255,255,255,0.12)'"
@@ -4215,14 +4219,14 @@
                     <!-- 🏆 AdSense 모드 자동 안내 (initContent에서 contentMode === 'adsense'일 때만 표시) -->
                     <div class="acc-field" id="adsenseAutoHint" style="display: none;">
                       <div style="padding: 12px 14px; background: linear-gradient(135deg, rgba(34,197,94,0.10), rgba(99,102,241,0.10)); border: 1px solid rgba(34,197,94,0.3); border-radius: 10px; color: #86efac; font-size: 12px; line-height: 1.6;">
-                        🏆 <strong>AdSense 승인률 강화 자동 적용 중</strong> — LLM 모델 로테이션 · 점수 검사 (warn) · 정책 사전 스캔 · 외부 출처 강제 인용 · 12-24h 발행 분산 모두 백그라운드에서 자동으로 작동합니다. 별도 설정 필요 없음.
+                        🏆 <strong>AdSense 승인률 강화 자동 적용 중</strong> — CTA 차단 · 점수 78+ 검사 · 정책/반복 하드닝 스캔 · 외부 출처 인용 · 하루 3개 권장 분산 기준이 자동 적용됩니다. 자세한 체크리스트는 왼쪽 메뉴의 애드센스 도구 상단 가이드를 확인하세요.
                       </div>
                     </div>
 
                     <!-- 🛡️ 백엔드 자동 ON 옵션들 (UI 노출 X, payload 호환용 hidden input) -->
                     <input type="checkbox" id="llmRotation" hidden>
                     <input type="checkbox" id="adsenseScoreGate" hidden>
-                    <input type="hidden" id="adsenseMinScore" value="70">
+                    <input type="hidden" id="adsenseMinScore" value="78">
                     <input type="hidden" id="adsenseGateMode" value="warn">
                     <input type="checkbox" id="ctaAiStrictMode" checked hidden>
 
@@ -6261,6 +6265,10 @@
 
     // Blogger 가이드 토글
     function toggleBloggerGuide() {
+      if (window.__oneclickSetup?.showPlatformConnectGuide) {
+        window.__oneclickSetup.showPlatformConnectGuide('blogspot');
+        return;
+      }
       const guide = document.getElementById('bloggerOAuthGuide');
       if (guide) {
         guide.style.display = guide.style.display === 'none' ? 'block' : 'none';
@@ -7194,7 +7202,7 @@ async function updateFreeQuotaCounter() {
       return;
     }
     var used = (status.quota && status.quota.usage) || 0;
-    var limit = (status.quota && status.quota.limit) || 2;
+    var limit = (status.quota && status.quota.limit) || 1;
     text.textContent = used + '/' + limit;
     var exhausted = (limit - used <= 0);
     text.style.color = exhausted ? '#fca5a5' : '#a5f3c4';
@@ -7217,7 +7225,7 @@ function showPaywallModal() {
   modal.innerHTML = '<div style="background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:24px;padding:36px;width:90%;max-width:440px;box-shadow:0 25px 60px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);text-align:center;">'
     + '<div style="font-size:56px;margin-bottom:12px;">🔒</div>'
     + '<h2 style="color:white;font-size:22px;font-weight:800;margin:0 0 12px 0;">오늘의 무료 체험이 끝났어요</h2>'
-    + '<p style="color:rgba(255,255,255,0.7);font-size:14px;margin:0 0 24px 0;line-height:1.6;">하루 2회 무료 체험을 모두 사용했습니다.<br>라이선스를 등록하면 <strong style="color:#a5f3c4;">무제한</strong>으로 사용할 수 있어요!</p>'
+    + '<p style="color:rgba(255,255,255,0.7);font-size:14px;margin:0 0 24px 0;line-height:1.6;">하루 1회 무료 체험을 모두 사용했습니다.<br>라이선스를 등록하면 <strong style="color:#a5f3c4;">무제한</strong>으로 사용할 수 있어요!</p>'
     + '<div style="display:flex;flex-direction:column;gap:10px;">'
     + '<button onclick="window.blogger&&window.blogger.openExternal(\'https://leadernam.imweb.me\')" style="padding:14px 24px;background:linear-gradient(135deg,#6366f1,#a855f7);border:none;border-radius:12px;color:white;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(99,102,241,0.4);">🛒 라이선스 구매하기</button>'
     + '<button onclick="document.getElementById(\'paywallModal\').remove()" style="padding:12px 24px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:12px;color:rgba(255,255,255,0.6);font-size:14px;cursor:pointer;">내일 다시 사용할게요</button>'
@@ -7513,13 +7521,14 @@ function checkPostingReadiness() {
   list.innerHTML = html;
 }
 
-// 체크리스트 자동 갱신 (10초마다)
+// 체크리스트 자동 갱신 (보이는 동안만, 30초마다)
 setInterval(function() {
+  if (document.hidden) return;
   var tab = document.getElementById('tab-oneclick-setup');
   if (tab && tab.style.display !== 'none') {
     checkPostingReadiness();
   }
-}, 10000);
+}, 30000);
 // 탭 전환 시에도 갱신
 var origSwitchTab = window.switchSettingsTab;
 if (origSwitchTab) {

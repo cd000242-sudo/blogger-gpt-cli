@@ -13,7 +13,7 @@ const HASHTAG_RE = /#[\p{L}\p{N}_]+/gu;
  * 토큰이 아닌 글자수로 통일 — 사용자에게 노출할 단위.
  */
 const CHANNEL_LENGTH_LIMITS = {
-  instagram: { body: { max: 2200 }, hashtags: { min: 5, max: 30 } },
+  instagram: { body: { max: 2200 }, hashtags: { min: 8, max: 12 } },
   threads: { body: { max: 500 } },
   x: {
     parts: {
@@ -37,21 +37,21 @@ const CHANNEL_LENGTH_LIMITS = {
   },
   'youtube-shorts': {
     parts: {
-      script: { max: 800 },
-      description: { max: 500 },
+      script: { max: 1200 },
+      description: { max: 700 },
       pinnedComment: { max: 280 },
     },
   },
   tiktok: {
     parts: {
-      script: { max: 400 },
-      caption: { max: 150 },
+      script: { max: 900 },
+      caption: { max: 450 },
       hashtags: { max: 200 },
     },
   },
-  'kakao-openchat': { body: { max: 120 } },
-  'naver-blog': { body: { max: 2500, min: 800 } },
-  'naver-cafe': { body: { max: 2500, min: 800 } },
+  'kakao-openchat': { body: { max: 450, min: 60 } },
+  'naver-blog': { body: { max: 1200, min: 700 }, hashtags: { min: 5, max: 8 } },
+  'naver-cafe': { body: { max: 900, min: 400 } },
 };
 
 /**

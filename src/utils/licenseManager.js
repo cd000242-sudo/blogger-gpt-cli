@@ -124,7 +124,7 @@ function isLicenseExpired(license) {
  * 앱 식별자 가져오기 (블로거 앱)
  */
 function getAppId() {
-    return process.env.APP_ID || 'com.ridernam.blogger.automation';
+    return process.env.APP_ID || 'com.leadernam.orbit';
 }
 
 /**

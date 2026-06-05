@@ -365,6 +365,32 @@ describe('v3.5.88 신규 엔진 — GPT 이미지 1/2', () => {
       expect.objectContaining({ modelId: 'gpt-image-2', quality: 'medium' }),
     );
   });
+
+  it('썸네일에서 gptimage1은 이미지 텍스트 모드를 끄고 호출', async () => {
+    mockGpt.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,GPT1_THUMB' } as any);
+
+    const result = await dispatchThumbnailGeneration('gptimage1', '한글 제목', '키워드');
+
+    expect(result.ok).toBe(true);
+    expect(mockGpt).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.objectContaining({ modelId: 'gpt-image-1', isThumbnail: false }),
+    );
+  });
+
+  it('썸네일에서 gptimage2는 이미지 텍스트 모드를 허용', async () => {
+    mockGpt.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,GPT2_THUMB' } as any);
+
+    const result = await dispatchThumbnailGeneration('gptimage2', '한글 제목', '키워드');
+
+    expect(result.ok).toBe(true);
+    expect(mockGpt).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.objectContaining({ modelId: 'gpt-image-2', isThumbnail: true }),
+    );
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -415,5 +441,31 @@ describe('v3.5.90 신규 엔진 — Prodia FLUX schnell', () => {
     expect(result.ok).toBe(true);
     expect(result.source).toMatch(/DeepInfra/);
     expect(mockDeep).toHaveBeenCalled();
+  });
+
+  it('prodia 썸네일 프롬프트에는 한글/영문 텍스트 금지 규칙을 추가', async () => {
+    mockProdia.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,PRODIA_TEXTLESS' } as any);
+
+    const result = await dispatchThumbnailGeneration('prodia', '한글 제목', '키워드');
+
+    expect(result.ok).toBe(true);
+    expect(mockProdia).toHaveBeenCalledWith(
+      expect.stringContaining('NO Korean text'),
+      expect.any(String),
+      expect.any(Object),
+    );
+  });
+
+  it('deepinfra는 텍스트 오버레이를 끄고 프롬프트에도 텍스트 금지 규칙을 추가', async () => {
+    mockDeep.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,DEEP_TEXTLESS' } as any);
+
+    const result = await dispatchH2ImageGeneration('deepinfra', '섹션 이미지', '키워드');
+
+    expect(result.ok).toBe(true);
+    expect(mockDeep).toHaveBeenCalledWith(
+      expect.stringContaining('NO Korean text'),
+      expect.any(String),
+      expect.objectContaining({ skipOverlay: true }),
+    );
   });
 });

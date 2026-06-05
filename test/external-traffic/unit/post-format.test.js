@@ -125,10 +125,10 @@ describe('postFormat — Instagram', () => {
     expect(result.body).not.toMatch(/\n{3,}/);
     // 이모지 분리 토큰 삽입
     expect(result.body).toContain(SEPARATOR_EMOJI);
-    // 줄 길이 ≤ 22 (wrap된 줄)
+    // 줄 길이 ≤ 35 (인스타 카드뉴스 캡션 기준)
     const bodyLines = result.body.split('\n').filter((l) => l.length > 0 && l !== SEPARATOR_EMOJI);
     for (const line of bodyLines) {
-      expect(line.length).toBeLessThanOrEqual(25);
+      expect(line.length).toBeLessThanOrEqual(35);
     }
   });
 });
@@ -197,7 +197,7 @@ korean food trends 2026 infographic minimal style`;
 });
 
 describe('postFormat — Naver Blog', () => {
-  test('3문단마다 [사진 자리] 삽입 + CTA 박스 본문 끝', () => {
+  test('검색형 미니 포스트는 사진 자리 자동 삽입 없이 본문을 유지', () => {
     const raw = `첫 번째 문단입니다.
 
 두 번째 문단입니다.
@@ -212,13 +212,14 @@ describe('postFormat — Naver Blog', () => {
 
 📌 더 자세한 내용: https://example.com`;
     const result = postFormat(raw, NAVER_BLOG);
-    expect(result.body).toContain('[사진 자리]');
+    expect(result.body).not.toContain('[사진 자리]');
     expect(result.body).toContain('📌');
   });
-  test('800자 미만이면 사진 자리 없음 (문단 부족)', () => {
-    const raw = '짧은 본문\n\n두 번째 문단';
+  test('해시태그가 있으면 본문과 해시태그를 분리', () => {
+    const raw = '짧은 본문\n\n두 번째 문단\n\n#태그1 #태그2 #태그3 #태그4 #태그5';
     const result = postFormat(raw, NAVER_BLOG);
-    expect(result.body).not.toContain('[사진 자리]');
+    expect(result.body).not.toContain('#태그1');
+    expect(result.hashtags).toEqual(['#태그1', '#태그2', '#태그3', '#태그4', '#태그5']);
   });
 });
 

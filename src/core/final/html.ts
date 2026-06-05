@@ -6,6 +6,154 @@
  * - generateBloggerTOCFinal: 블로그스팟 목차
  */
 
+type EyeComfortPalette = {
+  name: string;
+  primary: string;
+  primaryLight: string;
+  ctaAccent: string;
+  ctaHover: string;
+  gradientStart: string;
+  gradientEnd: string;
+  heading1: string;
+  heading2Border: string;
+  tocBtnHoverBorder: string;
+  tocNumberText: string;
+  ctaBoxBg: string;
+  ctaBorder: string;
+  ctaBadgeBg: string;
+  ctaNoteText: string;
+  ctaButtonStart: string;
+  ctaButtonEnd: string;
+  ctaShadow: string;
+};
+
+const EYE_COMFORT_PALETTES: EyeComfortPalette[] = [
+  {
+    name: '세이지 포레스트',
+    primary: '#2f6f5e',
+    primaryLight: '#e5f3ec',
+    ctaAccent: '#3f8a72',
+    ctaHover: '#255b4e',
+    gradientStart: '#f3faf6',
+    gradientEnd: '#e8f4ed',
+    heading1: '#173f36',
+    heading2Border: '#9ac7b2',
+    tocBtnHoverBorder: '#b9d9c8',
+    tocNumberText: '#2f6f5e',
+    ctaBoxBg: 'linear-gradient(135deg,#edf8f3 0%,#e4f2ec 100%)',
+    ctaBorder: '#a9d0bf',
+    ctaBadgeBg: '#dff0e8',
+    ctaNoteText: '#2f6f5e',
+    ctaButtonStart: '#3f8a72',
+    ctaButtonEnd: '#2f6f5e',
+    ctaShadow: 'rgba(47,111,94,0.24)',
+  },
+  {
+    name: '미스트 블루',
+    primary: '#2f6f8f',
+    primaryLight: '#e4f1f6',
+    ctaAccent: '#3a86a8',
+    ctaHover: '#245873',
+    gradientStart: '#f2f8fb',
+    gradientEnd: '#e5f2f7',
+    heading1: '#183d52',
+    heading2Border: '#9cc8da',
+    tocBtnHoverBorder: '#b8d9e6',
+    tocNumberText: '#2f6f8f',
+    ctaBoxBg: 'linear-gradient(135deg,#edf7fb 0%,#e3f0f6 100%)',
+    ctaBorder: '#9fcadd',
+    ctaBadgeBg: '#dff0f7',
+    ctaNoteText: '#2f6f8f',
+    ctaButtonStart: '#3a86a8',
+    ctaButtonEnd: '#2f6f8f',
+    ctaShadow: 'rgba(47,111,143,0.23)',
+  },
+  {
+    name: '이끼 올리브',
+    primary: '#5f7146',
+    primaryLight: '#edf3e4',
+    ctaAccent: '#718654',
+    ctaHover: '#4b5b37',
+    gradientStart: '#f7faf2',
+    gradientEnd: '#edf4e5',
+    heading1: '#354225',
+    heading2Border: '#bdcf9b',
+    tocBtnHoverBorder: '#d1ddb9',
+    tocNumberText: '#5f7146',
+    ctaBoxBg: 'linear-gradient(135deg,#f1f7e9 0%,#e8f0dc 100%)',
+    ctaBorder: '#bfce9f',
+    ctaBadgeBg: '#e7f0da',
+    ctaNoteText: '#5f7146',
+    ctaButtonStart: '#718654',
+    ctaButtonEnd: '#5f7146',
+    ctaShadow: 'rgba(95,113,70,0.22)',
+  },
+  {
+    name: '더스티 로즈',
+    primary: '#8a5f6f',
+    primaryLight: '#f4e8ee',
+    ctaAccent: '#9a6a7d',
+    ctaHover: '#70495a',
+    gradientStart: '#fbf5f8',
+    gradientEnd: '#f4e8ee',
+    heading1: '#53313f',
+    heading2Border: '#d4adbc',
+    tocBtnHoverBorder: '#e2c7d1',
+    tocNumberText: '#8a5f6f',
+    ctaBoxBg: 'linear-gradient(135deg,#fbf0f4 0%,#f5e7ed 100%)',
+    ctaBorder: '#d7b2c0',
+    ctaBadgeBg: '#f0dce5',
+    ctaNoteText: '#8a5f6f',
+    ctaButtonStart: '#9a6a7d',
+    ctaButtonEnd: '#8a5f6f',
+    ctaShadow: 'rgba(138,95,111,0.21)',
+  },
+  {
+    name: '소프트 네이비',
+    primary: '#526d8a',
+    primaryLight: '#e9f0f6',
+    ctaAccent: '#6683a1',
+    ctaHover: '#405871',
+    gradientStart: '#f5f8fb',
+    gradientEnd: '#e9f0f6',
+    heading1: '#2d4055',
+    heading2Border: '#adc4da',
+    tocBtnHoverBorder: '#c5d6e5',
+    tocNumberText: '#526d8a',
+    ctaBoxBg: 'linear-gradient(135deg,#f0f5fa 0%,#e6eef6 100%)',
+    ctaBorder: '#adc4da',
+    ctaBadgeBg: '#e0eaf3',
+    ctaNoteText: '#526d8a',
+    ctaButtonStart: '#6683a1',
+    ctaButtonEnd: '#526d8a',
+    ctaShadow: 'rgba(82,109,138,0.22)',
+  },
+  {
+    name: '차분한 티크',
+    primary: '#477a78',
+    primaryLight: '#e5f2f1',
+    ctaAccent: '#5b908d',
+    ctaHover: '#355f5d',
+    gradientStart: '#f2f9f8',
+    gradientEnd: '#e5f2f1',
+    heading1: '#274946',
+    heading2Border: '#a8cfcc',
+    tocBtnHoverBorder: '#c1ddda',
+    tocNumberText: '#477a78',
+    ctaBoxBg: 'linear-gradient(135deg,#eef8f7 0%,#e3f1f0 100%)',
+    ctaBorder: '#a8cfcc',
+    ctaBadgeBg: '#dff0ef',
+    ctaNoteText: '#477a78',
+    ctaButtonStart: '#5b908d',
+    ctaButtonEnd: '#477a78',
+    ctaShadow: 'rgba(71,122,120,0.22)',
+  },
+];
+
+function pickEyeComfortPalette(): EyeComfortPalette {
+  return EYE_COMFORT_PALETTES[Math.floor(Math.random() * EYE_COMFORT_PALETTES.length)] || EYE_COMFORT_PALETTES[0]!;
+}
+
 export function generateCSSFinal(platform?: string, contentMode?: string): string {
   // 🛡️ 애드센스 모드 CSS는 publisher.js:270의 injectCSS()가 단일 소스로 주입한다.
   //    과거 여기서도 adsensePlugin.generateCSS()를 반환하여 본문에 raw CSS가 새거나
@@ -13,23 +161,8 @@ export function generateCSSFinal(platform?: string, contentMode?: string): strin
   //    WordPress 경로는 adsense 분기를 원래 쓰지 않았으므로 제거해도 영향 없음.
 
   const isWP = platform === 'wordpress';
-  // 📝 블로그스팟 기본 인디고 팔레트 (blogger-theme-injector.ts와 동기화)
-  const INDIGO_PALETTE = { name: '인디고', primary: '#4f46e5', primaryLight: '#e0e7ff', ctaAccent: '#6366f1', ctaHover: '#4338ca', gradientStart: '#eef2ff', gradientEnd: '#e0e7ff', heading1: '#312e81', heading2Border: '#818cf8', tocBtnHoverBorder: '#a5b4fc', tocNumberText: '#4f46e5' };
-  const selectedPalette = INDIGO_PALETTE;
-  console.log(`[CSS] 🎨 컬러 선택: ${selectedPalette.name} (모드: ${contentMode || 'default'})`);
-
-  const theme = isWP ? {
-    primary: '#059669',
-    primaryLight: '#d1fae5',
-    ctaAccent: '#10b981',
-    ctaHover: '#047857',
-    gradientStart: '#f0fdf4',
-    gradientEnd: '#d1fae5',
-    heading1: '#064e3b',
-    heading2Border: '#34d399',
-    tocBtnHoverBorder: '#6ee7b7',
-    tocNumberText: '#047857',
-  } : selectedPalette;
+  const theme = pickEyeComfortPalette();
+  console.log(`[CSS] 🎨 아이컴포트 팔레트 선택: ${theme.name} (${isWP ? 'WordPress' : 'Blogspot'}, 모드: ${contentMode || 'default'})`);
 
   // 💰 Revenue-Max Skin v3.5 Ultimate — 100점 완벽 스킨
   return `
@@ -50,6 +183,19 @@ html { scroll-behavior: smooth !important; }
   --rv-primary-light: ${theme.primaryLight};
   --rv-cta-accent: ${theme.ctaAccent};
   --rv-cta-accent-hover: ${theme.ctaHover};
+  --rv-cta-bg: ${theme.ctaBoxBg};
+  --rv-cta-border: ${theme.ctaBorder};
+  --rv-cta-badge-bg: ${theme.ctaBadgeBg};
+  --rv-cta-note: ${theme.ctaNoteText};
+  --rv-cta-button-start: ${theme.ctaButtonStart};
+  --rv-cta-button-end: ${theme.ctaButtonEnd};
+  --rv-cta-shadow: ${theme.ctaShadow};
+  --rv-gradient-start: ${theme.gradientStart};
+  --rv-gradient-end: ${theme.gradientEnd};
+  --rv-heading-1: ${theme.heading1};
+  --rv-heading-2-border: ${theme.heading2Border};
+  --rv-toc-hover-border: ${theme.tocBtnHoverBorder};
+  --rv-toc-number-text: ${theme.tocNumberText};
   --rv-text: #1e293b;
   --rv-text-strong: #0f172a;
   --rv-text-secondary: #475569;
@@ -111,7 +257,7 @@ html { scroll-behavior: smooth !important; }
   font-size: 21px !important;
   font-weight: 700;
   color: #0f172a;
-  margin: 40px 0 16px !important;
+  margin: 30px 0 12px !important;
   padding: 0 !important;
   letter-spacing: -0.01em;
   line-height: 1.45;
@@ -119,8 +265,8 @@ html { scroll-behavior: smooth !important; }
 
 .white-paper p {
   font-size: 17px !important;
-  line-height: 1.95;
-  margin: 0 0 24px !important;
+  line-height: 1.75;
+  margin: 0 0 14px !important;
   color: #1e293b;
   word-break: keep-all !important;
 }
@@ -151,20 +297,21 @@ html { scroll-behavior: smooth !important; }
 .toc-grid {
   display: flex !important;
   flex-direction: column !important;
-  gap: 12px !important;
+  gap: 8px !important;
+  width: 100% !important;
 }
 .toc-btn {
   background: #ffffff !important;
   border: 1px solid #e2e8f0 !important;
-  padding: 18px 20px !important;
-  border-radius: 14px !important;
+  padding: 14px 16px !important;
+  border-radius: 10px !important;
   text-align: left !important;
   font-weight: 700;
   color: #475569;
   text-decoration: none !important;
   display: flex !important;
   align-items: center !important; /* 세로 중앙 정렬 */
-  gap: 12px !important;
+  gap: 10px !important;
   width: 100% !important;
   box-sizing: border-box !important;
   transition: all 0.2s ease;
@@ -181,11 +328,11 @@ html { scroll-behavior: smooth !important; }
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 28px !important;
-  height: 28px !important;
+  width: 26px !important;
+  height: 26px !important;
   background: ${theme.primaryLight} !important;
   color: ${theme.tocNumberText} !important;
-  border-radius: 8px !important;
+  border-radius: 999px !important;
   font-size: 13px !important;
   font-weight: 800 !important;
   flex-shrink: 0 !important;
@@ -219,10 +366,14 @@ html { scroll-behavior: smooth !important; }
   background: linear-gradient(180deg, #ffffff 0%, #fff7ed 100%) !important;
   border: 1px solid rgba(220, 38, 38, 0.12) !important;
   border-radius: 22px !important;
-  padding: 40px 28px 34px !important;
+  padding: 28px 24px !important;
   text-align: center !important;
-  margin: 56px auto !important;
+  margin: 32px auto !important;
   box-sizing: border-box !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 12px !important;
   isolation: isolate;
   box-shadow:
     0 1px 0 rgba(255,255,255,0.9) inset,
@@ -264,14 +415,14 @@ html { scroll-behavior: smooth !important; }
   font-weight: 900 !important;
   letter-spacing: 1.5px !important;
   border-radius: 999px !important;
-  margin-bottom: 16px !important;
+  margin: 0 !important;
   text-transform: uppercase !important;
   box-shadow:
     0 1px 0 rgba(255,255,255,0.6) inset,
     0 4px 10px rgba(245, 158, 11, 0.4) !important;
 }
 .cta-box p {
-  margin: 0 auto 22px !important;
+  margin: 0 auto !important;
   font-size: 21px !important;
   font-weight: 800 !important;
   color: #0f172a !important;
@@ -288,7 +439,7 @@ html { scroll-behavior: smooth !important; }
   gap: 10px !important;
   min-width: 280px !important;
   max-width: 100% !important;
-  margin: 0 auto !important;
+  margin: 2px auto 0 !important;
   padding: 18px 36px !important;
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%) !important;
   color: #ffffff !important;
@@ -341,7 +492,7 @@ html { scroll-behavior: smooth !important; }
 .cta-btn:hover::after { transform: translateX(6px) !important; }
 .cta-microcopy {
   display: block !important;
-  margin-top: 16px !important;
+  margin: 0 !important;
   font-size: 13px !important;
   font-weight: 700 !important;
   color: #ea580c !important;
@@ -543,23 +694,49 @@ article .entry-content,
 
 /* ===== 📱 스마트폰 반응형 (max-width: 768px) ===== */
 @media (max-width: 768px) {
+  .bgpt-content {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    margin-left: calc(50% - 50vw) !important;
+    margin-right: calc(50% - 50vw) !important;
+    padding: 0 10px !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+  }
   .gradient-frame {
+    width: 100% !important;
+    max-width: 100% !important;
+    background: transparent !important;
     padding: 0 !important;
     border-radius: 0 !important;
-    margin-bottom: 20px !important;
+    margin: 18px 0 28px !important;
+    overflow: visible !important;
   }
   .white-paper {
-    padding: 30px 20px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 20px 6px 44px !important;
     border-radius: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
   }
   .white-paper h1.post-title { font-size: 26px !important; }
   .white-paper h2 { font-size: 22px !important; margin: 40px 0 20px !important; }
   .white-paper p { font-size: 16px !important; line-height: 1.8 !important; }
 
-  .toc-grid-container { padding: 20px !important; }
+  .toc-grid-container {
+    margin: 28px 0 !important;
+    padding: 16px 12px !important;
+    border-radius: 12px !important;
+  }
   .toc-btn { padding: 14px 16px !important; font-size: 15px !important; }
 
-  .cta-box { padding: 24px 16px !important; }
+  .cta-box {
+    margin: 28px 0 !important;
+    padding: 20px 14px !important;
+    border-radius: 10px !important;
+  }
   .cta-btn {
     padding: 14px 16px !important;
     font-size: 16px !important;
@@ -569,7 +746,10 @@ article .entry-content,
 
   /* 📊 모바일 표 — 글자/패딩 축소 + 줄바꿈 강제 */
   .table-wrapper {
-    margin: 20px -4px !important;  /* 좌우 여백 살짝 확장 → 화면 활용도 ↑ */
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    margin: 20px calc(50% - 50vw + 8px) !important;
+    padding: 8px !important;
     border-radius: 8px !important;
   }
   .responsive-table {
@@ -595,21 +775,60 @@ article .entry-content,
 
   /* 📊 상단 요약표 컨테이너 — 모바일 패딩 축소로 표 짤림 방지 */
   .summary-container {
-    padding: 14px !important;
+    padding: 16px 12px !important;
     margin: 0 0 24px !important;
     border-radius: 12px !important;
   }
   .summary-container .table-wrapper {
     margin: 12px 0 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .white-paper .highlight,
+  .white-paper .warning,
+  .white-paper .success,
+  .white-paper .data-box,
+  .white-paper .checklist,
+  .white-paper .quote,
+  .white-paper .cta-section {
+    margin: 22px 0 !important;
+    padding: 16px 14px !important;
+    border-radius: 10px !important;
+    max-width: 100% !important;
+  }
+  .white-paper .data-box {
+    border-left-width: 4px !important;
+  }
+  .white-paper .data-box h4 {
+    font-size: 18px !important;
+    margin-bottom: 12px !important;
+  }
+  .white-paper .data-box p {
+    font-size: 16px !important;
+    line-height: 1.75 !important;
   }
 }
 
 /* ===== 📱 초소형 스마트폰 반응형 (max-width: 380px) ===== */
 @media (max-width: 380px) {
-  .white-paper { padding: 20px 14px !important; }
+  .bgpt-content { padding: 0 8px !important; }
+  .white-paper { padding: 18px 4px 42px !important; }
   .white-paper h1.post-title { font-size: 22px !important; }
   .white-paper h2 { font-size: 19px !important; }
   .white-paper p { font-size: 15px !important; }
+  .toc-grid-container,
+  .cta-box,
+  .summary-container,
+  .white-paper .highlight,
+  .white-paper .warning,
+  .white-paper .success,
+  .white-paper .data-box,
+  .white-paper .checklist,
+  .white-paper .quote,
+  .white-paper .cta-section {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
 
   .responsive-table {
     font-size: 12px !important;
@@ -681,15 +900,32 @@ article .entry-content,
   margin: 20px 0 !important;
 }
 .white-paper .data-box {
-  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%) !important;
-  border: 2px solid #0ea5e9 !important;
-  padding: 20px !important;
-  border-radius: 12px !important;
-  margin: 20px 0 !important;
+  background: #dbeafe !important;
+  border-left: 5px solid #2563eb !important;
+  padding: 24px 28px !important;
+  border-radius: 0 12px 12px 0 !important;
+  margin: 24px 0 !important;
+  color: #111827 !important;
 }
 .white-paper .data-box h4 {
-  color: #0c4a6e !important;
-  margin: 0 0 12px !important;
+  color: #111827 !important;
+  margin: 0 0 22px !important;
+  font-size: 24px !important;
+  font-weight: 800 !important;
+  line-height: 1.45 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+.white-paper .data-box p {
+  color: #111827 !important;
+  margin: 0 0 14px !important;
+  font-size: 22px !important;
+  line-height: 1.65 !important;
+}
+.white-paper .data-box a {
+  color: ${theme.ctaHover} !important;
+  text-decoration: underline !important;
+  border-bottom: 0 !important;
   font-weight: 700 !important;
 }
 .white-paper .checklist {
@@ -743,7 +979,7 @@ article .entry-content,
 }
 .white-paper .cta-button {
   display: inline-block !important;
-  background: linear-gradient(135deg, ${theme.ctaAccent} 0%, ${theme.primary} 100%) !important;
+  background: linear-gradient(135deg, var(--rv-cta-button-start) 0%, var(--rv-cta-button-end) 100%) !important;
   color: white !important;
   padding: 16px 32px !important;
   border-radius: 12px !important;
@@ -752,11 +988,11 @@ article .entry-content,
   font-size: 1.1em !important;
   margin: 20px 0 !important;
   transition: all 0.3s ease;
-  box-shadow: 0 4px 15px rgba(79, 70, 229, 0.3);
+  box-shadow: 0 4px 15px var(--rv-cta-shadow);
 }
 .white-paper .cta-button:hover {
   transform: translateY(-2px) !important;
-  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.4);
+  box-shadow: 0 6px 20px var(--rv-cta-shadow);
 }
 .white-paper .tags {
   display: flex !important;
@@ -788,7 +1024,7 @@ article .entry-content,
   margin-bottom: 20px !important;
 }
 .takeaway-box {
-  background: linear-gradient(135deg, ${theme.gradientStart}, #f5f3ff) !important;
+  background: linear-gradient(135deg, ${theme.gradientStart}, ${theme.gradientEnd}) !important;
   border: 2px solid ${theme.heading2Border} !important;
   border-radius: 14px !important;
   padding: 20px 24px !important;
@@ -836,16 +1072,16 @@ export function generateTOCFinal(h2Titles: string[]): string {
   if (!h2Titles || h2Titles.length === 0) return '';
 
   const tocItems = h2Titles.map((h2, i) =>
-    `<a class="toc-btn" href="#section-${i}">
-      <span class="toc-number">${i + 1}</span>
-      <span style="line-height:1.4 !important; flex:1 !important; display: flex; align-items: center;">${h2}</span>
+    `<a class="toc-btn" href="#section-${i}" style="display:flex !important;align-items:center !important;gap:10px !important;width:100% !important;box-sizing:border-box !important;padding:14px 16px !important;background:#ffffff !important;border:1px solid #e2e8f0 !important;border-radius:10px !important;color:#475569 !important;text-decoration:none !important;font-weight:700 !important;line-height:1.45 !important;text-align:left !important;">
+      <span class="toc-number" style="display:inline-flex !important;align-items:center !important;justify-content:center !important;width:26px !important;height:26px !important;min-width:26px !important;border-radius:999px !important;background:var(--rv-primary-light,#e0f2fe) !important;color:var(--rv-toc-number-text,#0369a1) !important;font-size:13px !important;font-weight:800 !important;line-height:1 !important;">${i + 1}</span>
+      <span style="line-height:1.45 !important; flex:1 !important; display:block !important;">${h2}</span>
     </a>`
   ).join('\n    ');
 
   return `
 <div class="toc-grid-container" id="toc">
   <h3>📌 전체 읽어보기 절차</h3>
-  <div class="toc-grid">
+  <div class="toc-grid" style="display:flex !important;flex-direction:column !important;gap:8px !important;width:100% !important;">
     ${tocItems}
   </div>
 </div>

@@ -1697,9 +1697,12 @@ export async function publishGeneratedContent(
     // postingMode 정규화: immediate, now, live 모두 publish로 변환
     let rawPostingMode = payload?.postingMode || payload?.publishType || 'publish';
     let postingMode = rawPostingMode;
-    if (rawPostingMode === 'immediate' || rawPostingMode === 'now' || rawPostingMode === 'live') {
+    if (rawPostingMode === 'immediate' || rawPostingMode === 'now' || rawPostingMode === 'live' || rawPostingMode === 'single') {
       postingMode = 'publish';
       console.log(`[PUBLISH] postingMode 변환: "${rawPostingMode}" → "publish"`);
+    } else if (rawPostingMode === 'scheduled') {
+      postingMode = 'schedule';
+      console.log(`[PUBLISH] postingMode 변환: "${rawPostingMode}" → "schedule"`);
     }
     const scheduleDate = payload?.scheduleDate ? new Date(payload.scheduleDate) : null;
 

@@ -28,6 +28,267 @@ const MAX_TITLE_LENGTH = 30;
 const MIN_TITLE_LENGTH = 5;
 const MAX_OUTPUT_TOKENS_TITLE = 500;
 
+type SpiderEyeComfortPalette = {
+  primary: string;
+  primaryDark: string;
+  primaryLight: string;
+  primarySoft: string;
+  heading: string;
+  text: string;
+  muted: string;
+  border: string;
+  borderSoft: string;
+  surface: string;
+  surfaceAlt: string;
+  gradientStart: string;
+  gradientEnd: string;
+  ctaBg: string;
+  ctaBorder: string;
+  ctaBadgeBg: string;
+  ctaNote: string;
+  ctaButtonStart: string;
+  ctaButtonEnd: string;
+  ctaShadow: string;
+};
+
+const SPIDER_EYE_COMFORT_PALETTES: SpiderEyeComfortPalette[] = [
+  {
+    primary: '#2f6f61',
+    primaryDark: '#17443b',
+    primaryLight: '#d9eee6',
+    primarySoft: '#eef8f4',
+    heading: '#173f37',
+    text: '#1f2933',
+    muted: '#587169',
+    border: '#a9d3c5',
+    borderSoft: '#d6e9e2',
+    surface: '#ffffff',
+    surfaceAlt: '#f6fbf8',
+    gradientStart: '#f2faf6',
+    gradientEnd: '#e6f3ee',
+    ctaBg: '#eef8f4',
+    ctaBorder: '#a9d3c5',
+    ctaBadgeBg: '#d9eee6',
+    ctaNote: '#46685f',
+    ctaButtonStart: '#2f6f61',
+    ctaButtonEnd: '#44735f',
+    ctaShadow: 'rgba(47,111,97,0.24)',
+  },
+  {
+    primary: '#3f6f91',
+    primaryDark: '#233f54',
+    primaryLight: '#dcebf6',
+    primarySoft: '#f0f7fb',
+    heading: '#233f54',
+    text: '#1f2933',
+    muted: '#5b7080',
+    border: '#b7d0df',
+    borderSoft: '#dae8f0',
+    surface: '#ffffff',
+    surfaceAlt: '#f7fbfd',
+    gradientStart: '#f4f9fc',
+    gradientEnd: '#e7f1f7',
+    ctaBg: '#f0f7fb',
+    ctaBorder: '#b7d0df',
+    ctaBadgeBg: '#dcebf6',
+    ctaNote: '#4b6272',
+    ctaButtonStart: '#3f6f91',
+    ctaButtonEnd: '#506f88',
+    ctaShadow: 'rgba(63,111,145,0.22)',
+  },
+  {
+    primary: '#68764b',
+    primaryDark: '#3f4a2e',
+    primaryLight: '#e4ebd6',
+    primarySoft: '#f5f8ee',
+    heading: '#354029',
+    text: '#252b20',
+    muted: '#68735a',
+    border: '#c5d3aa',
+    borderSoft: '#e1e9d2',
+    surface: '#ffffff',
+    surfaceAlt: '#fafbf6',
+    gradientStart: '#fafcf5',
+    gradientEnd: '#edf4df',
+    ctaBg: '#f5f8ee',
+    ctaBorder: '#c5d3aa',
+    ctaBadgeBg: '#e4ebd6',
+    ctaNote: '#5f6d4f',
+    ctaButtonStart: '#68764b',
+    ctaButtonEnd: '#7b7a55',
+    ctaShadow: 'rgba(104,118,75,0.22)',
+  },
+  {
+    primary: '#8a5967',
+    primaryDark: '#55343f',
+    primaryLight: '#f0dde3',
+    primarySoft: '#fbf4f6',
+    heading: '#4b2e38',
+    text: '#2d2428',
+    muted: '#755d65',
+    border: '#d9b7c2',
+    borderSoft: '#ecd8df',
+    surface: '#ffffff',
+    surfaceAlt: '#fdf9fa',
+    gradientStart: '#fdf8fa',
+    gradientEnd: '#f4e7ec',
+    ctaBg: '#fbf4f6',
+    ctaBorder: '#d9b7c2',
+    ctaBadgeBg: '#f0dde3',
+    ctaNote: '#6f5360',
+    ctaButtonStart: '#8a5967',
+    ctaButtonEnd: '#7e6674',
+    ctaShadow: 'rgba(138,89,103,0.22)',
+  },
+  {
+    primary: '#43536f',
+    primaryDark: '#252f43',
+    primaryLight: '#dfe6f0',
+    primarySoft: '#f3f6fa',
+    heading: '#253047',
+    text: '#202734',
+    muted: '#59677a',
+    border: '#bcc8d8',
+    borderSoft: '#dde4ee',
+    surface: '#ffffff',
+    surfaceAlt: '#f8fafc',
+    gradientStart: '#f7f9fc',
+    gradientEnd: '#e9eef6',
+    ctaBg: '#f3f6fa',
+    ctaBorder: '#bcc8d8',
+    ctaBadgeBg: '#dfe6f0',
+    ctaNote: '#526074',
+    ctaButtonStart: '#43536f',
+    ctaButtonEnd: '#576277',
+    ctaShadow: 'rgba(67,83,111,0.22)',
+  },
+  {
+    primary: '#6d6552',
+    primaryDark: '#443d2f',
+    primaryLight: '#e8e2d3',
+    primarySoft: '#f7f4ed',
+    heading: '#40392d',
+    text: '#28241d',
+    muted: '#6b6354',
+    border: '#d1c6ac',
+    borderSoft: '#e8dfcf',
+    surface: '#ffffff',
+    surfaceAlt: '#fbfaf6',
+    gradientStart: '#fbfaf6',
+    gradientEnd: '#f0eadc',
+    ctaBg: '#f7f4ed',
+    ctaBorder: '#d1c6ac',
+    ctaBadgeBg: '#e8e2d3',
+    ctaNote: '#635947',
+    ctaButtonStart: '#6d6552',
+    ctaButtonEnd: '#79705f',
+    ctaShadow: 'rgba(109,101,82,0.22)',
+  },
+];
+
+function hashSpiderPaletteSeed(seed: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function pickSpiderEyeComfortPalette(seed?: string): SpiderEyeComfortPalette {
+  const source = String(seed || '').trim() || `${Date.now()}-${Math.random()}`;
+  const index = hashSpiderPaletteSeed(source) % SPIDER_EYE_COMFORT_PALETTES.length;
+  return SPIDER_EYE_COMFORT_PALETTES[index] || SPIDER_EYE_COMFORT_PALETTES[0]!;
+}
+
+function buildSpiderCtaBoxStyle(theme: SpiderEyeComfortPalette, large = false): string {
+  return [
+    `margin:${large ? '32px 0' : '28px 0'} !important`,
+    `padding:${large ? '28px 24px' : '24px 20px'} !important`,
+    `background-color:${theme.ctaBg} !important`,
+    `background:linear-gradient(135deg,${theme.gradientStart} 0%,${theme.gradientEnd} 100%) !important`,
+    `border:2px solid ${theme.ctaBorder} !important`,
+    `border-radius:${large ? '16px' : '14px'} !important`,
+    'text-align:center !important',
+    'max-width:100% !important',
+    'box-sizing:border-box !important',
+    `box-shadow:0 6px 20px ${theme.ctaShadow} !important`,
+  ].join(';');
+}
+
+function buildSpiderCtaButtonStyle(theme: SpiderEyeComfortPalette, large = false): string {
+  return [
+    'display:inline-block !important',
+    `padding:${large ? '16px 32px' : '14px 28px'} !important`,
+    `background-color:${theme.ctaButtonStart} !important`,
+    `background:linear-gradient(135deg,${theme.ctaButtonStart} 0%,${theme.ctaButtonEnd} 100%) !important`,
+    'color:#ffffff !important',
+    'text-decoration:none !important',
+    `font-size:${large ? '16px' : '15px'} !important`,
+    'font-weight:800 !important',
+    `border-radius:${large ? '12px' : '10px'} !important`,
+    `box-shadow:0 ${large ? '6px 16px' : '4px 14px'} ${theme.ctaShadow} !important`,
+  ].join(';');
+}
+
+function applySpiderEyeComfortColors(html: string, theme: SpiderEyeComfortPalette): string {
+  const replacements: Array<[RegExp, string]> = [
+    [/#0f172a/gi, theme.heading],
+    [/#1e293b/gi, theme.heading],
+    [/#334155/gi, theme.muted],
+    [/#475569/gi, theme.muted],
+    [/#64748b/gi, theme.muted],
+    [/#767676/gi, theme.muted],
+    [/#1a1a1a/gi, theme.text],
+    [/#111827/gi, theme.heading],
+    [/#e2e8f0/gi, theme.borderSoft],
+    [/#e5e7eb/gi, theme.borderSoft],
+    [/#f8fafc/gi, theme.surfaceAlt],
+    [/#fef2f2/gi, theme.gradientStart],
+    [/#fff7f7/gi, theme.gradientStart],
+    [/#fee2e2/gi, theme.primaryLight],
+    [/#fecaca/gi, theme.border],
+    [/#991b1b/gi, theme.heading],
+    [/#7f1d1d/gi, theme.primaryDark],
+    [/#dc2626/gi, theme.primary],
+    [/#b91c1c/gi, theme.ctaButtonEnd],
+    [/#ef4444/gi, theme.ctaButtonStart],
+    [/#f97316/gi, theme.ctaButtonEnd],
+    [/#f87171/gi, theme.primary],
+    [/#fff7ed/gi, theme.gradientStart],
+    [/#fef3c7/gi, theme.gradientStart],
+    [/#fde68a/gi, theme.gradientEnd],
+    [/#f59e0b/gi, theme.primary],
+    [/#92400e/gi, theme.heading],
+    [/#78350f/gi, theme.ctaNote],
+    [/#eef2ff/gi, theme.gradientStart],
+    [/#fce7f3/gi, theme.gradientEnd],
+    [/#6366f1/gi, theme.primary],
+    [/#312e81/gi, theme.heading],
+    [/#eff6ff/gi, theme.gradientStart],
+    [/#e0f2fe/gi, theme.gradientStart],
+    [/#dbeafe/gi, theme.gradientEnd],
+    [/#93c5fd/gi, theme.border],
+    [/#1e3a8a/gi, theme.heading],
+    [/#2563eb/gi, theme.primary],
+    [/#f0fdfa/gi, theme.primarySoft],
+    [/#ecfeff/gi, theme.gradientStart],
+    [/#f0fdf4/gi, theme.gradientEnd],
+    [/#99f6e4/gi, theme.border],
+    [/#0d9488/gi, theme.primary],
+    [/#0891b2/gi, theme.ctaButtonEnd],
+    [/#0f766e/gi, theme.ctaButtonStart],
+    [/#115e59/gi, theme.heading],
+    [/#10b981/gi, theme.primary],
+    [/rgba\(220,\s*38,\s*38,\s*0\.\d+\)/gi, theme.ctaShadow],
+    [/rgba\(239,\s*68,\s*68,\s*0\.\d+\)/gi, theme.ctaShadow],
+    [/rgba\(59,\s*130,\s*246,\s*0\.\d+\)/gi, theme.ctaShadow],
+    [/rgba\(15,\s*118,\s*110,\s*0\.\d+\)/gi, theme.ctaShadow],
+  ];
+
+  return replacements.reduce((next, [pattern, value]) => next.replace(pattern, value), String(html || ''));
+}
+
 /**
  * v3.7.22: 거미줄 통합글 폴백 헬퍼 — LLM 실패 시에도 cornerstone 구조 유지.
  *   도입 카드 + 요약표 + 원본별 카드 + 강력한 CTA 박스 + 종합 거미줄 그리드를 생성한다.
@@ -40,27 +301,28 @@ function buildSpiderWebFallbackHtml(
     String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
+  const theme = pickSpiderEyeComfortPalette(`${title}|${sortedContents.map((item) => `${item.title}|${item.url}`).join('|')}`);
 
   const sectionsHtml = sortedContents.map((item, index) => {
     const safeTitle = escapeHtml(item.title || '제목 없음');
     const safeUrl = escapeHtml(item.url || '#');
     const excerpt = escapeHtml((item.content || '').substring(0, 1200).trim()) + '…';
     return `
-<h2 style="font-size:22px;font-weight:800;color:#0f172a;margin:48px 0 18px;padding:14px 20px;background:#f0fdfa;border-left:5px solid #0d9488;border-radius:0 10px 10px 0;line-height:1.4;">
+<h2 style="font-size:22px;font-weight:800;color:${theme.heading};margin:48px 0 18px;padding:14px 20px;background:${theme.primarySoft};border-left:5px solid ${theme.primary};border-radius:0 10px 10px 0;line-height:1.4;">
   ${index + 1}. ${safeTitle}
 </h2>
-<p style="font-size:16px;line-height:1.85;color:#1a1a1a;margin:0 0 20px;">${excerpt}</p>
-<div class="cta-box" style="margin:28px 0;padding:24px 28px;background:linear-gradient(135deg,#fff7ed,#fef3c7);border-radius:14px;border:2px solid #f59e0b;text-align:center;">
-  <p style="margin:0 0 10px;font-size:16px;font-weight:700;color:#92400e;">💡 ${safeTitle}에 대한 디테일이 더 궁금하다면?</p>
-  <p style="margin:0 0 16px;font-size:14px;color:#78350f;line-height:1.7;">원본 글에는 위 본문에 다 담지 못한 실전 사례·수치·체크리스트가 정리돼 있어요.</p>
-  <a href="${safeUrl}" target="_blank" rel="noopener" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff !important;text-decoration:none;border-radius:10px;font-weight:800;font-size:15px;box-shadow:0 6px 20px rgba(220,38,38,0.35);">📖 ${safeTitle} 자세히 보기 →</a>
+<p style="font-size:16px;line-height:1.85;color:${theme.text};margin:0 0 20px;">${excerpt}</p>
+<div class="cta-box" style="${buildSpiderCtaBoxStyle(theme)}">
+  <p style="margin:0 0 10px;font-size:16px;font-weight:700;color:${theme.heading};">💡 ${safeTitle}에 대한 디테일이 더 궁금하다면?</p>
+  <p style="margin:0 0 16px;font-size:14px;color:${theme.ctaNote};line-height:1.7;">원본 글에는 위 본문에 다 담지 못한 실전 사례·수치·체크리스트가 정리돼 있어요.</p>
+  <a href="${safeUrl}" target="_blank" rel="noopener" style="${buildSpiderCtaButtonStyle(theme)}">📖 ${safeTitle} 자세히 보기 →</a>
 </div>`;
   }).join('\n');
 
   const tableRowsHtml = sortedContents.map((item, idx) => `
-      <tr style="background:${idx % 2 === 0 ? '#fff' : '#f8fafc'};">
-        <td style="padding:14px 18px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;width:30%;">${idx + 1}. ${escapeHtml((item.title || '').substring(0, 30))}</td>
-        <td style="padding:14px 18px;border-bottom:1px solid #e2e8f0;color:#334155;line-height:1.6;">${escapeHtml((item.content || '').substring(0, 120))}…</td>
+      <tr style="background:${idx % 2 === 0 ? theme.surface : theme.surfaceAlt};">
+        <td style="padding:14px 18px;border-bottom:1px solid ${theme.borderSoft};font-weight:700;color:${theme.heading};width:30%;">${idx + 1}. ${escapeHtml((item.title || '').substring(0, 30))}</td>
+        <td style="padding:14px 18px;border-bottom:1px solid ${theme.borderSoft};color:${theme.muted};line-height:1.6;">${escapeHtml((item.content || '').substring(0, 120))}…</td>
       </tr>`).join('');
 
   const gridHtml = sortedContents.map((item) => {
@@ -68,30 +330,30 @@ function buildSpiderWebFallbackHtml(
     const safeUrl = escapeHtml(item.url || '#');
     const short = escapeHtml((item.content || '').substring(0, 80)) + '…';
     return `
-      <a href="${safeUrl}" target="_blank" rel="noopener" style="display:block;padding:18px 20px;background:#fff;border-radius:12px;border:1px solid #e2e8f0;text-decoration:none;color:#1a1a1a;box-shadow:0 2px 8px rgba(0,0,0,0.04);transition:all 0.2s ease;">
-        <div style="font-size:15px;font-weight:800;color:#0f172a;margin-bottom:6px;line-height:1.4;">${safeTitle}</div>
-        <div style="font-size:12px;color:#64748b;line-height:1.5;">${short}</div>
-        <div style="font-size:12px;color:#dc2626;font-weight:700;margin-top:10px;">자세히 보기 →</div>
+      <a href="${safeUrl}" target="_blank" rel="noopener" style="display:block;padding:18px 20px;background:${theme.surface};border-radius:12px;border:1px solid ${theme.borderSoft};text-decoration:none;color:${theme.text};box-shadow:0 2px 8px rgba(0,0,0,0.04);transition:all 0.2s ease;">
+        <div style="font-size:15px;font-weight:800;color:${theme.heading};margin-bottom:6px;line-height:1.4;">${safeTitle}</div>
+        <div style="font-size:12px;color:${theme.muted};line-height:1.5;">${short}</div>
+        <div style="font-size:12px;color:${theme.primary};font-weight:700;margin-top:10px;">자세히 보기 →</div>
       </a>`;
   }).join('');
 
   return `
-<div class="sw-cornerstone" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR','Malgun Gothic',sans-serif;color:#1a1a1a;line-height:1.8;">
+<div class="sw-cornerstone" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR','Malgun Gothic',sans-serif;color:${theme.text};line-height:1.8;">
 
-  <h1 style="font-size:30px;font-weight:900;color:#0f172a;line-height:1.3;margin:24px 0 14px;letter-spacing:-0.02em;">
+  <h1 style="font-size:30px;font-weight:900;color:${theme.heading};line-height:1.3;margin:24px 0 14px;letter-spacing:-0.02em;">
     ${escapeHtml(title)}
   </h1>
 
-  <div style="background:linear-gradient(135deg,#eef2ff,#fce7f3);border-radius:14px;padding:24px 28px;margin:24px 0;border-left:5px solid #6366f1;">
-    <p style="margin:0 0 14px;font-size:16px;font-weight:700;color:#312e81;line-height:1.6;">📌 이 가이드는 ${currentYear}년 ${currentMonth}월 기준으로 ${sortedContents.length}개의 핵심 정보를 한 편으로 정리한 종합 가이드입니다.</p>
-    <ul style="margin:0;padding-left:22px;color:#1a1a1a;font-size:15px;line-height:1.8;">
+  <div style="background:linear-gradient(135deg,${theme.gradientStart},${theme.gradientEnd});border-radius:14px;padding:24px 28px;margin:24px 0;border-left:5px solid ${theme.primary};">
+    <p style="margin:0 0 14px;font-size:16px;font-weight:700;color:${theme.heading};line-height:1.6;">📌 이 가이드는 ${currentYear}년 ${currentMonth}월 기준으로 ${sortedContents.length}개의 핵심 정보를 한 편으로 정리한 종합 가이드입니다.</p>
+    <ul style="margin:0;padding-left:22px;color:${theme.text};font-size:15px;line-height:1.8;">
       ${sortedContents.map((s, i) => `<li><strong>${i + 1}.</strong> ${escapeHtml((s.title || '').substring(0, 50))}</li>`).join('')}
     </ul>
   </div>
 
-  <table style="width:100%;border-collapse:collapse;margin:32px 0;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.08);border-radius:12px;overflow:hidden;">
+  <table style="width:100%;border-collapse:collapse;margin:32px 0;background:${theme.surface};box-shadow:0 4px 16px rgba(0,0,0,0.08);border-radius:12px;overflow:hidden;">
     <thead>
-      <tr style="background:linear-gradient(135deg,#0d9488,#0891b2);color:#fff;">
+      <tr style="background:linear-gradient(135deg,${theme.primary},${theme.ctaButtonEnd});color:#fff;">
         <th style="padding:14px 18px;text-align:left;font-size:14px;font-weight:800;">항목</th>
         <th style="padding:14px 18px;text-align:left;font-size:14px;font-weight:800;">핵심 요약</th>
       </tr>
@@ -101,18 +363,18 @@ function buildSpiderWebFallbackHtml(
 
   ${sectionsHtml}
 
-  <h2 style="font-size:22px;font-weight:800;color:#0f172a;margin:48px 0 18px;padding:14px 20px;background:#fef3c7;border-left:5px solid #f59e0b;border-radius:0 10px 10px 0;">
+  <h2 style="font-size:22px;font-weight:800;color:${theme.heading};margin:48px 0 18px;padding:14px 20px;background:${theme.primarySoft};border-left:5px solid ${theme.primary};border-radius:0 10px 10px 0;">
     🔗 한눈에 보는 거미줄 — 관련 글 모음
   </h2>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:24px 0;">
     ${gridHtml}
   </div>
 
-  <p style="font-size:16px;font-weight:700;color:#1a1a1a;margin:32px 0 24px;padding:20px 24px;background:#f0fdfa;border-left:4px solid #0d9488;border-radius:0 10px 10px 0;line-height:1.7;">
+  <p style="font-size:16px;font-weight:700;color:${theme.text};margin:32px 0 24px;padding:20px 24px;background:${theme.primarySoft};border-left:4px solid ${theme.primary};border-radius:0 10px 10px 0;line-height:1.7;">
     💡 위 ${sortedContents.length}편을 차례로 읽으면 ${escapeHtml(title.substring(0, 50))}에 대해 가장 빠르게 핵심을 잡을 수 있습니다.
   </p>
 
-  <p style="font-size:12px;color:#767676;line-height:1.6;margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:${theme.muted};line-height:1.6;margin-top:32px;padding-top:16px;border-top:1px solid ${theme.borderSoft};">
     ※ 본 글은 정보 제공 목적으로 작성되었으며, 실제 적용 시 ${currentYear}년 ${currentMonth}월 기준 최신 정보를 공식 사이트에서 재확인하시기 바랍니다.
   </p>
 
@@ -1048,6 +1310,7 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
       //   기존 프롬프트는 "5개 글 70% 요약 + CTA" 수준이라 사용자 의도(애드센스 + 외부유입 + 거미줄)가 반영 안 됨.
       //   → cornerstone 가이드 구조 + 광고 친화 H2 6~7개 + 거미줄 회유 CTA + FAQ + 표 강제.
       const currentYear = new Date().getFullYear();
+      const spiderTheme = pickSpiderEyeComfortPalette(`${title}|${sortedContents.map((item) => `${item.title}|${item.url}`).join('|')}`);
       const prompt = `
 당신은 한국 애드센스 블로그 cornerstone 콘텐츠를 설계하는 SEO + UX 전문가입니다.
 **중요 — 피아식별**: 아래 ${sortedContents.length}개 원본 글은 모두 **작성자 본인이 직접 쓴 본인의 글**입니다. 타인/경쟁사 글 절대 아님.
@@ -1121,10 +1384,10 @@ URL: ${item.url}
 
 🎨 **CTA HTML 패턴 — Blogger·WordPress 호환 (모든 핵심 속성에 !important 강제)**:
 \`\`\`
-<div style="margin:28px 0 !important;padding:24px 20px !important;background-color:#dbeafe !important;background:linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%) !important;border:2px solid #93c5fd !important;border-radius:14px !important;text-align:center !important;max-width:100% !important;box-sizing:border-box !important;">
-  <p style="margin:0 0 14px !important;color:#1e3a8a !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">[후킹 멘트 — 예: "더 자세한 ~을 알고 싶다면?"]</p>
+<div style="${buildSpiderCtaBoxStyle(spiderTheme)}">
+  <p style="margin:0 0 14px !important;color:${spiderTheme.heading} !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">[후킹 멘트 — 예: "더 자세한 ~을 알고 싶다면?"]</p>
   <p style="margin:0 !important;text-align:center !important;">
-    <a href="[원본URL]" style="display:inline-block !important;padding:14px 28px !important;background-color:#ef4444 !important;background:linear-gradient(135deg,#ef4444 0%,#f97316 100%) !important;color:#ffffff !important;text-decoration:none !important;font-size:15px !important;font-weight:800 !important;border-radius:10px !important;box-shadow:0 4px 14px rgba(239,68,68,0.35) !important;">[버튼 텍스트 — 예: "2026년 청년내일저축계좌 혜택 상세 보기 🔥"]</a>
+    <a href="[원본URL]" style="${buildSpiderCtaButtonStyle(spiderTheme)}">[버튼 텍스트 — 예: "2026년 청년내일저축계좌 혜택 상세 보기 🔥"]</a>
   </p>
 </div>
 \`\`\`
@@ -1288,10 +1551,10 @@ ${tail}
             urlPtr++;
             const safeHook = String(hook).replace(/[<>]/g, '').trim();
             const safeBtn = String(btn).replace(/[<>]/g, '').trim();
-            return `<div style="margin:32px 0 !important;padding:28px 24px !important;background-color:#dbeafe !important;background:linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%) !important;border:2px solid #93c5fd !important;border-radius:16px !important;text-align:center !important;max-width:100% !important;box-sizing:border-box !important;box-shadow:0 6px 20px rgba(59,130,246,0.18) !important;">
-  <p style="margin:0 0 16px !important;color:#1e3a8a !important;font-size:17px !important;font-weight:800 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
+            return `<div style="${buildSpiderCtaBoxStyle(spiderTheme, true)}">
+  <p style="margin:0 0 16px !important;color:${spiderTheme.heading} !important;font-size:17px !important;font-weight:800 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
   <p style="margin:0 !important;text-align:center !important;">
-    <a href="${url}" target="_blank" rel="noopener" style="display:inline-block !important;padding:16px 32px !important;background-color:#ef4444 !important;background:linear-gradient(135deg,#ef4444 0%,#f97316 100%) !important;color:#ffffff !important;text-decoration:none !important;font-size:16px !important;font-weight:800 !important;border-radius:12px !important;box-shadow:0 6px 16px rgba(239,68,68,0.4) !important;">${safeBtn}</a>
+    <a href="${url}" target="_blank" rel="noopener" style="${buildSpiderCtaButtonStyle(spiderTheme, true)}">${safeBtn}</a>
   </p>
 </div>`;
           });
@@ -1304,10 +1567,10 @@ ${tail}
             urlPtr++;
             const safeHook = String(hook).replace(/[<>]/g, '').trim();
             const safeBtn = String(btn).replace(/[<>]/g, '').trim();
-            return `<div style="margin:28px 0 !important;padding:24px 20px !important;background-color:#dbeafe !important;background:linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%) !important;border:2px solid #93c5fd !important;border-radius:14px !important;text-align:center !important;max-width:100% !important;box-sizing:border-box !important;">
-  <p style="margin:0 0 14px !important;color:#1e3a8a !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
+            return `<div style="${buildSpiderCtaBoxStyle(spiderTheme)}">
+  <p style="margin:0 0 14px !important;color:${spiderTheme.heading} !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
   <p style="margin:0 !important;text-align:center !important;">
-    <a href="${url}" style="display:inline-block !important;padding:14px 28px !important;background-color:#ef4444 !important;background:linear-gradient(135deg,#ef4444 0%,#f97316 100%) !important;color:#ffffff !important;text-decoration:none !important;font-size:15px !important;font-weight:800 !important;border-radius:10px !important;box-shadow:0 4px 14px rgba(239,68,68,0.35) !important;">${safeBtn}</a>
+    <a href="${url}" style="${buildSpiderCtaButtonStyle(spiderTheme)}">${safeBtn}</a>
   </p>
 </div>`;
           });
@@ -1320,10 +1583,10 @@ ${tail}
             const safeHook = String(hook).replace(/[<>]/g, '').trim();
             const safeBtn = String(btn).replace(/[<>]/g, '').trim();
             // v3.8.25: 모든 핵심 속성에 !important + background-color 단색 폴백 + 중앙정렬 강제
-            return `<div style="margin:28px 0 !important;padding:24px 20px !important;background-color:#dbeafe !important;background:linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%) !important;border:2px solid #93c5fd !important;border-radius:14px !important;text-align:center !important;max-width:100% !important;box-sizing:border-box !important;">
-  <p style="margin:0 0 14px !important;color:#1e3a8a !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
+            return `<div style="${buildSpiderCtaBoxStyle(spiderTheme)}">
+  <p style="margin:0 0 14px !important;color:${spiderTheme.heading} !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
   <p style="margin:0 !important;text-align:center !important;">
-    <a href="${url}" style="display:inline-block !important;padding:14px 28px !important;background-color:#ef4444 !important;background:linear-gradient(135deg,#ef4444 0%,#f97316 100%) !important;color:#ffffff !important;text-decoration:none !important;font-size:15px !important;font-weight:800 !important;border-radius:10px !important;box-shadow:0 4px 14px rgba(239,68,68,0.35) !important;">${safeBtn}</a>
+    <a href="${url}" style="${buildSpiderCtaButtonStyle(spiderTheme)}">${safeBtn}</a>
   </p>
 </div>`;
           });
@@ -1331,6 +1594,8 @@ ${tail}
         } catch (e: any) {
           console.warn('[INTERNAL-CONSISTENCY] CTA 후처리 실패:', e?.message);
         }
+
+        generatedContent = applySpiderEyeComfortColors(generatedContent, spiderTheme);
 
         // v3.8.10: 본문 H1을 제목 필드로 추출 + 본문에서 제거 (글포스팅과 동일 정책)
         //   LLM이 본문에 H1 출력 → 거기에 멋진 제목 들어가지만 발행 제목 필드에는 fallback '종합 가이드'만 들어가던 버그.
@@ -1805,9 +2070,9 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
           const escapeHtmlText = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
           // v3.8.40: 목차 톤도 일반 글포스팅과 통일 (빨간 H3 헤더 + 베이지 배경 박스)
           const tocItems = h2Titles.map((h2, i) =>
-            `<a href="#section-${i}" style="display:flex !important;align-items:center !important;gap:12px !important;padding:18px 20px !important;background:#ffffff !important;border:1px solid #e2e8f0 !important;border-radius:14px !important;text-decoration:none !important;color:#475569 !important;font-weight:700 !important;font-size:16px !important;box-shadow:0 2px 4px rgba(0,0,0,0.04) !important;">
-  <span style="display:inline-flex !important;align-items:center !important;justify-content:center !important;width:28px !important;height:28px !important;background:#fee2e2 !important;color:#dc2626 !important;border-radius:8px !important;font-size:13px !important;font-weight:800 !important;flex-shrink:0 !important;">${i + 1}</span>
-  <span style="flex:1 !important;line-height:1.4 !important;color:#475569 !important;">${escapeHtmlText(h2)}</span>
+            `<a href="#section-${i}" style="display:flex !important;align-items:center !important;gap:10px !important;width:100% !important;box-sizing:border-box !important;padding:14px 16px !important;background:${spiderTheme.surface} !important;border:1px solid ${spiderTheme.borderSoft} !important;border-radius:10px !important;text-decoration:none !important;color:${spiderTheme.muted} !important;font-weight:700 !important;font-size:16px !important;line-height:1.45 !important;text-align:left !important;box-shadow:0 2px 4px rgba(0,0,0,0.02) !important;">
+  <span style="display:inline-flex !important;align-items:center !important;justify-content:center !important;width:26px !important;height:26px !important;min-width:26px !important;background:${spiderTheme.primaryLight} !important;color:${spiderTheme.primary} !important;border-radius:999px !important;font-size:13px !important;font-weight:800 !important;line-height:1 !important;flex-shrink:0 !important;">${i + 1}</span>
+  <span style="flex:1 !important;line-height:1.45 !important;color:${spiderTheme.muted} !important;">${escapeHtmlText(h2)}</span>
 </a>`
           ).join('\n  ');
 
@@ -1815,12 +2080,12 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
           //   기존 H3는 WP CSS 적용 시 cyan border-left만 남아 📌이 별도 줄로 떨어졌음.
           //   sw-toc-header class로 publisher가 inline style 보존하도록 가드도 추가됨.
           const tocHtml = `
-<div class="sw-toc-box" style="margin:40px 0 !important;padding:30px !important;background:#fff7f7 !important;border-radius:20px !important;border:1px solid #fecaca !important;">
-  <div class="sw-toc-header" style="margin:0 0 20px 0 !important;font-size:22px !important;font-weight:800 !important;color:#991b1b !important;display:flex !important;align-items:center !important;gap:10px !important;background:none !important;border:none !important;padding:0 !important;line-height:1.4 !important;">
-    <span style="display:inline-flex !important;align-items:center !important;justify-content:center !important;flex-shrink:0 !important;width:32px !important;height:32px !important;background:#fee2e2 !important;border-radius:50% !important;font-size:18px !important;">📌</span>
+<div class="sw-toc-box" style="margin:40px 0 !important;padding:30px !important;background:linear-gradient(135deg,${spiderTheme.gradientStart} 0%,${spiderTheme.gradientEnd} 100%) !important;border-radius:20px !important;border:1px solid ${spiderTheme.border} !important;">
+  <div class="sw-toc-header" style="margin:0 0 20px 0 !important;font-size:22px !important;font-weight:800 !important;color:${spiderTheme.heading} !important;display:flex !important;align-items:center !important;gap:10px !important;background:none !important;border:none !important;padding:0 !important;line-height:1.4 !important;">
+    <span style="display:inline-flex !important;align-items:center !important;justify-content:center !important;flex-shrink:0 !important;width:32px !important;height:32px !important;background:${spiderTheme.primaryLight} !important;border-radius:50% !important;font-size:18px !important;">📌</span>
     <span style="flex:1 !important;">전체 읽어보기 절차</span>
   </div>
-  <div style="display:flex !important;flex-direction:column !important;gap:12px !important;">
+  <div style="display:flex !important;flex-direction:column !important;gap:8px !important;width:100% !important;">
   ${tocItems}
   </div>
 </div>
@@ -2154,28 +2419,58 @@ ${generatedLabels.slice(0, 6).map((kw) => `<meta property="article:tag" content=
 
         // 2) 안전망: sw-cornerstone 없거나 매칭 실패 시 max-mode-article가 본문 어디에도 없으면 전체 wrap
         if (!hasWrapperApplied && !/\bmax-mode-article\b/.test(generatedContent)) {
-          generatedContent = `<div class="max-mode-article" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR',sans-serif;color:#1a1a1a;line-height:1.8;">${generatedContent}</div>`;
+          generatedContent = `<div class="max-mode-article" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR',sans-serif;color:${spiderTheme.text};line-height:1.8;">${generatedContent}</div>`;
           console.log('[INTERNAL-CONSISTENCY] ✅ max-mode-article 안전망 wrapper 자동 추가 (LLM 클래스 누락 대응)');
         }
 
         // 3) v3.8.41: 스킨 CSS <style> 본문 주입 — publisher가 추출해서 separator 뒤로 배치 → Blogger 적용.
         //   .max-mode-article scoped 셀렉터로 미리보기/발행 양쪽에 동일 적용.
+        const spiderParagraphStyle = `color:${spiderTheme.text} !important;font-size:18px !important;line-height:1.85 !important;margin:0 0 20px !important;word-break:keep-all !important;`;
+        const spiderH2Style = `color:${spiderTheme.heading} !important;font-size:26px !important;font-weight:700 !important;margin:40px 0 20px !important;padding:18px 22px !important;background:linear-gradient(135deg,${spiderTheme.gradientStart} 0%,${spiderTheme.gradientEnd} 100%) !important;border-left:5px solid ${spiderTheme.primary} !important;border-radius:0 16px 16px 0 !important;line-height:1.4 !important;`;
+        const spiderH3Style = `color:${spiderTheme.heading} !important;font-size:21px !important;font-weight:600 !important;margin:32px 0 16px !important;padding:14px 18px !important;background:${spiderTheme.surfaceAlt} !important;border-left:4px solid ${spiderTheme.primary} !important;border-radius:0 12px 12px 0 !important;line-height:1.4 !important;`;
+        const spiderH4Style = `color:${spiderTheme.muted} !important;font-size:18px !important;font-weight:700 !important;margin:24px 0 12px !important;line-height:1.4 !important;`;
+        const spiderLiStyle = `color:${spiderTheme.text} !important;font-size:17px !important;line-height:1.9 !important;margin:0 0 12px !important;`;
+        const spiderThStyle = `padding:14px 16px !important;color:${spiderTheme.heading} !important;background:linear-gradient(135deg,${spiderTheme.gradientStart} 0%,${spiderTheme.gradientEnd} 100%) !important;border:1px solid ${spiderTheme.border} !important;font-weight:800 !important;text-align:left !important;`;
+        const spiderTdStyle = `padding:14px 16px !important;color:${spiderTheme.text} !important;border:1px solid ${spiderTheme.borderSoft} !important;font-size:15px !important;line-height:1.7 !important;`;
         const skinCss = `<style>
-.max-mode-article h1{color:#0f172a !important;font-size:34px !important;font-weight:800 !important;margin:0 0 32px !important;line-height:1.3 !important;}
-.max-mode-article h2{color:#991b1b !important;font-size:26px !important;font-weight:700 !important;margin:40px 0 20px !important;padding:18px 22px !important;background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%) !important;border-left:5px solid #ef4444 !important;border-radius:0 16px 16px 0 !important;line-height:1.4 !important;}
-.max-mode-article h3{color:#1e293b !important;font-size:21px !important;font-weight:600 !important;margin:32px 0 16px !important;padding:14px 18px !important;background:#f8fafc !important;border-left:4px solid #10b981 !important;border-radius:0 12px 12px 0 !important;line-height:1.4 !important;}
-.max-mode-article h4{color:#334155 !important;font-size:18px !important;font-weight:700 !important;margin:24px 0 12px !important;line-height:1.4 !important;}
-.max-mode-article p{color:#1a1a1a !important;font-size:18px !important;line-height:1.85 !important;margin:0 0 20px !important;word-break:keep-all !important;}
-.max-mode-article li{color:#1a1a1a !important;font-size:17px !important;line-height:1.9 !important;margin:0 0 12px !important;}
+.max-mode-article h1{color:${spiderTheme.heading} !important;font-size:34px !important;font-weight:800 !important;margin:0 0 32px !important;line-height:1.3 !important;}
+.max-mode-article h2{${spiderH2Style}}
+.max-mode-article h3{${spiderH3Style}}
+.max-mode-article h4{${spiderH4Style}}
+.max-mode-article p{${spiderParagraphStyle}}
+.max-mode-article li{${spiderLiStyle}}
 .max-mode-article ul,.max-mode-article ol{margin:20px 0 !important;padding-left:24px !important;}
 .max-mode-article table{width:100% !important;border-collapse:collapse !important;margin:24px 0 !important;}
-.max-mode-article th{padding:14px 16px !important;color:#0f172a !important;background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%) !important;border:1px solid #fecaca !important;font-weight:800 !important;text-align:left !important;}
-.max-mode-article td{padding:14px 16px !important;color:#1a1a1a !important;border:1px solid #e2e8f0 !important;font-size:15px !important;line-height:1.7 !important;}
-.max-mode-article strong{color:#0f172a !important;font-weight:700 !important;}
-.max-mode-article em{color:#475569 !important;font-style:italic !important;}
-.max-mode-article blockquote{margin:24px 0 !important;padding:18px 22px !important;background:#fef2f2 !important;border-left:4px solid #f87171 !important;border-radius:0 12px 12px 0 !important;color:#7f1d1d !important;font-style:italic !important;}
-.max-mode-article a{color:#dc2626 !important;text-decoration:underline !important;}
+.max-mode-article th{${spiderThStyle}}
+.max-mode-article td{${spiderTdStyle}}
+.max-mode-article strong{color:${spiderTheme.heading} !important;font-weight:700 !important;}
+.max-mode-article em{color:${spiderTheme.muted} !important;font-style:italic !important;}
+.max-mode-article blockquote{margin:24px 0 !important;padding:18px 22px !important;background:${spiderTheme.primarySoft} !important;border-left:4px solid ${spiderTheme.primary} !important;border-radius:0 12px 12px 0 !important;color:${spiderTheme.primaryDark} !important;font-style:italic !important;}
+.max-mode-article a{color:${spiderTheme.primary} !important;text-decoration:underline !important;}
 .max-mode-article img{max-width:100% !important;height:auto !important;border-radius:12px !important;margin:18px auto !important;display:block !important;}
+@media (max-width:768px){
+  .max-mode-article{width:100vw !important;max-width:100vw !important;margin-left:calc(50% - 50vw) !important;margin-right:calc(50% - 50vw) !important;padding:18px 14px 52px !important;box-sizing:border-box !important;background:#ffffff !important;overflow:visible !important;}
+  .max-mode-article h1{font-size:26px !important;margin:0 0 24px !important;line-height:1.35 !important;}
+  .max-mode-article h2{font-size:22px !important;margin:38px 0 18px !important;padding:14px 16px !important;border-radius:0 12px 12px 0 !important;}
+  .max-mode-article h3{font-size:19px !important;margin:28px 0 14px !important;padding:12px 14px !important;}
+  .max-mode-article p{font-size:16px !important;line-height:1.78 !important;margin:0 0 16px !important;}
+  .max-mode-article li{font-size:15.5px !important;line-height:1.78 !important;}
+  .max-mode-article table{width:max-content !important;min-width:100% !important;max-width:none !important;}
+  .max-mode-article th,.max-mode-article td{min-width:86px !important;padding:9px 10px !important;font-size:13px !important;line-height:1.45 !important;}
+  .max-mode-article .tldr-answer-box,
+  .max-mode-article .freshness-meta,
+  .max-mode-article .eeat-meta-box,
+  .max-mode-article .sw-toc-box,
+  .max-mode-article .cta-box,
+  .max-mode-article aside,
+  .max-mode-article blockquote{max-width:100% !important;margin-left:0 !important;margin-right:0 !important;padding:16px 14px !important;border-radius:10px !important;box-sizing:border-box !important;}
+}
+@media (max-width:380px){
+  .max-mode-article{padding:16px 10px 48px !important;}
+  .max-mode-article h1{font-size:23px !important;}
+  .max-mode-article h2{font-size:19px !important;padding:12px 14px !important;}
+  .max-mode-article p{font-size:15px !important;}
+}
 </style>
 `;
         generatedContent = skinCss + generatedContent;
@@ -2193,20 +2488,20 @@ ${generatedLabels.slice(0, 6).map((kw) => `<meta property="article:tag" content=
         // v3.8.40: 일반 글포스팅 publisher applyInlineStyles와 동일한 빨간/베이지 톤으로 통일.
         //   v3.8.36은 파란/보라 톤으로 다르게 박아 미리보기(빨간)와 발행(파란)이 달라지던 문제 차단.
         //   같은 색상 톤이면 LLM이 박은 inline style이 있든 enforceInlineStyle이 박든 결과 일관.
-        generatedContent = enforceInlineStyle(generatedContent, 'p', 'color:#1a1a1a !important;font-size:18px !important;line-height:1.85 !important;margin:0 0 20px !important;word-break:keep-all !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'h2', 'color:#991b1b !important;font-size:26px !important;font-weight:700 !important;margin:40px 0 20px !important;padding:18px 22px !important;background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%) !important;border-left:5px solid #ef4444 !important;border-radius:0 16px 16px 0 !important;line-height:1.4 !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'h3', 'color:#1e293b !important;font-size:21px !important;font-weight:600 !important;margin:32px 0 16px !important;padding:14px 18px !important;background:#f8fafc !important;border-left:4px solid #10b981 !important;border-radius:0 12px 12px 0 !important;line-height:1.4 !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'h4', 'color:#334155 !important;font-size:18px !important;font-weight:700 !important;margin:24px 0 12px !important;line-height:1.4 !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'li', 'color:#1a1a1a !important;font-size:17px !important;line-height:1.9 !important;margin:0 0 12px !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'p', spiderParagraphStyle);
+        generatedContent = enforceInlineStyle(generatedContent, 'h2', spiderH2Style);
+        generatedContent = enforceInlineStyle(generatedContent, 'h3', spiderH3Style);
+        generatedContent = enforceInlineStyle(generatedContent, 'h4', spiderH4Style);
+        generatedContent = enforceInlineStyle(generatedContent, 'li', spiderLiStyle);
         generatedContent = enforceInlineStyle(generatedContent, 'ul', 'margin:20px 0 !important;padding-left:24px !important;');
         generatedContent = enforceInlineStyle(generatedContent, 'ol', 'margin:20px 0 !important;padding-left:24px !important;');
         generatedContent = enforceInlineStyle(generatedContent, 'table', 'width:100% !important;border-collapse:collapse !important;margin:24px 0 !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'th', 'padding:14px 16px !important;color:#0f172a !important;background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%) !important;border:1px solid #fecaca !important;font-weight:800 !important;text-align:left !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'td', 'padding:14px 16px !important;color:#1a1a1a !important;border:1px solid #e2e8f0 !important;font-size:15px !important;line-height:1.7 !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'strong', 'color:#0f172a !important;font-weight:700 !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'em', 'color:#475569 !important;font-style:italic !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'blockquote', 'margin:24px 0 !important;padding:18px 22px !important;background:#fef2f2 !important;border-left:4px solid #f87171 !important;border-radius:0 12px 12px 0 !important;color:#7f1d1d !important;font-style:italic !important;');
-        generatedContent = enforceInlineStyle(generatedContent, 'a', 'color:#dc2626 !important;text-decoration:underline !important;');
+        generatedContent = enforceInlineStyle(generatedContent, 'th', spiderThStyle);
+        generatedContent = enforceInlineStyle(generatedContent, 'td', spiderTdStyle);
+        generatedContent = enforceInlineStyle(generatedContent, 'strong', `color:${spiderTheme.heading} !important;font-weight:700 !important;`);
+        generatedContent = enforceInlineStyle(generatedContent, 'em', `color:${spiderTheme.muted} !important;font-style:italic !important;`);
+        generatedContent = enforceInlineStyle(generatedContent, 'blockquote', `margin:24px 0 !important;padding:18px 22px !important;background:${spiderTheme.primarySoft} !important;border-left:4px solid ${spiderTheme.primary} !important;border-radius:0 12px 12px 0 !important;color:${spiderTheme.primaryDark} !important;font-style:italic !important;`);
+        generatedContent = enforceInlineStyle(generatedContent, 'a', `color:${spiderTheme.primary} !important;text-decoration:underline !important;`);
         generatedContent = enforceInlineStyle(generatedContent, 'img', 'max-width:100% !important;height:auto !important;border-radius:12px !important;margin:18px auto !important;display:block !important;');
 
         console.log('[INTERNAL-CONSISTENCY] ✅ wrapper 클래스 부여 + 빠진 요소 inline style 보강 완료 (Blogger 테마 무관 표시)');
@@ -3270,6 +3565,9 @@ ipcMain.handle('save-env', async (_evt, envData: Record<string, string>) => {
       'pexelsApiKey': 'PEXELS_API_KEY',
       'stabilityApiKey': 'STABILITY_API_KEY', // 🔥 Stability AI 추가
       'stabilityKey': 'STABILITY_API_KEY',
+      'deepInfraApiKey': 'DEEPINFRA_API_KEY',
+      'deepinfraApiKey': 'DEEPINFRA_API_KEY',
+      'prodiaApiKey': 'PRODIA_API_KEY',
       'googleCseKey': 'GOOGLE_CSE_KEY',
       'googleCseCx': 'GOOGLE_CSE_CX',
       'youtubeApiKey': 'YOUTUBE_API_KEY',
@@ -3931,6 +4229,40 @@ ${labelsPost.slice(0, 6).map((kw: string) => `<meta property="article:tag" conte
 });
 
 // 컨텐츠 발행
+ipcMain.handle('prepare-publish-content', async (_evt, data) => {
+  try {
+    const payload = data?.payload || {};
+    const platform = String(data?.platform || payload.platform || payload.targetPlatform || '').toLowerCase();
+    const content = typeof data?.content === 'string' ? data.content : '';
+
+    if (!content) {
+      return { ok: true, content: '' };
+    }
+
+    if (/blogger|blogspot|\ube14\ub85c\uac70|\ube14\ub85c\uadf8\uc2a4\ud31f/i.test(platform)) {
+      const { applyInlineStyles } = require('../dist/core/blogger-publisher.js');
+      return {
+        ok: true,
+        content: typeof applyInlineStyles === 'function' ? applyInlineStyles(content) : content,
+      };
+    }
+
+    if (!/wordpress|wp|워드프레스/i.test(platform)) {
+      return { ok: true, content };
+    }
+
+    const { applyWordPressInlineStyles } = require('../dist/wordpress/wordpress-publisher');
+    return {
+      ok: true,
+      content: applyWordPressInlineStyles(content),
+    };
+  } catch (error) {
+    console.error('[PREPARE-PUBLISH] 콘텐츠 준비 실패:', error);
+    const message = error instanceof Error ? error.message : '콘텐츠 준비 실패';
+    return { ok: false, error: message, content: data?.content || '' };
+  }
+});
+
 ipcMain.handle('publish-content', async (_evt, data) => {
   try {
     console.log('[PUBLISH] 컨텐츠 발행 요청');
@@ -5876,70 +6208,438 @@ safeRegisterHandler('publish-internal-link-content', async (_evt: Electron.IpcMa
     const { html, title, publish } = request;
     const env = loadEnvFromFile();
 
-    // 플랫폼 확인 - 환경변수에서 가져오기
-    const platform = env.platform || env.blogPlatform || 'blogspot';
+    const normalizePlatform = (value: any) => {
+      const raw = String(value || '').toLowerCase();
+      if (/wordpress|wp|워드프레스/.test(raw)) return 'wordpress';
+      if (/blogger|blogspot|블로거|블로그스팟/.test(raw)) return 'blogspot';
+      return raw || 'blogspot';
+    };
+
+    const normalizePostingMode = (value: any) => {
+      const raw = String(value || '').toLowerCase();
+      if (raw === 'scheduled') return 'schedule';
+      if (raw === 'immediate' || raw === 'now' || raw === 'live' || raw === 'single') return 'publish';
+      if (raw === 'draft' || raw === 'save') return 'draft';
+      if (raw === 'schedule' || raw === 'publish') return raw;
+      return publish ? 'publish' : 'draft';
+    };
+
+    const platform = normalizePlatform(request.platform || env.platform || env.blogPlatform || 'blogspot');
+    const postingMode = normalizePostingMode(request.postingMode || request.publishType);
+    const payload = {
+      ...request,
+      platform,
+      publishType: postingMode,
+      postingMode,
+      scheduleDate: postingMode === 'schedule' ? request.scheduleDate : undefined,
+      blogId: request.blogId || env.blogId,
+      bloggerAccessToken: request.bloggerAccessToken || env.bloggerAccessToken,
+      bloggerRefreshToken: request.bloggerRefreshToken || env.bloggerRefreshToken,
+      bloggerClientId: request.bloggerClientId || env.bloggerClientId,
+      bloggerClientSecret: request.bloggerClientSecret || env.bloggerClientSecret,
+    };
+
     console.log('[INTERNAL-LINKS] 발행 플랫폼:', platform);
+    console.log('[INTERNAL-LINKS] 발행 모드:', postingMode);
+    console.log('[INTERNAL-LINKS] 예약 시간:', payload.scheduleDate || '없음');
 
-    if (platform === 'wordpress') {
-      // WordPress 발행
-      const { WordPressPublisher } = require('../dist/wordpress/wordpress-publisher');
+    const { publishGeneratedContent } = require('../dist/core/index');
+    const result = await publishGeneratedContent(payload, title, html, request.thumbnailUrl || '');
 
-      if (!env.wpSiteUrl || !env.wpUsername || !env.wpPassword) {
-        throw new Error('워드프레스 설정이 완료되지 않았습니다. 설정에서 워드프레스 정보를 입력해주세요.');
-      }
-
-      const wpConfig = {
-        siteUrl: env.wpSiteUrl,
-        username: env.wpUsername,
-        password: env.wpPassword
-      };
-
-      const publisher = new WordPressPublisher(wpConfig);
-      const result = await publisher.publish({
-        title,
-        content: html,
-        status: publish ? 'publish' : 'draft'
-      });
-
-      console.log('[INTERNAL-LINKS] ✅ WordPress 발행 완료:', result.url);
-      return { ok: true, url: result.url, platform: 'wordpress' };
-
-    } else {
-      // Blogger 발행 (기본값)
-      const { publishToBlogger } = require('../dist/core/blogger-publisher.js');
-
-      // payload 구성
-      const payload = {
-        blogId: env.blogId,
-        bloggerAccessToken: env.bloggerAccessToken,
-        bloggerRefreshToken: env.bloggerRefreshToken,
-        bloggerClientId: env.bloggerClientId,
-        bloggerClientSecret: env.bloggerClientSecret
-      };
-
-      const postingMode = publish ? 'publish' : 'draft';
-
-      const result = await publishToBlogger(
-        payload,
-        title,
-        html,
-        '', // thumbnailUrl
-        (msg: string) => console.log('[INTERNAL-LINKS]', msg),
-        postingMode,
-        null // scheduleDate
-      );
-
-      if (result.ok) {
-        console.log('[INTERNAL-LINKS] ✅ Blogger 발행 완료:', result.postUrl);
-        return { ok: true, url: result.postUrl || result.url, platform: 'blogspot' };
-      } else {
-        throw new Error(result.error || 'Blogger 발행 실패');
-      }
+    if (!result?.ok) {
+      throw new Error(result?.error || '내부 링크 콘텐츠 발행 실패');
     }
+
+    const url = result.url || result.postUrl || result.postId || result.id || '';
+    console.log('[INTERNAL-LINKS] ✅ 발행 완료:', url || '(URL 없음)');
+    return { ...result, ok: true, url, platform };
   } catch (error) {
     console.error('[INTERNAL-LINKS] ❌ 발행 실패:', error);
     throw error;
   }
+});
+
+type SpiderBacklinkPlatform = 'wordpress' | 'blogspot' | 'blogger';
+
+interface SpiderBacklinkHub {
+  title?: string;
+  url?: string;
+  postId?: string;
+}
+
+interface SpiderBacklinkSourcePost {
+  title?: string;
+  url?: string;
+  postId?: string;
+  id?: string;
+  post_id?: string;
+  platform?: string;
+  blogId?: string;
+  siteUrl?: string;
+  wordpressSiteUrl?: string;
+}
+
+const SPIDER_HUB_CTA_START = '<!-- BGPT_SPIDER_HUB_CTA_START -->';
+const SPIDER_HUB_CTA_END = '<!-- BGPT_SPIDER_HUB_CTA_END -->';
+
+function pickText(...values: any[]): string {
+  for (const value of values) {
+    const text = value === undefined || value === null ? '' : String(value).trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function normalizeBacklinkPlatform(platform: any, url?: string): SpiderBacklinkPlatform | '' {
+  const raw = String(platform || '').toLowerCase();
+  if (/wordpress|wp|워드프레스/.test(raw) || /\/wp-admin\/|\/wp-content\/|wordpress\.com/i.test(url || '')) return 'wordpress';
+  if (/blogger|blogspot|블로거|블로그스팟/.test(raw) || /\.blogspot\.com|blogger\.com/i.test(url || '')) return 'blogspot';
+  return '';
+}
+
+function escapeHtmlInline(value: any): string {
+  return String(value || '').replace(/[&<>"']/g, (char) => {
+    const table: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    };
+    return table[char] || char;
+  });
+}
+
+function escapeRegExpInline(value: string): string {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeSiteUrl(siteUrl: string): string {
+  const raw = String(siteUrl || '').trim();
+  if (!raw) return '';
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  return withProtocol
+    .replace(/\/wp-admin\/?$/i, '')
+    .replace(/\/wp-login\.php$/i, '')
+    .replace(/\/+$/, '');
+}
+
+function deriveOriginFromUrl(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '';
+  }
+}
+
+function resolveBacklinkPostId(post: SpiderBacklinkSourcePost, platform: SpiderBacklinkPlatform | ''): string {
+  const direct = pickText(post.postId, post.id, post.post_id);
+  if (direct) return direct;
+  const url = String(post.url || '');
+  if (platform === 'wordpress') {
+    const wpAdmin = url.match(/\/wp-admin\/post\.php\?[^#]*\bpost=(\d+)/i);
+    if (wpAdmin) return wpAdmin[1] || '';
+    const queryPost = url.match(/[?&]p=(\d+)/i);
+    if (queryPost) return queryPost[1] || '';
+  }
+  const bloggerEdit = url.match(/blogger\.com\/blog\/post\/edit\/([^/?#]+)\/([^/?#]+)/i);
+  if (bloggerEdit) return bloggerEdit[2] || '';
+  return '';
+}
+
+function buildSpiderHubCtaBlock(hub: SpiderBacklinkHub): string {
+  const safeUrl = escapeHtmlInline(hub.url || '#');
+  const safeTitle = escapeHtmlInline(hub.title || '종합 가이드');
+  const theme = pickSpiderEyeComfortPalette(`${hub.title || ''}|${hub.url || ''}`);
+  return `${SPIDER_HUB_CTA_START}
+<div class="bgpt-spider-hub-cta" data-bgpt-role="spider-hub-backlink" style="margin:42px 0 34px;padding:24px 26px;background:linear-gradient(135deg,${theme.gradientStart} 0%,${theme.gradientEnd} 100%);border:1px solid ${theme.border};border-left:5px solid ${theme.primary};border-radius:14px;box-shadow:0 8px 22px ${theme.ctaShadow};font-family:'Noto Sans KR','Malgun Gothic',sans-serif;">
+  <p style="margin:0 0 8px;color:${theme.heading};font-size:14px;font-weight:800;line-height:1.55;">이 글은 종합 가이드의 일부입니다</p>
+  <p style="margin:0 0 16px;color:${theme.muted};font-size:14px;line-height:1.75;">관련 글 전체 흐름과 핵심 비교표는 종합글에서 한 번에 확인할 수 있습니다.</p>
+  <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:13px 22px;background:linear-gradient(135deg,${theme.ctaButtonStart} 0%,${theme.ctaButtonEnd} 100%);color:#fff !important;text-decoration:none;border-radius:10px;font-size:14px;font-weight:900;line-height:1.3;box-shadow:0 6px 16px ${theme.ctaShadow};">종합글로 돌아가기: ${safeTitle}</a>
+</div>
+${SPIDER_HUB_CTA_END}`;
+}
+
+function insertOrReplaceSpiderHubCta(html: string, ctaBlock: string): { html: string; action: 'inserted' | 'replaced' | 'unchanged' } {
+  const original = String(html || '');
+  const markerRegex = new RegExp(`${escapeRegExpInline(SPIDER_HUB_CTA_START)}[\\s\\S]*?${escapeRegExpInline(SPIDER_HUB_CTA_END)}`, 'i');
+  if (markerRegex.test(original)) {
+    const next = original.replace(markerRegex, ctaBlock);
+    return { html: next, action: next === original ? 'unchanged' : 'replaced' };
+  }
+  const oldBlockRegex = /<div[^>]+data-bgpt-role=["']spider-hub-backlink["'][\s\S]*?<\/div>/i;
+  if (oldBlockRegex.test(original)) {
+    return { html: original.replace(oldBlockRegex, ctaBlock), action: 'replaced' };
+  }
+  return { html: `${original.trim()}\n\n${ctaBlock}`, action: 'inserted' };
+}
+
+async function updateWordPressSpiderBacklink(post: SpiderBacklinkSourcePost, hub: SpiderBacklinkHub, settings: Record<string, any>) {
+  const env = loadEnvFromFile() as any;
+  const postId = resolveBacklinkPostId(post, 'wordpress');
+  if (!postId) throw new Error('WordPress postId가 없어 기존 글을 수정할 수 없습니다.');
+
+  const siteUrl = normalizeSiteUrl(pickText(
+    post.wordpressSiteUrl,
+    post.siteUrl,
+    settings.wordpressSiteUrl,
+    settings.wpSiteUrl,
+    settings.WORDPRESS_SITE_URL,
+    settings.WP_SITE_URL,
+    env.wordpressSiteUrl,
+    env.wpSiteUrl,
+    env.WORDPRESS_SITE_URL,
+    env.WP_SITE_URL,
+    env.siteUrl,
+    deriveOriginFromUrl(post.url || '')
+  ));
+  const username = pickText(
+    settings.wordpressUsername,
+    settings.wpUsername,
+    settings.WORDPRESS_USERNAME,
+    settings.WP_USERNAME,
+    env.wordpressUsername,
+    env.wpUsername,
+    env.WORDPRESS_USERNAME,
+    env.WP_USERNAME
+  );
+  const password = pickText(
+    settings.wordpressPassword,
+    settings.wpPassword,
+    settings.WORDPRESS_PASSWORD,
+    settings.WP_PASSWORD,
+    settings.WORDPRESS_APP_PASSWORD,
+    env.wordpressPassword,
+    env.wpPassword,
+    env.WORDPRESS_PASSWORD,
+    env.WP_PASSWORD,
+    env.WORDPRESS_APP_PASSWORD
+  );
+  const jwtToken = pickText(settings.jwtToken, settings.wordpressJwtToken, settings.WP_JWT_TOKEN, env.jwtToken, env.wordpressJwtToken, env.WP_JWT_TOKEN);
+
+  if (!siteUrl) throw new Error('WordPress 사이트 URL이 없습니다.');
+  if (!jwtToken && (!username || !password)) throw new Error('WordPress 수정 권한 정보가 없습니다.');
+
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    'User-Agent': 'LEADERNAM-Orbit/SpiderBacklink',
+  };
+  if (jwtToken) {
+    headers.Authorization = `Bearer ${jwtToken}`;
+  } else {
+    headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+  }
+
+  const getUrl = `${siteUrl}/wp-json/wp/v2/posts/${encodeURIComponent(postId)}?context=edit`;
+  const getResponse = await fetch(getUrl, { headers });
+  const getText = await getResponse.text();
+  if (!getResponse.ok) {
+    throw new Error(`WordPress 글 조회 실패 (${getResponse.status}): ${getText.substring(0, 160)}`);
+  }
+  const wpPost = getText ? JSON.parse(getText) : {};
+  const contentValue = wpPost?.content;
+  const currentHtml = typeof contentValue === 'string'
+    ? contentValue
+    : pickText(contentValue?.raw, contentValue?.rendered);
+  if (!currentHtml) throw new Error('WordPress 글 본문을 읽지 못했습니다.');
+
+  const patch = insertOrReplaceSpiderHubCta(currentHtml, buildSpiderHubCtaBlock(hub));
+  if (patch.action === 'unchanged') {
+    return { action: 'unchanged', url: wpPost.link || post.url || '' };
+  }
+
+  const putResponse = await fetch(`${siteUrl}/wp-json/wp/v2/posts/${encodeURIComponent(postId)}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ content: patch.html }),
+  });
+  const putText = await putResponse.text();
+  if (!putResponse.ok) {
+    throw new Error(`WordPress 글 수정 실패 (${putResponse.status}): ${putText.substring(0, 160)}`);
+  }
+  const updated = putText ? JSON.parse(putText) : {};
+  return { action: patch.action, url: updated.link || wpPost.link || post.url || '' };
+}
+
+async function getBloggerBacklinkClient(post: SpiderBacklinkSourcePost, settings: Record<string, any>) {
+  const env = loadEnvFromFile() as any;
+  const blogId = pickText(
+    post.blogId,
+    settings.blogId,
+    settings.bloggerBlogId,
+    settings.googleBlogId,
+    settings.BLOG_ID,
+    settings.BLOGGER_BLOG_ID,
+    env.blogId,
+    env.bloggerBlogId,
+    env.googleBlogId,
+    env.BLOG_ID,
+    env.BLOGGER_BLOG_ID,
+    env.GOOGLE_BLOG_ID
+  );
+  const clientId = pickText(
+    settings.googleClientId,
+    settings.bloggerClientId,
+    settings.clientId,
+    settings.GOOGLE_CLIENT_ID,
+    env.googleClientId,
+    env.bloggerClientId,
+    env.GOOGLE_CLIENT_ID
+  );
+  const clientSecret = pickText(
+    settings.googleClientSecret,
+    settings.bloggerClientSecret,
+    settings.clientSecret,
+    settings.GOOGLE_CLIENT_SECRET,
+    env.googleClientSecret,
+    env.bloggerClientSecret,
+    env.GOOGLE_CLIENT_SECRET
+  );
+  let accessToken = pickText(settings.googleAccessToken, settings.bloggerAccessToken, env.googleAccessToken, env.bloggerAccessToken);
+  let refreshToken = pickText(settings.googleRefreshToken, settings.bloggerRefreshToken, env.googleRefreshToken, env.bloggerRefreshToken);
+
+  if (!blogId) throw new Error('Blogger Blog ID가 없습니다.');
+  if (!clientId || !clientSecret) throw new Error('Google Client ID/Secret이 없습니다.');
+
+  try {
+    const authUtils = require('../src/core/blogger-modules/auth.js');
+    const authStatus = await authUtils.checkBloggerAuthStatus();
+    if (authStatus?.tokenData) {
+      accessToken = pickText(authStatus.tokenData.access_token, accessToken);
+      refreshToken = pickText(authStatus.tokenData.refresh_token, refreshToken);
+    }
+    if (authStatus?.needsRefresh && refreshToken && typeof authUtils.refreshAccessToken === 'function') {
+      const refresh = await authUtils.refreshAccessToken(refreshToken, clientId, clientSecret);
+      if (refresh?.ok && refresh.tokenData) {
+        accessToken = pickText(refresh.tokenData.access_token, accessToken);
+        refreshToken = pickText(refresh.tokenData.refresh_token, refreshToken);
+        if (typeof authUtils.saveTokenData === 'function') {
+          authUtils.saveTokenData({ ...authStatus.tokenData, ...refresh.tokenData, refresh_token: refreshToken });
+        }
+      }
+    }
+  } catch (authError: any) {
+    console.warn('[SPIDER-BACKLINK] Blogger auth util 확인 실패, 전달 토큰으로 계속 시도:', authError?.message || authError);
+  }
+
+  if (!accessToken && !refreshToken) throw new Error('Blogger OAuth 토큰이 없습니다.');
+
+  const { google } = require('googleapis');
+  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, 'http://127.0.0.1:58392/callback');
+  oauth2Client.setCredentials({
+    access_token: accessToken || undefined,
+    refresh_token: refreshToken || undefined,
+  });
+
+  try {
+    await oauth2Client.getAccessToken();
+  } catch (tokenError: any) {
+    throw new Error(`Blogger 토큰 갱신 실패: ${tokenError?.message || tokenError}`);
+  }
+
+  return {
+    blogger: google.blogger({ version: 'v3', auth: oauth2Client }),
+    blogId,
+  };
+}
+
+async function updateBloggerSpiderBacklink(post: SpiderBacklinkSourcePost, hub: SpiderBacklinkHub, settings: Record<string, any>) {
+  const postId = resolveBacklinkPostId(post, 'blogspot');
+  if (!postId) throw new Error('Blogger postId가 없어 기존 글을 수정할 수 없습니다.');
+  const { blogger, blogId } = await getBloggerBacklinkClient(post, settings);
+
+  const getResponse = await blogger.posts.get({
+    blogId,
+    postId,
+    fetchBody: true,
+    fetchImages: false,
+  });
+  const current = getResponse?.data || {};
+  const currentHtml = pickText(current.content);
+  if (!currentHtml) throw new Error('Blogger 글 본문을 읽지 못했습니다.');
+
+  const patch = insertOrReplaceSpiderHubCta(currentHtml, buildSpiderHubCtaBlock(hub));
+  if (patch.action === 'unchanged') {
+    return { action: 'unchanged', url: current.url || post.url || '' };
+  }
+
+  const patchResponse = await blogger.posts.patch({
+    blogId,
+    postId,
+    fetchBody: false,
+    fetchImages: false,
+    requestBody: {
+      content: patch.html,
+    },
+  });
+  return { action: patch.action, url: patchResponse?.data?.url || current.url || post.url || '' };
+}
+
+safeRegisterHandler('internal-links:sync-backlinks', async (_evt: Electron.IpcMainInvokeEvent, request: any) => {
+  const posts = Array.isArray(request?.posts) ? request.posts as SpiderBacklinkSourcePost[] : [];
+  const hub: SpiderBacklinkHub = request?.hub || {};
+  const settings: Record<string, any> = request?.settings || {};
+  const defaultPlatform = normalizeBacklinkPlatform(request?.platform || settings.platform);
+  const results: any[] = [];
+
+  if (!hub.url) {
+    return { ok: false, updated: 0, skipped: posts.length, failed: 0, error: '종합글 URL이 없습니다.', results };
+  }
+
+  for (let index = 0; index < posts.length; index += 1) {
+    const post = posts[index] || {};
+    const platform = normalizeBacklinkPlatform(post.platform, post.url) || defaultPlatform;
+    const postId = resolveBacklinkPostId(post, platform);
+    const baseResult = {
+      index,
+      title: post.title || '',
+      url: post.url || '',
+      postId,
+      platform,
+    };
+
+    if (!platform) {
+      results.push({ ...baseResult, ok: false, skipped: true, error: '플랫폼을 확인할 수 없습니다.' });
+      continue;
+    }
+    if (!postId) {
+      results.push({ ...baseResult, ok: false, skipped: true, error: 'postId 없음' });
+      continue;
+    }
+
+    try {
+      const updated = platform === 'wordpress'
+        ? await updateWordPressSpiderBacklink(post, hub, settings)
+        : await updateBloggerSpiderBacklink(post, hub, settings);
+      results.push({ ...baseResult, ok: true, action: updated.action, updatedUrl: updated.url });
+    } catch (error: any) {
+      console.error('[SPIDER-BACKLINK] 기존 글 수정 실패:', {
+        title: post.title,
+        url: post.url,
+        postId,
+        platform,
+        error: error?.message || error,
+      });
+      results.push({ ...baseResult, ok: false, error: error?.message || String(error) });
+    }
+
+    if (index < posts.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+  }
+
+  const updated = results.filter((item) => item.ok).length;
+  const skipped = results.filter((item) => item.skipped).length;
+  const failed = results.filter((item) => !item.ok && !item.skipped).length;
+  return {
+    ok: failed === 0,
+    total: posts.length,
+    updated,
+    skipped,
+    failed,
+    results,
+  };
 });
 
 console.log('[MAIN] ✅ 모든 IPC 핸들러 등록 완료! (총 92+ 핸들러)');
@@ -5976,6 +6676,7 @@ function createWindow() {
       contextIsolation: true,
       preload: preloadPath,
       webSecurity: true,
+      backgroundThrottling: true,
       allowRunningInsecureContent: false
     },
     title: 'LEADERNAM Orbit',
@@ -6638,7 +7339,10 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
       return { success: false, error: 'API 키가 필요합니다. 설정 탭에서 Gemini / OpenAI / Claude 중 하나 이상 입력해주세요.' };
     }
 
-    const sourceSummary = dispatcher.buildMinimalSummary(validated.sourceTitle, validated.sourceUrl);
+    const sourceSummary = dispatcher.buildMinimalSummary(
+      validated.sourceTitle,
+      validated.sourceText || validated.sourceUrl
+    );
     const results: Record<string, any> = {};
 
     for (const ch of validated.channels) {
@@ -6652,6 +7356,9 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
           sourceSummary,
           sourceUrl: validated.sourceUrl,
           sourceTitle: validated.sourceTitle,
+          sourceText: validated.sourceText,
+          sourceKeywords: validated.sourceKeywords,
+          sourceType: validated.sourceType,
           subChannel: ch.subChannel,
           userCustomRule: ch.userCustomRule,
         });
@@ -6687,6 +7394,16 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
             formatted: processed.formatted,
             risk: processed.risk,
             lengthViolations: processed.lengthViolations,
+            instagram: processed.instagram || null,
+            threads: processed.threads || null,
+            naverBlog: processed.naverBlog || null,
+            naverCafe: processed.naverCafe || null,
+            x: processed.x || null,
+            facebook: processed.facebook || null,
+            kakaoOpenChat: processed.kakaoOpenChat || null,
+            youtubeShorts: processed.youtubeShorts || null,
+            tiktok: processed.tiktok || null,
+            pinterest: processed.pinterest || null,
             retried: attempt > 0,
             attempt: attempt + 1,
             provider: callRes.provider,

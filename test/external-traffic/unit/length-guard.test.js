@@ -15,11 +15,11 @@ const NAVER_BLOG = require('../../../src/core/external-traffic/prompts/naver/blo
 
 describe('validateLength — Instagram', () => {
   test('정상 길이는 빈 violations', () => {
-    const f = { body: 'a'.repeat(1500), hashtags: ['#a', '#b', '#c', '#d', '#e', '#f'] };
+    const f = { body: 'a'.repeat(1500), hashtags: ['#a', '#b', '#c', '#d', '#e', '#f', '#g', '#h'] };
     expect(validateLength(f, INSTAGRAM)).toEqual([]);
   });
   test('본문 초과 감지', () => {
-    const f = { body: 'a'.repeat(3000), hashtags: ['#a', '#b', '#c', '#d', '#e'] };
+    const f = { body: 'a'.repeat(3000), hashtags: ['#a', '#b', '#c', '#d', '#e', '#f', '#g', '#h'] };
     const v = validateLength(f, INSTAGRAM);
     expect(v.length).toBeGreaterThan(0);
     expect(v[0]).toContain('본문');
@@ -30,7 +30,7 @@ describe('validateLength — Instagram', () => {
     expect(v.some((s) => s.includes('해시태그'))).toBe(true);
   });
   test('해시태그 상한 초과 감지', () => {
-    const f = { body: 'a'.repeat(1500), hashtags: Array(35).fill('#x') };
+    const f = { body: 'a'.repeat(1500), hashtags: Array(13).fill('#x') };
     const v = validateLength(f, INSTAGRAM);
     expect(v.some((s) => s.includes('해시태그'))).toBe(true);
   });

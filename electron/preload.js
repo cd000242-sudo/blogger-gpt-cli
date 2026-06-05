@@ -66,6 +66,15 @@ const api = {
         electron_1.ipcRenderer.on('run-progress', handler);
         return () => electron_1.ipcRenderer.off('run-progress', handler);
     },
+    // v3.8.44: 거미줄 실시간 이미지 생성 이벤트 구독
+    onSwImageGenerated: ((listener) => {
+        const handler = (_e, payload) => { try {
+            listener(payload);
+        }
+        catch { } };
+        electron_1.ipcRenderer.on('sw-image-generated', handler);
+        return () => electron_1.ipcRenderer.off('sw-image-generated', handler);
+    }),
     // 종료 확인
     onQuitConfirm: ((listener) => {
         const handler = () => { try {

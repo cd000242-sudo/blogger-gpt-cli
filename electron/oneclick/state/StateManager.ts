@@ -90,7 +90,7 @@ export class StateManager<T extends BaseState> {
    * 로그인 완료를 대기한다.
    * confirmLogin()이 호출되면 true, 타임아웃이면 false를 반환한다.
    */
-  waitForLogin(key: string, timeout: number = 300_000): Promise<boolean> {
+  waitForLogin(key: string, timeout: number = 900_000): Promise<boolean> {
     console.log(`[${this.label}] 🔐 로그인 대기 시작 (${key})...`);
 
     return new Promise<boolean>((resolve) => {

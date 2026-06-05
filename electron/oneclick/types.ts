@@ -49,6 +49,8 @@ export interface WebmasterState extends BaseState {
 
 export interface ConnectState extends BaseState {
   platform: string;
+  currentStep?: number;
+  totalSteps?: number;
   results: Record<string, string> | null;
 }
 

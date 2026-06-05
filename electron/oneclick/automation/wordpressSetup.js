@@ -6,6 +6,39 @@ exports.runWordPressSetup = runWordPressSetup;
 const browser_1 = require("../utils/browser");
 const skinLoader_1 = require("../utils/skinLoader");
 const selectors_1 = require("../config/selectors");
+const SETUP_LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
+const LOGIN_POLL_MS = 1500;
+async function waitForWordPressLoginOrReady(state, page, waitForLogin) {
+    const manual = waitForLogin(state.platform, SETUP_LOGIN_TIMEOUT_MS);
+    const auto = (async () => {
+        const deadline = Date.now() + SETUP_LOGIN_TIMEOUT_MS;
+        while (Date.now() < deadline) {
+            if (state.cancelled)
+                return false;
+            try {
+                const url = page.url();
+                if (/\/wp-admin\/?/i.test(url) && !/wp-login\.php|login/i.test(url))
+                    return true;
+                const hasAdminShell = await page.evaluate(() => {
+                    const bodyClass = document.body?.className || '';
+                    const bodyText = document.body?.innerText || '';
+                    return !!document.querySelector('#wpadminbar, #adminmenu, body.wp-admin')
+                        || /\bwp-admin\b/.test(String(location.href))
+                        || /Dashboard|WordPress|게시판|알림판|글쓰기|Posts/.test(bodyText)
+                        || /wp-admin/i.test(String(bodyClass));
+                }).catch(() => false);
+                if (hasAdminShell)
+                    return true;
+            }
+            catch {
+                // User may still be inside the WordPress login flow.
+            }
+            await (0, browser_1.sleep)(LOGIN_POLL_MS);
+        }
+        return false;
+    })();
+    return Promise.race([manual, auto]);
+}
 /**
  * WordPress 원클릭 세팅 메인 함수.
  * waitForLogin은 외부에서 주입받아 IPC 기반 로그인 대기를 수행한다.
@@ -23,7 +56,7 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
         await page.goto(loginUrl, { waitUntil: 'domcontentloaded' });
         state.stepStatus = 'waiting-login';
         state.message = '워드프레스 관리자 계정으로 로그인해주세요';
-        const loggedIn = await waitForLogin(state.platform);
+        const loggedIn = await waitForWordPressLoginOrReady(state, page, waitForLogin);
         if (state.cancelled)
             return;
         state.currentStep = 0;
@@ -286,10 +319,15 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
         state.stepStatus = 'error';
     }
     finally {
-        try {
-            await browser?.close();
-        }
-        catch { /* ignore */ }
+        const closeDelayMs = state.cancelled
+            ? 0
+            : (state.stepStatus === 'error' || state.error ? 5 * 60 * 1000 : 15 * 1000);
+        setTimeout(async () => {
+            try {
+                await browser?.close();
+            }
+            catch { /* ignore */ }
+        }, closeDelayMs);
         state.browser = null;
         state.page = null;
     }

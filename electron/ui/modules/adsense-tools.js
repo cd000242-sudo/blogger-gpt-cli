@@ -24,6 +24,55 @@ function buildAdsenseToolsHTML() {
     <p style="color: #64748b; font-size: 18px; font-weight: 500;">블로그 진단 · 필수 페이지 · 콘텐츠 다양성 · 거절 대응 · 기술 SEO</p>
   </div>
 
+  <!-- 승인률 가이드 -->
+  <div id="adsenseApprovalGuide" style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border: 1px solid rgba(251,191,36,0.32); border-radius: 18px; padding: 26px; margin-bottom: 24px; box-shadow: 0 18px 44px rgba(15,23,42,0.18);">
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 20px; flex-wrap: wrap;">
+      <div style="min-width: 260px; flex: 1;">
+        <div style="display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 999px; background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.28); color: #fde68a; font-size: 12px; font-weight: 800; margin-bottom: 10px;">AdSense 승인 전 필수 점검</div>
+        <h3 style="margin: 0 0 8px; color: #fff; font-size: 24px; line-height: 1.25; font-weight: 900;">보름 뒤 신청하려면, 공개 글보다 먼저 품질 신호를 채우세요</h3>
+        <p style="margin: 0; color: #cbd5e1; font-size: 14px; line-height: 1.7;">하루 3개는 안정권, 하루 5개는 품질 점검 후 사용하세요. 예약 글은 아직 심사 대상이 아니므로 신청 전에는 실제 공개·접근·색인 상태가 중요합니다.</p>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(110px, 1fr)); gap: 10px; min-width: 260px;">
+        <div style="padding: 14px; border-radius: 12px; background: rgba(34,197,94,0.10); border: 1px solid rgba(34,197,94,0.24);">
+          <div style="color: #86efac; font-size: 22px; font-weight: 900;">40+</div>
+          <div style="color: #d1fae5; font-size: 12px; line-height: 1.45;">신청 전 공개 글 권장</div>
+        </div>
+        <div style="padding: 14px; border-radius: 12px; background: rgba(59,130,246,0.10); border: 1px solid rgba(59,130,246,0.24);">
+          <div style="color: #93c5fd; font-size: 22px; font-weight: 900;">78+</div>
+          <div style="color: #dbeafe; font-size: 12px; line-height: 1.45;">앱 품질 점수 하한</div>
+        </div>
+        <div style="padding: 14px; border-radius: 12px; background: rgba(251,191,36,0.10); border: 1px solid rgba(251,191,36,0.24);">
+          <div style="color: #fde68a; font-size: 22px; font-weight: 900;">3/day</div>
+          <div style="color: #fef3c7; font-size: 12px; line-height: 1.45;">초기 권장 발행량</div>
+        </div>
+        <div style="padding: 14px; border-radius: 12px; background: rgba(168,85,247,0.10); border: 1px solid rgba(168,85,247,0.24);">
+          <div style="color: #d8b4fe; font-size: 22px; font-weight: 900;">4</div>
+          <div style="color: #ede9fe; font-size: 12px; line-height: 1.45;">필수 페이지 완료</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px;">
+      <div style="padding: 16px; border-radius: 12px; background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.10);">
+        <div style="color: #fbbf24; font-size: 13px; font-weight: 900; margin-bottom: 8px;">1. 신청 전 최소 조건</div>
+        <div style="color: #e5e7eb; font-size: 13px; line-height: 1.7;">개인정보처리방침, 소개, 문의, 면책 페이지를 먼저 만들고 메뉴에서 접근 가능해야 합니다. 블로그 URL은 외부에서 비로그인으로 열려야 합니다.</div>
+      </div>
+      <div style="padding: 16px; border-radius: 12px; background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.10);">
+        <div style="color: #86efac; font-size: 13px; font-weight: 900; margin-bottom: 8px;">2. 글 품질 기준</div>
+        <div style="color: #e5e7eb; font-size: 13px; line-height: 1.7;">각 글은 표, 체크리스트, 출처, 최신 기준, FAQ 중 최소 2가지를 포함하세요. 같은 제목 구조와 문단 시작 반복은 피해야 합니다.</div>
+      </div>
+      <div style="padding: 16px; border-radius: 12px; background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.10);">
+        <div style="color: #93c5fd; font-size: 13px; font-weight: 900; margin-bottom: 8px;">3. 발행 운영</div>
+        <div style="color: #e5e7eb; font-size: 13px; line-height: 1.7;">첫 3일은 하루 3개로 보고, 반복 경고가 없으면 4-5개까지 올리세요. 신청 전에는 공개 글 40개 이상과 카테고리 정리를 확인하세요.</div>
+      </div>
+      <div style="padding: 16px; border-radius: 12px; background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.10);">
+        <div style="color: #fca5a5; font-size: 13px; font-weight: 900; margin-bottom: 8px;">4. 바로 줄일 위험 신호</div>
+        <div style="color: #e5e7eb; font-size: 13px; line-height: 1.7;">CTA, 제휴 링크, 광고성 문구, 과장 표현, 출처 없는 수치, 비슷한 문장 리듬이 반복되면 신청을 미루고 보강하세요.</div>
+      </div>
+    </div>
+    <div style="margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: rgba(15,23,42,0.72); border: 1px solid rgba(148,163,184,0.18); color: #cbd5e1; font-size: 12px; line-height: 1.65;">승인은 보장할 수 없습니다. 이 가이드는 Google이 보는 고유 콘텐츠, 쉬운 내비게이션, 정책 준수, 사이트 접근성 기준을 앱 운영 흐름에 맞춘 실전 체크리스트입니다.</div>
+  </div>
+
   <!-- 스코어 서머리 카드 -->
   <div id="adsenseScoreCard" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 24px; padding: 32px; margin-bottom: 32px; border: 1px solid rgba(245, 158, 11, 0.3); display: none;">
     <div style="display: flex; align-items: center; justify-content: space-between;">
@@ -305,9 +354,17 @@ function bindAdsenseToolsEvents(container) {
     if (!keyword || keyword.trim().length < 2) return;
     const countStr = prompt('생성할 글 수 (15-30 권장, 기본 25):', '25');
     const count = Math.max(5, Math.min(50, Number(countStr) || 25));
-    showFastMsg(`📅 ${count}개 시드 일정 생성 중...`, '#fde68a');
+    const perDayStr = prompt('하루 발행 개수 (3개 권장, 최대 5개):', '3');
+    const postsPerDay = Math.max(1, Math.min(5, Number(perDayStr) || 3));
+    showFastMsg(`📅 ${count}개 시드 일정 생성 중... (하루 ${postsPerDay}개 분산)`, '#fde68a');
     try {
-      const r = await window.electronAPI?.invoke('adsense:fast-approval-seed-plan', { keyword: keyword.trim(), count });
+      const r = await window.electronAPI?.invoke('adsense:fast-approval-seed-plan', {
+        keyword: keyword.trim(),
+        count,
+        postsPerDay,
+        dayStartHour: 8,
+        dayEndHour: 22,
+      });
       if (!r?.ok) return showFastMsg(`❌ ${r?.error}`, '#fca5a5');
       const plan = r.plan;
       // localStorage 'scheduledPosts'에 임시 추가 (사용자가 스케줄 탭에서 검수 후 활성화)
@@ -319,22 +376,29 @@ function bindAdsenseToolsEvents(container) {
         date: s.scheduledAt.slice(0, 10),
         time: s.scheduledAt.slice(11, 16),
         contentMode: 'adsense',
-        ctaMode: 'auto',
+        ctaMode: 'none',
         publishType: 'scheduled',
-        thumbnailMode: 'imagefx',
+        thumbnailMode: 'nanobanana2',
         platform: 'blogspot',
         primaryGeminiTextModel: 'gemini-2.5-flash',
         provider: 'gemini',
         h2Images: [2, 3, 4],
-        h2ImageSource: 'imagefx',
+        h2ImageSource: 'nanobanana2',
         h2ImageSections: [2, 3, 4],
+        adsenseAngle: s.angle || '',
+        adsenseCluster: s.cluster || '',
+        adsenseDailyPacing: plan.postsPerDay || postsPerDay,
+        adsenseMinScore: 78,
+        adsensePolicyScan: true,
+        adsenseHardeningScan: true,
+        adsenseScoreGate: true,
         status: 'pending',
         createdAt: new Date().toISOString(),
         seedPlan: true,
       }));
       localStorage.setItem('scheduledPosts', JSON.stringify([...existing, ...seedSchedules]));
       showFastMsg(
-        `✅ <b>${plan.schedules.length}개 시드 일정 추가됨</b> (총 ${plan.totalDays}일 분산, 12-24h 무작위 간격)<br>` +
+        `✅ <b>${plan.schedules.length}개 시드 일정 추가됨</b> (총 ${plan.totalDays}일, 하루 ${plan.postsPerDay || postsPerDay}개, 08-22시 분산)<br>` +
         `📅 첫 글: ${plan.schedules[0]?.scheduledAt.replace('T', ' ').slice(0, 16)}<br>` +
         `📅 마지막 글: ${plan.schedules[plan.schedules.length - 1]?.scheduledAt.replace('T', ' ').slice(0, 16)}<br>` +
         `💡 스케줄 탭에서 확인·수정 후 자동 발행됩니다.`,

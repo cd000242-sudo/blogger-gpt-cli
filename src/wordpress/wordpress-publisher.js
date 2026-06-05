@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WordPressPublisher = void 0;
+exports.wrapSectionsInCards = wrapSectionsInCards;
+exports.applyWordPressInlineStyles = applyWordPressInlineStyles;
 exports.publishToWordPress = publishToWordPress;
 const wordpress_api_1 = require("./wordpress-api");
 const gemini_engine_1 = require("../core/final/gemini-engine");
@@ -45,9 +47,166 @@ function wrapSectionsInCards(html) {
         return html;
     }
 }
+const BROKEN_TEXT_PATTERN = /\uFFFD|&#(?:65533|xfffd);|%EF%BF%BD/gi;
+const WP_INFO_BOX_STYLES = {
+    'data-box': 'margin:24px 0 !important;padding:24px 28px !important;background:#dbeafe !important;border-left:5px solid #2563eb !important;border-radius:0 12px 12px 0 !important;box-sizing:border-box !important;display:block !important;visibility:visible !important;color:#111827 !important;-webkit-text-fill-color:#111827 !important;',
+    'highlight': 'margin:20px 0 !important;padding:20px 24px !important;background:linear-gradient(135deg,#fef3c7 0%,#fde68a 100%) !important;border-left:5px solid #f59e0b !important;border-radius:0 12px 12px 0 !important;box-sizing:border-box !important;display:block !important;',
+    'warning': 'margin:20px 0 !important;padding:20px 24px !important;background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%) !important;border-left:5px solid #ef4444 !important;border-radius:0 12px 12px 0 !important;box-sizing:border-box !important;display:block !important;',
+    'success': 'margin:20px 0 !important;padding:20px 24px !important;background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%) !important;border-left:5px solid #16a34a !important;border-radius:0 12px 12px 0 !important;box-sizing:border-box !important;display:block !important;',
+    'checklist': 'margin:20px 0 !important;padding:20px 24px !important;background:linear-gradient(135deg,#f0f9ff 0%,#e0f2fe 100%) !important;border:1px solid #bae6fd !important;border-radius:12px !important;box-sizing:border-box !important;display:block !important;',
+    'quote': 'margin:20px 0 !important;padding:18px 22px !important;background:#f8fafc !important;border-left:5px solid #0d9488 !important;border-radius:0 10px 10px 0 !important;box-sizing:border-box !important;display:block !important;'
+};
+const WP_TABLE_SCROLL_STYLE = [
+    'display: block',
+    'width: 100%',
+    'max-width: 100%',
+    'box-sizing: border-box',
+    'overflow-x: auto',
+    '-webkit-overflow-scrolling: touch',
+    'overscroll-behavior-x: contain',
+    'margin: 28px 0',
+    'padding: 0 0 8px 0',
+    'background: #ffffff',
+    'border: 1px solid #dbe4ee',
+    'border-radius: 10px'
+].join('; ');
+function inlineWordPressInfoBoxStyles(html) {
+    return String(html || '').replace(/<div\b([^>]*)>/gi, (match, attrs = '') => {
+        const classMatch = attrs.match(/\sclass\s*=\s*(["'])([\s\S]*?)\1/i);
+        const className = classMatch?.[2] || '';
+        const boxKey = Object.keys(WP_INFO_BOX_STYLES).find(key => new RegExp(`(?:^|\\s)${key}(?:\\s|$)`, 'i').test(className));
+        if (!boxKey)
+            return match;
+        const cleanAttrs = attrs.replace(/\sstyle\s*=\s*(["'])[\s\S]*?\1/gi, '').trim();
+        return `<div${cleanAttrs ? ' ' + cleanAttrs : ''} style="${WP_INFO_BOX_STYLES[boxKey]}">`;
+    });
+}
+function addClassToAttrs(attrs, classToAdd) {
+    const currentAttrs = String(attrs || '');
+    const classMatch = currentAttrs.match(/\sclass\s*=\s*(["'])([\s\S]*?)\1/i);
+    if (!classMatch)
+        return `${currentAttrs.trim()} class="${classToAdd}"`.trim();
+    const classes = (classMatch[2] || '').split(/\s+/).filter(Boolean);
+    if (!classes.includes(classToAdd))
+        classes.push(classToAdd);
+    return currentAttrs
+        .replace(/\sclass\s*=\s*(["'])([\s\S]*?)\1/i, (_m, quote) => ` class=${quote}${classes.join(' ')}${quote}`)
+        .trim();
+}
+function wrapWordPressTables(html) {
+    if (!html || !/<table\b/i.test(html))
+        return html;
+    return html.replace(/<table\b[\s\S]*?<\/table>/gi, (tableHtml) => {
+        if (/\bwp-mobile-table\b/i.test(tableHtml) || /\bwp-table-scroll\b/i.test(tableHtml))
+            return tableHtml;
+        const table = tableHtml.replace(/<table\b([^>]*)>/i, (_match, attrs = '') => {
+            const nextAttrs = addClassToAttrs(attrs, 'wp-mobile-table');
+            return `<table ${nextAttrs}>`;
+        });
+        return `<div class="wp-table-scroll" data-wp-table-scroll="true" style="${WP_TABLE_SCROLL_STYLE}">${table}</div>`;
+    });
+}
+function readCssCustomProperty(html, name, fallback) {
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = String(html || '').match(new RegExp(`${escapedName}\\s*:\\s*([^;]+);`, 'i'));
+    return (match?.[1] || fallback).trim();
+}
+function readCssRuleValue(html, selector, property, fallback) {
+    const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedProperty = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = String(html || '').match(new RegExp(`${escapedSelector}\\s*\\{[\\s\\S]*?${escapedProperty}\\s*:\\s*([^;!]+)`, 'i'));
+    return (match?.[1] || fallback).trim();
+}
+function getClassNameFromAttrs(attrs) {
+    return String(attrs || '').match(/\sclass\s*=\s*(["'])([\s\S]*?)\1/i)?.[2] || '';
+}
+function stripInlineStyle(attrs) {
+    return String(attrs || '').replace(/\sstyle\s*=\s*(["'])[\s\S]*?\1/gi, '').trim();
+}
+function openTagWithStyle(tag, attrs, style) {
+    const cleanAttrs = stripInlineStyle(attrs);
+    return `<${tag}${cleanAttrs ? ' ' + cleanAttrs : ''} style="${style}">`;
+}
+function hasClass(className, pattern) {
+    return pattern.test(` ${className || ''} `);
+}
+function markWordPressInfoBoxChildren(html) {
+    return String(html || '').replace(/(<div\b(?=[^>]*\bclass\s*=\s*(["'])(?=[^"']*\b(?:data-box|highlight|warning|success|checklist|quote)\b)[^"']*\2)[^>]*>)([\s\S]*?)(<\/div>)/gi, (_match, openTag, _quote, inner, closeTag) => {
+        let markedInner = String(inner || '')
+            .replace(/<h([3-5])\b([^>]*)>/i, (_headingMatch, level, attrs = '') => {
+            const nextAttrs = addClassToAttrs(attrs, 'wp-info-box-title');
+            return `<h${level}${nextAttrs ? ' ' + nextAttrs : ''}>`;
+        })
+            .replace(/<p\b([^>]*)>/gi, (_pMatch, attrs = '') => {
+            const nextAttrs = addClassToAttrs(attrs, 'wp-info-box-text');
+            return `<p${nextAttrs ? ' ' + nextAttrs : ''}>`;
+        })
+            .replace(/<a\b([^>]*)>/gi, (_aMatch, attrs = '') => {
+            const nextAttrs = addClassToAttrs(attrs, 'wp-info-box-link');
+            return `<a${nextAttrs ? ' ' + nextAttrs : ''}>`;
+        });
+        return `${openTag}${markedInner}${closeTag}`;
+    });
+}
+function repairBrokenText(label, value) {
+    if (!value)
+        return value || '';
+    const matches = value.match(BROKEN_TEXT_PATTERN);
+    if (!matches || matches.length === 0)
+        return value;
+    const marker = '(?:\\uFFFD|&#(?:65533|xfffd);|%EF%BF%BD)+';
+    const mk = (source, flags = 'gi') => new RegExp(source.replace(/\[BAD\]/g, marker), flags);
+    let repaired = value
+        .replace(mk('청년내[BAD]저축계좌', 'g'), '청년내일저축계좌')
+        .replace(mk('청년내[BAD]저축', 'g'), '청년내일저축')
+        .replace(mk('폭넓[BAD]'), '폭넓게')
+        .replace(mk('답니[BAD]'), '답니다')
+        .replace(mk('합니[BAD]'), '합니다')
+        .replace(mk('됩니[BAD]'), '됩니다')
+        .replace(mk('입니[BAD]'), '입니다')
+        .replace(mk('습니[BAD]'), '습니다')
+        .replace(mk('([가-힣])니[BAD]'), '$1니다')
+        .replace(BROKEN_TEXT_PATTERN, '')
+        .replace(/\s{2,}/g, ' ');
+    if (/<[^>]+>/.test(value)) {
+        repaired = repaired.replace(/>\s+</g, '><');
+    }
+    else {
+        repaired = repaired.trim();
+    }
+    console.warn(`[TEXT-REPAIR] ${label}: repaired ${matches.length} broken replacement marker(s) before publish.`);
+    return repaired;
+}
+function repairPublishInputBrokenText(options) {
+    if (options.title)
+        options.title = repairBrokenText('제목', options.title);
+    if (options.content)
+        options.content = repairBrokenText('본문', options.content);
+    if (options.excerpt)
+        options.excerpt = repairBrokenText('요약문', options.excerpt);
+    if (options.metaDescription)
+        options.metaDescription = repairBrokenText('메타설명', options.metaDescription);
+    if (options.featuredImageAlt)
+        options.featuredImageAlt = repairBrokenText('대표 이미지 대체텍스트', options.featuredImageAlt);
+    if (options.focusKeyword)
+        options.focusKeyword = repairBrokenText('초점 키프레이즈', options.focusKeyword);
+    if (options.preGeneratedTags) {
+        options.preGeneratedTags = options.preGeneratedTags.map((tag, index) => repairBrokenText(`사전 생성 태그 ${index + 1}`, tag));
+    }
+    if (options.tags) {
+        options.tags = options.tags.map((tag, index) => repairBrokenText(`태그 ${index + 1}`, tag));
+    }
+    if (options.categories) {
+        options.categories = options.categories.map((category, index) => typeof category === 'string' ? repairBrokenText(`카테고리 ${index + 1}`, category) : category);
+    }
+    return options;
+}
 function applyWordPressInlineStyles(html) {
     if (!html)
         return html;
+    if (/\bdata-bgpt-wp-ready\s*=\s*["']true["']|\bbgpt-wp-ready\b/i.test(html))
+        return html;
+    html = repairBrokenText('본문', html);
     try {
         html = html
             .replace(/&nbsp;/g, ' ')
@@ -57,89 +216,530 @@ function applyWordPressInlineStyles(html) {
             .replace(/&#128204;/g, '📌')
             .replace(/&#128640;/g, '🚀')
             .replace(/&#128161;/g, '💡');
-        let styledHtml = html;
-        styledHtml = styledHtml.replace(/<h2([^>]*)>/gi, (match, attrs) => {
+        let styledHtml = markWordPressInfoBoxChildren(inlineWordPressInfoBoxStyles(html));
+        const usesFinalPreviewSkin = /\b(?:bgpt-content|gradient-frame|white-paper)\b/i.test(styledHtml);
+        const previewPrimary = readCssCustomProperty(styledHtml, '--rv-primary', '#059669');
+        const previewPrimaryLight = readCssCustomProperty(styledHtml, '--rv-primary-light', '#d1fae5');
+        const previewCtaBg = readCssCustomProperty(styledHtml, '--rv-cta-bg', 'linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%)');
+        const previewCtaBorder = readCssCustomProperty(styledHtml, '--rv-cta-border', '#93c5fd');
+        const previewCtaBadgeBg = readCssCustomProperty(styledHtml, '--rv-cta-badge-bg', '#eff6ff');
+        const previewCtaNote = readCssCustomProperty(styledHtml, '--rv-cta-note', '#0369a1');
+        const previewCtaButtonStart = readCssCustomProperty(styledHtml, '--rv-cta-button-start', '#0891b2');
+        const previewCtaButtonEnd = readCssCustomProperty(styledHtml, '--rv-cta-button-end', '#0284c7');
+        const previewCtaShadow = readCssCustomProperty(styledHtml, '--rv-cta-shadow', 'rgba(2,132,199,0.24)');
+        const previewHeading1 = readCssRuleValue(styledHtml, '.white-paper h1.post-title', 'color', '#064e3b');
+        const previewH2Border = readCssRuleValue(styledHtml, '.white-paper h2', 'border-left', `6px solid ${previewPrimary}`);
+        const previewGradientBg = readCssRuleValue(styledHtml, '.gradient-frame', 'background', 'linear-gradient(135deg, #f0fdf4 0%, #d1fae5 100%)');
+        if (usesFinalPreviewSkin) {
+            styledHtml = styledHtml.replace(/<div\b([^>]*)>/gi, (match, attrs = '') => {
+                const classMatch = attrs.match(/\sclass\s*=\s*(["'])([\s\S]*?)\1/i);
+                const className = classMatch?.[2] || '';
+                const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
+                if (/\bbgpt-content\b/i.test(className)) {
+                    const style = `width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; color: #1e293b !important; -webkit-text-fill-color: initial !important; word-break: keep-all !important;`;
+                    return `<div${cleanAttrs ? ' ' + cleanAttrs : ''} style="${style}">`;
+                }
+                if (/\bgradient-frame\b/i.test(className)) {
+                    const style = `width: 100% !important; max-width: 100% !important; background: ${previewGradientBg} !important; border-radius: 24px !important; padding: 5px !important; box-sizing: border-box !important; font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important; margin: 0 auto 50px auto !important; display: block !important; overflow: hidden !important;`;
+                    return `<div${cleanAttrs ? ' ' + cleanAttrs : ''} style="${style}">`;
+                }
+                if (/\bwhite-paper\b/i.test(className)) {
+                    const style = `background-color: #ffffff !important; border-radius: 20px !important; padding: 60px 40px !important; color: #1e293b !important; line-height: 1.8 !important; box-sizing: border-box !important; width: 100% !important; -webkit-font-smoothing: antialiased !important;`;
+                    return `<div${cleanAttrs ? ' ' + cleanAttrs : ''} style="${style}">`;
+                }
+                return match;
+            });
+        }
+        styledHtml = styledHtml.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+        styledHtml = styledHtml.replace(/<(div|section|aside|figure|figcaption|span)\b([^>]*)>/gi, (match, tag, attrs = '') => {
+            const className = getClassNameFromAttrs(attrs);
+            let style = '';
+            if (tag.toLowerCase() === 'figure' && hasClass(className, /\bsection-image\b/i)) {
+                style = 'width:100% !important;max-width:100% !important;margin:32px 0 40px 0 !important;padding:0 !important;box-sizing:border-box !important;display:block !important;';
+            }
+            else if (tag.toLowerCase() === 'figcaption') {
+                style = 'text-align:center !important;font-size:13px !important;color:#64748b !important;-webkit-text-fill-color:#64748b !important;margin-top:10px !important;font-style:italic !important;line-height:1.5 !important;';
+            }
+            else if (hasClass(className, /\b(?:section-image-frame|bgpt-thumbnail-box)\b/i)) {
+                style = 'width:100% !important;max-width:100% !important;aspect-ratio:16 / 9 !important;margin:0 !important;padding:0 !important;overflow:hidden !important;border-radius:10px !important;background:#f8fafc !important;box-sizing:border-box !important;display:block !important;';
+            }
+            else if (hasClass(className, /\b(?:ad-safe-zone|table-wrapper)\b/i)) {
+                style = 'width:100% !important;max-width:100% !important;overflow-x:auto !important;-webkit-overflow-scrolling:touch !important;margin:28px 0 !important;padding:0 !important;position:relative !important;isolation:isolate !important;contain:layout style !important;box-sizing:border-box !important;';
+            }
+            else if (hasClass(className, /\bsummary-container\b/i)) {
+                style = `width:100% !important;max-width:100% !important;padding:24px !important;margin:24px 0 !important;background:${previewGradientBg} !important;border:1px solid ${previewCtaBorder} !important;border-radius:12px !important;box-sizing:border-box !important;`;
+            }
+            else if (hasClass(className, /\btoc-grid-container\b/i)) {
+                style = 'margin:40px 0 !important;padding:30px !important;background:#f8fafc !important;border-radius:20px !important;border:1px solid #e2e8f0 !important;box-sizing:border-box !important;width:100% !important;max-width:100% !important;';
+            }
+            else if (hasClass(className, /\btoc-grid\b/i)) {
+                style = 'display:flex !important;flex-direction:column !important;gap:8px !important;width:100% !important;box-sizing:border-box !important;';
+            }
+            else if (hasClass(className, /\btoc-number\b/i)) {
+                style = `display:inline-flex !important;align-items:center !important;justify-content:center !important;width:26px !important;height:26px !important;min-width:26px !important;background:${previewPrimaryLight} !important;color:${previewPrimary} !important;-webkit-text-fill-color:${previewPrimary} !important;border-radius:999px !important;font-size:13px !important;font-weight:800 !important;flex-shrink:0 !important;line-height:1 !important;`;
+            }
+            else if (hasClass(className, /\bcta-box\b/i)) {
+                style = `width:100% !important;max-width:100% !important;margin:32px auto !important;padding:26px 24px !important;display:flex !important;flex-direction:column !important;align-items:center !important;gap:12px !important;text-align:center !important;background:${previewCtaBg} !important;border:1px solid ${previewCtaBorder} !important;border-radius:10px !important;box-shadow:none !important;box-sizing:border-box !important;`;
+            }
+            else if (hasClass(className, /\bcta-badge\b/i)) {
+                style = `display:inline-flex !important;align-items:center !important;justify-content:center !important;margin:0 !important;padding:5px 12px !important;background:${previewCtaBadgeBg} !important;color:${previewCtaNote} !important;-webkit-text-fill-color:${previewCtaNote} !important;border:1px solid ${previewCtaBorder} !important;border-radius:999px !important;font-size:12px !important;font-weight:800 !important;line-height:1.2 !important;`;
+            }
+            else if (hasClass(className, /\bcta-action-stack\b/i)) {
+                style = 'display:flex !important;flex-direction:column !important;align-items:center !important;justify-content:center !important;gap:8px !important;width:100% !important;max-width:100% !important;margin:0 auto !important;text-align:center !important;box-sizing:border-box !important;';
+            }
+            else if (hasClass(className, /\bcta-microcopy\b/i)) {
+                style = `display:block !important;width:100% !important;margin:0 !important;color:${previewCtaNote} !important;-webkit-text-fill-color:${previewCtaNote} !important;font-size:12px !important;font-weight:600 !important;line-height:1.5 !important;opacity:.86 !important;text-align:center !important;`;
+            }
+            else if (hasClass(className, /\b(?:tldr-answer-box|eeat-meta-box|freshness-meta|wp-intro-card)\b/i)) {
+                style = 'width:100% !important;max-width:100% !important;margin:24px 0 !important;padding:22px 24px !important;background:#f8fafc !important;border:1px solid #e2e8f0 !important;border-radius:12px !important;box-sizing:border-box !important;color:#0f172a !important;-webkit-text-fill-color:#0f172a !important;';
+            }
+            else if (hasClass(className, /\bwp-section-card\b/i)) {
+                style = 'width:100% !important;max-width:100% !important;margin:24px 0 !important;padding:28px 32px !important;background:#ffffff !important;border:1px solid #e2e8f0 !important;border-radius:12px !important;box-sizing:border-box !important;box-shadow:0 1px 3px rgba(0,0,0,0.04) !important;';
+            }
+            else if (hasClass(className, /\brv-share\b/i)) {
+                style = 'margin:36px 0 16px !important;padding:20px 0 !important;border-top:1px solid #e2e8f0 !important;text-align:center !important;box-sizing:border-box !important;';
+            }
+            else if (hasClass(className, /\brv-share-label\b/i)) {
+                style = 'font-size:13px !important;font-weight:600 !important;color:#64748b !important;-webkit-text-fill-color:#64748b !important;margin-bottom:12px !important;';
+            }
+            else if (hasClass(className, /\bdisclaimer\b/i)) {
+                style = 'font-size:13px !important;color:#64748b !important;-webkit-text-fill-color:#64748b !important;background:#f8fafc !important;padding:20px !important;border-radius:12px !important;margin:32px 0 16px !important;line-height:1.7 !important;border:1px solid #e2e8f0 !important;box-sizing:border-box !important;';
+            }
+            return style ? openTagWithStyle(tag, attrs, style) : match;
+        });
+        styledHtml = styledHtml.replace(/<h1\b([^>]*)>/gi, (match, attrs) => {
+            if (!usesFinalPreviewSkin)
+                return match;
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            const newStyle = `color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-size: 22px !important; font-weight: 700 !important; margin: 48px 0 20px 0 !important; padding: 16px 20px !important; background: #f0fdfa !important; border-left: 5px solid #0d9488 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 8px 8px 0 !important; line-height: 1.4 !important; letter-spacing: -0.02em !important;`;
+            const style = `font-size: 32px !important; font-weight: 900 !important; color: ${previewHeading1} !important; -webkit-text-fill-color: ${previewHeading1} !important; margin: 0 0 24px 0 !important; line-height: 1.4 !important; word-break: keep-all !important;`;
+            return `<h1${cleanAttrs ? ' ' + cleanAttrs : ''} style="${style}">`;
+        });
+        styledHtml = styledHtml.replace(/<h2\b([^>]*)>/gi, (match, attrs) => {
+            const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
+            if (usesFinalPreviewSkin) {
+                const previewH2Style = `color: ${previewPrimary} !important; -webkit-text-fill-color: ${previewPrimary} !important; font-size: 26px !important; font-weight: 800 !important; margin: 60px 0 25px 0 !important; padding: 0 0 0 18px !important; background: transparent !important; border-left: ${previewH2Border} !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 !important; line-height: 1.4 !important; word-break: keep-all !important;`;
+                return `<h2${cleanAttrs ? ' ' + cleanAttrs : ''} style="${previewH2Style}">`;
+            }
+            const newStyle = `color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-size: 26px !important; font-weight: 800 !important; margin: 56px 0 24px 0 !important; padding: 18px 22px !important; background: #f0fdfa !important; border-left: 5px solid #0d9488 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 10px 10px 0 !important; line-height: 1.4 !important; letter-spacing: -0.02em !important;`;
             return `<h2${cleanAttrs ? ' ' + cleanAttrs : ''} style="${newStyle}">`;
         });
-        styledHtml = styledHtml.replace(/<h3([^>]*)>/gi, (match, attrs) => {
+        styledHtml = styledHtml.replace(/<h3\b([^>]*)>/gi, (match, attrs) => {
+            if (/class\s*=\s*["'][^"']*sw-toc-header/i.test(attrs || ''))
+                return match;
+            const classMatch = attrs.match(/\sclass\s*=\s*(["'])([\s\S]*?)\1/i);
+            const className = classMatch?.[2] || '';
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            const newStyle = `color: #1e293b !important; -webkit-text-fill-color: #1e293b !important; font-size: 19px !important; font-weight: 600 !important; margin: 36px 0 16px 0 !important; padding: 12px 16px !important; background: transparent !important; border-left: 4px solid #0891b2 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 !important; line-height: 1.4 !important;`;
+            if (/\bwp-info-box-title\b/i.test(className)) {
+                const infoBoxTitleStyle = `color: #111827 !important; -webkit-text-fill-color: #111827 !important; font-size: 24px !important; font-weight: 800 !important; margin: 0 0 22px 0 !important; padding: 0 !important; border: 0 !important; line-height: 1.45 !important; letter-spacing: -0.01em !important; display: block !important; background: transparent !important;`;
+                return `<h3${cleanAttrs ? ' ' + cleanAttrs : ''} style="${infoBoxTitleStyle}">`;
+            }
+            if (usesFinalPreviewSkin) {
+                const previewH3Style = `font-size: 21px !important; font-weight: 700 !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; margin: 30px 0 12px 0 !important; padding: 0 !important; letter-spacing: -0.01em !important; line-height: 1.45 !important; background: transparent !important; border: 0 !important; border-radius: 0 !important;`;
+                return `<h3${cleanAttrs ? ' ' + cleanAttrs : ''} style="${previewH3Style}">`;
+            }
+            const newStyle = `color: #1e293b !important; -webkit-text-fill-color: #1e293b !important; font-size: 22px !important; font-weight: 700 !important; margin: 30px 0 12px 0 !important; padding: 10px 16px !important; background: transparent !important; border-left: 4px solid #0891b2 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 !important; line-height: 1.4 !important;`;
             return `<h3${cleanAttrs ? ' ' + cleanAttrs : ''} style="${newStyle}">`;
         });
-        styledHtml = styledHtml.replace(/<h4([^>]*)>/gi, (match, attrs) => {
+        styledHtml = styledHtml.replace(/<h4\b([^>]*)>/gi, (match, attrs) => {
+            const classMatch = attrs.match(/\sclass\s*=\s*(["'])([\s\S]*?)\1/i);
+            const className = classMatch?.[2] || '';
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            const newStyle = `color: #334155 !important; font-size: 17px !important; font-weight: 700 !important; margin: 28px 0 12px 0 !important; padding-left: 12px !important; border-left: 3px solid #94a3b8 !important; line-height: 1.4 !important;`;
+            if (/\bwp-info-box-title\b/i.test(className)) {
+                const infoBoxTitleStyle = `color: #111827 !important; -webkit-text-fill-color: #111827 !important; font-size: 24px !important; font-weight: 800 !important; margin: 0 0 22px 0 !important; padding: 0 !important; border: 0 !important; line-height: 1.45 !important; letter-spacing: -0.01em !important; display: block !important;`;
+                return `<h4${cleanAttrs ? ' ' + cleanAttrs : ''} style="${infoBoxTitleStyle}">`;
+            }
+            const newStyle = `color: #334155 !important; font-size: 20px !important; font-weight: 700 !important; margin: 30px 0 14px 0 !important; padding-left: 14px !important; border-left: 3px solid #94a3b8 !important; line-height: 1.4 !important;`;
             return `<h4${cleanAttrs ? ' ' + cleanAttrs : ''} style="${newStyle}">`;
         });
-        styledHtml = styledHtml.replace(/<p([^>]*)>/gi, (match, attrs) => {
+        styledHtml = styledHtml.replace(/<p\b([^>]*)>/gi, (match, attrs) => {
+            const classMatch = attrs.match(/\sclass\s*=\s*(["'])([\s\S]*?)\1/i);
+            const className = classMatch?.[2] || '';
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            const newStyle = `color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; font-size: 18px !important; line-height: 1.85 !important; margin: 0 0 24px 0 !important; word-break: keep-all !important; letter-spacing: -0.01em !important;`;
+            if (/\b(?:cta-hook|cta-responsive-text)\b/i.test(className)) {
+                const ctaHookStyle = `margin: 0 !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-size: 16px !important; font-weight: 700 !important; line-height: 1.55 !important; word-break: keep-all !important; max-width: 92% !important;`;
+                return `<p${cleanAttrs ? ' ' + cleanAttrs : ''} style="${ctaHookStyle}">`;
+            }
+            if (/\bwp-info-box-text\b/i.test(className)) {
+                const infoBoxTextStyle = `color: #111827 !important; -webkit-text-fill-color: #111827 !important; font-size: 22px !important; line-height: 1.65 !important; margin: 0 0 14px 0 !important; word-break: keep-all !important; letter-spacing: -0.01em !important;`;
+                return `<p${cleanAttrs ? ' ' + cleanAttrs : ''} style="${infoBoxTextStyle}">`;
+            }
+            if (usesFinalPreviewSkin) {
+                const previewPStyle = `color: #1e293b !important; -webkit-text-fill-color: #1e293b !important; font-size: 16px !important; line-height: 1.72 !important; margin: 0 0 16px 0 !important; word-break: keep-all !important; overflow-wrap: break-word !important; letter-spacing: 0 !important;`;
+                return `<p${cleanAttrs ? ' ' + cleanAttrs : ''} style="${previewPStyle}">`;
+            }
+            if (/\barticle-p\b/i.test(className)) {
+                const articleStyle = `color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; font-size: 16px !important; line-height: 1.72 !important; margin: 0 0 16px 0 !important; word-break: keep-all !important; overflow-wrap: break-word !important; letter-spacing: 0 !important;`;
+                return `<p${cleanAttrs ? ' ' + cleanAttrs : ''} style="${articleStyle}">`;
+            }
+            const newStyle = `color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; font-size: 16px !important; line-height: 1.72 !important; margin: 0 0 16px 0 !important; word-break: keep-all !important; overflow-wrap: break-word !important; letter-spacing: 0 !important;`;
             return `<p${cleanAttrs ? ' ' + cleanAttrs : ''} style="${newStyle}">`;
         });
-        styledHtml = styledHtml.replace(/<strong([^>]*)>/gi, (match, attrs) => {
+        styledHtml = styledHtml.replace(/<strong\b([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
+            if (usesFinalPreviewSkin) {
+                return `<strong${cleanAttrs ? ' ' + cleanAttrs : ''} style="color: ${previewPrimary} !important; -webkit-text-fill-color: ${previewPrimary} !important; font-weight: 700 !important; background: linear-gradient(180deg, transparent 60%, ${previewPrimaryLight} 40%) !important;">`;
+            }
             return `<strong${cleanAttrs ? ' ' + cleanAttrs : ''} style="color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-weight: 700 !important;">`;
         });
-        styledHtml = styledHtml.replace(/<b([^>]*)>/gi, (match, attrs) => {
+        styledHtml = styledHtml.replace(/<b\b([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
+            if (usesFinalPreviewSkin) {
+                return `<b${cleanAttrs ? ' ' + cleanAttrs : ''} style="color: ${previewPrimary} !important; -webkit-text-fill-color: ${previewPrimary} !important; font-weight: 700 !important; background: linear-gradient(180deg, transparent 60%, ${previewPrimaryLight} 40%) !important;">`;
+            }
             return `<b${cleanAttrs ? ' ' + cleanAttrs : ''} style="color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-weight: 700 !important;">`;
         });
-        styledHtml = styledHtml.replace(/<img([^>]*)>/gi, (match, attrs) => {
+        styledHtml = styledHtml.replace(/<img\b([^>]*)>/gi, (match, attrs) => {
+            const classMatch = attrs.match(/\sclass\s*=\s*(["'])([\s\S]*?)\1/i);
+            const className = classMatch?.[2] || '';
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            return `<img${cleanAttrs ? ' ' + cleanAttrs : ''} style="display: block !important; max-width: 100% !important; height: auto !important; margin: 32px auto !important; border-radius: 6px !important;">`;
+            if (/\b(?:emoji|wp-smiley)\b/i.test(className)) {
+                return `<img${cleanAttrs ? ' ' + cleanAttrs : ''} style="display: inline-block !important; width: 1.1em !important; max-width: 1.1em !important; height: 1.1em !important; aspect-ratio: auto !important; object-fit: contain !important; margin: 0 0.35em 0 0 !important; border-radius: 0 !important; vertical-align: -0.15em !important;">`;
+            }
+            return `<img${cleanAttrs ? ' ' + cleanAttrs : ''} style="display: block !important; width: 100% !important; max-width: 100% !important; aspect-ratio: 16 / 9 !important; height: auto !important; object-fit: cover !important; margin: 32px auto !important; border-radius: 8px !important;">`;
         });
-        styledHtml = styledHtml.replace(/<table([^>]*)>/gi, (match, attrs) => {
+        styledHtml = styledHtml.replace(/<table\b([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            return `<table${cleanAttrs ? ' ' + cleanAttrs : ''} style="width: 100% !important; max-width: 100% !important; border-collapse: separate !important; border-spacing: 0 !important; margin: 32px 0 !important; border-radius: 10px !important; overflow: hidden !important; border: 1px solid #e2e8f0 !important; table-layout: auto !important;">`;
+            return `<table${cleanAttrs ? ' ' + cleanAttrs : ''} style="width: max-content !important; min-width: 100% !important; max-width: none !important; border-collapse: separate !important; border-spacing: 0 !important; margin: 0 !important; border-radius: 10px !important; overflow: hidden !important; border: 1px solid #cbd5e1 !important; background: #ffffff !important; table-layout: auto !important;">`;
         });
-        styledHtml = styledHtml.replace(/<th([^>]*)>/gi, (match, attrs) => {
+        styledHtml = styledHtml.replace(/<th\b([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            return `<th${cleanAttrs ? ' ' + cleanAttrs : ''} style="padding: 14px 16px !important; background: #f1f5f9 !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-weight: 700 !important; text-align: left !important; font-size: 15px !important; border-bottom: 2px solid #e2e8f0 !important; word-break: break-word !important; overflow-wrap: break-word !important;">`;
+            return `<th${cleanAttrs ? ' ' + cleanAttrs : ''} style="min-width: 88px !important; padding: 10px 12px !important; background: #f1f5f9 !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-weight: 700 !important; text-align: left !important; font-size: 13px !important; line-height: 1.45 !important; border: 1px solid #cbd5e1 !important; border-bottom: 2px solid #cbd5e1 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word !important;">`;
         });
-        styledHtml = styledHtml.replace(/<td([^>]*)>/gi, (match, attrs) => {
+        styledHtml = styledHtml.replace(/<td\b([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            return `<td${cleanAttrs ? ' ' + cleanAttrs : ''} style="padding: 12px 16px !important; border-bottom: 1px solid #f1f5f9 !important; color: #334155 !important; font-size: 16px !important; line-height: 1.7 !important; word-break: break-word !important; overflow-wrap: break-word !important;">`;
+            return `<td${cleanAttrs ? ' ' + cleanAttrs : ''} style="min-width: 88px !important; padding: 10px 12px !important; border: 1px solid #dbe4ee !important; color: #334155 !important; font-size: 13px !important; line-height: 1.45 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word !important;">`;
         });
-        styledHtml = styledHtml.replace(/<ul([^>]*)>/gi, (match, attrs) => {
+        styledHtml = wrapWordPressTables(styledHtml);
+        styledHtml = styledHtml.replace(/<ul\b([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            return `<ul${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 20px 0 !important; padding: 20px 20px 20px 40px !important; background: #fafafa !important; border-left: 3px solid #e2e8f0 !important; border-radius: 0 6px 6px 0 !important;">`;
+            return `<ul${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 18px 0 !important; padding: 18px 20px 18px 30px !important; background: #fafafa !important; border-left: 3px solid #dbe4ee !important; border-radius: 0 6px 6px 0 !important; list-style-position: outside !important;">`;
         });
-        styledHtml = styledHtml.replace(/<ol([^>]*)>/gi, (match, attrs) => {
+        styledHtml = styledHtml.replace(/<ol\b([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            return `<ol${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 20px 0 !important; padding: 20px 20px 20px 40px !important; background: #fafafa !important; border-left: 3px solid #e2e8f0 !important; border-radius: 0 6px 6px 0 !important;">`;
+            return `<ol${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 18px 0 !important; padding: 18px 20px 18px 30px !important; background: #fafafa !important; border-left: 3px solid #dbe4ee !important; border-radius: 0 6px 6px 0 !important; list-style-position: outside !important;">`;
         });
-        styledHtml = styledHtml.replace(/<li([^>]*)>/gi, (match, attrs) => {
+        styledHtml = styledHtml.replace(/<li\b([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            return `<li${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 8px 0 !important; line-height: 1.85 !important; font-size: 17px !important; color: #1a1a1a !important;">`;
+            return `<li${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 0 0 10px 0 !important; padding-left: 4px !important; line-height: 1.72 !important; font-size: 15.5px !important; color: #1a1a1a !important; letter-spacing: 0 !important; overflow-wrap: break-word !important;">`;
         });
-        styledHtml = styledHtml.replace(/<blockquote([^>]*)>/gi, (match, attrs) => {
+        styledHtml = styledHtml.replace(/<blockquote\b([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-            return `<blockquote${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 28px 0 !important; padding: 20px 24px !important; background: #f8fafc !important; border-left: 4px solid #94a3b8 !important; border-radius: 0 6px 6px 0 !important; font-style: normal !important; font-size: 17px !important; line-height: 1.85 !important; color: #334155 !important;">`;
+            return `<blockquote${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 28px 0 !important; padding: 20px 24px !important; background: #f8fafc !important; border-left: 4px solid #94a3b8 !important; border-radius: 0 6px 6px 0 !important; font-style: normal !important; font-size: 15.5px !important; line-height: 1.72 !important; color: #334155 !important;">`;
         });
-        styledHtml = styledHtml.replace(/<a([^>]*)>/gi, (match, attrs) => {
+        styledHtml = styledHtml.replace(/<a\b([^>]*)>/gi, (match, attrs = '') => {
+            const styleMatch = attrs.match(/\sstyle\s*=\s*(["'])([\s\S]*?)\1/i);
+            const classMatch = attrs.match(/\sclass\s*=\s*(["'])([\s\S]*?)\1/i);
+            const existingStyle = styleMatch?.[2] || '';
+            const className = classMatch?.[2] || '';
+            if (/\bwp-info-box-link\b/i.test(className)) {
+                const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
+                return `<a${cleanAttrs ? ' ' + cleanAttrs : ''} style="color: #dc2626 !important; -webkit-text-fill-color: #dc2626 !important; text-decoration: underline !important; border-bottom: 0 !important; font-weight: 700 !important;">`;
+            }
+            if (/\btoc-btn\b/i.test(className)) {
+                const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
+                const tocStyle = `background:#ffffff !important;border:1px solid #e2e8f0 !important;padding:14px 16px !important;border-radius:10px !important;text-align:left !important;font-weight:700 !important;color:#475569 !important;-webkit-text-fill-color:#475569 !important;text-decoration:none !important;display:flex !important;align-items:center !important;gap:10px !important;width:100% !important;box-sizing:border-box !important;box-shadow:0 2px 4px rgba(0,0,0,0.02) !important;line-height:1.45 !important;`;
+                return `<a${cleanAttrs ? ' ' + cleanAttrs : ''} style="${tocStyle}">`;
+            }
+            if (/\b(?:cta-btn|cta-responsive-button|button|btn|sw-btn|toc-nav-item)\b/i.test(className) || /\srole\s*=\s*(["'])button\1/i.test(attrs)) {
+                const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
+                const buttonStyle = `display:inline-flex !important;align-items:center !important;justify-content:center !important;min-width:220px !important;max-width:100% !important;min-height:48px !important;margin:2px auto 0 !important;padding:14px 28px !important;background:linear-gradient(135deg,${previewCtaButtonStart} 0%,${previewCtaButtonEnd} 100%) !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;border:0 !important;border-radius:8px !important;text-decoration:none !important;border-bottom:0 !important;font-size:16px !important;font-weight:800 !important;line-height:1.35 !important;box-shadow:0 8px 18px ${previewCtaShadow} !important;box-sizing:border-box !important;white-space:normal !important;word-break:keep-all !important;`;
+                return `<a${cleanAttrs ? ' ' + cleanAttrs : ''} style="${buttonStyle}">`;
+            }
+            const looksLikeButton = /\b(?:cta|button|btn|sw-btn|toc-nav-item)\b/i.test(className)
+                || /(?:background(?:-color)?\s*:|border-radius\s*:|padding\s*:|display\s*:\s*(?:inline-)?block|box-shadow\s*:)/i.test(existingStyle);
+            if (looksLikeButton)
+                return match;
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
+            if (usesFinalPreviewSkin) {
+                return `<a${cleanAttrs ? ' ' + cleanAttrs : ''} style="color: ${previewPrimary} !important; -webkit-text-fill-color: ${previewPrimary} !important; text-decoration: underline !important; border-bottom: 0 !important; font-weight: 700 !important;">`;
+            }
             return `<a${cleanAttrs ? ' ' + cleanAttrs : ''} style="color: #0891b2 !important; -webkit-text-fill-color: #0891b2 !important; text-decoration: none !important; border-bottom: 1px solid #99f6e4 !important; font-weight: 600 !important;">`;
         });
-        styledHtml = wrapSectionsInCards(styledHtml);
+        if (!/\b(sw-cornerstone|max-mode-article|bgpt-content|gradient-frame|white-paper)\b/.test(styledHtml)) {
+            styledHtml = wrapSectionsInCards(styledHtml);
+        }
+        else {
+            console.log('[WP-PUBLISH] sw-cornerstone/max-mode-article 감지 → 카드 래핑 skip (미리보기 디자인 보존)');
+        }
         const themeFriendlyCSS = `
 <style>
-  /* 수익 최적화 WordPress 레이아웃 - Full-Width */
+  /* 수익 최적화 WordPress 레이아웃 v3.8.78 (2026 모바일 가독성 + AdSense 권장)
+     - max-width 720px (60-70자/줄, GeneratePress 표준)
+     - font 17px / line-height 1.8 (CJK 권장)
+     - Pretendard 우선 (HTTP Archive 2024 한국 최다 사용) → Noto Sans KR → 시스템 폴백 */
   .wp-styled-content {
-    max-width: 100% !important;
-    margin: 0 !important;
-    padding: 20px 5% !important;
+    max-width: 760px !important;
+    margin: 0 auto !important;
+    padding: 20px 18px !important;
     box-sizing: border-box !important;
-    font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-    font-size: 18px !important;
-    line-height: 1.85 !important;
+    font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    font-size: 16px !important;
+    line-height: 1.72 !important;
     color: #1a1a1a !important;
     word-break: keep-all !important;
     background: #ffffff !important;
+    letter-spacing: 0 !important;
+  }
+  /* v3.8.78: 도입부 카드 P 정렬 — 첫 P margin-top 0, 마지막 P margin-bottom 0 */
+  .wp-intro-card > p:first-child { margin-top: 0 !important; }
+  .wp-intro-card > p:last-child { margin-bottom: 0 !important; }
+  /* v3.8.78: 광고 전후 단락 margin 제거 (광고 공백 누적 차단) */
+  .wp-styled-content ins.adsbygoogle + p,
+  .wp-styled-content p + ins.adsbygoogle,
+  .wp-styled-content .adsbygoogle + p,
+  .wp-styled-content p:has(+ .adsbygoogle) { margin-top: 8px !important; margin-bottom: 8px !important; }
+  /* v3.8.83: TL;DR 박스 안 ul/li가 회색 sub-box로 분리 보이던 문제 차단 — 노란 박스 한 덩어리로 통합 */
+  .wp-styled-content .tldr-answer-box ul,
+  .wp-styled-content .tldr-answer-box ol {
+    background: transparent !important;
+    border: none !important;
+    border-left: none !important;
+    border-radius: 0 !important;
+    padding: 0 0 0 20px !important;
+    margin: 0 !important;
+  }
+  .wp-styled-content .tldr-answer-box li {
+    background: transparent !important;
+    color: #1e293b !important;
+    font-size: 16px !important;
+    line-height: 1.8 !important;
+  }
+  .wp-styled-content .tldr-answer-box li::marker { color: #b45309 !important; }
+  .wp-styled-content .tldr-answer-box p { color: #0f172a !important; }
+
+  /* v3.8.78: TL;DR / E-E-A-T / CTA 박스 내부 광고 차단 */
+  .wp-styled-content .tldr-answer-box ins,
+  .wp-styled-content .tldr-answer-box .adsbygoogle,
+  .wp-styled-content .eeat-meta-box ins,
+  .wp-styled-content .eeat-meta-box .adsbygoogle,
+  .wp-styled-content .freshness-meta ins,
+  .wp-styled-content .freshness-meta .adsbygoogle,
+  .wp-styled-content [class*="cta"] ins,
+  .wp-styled-content [class*="cta"] .adsbygoogle {
+    display: none !important;
+    visibility: hidden !important;
+    width: 0 !important; height: 0 !important;
+    overflow: hidden !important;
+    position: absolute !important;
+    left: -9999px !important;
   }
   .wp-styled-content * {
     box-sizing: border-box !important;
+  }
+
+  /* WordPress info boxes: keep prompt class boxes visible after real publishing. */
+  .wp-styled-content .data-box,
+  .wp-styled-content .highlight,
+  .wp-styled-content .warning,
+  .wp-styled-content .success,
+  .wp-styled-content .checklist,
+  .wp-styled-content .quote {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 24px 0 !important;
+    padding: 24px 28px !important;
+    box-sizing: border-box !important;
+    display: block !important;
+    visibility: visible !important;
+    word-break: keep-all !important;
+  }
+  .wp-styled-content .data-box {
+    background: #dbeafe !important;
+    border-left: 5px solid #2563eb !important;
+    border-radius: 0 12px 12px 0 !important;
+    color: #111827 !important;
+  }
+  .wp-styled-content .wp-info-box-title {
+    color: #111827 !important;
+    -webkit-text-fill-color: #111827 !important;
+    font-size: 24px !important;
+    font-weight: 800 !important;
+    margin: 0 0 22px 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    line-height: 1.45 !important;
+  }
+  .wp-styled-content .wp-info-box-text {
+    color: #111827 !important;
+    -webkit-text-fill-color: #111827 !important;
+    font-size: 22px !important;
+    line-height: 1.65 !important;
+    margin: 0 0 14px 0 !important;
+  }
+  .wp-styled-content .wp-info-box-link {
+    color: #dc2626 !important;
+    -webkit-text-fill-color: #dc2626 !important;
+    text-decoration: underline !important;
+    border-bottom: 0 !important;
+    font-weight: 700 !important;
+  }
+  .wp-styled-content img.emoji,
+  .wp-styled-content img.wp-smiley {
+    display: inline-block !important;
+    width: 1.1em !important;
+    max-width: 1.1em !important;
+    height: 1.1em !important;
+    aspect-ratio: auto !important;
+    object-fit: contain !important;
+    margin: 0 0.35em 0 0 !important;
+    border-radius: 0 !important;
+    vertical-align: -0.15em !important;
+  }
+
+  /* WordPress CTA: keep hook/button close and force real clickable button styling. */
+  .wp-styled-content .cta-box,
+  .wp-styled-content .cta-responsive-box {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 32px auto !important;
+    padding: 26px 24px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 12px !important;
+    text-align: center !important;
+    background: linear-gradient(135deg, #e0f2fe 0%, #dbeafe 100%) !important;
+    border: 1px solid #93c5fd !important;
+    border-radius: 10px !important;
+    box-shadow: none !important;
+  }
+  .wp-styled-content .cta-box p,
+  .wp-styled-content .cta-box .cta-hook,
+  .wp-styled-content .cta-responsive-box p,
+  .wp-styled-content .cta-responsive-text {
+    margin: 0 !important;
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    line-height: 1.55 !important;
+    word-break: keep-all !important;
+    max-width: 92% !important;
+  }
+  .wp-styled-content .cta-box .cta-badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin: 0 !important;
+    padding: 5px 12px !important;
+    background: #eff6ff !important;
+    color: #0369a1 !important;
+    -webkit-text-fill-color: #0369a1 !important;
+    border: 1px solid #bae6fd !important;
+    border-radius: 999px !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    line-height: 1.2 !important;
+  }
+  .wp-styled-content .cta-box .cta-microcopy {
+    display: block !important;
+    margin: 0 !important;
+    color: #0369a1 !important;
+    -webkit-text-fill-color: #0369a1 !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    line-height: 1.5 !important;
+    opacity: .86 !important;
+  }
+  .wp-styled-content .cta-box a,
+  .wp-styled-content .cta-responsive-box a,
+  .wp-styled-content a.cta-btn,
+  .wp-styled-content a.cta-responsive-button,
+  .wp-styled-content [class*="cta"] a[role="button"] {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-width: 220px !important;
+    max-width: 100% !important;
+    min-height: 48px !important;
+    margin: 2px auto 0 !important;
+    padding: 14px 28px !important;
+    background: linear-gradient(135deg, #0891b2 0%, #0284c7 100%) !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    border: 0 !important;
+    border-radius: 8px !important;
+    text-decoration: none !important;
+    border-bottom: 0 !important;
+    font-size: 16px !important;
+    font-weight: 800 !important;
+    line-height: 1.35 !important;
+    box-shadow: 0 8px 18px rgba(2,132,199,0.28) !important;
+    box-sizing: border-box !important;
+    white-space: normal !important;
+    word-break: keep-all !important;
+  }
+
+  /* WordPress 이미지: 항상 본문 폭 100% + 16:9 와이드 프레임 */
+  .wp-styled-content figure.section-image {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 32px 0 40px 0 !important;
+    padding: 0 !important;
+  }
+  .wp-styled-content .bgpt-thumbnail-box,
+  .wp-styled-content .section-image-frame {
+    width: 100% !important;
+    max-width: 100% !important;
+    aspect-ratio: 16 / 9 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    border-radius: 10px !important;
+    background: #f8fafc !important;
+  }
+  .wp-styled-content .bgpt-thumbnail-box img,
+  .wp-styled-content .section-image-frame img {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    aspect-ratio: 16 / 9 !important;
+    object-fit: cover !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+  }
+  .wp-styled-content figure.section-image > img {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    aspect-ratio: 16 / 9 !important;
+    object-fit: cover !important;
+    margin: 0 !important;
+    border-radius: 10px !important;
+  }
+  .wp-styled-content figure.section-image figcaption {
+    margin-top: 10px !important;
+  }
+
+  .wp-styled-content .wp-table-scroll {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior-x: contain !important;
+    margin: 28px 0 !important;
+    padding: 0 0 8px 0 !important;
+    background: #ffffff !important;
+    border: 1px solid #dbe4ee !important;
+    border-radius: 10px !important;
+  }
+  .wp-styled-content .wp-table-scroll table,
+  .wp-styled-content table.wp-mobile-table {
+    width: max-content !important;
+    min-width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    table-layout: auto !important;
+  }
+  .wp-styled-content .wp-table-scroll::-webkit-scrollbar {
+    height: 7px !important;
+  }
+  .wp-styled-content .wp-table-scroll::-webkit-scrollbar-thumb {
+    background: #cbd5e1 !important;
+    border-radius: 999px !important;
   }
 
   /* 소제목 카드 스타일 */
@@ -178,53 +778,144 @@ function applyWordPressInlineStyles(html) {
     background: #f8fafc !important;
     border: 1px solid #e2e8f0 !important;
     border-radius: 12px !important;
-    padding: 28px 32px !important;
-    margin: 0 0 24px 0 !important;
+    padding: 24px 28px !important;
+    margin: 0 0 28px 0 !important;
+  }
+  /* v3.8.78: CTA 박스 모바일 48px 터치 타깃 + 풀폭 버튼 (WCAG 2.5.5) */
+  @media screen and (max-width: 768px) {
+    .wp-styled-content [class*="cta"] a,
+    .wp-styled-content a[style*="background:linear-gradient(135deg,#ef4444"],
+    .wp-styled-content a[style*="background-color:#ef4444"] {
+      display: block !important;
+      width: 100% !important;
+      min-height: 48px !important;
+      padding: 16px 20px !important;
+      font-size: 16px !important;
+      box-sizing: border-box !important;
+    }
   }
 
   /* 모바일 (≤768px) */
   @media screen and (max-width: 768px) {
     .wp-styled-content {
+      width: 100vw !important;
+      max-width: 100vw !important;
+      min-width: 0 !important;
+      padding: 18px 10px 52px !important;
+      margin-left: calc(50% - 50vw) !important;
+      margin-right: calc(50% - 50vw) !important;
+    }
+    .wp-styled-content .bgpt-content,
+    .wp-styled-content .gradient-frame,
+    .wp-styled-content .white-paper {
+      width: 100% !important;
       max-width: 100% !important;
-      padding: 0 16px !important;
+      min-width: 0 !important;
+      box-sizing: border-box !important;
+    }
+    .wp-styled-content .bgpt-content {
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: visible !important;
+    }
+    .wp-styled-content .gradient-frame {
+      border-radius: 0 !important;
+      padding: 0 !important;
+      margin: 18px 0 28px !important;
+      background: transparent !important;
+      border: 0 !important;
+      box-shadow: none !important;
+      overflow: visible !important;
+    }
+    .wp-styled-content .white-paper {
+      border-radius: 0 !important;
+      padding: 20px 6px 44px !important;
+      background: #ffffff !important;
+      border: 0 !important;
+      box-shadow: none !important;
     }
     .wp-section-card,
     .wp-intro-card {
-      padding: 20px 18px !important;
-      margin: 16px 0 !important;
+      padding: 16px 14px !important;
+      margin: 18px 0 !important;
       border-radius: 10px !important;
+      box-shadow: none !important;
     }
+    .wp-section-card::before {
+      height: 2px !important;
+      border-radius: 10px 10px 0 0 !important;
+    }
+    .wp-styled-content .data-box,
+    .wp-styled-content .highlight,
+    .wp-styled-content .warning,
+    .wp-styled-content .success,
+    .wp-styled-content .checklist,
+    .wp-styled-content .quote,
+    .wp-styled-content .cta-box,
+    .wp-styled-content .cta-responsive-box {
+      max-width: 100% !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+      padding: 16px 14px !important;
+      border-radius: 10px !important;
+      box-sizing: border-box !important;
+    }
+    .wp-styled-content .wp-info-box-title {
+      font-size: 18px !important;
+      line-height: 1.45 !important;
+      margin-bottom: 12px !important;
+    }
+    .wp-styled-content .wp-info-box-text {
+      font-size: 16px !important;
+      line-height: 1.75 !important;
+    }
+    /* v3.8.83 모바일 (≤768px): 데스크탑 +2px 반영 */
     .wp-styled-content h2 {
-      font-size: 19px !important;
-      padding: 12px 0 12px 16px !important;
-      margin: 36px 0 16px 0 !important;
+      font-size: 24px !important;
+      padding: 14px 18px !important;
+      margin: 40px 0 18px 0 !important;
     }
     .wp-styled-content h3 {
-      font-size: 17px !important;
-      padding: 10px 0 10px 12px !important;
-      margin: 24px 0 12px 0 !important;
+      font-size: 21px !important;
+      padding: 10px 14px !important;
+      margin: 28px 0 14px 0 !important;
     }
     .wp-styled-content p {
       font-size: 16px !important;
-      line-height: 1.8 !important;
-      margin: 0 0 18px 0 !important;
+      line-height: 1.72 !important;
+      margin: 0 0 15px 0 !important;
+      letter-spacing: 0 !important;
+      overflow-wrap: break-word !important;
+    }
+    .wp-styled-content li {
+      font-size: 15.5px !important;
     }
     .wp-styled-content table {
-      width: 100% !important;
-      max-width: 100% !important;
+      width: max-content !important;
+      min-width: 100% !important;
+      max-width: none !important;
       font-size: 14px !important;
       table-layout: auto !important;
     }
-    .wp-styled-content table th {
-      padding: 10px 10px !important;
-      font-size: 12px !important;
-      word-break: break-word !important;
-      overflow-wrap: break-word !important;
+    .wp-styled-content .wp-table-scroll {
+      width: calc(100vw - 12px) !important;
+      max-width: calc(100vw - 12px) !important;
+      margin-left: calc(50% - 50vw + 6px) !important;
+      margin-right: calc(50% - 50vw + 6px) !important;
+      margin-top: 24px !important;
+      margin-bottom: 24px !important;
+      border-radius: 8px !important;
     }
-    .wp-styled-content table td {
-      padding: 10px 10px !important;
+    .wp-styled-content .wp-table-scroll th,
+    .wp-styled-content .wp-table-scroll td,
+    .wp-styled-content table.wp-mobile-table th,
+    .wp-styled-content table.wp-mobile-table td {
+      min-width: 86px !important;
+      padding: 9px 10px !important;
       font-size: 13px !important;
-      word-break: break-word !important;
+      line-height: 1.45 !important;
+      white-space: normal !important;
+      word-break: keep-all !important;
       overflow-wrap: break-word !important;
     }
     /* 🛡️ AdSense Ad-Safe Zone — 표/CTA 내부 광고 주입 차단 */
@@ -236,26 +927,47 @@ function applyWordPressInlineStyles(html) {
       -webkit-overflow-scrolling: touch !important;
     }
     .wp-styled-content img {
+      width: 100% !important;
       max-width: 100% !important;
-      height: auto !important;
+      aspect-ratio: 16 / 9 !important;
+      object-fit: cover !important;
     }
   }
 
   /* 소형 화면 (≤375px) */
   @media screen and (max-width: 375px) {
     .wp-styled-content {
-      padding: 0 12px !important;
+      padding: 16px 8px 48px !important;
     }
     .wp-styled-content h2 { font-size: 18px !important; }
     .wp-styled-content h3 { font-size: 16px !important; }
-    .wp-styled-content p { font-size: 15px !important; line-height: 1.8 !important; }
-    .wp-styled-content table {
-      font-size: 12px !important;
+    .wp-styled-content p { font-size: 15.5px !important; line-height: 1.7 !important; }
+    .wp-styled-content .white-paper { padding: 18px 4px 42px !important; }
+    .wp-section-card,
+    .wp-intro-card,
+    .wp-styled-content .data-box,
+    .wp-styled-content .highlight,
+    .wp-styled-content .warning,
+    .wp-styled-content .success,
+    .wp-styled-content .checklist,
+    .wp-styled-content .quote,
+    .wp-styled-content .cta-box,
+    .wp-styled-content .cta-responsive-box {
+      padding-left: 12px !important;
+      padding-right: 12px !important;
     }
-    .wp-styled-content table th,
-    .wp-styled-content table td {
-      padding: 8px 6px !important;
-      font-size: 11px !important;
+    .wp-styled-content .wp-table-scroll {
+      width: calc(100vw - 10px) !important;
+      max-width: calc(100vw - 10px) !important;
+      margin-left: calc(50% - 50vw + 5px) !important;
+      margin-right: calc(50% - 50vw + 5px) !important;
+    }
+    .wp-styled-content .wp-table-scroll th,
+    .wp-styled-content .wp-table-scroll td,
+    .wp-styled-content table.wp-mobile-table th,
+    .wp-styled-content table.wp-mobile-table td {
+      padding: 8px 9px !important;
+      font-size: 12.5px !important;
     }
   }
 
@@ -338,12 +1050,28 @@ function applyWordPressInlineStyles(html) {
   }
 </style>
 `;
-        const containerStyle = `max-width: 100% !important; margin: 0 !important; padding: 20px 5% !important; font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important; font-size: 18px !important; line-height: 1.85 !important; color: #1a1a1a !important; word-break: keep-all !important;`;
-        const wrappedContent = `${themeFriendlyCSS}<div class="wp-styled-content" style="${containerStyle}">${styledHtml}</div>`;
+        styledHtml = styledHtml.replace(/<caption\b[^>]*>\s*<\/caption>/gi, '');
+        styledHtml = styledHtml
+            .replace(/(<table\b[^>]*>\s*<thead\b[^>]*>\s*)<tr\b[^>]*>\s*(?:<t[hd]\b[^>]*>\s*(?:&nbsp;|\s|<br\s*\/?>)*\s*<\/t[hd]>\s*)+<\/tr>\s*/gi, '$1')
+            .replace(/(<table\b[^>]*>\s*(?:<tbody\b[^>]*>\s*)?)<tr\b[^>]*>\s*(?:<t[hd]\b[^>]*>\s*(?:&nbsp;|\s|<br\s*\/?>)*\s*<\/t[hd]>\s*)+<\/tr>\s*/gi, '$1')
+            .replace(/<thead\b[^>]*>\s*<\/thead>/gi, '');
+        styledHtml = styledHtml
+            .replace(/<p\b[^>]*>\s*(?:&nbsp;|\s|<br\s*\/?>)*\s*<\/p>/gi, '')
+            .replace(/<div\b[^>]*(?:height\s*:|min-height\s*:|clear\s*:|margin\s*:)[^>]*>\s*(?:&nbsp;|\s|<br\s*\/?>)*<\/div>/gi, '')
+            .replace(/(?:<br\s*\/?>\s*){2,}/gi, '<br>')
+            .replace(/(<\/(?:p|div|h[1-6]|ul|ol|table|figure)>)\s*(?:<br\s*\/?>\s*)+/gi, '$1')
+            .replace(/(?:<br\s*\/?>\s*)+(?=<(?:p|div|h[1-6]|ul|ol|table|figure)\b)/gi, '');
+        styledHtml = styledHtml.replace(/(<a\b[^>]*>)([^<]*?)\s*🔥\s*(<\/a>)/gi, '$1$2$3');
+        styledHtml = styledHtml.replace(/<(p|span|div)[^>]*>\s*(?:보기|더보기|자세히\s*보기|상세\s*보기)\s*🔥?\s*<\/\1>/gi, '');
+        styledHtml = styledHtml.replace(/(<\/(?:div|aside)>)\s*(?:보기|더보기|자세히\s*보기|상세\s*보기)\s*🔥/gi, '$1');
+        const containerStyle = usesFinalPreviewSkin
+            ? `max-width: 100%; width: 100%; margin: 0; padding: 0; box-sizing: border-box; font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1e293b; word-break: keep-all; background: transparent; letter-spacing: 0;`
+            : `max-width: 760px; margin: 0 auto; padding: 20px 18px; box-sizing: border-box; font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; line-height: 1.72; color: #1a1a1a; word-break: keep-all; background: #ffffff; letter-spacing: 0;`;
+        const wrappedContent = `${themeFriendlyCSS}<div class="wp-styled-content bgpt-wp-ready" data-bgpt-wp-ready="true" style="${containerStyle}">${styledHtml}</div>`;
         styledHtml = `<!-- wp:html -->
 ${wrappedContent}
 <!-- /wp:html -->`;
-        console.log('[WP-PUBLISH] ✅ 수익 최적화 풀와이드 스킨 적용 (100%/18px/1.85/틸)');
+        console.log('[WP-PUBLISH] WordPress mobile-friendly styles applied (100vw/clamp/1.72/table-scroll)');
         return styledHtml;
     }
     catch (error) {
@@ -365,6 +1093,7 @@ class WordPressPublisher {
                 }
             }
             catch { }
+            repairPublishInputBrokenText(options);
             const stripTagsForCount = (htmlStr) => {
                 let text = htmlStr.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
                 text = text.replace(/<[^>]*>/g, '');
@@ -615,6 +1344,49 @@ class WordPressPublisher {
             if (tagIds.length > 0) {
                 postData.tags = tagIds;
             }
+            if ((!options.categories || options.categories.length === 0) && options.geminiKey) {
+                try {
+                    const existingCats = await this.wpApi.getCategories();
+                    const catNames = existingCats.slice(0, 60).map(c => c.name).filter(Boolean);
+                    if (catNames.length > 0) {
+                        const plainBody = (options.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                        const aiCatPrompt = `다음 블로그 글의 내용을 분석하여 가장 적합한 카테고리 1개를 정확히 선택하세요.
+
+【글 제목】 ${options.title}
+【본문 첫 500자】 ${plainBody.substring(0, 500)}
+【선택 가능한 카테고리 목록】
+${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
+
+엄격 출력 규칙:
+- 위 목록 중 가장 적합한 카테고리 이름 1개만 출력 (정확히 일치)
+- 설명·번호·따옴표·마크다운 X
+- 출력 예: "금융/저축"`;
+                        try {
+                            const { GoogleGenerativeAI: GGA_C } = require('@google/generative-ai');
+                            const catGenAI = new GGA_C(options.geminiKey);
+                            const catModel = catGenAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+                            const catResult = await catModel.generateContent({
+                                contents: [{ role: 'user', parts: [{ text: aiCatPrompt }] }],
+                                generationConfig: { maxOutputTokens: 100, temperature: 0.2 },
+                            });
+                            let aiCat = ((await catResult.response).text() || '').trim().replace(/^["'`]+|["'`]+$/g, '').split('\n')[0].trim();
+                            if (aiCat && catNames.includes(aiCat)) {
+                                const resolved = await this.resolveCategories([aiCat]);
+                                if (resolved.length > 0) {
+                                    postData.categories = resolved;
+                                    console.log(`[WP-PUBLISH] 🤖 AI 카테고리 자동 매칭: "${aiCat}" (ID ${resolved.join(',')})`);
+                                }
+                            }
+                        }
+                        catch (aiCatErr) {
+                            console.warn('[WP-PUBLISH] AI 카테고리 매칭 실패:', aiCatErr?.message);
+                        }
+                    }
+                }
+                catch (autoErr) {
+                    console.warn('[WP-PUBLISH] 카테고리 자동 매칭 흐름 실패:', autoErr?.message);
+                }
+            }
             if (options.categories && options.categories.length > 0) {
                 try {
                     const numericIds = [];
@@ -643,10 +1415,14 @@ class WordPressPublisher {
                 }
             }
             postData.title = cleanTitle;
+            postData.title = repairBrokenText('WordPress 발행 제목', postData.title);
+            postData.content = repairBrokenText('WordPress 발행 본문', postData.content);
+            if (postData.excerpt)
+                postData.excerpt = repairBrokenText('WordPress 발행 요약문', postData.excerpt);
             const createdPost = await this.wpApi.createPost(postData);
             if (createdPost.id) {
-                const focusKeyword = await this.extractFocusKeywordSmart(cleanTitle, options.content, options.geminiKey);
-                const metaDesc = options.metaDescription || await this.generateMetaDescriptionSmart(options.content, options.geminiKey);
+                const focusKeyword = repairBrokenText('SEO 초점 키프레이즈', await this.extractFocusKeywordSmart(cleanTitle, options.content, options.geminiKey));
+                const metaDesc = repairBrokenText('SEO 메타설명', options.metaDescription || await this.generateMetaDescriptionSmart(options.content, options.geminiKey));
                 const seoResult = await this.wpApi.updateSeoMeta(createdPost.id, {
                     title: cleanTitle,
                     description: metaDesc,
@@ -656,9 +1432,14 @@ class WordPressPublisher {
                     console.log(`[SEO] ✅ 포스트 ${createdPost.id} Yoast SEO 필드 자동 입력 완료 (키워드: ${focusKeyword}, 메타설명: ${metaDesc.substring(0, 50)}...)`);
                 }
             }
+            const wpSiteUrl = this.wpApi['config'].siteUrl;
+            const apiLink = createdPost.link;
+            const publicUrl = (typeof apiLink === 'string' && /^https?:\/\//i.test(apiLink) && !/\/wp-admin\//i.test(apiLink))
+                ? apiLink
+                : `${wpSiteUrl}/?p=${createdPost.id}`;
             const result = {
                 success: true,
-                url: `${this.wpApi['config'].siteUrl}/wp-admin/post.php?post=${createdPost.id}&action=edit`
+                url: publicUrl,
             };
             if (createdPost.id) {
                 result.postId = Number(createdPost.id);
@@ -941,6 +1722,7 @@ exports.WordPressPublisher = WordPressPublisher;
 async function publishToWordPress(options, onLog) {
     try {
         onLog?.('[WP] WordPress 발행 시작...');
+        repairPublishInputBrokenText(options);
         const wpApi = new wordpress_api_1.WordPressAPI({
             siteUrl: options.siteUrl,
             username: options.username,
@@ -1116,9 +1898,14 @@ async function publishToWordPress(options, onLog) {
         if (postDate) {
             postData.date = postDate;
         }
+        postData.title = repairBrokenText('WordPress 발행 제목', postData.title);
+        postData.content = repairBrokenText('WordPress 발행 본문', postData.content);
         const post = await wpApi.createPost(postData);
         if (post && post.id) {
-            const postUrl = `${options.siteUrl}/wp-admin/post.php?post=${post.id}&action=edit`;
+            const apiLink2 = post.link;
+            const postUrl = (typeof apiLink2 === 'string' && /^https?:\/\//i.test(apiLink2) && !/\/wp-admin\//i.test(apiLink2))
+                ? apiLink2
+                : `${options.siteUrl}/?p=${post.id}`;
             onLog?.(`✅ WordPress 포스트 생성 완료: ${postUrl}`);
             if (options.focusKeyword || options.metaDescription) {
                 try {
@@ -1165,8 +1952,8 @@ async function publishToWordPress(options, onLog) {
                             }
                             return description || text.substring(0, 152) + '...';
                         };
-                    const finalFocusKeyword = options.focusKeyword || getFocusKeyword(options.title);
-                    const finalMetaDescription = options.metaDescription || getMetaDescription(options.content);
+                    const finalFocusKeyword = repairBrokenText('SEO 초점 키프레이즈', options.focusKeyword || getFocusKeyword(options.title));
+                    const finalMetaDescription = repairBrokenText('SEO 메타설명', options.metaDescription || getMetaDescription(options.content));
                     const seoResult = await wpApi.updateSeoMeta(post.id, {
                         title: options.title,
                         description: finalMetaDescription,

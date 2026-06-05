@@ -6,7 +6,7 @@
 // electron app 모킹
 jest.mock('electron', () => ({
   app: {
-    getPath: jest.fn(() => '/tmp/test-quota'),
+    getPath: jest.fn(() => '.tmp-tests/test-quota'),
     isPackaged: false,
   },
 }));
@@ -16,13 +16,14 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 
 // 테스트 전 파일 정리
-const QUOTA_DIR = '/tmp/test-quota';
+const QUOTA_DIR = path.resolve('.tmp-tests/test-quota');
 const QUOTA_FILE = path.join(QUOTA_DIR, 'quota-state.json');
 const BACKUP_FILE = path.join(QUOTA_DIR, 'quota-state.backup.json');
 
 function cleanQuotaFiles() {
   try { fs.unlinkSync(QUOTA_FILE); } catch { /* ignore */ }
   try { fs.unlinkSync(BACKUP_FILE); } catch { /* ignore */ }
+  try { fs.rmdirSync(QUOTA_DIR); } catch { /* ignore */ }
 }
 
 function writeRawQuotaFile(data: any, file: string = QUOTA_FILE) {

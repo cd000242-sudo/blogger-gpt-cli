@@ -1,115 +1,154 @@
-// src/core/external-traffic/prompts/sns/pinterest.js
-// 핀터레스트 — saves가 최강 랭킹 신호. 4영역 (Pin Title, Description, Board, Image Prompt).
-// R1 deep-research (2026-06-01) 결과 반영 — confidence: verified.
-
 'use strict';
 
 const { assessRiskMultiAxis } = require('../../_shared/risk-assess');
 const { appendUserNoteSafely } = require('../../_shared/sanitize');
+const {
+  createStructuredPlatformProcessor,
+  buildSourceInputBlock,
+} = require('../_shared/structured-platform-rewrite');
+const {
+  buildPlatformSystemPrompt,
+  buildPlatformUserPrompt,
+} = require('../_shared/common-context-guard');
 
-/** @type {import('../../_shared/types').ChannelPrompt} */
+const structured = createStructuredPlatformProcessor({
+  marker: 'PINTEREST',
+  contextFields: [
+    'sourceTitle',
+    'sourceUrl',
+    'autoCategory',
+    'coreTopic',
+    'targetReader',
+    'readerSituation',
+    'searchIntent',
+    'saveReason',
+    'keywordFocus',
+  ],
+  variantLabels: {
+    A: '검색요약형',
+    B: '저장 체크리스트형',
+    C: '이미지 클릭형',
+  },
+  candidateFields: [
+    {
+      key: 'titleCandidates',
+      selectedKey: 'pinTitle',
+      scoreKey: 'titleScore',
+      label: '핀 제목 후보',
+    },
+  ],
+  copyFields: [
+    { key: 'pinTitle' },
+    { key: 'pinDescription', appendSourceUrl: true },
+    { key: 'imageTextLines', numbered: true },
+    { key: 'imageDesignDirection' },
+    { key: 'blogLead', appendSourceUrl: true },
+    { key: 'keywordTags', style: 'inline', max: 10 },
+  ],
+  formattedParts: [
+    { key: 'pinTitle', fields: ['pinTitle'] },
+    { key: 'description', fields: [{ key: 'pinDescription', appendSourceUrl: true }], appendSourceUrl: false },
+    { key: 'boardSuggestion', fields: ['boardSuggestion'] },
+    { key: 'imagePrompt', fields: ['imageDesignDirection', { key: 'imageTextLines', numbered: true }] },
+  ],
+  arrayFields: ['imageTextLines', 'keywordTags'],
+  appendSourceUrl: false,
+  copyMin: 180,
+  copyMax: 900,
+  keywordTagMax: 10,
+  looseWindow: 3600,
+});
+
+/** @type {import('../../_shared/types').ChannelPrompt & { processStructuredResponse?: Function }} */
 const PINTEREST = {
   id: 'pinterest',
-  name: '핀터레스트',
+  name: 'Pinterest',
   category: 'sns',
   riskTier: 'low',
   confidence: 'verified',
-  icon: '📌',
+  icon: 'P',
   color: '#e60023',
   openUrl: 'https://www.pinterest.com/pin-builder/',
 
   killerHookPatterns: [
-    '~ 정리 (체크리스트)',
-    '~ 단계로 끝내는 ~',
-    '~ 한 눈에 보기',
-    '~ 가이드 (저장용)',
-    '~ 모음.zip',
-    '~ 추천 리스트',
-    '~ 인포그래픽',
+    '한눈에 보는 체크리스트',
+    '저장해두고 확인할 정리',
+    '검색할 때 바로 쓰는 요약',
   ],
-  // R1 검증: Pinterest community guidelines 명시 spam — 키워드 stuffing/affiliate 반복/저품질.
   bannedPhrases: [
-    '#태그 #태그 #태그 #태그 #태그',  // 키워드 stuffing 패턴
-    'affiliate',
-    '쿠팡파트너스',  // 반복 affiliate 핀 = spam 분류
+    '키워드 키워드 키워드',
     '광고 클릭',
+    '무조건 구매',
+    '100% 보장',
   ],
-  // R1 검증: saves가 가장 강력한 랭킹 신호. 2:3 비율 1000x1500px 우대.
   popularityTriggers: [
-    'save 유도 (저장용 정리)',
-    '키워드 풍부 자연 분포',
-    '인포그래픽 (2:3 비율)',
+    '검색 키워드',
+    '저장 유도',
     '체크리스트',
-    '비교 표',
-    '단계별 정리',
+    '2:3 이미지 문구',
   ],
   toneSignature: {
     formality: 'polite',
     emoji: 'minimal',
     slang: [],
-    pronouns: ['저', '여러분'],
+    pronouns: ['사용자'],
   },
   transformationAxes: {
-    titleRule: '검색 키워드 풍부, ≤100자. 키워드 stuffing 금지.',
-    bodyRule: 'Description 500자 내, 키워드 자연 분포. saves 유도.',
+    titleRule: '검색어가 자연스럽게 들어간 100자 이내 핀 제목을 만든다.',
+    bodyRule: '150~350자 설명, 이미지 문구 5줄, 저장할 이유를 분명히 한다.',
     ctaPlacement: 'none',
     linkBait: [],
   },
   paragraphRule: {
-    maxLineChars: 30,
+    maxLineChars: 34,
     paragraphBreak: 'single',
     splitOutput: ['pinTitle', 'description', 'boardSuggestion', 'imagePrompt'],
     hashtagSeparated: false,
   },
   bandThresholds: { low: 50, medium: 75, high: 90, critical: 100 },
-  maxOutputTokens: 1000,
+  maxOutputTokens: 8000,
 
   buildSystemPrompt: (subChannel, userCustomRule) => {
-    const base = `당신은 한국 핀터레스트 크리에이터입니다 (2025~2026 알고리즘 검증).
+    const base = `당신은 Pinterest 외부유입 핀 문구를 만드는 검색/저장형 콘텐츠 에디터입니다.
 
-[글 형식 — 4영역 출력]
-Pin Title: ≤100자 검색 키워드 풍부 (stuffing 금지)
-Description: ≤500자 키워드 자연 분포 + 끝에 URL
-Board Suggestion: 어떤 보드에 핀할지 추천
-Image Prompt: 인포그래픽/카드 이미지 생성용 영문 프롬프트 (2:3 비율, 1000x1500px 권장)
+[Pinterest 핵심]
+- SNS 홍보문이 아니라 검색되고 저장되는 핀 콘텐츠여야 합니다.
+- 우선순위는 검색 키워드 > 저장 가치 > 이미지 클릭 > 블로그 이동입니다.
+- pinDescription은 150~350자 안에서 자연스럽게 씁니다.
+- 이미지 텍스트는 5줄로 짧고 명확하게 만듭니다.
+- 키워드 stuffing과 과장 광고 표현은 금지합니다.
+- 원문에 없는 금액, 날짜, 조건, 효과, 대상자를 만들지 않습니다.
 
-[Pinterest 핵심 — R1 검증 기반]
-- saves가 가장 강력한 랭킹 신호 (Hootsuite/Sprout Social/RecurPost 일치)
-- 2026 실시간 알고리즘 업데이트로 save 신호 즉각 반응
-- TransActV2 컴퓨터비전이 16,000+ 사용자 액션 분석 (2025)
-- 2:3 비율 1000x1500px 선명한 이미지 우대 (블러 deprioritize)
+[A/B/C 역할]
+- A: 검색요약형. 검색어와 핵심 요약을 중심으로 씁니다.
+- B: 저장 체크리스트형. 나중에 다시 볼 이유를 강조합니다.
+- C: 이미지 클릭형. 이미지 문구와 제목의 클릭 이유를 선명하게 만듭니다.
 
-[Pinterest community guidelines spam 분류 — 절대 금지]
-- 키워드 stuffing (#태그 반복)
-- engagement 매매
-- inauthentic traffic 생성
-- 기존 핀을 새 destination으로 redirect
-- 반복적·기만적·비관련 콘텐츠로 수익 추구
-- 외부 링크는 unsafe/deceptive/untrustworthy/unoriginal 사이트면 차단·다운랭크
-
-[출력 형식 — 반드시 헤더 사용]
-Pin Title:
-[100자 이내]
-
-Description:
-[500자 이내, 끝에 URL]
-
-Board Suggestion:
-[보드 이름 + 이유]
-
-Image Prompt:
-[영문 이미지 생성 프롬프트 — 2:3 ratio, 1000x1500px]`;
-    return appendUserNoteSafely(base, userCustomRule);
+[복사본 규칙]
+- finalRevision에는 pinTitle, pinDescription, imageTextLines, imageDesignDirection, blogLead, keywordTags만 넣습니다.
+- 후보와 점수, critique는 UI용이며 복사본에 넣지 않습니다.`;
+    return appendUserNoteSafely(`${base}\n\n${structured.buildStructuredOutputInstructions()}`, userCustomRule);
   },
 
-  buildUserPrompt: ({ sourceSummary, sourceUrl, sourceTitle }) => `원본 글: "${sourceTitle}"
-URL: ${sourceUrl}
+  buildUserPrompt: (params) => `${buildSourceInputBlock(params)}
 
-[원본 요약]
-- 핵심 가치: ${sourceSummary.coreValue}
-- 키워드: ${sourceSummary.keywords.join(', ')}
+[Pinterest 생성 지시]
+1. context에 자동분류, 핵심주제, 예상독자, 독자상황, searchIntent를 채우세요.
+2. A/B/C 3개를 모두 생성하세요.
+3. 각 안마다 titleCandidates 10개를 만들고 점수를 매긴 뒤 pinTitle을 고르세요.
+4. finalRevision.pinDescription에는 원문 URL "${params.sourceUrl}"을 자연스럽게 포함하세요.
+5. finalRevision.imageTextLines는 정확히 5줄로 만드세요.
+6. finalRevision.keywordTags는 5~10개만 사용하고 반복 키워드를 금지하세요.`,
 
-핀터레스트 4영역을 작성하세요. 키워드 stuffing 금지. saves 유도 카피 자연 삽입.`,
+  processStructuredResponse(rawText) {
+    const pinterest = structured.parseResult(rawText);
+    if (!pinterest) return null;
+    const formatted = structured.buildFormattedFromResult(pinterest);
+    return {
+      formatted,
+      extra: { pinterest },
+    };
+  },
 
   assessRisk(response) {
     return assessRiskMultiAxis(response, PINTEREST);
@@ -117,22 +156,23 @@ URL: ${sourceUrl}
 
   userWarning: null,
   operationalNotes: [
-    '핀 자체가 외부 링크 → CTA 별도 불필요',
-    'saves가 가장 강력한 랭킹 신호',
-    '2:3 비율 1000x1500px 권장 (블러 deprioritize)',
-    '키워드 stuffing은 community guidelines 명시 spam',
-    'mass-duplicate affiliate 핀은 prototypical 위반 — 차단·다운랭크',
-    '2025 DSA Transparency Report: 99%+ <10명 노출 전 제거',
-    '2025 engagement +23% (~3.2%→3.9%) — saves 유도 핵심',
+    'Pinterest는 저장과 검색 의도가 중요합니다.',
+    '2:3 이미지에 들어갈 짧은 문구 5줄을 함께 생성합니다.',
   ],
   researchSources: [
     'https://policy.pinterest.com/en/community-guidelines',
-    'https://policy.pinterest.com/en/enforcement',
-    'https://blog.hootsuite.com/social-media-algorithm/',
-    'https://seosherpa.com/pinterest-seo/',
-    'https://www.outfy.com/blog/pinterest-algorithm/',
   ],
-  lastVerified: '2026-06-01',
+  lastVerified: '2026-06-03',
 };
+
+PINTEREST.buildSystemPrompt = (subChannel, userCustomRule) => appendUserNoteSafely(
+  buildPlatformSystemPrompt('pinterest'),
+  userCustomRule
+);
+PINTEREST.buildUserPrompt = (params) => buildPlatformUserPrompt(
+  'pinterest',
+  { ...params, platformId: 'pinterest' },
+  structured.buildStructuredOutputInstructions()
+);
 
 module.exports = PINTEREST;
