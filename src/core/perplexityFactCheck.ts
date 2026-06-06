@@ -76,8 +76,8 @@ export async function fetchFactContext(
       mode = 'perplexity';
       console.log('[FACT-CHECK] 🤖 auto → Perplexity (유료, 정확)');
     } else if (hasGeminiKey) {
-      mode = 'grounding';
-      console.log('[FACT-CHECK] 🤖 auto → Gemini Grounding (무료)');
+      console.log('[FACT-CHECK] auto: Gemini key only. Skip duplicate fact-check grounding because body generation already uses Gemini Grounding.');
+      return { context: '', provider: 'Gemini Grounding skipped in auto mode', success: false };
     } else {
       console.log('[FACT-CHECK] ⚠️ 네이버/Perplexity/Gemini 키 모두 없음 → 팩트체크 스킵');
       return { context: '', provider: 'none', success: false };

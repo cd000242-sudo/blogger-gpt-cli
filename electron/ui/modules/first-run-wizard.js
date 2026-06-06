@@ -81,7 +81,7 @@ function showFirstRunWizard() {
           </div>
           <div style="margin-bottom: 16px;">
             <label for="wizard-gemini-key" style="color: rgba(255,255,255,0.8); font-size: 13px; display: block; margin-bottom: 6px;">
-              Gemini API 키 <a href="https://aistudio.google.com/apikey" target="_blank" style="color: #818cf8; text-decoration: none; font-size: 12px;">(무료 발급받기 →)</a>
+              Gemini API 키 <a href="https://aistudio.google.com/apikey" target="_blank" style="color: #818cf8; text-decoration: none; font-size: 12px;">(API 키 발급하기 →)</a>
             </label>
             <input type="text" id="wizard-gemini-key"
               placeholder="AIza... 형태의 API 키를 붙여넣기"
@@ -97,7 +97,7 @@ function showFirstRunWizard() {
             />
           </div>
           <p style="color: rgba(255,255,255,0.5); font-size: 12px; margin: 0; line-height: 1.5;">
-            💡 Google AI Studio에서 무료로 API 키를 받을 수 있어요. 30초면 됩니다!
+            💡 Google AI Studio에서 API 키를 발급하고, 필요한 경우 프로젝트 결제/쿼터 상태까지 확인해 주세요.
           </p>
         </div>
 

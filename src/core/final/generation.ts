@@ -180,7 +180,7 @@ async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000,
   }
 }
 import { validateCtaUrl } from '../../cta/validate-cta-url';
-import { callGeminiWithGrounding } from './gemini-engine';
+import { callGeminiWithGrounding, callGeminiWithRetry } from './gemini-engine';
 import { FinalCrawledPost, FinalTableData, FinalCTAData, FAQItem } from './types';
 
 // 🔥 AI 응답에서 테이블 데이터를 안전하게 파싱
@@ -227,7 +227,7 @@ export async function generateH1TitleFinal(keyword: string, crawledTitles: strin
   // 🌐 제목 참고 데이터: 크롤링 데이터 있으면 활용, 없으면 검색 지시
   const titleReference = crawledTitles.length > 0
     ? `🔍 참고할 인기 제목들:\n${crawledTitles.slice(0, 10).map((t, i) => `${i + 1}. ${t}`).join('\n')}`
-    : `🌐 Google에서 "${keyword}"를 검색하여 현재 상위 노출 중인 인기 블로그 제목 패턴을 분석하세요.`;
+    : `🔍 크롤링 제목이 부족합니다. 키워드와 일반적인 검색 의도 패턴을 기준으로 제목을 만들되, 확인되지 않은 숫자/마감일/기관명은 새로 만들지 마세요.`;
 
   // 🎲 제목 아키타입 랜덤 선택 (매번 다른 패턴으로 다양성 보장)
   const titleArchetypes = [
@@ -272,7 +272,7 @@ ${archetypeGuide}
 - 오직 1개만 출력 (옵션/설명/번호 없이 제목만)
 `;
 
-  const response = await callGeminiWithGrounding(prompt);
+  const response = await callGeminiWithRetry(prompt);
   // 첫 번째 줄만 추출, 특수문자/번호 제거
   const lines = response.trim().split('\n');
   let title = (lines[0] || response.trim())
@@ -447,7 +447,7 @@ export async function generateH2TitlesFinal(keyword: string, subheadings: string
   // 🌐 소제목 참고 데이터: 크롤링 데이터 있으면 활용, 없으면 검색 지시
   const subheadingReference = sorted.length > 0
     ? `🔍 참고할 크롤링 소제목:\n${sorted.join('\n')}\n\n===== H2 소제목 후보 =====\n${sorted.slice(0, targetCount).map((h, i) => `${i + 1}. ${h}`).join('\n')}\n=====\n\n위 크롤링 데이터를 분석하여 **서로 다른 정보**를 담은 H2 소제목 ${targetCount}개를 만드세요.`
-    : `🌐 Google에서 "${keyword}"를 검색하여 이 주제에 대해 사람들이 가장 궁금해하는 핵심 소주제 ${targetCount}개를 파악하세요.\n검색 결과에서 발견된 실제 트렌드와 이슈를 기반으로 H2 소제목을 만드세요.`;
+    : `🔍 크롤링 소제목이 부족합니다. 키워드와 일반적인 검색 의도 패턴을 기준으로 핵심 소주제 ${targetCount}개를 만들되, 확인되지 않은 최신 트렌드/수치/마감일은 새로 만들지 마세요.`;
 
   // 🎯 검색 의도 자동 분류 — 의도별로 다른 H2 아키타입 제시
   const { buildIntentPromptBlock } = require('../search-intent-classifier');
@@ -491,7 +491,7 @@ JSON만(${targetCount}개 문자열 배열):
 `;
 
   try {
-    const response = await callGeminiWithGrounding(prompt);
+    const response = await callGeminiWithRetry(prompt);
     const json = response.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
     const titles = JSON.parse(json) as string[];
     // 🔥 모든 접두어 공격적으로 제거
@@ -513,7 +513,7 @@ JSON만(${targetCount}개 문자열 배열):
         console.warn(`[H2-OUTLINE] \u26A0\uFE0F \uC2A4\uCF54\uD504 "${scope.qualifier}" \uC704\uBC18 H2 ${violations.length}/${cleanedTitles.length}\uAC1C \uAC10\uC9C0: ${violations.join(' / ')} \u2014 \uC7AC\uC2DC\uB3C4`);
         const retryPrompt = `${prompt}\n\n\uD83D\uDEA8\uD83D\uDEA8\uD83D\uDEA8 **\uC7AC\uC2DC\uB3C4 \u2014 \uC9C1\uC804 \uC751\uB2F5 \uC2A4\uCF54\uD504 \uC704\uBC18!**\n\uC9C1\uC804 \uC751\uB2F5\uC5D0 \uB2E4\uC74C H2\uAC00 \uB4E4\uC5B4 \uC788\uC5C8\uC74C (\uBAA8\uB450 "${scope.qualifier}" \uC2A4\uCF54\uD504 \uC704\uBC18):\n${violations.map((v) => `  - ${v}`).join('\n')}\n\n\uC774\uBC88\uC5D4 \uC704 \uC704\uBC18 H2\uB97C \uC808\uB300 \uB2E4\uC2DC \uB9CC\uB4E4\uC9C0 \uB9D0\uACE0, "${scope.qualifier}" \uCE21\uBA74\uB9CC \uB2E4\uB8E8\uB294 H2 ${targetCount}\uAC1C\uB97C \uB2E4\uC2DC \uB9CC\uB4E4\uC5B4 \uC8FC\uC138\uC694. \uC2E0\uCCAD/\uC870\uAC74/\uBC29\uBC95/\uB300\uC0C1\uC790 \uAC19\uC740 \uD0A4\uC6CC\uB4DC\uB294 H2 \uC81C\uBAA9\uC5D0 \uB4F1\uC7A5\uD558\uBA74 \uC548 \uB429\uB2C8\uB2E4.\nJSON\uB9CC \uBC18\uD658:`;
         try {
-          const retryResponse = await callGeminiWithGrounding(retryPrompt);
+          const retryResponse = await callGeminiWithRetry(retryPrompt);
           const retryJson = retryResponse.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
           const retryRaw = JSON.parse(retryJson) as string[];
           const retryCleaned = retryRaw.map(t => t
@@ -574,7 +574,7 @@ H2 소제목: ${h2}
 - JSON 문자열 배열로만 출력: ["제목1", "제목2", "제목3"]`;
 
   try {
-    const raw = await callGeminiWithGrounding(prompt);
+    const raw = await callGeminiWithRetry(prompt);
     const match = raw.match(/\[[\s\S]*?\]/);
     if (!match) return fallback;
 
@@ -967,7 +967,7 @@ JSON만 출력 (설명/마크다운 금지):
     } catch (e) {
       onLog?.('[PROGRESS] 50% - 🔁 JSON 파싱 실패, 1회 재시도...');
       const retryPrompt = `${prompt}\n\nIMPORTANT: Return ONLY a valid JSON object starting with { and ending with }. No markdown, no code fences, no extra text. Do not add explanations after the closing brace.`;
-      response = await callGeminiWithGrounding(retryPrompt);
+      response = await callGeminiWithRetry(retryPrompt);
       json = extractJsonObject(response);
       try {
         allSectionsObj = safeParseJson(json);
@@ -1011,7 +1011,7 @@ JSON만 출력 (설명/마크다운 금지):
 2) 각 H3의 content를 **600~1000자**로 확장 (현재 너무 짧음!)
 3) 각 content는 **<p> 태그 5개** 필수
 4) 중복 표현/반복 멘트 완전 제거
-5) 숫자/통계는 Google 검색에서 확인된 실제 데이터만 사용! 출처 불명 숫자 만들기 금지!
+5) 숫자/통계는 참고 크롤링 데이터 또는 기존 JSON에 있는 값만 사용! 출처 불명 숫자 만들기 금지!
 6) 직접 경험하지 않은 것을 경험한 것처럼 쓰지 마세요
 7) 한글과 영문/숫자만 사용. 중국어 한자(漢字) 절대 금지!
 
@@ -1041,7 +1041,7 @@ ${JSON.stringify(allSectionsObj)}
 
 JSON만 출력:
 `;
-      const improved = await callGeminiWithGrounding(improvePrompt);
+      const improved = await callGeminiWithRetry(improvePrompt);
       const improvedJson = extractJsonObject(improved);
       try {
         allSectionsObj = safeParseJson(improvedJson);
@@ -1132,7 +1132,8 @@ JSON만 출력:
 export async function generateFAQFinal(
   keyword: string,
   h2Titles: string[],
-  onLog?: (s: string) => void
+  onLog?: (s: string) => void,
+  groundedContent?: string
 ): Promise<FAQItem[]> {
   const faqToday = new Date().toISOString().slice(0, 10);
   // v3.7.21: 키워드 한정자 감지 — FAQ도 본문과 동일 스코프 유지 (한정자 외 질문 금지)
@@ -1143,26 +1144,36 @@ export async function generateFAQFinal(
   if (faqScope) {
     console.log(`[FAQ] 🎯 키워드 한정자 감지: "${faqScope.qualifier}" → FAQ 스코프 제한 적용`);
   }
+  const stripFaqGroundingHtml = (html: string) => (html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const groundedText = stripFaqGroundingHtml(groundedContent || '').slice(0, 7000);
+  const faqGroundingBlock = groundedText.length > 200
+    ? `\n===== 이미 검증된 본문 근거 =====\n${groundedText}\n=====\n\nFAQ는 반드시 위 본문 근거와 H2 제목에서만 파생하세요. 위 근거에 없는 숫자/금액/기간/마감일/기관명/URL은 새로 만들지 마세요.\n`
+    : '\n본문 근거가 부족합니다. 키워드와 H2 제목에서 자연스럽게 파생되는 질문만 만들고, 확인되지 않은 숫자/금액/기간/마감일은 쓰지 마세요.\n';
   const prompt = `
 키워드: ${keyword}
 ${faqScopeBlock}📅 오늘 날짜: ${faqToday}
 
 H2 섹션 제목:
 ${h2Titles.map((h, i) => `${i + 1}. ${h}`).join('\n')}
+${faqGroundingBlock}
 
 위 블로그 글에 대해 독자가 실제로 궁금해할 자주 묻는 질문(FAQ) 5개를 만들어주세요.
-
-🔴 반드시 Google 검색으로 "${keyword}"에 대한 최신 정보를 확인한 후 답변하세요!
 
 규칙:
 1. 질문은 실제 검색어처럼 자연스럽게 (예: "${keyword} 비용이 얼마인가요?")
 2. 답변은 3~4줄로 핵심만 간결하게
-3. 답변에 구체적인 숫자/기간/금액 포함 — 반드시 검색에서 확인한 실제 데이터만 사용!
-4. 본문 내용과 중복되지 않는 추가 정보 위주
+3. 답변에 구체적인 숫자/기간/금액을 쓸 때는 반드시 위 본문 근거에 있는 값만 사용!
+4. 본문에 없는 사실을 추가하지 말고, 본문을 읽은 독자가 이어서 궁금해할 질문 위주
 5. "~해요", "~거든요" 친근한 말투
 6. 이미 마감된 사업/이벤트/일정은 답변에 포함 금지. 현재 진행 중이거나 미래 일정만!
 7. 한글과 영문/숫자만 사용. 중국어 한자(漢字) 절대 금지!
-8. 🔴 추측/허위 데이터 절대 금지! 확인할 수 없는 숫자는 쓰지 마세요.
+8. 🔴 추측/허위 데이터 절대 금지! 확인할 수 없는 값은 "공식 사이트에서 확인하는 것이 가장 정확해요"처럼 안전하게 답변하세요.
 
 JSON 형식:
 [
@@ -1192,7 +1203,7 @@ JSON만 출력:
 
   try {
     onLog?.('[PROGRESS] 67% - ❓ FAQ 생성 중...');
-    const response = await callGeminiWithGrounding(prompt);
+    const response = await callGeminiWithRetry(prompt);
     const cleaned = (response || '').trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
     const first = cleaned.indexOf('[');
     const last = cleaned.lastIndexOf(']');
@@ -1217,7 +1228,7 @@ JSON만 출력:
         console.warn(`[FAQ] ⚠️ 스코프 "${faqScope.qualifier}" 위반 FAQ ${violations.length}/${valid.length}개 감지: ${violations.map(v => v.question).join(' / ')} — 재시도`);
         const retryPrompt = `${prompt}\n\n🚨🚨🚨 **재시도 — 직전 응답 스코프 위반!**\n직전 FAQ에 다음 질문이 들어 있었음 (모두 "${faqScope.qualifier}" 스코프 위반):\n${violations.map(v => `  - ${v.question}`).join('\n')}\n\n이번엔 위 질문을 절대 다시 만들지 말고, "${faqScope.qualifier}" 측면만 묻는 FAQ 5개를 다시 만들어 주세요. 질문 + 답변 모두 신청/조건/방법/대상자 같은 다른 측면 키워드가 등장하면 안 됩니다.\nJSON만 반환:`;
         try {
-          const retryResp = await callGeminiWithGrounding(retryPrompt);
+          const retryResp = await callGeminiWithRetry(retryPrompt);
           const retryValid = parseFaqRespToValid(retryResp);
           const stillBad = retryValid.filter(isFaqViolation);
           if (stillBad.length === 0 && retryValid.length >= 3) {
@@ -1360,7 +1371,7 @@ JSON만:
 `;
 
   try {
-    const response = await callGeminiWithGrounding(prompt);
+    const response = await callGeminiWithRetry(prompt);
     const json = response.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
     const sections = JSON.parse(json) as Array<{ h3: string; content: string }>;
 
@@ -1411,14 +1422,14 @@ export async function generateH3ContentFinal(
 ${h3}에 대해 400자 내외로 작성하세요.
 - 친근한 말투 (~해요, ~거든요)
 - p태그 2~3개
-- Google 검색으로 확인한 최신 정보 기반. 추측/허위 데이터 금지!
+- 위 참고 데이터에 있는 정보만 기반으로 작성. 참고 데이터가 부족하면 확인되지 않은 수치/마감일은 쓰지 말고 공식 확인을 안내!
 - 마감된 사업/이벤트 언급 금지. 현재 진행 중이거나 미래 일정만!
 - 한글/영문/숫자만 사용. 중국어 한자 금지!
 
 HTML만:
 `;
 
-  let content = await callGeminiWithGrounding(prompt);
+  let content = await callGeminiWithRetry(prompt);
   content = content.trim()
     .replace(/^```html\n?/gi, '').replace(/```$/gi, '')
     .replace(/입니다\./g, '이에요.')
@@ -1998,7 +2009,7 @@ JSON만 (평문 셀):
 `;
 
   try {
-    const response = await callGeminiWithGrounding(prompt);
+    const response = await callGeminiWithRetry(prompt);
     const json = response.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
     const parsed = JSON.parse(json);
     // CJK 필터링 + HTML 태그 2차 스트립 (AI가 지시 어기고 HTML 넣은 경우 방어)
@@ -2051,7 +2062,7 @@ H2들: ${h2s.join(', ')}
 `;
 
   try {
-    const response = await callGeminiWithGrounding(prompt);
+    const response = await callGeminiWithRetry(prompt);
     return response.trim().replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '');
   } catch {
     // 폴백: 키워드 + H2 기반 태그

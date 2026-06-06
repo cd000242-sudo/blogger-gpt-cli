@@ -1265,7 +1265,7 @@ const LogManager = {
     if (logContent) {
       const logEntry = document.createElement('div');
 
-      // 🔥 [BILLING:provider] 마커 → 충전 버튼 변환
+      // [BILLING:provider] 마커 → 결제/쿼터 확인 버튼 변환
       const billingUrls = {
         gemini: 'https://aistudio.google.com/plan_billing',
         openai: 'https://platform.openai.com/settings/organization/billing',
@@ -1281,7 +1281,7 @@ const LogManager = {
         const name = billingNames[provider] || provider;
         message = message.replace(/\[BILLING:\w+\]/, '').trim();
         if (url) {
-          billingHtml = `<button onclick="(window.electronAPI?.openExternal || window.open)('${url}')" style="margin-top:8px;padding:8px 16px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">💳 ${name} 크레딧 충전하기 →</button>`;
+          billingHtml = `<button onclick="(window.electronAPI?.openExternal || window.open)('${url}')" style="margin-top:8px;padding:8px 16px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">💳 ${name} 결제/쿼터 확인하기 →</button>`;
         }
       }
 
@@ -1415,4 +1415,3 @@ export function successLog(step, message, data = null) {
 
   addLog(`[${step}] 성공: ${message}`, 'success');
 }
-

@@ -1750,9 +1750,9 @@
               <div style="background: rgba(30,41,59,0.4); border: 1px solid rgba(99,102,241,0.3); border-radius: 12px; padding: 16px; margin-top: 16px; display: flex; align-items: center; justify-content: space-between;">
                 <div>
                   <div style="color: white; font-weight: 700; font-size: 14px;">🔑 Gemini API 키가 필요해요</div>
-                  <div style="color: rgba(255,255,255,0.5); font-size: 12px; margin-top: 2px;">무료로 발급받아서 환경설정 &gt; API 키에 입력하세요</div>
+                  <div style="color: rgba(255,255,255,0.5); font-size: 12px; margin-top: 2px;">Google AI Studio에서 발급 후 환경설정 &gt; API 키에 입력하세요</div>
                 </div>
-                <button onclick="window.blogger&&window.blogger.openExternal('https://aistudio.google.com/apikey')" style="padding: 10px 16px; background: linear-gradient(135deg,#6366f1,#a855f7); border: none; border-radius: 8px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;">🔗 무료 발급</button>
+                <button onclick="window.blogger&&window.blogger.openExternal('https://aistudio.google.com/apikey')" style="padding: 10px 16px; background: linear-gradient(135deg,#6366f1,#a855f7); border: none; border-radius: 8px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;">🔗 API 키 발급</button>
               </div>
 
               <!-- 웹마스터 한번에 등록 -->
@@ -1928,7 +1928,7 @@
                       </thead>
                       <tbody>
                         <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); background: rgba(34,197,94,0.12);">
-                          <td style="padding: 10px 8px;"><b style="color:#6ee7b7;">🥇 무료</b></td>
+                          <td style="padding: 10px 8px;"><b style="color:#6ee7b7;">🥇 최저가</b></td>
                           <td style="padding: 10px 8px;">Gemini Flash-Lite</td>
                           <td style="padding: 10px 8px;">ImageFX (무료)</td>
                           <td style="padding: 10px 8px; text-align: right; color:#6ee7b7; font-weight:800;">≈15원</td>
@@ -4170,7 +4170,7 @@
                         <option value="auto" selected>🤖 자동 (네이버 > Perplexity > Gemini 순 자동 선택)</option>
                         <option value="naver">📘 네이버 블로그 검색 (무료, 한국 콘텐츠 최강)</option>
                         <option value="perplexity">🔮 Perplexity Sonar (유료, 가장 정확)</option>
-                        <option value="grounding">🌐 Gemini Grounding (무료)</option>
+                        <option value="grounding">🌐 Gemini Grounding (API 키/쿼터 사용)</option>
                         <option value="off">❌ 끄기 (할루시네이션 위험)</option>
                       </select>
                       <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 글 생성 전 실시간 검색으로 팩트 검증</small>
@@ -4228,7 +4228,7 @@
                     <input type="checkbox" id="adsenseScoreGate" hidden>
                     <input type="hidden" id="adsenseMinScore" value="78">
                     <input type="hidden" id="adsenseGateMode" value="warn">
-                    <input type="checkbox" id="ctaAiStrictMode" checked hidden>
+                    <input type="checkbox" id="ctaAiStrictMode" hidden>
 
                     <div id="manualCtaSection" class="acc-field" style="display: none;">
                       <button type="button" onclick="openManualCtaModal()"
@@ -7447,7 +7447,7 @@ function checkPostingReadiness() {
   try {
     var settings1 = JSON.parse(localStorage.getItem('bloggerSettings') || '{}');
     var hasGemini = !!(settings1.geminiKey && settings1.geminiKey.length > 10);
-    checks.push({ name: 'Gemini API 키', ok: hasGemini, action: hasGemini ? '' : '<a href="#" onclick="window.blogger&&window.blogger.openExternal(\'https://aistudio.google.com/apikey\');return false;" style="color:#818cf8;text-decoration:none;font-size:11px;">무료 발급받기 →</a>' });
+    checks.push({ name: 'Gemini API 키', ok: hasGemini, action: hasGemini ? '' : '<a href="#" onclick="window.blogger&&window.blogger.openExternal(\'https://aistudio.google.com/apikey\');return false;" style="color:#818cf8;text-decoration:none;font-size:11px;">API 키 발급하기 →</a>' });
   } catch(e) { checks.push({ name: 'Gemini API 키', ok: false, action: '' }); }
 
   // 2. 플랫폼 설정 (Blog ID 또는 WP URL)

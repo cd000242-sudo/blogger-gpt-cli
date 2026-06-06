@@ -248,11 +248,9 @@ export async function generateUltimateMaxModeArticleFinal(
     console.warn('[orchestration] license gate check skipped (init error):', e?.message);
   }
 
-  // 🛡️ v3.5.82: CTA AI 엄격 모드 — 모든 모드에서 기본 ON (가짜·무관 URL 100% 차단)
-  //   사용자가 명시적으로 ctaAiStrictMode=false 지정한 경우만 비활성
-  //   기존: adsense만 자동 ON, 나머지는 토글 의존 → CTA URL이 키워드와 무관해도 통과될 수 있었음
-  //   변경: 기본 ON으로 모든 CTA가 Perplexity AI로 의미 관련성까지 검증됨 (CTA당 +12s, ~₩100~200)
-  process.env['CTA_AI_VALIDATE_STRICT'] = (payload?.ctaAiStrictMode === false) ? 'false' : 'true';
+  // CTA AI 엄격 검증은 기본 OFF. 사용자가 명시적으로 켠 경우에만 외부 AI 검증을 수행한다.
+  // 기본 발행은 사이트 라이브러리/커스텀 CTA를 우선해 속도와 안정성을 확보한다.
+  process.env['CTA_AI_VALIDATE_STRICT'] = payload?.ctaAiStrictMode === true ? 'true' : 'false';
 
   // 🖼️ 썸네일 엔진 엄격 모드 — 기본 OFF (다른 AI로 자동 폴백이 합리적)
   process.env['STRICT_THUMBNAIL_ENGINE'] = payload?.strictThumbnailEngine === true ? 'true' : 'false';
@@ -1071,9 +1069,14 @@ export async function generateUltimateMaxModeArticleFinal(
     const sections = allSectionsObj.sections;
     const introductionHTML = allSectionsObj.introduction;
     const conclusionHTML = allSectionsObj.conclusion;
+    const articleTextForAux = [
+      introductionHTML,
+      ...sections.flatMap(s => s.h3Sections.map(h => h.content)),
+      conclusionHTML,
+    ].join('\n');
 
     // 4.5. 🔥 FAQ 생성 (별도 API 호출 — Schema.org FAQPage 포함)
-    const faqs = await generateFAQFinal(keyword, h2Titles, onLog);
+    const faqs = await generateFAQFinal(keyword, h2Titles, onLog, articleTextForAux);
 
     // 5. CTA 생성 (manualCtas 우선, 없으면 자동 생성)
     onLog?.('[PROGRESS] 70% - 💰 CTA 버튼 생성 중...');
@@ -1155,8 +1158,7 @@ export async function generateUltimateMaxModeArticleFinal(
     }
 
     // 6. 요약표
-    const allText = sections.flatMap(s => s.h3Sections.map(h => h.content)).join('\n');
-    const summaryTable = await generateSummaryTableFinal(allText);
+    const summaryTable = await generateSummaryTableFinal(articleTextForAux);
 
     // 7. 해시태그
     const hashtags = await generateHashtagsFinal(keyword, h2Titles);
@@ -1688,7 +1690,7 @@ export async function generateUltimateMaxModeArticleFinal(
 JSON 형식: [{"url":"https://실제URL","title":"페이지제목","description":"한줄설명"}]
 JSON 배열만 반환해. 마크다운 없이 순수 JSON만.`;
 
-        const searchText = await callGeminiWithRetry(searchPrompt);
+        const searchText = await callGeminiWithGrounding(searchPrompt);
 
         if (searchText) {
           try {

@@ -6,11 +6,11 @@ const guideData = {
     title: '🤖 AI API 키 발급 완벽 가이드',
     steps: [
       {
-        title: '📌 필수! Gemini API 키 발급 (무료)',
+        title: '📌 필수! Gemini API 키 발급',
         content: `
           <div style="background: #ecfdf5; padding: 16px; border-radius: 12px; margin-bottom: 16px; border: 2px solid #10b981;">
-            <strong style="color: #059669; font-size: 16px;">✅ Gemini는 필수입니다! (무료)</strong><br>
-            글 생성에 반드시 필요합니다. 무료로 사용 가능해요!
+            <strong style="color: #059669; font-size: 16px;">✅ Gemini API 키가 필요합니다</strong><br>
+            글 생성에 사용됩니다. Google AI Studio 프로젝트의 키/쿼터/결제 상태를 함께 확인해 주세요.
           </div>
           
           <strong style="font-size: 16px;">① 구글 AI Studio 접속</strong><br>
@@ -38,6 +38,7 @@ const guideData = {
           <div style="background: #fef3c7; padding: 14px; border-radius: 10px; border-left: 4px solid #f59e0b;">
             <strong>⚠️ 주의사항:</strong><br>
             - API 키는 <code>AIza...</code>로 시작해요<br>
+            - Gemini 앱 구독과 Gemini API 결제/쿼터는 별개일 수 있어요<br>
             - 키를 다른 사람과 공유하지 마세요
           </div>
         `

@@ -993,7 +993,7 @@ export function renderOneclickSetupTab() {
               <li><strong>Cloudways 계정 + 앱 생성</strong> — 인프라 자동화는 앱이 이미 만들어진 상태에서 시작합니다. <a href="#" data-oneclick-help="cloudways" style="color:#93c5fd;">가입하기</a></li>
               <li>도메인 DNS A레코드를 Cloudways 서버 IP로 변경 (전파 24~48시간)</li>
               <li>WordPress 관리자 계정 (ID/비밀번호)</li>
-              <li>Gemini API 키 (무료). <a href="#" data-oneclick-help="gemini" style="color:#93c5fd;">발급</a></li>
+              <li>Gemini API 키 (Google AI Studio 프로젝트/쿼터 확인). <a href="#" data-oneclick-help="gemini" style="color:#93c5fd;">발급</a></li>
             </ul>
           </div>
         </div>

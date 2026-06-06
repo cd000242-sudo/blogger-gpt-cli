@@ -60,6 +60,20 @@ src_backup_*/
 temp/
 tmp/
 .tmp-tests/
+.builder-home/
+.builder-tmp/
+dry-run-output/
+tmp_research/
+_archive/cleanup-*/
+leaders-pro-kmong-visual/_archive/
+*.tmp.html
+*.tmp.txt
+.tmp_*.html
+.tmp_*.txt
+__fetch_*.html
+dropshot-*.jpeg
+dropshot-*.png
+dropshot-*.json
 
 # Backups (오래된 백업들)
 electron/ui/index.html.backup.original
