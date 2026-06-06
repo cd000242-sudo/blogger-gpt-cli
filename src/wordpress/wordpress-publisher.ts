@@ -1,6 +1,7 @@
 import { WordPressAPI, WordPressConfig, WordPressPost } from './wordpress-api';
 import { Provider } from '../core/index';
 import { callGeminiWithRetry } from '../core/final/gemini-engine';
+import { waitForTextProviderTurn } from '../core/llm/provider-throttle';
 // wp-agent-pipeline는 더 이상 사용하지 않음 (unused import 제거)
 
 // 🃏 소제목별 카드 래핑 함수
@@ -1544,6 +1545,7 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
               const { GoogleGenerativeAI: GGA_C } = require('@google/generative-ai');
               const catGenAI = new GGA_C(options.geminiKey);
               const catModel = catGenAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+              await waitForTextProviderTurn('gemini', 'wordpress/category-match');
               const catResult = await catModel.generateContent({
                 contents: [{ role: 'user', parts: [{ text: aiCatPrompt }] }],
                 generationConfig: { maxOutputTokens: 100, temperature: 0.2 },

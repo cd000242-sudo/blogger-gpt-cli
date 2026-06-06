@@ -13,6 +13,10 @@ import {
   callOpenAIAPI, callClaudeAPI, callPerplexityAPI,
 } from '../llm';
 import { findTier, DEFAULT_TIER_VALUE } from '../llm/pricing';
+import {
+  waitAfterProviderRateLimit,
+  waitForTextProviderTurn,
+} from '../llm/provider-throttle';
 
 const GEMINI_BASE_MODELS = [
   'gemini-2.5-flash-lite',
@@ -25,14 +29,9 @@ export const GROUNDING_MODELS = GEMINI_BASE_MODELS;
 
 const DEFAULT_GEMINI_TIMEOUT_MS = 60_000;
 const DEFAULT_GROUNDING_TIMEOUT_MS = 75_000;
-const DEFAULT_MIN_API_INTERVAL_MS = 2_200;
 const DEFAULT_MODEL_FALLBACKS = 2;
 const DEFAULT_GROUNDING_FALLBACKS = 1;
-const RATE_LIMIT_BACKOFF_MS = 4_000;
 const TIMEOUT_BACKOFF_MS = 2_000;
-
-let lastApiCallTime = 0;
-let rateLimitLock: Promise<void> = Promise.resolve();
 
 type Provider = 'gemini' | 'openai' | 'claude' | 'perplexity';
 type FailureKind =
@@ -81,19 +80,6 @@ function envInt(name: string, fallback: number): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function enforceRateLimit(): Promise<void> {
-  const minInterval = envInt('GEMINI_MIN_INTERVAL_MS', DEFAULT_MIN_API_INTERVAL_MS);
-  rateLimitLock = rateLimitLock.catch(() => undefined).then(async () => {
-    const now = Date.now();
-    const elapsed = now - lastApiCallTime;
-    if (elapsed < minInterval) {
-      await sleep(minInterval - elapsed);
-    }
-    lastApiCallTime = Date.now();
-  });
-  return rateLimitLock;
 }
 
 function unique(items: string[]): string[] {
@@ -199,6 +185,7 @@ function shouldStopGeminiChain(kind: FailureKind): boolean {
     kind === 'auth' ||
     kind === 'billing' ||
     kind === 'quota' ||
+    kind === 'rate_limit' ||
     kind === 'safety';
 }
 
@@ -236,7 +223,9 @@ function buildUserError(provider: Provider, info: FailureInfo, attempts: number,
       break;
     case 'rate_limit':
       reason = `${providerName} 요청이 짧은 시간에 몰려 속도 제한에 걸렸습니다.`;
-      fix = '1~3분 뒤 다시 시도하거나 연속 발행 간격을 늘려 주세요.';
+      fix = provider === 'gemini'
+        ? '앱이 provider 공통 큐로 자동 대기 후 재시도했지만 Google 프로젝트 RPM/Search Grounding 제한이 계속 반환되었습니다. 1~3분 뒤 다시 시도하거나 연속 발행 간격을 늘리고, 같은 프로젝트 키로 다른 작업이 동시에 돌고 있지 않은지 확인해 주세요.'
+        : '앱이 provider 공통 큐로 자동 대기 후 재시도했지만 속도 제한이 계속 반환되었습니다. 1~3분 뒤 다시 시도하거나 연속 발행 간격을 늘려 주세요.';
       break;
     case 'timeout':
       reason = `${providerName} 응답 시간이 너무 길어 중단되었습니다.`;
@@ -352,7 +341,7 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
     for (let retry = 0; retry < attemptsPerModel; retry++) {
       totalAttempts++;
       try {
-        await enforceRateLimit();
+        await waitForTextProviderTurn('gemini', modelName);
         console.log(`[Gemini] ${modelName} attempt ${retry + 1}/${attemptsPerModel}`);
         const model = genAI.getGenerativeModel({ model: modelName });
         const result: any = await withTimeout(
@@ -369,18 +358,18 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
         lastInfo = info;
         console.warn(`[Gemini] ${modelName} failed (${info.kind}): ${info.message.slice(0, 140)}`);
 
-        if (shouldStopGeminiChain(info.kind)) {
-          throw buildUserError('gemini', info, totalAttempts);
-        }
-
         if (info.kind === 'rate_limit' && retry < attemptsPerModel - 1) {
-          await sleep(RATE_LIMIT_BACKOFF_MS * (retry + 1));
+          await waitAfterProviderRateLimit('gemini', error, retry, modelName);
           continue;
         }
 
         if (info.kind === 'timeout' && retry < attemptsPerModel - 1) {
           await sleep(TIMEOUT_BACKOFF_MS);
           continue;
+        }
+
+        if (shouldStopGeminiChain(info.kind)) {
+          throw buildUserError('gemini', info, totalAttempts);
         }
 
         break;
@@ -418,7 +407,7 @@ export async function callGeminiWithGrounding(prompt: string, maxRetries: number
     for (let retry = 0; retry < attemptsPerModel; retry++) {
       totalAttempts++;
       try {
-        await enforceRateLimit();
+        await waitForTextProviderTurn('gemini', `${modelName}/grounding`);
         console.log(`[Grounding] ${modelName} + Google Search attempt ${retry + 1}/${attemptsPerModel}`);
         const is2xOrNewer = /gemini-[2-9]/.test(modelName);
         const groundingTool: any = is2xOrNewer
@@ -451,13 +440,18 @@ export async function callGeminiWithGrounding(prompt: string, maxRetries: number
         lastInfo = info;
         console.warn(`[Grounding] ${modelName} failed (${info.kind}): ${info.message.slice(0, 140)}`);
 
-        if (info.kind === 'auth' || info.kind === 'billing' || info.kind === 'safety') {
-          throw buildUserError('gemini', info, totalAttempts, 'Grounding');
+        if (info.kind === 'rate_limit' && retry < attemptsPerModel - 1) {
+          await waitAfterProviderRateLimit('gemini', error, retry, `${modelName}/grounding`);
+          continue;
         }
 
-        if ((info.kind === 'rate_limit' || info.kind === 'timeout') && retry < attemptsPerModel - 1) {
-          await sleep(info.kind === 'rate_limit' ? RATE_LIMIT_BACKOFF_MS : TIMEOUT_BACKOFF_MS);
+        if (info.kind === 'timeout' && retry < attemptsPerModel - 1) {
+          await sleep(TIMEOUT_BACKOFF_MS);
           continue;
+        }
+
+        if (info.kind === 'auth' || info.kind === 'billing' || info.kind === 'quota' || info.kind === 'rate_limit' || info.kind === 'safety') {
+          throw buildUserError('gemini', info, totalAttempts, 'Grounding');
         }
 
         break;

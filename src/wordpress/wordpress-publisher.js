@@ -6,6 +6,7 @@ exports.applyWordPressInlineStyles = applyWordPressInlineStyles;
 exports.publishToWordPress = publishToWordPress;
 const wordpress_api_1 = require("./wordpress-api");
 const gemini_engine_1 = require("../core/final/gemini-engine");
+const provider_throttle_1 = require("../core/llm/provider-throttle");
 function wrapSectionsInCards(html) {
     if (!html)
         return html;
@@ -1365,6 +1366,7 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
                             const { GoogleGenerativeAI: GGA_C } = require('@google/generative-ai');
                             const catGenAI = new GGA_C(options.geminiKey);
                             const catModel = catGenAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+                            await (0, provider_throttle_1.waitForTextProviderTurn)('gemini', 'wordpress/category-match');
                             const catResult = await catModel.generateContent({
                                 contents: [{ role: 'user', parts: [{ text: aiCatPrompt }] }],
                                 generationConfig: { maxOutputTokens: 100, temperature: 0.2 },

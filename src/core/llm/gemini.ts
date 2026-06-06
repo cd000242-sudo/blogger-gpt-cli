@@ -1,6 +1,7 @@
 // src/core/llm/gemini.ts
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { buildContentPrompt } from '../prompt';
+import { waitAfterProviderRateLimit, waitForTextProviderTurn } from './provider-throttle';
 
 type Input = {
   topic: string;
@@ -22,6 +23,7 @@ export async function genWithGemini(apiKey: string, input: Input): Promise<strin
     try {
       console.log(`[GEMINI] 🧠 ${modelName} 텍스트 생성 시도...`);
       const model = genAI.getGenerativeModel({ model: modelName });
+      await waitForTextProviderTurn('gemini', `legacy/${modelName}`);
       const res = await model.generateContent([{ text: prompt }]);
       const text = res?.response?.text?.() ?? '';
       const result = String(text).trim();
@@ -33,6 +35,10 @@ export async function genWithGemini(apiKey: string, input: Input): Promise<strin
       console.log(`[GEMINI] ⚠️ ${modelName} 빈 응답, 다음 모델 시도...`);
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
+      if (/429|rate.*limit|quota|RESOURCE_EXHAUSTED|exceeded.*quota/i.test(errMsg)) {
+        await waitAfterProviderRateLimit('gemini', error, 0, `legacy/${modelName}`);
+        throw new Error(`Gemini 쿼터/레이트리밋으로 중단: ${errMsg.slice(0, 180)}`);
+      }
       console.log(`[GEMINI] ⚠️ ${modelName} 실패: ${errMsg.slice(0, 100)}, 다음 모델 시도...`);
     }
   }
