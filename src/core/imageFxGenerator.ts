@@ -279,7 +279,7 @@ async function _ensurePageInternal(onLog?: (msg: string) => void): Promise<any> 
       // labs.google에 있는지 확인
       const url = cachedPage.url();
       if (!url.includes('labs.google/fx')) {
-        await cachedPage.goto('https://labs.google/fx/tools/image-fx', { waitUntil: 'networkidle', timeout: 30000 });
+        await cachedPage.goto('https://labs.google/fx/tools/flow', { waitUntil: 'networkidle', timeout: 30000 });
         await new Promise(r => setTimeout(r, 1500));
       }
       return cachedPage;
@@ -298,7 +298,7 @@ async function _ensurePageInternal(onLog?: (msg: string) => void): Promise<any> 
   let context = await launchBrowser(profileDir, true);
   let page = context.pages()[0] || await context.newPage();
 
-  await page.goto('https://labs.google/fx/tools/image-fx', { waitUntil: 'networkidle', timeout: 30000 });
+  await page.goto('https://labs.google/fx/tools/flow', { waitUntil: 'networkidle', timeout: 30000 });
   await new Promise(r => setTimeout(r, 1500));
 
   const session = await getSessionToken(page);
@@ -321,7 +321,7 @@ async function _ensurePageInternal(onLog?: (msg: string) => void): Promise<any> 
 
   context = await launchBrowser(profileDir, false);
   page = context.pages()[0] || await context.newPage();
-  await page.goto('https://labs.google/fx/tools/image-fx', { waitUntil: 'networkidle', timeout: 30000 });
+  await page.goto('https://labs.google/fx/tools/flow', { waitUntil: 'networkidle', timeout: 30000 });
 
   onLog?.('🔐 [ImageFX] 브라우저에서 Google 계정으로 로그인해주세요. (최대 5분 대기)');
 
@@ -370,7 +370,7 @@ async function _ensurePageInternal(onLog?: (msg: string) => void): Promise<any> 
 
   const headlessCtx = await launchBrowser(profileDir, true);
   const headlessPage = headlessCtx.pages()[0] || await headlessCtx.newPage();
-  await headlessPage.goto('https://labs.google/fx/tools/image-fx', { waitUntil: 'networkidle', timeout: 30000 });
+  await headlessPage.goto('https://labs.google/fx/tools/flow', { waitUntil: 'networkidle', timeout: 30000 });
   await new Promise(r => setTimeout(r, 1500));
 
   cachedContext = headlessCtx;
@@ -406,7 +406,7 @@ async function getToken(page: any, onLog?: (msg: string) => void): Promise<strin
   // 페이지에서 토큰 가져오기
   const url = page.url();
   if (!url.includes('labs.google/fx')) {
-    await page.goto('https://labs.google/fx/tools/image-fx', { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto('https://labs.google/fx/tools/flow', { waitUntil: 'networkidle', timeout: 30000 });
     await new Promise(r => setTimeout(r, 1500));
   }
 
@@ -653,7 +653,7 @@ export async function checkGoogleLoginForImageFx(): Promise<{
         await cachedPage.evaluate(() => document.readyState);
         const url = cachedPage.url();
         if (!url.includes('labs.google/fx')) {
-          await cachedPage.goto('https://labs.google/fx/tools/image-fx', { waitUntil: 'networkidle', timeout: 30000 });
+          await cachedPage.goto('https://labs.google/fx/tools/flow', { waitUntil: 'networkidle', timeout: 30000 });
           await new Promise(r => setTimeout(r, 1500));
         }
         const session = await getSessionToken(cachedPage);
@@ -677,7 +677,7 @@ export async function checkGoogleLoginForImageFx(): Promise<{
     try {
       tempContext = await launchBrowser(profileDir, true);
       const page = tempContext.pages()[0] || await tempContext.newPage();
-      await page.goto('https://labs.google/fx/tools/image-fx', { waitUntil: 'networkidle', timeout: 30000 });
+      await page.goto('https://labs.google/fx/tools/flow', { waitUntil: 'networkidle', timeout: 30000 });
       await new Promise(r => setTimeout(r, 1500));
 
       const session = await getSessionToken(page);
@@ -738,7 +738,7 @@ export async function loginGoogleForImageFx(): Promise<{
     // visible 브라우저 열기
     const context = await launchBrowser(profileDir, false);
     const page = context.pages()[0] || await context.newPage();
-    await page.goto('https://labs.google/fx/tools/image-fx', { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto('https://labs.google/fx/tools/flow', { waitUntil: 'networkidle', timeout: 30000 });
 
     // 5초 간격, 최대 5분 대기
     for (let i = 0; i < 60; i++) {
@@ -759,7 +759,7 @@ export async function loginGoogleForImageFx(): Promise<{
           await context.close();
           const headlessCtx = await launchBrowser(profileDir, true);
           const headlessPage = headlessCtx.pages()[0] || await headlessCtx.newPage();
-          await headlessPage.goto('https://labs.google/fx/tools/image-fx', { waitUntil: 'networkidle', timeout: 30000 });
+          await headlessPage.goto('https://labs.google/fx/tools/flow', { waitUntil: 'networkidle', timeout: 30000 });
           await new Promise(r => setTimeout(r, 1500));
 
           cachedContext = headlessCtx;

@@ -220,6 +220,7 @@ const QUEUE_LABELS = {
     prodia: 'Prodia',
     deepinfra: 'DeepInfra',
     leonardo: 'Leonardo',
+    flow: 'Flow',
     crawled: 'URL 수집',
     none: '없음',
   },
@@ -263,7 +264,8 @@ function getSelectValue(id, fallback = '') {
 
 function normalizeThumbEngine(value) {
   const raw = String(value || '').trim();
-  if (!raw || raw === 'auto' || raw === 'imagefx' || raw === 'flow') return 'nanobanana2';
+  if (!raw || raw === 'auto') return 'nanobanana2';
+  if (raw === 'imagefx') return 'flow';
   return raw;
 }
 
@@ -809,6 +811,7 @@ function buildModalHtml() {
           <option value="prodia">🚀 Prodia (유료 최저가)</option>
           <option value="deepinfra">🔥 DeepInfra</option>
           <option value="leonardo">🦁 Leonardo.ai</option>
+          <option value="flow">🌊 Flow (Google Labs)</option>
           <option value="crawled">🔗 URL 수집 이미지</option>
           <option value="none">❌ 썸네일 없음</option>
         </select>
@@ -824,6 +827,7 @@ function buildModalHtml() {
           <option value="prodia">🚀 Prodia</option>
           <option value="deepinfra">🔥 DeepInfra</option>
           <option value="leonardo">🦁 Leonardo.ai</option>
+          <option value="flow">🌊 Flow (Google Labs)</option>
           <option value="crawled">🔗 URL 수집 이미지</option>
           <option value="none">❌ 이미지 없음</option>
         </select>
@@ -940,7 +944,7 @@ function buildItemRow(item, idx) {
       <label>썸네일</label>
       <select class="pq-item-thumb">
         <option value="dropshot-nanobanana-pro" ${item.thumb === 'dropshot-nanobanana-pro' ? 'selected' : ''}>리더스 무제한</option>
-        <option value="nanobanana2" ${(!item.thumb || item.thumb === 'nanobanana2' || item.thumb === 'imagefx' || item.thumb === 'flow') ? 'selected' : ''}>Nano Banana 2</option>
+        <option value="nanobanana2" ${(!item.thumb || item.thumb === 'nanobanana2') ? 'selected' : ''}>Nano Banana 2</option>
         <option value="nanobanana" ${item.thumb === 'nanobanana' ? 'selected' : ''}>Nano Banana</option>
         <option value="nanobananapro" ${item.thumb === 'nanobananapro' ? 'selected' : ''}>Nano Banana Pro</option>
         <option value="gptimage1" ${item.thumb === 'gptimage1' ? 'selected' : ''}>GPT 이미지 1</option>
@@ -948,6 +952,7 @@ function buildItemRow(item, idx) {
         <option value="prodia" ${item.thumb === 'prodia' ? 'selected' : ''}>Prodia</option>
         <option value="deepinfra" ${item.thumb === 'deepinfra' ? 'selected' : ''}>DeepInfra</option>
         <option value="leonardo" ${item.thumb === 'leonardo' ? 'selected' : ''}>Leonardo.ai</option>
+        <option value="flow" ${(item.thumb === 'flow' || item.thumb === 'imagefx') ? 'selected' : ''}>Flow</option>
         <option value="crawled" ${item.thumb === 'crawled' ? 'selected' : ''}>URL 수집</option>
         <option value="none" ${item.thumb === 'none' ? 'selected' : ''}>없음</option>
       </select>
@@ -956,7 +961,7 @@ function buildItemRow(item, idx) {
       <label>소제목 이미지</label>
       <select class="pq-item-h2">
         <option value="dropshot-nanobanana-pro" ${item.h2ImageSource === 'dropshot-nanobanana-pro' ? 'selected' : ''}>리더스 무제한</option>
-        <option value="nanobanana2" ${(!item.h2ImageSource || item.h2ImageSource === 'nanobanana2' || item.h2ImageSource === 'imagefx' || item.h2ImageSource === 'flow') ? 'selected' : ''}>Nano Banana 2</option>
+        <option value="nanobanana2" ${(!item.h2ImageSource || item.h2ImageSource === 'nanobanana2') ? 'selected' : ''}>Nano Banana 2</option>
         <option value="nanobanana" ${item.h2ImageSource === 'nanobanana' ? 'selected' : ''}>Nano Banana</option>
         <option value="nanobananapro" ${item.h2ImageSource === 'nanobananapro' ? 'selected' : ''}>Nano Banana Pro</option>
         <option value="gptimage1" ${item.h2ImageSource === 'gptimage1' ? 'selected' : ''}>GPT 이미지 1</option>
@@ -964,6 +969,7 @@ function buildItemRow(item, idx) {
         <option value="prodia" ${item.h2ImageSource === 'prodia' ? 'selected' : ''}>Prodia</option>
         <option value="deepinfra" ${item.h2ImageSource === 'deepinfra' ? 'selected' : ''}>DeepInfra</option>
         <option value="leonardo" ${item.h2ImageSource === 'leonardo' ? 'selected' : ''}>Leonardo.ai</option>
+        <option value="flow" ${(item.h2ImageSource === 'flow' || item.h2ImageSource === 'imagefx') ? 'selected' : ''}>Flow</option>
         <option value="crawled" ${item.h2ImageSource === 'crawled' ? 'selected' : ''}>URL 수집</option>
         <option value="none" ${item.h2ImageSource === 'none' ? 'selected' : ''}>없음</option>
       </select>

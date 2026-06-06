@@ -30,6 +30,7 @@ import { ensurePage } from './imageFxGenerator';
 // ═══════════════════════════════════════════════════
 
 let cachedProjectId: string | null = null;
+let _generationChain: Promise<any> = Promise.resolve();
 // 🛡️ S-3 (v3.5.84): boolean 영구 플래그 → timestamp 기반 5분 쿨다운
 //   기존: _flowDisabledThisSession=true 한 번 세팅되면 프로세스 종료까지 영구 disable
 //   변경: 차단 시각 기록 → 5분 경과 시 자동 해제 → 큐 두번째 글부터 Flow 죽는 회귀 차단
@@ -92,6 +93,7 @@ function saveProjectId(id: string): void {
 const FLOW_PROJECT_URL_PREFIX = 'https://labs.google/fx/tools/flow/project/';
 const FLOW_HOME_URL = 'https://labs.google/fx/tools/flow';
 const BATCH_GENERATE_URL_MARKER = 'flowMedia:batchGenerateImages';
+const MEDIA_REDIRECT_URL_MARKER = 'media.getMediaUrlRedirect';
 const GENERATION_TIMEOUT_MS = 90000; // 90초 — 이미지 생성 대기 최대치
 const MAX_RETRIES = 2;
 
@@ -115,7 +117,25 @@ export interface FlowResult {
   modelUsed?: string;
 }
 
+type FlowGenerationSignal =
+  | { kind: 'batch'; response: any }
+  | { kind: 'media'; response: any; fifeUrl?: string }
+  | { kind: 'dom'; fifeUrl: string };
+
 export async function makeFlowImage(
+  prompt: string,
+  options: {
+    aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
+    isThumbnail?: boolean;
+  } = {},
+  onLog?: (msg: string) => void,
+): Promise<FlowResult> {
+  const next = _generationChain.then(() => _makeFlowImageInternal(prompt, options, onLog));
+  _generationChain = next.catch(() => undefined as any);
+  return next;
+}
+
+async function _makeFlowImageInternal(
   prompt: string,
   options: {
     aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
@@ -168,11 +188,24 @@ export async function makeFlowImage(
         // 🛡️ R-2: CDP 신호 제거 — setTimeout 사용
         await new Promise(r => setTimeout(r, 800));
 
-        // Step B: batchGenerateImages 응답을 미리 대기 등록
-        const responsePromise: Promise<any> = page.waitForResponse(
+        // Step B: 생성 성공 신호를 미리 대기 등록
+        // Flow UI는 2026-06 현재 batchGenerateImages 응답을 노출하지 않고
+        // media.getMediaUrlRedirect 4개를 반환해 화면에 이미지를 뿌리는 경우가 많다.
+        const baselineImageUrls: string[] = await collectFlowImageUrls(page).catch((): string[] => []);
+        const batchResponsePromise: Promise<FlowGenerationSignal> = page.waitForResponse(
           (res: any) => res.url().includes(BATCH_GENERATE_URL_MARKER) && res.status() === 200,
           { timeout: GENERATION_TIMEOUT_MS },
-        );
+        ).then((response: any) => ({ kind: 'batch' as const, response }));
+        const mediaRedirectPromise: Promise<FlowGenerationSignal> = page.waitForResponse(
+          (res: any) => res.url().includes(MEDIA_REDIRECT_URL_MARKER) && [200, 302, 303, 307, 308].includes(res.status()),
+          { timeout: GENERATION_TIMEOUT_MS },
+        ).then(async (response: any) => ({
+          kind: 'media' as const,
+          response,
+          fifeUrl: await getRedirectLocation(response),
+        }));
+        const domImagePromise: Promise<FlowGenerationSignal> = waitForNewFlowImageUrl(page, baselineImageUrls, GENERATION_TIMEOUT_MS)
+          .then((fifeUrl: string) => ({ kind: 'dom' as const, fifeUrl }));
 
         // Step C: arrow_forward 아이콘이 있는 버튼(생성) 클릭
         const generateBtn = page.locator('button').filter({
@@ -203,43 +236,42 @@ export async function makeFlowImage(
         // Step D: 응답 대기
         console.log(`[FLOW] ⏳ 응답 대기 중 (최대 ${GENERATION_TIMEOUT_MS / 1000}s)...`);
         onLog?.(`⏳ [FLOW] 이미지 생성 응답 대기 중...`);
-        const response = await responsePromise;
+        const generated = await firstFulfilled<FlowGenerationSignal>([
+          batchResponsePromise,
+          mediaRedirectPromise,
+          domImagePromise,
+        ]);
 
-        // Step E: 응답 파싱
-        let data: any;
-        try {
-          data = await response.json();
-        } catch (parseErr) {
-          const text = await response.text().catch(() => '');
-          throw new Error(`FLOW_RESPONSE_PARSE: ${text.substring(0, 300)}`);
+        // Step E: 응답 파싱 또는 redirect/DOM 이미지 URL 확보
+        let fifeUrl: string | undefined;
+        let modelUsed: string | undefined;
+        if (generated.kind === 'batch') {
+          let data: any;
+          try {
+            data = await generated.response.json();
+          } catch (parseErr) {
+            const text = await generated.response.text().catch(() => '');
+            throw new Error(`FLOW_RESPONSE_PARSE: ${text.substring(0, 300)}`);
+          }
+          const gen = data?.media?.[0]?.image?.generatedImage;
+          fifeUrl = gen?.fifeUrl;
+          modelUsed = gen?.modelNameType;
+        } else {
+          fifeUrl = generated.fifeUrl;
+          modelUsed = 'Flow';
         }
 
-        const gen = data?.media?.[0]?.image?.generatedImage;
-        const fifeUrl: string | undefined = gen?.fifeUrl;
-        const modelUsed: string | undefined = gen?.modelNameType;
         if (!fifeUrl) {
-          throw new Error(`FLOW_NO_FIFEURL: ${JSON.stringify(data).substring(0, 300)}`);
+          const latest: string[] = await collectFlowImageUrls(page).catch((): string[] => []);
+          fifeUrl = latest.find((url: string) => !baselineImageUrls.includes(url)) || latest[0];
+        }
+        if (!fifeUrl) {
+          throw new Error(`FLOW_NO_IMAGE_URL: 생성 이미지는 화면에 표시되었지만 다운로드 URL을 찾지 못했습니다.`);
         }
 
         // Step F: fifeUrl 에서 이미지 다운로드
         console.log(`[FLOW] 📥 이미지 다운로드: ${fifeUrl.substring(0, 80)}...`);
-        const downloadResult = await page.evaluate(async (url: string) => {
-          try {
-            const r = await fetch(url);
-            if (!r.ok) return { error: `HTTP_${r.status}` };
-            const buf = await r.arrayBuffer();
-            const bytes = new Uint8Array(buf);
-            let binary = '';
-            for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i] as number);
-            return {
-              success: true,
-              base64: btoa(binary),
-              contentType: r.headers.get('content-type') || 'image/png',
-            };
-          } catch (e: any) {
-            return { error: 'EXCEPTION', detail: e.message };
-          }
-        }, fifeUrl);
+        const downloadResult = await downloadFlowImage(page, fifeUrl);
 
         if (!(downloadResult as any).success) {
           throw new Error(`FLOW_DOWNLOAD_FAIL: ${(downloadResult as any).error || 'unknown'}`);
@@ -392,6 +424,104 @@ async function ensureFlowProject(page: any, onLog?: (msg: string) => void): Prom
   console.log(`[FLOW] ✅ 프로젝트 생성: ${projectId}`);
   onLog?.(`✅ [FLOW] 프로젝트 준비 완료`);
   return projectId;
+}
+
+async function getRedirectLocation(response: any): Promise<string | undefined> {
+  try {
+    const headers = await response.headers();
+    const raw = headers?.location || headers?.Location;
+    if (!raw) return undefined;
+    try {
+      return new URL(raw, 'https://labs.google').toString();
+    } catch {
+      return String(raw);
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+async function collectFlowImageUrls(page: any): Promise<string[]> {
+  const urls = await page.evaluate(() => {
+    const isGeneratedImage = (src: string) =>
+      !!src &&
+      (
+        src.startsWith('blob:') ||
+        src.startsWith('data:image/') ||
+        src.includes('googleusercontent.com') ||
+        src.includes('ggpht.com') ||
+        src.includes('media.getMediaUrlRedirect')
+      );
+    return Array.from(document.images)
+      .map((img: HTMLImageElement) => img.currentSrc || img.src || '')
+      .filter(isGeneratedImage);
+  });
+  return Array.from(new Set((urls as string[]).filter(Boolean)));
+}
+
+async function waitForNewFlowImageUrl(page: any, baselineUrls: string[], timeoutMs: number): Promise<string> {
+  const baseline = new Set(baselineUrls);
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const urls = await collectFlowImageUrls(page).catch(() => []);
+    const fresh = urls.find((url: string) => !baseline.has(url));
+    if (fresh) return fresh;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  throw new Error('FLOW_DOM_IMAGE_TIMEOUT: 생성된 이미지 URL을 화면에서 찾지 못했습니다.');
+}
+
+function firstFulfilled<T>(promises: Array<Promise<T>>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const errors: string[] = [];
+    let rejected = 0;
+    for (const promise of promises) {
+      promise.then(resolve).catch((err: any) => {
+        rejected += 1;
+        errors.push(err?.message || String(err));
+        if (rejected === promises.length) {
+          reject(new Error(`FLOW_GENERATION_TIMEOUT: ${errors.join(' | ')}`));
+        }
+      });
+    }
+  });
+}
+
+async function downloadFlowImage(page: any, url: string): Promise<{ success?: boolean; base64?: string; contentType?: string; error?: string; detail?: string }> {
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      const response = await page.context().request.get(url, { timeout: 45000 });
+      if (response.ok()) {
+        const buffer = await response.body();
+        const headers = response.headers();
+        return {
+          success: true,
+          base64: buffer.toString('base64'),
+          contentType: headers['content-type'] || 'image/png',
+        };
+      }
+    } catch {
+      // Browser fetch fallback below can still succeed for signed/redirected media URLs.
+    }
+  }
+
+  return await page.evaluate(async (targetUrl: string) => {
+    try {
+      const r = await fetch(targetUrl);
+      if (!r.ok) return { error: `HTTP_${r.status}` };
+      const buf = await r.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i] as number);
+      return {
+        success: true,
+        base64: btoa(binary),
+        contentType: r.headers.get('content-type') || 'image/png',
+      };
+    } catch (e: any) {
+      return { error: 'EXCEPTION', detail: e.message };
+    }
+  }, url);
 }
 
 function sanitizeFlowPrompt(prompt: string): string {

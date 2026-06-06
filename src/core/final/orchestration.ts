@@ -276,7 +276,7 @@ export async function generateUltimateMaxModeArticleFinal(
 
   // 🛡️ S-1 (v3.5.84): H2 섹션 이미지 엔진 엄격 모드 — 사용자 요청
   //   ON: 폴백 차단 — 선택한 엔진만 시도, 실패 시 자동 우회 가능한 에러만 우회, 우회 불가 시 발행 차단
-  //   OFF (기본): 기존 폴백 체인 유지 (nanobanana → imagefx → flow → deepinfra)
+  //   OFF (기본): 기존 폴백 체인 유지 (nanobanana → flow → deepinfra)
   process.env['STRICT_H2_IMAGE_ENGINE'] = payload?.strictH2ImageEngine === true ? 'true' : 'false';
 
   // 🛡️ S-3 (v3.5.84): 글 단위 Flow 차단 플래그 reset (5분 쿨다운 만료 전이라도 강제 해제)
@@ -414,9 +414,9 @@ export async function generateUltimateMaxModeArticleFinal(
   const fastMode = payload.fastMode === true || payload.skipImages === true;
   const skipImages = payload.skipImages === true;
 
-  // 🔥 이미지 소스 설정 - ImageFX 기본값!
+  // 🔥 이미지 소스 설정 - 안정 기본값
   const rawImageSource = payload.h2ImageSource || payload.h2Images?.source || '';
-  const imageSource = rawImageSource || 'imagefx'; // 기본값: ImageFX
+  const imageSource = rawImageSource || 'nanobanana2';
 
   console.log('[ULTIMATE] 🎯 이미지 소스 설정:');
   console.log('[ULTIMATE]    - payload.h2ImageSource:', payload.h2ImageSource);
@@ -485,7 +485,7 @@ export async function generateUltimateMaxModeArticleFinal(
 
         // 썸네일 생성 — 🎯 사용자 선택 엔진 사용 (dispatcher 경유)
         let thumbnailUrl = '';
-        const urlThumbnailSource = payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'imagefx';
+        const urlThumbnailSource = payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'nanobanana2';
         const urlThumbnailDisabled = urlThumbnailSource === 'none' || urlThumbnailSource === 'skip';
         if (!skipImages && !urlThumbnailDisabled) {
           onLog?.(`[PROGRESS] 92% - 🖼️ 썸네일 생성 중 (${urlThumbnailSource})...`);
@@ -1424,7 +1424,7 @@ export async function generateUltimateMaxModeArticleFinal(
       //   여기서는 기존 Promise.allSettled 구조를 유지해 진행률/결과 순서를 보존하되,
       //   실제 엔진 호출은 큐 안에서 겹치지 않는다.
       const strictMode = String(process.env['STRICT_H2_IMAGE_ENGINE'] || '').toLowerCase() === 'true';
-      const RECAPTCHA_ENGINES = new Set(['imagefx', 'flow']);
+      const RECAPTCHA_ENGINES = new Set(['flow']);
       const DROPSHOT_ENGINES = new Set(['dropshot', 'dropshot-nanobanana-pro']);
       const needsSequential = DROPSHOT_ENGINES.has(imageSourceKey) || (strictMode && RECAPTCHA_ENGINES.has(imageSourceKey));
       let imageResults: PromiseSettledResult<{ dataUrl: string; source: string }>[];
@@ -1996,8 +1996,8 @@ ${conclusionHTML}
     // 🖼️ 썸네일 생성 - 수집 이미지 우선, 그 다음 나노 바나나 프로 또는 SVG
     let thumbnailUrl = '';
 
-    // 🔥 thumbnailSource: 사용자 선택 값 (imagefx, nanobananapro, dalle, text 등)
-    const thumbnailSource = payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'imagefx';
+    // 🔥 thumbnailSource: 사용자 선택 값 (flow, nanobananapro, dalle, text 등)
+    const thumbnailSource = payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'nanobanana2';
     const thumbnailDisabled = thumbnailSource === 'none' || thumbnailSource === 'skip';
 
     // 🛡️ 사용자가 특정 AI 엔진을 명시 선택했는지 — auto/default가 아니고 'crawled'·'custom' 류도 아닌 경우

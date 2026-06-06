@@ -896,7 +896,7 @@ async function spiderHandleImageFxCheckLogin() {
   status.textContent = '⏳ 확인 중...';
   status.style.color = 'rgba(255,255,255,0.6)';
   try {
-    const r = await window.electronAPI?.invoke?.('imagefx:check-login');
+    const r = await window.electronAPI?.invoke?.('flow:check-login');
     if (r?.loggedIn) {
       status.textContent = `✅ 로그인됨${r.userEmail ? ' — ' + r.userEmail : ''}`;
       status.style.color = '#86efac';
@@ -2030,7 +2030,7 @@ async function generateAndPublishSpiderWeb() {
 
     // v3.8.13: 발행 시작 전 엔진별 사전 로그인 확인 (dropshot/imagefx 자동 로그인 대기 방지)
     //   - dropshot 계열: dropshot:check-login으로 미로그인 확인 → 미로그인이면 안내 + 중단
-    //   - imagefx/flow: imagefx:check-login으로 확인 → 미로그인이면 안내 + 중단
+    //   - flow: flow:check-login으로 확인 → 미로그인이면 안내 + 중단
     const _swEngineNeedsLogin = async () => {
       const thumbEng = (document.getElementById('swThumbnailEngine')?.value || '').toLowerCase();
       const h2Eng = (document.getElementById('swH2ImageEngine')?.value || '').toLowerCase();
@@ -2047,9 +2047,9 @@ async function generateAndPublishSpiderWeb() {
       }
       if (usesImagefx && window.electronAPI?.invoke) {
         try {
-          const r = await window.electronAPI.invoke('imagefx:check-login');
+          const r = await window.electronAPI.invoke('flow:check-login');
           if (!r?.loggedIn) {
-            issues.push({ engine: 'ImageFX/Flow', reason: r?.message || '로그인 필요', action: '거미줄 Step 03 카드의 [🔑 Google 로그인] 버튼 클릭 후 Google 계정 로그인' });
+            issues.push({ engine: 'Flow', reason: r?.message || '로그인 필요', action: '거미줄 Step 03 카드의 [🔑 Google 로그인] 버튼 클릭 후 Google 계정 로그인' });
           }
         } catch (e) { /* 무시 */ }
       }

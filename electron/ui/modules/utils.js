@@ -79,7 +79,7 @@ export function getH2ImageSections() {
   const source = selectEl?.value
     || h2Radio?.value
     || semiAutoRadio?.value
-    || 'imagefx';
+    || 'nanobanana2';
 
   return {
     source: source,

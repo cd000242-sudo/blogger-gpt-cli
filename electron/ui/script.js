@@ -1819,11 +1819,11 @@ window.refreshImageFxLoginStatus = async function () {
   if (loginBtn) loginBtn.style.display = 'none';
 
   try {
-    const result = await window.electronAPI?.invoke?.('imagefx:check-login');
+    const result = await window.electronAPI?.invoke?.('flow:check-login');
     if (!result || !result.loggedIn) {
       if (icon) icon.textContent = '🔐';
       if (title) title.textContent = 'Google 로그인 필요 — 브라우저 자동 열림';
-      if (sub) sub.textContent = result?.message || 'ImageFX/Flow는 Google 계정 로그인이 필요합니다. 브라우저 창이 곧 자동으로 열립니다.';
+      if (sub) sub.textContent = result?.message || 'Flow는 Google 계정 로그인이 필요합니다. 브라우저 창이 곧 자동으로 열립니다.';
       if (loginBtn) loginBtn.style.display = 'inline-block';
       // 자동 visible 로그인 trigger (1회만)
       if (!window.__imagefxAutoLoginTried) {
@@ -1833,7 +1833,7 @@ window.refreshImageFxLoginStatus = async function () {
       return;
     }
     if (icon) icon.textContent = '✅';
-    if (title) title.textContent = `Google 로그인 완료 — ImageFX/Flow 사용 가능`;
+    if (title) title.textContent = `Google 로그인 완료 — Flow 사용 가능`;
     if (sub) sub.textContent = `${result.userName || result.email || '확인됨'} · 무료 (AI Pro 구독 시 Flow의 nano-banana-pro 무제한)`;
     if (loginBtn) loginBtn.style.display = 'none';
   } catch (e) {
@@ -1848,7 +1848,7 @@ window.runImageFxLogin = async function () {
   const btn = document.getElementById('batchImageFxLoginBtn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 브라우저 열림...'; }
   try {
-    const result = await window.electronAPI?.invoke?.('imagefx:login');
+    const result = await window.electronAPI?.invoke?.('flow:login');
     if (result?.loggedIn) {
       alert('Google 로그인 완료! ' + (result.userName ? '(' + result.userName + ')' : ''));
       window.refreshImageFxLoginStatus?.();
@@ -6697,7 +6697,8 @@ async function handleImageFxCheckLogin() {
     }
 
     const api = window.blogger || window.electronAPI;
-    if (!api || !api.imagefxCheckLogin) {
+    const checkLogin = api?.flowCheckLogin || api?.imagefxCheckLogin;
+    if (!checkLogin) {
       if (statusEl) {
         statusEl.textContent = '❌ API를 사용할 수 없습니다. 앱을 재시작해주세요.';
         statusEl.style.color = '#ef4444';
@@ -6705,7 +6706,7 @@ async function handleImageFxCheckLogin() {
       return;
     }
 
-    const result = await api.imagefxCheckLogin();
+    const result = await checkLogin();
     console.log('[ImageFX] 로그인 확인 결과:', result);
 
     if (statusEl) {
@@ -6754,7 +6755,8 @@ async function handleImageFxLogin() {
     }
 
     const api = window.blogger || window.electronAPI;
-    if (!api || !api.imagefxLogin) {
+    const login = api?.flowLogin || api?.imagefxLogin;
+    if (!login) {
       if (statusEl) {
         statusEl.textContent = '❌ API를 사용할 수 없습니다. 앱을 재시작해주세요.';
         statusEl.style.color = '#ef4444';
@@ -6762,7 +6764,7 @@ async function handleImageFxLogin() {
       return;
     }
 
-    const result = await api.imagefxLogin();
+    const result = await login();
     console.log('[ImageFX] 로그인 결과:', result);
 
     if (statusEl) {

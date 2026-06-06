@@ -1806,7 +1806,7 @@
                     </thead>
                     <tbody>
                       <tr style="border-bottom: 1px solid rgba(255,255,255,0.06);">
-                        <td style="padding: 10px 8px;">🎨 ImageFX</td>
+                        <td style="padding: 10px 8px;">🌊 Flow</td>
                         <td style="padding: 10px 8px; text-align: right; color: #34d399; font-weight: 700;">무료</td>
                         <td style="padding: 10px 8px; text-align: right; color: #34d399; font-weight: 700;">0원</td>
                         <td style="padding: 10px 8px; text-align: center; color: #fca5a5;">❌ 매우 약함</td>
@@ -1898,7 +1898,7 @@
                 <div style="padding: 16px 18px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); border-radius: 12px; margin-bottom: 12px;">
                   <div style="color: #93c5fd; font-size: 13px; font-weight: 700; margin-bottom: 8px;">💡 어떤 엔진을 골라야 할까?</div>
                   <ul style="margin: 0; padding-left: 20px; color: rgba(255,255,255,0.75); font-size: 12px; line-height: 1.8;">
-                    <li style="color:#fca5a5;"><b>※ ImageFX / Flow 제거됨</b> — 브라우저 자동화는 reCAPTCHA로 자주 실패해 신뢰성이 없어 v3.6.0에서 삭제했습니다. 전부 공식 API 엔진으로 전환.</li>
+                    <li style="color:#bfdbfe;"><b>※ Flow 순차 생성 지원</b> — 브라우저 기반 엔진은 겹치지 않도록 1장씩 순차 처리합니다.</li>
                     <li><b>유료 최저가 (한글 텍스트 불필요)</b> → <b>🚀 Prodia FLUX schnell</b> ($0.001/장 ≈ 1글 8원, 2~4초) — 가성비 챔피언</li>
                     <li><b>최저가 + 한글 텍스트 필요</b> → <b>GPT 이미지 1 · low</b> ($0.011/장 ≈ 1글 90원)</li>
                     <li><b>고품질 + 한글 텍스트 없는 글</b> → <b>DeepInfra FLUX-2-dev</b> ($0.012/장 ≈ 100원) — 디테일 우수</li>
@@ -1930,7 +1930,7 @@
                         <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); background: rgba(34,197,94,0.12);">
                           <td style="padding: 10px 8px;"><b style="color:#6ee7b7;">🥇 최저가</b></td>
                           <td style="padding: 10px 8px;">Gemini Flash-Lite</td>
-                          <td style="padding: 10px 8px;">ImageFX (무료)</td>
+                          <td style="padding: 10px 8px;">Flow (Google Labs)</td>
                           <td style="padding: 10px 8px; text-align: right; color:#6ee7b7; font-weight:800;">≈15원</td>
                           <td style="padding: 10px 8px; text-align: right; color:#6ee7b7; font-weight:800;">≈1,500원</td>
                           <td style="padding: 10px 8px; color:rgba(255,255,255,0.7);">대량 발행, 비용 절대 최소</td>
@@ -3043,7 +3043,7 @@
                       <option value="prodia" style="background:#0f172a;">🚀 Prodia FLUX schnell (⭐ 최저가)</option>
                       <option value="deepinfra" style="background:#0f172a;">🔥 DeepInfra FLUX-2 (고품질)</option>
                       <option value="leonardo" style="background:#0f172a;">🦁 Leonardo.ai</option>
-                      <option value="imagefx" style="background:#0f172a;">🎨 Google ImageFX</option>
+                      <option value="flow" style="background:#0f172a;">🌊 Flow (Google Labs)</option>
                     </select>
                   </div>
 
@@ -4121,9 +4121,9 @@
                         ⚠️ 단, AI 1차 생성이 부실하면 본문 길이/품질이 다소 떨어질 수 있습니다.
                       </small>
                     </div>
-                    <!-- v3.7.7: ImageFX/Flow 로그인 카드 — 해당 엔진 선택 시만 표시 -->
+                    <!-- v3.7.7: Flow 로그인 카드 — 해당 엔진 선택 시만 표시 -->
                     <div class="acc-field" id="imagefxLoginCardWrap" style="display: none;">
-                      <label class="acc-label">🔐 ImageFX/Flow Google 로그인</label>
+                      <label class="acc-label">🔐 Flow Google 로그인</label>
                       <div style="display: flex; gap: 8px; align-items: center;">
                         <button id="imagefxLoginBtn" type="button" onclick="handleImageFxLogin()"
                           style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #4285f4, #34a853); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.3s ease;">
@@ -4134,7 +4134,7 @@
                           확인
                         </button>
                       </div>
-                      <small id="imagefxLoginStatus" style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 ImageFX/Flow 사용 전 Google 계정으로 로그인해주세요</small>
+                      <small id="imagefxLoginStatus" style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 Flow 사용 전 Google 계정으로 로그인해주세요</small>
                       <!-- v3.5.92: 봇 회피 모드 (브라우저 창 보이게) -->
                       <div style="margin-top: 12px; padding: 10px 12px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.3); border-radius: 8px;">
                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
@@ -4142,7 +4142,7 @@
                           <span style="color:#fcd34d; font-size:12px; font-weight:700;">🖥️ 봇 회피 모드 — 브라우저 창 항상 보이게</span>
                         </label>
                         <small style="display:block; margin-top:6px; color:rgba(255,255,255,0.55); font-size:11px; line-height:1.5;">
-                          💡 ON 시 ImageFX/Flow 작업 중 Chrome 창이 화면에 표시됩니다.<br>
+                          💡 ON 시 Flow 작업 중 Chrome 창이 화면에 표시됩니다.<br>
                           reCAPTCHA가 visible 브라우저를 정상 사용자로 평가(점수 0.7+)해서 403 차단을 회피합니다.<br>
                           단, 작업 중에는 창을 닫지 마세요 (작업 끝나면 자동 닫힘).
                         </small>
@@ -4612,7 +4612,7 @@
                   </label>
                   <input type="text" id="dalleApiKey" class="form-input" placeholder="(비활성화) OpenAI 이미지 라우트 — DALL·E 2/3 2026-05-12 EOL + GPT Image 시리즈 신분증 인증 필수"
                     style="background: rgba(255, 255, 255, 0.05); border: 2px solid rgba(255, 255, 255, 0.15); color: rgba(255,255,255,0.5); backdrop-filter: blur(10px);" disabled>
-                  <small class="form-text" style="color: rgba(255, 255, 255, 0.5);">⚠️ OpenAI 이미지 라우트 비활성화: DALL·E 2/3는 2026-05-12 폐지, gpt-image-1 / 1-mini / 1.5 / 2 모두 OpenAI 신분증(정부 발급 ID) 인증 필수. 인증 진행 시 별도 안내 예정. 그 사이 🍌 나노바나나2 / 🎨 ImageFX / 🌊 Flow 사용 권장.</small>
+                  <small class="form-text" style="color: rgba(255, 255, 255, 0.5);">⚠️ OpenAI 이미지 라우트 비활성화: DALL·E 2/3는 2026-05-12 폐지, gpt-image-1 / 1-mini / 1.5 / 2 모두 OpenAI 신분증(정부 발급 ID) 인증 필수. 인증 진행 시 별도 안내 예정. 그 사이 🍌 나노바나나2 / 🌊 Flow 사용 권장.</small>
                 </div>
 
                 <div class="form-group">
@@ -4964,10 +4964,10 @@
                   🖼️ 이미지 소스 선택
                 </label>
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
-                  <button onclick="setSemiAutoImageSource('imagefx')" id="semiAutoImageFxBtn"
+                  <button onclick="setSemiAutoImageSource('flow')" id="semiAutoFlowBtn"
                     class="semi-auto-image-source-btn active"
                     style="padding: 12px 16px; background: rgba(99, 102, 241, 0.3); border: 2px solid #6366f1; border-radius: 10px; color: white; font-weight: 700; cursor: pointer; transition: all 0.3s ease;">
-                    🎨 이미지 FX <span
+                    🌊 Flow <span
                       style="font-size: 10px; background: #6366f1; color: white; padding: 2px 6px; border-radius: 4px; margin-left: 4px;">기본</span>
                   </button>
                   <button onclick="setSemiAutoImageSource('nanobanana')" id="semiAutoNanoBananaBtn"
@@ -5260,9 +5260,9 @@
               </label>
             </div>
 
-            <!-- v3.8.7: ImageFX/Flow Google 로그인 카드 (해당 엔진 선택 시만 표시) -->
+            <!-- v3.8.7: Flow Google 로그인 카드 (해당 엔진 선택 시만 표시) -->
             <div id="swImagefxLoginCard" style="display: none; margin-top: 12px; padding: 12px; background: rgba(66,133,244,0.08); border: 1px solid rgba(66,133,244,0.35); border-radius: 10px;">
-              <label style="color: white; font-size: 12px; font-weight: 800; display: block; margin-bottom: 8px;">🔐 ImageFX/Flow Google 로그인</label>
+              <label style="color: white; font-size: 12px; font-weight: 800; display: block; margin-bottom: 8px;">🔐 Flow Google 로그인</label>
               <div style="display: flex; gap: 8px; align-items: center;">
                 <button type="button" onclick="window.handleImageFxLogin && window.handleImageFxLogin()"
                   style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #4285f4, #34a853); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
@@ -5273,7 +5273,7 @@
                   확인
                 </button>
               </div>
-              <small id="swImagefxLoginStatus" style="color: rgba(255,255,255,0.55); font-size: 11px; margin-top: 6px; display: block;">💡 ImageFX/Flow 사용 전 Google 계정으로 로그인해주세요</small>
+              <small id="swImagefxLoginStatus" style="color: rgba(255,255,255,0.55); font-size: 11px; margin-top: 6px; display: block;">💡 Flow 사용 전 Google 계정으로 로그인해주세요</small>
             </div>
 
             <!-- v3.8.7: 리더스 나노바나나 무제한 로그인 카드 (해당 엔진 선택 시만 표시) -->
@@ -5618,7 +5618,6 @@
                 <option value="gptimage2">🎯 GPT 이미지 2 / 덕테이프 (gpt-image-2)</option>
                 <option value="prodia">🚀 Prodia FLUX schnell (⭐ 최저가 ≈$0.001/장)</option>
                 <option value="deepinfra">🔥 DeepInfra FLUX-2 (고품질 ≈$0.012/장)</option>
-                <option value="imagefx">🎨 ImageFX (무료 · Google 로그인)</option>
                 <option value="flow">🌊 Flow (무료* · AI Pro 구독)</option>
                 <option value="dropshot-nanobanana-pro">🍌 Dropshot 나노바나나 Pro (Pro 구독자 무제한 · 구독료별 · UI 자동화)</option>
               </select>
@@ -5628,7 +5627,7 @@
                 <div id="batchKoreanCompatBody"></div>
               </div>
 
-              <!-- v3.7.2: ImageFX/Flow 선택 시 Google 로그인 상태 카드 -->
+              <!-- v3.7.2: Flow 선택 시 Google 로그인 상태 카드 -->
               <div id="batchImageFxStatusCard" style="display: none; margin-top: 12px; padding: 14px; background: linear-gradient(135deg, rgba(59,130,246,0.12), rgba(99,102,241,0.08)); border: 1px solid rgba(59,130,246,0.4); border-radius: 10px;">
                 <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
                   <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;">
@@ -6742,11 +6741,12 @@
             <div>
               <label style="display: block; color: rgba(255,255,255,0.6); font-size: 11px; margin-bottom: 4px;">이미지 소스</label>
               <select onchange="updateMultiAccountSetting('${account.id}', 'imageSource', this.value)" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 13px;">
-                <option value="nanobanana2" ${(!account.settings.imageSource || account.settings.imageSource === 'nanobanana2' || account.settings.imageSource === 'imagefx' || account.settings.imageSource === 'flow') ? 'selected' : ''}>🍌 나노바나나2 (Gemini 3.1 · 권장)</option>
+                <option value="nanobanana2" ${(!account.settings.imageSource || account.settings.imageSource === 'nanobanana2') ? 'selected' : ''}>🍌 나노바나나2 (Gemini 3.1 · 권장)</option>
                 <option value="nanobanana" ${account.settings.imageSource === 'nanobanana' ? 'selected' : ''}>🍌 나노바나나 (Gemini 2.5 · 저비용)</option>
                 <option value="dropshot-nanobanana-pro" ${account.settings.imageSource === 'dropshot-nanobanana-pro' ? 'selected' : ''}>🍌 리더스 나노바나나 무제한 (구독자 무제한)</option>
                 <option value="prodia" ${account.settings.imageSource === 'prodia' ? 'selected' : ''}>🚀 Prodia (유료 최저가)</option>
                 <option value="deepinfra" ${account.settings.imageSource === 'deepinfra' ? 'selected' : ''}>🔥 DeepInfra FLUX-2</option>
+                <option value="flow" ${(account.settings.imageSource === 'flow' || account.settings.imageSource === 'imagefx') ? 'selected' : ''}>🌊 Flow (Google Labs)</option>
                 <option value="crawled" ${account.settings.imageSource === 'crawled' ? 'selected' : ''}>🔗 URL 수집 이미지</option>
                 <option value="none" ${account.settings.imageSource === 'none' ? 'selected' : ''}>❌ 이미지 없음</option>
               </select>

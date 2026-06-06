@@ -323,6 +323,8 @@ export type BloggerApi = {
   adspowerAutoInstall(): Promise<{ ok: boolean; error?: string }>;
 
   /** 🔐 ImageFX Google 로그인 */
+  flowCheckLogin(): Promise<{ loggedIn: boolean; userName?: string; message: string }>;
+  flowLogin(): Promise<{ loggedIn: boolean; userName?: string; message: string }>;
   imagefxCheckLogin(): Promise<{ loggedIn: boolean; userName?: string; message: string }>;
   imagefxLogin(): Promise<{ loggedIn: boolean; userName?: string; message: string }>;
 
@@ -661,6 +663,8 @@ const api: BloggerApi = {
   adspowerAutoInstall: () => ipcRenderer.invoke('adspower:auto-install'),
 
   // 🔐 ImageFX Google 로그인
+  flowCheckLogin: () => ipcRenderer.invoke('flow:check-login'),
+  flowLogin: () => ipcRenderer.invoke('flow:login'),
   imagefxCheckLogin: () => ipcRenderer.invoke('imagefx:check-login'),
   imagefxLogin: () => ipcRenderer.invoke('imagefx:login'),
 

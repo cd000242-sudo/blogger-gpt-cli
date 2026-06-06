@@ -3218,9 +3218,9 @@ electron_1.ipcMain.handle('run-multi-account-post', async (_evt, payload) => {
             provider: 'gemini',
             geminiKey: geminiKey,
             publishType: 'now',
-            thumbnailMode: payload.imageSource || 'imagefx',
-            thumbnailType: payload.imageSource || 'imagefx',
-            thumbnailSource: payload.imageSource || 'imagefx',
+            thumbnailMode: payload.imageSource || 'nanobanana2',
+            thumbnailType: payload.imageSource || 'nanobanana2',
+            thumbnailSource: payload.imageSource || 'nanobanana2',
             h2ImageSource: payload.imageSource,
             toneStyle: payload.toneStyle || 'professional',
             contentMode: payload.contentMode || 'external',
@@ -4259,7 +4259,7 @@ electron_1.ipcMain.handle('make-thumb', async (_evt, payload) => {
     try {
         // 🎯 사용자 선택 엔진 → dispatcher 경유 (silent override 방지)
         const { dispatchThumbnailGeneration } = require('../dist/core/imageDispatcher');
-        const source = payload.source || payload.thumbnailSource || payload.mode || 'imagefx';
+        const source = payload.source || payload.thumbnailSource || payload.mode || 'nanobanana2';
         const result = await dispatchThumbnailGeneration(source, payload.topic || payload.title || '', payload.keyword || payload.topic || '');
         if (result.ok) {
             return { ok: true, thumbnailUrl: result.dataUrl, source: result.source };
@@ -6354,29 +6354,33 @@ try {
 catch (e) {
     console.error('[APP] 원클릭 세팅 IPC 핸들러 등록 실패:', e);
 }
-// 🖼️ ImageFX Google 로그인 IPC 핸들러
+// Flow Google 로그인 IPC 핸들러 (imagefx:*는 기존 저장/렌더러 호환용 alias)
 try {
     const { checkGoogleLoginForImageFx, loginGoogleForImageFx } = require('../dist/core/imageFxGenerator');
-    electron_1.ipcMain.handle('imagefx:check-login', async () => {
+    const checkFlowLogin = async () => {
         try {
             return await checkGoogleLoginForImageFx();
         }
         catch (e) {
-            return { loggedIn: false, message: e.message || 'ImageFX 로그인 확인 실패' };
+            return { loggedIn: false, message: e.message || 'Flow 로그인 확인 실패' };
         }
-    });
-    electron_1.ipcMain.handle('imagefx:login', async () => {
+    };
+    const loginFlow = async () => {
         try {
             return await loginGoogleForImageFx();
         }
         catch (e) {
-            return { loggedIn: false, message: e.message || 'ImageFX 로그인 실패' };
+            return { loggedIn: false, message: e.message || 'Flow 로그인 실패' };
         }
-    });
-    console.log('[APP] ✅ ImageFX IPC 핸들러 등록 완료');
+    };
+    electron_1.ipcMain.handle('flow:check-login', checkFlowLogin);
+    electron_1.ipcMain.handle('flow:login', loginFlow);
+    electron_1.ipcMain.handle('imagefx:check-login', checkFlowLogin);
+    electron_1.ipcMain.handle('imagefx:login', loginFlow);
+    console.log('[APP] ✅ Flow IPC 핸들러 등록 완료');
 }
 catch (e) {
-    console.warn('[APP] ⚠️ ImageFX IPC 핸들러 등록 실패 (imageFxGenerator 로드 불가):', e);
+    console.warn('[APP] ⚠️ Flow IPC 핸들러 등록 실패 (imageFxGenerator 로드 불가):', e);
 }
 // 🍌 v3.6.7: Dropshot 로그인/체크 IPC + 대량 이미지 생성 IPC
 //   main.ts에 직접 등록 (main.js만 수정 시 다음 빌드에서 덮어씌워지던 이전 버그 fix)

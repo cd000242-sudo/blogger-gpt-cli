@@ -288,6 +288,8 @@ const api = {
     adspowerDeleteProfile: (ids) => electron_1.ipcRenderer.invoke('adspower:delete-profile', ids),
     adspowerAutoInstall: () => electron_1.ipcRenderer.invoke('adspower:auto-install'),
     // 🔐 ImageFX Google 로그인
+    flowCheckLogin: () => electron_1.ipcRenderer.invoke('flow:check-login'),
+    flowLogin: () => electron_1.ipcRenderer.invoke('flow:login'),
     imagefxCheckLogin: () => electron_1.ipcRenderer.invoke('imagefx:check-login'),
     imagefxLogin: () => electron_1.ipcRenderer.invoke('imagefx:login'),
     // ── 쿼터 관리 ──

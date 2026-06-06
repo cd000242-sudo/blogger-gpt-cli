@@ -1138,14 +1138,14 @@ window.generateSemiAutoContent = async function () {
     manualCrawlUrls.forEach((url, i) => console.log(`   ${i + 1}. ${url}`));
 
     // 🖼️ H2 이미지 설정 가져오기 — dispatcher가 인식하는 엔진명 사용
-    const h2ImageSettings = window.getH2ImageSections ? window.getH2ImageSections() : { source: 'imagefx', sections: [] };
+    const h2ImageSettings = window.getH2ImageSections ? window.getH2ImageSections() : { source: 'nanobanana2', sections: [] };
     console.log('[SEMI-AUTO] 🖼️ H2 이미지 설정:', h2ImageSettings);
-    const resolvedImageSource = h2ImageSettings.source || 'imagefx';
+    const resolvedImageSource = h2ImageSettings.source || 'nanobanana2';
 
     // 📸 썸네일 엔진: 독립 #thumbnailType select 값 사용 (H2 이미지 엔진과 분리)
     const resolvedThumbnailSource = document.getElementById('thumbnailType')?.value
       || resolvedImageSource
-      || 'imagefx';
+      || 'nanobanana2';
     console.log('[SEMI-AUTO] 📸 썸네일 엔진:', resolvedThumbnailSource);
 
     const payload = {

@@ -50,6 +50,7 @@ export const SUPPORTED_IMAGE_ENGINES = [
   'deepinfra',
   'leonardo',
   'dropshot-nanobanana-pro', // v3.6.0: Dropshot UI 자동화 (Pro 구독자 무제한)
+  'flow',
   'crawled',
   'text',
   'svg',
@@ -96,15 +97,15 @@ export function normalizeImageEngine(raw: string | undefined | null): ImageEngin
     'openai': 'gptimage1',
     'dalle': 'gptimage1',
     // 🎯 v3.6.0 제거 엔진 — 레거시 값 graceful redirect → 신뢰성 메인
-    'imagefx': 'nanobanana2',
-    'flow': 'nanobanana2',
+    'imagefx': 'flow',
+    'flow': 'flow',
     'leonardo': 'leonardo',
     'leonardoai': 'leonardo',
     'leonardo-ai': 'leonardo',
     'pollinations': 'nanobanana2',
-    'labs-flow': 'nanobanana2',
-    'labsflow': 'nanobanana2',
-    'googleflow': 'nanobanana2',
+    'labs-flow': 'flow',
+    'labsflow': 'flow',
+    'googleflow': 'flow',
     // v3.6.0: Dropshot 별칭
     'dropshot': 'dropshot-nanobanana-pro',
     'dropshot-nano-banana-pro': 'dropshot-nanobanana-pro',
@@ -438,6 +439,7 @@ function engineKeyAvailable(engine: string, env: Record<string, string>): boolea
     // v3.6.0: Dropshot (UI 자동화 — API 키 불필요, 계정 로그인 기반)
     case 'dropshot-nanobanana-pro':
     case 'dropshot':
+    case 'flow':
       return true;
     default:
       return false;
@@ -730,10 +732,10 @@ export async function dispatchThumbnailGeneration(
 
   // text/svg 모드 → 더 이상 지원하지 않음 (SVG 텍스트 썸네일 폐지)
   if (thumbnailSource === 'text' || thumbnailSource === 'svg') {
-    onLog?.(`ℹ️ 'text/svg' 모드는 폐지되었습니다 — imagefx로 자동 전환합니다.`);
-    const fallback = await tryEngine('imagefx', title, keyword, env, onLog, true, undefined, extra);
+    onLog?.(`ℹ️ 'text/svg' 모드는 폐지되었습니다 — Flow로 자동 전환합니다.`);
+    const fallback = await tryEngine('flow', title, keyword, env, onLog, true, undefined, extra);
     if (fallback.ok) return fallback;
-    return { ok: false, dataUrl: '', source: '', error: 'SVG 텍스트 썸네일은 폐지되었고 imagefx 폴백도 실패했습니다.' };
+    return { ok: false, dataUrl: '', source: '', error: 'SVG 텍스트 썸네일은 폐지되었고 Flow 폴백도 실패했습니다.' };
   }
 
   // 🎯 v3.6.0: 기본값 = 보장형 폴백. 진짜 엔진 고정을 원하면 STRICT_THUMBNAIL_ENGINE=true 로 opt-in.
@@ -1066,6 +1068,29 @@ async function _tryEngineInternal(
     //   인증: 계정 로그인 (1회 후 영구 세션, ~/.blogger-gpt/dropshot-profile/)
     //   비용: Pro 구독자 무제한 / 무료 사용자 creditCost 75/장 (quota 소진 시 fail)
     //   참조: docs/IMAGE_SITE_AUTOMATION_PORTING.md
+    case 'flow': {
+      try {
+        console.log('[DISPATCH] Flow browser image engine start...');
+        const { makeFlowImage } = await import('./flowGenerator');
+        const result = await makeFlowImage(
+          inferredPrompt,
+          { aspectRatio: '16:9', isThumbnail },
+          onLog,
+        );
+        if (result.ok) {
+          return { ok: true, dataUrl: result.dataUrl, source: `Flow${result.modelUsed ? ` (${result.modelUsed})` : ''}` };
+        }
+        const detail = result.error || 'unknown';
+        console.log(`[DISPATCH] Flow failed: ${detail}`);
+        onLog?.(`Flow failed: ${String(detail).substring(0, 300)}`);
+        return { ok: false, dataUrl: '', source: '', error: `Flow failed: ${detail}` };
+      } catch (e: any) {
+        const detail = `exception: ${e?.message || e}`;
+        console.log(`[DISPATCH] Flow exception: ${detail}`);
+        return { ok: false, dataUrl: '', source: '', error: `Flow ${detail}` };
+      }
+    }
+
     case 'dropshot-nanobanana-pro':
     case 'dropshot': {
       try {
