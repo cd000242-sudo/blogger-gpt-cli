@@ -219,6 +219,7 @@ const QUEUE_LABELS = {
     gptimage2: '덕트테이프',
     prodia: 'Prodia',
     deepinfra: 'DeepInfra',
+    leonardo: 'Leonardo',
     crawled: 'URL 수집',
     none: '없음',
   },
@@ -236,6 +237,13 @@ const QUEUE_LABELS = {
     publish: '즉시 발행',
     draft: '임시 발행',
     schedule: '예약 발행',
+  },
+  h2ImageMode: {
+    all: '전체',
+    odd: '홀수만',
+    even: '짝수만',
+    'thumbnail-only': '썸네일만',
+    none: '이미지 없음',
   },
 };
 
@@ -259,6 +267,55 @@ function normalizeThumbEngine(value) {
   return raw;
 }
 
+function normalizeH2ImageMode(value) {
+  const raw = String(value || '').trim().toLowerCase().replace(/_/g, '-');
+  if (raw === 'odd-only') return 'odd';
+  if (raw === 'even-only') return 'even';
+  if (raw === 'thumbnail' || raw === 'thumbnailonly') return 'thumbnail-only';
+  if (['all', 'odd', 'even', 'thumbnail-only', 'none'].includes(raw)) return raw;
+  return 'all';
+}
+
+const PQ_INTERVAL_FLOORS = {
+  general: 5 * 60 * 1000,
+  slow: 7 * 60 * 1000,
+  browser: 8 * 60 * 1000,
+};
+
+function classifyQueueImageEngine(engine) {
+  const raw = String(engine || '').trim().toLowerCase();
+  if (!raw || raw === 'none' || raw === 'skip' || raw === 'crawled') return 'general';
+  if (/(dropshot|imagefx|image-fx|\bflow\b|labs-flow|labsflow|googleflow|browser|playwright)/i.test(raw)) return 'browser';
+  if (/(nanobanana|nano-banana|gptimage|gpt-image|deepinfra|leonardo|gemini.*image)/i.test(raw)) return 'slow';
+  return 'general';
+}
+
+function getQueueItemMinIntervalMs(item) {
+  const h2Mode = normalizeH2ImageMode(item?.h2ImageMode || 'all');
+  const engines = h2Mode === 'none'
+    ? []
+    : h2Mode === 'thumbnail-only'
+      ? [item?.thumb]
+      : [item?.thumb, item?.h2ImageSource || item?.thumb];
+  const classes = engines.map(classifyQueueImageEngine);
+  if (classes.includes('browser')) return PQ_INTERVAL_FLOORS.browser;
+  if (classes.includes('slow')) return PQ_INTERVAL_FLOORS.slow;
+  return PQ_INTERVAL_FLOORS.general;
+}
+
+function getQueueMinPublishIntervalMs(items) {
+  const list = (items && items.length ? items : STATE.keywords).filter(item => item && item.enabled !== false);
+  if (list.length === 0) return PQ_INTERVAL_FLOORS.general;
+  return Math.max(PQ_INTERVAL_FLOORS.general, ...list.map(getQueueItemMinIntervalMs));
+}
+
+function getQueueIntervalReason(items) {
+  const minMs = getQueueMinPublishIntervalMs(items);
+  if (minMs >= PQ_INTERVAL_FLOORS.browser) return '브라우저 이미지 엔진 감지: 최소 8분';
+  if (minMs >= PQ_INTERVAL_FLOORS.slow) return '느린 이미지 엔진 감지: 최소 7분';
+  return '일반 이미지 엔진 기준: 최소 5분';
+}
+
 function getCurrentH2ImageSource() {
   return normalizeThumbEngine(
     getSelectValue('h2ImageSource')
@@ -266,6 +323,12 @@ function getCurrentH2ImageSource() {
     || getSelectValue('thumbnailType')
     || 'nanobanana2'
   );
+}
+
+function getCurrentH2ImageMode() {
+  const direct = getSelectValue('h2ImageMode');
+  const swPolicy = document.querySelector('input[name="swImagePolicy"]:checked')?.value || '';
+  return normalizeH2ImageMode(direct || swPolicy || 'all');
 }
 
 function getCurrentCtaMode() {
@@ -368,6 +431,7 @@ function getCurrentQueueSnapshot() {
   const contentMode = getSelectValue('contentMode') || getSelectValue('scheduleContentMode') || 'external';
   const thumbnailMode = normalizeThumbEngine(getSelectValue('thumbnailType') || getSelectValue('scheduleThumbnailMode') || 'nanobanana2');
   const h2ImageSource = getCurrentH2ImageSource();
+  const h2ImageMode = getCurrentH2ImageMode();
   const ctaMode = getCurrentCtaMode();
   const platform = getCurrentPublishPlatform();
   const postingMode = getCurrentPostingMode();
@@ -378,6 +442,7 @@ function getCurrentQueueSnapshot() {
     contentMode,
     thumbnailMode,
     h2ImageSource,
+    h2ImageMode,
     ctaMode,
     manualCta: ctaMode === 'manual' ? getCurrentManualQueueCta() : undefined,
     platform,
@@ -402,6 +467,7 @@ function cloneQueueSnapshot(snapshot) {
     contentMode: snap.contentMode || 'external',
     thumbnailMode: normalizeThumbEngine(snap.thumbnailMode || 'nanobanana2'),
     h2ImageSource: normalizeThumbEngine(snap.h2ImageSource || snap.thumbnailMode || 'nanobanana2'),
+    h2ImageMode: normalizeH2ImageMode(snap.h2ImageMode || 'all'),
     ctaMode: snap.ctaMode || 'auto',
     manualCta: normalizeManualCta(snap.manualCta),
     platform: normalizeQueuePlatform(snap.platform || 'blogspot'),
@@ -425,6 +491,7 @@ function snapshotFromItem(item) {
     contentMode: item.mode,
     thumbnailMode: item.thumb,
     h2ImageSource: item.h2ImageSource,
+    h2ImageMode: item.h2ImageMode,
     ctaMode: item.ctaMode,
     manualCta: getItemManualCta(item),
     platform: item.platform,
@@ -456,6 +523,8 @@ function applySnapshotToItem(item, snapshot, options = {}) {
   else item.thumb = normalizeThumbEngine(item.thumb);
   if (force || !item.h2ImageSource) item.h2ImageSource = normalizeThumbEngine(snap.h2ImageSource || item.thumb);
   else item.h2ImageSource = normalizeThumbEngine(item.h2ImageSource || item.thumb);
+  if (force || !item.h2ImageMode) item.h2ImageMode = normalizeH2ImageMode(snap.h2ImageMode);
+  else item.h2ImageMode = normalizeH2ImageMode(item.h2ImageMode);
   if (force || !item.ctaMode) item.ctaMode = snap.ctaMode;
   if (item.mode === 'adsense') item.ctaMode = 'none';
   if (force) item.manualCta = normalizeManualCta(snap.manualCta);
@@ -486,6 +555,7 @@ function buildSnapshotChips(snapshot) {
     ['모드', labelOf('contentMode', snapshot.contentMode)],
     ['썸네일', labelOf('thumb', snapshot.thumbnailMode)],
     ['소제목 이미지', labelOf('thumb', snapshot.h2ImageSource)],
+    ['본문 배치', labelOf('h2ImageMode', snapshot.h2ImageMode)],
     ['CTA', labelOf('cta', snapshot.ctaMode)],
     ['섹션', `${snapshot.sectionCount}개`],
     ['팩트체크', snapshot.factCheckMode],
@@ -738,6 +808,7 @@ function buildModalHtml() {
           <option value="gptimage2">🎯 GPT 이미지 2 / 덕트테이프</option>
           <option value="prodia">🚀 Prodia (유료 최저가)</option>
           <option value="deepinfra">🔥 DeepInfra</option>
+          <option value="leonardo">🦁 Leonardo.ai</option>
           <option value="crawled">🔗 URL 수집 이미지</option>
           <option value="none">❌ 썸네일 없음</option>
         </select>
@@ -752,8 +823,17 @@ function buildModalHtml() {
           <option value="gptimage2">🎯 GPT 이미지 2 / 덕트테이프</option>
           <option value="prodia">🚀 Prodia</option>
           <option value="deepinfra">🔥 DeepInfra</option>
+          <option value="leonardo">🦁 Leonardo.ai</option>
           <option value="crawled">🔗 URL 수집 이미지</option>
           <option value="none">❌ 이미지 없음</option>
+        </select>
+        <select id="pq-bulk-h2-mode">
+          <option value="">본문 배치 (변경 안 함)</option>
+          <option value="all">전체</option>
+          <option value="odd">홀수만</option>
+          <option value="even">짝수만</option>
+          <option value="thumbnail-only">썸네일만</option>
+          <option value="none">이미지 없음</option>
         </select>
         <select id="pq-bulk-cta">
           <option value="">CTA (변경 안 함)</option>
@@ -777,6 +857,7 @@ function buildModalHtml() {
           <span id="pq-interval-label" style="color: white; font-weight: 700; font-size: 13px; min-width: 30px; text-align: right;">12</span>
           <span id="pq-interval-unit" style="color: rgba(255,255,255,0.7); font-size: 12px; min-width: 30px;">시간</span>
         </div>
+        <span id="pq-interval-guard-hint" style="color:#bfdbfe; font-size:11px; font-weight:800; white-space:nowrap;"></span>
       </div>
     </div>
 
@@ -866,6 +947,7 @@ function buildItemRow(item, idx) {
         <option value="gptimage2" ${item.thumb === 'gptimage2' || item.thumb === 'dalle' ? 'selected' : ''}>GPT 이미지 2</option>
         <option value="prodia" ${item.thumb === 'prodia' ? 'selected' : ''}>Prodia</option>
         <option value="deepinfra" ${item.thumb === 'deepinfra' ? 'selected' : ''}>DeepInfra</option>
+        <option value="leonardo" ${item.thumb === 'leonardo' ? 'selected' : ''}>Leonardo.ai</option>
         <option value="crawled" ${item.thumb === 'crawled' ? 'selected' : ''}>URL 수집</option>
         <option value="none" ${item.thumb === 'none' ? 'selected' : ''}>없음</option>
       </select>
@@ -881,8 +963,19 @@ function buildItemRow(item, idx) {
         <option value="gptimage2" ${item.h2ImageSource === 'gptimage2' || item.h2ImageSource === 'dalle' ? 'selected' : ''}>GPT 이미지 2</option>
         <option value="prodia" ${item.h2ImageSource === 'prodia' ? 'selected' : ''}>Prodia</option>
         <option value="deepinfra" ${item.h2ImageSource === 'deepinfra' ? 'selected' : ''}>DeepInfra</option>
+        <option value="leonardo" ${item.h2ImageSource === 'leonardo' ? 'selected' : ''}>Leonardo.ai</option>
         <option value="crawled" ${item.h2ImageSource === 'crawled' ? 'selected' : ''}>URL 수집</option>
         <option value="none" ${item.h2ImageSource === 'none' ? 'selected' : ''}>없음</option>
+      </select>
+    </div>
+    <div class="pq-field">
+      <label>본문 이미지 배치</label>
+      <select class="pq-item-h2-mode">
+        <option value="all" ${(!item.h2ImageMode || item.h2ImageMode === 'all') ? 'selected' : ''}>전체</option>
+        <option value="odd" ${item.h2ImageMode === 'odd' ? 'selected' : ''}>홀수만</option>
+        <option value="even" ${item.h2ImageMode === 'even' ? 'selected' : ''}>짝수만</option>
+        <option value="thumbnail-only" ${item.h2ImageMode === 'thumbnail-only' ? 'selected' : ''}>썸네일만</option>
+        <option value="none" ${item.h2ImageMode === 'none' ? 'selected' : ''}>이미지 없음</option>
       </select>
     </div>
     <div class="pq-field">
@@ -899,6 +992,7 @@ function buildItemRow(item, idx) {
     <span class="pq-mini">${escHtml(labelOf('platform', item.platform))}</span>
     <span class="pq-mini">${escHtml(labelOf('postingMode', item.postingMode))}${item.postingMode === 'schedule' && item.scheduleDate ? ` · ${escHtml(item.scheduleDate.replace('T', ' '))}` : ''}</span>
     <span class="pq-mini">섹션 ${escHtml(item.sectionCount)}개</span>
+    <span class="pq-mini">본문 배치 ${escHtml(labelOf('h2ImageMode', item.h2ImageMode))}</span>
     <span class="pq-mini">팩트체크 ${escHtml(item.factCheckMode)}</span>
     <span class="pq-mini">제목 ${escHtml(item.titleMode)}</span>
     <span class="pq-mini">톤 ${escHtml(item.toneStyle)}</span>
@@ -931,6 +1025,7 @@ function refreshList() {
 </div>`;
   listEl.innerHTML = `${header}<div class="pq-list-grid">${STATE.keywords.map((it, i) => buildItemRow(it, i)).join('')}</div>`;
   bindItemEvents();
+  updateIntervalGuardHint();
 }
 
 function bindItemEvents() {
@@ -942,6 +1037,7 @@ function bindItemEvents() {
       touchItemSnapshot(item);
       persistQueue();
       syncBadge();
+      updateIntervalGuardHint();
     };
     row.querySelector('.pq-item-enabled')?.addEventListener('change', e => { item.enabled = e.target.checked; saveItem(); refreshList(); });
     row.querySelector('.pq-item-keyword')?.addEventListener('input', e => { item.keyword = e.target.value; saveItem(); });
@@ -954,6 +1050,7 @@ function bindItemEvents() {
     });
     row.querySelector('.pq-item-thumb')?.addEventListener('change', e => { item.thumb = normalizeThumbEngine(e.target.value); saveItem(); });
     row.querySelector('.pq-item-h2')?.addEventListener('change', e => { item.h2ImageSource = normalizeThumbEngine(e.target.value); saveItem(); });
+    row.querySelector('.pq-item-h2-mode')?.addEventListener('change', e => { item.h2ImageMode = normalizeH2ImageMode(e.target.value); saveItem(); refreshList(); });
     row.querySelector('.pq-item-cta')?.addEventListener('change', e => {
       item.ctaMode = e.target.value;
       if (item.mode === 'adsense') item.ctaMode = 'none';
@@ -981,14 +1078,21 @@ function bindItemEvents() {
   });
 }
 
-/** 현재 UI 설정에서 발행 간격(ms) 계산 — 'random' 모드면 4-8h 사이 무작위 */
-function getIntervalMs() {
+/** 현재 UI 설정에서 사용자가 지정한 발행 간격(ms) 계산 — 'random' 모드면 4-8h 사이 무작위 */
+function getRawIntervalMs() {
   const mode = document.getElementById('pq-interval-mode')?.value || 'hours';
   const value = Number(document.getElementById('pq-interval-value')?.value || 12);
   if (mode === 'random') return (4 + Math.random() * 4) * 3600 * 1000;
   if (mode === 'seconds') return Math.max(5, value) * 1000;        // 최소 5초 안전장치
   if (mode === 'minutes') return Math.max(1, value) * 60 * 1000;
   return Math.max(1, value) * 3600 * 1000;
+}
+
+/** 이미지 엔진별 최소 발행 간격을 반영한 실제 대기 시간 */
+function getIntervalMs(options = {}) {
+  const raw = getRawIntervalMs();
+  const minMs = Number(options.minMs || 0);
+  return Math.max(raw, minMs);
 }
 
 function formatIntervalMs(ms) {
@@ -1063,6 +1167,17 @@ function syncIntervalControl() {
     unit.textContent = '시간';
   }
   document.getElementById('pq-interval-label').textContent = slider.value;
+  updateIntervalGuardHint();
+}
+
+function updateIntervalGuardHint(items) {
+  const hint = document.getElementById('pq-interval-guard-hint');
+  if (!hint) return;
+  const list = items || STATE.keywords || [];
+  const minMs = getQueueMinPublishIntervalMs(list);
+  const rawMs = getRawIntervalMs();
+  const corrected = rawMs < minMs;
+  hint.textContent = `${getQueueIntervalReason(list)}${corrected ? ` · 현재 설정은 ${formatIntervalMs(minMs)}로 자동 보정` : ''}`;
 }
 
 function getDefaultH2Sections() {
@@ -1077,6 +1192,7 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
   applySnapshotToItem(item, item.settingsSnapshot || undefined);
   const sourceUrl = item.contentUrl || item.sourceUrl || '';
   const h2Sections = getDefaultH2Sections();
+  const h2ImageMode = normalizeH2ImageMode(item.h2ImageMode || 'all');
   const postingMode = normalizePostingMode(item.postingMode || getCurrentPostingMode());
   const contentMode = item.mode || 'external';
   const isAdsense = contentMode === 'adsense';
@@ -1094,8 +1210,10 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     thumbnailType: normalizeThumbEngine(item.thumb),
     thumbnailSource: normalizeThumbEngine(item.thumb),
     h2ImageSource: normalizeThumbEngine(item.h2ImageSource || item.thumb),
+    h2ImageMode,
     h2ImageSections: h2Sections,
-    h2Images: { source: normalizeThumbEngine(item.h2ImageSource || item.thumb), sections: h2Sections },
+    h2Images: { source: normalizeThumbEngine(item.h2ImageSource || item.thumb), sections: h2Sections, mode: h2ImageMode },
+    skipImages: h2ImageMode === 'none',
     ctaMode: isAdsense ? 'none' : (item.ctaMode || 'auto'),
     manualCtas,
     publishType: postingMode,
@@ -1144,6 +1262,7 @@ function applyItemToMainForm(item, scheduleDateIso) {
   setValue('contentMode', item.mode || 'external');
   setValue('thumbnailType', normalizeThumbEngine(item.thumb));
   setValue('h2ImageSource', normalizeThumbEngine(item.h2ImageSource || item.thumb));
+  setValue('h2ImageMode', normalizeH2ImageMode(item.h2ImageMode || 'all'));
   setRadio('ctaMode', item.ctaMode || 'auto');
   if (item.ctaMode === 'manual') {
     const cta = getItemManualCta(item);
@@ -1173,7 +1292,7 @@ function createQueueRunModal(items, intervalLabel) {
       <div class="pqr-card-no">${index + 1}</div>
       <div class="pqr-card-body">
         <div class="pqr-title">${escHtml(item.keyword)}</div>
-        <div class="pqr-meta">${escHtml(labelOf('contentMode', item.mode))} · 썸네일 ${escHtml(labelOf('thumb', item.thumb))} · 본문 ${escHtml(labelOf('thumb', item.h2ImageSource || item.thumb))} · CTA ${escHtml(labelOf('cta', item.ctaMode))} · ${escHtml(labelOf('postingMode', item.postingMode))}</div>
+        <div class="pqr-meta">${escHtml(labelOf('contentMode', item.mode))} · 썸네일 ${escHtml(labelOf('thumb', item.thumb))} · 본문 ${escHtml(labelOf('thumb', item.h2ImageSource || item.thumb))} · 배치 ${escHtml(labelOf('h2ImageMode', item.h2ImageMode))} · CTA ${escHtml(labelOf('cta', item.ctaMode))} · ${escHtml(labelOf('postingMode', item.postingMode))}</div>
         ${(item.contentUrl || item.sourceUrl) ? `<div class="pqr-url">${escHtml(item.contentUrl || item.sourceUrl)}</div>` : ''}
       </div>
       <span class="pqr-status" data-pqr-status>대기</span>
@@ -1210,9 +1329,15 @@ function createQueueRunModal(items, intervalLabel) {
     .pqr-status { flex: 0 0 auto; padding: 5px 8px; border-radius: 999px; background: rgba(15,23,42,0.7); color: rgba(226,232,240,0.78); font-size: 11px; font-weight: 900; }
     .pqr-images { padding: 14px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; align-content: start; }
     .pqr-image-empty { grid-column: 1 / -1; min-height: 180px; display: grid; place-items: center; color: rgba(148,163,184,0.74); border: 1px dashed rgba(148,163,184,0.25); border-radius: 14px; }
-    .pqr-img-card { border-radius: 13px; overflow: hidden; border: 1px solid rgba(148,163,184,0.16); background: rgba(2,6,23,0.45); }
-    .pqr-img-card img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #020617; }
+    .pqr-img-card { border-radius: 13px; overflow: hidden; border: 1px solid rgba(148,163,184,0.16); background: rgba(2,6,23,0.45); box-shadow: 0 10px 26px rgba(0,0,0,0.22); }
+    .pqr-img-card img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #020617; cursor: zoom-in; }
     .pqr-img-card div { padding: 8px 9px; color: rgba(226,232,240,0.82); font-size: 11px; line-height: 1.35; }
+    .pqr-lightbox { position: fixed; inset: 0; z-index: 100001; display: none; align-items: center; justify-content: center; padding: 22px; background: rgba(0,0,0,0.88); backdrop-filter: blur(8px); }
+    .pqr-lightbox.open { display: flex; }
+    .pqr-lightbox-inner { width: min(1540px, 98vw); max-height: 96vh; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 10px; }
+    .pqr-lightbox-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #fff; font-size: 14px; font-weight: 900; }
+    .pqr-lightbox-close { width: 42px; height: 42px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.18); background: rgba(15,23,42,0.72); color: #fff; font-size: 24px; line-height: 1; cursor: pointer; }
+    .pqr-lightbox img { width: 100%; max-height: calc(96vh - 58px); object-fit: contain; border-radius: 12px; background: #020617; box-shadow: 0 24px 90px rgba(0,0,0,0.62); }
     .pqr-log { height: 170px; padding: 10px 28px 16px; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(2,6,23,0.42); overflow-y: auto; font-size: 12px; line-height: 1.55; color: rgba(226,232,240,0.82); }
     .pqr-log-line { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.035); }
     @media (max-width: 980px) {
@@ -1247,6 +1372,15 @@ function createQueueRunModal(items, intervalLabel) {
       </section>
     </div>
     <div class="pqr-log" id="pqrLog"></div>
+  </div>
+  <div class="pqr-lightbox" id="pqrImageLightbox" aria-hidden="true">
+    <div class="pqr-lightbox-inner">
+      <div class="pqr-lightbox-head">
+        <span id="pqrLightboxLabel"></span>
+        <button type="button" class="pqr-lightbox-close" id="pqrLightboxClose" aria-label="닫기">×</button>
+      </div>
+      <img id="pqrLightboxImage" alt="">
+    </div>
   </div>
 </div>`);
 
@@ -1288,17 +1422,56 @@ function createQueueRunModal(items, intervalLabel) {
     if (statusEl) statusEl.textContent = message || status || '대기';
   };
 
+  const openImageLightbox = (url, label) => {
+    const lightbox = document.getElementById('pqrImageLightbox');
+    const img = document.getElementById('pqrLightboxImage');
+    const labelEl = document.getElementById('pqrLightboxLabel');
+    if (!lightbox || !img) return;
+    img.src = url;
+    if (labelEl) labelEl.textContent = label || '이미지 미리보기';
+    lightbox.classList.add('open');
+    lightbox.setAttribute('aria-hidden', 'false');
+  };
+
+  const closeImageLightbox = () => {
+    const lightbox = document.getElementById('pqrImageLightbox');
+    const img = document.getElementById('pqrLightboxImage');
+    if (!lightbox) return;
+    lightbox.classList.remove('open');
+    lightbox.setAttribute('aria-hidden', 'true');
+    if (img) img.removeAttribute('src');
+  };
+
   const addImage = (payload) => {
     const url = payload?.url || payload?.dataUrl || '';
     if (!url) return;
     const host = document.getElementById('pqrImages');
     if (!host) return;
     host.querySelector('.pqr-image-empty')?.remove();
+    const label = payload?.label || payload?.kind || items[currentIndex]?.keyword || '이미지';
     const card = document.createElement('div');
     card.className = 'pqr-img-card';
-    card.innerHTML = `<img src="${escHtml(url)}" alt=""><div>${escHtml(payload?.label || payload?.kind || items[currentIndex]?.keyword || '이미지')}</div>`;
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = label;
+    img.title = label;
+    img.addEventListener('click', () => openImageLightbox(url, label));
+    const caption = document.createElement('div');
+    caption.textContent = label;
+    card.appendChild(img);
+    card.appendChild(caption);
     host.prepend(card);
+    log(`이미지 미리보기 추가: ${label}`);
   };
+
+  document.getElementById('pqrLightboxClose')?.addEventListener('click', closeImageLightbox);
+  document.getElementById('pqrImageLightbox')?.addEventListener('click', (e) => {
+    if (e.target?.id === 'pqrImageLightbox') closeImageLightbox();
+  });
+  const lightboxKeyHandler = (e) => {
+    if (e.key === 'Escape') closeImageLightbox();
+  };
+  document.addEventListener('keydown', lightboxKeyHandler);
 
   const unsubs = [];
   const api = window.blogger || window.electronAPI;
@@ -1325,6 +1498,7 @@ function createQueueRunModal(items, intervalLabel) {
   const cleanup = () => {
     closed = true;
     unsubs.forEach(fn => { try { fn?.(); } catch {} });
+    document.removeEventListener('keydown', lightboxKeyHandler);
   };
   document.getElementById('pqrCloseBtn')?.addEventListener('click', () => {
     cleanup();
@@ -1406,6 +1580,7 @@ async function runOneQueueItem(item) {
 function bindModalEvents() {
   // 간격 컨트롤 동기화
   document.getElementById('pq-interval-mode')?.addEventListener('change', syncIntervalControl);
+  document.getElementById('pq-interval-value')?.addEventListener('input', () => updateIntervalGuardHint());
   syncIntervalControl();
 
   // 일괄 적용
@@ -1413,12 +1588,14 @@ function bindModalEvents() {
     const m = document.getElementById('pq-bulk-mode')?.value;
     const t = document.getElementById('pq-bulk-thumb')?.value;
     const h = document.getElementById('pq-bulk-h2')?.value;
+    const hm = document.getElementById('pq-bulk-h2-mode')?.value;
     const c = document.getElementById('pq-bulk-cta')?.value;
     STATE.keywords.forEach(item => {
       if (m) item.mode = m;
       if (t) item.thumb = normalizeThumbEngine(t);
       if (h === 'same') item.h2ImageSource = normalizeThumbEngine(item.thumb);
       else if (h) item.h2ImageSource = normalizeThumbEngine(h);
+      if (hm) item.h2ImageMode = normalizeH2ImageMode(hm);
       if (c) item.ctaMode = c;
       if (item.mode === 'adsense') item.ctaMode = 'none';
       if (item.ctaMode === 'manual') ensureItemManualCta(item);
@@ -1454,6 +1631,8 @@ function bindModalEvents() {
     if (!validateQueueManualCtas(enabled)) return;
 
     let cursor = getScheduleBaseDate().getTime();
+    const minIntervalMs = getQueueMinPublishIntervalMs(enabled);
+    const intervalReason = getQueueIntervalReason(enabled);
     const newSchedules = enabled.map((it, i) => {
       const d = new Date(cursor);
       const scheduleDateIso = d.toISOString();
@@ -1462,6 +1641,7 @@ function bindModalEvents() {
       const itemMode = it.mode || 'external';
       const isAdsense = itemMode === 'adsense';
       const h2Sections = getDefaultH2Sections();
+      const h2ImageMode = normalizeH2ImageMode(it.h2ImageMode || 'all');
       const payload = buildQueuePayloadOverrides(it, scheduleDateIso);
       const item = {
         id: Date.now() + i,
@@ -1478,9 +1658,11 @@ function bindModalEvents() {
         scheduleDate: postingMode === 'schedule' ? scheduleDateIso : undefined,
         thumbnailMode: it.thumb,
         platform,
-        h2Images: { source: it.h2ImageSource || it.thumb, sections: h2Sections },
+        h2Images: { source: it.h2ImageSource || it.thumb, sections: h2Sections, mode: h2ImageMode },
         h2ImageSource: it.h2ImageSource || it.thumb,
+        h2ImageMode,
         h2ImageSections: h2Sections,
+        skipImages: h2ImageMode === 'none',
         sourceUrl: it.contentUrl || it.sourceUrl || undefined,
         contentUrl: it.contentUrl || it.sourceUrl || undefined,
         manualCrawlUrls: (it.contentUrl || it.sourceUrl) ? [it.contentUrl || it.sourceUrl] : undefined,
@@ -1494,8 +1676,8 @@ function bindModalEvents() {
         createdAt: new Date().toISOString(),
         fromQueue: true,
       };
-      // 다음 항목 시각 = 현재 + 사용자 지정 간격
-      cursor += getIntervalMs();
+      // 다음 항목 시각 = 현재 + 사용자 지정 간격, 단 이미지 엔진별 최소 간격으로 자동 보정
+      cursor += getIntervalMs({ minMs: minIntervalMs });
       return item;
     });
 
@@ -1521,7 +1703,7 @@ function bindModalEvents() {
         }
         try { await window.electronAPI.startScheduleMonitoring?.(); } catch {}
       }
-      alert(`✅ ${newSchedules.length}개 스케줄 추가됨\n첫 글: ${newSchedules[0].date} ${newSchedules[0].time}\n마지막: ${newSchedules[newSchedules.length - 1].date} ${newSchedules[newSchedules.length - 1].time}`);
+      alert(`✅ ${newSchedules.length}개 스케줄 추가됨\n간격: ${intervalReason}\n첫 글: ${newSchedules[0].date} ${newSchedules[0].time}\n마지막: ${newSchedules[newSchedules.length - 1].date} ${newSchedules[newSchedules.length - 1].time}`);
       STATE.keywords = [];
       persistQueue();
       close();
@@ -1539,9 +1721,14 @@ function bindModalEvents() {
     if (!validateQueueManualCtas(enabled)) return;
     persistQueue();
     const intervalMode = document.getElementById('pq-interval-mode')?.value || 'hours';
-    const fixedIntervalMs = getIntervalMs();
-    const intervalLabel = intervalMode === 'random' ? '4-8시간 무작위' : formatIntervalMs(fixedIntervalMs);
-    if (!confirm(`${enabled.length}개 키워드를 즉시 순차 발행합니다.\n각 글 사이 간격: ${intervalLabel}\n(이전 발행 완료 후 추가 대기)\n\n진행할까요?`)) return;
+    const minIntervalMs = getQueueMinPublishIntervalMs(enabled);
+    const rawFixedIntervalMs = getRawIntervalMs();
+    const fixedIntervalMs = getIntervalMs({ minMs: minIntervalMs });
+    const corrected = intervalMode !== 'random' && rawFixedIntervalMs < minIntervalMs;
+    const intervalLabel = intervalMode === 'random'
+      ? `4-8시간 무작위 (${getQueueIntervalReason(enabled)} 적용)`
+      : `${formatIntervalMs(fixedIntervalMs)}${corrected ? ' · 자동 보정됨' : ''}`;
+    if (!confirm(`${enabled.length}개 키워드를 즉시 순차 발행합니다.\n각 글 사이 간격: ${intervalLabel}\n이미지 기준: ${getQueueIntervalReason(enabled)}\n(이전 발행 완료 후 추가 대기)\n\n진행할까요?`)) return;
     close();
     const runModal = createQueueRunModal(enabled, intervalLabel);
 
@@ -1618,7 +1805,7 @@ function bindModalEvents() {
         try { window.__publishQueuePayloadOverrides = null; } catch {}
 
         if (i < enabled.length - 1) {
-          const waitMs = intervalMode === 'random' ? getIntervalMs() : fixedIntervalMs;
+          const waitMs = intervalMode === 'random' ? getIntervalMs({ minMs: minIntervalMs }) : fixedIntervalMs;
           scheduleOffsetMs += waitMs;
           runModal.log(`다음 항목까지 ${formatIntervalMs(waitMs)} 대기`);
           await new Promise(r => setTimeout(r, waitMs));
@@ -1673,6 +1860,7 @@ function addCurrent() {
       mode: snapshot.contentMode,
       thumb: snapshot.thumbnailMode,
       h2ImageSource: snapshot.h2ImageSource,
+      h2ImageMode: snapshot.h2ImageMode,
       ctaMode: snapshot.ctaMode,
       platform: snapshot.platform,
       postingMode: snapshot.postingMode,
@@ -1730,6 +1918,7 @@ function open() {
       mode: snapshot.contentMode,
       thumb: snapshot.thumbnailMode,
       h2ImageSource: snapshot.h2ImageSource,
+      h2ImageMode: snapshot.h2ImageMode,
       ctaMode: snapshot.ctaMode,
       platform: snapshot.platform,
       postingMode: snapshot.postingMode,

@@ -2312,7 +2312,11 @@ export async function makeLeonardoPhoenixImage(
         }
 
         const createData = await createResponse.json() as any;
-        const generationId = createData.generation?.id || createData.id || createData.sdGenerationJob?.generationId;
+        const generationId =
+          createData.generate?.generationId ||
+          createData.generation?.id ||
+          createData.id ||
+          createData.sdGenerationJob?.generationId;
 
         if (!generationId) {
           console.log(`[LEONARDO] ⚠️ generation ID 없음:`, JSON.stringify(createData).slice(0, 300));
@@ -2420,14 +2424,36 @@ async function pollLeonardoGeneration(
       if (!statusResponse.ok) continue;
 
       const statusData = await statusResponse.json() as any;
-      const generation = statusData.generations_by_pk;
+      const generation =
+        statusData.generations_by_pk ||
+        statusData.generation ||
+        statusData.generate ||
+        statusData.sdGenerationJob ||
+        statusData;
 
       if (!generation) continue;
 
-      if (generation.status === 'COMPLETE') {
-        const images = generation.generated_images;
+      const status = String(generation.status || generation.state || '').toUpperCase();
+      const images =
+        (Array.isArray(generation.generated_images) && generation.generated_images) ||
+        (Array.isArray(generation.generatedImages) && generation.generatedImages) ||
+        (Array.isArray(generation.images) && generation.images) ||
+        (Array.isArray(generation.output) && generation.output) ||
+        (Array.isArray(statusData.generated_images) && statusData.generated_images) ||
+        (Array.isArray(statusData.generatedImages) && statusData.generatedImages) ||
+        (Array.isArray(statusData.images) && statusData.images) ||
+        [];
+
+      if (status === 'COMPLETE' || status === 'COMPLETED' || (!status && images.length > 0)) {
         if (images && images.length > 0) {
-          const imageUrl = images[0].url;
+          const firstImage = images[0];
+          const imageUrl = typeof firstImage === 'string'
+            ? firstImage
+            : firstImage?.url || firstImage?.imageUrl || firstImage?.image_url || firstImage?.src;
+
+          if (!imageUrl) {
+            return { ok: false, error: 'Leonardo 이미지 URL을 찾지 못했습니다.' };
+          }
 
           // 이미지를 Base64로 변환
           const imageResponse = await fetch(imageUrl);
@@ -2444,7 +2470,7 @@ async function pollLeonardoGeneration(
 
           return { ok: true, dataUrl };
         }
-      } else if (generation.status === 'FAILED') {
+      } else if (status === 'FAILED' || status === 'FAILURE' || status === 'ERROR') {
         return { ok: false, error: `생성 실패: ${generation.error || 'Unknown'}` };
       }
 

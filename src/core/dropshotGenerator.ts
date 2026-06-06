@@ -45,7 +45,9 @@ async function launchBrowser(profileDir: string, headless: boolean): Promise<any
   }
 
   const forceVisible = String(process.env['VISIBLE_BROWSER'] || '').toLowerCase() === 'true';
-  const effectiveHeadless = forceVisible ? false : headless;
+  // 로그인 유도처럼 caller가 명시적으로 headless=false를 요청할 때만 visible.
+  // 이미 로그인된 뒤의 자동 생성/세션 확인은 VISIBLE_BROWSER가 켜져 있어도 숨김으로 유지한다.
+  const effectiveHeadless = headless ? true : (forceVisible ? false : headless);
 
   const baseOptions: any = {
     headless: effectiveHeadless,

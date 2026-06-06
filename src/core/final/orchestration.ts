@@ -11,6 +11,7 @@ import {
 } from '../llm';
 import { makeNanoBananaProThumbnail } from '../../thumbnail';
 import { dispatchH2ImageGeneration, dispatchThumbnailGeneration } from '../imageDispatcher';
+import { runImageGenerationQueued } from '../image-generation-queue';
 import '../content-modes/register-all'; // 5개 모드 플러그인 자동 등록
 import { generateContentFromUrl, generateContentFromUrls } from '../url-content-generator';
 import { validateCtaUrl, validateCtaUrlFormat } from '../../cta/validate-cta-url';
@@ -57,6 +58,24 @@ const CTA_PLACEHOLDER_DOMAINS = [
   'domain.com', 'website.com', 'sample.com', 'xxx.com',
   'abc.com', 'url.com', 'link.com'
 ];
+
+function emitGeneratedImage(kind: string, label: string, url: string): void {
+  if (!url) return;
+  try {
+    // Electron main process에서 실행될 때만 실시간 미리보기 이벤트를 전송한다.
+    // CLI/테스트 환경에서는 require('electron')이 실패하므로 조용히 무시한다.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { BrowserWindow } = require('electron');
+    if (!BrowserWindow?.getAllWindows) return;
+    BrowserWindow.getAllWindows().forEach((w: any) => {
+      try {
+        if (!w?.isDestroyed?.()) {
+          w.webContents.send('sw-image-generated', { kind, label, url, ts: Date.now() });
+        }
+      } catch { /* ignore per-window */ }
+    });
+  } catch { /* non-electron runtime */ }
+}
 
 type RenderableCtaCandidate = {
   label?: string;
@@ -479,6 +498,7 @@ export async function generateUltimateMaxModeArticleFinal(
             );
             if (thumbResult.ok && thumbResult.dataUrl) {
               thumbnailUrl = thumbResult.dataUrl;
+              emitGeneratedImage('thumbnail', `썸네일: ${urlResult.title}`, thumbResult.dataUrl);
               onLog?.(`   ✅ ${thumbResult.source} 썸네일 완료`);
             } else {
               onLog?.(`   ⚠️ 썸네일 생성 실패: ${thumbResult.error || '알 수 없음'}`);
@@ -1270,7 +1290,7 @@ export async function generateUltimateMaxModeArticleFinal(
       }
       const imageSourceKey = String(imageSource).toLowerCase();
       const dropshotSequential = imageSourceKey === 'dropshot' || imageSourceKey === 'dropshot-nanobanana-pro';
-      onLog?.(`[PROGRESS] 75% - ${dropshotSequential ? '🍌 리더스 이미지 순차 생성 시작' : '🚀 이미지 병렬 생성 시작'} (${totalToGenerate}장)...`);
+      onLog?.(`[PROGRESS] 75% - ${dropshotSequential ? '🍌 리더스 이미지 순차 생성 시작' : '🧵 이미지 공통 큐 생성 시작'} (${totalToGenerate}장)...`);
 
       // 각 섹션별 이미지 생성 함수
       async function generateSingleSectionImage(i: number): Promise<{ dataUrl: string; source: string }> {
@@ -1289,6 +1309,7 @@ export async function generateUltimateMaxModeArticleFinal(
         if (preGenMatch) {
           console.log(`[IMG-${i + 1}] 📌 미리 생성한 이미지 사용 (H2 #${h2Number}, 길이 ${preGenMatch.dataUrl.length}B)`);
           onLog?.(`   📌 H2 #${h2Number}: 미리 생성한 이미지 사용 (API 호출 skip)`);
+          emitGeneratedImage('h2', `H2 ${h2Number}: ${section.h2}`, preGenMatch.dataUrl);
           return { dataUrl: preGenMatch.dataUrl, source: '미리 생성 (이미지 생성 탭)' };
         }
 
@@ -1320,9 +1341,16 @@ export async function generateUltimateMaxModeArticleFinal(
             if (nbApiKey && nbApiKey.length > 10) {
               try {
                 console.log(`[IMG-${i + 1}] 🛒→AI ${imageSource} 시도 (참고: ${refImage ? '있음' : '없음'})...`);
-                const aiResult = await makeNanoBananaProThumbnail(enhancedPrompt, keyword, {
-                  apiKey: nbApiKey, aspectRatio: '16:9', isThumbnail: false
-                });
+                const aiResult = await runImageGenerationQueued(
+                  {
+                    engine: imageSource,
+                    label: `수집 참고 본문 이미지 · ${imageSource}`,
+                    onLog: (msg) => onLog?.(`   [IMG-${i + 1}] ${msg}`),
+                  },
+                  () => makeNanoBananaProThumbnail(enhancedPrompt, keyword, {
+                    apiKey: nbApiKey, aspectRatio: '16:9', isThumbnail: false
+                  }),
+                );
                 if (aiResult.ok) {
                   imageResult = aiResult;
                   usedSource = imageSource === 'crawled-ai-nanobanana2' ? 'NanoBanana2 (수집 참고)' : 'NanoBanana Pro (수집 참고)';
@@ -1379,6 +1407,7 @@ export async function generateUltimateMaxModeArticleFinal(
         completedCount++;
         const progress = 76 + Math.round((completedCount / totalToGenerate) * 12);
         if (imageResult.ok && imageResult.dataUrl) {
+          emitGeneratedImage('h2', `H2 ${i + 1}: ${section.h2}`, imageResult.dataUrl);
           onLog?.(`[PROGRESS] ${progress}% - ✅ 섹션 ${i + 1} 이미지 완료 (${usedSource}) [${completedCount}/${totalToGenerate}]`);
           return { dataUrl: imageResult.dataUrl, source: usedSource || 'AI 생성' };
         } else {
@@ -1391,10 +1420,9 @@ export async function generateUltimateMaxModeArticleFinal(
       //   reCAPTCHA Enterprise는 같은 IP/세션의 병렬 요청을 "비정상 활동"으로 즉시 감지.
       //   → 순차 + jitter 적용 시 인간 행동 패턴에 가까워져 차단율 ↓
       //
-      // 🚀 v3.5.95 OPT: Strict 모드여도 reCAPTCHA를 쓰지 않는 서버 API 엔진은 병렬 처리.
-      //   - ImageFX, Flow → Playwright + reCAPTCHA → 순차 + jitter 필요 (기존 유지)
-      //   - nanobanana 3종, gpt-image 1/2, prodia, deepinfra → 서버 API (REST) → 병렬 안전
-      //   사용자 보고: nanobanana2 5장 순차 처리에 5.8분 소요 — 병렬 시 ~1분으로 단축
+      // v3.8.111: 디스패처 레벨 공통 큐가 모든 이미지 엔진 호출을 process-wide 1개씩 처리한다.
+      //   여기서는 기존 Promise.allSettled 구조를 유지해 진행률/결과 순서를 보존하되,
+      //   실제 엔진 호출은 큐 안에서 겹치지 않는다.
       const strictMode = String(process.env['STRICT_H2_IMAGE_ENGINE'] || '').toLowerCase() === 'true';
       const RECAPTCHA_ENGINES = new Set(['imagefx', 'flow']);
       const DROPSHOT_ENGINES = new Set(['dropshot', 'dropshot-nanobanana-pro']);
@@ -1438,7 +1466,7 @@ export async function generateUltimateMaxModeArticleFinal(
         }
         imageResults = seqResults;
       } else {
-        // 일반 모드 — 기존 병렬
+        // 일반 모드 — promise는 동시에 등록되지만 실제 엔진 호출은 공통 큐에서 1개씩 실행
         const imagePromises = sections.map((_, i) => generateSingleSectionImage(i));
         imageResults = await Promise.allSettled(imagePromises);
       }
@@ -1477,7 +1505,7 @@ export async function generateUltimateMaxModeArticleFinal(
       if (failCount > 0) {
         onLog?.(`[PROGRESS] 85% - ⚠️ 이미지 ${successCount}/${totalToGenerate}장 완료, ${failCount}장 실패 (${imageGenElapsed}초)`);
       } else {
-        onLog?.(`[PROGRESS] 85% - 🎉 이미지 ${successCount}/${totalToGenerate}장 완료 (${imageGenElapsed}초${needsSequential ? ' — 순차 처리' : ' — 병렬 처리'})`);
+        onLog?.(`[PROGRESS] 85% - 🎉 이미지 ${successCount}/${totalToGenerate}장 완료 (${imageGenElapsed}초${needsSequential ? ' — 순차 처리' : ' — 공통 큐 처리'})`);
       }
       // 🛡️ v3.5.86: 누적 통계 한 줄 요약 (실측 기반 튜닝용)
       try {
@@ -1998,6 +2026,7 @@ ${conclusionHTML}
       thumbnailUrl = (payload.productImages as any)[0];
       onLog?.(`[PROGRESS] 90% - 🛒 수집된 상품 이미지로 썸네일 설정 (${(payload.productImages as any).length}장 중 1번째)`);
       console.log(`[THUMBNAIL] ✅ 수집 이미지 썸네일: ${thumbnailUrl.substring(0, 60)}...`);
+      emitGeneratedImage('thumbnail', `썸네일: ${h1}`, thumbnailUrl);
     } else if (userPickedAiEngine && (payload.productImages as any)?.length > 0) {
       console.log(`[THUMBNAIL] 🛡️ 사용자 명시 엔진(${thumbnailSource}) 선택 — 수집 이미지 ${(payload.productImages as any).length}장 무시하고 AI 생성 진행`);
       onLog?.(`[PROGRESS] 90% - 🛡️ 사용자가 ${thumbnailSource} 엔진을 선택해 수집 이미지를 무시합니다`);
@@ -2027,6 +2056,7 @@ ${conclusionHTML}
           thumbExtra,
         );
         if (thumbResult.ok) {
+          emitGeneratedImage('thumbnail', `썸네일: ${h1}`, thumbResult.dataUrl);
           // 🔀 다운그레이드 감지 — 사용자가 요청한 엔진과 실제 사용 엔진이 다르면 경고
           const reqKey = String(thumbnailSource).toLowerCase().replace(/[^a-z]/g, '');
           const actKey = String(thumbResult.source || '').toLowerCase().replace(/[^a-z]/g, '');

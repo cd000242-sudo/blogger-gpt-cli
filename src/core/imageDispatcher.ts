@@ -17,6 +17,7 @@
 import { makeNanoBananaProThumbnail } from '../thumbnail';
 import { inferImagePrompt } from './imagePromptInference';
 import { loadEnvFromFile } from '../env';
+import { runImageGenerationQueued } from './image-generation-queue';
 
 // ── 타입 ──
 export interface ImageResult {
@@ -47,6 +48,7 @@ export const SUPPORTED_IMAGE_ENGINES = [
   'gptimage2',
   'prodia',       // v3.5.90: Prodia FLUX schnell (가성비 챔피언, ≈$0.001/장)
   'deepinfra',
+  'leonardo',
   'dropshot-nanobanana-pro', // v3.6.0: Dropshot UI 자동화 (Pro 구독자 무제한)
   'crawled',
   'text',
@@ -96,7 +98,9 @@ export function normalizeImageEngine(raw: string | undefined | null): ImageEngin
     // 🎯 v3.6.0 제거 엔진 — 레거시 값 graceful redirect → 신뢰성 메인
     'imagefx': 'nanobanana2',
     'flow': 'nanobanana2',
-    'leonardo': 'nanobanana2',
+    'leonardo': 'leonardo',
+    'leonardoai': 'leonardo',
+    'leonardo-ai': 'leonardo',
     'pollinations': 'nanobanana2',
     'labs-flow': 'nanobanana2',
     'labsflow': 'nanobanana2',
@@ -170,6 +174,15 @@ function getDeepInfraApiKey(env: Record<string, string>): string {
     'deepinfra_api_key',
     'DEEPINFRA_API_KEY',
     'DEEP_INFRA_API_KEY',
+  ]);
+}
+
+function getLeonardoApiKey(env: Record<string, string>): string {
+  return firstEnvValue(env, [
+    'leonardoKey',
+    'leonardoApiKey',
+    'leonardo_api_key',
+    'LEONARDO_API_KEY',
   ]);
 }
 
@@ -417,6 +430,8 @@ function engineKeyAvailable(engine: string, env: Record<string, string>): boolea
       return getProdiaApiKey(env).length >= 10;
     case 'deepinfra':
       return getDeepInfraApiKey(env).length >= 10;
+    case 'leonardo':
+      return getLeonardoApiKey(env).length >= 10;
     case 'gptimage1':
     case 'gptimage2':
       return (env['openaiKey'] || env['OPENAI_API_KEY'] || '').trim().length >= 10;
@@ -804,7 +819,14 @@ async function tryEngine(
   extra?: DispatchExtraOptions,
 ): Promise<ImageResult> {
   // 🛡️ v3.5.86: 통계 자동 기록 — wrapper로 감싸 모든 return을 가로챔
-  const result = await _tryEngineInternal(engine, prompt, keyword, env, onLog, isThumbnail, contentMode, extra);
+  const result = await runImageGenerationQueued(
+    {
+      engine,
+      label: `${isThumbnail ? '썸네일' : '본문 이미지'} · ${engine}`,
+      onLog,
+    },
+    () => _tryEngineInternal(engine, prompt, keyword, env, onLog, isThumbnail, contentMode, extra),
+  );
   try {
     const { recordSuccess, recordFailure } = require('./engine-stats');
     if (result.ok) {
@@ -1009,6 +1031,36 @@ async function _tryEngineInternal(
       return { ok: false, dataUrl: '', source: '', error: `DeepInfra 실패: ${detail}` };
     }
 
+    // ═══ Leonardo.ai (Seedream / NanoBananaPro / Phoenix fallback) ═══
+    case 'leonardo': {
+      const apiKey = getLeonardoApiKey(env);
+      if (!apiKey || apiKey.length < 10) {
+        return { ok: false, dataUrl: '', source: '', error: 'Leonardo API 키 없음 (LEONARDO_API_KEY 설정 필요)' };
+      }
+      let detail = '사유 미상';
+      try {
+        console.log(`[DISPATCH] 🦁 Leonardo.ai 시도...`);
+        const { makeLeonardoPhoenixImage } = await import('../thumbnail');
+        const result = await makeLeonardoPhoenixImage(prompt, keyword, {
+          apiKey,
+          width: isThumbnail ? 1280 : 1024,
+          height: isThumbnail ? 720 : 576,
+          isThumbnail,
+        });
+        if (result.ok) {
+          return { ok: true, dataUrl: result.dataUrl, source: 'Leonardo.ai' };
+        }
+        detail = (result as any).error || detail;
+        console.log(`[DISPATCH] ⚠️ Leonardo 실패: ${detail}`);
+        onLog?.(`⚠️ Leonardo 실패 원인: ${String(detail).substring(0, 300)}`);
+      } catch (e: any) {
+        detail = `예외: ${e?.message || e}`;
+        console.log(`[DISPATCH] ⚠️ Leonardo 예외: ${detail}`);
+        onLog?.(`⚠️ Leonardo ${detail.substring(0, 300)}`);
+      }
+      return { ok: false, dataUrl: '', source: '', error: `Leonardo 실패: ${detail}` };
+    }
+
     // ═══ Dropshot nano-banana-pro (v3.6.0 — UI 자동화, API 키 불필요) ═══
     //   사이트: aistudio.dropshot.io
     //   인증: 계정 로그인 (1회 후 영구 세션, ~/.blogger-gpt/dropshot-profile/)
@@ -1055,9 +1107,8 @@ async function _tryEngineInternal(
       }
     }
 
-    // Leonardo / DALL-E / Pollinations 케이스 제거 (2026-05-05)
+    // DALL-E / Pollinations 케이스 제거 (2026-05-05)
     //   - DALL-E: dall-e 5/12 EOL + gpt-image-* verification 장벽
-    //   - Leonardo: UI에 노출 안 됨 (좀비 호출 방지)
     //   - Pollinations: 저품질 → 사용자 메인 타겟(나노바나나2)으로 자동 폴백되도록 제거
 
     default:

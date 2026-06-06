@@ -56,6 +56,28 @@ export function classifyImageError(rawError: unknown): ImageErrorClassification 
 
   const lower = errMsg.toLowerCase();
 
+  if (/reported\s+as\s+leaked|api\s*key.*leaked|key.*compromised|leaked\s+api\s*key/i.test(errMsg)) {
+    return {
+      category: 'permission_denied',
+      bypassable: false,
+      recommendedAction: 'fail_fast',
+      cooldownMs: 0,
+      userMessage: 'Gemini API 키가 유출/차단 상태로 보고되었습니다. Google AI Studio에서 새 API 키를 발급해 저장한 뒤 다시 시도해주세요.',
+      shouldShowDialog: true,
+    };
+  }
+
+  if (/api\s*key\s*(missing|not\s*set|required|empty|없음)|api\s*키\s*없음|키\s*없음|api.*키.*없음/i.test(errMsg)) {
+    return {
+      category: 'permission_denied',
+      bypassable: false,
+      recommendedAction: 'fail_fast',
+      cooldownMs: 0,
+      userMessage: '이미지 엔진 API 키가 저장되어 있지 않습니다. 환경 설정에서 해당 엔진의 API 키를 저장한 뒤 다시 시도해주세요.',
+      shouldShowDialog: true,
+    };
+  }
+
   // ── unrecoverable: 사용자 결정/조치 필요 ──
 
   // PERMISSION_DENIED — Pro 미가입, API 키 권한 없음, 계정 정지
@@ -71,7 +93,7 @@ export function classifyImageError(rawError: unknown): ImageErrorClassification 
   }
 
   // BILLING — FAILED_PRECONDITION
-  if (/failed_precondition|billing.*not.*enabled|billing\s*required/i.test(errMsg)) {
+  if (/failed_precondition|billing.*not.*enabled|billing[_\s-]*required/i.test(errMsg)) {
     return {
       category: 'billing_required',
       bypassable: false,
