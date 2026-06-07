@@ -13,6 +13,8 @@
 // Types
 // ─────────────────────────────────────────────
 
+import { launchChromiumWithAutoInstall } from './playwright-browser-installer';
+
 export interface CompetitorPost {
     title: string;
     blogName: string;
@@ -269,7 +271,7 @@ async function visitAndAnalyzeCompetitors(
     const competitors: CompetitorPost[] = [];
 
     try {
-        browser = await chromium.launch({
+        browser = await launchChromiumWithAutoInstall(chromium, {
             headless: true,  // 검증은 백그라운드에서 조용히
         } as any);
 

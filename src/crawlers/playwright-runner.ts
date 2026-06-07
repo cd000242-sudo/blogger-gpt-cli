@@ -1,4 +1,5 @@
 import type { Browser, BrowserContext, Page, Route, Response } from 'playwright';
+import { launchChromiumWithAutoInstall } from '../utils/playwright-browser-installer';
 
 export interface CrawlOptions {
   timeoutMs?: number;
@@ -107,7 +108,7 @@ async function executeFetch(
   const startedAt = Date.now();
 
   // ── 🛡️ Stealth Launch: 자동화 감지 우회 ──
-  const browser = await chromium.launch({
+  const browser = await launchChromiumWithAutoInstall(chromium, {
     headless: options.headless !== false,
     args: [
       '--disable-blink-features=AutomationControlled',        // WebDriver 감지 비활성화

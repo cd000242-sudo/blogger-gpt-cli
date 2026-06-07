@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import { fetchNaverAutocomplete, fetchGoogleAutocomplete } from './naver-autocomplete';
+import { launchChromiumWithAutoInstall } from './playwright-browser-installer';
 
 // ─────────────────────────────────────────────
 // Types
@@ -397,9 +398,9 @@ export async function crawlNaverKinQuestions(
             onProgress?.('🔍 지식인 "많이 본 Q&A" 실시간 크롤링 시작...');
 
             // 실제 브라우저 창을 띄워서 크롤링 (headless: false)
-            browser = await chromium.launch({
+            browser = await launchChromiumWithAutoInstall(chromium, {
                 headless: false,
-            } as any);
+            } as any, onProgress);
 
             const context = await browser.newContext({
                 userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -727,9 +728,9 @@ export async function crawlDataLabShoppingKeywords(
         try {
             onProgress?.('🛒 DataLab 쇼핑인사이트 실시간 키워드 수집 시작...');
 
-            browser = await chromium.launch({
+            browser = await launchChromiumWithAutoInstall(chromium, {
                 headless: false,
-            } as any);
+            } as any, onProgress);
 
             const context = await browser.newContext({
                 userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

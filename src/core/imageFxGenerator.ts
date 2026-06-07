@@ -16,6 +16,7 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
+import { launchPersistentContextWithAutoInstall } from '../utils/playwright-browser-installer';
 
 // ── 캐시 (모듈 레벨 싱글턴) ──
 let cachedContext: any = null;
@@ -109,7 +110,7 @@ function sanitizePrompt(prompt: string): string {
  * 시스템 브라우저 폴백 전략으로 persistent context 생성
  * Chrome → Edge → Playwright Chromium 순서
  */
-async function launchBrowser(profileDir: string, headless: boolean): Promise<any> {
+async function launchBrowser(profileDir: string, headless: boolean, onLog?: (msg: string) => void): Promise<any> {
   // 🛡️ T-1 (v3.5.84): playwright → patchright (Playwright drop-in fork, CDP Runtime.enable 누출 차단)
   //   기존 playwright는 CDP 신호 노출로 reCAPTCHA Enterprise에 자동화로 감지됨 (효과 2/10)
   //   patchright: HeadlessChrome 마커 + CDP 누출 빌드단계 제거 (효과 7/10, 활성 유지보수 2026)
@@ -189,21 +190,21 @@ async function launchBrowser(profileDir: string, headless: boolean): Promise<any
 
   // 1. 시스템 Chrome
   try {
-    const ctx = await chromium.launchPersistentContext(profileDir, { ...baseOptions, channel: 'chrome' });
+    const ctx = await launchPersistentContextWithAutoInstall(chromium, profileDir, { ...baseOptions, channel: 'chrome' }, onLog);
     console.log('[ImageFX] ✅ 시스템 Chrome 사용 (R-3 stealth 적용)');
     return await attachStealth(ctx);
   } catch { /* Chrome 없음 */ }
 
   // 2. 시스템 Edge (Windows 기본)
   try {
-    const ctx = await chromium.launchPersistentContext(profileDir, { ...baseOptions, channel: 'msedge' });
+    const ctx = await launchPersistentContextWithAutoInstall(chromium, profileDir, { ...baseOptions, channel: 'msedge' }, onLog);
     console.log('[ImageFX] ✅ 시스템 Edge 사용 (R-3 stealth 적용)');
     return await attachStealth(ctx);
   } catch { /* Edge 없음 */ }
 
   // 3. Playwright 내장 Chromium
   try {
-    const ctx = await chromium.launchPersistentContext(profileDir, baseOptions);
+    const ctx = await launchPersistentContextWithAutoInstall(chromium, profileDir, baseOptions, onLog);
     console.log('[ImageFX] ✅ Playwright Chromium 사용 (R-3 stealth 적용)');
     return await attachStealth(ctx);
   } catch (err: any) {
@@ -295,7 +296,7 @@ async function _ensurePageInternal(onLog?: (msg: string) => void): Promise<any> 
 
   // 2. headless로 먼저 시도 (세션 확인)
   onLog?.('🌐 [ImageFX] 브라우저 준비 중...');
-  let context = await launchBrowser(profileDir, true);
+  let context = await launchBrowser(profileDir, true, onLog);
   let page = context.pages()[0] || await context.newPage();
 
   await page.goto('https://labs.google/fx/tools/flow', { waitUntil: 'networkidle', timeout: 30000 });
@@ -319,7 +320,7 @@ async function _ensurePageInternal(onLog?: (msg: string) => void): Promise<any> 
   onLog?.('🔐 [ImageFX] Google 로그인이 필요합니다. 브라우저가 열립니다...');
   await context.close();
 
-  context = await launchBrowser(profileDir, false);
+  context = await launchBrowser(profileDir, false, onLog);
   page = context.pages()[0] || await context.newPage();
   await page.goto('https://labs.google/fx/tools/flow', { waitUntil: 'networkidle', timeout: 30000 });
 

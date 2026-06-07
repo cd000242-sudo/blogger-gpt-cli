@@ -15,6 +15,7 @@
 
 import axios from 'axios';
 import * as crypto from 'crypto';
+import { launchChromiumWithAutoInstall } from '../utils/playwright-browser-installer';
 
 const HOST = 'https://api-gateway.coupang.com';
 
@@ -365,7 +366,7 @@ export async function crawlCoupangProductFromUrl(inputUrl: string): Promise<Coup
     try {
       console.log(`[COUPANG-CRAWL] 🎭 Playwright 폴백 시도 (title:${!!title} img:${!!image} price:${price})`);
       const { chromium } = await import('playwright') as any;
-      const browser = await chromium.launch({
+      const browser = await launchChromiumWithAutoInstall(chromium, {
         headless: true,
         args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
       });

@@ -16,6 +16,7 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
+import { launchPersistentContextWithAutoInstall } from '../utils/playwright-browser-installer';
 
 const BOARD_URL = 'https://aistudio.dropshot.io/ko/workspace/board?panel=image&imageModelName=google/nano-banana-pro';
 const PROFILE_NAME = 'dropshot-profile';
@@ -36,7 +37,7 @@ function getProfileDir(): string {
   return dir;
 }
 
-async function launchBrowser(profileDir: string, headless: boolean): Promise<any> {
+async function launchBrowser(profileDir: string, headless: boolean, onLog?: (msg: string) => void): Promise<any> {
   let chromium: any;
   try {
     chromium = (await import('patchright' as any)).chromium;
@@ -78,7 +79,7 @@ async function launchBrowser(profileDir: string, headless: boolean): Promise<any
   for (const channel of ['chrome', 'msedge', undefined]) {
     try {
       const opts = channel ? { ...baseOptions, channel } : baseOptions;
-      const ctx = await chromium.launchPersistentContext(profileDir, opts);
+      const ctx = await launchPersistentContextWithAutoInstall(chromium, profileDir, opts, onLog);
       try { await ctx.addInitScript(stealthInit); } catch { /* ignore */ }
       return ctx;
     } catch { /* 다음 채널 */ }
@@ -290,7 +291,7 @@ async function _ensurePageInternal(onLog?: (m: string) => void): Promise<any> {
   onLog?.('🌐 [Dropshot] 브라우저 준비 중...');
 
   // headless 먼저
-  let context = await launchBrowser(profileDir, true);
+  let context = await launchBrowser(profileDir, true, onLog);
   let page = context.pages()[0] || await context.newPage();
   await page.goto(BOARD_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
   await new Promise(r => setTimeout(r, 5000));
@@ -304,7 +305,7 @@ async function _ensurePageInternal(onLog?: (m: string) => void): Promise<any> {
   // visible 로그인 유도
   onLog?.('🔐 [Dropshot] 로그인 필요 → 브라우저 표시 (최대 5분)');
   await context.close();
-  context = await launchBrowser(profileDir, false);
+  context = await launchBrowser(profileDir, false, onLog);
   page = context.pages()[0] || await context.newPage();
   await page.goto('https://aistudio.dropshot.io', { waitUntil: 'domcontentloaded', timeout: 45000 });
 
@@ -323,7 +324,7 @@ async function _ensurePageInternal(onLog?: (m: string) => void): Promise<any> {
 
   // visible 닫고 headless로 재진입
   await context.close();
-  const hctx = await launchBrowser(profileDir, true);
+  const hctx = await launchBrowser(profileDir, true, onLog);
   const hpage = hctx.pages()[0] || await hctx.newPage();
   await hpage.goto(BOARD_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
   await new Promise(r => setTimeout(r, 4000));
