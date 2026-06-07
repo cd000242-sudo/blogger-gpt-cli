@@ -1005,10 +1005,16 @@ export async function createPayload(options = {}) {
 
   // 상단 참고 URL 텍스트영역 (줄바꿈으로 여러 개 입력)
   const referenceUrlEl = document.getElementById('referenceUrl');
+  let referenceUrls = [];
   if (referenceUrlEl?.value?.trim()) {
-    const refUrls = referenceUrlEl.value.split('\n').map(u => u.trim()).filter(u => /^https?:\/\//i.test(u));
-    manualUrls.push(...refUrls);
+    referenceUrls = referenceUrlEl.value.split('\n').map(u => u.trim()).filter(u => /^https?:\/\//i.test(u));
+    manualUrls.push(...referenceUrls);
   }
+  const singleInputMode = (() => {
+    try { return localStorage.getItem('singleInputMode') || 'keyword'; }
+    catch { return 'keyword'; }
+  })();
+  const isUrlInputMode = singleInputMode === 'url' && referenceUrls.length > 0;
 
   // ── 초안 (페러프레이징 모드) ──
   const draftInputEl = document.getElementById('draftInput');
@@ -1093,6 +1099,8 @@ export async function createPayload(options = {}) {
 
     // 수동 크롤링 URL
     manualCrawlUrls: manualUrls.length > 0 ? manualUrls : undefined,
+    sourceUrl: isUrlInputMode ? referenceUrls[0] : undefined,
+    urlBasedGeneration: isUrlInputMode ? true : undefined,
 
     // 🆕 URL 이미지 자동 수집 + AI 검증 (cd000242-sudo/naver v2.7.77 이식)
     //   _publishForceOptions 전역 패턴 — 큐/세미오토/멀티계정이 덮어쓸 수 있음

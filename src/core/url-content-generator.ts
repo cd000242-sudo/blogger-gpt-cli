@@ -18,6 +18,13 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { loadEnvFromFile } from '../env';
 import { callGeminiWithRetry } from './final/gemini-engine';
 
+const URL_GEN_AXIOS_TIMEOUT_MS = Number(process.env['URL_GEN_AXIOS_TIMEOUT_MS'] || 8000);
+const URL_GEN_PUPPETEER_TIMEOUT_MS = Number(process.env['URL_GEN_PUPPETEER_TIMEOUT_MS'] || 15000);
+const URL_GEN_CONTEXT_CHARS = Number(process.env['URL_GEN_CONTEXT_CHARS'] || 7000);
+const URL_GEN_TARGET_H2 = Number(process.env['URL_GEN_TARGET_H2'] || 5);
+const URL_GEN_H3_PER_H2 = Number(process.env['URL_GEN_H3_PER_H2'] || 2);
+const URL_GEN_ENABLE_BROWSER_FALLBACK = /^(1|true|yes)$/i.test(String(process.env['URL_GEN_ENABLE_BROWSER_FALLBACK'] || ''));
+
 // ============================================
 // 타입 정의
 // ============================================
@@ -50,6 +57,101 @@ export interface H2Section {
 export interface H3Section {
   title: string;
   content: string;
+}
+
+function guessTitleFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const last = decodeURIComponent(parsed.pathname.split('/').filter(Boolean).pop() || parsed.hostname)
+      .replace(/[-_+]+/g, ' ')
+      .replace(/\.(html?|php|aspx?)$/i, '')
+      .trim();
+    return last || parsed.hostname;
+  } catch {
+    return 'URL 참고 콘텐츠';
+  }
+}
+
+function cleanJsonText(text: string): string {
+  return String(text || '')
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+    .trim();
+}
+
+function parseJsonObjectLoose(text: string): any {
+  const cleaned = cleanJsonText(text);
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error('JSON 객체를 찾지 못했습니다.');
+  }
+  const json = cleaned
+    .slice(start, end + 1)
+    .replace(/,\s*([}\]])/g, '$1');
+  return JSON.parse(json);
+}
+
+function safeText(value: any, fallback = ''): string {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text || fallback;
+}
+
+function fallbackTags(crawledData: UrlCrawlResult, keyword: string): string[] {
+  const base = [
+    keyword,
+    ...crawledData.keywords,
+    ...crawledData.title.split(/\s+/).slice(0, 4),
+    '가이드',
+    '정보',
+  ];
+  return Array.from(new Set(base.map((v) => safeText(v)).filter(Boolean))).slice(0, 10);
+}
+
+function normalizeGeneratedArticle(raw: any, crawledData: UrlCrawlResult, keyword: string): GeneratedArticle {
+  const title = safeText(raw?.title, `${keyword || crawledData.title} 완벽 가이드`);
+  const rawSections = Array.isArray(raw?.h2Sections) ? raw.h2Sections : [];
+  const h2Sections = rawSections
+    .map((section: any, idx: number) => {
+      const h2Title = safeText(section?.title, `${keyword || crawledData.title} 핵심 ${idx + 1}`);
+      const rawH3 = Array.isArray(section?.h3Sections) ? section.h3Sections : [];
+      const h3Sections = rawH3
+        .map((h3: any, h3Idx: number) => ({
+          title: safeText(h3?.title, `${h2Title} 세부 ${h3Idx + 1}`).slice(0, 80),
+          content: safeText(h3?.content, `${h2Title}에 대한 핵심 내용을 정리했습니다.`),
+        }))
+        .filter((h3: H3Section) => h3.content.length >= 20)
+        .slice(0, 3);
+
+      return {
+        title: h2Title.slice(0, 90),
+        h3Sections: h3Sections.length > 0
+          ? h3Sections
+          : [{ title: `${h2Title} 핵심 정리`, content: `${h2Title}에 대해 독자가 바로 이해할 수 있도록 핵심 내용을 새롭게 정리했습니다.` }],
+      };
+    })
+    .filter((section: H2Section) => section.title && section.h3Sections.length > 0)
+    .slice(0, URL_GEN_TARGET_H2);
+
+  if (h2Sections.length < 3) {
+    throw new Error(`URL 통합 생성 결과의 섹션이 부족합니다 (${h2Sections.length}개).`);
+  }
+
+  const tags = Array.isArray(raw?.tags)
+    ? raw.tags.map((tag: any) => safeText(tag)).filter(Boolean).slice(0, 10)
+    : fallbackTags(crawledData, keyword);
+
+  const metaDescription = safeText(raw?.metaDescription, crawledData.metaDescription || `${title}에 대한 핵심 정보를 정리했습니다.`).slice(0, 160);
+  const html = generateArticleHtml(title, h2Sections, tags);
+
+  return {
+    title,
+    h2Sections,
+    tags: tags.length > 0 ? tags : fallbackTags(crawledData, keyword),
+    metaDescription,
+    html,
+  };
 }
 
 // ============================================
@@ -94,13 +196,34 @@ export async function deepCrawlUrl(url: string): Promise<UrlCrawlResult> {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
       },
-      timeout: 10000,
+      timeout: URL_GEN_AXIOS_TIMEOUT_MS,
       maxRedirects: 5,
+      maxContentLength: 2_000_000,
+      validateStatus: (status) => status >= 200 && status < 400,
     });
     html = response.data;
   } catch (axiosError) {
-    console.warn(`[URL-GEN] ⚠️ Axios 크롤링 실패, Puppeteer로 전환합니다: ${url}`);
-    html = await crawlWithPuppeteer(url);
+    const message = axiosError instanceof Error ? axiosError.message : String(axiosError);
+    if (URL_GEN_ENABLE_BROWSER_FALLBACK) {
+      console.warn(`[URL-GEN] ⚠️ Axios 크롤링 실패, 브라우저 폴백 사용: ${url} — ${message}`);
+      html = await crawlWithPuppeteer(url);
+    } else {
+      console.warn(`[URL-GEN] ⚠️ 빠른 크롤링 실패, 브라우저 폴백 생략: ${url} — ${message}`);
+      html = '';
+    }
+  }
+
+  if (!html || html.trim().length < 80) {
+    const fallbackTitle = guessTitleFromUrl(url);
+    return {
+      url,
+      title: fallbackTitle,
+      content: `${fallbackTitle}에 대한 참고 URL입니다. 원문 페이지가 차단되었거나 응답이 느려 본문 전체를 가져오지 못했습니다. 글 작성 시 변동 가능한 정보는 공식 사이트에서 최신 내용을 확인하도록 안내하세요. URL: ${url}`,
+      subheadings: [],
+      metaDescription: '',
+      keywords: fallbackTitle.split(/\s+/).filter(Boolean).slice(0, 6),
+      images: [],
+    };
   }
 
   const $ = cheerio.load(html);
@@ -390,6 +513,78 @@ JSON 배열로 태그만 출력:
   return [keyword || crawledData.title, '정보', '가이드', '2025'];
 }
 
+/**
+ * URL 전용 빠른 생성: 제목/H2/H3/태그를 한 번의 LLM 호출로 생성
+ *
+ * 기존 경로는 제목 1회 + H2 1회 + H2별 본문 5회 + 태그 1회로 최소 8회 호출이 필요했다.
+ * URL 모드 사용자는 "URL 넣고 바로 글"을 기대하므로, 우선 통합 생성으로 응답 시간을 줄이고
+ * 파싱 실패 때만 아래 레거시 순차 경로로 폴백한다.
+ */
+async function generateCompleteArticleFast(
+  crawledData: UrlCrawlResult,
+  keyword: string,
+  onLog?: (msg: string) => void,
+): Promise<GeneratedArticle> {
+  const context = crawledData.content
+    .replace(/\s+/g, ' ')
+    .slice(0, URL_GEN_CONTEXT_CHARS);
+  const h2Count = Math.max(3, Math.min(6, URL_GEN_TARGET_H2));
+  const h3Count = Math.max(2, Math.min(3, URL_GEN_H3_PER_H2));
+
+  const prompt = `당신은 SEO 블로그 작가이자 편집자입니다.
+
+아래 URL에서 추출한 참고 자료를 바탕으로, 원문을 복사하지 않고 완전히 새로운 블로그 글을 작성하세요.
+
+[주제/키워드]
+${keyword || crawledData.title}
+
+[원본 URL]
+${crawledData.url}
+
+[원본 제목]
+${crawledData.title}
+
+[원본 메타 설명]
+${crawledData.metaDescription || '(없음)'}
+
+[원본 소제목 참고]
+${crawledData.subheadings.slice(0, 12).join('\n') || '(없음)'}
+
+[원본 본문 참고]
+${context}
+
+[작성 규칙]
+1. 원문 제목과 문장을 그대로 복사하지 말고, 새 관점과 새 문장으로 재작성하세요.
+2. title은 50~70자 SEO 제목으로 작성하세요.
+3. h2Sections는 정확히 ${h2Count}개 생성하세요.
+4. 각 H2마다 h3Sections를 정확히 ${h3Count}개 생성하세요.
+5. 각 H3 content는 350~550자, 실용적이고 구체적으로 작성하세요.
+6. 한국어 존댓말 문체(~합니다, ~입니다)로 작성하세요.
+7. 날짜, 금액, 자격 요건처럼 변동 가능한 정보는 "공식 사이트에서 최신 공고를 확인"하도록 안전하게 표현하세요.
+8. 출력은 JSON 객체 하나만 반환하세요. 마크다운 코드블록, 설명 문장 금지.
+
+[JSON 형식]
+{
+  "title": "새 제목",
+  "metaDescription": "150자 이내 설명",
+  "tags": ["태그1", "태그2", "태그3", "태그4", "태그5", "태그6", "태그7", "태그8"],
+  "h2Sections": [
+    {
+      "title": "H2 제목",
+      "h3Sections": [
+        { "title": "H3 제목", "content": "본문" },
+        { "title": "H3 제목", "content": "본문" }
+      ]
+    }
+  ]
+}`;
+
+  onLog?.(`[PROGRESS] 20% - ⚡ URL 전용 빠른 생성: AI 통합 호출 1회로 제목/본문/태그 생성 중...`);
+  const text = await callGeminiWithRetry(prompt);
+  const parsed = parseJsonObjectLoose(text);
+  return normalizeGeneratedArticle(parsed, crawledData, keyword);
+}
+
 // ============================================
 // 3단계: HTML 생성
 // ============================================
@@ -454,6 +649,14 @@ export async function generateContentFromUrl(
 
   // 키워드가 없으면 제목에서 추출
   const effectiveKeyword = keyword || crawledData.title.split(' ').slice(0, 3).join(' ');
+
+  try {
+    const fastArticle = await generateCompleteArticleFast(crawledData, effectiveKeyword, onLog);
+    log(`[PROGRESS] 85% - ✅ URL 빠른 본문 생성 완료: H2 ${fastArticle.h2Sections.length}개, 태그 ${fastArticle.tags.length}개`);
+    return fastArticle;
+  } catch (fastErr: any) {
+    log(`⚠️ URL 빠른 생성 실패 → 안정 폴백으로 전환: ${fastErr.message?.slice(0, 100) || fastErr}`);
+  }
 
   // 2. 새로운 제목 생성
   log('[PROGRESS] 20% - ✍️ AI가 새로운 제목 생성 중...');
@@ -566,6 +769,14 @@ export async function generateContentFromUrls(
   // 병합된 데이터로 콘텐츠 생성
   const effectiveKeyword = keyword || mergedData.title.split(' ').slice(0, 3).join(' ');
 
+  try {
+    const fastArticle = await generateCompleteArticleFast(mergedData, effectiveKeyword, onLog);
+    log(`[PROGRESS] 85% - ✅ 다중 URL 빠른 본문 생성 완료: H2 ${fastArticle.h2Sections.length}개, 태그 ${fastArticle.tags.length}개`);
+    return fastArticle;
+  } catch (fastErr: any) {
+    log(`⚠️ 다중 URL 빠른 생성 실패 → 안정 폴백으로 전환: ${fastErr.message?.slice(0, 100) || fastErr}`);
+  }
+
   log('[PROGRESS] 20% - ✍️ AI가 새로운 제목 생성 중...');
   const newTitle = await generateNewTitle(mergedData);
 
@@ -615,12 +826,21 @@ async function crawlWithPuppeteer(url: string): Promise<string> {
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
     await page.setViewport({ width: 1280, height: 800 });
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      const resourceType = request.resourceType();
+      if (['image', 'media', 'font', 'stylesheet'].includes(resourceType)) {
+        request.abort().catch(() => {});
+        return;
+      }
+      request.continue().catch(() => {});
+    });
 
-    // 네트워크 유휴 상태까지 대기 (JS 렌더링 완료 대기)
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    // 브라우저 폴백은 macOS 패키지에서 특히 무거우므로 짧게 제한한다.
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: URL_GEN_PUPPETEER_TIMEOUT_MS });
 
-    // 추가적인 렌더링 대기
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // 동적 렌더링이 필요한 사이트를 위해 최소 대기만 둔다.
+    await new Promise(resolve => setTimeout(resolve, 700));
 
     const html = await page.content();
     console.log(`[URL-GEN] ✅ Puppeteer 크롤링 성공 (${html.length}자)`);
