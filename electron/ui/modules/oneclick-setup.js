@@ -1272,6 +1272,10 @@ export function renderOneclickSetupTab() {
               </div>
               <input id="oneclick-oauth-blog-id" type="text" placeholder="Blog ID (있으면 입력, 없으면 자동 추출 시도)"
                 style="width: 100%; padding: 10px 12px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; font-size: 12px; box-sizing: border-box; margin-bottom: 10px;" />
+              <label style="display:flex; align-items:flex-start; gap:8px; padding:10px 11px; margin-bottom:10px; background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.22); border-radius:9px; color:#fde68a; font-size:11px; line-height:1.5; cursor:pointer;">
+                <input id="oneclick-oauth-test-user-confirm" type="checkbox" style="margin-top:2px;" />
+                <span><strong>현재 Chrome에 로그인된 Gmail</strong>을 Google Cloud → Audience → Test users에 추가하고 저장했습니다. 이 확인 없이 인증을 열면 Google 403 access_denied가 뜰 수 있습니다.</span>
+              </label>
               <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                 <button type="button" onclick="window.__oneclickSetup?.openGoogleOAuthConsole('clients')"
                   style="flex: 1; min-width: 120px; padding: 9px 10px; background: rgba(255,112,67,0.16); border: 1px solid rgba(255,112,67,0.35); color: #fed7aa; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
@@ -2945,6 +2949,26 @@ function showBloggerOAuthAccessDeniedHelp(detail = '') {
   document.body.appendChild(modal);
 }
 
+function isBloggerOAuthPrecheckConfirmed() {
+  const checkbox = document.getElementById('oneclick-oauth-test-user-confirm');
+  return !checkbox || Boolean(checkbox.checked);
+}
+
+function blockBloggerOAuthUntilTestUserConfirmed() {
+  const checkbox = document.getElementById('oneclick-oauth-test-user-confirm');
+  checkbox?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (checkbox) {
+    const wrap = checkbox.closest('label');
+    if (wrap) {
+      wrap.style.boxShadow = '0 0 0 3px rgba(251,191,36,0.26)';
+      setTimeout(() => { wrap.style.boxShadow = ''; }, 1600);
+    }
+  }
+  setOAuthHelperMessage('먼저 현재 Chrome 로그인 Gmail을 Google Cloud > Audience > Test users에 추가하고 체크해주세요. 체크 전에는 403 방지를 위해 인증창을 열지 않습니다.', 'warn');
+  showToast('Test users 등록 확인 후 인증을 진행해주세요.', 'warn', 6500);
+  showBloggerOAuthAccessDeniedHelp('인증 전 차단: 현재 로그인 Gmail이 Test users에 등록되었는지 확인되지 않았습니다.');
+}
+
 function validateBloggerOAuthInputs(clientId, clientSecret) {
   if (!clientId || !clientSecret) {
     return 'Google Client ID와 Client Secret을 모두 입력해주세요.';
@@ -3024,6 +3048,11 @@ async function saveBloggerOAuthCredentials(startAuthAfterSave = false) {
 async function startBloggerOAuthFromOneclick({ clientId, clientSecret, blogId }) {
   if (!window.electronAPI?.startBloggerAuth) {
     setOAuthHelperMessage('Blogger OAuth IPC를 찾지 못했습니다. 앱을 재시작한 뒤 다시 시도해주세요.', 'error');
+    return;
+  }
+
+  if (!isBloggerOAuthPrecheckConfirmed()) {
+    blockBloggerOAuthUntilTestUserConfirmed();
     return;
   }
 
