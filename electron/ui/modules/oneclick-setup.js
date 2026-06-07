@@ -887,6 +887,127 @@ function waitForDemo(ms, runId) {
   });
 }
 
+function focusOneclickControl(id) {
+  const el = document.getElementById(id);
+  if (!el) return false;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  setTimeout(() => {
+    try { el.focus?.(); } catch {}
+  }, 250);
+  return true;
+}
+
+async function openOneclickExternalUrl(url) {
+  if (!url) return false;
+  if (window.electronAPI?.openLink) {
+    await window.electronAPI.openLink(url);
+    return true;
+  }
+  if (window.electronAPI?.openExternal) {
+    await window.electronAPI.openExternal(url);
+    return true;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+  return true;
+}
+
+async function openOneclickPracticeStep(kind, platformId, step, index) {
+  const normalized = normalizeConnectPlatformId(platformId);
+
+  try {
+    if (kind === 'connect' && normalized === 'blogspot') {
+      if (index === 0 || index === 1) {
+        openGoogleOAuthConsole('clients');
+        return 'Google Cloud Console의 OAuth 클라이언트 화면을 열었습니다.';
+      }
+      if (index === 2) {
+        openGoogleOAuthConsole('bloggerApi');
+        return 'Blogger API v3 사용 화면을 열었습니다.';
+      }
+      if (index === 3) {
+        openGoogleOAuthConsole('consent');
+        return 'OAuth 동의 화면 설정 페이지를 열었습니다.';
+      }
+      if (index === 4) {
+        openGoogleOAuthConsole('audience');
+        return 'Audience/Test users 화면을 열었습니다. 현재 로그인 Gmail을 테스트 사용자로 추가해야 403이 막힙니다.';
+      }
+      if (index === 5) {
+        openGoogleOAuthConsole('clients');
+        return 'OAuth Client 생성 화면을 열었습니다.';
+      }
+      if (index === 6) {
+        await copyBloggerOAuthRedirectUri();
+        openGoogleOAuthConsole('clients');
+        return 'Redirect URI를 복사하고 OAuth Client 화면을 다시 열었습니다.';
+      }
+      if (index === 7) {
+        await openOneclickExternalUrl('https://www.blogger.com/');
+        return 'Blogger 관리자 화면을 열었습니다. 로그인 후 블로그를 선택하는 장면을 촬영할 수 있습니다.';
+      }
+      focusOneclickControl('oneclick-oauth-client-id');
+      return '앱 입력칸으로 돌아와 Client ID/Secret 붙여넣기 구간을 보여줍니다.';
+    }
+
+    if (kind === 'connect' && normalized === 'wordpress') {
+      if (index === 0) {
+        focusOneclickControl('oneclick-wp-site-url');
+        return 'WordPress 사이트 URL 입력칸으로 이동했습니다.';
+      }
+      if (index === 1) {
+        await openWordPressAdmin('login');
+        return 'WordPress 관리자 로그인 화면을 열었습니다.';
+      }
+      if (index === 2 || index === 3 || index === 4) {
+        await openWordPressAdmin('profile');
+        return 'WordPress 프로필의 Application Password 구간을 열었습니다.';
+      }
+      focusOneclickControl('oneclick-wp-app-password');
+      return '앱 입력칸으로 돌아와 Application Password 붙여넣기 구간을 보여줍니다.';
+    }
+
+    if (kind === 'blogger-blog-id') {
+      await openOneclickExternalUrl('https://www.blogger.com/');
+      return 'Blogger 관리자 화면을 열었습니다. 블로그 선택 후 Blog ID가 추출되는 흐름을 촬영할 수 있습니다.';
+    }
+
+    if (kind === 'setup' && platformId === 'blogspot') {
+      if (index <= 5) {
+        await openOneclickExternalUrl('https://www.blogger.com/');
+        return `${step.title} 단계 재현을 위해 Blogger 관리자 화면을 열었습니다.`;
+      }
+      if (index === 6) {
+        await openOneclickExternalUrl('https://search.google.com/search-console');
+        return 'Google Search Console 화면을 열었습니다.';
+      }
+      return 'Blogspot 세팅 완료 화면 예시로 이동합니다.';
+    }
+
+    if (kind === 'setup' && platformId === 'wordpress') {
+      if (index === 0) {
+        await openWordPressAdmin('login');
+        return 'WordPress 관리자 로그인 화면을 열었습니다.';
+      }
+      if (index <= 3) {
+        await openWordPressAdmin('login');
+        return `${step.title} 단계 재현을 위해 WordPress 관리자 화면을 열었습니다.`;
+      }
+      if (index === 4) {
+        await openOneclickExternalUrl('https://searchadvisor.naver.com/');
+        return '네이버 서치어드바이저 화면을 열었습니다.';
+      }
+      if (index === 5) {
+        await openOneclickExternalUrl('https://search.google.com/search-console');
+        return 'Google Search Console 화면을 열었습니다.';
+      }
+    }
+  } catch (e) {
+    return `화면 열기에 실패했습니다: ${e?.message || e}`;
+  }
+
+  return '';
+}
+
 async function startOneclickGuideDemo(kind = 'connect', platformId = 'blogspot') {
   const runningOp = isAnyOperationRunning();
   if (runningOp) {
@@ -901,11 +1022,17 @@ async function startOneclickGuideDemo(kind = 'connect', platformId = 'blogspot')
     connect: '앱 연동',
     'blogger-blog-id': 'Blog ID 자동 가져오기',
   };
-  const demoName = `${demoTitleMap[kind] || '가이드'} 촬영 테스트`;
+  const demoName = `${demoTitleMap[kind] || '가이드'} 최초 세팅 재현`;
+  const ok = window.confirm?.(
+    `${demoName}는 실제 Chrome/브라우저 탭을 순서대로 엽니다.\n\n`
+    + '앱 저장값은 자동으로 변경하지 않습니다. 단, Google/WordPress 화면에서 사용자가 직접 만들기/저장 버튼을 누르면 실제 계정에는 반영될 수 있습니다.\n\n'
+    + '영상 촬영용으로 최초 사용자 흐름을 재현할까요?'
+  );
+  if (ok === false) return;
 
   ensureLiveGuidePanel(kind, platformId, { steps });
-  showToast(`${demoName}를 시작합니다. 실제 설정값은 변경하지 않습니다.`, 'info', 5000);
-  addLog?.(`[원클릭] ${demoName} 시작 (실제 자동화 미실행)`);
+  showToast(`${demoName}를 시작합니다. 실제 화면을 열되 앱 저장값은 변경하지 않습니다.`, 'info', 6000);
+  addLog?.(`[원클릭] ${demoName} 시작 (브라우저 화면 재현, 저장값 미변경)`);
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
@@ -913,16 +1040,26 @@ async function startOneclickGuideDemo(kind = 'connect', platformId = 'blogspot')
       currentStep: i,
       totalSteps: steps.length,
       stepStatus: 'running',
-      message: `촬영용 테스트: ${step.title} 단계로 이동합니다.`,
+      message: `촬영 재현: ${step.title} 단계 화면을 엽니다.`,
     });
     if (!(await waitForDemo(900, runId))) return;
+    const screenMessage = await openOneclickPracticeStep(kind, platformId, step, i);
+    if (screenMessage) {
+      updateLiveOneclickGuide(kind, platformId, {
+        currentStep: i,
+        totalSteps: steps.length,
+        stepStatus: step.manual ? 'waiting-login' : 'running',
+        message: screenMessage,
+      });
+    }
+    if (!(await waitForDemo(step.manual ? 1800 : 1100, runId))) return;
 
     if (step.manual) {
       updateLiveOneclickGuide(kind, platformId, {
         currentStep: i,
         totalSteps: steps.length,
         stepStatus: 'waiting-login',
-        message: `사용자가 직접 처리하는 구간입니다. 영상에서는 이 설명을 읽고 로그인, 권한 승인, 복사 같은 행동을 보여주면 됩니다.`,
+        message: `사용자가 직접 처리하는 구간입니다. 로그인, 권한 승인, 테스트 사용자 추가, 복사/붙여넣기 같은 실제 행동을 영상에 담으면 됩니다.`,
       });
       if (!(await waitForDemo(1700, runId))) return;
     }
@@ -936,7 +1073,7 @@ async function startOneclickGuideDemo(kind = 'connect', platformId = 'blogspot')
     if (!(await waitForDemo(700, runId))) return;
   }
 
-  finishLiveOneclickGuide(kind, platformId, `${demoName}가 완료되었습니다. 실제 계정, 브라우저, 저장값은 건드리지 않았습니다.`, true);
+  finishLiveOneclickGuide(kind, platformId, `${demoName}가 완료되었습니다. 앱 저장값은 자동 변경하지 않았습니다.`, true);
   showToast(`${demoName} 완료`, 'success', 4000);
 }
 
@@ -1030,7 +1167,8 @@ export function renderOneclickSetupTab() {
             <div>
               <h4 style="margin:0; font-weight:900; color:white; font-size:16px; letter-spacing:-0.2px;">영상 촬영 / 초보자 연습 모드</h4>
               <p style="margin:4px 0 0; font-size:12px; color:#c4b5fd; line-height:1.55;">
-                이미 세팅된 상태에서도 처음 세팅하는 흐름을 다시 보여줍니다. 실제 브라우저 실행, 계정 로그인, 저장값 변경은 하지 않습니다.
+                실제 Chrome/브라우저 탭과 가이드 패널을 순서대로 열어 최초 세팅 흐름을 촬영용으로 재현합니다. 앱 저장값은 자동 변경하지 않습니다.
+                Google/WordPress 화면에서 직접 저장·생성 버튼을 누르면 실제 계정에는 반영될 수 있습니다.
               </p>
             </div>
           </div>
@@ -2753,6 +2891,60 @@ function openGoogleOAuthConsole(target = 'clients') {
   }
 }
 
+function isBloggerOAuthAccessDeniedError(message = '') {
+  return /access_denied|테스터|테스트 사용자|테스트 중|인증 절차를 완료하지|verification|not completed|only.*test/i.test(String(message || ''));
+}
+
+function showBloggerOAuthAccessDeniedHelp(detail = '') {
+  document.getElementById('oneclick-oauth-access-denied-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'oneclick-oauth-access-denied-modal';
+  modal.style.cssText = `
+    position: fixed; inset: 0; z-index: 1000000;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(2, 6, 23, 0.74); backdrop-filter: blur(10px);
+    padding: 24px;
+  `;
+  modal.innerHTML = `
+    <div style="width:min(720px, 96vw); background:#111827; border:1px solid rgba(248,113,113,0.42); border-radius:18px; box-shadow:0 24px 80px rgba(0,0,0,0.45); overflow:hidden;">
+      <div style="padding:18px 20px; background:linear-gradient(135deg, rgba(239,68,68,0.22), rgba(245,158,11,0.12)); border-bottom:1px solid rgba(248,113,113,0.22); display:flex; justify-content:space-between; gap:14px;">
+        <div>
+          <div style="font-size:18px; font-weight:900; color:#fee2e2;">Google OAuth access_denied 해결</div>
+          <div style="margin-top:5px; font-size:12px; color:#fecaca; line-height:1.55;">이 오류는 보통 Client ID/Secret 문제가 아니라 Google OAuth 앱의 테스트 사용자/검증 상태 문제입니다.</div>
+        </div>
+        <button type="button" data-close-oauth-denied style="width:34px; height:34px; border-radius:10px; border:1px solid rgba(255,255,255,0.16); background:rgba(15,23,42,0.65); color:#e5e7eb; cursor:pointer; font-size:18px;">×</button>
+      </div>
+      <div style="padding:20px; color:#e5e7eb; font-size:13px; line-height:1.75;">
+        <div style="padding:14px 16px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.25); border-radius:12px; color:#fecaca; margin-bottom:14px;">
+          <strong>왜 뜨나요?</strong><br>
+          OAuth 앱이 <strong>Testing</strong> 상태이면, 현재 Chrome에 로그인된 Gmail이 Google Cloud의 <strong>Audience → Test users</strong>에 등록되어 있어야 Blogger 권한 승인이 열립니다.
+          등록되지 않은 계정으로 인증하면 가이드 순서가 맞아도 403 access_denied가 뜹니다.
+        </div>
+        <ol style="margin:0 0 14px 18px; padding:0;">
+          <li><strong>테스트 사용자 열기</strong>를 눌러 현재 로그인한 Gmail을 Test users에 추가합니다.</li>
+          <li>Blogger API v3가 사용 설정되어 있는지 확인합니다.</li>
+          <li>앱으로 돌아와 <strong>저장 후 인증</strong>을 다시 누릅니다.</li>
+          <li>여러 일반 사용자에게 배포하려면 Google Auth Platform에서 앱 게시/검증까지 진행해야 합니다.</li>
+        </ol>
+        ${detail ? `<div style="max-height:96px; overflow:auto; margin-top:12px; padding:10px 12px; background:#0b1020; border:1px solid rgba(148,163,184,0.18); border-radius:10px; color:#cbd5e1; font-size:12px;">${escapeHtml(detail)}</div>` : ''}
+        <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:18px;">
+          <button type="button" data-open-oauth-audience style="padding:11px 14px; border-radius:10px; border:1px solid rgba(34,197,94,0.35); background:rgba(34,197,94,0.16); color:#bbf7d0; font-weight:850; cursor:pointer;">테스트 사용자 열기</button>
+          <button type="button" data-open-blogger-api style="padding:11px 14px; border-radius:10px; border:1px solid rgba(59,130,246,0.35); background:rgba(59,130,246,0.16); color:#bfdbfe; font-weight:850; cursor:pointer;">Blogger API 열기</button>
+          <button type="button" data-open-oauth-consent style="padding:11px 14px; border-radius:10px; border:1px solid rgba(168,85,247,0.35); background:rgba(168,85,247,0.16); color:#ddd6fe; font-weight:850; cursor:pointer;">동의 화면 열기</button>
+          <button type="button" data-close-oauth-denied style="padding:11px 14px; border-radius:10px; border:1px solid rgba(148,163,184,0.25); background:rgba(15,23,42,0.72); color:#e5e7eb; font-weight:850; cursor:pointer;">닫기</button>
+        </div>
+      </div>
+    </div>
+  `;
+  modal.querySelectorAll('[data-close-oauth-denied]').forEach((btn) => {
+    btn.addEventListener('click', () => modal.remove());
+  });
+  modal.querySelector('[data-open-oauth-audience]')?.addEventListener('click', () => openGoogleOAuthConsole('audience'));
+  modal.querySelector('[data-open-blogger-api]')?.addEventListener('click', () => openGoogleOAuthConsole('bloggerApi'));
+  modal.querySelector('[data-open-oauth-consent]')?.addEventListener('click', () => openGoogleOAuthConsole('consent'));
+  document.body.appendChild(modal);
+}
+
 function validateBloggerOAuthInputs(clientId, clientSecret) {
   if (!clientId || !clientSecret) {
     return 'Google Client ID와 Client Secret을 모두 입력해주세요.';
@@ -2835,7 +3027,7 @@ async function startBloggerOAuthFromOneclick({ clientId, clientSecret, blogId })
     return;
   }
 
-  setOAuthHelperMessage('브라우저를 열고 Google 권한 승인을 기다리는 중입니다. 403 access_denied가 뜨면 [테스트 사용자]에서 로그인 Gmail을 추가한 뒤 다시 인증하세요.', 'info');
+  setOAuthHelperMessage('브라우저를 열고 Google 권한 승인을 기다리는 중입니다. 403 access_denied 화면이면 Google Cloud > Audience > Test users에 현재 로그인 Gmail을 추가한 뒤 다시 인증하세요.', 'info');
   const result = await window.electronAPI.startBloggerAuth({
     blogId,
     googleClientId: clientId,
@@ -2843,12 +3035,16 @@ async function startBloggerOAuthFromOneclick({ clientId, clientSecret, blogId })
   });
 
   if (!result?.ok) {
-    setOAuthHelperMessage(`OAuth 인증 시작 실패: ${result?.error || '알 수 없는 오류'}`, 'error');
-    showToast(`OAuth 인증 시작 실패: ${result?.error || '알 수 없는 오류'}`, 'error');
+    const err = result?.error || '알 수 없는 오류';
+    setOAuthHelperMessage(`OAuth 인증 시작 실패: ${err}`, 'error');
+    if (isBloggerOAuthAccessDeniedError(err)) {
+      showBloggerOAuthAccessDeniedHelp(err);
+    }
+    showToast(`OAuth 인증 시작 실패: ${err}`, 'error');
     return;
   }
 
-  setOAuthHelperMessage(`브라우저에서 Google 권한을 승인해주세요. "테스터만 액세스" 403이 뜨면 [테스트 사용자] 버튼으로 Gmail을 추가한 뒤 다시 누르세요. Redirect URI: ${result.redirectUri || BLOGGER_OAUTH_REDIRECT_URI}`, 'info');
+  setOAuthHelperMessage(`브라우저에서 Google 권한을 승인해주세요. "테스터만 액세스" 403이 뜨면 [테스트 사용자] 버튼으로 현재 로그인 Gmail을 추가한 뒤 다시 누르세요. Redirect URI: ${result.redirectUri || BLOGGER_OAUTH_REDIRECT_URI}`, 'info');
   showToast('브라우저에서 Google 권한을 승인해주세요.', 'info', 6000);
 }
 
@@ -3936,6 +4132,7 @@ export function initOneclickSetup() {
     loadBloggerOAuthFields,
     copyBloggerOAuthRedirectUri,
     openGoogleOAuthConsole,
+    showBloggerOAuthAccessDeniedHelp,
     saveBloggerOAuthCredentials,
     startBloggerBlogIdExtract,
     showBloggerOAuthGuide,
@@ -4006,10 +4203,14 @@ export function initOneclickSetup() {
           loadBloggerOAuthFields(false).catch(() => {});
         } else {
           const authError = result?.error || '알 수 없는 오류';
-          const helper = /access_denied|tester|테스터|테스트 사용자/i.test(authError)
+          const accessDenied = isBloggerOAuthAccessDeniedError(authError);
+          const helper = accessDenied
             ? 'Blogger OAuth 인증 실패: Google OAuth 앱이 테스트 상태입니다. [테스트 사용자] 버튼을 눌러 현재 로그인한 Gmail을 Test users에 추가한 뒤 다시 인증하세요.'
             : `Blogger OAuth 인증 실패: ${authError}`;
           setOAuthHelperMessage(helper, 'error');
+          if (accessDenied) {
+            showBloggerOAuthAccessDeniedHelp(authError);
+          }
           showToast(`Blogger OAuth 인증 실패: ${result?.error || '알 수 없는 오류'}`, 'error', 8000);
         }
       });
