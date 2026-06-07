@@ -2708,6 +2708,36 @@ function setLicenseStatusElement(element, text, color, isValid) {
   element.dataset.valid = isValid ? 'true' : 'false';
 }
 
+function setLicenseAccessState(partial = {}) {
+  const previous = window.__licenseAccessState || {};
+  const next = {
+    checked: true,
+    isFreeTrial: false,
+    valid: false,
+    ...previous,
+    ...partial,
+    updatedAt: Date.now(),
+  };
+
+  window.__licenseAccessState = next;
+
+  try {
+    window.dispatchEvent(new CustomEvent('license-access-updated', { detail: next }));
+  } catch {
+    // ignore
+  }
+
+  try {
+    window.applyFreeTrialAccessGate?.();
+  } catch {
+    // ignore
+  }
+
+  return next;
+}
+
+window.setLicenseAccessState = setLicenseAccessState;
+
 function normalizeLicenseCount(value) {
   if (value === undefined || value === null) return null;
   if (typeof value === 'number') return value;
@@ -2856,6 +2886,12 @@ async function loadLicenseInfo() {
           var u = (qs.quota && qs.quota.usage) || 0;
           var l = (qs.quota && qs.quota.limit) || 1;
           setLicenseStatusElement(licenseStatusElement, '🆓 무료체험 (' + u + '/' + l + ')', '#10b981', true);
+          setLicenseAccessState({
+            isFreeTrial: true,
+            valid: true,
+            quota: qs.quota || null,
+            source: 'free-quota',
+          });
           return;
         }
       }
@@ -2895,6 +2931,13 @@ async function loadLicenseInfo() {
         });
 
         setLicenseStatusElement(licenseStatusElement, statusText, statusColor, isValid);
+        setLicenseAccessState({
+          isFreeTrial: false,
+          valid: isValid,
+          licenseType: licenseData.licenseType || licenseData.type || null,
+          expiresAt: licenseData.expiresAt || null,
+          source: 'license-file',
+        });
 
         console.log('라이센스 정보 로드됨:', licenseData);
 
@@ -2904,6 +2947,11 @@ async function loadLicenseInfo() {
 
         return licenseData;
       } else {
+        setLicenseAccessState({
+          isFreeTrial: false,
+          valid: false,
+          source: 'missing-license',
+        });
         setLicenseStatusElement(licenseStatusElement, '미등록', '#f59e0b', false);
         console.log('라이센스 파일이 없습니다.');
 
@@ -2914,6 +2962,11 @@ async function loadLicenseInfo() {
         return null;
       }
     } else {
+      setLicenseAccessState({
+        isFreeTrial: false,
+        valid: false,
+        source: 'license-api-missing',
+      });
       console.log('Electron API를 사용할 수 없습니다.');
       licenseStatusElement.textContent = '오류';
       licenseStatusElement.style.color = '#ef4444'; // 빨간색
@@ -8553,6 +8606,35 @@ async function refreshLicenseStatus() {
 
     // 헤더 라이선스 상태도 업데이트
     updateHeaderLicenseStatus(status);
+
+    try {
+      const api = window.blogger || window.electronAPI;
+      const quotaStatus = api?.getQuotaStatus ? await api.getQuotaStatus() : null;
+      if (quotaStatus && quotaStatus.success && quotaStatus.isFree) {
+        setLicenseAccessState({
+          isFreeTrial: true,
+          valid: true,
+          quota: quotaStatus.quota || null,
+          source: 'free-quota-refresh',
+        });
+      } else {
+        setLicenseAccessState({
+          isFreeTrial: false,
+          valid: !!(status && status.valid),
+          licenseType: status?.type || null,
+          expiresAt: status?.expiresAt || null,
+          source: 'license-status-refresh',
+        });
+      }
+    } catch {
+      setLicenseAccessState({
+        isFreeTrial: false,
+        valid: !!(status && status.valid),
+        licenseType: status?.type || null,
+        expiresAt: status?.expiresAt || null,
+        source: 'license-status-refresh-fallback',
+      });
+    }
 
   } catch (error) {
     console.error('[LICENSE] 상태 확인 실패:', error);

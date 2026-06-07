@@ -126,12 +126,48 @@ function isLicenseExpired(license) {
 function getAppId() {
     return process.env.APP_ID || 'com.leadernam.orbit';
 }
+function getAppPlatform() {
+    return 'LEADERNAM';
+}
+function getAppVersion() {
+    try {
+        return electron_1.app.getVersion();
+    }
+    catch (_a) {
+        return '';
+    }
+}
+function isMaintenanceResponse(result) {
+    return !!result && (result.serviceEnabled === false || result.error === 'SERVICE_DISABLED' || result.code === 'SERVICE_DISABLED');
+}
+function createMaintenanceFailure(result) {
+    return {
+        valid: false,
+        reason: 'MAINTENANCE',
+        code: 'SERVICE_DISABLED',
+        message: result?.message || result?.notice || '현재 서비스 점검 중입니다. 잠시 후 다시 시도해주세요.',
+        serviceEnabled: false,
+        platform: result?.platform,
+        minVersion: result?.minVersion,
+    };
+}
+function createServerFailure(result, fallbackMessage) {
+    if (isMaintenanceResponse(result)) {
+        return createMaintenanceFailure(result);
+    }
+    return {
+        valid: false,
+        code: result?.code || result?.error,
+        message: result?.message || result?.error || fallbackMessage,
+    };
+}
 
 /**
  * 라이선스 검증 (Google Apps Script 서버 연동)
  */
 async function verifyLicense(licenseCode, deviceId, serverUrl, userId, userPassword) {
     const appId = getAppId();
+    const platform = getAppPlatform();
     const actualServerUrl = serverUrl || DEFAULT_LICENSE_SERVER_URL;
     
     // 서버 검증
@@ -151,6 +187,8 @@ async function verifyLicense(licenseCode, deviceId, serverUrl, userId, userPassw
                         userId: userId,
                         userPassword: userPassword,
                         appId: appId,
+                        platform: platform,
+                        appVersion: getAppVersion(),
                     }),
                 });
                 
@@ -164,10 +202,7 @@ async function verifyLicense(licenseCode, deviceId, serverUrl, userId, userPassw
                 const result = await response.json();
                 
                 if (!result.ok || !result.valid) {
-                    return {
-                        valid: false,
-                        message: result.error || result.message || '아이디 또는 비밀번호가 일치하지 않습니다.',
-                    };
+                    return createServerFailure(result, '아이디 또는 비밀번호가 일치하지 않습니다.');
                 }
                 
                 console.log('[licenseManager] ✅ verify-credentials 인증 성공!');
@@ -219,6 +254,8 @@ async function verifyLicense(licenseCode, deviceId, serverUrl, userId, userPassw
                                 userId: userId,
                                 userPassword: userPassword,
                                 appId: appId,
+                                platform: platform,
+                                appVersion: getAppVersion(),
                             }),
                         });
                         
@@ -244,10 +281,7 @@ async function verifyLicense(licenseCode, deviceId, serverUrl, userId, userPassw
                         const result = await response.json();
                         
                         if (!result.ok || !result.valid) {
-                            return {
-                                valid: false,
-                                message: result.error || result.message || '라이선스 코드가 유효하지 않습니다.',
-                            };
+                            return createServerFailure(result, '라이선스 코드가 유효하지 않습니다.');
                         }
                         
                         console.log('[licenseManager] ✅ 라이선스 등록 성공!');
@@ -334,6 +368,7 @@ async function revalidateLicense(serverUrl) {
         
         try {
             const appId = getAppId();
+            const platform = getAppPlatform();
             const response = await fetch(actualServerUrl, {
                 method: 'POST',
                 headers: {
@@ -344,6 +379,8 @@ async function revalidateLicense(serverUrl) {
                     userId: license.userId,
                     userPassword: license.userPassword,
                     appId: appId,
+                    platform: platform,
+                    appVersion: getAppVersion(),
                 }),
             });
             
@@ -354,6 +391,10 @@ async function revalidateLicense(serverUrl) {
             const result = await response.json();
             
             if (!result.ok || !result.valid) {
+                if (isMaintenanceResponse(result)) {
+                    console.warn('[licenseManager] 서비스 점검 모드 - 로컬 라이선스는 유지합니다.');
+                    return false;
+                }
                 await clearLicense();
                 return false;
             }

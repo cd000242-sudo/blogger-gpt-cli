@@ -2,7 +2,299 @@
 import { DOMCache, getAppState, getErrorHandler, getStorageManager, ButtonStateManager, getProgressManager, addLog, debugLog, errorLog, successLog, sanitizeHTML, getTextLength } from './core.js';
 
 // 탭 전환 함수
+
+const FREE_TRIAL_ALLOWED_TABS = new Set(['main', 'settings']);
+const FREE_TRIAL_TAB_LABELS = {
+  main: '메인',
+  thumbnail: '썸네일',
+  'image-batch': '이미지 생성',
+  settings: '글포스팅',
+  'semi-auto': '반자동',
+  schedule: '스케줄',
+  preview: '미리보기',
+  'internal-links': '거미줄포스팅',
+  'external-traffic': '외부유입 글 생성',
+  'keyword-discover': '키워드 발굴',
+  content: '콘텐츠 변환',
+  'adsense-tools': '애드센스 도구',
+};
+
+function getLicenseAccessState() {
+  return window.__licenseAccessState || {};
+}
+
+export function isFreeTrialMode() {
+  return getLicenseAccessState().isFreeTrial === true;
+}
+
+function getFreeTrialFeatureLabel(featureName) {
+  if (!featureName) return '프리미엄 기능';
+  return FREE_TRIAL_TAB_LABELS[featureName] || String(featureName);
+}
+
+function ensureFreeTrialUpgradeStyles() {
+  if (document.getElementById('freeTrialUpgradeStyles')) return;
+
+  const style = document.createElement('style');
+  style.id = 'freeTrialUpgradeStyles';
+  style.textContent = `
+    body.free-trial-upgrade-open #appSidebar,
+    body.free-trial-upgrade-open .app-header,
+    body.free-trial-upgrade-open #tab-content-container {
+      filter: blur(10px) saturate(0.7) contrast(0.82);
+      transform: scale(0.996);
+      transform-origin: center center;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    #freeTrialUpgradeOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483600;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 28px;
+      background:
+        linear-gradient(45deg, rgba(255,255,255,0.12) 25%, transparent 25%, transparent 75%, rgba(255,255,255,0.12) 75%),
+        linear-gradient(45deg, rgba(255,255,255,0.12) 25%, transparent 25%, transparent 75%, rgba(255,255,255,0.12) 75%),
+        rgba(2, 6, 23, 0.66);
+      background-position: 0 0, 9px 9px, 0 0;
+      background-size: 18px 18px, 18px 18px, auto;
+      backdrop-filter: blur(14px) saturate(0.72);
+    }
+
+    #freeTrialUpgradeOverlay.is-open {
+      display: flex;
+    }
+
+    .free-trial-upgrade-modal {
+      position: relative;
+      width: min(560px, 94vw);
+      border: 1px solid rgba(125, 211, 252, 0.32);
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at top left, rgba(34, 211, 238, 0.18), transparent 38%),
+        linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(17, 24, 39, 0.96));
+      color: #f8fafc;
+      box-shadow: 0 32px 100px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.06) inset;
+      padding: 30px;
+      overflow: hidden;
+    }
+
+    .free-trial-upgrade-modal::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+      background-size: 26px 26px;
+      pointer-events: none;
+    }
+
+    .free-trial-upgrade-inner {
+      position: relative;
+      z-index: 1;
+    }
+
+    .free-trial-upgrade-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(14, 165, 233, 0.16);
+      border: 1px solid rgba(56, 189, 248, 0.34);
+      color: #bae6fd;
+      font-size: 13px;
+      font-weight: 800;
+      margin-bottom: 16px;
+    }
+
+    .free-trial-upgrade-title {
+      margin: 0;
+      font-size: clamp(24px, 4vw, 34px);
+      line-height: 1.18;
+      letter-spacing: 0;
+      font-weight: 900;
+    }
+
+    .free-trial-upgrade-copy {
+      margin: 14px 0 22px;
+      color: #cbd5e1;
+      font-size: 15px;
+      line-height: 1.7;
+      font-weight: 650;
+    }
+
+    .free-trial-upgrade-list {
+      display: grid;
+      gap: 10px;
+      margin: 0 0 24px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .free-trial-upgrade-list li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 38px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.72);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      color: #e2e8f0;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .free-trial-upgrade-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .free-trial-upgrade-actions button {
+      min-height: 48px;
+      border: 0;
+      border-radius: 13px;
+      font-size: 15px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .free-trial-upgrade-buy {
+      color: #05131b;
+      background: linear-gradient(135deg, #67e8f9, #22d3ee 48%, #38bdf8);
+      box-shadow: 0 14px 35px rgba(34, 211, 238, 0.28);
+    }
+
+    .free-trial-upgrade-cancel {
+      color: #e2e8f0;
+      background: rgba(30, 41, 59, 0.92);
+      border: 1px solid rgba(148, 163, 184, 0.22) !important;
+    }
+
+    @media (max-width: 560px) {
+      .free-trial-upgrade-modal { padding: 24px; }
+      .free-trial-upgrade-actions { grid-template-columns: 1fr; }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+export function closeFreeTrialUpgradeModal(options = {}) {
+  const overlay = document.getElementById('freeTrialUpgradeOverlay');
+  if (overlay) overlay.classList.remove('is-open');
+  document.body.classList.remove('free-trial-upgrade-open');
+
+  if (options.redirectToPosting !== false) {
+    setTimeout(() => {
+      if (typeof showTab === 'function') showTab('settings');
+    }, 0);
+  }
+}
+
+export function openLicenseModalFromFreeTrialUpgrade() {
+  closeFreeTrialUpgradeModal({ redirectToPosting: true });
+
+  setTimeout(() => {
+    const purchaseUrl = 'https://leaderspro.kr';
+    try {
+      if (window.blogger && typeof window.blogger.openExternal === 'function') {
+        window.blogger.openExternal(purchaseUrl);
+      } else if (window.electronAPI && typeof window.electronAPI.openExternal === 'function') {
+        window.electronAPI.openExternal(purchaseUrl);
+      } else if (window.electronAPI && typeof window.electronAPI.openLink === 'function') {
+        window.electronAPI.openLink(purchaseUrl);
+      } else {
+        window.open(purchaseUrl, '_blank');
+      }
+    } catch {
+      window.open(purchaseUrl, '_blank');
+    }
+  }, 80);
+}
+
+export function showFreeTrialUpgradeModal(featureName = '프리미엄 기능') {
+  ensureFreeTrialUpgradeStyles();
+
+  let overlay = document.getElementById('freeTrialUpgradeOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'freeTrialUpgradeOverlay';
+    document.body.appendChild(overlay);
+  }
+
+  const label = getFreeTrialFeatureLabel(featureName);
+  overlay.innerHTML = `
+    <div class="free-trial-upgrade-modal" role="dialog" aria-modal="true" aria-labelledby="freeTrialUpgradeTitle">
+      <div class="free-trial-upgrade-inner">
+        <div class="free-trial-upgrade-badge">무료체험 제한 기능</div>
+        <h2 class="free-trial-upgrade-title" id="freeTrialUpgradeTitle">${sanitizeHTML(label)}은 유료 플랜에서 사용할 수 있습니다.</h2>
+        <p class="free-trial-upgrade-copy">
+          무료체험에서는 메인 화면과 글포스팅만 열어둘 수 있습니다. 썸네일, 이미지 생성, 거미줄포스팅, 외부유입 글 생성 등 자동화 기능은 유료 플랜에서 잠금 해제됩니다.
+        </p>
+        <ul class="free-trial-upgrade-list">
+          <li>글포스팅 외 자동화 탭 잠금</li>
+          <li>유료 전환 후 전체 기능 즉시 사용</li>
+          <li>구매 또는 취소 후 글포스팅 화면으로 자동 이동</li>
+        </ul>
+        <div class="free-trial-upgrade-actions">
+          <button type="button" class="free-trial-upgrade-buy" onclick="window.openLicenseModalFromFreeTrialUpgrade?.()">구매하러 가기</button>
+          <button type="button" class="free-trial-upgrade-cancel" onclick="window.closeFreeTrialUpgradeModal?.()">취소하고 글포스팅으로</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.classList.add('free-trial-upgrade-open');
+  overlay.classList.add('is-open');
+}
+
+export function blockFreeTrialFeatureAccess(featureName, options = {}) {
+  if (!isFreeTrialMode()) return false;
+  showFreeTrialUpgradeModal(featureName);
+
+  if (options.redirectToPosting !== false) {
+    setTimeout(() => {
+      try {
+        if (getAppState().currentTab !== 'settings') showTab('settings');
+      } catch {
+        showTab('settings');
+      }
+    }, 0);
+  }
+
+  return true;
+}
+
+export function applyFreeTrialAccessGate() {
+  if (!isFreeTrialMode()) return;
+  try {
+    const currentTab = getAppState().currentTab;
+    if (currentTab && !FREE_TRIAL_ALLOWED_TABS.has(currentTab)) {
+      showTab('settings');
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export function showTab(tabName) {
+  if (isFreeTrialMode() && !FREE_TRIAL_ALLOWED_TABS.has(tabName)) {
+    showFreeTrialUpgradeModal(tabName);
+    setTimeout(() => {
+      try {
+        if (getAppState().currentTab !== 'settings') showTab('settings');
+      } catch {
+        showTab('settings');
+      }
+    }, 0);
+    return false;
+  }
+
   console.log('🔄 탭 전환:', tabName);
 
   // 모든 탭 버튼에서 active 클래스 제거
@@ -87,6 +379,11 @@ export function showTab(tabName) {
 
   if (targetTab) {
     targetTab.style.display = 'block';
+    try {
+      getAppState().currentTab = tabName;
+    } catch {
+      // ignore
+    }
     console.log('✅ 탭 표시:', tabName, targetTab.id);
   } else {
     console.error('❌ 탭을 찾을 수 없습니다:', tabName);
@@ -106,6 +403,7 @@ export function showTab(tabName) {
     'semi-auto': 'nav-semiauto',
     'schedule': 'nav-schedule',
     'internal-links': 'nav-intlinks-page',
+    'external-traffic': 'nav-external-traffic',
     'keyword-discover': 'nav-keyword-discover',
     'content': 'nav-convert',
     'adsense-tools': 'nav-adsense-tools',
@@ -651,6 +949,14 @@ export function showNotification(message, duration = 3000) {
 }
 
 if (!window.showTab) window.showTab = showTab;
+window.isFreeTrialMode = isFreeTrialMode;
+window.showFreeTrialUpgradeModal = showFreeTrialUpgradeModal;
+window.closeFreeTrialUpgradeModal = closeFreeTrialUpgradeModal;
+window.openLicenseModalFromFreeTrialUpgrade = openLicenseModalFromFreeTrialUpgrade;
+window.blockFreeTrialFeatureAccess = blockFreeTrialFeatureAccess;
+window.applyFreeTrialAccessGate = applyFreeTrialAccessGate;
+window.addEventListener('license-access-updated', () => applyFreeTrialAccessGate());
+setTimeout(() => applyFreeTrialAccessGate(), 600);
 if (!window.showProgressModal) window.showProgressModal = showProgressModal;
 if (!window.createFallbackProgressModal) window.createFallbackProgressModal = createFallbackProgressModal;
 if (!window.hideProgressModal) window.hideProgressModal = hideProgressModal;

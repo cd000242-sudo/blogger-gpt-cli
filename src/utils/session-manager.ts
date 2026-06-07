@@ -162,7 +162,9 @@ export class SessionManager {
         {
           userId: this.sessionData.userId,
           sessionToken: this.sessionData.sessionToken,
-          appId: 'com.leadernam.orbit'
+          appId: 'com.leadernam.orbit',
+          platform: 'LEADERNAM',
+          appVersion: app.getVersion()
         },
         {
           timeout: 10000,

@@ -114,6 +114,9 @@ function renderItem(container, item, isNav) {
     if (item.hidden) el.style.display = 'none';
 
     el.addEventListener('click', () => { // 규칙4: onclick 없음
+        if (isNav && item.id !== 'nav-main' && item.id !== 'nav-auto' && typeof window.blockFreeTrialFeatureAccess === 'function') {
+            if (window.blockFreeTrialFeatureAccess(item.label)) return;
+        }
         item.action();
         if (isNav) setActiveSidebarItem(item.id);
     });

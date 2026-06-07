@@ -10,6 +10,32 @@ import bcrypt from 'bcryptjs';
 import { app } from 'electron';
 import { getSessionManager, SessionValidationResult } from './session-manager';
 
+const LICENSE_APP_ID = 'com.leadernam.orbit';
+const LICENSE_PLATFORM = 'LEADERNAM';
+
+function getLicenseAppPayload() {
+  return {
+    appId: LICENSE_APP_ID,
+    platform: LICENSE_PLATFORM,
+    appVersion: app.getVersion(),
+  };
+}
+
+function isMaintenanceResponse(data: any): boolean {
+  return !!data && (
+    data.serviceEnabled === false ||
+    data.error === 'SERVICE_DISABLED' ||
+    data.code === 'SERVICE_DISABLED'
+  );
+}
+
+function getServerMessage(data: any, fallback: string): string {
+  if (isMaintenanceResponse(data)) {
+    return data?.message || data?.notice || '현재 서비스 점검 중입니다. 잠시 후 다시 시도해주세요.';
+  }
+  return data?.message || data?.error || fallback;
+}
+
 export interface LicenseData {
   userId: string;
   passwordHash: string;
@@ -232,14 +258,21 @@ export class LicenseManager {
       console.log('[AUTH] 서버에 verify-credentials 인증 시도...');
       const response = await axios.post(redeemUrl, {
         action: 'verify-credentials',
-        appId: 'com.leadernam.orbit',
+        ...getLicenseAppPayload(),
         userId,
         userPassword: password,
         deviceId
       }, { timeout: 15000, headers: { 'Content-Type': 'application/json' } });
 
-      if (response.data && (response.data.ok || response.data.valid)) {
-        const data = response.data;
+      const data = response.data;
+      if (isMaintenanceResponse(data)) {
+        return {
+          success: false,
+          message: getServerMessage(data, '현재 서비스 점검 중입니다. 잠시 후 다시 시도해주세요.')
+        };
+      }
+
+      if (data && (data.ok || data.valid)) {
         const licenseType = data.licenseType || data.type || '';
         const isPermanent = licenseType === 'LIFE' || licenseType === 'permanent' || !data.expiresAt;
 
@@ -271,7 +304,9 @@ export class LicenseManager {
         };
       }
 
-      return null; // 서버가 거부
+      return data
+        ? { success: false, message: getServerMessage(data, '서버 인증에 실패했습니다.') }
+        : null; // 서버가 거부
     } catch (e: any) {
       console.warn('[AUTH] 서버 인증 오류:', e.message);
       return null;
@@ -366,7 +401,7 @@ export class LicenseManager {
             redeemUrl,
             {
               action: 'register',
-              appId: 'com.leadernam.orbit',
+              ...getLicenseAppPayload(),
               licenseCode: code,
               userId,
               userPassword: password,
@@ -381,8 +416,12 @@ export class LicenseManager {
           );
           
           // 관리 패널 API 응답 형식: { ok: true, valid: true, expiresAt, licenseType, sessionToken }
-          if (response.data && (response.data.ok || response.data.valid)) {
-            const data = response.data;
+          const data = response.data;
+          if (isMaintenanceResponse(data)) {
+            throw new Error(getServerMessage(data, '현재 서비스 점검 중입니다. 잠시 후 다시 시도해주세요.'));
+          }
+
+          if (data && (data.ok || data.valid)) {
             // licenseType을 기반으로 temporary/permanent 결정
             // LIFE = permanent, 나머지 = temporary
             const licenseType = data.licenseType || data.type || '';
@@ -713,7 +752,7 @@ export class LicenseManager {
         serverUrl,
         {
           action: 'verify',
-          appId: 'com.leadernam.orbit',
+          ...getLicenseAppPayload(),
           code: licenseData.licenseCode,
           deviceId: this.getDeviceId()
         },
