@@ -146,12 +146,15 @@ export function dispatchMode(
   };
 
   // v3.5.97: external 모드는 AI 동적 H2 생성으로 회귀.
+  // v3.7.29: internal도 키워드 범위가 너무 넓어 정형 H2를 쓰면
+  //   "월드컵 조편성"에 "자격·조건·핵심 정보"가 붙는 문제가 생긴다.
+  //   따라서 섹션 프롬프트는 유지하되 H2 제목은 orchestration의 AI/휴리스틱 생성에 위임한다.
   //   v3.5.81에서 정형 sections로 강제 → "예매하는 방법 작동 원리" 같은 의미 안 맞는 H2 발생
   //   external은 키워드 다양성이 가장 큰 모드 (이벤트성/시간성/정보형 모두 포함) → 정형 강제는 부자연스러움
   //   해결: sections는 prompt 가이드용으로만 유지(sectionPromptBlock), h2Titles는 null → AI가 키워드에 맞춰 동적 생성
-  //   다른 모드(adsense/shopping/internal/paraphrasing)는 정형 유지 (각 모드별 정형 구조가 필수)
+  //   다른 모드(adsense/shopping/paraphrasing)는 정형 유지 (각 모드별 정형 구조가 필수)
   let h2Titles: string[] | null = null;
-  const isDynamicH2Mode = contentMode === 'external';
+  const isDynamicH2Mode = contentMode === 'external' || contentMode === 'internal';
   if (activeSections.length > 0 && !isDynamicH2Mode) {
     // seed = 키워드 길이 + Date 한 자리 — 같은 키워드라도 매번 다른 변형
     const seedBase = (keyword?.length || 0) + Math.floor(Date.now() / 86400000) % 7;

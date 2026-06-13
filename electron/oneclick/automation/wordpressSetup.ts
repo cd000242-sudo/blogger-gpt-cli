@@ -347,7 +347,7 @@ export async function runWordPressSetup(
   } finally {
     const closeDelayMs = state.cancelled
       ? 0
-      : (state.stepStatus === 'error' || state.error ? 5 * 60 * 1000 : 15 * 1000);
+      : (state.stepStatus === 'error' || state.error ? 5 * 60 * 1000 : 10 * 60 * 1000);
     setTimeout(async () => {
       try { await browser?.close(); } catch { /* ignore */ }
     }, closeDelayMs);

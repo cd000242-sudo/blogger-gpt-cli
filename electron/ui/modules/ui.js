@@ -345,6 +345,16 @@ export function showTab(tabName) {
     case 'external-traffic':
       // v3.7.23: 외부유입 글 생성 신규 탭
       targetTab = document.getElementById('external-traffic-tab');
+      try {
+        window.hideManualCtaUiForExternalTraffic?.();
+        window.closeManualCtaModal?.();
+        const manualCtaSection = document.getElementById('manualCtaSection');
+        const manualCtaSettings = document.getElementById('manualCtaSettings');
+        if (manualCtaSection) manualCtaSection.style.display = 'none';
+        if (manualCtaSettings) manualCtaSettings.style.display = 'none';
+      } catch (e) {
+        console.warn('[EXT-TRAFFIC] manual CTA cleanup failed:', e);
+      }
       if (targetTab && window.initExternalTrafficTab) {
         try { window.initExternalTrafficTab(); } catch (e) { console.warn('[EXT-TRAFFIC] init 실패:', e); }
       }

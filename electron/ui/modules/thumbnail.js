@@ -206,6 +206,8 @@ export function applyPreset(bgColor, textColor, borderColor) {
   const localUpload = document.getElementById('thumbnailGenLocalUpload');
   // v3.7.23: urlInput 제거됨 — 더 이상 참조하지 않음
   const aiEngineWrap = document.getElementById('thumbnailGenAiEngineWrap');
+  const aiEngineSelect = document.getElementById('thumbnailGenAiEngine');
+  const leonardoModelWrap = document.getElementById('thumbnailLeonardoModelWrap');
   const bgOpacitySlider = document.getElementById('thumbnailGenBgOpacity');
   const bgOpacityValue = document.getElementById('thumbnailGenBgOpacityValue');
   const bgBlurSlider = document.getElementById('thumbnailGenBgBlur');
@@ -220,6 +222,9 @@ export function applyPreset(bgColor, textColor, borderColor) {
   window.handleThumbnailBgTypeChange = function (type) {
     if (localUpload) localUpload.style.display = type === 'local' ? 'block' : 'none';
     if (aiEngineWrap) aiEngineWrap.style.display = type === 'ai' ? 'block' : 'none';
+    if (leonardoModelWrap) {
+      leonardoModelWrap.style.display = type === 'ai' && aiEngineSelect?.value === 'leonardo' ? 'block' : 'none';
+    }
     // 라벨 스타일 동기화
     bgTypeRadios.forEach(r => {
       const label = r.closest('label');
@@ -243,6 +248,15 @@ export function applyPreset(bgColor, textColor, borderColor) {
       window.handleThumbnailBgTypeChange(e.target.value);
     });
   });
+
+  if (aiEngineSelect) {
+    aiEngineSelect.addEventListener('change', () => {
+      const checkedType = document.querySelector('input[name="thumbnailGenBackgroundType"]:checked')?.value || '';
+      if (leonardoModelWrap) {
+        leonardoModelWrap.style.display = checkedType === 'ai' && aiEngineSelect.value === 'leonardo' ? 'block' : 'none';
+      }
+    });
+  }
   
   // 초기 선택 상태 적용
   const checkedRadio = document.querySelector('input[name="thumbnailGenBackgroundType"]:checked');
@@ -388,7 +402,4 @@ export async function generateTextThumbnailWithBackground() {
     alert('썸네일 생성 중 오류가 발생했습니다.');
   }
 }
-
-
-
 

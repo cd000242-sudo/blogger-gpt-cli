@@ -385,6 +385,9 @@ export async function handleMetricsCallback(code: string): Promise<{ success: bo
       expires_at: tokens.expires_in ? Date.now() + (Number(tokens.expires_in) * 1000) : undefined,
     };
     fs.writeFileSync(tokenPath, JSON.stringify(tokenFileData, null, 2), 'utf-8');
+    if (!fs.existsSync(tokenPath)) {
+      throw new Error(`Metrics OAuth token file save verification failed: ${tokenPath}`);
+    }
     console.log('[METRICS-CALLBACK] ✅ 토큰 저장 완료:', tokenPath);
     return { success: true };
   } catch (error: any) {
@@ -692,6 +695,9 @@ export async function handleBloggerCallback(code: string): Promise<{ success: bo
     };
     
     fs.writeFileSync(tokenPath, JSON.stringify(tokenFileData, null, 2), 'utf-8');
+    if (!fs.existsSync(tokenPath)) {
+      throw new Error(`Blogger OAuth token file save verification failed: ${tokenPath}`);
+    }
     
     console.log('[BLOGGER-CALLBACK] ✅ 토큰 저장 완료');
     

@@ -39,6 +39,33 @@ function clearAuthCache() {
  * 블로거 인증 상태 확인 함수 (캐싱 최적화)
  * @returns {Promise<Object>} - {authenticated, error?, tokenData?, needsRefresh?}
  */
+function recoverTokenFileFromEnv(tokenPath) {
+  try {
+    const envVars = loadEnvironmentVariables();
+    const accessToken = String(envVars.BLOGGER_ACCESS_TOKEN || envVars.bloggerAccessToken || '').trim();
+    if (!accessToken) return null;
+
+    const tokenData = {
+      access_token: accessToken,
+      refresh_token: String(envVars.BLOGGER_REFRESH_TOKEN || envVars.bloggerRefreshToken || '').trim(),
+      token_type: 'Bearer',
+      scope: 'https://www.googleapis.com/auth/blogger',
+      expires_at: Date.now() + (55 * 60 * 1000),
+      recovered_from_env: true,
+      recovered_at: new Date().toISOString()
+    };
+
+    fs.mkdirSync(require('path').dirname(tokenPath), { recursive: true });
+    fs.writeFileSync(tokenPath, JSON.stringify(tokenData, null, 2), 'utf8');
+    console.log('[AUTH] blogger-token.json 자동 복구 완료:', tokenPath);
+    clearAuthCache();
+    return tokenData;
+  } catch (error) {
+    console.warn('[AUTH] .env 토큰 자동 복구 실패:', error?.message || error);
+    return null;
+  }
+}
+
 async function checkBloggerAuthStatus() {
   try {
     const now = Date.now();
@@ -66,6 +93,13 @@ async function checkBloggerAuthStatus() {
     // 토큰 파일 존재 확인
     if (!fs.existsSync(tokenPath)) {
       console.log('[AUTH] 토큰 파일이 존재하지 않습니다:', tokenPath);
+      const recoveredTokenData = recoverTokenFileFromEnv(tokenPath);
+      if (recoveredTokenData) {
+        const result = { authenticated: true, tokenData: recoveredTokenData };
+        authCache.data = result;
+        authCache.timestamp = now;
+        return result;
+      }
       const result = { 
         authenticated: false, 
         error: '토큰 파일이 없습니다. 환경설정에서 Blogger OAuth2 인증을 진행해주세요.' 

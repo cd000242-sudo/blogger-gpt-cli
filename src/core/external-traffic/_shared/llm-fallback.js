@@ -104,10 +104,46 @@ async function callClaude(params, key) {
   throw lastErr || new Error('CLAUDE_ALL_MODELS_FAILED');
 }
 
+async function callPerplexity(params, key) {
+  const candidates = ['sonar-pro', 'sonar'];
+  let lastErr = null;
+  for (const modelName of candidates) {
+    try {
+      const resp = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [
+            { role: 'system', content: params.system || 'Always respond in Korean.' },
+            { role: 'user', content: params.user || '' },
+          ],
+          max_tokens: params.maxOutputTokens || 2000,
+          temperature: typeof params.temperature === 'number' ? params.temperature : 0.85,
+        }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        const providerMessage = data?.error?.message || data?.error?.type || data?.message || resp.statusText;
+        throw new Error(`Perplexity ${resp.status}: ${providerMessage}`);
+      }
+      const text = (data?.choices?.[0]?.message?.content || '').trim();
+      if (text) return { text, model: modelName, provider: 'perplexity' };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('PERPLEXITY_ALL_MODELS_FAILED');
+}
+
 const PROVIDERS = [
   { id: 'gemini', call: callGemini },
   { id: 'openai', call: callOpenAI },
   { id: 'claude', call: callClaude },
+  { id: 'perplexity', call: callPerplexity },
 ];
 
 /**
@@ -141,6 +177,7 @@ module.exports = {
   callGemini,
   callOpenAI,
   callClaude,
+  callPerplexity,
   isAvailable,
   PROVIDERS,
 };

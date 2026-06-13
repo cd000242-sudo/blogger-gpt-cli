@@ -12,11 +12,12 @@ const BLOGGER_ID_EXTRACT_KEY = 'blogger-blog-id';
 const BLOGGER_ID_LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
 const BLOGGER_ID_SELECT_TIMEOUT_MS = 5 * 60 * 1000;
 const BLOGGER_ID_POLL_MS = 2000;
-const BLOGGER_ID_CLOSE_AFTER_DONE_MS = 15000;
+const BLOGGER_ID_CLOSE_AFTER_DONE_MS = 10 * 60 * 1000;
 const BLOGGER_ID_CLOSE_AFTER_ERROR_MS = 5 * 60 * 1000;
+const CONNECT_CLOSE_AFTER_DONE_MS = 10 * 60 * 1000;
 const CONNECT_TOTAL_STEPS: Record<string, number> = {
-  blogger: 8,
-  blogspot: 8,
+  blogger: 9,
+  blogspot: 9,
   wordpress: 7,
   [BLOGGER_ID_EXTRACT_KEY]: 3,
 };
@@ -206,10 +207,10 @@ export function registerConnectHandlers(): void {
             state.message = `❌ 오류: ${state.error}`;
           }
         } finally {
-          // 완료 후 3초 뒤 브라우저 자동 닫기
+          // 사용자가 Google Cloud/OAuth 화면을 확인하거나 영상 촬영할 수 있도록 완료 후에도 창을 충분히 유지한다.
           const closeDelayMs = state.cancelled
             ? 0
-            : (state.stepStatus === 'error' || state.error ? 5 * 60 * 1000 : 15 * 1000);
+            : (state.stepStatus === 'error' || state.error ? 5 * 60 * 1000 : CONNECT_CLOSE_AFTER_DONE_MS);
           setTimeout(async () => {
             try { await browser.close(); } catch { /* ignore */ }
           }, closeDelayMs);

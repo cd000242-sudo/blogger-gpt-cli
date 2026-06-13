@@ -136,6 +136,19 @@ export function showAutoImageSourceModal() {
               <input type="radio" name="autoAiSource" value="pexels">
               <span>📷 Pexels (스톡)</span>
             </label>
+            <label style="padding: 12px; background: rgba(234,179,8,0.08); border: 2px solid rgba(234, 179, 8, 0.45); border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; color: white;">
+              <input type="radio" name="autoAiSource" value="leonardo">
+              <span>🦁 Leonardo AI</span>
+            </label>
+          </div>
+          <div id="autoLeonardoModelSection" style="display:none; margin-top:12px; padding:14px; background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.35); border-radius:12px;">
+            <label style="display:block; font-size:13px; font-weight:800; color:#fde68a; margin-bottom:8px;">🦁 Leonardo AI 모델 선택</label>
+            <select id="autoLeonardoModel" style="width:100%; padding:12px; border:2px solid rgba(250,204,21,0.75); border-radius:10px; background:#111827; color:#facc15; font-size:14px; font-weight:700;">
+              <option value="seedream-4.5">☀️ SeeDream 4.5 ($0.04/장, 가성비 최강 추천)</option>
+              <option value="phoenix-1.0">🔥 Phoenix 1.0 (토큰 차감, 구독 토큰 활용)</option>
+              <option value="ideogram-3.0">✍️ Ideogram 3.0 ($0.11/장, 텍스트 렌더링 특화)</option>
+              <option value="gemini-image-2">🌟 Nano Banana Pro ($0.21/장, 한글 텍스트 최강)</option>
+            </select>
           </div>
         </div>
         
@@ -152,6 +165,16 @@ export function showAutoImageSourceModal() {
     `;
 
     document.body.appendChild(modal);
+
+    const syncAutoLeonardoModelSection = () => {
+      const section = document.getElementById('autoLeonardoModelSection');
+      const aiSource = document.querySelector('input[name="autoAiSource"]:checked')?.value || '';
+      if (section) section.style.display = aiSource === 'leonardo' ? 'block' : 'none';
+    };
+    document.querySelectorAll('input[name="autoAiSource"]').forEach(input => {
+      input.addEventListener('change', syncAutoLeonardoModelSection);
+    });
+    syncAutoLeonardoModelSection();
 
     // 이미지 소스 선택 함수
     window.selectImageSource = function (source) {
@@ -171,13 +194,15 @@ export function showAutoImageSourceModal() {
       const contentUrl = document.getElementById('autoContentUrl')?.value?.trim() || '';
       const shoppingUrl = document.getElementById('autoShoppingUrl')?.value?.trim() || '';
       const aiSource = document.querySelector('input[name="autoAiSource"]:checked')?.value || 'pollinations';
+      const leonardoModel = document.getElementById('autoLeonardoModel')?.value || 'seedream-4.5';
 
       modal.remove();
       resolve({
         source: selectedSource,
         contentUrl: contentUrl,  // 🔥 콘텐츠 소스 URL
         shoppingUrl: shoppingUrl,
-        aiSource: aiSource
+        aiSource: aiSource,
+        leonardoModel: leonardoModel
       });
     };
 
@@ -293,6 +318,7 @@ export async function runPosting() {
         : __mainContentUrl).trim(),
       shoppingUrl: '',
       aiSource: 'pollinations',
+      leonardoModel: 'seedream-4.5',
     };
 
     // ── 상태 전환 ──
@@ -314,6 +340,17 @@ export async function runPosting() {
       payload.h2ImageSource = imageSettings.aiSource;
       debugLog('POSTING', `AI 이미지 소스 설정: ${imageSettings.aiSource}`);
     }
+    const selectedLeonardoModel = payload.leonardoModel
+      || payload.leonardoModelPreference
+      || payload.imageSettings?.leonardoModel
+      || document.getElementById('h2LeonardoModel')?.value
+      || document.getElementById('thumbnailTypeLeonardoModel')?.value
+      || document.getElementById('thumbnailLeonardoModel')?.value
+      || document.getElementById('autoLeonardoModel')?.value
+      || imageSettings.leonardoModel
+      || 'seedream-4.5';
+    payload.leonardoModel = selectedLeonardoModel;
+    if (payload.imageSettings) payload.imageSettings.leonardoModel = selectedLeonardoModel;
     if (imageSettings.contentUrl) {
       payload.sourceUrl = imageSettings.contentUrl;
       payload.manualCrawlUrls = [imageSettings.contentUrl];
@@ -831,10 +868,16 @@ function getH2ImageSettingsFromDOM() {
   // window.getH2ImageSections가 있으면 우선 사용
   if (window.getH2ImageSections) {
     const settings = window.getH2ImageSections();
+    const leonardoModel = document.getElementById('h2LeonardoModel')?.value
+      || document.getElementById('thumbnailTypeLeonardoModel')?.value
+      || document.getElementById('thumbnailLeonardoModel')?.value
+      || settings.leonardoModel
+      || 'seedream-4.5';
     return {
       h2ImageSource: settings.source || PAYLOAD_DEFAULTS.h2ImageSource,
       h2ImageSections: settings.sections || [],
-      h2Images: settings,
+      h2Images: { ...settings, leonardoModel },
+      leonardoModel,
     };
   }
 
@@ -842,6 +885,10 @@ function getH2ImageSettingsFromDOM() {
   const h2ImageSourceSelect = document.getElementById('h2ImageSource') || document.getElementById('h2ImageSourceSelect');
   const h2ImageSourceRadio = document.querySelector('input[name="h2ImageSource"]:checked');
   const h2ImageSourceValue = h2ImageSourceSelect?.value || h2ImageSourceRadio?.value || PAYLOAD_DEFAULTS.h2ImageSource;
+  const leonardoModel = document.getElementById('h2LeonardoModel')?.value
+    || document.getElementById('thumbnailTypeLeonardoModel')?.value
+    || document.getElementById('thumbnailLeonardoModel')?.value
+    || 'seedream-4.5';
 
   const h2ImageSectionCheckboxes = document.querySelectorAll('input[name="h2Sections"]:checked');
   const h2ImageSections = Array.from(h2ImageSectionCheckboxes)
@@ -851,7 +898,8 @@ function getH2ImageSettingsFromDOM() {
   return {
     h2ImageSource: h2ImageSourceValue,
     h2ImageSections: h2ImageSections,
-    h2Images: { source: h2ImageSourceValue, sections: h2ImageSections },
+    h2Images: { source: h2ImageSourceValue, sections: h2ImageSections, leonardoModel },
+    leonardoModel,
   };
 }
 

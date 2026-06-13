@@ -713,3 +713,118 @@
       0 0 12px #667eea;
   }
 }
+
+/* 모바일 공개 글 쾌적화: 박스 안 박스 해소 + 표 폭 확보 */
+@media (max-width: 768px) {
+  .blogspot-cloud-skin {
+    width: calc(100vw - 12px) !important;
+    max-width: calc(100vw - 12px) !important;
+    margin-left: calc(50% - 50vw + 6px) !important;
+    margin-right: calc(50% - 50vw + 6px) !important;
+    background: #ffffff !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+  }
+
+  .blogspot-cloud-skin .main-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 4px 44px !important;
+    box-sizing: border-box !important;
+  }
+
+  .blogspot-cloud-skin .content,
+  .blogspot-cloud-skin .section-card,
+  .blogspot-cloud-skin .summary-table,
+  .blogspot-cloud-skin .table-of-contents,
+  .blogspot-cloud-skin .cta-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    box-sizing: border-box !important;
+  }
+
+  .blogspot-cloud-skin table,
+  .blogspot-cloud-skin .summary-table-content {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    table-layout: auto !important;
+    overflow: visible !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    margin: 18px 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .blogspot-cloud-skin table thead {
+    display: none !important;
+  }
+
+  .blogspot-cloud-skin table tbody,
+  .blogspot-cloud-skin table tr,
+  .blogspot-cloud-skin table td {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .blogspot-cloud-skin table tr {
+    margin: 0 0 12px !important;
+    overflow: hidden !important;
+    border: 1px solid #dbe3ef !important;
+    border-radius: 12px !important;
+    background: #ffffff !important;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06) !important;
+  }
+
+  .blogspot-cloud-skin table th,
+  .blogspot-cloud-skin table td {
+    min-width: 0 !important;
+    padding: 11px 9px !important;
+    font-size: 14px !important;
+    line-height: 1.55 !important;
+    word-break: keep-all !important;
+    overflow-wrap: break-word !important;
+    white-space: normal !important;
+  }
+
+  .blogspot-cloud-skin table td {
+    border: 0 !important;
+    border-bottom: 1px solid #edf2f7 !important;
+    background: #ffffff !important;
+    color: #243044 !important;
+    text-align: left !important;
+  }
+
+  .blogspot-cloud-skin table td:last-child {
+    border-bottom: 0 !important;
+  }
+
+  .blogspot-cloud-skin table td::before {
+    content: attr(data-label);
+    display: block !important;
+    margin-bottom: 4px !important;
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+    font-weight: 800 !important;
+    color: #64748b !important;
+    letter-spacing: 0 !important;
+  }
+
+  .blogspot-cloud-skin table td[data-label=""]::before {
+    display: none !important;
+  }
+}

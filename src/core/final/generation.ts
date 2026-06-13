@@ -397,6 +397,250 @@ export function validateScopeText(text: string, scope: { qualifier: string } | n
   return !forbidden.some((re) => re.test(text || ''));
 }
 
+type H2TopicProfile = {
+  id: 'sports_event' | 'public_policy' | 'travel' | 'shopping_product' | 'finance';
+  label: string;
+  match: RegExp;
+  bannedTerms: string[];
+  bannedPattern: RegExp;
+  promptGuidance: string;
+  fallbackTitles: (keyword: string) => string[];
+};
+
+const INTERNAL_GENERIC_H2_PATTERNS: RegExp[] = [
+  /한눈에\s*보기\s*[—\-]\s*무엇이고\s*왜\s*중요할까/i,
+  /자세히\s*알아보기\s*[—\-]\s*자격[·ㆍ\.\s]*조건[·ㆍ\.\s]*핵심\s*정보/i,
+  /실전\s*사례와\s*단계별\s*적용법/i,
+  /핵심\s*포인트\s*한\s*줄\s*정리/i,
+  /함께\s*보면\s*좋은\s*관련\s*정보/i,
+  /완전히\s*이해하기/i,
+  /핵심\s*개요/i,
+  /심층\s*분석/i,
+  /체계적\s*정리/i,
+  /최신\s*트렌드\s*&?\s*추가\s*정보/i,
+];
+
+const H2_TOPIC_PROFILES: H2TopicProfile[] = [
+  {
+    id: 'sports_event',
+    label: '스포츠/대회/경기 정보',
+    match: /(월드컵|fifa|올림픽|아시안게임|축구|야구|농구|배구|골프|테니스|e스포츠|조\s*편성|조편성|조별|대진|토너먼트|예선|본선|16강|8강|4강|결승|리그|챔피언스리그|kbo|k리그|epl|프리미어리그|선수|대표팀|감독|중계|스코어|순위)/i,
+    bannedTerms: ['자격', '조건', '신청', '접수', '서류', '지원금', '혜택', '대상자', '사용처', '발급', '환급', '보조금'],
+    bannedPattern: /(자격|조건|신청|접수|서류|지원금|혜택|대상자|사용처|발급|환급|보조금)/,
+    promptGuidance: [
+      '조편성·대진·경기 일정·중계·순위·경우의 수·팀 전력·선수 변수처럼 스포츠 독자가 실제로 찾는 축으로 H2를 구성하세요.',
+      '정부지원/신청/자격/조건/서류/혜택 같은 행정형 단어를 H2에 절대 넣지 마세요.',
+      '"무엇이고 왜 중요할까" 같은 일반론 대신 경기 정보·관전 포인트·확인 경로를 바로 드러내세요.',
+    ].join('\n- '),
+    fallbackTitles: (keyword) => {
+      const isWorldCupGroup = /(월드컵|fifa)/i.test(keyword) && /조\s*편성|조편성|조별/i.test(keyword);
+      if (isWorldCupGroup) {
+        return [
+          '조 편성 결과와 상대팀',
+          '경기 일정과 중계 시간',
+          '16강 진출 경우의 수',
+          '한국 대표팀 관전 포인트',
+          '개최지와 최신 확인 경로',
+        ];
+      }
+      return [
+        `${keyword} 일정과 대진`,
+        '승부를 가를 핵심 변수',
+        '주요 팀과 선수 전력',
+        '순위와 기록 확인 포인트',
+        '중계와 현장 관람 정보',
+      ];
+    },
+  },
+  {
+    id: 'public_policy',
+    label: '정부지원/정책/공공서비스',
+    match: /(지원금|보조금|복지|정부24|보조금24|민원|정책|공고|장려금|수당|바우처|청년|근로장려|내일저축|연금|급여|환급|세액공제|공제|신청|접수|자격|대상|서류)/i,
+    bannedTerms: ['조편성', '대진', '중계', '선수', '대표팀', '티켓', '토너먼트'],
+    bannedPattern: /(조\s*편성|조편성|대진|중계|선수|대표팀|티켓|토너먼트|경기\s*일정)/,
+    promptGuidance: [
+      '대상·자격·지원 내용·신청 절차·서류·마감·주의사항 중 키워드 범위에 맞는 축으로 구성하세요.',
+      '스포츠 경기/대진/중계/선수 같은 단어를 H2에 넣지 마세요.',
+    ].join('\n- '),
+    fallbackTitles: (keyword) => [
+      `${keyword} 핵심 대상`,
+      `${keyword} 자격 조건`,
+      `${keyword} 신청 절차`,
+      `${keyword} 지원 내용`,
+      `${keyword} 주의사항`,
+    ],
+  },
+  {
+    id: 'travel',
+    label: '여행/관광/이동 정보',
+    match: /(여행|관광|항공|항공권|숙소|호텔|렌터카|여권|비자|입국|출국|일본|제주|해외여행|국내여행|코레일|ktx|srt|공항)/i,
+    bannedTerms: ['지원금', '자격조건', '신청서류', '대상자'],
+    bannedPattern: /(지원금|자격\s*조건|신청\s*서류|대상자|보조금)/,
+    promptGuidance: [
+      '준비물·동선·비용·예약·교통·현지 주의사항처럼 여행자가 바로 쓰는 축으로 H2를 구성하세요.',
+      '정책 신청/지원금/자격조건 같은 행정형 제목은 피하세요.',
+    ].join('\n- '),
+    fallbackTitles: (keyword) => [
+      `${keyword} 준비 체크리스트`,
+      '일정별 동선 짜는 법',
+      '비용과 예약 팁',
+      '현지에서 조심할 점',
+      '출발 전 최종 확인',
+    ],
+  },
+  {
+    id: 'shopping_product',
+    label: '제품/구매/리뷰 정보',
+    match: /(추천|가격|최저가|구매|후기|리뷰|비교|순위|베스트|노트북|가전|스마트폰|아이폰|갤럭시|화장품|영양제|제품|상품)/i,
+    bannedTerms: ['신청방법', '지원금', '대상자', '조편성', '중계'],
+    bannedPattern: /(신청\s*방법|지원금|대상자|조\s*편성|조편성|중계)/,
+    promptGuidance: [
+      '가격·스펙·장단점·실사용 후기·구매 전 체크포인트처럼 구매 판단에 필요한 축으로 H2를 구성하세요.',
+      '정책 신청/스포츠 대진 같은 무관한 단어를 H2에 넣지 마세요.',
+    ].join('\n- '),
+    fallbackTitles: (keyword) => [
+      `${keyword} 핵심 스펙`,
+      '가격대별 선택 기준',
+      '실사용 장단점 비교',
+      '구매 전 체크포인트',
+      '추천 대상과 비추천 대상',
+    ],
+  },
+  {
+    id: 'finance',
+    label: '금융/세금/자산 정보',
+    match: /(대출|예금|적금|금리|주식|주가|환율|보험|연금|세금|종합소득세|연말정산|환급|카드|투자|재테크|계좌|청약)/i,
+    bannedTerms: ['조편성', '대진', '중계', '선수'],
+    bannedPattern: /(조\s*편성|조편성|대진|중계|선수|대표팀)/,
+    promptGuidance: [
+      '금리·수수료·조건·위험·계산 예시·비교 기준처럼 금융 의사결정에 필요한 축으로 H2를 구성하세요.',
+      '스포츠 대진/중계/선수 같은 무관한 단어를 H2에 넣지 마세요.',
+    ].join('\n- '),
+    fallbackTitles: (keyword) => [
+      `${keyword} 핵심 조건`,
+      '금액과 수수료 계산',
+      '비교할 때 볼 기준',
+      '놓치기 쉬운 위험',
+      '가입 전 확인 사항',
+    ],
+  },
+];
+
+function inferH2TopicProfile(keyword: string): H2TopicProfile | null {
+  const text = String(keyword || '').trim();
+  if (!text) return null;
+  return H2_TOPIC_PROFILES.find((profile) => profile.match.test(text)) || null;
+}
+
+function isGenericInternalH2Title(title: string): boolean {
+  return INTERNAL_GENERIC_H2_PATTERNS.some((re) => re.test(title || ''));
+}
+
+function isH2TopicProfileViolation(title: string, profile: H2TopicProfile | null): boolean {
+  if (!title) return true;
+  if (isGenericInternalH2Title(title)) return true;
+  return !!profile && profile.bannedPattern.test(title);
+}
+
+function normalizeH2DedupeKey(title: string): string {
+  return String(title || '').replace(/[^\p{L}\p{N}]+/gu, '').toLowerCase();
+}
+
+function buildScopeFallbackH2Titles(keyword: string, scope: { qualifier: string } | null): string[] {
+  if (!scope) return [];
+  switch (scope.qualifier) {
+    case '혜택':
+      return [`${keyword} 지원 내용`, '금액과 한도 핵심 정리', '혜택이 커지는 포인트', '놓치기 쉬운 혜택', '핵심 요약과 확인 포인트'];
+    case '신청방법':
+      return [`${keyword} 시작 전 준비`, '온라인 신청 순서', '필요 서류 입력 요령', '접수 후 확인 방법', '신청 실수 방지 체크'];
+    case '조건':
+      return [`${keyword} 자격 기준`, '소득과 기간 조건', '예외와 제외 대상', '조건 확인 순서', '판단 전 체크포인트'];
+    case '대상':
+      return [`${keyword} 대상자 기준`, '포함되는 경우', '제외되는 경우', '상황별 대상 확인', '대상 판단 체크리스트'];
+    case '후기':
+      return [`${keyword} 실제 후기`, '좋았던 점과 아쉬운 점', '사용 전후 차이', '후기에서 많이 나온 질문', '경험 기준 최종 정리'];
+    case '장단점':
+      return [`${keyword} 장점 정리`, '아쉬운 단점', '상황별 체감 차이', '비교할 때 볼 기준', '선택 전 최종 판단'];
+    case '비교':
+      return [`${keyword} 핵심 차이`, '비용과 조건 비교', '상황별 유리한 선택', '비교표로 보는 장단점', '최종 선택 기준'];
+    case '효과':
+      return [`${keyword} 기대 효과`, '실제 체감되는 변화', '효과가 갈리는 조건', '주의할 부작용과 한계', '효과 판단 체크포인트'];
+    case '지원금':
+      return [`${keyword} 금액 기준`, '한도와 지급 방식', '상황별 받을 수 있는 금액', '금액 확인 시 주의점', '지원금 핵심 요약'];
+    case '비용':
+      return [`${keyword} 비용 구조`, '추가 비용 체크', '가격 비교 기준', '절약 가능한 항목', '비용 판단 요약'];
+    case '일정':
+      return [`${keyword} 주요 일정`, '접수와 마감 시기', '일정별 준비 항목', '놓치기 쉬운 날짜', '최신 일정 확인 방법'];
+    case '추천':
+      return [`${keyword} 추천 기준`, '상황별 추천 대상', '비추천하는 경우', '비교표로 보는 선택지', '최종 추천 요약'];
+    case '사례':
+      return [`${keyword} 대표 사례`, '상황별 적용 예시', '성공과 실패 포인트', '사례로 보는 체크리스트', '실전 적용 요약'];
+    case '주의사항':
+      return [`${keyword} 핵심 주의사항`, '자주 하는 실수', '확인해야 할 위험 요소', '문제 발생 시 대처', '최종 체크리스트'];
+    case '종류':
+      return [`${keyword} 주요 종류`, '유형별 차이', '상황별 맞는 유형', '선택 기준 비교', '종류별 핵심 요약'];
+    default:
+      return [];
+  }
+}
+
+export function generateIntentAwareFallbackH2Titles(keyword: string, maxCount = 5, scope: { qualifier: string } | null = detectKeywordScope(keyword)): string[] {
+  const cleanKeyword = String(keyword || '').trim() || '핵심 주제';
+  const profile = inferH2TopicProfile(cleanKeyword);
+  const candidates = [
+    ...buildScopeFallbackH2Titles(cleanKeyword, scope),
+    ...(profile ? profile.fallbackTitles(cleanKeyword) : []),
+    `${cleanKeyword} 핵심 맥락`,
+    `${cleanKeyword}에서 꼭 볼 포인트`,
+    `${cleanKeyword} 실제 사례와 해석`,
+    `${cleanKeyword} 체크리스트`,
+    `${cleanKeyword} FAQ`,
+  ];
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const candidate of candidates) {
+    const title = String(candidate || '').trim();
+    if (!title) continue;
+    if (!validateScopeText(title, scope)) continue;
+    if (isH2TopicProfileViolation(title, profile)) continue;
+    const key = normalizeH2DedupeKey(title);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(title);
+    if (out.length >= maxCount) break;
+  }
+  return out;
+}
+
+function finalizeH2TitlesWithIntentGuard(
+  keyword: string,
+  rawTitles: string[],
+  targetCount: number,
+  scope: { qualifier: string; instruction?: string } | null,
+  profile: H2TopicProfile | null,
+): string[] {
+  const fallback = generateIntentAwareFallbackH2Titles(keyword, targetCount, scope);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const candidates = [...(rawTitles || []), ...fallback];
+
+  for (const raw of candidates) {
+    const title = String(raw || '').trim();
+    if (!title) continue;
+    if (!validateScopeText(title, scope)) continue;
+    if (isH2TopicProfileViolation(title, profile)) continue;
+    const key = normalizeH2DedupeKey(title);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(title);
+    if (out.length >= targetCount) break;
+  }
+
+  if (out.length > 0) return out;
+  return (rawTitles || []).filter(Boolean).slice(0, targetCount);
+}
+
 export async function generateH2TitlesFinal(keyword: string, subheadings: string[], maxCount?: number): Promise<string[]> {
   // 빈도 분석
   const freq = new Map<string, number>();
@@ -452,6 +696,10 @@ export async function generateH2TitlesFinal(keyword: string, subheadings: string
   // 🎯 검색 의도 자동 분류 — 의도별로 다른 H2 아키타입 제시
   const { buildIntentPromptBlock } = require('../search-intent-classifier');
   const intentBlock = buildIntentPromptBlock(keyword);
+  const topicProfile = inferH2TopicProfile(keyword);
+  const topicProfileBlock = topicProfile
+    ? `\n🎯🎯🎯 **키워드 분야 감지: ${topicProfile.label}**\n- ${topicProfile.promptGuidance}\n- H2 금지어: ${topicProfile.bannedTerms.join(', ')}\n`
+    : '';
 
   // v3.7.21: 키워드 우측 한정자(혜택/신청방법/조건 등) 감지 → 강제 스코프 제한 블록
   const scope = detectKeywordScope(keyword);
@@ -464,7 +712,7 @@ export async function generateH2TitlesFinal(keyword: string, subheadings: string
 
   const prompt = `
 키워드: ${keyword}
-${scopeBlock}${intentBlock}
+${scopeBlock}${topicProfileBlock}${intentBlock}
 ${subheadingReference}
 
 🔴🔴🔴 **핵심 규칙 - 중복 금지 & 다양성 확보!**:
@@ -486,6 +734,7 @@ ${subheadingReference}
 5. 🔴 연도: ${currentYear}년 외 과거 연도 금지
 6. 이미 마감된 사업/이벤트/일정은 소제목에 포함 금지. 현재 진행 중이거나 미래 일정만!
 7. 한글과 영문/숫자만 사용. 중국어 한자(漢字) 절대 금지!
+8. 내부일관성 보일러플레이트 금지: "무엇이고 왜 중요할까", "자격·조건·핵심 정보", "실전 사례와 단계별 적용법", "핵심 포인트 한 줄 정리", "함께 보면 좋은 관련 정보" 같은 고정 템플릿을 그대로 쓰지 말 것!
 
 JSON만(${targetCount}개 문자열 배열):
 `;
@@ -506,46 +755,51 @@ JSON만(${targetCount}개 문자열 배열):
       .trim()
     ).filter(t => t.length > 0);
 
-    // v3.7.21: \uC2A4\uCF54\uD504 \uC704\uBC18 \uAC80\uC99D + 1\uD68C \uC7AC\uC2DC\uB3C4
-    if (scope) {
-      const violations = scopedTitlesPostfix(cleanedTitles, scope);
-      if (violations.length > 0) {
-        console.warn(`[H2-OUTLINE] \u26A0\uFE0F \uC2A4\uCF54\uD504 "${scope.qualifier}" \uC704\uBC18 H2 ${violations.length}/${cleanedTitles.length}\uAC1C \uAC10\uC9C0: ${violations.join(' / ')} \u2014 \uC7AC\uC2DC\uB3C4`);
-        const retryPrompt = `${prompt}\n\n\uD83D\uDEA8\uD83D\uDEA8\uD83D\uDEA8 **\uC7AC\uC2DC\uB3C4 \u2014 \uC9C1\uC804 \uC751\uB2F5 \uC2A4\uCF54\uD504 \uC704\uBC18!**\n\uC9C1\uC804 \uC751\uB2F5\uC5D0 \uB2E4\uC74C H2\uAC00 \uB4E4\uC5B4 \uC788\uC5C8\uC74C (\uBAA8\uB450 "${scope.qualifier}" \uC2A4\uCF54\uD504 \uC704\uBC18):\n${violations.map((v) => `  - ${v}`).join('\n')}\n\n\uC774\uBC88\uC5D4 \uC704 \uC704\uBC18 H2\uB97C \uC808\uB300 \uB2E4\uC2DC \uB9CC\uB4E4\uC9C0 \uB9D0\uACE0, "${scope.qualifier}" \uCE21\uBA74\uB9CC \uB2E4\uB8E8\uB294 H2 ${targetCount}\uAC1C\uB97C \uB2E4\uC2DC \uB9CC\uB4E4\uC5B4 \uC8FC\uC138\uC694. \uC2E0\uCCAD/\uC870\uAC74/\uBC29\uBC95/\uB300\uC0C1\uC790 \uAC19\uC740 \uD0A4\uC6CC\uB4DC\uB294 H2 \uC81C\uBAA9\uC5D0 \uB4F1\uC7A5\uD558\uBA74 \uC548 \uB429\uB2C8\uB2E4.\nJSON\uB9CC \uBC18\uD658:`;
-        try {
-          const retryResponse = await callGeminiWithRetry(retryPrompt);
-          const retryJson = retryResponse.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
-          const retryRaw = JSON.parse(retryJson) as string[];
-          const retryCleaned = retryRaw.map(t => t
-            .replace(/^[hH]2[:\-\s]*/gi, '')
-            .replace(/^[hH]3[:\-\s]*/gi, '')
-            .replace(/^H2-?\d+[:\s]*/gi, '')
-            .replace(/^\d+[.\):\s]+/g, '')
-            .replace(/^\uC18C\uC81C\uBAA9[:\s]*/gi, '')
-            .replace(/^\uC81C\uBAA9[:\s]*/gi, '')
-            .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '')
-            .trim()
-          ).filter(t => t.length > 0);
-          const stillViolating = scopedTitlesPostfix(retryCleaned, scope);
-          if (stillViolating.length === 0) {
-            console.log(`[H2-OUTLINE] \u2705 \uC7AC\uC2DC\uB3C4 \uC131\uACF5 \u2014 \uC2A4\uCF54\uD504 \uC704\uBC18 0\uAC74`);
-            return retryCleaned;
-          }
-          // \uB450 \uBC88\uC9F8\uB3C4 \uC704\uBC18 \uC794\uC874 \u2192 \uC704\uBC18\uB9CC \uD544\uD130\uB9C1\uD558\uC5EC \uBC18\uD658
-          const filtered = retryCleaned.filter((t) => validateScopeText(t, scope));
-          console.warn(`[H2-OUTLINE] \u26A0\uFE0F \uC7AC\uC2DC\uB3C4 \uD6C4\uC5D0\uB3C4 ${stillViolating.length}\uAC1C \uC704\uBC18 \uC794\uC874 \u2192 \uC704\uBC18 H2 \uD544\uD130\uB9C1\uD558\uC5EC ${filtered.length}\uAC1C \uBC18\uD658`);
-          return filtered.length > 0 ? filtered : retryCleaned;
-        } catch (retryErr) {
-          // \uC7AC\uC2DC\uB3C4 LLM \uD638\uCD9C \uC2E4\uD328 \uC2DC \uC6D0\uBCF8\uC758 \uC704\uBC18 H2\uB9CC \uD544\uD130\uB9C1\uD558\uC5EC \uBC18\uD658
-          const filtered = cleanedTitles.filter((t) => validateScopeText(t, scope));
-          console.warn(`[H2-OUTLINE] \u26A0\uFE0F \uC7AC\uC2DC\uB3C4 LLM \uD638\uCD9C \uC2E4\uD328 \u2014 \uC6D0\uBCF8\uC5D0\uC11C \uC704\uBC18 ${violations.length}\uAC1C \uD544\uD130\uB9C1\uD558\uC5EC ${filtered.length}\uAC1C \uBC18\uD658`);
-          return filtered.length > 0 ? filtered : cleanedTitles;
-        }
+    const scopeViolations = scopedTitlesPostfix(cleanedTitles, scope);
+    const profileViolations = cleanedTitles.filter((t) => isH2TopicProfileViolation(t, topicProfile));
+    const violations = Array.from(new Set([...scopeViolations, ...profileViolations]));
+
+    if (violations.length > 0) {
+      const scopeLabel = scope ? `스코프 "${scope.qualifier}"` : '스코프';
+      const profileLabel = topicProfile ? `분야 "${topicProfile.label}"` : '분야';
+      console.warn(`[H2-OUTLINE] ⚠️ ${scopeLabel}/${profileLabel} 위반 H2 ${violations.length}/${cleanedTitles.length}개 감지: ${violations.join(' / ')} — 재시도`);
+      const retryPrompt = `${prompt}
+
+🚨🚨🚨 **재시도 — 직전 H2가 키워드 의도와 맞지 않습니다**
+직전 응답에서 아래 H2는 사용 금지입니다:
+${violations.map((v) => `  - ${v}`).join('\n')}
+
+이번에는 "${keyword}" 키워드의 실제 검색 의도에 맞는 H2 ${targetCount}개만 다시 만드세요.
+${scope ? `- 모든 H2는 "${scope.qualifier}" 범위만 다뤄야 합니다.` : ''}
+${topicProfile ? `- 분야는 "${topicProfile.label}"입니다. 금지어(${topicProfile.bannedTerms.join(', ')})를 쓰지 마세요.` : ''}
+- 고정 템플릿("무엇이고 왜 중요할까", "자격·조건·핵심 정보", "함께 보면 좋은 관련 정보") 사용 금지.
+JSON만 반환:`;
+
+      try {
+        const retryResponse = await callGeminiWithRetry(retryPrompt);
+        const retryJson = retryResponse.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
+        const retryRaw = JSON.parse(retryJson) as string[];
+        const retryCleaned = retryRaw.map(t => t
+          .replace(/^[hH]2[:\-\s]*/gi, '')
+          .replace(/^[hH]3[:\-\s]*/gi, '')
+          .replace(/^H2-?\d+[:\s]*/gi, '')
+          .replace(/^\d+[.\):\s]+/g, '')
+          .replace(/^소제목[:\s]*/gi, '')
+          .replace(/^제목[:\s]*/gi, '')
+          .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '')
+          .trim()
+        ).filter(t => t.length > 0);
+        return finalizeH2TitlesWithIntentGuard(keyword, retryCleaned, targetCount, scope, topicProfile);
+      } catch {
+        console.warn(`[H2-OUTLINE] ⚠️ 재시도 실패 — 의도 기반 fallback으로 보완`);
+        return finalizeH2TitlesWithIntentGuard(keyword, cleanedTitles, targetCount, scope, topicProfile);
       }
     }
-    return cleanedTitles;
+
+    return finalizeH2TitlesWithIntentGuard(keyword, cleanedTitles, targetCount, scope, topicProfile);
   } catch {
-    return sorted.slice(0, targetCount).map(s => s.split(' (')[0]).filter((h): h is string => !!h);
+    const sortedFallback = sorted.slice(0, targetCount).map(s => s.split(' (')[0]).filter((h): h is string => !!h);
+    return finalizeH2TitlesWithIntentGuard(keyword, sortedFallback, targetCount, scope, topicProfile);
   }
 }
 

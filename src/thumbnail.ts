@@ -83,12 +83,20 @@ export type DeepInfraThumbOptions = {
 };
 
 
+export type LeonardoModelPreference =
+  | 'auto'
+  | 'seedream-4.5'
+  | 'phoenix-1.0'
+  | 'ideogram-3.0'
+  | 'gemini-image-2'
+  | 'nanobanana-pro';
+
 // 🦁 Leonardo Phoenix 옵션 (Leonardo.ai 최신 고품질 이미지 생성)
 export type LeonardoPhoenixOptions = {
   apiKey: string;   // Leonardo.ai API 키
   width?: number;   // 기본 1024
   height?: number;  // 기본 768 (16:9)
-  modelPreference?: 'phoenix-1.0' | 'phoenix-0.9'; // 기본 'phoenix-1.0'
+  modelPreference?: LeonardoModelPreference | string; // 기본 'seedream-4.5'
   isThumbnail?: boolean; // 썸네일 vs 소제목 이미지
 };
 
@@ -2242,7 +2250,28 @@ export async function makeProdiaThumbnail(
   return { ok: false, error: `Prodia ${MAX_RETRIES}회 시도 후 실패` };
 }
 
-// 🦁 Leonardo AI 이미지 생성 (NanoBananaPro + Phoenix 폴백)
+function normalizeLeonardoModelPreference(raw?: string): LeonardoModelPreference {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value || value === 'auto' || value === 'default') return 'seedream-4.5';
+  if (value.includes('seedream') || value.includes('see-dream') || value.includes('see dream')) return 'seedream-4.5';
+  if (value.includes('phoenix')) return 'phoenix-1.0';
+  if (value.includes('ideogram')) return 'ideogram-3.0';
+  if (value.includes('gemini') || value.includes('nano')) return 'gemini-image-2';
+  if (value === 'nanobanana-pro') return 'gemini-image-2';
+  return 'seedream-4.5';
+}
+
+function prioritizeLeonardoModels<T extends { key: LeonardoModelPreference }>(
+  models: T[],
+  preference: LeonardoModelPreference,
+): T[] {
+  if (!preference || preference === 'auto') return models;
+  const preferred = models.filter(model => model.key === preference);
+  const fallback = models.filter(model => model.key !== preference);
+  return [...preferred, ...fallback];
+}
+
+// 🦁 Leonardo AI 이미지 생성 (SeeDream / Phoenix / Ideogram / Nano Banana Pro)
 export async function makeLeonardoPhoenixImage(
   title: string,
   topic: string,
@@ -2267,14 +2296,23 @@ export async function makeLeonardoPhoenixImage(
     console.log(`[LEONARDO] ⚠️ AI 프롬프트 생성 실패, 폴백 사용: ${e.message}`);
   }
 
+  const rawModelPreference = String(options.modelPreference || '').trim().toLowerCase();
+  const explicitModelPreference = !!rawModelPreference && rawModelPreference !== 'auto' && rawModelPreference !== 'default';
+  const modelPreference = normalizeLeonardoModelPreference(options.modelPreference);
+
   console.log(`[LEONARDO] 🦁 Leonardo 이미지 생성 시작...`);
+  console.log(`[LEONARDO] 🎛️ 모델 우선순위: ${modelPreference}`);
   console.log(`[LEONARDO] 📝 프롬프트: ${prompt.slice(0, 80)}...`);
 
   // ===== v2 API 모델들 (최신 → 안정 순서) =====
-  const V2_MODELS = [
-    { model: 'seedream-4.5', name: 'Seedream 4.5' },
-    { model: 'gemini-image-2', name: 'NanoBananaPro' },
+  const V2_MODEL_CANDIDATES = [
+    { key: 'seedream-4.5' as LeonardoModelPreference, model: 'seedream-4.5', name: 'SeeDream 4.5' },
+    { key: 'ideogram-3.0' as LeonardoModelPreference, model: 'ideogram-3.0', name: 'Ideogram 3.0' },
+    { key: 'gemini-image-2' as LeonardoModelPreference, model: 'gemini-image-2', name: 'Nano Banana Pro' },
   ];
+  const V2_MODELS = explicitModelPreference
+    ? V2_MODEL_CANDIDATES.filter(model => model.key === modelPreference)
+    : prioritizeLeonardoModels(V2_MODEL_CANDIDATES, modelPreference);
 
   for (const v2Model of V2_MODELS) {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -2341,10 +2379,12 @@ export async function makeLeonardoPhoenixImage(
   }
 
   // ===== 2단계: Phoenix 폴백 (v1 API) =====
-  const PHOENIX_MODELS = [
-    { id: 'de7d3faf-762f-48e0-b3b7-9d0ac3a3fcf3', name: 'Phoenix 1.0' },
-    { id: '6b645e3a-d64f-4341-a6d8-7a3690fbf042', name: 'Phoenix 0.9' },
+  const PHOENIX_MODEL_CANDIDATES = [
+    { key: 'phoenix-1.0' as LeonardoModelPreference, id: 'de7d3faf-762f-48e0-b3b7-9d0ac3a3fcf3', name: 'Phoenix 1.0' },
   ];
+  const PHOENIX_MODELS = explicitModelPreference
+    ? PHOENIX_MODEL_CANDIDATES.filter(model => model.key === modelPreference)
+    : prioritizeLeonardoModels(PHOENIX_MODEL_CANDIDATES, modelPreference);
 
   for (const phoenixModel of PHOENIX_MODELS) {
     try {

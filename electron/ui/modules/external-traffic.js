@@ -152,6 +152,36 @@ let _activePlatformId = null;
 const _generatedCache = new Map(); // platformId → { text, generatedAt }
 
 // ─── 발행글 목록 모달 (single-select 모드) ────────────────────────────────────────────────
+function _deriveExtTrafficProviderFromModel(modelValue) {
+  const value = String(modelValue || '').trim();
+  if (!value) return '';
+  if (value.startsWith('gemini-')) return 'gemini';
+  if (value.startsWith('openai-')) return 'openai';
+  if (value.startsWith('claude-')) return 'claude';
+  if (value === 'perplexity-sonar' || value.startsWith('perplexity-')) return 'perplexity';
+  return '';
+}
+
+function _getExtTrafficAiPreference() {
+  const selectedModel = document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value || '';
+  const savedEngine = document.getElementById('generationEngine')?.value || '';
+  const provider = _deriveExtTrafficProviderFromModel(selectedModel) || savedEngine || 'gemini';
+  const defaultModelByProvider = {
+    gemini: 'gemini-2.5-flash',
+    openai: 'openai-gpt41',
+    claude: 'claude-sonnet',
+    perplexity: 'perplexity-sonar',
+  };
+  const modelProvider = _deriveExtTrafficProviderFromModel(selectedModel);
+  return {
+    provider,
+    generationEngine: provider,
+    primaryGeminiTextModel: modelProvider === provider
+      ? selectedModel
+      : (defaultModelByProvider[provider] || 'gemini-2.5-flash'),
+  };
+}
+
 function openExtTrafficSourceModal() {
   // v3.8.2: 모달 mode 정식 통합 — internal-links.js가 mode 인자로 분기.
   if (typeof window.openPublishedPostsModal !== 'function') {
@@ -2568,6 +2598,7 @@ async function _callLLM(platform, source) {
   // v2 IPC 시도
   if (_isV2Channel(platform.id) && window.electronAPI && window.electronAPI.invoke) {
     try {
+      const aiPreference = _getExtTrafficAiPreference();
       const result = await window.electronAPI.invoke('generate-external-traffic-text-v2', {
         sourceUrl: source.url,
         sourceTitle: source.title,
@@ -2575,6 +2606,7 @@ async function _callLLM(platform, source) {
         sourceKeywords,
         sourceType,
         channels: [{ id: platform.id }],
+        ...aiPreference,
       });
       if (result && result.success && result.results && result.results[platform.id]) {
         const r = result.results[platform.id];
@@ -2607,9 +2639,11 @@ async function _callLLM(platform, source) {
   // v1 IPC (백워드)
   if (window.electronAPI && window.electronAPI.invoke) {
     try {
+      const aiPreference = _getExtTrafficAiPreference();
       const result = await window.electronAPI.invoke('generate-external-traffic-text', {
         system: systemPrompt,
         user: userPrompt,
+        ...aiPreference,
       });
       if (result && result.success && result.text) {
         return { isV2: false, rawText: result.text };

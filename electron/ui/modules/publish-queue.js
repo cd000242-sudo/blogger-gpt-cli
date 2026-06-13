@@ -433,6 +433,10 @@ function getCurrentQueueSnapshot() {
   const contentMode = getSelectValue('contentMode') || getSelectValue('scheduleContentMode') || 'external';
   const thumbnailMode = normalizeThumbEngine(getSelectValue('thumbnailType') || getSelectValue('scheduleThumbnailMode') || 'nanobanana2');
   const h2ImageSource = getCurrentH2ImageSource();
+  const leonardoModel = document.getElementById('h2LeonardoModel')?.value
+    || document.getElementById('thumbnailTypeLeonardoModel')?.value
+    || document.getElementById('thumbnailLeonardoModel')?.value
+    || 'seedream-4.5';
   const h2ImageMode = getCurrentH2ImageMode();
   const ctaMode = getCurrentCtaMode();
   const platform = getCurrentPublishPlatform();
@@ -444,6 +448,7 @@ function getCurrentQueueSnapshot() {
     contentMode,
     thumbnailMode,
     h2ImageSource,
+    leonardoModel,
     h2ImageMode,
     ctaMode,
     manualCta: ctaMode === 'manual' ? getCurrentManualQueueCta() : undefined,
@@ -469,6 +474,7 @@ function cloneQueueSnapshot(snapshot) {
     contentMode: snap.contentMode || 'external',
     thumbnailMode: normalizeThumbEngine(snap.thumbnailMode || 'nanobanana2'),
     h2ImageSource: normalizeThumbEngine(snap.h2ImageSource || snap.thumbnailMode || 'nanobanana2'),
+    leonardoModel: snap.leonardoModel || 'seedream-4.5',
     h2ImageMode: normalizeH2ImageMode(snap.h2ImageMode || 'all'),
     ctaMode: snap.ctaMode || 'auto',
     manualCta: normalizeManualCta(snap.manualCta),
@@ -493,6 +499,7 @@ function snapshotFromItem(item) {
     contentMode: item.mode,
     thumbnailMode: item.thumb,
     h2ImageSource: item.h2ImageSource,
+    leonardoModel: item.leonardoModel,
     h2ImageMode: item.h2ImageMode,
     ctaMode: item.ctaMode,
     manualCta: getItemManualCta(item),
@@ -525,6 +532,7 @@ function applySnapshotToItem(item, snapshot, options = {}) {
   else item.thumb = normalizeThumbEngine(item.thumb);
   if (force || !item.h2ImageSource) item.h2ImageSource = normalizeThumbEngine(snap.h2ImageSource || item.thumb);
   else item.h2ImageSource = normalizeThumbEngine(item.h2ImageSource || item.thumb);
+  if (force || !item.leonardoModel) item.leonardoModel = snap.leonardoModel || 'seedream-4.5';
   if (force || !item.h2ImageMode) item.h2ImageMode = normalizeH2ImageMode(snap.h2ImageMode);
   else item.h2ImageMode = normalizeH2ImageMode(item.h2ImageMode);
   if (force || !item.ctaMode) item.ctaMode = snap.ctaMode;
@@ -1216,9 +1224,10 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     thumbnailType: normalizeThumbEngine(item.thumb),
     thumbnailSource: normalizeThumbEngine(item.thumb),
     h2ImageSource: normalizeThumbEngine(item.h2ImageSource || item.thumb),
+    leonardoModel: item.leonardoModel || 'seedream-4.5',
     h2ImageMode,
     h2ImageSections: h2Sections,
-    h2Images: { source: normalizeThumbEngine(item.h2ImageSource || item.thumb), sections: h2Sections, mode: h2ImageMode },
+    h2Images: { source: normalizeThumbEngine(item.h2ImageSource || item.thumb), sections: h2Sections, mode: h2ImageMode, leonardoModel: item.leonardoModel || 'seedream-4.5' },
     skipImages: h2ImageMode === 'none',
     ctaMode: isAdsense ? 'none' : (item.ctaMode || 'auto'),
     manualCtas,
@@ -1395,6 +1404,8 @@ function createQueueRunModal(items, intervalLabel) {
   let currentIndex = 0;
   let completed = 0;
   let closed = false;
+  let imageAccepting = false;
+  let currentImageToken = '';
 
   const log = (message) => {
     if (!logEl || closed) return;
@@ -1448,7 +1459,27 @@ function createQueueRunModal(items, intervalLabel) {
     if (img) img.removeAttribute('src');
   };
 
+  const resetImages = (index) => {
+    const host = document.getElementById('pqrImages');
+    if (host) {
+      const keyword = items[index]?.keyword || '';
+      const label = keyword ? `${index + 1}번 글 "${keyword}"` : `${index + 1}번 글`;
+      host.innerHTML = `<div class="pqr-image-empty">${escHtml(label)} 이미지가 생성되면 여기에 표시됩니다.</div>`;
+    }
+    closeImageLightbox();
+  };
+
   const addImage = (payload) => {
+    if (!imageAccepting || closed) return;
+    const payloadToken = String(payload?.queueImageToken || payload?.runToken || '');
+    if (currentImageToken && !payloadToken) {
+      log(`출처가 불명확한 이미지 이벤트 무시: ${payload?.label || payload?.kind || '이미지'}`);
+      return;
+    }
+    if (payloadToken && currentImageToken && payloadToken !== currentImageToken) {
+      log(`이전 글 이미지 이벤트 무시: ${payload?.label || payload?.kind || '이미지'}`);
+      return;
+    }
     const url = payload?.url || payload?.dataUrl || '';
     if (!url) return;
     const host = document.getElementById('pqrImages');
@@ -1516,19 +1547,26 @@ function createQueueRunModal(items, intervalLabel) {
 
   return {
     log,
-    setCurrent(index) {
+    setCurrent(index, token = '') {
       currentIndex = index;
+      currentImageToken = String(token || '');
+      imageAccepting = true;
+      resetImages(index);
       setItemStatus(index, 'running', '진행 중');
       updateOverall(0, `${index + 1}/${items.length} · 시작`);
     },
     markDone(index, message = '완료') {
+      imageAccepting = false;
       completed = Math.max(completed, index + 1);
       setItemStatus(index, 'done', message);
+      if (index < items.length - 1) resetImages(index + 1);
       updateOverall(0, `${completed}/${items.length} 완료`);
     },
     markFailed(index, message = '실패') {
+      imageAccepting = false;
       completed = Math.max(completed, index + 1);
       setItemStatus(index, 'failed', message);
+      if (index < items.length - 1) resetImages(index + 1);
       updateOverall(0, `${completed}/${items.length} 처리`);
     },
     finish(message) {
@@ -1664,8 +1702,9 @@ function bindModalEvents() {
         scheduleDate: postingMode === 'schedule' ? scheduleDateIso : undefined,
         thumbnailMode: it.thumb,
         platform,
-        h2Images: { source: it.h2ImageSource || it.thumb, sections: h2Sections, mode: h2ImageMode },
+        h2Images: { source: it.h2ImageSource || it.thumb, sections: h2Sections, mode: h2ImageMode, leonardoModel: it.leonardoModel || 'seedream-4.5' },
         h2ImageSource: it.h2ImageSource || it.thumb,
+        leonardoModel: it.leonardoModel || 'seedream-4.5',
         h2ImageMode,
         h2ImageSections: h2Sections,
         skipImages: h2ImageMode === 'none',
@@ -1767,11 +1806,13 @@ function bindModalEvents() {
       for (let i = 0; i < enabled.length; i++) {
         const it = enabled[i];
         const itemScheduleDate = new Date(scheduleBaseDate.getTime() + scheduleOffsetMs).toISOString();
-        runModal.setCurrent(i);
+        const queueImageToken = `pq-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`;
+        runModal.setCurrent(i, queueImageToken);
         runModal.log(`${i + 1}/${enabled.length} 시작: ${it.keyword}`);
         console.log(`[QUEUE] 🚀 ${i + 1}/${enabled.length}: ${it.keyword} (${it.mode}/${it.thumb}/${it.h2ImageSource})`);
 
         applyItemToMainForm(it, itemScheduleDate);
+        window.__publishQueueActiveImageToken = queueImageToken;
         window.__publishForceOptions = {
           urlImageSource: it.url || '',
           urlImageAiCheck: !!it.urlAiCheck,
@@ -1780,7 +1821,10 @@ function bindModalEvents() {
           contentUrl: it.contentUrl || it.sourceUrl || '',
           sourceUrl: it.contentUrl || it.sourceUrl || '',
         };
-        window.__publishQueuePayloadOverrides = buildQueuePayloadOverrides(it, itemScheduleDate);
+        window.__publishQueuePayloadOverrides = {
+          ...buildQueuePayloadOverrides(it, itemScheduleDate),
+          queueImageToken,
+        };
 
         await new Promise(r => setTimeout(r, 200));
 
@@ -1809,6 +1853,7 @@ function bindModalEvents() {
         }
 
         try { window.__publishQueuePayloadOverrides = null; } catch {}
+        try { window.__publishQueueActiveImageToken = null; } catch {}
 
         if (i < enabled.length - 1) {
           const waitMs = intervalMode === 'random' ? getIntervalMs({ minMs: minIntervalMs }) : fixedIntervalMs;
@@ -1827,6 +1872,7 @@ function bindModalEvents() {
     } finally {
       window.__queueRunning = false;
       window.__queueProgressActive = false;
+      try { window.__publishQueueActiveImageToken = null; } catch (e) { /* ignore */ }
       try { window.__publishForceOptions = null; } catch (e) { /* ignore */ }
       try { window.__publishQueuePayloadOverrides = null; } catch (e) { /* ignore */ }
       try { window.showQueueQualityReport?.(); } catch (e) { console.warn('[QUEUE] 종합 리포트 표시 실패:', e); }
@@ -1866,6 +1912,7 @@ function addCurrent() {
       mode: snapshot.contentMode,
       thumb: snapshot.thumbnailMode,
       h2ImageSource: snapshot.h2ImageSource,
+      leonardoModel: snapshot.leonardoModel,
       h2ImageMode: snapshot.h2ImageMode,
       ctaMode: snapshot.ctaMode,
       platform: snapshot.platform,
@@ -1924,6 +1971,7 @@ function open() {
       mode: snapshot.contentMode,
       thumb: snapshot.thumbnailMode,
       h2ImageSource: snapshot.h2ImageSource,
+      leonardoModel: snapshot.leonardoModel,
       h2ImageMode: snapshot.h2ImageMode,
       ctaMode: snapshot.ctaMode,
       platform: snapshot.platform,

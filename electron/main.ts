@@ -1645,6 +1645,7 @@ ${tail}
       const imagePolicy = (payload.imagePolicy || 'all').toLowerCase();
       const thumbEngine = (payload.imageThumbnailEngine || 'nanobanana2').toLowerCase();
       const h2Engine = (payload.imageH2Engine || 'nanobanana2').toLowerCase();
+      const queueImageToken = typeof (payload as any).queueImageToken === 'string' ? (payload as any).queueImageToken : '';
       // v3.8.7: 텍스트 포함 옵션 → prompt에 직접 지시
       // v3.8.35: 한국어 지시문 시도 → 이미지에 지시문 자체가 글자로 박히는 역효과 발견.
       // v3.8.82: 한글 prompt는 모델이 "그려야 할 텍스트"로 오인 → 영문 instruction으로 전환.
@@ -1754,7 +1755,7 @@ ${tail}
                   const { BrowserWindow: BW } = await import('electron');
                   const allWindows = BW.getAllWindows();
                   allWindows.forEach((w) => w.webContents.send('sw-image-generated', {
-                    kind: 'thumbnail', label: '썸네일', url: hosted.url,
+                    kind: 'thumbnail', label: '썸네일', url: hosted.url, queueImageToken,
                   }));
                 } catch {}
                 // v3.8.18: 본문 썸네일 삽입 제거 — publishToBlogger가 separator 구조로 자동 본문 앞 삽입
@@ -1824,7 +1825,7 @@ ${tail}
                     const { BrowserWindow: BW } = await import('electron');
                     const allWindows = BW.getAllWindows();
                     allWindows.forEach((w) => w.webContents.send('sw-image-generated', {
-                      kind: 'h2', label: `H2 ${idx1}: ${h2Text.substring(0, 30)}`, url: hosted.url,
+                      kind: 'h2', label: `H2 ${idx1}: ${h2Text.substring(0, 30)}`, url: hosted.url, queueImageToken,
                     }));
                   } catch {}
                 } else {
@@ -2432,6 +2433,47 @@ ${generatedLabels.slice(0, 6).map((kw) => `<meta property="article:tag" content=
         const spiderLiStyle = `color:${spiderTheme.text} !important;font-size:17px !important;line-height:1.9 !important;margin:0 0 12px !important;`;
         const spiderThStyle = `padding:14px 16px !important;color:${spiderTheme.heading} !important;background:linear-gradient(135deg,${spiderTheme.gradientStart} 0%,${spiderTheme.gradientEnd} 100%) !important;border:1px solid ${spiderTheme.border} !important;font-weight:800 !important;text-align:left !important;`;
         const spiderTdStyle = `padding:14px 16px !important;color:${spiderTheme.text} !important;border:1px solid ${spiderTheme.borderSoft} !important;font-size:15px !important;line-height:1.7 !important;`;
+        const escapeSpiderAttr = (value: string): string => String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        const stripSpiderTags = (value: string): string => String(value || '')
+          .replace(/<[^>]*>/g, ' ')
+          .replace(/&nbsp;/gi, ' ')
+          .replace(/&amp;/gi, '&')
+          .replace(/&lt;/gi, '<')
+          .replace(/&gt;/gi, '>')
+          .replace(/&quot;/gi, '"')
+          .replace(/&#39;/gi, "'")
+          .replace(/\s+/g, ' ')
+          .trim();
+        const addSpiderMobileTableLabels = (html: string): string => String(html || '').replace(/<table\b[\s\S]*?<\/table>/gi, (tableHtml: string) => {
+          const headers = Array.from(tableHtml.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/gi))
+            .map(match => stripSpiderTags(match[1] || ''));
+          const tableClassed = tableHtml.replace(/<table\b([^>]*)>/i, (match: string, attrs = '') => {
+            if (/\bsw-mobile-table\b/i.test(attrs)) return match;
+            if (/\sclass\s*=\s*(["'])([\s\S]*?)\1/i.test(attrs)) {
+              return `<table${attrs.replace(/\sclass\s*=\s*(["'])([\s\S]*?)\1/i, (_m: string, quote: string, classes: string) => ` class=${quote}${classes} sw-mobile-table${quote}`)}>`;
+            }
+            return `<table${attrs || ''} class="sw-mobile-table">`;
+          });
+          if (!headers.length) return tableClassed;
+          return tableClassed.replace(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi, (rowHtml: string) => {
+            if (!/<td\b/i.test(rowHtml)) return rowHtml;
+            let cellIndex = 0;
+            return rowHtml.replace(/<td\b([^>]*)>/gi, (match: string, attrs = '') => {
+              if (/\sdata-label\s*=/i.test(attrs)) {
+                cellIndex++;
+                return match;
+              }
+              const label = escapeSpiderAttr(headers[cellIndex] || '');
+              cellIndex++;
+              return `<td${attrs || ''} data-label="${label}">`;
+            });
+          });
+        });
+        generatedContent = addSpiderMobileTableLabels(generatedContent);
         const skinCss = `<style>
 .max-mode-article h1{color:${spiderTheme.heading} !important;font-size:34px !important;font-weight:800 !important;margin:0 0 32px !important;line-height:1.3 !important;}
 .max-mode-article h2{${spiderH2Style}}
@@ -2440,7 +2482,7 @@ ${generatedLabels.slice(0, 6).map((kw) => `<meta property="article:tag" content=
 .max-mode-article p{${spiderParagraphStyle}}
 .max-mode-article li{${spiderLiStyle}}
 .max-mode-article ul,.max-mode-article ol{margin:20px 0 !important;padding-left:24px !important;}
-.max-mode-article table{width:100% !important;border-collapse:collapse !important;margin:24px 0 !important;}
+.max-mode-article table{width:100% !important;min-width:0 !important;max-width:100% !important;border-collapse:collapse !important;margin:24px 0 !important;table-layout:fixed !important;box-sizing:border-box !important;}
 .max-mode-article th{${spiderThStyle}}
 .max-mode-article td{${spiderTdStyle}}
 .max-mode-article strong{color:${spiderTheme.heading} !important;font-weight:700 !important;}
@@ -2449,24 +2491,35 @@ ${generatedLabels.slice(0, 6).map((kw) => `<meta property="article:tag" content=
 .max-mode-article a{color:${spiderTheme.primary} !important;text-decoration:underline !important;}
 .max-mode-article img{max-width:100% !important;height:auto !important;border-radius:12px !important;margin:18px auto !important;display:block !important;}
 @media (max-width:768px){
-  .max-mode-article{width:100vw !important;max-width:100vw !important;margin-left:calc(50% - 50vw) !important;margin-right:calc(50% - 50vw) !important;padding:18px 14px 52px !important;box-sizing:border-box !important;background:#ffffff !important;overflow:visible !important;}
+  .max-mode-article{width:calc(100vw - 8px) !important;max-width:calc(100vw - 8px) !important;margin-left:calc(50% - 50vw + 4px) !important;margin-right:calc(50% - 50vw + 4px) !important;padding:12px 4px 52px !important;box-sizing:border-box !important;background:#ffffff !important;overflow:visible !important;border:0 !important;box-shadow:none !important;}
   .max-mode-article h1{font-size:26px !important;margin:0 0 24px !important;line-height:1.35 !important;}
   .max-mode-article h2{font-size:22px !important;margin:38px 0 18px !important;padding:14px 16px !important;border-radius:0 12px 12px 0 !important;}
   .max-mode-article h3{font-size:19px !important;margin:28px 0 14px !important;padding:12px 14px !important;}
   .max-mode-article p{font-size:16px !important;line-height:1.78 !important;margin:0 0 16px !important;}
   .max-mode-article li{font-size:15.5px !important;line-height:1.78 !important;}
-  .max-mode-article table{width:max-content !important;min-width:100% !important;max-width:none !important;}
-  .max-mode-article th,.max-mode-article td{min-width:86px !important;padding:9px 10px !important;font-size:13px !important;line-height:1.45 !important;}
+  .max-mode-article table,
+  .max-mode-article tbody,
+  .max-mode-article tr,
+  .max-mode-article td{display:block !important;width:100% !important;min-width:0 !important;max-width:100% !important;box-sizing:border-box !important;}
+  .max-mode-article table{table-layout:fixed !important;border:0 !important;border-radius:0 !important;background:transparent !important;overflow:visible !important;margin:22px 0 !important;}
+  .max-mode-article thead{display:none !important;}
+  .max-mode-article tr{margin:0 0 12px !important;border:1px solid ${spiderTheme.borderSoft} !important;border-radius:12px !important;background:#ffffff !important;overflow:hidden !important;box-shadow:0 8px 20px rgba(15,23,42,0.05) !important;}
+  .max-mode-article th,.max-mode-article td{min-width:0 !important;padding:12px 14px !important;font-size:14px !important;line-height:1.55 !important;word-break:keep-all !important;overflow-wrap:break-word !important;white-space:normal !important;text-align:left !important;border:0 !important;border-bottom:1px solid ${spiderTheme.borderSoft} !important;}
+  .max-mode-article td:last-child{border-bottom:0 !important;}
+  .max-mode-article td::before{content:attr(data-label) !important;display:block !important;margin:0 0 5px !important;color:${spiderTheme.primary} !important;font-size:12px !important;font-weight:800 !important;line-height:1.35 !important;}
+  .max-mode-article td[data-label=""]::before{display:none !important;}
+  .max-mode-article > div[style*="border"],
+  .max-mode-article > section[style*="border"]{max-width:100% !important;margin-left:0 !important;margin-right:0 !important;padding-left:0 !important;padding-right:0 !important;border-radius:0 !important;box-sizing:border-box !important;background:transparent !important;border:0 !important;box-shadow:none !important;}
   .max-mode-article .tldr-answer-box,
   .max-mode-article .freshness-meta,
   .max-mode-article .eeat-meta-box,
   .max-mode-article .sw-toc-box,
   .max-mode-article .cta-box,
   .max-mode-article aside,
-  .max-mode-article blockquote{max-width:100% !important;margin-left:0 !important;margin-right:0 !important;padding:16px 14px !important;border-radius:10px !important;box-sizing:border-box !important;}
+  .max-mode-article blockquote{max-width:100% !important;margin-left:0 !important;margin-right:0 !important;padding:16px 12px !important;border-radius:10px !important;box-sizing:border-box !important;}
 }
 @media (max-width:380px){
-  .max-mode-article{padding:16px 10px 48px !important;}
+  .max-mode-article{padding:14px 4px 48px !important;}
   .max-mode-article h1{font-size:23px !important;}
   .max-mode-article h2{font-size:19px !important;padding:12px 14px !important;}
   .max-mode-article p{font-size:15px !important;}
@@ -3229,6 +3282,75 @@ console.log('[IMAGE-COLLECTOR] ✅ 이미지 수집 핸들러 등록 완료');
 // 🔥 Blogger OAuth 인증 핸들러
 // ============================================
 
+function buildBloggerTokenFileData(tokenData: any) {
+  const expiresIn = Number(tokenData?.expires_in || 0);
+  return {
+    access_token: String(tokenData?.access_token || ''),
+    refresh_token: String(tokenData?.refresh_token || ''),
+    expires_in: expiresIn || undefined,
+    token_type: tokenData?.token_type || 'Bearer',
+    scope: tokenData?.scope || 'https://www.googleapis.com/auth/blogger',
+    expires_at: expiresIn ? Date.now() + (expiresIn * 1000) : Date.now() + (55 * 60 * 1000),
+  };
+}
+
+function saveBloggerOAuthArtifacts(args: {
+  blogId: string;
+  clientId: string;
+  clientSecret: string;
+  tokenData: any;
+}) {
+  const userDataPath = app.getPath('userData');
+  fs.mkdirSync(userDataPath, { recursive: true });
+
+  const envPath = path.join(userDataPath, '.env');
+  let envContent = '';
+  if (fs.existsSync(envPath)) {
+    envContent = fs.readFileSync(envPath, 'utf-8');
+  }
+
+  const existingRefresh = envContent
+    .split('\n')
+    .find(line => line.startsWith('BLOGGER_REFRESH_TOKEN='))
+    ?.replace(/^BLOGGER_REFRESH_TOKEN=/, '')
+    .trim();
+  const tokenPath = path.join(userDataPath, 'blogger-token.json');
+  const tokenFileData = buildBloggerTokenFileData({
+    ...args.tokenData,
+    refresh_token: args.tokenData?.refresh_token || existingRefresh || '',
+  });
+  if (!tokenFileData.access_token) {
+    throw new Error('Blogger OAuth 토큰 응답에 access_token이 없습니다.');
+  }
+  fs.writeFileSync(tokenPath, JSON.stringify(tokenFileData, null, 2), 'utf-8');
+
+  const lines = envContent.split('\n').filter(line =>
+    !line.startsWith('BLOGGER_ACCESS_TOKEN=') &&
+    !line.startsWith('BLOGGER_REFRESH_TOKEN=') &&
+    !line.startsWith('BLOG_ID=') &&
+    !line.startsWith('BLOGGER_ID=') &&
+    !line.startsWith('GOOGLE_CLIENT_ID=') &&
+    !line.startsWith('GOOGLE_CLIENT_SECRET=')
+  );
+
+  lines.push(`BLOG_ID=${args.blogId}`);
+  lines.push(`BLOGGER_ID=${args.blogId}`);
+  lines.push(`GOOGLE_CLIENT_ID=${args.clientId}`);
+  lines.push(`GOOGLE_CLIENT_SECRET=${args.clientSecret}`);
+  lines.push(`BLOGGER_ACCESS_TOKEN=${tokenFileData.access_token}`);
+  if (tokenFileData.refresh_token) {
+    lines.push(`BLOGGER_REFRESH_TOKEN=${tokenFileData.refresh_token}`);
+  }
+
+  fs.writeFileSync(envPath, lines.filter(Boolean).join('\n'), 'utf-8');
+
+  if (!fs.existsSync(tokenPath)) {
+    throw new Error(`Blogger OAuth 토큰 파일 저장 확인 실패: ${tokenPath}`);
+  }
+
+  return { tokenPath, envPath, tokenFileData };
+}
+
 ipcMain.handle('authenticate-blogger', async (_evt, payload: { blogId: string; clientId: string; clientSecret: string }) => {
   try {
     console.log('[BLOGGER-AUTH] 🔐 OAuth 인증 시작...');
@@ -3279,31 +3401,15 @@ ipcMain.handle('authenticate-blogger', async (_evt, payload: { blogId: string; c
 
               if (tokenData.access_token) {
                 // 토큰 저장
-                const envPath = path.join(app.getPath('userData'), '.env');
-                let envContent = '';
-                if (fs.existsSync(envPath)) {
-                  envContent = fs.readFileSync(envPath, 'utf-8');
-                }
+                const saved = saveBloggerOAuthArtifacts({
+                  blogId,
+                  clientId,
+                  clientSecret,
+                  tokenData,
+                });
+                console.log('[BLOGGER-AUTH] Token file saved:', saved.tokenPath);
 
                 // 기존 토큰 제거 후 새 토큰 추가
-                const lines = envContent.split('\n').filter(line =>
-                  !line.startsWith('BLOGGER_ACCESS_TOKEN=') &&
-                  !line.startsWith('BLOGGER_REFRESH_TOKEN=') &&
-                  !line.startsWith('BLOG_ID=') &&
-                  !line.startsWith('GOOGLE_CLIENT_ID=') &&
-                  !line.startsWith('GOOGLE_CLIENT_SECRET=')
-                );
-
-                lines.push(`BLOG_ID=${blogId}`);
-                lines.push(`GOOGLE_CLIENT_ID=${clientId}`);
-                lines.push(`GOOGLE_CLIENT_SECRET=${clientSecret}`);
-                lines.push(`BLOGGER_ACCESS_TOKEN=${tokenData.access_token}`);
-                if (tokenData.refresh_token) {
-                  lines.push(`BLOGGER_REFRESH_TOKEN=${tokenData.refresh_token}`);
-                }
-
-                fs.writeFileSync(envPath, lines.join('\n'), 'utf-8');
-
                 // 성공 페이지 표시
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
                 res.end(`
@@ -3320,7 +3426,7 @@ ipcMain.handle('authenticate-blogger', async (_evt, payload: { blogId: string; c
 
                 server.close();
                 console.log('[BLOGGER-AUTH] ✅ 인증 성공!');
-                resolve({ success: true, email: 'authenticated', blogName: 'Blogger' });
+                resolve({ success: true, email: 'authenticated', blogName: 'Blogger', tokenPath: saved.tokenPath, tokenFileSaved: true });
               } else {
                 throw new Error(tokenData.error_description || '토큰 교환 실패');
               }
@@ -7307,6 +7413,39 @@ ipcMain.handle('fetch-og-image', async (_evt, payload: { url: string }) => {
   }
 });
 
+function normalizeExternalTrafficEngine(value: any): string {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw.startsWith('gemini')) return 'gemini';
+  if (raw.startsWith('openai')) return 'openai';
+  if (raw.startsWith('claude')) return 'claude';
+  if (raw.startsWith('perplexity')) return 'perplexity';
+  return '';
+}
+
+function resolveExternalTrafficEngine(payload: any, envData: any): string {
+  return normalizeExternalTrafficEngine(
+    payload?.generationEngine ||
+    payload?.provider ||
+    payload?.defaultAiProvider ||
+    envData.generationEngine ||
+    envData.GENERATION_ENGINE ||
+    envData.defaultAiProvider ||
+    envData.DEFAULT_AI_PROVIDER ||
+    'gemini'
+  ) || 'gemini';
+}
+
+function resolveExternalTrafficModel(payload: any, envData: any): string {
+  return String(
+    payload?.primaryGeminiTextModel ||
+    payload?.textModel ||
+    payload?.model ||
+    envData.primaryGeminiTextModel ||
+    envData.PRIMARY_TEXT_MODEL ||
+    ''
+  ).trim();
+}
+
 ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) => {
   try {
     // v3.8.38: 무료 체험은 글포스팅만 허용 — 외부유입 변환 차단
@@ -7336,12 +7475,13 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
     const geminiKey = (envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '').trim();
     const openaiKey = (envData.openaiKey || envData.OPENAI_API_KEY || process.env['OPENAI_API_KEY'] || '').trim();
     const claudeKey = (envData.claudeKey || envData.CLAUDE_API_KEY || envData.ANTHROPIC_API_KEY || process.env['CLAUDE_API_KEY'] || '').trim();
-    const preferredEngine = String(envData.generationEngine || envData.GENERATION_ENGINE || 'gemini').toLowerCase();
-    const preferredGeminiModel = (envData.primaryGeminiTextModel || envData.PRIMARY_TEXT_MODEL || '').trim();
+    const perplexityKey = (envData.perplexityKey || envData.PERPLEXITY_API_KEY || process.env['PERPLEXITY_API_KEY'] || '').trim();
+    const preferredEngine = resolveExternalTrafficEngine(payload, envData);
+    const preferredGeminiModel = resolveExternalTrafficModel(payload, envData);
 
     // 최소 1개 키 필요
-    if (!geminiKey && !openaiKey && !claudeKey) {
-      return { success: false, error: 'API 키가 필요합니다. 설정 탭에서 Gemini / OpenAI / Claude 중 하나 이상 입력해주세요.' };
+    if (!geminiKey && !openaiKey && !claudeKey && !perplexityKey) {
+      return { success: false, error: 'API 키가 필요합니다. 설정 탭에서 Gemini / OpenAI / Claude / Perplexity 중 하나 이상 입력해주세요.' };
     }
 
     const sourceSummary = dispatcher.buildMinimalSummary(
@@ -7380,6 +7520,7 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
             geminiKey,
             openaiKey,
             claudeKey,
+            perplexityKey,
             preferredEngine,
             preferredGeminiModel,
             fallback,
@@ -7456,6 +7597,7 @@ async function callLLMWithPreference(opts: {
   geminiKey: string;
   openaiKey: string;
   claudeKey: string;
+  perplexityKey: string;
   preferredEngine: string;
   preferredGeminiModel: string;
   fallback: any;
@@ -7470,6 +7612,7 @@ async function callLLMWithPreference(opts: {
     gemini: opts.geminiKey,
     openai: opts.openaiKey,
     claude: opts.claudeKey,
+    perplexity: opts.perplexityKey,
   };
 
   // 사용자가 환경설정에서 명시 선택한 엔진/모델 우선 시도
@@ -7508,6 +7651,15 @@ async function callLLMWithPreference(opts: {
   }
 
   // 환경설정 시도 실패 또는 선호 미설정 → 전체 fallback chain
+  if (preferred === 'perplexity' && opts.perplexityKey) {
+    try {
+      const r = await opts.fallback.callPerplexity(params, opts.perplexityKey);
+      return { text: r.text, provider: r.provider, model: r.model };
+    } catch (e: any) {
+      console.warn('[EXT-TRAFFIC v2] Perplexity 실패, fallback 시도:', e?.message?.slice(0, 100));
+    }
+  }
+
   const fr = await opts.fallback.callLLMWithFallback(params, keys);
   return { text: fr.text, provider: fr.provider, model: fr.model };
 }
@@ -7515,34 +7667,47 @@ async function callLLMWithPreference(opts: {
 // v3.7.23: 외부유입 v1 핸들러 — deprecation 기간 유지 (UI 점진 전환 중)
 ipcMain.handle('generate-external-traffic-text', async (_evt, payload: any) => {
   try {
-    // v3.8.38: 무료 체험은 글포스팅만 허용 — 외부유입 변환(구버전) 차단
     const { blockIfFreeTier } = require('./auth-utils');
-    const gate = await blockIfFreeTier('외부유입 글 생성');
+    const gate = await blockIfFreeTier('\uc678\ubd80\uc720\uc785 \uae00 \uc0dd\uc131');
     if (!gate.allowed) return gate.response;
 
     const system = (payload && payload.system) || '';
     const user = (payload && payload.user) || '';
     if (!user.trim()) {
-      return { success: false, error: '프롬프트가 비어있습니다.' };
+      return { success: false, error: '\ud504\ub86c\ud504\ud2b8\uac00 \ube44\uc5b4\uc788\uc2b5\ub2c8\ub2e4.' };
     }
+
     const envData = loadEnvFromFile() as any;
     const geminiKey = (envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '').trim();
-    if (!geminiKey || geminiKey.length < 20) {
-      return { success: false, error: 'Gemini API 키가 필요합니다. 설정 탭에서 입력해주세요.' };
+    const openaiKey = (envData.openaiKey || envData.OPENAI_API_KEY || process.env['OPENAI_API_KEY'] || '').trim();
+    const claudeKey = (envData.claudeKey || envData.CLAUDE_API_KEY || envData.ANTHROPIC_API_KEY || process.env['CLAUDE_API_KEY'] || '').trim();
+    const perplexityKey = (envData.perplexityKey || envData.PERPLEXITY_API_KEY || process.env['PERPLEXITY_API_KEY'] || '').trim();
+    const preferredEngine = resolveExternalTrafficEngine(payload, envData);
+    const preferredGeminiModel = resolveExternalTrafficModel(payload, envData);
+    const fallback = require('../src/core/external-traffic/_shared/llm-fallback');
+
+    if (!geminiKey && !openaiKey && !claudeKey && !perplexityKey) {
+      return { success: false, error: 'API \ud0a4\uac00 \ud544\uc694\ud569\ub2c8\ub2e4. \uc124\uc815 \ud0ed\uc5d0\uc11c Gemini / OpenAI / Claude / Perplexity \uc911 \ud558\ub098 \uc774\uc0c1 \uc785\ub825\ud574\uc8fc\uc138\uc694.' };
     }
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = await selectGeminiModel(genAI);
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: `${system}\n\n${user}` }] }],
-      generationConfig: { maxOutputTokens: 4000, temperature: 0.85 },
+
+    const callRes = await callLLMWithPreference({
+      system,
+      user,
+      maxOutputTokens: 4000,
+      temperature: 0.85,
+      geminiKey,
+      openaiKey,
+      claudeKey,
+      perplexityKey,
+      preferredEngine,
+      preferredGeminiModel,
+      fallback,
     });
-    const response = await result.response;
-    const text = (response.text() || '').trim();
-    if (!text) return { success: false, error: '빈 응답이 반환됐어요. 다시 시도해주세요.' };
-    return { success: true, text };
+    const text = (callRes.text || '').trim();
+    if (!text) return { success: false, error: '\ube48 \uc751\ub2f5\uc774 \ubc18\ud658\ub410\uc5b4\uc694. \ub2e4\uc2dc \uc2dc\ub3c4\ud574\uc8fc\uc138\uc694.' };
+    return { success: true, text, provider: callRes.provider, model: callRes.model };
   } catch (e: any) {
-    console.error('[EXT-TRAFFIC v1] 생성 실패:', e);
+    console.error('[EXT-TRAFFIC v1] \uc0dd\uc131 \uc2e4\ud328:', e);
     const msg = e instanceof Error ? e.message : String(e);
     return { success: false, error: msg };
   }

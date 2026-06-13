@@ -529,19 +529,42 @@ html { scroll-behavior: smooth !important; }
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* === 🔥 워드프레스 테마 폭 강제 확장 (부모 컨테이너 override) === */
+/* === 🔥 플랫폼 테마 폭 강제 확장 (부모 컨테이너 override) === */
 .entry-content,
 .post-content,
 .page-content,
+.site-content,
 .site-content .content-area,
+.content-area,
+.site-main,
+main.site-main,
+#primary,
+#main,
+.wp-site-blocks,
 .type-post .entry-content,
 .single-post .entry-content,
 article .entry-content,
-.wp-block-post-content {
+.wp-block-post-content,
+.entry-content > .wp-block-group,
+.entry-content > .wp-block-group > .wp-block-group__inner-container,
+.entry-content > .alignwide,
+.entry-content > .alignfull,
+.wp-block-table,
+.wp-block-table table,
+.post-body,
+.post-body.entry-content,
+.post-outer,
+.blog-posts,
+.blog-posts .post,
+.blog-posts .post-outer,
+.Blog .post,
+article.post,
+article.hentry {
   max-width: 100% !important;
   width: 100% !important;
   padding-left: 0 !important;
   padding-right: 0 !important;
+  box-sizing: border-box !important;
 }
 
 /* === 이미지 === */
@@ -694,13 +717,55 @@ article .entry-content,
 
 /* ===== 📱 스마트폰 반응형 (max-width: 768px) ===== */
 @media (max-width: 768px) {
+  .entry-content,
+  .post-content,
+  .page-content,
+  .site-content,
+  .site-content .content-area,
+  .content-area,
+  .site-main,
+  main.site-main,
+  #primary,
+  #main,
+  .wp-site-blocks,
+  .type-post .entry-content,
+  .single-post .entry-content,
+  article .entry-content,
+  .wp-block-post-content,
+  .entry-content > .wp-block-group,
+  .entry-content > .wp-block-group > .wp-block-group__inner-container,
+  .entry-content > .alignwide,
+  .entry-content > .alignfull,
+  .wp-block-table,
+  .wp-block-table table,
+  .post-body,
+  .post-body.entry-content,
+  .post-outer,
+  .blog-posts,
+  .blog-posts .post,
+  .blog-posts .post-outer,
+  .Blog .post,
+  article.post,
+  article.hentry {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    border-left: 0 !important;
+    border-right: 0 !important;
+    box-shadow: none !important;
+    box-sizing: border-box !important;
+  }
+
   .bgpt-content {
-    width: 100vw !important;
-    max-width: 100vw !important;
+    width: calc(100vw - 12px) !important;
+    max-width: calc(100vw - 12px) !important;
     min-width: 0 !important;
-    margin-left: calc(50% - 50vw) !important;
-    margin-right: calc(50% - 50vw) !important;
-    padding: 0 10px !important;
+    margin-left: calc(50% - 50vw + 6px) !important;
+    margin-right: calc(50% - 50vw + 6px) !important;
+    padding: 0 !important;
     box-sizing: border-box !important;
     overflow: visible !important;
   }
@@ -716,7 +781,7 @@ article .entry-content,
   .white-paper {
     width: 100% !important;
     max-width: 100% !important;
-    padding: 20px 6px 44px !important;
+    padding: 18px 4px 44px !important;
     border-radius: 0 !important;
     border: 0 !important;
     box-shadow: none !important;
@@ -727,15 +792,22 @@ article .entry-content,
 
   .toc-grid-container {
     margin: 28px 0 !important;
-    padding: 16px 12px !important;
-    border-radius: 12px !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
   }
   .toc-btn { padding: 14px 16px !important; font-size: 15px !important; }
 
   .cta-box {
     margin: 28px 0 !important;
-    padding: 20px 14px !important;
-    border-radius: 10px !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
   }
   .cta-btn {
     padding: 14px 16px !important;
@@ -746,11 +818,30 @@ article .entry-content,
 
   /* 📊 모바일 표 — 글자/패딩 축소 + 줄바꿈 강제 */
   .table-wrapper {
-    width: calc(100vw - 16px) !important;
-    max-width: calc(100vw - 16px) !important;
-    margin: 20px calc(50% - 50vw + 8px) !important;
-    padding: 8px !important;
-    border-radius: 8px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    margin: 20px 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 10px !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow-x: visible !important;
+    box-sizing: border-box !important;
+  }
+  .ad-safe-zone,
+  .white-paper .table-wrapper,
+  .wp-block-table {
+    contain: none !important;
+    overflow: visible !important;
+  }
+  .white-paper table,
+  .responsive-table {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    table-layout: auto !important;
   }
   .responsive-table {
     font-size: 14px !important;
@@ -763,9 +854,66 @@ article .entry-content,
   }
   .responsive-table td,
   .responsive-table .rt-td {
-    padding: 10px 10px !important;
-    font-size: 13px !important;
-    line-height: 1.5 !important;
+    padding: 11px 9px !important;
+    font-size: 14px !important;
+    line-height: 1.58 !important;
+    min-width: 0 !important;
+    word-break: keep-all !important;
+    overflow-wrap: break-word !important;
+    white-space: normal !important;
+  }
+  .responsive-table,
+  .responsive-table tbody,
+  .responsive-table tr,
+  .responsive-table td {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  .responsive-table thead {
+    display: none !important;
+  }
+  .responsive-table {
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    background: transparent !important;
+    overflow: visible !important;
+  }
+  .responsive-table tr {
+    margin: 0 0 12px !important;
+    overflow: hidden !important;
+    border: 1px solid #dbe3ef !important;
+    border-radius: 12px !important;
+    background: #ffffff !important;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06) !important;
+  }
+  .responsive-table td,
+  .responsive-table .rt-td {
+    padding: 12px 14px !important;
+    border: 0 !important;
+    border-bottom: 1px solid #edf2f7 !important;
+    background: #ffffff !important;
+    color: #243044 !important;
+    font-size: 15px !important;
+    line-height: 1.6 !important;
+    text-align: left !important;
+  }
+  .responsive-table td:last-child {
+    border-bottom: 0 !important;
+  }
+  .responsive-table td::before {
+    content: attr(data-label);
+    display: block !important;
+    margin-bottom: 4px !important;
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+    font-weight: 800 !important;
+    color: #64748b !important;
+    letter-spacing: 0 !important;
+  }
+  .responsive-table td[data-label=""]::before {
+    display: none !important;
   }
   /* 이미지 — 모바일에서도 100% 유지 */
   .white-paper img {
@@ -775,14 +923,73 @@ article .entry-content,
 
   /* 📊 상단 요약표 컨테이너 — 모바일 패딩 축소로 표 짤림 방지 */
   .summary-container {
-    padding: 16px 12px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
     margin: 0 0 24px !important;
-    border-radius: 12px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    overflow: visible !important;
   }
   .summary-container .table-wrapper {
     margin: 12px 0 0 !important;
     width: 100% !important;
     max-width: 100% !important;
+    overflow: visible !important;
+  }
+  .summary-container .summary-table,
+  .summary-container .summary-table tbody,
+  .summary-container .summary-table tr,
+  .summary-container .summary-table td {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  .summary-container .summary-table thead {
+    display: none !important;
+  }
+  .summary-container .summary-table {
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    font-size: 14px !important;
+  }
+  .summary-container .summary-table tr {
+    margin: 0 0 12px !important;
+    overflow: hidden !important;
+    border: 1px solid #dbe3ef !important;
+    border-radius: 12px !important;
+    background: #ffffff !important;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06) !important;
+  }
+  .summary-container .summary-table td,
+  .summary-container .summary-table .rt-td {
+    padding: 12px 14px !important;
+    border: 0 !important;
+    border-bottom: 1px solid #edf2f7 !important;
+    color: #243044 !important;
+    background: #ffffff !important;
+    font-size: 15px !important;
+    line-height: 1.6 !important;
+    text-align: left !important;
+    word-break: keep-all !important;
+    overflow-wrap: break-word !important;
+    white-space: normal !important;
+  }
+  .summary-container .summary-table td:last-child {
+    border-bottom: 0 !important;
+  }
+  .summary-container .summary-table td::before {
+    content: attr(data-label);
+    display: block !important;
+    margin-bottom: 4px !important;
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+    font-weight: 800 !important;
+    color: #64748b !important;
+    letter-spacing: 0 !important;
   }
   .white-paper .highlight,
   .white-paper .warning,
@@ -792,8 +999,11 @@ article .entry-content,
   .white-paper .quote,
   .white-paper .cta-section {
     margin: 22px 0 !important;
-    padding: 16px 14px !important;
-    border-radius: 10px !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
     max-width: 100% !important;
   }
   .white-paper .data-box {
@@ -811,7 +1021,7 @@ article .entry-content,
 
 /* ===== 📱 초소형 스마트폰 반응형 (max-width: 380px) ===== */
 @media (max-width: 380px) {
-  .bgpt-content { padding: 0 8px !important; }
+  .bgpt-content { padding: 0 !important; }
   .white-paper { padding: 18px 4px 42px !important; }
   .white-paper h1.post-title { font-size: 22px !important; }
   .white-paper h2 { font-size: 19px !important; }
@@ -846,8 +1056,11 @@ article .entry-content,
 
   /* 📊 초소형 화면 — 요약표 컨테이너 패딩 추가 축소 */
   .summary-container {
-    padding: 10px !important;
-    border-radius: 10px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
   }
 }
 

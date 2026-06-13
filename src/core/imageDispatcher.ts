@@ -371,6 +371,7 @@ function preSanitizePrompt(prompt: string, onLog?: (msg: string) => void): strin
 //   - dispatcher signature 호환성 유지를 위해 새 옵션 객체로 받음
 export interface DispatchExtraOptions {
   gptImageQuality?: 'low' | 'medium' | 'high';
+  leonardoModel?: string;
   /**
    * v3.6.0: dropshot 엔진의 i2i 모드 — reference 이미지 URL 배열.
    * 다른 엔진(nanobanana 등)은 무시한다. 쇼핑 모드의 productImages 자동 연결 등에 사용.
@@ -1043,12 +1044,14 @@ async function _tryEngineInternal(
       try {
         console.log(`[DISPATCH] 🦁 Leonardo.ai 시도...`);
         const { makeLeonardoPhoenixImage } = await import('../thumbnail');
-        const result = await makeLeonardoPhoenixImage(prompt, keyword, {
+        const leonardoOptions: any = {
           apiKey,
           width: isThumbnail ? 1280 : 1024,
           height: isThumbnail ? 720 : 576,
           isThumbnail,
-        });
+        };
+        if (extra?.leonardoModel) leonardoOptions.modelPreference = extra.leonardoModel;
+        const result = await makeLeonardoPhoenixImage(prompt, keyword, leonardoOptions);
         if (result.ok) {
           return { ok: true, dataUrl: result.dataUrl, source: 'Leonardo.ai' };
         }

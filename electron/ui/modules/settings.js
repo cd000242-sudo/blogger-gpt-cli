@@ -616,7 +616,7 @@ export async function checkPlatformConnection() {
       const settings = await loadSettings();
 
       if (!settings.wordpressSiteUrl || !settings.wordpressUsername || !settings.wordpressPassword) {
-        alert('❌ 워드프레스 연동을 완료하려면:\n\n1. 환경설정 모달을 열어주세요\n2. 워드프레스 사이트 URL, 사용자명, 앱 비밀번호를 입력하세요\n3. "설정 저장" 버튼을 클릭하세요');
+        alert('❌ 워드프레스 연동을 완료하려면:\n\n1. 환경설정 → 원클릭 세팅 탭을 여세요\n2. 워드프레스 앱 연동을 가이드대로 진행하세요\n3. 자동화가 막힌 경우에만 고급 수동 입력을 펼쳐 저장하세요');
         return;
       }
 
@@ -626,7 +626,7 @@ export async function checkPlatformConnection() {
       const settings = await loadSettings();
 
       if (!settings.blogId || !settings.googleClientId || !settings.googleClientSecret) {
-        alert('❌ 블로그스팟 연동을 완료하려면:\n\n1. 환경설정 모달을 열어주세요\n2. Blogger ID, Google Client ID, Google Client Secret을 입력하세요\n3. "설정 저장" 버튼을 클릭하세요\n4. "Blogger OAuth2" 버튼을 클릭하여 인증을 완료하세요');
+        alert('❌ 블로그스팟 연동을 완료하려면:\n\n1. 환경설정 → 원클릭 세팅 탭을 여세요\n2. 블로그스팟 앱 연동을 누르고 가이드를 따라 진행하세요\n3. Client 저장 후 이어서 뜨는 Google OAuth 권한 승인까지 완료하세요');
         return;
       }
 
@@ -666,7 +666,7 @@ export async function startBloggerOAuth() {
     const googleClientSecret = settings.googleClientSecret || '';
 
     if (!blogId || !googleClientId || !googleClientSecret) {
-      alert('❌ 환경설정에서 Blogger ID, Google Client ID, Google Client Secret을 먼저 설정해주세요.');
+      alert('❌ Blogger OAuth 인증에 필요한 값이 없습니다.\n\n초보자는 환경설정 → 원클릭 세팅 → 블로그스팟 앱 연동을 먼저 진행해주세요.\n직접 입력이 필요한 경우에만 Blogger 설정의 고급 수동 설정을 펼쳐 입력하세요.');
       return;
     }
 

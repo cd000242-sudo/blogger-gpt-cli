@@ -185,7 +185,8 @@ function getH2ImageSections() {
   const settings = {
     source: selectedSource || 'nanobanana2',
     sections: selectedSections,
-    totalSections: selectedSections.length
+    totalSections: selectedSections.length,
+    leonardoModel: document.getElementById('h2LeonardoModel')?.value || document.getElementById('thumbnailTypeLeonardoModel')?.value || document.getElementById('thumbnailLeonardoModel')?.value || 'seedream-4.5'
   };
 
   console.log('🖼️ [H2 IMAGE] 포스팅용 설정:', settings);
@@ -1327,6 +1328,10 @@ function handleH2ImageSourceChange() {
   if (qualityWrap) {
     qualityWrap.style.display = (selectedSource === 'gptimage1' || selectedSource === 'gptimage2') ? 'block' : 'none';
   }
+  const h2LeonardoWrap = document.getElementById('h2LeonardoModelWrap');
+  if (h2LeonardoWrap) {
+    h2LeonardoWrap.style.display = selectedSource === 'leonardo' ? 'block' : 'none';
+  }
 
   // v3.7.7: 로그인 카드 자동 토글 — 선택 엔진에 따라 ImageFX/Flow 또는 Dropshot
   if (typeof window.refreshEngineLoginCards === 'function') {
@@ -1383,6 +1388,10 @@ function handleThumbnailTypeChange(value) {
     const h2Source = document.getElementById('h2ImageSource')?.value;
     const isGpt = (v) => v === 'gptimage1' || v === 'gptimage2';
     qualityWrap.style.display = (isGpt(value) || isGpt(h2Source)) ? 'block' : 'none';
+  }
+  const thumbTypeLeonardoWrap = document.getElementById('thumbnailTypeLeonardoModelWrap');
+  if (thumbTypeLeonardoWrap) {
+    thumbTypeLeonardoWrap.style.display = value === 'leonardo' ? 'block' : 'none';
   }
   // v3.7.7: 로그인 카드 자동 토글
   if (typeof window.refreshEngineLoginCards === 'function') {
@@ -6357,8 +6366,35 @@ async function updatePlatformStatus() {
   }
 }
 
+function isExternalTrafficTabActiveForCtaGuard() {
+  const tab = document.getElementById('external-traffic-tab');
+  let stateTab = '';
+  try {
+    stateTab = getAppState?.().currentTab || '';
+  } catch { /* ignore */ }
+  if (stateTab === 'external-traffic') return true;
+  if (!tab) return false;
+  const computed = window.getComputedStyle ? window.getComputedStyle(tab) : null;
+  return tab.style.display !== 'none' && (!computed || computed.display !== 'none');
+}
+
+function hideManualCtaUiForExternalTraffic() {
+  const manualCtaSettings = document.getElementById('manualCtaSettings');
+  const manualCtaSection = document.getElementById('manualCtaSection');
+  const manualCtaModal = document.getElementById('manualCtaModal');
+  if (manualCtaSettings) manualCtaSettings.style.display = 'none';
+  if (manualCtaSection) manualCtaSection.style.display = 'none';
+  if (manualCtaModal) manualCtaModal.style.display = 'none';
+}
+
+window.hideManualCtaUiForExternalTraffic = hideManualCtaUiForExternalTraffic;
+
 // CTA 설정 토글
 function toggleCtaSettings() {
+  if (isExternalTrafficTabActiveForCtaGuard()) {
+    hideManualCtaUiForExternalTraffic();
+    return;
+  }
   const ctaMode = document.querySelector('input[name="ctaMode"]:checked')?.value || 'auto';
   const manualCtaSettings = document.getElementById('manualCtaSettings');
 
@@ -11643,6 +11679,10 @@ async function createPreviewPayload() {
 
 // CTA 설정 토글 함수
 function toggleCtaSettings() {
+  if (isExternalTrafficTabActiveForCtaGuard()) {
+    hideManualCtaUiForExternalTraffic();
+    return;
+  }
   const manualCtaSection = document.getElementById('manualCtaSection');
   const manualRadio = document.querySelector('input[name="ctaMode"][value="manual"]');
 
@@ -11657,6 +11697,11 @@ function toggleCtaSettings() {
 
 // 수동 CTA 모달 열기
 function openManualCtaModal() {
+  if (isExternalTrafficTabActiveForCtaGuard()) {
+    hideManualCtaUiForExternalTraffic();
+    console.warn('[MANUAL-CTA] blocked on external traffic tab');
+    return;
+  }
   const modal = document.getElementById('manualCtaModal');
   if (!modal) return;
 
@@ -11753,6 +11798,8 @@ function closeManualCtaModal() {
     modal.style.display = 'none';
   }
 }
+
+window.closeManualCtaModal = closeManualCtaModal;
 
 // 수동 CTA 저장
 function saveManualCtas() {

@@ -30,6 +30,7 @@ import {
   sanitizeCtaText,
   generateCTAsFinal, generateSummaryTableFinal, generateHashtagsFinal,
   detectKeywordScope,
+  generateIntentAwareFallbackH2Titles,
   isContextuallySafeCtaUrl,
 } from './generation';
 import { generateCSSFinal, generateTOCFinal } from './html';
@@ -59,7 +60,7 @@ const CTA_PLACEHOLDER_DOMAINS = [
   'abc.com', 'url.com', 'link.com'
 ];
 
-function emitGeneratedImage(kind: string, label: string, url: string): void {
+function emitGeneratedImage(kind: string, label: string, url: string, meta: Record<string, any> = {}): void {
   if (!url) return;
   try {
     // Electron main process에서 실행될 때만 실시간 미리보기 이벤트를 전송한다.
@@ -70,7 +71,7 @@ function emitGeneratedImage(kind: string, label: string, url: string): void {
     BrowserWindow.getAllWindows().forEach((w: any) => {
       try {
         if (!w?.isDestroyed?.()) {
-          w.webContents.send('sw-image-generated', { kind, label, url, ts: Date.now() });
+          w.webContents.send('sw-image-generated', { kind, label, url, ts: Date.now(), ...meta });
         }
       } catch { /* ignore per-window */ }
     });
@@ -232,6 +233,7 @@ export async function generateUltimateMaxModeArticleFinal(
   env: any,
   onLog?: (s: string) => void
 ): Promise<{ html: string; title: string; labels: string[]; thumbnail: string; qualityReport?: any }> {
+  const queueImageToken = typeof payload?.queueImageToken === 'string' ? payload.queueImageToken : '';
 
   // 🚧 쇼핑 모드 임시 차단 (점검 중) — UI에서 disabled 처리했지만 IPC/스케줄 경로로도 유입될 수 있으므로 이중 가드
   if (payload?.contentMode === 'shopping') {
@@ -490,15 +492,24 @@ export async function generateUltimateMaxModeArticleFinal(
         if (!skipImages && !urlThumbnailDisabled) {
           onLog?.(`[PROGRESS] 92% - 🖼️ 썸네일 생성 중 (${urlThumbnailSource})...`);
           try {
+            const urlThumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; leonardoModel?: string } = {};
+            if (payload.gptImageQuality === 'low' || payload.gptImageQuality === 'medium' || payload.gptImageQuality === 'high') {
+              urlThumbExtra.gptImageQuality = payload.gptImageQuality;
+            }
+            const urlLeonardoModel = payload.leonardoModel || payload.leonardoModelPreference || payload.imageSettings?.leonardoModel;
+            if (typeof urlLeonardoModel === 'string' && urlLeonardoModel.trim()) {
+              urlThumbExtra.leonardoModel = urlLeonardoModel.trim();
+            }
             const thumbResult = await dispatchThumbnailGeneration(
               urlThumbnailSource,
               urlResult.title,
               keyword || urlResult.title,
               (msg) => onLog?.(`   ${msg}`),
+              urlThumbExtra,
             );
             if (thumbResult.ok && thumbResult.dataUrl) {
               thumbnailUrl = thumbResult.dataUrl;
-              emitGeneratedImage('thumbnail', `썸네일: ${urlResult.title}`, thumbResult.dataUrl);
+              emitGeneratedImage('thumbnail', `썸네일: ${urlResult.title}`, thumbResult.dataUrl, { queueImageToken });
               onLog?.(`   ✅ ${thumbResult.source} 썸네일 완료`);
             } else {
               onLog?.(`   ⚠️ 썸네일 생성 실패: ${thumbResult.error || '알 수 없음'}`);
@@ -752,12 +763,11 @@ export async function generateUltimateMaxModeArticleFinal(
       // v3.7.12: 이전엔 INTERNAL_CONSISTENCY_SECTIONS.title placeholder가 그대로 박혀
       //   "[키워드] 핵심 개요/지식/심화/요약/더 알아보기" 같은 generic H2가 나옴.
       //   → LLM 기반 generateH2TitlesFinal을 1차로 시도(키워드 검색의도 기반 구체 5개),
-      //     5개 미만/실패 시 placeholder fallback으로 안전망. sectionPromptBlock은 LLM이 만든
+      //     5개 미만/실패 시 의도 기반 fallback으로 안전망. sectionPromptBlock은 LLM이 만든
       //     실제 title을 5섹션 역할(개요→지식→심화→요약→탐색)에 매핑해서 가이드 유지.
       onLog?.('[PROGRESS] 35% - 📝 내부 일관성 모드: 정보 전달 구조 적용 중...');
-      const fallbackTitles = INTERNAL_CONSISTENCY_SECTIONS.map(sec =>
-        sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword)
-      );
+      const internalScope = detectKeywordScope(keyword);
+      const fallbackTitles = generateIntentAwareFallbackH2Titles(keyword, 5, internalScope);
       try {
         const llmTitles = await generateH2TitlesFinal(keyword, subheadings, 5);
         if (Array.isArray(llmTitles) && llmTitles.length >= 5) {
@@ -769,28 +779,26 @@ export async function generateUltimateMaxModeArticleFinal(
         }
       } catch (e: any) {
         h2Titles = fallbackTitles;
-        onLog?.(`[PROGRESS] 38% - ⚠️ LLM H2 생성 실패(${(e?.message || '').slice(0, 60)}) → placeholder fallback 사용`);
+        onLog?.(`[PROGRESS] 38% - ⚠️ LLM H2 생성 실패(${(e?.message || '').slice(0, 60)}) → 의도 기반 fallback 사용`);
       }
-      if (!modeResult.sectionPromptBlock) {
-        // v3.7.21: 키워드 한정자 감지 → INTERNAL_CONSISTENCY_SECTIONS의 role/contentFocus가
-        //   "자격·조건·핵심 정보", "단계별 가이드" 등 한정자와 충돌하는 지시를 박아 두기 때문에
-        //   본문 단계에서 신청방법/조건이 새어 나오는 문제가 있음. 한정자 감지 시 섹션별 가이드
-        //   최상단에 SCOPE OVERRIDE 블록을 prepend해 본문 LLM이 한정자에 어긋나는 부분을 무시하도록 강제.
-        const sectionScope = detectKeywordScope(keyword);
-        const sectionScopeOverride = sectionScope
-          ? `\n🎯🎯🎯 **SCOPE OVERRIDE — 절대 위반 금지!**\n키워드 "${keyword}"가 "${sectionScope.qualifier}"으로 끝납니다. ${sectionScope.instruction}\n\n⚠️ 아래 섹션별 상세 지시(역할/핵심/필수 요소)에 "${sectionScope.qualifier}" 외 다른 주제(예: ${sectionScope.qualifier === '혜택' ? '자격/조건/신청방법' : sectionScope.qualifier === '신청방법' ? '혜택/조건/대상' : '혜택/신청방법'})가 언급되어도 그 부분은 무시하고, 해당 섹션을 "${sectionScope.qualifier}" 관련 내용으로 재해석해서 작성하세요. 모든 섹션 본문 + 모든 H3 + 모든 본문 단락은 오직 "${sectionScope.qualifier}"만 다룹니다.\n`
-          : '';
-        if (sectionScope) {
-          console.log(`[SECTION-GUIDE] 🎯 한정자 "${sectionScope.qualifier}" → 본문 sectionPromptBlock에 SCOPE OVERRIDE 주입`);
-        }
-        const guides = INTERNAL_CONSISTENCY_SECTIONS.map((sec, idx) => {
-          // LLM이 만든 실제 H2 제목을 가이드에 그대로 사용 (없으면 fallback)
-          const t = h2Titles[idx] || fallbackTitles[idx] || '';
-          const reqs = (sec as any).requiredElements?.map((r: string) => `  - ${r}`).join('\n') || '';
-          return `[섹션 ${idx + 1}: ${t}] (최소 ${(sec as any).minChars || 600}자)\n역할: ${(sec as any).role || ''}\n핵심: ${(sec as any).contentFocus || ''}\n필수 요소:\n${reqs}`;
-        }).join('\n\n');
-        modeResult.sectionPromptBlock = `${sectionScopeOverride}\n\n📋 [내부 일관성 모드 섹션별 상세 지시]\n${guides}`;
+      // v3.7.29: internal 플러그인의 placeholder 섹션 가이드를 그대로 두면
+      //   본문 단계에서 "자격·조건", "단계별 적용법" 같은 범용 템플릿이 다시 새어 나온다.
+      //   실제 H2 제목을 기준으로 섹션 가이드를 항상 재작성한다.
+      const sectionScope = internalScope;
+      const sectionScopeOverride = sectionScope
+        ? `\n🎯🎯🎯 **SCOPE OVERRIDE — 절대 위반 금지!**\n키워드 "${keyword}"가 "${sectionScope.qualifier}"으로 끝납니다. ${sectionScope.instruction}\n\n⚠️ 아래 섹션별 상세 지시(역할/핵심/필수 요소)에 "${sectionScope.qualifier}" 외 다른 주제(예: ${sectionScope.qualifier === '혜택' ? '자격/조건/신청방법' : sectionScope.qualifier === '신청방법' ? '혜택/조건/대상' : '혜택/신청방법'})가 언급되어도 그 부분은 무시하고, 해당 섹션을 "${sectionScope.qualifier}" 관련 내용으로 재해석해서 작성하세요. 모든 섹션 본문 + 모든 H3 + 모든 본문 단락은 오직 "${sectionScope.qualifier}"만 다룹니다.\n`
+        : '';
+      if (sectionScope) {
+        console.log(`[SECTION-GUIDE] 🎯 한정자 "${sectionScope.qualifier}" → 본문 sectionPromptBlock에 SCOPE OVERRIDE 주입`);
       }
+      const sourceGuard = `\n📊 **출처/팩트 규칙**\n- 확인 가능한 공식·기관·언론·협회 자료를 우선 사용하고, 수치에는 출처 맥락을 붙이세요.\n- 출처를 모르는 숫자나 일정은 단정하지 말고 "공식 자료 확인 필요"로 표현하세요.\n- 존재하지 않는 글 제목/URL, 가상의 시리즈 문구는 만들지 마세요.\n`;
+      const guides = INTERNAL_CONSISTENCY_SECTIONS.map((sec, idx) => {
+        // LLM이 만든 실제 H2 제목을 가이드에 그대로 사용 (없으면 의도 기반 fallback)
+        const t = h2Titles[idx] || fallbackTitles[idx] || `${keyword} 핵심 정보`;
+        const reqs = (sec as any).requiredElements?.map((r: string) => `  - ${r}`).join('\n') || '';
+        return `[섹션 ${idx + 1}: ${t}] (최소 ${(sec as any).minChars || 600}자)\n역할: ${(sec as any).role || ''}\n핵심: ${(sec as any).contentFocus || ''}\n제목 일치 규칙:\n  - H3와 본문은 반드시 "${t}"의 하위 내용만 다룹니다.\n  - H2에 없는 신청/자격/혜택/서류/중계/대진 같은 다른 분야 단어를 임의로 추가하지 마세요.\n필수 요소:\n${reqs}`;
+      }).join('\n\n');
+      modeResult.sectionPromptBlock = `${sectionScopeOverride}${sourceGuard}\n\n📋 [내부 일관성 모드 섹션별 상세 지시]\n${guides}`;
       onLog?.(`[PROGRESS] 40% - ✅ 내부 일관성 구조 ${h2Titles.length}개 섹션 적용 완료`);
     } else if (contentMode === 'shopping') {
       // 🛍️ 쇼핑/구매유도 모드: 7단계 구매 퍼널 구조
@@ -1309,7 +1317,7 @@ export async function generateUltimateMaxModeArticleFinal(
         if (preGenMatch) {
           console.log(`[IMG-${i + 1}] 📌 미리 생성한 이미지 사용 (H2 #${h2Number}, 길이 ${preGenMatch.dataUrl.length}B)`);
           onLog?.(`   📌 H2 #${h2Number}: 미리 생성한 이미지 사용 (API 호출 skip)`);
-          emitGeneratedImage('h2', `H2 ${h2Number}: ${section.h2}`, preGenMatch.dataUrl);
+          emitGeneratedImage('h2', `H2 ${h2Number}: ${section.h2}`, preGenMatch.dataUrl, { queueImageToken });
           return { dataUrl: preGenMatch.dataUrl, source: '미리 생성 (이미지 생성 탭)' };
         }
 
@@ -1369,9 +1377,13 @@ export async function generateUltimateMaxModeArticleFinal(
               const variationHint = ` [Section ${i + 1} of ${sections.length}: MUST show a unique scene visually distinct from all other sections — different angle, location, props, and composition; never repeat previous sections]`;
               const promptForDispatch = section.h2 + variationHint;
               // v3.5.89: GPT 이미지 quality 옵션 — UI에서 사용자가 선택한 값을 그대로 전달
-              const dispatchExtra: { gptImageQuality?: 'low' | 'medium' | 'high' } = {};
+              const dispatchExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; leonardoModel?: string } = {};
               if (payload.gptImageQuality === 'low' || payload.gptImageQuality === 'medium' || payload.gptImageQuality === 'high') {
                 dispatchExtra.gptImageQuality = payload.gptImageQuality;
+              }
+              const leonardoModel = payload.leonardoModel || payload.leonardoModelPreference || payload.imageSettings?.leonardoModel;
+              if (typeof leonardoModel === 'string' && leonardoModel.trim()) {
+                dispatchExtra.leonardoModel = leonardoModel.trim();
               }
               const dispatchResult = await dispatchH2ImageGeneration(
                 imageSource,
@@ -1407,7 +1419,7 @@ export async function generateUltimateMaxModeArticleFinal(
         completedCount++;
         const progress = 76 + Math.round((completedCount / totalToGenerate) * 12);
         if (imageResult.ok && imageResult.dataUrl) {
-          emitGeneratedImage('h2', `H2 ${i + 1}: ${section.h2}`, imageResult.dataUrl);
+          emitGeneratedImage('h2', `H2 ${i + 1}: ${section.h2}`, imageResult.dataUrl, { queueImageToken });
           onLog?.(`[PROGRESS] ${progress}% - ✅ 섹션 ${i + 1} 이미지 완료 (${usedSource}) [${completedCount}/${totalToGenerate}]`);
           return { dataUrl: imageResult.dataUrl, source: usedSource || 'AI 생성' };
         } else {
@@ -1603,7 +1615,7 @@ export async function generateUltimateMaxModeArticleFinal(
             html += `<div class="ad-safe-zone table-wrapper" data-ad-region="no-ad" style="width:100%;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:28px 0;position:relative;">`;
             html += `<table class="responsive-table" style="width:100%;border-collapse:collapse;font-size:15px;">`;
             html += `<thead><tr>${table.headers.map(h => `<th class="rt-th" style="background:#f8f9fa;color:#333;font-weight:700;padding:14px 16px;text-align:left;border-bottom:2px solid #ddd;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;">${h}</th>`).join('')}</tr></thead>`;
-            html += `<tbody>${table.rows.map(row => `<tr>${row.map(cell => {
+            html += `<tbody>${table.rows.map(row => `<tr>${row.map((cell, cellIdx) => {
               const cellStr = String(cell ?? '');
               let formatted = cellStr
                 .replace(/\s*([☑✓✔✅☐•◦▶▪※►➤➜✦★●○■□◆◇])\s*/g, '<br>$1 ')
@@ -1613,7 +1625,8 @@ export async function generateUltimateMaxModeArticleFinal(
                 .replace(/\s+([-–—]\s)/g, '<br>$1')
                 .replace(/^<br>/, '')
                 .trim();
-              return `<td class="rt-td" style="padding:14px 16px;border-bottom:1px solid #f0f0f0;color:#444;background:#fff;word-break:break-word;overflow-wrap:break-word;">${formatted}</td>`;
+              const label = escapeHtmlAttr(String(table.headers?.[cellIdx] || ''));
+              return `<td class="rt-td" data-label="${label}" style="padding:14px 16px;border-bottom:1px solid #f0f0f0;color:#444;background:#fff;word-break:keep-all;overflow-wrap:break-word;">${formatted}</td>`;
             }).join('')}</tr>`).join('')}</tbody>`;
             html += `</table></div>\n`;
           });
@@ -1844,18 +1857,23 @@ JSON: [{"label":"필독","hookingMessage":"...","buttonText":"..."}]
       // 전체 셀이 빈 줄 제거
       .filter(row => row.some(c => c.length > 0));
     const cleanedHeaders = (summaryTable.headers || []).map(sanitizeSummaryCell);
+    const escapeSummaryAttr = (raw: unknown): string => String(raw ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
 
     // 💰 요약표를 상단(TOP_SUMMARY_CTA_PLACEHOLDER)에 배치
     const topSummaryHtml = cleanedRows.length === 0 ? '' : `
-<div class="summary-container" style="margin:0 0 30px !important;background:linear-gradient(135deg,var(--rv-gradient-start,#f8fafc) 0%,var(--rv-gradient-end,#eef2f7) 100%) !important;border:2px solid var(--rv-heading-2-border,#cbd5e1) !important;border-radius:16px !important;display:block !important;visibility:visible !important;box-sizing:border-box !important;max-width:100% !important;">
-  <div style="display:flex !important;align-items:center !important;gap:10px !important;margin-bottom:16px !important;">
-    <span style="font-size:24px !important;">⚡</span>
-    <h3 style="margin:0 !important;font-size:20px !important;font-weight:800 !important;color:var(--rv-heading-1,#334155) !important;-webkit-text-fill-color:var(--rv-heading-1,#334155) !important;">성급한 분들을 위한 핵심 요약</h3>
+<div class="summary-container" style="margin:0 0 30px;background:linear-gradient(135deg,var(--rv-gradient-start,#f8fafc) 0%,var(--rv-gradient-end,#eef2f7) 100%);border:2px solid var(--rv-heading-2-border,#cbd5e1);border-radius:16px;display:block;visibility:visible;box-sizing:border-box;max-width:100%;">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+    <span style="font-size:24px;">⚡</span>
+    <h3 style="margin:0;font-size:20px;font-weight:800;color:var(--rv-heading-1,#334155);-webkit-text-fill-color:var(--rv-heading-1,#334155);">성급한 분들을 위한 핵심 요약</h3>
   </div>
-  <div class="ad-safe-zone table-wrapper" data-ad-region="no-ad" style="overflow-x:auto !important;-webkit-overflow-scrolling:touch !important;width:100% !important;max-width:100% !important;position:relative;">
-    <table class="responsive-table summary-table" style="display:table !important;visibility:visible !important;width:100% !important;border-collapse:collapse !important;font-size:15px !important;">
-      <thead style="display:table-header-group !important;"><tr style="display:table-row !important;">${cleanedHeaders.map(h => `<th class="rt-th" style="display:table-cell !important;visibility:visible !important;background:var(--rv-primary-light,#f1f5f9) !important;color:var(--rv-heading-1,#334155) !important;-webkit-text-fill-color:var(--rv-heading-1,#334155) !important;font-weight:700 !important;padding:14px 16px !important;text-align:left !important;border-bottom:2px solid var(--rv-heading-2-border,#cbd5e1) !important;font-size:13px !important;text-transform:uppercase !important;letter-spacing:0.05em !important;">${h}</th>`).join('')}</tr></thead>
-      <tbody style="display:table-row-group !important;">${cleanedRows.map(row => `<tr style="display:table-row !important;">${row.map(cell => `<td class="rt-td" style="display:table-cell !important;visibility:visible !important;padding:14px 16px !important;border-bottom:1px solid var(--rv-toc-hover-border,#e2e8f0) !important;color:#334155 !important;-webkit-text-fill-color:#334155 !important;background:rgba(255,255,255,0.72) !important;font-size:14px !important;line-height:1.5 !important;word-break:break-word !important;overflow-wrap:break-word !important;">${cell}</td>`).join('')}</tr>`).join('')}</tbody>
+  <div class="ad-safe-zone table-wrapper" data-ad-region="no-ad" style="overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;max-width:100%;position:relative;">
+    <table class="responsive-table summary-table" style="display:table;visibility:visible;width:100%;border-collapse:collapse;font-size:15px;">
+      <thead><tr>${cleanedHeaders.map(h => `<th class="rt-th" style="visibility:visible;background:var(--rv-primary-light,#f1f5f9);color:var(--rv-heading-1,#334155);-webkit-text-fill-color:var(--rv-heading-1,#334155);font-weight:700;padding:14px 16px;text-align:left;border-bottom:2px solid var(--rv-heading-2-border,#cbd5e1);font-size:13px;text-transform:uppercase;letter-spacing:0.05em;">${h}</th>`).join('')}</tr></thead>
+      <tbody>${cleanedRows.map(row => `<tr>${row.map((cell, cellIdx) => `<td class="rt-td" data-label="${escapeSummaryAttr(cleanedHeaders[cellIdx] || '')}" style="visibility:visible;padding:14px 16px;border-bottom:1px solid var(--rv-toc-hover-border,#e2e8f0);color:#334155;-webkit-text-fill-color:#334155;background:rgba(255,255,255,0.72);font-size:14px;line-height:1.5;word-break:keep-all;overflow-wrap:break-word;">${cell}</td>`).join('')}</tr>`).join('')}</tbody>
     </table>
   </div>
 </div>
@@ -2026,7 +2044,7 @@ ${conclusionHTML}
       thumbnailUrl = (payload.productImages as any)[0];
       onLog?.(`[PROGRESS] 90% - 🛒 수집된 상품 이미지로 썸네일 설정 (${(payload.productImages as any).length}장 중 1번째)`);
       console.log(`[THUMBNAIL] ✅ 수집 이미지 썸네일: ${thumbnailUrl.substring(0, 60)}...`);
-      emitGeneratedImage('thumbnail', `썸네일: ${h1}`, thumbnailUrl);
+      emitGeneratedImage('thumbnail', `썸네일: ${h1}`, thumbnailUrl, { queueImageToken });
     } else if (userPickedAiEngine && (payload.productImages as any)?.length > 0) {
       console.log(`[THUMBNAIL] 🛡️ 사용자 명시 엔진(${thumbnailSource}) 선택 — 수집 이미지 ${(payload.productImages as any).length}장 무시하고 AI 생성 진행`);
       onLog?.(`[PROGRESS] 90% - 🛡️ 사용자가 ${thumbnailSource} 엔진을 선택해 수집 이미지를 무시합니다`);
@@ -2036,9 +2054,13 @@ ${conclusionHTML}
     if (!thumbnailUrl && !thumbnailDisabled) {
       onLog?.(`[PROGRESS] 90% - 🖼️ 썸네일 생성 중 (요청: ${thumbnailSource})...`);
       try {
-        const thumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; referenceImageList?: string[] } = {};
+        const thumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; referenceImageList?: string[]; leonardoModel?: string } = {};
         if (payload.gptImageQuality === 'low' || payload.gptImageQuality === 'medium' || payload.gptImageQuality === 'high') {
           thumbExtra.gptImageQuality = payload.gptImageQuality;
+        }
+        const thumbLeonardoModel = payload.leonardoModel || payload.leonardoModelPreference || payload.imageSettings?.leonardoModel;
+        if (typeof thumbLeonardoModel === 'string' && thumbLeonardoModel.trim()) {
+          thumbExtra.leonardoModel = thumbLeonardoModel.trim();
         }
         // v3.6.0: dropshot 엔진 + 쇼핑 모드 + productImages가 있으면 → i2i 자동 활성화
         //   사용자 의도: "쇼핑커넥트도 사용가능" — 수집된 상품 이미지를 reference로 새 이미지 생성
@@ -2056,7 +2078,7 @@ ${conclusionHTML}
           thumbExtra,
         );
         if (thumbResult.ok) {
-          emitGeneratedImage('thumbnail', `썸네일: ${h1}`, thumbResult.dataUrl);
+          emitGeneratedImage('thumbnail', `썸네일: ${h1}`, thumbResult.dataUrl, { queueImageToken });
           // 🔀 다운그레이드 감지 — 사용자가 요청한 엔진과 실제 사용 엔진이 다르면 경고
           const reqKey = String(thumbnailSource).toLowerCase().replace(/[^a-z]/g, '');
           const actKey = String(thumbResult.source || '').toLowerCase().replace(/[^a-z]/g, '');

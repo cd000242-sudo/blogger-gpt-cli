@@ -39,14 +39,12 @@ const BGPT_TABLE_SCROLL_STYLE = [
   'width: 100%',
   'max-width: 100%',
   'box-sizing: border-box',
-  'overflow-x: auto',
-  '-webkit-overflow-scrolling: touch',
-  'overscroll-behavior-x: contain',
-  'margin: 28px 0',
-  'padding: 0 0 8px 0',
-  'background: #ffffff',
-  'border: 1px solid #dbe4ee',
-  'border-radius: 10px'
+  'overflow: visible',
+  'margin: 22px 0',
+  'padding: 0',
+  'background: transparent',
+  'border: 0',
+  'border-radius: 0'
 ].join('; ');
 
 function addClassToAttrs(attrs, className) {
@@ -61,12 +59,54 @@ function addClassToAttrs(attrs, className) {
   return `${source ? source + ' ' : ''}class="${className}"`;
 }
 
+function escapeTableLabel(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function stripTableLabel(value) {
+  return String(value || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function addTableCellLabels(tableHtml) {
+  const headers = Array.from(String(tableHtml || '').matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/gi))
+    .map(match => stripTableLabel(match[1] || ''));
+  if (!headers.length) return tableHtml;
+
+  return String(tableHtml || '').replace(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi, (rowHtml) => {
+    if (!/<td\b/i.test(rowHtml)) return rowHtml;
+    let cellIndex = 0;
+    return rowHtml.replace(/<td\b([^>]*)>/gi, (match, attrs = '') => {
+      if (/\sdata-label\s*=/i.test(attrs)) {
+        cellIndex++;
+        return match;
+      }
+      const label = escapeTableLabel(headers[cellIndex] || '');
+      cellIndex++;
+      return `<td${attrs || ''} data-label="${label}">`;
+    });
+  });
+}
+
 function wrapBloggerTables(html) {
   if (!html || !/<table\b/i.test(html)) return html;
 
   return html.replace(/<table\b[\s\S]*?<\/table>/gi, (tableHtml) => {
     if (/\bbgpt-mobile-table\b/i.test(tableHtml)) return tableHtml;
-    const table = tableHtml.replace(/<table\b([^>]*)>/i, (_match, attrs = '') => (
+    const tableWithLabels = addTableCellLabels(tableHtml);
+    const table = tableWithLabels.replace(/<table\b([^>]*)>/i, (_match, attrs = '') => (
       `<table ${addClassToAttrs(attrs, 'bgpt-mobile-table')}>`
     ));
     return `<div class="bgpt-table-scroll" data-bgpt-table-scroll="true" style="${BGPT_TABLE_SCROLL_STYLE}">${table}</div>`;
@@ -85,9 +125,9 @@ function applyInlineStyles(html) {
       'ul': 'margin: 20px 0 !important; padding: 20px 20px 20px 40px !important; background: #fafafa !important; border-left: 3px solid #e2e8f0 !important; border-radius: 0 6px 6px 0 !important;',
       'ol': 'margin: 20px 0 !important; padding: 20px 20px 20px 40px !important; background: #fafafa !important; border-left: 3px solid #e2e8f0 !important; border-radius: 0 6px 6px 0 !important;',
       'li': 'margin: 7px 0 !important; line-height: 1.72 !important; font-size: 15.5px !important; color: #1a1a1a !important; overflow-wrap: break-word !important;',
-      'table': 'width: max-content !important; min-width: 100% !important; max-width: none !important; border-collapse: separate !important; border-spacing: 0 !important; margin: 0 !important; border-radius: 10px !important; overflow: hidden !important; border: 1px solid #cbd5e1 !important; background: #ffffff !important; table-layout: auto !important;',
-      'th': 'min-width: 88px !important; padding: 10px 12px !important; background: #f1f5f9 !important; font-weight: 700 !important; color: #0f172a !important; border: 1px solid #cbd5e1 !important; border-bottom: 2px solid #cbd5e1 !important; font-size: 13px !important; line-height: 1.45 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word !important;',
-      'td': 'min-width: 88px !important; padding: 10px 12px !important; border: 1px solid #dbe4ee !important; color: #334155 !important; font-size: 13px !important; line-height: 1.45 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word !important;',
+      'table': 'width: 100% !important; min-width: 0 !important; max-width: 100% !important; border-collapse: separate !important; border-spacing: 0 !important; margin: 0 !important; border-radius: 10px !important; overflow: hidden !important; border: 1px solid #cbd5e1 !important; background: #ffffff !important; table-layout: fixed !important; box-sizing: border-box !important;',
+      'th': 'min-width: 0 !important; padding: 10px 12px !important; background: #f1f5f9 !important; font-weight: 700 !important; color: #0f172a !important; border: 1px solid #cbd5e1 !important; border-bottom: 2px solid #cbd5e1 !important; font-size: 13px !important; line-height: 1.45 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word !important;',
+      'td': 'min-width: 0 !important; padding: 10px 12px !important; border: 1px solid #dbe4ee !important; color: #334155 !important; font-size: 13px !important; line-height: 1.45 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word !important;',
       'blockquote': 'margin: 28px 0 !important; padding: 20px 24px !important; background: #f8fafc !important; border-left: 4px solid #94a3b8 !important; border-radius: 0 6px 6px 0 !important; color: #334155 !important;',
     };
 
@@ -267,7 +307,8 @@ function generateBloggerLayoutCSS() {
       border: 1px solid #cbd5e1 !important;
       background: #ffffff !important;
       box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05) !important;
-      table-layout: auto !important;
+      table-layout: fixed !important;
+      box-sizing: border-box !important;
     }
 
     .blogger-gpt-content .bgpt-table-scroll {
@@ -275,23 +316,22 @@ function generateBloggerLayoutCSS() {
       width: 100% !important;
       max-width: 100% !important;
       box-sizing: border-box !important;
-      overflow-x: auto !important;
-      -webkit-overflow-scrolling: touch !important;
-      overscroll-behavior-x: contain !important;
-      margin: 28px 0 !important;
-      padding: 0 0 8px 0 !important;
-      background: #ffffff !important;
-      border: 1px solid #dbe4ee !important;
-      border-radius: 10px !important;
+      overflow: visible !important;
+      margin: 22px 0 !important;
+      padding: 0 !important;
+      background: transparent !important;
+      border: 0 !important;
+      border-radius: 0 !important;
     }
 
     .blogger-gpt-content .bgpt-table-scroll table,
     .blogger-gpt-content table.bgpt-mobile-table {
-      width: max-content !important;
-      min-width: 100% !important;
-      max-width: none !important;
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: 100% !important;
       margin: 0 !important;
-      table-layout: auto !important;
+      table-layout: fixed !important;
+      box-sizing: border-box !important;
     }
 
     .blogger-gpt-content .bgpt-table-scroll::-webkit-scrollbar {
@@ -522,25 +562,81 @@ function generateBloggerLayoutCSS() {
       }
       .blogger-gpt-content table { font-size: 14px !important; }
       .blogger-gpt-content .bgpt-table-scroll {
-        width: calc(100vw - 12px) !important;
-        max-width: calc(100vw - 12px) !important;
-        margin-left: calc(50% - 50vw + 6px) !important;
-        margin-right: calc(50% - 50vw + 6px) !important;
-        margin-top: 24px !important;
-        margin-bottom: 24px !important;
-        border-radius: 8px !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 22px 0 !important;
+        padding: 0 !important;
+        overflow: visible !important;
+        background: transparent !important;
+        border: 0 !important;
+        border-radius: 0 !important;
       }
-      .blogger-gpt-content .bgpt-table-scroll th,
+      .blogger-gpt-content .bgpt-table-scroll table,
+      .blogger-gpt-content table.bgpt-mobile-table,
+      .blogger-gpt-content .bgpt-table-scroll tbody,
+      .blogger-gpt-content table.bgpt-mobile-table tbody,
+      .blogger-gpt-content .bgpt-table-scroll tr,
+      .blogger-gpt-content table.bgpt-mobile-table tr,
       .blogger-gpt-content .bgpt-table-scroll td,
-      .blogger-gpt-content table.bgpt-mobile-table th,
       .blogger-gpt-content table.bgpt-mobile-table td {
-        min-width: 86px !important;
-        padding: 9px 10px !important;
-        font-size: 13px !important;
-        line-height: 1.45 !important;
+        display: block !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+      }
+      .blogger-gpt-content .bgpt-table-scroll thead,
+      .blogger-gpt-content table.bgpt-mobile-table thead {
+        display: none !important;
+      }
+      .blogger-gpt-content .bgpt-table-scroll table,
+      .blogger-gpt-content table.bgpt-mobile-table {
+        border: 0 !important;
+        border-radius: 0 !important;
+        overflow: visible !important;
+        background: transparent !important;
+      }
+      .blogger-gpt-content .bgpt-table-scroll tr,
+      .blogger-gpt-content table.bgpt-mobile-table tr {
+        margin: 0 0 12px !important;
+        border: 1px solid #dbe4ee !important;
+        border-radius: 12px !important;
+        background: #ffffff !important;
+        overflow: hidden !important;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05) !important;
+      }
+      .blogger-gpt-content .bgpt-table-scroll td,
+      .blogger-gpt-content table.bgpt-mobile-table td {
+        min-width: 0 !important;
+        padding: 12px 14px !important;
+        border: 0 !important;
+        border-bottom: 1px solid #edf2f7 !important;
+        color: #334155 !important;
+        font-size: 14px !important;
+        line-height: 1.55 !important;
         white-space: normal !important;
         word-break: keep-all !important;
         overflow-wrap: break-word !important;
+        text-align: left !important;
+      }
+      .blogger-gpt-content .bgpt-table-scroll td:last-child,
+      .blogger-gpt-content table.bgpt-mobile-table td:last-child {
+        border-bottom: 0 !important;
+      }
+      .blogger-gpt-content .bgpt-table-scroll td::before,
+      .blogger-gpt-content table.bgpt-mobile-table td::before {
+        content: attr(data-label) !important;
+        display: block !important;
+        margin: 0 0 5px 0 !important;
+        color: #0f766e !important;
+        -webkit-text-fill-color: #0f766e !important;
+        font-size: 12px !important;
+        font-weight: 800 !important;
+        line-height: 1.35 !important;
+      }
+      .blogger-gpt-content .bgpt-table-scroll td[data-label=""]::before,
+      .blogger-gpt-content table.bgpt-mobile-table td[data-label=""]::before {
+        display: none !important;
       }
       .cta-responsive-box { padding: 30px 20px !important; margin: 35px auto !important; }
       .cta-responsive-text { font-size: 22px !important; }

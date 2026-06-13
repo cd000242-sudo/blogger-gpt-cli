@@ -808,25 +808,25 @@ export const INTERNAL_CONSISTENCY_SECTIONS: MaxModeSection[] = [
   //   generateH2TitlesFinal로 더 구체적/검색의도 친화적 H2를 우선 사용. 이 title은 LLM 실패 시 안전망.
   {
     id: "topic_intro",
-    title: "[주제] 한눈에 보기 — 무엇이고 왜 중요할까",
+    title: "[주제] 핵심 맥락과 현재 상황",
     description: "주제 소개와 독자가 얻을 핵심 가치 제시",
     minChars: 600,
     role: "정보 전달자",
-    contentFocus: "주제 소개, 독자 관점 질문, 오늘 글의 핵심 가치",
+    contentFocus: "주제의 배경, 현재 상황, 독자가 먼저 알아야 할 맥락",
     requiredElements: [
-      "주제의 중요성과 독자가 이 글에서 얻을 가치",
-      "독자의 일반적 궁금증/고민 제시",
+      "주제의 현재 맥락과 독자가 이 글에서 얻을 가치",
+      "키워드 분야에 맞는 독자의 실제 궁금증 제시",
       "글 전체의 로드맵 1문장 요약",
       "과거/미래 시리즈 언급 절대 금지"
     ]
   },
   {
     id: "core_knowledge",
-    title: "[주제] 자세히 알아보기 — 자격·조건·핵심 정보",
+    title: "[주제]에서 꼭 확인할 세부 포인트",
     description: "주제의 핵심 정보를 체계적으로 전달",
     minChars: 1500,
     role: "해당 분야 전문가",
-    contentFocus: "H3 소제목 3~4개로 구조화, 구체적 수치/데이터",
+    contentFocus: "키워드 분야에 맞는 핵심 세부 정보, 구체적 수치/데이터",
     requiredElements: [
       "H3 소제목 3~4개로 구조화",
       "구체적 수치/데이터 5개 이상",
@@ -836,21 +836,21 @@ export const INTERNAL_CONSISTENCY_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "deep_dive_case",
-    title: "[주제] 실전 사례와 단계별 적용법",
+    title: "[주제] 관련 흐름과 확인 포인트",
     description: "실제 사례·적용법으로 핵심 지식 보강",
     minChars: 1000,
     role: "실무 경험자",
-    contentFocus: "실제 사례, 단계별 가이드, 팁",
+    contentFocus: "키워드 분야에 맞는 사례, 흐름, 확인 포인트",
     requiredElements: [
       "실제 사례 또는 시나리오 2개 이상",
-      "단계별 가이드 또는 체크리스트",
+      "분야에 맞는 확인 흐름 또는 체크리스트",
       "실전 팁 2~3개",
       "다른 글 언급 절대 금지"
     ]
   },
   {
     id: "key_takeaways",
-    title: "[주제] 핵심 포인트 한 줄 정리",
+    title: "[주제] 핵심 요약과 판단 기준",
     description: "빠른 복습용 핵심 정리",
     minChars: 400,
     role: "정보 요약가",
@@ -863,7 +863,7 @@ export const INTERNAL_CONSISTENCY_SECTIONS: MaxModeSection[] = [
   },
   {
     id: "additional_resources",
-    title: "[주제] 함께 보면 좋은 관련 정보",
+    title: "[주제] 다음으로 확인할 관련 포인트",
     description: "독자가 추가로 탐색할 수 있는 가이드 제공",
     minChars: 300,
     role: "정보 안내자",

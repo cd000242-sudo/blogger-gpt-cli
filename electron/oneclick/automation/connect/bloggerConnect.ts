@@ -403,6 +403,12 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
 
   if (state.cancelled) return;
 
+  state.currentStep = 6;
+  state.message = results['googleClientId'] && results['googleClientSecret']
+    ? 'Client ID/Secret을 앱에 저장할 준비가 완료되었습니다.'
+    : 'Client ID/Secret 자동 추출이 막혔습니다. 앱의 직접 입력 영역을 펼쳐 값을 붙여넣어 주세요.';
+  await page.waitForTimeout(1000);
+
   // 8) Blog ID 추출 (Blogger.com에서)
   state.currentStep = 7;
   state.message = 'Blogger에서 Blog ID 추출 중...';
