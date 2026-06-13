@@ -378,9 +378,9 @@ export function showTab(tabName) {
       targetTab = document.getElementById('image-batch-tab');
       if (targetTab && !targetTab.dataset.initialized) {
         targetTab.dataset.initialized = 'true';
-        // 초기 비용 미리보기 / 엔진 상태 표시 등 1회 초기화
+        // 초기 비용 미리보기만 갱신한다.
+        // v3.8.120: 탭 진입만으로 Dropshot 브라우저 로그인 체크를 실행하지 않는다.
         try { window.updateBatchImageCost?.(); } catch { /* ignore */ }
-        try { window.refreshDropshotLoginStatus?.(); } catch { /* ignore */ }
       }
       break;
     default:
@@ -399,10 +399,11 @@ export function showTab(tabName) {
     console.error('❌ 탭을 찾을 수 없습니다:', tabName);
   }
 
-  // 메인 탭이 아닌 경우 app-header 숨기기 (겹침 방지)
+  // v3.8.120: 상단 상태바는 모든 탭에서 고정 노출.
+  // 라이선스/플랫폼/AI 모델 상태를 보려고 메인 탭으로 돌아갈 필요가 없도록 유지한다.
   const appHeader = document.querySelector('.app-header');
   if (appHeader) {
-    appHeader.style.display = tabName === 'main' ? '' : 'none';
+    appHeader.style.display = '';
   }
 
   // 사이드바 active 상태 동기화

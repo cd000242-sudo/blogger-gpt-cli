@@ -1415,6 +1415,67 @@ window.refreshEngineLoginCards = function () {
   if (dropshotCard) dropshotCard.style.display = usesDropshot ? 'block' : 'none';
 };
 
+// v3.8.120: Dropshot(리더스 나노바나나) 로그인 확인은 브라우저 세션을 검사하므로 무겁다.
+// 탭 진입/엔진 선택 때마다 실행하지 않고, 최근 성공/실패 결과를 짧게 캐시해 갑작스러운 체크와 렉을 줄인다.
+const DROPSHOT_LOGIN_OK_CACHE_MS = 10 * 60 * 1000;
+const DROPSHOT_LOGIN_FAIL_CACHE_MS = 30 * 1000;
+
+function getFreshDropshotLoginCache(maxAgeMs) {
+  const now = Date.now();
+  let cache = window.__dropshotLoginCheckCache || null;
+  if (!cache) {
+    try {
+      const raw = sessionStorage.getItem('dropshotLoginCheckCache');
+      if (raw) cache = JSON.parse(raw);
+    } catch { cache = null; }
+  }
+  if (!cache || !cache.ts || !cache.result) return null;
+  const ttl = Number.isFinite(maxAgeMs)
+    ? maxAgeMs
+    : (cache.result.loggedIn ? DROPSHOT_LOGIN_OK_CACHE_MS : DROPSHOT_LOGIN_FAIL_CACHE_MS);
+  if (now - cache.ts > ttl) return null;
+  window.__dropshotLoginCheckCache = cache;
+  return cache.result;
+}
+
+window.rememberDropshotLoginStatus = function (result) {
+  if (!result) return;
+  const cache = { ts: Date.now(), result };
+  window.__dropshotLoginCheckCache = cache;
+  try { sessionStorage.setItem('dropshotLoginCheckCache', JSON.stringify(cache)); } catch {}
+};
+
+window.checkDropshotLoginCached = async function (options = {}) {
+  const force = options.force === true;
+  if (!force) {
+    const cached = getFreshDropshotLoginCache(options.maxAgeMs);
+    if (cached) return { ...cached, cached: true };
+  }
+  const result = await window.electronAPI?.invoke?.('dropshot:check-login', { force });
+  window.rememberDropshotLoginStatus?.(result);
+  return result;
+};
+
+window.setBatchDropshotStatusIdle = function () {
+  const icon = document.getElementById('batchDropshotStatusIcon');
+  const title = document.getElementById('batchDropshotStatusTitle');
+  const sub = document.getElementById('batchDropshotStatusSub');
+  const loginBtn = document.getElementById('batchDropshotLoginBtn');
+  const cached = getFreshDropshotLoginCache();
+  if (cached?.loggedIn) {
+    const subTxt = cached.subscription === 'pro' ? ' · Pro 구독자 무제한' : '';
+    if (icon) icon.textContent = '✅';
+    if (title) title.textContent = '최근 로그인 확인됨';
+    if (sub) sub.textContent = `${cached.userName || cached.email || '로그인 세션'}${subTxt}`;
+    if (loginBtn) loginBtn.style.display = 'none';
+    return;
+  }
+  if (icon) icon.textContent = '🍌';
+  if (title) title.textContent = '리더스 나노바나나 준비됨';
+  if (sub) sub.textContent = '자동 로그인창은 열지 않습니다. 필요하면 [새로고침]으로 상태 확인 또는 [로그인하기]를 눌러주세요.';
+  if (loginBtn) loginBtn.style.display = 'inline-block';
+};
+
 // v3.7.7: 환경설정의 리더스 나노바나나(dropshot) 로그인/확인 핸들러
 window.handleDropshotLogin = async function () {
   const btn = document.getElementById('dropshotLoginBtnSettings');
@@ -1428,6 +1489,7 @@ window.handleDropshotLogin = async function () {
       return;
     }
     if (r?.loggedIn) {
+      window.rememberDropshotLoginStatus?.(r);
       if (status) { status.textContent = `✅ 로그인 완료${r.userName ? ' — ' + r.userName : ''}`; status.style.color = '#86efac'; }
       alert('리더스 나노바나나 로그인 완료!' + (r.userName ? ' (' + r.userName + ')' : ''));
     } else {
@@ -1446,7 +1508,7 @@ window.handleDropshotCheckLogin = async function () {
   const status = document.getElementById('dropshotLoginStatusSettings');
   if (status) { status.textContent = '⏳ 확인 중...'; status.style.color = 'rgba(255,255,255,0.6)'; }
   try {
-    const r = await window.electronAPI?.invoke?.('dropshot:check-login');
+    const r = await window.checkDropshotLoginCached?.({ force: true });
     // v3.7.11: PAYMENT_REQUIRED → 모달 + 상태 라벨 정리
     if (window.handlePaymentRequiredResponse && window.handlePaymentRequiredResponse(r)) {
       if (status) { status.textContent = '🛡️ 유료 라이선스 필요'; status.style.color = '#fbbf24'; }
@@ -1624,10 +1686,8 @@ window.updateBatchImageCost = function () {
   if (dropshotCard) {
     const isDropshot = /^dropshot/.test(engine);
     dropshotCard.style.display = isDropshot ? 'block' : 'none';
-    if (isDropshot && !window.__dropshotStatusChecked) {
-      window.__dropshotStatusChecked = true;
-      // 첫 진입 시 자동 확인
-      setTimeout(() => window.refreshDropshotLoginStatus?.(), 200);
+    if (isDropshot) {
+      window.setBatchDropshotStatusIdle?.();
     }
   }
 
@@ -1752,7 +1812,7 @@ window.handleBatchI2iFiles = async function () {
 };
 
 // v3.6.4: Dropshot 로그인 상태 확인 (구독 정보까지)
-window.refreshDropshotLoginStatus = async function () {
+window.refreshDropshotLoginStatus = async function (options = {}) {
   const card = document.getElementById('batchDropshotStatusCard');
   if (!card) return;
   const icon = document.getElementById('batchDropshotStatusIcon');
@@ -1766,7 +1826,7 @@ window.refreshDropshotLoginStatus = async function () {
   if (loginBtn) loginBtn.style.display = 'none';
 
   try {
-    const result = await window.electronAPI?.invoke?.('dropshot:check-login');
+    const result = await window.checkDropshotLoginCached?.({ force: options.force === true });
     // v3.7.11: PAYMENT_REQUIRED → 모달 + 상태 라벨 정리
     if (window.handlePaymentRequiredResponse && window.handlePaymentRequiredResponse(result)) {
       if (icon) icon.textContent = '🛡️';
@@ -1777,14 +1837,9 @@ window.refreshDropshotLoginStatus = async function () {
     }
     if (!result || !result.loggedIn) {
       if (icon) icon.textContent = '🔐';
-      if (title) title.textContent = '로그인 필요 — 브라우저 자동 열림';
-      if (sub) sub.textContent = result?.message || '리더스 나노바나나 로그인 창이 곧 자동으로 열립니다';
+      if (title) title.textContent = '로그인 필요';
+      if (sub) sub.textContent = result?.message || '리더스 나노바나나는 사이트 로그인 세션이 필요합니다. 아래 버튼으로 직접 로그인해주세요.';
       if (loginBtn) loginBtn.style.display = 'inline-block';
-      // v3.6.7: 첫 진단 시 자동으로 visible 로그인 창 trigger (1회만)
-      if (!window.__dropshotAutoLoginTried) {
-        window.__dropshotAutoLoginTried = true;
-        setTimeout(() => window.runDropshotLogin?.(), 600);
-      }
       return;
     }
 
@@ -1882,8 +1937,9 @@ window.runDropshotLogin = async function () {
       return;
     }
     if (result?.loggedIn) {
+      window.rememberDropshotLoginStatus?.(result);
       alert('리더스 나노바나나 로그인 완료! ' + (result.userName ? '(' + result.userName + ')' : ''));
-      window.refreshDropshotLoginStatus?.();
+      window.refreshDropshotLoginStatus?.({ force: false });
     } else {
       alert('리더스 나노바나나 로그인 실패: ' + (result?.message || '시간 초과'));
     }

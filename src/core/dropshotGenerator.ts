@@ -26,6 +26,20 @@ let cachedContext: any = null;
 let cachedPage: any = null;
 let _ensurePagePromise: Promise<any> | null = null;
 
+type DropshotLoginStatus = {
+  loggedIn: boolean;
+  userId?: string;
+  userName?: string;
+  email?: string;
+  subscription?: 'pro' | 'free' | 'unknown';
+  message?: string;
+  cached?: boolean;
+};
+
+let _loginCheckCache: { ts: number; result: DropshotLoginStatus } | null = null;
+const LOGIN_CHECK_OK_TTL_MS = 10 * 60 * 1000;
+const LOGIN_CHECK_FAIL_TTL_MS = 30 * 1000;
+
 // v3.7.3: generation mutex — dropshot은 단일 브라우저 페이지 공유하므로
 //   동시 호출 시 textarea가 덮어써져 마지막 prompt만 처리됨 (모든 결과가 마지막 prompt로 도배).
 //   해결: 한 번에 한 호출만 진행. 큐 기반 직렬화.
@@ -349,15 +363,15 @@ export interface DropshotResult {
  *   - 캐시된 세션이 살아있는지 또는 새로 headless 진입해서 확인
  *   - 구독 정보까지 추출 (Pro 여부)
  */
-export async function checkDropshotLogin(): Promise<{
-  loggedIn: boolean;
-  userId?: string;
-  userName?: string;
-  email?: string;
-  subscription?: 'pro' | 'free' | 'unknown';
-  message?: string;
-}> {
+export async function checkDropshotLogin(options: { force?: boolean } = {}): Promise<DropshotLoginStatus> {
   try {
+    if (!options.force && _loginCheckCache) {
+      const ttl = _loginCheckCache.result.loggedIn ? LOGIN_CHECK_OK_TTL_MS : LOGIN_CHECK_FAIL_TTL_MS;
+      if (Date.now() - _loginCheckCache.ts < ttl) {
+        return { ..._loginCheckCache.result, cached: true };
+      }
+    }
+
     const profileDir = getProfileDir();
     // headless로 빠르게 확인 (cached page 우선)
     let context = cachedContext;
@@ -372,7 +386,9 @@ export async function checkDropshotLogin(): Promise<{
         await new Promise(r => setTimeout(r, 4000));
       } catch (e: any) {
         if (openedFresh) { try { await context.close(); } catch {} }
-        return { loggedIn: false, message: `navigate 실패: ${e.message}` };
+        const result = { loggedIn: false, message: `navigate 실패: ${e.message}` };
+        _loginCheckCache = { ts: Date.now(), result };
+        return result;
       }
     }
 
@@ -416,9 +432,13 @@ export async function checkDropshotLogin(): Promise<{
       try { await context.close(); } catch {}
     }
 
-    return { ...info, subscription };
+    const result = { ...info, subscription };
+    _loginCheckCache = { ts: Date.now(), result };
+    return result;
   } catch (e: any) {
-    return { loggedIn: false, message: `예외: ${e.message || e}` };
+    const result = { loggedIn: false, message: `예외: ${e.message || e}` };
+    _loginCheckCache = { ts: Date.now(), result };
+    return result;
   }
 }
 
@@ -464,13 +484,19 @@ export async function loginDropshot(): Promise<{
     }
     try { await context.close(); } catch {}
     if (loggedIn) {
-      return userName
+      const result = userName
         ? { loggedIn: true, userName, message: '로그인 완료' }
         : { loggedIn: true, message: '로그인 완료' };
+      _loginCheckCache = { ts: Date.now(), result };
+      return result;
     }
-    return { loggedIn: false, message: '5분 내 로그인 미완료' };
+    const result = { loggedIn: false, message: '5분 내 로그인 미완료' };
+    _loginCheckCache = { ts: Date.now(), result };
+    return result;
   } catch (e: any) {
-    return { loggedIn: false, message: `예외: ${e.message || e}` };
+    const result = { loggedIn: false, message: `예외: ${e.message || e}` };
+    _loginCheckCache = { ts: Date.now(), result };
+    return result;
   }
 }
 

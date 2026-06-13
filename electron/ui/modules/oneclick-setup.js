@@ -236,10 +236,44 @@ function showBlogspotSetupModal(onComplete) {
     <div style="font-size: 36px; margin-bottom: 8px;">🔵</div>
     <h3 style="margin: 0; font-size: 20px; font-weight: 800; color: white;">블로그스팟 세팅 정보 입력</h3>
     <p style="margin: 8px 0 0; font-size: 12px; color: rgba(255,255,255,0.45); line-height: 1.5;">
-      아래 정보를 입력하면 블로그 생성부터 설정까지 <strong style="color: #FF7043;">전부 자동</strong>으로 세팅됩니다
+      먼저 목적을 고른 뒤 진행합니다. 새 블로그를 추가로 만들 수도 있고, 기존 블로그를 점검·최적화할 수도 있습니다.
     </p>
   `;
   card.appendChild(header);
+
+  let blogspotSetupPurpose = 'create-new';
+  const purposeWrap = document.createElement('div');
+  purposeWrap.style.cssText = 'display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:18px;';
+  const purposeButtons = {};
+  function createPurposeButton(purpose, title, desc, badge) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.purpose = purpose;
+    btn.style.cssText = 'text-align:left; padding:14px; border-radius:13px; border:1px solid rgba(255,255,255,0.12); background:rgba(15,23,42,0.62); color:#e5e7eb; cursor:pointer; transition:all .18s ease;';
+    btn.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px;">
+        <span style="font-size:13px; font-weight:900;">${title}</span>
+        <span style="font-size:10px; font-weight:900; color:#fed7aa;">${badge}</span>
+      </div>
+      <div style="font-size:11px; color:#94a3b8; line-height:1.45;">${desc}</div>
+    `;
+    btn.onclick = () => setBlogspotPurpose(purpose);
+    purposeButtons[purpose] = btn;
+    return btn;
+  }
+  purposeWrap.appendChild(createPurposeButton(
+    'create-new',
+    '새 블로그 추가 개설',
+    '기존 블로그가 있어도 새 제목과 주소로 블로그를 하나 더 만듭니다.',
+    '신규'
+  ));
+  purposeWrap.appendChild(createPurposeButton(
+    'existing',
+    '기존 블로그 점검·최적화',
+    '이미 있는 블로그를 감지하고, 어떤 항목이 확인됐는지 근거를 보여준 뒤 다음 단계로 넘어갑니다.',
+    '기존'
+  ));
+  card.appendChild(purposeWrap);
 
   // 필드 생성 함수
   function createField(label, id, placeholder, required = false, helpText = '') {
@@ -270,21 +304,29 @@ function showBlogspotSetupModal(onComplete) {
     return wrap;
   }
 
-  // 필드들
-  card.appendChild(createField(
+  const existingIdField = createField(
+    '🆔 기존 Blog ID (선택)', 'bs-existing-id', '예: 1234567890123456789',
+    false, '비워두면 Blogger 화면에서 자동 감지합니다. 기존 블로그 점검 모드에서만 사용합니다'
+  );
+  card.appendChild(existingIdField);
+
+  const titleField = createField(
     '📝 블로그 제목', 'bs-title', '예: 블로소득 블로그', true,
     '주제와 관련된 키워드가 포함된 제목을 추천합니다'
-  ));
+  );
+  card.appendChild(titleField);
 
-  card.appendChild(createField(
+  const addressField = createField(
     '🌐 블로그 주소 (도메인)', 'bs-address', '예: blog-income-tube', true,
     '영문 소문자, 숫자, 하이픈만 사용. {주소}.blogspot.com 형태로 생성됩니다'
-  ));
+  );
+  card.appendChild(addressField);
 
-  card.appendChild(createField(
+  const descField = createField(
     '💬 블로그 설명', 'bs-desc', '예: 블로그 수익화, 티스토리, 워드프레스 관련 정보', true,
     '검색엔진에 노출되는 설명문입니다. 키워드 중심 2~3줄 권장'
-  ));
+  );
+  card.appendChild(descField);
 
   card.appendChild(createField(
     '📊 Google 애널리틱스 측정 ID (선택)', 'bs-ga-id', '예: G-XXXXXXXXXX',
@@ -357,6 +399,27 @@ function showBlogspotSetupModal(onComplete) {
   `;
   card.appendChild(autoInfo);
 
+  function setBlogspotPurpose(purpose) {
+    blogspotSetupPurpose = purpose;
+    Object.entries(purposeButtons).forEach(([key, btn]) => {
+      const active = key === purpose;
+      btn.style.background = active ? 'rgba(255,87,34,0.16)' : 'rgba(15,23,42,0.62)';
+      btn.style.borderColor = active ? 'rgba(255,112,67,0.52)' : 'rgba(255,255,255,0.12)';
+      btn.style.boxShadow = active ? '0 0 0 1px rgba(255,112,67,0.16), 0 10px 28px rgba(255,87,34,0.12)' : 'none';
+    });
+    const createMode = purpose === 'create-new';
+    existingIdField.style.display = createMode ? 'none' : 'block';
+    titleField.style.display = createMode ? 'block' : 'none';
+    addressField.style.display = createMode ? 'block' : 'none';
+    const descLabel = descField.querySelector('label');
+    const descHelp = descField.querySelector('p');
+    if (descLabel) descLabel.textContent = createMode ? '💬 블로그 설명 *' : '💬 블로그 설명 (선택 · 덮어쓸 때만)';
+    if (descHelp) descHelp.textContent = createMode
+      ? '검색엔진에 노출되는 설명문입니다. 키워드 중심 2~3줄 권장'
+      : '비워두면 기존 설명을 유지합니다. 입력하면 기존 블로그 설명/메타 설명 최적화에 사용합니다';
+    startBtn.textContent = createMode ? '🚀 새 블로그 만들기 시작' : '🔎 기존 블로그 점검 시작';
+  }
+
   // 버튼
   const btnRow = document.createElement('div');
   btnRow.style.cssText = 'display: flex; gap: 10px;';
@@ -370,22 +433,36 @@ function showBlogspotSetupModal(onComplete) {
   const close = () => { modal.remove(); };
   cancelBtn.onclick = () => { close(); onComplete?.(null); };
   startBtn.onclick = () => {
+    const createMode = blogspotSetupPurpose === 'create-new';
     const title = document.getElementById('bs-title')?.value?.trim();
     const address = document.getElementById('bs-address')?.value?.trim();
     const desc = document.getElementById('bs-desc')?.value?.trim();
+    const existingBlogId = document.getElementById('bs-existing-id')?.value?.trim() || '';
 
-    if (!title) { showToast('📝 블로그 제목을 입력해주세요', 'warn'); return; }
-    if (!address) { showToast('🌐 블로그 주소를 입력해주세요', 'warn'); return; }
-    if (!desc) { showToast('💬 블로그 설명을 입력해주세요', 'warn'); return; }
+    if (createMode && !title) { showToast('📝 새 블로그 제목을 입력해주세요', 'warn'); return; }
+    if (createMode && !address) { showToast('🌐 새 블로그 주소를 입력해주세요', 'warn'); return; }
+    if (createMode && !desc) { showToast('💬 새 블로그 설명을 입력해주세요', 'warn'); return; }
+    if (!createMode && existingBlogId && !/^\d+$/.test(existingBlogId)) {
+      showToast('🆔 Blog ID는 숫자만 입력해주세요. 모르겠다면 비워두세요', 'warn');
+      return;
+    }
 
     const config = {
-      blogTitle: title,
-      blogAddress: address.toLowerCase().replace(/[^a-z0-9-]/g, ''),
+      setupPurpose: blogspotSetupPurpose,
+      useExistingBlog: !createMode,
+      forceCreateNew: createMode,
+      existingBlogId: !createMode ? existingBlogId : '',
+      blogTitle: createMode ? title : '',
+      blogAddress: createMode ? address.toLowerCase().replace(/[^a-z0-9-]/g, '') : '',
       blogDescription: desc,
       gaId: document.getElementById('bs-ga-id')?.value?.trim() || '',
       adsTxt: document.getElementById('bs-adstxt')?.value?.trim() || '',
       faviconPath: document.getElementById('bs-favicon-path')?.dataset?.path || '',
     };
+    if (createMode && !config.blogAddress) {
+      showToast('🌐 블로그 주소는 영문 소문자·숫자·하이픈만 사용할 수 있습니다', 'warn');
+      return;
+    }
 
     close();
     onComplete?.(config);
@@ -398,6 +475,7 @@ function showBlogspotSetupModal(onComplete) {
   card.appendChild(btnRow);
   modal.appendChild(card);
   document.body.appendChild(modal);
+  setBlogspotPurpose('create-new');
   requestAnimationFrame(() => document.getElementById('bs-title')?.focus());
 }
 
@@ -628,7 +706,7 @@ const PLATFORMS = {
     adminUrl: 'https://www.blogger.com/',
     steps: [
       { id: 'login', title: 'Google 로그인', desc: '에드센스 계정과 동일한 Google 계정으로 로그인', icon: '🔐', manual: true },
-      { id: 'create-blog', title: '블로그 만들기', desc: '블로그 제목과 주소(도메인) 자동 설정', icon: '📝', manual: false },
+      { id: 'create-blog', title: '블로그 이름·주소 정하기', desc: '예시를 참고해 제목과 blogspot 주소를 직접 입력합니다', icon: '📝', manual: true },
       { id: 'settings', title: '설정 자동 최적화', desc: '검색엔진 표시, HTTPS, 시간대, 댓글, 이미지 최적화 등 13개 항목', icon: '⚙️', manual: false },
       { id: 'metatag', title: '메타태그 · GA · ads.txt', desc: '메타태그 활성화, 애널리틱스 연동, ads.txt 설정', icon: '🏷️', manual: false },
       { id: 'favicon', title: '파비콘 업로드', desc: '브랜드 아이콘(파비콘) 자동 설정', icon: '🖼️', manual: false },
@@ -1178,6 +1256,112 @@ function stopOneclickGuideDemo() {
   finishLiveOneclickGuide(liveGuideState?.kind || 'connect', liveGuideState?.platformId || 'blogspot', '계정 추가 가이드를 중지했습니다.', false);
 }
 
+function renderBeginnerPathCard() {
+  return `
+    <div id="oneclick-beginner-path-card" style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(168, 85, 247, 0.32); border-radius: 16px; padding: 20px;">
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:14px;">
+        <div style="display:flex; align-items:flex-start; gap:12px;">
+          <div style="width:40px; height:40px; background:linear-gradient(135deg,#8b5cf6,#6366f1); border-radius:12px; display:flex; align-items:center; justify-content:center; box-shadow:0 8px 24px rgba(139,92,246,0.25);">
+            <span style="font-size:20px;">🧭</span>
+          </div>
+          <div>
+            <h4 style="margin:0; font-weight:900; color:white; font-size:16px; letter-spacing:-0.2px;">처음 세팅이면 이 순서대로 진행하세요</h4>
+            <p style="margin:4px 0 0; font-size:12px; color:#c4b5fd; line-height:1.55;">
+              블로그가 아직 없으면 먼저 블로그를 만들고, 그 다음 계정 추가/앱 연동을 진행합니다.
+              이미 운영 중인 블로그가 있다면 1단계는 건너뛰고 2단계부터 시작하면 됩니다.
+            </p>
+          </div>
+        </div>
+        <button type="button" onclick="window.__oneclickSetup?.stopOneclickGuideDemo()"
+          style="padding:9px 12px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.32); color:#fecaca; border-radius:10px; font-size:12px; font-weight:800; cursor:pointer; white-space:nowrap;">
+          진행 중지
+        </button>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;">
+        <button type="button" onclick="document.getElementById('oneclick-card-blogspot')?.scrollIntoView({ behavior: 'smooth', block: 'center' })"
+          style="text-align:left; padding:14px; background:rgba(249,115,22,0.12); border:1px solid rgba(249,115,22,0.28); border-radius:12px; color:#fff7ed; cursor:pointer;">
+          <div style="color:#fdba74; font-size:11px; font-weight:900; margin-bottom:6px;">STEP 1</div>
+          <div style="font-size:14px; font-weight:900;">새 블로그/사이트 준비</div>
+          <div style="margin-top:5px; font-size:11px; color:#fed7aa; line-height:1.45;">블로그스팟은 이름과 주소를 정하고, 워드프레스는 사이트 준비를 확인합니다.</div>
+        </button>
+        <button type="button" onclick="document.getElementById('oneclick-connect-card-blogger')?.scrollIntoView({ behavior: 'smooth', block: 'center' })"
+          style="text-align:left; padding:14px; background:rgba(139,92,246,0.12); border:1px solid rgba(139,92,246,0.30); border-radius:12px; color:#f5f3ff; cursor:pointer;">
+          <div style="color:#c4b5fd; font-size:11px; font-weight:900; margin-bottom:6px;">STEP 2</div>
+          <div style="font-size:14px; font-weight:900;">계정 추가 / 앱 연동</div>
+          <div style="margin-top:5px; font-size:11px; color:#ddd6fe; line-height:1.45;">OAuth, 테스트 사용자, Blog ID, App Password를 가이드와 함께 연결합니다.</div>
+        </button>
+        <button type="button" onclick="document.getElementById('oneclick-webmaster-url')?.scrollIntoView({ behavior: 'smooth', block: 'center' })"
+          style="text-align:left; padding:14px; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.30); border-radius:12px; color:#fffbeb; cursor:pointer;">
+          <div style="color:#fde68a; font-size:11px; font-weight:900; margin-bottom:6px;">STEP 3</div>
+          <div style="font-size:14px; font-weight:900;">검색 등록 / 최종 세팅</div>
+          <div style="margin-top:5px; font-size:11px; color:#fef3c7; line-height:1.45;">사이트맵, RSS, 검색엔진 등록을 이어서 진행합니다.</div>
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function renderBlogspotCreationExamples() {
+  const examples = [
+    {
+      type: '정부지원금 정보형',
+      title: '리더남의 지원금 알림장',
+      address: 'support-checklist-note',
+      topics: '정부24, 보조금24, 신청방법, 자격조건',
+      note: '공식 정보 기반 글과 표/FAQ 구성이 잘 맞습니다.'
+    },
+    {
+      type: '생활경제/절약형',
+      title: '생활비 절약 연구소',
+      address: 'smart-save-lab',
+      topics: '통신비, 카드혜택, 환급금, 공과금',
+      note: '초보자도 키워드를 넓게 확장하기 쉽습니다.'
+    },
+    {
+      type: '취업/자격증형',
+      title: '자격증 로드맵 노트',
+      address: 'license-roadmap-note',
+      topics: '자격증 일정, 응시자격, 합격전략',
+      note: '일정/조건/준비물처럼 구조화된 글에 좋습니다.'
+    },
+    {
+      type: '여행 체크리스트형',
+      title: '여행 준비 체크리스트',
+      address: 'trip-ready-checklist',
+      topics: '준비물, 교통패스, 안전정보',
+      note: 'CTA와 외부유입 글 연결을 만들기 쉽습니다.'
+    },
+  ];
+
+  return `
+    <div style="margin-bottom:14px; padding:14px; background:rgba(255,112,67,0.10); border:1px solid rgba(255,112,67,0.28); border-radius:12px;">
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:10px;">
+        <div>
+          <div style="font-size:13px; font-weight:900; color:#fed7aa;">새 블로그 이름·주소 예시</div>
+          <div style="margin-top:3px; font-size:11px; color:#ffedd5; line-height:1.5;">
+            막막하면 아래 예시처럼 “넓은 주제 + 정보형 이름”으로 시작하세요. 주소는 영어 소문자, 짧은 단어 조합을 권장합니다.
+          </div>
+        </div>
+        <span style="flex-shrink:0; padding:4px 8px; border-radius:999px; background:rgba(251,191,36,0.14); border:1px solid rgba(251,191,36,0.28); color:#fde68a; font-size:10px; font-weight:900;">초보 추천</span>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px;">
+        ${examples.map((item) => `
+          <div style="padding:11px 12px; background:rgba(15,23,42,0.48); border:1px solid rgba(255,255,255,0.08); border-radius:10px;">
+            <div style="font-size:10px; color:#fdba74; font-weight:900;">${item.type}</div>
+            <div style="margin-top:4px; font-size:13px; color:#fff7ed; font-weight:900;">${item.title}</div>
+            <div style="margin-top:5px; font-size:11px; color:#93c5fd; font-weight:800;">${item.address}.blogspot.com</div>
+            <div style="margin-top:6px; font-size:10px; color:#cbd5e1; line-height:1.45;">주제: ${item.topics}</div>
+            <div style="margin-top:5px; font-size:10px; color:#fed7aa; line-height:1.45;">${item.note}</div>
+          </div>
+        `).join('')}
+      </div>
+      <div style="margin-top:10px; padding:9px 11px; background:rgba(2,6,23,0.32); border:1px solid rgba(255,255,255,0.07); border-radius:9px; color:#fde68a; font-size:11px; line-height:1.55;">
+        피해야 할 예시: 일상잡담처럼 주제가 너무 넓은 이름, 단일 키워드 하나만 담은 너무 좁은 이름, 기관명·상표명을 그대로 가져온 이름.
+      </div>
+    </div>
+  `;
+}
+
 export function renderOneclickSetupTab() {
   return `
     <div style="display: flex; flex-direction: column; gap: 24px;">
@@ -1250,68 +1434,29 @@ export function renderOneclickSetupTab() {
         <div id="oneclick-healthcheck-results" style="margin-top: 8px;"></div>
       </div>
 
-      <div id="oneclick-demo-card" style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(168, 85, 247, 0.32); border-radius: 16px; padding: 20px;">
-        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:14px;">
-          <div style="display:flex; align-items:flex-start; gap:12px;">
-            <div style="width:40px; height:40px; background:linear-gradient(135deg,#8b5cf6,#6366f1); border-radius:12px; display:flex; align-items:center; justify-content:center; box-shadow:0 8px 24px rgba(139,92,246,0.25);">
-              <span style="font-size:20px;">➕</span>
-            </div>
-            <div>
-              <h4 style="margin:0; font-weight:900; color:white; font-size:16px; letter-spacing:-0.2px;">계정 추가하기</h4>
-              <p style="margin:4px 0 0; font-size:12px; color:#c4b5fd; line-height:1.55;">
-                처음 세팅하는 사용자와 같은 순서로 Chrome/브라우저 창을 열고, 로그인 대기·OAuth·App Password·Blog ID 단계를 앱 가이드가 하나씩 안내합니다.
-                단순 연동상태 확인이 아니라 실제 계정 추가 흐름으로 진행되며, 성공하면 앱 설정에 새 계정 정보가 저장됩니다.
-              </p>
-            </div>
-          </div>
-          <button type="button" onclick="window.__oneclickSetup?.stopOneclickGuideDemo()"
-            style="padding:9px 12px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.32); color:#fecaca; border-radius:10px; font-size:12px; font-weight:800; cursor:pointer; white-space:nowrap;">
-            진행 중지
-          </button>
-        </div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px;">
-          <button type="button" onclick="window.__oneclickSetup?.startOneclickAccountAddFlow('blogspot','connect')"
-            style="padding:11px 12px; background:rgba(255,87,34,0.13); border:1px solid rgba(255,87,34,0.34); color:#fed7aa; border-radius:11px; font-size:12px; font-weight:850; cursor:pointer;">
-            Blogspot 계정 추가하기
-          </button>
-          <button type="button" onclick="window.__oneclickSetup?.startOneclickAccountAddFlow('wordpress','connect')"
-            style="padding:11px 12px; background:rgba(33,117,155,0.14); border:1px solid rgba(33,117,155,0.34); color:#bae6fd; border-radius:11px; font-size:12px; font-weight:850; cursor:pointer;">
-            WordPress 계정 추가하기
-          </button>
-          <button type="button" onclick="window.__oneclickSetup?.startOneclickAccountAddFlow('blogspot','setup')"
-            style="padding:11px 12px; background:rgba(139,92,246,0.14); border:1px solid rgba(139,92,246,0.34); color:#ddd6fe; border-radius:11px; font-size:12px; font-weight:850; cursor:pointer;">
-            Blogspot 새 블로그 세팅
-          </button>
-          <button type="button" onclick="window.__oneclickSetup?.startOneclickAccountAddFlow('wordpress','setup')"
-            style="padding:11px 12px; background:rgba(14,165,233,0.14); border:1px solid rgba(14,165,233,0.34); color:#bae6fd; border-radius:11px; font-size:12px; font-weight:850; cursor:pointer;">
-            WordPress 새 사이트 세팅
-          </button>
-          <button type="button" onclick="window.__oneclickSetup?.startOneclickAccountAddFlow('blogspot','blogger-blog-id')"
-            style="padding:11px 12px; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.34); color:#fde68a; border-radius:11px; font-size:12px; font-weight:850; cursor:pointer;">
-            Blog ID 가져오기
-          </button>
-          <button type="button" onclick="window.__oneclickSetup?.startOneclickGuideDemo('connect','blogspot')"
-            style="padding:11px 12px; background:rgba(100,116,139,0.12); border:1px solid rgba(148,163,184,0.28); color:#cbd5e1; border-radius:11px; font-size:12px; font-weight:800; cursor:pointer;">
-            단계 미리보기
-          </button>
-        </div>
+      ${renderBeginnerPathCard()}
+
+      <!-- STEP 1: 새 블로그/사이트 준비 -->
+      <div style="display: flex; align-items: center; gap: 14px; margin: 8px 0 4px;">
+        <span style="padding: 5px 12px; background: linear-gradient(135deg, #f97316, #ea580c); color: white; border-radius: 8px; font-size: 11px; font-weight: 900; letter-spacing: 0.05em; box-shadow: 0 4px 12px rgba(249, 115, 22, 0.4);">STEP 1</span>
+        <h4 style="margin: 0; color: #fed7aa; font-size: 15px; font-weight: 800; letter-spacing: -0.2px;">새 블로그/사이트 준비</h4>
+        <span style="color: rgba(254, 215, 170, 0.6); font-size: 11px;">처음이면 여기부터, 이미 있다면 STEP 2로 이동하세요</span>
       </div>
+      ${renderPlatformCard(PLATFORMS.blogspot)}
+      ${renderPlatformCard(PLATFORMS.wordpress)}
 
-      <!-- v3.7.23: 카드 순서 재정렬 (1) 앱 연동 → (2) 플랫폼 → (3) 웹마스터 → (4) 인프라
-           블로그스팟/워드프레스 카드는 아래(STEP 2)로 이동됨. -->
-
-      <!-- v3.7.23: STEP 1 — 앱 ↔ 플랫폼 원클릭 연동 (모든 자동화의 전제이므로 1순위로 끌어올림) -->
+      <!-- STEP 2: 계정 추가 / 앱 연동 -->
       <div style="background: rgba(30, 41, 59, 0.4); border: 2px solid rgba(139, 92, 246, 0.45); border-radius: 16px; padding: 24px; box-shadow: 0 12px 36px rgba(139, 92, 246, 0.18);">
         <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 16px;">
           <div style="position: relative; flex-shrink: 0;">
             <div style="width: 48px; height: 48px; background: linear-gradient(135deg, #8b5cf6, #6d28d9); border-radius: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(139, 92, 246, 0.4);">
               <span style="font-size: 24px;">🔗</span>
             </div>
-            <span style="position: absolute; top: -8px; right: -8px; padding: 3px 8px; background: linear-gradient(135deg, #a855f7, #ec4899); color: white; border-radius: 8px; font-size: 10px; font-weight: 900; letter-spacing: 0.05em; box-shadow: 0 4px 12px rgba(168, 85, 247, 0.5);">STEP 1</span>
+            <span style="position: absolute; top: -8px; right: -8px; padding: 3px 8px; background: linear-gradient(135deg, #a855f7, #ec4899); color: white; border-radius: 8px; font-size: 10px; font-weight: 900; letter-spacing: 0.05em; box-shadow: 0 4px 12px rgba(168, 85, 247, 0.5);">STEP 2</span>
           </div>
           <div style="flex: 1; min-width: 0;">
-            <h4 style="margin: 0; font-weight: 800; color: white; font-size: 17px; letter-spacing: -0.3px;">앱 ↔ 플랫폼 원클릭 연동 <span style="margin-left: 8px; padding: 2px 8px; background: rgba(239, 68, 68, 0.18); color: #fca5a5; border-radius: 6px; font-size: 10px; font-weight: 700;">필수 · 1순위</span></h4>
-            <p style="margin: 4px 0 0; font-size: 12px; color: #c4b5fd;">⚠️ 이 연동이 먼저 완료되어야 STEP 2(플랫폼 세팅)와 STEP 3(웹마스터) 자동화가 작동합니다.</p>
+            <h4 style="margin: 0; font-weight: 800; color: white; font-size: 17px; letter-spacing: -0.3px;">계정 추가 / 앱 연동 <span style="margin-left: 8px; padding: 2px 8px; background: rgba(139, 92, 246, 0.18); color: #ddd6fe; border-radius: 6px; font-size: 10px; font-weight: 700;">발행 전 필수</span></h4>
+            <p style="margin: 4px 0 0; font-size: 12px; color: #c4b5fd;">블로그스팟은 블로그 생성 후 OAuth와 Blog ID를 연결하고, 워드프레스는 사이트 준비 후 App Password를 연결합니다.</p>
           </div>
         </div>
 
@@ -1498,15 +1643,6 @@ export function renderOneclickSetupTab() {
           </div>
         </div>
       </div>
-
-      <!-- v3.7.23: STEP 2 — 플랫폼 자동 세팅 (블로그스팟·워드프레스) -->
-      <div style="display: flex; align-items: center; gap: 14px; margin: 8px 0 4px;">
-        <span style="padding: 5px 12px; background: linear-gradient(135deg, #f97316, #ea580c); color: white; border-radius: 8px; font-size: 11px; font-weight: 900; letter-spacing: 0.05em; box-shadow: 0 4px 12px rgba(249, 115, 22, 0.4);">STEP 2</span>
-        <h4 style="margin: 0; color: #fed7aa; font-size: 15px; font-weight: 800; letter-spacing: -0.2px;">플랫폼 자동 세팅</h4>
-        <span style="color: rgba(254, 215, 170, 0.6); font-size: 11px;">STEP 1 연동 완료 후 진행하세요</span>
-      </div>
-      ${renderPlatformCard(PLATFORMS.blogspot)}
-      ${renderPlatformCard(PLATFORMS.wordpress)}
 
       <!-- v3.7.23: STEP 3 — 🔍 웹마스터도구 자동 세팅 -->
       <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 16px; padding: 24px;">
@@ -2422,12 +2558,12 @@ function renderSetupSummary(platformId, stepResults, opts = {}) {
   `;
 
   const rows = (stepResults || []).map(r => `
-    <div style="display:flex; justify-content:space-between; gap:10px; padding:8px 10px; margin-bottom:4px; background:${r.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border:1px solid ${r.ok ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.25)'}; border-radius:8px; align-items:center;">
+    <div style="display:grid; grid-template-columns:minmax(150px, 240px) 1fr; gap:10px; padding:9px 10px; margin-bottom:5px; background:${r.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}; border:1px solid ${r.ok ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.25)'}; border-radius:8px; align-items:start;">
       <div style="font-size:12px; color:${r.ok ? '#86efac' : '#fca5a5'}; font-weight:700;">
         ${r.ok ? '✅' : '❌'} Step ${r.index}. ${r.label}
       </div>
-      <div style="display:flex; gap:6px; align-items:center;">
-        <div style="font-size:11px; color:#94a3b8; max-width: 260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.message || ''}</div>
+      <div style="display:flex; gap:8px; align-items:flex-start; min-width:0;">
+        <div style="font-size:11px; color:#cbd5e1; line-height:1.55; white-space:normal; word-break:keep-all; overflow-wrap:anywhere;">${escapeHtml(r.message || '')}</div>
         ${!r.ok ? `<button class="oneclick-retry-btn" data-platform="${platformId}" data-step="${r.index}" style="padding:4px 10px; background:linear-gradient(135deg,#ef4444,#dc2626); color:white; border:none; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;">🔁 Step ${r.index} 재시도</button>` : ''}
       </div>
     </div>
@@ -4512,7 +4648,15 @@ function renderHealthcheckReport(el, report) {
 
 function renderPlatformCard(platform) {
   const stepCount = platform.steps.length;
-  const connectGuide = getPlatformConnectGuide(platform.id);
+  const isBlogspot = platform.id === 'blogspot';
+  const startLabel = isBlogspot
+    ? '블로그스팟 세팅 시작'
+    : platform.id === 'wordpress'
+      ? '사이트 세팅 시작'
+      : '단계별 세팅 시작';
+  const subtitle = isBlogspot
+    ? `${stepCount}단계 반자동 설정 • 이름·주소는 직접, 반복 설정은 자동`
+    : `${stepCount}단계 반자동 설정 • 로그인·입력은 직접, 반복 설정은 자동`;
   return `
     <div id="oneclick-card-${platform.id}"
       style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 24px; transition: all 0.3s;">
@@ -4528,7 +4672,7 @@ function renderPlatformCard(platform) {
               ${platform.name} 원클릭 세팅
             </h4>
             <p style="margin: 4px 0 0; font-size: 12px; color: rgba(255,255,255,0.5);">
-              ${stepCount}단계 반자동 설정 • 로그인·입력은 직접, 반복 설정은 자동
+              ${subtitle}
             </p>
           </div>
         </div>
@@ -4554,41 +4698,16 @@ function renderPlatformCard(platform) {
         창을 띄워두면 반복 설정은 자동으로 진행하지만, 로그인·2FA·CAPTCHA·권한 승인·새 블로그 이름 입력처럼 보안상 막히는 화면은 직접 완료해야 합니다.
       </div>
 
+      ${isBlogspot ? renderBlogspotCreationExamples() : ''}
+
       <!-- 시작 버튼 -->
       <button id="oneclick-btn-${platform.id}" onclick="window.__oneclickSetup?.startSetup('${platform.id}')"
         style="width: 100%; padding: 14px; background: ${platform.gradient}; color: white; border: none; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; box-shadow: 0 6px 20px ${platform.color}40; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px;"
         onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 10px 30px ${platform.color}50'"
         onmouseout="this.style.transform='none'; this.style.boxShadow='0 6px 20px ${platform.color}40'">
         <span>▶</span>
-        <span>단계별 세팅 시작</span>
+        <span>${startLabel}</span>
       </button>
-
-      ${(platform.id === 'blogspot' || platform.id === 'wordpress') ? `
-      <!-- 🔗 앱 연동 자동 설정 버튼 -->
-      <div style="margin-top: 8px; padding: 12px; background: rgba(15, 23, 42, 0.32); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px;">
-          <div style="font-size:12px; font-weight:850; color:#e2e8f0;">앱 연동 단계</div>
-          <div style="font-size:10px; color:#94a3b8;">가이드와 자동연동이 같은 순서로 진행됩니다</div>
-        </div>
-        ${renderConnectStepRail(platform.id, { compact: true })}
-      </div>
-      <div style="display:grid; grid-template-columns:minmax(110px, 0.7fr) minmax(0, 1.3fr); gap:8px; margin-top:8px;">
-        <button type="button" onclick="window.__oneclickSetup?.showPlatformConnectGuide('${platform.id}')"
-          style="width: 100%; padding: 12px; background: rgba(251,191,36,0.13); border: 1px solid rgba(251,191,36,0.34); color: #fde68a; border-radius: 12px; font-size: 13px; font-weight: 800; cursor: pointer; transition: all 0.3s;">
-          가이드 보기
-        </button>
-      <button id="oneclick-connect-btn-${platform.id}" onclick="window.__oneclickSetup?.startPlatformConnect('${platform.id}')"
-        style="width: 100%; padding: 12px; background: linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(99, 102, 241, 0.3)); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px;"
-        onmouseover="this.style.background='linear-gradient(135deg, rgba(139, 92, 246, 0.5), rgba(99, 102, 241, 0.5))'; this.style.transform='translateY(-1px)'"
-        onmouseout="this.style.background='linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(99, 102, 241, 0.3))'; this.style.transform='none'">
-        <span>🔗</span>
-        <span>${connectGuide?.autoLabel || (platform.id === 'wordpress' ? '가이드대로 App Password 생성' : '가이드대로 OAuth 연동 시작')}</span>
-      </button>
-      </div>
-      <div id="oneclick-connect-progress-${platform.id}" style="display: none; margin-top: 8px; padding: 12px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.2); border-radius: 10px;">
-        <div id="oneclick-connect-msg-${platform.id}" style="font-size: 12px; color: #c4b5fd;">준비 중...</div>
-      </div>
-      ` : ''}
 
       <!-- 진행 상태 (기본 숨김) -->
       <div id="oneclick-progress-${platform.id}" style="display: none; margin-top: 16px;">

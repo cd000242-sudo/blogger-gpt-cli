@@ -1782,8 +1782,11 @@ function bindModalEvents() {
       if (usesDropshot) {
         runModal.log('리더스 나노바나나 무제한 감지: 이미지 생성은 1개씩 순차 실행합니다.');
         if (window.electronAPI?.invoke) {
-          window.electronAPI.invoke('dropshot:check-login').then((r) => {
-            if (r?.loggedIn) runModal.log(`Dropshot 로그인 확인: ${r.subscription || 'unknown'}`);
+          const checkLogin = typeof window.checkDropshotLoginCached === 'function'
+            ? window.checkDropshotLoginCached({ maxAgeMs: 10 * 60 * 1000 })
+            : window.electronAPI.invoke('dropshot:check-login');
+          checkLogin.then((r) => {
+            if (r?.loggedIn) runModal.log(`Dropshot 로그인 확인: ${r.subscription || 'unknown'}${r.cached ? ' · 최근 확인값' : ''}`);
             else runModal.log(`Dropshot 로그인 확인 필요: ${r?.message || '로그인 정보 없음'}`);
           }).catch((e) => runModal.log(`Dropshot 상태 확인 실패: ${e?.message || e}`));
         }

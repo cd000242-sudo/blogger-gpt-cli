@@ -871,7 +871,9 @@ async function spiderHandleDropshotCheckLogin() {
   status.textContent = '⏳ 확인 중...';
   status.style.color = 'rgba(255,255,255,0.6)';
   try {
-    const r = await window.electronAPI?.invoke?.('dropshot:check-login');
+    const r = typeof window.checkDropshotLoginCached === 'function'
+      ? await window.checkDropshotLoginCached({ force: true })
+      : await window.electronAPI?.invoke?.('dropshot:check-login', { force: true });
     if (window.handlePaymentRequiredResponse && window.handlePaymentRequiredResponse(r)) {
       status.textContent = '🛡️ 유료 라이선스 필요';
       status.style.color = '#fbbf24';
@@ -2039,7 +2041,9 @@ async function generateAndPublishSpiderWeb() {
       const issues = [];
       if (usesDropshot && window.electronAPI?.invoke) {
         try {
-          const r = await window.electronAPI.invoke('dropshot:check-login');
+          const r = typeof window.checkDropshotLoginCached === 'function'
+            ? await window.checkDropshotLoginCached({ maxAgeMs: 10 * 60 * 1000 })
+            : await window.electronAPI.invoke('dropshot:check-login');
           if (!r?.loggedIn) {
             issues.push({ engine: '리더스 나노바나나 무제한', reason: r?.message || '로그인 필요', action: '거미줄 Step 03 카드의 [🔑 리더스 나노바나나 로그인] 버튼 클릭 후 사이트 로그인' });
           }

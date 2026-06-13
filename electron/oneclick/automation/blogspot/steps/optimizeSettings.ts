@@ -33,6 +33,23 @@ export async function optimizeSettings(
     }
     await sleep(3000);
 
+    let settingsPageEvidence = '설정 페이지 확인 필요';
+    try {
+      const evidence = await page.evaluate(() => {
+        const text = (document.body?.innerText || '').replace(/\s+/g, ' ');
+        return [
+          /HTTPS/i.test(text) ? 'HTTPS 항목' : '',
+          /검색 엔진|Search engine|Visible to search engines/i.test(text) ? '검색엔진 노출 항목' : '',
+          /메타태그|Meta tags/i.test(text) ? '메타태그 항목' : '',
+          /댓글|Comments/i.test(text) ? '댓글 설정 항목' : '',
+          /시간대|Time zone/i.test(text) ? '시간대 항목' : '',
+        ].filter(Boolean);
+      });
+      if (evidence.length) {
+        settingsPageEvidence = `설정 화면 근거: ${evidence.join(', ')} 확인`;
+      }
+    } catch { /* 근거 수집 실패는 자동 설정 자체를 막지 않음 */ }
+
     // 설명(Description) 입력
     if (config.blogDescription) {
       state.message = '블로그 설명 설정 중...';
@@ -81,13 +98,22 @@ export async function optimizeSettings(
     // 토글/체크박스 항목 자동 설정
     state.message = '이미지 라이트박스, 지연 로드, WebP 활성화 중...';
     let toggleDone = false;
+    let toggleEvidence = '토글 항목 확인 필요';
     try {
-      await page.evaluate(() => {
+      const toggleSummary = await page.evaluate(() => {
         const toggleItems = document.querySelectorAll('[role="checkbox"], [role="switch"], input[type="checkbox"]');
+        const summary = {
+          alreadyOn: 0,
+          turnedOn: 0,
+          alreadyOff: 0,
+          turnedOff: 0,
+          labels: [] as string[],
+        };
 
         toggleItems.forEach((toggle: any) => {
           const parentText = toggle.closest('[class]')?.textContent || '';
           const label = parentText.toLowerCase();
+          const labelName = parentText.replace(/\s+/g, ' ').trim().slice(0, 34);
 
           const shouldEnable = [
             '라이트박스', 'lightbox',
@@ -108,21 +134,32 @@ export async function optimizeSettings(
             const isChecked = toggle.getAttribute('aria-checked') === 'true' || toggle.checked;
             if (!isChecked) {
               toggle.click();
+              summary.turnedOn++;
               console.log('[ONECLICK] ✅ 활성화:', parentText.slice(0, 50));
+            } else {
+              summary.alreadyOn++;
             }
+            if (labelName) summary.labels.push(labelName);
           }
 
           if (matchDisable) {
             const isChecked = toggle.getAttribute('aria-checked') === 'true' || toggle.checked;
             if (isChecked) {
               toggle.click();
+              summary.turnedOff++;
               console.log('[ONECLICK] ❌ 비활성화:', parentText.slice(0, 50));
+            } else {
+              summary.alreadyOff++;
             }
+            if (labelName) summary.labels.push(labelName);
           }
         });
+        summary.labels = Array.from(new Set(summary.labels)).slice(0, 5);
+        return summary;
       });
       await sleep(1000);
       toggleDone = true;
+      toggleEvidence = `토글 확인: 이미 ON ${toggleSummary.alreadyOn}개 / 새로 ON ${toggleSummary.turnedOn}개 / 이미 OFF ${toggleSummary.alreadyOff}개 / 새로 OFF ${toggleSummary.turnedOff}개${toggleSummary.labels.length ? ` (${toggleSummary.labels.join(', ')})` : ''}`;
     } catch (e) {
       console.warn('[ONECLICK-BLOGSPOT] 토글 설정 실패:', e);
     }
@@ -177,12 +214,13 @@ export async function optimizeSettings(
     }
 
     const settingResults = [
+      settingsPageEvidence,
       postCountDone ? '글개수 ✅' : '글개수 ❌',
-      toggleDone ? '토글항목 ✅' : '토글항목 ❌',
+      toggleDone ? toggleEvidence : '토글항목 ❌',
       commentDone ? '댓글숨기기 ✅' : '댓글숨기기 ❌',
       timezoneDone ? '시간대 ✅' : '시간대 ❌',
     ].join(' / ');
-    state.message = `설정 최적화 결과: ${settingResults}`;
+    state.message = `설정 최적화 확인 완료 — ${settingResults}. 이미 세팅된 항목은 유지하고 필요한 항목만 보정했습니다.`;
   } catch (e) {
     console.error('[ONECLICK-BLOGSPOT] 설정 최적화 오류:', e);
     state.message = '설정 최적화 일부 완료 (수동 확인 권장)';

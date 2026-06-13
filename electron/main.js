@@ -6485,14 +6485,14 @@ catch (e) {
 // 🛡️ v3.7.11: license gate — 무료체험/none/expired는 dropshot 진입 자체 차단.
 try {
     const { checkDropshotLogin, loginDropshot } = require('../dist/core/dropshotGenerator');
-    electron_1.ipcMain.handle('dropshot:check-login', async () => {
+    electron_1.ipcMain.handle('dropshot:check-login', async (_event, options) => {
         try {
             const { checkImageGenAccess } = require('../dist/utils/license-tier-manager');
             const access = checkImageGenAccess();
             if (!access.allowed) {
                 return { loggedIn: false, message: access.message, code: `PAYMENT_REQUIRED:${access.reason}`, paymentUrl: access.paymentUrl, kakaoUrl: access.kakaoUrl };
             }
-            return await checkDropshotLogin();
+            return await checkDropshotLogin({ force: options?.force === true });
         }
         catch (e) {
             return { loggedIn: false, message: e.message || 'Dropshot 로그인 확인 실패' };

@@ -114,7 +114,12 @@ export async function runBlogspotSetup(
     if (resumeFrom <= 1) {
       blogId = await createBlog(state, page, config);
       if (state.cancelled) return;
-      recordStep(1, '블로그 만들기', !!blogId, state.message || (blogId ? `blogId=${blogId}` : '실패'));
+      recordStep(1, '블로그 확인/생성', !!blogId && state.stepStatus !== 'error', state.message || (blogId ? `blogId=${blogId}` : '실패'));
+      if (!blogId || state.stepStatus === 'error') {
+        state.error = state.error || state.message || 'Blog ID 확인 실패 — 다음 단계로 진행할 수 없습니다.';
+        state.stepStatus = 'error';
+        return;
+      }
     }
 
     // ─── Step 2: 설정 자동 최적화 (13개 항목) ───
