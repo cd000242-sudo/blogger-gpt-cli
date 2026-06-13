@@ -252,7 +252,7 @@ export class ScheduleManager {
       const normalizePlatform = (platform: string | undefined) => {
         const raw = String(platform || '').toLowerCase();
         if (raw === 'blogger') return 'blogspot';
-        if (raw === 'wordpress' || raw === 'blogspot') return raw;
+        if (raw === 'wordpress' || raw === 'blogspot' || raw === 'tistory') return raw;
         return 'blogspot';
       };
       const normalizePostingMode = (mode: string | undefined) => {
@@ -264,12 +264,14 @@ export class ScheduleManager {
         return 'publish';
       };
       const postingMode = normalizePostingMode(schedule.payload?.postingMode || schedule.payload?.publishType || schedule.publishType);
+      const scheduleTime = new Date(schedule.scheduleDateTime).getTime();
+      const shouldPublishNow = postingMode === 'schedule' && Number.isFinite(scheduleTime) && scheduleTime <= Date.now();
       const schedulePayload = {
         ...schedule.payload,
         platform: normalizePlatform(schedule.payload?.platform || schedule.platform),
-        publishType: postingMode,
-        postingMode,
-        scheduleDate: postingMode === 'schedule'
+        publishType: shouldPublishNow ? 'publish' : postingMode,
+        postingMode: shouldPublishNow ? 'publish' : postingMode,
+        scheduleDate: postingMode === 'schedule' && !shouldPublishNow
           ? (schedule.payload?.scheduleDate || schedule.scheduleDateTime)
           : undefined,
         previewOnly: false,

@@ -1705,6 +1705,9 @@ export async function publishGeneratedContent(
       console.log(`[PUBLISH] postingMode 변환: "${rawPostingMode}" → "schedule"`);
     }
     const scheduleDate = payload?.scheduleDate ? new Date(payload.scheduleDate) : null;
+    if (postingMode === 'schedule' && (!scheduleDate || Number.isNaN(scheduleDate.getTime()))) {
+      throw new Error('예약 발행에는 올바른 예약 날짜와 시간이 필요합니다.');
+    }
 
     console.log('[PUBLISH] publishGeneratedContent 호출');
     console.log('[PUBLISH] 원본 플랫폼 값:', payload?.platform);
@@ -1738,6 +1741,35 @@ export async function publishGeneratedContent(
         error: result.error,
         needsAuth: result.needsAuth
       };
+    } else if (platform === 'tistory') {
+      console.log('[PUBLISH] 티스토리 발행 시작');
+
+      try {
+        const { publishToTistory } = require('../tistory/tistory-publisher');
+        const result = await publishToTistory(
+          payload,
+          title,
+          html,
+          thumbnailUrl || '',
+          (msg: string) => console.log(msg),
+          postingMode,
+          scheduleDate
+        );
+
+        console.log('[PUBLISH] 티스토리 발행 결과:', result);
+
+        return {
+          ok: !!result.ok,
+          url: result.url,
+          postId: result.postId,
+          id: result.postId,
+          error: result.error,
+          needsAuth: result.needsAuth
+        };
+      } catch (tistoryError: any) {
+        console.error('[PUBLISH] 티스토리 발행 오류:', tistoryError);
+        return { ok: false, error: tistoryError.message || '티스토리 발행 실패' };
+      }
     } else if (platform === 'wordpress') {
       // 워드프레스
       console.log('[PUBLISH] 워드프레스 발행 시작');

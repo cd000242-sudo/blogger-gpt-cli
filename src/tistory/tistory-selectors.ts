@@ -1,0 +1,120 @@
+export const TISTORY_URLS = {
+  login: 'https://www.tistory.com/auth/login',
+  home: 'https://www.tistory.com/',
+  manage: 'https://www.tistory.com/',
+  write: (blogName: string) => `https://${blogName}.tistory.com/manage/newpost`,
+  category: (blogName: string) => `https://${blogName}.tistory.com/manage/category`,
+};
+
+export const TISTORY_SELECTORS = {
+  login: {
+    kakaoLoginButtons: [
+      'a[href*="kakao"]',
+      'button:has-text("\\uCE74\\uCE74\\uC624")',
+      'a:has-text("\\uCE74\\uCE74\\uC624")',
+      'text=\\uCE74\\uCE74\\uC624\\uACC4\\uC815\\uC73C\\uB85C \\uB85C\\uADF8\\uC778',
+    ],
+  },
+  home: {
+    writeLinks: [
+      'a.link_tab[href*="/manage/newpost"]',
+      'a[href*=".tistory.com/manage/newpost"]',
+    ],
+  },
+  editor: {
+    introModalCloseButtons: [
+      '.layer_post_intro .btn_close',
+      '.layer_post_intro button:has-text("\\uB2EB\\uAE30")',
+      'button:has-text("\\uB2EB\\uAE30")',
+      'button[aria-label="\\uB2EB\\uAE30"]',
+    ],
+    titleInputs: [
+      'textarea#post-title-inp',
+      '#post-title-inp',
+      'textarea[placeholder*="\\uC81C\\uBAA9"]',
+      'input[placeholder*="\\uC81C\\uBAA9"]',
+      '[contenteditable="true"][data-placeholder*="\\uC81C\\uBAA9"]',
+    ],
+    modeButtons: [
+      '#editor-mode-layer-btn-open',
+      '[data-button-type="mode"]',
+      'button:has-text("\\uAE30\\uBCF8\\uBAA8\\uB4DC")',
+      'button:has-text("\\uB9C8\\uD06C\\uB2E4\\uC6B4")',
+      'button:has-text("HTML")',
+      '.editor-mode button',
+    ],
+    htmlModeButtons: [
+      '#editor-mode-html',
+      '#editor-mode-html-text',
+      'button:has-text("HTML")',
+      '[role="menuitem"]:has-text("HTML")',
+      'li:has-text("HTML")',
+      'text=HTML',
+    ],
+    htmlEditors: [
+      '#html-editor',
+      'textarea#html-editor',
+      'textarea[name="html"]',
+      'textarea[data-mode="html"]',
+      'textarea.tx-source',
+      'textarea.CodeMirror-code',
+      '.CodeMirror textarea',
+      '.cm-content[contenteditable="true"]',
+    ],
+    richEditors: [
+      '.contents_style[contenteditable="true"]',
+      '.editor-content[contenteditable="true"]',
+      '[contenteditable="true"]',
+      'iframe',
+    ],
+    categoryTriggers: [
+      'button#category-btn',
+      '[data-category-trigger]',
+      'button:has-text("\\uCE74\\uD14C\\uACE0\\uB9AC")',
+      '.category button',
+    ],
+    tagInputs: [
+      'input#tagText',
+      'input[placeholder*="\\uD0DC\\uADF8"]',
+      '.tag_post input',
+    ],
+    tempSaveButtons: [
+      '#temp-save-btn',
+      '#save-btn',
+      '#save-button',
+      '#draft-btn',
+      'button[id*="save"]',
+      'button[id*="draft"]',
+      'button[class*="save"]',
+      '.btn_save',
+      '.btn-draft',
+      'button:has-text("\\uC784\\uC2DC\\uC800\\uC7A5")',
+      'button:has-text("\\uC800\\uC7A5")',
+      'button#temp-save-btn',
+    ],
+    publishButtons: [
+      '#publish-layer-btn',
+      'button#publish-layer-btn',
+    ],
+    publishConfirmButtons: [
+      '#publish-btn',
+      '.layer_publish #publish-btn',
+      'button#publish-btn',
+      '.layer_publish button:has-text("\\uBC1C\\uD589")',
+      '.layer_publish button:has-text("\\uACF5\\uAC1C \\uBC1C\\uD589")',
+      'button:has-text("\\uACF5\\uAC1C \\uBC1C\\uD589")',
+      'button:has-text("\\uBC1C\\uD589")',
+    ],
+    visibility: {
+      public: [
+        'input[name="visibility"][value="20"]',
+      ],
+      private: [
+        'input[name="visibility"][value="0"]',
+      ],
+      protected: [
+        'input[name="visibility"][value="15"]',
+      ],
+    },
+  },
+};

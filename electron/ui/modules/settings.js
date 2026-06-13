@@ -25,7 +25,7 @@ export async function loadSettings() {
   if (!settings.platform || settings.platform === undefined || settings.platform === null || settings.platform === '' || settings.platform === 'undefined' || settings.platform === 'null') {
     settings.platform = 'wordpress';
     console.log('[LOAD] 플랫폼 기본값 설정: wordpress (저장된 값 없음 또는 유효하지 않음)');
-  } else if (settings.platform === 'blogger') {
+  } else if (settings.platform === 'blogger' || settings.platform === 'tistory') {
     // 저장된 값이 Blogger인 경우에만 Blogger 사용 (사용자가 명시적으로 저장한 경우)
     console.log('[LOAD] 플랫폼 설정: blogger (사용자가 저장한 값)');
   } else {
@@ -64,6 +64,9 @@ export async function saveSettings() {
     wordpressUsername: document.getElementById('wordpressUsername')?.value || '',
     wordpressPassword: document.getElementById('wordpressPassword')?.value || '',
     wordpressCategories: document.getElementById('wordpressCategories')?.value || '',
+    tistoryBlogName: document.getElementById('tistoryBlogName')?.value || '',
+    tistoryDefaultCategory: document.getElementById('tistoryDefaultCategory')?.value || '',
+    tistoryDefaultVisibility: document.getElementById('tistoryDefaultVisibility')?.value || 'private',
     platform: document.querySelector('input[name="platform"]:checked')?.value || 'wordpress',
     primaryGeminiTextModel: document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value || 'gemini-2.5-flash',
     generationEngine: (() => {
@@ -104,6 +107,9 @@ export async function saveSettings() {
         wordpressSiteUrl: settings.wordpressSiteUrl,
         wordpressUsername: settings.wordpressUsername,
         wordpressPassword: settings.wordpressPassword,
+        tistoryBlogName: settings.tistoryBlogName,
+        tistoryDefaultCategory: settings.tistoryDefaultCategory,
+        tistoryDefaultVisibility: settings.tistoryDefaultVisibility,
         googleCseKey: settings.googleCseKey,
         googleCseCx: settings.googleCseCx,
         geminiKey: settings.geminiKey,
@@ -165,15 +171,23 @@ export async function saveSettings() {
   const savedPlatform = settings.platform || 'wordpress';
   const platformBloggerEl = document.getElementById('platform-blogger');
   const platformWordpressEl = document.getElementById('platform-wordpress');
+  const platformTistoryEl = document.getElementById('platform-tistory');
 
   if (platformBloggerEl && platformWordpressEl) {
     if (savedPlatform === 'blogger') {
       platformBloggerEl.checked = true;
       platformWordpressEl.checked = false;
+      if (platformTistoryEl) platformTistoryEl.checked = false;
       console.log('✅ 저장 후 플랫폼 라디오 버튼 업데이트: Blogger');
+    } else if (savedPlatform === 'tistory') {
+      platformBloggerEl.checked = false;
+      platformWordpressEl.checked = false;
+      if (platformTistoryEl) platformTistoryEl.checked = true;
+      console.log('[SETTINGS] Saved platform radio updated: Tistory');
     } else {
       platformBloggerEl.checked = false;
       platformWordpressEl.checked = true;
+      if (platformTistoryEl) platformTistoryEl.checked = false;
       console.log('✅ 저장 후 플랫폼 라디오 버튼 업데이트: WordPress');
     }
 
@@ -520,6 +534,9 @@ export async function loadSettingsContent() {
         'wordpressSiteUrl': mergedSettings.wordpressSiteUrl || mergedSettings.wpSiteUrl || mergedSettings.wordpressUrl || '',
         'wordpressUsername': mergedSettings.wordpressUsername || mergedSettings.wpUsername || mergedSettings.wordpressUser || '',
         'wordpressPassword': mergedSettings.wordpressPassword || mergedSettings.wpPassword || mergedSettings.wordpressPass || '',
+        'tistoryBlogName': mergedSettings.tistoryBlogName || mergedSettings.TISTORY_BLOG_NAME || mergedSettings.tistoryBlogUrl || '',
+        'tistoryDefaultCategory': mergedSettings.tistoryDefaultCategory || mergedSettings.TISTORY_DEFAULT_CATEGORY || '',
+        'tistoryDefaultVisibility': mergedSettings.tistoryDefaultVisibility || mergedSettings.TISTORY_DEFAULT_VISIBILITY || 'private',
         'imageFolderPath': mergedSettings.imageFolderPath || '',
         'generationEngine': mergedSettings.generationEngine || mergedSettings.provider || 'gemini',
         'blogUrl': mergedSettings.blogUrl || '',
@@ -549,22 +566,30 @@ export async function loadSettingsContent() {
       // 플랫폼 선택: 사용자가 원하는 것은 앱 시작 시 WordPress가 기본값이므로,
       // 모달을 열 때 저장된 값이 명시적으로 'blogger'인 경우에만 Blogger 표시
       // 그 외에는 항상 WordPress를 기본값으로 표시
-      const platformToShow = (savedSettings && savedSettings.platform === 'blogger') ? 'blogger' : 'wordpress';
+      const platformToShow = (savedSettings && (savedSettings.platform === 'blogger' || savedSettings.platform === 'tistory')) ? savedSettings.platform : 'wordpress';
       console.log('🔧 플랫폼 설정 (모달 라디오 버튼):', platformToShow, '(저장된 값:', savedSettings?.platform, ')');
 
       const platformBloggerEl = document.getElementById('platform-blogger');
       const platformWordpressEl = document.getElementById('platform-wordpress');
+      const platformTistoryEl = document.getElementById('platform-tistory');
 
       if (platformBloggerEl && platformWordpressEl) {
         // 저장된 값이 명시적으로 'blogger'인 경우에만 Blogger 표시
         if (platformToShow === 'blogger') {
           platformBloggerEl.checked = true;
           platformWordpressEl.checked = false;
+          if (platformTistoryEl) platformTistoryEl.checked = false;
           console.log('✅ 플랫폼 라디오 버튼: Blogger (사용자가 저장한 값)');
+        } else if (platformToShow === 'tistory' && platformTistoryEl) {
+          platformBloggerEl.checked = false;
+          platformWordpressEl.checked = false;
+          platformTistoryEl.checked = true;
+          console.log('Platform radio button: Tistory');
         } else {
           // 기본값은 WordPress
           platformBloggerEl.checked = false;
           platformWordpressEl.checked = true;
+          if (platformTistoryEl) platformTistoryEl.checked = false;
           console.log('✅ 플랫폼 라디오 버튼: WordPress (기본값)');
         }
       } else {
@@ -1044,5 +1069,49 @@ window.submitBloggerAuthCode = async function () {
   } catch (error) {
     console.error('❌ Blogger 인증 코드 제출 오류:', error);
     alert('❌ 인증 코드 제출 중 오류가 발생했습니다: ' + error.message);
+  }
+};
+
+window.openTistoryLoginFromSettings = async function () {
+  const blogName = document.getElementById('tistoryBlogName')?.value?.trim() || '';
+  const status = document.getElementById('tistorySessionStatus');
+  if (!blogName) {
+    if (status) status.textContent = '먼저 티스토리 블로그명 또는 주소를 입력해주세요.';
+    alert('먼저 티스토리 블로그명 또는 주소를 입력해주세요.');
+    return;
+  }
+
+  try {
+    if (status) status.textContent = '티스토리 로그인 창을 여는 중입니다...';
+    const result = await window.blogger?.openTistoryLogin?.({ tistoryBlogName: blogName });
+    if (status) {
+      status.textContent = result?.ok
+        ? '로그인 창을 열었습니다. 브라우저에서 로그인 후 세션 확인을 눌러주세요.'
+        : `로그인 창 열기 실패: ${result?.error || 'unknown'}`;
+    }
+  } catch (error) {
+    if (status) status.textContent = `로그인 창 열기 실패: ${error?.message || error}`;
+  }
+};
+
+window.checkTistorySessionFromSettings = async function () {
+  const blogName = document.getElementById('tistoryBlogName')?.value?.trim() || '';
+  const status = document.getElementById('tistorySessionStatus');
+  if (!blogName) {
+    if (status) status.textContent = '먼저 티스토리 블로그명 또는 주소를 입력해주세요.';
+    alert('먼저 티스토리 블로그명 또는 주소를 입력해주세요.');
+    return;
+  }
+
+  try {
+    if (status) status.textContent = '티스토리 세션을 확인하는 중입니다...';
+    const result = await window.blogger?.checkTistorySession?.({ tistoryBlogName: blogName });
+    if (status) {
+      status.textContent = result?.authenticated
+        ? `연동 확인됨: ${result.blogUrl || blogName}`
+        : `로그인이 필요합니다: ${result?.error || '글쓰기 화면을 확인하지 못했습니다.'}`;
+    }
+  } catch (error) {
+    if (status) status.textContent = `세션 확인 실패: ${error?.message || error}`;
   }
 };

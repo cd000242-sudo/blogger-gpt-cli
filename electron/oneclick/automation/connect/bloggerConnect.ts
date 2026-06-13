@@ -2,6 +2,63 @@ import type { ConnectState } from '../../types';
 import { GCP_SELECTORS } from '../../config/selectors';
 
 const GOOGLE_AUTH_AUDIENCE_URL = 'https://console.cloud.google.com/auth/audience';
+const MANUAL_ACTION_TIMEOUT_MS = 15 * 60 * 1000;
+const PAGE_READY_POLL_MS = 2000;
+
+function blockForManualAction(
+  state: ConnectState,
+  currentStep: number,
+  message: string,
+  results: Record<string, string>,
+): void {
+  state.currentStep = currentStep;
+  state.stepStatus = 'waiting-login';
+  state.results = results;
+  state.error = message;
+  state.message = message;
+}
+
+function isGoogleLoginUrl(url: string): boolean {
+  return /accounts\.google\.com|signin/i.test(url || '');
+}
+
+async function waitForGoogleConsoleReady(state: ConnectState, page: any): Promise<boolean> {
+  const startedAt = Date.now();
+
+  while (!state.cancelled && Date.now() - startedAt <= MANUAL_ACTION_TIMEOUT_MS) {
+    let url = '';
+    try {
+      url = page.url();
+    } catch {
+      url = '';
+    }
+
+    if (isGoogleLoginUrl(url)) {
+      state.stepStatus = 'waiting-login';
+      state.message = '🔐 Google 계정 로그인/2단계 인증/CAPTCHA를 완료해주세요. 완료 전에는 다음 단계로 넘어가지 않습니다.';
+    } else if (/console\.cloud\.google\.com/i.test(url)) {
+      const ready = await page.evaluate(() => {
+        const text = (document.body?.innerText || '').trim();
+        return document.readyState !== 'loading' && text.length > 0;
+      }).catch(() => false);
+
+      if (ready) {
+        state.stepStatus = 'running';
+        return true;
+      }
+
+      state.stepStatus = 'waiting-login';
+      state.message = 'Google Cloud Console 화면이 아직 완전히 뜨지 않았습니다. 화면 로딩이 끝날 때까지 기다립니다.';
+    } else {
+      state.stepStatus = 'waiting-login';
+      state.message = 'Google Cloud Console 창이 아직 준비되지 않았습니다. 열린 브라우저 창을 확인해주세요.';
+    }
+
+    await page.waitForTimeout(PAGE_READY_POLL_MS);
+  }
+
+  return false;
+}
 
 async function clickFirstVisible(page: any, selectors: string[], timeout = 2500): Promise<boolean> {
   for (const selector of selectors) {
@@ -121,7 +178,16 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
   state.currentStep = 0;
   state.message = 'Google Cloud Console로 이동 중...';
   await page.goto('https://console.cloud.google.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForTimeout(3000);
+  const consoleReady = await waitForGoogleConsoleReady(state, page);
+  if (!consoleReady) {
+    blockForManualAction(
+      state,
+      0,
+      '⚠️ Google Cloud Console 창 준비를 확인하지 못했습니다. 열린 브라우저에서 로그인/로딩을 완료한 뒤 원클릭을 다시 시작해주세요.',
+      results,
+    );
+    return;
+  }
 
   // 2) 로그인 확인
   const needsLogin = (await page.url()).includes('accounts.google.com') || (await page.url()).includes('signin');
@@ -252,7 +318,13 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
             const email = await getCurrentGoogleAccountEmail(page);
             const added = await addOAuthTestUserIfPossible(state, page, email);
             if (!added) {
-              state.message = 'OAuth 테스트 사용자 단계에서 로그인한 Gmail을 추가한 뒤 저장/계속을 눌러주세요.';
+              blockForManualAction(
+                state,
+                4,
+                '⚠️ OAuth 테스트 사용자 등록이 확인되지 않았습니다. Google Cloud의 Audience/Test users 화면에서 로그인한 Gmail을 추가하고 저장한 뒤 다시 진행해주세요.',
+                results,
+              );
+              return;
             }
             await skipBtn2.click().catch(() => {});
             await page.waitForTimeout(2000);
@@ -272,9 +344,24 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
   state.currentStep = 4;
   try {
     const email = await getCurrentGoogleAccountEmail(page);
-    await addOAuthTestUserIfPossible(state, page, email);
+    const added = await addOAuthTestUserIfPossible(state, page, email);
+    if (!added) {
+      blockForManualAction(
+        state,
+        4,
+        '⚠️ OAuth 테스트 사용자 등록을 확인하지 못했습니다. Audience/Test users에 현재 Gmail을 추가하고 저장한 뒤 다시 진행해주세요.',
+        results,
+      );
+      return;
+    }
   } catch {
-    state.message = 'OAuth 테스트 사용자 자동 확인을 건너뜁니다. access_denied가 뜨면 Audience/Test users 화면에서 로그인 Gmail을 추가해주세요.';
+    blockForManualAction(
+      state,
+      4,
+      '⚠️ OAuth 테스트 사용자 자동 확인에 실패했습니다. Audience/Test users 화면에서 로그인 Gmail을 직접 추가하고 저장한 뒤 다시 진행해주세요.',
+      results,
+    );
+    return;
   }
 
   if (state.cancelled) return;
@@ -390,15 +477,15 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
           if (results['googleClientId'] && results['googleClientSecret']) {
             state.message = '✅ OAuth 클라이언트 ID/Secret 생성 완료!';
           } else {
-            state.message = '⚠️ 자격증명이 생성되었지만 자동 추출 실패. 앱의 Google OAuth 빠른 준비 칸에 Client ID/Secret을 붙여넣고 [저장 후 인증]을 눌러주세요.';
+            state.message = '⚠️ 자격증명이 생성되었지만 자동 추출 실패. 블로그 플랫폼 필드에 Client ID/Secret을 붙여넣고 [저장 후 인증]을 눌러주세요.';
           }
         }
       }
     } else {
-      state.message = '사용자 인증 정보 만들기 버튼을 찾지 못했습니다. 앱의 Google OAuth 빠른 준비 칸에서 콘솔을 열어 Client ID/Secret을 저장해주세요.';
+      state.message = '사용자 인증 정보 만들기 버튼을 찾지 못했습니다. 블로그 플랫폼 필드에서 콘솔을 열어 Client ID/Secret을 저장해주세요.';
     }
   } catch (e) {
-    state.message = 'OAuth 클라이언트 ID 자동 생성 중 오류. 앱의 Google OAuth 빠른 준비 칸에 Client ID/Secret을 붙여넣고 [저장 후 인증]을 눌러주세요.';
+    state.message = 'OAuth 클라이언트 ID 자동 생성 중 오류. 블로그 플랫폼 필드에 Client ID/Secret을 붙여넣고 [저장 후 인증]을 눌러주세요.';
   }
 
   if (state.cancelled) return;
@@ -406,8 +493,18 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
   state.currentStep = 6;
   state.message = results['googleClientId'] && results['googleClientSecret']
     ? 'Client ID/Secret을 앱에 저장할 준비가 완료되었습니다.'
-    : 'Client ID/Secret 자동 추출이 막혔습니다. 앱의 직접 입력 영역을 펼쳐 값을 붙여넣어 주세요.';
+    : 'Client ID/Secret 자동 추출이 막혔습니다. 블로그 플랫폼 필드에 값을 붙여넣어 주세요.';
   await page.waitForTimeout(1000);
+
+  if (!results['googleClientId'] || !results['googleClientSecret']) {
+    blockForManualAction(
+      state,
+      6,
+      '⚠️ Client ID/Secret 자동 추출이 확인되지 않았습니다. 블로그 플랫폼 필드에 Client ID/Secret을 직접 붙여넣고 저장 후 인증을 진행해주세요.',
+      results,
+    );
+    return;
+  }
 
   // 8) Blog ID 추출 (Blogger.com에서)
   state.currentStep = 7;
@@ -445,6 +542,16 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
     }
   } catch {
     state.message = 'Blog ID 추출 실패. Blogger 대시보드에서 확인해주세요.';
+  }
+
+  if (!results['blogId']) {
+    blockForManualAction(
+      state,
+      7,
+      '⚠️ Blog ID 자동 추출이 확인되지 않았습니다. 블로그 플랫폼 필드에 Blogger Blog ID를 직접 입력하고 저장해주세요.',
+      results,
+    );
+    return;
   }
 
   state.currentStep = 8;

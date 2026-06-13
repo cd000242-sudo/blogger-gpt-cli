@@ -194,10 +194,18 @@ export function registerConnectHandlers(): void {
           }
 
           if (!state.cancelled) {
-            state.completed = true;
-            state.stepStatus = 'done';
-            if (!state.message.startsWith('⚠️')) {
-              state.message = '✅ 연동 완료! 추출된 값을 환경설정에 저장합니다.';
+            const needsUserAction = state.stepStatus === 'waiting-login' || /^⚠️/.test(state.message || '');
+            if (state.error || needsUserAction) {
+              state.completed = false;
+              state.stepStatus = 'error';
+              state.error = state.error || state.message || '사용자 확인이 필요한 단계에서 자동 진행이 중단되었습니다.';
+              state.message = `❌ ${state.error}`;
+            } else {
+              state.completed = true;
+              state.stepStatus = 'done';
+              if (!state.message.startsWith('⚠️')) {
+                state.message = '✅ 연동 완료! 추출된 값을 환경설정에 저장합니다.';
+              }
             }
           }
         } catch (err) {

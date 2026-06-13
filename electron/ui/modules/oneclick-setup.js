@@ -513,9 +513,9 @@ const PLATFORM_CONNECT_GUIDES = {
     autoLabel: '블로그스팟 원클릭 연동 시작',
     steps: [
       { title: '프로젝트 + 외부/데스크톱 앱 만들기', desc: 'Chrome에서 Google Cloud 프로젝트를 만들거나 선택합니다. OAuth 동의 화면은 사용자 유형을 외부로 두고, OAuth Client는 데스크톱 앱으로 만듭니다.', btn: 'Cloud 열기', action: "window.__oneclickSetup?.openGoogleOAuthConsole('clients')", manual: true },
-      { title: 'Blogger API + Client 값 저장', desc: 'Blogger API를 사용으로 켜고 Client ID/Secret을 앱에 저장합니다. 자동 추출이 막히면 직접 입력 영역만 펼쳐 붙여넣습니다.', btn: '직접 입력', action: "document.getElementById('oneclick-blogger-manual-details')?.setAttribute('open','open'); document.getElementById('oneclick-oauth-client-id')?.focus()", manual: true },
+      { title: 'Blogger API + Client 값 저장', desc: 'Blogger API를 사용으로 켜고 Client ID/Secret을 블로그 플랫폼 설정 필드에 저장합니다. 자동 추출 결과도 같은 필드에 자동 반영됩니다.', btn: '플랫폼 필드', action: "window.__oneclickSetup?.openBloggerPlatformFields('googleClientId')", manual: true },
       { title: '테스트 사용자 Gmail 추가', desc: 'Google Auth Platform의 대상/Audience > Test users에 현재 로그인한 Gmail을 추가합니다. 앱 게시 버튼은 누르지 않습니다.', btn: '테스트 사용자', action: "window.__oneclickSetup?.openGoogleOAuthConsole('audience')", manual: true },
-      { title: 'OAuth 인증 + Blog ID 확인', desc: '앱에서 OAuth 인증을 완료하고 Blogger 관리자 URL의 Blog ID를 자동 또는 수동으로 저장합니다. 여기까지 끝나야 발행 준비 완료입니다.', btn: '인증 시작', action: "window.__oneclickSetup?.saveBloggerOAuthCredentials(true)", manual: true },
+      { title: 'OAuth 인증 + Blog ID 확인', desc: '앱에서 OAuth 인증을 완료하고 Blogger 관리자 URL의 Blog ID를 블로그 플랫폼 필드에 자동 또는 수동 저장합니다. 여기까지 끝나야 발행 준비 완료입니다.', btn: '인증 시작', action: "window.__oneclickSetup?.saveBloggerOAuthCredentials(true)", manual: true },
     ],
   },
   wordpress: {
@@ -1050,20 +1050,20 @@ async function openOneclickPracticeStep(kind, platformId, step, index) {
       }
       if (index === 1) {
         openGoogleOAuthConsole('bloggerApi');
-        focusOneclickControl('oneclick-oauth-client-id');
-        return 'Blogger API v3 사용 화면을 열었습니다. Client ID/Secret은 앱 입력칸에 정확히 붙여넣으세요.';
+        openBloggerPlatformFields('googleClientId');
+        return 'Blogger API v3 사용 화면을 열었습니다. Client ID/Secret은 블로그 플랫폼 필드에 정확히 붙여넣으세요.';
       }
       if (index === 2) {
         openGoogleOAuthConsole('audience');
         return 'Google 인증 플랫폼 Audience/Test users 화면을 열었습니다. 앱 게시 없이 현재 Gmail을 테스트 사용자로 추가하세요.';
       }
       if (index === 3) {
-        focusOneclickControl('oneclick-oauth-client-id');
+        openBloggerPlatformFields('blogId');
         await openOneclickExternalUrl('https://www.blogger.com/');
-        return '앱 입력칸으로 돌아와 OAuth 인증을 진행하고, Blogger 관리자에서 Blog ID를 복사해 저장하세요.';
+        return '블로그 플랫폼 필드로 돌아와 OAuth 인증을 진행하고, Blogger 관리자에서 Blog ID를 복사해 저장하세요.';
       }
-      focusOneclickControl('oneclick-oauth-client-id');
-      return '앱 입력칸으로 돌아왔습니다. Client ID/Secret/Blog ID를 확인한 뒤 저장 후 인증을 누르세요.';
+      openBloggerPlatformFields('googleClientId');
+      return '블로그 플랫폼 필드로 돌아왔습니다. Client ID/Secret/Blog ID를 확인한 뒤 저장 후 인증을 누르세요.';
     }
 
     if (kind === 'connect' && normalized === 'wordpress') {
@@ -1484,7 +1484,7 @@ export function renderOneclickSetupTab() {
                 <div>
                   <div style="font-size: 12px; font-weight: 800; color: #fed7aa;">Google OAuth 연동 상태</div>
                   <div style="font-size: 10px; color: rgba(255,255,255,0.45); margin-top: 3px; line-height: 1.5;">
-                    초보자는 아래 큰 버튼만 누르고 오른쪽 가이드만 따라가면 됩니다. 직접 입력은 자동 추출이 막힌 경우에만 펼쳐 사용하세요.
+                    원클릭에서 가져온 Client ID/Secret/Blog ID는 블로그 플랫폼 탭의 기존 필드에 자동으로 들어갑니다.
                   </div>
                 </div>
                 <button type="button" onclick="window.__oneclickSetup?.loadBloggerOAuthFields()"
@@ -1496,13 +1496,12 @@ export function renderOneclickSetupTab() {
                   가이드 시작
                 </button>
               </div>
-              <details id="oneclick-blogger-manual-details" style="margin-top: 10px;">
-                <summary style="list-style:none; cursor:pointer; padding:10px 12px; border-radius:10px; background:rgba(255,112,67,0.10); border:1px solid rgba(255,112,67,0.24); color:#fed7aa; font-size:12px; font-weight:850;">
-                  자동 추출이 막혔을 때만 직접 입력 열기
-                  <span style="display:block; margin-top:3px; color:rgba(255,255,255,0.48); font-size:10px; font-weight:600;">여기서 저장하면 플랫폼 설정과 .env에도 같이 반영됩니다.</span>
-                </summary>
-                <div style="margin-top: 10px;">
-              <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px;">
+              <div id="oneclick-blogger-manual-details" style="margin-top: 10px;">
+              <div style="padding:10px 12px; border-radius:10px; background:rgba(255,112,67,0.10); border:1px solid rgba(255,112,67,0.24); color:#fed7aa; font-size:12px; font-weight:850; margin-bottom:10px;">
+                직접 입력은 <button type="button" onclick="window.__oneclickSetup?.openBloggerPlatformFields('blogId')" style="padding:4px 8px; margin:0 4px; background:rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.18); color:#fff7ed; border-radius:7px; font-size:11px; font-weight:850; cursor:pointer;">블로그 플랫폼 필드</button>에서 합니다.
+                <span style="display:block; margin-top:3px; color:rgba(255,255,255,0.48); font-size:10px; font-weight:600;">원클릭으로 추출한 값도 해당 필드에 자동 삽입됩니다.</span>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 10px;">
                 <input id="oneclick-oauth-redirect" type="text" readonly value="${BLOGGER_OAUTH_REDIRECT_URI}"
                   style="width: 100%; padding: 9px 10px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #93c5fd; font-size: 11px; box-sizing: border-box;" />
                 <button type="button" onclick="window.__oneclickSetup?.copyBloggerOAuthRedirectUri()"
@@ -1510,14 +1509,6 @@ export function renderOneclickSetupTab() {
                   Redirect 복사
                 </button>
               </div>
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-                <input id="oneclick-oauth-client-id" type="text" placeholder="Google Client ID"
-                  style="width: 100%; padding: 10px 12px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; font-size: 12px; box-sizing: border-box;" />
-                <input id="oneclick-oauth-client-secret" type="password" placeholder="Google Client Secret"
-                  style="width: 100%; padding: 10px 12px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; font-size: 12px; box-sizing: border-box;" />
-              </div>
-              <input id="oneclick-oauth-blog-id" type="text" placeholder="Blog ID (있으면 입력, 없으면 자동 추출 시도)"
-                style="width: 100%; padding: 10px 12px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; font-size: 12px; box-sizing: border-box; margin-bottom: 10px;" />
               <label style="display:flex; align-items:flex-start; gap:8px; padding:10px 11px; margin-bottom:10px; background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.22); border-radius:9px; color:#fde68a; font-size:11px; line-height:1.5; cursor:pointer;">
                 <input id="oneclick-oauth-test-user-confirm" type="checkbox" style="margin-top:2px;" />
                 <span><strong>현재 Chrome에 로그인된 Gmail</strong>을 Google Cloud → Audience → Test users에 추가하고 저장했습니다. 이 확인 없이 인증을 열면 Google 403 access_denied가 뜰 수 있습니다.</span>
@@ -1539,17 +1530,20 @@ export function renderOneclickSetupTab() {
                   style="flex: 1; min-width: 130px; padding: 9px 10px; background: rgba(14,165,233,0.16); border: 1px solid rgba(14,165,233,0.35); color: #bae6fd; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
                   Blog ID 자동
                 </button>
+                <button type="button" onclick="window.__oneclickSetup?.openBloggerPlatformFields('googleClientId')"
+                  style="flex: 1; min-width: 140px; padding: 9px 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #e5e7eb; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;">
+                  플랫폼 필드 열기
+                </button>
                 <button type="button" onclick="window.__oneclickSetup?.saveBloggerOAuthCredentials(false)"
                   style="flex: 1; min-width: 120px; padding: 9px 10px; background: rgba(16,185,129,0.16); border: 1px solid rgba(16,185,129,0.35); color: #bbf7d0; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
-                  저장
+                  플랫폼 값 저장
                 </button>
                 <button type="button" onclick="window.__oneclickSetup?.saveBloggerOAuthCredentials(true)"
                   style="flex: 1.3; min-width: 140px; padding: 9px 10px; background: linear-gradient(135deg, #8b5cf6, #6366f1); border: none; color: white; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;">
                   저장 후 인증
                 </button>
               </div>
-                </div>
-              </details>
+              </div>
               <div id="oneclick-oauth-helper-msg" style="display: none; margin-top: 10px; padding: 9px 10px; background: rgba(0,0,0,0.18); border-radius: 8px; color: #c4b5fd; font-size: 11px; line-height: 1.5;"></div>
             </div>
             <button id="oneclick-connect-btn-blogger" onclick="window.__oneclickSetup?.startPlatformConnect('blogger')"
@@ -2946,13 +2940,14 @@ async function continuePlatformConnect(platformId, siteUrl) {
           let keepConnectUiWaitingForOauth = false;
 
           if (status.completed && status.results) {
+            const hasSavedResults = Object.values(status.results).some(Boolean);
             // 환경설정에 자동 저장
             await saveConnectResults(platformId, status.results);
-            if (msgDiv) {
+            if (msgDiv && hasSavedResults) {
               msgDiv.appendChild(document.createElement('br'));
               const savedSpan = document.createElement('span');
               savedSpan.style.cssText = 'color: #22c55e; font-size: 11px;';
-              savedSpan.textContent = '✅ 추출된 값이 환경설정에 자동 저장되었습니다!';
+              savedSpan.textContent = '✅ 추출된 값이 블로그 플랫폼 필드에 자동 저장되었습니다!';
               msgDiv.appendChild(savedSpan);
             }
             // 핵심 필드 검증
@@ -2970,24 +2965,29 @@ async function continuePlatformConnect(platformId, siteUrl) {
                   message: 'Client ID/Secret/Blog ID 저장 완료. 이어서 OAuth 권한 승인 창을 엽니다.',
                 });
                 setOAuthHelperMessage('Client ID/Secret/Blog ID 저장 완료. 이제 Google 권한 승인까지 이어서 진행합니다.', 'success');
-                await startBloggerOAuthFromOneclick({
+                const authStart = await startBloggerOAuthFromOneclick({
                   clientId: status.results.googleClientId,
                   clientSecret: status.results.googleClientSecret,
                   blogId: status.results.blogId,
-                  skipPrecheck: true,
+                  skipPrecheck: false,
                 });
-                keepConnectUiWaitingForOauth = true;
-                showToast('마지막 단계: 열린 Google 인증 창에서 계속/허용을 눌러주세요.', 'info', 7000);
+                if (authStart?.ok === false) {
+                  keepConnectUiWaitingForOauth = false;
+                  finishLiveOneclickGuide('connect', 'blogger', '테스트 사용자 등록 확인 후 [저장 후 인증]을 다시 눌러주세요.', false);
+                } else {
+                  keepConnectUiWaitingForOauth = true;
+                  showToast('마지막 단계: 열린 Google 인증 창에서 계속/허용을 눌러주세요.', 'info', 7000);
+                }
               } else {
                 finishLiveOneclickGuide('connect', platformId, '앱 연동이 완료되었습니다. 추출된 값은 환경 설정에 저장됩니다.', true);
                 showToast(`🎉 ${platformName} 연동 완료! 환경설정에 자동 저장되었습니다.`, 'success', 5000);
               }
-            } else {
-              if (platformId === 'blogger' || platformId === 'blogspot') {
-                document.getElementById('oneclick-blogger-manual-details')?.setAttribute('open', 'open');
-              } else if (platformId === 'wordpress') {
-                document.getElementById('oneclick-wordpress-manual-details')?.setAttribute('open', 'open');
-              }
+              } else {
+                if (platformId === 'blogger' || platformId === 'blogspot') {
+                  openBloggerPlatformFields(missing.includes('blogId') ? 'blogId' : 'googleClientId');
+                } else if (platformId === 'wordpress') {
+                  document.getElementById('oneclick-wordpress-manual-details')?.setAttribute('open', 'open');
+                }
               finishLiveOneclickGuide('connect', platformId, '자동 추출이 일부 막혔습니다. 직접 입력 칸을 펼쳐 부족한 값을 붙여넣어 주세요.', false);
               showToast(`⚠️ ${platformName} 부분 완료: ${missing.join(', ')} 추출 실패. 화면에서 직접 복사해주세요.`, 'warn', 8000);
             }
@@ -3118,20 +3118,23 @@ function updateBloggerConnectStatusFromCredentials(creds) {
 
 async function loadBloggerOAuthFields(showResult = true) {
   const creds = await getStoredBloggerOAuthSettings();
-  const clientIdInput = document.getElementById('oneclick-oauth-client-id');
-  const secretInput = document.getElementById('oneclick-oauth-client-secret');
-  const blogIdInput = document.getElementById('oneclick-oauth-blog-id');
+  const clientIdInput = document.getElementById('googleClientId');
+  const secretInput = document.getElementById('googleClientSecret');
+  const blogIdInput = document.getElementById('blogId');
   const redirectInput = document.getElementById('oneclick-oauth-redirect');
 
   if (clientIdInput && creds.googleClientId) clientIdInput.value = creds.googleClientId;
   if (secretInput && creds.googleClientSecret) secretInput.value = creds.googleClientSecret;
   if (blogIdInput && creds.blogId) blogIdInput.value = creds.blogId;
+  [clientIdInput, secretInput, blogIdInput].forEach((el) => {
+    if (el) el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
   if (redirectInput) redirectInput.value = BLOGGER_OAUTH_REDIRECT_URI;
 
   updateBloggerConnectStatusFromCredentials(creds);
   if (showResult) {
     const ready = creds.googleClientId && creds.googleClientSecret;
-    setOAuthHelperMessage(ready ? '저장된 Google OAuth 값을 불러왔습니다.' : '저장된 Google OAuth 값이 아직 없습니다. Client ID/Secret을 붙여넣어 주세요.', ready ? 'success' : 'warn');
+    setOAuthHelperMessage(ready ? '저장된 Google OAuth 값을 블로그 플랫폼 필드에 불러왔습니다.' : '저장된 Google OAuth 값이 아직 없습니다. 블로그 플랫폼 필드에 Client ID/Secret을 입력해 주세요.', ready ? 'success' : 'warn');
   }
   return creds;
 }
@@ -3167,6 +3170,39 @@ function openGoogleOAuthConsole(target = 'clients') {
   } else {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
+}
+
+function openBloggerPlatformFields(focusId = 'blogId') {
+  try {
+    if (typeof window.switchSettingsTab === 'function') {
+      window.switchSettingsTab('platform');
+    } else if (typeof switchSettingsTab === 'function') {
+      switchSettingsTab('platform');
+    }
+  } catch (e) {
+    console.warn('[ONECLICK] 블로그 플랫폼 탭 전환 실패:', e);
+  }
+
+  try {
+    if (typeof window.selectPlatform === 'function') {
+      window.selectPlatform('blogger');
+    } else if (typeof selectPlatform === 'function') {
+      selectPlatform('blogger');
+    }
+  } catch (e) {
+    console.warn('[ONECLICK] Blogger 플랫폼 선택 실패:', e);
+  }
+
+  const details = document.getElementById('bloggerAdvancedSettings');
+  if (details) details.setAttribute('open', 'open');
+
+  setTimeout(() => {
+    const target = document.getElementById(focusId) || document.getElementById('blogId');
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target?.focus();
+  }, 150);
+
+  setOAuthHelperMessage('블로그 플랫폼 탭의 기존 Blogger 필드에서 값을 입력하거나 확인하세요. 원클릭 추출값도 이 필드로 자동 반영됩니다.', 'info');
 }
 
 function isBloggerOAuthAccessDeniedError(message = '') {
@@ -3257,13 +3293,16 @@ function validateBloggerOAuthInputs(clientId, clientSecret) {
 }
 
 async function saveBloggerOAuthCredentials(startAuthAfterSave = false) {
-  const clientId = document.getElementById('oneclick-oauth-client-id')?.value?.trim() || '';
-  const clientSecret = document.getElementById('oneclick-oauth-client-secret')?.value?.trim() || '';
-  const blogId = document.getElementById('oneclick-oauth-blog-id')?.value?.trim() || '';
+  const clientId = document.getElementById('googleClientId')?.value?.trim()
+    || '';
+  const clientSecret = document.getElementById('googleClientSecret')?.value?.trim()
+    || '';
+  const blogId = document.getElementById('blogId')?.value?.trim()
+    || '';
 
   const validationError = validateBloggerOAuthInputs(clientId, clientSecret);
   if (validationError) {
-    document.getElementById('oneclick-blogger-manual-details')?.setAttribute('open', 'open');
+    openBloggerPlatformFields(!clientId ? 'googleClientId' : 'googleClientSecret');
     setOAuthHelperMessage(validationError, 'error');
     showToast(validationError, 'warn');
     return { ok: false, error: validationError };
@@ -3308,9 +3347,10 @@ async function saveBloggerOAuthCredentials(startAuthAfterSave = false) {
     if (id === 'googleClientId') el.value = clientId;
     if (id === 'googleClientSecret') el.value = clientSecret;
     if (id === 'blogId' && blogId) el.value = blogId;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
-  setOAuthHelperMessage('Google OAuth 값이 앱 설정과 .env에 저장되었습니다.', 'success');
+  setOAuthHelperMessage('블로그 플랫폼 필드의 Google OAuth 값이 앱 설정과 .env에 저장되었습니다.', 'success');
   showToast('Google OAuth 값 저장 완료', 'success');
 
   if (startAuthAfterSave) {
@@ -3327,8 +3367,8 @@ async function startBloggerOAuthFromOneclick({ clientId, clientSecret, blogId, s
   }
 
   if (!skipPrecheck && !isBloggerOAuthPrecheckConfirmed()) {
-    setOAuthHelperMessage('테스트 사용자 Gmail 추가 확인 없이 OAuth 인증을 진행합니다. 403 access_denied가 뜨면 테스트 사용자 추가 후 다시 인증하세요.', 'warn');
-    showToast('테스트 사용자 추가가 빠졌다면 OAuth에서 access_denied가 날 수 있습니다.', 'warn', 6500);
+    blockBloggerOAuthUntilTestUserConfirmed();
+    return { ok: false, error: '테스트 사용자 Gmail 추가 확인이 필요합니다.' };
   }
 
   updateLiveOneclickGuide('connect', 'blogger', {
@@ -3472,10 +3512,9 @@ async function saveBloggerBlogIdOnly(blogId) {
   settings.redirectUri = BLOGGER_OAUTH_REDIRECT_URI;
   await storage.set('bloggerSettings', settings, true);
 
-  const helperBlogId = document.getElementById('oneclick-oauth-blog-id');
   const settingsBlogId = document.getElementById('blogId');
-  if (helperBlogId) helperBlogId.value = blogId;
   if (settingsBlogId) settingsBlogId.value = blogId;
+  if (settingsBlogId) settingsBlogId.dispatchEvent(new Event('input', { bubbles: true }));
 
   try {
     const envRes = await window.blogger?.saveEnv?.({
@@ -3527,7 +3566,7 @@ function showBloggerOAuthGuide() {
         ['1', '외부 사용자 + 데스크톱 앱 만들기', 'Google Cloud에서 프로젝트를 만들고 OAuth 사용자 유형은 외부, OAuth Client 유형은 데스크톱 앱으로 만듭니다.', 'Client 만들기', "window.__oneclickSetup?.openGoogleOAuthConsole('clients')"],
         ['2', 'Client ID/Secret 입력 + Blogger API 활성화', '생성된 Client ID와 Secret을 앱에 정확히 붙여넣고 Blogger API v3를 사용 설정합니다.', 'Blogger API 열기', "window.__oneclickSetup?.openGoogleOAuthConsole('bloggerApi')"],
         ['3', '앱 게시 금지 + 테스트 사용자 Gmail 추가', 'Google 인증 플랫폼 대상/Audience에서 앱을 게시하지 말고 현재 로그인 Gmail을 Test users에 추가합니다.', '테스트 사용자', "window.__oneclickSetup?.openGoogleOAuthConsole('audience')"],
-        ['4', 'OAuth 인증 후 Blog ID 입력', '앱에서 OAuth 인증을 진행하고 Blogger 관리자에서 URL 맨 뒤 Blog ID를 복사해 앱에 넣고 저장합니다.', '입력칸 이동', "document.getElementById('oneclick-blogger-oauth-guide-modal')?.remove(); document.getElementById('oneclick-oauth-client-id')?.focus()"],
+        ['4', 'OAuth 인증 후 Blog ID 입력', '앱에서 OAuth 인증을 진행하고 Blogger 관리자에서 URL 맨 뒤 Blog ID를 복사해 블로그 플랫폼 필드에 저장합니다.', '플랫폼 필드', "document.getElementById('oneclick-blogger-oauth-guide-modal')?.remove(); window.__oneclickSetup?.openBloggerPlatformFields('blogId')"],
       ].map(([num, title, desc, btn, action]) => `
         <div style="display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; padding:14px; background:rgba(255,255,255,0.045); border:1px solid rgba(255,255,255,0.08); border-radius:12px;">
           <div style="width:28px; height:28px; display:flex; align-items:center; justify-content:center; background:rgba(251,191,36,0.16); border:1px solid rgba(251,191,36,0.32); color:#fde047; border-radius:8px; font-size:12px; font-weight:900;">${num}</div>
@@ -3918,6 +3957,9 @@ async function saveConnectResults(platformId, results) {
       if (clientIdInput && results.googleClientId) clientIdInput.value = results.googleClientId;
       if (secretInput && results.googleClientSecret) secretInput.value = results.googleClientSecret;
       if (blogIdInput && results.blogId) blogIdInput.value = results.blogId;
+      [clientIdInput, secretInput, blogIdInput].forEach((el) => {
+        if (el) el.dispatchEvent(new Event('input', { bubbles: true }));
+      });
     }
 
     // 우상단 플랫폼/API 상태 배지 즉시 갱신
@@ -4440,6 +4482,7 @@ export function initOneclickSetup() {
     loadBloggerOAuthFields,
     copyBloggerOAuthRedirectUri,
     openGoogleOAuthConsole,
+    openBloggerPlatformFields,
     showBloggerOAuthAccessDeniedHelp,
     saveBloggerOAuthCredentials,
     startBloggerBlogIdExtract,

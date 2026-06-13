@@ -5953,7 +5953,7 @@ ipcMain.handle('wordpress-check-auth-status', async () => {
 });
 
 // 플랫폼 인증 확인 (🔥 env 키명 호환성)
-ipcMain.handle('check-platform-auth', async (_evt, platform: 'blogger' | 'wordpress') => {
+ipcMain.handle('check-platform-auth', async (_evt, platform: 'blogger' | 'wordpress' | 'tistory') => {
   try {
     const env = loadEnvFromFile();
     let authenticated = false;
@@ -5967,6 +5967,9 @@ ipcMain.handle('check-platform-auth', async (_evt, platform: 'blogger' | 'wordpr
       const username = env.WP_USERNAME || env.WORDPRESS_USERNAME || env.wordpressUsername || '';
       const password = env.WP_JWT_TOKEN || env.WORDPRESS_PASSWORD || env.wordpressPassword || '';
       authenticated = !!(siteUrl && (username || password));
+    } else if (platform === 'tistory') {
+      const blogName = env.TISTORY_BLOG_NAME || env.tistoryBlogName || '';
+      authenticated = !!blogName;
     }
 
     return { ok: true, authenticated, platform };
@@ -6362,6 +6365,24 @@ safeRegisterHandler('publish-internal-link-content', async (_evt: Electron.IpcMa
   } catch (error) {
     console.error('[INTERNAL-LINKS] ❌ 발행 실패:', error);
     throw error;
+  }
+});
+
+ipcMain.handle('tistory-check-session', async (_evt, payload: any = {}) => {
+  try {
+    const { checkTistorySession } = require('../dist/tistory/tistory-publisher');
+    return await checkTistorySession(payload || {});
+  } catch (error) {
+    return { ok: false, authenticated: false, error: error instanceof Error ? error.message : 'Tistory session check failed' };
+  }
+});
+
+ipcMain.handle('tistory-open-login', async (_evt, payload: any = {}) => {
+  try {
+    const { openTistoryLogin } = require('../dist/tistory/tistory-publisher');
+    return await openTistoryLogin(payload || {});
+  } catch (error) {
+    return { ok: false, authenticated: false, error: error instanceof Error ? error.message : 'Tistory login launch failed' };
   }
 });
 

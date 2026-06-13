@@ -137,6 +137,8 @@ function parseDotEnv(str: string): Record<string, string> {
     v = v.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t');
     out[k] = v;
   }
+  if (!out['tistoryDefaultVisibility']) out['tistoryDefaultVisibility'] = 'private';
+
   return out;
 }
 function stringifyDotEnv(obj: Record<string, any>) {
@@ -197,6 +199,17 @@ const MAP: Record<string, string> = {
   WORDPRESS_STATUS: 'wordpressStatus',
   WORDPRESS_CATEGORIES: 'wordpressCategories',
   WORDPRESS_TAGS: 'wordpressTags',
+
+  // Tistory settings (browser publisher)
+  TISTORY_BLOG_NAME: 'tistoryBlogName',
+  TISTORY_BLOG_URL: 'tistoryBlogUrl',
+  TISTORY_PROFILE_ID: 'tistoryProfileId',
+  TISTORY_DEFAULT_CATEGORY: 'tistoryDefaultCategory',
+  TISTORY_DEFAULT_VISIBILITY: 'tistoryDefaultVisibility',
+  TISTORY_PROTECTED_PASSWORD: 'tistoryProtectedPassword',
+  TISTORY_KAKAO_EMAIL: 'tistoryKakaoEmail',
+  KAKAO_EMAIL: 'tistoryKakaoEmail',
+  TISTORY_BROWSER_EXECUTABLE_PATH: 'tistoryBrowserExecutablePath',
 
   // 기타 옵션
   MIN_CHARS: 'minChars',

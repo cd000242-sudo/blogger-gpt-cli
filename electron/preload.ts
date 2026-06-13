@@ -221,7 +221,9 @@ export type BloggerApi = {
   writeLicenseFile(data: any): Promise<{ ok: true } | { ok: false; error?: string }>;
   
   /** 플랫폼 연동 확인 */
-  checkPlatformAuth(platform: 'blogger' | 'wordpress'): Promise<{ authenticated: boolean; error?: string }>;
+  checkPlatformAuth(platform: 'blogger' | 'wordpress' | 'tistory'): Promise<{ authenticated: boolean; error?: string }>;
+  checkTistorySession(payload?: Record<string, any>): Promise<{ ok: boolean; authenticated: boolean; blogName?: string; blogUrl?: string; writeUrl?: string; error?: string }>;
+  openTistoryLogin(payload?: Record<string, any>): Promise<{ ok: boolean; authenticated: boolean; blogName?: string; blogUrl?: string; writeUrl?: string; error?: string }>;
   
   /** 세션 관리 (중복 로그인 방지) */
   sessionValidate(): Promise<{ valid: boolean; code: string; message: string; loginAt?: number }>;
@@ -531,6 +533,8 @@ const api: BloggerApi = {
   
   // ── 플랫폼 연동 확인 ──
   checkPlatformAuth: (platform) => ipcRenderer.invoke('check-platform-auth', platform),
+  checkTistorySession: (payload = {}) => ipcRenderer.invoke('tistory-check-session', payload),
+  openTistoryLogin: (payload = {}) => ipcRenderer.invoke('tistory-open-login', payload),
   
   // ── 세션 관리 (중복 로그인 방지) ──
   sessionValidate: () => ipcRenderer.invoke('session-validate'),
