@@ -242,12 +242,30 @@ export async function runPosting() {
     addLog('작업이 실행 중입니다. 잠시 후 다시 시도해주세요.', 'warning');
     return setFinalResult({ error: 'already_running' });
   }
+  if (window.__runPostingInFlight) {
+    addLog('이미 발행 요청이 처리 중입니다. 중복 발행을 막기 위해 이번 요청은 건너뜁니다.', 'warning');
+    return setFinalResult({ error: 'already_running', duplicateBlocked: true });
+  }
+  const runPostingLockToken = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  window.__runPostingInFlight = runPostingLockToken;
+  const clearRunPostingLock = () => {
+    if (window.__runPostingInFlight === runPostingLockToken) {
+      window.__runPostingInFlight = null;
+    }
+  };
 
   // v3.8.80: API 한도 보호 — 직전 발행 후 90초 미만이면 자동 대기 또는 중단
   if (typeof window._enforcePublishGap === 'function') {
-    const okGap = await window._enforcePublishGap(90);
+    let okGap = false;
+    try {
+      okGap = await window._enforcePublishGap(90);
+    } catch (gapErr) {
+      clearRunPostingLock();
+      throw gapErr;
+    }
     if (!okGap) {
       addLog('발행 취소 (API 한도 보호 안내)', 'warning');
+      clearRunPostingLock();
       return setFinalResult({ error: 'publish_gap_rejected' });
     }
   }
@@ -272,9 +290,11 @@ export async function runPosting() {
       console.log('[POSTING] 🔗 URL 모드 — 키워드 생략, URL 본문에서 자동 추출');
     } else if (singleInputMode === 'url' && !hasValidUrl) {
       getErrorHandler().showToast('URL 모드: 원본 URL을 입력해주세요.', 'error');
+      clearRunPostingLock();
       return setFinalResult({ error: 'missing_reference_url' });
     } else {
       getErrorHandler().showToast('키워드를 입력해주세요.', 'error');
+      clearRunPostingLock();
       return setFinalResult({ error: 'missing_keyword' });
     }
   }
@@ -651,6 +671,7 @@ export async function runPosting() {
     setRunning(false);
     ButtonStateManager.setEnabled('runBtn', true);
     ButtonStateManager.restore('publishBtn');
+    clearRunPostingLock();
     debugLog('POSTING', '상태 복구 완료');
     // 🔥 큐 연동 — 연속발행 모드가 다음 항목으로 진행하도록 완료 이벤트 발사
     try {
@@ -1071,6 +1092,25 @@ export async function createPayload(options = {}) {
   // ── 워드프레스 카테고리 선택 ──
   const wpCategorySelectEl = document.getElementById('wpCategory');
   const wpCategoryValue = wpCategorySelectEl?.value || '';
+  const tistoryBlogNameValue = (
+    document.getElementById('tistoryBlogName')?.value
+    || savedSettings.tistoryBlogName
+    || savedSettings.TISTORY_BLOG_NAME
+    || savedSettings.tistoryBlogUrl
+    || ''
+  ).trim();
+  const tistoryDefaultCategoryValue = (
+    document.getElementById('tistoryDefaultCategory')?.value
+    || savedSettings.tistoryDefaultCategory
+    || savedSettings.TISTORY_DEFAULT_CATEGORY
+    || ''
+  ).trim();
+  const tistoryDefaultVisibilityValue = (
+    document.getElementById('tistoryDefaultVisibility')?.value
+    || savedSettings.tistoryDefaultVisibility
+    || savedSettings.TISTORY_DEFAULT_VISIBILITY
+    || 'private'
+  ).trim();
 
   // ── 포스팅 엔진 (단일 진실 소스) ──
   // 🔥 provider(드롭다운)가 선택되면 그에 맞는 기본 모델 사용.
@@ -1186,6 +1226,10 @@ export async function createPayload(options = {}) {
 
     // 🔥 워드프레스 카테고리 (UI에서 선택한 카테고리 ID/이름)
     wordpressCategory: wpCategoryValue || undefined,
+    // 🔥 티스토리 설정 (저장값 또는 현재 UI 선택값을 발행 payload에 직접 전달)
+    tistoryBlogName: tistoryBlogNameValue || undefined,
+    tistoryDefaultCategory: tistoryDefaultCategoryValue || undefined,
+    tistoryDefaultVisibility: tistoryDefaultVisibilityValue || undefined,
 
     // CTA
     ctaMode: ctaModeValue,

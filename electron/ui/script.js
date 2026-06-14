@@ -6389,6 +6389,20 @@ document.addEventListener('change', (e) => {
   }
 });
 
+function normalizePlatformDisplayValue(platform) {
+  const value = String(platform || '').toLowerCase().trim();
+  if (value === 'blogspot') return 'blogger';
+  if (value === 'blogger' || value === 'wordpress' || value === 'tistory') return value;
+  return 'wordpress';
+}
+
+function getPlatformDisplayInfo(platform) {
+  const normalized = normalizePlatformDisplayValue(platform);
+  if (normalized === 'blogger') return { label: 'Blogger', color: '#f97316' };
+  if (normalized === 'tistory') return { label: 'Tistory', color: '#14b8a6' };
+  return { label: 'WordPress', color: '#3b82f6' };
+}
+
 async function updatePlatformStatus() {
   const platformStatusElement = document.getElementById('platformStatus');
 
@@ -6410,9 +6424,9 @@ async function updatePlatformStatus() {
 
   // 🔥 상단 플랫폼 배지 업데이트
   if (platformStatusElement) {
-    const isBlogger = selectedPlatform === 'blogger' || selectedPlatform === 'blogspot';
-    platformStatusElement.textContent = isBlogger ? 'Blogger' : 'WordPress';
-    platformStatusElement.style.color = isBlogger ? '#f97316' : '#3b82f6';
+    const info = getPlatformDisplayInfo(selectedPlatform);
+    platformStatusElement.textContent = info.label;
+    platformStatusElement.style.color = info.color;
     console.log('[PLATFORM] 배지 업데이트:', platformStatusElement.textContent);
   }
 
@@ -6627,13 +6641,9 @@ function togglePlatformFields() {
 function updatePlatformBadge(platform) {
   const badge = document.getElementById('platformStatus');
   if (badge) {
-    if (platform === 'blogger' || platform === 'blogspot') {
-      badge.textContent = 'Blogger';
-      badge.style.color = '#f97316'; // 오렌지색
-    } else {
-      badge.textContent = 'WordPress';
-      badge.style.color = '#3b82f6'; // 파란색
-    }
+    const info = getPlatformDisplayInfo(platform);
+    badge.textContent = info.label;
+    badge.style.color = info.color;
     console.log('[BADGE] 플랫폼 배지 업데이트:', badge.textContent);
   }
 }
@@ -10746,7 +10756,7 @@ function showPreviewModal(title, content, platform) {
   if (overlay && modal) {
     // 정보 업데이트
     if (titleText) titleText.textContent = title || '제목 없음';
-    if (platformText) platformText.textContent = platform === 'wordpress' ? 'WordPress' : 'Blogger';
+    if (platformText) platformText.textContent = getPlatformDisplayInfo(platform).label;
 
     // 🔧 순수 텍스트 글자수 계산
     const textLength = getTextLength(content);
@@ -11170,7 +11180,7 @@ async function displayPreviewContent() {
     // 🔧 StorageManager 사용
     const storageManager = getStorageManager();
     const settings = await storageManager.get('bloggerSettings', true) || {};
-    platformElement.textContent = settings.platform === 'blogger' ? 'Blogger' : 'WordPress';
+    platformElement.textContent = getPlatformDisplayInfo(settings.platform).label;
   }
 
   // 콘텐츠 업데이트

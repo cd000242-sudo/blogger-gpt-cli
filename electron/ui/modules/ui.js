@@ -999,13 +999,16 @@ export function togglePlatformFields() {
     // 직접 ID로 확인 (race condition 대비)
     const bloggerEl = document.getElementById('platform-blogger');
     const wpEl = document.getElementById('platform-wordpress');
+    const tistoryEl = document.getElementById('platform-tistory');
     if (bloggerEl?.checked) selectedPlatform = 'blogger';
+    else if (tistoryEl?.checked) selectedPlatform = 'tistory';
     else if (wpEl?.checked) selectedPlatform = 'wordpress';
     else selectedPlatform = 'wordpress'; // 최종 기본값
   }
   const bloggerOAuthBtn = document.getElementById('bloggerOAuthBtn');
   const wordpressSettings = document.getElementById('wordpressSettings');
   const bloggerSettings = document.getElementById('bloggerSettings');
+  const tistorySettings = document.getElementById('tistorySettings') || document.getElementById('tistory-fields');
 
   console.log('togglePlatformFields 실행:', selectedPlatform);
 
@@ -1060,6 +1063,16 @@ export function togglePlatformFields() {
     } else {
       bloggerSettings.style.display = 'none';
       console.log('블로거 설정: 숨김');
+    }
+  }
+
+  if (tistorySettings) {
+    if (selectedPlatform === 'tistory') {
+      tistorySettings.style.display = 'block';
+      console.log('티스토리 설정: 표시');
+    } else {
+      tistorySettings.style.display = 'none';
+      console.log('티스토리 설정: 숨김');
     }
   }
 }

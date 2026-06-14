@@ -38,6 +38,7 @@ export type TistoryConfig = {
   protectedPassword?: string;
   kakaoEmail?: string;
   browserExecutablePath?: string;
+  hiddenBrowser?: boolean;
   keepBrowserOpen?: boolean;
   dryRun?: boolean;
   timeoutMs: number;

@@ -2312,18 +2312,27 @@
         window.toggleSettingsPlatformFields = function () {
           const bloggerRadio = document.getElementById('platform-blogger');
           const wordpressRadio = document.getElementById('platform-wordpress');
+          const tistoryRadio = document.getElementById('platform-tistory');
           const bloggerFields = document.getElementById('blogger-fields');
           const wordpressFields = document.getElementById('wordpress-fields');
+          const tistoryFields = document.getElementById('tistory-fields');
           const bloggerBox = document.getElementById('blogger-select-box');
           const wordpressBox = document.getElementById('wordpress-select-box');
+          const tistoryBox = document.getElementById('tistory-select-box');
 
-          const isBlogger = bloggerRadio && bloggerRadio.checked;
+          const selectedPlatform = tistoryRadio?.checked
+            ? 'tistory'
+            : (bloggerRadio?.checked ? 'blogger' : 'wordpress');
+          const isBlogger = selectedPlatform === 'blogger';
+          const isWordPress = selectedPlatform === 'wordpress';
+          const isTistory = selectedPlatform === 'tistory';
 
-          console.log('[SETTINGS] toggleSettingsPlatformFields:', isBlogger ? 'Blogger' : 'WordPress');
+          console.log('[SETTINGS] toggleSettingsPlatformFields:', selectedPlatform);
 
           // 필드 표시/숨기기
           if (bloggerFields) bloggerFields.style.display = isBlogger ? 'block' : 'none';
-          if (wordpressFields) wordpressFields.style.display = isBlogger ? 'none' : 'block';
+          if (wordpressFields) wordpressFields.style.display = isWordPress ? 'block' : 'none';
+          if (tistoryFields) tistoryFields.style.display = isTistory ? 'block' : 'none';
 
           // 선택 박스 스타일
           if (bloggerBox) {
@@ -2331,19 +2340,23 @@
             bloggerBox.style.background = isBlogger ? '#fff7ed' : 'white';
           }
           if (wordpressBox) {
-            wordpressBox.style.borderColor = isBlogger ? '#e2e8f0' : '#6366f1';
-            wordpressBox.style.background = isBlogger ? 'white' : '#f5f3ff';
+            wordpressBox.style.borderColor = isWordPress ? '#6366f1' : '#e2e8f0';
+            wordpressBox.style.background = isWordPress ? '#f5f3ff' : 'white';
+          }
+          if (tistoryBox) {
+            tistoryBox.style.borderColor = isTistory ? '#14b8a6' : '#e2e8f0';
+            tistoryBox.style.background = isTistory ? '#ecfdf5' : 'white';
           }
 
           // 플랫폼 상태 업데이트
-          updatePlatformStatusBox(isBlogger ? 'blogger' : 'wordpress');
+          updatePlatformStatusBox(selectedPlatform);
 
           // 상단 플랫폼 배지 업데이트
           if (typeof updatePlatformBadge === 'function') {
-            updatePlatformBadge(isBlogger ? 'blogger' : 'wordpress');
+            updatePlatformBadge(selectedPlatform);
           }
 
-          console.log('[SETTINGS] 플랫폼 변경:', isBlogger ? 'Blogger' : 'WordPress');
+          console.log('[SETTINGS] 플랫폼 변경:', selectedPlatform);
         }
 
         // 플랫폼 상태 박스 업데이트
@@ -2360,6 +2373,14 @@
             if (box) {
               box.style.background = 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)';
               box.style.borderColor = '#fdba74';
+            }
+          } else if (platform === 'tistory') {
+            if (icon) icon.textContent = 'T';
+            if (name) name.textContent = 'Tistory';
+            if (status) status.textContent = '브라우저 기반 티스토리 발행';
+            if (box) {
+              box.style.background = 'linear-gradient(135deg, #ecfdf5 0%, #ccfbf1 100%)';
+              box.style.borderColor = '#14b8a6';
             }
           } else {
             if (icon) icon.textContent = '🌐';

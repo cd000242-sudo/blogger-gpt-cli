@@ -159,6 +159,9 @@ export function resolveTistoryConfig(payload: Record<string, any> = {}, env: Rec
     getDefaultBrowserExecutablePath();
   if (browserExecutablePath) config.browserExecutablePath = String(browserExecutablePath);
 
+  if (payload['tistoryHiddenBrowser'] !== undefined) {
+    config.hiddenBrowser = String(payload['tistoryHiddenBrowser']).toLowerCase() === 'true' || payload['tistoryHiddenBrowser'] === true;
+  }
   if (payload['tistoryKeepBrowserOpen'] !== undefined) {
     config.keepBrowserOpen = String(payload['tistoryKeepBrowserOpen']).toLowerCase() === 'true' || payload['tistoryKeepBrowserOpen'] === true;
   }
@@ -209,7 +212,11 @@ async function getLiveTistoryPage(context: any): Promise<any | null> {
   }
 }
 
-async function getReusableTistorySession(profileDir: string, onLog?: (message: string) => void): Promise<LaunchResult | null> {
+async function getReusableTistorySession(
+  profileDir: string,
+  onLog?: (message: string) => void,
+  hiddenBrowser = false,
+): Promise<LaunchResult | null> {
   const active = ACTIVE_TISTORY_SESSIONS.get(profileDir);
   if (!active) return null;
 
@@ -221,9 +228,13 @@ async function getReusableTistorySession(profileDir: string, onLog?: (message: s
 
   active.page = page;
   active.lastUsedAt = Date.now();
-  active.hidden = false;
+  active.hidden = hiddenBrowser;
   onLog?.('[TISTORY] Reusing existing browser session.');
-  await restoreTistoryBrowserWindow(page, onLog).catch(() => false);
+  if (hiddenBrowser) {
+    await hideTistoryBrowserWindow(page, onLog).catch(() => false);
+  } else {
+    await restoreTistoryBrowserWindow(page, onLog).catch(() => false);
+  }
   return { context: active.context, page };
 }
 
@@ -281,7 +292,7 @@ export async function launchTistoryContext(
   onLog?: (message: string) => void,
 ): Promise<LaunchResult> {
   fs.mkdirSync(config.profileDir, { recursive: true });
-  const reusable = await getReusableTistorySession(config.profileDir, onLog);
+  const reusable = await getReusableTistorySession(config.profileDir, onLog, !!config.hiddenBrowser);
   if (reusable) return reusable;
 
   const chromium = await loadChromium();
@@ -289,7 +300,9 @@ export async function launchTistoryContext(
     headless: false,
     locale: 'ko-KR',
     viewport: { width: 1400, height: 900 },
-    args: getLaunchArgs(),
+    args: config.hiddenBrowser
+      ? [...getLaunchArgs(), '--start-minimized', '--window-position=-32000,-32000']
+      : getLaunchArgs(),
   } as Record<string, unknown>;
   if (config.browserExecutablePath && fs.existsSync(config.browserExecutablePath)) {
     launchOptions['executablePath'] = config.browserExecutablePath;
@@ -313,13 +326,18 @@ export async function launchTistoryContext(
     try { await item.close(); } catch { /* ignore stale tabs */ }
   }
 
-  try { await page.bringToFront(); } catch { /* ignore */ }
+  if (config.hiddenBrowser) {
+    await hideTistoryBrowserWindow(page, onLog).catch(() => false);
+  } else {
+    try { await page.bringToFront(); } catch { /* ignore */ }
+  }
   ACTIVE_TISTORY_SESSIONS.set(config.profileDir, {
     context,
     page,
     profileDir: config.profileDir,
     createdAt: Date.now(),
     lastUsedAt: Date.now(),
+    hidden: !!config.hiddenBrowser,
   });
   return { context, page };
 }
@@ -636,11 +654,12 @@ async function extractTistoryCategoriesFromPage(page: any, source: 'editor' | 'm
         .replace(/\s+/g, ' ')
         .trim();
 
-      const blocked = /^(카테고리|분류 전체보기|전체|전체보기|관리|추가|수정|삭제|저장|취소|확인|닫기|글쓰기|새 글|공개|비공개|보호|공지|홈|통계|스킨|댓글|방명록|콘텐츠|설정|블로그|메뉴|선택 안 함|선택 없음)$/;
+      const blocked = /^(카테고리|카테고리 더보기|카테고리 없음|분류 전체보기|전체|전체보기|관리|추가|수정|삭제|저장|취소|확인|닫기|글쓰기|새 글|공개|비공개|보호|공지|홈|통계|스킨|댓글|방명록|콘텐츠|설정|블로그|메뉴|선택 안 함|선택 없음|기본모드|기본서체|HTML|마크다운|POWERED BY TINY)$/i;
       const looksCategory = (text: string) => {
         const cleaned = normalizeText(text).replace(/\(\d+\)$/g, '').trim();
         if (!cleaned || cleaned.length > 60) return false;
         if (blocked.test(cleaned)) return false;
+        if (/powered\s+by\s+tiny|tinymce|기본\s*(?:모드|서체)|html|markdown|마크다운/i.test(cleaned)) return false;
         if (/^\d+$/.test(cleaned)) return false;
         if (/https?:\/\//i.test(cleaned)) return false;
         return /[가-힣a-zA-Z0-9]/.test(cleaned);
@@ -675,12 +694,7 @@ async function extractTistoryCategoriesFromPage(page: any, source: 'editor' | 'm
         });
       };
 
-      for (const option of Array.from(document.querySelectorAll('select option')) as HTMLOptionElement[]) {
-        if (option.disabled) continue;
-        push(option.textContent || option.label || option.value, option);
-      }
-
-      const categoryLikeSelectors = [
+      const categoryLikeSelectors = categorySource === 'manage' ? [
         '[data-category-id]',
         '[data-category]',
         '[class*="category" i] a',
@@ -689,8 +703,17 @@ async function extractTistoryCategoriesFromPage(page: any, source: 'editor' | 'm
         '[id*="category" i] a',
         '[id*="category" i] button',
         '[id*="category" i] li',
-        '.mce-menu-item',
-        '[role="menuitem"]',
+        'a[href*="/category/"]',
+        'a[href*="category"]',
+      ] : [
+        '[data-category-id]',
+        '[data-category]',
+        '[class*="category" i] a',
+        '[class*="category" i] button',
+        '[class*="category" i] li',
+        '[id*="category" i] a',
+        '[id*="category" i] button',
+        '[id*="category" i] li',
         'a[href*="/category/"]',
         'a[href*="category"]',
       ];
@@ -702,11 +725,13 @@ async function extractTistoryCategoriesFromPage(page: any, source: 'editor' | 'm
         push(text, node);
       }
 
-      const fallbackNodes = Array.from(document.querySelectorAll('li, a, button, span, label')) as HTMLElement[];
+      const fallbackNodes = categorySource === 'manage'
+        ? Array.from(document.querySelectorAll('li, a, button, span, label')) as HTMLElement[]
+        : [];
       for (const node of fallbackNodes) {
         if (!visible(node)) continue;
         const classId = `${node.className || ''} ${node.id || ''} ${node.getAttribute('href') || ''}`;
-        if (!/category|cate|folder|menu|mce/i.test(classId)) continue;
+        if (!/category|cate|folder/i.test(classId)) continue;
         push(node.innerText || node.textContent || '', node);
       }
 
@@ -753,7 +778,7 @@ export async function loadTistoryCategories(
   let pageToHide: any | null = null;
   let shouldHideAfterUse = false;
   try {
-    const launched = await launchTistoryContext(config, onLog);
+    const launched = await launchTistoryContext({ ...config, hiddenBrowser: true }, onLog);
     context = launched.context;
     const page = launched.page;
     pageToHide = page;
@@ -772,14 +797,18 @@ export async function loadTistoryCategories(
       };
     }
 
-    await openEditorCategoryMenu(page);
-    let categories = await extractTistoryCategoriesFromPage(page, 'editor');
-
+    await page.goto(TISTORY_URLS.category(config.blogName), { waitUntil: 'domcontentloaded', timeout: config.timeoutMs }).catch(() => null);
+    await page.waitForTimeout(1500).catch(() => null);
+    let categories: TistoryCategory[] = [];
+    if (!(await isTistoryLoginPage(page))) {
+      categories = await extractTistoryCategoriesFromPage(page, 'manage');
+    }
     if (categories.length === 0) {
-      await page.goto(TISTORY_URLS.category(config.blogName), { waitUntil: 'domcontentloaded', timeout: config.timeoutMs }).catch(() => null);
-      await page.waitForTimeout(1500).catch(() => null);
+      await page.goto(writeUrl, { waitUntil: 'domcontentloaded', timeout: config.timeoutMs }).catch(() => null);
+      await page.waitForTimeout(1200).catch(() => null);
       if (!(await isTistoryLoginPage(page))) {
-        categories = await extractTistoryCategoriesFromPage(page, 'manage');
+        await openEditorCategoryMenu(page);
+        categories = await extractTistoryCategoriesFromPage(page, 'editor');
       }
     }
 

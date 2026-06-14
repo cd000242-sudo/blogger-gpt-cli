@@ -88,6 +88,64 @@ interface GeneratedContent {
   }>;
 }
 
+type PublishGeneratedContentResult = {
+  ok: boolean;
+  url?: string;
+  postId?: string;
+  id?: string;
+  error?: string;
+  needsAuth?: boolean;
+  duplicateBlocked?: boolean;
+  duplicateOf?: string;
+};
+
+const TISTORY_DUPLICATE_WINDOW_MS = 3 * 60 * 1000;
+const ACTIVE_TISTORY_PUBLISHES = new Map<string, Promise<PublishGeneratedContentResult>>();
+const RECENT_TISTORY_PUBLISHES = new Map<string, { ts: number; result: PublishGeneratedContentResult }>();
+
+function normalizeDedupText(value: any): string {
+  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function stableHash(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function cleanupRecentTistoryPublishes(now = Date.now()): void {
+  for (const [key, entry] of RECENT_TISTORY_PUBLISHES.entries()) {
+    if (now - entry.ts > TISTORY_DUPLICATE_WINDOW_MS) {
+      RECENT_TISTORY_PUBLISHES.delete(key);
+    }
+  }
+}
+
+function buildTistoryPublishDedupKey(
+  payload: any,
+  title: string,
+  html: string,
+  postingMode: string,
+  scheduleDate: Date | null,
+): string {
+  const blogIdentity = normalizeDedupText(
+    payload?.tistoryBlogName
+    || payload?.blogName
+    || payload?.tistoryBlogUrl
+    || payload?.siteUrl
+    || 'default',
+  );
+  const scheduleIdentity = postingMode === 'schedule' && scheduleDate
+    ? scheduleDate.toISOString().slice(0, 16)
+    : postingMode;
+  const titleIdentity = normalizeDedupText(title);
+  const htmlIdentity = stableHash(normalizeDedupText(html).slice(0, 8000));
+  return [blogIdentity, postingMode, scheduleIdentity, titleIdentity, htmlIdentity].join('|');
+}
+
 // ============================================
 // ⚙️ 설정
 // ============================================
@@ -1686,7 +1744,7 @@ export async function publishGeneratedContent(
   title: string,
   html: string,
   thumbnailUrl?: string
-): Promise<{ ok: boolean; url?: string; postId?: string; id?: string; error?: string; needsAuth?: boolean }> {
+): Promise<PublishGeneratedContentResult> {
   try {
     // 플랫폼 값 정규화: 'blogger'와 'blogspot' 통일
     let platform = payload?.platform || 'blogspot';
@@ -1744,31 +1802,72 @@ export async function publishGeneratedContent(
     } else if (platform === 'tistory') {
       console.log('[PUBLISH] 티스토리 발행 시작');
 
-      try {
-        const { publishToTistory } = require('../tistory/tistory-publisher');
-        const result = await publishToTistory(
-          payload,
-          title,
-          html,
-          thumbnailUrl || '',
-          (msg: string) => console.log(msg),
-          postingMode,
-          scheduleDate
-        );
-
-        console.log('[PUBLISH] 티스토리 발행 결과:', result);
-
+      cleanupRecentTistoryPublishes();
+      const dedupeKey = buildTistoryPublishDedupKey(payload, title, html, postingMode, scheduleDate);
+      const recentPublish = RECENT_TISTORY_PUBLISHES.get(dedupeKey);
+      if (recentPublish && Date.now() - recentPublish.ts <= TISTORY_DUPLICATE_WINDOW_MS) {
+        console.warn('[PUBLISH] 티스토리 중복 발행 차단: 최근 성공 결과 재사용');
+        const duplicateOf = recentPublish.result.url || recentPublish.result.postId || recentPublish.result.id;
         return {
-          ok: !!result.ok,
-          url: result.url,
-          postId: result.postId,
-          id: result.postId,
-          error: result.error,
-          needsAuth: result.needsAuth
+          ...recentPublish.result,
+          duplicateBlocked: true,
+          ...(duplicateOf ? { duplicateOf } : {}),
         };
-      } catch (tistoryError: any) {
-        console.error('[PUBLISH] 티스토리 발행 오류:', tistoryError);
-        return { ok: false, error: tistoryError.message || '티스토리 발행 실패' };
+      }
+
+      const activePublish = ACTIVE_TISTORY_PUBLISHES.get(dedupeKey);
+      if (activePublish) {
+        console.warn('[PUBLISH] 티스토리 중복 발행 차단: 진행 중인 발행 결과 대기');
+        const activeResult = await activePublish;
+        const duplicateOf = activeResult.url || activeResult.postId || activeResult.id;
+        return {
+          ...activeResult,
+          duplicateBlocked: true,
+          ...(duplicateOf ? { duplicateOf } : {}),
+        };
+      }
+
+      const publishPromise = (async (): Promise<PublishGeneratedContentResult> => {
+        try {
+          const { publishToTistory } = require('../tistory/tistory-publisher');
+          const result = await publishToTistory(
+            payload,
+            title,
+            html,
+            thumbnailUrl || '',
+            (msg: string) => console.log(msg),
+            postingMode,
+            scheduleDate
+          );
+
+          console.log('[PUBLISH] 티스토리 발행 결과:', result);
+
+          return {
+            ok: !!result.ok,
+            url: result.url,
+            postId: result.postId,
+            id: result.postId,
+            error: result.error,
+            needsAuth: result.needsAuth
+          };
+        } catch (tistoryError: any) {
+          console.error('[PUBLISH] 티스토리 발행 오류:', tistoryError);
+          return { ok: false, error: tistoryError.message || '티스토리 발행 실패' };
+        }
+      })();
+
+      ACTIVE_TISTORY_PUBLISHES.set(dedupeKey, publishPromise);
+      try {
+        const publishResult = await publishPromise;
+        if (publishResult.ok) {
+          RECENT_TISTORY_PUBLISHES.set(dedupeKey, {
+            ts: Date.now(),
+            result: publishResult,
+          });
+        }
+        return publishResult;
+      } finally {
+        ACTIVE_TISTORY_PUBLISHES.delete(dedupeKey);
       }
     } else if (platform === 'wordpress') {
       // 워드프레스

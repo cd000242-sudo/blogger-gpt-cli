@@ -1,6 +1,24 @@
 // 🔧 설정 관리 관련 함수들
 import { getErrorHandler, getStorageManager, addLog, debugLog } from './core.js';
 
+function normalizePlatformValue(value) {
+  const platform = String(value || '').toLowerCase().trim();
+  if (platform === 'blogspot') return 'blogger';
+  if (platform === 'blogger' || platform === 'wordpress' || platform === 'tistory') return platform;
+  return 'wordpress';
+}
+
+function getPlatformDisplay(platform) {
+  const normalized = normalizePlatformValue(platform);
+  if (normalized === 'blogger') {
+    return { label: 'Blogger', color: '#f97316', background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)' };
+  }
+  if (normalized === 'tistory') {
+    return { label: 'Tistory', color: '#14b8a6', background: 'linear-gradient(135deg, #14b8a6 0%, #0f766e 100%)' };
+  }
+  return { label: 'WordPress', color: '#3b82f6', background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' };
+}
+
 // 설정 로드 (비동기)
 export async function loadSettings() {
   const storage = getStorageManager();
@@ -19,20 +37,9 @@ export async function loadSettings() {
     settings = {};
   }
 
-  // 플랫폼 기본값 설정: 항상 WordPress를 기본값으로 사용
-  // 사용자가 명시적으로 Blogger를 선택하고 저장한 경우에만 Blogger 사용
-  // 저장된 값이 없거나 유효하지 않으면 WordPress
-  if (!settings.platform || settings.platform === undefined || settings.platform === null || settings.platform === '' || settings.platform === 'undefined' || settings.platform === 'null') {
-    settings.platform = 'wordpress';
-    console.log('[LOAD] 플랫폼 기본값 설정: wordpress (저장된 값 없음 또는 유효하지 않음)');
-  } else if (settings.platform === 'blogger' || settings.platform === 'tistory') {
-    // 저장된 값이 Blogger인 경우에만 Blogger 사용 (사용자가 명시적으로 저장한 경우)
-    console.log('[LOAD] 플랫폼 설정: blogger (사용자가 저장한 값)');
-  } else {
-    // 그 외의 경우는 WordPress
-    settings.platform = 'wordpress';
-    console.log('[LOAD] 플랫폼 기본값 설정: wordpress (유효하지 않은 값)');
-  }
+  const originalPlatform = settings.platform;
+  settings.platform = normalizePlatformValue(settings.platform);
+  console.log('[LOAD] 플랫폼 설정:', { original: originalPlatform || '(empty)', normalized: settings.platform });
 
   return settings;
 }
@@ -269,19 +276,11 @@ export function updateApiKeyStatus(settings) {
 
 // 플랫폼 상태 업데이트
 export async function updatePlatformStatus() {
-  // 저장된 설정을 우선 사용 (모달 내부 라디오 버튼이 아닌 실제 저장된 값)
-  // 저장된 값이 Blogger인 경우에만 Blogger 사용, 그 외에는 WordPress
   let platform = 'wordpress';
 
   try {
     const settings = await loadSettings();
-    if (settings && settings.platform === 'blogger') {
-      // 사용자가 명시적으로 Blogger를 선택하고 저장한 경우에만 Blogger 사용
-      platform = 'blogger';
-    } else {
-      // 그 외의 경우는 WordPress
-      platform = 'wordpress';
-    }
+    platform = normalizePlatformValue(settings?.platform);
   } catch (error) {
     console.warn('[PLATFORM-STATUS] 설정 로드 실패, 기본값 사용:', error);
     platform = 'wordpress';
@@ -290,13 +289,10 @@ export async function updatePlatformStatus() {
   const statusBadge = document.getElementById('platformStatus');
 
   if (statusBadge) {
-    if (platform === 'wordpress') {
-      statusBadge.textContent = 'WordPress';
-      statusBadge.style.background = 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)';
-    } else {
-      statusBadge.textContent = 'Blogger';
-      statusBadge.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)';
-    }
+    const display = getPlatformDisplay(platform);
+    statusBadge.textContent = display.label;
+    statusBadge.style.color = display.color;
+    statusBadge.style.background = display.background;
     console.log('[PLATFORM-STATUS] 플랫폼 상태 업데이트:', platform);
   }
 }
@@ -1123,14 +1119,16 @@ function setTistoryCategoryOptions(categories = [], selectedValue = '') {
     select.appendChild(option);
   });
 
-  if (current && !Array.from(select.options).some((option) => option.value === current)) {
+  if (current && categories.length === 0 && !Array.from(select.options).some((option) => option.value === current)) {
     const savedOption = document.createElement('option');
     savedOption.value = current;
     savedOption.textContent = `${current} (저장됨)`;
     select.appendChild(savedOption);
   }
 
-  if (current) select.value = current;
+  if (current && Array.from(select.options).some((option) => option.value === current)) {
+    select.value = current;
+  }
 }
 
 window.loadTistoryCategoriesFromSettings = async function (options = {}) {

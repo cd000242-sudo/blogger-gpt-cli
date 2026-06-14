@@ -535,24 +535,88 @@ async function fillHtmlEditor(page: any, html: string): Promise<boolean> {
 }
 
 async function selectCategory(page: any, category: string | undefined, onLog?: (message: string) => void): Promise<void> {
-  if (!category) return;
+  const targetCategory = String(category || '').replace(/\s+/g, ' ').trim();
+  if (!targetCategory) return;
 
-  const opened = await clickFirst(page, TISTORY_SELECTORS.editor.categoryTriggers, 2000);
+  const opened = await clickFirst(page, TISTORY_SELECTORS.editor.categoryTriggers, 5000);
   if (!opened) {
-    log(onLog, `Category trigger not found. Skipping category: ${category}`);
+    throw new Error(`Tistory category trigger was not found. Selected category: ${targetCategory}`);
+  }
+
+  await page.waitForTimeout(800).catch(() => null);
+  const escaped = targetCategory.replace(/"/g, '\\"');
+  const candidates = [
+    `[data-category-id="${escaped}"]`,
+    `button:has-text("${escaped}")`,
+    `li:has-text("${escaped}")`,
+    `a:has-text("${escaped}")`,
+    `[role="option"]:has-text("${escaped}")`,
+    `[role="menuitem"]:has-text("${escaped}")`,
+  ];
+  const selected = await clickFirst(page, candidates, 2500);
+  if (selected) {
+    log(onLog, `Selected category: ${targetCategory}`);
     return;
   }
 
-  await page.waitForTimeout(500).catch(() => null);
-  const escaped = category.replace(/"/g, '\\"');
-  const candidates = [
-    `[data-category-id="${escaped}"]`,
-    `text=${category}`,
-    `li:has-text("${escaped}")`,
-    `button:has-text("${escaped}")`,
-  ];
-  const selected = await clickFirst(page, candidates, 2500);
-  log(onLog, selected ? `Selected category: ${category}` : `Category option not found: ${category}`);
+  const selectedByDom = await page.evaluate((target: string) => {
+    const normalize = (value: string | null | undefined) => String(value || '').replace(/\s+/g, ' ').trim();
+    const visible = (element: Element | null): element is HTMLElement => {
+      if (!element) return false;
+      const htmlElement = element as HTMLElement;
+      const rect = htmlElement.getBoundingClientRect();
+      const style = window.getComputedStyle(htmlElement);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    };
+    const clickElement = (element: HTMLElement) => {
+      const clickable = (
+        element.matches('button,a,label,li,[role="button"],[role="option"],[role="menuitem"]')
+          ? element
+          : element.closest('button,a,label,li,[role="button"],[role="option"],[role="menuitem"]') as HTMLElement | null
+      ) || element;
+      clickable.click();
+    };
+    const targetText = normalize(target);
+    const targetLower = targetText.toLowerCase();
+
+    const roots = Array.from(document.querySelectorAll(
+      '[role="listbox"],[role="menu"],.mce-menu,.mce-menu-item,.layer,.dropdown,[class*="category" i],[id*="category" i],ul,ol',
+    ))
+      .filter((node) => visible(node) && normalize((node as HTMLElement).innerText || node.textContent).toLowerCase().includes(targetLower)) as HTMLElement[];
+    roots.sort((a, b) => {
+      const ar = a.getBoundingClientRect();
+      const br = b.getBoundingClientRect();
+      return (ar.width * ar.height) - (br.width * br.height);
+    });
+    const searchRoots = roots.length ? roots.slice(0, 6) : [document.body];
+    const selector = '[data-category-id],[data-category],button,a,label,li,span,[role="option"],[role="menuitem"]';
+
+    for (const root of searchRoots) {
+      const candidates = Array.from(root.querySelectorAll(selector)) as HTMLElement[];
+      for (const node of candidates) {
+        if (!visible(node)) continue;
+        const values = [
+          node.getAttribute('data-category-id'),
+          node.getAttribute('data-category'),
+          node.getAttribute('value'),
+          node.getAttribute('title'),
+          node.getAttribute('aria-label'),
+          node.innerText,
+          node.textContent,
+        ].map(normalize).filter(Boolean);
+        const exact = values.some((value) => value === targetText || value.toLowerCase() === targetLower);
+        if (!exact) continue;
+        clickElement(node);
+        return true;
+      }
+    }
+    return false;
+  }, targetCategory).catch(() => false);
+
+  if (!selectedByDom) {
+    throw new Error(`Tistory category option was not found: ${targetCategory}`);
+  }
+  log(onLog, `Selected category: ${targetCategory}`);
 }
 
 async function fillTags(page: any, tags: string[], onLog?: (message: string) => void): Promise<number> {
