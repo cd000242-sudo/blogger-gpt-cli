@@ -124,10 +124,21 @@ function openInternalLinksManagerModalFallback() {
     showTab('internal-links');
   } else {
     // showTab 함수가 없으면 직접 탭 표시
-    const tabRoot = document.getElementById('tab-content-container');
-    const allTabs = tabRoot
-      ? tabRoot.querySelectorAll('.tab-content')
-      : document.querySelectorAll('.tab-content');
+    const topLevelTabIds = [
+      'schedule-tab',
+      'adsense-tools-tab',
+      'main-tab',
+      'thumbnail-tab',
+      'settings-tab',
+      'content-tab',
+      'semi-auto-tab',
+      'internal-links-tab',
+      'external-traffic-tab',
+      'image-batch-tab',
+    ];
+    const allTabs = topLevelTabIds
+      .map(id => document.getElementById(id))
+      .filter(Boolean);
     allTabs.forEach(tab => {
       tab.style.display = 'none';
       tab.classList.remove('active');

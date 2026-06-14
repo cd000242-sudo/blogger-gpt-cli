@@ -941,7 +941,7 @@ textarea::placeholder {
   width: 100%;
 }
 
-#tab-content-container .tab-content:not(.active) {
+.tab-content:not(.active) {
   display: none !important;
 }
 

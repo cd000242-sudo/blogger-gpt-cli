@@ -4,6 +4,26 @@ import { DOMCache, getAppState, getErrorHandler, getStorageManager, ButtonStateM
 // 탭 전환 함수
 
 const FREE_TRIAL_ALLOWED_TABS = new Set(['main', 'settings']);
+
+const TOP_LEVEL_TAB_IDS = [
+  'schedule-tab',
+  'adsense-tools-tab',
+  'main-tab',
+  'thumbnail-tab',
+  'settings-tab',
+  'content-tab',
+  'semi-auto-tab',
+  'internal-links-tab',
+  'external-traffic-tab',
+  'image-batch-tab',
+];
+
+function getTopLevelTabElements() {
+  const tabs = TOP_LEVEL_TAB_IDS
+    .map(id => document.getElementById(id))
+    .filter(Boolean);
+  return tabs.length ? tabs : Array.from(document.querySelectorAll('.tab-content'));
+}
 const FREE_TRIAL_TAB_LABELS = {
   main: '메인',
   thumbnail: '썸네일',
@@ -313,10 +333,7 @@ export function showTab(tabName) {
 
   // 모든 최상위 탭 콘텐츠 숨기기
   // 내부 설정 탭/외부유입 서브탭까지 [id$="-tab"]로 같이 숨기면 레이아웃이 깨질 수 있다.
-  const tabRoot = document.getElementById('tab-content-container');
-  const allTabs = tabRoot
-    ? tabRoot.querySelectorAll('.tab-content')
-    : document.querySelectorAll('.tab-content');
+  const allTabs = getTopLevelTabElements();
   allTabs.forEach(tab => {
     tab.style.display = 'none';
     tab.classList.remove('active');
