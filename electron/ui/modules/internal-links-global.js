@@ -9,15 +9,19 @@ function openInternalLinksManagerModal() {
     // showTab 함수가 없으면 직접 탭 표시
     const tabRoot = document.getElementById('tab-content-container');
     const allTabs = tabRoot
-      ? tabRoot.querySelectorAll(':scope > .tab-content')
+      ? tabRoot.querySelectorAll('.tab-content')
       : document.querySelectorAll('.tab-content');
     allTabs.forEach(tab => {
       tab.style.display = 'none';
       tab.classList.remove('active');
+      tab.hidden = true;
+      tab.setAttribute('aria-hidden', 'true');
     });
     
     const internalLinksTab = document.getElementById('internal-links-tab');
     if (internalLinksTab) {
+      internalLinksTab.hidden = false;
+      internalLinksTab.setAttribute('aria-hidden', 'false');
       internalLinksTab.style.display = 'block';
       internalLinksTab.classList.add('active');
       

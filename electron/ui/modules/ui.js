@@ -315,11 +315,13 @@ export function showTab(tabName) {
   // 내부 설정 탭/외부유입 서브탭까지 [id$="-tab"]로 같이 숨기면 레이아웃이 깨질 수 있다.
   const tabRoot = document.getElementById('tab-content-container');
   const allTabs = tabRoot
-    ? tabRoot.querySelectorAll(':scope > .tab-content')
+    ? tabRoot.querySelectorAll('.tab-content')
     : document.querySelectorAll('.tab-content');
   allTabs.forEach(tab => {
     tab.style.display = 'none';
     tab.classList.remove('active');
+    tab.hidden = true;
+    tab.setAttribute('aria-hidden', 'true');
   });
 
   // 선택된 탭 표시
@@ -393,6 +395,8 @@ export function showTab(tabName) {
   }
 
   if (targetTab) {
+    targetTab.hidden = false;
+    targetTab.setAttribute('aria-hidden', 'false');
     targetTab.style.display = 'block';
     targetTab.classList.add('active');
     try {
