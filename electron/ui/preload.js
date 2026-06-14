@@ -174,6 +174,7 @@ const api = {
     // ── 플랫폼 연동 확인 ──
     checkPlatformAuth: (platform) => electron_1.ipcRenderer.invoke('check-platform-auth', platform),
     checkTistorySession: (payload = {}) => electron_1.ipcRenderer.invoke('tistory-check-session', payload),
+    loadTistoryCategories: (payload = {}) => electron_1.ipcRenderer.invoke('tistory-load-categories', payload),
     openTistoryLogin: (payload = {}) => electron_1.ipcRenderer.invoke('tistory-open-login', payload),
     // ── 세션 관리 (중복 로그인 방지) ──
     sessionValidate: () => electron_1.ipcRenderer.invoke('session-validate'),

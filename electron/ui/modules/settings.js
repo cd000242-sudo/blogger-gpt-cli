@@ -558,6 +558,9 @@ export async function loadSettingsContent() {
       Object.entries(fieldMappings).forEach(([fieldId, value]) => {
         const el = document.getElementById(fieldId);
         if (el) {
+          if (fieldId === 'tistoryDefaultCategory') {
+            setTistoryCategoryOptions([], value || '');
+          }
           el.value = value;
           console.log(`✅ ${fieldId} 로드:`, value ? '있음' : '없음');
         }
@@ -1094,6 +1097,85 @@ window.openTistoryLoginFromSettings = async function () {
   }
 };
 
+function setTistoryCategoryOptions(categories = [], selectedValue = '') {
+  const select = document.getElementById('tistoryDefaultCategory');
+  if (!select) return;
+
+  const current = String(selectedValue || select.value || '').trim();
+  select.innerHTML = '';
+
+  const emptyOption = document.createElement('option');
+  emptyOption.value = '';
+  emptyOption.textContent = categories.length ? '선택 안 함' : '카테고리를 먼저 불러오세요';
+  select.appendChild(emptyOption);
+
+  const seen = new Set();
+  categories.forEach((item) => {
+    const name = String(item?.name || item?.label || '').replace(/\s+/g, ' ').trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = item?.label || name;
+    select.appendChild(option);
+  });
+
+  if (current && !Array.from(select.options).some((option) => option.value === current)) {
+    const savedOption = document.createElement('option');
+    savedOption.value = current;
+    savedOption.textContent = `${current} (저장됨)`;
+    select.appendChild(savedOption);
+  }
+
+  if (current) select.value = current;
+}
+
+window.loadTistoryCategoriesFromSettings = async function (options = {}) {
+  const blogName = document.getElementById('tistoryBlogName')?.value?.trim() || '';
+  const categorySelect = document.getElementById('tistoryDefaultCategory');
+  const status = document.getElementById('tistorySessionStatus');
+  const currentCategory = categorySelect?.value || '';
+
+  if (!blogName) {
+    const message = '먼저 티스토리 블로그명 또는 주소를 입력해주세요.';
+    if (status) status.textContent = message;
+    if (!options.silent) alert(message);
+    return;
+  }
+
+  try {
+    if (status) status.textContent = '티스토리 카테고리를 자동으로 불러오는 중입니다...';
+    if (categorySelect) categorySelect.disabled = true;
+
+    const result = await window.blogger?.loadTistoryCategories?.({
+      tistoryBlogName: blogName,
+      tistoryDefaultCategory: currentCategory,
+    });
+
+    if (!result?.ok || !result?.authenticated) {
+      const message = result?.error || '티스토리 로그인이 필요합니다. 로그인 창을 열고 로그인한 뒤 다시 불러오세요.';
+      if (status) status.textContent = message;
+      if (!options.silent) alert(message);
+      return;
+    }
+
+    const categories = Array.isArray(result.categories) ? result.categories : [];
+    setTistoryCategoryOptions(categories, currentCategory || result.selectedCategory || '');
+    if (status) {
+      status.textContent = categories.length
+        ? `카테고리 ${categories.length}개를 불러왔습니다. 사용할 카테고리를 선택해주세요.`
+        : '카테고리를 찾지 못했습니다. 티스토리 관리자에서 카테고리를 만든 뒤 다시 불러오세요.';
+    }
+  } catch (error) {
+    if (status) status.textContent = `카테고리 불러오기 실패: ${error?.message || error}`;
+  } finally {
+    if (categorySelect) categorySelect.disabled = false;
+  }
+};
+
 window.checkTistorySessionFromSettings = async function () {
   const blogName = document.getElementById('tistoryBlogName')?.value?.trim() || '';
   const status = document.getElementById('tistorySessionStatus');
@@ -1110,6 +1192,9 @@ window.checkTistorySessionFromSettings = async function () {
       status.textContent = result?.authenticated
         ? `연동 확인됨: ${result.blogUrl || blogName}`
         : `로그인이 필요합니다: ${result?.error || '글쓰기 화면을 확인하지 못했습니다.'}`;
+    }
+    if (result?.authenticated) {
+      await window.loadTistoryCategoriesFromSettings?.({ silent: true });
     }
   } catch (error) {
     if (status) status.textContent = `세션 확인 실패: ${error?.message || error}`;

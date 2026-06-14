@@ -1650,9 +1650,15 @@
                   </div>
                   <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
                     <div>
-                      <label style="display:block; margin-bottom:6px; font-weight:700; color:rgba(255,255,255,0.9); font-size:13px;">기본 카테고리</label>
-                      <input type="text" id="tistoryDefaultCategory" placeholder="비워두면 선택 안 함"
-                        style="width:100%; padding:14px 16px; border:1px solid rgba(255,255,255,0.1); border-radius:10px; font-size:14px; color:white; background:rgba(0,0,0,0.2); box-sizing:border-box;">
+                      <label style="display:block; margin-bottom:6px; font-weight:700; color:rgba(255,255,255,0.9); font-size:13px;">티스토리 카테고리</label>
+                      <div style="display:flex; gap:8px; align-items:center;">
+                        <select id="tistoryDefaultCategory"
+                          style="flex:1; min-width:0; padding:14px 16px; border:1px solid rgba(255,255,255,0.1); border-radius:10px; font-size:14px; color:white; background:rgba(0,0,0,0.2); box-sizing:border-box;">
+                          <option value="">카테고리를 먼저 불러오세요</option>
+                        </select>
+                        <button type="button" onclick="window.loadTistoryCategoriesFromSettings?.()"
+                          style="padding:14px 16px; white-space:nowrap; background:rgba(20,184,166,0.16); color:#99f6e4; border:1px solid rgba(20,184,166,0.45); border-radius:10px; font-weight:800; cursor:pointer;">불러오기</button>
+                      </div>
                     </div>
                     <div>
                       <label style="display:block; margin-bottom:6px; font-weight:700; color:rgba(255,255,255,0.9); font-size:13px;">기본 공개 상태</label>

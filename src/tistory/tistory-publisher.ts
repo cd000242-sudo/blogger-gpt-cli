@@ -3,8 +3,10 @@ import { TISTORY_SELECTORS, TISTORY_URLS } from './tistory-selectors';
 import {
   clickTistoryKakaoLoginIfVisible,
   checkTistorySession as checkSession,
+  hideTistoryBrowserWindow,
   isTistoryLoginPage,
   launchTistoryContext,
+  loadTistoryCategories as loadCategories,
   normalizeTistoryBlogName,
   openTistoryLoginWindow,
   resolveTistoryConfig,
@@ -12,6 +14,7 @@ import {
 import {
   TistoryConfig,
   TistoryManualRecovery,
+  TistoryCategoryLoadResult,
   TistoryPostingMode,
   TistoryPublishResult,
   TistorySessionStatus,
@@ -986,10 +989,13 @@ export async function publishToTistory(
   const tags = extractTags(payload);
 
   let context: any | null = null;
+  let pageToHide: any | null = null;
+  let shouldHideAfterUse = false;
   try {
     const launched = await launchTistoryContext(config, onLog);
     context = launched.context;
     const page = launched.page;
+    pageToHide = page;
     const loginWaitMs = Number(payload['tistoryLoginWaitMs'] || payload['loginWaitMs'] || 180000);
     await openConfiguredTistoryEditor(
       page,
@@ -1050,6 +1056,7 @@ export async function publishToTistory(
       url: publishResult.url || TISTORY_URLS.write(config.blogName),
     };
     if (publishResult.postId) successResult.postId = publishResult.postId;
+    shouldHideAfterUse = true;
     return successResult;
   } catch (error: any) {
     const reason = error?.message || String(error);
@@ -1060,9 +1067,10 @@ export async function publishToTistory(
       manualRecovery: makeRecovery(config, title, html, tags, reason),
     };
   } finally {
-    if (context && !config.keepBrowserOpen) {
-      try { await context.close(); } catch { /* ignore */ }
+    if (shouldHideAfterUse && pageToHide && !config.keepBrowserOpen) {
+      await hideTistoryBrowserWindow(pageToHide, onLog).catch(() => false);
     }
+    context = null;
   }
 }
 
@@ -1070,6 +1078,12 @@ export async function checkTistorySession(
   payload: Record<string, any> = {},
 ): Promise<TistorySessionStatus> {
   return checkSession(payload, loadEnvFromFile(), (message) => console.log(message));
+}
+
+export async function loadTistoryCategories(
+  payload: Record<string, any> = {},
+): Promise<TistoryCategoryLoadResult> {
+  return loadCategories(payload, loadEnvFromFile(), (message) => console.log(message));
 }
 
 export async function openTistoryLogin(

@@ -12,6 +12,23 @@ export type TistoryProfile = {
   lastTestPublishUrl?: string;
 };
 
+export type TistoryCategory = {
+  id?: string;
+  name: string;
+  label: string;
+  source?: 'editor' | 'manage' | 'fallback';
+};
+
+export type TistoryCategoryLoadResult = {
+  ok: boolean;
+  authenticated: boolean;
+  blogName?: string;
+  blogUrl?: string;
+  categories?: TistoryCategory[];
+  selectedCategory?: string;
+  error?: string;
+};
+
 export type TistoryConfig = {
   blogName: string;
   blogUrl: string;

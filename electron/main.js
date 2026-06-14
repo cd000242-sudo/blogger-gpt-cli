@@ -6013,6 +6013,20 @@ electron_1.ipcMain.handle('tistory-check-session', async (_evt, payload = {}) =>
         return { ok: false, authenticated: false, error: error instanceof Error ? error.message : 'Tistory session check failed' };
     }
 });
+electron_1.ipcMain.handle('tistory-load-categories', async (_evt, payload = {}) => {
+    try {
+        const { loadTistoryCategories } = require('../dist/tistory/tistory-publisher');
+        return await loadTistoryCategories(payload || {});
+    }
+    catch (error) {
+        return {
+            ok: false,
+            authenticated: false,
+            categories: [],
+            error: error instanceof Error ? error.message : 'Tistory category load failed',
+        };
+    }
+});
 electron_1.ipcMain.handle('tistory-open-login', async (_evt, payload = {}) => {
     try {
         const { openTistoryLogin } = require('../dist/tistory/tistory-publisher');

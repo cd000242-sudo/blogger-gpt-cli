@@ -3,15 +3,23 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { launchPersistentContextWithAutoInstall } from '../utils/playwright-browser-installer';
 import { TISTORY_SELECTORS, TISTORY_URLS } from './tistory-selectors';
-import { TistoryConfig, TistorySessionStatus, TistoryVisibility } from './tistory-types';
+import { TistoryCategory, TistoryCategoryLoadResult, TistoryConfig, TistorySessionStatus, TistoryVisibility } from './tistory-types';
 
 type LaunchResult = {
   context: any;
   page: any;
 };
 
+type ActiveTistorySession = LaunchResult & {
+  profileDir: string;
+  createdAt: number;
+  lastUsedAt: number;
+  hidden?: boolean;
+};
+
 const DEFAULT_TIMEOUT_MS = 60_000;
 const TISTORY_PROFILE_ROOT = path.join(os.homedir(), '.leadernam-orbit', 'tistory-profiles');
+const ACTIVE_TISTORY_SESSIONS = new Map<string, ActiveTistorySession>();
 
 function firstExistingPath(paths: string[]): string {
   for (const item of paths) {
@@ -178,11 +186,104 @@ function getLaunchArgs(): string[] {
   ];
 }
 
+function isPageClosed(page: any): boolean {
+  try {
+    return typeof page?.isClosed === 'function' ? page.isClosed() : false;
+  } catch {
+    return true;
+  }
+}
+
+async function getLiveTistoryPage(context: any): Promise<any | null> {
+  try {
+    const pages = typeof context.pages === 'function' ? context.pages() : [];
+    const livePages = pages.filter((item: any) => !isPageClosed(item));
+    const preferred = livePages.find((item: any) => {
+      const url = String(typeof item.url === 'function' ? item.url() : '');
+      return /tistory\.com|accounts\.kakao\.com|about:blank/i.test(url);
+    }) || livePages[0];
+    if (preferred) return preferred;
+    return await context.newPage();
+  } catch {
+    return null;
+  }
+}
+
+async function getReusableTistorySession(profileDir: string, onLog?: (message: string) => void): Promise<LaunchResult | null> {
+  const active = ACTIVE_TISTORY_SESSIONS.get(profileDir);
+  if (!active) return null;
+
+  const page = await getLiveTistoryPage(active.context);
+  if (!page) {
+    ACTIVE_TISTORY_SESSIONS.delete(profileDir);
+    return null;
+  }
+
+  active.page = page;
+  active.lastUsedAt = Date.now();
+  active.hidden = false;
+  onLog?.('[TISTORY] Reusing existing browser session.');
+  await restoreTistoryBrowserWindow(page, onLog).catch(() => false);
+  return { context: active.context, page };
+}
+
+export async function hideTistoryBrowserWindow(page: any, onLog?: (message: string) => void): Promise<boolean> {
+  try {
+    const context = typeof page.context === 'function' ? page.context() : null;
+    const session = context && typeof context.newCDPSession === 'function'
+      ? await context.newCDPSession(page)
+      : null;
+    if (!session) return false;
+    const target = await session.send('Browser.getWindowForTarget').catch(() => null);
+    if (!target?.windowId) {
+      await session.detach().catch(() => null);
+      return false;
+    }
+    await session.send('Browser.setWindowBounds', {
+      windowId: target.windowId,
+      bounds: { windowState: 'minimized' },
+    });
+    await session.detach().catch(() => null);
+    onLog?.('[TISTORY] Browser window hidden for session reuse.');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function restoreTistoryBrowserWindow(page: any, onLog?: (message: string) => void): Promise<boolean> {
+  try {
+    const context = typeof page.context === 'function' ? page.context() : null;
+    const session = context && typeof context.newCDPSession === 'function'
+      ? await context.newCDPSession(page)
+      : null;
+    if (!session) return false;
+    const target = await session.send('Browser.getWindowForTarget').catch(() => null);
+    if (!target?.windowId) {
+      await session.detach().catch(() => null);
+      return false;
+    }
+    await session.send('Browser.setWindowBounds', {
+      windowId: target.windowId,
+      bounds: { windowState: 'normal' },
+    }).catch(() => null);
+    await session.detach().catch(() => null);
+    try { await page.bringToFront(); } catch { /* ignore */ }
+    onLog?.('[TISTORY] Browser window restored.');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function launchTistoryContext(
   config: TistoryConfig,
   onLog?: (message: string) => void,
 ): Promise<LaunchResult> {
   fs.mkdirSync(config.profileDir, { recursive: true });
+  const reusable = await getReusableTistorySession(config.profileDir, onLog);
+  if (reusable) return reusable;
+
   const chromium = await loadChromium();
   const launchOptions = {
     headless: false,
@@ -213,6 +314,13 @@ export async function launchTistoryContext(
   }
 
   try { await page.bringToFront(); } catch { /* ignore */ }
+  ACTIVE_TISTORY_SESSIONS.set(config.profileDir, {
+    context,
+    page,
+    profileDir: config.profileDir,
+    createdAt: Date.now(),
+    lastUsedAt: Date.now(),
+  });
   return { context, page };
 }
 
@@ -454,17 +562,26 @@ export async function checkTistorySession(
     };
   }
 
-  let context: any | null = null;
   try {
     const launched = await launchTistoryContext(config, onLog);
-    context = launched.context;
     const page = launched.page;
     await page.goto(TISTORY_URLS.write(config.blogName), { waitUntil: 'domcontentloaded', timeout: config.timeoutMs });
-    const loginPage = await isTistoryLoginPage(page);
-    const titleCount = await page.locator('textarea#post-title-inp, textarea[placeholder*="제목"], input[placeholder*="제목"]').count().catch(() => 0);
+    await page.waitForTimeout(1200).catch(() => null);
+    let loginPage = await isTistoryLoginPage(page);
+    if (loginPage) {
+      await clickTistoryKakaoLoginIfVisible(page, onLog, config.kakaoEmail);
+      await page.waitForTimeout(1800).catch(() => null);
+      loginPage = await isTistoryLoginPage(page);
+    }
+    const titleCount = await page.locator('textarea#post-title-inp, #post-title-inp, textarea[placeholder*="제목"], input[placeholder*="제목"]').count().catch(() => 0);
+    const currentUrl = String(typeof page.url === 'function' ? page.url() : '');
+    const authenticated = !loginPage && (titleCount > 0 || /\/manage\/newpost/i.test(currentUrl));
+    if (authenticated) {
+      await hideTistoryBrowserWindow(page, onLog).catch(() => false);
+    }
     return {
       ok: true,
-      authenticated: !loginPage && titleCount > 0,
+      authenticated,
       blogName: config.blogName,
       blogUrl: config.blogUrl,
       writeUrl: TISTORY_URLS.write(config.blogName),
@@ -480,10 +597,216 @@ export async function checkTistorySession(
       profileDir: config.profileDir,
       error: error?.message || String(error),
     };
-  } finally {
-    if (context) {
-      try { await context.close(); } catch { /* ignore */ }
+  }
+}
+
+function dedupeTistoryCategories(categories: TistoryCategory[]): TistoryCategory[] {
+  const seen = new Set<string>();
+  const result: TistoryCategory[] = [];
+  for (const category of categories) {
+    const name = String(category.name || category.label || '').replace(/\s+/g, ' ').trim();
+    if (!name) continue;
+    const key = `${String(category.id || '').trim()}|${name}`.toLowerCase();
+    const nameKey = name.toLowerCase();
+    if (seen.has(key) || seen.has(nameKey)) continue;
+    seen.add(key);
+    seen.add(nameKey);
+    result.push({
+      ...category,
+      name,
+      label: category.label || name,
+    });
+  }
+  return result;
+}
+
+async function extractTistoryCategoriesFromPage(page: any, source: 'editor' | 'manage'): Promise<TistoryCategory[]> {
+  try {
+    return await page.evaluate((categorySource: 'editor' | 'manage') => {
+      const visible = (element: Element | null): element is HTMLElement => {
+        if (!element) return false;
+        const htmlElement = element as HTMLElement;
+        const rect = htmlElement.getBoundingClientRect();
+        const style = window.getComputedStyle(htmlElement);
+        return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+      };
+
+      const normalizeText = (value: string) => String(value || '')
+        .replace(/\u00a0/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const blocked = /^(카테고리|분류 전체보기|전체|전체보기|관리|추가|수정|삭제|저장|취소|확인|닫기|글쓰기|새 글|공개|비공개|보호|공지|홈|통계|스킨|댓글|방명록|콘텐츠|설정|블로그|메뉴|선택 안 함|선택 없음)$/;
+      const looksCategory = (text: string) => {
+        const cleaned = normalizeText(text).replace(/\(\d+\)$/g, '').trim();
+        if (!cleaned || cleaned.length > 60) return false;
+        if (blocked.test(cleaned)) return false;
+        if (/^\d+$/.test(cleaned)) return false;
+        if (/https?:\/\//i.test(cleaned)) return false;
+        return /[가-힣a-zA-Z0-9]/.test(cleaned);
+      };
+
+      const readId = (element: HTMLElement): string => {
+        const attrs = [
+          element.getAttribute('data-category-id'),
+          element.getAttribute('data-id'),
+          element.getAttribute('data-value'),
+          element.getAttribute('value'),
+          element.getAttribute('rel'),
+          element.id,
+        ];
+        const href = element.getAttribute('href') || '';
+        const hrefMatch = href.match(/(?:category|categoryId|id)[=/](\d+)/i) || href.match(/[?&](?:category|categoryId|id)=(\d+)/i);
+        if (hrefMatch?.[1]) attrs.unshift(hrefMatch[1]);
+        const found = attrs.map((item) => normalizeText(item || '')).find(Boolean);
+        return found || '';
+      };
+
+      const categories: Array<{ id?: string; name: string; label: string; source: 'editor' | 'manage' }> = [];
+      const push = (name: string, element?: HTMLElement | null) => {
+        const cleaned = normalizeText(name).replace(/\(\d+\)$/g, '').trim();
+        if (!looksCategory(cleaned)) return;
+        const id = element ? readId(element) : '';
+        categories.push({
+          ...(id ? { id } : {}),
+          name: cleaned,
+          label: cleaned,
+          source: categorySource,
+        });
+      };
+
+      for (const option of Array.from(document.querySelectorAll('select option')) as HTMLOptionElement[]) {
+        if (option.disabled) continue;
+        push(option.textContent || option.label || option.value, option);
+      }
+
+      const categoryLikeSelectors = [
+        '[data-category-id]',
+        '[data-category]',
+        '[class*="category" i] a',
+        '[class*="category" i] button',
+        '[class*="category" i] li',
+        '[id*="category" i] a',
+        '[id*="category" i] button',
+        '[id*="category" i] li',
+        '.mce-menu-item',
+        '[role="menuitem"]',
+        'a[href*="/category/"]',
+        'a[href*="category"]',
+      ];
+
+      const nodes = Array.from(document.querySelectorAll(categoryLikeSelectors.join(','))) as HTMLElement[];
+      for (const node of nodes) {
+        if (!visible(node)) continue;
+        const text = normalizeText(node.innerText || node.textContent || node.getAttribute('title') || node.getAttribute('aria-label') || '');
+        push(text, node);
+      }
+
+      const fallbackNodes = Array.from(document.querySelectorAll('li, a, button, span, label')) as HTMLElement[];
+      for (const node of fallbackNodes) {
+        if (!visible(node)) continue;
+        const classId = `${node.className || ''} ${node.id || ''} ${node.getAttribute('href') || ''}`;
+        if (!/category|cate|folder|menu|mce/i.test(classId)) continue;
+        push(node.innerText || node.textContent || '', node);
+      }
+
+      return categories;
+    }, source);
+  } catch {
+    return [];
+  }
+}
+
+async function openEditorCategoryMenu(page: any): Promise<boolean> {
+  for (const selector of TISTORY_SELECTORS.editor.categoryTriggers) {
+    try {
+      const target = page.locator(selector).first();
+      if ((await target.count().catch(() => 0)) === 0) continue;
+      if (!(await target.isVisible({ timeout: 1500 }).catch(() => false))) continue;
+      await target.click({ timeout: 1500 }).catch(async () => {
+        await target.evaluate((element: HTMLElement) => element.click());
+      });
+      await page.waitForTimeout(700).catch(() => null);
+      return true;
+    } catch {
+      continue;
     }
+  }
+  return false;
+}
+
+export async function loadTistoryCategories(
+  payload: Record<string, any> = {},
+  env: Record<string, any> = {},
+  onLog?: (message: string) => void,
+): Promise<TistoryCategoryLoadResult> {
+  const config = resolveTistoryConfig(payload, env);
+  if (!config.blogName) {
+    return {
+      ok: false,
+      authenticated: false,
+      error: 'Tistory blog name is missing.',
+    };
+  }
+
+  let context: any | null = null;
+  let pageToHide: any | null = null;
+  let shouldHideAfterUse = false;
+  try {
+    const launched = await launchTistoryContext(config, onLog);
+    context = launched.context;
+    const page = launched.page;
+    pageToHide = page;
+
+    const writeUrl = TISTORY_URLS.write(config.blogName);
+    await page.goto(writeUrl, { waitUntil: 'domcontentloaded', timeout: config.timeoutMs });
+    await page.waitForTimeout(1200).catch(() => null);
+    if (await isTistoryLoginPage(page)) {
+      await clickTistoryKakaoLoginIfVisible(page, onLog, config.kakaoEmail);
+      return {
+        ok: false,
+        authenticated: false,
+        blogName: config.blogName,
+        blogUrl: config.blogUrl,
+        error: 'Tistory login is required before loading categories.',
+      };
+    }
+
+    await openEditorCategoryMenu(page);
+    let categories = await extractTistoryCategoriesFromPage(page, 'editor');
+
+    if (categories.length === 0) {
+      await page.goto(TISTORY_URLS.category(config.blogName), { waitUntil: 'domcontentloaded', timeout: config.timeoutMs }).catch(() => null);
+      await page.waitForTimeout(1500).catch(() => null);
+      if (!(await isTistoryLoginPage(page))) {
+        categories = await extractTistoryCategoriesFromPage(page, 'manage');
+      }
+    }
+
+    const normalized = dedupeTistoryCategories(categories);
+    const result: TistoryCategoryLoadResult = {
+      ok: true,
+      authenticated: true,
+      blogName: config.blogName,
+      blogUrl: config.blogUrl,
+      categories: normalized,
+    };
+    if (config.defaultCategory) result.selectedCategory = config.defaultCategory;
+    shouldHideAfterUse = true;
+    return result;
+  } catch (error: any) {
+    return {
+      ok: false,
+      authenticated: false,
+      blogName: config.blogName,
+      blogUrl: config.blogUrl,
+      error: error?.message || String(error),
+    };
+  } finally {
+    if (shouldHideAfterUse && pageToHide) {
+      await hideTistoryBrowserWindow(pageToHide, onLog).catch(() => false);
+    }
+    context = null;
   }
 }
 
