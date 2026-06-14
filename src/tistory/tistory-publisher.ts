@@ -1,4 +1,7 @@
 import { loadEnvFromFile } from '../env';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { TISTORY_SELECTORS, TISTORY_URLS } from './tistory-selectors';
 import {
   clickTistoryKakaoLoginIfVisible,
@@ -22,6 +25,7 @@ import {
 } from './tistory-types';
 
 const SHORT_TIMEOUT_MS = 3500;
+const THUMBNAIL_UPLOAD_TIMEOUT_MS = 35000;
 
 function log(onLog: ((message: string) => void) | undefined, message: string): void {
   onLog?.(`[TISTORY] ${message}`);
@@ -101,6 +105,110 @@ function extractTags(payload: Record<string, any>): string[] {
     }
   }
   return tags;
+}
+
+function getImageExtensionFromMime(mimeType: string): string {
+  const normalized = mimeType.toLowerCase();
+  if (normalized.includes('jpeg') || normalized.includes('jpg')) return 'jpg';
+  if (normalized.includes('webp')) return 'webp';
+  if (normalized.includes('gif')) return 'gif';
+  if (normalized.includes('avif')) return 'avif';
+  return 'png';
+}
+
+function sanitizeFileStem(value: string): string {
+  return String(value || 'tistory-thumbnail')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80) || 'tistory-thumbnail';
+}
+
+async function prepareThumbnailFile(
+  thumbnailUrl: string,
+  title: string,
+  onLog?: (message: string) => void,
+): Promise<{ filePath: string; cleanup: () => Promise<void> } | null> {
+  const source = String(thumbnailUrl || '').trim();
+  if (!source) return null;
+
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'leadernam-tistory-thumb-'));
+  let mimeType = 'image/png';
+  let buffer: Buffer | null = null;
+
+  try {
+    if (/^data:image\//i.test(source)) {
+      const match = source.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+      if (!match?.[1] || !match?.[2]) {
+        throw new Error('Invalid data:image thumbnail URL.');
+      }
+      mimeType = match[1];
+      buffer = Buffer.from(match[2], 'base64');
+    } else if (/^https?:\/\//i.test(source)) {
+      const response = await fetch(source);
+      if (!response.ok) throw new Error(`Thumbnail download failed: HTTP ${response.status}`);
+      mimeType = response.headers.get('content-type')?.split(';')[0]?.trim() || mimeType;
+      const arrayBuffer = await response.arrayBuffer();
+      buffer = Buffer.from(arrayBuffer);
+    } else {
+      const stat = await fs.stat(source).catch(() => null);
+      if (!stat?.isFile()) throw new Error('Thumbnail file path was not found.');
+      return {
+        filePath: source,
+        cleanup: async () => {
+          await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
+        },
+      };
+    }
+
+    if (!buffer || buffer.length < 100) {
+      throw new Error('Thumbnail image is empty.');
+    }
+
+    const ext = getImageExtensionFromMime(mimeType);
+    const filePath = path.join(tmpDir, `${sanitizeFileStem(title)}.${ext}`);
+    await fs.writeFile(filePath, buffer);
+    return {
+      filePath,
+      cleanup: async () => {
+        await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
+      },
+    };
+  } catch (error: any) {
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
+    log(onLog, `Thumbnail file preparation failed: ${error?.message || error}`);
+    return null;
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function stripGeneratedThumbnailHero(html: string, thumbnailUrl: string): string {
+  let nextHtml = String(html || '');
+  nextHtml = nextHtml.replace(
+    /^\s*<div\b[^>]*class=["'][^"']*\bbgpt-thumbnail-box\b[^"']*["'][\s\S]*?<\/div>\s*/i,
+    '',
+  );
+
+  const source = String(thumbnailUrl || '').trim();
+  if (source) {
+    const escapedSource = escapeRegExp(source);
+    nextHtml = nextHtml.replace(
+      new RegExp(`^\\s*(?:<p[^>]*>\\s*)?<img\\b[^>]*\\bsrc=["']${escapedSource}["'][^>]*>\\s*(?:<\\/p>\\s*)?`, 'i'),
+      '',
+    );
+  }
+  return nextHtml.trimStart();
+}
+
+function buildTistoryImageFallback(thumbnailUrl: string, title: string): string {
+  const source = String(thumbnailUrl || '').trim();
+  if (!source) return '';
+  const safeTitle = title.replace(/"/g, '&quot;');
+  return `<p><img src="${source}" alt="${safeTitle}" /></p>`;
 }
 
 function makeRecovery(
@@ -532,6 +640,248 @@ async function fillHtmlEditor(page: any, html: string): Promise<boolean> {
   }
 
   return false;
+}
+
+async function getPageImageSources(page: any): Promise<string[]> {
+  try {
+    return await page.evaluate(() => Array.from(document.querySelectorAll('img'))
+      .map((img) => (img as HTMLImageElement).currentSrc || (img as HTMLImageElement).src || '')
+      .filter(Boolean));
+  } catch {
+    return [];
+  }
+}
+
+async function setThumbnailFileInput(page: any, filePath: string): Promise<boolean> {
+  for (const selector of TISTORY_SELECTORS.editor.imageFileInputs) {
+    try {
+      const locator = page.locator(selector).first();
+      if (await locator.count().catch(() => 0) <= 0) continue;
+      await locator.setInputFiles(filePath);
+      return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+async function clickImageUploadControl(page: any): Promise<boolean> {
+  return page.evaluate((selectors: string[]) => {
+    const visible = (element: Element | null): element is HTMLElement => {
+      if (!element) return false;
+      const htmlElement = element as HTMLElement;
+      const rect = htmlElement.getBoundingClientRect();
+      const style = window.getComputedStyle(htmlElement);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    };
+    const textOf = (element: Element | null): string => {
+      if (!element) return '';
+      const htmlElement = element as HTMLElement;
+      return [
+        htmlElement.innerText || htmlElement.textContent || '',
+        htmlElement.getAttribute('aria-label') || '',
+        htmlElement.getAttribute('title') || '',
+        htmlElement.id || '',
+        String(htmlElement.className || ''),
+      ].join(' ').replace(/\s+/g, ' ').trim();
+    };
+    const clickNode = (node: HTMLElement): boolean => {
+      const clickable = (
+        node.matches('button,a,label,[role="button"],.mce-btn,.toolbar-item,[tabindex]')
+          ? node
+          : node.closest('button,a,label,[role="button"],.mce-btn,.toolbar-item,[tabindex]') as HTMLElement | null
+      ) || node;
+      if (!visible(clickable)) return false;
+      clickable.click();
+      return true;
+    };
+
+    for (const selector of selectors) {
+      try {
+        const nodes = Array.from(document.querySelectorAll(selector)) as HTMLElement[];
+        for (const node of nodes) {
+          const haystack = textOf(node);
+          if (/profile|avatar|account|emoji|emoticon/i.test(haystack)) continue;
+          if (clickNode(node)) return true;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    const fallbackNodes = Array.from(document.querySelectorAll(
+      'button,a,label,[role="button"],.mce-btn,.toolbar-item,i,span',
+    )) as HTMLElement[];
+    for (const node of fallbackNodes) {
+      if (!visible(node)) continue;
+      const haystack = textOf(node);
+      if (!/(사진|이미지|그림|첨부|파일|image|photo|picture)/i.test(haystack)) continue;
+      if (/profile|avatar|account|emoji|emoticon|category|카테고리|tag|태그/i.test(haystack)) continue;
+      if (clickNode(node)) return true;
+    }
+    return false;
+  }, TISTORY_SELECTORS.editor.imageUploadButtons).catch(() => false);
+}
+
+async function captureUploadedThumbnailBlock(
+  page: any,
+  previousSources: string[],
+  title: string,
+): Promise<string> {
+  try {
+    await page.waitForFunction((previous: string[]) => {
+      const sourceSet = new Set(previous);
+      const isContentImage = (img: HTMLImageElement) => {
+        const src = img.currentSrc || img.src || '';
+        if (!src || sourceSet.has(src)) return false;
+        if (/data:image\/svg|favicon|profile|avatar|emoji|emoticon|icon/i.test(src)) return false;
+        const rect = img.getBoundingClientRect();
+        return rect.width >= 80 && rect.height >= 60;
+      };
+      return Array.from(document.querySelectorAll('img')).some((node) => isContentImage(node as HTMLImageElement));
+    }, previousSources, { timeout: THUMBNAIL_UPLOAD_TIMEOUT_MS });
+  } catch {
+    return '';
+  }
+
+  return page.evaluate(({ previous, altText }: { previous: string[]; altText: string }) => {
+    const sourceSet = new Set(previous);
+    const visible = (element: Element | null): element is HTMLElement => {
+      if (!element) return false;
+      const htmlElement = element as HTMLElement;
+      const rect = htmlElement.getBoundingClientRect();
+      const style = window.getComputedStyle(htmlElement);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    };
+    const scoreImage = (img: HTMLImageElement): number => {
+      const src = img.currentSrc || img.src || '';
+      if (!src || sourceSet.has(src)) return -1;
+      if (/data:image\/svg|favicon|profile|avatar|emoji|emoticon|icon/i.test(src)) return -1;
+      const rect = img.getBoundingClientRect();
+      if (rect.width < 80 || rect.height < 60) return -1;
+      let score = rect.width * rect.height;
+      if (img.closest('[contenteditable="true"],.contents_style,.editor-content,.tt_article_useless_p_margin,figure')) {
+        score += 100000;
+      }
+      if (/tistory|kakaocdn|daumcdn|blog.kakaocdn/i.test(src)) score += 50000;
+      return score;
+    };
+
+    const images = Array.from(document.querySelectorAll('img')) as HTMLImageElement[];
+    const sorted = images
+      .map((img) => ({ img, score: scoreImage(img) }))
+      .filter((entry) => entry.score >= 0 && visible(entry.img))
+      .sort((a, b) => b.score - a.score);
+    const target = sorted[0]?.img;
+    if (!target) return '';
+
+    target.alt = target.alt || altText;
+    target.setAttribute('loading', target.getAttribute('loading') || 'lazy');
+    const wrapper = target.closest('figure,.imageblock,.imagegridblock,p,div') as HTMLElement | null;
+    const html = (wrapper && visible(wrapper) ? wrapper.outerHTML : target.outerHTML).trim();
+    return html;
+  }, { previous: previousSources, altText: title }).catch(() => '');
+}
+
+async function trySetUploadedImageAsRepresentative(page: any, onLog?: (message: string) => void): Promise<boolean> {
+  const marked = await page.evaluate(() => {
+    const visible = (element: Element | null): element is HTMLElement => {
+      if (!element) return false;
+      const htmlElement = element as HTMLElement;
+      const rect = htmlElement.getBoundingClientRect();
+      const style = window.getComputedStyle(htmlElement);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    };
+    const textOf = (element: Element | null): string => {
+      if (!element) return '';
+      const htmlElement = element as HTMLElement;
+      return [
+        htmlElement.innerText || htmlElement.textContent || '',
+        htmlElement.getAttribute('aria-label') || '',
+        htmlElement.getAttribute('title') || '',
+        htmlElement.id || '',
+        String(htmlElement.className || ''),
+      ].join(' ').replace(/\s+/g, ' ').trim();
+    };
+    const candidates = Array.from(document.querySelectorAll('button,a,label,[role="button"],input[type="checkbox"],span')) as HTMLElement[];
+    for (const node of candidates) {
+      if (!visible(node)) continue;
+      const haystack = textOf(node);
+      if (!/(대표|대표\s*이미지|썸네일|thumbnail|cover)/i.test(haystack)) continue;
+      if (/(해제|remove|delete|삭제)/i.test(haystack)) continue;
+      const root = node.closest('figure,.imageblock,.imagegridblock,.attached,.attach,.thumbnail,.layer,.mce-container,div') as HTMLElement | null;
+      if (root && !root.querySelector('img') && !/(대표|썸네일|thumbnail|cover)/i.test(textOf(root))) continue;
+      const clickable = (
+        node.matches('button,a,label,[role="button"],input')
+          ? node
+          : node.closest('button,a,label,[role="button"],input') as HTMLElement | null
+      ) || node;
+      clickable.click();
+      return true;
+    }
+    return false;
+  }).catch(() => false);
+
+  if (marked) log(onLog, 'Representative thumbnail control was selected.');
+  return marked;
+}
+
+async function uploadThumbnailThroughTistoryEditor(
+  page: any,
+  thumbnailUrl: string,
+  title: string,
+  onLog?: (message: string) => void,
+): Promise<string> {
+  if (!thumbnailUrl) return '';
+  const prepared = await prepareThumbnailFile(thumbnailUrl, title, onLog);
+  if (!prepared) return '';
+
+  try {
+    const beforeSources = await getPageImageSources(page);
+    let uploaded = await setThumbnailFileInput(page, prepared.filePath);
+
+    if (!uploaded) {
+      const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 6000 }).catch(() => null);
+      const clicked = await clickImageUploadControl(page);
+      const chooser = clicked ? await fileChooserPromise : null;
+      if (chooser) {
+        await chooser.setFiles(prepared.filePath);
+        uploaded = true;
+      } else {
+        uploaded = await setThumbnailFileInput(page, prepared.filePath);
+      }
+    }
+
+    if (!uploaded) {
+      log(onLog, 'Tistory image upload control was not found. Falling back to HTML image tag.');
+      return '';
+    }
+
+    log(onLog, 'Thumbnail image uploaded to Tistory editor.');
+    await page.waitForTimeout(1200).catch(() => null);
+    const imageBlock = await captureUploadedThumbnailBlock(page, beforeSources, title);
+    if (!imageBlock) {
+      log(onLog, 'Uploaded thumbnail block was not detected. Falling back to HTML image tag.');
+      return '';
+    }
+    await trySetUploadedImageAsRepresentative(page, onLog).catch(() => false);
+    return imageBlock;
+  } finally {
+    await prepared.cleanup().catch(() => undefined);
+  }
+}
+
+function buildTistoryFinalHtml(html: string, thumbnailUrl: string, uploadedThumbnailBlock: string, title: string): string {
+  if (uploadedThumbnailBlock) {
+    const bodyWithoutGeneratedThumbnail = stripGeneratedThumbnailHero(html, thumbnailUrl);
+    return `${uploadedThumbnailBlock}\n${bodyWithoutGeneratedThumbnail}`.trim();
+  }
+
+  if (thumbnailUrl && !/<img\b/i.test(html)) {
+    return `${buildTistoryImageFallback(thumbnailUrl, title)}\n${html}`.trim();
+  }
+  return html;
 }
 
 async function selectCategory(page: any, category: string | undefined, onLog?: (message: string) => void): Promise<void> {
@@ -1097,10 +1447,15 @@ export async function publishToTistory(
     const titleFilled = await fillFirst(page, TISTORY_SELECTORS.editor.titleInputs, title, 7000);
     if (!titleFilled) throw new Error('Tistory title input was not found.');
 
+    const uploadedThumbnailBlock = await uploadThumbnailThroughTistoryEditor(
+      page,
+      thumbnailUrl,
+      title,
+      onLog,
+    );
+
     await switchToHtmlMode(page, onLog);
-    const finalHtml = thumbnailUrl && !/<img\b/i.test(html)
-      ? `<p><img src="${thumbnailUrl}" alt="${title.replace(/"/g, '&quot;')}" /></p>\n${html}`
-      : html;
+    const finalHtml = buildTistoryFinalHtml(html, thumbnailUrl, uploadedThumbnailBlock, title);
     const htmlFilled = await fillHtmlEditor(page, finalHtml);
     if (!htmlFilled) throw new Error('Tistory body editor was not found.');
 

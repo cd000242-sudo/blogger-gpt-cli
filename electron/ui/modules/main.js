@@ -124,14 +124,19 @@ function openInternalLinksManagerModalFallback() {
     showTab('internal-links');
   } else {
     // showTab 함수가 없으면 직접 탭 표시
-    const allTabs = document.querySelectorAll('.tab-content, [id$="-tab"]');
+    const tabRoot = document.getElementById('tab-content-container');
+    const allTabs = tabRoot
+      ? tabRoot.querySelectorAll(':scope > .tab-content')
+      : document.querySelectorAll('.tab-content');
     allTabs.forEach(tab => {
       tab.style.display = 'none';
+      tab.classList.remove('active');
     });
 
     const internalLinksTab = document.getElementById('internal-links-tab');
     if (internalLinksTab) {
       internalLinksTab.style.display = 'block';
+      internalLinksTab.classList.add('active');
 
       // 탭 버튼 활성화
       const tabButtons = document.querySelectorAll('.tab-btn');

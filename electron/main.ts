@@ -3540,12 +3540,29 @@ console.log('[BLOGGER-AUTH] ✅ Blogger OAuth 인증 핸들러 등록 완료');
 // ============================================
 
 ipcMain.handle('run-multi-account-post', async (_evt, payload: {
-  platform: 'blogger' | 'wordpress';
+  platform: 'blogger' | 'blogspot' | 'wordpress' | 'tistory';
   keyword: string;
+  topic?: string;
   crawlUrl?: string;
   imageSource: string;
+  provider?: string;
+  generationEngine?: string;
+  defaultAiProvider?: string;
+  primaryGeminiTextModel?: string;
   toneStyle?: string;
   contentMode?: string;
+  titleMode?: string;
+  sectionCount?: number;
+  ctaMode?: string;
+  postingMode?: string;
+  publishType?: string;
+  scheduleDate?: string;
+  thumbnailSource?: string;
+  thumbnailType?: string;
+  thumbnailMode?: string;
+  h2ImageSource?: string;
+  h2ImageMode?: string;
+  h2Images?: any;
   // Blogger
   blogId?: string;
   googleClientId?: string;
@@ -3554,6 +3571,13 @@ ipcMain.handle('run-multi-account-post', async (_evt, payload: {
   wordpressSiteUrl?: string;
   wordpressUsername?: string;
   wordpressPassword?: string;
+  wordpressCategory?: string;
+  wordpressCategories?: string;
+  // Tistory
+  tistoryBlogName?: string;
+  tistoryBlogUrl?: string;
+  tistoryDefaultCategory?: string;
+  tistoryDefaultVisibility?: string;
 }) => {
   try {
     console.log('[MULTI-ACCOUNT] 🚀 다중 계정 발행 시작:', payload.platform, payload.keyword);
@@ -3577,29 +3601,60 @@ ipcMain.handle('run-multi-account-post', async (_evt, payload: {
       }
     });
 
-    // Gemini API 키 확인
-    const geminiKey = env.GEMINI_API_KEY || env.geminiKey;
-    if (!geminiKey) {
-      return { ok: false, error: 'Gemini API 키가 설정되지 않았습니다.' };
+    const normalizeProvider = (value?: string) => {
+      const raw = String(value || '').toLowerCase();
+      if (raw.startsWith('openai') || raw.includes('gpt')) return 'openai';
+      if (raw.startsWith('claude') || raw.includes('anthropic')) return 'claude';
+      if (raw.startsWith('perplexity') || raw.includes('sonar')) return 'perplexity';
+      return 'gemini';
+    };
+
+    const geminiKey = env.GEMINI_API_KEY || env.geminiKey || '';
+    const openaiKey = env.OPENAI_API_KEY || env.openaiKey || env.openaiApiKey || '';
+    const claudeKey = env.CLAUDE_API_KEY || env.claudeKey || env.claudeApiKey || '';
+    const perplexityKey = env.PERPLEXITY_API_KEY || env.perplexityKey || env.perplexityApiKey || '';
+    const selectedProvider = normalizeProvider(
+      payload.provider || payload.defaultAiProvider || payload.generationEngine || env.DEFAULT_AI_PROVIDER || env.GENERATION_ENGINE
+    );
+    const hasAnyTextKey = !!(geminiKey || openaiKey || claudeKey || perplexityKey);
+    if (!hasAnyTextKey) {
+      return { ok: false, error: '글 생성 API 키가 설정되지 않았습니다. 환경설정에서 Gemini/OpenAI/Claude/Perplexity 중 하나의 API 키를 저장해주세요.' };
     }
 
     // 플랫폼별 설정 구성
+    const selectedImageSource = payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || payload.imageSource || 'nanobanana2';
     const postPayload: any = {
-      topic: payload.keyword,
-      keywords: payload.keyword,
-      provider: 'gemini',
-      geminiKey: geminiKey,
-      publishType: 'now',
-      thumbnailMode: payload.imageSource || 'nanobanana2',
-      thumbnailType: payload.imageSource || 'nanobanana2',
-      thumbnailSource: payload.imageSource || 'nanobanana2',
-      h2ImageSource: payload.imageSource,
+      topic: payload.keyword || payload.topic,
+      keywords: payload.keyword || payload.topic,
+      provider: selectedProvider,
+      defaultAiProvider: selectedProvider,
+      generationEngine: payload.generationEngine || env.GENERATION_ENGINE || selectedProvider,
+      primaryGeminiTextModel: payload.primaryGeminiTextModel || env.PRIMARY_TEXT_MODEL,
+      geminiKey,
+      openaiKey,
+      claudeKey,
+      perplexityKey,
+      deepInfraApiKey: env.DEEPINFRA_API_KEY || env.deepInfraApiKey,
+      leonardoKey: env.LEONARDO_API_KEY || env.leonardoKey,
+      prodiaApiKey: env.PRODIA_API_KEY || env.prodiaApiKey,
+      publishType: payload.publishType || payload.postingMode || 'immediate',
+      postingMode: payload.postingMode || payload.publishType || 'immediate',
+      scheduleDate: payload.scheduleDate,
+      thumbnailMode: selectedImageSource,
+      thumbnailType: selectedImageSource,
+      thumbnailSource: selectedImageSource,
+      h2ImageSource: payload.h2ImageSource || selectedImageSource,
+      h2ImageMode: payload.h2ImageMode,
+      h2Images: payload.h2Images,
       toneStyle: payload.toneStyle || 'professional',
       contentMode: payload.contentMode || 'external',
+      titleMode: payload.titleMode || 'auto',
+      sectionCount: payload.sectionCount || 5,
+      ctaMode: payload.ctaMode || 'auto',
       crawlUrl: payload.crawlUrl || '',
     };
 
-    if (payload.platform === 'blogger') {
+    if (payload.platform === 'blogger' || payload.platform === 'blogspot') {
       // Blogger 설정
       if (!payload.blogId || !payload.googleClientId || !payload.googleClientSecret) {
         return { ok: false, error: 'Blogger 설정이 불완전합니다. (Blog ID, Client ID, Client Secret 필요)' };
@@ -3608,6 +3663,7 @@ ipcMain.handle('run-multi-account-post', async (_evt, payload: {
       postPayload.googleClientId = payload.googleClientId;
       postPayload.googleClientSecret = payload.googleClientSecret;
       postPayload.redirectUri = 'http://localhost:8888/callback';
+      postPayload.platform = 'blogspot';
 
       // 토큰 확인 (저장된 토큰 사용)
       const accessToken = env.BLOGGER_ACCESS_TOKEN;
@@ -3625,7 +3681,22 @@ ipcMain.handle('run-multi-account-post', async (_evt, payload: {
       postPayload.wordpressSiteUrl = payload.wordpressSiteUrl;
       postPayload.wordpressUsername = payload.wordpressUsername;
       postPayload.wordpressPassword = payload.wordpressPassword;
+      postPayload.wordpressCategory = payload.wordpressCategory || payload.wordpressCategories;
+      postPayload.wordpressCategories = payload.wordpressCategories || payload.wordpressCategory;
       postPayload.platform = 'wordpress';
+
+    } else if (payload.platform === 'tistory') {
+      const tistoryBlogName = payload.tistoryBlogName || payload.tistoryBlogUrl;
+      if (!tistoryBlogName) {
+        return { ok: false, error: 'Tistory 설정이 불완전합니다. (블로그 이름 또는 URL 필요)' };
+      }
+      postPayload.platform = 'tistory';
+      postPayload.tistoryBlogName = payload.tistoryBlogName || '';
+      postPayload.tistoryBlogUrl = payload.tistoryBlogUrl || '';
+      postPayload.tistoryDefaultCategory = payload.tistoryDefaultCategory || '';
+      postPayload.tistoryDefaultVisibility = payload.tistoryDefaultVisibility || 'private';
+    } else {
+      return { ok: false, error: `지원하지 않는 플랫폼입니다: ${payload.platform}` };
     }
 
     console.log('[MULTI-ACCOUNT] 📝 발행 페이로드 구성 완료');
@@ -3635,17 +3706,18 @@ ipcMain.handle('run-multi-account-post', async (_evt, payload: {
 
     // 콘텐츠 생성
     console.log('[MULTI-ACCOUNT] 🤖 AI 콘텐츠 생성 중...');
-    const article = await generateMaxModeArticle({
-      topic: postPayload.topic,
-      keywords: postPayload.keywords,
-      geminiKey: geminiKey,
-      toneStyle: postPayload.toneStyle,
+    const generationEnv = {
       contentMode: postPayload.contentMode,
-      crawlUrl: postPayload.crawlUrl,
-      h2ImageSource: postPayload.h2ImageSource,
+      postingMode: postPayload.postingMode || postPayload.publishType,
+    };
+    const article = await generateMaxModeArticle(postPayload, generationEnv, (msg: string) => {
+      console.log('[MULTI-ACCOUNT]', msg);
     });
+    const articleTitle = article?.title || postPayload.topic;
+    const articleHtml = article?.html || article?.content || '';
+    const articleThumbnail = article?.thumbnail || article?.thumbnailUrl || '';
 
-    if (!article || !article.title || !article.content) {
+    if (!articleTitle || !articleHtml) {
       return { ok: false, error: '콘텐츠 생성 실패' };
     }
 
@@ -3653,12 +3725,10 @@ ipcMain.handle('run-multi-account-post', async (_evt, payload: {
 
     // 발행
     console.log('[MULTI-ACCOUNT] 📤 발행 중...');
-    const publishResult = await publishGeneratedContent({
-      ...postPayload,
-      title: article.title,
-      content: article.content,
-      thumbnailUrl: article.thumbnailUrl,
-    });
+    if (Array.isArray(article?.labels) && article.labels.length > 0) {
+      postPayload.generatedLabels = article.labels;
+    }
+    const publishResult = await publishGeneratedContent(postPayload, articleTitle, articleHtml, articleThumbnail);
 
     if (publishResult.ok || publishResult.success) {
       console.log('[MULTI-ACCOUNT] 🎉 발행 성공!', publishResult.url);

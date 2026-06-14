@@ -8,7 +8,7 @@ export function initSidebar() {
     }
 
     // v3.7.23: 좌측 탭 순서 재정렬 — 사용자 워크플로우 자연스러운 순서로 통일.
-    //   메인 → 썸네일 → 이미지생성 → 글포스팅 → 거미줄포스팅 → 외부유입글생성 → 외부유입사이트모음 → 다중계정 → 설정
+    //   메인 → 썸네일 → 이미지생성 → 글포스팅 → 거미줄포스팅 → 외부유입글생성 → 다중계정 → 설정
     // v3.8.39: 황금키워드 탭 제거 — LEWORD 외부 앱으로 대체.
     const navItems = [
         { id: 'nav-main', icon: '🏠', label: '메인', action: () => window.showTab?.('main') },
@@ -17,21 +17,6 @@ export function initSidebar() {
         { id: 'nav-auto', icon: '⚡', label: '글포스팅', action: () => window.showTab?.('settings') },
         { id: 'nav-intlinks-page', icon: '🕸️', label: '거미줄포스팅', action: () => window.showTab?.('internal-links') },
         { id: 'nav-external-traffic', icon: '🚀', label: '외부유입글생성', action: () => window.showTab?.('external-traffic') },
-        { id: 'nav-extlinks', icon: '🔗', label: '외부유입사이트모음', action: () => {
-            // v3.8.0: 외부유입 탭의 사이트 서브탭으로 라우팅 (모달은 폴백)
-            if (typeof window.showTab === 'function') {
-              window.showTab('external-traffic');
-              setTimeout(() => {
-                if (typeof window.extTrafficShowSubtab === 'function') {
-                  window.extTrafficShowSubtab('sites');
-                } else if (typeof window.openExternalLinksModal === 'function') {
-                  window.openExternalLinksModal();
-                }
-              }, 50);
-            } else if (typeof window.openExternalLinksModal === 'function') {
-              window.openExternalLinksModal();
-            }
-          } },
         // 숨김 — 기존 메뉴 유지용
         { id: 'nav-semiauto', icon: '🎨', label: '반자동', action: () => window.showTab?.('semi-auto'), hidden: true },
         { id: 'nav-schedule', icon: '📅', label: '스케줄', action: () => window.showTab?.('schedule'), hidden: true },

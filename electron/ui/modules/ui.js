@@ -311,10 +311,15 @@ export function showTab(tabName) {
     activeButton.classList.add('active');
   }
 
-  // 모든 탭 콘텐츠 숨기기
-  const allTabs = document.querySelectorAll('.tab-content, [id$="-tab"]');
+  // 모든 최상위 탭 콘텐츠 숨기기
+  // 내부 설정 탭/외부유입 서브탭까지 [id$="-tab"]로 같이 숨기면 레이아웃이 깨질 수 있다.
+  const tabRoot = document.getElementById('tab-content-container');
+  const allTabs = tabRoot
+    ? tabRoot.querySelectorAll(':scope > .tab-content')
+    : document.querySelectorAll('.tab-content');
   allTabs.forEach(tab => {
     tab.style.display = 'none';
+    tab.classList.remove('active');
   });
 
   // 선택된 탭 표시
@@ -389,6 +394,7 @@ export function showTab(tabName) {
 
   if (targetTab) {
     targetTab.style.display = 'block';
+    targetTab.classList.add('active');
     try {
       getAppState().currentTab = tabName;
     } catch {

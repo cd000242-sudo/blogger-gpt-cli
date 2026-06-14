@@ -300,12 +300,29 @@ export type BloggerApi = {
 
   /** 🔥 다중 계정 발행 */
   runMultiAccountPost(args: {
-    platform: 'blogger' | 'wordpress';
+    platform: 'blogger' | 'blogspot' | 'wordpress' | 'tistory';
     keyword: string;
+    topic?: string;
     crawlUrl?: string;
     imageSource: string;
+    provider?: string;
+    generationEngine?: string;
+    defaultAiProvider?: string;
+    primaryGeminiTextModel?: string;
     toneStyle?: string;
     contentMode?: string;
+    titleMode?: string;
+    sectionCount?: number;
+    ctaMode?: string;
+    postingMode?: string;
+    publishType?: string;
+    scheduleDate?: string;
+    thumbnailSource?: string;
+    thumbnailType?: string;
+    thumbnailMode?: string;
+    h2ImageSource?: string;
+    h2ImageMode?: string;
+    h2Images?: any;
     // Blogger
     blogId?: string;
     googleClientId?: string;
@@ -314,6 +331,13 @@ export type BloggerApi = {
     wordpressSiteUrl?: string;
     wordpressUsername?: string;
     wordpressPassword?: string;
+    wordpressCategory?: string;
+    wordpressCategories?: string;
+    // Tistory
+    tistoryBlogName?: string;
+    tistoryBlogUrl?: string;
+    tistoryDefaultCategory?: string;
+    tistoryDefaultVisibility?: string;
   }): Promise<{ ok: boolean; url?: string; error?: string }>;
 
   /** 🛡️ AdsPower 연동 */

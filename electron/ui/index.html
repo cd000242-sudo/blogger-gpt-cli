@@ -5721,8 +5721,8 @@
     <!-- v3.5.98: 🎨 대량 이미지 생성 탭 신규
          프롬프트 여러 개 입력 → AI 엔진 선택 → API로 대량 생성 → 다운로드 ZIP
          글 생성 흐름과 독립. 외부 LLM(ChatGPT/Claude/Perplexity)에서 글 받아 이미지만 본 앱으로. -->
-    <div id="image-batch-tab" class="tab-content" style="display: none;">
-      <div class="container" style="max-width: 1400px; margin: 0 auto; padding: 32px 24px;">
+    <div id="image-batch-tab" class="tab-content image-batch-tab" style="display: none;">
+      <div class="container image-batch-container" style="max-width: 1400px; margin: 0 auto; padding: 32px 24px;">
         <!-- 상단 헤더 -->
         <div style="background: linear-gradient(135deg, #f97316 0%, #ef4444 100%); border-radius: 20px; padding: 28px 32px; margin-bottom: 28px; color: white; box-shadow: 0 12px 40px rgba(249, 115, 22, 0.4);">
           <div style="display: flex; align-items: center; gap: 16px;">
@@ -5737,7 +5737,7 @@
         </div>
 
         <!-- 본문: 좌(설정+프롬프트) / 우(결과) 2열 레이아웃 -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+        <div class="image-batch-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
 
           <!-- 좌측: 설정 + 프롬프트 입력 -->
           <div>
@@ -5961,7 +5961,7 @@
               </div>
 
               <!-- 결과 그리드 -->
-              <div id="batchResultGrid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-height: 60vh; overflow-y: auto;">
+              <div id="batchResultGrid" class="image-batch-result-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-height: 60vh; overflow-y: auto;">
                 <div style="grid-column: 1 / -1; padding: 40px 20px; text-align: center; color: rgba(255,255,255,0.4); font-size: 13px;">
                   프롬프트를 입력하고 "🚀 이미지 대량 생성 시작" 버튼을 눌러주세요.
                 </div>
@@ -7273,6 +7273,8 @@
   </script>
 
   <!-- 🔑 API 키 발급 모달 -->
+  <script type="module" src="./modules/multi-account.js"></script>
+
   <div id="apiKeyGuideModal"
     style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(20px); z-index: 10001; align-items: center; justify-content: center;">
     <div
