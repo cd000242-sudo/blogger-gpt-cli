@@ -140,6 +140,10 @@ export function showAutoImageSourceModal() {
               <input type="radio" name="autoAiSource" value="leonardo">
               <span>🦁 Leonardo AI</span>
             </label>
+            <label style="padding: 12px; background: rgba(96,165,250,0.08); border: 2px solid rgba(96, 165, 250, 0.45); border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; color: white;">
+              <input type="radio" name="autoAiSource" value="flow">
+              <span>🌊 Flow (Google Labs)</span>
+            </label>
           </div>
           <div id="autoLeonardoModelSection" style="display:none; margin-top:12px; padding:14px; background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.35); border-radius:12px;">
             <label style="display:block; font-size:13px; font-weight:800; color:#fde68a; margin-bottom:8px;">🦁 Leonardo AI 모델 선택</label>
