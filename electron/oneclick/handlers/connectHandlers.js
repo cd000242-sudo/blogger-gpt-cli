@@ -15,6 +15,7 @@ const BLOGGER_ID_POLL_MS = 2000;
 const BLOGGER_ID_CLOSE_AFTER_DONE_MS = 10 * 60 * 1000;
 const BLOGGER_ID_CLOSE_AFTER_ERROR_MS = 5 * 60 * 1000;
 const CONNECT_CLOSE_AFTER_DONE_MS = 10 * 60 * 1000;
+const CONNECT_CLOSE_AFTER_MANUAL_MS = 30 * 60 * 1000;
 const CONNECT_TOTAL_STEPS = {
     blogger: 9,
     blogspot: 9,
@@ -185,7 +186,12 @@ function registerConnectHandlers() {
                     }
                     if (!state.cancelled) {
                         const needsUserAction = state.stepStatus === 'waiting-login' || /^⚠️/.test(state.message || '');
-                        if (state.error || needsUserAction) {
+                        if (state.stepStatus === 'waiting-login') {
+                            state.completed = false;
+                            state.error = null;
+                            state.message = state.message || '사용자 확인이 필요한 단계입니다. 열린 브라우저 창을 닫지 말고 가이드에 따라 완료해주세요.';
+                        }
+                        else if (state.error) {
                             state.completed = false;
                             state.stepStatus = 'error';
                             state.error = state.error || state.message || '사용자 확인이 필요한 단계에서 자동 진행이 중단되었습니다.';
@@ -211,7 +217,9 @@ function registerConnectHandlers() {
                     // 사용자가 Google Cloud/OAuth 화면을 확인하거나 영상 촬영할 수 있도록 완료 후에도 창을 충분히 유지한다.
                     const closeDelayMs = state.cancelled
                         ? 0
-                        : (state.stepStatus === 'error' || state.error ? 5 * 60 * 1000 : CONNECT_CLOSE_AFTER_DONE_MS);
+                        : (state.stepStatus === 'waiting-login'
+                            ? CONNECT_CLOSE_AFTER_MANUAL_MS
+                            : (state.stepStatus === 'error' || state.error ? 5 * 60 * 1000 : CONNECT_CLOSE_AFTER_DONE_MS));
                     setTimeout(async () => {
                         try {
                             await browser.close();

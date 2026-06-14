@@ -328,60 +328,6 @@ function showBlogspotSetupModal(onComplete) {
   );
   card.appendChild(descField);
 
-  card.appendChild(createField(
-    '📊 Google 애널리틱스 측정 ID (선택)', 'bs-ga-id', '예: G-XXXXXXXXXX',
-    false, 'GA4 속성이 없으면 비워두세요. 설정 위치: analytics.google.com → 관리(톱니) → 데이터 스트림 → 속성 선택 → "측정 ID" 복사. 나중에 환경설정에서도 추가 가능합니다'
-  ));
-
-  card.appendChild(createField(
-    '📄 ads.txt 코드 (선택)', 'bs-adstxt', '예: google.com, pub-XXXXXXX, DIRECT, f08c47fec...',
-    false, '⚠️ AdSense 승인 전이라면 반드시 비워두세요. 승인 심사는 최소 2~4주, 때로는 수개월 걸립니다. 신규 블로그는 최소 20~30개 포스팅 후 신청 권장 — 승인 후 환경설정에서 추가하세요'
-  ));
-
-  // 파비콘 파일 선택
-  const faviconWrap = document.createElement('div');
-  faviconWrap.style.cssText = 'margin-bottom: 20px;';
-  const faviconLabel = document.createElement('label');
-  faviconLabel.style.cssText = 'display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.6); margin-bottom: 6px;';
-  faviconLabel.textContent = '🖼️ 파비콘 이미지 (선택)';
-  const faviconRow = document.createElement('div');
-  faviconRow.style.cssText = 'display: flex; gap: 8px; align-items: center;';
-  const faviconPathEl = document.createElement('span');
-  faviconPathEl.id = 'bs-favicon-path';
-  faviconPathEl.style.cssText = 'flex: 1; padding: 12px 14px; background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; color: rgba(255,255,255,0.4); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
-  faviconPathEl.textContent = '파일 미선택';
-  const faviconBtn = document.createElement('button');
-  faviconBtn.textContent = '📂 선택';
-  faviconBtn.style.cssText = `
-    padding: 12px 18px; background: linear-gradient(135deg, #6366f1, #4f46e5); border: none;
-    color: white; border-radius: 10px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
-  `;
-  faviconBtn.onclick = async () => {
-    try {
-      const result = await window.electronAPI?.invoke('dialog:open-file', {
-        title: '파비콘 이미지 선택',
-        filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'ico', 'svg'] }]
-      });
-      if (result?.filePath) {
-        faviconPathEl.textContent = result.filePath;
-        faviconPathEl.style.color = '#10b981';
-        faviconPathEl.dataset.path = result.filePath;
-      }
-    } catch (e) {
-      console.error('[BLOGSPOT-MODAL] 파비콘 선택 실패:', e);
-      showToast('⚠️ 파일 선택에 실패했습니다', 'warn');
-    }
-  };
-  faviconRow.appendChild(faviconPathEl);
-  faviconRow.appendChild(faviconBtn);
-  const faviconHelp = document.createElement('p');
-  faviconHelp.style.cssText = 'margin: 4px 0 0; font-size: 10px; color: rgba(255,255,255,0.35);';
-  faviconHelp.textContent = '16x16 또는 32x32 PNG/ICO 권장. 검색결과에 표시되는 브랜드 아이콘입니다';
-  faviconWrap.appendChild(faviconLabel);
-  faviconWrap.appendChild(faviconRow);
-  faviconWrap.appendChild(faviconHelp);
-  card.appendChild(faviconWrap);
-
   // 구분선
   const divider = document.createElement('div');
   divider.style.cssText = 'height: 1px; background: rgba(255,255,255,0.08); margin: 8px 0 20px;';
@@ -391,9 +337,13 @@ function showBlogspotSetupModal(onComplete) {
   const autoInfo = document.createElement('div');
   autoInfo.style.cssText = 'padding: 14px 16px; background: rgba(255, 87, 34, 0.08); border: 1px solid rgba(255, 87, 34, 0.2); border-radius: 12px; margin-bottom: 20px;';
   autoInfo.innerHTML = `
-    <div style="font-size: 12px; font-weight: 700; color: #FF7043; margin-bottom: 6px;">⚡ 아래 항목은 자동으로 최적 세팅됩니다</div>
+    <div style="font-size: 12px; font-weight: 700; color: #FF7043; margin-bottom: 6px;">⚡ 블로그 생성과 기초 설정만 진행합니다</div>
+    <div style="font-size: 11px; color: rgba(255,255,255,0.62); line-height: 1.55; margin-bottom: 8px;">
+      파비콘, Google Analytics, ads.txt는 발행 필수 항목이 아니므로 원클릭 세팅에서 제외했습니다.
+      실제 글 발행은 아래의 <strong style="color:#fed7aa;">앱 연동</strong>에서 OAuth와 Blog ID가 완료되면 가능합니다.
+    </div>
     <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-      ${['검색엔진 표시 ON', 'HTTPS 활성화', '시간대: 서울', '댓글 숨기기', '이미지 라이트박스', '이미지 지연로드', 'WebP 형식', '성인콘텐츠 OFF', '글 표시 6개', '날짜 형식 yyyy.MM.dd', '메타태그 활성화', '서치콘솔 자동연동']
+      ${['검색엔진 표시 ON', 'HTTPS 활성화', '시간대: 서울', '댓글 숨기기', '이미지 라이트박스', '이미지 지연로드', 'WebP 형식', '성인콘텐츠 OFF', '글 표시 6개', '날짜 형식 yyyy.MM.dd', '스킨 CSS 적용']
         .map(item => `<span style="padding: 3px 8px; background: rgba(255,255,255,0.05); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ ${item}</span>`).join('')}
     </div>
   `;
@@ -455,9 +405,6 @@ function showBlogspotSetupModal(onComplete) {
       blogTitle: createMode ? title : '',
       blogAddress: createMode ? address.toLowerCase().replace(/[^a-z0-9-]/g, '') : '',
       blogDescription: desc,
-      gaId: document.getElementById('bs-ga-id')?.value?.trim() || '',
-      adsTxt: document.getElementById('bs-adstxt')?.value?.trim() || '',
-      faviconPath: document.getElementById('bs-favicon-path')?.dataset?.path || '',
     };
     if (createMode && !config.blogAddress) {
       showToast('🌐 블로그 주소는 영문 소문자·숫자·하이픈만 사용할 수 있습니다', 'warn');
@@ -705,14 +652,11 @@ const PLATFORMS = {
 
     adminUrl: 'https://www.blogger.com/',
     steps: [
-      { id: 'login', title: 'Google 로그인', desc: '에드센스 계정과 동일한 Google 계정으로 로그인', icon: '🔐', manual: true },
-      { id: 'create-blog', title: '블로그 이름·주소 정하기', desc: '예시를 참고해 제목과 blogspot 주소를 직접 입력합니다', icon: '📝', manual: true },
-      { id: 'settings', title: '설정 자동 최적화', desc: '검색엔진 표시, HTTPS, 시간대, 댓글, 이미지 최적화 등 13개 항목', icon: '⚙️', manual: false },
-      { id: 'metatag', title: '메타태그 · GA · ads.txt', desc: '메타태그 활성화, 애널리틱스 연동, ads.txt 설정', icon: '🏷️', manual: false },
-      { id: 'favicon', title: '파비콘 업로드', desc: '브랜드 아이콘(파비콘) 자동 설정', icon: '🖼️', manual: false },
-      { id: 'skin', title: '리더남 클라우드 스킨 적용', desc: '수익 최적화 전용 테마 CSS 자동 적용', icon: '🎨', manual: false },
-      { id: 'gsc', title: '구글 서치 콘솔 연동', desc: '서치 콘솔 자동 등록 및 사이트맵 제출', icon: '🔍', manual: false },
-      { id: 'done', title: '세팅 완료!', desc: '블로그 운영을 시작하세요 🎉', icon: '✅', manual: false },
+      { id: 'login', title: 'Google 로그인', desc: '에드센스 계정과 동일한 Google 계정으로 로그인', action: '열린 Chrome 창에서 Blogger에 쓸 Google 계정으로 로그인하고, 2단계 인증/CAPTCHA가 나오면 완료하세요.', icon: '🔐', manual: true },
+      { id: 'create-blog', title: '블로그 확인 또는 생성', desc: '목적에 따라 기존 블로그를 감지하거나 새 blogspot 주소로 블로그를 만듭니다', action: '새 블로그면 제목/주소를 확인하고, 기존 블로그면 목록에서 사용할 블로그를 한 번 선택하거나 Blog ID를 입력하세요.', icon: '📝', manual: true },
+      { id: 'settings', title: '기초 설정 자동 최적화', desc: '검색엔진 표시, HTTPS, 시간대, 댓글, 이미지 최적화 등 기본 항목', action: '앱이 Blogger 설정 화면을 열고 항목이 실제로 보이는지 검사합니다. Chrome 창을 닫지 마세요.', icon: '⚙️', manual: false },
+      { id: 'skin', title: '리더남 클라우드 스킨 적용', desc: '수익 최적화 전용 테마 CSS 자동 적용', action: '앱이 테마 HTML 편집기를 열고 b:skin 위치를 확인한 뒤 CSS를 삽입합니다. 저장 화면이 보이면 그대로 두세요.', icon: '🎨', manual: false },
+      { id: 'done', title: '기초 세팅 완료!', desc: '발행은 앱 연동에서 OAuth와 Blog ID가 완료되면 가능합니다', action: '다음은 계정 추가 / 앱 연동에서 OAuth와 Blog ID를 완료하면 발행 준비가 끝납니다.', icon: '✅', manual: false },
     ]
   },
   wordpress: {
@@ -724,12 +668,12 @@ const PLATFORMS = {
 
     adminUrl: '', // 사용자별 다름
     steps: [
-      { id: 'login', title: 'WP 관리자 로그인', desc: '브라우저에서 워드프레스 관리자 페이지에 로그인해주세요', icon: '🔐', manual: true },
-      { id: 'theme', title: '테마 CSS 자동 적용', desc: '커스터마이저에서 리더남 스킨 CSS를 적용합니다', icon: '🎨', manual: false },
-      { id: 'plugins', title: '필수 플러그인 설치', desc: 'Classic Editor, Yoast SEO 등 필수 플러그인 자동 설치', icon: '🔌', manual: false },
-      { id: 'permalink', title: '고유주소 설정', desc: 'SEO에 최적화된 고유주소 구조로 변경합니다', icon: '🔗', manual: false },
-      { id: 'naver-search', title: '네이버 서치어드바이저 등록', desc: '네이버 검색에 블로그를 등록합니다', icon: '🔍', manual: true },
-      { id: 'google-search-console', title: '구글 서치 콘솔 등록', desc: '구글 검색에 블로그를 등록합니다', icon: '🔍', manual: true },
+      { id: 'login', title: 'WP 관리자 로그인', desc: '브라우저에서 워드프레스 관리자 페이지에 로그인해주세요', chrome: 'wp-login.php 또는 wp-admin 로그인 화면', action: '열린 Chrome 창에서 관리자 계정으로 로그인하고 2FA/CAPTCHA/보안 플러그인 확인을 끝내세요.', ok: 'wp-admin 관리자바/좌측 메뉴/대시보드 문구가 확인됨', blocked: '로그인 화면에 머물면 직접 인증을 완료하세요. 보안 플러그인 화면이면 확인 절차를 끝내야 합니다.', icon: '🔐', manual: true },
+      { id: 'theme', title: '테마 CSS 자동 적용', desc: '커스터마이저에서 리더남 스킨 CSS를 적용합니다', chrome: 'WordPress 커스터마이저 또는 추가 CSS 화면', action: '앱이 커스터마이저/추가 CSS 화면이 실제로 열렸는지 검사한 뒤 진행합니다.', ok: 'wp-admin 화면 근거와 추가 CSS 편집 영역 접근 확인', blocked: '커스터마이저가 막히면 관리자 권한, 테마 권한, 보안 플러그인 차단을 확인하세요.', icon: '🎨', manual: false },
+      { id: 'plugins', title: '필수 플러그인 확인', desc: 'Classic Editor, Yoast SEO 등 필수 플러그인 페이지 확인', chrome: 'wp-admin/plugin-install.php 화면', action: '앱이 플러그인 설치 화면 접근 권한을 확인합니다. 권한/보안 플러그인에 막히면 안내에 따라 직접 확인하세요.', ok: '플러그인 설치 화면이 관리자 권한으로 열림', blocked: '플러그인 설치 메뉴가 없으면 관리자 권한 또는 호스팅 제한을 확인하세요.', icon: '🔌', manual: false },
+      { id: 'permalink', title: '고유주소 설정', desc: 'SEO에 최적화된 고유주소 구조로 변경합니다', chrome: 'wp-admin/options-permalink.php 화면', action: '앱이 고유주소 설정 화면을 검증하고 글 이름 구조를 선택합니다.', ok: '고유주소 설정 화면 접근 및 글 이름 옵션 확인', blocked: '화면이 열리지 않으면 관리자 권한과 사이트 URL을 확인하세요.', icon: '🔗', manual: false },
+      { id: 'naver-search', title: '네이버 서치어드바이저 등록', desc: '네이버 검색에 블로그를 등록합니다', chrome: 'searchadvisor.naver.com 로그인/사이트 등록 화면', action: '네이버 로그인이 필요하면 열린 창에서 직접 완료하세요.', ok: '사이트 등록 또는 이미 등록된 사이트 근거 확인', blocked: '네이버 로그인/소유확인 화면에서 멈추면 직접 인증을 완료하세요.', icon: '🔍', manual: true },
+      { id: 'google-search-console', title: '구글 서치 콘솔 등록', desc: '구글 검색에 블로그를 등록합니다', chrome: 'Google Search Console 로그인/URL prefix 화면', action: 'Google 로그인이 필요하면 열린 창에서 직접 완료하세요.', ok: '사이트 등록 또는 사이트맵 제출 화면 접근 확인', blocked: '소유권 확인이 필요하면 안내된 HTML/meta/DNS 방식 중 가능한 방식으로 직접 완료하세요.', icon: '🔍', manual: true },
     ]
   }
 };
@@ -761,10 +705,90 @@ function getLiveGuideSteps(kind, platformId) {
     ];
   }
 
+  if (kind === 'setup' && platformId === 'blogspot') {
+    const purpose = activeSetup?.setupPurpose
+      || window.__blogspotSetupConfig?.setupPurpose
+      || 'create-new';
+    const existingMode = purpose === 'existing';
+    return [
+      {
+        title: 'Google 로그인',
+        desc: 'Blogger에 쓸 Google 계정인지 확인합니다',
+        chrome: 'accounts.google.com 로그인 화면 또는 Blogger 대시보드',
+        action: '열린 Chrome 창에서 Google 로그인, 2단계 인증, CAPTCHA를 완료하세요. 완료 후 앱이 Blogger 화면 근거를 확인해야 다음으로 갑니다.',
+        ok: 'Blogger 대시보드/블로그 목록/게시물 화면 중 하나가 실제로 감지됨',
+        blocked: 'Google 도움말/계정 화면으로 빠지면 앱이 Blogger로 복구합니다. 다시 로그인 화면이면 인증을 완료하세요.',
+        manual: true,
+        icon: '🔐',
+        index: 0,
+      },
+      existingMode
+        ? {
+          title: '기존 블로그 선택·감지',
+          desc: '이미 만든 Blogger 블로그를 찾아 Blog ID와 설정 화면 접근을 검증합니다',
+          chrome: 'Blogger 블로그 목록, 게시물 목록, 또는 설정 화면',
+          action: 'Blogger 목록이 보이면 사용할 기존 블로그를 한 번 클릭하세요. Blog ID를 알고 있으면 입력해도 됩니다. 앱이 설정 화면 접근 근거를 확인해야 OK입니다.',
+          ok: 'Blog ID 감지 후 /blog/settings/{Blog ID} 화면 접근과 설정 항목 근거가 확인됨',
+          blocked: '다른 계정의 Blog ID이거나 목록에서 블로그를 선택하지 않으면 중단됩니다. 현재 로그인 계정의 블로그를 다시 선택하세요.',
+          manual: true,
+          icon: '🔎',
+          index: 1,
+        }
+        : {
+          title: '새 블로그 생성',
+          desc: '입력한 제목과 blogspot 주소로 새 블로그를 만들고 Blog ID를 검증합니다',
+          chrome: 'Blogger 새 블로그 만들기 창',
+          action: '앱이 새 블로그 만들기 화면을 엽니다. 제목/주소가 비어 있거나 주소가 중복되면 멈추니 안내대로 수정하세요.',
+          ok: '새 블로그 생성 후 Blog ID가 URL/링크에서 감지되고 해당 블로그 화면이 확인됨',
+          blocked: '주소 중복, 제목/주소 누락, 생성 버튼 미노출이면 안내에 따라 주소를 바꾸거나 새 블로그 만들기 창을 직접 열어주세요.',
+          manual: true,
+          icon: '📝',
+          index: 1,
+        },
+      {
+        title: '기초 설정 검증·최적화',
+        desc: '설정 화면이 실제로 열린 뒤 검색엔진, HTTPS, 시간대, 댓글 등을 점검합니다',
+        chrome: 'Blogger 설정 화면',
+        action: '앱이 Blogger 설정 화면의 HTTPS/검색엔진/댓글/시간대 항목을 확인합니다. 화면 근거가 없으면 다음으로 넘어가지 않습니다.',
+        ok: '설정 URL과 HTTPS/검색엔진/댓글/시간대 등 설정 항목 근거 2개 이상 확인',
+        blocked: '설정 화면이 안 뜨거나 권한이 없으면 현재 계정이 해당 블로그 관리자인지 확인하세요.',
+        manual: false,
+        icon: '⚙️',
+        index: 2,
+      },
+      {
+        title: '스킨 CSS 검증·적용',
+        desc: '테마 HTML 편집기와 b:skin 삽입 위치를 확인한 뒤 스킨을 적용합니다',
+        chrome: 'Blogger 테마 HTML 편집 화면',
+        action: '앱이 HTML 편집기와 b:skin 위치를 검증합니다. 편집기가 안 뜨면 저장 완료로 처리하지 않고 멈춥니다.',
+        ok: 'CodeMirror/textarea/HTML 편집기와 ]]></b:skin> 삽입 위치가 확인되고 스킨 마커가 저장됨',
+        blocked: '테마 편집 권한이나 화면 로딩이 막히면 HTML 편집 화면이 보이는지 확인한 뒤 재시도하세요.',
+        manual: false,
+        icon: '🎨',
+        index: 3,
+      },
+      {
+        title: '완료 확인',
+        desc: existingMode ? '기존 블로그 점검과 기본 최적화가 완료됩니다' : '새 블로그 생성과 기본 최적화가 완료됩니다',
+        chrome: 'Blogger 설정/테마 적용 완료 상태',
+        action: '이후 발행 전에는 계정 추가 / 앱 연동에서 OAuth와 Blog ID까지 완료하세요.',
+        ok: '로그인, 블로그 확인/생성, 설정 검증, 스킨 검증이 모두 OK',
+        blocked: '하나라도 실패하면 완료가 아니라 실패 단계에서 멈춥니다.',
+        manual: false,
+        icon: '✅',
+        index: 4,
+      },
+    ];
+  }
+
   const platform = PLATFORMS[platformId];
   return (platform?.steps || []).map((step, index) => ({
     title: step.title,
     desc: step.desc,
+    action: step.action,
+    chrome: step.chrome,
+    ok: step.ok,
+    blocked: step.blocked,
     manual: Boolean(step.manual),
     icon: step.icon || (step.manual ? '☝' : '⚙'),
     index,
@@ -890,6 +914,10 @@ function renderLiveGuideSteps(panel, steps) {
           ${step.manual ? '<span style="flex-shrink:0; padding:2px 6px; border-radius:999px; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.28); color:#fde68a; font-size:9px; font-weight:850;">직접</span>' : ''}
         </div>
         <div style="margin-top:3px; font-size:10px; line-height:1.45; color:#94a3b8;">${escapeHtml(step.desc || '')}</div>
+        ${step.chrome ? `<div style="margin-top:4px; font-size:10px; line-height:1.45; color:#bae6fd;">Chrome: ${escapeHtml(step.chrome)}</div>` : ''}
+        ${step.action ? `<div style="margin-top:4px; font-size:10px; line-height:1.45; color:#c4b5fd;">할 일: ${escapeHtml(step.action)}</div>` : ''}
+        ${step.ok ? `<div style="margin-top:4px; font-size:10px; line-height:1.45; color:#bbf7d0;">OK: ${escapeHtml(step.ok)}</div>` : ''}
+        ${step.blocked ? `<div style="margin-top:4px; font-size:10px; line-height:1.45; color:#fed7aa;">막히면: ${escapeHtml(step.blocked)}</div>` : ''}
       </div>
       <div data-live-step-label="${index}" style="font-size:10px; font-weight:850; color:#94a3b8; white-space:nowrap;">대기</div>
     </div>
@@ -918,6 +946,26 @@ function normalizeLiveGuideDisplayStatus(kind, platformId, status, stepCount) {
     currentStep,
     totalSteps: stepCount,
   };
+}
+
+function renderLiveGuideActionHtml(step, fallbackAction = '') {
+  const rows = [
+    { label: 'Chrome 화면', value: step.chrome },
+    { label: '사용자 행동', value: step.action || fallbackAction || step.desc },
+    { label: 'OK 기준', value: step.ok },
+    { label: '막히면', value: step.blocked },
+  ].filter(row => row.value);
+
+  if (!rows.length) {
+    return `<div><strong style="color:#bfdbfe;">지금 할 일</strong>: ${escapeHtml(fallbackAction || '앱 안내를 기다려주세요.')}</div>`;
+  }
+
+  return rows.map(row => `
+    <div style="margin-top:4px;">
+      <strong style="color:#bfdbfe;">${escapeHtml(row.label)}</strong>
+      <span style="color:#e5e7eb;">: ${escapeHtml(row.value)}</span>
+    </div>
+  `).join('');
 }
 
 function updateLiveOneclickGuide(kind, platformId, status = {}) {
@@ -973,16 +1021,16 @@ function updateLiveOneclickGuide(kind, platformId, status = {}) {
   if (currentMsg) currentMsg.textContent = error || displayStatus.message || activeStep.desc || '다음 상태를 기다리는 중입니다.';
   if (currentAction) {
     if (completed) {
-      currentAction.textContent = '지금 할 일: 완료되었습니다. 필요한 값은 앱 설정에 저장되었습니다.';
+      currentAction.innerHTML = '<strong style="color:#bbf7d0;">완료</strong>: 필요한 값은 앱 설정에 저장되었습니다. 다음 필수 단계가 있으면 계정 추가 / 앱 연동을 진행하세요.';
       currentAction.style.color = '#bbf7d0';
     } else if (error) {
-      currentAction.textContent = '지금 할 일: 안내 문구를 확인하고 직접 입력 영역이나 Google 화면에서 빠진 단계를 보완하세요.';
+      currentAction.innerHTML = '<strong style="color:#fecaca;">확인 필요</strong>: 안내 문구를 확인하고 Chrome 창에서 빠진 로그인, 권한, 블로그 선택, 입력 단계를 보완하세요.';
       currentAction.style.color = '#fecaca';
     } else if (stepStatus === 'waiting-login' || activeStep.manual) {
-      currentAction.textContent = `지금 할 일: ${activeStep.desc || '열린 Chrome 창에서 요청된 로그인/권한 승인/저장을 완료하세요.'}`;
+      currentAction.innerHTML = renderLiveGuideActionHtml(activeStep, '열린 Chrome 창에서 요청된 로그인/권한 승인/저장을 완료하세요.');
       currentAction.style.color = '#fde68a';
     } else {
-      currentAction.textContent = '지금 할 일: 앱이 자동으로 확인 중입니다. Chrome 창을 닫지 말고 잠시 기다려주세요.';
+      currentAction.innerHTML = renderLiveGuideActionHtml(activeStep, '앱이 자동으로 확인 중입니다. Chrome 창을 닫지 말고 잠시 기다려주세요.');
       currentAction.style.color = '#e0f2fe';
     }
   }
@@ -1393,10 +1441,8 @@ export function renderOneclickSetupTab() {
             <ul style="margin: 6px 0 0; padding-left: 18px; line-height: 1.7;">
               <li>Google 계정 (2단계 인증 해제 권장)</li>
               <li>블로그 제목·주소 (신규 생성 시)</li>
-              <li>파비콘 이미지 (16×16 PNG/ICO, 선택)</li>
-              <li><strong>GA4 측정 ID</strong> — 선택. <a href="#" data-oneclick-help="ga" style="color:#93c5fd;">구하는 법</a></li>
-              <li><strong>AdSense pub-ID</strong> — 승인 후 입력 (승인 최소 2~4주, 지금은 비워두세요)</li>
-              <li><strong>GCP 결제 계정</strong> — Blogger OAuth 연동 시 필요. <a href="#" data-oneclick-help="gcp" style="color:#93c5fd;">연결하기</a></li>
+              <li>기존 블로그를 쓸 경우 Blog ID는 자동 감지 가능</li>
+              <li><strong>발행 필수:</strong> 아래 STEP 2 앱 연동에서 OAuth와 Blog ID를 완료하세요</li>
             </ul>
           </div>
           <div style="padding: 10px 12px; background: rgba(234, 179, 8, 0.08); border: 1px solid rgba(234, 179, 8, 0.2); border-radius: 8px;">
@@ -1411,7 +1457,7 @@ export function renderOneclickSetupTab() {
           </div>
         </div>
         <div style="margin-top: 12px; padding: 10px 12px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px; font-size: 12px; color: #fca5a5;">
-          ⚠️ 위 항목이 준비되지 않은 채 원클릭을 시작하면 중간에 실패하거나 수동 작업이 발생할 수 있습니다. 예상 소요 시간: <strong>5~15분</strong> (로그인·입력 포함, DNS 전파 제외).
+          ⚠️ 블로그스팟 원클릭 세팅은 블로그 개설/기초 설정용입니다. 실제 발행은 STEP 2 앱 연동이 완료되어야 가능합니다.
         </div>
       </div>
 
@@ -1849,7 +1895,14 @@ async function startSetup(platformId, options = {}) {
 }
 
 async function continueSetup(platformId, platform, adminUrl) {
-  activeSetup = { platform: platformId, stepIndex: 0, cancelled: false };
+  activeSetup = {
+    platform: platformId,
+    stepIndex: 0,
+    cancelled: false,
+    setupPurpose: platformId === 'blogspot'
+      ? (window.__blogspotSetupConfig?.setupPurpose || 'create-new')
+      : undefined,
+  };
   updateLiveOneclickGuide('setup', platformId, {
     currentStep: 0,
     totalSteps: platform.steps.length,
@@ -2907,6 +2960,7 @@ async function continuePlatformConnect(platformId, siteUrl) {
     // 상태 폴링
     clearPoll('connect');
     let cnPollErrors = 0;
+    let lastPartialConnectResultJson = '';
     connectPollId = setInterval(async () => {
       if (activeConnect?.cancelled) {
         clearPoll('connect');
@@ -2932,6 +2986,14 @@ async function continuePlatformConnect(platformId, siteUrl) {
                        status.stepStatus === 'running' ? '🔄' :
                        status.stepStatus === 'done' ? '✅' : '❌';
           msgDiv.textContent = `${icon} ${status.message}`;
+        }
+
+        if (status.stepStatus === 'waiting-login' && status.results && Object.values(status.results).some(Boolean)) {
+          const partialJson = JSON.stringify(status.results);
+          if (partialJson !== lastPartialConnectResultJson) {
+            lastPartialConnectResultJson = partialJson;
+            await saveConnectResults(platformId, status.results);
+          }
         }
 
         // 완료 처리

@@ -8,6 +8,81 @@ const skinLoader_1 = require("../utils/skinLoader");
 const selectors_1 = require("../config/selectors");
 const SETUP_LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
 const LOGIN_POLL_MS = 1500;
+function normalizeWordPressBaseUrl(rawUrl) {
+    const value = String(rawUrl || '').trim();
+    if (!value)
+        return '';
+    const withScheme = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+    try {
+        const parsed = new URL(withScheme);
+        parsed.pathname = parsed.pathname.replace(/\/wp-admin\/?.*$/i, '').replace(/\/wp-login\.php.*$/i, '');
+        parsed.search = '';
+        parsed.hash = '';
+        return parsed.toString().replace(/\/$/, '');
+    }
+    catch {
+        return withScheme.replace(/\/wp-admin\/?.*$/i, '').replace(/\/wp-login\.php.*$/i, '').replace(/\/$/, '');
+    }
+}
+async function scanWordPressPage(page) {
+    const url = (() => {
+        try {
+            return page.url();
+        }
+        catch {
+            return '';
+        }
+    })();
+    try {
+        const result = await page.evaluate(() => {
+            const text = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+            const evidence = [
+                document.querySelector('#wpadminbar') ? 'wpadminbar' : '',
+                document.querySelector('#adminmenu') ? 'adminmenu' : '',
+                document.body?.className?.includes('wp-admin') ? 'body.wp-admin' : '',
+                /Dashboard|WordPress|Posts|Settings|Plugins|Appearance|사용자|글|설정|플러그인|외모/i.test(text) ? 'admin text' : '',
+            ].filter(Boolean);
+            return {
+                title: document.title || '',
+                evidence,
+            };
+        });
+        return {
+            ok: /\/wp-admin\/?/i.test(url) && result.evidence.length > 0 && !/wp-login\.php/i.test(url),
+            url,
+            title: result.title,
+            evidence: result.evidence,
+        };
+    }
+    catch {
+        return { ok: false, url, title: '', evidence: [] };
+    }
+}
+async function ensureWordPressAdminTarget(state, page, baseUrl, path, label, timeoutMs = 30000) {
+    const target = `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+    state.message = `${label} 화면으로 이동하고 실제 관리자 화면인지 확인합니다.`;
+    await page.goto(target, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    try {
+        await page.waitForLoadState?.('networkidle', { timeout: 8000 });
+    }
+    catch { /* WordPress plugins can keep polling. */ }
+    await (0, browser_1.sleep)(1800);
+    const deadline = Date.now() + timeoutMs;
+    let last = await scanWordPressPage(page);
+    while (Date.now() < deadline) {
+        if (state.cancelled)
+            break;
+        last = await scanWordPressPage(page);
+        if (last.ok)
+            return last;
+        if (/wp-login\.php|login/i.test(last.url)) {
+            state.stepStatus = 'waiting-login';
+            state.message = `${label} 단계 전에 WordPress 로그인이 필요합니다. 열린 창에서 로그인/2FA/CAPTCHA를 완료해 주세요.`;
+        }
+        await (0, browser_1.sleep)(LOGIN_POLL_MS);
+    }
+    return last;
+}
 async function waitForWordPressLoginOrReady(state, page, waitForLogin) {
     const manual = waitForLogin(state.platform, SETUP_LOGIN_TIMEOUT_MS);
     const auto = (async () => {
@@ -47,18 +122,38 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
     const { browser, page } = await (0, browser_1.launchBrowser)();
     state.browser = browser;
     state.page = page;
+    const baseUrl = normalizeWordPressBaseUrl(adminUrl);
+    if (!baseUrl) {
+        state.stepStatus = 'error';
+        state.error = 'WordPress 사이트 주소가 비어 있습니다. 사이트 URL을 입력한 뒤 원클릭 세팅을 다시 시작해 주세요.';
+        state.message = state.error;
+        return;
+    }
     try {
         // Step 0: 로그인
         state.currentStep = 0;
         state.stepStatus = 'running';
         state.message = 'WP 관리자 페이지로 이동 중...';
-        const loginUrl = adminUrl.replace(/\/wp-admin\/?$/, '') + '/wp-login.php';
+        const loginUrl = `${baseUrl}/wp-login.php`;
         await page.goto(loginUrl, { waitUntil: 'domcontentloaded' });
         state.stepStatus = 'waiting-login';
         state.message = '워드프레스 관리자 계정으로 로그인해주세요';
         const loggedIn = await waitForWordPressLoginOrReady(state, page, waitForLogin);
         if (state.cancelled)
             return;
+        if (!loggedIn) {
+            state.stepStatus = 'error';
+            state.error = 'WordPress 로그인 검증 시간이 초과되었습니다. 열린 창에서 로그인/2FA/CAPTCHA를 완료한 뒤 다시 시도해 주세요.';
+            state.message = state.error;
+            return;
+        }
+        const wpDashboardReady = await ensureWordPressAdminTarget(state, page, baseUrl, '/wp-admin/', 'WordPress 관리자 대시보드', 30000);
+        if (!wpDashboardReady.ok) {
+            state.stepStatus = 'error';
+            state.error = `WordPress 관리자 화면 검증 실패: ${wpDashboardReady.url || page.url()} / ${wpDashboardReady.evidence.join(', ') || '근거 없음'}`;
+            state.message = state.error;
+            return;
+        }
         state.currentStep = 0;
         state.stepStatus = 'done';
         state.message = '로그인 완료';
@@ -68,9 +163,10 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
         state.stepStatus = 'running';
         state.message = '추가 CSS 페이지로 이동 중...';
         try {
-            const baseUrl = adminUrl.replace(/\/wp-admin\/?$/, '');
-            await page.goto(`${baseUrl}/wp-admin/customize.php`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await (0, browser_1.waitForPageStable)(page, 3000);
+            const baseUrl = normalizeWordPressBaseUrl(adminUrl);
+            const ready = await ensureWordPressAdminTarget(state, page, baseUrl, '/wp-admin/customize.php', '추가 CSS', 30000);
+            if (!ready.ok)
+                throw new Error(`추가 CSS 화면 확인 실패: ${ready.url || page.url()} / ${ready.evidence.join(', ') || '근거 없음'}`);
             // "추가 CSS" 패널 클릭 시도
             try {
                 const cssPanel = await page.locator(selectors_1.WORDPRESS_SELECTORS.cssPanelOrAdditionalCss).first();
@@ -104,8 +200,11 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
                 }
             }
         }
-        catch {
-            state.message = '커스터마이저 페이지에서 수동으로 CSS를 적용해주세요.';
+        catch (e) {
+            state.stepStatus = 'error';
+            state.message = `추가 CSS 화면 검증 실패: ${e instanceof Error ? e.message : String(e)}. WordPress 관리자 로그인/권한/보안 플러그인 화면을 확인한 뒤 다시 시도해 주세요.`;
+            state.error = state.message;
+            return;
         }
         state.stepStatus = 'done';
         if (state.cancelled)
@@ -115,13 +214,17 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
         state.stepStatus = 'running';
         state.message = '필수 플러그인 확인 중...';
         try {
-            const baseUrl = adminUrl.replace(/\/wp-admin\/?$/, '');
-            await page.goto(`${baseUrl}/wp-admin/plugin-install.php`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-            await (0, browser_1.waitForPageStable)(page, 2000);
+            const baseUrl = normalizeWordPressBaseUrl(adminUrl);
+            const ready = await ensureWordPressAdminTarget(state, page, baseUrl, '/wp-admin/plugin-install.php', '플러그인 설치', 30000);
+            if (!ready.ok)
+                throw new Error(`플러그인 화면 확인 실패: ${ready.url || page.url()} / ${ready.evidence.join(', ') || '근거 없음'}`);
             state.message = '플러그인 페이지를 열었습니다. Classic Editor, Yoast SEO 설치를 권장합니다.';
         }
-        catch {
-            state.message = '플러그인 페이지로 이동했습니다.';
+        catch (e) {
+            state.stepStatus = 'error';
+            state.message = `플러그인 설치 화면 검증 실패: ${e instanceof Error ? e.message : String(e)}. 관리자 권한 또는 보안 플러그인 차단 여부를 확인해 주세요.`;
+            state.error = state.message;
+            return;
         }
         state.stepStatus = 'done';
         if (state.cancelled)
@@ -131,9 +234,10 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
         state.stepStatus = 'running';
         state.message = '고유주소(퍼머링크) 설정 중...';
         try {
-            const baseUrl = adminUrl.replace(/\/wp-admin\/?$/, '');
-            await page.goto(`${baseUrl}/wp-admin/options-permalink.php`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-            await (0, browser_1.waitForPageStable)(page, 2000);
+            const baseUrl = normalizeWordPressBaseUrl(adminUrl);
+            const ready = await ensureWordPressAdminTarget(state, page, baseUrl, '/wp-admin/options-permalink.php', '고유주소', 30000);
+            if (!ready.ok)
+                throw new Error(`고유주소 화면 확인 실패: ${ready.url || page.url()} / ${ready.evidence.join(', ') || '근거 없음'}`);
             // "글 이름" 옵션 선택 시도
             try {
                 const postNameRadio = await page.locator(selectors_1.WORDPRESS_SELECTORS.postNameRadio).first();
@@ -152,8 +256,11 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
                 state.message = '고유주소 페이지를 열었습니다. "글 이름" 옵션을 선택해주세요.';
             }
         }
-        catch {
-            state.message = '고유주소 설정 페이지 확인 완료';
+        catch (e) {
+            state.stepStatus = 'error';
+            state.message = `고유주소 설정 화면 검증 실패: ${e instanceof Error ? e.message : String(e)}. WordPress 관리자 화면이 제대로 열렸는지 확인해 주세요.`;
+            state.error = state.message;
+            return;
         }
         state.stepStatus = 'done';
         if (state.cancelled)
@@ -163,7 +270,7 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
         state.stepStatus = 'running';
         state.message = '네이버 서치어드바이저 사이트 등록 중...';
         try {
-            const baseUrl = adminUrl.replace(/\/wp-admin\/?$/, '');
+            const baseUrl = normalizeWordPressBaseUrl(adminUrl);
             const siteUrl = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
             await page.goto('https://searchadvisor.naver.com/console/board', { waitUntil: 'domcontentloaded', timeout: 20000 });
             await (0, browser_1.waitForPageStable)(page, 2000);
@@ -240,7 +347,7 @@ async function runWordPressSetup(state, adminUrl, waitForLogin) {
         state.stepStatus = 'running';
         state.message = '구글 서치 콘솔 사이트 등록 중...';
         try {
-            const baseUrl = adminUrl.replace(/\/wp-admin\/?$/, '');
+            const baseUrl = normalizeWordPressBaseUrl(adminUrl);
             const siteUrl = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
             await page.goto('https://search.google.com/search-console/welcome', { waitUntil: 'domcontentloaded', timeout: 20000 });
             await (0, browser_1.waitForPageStable)(page, 3000);

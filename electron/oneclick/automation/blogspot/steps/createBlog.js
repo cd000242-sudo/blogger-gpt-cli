@@ -5,7 +5,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createBlog = createBlog;
 const browser_1 = require("../../../utils/browser");
 const selectors_1 = require("../../../config/selectors");
+const bloggerSmartNavigator_1 = require("../bloggerSmartNavigator");
 function extractBlogIdFromUrl(url) {
+    const smartId = (0, bloggerSmartNavigator_1.extractBloggerBlogId)(url);
+    if (smartId)
+        return smartId;
     const patterns = [
         /blogger\.com\/blog\/(?:posts|pages|settings|stats|comments|layout|theme|themes|earnings)?\/?(\d+)/i,
         /[?&](?:blogID|blogId|blog_id)=(\d+)/i,
@@ -39,6 +43,31 @@ async function findExistingBlogOnPage(page) {
     catch {
         return null;
     }
+}
+async function ensureOnBloggerPage(state, page) {
+    try {
+        const landing = await (0, bloggerSmartNavigator_1.ensureBloggerLanding)(state, page, 'Blogger 현재 화면을 판독합니다');
+        if (landing.scan.kind.startsWith('blogger-') || landing.scan.kind === 'google-login') {
+            return landing.page;
+        }
+        const currentUrl = page.url();
+        const parsed = new URL(currentUrl);
+        if (/(^|\.)blogger\.com/i.test(parsed.hostname))
+            return page;
+        state.message = 'Blogger가 아닌 화면이 열려 있어 Blogger 대시보드로 자동 이동합니다.';
+        await page.goto('https://www.blogger.com/', { waitUntil: 'domcontentloaded', timeout: 20000 });
+        try {
+            await page.waitForLoadState?.('networkidle', { timeout: 8000 });
+        }
+        catch { /* 허용 */ }
+        await (0, browser_1.sleep)(2500);
+        const recovered = await (0, bloggerSmartNavigator_1.ensureBloggerLanding)(state, page, 'Blogger 대시보드 로드 확인');
+        return recovered.page;
+    }
+    catch {
+        // 이후 Blogger 직접 URL 이동 단계에서 다시 처리한다.
+    }
+    return page;
 }
 function summarizeInspection(inspection) {
     const parts = [
@@ -115,10 +144,13 @@ async function createBlog(state, page, config) {
     state.message = '블로그 만들기 시작...';
     let blogId = '';
     try {
+        page = await ensureOnBloggerPage(state, page);
         // 현재 URL에서 이미 블로그가 있는지 확인
         await (0, browser_1.sleep)(2000);
-        const currentUrl = page.url();
-        blogId = extractBlogIdFromUrl(currentUrl);
+        const firstScan = await (0, bloggerSmartNavigator_1.scanBestBloggerPage)(page);
+        page = firstScan.page;
+        const currentUrl = firstScan.url || page.url();
+        blogId = firstScan.blogId || extractBlogIdFromUrl(currentUrl);
         if (!blogId) {
             const found = await findExistingBlogOnPage(page);
             if (found?.blogId)
@@ -128,7 +160,14 @@ async function createBlog(state, page, config) {
         const forceCreateNew = config.setupPurpose === 'create-new' || config.forceCreateNew === true;
         if (forceCreateNew && blogId) {
             state.message = `기존 블로그도 감지됨 (blogId: ${blogId}) — 하지만 사용자가 "새 블로그 추가 개설"을 선택했으므로 신규 생성을 계속합니다.`;
+            blogId = '';
             await (0, browser_1.sleep)(1200);
+        }
+        if (forceCreateNew && (!config.blogTitle || !config.blogAddress)) {
+            state.stepStatus = 'error';
+            state.message = '새 블로그 추가 개설을 선택했지만 블로그 제목/주소가 비어 있습니다. 제목과 blogspot 주소를 입력해야 새 블로그 생성 검증을 진행할 수 있습니다.';
+            state.error = state.message;
+            return '';
         }
         if (useExisting && !blogId && config.existingBlogId) {
             blogId = String(config.existingBlogId).trim();
@@ -141,12 +180,29 @@ async function createBlog(state, page, config) {
             }
             catch { /* 허용 */ }
             await (0, browser_1.sleep)(3500);
-            const found = await findExistingBlogOnPage(page);
-            if (found?.blogId)
-                blogId = found.blogId;
+            const detected = await (0, bloggerSmartNavigator_1.waitForBloggerBlogId)(state, page, {
+                timeoutMs: 45000,
+                reason: '기존 블로그 목록과 선택된 블로그를 감지합니다',
+            });
+            if (detected?.scan.blogId) {
+                page = detected.page;
+                blogId = detected.scan.blogId;
+                state.message = `기존 블로그 감지됨: Blog ID ${blogId}${detected.scan.selectedBlogTitle ? ` / ${detected.scan.selectedBlogTitle}` : ''}.`;
+            }
+            else {
+                const found = await findExistingBlogOnPage(page);
+                if (found?.blogId)
+                    blogId = found.blogId;
+            }
         }
         if (useExisting && blogId) {
             const inspection = await inspectExistingBlog(state, page, blogId);
+            if (!inspection.settingsReachable) {
+                state.stepStatus = 'error';
+                state.message = `기존 블로그 Blog ID는 감지했지만 설정 화면 접근 검증에 실패했습니다. Blog ID ${blogId}가 현재 로그인 계정의 블로그인지 확인하거나 Blogger 목록에서 사용할 블로그를 직접 선택해 주세요. 근거: ${inspection.evidence.join(', ') || '없음'}`;
+                state.error = state.message;
+                return '';
+            }
             state.message = `기존 블로그 확인 완료 — ${summarizeInspection(inspection)}. 기존 블로그 점검 모드이므로 새 블로그 생성은 건너뛰고 다음 단계로 넘어갑니다.`;
             state.stepStatus = 'done';
             await (0, browser_1.sleep)(1800);
@@ -160,6 +216,12 @@ async function createBlog(state, page, config) {
         }
         if (blogId && !forceCreateNew) {
             const inspection = await inspectExistingBlog(state, page, blogId);
+            if (!inspection.settingsReachable) {
+                state.stepStatus = 'error';
+                state.message = `기존 블로그를 자동 감지했지만 설정 화면 접근 검증에 실패했습니다. Blog ID ${blogId}가 현재 로그인 계정의 블로그인지 확인해 주세요. 근거: ${inspection.evidence.join(', ') || '없음'}`;
+                state.error = state.message;
+                return '';
+            }
             state.message = `기존 블로그 자동 감지 — ${summarizeInspection(inspection)}. 새 블로그 추가 개설 목적이 아니므로 생성은 건너뛰고 다음 단계로 넘어갑니다.`;
             state.stepStatus = 'done';
             await (0, browser_1.sleep)(1800);
@@ -202,6 +264,19 @@ async function createBlog(state, page, config) {
             }
             catch {
                 // 홈 이동이 실패해도 현재 화면에서 버튼 탐색을 계속 시도한다.
+            }
+        }
+        if (forceCreateNew) {
+            const home = await (0, bloggerSmartNavigator_1.ensureBloggerTarget)(state, page, 'home', '', {
+                timeoutMs: 30000,
+                reason: '새 블로그 생성을 위해 Blogger 홈 화면을 검증합니다',
+            });
+            page = home.page;
+            if (!home.ok) {
+                state.stepStatus = 'error';
+                state.message = `Blogger 홈 화면을 안정적으로 확인하지 못했습니다. 현재 화면: ${home.scan.url || page.url()} / 근거: ${home.scan.evidence.join(', ') || '없음'}`;
+                state.error = state.message;
+                return '';
             }
         }
         if (config.blogTitle && config.blogAddress) {
@@ -299,12 +374,24 @@ async function createBlog(state, page, config) {
         }
         // blogId 재확인
         await (0, browser_1.sleep)(2000);
-        const newUrl = page.url();
-        blogId = extractBlogIdFromUrl(newUrl) || blogId;
+        const afterCreateScan = await (0, bloggerSmartNavigator_1.scanBestBloggerPage)(page);
+        page = afterCreateScan.page;
+        const newUrl = afterCreateScan.url || page.url();
+        blogId = afterCreateScan.blogId || extractBlogIdFromUrl(newUrl) || blogId;
         if (!blogId) {
-            const found = await findExistingBlogOnPage(page);
-            if (found?.blogId)
-                blogId = found.blogId;
+            const detected = await (0, bloggerSmartNavigator_1.waitForBloggerBlogId)(state, page, {
+                timeoutMs: 45000,
+                reason: '블로그 생성 완료 후 Blog ID를 확인합니다',
+            });
+            if (detected?.scan.blogId) {
+                page = detected.page;
+                blogId = detected.scan.blogId;
+            }
+            else {
+                const found = await findExistingBlogOnPage(page);
+                if (found?.blogId)
+                    blogId = found.blogId;
+            }
         }
         if (forceCreateNew && blogId) {
             state.message = `새 블로그 생성 확인 — 제목 "${config.blogTitle}", 주소 ${config.blogAddress}.blogspot.com, Blog ID ${blogId}. 다음 단계로 넘어갑니다.`;

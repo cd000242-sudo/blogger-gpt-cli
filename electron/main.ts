@@ -1658,9 +1658,59 @@ ${tail}
 
       // v3.8.8: dataURL → 호스팅 URL 변환
       // v3.8.9: WP 자격증명 보유 시 platform 무관하게 WP 미디어 우선 (블로그스팟도 wp 사이트 URL 빌려 사용)
+      // v3.8.123: 브라우저 이미지 엔진이 반환하는 signed/CDN URL도 즉시 다운로드 후 재호스팅.
+      //   Flow/ImageFX/Dropshot 계열은 처음엔 보이지만 시간이 지나 만료되는 URL을 줄 수 있으므로
+      //   공개 발행 HTML에는 원본 임시 URL을 직접 넣지 않는다.
       const targetPlatform = String((payload as any).platform || '').toLowerCase();
-      async function _hostImageDataUrl(dataUrl: string, label: string): Promise<{ url: string; provider: string }> {
-        if (!dataUrl || !/^data:image/.test(dataUrl)) return { url: dataUrl, provider: 'passthrough' };
+      async function _normalizeGeneratedImageToDataUrl(rawImage: string, label: string): Promise<{ dataUrl: string; previewUrl: string; sourceWasExternal: boolean } | null> {
+        const raw = String(rawImage || '').trim();
+        if (!raw) return null;
+        if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(raw)) {
+          return { dataUrl: raw, previewUrl: raw, sourceWasExternal: false };
+        }
+        if (!/^https?:\/\//i.test(raw)) {
+          return null;
+        }
+        try {
+          const axios = (await import('axios')).default;
+          const res = await axios.get(raw, {
+            responseType: 'arraybuffer',
+            timeout: 60000,
+            maxBodyLength: 50 * 1024 * 1024,
+            maxContentLength: 50 * 1024 * 1024,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 LEADERNAM-Orbit/3.8',
+              Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+            },
+          });
+          const mime = String(res.headers?.['content-type'] || 'image/png').split(';')[0].trim() || 'image/png';
+          if (!/^image\//i.test(mime)) {
+            console.warn(`[IMG-HOST] 외부 생성 URL content-type이 이미지가 아님 (${label}): ${mime}`);
+            return null;
+          }
+          const buf = Buffer.from(res.data);
+          if (buf.length <= 0) return null;
+          const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+          console.log(`[IMG-HOST] 외부 생성 URL 다운로드 성공 (${label}, ${(buf.length / 1024).toFixed(1)}KB)`);
+          return { dataUrl, previewUrl: dataUrl, sourceWasExternal: true };
+        } catch (e: any) {
+          console.warn(`[IMG-HOST] 외부 생성 URL 다운로드 실패 (${label}):`, e?.message?.substring(0, 200));
+          return null;
+        }
+      }
+
+      async function _hostGeneratedImage(rawImage: string, label: string): Promise<{ url: string; provider: string; previewUrl: string; sourceWasExternal: boolean }> {
+        const raw = String(rawImage || '').trim();
+        const normalized = await _normalizeGeneratedImageToDataUrl(raw, label);
+        if (!normalized) {
+          return {
+            url: raw,
+            provider: /^https?:\/\//i.test(raw) ? 'external-passthrough' : 'passthrough',
+            previewUrl: raw,
+            sourceWasExternal: /^https?:\/\//i.test(raw),
+          };
+        }
+        const dataUrl = normalized.dataUrl;
 
         // 1) WP 자격증명 보유 시 wp-json/v2/media 업로드 (platform 무관 hotlink 허용)
         //    v3.8.14: timeout 60s + 1회 retry (네트워크 흔들림 대응)
@@ -1692,7 +1742,7 @@ ${tail}
                 const src = res.data && (res.data.source_url || (res.data.guid && res.data.guid.rendered));
                 if (typeof src === 'string' && src) {
                   console.log(`[IMG-HOST] ✅ WP 미디어 업로드 성공 (${label}, attempt=${attempt}, platform=${targetPlatform || 'unknown'}):`, src.substring(0, 80));
-                  return { url: src, provider: targetPlatform === 'wordpress' ? 'wp-media' : 'wp-media-hotlink' };
+                  return { url: src, provider: targetPlatform === 'wordpress' ? 'wp-media' : 'wp-media-hotlink', previewUrl: dataUrl, sourceWasExternal: normalized.sourceWasExternal };
                 }
                 console.warn(`[IMG-HOST] WP 응답에 source_url 없음 (${label}, attempt=${attempt})`);
               } catch (e: any) {
@@ -1703,14 +1753,15 @@ ${tail}
           }
         }
 
-        // 2) 외부 호스팅 6단계 폴백 (Cloudinary/ImgBB/ImgHippo/freeimage/Catbox/0x0) + 1회 retry
+        // 2) 외부 영구형 호스팅 폴백 (Cloudinary/ImgBB/ImgHippo/freeimage/Catbox) + 1회 retry
+        //    만료형 임시 호스트(0x0.st)는 image-helpers에서 제외.
         for (let attempt = 1; attempt <= 2; attempt++) {
           try {
             const { uploadBase64ToImageHost } = require('../dist/core/final/image-helpers');
             const hostedUrl = await uploadBase64ToImageHost(dataUrl, label);
             if (typeof hostedUrl === 'string' && hostedUrl) {
               console.log(`[IMG-HOST] ✅ 외부 호스팅 성공 (${label}, attempt=${attempt}):`, hostedUrl.substring(0, 80));
-              return { url: hostedUrl, provider: 'external' };
+              return { url: hostedUrl, provider: 'external', previewUrl: dataUrl, sourceWasExternal: normalized.sourceWasExternal };
             }
           } catch (e: any) {
             console.warn(`[IMG-HOST] 외부 호스팅 예외 (${label}, attempt=${attempt}):`, e?.message?.substring(0, 200));
@@ -1718,12 +1769,12 @@ ${tail}
           if (attempt < 2) await new Promise((r) => setTimeout(r, 2000));
         }
 
-        // 3) 최종 폴백: dataUrl 그대로 (publisher가 sanitize 처리)
-        console.error(`[IMG-HOST] ❌ 모든 호스팅 실패 (${label}) — base64 그대로 반환 (publisher placeholder 치환 위험)`);
-        return { url: dataUrl, provider: 'datauri' };
+        // 3) 최종 폴백: dataUrl 그대로 (Blogger/WP 발행기가 플랫폼 업로드를 한 번 더 시도)
+        console.error(`[IMG-HOST] ❌ 모든 영구형 호스팅 실패 (${label}) — 발행기 플랫폼 업로드 폴백으로 전달`);
+        return { url: dataUrl, provider: 'datauri-publish-fallback', previewUrl: dataUrl, sourceWasExternal: normalized.sourceWasExternal };
       }
-      const imageStats: { thumbnail: boolean; h2Generated: number; h2Failed: number; errors: string[] } = {
-        thumbnail: false, h2Generated: 0, h2Failed: 0, errors: [],
+      const imageStats: { thumbnail: boolean; h2Generated: number; h2Failed: number; errors: string[]; hostProviders: string[] } = {
+        thumbnail: false, h2Generated: 0, h2Failed: 0, errors: [], hostProviders: [],
       };
       let thumbnailUrl = '';
 
@@ -1745,17 +1796,21 @@ ${tail}
               );
               if (thumbResult && thumbResult.ok && (thumbResult.dataUrl || thumbResult.url)) {
                 const rawThumb = thumbResult.dataUrl || thumbResult.url || '';
-                // v3.8.8: dataURL → 호스팅 URL 변환 (WP 미디어 우선)
-                const hosted = await _hostImageDataUrl(rawThumb, 'sw-thumb');
+                // v3.8.123: dataURL/임시 CDN URL → 영구 후보 URL 변환 (WP 미디어 우선)
+                const hosted = await _hostGeneratedImage(rawThumb, 'sw-thumb');
                 thumbnailUrl = hosted.url;
                 imageStats.thumbnail = true;
+                imageStats.hostProviders.push(`thumbnail:${hosted.provider}${hosted.sourceWasExternal ? ':from-url' : ''}`);
+                if (/passthrough|fallback/i.test(hosted.provider)) {
+                  imageStats.errors.push(`썸네일 호스팅 폴백: ${hosted.provider} (발행기에서 추가 업로드를 시도합니다)`);
+                }
                 console.log('[INTERNAL-CONSISTENCY] 썸네일 호스팅 provider:', hosted.provider);
                 // v3.8.44: 실시간 이미지 UI push
                 try {
                   const { BrowserWindow: BW } = await import('electron');
                   const allWindows = BW.getAllWindows();
                   allWindows.forEach((w) => w.webContents.send('sw-image-generated', {
-                    kind: 'thumbnail', label: '썸네일', url: hosted.url, queueImageToken,
+                    kind: 'thumbnail', label: '썸네일', url: hosted.previewUrl || hosted.url, hostedUrl: hosted.url, provider: hosted.provider, queueImageToken,
                   }));
                 } catch {}
                 // v3.8.18: 본문 썸네일 삽입 제거 — publishToBlogger가 separator 구조로 자동 본문 앞 삽입
@@ -1814,18 +1869,22 @@ ${tail}
                 if (h2Result && h2Result.ok && hasDataUrl) {
                   const rawH2 = h2Result.dataUrl || h2Result.url || '';
                   console.log(`[INTERNAL-CONSISTENCY] H2 ${idx1} dataUrl 길이: ${rawH2.length}`);
-                  // v3.8.8: dataURL → 호스팅 URL 변환
-                  const hosted = await _hostImageDataUrl(rawH2, `sw-h2-${idx1}`);
+                  // v3.8.123: dataURL/임시 CDN URL → 영구 후보 URL 변환
+                  const hosted = await _hostGeneratedImage(rawH2, `sw-h2-${idx1}`);
                   const imgTag = `<p style="text-align:center;margin:18px 0;"><img src="${hosted.url}" alt="${h2Text.replace(/"/g, '&quot;')}" style="max-width:100%;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.1);"></p>`;
                   $(h2El).after(imgTag);
                   imageStats.h2Generated++;
+                  imageStats.hostProviders.push(`h2-${idx1}:${hosted.provider}${hosted.sourceWasExternal ? ':from-url' : ''}`);
+                  if (/passthrough|fallback/i.test(hosted.provider)) {
+                    imageStats.errors.push(`H2 ${idx1} 이미지 호스팅 폴백: ${hosted.provider} (발행기에서 추가 업로드를 시도합니다)`);
+                  }
                   console.log(`[INTERNAL-CONSISTENCY] ✅ H2 ${idx1} 삽입 완료 · provider=${hosted.provider}`);
                   // v3.8.44: 실시간 이미지 UI push
                   try {
                     const { BrowserWindow: BW } = await import('electron');
                     const allWindows = BW.getAllWindows();
                     allWindows.forEach((w) => w.webContents.send('sw-image-generated', {
-                      kind: 'h2', label: `H2 ${idx1}: ${h2Text.substring(0, 30)}`, url: hosted.url, queueImageToken,
+                      kind: 'h2', label: `H2 ${idx1}: ${h2Text.substring(0, 30)}`, url: hosted.previewUrl || hosted.url, hostedUrl: hosted.url, provider: hosted.provider, queueImageToken,
                     }));
                   } catch {}
                 } else {

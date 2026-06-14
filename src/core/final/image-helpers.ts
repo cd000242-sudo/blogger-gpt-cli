@@ -7,8 +7,11 @@
  *  3. ImgHippo     — 무료 무제한 표방, API key 불필요
  *  4. freeimage.host — 공유 키, 가끔 불안정
  *  5. Catbox.moe   — 200MB, 익명 업로드, hotlink OK (상업적 사용 불가 주의)
- *  6. 0x0.st       — 30일~1년 자동 만료 (크기 의존), 임시 폴백
- *  모두 실패 → null 반환 (호출부가 base64 그대로 사용 → Blogger 400 위험)
+ *  모두 실패 → null 반환
+ *
+ * 주의:
+ *  - 0x0.st 같은 만료형 임시 호스트는 공개 발행글 이미지가 시간이 지나 깨지는 원인이므로
+ *    최종 발행용 폴백에서 제외한다.
  */
 
 import axios from 'axios';
@@ -174,39 +177,12 @@ async function tryCatbox(base64Only: string, mimeType: string): Promise<string |
   return null;
 }
 
-/** 6. 0x0.st (임시 보존 30일~1년, 최후 폴백) */
-async function try0x0(base64Only: string, mimeType: string): Promise<string | null> {
-  try {
-    const buffer = Buffer.from(base64Only, 'base64');
-    const ext = mimeType.split('/')[1] || 'png';
-    const filename = `image_${Date.now()}.${ext}`;
-
-    const { default: FormData } = await import('form-data');
-    const form = new FormData();
-    form.append('file', buffer, { filename, contentType: mimeType });
-
-    const response = await axios.post('https://0x0.st', form, {
-      headers: form.getHeaders(),
-      timeout: 30000
-    });
-
-    if (response.data && typeof response.data === 'string' && response.data.startsWith('https://')) {
-      const url = response.data.trim();
-      console.warn(`[0X0] ⚠️ 임시 URL (30일~1년 후 만료): ${url.substring(0, 60)}...`);
-      return url;
-    }
-  } catch (error: any) {
-    console.warn(`[0X0] ⚠️ 실패: ${error.message}`);
-  }
-  return null;
-}
-
 // ─── 공개 API ────────────────────────────────────────────────────────────────
 
 /**
  * Base64 이미지를 외부 이미지 호스팅에 업로드하여 HTTPS URL을 반환.
- * 6단계 폴백 체인을 순서대로 시도한다.
- * 모두 실패하면 null 반환 → 호출부에서 base64 그대로 사용은 Blogger 400 원인이 됨.
+ * 만료형 임시 호스트를 제외한 폴백 체인을 순서대로 시도한다.
+ * 모두 실패하면 null 반환한다.
  *
  * 환경 변수 (선택):
  *   CLOUDINARY_CLOUD_NAME    — Cloudinary cloud name
@@ -240,11 +216,7 @@ export async function uploadBase64ToImageHost(base64Data: string, name?: string)
   const catboxUrl = await tryCatbox(base64Only, mimeType);
   if (catboxUrl) return catboxUrl;
 
-  // 6. 0x0.st (임시 보존, 최후 수단)
-  const x0Url = await try0x0(base64Only, mimeType);
-  if (x0Url) return x0Url;
-
-  console.error('[IMAGE-HOST] ❌ 모든 호스팅 실패 — base64 그대로 반환 시 Blogger 400 발생 위험');
+  console.error('[IMAGE-HOST] ❌ 모든 영구형 호스팅 실패 — 호출부의 플랫폼 업로드/스킵 정책으로 처리 필요');
   return null;
 }
 

@@ -24,32 +24,12 @@ export const BLOGGER_SELECTORS = {
   timezoneSection: 'text="시간대", text="Time zone"',
   seoulOption: 'option:has-text("서울"), option:has-text("Seoul")',
 
-  // metaGaAds.ts — 메타태그 / GA / ads.txt
-  metaTagSection: 'text="메타태그", text="Meta tags"',
-  metaToggle: '[role="switch"], [role="checkbox"]',
-  metaTextareaOrInput: 'textarea, input[type="text"]',
-  gaSection: 'text="Google 애널리틱스", text="Google Analytics"',
-  gaInput: 'input[type="text"]',
-  earningsLink: 'a:has-text("수익 창출"), a:has-text("Earnings"), a[href*="earnings"]',
-  adsTxtSection: 'text="ads.txt"',
-  adsTxtCustomToggle: '[role="switch"], [role="checkbox"]',
-  adsTxtTextarea: 'textarea',
-
-  // faviconUpload.ts — 파비콘 업로드
-  faviconSection: 'text="파비콘", text="Favicon"',
-  fileInput: 'input[type="file"]',
-
   // applySkinCSS.ts — 테마 HTML 에디터 (2026-04 검증: /blog/themes/edit/, CodeMirror ✅)
   themeLink: 'a:has-text("테마"), a:has-text("Theme")',
   themeMoreActions: '[aria-label="추가 작업"]',       // 드롭다운 메뉴 (테마 페이지)
   editHtmlBtn: ':text("HTML 편집"), button:has-text("Edit HTML")',  // 드롭다운 내부
   codeEditor: '.CodeMirror, textarea, [contenteditable], [role="textbox"], .ace_editor',
   saveThemeBtn: '[aria-label="저장"], button[aria-label*="Save"]',  // 2026-04: div[aria-label="저장"] (button 아님)
-
-  // searchConsole.ts (Blogger 설정에서 GSC 연동)
-  gscSection: 'text="Google Search Console", text="구글 서치 콘솔", text="Search Console"',
-  domainInput: 'input[type="text"]',
-  verifyBtn: 'button:has-text("확인"), button:has-text("Verify"), button:has-text("등록")',
 } as const;
 
 // ─── WordPress ────────────────────────────────────────────────────────────────

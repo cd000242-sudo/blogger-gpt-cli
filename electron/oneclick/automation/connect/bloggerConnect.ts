@@ -14,7 +14,7 @@ function blockForManualAction(
   state.currentStep = currentStep;
   state.stepStatus = 'waiting-login';
   state.results = results;
-  state.error = message;
+  state.error = null;
   state.message = message;
 }
 
@@ -36,6 +36,10 @@ async function waitForGoogleConsoleReady(state: ConnectState, page: any): Promis
     if (isGoogleLoginUrl(url)) {
       state.stepStatus = 'waiting-login';
       state.message = '🔐 Google 계정 로그인/2단계 인증/CAPTCHA를 완료해주세요. 완료 전에는 다음 단계로 넘어가지 않습니다.';
+    } else if (/support\.google\.com\/accounts|myaccount\.google\.com/i.test(url)) {
+      state.stepStatus = 'running';
+      state.message = 'Google 로그인은 확인됐지만 도움말/계정 화면으로 이동했습니다. Google Cloud Console로 다시 이동합니다.';
+      await page.goto('https://console.cloud.google.com/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
     } else if (/console\.cloud\.google\.com/i.test(url)) {
       const ready = await page.evaluate(() => {
         const text = (document.body?.innerText || '').trim();
@@ -71,6 +75,178 @@ async function clickFirstVisible(page: any, selectors: string[], timeout = 2500)
     } catch { /* try next selector */ }
   }
   return false;
+}
+
+async function waitForReadablePage(page: any, timeout = 30000): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= timeout) {
+    const ready = await page.evaluate(() => {
+      const text = (document.body?.innerText || '').trim();
+      return document.readyState !== 'loading' && text.length > 20;
+    }).catch(() => false);
+    if (ready) return true;
+    await page.waitForTimeout(1000).catch(() => {});
+  }
+  return false;
+}
+
+async function waitForAnyVisible(page: any, selectors: string[], timeout = 30000): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= timeout) {
+    for (const selector of selectors) {
+      try {
+        if (await page.locator(selector).first().isVisible({ timeout: 800 })) {
+          return true;
+        }
+      } catch { /* try next selector */ }
+    }
+    await page.waitForTimeout(1000).catch(() => {});
+  }
+  return false;
+}
+
+async function waitForGoogleConsoleTarget(
+  state: ConnectState,
+  page: any,
+  targetUrl: string,
+  label: string,
+  selectors: string[] = [],
+  timeout = 30000,
+): Promise<boolean> {
+  state.stepStatus = 'running';
+  state.message = `${label} 화면을 여는 중입니다. 화면이 완전히 준비될 때까지 기다립니다.`;
+  await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout }).catch(() => {});
+
+  const consoleReady = await waitForGoogleConsoleReady(state, page);
+  if (!consoleReady) return false;
+
+  const readable = await waitForReadablePage(page, timeout);
+  if (!readable) return false;
+
+  if (!selectors.length) return true;
+  return waitForAnyVisible(page, selectors, timeout);
+}
+
+async function extractOAuthCredentialsFromPage(page: any): Promise<{ clientId: string; clientSecret: string }> {
+  return await page.evaluate(() => {
+    const values = [
+      document.body?.innerText || '',
+      ...Array.from(document.querySelectorAll('input, textarea, code, span, div')).map((el) => {
+        const input = el as HTMLInputElement;
+        return [input.value || '', el.textContent || '', el.getAttribute('aria-label') || '', el.getAttribute('title') || ''].join('\n');
+      }),
+    ].join('\n');
+    const idMatch = values.match(/[A-Za-z0-9._-]+\.apps\.googleusercontent\.com/);
+    const secretMatch = values.match(/GOCSPX-[A-Za-z0-9_-]+/);
+    return {
+      clientId: idMatch?.[0] || '',
+      clientSecret: secretMatch?.[0] || '',
+    };
+  }).catch(() => ({ clientId: '', clientSecret: '' }));
+}
+
+async function waitForOAuthCredentials(
+  state: ConnectState,
+  page: any,
+  results: Record<string, string>,
+  timeout = MANUAL_ACTION_TIMEOUT_MS,
+): Promise<boolean> {
+  const startedAt = Date.now();
+  while (!state.cancelled && Date.now() - startedAt <= timeout) {
+    const found = await extractOAuthCredentialsFromPage(page);
+    if (found.clientId) results['googleClientId'] = found.clientId;
+    if (found.clientSecret) results['googleClientSecret'] = found.clientSecret;
+    state.results = results;
+    if (results['googleClientId'] && results['googleClientSecret']) return true;
+
+    state.stepStatus = 'waiting-login';
+    state.message = 'OAuth Client ID/Secret을 기다리는 중입니다. Google Cloud에서 데스크톱 앱 Client를 만들고 생성된 값을 화면에 보이게 해주세요.';
+    await page.waitForTimeout(PAGE_READY_POLL_MS).catch(() => {});
+  }
+  return false;
+}
+
+async function waitForOAuthTestUser(
+  state: ConnectState,
+  page: any,
+  email: string,
+  results: Record<string, string>,
+): Promise<boolean> {
+  const startedAt = Date.now();
+  let autoAttempted = false;
+
+  while (!state.cancelled && Date.now() - startedAt <= MANUAL_ACTION_TIMEOUT_MS) {
+    if (!/console\.cloud\.google\.com\/auth\/audience/i.test(page.url())) {
+      await waitForGoogleConsoleTarget(state, page, GOOGLE_AUTH_AUDIENCE_URL, 'OAuth 테스트 사용자', [], 30000);
+    }
+
+    const added = email ? await page.evaluate((targetEmail: string) => {
+      return (document.body?.innerText || '').toLowerCase().includes(targetEmail.toLowerCase());
+    }, email).catch(() => false) : false;
+    if (added) return true;
+
+    if (email && !autoAttempted) {
+      autoAttempted = true;
+      if (await addOAuthTestUserIfPossible(state, page, email)) return true;
+    }
+
+    state.stepStatus = 'waiting-login';
+    state.results = results;
+    state.message = email
+      ? `Google Cloud Audience > Test users에 ${email} 계정을 추가하고 저장해주세요. 저장되면 앱이 자동으로 다음 단계로 넘어갑니다.`
+      : 'Google Cloud Audience > Test users 화면에서 현재 로그인한 Gmail을 직접 추가하고 저장해주세요. 저장되면 앱이 자동으로 다음 단계로 넘어갑니다.';
+    await page.waitForTimeout(PAGE_READY_POLL_MS).catch(() => {});
+  }
+
+  return false;
+}
+
+async function waitForBloggerBlogId(state: ConnectState, page: any, results: Record<string, string>): Promise<string> {
+  const startedAt = Date.now();
+  let navigatedFirstBlog = false;
+
+  while (!state.cancelled && Date.now() - startedAt <= MANUAL_ACTION_TIMEOUT_MS) {
+    const blogId = await page.evaluate(() => {
+      const patterns = [
+        /\/blog\/(?:posts|pages|stats|settings|layout|theme|comments)\/(\d+)/,
+        /[?&]blogID=(\d+)/,
+        /[?&]blogId=(\d+)/,
+      ];
+      const candidates = [
+        location.href,
+        document.body?.innerText || '',
+        ...Array.from(document.querySelectorAll('a[href]')).map((a) => (a as HTMLAnchorElement).href),
+      ];
+      for (const value of candidates) {
+        for (const pattern of patterns) {
+          const match = value.match(pattern);
+          if (match?.[1]) return match[1];
+        }
+      }
+      return '';
+    }).catch(() => '');
+    if (blogId) return blogId;
+
+    if (!navigatedFirstBlog) {
+      const firstBlogHref = await page.evaluate(() => {
+        const links = Array.from(document.querySelectorAll('a[href*="/blog/"]')) as HTMLAnchorElement[];
+        return links.map((a) => a.href).find(Boolean) || '';
+      }).catch(() => '');
+      if (firstBlogHref) {
+        navigatedFirstBlog = true;
+        await page.goto(firstBlogHref, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+        await waitForReadablePage(page, 15000);
+        continue;
+      }
+    }
+
+    state.stepStatus = 'waiting-login';
+    state.results = results;
+    state.message = 'Blogger 관리자에서 블로그를 하나 선택해주세요. URL에 Blog ID가 보이면 앱이 자동으로 읽고 다음 단계로 넘어갑니다.';
+    await page.waitForTimeout(PAGE_READY_POLL_MS).catch(() => {});
+  }
+
+  return '';
 }
 
 async function getCurrentGoogleAccountEmail(page: any): Promise<string> {
@@ -177,8 +353,7 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
   // 1) GCP Console 이동
   state.currentStep = 0;
   state.message = 'Google Cloud Console로 이동 중...';
-  await page.goto('https://console.cloud.google.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-  const consoleReady = await waitForGoogleConsoleReady(state, page);
+  const consoleReady = await waitForGoogleConsoleTarget(state, page, 'https://console.cloud.google.com/', 'Google Cloud Console', [], 30000);
   if (!consoleReady) {
     blockForManualAction(
       state,
@@ -215,8 +390,7 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
     await page.waitForTimeout(2000);
 
     // 새 프로젝트 생성 페이지로 이동
-    await page.goto('https://console.cloud.google.com/projectcreate', { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.waitForTimeout(3000);
+    await waitForGoogleConsoleTarget(state, page, 'https://console.cloud.google.com/projectcreate', 'Google Cloud 프로젝트 생성', [GCP_SELECTORS.projectNameInput], 30000);
 
     // 프로젝트 이름 입력
     const projectNameInput = await page.$(GCP_SELECTORS.projectNameInput);
@@ -246,8 +420,14 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
   state.currentStep = 2;
   state.message = 'Blogger API 활성화 중...';
   try {
-    await page.goto('https://console.cloud.google.com/apis/library/blogger.googleapis.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForTimeout(3000);
+    await waitForGoogleConsoleTarget(
+      state,
+      page,
+      'https://console.cloud.google.com/apis/library/blogger.googleapis.com',
+      'Blogger API',
+      [GCP_SELECTORS.enableBtnKo, GCP_SELECTORS.enableBtnEn, GCP_SELECTORS.enableBtnEn2, GCP_SELECTORS.manageBtnKo, GCP_SELECTORS.manageBtnEn, GCP_SELECTORS.manageBtnEn2],
+      45000,
+    );
 
     // "사용" 또는 "ENABLE" 버튼
     const enableBtn = await page.$(GCP_SELECTORS.enableBtnKo) || await page.$(GCP_SELECTORS.enableBtnEn) || await page.$(GCP_SELECTORS.enableBtnEn2);
@@ -279,8 +459,14 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
   state.currentStep = 3;
   state.message = 'OAuth 동의 화면 구성 중...';
   try {
-    await page.goto('https://console.cloud.google.com/apis/credentials/consent', { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForTimeout(3000);
+    await waitForGoogleConsoleTarget(
+      state,
+      page,
+      'https://console.cloud.google.com/apis/credentials/consent',
+      'OAuth 동의 화면',
+      [GCP_SELECTORS.externalRadio, GCP_SELECTORS.appNameInput, GCP_SELECTORS.saveAndContinueBtnKo, GCP_SELECTORS.saveAndContinueBtnEn, GCP_SELECTORS.saveAndContinueBtnEn2],
+      45000,
+    );
 
     // "외부" (External) 선택 후 만들기
     const externalRadio = await page.$(GCP_SELECTORS.externalRadio);
@@ -316,7 +502,7 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
           const skipBtn2 = await page.$(GCP_SELECTORS.saveAndContinueBtnKo) || await page.$(GCP_SELECTORS.saveAndContinueBtnEn);
           if (skipBtn2) {
             const email = await getCurrentGoogleAccountEmail(page);
-            const added = await addOAuthTestUserIfPossible(state, page, email);
+            const added = await waitForOAuthTestUser(state, page, email, results);
             if (!added) {
               blockForManualAction(
                 state,
@@ -344,7 +530,7 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
   state.currentStep = 4;
   try {
     const email = await getCurrentGoogleAccountEmail(page);
-    const added = await addOAuthTestUserIfPossible(state, page, email);
+    const added = await waitForOAuthTestUser(state, page, email, results);
     if (!added) {
       blockForManualAction(
         state,
@@ -370,8 +556,14 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
   state.currentStep = 5;
   state.message = 'OAuth 클라이언트 ID 생성 중...';
   try {
-    await page.goto('https://console.cloud.google.com/apis/credentials', { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForTimeout(3000);
+    await waitForGoogleConsoleTarget(
+      state,
+      page,
+      'https://console.cloud.google.com/apis/credentials',
+      'OAuth 사용자 인증 정보',
+      [GCP_SELECTORS.createCredsBtnKo, GCP_SELECTORS.createCredsBtnEn, GCP_SELECTORS.createCredsBtnEn2],
+      45000,
+    );
 
     // "사용자 인증 정보 만들기" → "OAuth 클라이언트 ID"
     const createCredBtn = await page.$(GCP_SELECTORS.createCredsBtnKo) || await page.$(GCP_SELECTORS.createCredsBtnEn) || await page.$(GCP_SELECTORS.createCredsBtnEn2);
@@ -497,6 +689,10 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
   await page.waitForTimeout(1000);
 
   if (!results['googleClientId'] || !results['googleClientSecret']) {
+    await waitForOAuthCredentials(state, page, results);
+  }
+
+  if (!results['googleClientId'] || !results['googleClientSecret']) {
     blockForManualAction(
       state,
       6,
@@ -542,6 +738,14 @@ export async function automateBloggerConnect(state: ConnectState, page: any): Pr
     }
   } catch {
     state.message = 'Blog ID 추출 실패. Blogger 대시보드에서 확인해주세요.';
+  }
+
+  if (!results['blogId']) {
+    const watchedBlogId = await waitForBloggerBlogId(state, page, results);
+    if (watchedBlogId) {
+      results['blogId'] = watchedBlogId;
+      state.message = `Blog ID 확인 완료: ${watchedBlogId}`;
+    }
   }
 
   if (!results['blogId']) {

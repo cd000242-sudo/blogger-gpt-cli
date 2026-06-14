@@ -5,6 +5,73 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.optimizeSettings = optimizeSettings;
 const browser_1 = require("../../../utils/browser");
 const selectors_1 = require("../../../config/selectors");
+const bloggerSmartNavigator_1 = require("../bloggerSmartNavigator");
+async function scanSettingsPage(page) {
+    return page.evaluate(() => {
+        const text = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+        const url = location.href;
+        const evidence = [
+            /HTTPS/i.test(text) ? 'HTTPS 항목' : '',
+            /검색 엔진|Search engine|Visible to search engines/i.test(text) ? '검색엔진 노출 항목' : '',
+            /댓글|Comments/i.test(text) ? '댓글 설정 항목' : '',
+            /시간대|Time zone/i.test(text) ? '시간대 항목' : '',
+            /설명|Description/i.test(text) ? '설명 항목' : '',
+            /성인 콘텐츠|Adult content/i.test(text) ? '성인 콘텐츠 항목' : '',
+            /이미지|Images|Lightbox|WebP|Lazy/i.test(text) ? '이미지 설정 항목' : '',
+        ].filter(Boolean);
+        const hasSettingsUrl = /blogger\.com\/blog\/settings\/\d+/i.test(url);
+        return {
+            ok: hasSettingsUrl && evidence.length >= 2,
+            evidence,
+            url,
+            title: document.title || '',
+        };
+    });
+}
+async function openAndVerifySettingsPage(state, page, blogId) {
+    let last = { ok: false, evidence: [], url: page.url(), title: '' };
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        state.message = attempt === 1
+            ? '설정 페이지로 이동 중...'
+            : `설정 페이지 로드 확인 재시도 중 (${attempt}/3)...`;
+        if (blogId) {
+            const target = await (0, bloggerSmartNavigator_1.ensureBloggerTarget)(state, page, 'settings', blogId, {
+                timeoutMs: 35000,
+                reason: 'Blogger 설정 화면을 준비합니다',
+            });
+            page = target.page;
+            if (!target.ok) {
+                last = {
+                    ok: false,
+                    evidence: target.scan.evidence,
+                    url: target.scan.url,
+                    title: target.scan.title,
+                };
+                continue;
+            }
+        }
+        else {
+            const settingsLink = await page.locator(selectors_1.BLOGGER_SELECTORS.settingsLink).first();
+            if (await settingsLink.isVisible({ timeout: 5000 })) {
+                await settingsLink.click();
+            }
+        }
+        try {
+            await page.waitForLoadState?.('networkidle', { timeout: 8000 });
+        }
+        catch { /* Blogger는 계속 통신할 수 있어 허용 */ }
+        await (0, browser_1.sleep)(3000 + attempt * 800);
+        try {
+            last = await scanSettingsPage(page);
+            if (last.ok)
+                return last;
+        }
+        catch (e) {
+            last = { ok: false, evidence: [], url: page.url(), title: e instanceof Error ? e.message : String(e) };
+        }
+    }
+    return last;
+}
 /**
  * Blogger 설정 페이지에서 13개 항목을 자동 최적화한다.
  * - 설명 입력, 글 표시 개수(6), 이미지 라이트박스, 지연 로드, WebP
@@ -15,36 +82,14 @@ async function optimizeSettings(state, page, blogId, config) {
     state.stepStatus = 'running';
     state.message = '설정 페이지로 이동 중...';
     try {
-        if (blogId) {
-            await page.goto(`https://www.blogger.com/blog/settings/${blogId}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        const ready = await openAndVerifySettingsPage(state, page, blogId);
+        if (!ready.ok) {
+            state.stepStatus = 'error';
+            state.message = `설정 페이지가 완전히 로드되지 않았습니다. 현재 URL: ${ready.url || page.url()} / 확인 근거: ${ready.evidence.join(', ') || '없음'}. Chrome 창을 닫지 말고 Blogger 설정 화면이 보이는지 확인한 뒤 다시 시도해주세요.`;
+            state.error = state.message;
+            return;
         }
-        else {
-            try {
-                const settingsLink = await page.locator(selectors_1.BLOGGER_SELECTORS.settingsLink).first();
-                if (await settingsLink.isVisible({ timeout: 5000 })) {
-                    await settingsLink.click();
-                }
-            }
-            catch { /* 설정 링크를 찾지 못함 */ }
-        }
-        await (0, browser_1.sleep)(3000);
-        let settingsPageEvidence = '설정 페이지 확인 필요';
-        try {
-            const evidence = await page.evaluate(() => {
-                const text = (document.body?.innerText || '').replace(/\s+/g, ' ');
-                return [
-                    /HTTPS/i.test(text) ? 'HTTPS 항목' : '',
-                    /검색 엔진|Search engine|Visible to search engines/i.test(text) ? '검색엔진 노출 항목' : '',
-                    /메타태그|Meta tags/i.test(text) ? '메타태그 항목' : '',
-                    /댓글|Comments/i.test(text) ? '댓글 설정 항목' : '',
-                    /시간대|Time zone/i.test(text) ? '시간대 항목' : '',
-                ].filter(Boolean);
-            });
-            if (evidence.length) {
-                settingsPageEvidence = `설정 화면 근거: ${evidence.join(', ')} 확인`;
-            }
-        }
-        catch { /* 근거 수집 실패는 자동 설정 자체를 막지 않음 */ }
+        const settingsPageEvidence = `설정 화면 근거: ${ready.evidence.join(', ')} 확인`;
         // 설명(Description) 입력
         if (config.blogDescription) {
             state.message = '블로그 설명 설정 중...';
@@ -217,7 +262,10 @@ async function optimizeSettings(state, page, blogId, config) {
     }
     catch (e) {
         console.error('[ONECLICK-BLOGSPOT] 설정 최적화 오류:', e);
-        state.message = '설정 최적화 일부 완료 (수동 확인 권장)';
+        state.stepStatus = 'error';
+        state.message = `설정 최적화 실패 — ${e instanceof Error ? e.message : String(e)}`;
+        state.error = state.message;
+        return;
     }
     state.stepStatus = 'done';
     await (0, browser_1.sleep)(1000);
