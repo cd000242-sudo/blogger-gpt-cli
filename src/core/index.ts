@@ -95,6 +95,9 @@ type PublishGeneratedContentResult = {
   id?: string;
   error?: string;
   needsAuth?: boolean;
+  blockedReason?: string;
+  recoverable?: boolean;
+  skipped?: boolean;
   duplicateBlocked?: boolean;
   duplicateOf?: string;
 };
@@ -1842,14 +1845,18 @@ export async function publishGeneratedContent(
 
           console.log('[PUBLISH] 티스토리 발행 결과:', result);
 
-          return {
+          const tistoryResult: PublishGeneratedContentResult = {
             ok: !!result.ok,
             url: result.url,
             postId: result.postId,
             id: result.postId,
             error: result.error,
-            needsAuth: result.needsAuth
+            needsAuth: !!result.needsAuth,
           };
+          if (result.blockedReason) tistoryResult.blockedReason = result.blockedReason;
+          if (result.recoverable !== undefined) tistoryResult.recoverable = !!result.recoverable;
+          if (result.skipped !== undefined) tistoryResult.skipped = !!result.skipped;
+          return tistoryResult;
         } catch (tistoryError: any) {
           console.error('[PUBLISH] 티스토리 발행 오류:', tistoryError);
           return { ok: false, error: tistoryError.message || '티스토리 발행 실패' };

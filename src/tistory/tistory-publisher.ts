@@ -26,9 +26,66 @@ import {
 
 const SHORT_TIMEOUT_MS = 3500;
 const THUMBNAIL_UPLOAD_TIMEOUT_MS = 35000;
+const BLOCKING_NOTICE_DISMISS_TIMEOUT_MS = 1200;
 
 function log(onLog: ((message: string) => void) | undefined, message: string): void {
   onLog?.(`[TISTORY] ${message}`);
+}
+
+type TistoryBlockingState = {
+  code: 'captcha_required' | 'publish_blocked' | 'auth_required';
+  message: string;
+  details: string;
+  needsAuth?: boolean;
+};
+
+type TistoryDialogMonitor = {
+  messages: string[];
+  dispose: () => void;
+};
+
+const TISTORY_BLOCKING_RULES: Array<{
+  code: TistoryBlockingState['code'];
+  message: string;
+  pattern: RegExp;
+  needsAuth?: boolean;
+}> = [
+  {
+    code: 'captcha_required',
+    message: '티스토리 자동입력 방지/캡차 화면이 감지되었습니다. 캡차는 자동 우회하지 않고 현재 글을 실패 처리한 뒤 다음 글로 진행합니다.',
+    pattern: /(captcha|recaptcha|자동\s*입력\s*방지|보안\s*문자|보안문자|로봇이\s*아닙니다|그림\s*문자|문자\s*입력|스팸\s*방지|봇이\s*아닙니다)/i,
+  },
+  {
+    code: 'publish_blocked',
+    message: '티스토리 발행 제한/차단 안내가 감지되었습니다. 현재 글을 실패 처리하고 큐를 다음 글로 넘깁니다.',
+    pattern: /((글쓰기|발행|게시).{0,24}(제한|차단|실패|할\s*수\s*없|불가)|비정상.{0,24}(접근|활동)|보호\s*조치|스팸.{0,24}(의심|차단)|잠시\s*후\s*다시|이용이\s*제한|서비스\s*이용이\s*제한|정책.{0,24}위반)/i,
+  },
+  {
+    code: 'auth_required',
+    message: '티스토리 로그인/권한 확인이 필요합니다. 현재 글을 실패 처리하고 다음 글로 진행합니다.',
+    pattern: /(로그인\s*세션이\s*만료|다시\s*로그인|로그인이\s*필요|인증이\s*필요|권한이\s*없습니다|permission\s*denied|login\s*required)/i,
+    needsAuth: true,
+  },
+];
+
+function createTistoryBlockedError(state: TistoryBlockingState, phase = ''): Error & {
+  code?: string;
+  tistoryBlocked?: boolean;
+  needsAuth?: boolean;
+  recoverable?: boolean;
+} {
+  const prefix = phase ? `[${phase}] ` : '';
+  const error = new Error(`${prefix}${state.message}${state.details ? `\n감지 내용: ${state.details}` : ''}`) as Error & {
+    code?: string;
+    tistoryBlocked?: boolean;
+    needsAuth?: boolean;
+    recoverable?: boolean;
+  };
+  error.code = state.code;
+  error.tistoryBlocked = true;
+  error.needsAuth = !!state.needsAuth;
+  error.recoverable = true;
+  return error;
 }
 
 function pad2(value: number): string {
@@ -260,6 +317,119 @@ async function clickFirst(page: any, selectors: string[], timeoutMs = SHORT_TIME
   } catch {
     return false;
   }
+}
+
+function attachTistoryDialogMonitor(page: any, onLog?: (message: string) => void): TistoryDialogMonitor {
+  const messages: string[] = [];
+  const handler = async (dialog: any) => {
+    const message = String(typeof dialog?.message === 'function' ? dialog.message() : '').trim();
+    if (message) {
+      messages.push(message);
+      while (messages.length > 20) messages.shift();
+      log(onLog, `Browser dialog detected and accepted: ${message.slice(0, 160)}`);
+    }
+    await dialog.accept().catch(() => null);
+  };
+
+  try {
+    if (typeof page?.on === 'function') page.on('dialog', handler);
+  } catch {
+    // Dialog monitoring is best effort.
+  }
+
+  return {
+    messages,
+    dispose: () => {
+      try {
+        if (typeof page?.off === 'function') page.off('dialog', handler);
+        else if (typeof page?.removeListener === 'function') page.removeListener('dialog', handler);
+      } catch {
+        // Ignore stale page cleanup errors.
+      }
+    },
+  };
+}
+
+async function readTistoryPageText(page: any, timeoutMs = 1500): Promise<string> {
+  try {
+    const text = await page.locator('body').innerText({ timeout: timeoutMs });
+    return String(text || '').replace(/\s+/g, ' ').trim();
+  } catch {
+    return '';
+  }
+}
+
+async function detectTistoryBlockingState(page: any, dialogMessages: string[] = []): Promise<TistoryBlockingState | null> {
+  const url = String(typeof page?.url === 'function' ? page.url() : '');
+  const bodyText = await readTistoryPageText(page);
+  const combined = `${dialogMessages.join('\n')}\n${url}\n${bodyText}`.slice(0, 12000);
+
+  for (const rule of TISTORY_BLOCKING_RULES) {
+    const match = combined.match(rule.pattern);
+    if (!match) continue;
+    const details = String(match[0] || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+    const state: TistoryBlockingState = {
+      code: rule.code,
+      message: rule.message,
+      details,
+    };
+    if (rule.needsAuth !== undefined) state.needsAuth = rule.needsAuth;
+    return state;
+  }
+
+  return null;
+}
+
+async function dismissTistoryBlockingNotice(page: any, onLog?: (message: string) => void): Promise<boolean> {
+  const clicked = await page.evaluate(() => {
+    const visible = (element: Element | null): element is HTMLElement => {
+      if (!element) return false;
+      const htmlElement = element as HTMLElement;
+      const rect = htmlElement.getBoundingClientRect();
+      const style = window.getComputedStyle(htmlElement);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    };
+    const textOf = (element: Element | null): string => {
+      if (!element) return '';
+      const htmlElement = element as HTMLElement;
+      return [
+        htmlElement.innerText || htmlElement.textContent || '',
+        htmlElement.getAttribute('aria-label') || '',
+        htmlElement.getAttribute('title') || '',
+        htmlElement.id || '',
+        String(htmlElement.className || ''),
+      ].join(' ').replace(/\s+/g, ' ').trim();
+    };
+    const buttons = Array.from(document.querySelectorAll('button,a,[role="button"],.btn,.button')) as HTMLElement[];
+    for (const button of buttons) {
+      if (!visible(button)) continue;
+      const text = textOf(button);
+      if (!/(확인|닫기|취소|나중에|close|ok|cancel)/i.test(text)) continue;
+      button.click();
+      return text.slice(0, 80) || 'dismissed';
+    }
+    return '';
+  }).catch(() => '');
+
+  if (clicked) {
+    log(onLog, `Closed blocking notice: ${clicked}`);
+    await page.waitForTimeout(BLOCKING_NOTICE_DISMISS_TIMEOUT_MS).catch(() => null);
+    return true;
+  }
+  return false;
+}
+
+async function throwIfTistoryBlocked(
+  page: any,
+  onLog?: (message: string) => void,
+  dialogMessages: string[] = [],
+  phase = '',
+): Promise<void> {
+  const state = await detectTistoryBlockingState(page, dialogMessages);
+  if (!state) return;
+  log(onLog, `${phase ? `${phase}: ` : ''}${state.message}`);
+  await dismissTistoryBlockingNotice(page, onLog).catch(() => false);
+  throw createTistoryBlockedError(state, phase);
 }
 
 async function fillFirst(page: any, selectors: string[], value: string, timeoutMs = SHORT_TIMEOUT_MS): Promise<boolean> {
@@ -500,6 +670,7 @@ async function waitForEditorReady(
     if (await hasTitleInput(page)) return true;
 
     const currentUrl = String(typeof page.url === 'function' ? page.url() : '');
+    await throwIfTistoryBlocked(page, onLog, [], 'editor_wait');
     const loginPage = await isTistoryLoginPage(page);
     if (isPublicBlogPage(currentUrl, config.blogName)) {
       publicBlogRedirects += 1;
@@ -1405,10 +1576,12 @@ export async function publishToTistory(
   let context: any | null = null;
   let pageToHide: any | null = null;
   let shouldHideAfterUse = false;
+  let dialogMonitor: TistoryDialogMonitor | null = null;
   try {
     const launched = await launchTistoryContext(config, onLog);
     context = launched.context;
     const page = launched.page;
+    dialogMonitor = attachTistoryDialogMonitor(page, onLog);
     pageToHide = page;
     const loginWaitMs = Number(payload['tistoryLoginWaitMs'] || payload['loginWaitMs'] || 180000);
     await openConfiguredTistoryEditor(
@@ -1443,9 +1616,11 @@ export async function publishToTistory(
     }
 
     await dismissIntroModals(page, onLog);
+    await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'editor_ready');
 
     const titleFilled = await fillFirst(page, TISTORY_SELECTORS.editor.titleInputs, title, 7000);
     if (!titleFilled) throw new Error('Tistory title input was not found.');
+    await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'title_fill');
 
     const uploadedThumbnailBlock = await uploadThumbnailThroughTistoryEditor(
       page,
@@ -1453,19 +1628,23 @@ export async function publishToTistory(
       title,
       onLog,
     );
+    await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'thumbnail_upload');
 
     await switchToHtmlMode(page, onLog);
     const finalHtml = buildTistoryFinalHtml(html, thumbnailUrl, uploadedThumbnailBlock, title);
     const htmlFilled = await fillHtmlEditor(page, finalHtml);
     if (!htmlFilled) throw new Error('Tistory body editor was not found.');
+    await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'body_fill');
 
     await selectCategory(page, config.defaultCategory, onLog);
     const addedTags = await fillTags(page, tags, onLog);
     if (tags.length > 0 && addedTags === 0) {
       throw new Error('Tistory tag input was not found or tags could not be added.');
     }
+    await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'before_publish');
 
     const publishResult = await finishPublish(page, config, postingMode, scheduleDate, onLog);
+    await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'after_publish');
     if (!publishResult.url && postingMode !== 'draft') {
       log(onLog, 'Publish completed but final URL was not detected. Returning editor URL as fallback.');
     }
@@ -1480,12 +1659,21 @@ export async function publishToTistory(
   } catch (error: any) {
     const reason = error?.message || String(error);
     log(onLog, `Publish failed: ${reason}`);
-    return {
+    if (error?.tistoryBlocked || error?.recoverable) {
+      shouldHideAfterUse = true;
+    }
+    const failureResult: TistoryPublishResult = {
       ok: false,
       error: `${reason}\n\n자동 입력이 막힌 경우 복구 모드로 제목/본문/태그를 복사해 티스토리 에디터에 붙여넣을 수 있습니다.`,
+      needsAuth: !!error?.needsAuth,
+      recoverable: !!error?.recoverable,
+      skipped: !!error?.tistoryBlocked,
       manualRecovery: makeRecovery(config, title, html, tags, reason),
     };
+    if (error?.code) failureResult.blockedReason = String(error.code);
+    return failureResult;
   } finally {
+    dialogMonitor?.dispose();
     if (shouldHideAfterUse && pageToHide && !config.keepBrowserOpen) {
       await hideTistoryBrowserWindow(pageToHide, onLog).catch(() => false);
     }

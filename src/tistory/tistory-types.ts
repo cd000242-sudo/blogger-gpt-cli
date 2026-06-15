@@ -68,6 +68,9 @@ export type TistoryPublishResult = {
   postId?: string;
   error?: string;
   needsAuth?: boolean;
+  blockedReason?: string;
+  recoverable?: boolean;
+  skipped?: boolean;
   manualRecovery?: TistoryManualRecovery;
 };
 

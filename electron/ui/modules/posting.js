@@ -240,6 +240,7 @@ export async function runPosting() {
     return finalResult;
   };
   setFinalResult();
+  const isQueueRun = !!(window.__queueRunning || window.__queueProgressActive);
 
   // ── Guard: 중복 실행 방지 ──
   if (appState.isRunning) {
@@ -349,7 +350,6 @@ export async function runPosting() {
     appState.isRunning = true;
     appState.isCanceled = false;
     setRunning(true);
-    const isQueueRun = !!(window.__queueRunning || window.__queueProgressActive);
     if (!isQueueRun) showProgressModal();
 
     // ── Payload 생성 (통합 함수 사용) ──
@@ -633,9 +633,13 @@ export async function runPosting() {
         ? `${errorMessage}\n\n👉 환경설정 탭에서 해당 API 키를 확인해 주세요.`
         : errorMessage;
       try { getErrorHandler().showToast?.('❌ 발행 실패: ' + errorMessage.slice(0, 120), 'error'); } catch {}
-      setTimeout(() => {
-        try { alert('❌ 블로그 발행 실패\n\n' + friendlyMsg); } catch {}
-      }, 100);
+      if (isQueueRun) {
+        addLog('연속발행 큐 실패 처리: ' + friendlyMsg, 'error');
+      } else {
+        setTimeout(() => {
+          try { alert('❌ 블로그 발행 실패\n\n' + friendlyMsg); } catch {}
+        }, 100);
+      }
     }
 
   } catch (error) {
@@ -666,9 +670,13 @@ export async function runPosting() {
     hideProgressModal();
     // 🔥 예외 발생 시에도 사용자에게 명확히 알림
     try { getErrorHandler().showToast?.('❌ 발행 오류: ' + error.message.slice(0, 120), 'error'); } catch {}
-    setTimeout(() => {
-      try { alert('❌ 발행 중 오류 발생\n\n' + error.message); } catch {}
-    }, 100);
+    if (isQueueRun) {
+      addLog('연속발행 큐 오류 처리: ' + (error?.message || error), 'error');
+    } else {
+      setTimeout(() => {
+        try { alert('❌ 발행 중 오류 발생\n\n' + error.message); } catch {}
+      }, 100);
+    }
   } finally {
     // ── 상태 복구 (항상 실행) ──
     appState.isRunning = false;

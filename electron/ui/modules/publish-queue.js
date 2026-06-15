@@ -17,6 +17,9 @@ const STATE = {
 };
 
 const PUBLISH_QUEUE_STORAGE_KEY = 'publishQueueItems.v1';
+const PUBLISH_QUEUE_INTERVAL_STORAGE_KEY = 'publishQueueInterval.v1';
+const PUBLISH_QUEUE_MIN_MINUTES = 7;
+const PUBLISH_QUEUE_DEFAULT_INTERVAL = { mode: 'minutes', value: PUBLISH_QUEUE_MIN_MINUTES };
 
 function persistQueue() {
   try {
@@ -129,12 +132,108 @@ function getCurrentMode() {
   return btn?.dataset?.publishMode || 'single';
 }
 
+function normalizeIntervalMode(mode) {
+  const raw = String(mode || '').toLowerCase();
+  if (raw === 'hours' || raw === 'random') return raw;
+  return 'minutes';
+}
+
+function clampNumber(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+function clampIntervalValue(mode, value) {
+  const normalized = normalizeIntervalMode(mode);
+  if (normalized === 'hours') return clampNumber(value, 1, 72, 1);
+  if (normalized === 'random') return PUBLISH_QUEUE_DEFAULT_INTERVAL.value;
+  return clampNumber(value, PUBLISH_QUEUE_MIN_MINUTES, 1440, PUBLISH_QUEUE_MIN_MINUTES);
+}
+
+function fixedIntervalToMinutes(mode, value) {
+  const normalized = normalizeIntervalMode(mode);
+  const fixed = clampIntervalValue(normalized, value);
+  if (normalized === 'hours') return fixed * 60;
+  return fixed;
+}
+
+function readQueueIntervalSetting() {
+  try {
+    const raw = localStorage.getItem(PUBLISH_QUEUE_INTERVAL_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const mode = normalizeIntervalMode(parsed?.mode);
+      return { mode, value: clampIntervalValue(mode, parsed?.value) };
+    }
+  } catch (e) {
+    console.warn('[QUEUE] interval restore failed:', e);
+  }
+
+  const mainInput = document.getElementById('publishIntervalMinutes');
+  if (mainInput) {
+    const minutes = clampIntervalValue('minutes', mainInput.value);
+    return { mode: 'minutes', value: minutes };
+  }
+  return { ...PUBLISH_QUEUE_DEFAULT_INTERVAL };
+}
+
+function persistQueueInterval(mode, value, options = {}) {
+  const normalized = normalizeIntervalMode(mode);
+  const fixedValue = clampIntervalValue(normalized, value);
+  const next = { mode: normalized, value: fixedValue };
+  try {
+    localStorage.setItem(PUBLISH_QUEUE_INTERVAL_STORAGE_KEY, JSON.stringify(next));
+  } catch (e) {
+    console.warn('[QUEUE] interval persist failed:', e);
+  }
+
+  const mainInput = document.getElementById('publishIntervalMinutes');
+  if (mainInput && options.syncMain !== false && normalized !== 'random') {
+    mainInput.value = String(fixedIntervalToMinutes(normalized, fixedValue));
+  }
+  return next;
+}
+
+function bindMainIntervalControl() {
+  const input = document.getElementById('publishIntervalMinutes');
+  if (!input || input.dataset.publishQueueIntervalBound === '1') return;
+  input.dataset.publishQueueIntervalBound = '1';
+  input.min = String(PUBLISH_QUEUE_MIN_MINUTES);
+  input.step = '1';
+  input.max = input.max || '1440';
+
+  const restored = readQueueIntervalSetting();
+  if (restored.mode !== 'random') input.value = String(fixedIntervalToMinutes(restored.mode, restored.value));
+
+  const syncFromMain = () => {
+    const minutes = clampIntervalValue('minutes', input.value);
+    input.value = String(minutes);
+    persistQueueInterval('minutes', minutes, { syncMain: false });
+    if (STATE.isOpen) {
+      const modeEl = document.getElementById('pq-interval-mode');
+      const valueEl = document.getElementById('pq-interval-value');
+      if (modeEl) modeEl.value = 'minutes';
+      if (valueEl) valueEl.value = String(minutes);
+      syncIntervalControl({ persist: false });
+    }
+  };
+
+  input.addEventListener('input', syncFromMain);
+  input.addEventListener('change', syncFromMain);
+  input.addEventListener('blur', syncFromMain);
+}
+
 function syncBadge() {
   restoreQueue();
+  bindMainIntervalControl();
   const badge = document.getElementById('publishQueueBadge');
   const countEl = document.getElementById('publishQueueCount');
   const currentCountEl = document.getElementById('publishQueueCurrentCount');
   const savedCountEl = document.getElementById('publishQueueSavedCount');
+  const actionButtons = document.getElementById('publishQueueActionButtons');
+  const publishBtn = document.getElementById('publishBtn');
+  const settingsBtn = document.getElementById('postingSettingsToggleBtn');
   const singleHint = document.getElementById('singleModeHint');
   const bulkHint = document.getElementById('bulkModeHint');
   if (!badge) return;
@@ -152,11 +251,17 @@ function syncBadge() {
   if (mode === 'bulk') {
     // 연속 발행 서브탭 — 큐 패널 항상 표시
     badge.style.display = 'flex';
+    if (actionButtons) actionButtons.style.display = 'flex';
+    if (publishBtn) publishBtn.style.display = 'none';
+    if (settingsBtn) settingsBtn.style.display = 'none';
     if (singleHint) singleHint.style.display = 'none';
     if (bulkHint) bulkHint.style.display = 'inline-block';
   } else {
     // 단일 발행 서브탭 — 큐 패널 숨김
     badge.style.display = 'none';
+    if (actionButtons) actionButtons.style.display = 'none';
+    if (publishBtn) publishBtn.style.display = '';
+    if (settingsBtn) settingsBtn.style.display = '';
     if (singleHint) singleHint.style.display = 'block';
     if (bulkHint) bulkHint.style.display = 'none';
   }
@@ -233,6 +338,7 @@ const QUEUE_LABELS = {
     wordpress: 'WordPress',
     blogspot: 'Blogspot',
     blogger: 'Blogspot',
+    tistory: 'Tistory',
   },
   postingMode: {
     publish: '즉시 발행',
@@ -279,7 +385,7 @@ function normalizeH2ImageMode(value) {
 }
 
 const PQ_INTERVAL_FLOORS = {
-  general: 5 * 60 * 1000,
+  general: PUBLISH_QUEUE_MIN_MINUTES * 60 * 1000,
   slow: 7 * 60 * 1000,
   browser: 8 * 60 * 1000,
 };
@@ -314,8 +420,8 @@ function getQueueMinPublishIntervalMs(items) {
 function getQueueIntervalReason(items) {
   const minMs = getQueueMinPublishIntervalMs(items);
   if (minMs >= PQ_INTERVAL_FLOORS.browser) return '브라우저 이미지 엔진 감지: 최소 8분';
-  if (minMs >= PQ_INTERVAL_FLOORS.slow) return '느린 이미지 엔진 감지: 최소 7분';
-  return '일반 이미지 엔진 기준: 최소 5분';
+  if (minMs >= PQ_INTERVAL_FLOORS.slow) return '이미지 생성 엔진 기준: 최소 7분';
+  return '연속발행 최소 간격: 7분';
 }
 
 function getCurrentH2ImageSource() {
@@ -647,7 +753,8 @@ function buildModalHtml() {
       align-items: center;
     }
     .pq-bulk-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; min-width: 0; }
-    .pq-bulk-controls select { min-height: 34px; padding: 7px 10px; font-size: 12px; }
+    .pq-bulk-controls select,
+    .pq-bulk-controls input[type="number"] { min-height: 34px; padding: 7px 10px; font-size: 12px; }
     .pq-body {
       flex: 0 0 auto;
       min-height: 0;
@@ -712,7 +819,15 @@ function buildModalHtml() {
       font-size: 11px;
       font-weight: 800;
     }
-    .pq-field select { width: 100%; min-height: 34px; padding: 7px 9px; font-size: 12px; }
+    .pq-field select,
+    .pq-field input[type="number"],
+    .pq-field input[type="datetime-local"] {
+      width: 100%;
+      min-height: 34px;
+      padding: 7px 9px;
+      font-size: 12px;
+      box-sizing: border-box;
+    }
     .pq-cta-panel {
       margin-top: 12px;
       padding: 12px;
@@ -791,7 +906,7 @@ function buildModalHtml() {
     <div class="pq-head">
       <div>
         <h3 style="margin: 0; color: white; font-size: 22px; font-weight: 900;">연속발행 대기열</h3>
-        <p style="margin: 5px 0 0; color: #c4b5fd; font-size: 12px;">상세설정에서 고른 값이 항목별로 저장됩니다. 필요하면 이 화면에서만 개별 조정하세요.</p>
+        <p style="margin: 5px 0 0; color: #c4b5fd; font-size: 12px;">대기열에서 항목별 세부 설정을 조정하고 바로 발행할 수 있습니다.</p>
         <div class="pq-chipbar" id="pq-current-settings">${buildSnapshotChips(snapshot)}</div>
       </div>
       <button onclick="window.__publishQueue && window.__publishQueue.close()" class="pq-btn" style="background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.18);">닫기</button>
@@ -853,21 +968,63 @@ function buildModalHtml() {
           <option value="manual">✏️ 수동</option>
           <option value="none">없음</option>
         </select>
+        <select id="pq-bulk-platform">
+          <option value="">플랫폼 (변경 안 함)</option>
+          <option value="blogspot">Blogspot</option>
+          <option value="wordpress">WordPress</option>
+          <option value="tistory">Tistory</option>
+        </select>
+        <select id="pq-bulk-posting">
+          <option value="">발행 방식 (변경 안 함)</option>
+          <option value="publish">즉시 발행</option>
+          <option value="draft">임시 발행</option>
+          <option value="schedule">예약 발행</option>
+        </select>
+        <select id="pq-bulk-section">
+          <option value="">섹션 수 (변경 안 함)</option>
+          <option value="3">3개</option>
+          <option value="4">4개</option>
+          <option value="5">5개</option>
+          <option value="6">6개</option>
+          <option value="7">7개</option>
+          <option value="8">8개</option>
+        </select>
+        <select id="pq-bulk-title">
+          <option value="">제목 옵션 (변경 안 함)</option>
+          <option value="auto">AI 제목 생성</option>
+          <option value="keyword">키워드를 제목으로</option>
+          <option value="front">키워드 앞 배치</option>
+          <option value="keyword-front">키워드 제목 + 앞 배치</option>
+        </select>
+        <select id="pq-bulk-tone">
+          <option value="">톤 (변경 안 함)</option>
+          <option value="professional">전문적</option>
+          <option value="friendly">친근한</option>
+          <option value="casual">캐주얼</option>
+          <option value="formal">격식있는</option>
+          <option value="conversational">대화체</option>
+        </select>
+        <select id="pq-bulk-fact">
+          <option value="">팩트체크 (변경 안 함)</option>
+          <option value="auto">자동</option>
+          <option value="naver">네이버</option>
+          <option value="perplexity">Perplexity</option>
+          <option value="grounding">Gemini Grounding</option>
+          <option value="off">끄기</option>
+        </select>
         <button id="pq-bulk-apply" class="pq-btn" style="min-height: 34px; padding: 7px 13px; background: linear-gradient(135deg,#6366f1,#8b5cf6); font-size: 12px;">일괄 적용</button>
         <button id="pq-sync-current" class="pq-btn" style="min-height: 34px; padding: 7px 13px; background: rgba(14,165,233,0.16); border: 1px solid rgba(56,189,248,0.36); color: #bae6fd; font-size: 12px;" title="현재 상세설정 값을 모든 대기열 항목에 다시 반영">현재 상세설정 반영</button>
       </div>
       <div class="pq-bulk-controls" style="justify-content: flex-end;">
         <span style="color: #a5b4fc; font-size: 12px; font-weight: 900; white-space: nowrap;">발행 간격</span>
         <select id="pq-interval-mode">
-          <option value="seconds">초 단위 (즉시 발행용)</option>
-          <option value="minutes">분 단위</option>
-          <option value="hours" selected>시간 단위 (스케줄용)</option>
+          <option value="minutes" selected>분 단위</option>
+          <option value="hours">시간 단위 (스케줄용)</option>
           <option value="random">4-8h 무작위 분산 (adsense 3-5개/일)</option>
         </select>
         <div id="pq-interval-fixed" style="display: flex; align-items: center; gap: 8px;">
-          <input type="range" id="pq-interval-value" min="1" max="24" value="12" step="1" style="width: 180px; accent-color: #8b5cf6;" oninput="document.getElementById('pq-interval-label').textContent = this.value;">
-          <span id="pq-interval-label" style="color: white; font-weight: 700; font-size: 13px; min-width: 30px; text-align: right;">12</span>
-          <span id="pq-interval-unit" style="color: rgba(255,255,255,0.7); font-size: 12px; min-width: 30px;">시간</span>
+          <input type="number" id="pq-interval-value" min="7" max="1440" value="7" step="1" inputmode="numeric" style="width: 92px; min-height: 34px; padding: 7px 10px; background: rgba(15,23,42,0.72); color: white; border: 1px solid rgba(148,163,184,0.24); border-radius: 9px; font-size: 13px; font-weight: 900; text-align: center; outline: none;">
+          <span id="pq-interval-unit" style="color: rgba(255,255,255,0.7); font-size: 12px; min-width: 30px;">분</span>
         </div>
         <span id="pq-interval-guard-hint" style="color:#bfdbfe; font-size:11px; font-weight:800; white-space:nowrap;"></span>
       </div>
@@ -925,6 +1082,11 @@ function buildItemRow(item, idx) {
   </div>`
     : '';
   const disabledClass = item.enabled ? '' : ' off';
+  const platform = normalizeQueuePlatform(item.platform);
+  const postingMode = normalizePostingMode(item.postingMode);
+  const scheduleValue = toQueueScheduleInputValue(item.scheduleDate);
+  const sectionCount = normalizeSectionCount(item.sectionCount || 5);
+  const titleOption = getTitleOptionFromItem(item);
   return `
 <div data-pq-item-id="${item.id}" class="pq-card${disabledClass}">
   <div class="pq-card-top">
@@ -1000,6 +1162,59 @@ function buildItemRow(item, idx) {
         <option value="none" ${item.ctaMode === 'none' ? 'selected' : ''}>없음</option>
       </select>
     </div>
+    <div class="pq-field">
+      <label>플랫폼</label>
+      <select class="pq-item-platform">
+        <option value="blogspot" ${platform === 'blogspot' ? 'selected' : ''}>Blogspot</option>
+        <option value="wordpress" ${platform === 'wordpress' ? 'selected' : ''}>WordPress</option>
+        <option value="tistory" ${platform === 'tistory' ? 'selected' : ''}>Tistory</option>
+      </select>
+    </div>
+    <div class="pq-field">
+      <label>발행 방식</label>
+      <select class="pq-item-posting">
+        <option value="publish" ${postingMode === 'publish' ? 'selected' : ''}>즉시 발행</option>
+        <option value="draft" ${postingMode === 'draft' ? 'selected' : ''}>임시 발행</option>
+        <option value="schedule" ${postingMode === 'schedule' ? 'selected' : ''}>예약 발행</option>
+      </select>
+    </div>
+    <div class="pq-field">
+      <label>예약 시간</label>
+      <input type="datetime-local" class="pq-item-schedule" value="${escHtml(scheduleValue)}">
+    </div>
+    <div class="pq-field">
+      <label>섹션 수</label>
+      <input type="number" class="pq-item-section-count" min="3" max="12" step="1" value="${escHtml(sectionCount)}">
+    </div>
+    <div class="pq-field">
+      <label>제목 옵션</label>
+      <select class="pq-item-title-option">
+        <option value="auto" ${titleOption === 'auto' ? 'selected' : ''}>AI 제목 생성</option>
+        <option value="keyword" ${titleOption === 'keyword' ? 'selected' : ''}>키워드를 제목으로</option>
+        <option value="front" ${titleOption === 'front' ? 'selected' : ''}>키워드 앞 배치</option>
+        <option value="keyword-front" ${titleOption === 'keyword-front' ? 'selected' : ''}>키워드 제목 + 앞 배치</option>
+      </select>
+    </div>
+    <div class="pq-field">
+      <label>톤</label>
+      <select class="pq-item-tone">
+        <option value="professional" ${item.toneStyle === 'professional' ? 'selected' : ''}>전문적</option>
+        <option value="friendly" ${item.toneStyle === 'friendly' ? 'selected' : ''}>친근한</option>
+        <option value="casual" ${item.toneStyle === 'casual' ? 'selected' : ''}>캐주얼</option>
+        <option value="formal" ${item.toneStyle === 'formal' ? 'selected' : ''}>격식있는</option>
+        <option value="conversational" ${item.toneStyle === 'conversational' ? 'selected' : ''}>대화체</option>
+      </select>
+    </div>
+    <div class="pq-field">
+      <label>팩트체크</label>
+      <select class="pq-item-fact">
+        <option value="auto" ${(!item.factCheckMode || item.factCheckMode === 'auto') ? 'selected' : ''}>자동</option>
+        <option value="naver" ${item.factCheckMode === 'naver' ? 'selected' : ''}>네이버</option>
+        <option value="perplexity" ${item.factCheckMode === 'perplexity' ? 'selected' : ''}>Perplexity</option>
+        <option value="grounding" ${item.factCheckMode === 'grounding' ? 'selected' : ''}>Gemini Grounding</option>
+        <option value="off" ${item.factCheckMode === 'off' ? 'selected' : ''}>끄기</option>
+      </select>
+    </div>
   </div>
   ${manualCtaPanel}
   <div class="pq-card-meta">
@@ -1072,6 +1287,40 @@ function bindItemEvents() {
       saveItem();
       refreshList();
     });
+    row.querySelector('.pq-item-platform')?.addEventListener('change', e => {
+      item.platform = normalizeQueuePlatform(e.target.value);
+      saveItem();
+      refreshList();
+    });
+    row.querySelector('.pq-item-posting')?.addEventListener('change', e => {
+      item.postingMode = normalizePostingMode(e.target.value);
+      saveItem();
+      refreshList();
+    });
+    row.querySelector('.pq-item-schedule')?.addEventListener('change', e => {
+      item.scheduleDate = e.target.value || '';
+      saveItem();
+      refreshList();
+    });
+    row.querySelector('.pq-item-section-count')?.addEventListener('change', e => {
+      item.sectionCount = normalizeSectionCount(e.target.value);
+      saveItem();
+      refreshList();
+    });
+    row.querySelector('.pq-item-title-option')?.addEventListener('change', e => {
+      applyTitleOptionToItem(item, e.target.value);
+      saveItem();
+      refreshList();
+    });
+    row.querySelector('.pq-item-tone')?.addEventListener('change', e => {
+      item.toneStyle = e.target.value || 'professional';
+      saveItem();
+    });
+    row.querySelector('.pq-item-fact')?.addEventListener('change', e => {
+      item.factCheckMode = e.target.value || 'auto';
+      saveItem();
+      refreshList();
+    });
     const saveManualCta = () => {
       item.manualCta = normalizeManualCta({
         url: row.querySelector('.pq-item-cta-url')?.value || '',
@@ -1094,12 +1343,12 @@ function bindItemEvents() {
 
 /** 현재 UI 설정에서 사용자가 지정한 발행 간격(ms) 계산 — 'random' 모드면 4-8h 사이 무작위 */
 function getRawIntervalMs() {
-  const mode = document.getElementById('pq-interval-mode')?.value || 'hours';
-  const value = Number(document.getElementById('pq-interval-value')?.value || 12);
+  const stored = readQueueIntervalSetting();
+  const mode = document.getElementById('pq-interval-mode')?.value || stored.mode;
+  const value = document.getElementById('pq-interval-value')?.value || stored.value;
   if (mode === 'random') return (4 + Math.random() * 4) * 3600 * 1000;
-  if (mode === 'seconds') return Math.max(5, value) * 1000;        // 최소 5초 안전장치
-  if (mode === 'minutes') return Math.max(1, value) * 60 * 1000;
-  return Math.max(1, value) * 3600 * 1000;
+  if (mode === 'hours') return clampIntervalValue('hours', value) * 3600 * 1000;
+  return clampIntervalValue('minutes', value) * 60 * 1000;
 }
 
 /** 이미지 엔진별 최소 발행 간격을 반영한 실제 대기 시간 */
@@ -1146,6 +1395,33 @@ function toLocalDateTimeInputValue(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function toQueueScheduleInputValue(value) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return toLocalDateTimeInputValue(parsed);
+  return String(value).slice(0, 16);
+}
+
+function normalizeSectionCount(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 5;
+  return Math.max(3, Math.min(12, Math.round(n)));
+}
+
+function getTitleOptionFromItem(item) {
+  if (item?.useKeywordAsTitle && item?.keywordFront) return 'keyword-front';
+  if (item?.useKeywordAsTitle) return 'keyword';
+  if (item?.keywordFront) return 'front';
+  return 'auto';
+}
+
+function applyTitleOptionToItem(item, value) {
+  const option = String(value || 'auto');
+  item.titleMode = 'auto';
+  item.useKeywordAsTitle = option === 'keyword' || option === 'keyword-front';
+  item.keywordFront = option === 'front' || option === 'keyword-front';
+}
+
 function getScheduleBaseDate() {
   const value = document.getElementById('scheduleDateTime')?.value || '';
   const parsed = value ? new Date(value) : null;
@@ -1153,34 +1429,45 @@ function getScheduleBaseDate() {
   return new Date(Date.now() + 60 * 60 * 1000);
 }
 
-/** 간격 모드 변경 시 슬라이더 범위/단위 라벨 동기화 */
-function syncIntervalControl() {
-  const mode = document.getElementById('pq-interval-mode')?.value || 'hours';
-  const slider = document.getElementById('pq-interval-value');
+function hydrateIntervalControlsFromStorage() {
+  const setting = readQueueIntervalSetting();
+  const modeEl = document.getElementById('pq-interval-mode');
+  const valueEl = document.getElementById('pq-interval-value');
+  if (modeEl) modeEl.value = setting.mode;
+  if (valueEl) valueEl.value = String(setting.value);
+}
+
+/** 간격 모드 변경 시 숫자 입력 범위/단위 라벨 동기화 */
+function syncIntervalControl(options = {}) {
+  const mode = normalizeIntervalMode(document.getElementById('pq-interval-mode')?.value || 'minutes');
+  const valueInput = document.getElementById('pq-interval-value');
   const unit = document.getElementById('pq-interval-unit');
   const fixedWrap = document.getElementById('pq-interval-fixed');
-  if (!slider || !unit || !fixedWrap) return;
+  if (!valueInput || !unit || !fixedWrap) return;
 
   if (mode === 'random') {
     fixedWrap.style.display = 'none';
+    if (options.persist !== false) persistQueueInterval('random', PUBLISH_QUEUE_MIN_MINUTES);
+    updateIntervalGuardHint();
     return;
   }
   fixedWrap.style.display = 'flex';
 
-  if (mode === 'seconds') {
-    slider.min = '5'; slider.max = '300'; slider.step = '5';
-    if (Number(slider.value) > 300 || Number(slider.value) < 5) slider.value = '30';
-    unit.textContent = '초';
-  } else if (mode === 'minutes') {
-    slider.min = '1'; slider.max = '120'; slider.step = '1';
-    if (Number(slider.value) > 120) slider.value = '10';
+  if (mode === 'minutes') {
+    valueInput.min = String(PUBLISH_QUEUE_MIN_MINUTES);
+    valueInput.max = '1440';
+    valueInput.step = '1';
+    valueInput.value = String(clampIntervalValue('minutes', valueInput.value));
     unit.textContent = '분';
   } else {
-    slider.min = '1'; slider.max = '24'; slider.step = '1';
-    if (Number(slider.value) > 24) slider.value = '12';
+    valueInput.min = '1';
+    valueInput.max = '72';
+    valueInput.step = '1';
+    valueInput.value = String(clampIntervalValue('hours', valueInput.value));
     unit.textContent = '시간';
   }
-  document.getElementById('pq-interval-label').textContent = slider.value;
+
+  if (options.persist !== false) persistQueueInterval(mode, valueInput.value);
   updateIntervalGuardHint();
 }
 
@@ -1191,7 +1478,9 @@ function updateIntervalGuardHint(items) {
   const minMs = getQueueMinPublishIntervalMs(list);
   const rawMs = getRawIntervalMs();
   const corrected = rawMs < minMs;
-  hint.textContent = `${getQueueIntervalReason(list)}${corrected ? ` · 현재 설정은 ${formatIntervalMs(minMs)}로 자동 보정` : ''}`;
+  hint.textContent = corrected
+    ? `${getQueueIntervalReason(list)} · ${formatIntervalMs(minMs)} 이상만 설정 가능`
+    : `${getQueueIntervalReason(list)} · 현재 간격 안전`;
 }
 
 function getDefaultH2Sections() {
@@ -1623,8 +1912,10 @@ async function runOneQueueItem(item) {
 
 function bindModalEvents() {
   // 간격 컨트롤 동기화
-  document.getElementById('pq-interval-mode')?.addEventListener('change', syncIntervalControl);
-  document.getElementById('pq-interval-value')?.addEventListener('input', () => updateIntervalGuardHint());
+  hydrateIntervalControlsFromStorage();
+  document.getElementById('pq-interval-mode')?.addEventListener('change', () => syncIntervalControl());
+  document.getElementById('pq-interval-value')?.addEventListener('input', () => syncIntervalControl());
+  document.getElementById('pq-interval-value')?.addEventListener('change', () => syncIntervalControl());
   syncIntervalControl();
 
   // 일괄 적용
@@ -1634,6 +1925,12 @@ function bindModalEvents() {
     const h = document.getElementById('pq-bulk-h2')?.value;
     const hm = document.getElementById('pq-bulk-h2-mode')?.value;
     const c = document.getElementById('pq-bulk-cta')?.value;
+    const p = document.getElementById('pq-bulk-platform')?.value;
+    const pm = document.getElementById('pq-bulk-posting')?.value;
+    const sc = document.getElementById('pq-bulk-section')?.value;
+    const title = document.getElementById('pq-bulk-title')?.value;
+    const tone = document.getElementById('pq-bulk-tone')?.value;
+    const fact = document.getElementById('pq-bulk-fact')?.value;
     STATE.keywords.forEach(item => {
       if (m) item.mode = m;
       if (t) item.thumb = normalizeThumbEngine(t);
@@ -1641,6 +1938,12 @@ function bindModalEvents() {
       else if (h) item.h2ImageSource = normalizeThumbEngine(h);
       if (hm) item.h2ImageMode = normalizeH2ImageMode(hm);
       if (c) item.ctaMode = c;
+      if (p) item.platform = normalizeQueuePlatform(p);
+      if (pm) item.postingMode = normalizePostingMode(pm);
+      if (sc) item.sectionCount = normalizeSectionCount(sc);
+      if (title) applyTitleOptionToItem(item, title);
+      if (tone) item.toneStyle = tone;
+      if (fact) item.factCheckMode = fact;
       if (item.mode === 'adsense') item.ctaMode = 'none';
       if (item.ctaMode === 'manual') ensureItemManualCta(item);
       touchItemSnapshot(item);
@@ -2013,6 +2316,7 @@ function close() {
 }
 
 export function initPublishQueue() {
+  bindMainIntervalControl();
   // textarea 변경 감지 → 배지 표시/숨김 동기화
   const ta = document.getElementById('keywordInput');
   if (ta) {

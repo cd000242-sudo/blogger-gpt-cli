@@ -1166,12 +1166,55 @@ JSON만 출력 (설명/마크다운 금지):
     return result;
   };
 
+  const escapeJsonStringControlChars = (value: string): string => {
+    let output = '';
+    let inString = false;
+    let escaped = false;
+
+    for (let i = 0; i < value.length; i += 1) {
+      const ch = value[i] || '';
+      if (escaped) {
+        output += ch;
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        output += ch;
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        output += ch;
+        continue;
+      }
+      if (inString) {
+        if (ch === '\n' || ch === '\r') {
+          output += '\\n';
+          continue;
+        }
+        if (ch === '\t') {
+          output += '\\t';
+          continue;
+        }
+        const code = ch.charCodeAt(0);
+        if (code >= 0 && code < 0x20) {
+          output += `\\u${code.toString(16).padStart(4, '0')}`;
+          continue;
+        }
+      }
+      output += ch;
+    }
+
+    return output;
+  };
+
   // JSON.parse 실패 시 자동 복구 시도 (best-effort)
   const safeParseJson = (raw: string): any => {
     try { return JSON.parse(raw); } catch (e1) {
       // 1차: 흔한 escape 문제 — 문자열 내 unescaped newline → 공백
       try {
-        const fixed = raw.replace(/("(?:[^"\\]|\\.)*")|(\n)/g, (m, str, nl) => str || ' ');
+        const fixed = escapeJsonStringControlChars(raw).replace(/("(?:[^"\\]|\\.)*")|(\n)/g, (m, str) => str || ' ');
         return JSON.parse(fixed);
       } catch (e2) {
         // 2차: 마지막 valid 위치까지 자르고 닫는 } 강제 추가 시도

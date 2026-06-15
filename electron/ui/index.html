@@ -3746,12 +3746,8 @@
                             <div style="color: #ddd6fe; font-size: 14px; font-weight: 700;">
                               현재 입력 <span id="publishQueueCurrentCount">0</span>개 · 대기열 <span id="publishQueueSavedCount">0</span>개
                             </div>
-                            <div style="color: rgba(255,255,255,0.6); font-size: 11px; margin-top: 2px;">키워드 줄바꿈 입력 → "➕ 대기열에 추가" → 더 입력하고 반복</div>
+                            <div style="color: rgba(255,255,255,0.6); font-size: 11px; margin-top: 2px;">키워드 줄바꿈 입력 → 아래 "대기열 추가" → 대기열에서 최종 확인</div>
                           </div>
-                        </div>
-                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                          <button id="publishQueueAddBtn" type="button" onclick="window.__publishQueue && window.__publishQueue.addCurrent()" style="padding: 10px 16px; background: linear-gradient(135deg,#22c55e,#16a34a); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; box-shadow: 0 4px 12px rgba(34,197,94,0.3);">➕ 대기열에 추가</button>
-                          <button id="publishQueueOpenBtn" type="button" onclick="window.__publishQueue && window.__publishQueue.open()" style="padding: 10px 16px; background: linear-gradient(135deg,#8b5cf6,#7c3aed); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; box-shadow: 0 4px 12px rgba(139,92,246,0.3);">📋 대기열 보기 (<span id="publishQueueCount">0</span>)</button>
                         </div>
                       </div>
                     </div>
@@ -3807,10 +3803,10 @@
                   <div style="flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 14px 16px;">
                     <label style="font-size: 12px; color: rgba(255,255,255,0.6); font-weight: 600; display: block; margin-bottom: 6px;">⏱️ 연속 발행 간격 <span style="opacity: 0.5;">(여러 키워드 시)</span></label>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                      <input type="number" id="publishIntervalMinutes" value="3" min="0" max="60" step="1"
+                      <input type="number" id="publishIntervalMinutes" value="7" min="7" max="1440" step="1" inputmode="numeric"
                         style="width: 70px; padding: 8px 10px; background: rgba(15,23,42,0.8); color: white; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; font-size: 14px; font-weight: 600; text-align: center; outline: none;">
                       <span style="color: rgba(255,255,255,0.5); font-size: 13px;">분</span>
-                      <span style="color: rgba(255,255,255,0.35); font-size: 11px; margin-left: 4px;">0 = 즉시 연속</span>
+                      <span style="color: rgba(255,255,255,0.35); font-size: 11px; margin-left: 4px;">최소 7분</span>
                     </div>
                   </div>
                 </div>
@@ -3849,6 +3845,17 @@
                       <span style="font-size: 18px;">✨</span>
                     </span>
                   </button>
+
+                  <div id="publishQueueActionButtons" style="display: none; gap: 10px; align-items: stretch; flex-wrap: wrap;">
+                    <button id="publishQueueAddBtn" type="button" onclick="window.__publishQueue && window.__publishQueue.addCurrent()"
+                      style="min-width: 132px; padding: 14px 16px; background: linear-gradient(135deg,#22c55e,#16a34a); color: white; border: none; border-radius: 14px; font-size: 13px; font-weight: 900; cursor: pointer; white-space: nowrap; box-shadow: 0 8px 22px rgba(34,197,94,0.24);">
+                      ➕ 대기열 추가
+                    </button>
+                    <button id="publishQueueOpenBtn" type="button" onclick="window.__publishQueue && window.__publishQueue.open()"
+                      style="min-width: 190px; padding: 14px 16px; background: linear-gradient(135deg,#8b5cf6,#7c3aed); color: white; border: none; border-radius: 14px; font-size: 13px; font-weight: 900; cursor: pointer; white-space: nowrap; box-shadow: 0 8px 22px rgba(139,92,246,0.26);">
+                      📋 대기열 보기 및 발행하러가기 (<span id="publishQueueCount">0</span>)
+                    </button>
+                  </div>
 
                   <!-- 상세설정 토글 버튼 -->
                   <button onclick="togglePostingSettingsPanel()" id="postingSettingsToggleBtn"
