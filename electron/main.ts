@@ -6115,9 +6115,41 @@ function createAgentJobId(provider: AgentModeProvider, title?: string): string {
   return `${stamp}-${provider}-${sanitizeJobTitle(title)}-${suffix}`;
 }
 
+function normalizeAgentImagePolicy(value: unknown): 'all' | 'thumbnail-only' | 'odd-only' | 'even-only' | 'none' {
+  const raw = String(value || '').toLowerCase().trim();
+  if (raw === 'odd') return 'odd-only';
+  if (raw === 'even') return 'even-only';
+  if (raw === 'thumbnail-only' || raw === 'odd-only' || raw === 'even-only' || raw === 'none') return raw;
+  return 'all';
+}
+
+function describeAgentImagePolicy(policy: string): string {
+  const normalized = normalizeAgentImagePolicy(policy);
+  if (normalized === 'thumbnail-only') return '썸네일 1장만 생성하고 본문 H2 이미지는 만들지 않는다.';
+  if (normalized === 'odd-only') return '썸네일 1장과 홀수 번째 H2(1, 3, 5...) 이미지만 생성한다.';
+  if (normalized === 'even-only') return '썸네일 1장과 짝수 번째 H2(2, 4, 6...) 이미지만 생성한다.';
+  if (normalized === 'none') return '이미지를 생성하지 않고 글 HTML만 완성한다.';
+  return '썸네일 1장과 모든 H2 소제목 이미지를 생성한다.';
+}
+
+function getAgentReferenceLines(payload: any): string[] {
+  const urls = [
+    ...(Array.isArray(payload?.manualCrawlUrls) ? payload.manualCrawlUrls : []),
+    payload?.sourceUrl,
+    payload?.crawlUrl,
+    payload?.referenceUrl,
+  ]
+    .map((url) => String(url || '').trim())
+    .filter((url) => /^https?:\/\//i.test(url));
+  return Array.from(new Set(urls)).slice(0, 8);
+}
+
 function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfile): string {
   const payload = request.payload || {};
   const topic = request.title || payload.title || payload.topic || payload.keyword || payload.keywords?.[0]?.keyword || '';
+  const imagePolicy = normalizeAgentImagePolicy(payload.imagePolicy || payload.h2ImageMode || payload?.h2Images?.imagePolicy || payload?.h2Images?.mode);
+  const thumbnailTextIncluded = payload.thumbnailTextIncluded !== false && payload.thumbnailIncludeText !== false;
+  const referenceLines = getAgentReferenceLines(payload);
   return [
     '# LEADERNAM Orbit Max Agent 작업',
     '',
@@ -6128,9 +6160,33 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
     '## 핵심 목표',
     `- 주제: ${topic || '(비어 있음)'}`,
     `- 실행 엔진: ${profile.provider}`,
+    `- 이미지 생성 범위: ${describeAgentImagePolicy(imagePolicy)}`,
+    `- 썸네일 텍스트: ${thumbnailTextIncluded ? '포함 가능. 단, 짧은 한국어 제목형 문구만 사용한다.' : '미포함. 썸네일에도 글자를 넣지 않는다.'}`,
+    '- 소제목 이미지는 항상 텍스트 없이 만든다. 간판, 자막, 문구, 로고, 워터마크를 넣지 않는다.',
+    referenceLines.length ? `- 참고 URL: ${referenceLines.join(' / ')}` : '- 참고 URL: 없음',
     '- 독자가 초반 3문단 안에서 "내 이야기다"라고 느끼게 구성합니다.',
     '- 과장, 루머, 출처 불명 수치, 자동 생성 티가 나는 문장을 피합니다.',
     '- 정책/지원금/가격/일정 등 변동 가능한 정보는 확인 흐름과 주의 문구를 함께 넣습니다.',
+    '',
+    '## Agent 이미지 처리 규칙',
+    profile.provider === 'codex'
+      ? [
+          '- Codex 실행에서는 글 본문뿐 아니라 썸네일/본문 이미지를 함께 생성하거나 준비합니다.',
+          `- 이미지 범위는 반드시 "${describeAgentImagePolicy(imagePolicy)}" 규칙을 따릅니다.`,
+          thumbnailTextIncluded
+            ? '- 썸네일은 필요할 때 짧은 한국어 제목 텍스트를 포함할 수 있습니다.'
+            : '- 썸네일에도 텍스트를 넣지 않습니다.',
+          '- H2/소제목 이미지는 어떤 경우에도 텍스트를 넣지 않습니다.',
+          '- 이미지 생성 기능을 사용할 수 있으면 `result/images/thumbnail.png`와 H2용 이미지를 만들고, `result/article.html` 안에는 공개 가능한 URL 또는 `data:image/...;base64,` 형식으로 삽입합니다.',
+          '- 이미지 생성이 현재 실행 환경에서 불가능하면 조용히 건너뛰지 말고, 각 이미지 위치에 `<figure data-agent-image="pending">`와 완성형 프롬프트/alt를 넣어 앱이 후처리할 수 있게 합니다.',
+          '- 본문 HTML에는 선택한 범위에 맞는 대표 이미지/H2 이미지 자리 또는 실제 이미지만 포함합니다.',
+        ].join('\n')
+      : [
+          '- Claude Code는 자체 이미지 생성 모델이 없으므로 실제 이미지를 만들었다고 쓰지 않습니다.',
+          `- 이미지 설계 범위는 "${describeAgentImagePolicy(imagePolicy)}" 규칙을 따릅니다.`,
+          '- H2/소제목 이미지 프롬프트에는 텍스트 오버레이를 넣지 않습니다.',
+          '- 대신 썸네일/H2 이미지 프롬프트, alt, 삽입 위치를 `metadata.json`과 HTML figure placeholder로 정리합니다.',
+        ].join('\n'),
     '',
     '## 반드시 생성할 파일',
     '1. `result/article.html`',
@@ -6144,6 +6200,9 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
     '{',
     '  "title": "최종 제목",',
     '  "summary": "검수 요약",',
+    `  "imagePolicy": "${imagePolicy}",`,
+    `  "thumbnailTextIncluded": ${thumbnailTextIncluded ? 'true' : 'false'},`,
+    '  "h2TextIncluded": false,',
     '  "imagePrompts": ["썸네일 프롬프트", "본문 이미지 아이디어"],',
     '  "warnings": []',
     '}',
@@ -6192,7 +6251,11 @@ function buildAgentRunEnv(profile: AgentProfile): NodeJS.ProcessEnv {
 }
 
 function buildAgentRunCommand(profile: AgentProfile, jobDir: string, lastMessagePath: string): { command: string; args: string[] } {
-  const prompt = 'Read instructions.md and payload.json, then create result/article.html and result/metadata.json exactly as requested. Do not ask questions.';
+  const prompt = [
+    'Read instructions.md and payload.json, then create result/article.html and result/metadata.json exactly as requested.',
+    'If file writing is blocked, print the full article HTML between ARTICLE_HTML_BEGIN and ARTICLE_HTML_END.',
+    'Do not ask questions.',
+  ].join(' ');
 
   if (profile.provider === 'codex') {
     return {
@@ -6201,7 +6264,6 @@ function buildAgentRunCommand(profile: AgentProfile, jobDir: string, lastMessage
         'exec',
         '--json',
         '--sandbox', 'workspace-write',
-        '--ask-for-approval', 'never',
         '--skip-git-repo-check',
         '-o', lastMessagePath,
         prompt,
@@ -6272,8 +6334,9 @@ async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessag
     const { spawn } = require('child_process') as typeof import('child_process');
     const { command, args } = buildAgentRunCommand(profile, jobDir, lastMessagePath);
     const isWindows = process.platform === 'win32';
-    const spawnCommand = isWindows ? buildShellCommandLine(command, args) : command;
-    const spawnArgs = isWindows ? [] : args;
+    const useShell = isWindows && (!path.extname(command) || /\.(cmd|bat)$/i.test(command));
+    const spawnCommand = useShell ? buildShellCommandLine(command, args) : command;
+    const spawnArgs = useShell ? [] : args;
     let stdout = '';
     let stderr = '';
     let timedOut = false;
@@ -6281,7 +6344,8 @@ async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessag
     const child = spawn(spawnCommand, spawnArgs, {
       cwd: jobDir,
       env: buildAgentRunEnv(profile),
-      shell: isWindows,
+      shell: useShell,
+      stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
 
@@ -6316,16 +6380,142 @@ async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessag
   });
 }
 
+function readTextFileIfExists(filePath: string): string {
+  try {
+    return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
+  } catch {
+    return '';
+  }
+}
+
+function stripMarkdownFence(text: string): string {
+  const trimmed = String(text || '').trim();
+  const fence = trimmed.match(/^```(?:html)?\s*([\s\S]*?)\s*```$/i);
+  return fence ? fence[1].trim() : trimmed;
+}
+
+function extractHtmlFromAgentText(text: string): string {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+
+  const marker = raw.match(/ARTICLE_HTML_BEGIN\s*([\s\S]*?)\s*ARTICLE_HTML_END/i);
+  if (marker?.[1]) return stripMarkdownFence(marker[1]);
+
+  const article = raw.match(/<article\b[\s\S]*?<\/article>/i);
+  if (article?.[0]) return article[0].trim();
+
+  const fullDocument = raw.match(/(?:<!doctype html[^>]*>\s*)?<html\b[\s\S]*?<\/html>/i);
+  if (fullDocument?.[0]) return fullDocument[0].trim();
+
+  const fenced = raw.match(/```html\s*([\s\S]*?)\s*```/i) || raw.match(/```\s*([\s\S]*?)\s*```/i);
+  if (fenced?.[1]) {
+    const candidate = stripMarkdownFence(fenced[1]);
+    if (/<(?:article|h1|h2|p|section|div)\b/i.test(candidate)) return candidate;
+  }
+
+  if (/<(?:article|h1|h2|p|section|div)\b/i.test(raw)) return stripMarkdownFence(raw);
+  return '';
+}
+
+function extractAgentTextValue(value: any): string {
+  if (typeof value === 'string') return value;
+  if (!value) return '';
+  if (Array.isArray(value)) {
+    return value.map((item) => extractAgentTextValue(item)).filter(Boolean).join('\n');
+  }
+  if (typeof value !== 'object') return '';
+
+  const parts: string[] = [];
+  const add = (item: any) => {
+    const text = extractAgentTextValue(item).trim();
+    if (text && !parts.includes(text)) parts.push(text);
+  };
+
+  add(value.text);
+  add(value.output_text);
+  add(value.content);
+  add(value.message);
+  add(value.delta);
+  add(value.item);
+  add(value.response);
+  add(value.result);
+  return parts.join('\n');
+}
+
+function extractAgentFinalMessageFromJsonl(stdout: string): string {
+  const fragments: string[] = [];
+  for (const line of String(stdout || '').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) continue;
+    try {
+      const event = JSON.parse(trimmed);
+      const text = extractAgentTextValue(event).trim();
+      if (text && !fragments.includes(text)) fragments.push(text);
+    } catch {
+      // ignore non-JSON progress lines
+    }
+  }
+  return fragments.join('\n').trim();
+}
+
+function findAgentHtmlOutput(jobDir: string): string {
+  const candidates: string[] = [];
+  const push = (filePath: string) => {
+    if (!filePath.toLowerCase().endsWith('.html')) return;
+    if (!candidates.some((item) => item.toLowerCase() === filePath.toLowerCase())) candidates.push(filePath);
+  };
+
+  const walk = (dir: string, depth = 0) => {
+    if (depth > 3 || !fs.existsSync(dir)) return;
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const filePath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!['node_modules', '.git'].includes(entry.name)) walk(filePath, depth + 1);
+      } else {
+        push(filePath);
+      }
+    }
+  };
+
+  push(path.join(jobDir, 'result', 'article.html'));
+  walk(path.join(jobDir, 'result'));
+  walk(jobDir);
+
+  candidates.sort((a, b) => {
+    const score = (filePath: string) => {
+      const lower = filePath.toLowerCase();
+      if (lower.endsWith(`${path.sep}result${path.sep}article.html`)) return 0;
+      if (lower.includes(`${path.sep}result${path.sep}`)) return 1;
+      if (lower.endsWith(`${path.sep}article.html`)) return 2;
+      return 3;
+    };
+    return score(a) - score(b);
+  });
+
+  for (const filePath of candidates) {
+    const content = readTextFileIfExists(filePath);
+    if (extractHtmlFromAgentText(content)) return content;
+  }
+  return '';
+}
+
 function readAgentJobResult(jobDir: string, stdout: string, lastMessagePath: string): { content: string; title: string; metadata: any; finalMessage: string } {
   const articlePath = path.join(jobDir, 'result', 'article.html');
   const metadataPath = path.join(jobDir, 'result', 'metadata.json');
-  const finalMessage = fs.existsSync(lastMessagePath)
-    ? fs.readFileSync(lastMessagePath, 'utf-8')
-    : stdout;
+  const finalMessage = readTextFileIfExists(lastMessagePath)
+    || extractAgentFinalMessageFromJsonl(stdout)
+    || stdout;
 
-  const content = fs.existsSync(articlePath)
-    ? fs.readFileSync(articlePath, 'utf-8')
-    : finalMessage;
+  const content = readTextFileIfExists(articlePath)
+    || findAgentHtmlOutput(jobDir)
+    || extractHtmlFromAgentText(finalMessage)
+    || extractHtmlFromAgentText(stdout);
 
   let metadata: any = {};
   try {
@@ -6747,6 +6937,51 @@ function getCommandOutputSync(command: string, args: string[], timeout = 3000): 
   }
 }
 
+function getCodexNativeBinaryCandidate(prefix: string): string {
+  if (!prefix) return '';
+
+  const platformInfo = (() => {
+    if (process.platform === 'win32') {
+      return process.arch === 'arm64'
+        ? { packageName: 'codex-win32-arm64', triple: 'aarch64-pc-windows-msvc', executable: 'codex.exe' }
+        : { packageName: 'codex-win32-x64', triple: 'x86_64-pc-windows-msvc', executable: 'codex.exe' };
+    }
+    if (process.platform === 'darwin') {
+      return process.arch === 'arm64'
+        ? { packageName: 'codex-darwin-arm64', triple: 'aarch64-apple-darwin', executable: 'codex' }
+        : { packageName: 'codex-darwin-x64', triple: 'x86_64-apple-darwin', executable: 'codex' };
+    }
+    if (process.platform === 'linux') {
+      return process.arch === 'arm64'
+        ? { packageName: 'codex-linux-arm64', triple: 'aarch64-unknown-linux-musl', executable: 'codex' }
+        : { packageName: 'codex-linux-x64', triple: 'x86_64-unknown-linux-musl', executable: 'codex' };
+    }
+    return null;
+  })();
+
+  if (!platformInfo) return '';
+  return path.join(
+    prefix,
+    'node_modules',
+    '@openai',
+    'codex',
+    'node_modules',
+    '@openai',
+    platformInfo.packageName,
+    'vendor',
+    platformInfo.triple,
+    'bin',
+    platformInfo.executable
+  );
+}
+
+function isBlockedAgentBinaryCandidate(candidate: string, binaryName: string): boolean {
+  if (process.platform !== 'win32') return false;
+  if (binaryName !== 'codex') return false;
+  const normalized = candidate.replace(/\//g, '\\').toLowerCase();
+  return normalized.includes('\\windowsapps\\');
+}
+
 function getAgentBinaryCandidates(binaryName: string): string[] {
   const candidates: string[] = [];
   const npmPrefixes: string[] = [];
@@ -6760,6 +6995,7 @@ function getAgentBinaryCandidates(binaryName: string): string[] {
     pushUniquePath(npmPrefixes, getCommandOutputSync('npm', ['config', 'get', 'prefix']));
 
     for (const prefix of npmPrefixes) {
+      if (binaryName === 'codex') pushUniquePath(candidates, getCodexNativeBinaryCandidate(prefix));
       pushUniquePath(candidates, path.join(prefix, `${binaryName}.cmd`));
       pushUniquePath(candidates, path.join(prefix, binaryName));
       pushUniquePath(candidates, path.join(prefix, `${binaryName}.ps1`));
@@ -6768,6 +7004,7 @@ function getAgentBinaryCandidates(binaryName: string): string[] {
     pushUniquePath(npmPrefixes, process.env.npm_config_prefix);
     pushUniquePath(npmPrefixes, getCommandOutputSync('npm', ['config', 'get', 'prefix']));
     for (const prefix of npmPrefixes) {
+      if (binaryName === 'codex') pushUniquePath(candidates, getCodexNativeBinaryCandidate(prefix));
       pushUniquePath(candidates, path.join(prefix, 'bin', binaryName));
     }
   }
@@ -6780,7 +7017,7 @@ function getAgentBinaryCandidates(binaryName: string): string[] {
 
   return candidates.filter((candidate) => {
     try {
-      return fs.existsSync(candidate);
+      return fs.existsSync(candidate) && !isBlockedAgentBinaryCandidate(candidate, binaryName);
     } catch {
       return false;
     }

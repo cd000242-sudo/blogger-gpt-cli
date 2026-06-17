@@ -6,6 +6,175 @@ import { addTodayWorkRecord } from './calendar.js';
 import { getAllKeywords, getH2ImageSections } from './utils.js';
 import { showQualityReportModal, accumulateQualityReport } from './quality-report-modal.js';
 
+const AGENT_PROGRESS_STAGES = [
+  { id: 'prepare', label: '작업 준비', range: [0, 20] },
+  { id: 'article', label: '글 생성', range: [21, 55] },
+  { id: 'image', label: '이미지 생성', range: [56, 84] },
+  { id: 'publish', label: '발행', range: [85, 100] },
+];
+
+function getAgentProgressStage(percent, explicitStage = '') {
+  if (explicitStage && AGENT_PROGRESS_STAGES.some((stage) => stage.id === explicitStage)) {
+    return explicitStage;
+  }
+  const value = Math.max(0, Math.min(100, Number(percent) || 0));
+  return AGENT_PROGRESS_STAGES.find((stage) => value >= stage.range[0] && value <= stage.range[1])?.id || 'prepare';
+}
+
+function restoreKeywordInputInteractivity() {
+  try {
+    const keywordInput = document.getElementById('keywordInput') || DOMCache.get('keywordInput');
+    if (keywordInput) {
+      keywordInput.disabled = false;
+      keywordInput.readOnly = false;
+      keywordInput.removeAttribute('disabled');
+      keywordInput.removeAttribute('readonly');
+      keywordInput.style.pointerEvents = '';
+      keywordInput.style.userSelect = '';
+      keywordInput.style.opacity = '';
+      keywordInput.style.filter = '';
+    }
+
+    const keywordInputBlock = document.getElementById('keywordInputBlock');
+    if (keywordInputBlock) {
+      keywordInputBlock.style.pointerEvents = '';
+      keywordInputBlock.style.userSelect = '';
+      keywordInputBlock.style.opacity = '';
+      keywordInputBlock.style.filter = '';
+    }
+  } catch (error) {
+    console.warn('[POSTING] keyword input restore failed:', error?.message || error);
+  }
+}
+
+function ensureAgentProgressModal(provider = 'codex') {
+  const overlay = document.getElementById('premiumProgressBar');
+  if (!overlay) return;
+
+  const providerLabel = provider === 'claude' ? 'Claude Code' : 'Codex';
+  overlay.classList.add('agent-progress-mode');
+  overlay.innerHTML = `
+    <div id="agentProgressPanel" style="width:min(920px, calc(100vw - 48px)); max-height:calc(100vh - 48px); overflow:auto; background:linear-gradient(135deg,#0f172a 0%,#172033 100%); border:1px solid rgba(125,211,252,.28); border-radius:22px; box-shadow:0 30px 90px rgba(0,0,0,.48); padding:28px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:22px;">
+        <div>
+          <div style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.24);color:#a5f3fc;font-size:12px;font-weight:800;">${providerLabel} Agent Mode</div>
+          <h2 style="margin:14px 0 6px;color:#f8fafc;font-size:28px;line-height:1.2;">글 생성부터 이미지 생성, 발행까지 진행 중</h2>
+          <p id="agentProgressStatus" style="margin:0;color:#cbd5e1;font-size:14px;line-height:1.6;">Agent 작업을 준비하고 있습니다.</p>
+        </div>
+        <div id="agentProgressPercent" style="min-width:84px;text-align:right;color:#67e8f9;font-size:34px;font-weight:900;line-height:1;">0%</div>
+      </div>
+
+      <div style="height:12px;background:rgba(15,23,42,.95);border:1px solid rgba(148,163,184,.18);border-radius:999px;overflow:hidden;margin-bottom:18px;">
+        <div id="agentProgressFill" style="height:100%;width:0%;background:linear-gradient(90deg,#22d3ee,#a78bfa,#34d399);border-radius:999px;transition:width .45s ease;"></div>
+      </div>
+
+      <div id="agentProgressStages" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:18px;">
+        ${AGENT_PROGRESS_STAGES.map((stage) => `
+          <div data-agent-stage="${stage.id}" style="padding:13px 12px;border-radius:12px;border:1px solid rgba(148,163,184,.18);background:rgba(15,23,42,.62);color:#94a3b8;font-size:13px;font-weight:800;text-align:center;transition:all .25s ease;">${stage.label}</div>
+        `).join('')}
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:14px;">
+        <div style="background:rgba(2,6,23,.55);border:1px solid rgba(148,163,184,.16);border-radius:14px;padding:15px;">
+          <div style="color:#e2e8f0;font-size:13px;font-weight:900;margin-bottom:10px;">실시간 작업 로그</div>
+          <div id="agentProgressInlineLog" style="height:190px;overflow:auto;font-family:Consolas,Monaco,monospace;font-size:12px;line-height:1.7;color:#cbd5e1;"></div>
+        </div>
+        <div style="background:rgba(8,47,73,.25);border:1px solid rgba(56,189,248,.18);border-radius:14px;padding:15px;color:#cbd5e1;font-size:12px;line-height:1.7;">
+          <strong style="display:block;color:#f8fafc;font-size:13px;margin-bottom:8px;">Codex 모드 동작</strong>
+          <span>Codex는 글 본문과 이미지 작업까지 한 번에 처리한 뒤, 완성된 HTML을 기존 발행 흐름으로 넘깁니다.</span>
+        </div>
+      </div>
+
+      <div id="agentGeneratedImagePreviewWrap" style="display:none;margin-top:14px;background:rgba(2,6,23,.52);border:1px solid rgba(52,211,153,.2);border-radius:14px;padding:15px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
+          <strong style="color:#f8fafc;font-size:13px;">생성 이미지 미리보기</strong>
+          <span id="agentGeneratedImageCount" style="color:#86efac;font-size:12px;font-weight:800;">0장</span>
+        </div>
+        <div id="agentGeneratedImageGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;"></div>
+      </div>
+    </div>
+  `;
+
+  window.__agentProgressActive = true;
+  window.updateAgentProgressUI = updateAgentProgressModal;
+  window.appendAgentGeneratedImageUI = appendAgentGeneratedImagePreview;
+  updateAgentProgressModal(4, `${providerLabel} 전용 작업 모달을 열었습니다.`, 'info', 'prepare');
+}
+
+function appendAgentGeneratedImagePreview(image = {}) {
+  try {
+    const url = String(image.url || image.imageUrl || image.thumbnailUrl || '').trim();
+    if (!url) return;
+    const wrap = document.getElementById('agentGeneratedImagePreviewWrap');
+    const grid = document.getElementById('agentGeneratedImageGrid');
+    const countEl = document.getElementById('agentGeneratedImageCount');
+    if (!wrap || !grid) return;
+
+    wrap.style.display = 'block';
+    const item = document.createElement('a');
+    item.href = url;
+    item.target = '_blank';
+    item.rel = 'noopener noreferrer';
+    item.style.cssText = 'display:block;text-decoration:none;background:rgba(15,23,42,.8);border:1px solid rgba(148,163,184,.16);border-radius:12px;overflow:hidden;color:#e2e8f0;';
+
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = String(image.label || 'Agent generated image');
+    img.loading = 'lazy';
+    img.style.cssText = 'display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#0f172a;';
+
+    const label = document.createElement('div');
+    label.textContent = String(image.label || '이미지');
+    label.style.cssText = 'padding:8px 9px;font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+
+    item.appendChild(img);
+    item.appendChild(label);
+    grid.appendChild(item);
+
+    if (countEl) countEl.textContent = `${grid.children.length}장`;
+  } catch (error) {
+    console.warn('[AGENT-PROGRESS] image preview append failed:', error);
+  }
+}
+
+function updateAgentProgressModal(percent, message = '', type = 'info', explicitStage = '') {
+  const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+  const activeStage = getAgentProgressStage(safePercent, explicitStage);
+  try {
+    const fill = document.getElementById('agentProgressFill');
+    const percentEl = document.getElementById('agentProgressPercent');
+    const statusEl = document.getElementById('agentProgressStatus');
+    if (fill) fill.style.width = `${safePercent}%`;
+    if (percentEl) percentEl.textContent = `${Math.round(safePercent)}%`;
+    if (statusEl && message) statusEl.textContent = message;
+    document.querySelectorAll('[data-agent-stage]').forEach((card) => {
+      const id = card.getAttribute('data-agent-stage');
+      const stageIndex = AGENT_PROGRESS_STAGES.findIndex((stage) => stage.id === id);
+      const activeIndex = AGENT_PROGRESS_STAGES.findIndex((stage) => stage.id === activeStage);
+      card.style.background = stageIndex < activeIndex
+        ? 'linear-gradient(135deg, rgba(16,185,129,.95), rgba(5,150,105,.95))'
+        : stageIndex === activeIndex
+          ? 'linear-gradient(135deg, rgba(14,165,233,.95), rgba(124,58,237,.95))'
+          : 'rgba(15,23,42,.62)';
+      card.style.color = stageIndex <= activeIndex ? '#fff' : '#94a3b8';
+      card.style.borderColor = stageIndex <= activeIndex ? 'rgba(255,255,255,.22)' : 'rgba(148,163,184,.18)';
+      card.style.boxShadow = stageIndex === activeIndex ? '0 10px 28px rgba(14,165,233,.24)' : 'none';
+    });
+
+    const logEl = document.getElementById('agentProgressInlineLog');
+    if (logEl && message) {
+      const color = type === 'error' ? '#fecaca' : type === 'success' ? '#bbf7d0' : '#cbd5e1';
+      const row = document.createElement('div');
+      row.style.color = color;
+      row.textContent = `[${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}] ${message}`;
+      logEl.appendChild(row);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  } catch (error) {
+    console.warn('[AGENT-PROGRESS] update failed:', error);
+  }
+}
+
 // 🔥 완전자동 이미지 소스 설정 모달
 export function showAutoImageSourceModal() {
   return new Promise((resolve) => {
@@ -240,6 +409,7 @@ export async function runPosting() {
     return finalResult;
   };
   setFinalResult();
+  restoreKeywordInputInteractivity();
   const isQueueRun = !!(window.__queueRunning || window.__queueProgressActive);
 
   // ── Guard: 중복 실행 방지 ──
@@ -357,7 +527,15 @@ export async function runPosting() {
     appState.isRunning = true;
     appState.isCanceled = false;
     setRunning(true);
-    if (!isQueueRun) showProgressModal();
+    if (!isQueueRun) {
+      showProgressModal();
+      if (shouldUseAgentGeneration) {
+        let activeAgentProvider = 'codex';
+        try { activeAgentProvider = localStorage.getItem('leadernamActiveAgentProvider') === 'claude' ? 'claude' : 'codex'; } catch {}
+        ensureAgentProgressModal(activeAgentProvider);
+        updateAgentProgressModal(8, 'Agent 모드: 글 생성, 이미지 생성, 발행 작업을 준비합니다.', 'info', 'prepare');
+      }
+    }
 
     // ── Payload 생성 (통합 함수 사용) ──
     const queueOverrides = (window.__publishQueuePayloadOverrides && typeof window.__publishQueuePayloadOverrides === 'object')
@@ -398,6 +576,8 @@ export async function runPosting() {
         throw new Error('Agent 실행 모듈을 아직 준비하지 못했습니다. 앱을 다시 실행한 뒤 시도해주세요.');
       }
       addLog('Agent 모드: 현재 상세설정으로 글 생성을 시작합니다.', 'info');
+      updateAgentProgressModal(18, 'Agent 모드: 현재 상세설정으로 글과 이미지 작업을 시작합니다.', 'info', 'article');
+      addLog('Agent 모드: 현재 상세설정으로 글과 이미지 생성을 시작합니다.', 'info');
       const agentResult = await window.runAgentJobFromPosting(payload);
       setFinalResult({
         ok: true,
@@ -414,10 +594,18 @@ export async function runPosting() {
         const previewModal = document.getElementById('previewModal');
         if (previewModal?.style) previewModal.style.display = 'none';
       } catch {}
-      hideProgressModal();
       addLog('Agent 생성 완료: 기존 발행 흐름으로 이어서 진행합니다.', 'info');
+      updateAgentProgressModal(84, 'Agent 글/이미지 산출물을 적용했습니다. 플랫폼 발행을 시작합니다.', 'success', 'publish');
+      window.__agentPublishFlowActive = true;
+      addLog('Agent 생성 완료: 플랫폼 발행 흐름으로 이어서 진행합니다.', 'info');
       const publishResult = await publishToPlatform();
       const publishedOk = !!(publishResult?.ok || publishResult?.success);
+      updateAgentProgressModal(
+        publishedOk ? 100 : 94,
+        publishedOk ? '발행까지 완료했습니다.' : `발행에 실패했습니다: ${publishResult?.error || 'agent_publish_failed'}`,
+        publishedOk ? 'success' : 'error',
+        'publish'
+      );
       setFinalResult({
         ok: publishedOk,
         published: publishedOk,
@@ -724,6 +912,7 @@ export async function runPosting() {
     // ── 상태 복구 (항상 실행) ──
     appState.isRunning = false;
     setRunning(false);
+    restoreKeywordInputInteractivity();
     ButtonStateManager.setEnabled('runBtn', true);
     ButtonStateManager.restore('publishBtn');
     clearRunPostingLock();
@@ -742,6 +931,8 @@ export async function runPosting() {
 export async function publishToPlatform() {
   const appState = getAppState();
   const isQueueRun = !!(window.__queueRunning || window.__queueProgressActive);
+  const agentFlowActive = !!window.__agentPublishFlowActive;
+  let publishSucceeded = false;
   debugLog('PUBLISH', 'publishToPlatform 호출', {
     hasContent: !!appState.generatedContent?.content?.trim(),
     isRunning: appState.isRunning,
@@ -768,7 +959,11 @@ export async function publishToPlatform() {
       appState.isCanceled = false;
       setRunning(true);
       ButtonStateManager.setLoading('publishBtn');
-      showProgressModal();
+      if (agentFlowActive) {
+        updateAgentProgressModal(88, '플랫폼 발행 준비 중입니다.', 'info', 'publish');
+      } else {
+        showProgressModal();
+      }
 
       const currentPayload = await createPayload({ previewOnly: false });
       const publishPayload = {
@@ -781,6 +976,7 @@ export async function publishToPlatform() {
       const thumbnailToPublish = appState.generatedContent.thumbnailUrl || appState.generatedContent.thumbnail || '';
 
       addLog('블로그 발행 시작...', 'info');
+      if (agentFlowActive) updateAgentProgressModal(92, '블로그 플랫폼으로 발행 요청을 보냈습니다.', 'info', 'publish');
       let result;
       if (window.electronAPI?.invoke) {
         result = await window.electronAPI.invoke('publish-content', {
@@ -801,6 +997,8 @@ export async function publishToPlatform() {
       }
 
       if (result?.ok || result?.success) {
+        publishSucceeded = true;
+        if (agentFlowActive) updateAgentProgressModal(100, '글 생성, 이미지 생성, 발행이 모두 완료되었습니다.', 'success', 'publish');
         addLog('✅ 콘텐츠 발행 완료!', 'success');
         if (result.title || result.html || result.content) {
           appState.generatedContent = {
@@ -843,6 +1041,7 @@ export async function publishToPlatform() {
       } else {
         const publishError = result?.error || '알 수 없는 오류';
         addLog('❌ 발행 실패: ' + publishError, 'error');
+        if (agentFlowActive) updateAgentProgressModal(94, `발행 실패: ${publishError}`, 'error', 'publish');
         return result || { ok: false, error: publishError };
       }
     } catch (error) {
@@ -851,8 +1050,20 @@ export async function publishToPlatform() {
     } finally {
       appState.isRunning = false;
       setRunning(false);
+      restoreKeywordInputInteractivity();
       ButtonStateManager.restore('publishBtn');
-      hideProgressModal();
+      if (agentFlowActive) {
+        window.__agentPublishFlowActive = false;
+        if (publishSucceeded) {
+          setTimeout(() => {
+            try { hideProgressModal(); } catch {}
+          }, 1200);
+        } else {
+          hideProgressModal();
+        }
+      } else {
+        hideProgressModal();
+      }
       // 🔥 큐 연동
       try {
         window.dispatchEvent(new CustomEvent('bgpt:publish-complete', {
@@ -943,11 +1154,34 @@ function getManualCtas(ctaMode) {
 }
 
 /** H2 이미지 설정 수집 */
+function normalizeImagePolicy(value) {
+  const raw = String(value || '').toLowerCase().trim();
+  if (raw === 'odd') return 'odd-only';
+  if (raw === 'even') return 'even-only';
+  return ['all', 'thumbnail-only', 'odd-only', 'even-only', 'none'].includes(raw) ? raw : 'all';
+}
+
+function toLegacyH2ImageMode(policy) {
+  const normalized = normalizeImagePolicy(policy);
+  if (normalized === 'odd-only') return 'odd';
+  if (normalized === 'even-only') return 'even';
+  return normalized;
+}
+
 function getH2ImageSettingsFromDOM() {
   const agentImageMode = typeof window !== 'undefined' && typeof window.getAgentImageSettingsMode === 'function'
     ? window.getAgentImageSettingsMode()
     : null;
   const codexImageManaged = !!agentImageMode?.codexImageManaged;
+  const selectedPolicy = normalizeImagePolicy(
+    agentImageMode?.imagePolicy
+    || agentImageMode?.policy
+    || document.querySelector('input[name="swImagePolicy"]:checked')?.value
+    || document.getElementById('h2ImageMode')?.value
+    || 'all'
+  );
+  const legacyH2ImageMode = toLegacyH2ImageMode(selectedPolicy);
+  const thumbnailTextIncluded = agentImageMode?.thumbnailTextIncluded !== false;
   // window.getH2ImageSections가 있으면 우선 사용
   if (window.getH2ImageSections) {
     const settings = window.getH2ImageSections();
@@ -959,8 +1193,13 @@ function getH2ImageSettingsFromDOM() {
     return {
       h2ImageSource: settings.source || PAYLOAD_DEFAULTS.h2ImageSource,
       h2ImageSections: settings.sections || [],
-      h2Images: { ...settings, leonardoModel },
+      h2ImageMode: legacyH2ImageMode,
+      imagePolicy: selectedPolicy,
+      h2Images: { ...settings, leonardoModel, mode: legacyH2ImageMode, imagePolicy: selectedPolicy, h2TextIncluded: false },
       leonardoModel,
+      thumbnailTextIncluded,
+      thumbnailIncludeText: thumbnailTextIncluded,
+      h2TextIncluded: false,
       agentImageManaged: codexImageManaged || undefined,
       imageManagedBy: codexImageManaged ? 'codex-agent' : undefined,
     };
@@ -983,8 +1222,13 @@ function getH2ImageSettingsFromDOM() {
   return {
     h2ImageSource: h2ImageSourceValue,
     h2ImageSections: h2ImageSections,
-    h2Images: { source: h2ImageSourceValue, sections: h2ImageSections, leonardoModel },
+    h2ImageMode: legacyH2ImageMode,
+    imagePolicy: selectedPolicy,
+    h2Images: { source: h2ImageSourceValue, sections: h2ImageSections, leonardoModel, mode: legacyH2ImageMode, imagePolicy: selectedPolicy, h2TextIncluded: false },
     leonardoModel,
+    thumbnailTextIncluded,
+    thumbnailIncludeText: thumbnailTextIncluded,
+    h2TextIncluded: false,
     agentImageManaged: codexImageManaged || undefined,
     imageManagedBy: codexImageManaged ? 'codex-agent' : undefined,
   };
@@ -1105,25 +1349,32 @@ export async function createPayload(options = {}) {
   const toneStyleValue = document.getElementById('toneStyle')?.value || PAYLOAD_DEFAULTS.toneStyle;
   const sectionCount = getSectionCount();
   const h2ImageSettings = getH2ImageSettingsFromDOM();
+  const thumbnailTextIncluded = h2ImageSettings.thumbnailTextIncluded !== false;
+  const thumbnailTextValue = thumbnailTextIncluded
+    ? (savedThumbnailText || document.getElementById('thumbnailText')?.value?.trim() || '')
+    : '';
 
-  // ── 플랫폼 ── 🔥 저장된 설정을 라디오 버튼보다 우선시 (race condition 대비)
+  // ── 플랫폼 ──
+  // 현재 화면에서 사용자가 고른 플랫폼을 1순위로 사용한다.
+  // loadSettings()는 값이 비어 있어도 platform을 wordpress로 정규화하므로
+  // 저장값을 먼저 쓰면 Blogger/Blogspot 선택이 WordPress로 덮이는 회귀가 생긴다.
   const platformRadio = document.querySelector('input[name="platform"]:checked');
   const platformRadioValue = platformRadio?.value || '';
   const savedPlatformValue = savedSettings.platform || '';
-  const publishTargetPlatform = normalizePlatform(savedPlatformValue || platformRadioValue || 'wordpress');
+  const resolvedPlatformValue = platformRadioValue || savedPlatformValue || 'blogspot';
+  const publishTargetPlatform = normalizePlatform(resolvedPlatformValue);
   let selectedPlatform;
   if (platformOverride) {
     selectedPlatform = platformOverride;
   } else {
-    // 1순위: 저장된 설정 (사용자가 명시적으로 저장한 값)
-    // 2순위: 현재 라디오 체크 상태
-    // 3순위: WordPress 기본값
+    // 1순위: 현재 라디오 체크 상태
+    // 2순위: 저장된 설정
+    // 3순위: Blogspot 기본값
     const platformRadio = document.querySelector('input[name="platform"]:checked');
     const radioValue = platformRadio?.value || '';
     const savedValue = savedSettings.platform || '';
-    // 저장된 값이 있으면 저장된 값 사용, 없으면 라디오 값, 둘 다 없으면 wordpress
-    selectedPlatform = normalizePlatform(savedValue || radioValue || 'wordpress');
-    console.log('[PAYLOAD] 플랫폼 선택:', { saved: savedValue, radio: radioValue, final: selectedPlatform });
+    selectedPlatform = normalizePlatform(radioValue || savedValue || 'blogspot');
+    console.log('[PAYLOAD] 플랫폼 선택:', { radio: radioValue, saved: savedValue, final: selectedPlatform });
   }
 
   // ── E-E-A-T 저자 정보 ──
@@ -1238,7 +1489,10 @@ export async function createPayload(options = {}) {
     thumbnailMode: thumbnailModeValue,
     thumbnailType: savedThumbnail ? 'custom' : thumbnailModeValue,
     customThumbnail: savedThumbnail || undefined,
-    customThumbnailText: savedThumbnailText || undefined,
+    customThumbnailText: thumbnailTextValue || undefined,
+    thumbnailTextIncluded,
+    thumbnailIncludeText: thumbnailTextIncluded,
+    h2TextIncluded: false,
     ...h2ImageSettings,
 
     // v3.6.5: 이미지 생성 탭에서 미리 만든 이미지 자동 배치 (H2 #1, #2... 순서대로)

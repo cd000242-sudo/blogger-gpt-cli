@@ -178,6 +178,11 @@ function _getExtTrafficImageModePayload() {
     agentProvider: mode.provider,
     agentImageManaged: mode.codexImageManaged || undefined,
     imageManagedBy: mode.codexImageManaged ? 'codex-agent' : undefined,
+    imagePolicy: mode.imagePolicy || mode.policy || 'all',
+    h2ImageMode: mode.h2ImageMode || mode.imagePolicy || mode.policy || 'all',
+    thumbnailTextIncluded: mode.thumbnailTextIncluded !== false,
+    thumbnailIncludeText: mode.thumbnailTextIncluded !== false,
+    h2TextIncluded: false,
   };
 }
 

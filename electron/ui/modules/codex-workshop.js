@@ -1,4 +1,4 @@
-import { getAppState, addLog, sanitizeHTML, getTextLength, getStorageManager } from './core.js';
+import { getAppState, addLog, sanitizeHTML, getTextLength, getStorageManager, getProgressManager } from './core.js';
 import { createPreviewPayload } from './posting.js';
 import { displayPreviewInModal } from './preview.js';
 
@@ -17,6 +17,7 @@ const EXECUTION_MODE_KEY = 'leadernamExecutionMode';
 const ACTIVE_AGENT_PROVIDER_KEY = 'leadernamActiveAgentProvider';
 const ACTIVE_API_TEXT_PROVIDER_KEY = 'leadernamActiveApiTextProvider';
 const ACTIVE_API_IMAGE_PROVIDER_KEY = 'leadernamActiveApiImageProvider';
+const AGENT_IMAGE_SETTINGS_KEY = 'leadernamAgentImageSettings';
 const USAGE_SETTINGS_KEY = 'agentModeUsageSettings';
 const USAGE_STATE_KEY = 'agentModeUsageState';
 const USAGE_WINDOW_DEFAULT_HOURS = 5;
@@ -24,6 +25,17 @@ const DEFAULT_USAGE_LIMITS = {
   codex: 24,
   claude: 24,
 };
+const DEFAULT_AGENT_IMAGE_SETTINGS = {
+  policy: 'all',
+  thumbnailTextMode: 'include',
+};
+const AGENT_IMAGE_POLICY_OPTIONS = [
+  { value: 'all', label: '썸네일+소제목 전체', hint: '썸네일 1장과 본문 H2 전체' },
+  { value: 'thumbnail-only', label: '썸네일만', hint: '본문 이미지는 만들지 않음' },
+  { value: 'odd-only', label: '홀수 소제목', hint: '썸네일 + 1, 3, 5번 H2' },
+  { value: 'even-only', label: '짝수 소제목', hint: '썸네일 + 2, 4번 H2' },
+  { value: 'none', label: '이미지 없음', hint: '글만 생성' },
+];
 
 const state = {
   payload: null,
@@ -61,6 +73,41 @@ function stripHtml(value = '') {
 
 function getBridgeApi() {
   return window.electronAPI || window.blogger || null;
+}
+
+function updateAgentProgress(percent, message, type = 'info') {
+  const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+  try {
+    window.updateAgentProgressUI?.(safePercent, message, type);
+  } catch (error) {
+    console.warn('[CODEX-WORKSHOP] agent progress UI bridge failed:', error);
+  }
+  try {
+    const progressManager = getProgressManager?.();
+    progressManager?.updateProgress?.(safePercent, safePercent, message);
+    progressManager?.updateStatus?.(message);
+  } catch (error) {
+    console.warn('[CODEX-WORKSHOP] progress update failed:', error);
+  }
+
+  try {
+    const fallback = window.fallbackProgressModal;
+    if (fallback?.progressBar) fallback.progressBar.style.width = `${safePercent}%`;
+    if (fallback?.progressText) fallback.progressText.textContent = `${Math.round(safePercent)}%`;
+    if (fallback?.progressStatus) fallback.progressStatus.textContent = message || '';
+  } catch (error) {
+    console.warn('[CODEX-WORKSHOP] fallback progress update failed:', error);
+  }
+
+  if (message) addLog(message, type);
+}
+
+function appendAgentGeneratedImagePreview(image = {}) {
+  try {
+    window.appendAgentGeneratedImageUI?.(image);
+  } catch (error) {
+    console.warn('[CODEX-WORKSHOP] agent image preview bridge failed:', error);
+  }
 }
 
 function isMaxAgentAllowed(status = state.agentStatus) {
@@ -208,6 +255,66 @@ function saveExecutionPrefs() {
   storage?.setSync?.(ACTIVE_AGENT_PROVIDER_KEY, state.activeAgentProvider, true);
   storage?.setSync?.(ACTIVE_API_TEXT_PROVIDER_KEY, state.activeApiTextProvider, true);
   storage?.setSync?.(ACTIVE_API_IMAGE_PROVIDER_KEY, state.activeApiImageProvider, true);
+}
+
+function normalizeAgentImagePolicy(value) {
+  const raw = String(value || '').toLowerCase().trim();
+  if (raw === 'odd') return 'odd-only';
+  if (raw === 'even') return 'even-only';
+  return AGENT_IMAGE_POLICY_OPTIONS.some((option) => option.value === raw) ? raw : DEFAULT_AGENT_IMAGE_SETTINGS.policy;
+}
+
+function getAgentImagePolicyLabel(policy) {
+  const normalized = normalizeAgentImagePolicy(policy);
+  return AGENT_IMAGE_POLICY_OPTIONS.find((option) => option.value === normalized)?.label || '썸네일+소제목 전체';
+}
+
+function loadAgentImageSettings() {
+  const storage = getStorage();
+  const saved = storage?.getSync?.(AGENT_IMAGE_SETTINGS_KEY, true) || {};
+  return {
+    policy: normalizeAgentImagePolicy(saved.policy || saved.imagePolicy || saved.h2ImageMode),
+    thumbnailTextMode: saved.thumbnailTextMode === 'none' ? 'none' : DEFAULT_AGENT_IMAGE_SETTINGS.thumbnailTextMode,
+  };
+}
+
+function saveAgentImageSettings(next = {}) {
+  const current = loadAgentImageSettings();
+  const merged = {
+    policy: normalizeAgentImagePolicy(next.policy || current.policy),
+    thumbnailTextMode: next.thumbnailTextMode === 'none' ? 'none' : 'include',
+  };
+  getStorage()?.setSync?.(AGENT_IMAGE_SETTINGS_KEY, merged, true);
+  return merged;
+}
+
+function toLegacyH2ImageMode(policy) {
+  const normalized = normalizeAgentImagePolicy(policy);
+  if (normalized === 'odd-only') return 'odd';
+  if (normalized === 'even-only') return 'even';
+  return normalized;
+}
+
+function getAgentImageSettingsMode() {
+  const prefs = loadExecutionPrefs();
+  const settings = loadAgentImageSettings();
+  const isAgentMode = prefs.mode === 'agent';
+  const provider = prefs.agentProvider;
+  const codexImageManaged = isAgentMode && provider === 'codex' && settings.policy !== 'none';
+  return {
+    executionMode: prefs.mode,
+    provider,
+    isAgentMode,
+    codexImageManaged,
+    claudeNeedsImageEngine: isAgentMode && provider === 'claude',
+    policy: settings.policy,
+    imagePolicy: settings.policy,
+    h2ImageMode: toLegacyH2ImageMode(settings.policy),
+    thumbnailTextMode: settings.thumbnailTextMode,
+    thumbnailTextIncluded: settings.thumbnailTextMode !== 'none',
+    thumbnailIncludeText: settings.thumbnailTextMode !== 'none',
+    h2TextIncluded: false,
+  };
 }
 
 function refreshGlobalAiModelBadge() {
@@ -733,6 +840,45 @@ function renderAgentProviderTabs() {
   if (claude) claude.className = `agent-provider-tab ${state.activeAgentProvider === 'claude' ? 'is-active' : ''}`;
 }
 
+function renderAgentImageSettingsPanel(provider) {
+  const settings = loadAgentImageSettings();
+  const disabled = provider !== 'codex';
+  const disabledAttr = disabled ? 'disabled aria-disabled="true"' : '';
+  const note = disabled
+    ? 'Claude Code는 이미지 모델이 없어서 본문 이미지 프롬프트만 정리합니다. 실제 이미지는 별도 이미지 엔진으로 생성합니다.'
+    : 'Codex가 글 생성과 함께 이미지 위치와 프롬프트까지 처리합니다. 소제목 이미지는 어떤 옵션에서도 텍스트를 넣지 않습니다.';
+
+  return `
+    <div class="agent-image-policy-panel ${disabled ? 'is-disabled' : ''}">
+      <div class="agent-image-policy-head">
+        <div>
+          <strong>이미지 생성 범위</strong>
+          <span>${escapeHtml(note)}</span>
+        </div>
+        <span class="agent-mode-pill ${disabled ? 'is-locked' : 'is-ready'}">${disabled ? '프롬프트만' : escapeHtml(getAgentImagePolicyLabel(settings.policy))}</span>
+      </div>
+      <div class="agent-image-policy-grid">
+        ${AGENT_IMAGE_POLICY_OPTIONS.map((option) => `
+          <button type="button" data-agent-image-policy="${escapeHtml(option.value)}" class="${settings.policy === option.value ? 'is-active' : ''}" ${disabledAttr}>
+            <strong>${escapeHtml(option.label)}</strong>
+            <span>${escapeHtml(option.hint)}</span>
+          </button>
+        `).join('')}
+      </div>
+      <div class="agent-thumb-text-row">
+        <div>
+          <strong>썸네일 텍스트</strong>
+          <span>썸네일만 텍스트 포함 여부를 선택합니다. 소제목 이미지는 항상 텍스트 없음.</span>
+        </div>
+        <div class="agent-thumb-text-toggle">
+          <button type="button" data-agent-thumb-text="include" class="${settings.thumbnailTextMode !== 'none' ? 'is-active' : ''}" ${disabledAttr}>포함</button>
+          <button type="button" data-agent-thumb-text="none" class="${settings.thumbnailTextMode === 'none' ? 'is-active' : ''}" ${disabledAttr}>미포함</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderAgentProviderPanel() {
   const detail = $('agentProviderDetail');
   if (!detail) return;
@@ -791,6 +937,7 @@ function renderAgentProviderPanel() {
             <p>${escapeHtml(meta.estimateText)}</p>
             <p>로컬 기록 리셋까지 ${escapeHtml(history.nextResetText)} 남았습니다. 토큰/비용은 CLI가 반환한 경우에만 실측으로 기록됩니다.</p>
           </div>
+          ${renderAgentImageSettingsPanel(provider)}
         </div>
 
         <aside class="agent-mode-action-panel">
@@ -820,6 +967,20 @@ function renderAgentProviderPanel() {
   });
   detail.querySelectorAll('[data-agent-refresh]').forEach((button) => {
     button.addEventListener('click', () => loadAgentModeStatus(true));
+  });
+  detail.querySelectorAll('[data-agent-image-policy]').forEach((button) => {
+    button.addEventListener('click', () => {
+      saveAgentImageSettings({ policy: button.getAttribute('data-agent-image-policy') || 'all' });
+      renderAgentProviderPanel();
+      refreshGlobalAiModelBadge();
+    });
+  });
+  detail.querySelectorAll('[data-agent-thumb-text]').forEach((button) => {
+    button.addEventListener('click', () => {
+      saveAgentImageSettings({ thumbnailTextMode: button.getAttribute('data-agent-thumb-text') || 'include' });
+      renderAgentProviderPanel();
+      refreshGlobalAiModelBadge();
+    });
   });
 
   const modalRunButton = $(RUN_AGENT_JOB_BTN_ID);
@@ -881,44 +1042,49 @@ function applyExecutionModeToApp() {
 
   apiInputIds.forEach((id) => {
     const el = $(id);
-    if (el) el.disabled = agentSelected;
+    if (el) el.disabled = id === 'generationEngine' ? agentSelected : false;
   });
 
-  ['apiTextProviderSelect', 'apiImageProviderSelect'].forEach((id) => {
-    const el = $(id);
-    if (el) el.disabled = agentSelected;
-  });
+  const apiTextProviderSelect = $('apiTextProviderSelect');
+  if (apiTextProviderSelect) apiTextProviderSelect.disabled = agentSelected;
+  const apiImageProviderSelect = $('apiImageProviderSelect');
+  if (apiImageProviderSelect) apiImageProviderSelect.disabled = agentSelected && state.activeAgentProvider === 'codex';
 
   ['agentModeSettingsStartLogin', 'agentModeSettingsRefresh', 'agentUsageResetBtn', 'agentModeSettingsProfileSelect'].forEach((id) => {
     const el = $(id);
     if (el) el.disabled = !agentSelected;
   });
 
+  document.querySelectorAll('[data-agent-mode-original-display]').forEach((node) => {
+    node.style.display = node.dataset.agentModeOriginalDisplay || '';
+    delete node.dataset.agentModeOriginalDisplay;
+  });
+
+  document.querySelectorAll('input[name="primaryGeminiTextModel"]').forEach((el) => {
+    el.disabled = agentSelected;
+  });
+
   const tab = $('tab-api-keys');
-  const topLevelBlocks = new Set();
-  const addTopLevelBlock = (el) => {
+  const agentHiddenBlocks = new Set();
+  const addAgentHiddenBlock = (el) => {
     if (!el || !tab) return;
     let node = el.parentElement;
     while (node && node.parentElement !== tab) {
       node = node.parentElement;
     }
     if (node && node.id !== SETTINGS_SECTION_ID) {
-      topLevelBlocks.add(node);
+      agentHiddenBlocks.add(node);
     }
   };
-  const apiFieldIds = [
+
+  addAgentHiddenBlock($('textEnginePicker'));
+  [
     ...apiInputIds,
-    'openaiKeyHidden', 'stabilityApiKeyHidden', 'dalleApiKeyHidden',
-  ];
-  apiFieldIds.forEach((id) => {
-    const el = $(id);
-    addTopLevelBlock(el);
-  });
-  document.querySelectorAll('input[name="primaryGeminiTextModel"]').forEach((el) => {
-    el.disabled = agentSelected;
-    addTopLevelBlock(el);
-  });
-  topLevelBlocks.forEach((node) => {
+    'openaiKeyHidden', 'pexelsApiKeyHidden', 'stabilityApiKeyHidden', 'dalleApiKeyHidden',
+  ].forEach((id) => addAgentHiddenBlock($(id)));
+  document.querySelectorAll('input[name="primaryGeminiTextModel"]').forEach(addAgentHiddenBlock);
+
+  agentHiddenBlocks.forEach((node) => {
     if (!node.dataset.agentModeOriginalDisplay) {
       node.dataset.agentModeOriginalDisplay = node.style.display || '';
     }
@@ -957,8 +1123,8 @@ function renderAgentSettingsSection() {
 
   if (description) {
     description.textContent = state.executionMode === 'agent'
-      ? 'Agent 모드가 선택되어 API 키 입력/선택은 비활성화됩니다. Codex와 Claude Code는 아래 서브탭에서 각각 관리합니다.'
-      : 'API 키 모드가 선택되어 Agent 실행은 비활성화됩니다. 원하는 API 제공사를 선택하고 해당 제공사 대시보드에서 충전/사용량을 확인합니다.';
+      ? 'Agent 모드가 선택되어 아래 AI 텍스트 엔진과 API 키 입력칸은 숨겨집니다. Codex와 Claude Code는 아래에서 하나만 선택해 사용합니다.'
+      : 'API 키 모드가 선택되었습니다. 아래 API 키 입력칸과 기존 모델 선택 UI를 사용합니다.';
   }
 
   renderToolCards(status);
@@ -981,13 +1147,13 @@ function ensureAgentSettingsSection() {
 
   const section = document.createElement('section');
   section.id = SETTINGS_SECTION_ID;
-  section.className = 'agent-mode-settings';
+  section.className = 'agent-mode-settings agent-mode-settings-compact';
   section.innerHTML = `
     <div class="agent-mode-settings-head">
       <div>
         <div class="agent-mode-eyebrow">AI 실행 방식</div>
-        <h3>API 키 충전형 / Agent 구독형 선택</h3>
-        <p id="agentModeSettingsDescription">API 키와 Agent는 동시에 쓰지 않고, 선택한 방식만 활성화합니다.</p>
+        <h3>API 키 모드 / Agent 모드</h3>
+        <p id="agentModeSettingsDescription">API 모드에서는 키 입력칸을 보여주고, Agent 모드에서는 키 입력칸과 모델 선택을 숨깁니다.</p>
       </div>
       <span id="agentModeSettingsBadge" class="agent-mode-pill">확인 중</span>
     </div>
@@ -1088,6 +1254,19 @@ function getReferenceLines(payload = {}) {
   return [...new Set(urls)].slice(0, 6);
 }
 
+function getPayloadImagePolicy(payload = {}) {
+  return normalizeAgentImagePolicy(payload.imagePolicy || payload.h2ImageMode || loadAgentImageSettings().policy);
+}
+
+function describeImagePolicy(policy) {
+  const normalized = normalizeAgentImagePolicy(policy);
+  if (normalized === 'thumbnail-only') return '썸네일 1장만 생성하고 본문 H2 이미지는 만들지 않습니다.';
+  if (normalized === 'odd-only') return '썸네일 1장과 홀수 번째 H2(1, 3, 5...) 이미지만 생성합니다.';
+  if (normalized === 'even-only') return '썸네일 1장과 짝수 번째 H2(2, 4, 6...) 이미지만 생성합니다.';
+  if (normalized === 'none') return '이미지를 생성하지 않고 글 HTML만 완성합니다.';
+  return '썸네일 1장과 모든 H2 소제목 이미지를 생성합니다.';
+}
+
 function buildCodexArticleTask(payload = {}) {
   const topic = getTopic(payload);
   const references = getReferenceLines(payload);
@@ -1144,6 +1323,9 @@ function buildCodexImageTask(payload = {}) {
   const platform = normalizePlatformName(payload.targetPlatform || payload.platform);
   const provider = state.activeAgentProvider === 'claude' ? 'claude' : 'codex';
   const agentLabel = provider === 'claude' ? 'Claude Code' : 'Codex';
+  const imagePolicy = getPayloadImagePolicy(payload);
+  const thumbnailTextIncluded = payload.thumbnailTextIncluded !== false && payload.thumbnailIncludeText !== false;
+  const references = getReferenceLines(payload);
   const imageCapabilityNote = provider === 'claude'
     ? '중요: Claude Code에는 자체 이미지 생성 모델이 없습니다. 실제 이미지는 앱의 이미지 엔진(GPT Image, Gemini Image, Leonardo, Flow 등)으로 별도 생성하고, Claude Code는 이미지 프롬프트/구도/alt/삽입 위치만 설계합니다.'
     : '중요: Codex는 작업 Agent입니다. 이미지 생성 기능이 연결된 환경에서는 GPT Image 등 별도 이미지 엔진으로 생성하고, 그렇지 않으면 이미지 프롬프트/구도/alt/삽입 위치를 설계합니다.';
@@ -1158,18 +1340,23 @@ function buildCodexImageTask(payload = {}) {
 입력 설정:
 - 핵심 키워드: ${topic || '(keyword empty)'}
 - 플랫폼: ${platform}
+- 이미지 생성 범위: ${describeImagePolicy(imagePolicy)}
+- 썸네일 텍스트: ${thumbnailTextIncluded ? '포함 가능. 단, 짧은 한국어 제목형 문구만 사용' : '미포함. 썸네일에도 글자를 넣지 않음'}
+- 소제목 이미지 텍스트: 항상 미포함. H2 이미지는 간판, 자막, 문구, 로고, 워터마크 없이 장면만 생성
+- 참고 URL:
+${references.length ? references.map((url, index) => `  ${index + 1}. ${url}`).join('\n') : '  없음'}
 
 이미지 방향:
 - 한국 생활정보/정책형 블로그에 어울리는 현실감 있는 장면
 - 밝고 선명한 대비
 - 제목을 얹을 수 있는 여백 확보
 - 특정 브랜드 로고, 유명인 얼굴, 오해 가능한 공공기관 직인 표현 금지
-- 한글 텍스트 렌더링이 불안정하면 텍스트 없는 이미지로 생성하고 제목 영역만 비워둔다.
+- 썸네일 텍스트 미포함 또는 H2 이미지에서는 텍스트 없는 이미지로 생성하고 제목 영역만 비워둔다.
 
 출력:
-1. 썸네일 이미지 프롬프트
-2. H2별 이미지 아이디어
-3. 이미지에 넣을 짧은 한글 문구 후보 3개
+1. 선택한 이미지 생성 범위에 맞는 썸네일/H2 이미지 프롬프트
+2. H2별 이미지 아이디어. 선택 범위 밖 H2는 "skip"으로 표시
+3. 썸네일 문구 후보 3개. 썸네일 텍스트 미포함이면 빈 배열로 표시
 4. 실제 생성에 사용할 추천 이미지 엔진`;
 }
 
@@ -1556,6 +1743,25 @@ function ensureStyles() {
       box-shadow: 0 18px 42px rgba(2, 6, 23, 0.18);
       color: #e2e8f0;
     }
+    .agent-mode-settings-compact {
+      margin: 0 0 16px;
+      padding: 16px 18px;
+      border-radius: 14px;
+      box-shadow: none;
+    }
+    .agent-mode-settings-compact #apiExecutionPanel {
+      display: none !important;
+    }
+    .agent-mode-settings-compact .agent-mode-summary {
+      margin: 10px 0 0;
+    }
+    .agent-mode-settings-compact .agent-mode-mode-switch {
+      max-width: 420px;
+      margin: 12px 0 0;
+    }
+    .agent-mode-settings-compact #agentExecutionPanel {
+      margin-top: 14px;
+    }
     .agent-mode-settings-head {
       display: flex;
       justify-content: space-between;
@@ -1882,6 +2088,93 @@ function ensureStyles() {
       font-size: 11px;
       background: rgba(15, 23, 42, 0.58);
     }
+    .agent-image-policy-panel {
+      display: grid;
+      gap: 12px;
+      margin-top: 14px;
+      padding: 14px;
+      border-radius: 14px;
+      background: rgba(2, 6, 23, 0.24);
+      border: 1px solid rgba(56, 189, 248, 0.18);
+    }
+    .agent-image-policy-panel.is-disabled {
+      opacity: 0.72;
+    }
+    .agent-image-policy-head,
+    .agent-thumb-text-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .agent-image-policy-head strong,
+    .agent-thumb-text-row strong {
+      display: block;
+      color: #f8fafc;
+      font-size: 13px;
+      font-weight: 900;
+      margin-bottom: 4px;
+    }
+    .agent-image-policy-head span,
+    .agent-thumb-text-row span,
+    .agent-image-policy-grid button span {
+      display: block;
+      color: rgba(226, 232, 240, 0.66);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .agent-image-policy-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+    }
+    .agent-image-policy-grid button,
+    .agent-thumb-text-toggle button {
+      min-height: 54px;
+      padding: 10px;
+      border-radius: 11px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      cursor: pointer;
+      text-align: left;
+      color: rgba(226, 232, 240, 0.78);
+      background: rgba(15, 23, 42, 0.58);
+      font-family: inherit;
+    }
+    .agent-image-policy-grid button strong {
+      display: block;
+      color: #e2e8f0;
+      font-size: 12px;
+      font-weight: 900;
+      margin-bottom: 4px;
+    }
+    .agent-image-policy-grid button.is-active,
+    .agent-thumb-text-toggle button.is-active {
+      color: #082f49;
+      border-color: transparent;
+      background: linear-gradient(135deg, #bae6fd, #67e8f9);
+      box-shadow: 0 8px 18px rgba(6, 182, 212, 0.14);
+    }
+    .agent-image-policy-grid button.is-active strong,
+    .agent-image-policy-grid button.is-active span,
+    .agent-thumb-text-toggle button.is-active {
+      color: #082f49;
+    }
+    .agent-image-policy-grid button:disabled,
+    .agent-thumb-text-toggle button:disabled {
+      cursor: not-allowed;
+      opacity: 0.58;
+    }
+    .agent-thumb-text-toggle {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(76px, 1fr));
+      gap: 8px;
+      min-width: 170px;
+    }
+    .agent-thumb-text-toggle button {
+      min-height: 38px;
+      text-align: center;
+      font-weight: 900;
+    }
     .agent-mode-actions {
       display: flex;
       flex-wrap: wrap;
@@ -1953,11 +2246,14 @@ function ensureStyles() {
       .agent-mode-usage-grid,
       .agent-mode-control-grid,
       .agent-mode-provider-layout,
-      .agent-mode-plan-grid {
+      .agent-mode-plan-grid,
+      .agent-image-policy-grid {
         grid-template-columns: 1fr;
       }
       .agent-mode-settings-head,
-      .agent-mode-usage-head {
+      .agent-mode-usage-head,
+      .agent-image-policy-head,
+      .agent-thumb-text-row {
         align-items: stretch;
         flex-direction: column;
       }
@@ -2438,6 +2734,10 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
     throw new Error(status?.message || 'Max Agent Mode는 3개월 이상 코드에서 사용할 수 있습니다.');
   }
 
+  if (source === 'posting') {
+    updateAgentProgress(24, 'Agent 모드: 라이선스와 구독 권한을 확인했습니다.');
+  }
+
   let profile = getSelectedAgentProfile();
   if (!profile) {
     profile = await createAgentProfile(state.activeAgentProvider);
@@ -2449,6 +2749,10 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
     const providerLabel = state.activeAgentProvider === 'claude' ? 'Claude Code' : 'Codex';
     setSettingsStatus(`${providerLabel} 로그인 완료가 필요합니다. 로그인 성공이 자동으로 감지됩니다.`, 'error');
     throw new Error(`${providerLabel} 로그인이 아직 완료되지 않았습니다. 로그인 창 열기를 누른 뒤 완료될 때까지 기다려주세요.`);
+  }
+
+  if (source === 'posting') {
+    updateAgentProgress(30, `${profile.provider === 'claude' ? 'Claude Code' : 'Codex'} 로그인 상태를 확인했습니다.`);
   }
 
   const payload = inputPayload || state.payload || await createPreviewPayload();
@@ -2463,6 +2767,9 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   state.articleTask = editedArticleTask || buildCodexArticleTask(payload);
   state.imageTask = editedImageTask || buildCodexImageTask(payload);
   setModalValues();
+  if (source === 'posting') {
+    updateAgentProgress(38, '글 생성 지시서와 이미지 생성 지시서를 준비했습니다.');
+  }
 
   const providerLabel = profile.provider === 'claude' ? 'Claude Code' : 'Codex';
   if (button) {
@@ -2473,6 +2780,10 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   addLog(`${providerLabel} Agent 생성을 시작했습니다.`, 'info');
 
   const api = getBridgeApi();
+  if (source === 'posting') {
+    updateAgentProgress(46, `${providerLabel}가 글 본문과 이미지 산출물을 생성 중입니다.`);
+  }
+
   const request = {
     profileId: profile.id,
     provider: profile.provider,
@@ -2482,21 +2793,44 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
     title: topic,
   };
 
-  const result = typeof api?.runAgentJob === 'function'
-    ? await api.runAgentJob(request)
-    : await api?.invoke?.('agent-mode:run-job', request);
-
-  if (!result?.ok) {
-    const detail = [result?.error, result?.stderr].filter(Boolean).join('\n\n').trim();
-    setAgentRunStatus(detail || 'Agent 생성에 실패했습니다.', 'error');
-    throw new Error(result?.error || detail || 'Agent 생성에 실패했습니다. 로그인 상태를 확인해주세요.');
+  let agentRunSettled = false;
+  let imageStageTimer = null;
+  if (source === 'posting') {
+    imageStageTimer = setTimeout(() => {
+      if (!agentRunSettled) {
+        updateAgentProgress(62, `${providerLabel}가 이미지 산출물과 본문 삽입 구성을 정리 중입니다.`);
+      }
+    }, 15000);
   }
 
-  const content = String(result.content || '').trim();
+  let result;
+  try {
+    result = typeof api?.runAgentJob === 'function'
+      ? await api.runAgentJob(request)
+      : await api?.invoke?.('agent-mode:run-job', request);
+  } finally {
+    agentRunSettled = true;
+    if (imageStageTimer) clearTimeout(imageStageTimer);
+  }
+
+  if (!result?.ok) {
+    const detail = [result?.error, result?.stderr, result?.stdout].filter(Boolean).join('\n\n').trim();
+    setAgentRunStatus(detail || 'Agent 생성에 실패했습니다.', 'error');
+    throw new Error(detail || result?.error || 'Agent 생성에 실패했습니다. 로그인 상태를 확인해주세요.');
+  }
+
+  let content = String(result.content || '').trim();
   if (!content) {
     setAgentRunStatus('Agent는 완료되었지만 HTML 출력물이 비어 있습니다.', 'error');
     throw new Error('Agent 출력물이 비어 있습니다. 상세설정을 확인한 뒤 다시 시도해주세요.');
   }
+
+  if (source === 'posting') {
+    updateAgentProgress(72, `Agent 산출물을 회수했습니다. (${getTextLength(content).toLocaleString()}자)`, 'success');
+  }
+
+  const imageEnhancement = await enhanceCodexAgentImages(content, payload, result.title || topic);
+  content = imageEnhancement.content || content;
 
   const pasteEl = $('codexResultPaste');
   if (pasteEl) pasteEl.value = content;
@@ -2504,7 +2838,10 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   setAgentRunStatus(`생성 완료: ${result.title || topic}${result.jobId ? ` · 작업 ID ${result.jobId}` : ''}`);
   setSettingsStatus(`${providerLabel} 작업 1회를 로컬 실행 기록에 저장했습니다.`);
   addLog(`Agent 출력물을 회수했습니다. (${getTextLength(content).toLocaleString()}자)`, 'success');
-  await applyCodexResult();
+  await applyCodexResult({ thumbnailUrl: imageEnhancement.thumbnailUrl || '' });
+  if (source === 'posting') {
+    updateAgentProgress(82, '글과 이미지 산출물을 미리보기에 적용했습니다. 발행 단계로 넘어갑니다.', 'success');
+  }
 
   return {
     ok: true,
@@ -2772,6 +3109,155 @@ async function prepareContentForPlatform(html, payload) {
   return html;
 }
 
+function shouldGenerateH2Image(policy, index) {
+  const normalized = normalizeAgentImagePolicy(policy);
+  const idx = Number(index) || 0;
+  if (normalized === 'thumbnail-only' || normalized === 'none') return false;
+  if (normalized === 'odd-only') return idx % 2 === 1;
+  if (normalized === 'even-only') return idx % 2 === 0;
+  return true;
+}
+
+function getImageResultUrl(result) {
+  if (!result || result.ok === false) return '';
+  return String(
+    result.dataUrl
+    || result.url
+    || result.imageUrl
+    || result.thumbnailUrl
+    || result.result?.dataUrl
+    || result.result?.url
+    || ''
+  ).trim();
+}
+
+function buildAgentThumbnailPrompt(title, topic, includeText) {
+  const base = [
+    `Korean blog thumbnail, 16:9 landscape, topic: ${title || topic}`,
+    'clean editorial composition, realistic but polished, bright contrast, safe non-branded scene',
+    'leave enough negative space for title area, no public agency seal, no celebrity face, no watermark',
+  ];
+  if (includeText) {
+    base.push(`include one short bold Korean title text only: "${title || topic}"`);
+  } else {
+    base.push('no text, no letters, no typography, no captions, no signage');
+  }
+  return base.join('. ');
+}
+
+function buildAgentH2ImagePrompt(h2Text, topic) {
+  return [
+    `Korean blog body image for section "${h2Text}" in article topic "${topic}"`,
+    'realistic lifestyle/editorial scene, clean composition, helpful information mood',
+    'no text, no letters, no captions, no logo, no watermark, no signage',
+    '16:9 landscape, natural light, visually distinct from other section images',
+  ].join('. ');
+}
+
+async function generateAgentImage(engine, prompt, includeText, label) {
+  const api = getBridgeApi();
+  if (!api?.invoke || !engine || engine === 'none') return '';
+  try {
+    const result = await api.invoke('batch-image-generate', {
+      engine,
+      quality: 'medium',
+      aspectRatio: '16:9',
+      prompt,
+      includeText: !!includeText,
+    });
+    const url = getImageResultUrl(result);
+    if (!url) {
+      addLog(`${label} 이미지 생성 실패: ${result?.error || '이미지 URL 없음'}`, 'warning');
+      return '';
+    }
+    return url;
+  } catch (error) {
+    addLog(`${label} 이미지 생성 실패: ${error?.message || error}`, 'warning');
+    return '';
+  }
+}
+
+async function enhanceCodexAgentImages(html, payload = {}, title = '') {
+  const policy = getPayloadImagePolicy(payload);
+  if (state.activeAgentProvider !== 'codex' || policy === 'none') {
+    return { content: html, thumbnailUrl: '' };
+  }
+
+  const topic = getTopic(payload) || title;
+  const thumbnailEngine = payload.thumbnailMode || payload.thumbnailType || payload.thumbnailSource || 'nanobanana2';
+  const h2Engine = payload.h2ImageSource || payload.h2Images?.source || thumbnailEngine;
+  const thumbnailTextIncluded = payload.thumbnailTextIncluded !== false && payload.thumbnailIncludeText !== false;
+  let thumbnailUrl = '';
+  let content = String(html || '');
+
+  updateAgentProgress(76, `이미지 정책 적용 중: ${getAgentImagePolicyLabel(policy)}`, 'info');
+
+  if (policy !== 'none') {
+    thumbnailUrl = await generateAgentImage(
+      thumbnailEngine,
+      buildAgentThumbnailPrompt(title || topic, topic, thumbnailTextIncluded),
+      thumbnailTextIncluded,
+      '썸네일'
+    );
+    if (thumbnailUrl) {
+      addLog('Agent 썸네일 이미지를 생성했습니다.', 'success');
+      appendAgentGeneratedImagePreview({ url: thumbnailUrl, label: '썸네일' });
+    }
+  }
+
+  if (policy === 'thumbnail-only') {
+    return { content, thumbnailUrl };
+  }
+
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(content, 'text/html');
+    const root = doc.querySelector('article') || doc.body;
+    const h2Nodes = Array.from(root.querySelectorAll('h2'));
+    let inserted = 0;
+
+    for (let i = 0; i < h2Nodes.length; i++) {
+      const index = i + 1;
+      if (!shouldGenerateH2Image(policy, index)) continue;
+      const h2 = h2Nodes[i];
+      const h2Text = (h2.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!h2Text) continue;
+
+      updateAgentProgress(Math.min(82, 76 + inserted + 1), `H2 ${index} 이미지 생성 중: ${h2Text.slice(0, 28)}`, 'info');
+      const imageUrl = await generateAgentImage(
+        h2Engine,
+        buildAgentH2ImagePrompt(h2Text, topic),
+        false,
+        `H2 ${index}`
+      );
+      if (!imageUrl) continue;
+      appendAgentGeneratedImagePreview({ url: imageUrl, label: `H2 ${index}` });
+
+      const figure = doc.createElement('figure');
+      figure.className = 'agent-generated-h2-image';
+      figure.setAttribute('data-agent-image', 'generated');
+      figure.setAttribute('style', 'margin:18px 0;text-align:center;');
+      const img = doc.createElement('img');
+      img.src = imageUrl;
+      img.alt = h2Text;
+      img.loading = 'lazy';
+      img.setAttribute('style', 'max-width:100%;height:auto;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.1);');
+      figure.appendChild(img);
+      h2.insertAdjacentElement('afterend', figure);
+      inserted++;
+    }
+
+    if (inserted > 0) {
+      content = root.tagName.toLowerCase() === 'article' ? root.outerHTML : doc.body.innerHTML;
+      addLog(`Agent H2 이미지 ${inserted}장을 본문에 삽입했습니다.`, 'success');
+    }
+  } catch (error) {
+    addLog(`Agent H2 이미지 후처리 실패: ${error?.message || error}`, 'warning');
+  }
+
+  return { content, thumbnailUrl };
+}
+
 export async function runAgentJobFromPosting(payload = null) {
   ensureStyles();
   ensureModal();
@@ -2829,7 +3315,7 @@ export function closeCodexWorkshopPanel() {
   $(MODAL_ID)?.classList.remove('is-open');
 }
 
-export async function applyCodexResult() {
+export async function applyCodexResult(options = {}) {
   try {
     const raw = $('codexResultPaste')?.value?.trim() || '';
     if (!raw) {
@@ -2845,7 +3331,7 @@ export async function applyCodexResult() {
     const appState = getAppState();
     appState.generatedContent.title = title;
     appState.generatedContent.content = html;
-    appState.generatedContent.thumbnailUrl = '';
+    appState.generatedContent.thumbnailUrl = options.thumbnailUrl || '';
     appState.generatedContent.payload = {
       ...payload,
       provider: 'codex-workshop',
@@ -2875,6 +3361,7 @@ export function initCodexWorkshop() {
   window.closeCodexWorkshopPanel = closeCodexWorkshopPanel;
   window.applyCodexResult = applyCodexResult;
   window.runAgentJobFromPosting = runAgentJobFromPosting;
+  window.getAgentImageSettingsMode = getAgentImageSettingsMode;
   window.refreshAgentModeSettings = () => {
     ensureAgentSettingsSection();
     return loadAgentModeStatus(true);
