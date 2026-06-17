@@ -5897,6 +5897,8 @@ const AGENT_MODE_REQUIRED_TIER = 'standard';
 const AGENT_MODE_REQUIRED_NAME = '스탠다드 (3개월)';
 const AGENT_JOB_TIMEOUT_MS = 12 * 60 * 1000;
 const AGENT_LOGIN_URL_WAIT_MS = 25000;
+const CODEX_AGENT_DEFAULT_MODEL = 'gpt-5.5';
+const CODEX_CHATGPT_MODEL_ERROR_RE = /not supported when using Codex with a ChatGPT account|gpt-5\.3-codex/i;
 
 function isAgentModeDevOverride(): boolean {
   return !app.isPackaged || process.env.DEV_MODE === 'true' || process.env.NODE_ENV === 'development';
@@ -5924,6 +5926,11 @@ function ensureAgentJobsRoot(): string {
   const root = getAgentJobsRoot();
   fs.mkdirSync(root, { recursive: true });
   return root;
+}
+
+function getCodexAgentModel(): string {
+  const model = String(process.env.LEADERNAM_CODEX_AGENT_MODEL || CODEX_AGENT_DEFAULT_MODEL).trim();
+  return model || CODEX_AGENT_DEFAULT_MODEL;
 }
 
 function normalizeAgentProvider(value: unknown): AgentModeProvider {
@@ -6263,6 +6270,7 @@ function buildAgentRunCommand(profile: AgentProfile, jobDir: string, lastMessage
       args: [
         'exec',
         '--json',
+        '-m', getCodexAgentModel(),
         '--sandbox', 'workspace-write',
         '--skip-git-repo-check',
         '-o', lastMessagePath,
@@ -6528,6 +6536,49 @@ function readAgentJobResult(jobDir: string, stdout: string, lastMessagePath: str
 
   const title = String(metadata?.title || extractHtmlTitle(content) || '').trim();
   return { content, title, metadata, finalMessage };
+}
+
+function normalizeAgentErrorMessage(value: unknown): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = JSON.parse(raw);
+    return String(parsed?.error?.message || parsed?.message || raw).trim();
+  } catch {
+    return raw;
+  }
+}
+
+function extractAgentProcessError(stdout: string, stderr: string): string {
+  const lines = `${stderr || ''}\n${stdout || ''}`.split(/\r?\n/).reverse();
+  for (const line of lines) {
+    const text = line.trim();
+    if (!text || !text.startsWith('{')) continue;
+    try {
+      const event = JSON.parse(text);
+      const message = normalizeAgentErrorMessage(event?.message || event?.error?.message);
+      if (message) return message;
+    } catch {
+      // ignore non-JSON progress lines
+    }
+  }
+  return '';
+}
+
+function buildAgentFailureMessage(profile: AgentProfile, run: { stdout: string; stderr: string; timedOut: boolean }): string {
+  if (run.timedOut) {
+    return 'Agent 작업 시간이 초과되었습니다. 더 짧은 지시서로 다시 시도하세요.';
+  }
+
+  const combined = `${run.stderr || ''}\n${run.stdout || ''}`;
+  const processError = extractAgentProcessError(run.stdout, run.stderr);
+  if (profile.provider === 'codex' && CODEX_CHATGPT_MODEL_ERROR_RE.test(combined)) {
+    return `Codex 모델이 ChatGPT 구독 계정에서 거절되었습니다. Orbit은 이제 Codex를 ${getCodexAgentModel()}로 실행하도록 수정되었습니다. 앱을 업데이트한 뒤 다시 시도해주세요.`;
+  }
+  if (processError) {
+    return `${profile.provider === 'codex' ? 'Codex' : 'Claude Code'} 오류: ${processError}`;
+  }
+  return 'Agent 산출물을 찾지 못했습니다.';
 }
 
 function writeDefaultAgentProfileFiles(profile: AgentProfile): void {
@@ -7418,6 +7469,7 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
     const hasContent = !!String(result.content || '').trim();
 
     if (!hasContent) {
+      const errorMessage = buildAgentFailureMessage(profile, run);
       return {
         ok: false,
         jobId,
@@ -7425,9 +7477,7 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
         profile: toAgentProfileView(profile),
         exitCode: run.exitCode,
         timedOut: run.timedOut,
-        error: run.timedOut
-          ? 'Agent 작업 시간이 초과되었습니다. 더 짧은 지시서로 다시 시도하세요.'
-          : 'Agent 산출물을 찾지 못했습니다.',
+        error: errorMessage,
         stdout: run.stdout.slice(-12000),
         stderr: run.stderr.slice(-12000),
       };
