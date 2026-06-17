@@ -4,11 +4,8 @@ import { DOMCache, getAppState, getStorageManager, ButtonStateManager, getProgre
 import { showTab, openSettingsModal, closeSettingsModal, showProgressModal, hideProgressModal, setRunning, cancelProgress, startAutoBackup, openPexelsApiPage, openDalleApiPage, openNaverApiPage, openGoogleOAuthPage, openGoogleTrends, openGeminiApiPage, openGoogleCseApiPage, openKeywordMasterModal, closeKeywordMasterModal, openKeywordMaster, togglePlatformFields, showNotification } from './ui.js';
 import { openExternalLinksModal, closeExternalLinksModal } from './external-links.js';
 import { showGuide, closeGuide } from './guide.js';
-import './semi-auto.js'; // 반자동 이미지 관리 모듈
-import './internal-links.js'; // 내부링크 관리 모듈
 import { runPosting, publishToPlatform, createPayload, createPayloadFromForm, createPreviewPayload } from './posting.js';
 import { generatePreview, displayPreviewInModal, showPreviewModal, closePreviewModal } from './preview.js';
-import { initCodexWorkshop, openCodexWorkshopPanel, closeCodexWorkshopPanel, applyCodexResult, runAgentJobFromPosting } from './codex-workshop.js';
 import { loadSettings, saveSettings, loadSettingsContent, updateApiKeyStatus, updatePlatformStatus, loadLicenseInfo, isLicenseValid, checkPlatformConnection, checkCseConnection, startBloggerOAuth, closeBloggerAuthCodeModal } from './settings.js';
 import { updateKeywordCount, addKeyword, removeKeyword, getAllKeywords, getH2ImageSections, updateRealtimeClock, updateRealtimeDate, initializeProgressSteps, resetProgressSteps, updateProgressStep, onCalendarDateClick, toggleCalendarMemoComplete } from './utils.js';
 import { onLog, onProgress } from './api.js';
@@ -18,16 +15,113 @@ import { generateTextThumbnail, generateTextThumbnailWithBackground, downloadThu
 import { initTutorialModule } from './tutorial.js';
 import { initSidebar } from './sidebar.js';
 // v3.8.39: initKeywordDiscover 제거 — LEWORD 외부 앱으로 대체.
-import './leword-launcher.js'; // window.runLewordLauncher 등록
-import './external-traffic.js'; // v3.7.23: window.initExternalTrafficTab + 플랫폼 변환 함수들
-import './quality-report-modal.js'; // window.showQualityReportModal / accumulateQualityReport / showQueueQualityReport 등록
 import { initContentStubs } from './content-stubs.js';
-import './adsense-tools.js'; // 애드센스 도구 탭 모듈 (window.__initAdsenseTools 등록)
-import { renderOneclickSetupTab, initOneclickSetup } from './oneclick-setup.js'; // 🚀 원클릭 세팅 모듈
-import { initPublishQueue } from './publish-queue.js'; // 🚀 연속발행 대기열 모듈
-import { initFirstRunWizard } from './first-run-wizard.js';
 
 window.__bgptUseModuleProgressListener = true;
+
+const deferredModuleCache = new Map();
+
+function idleTask(callback, timeout = 1800) {
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(callback, { timeout });
+    return;
+  }
+  setTimeout(callback, Math.min(timeout, 1200));
+}
+
+function loadDeferredModule(key, importer) {
+  if (!deferredModuleCache.has(key)) {
+    deferredModuleCache.set(key, importer().catch((error) => {
+      deferredModuleCache.delete(key);
+      console.warn(`[MAIN] deferred module load failed: ${key}`, error);
+      throw error;
+    }));
+  }
+  return deferredModuleCache.get(key);
+}
+
+async function loadCodexWorkshopModule() {
+  const mod = await loadDeferredModule('codex-workshop', () => import('./codex-workshop.js'));
+  try { mod.initCodexWorkshop?.(); } catch (error) { console.warn('[CODEX-WORKSHOP] init failed:', error); }
+  return mod;
+}
+
+function installDeferredGlobalWrappers() {
+  window.openCodexWorkshopPanel = async (...args) => (await loadCodexWorkshopModule()).openCodexWorkshopPanel?.(...args);
+  window.closeCodexWorkshopPanel = async (...args) => (await loadCodexWorkshopModule()).closeCodexWorkshopPanel?.(...args);
+  window.applyCodexResult = async (...args) => (await loadCodexWorkshopModule()).applyCodexResult?.(...args);
+  window.runAgentJobFromPosting = async (...args) => (await loadCodexWorkshopModule()).runAgentJobFromPosting?.(...args);
+
+  window.initExternalTrafficTab = async (...args) => {
+    const before = window.initExternalTrafficTab;
+    await loadDeferredModule('external-traffic', () => import('./external-traffic.js'));
+    const fn = window.initExternalTrafficTab;
+    if (typeof fn === 'function' && fn !== before) return fn(...args);
+    return undefined;
+  };
+
+  window.__initAdsenseTools = async (...args) => {
+    const before = window.__initAdsenseTools;
+    await loadDeferredModule('adsense-tools', () => import('./adsense-tools.js'));
+    const fn = window.__initAdsenseTools;
+    if (typeof fn === 'function' && fn !== before) return fn(...args);
+    return undefined;
+  };
+
+  window.runLewordLauncher = async (...args) => {
+    const before = window.runLewordLauncher;
+    const mod = await loadDeferredModule('leword-launcher', () => import('./leword-launcher.js'));
+    const fn = mod.runLewordLauncher || window.runLewordLauncher;
+    if (typeof fn === 'function' && fn !== before) return fn(...args);
+    return undefined;
+  };
+}
+
+function scheduleDeferredStartupModules() {
+  idleTask(async () => {
+    try { await loadDeferredModule('leword-launcher', () => import('./leword-launcher.js')); } catch {}
+    try { await loadDeferredModule('quality-report-modal', () => import('./quality-report-modal.js')); } catch {}
+  }, 900);
+
+  idleTask(async () => {
+    try { await loadDeferredModule('semi-auto', () => import('./semi-auto.js')); } catch {}
+    try { await loadDeferredModule('internal-links', () => import('./internal-links.js')); } catch {}
+    try { await loadDeferredModule('external-traffic', () => import('./external-traffic.js')); } catch {}
+    try { await loadDeferredModule('adsense-tools', () => import('./adsense-tools.js')); } catch {}
+  }, 1600);
+
+  idleTask(async () => {
+    try {
+      const mod = await loadDeferredModule('oneclick-setup', () => import('./oneclick-setup.js'));
+      mod.initOneclickSetup?.();
+      const oneclickContainer = document.getElementById('oneclick-setup-container');
+      if (oneclickContainer && !oneclickContainer.dataset.rendered) {
+        oneclickContainer.innerHTML = mod.renderOneclickSetupTab?.() || '';
+        oneclickContainer.dataset.rendered = '1';
+      }
+    } catch (error) {
+      console.warn('[ONECLICK] deferred init failed:', error);
+    }
+
+    try {
+      const mod = await loadDeferredModule('publish-queue', () => import('./publish-queue.js'));
+      mod.initPublishQueue?.();
+    } catch (error) {
+      console.warn('[PUBLISH-QUEUE] deferred init failed:', error);
+    }
+
+    try { await loadCodexWorkshopModule(); } catch (error) { console.warn('[CODEX-WORKSHOP] deferred init failed:', error); }
+
+    try {
+      const mod = await loadDeferredModule('first-run-wizard', () => import('./first-run-wizard.js'));
+      mod.initFirstRunWizard?.();
+    } catch (error) {
+      console.warn('[WIZARD] deferred init failed:', error);
+    }
+  }, 2400);
+}
+
+installDeferredGlobalWrappers();
 
 function startSharedRealtimeUpdates(source = 'module-main') {
   if (typeof window.__bgptStartRealtimeUpdates === 'function') {
@@ -377,10 +471,6 @@ console.log('[MAIN] 워드프레스 함수 즉시 정의 완료');
   window.displayPreviewInModal = displayPreviewInModal;
   window.showPreviewModal = showPreviewModal;
   window.closePreviewModal = closePreviewModal;
-  window.openCodexWorkshopPanel = openCodexWorkshopPanel;
-  window.closeCodexWorkshopPanel = closeCodexWorkshopPanel;
-  window.applyCodexResult = applyCodexResult;
-  window.runAgentJobFromPosting = runAgentJobFromPosting;
 
   // 설정 함수들
   window.loadSettings = loadSettings;
@@ -522,20 +612,14 @@ async function initializeApp() {
     debugLog('MAIN', '콘텐츠변환 stub 등록 완료');
 
     // 5.9. 원클릭 세팅 초기화
-    initOneclickSetup();
+    scheduleDeferredStartupModules();
+    debugLog('MAIN', 'deferred startup modules scheduled');
     // 원클릭 세팅 탭 콘텐츠 렌더링
-    const oneclickContainer = document.getElementById('oneclick-setup-container');
-    if (oneclickContainer) {
-      oneclickContainer.innerHTML = renderOneclickSetupTab();
-    }
 
     // 5.10. 연속발행 대기열 초기화 (줄바꿈 키워드 감지)
-    initPublishQueue();
-    try { initCodexWorkshop(); } catch (e) { console.warn('[CODEX-WORKSHOP] 초기화 실패:', e); }
     debugLog('MAIN', '원클릭 세팅 모듈 초기화 완료');
 
     // 5.10. 첫 실행 마법사 초기화 (3분 세팅)
-    try { initFirstRunWizard(); } catch (e) { console.warn('[WIZARD] 초기화 실패:', e); }
 
     // 6. 설정 로드
     const settings = await loadSettings();
