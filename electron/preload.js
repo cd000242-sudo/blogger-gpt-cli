@@ -92,6 +92,14 @@ const api = {
     getLicense: () => electron_1.ipcRenderer.invoke('get-license'),
     activateLicense: (args) => electron_1.ipcRenderer.invoke('activate-license', args),
     saveLicense: (data) => electron_1.ipcRenderer.invoke('save-license', data),
+    getAgentModeStatus: () => electron_1.ipcRenderer.invoke('agent-mode:get-status'),
+    listAgentProfiles: () => electron_1.ipcRenderer.invoke('agent-mode:list-profiles'),
+    createAgentProfile: (args) => electron_1.ipcRenderer.invoke('agent-mode:create-profile', args),
+    getAgentLoginCommand: (args) => electron_1.ipcRenderer.invoke('agent-mode:get-login-command', args),
+    installAgentTool: (args) => electron_1.ipcRenderer.invoke('agent-mode:install-tool', args),
+    startAgentLogin: (args) => electron_1.ipcRenderer.invoke('agent-mode:start-login', args),
+    checkAgentLogin: (args) => electron_1.ipcRenderer.invoke('agent-mode:check-login', args),
+    runAgentJob: (args) => electron_1.ipcRenderer.invoke('agent-mode:run-job', args),
     onLicenseUpdated: (listener) => {
         const handler = (_e, d) => { try {
             listener(d);

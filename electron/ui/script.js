@@ -1411,6 +1411,11 @@ window.refreshEngineLoginCards = function () {
   const usesDropshot = both.some(v => /^dropshot/.test(v));
   const imagefxCard = document.getElementById('imagefxLoginCardWrap');
   const dropshotCard = document.getElementById('dropshotLoginCardWrap');
+  if (window.getAgentImageSettingsMode?.()?.codexImageManaged) {
+    if (imagefxCard) imagefxCard.style.display = 'none';
+    if (dropshotCard) dropshotCard.style.display = 'none';
+    return;
+  }
   if (imagefxCard) imagefxCard.style.display = usesGoogle ? 'block' : 'none';
   if (dropshotCard) dropshotCard.style.display = usesDropshot ? 'block' : 'none';
 };
@@ -2329,6 +2334,10 @@ function getCurrentImageEngineCost() {
 window.updateImageCostPreview = function () {
   const previewEl = document.getElementById('imageCostPreviewValue');
   if (!previewEl) return;
+  if (window.getAgentImageSettingsMode?.()?.codexImageManaged) {
+    previewEl.textContent = 'Codex Agent 관리';
+    return;
+  }
 
   const mode = document.getElementById('h2ImageMode')?.value || 'all';
   const { h2, thumb, h2Engine, thumbEngine } = getCurrentImageEngineCost();
@@ -6301,6 +6310,63 @@ function addWorkRecordTemplate(templateType) {
 // 🔥 AI 모델/엔진 배지 업데이트 (상단 헤더 + 상단 카드 배지 + 포스팅 탭 칩)
 async function updateAiModelStatus() {
   try {
+    const readJsonStorage = (key, fallback = '') => {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+      } catch {
+        return localStorage.getItem(key) || fallback;
+      }
+    };
+
+    const executionMode = readJsonStorage('leadernamExecutionMode', 'api');
+    const agentProvider = readJsonStorage('leadernamActiveAgentProvider', 'codex') === 'claude' ? 'claude' : 'codex';
+    try { window.applyAgentImageSettingsVisibility?.(); } catch {}
+    if (executionMode === 'agent') {
+      const info = agentProvider === 'claude'
+        ? {
+            label: 'Claude Code Agent',
+            short: 'Claude Code',
+            emoji: '🟠',
+            color: '#f97316',
+            note: '이미지 생성은 별도 엔진',
+          }
+        : {
+            label: 'Codex Agent',
+            short: 'Codex',
+            emoji: '🧠',
+            color: '#38bdf8',
+            note: '이미지는 GPT Image/별도 엔진 연동',
+          };
+
+      const headerBadge = document.getElementById('aiModelStatus');
+      if (headerBadge) {
+        headerBadge.textContent = `${info.label}`;
+        headerBadge.title = info.note;
+        headerBadge.style.color = info.color;
+        headerBadge.style.background = `${info.color}26`;
+        headerBadge.style.borderColor = `${info.color}66`;
+      }
+
+      const engineBadge = document.getElementById('aiEngineBadge');
+      if (engineBadge) {
+        engineBadge.textContent = `${info.emoji} ${info.label}`;
+        engineBadge.title = info.note;
+        engineBadge.style.color = info.color;
+        engineBadge.style.background = `${info.color}33`;
+        engineBadge.style.borderColor = `${info.color}4D`;
+      }
+
+      const engineLabelEl = document.getElementById('currentEngineLabel');
+      if (engineLabelEl) {
+        engineLabelEl.textContent = `${info.emoji} ${info.label} · ${info.note}`;
+        engineLabelEl.style.color = info.color;
+      }
+
+      console.log(`[AI-BADGE] Agent 업데이트: ${info.label} (${info.note})`);
+      return;
+    }
+
     // 1순위: 환경설정 라디오 버튼 (단일 진실 소스)
     const tierRadio = document.querySelector('input[name="primaryGeminiTextModel"]:checked');
     // 2순위: 저장된 설정
@@ -6379,6 +6445,193 @@ async function updateAiModelStatus() {
   }
 }
 window.updateAiModelStatus = updateAiModelStatus;
+
+function readAgentModeStorageValue(key, fallback = '') {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return localStorage.getItem(key) || fallback;
+  }
+}
+
+function getAgentImageSettingsMode() {
+  const executionMode = readAgentModeStorageValue('leadernamExecutionMode', 'api') === 'agent' ? 'agent' : 'api';
+  const provider = readAgentModeStorageValue('leadernamActiveAgentProvider', 'codex') === 'claude' ? 'claude' : 'codex';
+  return {
+    executionMode,
+    provider,
+    isAgentMode: executionMode === 'agent',
+    codexImageManaged: executionMode === 'agent' && provider === 'codex',
+    claudeNeedsImageEngine: executionMode === 'agent' && provider === 'claude',
+  };
+}
+
+function ensureAgentImageSettingsStyles() {
+  if (document.getElementById('agentImageSettingsModeStyles')) return;
+  const style = document.createElement('style');
+  style.id = 'agentImageSettingsModeStyles';
+  style.textContent = `
+    .agent-image-managed-field {
+      opacity: .54 !important;
+      filter: grayscale(.2);
+    }
+    .agent-image-managed-field select,
+    .agent-image-managed-field input,
+    .agent-image-managed-field button {
+      cursor: not-allowed !important;
+    }
+    .agent-image-managed-note {
+      margin: 10px 0 12px;
+      padding: 10px 12px;
+      border: 1px solid rgba(56,189,248,.35);
+      border-radius: 10px;
+      background: rgba(14,165,233,.11);
+      color: #bae6fd;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.45;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function getAgentImageFieldWrapper(el) {
+  if (!el) return null;
+  return el.closest('.acc-field, .pq-field, [data-agent-image-setting], label') || el.parentElement;
+}
+
+function setAgentManagedControl(el, locked, title) {
+  if (!el) return;
+  if (locked) {
+    if (!Object.prototype.hasOwnProperty.call(el.dataset, 'agentPrevDisabled')) {
+      el.dataset.agentPrevDisabled = el.disabled ? '1' : '0';
+    }
+    if (!Object.prototype.hasOwnProperty.call(el.dataset, 'agentPrevTitle')) {
+      el.dataset.agentPrevTitle = el.getAttribute('title') || '';
+    }
+    el.disabled = true;
+    el.setAttribute('aria-disabled', 'true');
+    el.setAttribute('title', title);
+  } else if (Object.prototype.hasOwnProperty.call(el.dataset, 'agentPrevDisabled')) {
+    el.disabled = el.dataset.agentPrevDisabled === '1';
+    const previousTitle = el.dataset.agentPrevTitle || '';
+    if (previousTitle) el.setAttribute('title', previousTitle);
+    else el.removeAttribute('title');
+    el.removeAttribute('aria-disabled');
+    delete el.dataset.agentPrevDisabled;
+    delete el.dataset.agentPrevTitle;
+  }
+}
+
+function setAgentImageWrapperState(wrapper, locked) {
+  if (!wrapper) return;
+  wrapper.classList.toggle('agent-image-managed-field', locked);
+}
+
+function toggleAgentImageNote(id, anchor, locked, message) {
+  const existing = document.getElementById(id);
+  if (!locked) {
+    existing?.remove();
+    return;
+  }
+  if (!anchor || existing) return;
+  const note = document.createElement('div');
+  note.id = id;
+  note.className = 'agent-image-managed-note';
+  note.textContent = message;
+  anchor.insertAdjacentElement('beforebegin', note);
+}
+
+function applyAgentImageSettingsVisibility(root = document) {
+  ensureAgentImageSettingsStyles();
+  const mode = getAgentImageSettingsMode();
+  const locked = !!mode.codexImageManaged;
+  const lockTitle = 'Codex Agent가 이미지 생성까지 관리하므로 이미지 엔진 설정은 비활성화됩니다.';
+
+  const selectors = [
+    '#thumbnailType',
+    '#thumbnailTypeLeonardoModel',
+    '#h2ImageSource',
+    '#h2LeonardoModel',
+    '#h2ImageMode',
+    '#strictThumbnailEngine',
+    '#strictH2ImageEngine',
+    '#swThumbnailEngine',
+    '#swH2ImageEngine',
+    '#swImageIncludeText',
+    'input[name="swImagePolicy"]',
+    '#pq-bulk-thumb',
+    '#pq-bulk-h2',
+    '#pq-bulk-h2-mode',
+    '.pq-item-thumb',
+    '.pq-item-h2',
+    '.pq-item-h2-mode',
+  ];
+  const controls = selectors.flatMap((selector) => Array.from(root.querySelectorAll(selector)));
+  const wrappers = new Set();
+  controls.forEach((control) => {
+    setAgentManagedControl(control, locked, lockTitle);
+    const wrapper = getAgentImageFieldWrapper(control);
+    if (wrapper) wrappers.add(wrapper);
+  });
+  wrappers.forEach((wrapper) => setAgentImageWrapperState(wrapper, locked));
+
+  const postingAnchor = getAgentImageFieldWrapper(document.getElementById('thumbnailType'));
+  toggleAgentImageNote(
+    'agentCodexPostingImageNote',
+    postingAnchor,
+    locked,
+    'Codex Agent 선택 중: 이미지 생성은 Codex 작업 흐름에서 함께 처리하므로 썸네일/본문 이미지 엔진 설정을 잠급니다. Claude Code 또는 API 모드에서는 다시 수정할 수 있습니다.'
+  );
+
+  const spiderAnchor = document.querySelector('input[name="swImagePolicy"]')?.closest('div')
+    || getAgentImageFieldWrapper(document.getElementById('swThumbnailEngine'));
+  toggleAgentImageNote(
+    'agentCodexSpiderImageNote',
+    spiderAnchor,
+    locked,
+    'Codex Agent 선택 중: 거미줄 포스팅의 이미지 지시는 Codex가 함께 처리하므로 별도 이미지 설정을 잠급니다.'
+  );
+
+  const queueAnchor = document.getElementById('pq-current-settings') || document.getElementById('pq-bulk-thumb')?.parentElement;
+  toggleAgentImageNote(
+    'agentCodexQueueImageNote',
+    queueAnchor,
+    locked,
+    'Codex Agent 선택 중: 대기열의 썸네일/본문 이미지 설정은 잠깁니다. Claude Code는 별도 이미지 엔진이 필요하므로 이 설정을 계속 사용할 수 있습니다.'
+  );
+
+  const extTrafficAnchor = document.getElementById('extTrafficSubtabNav')
+    || document.querySelector('#external-traffic-tab h2')?.closest('div');
+  toggleAgentImageNote(
+    'agentCodexExtTrafficImageNote',
+    extTrafficAnchor,
+    locked,
+    'Codex Agent 선택 중: 외부유입글의 핀터레스트 이미지 프롬프트와 이미지 지시는 Codex 작업 흐름에서 함께 처리합니다. Claude Code/API 모드에서는 별도 이미지 생성용 프롬프트로 유지됩니다.'
+  );
+
+  ['swImagefxLoginCard', 'swDropshotLoginCard', 'imagefxLoginCardWrap', 'dropshotLoginCardWrap'].forEach((id) => {
+    const card = document.getElementById(id);
+    if (card && locked) card.style.display = 'none';
+  });
+
+  if (!locked) {
+    try { window._spiderWebUpdateEngineCards?.(); } catch {}
+    try { window.refreshEngineLoginCards?.(); } catch {}
+  }
+  try { window.updateImageCostPreview?.(); } catch {}
+  return mode;
+}
+
+window.getAgentImageSettingsMode = getAgentImageSettingsMode;
+window.applyAgentImageSettingsVisibility = applyAgentImageSettingsVisibility;
+
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    try { applyAgentImageSettingsVisibility(); } catch (e) { console.warn('[AGENT-IMAGE-UI] apply failed:', e); }
+  }, 700);
+});
 
 // 환경설정 라디오 변경 시 배지 자동 업데이트
 document.addEventListener('change', (e) => {

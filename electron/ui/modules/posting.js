@@ -304,6 +304,13 @@ export async function runPosting() {
     }
   }
 
+  const executionMode = (() => {
+    try { return JSON.parse(localStorage.getItem('leadernamExecutionMode') || '"api"'); }
+    catch { return localStorage.getItem('leadernamExecutionMode') || 'api'; }
+  })();
+  const shouldUseAgentGeneration = !isQueueRun
+    && executionMode === 'agent'
+    && !appState.generatedContent?.content?.trim();
   try {
     debugLog('POSTING', '포스팅 실행 시작');
 
@@ -386,6 +393,42 @@ export async function runPosting() {
     }
 
     // ── Guard: 백엔드 연결 확인 ──
+    if (shouldUseAgentGeneration) {
+      if (typeof window.runAgentJobFromPosting !== 'function') {
+        throw new Error('Agent 실행 모듈을 아직 준비하지 못했습니다. 앱을 다시 실행한 뒤 시도해주세요.');
+      }
+      addLog('Agent 모드: 현재 상세설정으로 글 생성을 시작합니다.', 'info');
+      const agentResult = await window.runAgentJobFromPosting(payload);
+      setFinalResult({
+        ok: true,
+        published: false,
+        title: agentResult?.title || payload.title || payload.topic || keywordValue || '',
+        url: '',
+        error: '',
+        agentMode: true,
+      });
+      appState.isRunning = false;
+      setRunning(false);
+      ButtonStateManager.restore('publishBtn');
+      try {
+        const previewModal = document.getElementById('previewModal');
+        if (previewModal?.style) previewModal.style.display = 'none';
+      } catch {}
+      hideProgressModal();
+      addLog('Agent 생성 완료: 기존 발행 흐름으로 이어서 진행합니다.', 'info');
+      const publishResult = await publishToPlatform();
+      const publishedOk = !!(publishResult?.ok || publishResult?.success);
+      setFinalResult({
+        ok: publishedOk,
+        published: publishedOk,
+        title: publishResult?.title || agentResult?.title || payload.title || payload.topic || keywordValue || '',
+        url: publishResult?.url || '',
+        error: publishedOk ? '' : (publishResult?.error || 'agent_publish_failed'),
+        agentMode: true,
+      });
+      return finalResult;
+    }
+
     if (!window.blogger?.runPost) {
       throw new Error('백엔드 연결 실패: window.blogger.runPost를 찾을 수 없습니다.');
     }
@@ -706,8 +749,7 @@ export async function publishToPlatform() {
   });
 
   if (isQueueRun) {
-    await runPosting();
-    return;
+    return await runPosting();
   }
 
   // 이미 생성된 콘텐츠가 있으면 재발행 경로
@@ -797,11 +839,15 @@ export async function publishToPlatform() {
         }
         // 🔥 발행 완료 알림 (모달은 finally에서 닫힘)
         try { showNotification('🎉 블로그 포스트 발행 완료!', 4000); } catch {}
+        return result;
       } else {
-        addLog('❌ 발행 실패: ' + (result?.error || '알 수 없는 오류'), 'error');
+        const publishError = result?.error || '알 수 없는 오류';
+        addLog('❌ 발행 실패: ' + publishError, 'error');
+        return result || { ok: false, error: publishError };
       }
     } catch (error) {
       getErrorHandler().handle(error, { function: 'publishToPlatform' });
+      return { ok: false, error: error?.message || String(error || 'publish_error') };
     } finally {
       appState.isRunning = false;
       setRunning(false);
@@ -816,7 +862,7 @@ export async function publishToPlatform() {
     }
   } else {
     // 콘텐츠가 없으면 전체 생성+발행 흐름 (runPosting의 finally가 이벤트 발사)
-    await runPosting();
+    return await runPosting();
   }
 }
 
@@ -898,6 +944,10 @@ function getManualCtas(ctaMode) {
 
 /** H2 이미지 설정 수집 */
 function getH2ImageSettingsFromDOM() {
+  const agentImageMode = typeof window !== 'undefined' && typeof window.getAgentImageSettingsMode === 'function'
+    ? window.getAgentImageSettingsMode()
+    : null;
+  const codexImageManaged = !!agentImageMode?.codexImageManaged;
   // window.getH2ImageSections가 있으면 우선 사용
   if (window.getH2ImageSections) {
     const settings = window.getH2ImageSections();
@@ -911,6 +961,8 @@ function getH2ImageSettingsFromDOM() {
       h2ImageSections: settings.sections || [],
       h2Images: { ...settings, leonardoModel },
       leonardoModel,
+      agentImageManaged: codexImageManaged || undefined,
+      imageManagedBy: codexImageManaged ? 'codex-agent' : undefined,
     };
   }
 
@@ -933,6 +985,8 @@ function getH2ImageSettingsFromDOM() {
     h2ImageSections: h2ImageSections,
     h2Images: { source: h2ImageSourceValue, sections: h2ImageSections, leonardoModel },
     leonardoModel,
+    agentImageManaged: codexImageManaged || undefined,
+    imageManagedBy: codexImageManaged ? 'codex-agent' : undefined,
   };
 }
 

@@ -103,6 +103,14 @@ export type BloggerApi = {
     | { ok: true; data: LicenseData }
     | { ok: false; error?: string }
   >;
+  getAgentModeStatus?(): Promise<any>;
+  listAgentProfiles?(): Promise<any>;
+  createAgentProfile?(args: { provider: 'codex' | 'claude'; label?: string; authMode?: 'subscription' | 'api' }): Promise<any>;
+  getAgentLoginCommand?(args: { id: string }): Promise<any>;
+  installAgentTool?(args: { provider: 'codex' | 'claude' }): Promise<any>;
+  startAgentLogin?(args: { id?: string; provider?: 'codex' | 'claude' }): Promise<any>;
+  checkAgentLogin?(args: { id?: string; provider?: 'codex' | 'claude' }): Promise<any>;
+  runAgentJob?(args: any): Promise<any>;
   onLicenseUpdated(listener: (d: LicenseData) => void): () => void;
   logout(): Promise<{ success: boolean; message?: string }>;
 
@@ -466,6 +474,14 @@ const api: BloggerApi = {
   getLicense:  () => ipcRenderer.invoke('get-license'),
   activateLicense: (args) => ipcRenderer.invoke('activate-license', args),
   saveLicense: (data) => ipcRenderer.invoke('save-license', data),
+  getAgentModeStatus: () => ipcRenderer.invoke('agent-mode:get-status'),
+  listAgentProfiles: () => ipcRenderer.invoke('agent-mode:list-profiles'),
+  createAgentProfile: (args) => ipcRenderer.invoke('agent-mode:create-profile', args),
+  getAgentLoginCommand: (args) => ipcRenderer.invoke('agent-mode:get-login-command', args),
+  installAgentTool: (args) => ipcRenderer.invoke('agent-mode:install-tool', args),
+  startAgentLogin: (args) => ipcRenderer.invoke('agent-mode:start-login', args),
+  checkAgentLogin: (args) => ipcRenderer.invoke('agent-mode:check-login', args),
+  runAgentJob: (args) => ipcRenderer.invoke('agent-mode:run-job', args),
 
   onLicenseUpdated: (listener) => {
     const handler = (_e: unknown, d: LicenseData) => { try { listener(d); } catch {} };

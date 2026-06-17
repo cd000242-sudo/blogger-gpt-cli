@@ -21,6 +21,34 @@ const PUBLISH_QUEUE_INTERVAL_STORAGE_KEY = 'publishQueueInterval.v1';
 const PUBLISH_QUEUE_MIN_MINUTES = 7;
 const PUBLISH_QUEUE_DEFAULT_INTERVAL = { mode: 'minutes', value: PUBLISH_QUEUE_MIN_MINUTES };
 
+function readQueueJsonStorage(key, fallback = '') {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return localStorage.getItem(key) || fallback;
+  }
+}
+
+function getQueueAgentImageMode() {
+  if (typeof window !== 'undefined' && typeof window.getAgentImageSettingsMode === 'function') {
+    return window.getAgentImageSettingsMode();
+  }
+  const executionMode = readQueueJsonStorage('leadernamExecutionMode', 'api') === 'agent' ? 'agent' : 'api';
+  const provider = readQueueJsonStorage('leadernamActiveAgentProvider', 'codex') === 'claude' ? 'claude' : 'codex';
+  return {
+    executionMode,
+    provider,
+    isAgentMode: executionMode === 'agent',
+    codexImageManaged: executionMode === 'agent' && provider === 'codex',
+    claudeNeedsImageEngine: executionMode === 'agent' && provider === 'claude',
+  };
+}
+
+function isQueueCodexImageManaged() {
+  return !!getQueueAgentImageMode()?.codexImageManaged;
+}
+
 function persistQueue() {
   try {
     localStorage.setItem(PUBLISH_QUEUE_STORAGE_KEY, JSON.stringify(STATE.keywords || []));
@@ -399,6 +427,7 @@ function classifyQueueImageEngine(engine) {
 }
 
 function getQueueItemMinIntervalMs(item) {
+  if (isQueueCodexImageManaged() || item?.agentImageManaged === true) return PQ_INTERVAL_FLOORS.general;
   const h2Mode = normalizeH2ImageMode(item?.h2ImageMode || 'all');
   const engines = h2Mode === 'none'
     ? []
@@ -418,6 +447,7 @@ function getQueueMinPublishIntervalMs(items) {
 }
 
 function getQueueIntervalReason(items) {
+  if (isQueueCodexImageManaged()) return 'Codex Agent 이미지 관리: 기본 간격';
   const minMs = getQueueMinPublishIntervalMs(items);
   if (minMs >= PQ_INTERVAL_FLOORS.browser) return '브라우저 이미지 엔진 감지: 최소 8분';
   if (minMs >= PQ_INTERVAL_FLOORS.slow) return '이미지 생성 엔진 기준: 최소 7분';
@@ -536,6 +566,7 @@ function getCurrentSectionCount() {
 }
 
 function getCurrentQueueSnapshot() {
+  const codexImageManaged = isQueueCodexImageManaged();
   const contentMode = getSelectValue('contentMode') || getSelectValue('scheduleContentMode') || 'external';
   const thumbnailMode = normalizeThumbEngine(getSelectValue('thumbnailType') || getSelectValue('scheduleThumbnailMode') || 'nanobanana2');
   const h2ImageSource = getCurrentH2ImageSource();
@@ -556,6 +587,8 @@ function getCurrentQueueSnapshot() {
     h2ImageSource,
     leonardoModel,
     h2ImageMode,
+    agentImageManaged: codexImageManaged || undefined,
+    imageManagedBy: codexImageManaged ? 'codex-agent' : undefined,
     ctaMode,
     manualCta: ctaMode === 'manual' ? getCurrentManualQueueCta() : undefined,
     platform,
@@ -582,6 +615,8 @@ function cloneQueueSnapshot(snapshot) {
     h2ImageSource: normalizeThumbEngine(snap.h2ImageSource || snap.thumbnailMode || 'nanobanana2'),
     leonardoModel: snap.leonardoModel || 'seedream-4.5',
     h2ImageMode: normalizeH2ImageMode(snap.h2ImageMode || 'all'),
+    agentImageManaged: !!snap.agentImageManaged,
+    imageManagedBy: snap.imageManagedBy || (snap.agentImageManaged ? 'codex-agent' : undefined),
     ctaMode: snap.ctaMode || 'auto',
     manualCta: normalizeManualCta(snap.manualCta),
     platform: normalizeQueuePlatform(snap.platform || 'blogspot'),
@@ -607,6 +642,8 @@ function snapshotFromItem(item) {
     h2ImageSource: item.h2ImageSource,
     leonardoModel: item.leonardoModel,
     h2ImageMode: item.h2ImageMode,
+    agentImageManaged: item.agentImageManaged,
+    imageManagedBy: item.imageManagedBy,
     ctaMode: item.ctaMode,
     manualCta: getItemManualCta(item),
     platform: item.platform,
@@ -641,6 +678,14 @@ function applySnapshotToItem(item, snapshot, options = {}) {
   if (force || !item.leonardoModel) item.leonardoModel = snap.leonardoModel || 'seedream-4.5';
   if (force || !item.h2ImageMode) item.h2ImageMode = normalizeH2ImageMode(snap.h2ImageMode);
   else item.h2ImageMode = normalizeH2ImageMode(item.h2ImageMode);
+  const codexImageManaged = isQueueCodexImageManaged();
+  if (codexImageManaged) {
+    item.agentImageManaged = true;
+    item.imageManagedBy = 'codex-agent';
+  } else {
+    delete item.agentImageManaged;
+    delete item.imageManagedBy;
+  }
   if (force || !item.ctaMode) item.ctaMode = snap.ctaMode;
   if (item.mode === 'adsense') item.ctaMode = 'none';
   if (force) item.manualCta = normalizeManualCta(snap.manualCta);
@@ -676,6 +721,9 @@ function buildSnapshotChips(snapshot) {
     ['섹션', `${snapshot.sectionCount}개`],
     ['팩트체크', snapshot.factCheckMode],
   ];
+  if (snapshot.agentImageManaged) {
+    chips.splice(6, 0, ['이미지', 'Codex Agent 관리']);
+  }
   if (snapshot.postingMode === 'schedule' && snapshot.scheduleDate) {
     chips.splice(2, 0, ['예약', snapshot.scheduleDate.replace('T', ' ')]);
   }
@@ -1254,6 +1302,7 @@ function refreshList() {
 </div>`;
   listEl.innerHTML = `${header}<div class="pq-list-grid">${STATE.keywords.map((it, i) => buildItemRow(it, i)).join('')}</div>`;
   bindItemEvents();
+  try { window.applyAgentImageSettingsVisibility?.(document.getElementById('publishQueueModal') || document); } catch {}
   updateIntervalGuardHint();
 }
 
@@ -1493,6 +1542,7 @@ function getDefaultH2Sections() {
 
 function buildQueuePayloadOverrides(item, scheduleDateIso) {
   applySnapshotToItem(item, item.settingsSnapshot || undefined);
+  const codexImageManaged = isQueueCodexImageManaged() || item.agentImageManaged === true;
   const sourceUrl = item.contentUrl || item.sourceUrl || '';
   const h2Sections = getDefaultH2Sections();
   const h2ImageMode = normalizeH2ImageMode(item.h2ImageMode || 'all');
@@ -1518,6 +1568,8 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     h2ImageSections: h2Sections,
     h2Images: { source: normalizeThumbEngine(item.h2ImageSource || item.thumb), sections: h2Sections, mode: h2ImageMode, leonardoModel: item.leonardoModel || 'seedream-4.5' },
     skipImages: h2ImageMode === 'none',
+    agentImageManaged: codexImageManaged || undefined,
+    imageManagedBy: codexImageManaged ? 'codex-agent' : undefined,
     ctaMode: isAdsense ? 'none' : (item.ctaMode || 'auto'),
     manualCtas,
     publishType: postingMode,
@@ -1920,6 +1972,7 @@ function bindModalEvents() {
 
   // 일괄 적용
   document.getElementById('pq-bulk-apply')?.addEventListener('click', () => {
+    const codexImageManaged = isQueueCodexImageManaged();
     const m = document.getElementById('pq-bulk-mode')?.value;
     const t = document.getElementById('pq-bulk-thumb')?.value;
     const h = document.getElementById('pq-bulk-h2')?.value;
@@ -1933,10 +1986,15 @@ function bindModalEvents() {
     const fact = document.getElementById('pq-bulk-fact')?.value;
     STATE.keywords.forEach(item => {
       if (m) item.mode = m;
-      if (t) item.thumb = normalizeThumbEngine(t);
-      if (h === 'same') item.h2ImageSource = normalizeThumbEngine(item.thumb);
-      else if (h) item.h2ImageSource = normalizeThumbEngine(h);
-      if (hm) item.h2ImageMode = normalizeH2ImageMode(hm);
+      if (!codexImageManaged) {
+        if (t) item.thumb = normalizeThumbEngine(t);
+        if (h === 'same') item.h2ImageSource = normalizeThumbEngine(item.thumb);
+        else if (h) item.h2ImageSource = normalizeThumbEngine(h);
+        if (hm) item.h2ImageMode = normalizeH2ImageMode(hm);
+      } else {
+        item.agentImageManaged = true;
+        item.imageManagedBy = 'codex-agent';
+      }
       if (c) item.ctaMode = c;
       if (p) item.platform = normalizeQueuePlatform(p);
       if (pm) item.postingMode = normalizePostingMode(pm);
@@ -2011,6 +2069,8 @@ function bindModalEvents() {
         h2ImageMode,
         h2ImageSections: h2Sections,
         skipImages: h2ImageMode === 'none',
+        agentImageManaged: payload.agentImageManaged,
+        imageManagedBy: payload.imageManagedBy,
         sourceUrl: it.contentUrl || it.sourceUrl || undefined,
         contentUrl: it.contentUrl || it.sourceUrl || undefined,
         manualCrawlUrls: (it.contentUrl || it.sourceUrl) ? [it.contentUrl || it.sourceUrl] : undefined,
@@ -2081,7 +2141,11 @@ function bindModalEvents() {
     const runModal = createQueueRunModal(enabled, intervalLabel);
 
     try {
-      const usesDropshot = enabled.some(it => it.thumb === 'dropshot-nanobanana-pro' || it.h2ImageSource === 'dropshot-nanobanana-pro');
+      const codexImageManaged = isQueueCodexImageManaged();
+      const usesDropshot = !codexImageManaged && enabled.some(it => it.thumb === 'dropshot-nanobanana-pro' || it.h2ImageSource === 'dropshot-nanobanana-pro');
+      if (codexImageManaged) {
+        runModal.log('Codex Agent 이미지 관리 모드: 별도 이미지 엔진 로그인 확인을 건너뜁니다.');
+      }
       if (usesDropshot) {
         runModal.log('리더스 나노바나나 무제한 감지: 이미지 생성은 1개씩 순차 실행합니다.');
         if (window.electronAPI?.invoke) {

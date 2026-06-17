@@ -95,6 +95,22 @@ export async function saveSettings() {
       if (m === 'perplexity-sonar') return 'perplexity';
       return 'gemini';
     })(),
+    executionMode: (() => {
+      try { return JSON.parse(localStorage.getItem('leadernamExecutionMode') || '"api"'); }
+      catch { return localStorage.getItem('leadernamExecutionMode') || 'api'; }
+    })(),
+    activeAgentProvider: (() => {
+      try { return JSON.parse(localStorage.getItem('leadernamActiveAgentProvider') || '"codex"'); }
+      catch { return localStorage.getItem('leadernamActiveAgentProvider') || 'codex'; }
+    })(),
+    activeApiTextProvider: (() => {
+      try { return JSON.parse(localStorage.getItem('leadernamActiveApiTextProvider') || '"gemini"'); }
+      catch { return localStorage.getItem('leadernamActiveApiTextProvider') || 'gemini'; }
+    })(),
+    activeApiImageProvider: (() => {
+      try { return JSON.parse(localStorage.getItem('leadernamActiveApiImageProvider') || '"stability"'); }
+      catch { return localStorage.getItem('leadernamActiveApiImageProvider') || 'stability'; }
+    })(),
     promptMode: 'max-mode',
     toneStyle: document.getElementById('toneStyle')?.value || 'professional',
     imageFolderPath: document.getElementById('imageFolderPath')?.value || '',
@@ -138,7 +154,11 @@ export async function saveSettings() {
         toneStyle: settings.toneStyle,
         generationEngine: settings.generationEngine,
         primaryGeminiTextModel: settings.primaryGeminiTextModel,
-        defaultAiProvider: settings.defaultAiProvider
+        defaultAiProvider: settings.defaultAiProvider,
+        executionMode: settings.executionMode,
+        activeAgentProvider: settings.activeAgentProvider,
+        activeApiTextProvider: settings.activeApiTextProvider,
+        activeApiImageProvider: settings.activeApiImageProvider
       };
 
       const maskEnvValue = (value) => {

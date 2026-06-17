@@ -52,6 +52,28 @@ const getOrCreateDeviceId = oldLicenseManager.getOrCreateDeviceId;
 // 새로운 라이선스 시스템 (license-manager.ts)
 const license_manager_new_1 = require("../dist/utils/license-manager-new");
 const main_login_1 = require("./main-login");
+function installConsolePipeGuard() {
+    const swallowPipeError = (error) => {
+        if (error?.code === 'EPIPE' || error?.code === 'ERR_STREAM_DESTROYED')
+            return;
+    };
+    process.stdout?.on?.('error', swallowPipeError);
+    process.stderr?.on?.('error', swallowPipeError);
+    ['log', 'info', 'warn', 'error'].forEach((method) => {
+        const original = console[method].bind(console);
+        console[method] = (...args) => {
+            try {
+                original(...args);
+            }
+            catch (error) {
+                if (error?.code === 'EPIPE' || error?.code === 'ERR_STREAM_DESTROYED')
+                    return;
+                throw error;
+            }
+        };
+    });
+}
+installConsolePipeGuard();
 // 매직 넘버 상수화
 const TIMEOUT_MS = 15000;
 const MAX_CONTENT_LENGTH = 3000;
@@ -5449,6 +5471,917 @@ electron_1.ipcMain.handle('is-developer-mode', async () => {
 electron_1.ipcMain.handle('is-packaged', async () => {
     return { ok: true, isPackaged: electron_1.app.isPackaged };
 });
+const AGENT_MODE_REQUIRED_FEATURE = 'maxAgentMode';
+const AGENT_MODE_REQUIRED_TIER = 'standard';
+const AGENT_MODE_REQUIRED_NAME = '스탠다드 (3개월)';
+const AGENT_JOB_TIMEOUT_MS = 12 * 60 * 1000;
+const AGENT_LOGIN_URL_WAIT_MS = 25000;
+function isAgentModeDevOverride() {
+    return !electron_1.app.isPackaged || process.env.DEV_MODE === 'true' || process.env.NODE_ENV === 'development';
+}
+function getAgentProfilesRoot() {
+    return path.join(electron_1.app.getPath('userData'), 'agent-profiles');
+}
+function getAgentProfilesPath() {
+    return path.join(getAgentProfilesRoot(), 'agent-profiles.json');
+}
+function getAgentJobsRoot() {
+    return path.join(electron_1.app.getPath('userData'), 'agent-jobs');
+}
+function ensureAgentProfilesRoot() {
+    const root = getAgentProfilesRoot();
+    fs.mkdirSync(root, { recursive: true });
+    return root;
+}
+function ensureAgentJobsRoot() {
+    const root = getAgentJobsRoot();
+    fs.mkdirSync(root, { recursive: true });
+    return root;
+}
+function normalizeAgentProvider(value) {
+    return String(value || '').toLowerCase() === 'claude' ? 'claude' : 'codex';
+}
+function createAgentProfileId(provider) {
+    const random = Math.random().toString(36).slice(2, 8);
+    return `${provider}-${Date.now().toString(36)}-${random}`;
+}
+function sanitizeAgentLabel(value, provider) {
+    const fallback = provider === 'codex' ? 'Codex 구독 계정' : 'Claude 구독 계정';
+    const label = String(value || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+    return label || fallback;
+}
+function normalizeAgentProfile(raw) {
+    if (!raw || typeof raw !== 'object')
+        return null;
+    const provider = normalizeAgentProvider(raw.provider);
+    const id = String(raw.id || '').trim();
+    const profileDir = String(raw.profileDir || '').trim();
+    if (!id || !profileDir)
+        return null;
+    return {
+        id,
+        provider,
+        label: sanitizeAgentLabel(raw.label, provider),
+        authMode: raw.authMode === 'api' ? 'api' : 'subscription',
+        profileDir,
+        envVar: provider === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR',
+        status: raw.status === 'ready' || raw.status === 'needs-login' ? raw.status : 'unknown',
+        createdAt: String(raw.createdAt || new Date().toISOString()),
+        updatedAt: String(raw.updatedAt || new Date().toISOString()),
+    };
+}
+function loadAgentProfiles() {
+    try {
+        const filePath = getAgentProfilesPath();
+        if (!fs.existsSync(filePath))
+            return [];
+        const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        const profiles = Array.isArray(parsed?.profiles) ? parsed.profiles : [];
+        return profiles
+            .map((profile) => normalizeAgentProfile(profile))
+            .filter((profile) => !!profile);
+    }
+    catch (error) {
+        console.warn('[AGENT-MODE] 프로필 로드 실패:', error);
+        return [];
+    }
+}
+function saveAgentProfiles(profiles) {
+    ensureAgentProfilesRoot();
+    fs.writeFileSync(getAgentProfilesPath(), JSON.stringify({ version: 1, profiles }, null, 2), 'utf-8');
+}
+function quotePowerShell(value) {
+    return `'${value.replace(/'/g, "''")}'`;
+}
+function buildAgentLoginCommand(profile) {
+    const dir = quotePowerShell(profile.profileDir);
+    if (profile.provider === 'claude') {
+        return `$env:CLAUDE_CONFIG_DIR=${dir}; Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue; Remove-Item Env:ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue; claude`;
+    }
+    return `$env:CODEX_HOME=${dir}; Remove-Item Env:CODEX_API_KEY -ErrorAction SilentlyContinue; Remove-Item Env:OPENAI_API_KEY -ErrorAction SilentlyContinue; codex login`;
+}
+function toAgentProfileView(profile) {
+    return {
+        ...profile,
+        loginCommand: buildAgentLoginCommand(profile),
+    };
+}
+function isIgnoredAgentAuthPath(filePath) {
+    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    return normalized.includes('/playwright-login/')
+        || normalized.includes('/cache/')
+        || normalized.includes('/code cache/')
+        || normalized.includes('/gpu')
+        || normalized.includes('/shader')
+        || normalized.includes('/sessions/')
+        || normalized.endsWith('/.leadernam-agent-profile.json')
+        || normalized.endsWith('/config.toml');
+}
+function fileLooksLikeAgentAuth(filePath) {
+    if (isIgnoredAgentAuthPath(filePath))
+        return false;
+    const name = path.basename(filePath).toLowerCase();
+    if (/(auth|token|credential|oauth|session|account|login)/i.test(name)) {
+        try {
+            return fs.statSync(filePath).size > 20;
+        }
+        catch {
+            return false;
+        }
+    }
+    if (!/\.(json|toml|yaml|yml)$/i.test(name))
+        return false;
+    try {
+        const text = fs.readFileSync(filePath, 'utf-8').slice(0, 12000).toLowerCase();
+        return /(access_token|refresh_token|id_token|oauth|session|account_id|claude_ai|chatgpt|openai)/i.test(text);
+    }
+    catch {
+        return false;
+    }
+}
+function hasAgentAuthEvidence(profile) {
+    const root = profile.profileDir;
+    if (!root || !fs.existsSync(root))
+        return false;
+    const stack = [{ dir: root, depth: 0 }];
+    const maxDepth = 5;
+    while (stack.length) {
+        const current = stack.pop();
+        if (!current || current.depth > maxDepth)
+            continue;
+        let entries = [];
+        try {
+            entries = fs.readdirSync(current.dir, { withFileTypes: true });
+        }
+        catch {
+            continue;
+        }
+        for (const entry of entries) {
+            const fullPath = path.join(current.dir, entry.name);
+            if (isIgnoredAgentAuthPath(fullPath))
+                continue;
+            if (entry.isDirectory()) {
+                stack.push({ dir: fullPath, depth: current.depth + 1 });
+                continue;
+            }
+            if (entry.isFile() && fileLooksLikeAgentAuth(fullPath)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+function refreshAgentProfileStatuses() {
+    const profiles = loadAgentProfiles();
+    let changed = false;
+    const now = new Date().toISOString();
+    const next = profiles.map((profile) => {
+        const ready = hasAgentAuthEvidence(profile);
+        const status = ready ? 'ready' : 'needs-login';
+        if (profile.status === status)
+            return profile;
+        changed = true;
+        return { ...profile, status, updatedAt: now };
+    });
+    if (changed)
+        saveAgentProfiles(next);
+    return next;
+}
+function findAgentProfile(profileId, provider) {
+    const profiles = refreshAgentProfileStatuses();
+    if (profileId) {
+        const profile = profiles.find((item) => item.id === profileId);
+        if (profile)
+            return profile;
+    }
+    const normalizedProvider = provider ? normalizeAgentProvider(provider) : null;
+    return profiles.find((item) => !normalizedProvider || item.provider === normalizedProvider) || null;
+}
+function sanitizeJobTitle(value) {
+    return String(value || 'agent-job')
+        .trim()
+        .replace(/[\\/:*?"<>|]+/g, '-')
+        .replace(/\s+/g, '-')
+        .slice(0, 80) || 'agent-job';
+}
+function extractHtmlTitle(html) {
+    const match = String(html || '').match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)
+        || String(html || '').match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    if (!match)
+        return '';
+    return match[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function createAgentJobId(provider, title) {
+    const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+    const suffix = Math.random().toString(36).slice(2, 7);
+    return `${stamp}-${provider}-${sanitizeJobTitle(title)}-${suffix}`;
+}
+function buildAgentJobInstructions(request, profile) {
+    const payload = request.payload || {};
+    const topic = request.title || payload.title || payload.topic || payload.keyword || payload.keywords?.[0]?.keyword || '';
+    return [
+        '# LEADERNAM Orbit Max Agent 작업',
+        '',
+        '## 역할',
+        '당신은 블로그 운영자 리더남의 콘텐츠 제작 에이전트입니다.',
+        '앱에서 전달한 작업지시서를 기준으로, 바로 발행 전 미리보기에 넣을 수 있는 최종 HTML 글을 만드세요.',
+        '',
+        '## 핵심 목표',
+        `- 주제: ${topic || '(비어 있음)'}`,
+        `- 실행 엔진: ${profile.provider}`,
+        '- 독자가 초반 3문단 안에서 "내 이야기다"라고 느끼게 구성합니다.',
+        '- 과장, 루머, 출처 불명 수치, 자동 생성 티가 나는 문장을 피합니다.',
+        '- 정책/지원금/가격/일정 등 변동 가능한 정보는 확인 흐름과 주의 문구를 함께 넣습니다.',
+        '',
+        '## 반드시 생성할 파일',
+        '1. `result/article.html`',
+        '   - `<article>` 또는 발행 가능한 HTML 본문만 저장합니다.',
+        '   - script, iframe, form, onclick, 추적 코드는 넣지 않습니다.',
+        '   - H1 1개, H2 여러 개, FAQ 또는 마무리 섹션을 포함합니다.',
+        '',
+        '2. `result/metadata.json`',
+        '   - 아래 JSON 구조로 저장합니다.',
+        '```json',
+        '{',
+        '  "title": "최종 제목",',
+        '  "summary": "검수 요약",',
+        '  "imagePrompts": ["썸네일 프롬프트", "본문 이미지 아이디어"],',
+        '  "warnings": []',
+        '}',
+        '```',
+        '',
+        '## 출력 규칙',
+        '- 최종 답변은 짧게 작성합니다. 실제 본문은 반드시 `result/article.html`에 저장하세요.',
+        '- 실패했을 때만 왜 실패했는지 설명하세요.',
+        '',
+        '## 앱에서 생성한 글 작업지시서',
+        request.articleTask || '(글 작업지시서 없음)',
+        '',
+        '## 앱에서 생성한 이미지 작업지시서',
+        request.imageTask || '(이미지 작업지시서 없음)',
+    ].join('\n');
+}
+function writeAgentJobFiles(jobDir, request, profile) {
+    const resultDir = path.join(jobDir, 'result');
+    fs.mkdirSync(resultDir, { recursive: true });
+    fs.writeFileSync(path.join(jobDir, 'instructions.md'), buildAgentJobInstructions(request, profile), 'utf-8');
+    fs.writeFileSync(path.join(jobDir, 'payload.json'), JSON.stringify(request.payload || {}, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(jobDir, 'profile.json'), JSON.stringify(toAgentProfileView(profile), null, 2), 'utf-8');
+}
+function buildAgentRunEnv(profile) {
+    const env = { ...process.env };
+    if (profile.authMode === 'subscription') {
+        delete env.CODEX_API_KEY;
+        delete env.OPENAI_API_KEY;
+        delete env.ANTHROPIC_API_KEY;
+        delete env.ANTHROPIC_AUTH_TOKEN;
+        delete env.ANTHROPIC_BEDROCK_BASE_URL;
+        delete env.ANTHROPIC_VERTEX_PROJECT_ID;
+        delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    }
+    if (profile.provider === 'codex') {
+        env.CODEX_HOME = profile.profileDir;
+    }
+    else {
+        env.CLAUDE_CONFIG_DIR = profile.profileDir;
+    }
+    return env;
+}
+function buildAgentRunCommand(profile, jobDir, lastMessagePath) {
+    const prompt = 'Read instructions.md and payload.json, then create result/article.html and result/metadata.json exactly as requested. Do not ask questions.';
+    if (profile.provider === 'codex') {
+        return {
+            command: resolveAgentBinaryCommand(profile.provider),
+            args: [
+                'exec',
+                '--json',
+                '--sandbox', 'workspace-write',
+                '--ask-for-approval', 'never',
+                '--skip-git-repo-check',
+                '-o', lastMessagePath,
+                prompt,
+            ],
+        };
+    }
+    return {
+        command: resolveAgentBinaryCommand(profile.provider),
+        args: [
+            '-p',
+            '--permission-mode', 'dontAsk',
+            '--max-turns', '12',
+            '--output-format', 'json',
+            prompt,
+        ],
+    };
+}
+function parseAgentRunUsage(provider, stdout) {
+    const text = String(stdout || '').trim();
+    if (!text)
+        return null;
+    if (provider === 'codex') {
+        const totals = {
+            input_tokens: 0,
+            cached_input_tokens: 0,
+            output_tokens: 0,
+            reasoning_output_tokens: 0,
+        };
+        let measured = false;
+        for (const line of text.split(/\r?\n/)) {
+            try {
+                const event = JSON.parse(line);
+                const usage = event?.usage;
+                if (!usage || typeof usage !== 'object')
+                    continue;
+                measured = true;
+                totals.input_tokens += Number(usage.input_tokens || 0);
+                totals.cached_input_tokens += Number(usage.cached_input_tokens || 0);
+                totals.output_tokens += Number(usage.output_tokens || 0);
+                totals.reasoning_output_tokens += Number(usage.reasoning_output_tokens || 0);
+            }
+            catch {
+                // ignore non-JSON progress lines
+            }
+        }
+        return measured
+            ? { provider, source: 'codex-exec-json', measured: true, ...totals }
+            : null;
+    }
+    try {
+        const parsed = JSON.parse(text);
+        return {
+            provider,
+            source: 'claude-json',
+            measured: !!(parsed?.usage || parsed?.total_cost_usd || parsed?.cost_usd),
+            usage: parsed?.usage || null,
+            total_cost_usd: parsed?.total_cost_usd ?? parsed?.cost_usd ?? null,
+            duration_ms: parsed?.duration_ms ?? null,
+        };
+    }
+    catch {
+        return null;
+    }
+}
+async function runAgentProcess(profile, jobDir, lastMessagePath) {
+    return new Promise((resolve) => {
+        const { spawn } = require('child_process');
+        const { command, args } = buildAgentRunCommand(profile, jobDir, lastMessagePath);
+        const isWindows = process.platform === 'win32';
+        const spawnCommand = isWindows ? buildShellCommandLine(command, args) : command;
+        const spawnArgs = isWindows ? [] : args;
+        let stdout = '';
+        let stderr = '';
+        let timedOut = false;
+        const child = spawn(spawnCommand, spawnArgs, {
+            cwd: jobDir,
+            env: buildAgentRunEnv(profile),
+            shell: isWindows,
+            windowsHide: true,
+        });
+        const append = (target, chunk) => {
+            const text = String(chunk || '');
+            if (target === 'stdout') {
+                stdout = (stdout + text).slice(-240000);
+            }
+            else {
+                stderr = (stderr + text).slice(-240000);
+            }
+        };
+        child.stdout?.on('data', (chunk) => append('stdout', chunk));
+        child.stderr?.on('data', (chunk) => append('stderr', chunk));
+        child.on('error', (error) => {
+            stderr = (stderr + `\n${error.message}`).slice(-240000);
+        });
+        const timeout = setTimeout(() => {
+            timedOut = true;
+            try {
+                child.kill();
+            }
+            catch {
+                // ignore
+            }
+        }, AGENT_JOB_TIMEOUT_MS);
+        child.on('close', (exitCode) => {
+            clearTimeout(timeout);
+            resolve({ exitCode, stdout, stderr, timedOut });
+        });
+    });
+}
+function readAgentJobResult(jobDir, stdout, lastMessagePath) {
+    const articlePath = path.join(jobDir, 'result', 'article.html');
+    const metadataPath = path.join(jobDir, 'result', 'metadata.json');
+    const finalMessage = fs.existsSync(lastMessagePath)
+        ? fs.readFileSync(lastMessagePath, 'utf-8')
+        : stdout;
+    const content = fs.existsSync(articlePath)
+        ? fs.readFileSync(articlePath, 'utf-8')
+        : finalMessage;
+    let metadata = {};
+    try {
+        if (fs.existsSync(metadataPath)) {
+            metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+        }
+    }
+    catch (error) {
+        metadata = { warnings: [`metadata.json 파싱 실패: ${error instanceof Error ? error.message : String(error)}`] };
+    }
+    const title = String(metadata?.title || extractHtmlTitle(content) || '').trim();
+    return { content, title, metadata, finalMessage };
+}
+function writeDefaultAgentProfileFiles(profile) {
+    fs.mkdirSync(profile.profileDir, { recursive: true });
+    const markerPath = path.join(profile.profileDir, '.leadernam-agent-profile.json');
+    fs.writeFileSync(markerPath, JSON.stringify({
+        provider: profile.provider,
+        authMode: profile.authMode,
+        envVar: profile.envVar,
+        createdBy: 'LEADERNAM Orbit',
+        note: 'Credentials are not stored by Orbit. Use the official Codex/Claude login flow in this isolated profile directory.',
+    }, null, 2), 'utf-8');
+    if (profile.provider === 'codex') {
+        const configPath = path.join(profile.profileDir, 'config.toml');
+        if (!fs.existsSync(configPath)) {
+            fs.writeFileSync(configPath, [
+                'forced_login_method = "chatgpt"',
+                'approval_policy = "on-request"',
+                'sandbox_mode = "workspace-write"',
+                '',
+            ].join('\n'), 'utf-8');
+        }
+    }
+}
+function buildAgentLoginScript(profile) {
+    const dir = quotePowerShell(profile.profileDir);
+    const title = profile.provider === 'claude' ? 'LEADERNAM Claude Code Login' : 'LEADERNAM Codex Login';
+    const loginCommand = profile.provider === 'claude'
+        ? 'claude'
+        : 'codex login';
+    return [
+        `$Host.UI.RawUI.WindowTitle = ${quotePowerShell(title)}`,
+        `Write-Host ${quotePowerShell('LEADERNAM Orbit Agent 로그인 창입니다.')}`,
+        `Write-Host ${quotePowerShell('브라우저가 열리면 구독된 계정으로 로그인하세요.')}`,
+        `Write-Host ${quotePowerShell('로그인이 끝나면 이 창을 닫아도 됩니다.')}`,
+        `Write-Host ''`,
+        profile.provider === 'claude'
+            ? `$env:CLAUDE_CONFIG_DIR=${dir}`
+            : `$env:CODEX_HOME=${dir}`,
+        'Remove-Item Env:CODEX_API_KEY -ErrorAction SilentlyContinue',
+        'Remove-Item Env:OPENAI_API_KEY -ErrorAction SilentlyContinue',
+        'Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue',
+        'Remove-Item Env:ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue',
+        loginCommand,
+        `Write-Host ''`,
+        `Write-Host ${quotePowerShell('완료되면 이 창을 닫으세요.')}`,
+    ].join('; ');
+}
+function getPowerShellExecutable() {
+    if (process.platform !== 'win32')
+        return 'pwsh';
+    const systemRoot = process.env.SystemRoot || 'C:\\Windows';
+    const windowsPowerShell = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    if (fs.existsSync(windowsPowerShell))
+        return windowsPowerShell;
+    return 'powershell.exe';
+}
+function startVisiblePowerShellScript(script, title) {
+    const { spawn } = require('child_process');
+    const scriptDir = path.join(electron_1.app.getPath('userData'), 'agent-scripts');
+    fs.mkdirSync(scriptDir, { recursive: true });
+    const safeTitle = title.replace(/[^a-z0-9가-힣._-]+/gi, '-').slice(0, 50) || 'agent-window';
+    const scriptPath = path.join(scriptDir, `${safeTitle}-${Date.now()}.ps1`);
+    fs.writeFileSync(scriptPath, script, 'utf-8');
+    const command = getPowerShellExecutable();
+    const child = spawn(command, [
+        '-NoExit',
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', scriptPath,
+    ], {
+        cwd: electron_1.app.getPath('home'),
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+    });
+    child.unref();
+    return { pid: child.pid, scriptPath, command };
+}
+function buildAgentLoginProcess(profile) {
+    const env = buildAgentRunEnv(profile);
+    env.NO_COLOR = '1';
+    if (profile.provider === 'claude') {
+        return { command: resolveAgentBinaryCommand(profile.provider), args: [], env };
+    }
+    return { command: resolveAgentBinaryCommand(profile.provider), args: ['login'], env };
+}
+function quoteCmdArg(value) {
+    return `"${String(value).replace(/"/g, '""')}"`;
+}
+function buildShellCommandLine(command, args = []) {
+    return [command, ...args].map(quoteCmdArg).join(' ');
+}
+function spawnAgentLoginProcess(profile) {
+    const { spawn } = require('child_process');
+    const { command, args, env } = buildAgentLoginProcess(profile);
+    try {
+        if (process.platform === 'win32') {
+            const child = spawn(buildShellCommandLine(command, args), [], {
+                cwd: electron_1.app.getPath('home'),
+                env,
+                shell: true,
+                windowsHide: true,
+                stdio: ['ignore', 'pipe', 'pipe'],
+            });
+            return { child };
+        }
+        const child = spawn(command, args, {
+            cwd: electron_1.app.getPath('home'),
+            env,
+            windowsHide: true,
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        return { child };
+    }
+    catch (error) {
+        return { error: error instanceof Error ? error.message : String(error || '') };
+    }
+}
+function extractAgentAuthUrl(text, provider) {
+    const matches = String(text || '').match(/https?:\/\/[^\s"'<>]+/gi) || [];
+    const providerHints = provider === 'claude'
+        ? ['claude.ai', 'console.anthropic.com', 'anthropic.com']
+        : ['chatgpt.com', 'auth.openai.com', 'platform.openai.com', 'openai.com'];
+    for (const raw of matches) {
+        const url = raw.replace(/[)\].,;]+$/g, '');
+        const lower = url.toLowerCase();
+        if (providerHints.some((hint) => lower.includes(hint)) || lower.includes('oauth') || lower.includes('auth')) {
+            return url;
+        }
+    }
+    return null;
+}
+function getAgentLoginFallbackUrl(provider) {
+    return provider === 'claude'
+        ? 'https://claude.ai/login'
+        : 'https://chatgpt.com/auth/login';
+}
+function waitForAgentLoginUrl(child, provider) {
+    return new Promise((resolve) => {
+        let output = '';
+        let settled = false;
+        let timer = null;
+        const finish = (url) => {
+            if (settled)
+                return;
+            settled = true;
+            if (timer)
+                clearTimeout(timer);
+            resolve({ url, output: output.slice(-8000) });
+        };
+        const append = (chunk) => {
+            output = (output + String(chunk || '')).slice(-16000);
+            const url = extractAgentAuthUrl(output, provider);
+            if (url)
+                finish(url);
+        };
+        child.stdout?.on('data', append);
+        child.stderr?.on('data', append);
+        child.once?.('error', () => finish(null));
+        child.once?.('close', () => finish(extractAgentAuthUrl(output, provider)));
+        timer = setTimeout(() => finish(extractAgentAuthUrl(output, provider)), AGENT_LOGIN_URL_WAIT_MS);
+    });
+}
+async function openAgentLoginInSystemBrowser(targetUrl) {
+    const electron = require('electron');
+    await electron.shell.openExternal(targetUrl);
+}
+async function startVisibleAgentLogin(profile) {
+    const fallbackUrl = getAgentLoginFallbackUrl(profile.provider);
+    await openAgentLoginInSystemBrowser(fallbackUrl);
+    const launched = spawnAgentLoginProcess(profile);
+    if (launched.child) {
+        void waitForAgentLoginUrl(launched.child, profile.provider).then((auth) => {
+            if (auth.url && auth.url !== fallbackUrl) {
+                return openAgentLoginInSystemBrowser(auth.url);
+            }
+            return undefined;
+        }).catch((error) => {
+            console.warn('[AGENT-LOGIN] auth URL watcher failed:', error instanceof Error ? error.message : error);
+        });
+    }
+    else {
+        console.warn('[AGENT-LOGIN] CLI login process did not start:', launched.error || 'unknown error');
+    }
+    return {
+        pid: launched.child?.pid,
+        command: buildAgentLoginCommand(profile),
+        url: fallbackUrl,
+        browser: 'system',
+        output: launched.error,
+    };
+}
+function getAgentInstallDisplayCommand(provider) {
+    if (provider === 'claude') {
+        return 'irm https://claude.ai/install.ps1 | iex';
+    }
+    return 'npm install -g @openai/codex';
+}
+function buildAgentInstallScript(provider) {
+    const label = provider === 'claude' ? 'Claude Code' : 'Codex CLI';
+    const docsUrl = provider === 'claude'
+        ? 'https://code.claude.com/docs/en/setup'
+        : 'https://developers.openai.com/codex/cli';
+    const title = provider === 'claude'
+        ? 'LEADERNAM Claude Code Install'
+        : 'LEADERNAM Codex Install';
+    if (provider === 'claude') {
+        return [
+            `$Host.UI.RawUI.WindowTitle = ${quotePowerShell(title)}`,
+            '$ErrorActionPreference = "Continue"',
+            `Write-Host ${quotePowerShell(`LEADERNAM Orbit ${label} installer`)}`,
+            `Write-Host ${quotePowerShell('Official PowerShell installer will run in this window.')}`,
+            'Write-Host ""',
+            'irm https://claude.ai/install.ps1 | iex',
+            'Write-Host ""',
+            'if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { if (Get-Command winget -ErrorAction SilentlyContinue) { Write-Host "Native installer was not detected. Trying WinGet fallback..."; winget install Anthropic.ClaudeCode } }',
+            `if (Get-Command claude -ErrorAction SilentlyContinue) { Write-Host "Claude Code installed:"; claude --version } else { Write-Host "Claude Code was not verified. Opening official setup guide..."; Start-Process ${quotePowerShell(docsUrl)} }`,
+            'Write-Host ""',
+            `Write-Host ${quotePowerShell('Install finished or paused. Close this window after checking the result.')}`,
+        ].join('; ');
+    }
+    return [
+        `$Host.UI.RawUI.WindowTitle = ${quotePowerShell(title)}`,
+        '$ErrorActionPreference = "Continue"',
+        `$docsUrl = ${quotePowerShell(docsUrl)}`,
+        `Write-Host ${quotePowerShell(`LEADERNAM Orbit ${label} installer`)}`,
+        `Write-Host ${quotePowerShell('Codex will be installed through npm when npm is available. If it fails, the official Codex setup page opens.')}`,
+        'Write-Host ""',
+        '$codexOk = $false',
+        'if (Get-Command codex -ErrorAction SilentlyContinue) { Write-Host "Codex command detected. Checking execution..."; try { codex --version; if ($LASTEXITCODE -eq 0) { $codexOk = $true } } catch { $codexOk = $false } }',
+        'if (-not $codexOk) { if (Get-Command npm -ErrorAction SilentlyContinue) { Write-Host "Codex was detected but is not usable, or was not installed. Installing/updating through npm..."; npm install -g @openai/codex } else { Write-Host "npm was not found. Opening official setup guide..."; Start-Process $docsUrl } }',
+        'Write-Host ""',
+        '$verified = $false',
+        'if (Get-Command codex -ErrorAction SilentlyContinue) { try { Write-Host "Codex verification:"; codex --version; if ($LASTEXITCODE -eq 0) { $verified = $true } } catch { $verified = $false } }',
+        'if (-not $verified) { Write-Host "Codex was not verified. Opening official setup guide..."; Start-Process $docsUrl }',
+        'Write-Host ""',
+        `Write-Host ${quotePowerShell('Install finished or paused. Close this window after checking the result.')}`,
+    ].join('; ');
+}
+function startVisibleAgentInstall(provider) {
+    const title = provider === 'claude' ? 'LEADERNAM Claude Code Install' : 'LEADERNAM Codex Install';
+    const launched = startVisiblePowerShellScript(buildAgentInstallScript(provider), title);
+    return {
+        pid: launched.pid,
+        command: getAgentInstallDisplayCommand(provider),
+        scriptPath: launched.scriptPath,
+        launcher: launched.command,
+    };
+}
+function buildInlineAgentInstallProcess(provider) {
+    if (provider === 'claude') {
+        const displayCommand = 'irm https://claude.ai/install.ps1 | iex';
+        if (process.platform === 'win32') {
+            return {
+                command: getPowerShellExecutable(),
+                args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', displayCommand],
+                displayCommand,
+            };
+        }
+        return {
+            command: 'sh',
+            args: ['-lc', 'curl -fsSL https://claude.ai/install.sh | sh'],
+            displayCommand: 'curl -fsSL https://claude.ai/install.sh | sh',
+        };
+    }
+    const displayCommand = 'npm install -g @openai/codex';
+    if (process.platform === 'win32') {
+        return {
+            command: process.env.ComSpec || 'cmd.exe',
+            args: ['/d', '/c', displayCommand],
+            displayCommand,
+        };
+    }
+    return {
+        command: 'npm',
+        args: ['install', '-g', '@openai/codex'],
+        displayCommand,
+    };
+}
+function runInlineAgentInstall(provider) {
+    return new Promise((resolve) => {
+        const { spawn } = require('child_process');
+        const spec = buildInlineAgentInstallProcess(provider);
+        let output = '';
+        let timedOut = false;
+        const append = (chunk) => {
+            output = (output + String(chunk || '')).slice(-60000);
+        };
+        let child;
+        try {
+            child = spawn(spec.command, spec.args, {
+                cwd: electron_1.app.getPath('home'),
+                env: { ...process.env },
+                windowsHide: true,
+                stdio: ['ignore', 'pipe', 'pipe'],
+            });
+        }
+        catch (error) {
+            resolve({
+                exitCode: 1,
+                command: spec.displayCommand,
+                output: error instanceof Error ? error.message : String(error || '설치 실행 실패'),
+                timedOut: false,
+            });
+            return;
+        }
+        child.stdout?.on('data', append);
+        child.stderr?.on('data', append);
+        child.on('error', (error) => append(`\n${error.message}`));
+        const timer = setTimeout(() => {
+            timedOut = true;
+            try {
+                child.kill();
+            }
+            catch {
+                // ignore
+            }
+        }, 10 * 60 * 1000);
+        child.on('close', (exitCode) => {
+            clearTimeout(timer);
+            resolve({
+                exitCode,
+                command: spec.displayCommand,
+                output: output.trim(),
+                timedOut,
+            });
+        });
+    });
+}
+function pushUniquePath(target, value) {
+    const normalized = String(value || '').trim();
+    if (!normalized)
+        return;
+    if (target.some((item) => item.toLowerCase() === normalized.toLowerCase()))
+        return;
+    target.push(normalized);
+}
+function getCommandOutputSync(command, args, timeout = 3000) {
+    try {
+        const { execFileSync } = require('child_process');
+        if (process.platform === 'win32' && command.toLowerCase() === 'npm') {
+            return String(execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/c', [command, ...args].join(' ')], {
+                timeout,
+                windowsHide: true,
+                encoding: 'utf8',
+            }) || '').trim();
+        }
+        return String(execFileSync(command, args, {
+            timeout,
+            windowsHide: true,
+            encoding: 'utf8',
+        }) || '').trim();
+    }
+    catch {
+        return '';
+    }
+}
+function getAgentBinaryCandidates(binaryName) {
+    const candidates = [];
+    const npmPrefixes = [];
+    const home = electron_1.app.getPath('home');
+    if (process.platform === 'win32') {
+        pushUniquePath(npmPrefixes, process.env.npm_config_prefix);
+        pushUniquePath(npmPrefixes, process.env.APPDATA ? path.join(process.env.APPDATA, 'npm') : '');
+        pushUniquePath(npmPrefixes, process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'AppData', 'Roaming', 'npm') : '');
+        pushUniquePath(npmPrefixes, home ? path.join(home, 'AppData', 'Roaming', 'npm') : '');
+        pushUniquePath(npmPrefixes, getCommandOutputSync('npm', ['config', 'get', 'prefix']));
+        for (const prefix of npmPrefixes) {
+            pushUniquePath(candidates, path.join(prefix, `${binaryName}.cmd`));
+            pushUniquePath(candidates, path.join(prefix, binaryName));
+            pushUniquePath(candidates, path.join(prefix, `${binaryName}.ps1`));
+        }
+    }
+    else {
+        pushUniquePath(npmPrefixes, process.env.npm_config_prefix);
+        pushUniquePath(npmPrefixes, getCommandOutputSync('npm', ['config', 'get', 'prefix']));
+        for (const prefix of npmPrefixes) {
+            pushUniquePath(candidates, path.join(prefix, 'bin', binaryName));
+        }
+    }
+    const locator = process.platform === 'win32' ? 'where.exe' : 'which';
+    const located = getCommandOutputSync(locator, [binaryName]);
+    for (const line of located.split(/\r?\n/)) {
+        pushUniquePath(candidates, line);
+    }
+    return candidates.filter((candidate) => {
+        try {
+            return fs.existsSync(candidate);
+        }
+        catch {
+            return false;
+        }
+    });
+}
+function resolveAgentBinaryCommand(provider) {
+    const binaryName = provider === 'claude' ? 'claude' : 'codex';
+    return getAgentBinaryCandidates(binaryName)[0] || binaryName;
+}
+function testAgentBinary(binaryPath, binaryName) {
+    return new Promise((resolve) => {
+        try {
+            const { exec, execFile } = require('child_process');
+            const isWindowsScript = process.platform === 'win32' && /\.(cmd|bat)$/i.test(binaryPath || binaryName);
+            const execOptions = {
+                timeout: 5000,
+                windowsHide: true,
+                encoding: 'utf8',
+            };
+            const execFileOptions = {
+                timeout: 5000,
+                windowsHide: true,
+                encoding: 'utf8',
+            };
+            const done = (error, stdout, stderr) => {
+                if (error) {
+                    resolve({ usable: false, error: error.message || String(stderr || '') || '실행 확인 실패' });
+                    return;
+                }
+                resolve({
+                    usable: true,
+                    version: String(stdout || stderr || '').trim().split(/\r?\n/).find(Boolean),
+                });
+            };
+            if (isWindowsScript) {
+                exec(buildShellCommandLine(binaryPath || binaryName, ['--version']), execOptions, done);
+                return;
+            }
+            execFile(binaryPath || binaryName, ['--version'], execFileOptions, done);
+        }
+        catch (error) {
+            resolve({ usable: false, error: error instanceof Error ? error.message : '실행 확인 실패' });
+        }
+    });
+}
+async function detectAgentBinary(binaryName) {
+    try {
+        const foundPaths = getAgentBinaryCandidates(binaryName);
+        if (!foundPaths.length)
+            return { installed: false };
+        let firstFailure = null;
+        for (const candidate of foundPaths) {
+            const checked = await testAgentBinary(candidate, binaryName);
+            if (checked.usable) {
+                return { installed: true, usable: true, path: candidate, version: checked.version };
+            }
+            if (!firstFailure)
+                firstFailure = { path: candidate, error: checked.error };
+        }
+        return {
+            installed: true,
+            usable: false,
+            path: firstFailure?.path || foundPaths[0],
+            error: firstFailure?.error || '도구는 감지됐지만 실행 확인에 실패했습니다.',
+        };
+    }
+    catch (error) {
+        return { installed: false, error: error instanceof Error ? error.message : '도구 감지 실패' };
+    }
+}
+async function getAgentModeAccessStatus() {
+    try {
+        const { getLicenseTierManager } = await Promise.resolve().then(() => __importStar(require('../dist/utils/license-tier-manager')));
+        const tierManager = getLicenseTierManager();
+        const currentTier = tierManager.getCurrentTier(true);
+        const access = tierManager.checkFeatureAccess(AGENT_MODE_REQUIRED_FEATURE);
+        const devOverride = isAgentModeDevOverride();
+        const allowed = devOverride || access.allowed;
+        return {
+            allowed,
+            devOverride,
+            mode: allowed ? 'max-agent' : 'api-key',
+            currentTier: currentTier.tier,
+            currentName: currentTier.name,
+            requiredTier: AGENT_MODE_REQUIRED_TIER,
+            requiredName: AGENT_MODE_REQUIRED_NAME,
+            features: currentTier.features,
+            message: allowed
+                ? 'Max Agent Mode를 사용할 수 있습니다. Codex/Claude 구독 계정으로 로그인하세요.'
+                : '현재 라이선스는 API 키 기반 생성 모드입니다. Max Agent Mode는 3개월 이상 코드에서 열립니다.',
+        };
+    }
+    catch (error) {
+        console.error('[AGENT-MODE] 라이선스 상태 조회 실패:', error);
+        return {
+            allowed: isAgentModeDevOverride(),
+            devOverride: isAgentModeDevOverride(),
+            mode: isAgentModeDevOverride() ? 'max-agent' : 'api-key',
+            currentTier: 'unknown',
+            currentName: '확인 실패',
+            requiredTier: AGENT_MODE_REQUIRED_TIER,
+            requiredName: AGENT_MODE_REQUIRED_NAME,
+            features: {},
+            message: '라이선스 상태를 확인하지 못했습니다.',
+        };
+    }
+}
 // 🔥 라이선스 티어 관련 핸들러
 electron_1.ipcMain.handle('get-license-tier', async () => {
     try {
@@ -5502,6 +6435,263 @@ electron_1.ipcMain.handle('sync-license-with-server', async (_evt, { serverUrl, 
     catch (error) {
         console.error('[TIER] 서버 동기화 실패:', error);
         return { ok: false, synced: false, error: '서버 동기화 오류' };
+    }
+});
+electron_1.ipcMain.handle('agent-mode:get-status', async () => {
+    try {
+        const access = await getAgentModeAccessStatus();
+        const [codex, claude] = await Promise.all([
+            detectAgentBinary('codex'),
+            detectAgentBinary('claude'),
+        ]);
+        return {
+            ok: true,
+            ...access,
+            tools: { codex, claude },
+            profiles: refreshAgentProfileStatuses().map(toAgentProfileView),
+        };
+    }
+    catch (error) {
+        console.error('[AGENT-MODE] 상태 조회 실패:', error);
+        return { ok: false, error: error instanceof Error ? error.message : 'Agent Mode 상태 조회 실패' };
+    }
+});
+electron_1.ipcMain.handle('agent-mode:list-profiles', async () => {
+    try {
+        return { ok: true, profiles: refreshAgentProfileStatuses().map(toAgentProfileView) };
+    }
+    catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : 'Agent 계정 목록 조회 실패', profiles: [] };
+    }
+});
+electron_1.ipcMain.handle('agent-mode:create-profile', async (_evt, args) => {
+    try {
+        const access = await getAgentModeAccessStatus();
+        if (!access.allowed) {
+            return {
+                ok: false,
+                error: access.message,
+                requiredTier: access.requiredTier,
+                requiredName: access.requiredName,
+                currentTier: access.currentTier,
+                currentName: access.currentName,
+            };
+        }
+        const provider = normalizeAgentProvider(args?.provider);
+        const id = createAgentProfileId(provider);
+        const profileDir = path.join(ensureAgentProfilesRoot(), provider, id);
+        const now = new Date().toISOString();
+        const profile = {
+            id,
+            provider,
+            label: sanitizeAgentLabel(args?.label, provider),
+            authMode: args?.authMode === 'api' ? 'api' : 'subscription',
+            profileDir,
+            envVar: provider === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR',
+            status: 'needs-login',
+            createdAt: now,
+            updatedAt: now,
+        };
+        writeDefaultAgentProfileFiles(profile);
+        const profiles = loadAgentProfiles();
+        profiles.push(profile);
+        saveAgentProfiles(profiles);
+        const refreshedProfiles = refreshAgentProfileStatuses();
+        return {
+            ok: true,
+            profile: toAgentProfileView(refreshedProfiles.find((item) => item.id === profile.id) || profile),
+            profiles: refreshedProfiles.map(toAgentProfileView),
+        };
+    }
+    catch (error) {
+        console.error('[AGENT-MODE] 프로필 생성 실패:', error);
+        return { ok: false, error: error instanceof Error ? error.message : 'Agent 계정 준비 실패' };
+    }
+});
+electron_1.ipcMain.handle('agent-mode:get-login-command', async (_evt, args) => {
+    try {
+        const profile = refreshAgentProfileStatuses().find((item) => item.id === args?.id);
+        if (!profile)
+            return { ok: false, error: 'Agent 계정을 찾을 수 없습니다.' };
+        return { ok: true, command: buildAgentLoginCommand(profile), profile: toAgentProfileView(profile) };
+    }
+    catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : '로그인 명령 생성 실패' };
+    }
+});
+electron_1.ipcMain.handle('agent-mode:check-login', async (_evt, args) => {
+    try {
+        const profiles = refreshAgentProfileStatuses();
+        const normalizedProvider = args?.provider ? normalizeAgentProvider(args.provider) : null;
+        const profile = (args?.id ? profiles.find((item) => item.id === args.id) : null)
+            || profiles.find((item) => !normalizedProvider || item.provider === normalizedProvider)
+            || null;
+        return {
+            ok: true,
+            ready: profile?.status === 'ready',
+            profile: profile ? toAgentProfileView(profile) : null,
+            profiles: profiles.map(toAgentProfileView),
+        };
+    }
+    catch (error) {
+        return {
+            ok: false,
+            ready: false,
+            error: error instanceof Error ? error.message : '로그인 상태 확인 실패',
+            profiles: [],
+        };
+    }
+});
+electron_1.ipcMain.handle('agent-mode:install-tool', async (_evt, args) => {
+    try {
+        const access = await getAgentModeAccessStatus();
+        if (!access.allowed) {
+            return {
+                ok: false,
+                error: access.message,
+                requiredTier: access.requiredTier,
+                requiredName: access.requiredName,
+                currentTier: access.currentTier,
+                currentName: access.currentName,
+            };
+        }
+        const provider = normalizeAgentProvider(args?.provider);
+        const install = await runInlineAgentInstall(provider);
+        const tool = await detectAgentBinary(provider);
+        const verified = tool.usable !== false && tool.installed;
+        if ((install.exitCode !== 0 || install.timedOut) && !verified) {
+            return {
+                ok: false,
+                provider,
+                command: install.command,
+                output: install.output,
+                timedOut: install.timedOut,
+                exitCode: install.exitCode,
+                tool,
+                error: install.timedOut
+                    ? `${provider === 'claude' ? 'Claude Code' : 'Codex'} 설치 시간이 초과되었습니다.`
+                    : `${provider === 'claude' ? 'Claude Code' : 'Codex'} 설치 명령이 실패했습니다.`,
+            };
+        }
+        return {
+            ok: true,
+            provider,
+            command: install.command,
+            output: install.output,
+            exitCode: install.exitCode,
+            tool,
+            verified,
+            message: verified
+                ? `${provider === 'claude' ? 'Claude Code' : 'Codex'} 설치가 완료되었습니다.`
+                : `${provider === 'claude' ? 'Claude Code' : 'Codex'} 설치 명령은 끝났지만 실행 확인이 필요합니다.`,
+        };
+    }
+    catch (error) {
+        console.error('[AGENT-MODE] 설치 실행 실패:', error);
+        return { ok: false, error: error instanceof Error ? error.message : '설치 실행 실패' };
+    }
+});
+electron_1.ipcMain.handle('agent-mode:start-login', async (_evt, args) => {
+    try {
+        const access = await getAgentModeAccessStatus();
+        if (!access.allowed) {
+            return {
+                ok: false,
+                error: access.message,
+                requiredTier: access.requiredTier,
+                requiredName: access.requiredName,
+                currentTier: access.currentTier,
+                currentName: access.currentName,
+            };
+        }
+        const profile = findAgentProfile(args?.id, args?.provider);
+        if (!profile)
+            return { ok: false, error: '로그인할 Agent 계정 준비가 없습니다.' };
+        const launched = await startVisibleAgentLogin(profile);
+        return {
+            ok: true,
+            profile: toAgentProfileView(profile),
+            pid: launched.pid,
+            command: launched.command,
+            url: launched.url,
+            browser: launched.browser,
+            message: `${profile.provider === 'claude' ? 'Claude Code' : 'Codex'} 로그인 창을 열었습니다.`,
+        };
+    }
+    catch (error) {
+        console.error('[AGENT-MODE] 로그인 창 실행 실패:', error);
+        return { ok: false, error: error instanceof Error ? error.message : '로그인 창 실행 실패' };
+    }
+});
+electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
+    try {
+        const access = await getAgentModeAccessStatus();
+        if (!access.allowed) {
+            return {
+                ok: false,
+                error: access.message,
+                requiredTier: access.requiredTier,
+                requiredName: access.requiredName,
+                currentTier: access.currentTier,
+                currentName: access.currentName,
+            };
+        }
+        const profile = findAgentProfile(request?.profileId, request?.provider);
+        if (!profile) {
+            return {
+                ok: false,
+                error: '사용할 Agent 계정 준비가 없습니다. 로그인 창 열기로 공식 로그인을 먼저 진행하세요.',
+            };
+        }
+        const jobId = createAgentJobId(profile.provider, request?.title || request?.payload?.title || request?.payload?.topic);
+        const jobDir = path.join(ensureAgentJobsRoot(), jobId);
+        fs.mkdirSync(jobDir, { recursive: true });
+        writeAgentJobFiles(jobDir, request || {}, profile);
+        const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
+        const run = await runAgentProcess(profile, jobDir, lastMessagePath);
+        const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
+        const usage = parseAgentRunUsage(profile.provider, run.stdout);
+        const hasContent = !!String(result.content || '').trim();
+        if (!hasContent) {
+            return {
+                ok: false,
+                jobId,
+                jobDir,
+                profile: toAgentProfileView(profile),
+                exitCode: run.exitCode,
+                timedOut: run.timedOut,
+                error: run.timedOut
+                    ? 'Agent 작업 시간이 초과되었습니다. 더 짧은 지시서로 다시 시도하세요.'
+                    : 'Agent 산출물을 찾지 못했습니다.',
+                stdout: run.stdout.slice(-12000),
+                stderr: run.stderr.slice(-12000),
+            };
+        }
+        return {
+            ok: true,
+            jobId,
+            jobDir,
+            profile: toAgentProfileView(profile),
+            exitCode: run.exitCode,
+            timedOut: run.timedOut,
+            title: result.title,
+            content: result.content,
+            metadata: result.metadata,
+            finalMessage: result.finalMessage,
+            usage,
+            warning: run.exitCode && run.exitCode !== 0
+                ? `Agent가 종료 코드 ${run.exitCode}로 종료됐지만 article.html 산출물을 회수했습니다.`
+                : '',
+            stdout: run.stdout.slice(-12000),
+            stderr: run.stderr.slice(-12000),
+        };
+    }
+    catch (error) {
+        console.error('[AGENT-MODE] 작업 실행 실패:', error);
+        return {
+            ok: false,
+            error: error instanceof Error ? error.message : 'Agent 작업 실행 실패',
+        };
     }
 });
 electron_1.ipcMain.handle('transform-content', async (_evt, args) => {

@@ -4,8 +4,8 @@
  * 패널에서 기간을 수정하면 자동으로 인식하고 해당 티어의 기능을 활성화합니다.
  * 
  * 티어별 기능:
- * - 1개월: 기본 기능
- * - 3개월: 기본 + AI 이미지
+ * - 1개월: 기본 기능 + API 키 기반 생성
+ * - 3개월: 기본 + Max Agent Mode
  * - 6개월: 기본 + AI 이미지 + 키워드마스터
  * - 1년: 모든 기능 (LEWORD 포함)
  * - 무제한: 모든 기능 + 우선 지원
@@ -35,6 +35,7 @@ export interface TierFeatures {
     bulkPosting: boolean;        // 대량 포스팅
     analytics: boolean;          // 분석 기능
     prioritySupport: boolean;    // 우선 지원
+    maxAgentMode: boolean;       // Codex/Claude 구독 계정 기반 Agent Mode
   };
 }
 
@@ -54,6 +55,7 @@ const TIER_DEFINITIONS: Record<LicenseTier, TierFeatures> = {
       bulkPosting: false,
       analytics: false,
       prioritySupport: false,
+      maxAgentMode: false,
     }
   },
   expired: {
@@ -70,6 +72,7 @@ const TIER_DEFINITIONS: Record<LicenseTier, TierFeatures> = {
       bulkPosting: false,
       analytics: false,
       prioritySupport: false,
+      maxAgentMode: false,
     }
   },
   basic: {
@@ -88,6 +91,7 @@ const TIER_DEFINITIONS: Record<LicenseTier, TierFeatures> = {
       bulkPosting: false,
       analytics: false,
       prioritySupport: false,
+      maxAgentMode: false,
     }
   },
   standard: {
@@ -104,6 +108,7 @@ const TIER_DEFINITIONS: Record<LicenseTier, TierFeatures> = {
       bulkPosting: false,
       analytics: false,
       prioritySupport: false,
+      maxAgentMode: true,
     }
   },
   premium: {
@@ -120,6 +125,7 @@ const TIER_DEFINITIONS: Record<LicenseTier, TierFeatures> = {
       bulkPosting: true,
       analytics: true,
       prioritySupport: false,
+      maxAgentMode: true,
     }
   },
   professional: {
@@ -136,6 +142,7 @@ const TIER_DEFINITIONS: Record<LicenseTier, TierFeatures> = {
       bulkPosting: true,
       analytics: true,
       prioritySupport: false,
+      maxAgentMode: true,
     }
   },
   unlimited: {
@@ -152,6 +159,7 @@ const TIER_DEFINITIONS: Record<LicenseTier, TierFeatures> = {
       bulkPosting: true,
       analytics: true,
       prioritySupport: true,
+      maxAgentMode: true,
     }
   }
 };
@@ -442,6 +450,10 @@ export function canUseScheduling(): boolean {
 
 export function canUseBulkPosting(): boolean {
   return getLicenseTierManager().canUseFeature('bulkPosting');
+}
+
+export function canUseMaxAgentMode(): boolean {
+  return getLicenseTierManager().canUseFeature('maxAgentMode');
 }
 
 export function checkFeatureAccess(feature: keyof TierFeatures['features']): { allowed: boolean; error?: any } {

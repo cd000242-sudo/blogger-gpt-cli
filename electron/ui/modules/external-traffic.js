@@ -96,7 +96,7 @@ const PLATFORMS = [
     openUrl: 'https://www.pinterest.com/pin-builder/',
     color: '#e60023',
     promptSystem: `당신은 한국 핀터레스트 크리에이터입니다. 핀 제목 ≤100자(검색 친화 키워드 풍부), description ≤500자, 인포그래픽 이미지 설명까지 출력. 핀 자체가 외부 링크라 직접 ${'${URL}'} 매핑.`,
-    promptUser: (src) => `원본 블로그: "${src.title}"\n원본 URL: ${src.url}\n\n핀터레스트 4가지를 출력하세요:\n[Pin Title] 검색 키워드 풍부 (≤100자)\n[Description] ≤500자, 키워드 자연 분포, 끝에 ${src.url}\n[Board Suggestion] 어떤 보드에 핀할지 추천\n[Image Prompt] 인포그래픽 이미지 생성용 영문 프롬프트 (사용자가 별도 도구로 생성)`,
+    promptUser: (src) => `원본 블로그: "${src.title}"\n원본 URL: ${src.url}\n\n핀터레스트 4가지를 출력하세요:\n[Pin Title] 검색 키워드 풍부 (≤100자)\n[Description] ≤500자, 키워드 자연 분포, 끝에 ${src.url}\n[Board Suggestion] 어떤 보드에 핀할지 추천\n${_getPinterestImageInstruction()}`,
   },
 ];
 
@@ -145,6 +145,51 @@ function _renderPlatformLogo(platform, size = 'list') {
         onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';">
       <span style="display:none;align-items:center;justify-content:center;width:100%;height:100%;font-size:${isHeader ? 15 : 10}px;font-weight:900;color:${platform.id === 'kakao-openchat' ? '#000' : '#f8fafc'};">${escapeHtml(meta.fallback)}</span>
     </span>`;
+}
+
+function _readExtTrafficJsonStorage(key, fallback = '') {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return localStorage.getItem(key) || fallback;
+  }
+}
+
+function _getExtTrafficAgentImageMode() {
+  if (typeof window !== 'undefined' && typeof window.getAgentImageSettingsMode === 'function') {
+    return window.getAgentImageSettingsMode();
+  }
+  const executionMode = _readExtTrafficJsonStorage('leadernamExecutionMode', 'api') === 'agent' ? 'agent' : 'api';
+  const provider = _readExtTrafficJsonStorage('leadernamActiveAgentProvider', 'codex') === 'claude' ? 'claude' : 'codex';
+  return {
+    executionMode,
+    provider,
+    isAgentMode: executionMode === 'agent',
+    codexImageManaged: executionMode === 'agent' && provider === 'codex',
+    claudeNeedsImageEngine: executionMode === 'agent' && provider === 'claude',
+  };
+}
+
+function _getExtTrafficImageModePayload() {
+  const mode = _getExtTrafficAgentImageMode();
+  return {
+    executionMode: mode.executionMode,
+    agentProvider: mode.provider,
+    agentImageManaged: mode.codexImageManaged || undefined,
+    imageManagedBy: mode.codexImageManaged ? 'codex-agent' : undefined,
+  };
+}
+
+function _getPinterestImageInstruction() {
+  const mode = _getExtTrafficAgentImageMode();
+  if (mode.codexImageManaged) {
+    return 'Codex Agent가 이어서 이미지를 생성할 수 있도록 [Image Prompt]는 영어 이미지 생성 지시문으로 구체화하고, 텍스트 오버레이 문구·구도·색상·금지 요소까지 포함하세요.';
+  }
+  if (mode.claudeNeedsImageEngine) {
+    return '[Image Prompt]는 Claude Code가 직접 이미지를 생성하지 못하므로 별도 이미지 엔진에 넣을 수 있는 영어 프롬프트로 작성하세요.';
+  }
+  return '[Image Prompt]는 사용자가 별도 이미지 생성 도구로 만들 수 있는 영어 프롬프트로 작성하세요.';
 }
 
 let _selectedSource = null; // { title, url, html, thumbnail, ... }
@@ -1152,6 +1197,10 @@ function _renderStructuredPlatformResultCard(platform, cached) {
               <div style="color:${cfg.accent};font-size:10px;font-weight:900;margin-bottom:4px;white-space:nowrap;">${escapeHtml(label)}</div>
               <div title="${escapeHtml(value)}" style="color:#f8fafc;font-size:12px;line-height:1.35;max-height:34px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${escapeHtml(value)}</div>
             </div>`).join('')}
+        </div>` : ''}
+      ${platform.id === 'pinterest' && _getExtTrafficAgentImageMode().codexImageManaged ? `
+        <div style="margin-top:10px;padding:9px 11px;background:rgba(14,165,233,0.12);border:1px solid rgba(56,189,248,0.32);border-radius:9px;color:#bae6fd;font-size:12px;font-weight:800;line-height:1.45;">
+          Codex Agent 이미지 관리 모드: 이미지 문구와 디자인 방향은 Codex가 이어서 이미지 생성까지 처리할 지시로 사용됩니다.
         </div>` : ''}
     </div>
 
@@ -2257,7 +2306,9 @@ function _renderMultiOutput(platform, parts) {
   for (const [key, value] of Object.entries(parts)) {
     const safeKey = `extTrafficPart_${idx}`;
     const safeValue = escapeHtml(value || '');
-    const label = labels[key] || key;
+    const label = key === 'imagePrompt' && _getExtTrafficAgentImageMode().codexImageManaged
+      ? 'Image Prompt (Codex 이미지 지시)'
+      : (labels[key] || key);
     const charCount = (value || '').length;
     html += `
       <div style="margin-bottom: 14px; padding: 12px 14px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(148,163,184,0.12); border-radius: 10px;">
@@ -2599,6 +2650,7 @@ async function _callLLM(platform, source) {
   if (_isV2Channel(platform.id) && window.electronAPI && window.electronAPI.invoke) {
     try {
       const aiPreference = _getExtTrafficAiPreference();
+      const imageModePayload = _getExtTrafficImageModePayload();
       const result = await window.electronAPI.invoke('generate-external-traffic-text-v2', {
         sourceUrl: source.url,
         sourceTitle: source.title,
@@ -2607,6 +2659,7 @@ async function _callLLM(platform, source) {
         sourceType,
         channels: [{ id: platform.id }],
         ...aiPreference,
+        ...imageModePayload,
       });
       if (result && result.success && result.results && result.results[platform.id]) {
         const r = result.results[platform.id];
@@ -2640,10 +2693,12 @@ async function _callLLM(platform, source) {
   if (window.electronAPI && window.electronAPI.invoke) {
     try {
       const aiPreference = _getExtTrafficAiPreference();
+      const imageModePayload = _getExtTrafficImageModePayload();
       const result = await window.electronAPI.invoke('generate-external-traffic-text', {
         system: systemPrompt,
         user: userPrompt,
         ...aiPreference,
+        ...imageModePayload,
       });
       if (result && result.success && result.text) {
         return { isV2: false, rawText: result.text };
@@ -2693,6 +2748,9 @@ async function extTrafficGenerateOne(platformId) {
     });
     _updateExtTrafficProgress({ percent: 14, phase: '원본 글 분석 중', softCap: 88 });
     _addExtTrafficProgressLog('원본 제목, URL, 본문 요약을 정리합니다.', 'info');
+    if (_getExtTrafficAgentImageMode().codexImageManaged) {
+      _addExtTrafficProgressLog('Codex Agent 이미지 관리 모드 — 이미지 프롬프트는 Codex가 이어서 처리할 지시로 생성합니다.', 'info');
+    }
     _addExtTrafficProgressLog(`${platform.label} 문체와 길이 규칙을 적용합니다.`, 'info');
     _updateExtTrafficProgress({ percent: 42, phase: 'AI 응답 대기 중', softCap: 88 });
     _addExtTrafficProgressLog('AI 생성 요청을 보냈습니다. 응답을 기다리는 중입니다.', 'info');
@@ -2735,6 +2793,9 @@ async function extTrafficGenerateAll() {
     phase: '전체 플랫폼 생성 준비',
   });
   _addExtTrafficProgressLog(`총 ${PLATFORMS.length}개 플랫폼을 순서대로 생성합니다.`, 'info');
+  if (_getExtTrafficAgentImageMode().codexImageManaged) {
+    _addExtTrafficProgressLog('Codex Agent 이미지 관리 모드 — 이미지 관련 출력은 Codex가 이어서 처리할 지시로 생성합니다.', 'info');
+  }
 
   for (const [index, platform] of PLATFORMS.entries()) {
     try {
@@ -2789,6 +2850,7 @@ let _activeSubtab = 'generate';
 
 window.initExternalTrafficTab = async function () {
   console.log('[EXT-TRAFFIC] 탭 초기화');
+  try { window.applyAgentImageSettingsVisibility?.(document.getElementById('external-traffic-tab') || document); } catch {}
   // v2 채널 백엔드 동기화 (비동기) — 실패 시 fallback set 유지
   _loadV2Channels().then(() => _renderPlatformList()).catch(() => {});
   _renderPlatformList();
@@ -2819,6 +2881,7 @@ function extTrafficShowSubtab(subtab) {
   if (subtab === 'sites') _renderInlineSites();
   else if (subtab === 'usage') _renderUsagePanel();
   else if (subtab === 'patterns') _renderPatternsPanel();
+  try { window.applyAgentImageSettingsVisibility?.(document.getElementById('external-traffic-tab') || document); } catch {}
 }
 window.extTrafficShowSubtab = extTrafficShowSubtab;
 

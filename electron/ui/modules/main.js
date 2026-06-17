@@ -8,6 +8,7 @@ import './semi-auto.js'; // 반자동 이미지 관리 모듈
 import './internal-links.js'; // 내부링크 관리 모듈
 import { runPosting, publishToPlatform, createPayload, createPayloadFromForm, createPreviewPayload } from './posting.js';
 import { generatePreview, displayPreviewInModal, showPreviewModal, closePreviewModal } from './preview.js';
+import { initCodexWorkshop, openCodexWorkshopPanel, closeCodexWorkshopPanel, applyCodexResult, runAgentJobFromPosting } from './codex-workshop.js';
 import { loadSettings, saveSettings, loadSettingsContent, updateApiKeyStatus, updatePlatformStatus, loadLicenseInfo, isLicenseValid, checkPlatformConnection, checkCseConnection, startBloggerOAuth, closeBloggerAuthCodeModal } from './settings.js';
 import { updateKeywordCount, addKeyword, removeKeyword, getAllKeywords, getH2ImageSections, updateRealtimeClock, updateRealtimeDate, initializeProgressSteps, resetProgressSteps, updateProgressStep, onCalendarDateClick, toggleCalendarMemoComplete } from './utils.js';
 import { onLog, onProgress } from './api.js';
@@ -376,6 +377,10 @@ console.log('[MAIN] 워드프레스 함수 즉시 정의 완료');
   window.displayPreviewInModal = displayPreviewInModal;
   window.showPreviewModal = showPreviewModal;
   window.closePreviewModal = closePreviewModal;
+  window.openCodexWorkshopPanel = openCodexWorkshopPanel;
+  window.closeCodexWorkshopPanel = closeCodexWorkshopPanel;
+  window.applyCodexResult = applyCodexResult;
+  window.runAgentJobFromPosting = runAgentJobFromPosting;
 
   // 설정 함수들
   window.loadSettings = loadSettings;
@@ -526,6 +531,7 @@ async function initializeApp() {
 
     // 5.10. 연속발행 대기열 초기화 (줄바꿈 키워드 감지)
     initPublishQueue();
+    try { initCodexWorkshop(); } catch (e) { console.warn('[CODEX-WORKSHOP] 초기화 실패:', e); }
     debugLog('MAIN', '원클릭 세팅 모듈 초기화 완료');
 
     // 5.10. 첫 실행 마법사 초기화 (3분 세팅)
