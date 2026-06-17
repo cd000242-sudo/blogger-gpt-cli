@@ -5478,6 +5478,7 @@ const AGENT_JOB_TIMEOUT_MS = 12 * 60 * 1000;
 const AGENT_LOGIN_URL_WAIT_MS = 25000;
 const CODEX_AGENT_DEFAULT_MODEL = 'gpt-5.5';
 const CODEX_CHATGPT_MODEL_ERROR_RE = /not supported when using Codex with a ChatGPT account|gpt-5\.3-codex/i;
+const CODEX_UPGRADE_REQUIRED_RE = /requires a newer version of Codex/i;
 function isAgentModeDevOverride() {
     return !electron_1.app.isPackaged || process.env.DEV_MODE === 'true' || process.env.NODE_ENV === 'development';
 }
@@ -5503,6 +5504,36 @@ function ensureAgentJobsRoot() {
 function getCodexAgentModel() {
     const model = String(process.env.LEADERNAM_CODEX_AGENT_MODEL || CODEX_AGENT_DEFAULT_MODEL).trim();
     return model || CODEX_AGENT_DEFAULT_MODEL;
+}
+function isCodexModelRetryableError(model, runOutput) {
+    const combined = `${runOutput.stderr || ''}\n${runOutput.stdout || ''}`;
+    const isUpgradeRequired = CODEX_UPGRADE_REQUIRED_RE.test(combined);
+    // null(model) means Codex default model. For default model we only retry on a
+    // hard compatibility error, because other failures are usually final (예: 인증/요청 본문 이슈).
+    if (model == null) {
+        return isUpgradeRequired;
+    }
+    return isUpgradeRequired || CODEX_CHATGPT_MODEL_ERROR_RE.test(combined);
+}
+function getCodexModelAttemptOrder() {
+    const configured = String(process.env.LEADERNAM_CODEX_AGENT_MODEL || '').trim();
+    const defaultModel = getCodexAgentModel();
+    const ordered = [configured || defaultModel];
+    const fallback = defaultModel;
+    if (configured && configured !== fallback) {
+        ordered.push(fallback);
+    }
+    ordered.push(null);
+    const seen = new Set();
+    const result = [];
+    for (const model of ordered) {
+        const key = model ?? '(auto)';
+        if (seen.has(key))
+            continue;
+        seen.add(key);
+        result.push(model);
+    }
+    return result;
 }
 function normalizeAgentProvider(value) {
     return String(value || '').toLowerCase() === 'claude' ? 'claude' : 'codex';
@@ -5816,24 +5847,27 @@ function buildAgentRunEnv(profile) {
     }
     return env;
 }
-function buildAgentRunCommand(profile, jobDir, lastMessagePath) {
+function buildAgentRunCommand(profile, jobDir, lastMessagePath, model = getCodexAgentModel()) {
     const prompt = [
         'Read instructions.md and payload.json, then create result/article.html and result/metadata.json exactly as requested.',
         'If file writing is blocked, print the full article HTML between ARTICLE_HTML_BEGIN and ARTICLE_HTML_END.',
         'Do not ask questions.',
     ].join(' ');
     if (profile.provider === 'codex') {
+        const finalArgs = [
+            'exec',
+            '--json',
+            '--sandbox', 'workspace-write',
+            '--skip-git-repo-check',
+            '-o', lastMessagePath,
+            prompt,
+        ];
+        if (model) {
+            finalArgs.splice(2, 0, '-m', model);
+        }
         return {
             command: resolveAgentBinaryCommand(profile.provider),
-            args: [
-                'exec',
-                '--json',
-                '-m', getCodexAgentModel(),
-                '--sandbox', 'workspace-write',
-                '--skip-git-repo-check',
-                '-o', lastMessagePath,
-                prompt,
-            ],
+            args: finalArgs,
         };
     }
     return {
@@ -5894,52 +5928,108 @@ function parseAgentRunUsage(provider, stdout) {
         return null;
     }
 }
-async function runAgentProcess(profile, jobDir, lastMessagePath) {
-    return new Promise((resolve) => {
-        const { spawn } = require('child_process');
-        const { command, args } = buildAgentRunCommand(profile, jobDir, lastMessagePath);
-        const isWindows = process.platform === 'win32';
-        const useShell = isWindows && (!path.extname(command) || /\.(cmd|bat)$/i.test(command));
-        const spawnCommand = useShell ? buildShellCommandLine(command, args) : command;
-        const spawnArgs = useShell ? [] : args;
-        let stdout = '';
-        let stderr = '';
-        let timedOut = false;
-        const child = spawn(spawnCommand, spawnArgs, {
-            cwd: jobDir,
-            env: buildAgentRunEnv(profile),
-            shell: useShell,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            windowsHide: true,
-        });
-        const append = (target, chunk) => {
-            const text = String(chunk || '');
-            if (target === 'stdout') {
-                stdout = (stdout + text).slice(-240000);
-            }
-            else {
-                stderr = (stderr + text).slice(-240000);
-            }
+async function ensureLatestCodexCliForCompatibility() {
+    try {
+        const install = await runInlineAgentInstall('codex');
+        if ((install.exitCode ?? 1) === 0) {
+            return { ok: true, output: install.output };
+        }
+        return {
+            ok: false,
+            output: install.output,
+            error: `Codex 업그레이드가 실패했습니다. 설치 로그: ${install.output}`,
         };
-        child.stdout?.on('data', (chunk) => append('stdout', chunk));
-        child.stderr?.on('data', (chunk) => append('stderr', chunk));
-        child.on('error', (error) => {
-            stderr = (stderr + `\n${error.message}`).slice(-240000);
+    }
+    catch (error) {
+        return {
+            ok: false,
+            error: error instanceof Error ? error.message : 'Codex 업그레이드 실행 중 오류가 발생했습니다.',
+        };
+    }
+}
+async function runAgentProcess(profile, jobDir, lastMessagePath) {
+    const runOnce = (model) => {
+        return new Promise((resolve) => {
+            const { spawn } = require('child_process');
+            const { command, args } = buildAgentRunCommand(profile, jobDir, lastMessagePath, model);
+            const isWindows = process.platform === 'win32';
+            const useShell = isWindows && (!path.extname(command) || /\.(cmd|bat)$/i.test(command));
+            const spawnCommand = useShell ? buildShellCommandLine(command, args) : command;
+            const spawnArgs = useShell ? [] : args;
+            let stdout = '';
+            let stderr = '';
+            let timedOut = false;
+            const child = spawn(spawnCommand, spawnArgs, {
+                cwd: jobDir,
+                env: buildAgentRunEnv(profile),
+                shell: useShell,
+                stdio: ['ignore', 'pipe', 'pipe'],
+                windowsHide: true,
+            });
+            const append = (target, chunk) => {
+                const text = String(chunk || '');
+                if (target === 'stdout') {
+                    stdout = (stdout + text).slice(-240000);
+                }
+                else {
+                    stderr = (stderr + text).slice(-240000);
+                }
+            };
+            child.stdout?.on('data', (chunk) => append('stdout', chunk));
+            child.stderr?.on('data', (chunk) => append('stderr', chunk));
+            child.on('error', (error) => {
+                stderr = (stderr + `\n${error.message}`).slice(-240000);
+            });
+            const timeout = setTimeout(() => {
+                timedOut = true;
+                try {
+                    child.kill();
+                }
+                catch {
+                    // ignore
+                }
+            }, AGENT_JOB_TIMEOUT_MS);
+            child.on('close', (exitCode) => {
+                clearTimeout(timeout);
+                resolve({ exitCode, stdout, stderr, timedOut });
+            });
         });
-        const timeout = setTimeout(() => {
-            timedOut = true;
-            try {
-                child.kill();
+    };
+    if (profile.provider !== 'codex') {
+        return runOnce(null);
+    }
+    const attempts = getCodexModelAttemptOrder();
+    let upgraded = false;
+    let lastRun = {
+        exitCode: null,
+        stdout: '',
+        stderr: '',
+        timedOut: false,
+    };
+    for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex++) {
+        const model = attempts[attemptIndex];
+        const run = await runOnce(model);
+        lastRun = run;
+        const combined = `${run.stderr || ''}\n${run.stdout || ''}`;
+        if (!isCodexModelRetryableError(model, run)) {
+            return run;
+        }
+        if (!upgraded && CODEX_UPGRADE_REQUIRED_RE.test(combined)) {
+            console.warn(`[AGENT-MODE] ${model || '(auto)'} 실행에서 Codex 업그레이드가 필요해 보입니다. 업그레이드 후 동일 모델로 재시도합니다.`);
+            const upgrade = await ensureLatestCodexCliForCompatibility();
+            upgraded = true;
+            if (upgrade.ok) {
+                console.info('[AGENT-MODE] Codex 업그레이드 실행 완료. 동일 모델로 재시도합니다.');
+                attemptIndex -= 1;
+                continue;
             }
-            catch {
-                // ignore
-            }
-        }, AGENT_JOB_TIMEOUT_MS);
-        child.on('close', (exitCode) => {
-            clearTimeout(timeout);
-            resolve({ exitCode, stdout, stderr, timedOut });
-        });
-    });
+            console.warn('[AGENT-MODE] Codex 업그레이드 실패:', upgrade.error || upgrade.output || 'unknown');
+        }
+        if (attemptIndex < attempts.length - 1) {
+            console.warn(`[AGENT-MODE] 모델 ${model || '(auto)'} 실행 실패, 업그레이드 필요/호환성 이슈로 대체 모델로 재시도합니다.`);
+        }
+    }
+    return lastRun;
 }
 function readTextFileIfExists(filePath) {
     try {
@@ -6133,6 +6223,9 @@ function buildAgentFailureMessage(profile, run) {
     const processError = extractAgentProcessError(run.stdout, run.stderr);
     if (profile.provider === 'codex' && CODEX_CHATGPT_MODEL_ERROR_RE.test(combined)) {
         return `Codex 모델이 ChatGPT 구독 계정에서 거절되었습니다. Orbit은 이제 Codex를 ${getCodexAgentModel()}로 실행하도록 수정되었습니다. 앱을 업데이트한 뒤 다시 시도해주세요.`;
+    }
+    if (profile.provider === 'codex' && CODEX_UPGRADE_REQUIRED_RE.test(combined)) {
+        return 'Codex 모델이 현재 앱/CLI 버전에서 지원되지 않습니다. Orbit에서 기본 모델로 재시도했지만 동일하게 실패했습니다. Codex를 최신 버전으로 업그레이드 후 다시 실행하세요.';
     }
     if (processError) {
         return `${profile.provider === 'codex' ? 'Codex' : 'Claude Code'} 오류: ${processError}`;
