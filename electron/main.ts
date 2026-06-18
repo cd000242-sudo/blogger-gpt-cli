@@ -5900,6 +5900,13 @@ const AGENT_LOGIN_URL_WAIT_MS = 25000;
 const CODEX_AGENT_DEFAULT_MODEL = 'gpt-5.5';
 const CODEX_CHATGPT_MODEL_ERROR_RE = /not supported when using Codex with a ChatGPT account|gpt-5\.3-codex/i;
 const CODEX_UPGRADE_REQUIRED_RE = /requires a newer version of Codex/i;
+// v3.8.84: 워크스페이스 크레딧/쿼터 부족 오류 — ChatGPT 구독으로 로그인했어도 일부 환경에서
+//   OpenAI Platform workspace로 라우팅되며 "Your workspace is out of credits" 반환.
+//   주요 원인: ① env에 OPENAI_API_KEY/CODEX_API_KEY 잔여 → API 키 결제로 전환
+//             ② ChatGPT Plus/Pro 구독 미보유 또는 5h 사용량 한도 도달
+//             ③ codex login이 다른 워크스페이스로 잘못 매핑
+const CODEX_OUT_OF_CREDITS_RE = /out of credits|workspace.{0,20}credit|insufficient.{0,20}(quota|credit)|exceeded.{0,20}quota|billing.{0,20}(limit|hard cap)/i;
+const CODEX_AUTH_REQUIRED_RE = /not (?:logged in|authenticated)|please (?:log in|login)|run `codex login`|authentication required|401\s*unauthorized/i;
 
 function isAgentModeDevOverride(): boolean {
   return !app.isPackaged || process.env.DEV_MODE === 'true' || process.env.NODE_ENV === 'development';
@@ -6685,6 +6692,43 @@ function buildAgentFailureMessage(profile: AgentProfile, run: { stdout: string; 
   }
   if (profile.provider === 'codex' && CODEX_UPGRADE_REQUIRED_RE.test(combined)) {
     return 'Codex 모델이 현재 앱/CLI 버전에서 지원되지 않습니다. Orbit에서 기본 모델로 재시도했지만 동일하게 실패했습니다. Codex를 최신 버전으로 업그레이드 후 다시 실행하세요.';
+  }
+  // v3.8.84: 워크스페이스 크레딧 / 인증 오류는 사용자에게 친절한 한국어 안내 제공
+  if (profile.provider === 'codex' && CODEX_OUT_OF_CREDITS_RE.test(combined)) {
+    const apiKeyLeak = !!(process.env.OPENAI_API_KEY || process.env.CODEX_API_KEY);
+    const mode = profile.authMode === 'subscription' ? '구독(ChatGPT)' : 'API 키';
+    const lines = [
+      `Codex 워크스페이스 크레딧이 부족합니다 (현재 인증: ${mode}).`,
+      '',
+      '🔍 가능한 원인:',
+    ];
+    if (profile.authMode === 'subscription') {
+      lines.push('  ① ChatGPT Plus/Pro 5시간 사용량 한도 도달 (한도 초기화 대기 또는 Pro 업그레이드)');
+      lines.push('  ② Codex CLI가 다른 ChatGPT 계정(무료/Team)으로 로그인되어 있음');
+      if (apiKeyLeak) {
+        lines.push('  ③ 시스템에 OPENAI_API_KEY 환경 변수가 있어 워크스페이스 결제로 잘못 라우팅됨');
+      }
+      lines.push('');
+      lines.push('🛠 해결:');
+      lines.push('  1) 설정 → Agent 계정 → "재로그인"으로 codex login을 다시 실행');
+      lines.push('  2) 브라우저에서 ChatGPT Plus/Pro 결제 계정으로 로그인 확인');
+      if (apiKeyLeak) {
+        lines.push('  3) 시스템 환경 변수에서 OPENAI_API_KEY / CODEX_API_KEY 삭제 후 재시도');
+      }
+      lines.push('  4) 임시 대안: 글 생성 엔진을 Gemini/OpenAI 직접 호출로 전환');
+    } else {
+      lines.push('  ① OpenAI Platform 워크스페이스 크레딧이 0 또는 하드 한도(hard limit) 도달');
+      lines.push('  ② API 키가 결제 정보 없는 워크스페이스에 속함');
+      lines.push('');
+      lines.push('🛠 해결:');
+      lines.push('  1) https://platform.openai.com/settings/organization/billing 에서 크레딧 충전');
+      lines.push('  2) Settings → Limits → Monthly budget 상향 (현재 한도 확인)');
+      lines.push('  3) 임시 대안: 설정에서 ChatGPT 구독 모드로 전환 후 codex login 재실행');
+    }
+    return lines.join('\n');
+  }
+  if (profile.provider === 'codex' && CODEX_AUTH_REQUIRED_RE.test(combined)) {
+    return 'Codex 인증이 만료되었거나 로그인이 풀렸습니다.\n설정 → Agent 계정 → "재로그인"을 눌러 codex login을 다시 실행해주세요.';
   }
   if (processError) {
     return `${profile.provider === 'codex' ? 'Codex' : 'Claude Code'} 오류: ${processError}`;
