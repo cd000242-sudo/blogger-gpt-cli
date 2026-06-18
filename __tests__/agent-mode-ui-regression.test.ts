@@ -34,6 +34,9 @@ describe('agent mode settings UI regression guard', () => {
     expect(workshop).toContain('id="executionModeAgentBtn"');
     expect(workshop).toContain('id="agentProviderTabCodex"');
     expect(workshop).toContain('id="agentProviderTabClaude"');
+    expect(workshop).toContain('data-agent-add-account=');
+    expect(workshop).toContain('로그인 계정 추가하기');
+    expect(workshop).toContain('await startAgentLogin(selectedProvider, profile.id)');
     expect(workshop).toContain('export function ensureAgentModeSettingsSection()');
   });
 });

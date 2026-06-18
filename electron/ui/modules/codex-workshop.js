@@ -1045,6 +1045,7 @@ function renderAgentProviderPanel() {
         <aside class="agent-mode-action-panel">
           <strong>빠른 작업</strong>
           <button type="button" class="agent-mode-primary-action" data-install-agent="${escapeHtml(provider)}">${escapeHtml(tool?.installed && tool.usable !== false ? `${meta.label} 설치/업데이트` : `${meta.label} 설치하기`)}</button>
+          <button type="button" class="agent-mode-primary-action" data-agent-add-account="${escapeHtml(provider)}">로그인 계정 추가하기</button>
           <button type="button" class="agent-mode-primary-action" data-agent-login="${escapeHtml(provider)}">${escapeHtml(ready ? `${meta.label} 로그인 완료 확인` : `${meta.label} 로그인 창 열기`)}</button>
           <button type="button" data-agent-refresh="true">상태 새로고침</button>
           <div class="agent-mode-link-grid">
@@ -1063,6 +1064,25 @@ function renderAgentProviderPanel() {
   });
   detail.querySelectorAll('[data-install-agent]').forEach((button) => {
     button.addEventListener('click', () => installAgentTool(button.getAttribute('data-install-agent') || provider, button));
+  });
+  detail.querySelectorAll('[data-agent-add-account]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const selectedProvider = button.getAttribute('data-agent-add-account') || provider;
+      button.disabled = true;
+      const previousText = button.textContent;
+      button.textContent = '계정 추가 중...';
+      try {
+        const profile = await createAgentProfile(selectedProvider);
+        if (profile?.id) {
+          await startAgentLogin(selectedProvider, profile.id);
+        }
+      } finally {
+        if (button.isConnected) {
+          button.disabled = false;
+          button.textContent = previousText;
+        }
+      }
+    });
   });
   detail.querySelectorAll('[data-agent-login]').forEach((button) => {
     button.addEventListener('click', () => {
