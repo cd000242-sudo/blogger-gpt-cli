@@ -6693,39 +6693,37 @@ function buildAgentFailureMessage(profile: AgentProfile, run: { stdout: string; 
   if (profile.provider === 'codex' && CODEX_UPGRADE_REQUIRED_RE.test(combined)) {
     return 'Codex 모델이 현재 앱/CLI 버전에서 지원되지 않습니다. Orbit에서 기본 모델로 재시도했지만 동일하게 실패했습니다. Codex를 최신 버전으로 업그레이드 후 다시 실행하세요.';
   }
-  // v3.8.84: 워크스페이스 크레딧 / 인증 오류는 사용자에게 친절한 한국어 안내 제공
+  // v3.8.84 / v3.8.85: Codex 사용량 한도 안내. 구독 모드에선 API 키 얘기 절대 X.
+  //   "Your workspace is out of credits"는 ChatGPT 구독 Codex의 사용량 한도 메시지.
+  //   ChatGPT Plus/Pro의 Codex 한도는 API 결제와 무관 — 별개 quota.
   if (profile.provider === 'codex' && CODEX_OUT_OF_CREDITS_RE.test(combined)) {
-    const apiKeyLeak = !!(process.env.OPENAI_API_KEY || process.env.CODEX_API_KEY);
-    const mode = profile.authMode === 'subscription' ? '구독(ChatGPT)' : 'API 키';
-    const lines = [
-      `Codex 워크스페이스 크레딧이 부족합니다 (현재 인증: ${mode}).`,
-      '',
-      '🔍 가능한 원인:',
-    ];
     if (profile.authMode === 'subscription') {
-      lines.push('  ① ChatGPT Plus/Pro 5시간 사용량 한도 도달 (한도 초기화 대기 또는 Pro 업그레이드)');
-      lines.push('  ② Codex CLI가 다른 ChatGPT 계정(무료/Team)으로 로그인되어 있음');
-      if (apiKeyLeak) {
-        lines.push('  ③ 시스템에 OPENAI_API_KEY 환경 변수가 있어 워크스페이스 결제로 잘못 라우팅됨');
-      }
-      lines.push('');
-      lines.push('🛠 해결:');
-      lines.push('  1) 설정 → Agent 계정 → "재로그인"으로 codex login을 다시 실행');
-      lines.push('  2) 브라우저에서 ChatGPT Plus/Pro 결제 계정으로 로그인 확인');
-      if (apiKeyLeak) {
-        lines.push('  3) 시스템 환경 변수에서 OPENAI_API_KEY / CODEX_API_KEY 삭제 후 재시도');
-      }
-      lines.push('  4) 임시 대안: 글 생성 엔진을 Gemini/OpenAI 직접 호출로 전환');
-    } else {
-      lines.push('  ① OpenAI Platform 워크스페이스 크레딧이 0 또는 하드 한도(hard limit) 도달');
-      lines.push('  ② API 키가 결제 정보 없는 워크스페이스에 속함');
-      lines.push('');
-      lines.push('🛠 해결:');
-      lines.push('  1) https://platform.openai.com/settings/organization/billing 에서 크레딧 충전');
-      lines.push('  2) Settings → Limits → Monthly budget 상향 (현재 한도 확인)');
-      lines.push('  3) 임시 대안: 설정에서 ChatGPT 구독 모드로 전환 후 codex login 재실행');
+      return [
+        'ChatGPT Codex 사용량 한도에 도달했습니다.',
+        '',
+        '📌 ChatGPT Plus/Pro의 Codex는 별도 사용량 풀로 운영되며,',
+        '   "Your workspace is out of credits"는 이 풀이 소진됐다는 뜻입니다.',
+        '   (API 결제·OpenAI Platform 크레딧과는 무관합니다.)',
+        '',
+        '🔍 확인할 점:',
+        '  ① ChatGPT.com → 설정 → Codex 사용량에서 남은 한도/리셋 시각 확인',
+        '  ② Plus 등급이면 Pro로 업그레이드 시 한도가 크게 늘어남',
+        '  ③ Codex CLI가 다른 ChatGPT 계정(무료/팀워크스페이스)으로 매핑됐는지 확인',
+        '',
+        '🛠 해결:',
+        '  1) chatgpt.com/codex 또는 platform.openai.com에서 표시되는 리셋 시각까지 대기',
+        '  2) 설정 → Agent 계정 → "재로그인"으로 codex logout → codex login 재실행',
+        '  3) 한도 안 풀리면: 일반 글 작성으로 전환 (Gemini/Claude API 엔진은 별개 풀)',
+      ].join('\n');
     }
-    return lines.join('\n');
+    return [
+      'OpenAI 워크스페이스 크레딧이 부족합니다 (API 키 모드).',
+      '',
+      '🛠 해결:',
+      '  1) https://platform.openai.com/settings/organization/billing 에서 크레딧 충전',
+      '  2) Settings → Limits → Monthly budget 한도 상향',
+      '  3) 임시 대안: 설정에서 ChatGPT 구독 모드로 전환 후 codex login 재실행',
+    ].join('\n');
   }
   if (profile.provider === 'codex' && CODEX_AUTH_REQUIRED_RE.test(combined)) {
     return 'Codex 인증이 만료되었거나 로그인이 풀렸습니다.\n설정 → Agent 계정 → "재로그인"을 눌러 codex login을 다시 실행해주세요.';
