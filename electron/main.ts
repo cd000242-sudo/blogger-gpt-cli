@@ -6048,10 +6048,95 @@ function buildAgentLoginCommand(profile: AgentProfile): string {
   return `$env:CODEX_HOME=${dir}; Remove-Item Env:CODEX_API_KEY -ErrorAction SilentlyContinue; Remove-Item Env:OPENAI_API_KEY -ErrorAction SilentlyContinue; codex login`;
 }
 
+// v3.8.86: 로그인 계정 식별 — codex/claude 인증 토큰에서 이메일·계정 정보 추출.
+//   사용자 보고: 5h 한도 메시지가 떠도 "어느 계정으로 로그인됐는지" 알 수 없어 디버깅 불가.
+//   해결: 프로필 폴더 내 auth/credentials 파일을 안전하게 파싱 → JWT payload의 email/sub 클레임 노출.
+function decodeJwtPayloadEmail(token: string): { email?: string; provider?: string; sub?: string } | null {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  try {
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const json = Buffer.from(padded, 'base64').toString('utf-8');
+    const claims = JSON.parse(json);
+    const email = claims.email || claims.preferred_username || claims['https://chat.openai.com/email'];
+    // identity provider 추론: Google OAuth면 보통 sub가 google-oauth2|... 또는 hd 클레임 존재
+    let provider: string | undefined;
+    if (typeof claims.iss === 'string' && /google/i.test(claims.iss)) provider = 'Google';
+    else if (claims.hd || /gmail\.com$/i.test(email || '')) provider = 'Google';
+    else if (typeof claims.sub === 'string' && /^google/i.test(claims.sub)) provider = 'Google';
+    else if (typeof claims.iss === 'string' && /apple/i.test(claims.iss)) provider = 'Apple';
+    else if (typeof claims.iss === 'string' && /microsoft|live\.com|outlook/i.test(claims.iss)) provider = 'Microsoft';
+    else if (typeof claims.iss === 'string' && /openai|chatgpt/i.test(claims.iss)) provider = 'OpenAI';
+    return { email, provider, sub: claims.sub };
+  } catch {
+    return null;
+  }
+}
+
+function extractAgentLoginIdentity(profile: AgentProfile): { email?: string; provider?: string; tokenFile?: string } | null {
+  const root = profile.profileDir;
+  if (!root || !fs.existsSync(root)) return null;
+  const candidates: string[] = [];
+  const stack: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+  const maxDepth = 5;
+  while (stack.length) {
+    const cur = stack.pop();
+    if (!cur || cur.depth > maxDepth) continue;
+    let entries: fs.Dirent[] = [];
+    try { entries = fs.readdirSync(cur.dir, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      const full = path.join(cur.dir, e.name);
+      if (isIgnoredAgentAuthPath(full)) continue;
+      if (e.isDirectory()) { stack.push({ dir: full, depth: cur.depth + 1 }); continue; }
+      if (e.isFile() && /\.(json|toml|yaml|yml|txt)$/i.test(e.name) && /(auth|token|credential|oauth|session|account|login)/i.test(e.name)) {
+        candidates.push(full);
+      }
+    }
+  }
+  for (const file of candidates) {
+    try {
+      const raw = fs.readFileSync(file, 'utf-8');
+      // 1차: JSON 파싱 → tokens 객체에서 access_token / id_token 추출
+      try {
+        const obj = JSON.parse(raw);
+        const tokens = obj?.tokens || obj?.token || obj || {};
+        const idToken = tokens.id_token || obj.id_token;
+        const accessToken = tokens.access_token || obj.access_token;
+        // 직접 email 필드 노출 (Codex가 가끔 평문으로 저장)
+        const directEmail = obj.email || obj.account?.email || obj.user?.email || obj.identity?.email;
+        if (directEmail) {
+          const provider = /gmail\.com$/i.test(directEmail) ? 'Google' : undefined;
+          return { email: directEmail, provider, tokenFile: path.basename(file) };
+        }
+        for (const t of [idToken, accessToken]) {
+          if (typeof t !== 'string') continue;
+          const decoded = decodeJwtPayloadEmail(t);
+          if (decoded?.email) return { ...decoded, tokenFile: path.basename(file) };
+        }
+      } catch {
+        // 2차: 평문에서 JWT 패턴 추출
+        const jwtMatch = raw.match(/eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+        if (jwtMatch) {
+          const decoded = decodeJwtPayloadEmail(jwtMatch[0]);
+          if (decoded?.email) return { ...decoded, tokenFile: path.basename(file) };
+        }
+      }
+    } catch {
+      // skip
+    }
+  }
+  return null;
+}
+
 function toAgentProfileView(profile: AgentProfile) {
+  let loginIdentity: { email?: string; provider?: string; tokenFile?: string } | null = null;
+  try { loginIdentity = extractAgentLoginIdentity(profile); } catch {}
   return {
     ...profile,
     loginCommand: buildAgentLoginCommand(profile),
+    loginIdentity,
   };
 }
 

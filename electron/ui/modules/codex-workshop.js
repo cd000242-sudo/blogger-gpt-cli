@@ -447,8 +447,16 @@ function isAgentProfileReady(profile) {
   return profile?.status === 'ready';
 }
 
+// v3.8.86: 로그인 완료 시 어느 계정인지 헷갈리지 않도록 이메일·OAuth 제공자 표시.
+function formatAgentLoginIdentity(profile) {
+  const id = profile?.loginIdentity;
+  if (!id || !id.email) return '';
+  const provider = id.provider ? ` · ${id.provider}` : '';
+  return ` (${id.email}${provider})`;
+}
+
 function getProviderLoginLabel(provider, profile = getProviderProfile(provider)) {
-  if (isAgentProfileReady(profile)) return '로그인 완료';
+  if (isAgentProfileReady(profile)) return `로그인 완료${formatAgentLoginIdentity(profile)}`;
   if (profile) return '로그인 대기';
   return '로그인 필요';
 }
