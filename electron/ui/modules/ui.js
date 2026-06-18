@@ -748,6 +748,13 @@ export async function openSettingsModal() {
   console.log('🔍 모달 요소:', modal);
 
   if (modal) {
+    try {
+      if (typeof window.ensureAgentModeSettingsReady === 'function') {
+        await window.ensureAgentModeSettingsReady();
+      }
+    } catch (error) {
+      console.error('❌ 에이전트 모드 설정 UI 준비 실패:', error);
+    }
     console.log('✅ 모달 요소 찾음, 표시 중...');
     modal.style.display = 'flex';
     try {

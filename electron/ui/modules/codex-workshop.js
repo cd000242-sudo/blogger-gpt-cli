@@ -1,4 +1,5 @@
-﻿import { getAppState, addLog, sanitizeHTML, getTextLength, getStorageManager, getProgressManager } from './core.js';
+// Shared UI for API-key and subscription-agent execution modes.
+import { getAppState, addLog, sanitizeHTML, getTextLength, getStorageManager, getProgressManager } from './core.js';
 import { createPreviewPayload } from './posting.js';
 import { displayPreviewInModal } from './preview.js';
 
@@ -35,11 +36,11 @@ const DEFAULT_AGENT_IMAGE_SETTINGS = {
   thumbnailTextMode: 'include',
 };
 const AGENT_IMAGE_POLICY_OPTIONS = [
-  { value: 'all', label: '?몃꽕???뚯젣紐??꾩껜', hint: '?몃꽕??1?κ낵 蹂몃Ц H2 ?꾩껜' },
-  { value: 'thumbnail-only', label: '?몃꽕?쇰쭔', hint: '蹂몃Ц ?대?吏??留뚮뱾吏 ?딆쓬' },
-  { value: 'odd-only', label: '????뚯젣紐?, hint: '?몃꽕??+ 1, 3, 5踰?H2' },
-  { value: 'even-only', label: '吏앹닔 ?뚯젣紐?, hint: '?몃꽕??+ 2, 4踰?H2' },
-  { value: 'none', label: '?대?吏 ?놁쓬', hint: '湲留??앹꽦' },
+  { value: 'all', label: '썸네일+소제목 전체', hint: '썸네일 1장과 본문 H2 전체' },
+  { value: 'thumbnail-only', label: '썸네일만', hint: '본문 이미지는 만들지 않음' },
+  { value: 'odd-only', label: '홀수 소제목', hint: '썸네일 + 1, 3, 5번 H2' },
+  { value: 'even-only', label: '짝수 소제목', hint: '썸네일 + 2, 4번 H2' },
+  { value: 'none', label: '이미지 없음', hint: '글만 생성' },
 ];
 
 const state = {
@@ -135,7 +136,7 @@ const API_TEXT_PROVIDERS = [
     keyIds: ['geminiKey'],
     dashboardUrl: 'https://aistudio.google.com/app/apikey',
     billingUrl: 'https://aistudio.google.com/plan_information',
-    note: 'Google AI Studio/API ?ъ슜??湲곗?',
+    note: 'Google AI Studio/API 사용량 기준',
   },
   {
     id: 'openai',
@@ -143,7 +144,7 @@ const API_TEXT_PROVIDERS = [
     keyIds: ['openaiKey'],
     dashboardUrl: 'https://platform.openai.com/api-keys',
     billingUrl: 'https://platform.openai.com/usage',
-    note: 'Platform ?ъ슜???щ젅??湲곗?',
+    note: 'Platform 사용량/크레딧 기준',
   },
   {
     id: 'claude',
@@ -151,7 +152,7 @@ const API_TEXT_PROVIDERS = [
     keyIds: ['claudeKey'],
     dashboardUrl: 'https://console.anthropic.com/settings/keys',
     billingUrl: 'https://console.anthropic.com/settings/usage',
-    note: 'Console ?ъ슜???щ젅??湲곗?',
+    note: 'Console 사용량/크레딧 기준',
   },
   {
     id: 'perplexity',
@@ -159,7 +160,7 @@ const API_TEXT_PROVIDERS = [
     keyIds: ['perplexityKey'],
     dashboardUrl: 'https://www.perplexity.ai/settings/api',
     billingUrl: 'https://www.perplexity.ai/settings/api',
-    note: 'Perplexity API ?щ젅??湲곗?',
+    note: 'Perplexity API 크레딧 기준',
   },
 ];
 
@@ -170,7 +171,7 @@ const API_IMAGE_PROVIDERS = [
     keyIds: ['stabilityApiKey', 'stabilityApiKeyHidden'],
     dashboardUrl: 'https://platform.stability.ai/account/keys',
     billingUrl: 'https://platform.stability.ai/account/credits',
-    note: '?대?吏 ?щ젅??湲곗?',
+    note: '이미지 크레딧 기준',
   },
   {
     id: 'deepinfra',
@@ -178,7 +179,7 @@ const API_IMAGE_PROVIDERS = [
     keyIds: ['deepInfraApiKey'],
     dashboardUrl: 'https://deepinfra.com/dash/api_keys',
     billingUrl: 'https://deepinfra.com/dash/billing',
-    note: '?대?吏/?띿뒪??API 怨쇨툑 湲곗?',
+    note: '이미지/텍스트 API 과금 기준',
   },
   {
     id: 'openai-image',
@@ -186,7 +187,7 @@ const API_IMAGE_PROVIDERS = [
     keyIds: ['dalleApiKey', 'openaiKey'],
     dashboardUrl: 'https://platform.openai.com/api-keys',
     billingUrl: 'https://platform.openai.com/usage',
-    note: 'OpenAI Platform ?대?吏 ?ъ슜??湲곗?',
+    note: 'OpenAI Platform 이미지 사용량 기준',
   },
 ];
 
@@ -194,26 +195,26 @@ const AGENT_PROVIDER_META = {
   codex: {
     id: 'codex',
     label: 'Codex',
-    title: 'Codex 援щ룆 Agent',
-    profileButton: 'Codex 怨꾩젙 以鍮?,
+    title: 'Codex 구독 Agent',
+    profileButton: 'Codex 계정 준비',
     upgradeUrl: 'https://chatgpt.com/explore/pro?utm_internal_source=openai_developers_codex',
     planUrl: 'https://chatgpt.com/pricing',
     analyticsUrl: 'https://chatgpt.com/codex/cloud/settings/analytics',
     docsUrl: 'https://developers.openai.com/codex/pricing',
-    measuredStatus: '媛쒖씤 Plus/Pro 援щ룆???ㅼ떆媛??붿뿬?됱? 怨듦컻 CLI/API濡??쒓났?섏? ?딆뒿?덈떎. Business/Enterprise??愿由ъ옄 Analytics?먯꽌 ?ㅼ륫 ?ъ슜?됱쓣 ?뺤씤?????덉뒿?덈떎.',
-    estimateText: '湲/?대?吏 ?앹꽦 媛??媛쒖닔???ㅼ젣 ?⑥? 援щ룆?됱쓣 ?????놁뼱??怨꾩궛?섏? ?딆뒿?덈떎. ?깆? ?앹꽦 ?깃났/?ㅽ뙣? 濡쒖뺄 ?묒뾽 湲곕줉留??쒖떆?⑸땲??',
+    measuredStatus: '개인 Plus/Pro 구독의 실시간 잔여량은 공개 CLI/API로 제공되지 않습니다. Business/Enterprise는 관리자 Analytics에서 실측 사용량을 확인할 수 있습니다.',
+    estimateText: '글/이미지 생성 가능 개수는 실제 남은 구독량을 알 수 없어서 계산하지 않습니다. 앱은 생성 성공/실패와 로컬 작업 기록만 표시합니다.',
   },
   claude: {
     id: 'claude',
     label: 'Claude Code',
-    title: 'Claude Code 援щ룆 Agent',
-    profileButton: 'Claude 怨꾩젙 以鍮?,
+    title: 'Claude Code 구독 Agent',
+    profileButton: 'Claude 계정 준비',
     upgradeUrl: 'https://claude.ai/upgrade',
     planUrl: 'https://claude.ai/settings/billing',
     analyticsUrl: 'https://claude.ai/settings/billing',
     docsUrl: 'https://support.claude.com/en/articles/8324991-about-claude-s-pro-plan-usage',
-    measuredStatus: 'Claude Pro/Max??5?쒓컙 ?몄뀡 湲곗??쇰줈 由ъ뀑?섏?留?硫붿떆吏 湲몄씠, 紐⑤뜽, 湲곕뒫, ?꾩옱 ?⑸웾???곕씪 ?щ씪???⑥? 媛쒖닔瑜??몃? ?깆뿉???뺥솗??怨꾩궛?????놁뒿?덈떎.',
-    estimateText: '?⑥? 湲/?대?吏 媛쒖닔???쒖떆?섏? ?딆뒿?덈떎. ???怨듭떇 ?뚮옖 ?붾㈃怨?Claude Code 濡쒓렇???곹깭, ???깆쓽 ?묒뾽 湲곕줉留?遺꾨━?댁꽌 蹂댁뿬以띾땲??',
+    measuredStatus: 'Claude Pro/Max는 5시간 세션 기준으로 리셋되지만 메시지 길이, 모델, 기능, 현재 용량에 따라 달라져 남은 개수를 외부 앱에서 정확히 계산할 수 없습니다.',
+    estimateText: '남은 글/이미지 개수는 표시하지 않습니다. 대신 공식 플랜 화면과 Claude Code 로그인 상태, 이 앱의 작업 기록만 분리해서 보여줍니다.',
   },
 };
 
@@ -365,7 +366,7 @@ function normalizeAgentImagePolicy(value) {
 
 function getAgentImagePolicyLabel(policy) {
   const normalized = normalizeAgentImagePolicy(policy);
-  return AGENT_IMAGE_POLICY_OPTIONS.find((option) => option.value === normalized)?.label || '?몃꽕???뚯젣紐??꾩껜';
+  return AGENT_IMAGE_POLICY_OPTIONS.find((option) => option.value === normalized)?.label || '썸네일+소제목 전체';
 }
 
 function loadAgentImageSettings() {
@@ -447,9 +448,9 @@ function isAgentProfileReady(profile) {
 }
 
 function getProviderLoginLabel(provider, profile = getProviderProfile(provider)) {
-  if (isAgentProfileReady(profile)) return '濡쒓렇???꾨즺';
-  if (profile) return '濡쒓렇???湲?;
-  return '濡쒓렇???꾩슂';
+  if (isAgentProfileReady(profile)) return '로그인 완료';
+  if (profile) return '로그인 대기';
+  return '로그인 필요';
 }
 
 function getLocalAgentHistory(provider) {
@@ -467,7 +468,7 @@ function getLocalAgentHistory(provider) {
   }, { input: 0, output: 0, cost: 0 });
   return {
     runs: summary.used,
-    windowText: `${summary.settings.resetHours}?쒓컙 李??????ㅽ뻾 湲곕줉`,
+    windowText: `${summary.settings.resetHours}시간 창 내 앱 실행 기록`,
     nextResetText: formatRemainingTime(summary.nextResetAt - Date.now()),
     measuredJobs: measuredJobs.length,
     inputTokens: totals.input,
@@ -572,9 +573,9 @@ function formatRemainingTime(ms) {
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const seconds = total % 60;
-  if (hours > 0) return `${hours}?쒓컙 ${minutes}遺?;
-  if (minutes > 0) return `${minutes}遺?${seconds}珥?;
-  return `${seconds}珥?;
+  if (hours > 0) return `${hours}시간 ${minutes}분`;
+  if (minutes > 0) return `${minutes}분 ${seconds}초`;
+  return `${seconds}초`;
 }
 
 function usagePercent(summary) {
@@ -599,9 +600,9 @@ async function loadAgentModeStatus(force = false) {
           ok: false,
           allowed: false,
           mode: 'api-key',
-          currentName: '?뺤씤 ?ㅽ뙣',
-          requiredName: '?ㅽ깲?ㅻ뱶 (3媛쒖썡)',
-          message: result?.error || 'Agent Mode ?곹깭瑜??뺤씤?섏? 紐삵뻽?듬땲??',
+          currentName: '확인 실패',
+          requiredName: '스탠다드 (3개월)',
+          message: result?.error || 'Agent Mode 상태를 확인하지 못했습니다.',
         };
 
     const codexTool = state.agentStatus?.tools?.codex;
@@ -621,9 +622,9 @@ async function loadAgentModeStatus(force = false) {
       ok: false,
       allowed: false,
       mode: 'api-key',
-      currentName: '?뺤씤 ?ㅽ뙣',
-      requiredName: '?ㅽ깲?ㅻ뱶 (3媛쒖썡)',
-      message: error?.message || 'Agent Mode ?곹깭瑜??뺤씤?섏? 紐삵뻽?듬땲??',
+      currentName: '확인 실패',
+      requiredName: '스탠다드 (3개월)',
+      message: error?.message || 'Agent Mode 상태를 확인하지 못했습니다.',
     };
   }
 
@@ -642,16 +643,16 @@ function renderEntryStatus() {
   const prefs = loadExecutionPrefs();
   if (prefs.mode === 'api') {
     statusEl.className = 'codex-workshop-status is-muted';
-    statusEl.textContent = '?꾩옱 API ??紐⑤뱶?낅땲?? Agent ?묒뾽?ㅼ? 鍮꾪솢?깊솕?섏뼱 ?덉뒿?덈떎.';
-    button.textContent = '?ㅼ젙?먯꽌 Agent ?좏깮';
+    statusEl.textContent = '현재 API 키 모드입니다. Agent 작업실은 비활성화되어 있습니다.';
+    button.textContent = '설정에서 Agent 선택';
     button.disabled = true;
     return;
   }
 
   if (!status) {
     statusEl.className = 'codex-workshop-status is-muted';
-    statusEl.textContent = '?쇱씠?좎뒪 ?곹깭 ?뺤씤 以?..';
-    button.textContent = '?곹깭 ?뺤씤 以?;
+    statusEl.textContent = '라이선스 상태 확인 중...';
+    button.textContent = '상태 확인 중';
     button.disabled = true;
     return;
   }
@@ -661,23 +662,23 @@ function renderEntryStatus() {
     const profile = getProviderProfile(provider);
     const ready = isAgentProfileReady(profile);
     statusEl.className = `codex-workshop-status ${ready ? 'is-ready' : 'is-muted'}`;
-    statusEl.textContent = `${provider === 'claude' ? 'Claude Code' : 'Codex'} Agent 紐⑤뱶 쨌 ${ready ? '濡쒓렇???꾨즺' : getProviderLoginLabel(provider, profile)} 쨌 ${status.currentName || '3媛쒖썡 ?댁긽'}`;
-    button.textContent = ready ? `${provider === 'claude' ? 'Claude' : 'Codex'} ?묒뾽???닿린` : 'Agent 濡쒓렇???꾩슂';
+    statusEl.textContent = `${provider === 'claude' ? 'Claude Code' : 'Codex'} Agent 모드 · ${ready ? '로그인 완료' : getProviderLoginLabel(provider, profile)} · ${status.currentName || '3개월 이상'}`;
+    button.textContent = ready ? `${provider === 'claude' ? 'Claude' : 'Codex'} 작업실 열기` : 'Agent 로그인 필요';
     button.disabled = false;
     return;
   }
 
   statusEl.className = 'codex-workshop-status is-locked';
-  statusEl.textContent = `API ??紐⑤뱶 쨌 Max Agent??${status.requiredName || '3媛쒖썡 ?댁긽'}遺??;
-  button.textContent = 'Max ?덈궡 蹂닿린';
+  statusEl.textContent = `API 키 모드 · Max Agent는 ${status.requiredName || '3개월 이상'}부터`;
+  button.textContent = 'Max 안내 보기';
   button.disabled = true;
 }
 
 function getToolInstalledLabel(tool) {
-  if (!tool) return '?뺤씤 ??;
-  if (!tool.installed) return '誘멸컧吏';
-  if (tool.usable === false) return '?ㅽ뻾 沅뚰븳 ?뺤씤 ?꾩슂';
-  return '?ㅼ튂??;
+  if (!tool) return '확인 전';
+  if (!tool.installed) return '미감지';
+  if (tool.usable === false) return '실행 권한 확인 필요';
+  return '설치됨';
 }
 
 function renderUsageCard(provider) {
@@ -689,14 +690,14 @@ function renderUsageCard(provider) {
     <div style="background: rgba(2,6,23,0.35); border: 1px solid rgba(148,163,184,0.18); border-radius: 14px; padding: 14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
         <strong style="color:#f8fafc;font-size:14px;">${label}</strong>
-        <span style="font-size:12px;font-weight:900;color:${summary.remaining > 0 ? '#86efac' : '#fecaca'};">${summary.remaining}/${summary.limit} ?⑥쓬</span>
+        <span style="font-size:12px;font-weight:900;color:${summary.remaining > 0 ? '#86efac' : '#fecaca'};">${summary.remaining}/${summary.limit} 남음</span>
       </div>
       <div style="height:8px;background:rgba(15,23,42,0.8);border-radius:999px;overflow:hidden;">
         <div style="width:${percent}%;height:100%;background:${summary.remaining > 0 ? 'linear-gradient(90deg,#22c55e,#38bdf8)' : 'linear-gradient(90deg,#f97316,#ef4444)'};"></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;color:rgba(226,232,240,0.68);font-size:11px;">
-        <span>?ъ슜 ${summary.used}??/span>
-        <span>由ъ뀑 ${nextResetText}</span>
+        <span>사용 ${summary.used}회</span>
+        <span>리셋 ${nextResetText}</span>
       </div>
     </div>
   `;
@@ -718,7 +719,7 @@ function saveUsageSettingsFromInputs() {
   saveUsageSettings(settings);
   loadUsageState(settings);
   renderUsagePanels();
-  addLog('Max Agent ?ъ슜???ㅼ젙????ν뻽?듬땲??', 'success');
+  addLog('Max Agent 사용량 설정을 저장했습니다.', 'success');
 }
 
 function startUsageTimer() {
@@ -749,18 +750,18 @@ function ensureAgentInstallModal() {
     <div class="agent-install-shell">
       <div class="agent-install-head">
         <div>
-          <strong id="agentInstallTitle">Agent ?ㅼ튂</strong>
-          <span id="agentInstallSubtitle">?ㅼ튂 紐낅졊???ㅽ뻾?섍퀬 寃곌낵瑜??뺤씤?⑸땲??</span>
+          <strong id="agentInstallTitle">Agent 설치</strong>
+          <span id="agentInstallSubtitle">설치 명령을 실행하고 결과를 확인합니다.</span>
         </div>
       </div>
       <div class="agent-install-body">
         <div id="agentInstallStatus" class="agent-install-status">
           <span class="agent-install-spinner"></span>
-          <span id="agentInstallStatusText">以鍮?以묒엯?덈떎.</span>
+          <span id="agentInstallStatusText">준비 중입니다.</span>
         </div>
-        <pre id="agentInstallOutput" class="agent-install-output">?ㅼ튂 濡쒓렇媛 ?ш린???쒖떆?⑸땲??</pre>
+        <pre id="agentInstallOutput" class="agent-install-output">설치 로그가 여기에 표시됩니다.</pre>
         <div class="agent-install-actions">
-          <button type="button" id="agentInstallCloseBtn">?リ린</button>
+          <button type="button" id="agentInstallCloseBtn">닫기</button>
         </div>
       </div>
     </div>
@@ -768,7 +769,7 @@ function ensureAgentInstallModal() {
   document.body.appendChild(modal);
   $('agentInstallCloseBtn')?.addEventListener('click', () => {
     if (state.installRunning) {
-      setSettingsStatus('?ㅼ튂媛 ?꾩쭅 吏꾪뻾 以묒엯?덈떎. ?좎떆留?湲곕떎?ㅼ＜?몄슂.');
+      setSettingsStatus('설치가 아직 진행 중입니다. 잠시만 기다려주세요.');
       return;
     }
     modal.classList.remove('is-open');
@@ -776,7 +777,7 @@ function ensureAgentInstallModal() {
   return modal;
 }
 
-function updateAgentInstallModal({ label = 'Agent', status = '?ㅼ튂 以鍮?以묒엯?덈떎.', output = '', type = 'info' } = {}) {
+function updateAgentInstallModal({ label = 'Agent', status = '설치 준비 중입니다.', output = '', type = 'info' } = {}) {
   ensureAgentInstallModal();
   const title = $('agentInstallTitle');
   const subtitle = $('agentInstallSubtitle');
@@ -784,20 +785,20 @@ function updateAgentInstallModal({ label = 'Agent', status = '?ㅼ튂 以鍮?�
   const statusText = $('agentInstallStatusText');
   const outputEl = $('agentInstallOutput');
 
-  if (title) title.textContent = `${label} ?ㅼ튂`;
+  if (title) title.textContent = `${label} 설치`;
   if (subtitle) subtitle.textContent = type === 'success'
-    ? '?ㅼ튂媛 ?앸궗?듬땲?? ?곹깭瑜??ㅼ떆 ?뺤씤?⑸땲??'
+    ? '설치가 끝났습니다. 상태를 다시 확인합니다.'
     : type === 'error'
-      ? '?ㅼ튂 以?臾몄젣媛 諛쒖깮?덉뒿?덈떎.'
-      : '?ㅼ튂媛 吏꾪뻾 以묒엯?덈떎. 李쎌쓣 ?レ? 留먭퀬 湲곕떎?ㅼ＜?몄슂.';
+      ? '설치 중 문제가 발생했습니다.'
+      : '설치가 진행 중입니다. 창을 닫지 말고 기다려주세요.';
   if (statusBox) statusBox.className = `agent-install-status ${type === 'success' ? 'is-success' : type === 'error' ? 'is-error' : ''}`;
   if (statusText) statusText.textContent = status;
-  if (outputEl) outputEl.textContent = output || '?ㅼ튂 濡쒓렇瑜?湲곕떎由щ뒗 以묒엯?덈떎...';
+  if (outputEl) outputEl.textContent = output || '설치 로그를 기다리는 중입니다...';
 }
 
 function openAgentInstallModal(label) {
   const modal = ensureAgentInstallModal();
-  updateAgentInstallModal({ label, status: `${label} ?ㅼ튂瑜??쒖옉?⑸땲??`, output: '?ㅼ튂 紐낅졊 以鍮?以?..', type: 'info' });
+  updateAgentInstallModal({ label, status: `${label} 설치를 시작합니다.`, output: '설치 명령 준비 중...', type: 'info' });
   modal.classList.add('is-open');
 }
 
@@ -811,7 +812,7 @@ function renderSettingsProfileSelect() {
   const previous = (select.value || '').trim();
 
   if (!providerProfiles.length) {
-    select.innerHTML = '<option value="">선택된 계정 없음</option>';
+    select.innerHTML = '<option value="">계정 준비 중</option>';
     select.disabled = true;
     if (commandEl) commandEl.value = '';
     return;
@@ -821,7 +822,7 @@ function renderSettingsProfileSelect() {
   select.innerHTML = providerProfiles
     .map((profile) => {
       const provider = profile.provider === 'claude' ? 'Claude Code' : 'Codex';
-      const label = `${provider} | ${profile.label || profile.id} | ${getProviderLoginLabel(profile.provider, profile)}`;
+      const label = `${provider} · ${profile.label || profile.id} · ${getProviderLoginLabel(profile.provider, profile)}`;
       return `<option value="${escapeHtml(profile.id)}">${escapeHtml(label)}</option>`;
     })
     .join('');
@@ -902,8 +903,8 @@ function renderApiProviderCards() {
   const text = API_TEXT_PROVIDERS.find((item) => item.id === state.activeApiTextProvider) || API_TEXT_PROVIDERS[0];
   const image = API_IMAGE_PROVIDERS.find((item) => item.id === state.activeApiImageProvider) || API_IMAGE_PROVIDERS[0];
   const cards = [
-    { type: '湲 ?앹꽦', provider: text },
-    { type: '?대?吏 ?앹꽦', provider: image },
+    { type: '글 생성', provider: text },
+    { type: '이미지 생성', provider: image },
   ];
 
   target.innerHTML = cards.map(({ type, provider }) => {
@@ -912,18 +913,18 @@ function renderApiProviderCards() {
       <div class="agent-mode-provider-card">
         <div class="agent-mode-provider-top">
           <div>
-            <strong>${escapeHtml(type)} 쨌 ${escapeHtml(provider.label)}</strong>
-            <span>${ready ? 'API ???낅젰?? : 'API ???꾩슂'}</span>
+            <strong>${escapeHtml(type)} · ${escapeHtml(provider.label)}</strong>
+            <span>${ready ? 'API 키 입력됨' : 'API 키 필요'}</span>
           </div>
-          <span class="agent-mode-pill ${ready ? 'is-ready' : 'is-locked'}">${ready ? '?ъ슜 媛?? : '誘몄꽕??}</span>
+          <span class="agent-mode-pill ${ready ? 'is-ready' : 'is-locked'}">${ready ? '사용 가능' : '미설정'}</span>
         </div>
         <div class="agent-mode-measure">
           <div class="agent-mode-gauge"><span style="width:${ready ? 100 : 0}%;"></span></div>
-          <p>?ㅼ륫 ?ъ슜?됯낵 ?붿븸? ?쒓났????쒕낫??湲곗??쇰줈 ?뺤씤?⑸땲?? ${escapeHtml(provider.note)}</p>
+          <p>실측 사용량과 잔액은 제공사 대시보드 기준으로 확인합니다. ${escapeHtml(provider.note)}</p>
         </div>
         <div class="agent-mode-actions">
-          <button type="button" data-open-url="${escapeHtml(provider.dashboardUrl)}">API ???ㅼ젙</button>
-          <button type="button" data-open-url="${escapeHtml(provider.billingUrl)}">異⑹쟾/?ъ슜??蹂닿린</button>
+          <button type="button" data-open-url="${escapeHtml(provider.dashboardUrl)}">API 키/설정</button>
+          <button type="button" data-open-url="${escapeHtml(provider.billingUrl)}">충전/사용량 보기</button>
         </div>
       </div>
     `;
@@ -946,17 +947,17 @@ function renderAgentImageSettingsPanel(provider) {
   const disabled = provider !== 'codex';
   const disabledAttr = disabled ? 'disabled aria-disabled="true"' : '';
   const note = disabled
-    ? 'Claude Code???대?吏 紐⑤뜽???놁뼱??蹂몃Ц ?대?吏 ?꾨＼?꾪듃留??뺣━?⑸땲?? ?ㅼ젣 ?대?吏??蹂꾨룄 ?대?吏 ?붿쭊?쇰줈 ?앹꽦?⑸땲??'
-    : 'Codex媛 湲 ?앹꽦怨??④퍡 ?대?吏 ?꾩튂? ?꾨＼?꾪듃源뚯? 泥섎━?⑸땲?? ?뚯젣紐??대?吏???대뼡 ?듭뀡?먯꽌???띿뒪?몃? ?ｌ? ?딆뒿?덈떎.';
+    ? 'Claude Code는 이미지 모델이 없어서 본문 이미지 프롬프트만 정리합니다. 실제 이미지는 별도 이미지 엔진으로 생성합니다.'
+    : 'Codex가 글 생성과 함께 이미지 위치와 프롬프트까지 처리합니다. 소제목 이미지는 어떤 옵션에서도 텍스트를 넣지 않습니다.';
 
   return `
     <div class="agent-image-policy-panel ${disabled ? 'is-disabled' : ''}">
       <div class="agent-image-policy-head">
         <div>
-          <strong>?대?吏 ?앹꽦 踰붿쐞</strong>
+          <strong>이미지 생성 범위</strong>
           <span>${escapeHtml(note)}</span>
         </div>
-        <span class="agent-mode-pill ${disabled ? 'is-locked' : 'is-ready'}">${disabled ? '?꾨＼?꾪듃留? : escapeHtml(getAgentImagePolicyLabel(settings.policy))}</span>
+        <span class="agent-mode-pill ${disabled ? 'is-locked' : 'is-ready'}">${disabled ? '프롬프트만' : escapeHtml(getAgentImagePolicyLabel(settings.policy))}</span>
       </div>
       <div class="agent-image-policy-grid">
         ${AGENT_IMAGE_POLICY_OPTIONS.map((option) => `
@@ -968,12 +969,12 @@ function renderAgentImageSettingsPanel(provider) {
       </div>
       <div class="agent-thumb-text-row">
         <div>
-          <strong>?몃꽕???띿뒪??/strong>
-          <span>?몃꽕?쇰쭔 ?띿뒪???ы븿 ?щ?瑜??좏깮?⑸땲?? ?뚯젣紐??대?吏????긽 ?띿뒪???놁쓬.</span>
+          <strong>썸네일 텍스트</strong>
+          <span>썸네일만 텍스트 포함 여부를 선택합니다. 소제목 이미지는 항상 텍스트 없음.</span>
         </div>
         <div class="agent-thumb-text-toggle">
-          <button type="button" data-agent-thumb-text="include" class="${settings.thumbnailTextMode !== 'none' ? 'is-active' : ''}" ${disabledAttr}>?ы븿</button>
-          <button type="button" data-agent-thumb-text="none" class="${settings.thumbnailTextMode === 'none' ? 'is-active' : ''}" ${disabledAttr}>誘명룷??/button>
+          <button type="button" data-agent-thumb-text="include" class="${settings.thumbnailTextMode !== 'none' ? 'is-active' : ''}" ${disabledAttr}>포함</button>
+          <button type="button" data-agent-thumb-text="none" class="${settings.thumbnailTextMode === 'none' ? 'is-active' : ''}" ${disabledAttr}>미포함</button>
         </div>
       </div>
     </div>
@@ -994,41 +995,41 @@ function renderAgentProviderPanel() {
   const loginLabel = getProviderLoginLabel(provider, profile);
   const toolLabel = getToolInstalledLabel(tool);
   const gaugeLabel = provider === 'claude'
-    ? '怨듭떇 5?쒓컙 ?몄뀡 ?붿뿬??
-    : '怨듭떇 援щ룆 ?붿뿬??;
+    ? '공식 5시간 세션 잔여량'
+    : '공식 구독 잔여량';
 
   detail.innerHTML = `
     <div class="agent-mode-provider-card">
       <div class="agent-mode-provider-top">
         <div>
           <strong>${escapeHtml(meta.title)}</strong>
-          <span>${escapeHtml(`${meta.label} ${toolLabel} 쨌 ${loginLabel}`)}</span>
+          <span>${escapeHtml(`${meta.label} ${toolLabel} · ${loginLabel}`)}</span>
         </div>
-        <span class="agent-mode-pill ${allowed && ready ? 'is-ready' : 'is-locked'}">${allowed ? loginLabel : '3媛쒖썡 ?댁긽 ?꾩슂'}</span>
+        <span class="agent-mode-pill ${allowed && ready ? 'is-ready' : 'is-locked'}">${allowed ? loginLabel : '3개월 이상 필요'}</span>
       </div>
 
       <div class="agent-mode-provider-layout">
         <div class="agent-mode-provider-main">
           <div class="agent-mode-plan-grid">
             <div>
-              <strong>?꾩옱 援щ룆 ?뚮옖</strong>
-              <span>?깆뿉???먮룞 ?ㅼ륫 遺덇?</span>
+              <strong>현재 구독 플랜</strong>
+              <span>앱에서 자동 실측 불가</span>
             </div>
               <div>
-                <strong>怨듭떇 ?ъ슜??湲곗?</strong>
-                <span>${provider === 'claude' ? '5?쒓컙 ?몄뀡/?숈쟻 ?쒗븳' : 'Plus/Pro ?먮뒗 Workspace Analytics'}</span>
+                <strong>공식 사용량 기준</strong>
+                <span>${provider === 'claude' ? '5시간 세션/동적 제한' : 'Plus/Pro 또는 Workspace Analytics'}</span>
               </div>
             <div>
-              <strong>?????묒뾽 湲곕줉</strong>
-              <span>${history.runs}??쨌 ${history.windowText}</span>
+              <strong>이 앱 작업 기록</strong>
+              <span>${history.runs}회 · ${history.windowText}</span>
             </div>
             <div>
-              <strong>?ㅼ륫 ?좏겙 湲곕줉</strong>
-              <span>${history.measuredJobs}??쨌 ?낅젰 ${history.inputTokens.toLocaleString()} / 異쒕젰 ${history.outputTokens.toLocaleString()}</span>
+              <strong>실측 토큰 기록</strong>
+              <span>${history.measuredJobs}회 · 입력 ${history.inputTokens.toLocaleString()} / 출력 ${history.outputTokens.toLocaleString()}</span>
             </div>
             <div>
-              <strong>?ㅼ륫 鍮꾩슜 湲곕줉</strong>
-              <span>${history.costUsd > 0 ? `$${history.costUsd.toFixed(4)}` : '?쒓났 ???쒖떆'}</span>
+              <strong>실측 비용 기록</strong>
+              <span>${history.costUsd > 0 ? `$${history.costUsd.toFixed(4)}` : '제공 시 표시'}</span>
             </div>
           </div>
 
@@ -1036,21 +1037,21 @@ function renderAgentProviderPanel() {
             <div class="agent-mode-gauge is-unknown"><span style="width:0%;"></span></div>
             <p><b>${escapeHtml(gaugeLabel)}:</b> ${escapeHtml(meta.measuredStatus)}</p>
             <p>${escapeHtml(meta.estimateText)}</p>
-            <p>濡쒖뺄 湲곕줉 由ъ뀑源뚯? ${escapeHtml(history.nextResetText)} ?⑥븯?듬땲?? ?좏겙/鍮꾩슜? CLI媛 諛섑솚??寃쎌슦?먮쭔 ?ㅼ륫?쇰줈 湲곕줉?⑸땲??</p>
+            <p>로컬 기록 리셋까지 ${escapeHtml(history.nextResetText)} 남았습니다. 토큰/비용은 CLI가 반환한 경우에만 실측으로 기록됩니다.</p>
           </div>
           ${renderAgentImageSettingsPanel(provider)}
         </div>
 
         <aside class="agent-mode-action-panel">
-          <strong>鍮좊Ⅸ ?묒뾽</strong>
-          <button type="button" class="agent-mode-primary-action" data-install-agent="${escapeHtml(provider)}">${escapeHtml(tool?.installed && tool.usable !== false ? `${meta.label} ?ㅼ튂/?낅뜲?댄듃` : `${meta.label} ?ㅼ튂?섍린`)}</button>
-          <button type="button" class="agent-mode-primary-action" data-agent-login="${escapeHtml(provider)}">${escapeHtml(ready ? `${meta.label} 濡쒓렇???꾨즺 ?뺤씤` : `${meta.label} 濡쒓렇??李??닿린`)}</button>
-          <button type="button" data-agent-refresh="true">?곹깭 ?덈줈怨좎묠</button>
+          <strong>빠른 작업</strong>
+          <button type="button" class="agent-mode-primary-action" data-install-agent="${escapeHtml(provider)}">${escapeHtml(tool?.installed && tool.usable !== false ? `${meta.label} 설치/업데이트` : `${meta.label} 설치하기`)}</button>
+          <button type="button" class="agent-mode-primary-action" data-agent-login="${escapeHtml(provider)}">${escapeHtml(ready ? `${meta.label} 로그인 완료 확인` : `${meta.label} 로그인 창 열기`)}</button>
+          <button type="button" data-agent-refresh="true">상태 새로고침</button>
           <div class="agent-mode-link-grid">
-            <button type="button" data-open-url="${escapeHtml(meta.planUrl)}">?꾩옱 ?뚮옖</button>
-            <button type="button" data-open-url="${escapeHtml(meta.analyticsUrl)}">?ъ슜??/button>
-            <button type="button" data-open-url="${escapeHtml(meta.upgradeUrl)}">?낃렇?덉씠??/button>
-            <button type="button" data-open-url="${escapeHtml(meta.docsUrl)}">怨듭떇 湲곗?</button>
+            <button type="button" data-open-url="${escapeHtml(meta.planUrl)}">현재 플랜</button>
+            <button type="button" data-open-url="${escapeHtml(meta.analyticsUrl)}">사용량</button>
+            <button type="button" data-open-url="${escapeHtml(meta.upgradeUrl)}">업그레이드</button>
+            <button type="button" data-open-url="${escapeHtml(meta.docsUrl)}">공식 기준</button>
           </div>
         </aside>
       </div>
@@ -1089,7 +1090,7 @@ function renderAgentProviderPanel() {
   });
 
   const modalRunButton = $(RUN_AGENT_JOB_BTN_ID);
-  if (modalRunButton && !modalRunButton.disabled) modalRunButton.textContent = `${meta.label}濡??앹꽦`;
+  if (modalRunButton && !modalRunButton.disabled) modalRunButton.textContent = `${meta.label}로 생성`;
   renderAgentProviderTabs();
   renderSettingsProfileSelect();
 }
@@ -1097,7 +1098,7 @@ function renderAgentProviderPanel() {
 function setExecutionMode(mode) {
   const nextMode = mode === 'agent' ? 'agent' : 'api';
   if (nextMode === 'agent' && !isMaxAgentAllowed(state.agentStatus)) {
-    alert(state.agentStatus?.message || 'Agent 紐⑤뱶??3媛쒖썡 ?댁긽 肄붾뱶?먯꽌 ?ъ슜?????덉뒿?덈떎.');
+    alert(state.agentStatus?.message || 'Agent 모드는 3개월 이상 코드에서 사용할 수 있습니다.');
     state.executionMode = 'api';
   } else {
     state.executionMode = nextMode;
@@ -1106,7 +1107,7 @@ function setExecutionMode(mode) {
   applyExecutionModeToApp();
   renderAgentSettingsSection();
   refreshGlobalAiModelBadge();
-  addLog(`?ㅽ뻾 紐⑤뱶瑜?${state.executionMode === 'agent' ? 'Agent 紐⑤뱶' : 'API ??紐⑤뱶'}濡?蹂寃쏀뻽?듬땲??`, 'info');
+  addLog(`실행 모드를 ${state.executionMode === 'agent' ? 'Agent 모드' : 'API 키 모드'}로 변경했습니다.`, 'info');
 }
 
 function setAgentProvider(provider) {
@@ -1216,20 +1217,20 @@ function renderAgentSettingsSection() {
 
   if (badge) {
     const allowed = isMaxAgentAllowed(status);
-    badge.textContent = !status ? '?뺤씤 以? : state.executionMode === 'agent' ? (allowed ? 'Agent 紐⑤뱶' : 'Agent ?좉?') : 'API ??紐⑤뱶';
+    badge.textContent = !status ? '확인 중' : state.executionMode === 'agent' ? (allowed ? 'Agent 모드' : 'Agent 잠김') : 'API 키 모드';
     badge.className = `agent-mode-pill ${state.executionMode === 'agent' && allowed ? 'is-ready' : state.executionMode === 'api' ? '' : 'is-locked'}`;
   }
 
   if (summary) {
     summary.textContent = status
-      ? `?꾩옱 肄붾뱶: ${status.currentName || '?뺤씤 ?ㅽ뙣'} 쨌 Max 湲곗?: ${status.requiredName || '?ㅽ깲?ㅻ뱶 (3媛쒖썡)'}`
-      : '?쇱씠?좎뒪? ?ㅼ튂 ?꾧뎄瑜??뺤씤?섍퀬 ?덉뒿?덈떎.';
+      ? `현재 코드: ${status.currentName || '확인 실패'} · Max 기준: ${status.requiredName || '스탠다드 (3개월)'}`
+      : '라이선스와 설치 도구를 확인하고 있습니다.';
   }
 
   if (description) {
     description.textContent = state.executionMode === 'agent'
-      ? 'Agent 紐⑤뱶媛 ?좏깮?섏뼱 ?꾨옒 AI ?띿뒪???붿쭊怨?API ???낅젰移몄? ?④꺼吏묐땲?? Codex? Claude Code???꾨옒?먯꽌 ?섎굹留??좏깮???ъ슜?⑸땲??'
-      : 'API ??紐⑤뱶媛 ?좏깮?섏뿀?듬땲?? ?꾨옒 API ???낅젰移멸낵 湲곗〈 紐⑤뜽 ?좏깮 UI瑜??ъ슜?⑸땲??';
+      ? 'Agent 모드가 선택되어 아래 AI 텍스트 엔진과 API 키 입력칸은 숨겨집니다. Codex와 Claude Code는 아래에서 하나만 선택해 사용합니다.'
+      : 'API 키 모드가 선택되었습니다. 아래 API 키 입력칸과 기존 모델 선택 UI를 사용합니다.';
   }
 
   renderToolCards(status);
@@ -1256,35 +1257,35 @@ function ensureAgentSettingsSection() {
   section.innerHTML = `
     <div class="agent-mode-settings-head">
       <div>
-        <div class="agent-mode-eyebrow">AI ?ㅽ뻾 諛⑹떇</div>
-        <h3>API ??紐⑤뱶 / Agent 紐⑤뱶</h3>
-        <p id="agentModeSettingsDescription">API 紐⑤뱶?먯꽌?????낅젰移몄쓣 蹂댁뿬二쇨퀬, Agent 紐⑤뱶?먯꽌?????낅젰移멸낵 紐⑤뜽 ?좏깮???④퉩?덈떎.</p>
+        <div class="agent-mode-eyebrow">AI 실행 방식</div>
+        <h3>API 키 모드 / Agent 모드</h3>
+        <p id="agentModeSettingsDescription">API 모드에서는 키 입력칸을 보여주고, Agent 모드에서는 키 입력칸과 모델 선택을 숨깁니다.</p>
       </div>
-      <span id="agentModeSettingsBadge" class="agent-mode-pill">?뺤씤 以?/span>
+      <span id="agentModeSettingsBadge" class="agent-mode-pill">확인 중</span>
     </div>
 
-    <div class="agent-mode-summary" id="agentModeSettingsSummary">?곹깭 ?뺤씤 以?..</div>
+    <div class="agent-mode-summary" id="agentModeSettingsSummary">상태 확인 중...</div>
 
     <div class="agent-mode-mode-switch">
-      <button type="button" id="executionModeApiBtn" class="agent-mode-choice">API ??紐⑤뱶</button>
-      <button type="button" id="executionModeAgentBtn" class="agent-mode-choice">Agent 紐⑤뱶</button>
+      <button type="button" id="executionModeApiBtn" class="agent-mode-choice">API 키 모드</button>
+      <button type="button" id="executionModeAgentBtn" class="agent-mode-choice">Agent 모드</button>
     </div>
 
     <div class="agent-mode-dual-grid">
       <div class="agent-mode-execution-panel" id="apiExecutionPanel">
         <div class="agent-mode-panel-title">
-          <strong>API ??異⑹쟾??/strong>
-          <span>?좏깮??API ?ㅻ쭔 ?ъ슜?⑸땲?? Agent ?ㅽ뻾? 爰쇱쭛?덈떎.</span>
+          <strong>API 키 충전형</strong>
+          <span>선택한 API 키만 사용합니다. Agent 실행은 꺼집니다.</span>
         </div>
         <div class="agent-mode-control-grid">
           <label>
-            <span>湲 ?앹꽦 API</span>
+            <span>글 생성 API</span>
             <select id="apiTextProviderSelect">
               ${API_TEXT_PROVIDERS.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.label)}</option>`).join('')}
             </select>
           </label>
           <label>
-            <span>?대?吏 ?앹꽦 API</span>
+            <span>이미지 생성 API</span>
             <select id="apiImageProviderSelect">
               ${API_IMAGE_PROVIDERS.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.label)}</option>`).join('')}
             </select>
@@ -1295,8 +1296,8 @@ function ensureAgentSettingsSection() {
 
       <div class="agent-mode-execution-panel" id="agentExecutionPanel">
         <div class="agent-mode-panel-title">
-          <strong>Agent 援щ룆??/strong>
-          <span>3媛쒖썡 ?댁긽 肄붾뱶?먯꽌 Codex ?먮뒗 Claude Code 援щ룆 怨꾩젙?쇰줈 ?ㅽ뻾?⑸땲?? API ???낅젰移몄? 爰쇱쭛?덈떎.</span>
+          <strong>Agent 구독형</strong>
+          <span>3개월 이상 코드에서 Codex 또는 Claude Code 구독 계정으로 실행합니다. API 키 입력칸은 꺼집니다.</span>
         </div>
         <div class="agent-mode-tool-row" id="agentModeToolStatus"></div>
         <div class="agent-provider-tabs">
@@ -1306,24 +1307,24 @@ function ensureAgentSettingsSection() {
         <div id="agentProviderDetail"></div>
         <div class="agent-mode-control-grid" style="margin-top:10px; margin-bottom:2px;">
           <label>
-            <span>怨꾩젙 ?좏깮</span>
+            <span>계정 선택</span>
             <select id="agentModeSettingsProfileSelect"></select>
           </label>
           <div class="agent-mode-maintenance-actions">
-            <button type="button" id="agentModeSettingsStartLogin">?좏깮 怨꾩젙 濡쒓렇??/button>
-            <button type="button" id="agentModeSettingsRefresh">?곹깭 ?덈줈怨좎묠</button>
+            <button type="button" id="agentModeSettingsStartLogin">선택 계정 로그인</button>
+            <button type="button" id="agentModeSettingsRefresh">상태 새로고침</button>
           </div>
         </div>
 
         <div class="agent-mode-maintenance-actions">
-          <button type="button" id="agentUsageResetBtn">濡쒖뺄 湲곕줉 珥덇린??/button>
+          <button type="button" id="agentUsageResetBtn">로컬 기록 초기화</button>
         </div>
         <textarea id="agentModeSettingsLoginCommand" class="codex-workshop-textarea codex-workshop-code" style="display:none;" readonly></textarea>
       </div>
     </div>
 
     <div id="agentModeSettingsStatus" class="codex-workshop-note" style="display:none;"></div>
-    <div class="agent-mode-footnote">?먯튃: ?ㅼ륫 遺덇??ν븳 ?붿뿬?됱? ?レ옄濡??쒖떆?섏? ?딆뒿?덈떎. API???쒓났????쒕낫?? Agent??怨듭떇 援щ룆/Analytics ?붾㈃ 湲곗??쇰줈 ?뺤씤?⑸땲??</div>
+    <div class="agent-mode-footnote">원칙: 실측 불가능한 잔여량은 숫자로 표시하지 않습니다. API는 제공사 대시보드, Agent는 공식 구독/Analytics 화면 기준으로 확인합니다.</div>
   `;
 
   const firstBlock = tab.firstElementChild;
@@ -1355,11 +1356,19 @@ function ensureAgentSettingsSection() {
   });
   $('agentUsageResetBtn')?.addEventListener('click', () => {
     resetAgentUsageWindow();
-    setSettingsStatus('???깆쓽 濡쒖뺄 Agent ?ㅽ뻾 湲곕줉??珥덇린?뷀뻽?듬땲??');
+    setSettingsStatus('이 앱의 로컬 Agent 실행 기록을 초기화했습니다.');
   });
 
   renderUsagePanels();
   renderAgentSettingsSection();
+}
+
+export function ensureAgentModeSettingsSection() {
+  ensureStyles();
+  loadExecutionPrefs();
+  ensureAgentSettingsSection();
+  applyExecutionModeToApp();
+  return $(SETTINGS_SECTION_ID);
 }
 
 function getTopic(payload = {}) {
@@ -1389,11 +1398,11 @@ function getPayloadImagePolicy(payload = {}) {
 
 function describeImagePolicy(policy) {
   const normalized = normalizeAgentImagePolicy(policy);
-  if (normalized === 'thumbnail-only') return '?몃꽕??1?λ쭔 ?앹꽦?섍퀬 蹂몃Ц H2 ?대?吏??留뚮뱾吏 ?딆뒿?덈떎.';
-  if (normalized === 'odd-only') return '?몃꽕??1?κ낵 ???踰덉㎏ H2(1, 3, 5...) ?대?吏留??앹꽦?⑸땲??';
-  if (normalized === 'even-only') return '?몃꽕??1?κ낵 吏앹닔 踰덉㎏ H2(2, 4, 6...) ?대?吏留??앹꽦?⑸땲??';
-  if (normalized === 'none') return '?대?吏瑜??앹꽦?섏? ?딄퀬 湲 HTML留??꾩꽦?⑸땲??';
-  return '?몃꽕??1?κ낵 紐⑤뱺 H2 ?뚯젣紐??대?吏瑜??앹꽦?⑸땲??';
+  if (normalized === 'thumbnail-only') return '썸네일 1장만 생성하고 본문 H2 이미지는 만들지 않습니다.';
+  if (normalized === 'odd-only') return '썸네일 1장과 홀수 번째 H2(1, 3, 5...) 이미지만 생성합니다.';
+  if (normalized === 'even-only') return '썸네일 1장과 짝수 번째 H2(2, 4, 6...) 이미지만 생성합니다.';
+  if (normalized === 'none') return '이미지를 생성하지 않고 글 HTML만 완성합니다.';
+  return '썸네일 1장과 모든 H2 소제목 이미지를 생성합니다.';
 }
 
 function buildCodexArticleTask(payload = {}) {
@@ -1404,46 +1413,46 @@ function buildCodexArticleTask(payload = {}) {
   const minChars = payload.minChars ? Number(payload.minChars).toLocaleString() : 'enough';
   const maxChars = payload.maxChars ? Number(payload.maxChars).toLocaleString() : 'natural';
 
-  return `Codex ?묒뾽??吏?쒖꽌
+  return `Codex 작업실 지시서
 
-紐⑺몴:
-- ?꾨옒 ?ㅼ젙??湲곗??쇰줈 諛쒗뻾 媛?ν븳 釉붾줈洹?湲 HTML??留뚮뱺??
-- 寃곌낵??Orbit ?깆뿉 ?ㅼ떆 ?ｌ쓣 ???덈룄濡?HTML留?源붾걫?섍쾶 異쒕젰?쒕떎.
+목표:
+- 아래 설정을 기준으로 발행 가능한 블로그 글 HTML을 만든다.
+- 결과는 Orbit 앱에 다시 넣을 수 있도록 HTML만 깔끔하게 출력한다.
 
-?낅젰 ?ㅼ젙:
-- ?듭떖 ?ㅼ썙?? ${topic || '(keyword empty)'}
-- ?뚮옯?? ${platform}
-- 湲 ?좏삎: ${payload.contentMode || 'general'}
-- 留먰닾: ${payload.toneStyle || '移쒖젅??議대뙎留?}
-- H2 ?뚯젣紐??? ${sectionCount}媛??댁쇅
-- 紐⑺몴 湲몄씠: ${minChars}???댁긽, ${maxChars}???댄븯
-- 李멸퀬 URL:
-${references.length ? references.map((url, index) => `  ${index + 1}. ${url}`).join('\n') : '  ?놁쓬'}
+입력 설정:
+- 핵심 키워드: ${topic || '(keyword empty)'}
+- 플랫폼: ${platform}
+- 글 유형: ${payload.contentMode || 'general'}
+- 말투: ${payload.toneStyle || '친절한 존댓말'}
+- H2 소제목 수: ${sectionCount}개 내외
+- 목표 길이: ${minChars}자 이상, ${maxChars}자 이하
+- 참고 URL:
+${references.length ? references.map((url, index) => `  ${index + 1}. ${url}`).join('\n') : '  없음'}
 
-?묒뾽 諛⑹떇:
-1. 寃???섎룄? ?낆옄 ?섎Ⅴ?뚮굹瑜?癒쇱? 異붾줎?쒕떎.
-2. 珥덈컲 3臾몃떒? ?낆옄媛 諛붾줈 ?먭린 ?곹솴?대씪怨??먮겮寃??대떎.
-3. H2 援ъ“???낆옄媛 ?뺤씤?댁빞 ???쒖꽌?濡?諛곗튂?쒕떎.
-4. ?뺤콉, 吏?먭툑, 媛寃? ?쇱젙泥섎읆 蹂??媛?ν븳 ?댁슜? 怨듭떇 ?뺤씤 ?먮쫫???ｋ뒗??
-5. 怨쇱옣, ?뺤젙 ?섏씡, 猷⑤㉧, 異쒖쿂 遺덈챸 ?섏튂, ?먮룞 ?앹꽦 ???섎뒗 臾몄옣???쇳븳??
-6. 蹂몃Ц 以묎컙??泥댄겕由ъ뒪?몃굹 鍮꾧탳 ?쒓? ?꾩슂?섎㈃ HTML ?쒕줈 ?ｋ뒗??
-7. 留덉?留됱뿉???낆옄媛 ?ㅼ쓬 ?됰룞???뺥븷 ???덈뒗 吏㏃? ?뺣━ 臾몃떒???ｋ뒗??
+작업 방식:
+1. 검색 의도와 독자 페르소나를 먼저 추론한다.
+2. 초반 3문단은 독자가 바로 자기 상황이라고 느끼게 쓴다.
+3. H2 구조는 독자가 확인해야 할 순서대로 배치한다.
+4. 정책, 지원금, 가격, 일정처럼 변동 가능한 내용은 공식 확인 흐름을 넣는다.
+5. 과장, 확정 수익, 루머, 출처 불명 수치, 자동 생성 티 나는 문장을 피한다.
+6. 본문 중간에 체크리스트나 비교 표가 필요하면 HTML 표로 넣는다.
+7. 마지막에는 독자가 다음 행동을 정할 수 있는 짧은 정리 문단을 넣는다.
 
-異쒕젰 洹쒖튃:
-- ?ㅻ챸?섏? 留먭퀬 理쒖쥌 HTML留?異쒕젰?쒕떎.
-- script, iframe, form, onclick, 異붿쟻 肄붾뱶???ｌ? ?딅뒗??
-- ?꾨옒 援ъ“瑜??좎??쒕떎.
+출력 규칙:
+- 설명하지 말고 최종 HTML만 출력한다.
+- script, iframe, form, onclick, 추적 코드는 넣지 않는다.
+- 아래 구조를 유지한다.
 
 <article class="bgpt-wp-ready bgpt-codex-workshop">
-  <h1>?쒕ぉ</h1>
-  <p>?꾩엯 臾몃떒</p>
-  <h2>?뚯젣紐?/h2>
-  <p>蹂몃Ц</p>
-  <h2>?먯＜ 臾삳뒗 吏덈Ц</h2>
-  <h3>吏덈Ц</h3>
-  <p>?듬?</p>
-  <h2>留덈Т由?/h2>
-  <p>?뺣━ 臾몃떒</p>
+  <h1>제목</h1>
+  <p>도입 문단</p>
+  <h2>소제목</h2>
+  <p>본문</p>
+  <h2>자주 묻는 질문</h2>
+  <h3>질문</h3>
+  <p>답변</p>
+  <h2>마무리</h2>
+  <p>정리 문단</p>
 </article>`;
 }
 
@@ -1456,36 +1465,37 @@ function buildCodexImageTask(payload = {}) {
   const thumbnailTextIncluded = payload.thumbnailTextIncluded !== false && payload.thumbnailIncludeText !== false;
   const references = getReferenceLines(payload);
   const imageCapabilityNote = provider === 'claude'
-    ? '以묒슂: Claude Code?먮뒗 ?먯껜 ?대?吏 ?앹꽦 紐⑤뜽???놁뒿?덈떎. ?ㅼ젣 ?대?吏???깆쓽 ?대?吏 ?붿쭊(GPT Image, Gemini Image, Leonardo, Flow ???쇰줈 蹂꾨룄 ?앹꽦?섍퀬, Claude Code???대?吏 ?꾨＼?꾪듃/援щ룄/alt/?쎌엯 ?꾩튂留??ㅺ퀎?⑸땲??'
-    : '以묒슂: Codex???묒뾽 Agent?낅땲?? ?대?吏 ?앹꽦 湲곕뒫???곌껐???섍꼍?먯꽌??GPT Image ??蹂꾨룄 ?대?吏 ?붿쭊?쇰줈 ?앹꽦?섍퀬, 洹몃젃吏 ?딆쑝硫??대?吏 ?꾨＼?꾪듃/援щ룄/alt/?쎌엯 ?꾩튂瑜??ㅺ퀎?⑸땲??';
+    ? '중요: Claude Code에는 자체 이미지 생성 모델이 없습니다. 실제 이미지는 앱의 이미지 엔진(GPT Image, Gemini Image, Leonardo, Flow 등)으로 별도 생성하고, Claude Code는 이미지 프롬프트/구도/alt/삽입 위치만 설계합니다.'
+    : '중요: Codex는 작업 Agent입니다. 이미지 생성 기능이 연결된 환경에서는 GPT Image 등 별도 이미지 엔진으로 생성하고, 그렇지 않으면 이미지 프롬프트/구도/alt/삽입 위치를 설계합니다.';
 
-  return `${agentLabel} ?대?吏 ?묒뾽 吏?쒖꽌
+  return `${agentLabel} 이미지 작업 지시서
 
-紐⑺몴:
-- 湲 二쇱젣??留욌뒗 釉붾줈洹??몃꽕???먮뒗 蹂몃Ц ?대?吏 諛⑺뼢???ㅺ퀎?쒕떎.
-- 媛?ν븯硫?16:9 ?몃꽕??1?κ낵 H2蹂??대?吏 ?꾩씠?붿뼱瑜??④퍡 ?뺣━?쒕떎.
+목표:
+- 글 주제에 맞는 블로그 썸네일 또는 본문 이미지 방향을 설계한다.
+- 가능하면 16:9 썸네일 1장과 H2별 이미지 아이디어를 함께 정리한다.
 - ${imageCapabilityNote}
 
-?낅젰 ?ㅼ젙:
-- ?듭떖 ?ㅼ썙?? ${topic || '(keyword empty)'}
-- ?뚮옯?? ${platform}
-- ?대?吏 ?앹꽦 踰붿쐞: ${describeImagePolicy(imagePolicy)}
-- ?몃꽕???띿뒪?? ${thumbnailTextIncluded ? '?ы븿 媛?? ?? 吏㏃? ?쒓뎅???쒕ぉ??臾멸뎄留??ъ슜' : '誘명룷?? ?몃꽕?쇱뿉??湲?먮? ?ｌ? ?딆쓬'}
-- ?뚯젣紐??대?吏 ?띿뒪?? ??긽 誘명룷?? H2 ?대?吏??媛꾪뙋, ?먮쭑, 臾멸뎄, 濡쒓퀬, ?뚰꽣留덊겕 ?놁씠 ?λ㈃留??앹꽦
-- 李멸퀬 URL:
-${references.length ? references.map((url, index) => `  ${index + 1}. ${url}`).join('\n') : '  ?놁쓬'}
+입력 설정:
+- 핵심 키워드: ${topic || '(keyword empty)'}
+- 플랫폼: ${platform}
+- 이미지 생성 범위: ${describeImagePolicy(imagePolicy)}
+- 썸네일 텍스트: ${thumbnailTextIncluded ? '포함 가능. 단, 짧은 한국어 제목형 문구만 사용' : '미포함. 썸네일에도 글자를 넣지 않음'}
+- 소제목 이미지 텍스트: 항상 미포함. H2 이미지는 간판, 자막, 문구, 로고, 워터마크 없이 장면만 생성
+- 참고 URL:
+${references.length ? references.map((url, index) => `  ${index + 1}. ${url}`).join('\n') : '  없음'}
 
-?대?吏 諛⑺뼢:
-- ?쒓뎅 ?앺솢?뺣낫/?뺤콉??釉붾줈洹몄뿉 ?댁슱由щ뒗 ?꾩떎媛??덈뒗 ?λ㈃
-- 諛앷퀬 ?좊챸???鍮?- ?쒕ぉ???뱀쓣 ???덈뒗 ?щ갚 ?뺣낫
-- ?뱀젙 釉뚮옖??濡쒓퀬, ?좊챸???쇨뎬, ?ㅽ빐 媛?ν븳 怨듦났湲곌? 吏곸씤 ?쒗쁽 湲덉?
-- ?몃꽕???띿뒪??誘명룷???먮뒗 H2 ?대?吏?먯꽌???띿뒪???녿뒗 ?대?吏濡??앹꽦?섍퀬 ?쒕ぉ ?곸뿭留?鍮꾩썙?붾떎.
+이미지 방향:
+- 한국 생활정보/정책형 블로그에 어울리는 현실감 있는 장면
+- 밝고 선명한 대비
+- 제목을 얹을 수 있는 여백 확보
+- 특정 브랜드 로고, 유명인 얼굴, 오해 가능한 공공기관 직인 표현 금지
+- 썸네일 텍스트 미포함 또는 H2 이미지에서는 텍스트 없는 이미지로 생성하고 제목 영역만 비워둔다.
 
-異쒕젰:
-1. ?좏깮???대?吏 ?앹꽦 踰붿쐞??留욌뒗 ?몃꽕??H2 ?대?吏 ?꾨＼?꾪듃
-2. H2蹂??대?吏 ?꾩씠?붿뼱. ?좏깮 踰붿쐞 諛?H2??"skip"?쇰줈 ?쒖떆
-3. ?몃꽕??臾멸뎄 ?꾨낫 3媛? ?몃꽕???띿뒪??誘명룷?⑥씠硫?鍮?諛곗뿴濡??쒖떆
-4. ?ㅼ젣 ?앹꽦???ъ슜??異붿쿇 ?대?吏 ?붿쭊`;
+출력:
+1. 선택한 이미지 생성 범위에 맞는 썸네일/H2 이미지 프롬프트
+2. H2별 이미지 아이디어. 선택 범위 밖 H2는 "skip"으로 표시
+3. 썸네일 문구 후보 3개. 썸네일 텍스트 미포함이면 빈 배열로 표시
+4. 실제 생성에 사용할 추천 이미지 엔진`;
 }
 
 function ensureStyles() {
@@ -2412,10 +2422,10 @@ function ensureEntryButton() {
   entry.innerHTML = `
     <div>
       <h4>Max Agent Mode</h4>
-      <p>3媛쒖썡 ?댁긽 肄붾뱶??Codex/Claude 援щ룆 怨꾩젙 ?묒뾽?ㅼ쓣 ?닿퀬, 1媛쒖썡 肄붾뱶??湲곗〈 API ???앹꽦 ?먮쫫???좎??⑸땲??</p>
-      <div id="${ENTRY_STATUS_ID}" class="codex-workshop-status is-muted">?쇱씠?좎뒪 ?곹깭 ?뺤씤 以?..</div>
+      <p>3개월 이상 코드는 Codex/Claude 구독 계정 작업실을 열고, 1개월 코드는 기존 API 키 생성 흐름을 유지합니다.</p>
+      <div id="${ENTRY_STATUS_ID}" class="codex-workshop-status is-muted">라이선스 상태 확인 중...</div>
     </div>
-    <button type="button" class="codex-workshop-btn codex-workshop-primary" id="openCodexWorkshopBtn">?곹깭 ?뺤씤 以?/button>
+    <button type="button" class="codex-workshop-btn codex-workshop-primary" id="openCodexWorkshopBtn">상태 확인 중</button>
   `;
 
   actionRow.insertAdjacentElement('afterend', entry);
@@ -2435,54 +2445,54 @@ function ensureModal() {
     <div class="codex-workshop-shell">
       <div class="codex-workshop-head">
         <div>
-          <h3 id="codexWorkshopTitle">Agent ?묒뾽??/h3>
-          <p id="codexWorkshopSubtitle">?좏깮??Agent媛 湲 援ъ“, ?대?吏 諛⑺뼢, ?덉쭏 湲곗?????踰덉뿉 ?댄빐?섎룄濡??꾩옱 ???ㅼ젙???묒뾽 ?⑥쐞濡??뺣━?⑸땲??</p>
+          <h3 id="codexWorkshopTitle">Agent 작업실</h3>
+          <p id="codexWorkshopSubtitle">선택한 Agent가 글 구조, 이미지 방향, 품질 기준을 한 번에 이해하도록 현재 앱 설정을 작업 단위로 정리합니다.</p>
         </div>
-        <button type="button" class="codex-workshop-close" id="closeCodexWorkshopBtn" aria-label="?リ린">X</button>
+        <button type="button" class="codex-workshop-close" id="closeCodexWorkshopBtn" aria-label="닫기">X</button>
       </div>
       <div class="codex-workshop-body">
         <div style="display:grid;gap:16px;">
           <section class="codex-workshop-panel">
-            <h4>1. 湲 ?묒뾽吏?쒖꽌</h4>
+            <h4>1. 글 작업지시서</h4>
             <div class="codex-workshop-actions">
-              <button type="button" class="codex-workshop-btn codex-workshop-success" id="copyCodexArticleTaskBtn">湲 吏?쒖꽌 蹂듭궗</button>
+              <button type="button" class="codex-workshop-btn codex-workshop-success" id="copyCodexArticleTaskBtn">글 지시서 복사</button>
             </div>
             <textarea id="codexArticleTask" class="codex-workshop-textarea" readonly></textarea>
           </section>
           <section class="codex-workshop-panel">
-            <h4>2. ?대?吏 ?묒뾽吏?쒖꽌</h4>
+            <h4>2. 이미지 작업지시서</h4>
             <div class="codex-workshop-actions">
-              <button type="button" class="codex-workshop-btn codex-workshop-secondary" id="copyCodexImageTaskBtn">?대?吏 吏?쒖꽌 蹂듭궗</button>
+              <button type="button" class="codex-workshop-btn codex-workshop-secondary" id="copyCodexImageTaskBtn">이미지 지시서 복사</button>
             </div>
             <textarea id="codexImageTask" class="codex-workshop-textarea" readonly></textarea>
           </section>
         </div>
         <div style="display:grid;gap:16px;">
           <section class="codex-workshop-panel">
-            <h4>Max Agent 怨꾩젙</h4>
-            <div id="${AGENT_STATUS_ID}" class="codex-workshop-note">Agent Mode ?곹깭瑜??뺤씤 以묒엯?덈떎.</div>
+            <h4>Max Agent 계정</h4>
+            <div id="${AGENT_STATUS_ID}" class="codex-workshop-note">Agent Mode 상태를 확인 중입니다.</div>
             <select id="${AGENT_PROFILE_SELECT_ID}" class="codex-workshop-select" style="display:none;">
-              <option value="">怨꾩젙 以鍮?以?/option>
+              <option value="">계정 준비 중</option>
             </select>
             <div class="codex-workshop-actions" style="margin-top:12px;">
-              <button type="button" class="codex-workshop-btn codex-workshop-secondary" id="startCodexAgentLoginBtn">濡쒓렇??李??닿린</button>
-              <button type="button" class="codex-workshop-btn codex-workshop-success" id="${RUN_AGENT_JOB_BTN_ID}">?좏깮 Agent濡??앹꽦</button>
+              <button type="button" class="codex-workshop-btn codex-workshop-secondary" id="startCodexAgentLoginBtn">로그인 창 열기</button>
+              <button type="button" class="codex-workshop-btn codex-workshop-success" id="${RUN_AGENT_JOB_BTN_ID}">선택 Agent로 생성</button>
             </div>
             <textarea id="${AGENT_LOGIN_COMMAND_ID}" class="codex-workshop-textarea codex-workshop-code" style="display:none;" readonly></textarea>
             <div id="${AGENT_RUN_STATUS_ID}" class="codex-workshop-note" style="display:none;"></div>
           </section>
           <section class="codex-workshop-panel">
-            <h4>3. Codex ?곗텧臾??곸슜</h4>
-            <textarea id="codexResultPaste" class="codex-workshop-textarea codex-workshop-paste" placeholder="Codex媛 留뚮뱺 理쒖쥌 HTML???ш린??遺숈뿬?ｌ쑝?몄슂."></textarea>
+            <h4>3. Codex 산출물 적용</h4>
+            <textarea id="codexResultPaste" class="codex-workshop-textarea codex-workshop-paste" placeholder="Codex가 만든 최종 HTML을 여기에 붙여넣으세요."></textarea>
             <div class="codex-workshop-actions" style="margin-top:12px;margin-bottom:0;">
-              <button type="button" class="codex-workshop-btn codex-workshop-success" id="applyCodexResultBtn">誘몃━蹂닿린濡??곸슜</button>
-              <button type="button" class="codex-workshop-btn codex-workshop-secondary" id="clearCodexResultBtn">?댁슜 鍮꾩슦湲?/button>
+              <button type="button" class="codex-workshop-btn codex-workshop-success" id="applyCodexResultBtn">미리보기로 적용</button>
+              <button type="button" class="codex-workshop-btn codex-workshop-secondary" id="clearCodexResultBtn">내용 비우기</button>
             </div>
           </section>
           <section class="codex-workshop-panel">
-            <h4>?댁쁺 ?ㅺ퀎</h4>
+            <h4>운영 설계</h4>
             <div class="codex-workshop-note">
-              ?ㅼ쓬 ?④퀎?먯꽌??Codex CLI ?먮뒗 Codex app-server瑜?Electron 諛깆뿏?쒖뿉 ?곌껐???묒뾽吏?쒖꽌 ?앹꽦 ???곗텧臾??뚯씪???먮룞?쇰줈 ?뚯닔?섎뒗 援ъ“濡??뺤옣?????덉뒿?덈떎.
+              다음 단계에서는 Codex CLI 또는 Codex app-server를 Electron 백엔드에 연결해 작업지시서 생성 후 산출물 파일을 자동으로 회수하는 구조로 확장할 수 있습니다.
             </div>
           </section>
         </div>
@@ -2492,8 +2502,8 @@ function ensureModal() {
 
   document.body.appendChild(modal);
   $('closeCodexWorkshopBtn')?.addEventListener('click', closeCodexWorkshopPanel);
-  $('copyCodexArticleTaskBtn')?.addEventListener('click', () => copyText(state.articleTask, '湲 ?묒뾽吏?쒖꽌'));
-  $('copyCodexImageTaskBtn')?.addEventListener('click', () => copyText(state.imageTask, '?대?吏 ?묒뾽吏?쒖꽌'));
+  $('copyCodexArticleTaskBtn')?.addEventListener('click', () => copyText(state.articleTask, '글 작업지시서'));
+  $('copyCodexImageTaskBtn')?.addEventListener('click', () => copyText(state.imageTask, '이미지 작업지시서'));
   $('applyCodexResultBtn')?.addEventListener('click', applyCodexResult);
   $('clearCodexResultBtn')?.addEventListener('click', () => { const el = $('codexResultPaste'); if (el) el.value = ''; });
   $('startCodexAgentLoginBtn')?.addEventListener('click', () => startAgentLogin(
@@ -2521,19 +2531,19 @@ function ensureModal() {
 }
 
 function renderToolStatus(tool, label) {
-  if (!tool) return `${label}: ?뺤씤 ??;
-  if (tool.installed && tool.usable === false) return `${label}: ?ㅽ뻾 沅뚰븳 ?뺤씤 ?꾩슂`;
-  if (tool.installed) return `${label}: ?ㅼ튂??;
-  return `${label}: 誘멸컧吏`;
+  if (!tool) return `${label}: 확인 전`;
+  if (tool.installed && tool.usable === false) return `${label}: 실행 권한 확인 필요`;
+  if (tool.installed) return `${label}: 설치됨`;
+  return `${label}: 미감지`;
 }
 
 function renderProfileSummary(profiles = []) {
   if (!profiles.length) {
-    return '<span>?꾩쭅 濡쒓렇??怨꾩젙???놁뒿?덈떎. 濡쒓렇??李??닿린瑜?癒쇱? ?뚮윭二쇱꽭??</span>';
+    return '<span>아직 로그인 계정이 없습니다. 로그인 창 열기를 먼저 눌러주세요.</span>';
   }
 
   return profiles
-    .map((profile) => `<span>${escapeHtml(profile.label)} 쨌 ${escapeHtml(profile.provider)} 쨌 ${escapeHtml(getProviderLoginLabel(profile.provider, profile))}</span>`)
+    .map((profile) => `<span>${escapeHtml(profile.label)} · ${escapeHtml(profile.provider)} · ${escapeHtml(getProviderLoginLabel(profile.provider, profile))}</span>`)
     .join('');
 }
 
@@ -2546,7 +2556,7 @@ function renderAgentProfileSelect() {
   const previous = select.value;
 
   if (!profiles.length) {
-    select.innerHTML = `<option value="">${state.activeAgentProvider === 'claude' ? 'Claude' : 'Codex'} 怨꾩젙 以鍮?以?/option>`;
+    select.innerHTML = `<option value="">${state.activeAgentProvider === 'claude' ? 'Claude' : 'Codex'} 계정 준비 중</option>`;
     select.disabled = true;
     return;
   }
@@ -2554,7 +2564,7 @@ function renderAgentProfileSelect() {
   select.disabled = false;
   select.innerHTML = profiles
     .map((profile) => {
-      const label = `${profile.provider === 'claude' ? 'Claude' : 'Codex'} 쨌 ${profile.label} 쨌 ${getProviderLoginLabel(profile.provider, profile)}`;
+      const label = `${profile.provider === 'claude' ? 'Claude' : 'Codex'} · ${profile.label} · ${getProviderLoginLabel(profile.provider, profile)}`;
       return `<option value="${escapeHtml(profile.id)}">${escapeHtml(label)}</option>`;
     })
     .join('');
@@ -2608,25 +2618,25 @@ function renderAgentStatusPanel() {
 
   const status = state.agentStatus;
   if (!status) {
-    panel.innerHTML = 'Agent Mode ?곹깭瑜??뺤씤 以묒엯?덈떎.';
+    panel.innerHTML = 'Agent Mode 상태를 확인 중입니다.';
     return;
   }
 
   const codexTool = renderToolStatus(status.tools?.codex, 'Codex');
   const claudeTool = renderToolStatus(status.tools?.claude, 'Claude');
-  const modeLabel = isMaxAgentAllowed(status) ? 'Max Agent Mode' : 'API ??紐⑤뱶';
+  const modeLabel = isMaxAgentAllowed(status) ? 'Max Agent Mode' : 'API 키 모드';
   const modeClass = isMaxAgentAllowed(status) ? 'is-ready' : 'is-locked';
 
   panel.innerHTML = `
     <div class="codex-workshop-status ${modeClass}" style="margin-top:0;">${escapeHtml(modeLabel)}</div>
     <div class="codex-workshop-agent-grid">
       <div class="codex-workshop-agent-card">
-        <strong>?쇱씠?좎뒪</strong>
-        <span>?꾩옱: ${escapeHtml(status.currentName || '?뺤씤 ?ㅽ뙣')}</span>
-        <span>Max 湲곗?: ${escapeHtml(status.requiredName || '?ㅽ깲?ㅻ뱶 (3媛쒖썡)')}</span>
+        <strong>라이선스</strong>
+        <span>현재: ${escapeHtml(status.currentName || '확인 실패')}</span>
+        <span>Max 기준: ${escapeHtml(status.requiredName || '스탠다드 (3개월)')}</span>
       </div>
       <div class="codex-workshop-agent-card">
-        <strong>?꾧뎄 媛먯?</strong>
+        <strong>도구 감지</strong>
         <span>${escapeHtml(codexTool)}</span>
         <span>${escapeHtml(claudeTool)}</span>
       </div>
@@ -2638,7 +2648,7 @@ function renderAgentStatusPanel() {
 async function createAgentProfile(provider) {
   const status = await loadAgentModeStatus(true);
   if (!isMaxAgentAllowed(status)) {
-    alert(status?.message || 'Max Agent Mode??3媛쒖썡 ?댁긽 肄붾뱶?먯꽌 ?ъ슜?????덉뒿?덈떎.');
+    alert(status?.message || 'Max Agent Mode는 3개월 이상 코드에서 사용할 수 있습니다.');
     return null;
   }
 
@@ -2647,14 +2657,14 @@ async function createAgentProfile(provider) {
     const payload = {
       provider,
       authMode: 'subscription',
-      label: provider === 'claude' ? 'Claude 援щ룆 怨꾩젙' : 'Codex 援щ룆 怨꾩젙',
+      label: provider === 'claude' ? 'Claude 구독 계정' : 'Codex 구독 계정',
     };
     const result = typeof api?.createAgentProfile === 'function'
       ? await api.createAgentProfile(payload)
       : await api?.invoke?.('agent-mode:create-profile', payload);
 
     if (!result?.ok) {
-      alert(result?.error || 'Agent 怨꾩젙 以鍮꾩뿉 ?ㅽ뙣?덉뒿?덈떎.');
+      alert(result?.error || 'Agent 계정 준비에 실패했습니다.');
       return null;
     }
 
@@ -2684,13 +2694,13 @@ async function createAgentProfile(provider) {
       modalSelect.value = result.profile.id;
       renderAgentProfileSelect();
     }
-    setSettingsStatus(`${provider === 'claude' ? 'Claude' : 'Codex'} 怨꾩젙 以鍮꾧? ?앸궗?듬땲?? 濡쒓렇??李쎌뿉??援щ룆 怨꾩젙?쇰줈 濡쒓렇?명븯?몄슂.`);
-    addLog(`${provider === 'claude' ? 'Claude' : 'Codex'} 怨꾩젙 以鍮꾧? ?앸궗?듬땲?? 濡쒓렇??李쎌뿉??怨듭떇 濡쒓렇?몄쓣 吏꾪뻾?섏꽭??`, 'success');
+    setSettingsStatus(`${provider === 'claude' ? 'Claude' : 'Codex'} 계정 준비가 끝났습니다. 로그인 창에서 구독 계정으로 로그인하세요.`);
+    addLog(`${provider === 'claude' ? 'Claude' : 'Codex'} 계정 준비가 끝났습니다. 로그인 창에서 공식 로그인을 진행하세요.`, 'success');
     return result.profile || null;
   } catch (error) {
     console.error('[CODEX-WORKSHOP] create agent profile failed:', error);
-    alert(`Agent 怨꾩젙 以鍮꾩뿉 ?ㅽ뙣?덉뒿?덈떎: ${error?.message || error}`);
-    setSettingsStatus(`Agent 怨꾩젙 以鍮??ㅽ뙣: ${error?.message || error}`, 'error');
+    alert(`Agent 계정 준비에 실패했습니다: ${error?.message || error}`);
+    setSettingsStatus(`Agent 계정 준비 실패: ${error?.message || error}`, 'error');
     return null;
   }
 }
@@ -2736,14 +2746,14 @@ function startAgentLoginPolling(provider = state.activeAgentProvider, profileId 
       const result = await checkAgentLoginStatus(normalizedProvider, profileId);
       if (result?.ready) {
         stopAgentLoginPolling();
-        setSettingsStatus(`${label} 濡쒓렇???꾨즺瑜??뺤씤?덉뒿?덈떎. ?댁젣 Agent 紐⑤뱶?먯꽌 ?ъ슜?????덉뒿?덈떎.`, 'success');
-        addLog(`${label} 濡쒓렇???꾨즺媛 ?먮룞 ?뺤씤?섏뿀?듬땲??`, 'success');
+        setSettingsStatus(`${label} 로그인 완료를 확인했습니다. 이제 Agent 모드에서 사용할 수 있습니다.`, 'success');
+        addLog(`${label} 로그인 완료가 자동 확인되었습니다.`, 'success');
         return;
       }
 
       if (Date.now() - state.loginPollStartedAt > 5 * 60 * 1000) {
         stopAgentLoginPolling();
-        setSettingsStatus(`${label} 濡쒓렇???꾨즺瑜??꾩쭅 ?뺤씤?섏? 紐삵뻽?듬땲?? 釉뚮씪?곗? 濡쒓렇?몄씠 ?앸궗?ㅻ㈃ ?곹깭 ?덈줈怨좎묠????踰??뚮윭二쇱꽭??`, 'error');
+        setSettingsStatus(`${label} 로그인 완료를 아직 확인하지 못했습니다. 브라우저 로그인이 끝났다면 상태 새로고침을 한 번 눌러주세요.`, 'error');
       }
     } catch (error) {
       console.warn('[CODEX-WORKSHOP] login polling failed:', error);
@@ -2765,13 +2775,13 @@ async function installAgentTool(provider = state.activeAgentProvider, triggerBut
     openAgentInstallModal(label);
     if (triggerButton) {
       triggerButton.disabled = true;
-      triggerButton.textContent = `${label} ?ㅼ튂 以?..`;
+      triggerButton.textContent = `${label} 설치 중...`;
     }
-    setSettingsStatus(`${label} ?ㅼ튂瑜??쒖옉?덉뒿?덈떎. ?ㅼ튂 紐⑤떖?먯꽌 吏꾪뻾 ?곹깭瑜??뺤씤?섏꽭??`);
+    setSettingsStatus(`${label} 설치를 시작했습니다. 설치 모달에서 진행 상태를 확인하세요.`);
     updateAgentInstallModal({
       label,
-      status: `${label} ?ㅼ튂 紐낅졊???ㅽ뻾 以묒엯?덈떎.`,
-      output: normalizedProvider === 'codex' ? 'npm install -g @openai/codex' : '怨듭떇 ?ㅼ튂 紐낅졊 ?ㅽ뻾 以?..',
+      status: `${label} 설치 명령을 실행 중입니다.`,
+      output: normalizedProvider === 'codex' ? 'npm install -g @openai/codex' : '공식 설치 명령 실행 중...',
       type: 'info',
     });
     const result = typeof api?.installAgentTool === 'function'
@@ -2780,57 +2790,57 @@ async function installAgentTool(provider = state.activeAgentProvider, triggerBut
 
     if (!result?.ok) {
       const output = [
-        result?.command ? `紐낅졊: ${result.command}` : '',
-        result?.error ? `?ㅻ쪟: ${result.error}` : '',
+        result?.command ? `명령: ${result.command}` : '',
+        result?.error ? `오류: ${result.error}` : '',
         result?.output || '',
       ].filter(Boolean).join('\n\n');
       updateAgentInstallModal({
         label,
-        status: result?.error || `${label} ?ㅼ튂???ㅽ뙣?덉뒿?덈떎.`,
+        status: result?.error || `${label} 설치에 실패했습니다.`,
         output,
         type: 'error',
       });
-      alert(result?.error || `${label} ?ㅼ튂???ㅽ뙣?덉뒿?덈떎.`);
-      setSettingsStatus(result?.error || `${label} ?ㅼ튂???ㅽ뙣?덉뒿?덈떎.`, 'error');
+      alert(result?.error || `${label} 설치에 실패했습니다.`);
+      setSettingsStatus(result?.error || `${label} 설치에 실패했습니다.`, 'error');
       return null;
     }
 
     const verified = result.verified || result.tool?.usable === true;
     const output = [
-      result.command ? `紐낅졊: ${result.command}` : '',
+      result.command ? `명령: ${result.command}` : '',
       result.output || '',
-      result.tool?.version ? `\n?뺤씤: ${result.tool.version}` : '',
-      !verified && result.tool?.error ? `\n?ㅽ뻾 ?뺤씤 ?ㅻ쪟: ${result.tool.error}` : '',
+      result.tool?.version ? `\n확인: ${result.tool.version}` : '',
+      !verified && result.tool?.error ? `\n실행 확인 오류: ${result.tool.error}` : '',
     ].filter(Boolean).join('\n\n');
     updateAgentInstallModal({
       label,
-      status: verified ? `${label} ?ㅼ튂媛 ?꾨즺?섏뿀?듬땲??` : `${label} ?ㅼ튂???앸궗吏留??ㅽ뻾 ?뺤씤???꾩슂?⑸땲??`,
+      status: verified ? `${label} 설치가 완료되었습니다.` : `${label} 설치는 끝났지만 실행 확인이 필요합니다.`,
       output,
       type: verified ? 'success' : 'error',
     });
     setSettingsStatus(verified
-      ? `${label} ?ㅼ튂媛 ?꾨즺?섏뿀?듬땲?? ?댁젣 濡쒓렇??李??닿린瑜??뚮윭二쇱꽭??`
-      : `${label} ?ㅼ튂???앸궗吏留??ㅽ뻾 ?뺤씤???꾩슂?⑸땲?? ?ㅼ튂 濡쒓렇瑜??뺤씤?댁＜?몄슂.`,
+      ? `${label} 설치가 완료되었습니다. 이제 로그인 창 열기를 눌러주세요.`
+      : `${label} 설치는 끝났지만 실행 확인이 필요합니다. 설치 로그를 확인해주세요.`,
       verified ? 'success' : 'error');
-    addLog(`${label} ?ㅼ튂 紐낅졊???꾨즺?섏뿀?듬땲??`, verified ? 'success' : 'warning');
+    addLog(`${label} 설치 명령이 완료되었습니다.`, verified ? 'success' : 'warning');
     await loadAgentModeStatus(true);
     return result;
   } catch (error) {
     console.error('[CODEX-WORKSHOP] install agent tool failed:', error);
     updateAgentInstallModal({
       label,
-      status: `${label} ?ㅼ튂 ?ㅽ뻾 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.`,
+      status: `${label} 설치 실행 중 오류가 발생했습니다.`,
       output: error?.message || String(error || ''),
       type: 'error',
     });
-    alert(`${label} ?ㅼ튂瑜??ㅽ뻾?섏? 紐삵뻽?듬땲?? ${error?.message || error}`);
-    setSettingsStatus(`${label} ?ㅼ튂 ?ㅽ뻾 ?ㅽ뙣: ${error?.message || error}`, 'error');
+    alert(`${label} 설치를 실행하지 못했습니다: ${error?.message || error}`);
+    setSettingsStatus(`${label} 설치 실행 실패: ${error?.message || error}`, 'error');
     return null;
   } finally {
     state.installRunning = false;
     if (triggerButton) {
       triggerButton.disabled = false;
-      triggerButton.textContent = previousText || `${label} ?ㅼ튂?섍린`;
+      triggerButton.textContent = previousText || `${label} 설치하기`;
     }
   }
 }
@@ -2838,7 +2848,7 @@ async function installAgentTool(provider = state.activeAgentProvider, triggerBut
 async function startAgentLogin(provider = state.activeAgentProvider, profileId = '') {
   const status = await loadAgentModeStatus(true);
   if (!isMaxAgentAllowed(status)) {
-    alert(status?.message || 'Agent 紐⑤뱶??3媛쒖썡 ?댁긽 肄붾뱶?먯꽌 ?ъ슜?????덉뒿?덈떎.');
+    alert(status?.message || 'Agent 모드는 3개월 이상 코드에서 사용할 수 있습니다.');
     return;
   }
 
@@ -2846,11 +2856,11 @@ async function startAgentLogin(provider = state.activeAgentProvider, profileId =
   const tool = status?.tools?.[normalizedProvider];
   const label = normalizedProvider === 'claude' ? 'Claude Code' : 'Codex';
   if (!tool?.installed) {
-    setSettingsStatus(`${label} ?ㅼ튂媛 癒쇱? ?꾩슂?⑸땲?? ?ㅼ튂 踰꾪듉?쇰줈 ?ㅼ튂/?뺤씤???앸궦 ??濡쒓렇??李쎌쓣 ?댁뼱二쇱꽭??`, 'error');
+    setSettingsStatus(`${label} 설치가 먼저 필요합니다. 설치 버튼으로 설치/확인을 끝낸 뒤 로그인 창을 열어주세요.`, 'error');
     return;
   }
   if (tool.usable === false) {
-    setSettingsStatus(`${label} ?ㅽ뻾 ?뺤씤???꾩쭅 ?꾨즺?섏? ?딆븯?듬땲?? ?ㅼ튂 踰꾪듉?먯꽌 ?ㅽ뻾 ?뺤씤??癒쇱? ?앸궦 ??濡쒓렇??李쎌쓣 ?댁뼱二쇱꽭??`, 'error');
+    setSettingsStatus(`${label} 실행 확인이 아직 완료되지 않았습니다. 설치 버튼에서 실행 확인을 먼저 끝낸 뒤 로그인 창을 열어주세요.`, 'error');
     return;
   }
 
@@ -2868,13 +2878,13 @@ async function startAgentLogin(provider = state.activeAgentProvider, profileId =
     setActiveAgentProfile(normalizedProvider, profile.id);
   }
   if (!profile) {
-    alert('濡쒓렇?명븷 Agent 怨꾩젙 以鍮꾩뿉 ?ㅽ뙣?덉뒿?덈떎.');
+    alert('로그인할 Agent 계정 준비에 실패했습니다.');
     return;
   }
 
   if (isAgentProfileReady(profile)) {
-    setSettingsStatus(`${label} 濡쒓렇???꾨즺 ?곹깭?낅땲?? 諛붾줈 Agent 紐⑤뱶?먯꽌 ?ъ슜?????덉뒿?덈떎.`, 'success');
-    addLog(`${label} 濡쒓렇???꾨즺 ?곹깭瑜??뺤씤?덉뒿?덈떎.`, 'success');
+    setSettingsStatus(`${label} 로그인 완료 상태입니다. 바로 Agent 모드에서 사용할 수 있습니다.`, 'success');
+    addLog(`${label} 로그인 완료 상태를 확인했습니다.`, 'success');
     return;
   }
 
@@ -2885,8 +2895,8 @@ async function startAgentLogin(provider = state.activeAgentProvider, profileId =
       : await api?.invoke?.('agent-mode:start-login', { id: profile.id, provider: normalizedProvider });
 
     if (!result?.ok) {
-      alert(result?.error || '濡쒓렇??李쎌쓣 ?댁? 紐삵뻽?듬땲??');
-      setSettingsStatus(result?.error || '濡쒓렇??李쎌쓣 ?댁? 紐삵뻽?듬땲??', 'error');
+      alert(result?.error || '로그인 창을 열지 못했습니다.');
+      setSettingsStatus(result?.error || '로그인 창을 열지 못했습니다.', 'error');
       return;
     }
 
@@ -2894,29 +2904,29 @@ async function startAgentLogin(provider = state.activeAgentProvider, profileId =
     if (commandEl) commandEl.value = result.command || profile.loginCommand || '';
     const settingsCommandEl = $('agentModeSettingsLoginCommand');
     if (settingsCommandEl) settingsCommandEl.value = result.command || profile.loginCommand || '';
-    setSettingsStatus(`${label} 濡쒓렇??釉뚮씪?곗?瑜??댁뿀?듬땲?? 濡쒓렇???꾨즺 ?щ?瑜??먮룞?쇰줈 ?뺤씤?섎뒗 以묒엯?덈떎.`);
-    addLog(`${label} 濡쒓렇??釉뚮씪?곗?瑜??댁뿀?듬땲?? ?꾨즺?섎㈃ ???곹깭媛 ?먮룞?쇰줈 諛붾앸땲??`, 'info');
+    setSettingsStatus(`${label} 로그인 브라우저를 열었습니다. 로그인 완료 여부를 자동으로 확인하는 중입니다.`);
+    addLog(`${label} 로그인 브라우저를 열었습니다. 완료되면 앱 상태가 자동으로 바뀝니다.`, 'info');
     startAgentLoginPolling(normalizedProvider, profile.id);
   } catch (error) {
     console.error('[CODEX-WORKSHOP] start agent login failed:', error);
-    alert(`濡쒓렇??李쎌쓣 ?????놁뒿?덈떎: ${error?.message || error}`);
-    setSettingsStatus(`濡쒓렇??李??ㅽ뻾 ?ㅽ뙣: ${error?.message || error}`, 'error');
+    alert(`로그인 창을 열 수 없습니다: ${error?.message || error}`);
+    setSettingsStatus(`로그인 창 실행 실패: ${error?.message || error}`, 'error');
   }
 }
 
 async function runAgentJob({ payload: inputPayload = null, button = null, source = 'modal' } = {}) {
   loadExecutionPrefs();
   if (state.executionMode !== 'agent') {
-    throw new Error('?꾩옱 API ??紐⑤뱶?낅땲?? ?섍꼍?ㅼ젙?먯꽌 Agent 紐⑤뱶瑜??좏깮?????ㅼ떆 ?ㅽ뻾?댁＜?몄슂.');
+    throw new Error('현재 API 키 모드입니다. 환경설정에서 Agent 모드를 선택한 뒤 다시 실행해주세요.');
   }
 
   const status = await loadAgentModeStatus(true);
   if (!isMaxAgentAllowed(status)) {
-    throw new Error(status?.message || 'Max Agent Mode??3媛쒖썡 ?댁긽 肄붾뱶?먯꽌 ?ъ슜?????덉뒿?덈떎.');
+    throw new Error(status?.message || 'Max Agent Mode는 3개월 이상 코드에서 사용할 수 있습니다.');
   }
 
   if (source === 'posting') {
-    updateAgentProgress(24, 'Agent 紐⑤뱶: ?쇱씠?좎뒪? 援щ룆 沅뚰븳???뺤씤?덉뒿?덈떎.');
+    updateAgentProgress(24, 'Agent 모드: 라이선스와 구독 권한을 확인했습니다.');
   }
 
   let profile = getSelectedAgentProfile();
@@ -2924,22 +2934,22 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
     profile = await createAgentProfile(state.activeAgentProvider);
   }
   if (!profile) {
-    throw new Error('Agent 怨꾩젙 以鍮꾩뿉 ?ㅽ뙣?덉뒿?덈떎. 癒쇱? 濡쒓렇??李??닿린濡?援щ룆 怨꾩젙 濡쒓렇?몄쓣 吏꾪뻾?댁＜?몄슂.');
+    throw new Error('Agent 계정 준비에 실패했습니다. 먼저 로그인 창 열기로 구독 계정 로그인을 진행해주세요.');
   }
   if (!isAgentProfileReady(profile)) {
     const providerLabel = state.activeAgentProvider === 'claude' ? 'Claude Code' : 'Codex';
-    setSettingsStatus(`${providerLabel} 濡쒓렇???꾨즺媛 ?꾩슂?⑸땲?? 濡쒓렇???깃났???먮룞?쇰줈 媛먯??⑸땲??`, 'error');
-    throw new Error(`${providerLabel} 濡쒓렇?몄씠 ?꾩쭅 ?꾨즺?섏? ?딆븯?듬땲?? 濡쒓렇??李??닿린瑜??꾨Ⅸ ???꾨즺???뚭퉴吏 湲곕떎?ㅼ＜?몄슂.`);
+    setSettingsStatus(`${providerLabel} 로그인 완료가 필요합니다. 로그인 성공이 자동으로 감지됩니다.`, 'error');
+    throw new Error(`${providerLabel} 로그인이 아직 완료되지 않았습니다. 로그인 창 열기를 누른 뒤 완료될 때까지 기다려주세요.`);
   }
 
   if (source === 'posting') {
-    updateAgentProgress(30, `${profile.provider === 'claude' ? 'Claude Code' : 'Codex'} 濡쒓렇???곹깭瑜??뺤씤?덉뒿?덈떎.`);
+    updateAgentProgress(30, `${profile.provider === 'claude' ? 'Claude Code' : 'Codex'} 로그인 상태를 확인했습니다.`);
   }
 
   const payload = inputPayload || state.payload || await createPreviewPayload();
   const topic = getTopic(payload);
   if (!topic) {
-    throw new Error('癒쇱? ?ㅼ썙?쒕굹 ?쒕ぉ???낅젰?댁＜?몄슂.');
+    throw new Error('먼저 키워드나 제목을 입력해주세요.');
   }
 
   state.payload = payload;
@@ -2949,20 +2959,20 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   state.imageTask = editedImageTask || buildCodexImageTask(payload);
   setModalValues();
   if (source === 'posting') {
-    updateAgentProgress(38, '湲 ?앹꽦 吏?쒖꽌? ?대?吏 ?앹꽦 吏?쒖꽌瑜?以鍮꾪뻽?듬땲??');
+    updateAgentProgress(38, '글 생성 지시서와 이미지 생성 지시서를 준비했습니다.');
   }
 
   const providerLabel = profile.provider === 'claude' ? 'Claude Code' : 'Codex';
   if (button) {
     button.disabled = true;
-    button.textContent = 'Agent ?앹꽦 以?..';
+    button.textContent = 'Agent 생성 중...';
   }
-  setAgentRunStatus(`${providerLabel}媛 ?꾩옱 ?곸꽭?ㅼ젙???쎄퀬 湲 ?앹꽦???쒖옉?덉뒿?덈떎. 泥??ㅽ뻾? 濡쒓렇???곹깭 ?뺤씤 ?뚮Ц???쒓컙??嫄몃┫ ???덉뒿?덈떎.`);
-  addLog(`${providerLabel} Agent ?앹꽦???쒖옉?덉뒿?덈떎.`, 'info');
+  setAgentRunStatus(`${providerLabel}가 현재 상세설정을 읽고 글 생성을 시작했습니다. 첫 실행은 로그인 상태 확인 때문에 시간이 걸릴 수 있습니다.`);
+  addLog(`${providerLabel} Agent 생성을 시작했습니다.`, 'info');
 
   const api = getBridgeApi();
   if (source === 'posting') {
-    updateAgentProgress(46, `${providerLabel}媛 湲 蹂몃Ц怨??대?吏 ?곗텧臾쇱쓣 ?앹꽦 以묒엯?덈떎.`);
+    updateAgentProgress(46, `${providerLabel}가 글 본문과 이미지 산출물을 생성 중입니다.`);
   }
 
   const request = {
@@ -2979,7 +2989,7 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   if (source === 'posting') {
     imageStageTimer = setTimeout(() => {
       if (!agentRunSettled) {
-        updateAgentProgress(62, `${providerLabel}媛 ?대?吏 ?곗텧臾쇨낵 蹂몃Ц ?쎌엯 援ъ꽦???뺣━ 以묒엯?덈떎.`);
+        updateAgentProgress(62, `${providerLabel}가 이미지 산출물과 본문 삽입 구성을 정리 중입니다.`);
       }
     }, 15000);
   }
@@ -2996,18 +3006,18 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
 
   if (!result?.ok) {
     const detail = [result?.error, result?.stderr, result?.stdout].filter(Boolean).join('\n\n').trim();
-    setAgentRunStatus(detail || 'Agent ?앹꽦???ㅽ뙣?덉뒿?덈떎.', 'error');
-    throw new Error(detail || result?.error || 'Agent ?앹꽦???ㅽ뙣?덉뒿?덈떎. 濡쒓렇???곹깭瑜??뺤씤?댁＜?몄슂.');
+    setAgentRunStatus(detail || 'Agent 생성에 실패했습니다.', 'error');
+    throw new Error(detail || result?.error || 'Agent 생성에 실패했습니다. 로그인 상태를 확인해주세요.');
   }
 
   let content = String(result.content || '').trim();
   if (!content) {
-    setAgentRunStatus('Agent???꾨즺?섏뿀吏留?HTML 異쒕젰臾쇱씠 鍮꾩뼱 ?덉뒿?덈떎.', 'error');
-    throw new Error('Agent 異쒕젰臾쇱씠 鍮꾩뼱 ?덉뒿?덈떎. ?곸꽭?ㅼ젙???뺤씤?????ㅼ떆 ?쒕룄?댁＜?몄슂.');
+    setAgentRunStatus('Agent는 완료되었지만 HTML 출력물이 비어 있습니다.', 'error');
+    throw new Error('Agent 출력물이 비어 있습니다. 상세설정을 확인한 뒤 다시 시도해주세요.');
   }
 
   if (source === 'posting') {
-    updateAgentProgress(72, `Agent ?곗텧臾쇱쓣 ?뚯닔?덉뒿?덈떎. (${getTextLength(content).toLocaleString()}??`, 'success');
+    updateAgentProgress(72, `Agent 산출물을 회수했습니다. (${getTextLength(content).toLocaleString()}자)`, 'success');
   }
 
   const imageEnhancement = await enhanceCodexAgentImages(content, payload, result.title || topic);
@@ -3016,12 +3026,12 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   const pasteEl = $('codexResultPaste');
   if (pasteEl) pasteEl.value = content;
   recordAgentUsage(profile.provider, result.jobId || '', result.usage || null);
-  setAgentRunStatus(`?앹꽦 ?꾨즺: ${result.title || topic}${result.jobId ? ` 쨌 ?묒뾽 ID ${result.jobId}` : ''}`);
-  setSettingsStatus(`${providerLabel} ?묒뾽 1?뚮? 濡쒖뺄 ?ㅽ뻾 湲곕줉????ν뻽?듬땲??`);
-  addLog(`Agent 異쒕젰臾쇱쓣 ?뚯닔?덉뒿?덈떎. (${getTextLength(content).toLocaleString()}??`, 'success');
+  setAgentRunStatus(`생성 완료: ${result.title || topic}${result.jobId ? ` · 작업 ID ${result.jobId}` : ''}`);
+  setSettingsStatus(`${providerLabel} 작업 1회를 로컬 실행 기록에 저장했습니다.`);
+  addLog(`Agent 출력물을 회수했습니다. (${getTextLength(content).toLocaleString()}자)`, 'success');
   await applyCodexResult({ thumbnailUrl: imageEnhancement.thumbnailUrl || '' });
   if (source === 'posting') {
-    updateAgentProgress(82, '湲怨??대?吏 ?곗텧臾쇱쓣 誘몃━蹂닿린???곸슜?덉뒿?덈떎. 諛쒗뻾 ?④퀎濡??섏뼱媛묐땲??', 'success');
+    updateAgentProgress(82, '글과 이미지 산출물을 미리보기에 적용했습니다. 발행 단계로 넘어갑니다.', 'success');
   }
 
   return {
@@ -3039,12 +3049,12 @@ async function runAgentJobFromModal() {
     await runAgentJob({ button, source: 'modal' });
   } catch (error) {
     console.error('[CODEX-WORKSHOP] run agent job failed:', error);
-    setAgentRunStatus(`Agent ?앹꽦 ?ㅽ뙣: ${error?.message || error}`, 'error');
-    alert(`Agent ?앹꽦???ㅽ뙣?덉뒿?덈떎: ${error?.message || error}`);
+    setAgentRunStatus(`Agent 생성 실패: ${error?.message || error}`, 'error');
+    alert(`Agent 생성에 실패했습니다: ${error?.message || error}`);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = `${state.activeAgentProvider === 'claude' ? 'Claude Code' : 'Codex'}濡??앹꽦`;
+      button.textContent = `${state.activeAgentProvider === 'claude' ? 'Claude Code' : 'Codex'}로 생성`;
     }
   }
 }
@@ -3056,7 +3066,7 @@ function setModalValues() {
   if (imageEl) imageEl.value = state.imageTask;
 }
 
-async function copyText(text, label = '?댁슜') {
+async function copyText(text, label = '내용') {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
@@ -3070,10 +3080,10 @@ async function copyText(text, label = '?댁슜') {
       document.execCommand('copy');
       temp.remove();
     }
-    addLog(`${label}瑜??대┰蹂대뱶??蹂듭궗?덉뒿?덈떎.`, 'success');
+    addLog(`${label}를 클립보드에 복사했습니다.`, 'success');
   } catch (error) {
     console.error('[CODEX-WORKSHOP] copy failed:', error);
-    alert(`${label} 蹂듭궗???ㅽ뙣?덉뒿?덈떎. ?띿뒪?몃? 吏곸젒 ?좏깮?댁꽌 蹂듭궗?댁＜?몄슂.`);
+    alert(`${label} 복사에 실패했습니다. 텍스트를 직접 선택해서 복사해주세요.`);
   }
 }
 
@@ -3093,7 +3103,7 @@ function extractTitle(raw = '', payload = {}) {
   const markdownTitle = text.split('\n').map(line => line.trim()).find(line => /^#\s+/.test(line));
   if (markdownTitle) return markdownTitle.replace(/^#\s+/, '').trim();
 
-  return getTopic(payload) || 'Codex ?앹꽦 湲';
+  return getTopic(payload) || 'Codex 생성 글';
 }
 
 function inlineMarkdown(value = '') {
@@ -3167,7 +3177,7 @@ function markdownToHtml(raw = '', title = '') {
   closeList();
 
   const hasH1 = html.some(part => /^<h1/i.test(part));
-  const titleHtml = hasH1 ? '' : `<h1>${escapeHtml(title || 'Codex ?앹꽦 湲')}</h1>`;
+  const titleHtml = hasH1 ? '' : `<h1>${escapeHtml(title || 'Codex 생성 글')}</h1>`;
   return `<article class="bgpt-wp-ready bgpt-codex-workshop">${titleHtml}${html.join('\n')}</article>`;
 }
 
@@ -3185,9 +3195,9 @@ function normalizeCodexContent(raw = '', payload = {}) {
 
 async function prepareContentForPlatform(html, payload) {
   const targetPlatform = String(payload?.targetPlatform || payload?.platform || '').toLowerCase();
-  const platform = /wordpress|wp|?뚮뱶?꾨젅??i.test(targetPlatform)
+  const platform = /wordpress|wp|워드프레스/i.test(targetPlatform)
     ? 'wordpress'
-    : (/blogger|blogspot|釉붾줈洹몄뒪??i.test(targetPlatform) ? 'blogspot' : '');
+    : (/blogger|blogspot|블로그스팟/i.test(targetPlatform) ? 'blogspot' : '');
 
   if (!platform || !window.electronAPI?.invoke) return html;
 
@@ -3198,7 +3208,7 @@ async function prepareContentForPlatform(html, payload) {
       content: html,
     });
     if (prepared?.ok && typeof prepared.content === 'string' && prepared.content.trim()) {
-      addLog(`Codex ?곗텧臾쇱쓣 ${normalizePlatformName(platform)} 諛쒗뻾 ?뺤떇?쇰줈 ?뺣━?덉뒿?덈떎.`, 'info');
+      addLog(`Codex 산출물을 ${normalizePlatformName(platform)} 발행 형식으로 정리했습니다.`, 'info');
       return prepared.content;
     }
   } catch (error) {
@@ -3266,12 +3276,12 @@ async function generateAgentImage(engine, prompt, includeText, label) {
     });
     const url = getImageResultUrl(result);
     if (!url) {
-      addLog(`${label} ?대?吏 ?앹꽦 ?ㅽ뙣: ${result?.error || '?대?吏 URL ?놁쓬'}`, 'warning');
+      addLog(`${label} 이미지 생성 실패: ${result?.error || '이미지 URL 없음'}`, 'warning');
       return '';
     }
     return url;
   } catch (error) {
-    addLog(`${label} ?대?吏 ?앹꽦 ?ㅽ뙣: ${error?.message || error}`, 'warning');
+    addLog(`${label} 이미지 생성 실패: ${error?.message || error}`, 'warning');
     return '';
   }
 }
@@ -3289,18 +3299,18 @@ async function enhanceCodexAgentImages(html, payload = {}, title = '') {
   let thumbnailUrl = '';
   let content = String(html || '');
 
-  updateAgentProgress(76, `?대?吏 ?뺤콉 ?곸슜 以? ${getAgentImagePolicyLabel(policy)}`, 'info');
+  updateAgentProgress(76, `이미지 정책 적용 중: ${getAgentImagePolicyLabel(policy)}`, 'info');
 
   if (policy !== 'none') {
     thumbnailUrl = await generateAgentImage(
       thumbnailEngine,
       buildAgentThumbnailPrompt(title || topic, topic, thumbnailTextIncluded),
       thumbnailTextIncluded,
-      '?몃꽕??
+      '썸네일'
     );
     if (thumbnailUrl) {
-      addLog('Agent ?몃꽕???대?吏瑜??앹꽦?덉뒿?덈떎.', 'success');
-      appendAgentGeneratedImagePreview({ url: thumbnailUrl, label: '?몃꽕?? });
+      addLog('Agent 썸네일 이미지를 생성했습니다.', 'success');
+      appendAgentGeneratedImagePreview({ url: thumbnailUrl, label: '썸네일' });
     }
   }
 
@@ -3322,7 +3332,7 @@ async function enhanceCodexAgentImages(html, payload = {}, title = '') {
       const h2Text = (h2.textContent || '').replace(/\s+/g, ' ').trim();
       if (!h2Text) continue;
 
-      updateAgentProgress(Math.min(82, 76 + inserted + 1), `H2 ${index} ?대?吏 ?앹꽦 以? ${h2Text.slice(0, 28)}`, 'info');
+      updateAgentProgress(Math.min(82, 76 + inserted + 1), `H2 ${index} 이미지 생성 중: ${h2Text.slice(0, 28)}`, 'info');
       const imageUrl = await generateAgentImage(
         h2Engine,
         buildAgentH2ImagePrompt(h2Text, topic),
@@ -3348,10 +3358,10 @@ async function enhanceCodexAgentImages(html, payload = {}, title = '') {
 
     if (inserted > 0) {
       content = root.tagName.toLowerCase() === 'article' ? root.outerHTML : doc.body.innerHTML;
-      addLog(`Agent H2 ?대?吏 ${inserted}?μ쓣 蹂몃Ц???쎌엯?덉뒿?덈떎.`, 'success');
+      addLog(`Agent H2 이미지 ${inserted}장을 본문에 삽입했습니다.`, 'success');
     }
   } catch (error) {
-    addLog(`Agent H2 ?대?吏 ?꾩쿂由??ㅽ뙣: ${error?.message || error}`, 'warning');
+    addLog(`Agent H2 이미지 후처리 실패: ${error?.message || error}`, 'warning');
   }
 
   return { content, thumbnailUrl };
@@ -3371,23 +3381,23 @@ export async function openCodexWorkshopPanel() {
     loadExecutionPrefs();
 
     if (state.executionMode !== 'agent') {
-      alert('?꾩옱 API ??紐⑤뱶?낅땲?? ?섍꼍?ㅼ젙?먯꽌 Agent 紐⑤뱶瑜??좏깮?댁빞 Codex/Claude ?묒뾽?ㅼ쓣 ?????덉뒿?덈떎.');
-      addLog('API ??紐⑤뱶?먯꽌??Agent ?묒뾽?ㅼ쓣 ?댁? ?딆뒿?덈떎.', 'warning');
+      alert('현재 API 키 모드입니다. 환경설정에서 Agent 모드를 선택해야 Codex/Claude 작업실을 열 수 있습니다.');
+      addLog('API 키 모드에서는 Agent 작업실을 열지 않습니다.', 'warning');
       return;
     }
 
     const agentStatus = await loadAgentModeStatus(true);
     if (!isMaxAgentAllowed(agentStatus)) {
-      const message = agentStatus?.message || '?꾩옱 ?쇱씠?좎뒪??API ??湲곕컲 ?앹꽦 紐⑤뱶?낅땲??';
-      alert(`${message}\n\n1媛쒖썡 肄붾뱶??湲곗〈 API ??湲곕컲 湲/?대?吏 ?앹꽦 ?먮쫫??洹몃?濡??ъ슜?섍퀬, Codex/Claude 援щ룆 怨꾩젙 湲곕컲 Max Agent Mode??3媛쒖썡 ?댁긽 肄붾뱶?먯꽌 ?대┰?덈떎.`);
-      addLog('?꾩옱 ?쇱씠?좎뒪??API ??紐⑤뱶?낅땲?? Max Agent Mode??3媛쒖썡 ?댁긽 肄붾뱶?먯꽌 ?ъ슜?????덉뒿?덈떎.', 'warning');
+      const message = agentStatus?.message || '현재 라이선스는 API 키 기반 생성 모드입니다.';
+      alert(`${message}\n\n1개월 코드는 기존 API 키 기반 글/이미지 생성 흐름을 그대로 사용하고, Codex/Claude 구독 계정 기반 Max Agent Mode는 3개월 이상 코드에서 열립니다.`);
+      addLog('현재 라이선스는 API 키 모드입니다. Max Agent Mode는 3개월 이상 코드에서 사용할 수 있습니다.', 'warning');
       return;
     }
 
     const payload = await createPreviewPayload();
     const topic = getTopic(payload);
     if (!topic) {
-      alert('癒쇱? ?ㅼ썙?쒕굹 ?쒕ぉ???낅젰?댁＜?몄슂.');
+      alert('먼저 키워드나 제목을 입력해주세요.');
       return;
     }
 
@@ -3399,14 +3409,14 @@ export async function openCodexWorkshopPanel() {
     const providerLabel = state.activeAgentProvider === 'claude' ? 'Claude Code' : 'Codex';
     const titleEl = $('codexWorkshopTitle');
     const subtitleEl = $('codexWorkshopSubtitle');
-    if (titleEl) titleEl.textContent = `${providerLabel} ?묒뾽??;
-    if (subtitleEl) subtitleEl.textContent = `${providerLabel}媛 ?꾩옱 ???ㅼ젙???쎄퀬 諛쒗뻾 媛?ν븳 湲怨??대?吏 諛⑺뼢???앹꽦?⑸땲??`;
+    if (titleEl) titleEl.textContent = `${providerLabel} 작업실`;
+    if (subtitleEl) subtitleEl.textContent = `${providerLabel}가 현재 앱 설정을 읽고 발행 가능한 글과 이미지 방향을 생성합니다.`;
 
     $(MODAL_ID)?.classList.add('is-open');
-    addLog(`${state.activeAgentProvider === 'claude' ? 'Claude' : 'Codex'} ?묒뾽??吏?쒖꽌瑜??꾩옱 ?ㅼ젙 湲곗??쇰줈 以鍮꾪뻽?듬땲??`, 'info');
+    addLog(`${state.activeAgentProvider === 'claude' ? 'Claude' : 'Codex'} 작업실 지시서를 현재 설정 기준으로 준비했습니다.`, 'info');
   } catch (error) {
     console.error('[CODEX-WORKSHOP] open failed:', error);
-    alert(`Codex ?묒뾽?ㅼ쓣 ?????놁뒿?덈떎: ${error?.message || error}`);
+    alert(`Codex 작업실을 열 수 없습니다: ${error?.message || error}`);
   }
 }
 
@@ -3418,7 +3428,7 @@ export async function applyCodexResult(options = {}) {
   try {
     const raw = $('codexResultPaste')?.value?.trim() || '';
     if (!raw) {
-      alert('Codex ?곗텧臾쇱쓣 癒쇱? 遺숈뿬?ｌ뼱 二쇱꽭??');
+      alert('Codex 산출물을 먼저 붙여넣어 주세요.');
       return;
     }
 
@@ -3440,10 +3450,10 @@ export async function applyCodexResult(options = {}) {
 
     displayPreviewInModal();
     closeCodexWorkshopPanel();
-    addLog(`Codex ?곗텧臾쇱쓣 誘몃━蹂닿린濡??곸슜?덉뒿?덈떎. (${getTextLength(html).toLocaleString()}??`, 'success');
+    addLog(`Codex 산출물을 미리보기로 적용했습니다. (${getTextLength(html).toLocaleString()}자)`, 'success');
   } catch (error) {
     console.error('[CODEX-WORKSHOP] apply failed:', error);
-    alert(`Codex ?곗텧臾??곸슜???ㅽ뙣?덉뒿?덈떎: ${error?.message || error}`);
+    alert(`Codex 산출물 적용에 실패했습니다: ${error?.message || error}`);
   }
 }
 
@@ -3451,7 +3461,7 @@ export function initCodexWorkshop() {
   ensureStyles();
   loadExecutionPrefs();
   ensureEntryButton();
-  ensureAgentSettingsSection();
+  ensureAgentModeSettingsSection();
   startUsageTimer();
   applyExecutionModeToApp();
   loadAgentModeStatus(true);

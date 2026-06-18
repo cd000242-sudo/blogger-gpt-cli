@@ -47,6 +47,11 @@ async function loadCodexWorkshopModule() {
 }
 
 function installDeferredGlobalWrappers() {
+  window.ensureAgentModeSettingsReady = async () => {
+    const mod = await loadCodexWorkshopModule();
+    mod.ensureAgentModeSettingsSection?.();
+    return Boolean(document.getElementById('agentModeSettingsSection'));
+  };
   window.openCodexWorkshopPanel = async (...args) => (await loadCodexWorkshopModule()).openCodexWorkshopPanel?.(...args);
   window.closeCodexWorkshopPanel = async (...args) => (await loadCodexWorkshopModule()).closeCodexWorkshopPanel?.(...args);
   window.applyCodexResult = async (...args) => (await loadCodexWorkshopModule()).applyCodexResult?.(...args);
