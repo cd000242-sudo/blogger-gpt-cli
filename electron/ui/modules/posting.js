@@ -763,102 +763,31 @@ export async function runPosting() {
           addTodayWorkRecord('포스트 작성 완료', `${platformName}에 "${generatedTitle}" 게시`);
         });
 
-        // 🔥 발행 완료 시 모달 닫고 알림만 띄우기
+        // 🔥 발행 완료 시 모달 닫기
         hideProgressModal();
         const suppressSingleSuccessUi = !!(window.__queueRunning || window.__queueProgressActive);
         if (!suppressSingleSuccessUi) {
-          try { showNotification('🎉 블로그 포스트 발행 완료!', 4000); } catch {}
-
-          // v3.5.93: 전체화면 성공 오버레이 — 작은 토스트만으로는 잘 안 보인다는 사용자 피드백 반영
-          //   풀스크린 오버레이 + 큰 글씨 + 자동 닫힘(4초) + 클릭 시 즉시 닫힘
+          // v3.8.93: 통합 모달 사용 (window.showPublishSuccessModal). 인라인 successOverlay 제거 →
+          //   중복 표시 / 분기 충돌 차단. URL이 비어도 모달은 띄우고, main IPC가 지연 신호 줄 수 있도록 짧은 대기.
+          //   사용자 보고 (v3.8.146): "콘텐츠 발행완료" 메시지는 뜨지만 새 모달이 안 보임.
+          //   원인 추정: 인라인 overlay가 잠깐 떴다 result.url 빈 분기를 타고 4초 자동 닫힘.
+          console.log('[POSTING] 발행 완료 — 통합 success 모달 호출', { url: result?.url || '(빈값)', postId: result?.postId || result?.id || '(없음)' });
           try {
-            const platformLabel = String(platformName || '').toUpperCase() || '블로그';
-            const successOverlay = document.createElement('div');
-            successOverlay.style.cssText = `
-              position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-              background: rgba(0, 0, 0, 0.85);
-              display: flex; align-items: center; justify-content: center;
-              z-index: 10001; backdrop-filter: blur(8px);
-              cursor: pointer; animation: fadeIn 0.3s ease-out;
-            `;
-            // v3.8.88: 발행 완료 오버레이에 "글 보러가기" 버튼 추가 (외부 브라우저)
-            const publishedUrl = String(result?.url || '').trim();
-            const escUrl = publishedUrl.replace(/"/g, '&quot;');
-            successOverlay.innerHTML = `
-              <style>
-                @keyframes fadeIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
-                @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 60% { transform: scale(1.05); } 100% { transform: scale(1); opacity: 1; } }
-              </style>
-              <div style="
-                background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-                border-radius: 24px;
-                padding: 60px 80px;
-                text-align: center;
-                box-shadow: 0 30px 80px rgba(16, 185, 129, 0.5);
-                max-width: 600px;
-                animation: popIn 0.5s ease-out;
-              ">
-                <div style="font-size: 100px; margin-bottom: 20px; line-height: 1;">🎉</div>
-                <h1 style="color: white; font-size: 48px; font-weight: 900; margin: 0 0 16px 0; letter-spacing: -1px;">발행 완료!</h1>
-                <p style="color: rgba(255,255,255,0.95); font-size: 22px; margin: 0 0 8px 0; font-weight: 700;">${platformLabel}에 정상 발행되었습니다</p>
-                ${publishedUrl ? `
-                  <div style="margin-top: 28px; display: flex; gap: 12px; justify-content: center;">
-                    <button data-publish-open style="
-                      background: #ffffff; color: #047857; border: none;
-                      padding: 14px 28px; font-size: 17px; font-weight: 800;
-                      border-radius: 12px; cursor: pointer;
-                      box-shadow: 0 6px 20px rgba(0,0,0,0.18);
-                      transition: transform 0.15s;
-                    " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">📖 글 보러가기 →</button>
-                    <button data-publish-copy style="
-                      background: rgba(255,255,255,0.18); color: #ffffff; border: 1px solid rgba(255,255,255,0.5);
-                      padding: 14px 22px; font-size: 15px; font-weight: 700;
-                      border-radius: 12px; cursor: pointer;
-                    ">🔗 URL 복사</button>
-                    <button data-publish-close style="
-                      background: transparent; color: rgba(255,255,255,0.85); border: 1px solid rgba(255,255,255,0.4);
-                      padding: 14px 22px; font-size: 15px; font-weight: 700;
-                      border-radius: 12px; cursor: pointer;
-                    ">닫기</button>
-                  </div>
-                  <p style="color: rgba(255,255,255,0.7); font-size: 12px; margin: 16px 0 0 0;">${escUrl}</p>
-                ` : `
-                  <p style="color: rgba(255,255,255,0.75); font-size: 14px; margin: 24px 0 0 0;">화면을 클릭하면 닫힙니다 (자동 닫힘: 4초)</p>
-                `}
-              </div>
-            `;
-            document.body.appendChild(successOverlay);
-            const closeOverlay = () => { try { if (successOverlay.parentNode) successOverlay.parentNode.removeChild(successOverlay); } catch {} };
-
-            if (publishedUrl) {
-              // 버튼 클릭은 closeOverlay 이벤트 전파 막기
-              const openBtn = successOverlay.querySelector('[data-publish-open]');
-              const copyBtn = successOverlay.querySelector('[data-publish-copy]');
-              const closeBtn = successOverlay.querySelector('[data-publish-close]');
-              openBtn?.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                try {
-                  const api = window.api || window.electron?.ipcRenderer || null;
-                  if (api?.invoke) await api.invoke('open-external', publishedUrl);
-                  else window.open(publishedUrl, '_blank');
-                } catch (err) { console.warn('open-external failed:', err); window.open(publishedUrl, '_blank'); }
+            if (typeof window.showPublishSuccessModal === 'function') {
+              window.showPublishSuccessModal({
+                url: result?.url || '',
+                platform: String(platform || '').toLowerCase(),
+                platformLabel: platformName || '블로그',
+                title: result?.title || '',
+                postId: result?.postId || result?.id || '',
               });
-              copyBtn?.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                try {
-                  await navigator.clipboard.writeText(publishedUrl);
-                  copyBtn.textContent = '✅ 복사됨';
-                  setTimeout(() => { copyBtn.textContent = '🔗 URL 복사'; }, 1500);
-                } catch {}
-              });
-              closeBtn?.addEventListener('click', (e) => { e.stopPropagation(); closeOverlay(); });
-              // 자동 닫힘 비활성 (URL 있을 땐 사용자가 결정)
             } else {
-              successOverlay.addEventListener('click', closeOverlay);
-              setTimeout(closeOverlay, 4000);
+              // 모달 헬퍼 누락 폴백
+              try { showNotification('🎉 블로그 포스트 발행 완료!', 4000); } catch {}
             }
           } catch (overlayErr) {
-            console.warn('[SUCCESS-OVERLAY] 표시 실패(무시):', overlayErr);
+            console.warn('[SUCCESS-MODAL] 표시 실패(무시):', overlayErr);
+            try { showNotification('🎉 블로그 포스트 발행 완료!', 4000); } catch {}
           }
         }
 

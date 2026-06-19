@@ -9250,30 +9250,37 @@ const EventManager = {
 //   해결: main의 'publish:success' IPC를 어느 경로든 동일하게 받아 모달 띄움.
 window.showPublishSuccessModal = function (payload) {
   try {
+    // v3.8.93: 중복 모달 방지 + URL 늦게 들어와도 갱신
+    const existing = document.getElementById('publishSuccessOverlay');
+    if (existing) existing.remove();
+
     const url = String(payload?.url || '').trim();
+    const postId = String(payload?.postId || '').trim();
     const platformLabel = String(payload?.platformLabel || payload?.platform || '블로그').toUpperCase();
+    const title = String(payload?.title || '').trim();
     const overlay = document.createElement('div');
     overlay.id = 'publishSuccessOverlay';
-    overlay.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:10001;backdrop-filter:blur(8px);cursor:pointer;`;
+    overlay.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:99999;backdrop-filter:blur(8px);`;
     const escUrl = url.replace(/"/g, '&quot;');
+    const hasUrl = url.length > 0;
     overlay.innerHTML = `
-      <div style="background:linear-gradient(135deg,#10b981 0%,#059669 100%);border-radius:24px;padding:50px 70px;text-align:center;box-shadow:0 30px 80px rgba(16,185,129,0.5);max-width:640px;animation:popIn 0.5s ease-out;">
+      <div style="background:linear-gradient(135deg,#10b981 0%,#059669 100%);border-radius:24px;padding:50px 70px;text-align:center;box-shadow:0 30px 80px rgba(16,185,129,0.5);max-width:680px;animation:popIn 0.5s ease-out;">
         <style>@keyframes popIn{0%{transform:scale(0.5);opacity:0}60%{transform:scale(1.05)}100%{transform:scale(1);opacity:1}}</style>
         <div style="font-size:88px;margin-bottom:14px;line-height:1;">🎉</div>
         <h1 style="color:white;font-size:42px;font-weight:900;margin:0 0 12px 0;letter-spacing:-1px;">발행 완료!</h1>
         <p style="color:rgba(255,255,255,0.95);font-size:20px;margin:0 0 6px 0;font-weight:700;">${platformLabel}에 정상 발행되었습니다</p>
-        ${url ? `
-          <div style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-            <button data-ps-open style="background:#ffffff;color:#047857;border:none;padding:14px 28px;font-size:17px;font-weight:800;border-radius:12px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,0.18);">📖 글 보러가기 →</button>
-            <button data-ps-copy style="background:rgba(255,255,255,0.18);color:#ffffff;border:1px solid rgba(255,255,255,0.5);padding:14px 22px;font-size:15px;font-weight:700;border-radius:12px;cursor:pointer;">🔗 URL 복사</button>
-            <button data-ps-close style="background:transparent;color:rgba(255,255,255,0.85);border:1px solid rgba(255,255,255,0.4);padding:14px 22px;font-size:15px;font-weight:700;border-radius:12px;cursor:pointer;">닫기</button>
-          </div>
-          <p style="color:rgba(255,255,255,0.7);font-size:11px;margin:14px 0 0 0;word-break:break-all;">${escUrl}</p>
-        ` : `<p style="color:rgba(255,255,255,0.75);font-size:14px;margin:22px 0 0 0;">화면을 클릭하면 닫힙니다</p>`}
+        ${title ? `<p style="color:rgba(255,255,255,0.9);font-size:15px;margin:6px 0 0 0;">${title.replace(/[<>&]/g, '')}</p>` : ''}
+        <div style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+          ${hasUrl ? `<button data-ps-open style="background:#ffffff;color:#047857;border:none;padding:14px 28px;font-size:17px;font-weight:800;border-radius:12px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,0.18);">📖 글 보러가기 →</button>` : `<span style="background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.8);padding:14px 22px;font-size:14px;font-weight:600;border-radius:12px;">URL 확인 중…${postId ? ` (postId: ${postId.slice(0, 20)})` : ''}</span>`}
+          ${hasUrl ? `<button data-ps-copy style="background:rgba(255,255,255,0.18);color:#ffffff;border:1px solid rgba(255,255,255,0.5);padding:14px 22px;font-size:15px;font-weight:700;border-radius:12px;cursor:pointer;">🔗 URL 복사</button>` : ''}
+          <button data-ps-close style="background:transparent;color:rgba(255,255,255,0.85);border:1px solid rgba(255,255,255,0.4);padding:14px 22px;font-size:15px;font-weight:700;border-radius:12px;cursor:pointer;">닫기</button>
+        </div>
+        ${hasUrl ? `<p style="color:rgba(255,255,255,0.7);font-size:11px;margin:14px 0 0 0;word-break:break-all;">${escUrl}</p>` : ''}
       </div>`;
     document.body.appendChild(overlay);
     const close = () => { try { overlay.parentNode?.removeChild(overlay); } catch {} };
-    if (url) {
+    overlay.querySelector('[data-ps-close]')?.addEventListener('click', (e) => { e.stopPropagation(); close(); });
+    if (hasUrl) {
       overlay.querySelector('[data-ps-open]')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         try {
@@ -9286,12 +9293,8 @@ window.showPublishSuccessModal = function (payload) {
         e.stopPropagation();
         try { await navigator.clipboard.writeText(url); const b = e.currentTarget; b.textContent = '✅ 복사됨'; setTimeout(() => { b.textContent = '🔗 URL 복사'; }, 1500); } catch {}
       });
-      overlay.querySelector('[data-ps-close]')?.addEventListener('click', (e) => { e.stopPropagation(); close(); });
-      // URL 있으면 자동 닫힘 X — 사용자 결정
-    } else {
-      overlay.addEventListener('click', close);
-      setTimeout(close, 4000);
     }
+    // 자동 닫힘 X — 사용자가 확인할 때까지 유지 (v3.8.93)
   } catch (err) {
     console.warn('[PUBLISH-SUCCESS] modal failed:', err);
   }
