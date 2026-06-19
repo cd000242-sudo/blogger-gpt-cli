@@ -667,21 +667,24 @@ function applyInlineStyles(html) {
     // 구조: 720px 폭 + 모바일 100vw / 48px 섹션 간격
     const tagPatternsWithAttrs = {
       'h1': `<h1 style="color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-size: 28px !important; font-weight: 800 !important; display: block !important; visibility: visible !important; opacity: 1 !important; margin: 0 0 32px 0 !important; padding: 24px 0 !important; line-height: 1.3 !important; letter-spacing: -0.03em !important; text-align: left !important; border-bottom: 3px solid #6366f1 !important;"`,
-      'h2': `<h2 style="color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-size: 22px !important; font-weight: 700 !important; display: block !important; visibility: visible !important; opacity: 1 !important; margin: 48px 0 20px 0 !important; padding: 16px 20px !important; background: linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 100%) !important; border-left: 5px solid #6366f1 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 12px 12px 0 !important; line-height: 1.4 !important; letter-spacing: -0.02em !important;"`,
-      'h3': `<h3 style="color: #1e293b !important; -webkit-text-fill-color: #1e293b !important; font-size: 19px !important; font-weight: 600 !important; display: block !important; visibility: visible !important; opacity: 1 !important; margin: 36px 0 16px 0 !important; padding: 12px 16px !important; background: transparent !important; border-left: 4px solid #818cf8 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 !important; line-height: 1.4 !important;"`,
+      // v3.8.92: 글자 +2px, Pretendard 우선, 체류시간 최적화 (사용자: 끝판왕 스킨 통일 요청)
+      'h2': `<h2 style="color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-size: 26px !important; font-weight: 800 !important; display: block !important; visibility: visible !important; opacity: 1 !important; margin: 56px 0 24px 0 !important; padding: 18px 22px !important; background: linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 100%) !important; border-left: 5px solid #6366f1 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 12px 12px 0 !important; line-height: 1.4 !important; letter-spacing: -0.02em !important; font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;"`,
+      'h3': `<h3 style="color: #1e293b !important; -webkit-text-fill-color: #1e293b !important; font-size: 22px !important; font-weight: 700 !important; display: block !important; visibility: visible !important; opacity: 1 !important; margin: 40px 0 18px 0 !important; padding: 12px 18px !important; background: transparent !important; border-left: 4px solid #818cf8 !important; border-top: none !important; border-right: none !important; border-bottom: none !important; border-radius: 0 !important; line-height: 1.4 !important; font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;"`,
       // 🛡️ h2 태그가 이미 style을 가지고 있으면 보존 (ultimate-final-functions에서 오는 인라인 style)
 
-      'h4': `<h4 style="color: #334155 !important; -webkit-text-fill-color: #334155 !important; font-size: 17px !important; font-weight: 700 !important; display: block !important; visibility: visible !important; opacity: 1 !important; margin: 28px 0 12px 0 !important; padding-left: 12px !important; border-left: 3px solid #94a3b8 !important; line-height: 1.4 !important;"`,
-      'p': `<p style="color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; font-size: clamp(15px, 4.05vw, 17px) !important; line-height: 1.72 !important; display: block !important; visibility: visible !important; opacity: 1 !important; margin: 0 0 16px 0 !important; word-break: keep-all !important; overflow-wrap: break-word !important; letter-spacing: 0 !important;"`,
+      'h4': `<h4 style="color: #334155 !important; -webkit-text-fill-color: #334155 !important; font-size: 20px !important; font-weight: 700 !important; display: block !important; visibility: visible !important; opacity: 1 !important; margin: 30px 0 14px 0 !important; padding-left: 14px !important; border-left: 3px solid #94a3b8 !important; line-height: 1.4 !important;"`,
+      'p': `<p style="color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; font-size: clamp(17px, 4.5vw, 19px) !important; line-height: 1.8 !important; display: block !important; visibility: visible !important; opacity: 1 !important; margin: 0 0 20px 0 !important; word-break: keep-all !important; overflow-wrap: break-word !important; letter-spacing: -0.01em !important; font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;"`,
       'ul': `<ul style="display: block !important; visibility: visible !important; opacity: 1 !important; color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; margin: 20px 0 !important; padding: 20px 20px 20px 40px !important; background: #fafafa !important; border-left: 3px solid #e2e8f0 !important; border-radius: 0 6px 6px 0 !important; list-style-type: disc !important;"`,
       'ol': `<ol style="display: block !important; visibility: visible !important; opacity: 1 !important; color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; margin: 20px 0 !important; padding: 20px 20px 20px 40px !important; background: #fafafa !important; border-left: 3px solid #e2e8f0 !important; border-radius: 0 6px 6px 0 !important; list-style-type: decimal !important;"`,
-      'li': `<li style="display: list-item !important; visibility: visible !important; opacity: 1 !important; color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; margin: 7px 0 !important; padding: 2px 0 !important; line-height: 1.72 !important; font-size: clamp(14.5px, 3.9vw, 16px) !important; overflow-wrap: break-word !important;"`,
+      // v3.8.92: LI +2px (16→18), line-height CJK 1.8
+      'li': `<li style="display: list-item !important; visibility: visible !important; opacity: 1 !important; color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; margin: 8px 0 !important; padding: 2px 0 !important; line-height: 1.8 !important; font-size: clamp(16px, 4.3vw, 18px) !important; overflow-wrap: break-word !important; letter-spacing: -0.01em !important;"`,
       'table': `<table style="display: table !important; visibility: visible !important; opacity: 1 !important; width: 100% !important; min-width: 0 !important; max-width: 100% !important; border-collapse: separate !important; border-spacing: 0 !important; margin: 0 !important; border-radius: 10px !important; overflow: hidden !important; border: 1px solid #cbd5e1 !important; background: #ffffff !important; table-layout: fixed !important; box-sizing: border-box !important;"`,
       'thead': `<thead style="display: table-header-group !important; visibility: visible !important;"`,
       'tbody': `<tbody style="display: table-row-group !important; visibility: visible !important;"`,
       'tr': `<tr style="display: table-row !important; visibility: visible !important; opacity: 1 !important;"`,
-      'th': `<th style="display: table-cell !important; visibility: visible !important; opacity: 1 !important; min-width: 92px !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; padding: clamp(9px, 2.8vw, 14px) clamp(10px, 3.2vw, 16px) !important; background: #f1f5f9 !important; font-weight: 700 !important; text-align: left !important; font-size: clamp(13px, 3.55vw, 15px) !important; line-height: 1.45 !important; border: 1px solid #cbd5e1 !important; border-bottom: 2px solid #cbd5e1 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word !important;"`,
-      'td': `<td style="display: table-cell !important; visibility: visible !important; opacity: 1 !important; min-width: 92px !important; color: #334155 !important; -webkit-text-fill-color: #334155 !important; padding: clamp(9px, 2.8vw, 14px) clamp(10px, 3.2vw, 16px) !important; border: 1px solid #dbe4ee !important; text-align: left !important; font-size: clamp(13px, 3.55vw, 15px) !important; line-height: 1.45 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word !important;"`,
+      // v3.8.92: 표 셀 +2px (15→17 / 15→18)
+      'th': `<th style="display: table-cell !important; visibility: visible !important; opacity: 1 !important; min-width: 92px !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; padding: clamp(10px, 2.8vw, 14px) clamp(12px, 3.2vw, 16px) !important; background: #f1f5f9 !important; font-weight: 700 !important; text-align: left !important; font-size: clamp(15px, 3.95vw, 17px) !important; line-height: 1.45 !important; border: 1px solid #cbd5e1 !important; border-bottom: 2px solid #cbd5e1 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word !important;"`,
+      'td': `<td style="display: table-cell !important; visibility: visible !important; opacity: 1 !important; min-width: 92px !important; color: #334155 !important; -webkit-text-fill-color: #334155 !important; padding: clamp(10px, 2.8vw, 14px) clamp(12px, 3.2vw, 16px) !important; border: 1px solid #dbe4ee !important; text-align: left !important; font-size: clamp(16px, 4.3vw, 18px) !important; line-height: 1.5 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: break-word !important;"`,
       'strong': `<strong style="display: inline !important; visibility: visible !important; opacity: 1 !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-weight: 700 !important;"`,
       'b': `<b style="display: inline !important; visibility: visible !important; opacity: 1 !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-weight: 700 !important;"`,
       'em': `<em style="display: inline !important; visibility: visible !important; opacity: 1 !important; font-style: italic !important;"`,
@@ -1073,7 +1076,7 @@ function applyInlineStyles(html) {
       </style>
     `;
 
-    // 컨테이너 스타일 — 100% 폭 풀와이드 + 수익 최적화 타이포
+    // v3.8.92: 끝판왕 컨테이너 — Pretendard 우선 + 글자 +2px + 가독성 강화
     const containerStyle = `
       display: block !important;
       visibility: visible !important;
@@ -1082,12 +1085,12 @@ function applyInlineStyles(html) {
       width: 100%;
       max-width: 100%;
       margin: 0;
-      padding: 20px clamp(16px, 4.8vw, 32px);
+      padding: 24px clamp(18px, 5vw, 36px);
       background: #ffffff !important;
       color: #1a1a1a !important;
-      font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-      font-size: clamp(15px, 4.05vw, 17px) !important;
-      line-height: 1.72 !important;
+      font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+      font-size: clamp(17px, 4.5vw, 19px) !important;
+      line-height: 1.8 !important;
       -webkit-text-fill-color: #1a1a1a !important;
       text-shadow: none !important;
       filter: none !important;
