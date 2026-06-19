@@ -91,7 +91,10 @@ export type BloggerApi = {
   onProgress(listener: (payload: ProgressPayload) => void): () => void;
   /** v3.8.44: 거미줄 실시간 이미지 생성 이벤트 */
   onSwImageGenerated?(listener: (payload: { kind: string; label: string; url: string }) => void): () => void;
-  
+
+  /** v3.8.89: 발행 완료 통합 신호 (어느 흐름이든 main에서 단일 송신) */
+  onPublishSuccess?(listener: (payload: { url: string; platform: string; platformLabel: string; title?: string; postId?: string }) => void): () => void;
+
   /** 작업 취소 */
   cancelTask(): void;
 
@@ -456,6 +459,13 @@ const api: BloggerApi = {
     const handler = (_e: unknown, payload: any) => { try { listener(payload); } catch {} };
     ipcRenderer.on('sw-image-generated', handler);
     return () => ipcRenderer.off('sw-image-generated', handler);
+  }) as any,
+
+  // v3.8.89: 발행 완료 통합 신호 구독
+  onPublishSuccess: ((listener: (payload: any) => void) => {
+    const handler = (_e: unknown, payload: any) => { try { listener(payload); } catch {} };
+    ipcRenderer.on('publish:success', handler);
+    return () => ipcRenderer.off('publish:success', handler);
   }) as any,
 
   // 종료 확인

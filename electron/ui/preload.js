@@ -75,6 +75,15 @@ const api = {
         electron_1.ipcRenderer.on('sw-image-generated', handler);
         return () => electron_1.ipcRenderer.off('sw-image-generated', handler);
     }),
+    // v3.8.89: 발행 완료 통합 신호 구독
+    onPublishSuccess: ((listener) => {
+        const handler = (_e, payload) => { try {
+            listener(payload);
+        }
+        catch { } };
+        electron_1.ipcRenderer.on('publish:success', handler);
+        return () => electron_1.ipcRenderer.off('publish:success', handler);
+    }),
     // 종료 확인
     onQuitConfirm: ((listener) => {
         const handler = () => { try {

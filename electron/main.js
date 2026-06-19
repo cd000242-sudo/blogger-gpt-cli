@@ -3523,6 +3523,13 @@ electron_1.ipcMain.handle('run-multi-account-post', async (_evt, payload) => {
         const publishResult = await publishGeneratedContent(postPayload, articleTitle, articleHtml, articleThumbnail);
         if (publishResult.ok || publishResult.success) {
             console.log('[MULTI-ACCOUNT] 🎉 발행 성공!', publishResult.url);
+            // v3.8.89: 통합 success 신호
+            emitPublishSuccess({
+                url: publishResult.url || publishResult.postUrl,
+                platform: postPayload?.platform || postPayload?.platformType || '',
+                title: articleTitle,
+                postId: publishResult.postId || publishResult.id,
+            });
             return { ok: true, url: publishResult.url || publishResult.postUrl };
         }
         else {
@@ -4154,6 +4161,13 @@ ${labelsPost.slice(0, 6).map((kw) => `<meta property="article:tag" content="${St
                 if (publishResult && publishResult.ok) {
                     onLog('[PROGRESS] 100% - ✅ 발행 완료!');
                     console.log('[RUN-POST] ✅ 발행 성공:', publishResult.url);
+                    // v3.8.89: 통합 success 신호
+                    emitPublishSuccess({
+                        url: publishResult.url,
+                        platform: payload?.platform || payload?.platformType || '',
+                        title: result.title || payload.topic,
+                        postId: publishResult.postId || publishResult.id,
+                    });
                     // IndexNow 자동 색인 요청
                     if (publishResult.url) {
                         try {
@@ -4280,7 +4294,15 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
             console.warn('[PUBLISH] ⚠️ 발행은 성공했지만 URL이나 ID가 반환되지 않았습니다.');
             console.warn('[PUBLISH] 응답 전체:', JSON.stringify(result, null, 2));
         }
-        // result가 이미 ok 속성을 가지고 있으므로 그대로 반환
+        // v3.8.89: 발행 성공 시 renderer에 통합 신호 → 어느 흐름이든 동일한 완료 모달 표시
+        if (result.ok && (result.url || result.postId || result.id)) {
+            emitPublishSuccess({
+                url: String(result.url || ''),
+                platform: String(data?.payload?.platform || data?.payload?.platformType || ''),
+                title: data?.title || result?.title || '',
+                postId: String(result.postId || result.id || ''),
+            });
+        }
         return result;
     }
     catch (error) {
@@ -5473,6 +5495,35 @@ electron_1.ipcMain.handle('set-admin-pin', async (_evt, args) => {
         return { ok: false, error: error instanceof Error ? error.message : '설정 실패' };
     }
 });
+// v3.8.89: 모든 발행 경로에서 사용하는 통합 success 신호 helper.
+//   BrowserWindow.getAllWindows() 브로드캐스트로 어떤 윈도우든 수신.
+function emitPublishSuccess(payload) {
+    try {
+        const { BrowserWindow: BW } = require('electron');
+        const url = String(payload?.url || '').trim();
+        const platform = String(payload?.platform || '').toLowerCase();
+        const platformLabel = platform === 'blogger' || platform === 'blogspot' ? '블로거'
+            : platform === 'wordpress' ? '워드프레스' : '블로그';
+        const message = {
+            url,
+            platform,
+            platformLabel,
+            title: String(payload?.title || ''),
+            postId: String(payload?.postId || ''),
+        };
+        console.log('[PUBLISH-SIGNAL] broadcast publish:success', { url: url.slice(0, 80), platform });
+        BW.getAllWindows().forEach((win) => {
+            try {
+                if (win && !win.isDestroyed())
+                    win.webContents.send('publish:success', message);
+            }
+            catch { }
+        });
+    }
+    catch (e) {
+        console.warn('[PUBLISH-SIGNAL] emit failed:', e);
+    }
+}
 // 기타 유틸리티
 electron_1.ipcMain.handle('is-developer-mode', async () => {
     // 🔥 배포 패키지에서는 개발 모드 비활성화
@@ -7805,6 +7856,13 @@ safeRegisterHandler('publish-internal-link-content', async (_evt, request) => {
         }
         const url = result.url || result.postUrl || result.postId || result.id || '';
         console.log('[INTERNAL-LINKS] ✅ 발행 완료:', url || '(URL 없음)');
+        // v3.8.89: 거미줄 발행 완료 통합 신호
+        emitPublishSuccess({
+            url,
+            platform,
+            title: String(title || ''),
+            postId: String(result.postId || result.id || ''),
+        });
         return { ...result, ok: true, url, platform };
     }
     catch (error) {

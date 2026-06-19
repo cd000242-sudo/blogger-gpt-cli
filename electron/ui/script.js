@@ -9245,6 +9245,66 @@ const EventManager = {
 // 초안 글자 수 업데이트 함수는 위의 updateDraftCount로 통합됨 (중복 제거)
 
 // 페이지 로드 시 초기화 (최적화됨)
+// v3.8.89: 발행 완료 통합 모달 (모든 발행 경로 — 일반/거미줄/에이전트 — main에서 단일 송신).
+//   사용자 보고: 발행 성공해도 풀스크린 완료 오버레이가 안 뜨는 경우 잦음 (경로별 분기 누락).
+//   해결: main의 'publish:success' IPC를 어느 경로든 동일하게 받아 모달 띄움.
+window.showPublishSuccessModal = function (payload) {
+  try {
+    const url = String(payload?.url || '').trim();
+    const platformLabel = String(payload?.platformLabel || payload?.platform || '블로그').toUpperCase();
+    const overlay = document.createElement('div');
+    overlay.id = 'publishSuccessOverlay';
+    overlay.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:10001;backdrop-filter:blur(8px);cursor:pointer;`;
+    const escUrl = url.replace(/"/g, '&quot;');
+    overlay.innerHTML = `
+      <div style="background:linear-gradient(135deg,#10b981 0%,#059669 100%);border-radius:24px;padding:50px 70px;text-align:center;box-shadow:0 30px 80px rgba(16,185,129,0.5);max-width:640px;animation:popIn 0.5s ease-out;">
+        <style>@keyframes popIn{0%{transform:scale(0.5);opacity:0}60%{transform:scale(1.05)}100%{transform:scale(1);opacity:1}}</style>
+        <div style="font-size:88px;margin-bottom:14px;line-height:1;">🎉</div>
+        <h1 style="color:white;font-size:42px;font-weight:900;margin:0 0 12px 0;letter-spacing:-1px;">발행 완료!</h1>
+        <p style="color:rgba(255,255,255,0.95);font-size:20px;margin:0 0 6px 0;font-weight:700;">${platformLabel}에 정상 발행되었습니다</p>
+        ${url ? `
+          <div style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+            <button data-ps-open style="background:#ffffff;color:#047857;border:none;padding:14px 28px;font-size:17px;font-weight:800;border-radius:12px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,0.18);">📖 글 보러가기 →</button>
+            <button data-ps-copy style="background:rgba(255,255,255,0.18);color:#ffffff;border:1px solid rgba(255,255,255,0.5);padding:14px 22px;font-size:15px;font-weight:700;border-radius:12px;cursor:pointer;">🔗 URL 복사</button>
+            <button data-ps-close style="background:transparent;color:rgba(255,255,255,0.85);border:1px solid rgba(255,255,255,0.4);padding:14px 22px;font-size:15px;font-weight:700;border-radius:12px;cursor:pointer;">닫기</button>
+          </div>
+          <p style="color:rgba(255,255,255,0.7);font-size:11px;margin:14px 0 0 0;word-break:break-all;">${escUrl}</p>
+        ` : `<p style="color:rgba(255,255,255,0.75);font-size:14px;margin:22px 0 0 0;">화면을 클릭하면 닫힙니다</p>`}
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => { try { overlay.parentNode?.removeChild(overlay); } catch {} };
+    if (url) {
+      overlay.querySelector('[data-ps-open]')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          const api = window.api || window.electron?.ipcRenderer || null;
+          if (api?.invoke) await api.invoke('open-external', url);
+          else window.open(url, '_blank');
+        } catch { window.open(url, '_blank'); }
+      });
+      overlay.querySelector('[data-ps-copy]')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try { await navigator.clipboard.writeText(url); const b = e.currentTarget; b.textContent = '✅ 복사됨'; setTimeout(() => { b.textContent = '🔗 URL 복사'; }, 1500); } catch {}
+      });
+      overlay.querySelector('[data-ps-close]')?.addEventListener('click', (e) => { e.stopPropagation(); close(); });
+      // URL 있으면 자동 닫힘 X — 사용자 결정
+    } else {
+      overlay.addEventListener('click', close);
+      setTimeout(close, 4000);
+    }
+  } catch (err) {
+    console.warn('[PUBLISH-SUCCESS] modal failed:', err);
+  }
+};
+
+// main으로부터 발행 완료 신호 수신 → 모달 표시 (어느 흐름이든)
+try {
+  window.api?.onPublishSuccess?.((payload) => {
+    console.log('[PUBLISH-SUCCESS] 신호 수신:', payload?.url || '(no url)');
+    window.showPublishSuccessModal(payload);
+  });
+} catch (e) { console.warn('[PUBLISH-SUCCESS] onPublishSuccess subscribe failed:', e); }
+
 document.addEventListener('DOMContentLoaded', async function () {
   // 이벤트 매니저 초기화
   EventManager.init();
