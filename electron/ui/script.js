@@ -9308,6 +9308,29 @@ try {
   });
 } catch (e) { console.warn('[PUBLISH-SUCCESS] onPublishSuccess subscribe failed:', e); }
 
+// v3.8.96: 부팅 시 정확한 버전을 콘솔에 강제 출력 (사용자가 콘솔에 직접 명령 안 쳐도 됨)
+//   사용자 반복 보고: fix 안 보임 / fix 작동 안 함 / 자동 업데이트했다는데 옛 버전 가능성.
+//   해결: 매 부팅마다 [VERSION] 큰 글씨로 노출 → 사용자가 한눈에 확인.
+try {
+  setTimeout(() => {
+    try {
+      if (typeof window.api?.getAppVersion === 'function') {
+        window.api.getAppVersion().then((v) => {
+          const ver = String(v || '').trim();
+          const fixesIncluded = ver >= '3.8.95';
+          const banner = `%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n%c🚀 LEADERNAM Orbit v${ver}\n%c${fixesIncluded ? '✅ v3.8.91+ fixes 포함 (글 길이 재시도/이미지 fallback/모달 통합)' : '⚠️ 옛 버전 — 최신 v3.8.149 미설치. 자동 업데이트 실패 가능성 — github.com/cd000242-sudo/blogger-gpt-cli/releases 에서 수동 설치 권장'}\n%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+          console.log(banner,
+            'color:#94a3b8',
+            'font-size:18px;font-weight:900;color:#10b981',
+            fixesIncluded ? 'color:#34d399;font-weight:700' : 'color:#f97316;font-weight:800',
+            'color:#94a3b8'
+          );
+        }).catch(() => {});
+      }
+    } catch {}
+  }, 500);
+} catch {}
+
 document.addEventListener('DOMContentLoaded', async function () {
   // 이벤트 매니저 초기화
   EventManager.init();
