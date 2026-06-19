@@ -191,7 +191,61 @@ export function displayPreviewInModal() {
       if (thumbnailSection) thumbnailSection.style.display = 'none';
       console.log('[DISPLAY-PREVIEW] 썸네일 없음');
     }
-    
+
+    // v3.8.87: 에이전트 모드 발행 시에도 본문 모든 이미지를 그리드로 미리보기 모달에 표시.
+    //   문제: 에이전트 모드는 진행 모달의 #agentGeneratedImageGrid에 이미지를 쌓다가
+    //         모달이 닫히면 사라져 사용자가 발행 직전 확인 못 함.
+    //   해결: 본문 HTML의 <img>를 자동 추출 + H2 섹션 라벨 매핑 → 미리보기 모달 상단에 그리드.
+    try {
+      const existingGrid = document.getElementById('previewImageGrid');
+      if (existingGrid) existingGrid.remove();
+      if (content && /<img[^>]*src=/i.test(content)) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(content, 'text/html');
+        const imgs = Array.from(doc.querySelectorAll('img')).filter((img) => (img.src || '').trim());
+        if (imgs.length > 0) {
+          const labelForImg = (img, idx) => {
+            // <figure> 안에 있으면 가장 가까운 이전 H2/H3 텍스트
+            let node = img.closest('figure') || img;
+            while (node && node.previousElementSibling) {
+              node = node.previousElementSibling;
+              const tag = node.tagName?.toLowerCase();
+              if (tag === 'h2') return `H2 · ${(node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 30)}`;
+              if (tag === 'h3') return `H3 · ${(node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 30)}`;
+            }
+            return idx === 0 ? '본문 이미지 1' : `본문 이미지 ${idx + 1}`;
+          };
+          const cards = imgs.map((img, i) => {
+            const src = String(img.src).replace(/"/g, '&quot;');
+            const label = labelForImg(img, i).replace(/</g, '&lt;');
+            return `<a href="${src}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;color:#0f172a;">
+              <img src="${src}" loading="lazy" alt="${label}" style="display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#0f172a;" />
+              <div style="padding:7px 9px;font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${label}</div>
+            </a>`;
+          }).join('');
+          const grid = document.createElement('div');
+          grid.id = 'previewImageGrid';
+          grid.style.cssText = 'margin:12px 0 18px;padding:14px;background:linear-gradient(135deg,#ecfdf5,#f0fdfa);border:1px solid #a7f3d0;border-radius:14px;';
+          grid.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
+              <strong style="color:#065f46;font-size:13px;">생성 이미지 미리보기</strong>
+              <span style="color:#047857;font-size:12px;font-weight:800;">${imgs.length}장</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">${cards}</div>`;
+          // 썸네일 섹션 뒤 / 본문 앞에 삽입
+          const insertAfter = thumbnailSection && thumbnailSection.style.display !== 'none' ? thumbnailSection : null;
+          if (insertAfter && insertAfter.parentNode) {
+            insertAfter.parentNode.insertBefore(grid, insertAfter.nextSibling);
+          } else if (previewContent.parentNode) {
+            previewContent.parentNode.insertBefore(grid, previewContent);
+          }
+          console.log(`[DISPLAY-PREVIEW] 이미지 그리드 ${imgs.length}장 미리보기 모달에 삽입`);
+        }
+      }
+    } catch (gridErr) {
+      console.warn('[DISPLAY-PREVIEW] 이미지 그리드 생성 실패:', gridErr);
+    }
+
     // 콘텐츠 표시
     console.log('[DISPLAY-PREVIEW] 표시할 콘텐츠 길이:', content.length);
     

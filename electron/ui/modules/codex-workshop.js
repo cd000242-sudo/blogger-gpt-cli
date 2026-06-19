@@ -3044,8 +3044,15 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
     throw new Error('Agent 출력물이 비어 있습니다. 상세설정을 확인한 뒤 다시 시도해주세요.');
   }
 
+  // v3.8.87: Agent 본문 길이·구조 검증 (사용자 보고: Codex가 800자 짜리 짧은 글만 생성)
+  const plainLen = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+  const h2Count = (content.match(/<h2[^>]*>/gi) || []).length;
   if (source === 'posting') {
-    updateAgentProgress(72, `Agent 산출물을 회수했습니다. (${getTextLength(content).toLocaleString()}자)`, 'success');
+    updateAgentProgress(72, `Agent 산출물 회수 (${plainLen.toLocaleString()}자, H2 ${h2Count}개)`, plainLen < 3000 ? 'warning' : 'success');
+  }
+  if (plainLen < 3000 || h2Count < 3) {
+    addLog(`⚠️ Agent 본문이 너무 짧습니다 (${plainLen}자 / H2 ${h2Count}개) — 목표 8,000자+/H2 6~8개. 발행 전 미리보기에서 확인하세요.`, 'warning');
+    setAgentRunStatus(`⚠️ 본문이 짧음 (${plainLen}자, H2 ${h2Count}개). 미리보기 확인 권장.`, 'warning');
   }
 
   const imageEnhancement = await enhanceCodexAgentImages(content, payload, result.title || topic);
@@ -3316,7 +3323,10 @@ async function generateAgentImage(engine, prompt, includeText, label) {
 
 async function enhanceCodexAgentImages(html, payload = {}, title = '') {
   const policy = getPayloadImagePolicy(payload);
-  if (state.activeAgentProvider !== 'codex' || policy === 'none') {
+  // v3.8.87: Claude Code 모드도 이미지 생성 허용 (자체 이미지 생성 능력 없으므로 앱 측에서 보충).
+  //   기존: codex만 허용 → Claude Code 발행 시 썸네일/H2 이미지 누락 + 미리보기 그리드 비어 보임.
+  //   변경: 두 provider 모두 동일하게 우리 dispatcher로 이미지 생성.
+  if (policy === 'none') {
     return { content: html, thumbnailUrl: '' };
   }
 
