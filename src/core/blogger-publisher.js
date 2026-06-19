@@ -609,6 +609,17 @@ function preCleanupBloggerBody(html) {
 
   cleaned = cleaned.replace(/^\s*<h1[^>]*>[\s\S]*?<\/h1>\s*/i, '');
 
+  // v3.8.98: 블로거에도 WP와 동일한 깨진 img sanitizer (사용자 보고: 농어촌 글 깨진 이미지 + alt 박스)
+  //   - src가 빈 문자열인 img 제거
+  //   - javascript: 스킴 img 제거
+  //   - 200자 미만 base64 (placeholder 수준) img 제거
+  //   - 빈 figure 제거
+  cleaned = cleaned
+    .replace(/<img\b[^>]*\bsrc=["']\s*["'][^>]*>/gi, '')
+    .replace(/<img\b[^>]*\bsrc=["']javascript:[^"']*["'][^>]*>/gi, '')
+    .replace(/<img\b[^>]*\bsrc=["']data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]{0,200}["'][^>]*>/gi, '')
+    .replace(/<figure[^>]*>\s*(?:<a[^>]*>)?\s*(?:<\/a>)?\s*<\/figure>/gi, '');
+
   const captionPatterns = [
     /<p[^>]*>\s*\[?(?:이미지|사진|썸네일|섬네일|illustration|image|figure)\s*[:：][\s\S]{1,200}?\]?\s*<\/p>/gi,
     /<p[^>]*>\s*[가-힣\w\s,·]{2,80}?(?:안내하는|보여주는|설명하는|나타내는|표현하는|묘사하는)\s*(?:썸네일|섬네일|이미지|사진|figure)\s*(?:입니다|이미지|사진)?\s*\.?\s*<\/p>/gi,
