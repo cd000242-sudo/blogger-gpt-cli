@@ -781,6 +781,9 @@ export async function runPosting() {
               z-index: 10001; backdrop-filter: blur(8px);
               cursor: pointer; animation: fadeIn 0.3s ease-out;
             `;
+            // v3.8.88: 발행 완료 오버레이에 "글 보러가기" 버튼 추가 (외부 브라우저)
+            const publishedUrl = String(result?.url || '').trim();
+            const escUrl = publishedUrl.replace(/"/g, '&quot;');
             successOverlay.innerHTML = `
               <style>
                 @keyframes fadeIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
@@ -798,13 +801,62 @@ export async function runPosting() {
                 <div style="font-size: 100px; margin-bottom: 20px; line-height: 1;">🎉</div>
                 <h1 style="color: white; font-size: 48px; font-weight: 900; margin: 0 0 16px 0; letter-spacing: -1px;">발행 완료!</h1>
                 <p style="color: rgba(255,255,255,0.95); font-size: 22px; margin: 0 0 8px 0; font-weight: 700;">${platformLabel}에 정상 발행되었습니다</p>
-                <p style="color: rgba(255,255,255,0.75); font-size: 14px; margin: 24px 0 0 0;">화면을 클릭하면 닫힙니다 (자동 닫힘: 4초)</p>
+                ${publishedUrl ? `
+                  <div style="margin-top: 28px; display: flex; gap: 12px; justify-content: center;">
+                    <button data-publish-open style="
+                      background: #ffffff; color: #047857; border: none;
+                      padding: 14px 28px; font-size: 17px; font-weight: 800;
+                      border-radius: 12px; cursor: pointer;
+                      box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+                      transition: transform 0.15s;
+                    " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">📖 글 보러가기 →</button>
+                    <button data-publish-copy style="
+                      background: rgba(255,255,255,0.18); color: #ffffff; border: 1px solid rgba(255,255,255,0.5);
+                      padding: 14px 22px; font-size: 15px; font-weight: 700;
+                      border-radius: 12px; cursor: pointer;
+                    ">🔗 URL 복사</button>
+                    <button data-publish-close style="
+                      background: transparent; color: rgba(255,255,255,0.85); border: 1px solid rgba(255,255,255,0.4);
+                      padding: 14px 22px; font-size: 15px; font-weight: 700;
+                      border-radius: 12px; cursor: pointer;
+                    ">닫기</button>
+                  </div>
+                  <p style="color: rgba(255,255,255,0.7); font-size: 12px; margin: 16px 0 0 0;">${escUrl}</p>
+                ` : `
+                  <p style="color: rgba(255,255,255,0.75); font-size: 14px; margin: 24px 0 0 0;">화면을 클릭하면 닫힙니다 (자동 닫힘: 4초)</p>
+                `}
               </div>
             `;
             document.body.appendChild(successOverlay);
             const closeOverlay = () => { try { if (successOverlay.parentNode) successOverlay.parentNode.removeChild(successOverlay); } catch {} };
-            successOverlay.addEventListener('click', closeOverlay);
-            setTimeout(closeOverlay, 4000);
+
+            if (publishedUrl) {
+              // 버튼 클릭은 closeOverlay 이벤트 전파 막기
+              const openBtn = successOverlay.querySelector('[data-publish-open]');
+              const copyBtn = successOverlay.querySelector('[data-publish-copy]');
+              const closeBtn = successOverlay.querySelector('[data-publish-close]');
+              openBtn?.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                try {
+                  const api = window.api || window.electron?.ipcRenderer || null;
+                  if (api?.invoke) await api.invoke('open-external', publishedUrl);
+                  else window.open(publishedUrl, '_blank');
+                } catch (err) { console.warn('open-external failed:', err); window.open(publishedUrl, '_blank'); }
+              });
+              copyBtn?.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                try {
+                  await navigator.clipboard.writeText(publishedUrl);
+                  copyBtn.textContent = '✅ 복사됨';
+                  setTimeout(() => { copyBtn.textContent = '🔗 URL 복사'; }, 1500);
+                } catch {}
+              });
+              closeBtn?.addEventListener('click', (e) => { e.stopPropagation(); closeOverlay(); });
+              // 자동 닫힘 비활성 (URL 있을 땐 사용자가 결정)
+            } else {
+              successOverlay.addEventListener('click', closeOverlay);
+              setTimeout(closeOverlay, 4000);
+            }
           } catch (overlayErr) {
             console.warn('[SUCCESS-OVERLAY] 표시 실패(무시):', overlayErr);
           }

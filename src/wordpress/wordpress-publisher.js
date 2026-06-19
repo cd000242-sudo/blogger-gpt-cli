@@ -240,6 +240,32 @@ function repairPublishInputBrokenText(options) {
     }
     return options;
 }
+function preCleanupWordPressBody(html) {
+    let cleaned = html;
+    cleaned = cleaned.replace(/^\s*<h1[^>]*>[\s\S]*?<\/h1>\s*/i, '');
+    const captionPatterns = [
+        /<p[^>]*>\s*\[?(?:이미지|사진|썸네일|섬네일|illustration|image|figure)\s*[:：][\s\S]{1,200}?\]?\s*<\/p>/gi,
+        /<p[^>]*>\s*[가-힣\w\s,·]{2,80}?(?:안내하는|보여주는|설명하는|나타내는|표현하는|묘사하는)\s*(?:썸네일|섬네일|이미지|사진|figure)\s*(?:입니다|이미지|사진)?\s*\.?\s*<\/p>/gi,
+        /<p[^>]*>\s*&lt;[^&]{1,100}?(?:이미지|썸네일|섬네일|사진)[^&]*?&gt;\s*<\/p>/gi,
+        /<p[^>]*>\s*<em[^>]*>\s*[\[(]?(?:이미지|사진|썸네일)[\s\S]{1,150}?[\])]?\s*<\/em>\s*<\/p>/gi,
+    ];
+    for (const pat of captionPatterns)
+        cleaned = cleaned.replace(pat, '');
+    const highlightInsideText = (text) => {
+        return text
+            .replace(/(\d{1,3}(?:,\d{3})*\s*(?:만원|원|억|달러|USD))(?![^<]*>)/g, '<strong>$1</strong>')
+            .replace(/(\d{1,3}(?:\.\d+)?\s*%)(?![^<]*>)/g, '<strong>$1</strong>')
+            .replace(/((?:최대\s*|약\s*)?\d{1,3}\s*(?:년|개월|일|시간|분))(?![^<]*>)/g, '<strong>$1</strong>')
+            .replace(/(20\d{2}년\s*\d{1,2}월\s*\d{1,2}일)(?![^<]*>)/g, '<strong>$1</strong>');
+    };
+    cleaned = cleaned.replace(/<(p|li)([^>]*)>([\s\S]*?)<\/\1>/gi, (match, tag, attrs, inner) => {
+        if (/<strong\b|<b\b/i.test(inner))
+            return match;
+        const enhanced = highlightInsideText(inner);
+        return `<${tag}${attrs}>${enhanced}</${tag}>`;
+    });
+    return cleaned;
+}
 function applyWordPressInlineStyles(html) {
     if (!html)
         return html;
@@ -247,6 +273,7 @@ function applyWordPressInlineStyles(html) {
         return html;
     html = repairBrokenText('본문', html);
     try {
+        html = preCleanupWordPressBody(html);
         html = html
             .replace(/&nbsp;/g, ' ')
             .replace(/☐/g, '');
