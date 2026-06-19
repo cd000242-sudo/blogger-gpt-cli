@@ -620,13 +620,16 @@ export function hideProgressModal() {
   const minBar = document.getElementById('minimizedProgressBar');
 
   if (progressBar) {
-    console.log('✅ 프리미엄 진행 바 숨기기 시작');
-
-    progressBar.style.display = 'none';
-    progressBar.style.visibility = 'hidden';
-    progressBar.style.opacity = '0';
-
-    console.log('✅ 프리미엄 진행 바 완전히 숨김');
+    // v3.8.101: Agent 진행 모달이 활성화된 상태면 자동으로 닫지 않음 (success 모달 뒤에서 유지)
+    if (window.__agentProgressActive === true) {
+      console.log('⏸️ hideProgressModal skipped — Agent 진행 모달 유지 (사용자가 닫기 클릭 시 닫힘)');
+    } else {
+      console.log('✅ 프리미엄 진행 바 숨기기 시작');
+      progressBar.style.display = 'none';
+      progressBar.style.visibility = 'hidden';
+      progressBar.style.opacity = '0';
+      console.log('✅ 프리미엄 진행 바 완전히 숨김');
+    }
   } else {
     console.warn('⚠️ 진행 바 요소를 찾을 수 없습니다');
   }

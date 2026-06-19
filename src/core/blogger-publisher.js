@@ -606,6 +606,10 @@ function bgptInlinePlatformComponents(html) {
 //   - 금액/기간/날짜/% 자동 <strong> 강조
 function preCleanupBloggerBody(html) {
   let cleaned = String(html || '');
+  const beforeLen = cleaned.length;
+  // v3.8.101: 사용자 보고 — codex가 8,373자 본문 생성했는데 발행 후 1 min read.
+  //   각 sanitizer 단계마다 본문 길이 트래킹해서 어디서 줄어드는지 진단.
+  console.log(`[BODY-TRACE] preCleanupBloggerBody 시작: ${beforeLen}자`);
 
   cleaned = cleaned.replace(/^\s*<h1[^>]*>[\s\S]*?<\/h1>\s*/i, '');
 
@@ -641,14 +645,24 @@ function preCleanupBloggerBody(html) {
     return `<${tag}${attrs}>${enhanced}</${tag}>`;
   });
 
+  // v3.8.101: 본문이 30% 이상 줄어들면 경고 + 원본 복구 (sanitizer가 과도하게 깎는 것 방지)
+  const afterLen = cleaned.length;
+  const reduction = beforeLen > 0 ? (1 - afterLen / beforeLen) * 100 : 0;
+  console.log(`[BODY-TRACE] preCleanupBloggerBody 끝: ${afterLen}자 (감소율 ${reduction.toFixed(1)}%)`);
+  if (reduction > 30 && beforeLen > 3000) {
+    console.warn(`[BODY-TRACE] ⚠️ preCleanupBloggerBody가 본문 ${reduction.toFixed(1)}% 깎음 — 원본 복구`);
+    return String(html || '');
+  }
   return cleaned;
 }
 
 function applyInlineStyles(html) {
   if (!html) return html;
+  console.log(`[BODY-TRACE] applyInlineStyles 진입: ${(html || '').length}자`);
 
   try {
     if (/\bdata-bgpt-blogger-ready\s*=\s*(["'])true\1|\bbgpt-blogger-ready\b|class\s*=\s*(["'])[^"']*\bblogger-gpt-content\b[^"']*\bmax-mode-article\b[^"']*\2/i.test(html)) {
+      console.log(`[BODY-TRACE] applyInlineStyles skip (이미 적용됨)`);
       return html;
     }
 

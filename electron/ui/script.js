@@ -9278,7 +9278,17 @@ window.showPublishSuccessModal = function (payload) {
         ${hasUrl ? `<p style="color:rgba(255,255,255,0.7);font-size:11px;margin:14px 0 0 0;word-break:break-all;">${escUrl}</p>` : ''}
       </div>`;
     document.body.appendChild(overlay);
-    const close = () => { try { overlay.parentNode?.removeChild(overlay); } catch {} };
+    // v3.8.101: 발행 완료 모달 닫을 때 Agent 진행 모달도 함께 닫기 (사용자 요구: 진행 모달 뒤에 success 모달 유지)
+    const close = () => {
+      try { overlay.parentNode?.removeChild(overlay); } catch {}
+      try {
+        const agentOverlay = window.__agentProgressOverlay;
+        const agentMini = window.__agentMiniBar;
+        if (agentOverlay) agentOverlay.style.display = 'none';
+        if (agentMini) agentMini.style.display = 'none';
+        window.__agentProgressActive = false;
+      } catch {}
+    };
     overlay.querySelector('[data-ps-close]')?.addEventListener('click', (e) => { e.stopPropagation(); close(); });
     if (hasUrl) {
       overlay.querySelector('[data-ps-open]')?.addEventListener('click', async (e) => {
