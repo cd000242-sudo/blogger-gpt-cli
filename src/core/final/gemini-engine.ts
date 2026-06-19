@@ -344,8 +344,13 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
         await waitForTextProviderTurn('gemini', modelName);
         console.log(`[Gemini] ${modelName} attempt ${retry + 1}/${attemptsPerModel}`);
         const model = genAI.getGenerativeModel({ model: modelName });
+        // v3.8.99: maxOutputTokens 미지정 → Gemini가 기본 4096-8192 토큰으로 잘림 → 본문 짧음 (사용자 반복 보고).
+        //   해결: 16,384 토큰 (한국어 약 12,000자 가능) 명시. 거미줄 v3.8.81/main.ts:1163과 동일.
         const result: any = await withTimeout(
-          model.generateContent(prompt),
+          model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { maxOutputTokens: 16384, temperature: 0.8 },
+          }),
           envInt('GEMINI_TIMEOUT_MS', DEFAULT_GEMINI_TIMEOUT_MS),
           modelName,
         );
