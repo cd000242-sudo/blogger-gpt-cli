@@ -1096,15 +1096,20 @@ export async function publishToPlatform() {
       const titleToPublish = appState.generatedContent.title || currentPayload.title || currentPayload.topic || '';
       const htmlToPublish = appState.generatedContent.content || '';
       const thumbnailToPublish = appState.generatedContent.thumbnailUrl || appState.generatedContent.thumbnail || '';
-      // v3.8.101: 발행 직전 본문 길이 진단 (사용자 보고: codex 8,373자 → 발행 후 짧음)
-      console.log(`[BODY-TRACE] publishToPlatform 발행 직전:`, {
-        title: titleToPublish.slice(0, 50),
-        htmlLen: htmlToPublish.length,
-        plainLen: htmlToPublish.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length,
-        h2Count: (htmlToPublish.match(/<h2[^>]*>/gi) || []).length,
-        imgCount: (htmlToPublish.match(/<img[^>]+src=/gi) || []).length,
-        thumbnailUrl: thumbnailToPublish.slice(0, 60),
-      });
+      // v3.8.102: 자동 진단 트래커 시작 — 사용자가 캡처할 필요 없이 자동 결론 출력
+      window.__bodyTrace = [];
+      const trace = (stage, htmlText) => {
+        const len = String(htmlText || '').length;
+        const plain = String(htmlText || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+        const h2 = (String(htmlText || '').match(/<h2[^>]*>/gi) || []).length;
+        const imgs = (String(htmlText || '').match(/<img[^>]+src=["'][^"']+["']/gi) || []).length;
+        const brokenImgs = (String(htmlText || '').match(/<img[^>]+src=["'](?:\s*|javascript:|data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]{0,200})["']/gi) || []).length;
+        const entry = { stage, htmlLen: len, plainLen: plain, h2, imgs, brokenImgs, ts: Date.now() };
+        window.__bodyTrace.push(entry);
+        console.log(`[BODY-TRACE] ${stage}:`, entry);
+        return entry;
+      };
+      trace('publishToPlatform 발행 직전', htmlToPublish);
 
       addLog('블로그 발행 시작...', 'info');
       if (agentFlowActive) updateAgentProgressModal(92, '블로그 플랫폼으로 발행 요청을 보냈습니다.', 'info', 'publish');
@@ -1131,6 +1136,44 @@ export async function publishToPlatform() {
         publishSucceeded = true;
         if (agentFlowActive) updateAgentProgressModal(100, '글 생성, 이미지 생성, 발행이 모두 완료되었습니다.', 'success', 'publish');
         addLog('✅ 콘텐츠 발행 완료!', 'success');
+
+        // v3.8.102: 자동 진단 결론 출력 — 사용자가 캡처할 필요 없이 콘솔에 직접 표시
+        try {
+          if (result.diagnostics?.bodyTrace) {
+            window.__bodyTrace.push(...result.diagnostics.bodyTrace);
+          }
+          const traces = window.__bodyTrace || [];
+          if (traces.length >= 2) {
+            const first = traces[0];
+            const last = traces[traces.length - 1];
+            const startLen = first.plainLen || first.htmlLen;
+            const endLen = last.plainLen || last.htmlLen;
+            const totalReduction = startLen > 0 ? (1 - endLen / startLen) * 100 : 0;
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log(`%c📊 본문 트래킹 결론 (${traces.length}단계)`, 'background:#1e293b;color:#67e8f9;font-size:14px;font-weight:900;padding:4px 8px;border-radius:4px;');
+            console.log(`%c시작 ${startLen.toLocaleString()}자 → 종료 ${endLen.toLocaleString()}자 (총 감소율 ${totalReduction.toFixed(1)}%)`,
+              `color:${totalReduction > 30 ? '#f97316' : '#10b981'};font-weight:700;`);
+            // 단계별 최대 감소 찾기
+            let biggestDrop = { stage: '', reduction: 0, from: 0, to: 0 };
+            for (let i = 1; i < traces.length; i++) {
+              const prev = traces[i - 1].plainLen || traces[i - 1].htmlLen;
+              const curr = traces[i].plainLen || traces[i].htmlLen;
+              if (prev > 0) {
+                const r = (1 - curr / prev) * 100;
+                if (r > biggestDrop.reduction) biggestDrop = { stage: traces[i].stage, reduction: r, from: prev, to: curr };
+              }
+            }
+            if (biggestDrop.reduction > 15) {
+              console.log(`%c🔍 원인: '${biggestDrop.stage}' 단계에서 ${biggestDrop.reduction.toFixed(1)}% 감소 (${biggestDrop.from.toLocaleString()}자 → ${biggestDrop.to.toLocaleString()}자)`,
+                'color:#f97316;font-weight:800;font-size:13px;');
+            } else {
+              console.log(`%c✅ 단계별 감소 모두 정상 (최대 ${biggestDrop.reduction.toFixed(1)}%)`, 'color:#10b981;font-weight:700;');
+            }
+            console.log('단계별 추적:', traces);
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          }
+        } catch (traceErr) { console.warn('[BODY-TRACE] 결론 출력 실패:', traceErr); }
+
         if (result.title || result.html || result.content) {
           appState.generatedContent = {
             title: result.title || '',
