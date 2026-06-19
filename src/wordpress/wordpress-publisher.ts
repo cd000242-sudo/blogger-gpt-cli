@@ -1638,11 +1638,24 @@ export class WordPressPublisher {
 
       // 썸네일 처리 (대표 이미지 설정)
       let featuredMediaId: number | undefined;
-      if (options.featuredImageUrl) {
-        console.log(`[WP-PUBLISH] 🖼️ 대표 이미지 업로드 시도: ${options.featuredImageUrl.substring(0, 50)}...`);
+
+      // v3.8.94: featuredImageUrl 누락/실패 시 본문 첫 img를 자동 추출 (사용자 보고: 농어촌 글 썸네일 비어 보임)
+      const resolveFeaturedUrl = (): string => {
+        if (options.featuredImageUrl) return options.featuredImageUrl;
+        const m = String(optimizedContent || '').match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
+        const candidate = m?.[1]?.trim() || '';
+        if (candidate && /^https?:\/\//i.test(candidate)) {
+          console.log(`[WP-PUBLISH] 🖼️ featuredImageUrl 누락 — 본문 첫 img를 대표로 채택: ${candidate.slice(0, 60)}...`);
+          return candidate;
+        }
+        return '';
+      };
+      const featuredSrc = resolveFeaturedUrl();
+
+      if (featuredSrc) {
+        console.log(`[WP-PUBLISH] 🖼️ 대표 이미지 업로드 시도: ${featuredSrc.substring(0, 50)}...`);
         try {
-          // URL에서 이미지 데이터 (ArrayBuffer) 가져오기
-          const response = await fetch(options.featuredImageUrl);
+          const response = await fetch(featuredSrc);
           if (!response.ok) throw new Error(`이미지 다운로드 실패: ${response.status}`);
           const imageBuffer = await response.arrayBuffer();
 
@@ -1653,9 +1666,17 @@ export class WordPressPublisher {
           }
         } catch (mediaError: any) {
           console.error(`[WP-PUBLISH] ❌ 대표 이미지 업로드 실패:`, mediaError.message);
-          // 썸네일 업로드 실패해도 포스트 발행은 계속 진행
         }
+      } else {
+        console.log(`[WP-PUBLISH] ⚠️ 대표 이미지 후보 없음 (featuredImageUrl + 본문 첫 img 모두 비어있음)`);
       }
+
+      // v3.8.94: 본문 sanitizer — src 빈/data:image(<200자, 즉 placeholder)/javascript: img 제거
+      optimizedContent = optimizedContent
+        .replace(/<img\b[^>]*\bsrc=["']\s*["'][^>]*>/gi, '')
+        .replace(/<img\b[^>]*\bsrc=["']javascript:[^"']*["'][^>]*>/gi, '')
+        .replace(/<img\b[^>]*\bsrc=["']data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]{0,200}["'][^>]*>/gi, '')
+        .replace(/<figure[^>]*>\s*(?:<a[^>]*>)?\s*(?:<\/a>)?\s*<\/figure>/gi, '');
 
       // 포스트 데이터 준비 - options.status 사용
       // 🔥 예약 발행: status를 'future'로 설정해야 WordPress가 예약 발행으로 처리

@@ -1464,10 +1464,22 @@ class WordPressPublisher {
                 console.log(`[WP-PUBLISH] ⚠️ CSS가 없음 - 기본 텍스트 서식만 적용될 수 있음`);
             }
             let featuredMediaId;
-            if (options.featuredImageUrl) {
-                console.log(`[WP-PUBLISH] 🖼️ 대표 이미지 업로드 시도: ${options.featuredImageUrl.substring(0, 50)}...`);
+            const resolveFeaturedUrl = () => {
+                if (options.featuredImageUrl)
+                    return options.featuredImageUrl;
+                const m = String(optimizedContent || '').match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
+                const candidate = m?.[1]?.trim() || '';
+                if (candidate && /^https?:\/\//i.test(candidate)) {
+                    console.log(`[WP-PUBLISH] 🖼️ featuredImageUrl 누락 — 본문 첫 img를 대표로 채택: ${candidate.slice(0, 60)}...`);
+                    return candidate;
+                }
+                return '';
+            };
+            const featuredSrc = resolveFeaturedUrl();
+            if (featuredSrc) {
+                console.log(`[WP-PUBLISH] 🖼️ 대표 이미지 업로드 시도: ${featuredSrc.substring(0, 50)}...`);
                 try {
-                    const response = await fetch(options.featuredImageUrl);
+                    const response = await fetch(featuredSrc);
                     if (!response.ok)
                         throw new Error(`이미지 다운로드 실패: ${response.status}`);
                     const imageBuffer = await response.arrayBuffer();
@@ -1481,6 +1493,14 @@ class WordPressPublisher {
                     console.error(`[WP-PUBLISH] ❌ 대표 이미지 업로드 실패:`, mediaError.message);
                 }
             }
+            else {
+                console.log(`[WP-PUBLISH] ⚠️ 대표 이미지 후보 없음 (featuredImageUrl + 본문 첫 img 모두 비어있음)`);
+            }
+            optimizedContent = optimizedContent
+                .replace(/<img\b[^>]*\bsrc=["']\s*["'][^>]*>/gi, '')
+                .replace(/<img\b[^>]*\bsrc=["']javascript:[^"']*["'][^>]*>/gi, '')
+                .replace(/<img\b[^>]*\bsrc=["']data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]{0,200}["'][^>]*>/gi, '')
+                .replace(/<figure[^>]*>\s*(?:<a[^>]*>)?\s*(?:<\/a>)?\s*<\/figure>/gi, '');
             let finalStatus;
             if (options.status === 'draft') {
                 finalStatus = 'draft';
