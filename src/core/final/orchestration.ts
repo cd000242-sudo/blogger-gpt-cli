@@ -1094,6 +1094,49 @@ export async function generateUltimateMaxModeArticleFinal(
       }
     }
 
+    // v3.8.91: 본문 글자수 검증 + 자동 재시도 (사용자 보고: 블로그스팟 발행 글이 짧음)
+    //   거미줄(v3.8.81)과 동일 메커니즘 — H2 개수만 맞고 각 H3 본문이 짧으면 SEO 효과 X.
+    //   판별: 모든 sections + intro + conclusion 평문 합산 < 3000자면 재시도.
+    {
+      const stripTags = (s: any) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const sumPlain = (obj: any): number => {
+        let total = stripTags(obj.introduction).length + stripTags(obj.conclusion).length;
+        for (const s of (obj.sections || [])) {
+          for (const h3 of (s.h3Sections || [])) total += stripTags(h3.content).length;
+        }
+        return total;
+      };
+      let plainLen = sumPlain(allSectionsObj);
+      onLog?.(`[PROGRESS] 72% - 📏 본문 평문 ${plainLen.toLocaleString()}자 (목표 8,000자+, 최소 3,000자)`);
+      if (plainLen < 3000) {
+        onLog?.(`[PROGRESS] 73% - ⚠️ 본문 부족 (${plainLen}자) — 더 풍부하게 1회 재시도`);
+        const richerBlock = scopedSectionBlock +
+          `\n\n🚨 **재시도 — 본문 분량 강제 규칙**: 직전 응답의 본문 합계가 ${plainLen}자로 너무 짧았습니다.\n` +
+          `반드시 다음 규칙을 지키세요:\n` +
+          `- 각 H2 본문 최소 1,200자 이상\n` +
+          `- 각 H3 세부 섹션 최소 500자 이상\n` +
+          `- 도입부 600자 이상, 결론 400자 이상\n` +
+          `- 총 본문 8,000자 이상 (HTML 태그 제외 순수 텍스트)\n` +
+          `- 잘림 절대 금지 — 모든 섹션 끝까지 완성\n`;
+        try {
+          const retried = await generateAllSectionsFinal(
+            keyword, h2Titles, factEnrichedContents, onLog, contentMode, draftContent, richerBlock, skipQualityBoost,
+          );
+          const retriedLen = sumPlain(retried);
+          if (retriedLen > plainLen) {
+            allSectionsObj = retried;
+            plainLen = retriedLen;
+            onLog?.(`[PROGRESS] 74% - ✅ 재시도 성공: 본문 평문 ${plainLen.toLocaleString()}자`);
+          } else {
+            onLog?.(`[PROGRESS] 74% - ⚠️ 재시도도 ${retriedLen}자 — 원본 유지하고 진행`);
+          }
+        } catch (retryErr: any) {
+          console.warn(`[LEN-ENFORCE] 본문 재시도 실패: ${retryErr?.message?.slice(0, 100)}`);
+          onLog?.(`[PROGRESS] 74% - ⚠️ 본문 재시도 오류 (그대로 진행): ${retryErr?.message?.slice(0, 80)}`);
+        }
+      }
+    }
+
     const sections = allSectionsObj.sections;
     const introductionHTML = allSectionsObj.introduction;
     const conclusionHTML = allSectionsObj.conclusion;

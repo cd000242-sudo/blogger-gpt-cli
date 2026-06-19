@@ -2375,6 +2375,29 @@ async function uploadDataUrlThumbnail(bloggerClient, blogId, dataUrl, onLog) {
     console.error(`[PUBLISH]    - MIME 타입: ${mimeType}`);
 
     onLog?.(`⚠️ 썸네일 업로드 실패: ${errorMessage} (코드: ${errorCode})`);
+
+    // v3.8.91: Blogger media.insert 실패 시 6단계 외부 호스팅 fallback (Cloudinary/ImgBB/Catbox 등)
+    //   사용자 보고: "이미지 호스팅 실패 — 외부 호스팅 모두 거부됨" placeholder가 자주 보임.
+    //   원인: 기존엔 media.insert 실패 시 곧바로 null → 본문 base64 → sanitizer가 placeholder로 치환.
+    //   해결: media.insert 실패 즉시 hostBase64ToExternal 호출해 외부 CDN에 업로드 시도.
+    try {
+      const helpers = require('./final/image-helpers');
+      const hostFn = helpers.uploadBase64ToImageHost || null;
+      if (typeof hostFn === 'function') {
+        const base64 = buffer.toString('base64');
+        const dataUrl = `data:${mimeType};base64,${base64}`;
+        onLog?.('🛟 Blogger 업로드 실패 → 외부 호스팅 6단계 fallback 시도');
+        const externalUrl = await hostFn(dataUrl, 'blogger-thumbnail').catch(() => null);
+        if (externalUrl) {
+          onLog?.(`✅ 외부 호스팅 성공: ${String(externalUrl).substring(0, 60)}...`);
+          return externalUrl;
+        }
+        onLog?.('⚠️ 외부 호스팅 6단계도 모두 실패');
+      }
+    } catch (hostErr) {
+      console.warn('[PUBLISH] 외부 호스팅 fallback 호출 실패:', hostErr?.message || hostErr);
+    }
+
     return null;
   }
 }
@@ -4896,14 +4919,46 @@ html body .content-inner {
     // 🛡️ S-7 (v3.5.84): 발행 직전 콘텐츠 sanitizer
     //   data:image/ 잔존 시 1MB 폭주 → Blogger 400. 이미지 호스팅 6단계 폴백 모두 실패 시 잔존 가능.
     //   data:image base64 <img>를 자리표시 figure로 치환해 본문 크기 폭주 100% 차단.
+    // v3.8.91: placeholder 치환 직전에 한 번 더 image-helpers 6단계 fallback 시도 (마지막 기회)
     {
       const base64ImgRegex = /<img[^>]*\bsrc=['"]data:image\/[^'"]+['"][^>]*>/gi;
       const base64Count = (finalHtmlContent.match(base64ImgRegex) || []).length;
       if (base64Count > 0) {
-        console.warn(`[PUBLISH] 🛡️ [SANITIZER] 본문에 base64 이미지 ${base64Count}장 잔존 → 자리표시로 치환 (이미지 호스팅 폴백 6단계 모두 실패한 케이스)`);
-        onLog?.(`🛡️ 이미지 호스팅 실패로 본문 base64 ${base64Count}장 자리표시 치환 (Blogger 400 방지)`);
-        finalHtmlContent = finalHtmlContent.replace(base64ImgRegex,
-          '<figure class="image-failed" style="margin:24px 0;padding:32px;background:#f5f5f5;border:1px dashed #ccc;border-radius:8px;text-align:center;color:#999;font-size:13px;">⚠️ 이미지 호스팅 실패 — 외부 호스팅 모두 거부됨</figure>');
+        let recoveredCount = 0;
+        try {
+          const helpers = require('./final/image-helpers');
+          const hostFn = helpers.uploadBase64ToImageHost || null;
+          if (typeof hostFn === 'function') {
+            console.log(`[PUBLISH] 🛟 [SANITIZER] 본문 base64 ${base64Count}장 — placeholder 전 6단계 호스팅 마지막 시도`);
+            onLog?.(`🛟 본문 base64 ${base64Count}장 — 외부 호스팅 마지막 시도`);
+            const matches = Array.from(finalHtmlContent.matchAll(base64ImgRegex));
+            for (const m of matches) {
+              const tag = m[0];
+              const srcMatch = tag.match(/src=['"](data:image\/[^'"]+)['"]/i);
+              if (!srcMatch) continue;
+              const dataUrl = srcMatch[1];
+              const externalUrl = await hostFn(dataUrl, `body-${recoveredCount}`).catch(() => null);
+              if (externalUrl) {
+                const replaced = tag.replace(/src=['"]data:image\/[^'"]+['"]/i, `src="${externalUrl}"`);
+                finalHtmlContent = finalHtmlContent.replace(tag, replaced);
+                recoveredCount++;
+                console.log(`[PUBLISH] ✅ 본문 이미지 복구 ${recoveredCount}/${base64Count}: ${String(externalUrl).slice(0, 60)}...`);
+              }
+            }
+            if (recoveredCount > 0) onLog?.(`✅ 본문 base64 ${recoveredCount}/${base64Count}장 외부 호스팅 복구 성공`);
+          }
+        } catch (recoverErr) {
+          console.warn('[PUBLISH] [SANITIZER] 최종 호스팅 시도 실패:', recoverErr?.message || recoverErr);
+        }
+        // 복구 후 남은 base64만 placeholder로 치환
+        const remainingRegex = /<img[^>]*\bsrc=['"]data:image\/[^'"]+['"][^>]*>/gi;
+        const remainingCount = (finalHtmlContent.match(remainingRegex) || []).length;
+        if (remainingCount > 0) {
+          console.warn(`[PUBLISH] 🛡️ [SANITIZER] 복구 후 잔존 base64 ${remainingCount}장 → 자리표시 치환`);
+          onLog?.(`🛡️ 잔존 base64 ${remainingCount}장 자리표시 치환 (Blogger 400 방지)`);
+          finalHtmlContent = finalHtmlContent.replace(remainingRegex,
+            '<figure class="image-failed" style="margin:24px 0;padding:32px;background:#f5f5f5;border:1px dashed #ccc;border-radius:8px;text-align:center;color:#999;font-size:13px;">⚠️ 이미지 호스팅 실패 — 외부 호스팅 모두 거부됨</figure>');
+        }
       }
     }
 
