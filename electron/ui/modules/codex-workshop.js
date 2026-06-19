@@ -3044,15 +3044,55 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
     throw new Error('Agent 출력물이 비어 있습니다. 상세설정을 확인한 뒤 다시 시도해주세요.');
   }
 
-  // v3.8.87: Agent 본문 길이·구조 검증 (사용자 보고: Codex가 800자 짜리 짧은 글만 생성)
-  const plainLen = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
-  const h2Count = (content.match(/<h2[^>]*>/gi) || []).length;
+  // v3.8.87: Agent 본문 길이·구조 검증
+  // v3.8.100: 짧으면 codex 자동 재시도 (사용자 반복 보고 — 농어촌 글 1 min read).
+  //   기존: 경고만 띄우고 그대로 진행 → 짧은 글 발행됨.
+  //   해결: < 3,000자 또는 H2 < 3개면 강화된 instructions로 1회 재호출.
+  let plainLen = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+  let h2Count = (content.match(/<h2[^>]*>/gi) || []).length;
   if (source === 'posting') {
     updateAgentProgress(72, `Agent 산출물 회수 (${plainLen.toLocaleString()}자, H2 ${h2Count}개)`, plainLen < 3000 ? 'warning' : 'success');
   }
+
   if (plainLen < 3000 || h2Count < 3) {
-    addLog(`⚠️ Agent 본문이 너무 짧습니다 (${plainLen}자 / H2 ${h2Count}개) — 목표 8,000자+/H2 6~8개. 발행 전 미리보기에서 확인하세요.`, 'warning');
-    setAgentRunStatus(`⚠️ 본문이 짧음 (${plainLen}자, H2 ${h2Count}개). 미리보기 확인 권장.`, 'warning');
+    addLog(`⚠️ Agent 본문이 짧습니다 (${plainLen}자 / H2 ${h2Count}개) — 자동 재호출 시도`, 'warning');
+    setAgentRunStatus(`🔄 본문 부족 (${plainLen}자) — 더 풍부하게 재시도`, 'warning');
+    try {
+      const retryPayload = {
+        ...payload,
+        articleTask: (payload.articleTask || '') +
+          `\n\n🚨🚨🚨 **재시도 — 본문 분량 강제**: 직전 응답이 본문 ${plainLen}자, H2 ${h2Count}개로 부족했습니다.\n` +
+          `반드시 다음 규칙을 지켜 result/article.html을 완전히 새로 작성하세요:\n` +
+          `- H2 정확히 6~8개\n` +
+          `- 각 H2 본문 최소 1,200자 (전체 평문 8,000자 이상)\n` +
+          `- 도입부 600자+, 결론 400자+, 잘림 절대 금지\n` +
+          `- 마지막은 반드시 </div> 또는 </article> 닫기 태그`,
+      };
+      const retryResult = await window.api.runAgentJob({
+        provider: profile.provider,
+        profileId: profile.id,
+        payload: retryPayload,
+        articleTask: retryPayload.articleTask,
+        imageTask: payload.imageTask || '',
+      });
+      if (retryResult?.ok && retryResult.content) {
+        const newLen = String(retryResult.content).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+        const newH2 = (retryResult.content.match(/<h2[^>]*>/gi) || []).length;
+        if (newLen > plainLen) {
+          content = retryResult.content;
+          plainLen = newLen;
+          h2Count = newH2;
+          addLog(`✅ Agent 재시도 성공: ${plainLen.toLocaleString()}자 / H2 ${h2Count}개`, 'success');
+          setAgentRunStatus(`✅ 재시도 성공 (${plainLen}자)`, 'success');
+        } else {
+          addLog(`⚠️ Agent 재시도해도 짧음 (${newLen}자) — 원본 유지`, 'warning');
+        }
+      } else {
+        addLog(`⚠️ Agent 재시도 실패 — 원본 유지: ${retryResult?.error || ''}`, 'warning');
+      }
+    } catch (retryErr) {
+      addLog(`⚠️ Agent 재시도 오류: ${retryErr?.message || retryErr}`, 'warning');
+    }
   }
 
   const imageEnhancement = await enhanceCodexAgentImages(content, payload, result.title || topic);
