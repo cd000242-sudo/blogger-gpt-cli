@@ -898,6 +898,31 @@ export async function runPosting() {
     ButtonStateManager.restore('publishBtn');
     clearRunPostingLock();
     debugLog('POSTING', '상태 복구 완료');
+
+    // v3.8.95: finally 안전망 — success/catch 어느 분기든 결과에 URL이 있으면 모달 무조건 표시.
+    //   사용자 보고: "발행 완료 모달이 뜨지 않는다" (반복).
+    //   원인 추정: result.success 판정 분기에서 일부 케이스가 빠짐 / 큐 모드 오판정 / catch 우회.
+    //   해결: finally는 무조건 실행되므로 여기서 finalResult 보고 한 번 더 시도.
+    try {
+      const url = String(finalResult?.url || '').trim();
+      const postId = String(finalResult?.postId || finalResult?.id || '').trim();
+      const ok = finalResult?.ok || finalResult?.success || (!!url || !!postId);
+      console.log('[POSTING] finally fallback check', { ok, hasUrl: !!url, hasPostId: !!postId, queue: !!window.__queueRunning });
+      if (ok && (url || postId) && !window.__queueRunning && typeof window.showPublishSuccessModal === 'function') {
+        // 중복 방지 (success 분기가 이미 띄웠을 수 있음)
+        if (!document.getElementById('publishSuccessOverlay')) {
+          console.log('[POSTING] finally fallback → showPublishSuccessModal');
+          hideProgressModal();
+          window.showPublishSuccessModal({
+            url,
+            platform: String(finalResult?.platform || '').toLowerCase(),
+            platformLabel: String(finalResult?.platformLabel || finalResult?.platform || '블로그'),
+            title: finalResult?.title || '',
+            postId,
+          });
+        }
+      }
+    } catch (fallbackErr) { console.warn('[POSTING] finally fallback failed:', fallbackErr); }
     // 🔥 큐 연동 — 연속발행 모드가 다음 항목으로 진행하도록 완료 이벤트 발사
     try {
       window.dispatchEvent(new CustomEvent('bgpt:publish-complete', {
