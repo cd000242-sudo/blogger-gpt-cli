@@ -600,6 +600,39 @@ function bgptInlinePlatformComponents(html) {
   return output;
 }
 
+// v3.8.90: 블로거에도 WP와 동일한 사전 정리 (사용자 보고: 농어촌기본소득 글)
+//   - 본문 최상단 H1 (글 제목 중복) 제거
+//   - "...안내하는 썸네일 이미지" 같은 캡션 텍스트 단독 줄 제거
+//   - 금액/기간/날짜/% 자동 <strong> 강조
+function preCleanupBloggerBody(html) {
+  let cleaned = String(html || '');
+
+  cleaned = cleaned.replace(/^\s*<h1[^>]*>[\s\S]*?<\/h1>\s*/i, '');
+
+  const captionPatterns = [
+    /<p[^>]*>\s*\[?(?:이미지|사진|썸네일|섬네일|illustration|image|figure)\s*[:：][\s\S]{1,200}?\]?\s*<\/p>/gi,
+    /<p[^>]*>\s*[가-힣\w\s,·]{2,80}?(?:안내하는|보여주는|설명하는|나타내는|표현하는|묘사하는)\s*(?:썸네일|섬네일|이미지|사진|figure)\s*(?:입니다|이미지|사진)?\s*\.?\s*<\/p>/gi,
+    /<p[^>]*>\s*&lt;[^&]{1,100}?(?:이미지|썸네일|섬네일|사진)[^&]*?&gt;\s*<\/p>/gi,
+    /<p[^>]*>\s*<em[^>]*>\s*[\[(]?(?:이미지|사진|썸네일)[\s\S]{1,150}?[\])]?\s*<\/em>\s*<\/p>/gi,
+  ];
+  for (const pat of captionPatterns) cleaned = cleaned.replace(pat, '');
+
+  const highlightInsideText = (text) => {
+    return text
+      .replace(/(\d{1,3}(?:,\d{3})*\s*(?:만원|원|억|달러|USD))(?![^<]*>)/g, '<strong>$1</strong>')
+      .replace(/(\d{1,3}(?:\.\d+)?\s*%)(?![^<]*>)/g, '<strong>$1</strong>')
+      .replace(/((?:최대\s*|약\s*)?\d{1,3}\s*(?:년|개월|일|시간|분))(?![^<]*>)/g, '<strong>$1</strong>')
+      .replace(/(20\d{2}년\s*\d{1,2}월\s*\d{1,2}일)(?![^<]*>)/g, '<strong>$1</strong>');
+  };
+  cleaned = cleaned.replace(/<(p|li)([^>]*)>([\s\S]*?)<\/\1>/gi, (match, tag, attrs, inner) => {
+    if (/<strong\b|<b\b/i.test(inner)) return match;
+    const enhanced = highlightInsideText(inner);
+    return `<${tag}${attrs}>${enhanced}</${tag}>`;
+  });
+
+  return cleaned;
+}
+
 function applyInlineStyles(html) {
   if (!html) return html;
 
@@ -607,6 +640,10 @@ function applyInlineStyles(html) {
     if (/\bdata-bgpt-blogger-ready\s*=\s*(["'])true\1|\bbgpt-blogger-ready\b|class\s*=\s*(["'])[^"']*\bblogger-gpt-content\b[^"']*\bmax-mode-article\b[^"']*\2/i.test(html)) {
       return html;
     }
+
+    // v3.8.90: 사전 정리 (H1 중복, 이미지 캡션, 자동 하이라이트)
+    html = preCleanupBloggerBody(html);
+
     // HTML 엔티티 정리 및 이모지 복원
     html = html
       .replace(/&nbsp;/g, ' ')
