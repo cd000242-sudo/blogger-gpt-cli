@@ -8281,8 +8281,59 @@ function createWindow() {
     console.log('[APP] ✅ 메인 윈도우 생성 완료');
 }
 // 앱 준비 완료 시
+// v3.8.97: GitHub Releases API 직접 폴링 + 옛 버전 강제 알림
+//   사용자 보고: electron-updater 자동 업데이트가 작동 안 함, NSIS 떴는데 옛 버전 그대로.
+//   배포된 다수 사용자들이 동일 상황 → 옛 버전에 영원히 갇힘.
+//   해결: 부팅 직후 GitHub API로 latest tag 조회 → 5+ patch 뒤처지면 강제 다운로드 모달.
+async function forcedRemoteUpdateCheck() {
+    try {
+        const currentVer = electron_1.app.getVersion();
+        const res = await fetch('https://api.github.com/repos/cd000242-sudo/blogger-gpt-cli/releases/latest', {
+            headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'LEADERNAM-Orbit' },
+        });
+        if (!res.ok) {
+            console.log(`[FORCED-UPDATE-CHECK] GitHub API 호출 실패: ${res.status}`);
+            return;
+        }
+        const data = await res.json();
+        const latestTag = String(data?.tag_name || '').replace(/^v/, '').trim();
+        if (!latestTag)
+            return;
+        console.log(`[FORCED-UPDATE-CHECK] 현재 ${currentVer} / 최신 ${latestTag}`);
+        const parts = (s) => s.split('.').map((n) => parseInt(n, 10) || 0);
+        const [cMaj, cMin, cPat] = parts(currentVer);
+        const [lMaj, lMin, lPat] = parts(latestTag);
+        const isOlder = lMaj > cMaj || (lMaj === cMaj && lMin > cMin) || (lMaj === cMaj && lMin === cMin && lPat > cPat);
+        if (!isOlder)
+            return;
+        const patchGap = lMaj === cMaj && lMin === cMin ? lPat - cPat : 99;
+        const critical = patchGap >= 5 || lMaj > cMaj || lMin > cMin;
+        console.log(`[FORCED-UPDATE-CHECK] ${critical ? '⚠️ 강제 알림' : '안내'} (patch gap: ${patchGap})`);
+        if (!critical)
+            return;
+        const { shell: sh } = require('electron');
+        const downloadUrl = `https://github.com/cd000242-sudo/blogger-gpt-cli/releases/download/v${latestTag}/LEADERNAM-Orbit-${latestTag}.exe`;
+        const result = await electron_1.dialog.showMessageBox({
+            type: 'warning',
+            title: '📥 업데이트 권장',
+            message: `최신 버전 v${latestTag} 출시됨 (현재 v${currentVer})`,
+            detail: `현재 ${patchGap}개 패치 뒤처져 있으며, 자동 업데이트가 실패한 것으로 보입니다.\n\n수동으로 최신 .exe를 다운로드해 설치하면 모든 fix가 즉시 적용됩니다.\n\n• 글 길이 자동 재시도 (8,000자+ 보장)\n• 이미지 6단계 호스팅 fallback\n• 발행 완료 모달 + 글 보러가기\n• 블로거/WP 본문 자동 정리`,
+            buttons: ['📥 지금 다운로드', '계속 사용 (나중에)'],
+            defaultId: 0,
+            cancelId: 1,
+        });
+        if (result.response === 0) {
+            await sh.openExternal(downloadUrl);
+            console.log(`[FORCED-UPDATE-CHECK] 브라우저에서 다운로드 페이지 열림: ${downloadUrl}`);
+        }
+    }
+    catch (e) {
+        console.warn('[FORCED-UPDATE-CHECK] 실패 (무시):', e?.message || e);
+    }
+}
 electron_1.app.whenReady().then(async () => {
     console.log('[APP] Electron 앱 준비 완료');
+    console.log(`[VERSION] LEADERNAM Orbit v${electron_1.app.getVersion()}`);
     // 🔥 개발 모드 확인: npm start로 실행 시 라이선스 체크 건너뛰기
     const isDev = !electron_1.app.isPackaged || process.env.NODE_ENV === 'development';
     if (isDev) {
@@ -8302,6 +8353,8 @@ electron_1.app.whenReady().then(async () => {
         catch (e) {
             console.log('[APP] 업데이트 체크 시작 실패 (무시):', e.message);
         }
+        // v3.8.97: electron-updater 실패에 대비한 GitHub API 직접 폴링 (5초 후 1회)
+        setTimeout(() => { forcedRemoteUpdateCheck(); }, 5000);
         // 🔥 인증창을 즉시 표시 (업데이트 체크 대기하지 않음)
         console.log('[APP] ✅ 인증창 표시 (업데이트는 백그라운드)');
         const licenseValid = await (0, main_login_1.checkLicenseWithAutoLogin)();
