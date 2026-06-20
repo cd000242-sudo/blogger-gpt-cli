@@ -662,7 +662,7 @@ export async function dispatchH2ImageGeneration(
 
   // 🛡️ 최종 안전망 (v3.6.0): 모든 원격 엔진 실패 → 네트워크 0 의존 로컬 placeholder 로 이미지 보장.
   //   "이미지 항상 존재" — 글 발행이 이미지 부재로 깨지지 않도록 한다. (strict 모드는 위에서 throw)
-  return buildPlaceholderResult(imageSource, keyword, false, onLog);
+  return await buildPlaceholderResult(imageSource, keyword, false, onLog);
 }
 
 // ═══════════════════════════════════════════════════
@@ -783,17 +783,54 @@ export async function dispatchThumbnailGeneration(
   }
 
   // 🛡️ 최종 안전망 (v3.6.0): 모든 AI 엔진 실패 → 로컬 placeholder 썸네일로 이미지 보장.
-  return buildPlaceholderResult(thumbnailSource, keyword || title, true, onLog);
+  return await buildPlaceholderResult(thumbnailSource, keyword || title, true, onLog);
 }
 
 /** 모든 원격 엔진 실패 시 로컬 placeholder 이미지를 ImageResult 로 감싸 반환 (절대 실패 안 함). */
-function buildPlaceholderResult(
+// v3.8.104: 모든 유료 엔진 실패 시 무료 무인증 fallback (pollinations.ai/FLUX)
+//   사용자 보고: 그라데이션 placeholder만 나옴 → 사용자가 보는 진짜 이미지 없음.
+//   pollinations는 무료/무인증/CDN 안정적. 품질 중간이지만 placeholder보단 압도적.
+async function tryPollinationsFallback(
+  keyword: string,
+  isThumbnail: boolean,
+  onLog?: (msg: string) => void,
+): Promise<ImageResult | null> {
+  try {
+    const width = isThumbnail ? 1280 : 1024;
+    const height = isThumbnail ? 720 : 576;
+    const prompt = encodeURIComponent(`${keyword}, Korean blog editorial photo, realistic, clean composition, no text`);
+    const seed = Date.now() % 1000000;
+    const url = `https://image.pollinations.ai/prompt/${prompt}?width=${width}&height=${height}&model=flux&nologo=true&seed=${seed}`;
+    onLog?.(`🌱 pollinations.ai fallback 시도 (FLUX 무료)`);
+    console.log(`[DISPATCH] 🌱 pollinations fallback: ${url.slice(0, 100)}...`);
+    const fetchFn: any = (global as any).fetch || require('node-fetch');
+    const response = await fetchFn(url, { timeout: 30000 });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const buf = await response.arrayBuffer();
+    const base64 = Buffer.from(buf).toString('base64');
+    const contentType = response.headers.get?.('content-type') || 'image/jpeg';
+    const dataUrl = `data:${contentType};base64,${base64}`;
+    onLog?.(`✅ pollinations FLUX 이미지 생성 성공`);
+    console.log(`[DISPATCH] ✅ pollinations success: ${(buf.byteLength / 1024).toFixed(1)}KB`);
+    return { ok: true, dataUrl, source: 'Pollinations FLUX (무료 fallback)' };
+  } catch (e: any) {
+    onLog?.(`⚠️ pollinations fallback 실패: ${e?.message || e}`);
+    console.warn(`[DISPATCH] ⚠️ pollinations failed:`, e?.message || e);
+    return null;
+  }
+}
+
+async function buildPlaceholderResult(
   requested: string,
   keyword: string,
   isThumbnail: boolean,
   onLog?: (msg: string) => void,
-): ImageResult {
-  onLog?.(`🛡️ 모든 원격 엔진 실패 — 로컬 placeholder 이미지로 대체 (이미지 보장)`);
+): Promise<ImageResult> {
+  // v3.8.104: placeholder 직전에 pollinations 무료 fallback 시도
+  const pol = await tryPollinationsFallback(keyword, isThumbnail, onLog);
+  if (pol) return pol;
+
+  onLog?.(`🛡️ pollinations까지 실패 — 로컬 placeholder 이미지로 대체`);
   console.log(`[DISPATCH] 🛡️ 로컬 placeholder 생성 (요청: ${requested}, thumbnail=${isThumbnail})`);
   const { generatePlaceholderImage } = require('./imagePlaceholder');
   const dataUrl = generatePlaceholderImage(keyword, {
