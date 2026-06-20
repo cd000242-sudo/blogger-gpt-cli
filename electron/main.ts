@@ -6408,21 +6408,26 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
             ? '- 썸네일은 필요할 때 짧은 한국어 제목 텍스트를 포함할 수 있습니다.'
             : '- 썸네일에도 텍스트를 넣지 않습니다.',
           '- H2/소제목 이미지는 어떤 경우에도 텍스트를 넣지 않습니다.',
-          '- 🎨 **이미지 생성 — 반드시 Codex 내장 GPT-Image-2 도구만 사용 (v3.8.111 사용자 명령)**:',
+          '- 🎨 **이미지 생성 — Codex 내장 GPT-Image-2 도구 (v3.8.112 진단 강화)**:',
           '',
-          '  ▶ **필수**: 당신은 OpenAI Codex입니다. **GPT-Image-2 (image generation) 도구가 내장**되어 있습니다.',
-          '    `image_gen` 또는 `gpt-image-2` 도구를 호출해 PNG 이미지를 생성하고 `result/images/thumbnail.png`, `result/images/h2-1.png`, `result/images/h2-2.png` ... 형식으로 저장하세요.',
-          '    article.html 안에서는 `<img src="images/thumbnail.png" alt="..." style="width:100%;height:auto;border-radius:10px;margin:20px 0;">` 형식 상대 경로로 참조 (앱이 base64로 자동 변환).',
-          '    또는 base64 data URL `<img src="data:image/png;base64,...">` 직접 임베드 가능.',
+          '  ▶ **1단계 (진단 — 반드시 먼저 실행)**: 사용 가능한 도구 목록을 `result/diagnostic.txt`에 저장하세요.',
+          '    내용 예시:',
+          '    ```',
+          '    available_tools: file_create, file_edit, file_read, shell_exec, image_gen, web_search',
+          '    codex_version: 0.X.X',
+          '    image_gen_available: yes/no',
+          '    sandbox_mode: workspace-write',
+          '    test_image_gen_attempt: 결과 메시지 또는 오류',
+          '    ```',
           '',
-          '  ▶ **수량**: 썸네일 1장 (H1 직후) + 각 H2 직후 1장 (총 6~8장 PNG)',
-          '  ▶ **품질 명령**: GPT-Image-2는 ChatGPT Plus/Pro의 자체 사용량으로 차감되며 별도 비용·API 키 없음. 최고 품질로 생성하세요.',
+          '  ▶ **2단계 (image_gen 사용 가능 시)**: PNG 이미지 생성 + `result/images/thumbnail.png`, `result/images/h2-1.png` ... 저장.',
+          '    article.html에 `<img src="images/thumbnail.png" alt="..." style="width:100%;height:auto;border-radius:10px;margin:20px 0;">` 상대 경로로 참조.',
           '',
-          '  ▶ **절대 금지**:',
-          '    - 외부 무료 URL (pollinations.ai 등) 사용 금지',
-          '    - 사용자 환경의 OPENAI_API_KEY / GEMINI_API_KEY / ANTHROPIC_API_KEY 도구 호출 금지',
-          '    - 이미지 자리에 placeholder 텍스트 ("[이미지 생성 실패]", "Sample image" 등) 금지',
-          '    - 이미지 생성 도구가 한도 도달 등으로 실패해도, "이미지 생성 실패" 같은 메시지 본문에 박지 말고 그냥 해당 위치 비워두세요',
+          '  ▶ **3단계 (image_gen 도구가 없거나 실패 시)**: result/diagnostic.txt에 "image_gen_available: no"와 정확한 오류 메시지 기록.',
+          '    이미지 자리는 비워두고 (placeholder 금지) article.html은 글만 완성.',
+          '',
+          '  ▶ **수량 (성공 시)**: 썸네일 1장 (H1 직후) + 각 H2 직후 1장 (총 6~8장 PNG)',
+          '  ▶ **절대 금지**: pollinations.ai 같은 외부 URL, 사용자 API 키 호출, "이미지 생성 실패" placeholder 본문 삽입',
         ].join('\n')
       : [
           '- 🎨 **이미지 생성 (v3.8.105 — pollinations.ai 무료 URL)**: API 키 없이 본문에 직접 삽입.',
@@ -6854,6 +6859,22 @@ function readAgentJobResult(jobDir: string, stdout: string, lastMessagePath: str
     || findAgentHtmlOutput(jobDir)
     || extractHtmlFromAgentText(finalMessage)
     || extractHtmlFromAgentText(stdout);
+
+  // v3.8.112: codex 진단 결과 자동 출력 (image_gen 도구 사용 가능 여부)
+  try {
+    const diagPath = path.join(jobDir, 'result', 'diagnostic.txt');
+    if (fs.existsSync(diagPath)) {
+      const diag = fs.readFileSync(diagPath, 'utf-8');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('[AGENT-DIAG] codex 도구 진단:');
+      console.log(diag);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    } else {
+      console.log('[AGENT-DIAG] ⚠️ result/diagnostic.txt 없음 — codex가 진단 명령 무시');
+    }
+  } catch (e: any) {
+    console.warn(`[AGENT-DIAG] 진단 파일 읽기 실패: ${e?.message || e}`);
+  }
 
   // v3.8.106: codex가 만든 result/images/*.png를 자동 수집해서 base64 data URL로 본문 img src 치환
   //   사용자 요구: codex 내장 도구로 이미지 생성 + 우리 API 키 호출 X
