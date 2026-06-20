@@ -3379,16 +3379,39 @@ async function enhanceCodexAgentImages(html, payload = {}, title = '') {
 
   updateAgentProgress(76, `이미지 정책 적용 중: ${getAgentImagePolicyLabel(policy)}`, 'info');
 
+  // v3.8.103: Codex가 만든 이미지 우선 사용 (사용자 지적: "코덱스로 이미지 생성 가능")
+  //   기존: codex 결과에 이미지 있어도 우리 dispatcher로 또 만들어 figure 추가 → 중복 + 우리 dispatcher 실패 시 placeholder.
+  //   수정: codex가 본문에 이미 <img> 넣은 H2는 skip, 누락된 곳에만 dispatcher 호출.
+  let codexExistingImgs = 0;
+  let codexThumbHint = '';
+  try {
+    const probeDoc = new DOMParser().parseFromString(content, 'text/html');
+    const allImgs = Array.from(probeDoc.querySelectorAll('img')).filter((img) => (img.getAttribute('src') || '').trim());
+    codexExistingImgs = allImgs.length;
+    // 본문 첫 img는 보통 썸네일
+    if (allImgs.length > 0) codexThumbHint = allImgs[0].getAttribute('src') || '';
+    if (codexExistingImgs > 0) {
+      addLog(`🎨 Codex가 본문에 이미지 ${codexExistingImgs}장을 이미 포함했습니다 — 그대로 사용`, 'success');
+    }
+  } catch {}
+
   if (policy !== 'none') {
-    thumbnailUrl = await generateAgentImage(
-      thumbnailEngine,
-      buildAgentThumbnailPrompt(title || topic, topic, thumbnailTextIncluded),
-      thumbnailTextIncluded,
-      '썸네일'
-    );
-    if (thumbnailUrl) {
-      addLog('Agent 썸네일 이미지를 생성했습니다.', 'success');
-      appendAgentGeneratedImagePreview({ url: thumbnailUrl, label: '썸네일' });
+    // codex가 본문에 썸네일 후보 이미지를 넣었으면 그걸 우선 사용
+    if (codexThumbHint && /^(https?:|data:image\/)/.test(codexThumbHint)) {
+      thumbnailUrl = codexThumbHint;
+      addLog('Agent 썸네일은 Codex 본문 첫 이미지를 사용합니다.', 'success');
+      appendAgentGeneratedImagePreview({ url: thumbnailUrl, label: '썸네일 (Codex)' });
+    } else {
+      thumbnailUrl = await generateAgentImage(
+        thumbnailEngine,
+        buildAgentThumbnailPrompt(title || topic, topic, thumbnailTextIncluded),
+        thumbnailTextIncluded,
+        '썸네일'
+      );
+      if (thumbnailUrl) {
+        addLog('Agent 썸네일 이미지를 생성했습니다.', 'success');
+        appendAgentGeneratedImagePreview({ url: thumbnailUrl, label: '썸네일' });
+      }
     }
   }
 
@@ -3402,6 +3425,7 @@ async function enhanceCodexAgentImages(html, payload = {}, title = '') {
     const root = doc.querySelector('article') || doc.body;
     const h2Nodes = Array.from(root.querySelectorAll('h2'));
     let inserted = 0;
+    let codexSkipped = 0;
 
     for (let i = 0; i < h2Nodes.length; i++) {
       const index = i + 1;
@@ -3409,6 +3433,26 @@ async function enhanceCodexAgentImages(html, payload = {}, title = '') {
       const h2 = h2Nodes[i];
       const h2Text = (h2.textContent || '').replace(/\s+/g, ' ').trim();
       if (!h2Text) continue;
+
+      // v3.8.103: 해당 H2 바로 뒤에 figure/img가 이미 있으면 skip (codex가 만든 거)
+      let next = h2.nextElementSibling;
+      let hasNearbyImg = false;
+      let hops = 0;
+      while (next && hops < 3) {
+        if (next.tagName === 'FIGURE' || next.tagName === 'IMG' || next.querySelector?.('img')) {
+          hasNearbyImg = true; break;
+        }
+        next = next.nextElementSibling;
+        hops++;
+      }
+      if (hasNearbyImg) {
+        codexSkipped++;
+        addLog(`H2 ${index}: Codex가 만든 이미지 사용 (dispatcher skip)`, 'info');
+        // 미리보기에는 codex 이미지 표시
+        const codexImg = (h2.nextElementSibling?.querySelector?.('img') || h2.nextElementSibling)?.getAttribute?.('src');
+        if (codexImg) appendAgentGeneratedImagePreview({ url: codexImg, label: `H2 ${index} (Codex)` });
+        continue;
+      }
 
       updateAgentProgress(Math.min(82, 76 + inserted + 1), `H2 ${index} 이미지 생성 중: ${h2Text.slice(0, 28)}`, 'info');
       const imageUrl = await generateAgentImage(
