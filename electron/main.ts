@@ -7878,10 +7878,44 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
     const jobId = createAgentJobId(profile.provider, request?.title || request?.payload?.title || request?.payload?.topic);
     const jobDir = path.join(ensureAgentJobsRoot(), jobId);
     fs.mkdirSync(jobDir, { recursive: true });
+    // v3.8.113: result/images/ 폴더 미리 생성 + watch 시작 → codex가 PNG 만들 때마다 실시간 미리보기 (API 키 모드와 동일 UX)
+    const imagesDir = path.join(jobDir, 'result', 'images');
+    fs.mkdirSync(imagesDir, { recursive: true });
+    const seenImages = new Set<string>();
+    let imageWatcher: any = null;
+    try {
+      imageWatcher = fs.watch(imagesDir, async (eventType, filename) => {
+        try {
+          if (!filename || seenImages.has(filename)) return;
+          if (!/\.(png|jpe?g|webp)$/i.test(filename)) return;
+          const fpath = path.join(imagesDir, filename);
+          // 파일이 완전히 작성될 때까지 잠깐 대기
+          await new Promise((r) => setTimeout(r, 300));
+          if (!fs.existsSync(fpath)) return;
+          const stat = fs.statSync(fpath);
+          if (stat.size < 100) return;
+          seenImages.add(filename);
+          const buf = fs.readFileSync(fpath);
+          const ext = (filename.match(/\.(\w+)$/)?.[1] || 'png').toLowerCase();
+          const mime = ext === 'jpg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
+          const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+          const label = filename.replace(/\.(png|jpe?g|webp)$/i, '');
+          console.log(`[AGENT-IMG-WATCH] 🎨 codex 새 이미지 감지: ${filename} (${(stat.size / 1024).toFixed(1)}KB) → 미리보기 전송`);
+          _evt.sender?.send?.('agent-image-generated', { url: dataUrl, label, filename });
+          _evt.sender?.send?.('log-line', `[AGENT-IMG] ✨ codex 이미지 생성: ${filename}`);
+        } catch (watchErr: any) {
+          console.warn('[AGENT-IMG-WATCH] watch handler error:', watchErr?.message);
+        }
+      });
+      console.log(`[AGENT-IMG-WATCH] 🔍 ${imagesDir} 감시 시작 (codex가 PNG 만들 때마다 실시간 미리보기)`);
+    } catch (watchErr: any) {
+      console.warn(`[AGENT-IMG-WATCH] fs.watch 실패: ${watchErr?.message}`);
+    }
     writeAgentJobFiles(jobDir, request || {}, profile);
 
     const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
     const run = await runAgentProcess(profile, jobDir, lastMessagePath);
+    try { imageWatcher?.close?.(); } catch {}
     const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
     const usage = parseAgentRunUsage(profile.provider, run.stdout);
     const hasContent = !!String(result.content || '').trim();

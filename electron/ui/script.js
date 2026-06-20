@@ -9318,6 +9318,20 @@ try {
   });
 } catch (e) { console.warn('[PUBLISH-SUCCESS] onPublishSuccess subscribe failed:', e); }
 
+// v3.8.113: codex가 만든 이미지 실시간 감지 → 미리보기 그리드에 즉시 추가 (API 키 모드와 동일 UX)
+try {
+  window.api?.onAgentImageGenerated?.((payload) => {
+    const filename = String(payload?.filename || '').toLowerCase();
+    let label = String(payload?.label || '이미지');
+    if (/thumbnail/.test(filename)) label = '썸네일';
+    else if (/h2[-_]?(\d+)/.test(filename)) { const m = filename.match(/h2[-_]?(\d+)/); label = `H2 ${m?.[1] || ''}`; }
+    console.log(`[AGENT-IMG-LIVE] 🎨 codex 이미지 즉시 표시: ${label} (${filename})`);
+    if (typeof window.appendAgentGeneratedImageUI === 'function') {
+      window.appendAgentGeneratedImageUI({ url: payload?.url || '', label });
+    }
+  });
+} catch (e) { console.warn('[AGENT-IMG-LIVE] subscribe failed:', e); }
+
 // v3.8.96: 부팅 시 정확한 버전을 콘솔에 강제 출력 (사용자가 콘솔에 직접 명령 안 쳐도 됨)
 //   사용자 반복 보고: fix 안 보임 / fix 작동 안 함 / 자동 업데이트했다는데 옛 버전 가능성.
 //   해결: 매 부팅마다 [VERSION] 큰 글씨로 노출 → 사용자가 한눈에 확인.
