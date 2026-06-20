@@ -98,6 +98,9 @@ export type BloggerApi = {
   /** v3.8.113: codex 이미지 실시간 감지 */
   onAgentImageGenerated?(listener: (payload: { url: string; label: string; filename: string }) => void): () => void;
 
+  /** v3.8.115: ChatGPT Plus 한도 도달 알림 */
+  onAgentQuotaExceeded?(listener: (payload: { provider: string; message: string; resetUrl: string }) => void): () => void;
+
   /** 작업 취소 */
   cancelTask(): void;
 
@@ -476,6 +479,13 @@ const api: BloggerApi = {
     const handler = (_e: unknown, payload: any) => { try { listener(payload); } catch {} };
     ipcRenderer.on('agent-image-generated', handler);
     return () => ipcRenderer.off('agent-image-generated', handler);
+  }) as any,
+
+  // v3.8.115: ChatGPT Plus 한도 도달 알림
+  onAgentQuotaExceeded: ((listener: (payload: any) => void) => {
+    const handler = (_e: unknown, payload: any) => { try { listener(payload); } catch {} };
+    ipcRenderer.on('agent-quota-exceeded', handler);
+    return () => ipcRenderer.off('agent-quota-exceeded', handler);
   }) as any,
 
   // 종료 확인

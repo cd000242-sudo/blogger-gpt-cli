@@ -6658,13 +6658,26 @@ async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessag
         }
       };
 
-      // v3.8.114: ChatGPT Plus 한도 도달 등 에러 메시지 실시간 감지 → 즉시 종료 (12분 timeout 안 기다림)
+      // v3.8.114/115: ChatGPT Plus 한도 도달 실시간 감지 → 즉시 종료 + 모달 알림
       let earlyKilled = false;
       const earlyKillIfQuota = (text: string) => {
         if (earlyKilled) return;
         if (CODEX_OUT_OF_CREDITS_RE.test(text) || /5\s*hour.*limit|hourly.*limit/i.test(text)) {
           earlyKilled = true;
-          console.log('[AGENT-EARLY-KILL] 🛑 ChatGPT Plus 한도 도달 감지 → codex 즉시 종료');
+          console.log('[AGENT-EARLY-KILL] 🛑 ChatGPT Plus 한도 도달 감지 → codex 즉시 종료 + 모달 알림');
+          // v3.8.115: 모든 윈도우에 알림 신호 브로드캐스트
+          try {
+            const { BrowserWindow: BW } = require('electron');
+            BW.getAllWindows().forEach((w: any) => {
+              if (w && !w.isDestroyed()) {
+                w.webContents.send('agent-quota-exceeded', {
+                  provider: profile.provider,
+                  message: text.slice(0, 500),
+                  resetUrl: 'https://chatgpt.com/codex',
+                });
+              }
+            });
+          } catch {}
           try { child.kill(); } catch {}
         }
       };

@@ -93,6 +93,15 @@ const api = {
         electron_1.ipcRenderer.on('agent-image-generated', handler);
         return () => electron_1.ipcRenderer.off('agent-image-generated', handler);
     }),
+    // v3.8.115: ChatGPT Plus 한도 도달 알림
+    onAgentQuotaExceeded: ((listener) => {
+        const handler = (_e, payload) => { try {
+            listener(payload);
+        }
+        catch { } };
+        electron_1.ipcRenderer.on('agent-quota-exceeded', handler);
+        return () => electron_1.ipcRenderer.off('agent-quota-exceeded', handler);
+    }),
     // 종료 확인
     onQuitConfirm: ((listener) => {
         const handler = () => { try {

@@ -9332,6 +9332,56 @@ try {
   });
 } catch (e) { console.warn('[AGENT-IMG-LIVE] subscribe failed:', e); }
 
+// v3.8.115: ChatGPT Plus 한도 도달 알림 모달
+try {
+  window.api?.onAgentQuotaExceeded?.((payload) => {
+    console.log('[AGENT-QUOTA] 🛑 한도 도달 신호 수신:', payload);
+    try {
+      // 진행 모달 닫기 + mini bar 닫기
+      const ov = window.__agentProgressOverlay;
+      const mini = window.__agentMiniBar;
+      if (ov) ov.style.display = 'none';
+      if (mini) mini.style.display = 'none';
+      window.__agentProgressActive = false;
+    } catch {}
+
+    const existing = document.getElementById('agentQuotaModal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.id = 'agentQuotaModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:99999;backdrop-filter:blur(8px);';
+    modal.innerHTML = `
+      <div style="background:linear-gradient(135deg,#7c2d12,#9a3412);border-radius:24px;padding:48px 56px;max-width:560px;color:#fff;text-align:center;box-shadow:0 30px 80px rgba(0,0,0,.5);">
+        <div style="font-size:72px;margin-bottom:14px;">⏰</div>
+        <h1 style="margin:0 0 12px;font-size:32px;font-weight:900;">ChatGPT Plus 한도 도달</h1>
+        <p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#fed7aa;">
+          Codex의 5시간 사용량 풀이 소진됐습니다.<br/>
+          다음 중 하나로 계속하세요:
+        </p>
+        <div style="text-align:left;background:rgba(0,0,0,.3);border-radius:12px;padding:18px 22px;margin-bottom:24px;font-size:14px;line-height:1.8;">
+          <div style="margin-bottom:10px;"><strong>🕐 5시간 후 다시 시도</strong></div>
+          <div style="color:#fed7aa;font-size:13px;margin-left:24px;">chatgpt.com/codex에서 정확한 리셋 시각 확인</div>
+          <div style="margin:14px 0 10px;"><strong>🔑 API 키 모드로 전환</strong></div>
+          <div style="color:#fed7aa;font-size:13px;margin-left:24px;">환경설정 → 글 생성 엔진 → Gemini/OpenAI/Claude API 키 사용 (즉시 사용 가능, 한도 별개)</div>
+          <div style="margin:14px 0 10px;"><strong>⭐ ChatGPT Pro 업그레이드</strong></div>
+          <div style="color:#fed7aa;font-size:13px;margin-left:24px;">5h당 20~40편 가능 (Plus의 5~10배 한도)</div>
+        </div>
+        <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+          <button data-quota-open style="background:#fff;color:#7c2d12;border:none;padding:12px 22px;font-size:14px;font-weight:800;border-radius:10px;cursor:pointer;">📊 한도 확인 (chatgpt.com/codex)</button>
+          <button data-quota-close style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.4);padding:12px 22px;font-size:14px;font-weight:700;border-radius:10px;cursor:pointer;">닫기</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('[data-quota-open]')?.addEventListener('click', async () => {
+      try {
+        if (window.api?.invoke) await window.api.invoke('open-external', payload?.resetUrl || 'https://chatgpt.com/codex');
+        else window.open(payload?.resetUrl || 'https://chatgpt.com/codex', '_blank');
+      } catch { window.open('https://chatgpt.com/codex', '_blank'); }
+    });
+    modal.querySelector('[data-quota-close]')?.addEventListener('click', () => modal.remove());
+  });
+} catch (e) { console.warn('[AGENT-QUOTA] subscribe failed:', e); }
+
 // v3.8.96: 부팅 시 정확한 버전을 콘솔에 강제 출력 (사용자가 콘솔에 직접 명령 안 쳐도 됨)
 //   사용자 반복 보고: fix 안 보임 / fix 작동 안 함 / 자동 업데이트했다는데 옛 버전 가능성.
 //   해결: 매 부팅마다 [VERSION] 큰 글씨로 노출 → 사용자가 한눈에 확인.
