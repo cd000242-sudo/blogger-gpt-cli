@@ -78,6 +78,18 @@ function ensureAgentProgressModal(provider = 'codex') {
         </div>
       </div>
 
+      <!-- v3.8.107: ChatGPT Plus 5h 사용량 가이드 (Codex 모드 전용) -->
+      ${provider === 'codex' ? `
+      <div style="margin-bottom:14px;padding:10px 14px;background:rgba(125,211,252,.08);border:1px solid rgba(125,211,252,.25);border-radius:10px;color:#a5f3fc;font-size:12px;line-height:1.6;">
+        💡 <strong>ChatGPT Plus 5시간 한도 가이드</strong>: 글 1편 + 이미지 6~8장 ≈ <strong>전체 한도의 약 15~20%</strong> 소비 (추정).
+        <span style="color:#67e8f9;font-weight:700;">5시간 윈도우당 4~6편 발행 가능</span> (Pro 등급은 20~40편).
+        한도 도달 시 'workspace out of credits' 에러 → <code style="background:rgba(0,0,0,.3);padding:1px 4px;border-radius:3px;">chatgpt.com/codex</code>에서 리셋 시각 확인.
+      </div>` : `
+      <div style="margin-bottom:14px;padding:10px 14px;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.25);border-radius:10px;color:#e9d5ff;font-size:12px;line-height:1.6;">
+        💡 <strong>Claude Code 모드</strong>: 글은 Claude 구독 한도, 이미지는 우리 앱의 사용자 API 키(Gemini/OpenAI) 사용.
+        Gemini 무료 한도 도달 시 placeholder fallback (pollinations.ai 무료). 비용 절약 가능.
+      </div>`}
+
       <div style="height:10px;background:rgba(15,23,42,.95);border:1px solid rgba(148,163,184,.18);border-radius:999px;overflow:hidden;margin-bottom:14px;">
         <div id="agentProgressFill" style="height:100%;width:0%;background:linear-gradient(90deg,#22d3ee,#a78bfa,#34d399);border-radius:999px;transition:width .45s ease;"></div>
       </div>

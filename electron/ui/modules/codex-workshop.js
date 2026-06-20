@@ -3363,36 +3363,40 @@ async function generateAgentImage(engine, prompt, includeText, label) {
 
 async function enhanceCodexAgentImages(html, payload = {}, title = '') {
   const policy = getPayloadImagePolicy(payload);
-  // v3.8.105: 사용자 요구 — "API 키 쓰지 말고 에이전트가 이미지까지 다 해라"
-  //   기존: codex 결과 받은 후 우리 dispatcher (Gemini/OpenAI/Dropshot) 호출.
-  //   변경: dispatcher 호출 완전 비활성. codex가 buildAgentJobInstructions의 pollinations URL 지시대로 본문에 직접 박아야 함.
-  //   본문에 이미지가 없으면 그대로 발행 (placeholder/dispatcher 호출 안 함).
-  if (policy === 'none') {
-    return { content: html, thumbnailUrl: '' };
+  if (policy === 'none') return { content: html, thumbnailUrl: '' };
+
+  // v3.8.107: provider별 분기 — Codex는 자체 GPT-Image(ChatGPT Plus 5h), Claude Code는 우리 dispatcher(사용자 API 키)
+  const provider = state.activeAgentProvider || 'codex';
+  const isCodex = provider === 'codex';
+
+  if (isCodex) {
+    // Codex: 본문에 이미 박힌 이미지만 수집. dispatcher 호출 X (ChatGPT Plus 한도로 codex가 직접 만들었어야 함)
+    try {
+      const probeDoc = new DOMParser().parseFromString(html, 'text/html');
+      const allImgs = Array.from(probeDoc.querySelectorAll('img')).filter((img) => (img.getAttribute('src') || '').trim());
+      const thumbnailUrl = allImgs[0]?.getAttribute('src') || '';
+      if (allImgs.length > 0) {
+        addLog(`🎨 Codex가 본문에 이미지 ${allImgs.length}장 직접 삽입 (ChatGPT Plus 한도 사용, API 키 X)`, 'success');
+        allImgs.forEach((img, i) => {
+          const src = img.getAttribute('src') || '';
+          if (src) appendAgentGeneratedImagePreview({ url: src, label: i === 0 ? '썸네일' : `H2 ${i}` });
+        });
+      } else {
+        addLog('⚠️ Codex가 본문에 이미지를 박지 않음. ChatGPT Plus 한도가 부족하거나 GPT-Image 도구 사용 실패.', 'warning');
+      }
+      return { content: String(html || ''), thumbnailUrl };
+    } catch (e) {
+      addLog(`Codex 이미지 수집 실패: ${e?.message || e}`, 'warning');
+      return { content: String(html || ''), thumbnailUrl: '' };
+    }
   }
 
-  // 본문에서 codex가 박은 이미지 수집 + 썸네일 추출. dispatcher 호출 없음.
-  try {
-    const probeDoc = new DOMParser().parseFromString(html, 'text/html');
-    const allImgs = Array.from(probeDoc.querySelectorAll('img')).filter((img) => (img.getAttribute('src') || '').trim());
-    const thumbnailUrl = allImgs[0]?.getAttribute('src') || '';
-    if (allImgs.length > 0) {
-      addLog(`🎨 Codex가 본문에 이미지 ${allImgs.length}장 직접 삽입 (API 키 사용 안 함)`, 'success');
-      allImgs.forEach((img, i) => {
-        const src = img.getAttribute('src') || '';
-        if (src) appendAgentGeneratedImagePreview({ url: src, label: i === 0 ? '썸네일' : `H2 ${i}` });
-      });
-    } else {
-      addLog('⚠️ Codex가 본문에 이미지를 박지 않았습니다. instructions를 참고해 pollinations URL을 추가하라고 codex에 다시 요청하세요.', 'warning');
-    }
-    return { content: String(html || ''), thumbnailUrl };
-  } catch (e) {
-    addLog(`이미지 수집 실패(무시): ${e?.message || e}`, 'warning');
-    return { content: String(html || ''), thumbnailUrl: '' };
-  }
+  // Claude Code: 자체 이미지 생성 능력 없음 → 우리 dispatcher (사용자 API 키)
+  addLog('🎨 Claude Code 모드 — 우리 앱 이미지 dispatcher 사용 (사용자 API 키)', 'info');
+  return await enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload, title);
 }
 
-// v3.8.105: 옛 dispatcher 기반 enhance는 폐기 (사용자 요구)
+// dispatcher 기반 (Claude Code 모드 전용 — 사용자 API 키 호출)
 async function enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload = {}, title = '') {
   const policy = getPayloadImagePolicy(payload);
   if (policy === 'none') {
