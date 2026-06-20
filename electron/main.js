@@ -6234,11 +6234,27 @@ async function runAgentProcess(profile, jobDir, lastMessagePath) {
                     stderr = (stderr + text).slice(-240000);
                 }
             };
-            child.stdout?.on('data', (chunk) => append('stdout', chunk));
-            child.stderr?.on('data', (chunk) => append('stderr', chunk));
+            // v3.8.114: ChatGPT Plus 한도 도달 등 에러 메시지 실시간 감지 → 즉시 종료 (12분 timeout 안 기다림)
+            let earlyKilled = false;
+            const earlyKillIfQuota = (text) => {
+                if (earlyKilled)
+                    return;
+                if (CODEX_OUT_OF_CREDITS_RE.test(text) || /5\s*hour.*limit|hourly.*limit/i.test(text)) {
+                    earlyKilled = true;
+                    console.log('[AGENT-EARLY-KILL] 🛑 ChatGPT Plus 한도 도달 감지 → codex 즉시 종료');
+                    try {
+                        child.kill();
+                    }
+                    catch { }
+                }
+            };
+            child.stdout?.on('data', (chunk) => { append('stdout', chunk); earlyKillIfQuota(String(chunk || '')); });
+            child.stderr?.on('data', (chunk) => { append('stderr', chunk); earlyKillIfQuota(String(chunk || '')); });
             child.on('error', (error) => {
                 stderr = (stderr + `\n${error.message}`).slice(-240000);
             });
+            // v3.8.114: timeout 12분 → 6분 단축 (한도 도달 시 사용자가 너무 오래 기다림)
+            const TIMEOUT_MS = 6 * 60 * 1000;
             const timeout = setTimeout(() => {
                 timedOut = true;
                 try {
@@ -6247,7 +6263,7 @@ async function runAgentProcess(profile, jobDir, lastMessagePath) {
                 catch {
                     // ignore
                 }
-            }, AGENT_JOB_TIMEOUT_MS);
+            }, TIMEOUT_MS);
             child.on('close', (exitCode) => {
                 clearTimeout(timeout);
                 resolve({ exitCode, stdout, stderr, timedOut });
