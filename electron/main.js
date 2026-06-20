@@ -5963,17 +5963,20 @@ function buildAgentJobInstructions(request, profile) {
                     ? '- 썸네일은 필요할 때 짧은 한국어 제목 텍스트를 포함할 수 있습니다.'
                     : '- 썸네일에도 텍스트를 넣지 않습니다.',
                 '- H2/소제목 이미지는 어떤 경우에도 텍스트를 넣지 않습니다.',
-                '- 🎨 **이미지 생성 (v3.8.105 — 사용자 핵심 요구: API 키 쓰지 마세요)**:',
-                '  사용 도구: **pollinations.ai FLUX 무료/무인증 URL**. API 키 없음, 결제 없음, 추가 도구 호출 없음.',
-                '  방법: 본문 HTML에 다음 형식의 `<img>` 태그를 직접 삽입하세요:',
-                '  `<img src="https://image.pollinations.ai/prompt/[URL_ENCODED_PROMPT]?width=1280&height=720&model=flux&nologo=true&seed=[랜덤6자리숫자]" alt="..." style="width:100%;height:auto;border-radius:10px;margin:20px 0;">`',
-                '  - 썸네일: H1 직후 1장 (1280x720). prompt에 글 주제 영문 키워드.',
-                '  - H2별 1장: 각 H2 직후 figure로 삽입. prompt는 H2 내용 요약 영문.',
-                '  - prompt는 영문 50-100자 (한국어는 URL 인코딩 깨질 수 있음)',
-                '  - seed는 매번 다른 6자리 숫자 (중복 방지)',
-                '  - 예: `<img src="https://image.pollinations.ai/prompt/Korean%20senior%20couple%20checking%20welfare%20documents%20at%20home%20kitchen%2C%20editorial%20realistic%20photo?width=1280&height=720&model=flux&nologo=true&seed=438291">`',
-                '  - 이 URL은 실시간으로 FLUX가 이미지를 생성해 반환합니다. 별도 다운로드/저장 불필요.',
-                '  - 사용자 API 키(Gemini/OpenAI 등) 절대 사용 금지. pollinations URL만 사용.',
+                '- 🎨 **이미지 생성 — Codex 내장 도구 우선 사용 (v3.8.106 사용자 확인: Codex는 이미지 생성 가능)**:',
+                '',
+                '  ▶ **1순위 (최우선)**: Codex의 내장 이미지 생성 도구 사용 (GPT-Image 등).',
+                '    - 도구가 사용 가능하면 직접 호출해 이미지를 생성하고 `result/images/thumbnail.png`, `result/images/h2-1.png`, `result/images/h2-2.png` ... 형식으로 저장하세요.',
+                '    - article.html 안에서는 해당 이미지를 `<img src="images/thumbnail.png" alt="..." style="width:100%;height:auto;border-radius:10px;margin:20px 0;">` 처럼 상대 경로로 참조하세요. 앱이 자동으로 base64로 변환해 본문에 임베드합니다.',
+                '    - 또는 base64 data URL `<img src="data:image/png;base64,...">`로 직접 박아도 됩니다.',
+                '',
+                '  ▶ **2순위 (Codex 내장 도구 사용 불가 시 fallback)**: pollinations.ai 무료 URL을 본문에 직접 박으세요. API 키 없음.',
+                '    `<img src="https://image.pollinations.ai/prompt/[URL_ENCODED_ENGLISH_PROMPT]?width=1280&height=720&model=flux&nologo=true&seed=[랜덤6자리]" alt="..." style="width:100%;height:auto;border-radius:10px;margin:20px 0;">`',
+                '    - prompt는 영문 50-100자 (한국어는 URL 인코딩 깨짐). seed는 매번 랜덤.',
+                '    - 예: `https://image.pollinations.ai/prompt/Korean%20senior%20couple%20welfare%20documents%2C%20editorial%20realistic%20photo?width=1280&height=720&model=flux&nologo=true&seed=438291`',
+                '',
+                '  ▶ **금지**: 사용자 OPENAI_API_KEY, GEMINI_API_KEY, ANTHROPIC_API_KEY 등 우리 앱의 API 키를 도구로 직접 호출 금지. Codex의 자체 내장 도구만 사용.',
+                '  ▶ **수량**: 썸네일 1장 (H1 직후) + 각 H2 직후 1장 (총 6~8장)',
             ].join('\n')
             : [
                 '- 🎨 **이미지 생성 (v3.8.105 — pollinations.ai 무료 URL)**: API 키 없이 본문에 직접 삽입.',
@@ -6384,10 +6387,41 @@ function readAgentJobResult(jobDir, stdout, lastMessagePath) {
     const finalMessage = readTextFileIfExists(lastMessagePath)
         || extractAgentFinalMessageFromJsonl(stdout)
         || stdout;
-    const content = readTextFileIfExists(articlePath)
+    let content = readTextFileIfExists(articlePath)
         || findAgentHtmlOutput(jobDir)
         || extractHtmlFromAgentText(finalMessage)
         || extractHtmlFromAgentText(stdout);
+    // v3.8.106: codex가 만든 result/images/*.png를 자동 수집해서 base64 data URL로 본문 img src 치환
+    //   사용자 요구: codex 내장 도구로 이미지 생성 + 우리 API 키 호출 X
+    try {
+        const imagesDir = path.join(jobDir, 'result', 'images');
+        if (content && fs.existsSync(imagesDir)) {
+            const imageFiles = fs.readdirSync(imagesDir).filter((f) => /\.(png|jpe?g|webp|gif)$/i.test(f));
+            console.log(`[AGENT-IMG] codex 생성 이미지 ${imageFiles.length}장 감지: ${imageFiles.join(', ')}`);
+            for (const fname of imageFiles) {
+                const fpath = path.join(imagesDir, fname);
+                try {
+                    const buf = fs.readFileSync(fpath);
+                    const ext = (fname.match(/\.(\w+)$/)?.[1] || 'png').toLowerCase();
+                    const mime = ext === 'jpg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/png';
+                    const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+                    // 상대경로 (images/xxx, ./images/xxx, result/images/xxx) 모두 치환
+                    const patterns = [
+                        new RegExp(`(<img[^>]+src=["'])(?:\\.\\/)?images\\/${fname.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}(["'])`, 'gi'),
+                        new RegExp(`(<img[^>]+src=["'])(?:\\.\\/)?result\\/images\\/${fname.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}(["'])`, 'gi'),
+                    ];
+                    for (const re of patterns)
+                        content = content.replace(re, `$1${dataUrl}$2`);
+                }
+                catch (imgErr) {
+                    console.warn(`[AGENT-IMG] ${fname} 읽기 실패: ${imgErr?.message || imgErr}`);
+                }
+            }
+        }
+    }
+    catch (e) {
+        console.warn(`[AGENT-IMG] result/images 수집 실패: ${e?.message || e}`);
+    }
     let metadata = {};
     try {
         if (fs.existsSync(metadataPath)) {
