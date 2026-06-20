@@ -275,7 +275,8 @@ function repairPublishInputBrokenText<T extends {
 //   - 금액·기간·날짜·% 자동 <strong> 하이라이트 (이미 강조된 단락은 skip)
 function preCleanupWordPressBody(html: string): string {
   let cleaned = html;
-  cleaned = cleaned.replace(/^\s*<h1[^>]*>[\s\S]*?<\/h1>\s*/i, '');
+  // v3.8.110: 모든 H1 제거 (WP 자체 글 제목과 중복 — 첫 H1만이 아닌 본문 중간/article 내부 H1도)
+  cleaned = cleaned.replace(/<h1[^>]*>[\s\S]*?<\/h1>/gi, '');
 
   const captionPatterns = [
     /<p[^>]*>\s*\[?(?:이미지|사진|썸네일|섬네일|illustration|image|figure)\s*[:：][\s\S]{1,200}?\]?\s*<\/p>/gi,

@@ -607,11 +607,12 @@ function bgptInlinePlatformComponents(html) {
 function preCleanupBloggerBody(html) {
   let cleaned = String(html || '');
   const beforeLen = cleaned.length;
-  // v3.8.101: 사용자 보고 — codex가 8,373자 본문 생성했는데 발행 후 1 min read.
-  //   각 sanitizer 단계마다 본문 길이 트래킹해서 어디서 줄어드는지 진단.
   console.log(`[BODY-TRACE] preCleanupBloggerBody 시작: ${beforeLen}자`);
 
-  cleaned = cleaned.replace(/^\s*<h1[^>]*>[\s\S]*?<\/h1>\s*/i, '');
+  // v3.8.110: 사용자 보고 — 본문에 H1 여러 개 또는 article 내부 H1 잔존
+  //   기존: ^ 시작 첫 H1만 제거. 본문 중간 H1, article 내부 H1은 통과 → Blogger 글 제목 영역과 중복.
+  //   수정: 모든 H1 제거 (Blogger는 글 제목을 자체 렌더링).
+  cleaned = cleaned.replace(/<h1[^>]*>[\s\S]*?<\/h1>/gi, '');
 
   // v3.8.98: 블로거에도 WP와 동일한 깨진 img sanitizer (사용자 보고: 농어촌 글 깨진 이미지 + alt 박스)
   //   - src가 빈 문자열인 img 제거

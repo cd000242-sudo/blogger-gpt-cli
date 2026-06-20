@@ -3370,25 +3370,31 @@ async function enhanceCodexAgentImages(html, payload = {}, title = '') {
   const isCodex = provider === 'codex';
 
   if (isCodex) {
-    // Codex: 본문에 이미 박힌 이미지만 수집. dispatcher 호출 X (ChatGPT Plus 한도로 codex가 직접 만들었어야 함)
+    // v3.8.110: Codex 본문에 이미지 있으면 그대로 사용. 없으면 dispatcher fallback (사용자 OpenAI 키 → GPT-Image-3 우선)
+    //   사용자 보고: codex가 이미지 안 박는 경우 잦음 → 깨진 figure만 남음 → fallback 필요.
     try {
       const probeDoc = new DOMParser().parseFromString(html, 'text/html');
-      const allImgs = Array.from(probeDoc.querySelectorAll('img')).filter((img) => (img.getAttribute('src') || '').trim());
-      const thumbnailUrl = allImgs[0]?.getAttribute('src') || '';
-      if (allImgs.length > 0) {
-        addLog(`🎨 Codex가 본문에 이미지 ${allImgs.length}장 직접 삽입 (ChatGPT Plus 한도 사용, API 키 X)`, 'success');
+      const allImgs = Array.from(probeDoc.querySelectorAll('img')).filter((img) => {
+        const src = (img.getAttribute('src') || '').trim();
+        return src && (/^https?:/.test(src) || /^data:image/.test(src));
+      });
+      if (allImgs.length >= 3) {
+        // codex가 충분한 이미지를 직접 박음 — dispatcher skip
+        const thumbnailUrl = allImgs[0]?.getAttribute('src') || '';
+        addLog(`🎨 Codex가 본문에 이미지 ${allImgs.length}장 직접 삽입 (ChatGPT Plus 한도 사용)`, 'success');
         allImgs.forEach((img, i) => {
           const src = img.getAttribute('src') || '';
           if (src) appendAgentGeneratedImagePreview({ url: src, label: i === 0 ? '썸네일' : `H2 ${i}` });
         });
-      } else {
-        addLog('⚠️ Codex가 본문에 이미지를 박지 않음. ChatGPT Plus 한도가 부족하거나 GPT-Image 도구 사용 실패.', 'warning');
+        return { content: String(html || ''), thumbnailUrl };
       }
-      return { content: String(html || ''), thumbnailUrl };
+      // codex 이미지 부족 → dispatcher fallback
+      addLog(`⚠️ Codex가 이미지 ${allImgs.length}장만 박음 (목표 6~8장) — GPT-Image-3 dispatcher fallback 가동`, 'warning');
     } catch (e) {
-      addLog(`Codex 이미지 수집 실패: ${e?.message || e}`, 'warning');
-      return { content: String(html || ''), thumbnailUrl: '' };
+      addLog(`Codex 이미지 수집 실패 → dispatcher fallback: ${e?.message || e}`, 'warning');
     }
+    // dispatcher 호출 (사용자 OpenAI API 키 → gpt-image-3 우선 시도)
+    return await enhanceCodexAgentImages_LEGACY_DISPATCHER(html, { ...payload, thumbnailMode: 'gptimage', h2ImageSource: 'gptimage' }, title);
   }
 
   // Claude Code: 자체 이미지 생성 능력 없음 → 우리 dispatcher (사용자 API 키)
