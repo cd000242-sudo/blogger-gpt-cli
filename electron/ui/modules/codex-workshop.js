@@ -3363,9 +3363,38 @@ async function generateAgentImage(engine, prompt, includeText, label) {
 
 async function enhanceCodexAgentImages(html, payload = {}, title = '') {
   const policy = getPayloadImagePolicy(payload);
-  // v3.8.87: Claude Code 모드도 이미지 생성 허용 (자체 이미지 생성 능력 없으므로 앱 측에서 보충).
-  //   기존: codex만 허용 → Claude Code 발행 시 썸네일/H2 이미지 누락 + 미리보기 그리드 비어 보임.
-  //   변경: 두 provider 모두 동일하게 우리 dispatcher로 이미지 생성.
+  // v3.8.105: 사용자 요구 — "API 키 쓰지 말고 에이전트가 이미지까지 다 해라"
+  //   기존: codex 결과 받은 후 우리 dispatcher (Gemini/OpenAI/Dropshot) 호출.
+  //   변경: dispatcher 호출 완전 비활성. codex가 buildAgentJobInstructions의 pollinations URL 지시대로 본문에 직접 박아야 함.
+  //   본문에 이미지가 없으면 그대로 발행 (placeholder/dispatcher 호출 안 함).
+  if (policy === 'none') {
+    return { content: html, thumbnailUrl: '' };
+  }
+
+  // 본문에서 codex가 박은 이미지 수집 + 썸네일 추출. dispatcher 호출 없음.
+  try {
+    const probeDoc = new DOMParser().parseFromString(html, 'text/html');
+    const allImgs = Array.from(probeDoc.querySelectorAll('img')).filter((img) => (img.getAttribute('src') || '').trim());
+    const thumbnailUrl = allImgs[0]?.getAttribute('src') || '';
+    if (allImgs.length > 0) {
+      addLog(`🎨 Codex가 본문에 이미지 ${allImgs.length}장 직접 삽입 (API 키 사용 안 함)`, 'success');
+      allImgs.forEach((img, i) => {
+        const src = img.getAttribute('src') || '';
+        if (src) appendAgentGeneratedImagePreview({ url: src, label: i === 0 ? '썸네일' : `H2 ${i}` });
+      });
+    } else {
+      addLog('⚠️ Codex가 본문에 이미지를 박지 않았습니다. instructions를 참고해 pollinations URL을 추가하라고 codex에 다시 요청하세요.', 'warning');
+    }
+    return { content: String(html || ''), thumbnailUrl };
+  } catch (e) {
+    addLog(`이미지 수집 실패(무시): ${e?.message || e}`, 'warning');
+    return { content: String(html || ''), thumbnailUrl: '' };
+  }
+}
+
+// v3.8.105: 옛 dispatcher 기반 enhance는 폐기 (사용자 요구)
+async function enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload = {}, title = '') {
+  const policy = getPayloadImagePolicy(payload);
   if (policy === 'none') {
     return { content: html, thumbnailUrl: '' };
   }
