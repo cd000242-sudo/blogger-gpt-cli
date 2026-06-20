@@ -78,16 +78,21 @@ function ensureAgentProgressModal(provider = 'codex') {
         </div>
       </div>
 
-      <!-- v3.8.107: ChatGPT Plus 5h 사용량 가이드 (Codex 모드 전용) -->
+      <!-- v3.8.108: ChatGPT/Claude 등급별 한도 가이드 -->
       ${provider === 'codex' ? `
       <div style="margin-bottom:14px;padding:10px 14px;background:rgba(125,211,252,.08);border:1px solid rgba(125,211,252,.25);border-radius:10px;color:#a5f3fc;font-size:12px;line-height:1.6;">
-        💡 <strong>ChatGPT Plus 5시간 한도 가이드</strong>: 글 1편 + 이미지 6~8장 ≈ <strong>전체 한도의 약 15~20%</strong> 소비 (추정).
-        <span style="color:#67e8f9;font-weight:700;">5시간 윈도우당 4~6편 발행 가능</span> (Pro 등급은 20~40편).
-        한도 도달 시 'workspace out of credits' 에러 → <code style="background:rgba(0,0,0,.3);padding:1px 4px;border-radius:3px;">chatgpt.com/codex</code>에서 리셋 시각 확인.
+        💡 <strong>ChatGPT 등급별 5시간 한도 (글+이미지 6~8장 1편 ≈ 15~20%)</strong><br/>
+        • <strong>Plus</strong> ($20/월) → 5h당 <strong>4~6편</strong> · 한도 도달 시 chatgpt.com/codex에서 리셋 시각 확인<br/>
+        • <strong>Pro</strong> ($200/월) → 5h당 <strong>20~40편</strong> · 사실상 무제한 운영<br/>
+        • <strong>Team/Enterprise</strong> → Pro와 유사 또는 더 큼<br/>
+        한도 도달 메시지: <code style="background:rgba(0,0,0,.3);padding:1px 4px;border-radius:3px;">workspace out of credits</code>
       </div>` : `
       <div style="margin-bottom:14px;padding:10px 14px;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.25);border-radius:10px;color:#e9d5ff;font-size:12px;line-height:1.6;">
-        💡 <strong>Claude Code 모드</strong>: 글은 Claude 구독 한도, 이미지는 우리 앱의 사용자 API 키(Gemini/OpenAI) 사용.
-        Gemini 무료 한도 도달 시 placeholder fallback (pollinations.ai 무료). 비용 절약 가능.
+        💡 <strong>Claude Code 등급별 5시간 한도 (글 1편 ≈ 10~15% 소비)</strong><br/>
+        • <strong>Pro</strong> ($20/월) → 5h당 <strong>6~10편</strong> · 이미지는 우리 앱 dispatcher (사용자 API 키)<br/>
+        • <strong>Max 5x</strong> ($100/월) → 5h당 <strong>30~50편</strong><br/>
+        • <strong>Max 20x</strong> ($200/월) → 5h당 <strong>100편+</strong> · 사실상 무제한<br/>
+        이미지: Gemini 무료/유료 한도 도달 시 pollinations.ai 무료 fallback 자동 발동
       </div>`}
 
       <div style="height:10px;background:rgba(15,23,42,.95);border:1px solid rgba(148,163,184,.18);border-radius:999px;overflow:hidden;margin-bottom:14px;">

@@ -4247,19 +4247,33 @@ electron_1.ipcMain.handle('prepare-publish-content', async (_evt, data) => {
         }
         if (/blogger|blogspot|\ube14\ub85c\uac70|\ube14\ub85c\uadf8\uc2a4\ud31f/i.test(platform)) {
             const { applyInlineStyles } = require('../dist/core/blogger-publisher.js');
-            return {
-                ok: true,
-                content: typeof applyInlineStyles === 'function' ? applyInlineStyles(content) : content,
-            };
+            const _inLen1 = String(content || '').length;
+            const _inPlain1 = String(content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+            const _tIn1 = `[BODY-TRACE-MAIN] applyInlineStyles 진입 (blogger): html=${_inLen1}자 / plain=${_inPlain1}자`;
+            console.log(_tIn1);
+            _evt.sender?.send?.('log-line', _tIn1);
+            const _out1 = typeof applyInlineStyles === 'function' ? applyInlineStyles(content) : content;
+            const _outPlain1 = String(_out1 || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+            const _tOut1 = `[BODY-TRACE-MAIN] applyInlineStyles 끝 (blogger): html=${(_out1 || '').length}자 / plain=${_outPlain1}자 ${_outPlain1 < _inPlain1 * 0.7 ? '⚠️ 30%+ 감소' : '✅'}`;
+            console.log(_tOut1);
+            _evt.sender?.send?.('log-line', _tOut1);
+            return { ok: true, content: _out1 };
         }
         if (!/wordpress|wp|워드프레스/i.test(platform)) {
             return { ok: true, content };
         }
         const { applyWordPressInlineStyles } = require('../dist/wordpress/wordpress-publisher');
-        return {
-            ok: true,
-            content: applyWordPressInlineStyles(content),
-        };
+        const _inLen2 = String(content || '').length;
+        const _inPlain2 = String(content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+        const _tIn2 = `[BODY-TRACE-MAIN] applyWordPressInlineStyles 진입: html=${_inLen2}자 / plain=${_inPlain2}자`;
+        console.log(_tIn2);
+        _evt.sender?.send?.('log-line', _tIn2);
+        const _out2 = applyWordPressInlineStyles(content);
+        const _outPlain2 = String(_out2 || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+        const _tOut2 = `[BODY-TRACE-MAIN] applyWordPressInlineStyles 끝: html=${(_out2 || '').length}자 / plain=${_outPlain2}자 ${_outPlain2 < _inPlain2 * 0.7 ? '⚠️ 30%+ 감소' : '✅'}`;
+        console.log(_tOut2);
+        _evt.sender?.send?.('log-line', _tOut2);
+        return { ok: true, content: _out2 };
     }
     catch (error) {
         console.error('[PREPARE-PUBLISH] 콘텐츠 준비 실패:', error);
@@ -4274,6 +4288,27 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
         console.log('[PUBLISH] 콘텐츠 길이:', data.content?.length || 0);
         console.log('[PUBLISH] 썸네일 URL:', data.thumbnailUrl ? '있음' : '없음');
         console.log('[PUBLISH] 발행 모드:', data.payload?.publishType || data.payload?.postingMode || 'immediate');
+        // v3.8.108: 본문 trace를 renderer 콘솔로 전달 (사용자가 main 콘솔을 볼 수 없는 문제 해결)
+        const traceToRenderer = (stage, htmlText) => {
+            try {
+                const len = String(htmlText || '').length;
+                const plain = String(htmlText || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+                const h2 = (String(htmlText || '').match(/<h2[^>]*>/gi) || []).length;
+                const imgs = (String(htmlText || '').match(/<img[^>]+src=/gi) || []).length;
+                const line = `[BODY-TRACE-MAIN] ${stage}: html=${len}자 / plain=${plain}자 / H2=${h2} / img=${imgs}`;
+                console.log(line);
+                _evt.sender?.send?.('log-line', line);
+            }
+            catch { }
+        };
+        traceToRenderer('publish-content 진입', data.content);
+        // 본문 너무 짧으면 안전망 — 사용자에게 명확히 알림 후 발행 (강제 중단은 안 함)
+        const plainLenIn = String(data.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+        if (plainLenIn < 1500) {
+            const warn = `[BODY-TRACE-MAIN] ⚠️ 발행 직전 본문이 너무 짧음 (평문 ${plainLenIn}자) — 발행 진행하지만 결과 짧을 가능성`;
+            console.warn(warn);
+            _evt.sender?.send?.('log-line', warn);
+        }
         const { publishGeneratedContent } = require('../dist/core/index');
         const result = await publishGeneratedContent(data.payload, data.title, data.content, data.thumbnailUrl);
         console.log('[PUBLISH] 발행 결과:', {
