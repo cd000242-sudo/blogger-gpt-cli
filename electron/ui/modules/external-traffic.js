@@ -166,8 +166,9 @@ function _getExtTrafficAgentImageMode() {
     executionMode,
     provider,
     isAgentMode: executionMode === 'agent',
-    codexImageManaged: executionMode === 'agent' && provider === 'codex',
-    claudeNeedsImageEngine: executionMode === 'agent' && provider === 'claude',
+    codexImageManaged: false,
+    agentUsesImageApi: executionMode === 'agent',
+    claudeNeedsImageEngine: executionMode === 'agent',
   };
 }
 
@@ -176,8 +177,6 @@ function _getExtTrafficImageModePayload() {
   return {
     executionMode: mode.executionMode,
     agentProvider: mode.provider,
-    agentImageManaged: mode.codexImageManaged || undefined,
-    imageManagedBy: mode.codexImageManaged ? 'codex-agent' : undefined,
     imagePolicy: mode.imagePolicy || mode.policy || 'all',
     h2ImageMode: mode.h2ImageMode || mode.imagePolicy || mode.policy || 'all',
     thumbnailTextIncluded: mode.thumbnailTextIncluded !== false,
@@ -188,11 +187,8 @@ function _getExtTrafficImageModePayload() {
 
 function _getPinterestImageInstruction() {
   const mode = _getExtTrafficAgentImageMode();
-  if (mode.codexImageManaged) {
-    return 'Codex Agent가 이어서 이미지를 생성할 수 있도록 [Image Prompt]는 영어 이미지 생성 지시문으로 구체화하고, 텍스트 오버레이 문구·구도·색상·금지 요소까지 포함하세요.';
-  }
-  if (mode.claudeNeedsImageEngine) {
-    return '[Image Prompt]는 Claude Code가 직접 이미지를 생성하지 못하므로 별도 이미지 엔진에 넣을 수 있는 영어 프롬프트로 작성하세요.';
+  if (mode.isAgentMode) {
+    return '[Image Prompt]는 Agent가 직접 이미지를 생성하지 않으므로 Orbit 이미지 엔진/API에 넣을 수 있는 영어 프롬프트로 작성하세요.';
   }
   return '[Image Prompt]는 사용자가 별도 이미지 생성 도구로 만들 수 있는 영어 프롬프트로 작성하세요.';
 }
@@ -1202,10 +1198,6 @@ function _renderStructuredPlatformResultCard(platform, cached) {
               <div style="color:${cfg.accent};font-size:10px;font-weight:900;margin-bottom:4px;white-space:nowrap;">${escapeHtml(label)}</div>
               <div title="${escapeHtml(value)}" style="color:#f8fafc;font-size:12px;line-height:1.35;max-height:34px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${escapeHtml(value)}</div>
             </div>`).join('')}
-        </div>` : ''}
-      ${platform.id === 'pinterest' && _getExtTrafficAgentImageMode().codexImageManaged ? `
-        <div style="margin-top:10px;padding:9px 11px;background:rgba(14,165,233,0.12);border:1px solid rgba(56,189,248,0.32);border-radius:9px;color:#bae6fd;font-size:12px;font-weight:800;line-height:1.45;">
-          Codex Agent 이미지 관리 모드: 이미지 문구와 디자인 방향은 Codex가 이어서 이미지 생성까지 처리할 지시로 사용됩니다.
         </div>` : ''}
     </div>
 
@@ -2311,8 +2303,8 @@ function _renderMultiOutput(platform, parts) {
   for (const [key, value] of Object.entries(parts)) {
     const safeKey = `extTrafficPart_${idx}`;
     const safeValue = escapeHtml(value || '');
-    const label = key === 'imagePrompt' && _getExtTrafficAgentImageMode().codexImageManaged
-      ? 'Image Prompt (Codex 이미지 지시)'
+    const label = key === 'imagePrompt' && _getExtTrafficAgentImageMode().isAgentMode
+      ? 'Image Prompt (API 이미지 프롬프트)'
       : (labels[key] || key);
     const charCount = (value || '').length;
     html += `
@@ -2753,8 +2745,8 @@ async function extTrafficGenerateOne(platformId) {
     });
     _updateExtTrafficProgress({ percent: 14, phase: '원본 글 분석 중', softCap: 88 });
     _addExtTrafficProgressLog('원본 제목, URL, 본문 요약을 정리합니다.', 'info');
-    if (_getExtTrafficAgentImageMode().codexImageManaged) {
-      _addExtTrafficProgressLog('Codex Agent 이미지 관리 모드 — 이미지 프롬프트는 Codex가 이어서 처리할 지시로 생성합니다.', 'info');
+    if (_getExtTrafficAgentImageMode().isAgentMode) {
+      _addExtTrafficProgressLog('Agent 모드 — 이미지 프롬프트는 Orbit 이미지 엔진/API용으로 생성합니다.', 'info');
     }
     _addExtTrafficProgressLog(`${platform.label} 문체와 길이 규칙을 적용합니다.`, 'info');
     _updateExtTrafficProgress({ percent: 42, phase: 'AI 응답 대기 중', softCap: 88 });
@@ -2798,8 +2790,8 @@ async function extTrafficGenerateAll() {
     phase: '전체 플랫폼 생성 준비',
   });
   _addExtTrafficProgressLog(`총 ${PLATFORMS.length}개 플랫폼을 순서대로 생성합니다.`, 'info');
-  if (_getExtTrafficAgentImageMode().codexImageManaged) {
-    _addExtTrafficProgressLog('Codex Agent 이미지 관리 모드 — 이미지 관련 출력은 Codex가 이어서 처리할 지시로 생성합니다.', 'info');
+  if (_getExtTrafficAgentImageMode().isAgentMode) {
+    _addExtTrafficProgressLog('Agent 모드 — 이미지 관련 출력은 Orbit 이미지 엔진/API용으로 생성합니다.', 'info');
   }
 
   for (const [index, platform] of PLATFORMS.entries()) {

@@ -68,7 +68,7 @@ function ensureAgentProgressModal(provider = 'codex') {
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:18px;">
         <div style="min-width:0;flex:1;">
           <div style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.24);color:#a5f3fc;font-size:12px;font-weight:800;">${providerLabel} Agent Mode</div>
-          <h2 style="margin:12px 0 4px;color:#f8fafc;font-size:24px;line-height:1.2;">글 생성부터 이미지 생성, 발행까지 진행 중</h2>
+          <h2 style="margin:12px 0 4px;color:#f8fafc;font-size:24px;line-height:1.2;">Agent 글 생성부터 API 이미지 생성, 발행까지 진행 중</h2>
           <p id="agentProgressStatus" style="margin:0;color:#cbd5e1;font-size:13px;line-height:1.6;">Agent 작업을 준비하고 있습니다.</p>
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
@@ -81,9 +81,9 @@ function ensureAgentProgressModal(provider = 'codex') {
       <!-- v3.8.108: ChatGPT/Claude 등급별 한도 가이드 -->
       ${provider === 'codex' ? `
       <div style="margin-bottom:14px;padding:10px 14px;background:rgba(125,211,252,.08);border:1px solid rgba(125,211,252,.25);border-radius:10px;color:#a5f3fc;font-size:12px;line-height:1.6;">
-        💡 <strong>ChatGPT 등급별 5시간 한도 (글+이미지 6~8장 1편 ≈ 15~20%)</strong><br/>
-        • <strong>Plus</strong> ($20/월) → 5h당 <strong>4~6편</strong> · 한도 도달 시 chatgpt.com/codex에서 리셋 시각 확인<br/>
-        • <strong>Pro</strong> ($200/월) → 5h당 <strong>20~40편</strong> · 사실상 무제한 운영<br/>
+        💡 <strong>ChatGPT/Codex 구독 한도는 글 생성에 사용됩니다. 이미지는 선택한 Orbit 이미지 엔진/API 한도를 따릅니다.</strong><br/>
+        • <strong>Plus</strong> → 글 생성 한도 도달 시 chatgpt.com/codex에서 리셋 시각 확인<br/>
+        • <strong>Pro</strong> → 더 긴 글 생성 작업에 유리<br/>
         • <strong>Team/Enterprise</strong> → Pro와 유사 또는 더 큼<br/>
         한도 도달 메시지: <code style="background:rgba(0,0,0,.3);padding:1px 4px;border-radius:3px;">workspace out of credits</code>
       </div>` : `
@@ -92,7 +92,7 @@ function ensureAgentProgressModal(provider = 'codex') {
         • <strong>Pro</strong> ($20/월) → 5h당 <strong>6~10편</strong> · 이미지는 우리 앱 dispatcher (사용자 API 키)<br/>
         • <strong>Max 5x</strong> ($100/월) → 5h당 <strong>30~50편</strong><br/>
         • <strong>Max 20x</strong> ($200/월) → 5h당 <strong>100편+</strong> · 사실상 무제한<br/>
-        이미지: Gemini 무료/유료 한도 도달 시 pollinations.ai 무료 fallback 자동 발동
+        이미지: 선택한 Orbit 이미지 엔진/API 설정을 사용합니다.
       </div>`}
 
       <div style="height:10px;background:rgba(15,23,42,.95);border:1px solid rgba(148,163,184,.18);border-radius:999px;overflow:hidden;margin-bottom:14px;">
@@ -444,7 +444,7 @@ export function showAutoImageSourceModal() {
             </label>
             <label style="padding: 12px; background: rgba(96,165,250,0.08); border: 2px solid rgba(96, 165, 250, 0.45); border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 10px; color: white;">
               <input type="radio" name="autoAiSource" value="flow">
-              <span>🌊 Flow (Google Labs)</span>
+              <span>🌊 Flow (Google AI Plus/Pro 구독 시 무료)</span>
             </label>
           </div>
           <div id="autoLeonardoModelSection" style="display:none; margin-top:12px; padding:14px; background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.35); border-radius:12px;">
@@ -666,7 +666,7 @@ export async function runPosting() {
         let activeAgentProvider = 'codex';
         try { activeAgentProvider = localStorage.getItem('leadernamActiveAgentProvider') === 'claude' ? 'claude' : 'codex'; } catch {}
         ensureAgentProgressModal(activeAgentProvider);
-        updateAgentProgressModal(8, 'Agent 모드: 글 생성, 이미지 생성, 발행 작업을 준비합니다.', 'info', 'prepare');
+        updateAgentProgressModal(8, 'Agent 모드: 글 생성과 API 이미지 생성, 발행 작업을 준비합니다.', 'info', 'prepare');
       }
     }
 
@@ -709,8 +709,8 @@ export async function runPosting() {
         throw new Error('Agent 실행 모듈을 아직 준비하지 못했습니다. 앱을 다시 실행한 뒤 시도해주세요.');
       }
       addLog('Agent 모드: 현재 상세설정으로 글 생성을 시작합니다.', 'info');
-      updateAgentProgressModal(18, 'Agent 모드: 현재 상세설정으로 글과 이미지 작업을 시작합니다.', 'info', 'article');
-      addLog('Agent 모드: 현재 상세설정으로 글과 이미지 생성을 시작합니다.', 'info');
+      updateAgentProgressModal(18, 'Agent 모드: 글은 Agent가 만들고 이미지는 앱 API 엔진으로 생성합니다.', 'info', 'article');
+      addLog('Agent 모드: 글 생성 후 앱 이미지 엔진/API로 이미지를 생성합니다.', 'info');
       const agentResult = await window.runAgentJobFromPosting(payload);
       setFinalResult({
         ok: true,
@@ -728,7 +728,7 @@ export async function runPosting() {
         if (previewModal?.style) previewModal.style.display = 'none';
       } catch {}
       addLog('Agent 생성 완료: 기존 발행 흐름으로 이어서 진행합니다.', 'info');
-      updateAgentProgressModal(84, 'Agent 글/이미지 산출물을 적용했습니다. 플랫폼 발행을 시작합니다.', 'success', 'publish');
+      updateAgentProgressModal(84, 'Agent 글과 API 이미지를 적용했습니다. 플랫폼 발행을 시작합니다.', 'success', 'publish');
       window.__agentPublishFlowActive = true;
       addLog('Agent 생성 완료: 플랫폼 발행 흐름으로 이어서 진행합니다.', 'info');
       const publishResult = await publishToPlatform();
@@ -1363,7 +1363,6 @@ function getH2ImageSettingsFromDOM() {
   const agentImageMode = typeof window !== 'undefined' && typeof window.getAgentImageSettingsMode === 'function'
     ? window.getAgentImageSettingsMode()
     : null;
-  const codexImageManaged = !!agentImageMode?.codexImageManaged;
   const selectedPolicy = normalizeImagePolicy(
     agentImageMode?.imagePolicy
     || agentImageMode?.policy
@@ -1391,8 +1390,6 @@ function getH2ImageSettingsFromDOM() {
       thumbnailTextIncluded,
       thumbnailIncludeText: thumbnailTextIncluded,
       h2TextIncluded: false,
-      agentImageManaged: codexImageManaged || undefined,
-      imageManagedBy: codexImageManaged ? 'codex-agent' : undefined,
     };
   }
 
@@ -1420,8 +1417,6 @@ function getH2ImageSettingsFromDOM() {
     thumbnailTextIncluded,
     thumbnailIncludeText: thumbnailTextIncluded,
     h2TextIncluded: false,
-    agentImageManaged: codexImageManaged || undefined,
-    imageManagedBy: codexImageManaged ? 'codex-agent' : undefined,
   };
 }
 

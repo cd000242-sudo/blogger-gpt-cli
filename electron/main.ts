@@ -6391,51 +6391,26 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
     '## 핵심 목표',
     `- 주제: ${topic || '(비어 있음)'}`,
     `- 실행 엔진: ${profile.provider}`,
-    `- 이미지 생성 범위: ${describeAgentImagePolicy(imagePolicy)}`,
+    `- API 이미지 생성 범위: ${describeAgentImagePolicy(imagePolicy)}`,
     `- 썸네일 텍스트: ${thumbnailTextIncluded ? '포함 가능. 단, 짧은 한국어 제목형 문구만 사용한다.' : '미포함. 썸네일에도 글자를 넣지 않는다.'}`,
-    '- 소제목 이미지는 항상 텍스트 없이 만든다. 간판, 자막, 문구, 로고, 워터마크를 넣지 않는다.',
+    '- 소제목 이미지 프롬프트는 항상 텍스트 없이 설계한다. 간판, 자막, 문구, 로고, 워터마크를 넣지 않는다.',
     referenceLines.length ? `- 참고 URL: ${referenceLines.join(' / ')}` : '- 참고 URL: 없음',
     '- 독자가 초반 3문단 안에서 "내 이야기다"라고 느끼게 구성합니다.',
     '- 과장, 루머, 출처 불명 수치, 자동 생성 티가 나는 문장을 피합니다.',
     '- 정책/지원금/가격/일정 등 변동 가능한 정보는 확인 흐름과 주의 문구를 함께 넣습니다.',
     '',
     '## Agent 이미지 처리 규칙',
-    profile.provider === 'codex'
-      ? [
-          '- Codex 실행에서는 글 본문뿐 아니라 썸네일/본문 이미지를 함께 생성하거나 준비합니다.',
-          `- 이미지 범위는 반드시 "${describeAgentImagePolicy(imagePolicy)}" 규칙을 따릅니다.`,
-          thumbnailTextIncluded
-            ? '- 썸네일은 필요할 때 짧은 한국어 제목 텍스트를 포함할 수 있습니다.'
-            : '- 썸네일에도 텍스트를 넣지 않습니다.',
-          '- H2/소제목 이미지는 어떤 경우에도 텍스트를 넣지 않습니다.',
-          '- 🎨 **이미지 생성 — Codex 내장 GPT-Image-2 도구 (v3.8.112 진단 강화)**:',
-          '',
-          '  ▶ **1단계 (진단 — 반드시 먼저 실행)**: 사용 가능한 도구 목록을 `result/diagnostic.txt`에 저장하세요.',
-          '    내용 예시:',
-          '    ```',
-          '    available_tools: file_create, file_edit, file_read, shell_exec, image_gen, web_search',
-          '    codex_version: 0.X.X',
-          '    image_gen_available: yes/no',
-          '    sandbox_mode: workspace-write',
-          '    test_image_gen_attempt: 결과 메시지 또는 오류',
-          '    ```',
-          '',
-          '  ▶ **2단계 (image_gen 사용 가능 시)**: PNG 이미지 생성 + `result/images/thumbnail.png`, `result/images/h2-1.png` ... 저장.',
-          '    article.html에 `<img src="images/thumbnail.png" alt="..." style="width:100%;height:auto;border-radius:10px;margin:20px 0;">` 상대 경로로 참조.',
-          '',
-          '  ▶ **3단계 (image_gen 도구가 없거나 실패 시)**: result/diagnostic.txt에 "image_gen_available: no"와 정확한 오류 메시지 기록.',
-          '    이미지 자리는 비워두고 (placeholder 금지) article.html은 글만 완성.',
-          '',
-          '  ▶ **수량 (성공 시)**: 썸네일 1장 (H1 직후) + 각 H2 직후 1장 (총 6~8장 PNG)',
-          '  ▶ **절대 금지**: pollinations.ai 같은 외부 URL, 사용자 API 키 호출, "이미지 생성 실패" placeholder 본문 삽입',
-        ].join('\n')
-      : [
-          '- 🎨 **이미지 생성 (v3.8.105 — pollinations.ai 무료 URL)**: API 키 없이 본문에 직접 삽입.',
-          `- 이미지 설계 범위: "${describeAgentImagePolicy(imagePolicy)}".`,
-          '- 형식: `<img src="https://image.pollinations.ai/prompt/[URL_ENCODED_PROMPT]?width=1280&height=720&model=flux&nologo=true&seed=[랜덤6자리]" alt="..." style="width:100%;height:auto;border-radius:10px;margin:20px 0;">`',
-          '- 썸네일 + H2별 1장. prompt는 영문 50-100자 (한국어 URL 인코딩 깨짐). seed는 매번 랜덤.',
-          '- 사용자 API 키 절대 호출 금지. pollinations 무료 URL만.',
-        ].join('\n'),
+    [
+      `- ${profile.provider === 'codex' ? 'Codex' : 'Claude Code'} Agent는 텍스트 글만 생성합니다.`,
+      '- 실제 썸네일/본문 이미지는 Agent 실행 후 Orbit 앱의 이미지 엔진/API가 생성합니다.',
+      '- image_gen, pollinations.ai, 외부 이미지 URL, 로컬 PNG/JPG/WebP 파일 생성, `<img>` 태그 삽입을 모두 금지합니다.',
+      '- article.html에는 이미지 자리표시자, figure, caption, 이미지 실패 문구를 넣지 않습니다.',
+      `- 이미지 설계 범위는 "${describeAgentImagePolicy(imagePolicy)}" 규칙을 따릅니다.`,
+      thumbnailTextIncluded
+        ? '- metadata.json의 썸네일 프롬프트에는 필요 시 짧은 한국어 제목 텍스트 후보를 제안할 수 있습니다.'
+        : '- metadata.json의 썸네일 프롬프트에도 텍스트를 넣지 않는 방향으로 작성합니다.',
+      '- metadata.json의 H2 이미지 프롬프트는 어떤 경우에도 텍스트/간판/자막/문구/로고/워터마크가 없도록 작성합니다.',
+    ].join('\n'),
     '',
     '## 반드시 생성할 파일',
     '1. `result/article.html`',
@@ -6454,7 +6429,7 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
     '',
     '   🚨 **이미지 캡션 텍스트 본문 노출 금지 (v3.8.88 사용자 보고: 티빙 글)**:',
     '     - "...을 안내하는 썸네일 이미지", "[이미지: ...]", "<썸네일>" 같은 자기 묘사 텍스트를 본문 단독 <p>에 넣지 마세요',
-    '     - 이미지가 필요하면 `<figure data-agent-image="pending"></figure>`만 두고 캡션 없이 비워두세요',
+    '     - 이미지가 필요해도 article.html에는 `<img>`, `<figure>`, placeholder를 넣지 마세요. Orbit 앱이 뒤에서 API 이미지로 삽입합니다.',
     '     - "사진/이미지/썸네일/figure" 단어 자체를 본문 텍스트에 쓰지 마세요',
     '',
     '   ✍ **AI스러움 절대 금지 — 사람보다 더 사람처럼 (v3.8.88 사용자 강조)**:',
@@ -6884,51 +6859,6 @@ function readAgentJobResult(jobDir: string, stdout: string, lastMessagePath: str
     || findAgentHtmlOutput(jobDir)
     || extractHtmlFromAgentText(finalMessage)
     || extractHtmlFromAgentText(stdout);
-
-  // v3.8.112: codex 진단 결과 자동 출력 (image_gen 도구 사용 가능 여부)
-  try {
-    const diagPath = path.join(jobDir, 'result', 'diagnostic.txt');
-    if (fs.existsSync(diagPath)) {
-      const diag = fs.readFileSync(diagPath, 'utf-8');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('[AGENT-DIAG] codex 도구 진단:');
-      console.log(diag);
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    } else {
-      console.log('[AGENT-DIAG] ⚠️ result/diagnostic.txt 없음 — codex가 진단 명령 무시');
-    }
-  } catch (e: any) {
-    console.warn(`[AGENT-DIAG] 진단 파일 읽기 실패: ${e?.message || e}`);
-  }
-
-  // v3.8.106: codex가 만든 result/images/*.png를 자동 수집해서 base64 data URL로 본문 img src 치환
-  //   사용자 요구: codex 내장 도구로 이미지 생성 + 우리 API 키 호출 X
-  try {
-    const imagesDir = path.join(jobDir, 'result', 'images');
-    if (content && fs.existsSync(imagesDir)) {
-      const imageFiles = fs.readdirSync(imagesDir).filter((f) => /\.(png|jpe?g|webp|gif)$/i.test(f));
-      console.log(`[AGENT-IMG] codex 생성 이미지 ${imageFiles.length}장 감지: ${imageFiles.join(', ')}`);
-      for (const fname of imageFiles) {
-        const fpath = path.join(imagesDir, fname);
-        try {
-          const buf = fs.readFileSync(fpath);
-          const ext = (fname.match(/\.(\w+)$/)?.[1] || 'png').toLowerCase();
-          const mime = ext === 'jpg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/png';
-          const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
-          // 상대경로 (images/xxx, ./images/xxx, result/images/xxx) 모두 치환
-          const patterns = [
-            new RegExp(`(<img[^>]+src=["'])(?:\\.\\/)?images\\/${fname.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}(["'])`, 'gi'),
-            new RegExp(`(<img[^>]+src=["'])(?:\\.\\/)?result\\/images\\/${fname.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}(["'])`, 'gi'),
-          ];
-          for (const re of patterns) content = content.replace(re, `$1${dataUrl}$2`);
-        } catch (imgErr: any) {
-          console.warn(`[AGENT-IMG] ${fname} 읽기 실패: ${imgErr?.message || imgErr}`);
-        }
-      }
-    }
-  } catch (e: any) {
-    console.warn(`[AGENT-IMG] result/images 수집 실패: ${e?.message || e}`);
-  }
 
   let metadata: any = {};
   try {
@@ -7903,44 +7833,10 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
     const jobId = createAgentJobId(profile.provider, request?.title || request?.payload?.title || request?.payload?.topic);
     const jobDir = path.join(ensureAgentJobsRoot(), jobId);
     fs.mkdirSync(jobDir, { recursive: true });
-    // v3.8.113: result/images/ 폴더 미리 생성 + watch 시작 → codex가 PNG 만들 때마다 실시간 미리보기 (API 키 모드와 동일 UX)
-    const imagesDir = path.join(jobDir, 'result', 'images');
-    fs.mkdirSync(imagesDir, { recursive: true });
-    const seenImages = new Set<string>();
-    let imageWatcher: any = null;
-    try {
-      imageWatcher = fs.watch(imagesDir, async (eventType, filename) => {
-        try {
-          if (!filename || seenImages.has(filename)) return;
-          if (!/\.(png|jpe?g|webp)$/i.test(filename)) return;
-          const fpath = path.join(imagesDir, filename);
-          // 파일이 완전히 작성될 때까지 잠깐 대기
-          await new Promise((r) => setTimeout(r, 300));
-          if (!fs.existsSync(fpath)) return;
-          const stat = fs.statSync(fpath);
-          if (stat.size < 100) return;
-          seenImages.add(filename);
-          const buf = fs.readFileSync(fpath);
-          const ext = (filename.match(/\.(\w+)$/)?.[1] || 'png').toLowerCase();
-          const mime = ext === 'jpg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
-          const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
-          const label = filename.replace(/\.(png|jpe?g|webp)$/i, '');
-          console.log(`[AGENT-IMG-WATCH] 🎨 codex 새 이미지 감지: ${filename} (${(stat.size / 1024).toFixed(1)}KB) → 미리보기 전송`);
-          _evt.sender?.send?.('agent-image-generated', { url: dataUrl, label, filename });
-          _evt.sender?.send?.('log-line', `[AGENT-IMG] ✨ codex 이미지 생성: ${filename}`);
-        } catch (watchErr: any) {
-          console.warn('[AGENT-IMG-WATCH] watch handler error:', watchErr?.message);
-        }
-      });
-      console.log(`[AGENT-IMG-WATCH] 🔍 ${imagesDir} 감시 시작 (codex가 PNG 만들 때마다 실시간 미리보기)`);
-    } catch (watchErr: any) {
-      console.warn(`[AGENT-IMG-WATCH] fs.watch 실패: ${watchErr?.message}`);
-    }
     writeAgentJobFiles(jobDir, request || {}, profile);
 
     const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
     const run = await runAgentProcess(profile, jobDir, lastMessagePath);
-    try { imageWatcher?.close?.(); } catch {}
     const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
     const usage = parseAgentRunUsage(profile.provider, run.stdout);
     const hasContent = !!String(result.content || '').trim();

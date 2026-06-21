@@ -916,18 +916,10 @@ window.spiderHandleImageFxCheckLogin = spiderHandleImageFxCheckLogin;
 
 // v3.8.7: 엔진 선택 카드 토글 (Google 로그인 / 리더스 나노바나나 무제한)
 function _spiderWebUpdateEngineCards() {
-  const codexImageManaged = typeof window !== 'undefined'
-    && typeof window.getAgentImageSettingsMode === 'function'
-    && window.getAgentImageSettingsMode()?.codexImageManaged;
   const thumbEngine = (document.getElementById('swThumbnailEngine')?.value || '').toLowerCase();
   const h2Engine = (document.getElementById('swH2ImageEngine')?.value || '').toLowerCase();
   const imagefxCard = document.getElementById('swImagefxLoginCard');
   const dropshotCard = document.getElementById('swDropshotLoginCard');
-  if (codexImageManaged) {
-    if (imagefxCard) imagefxCard.style.display = 'none';
-    if (dropshotCard) dropshotCard.style.display = 'none';
-    return;
-  }
   const needsImagefx = /^(imagefx|flow)$/i.test(thumbEngine) || /^(imagefx|flow)$/i.test(h2Engine);
   const needsDropshot = /dropshot/i.test(thumbEngine) || /dropshot/i.test(h2Engine);
   if (imagefxCard) imagefxCard.style.display = needsImagefx ? 'block' : 'none';
@@ -2040,13 +2032,11 @@ async function generateAndPublishSpiderWeb() {
     const agentImageMode = typeof window !== 'undefined' && typeof window.getAgentImageSettingsMode === 'function'
       ? window.getAgentImageSettingsMode()
       : null;
-    const codexImageManaged = !!agentImageMode?.codexImageManaged;
 
     // v3.8.13: 발행 시작 전 엔진별 사전 로그인 확인 (dropshot/imagefx 자동 로그인 대기 방지)
     //   - dropshot 계열: dropshot:check-login으로 미로그인 확인 → 미로그인이면 안내 + 중단
     //   - flow: flow:check-login으로 확인 → 미로그인이면 안내 + 중단
     const _swEngineNeedsLogin = async () => {
-      if (codexImageManaged) return [];
       const thumbEng = (document.getElementById('swThumbnailEngine')?.value || '').toLowerCase();
       const h2Eng = (document.getElementById('swH2ImageEngine')?.value || '').toLowerCase();
       const usesDropshot = /dropshot/.test(thumbEng) || /dropshot/.test(h2Eng);
@@ -2077,11 +2067,7 @@ async function generateAndPublishSpiderWeb() {
     //   기존엔 login check IPC(Playwright 사이트 확인, 5~10초)가 동기로 끝난 후에야 모달 표시 → "10초 대기" 체감.
     //   이제 모달 먼저 → 안에서 login check 진행 → 실패 시 모달 안에서 중단 안내.
     _openSwProgressModal(sourcePosts);
-    if (codexImageManaged) {
-      _swPushLog('Codex Agent 이미지 관리 모드 — 별도 이미지 엔진 로그인 확인을 건너뜁니다.', 'info');
-    } else {
-      _swPushLog('이미지 엔진 로그인 상태 확인 중…', 'info');
-    }
+    _swPushLog('이미지 엔진 로그인 상태 확인 중…', 'info');
 
     const loginIssues = await _swEngineNeedsLogin();
     if (loginIssues.length > 0) {
@@ -2128,8 +2114,6 @@ async function generateAndPublishSpiderWeb() {
         imagePolicy,
         imageThumbnailEngine,
         imageH2Engine,
-        agentImageManaged: codexImageManaged || undefined,
-        imageManagedBy: codexImageManaged ? 'codex-agent' : undefined,
         // v3.8.7: 텍스트 포함 (나노바나나·GPT 덕테이프 등에서 한글 텍스트 오버레이)
         imageIncludeText,
         // v3.8.8: 발행 플랫폼 — 백엔드가 WP 미디어 우선 업로드 결정

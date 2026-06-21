@@ -1903,7 +1903,7 @@ window.refreshImageFxLoginStatus = async function () {
     }
     if (icon) icon.textContent = '✅';
     if (title) title.textContent = `Google 로그인 완료 — Flow 사용 가능`;
-    if (sub) sub.textContent = `${result.userName || result.email || '확인됨'} · 무료 (AI Pro 구독 시 Flow의 nano-banana-pro 무제한)`;
+    if (sub) sub.textContent = `${result.userName || result.email || '확인됨'} · Flow 무료 사용은 Google AI Plus/Pro 구독 계정 기준`;
     if (loginBtn) loginBtn.style.display = 'none';
   } catch (e) {
     if (icon) icon.textContent = '❌';
@@ -2292,7 +2292,7 @@ document.addEventListener('DOMContentLoaded', () => {
 //   환경설정의 이미지 비용표와 동일한 가격 사용. 실시간 업데이트.
 const IMAGE_ENGINE_COST_KRW_PER_IMAGE = {
   'imagefx': 0,                                  // 무료
-  'flow': 0,                                     // Google AI Pro 구독자 (월 구독료별)
+  'flow': 0,                                     // Google AI Plus/Pro 구독 계정 기준 (월 구독료별)
   'dropshot-nanobanana-pro': 0,                  // v3.6.0: Dropshot Pro 구독자 한정 — 구독료(월 74,000~99,000원) 별도, 이미지당 한계비용 0원
   'nanobanana': 52,                              // $0.039
   'nanobanana2': 90,                             // $0.067 (사용자 현재 기본)
@@ -2356,9 +2356,10 @@ window.updateImageCostPreview = function () {
   const h2Total = h2 * h2Count;
   const thumbTotal = thumb * thumbCount;
   const total = h2Total + thumbTotal;
+  const usesFlow = [h2Engine, thumbEngine].some((engine) => String(engine || '').toLowerCase() === 'flow');
 
   const breakdown = total === 0
-    ? '🎉 무료 (이미지 비용 0원)'
+    ? (usesFlow ? '🎉 구독 시 무료 (Google AI Plus/Pro 계정 필요)' : '🎉 무료 (이미지 비용 0원)')
     : `${total.toLocaleString()}원 (본문 ${h2Count}장 ${h2Total.toLocaleString()}원 + 썸네일 ${thumbCount}장 ${thumbTotal.toLocaleString()}원)`;
 
   previewEl.textContent = breakdown;
@@ -6462,8 +6463,9 @@ function getAgentImageSettingsMode() {
     executionMode,
     provider,
     isAgentMode: executionMode === 'agent',
-    codexImageManaged: executionMode === 'agent' && provider === 'codex',
-    claudeNeedsImageEngine: executionMode === 'agent' && provider === 'claude',
+    codexImageManaged: false,
+    agentUsesImageApi: executionMode === 'agent',
+    claudeNeedsImageEngine: executionMode === 'agent',
   };
 }
 
@@ -6547,7 +6549,7 @@ function applyAgentImageSettingsVisibility(root = document) {
   ensureAgentImageSettingsStyles();
   const mode = getAgentImageSettingsMode();
   const locked = !!mode.codexImageManaged;
-  const lockTitle = 'Codex Agent가 이미지 생성까지 관리하므로 이미지 엔진 설정은 비활성화됩니다.';
+  const lockTitle = 'Agent 모드에서도 이미지는 Orbit 이미지 엔진/API 설정을 사용합니다.';
 
   const selectors = [
     '#thumbnailType',
@@ -6582,7 +6584,7 @@ function applyAgentImageSettingsVisibility(root = document) {
     'agentCodexPostingImageNote',
     postingAnchor,
     locked,
-    'Codex Agent 선택 중: 이미지 생성은 Codex 작업 흐름에서 함께 처리하므로 썸네일/본문 이미지 엔진 설정을 잠급니다. Claude Code 또는 API 모드에서는 다시 수정할 수 있습니다.'
+    'Agent 모드에서도 이미지는 Orbit 이미지 엔진/API로 생성합니다.'
   );
 
   const spiderAnchor = document.querySelector('input[name="swImagePolicy"]')?.closest('div')
@@ -6591,7 +6593,7 @@ function applyAgentImageSettingsVisibility(root = document) {
     'agentCodexSpiderImageNote',
     spiderAnchor,
     locked,
-    'Codex Agent 선택 중: 거미줄 포스팅의 이미지 지시는 Codex가 함께 처리하므로 별도 이미지 설정을 잠급니다.'
+    'Agent 모드에서도 거미줄 이미지는 선택한 Orbit 이미지 엔진/API 설정을 사용합니다.'
   );
 
   const queueAnchor = document.getElementById('pq-current-settings') || document.getElementById('pq-bulk-thumb')?.parentElement;
@@ -6599,7 +6601,7 @@ function applyAgentImageSettingsVisibility(root = document) {
     'agentCodexQueueImageNote',
     queueAnchor,
     locked,
-    'Codex Agent 선택 중: 대기열의 썸네일/본문 이미지 설정은 잠깁니다. Claude Code는 별도 이미지 엔진이 필요하므로 이 설정을 계속 사용할 수 있습니다.'
+    'Agent 모드에서도 대기열의 썸네일/본문 이미지 설정을 그대로 사용합니다.'
   );
 
   const extTrafficAnchor = document.getElementById('extTrafficSubtabNav')
@@ -6608,7 +6610,7 @@ function applyAgentImageSettingsVisibility(root = document) {
     'agentCodexExtTrafficImageNote',
     extTrafficAnchor,
     locked,
-    'Codex Agent 선택 중: 외부유입글의 핀터레스트 이미지 프롬프트와 이미지 지시는 Codex 작업 흐름에서 함께 처리합니다. Claude Code/API 모드에서는 별도 이미지 생성용 프롬프트로 유지됩니다.'
+    'Agent 모드에서는 외부유입글의 이미지 프롬프트를 Orbit 이미지 엔진/API용으로 유지합니다.'
   );
 
   ['swImagefxLoginCard', 'swDropshotLoginCard', 'imagefxLoginCardWrap', 'dropshotLoginCardWrap'].forEach((id) => {
@@ -7119,7 +7121,7 @@ async function handleImageFxCheckLogin() {
 
     if (statusEl) {
       if (result.loggedIn) {
-        statusEl.textContent = `✅ 로그인 완료${result.userName ? ': ' + result.userName : ''}`;
+        statusEl.textContent = `✅ 로그인 완료${result.userName ? ': ' + result.userName : ''} · Flow 무료 사용은 Google AI Plus/Pro 구독 계정 기준`;
         statusEl.style.color = '#34d399';
         // 로그인 버튼 스타일 변경
         const loginBtn = document.getElementById('imagefxLoginBtn');
@@ -7177,7 +7179,7 @@ async function handleImageFxLogin() {
 
     if (statusEl) {
       if (result.loggedIn) {
-        statusEl.textContent = `✅ Google 로그인 완료${result.userName ? ': ' + result.userName : ''}`;
+        statusEl.textContent = `✅ Google 로그인 완료${result.userName ? ': ' + result.userName : ''} · Flow 무료 사용은 Google AI Plus/Pro 구독 계정 기준`;
         statusEl.style.color = '#34d399';
         if (loginBtn) {
           loginBtn.style.background = 'linear-gradient(135deg, #34d399, #059669)';

@@ -400,13 +400,14 @@ function getAgentImageSettingsMode() {
   const settings = loadAgentImageSettings();
   const isAgentMode = prefs.mode === 'agent';
   const provider = prefs.agentProvider;
-  const codexImageManaged = isAgentMode && provider === 'codex' && settings.policy !== 'none';
+  const agentUsesImageApi = isAgentMode && settings.policy !== 'none';
   return {
     executionMode: prefs.mode,
     provider,
     isAgentMode,
-    codexImageManaged,
-    claudeNeedsImageEngine: isAgentMode && provider === 'claude',
+    codexImageManaged: false,
+    agentUsesImageApi,
+    claudeNeedsImageEngine: agentUsesImageApi,
     policy: settings.policy,
     imagePolicy: settings.policy,
     h2ImageMode: toLegacyH2ImageMode(settings.policy),
@@ -952,11 +953,11 @@ function renderAgentProviderTabs() {
 
 function renderAgentImageSettingsPanel(provider) {
   const settings = loadAgentImageSettings();
-  const disabled = provider !== 'codex';
+  const disabled = false;
   const disabledAttr = disabled ? 'disabled aria-disabled="true"' : '';
-  const note = disabled
-    ? 'Claude Code는 이미지 모델이 없어서 본문 이미지 프롬프트만 정리합니다. 실제 이미지는 별도 이미지 엔진으로 생성합니다.'
-    : 'Codex가 글 생성과 함께 이미지 위치와 프롬프트까지 처리합니다. 소제목 이미지는 어떤 옵션에서도 텍스트를 넣지 않습니다.';
+  const note = provider === 'claude'
+    ? 'Claude Code는 글만 생성합니다. 실제 이미지는 선택한 앱 이미지 엔진/API로 별도 생성합니다.'
+    : 'Codex는 글만 생성합니다. 실제 이미지는 선택한 앱 이미지 엔진/API로 별도 생성합니다.';
 
   return `
     <div class="agent-image-policy-panel ${disabled ? 'is-disabled' : ''}">
@@ -965,7 +966,7 @@ function renderAgentImageSettingsPanel(provider) {
           <strong>이미지 생성 범위</strong>
           <span>${escapeHtml(note)}</span>
         </div>
-        <span class="agent-mode-pill ${disabled ? 'is-locked' : 'is-ready'}">${disabled ? '프롬프트만' : escapeHtml(getAgentImagePolicyLabel(settings.policy))}</span>
+        <span class="agent-mode-pill is-ready">${escapeHtml(getAgentImagePolicyLabel(settings.policy))}</span>
       </div>
       <div class="agent-image-policy-grid">
         ${AGENT_IMAGE_POLICY_OPTIONS.map((option) => `
@@ -1182,7 +1183,7 @@ function applyExecutionModeToApp() {
   const apiTextProviderSelect = $('apiTextProviderSelect');
   if (apiTextProviderSelect) apiTextProviderSelect.disabled = agentSelected;
   const apiImageProviderSelect = $('apiImageProviderSelect');
-  if (apiImageProviderSelect) apiImageProviderSelect.disabled = agentSelected && state.activeAgentProvider === 'codex';
+  if (apiImageProviderSelect) apiImageProviderSelect.disabled = agentSelected;
 
   ['agentModeSettingsStartLogin', 'agentModeSettingsRefresh', 'agentUsageResetBtn', 'agentModeSettingsProfileSelect'].forEach((id) => {
     const el = $(id);
@@ -1492,9 +1493,7 @@ function buildCodexImageTask(payload = {}) {
   const imagePolicy = getPayloadImagePolicy(payload);
   const thumbnailTextIncluded = payload.thumbnailTextIncluded !== false && payload.thumbnailIncludeText !== false;
   const references = getReferenceLines(payload);
-  const imageCapabilityNote = provider === 'claude'
-    ? '중요: Claude Code에는 자체 이미지 생성 모델이 없습니다. 실제 이미지는 앱의 이미지 엔진(GPT Image, Gemini Image, Leonardo, Flow 등)으로 별도 생성하고, Claude Code는 이미지 프롬프트/구도/alt/삽입 위치만 설계합니다.'
-    : '중요: Codex는 작업 Agent입니다. 이미지 생성 기능이 연결된 환경에서는 GPT Image 등 별도 이미지 엔진으로 생성하고, 그렇지 않으면 이미지 프롬프트/구도/alt/삽입 위치를 설계합니다.';
+  const imageCapabilityNote = '중요: Agent는 실제 이미지를 생성하지 않습니다. 실제 이미지는 Orbit 앱의 이미지 엔진/API(GPT Image, Gemini Image, Leonardo, Flow 등)로 별도 생성하고, Agent는 이미지 프롬프트/구도/alt/삽입 위치만 설계합니다.';
 
   return `${agentLabel} 이미지 작업 지시서
 
@@ -1523,7 +1522,8 @@ ${references.length ? references.map((url, index) => `  ${index + 1}. ${url}`).j
 1. 선택한 이미지 생성 범위에 맞는 썸네일/H2 이미지 프롬프트
 2. H2별 이미지 아이디어. 선택 범위 밖 H2는 "skip"으로 표시
 3. 썸네일 문구 후보 3개. 썸네일 텍스트 미포함이면 빈 배열로 표시
-4. 실제 생성에 사용할 추천 이미지 엔진`;
+4. 실제 생성에 사용할 추천 이미지 엔진
+5. 실제 이미지 파일 생성, image_gen 호출, 외부 이미지 URL 삽입은 하지 않음`;
 }
 
 function ensureStyles() {
@@ -2987,7 +2987,7 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   state.imageTask = editedImageTask || buildCodexImageTask(payload);
   setModalValues();
   if (source === 'posting') {
-    updateAgentProgress(38, '글 생성 지시서와 이미지 생성 지시서를 준비했습니다.');
+    updateAgentProgress(38, 'Agent 글 생성 지시서와 API 이미지 프롬프트 지시서를 준비했습니다.');
   }
 
   const providerLabel = profile.provider === 'claude' ? 'Claude Code' : 'Codex';
@@ -3000,7 +3000,7 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
 
   const api = getBridgeApi();
   if (source === 'posting') {
-    updateAgentProgress(46, `${providerLabel}가 글 본문과 이미지 산출물을 생성 중입니다.`);
+    updateAgentProgress(46, `${providerLabel}가 글 본문을 생성 중입니다. 이미지는 이후 Orbit API 엔진으로 생성합니다.`);
   }
 
   const request = {
@@ -3017,7 +3017,7 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   if (source === 'posting') {
     imageStageTimer = setTimeout(() => {
       if (!agentRunSettled) {
-        updateAgentProgress(62, `${providerLabel}가 이미지 산출물과 본문 삽입 구성을 정리 중입니다.`);
+        updateAgentProgress(62, `${providerLabel}가 글 구조를 정리 중입니다. 이미지 생성은 다음 단계에서 진행합니다.`);
       }
     }, 15000);
   }
@@ -3106,7 +3106,7 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   addLog(`Agent 출력물을 회수했습니다. (${getTextLength(content).toLocaleString()}자)`, 'success');
   await applyCodexResult({ thumbnailUrl: imageEnhancement.thumbnailUrl || '' });
   if (source === 'posting') {
-    updateAgentProgress(82, '글과 이미지 산출물을 미리보기에 적용했습니다. 발행 단계로 넘어갑니다.', 'success');
+    updateAgentProgress(82, 'Agent 글과 API 이미지를 미리보기에 적용했습니다. 발행 단계로 넘어갑니다.', 'success');
   }
 
   return {
@@ -3365,42 +3365,28 @@ async function enhanceCodexAgentImages(html, payload = {}, title = '') {
   const policy = getPayloadImagePolicy(payload);
   if (policy === 'none') return { content: html, thumbnailUrl: '' };
 
-  // v3.8.107: provider별 분기 — Codex는 자체 GPT-Image(ChatGPT Plus 5h), Claude Code는 우리 dispatcher(사용자 API 키)
   const provider = state.activeAgentProvider || 'codex';
-  const isCodex = provider === 'codex';
-
-  if (isCodex) {
-    // v3.8.111: dispatcher fallback 완전 제거 (사용자 지적: "폴백 = 에이전트 쓰는 의미 없음").
-    //   Codex는 자체 GPT-Image-2 도구를 가지고 있으므로 항상 그것만 사용. 못 만들면 사용자가 알고 대비.
-    try {
-      const probeDoc = new DOMParser().parseFromString(html, 'text/html');
-      const allImgs = Array.from(probeDoc.querySelectorAll('img')).filter((img) => {
-        const src = (img.getAttribute('src') || '').trim();
-        return src && (/^https?:/.test(src) || /^data:image/.test(src));
-      });
-      const thumbnailUrl = allImgs[0]?.getAttribute('src') || '';
-      if (allImgs.length > 0) {
-        addLog(`🎨 Codex GPT-Image-2로 ${allImgs.length}장 생성 (ChatGPT Plus 한도 사용)`, 'success');
-        allImgs.forEach((img, i) => {
-          const src = img.getAttribute('src') || '';
-          if (src) appendAgentGeneratedImagePreview({ url: src, label: i === 0 ? '썸네일' : `H2 ${i}` });
-        });
-      } else {
-        addLog('⚠️ Codex가 이미지를 만들지 않음 — instructions에 image_gen 도구 사용을 명시했는지 확인. ChatGPT Plus 한도 도달 가능성 chatgpt.com/codex 확인.', 'warning');
-      }
-      return { content: String(html || ''), thumbnailUrl };
-    } catch (e) {
-      addLog(`Codex 이미지 수집 실패: ${e?.message || e}`, 'warning');
-      return { content: String(html || ''), thumbnailUrl: '' };
-    }
-  }
-
-  // Claude Code: 자체 이미지 생성 능력 없음 → 우리 dispatcher (사용자 API 키)
-  addLog('🎨 Claude Code 모드 — 우리 앱 이미지 dispatcher 사용 (사용자 API 키)', 'info');
+  const providerLabel = provider === 'claude' ? 'Claude Code' : 'Codex';
+  addLog(`🎨 ${providerLabel} Agent는 글만 생성합니다. 이미지는 Orbit 이미지 엔진/API로 생성합니다.`, 'info');
   return await enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload, title);
 }
 
-// dispatcher 기반 (Claude Code 모드 전용 — 사용자 API 키 호출)
+function removeAgentSuppliedImages(html = '') {
+  try {
+    const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+    const root = doc.querySelector('article') || doc.body;
+    root.querySelectorAll('figure, img, picture, source').forEach((node) => node.remove());
+    root.querySelectorAll('[data-agent-image]').forEach((node) => node.remove());
+    return root.tagName.toLowerCase() === 'article' ? root.outerHTML : doc.body.innerHTML;
+  } catch {
+    return String(html || '')
+      .replace(/<figure\b[\s\S]*?<\/figure>/gi, '')
+      .replace(/<picture\b[\s\S]*?<\/picture>/gi, '')
+      .replace(/<img\b[^>]*>/gi, '');
+  }
+}
+
+// dispatcher 기반 (Agent 모드 공통 — 앱 이미지 엔진/API 호출)
 async function enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload = {}, title = '') {
   const policy = getPayloadImagePolicy(payload);
   if (policy === 'none') {
@@ -3412,43 +3398,20 @@ async function enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload = {}, tit
   const h2Engine = payload.h2ImageSource || payload.h2Images?.source || thumbnailEngine;
   const thumbnailTextIncluded = payload.thumbnailTextIncluded !== false && payload.thumbnailIncludeText !== false;
   let thumbnailUrl = '';
-  let content = String(html || '');
+  let content = removeAgentSuppliedImages(html);
 
   updateAgentProgress(76, `이미지 정책 적용 중: ${getAgentImagePolicyLabel(policy)}`, 'info');
 
-  // v3.8.103: Codex가 만든 이미지 우선 사용 (사용자 지적: "코덱스로 이미지 생성 가능")
-  //   기존: codex 결과에 이미지 있어도 우리 dispatcher로 또 만들어 figure 추가 → 중복 + 우리 dispatcher 실패 시 placeholder.
-  //   수정: codex가 본문에 이미 <img> 넣은 H2는 skip, 누락된 곳에만 dispatcher 호출.
-  let codexExistingImgs = 0;
-  let codexThumbHint = '';
-  try {
-    const probeDoc = new DOMParser().parseFromString(content, 'text/html');
-    const allImgs = Array.from(probeDoc.querySelectorAll('img')).filter((img) => (img.getAttribute('src') || '').trim());
-    codexExistingImgs = allImgs.length;
-    // 본문 첫 img는 보통 썸네일
-    if (allImgs.length > 0) codexThumbHint = allImgs[0].getAttribute('src') || '';
-    if (codexExistingImgs > 0) {
-      addLog(`🎨 Codex가 본문에 이미지 ${codexExistingImgs}장을 이미 포함했습니다 — 그대로 사용`, 'success');
-    }
-  } catch {}
-
   if (policy !== 'none') {
-    // codex가 본문에 썸네일 후보 이미지를 넣었으면 그걸 우선 사용
-    if (codexThumbHint && /^(https?:|data:image\/)/.test(codexThumbHint)) {
-      thumbnailUrl = codexThumbHint;
-      addLog('Agent 썸네일은 Codex 본문 첫 이미지를 사용합니다.', 'success');
-      appendAgentGeneratedImagePreview({ url: thumbnailUrl, label: '썸네일 (Codex)' });
-    } else {
-      thumbnailUrl = await generateAgentImage(
-        thumbnailEngine,
-        buildAgentThumbnailPrompt(title || topic, topic, thumbnailTextIncluded),
-        thumbnailTextIncluded,
-        '썸네일'
-      );
-      if (thumbnailUrl) {
-        addLog('Agent 썸네일 이미지를 생성했습니다.', 'success');
-        appendAgentGeneratedImagePreview({ url: thumbnailUrl, label: '썸네일' });
-      }
+    thumbnailUrl = await generateAgentImage(
+      thumbnailEngine,
+      buildAgentThumbnailPrompt(title || topic, topic, thumbnailTextIncluded),
+      thumbnailTextIncluded,
+      '썸네일'
+    );
+    if (thumbnailUrl) {
+      addLog('Agent 글용 썸네일 이미지를 앱 이미지 엔진/API로 생성했습니다.', 'success');
+      appendAgentGeneratedImagePreview({ url: thumbnailUrl, label: '썸네일' });
     }
   }
 
@@ -3462,7 +3425,6 @@ async function enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload = {}, tit
     const root = doc.querySelector('article') || doc.body;
     const h2Nodes = Array.from(root.querySelectorAll('h2'));
     let inserted = 0;
-    let codexSkipped = 0;
 
     for (let i = 0; i < h2Nodes.length; i++) {
       const index = i + 1;
@@ -3470,26 +3432,6 @@ async function enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload = {}, tit
       const h2 = h2Nodes[i];
       const h2Text = (h2.textContent || '').replace(/\s+/g, ' ').trim();
       if (!h2Text) continue;
-
-      // v3.8.103: 해당 H2 바로 뒤에 figure/img가 이미 있으면 skip (codex가 만든 거)
-      let next = h2.nextElementSibling;
-      let hasNearbyImg = false;
-      let hops = 0;
-      while (next && hops < 3) {
-        if (next.tagName === 'FIGURE' || next.tagName === 'IMG' || next.querySelector?.('img')) {
-          hasNearbyImg = true; break;
-        }
-        next = next.nextElementSibling;
-        hops++;
-      }
-      if (hasNearbyImg) {
-        codexSkipped++;
-        addLog(`H2 ${index}: Codex가 만든 이미지 사용 (dispatcher skip)`, 'info');
-        // 미리보기에는 codex 이미지 표시
-        const codexImg = (h2.nextElementSibling?.querySelector?.('img') || h2.nextElementSibling)?.getAttribute?.('src');
-        if (codexImg) appendAgentGeneratedImagePreview({ url: codexImg, label: `H2 ${index} (Codex)` });
-        continue;
-      }
 
       updateAgentProgress(Math.min(82, 76 + inserted + 1), `H2 ${index} 이미지 생성 중: ${h2Text.slice(0, 28)}`, 'info');
       const imageUrl = await generateAgentImage(
@@ -3569,7 +3511,7 @@ export async function openCodexWorkshopPanel() {
     const titleEl = $('codexWorkshopTitle');
     const subtitleEl = $('codexWorkshopSubtitle');
     if (titleEl) titleEl.textContent = `${providerLabel} 작업실`;
-    if (subtitleEl) subtitleEl.textContent = `${providerLabel}가 현재 앱 설정을 읽고 발행 가능한 글과 이미지 방향을 생성합니다.`;
+    if (subtitleEl) subtitleEl.textContent = `${providerLabel}가 현재 앱 설정을 읽고 발행 가능한 글을 생성합니다. 이미지는 Orbit 이미지 엔진/API가 처리합니다.`;
 
     $(MODAL_ID)?.classList.add('is-open');
     addLog(`${state.activeAgentProvider === 'claude' ? 'Claude' : 'Codex'} 작업실 지시서를 현재 설정 기준으로 준비했습니다.`, 'info');

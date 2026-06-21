@@ -39,4 +39,34 @@ describe('agent mode settings UI regression guard', () => {
     expect(workshop).toContain('await startAgentLogin(selectedProvider, profile.id)');
     expect(workshop).toContain('export function ensureAgentModeSettingsSection()');
   });
+
+  test('agent mode keeps image generation on the app API dispatcher', () => {
+    const workshop = read('electron/ui/modules/codex-workshop.js');
+    const posting = read('electron/ui/modules/posting.js');
+    const main = read('electron/main.ts');
+
+    expect(workshop).toContain('Codex는 글만 생성합니다. 실제 이미지는 선택한 앱 이미지 엔진/API로 별도 생성합니다.');
+    expect(workshop).toContain('이미지는 Orbit 이미지 엔진/API로 생성합니다.');
+    expect(workshop).toContain('removeAgentSuppliedImages');
+    expect(workshop).not.toContain('Codex GPT-Image-2로');
+    expect(workshop).not.toContain('dispatcher skip');
+
+    expect(posting).not.toContain('imageManagedBy');
+    expect(posting).not.toContain('agentImageManaged');
+
+    expect(main).toContain('Agent는 텍스트 글만 생성합니다.');
+    expect(main).toContain('실제 썸네일/본문 이미지는 Agent 실행 후 Orbit 앱의 이미지 엔진/API가 생성합니다.');
+    expect(main).toContain('image_gen, pollinations.ai, 외부 이미지 URL');
+    expect(main).not.toContain('result/images/thumbnail.png');
+    expect(main).not.toContain('diagnostic.txt');
+  });
+
+  test('flow labels disclose Google AI Plus or Pro subscription requirement', () => {
+    const index = read('electron/ui/index.html');
+    const script = read('electron/ui/script.js');
+
+    expect(index).toContain('Flow 무료 사용은 Google AI Plus/Pro 구독 계정 로그인이 필요합니다.');
+    expect(index).toContain('Flow (Google AI Plus/Pro 구독 시 무료');
+    expect(script).toContain('Flow 무료 사용은 Google AI Plus/Pro 구독 계정 기준');
+  });
 });
