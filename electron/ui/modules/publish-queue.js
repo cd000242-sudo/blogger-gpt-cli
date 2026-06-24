@@ -253,9 +253,41 @@ function bindMainIntervalControl() {
   input.addEventListener('blur', syncFromMain);
 }
 
+// v3.8.117: 연속발행 모드 활성 시 메인 5개 탭 (콘텐츠/이미지/발행/초안/카테고리) 숨김
+//   사용자 요청: "연속발행 모드에서는 숨겨주고 대기열에서 전부 가능하게"
+function togglePostingSettingsForQueue() {
+  try {
+    const queueActive = (STATE.keywords?.length || 0) > 0 || window.__queueRunning === true;
+    const tabBar = document.querySelector('.posting-settings-tab-bar');
+    const settingsArea = tabBar?.closest('.posting-settings-area') || tabBar?.parentElement;
+    if (!settingsArea) return;
+    let banner = document.getElementById('queue-active-banner');
+    if (queueActive) {
+      settingsArea.style.opacity = '0.25';
+      settingsArea.style.pointerEvents = 'none';
+      settingsArea.style.userSelect = 'none';
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'queue-active-banner';
+        banner.style.cssText = 'margin:10px 0;padding:12px 16px;background:linear-gradient(135deg,rgba(99,102,241,0.18),rgba(139,92,246,0.18));border:1px solid rgba(139,92,246,0.55);border-radius:12px;color:#c7d2fe;font-size:13px;font-weight:700;display:flex;align-items:center;gap:10px;';
+        banner.innerHTML = '⚡ <strong>연속발행 모드 활성</strong> — 메인 화면 옵션은 비활성화. 대기열 모달 (📋 대기열 보기 및 발행하러가기)에서 일괄 설정하세요.';
+        settingsArea.parentElement?.insertBefore(banner, settingsArea);
+      }
+    } else {
+      settingsArea.style.opacity = '';
+      settingsArea.style.pointerEvents = '';
+      settingsArea.style.userSelect = '';
+      banner?.remove();
+    }
+  } catch (e) {
+    console.warn('[QUEUE-TOGGLE] failed:', e?.message);
+  }
+}
+
 function syncBadge() {
   restoreQueue();
   bindMainIntervalControl();
+  togglePostingSettingsForQueue();
   const badge = document.getElementById('publishQueueBadge');
   const countEl = document.getElementById('publishQueueCount');
   const currentCountEl = document.getElementById('publishQueueCurrentCount');
@@ -943,122 +975,168 @@ function buildModalHtml() {
       <button onclick="window.__publishQueue && window.__publishQueue.close()" class="pq-btn" style="background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.18);">닫기</button>
     </div>
 
-    <!-- 일괄 세팅 바 -->
-    <div class="pq-toolbar">
-      <div class="pq-bulk-controls">
-        <span style="color: #a5b4fc; font-size: 12px; font-weight: 900; white-space: nowrap;">일괄 적용</span>
-        <select id="pq-bulk-mode">
-          <option value="">콘텐츠 모드 (변경 안 함)</option>
-          <option value="external">🎯 SEO 외부링크</option>
-          <option value="internal">📝 내부링크 일관</option>
-          <option value="adsense">🏆 애드센스 승인</option>
-          <option value="paraphrasing">🔄 페러프레이징</option>
-        </select>
-        <select id="pq-bulk-thumb">
-          <option value="">썸네일 엔진 (변경 안 함)</option>
-          <option value="dropshot-nanobanana-pro">🍌 리더스 나노바나나 무제한</option>
-          <option value="nanobanana2">🍌 Nano Banana 2 (권장)</option>
-          <option value="nanobanana">🍌 Nano Banana</option>
-          <option value="nanobananapro">🍌 Nano Banana Pro (Gemini 3)</option>
-          <option value="gptimage1">🎯 GPT 이미지 1</option>
-          <option value="gptimage2">🎯 GPT 이미지 2 / 덕트테이프</option>
-          <option value="prodia">🚀 Prodia (유료 최저가)</option>
-          <option value="deepinfra">🔥 DeepInfra</option>
-          <option value="leonardo">🦁 Leonardo.ai</option>
-          <option value="flow">🌊 Flow (Google AI Plus/Pro 구독 시 무료)</option>
-          <option value="crawled">🔗 URL 수집 이미지</option>
-          <option value="none">❌ 썸네일 없음</option>
-        </select>
-        <select id="pq-bulk-h2">
-          <option value="">소제목 이미지 (변경 안 함)</option>
-          <option value="same">썸네일과 동일하게</option>
-          <option value="dropshot-nanobanana-pro">🍌 리더스 나노바나나 무제한</option>
-          <option value="nanobanana2">🍌 Nano Banana 2</option>
-          <option value="nanobanana">🍌 Nano Banana</option>
-          <option value="nanobananapro">🍌 Nano Banana Pro</option>
-          <option value="gptimage1">🎯 GPT 이미지 1</option>
-          <option value="gptimage2">🎯 GPT 이미지 2 / 덕트테이프</option>
-          <option value="prodia">🚀 Prodia</option>
-          <option value="deepinfra">🔥 DeepInfra</option>
-          <option value="leonardo">🦁 Leonardo.ai</option>
-          <option value="flow">🌊 Flow (Google AI Plus/Pro 구독 시 무료)</option>
-          <option value="crawled">🔗 URL 수집 이미지</option>
-          <option value="none">❌ 이미지 없음</option>
-        </select>
-        <select id="pq-bulk-h2-mode">
-          <option value="">본문 배치 (변경 안 함)</option>
-          <option value="all">전체</option>
-          <option value="odd">홀수만</option>
-          <option value="even">짝수만</option>
-          <option value="thumbnail-only">썸네일만</option>
-          <option value="none">이미지 없음</option>
-        </select>
-        <select id="pq-bulk-cta">
-          <option value="">CTA (변경 안 함)</option>
-          <option value="auto">🤖 자동</option>
-          <option value="manual">✏️ 수동</option>
-          <option value="none">없음</option>
-        </select>
-        <select id="pq-bulk-platform">
-          <option value="">플랫폼 (변경 안 함)</option>
-          <option value="blogspot">Blogspot</option>
-          <option value="wordpress">WordPress</option>
-          <option value="tistory">Tistory</option>
-        </select>
-        <select id="pq-bulk-posting">
-          <option value="">발행 방식 (변경 안 함)</option>
-          <option value="publish">즉시 발행</option>
-          <option value="draft">임시 발행</option>
-          <option value="schedule">예약 발행</option>
-        </select>
-        <select id="pq-bulk-section">
-          <option value="">섹션 수 (변경 안 함)</option>
-          <option value="3">3개</option>
-          <option value="4">4개</option>
-          <option value="5">5개</option>
-          <option value="6">6개</option>
-          <option value="7">7개</option>
-          <option value="8">8개</option>
-        </select>
-        <select id="pq-bulk-title">
-          <option value="">제목 옵션 (변경 안 함)</option>
-          <option value="auto">AI 제목 생성</option>
-          <option value="keyword">키워드를 제목으로</option>
-          <option value="front">키워드 앞 배치</option>
-          <option value="keyword-front">키워드 제목 + 앞 배치</option>
-        </select>
-        <select id="pq-bulk-tone">
-          <option value="">톤 (변경 안 함)</option>
-          <option value="professional">전문적</option>
-          <option value="friendly">친근한</option>
-          <option value="casual">캐주얼</option>
-          <option value="formal">격식있는</option>
-          <option value="conversational">대화체</option>
-        </select>
-        <select id="pq-bulk-fact">
-          <option value="">팩트체크 (변경 안 함)</option>
-          <option value="auto">자동</option>
-          <option value="naver">네이버</option>
-          <option value="perplexity">Perplexity</option>
-          <option value="grounding">Gemini Grounding</option>
-          <option value="off">끄기</option>
-        </select>
-        <button id="pq-bulk-apply" class="pq-btn" style="min-height: 34px; padding: 7px 13px; background: linear-gradient(135deg,#6366f1,#8b5cf6); font-size: 12px;">일괄 적용</button>
-        <button id="pq-sync-current" class="pq-btn" style="min-height: 34px; padding: 7px 13px; background: rgba(14,165,233,0.16); border: 1px solid rgba(56,189,248,0.36); color: #bae6fd; font-size: 12px;" title="현재 상세설정 값을 모든 대기열 항목에 다시 반영">현재 상세설정 반영</button>
-      </div>
-      <div class="pq-bulk-controls" style="justify-content: flex-end;">
-        <span style="color: #a5b4fc; font-size: 12px; font-weight: 900; white-space: nowrap;">발행 간격</span>
-        <select id="pq-interval-mode">
-          <option value="minutes" selected>분 단위</option>
-          <option value="hours">시간 단위 (스케줄용)</option>
-          <option value="random">4-8h 무작위 분산 (adsense 3-5개/일)</option>
-        </select>
-        <div id="pq-interval-fixed" style="display: flex; align-items: center; gap: 8px;">
-          <input type="number" id="pq-interval-value" min="7" max="1440" value="7" step="1" inputmode="numeric" style="width: 92px; min-height: 34px; padding: 7px 10px; background: rgba(15,23,42,0.72); color: white; border: 1px solid rgba(148,163,184,0.24); border-radius: 9px; font-size: 13px; font-weight: 900; text-align: center; outline: none;">
-          <span id="pq-interval-unit" style="color: rgba(255,255,255,0.7); font-size: 12px; min-width: 30px;">분</span>
+    <!-- 일괄 세팅 바 v3.8.117 — 사용자 요청 구조: 좌 (콘텐츠/이미지) + 우 (발행/간격) -->
+    <div class="pq-toolbar" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;padding:20px;">
+      <!-- 좌측: 콘텐츠 + 이미지 -->
+      <div style="display:flex;flex-direction:column;gap:18px;">
+        <!-- 콘텐츠 섹션 -->
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid rgba(99,102,241,0.5);">
+            <span style="font-size:14px;">📄</span>
+            <strong style="color:#a5b4fc;font-size:13px;font-weight:900;">콘텐츠 관련</strong>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <label style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#cbd5e1;font-size:11px;font-weight:700;">콘텐츠 모드</span>
+              <select id="pq-bulk-mode">
+                <option value="">변경 안 함</option>
+                <option value="external">🎯 SEO 외부링크</option>
+                <option value="internal">📝 내부링크 일관</option>
+                <option value="adsense">🏆 애드센스 승인</option>
+                <option value="paraphrasing">🔄 페러프레이징</option>
+              </select>
+            </label>
+          </div>
         </div>
-        <span id="pq-interval-guard-hint" style="color:#bfdbfe; font-size:11px; font-weight:800; white-space:nowrap;"></span>
+
+        <!-- 이미지 섹션 -->
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid rgba(236,72,153,0.5);">
+            <span style="font-size:14px;">🖼️</span>
+            <strong style="color:#fbcfe8;font-size:13px;font-weight:900;">이미지 관련</strong>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <label style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#cbd5e1;font-size:11px;font-weight:700;">썸네일 엔진</span>
+              <select id="pq-bulk-thumb">
+                <option value="">변경 안 함</option>
+                <option value="dropshot-nanobanana-pro">🍌 리더스 나노바나나 무제한</option>
+                <option value="nanobanana2">🍌 Nano Banana 2 (권장)</option>
+                <option value="nanobanana">🍌 Nano Banana</option>
+                <option value="nanobananapro">🍌 Nano Banana Pro (Gemini 3)</option>
+                <option value="gptimage1">🎯 GPT 이미지 1</option>
+                <option value="gptimage2">🎯 GPT 이미지 2 / 덕트테이프</option>
+                <option value="prodia">🚀 Prodia (유료 최저가)</option>
+                <option value="deepinfra">🔥 DeepInfra</option>
+                <option value="leonardo">🦁 Leonardo.ai</option>
+                <option value="flow">🌊 Flow (Google AI Plus/Pro)</option>
+                <option value="crawled">🔗 URL 수집 이미지</option>
+                <option value="none">❌ 썸네일 없음</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#cbd5e1;font-size:11px;font-weight:700;">소제목 엔진</span>
+              <select id="pq-bulk-h2">
+                <option value="">변경 안 함</option>
+                <option value="same">썸네일과 동일하게</option>
+                <option value="dropshot-nanobanana-pro">🍌 리더스 나노바나나 무제한</option>
+                <option value="nanobanana2">🍌 Nano Banana 2</option>
+                <option value="nanobanana">🍌 Nano Banana</option>
+                <option value="nanobananapro">🍌 Nano Banana Pro</option>
+                <option value="gptimage1">🎯 GPT 이미지 1</option>
+                <option value="gptimage2">🎯 GPT 이미지 2 / 덕트테이프</option>
+                <option value="prodia">🚀 Prodia</option>
+                <option value="deepinfra">🔥 DeepInfra</option>
+                <option value="leonardo">🦁 Leonardo.ai</option>
+                <option value="flow">🌊 Flow (Google AI Plus/Pro)</option>
+                <option value="crawled">🔗 URL 수집 이미지</option>
+                <option value="none">❌ 이미지 없음</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#cbd5e1;font-size:11px;font-weight:700;">썸네일·소제목 이미지 갯수 세팅</span>
+              <select id="pq-bulk-h2-mode">
+                <option value="">변경 안 함</option>
+                <option value="all">전체 (썸네일 + 모든 소제목)</option>
+                <option value="odd">홀수 번째 소제목만</option>
+                <option value="even">짝수 번째 소제목만</option>
+                <option value="thumbnail-only">썸네일만 (소제목 X)</option>
+                <option value="none">이미지 없음</option>
+              </select>
+            </label>
+          </div>
+        </div>
       </div>
+
+      <!-- 우측: 발행 -->
+      <div style="display:flex;flex-direction:column;gap:18px;">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid rgba(52,211,153,0.5);">
+            <span style="font-size:14px;">📤</span>
+            <strong style="color:#a7f3d0;font-size:13px;font-weight:900;">발행 관련</strong>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <label style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#cbd5e1;font-size:11px;font-weight:700;">제목 옵션</span>
+              <select id="pq-bulk-title">
+                <option value="">변경 안 함</option>
+                <option value="auto">AI 제목 생성</option>
+                <option value="keyword">키워드를 제목으로</option>
+                <option value="front">키워드 앞 배치</option>
+                <option value="keyword-front">키워드 제목 + 앞 배치</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#cbd5e1;font-size:11px;font-weight:700;">발행 방식</span>
+              <select id="pq-bulk-posting">
+                <option value="">변경 안 함</option>
+                <option value="publish">즉시 발행</option>
+                <option value="draft">임시 발행</option>
+                <option value="schedule">예약 발행</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#cbd5e1;font-size:11px;font-weight:700;">톤</span>
+              <select id="pq-bulk-tone">
+                <option value="">변경 안 함</option>
+                <option value="professional">전문적</option>
+                <option value="friendly">친근한</option>
+                <option value="casual">캐주얼</option>
+                <option value="formal">격식있는</option>
+                <option value="conversational">대화체</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#cbd5e1;font-size:11px;font-weight:700;">팩트체크</span>
+              <select id="pq-bulk-fact">
+                <option value="">변경 안 함</option>
+                <option value="auto">자동</option>
+                <option value="naver">네이버</option>
+                <option value="perplexity">Perplexity</option>
+                <option value="grounding">Gemini Grounding</option>
+                <option value="off">끄기</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#cbd5e1;font-size:11px;font-weight:700;">발행 간격 (여러 키워드 시)</span>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <select id="pq-interval-mode" style="flex:1;">
+                  <option value="minutes" selected>분 단위</option>
+                  <option value="hours">시간 단위 (스케줄용)</option>
+                  <option value="random">4-8h 무작위 분산</option>
+                </select>
+                <div id="pq-interval-fixed" style="display:flex;align-items:center;gap:6px;">
+                  <input type="number" id="pq-interval-value" min="7" max="1440" value="7" step="1" inputmode="numeric" style="width:72px;min-height:32px;padding:6px 8px;background:rgba(15,23,42,0.72);color:white;border:1px solid rgba(148,163,184,0.24);border-radius:8px;font-size:13px;font-weight:900;text-align:center;">
+                  <span id="pq-interval-unit" style="color:rgba(255,255,255,0.7);font-size:12px;">분</span>
+                </div>
+              </div>
+              <span id="pq-interval-guard-hint" style="color:#bfdbfe;font-size:11px;font-weight:600;display:block;margin-top:2px;"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- 액션 버튼 -->
+        <div style="display:flex;gap:8px;margin-top:auto;padding-top:12px;border-top:1px solid rgba(148,163,184,0.18);">
+          <button id="pq-bulk-apply" class="pq-btn" style="flex:1;min-height:38px;padding:8px 14px;background:linear-gradient(135deg,#6366f1,#8b5cf6);font-size:13px;font-weight:900;">⚡ 일괄 적용</button>
+          <button id="pq-sync-current" class="pq-btn" style="flex:1;min-height:38px;padding:8px 14px;background:rgba(14,165,233,0.16);border:1px solid rgba(56,189,248,0.36);color:#bae6fd;font-size:12px;font-weight:700;" title="현재 상세설정 값을 모든 대기열 항목에 다시 반영">🔄 현재 상세설정 반영</button>
+        </div>
+      </div>
+
+      <!-- v3.8.117 제거됨: 섹션 수(자동), 플랫폼(환경설정), CTA, 본문 배치(이미지 갯수 세팅으로 통합) -->
+      <!-- hidden compatibility 더미: legacy 코드가 이 ID들을 .value 접근하면 빈 값 반환 -->
+      <select id="pq-bulk-cta" style="display:none;"><option value=""></option></select>
+      <select id="pq-bulk-platform" style="display:none;"><option value=""></option></select>
+      <select id="pq-bulk-section" style="display:none;"><option value=""></option></select>
     </div>
 
     <!-- 큐 리스트 -->
