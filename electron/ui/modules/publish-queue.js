@@ -1782,6 +1782,8 @@ function createQueueRunModal(items, intervalLabel) {
       </section>
       <section class="pqr-panel">
         <div class="pqr-panel-title">생성 이미지 미리보기</div>
+        <!-- v3.8.119: 글마다 서브탭으로 이미지 보관 — 이전 글 이미지도 클릭으로 확인 가능 -->
+        <div id="pqrImageTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(148,163,184,0.18);"></div>
         <div class="pqr-images" id="pqrImages"><div class="pqr-image-empty">이미지가 생성되면 여기에 표시됩니다.</div></div>
       </section>
     </div>
@@ -1858,13 +1860,66 @@ function createQueueRunModal(items, intervalLabel) {
     if (img) img.removeAttribute('src');
   };
 
-  const resetImages = (index) => {
+  // v3.8.119: 글마다 이미지 별도 보관 (서브탭 전환 시 표시)
+  const imagesByIndex = new Map();
+  let activeViewIndex = 0;
+
+  const renderImageTabs = () => {
+    const tabBar = document.getElementById('pqrImageTabs');
+    if (!tabBar) return;
+    const indices = Array.from(imagesByIndex.keys()).sort((a, b) => a - b);
+    if (indices.length === 0) {
+      tabBar.innerHTML = '<span style="color:#94a3b8;font-size:11px;">아직 생성된 이미지가 없습니다.</span>';
+      return;
+    }
+    tabBar.innerHTML = indices.map((idx) => {
+      const arr = imagesByIndex.get(idx) || [];
+      const count = arr.length;
+      const isActive = idx === activeViewIndex;
+      const isCurrent = idx === currentIndex;
+      return `<button data-pqr-img-tab="${idx}" style="padding:6px 12px;border-radius:8px;border:1px solid ${isActive ? 'rgba(99,102,241,0.7)' : 'rgba(148,163,184,0.25)'};background:${isActive ? 'linear-gradient(135deg,rgba(99,102,241,0.25),rgba(139,92,246,0.25))' : 'rgba(15,23,42,0.6)'};color:${isActive ? '#fff' : '#cbd5e1'};font-size:12px;font-weight:${isActive ? '900' : '600'};cursor:pointer;display:flex;align-items:center;gap:6px;">${isCurrent ? '🟢' : ''}${idx + 1}번 (${count}장)</button>`;
+    }).join('');
+    tabBar.querySelectorAll('[data-pqr-img-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.getAttribute('data-pqr-img-tab'), 10);
+        if (!Number.isNaN(idx)) showImagesFor(idx);
+      });
+    });
+  };
+
+  const showImagesFor = (index) => {
+    activeViewIndex = index;
     const host = document.getElementById('pqrImages');
-    if (host) {
+    if (!host) return;
+    const arr = imagesByIndex.get(index) || [];
+    if (arr.length === 0) {
       const keyword = items[index]?.keyword || '';
       const label = keyword ? `${index + 1}번 글 "${keyword}"` : `${index + 1}번 글`;
       host.innerHTML = `<div class="pqr-image-empty">${escHtml(label)} 이미지가 생성되면 여기에 표시됩니다.</div>`;
+    } else {
+      host.innerHTML = '';
+      arr.forEach(({ url, label }) => {
+        const card = document.createElement('div');
+        card.className = 'pqr-img-card';
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = label;
+        img.title = label;
+        img.addEventListener('click', () => openImageLightbox(url, label));
+        const caption = document.createElement('div');
+        caption.textContent = label;
+        card.appendChild(img);
+        card.appendChild(caption);
+        host.appendChild(card);
+      });
     }
+    renderImageTabs();
+  };
+
+  const resetImages = (index) => {
+    // v3.8.119: 이전 글 이미지 유지, 새 글 빈 그룹 추가 + 자동 활성
+    if (!imagesByIndex.has(index)) imagesByIndex.set(index, []);
+    showImagesFor(index);
     closeImageLightbox();
   };
 
@@ -1881,23 +1936,33 @@ function createQueueRunModal(items, intervalLabel) {
     }
     const url = payload?.url || payload?.dataUrl || '';
     if (!url) return;
-    const host = document.getElementById('pqrImages');
-    if (!host) return;
-    host.querySelector('.pqr-image-empty')?.remove();
     const label = payload?.label || payload?.kind || items[currentIndex]?.keyword || '이미지';
-    const card = document.createElement('div');
-    card.className = 'pqr-img-card';
-    const img = document.createElement('img');
-    img.src = url;
-    img.alt = label;
-    img.title = label;
-    img.addEventListener('click', () => openImageLightbox(url, label));
-    const caption = document.createElement('div');
-    caption.textContent = label;
-    card.appendChild(img);
-    card.appendChild(caption);
-    host.prepend(card);
-    log(`이미지 미리보기 추가: ${label}`);
+
+    // v3.8.119: 현재 진행 글(currentIndex)에 저장
+    if (!imagesByIndex.has(currentIndex)) imagesByIndex.set(currentIndex, []);
+    imagesByIndex.get(currentIndex).push({ url, label });
+
+    // 사용자가 현재 글 탭을 보고 있으면 DOM에 즉시 추가, 다른 탭 보고 있으면 카운트만 갱신
+    if (activeViewIndex === currentIndex) {
+      const host = document.getElementById('pqrImages');
+      if (host) {
+        host.querySelector('.pqr-image-empty')?.remove();
+        const card = document.createElement('div');
+        card.className = 'pqr-img-card';
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = label;
+        img.title = label;
+        img.addEventListener('click', () => openImageLightbox(url, label));
+        const caption = document.createElement('div');
+        caption.textContent = label;
+        card.appendChild(img);
+        card.appendChild(caption);
+        host.prepend(card);
+      }
+    }
+    renderImageTabs();
+    log(`이미지 미리보기 추가 (${currentIndex + 1}번 글): ${label}`);
   };
 
   document.getElementById('pqrLightboxClose')?.addEventListener('click', closeImageLightbox);
