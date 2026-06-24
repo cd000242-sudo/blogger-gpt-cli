@@ -9849,9 +9849,13 @@ async function callLLMWithPreference(opts: {
         const { GoogleGenerativeAI } = await import('@google/generative-ai');
         const genAI = new GoogleGenerativeAI(opts.geminiKey);
         const m = genAI.getGenerativeModel({ model: opts.preferredGeminiModel });
+        // v3.8.127: 외부유입 schema 출력 강제 (finalRevision 누락 방지)
+        const wantsJson = /finalRevision|RESULT_JSON|"variants"/i.test(`${opts.system}\n${opts.user}`);
+        const generationConfig: any = { maxOutputTokens: opts.maxOutputTokens, temperature: opts.temperature };
+        if (wantsJson) generationConfig.responseMimeType = 'application/json';
         const r = await m.generateContent({
           contents: [{ role: 'user', parts: [{ text: `${opts.system}\n\n${opts.user}` }] }],
-          generationConfig: { maxOutputTokens: opts.maxOutputTokens, temperature: opts.temperature },
+          generationConfig,
         });
         const text = ((await r.response).text() || '').trim();
         if (text) return { text, provider: 'gemini', model: opts.preferredGeminiModel };

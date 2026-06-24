@@ -30,15 +30,21 @@ async function callGemini(params, key) {
   const genAI = new GoogleGenerativeAI(key);
   const candidates = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'];
   let lastErr = null;
+  // v3.8.127: JSON 모드 강제 — schema instruction에 finalRevision이 있으면 응답을 순수 JSON으로 받음.
+  // schema 부분 무시(context만 출력하고 끝)를 방지.
+  const wantsJson = params.responseFormat === 'json'
+    || /finalRevision|RESULT_JSON|"variants"/i.test(`${params.system}\n${params.user}`);
   for (const modelName of candidates) {
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
+      const generationConfig = {
+        maxOutputTokens: params.maxOutputTokens || 2000,
+        temperature: typeof params.temperature === 'number' ? params.temperature : 0.85,
+      };
+      if (wantsJson) generationConfig.responseMimeType = 'application/json';
       const result = await model.generateContent({
         contents: [{ role: 'user', parts: [{ text: `${params.system}\n\n${params.user}` }] }],
-        generationConfig: {
-          maxOutputTokens: params.maxOutputTokens || 2000,
-          temperature: typeof params.temperature === 'number' ? params.temperature : 0.85,
-        },
+        generationConfig,
       });
       const response = await result.response;
       const text = (response.text() || '').trim();
@@ -55,9 +61,12 @@ async function callOpenAI(params, key) {
   const client = new OpenAI({ apiKey: key });
   const candidates = ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'];
   let lastErr = null;
+  // v3.8.127: OpenAI JSON 모드 — finalRevision 누락 방지.
+  const wantsJson = params.responseFormat === 'json'
+    || /finalRevision|RESULT_JSON|"variants"/i.test(`${params.system}\n${params.user}`);
   for (const modelName of candidates) {
     try {
-      const resp = await client.chat.completions.create({
+      const req = {
         model: modelName,
         messages: [
           { role: 'system', content: params.system },
@@ -65,7 +74,9 @@ async function callOpenAI(params, key) {
         ],
         max_tokens: params.maxOutputTokens || 2000,
         temperature: typeof params.temperature === 'number' ? params.temperature : 0.85,
-      });
+      };
+      if (wantsJson) req.response_format = { type: 'json_object' };
+      const resp = await client.chat.completions.create(req);
       const text = (resp && resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content || '').trim();
       if (text) return { text, model: modelName, provider: 'openai' };
     } catch (e) {
