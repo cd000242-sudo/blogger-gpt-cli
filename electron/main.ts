@@ -938,11 +938,11 @@ ipcMain.handle('generate-internal-consistency-title', async (_evt, payload: { ur
         .slice(0, 3)
         .map(([word]) => word);
 
-      // v3.8.130: fallback도 진부 표현("종합 가이드") 안 쓰도록 — 첫 글 제목 기반 충격형
+      // v3.8.132: fallback도 entity-rich (수치+검증 entity 결합)
       const firstTitle = crawledTitles[0] || '';
       const fallbackTitle = firstTitle.length >= 20 && firstTitle.length <= 60
         ? firstTitle
-        : `${topKeywords.slice(0, 2).join(' ')} ${new Date().getFullYear()} 핵심 정리 ${crawledTitles.length}편`;
+        : `${topKeywords.slice(0, 2).join(' ')} ${new Date().getFullYear()} 검증된 ${crawledTitles.length}가지 핵심`;
       console.log('[INTERNAL-CONSISTENCY] API 키 없음, 폴백 제목 생성:', fallbackTitle);
       return { success: true, title: fallbackTitle };
     }
@@ -963,118 +963,226 @@ ipcMain.handle('generate-internal-consistency-title', async (_evt, payload: { ur
       throw new Error(`Gemini 2.0 이상 모델을 사용할 수 없습니다. ${errorMsg}`);
     }
 
-    // v3.8.65 (Phase1 작업4): 제목 A/B 3변형 동시 생성 + CTR 점수로 자동 선택
-    //   기존: 1개 제목만 생성, 패턴 고정
-    //   개선: 긴급/호기심/숫자 3가지 변형 → 점수화 → 최고 선택
-    //   기준 (Backlinko 누적): 50-60자 / 키워드 앞쪽 / 이모지 1개 이하 / 숫자+연도
-    const prompt = `다음 ${crawledTitles.length}개 글의 제목을 분석하여, 모두를 묶는 통합 글 제목 **3가지 변형**을 JSON으로 생성하세요.
+    // v3.8.132: deep-research(KDD2024 GEO 논문 + arXiv 2604.25707 Citation Absorption + Backlinko + Sistrix) 기반 4축 통합 제목 시스템
+    //   기존: urgency/curiosity/numeric 3변형 (Backlinko CTR만 가중)
+    //   개선: SEO(30) + AEO(20) + GEO(20) + CTR(30) 통합 100점 + 5변형
+    //   핵심: 인용·통계 entity 직접 노출(+41% PAW), 키워드 스터핑 금지(-10%),
+    //         정보 누락형 클릭베이트(충격/경악) 차단(null effect on retention),
+    //         정답+수치+권위 결합형이 4축 동시 최적해
+    const prompt = `당신은 한국어 블로그 통합글 제목을 SEO + AEO + GEO + CTR 4축 동시 최적화하는 헤드라인 전문가입니다.
+
+다음 ${crawledTitles.length}개 글을 묶는 통합 제목 **5변형**을 JSON으로 생성하세요.
 
 【추출된 제목들】
 ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
 
-📌 **3가지 변형 패턴 (정확히 3개)**:
-1. **긴급성형(urgency)**: 시간/마감/한정 + 구체 수치 ("3년 매칭 1,440만원, 신청 마감 임박", "${new Date().getFullYear()} 12월까지만 받는 청년 적금")
-2. **호기심형(curiosity)**: 통념 박살 / 비밀 / 자기의심 ("월급 적은 사람이 오히려 유리한 적금", "은행원도 잘 안 알려주는 정부 적금 5가지")
-3. **숫자형(numeric)**: 충격 수치 + 구체 결과 ("월 10만원 넣고 1,440만원 받은 친구", "3년 만에 2,200만원 만든 27살 직장인")
+📊 **4축 동시 최적화 원칙 (KDD 2024 GEO 논문 + arXiv 2604.25707 + Backlinko 검증)**:
 
-📐 **공통 규칙 — 절대 지킬 것**:
-- 50~60자 (한글 기준, 모바일 SERP 잘림 방지 — 정확히 이 범위)
-- 핵심 검색 키워드를 앞쪽 30% 안에 배치
-- ${new Date().getFullYear()}년 표기 포함
-- 구체 수치 1개 이상 (금액·기간·% 등) — 평범한 표현보다 수치가 클릭률 2배
-- 이모지 1개 이하
+[SEO축 — 검색 노출]
+- 핵심 검색 키워드를 **앞쪽 28자 안**에 1회만 (모바일 SERP truncation 한계 + 키워드 스터핑 -10% 페널티 회피)
+- ${new Date().getFullYear()}년 표기 포함 (최신성 시그널)
+- 검색 의도 단어 1개: "방법", "이유", "조건", "비교", "기준"
 
-❌ **절대 금지 표현 (이 단어 들어가면 0점)**:
-- "완벽 가이드", "완벽한 가이드", "완벽 정리"
-- "종합 가이드", "종합 정리", "종합글", "종합편"
-- "총정리", "총 정리", "모든 것", "다 알려드림"
-- "꿀팁 모음", "팁 모음", "정보 모음"
-- "A to Z", "처음부터 끝까지"
-- "알아보자", "살펴보자", "알아두면"
-- 평범한 진술형 ("~에 대해 알아봅니다", "~를 정리했습니다")
+[AEO축 — LLM 답변 인용]
+- **구체 수치 1개 이상 직접 노출** (1,440만원 / 3년 / 5단계 / 27살 / 월 30만원) — Quotation +41% PAW
+- 추출 가능한 entity 명시: "N가지", "N단계", "N개" — Citation Absorption 우선
+- 정의/비교/절차 구조 1개: "○○이란", "vs", "5단계", "비교"
 
-✅ **합격 패턴 — 첫 단어가 강해야**:
-- 숫자/금액으로 시작: "1,440만원 받은…", "월 10만원으로…"
-- 인물·상황 구체화: "27살 직장인이…", "월급 280만원이…"
-- 반전·통념박살: "적금 금리 4%? 의미 없다…", "월급 적은 게 오히려 유리…"
-- 비밀·은밀: "은행원도 안 알려주는…", "공무원만 받는 줄 알았던…"
-- 손실회피: "이거 안 한 청년 = 매년 400만원 손해", "놓치면 N년 동안…"
+[GEO축 — AI Overview/SGE 흡수]
+- 통계·인용 가능한 권위 entity 1개: "조사", "검증", "공식", "기관", "데이터", "발표"
+- 명확한 답이 있는 정답형 또는 정의형 구조
+- 의미적 단일 명확성 (한 제목 = 한 명확한 주제)
+
+[CTR축 — 사람 클릭률]
+- 자릿수 명시형 (1,440만원 같은 ,찍힌 숫자 / 3년 만에 / 7가지) — Backlinko 검증 +CTR
+- 긍정 감정어 1개: "검증된", "안전한", "추천", "최고", "신뢰" — +4.1% CTR (Backlinko 400만 SERP)
+- 인물·상황 구체화 1개: "27살 직장인", "월급 280만원", "맞벌이 부부"
+- 30자 이내에 핵심 가치 압축 (모바일 jpg truncation)
+
+📌 **5변형 패턴 (정확히 5개, 라벨 고정)**:
+
+1. **권위·인용형(authority)** — AEO/GEO 최강
+   예: "KDI 2025 검증: 청년 적금 5가지, 월 10만원으로 1,440만원 만든 방법"
+   구조: [권위·기관·조사 출처] + [수치 N가지] + [구체 수치 결과]
+
+2. **정의·정답형(definition)** — AEO 인용률 최강
+   예: "청년 적금이란? 3년 1,440만원 받는 27살 직장인의 5가지 조건"
+   구조: [○○이란?] + [핵심 수치] + [대상 + N가지 답]
+
+3. **절차·단계형(procedural)** — GEO Citation Absorption 우선
+   예: "월 30만원으로 3년 만에 2,200만원 만드는 5단계: 27살 직장인 검증"
+   구조: [구체 수치 결과] + [N단계 절차] + [인물 + 검증 entity]
+
+4. **비교·대조형(comparison)** — AEO/GEO 양쪽 친화
+   예: "일반 적금 vs 청년 적금: 월 30만원 차이, 3년 1,440만원 검증된 비교"
+   구조: [A vs B] + [차이 수치] + [기간 + 결과]
+
+5. **손실 회피·시간 압박형(loss-aversion)** — CTR 최강 + 정보 압축
+   예: "${new Date().getFullYear()} 12월 마감 청년 적금: 안 하면 3년에 1,200만원 손해, 7가지 조건"
+   구조: [기한·마감] + [손실 수치] + [N가지 핵심]
+
+📐 **공통 룰**:
+- 길이 50~65자 (이상적), 최대 70자
+- 첫 28자 안에 핵심 키워드 + 수치 또는 entity 1개
+- ${new Date().getFullYear()}년 또는 구체 수치 필수
+- 이모지 0~1개
+
+❌ **절대 금지 (자동 -50점)**:
+[진부 표현]
+- "완벽 가이드/완벽한 가이드/완벽 정리"
+- "종합 가이드/종합 정리/종합글/종합편"
+- "총정리/모든 것/다 알려드림"
+- "꿀팁 모음/팁 모음/정보 모음/A to Z/처음부터 끝까지"
+- "알아보자/살펴보자/알아두면"
+
+[정보 누락형 클릭베이트] (Princeton/NYU POQ 2020 — 잔류 가치 0, AEO 인용 차단)
+- "충격/경악/믿기 힘든/이게 진짜?/누구도 모르는/대박/소름"
+- "당신은 모릅니다/모르면 손해/안 보면 후회"
+
+[키워드 스터핑] (Princeton GEO -10%)
+- 같은 키워드 3회 이상 반복 ("청년 청년 적금 청년 가이드")
+- 키워드 나열형 ("적금, 청년적금, 청년재테크, 청년목돈")
+
+✅ **합격 사인 — 한 제목에 다음 중 4개 이상**:
+- 구체 자릿수 수치 (1,440만원, 3년, 5가지) ← AEO/CTR 동시
+- 권위 entity (조사/검증/공식/기관/데이터) ← AEO/GEO 동시
+- 추출 가능한 N단계/N가지/vs/이란 ← GEO Citation Absorption
+- 인물·상황 구체화 (27살/월급/직장인) ← CTR
+- 긍정 감정어 (검증된/안전한/추천) ← CTR Backlinko +4.1%
+- ${new Date().getFullYear()}년 표기 ← SEO 최신성
+- 앞쪽 28자 안 핵심 키워드 ← SEO 모바일 truncation 회피
 
 ⚠️ **출력 형식 (엄격)**:
-정확히 다음 JSON 형식 1줄로만 출력 (마크다운·설명 금지):
-{"urgency":"제목1","curiosity":"제목2","numeric":"제목3"}
+정확히 다음 JSON 1줄로만 출력 (마크다운·설명 금지):
+{"authority":"제목1","definition":"제목2","procedural":"제목3","comparison":"제목4","lossAversion":"제목5"}
 `;
 
-    // CTR 점수 함수 — 50-60자 적정, 숫자/연도 포함, 이모지 1개 이하, 키워드 위치
-    const scoreTitle = (t: string): number => {
-      if (!t || typeof t !== 'string') return 0;
-      let score = 0;
+    // v3.8.132: SEO(30) + AEO(20) + GEO(20) + CTR(30) 통합 100점 채점
+    //   근거: deep-research (Aggarwal KDD2024 GEO + arXiv2604.25707 Citation Absorption +
+    //         Backlinko 400만 SERP + Sistrix + Princeton/NYU POQ2020 clickbait)
+    const currentYear = new Date().getFullYear();
+    const scoreTitle = (t: string): { total: number; seo: number; aeo: number; geo: number; ctr: number; reasons: string[] } => {
+      const reasons: string[] = [];
+      if (!t || typeof t !== 'string') return { total: 0, seo: 0, aeo: 0, geo: 0, ctr: 0, reasons: ['empty'] };
       const len = t.length;
-      // 길이 (50-60자 최적)
-      if (len >= 50 && len <= 60) score += 30;
-      else if (len >= 40 && len <= 70) score += 20;
-      else if (len >= 30 && len <= 80) score += 10;
-      // 숫자 포함
-      if (/\d/.test(t)) score += 15;
-      // 연도 포함
-      if (new RegExp(`${new Date().getFullYear()}`).test(t)) score += 15;
-      // 이모지 개수 (1개 이하 권장)
-      const emojiCount = (t.match(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{27BF}]/gu) || []).length;
-      if (emojiCount === 0) score += 8;
-      else if (emojiCount === 1) score += 10;
-      else if (emojiCount === 2) score += 3;
-      // 호기심·긴급성 키워드 (단 '완벽'은 진부 표현으로 별도 패널티)
-      if (/(지금|마감|임박|놓치지|꼭|반드시|독점|단독|진짜|숨겨진|아무도|비밀)/.test(t)) score += 12;
-      // 구체적 수치 패턴 (XX원, X개월, X% 등)
-      if (/\d+\s*(만원|원|개월|년|%|위|위안|배|일)/.test(t)) score += 10;
-      // v3.8.130: 진부 표현 강한 페널티 — 사용자 요구로 "완벽 가이드/종합글" 등 차단
-      const banned = /(완벽\s*가이드|완벽한\s*가이드|완벽\s*정리|종합\s*가이드|종합\s*정리|종합글|종합편|총\s*정리|모든\s*것|다\s*알려드림|꿀팁\s*모음|팁\s*모음|정보\s*모음|A\s*to\s*Z|처음부터\s*끝까지|알아보자|살펴보자|알아두면)/;
-      if (banned.test(t)) score -= 50;
-      return score;
+      const first28 = t.substring(0, 28);
+
+      // ─── SEO 30점 ───
+      let seo = 0;
+      // 길이 (Sistrix: ideal 55-65자, max 70자)
+      if (len >= 50 && len <= 65) { seo += 12; reasons.push('SEO+12: 길이 50-65자 이상적'); }
+      else if (len >= 45 && len <= 70) { seo += 8; reasons.push('SEO+8: 길이 45-70자 허용'); }
+      else if (len > 70) { seo -= 5; reasons.push('SEO-5: 70자 초과 → Google 재작성 위험'); }
+      // 연도
+      if (new RegExp(`${currentYear}`).test(t)) { seo += 8; reasons.push(`SEO+8: ${currentYear}년 최신성`); }
+      // 검색 의도 단어
+      if (/(방법|이유|조건|비교|기준|차이|순위|후기)/.test(t)) { seo += 6; reasons.push('SEO+6: 검색의도 단어'); }
+      // 앞쪽 28자에 숫자 또는 키워드
+      if (/[\d가-힣]{2,}/.test(first28) && /\d/.test(first28)) { seo += 4; reasons.push('SEO+4: 앞쪽 28자 핵심키워드+수치'); }
+
+      // ─── AEO 20점 (LLM 인용) ───
+      let aeo = 0;
+      // 구체 수치 (Quotation Addition +41% PAW)
+      const numericMatches = t.match(/\d+\s*(만원|원|개월|년|%|가지|단계|개|위|배|일|시간|분)/g) || [];
+      if (numericMatches.length >= 2) { aeo += 8; reasons.push('AEO+8: 수치 entity 2개 이상'); }
+      else if (numericMatches.length === 1) { aeo += 5; reasons.push('AEO+5: 수치 entity 1개'); }
+      // 추출 가능한 구조 (Citation Absorption)
+      if (/(N?\d+\s*가지|\d+\s*단계|이란|vs|대\s*비교)/.test(t)) { aeo += 7; reasons.push('AEO+7: 추출가능 entity (N가지/단계/이란/vs)'); }
+      // 권위·인용 entity
+      if (/(조사|검증|공식|기관|데이터|발표|연구|보고서|통계)/.test(t)) { aeo += 5; reasons.push('AEO+5: 권위·인용 entity'); }
+
+      // ─── GEO 20점 (AI Overview/SGE) ───
+      let geo = 0;
+      // 정답형/정의형 구조
+      if (/(이란|이렇게|이유는|방법은|차이는|기준은)/.test(t)) { geo += 6; reasons.push('GEO+6: 정답·정의형 구조'); }
+      // 통계·인용 entity 명시
+      if (/\d+\s*(명|건|개월|년|차|회)/.test(t)) { geo += 5; reasons.push('GEO+5: 통계 entity'); }
+      // 절차·N단계
+      if (/(\d+단계|\d+가지|\d+개)/.test(t)) { geo += 5; reasons.push('GEO+5: 절차·N가지 구조'); }
+      // 단일 명확 주제 (질문 1개 또는 단일 주제)
+      const questionMarks = (t.match(/[?？]/g) || []).length;
+      if (questionMarks <= 1) { geo += 4; reasons.push('GEO+4: 단일 명확 주제'); }
+
+      // ─── CTR 30점 (Backlinko + 헤드라인 카피라이팅) ───
+      let ctr = 0;
+      // 자릿수 명시형 (1,440만원처럼 , 포함된 큰 숫자)
+      if (/\d{1,3}(,\d{3})+/.test(t)) { ctr += 8; reasons.push('CTR+8: 자릿수 명시형 (콤마 큰 숫자)'); }
+      else if (/\d+\s*(만원|원)/.test(t)) { ctr += 5; reasons.push('CTR+5: 금액 수치'); }
+      // 긍정 감정어 (Backlinko +4.1%)
+      if (/(검증된|안전한|추천|최고|신뢰|효과적|확실한|믿을|입증된)/.test(t)) { ctr += 6; reasons.push('CTR+6: 긍정 감정어 (Backlinko +4.1%)'); }
+      // 인물·상황 구체화
+      if (/(\d+\s*살|직장인|월급|맞벌이|신혼|학생|주부|프리랜서|자영업|공무원)/.test(t)) { ctr += 6; reasons.push('CTR+6: 인물·상황 구체화'); }
+      // 후킹 동사 (강한 결과 표현)
+      if (/(받았다|꽂혔다|만든|모은|벌었다|줄였다|아꼈다|찾았다|뚫었다)/.test(t)) { ctr += 5; reasons.push('CTR+5: 강한 후킹 동사'); }
+      // 핵심 가치 앞쪽 압축 (30자 이내)
+      if (len <= 30) { ctr += 5; reasons.push('CTR+5: 30자 이내 핵심 압축 (모바일 강함)'); }
+      else if (len <= 40) { ctr += 3; reasons.push('CTR+3: 40자 이내'); }
+
+      // ─── 페널티 ───
+      // 1) 진부 표현 -50
+      const cliche = /(완벽\s*가이드|완벽한\s*가이드|완벽\s*정리|종합\s*가이드|종합\s*정리|종합글|종합편|총\s*정리|모든\s*것|다\s*알려드림|꿀팁\s*모음|팁\s*모음|정보\s*모음|A\s*to\s*Z|처음부터\s*끝까지|알아보자|살펴보자|알아두면)/;
+      let penalty = 0;
+      if (cliche.test(t)) { penalty -= 50; reasons.push('PENALTY-50: 진부 표현'); }
+      // 2) 정보 누락형 클릭베이트 -30 (Princeton/NYU POQ 2020 — null effect, AEO 인용 차단)
+      const clickbait = /(충격|경악|믿기\s*힘든|믿을\s*수\s*없는|이게\s*진짜|누구도\s*모르는|대박|소름|모르면\s*손해|안\s*보면\s*후회|당신은\s*모릅니다)/;
+      if (clickbait.test(t)) { penalty -= 30; reasons.push('PENALTY-30: 정보 누락형 클릭베이트 (잔류가치 0)'); }
+      // 3) 키워드 스터핑 -20 (Princeton GEO -10% 기반 강화)
+      const tokens = t.replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(w => w.length >= 2);
+      const freq: Record<string, number> = {};
+      for (const w of tokens) freq[w] = (freq[w] || 0) + 1;
+      const maxRepeat = Math.max(0, ...Object.values(freq));
+      if (maxRepeat >= 3) { penalty -= 20; reasons.push('PENALTY-20: 키워드 스터핑 (동일 단어 3회+)'); }
+
+      const total = Math.max(0, seo + aeo + geo + ctr + penalty);
+      return { total, seo, aeo, geo, ctr, reasons };
     };
 
     let generatedTitle = '';
     try {
       const result = await model.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 600, temperature: 0.9 }
+        generationConfig: { maxOutputTokens: 1200, temperature: 0.85, responseMimeType: 'application/json' }
       });
       const response = await result.response;
       const raw = (response.text() || '').trim();
       // JSON 추출 (마크다운 백틱 제거)
       const cleaned = raw.replace(/^```json\n?/gi, '').replace(/^```\n?/gi, '').replace(/```\n?$/gi, '').trim();
-      let variants: { urgency?: string; curiosity?: string; numeric?: string } = {};
+      let variants: { authority?: string; definition?: string; procedural?: string; comparison?: string; lossAversion?: string } = {};
       try {
         variants = JSON.parse(cleaned);
       } catch {
         // JSON 파싱 실패 → 단일 제목으로 폴백
         const fallbackLine = cleaned.split(/\n+/).find((l: string) => l.length >= 20 && l.length <= 80) || cleaned;
-        variants = { urgency: fallbackLine };
+        variants = { authority: fallbackLine };
       }
-      const candidates: Array<{ title: string; type: string; score: number }> = [];
-      for (const type of ['urgency', 'curiosity', 'numeric'] as const) {
+      const candidates: Array<{ title: string; type: string; total: number; seo: number; aeo: number; geo: number; ctr: number; reasons: string[] }> = [];
+      for (const type of ['authority', 'definition', 'procedural', 'comparison', 'lossAversion'] as const) {
         const t = (variants[type] || '').trim().replace(/^["'`]|["'`]$/g, '');
         if (t && t.length >= 15 && t.length <= 100) {
-          candidates.push({ title: t, type, score: scoreTitle(t) });
+          const s = scoreTitle(t);
+          candidates.push({ title: t, type, total: s.total, seo: s.seo, aeo: s.aeo, geo: s.geo, ctr: s.ctr, reasons: s.reasons });
         }
       }
       if (candidates.length > 0) {
-        candidates.sort((a, b) => b.score - a.score);
+        candidates.sort((a, b) => b.total - a.total);
         generatedTitle = candidates[0]!.title;
-        console.log(`[INTERNAL-CONSISTENCY] ✅ 제목 A/B 3변형 점수`,
-          candidates.map((c) => `${c.type}(${c.score}점): "${c.title.substring(0, 40)}…"`).join(' | '));
-        console.log(`[INTERNAL-CONSISTENCY] 🏆 선택: ${candidates[0]!.type} (${candidates[0]!.score}점)`);
+        console.log(`[INTERNAL-CONSISTENCY] ✅ 제목 5변형 통합 채점 (SEO+AEO+GEO+CTR=100)`);
+        for (const c of candidates) {
+          console.log(`  ${c.type}: ${c.total}점 [SEO ${c.seo} | AEO ${c.aeo} | GEO ${c.geo} | CTR ${c.ctr}] "${c.title.substring(0, 50)}${c.title.length > 50 ? '…' : ''}"`);
+        }
+        console.log(`[INTERNAL-CONSISTENCY] 🏆 선택: ${candidates[0]!.type} (${candidates[0]!.total}점)`);
+        console.log(`  채점 근거: ${candidates[0]!.reasons.slice(0, 6).join(' / ')}`);
       } else {
         generatedTitle = cleaned.split(/\n+/)[0]!.trim();
       }
     } catch (error) {
       console.error('[INTERNAL-CONSISTENCY] AI 제목 생성 실패:', error);
       const topKeywords = crawledTitles[0]!.split(/\s+/).slice(0, 3);
-      // v3.8.130: AI 실패 fallback도 진부 표현 안 쓰도록 (첫 글 제목 활용)
+      // v3.8.132: AI 실패 fallback도 entity-rich 패턴 (수치+권위+N가지 결합)
       const firstTitle = crawledTitles[0] || '';
       generatedTitle = firstTitle.length >= 20 && firstTitle.length <= 60
         ? firstTitle
-        : `${topKeywords.join(' ')} ${new Date().getFullYear()} ${crawledTitles.length}편 핵심`;
+        : `${topKeywords.join(' ')} ${currentYear} 검증된 ${crawledTitles.length}가지 핵심`;
     }
 
     // 제목 정제
@@ -1099,11 +1207,11 @@ ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
 
     if (!finalTitle || finalTitle.length < MIN_TITLE_LENGTH) {
       // 최종 검증 실패 시 폴백
-      // v3.8.130: 검증 실패 시 첫 글 제목을 그대로 활용 (진부 표현 회피)
+      // v3.8.132: 검증 실패 시 첫 글 제목을 그대로 활용 (진부 표현 회피)
       const firstTitle = crawledTitles[0] || '';
       const fallbackTitle = firstTitle.length >= 20 && firstTitle.length <= 60
         ? firstTitle
-        : `${firstTitle.substring(0, 30)} ${new Date().getFullYear()} ${crawledTitles.length}편 정리`;
+        : `${firstTitle.substring(0, 30)} ${new Date().getFullYear()} 검증된 ${crawledTitles.length}가지`;
       console.log('[INTERNAL-CONSISTENCY] 생성된 제목이 너무 짧음, 폴백 사용:', fallbackTitle);
       return { success: true, title: fallbackTitle };
     }
