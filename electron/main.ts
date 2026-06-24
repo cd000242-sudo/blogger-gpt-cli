@@ -1794,6 +1794,32 @@ ${tail}
 </div>`;
           });
           console.log('[INTERNAL-CONSISTENCY] CTA 후처리: H2↔원본 글 제목 키워드 매칭 완료');
+
+          // v3.8.139: CTA 박스 바로 뒤에 남은 평문 단락(원본 글 제목·잔재) 제거
+          //   증상: 박스 닫힌 직후 "기간, 3단계로 목돈 만들기 성공! 🚀" 같은 짧은 문장이 박스 밖에 노출
+          //   원인: LLM이 [후킹·버튼·꼬리문구] 3줄 출력했는데 정규식이 앞 2줄만 박스화하고 마지막 줄이 남음
+          //   처리: CTA 박스 닫는 패턴(</a></p></div>) 직후 짧은 단락(50자 이하 + 이모지/제목 잔재) 제거
+          generatedContent = generatedContent.replace(
+            /(<\/a>\s*<\/p>\s*<\/div>)\s*<p[^>]*>\s*([^<]{4,60})\s*<\/p>/gi,
+            (_full, closeBox, txt) => {
+              const t = String(txt).trim();
+              const hasEmoji = /[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{27BF}🚀✨💡👉🔥📍📌✅]/u.test(t);
+              const endsLikeTitle = /(성공|완료|완성|마무리|끝|시작)\s*[!]?\s*[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{27BF}🚀✨💡👉🔥📍📌✅]?$/u.test(t);
+              if (t.length <= 50 && (hasEmoji || endsLikeTitle)) {
+                console.log(`[INTERNAL-CONSISTENCY] 🧹 CTA 박스 뒤 잔재 단락 제거: "${t}"`);
+                return closeBox;
+              }
+              return _full;
+            }
+          );
+
+          // v3.8.139: 본문 전체의 markdown bold(**텍스트**) 자동 처리 — HTML <strong>으로 변환
+          //   증상: "**이거**" 같은 마크다운이 본문에 그대로 노출됨
+          //   원인: LLM이 강조 표현을 markdown으로 출력 (HTML 가이드 무시)
+          //   처리: **텍스트** → <strong>텍스트</strong>, 짝 안 맞는 ** 는 그냥 제거
+          generatedContent = generatedContent
+            .replace(/\*\*([^*\n]{1,100}?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*\*/g, ''); // 짝 안 맞는 잔재 ** 제거
         } catch (e: any) {
           console.warn('[INTERNAL-CONSISTENCY] CTA 후처리 실패:', e?.message);
         }
