@@ -42,8 +42,9 @@ const LOCAL_BOARD = require('./prompts/specialized/local-board');
 const YOUTUBE_SHORTS = require('./prompts/video/youtube-shorts');
 const TIKTOK = require('./prompts/video/tiktok');
 
-// Messenger (2)
+// Messenger (3)
 const KAKAO_OPENCHAT = require('./prompts/messenger/kakao-openchat');
+const KAKAO_CHANNEL = require('./prompts/messenger/kakao-channel');
 const TELEGRAM_CHANNEL = require('./prompts/messenger/telegram-channel');
 
 // International (4)
@@ -93,8 +94,9 @@ const CHANNEL_REGISTRY = {
   // Video 2
   [YOUTUBE_SHORTS.id]: YOUTUBE_SHORTS,
   [TIKTOK.id]: TIKTOK,
-  // Messenger 2
+  // Messenger 3
   [KAKAO_OPENCHAT.id]: KAKAO_OPENCHAT,
+  [KAKAO_CHANNEL.id]: KAKAO_CHANNEL,
   [TELEGRAM_CHANNEL.id]: TELEGRAM_CHANNEL,
   // International 4
   [REDDIT_KOREA.id]: REDDIT_KOREA,

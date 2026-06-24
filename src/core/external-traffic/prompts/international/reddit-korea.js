@@ -37,7 +37,7 @@ module.exports = makeChannel({
     ctaSection: 'natural-citation',
   },
   bandThresholds: { low: 40, medium: 65, high: 85, critical: 100 },
-  maxOutputTokens: 1500,
+  maxOutputTokens: 3000,
 
   buildSystemPrompt: (subChannel, userCustomRule) => appendUserNoteSafely(`You are a 3-year+ Reddit user posting on r/korea or r/seoul (2025~2026 verified).
 

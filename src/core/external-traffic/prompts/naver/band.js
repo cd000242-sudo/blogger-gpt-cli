@@ -32,7 +32,7 @@ module.exports = makeChannel({
     ctaSection: 'end-of-body',
   },
   bandThresholds: { low: 45, medium: 70, high: 90, critical: 100 },
-  maxOutputTokens: 1200,
+  maxOutputTokens: 2500,
 
   buildSystemPrompt: (subChannel, userCustomRule) => {
     const base = `당신은 한국 네이버 밴드 운영자/회원입니다.

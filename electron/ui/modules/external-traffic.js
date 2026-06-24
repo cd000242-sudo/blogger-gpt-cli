@@ -72,6 +72,15 @@ const PLATFORMS = [
     promptUser: (src) => `원본 블로그: "${src.title}"\n원본 URL: ${src.url}\n\n카카오톡 오픈채팅 방에 공유할 1~2줄을 작성하세요 (60~120자). 형식: 후킹 질문/반전 1줄 + 가치 한 줄 + 끝에 "👉 ${src.url}".`,
   },
   {
+    id: 'kakao-channel',
+    label: '카카오톡 채널',
+    icon: '💛',
+    openUrl: 'https://center-pf.kakao.com/',
+    color: '#fee500',
+    promptSystem: `당신은 카카오톡 비즈니스 채널 운영자입니다. 친구 추가한 구독자에게 보내는 카드 게시물(헤드라인 30~40자 + 본문 150~250자 + 더보기 버튼 5~10자) A/B/C 3안을 작성합니다. 본문에서 정보 다 풀지 말고 "나도 해당되나?" 미해결 질문을 남겨 더보기 클릭을 유도하세요.`,
+    promptUser: (src) => `원본 블로그: "${src.title}"\n원본 URL: ${src.url}\n\n카카오톡 채널 소식 게시물 A/B/C를 작성하세요. 각 안마다 [헤드라인] [본문] [버튼라벨] [URL] 형식. 본문 끝엔 cliffhanger 필수.`,
+  },
+  {
     id: 'youtube-shorts',
     label: '유튜브 쇼츠 스크립트',
     icon: '🎬',
@@ -118,6 +127,7 @@ const PLATFORM_LOGOS = {
   x: { slug: 'x', color: 'FFFFFF', fallback: 'X' },
   facebook: { slug: 'facebook', color: '1877F2', fallback: 'f' },
   'kakao-openchat': { slug: 'kakaotalk', color: '000000', fallback: 'K' },
+  'kakao-channel': { slug: 'kakaotalk', color: 'FEE500', fallback: '💛' },
   'youtube-shorts': { slug: 'youtubeshorts', color: 'FF0000', fallback: '▶' },
   tiktok: { slug: 'tiktok', color: 'FFFFFF', fallback: '♪' },
   pinterest: { slug: 'pinterest', color: 'E60023', fallback: 'P' },

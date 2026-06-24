@@ -32,7 +32,7 @@ module.exports = makeChannel({
     ctaSection: 'natural-citation',
   },
   bandThresholds: { low: 55, medium: 80, high: 95, critical: 100 },
-  maxOutputTokens: 1600,
+  maxOutputTokens: 3000,
 
   buildSystemPrompt: (subChannel, userCustomRule) => {
     const base = `당신은 한국 네이버 지식인 답변 자원봉사자입니다.

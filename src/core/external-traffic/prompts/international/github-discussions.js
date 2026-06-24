@@ -38,7 +38,7 @@ module.exports = makeChannel({
     headingStyle: 'h2-prefix',
   },
   bandThresholds: { low: 50, medium: 75, high: 90, critical: 100 },
-  maxOutputTokens: 1500,
+  maxOutputTokens: 2500,
 
   buildSystemPrompt: (subChannel, userCustomRule) => appendUserNoteSafely(`You are a developer posting on a project's GitHub Discussions (2025~2026 verified).
 

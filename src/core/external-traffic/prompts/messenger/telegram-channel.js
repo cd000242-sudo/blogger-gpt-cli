@@ -23,7 +23,7 @@ module.exports = makeChannel({
     ctaSection: 'end-of-body',
   },
   bandThresholds: { low: 55, medium: 80, high: 95, critical: 100 },
-  maxOutputTokens: 800,
+  maxOutputTokens: 2000,
 
   buildSystemPrompt: (subChannel, userCustomRule) => appendUserNoteSafely(`당신은 한국 텔레그램 채널 운영자입니다.
 

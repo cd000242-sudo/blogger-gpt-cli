@@ -30,7 +30,7 @@ module.exports = makeChannel({
     ctaSection: 'natural-citation',
   },
   bandThresholds: { low: 35, medium: 60, high: 80, critical: 95 },
-  maxOutputTokens: 1500,
+  maxOutputTokens: 3000,
 
   buildSystemPrompt: (subChannel, userCustomRule) => appendUserNoteSafely(`You are a multi-year Reddit user (2025~2026 verified).
 
