@@ -461,7 +461,7 @@ function applyWordPressInlineStyles(html) {
             if (/\b(?:emoji|wp-smiley)\b/i.test(className)) {
                 return `<img${cleanAttrs ? ' ' + cleanAttrs : ''} style="display: inline-block !important; width: 1.1em !important; max-width: 1.1em !important; height: 1.1em !important; aspect-ratio: auto !important; object-fit: contain !important; margin: 0 0.35em 0 0 !important; border-radius: 0 !important; vertical-align: -0.15em !important;">`;
             }
-            return `<img${cleanAttrs ? ' ' + cleanAttrs : ''} style="display: block !important; width: 100% !important; max-width: 100% !important; aspect-ratio: 16 / 9 !important; height: auto !important; object-fit: cover !important; margin: 32px auto !important; border-radius: 8px !important;">`;
+            return `<img${cleanAttrs ? ' ' + cleanAttrs : ''} style="display: block !important; width: 100% !important; max-width: 100% !important; height: auto !important; margin: 32px auto !important; border-radius: 8px !important;">`;
         });
         styledHtml = styledHtml.replace(/<table\b([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
@@ -769,8 +769,7 @@ function applyWordPressInlineStyles(html) {
     display: block !important;
     width: 100% !important;
     max-width: 100% !important;
-    aspect-ratio: 16 / 9 !important;
-    object-fit: cover !important;
+    height: auto !important;
     margin: 0 !important;
     border-radius: 10px !important;
   }
