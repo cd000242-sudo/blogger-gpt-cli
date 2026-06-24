@@ -938,7 +938,11 @@ ipcMain.handle('generate-internal-consistency-title', async (_evt, payload: { ur
         .slice(0, 3)
         .map(([word]) => word);
 
-      const fallbackTitle = `${topKeywords.join(' ')} 종합 가이드 ${new Date().getFullYear()}`;
+      // v3.8.130: fallback도 진부 표현("종합 가이드") 안 쓰도록 — 첫 글 제목 기반 충격형
+      const firstTitle = crawledTitles[0] || '';
+      const fallbackTitle = firstTitle.length >= 20 && firstTitle.length <= 60
+        ? firstTitle
+        : `${topKeywords.slice(0, 2).join(' ')} ${new Date().getFullYear()} 핵심 정리 ${crawledTitles.length}편`;
       console.log('[INTERNAL-CONSISTENCY] API 키 없음, 폴백 제목 생성:', fallbackTitle);
       return { success: true, title: fallbackTitle };
     }
@@ -963,22 +967,38 @@ ipcMain.handle('generate-internal-consistency-title', async (_evt, payload: { ur
     //   기존: 1개 제목만 생성, 패턴 고정
     //   개선: 긴급/호기심/숫자 3가지 변형 → 점수화 → 최고 선택
     //   기준 (Backlinko 누적): 50-60자 / 키워드 앞쪽 / 이모지 1개 이하 / 숫자+연도
-    const prompt = `다음 URL들에서 추출한 제목들을 분석하여, 종합 글 제목 **3가지 변형**을 JSON 배열로 생성하세요.
+    const prompt = `다음 ${crawledTitles.length}개 글의 제목을 분석하여, 모두를 묶는 통합 글 제목 **3가지 변형**을 JSON으로 생성하세요.
 
 【추출된 제목들】
 ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
 
 📌 **3가지 변형 패턴 (정확히 3개)**:
-1. **긴급성형(urgency)**: 시간/마감/한정 요소 강조 ("지금 신청 마감 임박", "${new Date().getFullYear()} 마지막 기회")
-2. **호기심형(curiosity)**: 의외성/반전/궁금증 ("아무도 모르는", "진짜 이유", "숨겨진 조건")
-3. **숫자형(numeric)**: 구체적 수치 강조 ("월 10만원으로 1,440만원", "3년 만기 N% 수익")
+1. **긴급성형(urgency)**: 시간/마감/한정 + 구체 수치 ("3년 매칭 1,440만원, 신청 마감 임박", "${new Date().getFullYear()} 12월까지만 받는 청년 적금")
+2. **호기심형(curiosity)**: 통념 박살 / 비밀 / 자기의심 ("월급 적은 사람이 오히려 유리한 적금", "은행원도 잘 안 알려주는 정부 적금 5가지")
+3. **숫자형(numeric)**: 충격 수치 + 구체 결과 ("월 10만원 넣고 1,440만원 받은 친구", "3년 만에 2,200만원 만든 27살 직장인")
 
-📐 **공통 규칙 (각 제목 적용)**:
-- 50-60자 (한글 기준, 모바일 SERP 잘림 방지)
+📐 **공통 규칙 — 절대 지킬 것**:
+- 50~60자 (한글 기준, 모바일 SERP 잘림 방지 — 정확히 이 범위)
 - 핵심 검색 키워드를 앞쪽 30% 안에 배치
 - ${new Date().getFullYear()}년 표기 포함
-- 이모지 1개 이하 (과사용 시 신뢰도↓)
-- "종합", "모든 것" 같은 진부한 표현 금지
+- 구체 수치 1개 이상 (금액·기간·% 등) — 평범한 표현보다 수치가 클릭률 2배
+- 이모지 1개 이하
+
+❌ **절대 금지 표현 (이 단어 들어가면 0점)**:
+- "완벽 가이드", "완벽한 가이드", "완벽 정리"
+- "종합 가이드", "종합 정리", "종합글", "종합편"
+- "총정리", "총 정리", "모든 것", "다 알려드림"
+- "꿀팁 모음", "팁 모음", "정보 모음"
+- "A to Z", "처음부터 끝까지"
+- "알아보자", "살펴보자", "알아두면"
+- 평범한 진술형 ("~에 대해 알아봅니다", "~를 정리했습니다")
+
+✅ **합격 패턴 — 첫 단어가 강해야**:
+- 숫자/금액으로 시작: "1,440만원 받은…", "월 10만원으로…"
+- 인물·상황 구체화: "27살 직장인이…", "월급 280만원이…"
+- 반전·통념박살: "적금 금리 4%? 의미 없다…", "월급 적은 게 오히려 유리…"
+- 비밀·은밀: "은행원도 안 알려주는…", "공무원만 받는 줄 알았던…"
+- 손실회피: "이거 안 한 청년 = 매년 400만원 손해", "놓치면 N년 동안…"
 
 ⚠️ **출력 형식 (엄격)**:
 정확히 다음 JSON 형식 1줄로만 출력 (마크다운·설명 금지):
@@ -1003,10 +1023,13 @@ ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
       if (emojiCount === 0) score += 8;
       else if (emojiCount === 1) score += 10;
       else if (emojiCount === 2) score += 3;
-      // 호기심·긴급성 키워드
-      if (/(지금|마감|임박|놓치지|꼭|반드시|독점|단독|진짜|숨겨진|아무도|비밀|총정리|완벽)/.test(t)) score += 12;
+      // 호기심·긴급성 키워드 (단 '완벽'은 진부 표현으로 별도 패널티)
+      if (/(지금|마감|임박|놓치지|꼭|반드시|독점|단독|진짜|숨겨진|아무도|비밀)/.test(t)) score += 12;
       // 구체적 수치 패턴 (XX원, X개월, X% 등)
       if (/\d+\s*(만원|원|개월|년|%|위|위안|배|일)/.test(t)) score += 10;
+      // v3.8.130: 진부 표현 강한 페널티 — 사용자 요구로 "완벽 가이드/종합글" 등 차단
+      const banned = /(완벽\s*가이드|완벽한\s*가이드|완벽\s*정리|종합\s*가이드|종합\s*정리|종합글|종합편|총\s*정리|모든\s*것|다\s*알려드림|꿀팁\s*모음|팁\s*모음|정보\s*모음|A\s*to\s*Z|처음부터\s*끝까지|알아보자|살펴보자|알아두면)/;
+      if (banned.test(t)) score -= 50;
       return score;
     };
 
@@ -1047,7 +1070,11 @@ ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
     } catch (error) {
       console.error('[INTERNAL-CONSISTENCY] AI 제목 생성 실패:', error);
       const topKeywords = crawledTitles[0]!.split(/\s+/).slice(0, 3);
-      generatedTitle = `${topKeywords.join(' ')} 종합 가이드 ${new Date().getFullYear()}`;
+      // v3.8.130: AI 실패 fallback도 진부 표현 안 쓰도록 (첫 글 제목 활용)
+      const firstTitle = crawledTitles[0] || '';
+      generatedTitle = firstTitle.length >= 20 && firstTitle.length <= 60
+        ? firstTitle
+        : `${topKeywords.join(' ')} ${new Date().getFullYear()} ${crawledTitles.length}편 핵심`;
     }
 
     // 제목 정제
@@ -1072,7 +1099,11 @@ ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
 
     if (!finalTitle || finalTitle.length < MIN_TITLE_LENGTH) {
       // 최종 검증 실패 시 폴백
-      const fallbackTitle = `${crawledTitles[0].substring(0, 20)} 종합 가이드 ${new Date().getFullYear()}`;
+      // v3.8.130: 검증 실패 시 첫 글 제목을 그대로 활용 (진부 표현 회피)
+      const firstTitle = crawledTitles[0] || '';
+      const fallbackTitle = firstTitle.length >= 20 && firstTitle.length <= 60
+        ? firstTitle
+        : `${firstTitle.substring(0, 30)} ${new Date().getFullYear()} ${crawledTitles.length}편 정리`;
       console.log('[INTERNAL-CONSISTENCY] 생성된 제목이 너무 짧음, 폴백 사용:', fallbackTitle);
       return { success: true, title: fallbackTitle };
     }

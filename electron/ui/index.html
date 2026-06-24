@@ -5285,7 +5285,7 @@
         <!-- 헤더 + Step 진행 인디케이터 -->
         <header class="sw-header">
           <h1 class="sw-title">🕸️ 거미줄치기 통합글 만들기</h1>
-          <p class="sw-subtitle">기존 글 5개를 골라 각 글의 핵심 70%와 CTA를 엮어 한 편의 권위 있는 통합글로 변환합니다.</p>
+          <p class="sw-subtitle">기존 글 2~10개를 골라 각 글의 핵심 70%와 CTA를 엮어 한 편의 권위 있는 통합글로 변환합니다.</p>
           <ol class="sw-steps" aria-label="진행 단계">
             <li class="sw-step is-active" data-step="1"><span class="sw-step-num">01</span><span class="sw-step-label">글 주소 입력</span></li>
             <li class="sw-step" data-step="2"><span class="sw-step-num">02</span><span class="sw-step-label">선택 확인</span></li>
@@ -5298,7 +5298,7 @@
         <section class="sw-card" aria-labelledby="sw-step1-title">
           <div class="sw-card-head">
             <span class="sw-step-badge">Step 01</span>
-            <h2 id="sw-step1-title" class="sw-card-title">📝 글 주소 입력 (최대 5개)</h2>
+            <h2 id="sw-step1-title" class="sw-card-title">📝 글 주소 입력 (최대 10개)</h2>
           </div>
           <div id="urlInputsContainer" class="sw-url-grid"></div>
           <div class="sw-btn-group" role="toolbar" aria-label="입력 도구">
@@ -5313,7 +5313,7 @@
           <div class="sw-card-head">
             <span class="sw-step-badge">Step 02</span>
             <h2 id="sw-step2-title" class="sw-card-title">✅ 선택한 글</h2>
-            <span id="selectedPostsCount" class="sw-pill" aria-live="polite">0 / 5</span>
+            <span id="selectedPostsCount" class="sw-pill" aria-live="polite">0 / 10</span>
           </div>
           <div id="selectedPostsList" class="sw-list" aria-live="polite">
             <div class="sw-empty">
@@ -5331,7 +5331,7 @@
           </div>
           <div class="sw-field">
             <label for="spiderWebTitle" class="sw-label">📝 통합글 제목 <span class="sw-label-hint">(SEO 최적화 · 비워두면 자동 생성)</span></label>
-            <input type="text" id="spiderWebTitle" class="sw-input" placeholder="5개 글을 모두 포함하는 SEO 최적화된 제목" autocomplete="off">
+            <input type="text" id="spiderWebTitle" class="sw-input" placeholder="선택한 글들을 모두 포괄하는 SEO 최적화된 제목" autocomplete="off">
             <small class="sw-help">💡 비워두면 선택한 글들을 분석해 검색 친화적 제목을 자동 생성합니다.</small>
           </div>
 

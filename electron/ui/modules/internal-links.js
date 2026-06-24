@@ -1,6 +1,6 @@
 // internal-links.js - 거미줄치기 통합글 만들기 기능
 
-// 선택한 글 목록 (최대 5개)
+// 선택한 글 목록 (최대 10개)
 let selectedPosts = [];
 let generatedContent = null;
 let urlInputCount = 0;
@@ -142,7 +142,7 @@ if (document.readyState === 'loading') {
 }
 
 /**
- * URL 입력 필드 초기화 (최대 5개)
+ * URL 입력 필드 초기화 (최대 10개)
  */
 function initializeUrlInputs() {
   console.log('[SPIDER-WEB] initializeUrlInputs 호출됨');
@@ -167,11 +167,11 @@ window.initSpiderWebTab = function() {
 };
 
 /**
- * URL 입력 필드 추가 (최대 5개)
+ * URL 입력 필드 추가 (최대 10개)
  */
 function addUrlInput() {
-  if (urlInputCount >= 5) {
-    alert('⚠️ 최대 5개까지만 입력할 수 있습니다.');
+  if (urlInputCount >= 10) {
+    alert('⚠️ 최대 10개까지만 입력할 수 있습니다.');
     return;
   }
   
@@ -566,12 +566,12 @@ const escapeHtml = (s) => String(s == null ? '' : s)
  * 변경 사항:
  *  - 정식 모달은 거미줄 탭의 `.sw-modal` (HTML5 hidden 속성 사용) 한 곳뿐. 포스팅 탭의
  *    중복 #publishedPostsModal은 index.html에서 제거됨.
- *  - 기존 "한 줄마다 ✅ 선택" 버튼 → 체크박스로 교체, 최대 5개까지 한 번에 선택해
+ *  - 기존 "한 줄마다 ✅ 선택" 버튼 → 체크박스로 교체, 최대 10개까지 한 번에 선택해
  *    하단 액션 바의 "선택한 N개 추가" 버튼으로 일괄 URL 입력 필드에 주입.
  *  - 모달 다크 테마(.sw-modal 계열 CSS)에 맞춰 카드 색감 슬레이트 톤으로 통일.
  */
 // v3.8.2: 모달 mode 정식 통합
-//   - 'spider-web' (기본): 다중 선택(최대 5개) + 거미줄 URL 입력칸 채우기
+//   - 'spider-web' (기본): 다중 선택(최대 10개) + 거미줄 URL 입력칸 채우기
 //   - 'external-traffic': 단일 선택 + 외부유입 탭으로 자동 복귀
 // 양쪽 탭에서 동일한 modal DOM을 공유하되 mode에 따라 UI·버튼·동작 분기.
 let _modalMode = 'spider-web';
@@ -637,7 +637,7 @@ function openPublishedPostsModal(opts) {
     const topBanner = _modalSinglePick
       ? `<div style="margin-bottom: 14px; padding: 12px 16px; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; color: #c7d2fe; font-weight: 700;">📖 외부유입 모드 — 총 ${modalPosts.length}개. 글 1개를 클릭하면 외부유입 변환 탭으로 자동 복귀합니다.</div>`
       : `<div style="margin-bottom: 14px; padding: 12px 16px; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; color: #c7d2fe; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-        <div style="font-weight: 700;">총 ${modalPosts.length}개 · <span id="pubModalSelectedCount" style="color: #fbbf24;">0</span>개 선택 (최대 5)</div>
+        <div style="font-weight: 700;">총 ${modalPosts.length}개 · <span id="pubModalSelectedCount" style="color: #fbbf24;">0</span>개 선택 (최대 10)</div>
         <div style="display: flex; gap: 8px;">
           <button type="button" onclick="selectAllPublishedPosts(true)" style="padding: 6px 12px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">최근 5개 선택</button>
           <button type="button" onclick="selectAllPublishedPosts(false)" style="padding: 6px 12px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">선택 해제</button>
@@ -982,7 +982,7 @@ function selectAllPublishedPosts(autoCheckTopFive) {
 
 /**
  * 체크된 글을 URL 입력 필드에 일괄 주입.
- *   - 빈 입력 필드부터 채움 → 모자라면 addUrlInput()으로 슬롯 추가 (최대 5)
+ *   - 빈 입력 필드부터 채움 → 모자라면 addUrlInput()으로 슬롯 추가 (최대 10)
  *   - 채운 뒤 selectedPosts 동기화 + 모달 닫기
  */
 function addSelectedPostsToInputs() {
@@ -1021,7 +1021,7 @@ function addSelectedPostsToInputs() {
       }
     }
     if (!placed) {
-      // 빈 칸이 없으면 새 슬롯 추가 (최대 5 제한은 addUrlInput 내부에서)
+      // 빈 칸이 없으면 새 슬롯 추가 (최대 10 제한은 addUrlInput 내부에서)
       if (urlInputCount >= 5) break;
       addUrlInput();
       const newInput = document.getElementById(`spiderWebUrl${urlInputCount}`);
@@ -1065,7 +1065,7 @@ function selectPostFromModal(index) {
   }
   
   if (selectedPosts.length >= 5) {
-    alert('⚠️ 최대 5개까지만 선택할 수 있습니다.');
+    alert('⚠️ 최대 10개까지만 선택할 수 있습니다.');
     return;
   }
   
@@ -1180,8 +1180,8 @@ async function generateSpiderWebContent() {
       return;
     }
 
-    if (urls.length > 5) {
-      alert('⚠️ 최대 5개까지만 선택할 수 있습니다.');
+    if (urls.length > 10) {
+      alert('⚠️ 최대 10개까지만 선택할 수 있습니다.');
       return;
     }
     
@@ -2019,8 +2019,8 @@ async function generateAndPublishSpiderWeb() {
       alert('⚠️ 거미줄 통합글은 최소 2개 이상의 글이 필요합니다.\n현재 ' + urls.length + '개 — 더 추가해주세요.');
       return;
     }
-    if (urls.length > 5) {
-      alert('⚠️ 최대 5개까지만 선택할 수 있습니다.');
+    if (urls.length > 10) {
+      alert('⚠️ 최대 10개까지만 선택할 수 있습니다.');
       return;
     }
 
