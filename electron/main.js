@@ -257,6 +257,12 @@ function buildSpiderCtaButtonStyle(theme, large = false) {
         'font-weight:800 !important',
         `border-radius:${large ? '12px' : '10px'} !important`,
         `box-shadow:0 ${large ? '6px 16px' : '4px 14px'} ${theme.ctaShadow} !important`,
+        // v3.8.131: 한국어 어절 보존 + 단어 중간 자름 방지 ("확인하기" → "확인" + "하기" 분리 버그 fix)
+        'word-break:keep-all !important',
+        'overflow-wrap:break-word !important',
+        'white-space:normal !important',
+        'line-height:1.4 !important',
+        'max-width:100% !important',
     ].join(';');
 }
 function applySpiderEyeComfortColors(html, theme) {
@@ -884,7 +890,11 @@ electron_1.ipcMain.handle('generate-internal-consistency-title', async (_evt, pa
                 .sort((a, b) => b[1] - a[1])
                 .slice(0, 3)
                 .map(([word]) => word);
-            const fallbackTitle = `${topKeywords.join(' ')} 종합 가이드 ${new Date().getFullYear()}`;
+            // v3.8.130: fallback도 진부 표현("종합 가이드") 안 쓰도록 — 첫 글 제목 기반 충격형
+            const firstTitle = crawledTitles[0] || '';
+            const fallbackTitle = firstTitle.length >= 20 && firstTitle.length <= 60
+                ? firstTitle
+                : `${topKeywords.slice(0, 2).join(' ')} ${new Date().getFullYear()} 핵심 정리 ${crawledTitles.length}편`;
             console.log('[INTERNAL-CONSISTENCY] API 키 없음, 폴백 제목 생성:', fallbackTitle);
             return { success: true, title: fallbackTitle };
         }
@@ -903,65 +913,139 @@ electron_1.ipcMain.handle('generate-internal-consistency-title', async (_evt, pa
             console.error('[INTERNAL-CONSISTENCY] ❌ 모든 2.0 이상 모델 실패:', errorMsg);
             throw new Error(`Gemini 2.0 이상 모델을 사용할 수 없습니다. ${errorMsg}`);
         }
-        // v3.8.65 (Phase1 작업4): 제목 A/B 3변형 동시 생성 + CTR 점수로 자동 선택
-        //   기존: 1개 제목만 생성, 패턴 고정
-        //   개선: 긴급/호기심/숫자 3가지 변형 → 점수화 → 최고 선택
-        //   기준 (Backlinko 누적): 50-60자 / 키워드 앞쪽 / 이모지 1개 이하 / 숫자+연도
-        const prompt = `다음 URL들에서 추출한 제목들을 분석하여, 종합 글 제목 **3가지 변형**을 JSON 배열로 생성하세요.
+        // v3.8.131: 제목 SEO+AEO+GEO+CTR 4축 동시 최적화 5변형 (deep-research 기반)
+        //   근거: Princeton GEO 2024, Backlinko 5M SERP, Buzzsumo 100M, Google HCU, NN/g eye-tracking,
+        //        네이버 D.I.A.+ C-rank, Sistrix 픽셀 truncation, Ahrefs ChatGPT 코사인 0.656 연구
+        //   - 길이: 한글 28~32자 sweet (모바일 475px ≈ 28자), 최대 40자
+        //   - 핵심 키워드 앞 30% (네이버 정확매칭 + Google BERT 의미매칭 동시)
+        //   - 5변형: 수치-정답형 / 질문-비교형(AEO) / 손실회피형 / 단계-체크리스트형(GEO) / 통념박살형
+        //   - 30+ 금지어 (Google HCU + 네이버 어그로 페널티)
+        const prompt = `다음 ${crawledTitles.length}개 글의 제목을 분석하여, 모두를 묶는 통합 글 제목 **5가지 변형**을 JSON으로 생성하세요.
 
 【추출된 제목들】
 ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
 
-📌 **3가지 변형 패턴 (정확히 3개)**:
-1. **긴급성형(urgency)**: 시간/마감/한정 요소 강조 ("지금 신청 마감 임박", "${new Date().getFullYear()} 마지막 기회")
-2. **호기심형(curiosity)**: 의외성/반전/궁금증 ("아무도 모르는", "진짜 이유", "숨겨진 조건")
-3. **숫자형(numeric)**: 구체적 수치 강조 ("월 10만원으로 1,440만원", "3년 만기 N% 수익")
+📌 **5가지 변형 패턴 (정확히 5개, 각각 다른 패턴)**:
 
-📐 **공통 규칙 (각 제목 적용)**:
-- 50-60자 (한글 기준, 모바일 SERP 잘림 방지)
-- 핵심 검색 키워드를 앞쪽 30% 안에 배치
-- ${new Date().getFullYear()}년 표기 포함
-- 이모지 1개 이하 (과사용 시 신뢰도↓)
-- "종합", "모든 것" 같은 진부한 표현 금지
+1. **numeric (수치-정답형)**: [수치/%] + [핵심 키워드] + [정답동사] + (${new Date().getFullYear()})
+   예: "82%가 모르는 청년도약계좌 진짜 수익률 ${new Date().getFullYear()}"
+   예: "월 10만원으로 3년 만에 2,200만원 모은 직장인 방법"
+
+2. **comparison (질문-비교형, AEO Killer)**: [A] vs [B], [의문사] [기준]?
+   예: "ISA vs 연금저축, 어디에 먼저 넣어야 할까?"
+   예: "전세 vs 월세 ${new Date().getFullYear()}, 손익분기점은 몇 년?"
+
+3. **lossAversion (손실회피형)**: [키워드] 안 하면 [구체 손실액/리스크]
+   예: "연말정산 이거 빠뜨리면 47만원 손해"
+   예: "청년적금 모르고 지나친 27살 = 3년 동안 1,200만원 손해"
+
+4. **checklist (단계-체크리스트형, GEO)**: [숫자]단계로 끝내는 [목표] (${new Date().getFullYear()})
+   예: "5단계로 끝내는 사업자등록 셀프 신청 ${new Date().getFullYear()}"
+   예: "3단계 청년도약계좌 가입 순서 정리"
+
+5. **counterIntuitive (통념박살/모순)**: 아직도 [통념]? + [반전사실 한 줄]
+   예: "월급 적은 사람이 오히려 유리한 적금이 있다"
+   예: "적금 금리 4%? 의미 없다 - 정부 매칭 300% 적금"
+
+📐 **공통 규칙 — 절대 지킬 것 (4축 동시 만족)**:
+- **길이: 한글 28~32자 sweet spot** (모바일 SERP 픽셀 475px ≈ 28자, 최대 40자) — 영문 50~60자가 아님
+- **핵심 검색 키워드 앞 30% 위치** (네이버 D.I.A.+/C-rank 정확매칭 + Google BERT 의미매칭 동시 대응)
+- **숫자 1개 이상 필수** (Buzzsumo 1억 분석: +15% engagement, 숫자 3~10 특히 강함)
+- **${new Date().getFullYear()}년 표기 1개 변형 이상에 포함** (실제 갱신 콘텐츠이므로 freshness +37~640% CTR)
+- **첫 단어가 후킹 트리거**: 숫자, "아직도", "82%가", 인물·상황 명사 (NN/g eye-tracking 첫 11자 가중)
+- **정답형 entity** (받는/되는/모으는/방법/이유): AEO 인용 +40% (Princeton GEO arXiv:2311.09735)
+- 5변형은 서로 다른 패턴 사용 — 중복·유사 금지
+
+❌ **절대 금지어 (-50점, 즉시 재생성)**:
+
+[기존 진부 표현 — 정보성 약함]
+완벽 가이드, 완벽한 가이드, 완벽 정리, 종합 가이드, 종합 정리, 종합글, 종합편, 총정리, 총 정리, 모든 것, 다 알려드림, 꿀팁 모음, 팁 모음, 정보 모음, A to Z, 처음부터 끝까지, 알아보자, 살펴보자, 알아두면
+
+[Google HCU 페널티 — misleading title 분류]
+충격, 이것만 알면, 당신이 모르는, 반드시 알아야, 꼭 봐야, 절대, 놀라운 진실, 믿기지 않는, 기적, 미친, 미쳤다, 레전드, 핵, 역대급, 대박
+
+[네이버 D.I.A.+ 어그로 신호 — C-rank 강등 위험]
+소름돋는, 경악, 입틀막, 진짜 (반복 3회+), 초대박, 비밀 (단독), 폭로, 인생역전, 절대후회, 안보면손해, 단돈, 무조건, 100%, 클릭필수, 1분컷, 광클, 박제, 갓성비, 끝판왕, 마스터, 완전정복, 필독
 
 ⚠️ **출력 형식 (엄격)**:
-정확히 다음 JSON 형식 1줄로만 출력 (마크다운·설명 금지):
-{"urgency":"제목1","curiosity":"제목2","numeric":"제목3"}
+정확히 다음 JSON 형식만 출력 (마크다운·설명·추가 텍스트 금지):
+{"numeric":"제목1","comparison":"제목2","lossAversion":"제목3","checklist":"제목4","counterIntuitive":"제목5"}
 `;
-        // CTR 점수 함수 — 50-60자 적정, 숫자/연도 포함, 이모지 1개 이하, 키워드 위치
+        // v3.8.131: SEO + AEO + GEO + CTR 4축 통합 채점 (100점 만점)
+        //   근거: Princeton GEO 2024(arXiv:2311.09735) / Backlinko 5M SERP / Buzzsumo 100M /
+        //        Google HCU 2022·2024 Core / 네이버 D.I.A.+ deview / Ahrefs ChatGPT 코사인 0.656 / NN/g eye-tracking
         const scoreTitle = (t) => {
             if (!t || typeof t !== 'string')
                 return 0;
-            let score = 0;
-            const len = t.length;
-            // 길이 (50-60자 최적)
-            if (len >= 50 && len <= 60)
-                score += 30;
-            else if (len >= 40 && len <= 70)
-                score += 20;
-            else if (len >= 30 && len <= 80)
-                score += 10;
-            // 숫자 포함
-            if (/\d/.test(t))
-                score += 15;
-            // 연도 포함
-            if (new RegExp(`${new Date().getFullYear()}`).test(t))
-                score += 15;
-            // 이모지 개수 (1개 이하 권장)
+            const len = [...t].length; // 한글 1글자 = 1 (code-point)
+            const front30 = t.slice(0, Math.max(1, Math.ceil(len * 0.3)));
+            // ===== SEO 30점 =====
+            let seo = 0;
+            // 길이 (10점): 28~32 sweet, 25~40 OK, 41~60 감점, >60 0점 (모바일 SERP 475px ≈ 28자)
+            seo += len >= 28 && len <= 32 ? 10 : (len >= 25 && len <= 40 ? 7 : (len <= 60 ? 3 : 0));
+            // 핵심 한글 키워드 앞 30% 위치 (8점): Backlinko 앞쪽 키워드 = +CTR
+            seo += /[가-힣]{2,}/.test(front30) ? 8 : 0;
+            // 숫자 포함 (4점): Buzzsumo +15% engagement
+            seo += /\d/.test(t) ? 4 : 0;
+            // 연도 태그 (4점): freshness +37~640% (실제 갱신 시만)
+            seo += new RegExp(`${new Date().getFullYear()}`).test(t) ? 4 : 0;
+            // 구체 수치 단위 (4점): 네이버 정확매칭 강화
+            seo += /\d+\s*(만원|원|만|억|개월|년|%|위|배|일|편|건|회|개|명|단계|가지)/.test(t) ? 4 : 0;
+            // ===== AEO 20점 =====
+            let aeo = 0;
+            // 정답형 의문/명제 (6점): 무엇/왜/어떻게/얼마/언제/방법/이유 — ChatGPT/Perplexity 직접 인용
+            aeo += /(무엇|뭐|왜|어떻게|얼마|언제|어디|누가|어느|이유|차이|방법|뜻)/.test(t) ? 6 : 0;
+            // 명확 entity 명사구 시작 (4점): 첫 단어가 명사·숫자 (BLUF형)
+            aeo += /^[\d가-힣A-Z]{2,}/.test(t.trim()) ? 4 : 0;
+            // 수치·정의 신호 (5점): Princeton GEO 인용률 +40%
+            aeo += /\d+\s*(%|만|억|위|개|점|배|년|회|단계|가지|편)/.test(t) ? 5 : 0;
+            // 비교/리스트/체크리스트 구조 (5점): generative engine 구조화 문서 선호
+            aeo += /(\d+가지|\d+단계|\d+개|TOP\s?\d+|순위|비교|리스트|체크|vs|차이)/i.test(t) ? 5 : 0;
+            // ===== GEO 20점 =====
+            let geo = 0;
+            // Why/How/What 질문 직접 매칭 (6점): AI Overview 의료 80%/금융 45% 등장률
+            geo += /(왜|어떻게|무엇|뭐|얼마|차이|이유|방법|기준)/.test(t) ? 6 : 0;
+            // Quotation 가능 수치+단위 (6점): Aggarwal et al. 2024 — 통계인용 +40% 가시성
+            geo += /\d+\s?(%|만|억|원|위|배|점|일|년|개월|만원)/.test(t) ? 6 : 0;
+            // 답변형 entity 동사 (4점): 받는/되는/모으는/만드는/얻는/해결 — 직접 답 신호
+            geo += /(받는|받은|되는|버는|모으는|만드는|얻는|해결|끝내는|아끼는|버리는|아끼|줄이는)/.test(t) ? 4 : 0;
+            // 검색 의도 신호 (4점): Know/Do/Buy 키워드
+            geo += /(추천|선택|구매|신청|후기|방법|뜻|차이|가격|순서|기준)/.test(t) ? 4 : 0;
+            // ===== CTR 30점 =====
+            let ctr = 0;
+            // 첫 단어 후킹 (6점): 숫자/괄호/통념박살 first word — NN/g eye-tracking
+            ctr += /^(\[|\d|아직도|왜|어떻게|이렇게|단\s)/.test(t) ? 6 : 0;
+            // 6대 후킹 패턴 적중 (8점): 수치/FOMO/통념박살/비밀/손실회피/모순
+            ctr += /(\d+%가\s*모르는|아직도|놓치면|틀렸|아무도\s*안|숨겨진|손해|망하는|반대로|오히려|만에|만으로|밖에)/.test(t) ? 8 : 0;
+            // 인물·상황 구체화 (6점): X살/직장인/주부/청년/부부 — 독자 자기투영
+            ctr += /(\d+살|\d+세|직장인|주부|학생|청년|부부|신혼|초보|사회초년생|프리랜서|자영업)/.test(t) ? 6 : 0;
+            // 대괄호 [ ] (4점): Backlinko +33~40% CTR (단 keep-all 충돌 없는 형태)
+            ctr += /\[[^\]]{1,8}\]/.test(t) ? 4 : 0;
+            // 28~32자 모바일 풀노출 보너스 (4점): 잘림 없음 = CTR 손실 없음
+            ctr += len <= 32 ? 4 : (len <= 40 ? 2 : 0);
+            // 부정/감정 형용사 (2점): Outbrain 부정 최상급 +63% CTR (HCU 위반 안 되는 선)
+            ctr += /(놓친|반전|결정적|치명적|함정|빠진|숨은)/.test(t) ? 2 : 0;
+            // ===== 페널티 =====
+            // Google HCU misleading title 페널티 (즉시 -50)
+            const hcuBanned = /(충격|이것만\s*알면|당신이\s*모르는|반드시\s*알아야|꼭\s*봐야|절대|놀라운\s*진실|믿기지\s*않는|기적|미친|미쳤다|레전드|핵\s|역대급|대박)/;
+            if (hcuBanned.test(t))
+                return -50;
+            // 네이버 D.I.A.+ 어그로 페널티 (즉시 -50)
+            const naverBanned = /(소름돋는|경악|입틀막|초대박|폭로|인생역전|절대후회|안보면\s*손해|단돈|무조건|100%|클릭필수|1분컷|광클|박제|갓성비|끝판왕|마스터|완전정복|필독)/;
+            if (naverBanned.test(t))
+                return -50;
+            // 기존 진부 표현 페널티 (즉시 -50)
+            const stale = /(완벽\s*가이드|완벽한\s*가이드|완벽\s*정리|종합\s*가이드|종합\s*정리|종합글|종합편|총\s*정리|모든\s*것|다\s*알려드림|꿀팁\s*모음|팁\s*모음|정보\s*모음|A\s*to\s*Z|처음부터\s*끝까지|알아보자|살펴보자|알아두면)/;
+            if (stale.test(t))
+                return -50;
+            // 진짜/솔직 반복 3+회 (-10)
+            if (((t.match(/진짜|솔직/g) || []).length) >= 3)
+                ctr -= 10;
+            // 이모지 과사용 (-5): 2개 초과 시
             const emojiCount = (t.match(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{27BF}]/gu) || []).length;
-            if (emojiCount === 0)
-                score += 8;
-            else if (emojiCount === 1)
-                score += 10;
-            else if (emojiCount === 2)
-                score += 3;
-            // 호기심·긴급성 키워드
-            if (/(지금|마감|임박|놓치지|꼭|반드시|독점|단독|진짜|숨겨진|아무도|비밀|총정리|완벽)/.test(t))
-                score += 12;
-            // 구체적 수치 패턴 (XX원, X개월, X% 등)
-            if (/\d+\s*(만원|원|개월|년|%|위|위안|배|일)/.test(t))
-                score += 10;
-            return score;
+            if (emojiCount > 1)
+                ctr -= 5;
+            return seo + aeo + geo + Math.max(0, ctr); // CTR은 음수 방지
         };
         let generatedTitle = '';
         try {
@@ -973,17 +1057,18 @@ ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
             const raw = (response.text() || '').trim();
             // JSON 추출 (마크다운 백틱 제거)
             const cleaned = raw.replace(/^```json\n?/gi, '').replace(/^```\n?/gi, '').replace(/```\n?$/gi, '').trim();
+            // v3.8.131: 5변형 (numeric/comparison/lossAversion/checklist/counterIntuitive)
             let variants = {};
             try {
                 variants = JSON.parse(cleaned);
             }
             catch {
-                // JSON 파싱 실패 → 단일 제목으로 폴백
                 const fallbackLine = cleaned.split(/\n+/).find((l) => l.length >= 20 && l.length <= 80) || cleaned;
-                variants = { urgency: fallbackLine };
+                variants = { numeric: fallbackLine };
             }
             const candidates = [];
-            for (const type of ['urgency', 'curiosity', 'numeric']) {
+            const variantTypes = ['numeric', 'comparison', 'lossAversion', 'checklist', 'counterIntuitive'];
+            for (const type of variantTypes) {
                 const t = (variants[type] || '').trim().replace(/^["'`]|["'`]$/g, '');
                 if (t && t.length >= 15 && t.length <= 100) {
                     candidates.push({ title: t, type, score: scoreTitle(t) });
@@ -992,8 +1077,8 @@ ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
             if (candidates.length > 0) {
                 candidates.sort((a, b) => b.score - a.score);
                 generatedTitle = candidates[0].title;
-                console.log(`[INTERNAL-CONSISTENCY] ✅ 제목 A/B 3변형 점수`, candidates.map((c) => `${c.type}(${c.score}점): "${c.title.substring(0, 40)}…"`).join(' | '));
-                console.log(`[INTERNAL-CONSISTENCY] 🏆 선택: ${candidates[0].type} (${candidates[0].score}점)`);
+                console.log(`[INTERNAL-CONSISTENCY] ✅ 제목 5변형 점수 (SEO+AEO+GEO+CTR 100점)`, candidates.map((c) => `${c.type}(${c.score}점): "${c.title.substring(0, 40)}…"`).join(' | '));
+                console.log(`[INTERNAL-CONSISTENCY] 🏆 선택: ${candidates[0].type} (${candidates[0].score}점) — ${candidates[0].title}`);
             }
             else {
                 generatedTitle = cleaned.split(/\n+/)[0].trim();
@@ -1002,7 +1087,11 @@ ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
         catch (error) {
             console.error('[INTERNAL-CONSISTENCY] AI 제목 생성 실패:', error);
             const topKeywords = crawledTitles[0].split(/\s+/).slice(0, 3);
-            generatedTitle = `${topKeywords.join(' ')} 종합 가이드 ${new Date().getFullYear()}`;
+            // v3.8.130: AI 실패 fallback도 진부 표현 안 쓰도록 (첫 글 제목 활용)
+            const firstTitle = crawledTitles[0] || '';
+            generatedTitle = firstTitle.length >= 20 && firstTitle.length <= 60
+                ? firstTitle
+                : `${topKeywords.join(' ')} ${new Date().getFullYear()} ${crawledTitles.length}편 핵심`;
         }
         // 제목 정제
         let finalTitle = generatedTitle.trim()
@@ -1025,7 +1114,11 @@ ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
         }
         if (!finalTitle || finalTitle.length < MIN_TITLE_LENGTH) {
             // 최종 검증 실패 시 폴백
-            const fallbackTitle = `${crawledTitles[0].substring(0, 20)} 종합 가이드 ${new Date().getFullYear()}`;
+            // v3.8.130: 검증 실패 시 첫 글 제목을 그대로 활용 (진부 표현 회피)
+            const firstTitle = crawledTitles[0] || '';
+            const fallbackTitle = firstTitle.length >= 20 && firstTitle.length <= 60
+                ? firstTitle
+                : `${firstTitle.substring(0, 30)} ${new Date().getFullYear()} ${crawledTitles.length}편 정리`;
             console.log('[INTERNAL-CONSISTENCY] 생성된 제목이 너무 짧음, 폴백 사용:', fallbackTitle);
             return { success: true, title: fallbackTitle };
         }
@@ -1479,12 +1572,21 @@ ${tail}
                     const cleaned = String(inner).replace(metaLabelPattern, '').trim();
                     return `<h${level}${attrs}>${cleaned}</h${level}>`;
                 });
-                // v3.8.22: LLM이 본문에 남기는 인용 자리표시자 자동 제거
-                //   예: "[cite: provided data]", "[citation: 1]", "[ref: source]" 등.
-                //   Gemini가 가끔 출처 참조를 본문에 그대로 남겨 독자에게 노출되는 문제 차단.
+                // v3.8.131: LLM이 본문에 남기는 인용 자리표시자 모든 형태 자동 제거
+                //   기존: [cite: provided data], [citation: 1] 만 처리
+                //   추가: [cite: 'AI 세상 블로그'], [cite: '한글 텍스트',], (cite: ...), 빈 콤마 잔재 등
                 generatedContent = generatedContent
-                    .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*[:：][^\]]*\]/gi, '')
-                    .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*\d*\s*\]/gi, '');
+                    // [cite: ...] 또는 [citation: ...] 류 (따옴표/한글/콤마 모두 포함)
+                    .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*[:：]?[^\]]{0,300}\]/gi, '')
+                    // [cite] 또는 [cite 1] 같은 단순형
+                    .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*\d*\s*\]/gi, '')
+                    // 괄호 버전 (cite: ...), (citation: ...)
+                    .replace(/\s*[\(（]\s*(cite|citation|ref|reference|source|src)\s*[:：][^)）]{0,300}[\)）]/gi, '')
+                    // 단독 따옴표 인용 ['AI 세상 블로그'] — cite 키워드 없어도 본문에 노출되면 제거
+                    .replace(/\s*\[\s*['"][^'"\]]{2,80}['"]\s*,?\s*\]/g, '')
+                    // cite 잔재로 남은 연속 콤마/공백
+                    .replace(/,\s*,/g, ',')
+                    .replace(/\s{2,}/g, ' ');
                 // v3.8.24: 피아식별 위반 메타 표기 자동 제거 — "(원글 1 관점)", "(원본 N 강조)" 등.
                 //   거미줄은 본인 글 통합이므로 다른 글 출처 암시는 절대 노출되면 안 됨.
                 //   비교표 셀, 헤더, 본문 어디든 등장 시 괄호째 제거.
@@ -1497,13 +1599,69 @@ ${tail}
                 try {
                     const sourceUrls = sortedContents.map((c) => c.url).filter(Boolean);
                     let urlPtr = 0;
+                    // v3.8.133: 발행 직전 진단 로그 — 사용자 입력 URL + 매핑 과정 추적
+                    console.log('[INTERNAL-CONSISTENCY] 📌 사용자 입력 원본 글 URL 목록:');
+                    sortedContents.forEach((c, i) => {
+                        console.log(`  [${i + 1}] title="${(c.title || '').substring(0, 50)}" url="${c.url || '(없음)'}"`);
+                    });
+                    if (sourceUrls.length === 0) {
+                        console.warn('[INTERNAL-CONSISTENCY] ⚠️ 사용자 입력 URL 0개 — CTA가 모두 #로 fallback');
+                    }
+                    // v3.8.132: H2 위치별 텍스트 추출 → CTA 직전 H2와 원본 글 제목 키워드 매칭으로 URL 자동 매핑
+                    //   사용자 보고: H2 1번 CTA가 글 3번 URL을 가리켜서 404 (LLM이 H2 순서를 입력 순서와 다르게 출력)
+                    //   해결: CTA 박스 직전 가장 가까운 H2 텍스트와 sortedContents[i].title의 한글 키워드 overlap 계산 → 최고 매칭 URL 사용
+                    const h2Locations = [];
+                    {
+                        const h2Regex = /<h2[^>]*>([\s\S]*?)<\/h2>/gi;
+                        let h2m;
+                        while ((h2m = h2Regex.exec(generatedContent)) !== null) {
+                            const inner = String(h2m[1]).replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+                            h2Locations.push({ pos: h2m.index, text: inner });
+                        }
+                    }
+                    const STOPWORDS = new Set(['그리고', '또는', '하지만', '그러나', '대한', '관련', '같은', '대해', '대해서', '위한', '위해', '이것', '저것', '이거', '저거']);
+                    const tokenizeTitle = (s) => String(s || '')
+                        .replace(/[\(\)\[\]【】《》「」『』,\.|·—\-:;'"!\?]/g, ' ')
+                        .split(/\s+/)
+                        .map((t) => t.trim())
+                        .filter((t) => t.length >= 2 && /[가-힣A-Za-z0-9]/.test(t) && !STOPWORDS.has(t));
+                    const urlForCtaAt = (offset) => {
+                        // 1) offset 이전 가장 가까운 H2 찾기
+                        const prevH2 = [...h2Locations].reverse().find((h) => h.pos < offset);
+                        const h2Text = prevH2 ? prevH2.text : '';
+                        // 2) 각 sortedContents.title과 키워드 overlap 점수 계산
+                        let bestIdx = -1;
+                        let bestScore = 0;
+                        if (h2Text) {
+                            const h2Tokens = tokenizeTitle(h2Text);
+                            for (let i = 0; i < sortedContents.length; i++) {
+                                const titleTokens = tokenizeTitle(sortedContents[i].title || '');
+                                const overlap = titleTokens.filter((t) => h2Tokens.some((h) => h.includes(t) || t.includes(h))).length;
+                                if (overlap > bestScore) {
+                                    bestScore = overlap;
+                                    bestIdx = i;
+                                }
+                            }
+                        }
+                        // 3) 키워드 매칭 성공 시 그 URL, 실패 시 순서대로 fallback
+                        let chosen;
+                        let reason;
+                        if (bestIdx >= 0 && sourceUrls[bestIdx]) {
+                            chosen = sourceUrls[bestIdx];
+                            reason = `H2 매칭 → 원본 #${bestIdx + 1} (overlap=${bestScore})`;
+                        }
+                        else {
+                            chosen = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
+                            reason = `순서 fallback #${(urlPtr % Math.max(1, sourceUrls.length)) + 1}`;
+                            urlPtr++;
+                        }
+                        console.log(`[INTERNAL-CONSISTENCY] 🔗 CTA URL: "${chosen.substring(0, 80)}" (${reason}, H2="${h2Text.substring(0, 40)}")`);
+                        return chosen;
+                    };
                     // v3.8.77 추가 패턴: 다양한 후킹·버튼 케이스 모두 매칭
-                    //   - 후킹 문구가 ?로 끝나거나 "싶다면" 등으로 끝나는 단락
-                    //   - 다음에 <a> 또는 <p><a> 또는 <p>버튼 텍스트</p>
                     const ctaBroadPattern = /<p[^>]*>\s*([^<]{6,120}?(?:\?|싶다면|궁금하시다면|더\s*알고|상세히|자세히|확인하|놓치지\s*마)\s*[?!]?\s*[\.。]?)\s*<\/p>\s*(?:<p[^>]*>\s*)?(?:<a[^>]*href=["']([^"']*)["'][^>]*>\s*)?([^<\n]{6,150}?(?:🔥|✨|💡|👉|→|>>|»|자세히|상세|보기|확인|신청|받기|클릭|GO))(?:\s*<\/a>)?(?:\s*<\/p>)?/gi;
-                    generatedContent = generatedContent.replace(ctaBroadPattern, (_match, hook, href, btn) => {
-                        const url = (href && /^https?:\/\//i.test(href)) ? href : (sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#');
-                        urlPtr++;
+                    generatedContent = generatedContent.replace(ctaBroadPattern, (_match, hook, _href, btn, offset) => {
+                        const url = urlForCtaAt(offset);
                         const safeHook = String(hook).replace(/[<>]/g, '').trim();
                         const safeBtn = String(btn).replace(/[<>]/g, '').trim();
                         return `<div style="${buildSpiderCtaBoxStyle(spiderTheme, true)}">
@@ -1513,12 +1671,10 @@ ${tail}
   </p>
 </div>`;
                     });
-                    // v3.8.74: 패턴 2 — <p>후킹?</p>\s*<a href="…">버튼 텍스트</a> (wrap 없는 a 태그 단독)
-                    //   사용자 보고: 박스 wrap 없이 후킹+버튼만 왼쪽 정렬로 나옴 → 정규식이 a 태그 단독 케이스 매칭 못함
+                    // 패턴 2: <p>후킹?</p>\s*<a href="…">버튼 텍스트</a> (wrap 없는 a 태그 단독)
                     const ctaAnchorPattern = /<p[^>]*>\s*([^<]{8,80}?(?:\?|싶다면|\s궁금|\s더\s알고|\s확인하고)\s*[?<])\s*<\/p>\s*<a[^>]*href=["']([^"']+)["'][^>]*>\s*([^<]{8,120}?)\s*<\/a>/gi;
-                    generatedContent = generatedContent.replace(ctaAnchorPattern, (_match, hook, _href, btn) => {
-                        const url = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
-                        urlPtr++;
+                    generatedContent = generatedContent.replace(ctaAnchorPattern, (_match, hook, _href, btn, offset) => {
+                        const url = urlForCtaAt(offset);
                         const safeHook = String(hook).replace(/[<>]/g, '').trim();
                         const safeBtn = String(btn).replace(/[<>]/g, '').trim();
                         return `<div style="${buildSpiderCtaBoxStyle(spiderTheme)}">
@@ -1530,12 +1686,10 @@ ${tail}
                     });
                     // 패턴 1 (기존): <p>후킹?</p><p>버튼 텍스트</p>
                     const ctaTextPattern = /<p[^>]*>\s*([^<]{8,80}?(?:\?|싶다면|\s궁금|\s더\s알고|\s확인하고)\s*[?<])\s*<\/p>\s*(?:<p[^>]*>\s*)?([^<]{8,120}?(?:🔥|✨|💡|자세히\s*보기|상세\s*보기|>>|»))\s*<\/p>/gi;
-                    generatedContent = generatedContent.replace(ctaTextPattern, (_match, hook, btn) => {
-                        const url = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
-                        urlPtr++;
+                    generatedContent = generatedContent.replace(ctaTextPattern, (_match, hook, btn, offset) => {
+                        const url = urlForCtaAt(offset);
                         const safeHook = String(hook).replace(/[<>]/g, '').trim();
                         const safeBtn = String(btn).replace(/[<>]/g, '').trim();
-                        // v3.8.25: 모든 핵심 속성에 !important + background-color 단색 폴백 + 중앙정렬 강제
                         return `<div style="${buildSpiderCtaBoxStyle(spiderTheme)}">
   <p style="margin:0 0 14px !important;color:${spiderTheme.heading} !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
   <p style="margin:0 !important;text-align:center !important;">
@@ -1543,7 +1697,7 @@ ${tail}
   </p>
 </div>`;
                     });
-                    console.log('[INTERNAL-CONSISTENCY] CTA 후처리 변환 시도 (안전망)');
+                    console.log('[INTERNAL-CONSISTENCY] CTA 후처리: H2↔원본 글 제목 키워드 매칭 완료');
                 }
                 catch (e) {
                     console.warn('[INTERNAL-CONSISTENCY] CTA 후처리 실패:', e?.message);
@@ -9151,9 +9305,14 @@ async function callLLMWithPreference(opts) {
                 const { GoogleGenerativeAI } = await Promise.resolve().then(() => __importStar(require('@google/generative-ai')));
                 const genAI = new GoogleGenerativeAI(opts.geminiKey);
                 const m = genAI.getGenerativeModel({ model: opts.preferredGeminiModel });
+                // v3.8.127: 외부유입 schema 출력 강제 (finalRevision 누락 방지)
+                const wantsJson = /finalRevision|RESULT_JSON|"variants"/i.test(`${opts.system}\n${opts.user}`);
+                const generationConfig = { maxOutputTokens: opts.maxOutputTokens, temperature: opts.temperature };
+                if (wantsJson)
+                    generationConfig.responseMimeType = 'application/json';
                 const r = await m.generateContent({
                     contents: [{ role: 'user', parts: [{ text: `${opts.system}\n\n${opts.user}` }] }],
-                    generationConfig: { maxOutputTokens: opts.maxOutputTokens, temperature: opts.temperature },
+                    generationConfig,
                 });
                 const text = ((await r.response).text() || '').trim();
                 if (text)
