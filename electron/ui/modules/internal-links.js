@@ -261,8 +261,8 @@ function updateSelectedPostsFromInputs() {
     if (key) previousByUrl.set(key, post);
   });
   const nextPosts = [];
-  
-  for (let i = 1; i <= 5; i++) {
+
+  for (let i = 1; i <= 10; i++) {
     const input = document.getElementById(`spiderWebUrl${i}`);
     if (input && input.value.trim()) {
       const url = _normalizePostUrl(input.value.trim());

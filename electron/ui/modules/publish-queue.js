@@ -1085,6 +1085,11 @@ function buildModalHtml() {
                 <option value="schedule">예약 발행</option>
               </select>
             </label>
+            <label id="pq-bulk-schedule-wrap" style="display:none;flex-direction:column;gap:4px;">
+              <span style="color:#fbbf24;font-size:11px;font-weight:700;">📅 예약 날짜·시간</span>
+              <input type="datetime-local" id="pq-bulk-schedule" style="min-height:34px;padding:7px 10px;font-size:12px;background:rgba(15,23,42,0.72);color:white;border:1px solid rgba(251,191,36,0.4);border-radius:8px;">
+              <span style="color:#fde68a;font-size:10px;">⚡ 모든 대기열 항목에 같은 시간 적용 (간격은 발행 간격 옵션으로 분산)</span>
+            </label>
             <label style="display:flex;flex-direction:column;gap:4px;">
               <span style="color:#cbd5e1;font-size:11px;font-weight:700;">톤</span>
               <select id="pq-bulk-tone">
@@ -2093,6 +2098,24 @@ function bindModalEvents() {
   document.getElementById('pq-interval-value')?.addEventListener('change', () => syncIntervalControl());
   syncIntervalControl();
 
+  // v3.8.137: 발행 방식 = 예약 발행 선택 시 날짜/시간 input 자동 노출
+  const bulkPostingSelect = document.getElementById('pq-bulk-posting');
+  const bulkScheduleWrap = document.getElementById('pq-bulk-schedule-wrap');
+  const bulkScheduleInput = document.getElementById('pq-bulk-schedule');
+  const toggleBulkSchedule = () => {
+    if (!bulkScheduleWrap) return;
+    bulkScheduleWrap.style.display = bulkPostingSelect?.value === 'schedule' ? 'flex' : 'none';
+    if (bulkPostingSelect?.value === 'schedule' && bulkScheduleInput && !bulkScheduleInput.value) {
+      // 기본값: 1시간 뒤 정각
+      const d = new Date(Date.now() + 60 * 60 * 1000);
+      d.setMinutes(0, 0, 0);
+      const pad = (n) => String(n).padStart(2, '0');
+      bulkScheduleInput.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+  };
+  bulkPostingSelect?.addEventListener('change', toggleBulkSchedule);
+  toggleBulkSchedule();
+
   // 일괄 적용
   document.getElementById('pq-bulk-apply')?.addEventListener('click', () => {
     const m = document.getElementById('pq-bulk-mode')?.value;
@@ -2106,6 +2129,13 @@ function bindModalEvents() {
     const title = document.getElementById('pq-bulk-title')?.value;
     const tone = document.getElementById('pq-bulk-tone')?.value;
     const fact = document.getElementById('pq-bulk-fact')?.value;
+    const scheduleVal = (document.getElementById('pq-bulk-schedule')?.value || '').trim();
+    // 예약 발행 선택했는데 시간 비어있으면 경고
+    if (pm === 'schedule' && !scheduleVal) {
+      alert('⚠️ "예약 발행"을 선택했습니다 — 날짜·시간을 입력해주세요.');
+      document.getElementById('pq-bulk-schedule')?.focus();
+      return;
+    }
     STATE.keywords.forEach(item => {
       if (m) item.mode = m;
       if (t) item.thumb = normalizeThumbEngine(t);
@@ -2121,6 +2151,8 @@ function bindModalEvents() {
       if (title) applyTitleOptionToItem(item, title);
       if (tone) item.toneStyle = tone;
       if (fact) item.factCheckMode = fact;
+      // v3.8.137: 예약 발행 + 시간 입력 시 모든 항목에 일괄 적용 (발행 간격은 별도 옵션이 분산 처리)
+      if (pm === 'schedule' && scheduleVal) item.scheduleDate = scheduleVal;
       if (item.mode === 'adsense') item.ctaMode = 'none';
       if (item.ctaMode === 'manual') ensureItemManualCta(item);
       touchItemSnapshot(item);
