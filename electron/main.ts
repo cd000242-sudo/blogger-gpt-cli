@@ -250,6 +250,12 @@ function buildSpiderCtaButtonStyle(theme: SpiderEyeComfortPalette, large = false
     'font-weight:800 !important',
     `border-radius:${large ? '12px' : '10px'} !important`,
     `box-shadow:0 ${large ? '6px 16px' : '4px 14px'} ${theme.ctaShadow} !important`,
+    // v3.8.131: 한국어 어절 보존 + 단어 중간 자름 방지 ("확인하기" → "확인" + "하기" 분리 버그 fix)
+    'word-break:keep-all !important',
+    'overflow-wrap:break-word !important',
+    'white-space:normal !important',
+    'line-height:1.4 !important',
+    'max-width:100% !important',
   ].join(';');
 }
 
@@ -938,11 +944,11 @@ ipcMain.handle('generate-internal-consistency-title', async (_evt, payload: { ur
         .slice(0, 3)
         .map(([word]) => word);
 
-      // v3.8.132: fallback도 entity-rich (수치+검증 entity 결합)
+      // v3.8.130: fallback도 진부 표현("종합 가이드") 안 쓰도록 — 첫 글 제목 기반 충격형
       const firstTitle = crawledTitles[0] || '';
       const fallbackTitle = firstTitle.length >= 20 && firstTitle.length <= 60
         ? firstTitle
-        : `${topKeywords.slice(0, 2).join(' ')} ${new Date().getFullYear()} 검증된 ${crawledTitles.length}가지 핵심`;
+        : `${topKeywords.slice(0, 2).join(' ')} ${new Date().getFullYear()} 핵심 정리 ${crawledTitles.length}편`;
       console.log('[INTERNAL-CONSISTENCY] API 키 없음, 폴백 제목 생성:', fallbackTitle);
       return { success: true, title: fallbackTitle };
     }
@@ -963,226 +969,185 @@ ipcMain.handle('generate-internal-consistency-title', async (_evt, payload: { ur
       throw new Error(`Gemini 2.0 이상 모델을 사용할 수 없습니다. ${errorMsg}`);
     }
 
-    // v3.8.132: deep-research(KDD2024 GEO 논문 + arXiv 2604.25707 Citation Absorption + Backlinko + Sistrix) 기반 4축 통합 제목 시스템
-    //   기존: urgency/curiosity/numeric 3변형 (Backlinko CTR만 가중)
-    //   개선: SEO(30) + AEO(20) + GEO(20) + CTR(30) 통합 100점 + 5변형
-    //   핵심: 인용·통계 entity 직접 노출(+41% PAW), 키워드 스터핑 금지(-10%),
-    //         정보 누락형 클릭베이트(충격/경악) 차단(null effect on retention),
-    //         정답+수치+권위 결합형이 4축 동시 최적해
-    const prompt = `당신은 한국어 블로그 통합글 제목을 SEO + AEO + GEO + CTR 4축 동시 최적화하는 헤드라인 전문가입니다.
-
-다음 ${crawledTitles.length}개 글을 묶는 통합 제목 **5변형**을 JSON으로 생성하세요.
+    // v3.8.131: 제목 SEO+AEO+GEO+CTR 4축 동시 최적화 5변형 (deep-research 기반)
+    //   근거: Princeton GEO 2024, Backlinko 5M SERP, Buzzsumo 100M, Google HCU, NN/g eye-tracking,
+    //        네이버 D.I.A.+ C-rank, Sistrix 픽셀 truncation, Ahrefs ChatGPT 코사인 0.656 연구
+    //   - 길이: 한글 28~32자 sweet (모바일 475px ≈ 28자), 최대 40자
+    //   - 핵심 키워드 앞 30% (네이버 정확매칭 + Google BERT 의미매칭 동시)
+    //   - 5변형: 수치-정답형 / 질문-비교형(AEO) / 손실회피형 / 단계-체크리스트형(GEO) / 통념박살형
+    //   - 30+ 금지어 (Google HCU + 네이버 어그로 페널티)
+    const prompt = `다음 ${crawledTitles.length}개 글의 제목을 분석하여, 모두를 묶는 통합 글 제목 **5가지 변형**을 JSON으로 생성하세요.
 
 【추출된 제목들】
 ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
 
-📊 **4축 동시 최적화 원칙 (KDD 2024 GEO 논문 + arXiv 2604.25707 + Backlinko 검증)**:
+📌 **5가지 변형 패턴 (정확히 5개, 각각 다른 패턴)**:
 
-[SEO축 — 검색 노출]
-- 핵심 검색 키워드를 **앞쪽 28자 안**에 1회만 (모바일 SERP truncation 한계 + 키워드 스터핑 -10% 페널티 회피)
-- ${new Date().getFullYear()}년 표기 포함 (최신성 시그널)
-- 검색 의도 단어 1개: "방법", "이유", "조건", "비교", "기준"
+1. **numeric (수치-정답형)**: [수치/%] + [핵심 키워드] + [정답동사] + (${new Date().getFullYear()})
+   예: "82%가 모르는 청년도약계좌 진짜 수익률 ${new Date().getFullYear()}"
+   예: "월 10만원으로 3년 만에 2,200만원 모은 직장인 방법"
 
-[AEO축 — LLM 답변 인용]
-- **구체 수치 1개 이상 직접 노출** (1,440만원 / 3년 / 5단계 / 27살 / 월 30만원) — Quotation +41% PAW
-- 추출 가능한 entity 명시: "N가지", "N단계", "N개" — Citation Absorption 우선
-- 정의/비교/절차 구조 1개: "○○이란", "vs", "5단계", "비교"
+2. **comparison (질문-비교형, AEO Killer)**: [A] vs [B], [의문사] [기준]?
+   예: "ISA vs 연금저축, 어디에 먼저 넣어야 할까?"
+   예: "전세 vs 월세 ${new Date().getFullYear()}, 손익분기점은 몇 년?"
 
-[GEO축 — AI Overview/SGE 흡수]
-- 통계·인용 가능한 권위 entity 1개: "조사", "검증", "공식", "기관", "데이터", "발표"
-- 명확한 답이 있는 정답형 또는 정의형 구조
-- 의미적 단일 명확성 (한 제목 = 한 명확한 주제)
+3. **lossAversion (손실회피형)**: [키워드] 안 하면 [구체 손실액/리스크]
+   예: "연말정산 이거 빠뜨리면 47만원 손해"
+   예: "청년적금 모르고 지나친 27살 = 3년 동안 1,200만원 손해"
 
-[CTR축 — 사람 클릭률]
-- 자릿수 명시형 (1,440만원 같은 ,찍힌 숫자 / 3년 만에 / 7가지) — Backlinko 검증 +CTR
-- 긍정 감정어 1개: "검증된", "안전한", "추천", "최고", "신뢰" — +4.1% CTR (Backlinko 400만 SERP)
-- 인물·상황 구체화 1개: "27살 직장인", "월급 280만원", "맞벌이 부부"
-- 30자 이내에 핵심 가치 압축 (모바일 jpg truncation)
+4. **checklist (단계-체크리스트형, GEO)**: [숫자]단계로 끝내는 [목표] (${new Date().getFullYear()})
+   예: "5단계로 끝내는 사업자등록 셀프 신청 ${new Date().getFullYear()}"
+   예: "3단계 청년도약계좌 가입 순서 정리"
 
-📌 **5변형 패턴 (정확히 5개, 라벨 고정)**:
+5. **counterIntuitive (통념박살/모순)**: 아직도 [통념]? + [반전사실 한 줄]
+   예: "월급 적은 사람이 오히려 유리한 적금이 있다"
+   예: "적금 금리 4%? 의미 없다 - 정부 매칭 300% 적금"
 
-1. **권위·인용형(authority)** — AEO/GEO 최강
-   예: "KDI 2025 검증: 청년 적금 5가지, 월 10만원으로 1,440만원 만든 방법"
-   구조: [권위·기관·조사 출처] + [수치 N가지] + [구체 수치 결과]
+📐 **공통 규칙 — 절대 지킬 것 (4축 동시 만족)**:
+- **길이: 한글 28~32자 sweet spot** (모바일 SERP 픽셀 475px ≈ 28자, 최대 40자) — 영문 50~60자가 아님
+- **핵심 검색 키워드 앞 30% 위치** (네이버 D.I.A.+/C-rank 정확매칭 + Google BERT 의미매칭 동시 대응)
+- **숫자 1개 이상 필수** (Buzzsumo 1억 분석: +15% engagement, 숫자 3~10 특히 강함)
+- **${new Date().getFullYear()}년 표기 1개 변형 이상에 포함** (실제 갱신 콘텐츠이므로 freshness +37~640% CTR)
+- **첫 단어가 후킹 트리거**: 숫자, "아직도", "82%가", 인물·상황 명사 (NN/g eye-tracking 첫 11자 가중)
+- **정답형 entity** (받는/되는/모으는/방법/이유): AEO 인용 +40% (Princeton GEO arXiv:2311.09735)
+- 5변형은 서로 다른 패턴 사용 — 중복·유사 금지
 
-2. **정의·정답형(definition)** — AEO 인용률 최강
-   예: "청년 적금이란? 3년 1,440만원 받는 27살 직장인의 5가지 조건"
-   구조: [○○이란?] + [핵심 수치] + [대상 + N가지 답]
+❌ **절대 금지어 (-50점, 즉시 재생성)**:
 
-3. **절차·단계형(procedural)** — GEO Citation Absorption 우선
-   예: "월 30만원으로 3년 만에 2,200만원 만드는 5단계: 27살 직장인 검증"
-   구조: [구체 수치 결과] + [N단계 절차] + [인물 + 검증 entity]
+[기존 진부 표현 — 정보성 약함]
+완벽 가이드, 완벽한 가이드, 완벽 정리, 종합 가이드, 종합 정리, 종합글, 종합편, 총정리, 총 정리, 모든 것, 다 알려드림, 꿀팁 모음, 팁 모음, 정보 모음, A to Z, 처음부터 끝까지, 알아보자, 살펴보자, 알아두면
 
-4. **비교·대조형(comparison)** — AEO/GEO 양쪽 친화
-   예: "일반 적금 vs 청년 적금: 월 30만원 차이, 3년 1,440만원 검증된 비교"
-   구조: [A vs B] + [차이 수치] + [기간 + 결과]
+[Google HCU 페널티 — misleading title 분류]
+충격, 이것만 알면, 당신이 모르는, 반드시 알아야, 꼭 봐야, 절대, 놀라운 진실, 믿기지 않는, 기적, 미친, 미쳤다, 레전드, 핵, 역대급, 대박
 
-5. **손실 회피·시간 압박형(loss-aversion)** — CTR 최강 + 정보 압축
-   예: "${new Date().getFullYear()} 12월 마감 청년 적금: 안 하면 3년에 1,200만원 손해, 7가지 조건"
-   구조: [기한·마감] + [손실 수치] + [N가지 핵심]
-
-📐 **공통 룰**:
-- 길이 50~65자 (이상적), 최대 70자
-- 첫 28자 안에 핵심 키워드 + 수치 또는 entity 1개
-- ${new Date().getFullYear()}년 또는 구체 수치 필수
-- 이모지 0~1개
-
-❌ **절대 금지 (자동 -50점)**:
-[진부 표현]
-- "완벽 가이드/완벽한 가이드/완벽 정리"
-- "종합 가이드/종합 정리/종합글/종합편"
-- "총정리/모든 것/다 알려드림"
-- "꿀팁 모음/팁 모음/정보 모음/A to Z/처음부터 끝까지"
-- "알아보자/살펴보자/알아두면"
-
-[정보 누락형 클릭베이트] (Princeton/NYU POQ 2020 — 잔류 가치 0, AEO 인용 차단)
-- "충격/경악/믿기 힘든/이게 진짜?/누구도 모르는/대박/소름"
-- "당신은 모릅니다/모르면 손해/안 보면 후회"
-
-[키워드 스터핑] (Princeton GEO -10%)
-- 같은 키워드 3회 이상 반복 ("청년 청년 적금 청년 가이드")
-- 키워드 나열형 ("적금, 청년적금, 청년재테크, 청년목돈")
-
-✅ **합격 사인 — 한 제목에 다음 중 4개 이상**:
-- 구체 자릿수 수치 (1,440만원, 3년, 5가지) ← AEO/CTR 동시
-- 권위 entity (조사/검증/공식/기관/데이터) ← AEO/GEO 동시
-- 추출 가능한 N단계/N가지/vs/이란 ← GEO Citation Absorption
-- 인물·상황 구체화 (27살/월급/직장인) ← CTR
-- 긍정 감정어 (검증된/안전한/추천) ← CTR Backlinko +4.1%
-- ${new Date().getFullYear()}년 표기 ← SEO 최신성
-- 앞쪽 28자 안 핵심 키워드 ← SEO 모바일 truncation 회피
+[네이버 D.I.A.+ 어그로 신호 — C-rank 강등 위험]
+소름돋는, 경악, 입틀막, 진짜 (반복 3회+), 초대박, 비밀 (단독), 폭로, 인생역전, 절대후회, 안보면손해, 단돈, 무조건, 100%, 클릭필수, 1분컷, 광클, 박제, 갓성비, 끝판왕, 마스터, 완전정복, 필독
 
 ⚠️ **출력 형식 (엄격)**:
-정확히 다음 JSON 1줄로만 출력 (마크다운·설명 금지):
-{"authority":"제목1","definition":"제목2","procedural":"제목3","comparison":"제목4","lossAversion":"제목5"}
+정확히 다음 JSON 형식만 출력 (마크다운·설명·추가 텍스트 금지):
+{"numeric":"제목1","comparison":"제목2","lossAversion":"제목3","checklist":"제목4","counterIntuitive":"제목5"}
 `;
 
-    // v3.8.132: SEO(30) + AEO(20) + GEO(20) + CTR(30) 통합 100점 채점
-    //   근거: deep-research (Aggarwal KDD2024 GEO + arXiv2604.25707 Citation Absorption +
-    //         Backlinko 400만 SERP + Sistrix + Princeton/NYU POQ2020 clickbait)
-    const currentYear = new Date().getFullYear();
-    const scoreTitle = (t: string): { total: number; seo: number; aeo: number; geo: number; ctr: number; reasons: string[] } => {
-      const reasons: string[] = [];
-      if (!t || typeof t !== 'string') return { total: 0, seo: 0, aeo: 0, geo: 0, ctr: 0, reasons: ['empty'] };
-      const len = t.length;
-      const first28 = t.substring(0, 28);
+    // v3.8.131: SEO + AEO + GEO + CTR 4축 통합 채점 (100점 만점)
+    //   근거: Princeton GEO 2024(arXiv:2311.09735) / Backlinko 5M SERP / Buzzsumo 100M /
+    //        Google HCU 2022·2024 Core / 네이버 D.I.A.+ deview / Ahrefs ChatGPT 코사인 0.656 / NN/g eye-tracking
+    const scoreTitle = (t: string): number => {
+      if (!t || typeof t !== 'string') return 0;
+      const len = [...t].length; // 한글 1글자 = 1 (code-point)
+      const front30 = t.slice(0, Math.max(1, Math.ceil(len * 0.3)));
 
-      // ─── SEO 30점 ───
+      // ===== SEO 30점 =====
       let seo = 0;
-      // 길이 (Sistrix: ideal 55-65자, max 70자)
-      if (len >= 50 && len <= 65) { seo += 12; reasons.push('SEO+12: 길이 50-65자 이상적'); }
-      else if (len >= 45 && len <= 70) { seo += 8; reasons.push('SEO+8: 길이 45-70자 허용'); }
-      else if (len > 70) { seo -= 5; reasons.push('SEO-5: 70자 초과 → Google 재작성 위험'); }
-      // 연도
-      if (new RegExp(`${currentYear}`).test(t)) { seo += 8; reasons.push(`SEO+8: ${currentYear}년 최신성`); }
-      // 검색 의도 단어
-      if (/(방법|이유|조건|비교|기준|차이|순위|후기)/.test(t)) { seo += 6; reasons.push('SEO+6: 검색의도 단어'); }
-      // 앞쪽 28자에 숫자 또는 키워드
-      if (/[\d가-힣]{2,}/.test(first28) && /\d/.test(first28)) { seo += 4; reasons.push('SEO+4: 앞쪽 28자 핵심키워드+수치'); }
+      // 길이 (10점): 28~32 sweet, 25~40 OK, 41~60 감점, >60 0점 (모바일 SERP 475px ≈ 28자)
+      seo += len >= 28 && len <= 32 ? 10 : (len >= 25 && len <= 40 ? 7 : (len <= 60 ? 3 : 0));
+      // 핵심 한글 키워드 앞 30% 위치 (8점): Backlinko 앞쪽 키워드 = +CTR
+      seo += /[가-힣]{2,}/.test(front30) ? 8 : 0;
+      // 숫자 포함 (4점): Buzzsumo +15% engagement
+      seo += /\d/.test(t) ? 4 : 0;
+      // 연도 태그 (4점): freshness +37~640% (실제 갱신 시만)
+      seo += new RegExp(`${new Date().getFullYear()}`).test(t) ? 4 : 0;
+      // 구체 수치 단위 (4점): 네이버 정확매칭 강화
+      seo += /\d+\s*(만원|원|만|억|개월|년|%|위|배|일|편|건|회|개|명|단계|가지)/.test(t) ? 4 : 0;
 
-      // ─── AEO 20점 (LLM 인용) ───
+      // ===== AEO 20점 =====
       let aeo = 0;
-      // 구체 수치 (Quotation Addition +41% PAW)
-      const numericMatches = t.match(/\d+\s*(만원|원|개월|년|%|가지|단계|개|위|배|일|시간|분)/g) || [];
-      if (numericMatches.length >= 2) { aeo += 8; reasons.push('AEO+8: 수치 entity 2개 이상'); }
-      else if (numericMatches.length === 1) { aeo += 5; reasons.push('AEO+5: 수치 entity 1개'); }
-      // 추출 가능한 구조 (Citation Absorption)
-      if (/(N?\d+\s*가지|\d+\s*단계|이란|vs|대\s*비교)/.test(t)) { aeo += 7; reasons.push('AEO+7: 추출가능 entity (N가지/단계/이란/vs)'); }
-      // 권위·인용 entity
-      if (/(조사|검증|공식|기관|데이터|발표|연구|보고서|통계)/.test(t)) { aeo += 5; reasons.push('AEO+5: 권위·인용 entity'); }
+      // 정답형 의문/명제 (6점): 무엇/왜/어떻게/얼마/언제/방법/이유 — ChatGPT/Perplexity 직접 인용
+      aeo += /(무엇|뭐|왜|어떻게|얼마|언제|어디|누가|어느|이유|차이|방법|뜻)/.test(t) ? 6 : 0;
+      // 명확 entity 명사구 시작 (4점): 첫 단어가 명사·숫자 (BLUF형)
+      aeo += /^[\d가-힣A-Z]{2,}/.test(t.trim()) ? 4 : 0;
+      // 수치·정의 신호 (5점): Princeton GEO 인용률 +40%
+      aeo += /\d+\s*(%|만|억|위|개|점|배|년|회|단계|가지|편)/.test(t) ? 5 : 0;
+      // 비교/리스트/체크리스트 구조 (5점): generative engine 구조화 문서 선호
+      aeo += /(\d+가지|\d+단계|\d+개|TOP\s?\d+|순위|비교|리스트|체크|vs|차이)/i.test(t) ? 5 : 0;
 
-      // ─── GEO 20점 (AI Overview/SGE) ───
+      // ===== GEO 20점 =====
       let geo = 0;
-      // 정답형/정의형 구조
-      if (/(이란|이렇게|이유는|방법은|차이는|기준은)/.test(t)) { geo += 6; reasons.push('GEO+6: 정답·정의형 구조'); }
-      // 통계·인용 entity 명시
-      if (/\d+\s*(명|건|개월|년|차|회)/.test(t)) { geo += 5; reasons.push('GEO+5: 통계 entity'); }
-      // 절차·N단계
-      if (/(\d+단계|\d+가지|\d+개)/.test(t)) { geo += 5; reasons.push('GEO+5: 절차·N가지 구조'); }
-      // 단일 명확 주제 (질문 1개 또는 단일 주제)
-      const questionMarks = (t.match(/[?？]/g) || []).length;
-      if (questionMarks <= 1) { geo += 4; reasons.push('GEO+4: 단일 명확 주제'); }
+      // Why/How/What 질문 직접 매칭 (6점): AI Overview 의료 80%/금융 45% 등장률
+      geo += /(왜|어떻게|무엇|뭐|얼마|차이|이유|방법|기준)/.test(t) ? 6 : 0;
+      // Quotation 가능 수치+단위 (6점): Aggarwal et al. 2024 — 통계인용 +40% 가시성
+      geo += /\d+\s?(%|만|억|원|위|배|점|일|년|개월|만원)/.test(t) ? 6 : 0;
+      // 답변형 entity 동사 (4점): 받는/되는/모으는/만드는/얻는/해결 — 직접 답 신호
+      geo += /(받는|받은|되는|버는|모으는|만드는|얻는|해결|끝내는|아끼는|버리는|아끼|줄이는)/.test(t) ? 4 : 0;
+      // 검색 의도 신호 (4점): Know/Do/Buy 키워드
+      geo += /(추천|선택|구매|신청|후기|방법|뜻|차이|가격|순서|기준)/.test(t) ? 4 : 0;
 
-      // ─── CTR 30점 (Backlinko + 헤드라인 카피라이팅) ───
+      // ===== CTR 30점 =====
       let ctr = 0;
-      // 자릿수 명시형 (1,440만원처럼 , 포함된 큰 숫자)
-      if (/\d{1,3}(,\d{3})+/.test(t)) { ctr += 8; reasons.push('CTR+8: 자릿수 명시형 (콤마 큰 숫자)'); }
-      else if (/\d+\s*(만원|원)/.test(t)) { ctr += 5; reasons.push('CTR+5: 금액 수치'); }
-      // 긍정 감정어 (Backlinko +4.1%)
-      if (/(검증된|안전한|추천|최고|신뢰|효과적|확실한|믿을|입증된)/.test(t)) { ctr += 6; reasons.push('CTR+6: 긍정 감정어 (Backlinko +4.1%)'); }
-      // 인물·상황 구체화
-      if (/(\d+\s*살|직장인|월급|맞벌이|신혼|학생|주부|프리랜서|자영업|공무원)/.test(t)) { ctr += 6; reasons.push('CTR+6: 인물·상황 구체화'); }
-      // 후킹 동사 (강한 결과 표현)
-      if (/(받았다|꽂혔다|만든|모은|벌었다|줄였다|아꼈다|찾았다|뚫었다)/.test(t)) { ctr += 5; reasons.push('CTR+5: 강한 후킹 동사'); }
-      // 핵심 가치 앞쪽 압축 (30자 이내)
-      if (len <= 30) { ctr += 5; reasons.push('CTR+5: 30자 이내 핵심 압축 (모바일 강함)'); }
-      else if (len <= 40) { ctr += 3; reasons.push('CTR+3: 40자 이내'); }
+      // 첫 단어 후킹 (6점): 숫자/괄호/통념박살 first word — NN/g eye-tracking
+      ctr += /^(\[|\d|아직도|왜|어떻게|이렇게|단\s)/.test(t) ? 6 : 0;
+      // 6대 후킹 패턴 적중 (8점): 수치/FOMO/통념박살/비밀/손실회피/모순
+      ctr += /(\d+%가\s*모르는|아직도|놓치면|틀렸|아무도\s*안|숨겨진|손해|망하는|반대로|오히려|만에|만으로|밖에)/.test(t) ? 8 : 0;
+      // 인물·상황 구체화 (6점): X살/직장인/주부/청년/부부 — 독자 자기투영
+      ctr += /(\d+살|\d+세|직장인|주부|학생|청년|부부|신혼|초보|사회초년생|프리랜서|자영업)/.test(t) ? 6 : 0;
+      // 대괄호 [ ] (4점): Backlinko +33~40% CTR (단 keep-all 충돌 없는 형태)
+      ctr += /\[[^\]]{1,8}\]/.test(t) ? 4 : 0;
+      // 28~32자 모바일 풀노출 보너스 (4점): 잘림 없음 = CTR 손실 없음
+      ctr += len <= 32 ? 4 : (len <= 40 ? 2 : 0);
+      // 부정/감정 형용사 (2점): Outbrain 부정 최상급 +63% CTR (HCU 위반 안 되는 선)
+      ctr += /(놓친|반전|결정적|치명적|함정|빠진|숨은)/.test(t) ? 2 : 0;
 
-      // ─── 페널티 ───
-      // 1) 진부 표현 -50
-      const cliche = /(완벽\s*가이드|완벽한\s*가이드|완벽\s*정리|종합\s*가이드|종합\s*정리|종합글|종합편|총\s*정리|모든\s*것|다\s*알려드림|꿀팁\s*모음|팁\s*모음|정보\s*모음|A\s*to\s*Z|처음부터\s*끝까지|알아보자|살펴보자|알아두면)/;
-      let penalty = 0;
-      if (cliche.test(t)) { penalty -= 50; reasons.push('PENALTY-50: 진부 표현'); }
-      // 2) 정보 누락형 클릭베이트 -30 (Princeton/NYU POQ 2020 — null effect, AEO 인용 차단)
-      const clickbait = /(충격|경악|믿기\s*힘든|믿을\s*수\s*없는|이게\s*진짜|누구도\s*모르는|대박|소름|모르면\s*손해|안\s*보면\s*후회|당신은\s*모릅니다)/;
-      if (clickbait.test(t)) { penalty -= 30; reasons.push('PENALTY-30: 정보 누락형 클릭베이트 (잔류가치 0)'); }
-      // 3) 키워드 스터핑 -20 (Princeton GEO -10% 기반 강화)
-      const tokens = t.replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(w => w.length >= 2);
-      const freq: Record<string, number> = {};
-      for (const w of tokens) freq[w] = (freq[w] || 0) + 1;
-      const maxRepeat = Math.max(0, ...Object.values(freq));
-      if (maxRepeat >= 3) { penalty -= 20; reasons.push('PENALTY-20: 키워드 스터핑 (동일 단어 3회+)'); }
+      // ===== 페널티 =====
+      // Google HCU misleading title 페널티 (즉시 -50)
+      const hcuBanned = /(충격|이것만\s*알면|당신이\s*모르는|반드시\s*알아야|꼭\s*봐야|절대|놀라운\s*진실|믿기지\s*않는|기적|미친|미쳤다|레전드|핵\s|역대급|대박)/;
+      if (hcuBanned.test(t)) return -50;
+      // 네이버 D.I.A.+ 어그로 페널티 (즉시 -50)
+      const naverBanned = /(소름돋는|경악|입틀막|초대박|폭로|인생역전|절대후회|안보면\s*손해|단돈|무조건|100%|클릭필수|1분컷|광클|박제|갓성비|끝판왕|마스터|완전정복|필독)/;
+      if (naverBanned.test(t)) return -50;
+      // 기존 진부 표현 페널티 (즉시 -50)
+      const stale = /(완벽\s*가이드|완벽한\s*가이드|완벽\s*정리|종합\s*가이드|종합\s*정리|종합글|종합편|총\s*정리|모든\s*것|다\s*알려드림|꿀팁\s*모음|팁\s*모음|정보\s*모음|A\s*to\s*Z|처음부터\s*끝까지|알아보자|살펴보자|알아두면)/;
+      if (stale.test(t)) return -50;
+      // 진짜/솔직 반복 3+회 (-10)
+      if (((t.match(/진짜|솔직/g) || []).length) >= 3) ctr -= 10;
+      // 이모지 과사용 (-5): 2개 초과 시
+      const emojiCount = (t.match(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{27BF}]/gu) || []).length;
+      if (emojiCount > 1) ctr -= 5;
 
-      const total = Math.max(0, seo + aeo + geo + ctr + penalty);
-      return { total, seo, aeo, geo, ctr, reasons };
+      return seo + aeo + geo + Math.max(0, ctr); // CTR은 음수 방지
     };
 
     let generatedTitle = '';
     try {
       const result = await model.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 1200, temperature: 0.85, responseMimeType: 'application/json' }
+        generationConfig: { maxOutputTokens: 600, temperature: 0.9 }
       });
       const response = await result.response;
       const raw = (response.text() || '').trim();
       // JSON 추출 (마크다운 백틱 제거)
       const cleaned = raw.replace(/^```json\n?/gi, '').replace(/^```\n?/gi, '').replace(/```\n?$/gi, '').trim();
-      let variants: { authority?: string; definition?: string; procedural?: string; comparison?: string; lossAversion?: string } = {};
+      // v3.8.131: 5변형 (numeric/comparison/lossAversion/checklist/counterIntuitive)
+      let variants: Record<string, string> = {};
       try {
         variants = JSON.parse(cleaned);
       } catch {
-        // JSON 파싱 실패 → 단일 제목으로 폴백
         const fallbackLine = cleaned.split(/\n+/).find((l: string) => l.length >= 20 && l.length <= 80) || cleaned;
-        variants = { authority: fallbackLine };
+        variants = { numeric: fallbackLine };
       }
-      const candidates: Array<{ title: string; type: string; total: number; seo: number; aeo: number; geo: number; ctr: number; reasons: string[] }> = [];
-      for (const type of ['authority', 'definition', 'procedural', 'comparison', 'lossAversion'] as const) {
+      const candidates: Array<{ title: string; type: string; score: number }> = [];
+      const variantTypes = ['numeric', 'comparison', 'lossAversion', 'checklist', 'counterIntuitive'] as const;
+      for (const type of variantTypes) {
         const t = (variants[type] || '').trim().replace(/^["'`]|["'`]$/g, '');
         if (t && t.length >= 15 && t.length <= 100) {
-          const s = scoreTitle(t);
-          candidates.push({ title: t, type, total: s.total, seo: s.seo, aeo: s.aeo, geo: s.geo, ctr: s.ctr, reasons: s.reasons });
+          candidates.push({ title: t, type, score: scoreTitle(t) });
         }
       }
       if (candidates.length > 0) {
-        candidates.sort((a, b) => b.total - a.total);
+        candidates.sort((a, b) => b.score - a.score);
         generatedTitle = candidates[0]!.title;
-        console.log(`[INTERNAL-CONSISTENCY] ✅ 제목 5변형 통합 채점 (SEO+AEO+GEO+CTR=100)`);
-        for (const c of candidates) {
-          console.log(`  ${c.type}: ${c.total}점 [SEO ${c.seo} | AEO ${c.aeo} | GEO ${c.geo} | CTR ${c.ctr}] "${c.title.substring(0, 50)}${c.title.length > 50 ? '…' : ''}"`);
-        }
-        console.log(`[INTERNAL-CONSISTENCY] 🏆 선택: ${candidates[0]!.type} (${candidates[0]!.total}점)`);
-        console.log(`  채점 근거: ${candidates[0]!.reasons.slice(0, 6).join(' / ')}`);
+        console.log(`[INTERNAL-CONSISTENCY] ✅ 제목 5변형 점수 (SEO+AEO+GEO+CTR 100점)`,
+          candidates.map((c) => `${c.type}(${c.score}점): "${c.title.substring(0, 40)}…"`).join(' | '));
+        console.log(`[INTERNAL-CONSISTENCY] 🏆 선택: ${candidates[0]!.type} (${candidates[0]!.score}점) — ${candidates[0]!.title}`);
       } else {
         generatedTitle = cleaned.split(/\n+/)[0]!.trim();
       }
     } catch (error) {
       console.error('[INTERNAL-CONSISTENCY] AI 제목 생성 실패:', error);
       const topKeywords = crawledTitles[0]!.split(/\s+/).slice(0, 3);
-      // v3.8.132: AI 실패 fallback도 entity-rich 패턴 (수치+권위+N가지 결합)
+      // v3.8.130: AI 실패 fallback도 진부 표현 안 쓰도록 (첫 글 제목 활용)
       const firstTitle = crawledTitles[0] || '';
       generatedTitle = firstTitle.length >= 20 && firstTitle.length <= 60
         ? firstTitle
-        : `${topKeywords.join(' ')} ${currentYear} 검증된 ${crawledTitles.length}가지 핵심`;
+        : `${topKeywords.join(' ')} ${new Date().getFullYear()} ${crawledTitles.length}편 핵심`;
     }
 
     // 제목 정제
@@ -1207,11 +1172,11 @@ ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
 
     if (!finalTitle || finalTitle.length < MIN_TITLE_LENGTH) {
       // 최종 검증 실패 시 폴백
-      // v3.8.132: 검증 실패 시 첫 글 제목을 그대로 활용 (진부 표현 회피)
+      // v3.8.130: 검증 실패 시 첫 글 제목을 그대로 활용 (진부 표현 회피)
       const firstTitle = crawledTitles[0] || '';
       const fallbackTitle = firstTitle.length >= 20 && firstTitle.length <= 60
         ? firstTitle
-        : `${firstTitle.substring(0, 30)} ${new Date().getFullYear()} 검증된 ${crawledTitles.length}가지`;
+        : `${firstTitle.substring(0, 30)} ${new Date().getFullYear()} ${crawledTitles.length}편 정리`;
       console.log('[INTERNAL-CONSISTENCY] 생성된 제목이 너무 짧음, 폴백 사용:', fallbackTitle);
       return { success: true, title: fallbackTitle };
     }
@@ -1697,12 +1662,21 @@ ${tail}
             return `<h${level}${attrs}>${cleaned}</h${level}>`;
           });
 
-        // v3.8.22: LLM이 본문에 남기는 인용 자리표시자 자동 제거
-        //   예: "[cite: provided data]", "[citation: 1]", "[ref: source]" 등.
-        //   Gemini가 가끔 출처 참조를 본문에 그대로 남겨 독자에게 노출되는 문제 차단.
+        // v3.8.131: LLM이 본문에 남기는 인용 자리표시자 모든 형태 자동 제거
+        //   기존: [cite: provided data], [citation: 1] 만 처리
+        //   추가: [cite: 'AI 세상 블로그'], [cite: '한글 텍스트',], (cite: ...), 빈 콤마 잔재 등
         generatedContent = generatedContent
-          .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*[:：][^\]]*\]/gi, '')
-          .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*\d*\s*\]/gi, '');
+          // [cite: ...] 또는 [citation: ...] 류 (따옴표/한글/콤마 모두 포함)
+          .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*[:：]?[^\]]{0,300}\]/gi, '')
+          // [cite] 또는 [cite 1] 같은 단순형
+          .replace(/\s*\[\s*(cite|citation|ref|reference|source|src)\s*\d*\s*\]/gi, '')
+          // 괄호 버전 (cite: ...), (citation: ...)
+          .replace(/\s*[\(（]\s*(cite|citation|ref|reference|source|src)\s*[:：][^)）]{0,300}[\)）]/gi, '')
+          // 단독 따옴표 인용 ['AI 세상 블로그'] — cite 키워드 없어도 본문에 노출되면 제거
+          .replace(/\s*\[\s*['"][^'"\]]{2,80}['"]\s*,?\s*\]/g, '')
+          // cite 잔재로 남은 연속 콤마/공백
+          .replace(/,\s*,/g, ',')
+          .replace(/\s{2,}/g, ' ');
 
         // v3.8.24: 피아식별 위반 메타 표기 자동 제거 — "(원글 1 관점)", "(원본 N 강조)" 등.
         //   거미줄은 본인 글 통합이므로 다른 글 출처 암시는 절대 노출되면 안 됨.
@@ -1722,8 +1696,9 @@ ${tail}
           //   - 후킹 문구가 ?로 끝나거나 "싶다면" 등으로 끝나는 단락
           //   - 다음에 <a> 또는 <p><a> 또는 <p>버튼 텍스트</p>
           const ctaBroadPattern = /<p[^>]*>\s*([^<]{6,120}?(?:\?|싶다면|궁금하시다면|더\s*알고|상세히|자세히|확인하|놓치지\s*마)\s*[?!]?\s*[\.。]?)\s*<\/p>\s*(?:<p[^>]*>\s*)?(?:<a[^>]*href=["']([^"']*)["'][^>]*>\s*)?([^<\n]{6,150}?(?:🔥|✨|💡|👉|→|>>|»|자세히|상세|보기|확인|신청|받기|클릭|GO))(?:\s*<\/a>)?(?:\s*<\/p>)?/gi;
-          generatedContent = generatedContent.replace(ctaBroadPattern, (_match, hook, href, btn) => {
-            const url = (href && /^https?:\/\//i.test(href)) ? href : (sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#');
+          generatedContent = generatedContent.replace(ctaBroadPattern, (_match, hook, _href, btn) => {
+            // v3.8.131: LLM이 만든 href는 신뢰 안 함 (가공된 URL이 404 발생 사례) → sourceUrls 순서대로 강제
+            const url = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
             urlPtr++;
             const safeHook = String(hook).replace(/[<>]/g, '').trim();
             const safeBtn = String(btn).replace(/[<>]/g, '').trim();
