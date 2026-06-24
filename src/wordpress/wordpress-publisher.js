@@ -242,7 +242,7 @@ function repairPublishInputBrokenText(options) {
 }
 function preCleanupWordPressBody(html) {
     let cleaned = html;
-    cleaned = cleaned.replace(/^\s*<h1[^>]*>[\s\S]*?<\/h1>\s*/i, '');
+    cleaned = cleaned.replace(/<h1[^>]*>[\s\S]*?<\/h1>/gi, '');
     const captionPatterns = [
         /<p[^>]*>\s*\[?(?:이미지|사진|썸네일|섬네일|illustration|image|figure)\s*[:：][\s\S]{1,200}?\]?\s*<\/p>/gi,
         /<p[^>]*>\s*[가-힣\w\s,·]{2,80}?(?:안내하는|보여주는|설명하는|나타내는|표현하는|묘사하는)\s*(?:썸네일|섬네일|이미지|사진|figure)\s*(?:입니다|이미지|사진)?\s*\.?\s*<\/p>/gi,
@@ -1467,11 +1467,15 @@ class WordPressPublisher {
             const resolveFeaturedUrl = () => {
                 if (options.featuredImageUrl)
                     return options.featuredImageUrl;
-                const m = String(optimizedContent || '').match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
-                const candidate = m?.[1]?.trim() || '';
-                if (candidate && /^https?:\/\//i.test(candidate)) {
-                    console.log(`[WP-PUBLISH] 🖼️ featuredImageUrl 누락 — 본문 첫 img를 대표로 채택: ${candidate.slice(0, 60)}...`);
-                    return candidate;
+                const httpMatch = String(optimizedContent || '').match(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/i);
+                if (httpMatch?.[1]) {
+                    console.log(`[WP-PUBLISH] 🖼️ featuredImageUrl 누락 — 본문 첫 http img 채택: ${httpMatch[1].slice(0, 60)}...`);
+                    return httpMatch[1];
+                }
+                const dataMatch = String(optimizedContent || '').match(/<img[^>]+src=["'](data:image\/[a-z+]+;base64,[^"']+)["'][^>]*>/i);
+                if (dataMatch?.[1]) {
+                    console.log(`[WP-PUBLISH] 🖼️ featuredImageUrl 누락 — 본문 첫 data:image base64 채택 (${dataMatch[1].length}자)`);
+                    return dataMatch[1];
                 }
                 return '';
             };
@@ -1479,10 +1483,19 @@ class WordPressPublisher {
             if (featuredSrc) {
                 console.log(`[WP-PUBLISH] 🖼️ 대표 이미지 업로드 시도: ${featuredSrc.substring(0, 50)}...`);
                 try {
-                    const response = await fetch(featuredSrc);
-                    if (!response.ok)
-                        throw new Error(`이미지 다운로드 실패: ${response.status}`);
-                    const imageBuffer = await response.arrayBuffer();
+                    let imageBuffer;
+                    if (/^data:image\/[a-z+]+;base64,/i.test(featuredSrc)) {
+                        const base64Part = featuredSrc.replace(/^data:image\/[a-z+]+;base64,/i, '');
+                        const buf = Buffer.from(base64Part, 'base64');
+                        imageBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+                        console.log(`[WP-PUBLISH] 🔄 base64 → ArrayBuffer 변환 완료 (${(imageBuffer.byteLength / 1024).toFixed(1)} KB)`);
+                    }
+                    else {
+                        const response = await fetch(featuredSrc);
+                        if (!response.ok)
+                            throw new Error(`이미지 다운로드 실패: ${response.status}`);
+                        imageBuffer = await response.arrayBuffer();
+                    }
                     const uploadedMedia = await this.wpApi.uploadMedia(imageBuffer, `${Date.now()}-thumbnail.jpg`, options.title);
                     if (uploadedMedia && uploadedMedia.id) {
                         featuredMediaId = uploadedMedia.id;

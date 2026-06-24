@@ -4288,20 +4288,22 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
         console.log('[PUBLISH] 콘텐츠 길이:', data.content?.length || 0);
         console.log('[PUBLISH] 썸네일 URL:', data.thumbnailUrl ? '있음' : '없음');
         console.log('[PUBLISH] 발행 모드:', data.payload?.publishType || data.payload?.postingMode || 'immediate');
-        // v3.8.116: 사용자 보고 — 연속 발행 시 2번째 글부터 WP 썸네일 누락.
-        //   원인: appState.generatedContent.thumbnailUrl이 큐 항목 사이에 비어 있을 가능성.
-        //   해결: thumbnailUrl 비어 있고 본문에 첫 http(s) img 있으면 main 측에서 강제 채택.
+        // v3.8.116/120: 본문 첫 img 자동 채택 — http(s) URL뿐 아니라 data:image base64도 처리
+        //   사용자 보고: WP 글 목록 썸네일 여전히 누락 → codex가 base64로 박은 경우 v3.8.116 정규식이 못 잡음.
+        //   수정: data:image도 채택 → WP publisher가 ArrayBuffer로 변환·업로드.
         if (!String(data.thumbnailUrl || '').trim() && data.content) {
-            const m = String(data.content).match(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/i);
-            if (m?.[1]) {
-                const recovered = m[1];
-                console.log(`[PUBLISH] 🛟 thumbnailUrl 비어 있음 → 본문 첫 img 자동 채택: ${recovered.slice(0, 80)}...`);
-                _evt.sender?.send?.('log-line', `[PUBLISH] 🛟 썸네일 자동 복구: ${recovered.slice(0, 80)}...`);
+            const httpMatch = String(data.content).match(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/i);
+            const dataMatch = !httpMatch ? String(data.content).match(/<img[^>]+src=["'](data:image\/[a-z+]+;base64,[^"']+)["'][^>]*>/i) : null;
+            const recovered = httpMatch?.[1] || dataMatch?.[1] || '';
+            if (recovered) {
+                const kind = httpMatch ? '외부 URL' : 'base64 data URL';
+                console.log(`[PUBLISH] 🛟 thumbnailUrl 비어 있음 → 본문 첫 img 자동 채택 (${kind}): ${recovered.slice(0, 80)}...`);
+                _evt.sender?.send?.('log-line', `[PUBLISH] 🛟 썸네일 자동 복구 (${kind}): ${recovered.slice(0, 80)}...`);
                 data.thumbnailUrl = recovered;
             }
             else {
-                console.warn('[PUBLISH] ⚠️ thumbnailUrl 비어 있고 본문에도 http(s) img 없음');
-                _evt.sender?.send?.('log-line', '[PUBLISH] ⚠️ 썸네일 누락 (본문에도 외부 img 없음)');
+                console.warn('[PUBLISH] ⚠️ thumbnailUrl 비어 있고 본문에 img 자체 없음');
+                _evt.sender?.send?.('log-line', '[PUBLISH] ⚠️ 썸네일 누락 (본문에 img 없음)');
             }
         }
         // v3.8.108: 본문 trace를 renderer 콘솔로 전달 (사용자가 main 콘솔을 볼 수 없는 문제 해결)

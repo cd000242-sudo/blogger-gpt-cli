@@ -1640,14 +1640,20 @@ export class WordPressPublisher {
       // 썸네일 처리 (대표 이미지 설정)
       let featuredMediaId: number | undefined;
 
-      // v3.8.94: featuredImageUrl 누락/실패 시 본문 첫 img를 자동 추출 (사용자 보고: 농어촌 글 썸네일 비어 보임)
+      // v3.8.94/120: featuredImageUrl 누락 시 본문 첫 img 자동 채택 (http URL 또는 base64 data URL 모두 처리)
       const resolveFeaturedUrl = (): string => {
         if (options.featuredImageUrl) return options.featuredImageUrl;
-        const m = String(optimizedContent || '').match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
-        const candidate = m?.[1]?.trim() || '';
-        if (candidate && /^https?:\/\//i.test(candidate)) {
-          console.log(`[WP-PUBLISH] 🖼️ featuredImageUrl 누락 — 본문 첫 img를 대표로 채택: ${candidate.slice(0, 60)}...`);
-          return candidate;
+        // 1순위: http(s) URL
+        const httpMatch = String(optimizedContent || '').match(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/i);
+        if (httpMatch?.[1]) {
+          console.log(`[WP-PUBLISH] 🖼️ featuredImageUrl 누락 — 본문 첫 http img 채택: ${httpMatch[1].slice(0, 60)}...`);
+          return httpMatch[1];
+        }
+        // 2순위: data:image base64
+        const dataMatch = String(optimizedContent || '').match(/<img[^>]+src=["'](data:image\/[a-z+]+;base64,[^"']+)["'][^>]*>/i);
+        if (dataMatch?.[1]) {
+          console.log(`[WP-PUBLISH] 🖼️ featuredImageUrl 누락 — 본문 첫 data:image base64 채택 (${dataMatch[1].length}자)`);
+          return dataMatch[1];
         }
         return '';
       };
@@ -1656,10 +1662,18 @@ export class WordPressPublisher {
       if (featuredSrc) {
         console.log(`[WP-PUBLISH] 🖼️ 대표 이미지 업로드 시도: ${featuredSrc.substring(0, 50)}...`);
         try {
-          const response = await fetch(featuredSrc);
-          if (!response.ok) throw new Error(`이미지 다운로드 실패: ${response.status}`);
-          const imageBuffer = await response.arrayBuffer();
-
+          let imageBuffer: ArrayBuffer;
+          if (/^data:image\/[a-z+]+;base64,/i.test(featuredSrc)) {
+            // v3.8.120: base64 data URL을 직접 ArrayBuffer로 변환 (fetch 없이)
+            const base64Part = featuredSrc.replace(/^data:image\/[a-z+]+;base64,/i, '');
+            const buf = Buffer.from(base64Part, 'base64');
+            imageBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+            console.log(`[WP-PUBLISH] 🔄 base64 → ArrayBuffer 변환 완료 (${(imageBuffer.byteLength / 1024).toFixed(1)} KB)`);
+          } else {
+            const response = await fetch(featuredSrc);
+            if (!response.ok) throw new Error(`이미지 다운로드 실패: ${response.status}`);
+            imageBuffer = await response.arrayBuffer();
+          }
           const uploadedMedia = await this.wpApi.uploadMedia(imageBuffer, `${Date.now()}-thumbnail.jpg`, options.title);
           if (uploadedMedia && uploadedMedia.id) {
             featuredMediaId = uploadedMedia.id;
