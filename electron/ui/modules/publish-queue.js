@@ -2257,8 +2257,8 @@ function bindModalEvents() {
           } else if (result.ok !== true) {
             failedIds.add(it.id);
             const errorText = result.error || result.result?.error || result.detail?.result?.error || 'publish_failed';
-            runModal.markFailed(i, '?ㅽ뙣');
-            runModal.log(`${i + 1}踰??ㅽ뙣 (${elapsedSec}珥?: ${errorText}`);
+            runModal.markFailed(i, '실패');
+            runModal.log(`${i + 1}번 실패 (${elapsedSec}초): ${errorText}`);
           } else {
             runModal.markDone(i, `${elapsedSec}초`);
             runModal.log(`${i + 1}번 완료 (${elapsedSec}초)`);
