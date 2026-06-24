@@ -1532,19 +1532,34 @@ function _swUpdateMiniProgress() {
 }
 
 // v3.8.3: 모달 재오픈 (사용자가 닫았다 다시 열기)
+// v3.8.138: 다른 탭에 있어도 미니바 클릭 시 거미줄 탭으로 자동 이동 후 모달 표시
+//   (모달이 internal-links-tab 안에 있어 다른 탭 display:none 상태면 안 보이던 버그 fix)
 function reopenSpiderWebProgressModal() {
-  const modal = document.getElementById('spiderWebProgressModal');
-  if (!modal) return;
-  modal.removeAttribute('hidden');
-  // 상태 UI 복원 — 단계는 그대로, 결과 영역 표시 여부도 finished에 따라.
-  if (_swProgressState.finished && _swProgressState.status === 'success') {
-    const result = document.getElementById('swpmResult');
-    if (result) result.hidden = false;
-    const link = document.getElementById('swpmResultLink');
-    if (link && _swProgressState.publishedUrl) link.href = _swProgressState.publishedUrl;
-    const closeBtn = document.getElementById('swpmCloseBtn');
-    if (closeBtn) closeBtn.disabled = false;
+  // 1) 현재 거미줄 탭이 아니면 거미줄 탭으로 이동
+  const intTab = document.getElementById('internal-links-tab');
+  const isOnSpiderTab = intTab && intTab.style.display !== 'none' && intTab.offsetParent !== null;
+  if (!isOnSpiderTab && typeof window.showTab === 'function') {
+    try { window.showTab('internal-links'); } catch {}
   }
+  // 2) 다음 프레임에서 모달 표시 (탭 전환 DOM 업데이트 후)
+  const reveal = () => {
+    const modal = document.getElementById('spiderWebProgressModal');
+    if (!modal) return;
+    modal.removeAttribute('hidden');
+    if (_swProgressState.finished && _swProgressState.status === 'success') {
+      const result = document.getElementById('swpmResult');
+      if (result) result.hidden = false;
+      const link = document.getElementById('swpmResultLink');
+      if (link && _swProgressState.publishedUrl) link.href = _swProgressState.publishedUrl;
+      const closeBtn = document.getElementById('swpmCloseBtn');
+      if (closeBtn) closeBtn.disabled = false;
+    }
+    // 미니바는 숨김 (중복 표시 방지)
+    const mini = document.getElementById('swMiniProgress');
+    if (mini) mini.style.display = 'none';
+  };
+  if (isOnSpiderTab) reveal();
+  else requestAnimationFrame(() => requestAnimationFrame(reveal));
 }
 window.reopenSpiderWebProgressModal = reopenSpiderWebProgressModal;
 
