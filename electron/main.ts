@@ -1692,14 +1692,55 @@ ${tail}
           const sourceUrls = sortedContents.map((c) => c.url).filter(Boolean);
           let urlPtr = 0;
 
-          // v3.8.77 추가 패턴: 다양한 후킹·버튼 케이스 모두 매칭
-          //   - 후킹 문구가 ?로 끝나거나 "싶다면" 등으로 끝나는 단락
-          //   - 다음에 <a> 또는 <p><a> 또는 <p>버튼 텍스트</p>
-          const ctaBroadPattern = /<p[^>]*>\s*([^<]{6,120}?(?:\?|싶다면|궁금하시다면|더\s*알고|상세히|자세히|확인하|놓치지\s*마)\s*[?!]?\s*[\.。]?)\s*<\/p>\s*(?:<p[^>]*>\s*)?(?:<a[^>]*href=["']([^"']*)["'][^>]*>\s*)?([^<\n]{6,150}?(?:🔥|✨|💡|👉|→|>>|»|자세히|상세|보기|확인|신청|받기|클릭|GO))(?:\s*<\/a>)?(?:\s*<\/p>)?/gi;
-          generatedContent = generatedContent.replace(ctaBroadPattern, (_match, hook, _href, btn) => {
-            // v3.8.131: LLM이 만든 href는 신뢰 안 함 (가공된 URL이 404 발생 사례) → sourceUrls 순서대로 강제
-            const url = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
+          // v3.8.132: H2 위치별 텍스트 추출 → CTA 직전 H2와 원본 글 제목 키워드 매칭으로 URL 자동 매핑
+          //   사용자 보고: H2 1번 CTA가 글 3번 URL을 가리켜서 404 (LLM이 H2 순서를 입력 순서와 다르게 출력)
+          //   해결: CTA 박스 직전 가장 가까운 H2 텍스트와 sortedContents[i].title의 한글 키워드 overlap 계산 → 최고 매칭 URL 사용
+          const h2Locations: Array<{ pos: number; text: string }> = [];
+          {
+            const h2Regex = /<h2[^>]*>([\s\S]*?)<\/h2>/gi;
+            let h2m: RegExpExecArray | null;
+            while ((h2m = h2Regex.exec(generatedContent)) !== null) {
+              const inner = String(h2m[1]).replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+              h2Locations.push({ pos: h2m.index, text: inner });
+            }
+          }
+          const STOPWORDS = new Set(['그리고', '또는', '하지만', '그러나', '대한', '관련', '같은', '대해', '대해서', '위한', '위해', '이것', '저것', '이거', '저거']);
+          const tokenizeTitle = (s: string): string[] => String(s || '')
+            .replace(/[\(\)\[\]【】《》「」『』,\.|·—\-:;'"!\?]/g, ' ')
+            .split(/\s+/)
+            .map((t) => t.trim())
+            .filter((t) => t.length >= 2 && /[가-힣A-Za-z0-9]/.test(t) && !STOPWORDS.has(t));
+          const urlForCtaAt = (offset: number): string => {
+            // 1) offset 이전 가장 가까운 H2 찾기
+            const prevH2 = [...h2Locations].reverse().find((h) => h.pos < offset);
+            const h2Text = prevH2 ? prevH2.text : '';
+            // 2) 각 sortedContents.title과 키워드 overlap 점수 계산
+            let bestIdx = -1;
+            let bestScore = 0;
+            if (h2Text) {
+              const h2Tokens = tokenizeTitle(h2Text);
+              for (let i = 0; i < sortedContents.length; i++) {
+                const titleTokens = tokenizeTitle(sortedContents[i]!.title || '');
+                const overlap = titleTokens.filter((t) => h2Tokens.some((h) => h.includes(t) || t.includes(h))).length;
+                if (overlap > bestScore) {
+                  bestScore = overlap;
+                  bestIdx = i;
+                }
+              }
+            }
+            // 3) 키워드 매칭 성공 시 그 URL, 실패 시 순서대로 fallback
+            if (bestIdx >= 0 && sourceUrls[bestIdx]) {
+              return sourceUrls[bestIdx]!;
+            }
+            const fallback = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
             urlPtr++;
+            return fallback;
+          };
+
+          // v3.8.77 추가 패턴: 다양한 후킹·버튼 케이스 모두 매칭
+          const ctaBroadPattern = /<p[^>]*>\s*([^<]{6,120}?(?:\?|싶다면|궁금하시다면|더\s*알고|상세히|자세히|확인하|놓치지\s*마)\s*[?!]?\s*[\.。]?)\s*<\/p>\s*(?:<p[^>]*>\s*)?(?:<a[^>]*href=["']([^"']*)["'][^>]*>\s*)?([^<\n]{6,150}?(?:🔥|✨|💡|👉|→|>>|»|자세히|상세|보기|확인|신청|받기|클릭|GO))(?:\s*<\/a>)?(?:\s*<\/p>)?/gi;
+          generatedContent = generatedContent.replace(ctaBroadPattern, (_match: string, hook: string, _href: string, btn: string, offset: number) => {
+            const url = urlForCtaAt(offset);
             const safeHook = String(hook).replace(/[<>]/g, '').trim();
             const safeBtn = String(btn).replace(/[<>]/g, '').trim();
             return `<div style="${buildSpiderCtaBoxStyle(spiderTheme, true)}">
@@ -1710,12 +1751,10 @@ ${tail}
 </div>`;
           });
 
-          // v3.8.74: 패턴 2 — <p>후킹?</p>\s*<a href="…">버튼 텍스트</a> (wrap 없는 a 태그 단독)
-          //   사용자 보고: 박스 wrap 없이 후킹+버튼만 왼쪽 정렬로 나옴 → 정규식이 a 태그 단독 케이스 매칭 못함
+          // 패턴 2: <p>후킹?</p>\s*<a href="…">버튼 텍스트</a> (wrap 없는 a 태그 단독)
           const ctaAnchorPattern = /<p[^>]*>\s*([^<]{8,80}?(?:\?|싶다면|\s궁금|\s더\s알고|\s확인하고)\s*[?<])\s*<\/p>\s*<a[^>]*href=["']([^"']+)["'][^>]*>\s*([^<]{8,120}?)\s*<\/a>/gi;
-          generatedContent = generatedContent.replace(ctaAnchorPattern, (_match, hook, _href, btn) => {
-            const url = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
-            urlPtr++;
+          generatedContent = generatedContent.replace(ctaAnchorPattern, (_match: string, hook: string, _href: string, btn: string, offset: number) => {
+            const url = urlForCtaAt(offset);
             const safeHook = String(hook).replace(/[<>]/g, '').trim();
             const safeBtn = String(btn).replace(/[<>]/g, '').trim();
             return `<div style="${buildSpiderCtaBoxStyle(spiderTheme)}">
@@ -1728,12 +1767,10 @@ ${tail}
 
           // 패턴 1 (기존): <p>후킹?</p><p>버튼 텍스트</p>
           const ctaTextPattern = /<p[^>]*>\s*([^<]{8,80}?(?:\?|싶다면|\s궁금|\s더\s알고|\s확인하고)\s*[?<])\s*<\/p>\s*(?:<p[^>]*>\s*)?([^<]{8,120}?(?:🔥|✨|💡|자세히\s*보기|상세\s*보기|>>|»))\s*<\/p>/gi;
-          generatedContent = generatedContent.replace(ctaTextPattern, (_match, hook, btn) => {
-            const url = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
-            urlPtr++;
+          generatedContent = generatedContent.replace(ctaTextPattern, (_match: string, hook: string, btn: string, offset: number) => {
+            const url = urlForCtaAt(offset);
             const safeHook = String(hook).replace(/[<>]/g, '').trim();
             const safeBtn = String(btn).replace(/[<>]/g, '').trim();
-            // v3.8.25: 모든 핵심 속성에 !important + background-color 단색 폴백 + 중앙정렬 강제
             return `<div style="${buildSpiderCtaBoxStyle(spiderTheme)}">
   <p style="margin:0 0 14px !important;color:${spiderTheme.heading} !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">${safeHook}</p>
   <p style="margin:0 !important;text-align:center !important;">
@@ -1741,7 +1778,7 @@ ${tail}
   </p>
 </div>`;
           });
-          console.log('[INTERNAL-CONSISTENCY] CTA 후처리 변환 시도 (안전망)');
+          console.log('[INTERNAL-CONSISTENCY] CTA 후처리: H2↔원본 글 제목 키워드 매칭 완료');
         } catch (e: any) {
           console.warn('[INTERNAL-CONSISTENCY] CTA 후처리 실패:', e?.message);
         }
