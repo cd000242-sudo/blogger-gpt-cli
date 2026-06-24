@@ -2312,9 +2312,20 @@ async function generateAndPublishSpiderWeb() {
       return;
     }
 
-    const publishedUrl = pubResult.url || pubResult.postUrl || '';
+    const publishedUrl = _normalizePublishedUrl(pubResult.url || pubResult.postUrl || '', pubResult);
     const publishedPostId = _firstNonEmpty(pubResult.postId, pubResult.id, pubResult.post_id);
     const publishedAt = new Date().toISOString();
+
+    // v3.8.131: 발행된 URL 진단 로그 (404 원인 추적용)
+    console.log('[SPIDER-WEB] 발행 응답 raw:', {
+      url: pubResult.url,
+      postUrl: pubResult.postUrl,
+      id: pubResult.id,
+      postId: pubResult.postId,
+      ok: pubResult.ok,
+    });
+    console.log('[SPIDER-WEB] 정규화된 publishedUrl:', publishedUrl);
+    _swPushLog(`발행 URL: ${publishedUrl}`, 'info');
 
     // 발행한 글 저장 (publishedPosts에 추가 — 다른 탭에서 활용)
     try {
@@ -2356,6 +2367,40 @@ async function generateAndPublishSpiderWeb() {
     console.error('[SPIDER-WEB] generateAndPublishSpiderWeb 실패:', error);
     _swFinishError(error?.message || '알 수 없는 오류');
   }
+}
+
+/**
+ * v3.8.131: WordPress/Blogger 발행 응답 URL을 안전하게 정규화.
+ *  - WP REST API의 post.link는 가끔 한국어 슬러그를 디코드된 형태로 반환 (예: https://site.com/제목/)
+ *  - Electron a.href에 그대로 넣어도 외부 브라우저로 보낼 때 깨지는 환경이 있어 encodeURI로 한 번 정리
+ *  - link가 비거나 wp-admin 등 비공개 URL이면 ?p={id} fallback으로 교체
+ */
+function _normalizePublishedUrl(rawUrl, pubResult) {
+  const url = String(rawUrl || '').trim();
+  if (!url) {
+    // link 비어있음 — id 기반 fallback 시도
+    const id = pubResult && (pubResult.id || pubResult.postId || pubResult.post_id);
+    const site = pubResult && (pubResult.siteUrl || pubResult.site || '');
+    if (id && site) return `${String(site).replace(/\/$/, '')}/?p=${id}`;
+    return '';
+  }
+  // wp-admin/draft preview URL은 사용자가 못 열음
+  if (/\/wp-admin\/|preview=true/i.test(url)) {
+    const id = pubResult && (pubResult.id || pubResult.postId || pubResult.post_id);
+    if (id) {
+      const origin = url.match(/^https?:\/\/[^/]+/);
+      if (origin) return `${origin[0]}/?p=${id}`;
+    }
+  }
+  // 이미 인코딩된 URL이면 그대로, 한글 포함된 raw URL이면 인코딩 (이중 인코딩 방지)
+  try {
+    if (/[^\x00-\x7F]/.test(url) && !/%[0-9A-Fa-f]{2}/.test(url)) {
+      return encodeURI(url);
+    }
+  } catch (e) {
+    console.warn('[SPIDER-WEB] URL 인코딩 실패:', e);
+  }
+  return url;
 }
 
 /**
@@ -2417,7 +2462,30 @@ function _renderSpiderWebPreview(html, publishedUrl, publishedAt) {
 
   if (badge && publishedUrl) {
     badge.hidden = false;
-    if (urlEl) urlEl.href = publishedUrl;
+    if (urlEl) {
+      urlEl.href = publishedUrl;
+      // v3.8.131: 404 보였을 때 사용자가 사이트 메인 또는 ?p=ID 대체 링크로 갈 수 있게
+      try {
+        const origin = (publishedUrl.match(/^https?:\/\/[^/]+/) || [''])[0];
+        if (origin) {
+          const existingFallback = document.getElementById('spiderWebResultFallback');
+          if (existingFallback) existingFallback.remove();
+          const fallback = document.createElement('a');
+          fallback.id = 'spiderWebResultFallback';
+          fallback.href = origin;
+          fallback.target = '_blank';
+          fallback.rel = 'noopener noreferrer';
+          fallback.textContent = '🏠 404면 사이트 메인으로';
+          fallback.style.cssText = 'margin-left:12px;color:#94a3b8;font-size:12px;text-decoration:underline;';
+          fallback.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.electronAPI?.openExternal) window.electronAPI.openExternal(origin);
+            else window.open(origin, '_blank');
+          });
+          urlEl.parentNode?.appendChild(fallback);
+        }
+      } catch (e) { console.warn('[SPIDER-WEB] fallback link 추가 실패:', e); }
+    }
     if (timeEl && publishedAt) {
       try {
         const d = new Date(publishedAt);
