@@ -556,7 +556,12 @@ ${formatList(SAFE_REPLACEMENTS)}
 2. 본문 마지막 1~2줄이 "나도 해당되나?" 의문을 만드는가? → NO면 실패
 3. 본문이 상한 글자수를 넘는가? → YES면 실패 (압축 필수)
 4. 링크를 가린 채 본문을 읽었을 때 "더 알고 싶다"가 자동으로 나오는가? → NO면 실패
-5. CTA가 "혹시 도움 되실까", "정리한 글 있어요" 같은 자연스러운 어조인가? → NO면 실패`;
+5. CTA가 "혹시 도움 되실까", "정리한 글 있어요" 같은 자연스러운 어조인가? → NO면 실패
+
+[⚠️ 출력 우선순위 — 토큰 절약 절대 규칙]
+finalRevision은 모든 검토 필드(critique, breakdown, candidates 10개 등)보다 우선입니다.
+출력이 길어질 것 같으면 candidates를 3~5개로 줄이고 critique.breakdown을 생략해서라도 반드시 A/B/C 모두 finalRevision을 끝까지 완성하세요.
+context와 variants 검토 필드만 출력하고 finalRevision을 빠뜨리면 사용자가 글을 받지 못합니다.`;
 }
 
 function buildPlatformUserPrompt(platformId, params = {}, structuredInstructions = '') {

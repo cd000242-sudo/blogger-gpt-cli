@@ -322,35 +322,53 @@ function stripStructuredArtifacts(text) {
   // 2) ```json / ``` 코드펜스 제거
   s = s.replace(/```(?:json)?/gi, '').replace(/```/g, '');
 
-  // 3) JSON처럼 보이면 finalRevision의 텍스트 필드만 뽑아내기
+  // 3) JSON처럼 보이면 단계적으로 텍스트 필드만 뽑아내기
   const looksLikeJson = /"(finalRevision|variants|context|critique|selectedReason)"\s*:/.test(s);
   if (looksLikeJson) {
-    const extracted = extractFinalRevisionTexts(s);
-    if (extracted) return extracted;
-    // 추출 실패 시 — 적어도 JSON 키와 따옴표 잔재는 제거
-    s = s
-      .replace(/"(?:finalRevision|variants|context|critique|selectedReason|score|breakdown|notes|key|label|goal|recommended|passed|commonReview)"\s*:/gi, '')
-      .replace(/[{}\[\]]/g, ' ')
-      .replace(/,\s*"/g, '\n')
-      .replace(/"\s*:\s*"/g, ': ')
-      .replace(/"/g, '')
-      .replace(/\\n/g, '\n')
-      .replace(/\\"/g, '"');
+    // 3-1) 1순위: finalRevision의 텍스트 필드 (정상 케이스)
+    const fromFinal = extractFinalRevisionTexts(s);
+    if (fromFinal) return fromFinal;
+
+    // 3-2) 2순위: variants[].body / firstLine / commentPrompt (LLM이 finalRevision 못 만든 경우)
+    const fromVariants = extractDraftTexts(s);
+    if (fromVariants) return fromVariants;
+
+    // 3-3) 둘 다 실패 — context만 있는 깨진 출력. 사용자에게 친절한 안내.
+    return GENERATION_TRUNCATED_NOTICE;
   }
 
   return s.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+const GENERATION_TRUNCATED_NOTICE = [
+  '⚠️ 생성이 중간에 끊겼어요.',
+  '',
+  '모델이 분석(context)까지만 만들고 본문(finalRevision)을 마무리하지 못했습니다.',
+  '아래 중 하나를 시도해주세요:',
+  '• 「재생성」 버튼을 다시 눌러주세요 (대부분 한 번에 해결됨)',
+  '• 원본 글이 너무 길면 짧게 줄여서 다시 시도',
+  '• 같은 채널을 한 번 더 선택해 새로 생성',
+].join('\n');
+
 /**
  * raw JSON 텍스트에서 finalRevision의 body/commentPrompt/linkPrompt/title 등
  * 사람이 읽을 텍스트만 순서대로 이어붙여 반환. 실패 시 빈 문자열.
  */
+const TEXT_KEYS = [
+  'title', 'firstLine', 'selectedFirstLine', 'selectedHook', 'first3SecHook', 'first2SecHook',
+  'body', 'bodyScript', 'caption', 'description', 'pinDescription', 'pinnedComment',
+  'commentPrompt', 'linkPrompt', 'profileLinkPrompt', 'sharePrompt', 'savePrompt', 'entryPrompt',
+];
+
+function decodeJsonString(value) {
+  return String(value || '')
+    .replace(/\\n/g, '\n')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+    .trim();
+}
+
 function extractFinalRevisionTexts(text) {
-  const TEXT_KEYS = [
-    'title', 'firstLine', 'selectedFirstLine', 'selectedHook', 'first3SecHook', 'first2SecHook',
-    'body', 'bodyScript', 'caption', 'description', 'pinDescription', 'pinnedComment',
-    'commentPrompt', 'linkPrompt', 'profileLinkPrompt', 'sharePrompt', 'savePrompt', 'entryPrompt',
-  ];
   const out = [];
   const finalIdx = text.indexOf('"finalRevision"');
   if (finalIdx < 0) return '';
@@ -359,13 +377,31 @@ function extractFinalRevisionTexts(text) {
     const re = new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`);
     const m = re.exec(slice);
     if (m && m[1]) {
-      const decoded = m[1]
-        .replace(/\\n/g, '\n')
-        .replace(/\\"/g, '"')
-        .replace(/\\\\/g, '\\')
-        .trim();
+      const decoded = decodeJsonString(m[1]);
       if (decoded && !out.includes(decoded)) out.push(decoded);
     }
+  }
+  return out.length ? out.join('\n\n') : '';
+}
+
+/**
+ * finalRevision이 없을 때 차선책: variants[].body / firstLine 등 draft 필드에서 추출.
+ * LLM이 본문 초안은 만들었지만 finalRevision 단계에서 잘린 경우 사용자가 최소한
+ * "글의 형태"를 받아볼 수 있게 함.
+ */
+function extractDraftTexts(text) {
+  const out = [];
+  for (const key of TEXT_KEYS) {
+    const re = new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, 'g');
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const decoded = decodeJsonString(m[1]);
+      if (decoded && decoded.length >= 20 && !out.includes(decoded)) {
+        out.push(decoded);
+        break;
+      }
+    }
+    if (out.length >= 5) break;
   }
   return out.length ? out.join('\n\n') : '';
 }
