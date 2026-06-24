@@ -28,7 +28,7 @@ const ETOLAND = require('./prompts/communities/etoland');
 const DOTAX = require('./prompts/communities/dotax');
 const YGOSU = require('./prompts/communities/ygosu');
 
-// Specialized (7)
+// Specialized (8)
 const MLBPARK = require('./prompts/specialized/mlbpark');
 const NBAMANIA = require('./prompts/specialized/nbamania');
 const BOBAEDREAM = require('./prompts/specialized/bobaedream');
@@ -36,6 +36,7 @@ const QUASARZONE = require('./prompts/specialized/quasarzone');
 const ORBI = require('./prompts/specialized/orbi');
 const DDANZI = require('./prompts/specialized/ddanzi');
 const COOK82 = require('./prompts/specialized/82cook');
+const LOCAL_BOARD = require('./prompts/specialized/local-board');
 
 // Video (2)
 const YOUTUBE_SHORTS = require('./prompts/video/youtube-shorts');
@@ -88,6 +89,7 @@ const CHANNEL_REGISTRY = {
   [ORBI.id]: ORBI,
   [DDANZI.id]: DDANZI,
   [COOK82.id]: COOK82,
+  [LOCAL_BOARD.id]: LOCAL_BOARD,
   // Video 2
   [YOUTUBE_SHORTS.id]: YOUTUBE_SHORTS,
   [TIKTOK.id]: TIKTOK,

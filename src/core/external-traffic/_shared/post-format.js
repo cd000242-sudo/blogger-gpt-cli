@@ -23,6 +23,7 @@ function postFormat(rawText, channel) {
   if (rawText == null) return { body: '' };
   const rule = channel.paragraphRule || /** @type {ParagraphRule} */ ({});
   let t = String(rawText).replace(/\r\n/g, '\n').trim();
+  t = stripStructuredArtifacts(t);
 
   // 1. 과도한 빈 줄 제거 (LLM이 \n\n\n+ 출력 시)
   //    paragraphBreak='none' → 모든 줄바꿈을 단일 공백으로
@@ -299,6 +300,76 @@ function escapeRe(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * v3.8.124: Structured 채널 (naver-cafe, facebook, kakao-openchat, tiktok, x, pinterest, youtube-shorts)
+ * 의 JSON 파싱이 실패해도 raw JSON/XML 태그가 사용자에게 노출되지 않도록 정리.
+ *
+ * 처리 대상:
+ *  - <*_RESULT_JSON>...</*_RESULT_JSON> 태그
+ *  - ```json ... ``` 코드블록
+ *  - "finalRevision", "variants", "context", "critique" 등 JSON 키
+ *  - JSON 형식 잔재 → finalRevision.body, finalRevision.commentPrompt 등 텍스트 필드만 추출
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function stripStructuredArtifacts(text) {
+  let s = String(text || '');
+
+  // 1) <*_RESULT_JSON>...</*_RESULT_JSON> 마커 제거 (내용은 일단 보존 — 아래에서 추출)
+  s = s.replace(/<\/?[A-Z_]+_RESULT_JSON>/gi, '\n');
+
+  // 2) ```json / ``` 코드펜스 제거
+  s = s.replace(/```(?:json)?/gi, '').replace(/```/g, '');
+
+  // 3) JSON처럼 보이면 finalRevision의 텍스트 필드만 뽑아내기
+  const looksLikeJson = /"(finalRevision|variants|context|critique|selectedReason)"\s*:/.test(s);
+  if (looksLikeJson) {
+    const extracted = extractFinalRevisionTexts(s);
+    if (extracted) return extracted;
+    // 추출 실패 시 — 적어도 JSON 키와 따옴표 잔재는 제거
+    s = s
+      .replace(/"(?:finalRevision|variants|context|critique|selectedReason|score|breakdown|notes|key|label|goal|recommended|passed|commonReview)"\s*:/gi, '')
+      .replace(/[{}\[\]]/g, ' ')
+      .replace(/,\s*"/g, '\n')
+      .replace(/"\s*:\s*"/g, ': ')
+      .replace(/"/g, '')
+      .replace(/\\n/g, '\n')
+      .replace(/\\"/g, '"');
+  }
+
+  return s.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * raw JSON 텍스트에서 finalRevision의 body/commentPrompt/linkPrompt/title 등
+ * 사람이 읽을 텍스트만 순서대로 이어붙여 반환. 실패 시 빈 문자열.
+ */
+function extractFinalRevisionTexts(text) {
+  const TEXT_KEYS = [
+    'title', 'firstLine', 'selectedFirstLine', 'selectedHook', 'first3SecHook', 'first2SecHook',
+    'body', 'bodyScript', 'caption', 'description', 'pinDescription', 'pinnedComment',
+    'commentPrompt', 'linkPrompt', 'profileLinkPrompt', 'sharePrompt', 'savePrompt', 'entryPrompt',
+  ];
+  const out = [];
+  const finalIdx = text.indexOf('"finalRevision"');
+  if (finalIdx < 0) return '';
+  const slice = text.slice(finalIdx);
+  for (const key of TEXT_KEYS) {
+    const re = new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`);
+    const m = re.exec(slice);
+    if (m && m[1]) {
+      const decoded = m[1]
+        .replace(/\\n/g, '\n')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\')
+        .trim();
+      if (decoded && !out.includes(decoded)) out.push(decoded);
+    }
+  }
+  return out.length ? out.join('\n\n') : '';
+}
+
 module.exports = {
   postFormat,
   wrapLines,
@@ -306,5 +377,6 @@ module.exports = {
   extractHashtags,
   insertPhotoPlaceholders,
   computeMaxEmptyLines,
+  stripStructuredArtifacts,
   SEPARATOR_EMOJI,
 };

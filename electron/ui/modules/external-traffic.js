@@ -90,6 +90,15 @@ const PLATFORMS = [
     promptUser: (src) => `원본 블로그: "${src.title}"\n원본 URL: ${src.url}\n\n틱톡 3가지를 출력하세요:\n[Script 15~30초] Hook 2초 + Body 10~20초 + "프로필 링크 클릭"\n[Caption] 50~150자\n[Hashtags] 메인1+중간3~5+트렌딩1~2`,
   },
   {
+    id: 'local-board',
+    label: '지역 자유게시판',
+    icon: '🏘️',
+    openUrl: '',
+    color: '#f59e0b',
+    promptSystem: `당신은 한국 동네 주민입니다 (네이버 카페 지역방·맘카페·부동산 카페·아파트 입주민 카페 자유게시판). 광고 티 절대 금지. 진짜 주민이 묻거나 공유하는 자연스러운 존댓말 + 동네 어조 ("저희 동네", "여기 사시는 분들"). 첫 줄부터 광고 같으면 즉시 삭제될 수 있음. 본문 200~400자, 끝에 "혹시 도움 되실까 해서" 같은 자연스러운 표현으로 링크 1개만.`,
+    promptUser: (src) => `원본 블로그: "${src.title}"\n원본 URL: ${src.url}\n\n지역 자유게시판에 올릴 글을 작성하세요 (200~400자). 형식: 동네 질문형/경험 공유형/정보 공유형 중 하나로 자연스럽게. 본문 끝에 "혹시 도움 되실까 해서 정리한 글 공유해요 → ${src.url}".`,
+  },
+  {
     id: 'pinterest',
     label: '핀터레스트',
     icon: '📌',
@@ -112,6 +121,7 @@ const PLATFORM_LOGOS = {
   'youtube-shorts': { slug: 'youtubeshorts', color: 'FF0000', fallback: '▶' },
   tiktok: { slug: 'tiktok', color: 'FFFFFF', fallback: '♪' },
   pinterest: { slug: 'pinterest', color: 'E60023', fallback: 'P' },
+  'local-board': { slug: 'naver', color: 'F59E0B', fallback: '🏘' },
 };
 
 function _getPlatformLogoMeta(platform) {
