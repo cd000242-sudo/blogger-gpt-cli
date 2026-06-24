@@ -1692,6 +1692,15 @@ ${tail}
           const sourceUrls = sortedContents.map((c) => c.url).filter(Boolean);
           let urlPtr = 0;
 
+          // v3.8.133: 발행 직전 진단 로그 — 사용자 입력 URL + 매핑 과정 추적
+          console.log('[INTERNAL-CONSISTENCY] 📌 사용자 입력 원본 글 URL 목록:');
+          sortedContents.forEach((c, i) => {
+            console.log(`  [${i + 1}] title="${(c.title || '').substring(0, 50)}" url="${c.url || '(없음)'}"`);
+          });
+          if (sourceUrls.length === 0) {
+            console.warn('[INTERNAL-CONSISTENCY] ⚠️ 사용자 입력 URL 0개 — CTA가 모두 #로 fallback');
+          }
+
           // v3.8.132: H2 위치별 텍스트 추출 → CTA 직전 H2와 원본 글 제목 키워드 매칭으로 URL 자동 매핑
           //   사용자 보고: H2 1번 CTA가 글 3번 URL을 가리켜서 404 (LLM이 H2 순서를 입력 순서와 다르게 출력)
           //   해결: CTA 박스 직전 가장 가까운 H2 텍스트와 sortedContents[i].title의 한글 키워드 overlap 계산 → 최고 매칭 URL 사용
@@ -1729,12 +1738,18 @@ ${tail}
               }
             }
             // 3) 키워드 매칭 성공 시 그 URL, 실패 시 순서대로 fallback
+            let chosen: string;
+            let reason: string;
             if (bestIdx >= 0 && sourceUrls[bestIdx]) {
-              return sourceUrls[bestIdx]!;
+              chosen = sourceUrls[bestIdx]!;
+              reason = `H2 매칭 → 원본 #${bestIdx + 1} (overlap=${bestScore})`;
+            } else {
+              chosen = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
+              reason = `순서 fallback #${(urlPtr % Math.max(1, sourceUrls.length)) + 1}`;
+              urlPtr++;
             }
-            const fallback = sourceUrls[urlPtr % Math.max(1, sourceUrls.length)] || sourceUrls[0] || '#';
-            urlPtr++;
-            return fallback;
+            console.log(`[INTERNAL-CONSISTENCY] 🔗 CTA URL: "${chosen.substring(0, 80)}" (${reason}, H2="${h2Text.substring(0, 40)}")`);
+            return chosen;
           };
 
           // v3.8.77 추가 패턴: 다양한 후킹·버튼 케이스 모두 매칭
