@@ -639,7 +639,7 @@ function openPublishedPostsModal(opts) {
       : `<div style="margin-bottom: 14px; padding: 12px 16px; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; color: #c7d2fe; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
         <div style="font-weight: 700;">총 ${modalPosts.length}개 · <span id="pubModalSelectedCount" style="color: #fbbf24;">0</span>개 선택 (최대 10)</div>
         <div style="display: flex; gap: 8px;">
-          <button type="button" onclick="selectAllPublishedPosts(true)" style="padding: 6px 12px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">최근 5개 선택</button>
+          <button type="button" onclick="selectAllPublishedPosts(true)" style="padding: 6px 12px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">최근 10개 선택</button>
           <button type="button" onclick="selectAllPublishedPosts(false)" style="padding: 6px 12px; background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">선택 해제</button>
           <button type="button" onclick="deleteSelectedPublishedPosts()" title="체크한 글들을 발행 글 목록에서 삭제 (실제 발행글은 그대로 유지)" style="padding: 6px 12px; background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: white; border: 1px solid rgba(220, 38, 38, 0.6); border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 6px rgba(220, 38, 38, 0.35);">🗑️ 선택 삭제</button>
         </div>
@@ -936,11 +936,11 @@ function updatePublishedSelectionCount() {
   const newlyChecked = checkboxes.filter(cb => cb.checked && !cb.disabled);
   // 입력 필드의 남은 슬롯 = 5 - 현재 입력된 URL 수
   let usedSlots = 0;
-  for (let i = 1; i <= 5; i++) {
+  for (let i = 1; i <= 10; i++) {
     const input = document.getElementById(`spiderWebUrl${i}`);
     if (input && input.value.trim()) usedSlots++;
   }
-  const remainingSlots = Math.max(0, 5 - usedSlots);
+  const remainingSlots = Math.max(0, 10 - usedSlots);
   const countEl = document.getElementById('pubModalSelectedCount');
   if (countEl) countEl.textContent = String(newlyChecked.length);
   // 슬롯 초과 시 추가 체크 불가
@@ -954,9 +954,9 @@ function updatePublishedSelectionCount() {
 /**
  * 최근 N개 자동 체크 / 전체 해제
  */
-function selectAllPublishedPosts(autoCheckTopFive) {
+function selectAllPublishedPosts(autoCheckTop) {
   const checkboxes = Array.from(document.querySelectorAll('.pub-modal-checkbox'));
-  if (!autoCheckTopFive) {
+  if (!autoCheckTop) {
     checkboxes.forEach(cb => { if (!cb.disabled || cb.checked) { /* keep disabled+checked alone */ } });
     // 사용자 추가분만 해제 (already-added 항목은 disabled+checked 유지)
     checkboxes.forEach(cb => {
@@ -965,11 +965,11 @@ function selectAllPublishedPosts(autoCheckTopFive) {
   } else {
     // 가용 슬롯 만큼 위에서부터 체크
     let usedSlots = 0;
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 10; i++) {
       const input = document.getElementById(`spiderWebUrl${i}`);
       if (input && input.value.trim()) usedSlots++;
     }
-    let remaining = Math.max(0, 5 - usedSlots);
+    let remaining = Math.max(0, 10 - usedSlots);
     for (const cb of checkboxes) {
       if (remaining <= 0) break;
       if (cb.disabled) continue;
@@ -1022,7 +1022,7 @@ function addSelectedPostsToInputs() {
     }
     if (!placed) {
       // 빈 칸이 없으면 새 슬롯 추가 (최대 10 제한은 addUrlInput 내부에서)
-      if (urlInputCount >= 5) break;
+      if (urlInputCount >= 10) break;
       addUrlInput();
       const newInput = document.getElementById(`spiderWebUrl${urlInputCount}`);
       if (newInput) {
@@ -1064,7 +1064,7 @@ function selectPostFromModal(index) {
     return;
   }
   
-  if (selectedPosts.length >= 5) {
+  if (selectedPosts.length >= 10) {
     alert('⚠️ 최대 10개까지만 선택할 수 있습니다.');
     return;
   }
@@ -1075,7 +1075,7 @@ function selectPostFromModal(index) {
   }
   
   // URL 입력 필드에 추가
-  if (urlInputCount < 5) {
+  if (urlInputCount < 10) {
     addUrlInput();
     const input = document.getElementById(`spiderWebUrl${urlInputCount}`);
     if (input) {
@@ -1083,9 +1083,9 @@ function selectPostFromModal(index) {
       updateSelectedPostsFromInputs();
     }
   }
-  
+
   closePublishedPostsModal();
-  alert(`✅ "${post.title}"이(가) 선택되었습니다. (${selectedPosts.length}/5)`);
+  alert(`✅ "${post.title}"이(가) 선택되었습니다. (${selectedPosts.length}/10)`);
 }
 
 /**
