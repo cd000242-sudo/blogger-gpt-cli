@@ -6663,6 +6663,18 @@
     document.addEventListener('DOMContentLoaded', function () {
       renderBloggerAccounts();
       refreshConnectionStatus();
+      // v3.8.149: 페이지 로드 시 저장된 플랫폼으로 selectPlatform 자동 호출 (색상 즉시 반영)
+      try {
+        const raw = localStorage.getItem('bloggerSettings');
+        const settings = raw ? JSON.parse(raw) : {};
+        const savedPlatform = settings.platform || 'blogger';
+        const normalized = savedPlatform === 'blogspot' ? 'blogger' : savedPlatform;
+        if (typeof window.selectPlatform === 'function') {
+          window.selectPlatform(normalized);
+        }
+      } catch (e) {
+        console.warn('[INIT] 초기 플랫폼 색상 적용 실패:', e);
+      }
     });
 
     // 🔥 연동 상태 새로고침 함수
