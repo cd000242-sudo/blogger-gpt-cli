@@ -311,7 +311,7 @@ async function _ensurePageInternal(onLog?: (msg: string) => void): Promise<any> 
     cachedContext = context;
     cachedPage = page;
     cachedToken = session.token;
-    cachedTokenExpiry = new Date(Date.now() + 50 * 60 * 1000);
+    cachedTokenExpiry = new Date(Date.now() + 4 * 60 * 60 * 1000);
     return page;
   }
 
@@ -347,7 +347,7 @@ async function _ensurePageInternal(onLog?: (msg: string) => void): Promise<any> 
         console.log(`[ImageFX] ✅ Google 로그인 성공: ${check.userName || 'user'}`);
         onLog?.(`✅ [ImageFX] Google 로그인 완료: ${check.userName || 'user'}`);
         cachedToken = check.token;
-        cachedTokenExpiry = new Date(Date.now() + 50 * 60 * 1000);
+        cachedTokenExpiry = new Date(Date.now() + 4 * 60 * 60 * 1000);
         break;
       }
     } catch {
@@ -417,7 +417,7 @@ async function getToken(page: any, onLog?: (msg: string) => void): Promise<strin
   }
 
   cachedToken = session.token;
-  cachedTokenExpiry = new Date(Date.now() + 50 * 60 * 1000);
+  cachedTokenExpiry = new Date(Date.now() + 4 * 60 * 60 * 1000);
   return session.token;
 }
 
@@ -660,7 +660,7 @@ export async function checkGoogleLoginForImageFx(): Promise<{
         const session = await getSessionToken(cachedPage);
         if (session) {
           cachedToken = session.token;
-          cachedTokenExpiry = new Date(Date.now() + 50 * 60 * 1000);
+          cachedTokenExpiry = new Date(Date.now() + 4 * 60 * 60 * 1000);
           console.log(`[ImageFX] ✅ Google 로그인 확인: ${session.userName || 'user'}`);
           return { loggedIn: true, userName: session.userName || undefined, message: `Google 로그인 완료: ${session.userName || 'user'}` };
         }
@@ -687,7 +687,7 @@ export async function checkGoogleLoginForImageFx(): Promise<{
         cachedContext = tempContext;
         cachedPage = page;
         cachedToken = session.token;
-        cachedTokenExpiry = new Date(Date.now() + 50 * 60 * 1000);
+        cachedTokenExpiry = new Date(Date.now() + 4 * 60 * 60 * 1000);
         console.log(`[ImageFX] ✅ Google 로그인 확인: ${session.userName || 'user'}`);
         return { loggedIn: true, userName: session.userName || undefined, message: `Google 로그인 완료: ${session.userName || 'user'}` };
       }
@@ -766,7 +766,7 @@ export async function loginGoogleForImageFx(): Promise<{
           cachedContext = headlessCtx;
           cachedPage = headlessPage;
           cachedToken = session.token;
-          cachedTokenExpiry = new Date(Date.now() + 50 * 60 * 1000);
+          cachedTokenExpiry = new Date(Date.now() + 4 * 60 * 60 * 1000);
 
           return {
             loggedIn: true,
