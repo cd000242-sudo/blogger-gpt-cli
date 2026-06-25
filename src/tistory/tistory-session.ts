@@ -351,31 +351,158 @@ export async function launchTistoryContext(
     onLog,
   );
 
-  // v3.8.157: 모든 페이지에 stealth 스크립트 자동 주입 — navigator.webdriver/plugins/permissions 흔적 위장
+  // v3.8.158: 강화 stealth — fingerprint 6종 위장 + 행동 정상화
+  //   1) navigator.webdriver/plugins/languages/chrome 흔적 위장
+  //   2) Canvas/WebGL/Audio fingerprint 노이즈 (자동화 탐지 1순위)
+  //   3) Hardware 정보 정상화 (deviceMemory, hardwareConcurrency, screen)
+  //   4) WebRTC IP 누출 차단
+  //   5) Battery API mock
+  //   6) Client Hints + permissions
   try {
     await context.addInitScript(() => {
-      // navigator.webdriver = undefined (true 표시 차단)
-      Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver', { get: () => undefined });
-      // plugins 길이 > 0 (자동화는 보통 0)
-      Object.defineProperty(navigator, 'plugins', {
-        get: () => [
-          { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-          { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
-          { name: 'Native Client', filename: 'internal-nacl-plugin' },
-        ],
-      });
-      // languages — 실제 사용자 환경
-      Object.defineProperty(navigator, 'languages', { get: () => ['ko-KR', 'ko', 'en-US', 'en'] });
-      // chrome.runtime 노출 (자동화는 미정의)
-      (window as any).chrome = (window as any).chrome || { runtime: {} };
-      // permissions API 정상화
-      const origQuery = (window.navigator as any).permissions?.query;
-      if (origQuery) {
-        (window.navigator as any).permissions.query = (params: any) =>
-          params?.name === 'notifications'
-            ? Promise.resolve({ state: 'denied' } as any)
-            : origQuery.call((window.navigator as any).permissions, params);
-      }
+      const w = window as any;
+      const n = navigator as any;
+
+      // ===== 1) navigator 흔적 위장 =====
+      try { Object.defineProperty(Object.getPrototypeOf(n), 'webdriver', { get: () => undefined }); } catch {}
+      try {
+        Object.defineProperty(n, 'plugins', {
+          get: () => [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+            { name: 'Native Client', filename: 'internal-nacl-plugin' },
+          ],
+        });
+      } catch {}
+      try { Object.defineProperty(n, 'languages', { get: () => ['ko-KR', 'ko', 'en-US', 'en'] }); } catch {}
+
+      // ===== 2) chrome 객체 강화 (자동화는 보통 미정의) =====
+      w.chrome = w.chrome || {};
+      w.chrome.runtime = w.chrome.runtime || { OnInstalledReason: { INSTALL: 'install' }, OnRestartRequiredReason: {}, PlatformOs: { WIN: 'win' } };
+      w.chrome.csi = w.chrome.csi || function () { return { onloadT: Date.now(), startE: Date.now(), pageT: 0, tran: 15 }; };
+      w.chrome.loadTimes = w.chrome.loadTimes || function () {
+        return {
+          requestTime: Date.now() / 1000, startLoadTime: Date.now() / 1000, commitLoadTime: Date.now() / 1000,
+          finishDocumentLoadTime: Date.now() / 1000, finishLoadTime: Date.now() / 1000, firstPaintTime: Date.now() / 1000,
+          firstPaintAfterLoadTime: 0, navigationType: 'Other', wasFetchedViaSpdy: true, wasNpnNegotiated: true,
+          npnNegotiatedProtocol: 'h2', wasAlternateProtocolAvailable: false, connectionInfo: 'h2',
+        };
+      };
+
+      // ===== 3) Canvas fingerprint 노이즈 =====
+      try {
+        const origGetCtx = HTMLCanvasElement.prototype.getContext;
+        HTMLCanvasElement.prototype.getContext = function (type: string, ...rest: any[]) {
+          const ctx: any = (origGetCtx as any).apply(this, [type, ...rest]);
+          if (ctx && (type === '2d' || type === 'webgl' || type === 'webgl2')) {
+            const origToData = this.toDataURL;
+            this.toDataURL = function (...args: any[]) {
+              const result = origToData.apply(this, args as any);
+              // 마지막 픽셀 1바이트 변경 — 항상 동일 noise (deterministic fingerprint X, 변화는 적게)
+              return result.replace(/.$/, (c) => String.fromCharCode((c.charCodeAt(0) + 1) % 128));
+            };
+          }
+          return ctx;
+        };
+      } catch {}
+
+      // ===== 4) WebGL fingerprint 위장 (vendor/renderer) =====
+      try {
+        const origGetParam = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function (param: number) {
+          // UNMASKED_VENDOR_WEBGL = 37445, UNMASKED_RENDERER_WEBGL = 37446
+          if (param === 37445) return 'Google Inc. (Intel)';
+          if (param === 37446) return 'ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)';
+          return origGetParam.call(this, param);
+        };
+        const origGetParam2 = (window as any).WebGL2RenderingContext?.prototype?.getParameter;
+        if (origGetParam2) {
+          (window as any).WebGL2RenderingContext.prototype.getParameter = function (param: number) {
+            if (param === 37445) return 'Google Inc. (Intel)';
+            if (param === 37446) return 'ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)';
+            return origGetParam2.call(this, param);
+          };
+        }
+      } catch {}
+
+      // ===== 5) AudioContext fingerprint 노이즈 =====
+      try {
+        const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (AC) {
+          const origGetChannelData = (window as any).AudioBuffer?.prototype?.getChannelData;
+          if (origGetChannelData) {
+            (window as any).AudioBuffer.prototype.getChannelData = function (...args: any[]) {
+              const data = origGetChannelData.apply(this, args);
+              // 무음 영역에 미세 노이즈 (탐지 회피)
+              for (let i = 0; i < data.length; i += 100) {
+                data[i] = data[i] + (Math.random() - 0.5) * 0.0000001;
+              }
+              return data;
+            };
+          }
+        }
+      } catch {}
+
+      // ===== 6) Hardware 정보 — 실제 PC 환경 =====
+      try { Object.defineProperty(n, 'hardwareConcurrency', { get: () => 8 }); } catch {}
+      try { Object.defineProperty(n, 'deviceMemory', { get: () => 8 }); } catch {}
+      try {
+        // screen 정보 (자동화는 0 또는 비표준)
+        Object.defineProperty(screen, 'colorDepth', { get: () => 24 });
+        Object.defineProperty(screen, 'pixelDepth', { get: () => 24 });
+      } catch {}
+
+      // ===== 7) WebRTC IP 누출 차단 =====
+      try {
+        const origRTC = (window as any).RTCPeerConnection;
+        if (origRTC) {
+          (window as any).RTCPeerConnection = function (...args: any[]) {
+            const pc = new origRTC(...args);
+            const origCreateOffer = pc.createOffer.bind(pc);
+            pc.createOffer = (opts?: any) => origCreateOffer({ ...(opts || {}), offerToReceiveAudio: false, offerToReceiveVideo: false });
+            return pc;
+          };
+        }
+      } catch {}
+
+      // ===== 8) Battery API mock =====
+      try {
+        if ((n).getBattery) {
+          n.getBattery = () => Promise.resolve({
+            charging: true, chargingTime: Infinity, dischargingTime: Infinity, level: 0.87,
+            addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => true,
+          });
+        }
+      } catch {}
+
+      // ===== 9) Permissions API 정상화 =====
+      try {
+        const origQuery = n.permissions?.query;
+        if (origQuery) {
+          n.permissions.query = (params: any) =>
+            params?.name === 'notifications'
+              ? Promise.resolve({ state: 'denied' } as any)
+              : origQuery.call(n.permissions, params);
+        }
+      } catch {}
+
+      // ===== 10) Iframe contentWindow stealth (자동화는 iframe에서 흔적 노출) =====
+      try {
+        const origContentWindow = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
+        if (origContentWindow?.get) {
+          Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+            get: function () {
+              const win = origContentWindow.get!.call(this);
+              try {
+                if (win && (win as any).navigator) {
+                  Object.defineProperty(Object.getPrototypeOf((win as any).navigator), 'webdriver', { get: () => undefined });
+                }
+              } catch {}
+              return win;
+            },
+          });
+        }
+      } catch {}
     });
   } catch { /* addInitScript 실패해도 진행 */ }
 
