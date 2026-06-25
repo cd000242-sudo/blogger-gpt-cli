@@ -1112,6 +1112,13 @@ function buildModalHtml() {
                 <option value="off">끄기</option>
               </select>
             </label>
+            <!-- v3.8.146: WordPress 카테고리 일괄 적용 -->
+            <label id="pq-bulk-wp-cat-wrap" style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#0ea5e9;font-size:11px;font-weight:700;">📂 WordPress 카테고리 <span style="color:#38bdf8;font-weight:600;">(WordPress만)</span></span>
+              <select id="pq-bulk-wp-category">
+                <option value="">변경 안 함</option>
+              </select>
+            </label>
             <!-- v3.8.145: Tistory 항목별 카테고리/공개상태 일괄 적용 -->
             <label id="pq-bulk-tistory-cat-wrap" style="display:flex;flex-direction:column;gap:4px;">
               <span style="color:#f97316;font-size:11px;font-weight:700;">📂 Tistory 카테고리 <span style="color:#fb923c;font-weight:600;">(Tistory만)</span></span>
@@ -1345,6 +1352,19 @@ function buildItemRow(item, idx) {
         <option value="off" ${item.factCheckMode === 'off' ? 'selected' : ''}>끄기</option>
       </select>
     </div>
+    ${platform === 'wordpress' ? `
+    <div class="pq-field">
+      <label>📂 WordPress 카테고리</label>
+      <select class="pq-item-wp-category">
+        ${(() => {
+          const envSel = document.getElementById('wpCategory');
+          const envVal = envSel?.value || '';
+          const chosen = item.wordpressCategory || envVal;
+          const options = envSel ? Array.from(envSel.options) : [{ value: '', textContent: '환경설정에서 카테고리를 먼저 불러오세요' }];
+          return options.map((o) => `<option value="${escHtml(o.value)}" ${o.value === chosen ? 'selected' : ''}>${escHtml(o.textContent)}</option>`).join('');
+        })()}
+      </select>
+    </div>` : ''}
     ${platform === 'tistory' ? `
     <div class="pq-field">
       <label>📂 Tistory 카테고리</label>
@@ -1481,6 +1501,11 @@ function bindItemEvents() {
     });
     row.querySelector('.pq-item-tistory-visibility')?.addEventListener('change', e => {
       item.tistoryVisibility = e.target.value || 'private';
+      saveItem();
+    });
+    // v3.8.146: WordPress 카테고리 항목별 override
+    row.querySelector('.pq-item-wp-category')?.addEventListener('change', e => {
+      item.wordpressCategory = e.target.value || '';
       saveItem();
     });
     const saveManualCta = () => {
@@ -1708,6 +1733,9 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     // v3.8.144: Tistory 항목별 카테고리/공개상태 (item에 없으면 환경설정 default 사용)
     tistoryDefaultCategory: item.tistoryCategory || document.getElementById('tistoryDefaultCategory')?.value || '',
     tistoryDefaultVisibility: item.tistoryVisibility || document.getElementById('tistoryDefaultVisibility')?.value || 'private',
+    // v3.8.146: WordPress 항목별 카테고리 (item에 없으면 환경설정 default 사용)
+    wordpressCategory: item.wordpressCategory || document.getElementById('wpCategory')?.value || '',
+    wordpressCategories: item.wordpressCategory || document.getElementById('wpCategory')?.value || document.getElementById('wordpressCategories')?.value || '',
     fromQueue: true,
   };
 }
@@ -2257,20 +2285,23 @@ function bindModalEvents() {
   syncIntervalControl();
 
   // v3.8.145: Tistory 일괄 카테고리 dropdown — 환경설정 #tistoryDefaultCategory option 자동 복제
-  try {
-    const bulkCatSel = document.getElementById('pq-bulk-tistory-category');
-    const envCatSel = document.getElementById('tistoryDefaultCategory');
-    if (bulkCatSel && envCatSel) {
-      // "변경 안 함" 옵션 외 환경설정 옵션 추가
-      Array.from(envCatSel.options).forEach((o) => {
-        if (!o.value) return; // 빈 placeholder 건너뜀
+  // v3.8.146: WordPress 일괄 카테고리 dropdown도 같이 — #wpCategory option 자동 복제
+  const cloneEnvOptions = (bulkSelId, envSelId) => {
+    try {
+      const bulk = document.getElementById(bulkSelId);
+      const env = document.getElementById(envSelId);
+      if (!bulk || !env) return;
+      Array.from(env.options).forEach((o) => {
+        if (!o.value) return;
         const opt = document.createElement('option');
         opt.value = o.value;
         opt.textContent = o.textContent;
-        bulkCatSel.appendChild(opt);
+        bulk.appendChild(opt);
       });
-    }
-  } catch {}
+    } catch {}
+  };
+  cloneEnvOptions('pq-bulk-tistory-category', 'tistoryDefaultCategory');
+  cloneEnvOptions('pq-bulk-wp-category', 'wpCategory');
 
   // v3.8.137: 발행 방식 = 예약 발행 선택 시 날짜/시간 input 자동 노출
   const bulkPostingSelect = document.getElementById('pq-bulk-posting');
@@ -2307,6 +2338,8 @@ function bindModalEvents() {
     // v3.8.145: Tistory 카테고리/공개상태 일괄 적용
     const tistoryCat = document.getElementById('pq-bulk-tistory-category')?.value;
     const tistoryVis = document.getElementById('pq-bulk-tistory-visibility')?.value;
+    // v3.8.146: WordPress 카테고리 일괄 적용
+    const wpCat = document.getElementById('pq-bulk-wp-category')?.value;
     // 예약 발행 선택했는데 시간 비어있으면 경고
     if (pm === 'schedule' && !scheduleVal) {
       alert('⚠️ "예약 발행"을 선택했습니다 — 날짜·시간을 입력해주세요.');
@@ -2333,6 +2366,8 @@ function bindModalEvents() {
       // v3.8.145: Tistory 카테고리/공개상태 일괄 적용
       if (tistoryCat) item.tistoryCategory = tistoryCat;
       if (tistoryVis) item.tistoryVisibility = tistoryVis;
+      // v3.8.146: WordPress 카테고리 일괄 적용
+      if (wpCat) item.wordpressCategory = wpCat;
       if (item.mode === 'adsense') item.ctaMode = 'none';
       if (item.ctaMode === 'manual') ensureItemManualCta(item);
       touchItemSnapshot(item);
