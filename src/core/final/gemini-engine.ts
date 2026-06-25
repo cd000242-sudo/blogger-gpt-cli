@@ -45,6 +45,7 @@ type FailureKind =
   | 'model'
   | 'network'
   | 'empty'
+  | 'service_unavailable'
   | 'unknown';
 
 interface FailureInfo {
@@ -166,6 +167,10 @@ function classifyFailure(error: any): FailureInfo {
   }
   if (/model.*not found|not found|404|not supported|unsupported model/.test(lower)) {
     return { kind: 'model', message, status };
+  }
+  // v3.8.163: 503/overloaded는 transient — retry + 모델 폴백 + provider 폴백으로 처리
+  if (status === 503 || /503|service unavailable|overloaded|high demand|currently experiencing|temporarily unavailable|bad gateway|502|504/.test(lower)) {
+    return { kind: 'service_unavailable', message, status };
   }
   if (/fetch failed|network|econnreset|enotfound|etimedout|socket|dns|connection/.test(lower)) {
     return { kind: 'network', message, status };
@@ -373,12 +378,37 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
           continue;
         }
 
+        // v3.8.163: 503/overloaded는 서버 측 transient — 30s/60s/90s backoff 후 같은 모델 retry
+        if (info.kind === 'service_unavailable' && retry < attemptsPerModel - 1) {
+          const backoff = 30000 + retry * 30000;
+          console.log(`[Gemini] ${modelName} 503/overloaded — ${backoff/1000}s 대기 후 재시도`);
+          await sleep(backoff);
+          continue;
+        }
+
         if (shouldStopGeminiChain(info.kind)) {
           throw buildUserError('gemini', info, totalAttempts);
         }
 
         break;
       }
+    }
+  }
+
+  // v3.8.163: 모든 Gemini 모델 실패 → OpenAI/Claude/Perplexity 자동 fallback (다른 키 있을 때만)
+  //   사용자 보고: gemini-2.5-flash-lite 503 → 큐 연속 실패. 다른 provider 자동 시도로 차단
+  const fallbackOrder: Provider[] = ['openai', 'claude', 'perplexity'];
+  for (const fp of fallbackOrder) {
+    const fpKey = getProviderKey(fp);
+    if (!fpKey) continue;
+    try {
+      console.log(`[Engine-Fallback] 모든 Gemini 모델 실패 → ${PROVIDER_NAMES[fp]} 자동 시도`);
+      if (fp === 'openai') return repairBrokenGeneratedText('openai fallback', await callOpenAIAPI(prompt));
+      if (fp === 'claude') return repairBrokenGeneratedText('claude fallback', await callClaudeAPI(prompt));
+      if (fp === 'perplexity') return repairBrokenGeneratedText('perplexity fallback', await callPerplexityAPI(prompt));
+    } catch (fpErr: any) {
+      const fpInfo = classifyFailure(fpErr);
+      console.warn(`[Engine-Fallback] ${PROVIDER_NAMES[fp]} 실패 (${fpInfo.kind}): ${fpInfo.message.slice(0, 120)}`);
     }
   }
 
