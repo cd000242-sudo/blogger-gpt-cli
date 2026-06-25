@@ -1329,6 +1329,28 @@ function buildItemRow(item, idx) {
         <option value="off" ${item.factCheckMode === 'off' ? 'selected' : ''}>끄기</option>
       </select>
     </div>
+    ${platform === 'tistory' ? `
+    <div class="pq-field">
+      <label>📂 Tistory 카테고리</label>
+      <select class="pq-item-tistory-category">
+        ${(() => {
+          // 환경설정의 #tistoryDefaultCategory option들을 복제
+          const envSel = document.getElementById('tistoryDefaultCategory');
+          const envVal = envSel?.value || '';
+          const chosen = item.tistoryCategory || envVal;
+          const options = envSel ? Array.from(envSel.options) : [{ value: '', textContent: '환경설정에서 카테고리를 먼저 불러오세요' }];
+          return options.map((o) => `<option value="${escHtml(o.value)}" ${o.value === chosen ? 'selected' : ''}>${escHtml(o.textContent)}</option>`).join('');
+        })()}
+      </select>
+    </div>
+    <div class="pq-field">
+      <label>🔒 Tistory 공개 상태</label>
+      <select class="pq-item-tistory-visibility">
+        <option value="private" ${(item.tistoryVisibility || 'private') === 'private' ? 'selected' : ''}>비공개 (테스트)</option>
+        <option value="public" ${item.tistoryVisibility === 'public' ? 'selected' : ''}>공개 발행</option>
+        <option value="protected" ${item.tistoryVisibility === 'protected' ? 'selected' : ''}>보호 글</option>
+      </select>
+    </div>` : ''}
   </div>
   ${manualCtaPanel}
   <div class="pq-card-meta">
@@ -1435,6 +1457,15 @@ function bindItemEvents() {
       item.factCheckMode = e.target.value || 'auto';
       saveItem();
       refreshList();
+    });
+    // v3.8.144: Tistory 카테고리·공개상태 항목별 override
+    row.querySelector('.pq-item-tistory-category')?.addEventListener('change', e => {
+      item.tistoryCategory = e.target.value || '';
+      saveItem();
+    });
+    row.querySelector('.pq-item-tistory-visibility')?.addEventListener('change', e => {
+      item.tistoryVisibility = e.target.value || 'private';
+      saveItem();
     });
     const saveManualCta = () => {
       item.manualCta = normalizeManualCta({
@@ -1658,6 +1689,9 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     adsensePolicyScan: isAdsense ? true : undefined,
     adsenseHardeningScan: isAdsense ? true : undefined,
     adsenseGateMode: isAdsense ? 'warn' : undefined,
+    // v3.8.144: Tistory 항목별 카테고리/공개상태 (item에 없으면 환경설정 default 사용)
+    tistoryDefaultCategory: item.tistoryCategory || document.getElementById('tistoryDefaultCategory')?.value || '',
+    tistoryDefaultVisibility: item.tistoryVisibility || document.getElementById('tistoryDefaultVisibility')?.value || 'private',
     fromQueue: true,
   };
 }
