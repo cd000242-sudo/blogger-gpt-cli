@@ -250,12 +250,17 @@ export async function hideTistoryBrowserWindow(page: any, onLog?: (message: stri
       await session.detach().catch(() => null);
       return false;
     }
+    // v3.8.156: 화면 밖 이동 + minimize 2단계 강제 (windowState 단독은 일부 환경에서 무시됨)
+    await session.send('Browser.setWindowBounds', {
+      windowId: target.windowId,
+      bounds: { left: -32000, top: -32000, width: 100, height: 100 },
+    }).catch(() => null);
     await session.send('Browser.setWindowBounds', {
       windowId: target.windowId,
       bounds: { windowState: 'minimized' },
-    });
+    }).catch(() => null);
     await session.detach().catch(() => null);
-    onLog?.('[TISTORY] Browser window hidden for session reuse.');
+    onLog?.('[TISTORY] Browser window hidden.');
     return true;
   } catch {
     return false;
@@ -861,6 +866,35 @@ export async function openTistoryLoginWindow(
   await page.goto(TISTORY_URLS.login, { waitUntil: 'domcontentloaded', timeout: config.timeoutMs });
   await clickTistoryKakaoLoginIfVisible(page, onLog, config.kakaoEmail);
   onLog?.('[TISTORY] Login window opened. Complete Kakao/Tistory login in the browser.');
+
+  // v3.8.156: 로그인 완료 자동 감지 + 자동 숨김 (background polling — 호출자는 즉시 응답)
+  //   증상: 사용자가 카카오 로그인 후 창이 계속 떠있어 직접 닫아야 함
+  //   해결: 5분간 url 변화 감시 → tistory 대시보드/관리 페이지 도달 시 자동 minimize
+  (async () => {
+    const maxWaitMs = 5 * 60 * 1000;
+    const startedAt = Date.now();
+    let lastUrl = '';
+    while (Date.now() - startedAt < maxWaitMs) {
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        const url = String(typeof page.url === 'function' ? page.url() : '');
+        if (url === lastUrl) continue;
+        lastUrl = url;
+        // 로그인 성공 신호: tistory.com/manage, /admin, blogName.tistory.com (단 /login은 제외)
+        const loggedInPattern = /tistory\.com\/(manage|admin)|^https?:\/\/[^/]+\.tistory\.com\/?$/i;
+        const stillLoginPattern = /accounts\.kakao\.com|tistory\.com\/auth|login/i;
+        if (loggedInPattern.test(url) && !stillLoginPattern.test(url)) {
+          onLog?.('[TISTORY] 로그인 자동 감지 — 창 숨김');
+          await hideTistoryBrowserWindow(page, onLog).catch(() => false);
+          return;
+        }
+      } catch {
+        // 페이지 닫힘 등 — 종료
+        return;
+      }
+    }
+  })().catch(() => null);
+
   return {
     ok: true,
     authenticated: false,
