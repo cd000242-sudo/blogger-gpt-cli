@@ -13,6 +13,10 @@ import {
   normalizeTistoryBlogName,
   openTistoryLoginWindow,
   resolveTistoryConfig,
+  humanClick,
+  humanType,
+  humanScroll,
+  humanLinger,
 } from './tistory-session';
 import {
   TistoryConfig,
@@ -309,6 +313,21 @@ async function firstUsableLocator(page: any, selectors: string[], timeoutMs = SH
 }
 
 async function clickFirst(page: any, selectors: string[], timeoutMs = SHORT_TIMEOUT_MS): Promise<boolean> {
+  // v3.8.159: 첫 매칭 selector를 human-like click (ghost-cursor 베지어 곡선 + random delay)
+  for (const sel of selectors) {
+    try {
+      const locator = page.locator(sel).first();
+      const count = await locator.count().catch(() => 0);
+      if (count <= 0) continue;
+      const visible = await locator.isVisible({ timeout: 1500 }).catch(() => false);
+      if (!visible) continue;
+      const ok = await humanClick(page, sel, { timeoutMs });
+      if (ok) return true;
+    } catch {
+      continue;
+    }
+  }
+  // fallback to native
   const locator = await firstUsableLocator(page, selectors, timeoutMs);
   if (!locator) return false;
   try {
@@ -433,6 +452,23 @@ async function throwIfTistoryBlocked(
 }
 
 async function fillFirst(page: any, selectors: string[], value: string, timeoutMs = SHORT_TIMEOUT_MS): Promise<boolean> {
+  // v3.8.159: 첫 매칭 selector에 human-like type (한글 IME 대응 글자별 delay)
+  // 단 너무 긴 텍스트(>500자)는 fill로 빠르게 (제목/태그 등 짧은 입력만 human type)
+  if (value.length <= 200) {
+    for (const sel of selectors) {
+      try {
+        const locator = page.locator(sel).first();
+        const count = await locator.count().catch(() => 0);
+        if (count <= 0) continue;
+        const visible = await locator.isVisible({ timeout: 1500 }).catch(() => false);
+        if (!visible) continue;
+        const ok = await humanType(page, sel, value, { clear: true });
+        if (ok) return true;
+      } catch {
+        continue;
+      }
+    }
+  }
   const locator = await firstUsableLocator(page, selectors, timeoutMs);
   if (!locator) return false;
 

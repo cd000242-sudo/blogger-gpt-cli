@@ -180,6 +180,97 @@ async function loadChromium(): Promise<any> {
   }
 }
 
+// v3.8.159: ghost-cursor 동적 로드 (실패 시 native fallback)
+let createGhostCursor: any = null;
+try {
+  const gc = require('ghost-cursor');
+  createGhostCursor = gc.createCursor;
+} catch { /* not installed — fallback to native */ }
+
+// 사람 같은 random delay
+function randomDelay(min: number, max: number): Promise<void> {
+  const ms = min + Math.floor(Math.random() * (max - min));
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// 사람 같은 타이핑 — 글자별 50~150ms random delay (한글은 IME 고려 100~250ms)
+export async function humanType(page: any, selector: string, text: string, opts: { clear?: boolean } = {}): Promise<boolean> {
+  try {
+    const locator = page.locator(selector).first();
+    await locator.waitFor({ state: 'visible', timeout: 8000 }).catch(() => null);
+    if (opts.clear) {
+      await locator.click({ timeout: 4000 }).catch(() => null);
+      await page.keyboard.press('Control+A').catch(() => null);
+      await randomDelay(80, 180);
+      await page.keyboard.press('Delete').catch(() => null);
+      await randomDelay(100, 220);
+    } else {
+      await locator.click({ timeout: 4000 }).catch(() => null);
+      await randomDelay(120, 280);
+    }
+    // 한 글자씩 random delay
+    for (const ch of text) {
+      const isKorean = /[ㄱ-힝]/u.test(ch);
+      const baseDelay = isKorean ? 80 + Math.random() * 170 : 40 + Math.random() * 110;
+      await page.keyboard.type(ch, { delay: baseDelay });
+      // 가끔 잠시 멈춤 (생각하는 척)
+      if (Math.random() < 0.05) await randomDelay(400, 1200);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// 사람 같은 클릭 — ghost-cursor 베지어 곡선 (없으면 마우스 이동 + 클릭 분리)
+export async function humanClick(page: any, selector: string, opts: { timeoutMs?: number } = {}): Promise<boolean> {
+  const timeoutMs = opts.timeoutMs || 6000;
+  try {
+    const locator = page.locator(selector).first();
+    await locator.waitFor({ state: 'visible', timeout: timeoutMs }).catch(() => null);
+    const box = await locator.boundingBox().catch(() => null);
+    if (!box) {
+      await locator.click({ timeout: timeoutMs }).catch(() => null);
+      return true;
+    }
+    const targetX = box.x + box.width * (0.3 + Math.random() * 0.4);
+    const targetY = box.y + box.height * (0.3 + Math.random() * 0.4);
+    // ghost-cursor 가능하면 사용 (베지어 곡선 + 가속도)
+    if (createGhostCursor) {
+      try {
+        const cursor = createGhostCursor(page);
+        await cursor.moveTo({ x: targetX, y: targetY });
+        await randomDelay(60, 180);
+        await page.mouse.click(targetX, targetY);
+        return true;
+      } catch { /* fallback */ }
+    }
+    // Native fallback: 마우스 이동 분리 + step 추가
+    const steps = 12 + Math.floor(Math.random() * 8);
+    await page.mouse.move(targetX, targetY, { steps }).catch(() => null);
+    await randomDelay(80, 220);
+    await page.mouse.click(targetX, targetY).catch(() => null);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// 자연스러운 스크롤 (페이지 머무는 시간 + scroll 변화)
+export async function humanScroll(page: any, opts: { steps?: number } = {}): Promise<void> {
+  const steps = opts.steps || (2 + Math.floor(Math.random() * 4));
+  for (let i = 0; i < steps; i++) {
+    const dy = 100 + Math.floor(Math.random() * 400);
+    await page.mouse.wheel(0, dy).catch(() => null);
+    await randomDelay(300, 900);
+  }
+}
+
+// 페이지 머무는 시간 (사람은 즉시 다음 동작 안 함)
+export async function humanLinger(min = 800, max = 2400): Promise<void> {
+  await randomDelay(min, max);
+}
+
 // v3.8.157: Tistory/카카오 캡차 우회 강화
 //   patchright(이미 stealth) + 추가 launch args + UA spoofing 으로 자동화 탐지율 ↓
 function getLaunchArgs(): string[] {
