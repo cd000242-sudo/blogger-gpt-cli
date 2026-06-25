@@ -1112,18 +1112,25 @@ function buildModalHtml() {
                 <option value="off">끄기</option>
               </select>
             </label>
-            <!-- v3.8.146/150: 플랫폼별 카테고리/공개상태 (환경설정 platform 기준 조건부 노출) -->
+            <!-- v3.8.146/150/151: 플랫폼별 카테고리/공개상태 (환경설정 platform 기준 조건부 노출) -->
+            <!-- v3.8.151: 각 dropdown 옆에 🔄 동기화 버튼 (환경설정에서 갱신된 옵션 즉시 반영) -->
             <label id="pq-bulk-wp-cat-wrap" style="display:none;flex-direction:column;gap:4px;">
               <span style="color:#0ea5e9;font-size:11px;font-weight:700;">📂 WordPress 카테고리</span>
-              <select id="pq-bulk-wp-category">
-                <option value="">변경 안 함</option>
-              </select>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <select id="pq-bulk-wp-category" style="flex:1;min-width:0;">
+                  <option value="">변경 안 함</option>
+                </select>
+                <button type="button" id="pq-bulk-wp-cat-sync" title="환경설정에서 카테고리 다시 불러와 반영" style="min-height:34px;padding:6px 10px;background:rgba(14,165,233,0.16);border:1px solid rgba(56,189,248,0.36);color:#bae6fd;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">🔄 동기화</button>
+              </div>
             </label>
             <label id="pq-bulk-tistory-cat-wrap" style="display:none;flex-direction:column;gap:4px;">
               <span style="color:#f97316;font-size:11px;font-weight:700;">📂 Tistory 카테고리</span>
-              <select id="pq-bulk-tistory-category">
-                <option value="">변경 안 함</option>
-              </select>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <select id="pq-bulk-tistory-category" style="flex:1;min-width:0;">
+                  <option value="">변경 안 함</option>
+                </select>
+                <button type="button" id="pq-bulk-tistory-cat-sync" title="환경설정에서 카테고리 다시 불러와 반영" style="min-height:34px;padding:6px 10px;background:rgba(249,115,22,0.16);border:1px solid rgba(251,146,60,0.36);color:#fed7aa;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">🔄 동기화</button>
+              </div>
             </label>
             <label id="pq-bulk-tistory-vis-wrap" style="display:none;flex-direction:column;gap:4px;">
               <span style="color:#f97316;font-size:11px;font-weight:700;">🔒 Tistory 공개 상태</span>
@@ -1152,10 +1159,9 @@ function buildModalHtml() {
           </div>
         </div>
 
-        <!-- 액션 버튼 -->
+        <!-- v3.8.151: 액션 버튼 — "현재 상세설정 반영" 제거, 각 dropdown 옆 🔄 동기화로 이동 -->
         <div style="display:flex;gap:8px;margin-top:auto;padding-top:12px;border-top:1px solid rgba(148,163,184,0.18);">
           <button id="pq-bulk-apply" class="pq-btn" style="flex:1;min-height:38px;padding:8px 14px;background:linear-gradient(135deg,#6366f1,#8b5cf6);font-size:13px;font-weight:900;">⚡ 일괄 적용</button>
-          <button id="pq-sync-current" class="pq-btn" style="flex:1;min-height:38px;padding:8px 14px;background:rgba(14,165,233,0.16);border:1px solid rgba(56,189,248,0.36);color:#bae6fd;font-size:12px;font-weight:700;" title="현재 상세설정 값을 모든 대기열 항목에 다시 반영">🔄 현재 상세설정 반영</button>
         </div>
       </div>
 
@@ -2394,13 +2400,35 @@ function bindModalEvents() {
     refreshList();
   });
 
-  document.getElementById('pq-sync-current')?.addEventListener('click', () => {
-    const snapshot = getCurrentQueueSnapshot();
-    STATE.keywords.forEach(item => applySnapshotToItem(item, snapshot, { force: true }));
-    const settingsEl = document.getElementById('pq-current-settings');
-    if (settingsEl) settingsEl.innerHTML = buildSnapshotChips(snapshot);
-    persistQueue();
-    refreshList();
+  // v3.8.151: 각 카테고리 dropdown 옆 🔄 동기화 — 환경설정에서 카테고리 다시 불러와 큐 dropdown에 반영
+  const syncDropdownFromEnv = (bulkSelId, envSelId) => {
+    try {
+      const bulk = document.getElementById(bulkSelId);
+      const env = document.getElementById(envSelId);
+      if (!bulk || !env) return;
+      // 현재 선택값 보존
+      const currentVal = bulk.value;
+      // "변경 안 함" 외 모두 제거
+      Array.from(bulk.options).slice(1).forEach((o) => o.remove());
+      // 환경설정 option 추가
+      Array.from(env.options).forEach((o) => {
+        if (!o.value) return;
+        const opt = document.createElement('option');
+        opt.value = o.value;
+        opt.textContent = o.textContent;
+        bulk.appendChild(opt);
+      });
+      // 선택값 복원 (있으면)
+      if (currentVal && Array.from(bulk.options).some(o => o.value === currentVal)) {
+        bulk.value = currentVal;
+      }
+    } catch {}
+  };
+  document.getElementById('pq-bulk-wp-cat-sync')?.addEventListener('click', () => {
+    syncDropdownFromEnv('pq-bulk-wp-category', 'wpCategory');
+  });
+  document.getElementById('pq-bulk-tistory-cat-sync')?.addEventListener('click', () => {
+    syncDropdownFromEnv('pq-bulk-tistory-category', 'tistoryDefaultCategory');
   });
 
   // 큐 비우기
