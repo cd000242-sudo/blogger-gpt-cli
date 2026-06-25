@@ -2458,13 +2458,20 @@ function bindModalEvents() {
     setBtnLoading(btn, true);
     try {
       // env 파일에서 자격증명 직접 로드 (환경설정 모달 input 의존 X)
-      const envRes = await window.electronAPI?.envLoad?.() || await window.electronAPI?.getEnv?.();
-      const env = envRes?.env || envRes || {};
-      const wpUrl = env.wordpressSiteUrl || env.WP_SITE_URL || env.wpSiteUrl;
-      const wpUsername = env.wordpressUsername || env.WP_USERNAME || env.wpUsername;
-      const wpPassword = env.wordpressPassword || env.WP_PASSWORD || env.wpPassword;
+      // v3.8.154: 응답 구조 {ok, data} + 대문자 언더스코어 키 (WORDPRESS_SITE_URL) 정확 처리
+      const envRes = await (window.electronAPI?.envLoad?.() || window.electronAPI?.getEnv?.());
+      const env = envRes?.data || envRes?.env || envRes || {};
+      // env 파일 저장 시 wordpressSiteUrl → WORDPRESS_SITE_URL로 변환되므로 대문자 우선
+      const wpUrl = env.WORDPRESS_SITE_URL || env.wordpressSiteUrl || env.wpSiteUrl || env.WP_SITE_URL;
+      const wpUsername = env.WORDPRESS_USERNAME || env.wordpressUsername || env.wpUsername || env.WP_USERNAME;
+      const wpPassword = env.WORDPRESS_PASSWORD || env.wordpressPassword || env.wpPassword || env.WP_PASSWORD || env.WORDPRESS_APP_PASSWORD;
+      console.log('[QUEUE-SYNC] env 자격증명 확인:', { hasUrl: !!wpUrl, hasUser: !!wpUsername, hasPw: !!wpPassword, envKeys: Object.keys(env).filter(k => k.toUpperCase().includes('WORD') || k.toUpperCase().includes('WP')) });
       if (!wpUrl || !wpUsername || !wpPassword) {
-        alert('WordPress 연결 정보가 env에 없습니다. 환경설정에서 URL/사용자명/비밀번호를 저장해주세요.');
+        const missing = [];
+        if (!wpUrl) missing.push('URL');
+        if (!wpUsername) missing.push('사용자명');
+        if (!wpPassword) missing.push('비밀번호');
+        alert('WordPress 연결 정보 누락: ' + missing.join(', ') + '\n환경설정에서 저장 후 다시 시도해주세요.');
         return;
       }
       const result = await window.electronAPI.loadWpCategories({ wpUrl, wpUsername, wpPassword });
