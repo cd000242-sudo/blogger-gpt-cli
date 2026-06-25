@@ -2424,45 +2424,84 @@ function bindModalEvents() {
       }
     } catch {}
   };
-  // v3.8.152: 동기화 버튼 = 직접 fetch + dropdown 갱신
-  //   기존: 환경설정 option 단순 복제만 → 환경설정에서 미리 안 불렀으면 비어있음
-  //   수정: window.loadWpCategories() / window.loadTistoryCategoriesFromSettings() 직접 호출
+  // v3.8.153: 동기화 버튼 = env 파일에서 직접 자격증명 읽기 → 직접 fetch IPC 호출 → dropdown 채우기
+  //   환경설정 모달 input element 의존성 제거 (모달 안 열려있어도 동작)
+  const setBtnLoading = (btn, loading, defaultText = '🔄 동기화') => {
+    if (!btn) return;
+    if (loading) {
+      btn.dataset.origText = btn.textContent;
+      btn.textContent = '⏳ 불러오는 중...';
+      btn.disabled = true;
+    } else {
+      btn.textContent = btn.dataset.origText || defaultText;
+      btn.disabled = false;
+    }
+  };
+  const fillDropdownWithCategories = (selId, categories, keyField = 'id', labelField = 'name') => {
+    const sel = document.getElementById(selId);
+    if (!sel) return;
+    const currentVal = sel.value;
+    Array.from(sel.options).slice(1).forEach((o) => o.remove());
+    categories.forEach((cat) => {
+      const opt = document.createElement('option');
+      opt.value = String(cat[keyField] || cat.id || cat.value || '');
+      opt.textContent = String(cat[labelField] || cat.name || cat.label || opt.value);
+      sel.appendChild(opt);
+    });
+    if (currentVal && Array.from(sel.options).some((o) => o.value === currentVal)) {
+      sel.value = currentVal;
+    }
+  };
+
   document.getElementById('pq-bulk-wp-cat-sync')?.addEventListener('click', async () => {
     const btn = document.getElementById('pq-bulk-wp-cat-sync');
-    const orig = btn?.textContent;
-    if (btn) { btn.textContent = '⏳ 불러오는 중...'; btn.disabled = true; }
+    setBtnLoading(btn, true);
     try {
-      const fn = window.loadWpCategories || window.loadWordPressCategories;
-      if (typeof fn === 'function') {
-        await fn();
-      } else {
-        alert('워드프레스 카테고리 로드 함수가 준비되지 않았습니다. 환경설정 탭을 한 번 열어주세요.');
+      // env 파일에서 자격증명 직접 로드 (환경설정 모달 input 의존 X)
+      const envRes = await window.electronAPI?.envLoad?.() || await window.electronAPI?.getEnv?.();
+      const env = envRes?.env || envRes || {};
+      const wpUrl = env.wordpressSiteUrl || env.WP_SITE_URL || env.wpSiteUrl;
+      const wpUsername = env.wordpressUsername || env.WP_USERNAME || env.wpUsername;
+      const wpPassword = env.wordpressPassword || env.WP_PASSWORD || env.wpPassword;
+      if (!wpUrl || !wpUsername || !wpPassword) {
+        alert('WordPress 연결 정보가 env에 없습니다. 환경설정에서 URL/사용자명/비밀번호를 저장해주세요.');
+        return;
       }
-      syncDropdownFromEnv('pq-bulk-wp-category', 'wpCategory');
+      const result = await window.electronAPI.loadWpCategories({ wpUrl, wpUsername, wpPassword });
+      if (result?.ok && Array.isArray(result.categories)) {
+        fillDropdownWithCategories('pq-bulk-wp-category', result.categories, 'id', 'name');
+        // 환경설정 select에도 같이 반영 (default 설정용)
+        fillDropdownWithCategories('wpCategory', result.categories, 'id', 'name');
+        console.log(`[QUEUE] ✅ WordPress 카테고리 ${result.categories.length}개 불러옴`);
+      } else {
+        alert('WP 카테고리 불러오기 실패: ' + (result?.error || '응답 없음'));
+      }
     } catch (e) {
       console.warn('[QUEUE] WP 카테고리 동기화 실패:', e);
       alert('WP 카테고리 불러오기 실패: ' + (e?.message || e));
     } finally {
-      if (btn) { btn.textContent = orig || '🔄 동기화'; btn.disabled = false; }
+      setBtnLoading(btn, false);
     }
   });
+
   document.getElementById('pq-bulk-tistory-cat-sync')?.addEventListener('click', async () => {
     const btn = document.getElementById('pq-bulk-tistory-cat-sync');
-    const orig = btn?.textContent;
-    if (btn) { btn.textContent = '⏳ 불러오는 중...'; btn.disabled = true; }
+    setBtnLoading(btn, true);
     try {
+      // Tistory는 fetch IPC가 환경설정 함수에 묶여 있음 — 그래도 호출 가능
       const fn = window.loadTistoryCategoriesFromSettings;
       if (typeof fn === 'function') {
         await fn();
+        // 결과는 #tistoryDefaultCategory에 들어가니 거기서 복제
+        syncDropdownFromEnv('pq-bulk-tistory-category', 'tistoryDefaultCategory');
       } else {
-        alert('티스토리 카테고리 로드 함수가 준비되지 않았습니다. 환경설정 탭을 한 번 열어주세요.');
+        alert('티스토리 카테고리 로드 함수가 준비되지 않았어요. 환경설정 탭에서 한 번 로그인해주세요.');
       }
-      syncDropdownFromEnv('pq-bulk-tistory-category', 'tistoryDefaultCategory');
     } catch (e) {
       console.warn('[QUEUE] Tistory 카테고리 동기화 실패:', e);
       alert('Tistory 카테고리 불러오기 실패: ' + (e?.message || e));
     } finally {
-      if (btn) { btn.textContent = orig || '🔄 동기화'; btn.disabled = false; }
+      setBtnLoading(btn, false);
     }
   });
 
