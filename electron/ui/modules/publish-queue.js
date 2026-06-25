@@ -1112,6 +1112,22 @@ function buildModalHtml() {
                 <option value="off">끄기</option>
               </select>
             </label>
+            <!-- v3.8.145: Tistory 항목별 카테고리/공개상태 일괄 적용 -->
+            <label id="pq-bulk-tistory-cat-wrap" style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#f97316;font-size:11px;font-weight:700;">📂 Tistory 카테고리 <span style="color:#fb923c;font-weight:600;">(Tistory만)</span></span>
+              <select id="pq-bulk-tistory-category">
+                <option value="">변경 안 함</option>
+              </select>
+            </label>
+            <label id="pq-bulk-tistory-vis-wrap" style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#f97316;font-size:11px;font-weight:700;">🔒 Tistory 공개 상태 <span style="color:#fb923c;font-weight:600;">(Tistory만)</span></span>
+              <select id="pq-bulk-tistory-visibility">
+                <option value="">변경 안 함</option>
+                <option value="private">비공개 (테스트)</option>
+                <option value="public">공개 발행</option>
+                <option value="protected">보호 글</option>
+              </select>
+            </label>
             <label style="display:flex;flex-direction:column;gap:4px;">
               <span style="color:#cbd5e1;font-size:11px;font-weight:700;">발행 간격 (여러 키워드 시)</span>
               <div style="display:flex;gap:6px;align-items:center;">
@@ -2240,6 +2256,22 @@ function bindModalEvents() {
   document.getElementById('pq-interval-value')?.addEventListener('change', () => syncIntervalControl());
   syncIntervalControl();
 
+  // v3.8.145: Tistory 일괄 카테고리 dropdown — 환경설정 #tistoryDefaultCategory option 자동 복제
+  try {
+    const bulkCatSel = document.getElementById('pq-bulk-tistory-category');
+    const envCatSel = document.getElementById('tistoryDefaultCategory');
+    if (bulkCatSel && envCatSel) {
+      // "변경 안 함" 옵션 외 환경설정 옵션 추가
+      Array.from(envCatSel.options).forEach((o) => {
+        if (!o.value) return; // 빈 placeholder 건너뜀
+        const opt = document.createElement('option');
+        opt.value = o.value;
+        opt.textContent = o.textContent;
+        bulkCatSel.appendChild(opt);
+      });
+    }
+  } catch {}
+
   // v3.8.137: 발행 방식 = 예약 발행 선택 시 날짜/시간 input 자동 노출
   const bulkPostingSelect = document.getElementById('pq-bulk-posting');
   const bulkScheduleWrap = document.getElementById('pq-bulk-schedule-wrap');
@@ -2272,6 +2304,9 @@ function bindModalEvents() {
     const tone = document.getElementById('pq-bulk-tone')?.value;
     const fact = document.getElementById('pq-bulk-fact')?.value;
     const scheduleVal = (document.getElementById('pq-bulk-schedule')?.value || '').trim();
+    // v3.8.145: Tistory 카테고리/공개상태 일괄 적용
+    const tistoryCat = document.getElementById('pq-bulk-tistory-category')?.value;
+    const tistoryVis = document.getElementById('pq-bulk-tistory-visibility')?.value;
     // 예약 발행 선택했는데 시간 비어있으면 경고
     if (pm === 'schedule' && !scheduleVal) {
       alert('⚠️ "예약 발행"을 선택했습니다 — 날짜·시간을 입력해주세요.');
@@ -2295,6 +2330,9 @@ function bindModalEvents() {
       if (fact) item.factCheckMode = fact;
       // v3.8.137: 예약 발행 + 시간 입력 시 모든 항목에 일괄 적용 (발행 간격은 별도 옵션이 분산 처리)
       if (pm === 'schedule' && scheduleVal) item.scheduleDate = scheduleVal;
+      // v3.8.145: Tistory 카테고리/공개상태 일괄 적용
+      if (tistoryCat) item.tistoryCategory = tistoryCat;
+      if (tistoryVis) item.tistoryVisibility = tistoryVis;
       if (item.mode === 'adsense') item.ctaMode = 'none';
       if (item.ctaMode === 'manual') ensureItemManualCta(item);
       touchItemSnapshot(item);
