@@ -1702,9 +1702,76 @@ function applyItemToMainForm(item, scheduleDateIso) {
   }
 }
 
+// v3.8.140: 대기열 진행 미니바 (닫기 시 최소화, 클릭 시 모달 재오픈)
+function ensureQueueMiniBar() {
+  let mini = document.getElementById('pqRunMiniBar');
+  if (mini) return mini;
+  mini = document.createElement('div');
+  mini.id = 'pqRunMiniBar';
+  mini.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:99998;background:linear-gradient(135deg,rgba(15,23,42,0.98),rgba(30,41,59,0.98));backdrop-filter:blur(20px);border:1px solid rgba(99,102,241,0.55);border-radius:16px;box-shadow:0 20px 50px rgba(0,0,0,0.6),0 0 0 1px rgba(99,102,241,0.1);padding:14px 18px;min-width:300px;max-width:340px;cursor:pointer;display:none;font-family:"Noto Sans KR",sans-serif;transition:transform 0.2s,box-shadow 0.2s;';
+  mini.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,rgba(99,102,241,0.25),rgba(236,72,153,0.25));display:flex;align-items:center;justify-content:center;font-size:20px;">⚡</div>
+      <div style="flex:1;min-width:0;">
+        <div id="pqMiniLabel" style="color:#f1f5f9;font-size:13px;font-weight:800;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">연속발행 진행 중…</div>
+        <div id="pqMiniDetail" style="color:#94a3b8;font-size:11px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">곧 시작합니다</div>
+      </div>
+      <div id="pqMiniPct" style="color:#fbbf24;font-size:18px;font-weight:900;letter-spacing:-0.5px;">0%</div>
+    </div>
+    <div style="margin-top:10px;height:6px;background:rgba(15,23,42,0.7);border-radius:999px;overflow:hidden;">
+      <div id="pqMiniFill" style="height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#60a5fa,#a78bfa);transition:width 0.35s ease;box-shadow:0 0 12px rgba(139,92,246,0.5);"></div>
+    </div>
+  `;
+  mini.addEventListener('mouseover', () => { mini.style.transform = 'translateY(-2px)'; });
+  mini.addEventListener('mouseout', () => { mini.style.transform = 'translateY(0)'; });
+  mini.addEventListener('click', () => {
+    const m = document.getElementById('pqRunModal');
+    if (m) {
+      m.style.display = 'flex';
+      mini.style.display = 'none';
+    }
+  });
+  document.body.appendChild(mini);
+  return mini;
+}
+
+function updateQueueMiniBar({ pct, label, detail, status }) {
+  const mini = document.getElementById('pqRunMiniBar');
+  if (!mini) return;
+  const fill = document.getElementById('pqMiniFill');
+  const pctEl = document.getElementById('pqMiniPct');
+  const labelEl = document.getElementById('pqMiniLabel');
+  const detailEl = document.getElementById('pqMiniDetail');
+  if (fill && typeof pct === 'number') fill.style.width = pct + '%';
+  if (pctEl && typeof pct === 'number') pctEl.textContent = pct + '%';
+  if (labelEl && label) labelEl.textContent = label;
+  if (detailEl && detail !== undefined) detailEl.textContent = detail;
+  if (status === 'success') {
+    mini.style.borderColor = 'rgba(34,197,94,0.6)';
+    if (pctEl) pctEl.style.color = '#34d399';
+  } else if (status === 'error') {
+    mini.style.borderColor = 'rgba(239,68,68,0.6)';
+    if (pctEl) pctEl.style.color = '#f87171';
+  } else {
+    mini.style.borderColor = 'rgba(99,102,241,0.55)';
+    if (pctEl) pctEl.style.color = '#fbbf24';
+  }
+}
+
+function showQueueMiniBar() {
+  ensureQueueMiniBar();
+  document.getElementById('pqRunMiniBar').style.display = 'block';
+}
+
+function hideQueueMiniBar() {
+  const mini = document.getElementById('pqRunMiniBar');
+  if (mini) mini.style.display = 'none';
+}
+
 function createQueueRunModal(items, intervalLabel) {
   const existing = document.getElementById('pqRunModal');
   if (existing) existing.remove();
+  hideQueueMiniBar(); // 새 모달 생성 시 이전 미니바 정리
 
   const cards = items.map((item, index) => `
     <div class="pqr-card" data-pqr-index="${index}">
@@ -1830,9 +1897,17 @@ function createQueueRunModal(items, intervalLabel) {
     const fill = document.getElementById('pqrProgressFill');
     const pctEl = document.getElementById('pqrProgressPct');
     const textEl = document.getElementById('pqrProgressText');
+    const displayLabel = label || `${completed}/${items.length} 완료`;
     if (fill) fill.style.width = `${pct}%`;
     if (pctEl) pctEl.textContent = `${pct}%`;
-    if (textEl) textEl.textContent = label || `${completed}/${items.length} 완료`;
+    if (textEl) textEl.textContent = displayLabel;
+    // v3.8.140: 미니바도 같이 갱신 (모달이 숨겨져 있을 때만 의미 있음)
+    updateQueueMiniBar({
+      pct,
+      label: finished ? (lastStatus === 'error' ? '⚠️ 일부 실패' : '✅ 발행 완료') : '연속발행 진행 중…',
+      detail: displayLabel,
+      status: lastStatus,
+    });
   };
 
   const setItemStatus = (index, status, message) => {
@@ -2001,14 +2076,37 @@ function createQueueRunModal(items, intervalLabel) {
     console.warn('[QUEUE-RUN] progress subscribe failed:', e);
   }
 
+  let finished = false; // finish() 호출 여부
+  let lastStatus = 'running'; // 'running' | 'success' | 'error'
+
   const cleanup = () => {
     closed = true;
     unsubs.forEach(fn => { try { fn?.(); } catch {} });
     document.removeEventListener('keydown', lightboxKeyHandler);
+    hideQueueMiniBar();
   };
+
+  // v3.8.140: 진행 중 닫기 → 모달 숨김 + 미니바 표시 (cleanup X)
+  //          완료/실패 후 닫기 → 완전 종료 (cleanup + 미니바 제거)
   document.getElementById('pqrCloseBtn')?.addEventListener('click', () => {
-    cleanup();
-    modal?.remove();
+    if (finished) {
+      // 완료 상태 — 완전 종료
+      cleanup();
+      modal?.remove();
+    } else {
+      // 진행 중 — 모달 숨기고 미니바로
+      if (modal) modal.style.display = 'none';
+      const pctEl = document.getElementById('pqrProgressPct');
+      const textEl = document.getElementById('pqrProgressText');
+      const pct = parseInt((pctEl?.textContent || '0').replace('%', ''), 10) || 0;
+      showQueueMiniBar();
+      updateQueueMiniBar({
+        pct,
+        label: '연속발행 진행 중…',
+        detail: textEl?.textContent || `${completed}/${items.length}`,
+        status: 'running',
+      });
+    }
   });
 
   log(`연속발행 시작 준비: ${items.length}개`);
@@ -2040,8 +2138,18 @@ function createQueueRunModal(items, intervalLabel) {
     },
     finish(message) {
       completed = items.length;
+      finished = true;
+      // 실패가 메시지에 포함되면 error 상태로
+      lastStatus = /실패/.test(message || '') ? 'error' : 'success';
       updateOverall(100, message || '전체 완료');
       log(message || '전체 완료');
+      // v3.8.140: 완료 후 미니바도 완료 상태로 표시 (사용자가 클릭해서 결과 확인 가능)
+      updateQueueMiniBar({
+        pct: 100,
+        label: lastStatus === 'error' ? '⚠️ 일부 실패' : '✅ 발행 완료',
+        detail: message || '전체 완료',
+        status: lastStatus,
+      });
     },
     cleanup,
   };
