@@ -193,6 +193,15 @@ function randomDelay(min: number, max: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// v3.8.161: Normal distribution random — uniform보다 사람 행동에 가까움
+//   (Box-Muller transform — 평균 μ, 표준편차 σ)
+function normalRandom(mean: number, stdDev: number): number {
+  const u1 = Math.random();
+  const u2 = Math.random();
+  const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return Math.max(0, mean + z * stdDev);
+}
+
 // 사람 같은 타이핑 — 글자별 50~150ms random delay (한글은 IME 고려 100~250ms)
 export async function humanType(page: any, selector: string, text: string, opts: { clear?: boolean } = {}): Promise<boolean> {
   try {
@@ -208,13 +217,21 @@ export async function humanType(page: any, selector: string, text: string, opts:
       await locator.click({ timeout: 4000 }).catch(() => null);
       await randomDelay(120, 280);
     }
-    // 한 글자씩 random delay
+    // v3.8.161: 글자별 normal distribution delay (uniform보다 사람에 가까움)
     for (const ch of text) {
       const isKorean = /[ㄱ-힝]/u.test(ch);
-      const baseDelay = isKorean ? 80 + Math.random() * 170 : 40 + Math.random() * 110;
-      await page.keyboard.type(ch, { delay: baseDelay });
-      // 가끔 잠시 멈춤 (생각하는 척)
-      if (Math.random() < 0.05) await randomDelay(400, 1200);
+      // 한글: μ=140ms, σ=45ms / 영문: μ=80ms, σ=30ms
+      const baseDelay = isKorean ? normalRandom(140, 45) : normalRandom(80, 30);
+      await page.keyboard.type(ch, { delay: Math.min(400, Math.max(20, baseDelay)) });
+      // 7% 확률로 잠시 멈춤 (생각하는 척)
+      if (Math.random() < 0.07) await randomDelay(400, 1400);
+      // 1% 확률로 백스페이스 1번 (오타 수정 시뮬레이션)
+      if (Math.random() < 0.01) {
+        await randomDelay(200, 500);
+        await page.keyboard.press('Backspace').catch(() => null);
+        await randomDelay(100, 300);
+        await page.keyboard.type(ch, { delay: normalRandom(120, 40) });
+      }
     }
     return true;
   } catch {
@@ -245,10 +262,19 @@ export async function humanClick(page: any, selector: string, opts: { timeoutMs?
         return true;
       } catch { /* fallback */ }
     }
-    // Native fallback: 마우스 이동 분리 + step 추가
+    // Native fallback: 마우스 이동 분리 + step + v3.8.161 jitter
     const steps = 12 + Math.floor(Math.random() * 8);
     await page.mouse.move(targetX, targetY, { steps }).catch(() => null);
     await randomDelay(80, 220);
+    // v3.8.161: 클릭 직전 미세 떨림 (1~3px 범위, 2~4회)
+    //   사람은 클릭 전 마우스가 완전히 정지하지 않음 — micro-jitter 추가
+    const jitterCount = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < jitterCount; i++) {
+      const dx = (Math.random() - 0.5) * 4;
+      const dy = (Math.random() - 0.5) * 4;
+      await page.mouse.move(targetX + dx, targetY + dy, { steps: 1 }).catch(() => null);
+      await randomDelay(20, 60);
+    }
     await page.mouse.click(targetX, targetY).catch(() => null);
     return true;
   } catch {
@@ -638,7 +664,7 @@ export async function launchTistoryContext(
         }
       } catch {}
 
-      // ===== 10) Iframe contentWindow stealth (자동화는 iframe에서 흔적 노출) =====
+      // ===== 10) Iframe contentWindow + contentDocument stealth =====
       try {
         const origContentWindow = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
         if (origContentWindow?.get) {
@@ -648,9 +674,133 @@ export async function launchTistoryContext(
               try {
                 if (win && (win as any).navigator) {
                   Object.defineProperty(Object.getPrototypeOf((win as any).navigator), 'webdriver', { get: () => undefined });
+                  (win as any).chrome = (win as any).chrome || { runtime: {} };
                 }
               } catch {}
               return win;
+            },
+          });
+        }
+      } catch {}
+
+      // ===== v3.8.161: 심층 강화 11종 =====
+
+      // 11) Function.prototype.toString 위장 — 자동화 탐지가 native 함수 변조 검증할 때 사용
+      //   getter/setter override 후 toString() 호출 → 위장 코드 노출 → 발각
+      //   → toString을 wrapping하여 항상 'function() { [native code] }' 반환
+      try {
+        const origToString = Function.prototype.toString;
+        const nativeFnStr = (name: string) => `function ${name}() { [native code] }`;
+        const fakeFns = new WeakSet();
+        Function.prototype.toString = function () {
+          if (fakeFns.has(this)) return nativeFnStr(this.name || '');
+          try {
+            return origToString.apply(this);
+          } catch {
+            return nativeFnStr(this.name || '');
+          }
+        };
+        // Function.prototype.toString 자체도 native처럼 보여야 함
+        fakeFns.add(Function.prototype.toString);
+      } catch {}
+
+      // 12) Touch/Pointer events — desktop은 maxTouchPoints=0, 자동화는 가끔 잘못된 값
+      try { Object.defineProperty(n, 'maxTouchPoints', { get: () => 0 }); } catch {}
+      try { Object.defineProperty(n, 'pointerEnabled', { get: () => false }); } catch {}
+
+      // 13) navigator.connection — 실제 사용자는 wifi/4g, 자동화는 미정의/이상값
+      try {
+        Object.defineProperty(n, 'connection', {
+          get: () => ({
+            effectiveType: '4g',
+            rtt: 50 + Math.floor(Math.random() * 50),
+            downlink: 8 + Math.random() * 4,
+            saveData: false,
+            type: 'wifi',
+            onchange: null,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+          }),
+        });
+      } catch {}
+
+      // 14) Storage quota — 실제 사용자 PC는 GB 단위
+      try {
+        if (n.storage?.estimate) {
+          const origEstimate = n.storage.estimate.bind(n.storage);
+          n.storage.estimate = async () => {
+            try {
+              const real = await origEstimate();
+              return { ...real, quota: 120 * 1024 * 1024 * 1024 }; // 120GB
+            } catch {
+              return { quota: 120 * 1024 * 1024 * 1024, usage: 1024 * 1024 * 12 };
+            }
+          };
+        }
+      } catch {}
+
+      // 15) Performance API timing 노이즈 — performance.now() 미세 변동
+      //   자동화는 정확한 timing 사용 → fingerprint 가능
+      try {
+        const origNow = Performance.prototype.now;
+        Performance.prototype.now = function () {
+          const value = origNow.call(this);
+          // 0~0.5ms random offset (실제 Chrome timing precision)
+          return value + Math.random() * 0.5;
+        };
+      } catch {}
+
+      // 16) Date.now timing 미세 변동 (드물게 사용되는 fingerprint)
+      try {
+        const origDateNow = Date.now;
+        Date.now = function () {
+          return origDateNow.call(Date) + Math.floor(Math.random() * 2);
+        };
+      } catch {}
+
+      // 17) CDP runtime 흔적 차단 — window.cdc_* 변수가 있으면 자동화로 발각
+      try {
+        const cdcProps = Object.keys(w).filter((k) => /^cdc_|^cdp_|^__webdriver_/.test(k));
+        for (const prop of cdcProps) {
+          try { delete w[prop]; } catch {}
+        }
+      } catch {}
+
+      // 18) Notification permission — 사람은 default(prompt) 또는 granted, 자동화는 보통 denied만
+      try {
+        if (w.Notification) {
+          Object.defineProperty(w.Notification, 'permission', { get: () => 'default' });
+        }
+      } catch {}
+
+      // 19) Mouse jitter helper — 클릭 전 마우스 미세 떨림 시뮬레이션
+      //   사람은 클릭 직전 마우스가 완전히 정지하지 않음 (1~3px 미세 움직임)
+      try {
+        const origDispatch = EventTarget.prototype.dispatchEvent;
+        // 추가 마우스 이벤트 dispatching은 hook 없이 humanClick에서 처리
+      } catch {}
+
+      // 20) Service Worker 정상화 — 빈 navigator.serviceWorker.controller는 자동화 신호
+      try {
+        if (n.serviceWorker) {
+          const origGetReg = n.serviceWorker.getRegistration?.bind(n.serviceWorker);
+          // 이미 등록된 SW가 있으면 그대로, 없으면 진행 (강제 fake X — site별 검증 시 실패)
+        }
+      } catch {}
+
+      // 21) Iframe contentDocument도 보호 (10번 contentWindow 보완)
+      try {
+        const origContentDoc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentDocument');
+        if (origContentDoc?.get) {
+          Object.defineProperty(HTMLIFrameElement.prototype, 'contentDocument', {
+            get: function () {
+              const doc = origContentDoc.get!.call(this);
+              try {
+                if (doc?.defaultView?.navigator) {
+                  Object.defineProperty(Object.getPrototypeOf(doc.defaultView.navigator), 'webdriver', { get: () => undefined });
+                }
+              } catch {}
+              return doc;
             },
           });
         }
