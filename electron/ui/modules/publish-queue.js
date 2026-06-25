@@ -1112,22 +1112,21 @@ function buildModalHtml() {
                 <option value="off">끄기</option>
               </select>
             </label>
-            <!-- v3.8.146: WordPress 카테고리 일괄 적용 -->
-            <label id="pq-bulk-wp-cat-wrap" style="display:flex;flex-direction:column;gap:4px;">
-              <span style="color:#0ea5e9;font-size:11px;font-weight:700;">📂 WordPress 카테고리 <span style="color:#38bdf8;font-weight:600;">(WordPress만)</span></span>
+            <!-- v3.8.146/150: 플랫폼별 카테고리/공개상태 (환경설정 platform 기준 조건부 노출) -->
+            <label id="pq-bulk-wp-cat-wrap" style="display:none;flex-direction:column;gap:4px;">
+              <span style="color:#0ea5e9;font-size:11px;font-weight:700;">📂 WordPress 카테고리</span>
               <select id="pq-bulk-wp-category">
                 <option value="">변경 안 함</option>
               </select>
             </label>
-            <!-- v3.8.145: Tistory 항목별 카테고리/공개상태 일괄 적용 -->
-            <label id="pq-bulk-tistory-cat-wrap" style="display:flex;flex-direction:column;gap:4px;">
-              <span style="color:#f97316;font-size:11px;font-weight:700;">📂 Tistory 카테고리 <span style="color:#fb923c;font-weight:600;">(Tistory만)</span></span>
+            <label id="pq-bulk-tistory-cat-wrap" style="display:none;flex-direction:column;gap:4px;">
+              <span style="color:#f97316;font-size:11px;font-weight:700;">📂 Tistory 카테고리</span>
               <select id="pq-bulk-tistory-category">
                 <option value="">변경 안 함</option>
               </select>
             </label>
-            <label id="pq-bulk-tistory-vis-wrap" style="display:flex;flex-direction:column;gap:4px;">
-              <span style="color:#f97316;font-size:11px;font-weight:700;">🔒 Tistory 공개 상태 <span style="color:#fb923c;font-weight:600;">(Tistory만)</span></span>
+            <label id="pq-bulk-tistory-vis-wrap" style="display:none;flex-direction:column;gap:4px;">
+              <span style="color:#f97316;font-size:11px;font-weight:700;">🔒 Tistory 공개 상태</span>
               <select id="pq-bulk-tistory-visibility">
                 <option value="">변경 안 함</option>
                 <option value="private">비공개 (테스트)</option>
@@ -2302,6 +2301,25 @@ function bindModalEvents() {
   };
   cloneEnvOptions('pq-bulk-tistory-category', 'tistoryDefaultCategory');
   cloneEnvOptions('pq-bulk-wp-category', 'wpCategory');
+
+  // v3.8.150: 환경설정 라디오 platform 기준으로 일괄 dropdown 조건부 노출
+  //   WP 선택: WordPress 카테고리만 / Tistory 선택: Tistory 카테고리·공개상태 / Blogger 선택: 둘 다 숨김
+  const updateBulkPlatformVisibility = () => {
+    const current = (document.querySelector('input[name="platform"]:checked')?.value || 'blogger').toLowerCase();
+    const isWP = current === 'wordpress';
+    const isTistory = current === 'tistory';
+    const wpWrap = document.getElementById('pq-bulk-wp-cat-wrap');
+    const tisCatWrap = document.getElementById('pq-bulk-tistory-cat-wrap');
+    const tisVisWrap = document.getElementById('pq-bulk-tistory-vis-wrap');
+    if (wpWrap) wpWrap.style.display = isWP ? 'flex' : 'none';
+    if (tisCatWrap) tisCatWrap.style.display = isTistory ? 'flex' : 'none';
+    if (tisVisWrap) tisVisWrap.style.display = isTistory ? 'flex' : 'none';
+  };
+  updateBulkPlatformVisibility();
+  // 환경설정 라디오 변경 감지 — 모달이 열려 있을 때 즉시 반영
+  document.querySelectorAll('input[name="platform"]').forEach((r) => {
+    r.addEventListener('change', updateBulkPlatformVisibility);
+  });
 
   // v3.8.137: 발행 방식 = 예약 발행 선택 시 날짜/시간 input 자동 노출
   const bulkPostingSelect = document.getElementById('pq-bulk-posting');
