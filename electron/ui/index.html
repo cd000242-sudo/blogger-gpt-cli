@@ -1649,27 +1649,20 @@
                     <input type="text" id="tistoryBlogName" placeholder="myblog 또는 https://myblog.tistory.com"
                       style="width:100%; padding:14px 16px; border:1px solid rgba(255,255,255,0.1); border-radius:10px; font-size:14px; color:white; background:rgba(0,0,0,0.2); box-sizing:border-box;">
                   </div>
-                  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
-                    <div>
-                      <label style="display:block; margin-bottom:6px; font-weight:700; color:rgba(255,255,255,0.9); font-size:13px;">기본 카테고리 <span style="color:#fbbf24;font-size:11px;font-weight:600;">(발행 시 변경 가능)</span></label>
-                      <div style="display:flex; gap:8px; align-items:center;">
-                        <select id="tistoryDefaultCategory"
-                          style="flex:1; min-width:0; padding:14px 16px; border:1px solid rgba(255,255,255,0.1); border-radius:10px; font-size:14px; color:white; background:rgba(0,0,0,0.2); box-sizing:border-box;">
-                          <option value="">카테고리를 먼저 불러오세요</option>
-                        </select>
-                        <button type="button" onclick="window.loadTistoryCategoriesFromSettings?.()"
-                          style="padding:14px 16px; white-space:nowrap; background:rgba(20,184,166,0.16); color:#99f6e4; border:1px solid rgba(20,184,166,0.45); border-radius:10px; font-weight:800; cursor:pointer;">불러오기</button>
-                      </div>
-                    </div>
-                    <div>
-                      <label style="display:block; margin-bottom:6px; font-weight:700; color:rgba(255,255,255,0.9); font-size:13px;">기본 공개 상태 <span style="color:#fbbf24;font-size:11px;font-weight:600;">(발행 시 변경 가능)</span></label>
-                      <select id="tistoryDefaultVisibility"
-                        style="width:100%; padding:14px 16px; border:1px solid rgba(255,255,255,0.1); border-radius:10px; font-size:14px; color:white; background:rgba(0,0,0,0.2); box-sizing:border-box;">
-                        <option value="private">비공개 테스트 우선</option>
-                        <option value="public">공개 발행</option>
-                        <option value="protected">보호 글</option>
-                      </select>
-                    </div>
+                  <!-- v3.8.155: 카테고리/공개상태는 발행 시(글포스팅/거미줄/연속발행 모달) 선택 가능
+                       환경설정 UI는 제거 (사용자 요청). select element는 hidden 상태로 보존 — 큐 모달이 옵션 채움 -->
+                  <div style="display:none;">
+                    <select id="tistoryDefaultCategory">
+                      <option value="">카테고리를 먼저 불러오세요</option>
+                    </select>
+                    <select id="tistoryDefaultVisibility">
+                      <option value="private">비공개 테스트 우선</option>
+                      <option value="public">공개 발행</option>
+                      <option value="protected">보호 글</option>
+                    </select>
+                  </div>
+                  <div style="padding:10px 14px; background:rgba(20,184,166,0.08); border:1px solid rgba(20,184,166,0.25); border-radius:10px; color:#99f6e4; font-size:12px;">
+                    💡 카테고리와 공개 상태는 <strong>발행 화면(글포스팅·거미줄·연속발행 모달)</strong>에서 선택합니다.
                   </div>
                   <div style="display:flex; gap:10px; flex-wrap:wrap;">
                     <button type="button" onclick="window.openTistoryLoginFromSettings?.()"

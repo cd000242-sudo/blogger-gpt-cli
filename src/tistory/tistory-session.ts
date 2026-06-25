@@ -300,9 +300,12 @@ export async function launchTistoryContext(
     headless: false,
     locale: 'ko-KR',
     viewport: { width: 1400, height: 900 },
+    // v3.8.155: 일반 로그인 모드에서도 명시적 윈도우 위치 + 크기 강제
+    //   증상: 이전 hiddenBrowser 세션의 위치(-32000,-32000)가 profile에 cached → 새 창도 화면 밖
+    //   해결: --window-position=100,100 + --window-size 명시 → 화면 안 강제
     args: config.hiddenBrowser
       ? [...getLaunchArgs(), '--start-minimized', '--window-position=-32000,-32000']
-      : getLaunchArgs(),
+      : [...getLaunchArgs(), '--window-position=100,100', '--window-size=1400,900'],
   } as Record<string, unknown>;
   if (config.browserExecutablePath && fs.existsSync(config.browserExecutablePath)) {
     launchOptions['executablePath'] = config.browserExecutablePath;
