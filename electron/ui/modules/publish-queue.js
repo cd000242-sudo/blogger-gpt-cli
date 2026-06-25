@@ -2424,11 +2424,46 @@ function bindModalEvents() {
       }
     } catch {}
   };
-  document.getElementById('pq-bulk-wp-cat-sync')?.addEventListener('click', () => {
-    syncDropdownFromEnv('pq-bulk-wp-category', 'wpCategory');
+  // v3.8.152: 동기화 버튼 = 직접 fetch + dropdown 갱신
+  //   기존: 환경설정 option 단순 복제만 → 환경설정에서 미리 안 불렀으면 비어있음
+  //   수정: window.loadWpCategories() / window.loadTistoryCategoriesFromSettings() 직접 호출
+  document.getElementById('pq-bulk-wp-cat-sync')?.addEventListener('click', async () => {
+    const btn = document.getElementById('pq-bulk-wp-cat-sync');
+    const orig = btn?.textContent;
+    if (btn) { btn.textContent = '⏳ 불러오는 중...'; btn.disabled = true; }
+    try {
+      const fn = window.loadWpCategories || window.loadWordPressCategories;
+      if (typeof fn === 'function') {
+        await fn();
+      } else {
+        alert('워드프레스 카테고리 로드 함수가 준비되지 않았습니다. 환경설정 탭을 한 번 열어주세요.');
+      }
+      syncDropdownFromEnv('pq-bulk-wp-category', 'wpCategory');
+    } catch (e) {
+      console.warn('[QUEUE] WP 카테고리 동기화 실패:', e);
+      alert('WP 카테고리 불러오기 실패: ' + (e?.message || e));
+    } finally {
+      if (btn) { btn.textContent = orig || '🔄 동기화'; btn.disabled = false; }
+    }
   });
-  document.getElementById('pq-bulk-tistory-cat-sync')?.addEventListener('click', () => {
-    syncDropdownFromEnv('pq-bulk-tistory-category', 'tistoryDefaultCategory');
+  document.getElementById('pq-bulk-tistory-cat-sync')?.addEventListener('click', async () => {
+    const btn = document.getElementById('pq-bulk-tistory-cat-sync');
+    const orig = btn?.textContent;
+    if (btn) { btn.textContent = '⏳ 불러오는 중...'; btn.disabled = true; }
+    try {
+      const fn = window.loadTistoryCategoriesFromSettings;
+      if (typeof fn === 'function') {
+        await fn();
+      } else {
+        alert('티스토리 카테고리 로드 함수가 준비되지 않았습니다. 환경설정 탭을 한 번 열어주세요.');
+      }
+      syncDropdownFromEnv('pq-bulk-tistory-category', 'tistoryDefaultCategory');
+    } catch (e) {
+      console.warn('[QUEUE] Tistory 카테고리 동기화 실패:', e);
+      alert('Tistory 카테고리 불러오기 실패: ' + (e?.message || e));
+    } finally {
+      if (btn) { btn.textContent = orig || '🔄 동기화'; btn.disabled = false; }
+    }
   });
 
   // 큐 비우기
