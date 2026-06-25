@@ -6774,8 +6774,8 @@
         const selected = platform === id;
         if (radio) radio.checked = selected;
         if (fields) fields.style.display = selected ? 'block' : 'none';
+        const c = COLORS[id];
         if (box) {
-          const c = COLORS[id];
           box.style.opacity = selected ? '1' : '0.55';
           box.style.transform = selected ? 'scale(1.03)' : 'scale(1)';
           box.style.border = selected ? `3px solid ${c.primary}` : '2px solid rgba(255,255,255,0.08)';
@@ -6783,6 +6783,15 @@
           box.style.boxShadow = selected ? c.shadow : 'none';
           box.style.position = 'relative';
           box.style.transition = 'all 0.25s ease';
+        }
+        // v3.8.148: 설정 박스(fields)에도 플랫폼 색상 입히기 — 진한 그라데이션 + glow border
+        if (fields && selected && c) {
+          // primary 색상 RGB 추출 후 약하지만 진한 그라데이션 적용
+          fields.style.background = c.gradient.replace(/0\.55/g, '0.22').replace(/0\.40/g, '0.14');
+          fields.style.border = `2px solid ${c.primary}`;
+          fields.style.boxShadow = `0 0 0 1px ${c.primary}33, 0 10px 28px ${c.primary}33, inset 0 0 0 1px rgba(255,255,255,0.04)`;
+          fields.style.borderRadius = '12px';
+          fields.style.transition = 'all 0.25s ease';
         }
       });
       // 헤더 상태박스 색상도 같이 변경
