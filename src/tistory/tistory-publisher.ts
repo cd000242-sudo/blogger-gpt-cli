@@ -17,6 +17,7 @@ import {
   humanType,
   humanScroll,
   humanLinger,
+  humanPaste,
 } from './tistory-session';
 import {
   TistoryConfig,
@@ -452,9 +453,13 @@ async function throwIfTistoryBlocked(
 }
 
 async function fillFirst(page: any, selectors: string[], value: string, timeoutMs = SHORT_TIMEOUT_MS): Promise<boolean> {
-  // v3.8.159: 첫 매칭 selector에 human-like type (한글 IME 대응 글자별 delay)
-  // 단 너무 긴 텍스트(>500자)는 fill로 빠르게 (제목/태그 등 짧은 입력만 human type)
-  if (value.length <= 200) {
+  // v3.8.160: 길이별 행동 분기 — 사람의 실제 입력 패턴 모방
+  //   - 짧은 입력 (≤30자: 태그/카테고리 검색 등): humanType (글자별 IME delay)
+  //   - 중간 (31~200자: 제목 등): humanPaste (clipboard paste — 사람도 제목은 가끔 복붙)
+  //   - 긴 본문 (>200자: HTML 본문/요약): humanPaste 강제 (글자별 타이핑은 부자연스러움)
+  const useType = value.length <= 30;
+  const useHuman = useType || true; // 어떤 길이든 human 모드 (typing or paste)
+  if (useHuman) {
     for (const sel of selectors) {
       try {
         const locator = page.locator(sel).first();
@@ -462,7 +467,9 @@ async function fillFirst(page: any, selectors: string[], value: string, timeoutM
         if (count <= 0) continue;
         const visible = await locator.isVisible({ timeout: 1500 }).catch(() => false);
         if (!visible) continue;
-        const ok = await humanType(page, sel, value, { clear: true });
+        const ok = useType
+          ? await humanType(page, sel, value, { clear: true })
+          : await humanPaste(page, sel, value, { clear: true });
         if (ok) return true;
       } catch {
         continue;

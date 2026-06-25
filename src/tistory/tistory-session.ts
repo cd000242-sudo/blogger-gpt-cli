@@ -271,6 +271,67 @@ export async function humanLinger(min = 800, max = 2400): Promise<void> {
   await randomDelay(min, max);
 }
 
+// v3.8.160: clipboard paste 시뮬레이션 — 본문/긴 텍스트는 사람도 외부 에디터에서 복사→paste 패턴
+//   글자별 타이핑이 부자연스러운 본문/HTML 입력에 사용
+//   - clipboard API로 텍스트 설정 → Ctrl+V 키보드 입력 → input/change 이벤트 dispatch
+//   - typing보다 훨씬 자연스러운 사람 행동 패턴 (블로그 작성자 대부분 paste)
+export async function humanPaste(page: any, selector: string, text: string, opts: { clear?: boolean } = {}): Promise<boolean> {
+  try {
+    const locator = page.locator(selector).first();
+    await locator.waitFor({ state: 'visible', timeout: 8000 }).catch(() => null);
+    // 1) 자연스러운 클릭으로 focus
+    await humanClick(page, selector, { timeoutMs: 4000 });
+    await randomDelay(180, 420);
+    // 2) clear 옵션이면 기존 내용 선택+삭제
+    if (opts.clear) {
+      await page.keyboard.press('Control+A').catch(() => null);
+      await randomDelay(80, 180);
+      await page.keyboard.press('Delete').catch(() => null);
+      await randomDelay(120, 280);
+    }
+    // 3) clipboard에 텍스트 설정 + paste 이벤트 dispatch
+    const pasted = await page.evaluate(async ({ value, targetSel }: { value: string; targetSel: string }) => {
+      try {
+        const el = (document.querySelector(targetSel) as HTMLElement | null);
+        if (!el) return false;
+        el.focus();
+        // ClipboardEvent를 직접 dispatch (가장 자연스러움)
+        const dt = new DataTransfer();
+        dt.setData('text/plain', value);
+        dt.setData('text/html', value);
+        const pasteEvent = new ClipboardEvent('paste', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: dt,
+        });
+        const fired = el.dispatchEvent(pasteEvent);
+        if (fired && !pasteEvent.defaultPrevented) {
+          // 페이지가 paste를 막지 않음 → 직접 value 주입 + InputEvent dispatch
+          if ('value' in el) {
+            (el as HTMLInputElement | HTMLTextAreaElement).value = value;
+          } else {
+            el.innerHTML = value;
+          }
+          el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: value }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    }, { value: text, targetSel: selector });
+    if (pasted) {
+      await randomDelay(200, 500);
+      return true;
+    }
+    // 4) Fallback: Playwright의 native fill (사람-flavor 잃음)
+    await locator.fill(text, { timeout: 4000 }).catch(() => null);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // v3.8.157: Tistory/카카오 캡차 우회 강화
 //   patchright(이미 stealth) + 추가 launch args + UA spoofing 으로 자동화 탐지율 ↓
 function getLaunchArgs(): string[] {
