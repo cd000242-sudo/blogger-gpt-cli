@@ -6798,57 +6798,24 @@ window.toggleBloggerGuide = toggleBloggerGuide;
 // 플랫폼 필드 토글 (포스팅 작성 페이지 + 환경설정) - 통합 버전
 function togglePlatformFields() {
   const selectedPlatform = document.querySelector('input[name="platform"]:checked')?.value || 'blogspot';
+  // v3.8.147: Tistory 정확 분기 — 이전엔 isBlogger=false면 wordpress 처리해 "자체 호스팅" 텍스트가
+  //   Tistory 선택 시에도 표시되던 버그. selectPlatform이 PLATFORM_COLORS로 이미 처리하므로 여기서는 필드 토글만.
   const isBlogger = selectedPlatform === 'blogger' || selectedPlatform === 'blogspot';
+  const isTistory = selectedPlatform === 'tistory';
 
-  console.log('[PLATFORM] togglePlatformFields 실행:', selectedPlatform, '-> isBlogger:', isBlogger);
+  console.log('[PLATFORM] togglePlatformFields 실행:', selectedPlatform);
 
-  // 🔥 환경설정 모달의 Blogger/WordPress 필드 토글
+  // 🔥 환경설정 모달의 플랫폼별 필드 토글 (3개 모두)
   const bloggerFields = document.getElementById('blogger-fields');
   const wordpressFields = document.getElementById('wordpress-fields');
+  const tistoryFields = document.getElementById('tistory-fields');
 
-  if (bloggerFields) {
-    bloggerFields.style.display = isBlogger ? 'block' : 'none';
-  }
-  if (wordpressFields) {
-    wordpressFields.style.display = isBlogger ? 'none' : 'block';
-  }
+  if (bloggerFields) bloggerFields.style.display = isBlogger ? 'block' : 'none';
+  if (wordpressFields) wordpressFields.style.display = (!isBlogger && !isTistory) ? 'block' : 'none';
+  if (tistoryFields) tistoryFields.style.display = isTistory ? 'block' : 'none';
 
-  // 🔥 새 환경설정 UI 선택 박스 스타일 업데이트
-  const bloggerBox = document.getElementById('blogger-select-box');
-  const wordpressBox = document.getElementById('wordpress-select-box');
-
-  if (bloggerBox) {
-    bloggerBox.style.borderColor = isBlogger ? '#f97316' : '#e2e8f0';
-    bloggerBox.style.background = isBlogger ? '#fff7ed' : 'white';
-  }
-  if (wordpressBox) {
-    wordpressBox.style.borderColor = isBlogger ? '#e2e8f0' : '#6366f1';
-    wordpressBox.style.background = isBlogger ? 'white' : '#f5f3ff';
-  }
-
-  // 🔥 플랫폼 상태 박스 업데이트
-  const platformIcon = document.getElementById('platformIcon');
-  const platformName = document.getElementById('platformName');
-  const platformStatus = document.getElementById('platformStatus');
-  const platformStatusBox = document.getElementById('platformStatusBox');
-
-  if (isBlogger) {
-    if (platformIcon) platformIcon.textContent = '🅱️';
-    if (platformName) platformName.textContent = 'Blogger';
-    if (platformStatus) platformStatus.textContent = 'Google 블로그 플랫폼';
-    if (platformStatusBox) {
-      platformStatusBox.style.background = 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)';
-      platformStatusBox.style.borderColor = '#fdba74';
-    }
-  } else {
-    if (platformIcon) platformIcon.textContent = '🌐';
-    if (platformName) platformName.textContent = 'WordPress';
-    if (platformStatus) platformStatus.textContent = '자체 호스팅 블로그 플랫폼';
-    if (platformStatusBox) {
-      platformStatusBox.style.background = 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)';
-      platformStatusBox.style.borderColor = '#93c5fd';
-    }
-  }
+  // 박스 스타일 + 헤더 statusBox는 PLATFORM_COLORS 기반 selectPlatform이 일괄 처리
+  //   여기서 색상을 다시 덮지 않도록 (Tistory 선택 시 wordpress 색상 덮어쓰던 버그 차단)
 
   // 포스팅 페이지용 필드들
   const wordpressCategoryField = document.getElementById('wordpressCategoryField');

@@ -6726,13 +6726,14 @@
     window.deleteBloggerAccount = deleteBloggerAccount;
     window.toggleBloggerGuide = toggleBloggerGuide;
     window.selectPlatform = selectPlatform;
-    // v3.8.143: 플랫폼별 브랜드 색상 매핑 (Blogger 노랑 / WordPress 하늘 / Tistory 주황)
+    // v3.8.143/147: 플랫폼별 브랜드 색상 매핑 (Blogger 노랑 / WordPress 하늘 / Tistory 주황)
+    //   v3.8.147 — gradient/shadow opacity 강화 (선택된 박스를 더 진하게)
     window.PLATFORM_COLORS = {
       blogger: {
         primary: '#f59e0b', // amber-500 — Blogger 노랑
         secondary: '#fbbf24',
-        gradient: 'linear-gradient(135deg, rgba(245,158,11,0.28), rgba(217,119,6,0.18))',
-        shadow: '0 10px 28px rgba(245, 158, 11, 0.45), 0 0 0 4px rgba(251, 191, 36, 0.18)',
+        gradient: 'linear-gradient(135deg, rgba(245,158,11,0.55), rgba(217,119,6,0.40))',
+        shadow: '0 14px 36px rgba(245, 158, 11, 0.65), 0 0 0 5px rgba(251, 191, 36, 0.28), inset 0 0 0 1px rgba(255,255,255,0.06)',
         statusBoxBg: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
         statusBoxBorder: '#f59e0b',
         statusBoxShadow: '0 6px 20px rgba(245, 158, 11, 0.35)',
@@ -6740,10 +6741,10 @@
         subTextColor: '#92400e',
       },
       wordpress: {
-        primary: '#0ea5e9', // sky-500 — 하늘색 (이전 진한 파랑 #2563eb → 더 밝게)
+        primary: '#0ea5e9', // sky-500 — 하늘색
         secondary: '#38bdf8',
-        gradient: 'linear-gradient(135deg, rgba(14,165,233,0.28), rgba(2,132,199,0.18))',
-        shadow: '0 10px 28px rgba(14, 165, 233, 0.45), 0 0 0 4px rgba(56, 189, 248, 0.18)',
+        gradient: 'linear-gradient(135deg, rgba(14,165,233,0.55), rgba(2,132,199,0.40))',
+        shadow: '0 14px 36px rgba(14, 165, 233, 0.65), 0 0 0 5px rgba(56, 189, 248, 0.28), inset 0 0 0 1px rgba(255,255,255,0.06)',
         statusBoxBg: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)',
         statusBoxBorder: '#0ea5e9',
         statusBoxShadow: '0 6px 20px rgba(14, 165, 233, 0.35)',
@@ -6753,8 +6754,8 @@
       tistory: {
         primary: '#f97316', // orange-500 — Tistory 주황 (공식 #E36C2D 계열)
         secondary: '#fb923c',
-        gradient: 'linear-gradient(135deg, rgba(249,115,22,0.28), rgba(234,88,12,0.18))',
-        shadow: '0 10px 28px rgba(249, 115, 22, 0.45), 0 0 0 4px rgba(251, 146, 60, 0.18)',
+        gradient: 'linear-gradient(135deg, rgba(249,115,22,0.55), rgba(234,88,12,0.40))',
+        shadow: '0 14px 36px rgba(249, 115, 22, 0.65), 0 0 0 5px rgba(251, 146, 60, 0.28), inset 0 0 0 1px rgba(255,255,255,0.06)',
         statusBoxBg: 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)',
         statusBoxBorder: '#f97316',
         statusBoxShadow: '0 6px 20px rgba(249, 115, 22, 0.35)',
