@@ -180,14 +180,38 @@ async function loadChromium(): Promise<any> {
   }
 }
 
+// v3.8.157: Tistory/카카오 캡차 우회 강화
+//   patchright(이미 stealth) + 추가 launch args + UA spoofing 으로 자동화 탐지율 ↓
 function getLaunchArgs(): string[] {
   return [
     '--disable-blink-features=AutomationControlled',
     '--no-first-run',
     '--no-default-browser-check',
     '--window-size=1400,900',
+    // 자동화 흔적 추가 제거
+    '--disable-features=IsolateOrigins,site-per-process,AutomationControlled',
+    '--disable-site-isolation-trials',
+    '--disable-infobars',
+    '--disable-extensions-except',
+    '--no-default-browser-check',
+    '--password-store=basic',
+    '--use-mock-keychain',
+    // 추가 stealth — fingerprint 노이즈 줄이기
+    '--disable-popup-blocking',
+    '--disable-prompt-on-repost',
+    '--disable-hang-monitor',
+    '--disable-sync',
+    '--disable-translate',
+    '--metrics-recording-only',
+    '--safebrowsing-disable-auto-update',
+    '--enable-features=NetworkService,NetworkServiceInProcess',
+    // 실제 사용자 환경 흉내
+    '--lang=ko-KR',
   ];
 }
+
+// 실제 최신 Chrome UA — 자동화 탐지 회피 (playwright default UA에는 'HeadlessChrome' 흔적)
+const REAL_CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 function isPageClosed(page: any): boolean {
   try {
@@ -305,9 +329,12 @@ export async function launchTistoryContext(
     headless: false,
     locale: 'ko-KR',
     viewport: { width: 1400, height: 900 },
+    // v3.8.157: 캡차 우회 강화 — UA spoofing + automation 표시 제거 + 타임존
+    userAgent: REAL_CHROME_UA,
+    timezoneId: 'Asia/Seoul',
+    // playwright default 'enable-automation' flag 제거 → navigator.webdriver 흔적 ↓
+    ignoreDefaultArgs: ['--enable-automation', '--enable-blink-features=IdleDetection'],
     // v3.8.155: 일반 로그인 모드에서도 명시적 윈도우 위치 + 크기 강제
-    //   증상: 이전 hiddenBrowser 세션의 위치(-32000,-32000)가 profile에 cached → 새 창도 화면 밖
-    //   해결: --window-position=100,100 + --window-size 명시 → 화면 안 강제
     args: config.hiddenBrowser
       ? [...getLaunchArgs(), '--start-minimized', '--window-position=-32000,-32000']
       : [...getLaunchArgs(), '--window-position=100,100', '--window-size=1400,900'],
@@ -323,6 +350,35 @@ export async function launchTistoryContext(
     launchOptions,
     onLog,
   );
+
+  // v3.8.157: 모든 페이지에 stealth 스크립트 자동 주입 — navigator.webdriver/plugins/permissions 흔적 위장
+  try {
+    await context.addInitScript(() => {
+      // navigator.webdriver = undefined (true 표시 차단)
+      Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver', { get: () => undefined });
+      // plugins 길이 > 0 (자동화는 보통 0)
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => [
+          { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+          { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+          { name: 'Native Client', filename: 'internal-nacl-plugin' },
+        ],
+      });
+      // languages — 실제 사용자 환경
+      Object.defineProperty(navigator, 'languages', { get: () => ['ko-KR', 'ko', 'en-US', 'en'] });
+      // chrome.runtime 노출 (자동화는 미정의)
+      (window as any).chrome = (window as any).chrome || { runtime: {} };
+      // permissions API 정상화
+      const origQuery = (window.navigator as any).permissions?.query;
+      if (origQuery) {
+        (window.navigator as any).permissions.query = (params: any) =>
+          params?.name === 'notifications'
+            ? Promise.resolve({ state: 'denied' } as any)
+            : origQuery.call((window.navigator as any).permissions, params);
+      }
+    });
+  } catch { /* addInitScript 실패해도 진행 */ }
+
   const pages = typeof context.pages === 'function' ? context.pages() : [];
   const page = pages.find((item: any) => {
     const url = String(typeof item.url === 'function' ? item.url() : '');
