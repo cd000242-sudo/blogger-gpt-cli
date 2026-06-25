@@ -1761,15 +1761,22 @@ export async function publishGeneratedContent(
         const env = loadEnvFromFile();
         const hasWP = !!(env.wordpressSiteUrl && env.wordpressUsername && env.wordpressPassword);
         const hasBlogger = !!(env.blogId && env.googleClientId && env.BLOGGER_ACCESS_TOKEN);
-        if (hasWP && !hasBlogger) platform = 'wordpress';
-        else if (hasBlogger && !hasWP) platform = 'blogspot';
-        else if (hasWP && hasBlogger) {
-          // 둘 다 있으면 env에 저장된 마지막 선택 platform 사용
-          platform = String(env.platform || env.blogPlatform || 'blogspot').toLowerCase();
+        const hasTistory = !!(env.tistoryBlogName || env.tistoryBlogUrl);
+        // v3.8.142: Tistory 추론 추가 — 라디오/저장값 유실 시 env에서 설정된 플랫폼 추론
+        const platforms: string[] = [];
+        if (hasWP) platforms.push('wordpress');
+        if (hasBlogger) platforms.push('blogspot');
+        if (hasTistory) platforms.push('tistory');
+        if (platforms.length === 1) {
+          platform = platforms[0]!;
+        } else if (platforms.length > 1) {
+          // 여러 개 설정됐으면 env에 저장된 마지막 선택 사용 (없으면 첫 번째 hit)
+          const saved = String(env.platform || env.blogPlatform || '').toLowerCase();
+          platform = platforms.includes(saved) ? saved : platforms[0]!;
         } else {
           platform = 'blogspot';
         }
-        console.log(`[PUBLISH] ⚠️ payload.platform 누락 — env 추론: "${platform}" (WP=${hasWP}, Blogger=${hasBlogger})`);
+        console.log(`[PUBLISH] ⚠️ payload.platform 누락 — env 추론: "${platform}" (WP=${hasWP}, Blogger=${hasBlogger}, Tistory=${hasTistory})`);
       } catch {
         platform = 'blogspot';
       }
