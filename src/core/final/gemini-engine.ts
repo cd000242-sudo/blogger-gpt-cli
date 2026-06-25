@@ -378,21 +378,24 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
           continue;
         }
 
-        // v3.8.164: 503/overloaded는 서버 측 transient — 길게 대기 후 재시도
-        //   사용자 지적: provider 폴백은 선택 무시 → 같은 모델 더 길게 대기 + 더 많이 재시도
-        //   exponential: 60s → 120s → 240s → 480s (총 14분 max — 일시 과부하는 보통 5~10분 내 회복)
-        //   호출자의 attemptsPerModel 무시하고 자체 503 retry 카운터로 최대 4회 시도
+        // v3.8.165: 503/overloaded backoff 실측 데이터 기반 재조정
+        //   사용자 패턴 분석: 11:16 실패 → 11:27 실패 → 11:35 성공 (회복까지 약 20분)
+        //   기존 60s 첫 대기는 너무 짧아 503 회피 불가 → 2분부터 시작
+        //   backoff: 2분 → 5분 → 10분 → 20분 → 30분 (5회, 총 67분 max)
+        //   첫 2분은 정말 일시적 spike 회복용, 그 이후 점진적으로 길게
         if (info.kind === 'service_unavailable') {
           const svcRetry = (lastInfo.kind === 'service_unavailable' ? (lastInfo as any).__svcRetry || 0 : 0);
-          if (svcRetry < 4) {
-            const backoff = 60000 * Math.pow(2, svcRetry); // 60s, 120s, 240s, 480s
-            console.log(`[Gemini] ${modelName} 503/overloaded — ${backoff/1000}초 대기 후 재시도 (${svcRetry + 1}/4)`);
+          const backoffSchedule = [120000, 300000, 600000, 1200000, 1800000]; // 2m, 5m, 10m, 20m, 30m
+          if (svcRetry < backoffSchedule.length) {
+            const backoff = backoffSchedule[svcRetry];
+            const mins = Math.round(backoff / 60000);
+            console.log(`[Gemini] ${modelName} 503/overloaded — ${mins}분 대기 후 재시도 (${svcRetry + 1}/${backoffSchedule.length})`);
             await sleep(backoff);
             lastInfo = { ...info, __svcRetry: svcRetry + 1 } as any;
             retry--; // 같은 retry 슬롯 재사용 (모델 폴백 안 함)
             continue;
           }
-          console.log(`[Gemini] ${modelName} 503 4회 시도 후 실패 → 다음 모델로`);
+          console.log(`[Gemini] ${modelName} 503 ${backoffSchedule.length}회 시도 후 실패 → 다음 모델로`);
           // 503 retry 소진 → 다음 모델로 (chain 진행)
         }
 
