@@ -1750,7 +1750,30 @@ export async function publishGeneratedContent(
 ): Promise<PublishGeneratedContentResult> {
   try {
     // 플랫폼 값 정규화: 'blogger'와 'blogspot' 통일
-    let platform = payload?.platform || 'blogspot';
+    // v3.8.141: payload.platform이 누락되어도 무조건 'blogspot' default였던 버그 fix
+    //   증상: 사용자가 WordPress 선택했는데 payload.platform이 미전달되면 Blogger 발행 시도
+    //         → "토큰이 만료되었거나 유효하지 않습니다 (invalid_grant)" 에러
+    //   해결: payload.platform / targetPlatform / blogPlatform 순서로 확인 → 모두 없으면 env에서 추론
+    let platform = payload?.platform || payload?.targetPlatform || payload?.blogPlatform || '';
+    if (!platform) {
+      try {
+        const { loadEnvFromFile } = require('../env');
+        const env = loadEnvFromFile();
+        const hasWP = !!(env.wordpressSiteUrl && env.wordpressUsername && env.wordpressPassword);
+        const hasBlogger = !!(env.blogId && env.googleClientId && env.BLOGGER_ACCESS_TOKEN);
+        if (hasWP && !hasBlogger) platform = 'wordpress';
+        else if (hasBlogger && !hasWP) platform = 'blogspot';
+        else if (hasWP && hasBlogger) {
+          // 둘 다 있으면 env에 저장된 마지막 선택 platform 사용
+          platform = String(env.platform || env.blogPlatform || 'blogspot').toLowerCase();
+        } else {
+          platform = 'blogspot';
+        }
+        console.log(`[PUBLISH] ⚠️ payload.platform 누락 — env 추론: "${platform}" (WP=${hasWP}, Blogger=${hasBlogger})`);
+      } catch {
+        platform = 'blogspot';
+      }
+    }
     if (platform === 'blogger') {
       platform = 'blogspot';
     }
