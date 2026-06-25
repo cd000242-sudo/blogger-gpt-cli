@@ -611,9 +611,17 @@ export async function runPosting() {
     try { return JSON.parse(localStorage.getItem('leadernamExecutionMode') || '"api"'); }
     catch { return localStorage.getItem('leadernamExecutionMode') || 'api'; }
   })();
-  const shouldUseAgentGeneration = !isQueueRun
-    && executionMode === 'agent'
-    && !appState.generatedContent?.content?.trim();
+  // v3.8.168: 큐 모드(연속발행)에서도 에이전트 모드 인식
+  //   사용자 보고: 에이전트로 연속발행하는데 API 키 쓰는 것 같음
+  //   원인: shouldUseAgentGeneration이 !isQueueRun 조건 → 큐에서는 무조건 API 모드
+  //   해결: 큐 모드여도 executionMode='agent'면 에이전트 사용
+  //         (단 generatedContent가 이미 있으면 그것 사용 — 재발행 케이스)
+  const shouldUseAgentGeneration = executionMode === 'agent'
+    && !appState.generatedContent?.content?.trim()
+    && typeof window.runAgentJobFromPosting === 'function';
+  if (isQueueRun && shouldUseAgentGeneration) {
+    console.log('[POSTING] 🤖 큐 모드 + 에이전트 모드 인식 — 에이전트로 생성·발행 진행');
+  }
   try {
     debugLog('POSTING', '포스팅 실행 시작');
 
@@ -662,12 +670,13 @@ export async function runPosting() {
     setRunning(true);
     if (!isQueueRun) {
       showProgressModal();
-      if (shouldUseAgentGeneration) {
-        let activeAgentProvider = 'codex';
-        try { activeAgentProvider = localStorage.getItem('leadernamActiveAgentProvider') === 'claude' ? 'claude' : 'codex'; } catch {}
-        ensureAgentProgressModal(activeAgentProvider);
-        updateAgentProgressModal(8, 'Agent 모드: 글 생성과 API 이미지 생성, 발행 작업을 준비합니다.', 'info', 'prepare');
-      }
+    }
+    // v3.8.168: 큐 모드에서도 에이전트 progress modal 표시 (큐 모달은 별도로 운영되지만 에이전트 진행 상황 추적용)
+    if (shouldUseAgentGeneration) {
+      let activeAgentProvider = 'codex';
+      try { activeAgentProvider = localStorage.getItem('leadernamActiveAgentProvider') === 'claude' ? 'claude' : 'codex'; } catch {}
+      ensureAgentProgressModal(activeAgentProvider);
+      updateAgentProgressModal(8, 'Agent 모드: 글 생성과 API 이미지 생성, 발행 작업을 준비합니다.', 'info', 'prepare');
     }
 
     // ── Payload 생성 (통합 함수 사용) ──
