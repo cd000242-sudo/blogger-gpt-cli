@@ -2627,7 +2627,60 @@ function bindModalEvents() {
     const intervalLabel = intervalMode === 'random'
       ? `4-8시간 무작위 (${getQueueIntervalReason(enabled)} 적용)`
       : `${formatIntervalMs(fixedIntervalMs)}${corrected ? ' · 자동 보정됨' : ''}`;
-    if (!confirm(`${enabled.length}개 키워드를 즉시 순차 발행합니다.\n각 글 사이 간격: ${intervalLabel}\n이미지 기준: ${getQueueIntervalReason(enabled)}\n(이전 발행 완료 후 추가 대기)\n\n진행할까요?`)) return;
+    // v3.8.167: 연속발행 시작 시 503 회복 시간 주의사항 모달
+    const proceed = await new Promise((resolve) => {
+      const modalId = 'pq-precheck-modal';
+      document.getElementById(modalId)?.remove();
+      const html = `
+<div id="${modalId}" style="position:fixed;inset:0;z-index:100001;background:rgba(2,6,23,0.86);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;padding:20px;">
+  <div style="width:min(640px,100%);background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(99,102,241,0.4);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,0.7);padding:28px;color:#f1f5f9;font-family:'Noto Sans KR',sans-serif;">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
+      <div style="width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:24px;">⚡</div>
+      <div>
+        <h2 style="margin:0;font-size:20px;font-weight:900;">연속발행 시작 전 확인</h2>
+        <p style="margin:4px 0 0 0;color:#94a3b8;font-size:12px;">발행 진행 사항</p>
+      </div>
+    </div>
+    <div style="background:rgba(15,23,42,0.6);border:1px solid rgba(148,163,184,0.2);border-radius:10px;padding:16px;margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;color:#cbd5e1;font-size:13px;margin-bottom:8px;"><span>📋 발행 글 수</span><strong style="color:#fbbf24;">${enabled.length}개</strong></div>
+      <div style="display:flex;justify-content:space-between;color:#cbd5e1;font-size:13px;margin-bottom:8px;"><span>⏰ 글 사이 간격</span><strong style="color:#a5f3fc;">${escHtml(intervalLabel)}</strong></div>
+      <div style="display:flex;justify-content:space-between;color:#cbd5e1;font-size:13px;"><span>🖼️ 이미지 기준</span><strong style="color:#fcd34d;">${escHtml(getQueueIntervalReason(enabled))}</strong></div>
+    </div>
+    <div style="background:linear-gradient(135deg,rgba(251,191,36,0.12),rgba(245,158,11,0.08));border:1px solid rgba(251,191,36,0.35);border-radius:10px;padding:14px 16px;margin-bottom:14px;">
+      <div style="color:#fbbf24;font-size:13px;font-weight:800;margin-bottom:8px;">⚠️ Gemini 503 과부하 시 자동 대기</div>
+      <div style="color:#fde68a;font-size:12px;line-height:1.6;">
+        Google AI 서버 일시 과부하(503) 발생 시 <strong style="color:#fff;">사용자가 선택한 엔진 그대로</strong> 다음 시간만큼 자동 대기 후 재시도합니다:
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+        <span style="padding:4px 10px;background:rgba(15,23,42,0.6);border:1px solid rgba(251,191,36,0.3);border-radius:6px;font-size:11px;color:#fde68a;font-weight:700;">1차 2분</span>
+        <span style="padding:4px 10px;background:rgba(15,23,42,0.6);border:1px solid rgba(251,191,36,0.3);border-radius:6px;font-size:11px;color:#fde68a;font-weight:700;">2차 5분</span>
+        <span style="padding:4px 10px;background:rgba(15,23,42,0.6);border:1px solid rgba(251,191,36,0.3);border-radius:6px;font-size:11px;color:#fde68a;font-weight:700;">3차 10분</span>
+        <span style="padding:4px 10px;background:rgba(15,23,42,0.6);border:1px solid rgba(251,191,36,0.3);border-radius:6px;font-size:11px;color:#fde68a;font-weight:700;">4차 20분</span>
+        <span style="padding:4px 10px;background:rgba(15,23,42,0.6);border:1px solid rgba(251,191,36,0.3);border-radius:6px;font-size:11px;color:#fde68a;font-weight:700;">5차 30분</span>
+        <span style="padding:4px 10px;background:rgba(239,68,68,0.16);border:1px solid rgba(239,68,68,0.35);border-radius:6px;font-size:11px;color:#fca5a5;font-weight:700;">총 최대 67분</span>
+      </div>
+      <div style="color:#fca5a5;font-size:11px;margin-top:10px;line-height:1.5;">
+        ⚠️ 5회 모두 실패 시 해당 글은 실패로 표시되고 다음 글로 진행. 큰 과부하면 1~2시간 발행 멈추는 사례 있음.
+      </div>
+    </div>
+    <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:12px 14px;margin-bottom:18px;color:#c7d2fe;font-size:12px;line-height:1.6;">
+      💡 <strong>권장</strong>: 발행 간격 7분 이상 + AI 엔진은 평소 잘 되는 것 사용. 503 대기 시간이 합쳐지면 글당 평균 시간이 늘어남.
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button id="pq-precheck-cancel" style="flex:1;padding:12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);border-radius:10px;color:#cbd5e1;font-weight:800;cursor:pointer;">취소</button>
+      <button id="pq-precheck-ok" style="flex:2;padding:12px;background:linear-gradient(135deg,#22c55e,#16a34a);border:none;border-radius:10px;color:#fff;font-weight:900;font-size:14px;cursor:pointer;box-shadow:0 6px 20px rgba(34,197,94,0.4);">⚡ 이해했어요 — 발행 시작</button>
+    </div>
+  </div>
+</div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+      const cleanup = (result) => {
+        document.getElementById(modalId)?.remove();
+        resolve(result);
+      };
+      document.getElementById('pq-precheck-ok')?.addEventListener('click', () => cleanup(true));
+      document.getElementById('pq-precheck-cancel')?.addEventListener('click', () => cleanup(false));
+    });
+    if (!proceed) return;
     close();
     const runModal = createQueueRunModal(enabled, intervalLabel);
 
