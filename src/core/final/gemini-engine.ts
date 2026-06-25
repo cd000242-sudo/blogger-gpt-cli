@@ -385,9 +385,9 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
         //   첫 2분은 정말 일시적 spike 회복용, 그 이후 점진적으로 길게
         if (info.kind === 'service_unavailable') {
           const svcRetry = (lastInfo.kind === 'service_unavailable' ? (lastInfo as any).__svcRetry || 0 : 0);
-          const backoffSchedule = [120000, 300000, 600000, 1200000, 1800000]; // 2m, 5m, 10m, 20m, 30m
+          const backoffSchedule: number[] = [120000, 300000, 600000, 1200000, 1800000]; // 2m, 5m, 10m, 20m, 30m
           if (svcRetry < backoffSchedule.length) {
-            const backoff = backoffSchedule[svcRetry];
+            const backoff: number = backoffSchedule[svcRetry] ?? 600000;
             const mins = Math.round(backoff / 60000);
             console.log(`[Gemini] ${modelName} 503/overloaded — ${mins}분 대기 후 재시도 (${svcRetry + 1}/${backoffSchedule.length})`);
             await sleep(backoff);
