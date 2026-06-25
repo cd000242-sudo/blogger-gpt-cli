@@ -6726,8 +6726,46 @@
     window.deleteBloggerAccount = deleteBloggerAccount;
     window.toggleBloggerGuide = toggleBloggerGuide;
     window.selectPlatform = selectPlatform;
+    // v3.8.143: 플랫폼별 브랜드 색상 매핑 (Blogger 노랑 / WordPress 하늘 / Tistory 주황)
+    window.PLATFORM_COLORS = {
+      blogger: {
+        primary: '#f59e0b', // amber-500 — Blogger 노랑
+        secondary: '#fbbf24',
+        gradient: 'linear-gradient(135deg, rgba(245,158,11,0.28), rgba(217,119,6,0.18))',
+        shadow: '0 10px 28px rgba(245, 158, 11, 0.45), 0 0 0 4px rgba(251, 191, 36, 0.18)',
+        statusBoxBg: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
+        statusBoxBorder: '#f59e0b',
+        statusBoxShadow: '0 6px 20px rgba(245, 158, 11, 0.35)',
+        textColor: '#78350f',
+        subTextColor: '#92400e',
+      },
+      wordpress: {
+        primary: '#0ea5e9', // sky-500 — 하늘색 (이전 진한 파랑 #2563eb → 더 밝게)
+        secondary: '#38bdf8',
+        gradient: 'linear-gradient(135deg, rgba(14,165,233,0.28), rgba(2,132,199,0.18))',
+        shadow: '0 10px 28px rgba(14, 165, 233, 0.45), 0 0 0 4px rgba(56, 189, 248, 0.18)',
+        statusBoxBg: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)',
+        statusBoxBorder: '#0ea5e9',
+        statusBoxShadow: '0 6px 20px rgba(14, 165, 233, 0.35)',
+        textColor: '#075985',
+        subTextColor: '#0369a1',
+      },
+      tistory: {
+        primary: '#f97316', // orange-500 — Tistory 주황 (공식 #E36C2D 계열)
+        secondary: '#fb923c',
+        gradient: 'linear-gradient(135deg, rgba(249,115,22,0.28), rgba(234,88,12,0.18))',
+        shadow: '0 10px 28px rgba(249, 115, 22, 0.45), 0 0 0 4px rgba(251, 146, 60, 0.18)',
+        statusBoxBg: 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)',
+        statusBoxBorder: '#f97316',
+        statusBoxShadow: '0 6px 20px rgba(249, 115, 22, 0.35)',
+        textColor: '#7c2d12',
+        subTextColor: '#9a3412',
+      },
+    };
+
     window.selectPlatform = function(platform) {
       const platforms = ['blogger', 'wordpress', 'tistory'];
+      const COLORS = window.PLATFORM_COLORS;
       platforms.forEach((id) => {
         const radio = document.getElementById(`platform-${id}`);
         const box = document.getElementById(`${id}-select-box`);
@@ -6736,15 +6774,42 @@
         if (radio) radio.checked = selected;
         if (fields) fields.style.display = selected ? 'block' : 'none';
         if (box) {
+          const c = COLORS[id];
           box.style.opacity = selected ? '1' : '0.55';
-          box.style.transform = selected ? 'translateY(-2px)' : 'none';
-          box.style.border = selected ? '3px solid #14b8a6' : '2px solid rgba(255,255,255,0.08)';
-          box.style.background = selected
-            ? 'linear-gradient(135deg, rgba(20,184,166,0.22), rgba(15,118,110,0.16))'
-            : 'rgba(15, 23, 42, 0.4)';
+          box.style.transform = selected ? 'scale(1.03)' : 'scale(1)';
+          box.style.border = selected ? `3px solid ${c.primary}` : '2px solid rgba(255,255,255,0.08)';
+          box.style.background = selected ? c.gradient : 'rgba(15, 23, 42, 0.4)';
+          box.style.boxShadow = selected ? c.shadow : 'none';
           box.style.position = 'relative';
+          box.style.transition = 'all 0.25s ease';
         }
       });
+      // 헤더 상태박스 색상도 같이 변경
+      const platformStatusBox = document.getElementById('platformStatusBox');
+      const platformName = document.getElementById('platformName');
+      const platformStatus = document.getElementById('platformStatus');
+      const platformIcon = document.getElementById('platformIcon');
+      const c = COLORS[platform];
+      if (c && platformStatusBox) {
+        platformStatusBox.style.background = c.statusBoxBg;
+        platformStatusBox.style.border = `3px solid ${c.statusBoxBorder}`;
+        platformStatusBox.style.boxShadow = c.statusBoxShadow;
+      }
+      const labels = { blogger: 'Blogger', wordpress: 'WordPress', tistory: 'Tistory' };
+      const icons = { blogger: '🅱️', wordpress: '🌐', tistory: 'T' };
+      const subtitles = { blogger: 'Google 블로그 플랫폼', wordpress: '자체 호스팅 블로그', tistory: '카카오 티스토리' };
+      if (platformIcon) platformIcon.textContent = icons[platform] || '🌐';
+      if (platformName && c) {
+        platformName.textContent = `✓ ${labels[platform]} 선택됨`;
+        platformName.style.color = c.textColor;
+        platformName.style.fontWeight = '900';
+        platformName.style.fontSize = '20px';
+      }
+      if (platformStatus && c) {
+        platformStatus.textContent = subtitles[platform] || '';
+        platformStatus.style.color = c.subTextColor;
+        platformStatus.style.fontWeight = '700';
+      }
       try {
         const raw = localStorage.getItem('bloggerSettings');
         const settings = raw ? JSON.parse(raw) : {};

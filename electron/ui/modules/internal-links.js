@@ -1676,7 +1676,8 @@ function _openSwProgressModal(sources) {
 
   modal.removeAttribute('hidden');
 
-  // 경과 시간 timer
+  // v3.8.143: 기존 timer 정리 후 시작 (재시작 시 timer 누적 방지 — lag 원인)
+  if (_swProgressState.timer) clearInterval(_swProgressState.timer);
   _swProgressState.timer = setInterval(() => {
     if (document.hidden) return;
     const sec = Math.floor((new Date().getTime() - _swProgressState.startedAt) / 1000);
