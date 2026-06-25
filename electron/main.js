@@ -4495,6 +4495,22 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
             catch { }
         };
         traceToRenderer('publish-content 진입', data.content);
+        // v3.8.167: 모든 플랫폼에서 markdown bold(**텍스트**) → <strong> 자동 변환
+        //   증상: 워드프레스/블로거/티스토리 본문에 '**' 마크다운이 그대로 노출
+        //   원인: 거미줄 통합글은 처리됐지만 일반 글포스팅 경로엔 없음
+        //   처리: **(.+?)** → <strong>$1</strong>, 짝 안 맞는 ** 잔재 제거
+        if (typeof data.content === 'string' && data.content.includes('**')) {
+            const before = data.content.length;
+            data.content = data.content
+                .replace(/\*\*([^*\n]{1,200}?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*\*/g, '');
+            const removed = before - data.content.length;
+            if (removed !== 0) {
+                const msg = `[BODY-TRACE-MAIN] **마크다운 → <strong> 변환 (${removed > 0 ? `${removed}자 제거` : `${-removed}자 증가`})`;
+                console.log(msg);
+                _evt.sender?.send?.('log-line', msg);
+            }
+        }
         // 본문 너무 짧으면 안전망 — 사용자에게 명확히 알림 후 발행 (강제 중단은 안 함)
         const plainLenIn = String(data.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
         if (plainLenIn < 1500) {
