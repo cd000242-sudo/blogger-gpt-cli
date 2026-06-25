@@ -378,11 +378,31 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
           continue;
         }
 
-        // v3.8.163: 503/overloaded는 서버 측 transient — 30s/60s/90s backoff 후 같은 모델 retry
-        if (info.kind === 'service_unavailable' && retry < attemptsPerModel - 1) {
-          const backoff = 30000 + retry * 30000;
-          console.log(`[Gemini] ${modelName} 503/overloaded — ${backoff/1000}s 대기 후 재시도`);
-          await sleep(backoff);
+        // v3.8.164: 503/overloaded는 서버 측 transient — 길게 대기 후 재시도
+        //   사용자 지적: provider 폴백은 선택 무시 → 같은 모델 더 길게 대기 + 더 많이 재시도
+        //   exponential: 60s → 120s → 240s → 480s (총 14분 max — 일시 과부하는 보통 5~10분 내 회복)
+        //   호출자의 attemptsPerModel 무시하고 자체 503 retry 카운터로 최대 4회 시도
+        if (info.kind === 'service_unavailable') {
+          const svcRetry = (lastInfo.kind === 'service_unavailable' ? (lastInfo as any).__svcRetry || 0 : 0);
+          if (svcRetry < 4) {
+            const backoff = 60000 * Math.pow(2, svcRetry); // 60s, 120s, 240s, 480s
+            console.log(`[Gemini] ${modelName} 503/overloaded — ${backoff/1000}초 대기 후 재시도 (${svcRetry + 1}/4)`);
+            await sleep(backoff);
+            lastInfo = { ...info, __svcRetry: svcRetry + 1 } as any;
+            retry--; // 같은 retry 슬롯 재사용 (모델 폴백 안 함)
+            continue;
+          }
+          console.log(`[Gemini] ${modelName} 503 4회 시도 후 실패 → 다음 모델로`);
+          // 503 retry 소진 → 다음 모델로 (chain 진행)
+        }
+
+        if (info.kind === 'rate_limit' && retry < attemptsPerModel - 1) {
+          await waitAfterProviderRateLimit('gemini', error, retry, modelName);
+          continue;
+        }
+
+        if (info.kind === 'timeout' && retry < attemptsPerModel - 1) {
+          await sleep(TIMEOUT_BACKOFF_MS);
           continue;
         }
 
@@ -395,23 +415,9 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
     }
   }
 
-  // v3.8.163: 모든 Gemini 모델 실패 → OpenAI/Claude/Perplexity 자동 fallback (다른 키 있을 때만)
-  //   사용자 보고: gemini-2.5-flash-lite 503 → 큐 연속 실패. 다른 provider 자동 시도로 차단
-  const fallbackOrder: Provider[] = ['openai', 'claude', 'perplexity'];
-  for (const fp of fallbackOrder) {
-    const fpKey = getProviderKey(fp);
-    if (!fpKey) continue;
-    try {
-      console.log(`[Engine-Fallback] 모든 Gemini 모델 실패 → ${PROVIDER_NAMES[fp]} 자동 시도`);
-      if (fp === 'openai') return repairBrokenGeneratedText('openai fallback', await callOpenAIAPI(prompt));
-      if (fp === 'claude') return repairBrokenGeneratedText('claude fallback', await callClaudeAPI(prompt));
-      if (fp === 'perplexity') return repairBrokenGeneratedText('perplexity fallback', await callPerplexityAPI(prompt));
-    } catch (fpErr: any) {
-      const fpInfo = classifyFailure(fpErr);
-      console.warn(`[Engine-Fallback] ${PROVIDER_NAMES[fp]} 실패 (${fpInfo.kind}): ${fpInfo.message.slice(0, 120)}`);
-    }
-  }
-
+  // v3.8.164: provider auto-fallback 제거 — 사용자 선택 존중
+  //   같은 provider 안에서 모델 chain (flash-lite → flash → pro) 다 시도 후도 503이면
+  //   throw하여 사용자가 직접 대처 (대기 후 재시도 / 다른 엔진 선택)
   throw buildUserError('gemini', lastInfo, totalAttempts);
 }
 
