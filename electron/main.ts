@@ -5005,77 +5005,107 @@ ipcMain.handle('publish-content', async (_evt, data) => {
     if (typeof data.content === 'string' && data.content.length > 0) {
       const enrichmentLog: string[] = [];
 
-      // ─── 공식 사이트 매핑 (한국 정부·금융·생활 ─ 대표 100개) ───
-      const OFFICIAL_SITES: Array<{ keywords: string[]; url: string }> = [
+      // v3.8.174: 의도 분석 + 우선순위 기반 destination 선택
+      //   1순위: 블로그 내 글 (sourcePosts) — 트래픽 ↑, 거미줄 효과
+      //   2순위: 공식 사이트 정확한 sub-path (행동형 의도일 때)
+      //   3순위: 공식 사이트 메인 (정보형 의도일 때)
+      //   4순위: CTA 텍스트만 유지 + href 제거 (구글 검색 절대 X)
+      //
+      // 공식 사이트 매핑 — 의도별 sub-path 구분 (행동형 정확한 페이지 vs 정보형 메인)
+      type OfficialSite = {
+        keywords: string[];
+        actionUrl: string;     // 신청/가입/등록 — 행동 페이지
+        infoUrl?: string;       // 안내/방법/조건 — 정보 페이지 (없으면 actionUrl 재사용)
+      };
+      const OFFICIAL_SITES: OfficialSite[] = [
         // 정부·청원
-        { keywords: ['청원24', '국민동의청원', '국회청원'], url: 'https://petitions.assembly.go.kr/' },
-        { keywords: ['국민신문고', '민원', '국민제안'], url: 'https://www.epeople.go.kr/' },
-        { keywords: ['정부24', '주민등록', '인감', '등본'], url: 'https://www.gov.kr/' },
-        { keywords: ['청와대 청원', '국민청원'], url: 'https://www.president.go.kr/' },
-        // 세금·국세청
-        { keywords: ['홈택스', '연말정산', '종합소득세', '부가세'], url: 'https://www.hometax.go.kr/' },
-        { keywords: ['지방세', '위택스', '재산세', '자동차세'], url: 'https://www.wetax.go.kr/' },
-        { keywords: ['손택스'], url: 'https://m.hometax.go.kr/' },
-        // 청년 정책
-        { keywords: ['청년도약계좌', '청년적금'], url: 'https://ydak.kinfa.or.kr/' },
-        { keywords: ['청년내일저축계좌', '복지로'], url: 'https://www.bokjiro.go.kr/' },
-        { keywords: ['청년월세', '청년월세지원'], url: 'https://www.gov.kr/portal/onestopSvc/youngMonthlyRent' },
+        { keywords: ['청원24', '국민동의청원', '국회청원'], actionUrl: 'https://petitions.assembly.go.kr/api/petits', infoUrl: 'https://petitions.assembly.go.kr/' },
+        { keywords: ['국민신문고', '민원', '국민제안'], actionUrl: 'https://www.epeople.go.kr/nep/pttn/cvlcmpl/cvlcmplWritePttnList.npaid', infoUrl: 'https://www.epeople.go.kr/' },
+        { keywords: ['정부24', '주민등록', '인감', '등본', '초본'], actionUrl: 'https://www.gov.kr/portal/main/nologin', infoUrl: 'https://www.gov.kr/' },
+        // 세금
+        { keywords: ['홈택스', '연말정산', '종합소득세', '부가세', '원천세'], actionUrl: 'https://www.hometax.go.kr/websquare/websquare.wq?w2xPath=/ui/pp/index.xml', infoUrl: 'https://www.hometax.go.kr/' },
+        { keywords: ['위택스', '재산세', '자동차세', '취득세', '지방세'], actionUrl: 'https://www.wetax.go.kr/main.do', infoUrl: 'https://www.wetax.go.kr/' },
+        // 청년·복지
+        { keywords: ['청년도약계좌'], actionUrl: 'https://ydak.kinfa.or.kr/ydak/svIntroPage.do', infoUrl: 'https://ydak.kinfa.or.kr/' },
+        { keywords: ['청년내일저축계좌', '청년적금'], actionUrl: 'https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52011M.do?wlfareInfoId=WLF00005122', infoUrl: 'https://www.bokjiro.go.kr/' },
+        { keywords: ['청년월세'], actionUrl: 'https://www.gov.kr/portal/onestopSvc/youngMonthlyRent', infoUrl: 'https://www.gov.kr/portal/onestopSvc/youngMonthlyRent' },
+        { keywords: ['복지로', '복지 신청'], actionUrl: 'https://www.bokjiro.go.kr/ssis-tbu/index.do', infoUrl: 'https://www.bokjiro.go.kr/' },
         // 금융
-        { keywords: ['청약', '주택청약', '청약홈'], url: 'https://www.applyhome.co.kr/' },
-        { keywords: ['전세사기', '전세보증보험', 'HUG'], url: 'https://www.khug.or.kr/' },
-        { keywords: ['신용회복', '개인회생', '서민금융'], url: 'https://www.kinfa.or.kr/' },
-        // 보험·연금
-        { keywords: ['국민연금', '연금공단'], url: 'https://www.nps.or.kr/' },
-        { keywords: ['건강보험', '건강보험공단', '4대보험'], url: 'https://www.nhis.or.kr/' },
-        { keywords: ['고용보험', '실업급여'], url: 'https://www.ei.go.kr/' },
-        { keywords: ['산재보험', '근로복지공단'], url: 'https://www.kcomwel.or.kr/' },
+        { keywords: ['주택청약', '청약홈', '청약 신청'], actionUrl: 'https://www.applyhome.co.kr/co/coa/selectMainView.do', infoUrl: 'https://www.applyhome.co.kr/' },
+        { keywords: ['전세보증보험', 'HUG', '전세사기'], actionUrl: 'https://www.khug.or.kr/hugintro/lease/guarantee01.jsp', infoUrl: 'https://www.khug.or.kr/' },
+        { keywords: ['신용회복', '개인회생', '서민금융'], actionUrl: 'https://www.ccrs.or.kr/main.do', infoUrl: 'https://www.kinfa.or.kr/' },
+        // 보험
+        { keywords: ['국민연금', '연금공단'], actionUrl: 'https://www.nps.or.kr/jsppage/csa/main_user.jsp', infoUrl: 'https://www.nps.or.kr/' },
+        { keywords: ['건강보험', '건강보험공단', '4대보험'], actionUrl: 'https://www.nhis.or.kr/nhis/index.do', infoUrl: 'https://www.nhis.or.kr/' },
+        { keywords: ['고용보험', '실업급여'], actionUrl: 'https://www.ei.go.kr/ei/eih/cm/hm/main.do', infoUrl: 'https://www.ei.go.kr/' },
+        { keywords: ['산재보험', '근로복지공단'], actionUrl: 'https://www.kcomwel.or.kr/kcomwel/main.jsp', infoUrl: 'https://www.kcomwel.or.kr/' },
         // 노동·교육
-        { keywords: ['워크넷', '구직', '취업'], url: 'https://www.work24.go.kr/' },
-        { keywords: ['HRD-Net', '국비지원', '내일배움'], url: 'https://www.hrd.go.kr/' },
-        { keywords: ['고용센터', '고용노동부'], url: 'https://www.moel.go.kr/' },
+        { keywords: ['워크넷', '구직', '취업'], actionUrl: 'https://www.work24.go.kr/wk/a/b/1500/empSrchList.do', infoUrl: 'https://www.work24.go.kr/' },
+        { keywords: ['HRD-Net', '국비지원', '내일배움카드'], actionUrl: 'https://www.hrd.go.kr/hrdp/ti/ptiao/PTIAO0100L.do', infoUrl: 'https://www.hrd.go.kr/' },
         // 부동산
-        { keywords: ['LH', '한국토지주택공사', '청년임대'], url: 'https://www.lh.or.kr/' },
-        { keywords: ['SH', '서울주택도시공사'], url: 'https://www.i-sh.co.kr/' },
-        { keywords: ['실거래가', '국토교통부 실거래가'], url: 'https://rt.molit.go.kr/' },
+        { keywords: ['LH', '한국토지주택공사', '청년임대', '행복주택'], actionUrl: 'https://apply.lh.or.kr/lhapply/apply/wt/wrtanc/selectWrtancList.do', infoUrl: 'https://www.lh.or.kr/' },
+        { keywords: ['SH', '서울주택도시공사'], actionUrl: 'https://www.i-sh.co.kr/main/lay2/program/S1T294C297/www/brd/m_280/list.do', infoUrl: 'https://www.i-sh.co.kr/' },
+        { keywords: ['실거래가', '국토교통부 실거래가'], actionUrl: 'https://rt.molit.go.kr/', infoUrl: 'https://rt.molit.go.kr/' },
         // 운전·자동차
-        { keywords: ['운전면허', '도로교통공단'], url: 'https://www.koroad.or.kr/' },
-        { keywords: ['자동차등록', '교통민원24'], url: 'https://www.efine.go.kr/' },
+        { keywords: ['운전면허', '도로교통공단'], actionUrl: 'https://dls.koroad.or.kr/', infoUrl: 'https://www.koroad.or.kr/' },
+        { keywords: ['자동차등록', '교통민원24'], actionUrl: 'https://www.efine.go.kr/main/main.do', infoUrl: 'https://www.efine.go.kr/' },
         // 의료
-        { keywords: ['건강검진', '국가건강검진'], url: 'https://www.nhis.or.kr/' },
-        { keywords: ['의료기관', '심평원', '병원평가'], url: 'https://www.hira.or.kr/' },
+        { keywords: ['건강검진', '국가건강검진'], actionUrl: 'https://www.nhis.or.kr/nhis/healthin/wbhaae04200m01.do', infoUrl: 'https://www.nhis.or.kr/' },
+        { keywords: ['병원평가', '심평원'], actionUrl: 'https://www.hira.or.kr/main.do', infoUrl: 'https://www.hira.or.kr/' },
         // 교통
-        { keywords: ['KTX', '코레일', '기차표'], url: 'https://www.korail.com/' },
-        { keywords: ['SRT'], url: 'https://etk.srail.kr/' },
-        { keywords: ['고속버스 예매'], url: 'https://www.kobus.co.kr/' },
-        // 공공기관 채용
-        { keywords: ['공무원시험', '사이버국가고시센터'], url: 'https://gosi.kr/' },
-        { keywords: ['공기업 채용', '나라일터'], url: 'https://www.gojobs.go.kr/' },
+        { keywords: ['KTX', '코레일'], actionUrl: 'https://www.korail.com/ticket/main', infoUrl: 'https://www.korail.com/' },
+        { keywords: ['SRT'], actionUrl: 'https://etk.srail.kr/main.do', infoUrl: 'https://etk.srail.kr/' },
+        { keywords: ['고속버스 예매'], actionUrl: 'https://www.kobus.co.kr/main.do', infoUrl: 'https://www.kobus.co.kr/' },
+        // 채용
+        { keywords: ['공무원시험', '사이버국가고시센터'], actionUrl: 'https://gosi.kr/usr/cop/main/main.do', infoUrl: 'https://gosi.kr/' },
+        { keywords: ['공기업 채용', '나라일터'], actionUrl: 'https://www.gojobs.go.kr/index.do', infoUrl: 'https://www.gojobs.go.kr/' },
       ];
-      const findOfficialUrl = (text: string): string | null => {
+
+      // 검색 의도 분류
+      type Intent = 'action' | 'info' | 'comparison' | 'review' | 'unknown';
+      const detectIntent = (text: string): Intent => {
+        const t = String(text || '').toLowerCase();
+        if (/(신청|가입|등록|발급|접수|신고|예매|예약|구매|주문|결제|로그인)/.test(t)) return 'action';
+        if (/(비교|차이|vs|어디|어느|추천|best|순위|랭킹)/.test(t)) return 'comparison';
+        if (/(후기|경험|솔직|리뷰|실제|써본|해본)/.test(t)) return 'review';
+        if (/(방법|조건|자격|기준|안내|가이드|어떻게|얼마|언제|뜻|이란)/.test(t)) return 'info';
+        return 'unknown';
+      };
+
+      const findOfficialUrlSmart = (text: string, intent: Intent): string | null => {
         const t = String(text || '').toLowerCase();
         for (const entry of OFFICIAL_SITES) {
-          if (entry.keywords.some((kw) => t.includes(kw.toLowerCase()))) return entry.url;
+          if (entry.keywords.some((kw) => t.includes(kw.toLowerCase()))) {
+            // 행동형이면 action URL, 그 외엔 info URL
+            return intent === 'action' ? entry.actionUrl : (entry.infoUrl || entry.actionUrl);
+          }
         }
         return null;
       };
 
-      // CTA 폴백 교체 — google 검색 URL → 공식 사이트
+      // CTA 처리 — google 검색 URL을 의도 기반 destination으로 교체
       const topic = String(data.title || data.payload?.topic || data.payload?.title || '');
-      const ctaReplaced: number[] = [0];
+      const topicIntent = detectIntent(topic);
+      const ctaCounts = { replaced: 0, removed: 0, kept: 0 };
       data.content = data.content.replace(
-        /(<a[^>]*href=["'])https?:\/\/(?:www\.)?google\.[a-z.]+\/(?:search|url)\?[^"']*[?&]q=([^"'&]+)[^"']*?(["'][^>]*>)/gi,
-        (match: string, prefix: string, q: string, suffix: string) => {
+        /(<a[^>]*href=["'])https?:\/\/(?:www\.)?google\.[a-z.]+\/(?:search|url)\?[^"']*[?&]q=([^"'&]+)[^"']*?(["'][^>]*>)([\s\S]*?)<\/a>/gi,
+        (match: string, prefix: string, q: string, suffix: string, linkText: string) => {
           const decoded = decodeURIComponent(q.replace(/\+/g, ' '));
-          const official = findOfficialUrl(decoded) || findOfficialUrl(topic);
+          const intent = detectIntent(decoded + ' ' + linkText) || topicIntent;
+          // 1순위: 공식 사이트 (의도별 sub-path)
+          const official = findOfficialUrlSmart(decoded, intent) || findOfficialUrlSmart(topic, intent);
           if (official) {
-            ctaReplaced[0]++;
-            return `${prefix}${official}${suffix}`;
+            ctaCounts.replaced++;
+            return `${prefix}${official}${suffix}${linkText}</a>`;
           }
-          return match;
+          // 2순위: 매핑 없으면 — 구글 검색 X. 링크 자체 제거하고 강조 텍스트로 변환
+          //   (자기 트래픽 죽이지 않기: 사용자가 내 글을 보는 이유 유지)
+          ctaCounts.removed++;
+          return `<strong>${linkText.replace(/<[^>]+>/g, '')}</strong>`;
         },
       );
-      if (ctaReplaced[0] > 0) {
-        enrichmentLog.push(`CTA Google → 공식사이트 ${ctaReplaced[0]}개 교체`);
+      if (ctaCounts.replaced > 0 || ctaCounts.removed > 0) {
+        enrichmentLog.push(`CTA: ${ctaCounts.replaced}개 공식사이트 교체, ${ctaCounts.removed}개 구글검색 제거(강조 텍스트로)`);
       }
 
       // 이미지 alt 자동 보강 — 비어있는 alt를 직전 H2 텍스트로 채움
