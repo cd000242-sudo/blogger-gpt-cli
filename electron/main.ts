@@ -10755,17 +10755,20 @@ ipcMain.handle('adsense:list-clickbait-posts', async (_evt, payload: { blogId: s
   }
 });
 
-// 자동 제목 정리 (사용자 승인 후 실행)
-ipcMain.handle('adsense:clean-post-titles', async (_evt, payload: { blogId: string; postIds: string[] }) => {
+// v3.8.178: dry-run 모드 추가 — 실제 patch 전 사용자가 미리보기로 확인 후 승인
+//   payload.dryRun: true → API patch 안 함, 미리보기 결과만 반환
+//   payload.dryRun: false → 실제 patch 실행
+ipcMain.handle('adsense:clean-post-titles', async (_evt, payload: { blogId: string; postIds: string[]; dryRun?: boolean }) => {
   try {
     const envData = loadEnvFromFile() as any;
     const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
     const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
     if (!blogId || !accessToken) return { ok: false, error: 'Blog ID 또는 OAuth 토큰 누락' };
+    const dryRun = payload.dryRun !== false; // default: dryRun true (안전 우선)
     const axios = (await import('axios')).default;
     const CLEANUP_RULES: Array<[RegExp, string]> = [
-      [/\s*[!?]+\s*[🚀✅⚡💡🔥💰🚨🎯📌🏆💯🎉]+\s*$/gu, ''], // 끝 이모지 + 느낌표 제거
-      [/[🚀✅⚡💡🔥💰🚨🎯📌🏆💯🎉]+/gu, ''], // 모든 이모지 제거
+      [/\s*[!?]+\s*[🚀✅⚡💡🔥💰🚨🎯📌🏆💯🎉]+\s*$/gu, ''],
+      [/[🚀✅⚡💡🔥💰🚨🎯📌🏆💯🎉]+/gu, ''],
       [/놓치(면|지)?\s*(안\s*)?(될|마)\s*[^,!?:]*/g, ''], [/꿀팁/g, '핵심'], [/왜\s*아무도\s*안?\s*알려[^?!.]+[?!.]?/g, ''],
       [/고수만\s*아는\s*/g, ''], [/비법/g, '방법'], [/완벽\s*가이드/g, '안내'],
       [/효율\s*\d+%/g, ''], [/\d+분\s*만에\s*끝내는?/g, ''], [/놀라운/g, ''], [/충격/g, ''],
@@ -10773,29 +10776,79 @@ ipcMain.handle('adsense:clean-post-titles', async (_evt, payload: { blogId: stri
       [/역대급|레전드|미쳤다|대박|끝판왕/g, ''], [/총정리|모든\s*것|A\s*to\s*Z/g, '정리'],
       [/\s{2,}/g, ' '], [/^[\s,.!?:;]+|[\s,.!?:;]+$/g, ''],
     ];
-    const results: Array<{ id: string; oldTitle: string; newTitle: string; ok: boolean; error?: string }> = [];
+    // 4가지 결과 카테고리로 분류
+    const results: Array<{
+      id: string;
+      oldTitle: string;
+      newTitle: string;
+      status: 'patched' | 'preview' | 'no_change' | 'too_short' | 'fetch_failed' | 'patch_failed';
+      error?: string;
+    }> = [];
+    let totalProcessed = 0;
+    let networkFailed = 0;
     for (const postId of (payload.postIds || []).slice(0, 100)) {
+      totalProcessed++;
+      let oldTitle = '';
       try {
+        // 1) 글 정보 가져오기 (실패 시 명시)
         const g: any = await axios.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`, {
           headers: { Authorization: `Bearer ${accessToken}` }, timeout: 30000,
         });
-        const oldTitle = String(g.data?.title || '').trim();
-        let newTitle = oldTitle;
-        for (const [pat, repl] of CLEANUP_RULES) newTitle = newTitle.replace(pat, repl);
-        newTitle = newTitle.replace(/\s+/g, ' ').trim();
-        if (!newTitle || newTitle === oldTitle) { results.push({ id: postId, oldTitle, newTitle, ok: true }); continue; }
-        if (newTitle.length < 10) { results.push({ id: postId, oldTitle, newTitle, ok: false, error: '정리 후 너무 짧음 — skip' }); continue; }
-        await axios.patch(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`,
-          { title: newTitle },
-          { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 30000 },
-        );
-        results.push({ id: postId, oldTitle, newTitle, ok: true });
-        await new Promise((r) => setTimeout(r, 600)); // rate limit
+        oldTitle = String(g.data?.title || '').trim();
       } catch (e: any) {
-        results.push({ id: postId, oldTitle: '', newTitle: '', ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) });
+        networkFailed++;
+        const errMsg = e?.response?.status === 401 ? 'OAuth 토큰 만료 — 환경설정 재인증 필요'
+          : e?.response?.status === 403 ? 'Blogger API 권한 거부 (403)'
+          : e?.response?.status === 404 ? '글 없음 (이미 삭제됨)'
+          : (e?.response?.data?.error?.message || e?.message || String(e));
+        results.push({ id: postId, oldTitle: '', newTitle: '', status: 'fetch_failed', error: errMsg });
+        if (e?.response?.status === 401) break; // 토큰 만료면 전체 중단
+        continue;
+      }
+      // 2) 정리 규칙 적용
+      let newTitle = oldTitle;
+      for (const [pat, repl] of CLEANUP_RULES) newTitle = newTitle.replace(pat, repl);
+      newTitle = newTitle.replace(/\s+/g, ' ').trim();
+      // 3) 4가지 케이스 분류
+      if (!newTitle || newTitle === oldTitle) {
+        results.push({ id: postId, oldTitle, newTitle, status: 'no_change' });
+        continue;
+      }
+      if (newTitle.length < 10) {
+        results.push({ id: postId, oldTitle, newTitle, status: 'too_short', error: `정리 후 ${newTitle.length}자로 너무 짧음 — skip` });
+        continue;
+      }
+      // 4) Dry-run이면 미리보기만, 아니면 실제 patch
+      if (dryRun) {
+        results.push({ id: postId, oldTitle, newTitle, status: 'preview' });
+      } else {
+        try {
+          await axios.patch(
+            `https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`,
+            { title: newTitle },
+            { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 30000 },
+          );
+          results.push({ id: postId, oldTitle, newTitle, status: 'patched' });
+          await new Promise((r) => setTimeout(r, 600)); // rate limit
+        } catch (e: any) {
+          const errMsg = e?.response?.status === 401 ? 'OAuth 토큰 만료'
+            : (e?.response?.data?.error?.message || e?.message || String(e));
+          results.push({ id: postId, oldTitle, newTitle, status: 'patch_failed', error: errMsg });
+          if (e?.response?.status === 401) break;
+        }
       }
     }
-    return { ok: true, results };
+    // 5) 카테고리별 통계
+    const stats = {
+      total: totalProcessed,
+      patched: results.filter((r) => r.status === 'patched').length,
+      preview: results.filter((r) => r.status === 'preview').length,
+      no_change: results.filter((r) => r.status === 'no_change').length,
+      too_short: results.filter((r) => r.status === 'too_short').length,
+      fetch_failed: results.filter((r) => r.status === 'fetch_failed').length,
+      patch_failed: results.filter((r) => r.status === 'patch_failed').length,
+    };
+    return { ok: true, dryRun, stats, results };
   } catch (e: any) {
     return { ok: false, error: e?.message || String(e) };
   }

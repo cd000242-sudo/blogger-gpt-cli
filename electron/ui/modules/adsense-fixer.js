@@ -143,26 +143,23 @@ function openAdSenseFixerModal() {
         });
       }
 
-      // 제목 일괄 정리 버튼
+      // v3.8.178: 제목 일괄 정리 — Dry-run 2단계 (미리보기 → 사용자 승인 → 실제 적용)
       const cleanBtn = document.getElementById('adsense-clean-titles-btn');
       if (cleanBtn) {
         cleanBtn.addEventListener('click', async () => {
-          if (!confirm(`Clickbait 제목 ${s.clickbaitCount}개를 일괄 정리합니다.\n\n금지어 자동 제거 + 이모지 정리.\n\n진행할까요?`)) return;
           const blogId = document.getElementById('blogId')?.value?.trim();
           if (!blogId) { alert('Blog ID 환경설정에 저장 필요'); return; }
           cleanBtn.disabled = true; cleanBtn.textContent = '⏳ 글 목록 가져오는 중...';
           const lr = await window.electronAPI.adsenseListClickbaitPosts({ blogId });
           if (!lr.ok) { alert('❌ ' + lr.error); cleanBtn.disabled = false; cleanBtn.textContent = '🧹 제목 일괄 정리'; return; }
-          cleanBtn.textContent = `⏳ ${lr.total}개 제목 수정 중...`;
+          if (lr.total === 0) { alert('수정할 글이 없습니다.'); cleanBtn.disabled = false; cleanBtn.textContent = '🧹 제목 일괄 정리'; return; }
+          cleanBtn.textContent = `⏳ ${lr.total}개 미리보기 중...`;
           const postIds = lr.posts.map(p => p.id);
-          const cr = await window.electronAPI.adsenseCleanPostTitles({ blogId, postIds });
-          if (cr.ok) {
-            const updated = cr.results.filter(r => r.ok && r.newTitle !== r.oldTitle).length;
-            alert(`✅ ${updated}개 제목 자동 수정 완료\n\n${cr.results.filter(r => r.ok && r.newTitle !== r.oldTitle).slice(0, 10).map(r => `· ${r.oldTitle.substring(0, 30)} → ${r.newTitle.substring(0, 30)}`).join('\n')}`);
-          } else {
-            alert('❌ ' + cr.error);
-          }
+          // ===== 1단계: Dry-run (실제 patch 안 함) =====
+          const cr = await window.electronAPI.adsenseCleanPostTitles({ blogId, postIds, dryRun: true });
           cleanBtn.disabled = false; cleanBtn.textContent = '🧹 제목 일괄 정리';
+          if (!cr.ok) { alert('❌ 미리보기 실패: ' + cr.error); return; }
+          showCleanResultModal(cr, blogId, postIds);
         });
       }
     } catch (e) {
@@ -173,6 +170,116 @@ function openAdSenseFixerModal() {
 
 function escHtml(s) {
   return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// v3.8.178: Dry-run 결과 모달 — 사용자가 확인 후 승인하면 실제 patch
+function showCleanResultModal(cr, blogId, postIds) {
+  const existing = document.getElementById('adsense-clean-result-modal');
+  if (existing) existing.remove();
+  const s = cr.stats;
+  const willPatch = s.preview;
+  const noChange = s.no_change;
+  const tooShort = s.too_short;
+  const fetchFail = s.fetch_failed;
+  const previewItems = cr.results.filter(r => r.status === 'preview').slice(0, 30);
+  const tooShortItems = cr.results.filter(r => r.status === 'too_short').slice(0, 10);
+  const fetchFailItems = cr.results.filter(r => r.status === 'fetch_failed').slice(0, 5);
+
+  const html = `
+<div id="adsense-clean-result-modal" style="position:fixed;inset:0;z-index:100003;background:rgba(2,6,23,0.93);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;">
+  <div style="width:min(960px,100%);max-height:calc(100vh - 40px);background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(251,191,36,0.4);border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,0.7);overflow:hidden;display:flex;flex-direction:column;">
+    <div style="padding:24px 28px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <h2 style="margin:0;font-size:20px;font-weight:900;color:#fff;">🔍 제목 정리 미리보기</h2>
+        <p style="margin:4px 0 0 0;color:#94a3b8;font-size:12px;">⚠️ 아직 사이트에 적용되지 않았습니다. 확인 후 ${willPatch > 0 ? '아래 "실제 적용"' : '닫기'}을 누르세요.</p>
+      </div>
+      <button id="adsense-clean-close" style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:20px;cursor:pointer;">×</button>
+    </div>
+    <div style="padding:18px 28px;border-bottom:1px solid rgba(255,255,255,0.08);">
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;">
+        <div style="padding:10px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.35);border-radius:8px;text-align:center;">
+          <div style="color:#86efac;font-size:11px;font-weight:700;">수정 예정</div>
+          <div style="color:#dcfce7;font-size:20px;font-weight:900;">${willPatch}</div>
+        </div>
+        <div style="padding:10px;background:rgba(148,163,184,0.15);border:1px solid rgba(148,163,184,0.3);border-radius:8px;text-align:center;">
+          <div style="color:#cbd5e1;font-size:11px;font-weight:700;">변화 없음</div>
+          <div style="color:#f1f5f9;font-size:20px;font-weight:900;">${noChange}</div>
+        </div>
+        <div style="padding:10px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.35);border-radius:8px;text-align:center;">
+          <div style="color:#fde68a;font-size:11px;font-weight:700;">너무 짧음 (skip)</div>
+          <div style="color:#fef3c7;font-size:20px;font-weight:900;">${tooShort}</div>
+        </div>
+        <div style="padding:10px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);border-radius:8px;text-align:center;">
+          <div style="color:#fca5a5;font-size:11px;font-weight:700;">조회 실패</div>
+          <div style="color:#fee2e2;font-size:20px;font-weight:900;">${fetchFail}</div>
+        </div>
+        <div style="padding:10px;background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.35);border-radius:8px;text-align:center;">
+          <div style="color:#bfdbfe;font-size:11px;font-weight:700;">총 처리</div>
+          <div style="color:#dbeafe;font-size:20px;font-weight:900;">${s.total}</div>
+        </div>
+      </div>
+      ${fetchFail > 0 ? `<div style="margin-top:10px;padding:10px 14px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:8px;color:#fca5a5;font-size:12px;">⚠️ ${fetchFail}개 글 조회 실패 — 첫 번째 원인: <strong>${escHtml(fetchFailItems[0]?.error || '?')}</strong></div>` : ''}
+    </div>
+    <div style="padding:20px 28px;overflow-y:auto;flex:1;">
+      ${willPatch > 0 ? `
+        <h3 style="margin:0 0 10px;color:#86efac;font-size:14px;font-weight:800;">✅ 수정 예정 (최대 30개 미리보기 / 총 ${willPatch}개)</h3>
+        <div style="background:rgba(15,23,42,0.6);border:1px solid rgba(148,163,184,0.2);border-radius:10px;padding:14px;margin-bottom:16px;max-height:300px;overflow-y:auto;">
+          ${previewItems.map(r => `
+            <div style="padding:8px 0;border-bottom:1px solid rgba(148,163,184,0.1);">
+              <div style="color:#fca5a5;font-size:12px;line-height:1.4;text-decoration:line-through;">${escHtml(r.oldTitle)}</div>
+              <div style="color:#86efac;font-size:13px;font-weight:700;line-height:1.4;margin-top:3px;">→ ${escHtml(r.newTitle)}</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : `
+        <div style="padding:14px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);border-radius:10px;color:#fde68a;font-size:13px;text-align:center;">
+          ⚠️ 정리할 글이 없습니다. 모든 글이 변화 없음(${noChange}) / 너무 짧음(${tooShort}) / 조회 실패(${fetchFail})로 분류됐습니다.
+        </div>
+      `}
+      ${tooShort > 0 ? `
+        <h3 style="margin:14px 0 10px;color:#fde68a;font-size:13px;font-weight:800;">⚠️ Skip (정리 후 너무 짧아짐)</h3>
+        <div style="background:rgba(15,23,42,0.6);border:1px solid rgba(148,163,184,0.2);border-radius:10px;padding:12px;max-height:140px;overflow-y:auto;font-size:11px;">
+          ${tooShortItems.map(r => `<div style="padding:3px 0;color:#cbd5e1;">${escHtml(r.oldTitle)} → "${escHtml(r.newTitle)}" (${r.newTitle.length}자)</div>`).join('')}
+        </div>
+      ` : ''}
+    </div>
+    <div style="padding:18px 28px;border-top:1px solid rgba(255,255,255,0.08);display:flex;gap:10px;">
+      <button id="adsense-clean-cancel" style="flex:1;padding:14px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);border-radius:10px;color:#cbd5e1;font-weight:800;cursor:pointer;">취소 (아무것도 안 함)</button>
+      ${willPatch > 0 ? `
+        <button id="adsense-clean-confirm" style="flex:2;padding:14px;background:linear-gradient(135deg,#22c55e,#16a34a);border:0;border-radius:10px;color:#fff;font-weight:900;font-size:14px;cursor:pointer;box-shadow:0 6px 20px rgba(34,197,94,0.45);">⚡ ${willPatch}개 실제 적용 (사이트 반영)</button>
+      ` : ''}
+    </div>
+  </div>
+</div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.getElementById('adsense-clean-close')?.addEventListener('click', () => { document.getElementById('adsense-clean-result-modal')?.remove(); });
+  document.getElementById('adsense-clean-cancel')?.addEventListener('click', () => { document.getElementById('adsense-clean-result-modal')?.remove(); });
+
+  const confirmBtn = document.getElementById('adsense-clean-confirm');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true; confirmBtn.textContent = '⏳ 실제 적용 중...';
+      // ===== 2단계: 실제 patch (dryRun: false) =====
+      const realRun = await window.electronAPI.adsenseCleanPostTitles({ blogId, postIds, dryRun: false });
+      confirmBtn.disabled = false;
+      if (!realRun.ok) { alert('❌ ' + realRun.error); return; }
+      const rs = realRun.stats;
+      document.getElementById('adsense-clean-result-modal')?.remove();
+      const finalMsg = [
+        `✅ 사이트 반영 완료`,
+        ``,
+        `📊 결과:`,
+        `  • 실제 수정됨: ${rs.patched}개`,
+        `  • 수정 실패: ${rs.patch_failed}개`,
+        `  • 변화 없음: ${rs.no_change}개`,
+        `  • Skip (짧아짐): ${rs.too_short}개`,
+        `  • 조회 실패: ${rs.fetch_failed}개`,
+        ``,
+        rs.patched > 0 ? `🎉 ${rs.patched}개 글 제목이 사이트에 반영됐습니다. Blogger 어드민에서 확인 가능.` : `⚠️ 실제로 수정된 글이 없습니다.`,
+      ].join('\n');
+      alert(finalMsg);
+    });
+  }
 }
 
 window.openAdSenseFixerModal = openAdSenseFixerModal;
