@@ -2231,19 +2231,79 @@ JSON만 출력:
   }
 
   if (safeCTAs.length === 0) {
-    const fallbackUrl = `https://www.google.com/search?q=${encodeURIComponent(`${keyword} 공식 사이트`)}`;
-    safeCTAs.push({
-      hookingMessage: '자동 검증 링크를 찾지 못했다면 최신 공식 정보를 직접 확인해보세요.',
-      buttonText: '공식 정보 검색하기',
-      url: fallbackUrl,
-      position: 1,
-      type: 'link',
-      design: 'button',
-      text: '공식 정보 검색하기',
-      hook: '자동 검증 링크를 찾지 못했다면 최신 공식 정보를 직접 확인해보세요.',
-      searchFallback: true,
-    });
-    console.log(`[CTA] 🔎 직접 검증 URL 없음 — 검색 fallback CTA 사용: ${fallbackUrl}`);
+    // v3.8.175: 구글 검색 fallback 완전 제거
+    //   사용자 핵심 지적: '구글 검색으로 연동되버리면 내글을 보는 이유가없자나'
+    //   → 자기 트래픽 죽이지 않도록 공식 사이트 매핑 → 매핑 없으면 CTA 자체 안 생성
+    //   모든 모드(SEO/internal/paraphrasing/shopping)에 동일 적용
+    const OFFICIAL_FALLBACK_SITES: Array<{ keywords: string[]; actionUrl: string; infoUrl?: string }> = [
+      // 정부·청원
+      { keywords: ['청원24', '국민동의청원', '국회청원'], actionUrl: 'https://petitions.assembly.go.kr/' },
+      { keywords: ['국민신문고', '민원'], actionUrl: 'https://www.epeople.go.kr/' },
+      { keywords: ['정부24', '주민등록', '인감', '등본', '초본'], actionUrl: 'https://www.gov.kr/portal/main/nologin', infoUrl: 'https://www.gov.kr/' },
+      // 세금
+      { keywords: ['홈택스', '연말정산', '종합소득세', '부가세'], actionUrl: 'https://www.hometax.go.kr/' },
+      { keywords: ['위택스', '재산세', '자동차세', '취득세'], actionUrl: 'https://www.wetax.go.kr/' },
+      // 청년·복지
+      { keywords: ['청년도약계좌'], actionUrl: 'https://ydak.kinfa.or.kr/' },
+      { keywords: ['청년내일저축계좌', '청년적금'], actionUrl: 'https://www.bokjiro.go.kr/' },
+      { keywords: ['청년월세'], actionUrl: 'https://www.gov.kr/portal/onestopSvc/youngMonthlyRent' },
+      { keywords: ['복지로'], actionUrl: 'https://www.bokjiro.go.kr/' },
+      // 금융
+      { keywords: ['주택청약', '청약홈'], actionUrl: 'https://www.applyhome.co.kr/' },
+      { keywords: ['전세보증보험', 'HUG', '전세사기'], actionUrl: 'https://www.khug.or.kr/' },
+      { keywords: ['신용회복', '개인회생'], actionUrl: 'https://www.ccrs.or.kr/' },
+      // 보험
+      { keywords: ['국민연금'], actionUrl: 'https://www.nps.or.kr/' },
+      { keywords: ['건강보험', '4대보험'], actionUrl: 'https://www.nhis.or.kr/' },
+      { keywords: ['고용보험', '실업급여'], actionUrl: 'https://www.ei.go.kr/' },
+      { keywords: ['산재보험'], actionUrl: 'https://www.kcomwel.or.kr/' },
+      // 노동·교육
+      { keywords: ['워크넷', '구직', '취업'], actionUrl: 'https://www.work24.go.kr/' },
+      { keywords: ['HRD-Net', '국비지원', '내일배움'], actionUrl: 'https://www.hrd.go.kr/' },
+      // 부동산
+      { keywords: ['LH', '청년임대', '행복주택'], actionUrl: 'https://www.lh.or.kr/' },
+      { keywords: ['SH', '서울주택도시공사'], actionUrl: 'https://www.i-sh.co.kr/' },
+      { keywords: ['실거래가'], actionUrl: 'https://rt.molit.go.kr/' },
+      // 운전·자동차
+      { keywords: ['운전면허', '도로교통공단'], actionUrl: 'https://dls.koroad.or.kr/' },
+      { keywords: ['자동차등록', '교통민원24'], actionUrl: 'https://www.efine.go.kr/' },
+      // 의료
+      { keywords: ['건강검진'], actionUrl: 'https://www.nhis.or.kr/' },
+      { keywords: ['병원평가', '심평원'], actionUrl: 'https://www.hira.or.kr/' },
+      // 교통
+      { keywords: ['KTX', '코레일'], actionUrl: 'https://www.korail.com/' },
+      { keywords: ['SRT'], actionUrl: 'https://etk.srail.kr/' },
+      { keywords: ['고속버스'], actionUrl: 'https://www.kobus.co.kr/' },
+      // 채용
+      { keywords: ['공무원시험'], actionUrl: 'https://gosi.kr/' },
+      { keywords: ['공기업 채용', '나라일터'], actionUrl: 'https://www.gojobs.go.kr/' },
+    ];
+    const detectIntent = (text: string): 'action' | 'info' => {
+      const t = String(text || '').toLowerCase();
+      return /(신청|가입|등록|발급|접수|신고|예매|예약|구매|결제|로그인)/.test(t) ? 'action' : 'info';
+    };
+    const lowerKw = String(keyword || '').toLowerCase();
+    const matched = OFFICIAL_FALLBACK_SITES.find((s) => s.keywords.some((kw) => lowerKw.includes(kw.toLowerCase())));
+    if (matched) {
+      const intent = detectIntent(keyword);
+      const fallbackUrl = intent === 'action' ? matched.actionUrl : (matched.infoUrl || matched.actionUrl);
+      safeCTAs.push({
+        hookingMessage: `${keyword} 관련 공식 사이트에서 정확한 정보를 확인하세요`,
+        buttonText: `🔗 ${keyword} 공식 사이트`,
+        url: fallbackUrl,
+        position: 1,
+        type: 'link',
+        design: 'button',
+        text: `🔗 ${keyword} 공식 사이트`,
+        hook: `${keyword} 관련 공식 사이트에서 정확한 정보를 확인하세요`,
+        searchFallback: false,
+      });
+      console.log(`[CTA] 🎯 공식 사이트 매핑 fallback (${intent}): ${fallbackUrl}`);
+    } else {
+      // 매핑도 없으면 — CTA 자체 안 만듦. 본문 텍스트로만 안내.
+      //   구글 검색 URL X (자기 트래픽 보호)
+      console.log(`[CTA] ⚠️ 공식 사이트 매핑도 없음 — CTA 생략 (구글 검색 fallback 차단)`);
+    }
   }
 
   return safeCTAs;
