@@ -18,6 +18,8 @@ function openAdSenseFixerModal() {
       </div>
       <button id="adsense-fixer-close" style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:20px;cursor:pointer;">×</button>
     </div>
+    <!-- v3.8.248: 현재 작업 대상 배너 — 이미 승인된 다른 사이트가 실수로 영향받지 않도록 명시 -->
+    <div id="adsense-target-banner" style="margin:0;padding:14px 28px;background:linear-gradient(90deg,rgba(239,68,68,0.18),rgba(245,158,11,0.12));border-bottom:1px solid rgba(239,68,68,0.3);"></div>
     <div style="padding:24px 28px;overflow-y:auto;flex:1;">
       <div style="margin-bottom:18px;">
         <label style="display:block;color:#cbd5e1;font-size:12px;font-weight:800;margin-bottom:6px;">사이트 URL</label>
@@ -46,6 +48,12 @@ function openAdSenseFixerModal() {
 
   document.getElementById('adsense-fixer-close').addEventListener('click', () => {
     document.getElementById('adsense-fixer-modal')?.remove();
+  });
+
+  // v3.8.248: 현재 작업 대상 배너 렌더 (모달 열릴 때 + 라디오 변경 시 자동 갱신)
+  renderTargetBanner();
+  document.querySelectorAll('input[name="platform"]').forEach((radio) => {
+    radio.addEventListener('change', renderTargetBanner);
   });
 
   const resultEl = document.getElementById('adsense-fixer-result');
@@ -315,6 +323,58 @@ function platformGuardOrAlert() {
   return p;
 }
 
+// v3.8.248: 현재 작업 대상을 사용자가 한눈에 확인 — 다른 승인된 사이트 보호
+// 라벨: "Blogger | Blog ID: 1234567890" 또는 "WordPress | https://mysite.com"
+function getTargetLabel(p) {
+  if (!p) return { icon: '⚠️', name: '플랫폼 미선택', target: '환경설정에서 플랫폼 선택 필요', color: '#fca5a5', bg: 'rgba(239,68,68,0.2)' };
+  if (p._unsupported || p.platform === 'tistory') {
+    return { icon: '🚫', name: 'Tistory', target: '지원 안 함 (REST API 아님)', color: '#fca5a5', bg: 'rgba(239,68,68,0.2)' };
+  }
+  if (p.platform === 'wordpress') {
+    return {
+      icon: '🌐', name: 'WordPress',
+      target: p.siteUrl || '⚠️ 사이트 URL 미입력',
+      color: '#7dd3fc', bg: 'rgba(14,165,233,0.18)',
+    };
+  }
+  // Blogger
+  return {
+    icon: '🅱️', name: 'Blogger',
+    target: p.blogId ? `Blog ID: ${p.blogId}` : '⚠️ Blog ID 미입력',
+    color: '#fcd34d', bg: 'rgba(245,158,11,0.2)',
+  };
+}
+
+function renderTargetBanner() {
+  const banner = document.getElementById('adsense-target-banner');
+  if (!banner) return;
+  const p = getPlatformPayload();
+  const label = getTargetLabel(p);
+  banner.style.background = `linear-gradient(90deg,${label.bg},rgba(15,23,42,0.4))`;
+  banner.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+      <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">
+        <span style="font-size:24px;">${label.icon}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="color:${label.color};font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;">⚙️ 모든 작업의 대상</div>
+          <div style="color:#fff;font-size:14px;font-weight:900;line-height:1.3;margin-top:2px;">${label.name} <span style="color:#cbd5e1;font-weight:600;">|</span> <span style="color:#e2e8f0;font-weight:700;word-break:break-all;">${escHtml(label.target)}</span></div>
+        </div>
+      </div>
+      <div style="color:#94a3b8;font-size:10px;text-align:right;line-height:1.4;white-space:nowrap;">
+        <div>다른 플랫폼은 영향받지 않음</div>
+        <div style="color:#64748b;">전환: 환경설정 → 블로그 플랫폼</div>
+      </div>
+    </div>
+  `;
+}
+
+// v3.8.248: 파괴적 작업 confirm 다이얼로그에 대상 정보 명시
+// alert/confirm은 OS 다이얼로그라 스타일 못 입히므로 텍스트로 명확히 작성
+function targetConfirmText(p, message) {
+  const label = getTargetLabel(p);
+  return `${message}\n\n══════════════════\n📍 작업 대상: ${label.icon} ${label.name}\n📍 사이트: ${label.target}\n══════════════════\n\n다른 사이트(다른 플랫폼/다른 블로그)는 절대 영향받지 않습니다.\n\n진행할까요?`;
+}
+
 // v3.8.244: 본문 가치 분석 결과 렌더 — AdSense "가치 없는 콘텐츠" 사유 진단
 function renderValueResult(el, ar) {
   const verdictColor = ar.avgScore >= 65 ? '#22c55e' : ar.avgScore >= 50 ? '#f59e0b' : '#ef4444';
@@ -390,7 +450,7 @@ function renderValueResult(el, ar) {
       if (!p) return;
       const ids = (boostAllBtn.getAttribute('data-post-ids') || '').split(',').filter(Boolean);
       if (ids.length === 0) { alert('보강할 글 없음'); return; }
-      if (!confirm(`⚠️ 위험 글 ${ids.length}개를 순차로 LLM으로 보강하고 사이트에 반영합니다.\n\n각 글마다 미리보기 없이 자동 적용되며 약 ${ids.length * 30}초 소요됩니다.\n\n진행할까요?`)) return;
+      if (!confirm(targetConfirmText(p, `⚠️ 위험 글 ${ids.length}개를 순차로 LLM으로 보강하고 사이트에 반영합니다.\n\n각 글마다 미리보기 없이 자동 적용되며 약 ${ids.length * 30}초 소요됩니다.`))) return;
       boostAllBtn.disabled = true;
       let successCnt = 0;
       let failCnt = 0;
@@ -431,6 +491,8 @@ function showBoostResultModal(r, platform, postId) {
   const existing = document.getElementById('adsense-boost-result-modal');
   if (existing) existing.remove();
   const delta = r.delta;
+  // v3.8.248: 대상 표시
+  const tl = getTargetLabel(platform);
   const html = `
 <div id="adsense-boost-result-modal" style="position:fixed;inset:0;z-index:100003;background:rgba(2,6,23,0.93);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;">
   <div style="width:min(1100px,100%);max-height:calc(100vh - 40px);background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(59,130,246,0.4);border-radius:18px;display:flex;flex-direction:column;">
@@ -438,6 +500,7 @@ function showBoostResultModal(r, platform, postId) {
       <div>
         <h2 style="margin:0;color:#fff;font-size:18px;font-weight:900;">🚀 본문 가치 보강 미리보기</h2>
         <p style="margin:4px 0 0 0;color:#94a3b8;font-size:12px;">${escHtml(r.title)} · ${r.before.length}자 → ${r.after.length}자 (${delta >= 0 ? '+' : ''}${delta}) · ${r.provider} 사용</p>
+        <p style="margin:6px 0 0 0;color:${tl.color};font-size:11px;font-weight:700;">📍 작업 대상: ${tl.icon} ${tl.name} · ${escHtml(tl.target)}</p>
       </div>
       <button id="adsense-boost-close" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:18px;cursor:pointer;">×</button>
     </div>
@@ -475,6 +538,8 @@ function showCleanResultModal(cr, platform, postIds) {
   const existing = document.getElementById('adsense-clean-result-modal');
   if (existing) existing.remove();
   const s = cr.stats;
+  // v3.8.248: 대상 표시 (clean-titles 모달 헤더 sub-line으로 포함)
+  const tl = getTargetLabel(platform);
   const willPatch = s.preview;
   const noChange = s.no_change;
   const tooShort = s.too_short;
@@ -490,6 +555,7 @@ function showCleanResultModal(cr, platform, postIds) {
       <div>
         <h2 style="margin:0;font-size:20px;font-weight:900;color:#fff;">🔍 제목 정리 미리보기</h2>
         <p style="margin:4px 0 0 0;color:#94a3b8;font-size:12px;">⚠️ 아직 사이트에 적용되지 않았습니다. 확인 후 ${willPatch > 0 ? '아래 "실제 적용"' : '닫기'}을 누르세요.</p>
+        <p style="margin:6px 0 0 0;color:${tl.color};font-size:11px;font-weight:700;">📍 작업 대상: ${tl.icon} ${tl.name} · ${escHtml(tl.target)}</p>
       </div>
       <button id="adsense-clean-close" style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:20px;cursor:pointer;">×</button>
     </div>
@@ -613,7 +679,7 @@ function renderBulkResult(el, r, platform) {
     </div>
   `;
   document.getElementById('adsense-bulk-delete-btn')?.addEventListener('click', async () => {
-    if (!confirm(`⚠️ 정말 ${targets.length}개 글을 삭제할까요?\n\n사이트에서 영구 삭제됩니다 (복구 불가).\n점수 ${r.threshold}점 미만 글이 대상입니다.\n\n진행할까요?`)) return;
+    if (!confirm(targetConfirmText(platform, `🚨 정말 ${targets.length}개 글을 삭제할까요?\n\n사이트에서 영구 삭제됩니다 (복구 불가).\n점수 ${r.threshold}점 미만 글이 대상입니다.`))) return;
     const btn = document.getElementById('adsense-bulk-delete-btn');
     btn.disabled = true; btn.textContent = '⏳ 삭제 중...';
     const real = await window.electronAPI.adsenseBulkCleanupPosts({ ...platform, action: 'delete', threshold: r.threshold, dryRun: false });
@@ -622,7 +688,7 @@ function renderBulkResult(el, r, platform) {
     else alert('❌ 삭제 실패: ' + real.error);
   });
   document.getElementById('adsense-bulk-boost-btn')?.addEventListener('click', async () => {
-    if (!confirm(`⚡ ${targets.length}개 글을 LLM으로 일괄 보강합니다.\n\n예상 소요: 약 ${targets.length * 30}초\n글마다 1인칭/출처/구체데이터 자동 주입.\n\n진행할까요?`)) return;
+    if (!confirm(targetConfirmText(platform, `⚡ ${targets.length}개 글을 LLM으로 일괄 보강합니다.\n\n예상 소요: 약 ${targets.length * 30}초\n글마다 1인칭/출처/구체데이터 자동 주입.`))) return;
     const btn = document.getElementById('adsense-bulk-boost-btn');
     btn.disabled = true;
     let successCnt = 0, failCnt = 0;
@@ -672,7 +738,7 @@ function renderYearlyResult(el, r, platform) {
     });
   });
   document.getElementById('adsense-yearly-refresh-all-btn')?.addEventListener('click', async () => {
-    if (!confirm(`🔄 ${candidates.length}개 글을 ${r.currentYear}년 기준으로 일괄 갱신합니다.\n\n예상 소요: 약 ${candidates.length * 35}초\n제목 + 본문 모두 LLM이 갱신.\n\n진행할까요?`)) return;
+    if (!confirm(targetConfirmText(platform, `🔄 ${candidates.length}개 글을 ${r.currentYear}년 기준으로 일괄 갱신합니다.\n\n예상 소요: 약 ${candidates.length * 35}초\n제목 + 본문 모두 LLM이 갱신.`))) return;
     const btn = document.getElementById('adsense-yearly-refresh-all-btn');
     btn.disabled = true;
     let successCnt = 0, failCnt = 0;
@@ -707,6 +773,8 @@ function showYearlyResultModal(r, platform, postId, currentYear) {
   const existing = document.getElementById('adsense-yearly-result-modal');
   if (existing) existing.remove();
   const titleChanged = r.before.title !== r.after.title;
+  // v3.8.248: 대상 표시
+  const tl = getTargetLabel(platform);
   const html = `
 <div id="adsense-yearly-result-modal" style="position:fixed;inset:0;z-index:100003;background:rgba(2,6,23,0.93);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;">
   <div style="width:min(1100px,100%);max-height:calc(100vh - 40px);background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(59,130,246,0.4);border-radius:18px;display:flex;flex-direction:column;">
@@ -714,6 +782,7 @@ function showYearlyResultModal(r, platform, postId, currentYear) {
       <div>
         <h2 style="margin:0;color:#fff;font-size:18px;font-weight:900;">🔄 ${currentYear}년 갱신 미리보기</h2>
         <p style="margin:4px 0 0 0;color:#94a3b8;font-size:12px;">${r.provider} 사용 · ${titleChanged ? '제목 변경 있음' : '제목 동일'}</p>
+        <p style="margin:6px 0 0 0;color:${tl.color};font-size:11px;font-weight:700;">📍 작업 대상: ${tl.icon} ${tl.name} · ${escHtml(tl.target)}</p>
       </div>
       <button id="adsense-yearly-close" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:18px;cursor:pointer;">×</button>
     </div>
