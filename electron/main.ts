@@ -1133,10 +1133,20 @@ ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
       }
       if (candidates.length > 0) {
         candidates.sort((a, b) => b.score - a.score);
-        generatedTitle = candidates[0]!.title;
+        const best = candidates[0]!;
         console.log(`[INTERNAL-CONSISTENCY] ✅ 제목 5변형 점수 (SEO+AEO+GEO+CTR 100점)`,
           candidates.map((c) => `${c.type}(${c.score}점): "${c.title.substring(0, 40)}…"`).join(' | '));
-        console.log(`[INTERNAL-CONSISTENCY] 🏆 선택: ${candidates[0]!.type} (${candidates[0]!.score}점) — ${candidates[0]!.title}`);
+        // v3.8.173: 60점 임계값 — 모든 변형이 페널티 받았으면 fallback ladder
+        if (best.score < 60) {
+          console.warn(`[INTERNAL-CONSISTENCY] ⚠️ 최고점도 60 미만 (${best.score}) — fallback: 첫 글 원제목 활용`);
+          const firstTitle = crawledTitles[0] || '';
+          generatedTitle = firstTitle.length >= 20 && firstTitle.length <= 60
+            ? firstTitle
+            : `${(crawledTitles[0] || '').substring(0, 30)} ${new Date().getFullYear()} 정리`;
+        } else {
+          generatedTitle = best.title;
+          console.log(`[INTERNAL-CONSISTENCY] 🏆 선택: ${best.type} (${best.score}점) — ${best.title}`);
+        }
       } else {
         generatedTitle = cleaned.split(/\n+/)[0]!.trim();
       }
@@ -4975,9 +4985,6 @@ ipcMain.handle('publish-content', async (_evt, data) => {
     traceToRenderer('publish-content 진입', data.content);
 
     // v3.8.167: 모든 플랫폼에서 markdown bold(**텍스트**) → <strong> 자동 변환
-    //   증상: 워드프레스/블로거/티스토리 본문에 '**' 마크다운이 그대로 노출
-    //   원인: 거미줄 통합글은 처리됐지만 일반 글포스팅 경로엔 없음
-    //   처리: **(.+?)** → <strong>$1</strong>, 짝 안 맞는 ** 잔재 제거
     if (typeof data.content === 'string' && data.content.includes('**')) {
       const before = data.content.length;
       data.content = data.content
@@ -4986,6 +4993,156 @@ ipcMain.handle('publish-content', async (_evt, data) => {
       const removed = before - data.content.length;
       if (removed !== 0) {
         const msg = `[BODY-TRACE-MAIN] **마크다운 → <strong> 변환 (${removed > 0 ? `${removed}자 제거` : `${-removed}자 증가`})`;
+        console.log(msg);
+        _evt.sender?.send?.('log-line', msg);
+      }
+    }
+
+    // v3.8.173: 통합 enrichment — 모든 모드(거미줄/단일/연속/SEO/일관) 자동 적용
+    //   1) HTML 메타 보강 (meta description + og 풀세트 + twitter + robots + canonical placeholder)
+    //   2) 이미지 alt 자동 보강 (직전 H2 텍스트 기반)
+    //   3) CTA 공식 홈페이지 자동 매핑 (google 검색 URL → 공식 사이트)
+    if (typeof data.content === 'string' && data.content.length > 0) {
+      const enrichmentLog: string[] = [];
+
+      // ─── 공식 사이트 매핑 (한국 정부·금융·생활 ─ 대표 100개) ───
+      const OFFICIAL_SITES: Array<{ keywords: string[]; url: string }> = [
+        // 정부·청원
+        { keywords: ['청원24', '국민동의청원', '국회청원'], url: 'https://petitions.assembly.go.kr/' },
+        { keywords: ['국민신문고', '민원', '국민제안'], url: 'https://www.epeople.go.kr/' },
+        { keywords: ['정부24', '주민등록', '인감', '등본'], url: 'https://www.gov.kr/' },
+        { keywords: ['청와대 청원', '국민청원'], url: 'https://www.president.go.kr/' },
+        // 세금·국세청
+        { keywords: ['홈택스', '연말정산', '종합소득세', '부가세'], url: 'https://www.hometax.go.kr/' },
+        { keywords: ['지방세', '위택스', '재산세', '자동차세'], url: 'https://www.wetax.go.kr/' },
+        { keywords: ['손택스'], url: 'https://m.hometax.go.kr/' },
+        // 청년 정책
+        { keywords: ['청년도약계좌', '청년적금'], url: 'https://ydak.kinfa.or.kr/' },
+        { keywords: ['청년내일저축계좌', '복지로'], url: 'https://www.bokjiro.go.kr/' },
+        { keywords: ['청년월세', '청년월세지원'], url: 'https://www.gov.kr/portal/onestopSvc/youngMonthlyRent' },
+        // 금융
+        { keywords: ['청약', '주택청약', '청약홈'], url: 'https://www.applyhome.co.kr/' },
+        { keywords: ['전세사기', '전세보증보험', 'HUG'], url: 'https://www.khug.or.kr/' },
+        { keywords: ['신용회복', '개인회생', '서민금융'], url: 'https://www.kinfa.or.kr/' },
+        // 보험·연금
+        { keywords: ['국민연금', '연금공단'], url: 'https://www.nps.or.kr/' },
+        { keywords: ['건강보험', '건강보험공단', '4대보험'], url: 'https://www.nhis.or.kr/' },
+        { keywords: ['고용보험', '실업급여'], url: 'https://www.ei.go.kr/' },
+        { keywords: ['산재보험', '근로복지공단'], url: 'https://www.kcomwel.or.kr/' },
+        // 노동·교육
+        { keywords: ['워크넷', '구직', '취업'], url: 'https://www.work24.go.kr/' },
+        { keywords: ['HRD-Net', '국비지원', '내일배움'], url: 'https://www.hrd.go.kr/' },
+        { keywords: ['고용센터', '고용노동부'], url: 'https://www.moel.go.kr/' },
+        // 부동산
+        { keywords: ['LH', '한국토지주택공사', '청년임대'], url: 'https://www.lh.or.kr/' },
+        { keywords: ['SH', '서울주택도시공사'], url: 'https://www.i-sh.co.kr/' },
+        { keywords: ['실거래가', '국토교통부 실거래가'], url: 'https://rt.molit.go.kr/' },
+        // 운전·자동차
+        { keywords: ['운전면허', '도로교통공단'], url: 'https://www.koroad.or.kr/' },
+        { keywords: ['자동차등록', '교통민원24'], url: 'https://www.efine.go.kr/' },
+        // 의료
+        { keywords: ['건강검진', '국가건강검진'], url: 'https://www.nhis.or.kr/' },
+        { keywords: ['의료기관', '심평원', '병원평가'], url: 'https://www.hira.or.kr/' },
+        // 교통
+        { keywords: ['KTX', '코레일', '기차표'], url: 'https://www.korail.com/' },
+        { keywords: ['SRT'], url: 'https://etk.srail.kr/' },
+        { keywords: ['고속버스 예매'], url: 'https://www.kobus.co.kr/' },
+        // 공공기관 채용
+        { keywords: ['공무원시험', '사이버국가고시센터'], url: 'https://gosi.kr/' },
+        { keywords: ['공기업 채용', '나라일터'], url: 'https://www.gojobs.go.kr/' },
+      ];
+      const findOfficialUrl = (text: string): string | null => {
+        const t = String(text || '').toLowerCase();
+        for (const entry of OFFICIAL_SITES) {
+          if (entry.keywords.some((kw) => t.includes(kw.toLowerCase()))) return entry.url;
+        }
+        return null;
+      };
+
+      // CTA 폴백 교체 — google 검색 URL → 공식 사이트
+      const topic = String(data.title || data.payload?.topic || data.payload?.title || '');
+      const ctaReplaced: number[] = [0];
+      data.content = data.content.replace(
+        /(<a[^>]*href=["'])https?:\/\/(?:www\.)?google\.[a-z.]+\/(?:search|url)\?[^"']*[?&]q=([^"'&]+)[^"']*?(["'][^>]*>)/gi,
+        (match: string, prefix: string, q: string, suffix: string) => {
+          const decoded = decodeURIComponent(q.replace(/\+/g, ' '));
+          const official = findOfficialUrl(decoded) || findOfficialUrl(topic);
+          if (official) {
+            ctaReplaced[0]++;
+            return `${prefix}${official}${suffix}`;
+          }
+          return match;
+        },
+      );
+      if (ctaReplaced[0] > 0) {
+        enrichmentLog.push(`CTA Google → 공식사이트 ${ctaReplaced[0]}개 교체`);
+      }
+
+      // 이미지 alt 자동 보강 — 비어있는 alt를 직전 H2 텍스트로 채움
+      const h2List: Array<{ pos: number; text: string }> = [];
+      const h2Re = /<h2[^>]*>([\s\S]*?)<\/h2>/gi;
+      let h2m: RegExpExecArray | null;
+      while ((h2m = h2Re.exec(data.content)) !== null) {
+        h2List.push({ pos: h2m.index, text: String(h2m[1]).replace(/<[^>]+>/g, '').trim() });
+      }
+      let altFilled = 0;
+      data.content = data.content.replace(
+        /<img\b([^>]*?)>/gi,
+        (full: string, attrs: string, offset: number) => {
+          const hasAlt = /\balt\s*=\s*["'][^"']+["']/i.test(attrs);
+          if (hasAlt) return full;
+          const prevH2 = [...h2List].reverse().find((h) => h.pos < offset);
+          const altText = (prevH2?.text || topic || '').replace(/["<>]/g, '').slice(0, 100);
+          if (!altText) return full;
+          altFilled++;
+          const cleanedAttrs = attrs.replace(/\balt\s*=\s*["']\s*["']/gi, '');
+          return `<img${cleanedAttrs} alt="${altText}">`;
+        },
+      );
+      if (altFilled > 0) {
+        enrichmentLog.push(`이미지 alt ${altFilled}개 자동 보강`);
+      }
+
+      // HTML 메타 보강 — meta description + og 풀세트 + twitter + robots + canonical placeholder
+      //   본문에 이미 같은 메타가 있으면 skip (중복 방지)
+      const titleText = String(data.title || topic || '').replace(/["'<>]/g, '').slice(0, 90);
+      const plainText = data.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const descText = plainText.slice(0, 155).replace(/["'<>]/g, '');
+      const imgUrl = String(data.thumbnailUrl || '').slice(0, 500);
+      const metaParts: string[] = [];
+      if (!/<meta\s+name=["']description["']/i.test(data.content)) {
+        metaParts.push(`<meta name="description" content="${descText}">`);
+      }
+      if (!/<meta\s+name=["']robots["']/i.test(data.content)) {
+        metaParts.push('<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">');
+      }
+      if (!/<meta\s+property=["']og:title["']/i.test(data.content)) {
+        metaParts.push(`<meta property="og:title" content="${titleText}">`);
+      }
+      if (!/<meta\s+property=["']og:description["']/i.test(data.content)) {
+        metaParts.push(`<meta property="og:description" content="${descText}">`);
+      }
+      if (imgUrl && !/<meta\s+property=["']og:image["']/i.test(data.content)) {
+        metaParts.push(`<meta property="og:image" content="${imgUrl}">`);
+        metaParts.push(`<meta property="og:image:alt" content="${titleText}">`);
+      }
+      if (!/<meta\s+property=["']og:type["']/i.test(data.content)) {
+        metaParts.push('<meta property="og:type" content="article">');
+      }
+      if (!/<meta\s+name=["']twitter:card["']/i.test(data.content)) {
+        metaParts.push('<meta name="twitter:card" content="summary_large_image">');
+        metaParts.push(`<meta name="twitter:title" content="${titleText}">`);
+        metaParts.push(`<meta name="twitter:description" content="${descText}">`);
+        if (imgUrl) metaParts.push(`<meta name="twitter:image" content="${imgUrl}">`);
+      }
+      if (metaParts.length > 0) {
+        // 본문 맨 앞에 추가 (Blogger/WP 둘 다 head에 들어가지 않더라도 OG/Twitter 파서는 본문 inline 메타도 잡음)
+        data.content = metaParts.join('\n') + '\n' + data.content;
+        enrichmentLog.push(`HTML 메타 ${metaParts.length}개 주입 (desc/og/twitter/robots)`);
+      }
+
+      if (enrichmentLog.length > 0) {
+        const msg = `[ENRICHMENT] ${enrichmentLog.join(' | ')}`;
         console.log(msg);
         _evt.sender?.send?.('log-line', msg);
       }
