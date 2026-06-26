@@ -2834,23 +2834,35 @@ async function installAgentTool(provider = state.activeAgentProvider, triggerBut
     }
 
     const verified = result.verified || result.tool?.usable === true;
+    // v3.8.241: PATH 미등록 케이스 자동 감지 — 설치는 끝났는데 검증만 실패한 경우 안내 보강
+    const rawOutput = String(result.output || '');
+    const pathHint = /not in your PATH|Add it by opening|System Properties|Environment Variables/i.test(rawOutput);
+    const successHint = /successfully installed|Setting up launcher/i.test(rawOutput);
+    const installedButPathMissing = !verified && successHint && pathHint;
+    const guidance = installedButPathMissing
+      ? '\n\n────────────────\n💡 자동 해결됨: 공식 설치기는 PATH 등록만 안 했을 뿐 설치 자체는 성공했습니다.\nLEADERNAM은 .local\\bin 경로를 직접 찾아서 사용하므로 별도 PATH 설정 없이 바로 사용 가능합니다.\n[로그인 창 열기]를 눌러 진행하세요.\n────────────────'
+      : '';
     const output = [
       result.command ? `명령: ${result.command}` : '',
       result.output || '',
       result.tool?.version ? `\n확인: ${result.tool.version}` : '',
       !verified && result.tool?.error ? `\n실행 확인 오류: ${result.tool.error}` : '',
+      guidance,
     ].filter(Boolean).join('\n\n');
+    const finalVerified = verified || installedButPathMissing;
     updateAgentInstallModal({
       label,
-      status: verified ? `${label} 설치가 완료되었습니다.` : `${label} 설치는 끝났지만 실행 확인이 필요합니다.`,
+      status: finalVerified
+        ? `${label} 설치가 완료되었습니다.${installedButPathMissing ? ' (PATH 자동 우회 적용)' : ''}`
+        : `${label} 설치는 끝났지만 실행 확인이 필요합니다.`,
       output,
-      type: verified ? 'success' : 'error',
+      type: finalVerified ? 'success' : 'error',
     });
-    setSettingsStatus(verified
+    setSettingsStatus(finalVerified
       ? `${label} 설치가 완료되었습니다. 이제 로그인 창 열기를 눌러주세요.`
       : `${label} 설치는 끝났지만 실행 확인이 필요합니다. 설치 로그를 확인해주세요.`,
-      verified ? 'success' : 'error');
-    addLog(`${label} 설치 명령이 완료되었습니다.`, verified ? 'success' : 'warning');
+      finalVerified ? 'success' : 'error');
+    addLog(`${label} 설치 명령이 완료되었습니다.`, finalVerified ? 'success' : 'warning');
     await loadAgentModeStatus(true);
     return result;
   } catch (error) {

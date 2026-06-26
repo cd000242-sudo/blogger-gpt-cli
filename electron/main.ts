@@ -7089,6 +7089,21 @@ function buildAgentRunEnv(profile: AgentProfile): NodeJS.ProcessEnv {
     env.CLAUDE_CONFIG_DIR = profile.profileDir;
   }
 
+  // v3.8.241: Claude Code 네이티브 설치 경로 (~/.local/bin)를 PATH에 자동 주입
+  // 공식 설치기가 PATH를 등록하지 않은 케이스에서도 claude.exe가 자식 프로세스(node, sh 등)를 찾을 수 있도록
+  if (profile.provider === 'claude') {
+    const extraPaths = getClaudeNativeInstallDirs().filter((p) => {
+      try { return fs.existsSync(p); } catch { return false; }
+    });
+    if (extraPaths.length > 0) {
+      const sep = process.platform === 'win32' ? ';' : ':';
+      const currentPath = env.PATH || env.Path || '';
+      const merged = [...extraPaths, currentPath].filter(Boolean).join(sep);
+      env.PATH = merged;
+      if (process.platform === 'win32') env.Path = merged;
+    }
+  }
+
   return env;
 }
 
@@ -8002,6 +8017,21 @@ function isBlockedAgentBinaryCandidate(candidate: string, binaryName: string): b
   return normalized.includes('\\windowsapps\\');
 }
 
+function getClaudeNativeInstallDirs(): string[] {
+  // v3.8.241: Claude Code 공식 네이티브 설치기는 ~/.local/bin (Windows: C:\Users\<user>\.local\bin)에 설치
+  // PATH 미등록 케이스 대응 — 직접 후보 경로로 추가
+  const dirs: string[] = [];
+  const home = app.getPath('home');
+  if (home) pushUniquePath(dirs, path.join(home, '.local', 'bin'));
+  if (process.platform === 'win32') {
+    if (process.env.USERPROFILE) pushUniquePath(dirs, path.join(process.env.USERPROFILE, '.local', 'bin'));
+    if (process.env.LOCALAPPDATA) pushUniquePath(dirs, path.join(process.env.LOCALAPPDATA, 'Programs', 'claude-code'));
+  } else {
+    if (process.env.HOME) pushUniquePath(dirs, path.join(process.env.HOME, '.local', 'bin'));
+  }
+  return dirs;
+}
+
 function getAgentBinaryCandidates(binaryName: string): string[] {
   const candidates: string[] = [];
   const npmPrefixes: string[] = [];
@@ -8020,12 +8050,29 @@ function getAgentBinaryCandidates(binaryName: string): string[] {
       pushUniquePath(candidates, path.join(prefix, binaryName));
       pushUniquePath(candidates, path.join(prefix, `${binaryName}.ps1`));
     }
+
+    // v3.8.241: Claude Code 네이티브 설치 경로 (~/.local/bin) — PATH 미등록 케이스
+    if (binaryName === 'claude') {
+      for (const dir of getClaudeNativeInstallDirs()) {
+        pushUniquePath(candidates, path.join(dir, 'claude.exe'));
+        pushUniquePath(candidates, path.join(dir, 'claude.cmd'));
+        pushUniquePath(candidates, path.join(dir, 'claude.bat'));
+        pushUniquePath(candidates, path.join(dir, 'claude'));
+      }
+    }
   } else {
     pushUniquePath(npmPrefixes, process.env.npm_config_prefix);
     pushUniquePath(npmPrefixes, getCommandOutputSync('npm', ['config', 'get', 'prefix']));
     for (const prefix of npmPrefixes) {
       if (binaryName === 'codex') pushUniquePath(candidates, getCodexNativeBinaryCandidate(prefix));
       pushUniquePath(candidates, path.join(prefix, 'bin', binaryName));
+    }
+
+    // v3.8.241: Claude Code 네이티브 설치 경로 (~/.local/bin) — macOS/Linux 동일
+    if (binaryName === 'claude') {
+      for (const dir of getClaudeNativeInstallDirs()) {
+        pushUniquePath(candidates, path.join(dir, 'claude'));
+      }
     }
   }
 
