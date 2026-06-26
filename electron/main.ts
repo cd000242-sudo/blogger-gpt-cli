@@ -10638,11 +10638,15 @@ ipcMain.handle('adsense:diagnose', async (_evt, payload: { siteUrl: string }) =>
         topicCount[kw] = (topicCount[kw] || 0) + 1;
       }
     }
-    const duplicates = Object.entries(topicCount)
+    // v3.8.243: 토픽 반복 = 거미줄/cornerstone 전략으로 의도된 케이스가 많음
+    // AdSense의 실제 "중복 콘텐츠" 위반은 본문이 거의 동일한 페이지를 의미하지, 같은 토픽의 다각도 글이 아님
+    // → 토픽 반복은 "위반"이 아닌 "구조 분석" 정보로 분리. 거미줄 사용자에게 친절한 안내 추가.
+    const topicClusters = Object.entries(topicCount)
       .filter(([, n]) => n >= 4)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
       .map(([topic, count]) => ({ topic, count }));
+    const duplicates = topicClusters; // 하위 호환 (기존 UI 동작 유지)
 
     // 기능 페이지 확인 (about, privacy, contact)
     const pageChecks = await Promise.all([
@@ -10657,13 +10661,17 @@ ipcMain.handle('adsense:diagnose', async (_evt, payload: { siteUrl: string }) =>
       total,
       titleViolationsCount: titleViolations.length,
       titleViolations: titleViolations.slice(0, 50),
+      // v3.8.243: 두 키 모두 전달. duplicateTopics는 하위 호환, topicClusters가 정확한 의미
       duplicateTopics: duplicates,
+      topicClusters,
+      topicClustersNote: '같은 토픽 4회+ 등장은 거미줄(cornerstone+spokes) 전략으로 의도된 경우가 많습니다. 본문이 실제로 동일하지 않다면 AdSense 위반이 아닙니다.',
       missingPages,
       summary: {
         totalPosts: total,
         clickbaitCount: titleViolations.length,
         clickbaitPercent: total > 0 ? Math.round((titleViolations.length / Math.min(entries.length, total)) * 100) : 0,
         duplicateTopicCount: duplicates.length,
+        topicClusterCount: topicClusters.length,
         missingPageCount: missingPages.length,
       },
     };

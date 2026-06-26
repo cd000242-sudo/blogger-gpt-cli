@@ -95,9 +95,9 @@ function openAdSenseFixerModal() {
             <div style="color:#fee2e2;font-size:20px;font-weight:900;">${s.clickbaitCount}</div>
             <div style="color:#fca5a5;font-size:10px;">${s.clickbaitPercent}%</div>
           </div>
-          <div style="padding:10px;background:rgba(245,158,11,0.12);border-radius:8px;text-align:center;">
-            <div style="color:#fde68a;font-size:11px;">중복 주제</div>
-            <div style="color:#fef3c7;font-size:20px;font-weight:900;">${s.duplicateTopicCount}</div>
+          <div style="padding:10px;background:rgba(59,130,246,0.12);border-radius:8px;text-align:center;" title="거미줄(cornerstone) 전략은 위반 아님 — 정보용">
+            <div style="color:#bfdbfe;font-size:11px;">토픽 클러스터 ⓘ</div>
+            <div style="color:#dbeafe;font-size:20px;font-weight:900;">${s.duplicateTopicCount}</div>
           </div>
           <div style="padding:10px;background:rgba(239,68,68,0.12);border-radius:8px;text-align:center;">
             <div style="color:#fca5a5;font-size:11px;">누락 페이지</div>
@@ -110,9 +110,14 @@ function openAdSenseFixerModal() {
             <div style="color:#cbd5e1;font-size:12px;">${missing}</div>
             ${r.missingPages.length > 0 ? `<button id="adsense-create-pages-btn" style="margin-top:10px;padding:8px 12px;background:linear-gradient(135deg,#22c55e,#16a34a);color:white;border:0;border-radius:8px;font-weight:800;font-size:12px;cursor:pointer;width:100%;">📄 누락된 페이지 자동 생성</button>` : ''}
           </div>
-          <div style="padding:12px;background:rgba(15,23,42,0.6);border:1px solid rgba(148,163,184,0.2);border-radius:10px;">
-            <div style="color:#fbbf24;font-size:13px;font-weight:800;margin-bottom:8px;">🔁 중복 주제 Top 5</div>
-            <ul style="margin:0;padding-left:18px;color:#cbd5e1;font-size:12px;line-height:1.7;">${dupList || '<li>없음</li>'}</ul>
+          <div style="padding:12px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.3);border-radius:10px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+              <div style="color:#93c5fd;font-size:13px;font-weight:800;">🕸️ 토픽 클러스터 Top 5 <span style="color:#64748b;font-size:10px;font-weight:600;">(정보용)</span></div>
+            </div>
+            <ul style="margin:0 0 8px 0;padding-left:18px;color:#cbd5e1;font-size:12px;line-height:1.7;">${dupList || '<li>없음</li>'}</ul>
+            <div style="padding:8px 10px;background:rgba(15,23,42,0.6);border-left:3px solid #3b82f6;border-radius:4px;color:#94a3b8;font-size:11px;line-height:1.5;">
+              💡 <strong style="color:#bfdbfe;">위반 아님:</strong> 거미줄(cornerstone+spokes) 전략으로 의도된 반복은 정상입니다. AdSense의 "중복 콘텐츠"는 본문이 거의 동일한 페이지를 의미하며, 같은 토픽의 다각도 글은 오히려 SEO에 유리합니다.
+            </div>
           </div>
         </div>
         <div style="padding:12px;background:rgba(15,23,42,0.6);border:1px solid rgba(148,163,184,0.2);border-radius:10px;margin-bottom:12px;">
