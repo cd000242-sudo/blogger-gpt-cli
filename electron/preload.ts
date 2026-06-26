@@ -399,6 +399,9 @@ export type BloggerApi = {
   adsenseCleanPostTitles(payload: { blogId: string; postIds: string[]; dryRun?: boolean }): Promise<any>;
   adsenseAnalyzeContentValue(payload: { blogId: string; sampleSize?: number }): Promise<any>;
   adsenseBoostPostValue(payload: { blogId: string; postId: string; dryRun?: boolean }): Promise<any>;
+  adsenseBulkCleanupPosts(payload: { blogId: string; action: 'delete' | 'list-only'; threshold?: number; dryRun?: boolean }): Promise<any>;
+  adsenseListYearlyPosts(payload: { blogId: string; currentYear?: number }): Promise<any>;
+  adsenseRefreshYearlyPost(payload: { blogId: string; postId: string; currentYear?: number; dryRun?: boolean }): Promise<any>;
 };
 
 /** ───────── 공통 유틸 ───────── */
@@ -618,6 +621,9 @@ const api: BloggerApi = {
   adsenseCleanPostTitles: (payload: any) => ipcRenderer.invoke('adsense:clean-post-titles', payload),
   adsenseAnalyzeContentValue: (payload: any) => ipcRenderer.invoke('adsense:analyze-content-value', payload),
   adsenseBoostPostValue: (payload: any) => ipcRenderer.invoke('adsense:boost-post-value', payload),
+  adsenseBulkCleanupPosts: (payload: any) => ipcRenderer.invoke('adsense:bulk-cleanup-posts', payload),
+  adsenseListYearlyPosts: (payload: any) => ipcRenderer.invoke('adsense:list-yearly-posts', payload),
+  adsenseRefreshYearlyPost: (payload: any) => ipcRenderer.invoke('adsense:refresh-yearly-post', payload),
 
   // ── 플랫폼 연동 확인 ──
   checkPlatformAuth: (platform) => ipcRenderer.invoke('check-platform-auth', platform),

@@ -11200,5 +11200,294 @@ ${originalHtml}
   }
 });
 
-console.log('[APP] ✅ AdSense 자동 해결 IPC 등록 완료 (open-console/diagnose/create-pages/list-clickbait-posts/clean-post-titles/analyze-content-value/boost-post-value)');
+// v3.8.246: 사이트 전체 일괄 정리 — AdSense 모드로 생성 안 한 글들 처리
+// 옵션 1: 위험 글 일괄 삭제 (테스트 데이터 정리, AdSense 승인 전 상태)
+// 옵션 2: 위험 글 일괄 보강 (기존 boost-post-value를 모든 위험 글에 적용)
+ipcMain.handle('adsense:bulk-cleanup-posts', async (_evt, payload: {
+  blogId: string;
+  action: 'delete' | 'list-only';
+  threshold?: number;
+  dryRun?: boolean;
+}) => {
+  try {
+    const envData = loadEnvFromFile() as any;
+    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
+    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
+    if (!blogId || !accessToken) return { ok: false, error: 'Blog ID 또는 OAuth 토큰 누락' };
+    const dryRun = payload.dryRun !== false;
+    const threshold = payload.threshold ?? 40;
+    const axios = (await import('axios')).default;
+
+    // 모든 글 페치 (페이지네이션)
+    const allPosts: Array<{ id: string; title: string; url: string; content: string }> = [];
+    let pageToken: string | undefined;
+    do {
+      const r: any = await axios.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        params: { maxResults: 50, fetchBodies: true, status: 'live', pageToken },
+        timeout: 45000,
+      });
+      for (const p of (r.data?.items || [])) {
+        allPosts.push({ id: p.id, title: p.title || '', url: p.url || '', content: p.content || '' });
+      }
+      pageToken = r.data?.nextPageToken;
+      if (allPosts.length >= 1000) break;
+    } while (pageToken);
+
+    if (allPosts.length === 0) return { ok: false, error: '글 없음' };
+
+    // 채점 (analyze-content-value와 동일 로직 간략화)
+    const stripHtml = (s: string) => s.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+    const PERSONAL = [/저(는|희)/g, /제(가|일|경우)/g, /경험상/g, /직접\s*(써|해)\s*보(니|면)/g, /개인적으로/g];
+    const SPECIFIC = [/\d{4}년\s*\d+월/g, /\d+만원|\d+,\d+원/g, /\d+%/g, /비교표|체크리스트/g];
+    const EEAT = [/출처\s*[:：]/g, /정부|보건복지부|국세청|식약처/g, /논문|연구|보고서/g];
+    const SCALED = [/흔히\s*알려진/g, /많은\s*분(들)?(이|들이)/g, /오늘은\s*[가-힯\s]+에\s*대해\s*(알아|살펴)\s*보(겠습니다|아요)/g];
+
+    const scored = allPosts.map((p) => {
+      const html = p.content;
+      const text = stripHtml(html);
+      const wc = text.length;
+      const h2 = (html.match(/<h2[^>]*>/gi) || []).length;
+      const personalN = PERSONAL.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+      const specificN = SPECIFIC.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+      const eeatN = EEAT.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+      const scaledN = SCALED.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+      let total = 0;
+      if (wc >= 2500) total += 40; else if (wc >= 1500) total += 28; else if (wc >= 1000) total += 15; else total += 5;
+      if (h2 >= 5) total += 10; else if (h2 >= 3) total += 6; else total += 2;
+      if (personalN >= 3) total += 20; else if (personalN >= 1) total += 10;
+      if (specificN >= 3) total += 15; else if (specificN >= 1) total += 8;
+      if (eeatN >= 2) total += 10; else if (eeatN >= 1) total += 5;
+      if (scaledN >= 3) total -= 15; else if (scaledN >= 1) total -= 7;
+      total = Math.max(0, Math.min(100, total));
+      return { id: p.id, title: p.title, url: p.url, score: total, wordCount: wc };
+    });
+
+    const targets = scored.filter((s) => s.score < threshold).sort((a, b) => a.score - b.score);
+
+    if (dryRun || payload.action === 'list-only') {
+      return {
+        ok: true, dryRun: true,
+        totalPosts: allPosts.length,
+        targetCount: targets.length,
+        targets,
+        scored,
+        threshold,
+      };
+    }
+
+    // 실제 삭제 (payload.action === 'delete')
+    let deleted = 0;
+    let failed = 0;
+    const log: Array<{ id: string; title: string; ok: boolean; error?: string }> = [];
+    for (const t of targets) {
+      try {
+        await axios.delete(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${t.id}`, {
+          headers: { Authorization: `Bearer ${accessToken}` }, timeout: 30000,
+        });
+        deleted++;
+        log.push({ id: t.id, title: t.title, ok: true });
+        await new Promise((res) => setTimeout(res, 700));
+      } catch (e: any) {
+        failed++;
+        log.push({ id: t.id, title: t.title, ok: false, error: e?.message || String(e) });
+      }
+    }
+    return { ok: true, deleted, failed, totalPosts: allPosts.length, log };
+  } catch (e: any) {
+    return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+  }
+});
+
+// v3.8.246: 연도 의존 글 자동 갱신 — 설날/종합소득세/연말정산 등 연단위 토픽 LLM 리프레시
+// 1. 모든 글 페치
+// 2. 연도 마커("2026년", "올해", "작년"), 계절 키워드, 세금/공휴일 키워드 감지
+// 3. 현재 연도와 다르면 LLM에게 "최신 연도 정보로 업데이트" 요청
+// 4. dryRun → before/after 비교, false → patch
+ipcMain.handle('adsense:list-yearly-posts', async (_evt, payload: { blogId: string; currentYear?: number }) => {
+  try {
+    const envData = loadEnvFromFile() as any;
+    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
+    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
+    if (!blogId || !accessToken) return { ok: false, error: 'Blog ID 또는 OAuth 토큰 누락' };
+    const currentYear = payload.currentYear || new Date().getFullYear();
+    const axios = (await import('axios')).default;
+
+    // 연도/계절/세금 키워드 — 연단위로 변하는 토픽
+    const YEARLY_TOPIC_KEYWORDS = [
+      '설날', '추석', '연말정산', '종합소득세', '부가가치세',
+      '주민세', '재산세', '자동차세', '국민연금', '건강보험',
+      '근로장려금', '자녀장려금', '청년도약계좌', '청년희망적금',
+      '신년', '새해', '연초', '연말', '추석연휴', '설연휴',
+      '최저임금', '기초연금', '실업급여',
+    ];
+    const yearPattern = /\b(20[12][0-9])년/g;
+
+    // 모든 글 페치
+    const candidates: Array<{ id: string; title: string; url: string; mentionedYears: number[]; topics: string[]; outdated: boolean; published: string }> = [];
+    let pageToken: string | undefined;
+    do {
+      const r: any = await axios.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        params: { maxResults: 50, fetchBodies: true, status: 'live', pageToken },
+        timeout: 45000,
+      });
+      for (const p of (r.data?.items || [])) {
+        const text = String(p.title || '') + ' ' + String(p.content || '').replace(/<[^>]+>/g, ' ');
+        // 연도 추출
+        const years = new Set<number>();
+        let m: RegExpExecArray | null;
+        const re = /\b(20[12][0-9])년/g;
+        while ((m = re.exec(text))) years.add(parseInt(m[1], 10));
+        // 연단위 토픽 키워드
+        const matchedTopics = YEARLY_TOPIC_KEYWORDS.filter((kw) => text.includes(kw));
+        // 후보 조건: 연단위 토픽 글이고 + (언급 연도 중 currentYear 이하 1년 이상 있음 OR 작년/올해/지난해 등 상대 표현)
+        const yearArr = Array.from(years).sort();
+        const hasOldYear = yearArr.some((y) => y < currentYear);
+        const hasRelativeOld = /(작년|지난해|올해|이번\s*해)/.test(text);
+        if (matchedTopics.length > 0 && (hasOldYear || hasRelativeOld)) {
+          candidates.push({
+            id: p.id,
+            title: p.title || '',
+            url: p.url || '',
+            mentionedYears: yearArr,
+            topics: matchedTopics,
+            outdated: hasOldYear || hasRelativeOld,
+            published: p.published || '',
+          });
+        }
+      }
+      pageToken = r.data?.nextPageToken;
+      if (candidates.length >= 500) break;
+    } while (pageToken);
+
+    return { ok: true, currentYear, total: candidates.length, candidates };
+  } catch (e: any) {
+    return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('adsense:refresh-yearly-post', async (_evt, payload: { blogId: string; postId: string; currentYear?: number; dryRun?: boolean }) => {
+  try {
+    const envData = loadEnvFromFile() as any;
+    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
+    const postId = String(payload.postId || '').trim();
+    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
+    if (!blogId || !postId || !accessToken) return { ok: false, error: '필수 파라미터 누락' };
+    const dryRun = payload.dryRun !== false;
+    const currentYear = payload.currentYear || new Date().getFullYear();
+    const axios = (await import('axios')).default;
+
+    const fetched: any = await axios.get(
+      `https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`,
+      { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 30000 }
+    );
+    const post = fetched.data;
+    const originalTitle = String(post.title || '');
+    const originalHtml = String(post.content || '');
+
+    const refreshPrompt = `당신은 한국 블로그 글의 연단위 정보 갱신 전문가입니다.
+
+아래 글은 연도 의존성 토픽(설날, 종합소득세, 연말정산, 청년도약계좌 등)을 다루고 있어서 매년 정보 갱신이 필요합니다.
+
+**현재 기준**: ${currentYear}년
+
+다음 원칙으로 본문과 제목을 갱신해 주세요:
+
+1. **연도 표기 갱신**:
+   - 본문/제목의 모든 "20XX년" 표기를 ${currentYear}년 기준으로 업데이트
+   - 작년 → ${currentYear - 1}년, 올해 → ${currentYear}년, 내년 → ${currentYear + 1}년으로 명확화
+   - 날짜는 ${currentYear}년 기준 최신화
+
+2. **정책/세율/금액 갱신**:
+   - ${currentYear}년 적용 정부 정책/세율/금액으로 업데이트 (확실하지 않으면 "${currentYear}년 기준 정확한 수치는 정부 공식 사이트 확인 권장"으로 명시)
+   - 신청 기간/마감일을 ${currentYear}년 일정으로 갱신
+   - 변경된 부분은 자연스럽게 본문에 녹임
+
+3. **마지막 업데이트 표기**:
+   - 본문 마지막에 "📅 ${currentYear}년 ${new Date().getMonth() + 1}월 기준 최신화" 추가
+
+4. **신뢰 보강**:
+   - 정부/공공기관 출처 인용 추가 ("국세청 공식 안내 참조 [자료]")
+   - 1~2곳에 "정확한 정보는 ${currentYear}년 ${new Date().getMonth() + 1}월 기준 공식 사이트 확인 필수" 추가
+
+**절대 금지**:
+- 확실하지 않은 구체 수치 만들기 (모르면 "공식 사이트 확인 권장"으로 처리)
+- 기존 H2/H3 구조 변경
+- 기존 이미지 태그 삭제
+- 광고 CTA 추가
+
+**출력 형식** (반드시 이 JSON 형식만 출력, 다른 텍스트 없이):
+{
+  "title": "갱신된 제목",
+  "html": "갱신된 HTML 본문 전체"
+}
+
+---
+[원본 제목]
+${originalTitle}
+
+[원본 HTML]
+${originalHtml}
+---`;
+
+    const { callLLM } = await import('../src/core/llm');
+    const providers: Array<'claude' | 'openai' | 'perplexity'> = ['claude', 'openai', 'perplexity'];
+    let llmText = '';
+    let usedProvider = '';
+    let lastError = '';
+    for (const p of providers) {
+      try {
+        llmText = await callLLM(p, refreshPrompt);
+        usedProvider = p;
+        if (llmText && llmText.length > 200) break;
+      } catch (e: any) { lastError = e?.message || String(e); continue; }
+    }
+    if (!llmText) return { ok: false, error: `LLM 호출 실패: ${lastError}` };
+
+    // JSON 파싱
+    let parsed: { title?: string; html?: string } = {};
+    try {
+      const jsonMatch = llmText.match(/\{[\s\S]*"title"[\s\S]*"html"[\s\S]*\}/);
+      if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
+      else parsed = JSON.parse(llmText);
+    } catch {
+      // JSON 실패 시 HTML만 추출 시도
+      const htmlMatch = llmText.match(/"html"\s*:\s*"([\s\S]+)"\s*\}/);
+      if (htmlMatch) parsed = { title: originalTitle, html: htmlMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n') };
+    }
+    if (!parsed.html) return { ok: false, error: 'LLM 응답 파싱 실패' };
+
+    const newTitle = parsed.title || originalTitle;
+    const newHtml = parsed.html;
+
+    if (dryRun) {
+      return {
+        ok: true, dryRun: true,
+        postId, provider: usedProvider,
+        before: { title: originalTitle, htmlPreview: originalHtml.slice(0, 800) },
+        after: { title: newTitle, htmlPreview: newHtml.slice(0, 800), fullTitle: newTitle, fullHtml: newHtml },
+      };
+    }
+
+    await axios.patch(
+      `https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`,
+      { title: newTitle, content: newHtml },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 30000 }
+    );
+
+    return {
+      ok: true, dryRun: false,
+      postId, provider: usedProvider,
+      titleChanged: newTitle !== originalTitle,
+      before: { title: originalTitle },
+      after: { title: newTitle },
+      message: `✅ ${currentYear}년 정보로 갱신 완료`,
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+  }
+});
+
+console.log('[APP] ✅ AdSense 자동 해결 IPC 등록 완료 (open-console/diagnose/create-pages/list-clickbait-posts/clean-post-titles/analyze-content-value/boost-post-value/bulk-cleanup-posts/list-yearly-posts/refresh-yearly-post)');
 console.log('[APP] ✅ Electron 앱 초기화 완료');
