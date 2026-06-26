@@ -1340,6 +1340,20 @@
             <!-- 📝 블로그 플랫폼 탭 -->
             <div id="tab-platform" class="settings-tab-content" style="display: none;">
 
+              <!-- v3.8.242: AdSense 정책 위반 자동 해결 (환경설정 > 블로그 플랫폼 탭 최상단 노출) -->
+              <div style="margin: 0 0 24px 0; padding: 22px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid rgba(251,191,36,0.45); border-radius: 16px; box-shadow: 0 10px 30px rgba(245,158,11,0.18);">
+                <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
+                  <span style="font-size:32px;">🚨</span>
+                  <div>
+                    <h3 style="margin:0;color:#fbbf24;font-size:18px;font-weight:900;">AdSense 정책 위반 자동 해결</h3>
+                    <p style="margin:4px 0 0 0;color:#94a3b8;font-size:12px;">사이트 진단 → About/Privacy/Contact 페이지 자동 생성 → Clickbait 제목 일괄 정리 (Dry-run 미리보기 포함)</p>
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button onclick="window.openAdSenseFixerModal && window.openAdSenseFixerModal()" style="flex:1;min-height:44px;padding:10px 16px;background:linear-gradient(135deg,#f59e0b,#d97706);color:white;border:0;border-radius:10px;font-weight:900;font-size:14px;cursor:pointer;box-shadow:0 6px 20px rgba(245,158,11,0.45);">🚨 AdSense 자동 해결 열기</button>
+                </div>
+              </div>
+
               <!-- 현재 연동 상태 -->
               <!-- v3.7.16: 기본 Blogger 톤(노랑). selectPlatform이 클릭 시 WP 톤(파랑)으로 전환. 연동 테스트 텍스트는 검은색. -->
               <div id="platformStatusBox"
