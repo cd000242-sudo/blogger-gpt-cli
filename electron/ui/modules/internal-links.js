@@ -2135,6 +2135,16 @@ async function generateAndPublishSpiderWeb() {
         // v3.8.8: 발행 플랫폼 — 백엔드가 WP 미디어 우선 업로드 결정
         platform: platformEarly,
       };
+      // v3.8.170: 거미줄도 에이전트 모드 지원 — UI에서 executionMode + provider 전달
+      try {
+        const executionMode = JSON.parse(localStorage.getItem('leadernamExecutionMode') || '"api"');
+        const agentProvider = JSON.parse(localStorage.getItem('leadernamActiveAgentProvider') || '"codex"');
+        payload.executionMode = executionMode;
+        payload.agentProvider = agentProvider === 'claude' ? 'claude' : 'codex';
+        if (executionMode === 'agent') {
+          _swPushLog(`🤖 에이전트 모드 (${payload.agentProvider}) — API 비용 없이 생성`, 'info');
+        }
+      } catch {}
       _swPushLog('IPC generate-internal-consistency 호출…', 'info');
       if (window.electronAPI && window.electronAPI.invoke) {
         genResult = await window.electronAPI.invoke('generate-internal-consistency', payload);

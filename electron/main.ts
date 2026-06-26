@@ -1566,9 +1566,75 @@ URL: ${item.url}
 
       let generatedContent = '';
       try {
+        // v3.8.170: 거미줄도 에이전트 모드 지원 — payload.executionMode === 'agent'면 Agent CLI 사용
+        //   사용자 ChatGPT Plus / Claude Pro 구독 시 API 비용 0
+        //   이전: 무조건 Gemini API 호출 → 구독자도 API 비용 발생
+        //   해결: 거미줄 prompt를 agent instruction으로 전달 + article.html 결과를 generatedContent에 할당
+        const isSpiderAgentMode = (payload as any).executionMode === 'agent';
+        const agentProvider = (payload as any).agentProvider === 'claude' ? 'claude' : 'codex';
+        if (isSpiderAgentMode) {
+          sendDiag(`🤖 에이전트 모드 (${agentProvider}) — Agent CLI로 통합글 생성`);
+          try {
+            const profile = findAgentProfile(undefined, agentProvider);
+            if (!profile) {
+              sendDiag('⚠️ Agent 프로필 없음 — Gemini API로 폴백');
+            } else {
+              const access = await getAgentModeAccessStatus();
+              if (!access.allowed) {
+                sendDiag(`⚠️ ${access.message || 'Agent 모드 사용 권한 없음'} — Gemini API로 폴백`);
+              } else {
+                const jobId = createAgentJobId(profile.provider, title);
+                const jobDir = path.join(ensureAgentJobsRoot(), jobId);
+                fs.mkdirSync(jobDir, { recursive: true });
+                // Spider 전용 instruction — 거미줄 prompt 그대로 + agent 출력 규칙
+                const spiderInstructions = [
+                  '# LEADERNAM Orbit Spider-Web Agent 작업',
+                  '',
+                  '## 역할',
+                  '당신은 블로그 운영자의 cornerstone 거미줄 통합글 제작 에이전트입니다.',
+                  `여러 글(${sortedContents.length}개)을 분석해 검색 의도 1편 완전 커버 종합 가이드를 만들어 \`result/article.html\`에 저장합니다.`,
+                  '',
+                  '## 작업지시서 (원본 거미줄 프롬프트)',
+                  prompt,
+                  '',
+                  '## 반드시 생성할 파일',
+                  '1. `result/article.html` — 위 작업지시서가 요구하는 HTML 통합글 (`<div class="sw-cornerstone">` 또는 `<article>`)',
+                  '   - **본문 평문 8,000자 이상 12,000자 권장 (5,000자 미만 절대 금지)**',
+                  '   - H1 1개, H2 정확히 작업지시서 요구 개수, 각 H2 안에 H3 2~3개, FAQ + 결론·면책',
+                  '   - **잘림 절대 금지**: "(이하 생략)", "(계속)", "..." X. 마지막 `</div>` 또는 `</article>`로 한 호흡에 완성',
+                  '   - **이미지·figure·placeholder 금지** (Orbit 앱이 뒤에서 API 이미지 삽입)',
+                  '   - **CTA 박스는 작업지시서 명세 그대로** — 각 H2 끝에 거미줄 회유 박스 포함',
+                  '   - **마크다운 금지** — `**` 안 쓰고 `<strong>` 사용',
+                  '',
+                  '2. `result/metadata.json` — `{"title": "...", "summary": "검수 요약"}`',
+                  '',
+                  '## 출력 마감 규칙',
+                  '- article.html은 5,000자 이상이어야 하며 마지막은 닫힘 태그로 끝나야 합니다.',
+                  '- 잘림·짧음·placeholder가 발견되면 자체 검수 후 한 번 더 작성합니다.',
+                ].join('\n');
+                fs.writeFileSync(path.join(jobDir, 'instructions.md'), spiderInstructions, 'utf-8');
+                fs.writeFileSync(path.join(jobDir, 'payload.json'), JSON.stringify({ title, urls, postsCount: posts.length }, null, 2), 'utf-8');
+                fs.mkdirSync(path.join(jobDir, 'result'), { recursive: true });
+                const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
+                sendDiag(`🤖 ${profile.provider} Agent 실행 중... (최대 12분 대기)`);
+                const run = await runAgentProcess(profile, jobDir, lastMessagePath);
+                const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
+                const agentContent = String(result.content || '').trim();
+                if (agentContent && agentContent.length >= 500) {
+                  generatedContent = agentContent;
+                  if (result.title && !payload.title) title = result.title;
+                  sendDiag(`✅ Agent 응답 수신 (${generatedContent.length}자) — Gemini API 호출 생략`);
+                } else {
+                  sendDiag(`⚠️ Agent 응답 비어있거나 너무 짧음 (${agentContent.length}자) — Gemini API로 폴백`);
+                }
+              }
+            }
+          } catch (agentErr: any) {
+            sendDiag(`⚠️ Agent 실행 실패 → Gemini API로 폴백: ${agentErr?.message || agentErr}`);
+          }
+        }
+
         // v3.8.81: LLM 짧은 응답 자동 재시도 (사용자 보고: 1,118자만 응답)
-        //   원인: 프롬프트 복잡도↑ → LLM이 TL;DR 박스만 작성하고 H2 본문 누락
-        //   해결: 응답 < 3000자 또는 H2 < 3개면 최대 2회 재시도 (temperature 변경)
         const callLLM = async (temp: number): Promise<string> => {
           const r = await model.generateContent({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -1578,8 +1644,11 @@ URL: ${item.url}
             .replace(/```html\n?/gi, '').replace(/```\n?/gi, '').trim();
         };
 
-        sendDiag('🤖 Gemini LLM 호출 시작 (본문 생성)');
-        generatedContent = await callLLM(0.75);
+        // Agent 결과가 없을 때만 Gemini API 호출
+        if (!generatedContent || generatedContent.length < 500) {
+          sendDiag('🤖 Gemini LLM 호출 시작 (본문 생성)');
+          generatedContent = await callLLM(0.75);
+        }
         let plainLen = generatedContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
         let h2Count = (generatedContent.match(/<h2[^>]*>/gi) || []).length;
         sendDiag(`📏 LLM 응답: ${generatedContent.length}자 (평문 ${plainLen}자, H2 ${h2Count}개)`);
