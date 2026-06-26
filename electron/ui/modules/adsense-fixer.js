@@ -164,10 +164,15 @@ function openAdSenseFixerModal() {
         </div>
       `;
 
-      // 페이지 자동 생성 버튼
+      // 페이지 자동 생성 버튼 (Blogger Pages API 전용)
       const createBtn = document.getElementById('adsense-create-pages-btn');
       if (createBtn) {
         createBtn.addEventListener('click', async () => {
+          const selected = document.querySelector('input[name="platform"]:checked')?.value || 'blogger';
+          if (selected === 'wordpress') {
+            alert('⚠️ 페이지 자동 생성은 현재 Blogger 전용입니다.\n\nWordPress는 페이지 구조가 사이트마다 달라서(Elementor/Gutenberg/클래식 등) 자동 생성이 위험합니다.\n\n수동으로 About/Privacy/Contact 페이지를 WP 관리자에서 만들어 주세요.');
+            return;
+          }
           const blogId = document.getElementById('blogId')?.value?.trim();
           if (!blogId) { alert('Blog ID 환경설정에 저장 필요'); return; }
           createBtn.disabled = true; createBtn.textContent = '⏳ 생성 중...';
@@ -183,17 +188,18 @@ function openAdSenseFixerModal() {
         });
       }
 
-      // v3.8.244: 본문 가치 분석 — "가치가 별로 없는 콘텐츠" 사유 대응
+      // v3.8.244+247: 본문 가치 분석 — "가치가 별로 없는 콘텐츠" 사유 대응 (Blogger + WordPress)
       const analyzeBtn = document.getElementById('adsense-analyze-value-btn');
       if (analyzeBtn) {
         analyzeBtn.addEventListener('click', async () => {
-          const blogId = document.getElementById('blogId')?.value?.trim();
-          if (!blogId) { alert('Blog ID 환경설정에 저장 필요'); return; }
+          const p = platformGuardOrAlert();
+          if (!p) return;
           const valueEl = document.getElementById('adsense-value-result');
           analyzeBtn.disabled = true; analyzeBtn.textContent = '⏳ 본문 20개 분석 중...';
-          valueEl.innerHTML = `<div style="padding:10px;background:rgba(15,23,42,0.6);border-radius:8px;color:#cbd5e1;font-size:12px;">⏳ Blogger API로 본문을 가져와서 다축 점수를 계산하는 중... (30~60초)</div>`;
+          const platformLabel = p.platform === 'wordpress' ? 'WordPress' : 'Blogger';
+          valueEl.innerHTML = `<div style="padding:10px;background:rgba(15,23,42,0.6);border-radius:8px;color:#cbd5e1;font-size:12px;">⏳ ${platformLabel} API로 본문을 가져와서 다축 점수를 계산하는 중... (30~60초)</div>`;
           try {
-            const ar = await window.electronAPI.adsenseAnalyzeContentValue({ blogId, sampleSize: 20 });
+            const ar = await window.electronAPI.adsenseAnalyzeContentValue({ ...p, sampleSize: 20 });
             if (!ar.ok) { valueEl.innerHTML = `<div style="padding:10px;background:rgba(239,68,68,0.12);border-radius:8px;color:#fca5a5;font-size:12px;">❌ ${ar.error}</div>`; return; }
             renderValueResult(valueEl, ar);
           } catch (e) {
@@ -204,19 +210,19 @@ function openAdSenseFixerModal() {
         });
       }
 
-      // v3.8.246: 사이트 일괄 정리 스캔
+      // v3.8.246+247: 사이트 일괄 정리 스캔 (Blogger + WordPress)
       const bulkScanBtn = document.getElementById('adsense-bulk-scan-btn');
       if (bulkScanBtn) {
         bulkScanBtn.addEventListener('click', async () => {
-          const blogId = document.getElementById('blogId')?.value?.trim();
-          if (!blogId) { alert('Blog ID 환경설정에 저장 필요'); return; }
+          const p = platformGuardOrAlert();
+          if (!p) return;
           const bulkEl = document.getElementById('adsense-bulk-result');
           bulkScanBtn.disabled = true; bulkScanBtn.textContent = '⏳ 전체 글 스캔 중...';
           bulkEl.innerHTML = `<div style="padding:10px;background:rgba(15,23,42,0.6);border-radius:8px;color:#cbd5e1;font-size:12px;">⏳ 전체 글을 페치하고 채점 중... (사이트 글 수에 따라 30~120초)</div>`;
           try {
-            const r = await window.electronAPI.adsenseBulkCleanupPosts({ blogId, action: 'list-only', threshold: 40, dryRun: true });
+            const r = await window.electronAPI.adsenseBulkCleanupPosts({ ...p, action: 'list-only', threshold: 40, dryRun: true });
             if (!r.ok) { bulkEl.innerHTML = `<div style="padding:10px;background:rgba(239,68,68,0.12);border-radius:8px;color:#fca5a5;font-size:12px;">❌ ${r.error}</div>`; return; }
-            renderBulkResult(bulkEl, r, blogId);
+            renderBulkResult(bulkEl, r, p);
           } catch (e) {
             bulkEl.innerHTML = `<div style="padding:10px;background:rgba(239,68,68,0.12);border-radius:8px;color:#fca5a5;font-size:12px;">❌ ${e?.message || e}</div>`;
           } finally {
@@ -225,19 +231,19 @@ function openAdSenseFixerModal() {
         });
       }
 
-      // v3.8.246: 연도 의존 글 자동 갱신
+      // v3.8.246+247: 연도 의존 글 자동 갱신 (Blogger + WordPress)
       const yearlyBtn = document.getElementById('adsense-yearly-scan-btn');
       if (yearlyBtn) {
         yearlyBtn.addEventListener('click', async () => {
-          const blogId = document.getElementById('blogId')?.value?.trim();
-          if (!blogId) { alert('Blog ID 환경설정에 저장 필요'); return; }
+          const p = platformGuardOrAlert();
+          if (!p) return;
           const yearlyEl = document.getElementById('adsense-yearly-result');
           yearlyBtn.disabled = true; yearlyBtn.textContent = '⏳ 연도 글 검색 중...';
           yearlyEl.innerHTML = `<div style="padding:10px;background:rgba(15,23,42,0.6);border-radius:8px;color:#cbd5e1;font-size:12px;">⏳ 연도 의존 토픽(설날/세금/장려금 등) 검색 중...</div>`;
           try {
-            const r = await window.electronAPI.adsenseListYearlyPosts({ blogId, currentYear: new Date().getFullYear() });
+            const r = await window.electronAPI.adsenseListYearlyPosts({ ...p, currentYear: new Date().getFullYear() });
             if (!r.ok) { yearlyEl.innerHTML = `<div style="padding:10px;background:rgba(239,68,68,0.12);border-radius:8px;color:#fca5a5;font-size:12px;">❌ ${r.error}</div>`; return; }
-            renderYearlyResult(yearlyEl, r, blogId);
+            renderYearlyResult(yearlyEl, r, p);
           } catch (e) {
             yearlyEl.innerHTML = `<div style="padding:10px;background:rgba(239,68,68,0.12);border-radius:8px;color:#fca5a5;font-size:12px;">❌ ${e?.message || e}</div>`;
           } finally {
@@ -246,23 +252,22 @@ function openAdSenseFixerModal() {
         });
       }
 
-      // v3.8.178: 제목 일괄 정리 — Dry-run 2단계 (미리보기 → 사용자 승인 → 실제 적용)
+      // v3.8.178+247: 제목 일괄 정리 — Dry-run 2단계 (Blogger + WordPress)
       const cleanBtn = document.getElementById('adsense-clean-titles-btn');
       if (cleanBtn) {
         cleanBtn.addEventListener('click', async () => {
-          const blogId = document.getElementById('blogId')?.value?.trim();
-          if (!blogId) { alert('Blog ID 환경설정에 저장 필요'); return; }
+          const p = platformGuardOrAlert();
+          if (!p) return;
           cleanBtn.disabled = true; cleanBtn.textContent = '⏳ 글 목록 가져오는 중...';
-          const lr = await window.electronAPI.adsenseListClickbaitPosts({ blogId });
+          const lr = await window.electronAPI.adsenseListClickbaitPosts({ ...p });
           if (!lr.ok) { alert('❌ ' + lr.error); cleanBtn.disabled = false; cleanBtn.textContent = '🧹 제목 일괄 정리'; return; }
           if (lr.total === 0) { alert('수정할 글이 없습니다.'); cleanBtn.disabled = false; cleanBtn.textContent = '🧹 제목 일괄 정리'; return; }
           cleanBtn.textContent = `⏳ ${lr.total}개 미리보기 중...`;
-          const postIds = lr.posts.map(p => p.id);
-          // ===== 1단계: Dry-run (실제 patch 안 함) =====
-          const cr = await window.electronAPI.adsenseCleanPostTitles({ blogId, postIds, dryRun: true });
+          const postIds = lr.posts.map(pp => pp.id);
+          const cr = await window.electronAPI.adsenseCleanPostTitles({ ...p, postIds, dryRun: true });
           cleanBtn.disabled = false; cleanBtn.textContent = '🧹 제목 일괄 정리';
           if (!cr.ok) { alert('❌ 미리보기 실패: ' + cr.error); return; }
-          showCleanResultModal(cr, blogId, postIds);
+          showCleanResultModal(cr, p, postIds);
         });
       }
     } catch (e) {
@@ -273,6 +278,41 @@ function openAdSenseFixerModal() {
 
 function escHtml(s) {
   return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// v3.8.247: 현재 선택된 플랫폼 + 자격증명을 모아서 IPC 페이로드 베이스 생성
+// AdSense fixer 모든 IPC 호출에 자동 첨부
+function getPlatformPayload() {
+  const selected = document.querySelector('input[name="platform"]:checked')?.value || 'blogger';
+  // Tistory는 어차피 API 베이스 아님 — Blogger로 폴백 안내
+  if (selected === 'tistory') {
+    return { _unsupported: true, platform: 'tistory' };
+  }
+  if (selected === 'wordpress') {
+    const siteUrl = (document.getElementById('wordpressSiteUrl')?.value || document.getElementById('wpSiteUrl')?.value || '').trim().replace(/\/$/, '');
+    const username = (document.getElementById('wordpressUsername')?.value || document.getElementById('wpUsername')?.value || '').trim();
+    const password = (document.getElementById('wordpressPassword')?.value || document.getElementById('wpPassword')?.value || '').trim();
+    const jwtToken = (document.getElementById('jwtToken')?.value || '').trim();
+    return { platform: 'wordpress', siteUrl, username, password, jwtToken };
+  }
+  // Blogger (default)
+  const blogId = (document.getElementById('blogId')?.value || '').trim();
+  return { platform: 'blogger', blogId };
+}
+
+function platformGuardOrAlert() {
+  const p = getPlatformPayload();
+  if (p._unsupported) {
+    alert('⚠️ Tistory는 REST API 기반 발행이 아니라서 AdSense 자동 해결 도구를 사용할 수 없습니다.\n\nBlogger 또는 WordPress 사이트에서만 작동합니다.\n환경설정 → 블로그 플랫폼에서 Blogger/WordPress를 선택해 주세요.');
+    return null;
+  }
+  if (p.platform === 'wordpress') {
+    if (!p.siteUrl) { alert('WordPress 사이트 URL이 필요합니다.\n환경설정 → 블로그 플랫폼에서 사이트 URL 입력 필요.'); return null; }
+    if (!p.jwtToken && (!p.username || !p.password)) { alert('WordPress Application Password 또는 JWT 토큰 필요.\n환경설정 → 블로그 플랫폼에서 입력 필요.'); return null; }
+  } else {
+    if (!p.blogId) { alert('Blogger Blog ID가 필요합니다.\n환경설정 → 블로그 플랫폼에서 Blog ID 입력 필요.'); return null; }
+  }
+  return p;
 }
 
 // v3.8.244: 본문 가치 분석 결과 렌더 — AdSense "가치 없는 콘텐츠" 사유 진단
@@ -331,14 +371,14 @@ function renderValueResult(el, ar) {
   `;
   el.innerHTML = html;
 
-  // v3.8.245: 개별 보강 버튼 핸들러
+  // v3.8.245+247: 개별 보강 버튼 핸들러 (Blogger + WordPress)
   el.querySelectorAll('.adsense-boost-one-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const postId = btn.getAttribute('data-post-id');
       const title = btn.getAttribute('data-title') || '';
-      const blogId = document.getElementById('blogId')?.value?.trim();
-      if (!blogId || !postId) { alert('Blog ID 또는 글 ID 누락'); return; }
-      await runBoostFlow(blogId, postId, title);
+      const p = platformGuardOrAlert();
+      if (!p || !postId) return;
+      await runBoostFlow(p, postId, title);
     });
   });
 
@@ -346,8 +386,8 @@ function renderValueResult(el, ar) {
   const boostAllBtn = document.getElementById('adsense-boost-all-btn');
   if (boostAllBtn) {
     boostAllBtn.addEventListener('click', async () => {
-      const blogId = document.getElementById('blogId')?.value?.trim();
-      if (!blogId) { alert('Blog ID 누락'); return; }
+      const p = platformGuardOrAlert();
+      if (!p) return;
       const ids = (boostAllBtn.getAttribute('data-post-ids') || '').split(',').filter(Boolean);
       if (ids.length === 0) { alert('보강할 글 없음'); return; }
       if (!confirm(`⚠️ 위험 글 ${ids.length}개를 순차로 LLM으로 보강하고 사이트에 반영합니다.\n\n각 글마다 미리보기 없이 자동 적용되며 약 ${ids.length * 30}초 소요됩니다.\n\n진행할까요?`)) return;
@@ -359,19 +399,11 @@ function renderValueResult(el, ar) {
         const id = ids[i];
         boostAllBtn.textContent = `⏳ ${i + 1}/${ids.length} 보강 중...`;
         try {
-          const r = await window.electronAPI.adsenseBoostPostValue({ blogId, postId: id, dryRun: false });
-          if (r.ok) {
-            successCnt++;
-            logs.push(`✅ ${r.title} (${r.before.length}자 → ${r.after.length}자, +${r.delta})`);
-          } else {
-            failCnt++;
-            logs.push(`❌ ${id}: ${r.error}`);
-          }
-        } catch (e) {
-          failCnt++;
-          logs.push(`❌ ${id}: ${e?.message || e}`);
-        }
-        await new Promise((res) => setTimeout(res, 800)); // rate limit 보호
+          const r = await window.electronAPI.adsenseBoostPostValue({ ...p, postId: id, dryRun: false });
+          if (r.ok) { successCnt++; logs.push(`✅ ${r.title} (${r.before.length}자 → ${r.after.length}자, +${r.delta})`); }
+          else { failCnt++; logs.push(`❌ ${id}: ${r.error}`); }
+        } catch (e) { failCnt++; logs.push(`❌ ${id}: ${e?.message || e}`); }
+        await new Promise((res) => setTimeout(res, 800));
       }
       boostAllBtn.disabled = false;
       boostAllBtn.textContent = '⚡ 전체 자동 보강';
@@ -380,27 +412,22 @@ function renderValueResult(el, ar) {
   }
 }
 
-// v3.8.245: 개별 글 보강 흐름 (Dry-run 미리보기 → 사용자 승인 → 실제 적용)
-async function runBoostFlow(blogId, postId, title) {
-  // 1단계: Dry-run
+// v3.8.245+247: 개별 글 보강 흐름 (Blogger + WordPress)
+async function runBoostFlow(platform, postId, title) {
   const loading = document.createElement('div');
   loading.id = 'adsense-boost-loading';
   loading.style.cssText = 'position:fixed;inset:0;z-index:100004;background:rgba(2,6,23,0.93);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;';
   loading.innerHTML = `<div style="text-align:center;"><div style="font-size:48px;margin-bottom:14px;">🚀</div><div style="font-weight:800;margin-bottom:8px;">LLM으로 본문 가치 보강 중...</div><div style="color:#94a3b8;font-size:13px;">${escHtml(title)}</div><div style="color:#64748b;font-size:11px;margin-top:8px;">약 20~40초 소요</div></div>`;
   document.body.appendChild(loading);
   try {
-    const r = await window.electronAPI.adsenseBoostPostValue({ blogId, postId, dryRun: true });
+    const r = await window.electronAPI.adsenseBoostPostValue({ ...platform, postId, dryRun: true });
     loading.remove();
     if (!r.ok) { alert('❌ 보강 실패: ' + r.error); return; }
-    showBoostResultModal(r, blogId, postId);
-  } catch (e) {
-    loading.remove();
-    alert('❌ ' + (e?.message || e));
-  }
+    showBoostResultModal(r, platform, postId);
+  } catch (e) { loading.remove(); alert('❌ ' + (e?.message || e)); }
 }
 
-// 보강 결과 미리보기 모달
-function showBoostResultModal(r, blogId, postId) {
+function showBoostResultModal(r, platform, postId) {
   const existing = document.getElementById('adsense-boost-result-modal');
   if (existing) existing.remove();
   const delta = r.delta;
@@ -436,7 +463,7 @@ function showBoostResultModal(r, blogId, postId) {
   document.getElementById('adsense-boost-confirm')?.addEventListener('click', async () => {
     const btn = document.getElementById('adsense-boost-confirm');
     btn.disabled = true; btn.textContent = '⏳ 사이트 반영 중...';
-    const real = await window.electronAPI.adsenseBoostPostValue({ blogId, postId, dryRun: false });
+    const real = await window.electronAPI.adsenseBoostPostValue({ ...platform, postId, dryRun: false });
     document.getElementById('adsense-boost-result-modal')?.remove();
     if (real.ok) alert(`✅ 사이트 반영 완료\n${real.title}\n${real.before.length}자 → ${real.after.length}자 (+${real.delta})`);
     else alert('❌ 실제 적용 실패: ' + real.error);
@@ -444,7 +471,7 @@ function showBoostResultModal(r, blogId, postId) {
 }
 
 // v3.8.178: Dry-run 결과 모달 — 사용자가 확인 후 승인하면 실제 patch
-function showCleanResultModal(cr, blogId, postIds) {
+function showCleanResultModal(cr, platform, postIds) {
   const existing = document.getElementById('adsense-clean-result-modal');
   if (existing) existing.remove();
   const s = cr.stats;
@@ -531,7 +558,7 @@ function showCleanResultModal(cr, blogId, postIds) {
     confirmBtn.addEventListener('click', async () => {
       confirmBtn.disabled = true; confirmBtn.textContent = '⏳ 실제 적용 중...';
       // ===== 2단계: 실제 patch (dryRun: false) =====
-      const realRun = await window.electronAPI.adsenseCleanPostTitles({ blogId, postIds, dryRun: false });
+      const realRun = await window.electronAPI.adsenseCleanPostTitles({ ...platform, postIds, dryRun: false });
       confirmBtn.disabled = false;
       if (!realRun.ok) { alert('❌ ' + realRun.error); return; }
       const rs = realRun.stats;
@@ -553,8 +580,8 @@ function showCleanResultModal(cr, blogId, postIds) {
   }
 }
 
-// v3.8.246: 사이트 일괄 정리 결과 렌더
-function renderBulkResult(el, r, blogId) {
+// v3.8.246+247: 사이트 일괄 정리 결과 렌더 (Blogger + WordPress)
+function renderBulkResult(el, r, platform) {
   const targets = r.targets || [];
   if (targets.length === 0) {
     el.innerHTML = `<div style="padding:10px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);border-radius:8px;color:#86efac;font-size:12px;text-align:center;">✅ 전체 ${r.totalPosts}개 글 모두 양호 — 정리 불필요</div>`;
@@ -589,7 +616,7 @@ function renderBulkResult(el, r, blogId) {
     if (!confirm(`⚠️ 정말 ${targets.length}개 글을 삭제할까요?\n\n사이트에서 영구 삭제됩니다 (복구 불가).\n점수 ${r.threshold}점 미만 글이 대상입니다.\n\n진행할까요?`)) return;
     const btn = document.getElementById('adsense-bulk-delete-btn');
     btn.disabled = true; btn.textContent = '⏳ 삭제 중...';
-    const real = await window.electronAPI.adsenseBulkCleanupPosts({ blogId, action: 'delete', threshold: r.threshold, dryRun: false });
+    const real = await window.electronAPI.adsenseBulkCleanupPosts({ ...platform, action: 'delete', threshold: r.threshold, dryRun: false });
     btn.disabled = false; btn.textContent = `🗑️ ${targets.length}개 일괄 삭제`;
     if (real.ok) alert(`✅ 삭제 완료: ${real.deleted}개 성공 · ${real.failed}개 실패`);
     else alert('❌ 삭제 실패: ' + real.error);
@@ -602,7 +629,7 @@ function renderBulkResult(el, r, blogId) {
     for (let i = 0; i < targets.length; i++) {
       btn.textContent = `⏳ ${i + 1}/${targets.length} 보강 중...`;
       try {
-        const r2 = await window.electronAPI.adsenseBoostPostValue({ blogId, postId: targets[i].id, dryRun: false });
+        const r2 = await window.electronAPI.adsenseBoostPostValue({ ...platform, postId: targets[i].id, dryRun: false });
         if (r2.ok) successCnt++; else failCnt++;
       } catch { failCnt++; }
       await new Promise((res) => setTimeout(res, 800));
@@ -612,8 +639,8 @@ function renderBulkResult(el, r, blogId) {
   });
 }
 
-// v3.8.246: 연도 갱신 결과 렌더
-function renderYearlyResult(el, r, blogId) {
+// v3.8.246+247: 연도 갱신 결과 렌더 (Blogger + WordPress)
+function renderYearlyResult(el, r, platform) {
   const candidates = r.candidates || [];
   if (candidates.length === 0) {
     el.innerHTML = `<div style="padding:10px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);border-radius:8px;color:#86efac;font-size:12px;text-align:center;">✅ 연도 갱신 필요 글 없음 — 모두 ${r.currentYear}년 기준</div>`;
@@ -641,7 +668,7 @@ function renderYearlyResult(el, r, blogId) {
     btn.addEventListener('click', async () => {
       const postId = btn.getAttribute('data-post-id');
       const title = btn.getAttribute('data-title') || '';
-      await runYearlyRefreshFlow(blogId, postId, title, r.currentYear);
+      await runYearlyRefreshFlow(platform, postId, title, r.currentYear);
     });
   });
   document.getElementById('adsense-yearly-refresh-all-btn')?.addEventListener('click', async () => {
@@ -652,7 +679,7 @@ function renderYearlyResult(el, r, blogId) {
     for (let i = 0; i < candidates.length; i++) {
       btn.textContent = `⏳ ${i + 1}/${candidates.length} 갱신 중...`;
       try {
-        const r2 = await window.electronAPI.adsenseRefreshYearlyPost({ blogId, postId: candidates[i].id, currentYear: r.currentYear, dryRun: false });
+        const r2 = await window.electronAPI.adsenseRefreshYearlyPost({ ...platform, postId: candidates[i].id, currentYear: r.currentYear, dryRun: false });
         if (r2.ok) successCnt++; else failCnt++;
       } catch { failCnt++; }
       await new Promise((res) => setTimeout(res, 1000));
@@ -662,21 +689,21 @@ function renderYearlyResult(el, r, blogId) {
   });
 }
 
-// v3.8.246: 단일 연도 갱신 흐름
-async function runYearlyRefreshFlow(blogId, postId, title, currentYear) {
+// v3.8.246+247: 단일 연도 갱신 흐름 (Blogger + WordPress)
+async function runYearlyRefreshFlow(platform, postId, title, currentYear) {
   const loading = document.createElement('div');
   loading.style.cssText = 'position:fixed;inset:0;z-index:100004;background:rgba(2,6,23,0.93);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;';
   loading.innerHTML = `<div style="text-align:center;"><div style="font-size:48px;margin-bottom:14px;">🔄</div><div style="font-weight:800;margin-bottom:8px;">${currentYear}년 기준 갱신 중...</div><div style="color:#94a3b8;font-size:13px;">${escHtml(title)}</div></div>`;
   document.body.appendChild(loading);
   try {
-    const r = await window.electronAPI.adsenseRefreshYearlyPost({ blogId, postId, currentYear, dryRun: true });
+    const r = await window.electronAPI.adsenseRefreshYearlyPost({ ...platform, postId, currentYear, dryRun: true });
     loading.remove();
     if (!r.ok) { alert('❌ 갱신 실패: ' + r.error); return; }
-    showYearlyResultModal(r, blogId, postId, currentYear);
+    showYearlyResultModal(r, platform, postId, currentYear);
   } catch (e) { loading.remove(); alert('❌ ' + (e?.message || e)); }
 }
 
-function showYearlyResultModal(r, blogId, postId, currentYear) {
+function showYearlyResultModal(r, platform, postId, currentYear) {
   const existing = document.getElementById('adsense-yearly-result-modal');
   if (existing) existing.remove();
   const titleChanged = r.before.title !== r.after.title;
@@ -721,7 +748,7 @@ function showYearlyResultModal(r, blogId, postId, currentYear) {
   document.getElementById('adsense-yearly-confirm')?.addEventListener('click', async () => {
     const btn = document.getElementById('adsense-yearly-confirm');
     btn.disabled = true; btn.textContent = '⏳ 사이트 반영 중...';
-    const real = await window.electronAPI.adsenseRefreshYearlyPost({ blogId, postId, currentYear, dryRun: false });
+    const real = await window.electronAPI.adsenseRefreshYearlyPost({ ...platform, postId, currentYear, dryRun: false });
     document.getElementById('adsense-yearly-result-modal')?.remove();
     if (real.ok) alert(`✅ ${currentYear}년 갱신 완료\n${real.titleChanged ? '제목 + 본문 갱신' : '본문 갱신'}`);
     else alert('❌ 갱신 실패: ' + real.error);

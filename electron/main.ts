@@ -10602,6 +10602,153 @@ ipcMain.handle('adsense:open-console', async (_evt, payload?: { siteUrl?: string
 });
 
 // 사이트 자동 진단 (RSS 파싱 + 패턴 검사)
+// v3.8.247: 플랫폼 어댑터 — Blogger + WordPress 통합
+// 5개 AdSense IPC가 같은 인터페이스로 두 플랫폼 모두 처리
+type AdSensePlatform = 'blogger' | 'wordpress';
+type PlatformCreds = {
+  platform: AdSensePlatform;
+  blogId?: string;
+  bloggerToken?: string;
+  siteUrl?: string;
+  username?: string;
+  password?: string;
+  jwtToken?: string;
+};
+type PostRecord = { id: string; title: string; url: string; content: string; published?: string };
+
+function loadPlatformCredsFromEnv(envData: any, override?: Partial<PlatformCreds>): PlatformCreds {
+  const platform: AdSensePlatform = override?.platform === 'wordpress' ? 'wordpress' : 'blogger';
+  if (platform === 'wordpress') {
+    return {
+      platform,
+      siteUrl: String(override?.siteUrl || envData.wordpressSiteUrl || envData.wpSiteUrl || envData.WORDPRESS_SITE_URL || envData.WP_SITE_URL || '').replace(/\/$/, ''),
+      username: String(override?.username || envData.wordpressUsername || envData.wpUsername || envData.WORDPRESS_USERNAME || envData.WP_USERNAME || ''),
+      password: String(override?.password || envData.wordpressPassword || envData.wpPassword || envData.WORDPRESS_PASSWORD || envData.WP_PASSWORD || envData.WORDPRESS_APP_PASSWORD || ''),
+      jwtToken: String(override?.jwtToken || envData.jwtToken || envData.wordpressJwtToken || envData.WP_JWT_TOKEN || ''),
+    };
+  }
+  return {
+    platform: 'blogger',
+    blogId: String(override?.blogId || envData.blogId || envData.BLOG_ID || '').trim(),
+    bloggerToken: String(override?.bloggerToken || envData.BLOGGER_ACCESS_TOKEN || ''),
+  };
+}
+
+function buildPlatformAdapter(creds: PlatformCreds, axiosInstance: any) {
+  if (creds.platform === 'wordpress') {
+    const siteUrl = creds.siteUrl;
+    if (!siteUrl) throw new Error('WordPress 사이트 URL 누락');
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'LEADERNAM-Orbit/AdSense',
+    };
+    if (creds.jwtToken) headers.Authorization = `Bearer ${creds.jwtToken}`;
+    else if (creds.username && creds.password) headers.Authorization = `Basic ${Buffer.from(`${creds.username}:${creds.password}`).toString('base64')}`;
+    else throw new Error('WordPress 인증 정보 누락 (Application Password 또는 JWT)');
+
+    return {
+      platform: 'wordpress' as const,
+      async listPosts(opts: { fetchBodies?: boolean; maxResults?: number } = {}): Promise<PostRecord[]> {
+        const items: PostRecord[] = [];
+        const maxResults = opts.maxResults || 1000;
+        let page = 1;
+        while (items.length < maxResults && page <= 50) {
+          const r = await axiosInstance.get(`${siteUrl}/wp-json/wp/v2/posts`, {
+            params: { per_page: 100, page, context: opts.fetchBodies ? 'edit' : 'view', status: 'publish' },
+            headers, timeout: 45000, validateStatus: () => true,
+          });
+          if (r.status === 400 && r.data?.code === 'rest_post_invalid_page_number') break;
+          if (r.status !== 200) {
+            if (r.status === 401) throw new Error('WordPress 인증 실패 (Application Password 확인 필요)');
+            throw new Error(`WordPress 목록 조회 실패 (${r.status}): ${JSON.stringify(r.data).slice(0, 160)}`);
+          }
+          const arr = Array.isArray(r.data) ? r.data : [];
+          if (arr.length === 0) break;
+          for (const p of arr) {
+            const contentValue = p.content;
+            const content = typeof contentValue === 'string' ? contentValue : (contentValue?.raw || contentValue?.rendered || '');
+            const titleValue = p.title;
+            const title = typeof titleValue === 'string' ? titleValue : (titleValue?.raw || titleValue?.rendered || '');
+            items.push({ id: String(p.id), title, url: p.link || '', content: opts.fetchBodies ? content : '', published: p.date });
+          }
+          page++;
+        }
+        return items;
+      },
+      async getPost(postId: string): Promise<PostRecord> {
+        const r = await axiosInstance.get(`${siteUrl}/wp-json/wp/v2/posts/${encodeURIComponent(postId)}?context=edit`, {
+          headers, timeout: 30000,
+        });
+        const p = r.data;
+        const content = typeof p.content === 'string' ? p.content : (p.content?.raw || p.content?.rendered || '');
+        const title = typeof p.title === 'string' ? p.title : (p.title?.raw || p.title?.rendered || '');
+        return { id: String(p.id), title, url: p.link || '', content, published: p.date };
+      },
+      async updatePost(postId: string, fields: { title?: string; content?: string }): Promise<void> {
+        const body: any = {};
+        if (fields.title !== undefined) body.title = fields.title;
+        if (fields.content !== undefined) body.content = fields.content;
+        await axiosInstance.post(`${siteUrl}/wp-json/wp/v2/posts/${encodeURIComponent(postId)}`, body, {
+          headers, timeout: 30000,
+        });
+      },
+      async deletePost(postId: string): Promise<void> {
+        await axiosInstance.delete(`${siteUrl}/wp-json/wp/v2/posts/${encodeURIComponent(postId)}?force=true`, {
+          headers, timeout: 30000,
+        });
+      },
+    };
+  }
+
+  // Blogger
+  const blogId = creds.blogId;
+  const accessToken = creds.bloggerToken;
+  if (!blogId) throw new Error('Blog ID 누락');
+  if (!accessToken) throw new Error('Blogger OAuth 토큰 누락');
+  const bloggerHeaders = { Authorization: `Bearer ${accessToken}` };
+  return {
+    platform: 'blogger' as const,
+    async listPosts(opts: { fetchBodies?: boolean; maxResults?: number } = {}): Promise<PostRecord[]> {
+      const items: PostRecord[] = [];
+      const maxResults = opts.maxResults || 1000;
+      let pageToken: string | undefined;
+      do {
+        const r: any = await axiosInstance.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts`, {
+          headers: bloggerHeaders,
+          params: { maxResults: 50, fetchBodies: !!opts.fetchBodies, status: 'live', pageToken },
+          timeout: 45000,
+        });
+        for (const p of (r.data?.items || [])) {
+          items.push({ id: p.id, title: p.title || '', url: p.url || '', content: p.content || '', published: p.published });
+        }
+        pageToken = r.data?.nextPageToken;
+        if (items.length >= maxResults) break;
+      } while (pageToken);
+      return items;
+    },
+    async getPost(postId: string): Promise<PostRecord> {
+      const r: any = await axiosInstance.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`, {
+        headers: bloggerHeaders, timeout: 30000,
+      });
+      return { id: r.data.id, title: r.data.title || '', url: r.data.url || '', content: r.data.content || '', published: r.data.published };
+    },
+    async updatePost(postId: string, fields: { title?: string; content?: string }): Promise<void> {
+      const body: any = {};
+      if (fields.title !== undefined) body.title = fields.title;
+      if (fields.content !== undefined) body.content = fields.content;
+      await axiosInstance.patch(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`, body, {
+        headers: { ...bloggerHeaders, 'Content-Type': 'application/json' }, timeout: 30000,
+      });
+    },
+    async deletePost(postId: string): Promise<void> {
+      await axiosInstance.delete(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`, {
+        headers: bloggerHeaders, timeout: 30000,
+      });
+    },
+  };
+}
+
 ipcMain.handle('adsense:diagnose', async (_evt, payload: { siteUrl: string }) => {
   try {
     const axios = (await import('axios')).default;
@@ -10775,35 +10922,27 @@ ipcMain.handle('adsense:create-pages', async (_evt, payload: { blogId: string; p
 });
 
 // Phase 2B — Clickbait 제목 일괄 정리 (검사만, 자동 수정은 사용자 승인 후)
-ipcMain.handle('adsense:list-clickbait-posts', async (_evt, payload: { blogId: string }) => {
+ipcMain.handle('adsense:list-clickbait-posts', async (_evt, payload: { blogId?: string; siteUrl?: string; username?: string; password?: string; jwtToken?: string; platform?: AdSensePlatform }) => {
   try {
     const envData = loadEnvFromFile() as any;
-    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
-    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
-    if (!blogId || !accessToken) return { ok: false, error: 'Blog ID 또는 OAuth 토큰 누락' };
+    const creds = loadPlatformCredsFromEnv(envData, payload);
     const axios = (await import('axios')).default;
-    const posts: Array<{ id: string; title: string; url: string; matches: string[] }> = [];
-    let pageToken: string | undefined;
+    const adapter = buildPlatformAdapter(creds, axios);
     const PATTERNS = [
       /놓치(면|지)?\s*(안\s*)?(될|마)/, /꿀팁/, /왜\s*아무도/, /고수만/, /비법/, /완벽\s*가이드/,
       /효율\s*\d+%/, /\d+분\s*만에/, /놀라운/, /충격/, /이것만\s*알면/, /믿기지\s*않는/,
       /절대\s*하지\s*마/, /절대후회/, /역대급/, /레전드/, /미쳤다/, /대박/, /끝판왕/,
       /총정리/, /모든\s*것/, /A\s*to\s*Z/,
     ];
-    do {
-      const r: any = await axios.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        params: { maxResults: 50, fetchBodies: false, status: 'live', pageToken },
-        timeout: 30000,
-      });
-      for (const p of (r.data?.items || [])) {
-        const matches: string[] = [];
-        for (const pat of PATTERNS) if (pat.test(p.title || '')) matches.push(String(pat).replace(/^\/|\/[gimsuy]*$/g, ''));
-        if (matches.length > 0) posts.push({ id: p.id, title: p.title, url: p.url, matches });
-      }
-      pageToken = r.data?.nextPageToken;
+    // v3.8.247: 어댑터로 제목만 페치 (fetchBodies: false)
+    const allPosts = await adapter.listPosts({ fetchBodies: false, maxResults: 1000 });
+    const posts: Array<{ id: string; title: string; url: string; matches: string[] }> = [];
+    for (const p of allPosts) {
+      const matches: string[] = [];
+      for (const pat of PATTERNS) if (pat.test(p.title || '')) matches.push(String(pat).replace(/^\/|\/[gimsuy]*$/g, ''));
+      if (matches.length > 0) posts.push({ id: p.id, title: p.title, url: p.url, matches });
       if (posts.length >= 500) break;
-    } while (pageToken);
+    }
     return { ok: true, total: posts.length, posts };
   } catch (e: any) {
     return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
@@ -10813,23 +10952,17 @@ ipcMain.handle('adsense:list-clickbait-posts', async (_evt, payload: { blogId: s
 // v3.8.244: "가치가 별로 없는 콘텐츠" 사유 대응 — 본문 가치 점수 진단기
 // AdSense 거절 사유 #2 (Clickbait/누락 페이지와 별개 차원의 문제)
 // 다축 채점: 깊이(글자수/H2수) + 1인칭/경험 마커 + 구조 다양성 + E-E-A-T 신호 + 원본 데이터
-ipcMain.handle('adsense:analyze-content-value', async (_evt, payload: { blogId: string; sampleSize?: number }) => {
+ipcMain.handle('adsense:analyze-content-value', async (_evt, payload: { blogId?: string; siteUrl?: string; username?: string; password?: string; jwtToken?: string; platform?: AdSensePlatform; sampleSize?: number }) => {
   try {
     const envData = loadEnvFromFile() as any;
-    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
-    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
-    if (!blogId || !accessToken) return { ok: false, error: 'Blog ID 또는 OAuth 토큰 누락' };
+    const creds = loadPlatformCredsFromEnv(envData, payload);
     const sampleSize = Math.min(Math.max(payload.sampleSize || 20, 5), 50);
     const axios = (await import('axios')).default;
+    const adapter = buildPlatformAdapter(creds, axios);
 
-    // 1단계: 본문 포함해서 sample 글 페치
-    const r: any = await axios.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      params: { maxResults: sampleSize, fetchBodies: true, status: 'live', fetchImages: false },
-      timeout: 45000,
-    });
-    const items: any[] = r.data?.items || [];
-    if (items.length === 0) return { ok: false, error: '분석할 글 없음 (live 상태 글 0개)' };
+    // v3.8.247: 플랫폼 어댑터로 sample 글 페치 (Blogger + WordPress 통합)
+    const items = await adapter.listPosts({ fetchBodies: true, maxResults: sampleSize });
+    if (items.length === 0) return { ok: false, error: '분석할 글 없음 (publish/live 상태 글 0개)' };
 
     // 점수 계산 함수
     const stripHtml = (s: string) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
@@ -10975,14 +11108,13 @@ ipcMain.handle('adsense:analyze-content-value', async (_evt, payload: { blogId: 
 // v3.8.178: dry-run 모드 추가 — 실제 patch 전 사용자가 미리보기로 확인 후 승인
 //   payload.dryRun: true → API patch 안 함, 미리보기 결과만 반환
 //   payload.dryRun: false → 실제 patch 실행
-ipcMain.handle('adsense:clean-post-titles', async (_evt, payload: { blogId: string; postIds: string[]; dryRun?: boolean }) => {
+ipcMain.handle('adsense:clean-post-titles', async (_evt, payload: { blogId?: string; siteUrl?: string; username?: string; password?: string; jwtToken?: string; platform?: AdSensePlatform; postIds: string[]; dryRun?: boolean }) => {
   try {
     const envData = loadEnvFromFile() as any;
-    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
-    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
-    if (!blogId || !accessToken) return { ok: false, error: 'Blog ID 또는 OAuth 토큰 누락' };
-    const dryRun = payload.dryRun !== false; // default: dryRun true (안전 우선)
+    const creds = loadPlatformCredsFromEnv(envData, payload);
+    const dryRun = payload.dryRun !== false;
     const axios = (await import('axios')).default;
+    const adapter = buildPlatformAdapter(creds, axios);
     const CLEANUP_RULES: Array<[RegExp, string]> = [
       [/\s*[!?]+\s*[🚀✅⚡💡🔥💰🚨🎯📌🏆💯🎉]+\s*$/gu, ''],
       [/[🚀✅⚡💡🔥💰🚨🎯📌🏆💯🎉]+/gu, ''],
@@ -11007,26 +11139,22 @@ ipcMain.handle('adsense:clean-post-titles', async (_evt, payload: { blogId: stri
       totalProcessed++;
       let oldTitle = '';
       try {
-        // 1) 글 정보 가져오기 (실패 시 명시)
-        const g: any = await axios.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` }, timeout: 30000,
-        });
-        oldTitle = String(g.data?.title || '').trim();
+        // v3.8.247: 어댑터로 글 페치 (Blogger + WordPress)
+        const fetched = await adapter.getPost(postId);
+        oldTitle = String(fetched.title || '').trim();
       } catch (e: any) {
         networkFailed++;
-        const errMsg = e?.response?.status === 401 ? 'OAuth 토큰 만료 — 환경설정 재인증 필요'
-          : e?.response?.status === 403 ? 'Blogger API 권한 거부 (403)'
+        const errMsg = e?.response?.status === 401 ? '인증 토큰 만료 — 환경설정 재인증 필요'
+          : e?.response?.status === 403 ? 'API 권한 거부 (403)'
           : e?.response?.status === 404 ? '글 없음 (이미 삭제됨)'
           : (e?.response?.data?.error?.message || e?.message || String(e));
         results.push({ id: postId, oldTitle: '', newTitle: '', status: 'fetch_failed', error: errMsg });
-        if (e?.response?.status === 401) break; // 토큰 만료면 전체 중단
+        if (e?.response?.status === 401) break;
         continue;
       }
-      // 2) 정리 규칙 적용
       let newTitle = oldTitle;
       for (const [pat, repl] of CLEANUP_RULES) newTitle = newTitle.replace(pat, repl);
       newTitle = newTitle.replace(/\s+/g, ' ').trim();
-      // 3) 4가지 케이스 분류
       if (!newTitle || newTitle === oldTitle) {
         results.push({ id: postId, oldTitle, newTitle, status: 'no_change' });
         continue;
@@ -11035,20 +11163,15 @@ ipcMain.handle('adsense:clean-post-titles', async (_evt, payload: { blogId: stri
         results.push({ id: postId, oldTitle, newTitle, status: 'too_short', error: `정리 후 ${newTitle.length}자로 너무 짧음 — skip` });
         continue;
       }
-      // 4) Dry-run이면 미리보기만, 아니면 실제 patch
       if (dryRun) {
         results.push({ id: postId, oldTitle, newTitle, status: 'preview' });
       } else {
         try {
-          await axios.patch(
-            `https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`,
-            { title: newTitle },
-            { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 30000 },
-          );
+          await adapter.updatePost(postId, { title: newTitle });
           results.push({ id: postId, oldTitle, newTitle, status: 'patched' });
-          await new Promise((r) => setTimeout(r, 600)); // rate limit
+          await new Promise((r) => setTimeout(r, 600));
         } catch (e: any) {
-          const errMsg = e?.response?.status === 401 ? 'OAuth 토큰 만료'
+          const errMsg = e?.response?.status === 401 ? '인증 토큰 만료'
             : (e?.response?.data?.error?.message || e?.message || String(e));
           results.push({ id: postId, oldTitle, newTitle, status: 'patch_failed', error: errMsg });
           if (e?.response?.status === 401) break;
@@ -11078,26 +11201,21 @@ ipcMain.handle('adsense:clean-post-titles', async (_evt, payload: { blogId: stri
 //   2. 현재 가치 점수 계산 (analyze-content-value와 동일 채점)
 //   3. 부족한 축 LLM에 요청 (기존 본문 골격 유지, 부족한 부분만 자연스럽게 삽입)
 //   4. dryRun이면 before/after 반환, false면 Blogger API patch
-ipcMain.handle('adsense:boost-post-value', async (_evt, payload: { blogId: string; postId: string; dryRun?: boolean }) => {
+ipcMain.handle('adsense:boost-post-value', async (_evt, payload: { blogId?: string; siteUrl?: string; username?: string; password?: string; jwtToken?: string; platform?: AdSensePlatform; postId: string; dryRun?: boolean }) => {
   try {
     const envData = loadEnvFromFile() as any;
-    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
+    const creds = loadPlatformCredsFromEnv(envData, payload);
     const postId = String(payload.postId || '').trim();
-    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
-    if (!blogId || !postId) return { ok: false, error: 'blogId 또는 postId 누락' };
-    if (!accessToken) return { ok: false, error: 'Blogger OAuth 토큰 누락' };
-    const dryRun = payload.dryRun !== false; // default true (안전 우선)
+    if (!postId) return { ok: false, error: 'postId 누락' };
+    const dryRun = payload.dryRun !== false;
 
     const axios = (await import('axios')).default;
-    const fetched: any = await axios.get(
-      `https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`,
-      { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 30000 }
-    );
-    const post = fetched.data;
-    if (!post) return { ok: false, error: '글을 찾을 수 없습니다' };
+    const adapter = buildPlatformAdapter(creds, axios);
+    const post = await adapter.getPost(postId);
+    if (!post || !post.content) return { ok: false, error: '글을 찾을 수 없거나 본문이 비어 있습니다' };
 
-    const originalTitle = String(post.title || '');
-    const originalHtml = String(post.content || '');
+    const originalTitle = post.title;
+    const originalHtml = post.content;
     const stripHtml = (s: string) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
     const originalText = stripHtml(originalHtml);
     const originalLength = originalText.length;
@@ -11177,12 +11295,8 @@ ${originalHtml}
       };
     }
 
-    // 실제 patch (Blogger Posts.patch API)
-    await axios.patch(
-      `https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`,
-      { content: boostedHtml },
-      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 30000 }
-    );
+    // v3.8.247: 플랫폼 어댑터로 실제 patch (Blogger + WordPress)
+    await adapter.updatePost(postId, { content: boostedHtml });
 
     return {
       ok: true,
@@ -11204,36 +11318,26 @@ ${originalHtml}
 // 옵션 1: 위험 글 일괄 삭제 (테스트 데이터 정리, AdSense 승인 전 상태)
 // 옵션 2: 위험 글 일괄 보강 (기존 boost-post-value를 모든 위험 글에 적용)
 ipcMain.handle('adsense:bulk-cleanup-posts', async (_evt, payload: {
-  blogId: string;
+  blogId?: string;
+  siteUrl?: string;
+  username?: string;
+  password?: string;
+  jwtToken?: string;
+  platform?: AdSensePlatform;
   action: 'delete' | 'list-only';
   threshold?: number;
   dryRun?: boolean;
 }) => {
   try {
     const envData = loadEnvFromFile() as any;
-    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
-    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
-    if (!blogId || !accessToken) return { ok: false, error: 'Blog ID 또는 OAuth 토큰 누락' };
+    const creds = loadPlatformCredsFromEnv(envData, payload);
     const dryRun = payload.dryRun !== false;
     const threshold = payload.threshold ?? 40;
     const axios = (await import('axios')).default;
+    const adapter = buildPlatformAdapter(creds, axios);
 
-    // 모든 글 페치 (페이지네이션)
-    const allPosts: Array<{ id: string; title: string; url: string; content: string }> = [];
-    let pageToken: string | undefined;
-    do {
-      const r: any = await axios.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        params: { maxResults: 50, fetchBodies: true, status: 'live', pageToken },
-        timeout: 45000,
-      });
-      for (const p of (r.data?.items || [])) {
-        allPosts.push({ id: p.id, title: p.title || '', url: p.url || '', content: p.content || '' });
-      }
-      pageToken = r.data?.nextPageToken;
-      if (allPosts.length >= 1000) break;
-    } while (pageToken);
-
+    // v3.8.247: 어댑터로 전체 글 페치 (Blogger + WordPress)
+    const allPosts = await adapter.listPosts({ fetchBodies: true, maxResults: 1000 });
     if (allPosts.length === 0) return { ok: false, error: '글 없음' };
 
     // 채점 (analyze-content-value와 동일 로직 간략화)
@@ -11276,15 +11380,13 @@ ipcMain.handle('adsense:bulk-cleanup-posts', async (_evt, payload: {
       };
     }
 
-    // 실제 삭제 (payload.action === 'delete')
+    // 실제 삭제 (payload.action === 'delete') — 어댑터 사용
     let deleted = 0;
     let failed = 0;
     const log: Array<{ id: string; title: string; ok: boolean; error?: string }> = [];
     for (const t of targets) {
       try {
-        await axios.delete(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${t.id}`, {
-          headers: { Authorization: `Bearer ${accessToken}` }, timeout: 30000,
-        });
+        await adapter.deletePost(t.id);
         deleted++;
         log.push({ id: t.id, title: t.title, ok: true });
         await new Promise((res) => setTimeout(res, 700));
@@ -11304,14 +11406,13 @@ ipcMain.handle('adsense:bulk-cleanup-posts', async (_evt, payload: {
 // 2. 연도 마커("2026년", "올해", "작년"), 계절 키워드, 세금/공휴일 키워드 감지
 // 3. 현재 연도와 다르면 LLM에게 "최신 연도 정보로 업데이트" 요청
 // 4. dryRun → before/after 비교, false → patch
-ipcMain.handle('adsense:list-yearly-posts', async (_evt, payload: { blogId: string; currentYear?: number }) => {
+ipcMain.handle('adsense:list-yearly-posts', async (_evt, payload: { blogId?: string; siteUrl?: string; username?: string; password?: string; jwtToken?: string; platform?: AdSensePlatform; currentYear?: number }) => {
   try {
     const envData = loadEnvFromFile() as any;
-    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
-    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
-    if (!blogId || !accessToken) return { ok: false, error: 'Blog ID 또는 OAuth 토큰 누락' };
+    const creds = loadPlatformCredsFromEnv(envData, payload);
     const currentYear = payload.currentYear || new Date().getFullYear();
     const axios = (await import('axios')).default;
+    const adapter = buildPlatformAdapter(creds, axios);
 
     // 연도/계절/세금 키워드 — 연단위로 변하는 토픽
     const YEARLY_TOPIC_KEYWORDS = [
@@ -11321,45 +11422,30 @@ ipcMain.handle('adsense:list-yearly-posts', async (_evt, payload: { blogId: stri
       '신년', '새해', '연초', '연말', '추석연휴', '설연휴',
       '최저임금', '기초연금', '실업급여',
     ];
-    const yearPattern = /\b(20[12][0-9])년/g;
 
-    // 모든 글 페치
+    // v3.8.247: 어댑터로 전체 글 페치 (Blogger + WordPress)
+    const allPosts = await adapter.listPosts({ fetchBodies: true, maxResults: 1000 });
     const candidates: Array<{ id: string; title: string; url: string; mentionedYears: number[]; topics: string[]; outdated: boolean; published: string }> = [];
-    let pageToken: string | undefined;
-    do {
-      const r: any = await axios.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        params: { maxResults: 50, fetchBodies: true, status: 'live', pageToken },
-        timeout: 45000,
-      });
-      for (const p of (r.data?.items || [])) {
-        const text = String(p.title || '') + ' ' + String(p.content || '').replace(/<[^>]+>/g, ' ');
-        // 연도 추출
-        const years = new Set<number>();
-        let m: RegExpExecArray | null;
-        const re = /\b(20[12][0-9])년/g;
-        while ((m = re.exec(text))) years.add(parseInt(m[1], 10));
-        // 연단위 토픽 키워드
-        const matchedTopics = YEARLY_TOPIC_KEYWORDS.filter((kw) => text.includes(kw));
-        // 후보 조건: 연단위 토픽 글이고 + (언급 연도 중 currentYear 이하 1년 이상 있음 OR 작년/올해/지난해 등 상대 표현)
-        const yearArr = Array.from(years).sort();
-        const hasOldYear = yearArr.some((y) => y < currentYear);
-        const hasRelativeOld = /(작년|지난해|올해|이번\s*해)/.test(text);
-        if (matchedTopics.length > 0 && (hasOldYear || hasRelativeOld)) {
-          candidates.push({
-            id: p.id,
-            title: p.title || '',
-            url: p.url || '',
-            mentionedYears: yearArr,
-            topics: matchedTopics,
-            outdated: hasOldYear || hasRelativeOld,
-            published: p.published || '',
-          });
-        }
+    for (const p of allPosts) {
+      const text = p.title + ' ' + p.content.replace(/<[^>]+>/g, ' ');
+      const years = new Set<number>();
+      let m: RegExpExecArray | null;
+      const re = /\b(20[12][0-9])년/g;
+      while ((m = re.exec(text))) years.add(parseInt(m[1], 10));
+      const matchedTopics = YEARLY_TOPIC_KEYWORDS.filter((kw) => text.includes(kw));
+      const yearArr = Array.from(years).sort();
+      const hasOldYear = yearArr.some((y) => y < currentYear);
+      const hasRelativeOld = /(작년|지난해|올해|이번\s*해)/.test(text);
+      if (matchedTopics.length > 0 && (hasOldYear || hasRelativeOld)) {
+        candidates.push({
+          id: p.id, title: p.title, url: p.url,
+          mentionedYears: yearArr, topics: matchedTopics,
+          outdated: hasOldYear || hasRelativeOld,
+          published: p.published || '',
+        });
       }
-      pageToken = r.data?.nextPageToken;
       if (candidates.length >= 500) break;
-    } while (pageToken);
+    }
 
     return { ok: true, currentYear, total: candidates.length, candidates };
   } catch (e: any) {
@@ -11367,24 +11453,22 @@ ipcMain.handle('adsense:list-yearly-posts', async (_evt, payload: { blogId: stri
   }
 });
 
-ipcMain.handle('adsense:refresh-yearly-post', async (_evt, payload: { blogId: string; postId: string; currentYear?: number; dryRun?: boolean }) => {
+ipcMain.handle('adsense:refresh-yearly-post', async (_evt, payload: { blogId?: string; siteUrl?: string; username?: string; password?: string; jwtToken?: string; platform?: AdSensePlatform; postId: string; currentYear?: number; dryRun?: boolean }) => {
   try {
     const envData = loadEnvFromFile() as any;
-    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
+    const creds = loadPlatformCredsFromEnv(envData, payload);
     const postId = String(payload.postId || '').trim();
-    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
-    if (!blogId || !postId || !accessToken) return { ok: false, error: '필수 파라미터 누락' };
+    if (!postId) return { ok: false, error: 'postId 누락' };
     const dryRun = payload.dryRun !== false;
     const currentYear = payload.currentYear || new Date().getFullYear();
     const axios = (await import('axios')).default;
+    const adapter = buildPlatformAdapter(creds, axios);
 
-    const fetched: any = await axios.get(
-      `https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`,
-      { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 30000 }
-    );
-    const post = fetched.data;
-    const originalTitle = String(post.title || '');
-    const originalHtml = String(post.content || '');
+    // v3.8.247: 어댑터로 글 페치
+    const post = await adapter.getPost(postId);
+    const originalTitle = post.title;
+    const originalHtml = post.content;
+    if (!originalHtml) return { ok: false, error: '글 본문이 비어 있습니다' };
 
     const refreshPrompt = `당신은 한국 블로그 글의 연단위 정보 갱신 전문가입니다.
 
@@ -11470,11 +11554,8 @@ ${originalHtml}
       };
     }
 
-    await axios.patch(
-      `https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`,
-      { title: newTitle, content: newHtml },
-      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 30000 }
-    );
+    // v3.8.247: 어댑터로 patch (Blogger + WordPress)
+    await adapter.updatePost(postId, { title: newTitle, content: newHtml });
 
     return {
       ok: true, dryRun: false,
