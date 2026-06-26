@@ -127,6 +127,17 @@ function openAdSenseFixerModal() {
           </div>
           <ul style="margin:0;padding-left:18px;color:#cbd5e1;font-size:12px;line-height:1.7;">${violationList || '<li>없음 ✅</li>'}</ul>
         </div>
+        <!-- v3.8.244: "가치가 별로 없는 콘텐츠" 사유 대응 — 본문 가치 분석 -->
+        <div style="padding:14px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.08));border:2px solid rgba(239,68,68,0.35);border-radius:12px;margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div>
+              <div style="color:#fca5a5;font-size:14px;font-weight:900;">💎 "가치가 별로 없는 콘텐츠" 사유 진단</div>
+              <div style="color:#94a3b8;font-size:11px;margin-top:3px;">본문 가치 다축 분석 (깊이/1인칭/구체데이터/E-E-A-T/양산패턴)</div>
+            </div>
+            <button id="adsense-analyze-value-btn" style="padding:8px 14px;background:linear-gradient(135deg,#ef4444,#dc2626);color:white;border:0;border-radius:8px;font-weight:900;font-size:12px;cursor:pointer;white-space:nowrap;">🔬 본문 가치 분석</button>
+          </div>
+          <div id="adsense-value-result"></div>
+        </div>
       `;
 
       // 페이지 자동 생성 버튼
@@ -145,6 +156,27 @@ function openAdSenseFixerModal() {
             alert('❌ ' + cr.error);
           }
           createBtn.disabled = false; createBtn.textContent = '📄 누락된 페이지 자동 생성';
+        });
+      }
+
+      // v3.8.244: 본문 가치 분석 — "가치가 별로 없는 콘텐츠" 사유 대응
+      const analyzeBtn = document.getElementById('adsense-analyze-value-btn');
+      if (analyzeBtn) {
+        analyzeBtn.addEventListener('click', async () => {
+          const blogId = document.getElementById('blogId')?.value?.trim();
+          if (!blogId) { alert('Blog ID 환경설정에 저장 필요'); return; }
+          const valueEl = document.getElementById('adsense-value-result');
+          analyzeBtn.disabled = true; analyzeBtn.textContent = '⏳ 본문 20개 분석 중...';
+          valueEl.innerHTML = `<div style="padding:10px;background:rgba(15,23,42,0.6);border-radius:8px;color:#cbd5e1;font-size:12px;">⏳ Blogger API로 본문을 가져와서 다축 점수를 계산하는 중... (30~60초)</div>`;
+          try {
+            const ar = await window.electronAPI.adsenseAnalyzeContentValue({ blogId, sampleSize: 20 });
+            if (!ar.ok) { valueEl.innerHTML = `<div style="padding:10px;background:rgba(239,68,68,0.12);border-radius:8px;color:#fca5a5;font-size:12px;">❌ ${ar.error}</div>`; return; }
+            renderValueResult(valueEl, ar);
+          } catch (e) {
+            valueEl.innerHTML = `<div style="padding:10px;background:rgba(239,68,68,0.12);border-radius:8px;color:#fca5a5;font-size:12px;">❌ ${e?.message || e}</div>`;
+          } finally {
+            analyzeBtn.disabled = false; analyzeBtn.textContent = '🔬 본문 가치 재분석';
+          }
         });
       }
 
@@ -175,6 +207,59 @@ function openAdSenseFixerModal() {
 
 function escHtml(s) {
   return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// v3.8.244: 본문 가치 분석 결과 렌더 — AdSense "가치 없는 콘텐츠" 사유 진단
+function renderValueResult(el, ar) {
+  const verdictColor = ar.avgScore >= 65 ? '#22c55e' : ar.avgScore >= 50 ? '#f59e0b' : '#ef4444';
+  const verdictBg = ar.avgScore >= 65 ? 'rgba(34,197,94,0.12)' : ar.avgScore >= 50 ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)';
+  const highRiskPosts = ar.scores.filter((s) => s.risk === 'high').slice(0, 10);
+  const html = `
+    <div style="padding:12px;background:${verdictBg};border:1px solid ${verdictColor};border-radius:10px;margin-bottom:12px;">
+      <div style="color:${verdictColor};font-size:14px;font-weight:900;margin-bottom:4px;">${ar.verdict}</div>
+      <div style="color:#cbd5e1;font-size:12px;line-height:1.5;">📌 권장: ${ar.action}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
+      <div style="padding:10px;background:rgba(15,23,42,0.6);border-radius:8px;text-align:center;">
+        <div style="color:#94a3b8;font-size:11px;">분석 글</div>
+        <div style="color:#f1f5f9;font-size:20px;font-weight:900;">${ar.sampleSize}</div>
+      </div>
+      <div style="padding:10px;background:rgba(15,23,42,0.6);border-radius:8px;text-align:center;">
+        <div style="color:#94a3b8;font-size:11px;">평균 점수</div>
+        <div style="color:${verdictColor};font-size:20px;font-weight:900;">${ar.avgScore}/100</div>
+      </div>
+      <div style="padding:10px;background:rgba(239,68,68,0.12);border-radius:8px;text-align:center;">
+        <div style="color:#fca5a5;font-size:11px;">위험 글</div>
+        <div style="color:#fee2e2;font-size:20px;font-weight:900;">${ar.highRisk}</div>
+      </div>
+      <div style="padding:10px;background:rgba(34,197,94,0.12);border-radius:8px;text-align:center;">
+        <div style="color:#86efac;font-size:11px;">양호 글</div>
+        <div style="color:#dcfce7;font-size:20px;font-weight:900;">${ar.lowRisk}</div>
+      </div>
+    </div>
+    ${highRiskPosts.length > 0 ? `
+      <div style="padding:12px;background:rgba(15,23,42,0.6);border:1px solid rgba(239,68,68,0.3);border-radius:10px;margin-bottom:10px;">
+        <div style="color:#fca5a5;font-size:13px;font-weight:800;margin-bottom:8px;">🚨 우선 보강 필요 (점수 낮은 순 ${highRiskPosts.length}개)</div>
+        <div style="max-height:280px;overflow-y:auto;">
+          ${highRiskPosts.map((p) => `
+            <div style="padding:8px 10px;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.15);border-radius:6px;margin-bottom:6px;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px;">
+                <a href="${escHtml(p.url)}" target="_blank" rel="noopener" style="color:#fbbf24;font-size:12px;font-weight:700;text-decoration:none;line-height:1.4;flex:1;">${escHtml(p.title)}</a>
+                <span style="color:#fca5a5;font-size:14px;font-weight:900;white-space:nowrap;">${p.totalScore}점</span>
+              </div>
+              <div style="color:#94a3b8;font-size:10px;line-height:1.5;">${p.wordCount}자 · H2 ${p.h2Count} · 이미지 ${p.imageCount} · 1인칭 ${p.personalScore} · 구체 ${p.specificScore} · 출처 ${p.eeatScore}${p.scaledScore > 0 ? ` · 양산 ${p.scaledScore}` : ''}</div>
+              ${p.reasons.length > 0 ? `<div style="color:#fca5a5;font-size:10px;margin-top:4px;">⚠️ ${p.reasons.join(' · ')}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : `<div style="padding:10px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);border-radius:8px;color:#86efac;font-size:12px;text-align:center;">✅ 위험 글 0개 — 재신청 권장</div>`}
+    <div style="padding:10px;background:rgba(59,130,246,0.08);border-left:3px solid #3b82f6;border-radius:4px;color:#bfdbfe;font-size:11px;line-height:1.6;">
+      <div style="font-weight:700;color:#dbeafe;margin-bottom:4px;">💡 가치 보강 핵심 5가지</div>
+      ${ar.tips.map((t) => `<div>• ${escHtml(t)}</div>`).join('')}
+    </div>
+  `;
+  el.innerHTML = html;
 }
 
 // v3.8.178: Dry-run 결과 모달 — 사용자가 확인 후 승인하면 실제 patch

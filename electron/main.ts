@@ -10810,6 +10810,168 @@ ipcMain.handle('adsense:list-clickbait-posts', async (_evt, payload: { blogId: s
   }
 });
 
+// v3.8.244: "가치가 별로 없는 콘텐츠" 사유 대응 — 본문 가치 점수 진단기
+// AdSense 거절 사유 #2 (Clickbait/누락 페이지와 별개 차원의 문제)
+// 다축 채점: 깊이(글자수/H2수) + 1인칭/경험 마커 + 구조 다양성 + E-E-A-T 신호 + 원본 데이터
+ipcMain.handle('adsense:analyze-content-value', async (_evt, payload: { blogId: string; sampleSize?: number }) => {
+  try {
+    const envData = loadEnvFromFile() as any;
+    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
+    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
+    if (!blogId || !accessToken) return { ok: false, error: 'Blog ID 또는 OAuth 토큰 누락' };
+    const sampleSize = Math.min(Math.max(payload.sampleSize || 20, 5), 50);
+    const axios = (await import('axios')).default;
+
+    // 1단계: 본문 포함해서 sample 글 페치
+    const r: any = await axios.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: { maxResults: sampleSize, fetchBodies: true, status: 'live', fetchImages: false },
+      timeout: 45000,
+    });
+    const items: any[] = r.data?.items || [];
+    if (items.length === 0) return { ok: false, error: '분석할 글 없음 (live 상태 글 0개)' };
+
+    // 점수 계산 함수
+    const stripHtml = (s: string) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+    // 1인칭/경험 마커: AI 양산이면 거의 안 나옴
+    const PERSONAL_MARKERS = [
+      /\b저(는|는요|희|희들|는\s*개인적으로)\b/g, /\b제(가|일|경우|입장에서)\b/g,
+      /경험상/g, /실제로\s*해보(니|니까|면)/g, /직접\s*(써|사용|먹어|입어|발라)\s*보(니|면)/g,
+      /개인적으로/g, /제\s*생각/g, /제\s*경험/g, /제가\s*(가본|먹어본|써본|입어본|발라본)/g,
+      /처음엔/g, /원래는/g, /솔직히/g, /\b결론적으로\s*저는\b/g,
+    ];
+    // 구체 데이터 마커: 가치 있는 글의 특징
+    const SPECIFIC_DATA_MARKERS = [
+      /\d{4}년\s*\d+월/g, /\d+만원|\d+,\d+원/g, /\d+%(?!\s*할인)/g,
+      /비교표|체크리스트|단계별|순서|예시/g, /vs\.?\s*[가-힯]/g,
+      /\d+개월\s*(써|사용|복용)/g, /실측|측정\s*결과/g,
+    ];
+    // E-E-A-T 신호: 출처/근거
+    const EEAT_MARKERS = [
+      /출처\s*[:：]/g, /근거\s*[:：]/g, /참고\s*[:：]/g, /\[자료\]/g,
+      /정부|보건복지부|국세청|식약처|공정거래위원회|식품의약품안전처/g,
+      /논문|연구|보고서|학회/g,
+    ];
+    // 양산형 의심 패턴
+    const SCALED_PATTERNS = [
+      /흔히\s*알려진/g, /많은\s*분(들)?(이|들이)/g, /\b여러분\s*안녕(하세요)?\b/g,
+      /오늘은\s*[가-힯\s]+에\s*대해\s*(알아|살펴)\s*보(겠습니다|아요|자)/g,
+      /지금\s*바로\s*확인하세요/g, /자세히\s*알아보(겠습니다|아요)/g,
+    ];
+
+    type PostScore = {
+      id: string; title: string; url: string;
+      wordCount: number; h2Count: number; imageCount: number;
+      personalScore: number; specificScore: number; eeatScore: number; scaledScore: number;
+      totalScore: number; risk: 'high' | 'medium' | 'low';
+      reasons: string[];
+    };
+
+    const scores: PostScore[] = [];
+    for (const it of items) {
+      const html = String(it.content || '');
+      const text = stripHtml(html);
+      const wordCount = text.length;
+      const h2Count = (html.match(/<h2[^>]*>/gi) || []).length;
+      const imageCount = (html.match(/<img[^>]+>/gi) || []).length;
+      const personalScore = PERSONAL_MARKERS.reduce((sum, p) => sum + (text.match(p)?.length || 0), 0);
+      const specificScore = SPECIFIC_DATA_MARKERS.reduce((sum, p) => sum + (text.match(p)?.length || 0), 0);
+      const eeatScore = EEAT_MARKERS.reduce((sum, p) => sum + (text.match(p)?.length || 0), 0);
+      const scaledScore = SCALED_PATTERNS.reduce((sum, p) => sum + (text.match(p)?.length || 0), 0);
+
+      // 종합 점수 (100점 만점) — Google이 보는 신호 가중치 반영
+      let total = 0;
+      const reasons: string[] = [];
+
+      // 깊이 (40점)
+      if (wordCount >= 2500) total += 40;
+      else if (wordCount >= 1500) total += 28;
+      else if (wordCount >= 1000) total += 15;
+      else { total += 5; reasons.push(`얇음 (${wordCount}자, 1500자+ 권장)`); }
+
+      // 구조 (10점)
+      if (h2Count >= 5) total += 10;
+      else if (h2Count >= 3) total += 6;
+      else { total += 2; reasons.push(`H2 부족 (${h2Count}개, 5+ 권장)`); }
+
+      // 1인칭/경험 (20점) — AI 양산 판별 핵심
+      if (personalScore >= 3) total += 20;
+      else if (personalScore >= 1) total += 10;
+      else { total += 0; reasons.push('1인칭/경험 표현 0개 (AI 양산 의심)'); }
+
+      // 구체 데이터 (15점)
+      if (specificScore >= 3) total += 15;
+      else if (specificScore >= 1) total += 8;
+      else { total += 0; reasons.push('구체 데이터 0개 (숫자/비교/사례 부족)'); }
+
+      // E-E-A-T 출처 (10점)
+      if (eeatScore >= 2) total += 10;
+      else if (eeatScore >= 1) total += 5;
+      else { total += 0; reasons.push('출처/근거 0개'); }
+
+      // 이미지 (5점)
+      if (imageCount >= 3) total += 5;
+      else if (imageCount >= 1) total += 3;
+      else { total += 0; reasons.push('이미지 0개'); }
+
+      // 양산형 패턴 감점 (최대 -15점)
+      if (scaledScore >= 3) { total -= 15; reasons.push(`AI 양산 표현 ${scaledScore}개 발견`); }
+      else if (scaledScore >= 1) { total -= 7; reasons.push(`AI 양산 표현 ${scaledScore}개 발견`); }
+
+      total = Math.max(0, Math.min(100, total));
+      const risk: 'high' | 'medium' | 'low' = total < 40 ? 'high' : total < 65 ? 'medium' : 'low';
+
+      const link = it.url || '';
+      scores.push({
+        id: it.id, title: it.title || '(제목 없음)', url: link,
+        wordCount, h2Count, imageCount,
+        personalScore, specificScore, eeatScore, scaledScore,
+        totalScore: total, risk, reasons,
+      });
+    }
+
+    // 위험도순 정렬
+    scores.sort((a, b) => a.totalScore - b.totalScore);
+
+    const avgScore = scores.reduce((s, x) => s + x.totalScore, 0) / scores.length;
+    const highRisk = scores.filter((s) => s.risk === 'high').length;
+    const mediumRisk = scores.filter((s) => s.risk === 'medium').length;
+    const lowRisk = scores.filter((s) => s.risk === 'low').length;
+
+    // 사이트 전체 진단 (AdSense 관점)
+    let verdict: string;
+    let action: string;
+    if (avgScore >= 65 && highRisk === 0) {
+      verdict = '✅ 양호 — AdSense "가치 없는 콘텐츠" 사유 재발 가능성 낮음';
+      action = '재신청 가능';
+    } else if (avgScore >= 50) {
+      verdict = `⚠️ 보통 — 평균 ${Math.round(avgScore)}점, 위험 글 ${highRisk}개`;
+      action = `위험 글 ${highRisk}개를 우선 보강 후 재신청 권장`;
+    } else {
+      verdict = `❌ 위험 — 평균 ${Math.round(avgScore)}점, 위험 글 ${highRisk}개`;
+      action = '재신청 시 같은 사유로 재거절 위험 높음. 본문 가치 보강 필수.';
+    }
+
+    return {
+      ok: true,
+      sampleSize: scores.length,
+      avgScore: Math.round(avgScore),
+      highRisk, mediumRisk, lowRisk,
+      verdict, action,
+      scores,
+      tips: [
+        '1인칭 표현 추가: "저는", "제가 직접 써본 결과", "경험상" 등',
+        '구체 데이터 추가: 실측값, 비교표, 가격, 기간, % 수치',
+        '출처 명기: 정부/공공기관/논문 인용 + [자료] 표기',
+        '얇은 글 보강: 1500자+ / H2 5개+ / 이미지 3개+',
+        'AI 양산 표현 제거: "오늘은 ~에 대해 알아보겠습니다", "흔히 알려진" 등',
+      ],
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+  }
+});
+
 // v3.8.178: dry-run 모드 추가 — 실제 patch 전 사용자가 미리보기로 확인 후 승인
 //   payload.dryRun: true → API patch 안 함, 미리보기 결과만 반환
 //   payload.dryRun: false → 실제 patch 실행
@@ -10909,5 +11071,5 @@ ipcMain.handle('adsense:clean-post-titles', async (_evt, payload: { blogId: stri
   }
 });
 
-console.log('[APP] ✅ AdSense 자동 해결 IPC 등록 완료 (open-console/diagnose/create-pages/list-clickbait-posts/clean-post-titles)');
+console.log('[APP] ✅ AdSense 자동 해결 IPC 등록 완료 (open-console/diagnose/create-pages/list-clickbait-posts/clean-post-titles/analyze-content-value)');
 console.log('[APP] ✅ Electron 앱 초기화 완료');

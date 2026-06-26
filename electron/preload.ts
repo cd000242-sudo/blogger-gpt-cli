@@ -396,7 +396,8 @@ export type BloggerApi = {
   adsenseDiagnose(payload: { siteUrl: string }): Promise<any>;
   adsenseCreatePages(payload: { blogId: string; pages: string[]; ownerName?: string; ownerEmail?: string }): Promise<any>;
   adsenseListClickbaitPosts(payload: { blogId: string }): Promise<any>;
-  adsenseCleanPostTitles(payload: { blogId: string; postIds: string[] }): Promise<any>;
+  adsenseCleanPostTitles(payload: { blogId: string; postIds: string[]; dryRun?: boolean }): Promise<any>;
+  adsenseAnalyzeContentValue(payload: { blogId: string; sampleSize?: number }): Promise<any>;
 };
 
 /** ───────── 공통 유틸 ───────── */
@@ -614,6 +615,7 @@ const api: BloggerApi = {
   adsenseCreatePages: (payload: any) => ipcRenderer.invoke('adsense:create-pages', payload),
   adsenseListClickbaitPosts: (payload: any) => ipcRenderer.invoke('adsense:list-clickbait-posts', payload),
   adsenseCleanPostTitles: (payload: any) => ipcRenderer.invoke('adsense:clean-post-titles', payload),
+  adsenseAnalyzeContentValue: (payload: any) => ipcRenderer.invoke('adsense:analyze-content-value', payload),
 
   // ── 플랫폼 연동 확인 ──
   checkPlatformAuth: (platform) => ipcRenderer.invoke('check-platform-auth', platform),
