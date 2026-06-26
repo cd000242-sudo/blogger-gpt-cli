@@ -239,13 +239,17 @@ function renderValueResult(el, ar) {
     </div>
     ${highRiskPosts.length > 0 ? `
       <div style="padding:12px;background:rgba(15,23,42,0.6);border:1px solid rgba(239,68,68,0.3);border-radius:10px;margin-bottom:10px;">
-        <div style="color:#fca5a5;font-size:13px;font-weight:800;margin-bottom:8px;">🚨 우선 보강 필요 (점수 낮은 순 ${highRiskPosts.length}개)</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="color:#fca5a5;font-size:13px;font-weight:800;">🚨 우선 보강 필요 (점수 낮은 순 ${highRiskPosts.length}개)</div>
+          <button id="adsense-boost-all-btn" data-post-ids="${highRiskPosts.map((p) => p.id).join(',')}" style="padding:6px 12px;background:linear-gradient(135deg,#22c55e,#16a34a);color:white;border:0;border-radius:8px;font-weight:800;font-size:11px;cursor:pointer;">⚡ 전체 자동 보강</button>
+        </div>
         <div style="max-height:280px;overflow-y:auto;">
           ${highRiskPosts.map((p) => `
             <div style="padding:8px 10px;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.15);border-radius:6px;margin-bottom:6px;">
               <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px;">
                 <a href="${escHtml(p.url)}" target="_blank" rel="noopener" style="color:#fbbf24;font-size:12px;font-weight:700;text-decoration:none;line-height:1.4;flex:1;">${escHtml(p.title)}</a>
                 <span style="color:#fca5a5;font-size:14px;font-weight:900;white-space:nowrap;">${p.totalScore}점</span>
+                <button class="adsense-boost-one-btn" data-post-id="${p.id}" data-title="${escHtml(p.title)}" style="padding:3px 8px;background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;border:0;border-radius:5px;font-weight:700;font-size:10px;cursor:pointer;white-space:nowrap;">🚀 보강</button>
               </div>
               <div style="color:#94a3b8;font-size:10px;line-height:1.5;">${p.wordCount}자 · H2 ${p.h2Count} · 이미지 ${p.imageCount} · 1인칭 ${p.personalScore} · 구체 ${p.specificScore} · 출처 ${p.eeatScore}${p.scaledScore > 0 ? ` · 양산 ${p.scaledScore}` : ''}</div>
               ${p.reasons.length > 0 ? `<div style="color:#fca5a5;font-size:10px;margin-top:4px;">⚠️ ${p.reasons.join(' · ')}</div>` : ''}
@@ -260,6 +264,117 @@ function renderValueResult(el, ar) {
     </div>
   `;
   el.innerHTML = html;
+
+  // v3.8.245: 개별 보강 버튼 핸들러
+  el.querySelectorAll('.adsense-boost-one-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const postId = btn.getAttribute('data-post-id');
+      const title = btn.getAttribute('data-title') || '';
+      const blogId = document.getElementById('blogId')?.value?.trim();
+      if (!blogId || !postId) { alert('Blog ID 또는 글 ID 누락'); return; }
+      await runBoostFlow(blogId, postId, title);
+    });
+  });
+
+  // 전체 보강 버튼 핸들러 — 순차 처리 (rate limit 보호)
+  const boostAllBtn = document.getElementById('adsense-boost-all-btn');
+  if (boostAllBtn) {
+    boostAllBtn.addEventListener('click', async () => {
+      const blogId = document.getElementById('blogId')?.value?.trim();
+      if (!blogId) { alert('Blog ID 누락'); return; }
+      const ids = (boostAllBtn.getAttribute('data-post-ids') || '').split(',').filter(Boolean);
+      if (ids.length === 0) { alert('보강할 글 없음'); return; }
+      if (!confirm(`⚠️ 위험 글 ${ids.length}개를 순차로 LLM으로 보강하고 사이트에 반영합니다.\n\n각 글마다 미리보기 없이 자동 적용되며 약 ${ids.length * 30}초 소요됩니다.\n\n진행할까요?`)) return;
+      boostAllBtn.disabled = true;
+      let successCnt = 0;
+      let failCnt = 0;
+      const logs = [];
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i];
+        boostAllBtn.textContent = `⏳ ${i + 1}/${ids.length} 보강 중...`;
+        try {
+          const r = await window.electronAPI.adsenseBoostPostValue({ blogId, postId: id, dryRun: false });
+          if (r.ok) {
+            successCnt++;
+            logs.push(`✅ ${r.title} (${r.before.length}자 → ${r.after.length}자, +${r.delta})`);
+          } else {
+            failCnt++;
+            logs.push(`❌ ${id}: ${r.error}`);
+          }
+        } catch (e) {
+          failCnt++;
+          logs.push(`❌ ${id}: ${e?.message || e}`);
+        }
+        await new Promise((res) => setTimeout(res, 800)); // rate limit 보호
+      }
+      boostAllBtn.disabled = false;
+      boostAllBtn.textContent = '⚡ 전체 자동 보강';
+      alert(`✅ 보강 완료: ${successCnt}개 성공 · ${failCnt}개 실패\n\n${logs.slice(0, 15).join('\n')}${logs.length > 15 ? `\n... 외 ${logs.length - 15}개` : ''}`);
+    });
+  }
+}
+
+// v3.8.245: 개별 글 보강 흐름 (Dry-run 미리보기 → 사용자 승인 → 실제 적용)
+async function runBoostFlow(blogId, postId, title) {
+  // 1단계: Dry-run
+  const loading = document.createElement('div');
+  loading.id = 'adsense-boost-loading';
+  loading.style.cssText = 'position:fixed;inset:0;z-index:100004;background:rgba(2,6,23,0.93);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;';
+  loading.innerHTML = `<div style="text-align:center;"><div style="font-size:48px;margin-bottom:14px;">🚀</div><div style="font-weight:800;margin-bottom:8px;">LLM으로 본문 가치 보강 중...</div><div style="color:#94a3b8;font-size:13px;">${escHtml(title)}</div><div style="color:#64748b;font-size:11px;margin-top:8px;">약 20~40초 소요</div></div>`;
+  document.body.appendChild(loading);
+  try {
+    const r = await window.electronAPI.adsenseBoostPostValue({ blogId, postId, dryRun: true });
+    loading.remove();
+    if (!r.ok) { alert('❌ 보강 실패: ' + r.error); return; }
+    showBoostResultModal(r, blogId, postId);
+  } catch (e) {
+    loading.remove();
+    alert('❌ ' + (e?.message || e));
+  }
+}
+
+// 보강 결과 미리보기 모달
+function showBoostResultModal(r, blogId, postId) {
+  const existing = document.getElementById('adsense-boost-result-modal');
+  if (existing) existing.remove();
+  const delta = r.delta;
+  const html = `
+<div id="adsense-boost-result-modal" style="position:fixed;inset:0;z-index:100003;background:rgba(2,6,23,0.93);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;">
+  <div style="width:min(1100px,100%);max-height:calc(100vh - 40px);background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(59,130,246,0.4);border-radius:18px;display:flex;flex-direction:column;">
+    <div style="padding:22px 26px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <h2 style="margin:0;color:#fff;font-size:18px;font-weight:900;">🚀 본문 가치 보강 미리보기</h2>
+        <p style="margin:4px 0 0 0;color:#94a3b8;font-size:12px;">${escHtml(r.title)} · ${r.before.length}자 → ${r.after.length}자 (${delta >= 0 ? '+' : ''}${delta}) · ${r.provider} 사용</p>
+      </div>
+      <button id="adsense-boost-close" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:18px;cursor:pointer;">×</button>
+    </div>
+    <div style="padding:18px 26px;flex:1;overflow-y:auto;display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <div>
+        <div style="color:#94a3b8;font-size:12px;font-weight:800;margin-bottom:8px;">📜 변경 전 (요약)</div>
+        <div style="background:rgba(15,23,42,0.6);border:1px solid rgba(148,163,184,0.2);border-radius:8px;padding:12px;font-size:11px;color:#cbd5e1;max-height:480px;overflow-y:auto;line-height:1.5;">${escHtml(r.before.htmlPreview)}...</div>
+      </div>
+      <div>
+        <div style="color:#86efac;font-size:12px;font-weight:800;margin-bottom:8px;">✨ 변경 후 (요약)</div>
+        <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:12px;font-size:11px;color:#cbd5e1;max-height:480px;overflow-y:auto;line-height:1.5;">${escHtml(r.after.htmlPreview)}...</div>
+      </div>
+    </div>
+    <div style="padding:16px 26px;border-top:1px solid rgba(255,255,255,0.08);display:flex;gap:10px;">
+      <button id="adsense-boost-cancel" style="flex:1;padding:12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);border-radius:8px;color:#cbd5e1;font-weight:800;cursor:pointer;">취소 (변경 안 함)</button>
+      <button id="adsense-boost-confirm" style="flex:2;padding:12px;background:linear-gradient(135deg,#22c55e,#16a34a);border:0;border-radius:8px;color:#fff;font-weight:900;font-size:13px;cursor:pointer;">✅ 보강된 본문 실제 적용 (사이트 반영)</button>
+    </div>
+  </div>
+</div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.getElementById('adsense-boost-close')?.addEventListener('click', () => document.getElementById('adsense-boost-result-modal')?.remove());
+  document.getElementById('adsense-boost-cancel')?.addEventListener('click', () => document.getElementById('adsense-boost-result-modal')?.remove());
+  document.getElementById('adsense-boost-confirm')?.addEventListener('click', async () => {
+    const btn = document.getElementById('adsense-boost-confirm');
+    btn.disabled = true; btn.textContent = '⏳ 사이트 반영 중...';
+    const real = await window.electronAPI.adsenseBoostPostValue({ blogId, postId, dryRun: false });
+    document.getElementById('adsense-boost-result-modal')?.remove();
+    if (real.ok) alert(`✅ 사이트 반영 완료\n${real.title}\n${real.before.length}자 → ${real.after.length}자 (+${real.delta})`);
+    else alert('❌ 실제 적용 실패: ' + real.error);
+  });
 }
 
 // v3.8.178: Dry-run 결과 모달 — 사용자가 확인 후 승인하면 실제 patch

@@ -11071,5 +11071,134 @@ ipcMain.handle('adsense:clean-post-titles', async (_evt, payload: { blogId: stri
   }
 });
 
-console.log('[APP] ✅ AdSense 자동 해결 IPC 등록 완료 (open-console/diagnose/create-pages/list-clickbait-posts/clean-post-titles/analyze-content-value)');
+// v3.8.245: "가치가 별로 없는 콘텐츠" 사유 — 본문 자동 보강 IPC
+// 입력: blogId + postId + dryRun (default true)
+// 처리:
+//   1. Blogger API로 본문 페치
+//   2. 현재 가치 점수 계산 (analyze-content-value와 동일 채점)
+//   3. 부족한 축 LLM에 요청 (기존 본문 골격 유지, 부족한 부분만 자연스럽게 삽입)
+//   4. dryRun이면 before/after 반환, false면 Blogger API patch
+ipcMain.handle('adsense:boost-post-value', async (_evt, payload: { blogId: string; postId: string; dryRun?: boolean }) => {
+  try {
+    const envData = loadEnvFromFile() as any;
+    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
+    const postId = String(payload.postId || '').trim();
+    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
+    if (!blogId || !postId) return { ok: false, error: 'blogId 또는 postId 누락' };
+    if (!accessToken) return { ok: false, error: 'Blogger OAuth 토큰 누락' };
+    const dryRun = payload.dryRun !== false; // default true (안전 우선)
+
+    const axios = (await import('axios')).default;
+    const fetched: any = await axios.get(
+      `https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`,
+      { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 30000 }
+    );
+    const post = fetched.data;
+    if (!post) return { ok: false, error: '글을 찾을 수 없습니다' };
+
+    const originalTitle = String(post.title || '');
+    const originalHtml = String(post.content || '');
+    const stripHtml = (s: string) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+    const originalText = stripHtml(originalHtml);
+    const originalLength = originalText.length;
+
+    // LLM에 보강 요청
+    const boostPrompt = `당신은 한국 블로그 글의 AdSense 승인 가치를 높이는 전문가입니다.
+
+아래 블로그 글의 **HTML 구조와 사실 정보는 그대로 유지**하면서, AdSense "가치가 별로 없는 콘텐츠" 거절 사유를 해결하기 위해 다음 5가지만 자연스럽게 보강해 주세요:
+
+1. **1인칭/경험 표현 삽입** — 도입부와 결론 부근에 "저는 이 주제를 OO 동안 다뤄왔는데", "제가 직접 알아본 결과", "경험상" 같은 표현을 자연스럽게 1~3곳 추가
+2. **구체 데이터 보강** — 추상적 표현을 실제 수치로 교체 또는 추가 ("많이 비싸다" → "월 평균 35,000원 정도", "오래 걸린다" → "약 2~3주")
+3. **출처/근거 명시** — 본문 중 1~2곳에 신뢰 출처 인용 추가 ("정부 식약처 자료에 따르면 [자료]", "한국소비자원 2026년 조사 기준")
+4. **양산형 표현 제거** — "오늘은 ~에 대해 알아보겠습니다", "흔히 알려진 대로", "지금 바로 확인하세요" 같은 AI 양산 패턴이 있으면 자연스러운 인간 어조로 교체
+5. **결론부 추가** — 본문 마지막에 1인칭 종합 의견 + 마지막 업데이트 시점(예: "2026년 6월 기준") 1단락 추가
+
+**절대 금지**:
+- 새로운 사실/주장 만들기 (출처 인용은 일반적이고 검증 가능한 기관만 — 정부/공공기관/식약처/소비자원 등)
+- 기존 H2/H3 구조 변경
+- 기존 이미지 태그 삭제
+- 광고 CTA, 어필리에이트 링크, 외부 판매 링크 추가
+- 클릭베이트 표현 ("완벽가이드", "꿀팁", "끝판왕" 등)
+- HTML 구조 단순화 (테이블/리스트가 있으면 유지)
+
+**출력**: 보강된 HTML만 출력 (설명/머리말 없이 HTML 본문만). 제목은 변경하지 마세요.
+
+---
+[원본 제목]
+${originalTitle}
+
+[원본 HTML]
+${originalHtml}
+---
+
+이제 위 5가지 보강이 적용된 HTML을 출력하세요:`;
+
+    // LLM 호출 (callLLM은 src/core/llm/llm-caller.ts에 있음)
+    const { callLLM } = await import('../src/core/llm');
+    // 가성비 + 한국어 품질 좋은 순서로 시도: claude → openai → perplexity
+    let boostedHtml = '';
+    let usedProvider = '';
+    const providers: Array<'claude' | 'openai' | 'perplexity'> = ['claude', 'openai', 'perplexity'];
+    let lastError = '';
+    for (const p of providers) {
+      try {
+        boostedHtml = await callLLM(p, boostPrompt);
+        usedProvider = p;
+        if (boostedHtml && boostedHtml.length > 200) break;
+      } catch (e: any) {
+        lastError = e?.message || String(e);
+        continue;
+      }
+    }
+    if (!boostedHtml || boostedHtml.length < 200) {
+      return { ok: false, error: `LLM 호출 실패: ${lastError || '모든 프로바이더 실패'}` };
+    }
+
+    // 응답에서 ```html 같은 코드펜스가 있으면 제거
+    boostedHtml = boostedHtml
+      .replace(/^```(?:html|HTML)?\s*\n/, '')
+      .replace(/\n```\s*$/, '')
+      .trim();
+
+    const boostedText = stripHtml(boostedHtml);
+    const boostedLength = boostedText.length;
+
+    // dryRun이면 비교 결과만 반환
+    if (dryRun) {
+      return {
+        ok: true,
+        dryRun: true,
+        postId,
+        title: originalTitle,
+        provider: usedProvider,
+        before: { length: originalLength, htmlPreview: originalHtml.slice(0, 800) },
+        after: { length: boostedLength, htmlPreview: boostedHtml.slice(0, 800), fullHtml: boostedHtml },
+        delta: boostedLength - originalLength,
+      };
+    }
+
+    // 실제 patch (Blogger Posts.patch API)
+    await axios.patch(
+      `https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`,
+      { content: boostedHtml },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 30000 }
+    );
+
+    return {
+      ok: true,
+      dryRun: false,
+      postId,
+      title: originalTitle,
+      provider: usedProvider,
+      before: { length: originalLength },
+      after: { length: boostedLength },
+      delta: boostedLength - originalLength,
+      message: '✅ 본문이 사이트에 반영됐습니다',
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+  }
+});
+
+console.log('[APP] ✅ AdSense 자동 해결 IPC 등록 완료 (open-console/diagnose/create-pages/list-clickbait-posts/clean-post-titles/analyze-content-value/boost-post-value)');
 console.log('[APP] ✅ Electron 앱 초기화 완료');

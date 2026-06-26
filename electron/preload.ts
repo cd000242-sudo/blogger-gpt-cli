@@ -398,6 +398,7 @@ export type BloggerApi = {
   adsenseListClickbaitPosts(payload: { blogId: string }): Promise<any>;
   adsenseCleanPostTitles(payload: { blogId: string; postIds: string[]; dryRun?: boolean }): Promise<any>;
   adsenseAnalyzeContentValue(payload: { blogId: string; sampleSize?: number }): Promise<any>;
+  adsenseBoostPostValue(payload: { blogId: string; postId: string; dryRun?: boolean }): Promise<any>;
 };
 
 /** ───────── 공통 유틸 ───────── */
@@ -616,6 +617,7 @@ const api: BloggerApi = {
   adsenseListClickbaitPosts: (payload: any) => ipcRenderer.invoke('adsense:list-clickbait-posts', payload),
   adsenseCleanPostTitles: (payload: any) => ipcRenderer.invoke('adsense:clean-post-titles', payload),
   adsenseAnalyzeContentValue: (payload: any) => ipcRenderer.invoke('adsense:analyze-content-value', payload),
+  adsenseBoostPostValue: (payload: any) => ipcRenderer.invoke('adsense:boost-post-value', payload),
 
   // ── 플랫폼 연동 확인 ──
   checkPlatformAuth: (platform) => ipcRenderer.invoke('check-platform-auth', platform),
