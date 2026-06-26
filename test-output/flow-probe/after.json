@@ -1,0 +1,213 @@
+{
+  "url": "https://labs.google/fx/ko/tools/flow/project/3ecbdfd4-7684-46f9-8e9f-7c3af334ac21",
+  "title": "Flow - BGPT 2026-06-07",
+  "body": "arrow_back\n돌아가기\nmore_vert\n옵션 더보기\nsearch\n검색\nfilter_list\n정렬 및 필터링\nadd\n미디어 추가\nhelp\n제품 도움말\nsettings_2\n설정 보기\nmore_vert\n더 생성하기\ndashboard\n모든 미디어\n모든 미디어\nimage\n이미지 보기\n이미지\naccessibility_new\n캐릭터\n캐릭터\nmovie\n장면 보기\n장면\napps_spark_2\n도구\n도구\ndelete\n휴지통 보기\n휴지통\nleft_panel_close\n접기\n접기\n\n무엇을 만들고 싶으신가요?\n﻿\n\n\nadd_2\n만들기\n에이전트\narticle_spark\n에이전트 요청 사항\ntune\n설정\narrow_forward\n만들기\nexpand_content\n펼치기\n\nFlow는 실수를 할 수 있으니 다시 한번 확인하세요.",
+  "buttons": [
+    {
+      "i": 0,
+      "text": "Agree",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 1,
+      "text": "No thanks",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 2,
+      "text": "arrow_back돌아가기",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "arrow_back"
+    },
+    {
+      "i": 3,
+      "text": "more_vert옵션 더보기",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "more_vert"
+    },
+    {
+      "i": 4,
+      "text": "search검색",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "search"
+    },
+    {
+      "i": 5,
+      "text": "filter_list정렬 및 필터링",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "filter_list"
+    },
+    {
+      "i": 6,
+      "text": "add미디어 추가",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "add"
+    },
+    {
+      "i": 7,
+      "text": "help제품 도움말",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "help"
+    },
+    {
+      "i": 8,
+      "text": "settings_2설정 보기",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "settings_2"
+    },
+    {
+      "i": 9,
+      "text": "more_vert더 생성하기",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "more_vert"
+    },
+    {
+      "i": 10,
+      "text": "",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 11,
+      "text": "dashboard모든 미디어",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "dashboard"
+    },
+    {
+      "i": 12,
+      "text": "image이미지 보기",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "image"
+    },
+    {
+      "i": 13,
+      "text": "accessibility_new캐릭터",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "accessibility_new"
+    },
+    {
+      "i": 14,
+      "text": "movie장면 보기",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "movie"
+    },
+    {
+      "i": 15,
+      "text": "apps_spark_2도구",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "apps_spark_2"
+    },
+    {
+      "i": 16,
+      "text": "delete휴지통 보기",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "delete"
+    },
+    {
+      "i": 17,
+      "text": "left_panel_close접기",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "left_panel_close"
+    },
+    {
+      "i": 18,
+      "text": "add_2만들기",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "add_2"
+    },
+    {
+      "i": 19,
+      "text": "에이전트",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 20,
+      "text": "article_spark에이전트 요청 사항",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "article_spark"
+    },
+    {
+      "i": 21,
+      "text": "tune설정",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "tune"
+    },
+    {
+      "i": 22,
+      "text": "arrow_forward만들기",
+      "disabled": false,
+      "ariaDisabled": "true",
+      "title": null,
+      "icons": "arrow_forward"
+    },
+    {
+      "i": 23,
+      "text": "expand_content펼치기",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "expand_content"
+    }
+  ],
+  "boxes": [
+    {
+      "i": 0,
+      "tag": "DIV",
+      "text": "무엇을 만들고 싶으신가요?",
+      "visible": true
+    },
+    {
+      "i": 1,
+      "tag": "TEXTAREA",
+      "text": "0cAFcWeA7IlFNGXMJGkoMxrmgI-_rEd4nrUvPp2I4QDQ9qA_XcJJUNFTDhs_S5jwnyUIntAGXADpGUKixmGyVJ46t0iBwaHBUny6fxTHMA22cf_CzymOjnnO",
+      "visible": false
+    }
+  ]
+}

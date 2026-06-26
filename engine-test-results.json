@@ -1,0 +1,32 @@
+[
+  {
+    "engine": "nanobanana2",
+    "norm": "nanobanana2",
+    "ok": false,
+    "elapsed": 0.8,
+    "error": "STRICT_ENGINE_FAILED:unknown:알 수 없는 오류: Nano Banana 2 실패: BILLING_REQUIRED: Google Cloud 빌링 활성화 필요 (https://aistudio.google.com/plan_billing)"
+  },
+  {
+    "engine": "gptimage2",
+    "norm": "gptimage2",
+    "ok": true,
+    "elapsed": 27.8,
+    "source": "GPT Image 2 (덕테이프) · low",
+    "size": 1851047,
+    "file": "C:\\Users\\park\\blogger-gpt-cli\\engine-test-gptimage2.png"
+  },
+  {
+    "engine": "deepinfra",
+    "norm": "deepinfra",
+    "ok": false,
+    "elapsed": 8.7,
+    "error": "STRICT_ENGINE_FAILED:unknown:알 수 없는 오류: DeepInfra API 키 없음"
+  },
+  {
+    "engine": "leonardo",
+    "norm": "leonardo",
+    "ok": false,
+    "elapsed": 15.8,
+    "error": "STRICT_ENGINE_FAILED:unknown:알 수 없는 오류: Leonardo 실패: Leonardo 모든 모델 실패"
+  }
+]

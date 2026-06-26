@@ -1,0 +1,47 @@
+{
+  "createdAt": "2026-06-06T22:50:21.277Z",
+  "results": [
+    {
+      "index": 1,
+      "ok": true,
+      "file": "C:\\Users\\park\\blogger-gpt-cli\\test-output\\flow-six\\flow-test-01.jpg",
+      "source": "Flow",
+      "elapsedSec": 67
+    },
+    {
+      "index": 2,
+      "ok": true,
+      "file": "C:\\Users\\park\\blogger-gpt-cli\\test-output\\flow-six\\flow-test-02.jpg",
+      "source": "Flow",
+      "elapsedSec": 63
+    },
+    {
+      "index": 3,
+      "ok": true,
+      "file": "C:\\Users\\park\\blogger-gpt-cli\\test-output\\flow-six\\flow-test-03.jpg",
+      "source": "Flow",
+      "elapsedSec": 68
+    },
+    {
+      "index": 4,
+      "ok": true,
+      "file": "C:\\Users\\park\\blogger-gpt-cli\\test-output\\flow-six\\flow-test-04.jpg",
+      "source": "Flow",
+      "elapsedSec": 66
+    },
+    {
+      "index": 5,
+      "ok": true,
+      "file": "C:\\Users\\park\\blogger-gpt-cli\\test-output\\flow-six\\flow-test-05.jpg",
+      "source": "Flow",
+      "elapsedSec": 71
+    },
+    {
+      "index": 6,
+      "ok": true,
+      "file": "C:\\Users\\park\\blogger-gpt-cli\\test-output\\flow-six\\flow-test-06.jpg",
+      "source": "Flow",
+      "elapsedSec": 33
+    }
+  ]
+}

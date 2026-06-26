@@ -602,6 +602,13 @@ const api: BloggerApi = {
   readLicenseFile: () => ipcRenderer.invoke('read-license-file'),
   writeLicenseFile: (data) => ipcRenderer.invoke('write-license-file', data),
   
+  // ── v3.8.176: AdSense 자동 해결 ──
+  adsenseOpenConsole: (payload = {}) => ipcRenderer.invoke('adsense:open-console', payload),
+  adsenseDiagnose: (payload) => ipcRenderer.invoke('adsense:diagnose', payload),
+  adsenseCreatePages: (payload) => ipcRenderer.invoke('adsense:create-pages', payload),
+  adsenseListClickbaitPosts: (payload) => ipcRenderer.invoke('adsense:list-clickbait-posts', payload),
+  adsenseCleanPostTitles: (payload) => ipcRenderer.invoke('adsense:clean-post-titles', payload),
+
   // ── 플랫폼 연동 확인 ──
   checkPlatformAuth: (platform) => ipcRenderer.invoke('check-platform-auth', platform),
   checkTistorySession: (payload = {}) => ipcRenderer.invoke('tistory-check-session', payload),

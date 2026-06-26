@@ -4671,9 +4671,19 @@
           </div>
         </div>
 
-        <!-- v3.7.21: 중복 #publishedPostsModal 제거 — 정식 모달은 거미줄 탭(line ~5211)에 있음.
-             기존엔 같은 id를 가진 모달이 포스팅 탭에도 있어 getElementById가 이 쪽을 먼저 잡았고,
-             포스팅 탭으로 전환했을 때 모달 자식이 포스팅 탭 트리 안에서 떠 보이던 문제. -->
+        <!-- v3.8.176: AdSense 자동 해결 진입점 -->
+        <div style="margin: 24px 0; padding: 24px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid rgba(251,191,36,0.4); border-radius: 16px;">
+          <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
+            <span style="font-size:32px;">🚨</span>
+            <div>
+              <h3 style="margin:0;color:#fbbf24;font-size:18px;font-weight:900;">AdSense 정책 위반 자동 해결</h3>
+              <p style="margin:4px 0 0 0;color:#94a3b8;font-size:12px;">사이트 진단 → About/Privacy/Contact 페이지 자동 생성 → Clickbait 제목 일괄 정리</p>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button onclick="window.openAdSenseFixerModal && window.openAdSenseFixerModal()" style="flex:1;min-height:44px;padding:10px 16px;background:linear-gradient(135deg,#f59e0b,#d97706);color:white;border:0;border-radius:10px;font-weight:900;font-size:14px;cursor:pointer;box-shadow:0 6px 20px rgba(245,158,11,0.45);">🚨 AdSense 자동 해결 열기</button>
+          </div>
+        </div>
 
         <!-- 환경 설정 카드들 (숨김 처리) -->
         <div style="display: none;">
@@ -6173,6 +6183,7 @@
   <!-- 내부 링크 모듈 로드 -->
   <script src="./modules/internal-links.js"></script>
   <script src="./modules/internal-links-global.js"></script>
+  <script src="./modules/adsense-fixer.js"></script>
 
 
   <!-- 🔥 Blogger OAuth 인증 및 다중 계정 관리 -->

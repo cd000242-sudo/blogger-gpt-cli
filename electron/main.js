@@ -1076,9 +1076,20 @@ ${crawledTitles.map((title, idx) => `${idx + 1}. ${title}`).join('\n')}
             }
             if (candidates.length > 0) {
                 candidates.sort((a, b) => b.score - a.score);
-                generatedTitle = candidates[0].title;
+                const best = candidates[0];
                 console.log(`[INTERNAL-CONSISTENCY] ✅ 제목 5변형 점수 (SEO+AEO+GEO+CTR 100점)`, candidates.map((c) => `${c.type}(${c.score}점): "${c.title.substring(0, 40)}…"`).join(' | '));
-                console.log(`[INTERNAL-CONSISTENCY] 🏆 선택: ${candidates[0].type} (${candidates[0].score}점) — ${candidates[0].title}`);
+                // v3.8.173: 60점 임계값 — 모든 변형이 페널티 받았으면 fallback ladder
+                if (best.score < 60) {
+                    console.warn(`[INTERNAL-CONSISTENCY] ⚠️ 최고점도 60 미만 (${best.score}) — fallback: 첫 글 원제목 활용`);
+                    const firstTitle = crawledTitles[0] || '';
+                    generatedTitle = firstTitle.length >= 20 && firstTitle.length <= 60
+                        ? firstTitle
+                        : `${(crawledTitles[0] || '').substring(0, 30)} ${new Date().getFullYear()} 정리`;
+                }
+                else {
+                    generatedTitle = best.title;
+                    console.log(`[INTERNAL-CONSISTENCY] 🏆 선택: ${best.type} (${best.score}점) — ${best.title}`);
+                }
             }
             else {
                 generatedTitle = cleaned.split(/\n+/)[0].trim();
@@ -1475,9 +1486,192 @@ URL: ${item.url}
 `;
             let generatedContent = '';
             try {
+                // v3.8.170: 거미줄도 에이전트 모드 지원 — payload.executionMode === 'agent'면 Agent CLI 사용
+                //   사용자 ChatGPT Plus / Claude Pro 구독 시 API 비용 0
+                //   이전: 무조건 Gemini API 호출 → 구독자도 API 비용 발생
+                //   해결: 거미줄 prompt를 agent instruction으로 전달 + article.html 결과를 generatedContent에 할당
+                const isSpiderAgentMode = payload.executionMode === 'agent';
+                const agentProvider = payload.agentProvider === 'claude' ? 'claude' : 'codex';
+                if (isSpiderAgentMode) {
+                    sendDiag(`🤖 에이전트 모드 (${agentProvider}) — Agent CLI로 통합글 생성`);
+                    try {
+                        const profile = findAgentProfile(undefined, agentProvider);
+                        if (!profile) {
+                            sendDiag('⚠️ Agent 프로필 없음 — Gemini API로 폴백');
+                        }
+                        else {
+                            const access = await getAgentModeAccessStatus();
+                            if (!access.allowed) {
+                                sendDiag(`⚠️ ${access.message || 'Agent 모드 사용 권한 없음'} — Gemini API로 폴백`);
+                            }
+                            else {
+                                const jobId = createAgentJobId(profile.provider, title);
+                                const jobDir = path.join(ensureAgentJobsRoot(), jobId);
+                                fs.mkdirSync(jobDir, { recursive: true });
+                                // v3.8.171: 끝판왕 스킨 + 인라인 스타일 명세 — Agent가 완성된 HTML로 출력
+                                //   원본 거미줄 prompt + 디자인 시스템 + 컴포넌트별 inline style 코드 + 이미지 marker
+                                const themeJson = JSON.stringify(spiderTheme, null, 2);
+                                const ctaBoxStyle = buildSpiderCtaBoxStyle(spiderTheme);
+                                const ctaBoxStyleLarge = buildSpiderCtaBoxStyle(spiderTheme, true);
+                                const ctaButtonStyle = buildSpiderCtaButtonStyle(spiderTheme);
+                                const ctaButtonStyleLarge = buildSpiderCtaButtonStyle(spiderTheme, true);
+                                const spiderInstructions = [
+                                    '# LEADERNAM Orbit Spider-Web Agent — 끝판왕 통합글',
+                                    '',
+                                    '## 역할',
+                                    '당신은 한국 cornerstone 거미줄 통합글 제작 에이전트입니다.',
+                                    `여러 글(${sortedContents.length}개)을 분석해 **인라인 스타일이 모두 박힌 완성형 HTML 1편**을 \`result/article.html\`에 저장합니다.`,
+                                    'API 키 호출자가 만드는 것보다 훨씬 정교하고 풍부한 디자인·구조·문체를 직접 작성합니다.',
+                                    '',
+                                    '## 디자인 시스템 (반드시 그대로 사용)',
+                                    '아래 spiderTheme 색상을 모든 컴포넌트에 적용합니다. 다른 색 임의 사용 금지.',
+                                    '```json',
+                                    themeJson,
+                                    '```',
+                                    '',
+                                    '## 작업지시서 (원본 거미줄 프롬프트 — 구조·콘텐츠 요구사항)',
+                                    prompt,
+                                    '',
+                                    '## 끝판왕 인라인 스킨 — 컴포넌트별 명세 (반드시 이대로 박아 출력)',
+                                    '',
+                                    '### 1) 최상단 TL;DR 답변 박스 (H1 직후)',
+                                    '```html',
+                                    `<div style="background:linear-gradient(135deg,${spiderTheme.gradientStart},${spiderTheme.gradientEnd});border-left:5px solid ${spiderTheme.primary};border-radius:12px;padding:20px 24px;margin:18px 0 28px;box-shadow:0 4px 14px ${spiderTheme.ctaShadow};">`,
+                                    `  <div style="font-size:13px;font-weight:900;color:${spiderTheme.primary};letter-spacing:0.05em;margin-bottom:8px;">📌 핵심 요약 (TL;DR)</div>`,
+                                    '  <div style="font-size:16px;line-height:1.75;color:#1f2937;font-weight:600;">3~5문장으로 글 전체 정답·결론 요약</div>',
+                                    '</div>',
+                                    '```',
+                                    '',
+                                    '### 2) Last updated 배지 (TL;DR 다음)',
+                                    '```html',
+                                    '<div style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:rgba(0,0,0,0.04);border-radius:999px;font-size:12px;color:#6b7280;font-weight:700;margin-bottom:20px;">',
+                                    `  <span style="color:${spiderTheme.primary};">🕒</span> Last updated: ${new Date().toISOString().slice(0, 10)}`,
+                                    '</div>',
+                                    '',
+                                    '### 3) H2 섹션 카드 (각 H2 시작)',
+                                    '```html',
+                                    `<h2 style="font-size:26px;font-weight:900;color:${spiderTheme.heading};margin:40px 0 16px;padding:14px 18px;background:linear-gradient(90deg,${spiderTheme.gradientStart} 0%,transparent 100%);border-left:6px solid ${spiderTheme.primary};border-radius:8px;line-height:1.4;">H2 제목</h2>`,
+                                    '```',
+                                    '',
+                                    '### 4) H3 sub-section',
+                                    '```html',
+                                    `<h3 style="font-size:19px;font-weight:800;color:${spiderTheme.heading};margin:28px 0 10px;padding-left:14px;border-left:4px solid ${spiderTheme.primary};">H3 제목</h3>`,
+                                    '```',
+                                    '',
+                                    '### 5) 본문 단락',
+                                    '```html',
+                                    `<p style="font-size:16px;line-height:1.85;color:#1f2937;margin:0 0 18px;">본문...</p>`,
+                                    '```',
+                                    '',
+                                    '### 6) 강조 인용 박스 (필요할 때 사용)',
+                                    '```html',
+                                    `<blockquote style="margin:20px 0;padding:18px 22px;background:rgba(0,0,0,0.025);border-left:4px solid ${spiderTheme.primary};border-radius:8px;font-style:italic;color:${spiderTheme.heading};font-size:15px;line-height:1.7;">핵심 한 줄</blockquote>`,
+                                    '```',
+                                    '',
+                                    '### 7) 체크리스트 박스',
+                                    '```html',
+                                    `<div style="background:${spiderTheme.surfaceAlt || '#f9fafb'};border:1px solid ${spiderTheme.borderSoft || '#e5e7eb'};border-radius:12px;padding:18px 22px;margin:20px 0;">`,
+                                    `  <div style="font-weight:900;color:${spiderTheme.heading};margin-bottom:10px;font-size:15px;">✅ 체크포인트</div>`,
+                                    '  <ul style="margin:0;padding-left:20px;color:#1f2937;line-height:1.8;font-size:15px;">',
+                                    '    <li>항목 1</li><li>항목 2</li><li>항목 3</li>',
+                                    '  </ul>',
+                                    '</div>',
+                                    '```',
+                                    '',
+                                    '### 8) 비교표 (Q&A·테이블)',
+                                    '```html',
+                                    `<table style="width:100%;border-collapse:collapse;margin:20px 0;background:#fff;border:1px solid ${spiderTheme.borderSoft || '#e5e7eb'};border-radius:8px;overflow:hidden;">`,
+                                    `  <thead><tr style="background:${spiderTheme.gradientStart};"><th style="padding:12px 14px;text-align:left;font-weight:900;color:${spiderTheme.heading};font-size:14px;border-bottom:2px solid ${spiderTheme.primary};">항목</th><th style="...">값</th></tr></thead>`,
+                                    '  <tbody><tr><td style="padding:10px 14px;border-bottom:1px solid #f3f4f6;font-size:14px;">A</td><td style="...">설명</td></tr></tbody>',
+                                    '</table>',
+                                    '```',
+                                    '',
+                                    '### 9) ⭐ 거미줄 회유 CTA 박스 (각 H2 끝에 정확히 1개)',
+                                    '🚨 매우 중요 — 각 원본 글 ↔ H2 매칭으로 거미줄 회유. 작업지시서 명세 그대로 박기.',
+                                    '```html',
+                                    `<div style="${ctaBoxStyle}">`,
+                                    `  <p style="margin:0 0 16px !important;color:${spiderTheme.heading} !important;font-size:17px !important;font-weight:800 !important;line-height:1.5 !important;text-align:center !important;">독자가 클릭하고 싶어지는 강한 한 줄 후킹 (예: "정확한 신청 조건이 따로 있어요. 확인해보세요!")</p>`,
+                                    '  <p style="margin:0 !important;text-align:center !important;">',
+                                    `    <a href="ORIGINAL_URL_여기에_그대로_쓰기" target="_blank" rel="noopener" style="${ctaButtonStyle}">📖 [원본 글 제목] 자세히 보기 →</a>`,
+                                    '  </p>',
+                                    '</div>',
+                                    '```',
+                                    '- ORIGINAL_URL은 작업지시서의 원본 글 URL을 그대로. 변형/단축 금지.',
+                                    '- 각 H2가 어떤 원본 글에 대응하는지 명확히 (작업지시서 sortedContents 순서대로 매칭).',
+                                    '',
+                                    '### 10) FAQ 박스 (글 끝 FAQ 섹션)',
+                                    '```html',
+                                    `<div style="background:${spiderTheme.surfaceAlt || '#fff'};border:2px solid ${spiderTheme.borderSoft || '#e5e7eb'};border-radius:14px;padding:20px 24px;margin:24px 0;">`,
+                                    `  <div style="font-weight:900;color:${spiderTheme.primary};margin-bottom:6px;font-size:15px;">❓ Q. 질문 텍스트</div>`,
+                                    `  <div style="font-size:15px;line-height:1.8;color:#1f2937;">답변...</div>`,
+                                    '</div>',
+                                    '```',
+                                    '',
+                                    '### 11) 면책 박스 (글 마지막)',
+                                    '```html',
+                                    '<div style="margin:32px 0 0;padding:14px 18px;background:rgba(0,0,0,0.03);border-radius:8px;font-size:12px;color:#6b7280;line-height:1.7;">',
+                                    '  ⚠️ 본 글은 정보 제공 목적이며 정확한 정책·금액·일정은 공식 사이트에서 확인하세요. 본 글의 정보로 인한 손해에 책임지지 않습니다.',
+                                    '</div>',
+                                    '```',
+                                    '',
+                                    '### 12) 이미지 자리 (Orbit 앱이 뒤에서 자동 삽입)',
+                                    '- 본문 안에 `<img>`, `<figure>`, `<picture>`, base64 데이터 URL 절대 금지',
+                                    '- 대신 metadata.json에 H2별 이미지 prompt 자세히 제공 → Orbit이 API 이미지 엔진으로 생성·삽입',
+                                    '',
+                                    '## 반드시 생성할 파일',
+                                    '',
+                                    '1. `result/article.html`',
+                                    '   - 본문 평문 **8,000~12,000자** (5,000자 미만 절대 금지)',
+                                    '   - H1 1개, H2 작업지시서 요구 수, H2당 H3 2~3개, FAQ + 결론·면책',
+                                    '   - **모든 컴포넌트 위 9~11번 inline style 그대로 박기** (사용자 후처리에 의존 X)',
+                                    '   - 잘림 절대 금지: `(이하 생략)`, `(계속)`, `...` X. 마지막 닫힘 태그로 한 호흡에 완성',
+                                    '   - `**`, `## `, `### ` 같은 마크다운 절대 사용 X. 모든 강조는 `<strong>` 또는 inline style',
+                                    '   - script, iframe, form, onclick, 추적 코드 금지',
+                                    '',
+                                    '2. `result/metadata.json`',
+                                    '```json',
+                                    '{',
+                                    '  "title": "최종 H1 제목 (50~60자, 검색 친화, 숫자/연도 포함 권장)",',
+                                    '  "summary": "글 자체 검수 요약 (300자)",',
+                                    '  "imagePrompts": {',
+                                    `    "thumbnail": "썸네일 이미지 prompt (테마 색상: ${spiderTheme.primary}, 한글 텍스트 없음, 자연 풍경/상징)",`,
+                                    '    "h2_1": "H2 1번 섹션용 이미지 prompt (텍스트 없음)",',
+                                    '    "h2_2": "H2 2번 섹션용 이미지 prompt (텍스트 없음)"',
+                                    '  }',
+                                    '}',
+                                    '```',
+                                    '',
+                                    '## 출력 마감 절대 규칙',
+                                    '- article.html 5,000자 이상 + 마지막은 명시적 닫힘 태그',
+                                    '- 자체 검수: 잘림/짧음/마크다운/이미지 태그/placeholder 발견 시 한 번 더 작성',
+                                    '- inline style 누락된 컴포넌트 있으면 다시 작성',
+                                    '- 사용자가 "끝판왕"이라고 부를 만한 완성도 — Orbit 후처리가 거의 필요 없을 정도로 마감',
+                                ].join('\n');
+                                fs.writeFileSync(path.join(jobDir, 'instructions.md'), spiderInstructions, 'utf-8');
+                                fs.writeFileSync(path.join(jobDir, 'payload.json'), JSON.stringify({ title, urls, postsCount: posts.length }, null, 2), 'utf-8');
+                                fs.mkdirSync(path.join(jobDir, 'result'), { recursive: true });
+                                const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
+                                sendDiag(`🤖 ${profile.provider} Agent 실행 중... (최대 12분 대기)`);
+                                const run = await runAgentProcess(profile, jobDir, lastMessagePath);
+                                const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
+                                const agentContent = String(result.content || '').trim();
+                                if (agentContent && agentContent.length >= 500) {
+                                    generatedContent = agentContent;
+                                    if (result.title && !payload.title)
+                                        title = result.title;
+                                    sendDiag(`✅ Agent 응답 수신 (${generatedContent.length}자) — Gemini API 호출 생략`);
+                                }
+                                else {
+                                    sendDiag(`⚠️ Agent 응답 비어있거나 너무 짧음 (${agentContent.length}자) — Gemini API로 폴백`);
+                                }
+                            }
+                        }
+                    }
+                    catch (agentErr) {
+                        sendDiag(`⚠️ Agent 실행 실패 → Gemini API로 폴백: ${agentErr?.message || agentErr}`);
+                    }
+                }
                 // v3.8.81: LLM 짧은 응답 자동 재시도 (사용자 보고: 1,118자만 응답)
-                //   원인: 프롬프트 복잡도↑ → LLM이 TL;DR 박스만 작성하고 H2 본문 누락
-                //   해결: 응답 < 3000자 또는 H2 < 3개면 최대 2회 재시도 (temperature 변경)
                 const callLLM = async (temp) => {
                     const r = await model.generateContent({
                         contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -1486,8 +1680,11 @@ URL: ${item.url}
                     return ((await r.response).text() || '')
                         .replace(/```html\n?/gi, '').replace(/```\n?/gi, '').trim();
                 };
-                sendDiag('🤖 Gemini LLM 호출 시작 (본문 생성)');
-                generatedContent = await callLLM(0.75);
+                // Agent 결과가 없을 때만 Gemini API 호출
+                if (!generatedContent || generatedContent.length < 500) {
+                    sendDiag('🤖 Gemini LLM 호출 시작 (본문 생성)');
+                    generatedContent = await callLLM(0.75);
+                }
                 let plainLen = generatedContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
                 let h2Count = (generatedContent.match(/<h2[^>]*>/gi) || []).length;
                 sendDiag(`📏 LLM 응답: ${generatedContent.length}자 (평문 ${plainLen}자, H2 ${h2Count}개)`);
@@ -4496,9 +4693,6 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
         };
         traceToRenderer('publish-content 진입', data.content);
         // v3.8.167: 모든 플랫폼에서 markdown bold(**텍스트**) → <strong> 자동 변환
-        //   증상: 워드프레스/블로거/티스토리 본문에 '**' 마크다운이 그대로 노출
-        //   원인: 거미줄 통합글은 처리됐지만 일반 글포스팅 경로엔 없음
-        //   처리: **(.+?)** → <strong>$1</strong>, 짝 안 맞는 ** 잔재 제거
         if (typeof data.content === 'string' && data.content.includes('**')) {
             const before = data.content.length;
             data.content = data.content
@@ -4507,6 +4701,165 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
             const removed = before - data.content.length;
             if (removed !== 0) {
                 const msg = `[BODY-TRACE-MAIN] **마크다운 → <strong> 변환 (${removed > 0 ? `${removed}자 제거` : `${-removed}자 증가`})`;
+                console.log(msg);
+                _evt.sender?.send?.('log-line', msg);
+            }
+        }
+        // v3.8.173: 통합 enrichment — 모든 모드(거미줄/단일/연속/SEO/일관) 자동 적용
+        //   1) HTML 메타 보강 (meta description + og 풀세트 + twitter + robots + canonical placeholder)
+        //   2) 이미지 alt 자동 보강 (직전 H2 텍스트 기반)
+        //   3) CTA 공식 홈페이지 자동 매핑 (google 검색 URL → 공식 사이트)
+        if (typeof data.content === 'string' && data.content.length > 0) {
+            const enrichmentLog = [];
+            const OFFICIAL_SITES = [
+                // 정부·청원
+                { keywords: ['청원24', '국민동의청원', '국회청원'], actionUrl: 'https://petitions.assembly.go.kr/api/petits', infoUrl: 'https://petitions.assembly.go.kr/' },
+                { keywords: ['국민신문고', '민원', '국민제안'], actionUrl: 'https://www.epeople.go.kr/nep/pttn/cvlcmpl/cvlcmplWritePttnList.npaid', infoUrl: 'https://www.epeople.go.kr/' },
+                { keywords: ['정부24', '주민등록', '인감', '등본', '초본'], actionUrl: 'https://www.gov.kr/portal/main/nologin', infoUrl: 'https://www.gov.kr/' },
+                // 세금
+                { keywords: ['홈택스', '연말정산', '종합소득세', '부가세', '원천세'], actionUrl: 'https://www.hometax.go.kr/websquare/websquare.wq?w2xPath=/ui/pp/index.xml', infoUrl: 'https://www.hometax.go.kr/' },
+                { keywords: ['위택스', '재산세', '자동차세', '취득세', '지방세'], actionUrl: 'https://www.wetax.go.kr/main.do', infoUrl: 'https://www.wetax.go.kr/' },
+                // 청년·복지
+                { keywords: ['청년도약계좌'], actionUrl: 'https://ydak.kinfa.or.kr/ydak/svIntroPage.do', infoUrl: 'https://ydak.kinfa.or.kr/' },
+                { keywords: ['청년내일저축계좌', '청년적금'], actionUrl: 'https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52011M.do?wlfareInfoId=WLF00005122', infoUrl: 'https://www.bokjiro.go.kr/' },
+                { keywords: ['청년월세'], actionUrl: 'https://www.gov.kr/portal/onestopSvc/youngMonthlyRent', infoUrl: 'https://www.gov.kr/portal/onestopSvc/youngMonthlyRent' },
+                { keywords: ['복지로', '복지 신청'], actionUrl: 'https://www.bokjiro.go.kr/ssis-tbu/index.do', infoUrl: 'https://www.bokjiro.go.kr/' },
+                // 금융
+                { keywords: ['주택청약', '청약홈', '청약 신청'], actionUrl: 'https://www.applyhome.co.kr/co/coa/selectMainView.do', infoUrl: 'https://www.applyhome.co.kr/' },
+                { keywords: ['전세보증보험', 'HUG', '전세사기'], actionUrl: 'https://www.khug.or.kr/hugintro/lease/guarantee01.jsp', infoUrl: 'https://www.khug.or.kr/' },
+                { keywords: ['신용회복', '개인회생', '서민금융'], actionUrl: 'https://www.ccrs.or.kr/main.do', infoUrl: 'https://www.kinfa.or.kr/' },
+                // 보험
+                { keywords: ['국민연금', '연금공단'], actionUrl: 'https://www.nps.or.kr/jsppage/csa/main_user.jsp', infoUrl: 'https://www.nps.or.kr/' },
+                { keywords: ['건강보험', '건강보험공단', '4대보험'], actionUrl: 'https://www.nhis.or.kr/nhis/index.do', infoUrl: 'https://www.nhis.or.kr/' },
+                { keywords: ['고용보험', '실업급여'], actionUrl: 'https://www.ei.go.kr/ei/eih/cm/hm/main.do', infoUrl: 'https://www.ei.go.kr/' },
+                { keywords: ['산재보험', '근로복지공단'], actionUrl: 'https://www.kcomwel.or.kr/kcomwel/main.jsp', infoUrl: 'https://www.kcomwel.or.kr/' },
+                // 노동·교육
+                { keywords: ['워크넷', '구직', '취업'], actionUrl: 'https://www.work24.go.kr/wk/a/b/1500/empSrchList.do', infoUrl: 'https://www.work24.go.kr/' },
+                { keywords: ['HRD-Net', '국비지원', '내일배움카드'], actionUrl: 'https://www.hrd.go.kr/hrdp/ti/ptiao/PTIAO0100L.do', infoUrl: 'https://www.hrd.go.kr/' },
+                // 부동산
+                { keywords: ['LH', '한국토지주택공사', '청년임대', '행복주택'], actionUrl: 'https://apply.lh.or.kr/lhapply/apply/wt/wrtanc/selectWrtancList.do', infoUrl: 'https://www.lh.or.kr/' },
+                { keywords: ['SH', '서울주택도시공사'], actionUrl: 'https://www.i-sh.co.kr/main/lay2/program/S1T294C297/www/brd/m_280/list.do', infoUrl: 'https://www.i-sh.co.kr/' },
+                { keywords: ['실거래가', '국토교통부 실거래가'], actionUrl: 'https://rt.molit.go.kr/', infoUrl: 'https://rt.molit.go.kr/' },
+                // 운전·자동차
+                { keywords: ['운전면허', '도로교통공단'], actionUrl: 'https://dls.koroad.or.kr/', infoUrl: 'https://www.koroad.or.kr/' },
+                { keywords: ['자동차등록', '교통민원24'], actionUrl: 'https://www.efine.go.kr/main/main.do', infoUrl: 'https://www.efine.go.kr/' },
+                // 의료
+                { keywords: ['건강검진', '국가건강검진'], actionUrl: 'https://www.nhis.or.kr/nhis/healthin/wbhaae04200m01.do', infoUrl: 'https://www.nhis.or.kr/' },
+                { keywords: ['병원평가', '심평원'], actionUrl: 'https://www.hira.or.kr/main.do', infoUrl: 'https://www.hira.or.kr/' },
+                // 교통
+                { keywords: ['KTX', '코레일'], actionUrl: 'https://www.korail.com/ticket/main', infoUrl: 'https://www.korail.com/' },
+                { keywords: ['SRT'], actionUrl: 'https://etk.srail.kr/main.do', infoUrl: 'https://etk.srail.kr/' },
+                { keywords: ['고속버스 예매'], actionUrl: 'https://www.kobus.co.kr/main.do', infoUrl: 'https://www.kobus.co.kr/' },
+                // 채용
+                { keywords: ['공무원시험', '사이버국가고시센터'], actionUrl: 'https://gosi.kr/usr/cop/main/main.do', infoUrl: 'https://gosi.kr/' },
+                { keywords: ['공기업 채용', '나라일터'], actionUrl: 'https://www.gojobs.go.kr/index.do', infoUrl: 'https://www.gojobs.go.kr/' },
+            ];
+            const detectIntent = (text) => {
+                const t = String(text || '').toLowerCase();
+                if (/(신청|가입|등록|발급|접수|신고|예매|예약|구매|주문|결제|로그인)/.test(t))
+                    return 'action';
+                if (/(비교|차이|vs|어디|어느|추천|best|순위|랭킹)/.test(t))
+                    return 'comparison';
+                if (/(후기|경험|솔직|리뷰|실제|써본|해본)/.test(t))
+                    return 'review';
+                if (/(방법|조건|자격|기준|안내|가이드|어떻게|얼마|언제|뜻|이란)/.test(t))
+                    return 'info';
+                return 'unknown';
+            };
+            const findOfficialUrlSmart = (text, intent) => {
+                const t = String(text || '').toLowerCase();
+                for (const entry of OFFICIAL_SITES) {
+                    if (entry.keywords.some((kw) => t.includes(kw.toLowerCase()))) {
+                        // 행동형이면 action URL, 그 외엔 info URL
+                        return intent === 'action' ? entry.actionUrl : (entry.infoUrl || entry.actionUrl);
+                    }
+                }
+                return null;
+            };
+            // CTA 처리 — google 검색 URL을 의도 기반 destination으로 교체
+            const topic = String(data.title || data.payload?.topic || data.payload?.title || '');
+            const topicIntent = detectIntent(topic);
+            const ctaCounts = { replaced: 0, removed: 0, kept: 0 };
+            data.content = data.content.replace(/(<a[^>]*href=["'])https?:\/\/(?:www\.)?google\.[a-z.]+\/(?:search|url)\?[^"']*[?&]q=([^"'&]+)[^"']*?(["'][^>]*>)([\s\S]*?)<\/a>/gi, (match, prefix, q, suffix, linkText) => {
+                const decoded = decodeURIComponent(q.replace(/\+/g, ' '));
+                const intent = detectIntent(decoded + ' ' + linkText) || topicIntent;
+                // 1순위: 공식 사이트 (의도별 sub-path)
+                const official = findOfficialUrlSmart(decoded, intent) || findOfficialUrlSmart(topic, intent);
+                if (official) {
+                    ctaCounts.replaced++;
+                    return `${prefix}${official}${suffix}${linkText}</a>`;
+                }
+                // 2순위: 매핑 없으면 — 구글 검색 X. 링크 자체 제거하고 강조 텍스트로 변환
+                //   (자기 트래픽 죽이지 않기: 사용자가 내 글을 보는 이유 유지)
+                ctaCounts.removed++;
+                return `<strong>${linkText.replace(/<[^>]+>/g, '')}</strong>`;
+            });
+            if (ctaCounts.replaced > 0 || ctaCounts.removed > 0) {
+                enrichmentLog.push(`CTA: ${ctaCounts.replaced}개 공식사이트 교체, ${ctaCounts.removed}개 구글검색 제거(강조 텍스트로)`);
+            }
+            // 이미지 alt 자동 보강 — 비어있는 alt를 직전 H2 텍스트로 채움
+            const h2List = [];
+            const h2Re = /<h2[^>]*>([\s\S]*?)<\/h2>/gi;
+            let h2m;
+            while ((h2m = h2Re.exec(data.content)) !== null) {
+                h2List.push({ pos: h2m.index, text: String(h2m[1]).replace(/<[^>]+>/g, '').trim() });
+            }
+            let altFilled = 0;
+            data.content = data.content.replace(/<img\b([^>]*?)>/gi, (full, attrs, offset) => {
+                const hasAlt = /\balt\s*=\s*["'][^"']+["']/i.test(attrs);
+                if (hasAlt)
+                    return full;
+                const prevH2 = [...h2List].reverse().find((h) => h.pos < offset);
+                const altText = (prevH2?.text || topic || '').replace(/["<>]/g, '').slice(0, 100);
+                if (!altText)
+                    return full;
+                altFilled++;
+                const cleanedAttrs = attrs.replace(/\balt\s*=\s*["']\s*["']/gi, '');
+                return `<img${cleanedAttrs} alt="${altText}">`;
+            });
+            if (altFilled > 0) {
+                enrichmentLog.push(`이미지 alt ${altFilled}개 자동 보강`);
+            }
+            // HTML 메타 보강 — meta description + og 풀세트 + twitter + robots + canonical placeholder
+            //   본문에 이미 같은 메타가 있으면 skip (중복 방지)
+            const titleText = String(data.title || topic || '').replace(/["'<>]/g, '').slice(0, 90);
+            const plainText = data.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            const descText = plainText.slice(0, 155).replace(/["'<>]/g, '');
+            const imgUrl = String(data.thumbnailUrl || '').slice(0, 500);
+            const metaParts = [];
+            if (!/<meta\s+name=["']description["']/i.test(data.content)) {
+                metaParts.push(`<meta name="description" content="${descText}">`);
+            }
+            if (!/<meta\s+name=["']robots["']/i.test(data.content)) {
+                metaParts.push('<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">');
+            }
+            if (!/<meta\s+property=["']og:title["']/i.test(data.content)) {
+                metaParts.push(`<meta property="og:title" content="${titleText}">`);
+            }
+            if (!/<meta\s+property=["']og:description["']/i.test(data.content)) {
+                metaParts.push(`<meta property="og:description" content="${descText}">`);
+            }
+            if (imgUrl && !/<meta\s+property=["']og:image["']/i.test(data.content)) {
+                metaParts.push(`<meta property="og:image" content="${imgUrl}">`);
+                metaParts.push(`<meta property="og:image:alt" content="${titleText}">`);
+            }
+            if (!/<meta\s+property=["']og:type["']/i.test(data.content)) {
+                metaParts.push('<meta property="og:type" content="article">');
+            }
+            if (!/<meta\s+name=["']twitter:card["']/i.test(data.content)) {
+                metaParts.push('<meta name="twitter:card" content="summary_large_image">');
+                metaParts.push(`<meta name="twitter:title" content="${titleText}">`);
+                metaParts.push(`<meta name="twitter:description" content="${descText}">`);
+                if (imgUrl)
+                    metaParts.push(`<meta name="twitter:image" content="${imgUrl}">`);
+            }
+            if (metaParts.length > 0) {
+                // 본문 맨 앞에 추가 (Blogger/WP 둘 다 head에 들어가지 않더라도 OG/Twitter 파서는 본문 inline 메타도 잡음)
+                data.content = metaParts.join('\n') + '\n' + data.content;
+                enrichmentLog.push(`HTML 메타 ${metaParts.length}개 주입 (desc/og/twitter/robots)`);
+            }
+            if (enrichmentLog.length > 0) {
+                const msg = `[ENRICHMENT] ${enrichmentLog.join(' | ')}`;
                 console.log(msg);
                 _evt.sender?.send?.('log-line', msg);
             }

@@ -1,0 +1,356 @@
+{
+  "ok": false,
+  "error": "page.waitForResponse: Timeout 90000ms exceeded while waiting for event \"response\"",
+  "networkLog": [
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/auth/session"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/flow.projectInitialData?input=%7B%22json%22%3A%7B%22projectId%22%3A%2250194ec5-db0d-4e74-acc4-595ab2bdbdfd%22%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserAcknowledgement?input=%7B%22json%22%3A%7B%22acknowledgementVersion%22%3A%22CREATIVE_PARTNER_PROGRAM_TOS%22%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserAcknowledgement?input=%7B%22json%22%3A%7B%22toolName%22%3A%22PINHOLE%22%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserLocale?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "POST",
+      "url": "https://labs.google/fx/api/trpc/general.submitBatchLog"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/auth/session"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserAcknowledgement?input=%7B%22json%22%3A%7B%22acknowledgementVersion%22%3A%22CREATIVE_PARTNER_PROGRAM_TOS%22%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserLocale?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserAcknowledgement?input=%7B%22json%22%3A%7B%22toolName%22%3A%22PINHOLE%22%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.submitBatchLog"
+    },
+    {
+      "type": "request",
+      "method": "POST",
+      "url": "https://labs.google/fx/api/trpc/general.submitBatchLog"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/flow.projectInitialData?input=%7B%22json%22%3A%7B%22projectId%22%3A%2250194ec5-db0d-4e74-acc4-595ab2bdbdfd%22%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.submitBatchLog"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserPreferences?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/videoFx.getFlowAppConfig?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/videoFx.getUserSettings?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserAcknowledgement?input=%7B%22json%22%3A%7B%22acknowledgementVersion%22%3A%22FLOW_IMAGE_UPLOAD_TOS%22%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=75b562dd-a563-4796-93e2-8bde37eb8c52"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserPreferences?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/videoFx.getUserSettings?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserAcknowledgement?input=%7B%22json%22%3A%7B%22acknowledgementVersion%22%3A%22FLOW_IMAGE_UPLOAD_TOS%22%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/videoFx.getFlowAppConfig?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 307,
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=75b562dd-a563-4796-93e2-8bde37eb8c52"
+    },
+    {
+      "type": "request",
+      "method": "POST",
+      "url": "https://labs.google/fx/api/trpc/general.submitBatchLog"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.submitBatchLog"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=0767b935-3989-4cfe-878f-023b703bf8c5"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=9de7581f-b1c9-4f4f-a9ec-7ad78dc3ddbe"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=78de426d-a9b5-498e-98d6-980ba190ddd4"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=465b63fe-7056-4e57-a2db-eaf7f9e3c07d"
+    },
+    {
+      "type": "response",
+      "status": 307,
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=0767b935-3989-4cfe-878f-023b703bf8c5"
+    },
+    {
+      "type": "response",
+      "status": 307,
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=9de7581f-b1c9-4f4f-a9ec-7ad78dc3ddbe"
+    },
+    {
+      "type": "response",
+      "status": 307,
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=78de426d-a9b5-498e-98d6-980ba190ddd4"
+    },
+    {
+      "type": "response",
+      "status": 307,
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=465b63fe-7056-4e57-a2db-eaf7f9e3c07d"
+    },
+    {
+      "type": "request",
+      "method": "POST",
+      "url": "https://labs.google/fx/api/trpc/project.createProject"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/project.createProject"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/auth/session"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/flow.projectInitialData?input=%7B%22json%22%3A%7B%22projectId%22%3A%223ecbdfd4-7684-46f9-8e9f-7c3af334ac21%22%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserAcknowledgement?input=%7B%22json%22%3A%7B%22acknowledgementVersion%22%3A%22CREATIVE_PARTNER_PROGRAM_TOS%22%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserAcknowledgement?input=%7B%22json%22%3A%7B%22toolName%22%3A%22PINHOLE%22%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserLocale?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "POST",
+      "url": "https://labs.google/fx/api/trpc/general.submitBatchLog"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/auth/session"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserAcknowledgement?input=%7B%22json%22%3A%7B%22acknowledgementVersion%22%3A%22CREATIVE_PARTNER_PROGRAM_TOS%22%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.submitBatchLog"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/auth/session"
+    },
+    {
+      "type": "request",
+      "method": "POST",
+      "url": "https://labs.google/fx/api/trpc/general.submitBatchLog"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserAcknowledgement?input=%7B%22json%22%3A%7B%22toolName%22%3A%22PINHOLE%22%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserLocale?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/auth/session"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/flow.projectInitialData?input=%7B%22json%22%3A%7B%22projectId%22%3A%223ecbdfd4-7684-46f9-8e9f-7c3af334ac21%22%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserPreferences?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/videoFx.getFlowAppConfig?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/videoFx.getUserSettings?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserAcknowledgement?input=%7B%22json%22%3A%7B%22acknowledgementVersion%22%3A%22FLOW_IMAGE_UPLOAD_TOS%22%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.submitBatchLog"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserPreferences?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/videoFx.getUserSettings?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.fetchUserAcknowledgement?input=%7B%22json%22%3A%7B%22acknowledgementVersion%22%3A%22FLOW_IMAGE_UPLOAD_TOS%22%7D%7D"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/videoFx.getFlowAppConfig?input=%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D"
+    },
+    {
+      "type": "request",
+      "method": "POST",
+      "url": "https://labs.google/fx/api/trpc/general.submitBatchLog"
+    },
+    {
+      "type": "response",
+      "status": 200,
+      "url": "https://labs.google/fx/api/trpc/general.submitBatchLog"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=20e8c39e-f905-488b-b445-0c2a1fe4c0fe"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=cf1e6ccc-eb7b-4127-9097-71c300b4bc82"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=cee7577e-21dd-45d1-abe6-fd8738287e10"
+    },
+    {
+      "type": "request",
+      "method": "GET",
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=b91f27e1-1fca-4e9b-bf0a-ccd92d4fde06"
+    },
+    {
+      "type": "response",
+      "status": 307,
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=20e8c39e-f905-488b-b445-0c2a1fe4c0fe"
+    },
+    {
+      "type": "response",
+      "status": 307,
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=cee7577e-21dd-45d1-abe6-fd8738287e10"
+    },
+    {
+      "type": "response",
+      "status": 307,
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=b91f27e1-1fca-4e9b-bf0a-ccd92d4fde06"
+    },
+    {
+      "type": "response",
+      "status": 307,
+      "url": "https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=cf1e6ccc-eb7b-4127-9097-71c300b4bc82"
+    }
+  ]
+}

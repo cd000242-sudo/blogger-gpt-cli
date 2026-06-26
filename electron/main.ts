@@ -10520,4 +10520,286 @@ ipcMain.handle('generate-external-traffic-text', async (_evt, payload: any) => {
   }
 });
 
+// ════════════════════════════════════════════════════════
+// v3.8.176: AdSense 자동 해결 시스템 (Phase 1~3)
+// ════════════════════════════════════════════════════════
+
+// Phase 1 — AdSense 콘솔 + Blogger admin 자동 열기
+ipcMain.handle('adsense:open-console', async (_evt, payload?: { siteUrl?: string }) => {
+  try {
+    const chromium = await (async () => {
+      try { return require('patchright').chromium; } catch { return require('playwright').chromium; }
+    })();
+    const profileDir = path.join(app.getPath('userData'), 'adsense-profile');
+    fs.mkdirSync(profileDir, { recursive: true });
+    const context = await chromium.launchPersistentContext(profileDir, {
+      headless: false,
+      locale: 'ko-KR',
+      viewport: { width: 1400, height: 900 },
+      args: ['--window-position=80,80', '--window-size=1400,900'],
+    });
+    const page = context.pages()[0] || await context.newPage();
+    // 첫 탭: AdSense 사이트 페이지
+    await page.goto('https://www.google.com/adsense/new/u/0/pub-/sites/my-sites', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => null);
+    // 둘째 탭: Blogger 어드민
+    const bloggerTab = await context.newPage();
+    await bloggerTab.goto('https://www.blogger.com/u/0/blogs', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => null);
+    if (payload?.siteUrl) {
+      const siteTab = await context.newPage();
+      await siteTab.goto(payload.siteUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => null);
+    }
+    return { ok: true, message: 'AdSense 콘솔 + Blogger 어드민 + 사이트 자동 열림. 로그인 후 정확한 위반 사유 확인하세요.' };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// 사이트 자동 진단 (RSS 파싱 + 패턴 검사)
+ipcMain.handle('adsense:diagnose', async (_evt, payload: { siteUrl: string }) => {
+  try {
+    const axios = (await import('axios')).default;
+    const siteUrl = String(payload.siteUrl || '').replace(/\/$/, '');
+    const feedUrl = `${siteUrl}/feeds/posts/default?max-results=500&alt=json`;
+    const res = await axios.get(feedUrl, { timeout: 15000 });
+    const feed = res.data?.feed || {};
+    const total = parseInt(feed['openSearch$totalResults']?.$t || '0', 10);
+    const entries: any[] = feed.entry || [];
+
+    // Clickbait/HCU 위반 패턴
+    const CLICKBAIT_PATTERNS = [
+      /놓치(면|지)?\s*(안\s*)?(될|마)/, /꿀팁/, /왜\s*아무도/, /고수만/, /비법/, /완벽\s*가이드/,
+      /효율\s*\d+%/, /\d+분\s*만에/, /놀라운/, /충격/, /이것만\s*알면/, /믿기지\s*않는/,
+      /절대\s*하지\s*마/, /절대후회/, /역대급/, /레전드/, /미쳤다/, /대박/, /끝판왕/,
+      /월\s*\d+만원/, /\d+만원\s*꿀팁/, /\d+\s*벌었다/, /인생역전/, /총정리/, /모든\s*것/,
+    ];
+    const titleViolations: Array<{ title: string; matches: string[]; url: string }> = [];
+    const topicCount: Record<string, number> = {};
+
+    for (const entry of entries) {
+      const title = String(entry.title?.$t || '').trim();
+      const link = (entry.link || []).find((l: any) => l.rel === 'alternate')?.href || '';
+      const matches: string[] = [];
+      for (const pat of CLICKBAIT_PATTERNS) {
+        if (pat.test(title)) {
+          matches.push(String(pat).replace(/^\/|\/[gimsuy]*$/g, ''));
+        }
+      }
+      if (matches.length > 0) titleViolations.push({ title, matches, url: link });
+      // 토픽 카운트 (제목에서 명사구 추출)
+      const keywords = title.match(/[가-힯]{2,8}/g) || [];
+      for (const kw of keywords.slice(0, 3)) {
+        topicCount[kw] = (topicCount[kw] || 0) + 1;
+      }
+    }
+    const duplicates = Object.entries(topicCount)
+      .filter(([, n]) => n >= 4)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([topic, count]) => ({ topic, count }));
+
+    // 기능 페이지 확인 (about, privacy, contact)
+    const pageChecks = await Promise.all([
+      axios.get(`${siteUrl}/p/about.html`, { timeout: 10000, validateStatus: () => true }).then((r) => ({ name: 'about', exists: r.status === 200 })).catch(() => ({ name: 'about', exists: false })),
+      axios.get(`${siteUrl}/p/privacy-policy.html`, { timeout: 10000, validateStatus: () => true }).then((r) => ({ name: 'privacy', exists: r.status === 200 })).catch(() => ({ name: 'privacy', exists: false })),
+      axios.get(`${siteUrl}/p/contact.html`, { timeout: 10000, validateStatus: () => true }).then((r) => ({ name: 'contact', exists: r.status === 200 })).catch(() => ({ name: 'contact', exists: false })),
+    ]);
+    const missingPages = pageChecks.filter((p) => !p.exists).map((p) => p.name);
+
+    return {
+      ok: true,
+      total,
+      titleViolationsCount: titleViolations.length,
+      titleViolations: titleViolations.slice(0, 50),
+      duplicateTopics: duplicates,
+      missingPages,
+      summary: {
+        totalPosts: total,
+        clickbaitCount: titleViolations.length,
+        clickbaitPercent: total > 0 ? Math.round((titleViolations.length / Math.min(entries.length, total)) * 100) : 0,
+        duplicateTopicCount: duplicates.length,
+        missingPageCount: missingPages.length,
+      },
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// Phase 2A — About/Privacy/Contact 자동 생성 (Blogger Pages API)
+ipcMain.handle('adsense:create-pages', async (_evt, payload: { blogId: string; pages: ('about' | 'privacy' | 'contact')[]; ownerName?: string; ownerEmail?: string }) => {
+  try {
+    const envData = loadEnvFromFile() as any;
+    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
+    if (!blogId) return { ok: false, error: 'Blog ID 누락' };
+    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
+    if (!accessToken) return { ok: false, error: 'Blogger OAuth 토큰 누락 — 환경설정에서 재인증' };
+
+    const today = new Date().toISOString().slice(0, 10);
+    const name = String(payload.ownerName || '블로그 운영자').replace(/["<>]/g, '');
+    const email = String(payload.ownerEmail || 'contact@example.com').replace(/["<>]/g, '');
+    const PAGE_TEMPLATES: Record<string, { title: string; content: string }> = {
+      about: {
+        title: 'About — 소개',
+        content: `<div style="font-size:16px;line-height:1.85;color:#1f2937;padding:20px 0;">
+<h2 style="font-size:24px;font-weight:900;margin:0 0 16px;">블로그 소개</h2>
+<p>안녕하세요. 본 블로그는 정부 지원금, 세금 환급, 청년 정책, 부동산·금융 정보 등 한국 거주자에게 실질적으로 도움이 되는 정보를 정리해 제공합니다.</p>
+<p>모든 글은 공식 자료(정부24, 홈택스, 복지로, 한국주택금융공사 등)를 기반으로 작성하며, 변경 가능한 정책·금액·일정은 공식 사이트 확인을 권장합니다.</p>
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">운영자</h3>
+<p>${name}</p>
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">콘텐츠 분야</h3>
+<ul style="padding-left:20px;line-height:1.8;"><li>정부 지원금·복지 정책</li><li>세금·연말정산·환급</li><li>청년·신혼·주거 정책</li><li>부동산·금융·보험</li><li>생활 정보·꿀팁</li></ul>
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">연락 및 제휴</h3>
+<p>문의는 Contact 페이지를 통해 부탁드립니다.</p>
+<p style="margin-top:32px;font-size:12px;color:#6b7280;">최종 업데이트: ${today}</p>
+</div>`,
+      },
+      privacy: {
+        title: 'Privacy Policy — 개인정보처리방침',
+        content: `<div style="font-size:15px;line-height:1.85;color:#1f2937;padding:20px 0;">
+<h2 style="font-size:24px;font-weight:900;margin:0 0 16px;">개인정보처리방침</h2>
+<p>${name}(이하 "본 블로그")는 이용자의 개인정보 보호를 중요하게 생각하며, 다음과 같이 처리합니다.</p>
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">1. 수집하는 정보</h3>
+<p>본 블로그는 이용자로부터 직접 개인정보를 수집하지 않습니다. 다만 다음 자동 수집 도구가 작동할 수 있습니다.</p>
+<ul style="padding-left:20px;line-height:1.8;"><li>Google Analytics — 익명 통계 (방문자 수, 페이지뷰)</li><li>Google AdSense — 광고 게재 (쿠키 기반 개인화 광고)</li><li>Blogger 기본 로그 — IP, User-Agent</li></ul>
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">2. 광고 및 쿠키</h3>
+<p>본 블로그는 Google AdSense를 통해 광고를 게재합니다. Google과 광고 파트너는 광고 게재 및 측정을 위해 쿠키를 사용할 수 있습니다.</p>
+<p>이용자는 <a href="https://adssettings.google.com" target="_blank" rel="noopener" style="color:#0ea5e9;">Google 광고 설정</a>에서 개인화 광고를 거부할 수 있습니다.</p>
+<p>Google AdSense에 의한 광고 게재에 관한 자세한 내용은 <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener" style="color:#0ea5e9;">Google 광고 정책</a>을 참고해주세요.</p>
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">3. 제3자 제공</h3>
+<p>본 블로그는 이용자의 개인정보를 제3자에게 제공하지 않습니다.</p>
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">4. 외부 링크</h3>
+<p>본 블로그에는 외부 사이트로 연결되는 링크가 포함되어 있습니다. 외부 사이트의 개인정보 처리에 대해서는 해당 사이트의 정책을 확인해주세요.</p>
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">5. 정책 변경</h3>
+<p>본 개인정보처리방침은 법령·정책 또는 보안 기술의 변경에 따라 내용의 추가·삭제·수정이 있을 수 있습니다.</p>
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">6. 문의</h3>
+<p>개인정보 관련 문의: ${email}</p>
+<p style="margin-top:32px;font-size:12px;color:#6b7280;">최종 업데이트: ${today}</p>
+</div>`,
+      },
+      contact: {
+        title: 'Contact — 문의',
+        content: `<div style="font-size:16px;line-height:1.85;color:#1f2937;padding:20px 0;">
+<h2 style="font-size:24px;font-weight:900;margin:0 0 16px;">문의</h2>
+<p>본 블로그 운영 관련 모든 문의는 아래 이메일로 부탁드립니다.</p>
+<div style="margin:24px 0;padding:18px 22px;background:linear-gradient(135deg,#e0f2fe,#bae6fd);border-left:5px solid #0ea5e9;border-radius:10px;">
+  <div style="font-size:14px;font-weight:800;color:#075985;margin-bottom:6px;">📧 이메일 문의</div>
+  <div style="font-size:18px;font-weight:700;color:#0c4a6e;"><a href="mailto:${email}" style="color:inherit;text-decoration:none;">${email}</a></div>
+</div>
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">답변 가능한 문의 유형</h3>
+<ul style="padding-left:20px;line-height:1.8;"><li>오탈자·정보 오류 제보</li><li>업데이트·재게재 요청</li><li>제휴·광고 문의</li><li>개인정보 관련 문의</li></ul>
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">답변 가능한 시간</h3>
+<p>평일 09:00 ~ 18:00 (한국 표준시) 내 회신 노력. 대량 문의 시 회신이 늦어질 수 있습니다.</p>
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">답변 불가 사항</h3>
+<p>본 블로그는 정책·금융 상담 사이트가 아닙니다. 개별 케이스 판단은 공식 기관 또는 전문가 상담을 권장합니다.</p>
+<p style="margin-top:32px;font-size:12px;color:#6b7280;">최종 업데이트: ${today}</p>
+</div>`,
+      },
+    };
+
+    const results: Array<{ name: string; ok: boolean; url?: string; error?: string }> = [];
+    const axios = (await import('axios')).default;
+    for (const pageType of payload.pages || []) {
+      const tmpl = PAGE_TEMPLATES[pageType];
+      if (!tmpl) { results.push({ name: pageType, ok: false, error: 'unknown page type' }); continue; }
+      try {
+        const r = await axios.post(
+          `https://www.googleapis.com/blogger/v3/blogs/${blogId}/pages`,
+          { title: tmpl.title, content: tmpl.content },
+          { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 30000 },
+        );
+        results.push({ name: pageType, ok: true, url: r.data?.url });
+      } catch (e: any) {
+        const msg = e?.response?.data?.error?.message || e?.message || String(e);
+        results.push({ name: pageType, ok: false, error: msg });
+      }
+    }
+    return { ok: true, results };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// Phase 2B — Clickbait 제목 일괄 정리 (검사만, 자동 수정은 사용자 승인 후)
+ipcMain.handle('adsense:list-clickbait-posts', async (_evt, payload: { blogId: string }) => {
+  try {
+    const envData = loadEnvFromFile() as any;
+    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
+    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
+    if (!blogId || !accessToken) return { ok: false, error: 'Blog ID 또는 OAuth 토큰 누락' };
+    const axios = (await import('axios')).default;
+    const posts: Array<{ id: string; title: string; url: string; matches: string[] }> = [];
+    let pageToken: string | undefined;
+    const PATTERNS = [
+      /놓치(면|지)?\s*(안\s*)?(될|마)/, /꿀팁/, /왜\s*아무도/, /고수만/, /비법/, /완벽\s*가이드/,
+      /효율\s*\d+%/, /\d+분\s*만에/, /놀라운/, /충격/, /이것만\s*알면/, /믿기지\s*않는/,
+      /절대\s*하지\s*마/, /절대후회/, /역대급/, /레전드/, /미쳤다/, /대박/, /끝판왕/,
+      /총정리/, /모든\s*것/, /A\s*to\s*Z/,
+    ];
+    do {
+      const r: any = await axios.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        params: { maxResults: 50, fetchBodies: false, status: 'live', pageToken },
+        timeout: 30000,
+      });
+      for (const p of (r.data?.items || [])) {
+        const matches: string[] = [];
+        for (const pat of PATTERNS) if (pat.test(p.title || '')) matches.push(String(pat).replace(/^\/|\/[gimsuy]*$/g, ''));
+        if (matches.length > 0) posts.push({ id: p.id, title: p.title, url: p.url, matches });
+      }
+      pageToken = r.data?.nextPageToken;
+      if (posts.length >= 500) break;
+    } while (pageToken);
+    return { ok: true, total: posts.length, posts };
+  } catch (e: any) {
+    return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+  }
+});
+
+// 자동 제목 정리 (사용자 승인 후 실행)
+ipcMain.handle('adsense:clean-post-titles', async (_evt, payload: { blogId: string; postIds: string[] }) => {
+  try {
+    const envData = loadEnvFromFile() as any;
+    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
+    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
+    if (!blogId || !accessToken) return { ok: false, error: 'Blog ID 또는 OAuth 토큰 누락' };
+    const axios = (await import('axios')).default;
+    const CLEANUP_RULES: Array<[RegExp, string]> = [
+      [/\s*[!?]+\s*[🚀✅⚡💡🔥💰🚨🎯📌🏆💯🎉]+\s*$/gu, ''], // 끝 이모지 + 느낌표 제거
+      [/[🚀✅⚡💡🔥💰🚨🎯📌🏆💯🎉]+/gu, ''], // 모든 이모지 제거
+      [/놓치(면|지)?\s*(안\s*)?(될|마)\s*[^,!?:]*/g, ''], [/꿀팁/g, '핵심'], [/왜\s*아무도\s*안?\s*알려[^?!.]+[?!.]?/g, ''],
+      [/고수만\s*아는\s*/g, ''], [/비법/g, '방법'], [/완벽\s*가이드/g, '안내'],
+      [/효율\s*\d+%/g, ''], [/\d+분\s*만에\s*끝내는?/g, ''], [/놀라운/g, ''], [/충격/g, ''],
+      [/이것만\s*알면/g, ''], [/믿기지\s*않는/g, ''], [/절대\s*(하지\s*마|후회)/g, ''],
+      [/역대급|레전드|미쳤다|대박|끝판왕/g, ''], [/총정리|모든\s*것|A\s*to\s*Z/g, '정리'],
+      [/\s{2,}/g, ' '], [/^[\s,.!?:;]+|[\s,.!?:;]+$/g, ''],
+    ];
+    const results: Array<{ id: string; oldTitle: string; newTitle: string; ok: boolean; error?: string }> = [];
+    for (const postId of (payload.postIds || []).slice(0, 100)) {
+      try {
+        const g: any = await axios.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`, {
+          headers: { Authorization: `Bearer ${accessToken}` }, timeout: 30000,
+        });
+        const oldTitle = String(g.data?.title || '').trim();
+        let newTitle = oldTitle;
+        for (const [pat, repl] of CLEANUP_RULES) newTitle = newTitle.replace(pat, repl);
+        newTitle = newTitle.replace(/\s+/g, ' ').trim();
+        if (!newTitle || newTitle === oldTitle) { results.push({ id: postId, oldTitle, newTitle, ok: true }); continue; }
+        if (newTitle.length < 10) { results.push({ id: postId, oldTitle, newTitle, ok: false, error: '정리 후 너무 짧음 — skip' }); continue; }
+        await axios.patch(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`,
+          { title: newTitle },
+          { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 30000 },
+        );
+        results.push({ id: postId, oldTitle, newTitle, ok: true });
+        await new Promise((r) => setTimeout(r, 600)); // rate limit
+      } catch (e: any) {
+        results.push({ id: postId, oldTitle: '', newTitle: '', ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) });
+      }
+    }
+    return { ok: true, results };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+console.log('[APP] ✅ AdSense 자동 해결 IPC 등록 완료 (open-console/diagnose/create-pages/list-clickbait-posts/clean-post-titles)');
 console.log('[APP] ✅ Electron 앱 초기화 완료');

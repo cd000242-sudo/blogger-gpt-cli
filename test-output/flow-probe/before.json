@@ -1,0 +1,167 @@
+{
+  "url": "https://labs.google/fx/ko/tools/flow",
+  "title": "AI Creative Studio for Video, Images & Custom Tools - Google Flow",
+  "body": "Flow\ntv\nFlow TV\nhelp_outlined\nFlow 고객센터\nFlow 고객센터\nmore_vert\nFor a limited time, explore Gemini Omni Flash for 50% fewer credits. Ends 6/8.\nclose\n닫기\n닫기\nIntroducing Gemini Omni Flash\n\nCinematic realism, powerful editing, world knowledge: try our latest video generation model! For a limited time, explore the new model for 50% fewer credits. Ends 6/8.\n\nTry Omni now\nBGPT 2026-06-07\nedit\n프로젝트 수정\ndelete\n프로젝트 삭제\n6월 07일 오전 05:04\nedit\n프로젝트 수정\ndelete\n프로젝트 삭제\n6월 07일 오전 04:59\nedit\n프로젝트 수정\ndelete\n프로젝트 삭제\nadd_2\n새 프로젝트",
+  "buttons": [
+    {
+      "i": 0,
+      "text": "Agree",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 1,
+      "text": "No thanks",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 2,
+      "text": "help_outlinedFlow 고객센터Flow 고객센터",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "help_outlined"
+    },
+    {
+      "i": 3,
+      "text": "",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 4,
+      "text": "close닫기닫기",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "close"
+    },
+    {
+      "i": 5,
+      "text": "Try Omni now",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 6,
+      "text": "",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 7,
+      "text": "",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 8,
+      "text": "",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 9,
+      "text": "",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 10,
+      "text": "",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 11,
+      "text": "",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": ""
+    },
+    {
+      "i": 12,
+      "text": "edit프로젝트 수정",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "edit"
+    },
+    {
+      "i": 13,
+      "text": "delete프로젝트 삭제",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "delete"
+    },
+    {
+      "i": 14,
+      "text": "edit프로젝트 수정",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "edit"
+    },
+    {
+      "i": 15,
+      "text": "delete프로젝트 삭제",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "delete"
+    },
+    {
+      "i": 16,
+      "text": "edit프로젝트 수정",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "edit"
+    },
+    {
+      "i": 17,
+      "text": "delete프로젝트 삭제",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "delete"
+    },
+    {
+      "i": 18,
+      "text": "add_2새 프로젝트",
+      "disabled": false,
+      "ariaDisabled": null,
+      "title": null,
+      "icons": "add_2"
+    }
+  ],
+  "boxes": [
+    {
+      "i": 0,
+      "tag": "TEXTAREA",
+      "text": "",
+      "visible": false
+    }
+  ]
+}
