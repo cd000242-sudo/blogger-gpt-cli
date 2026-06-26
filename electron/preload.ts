@@ -391,6 +391,12 @@ export type BloggerApi = {
     textGenerator?: string;
     threshold?: number;
   }): Promise<any>;
+  /** v3.8.176: AdSense 자동 해결 */
+  adsenseOpenConsole(payload?: { siteUrl?: string }): Promise<any>;
+  adsenseDiagnose(payload: { siteUrl: string }): Promise<any>;
+  adsenseCreatePages(payload: { blogId: string; pages: string[]; ownerName?: string; ownerEmail?: string }): Promise<any>;
+  adsenseListClickbaitPosts(payload: { blogId: string }): Promise<any>;
+  adsenseCleanPostTitles(payload: { blogId: string; postIds: string[] }): Promise<any>;
 };
 
 /** ───────── 공통 유틸 ───────── */
@@ -603,11 +609,11 @@ const api: BloggerApi = {
   writeLicenseFile: (data) => ipcRenderer.invoke('write-license-file', data),
   
   // ── v3.8.176: AdSense 자동 해결 ──
-  adsenseOpenConsole: (payload = {}) => ipcRenderer.invoke('adsense:open-console', payload),
-  adsenseDiagnose: (payload) => ipcRenderer.invoke('adsense:diagnose', payload),
-  adsenseCreatePages: (payload) => ipcRenderer.invoke('adsense:create-pages', payload),
-  adsenseListClickbaitPosts: (payload) => ipcRenderer.invoke('adsense:list-clickbait-posts', payload),
-  adsenseCleanPostTitles: (payload) => ipcRenderer.invoke('adsense:clean-post-titles', payload),
+  adsenseOpenConsole: (payload: any = {}) => ipcRenderer.invoke('adsense:open-console', payload),
+  adsenseDiagnose: (payload: any) => ipcRenderer.invoke('adsense:diagnose', payload),
+  adsenseCreatePages: (payload: any) => ipcRenderer.invoke('adsense:create-pages', payload),
+  adsenseListClickbaitPosts: (payload: any) => ipcRenderer.invoke('adsense:list-clickbait-posts', payload),
+  adsenseCleanPostTitles: (payload: any) => ipcRenderer.invoke('adsense:clean-post-titles', payload),
 
   // ── 플랫폼 연동 확인 ──
   checkPlatformAuth: (platform) => ipcRenderer.invoke('check-platform-auth', platform),

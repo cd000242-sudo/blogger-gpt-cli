@@ -206,6 +206,12 @@ const api = {
     // ── 라이센스 파일 시스템 접근 ──
     readLicenseFile: () => electron_1.ipcRenderer.invoke('read-license-file'),
     writeLicenseFile: (data) => electron_1.ipcRenderer.invoke('write-license-file', data),
+    // ── v3.8.176: AdSense 자동 해결 ──
+    adsenseOpenConsole: (payload = {}) => electron_1.ipcRenderer.invoke('adsense:open-console', payload),
+    adsenseDiagnose: (payload) => electron_1.ipcRenderer.invoke('adsense:diagnose', payload),
+    adsenseCreatePages: (payload) => electron_1.ipcRenderer.invoke('adsense:create-pages', payload),
+    adsenseListClickbaitPosts: (payload) => electron_1.ipcRenderer.invoke('adsense:list-clickbait-posts', payload),
+    adsenseCleanPostTitles: (payload) => electron_1.ipcRenderer.invoke('adsense:clean-post-titles', payload),
     // ── 플랫폼 연동 확인 ──
     checkPlatformAuth: (platform) => electron_1.ipcRenderer.invoke('check-platform-auth', platform),
     checkTistorySession: (payload = {}) => electron_1.ipcRenderer.invoke('tistory-check-session', payload),
