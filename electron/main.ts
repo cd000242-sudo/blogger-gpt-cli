@@ -11281,6 +11281,38 @@ ${originalHtml}
     const boostedText = stripHtml(boostedHtml);
     const boostedLength = boostedText.length;
 
+    // v3.8.249: 수정 내역 분석 — 사용자가 무엇이 바뀌었는지 정확히 알 수 있도록
+    const PERSONAL_MARKERS = [/저(는|희)/g, /제(가|일|경우)/g, /경험상/g, /직접\s*(써|해)\s*보(니|면)/g, /개인적으로/g];
+    const SPECIFIC_MARKERS = [/\d{4}년\s*\d+월/g, /\d+만원|\d+,\d+원/g, /\d+%/g, /비교표|체크리스트/g];
+    const EEAT_MARKERS_LOCAL = [/출처\s*[:：]/g, /\[자료\]/g, /정부|보건복지부|국세청|식약처|소비자원/g, /논문|연구|보고서/g];
+    const SCALED_MARKERS_LOCAL = [/흔히\s*알려진/g, /많은\s*분(들)?(이|들이)/g, /오늘은\s*[가-힯\s]+에\s*대해\s*(알아|살펴)\s*보(겠습니다|아요)/g, /지금\s*바로\s*확인하세요/g];
+    const countMarkers = (text: string, markers: RegExp[]) => markers.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+
+    const personalBefore = countMarkers(originalText, PERSONAL_MARKERS);
+    const personalAfter = countMarkers(boostedText, PERSONAL_MARKERS);
+    const specificBefore = countMarkers(originalText, SPECIFIC_MARKERS);
+    const specificAfter = countMarkers(boostedText, SPECIFIC_MARKERS);
+    const eeatBefore = countMarkers(originalText, EEAT_MARKERS_LOCAL);
+    const eeatAfter = countMarkers(boostedText, EEAT_MARKERS_LOCAL);
+    const scaledBefore = countMarkers(originalText, SCALED_MARKERS_LOCAL);
+    const scaledAfter = countMarkers(boostedText, SCALED_MARKERS_LOCAL);
+
+    const changes = {
+      personalAdded: Math.max(0, personalAfter - personalBefore),
+      specificAdded: Math.max(0, specificAfter - specificBefore),
+      eeatAdded: Math.max(0, eeatAfter - eeatBefore),
+      scaledRemoved: Math.max(0, scaledBefore - scaledAfter),
+      lengthDelta: boostedLength - originalLength,
+      h2CountDelta: ((boostedHtml.match(/<h2[^>]*>/gi) || []).length) - ((originalHtml.match(/<h2[^>]*>/gi) || []).length),
+    };
+
+    const summaryLines: string[] = [];
+    if (changes.personalAdded > 0) summaryLines.push(`1인칭/경험 표현 +${changes.personalAdded}곳`);
+    if (changes.specificAdded > 0) summaryLines.push(`구체 데이터 +${changes.specificAdded}곳`);
+    if (changes.eeatAdded > 0) summaryLines.push(`출처/근거 +${changes.eeatAdded}곳`);
+    if (changes.scaledRemoved > 0) summaryLines.push(`양산 표현 -${changes.scaledRemoved}곳`);
+    if (changes.lengthDelta !== 0) summaryLines.push(`${changes.lengthDelta > 0 ? '+' : ''}${changes.lengthDelta}자`);
+
     // dryRun이면 비교 결과만 반환
     if (dryRun) {
       return {
@@ -11288,9 +11320,12 @@ ${originalHtml}
         dryRun: true,
         postId,
         title: originalTitle,
+        url: post.url, // v3.8.249: 사이트 직링크
         provider: usedProvider,
-        before: { length: originalLength, htmlPreview: originalHtml.slice(0, 800) },
-        after: { length: boostedLength, htmlPreview: boostedHtml.slice(0, 800), fullHtml: boostedHtml },
+        changes,
+        summaryLines,
+        before: { length: originalLength, htmlPreview: originalHtml.slice(0, 800), personal: personalBefore, specific: specificBefore, eeat: eeatBefore, scaled: scaledBefore },
+        after: { length: boostedLength, htmlPreview: boostedHtml.slice(0, 800), fullHtml: boostedHtml, personal: personalAfter, specific: specificAfter, eeat: eeatAfter, scaled: scaledAfter },
         delta: boostedLength - originalLength,
       };
     }
@@ -11303,9 +11338,12 @@ ${originalHtml}
       dryRun: false,
       postId,
       title: originalTitle,
+      url: post.url, // v3.8.249: 사이트 직링크
       provider: usedProvider,
-      before: { length: originalLength },
-      after: { length: boostedLength },
+      changes,
+      summaryLines,
+      before: { length: originalLength, personal: personalBefore, specific: specificBefore, eeat: eeatBefore, scaled: scaledBefore },
+      after: { length: boostedLength, personal: personalAfter, specific: specificAfter, eeat: eeatAfter, scaled: scaledAfter },
       delta: boostedLength - originalLength,
       message: '✅ 본문이 사이트에 반영됐습니다',
     };
