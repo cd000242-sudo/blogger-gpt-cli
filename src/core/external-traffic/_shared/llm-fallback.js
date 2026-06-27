@@ -38,7 +38,8 @@ async function callGemini(params, key) {
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
       const generationConfig = {
-        maxOutputTokens: params.maxOutputTokens || 2000,
+        // v3.8.254: 기본값 2000 → 4000 (structured 호출은 8000 명시 전달)
+        maxOutputTokens: params.maxOutputTokens || 4000,
         temperature: typeof params.temperature === 'number' ? params.temperature : 0.85,
       };
       if (wantsJson) generationConfig.responseMimeType = 'application/json';
@@ -72,7 +73,8 @@ async function callOpenAI(params, key) {
           { role: 'system', content: params.system },
           { role: 'user', content: params.user },
         ],
-        max_tokens: params.maxOutputTokens || 2000,
+        // v3.8.254: 기본값 2000 → 4000 (structured 호출은 8000 명시 전달)
+        max_tokens: params.maxOutputTokens || 4000,
         temperature: typeof params.temperature === 'number' ? params.temperature : 0.85,
       };
       if (wantsJson) req.response_format = { type: 'json_object' };
@@ -102,7 +104,8 @@ async function callClaude(params, key) {
     try {
       const resp = await client.messages.create({
         model: modelName,
-        max_tokens: params.maxOutputTokens || 2000,
+        // v3.8.254: 기본값 2000 → 4000 (structured 호출은 8000 명시 전달)
+        max_tokens: params.maxOutputTokens || 4000,
         system: params.system,
         messages: [{ role: 'user', content: params.user }],
       });

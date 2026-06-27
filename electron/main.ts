@@ -10360,17 +10360,18 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
         let userPrompt: string = promptPair.user;
         let attempt = 0;
         let lastResult: any = null;
-        // v3.8.252: 재시도 횟수 2 → 3 (truncation 대응)
-        // structured 채널은 JSON 출력이라 토큰 더 많이 필요 — 기본 2000 → 4000으로 상향
+        // v3.8.254: 처음부터 최대 토큰 사용 (불필요한 truncation 재시도 차단)
+        // 모든 LLM 프로바이더 안전 공통 한도 = 8000 (Gemini Flash 8192, Claude Sonnet 8192,
+        // GPT-4o 16384, Gemini Pro 65536) — 8000이면 모든 프로바이더에서 안전
+        // structured 채널은 처음부터 8000, 일반 채널은 4000 (regular는 본문만 짧음)
         const isStructuredChannel = typeof channelObj.processStructuredResponse === 'function';
-        const baseMaxTokens = promptPair.maxOutputTokens || (isStructuredChannel ? 4000 : 2000);
+        const baseMaxTokens = promptPair.maxOutputTokens
+          || (isStructuredChannel ? 8000 : 4000);
         while (attempt < 3) {
-          // 재시도마다 max tokens 점진 증가 (truncation 회피)
-          const dynamicMaxTokens = Math.min(8000, baseMaxTokens + attempt * 1000);
           const callRes = await callLLMWithPreference({
             system: promptPair.system,
             user: userPrompt,
-            maxOutputTokens: dynamicMaxTokens,
+            maxOutputTokens: baseMaxTokens, // 처음부터 최대값 고정
             temperature: 0.85,
             geminiKey,
             openaiKey,
