@@ -6,33 +6,58 @@
 'use strict';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 1. 5가지 viral 패턴 (모든 채널 공통)
+// 1. 10K+ viral 패턴 8가지 — v3.8.259 전면 교체
+// 마케터식 패턴(메커니즘/시간압박/모순반전) 폐기.
+// 진짜 viral DNA: 정체성/내부자/후회/실증/계급분노/클리프행어/사회증거/세대비교.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const VIRAL_PATTERNS = {
-  mechanism: {
-    key: '구체메커니즘',
-    desc: '결론 아니라 작동 원리를 숫자로',
-    example: '월 70만원 × 3년 + 정부 매칭 800만원 = 2,200만원',
+  identity_wedge: {
+    key: '정체성쐐기',
+    desc: '독자 정체성 (직업/나이/처지)을 첫 줄에 박아 자기 얘기로 느끼게',
+    example: '월 300 받는 직장인이 이걸 안 하는 이유 진짜 모름',
+    hint: '단순 나이/성별 NO. "월 300 받는 직장인", "결혼 1년차 부부", "전세 사는 30대" 같이 구체적 처지',
   },
-  urgency: {
-    key: '시간압박',
-    desc: '마감/한정/타이밍 강조',
-    example: '12월 31일 전에 신청 안 하면',
+  insider_reveal: {
+    key: '내부자폭로',
+    desc: '내부자/전문직만 아는 정보로 framing (금지된 지식 느낌)',
+    example: '인사담당자가 알려주는 청년적금 진짜 조건 (회사에서 알면 안 되는 거)',
+    hint: '"은행원이 추천 안 하는", "공무원 친구한테 들은", "5년 일한 인사담당자가" 등',
   },
-  contrarian: {
-    key: '모순반전',
-    desc: '상식과 반대되는 사실',
-    example: '일반 적금 < 정기예금? 이건 반대였음',
+  confession_regret: {
+    key: '후회고백',
+    desc: '자기 실수 인정 = 사회 증거 + 정체성 공감',
+    example: '30살까지 청년적금 모르고 산 거 진짜 후회 — 5년 일찍 알았으면',
+    hint: '"내가 OO년 일찍 알았다면", "이거 모르고 살아서 진짜 손해 봤다" 자기 인정 톤',
   },
-  empathy_crisis: {
-    key: '공감위기감',
-    desc: '구체적 처지 + 후회 가능성',
-    example: '28살, 1년 모은 거 1500인데',
+  proof_stack: {
+    key: '실증증거',
+    desc: '인증글/통장스샷/구체 시간 + 인물 stack',
+    example: '2023년 4월에 가입한 친구 누나, 통장에 1,847만원 진짜 들어옴',
+    hint: '구체 시간 + 구체 인물 + 어색한 비-동그란 수 (2,200만원 NO, 1,847만원 YES). 광고티 죽임',
   },
-  controversy: {
-    key: '댓글유발의견갈림',
-    desc: '답 없는 의견 질문 (의견 갈림)',
-    example: '이거 신청 안 하는 게 손해? 너희라면?',
+  class_anger: {
+    key: '계급분노',
+    desc: '정보 격차 → 분노/배신감으로 framing',
+    example: '정부가 적극 홍보 안 하는 적금 — 아는 사람만 부자됨',
+    hint: '"정부가 적극적으로 안 알리는", "아는 사람만 누리는", "공무원/대기업만 아는" 등',
+  },
+  cliffhanger: {
+    key: '클리프행어',
+    desc: '답을 끝까지 안 줌. 호기심 강제',
+    example: '조건 딱 하나만 맞으면 2,200만원 받는데, 그게 뭐냐면',
+    hint: '"그게 뭐냐면 (...)" / "근데 친구가 알려준 거 말하기 무서운데" 식. 답을 첫 줄에 절대 X',
+  },
+  social_proof_stack: {
+    key: '사회증거',
+    desc: '주변 N명이 했다 = 다수 압력',
+    example: '회사 동료 5명 중 4명 가입한 청년적금 — 안 한 1명이 나임',
+    hint: '"주변 3명이", "동료 5명 중 4명", "친구 4명이 다 가입한" 등. 숫자로 다수 증명',
+  },
+  generational_comparison: {
+    key: '세대비교',
+    desc: '세대 간 손익 비교 → 우리/그들 분리',
+    example: '우리 부모 세대는 못 누린 혜택 — 30대 안 챙기면 진짜 바보',
+    hint: '"우리 부모 세대는", "지금 20대만 누리는", "5년 전 세대는 못 받은" 등 세대 격차'
   },
 };
 
@@ -63,6 +88,20 @@ const UNIVERSAL_BANNED_PHRASES = [
   // 생각 없이 붙이는 댓글 유도
   '혹시 너희 중에도', '다들 어떻게 생각해', '여러분 안녕하세요',
   '여러분은 어떻게', '댓글로 알려주세요',
+  // v3.8.259 — 마케터식 정형 카피 차단 (10K+ 패턴엔 절대 없음)
+  '월 N만원으로 N만원', // 광고 카피 형식
+  '월 70만원 × 3년', // 정형화된 메커니즘 표기
+  '× 3년 + 정부 매칭',
+  '정부가 매칭해서',
+  '내일저축계좌', // 우리가 그동안 디폴트로 박은 주제
+  // 동그란 큰 수 단독 사용 (어색한 진짜 숫자로 광고티 죽이기)
+  // 예: 2,200만원 → 1,847만원 / 2,138만원 같이 자연스러운 숫자
+];
+
+// v3.8.259: 동그란 수 단독 사용 감지 패턴 (post-process 검증용)
+const ROUND_NUMBER_PATTERNS = [
+  /\b2,?200만원\b/, /\b1,?000만원\b/, /\b2,?000만원\b/,
+  /\b3,?000만원\b/, /\b5,?000만원\b/, /\b1,?500만원\b/,
 ];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -81,59 +120,85 @@ const VIRAL_BODY_FLOW = `
 // 4. system prompt에 끼울 viral DNA 블록 생성
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function buildViralDnaBlock({ platformName = '플랫폼', requireAllPatternsDistinct = true }) {
-  return `
-[v3.8.258 — 손가락이 멈추는 viral DNA 강제]
-첫 줄에 다음 5가지 viral 패턴 중 정확히 1개를 반드시 적용한다:
-  1) **구체메커니즘**: 결론 아니라 작동 원리를 숫자로 ("${VIRAL_PATTERNS.mechanism.example}")
-  2) **시간압박**: 마감/한정/타이밍 ("${VIRAL_PATTERNS.urgency.example}")
-  3) **모순반전**: 상식과 반대되는 사실 ("${VIRAL_PATTERNS.contrarian.example}")
-  4) **공감위기감**: 구체적 처지 + 후회 가능성 ("${VIRAL_PATTERNS.empathy_crisis.example}")
-  5) **댓글유발의견갈림**: 답 없는 의견 질문 ("${VIRAL_PATTERNS.controversy.example}")
-${requireAllPatternsDistinct ? '\nA/B/C는 viral 패턴이 서로 달라야 한다. 패턴 중복 금지.' : ''}
+  const patternListText = Object.entries(VIRAL_PATTERNS).map(([k, p], i) => {
+    return `  ${i + 1}) **${p.key}**: ${p.desc}\n     예: "${p.example}"\n     팁: ${p.hint}`;
+  }).join('\n');
 
-[v3.8.258 — 절대 쓰면 안 되는 표현 (${platformName} 출력 즉시 실패)]
+  return `
+[v3.8.259 — 조회수 1만+ 평균을 목표로 하는 viral DNA]
+첫 줄에 다음 8가지 viral 패턴 중 정확히 **2개를 stacking** 한다 (1개만으로는 약함):
+${patternListText}
+${requireAllPatternsDistinct ? '\nA/B/C는 stacking된 패턴 조합이 서로 달라야 한다. (예: A=정체성+후회, B=내부자+실증, C=계급분노+클리프행어)' : ''}
+
+[v3.8.259 — 광고티/마케터 어조 절대 금지 (${platformName} 출력 즉시 실패)]
 ${UNIVERSAL_BANNED_PHRASES.map((p) => `  - "${p}"`).join('\n')}
+
+[v3.8.259 — 숫자 작성 규칙 (가짜티 죽이기)]
+- 동그란 큰 수 단독 사용 금지: "2,200만원" / "1,000만원" / "5,000만원" 단독 X
+- 어색한 비-동그란 수 사용: "1,847만원" / "2,138만원" / "893만원" 같이 진짜 숫자처럼
+- 또는 본인 처지의 구체 수: "월 287만원 받는 직장인" / "연 4,180만원 (세전)"
+- 광고 카피 형식 절대 금지: "월 N만원 × N년 = N만원" 식 정형 표기 X
+- 숫자를 쓸 때는 인증글/스샷/구체 시간이 같이 있어야 함 (혼자 떠 있으면 광고)
 
 ${VIRAL_BODY_FLOW}
 
-[자가 검증]
-critique.mustImprove에 위 금지어/클리셰/광고티가 들어갔는지 1개 식별 → finalRevision에서 제거.
-critique.viralStrength 점수(0~100)를 명시: 60점 미만이면 다른 패턴으로 재작성.
+[v3.8.259 — 본문 emotion intensity 강제]
+다음 감정 중 **최소 1개를 본문에 강하게** 깔아라:
+  - 분노/배신감: "왜 이걸 아무도 안 알려주지?"
+  - FOMO/공포: "5년 뒤에도 모르면 진짜 후회할 듯"
+  - 의심/저항: "조건 보니까 진짜 가능한 거 맞나?"
+  - 자조/체념: "어차피 나는 안 될 듯한데 그래도..."
+중립/객관/안내 어조는 광고. emotion 없으면 viral 안 됨.
+
+[자가 검증 — 강화]
+critique.mustImprove에 다음 1개를 명시:
+  - 클리셰/광고티/광고 카피 형식 (예: "월 N × N년" 발견)
+  - 동그란 수 단독 사용 (예: "2,200만원" 발견)
+  - 마케터 어조 (예: "정부가 매칭해서" 발견)
+  - emotion 부재 (중립 객관 톤)
+critique.viralStrength 점수(0~100): **70점 미만이면 다른 패턴 조합으로 재작성**.
+critique.emotionalIntensity 점수(0~100): **60점 미만이면 emotion 더 강하게 재작성**.
+
+[10K+ viral의 진짜 DNA — 마지막 체크]
+스스로 물어라: "내가 만약 평균 조회수 1만 이상을 목표로 한다면 이 글을 그대로 쓸까?"
+NO면 다시 작성. 의심된다면 다시 작성.
 `;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 5. 채널별 schema에 끼울 viral 필드 정의 (재사용)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const VIRAL_VARIANT_FIELDS = `      "viralPattern": "구체메커니즘 | 시간압박 | 모순반전 | 공감위기감 | 댓글유발의견갈림 (정확히 1개)",
-      "approach": "전략 한 줄 (어조 + viral 패턴 활용 방식)",
-      "firstLineCandidates": ["viral 패턴 적용 첫 줄 후보1", "후보2", "후보3"],
-      "selectedFirstLine": "위 3개 중 가장 강한 선택 (클리셰/광고티 없을 것)",`;
+const VIRAL_VARIANT_FIELDS = `      "viralPatternStack": ["정체성쐐기 | 내부자폭로 | 후회고백 | 실증증거 | 계급분노 | 클리프행어 | 사회증거 | 세대비교 중 정확히 2개"],
+      "approach": "전략 한 줄 (어조 + 2개 패턴 stacking 방식)",
+      "firstLineCandidates": ["2개 패턴 stack 첫 줄 후보1", "후보2", "후보3"],
+      "selectedFirstLine": "위 3개 중 가장 강한 선택 (클리셰·광고티·동그란수 단독 없을 것)",`;
 
 const VIRAL_CRITIQUE_FIELDS = `      "critique": {
         "score": 90,
         "viralStrength": 75,
-        "notes": "viral 패턴 강도/클리셰 유무/진정성 한 줄",
-        "mustImprove": "초안에서 발견한 클리셰·광고티·약한 훅 1개 명시"
+        "emotionalIntensity": 70,
+        "notes": "패턴 stacking 강도/클리셰 유무/진정성/emotion 한 줄",
+        "mustImprove": "초안에서 발견한 클리셰·광고티·동그란수·약한 emotion 1개 명시"
       },`;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 6. A/B/C 역할 + viral 패턴 매핑 (재사용 가능)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const ABC_VIRAL_MAPPING = `
-[A/B/C 역할 + viral 패턴 매핑]
-- A안 → viral 패턴: **댓글유발의견갈림** OR **모순반전**
-   첫 줄: 답 없는 의견 질문 또는 상식 뒤집기
-- B안 → viral 패턴: **공감위기감** OR **구체메커니즘**
-   첫 줄: 구체적 처지 또는 메커니즘 숫자
-- C안 → viral 패턴: **시간압박** OR **구체메커니즘**
-   첫 줄: 마감/한정 또는 강력한 숫자
-A/B/C는 viral 패턴이 서로 달라야 한다.
+[A/B/C 패턴 stack 매핑 — v3.8.259]
+- A안 → stack: **정체성쐐기 + 후회고백** 또는 **사회증거 + 클리프행어**
+   첫 줄: "월 300 받는 직장인 28살, 이거 모르고 산 거 진짜 후회"
+- B안 → stack: **내부자폭로 + 실증증거** 또는 **계급분노 + 사회증거**
+   첫 줄: "은행원이 추천 안 하는 적금 — 2023년 가입한 친구 누나 1,847만원 인증"
+- C안 → stack: **클리프행어 + 세대비교** 또는 **계급분노 + 정체성쐐기**
+   첫 줄: "우리 부모 세대는 못 받은 30대 한정 적금 — 조건 딱 하나만 맞으면 되는데"
+A/B/C는 stack된 패턴 조합이 서로 달라야 한다.
 `;
 
 module.exports = {
   VIRAL_PATTERNS,
   UNIVERSAL_BANNED_PHRASES,
+  ROUND_NUMBER_PATTERNS,
   VIRAL_BODY_FLOW,
   VIRAL_VARIANT_FIELDS,
   VIRAL_CRITIQUE_FIELDS,
