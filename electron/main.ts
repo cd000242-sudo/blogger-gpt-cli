@@ -11912,5 +11912,184 @@ ${JSON.stringify({
   }
 });
 
-console.log('[APP] ✅ AdSense 자동 해결 IPC 등록 완료 (open-console/diagnose/create-pages/list-clickbait-posts/clean-post-titles/analyze-content-value/boost-post-value/bulk-cleanup-posts/list-yearly-posts/refresh-yearly-post/approval-readiness-check/inject-schema-org/create-author-page)');
+// v3.8.251: 딥리서치 기반 고급 정책 스캔
+// 1) 광고 라벨 검사 (공식 금지 패턴 감지)
+// 2) Site Reputation Abuse 자가 체크 (2024.11 강화 정책 대응)
+// 3) YMYL 토픽 자동 분류 (2025.9 SQRG 개정 반영)
+// 4) URL Inspection 안내 (Search Console 색인 진단)
+ipcMain.handle('adsense:advanced-policy-scan', async (_evt, payload: {
+  blogId?: string; siteUrl?: string; username?: string; password?: string; jwtToken?: string;
+  platform?: AdSensePlatform;
+}) => {
+  try {
+    const envData = loadEnvFromFile() as any;
+    const creds = loadPlatformCredsFromEnv(envData, payload);
+    const axios = (await import('axios')).default;
+    const adapter = buildPlatformAdapter(creds, axios);
+    const posts = await adapter.listPosts({ fetchBodies: true, maxResults: 50 });
+    if (posts.length === 0) return { ok: false, error: '분석할 글 없음' };
+
+    const stripHtml = (s: string) => s.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+
+    // ── A. 광고 라벨 검사 (공식 AdSense Policy 인용) ──
+    // 공식 허용: "스폰서 링크", "광고"
+    // 공식 금지: "즐겨찾는 사이트", "오늘의 인기 상품", "추천 콘텐츠" 등 모호 라벨 + 유도 문구
+    const FORBIDDEN_AD_LABELS = [
+      { pattern: /즐겨찾는\s*사이트/g, hint: '"즐겨찾는 사이트" 라벨은 공식 금지 (사용자 혼동 유발)' },
+      { pattern: /오늘의\s*인기\s*(상품|글|콘텐츠)/g, hint: '"오늘의 인기 상품/글" 라벨은 공식 금지' },
+      { pattern: /추천\s*콘텐츠/g, hint: '"추천 콘텐츠" 라벨은 모호 = 공식 금지 영역' },
+      { pattern: /관련\s*링크(?!\s*수정|\s*편집)/g, hint: '"관련 링크" 라벨은 모호 = 광고와 콘텐츠 혼동' },
+      { pattern: /스폰서\s*콘텐츠/g, hint: '"스폰서 콘텐츠"는 모호 = "스폰서 링크" 또는 "광고"로 변경 권장' },
+      // 유도 문구 (공식 금지)
+      { pattern: /지금\s*바로\s*클릭/g, hint: '"지금 바로 클릭하세요" 유도 문구 금지' },
+      { pattern: /이\s*링크를?\s*방문/g, hint: '"이 링크를 방문하세요" 유도 문구 금지' },
+      { pattern: /도와주세요(?!.*댓글)/g, hint: '"도와주세요" 유도 문구 (광고 클릭 유도 의심)' },
+    ];
+    const adLabelIssues: Array<{ postId: string; title: string; url: string; foundPatterns: string[] }> = [];
+    for (const p of posts) {
+      const text = p.content + ' ' + p.title;
+      const found: string[] = [];
+      for (const f of FORBIDDEN_AD_LABELS) {
+        if (f.pattern.test(text)) found.push(f.hint);
+      }
+      if (found.length > 0) adLabelIssues.push({ postId: p.id, title: p.title, url: p.url, foundPatterns: found });
+    }
+
+    // ── B. Site Reputation Abuse 자가 체크 (2024.11 강화) ──
+    // 외부 기고/제휴/파트너 콘텐츠 신호 감지
+    const REPUTATION_RISK_PATTERNS = [
+      { pattern: /(?:^|\s)외부\s*기고/g, signal: '외부 기고 콘텐츠' },
+      { pattern: /(?:^|\s)기고문/g, signal: '기고문 형식' },
+      { pattern: /파트너\s*콘텐츠/g, signal: '파트너 콘텐츠' },
+      { pattern: /제휴\s*글|제휴\s*콘텐츠/g, signal: '제휴 콘텐츠' },
+      { pattern: /협찬\s*(글|콘텐츠|받았)/g, signal: '협찬 글' },
+      { pattern: /광고성?\s*콘텐츠/g, signal: '광고성 콘텐츠 표기' },
+      { pattern: /원고료\s*받(았|고)/g, signal: '원고료 수령 명시' },
+      { pattern: /by\s+[A-Z][a-z]+\s+[A-Z][a-z]+/g, signal: '외부 작성자(영문 by) 표기' },
+    ];
+    const reputationRiskPosts: Array<{ postId: string; title: string; url: string; signals: string[] }> = [];
+    for (const p of posts) {
+      const text = stripHtml(p.content);
+      const signals: string[] = [];
+      for (const r of REPUTATION_RISK_PATTERNS) {
+        if (r.pattern.test(text)) signals.push(r.signal);
+      }
+      if (signals.length > 0) reputationRiskPosts.push({ postId: p.id, title: p.title, url: p.url, signals });
+    }
+
+    // ── C. YMYL 토픽 자동 분류 (2025.9 SQRG 개정 반영) ──
+    const YMYL_CATEGORIES = {
+      financial: {
+        label: 'Financial Security (금융 안정)',
+        risk: 'high',
+        keywords: ['세금', '환급', '연말정산', '종합소득세', '부가가치세', '주민세', '재산세', '자동차세', '투자', '주식', '펀드', 'ETF', '코인', '비트코인', '연금', '국민연금', '퇴직연금', '대출', '신용', '카드론', '보험', '실손보험', '자동차보험', '부동산', '아파트', '전세', '월세', '청약', '자산'],
+        guidance: '✅ E-E-A-T 강화 필수. 출처 명시(국세청/금감원/공정위), "공식 사이트 확인 권장" 명시, 최종 업데이트 날짜 표기',
+      },
+      government: {
+        label: 'Government, Civics & Society (정부·시민·사회) — 2025.9 신설',
+        risk: 'high',
+        keywords: ['선거', '투표', '시민', '국회', '대통령', '정부', '공무원', '공공기관', '시청', '구청', '동사무소', '주민센터', '복지', '기초생활수급', '근로장려금', '자녀장려금', '청년정책', '청년도약', '청년희망', '주거지원'],
+        guidance: '⚠️ 2025.9 SQRG 강화 영역. 정부 공식 자료 직접 인용 필수, 변경 가능성 명시',
+      },
+      health: {
+        label: 'Health & Safety (건강·안전)',
+        risk: 'high',
+        keywords: ['의료', '병원', '의사', '약', '복용', '처방', '증상', '진단', '치료', '수술', '다이어트', '운동', '영양제', '건강검진', '백신', '코로나', '독감', '암', '당뇨', '고혈압', '안전', '사고', '응급'],
+        guidance: '✅ 의료 면책 조항 권장 ("의료 자문 아님, 전문의 상담 필수"). 식약처/대한의사협회 출처 권장',
+      },
+      lifeEvents: {
+        label: 'Major Life Events (인생 주요 사건)',
+        risk: 'medium',
+        keywords: ['결혼', '신혼', '이혼', '출산', '육아', '입학', '취업', '이직', '퇴직', '사망', '상속', '장례'],
+        guidance: '✅ 법률/세무 정보는 출처 명시, 개인 상황별 차이 명시',
+      },
+      other: {
+        label: '비-YMYL (일반 콘텐츠)',
+        risk: 'low',
+        keywords: [],
+        guidance: 'YMYL 외 일반 콘텐츠. E-E-A-T 기준 일반 적용',
+      },
+    };
+    const ymylClassification: Record<string, { count: number; posts: Array<{ id: string; title: string; url: string }> }> = {};
+    for (const k of Object.keys(YMYL_CATEGORIES)) ymylClassification[k] = { count: 0, posts: [] };
+    for (const p of posts) {
+      const text = p.title + ' ' + stripHtml(p.content).slice(0, 2000);
+      let assigned = false;
+      for (const [key, cat] of Object.entries(YMYL_CATEGORIES)) {
+        if (key === 'other') continue;
+        const matchedKw = cat.keywords.filter((kw) => text.includes(kw));
+        if (matchedKw.length >= 2) {
+          ymylClassification[key].count++;
+          if (ymylClassification[key].posts.length < 10) ymylClassification[key].posts.push({ id: p.id, title: p.title, url: p.url });
+          assigned = true;
+          break;
+        }
+      }
+      if (!assigned) {
+        ymylClassification.other.count++;
+        if (ymylClassification.other.posts.length < 5) ymylClassification.other.posts.push({ id: p.id, title: p.title, url: p.url });
+      }
+    }
+
+    // ── D. 종합 리스크 평가 ──
+    const totalPosts = posts.length;
+    const highRiskYmylRatio = ((ymylClassification.financial.count + ymylClassification.government.count + ymylClassification.health.count) / totalPosts) * 100;
+    const adLabelRiskRatio = (adLabelIssues.length / totalPosts) * 100;
+    const reputationRiskRatio = (reputationRiskPosts.length / totalPosts) * 100;
+
+    const summaryRecommendations: string[] = [];
+    if (adLabelIssues.length > 0) {
+      summaryRecommendations.push(`🚨 광고 라벨 위험 ${adLabelIssues.length}개 글 — "스폰서 링크" 또는 "광고"로 통일`);
+    }
+    if (reputationRiskPosts.length > 0) {
+      summaryRecommendations.push(`⚠️ Site Reputation Abuse 위험 ${reputationRiskPosts.length}개 글 — 외부 기고/협찬 표기 제거 또는 정책 검토`);
+    }
+    if (ymylClassification.financial.count > 0) {
+      summaryRecommendations.push(`💰 Financial Security YMYL ${ymylClassification.financial.count}개 글 — 출처 명시 + 면책 조항 강화`);
+    }
+    if (ymylClassification.government.count > 0) {
+      summaryRecommendations.push(`🏛️ Government YMYL ${ymylClassification.government.count}개 글 — 2025.9 SQRG 강화 대응 (정부 공식 자료 직접 인용)`);
+    }
+    if (ymylClassification.health.count > 0) {
+      summaryRecommendations.push(`⚕️ Health YMYL ${ymylClassification.health.count}개 글 — 의료 면책 조항 권장`);
+    }
+    if (summaryRecommendations.length === 0) {
+      summaryRecommendations.push('✅ 고급 정책 스캔 통과 — 추가 조치 없음');
+    }
+
+    return {
+      ok: true,
+      sampleSize: totalPosts,
+      adLabelIssues,
+      reputationRiskPosts,
+      ymylClassification: Object.fromEntries(
+        Object.entries(ymylClassification).map(([k, v]) => [k, { ...v, ...YMYL_CATEGORIES[k as keyof typeof YMYL_CATEGORIES], percent: Math.round((v.count / totalPosts) * 100) }])
+      ),
+      summaryStats: {
+        adLabelRiskCount: adLabelIssues.length,
+        reputationRiskCount: reputationRiskPosts.length,
+        highRiskYmylRatio: Math.round(highRiskYmylRatio),
+        adLabelRiskRatio: Math.round(adLabelRiskRatio),
+        reputationRiskRatio: Math.round(reputationRiskRatio),
+      },
+      summaryRecommendations,
+      // URL Inspection 안내 (자동화 불가, 사용자 직접 단계)
+      urlInspectionGuide: {
+        steps: [
+          'Google Search Console에 사이트 등록 (https://search.google.com/search-console)',
+          '좌측 메뉴 "URL 검사" 또는 상단 검색바에 글 URL 붙여넣기',
+          '결과 확인: "URL이 Google에 등록되어 있습니다" = 정상',
+          '"Discovered but not indexed" = 발견했지만 색인 안 됨 → AdSense 신청 보류 권장',
+          '"색인 요청" 버튼으로 즉시 색인 요청 가능 (글마다)',
+          '"페이지 색인 생성" 보고서에서 사이트 전체 색인 상태 일괄 확인',
+        ],
+        why: 'AdSense 공식 가이드엔 명시되지 않았지만, 색인되지 않은 글이 많으면 "Insufficient content" 사유 가능성 증가 (deep-research 검증)',
+      },
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+  }
+});
+
+console.log('[APP] ✅ AdSense 자동 해결 IPC 등록 완료 (open-console/diagnose/create-pages/list-clickbait-posts/clean-post-titles/analyze-content-value/boost-post-value/bulk-cleanup-posts/list-yearly-posts/refresh-yearly-post/approval-readiness-check/inject-schema-org/create-author-page/advanced-policy-scan)');
 console.log('[APP] ✅ Electron 앱 초기화 완료');

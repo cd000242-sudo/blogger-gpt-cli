@@ -147,6 +147,18 @@ function openAdSenseFixerModal() {
           <div id="adsense-readiness-result"></div>
         </div>
 
+        <!-- v3.8.251: 딥리서치 기반 고급 정책 스캔 -->
+        <div style="padding:16px;background:linear-gradient(135deg,rgba(20,184,166,0.12),rgba(6,182,212,0.08));border:2px solid rgba(20,184,166,0.45);border-radius:14px;margin-bottom:14px;box-shadow:0 10px 30px rgba(20,184,166,0.15);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div>
+              <div style="color:#a7f3d0;font-size:15px;font-weight:900;">🔬 고급 정책 스캔 (딥리서치 기반)</div>
+              <div style="color:#cbd5e1;font-size:11px;margin-top:3px;line-height:1.5;">Google 공식 정책 1차 출처 검증 기반 4축: 광고라벨 위반 · Site Reputation Abuse · YMYL 토픽 분류(2025.9 SQRG 반영) · URL Inspection 안내</div>
+            </div>
+            <button id="adsense-advanced-scan-btn" style="padding:10px 16px;background:linear-gradient(135deg,#14b8a6,#0891b2);color:white;border:0;border-radius:10px;font-weight:900;font-size:12px;cursor:pointer;white-space:nowrap;box-shadow:0 6px 20px rgba(20,184,166,0.4);">🔬 고급 정책 스캔</button>
+          </div>
+          <div id="adsense-advanced-scan-result"></div>
+        </div>
+
         <!-- v3.8.244: "가치가 별로 없는 콘텐츠" 사유 대응 — 본문 가치 분석 -->
         <div style="padding:14px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.08));border:2px solid rgba(239,68,68,0.35);border-radius:12px;margin-bottom:12px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
@@ -205,6 +217,27 @@ function openAdSenseFixerModal() {
             alert('❌ ' + cr.error);
           }
           createBtn.disabled = false; createBtn.textContent = '📄 누락된 페이지 자동 생성';
+        });
+      }
+
+      // v3.8.251: 고급 정책 스캔 — 딥리서치 기반 4축
+      const advancedScanBtn = document.getElementById('adsense-advanced-scan-btn');
+      if (advancedScanBtn) {
+        advancedScanBtn.addEventListener('click', async () => {
+          const p = platformGuardOrAlert();
+          if (!p) return;
+          const advEl = document.getElementById('adsense-advanced-scan-result');
+          advancedScanBtn.disabled = true; advancedScanBtn.textContent = '⏳ 고급 정책 스캔 중...';
+          advEl.innerHTML = `<div style="padding:10px;background:rgba(15,23,42,0.6);border-radius:8px;color:#cbd5e1;font-size:12px;">⏳ 50개 글 페치 + 광고라벨/Reputation Abuse/YMYL 분류 중... (30~60초)</div>`;
+          try {
+            const r = await window.electronAPI.adsenseAdvancedPolicyScan({ ...p });
+            if (!r.ok) { advEl.innerHTML = `<div style="padding:10px;background:rgba(239,68,68,0.12);border-radius:8px;color:#fca5a5;font-size:12px;">❌ ${r.error}</div>`; return; }
+            renderAdvancedScanResult(advEl, r);
+          } catch (e) {
+            advEl.innerHTML = `<div style="padding:10px;background:rgba(239,68,68,0.12);border-radius:8px;color:#fca5a5;font-size:12px;">❌ ${e?.message || e}</div>`;
+          } finally {
+            advancedScanBtn.disabled = false; advancedScanBtn.textContent = '🔬 고급 정책 재스캔';
+          }
         });
       }
 
@@ -1108,6 +1141,105 @@ async function handleReadinessFix(action, platform, readinessResult) {
   if (action === 'crawl-help') {
     alert('💡 크롤 친화도 강화:\n\nBlogspot 사용자:\n• sitemap.xml: 자동 생성됨 (https://[블로그].blogspot.com/sitemap.xml)\n• robots.txt: 자동 생성됨\n• → 둘 다 자동인데 fail로 나오면 URL 입력란을 확인하세요\n\nWordPress 사용자:\n• Yoast SEO 또는 Rank Math 플러그인 설치 권장\n• 또는 wp-sitemap.xml 자동 활성화 확인');
   }
+}
+
+// v3.8.251: 고급 정책 스캔 결과 렌더 (딥리서치 기반)
+function renderAdvancedScanResult(el, r) {
+  const s = r.summaryStats;
+  const ymyl = r.ymylClassification;
+  el.innerHTML = `
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;margin-bottom:12px;">
+      <div style="color:#a7f3d0;font-size:13px;font-weight:800;margin-bottom:8px;">📋 종합 권장 액션 (Google 공식 정책 기반)</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${r.summaryRecommendations.map((rec) => `<div style="padding:6px 10px;background:rgba(15,23,42,0.5);border-left:3px solid #14b8a6;border-radius:4px;color:#e2e8f0;font-size:12px;line-height:1.5;">${escHtml(rec)}</div>`).join('')}
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">
+      <div style="padding:10px;background:rgba(15,23,42,0.6);border-radius:8px;text-align:center;border:1px solid ${s.adLabelRiskCount > 0 ? '#ef4444' : '#22c55e'}33;">
+        <div style="color:${s.adLabelRiskCount > 0 ? '#fca5a5' : '#86efac'};font-size:11px;font-weight:700;">🏷️ 광고 라벨 위반</div>
+        <div style="color:#fff;font-size:18px;font-weight:900;">${s.adLabelRiskCount}건</div>
+      </div>
+      <div style="padding:10px;background:rgba(15,23,42,0.6);border-radius:8px;text-align:center;border:1px solid ${s.reputationRiskCount > 0 ? '#f59e0b' : '#22c55e'}33;">
+        <div style="color:${s.reputationRiskCount > 0 ? '#fde68a' : '#86efac'};font-size:11px;font-weight:700;">⚠️ Reputation 위험</div>
+        <div style="color:#fff;font-size:18px;font-weight:900;">${s.reputationRiskCount}건</div>
+      </div>
+      <div style="padding:10px;background:rgba(15,23,42,0.6);border-radius:8px;text-align:center;border:1px solid #3b82f633;">
+        <div style="color:#bfdbfe;font-size:11px;font-weight:700;">📊 YMYL 비율</div>
+        <div style="color:#fff;font-size:18px;font-weight:900;">${s.highRiskYmylRatio}%</div>
+      </div>
+    </div>
+
+    ${r.adLabelIssues.length > 0 ? `
+      <div style="padding:12px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:10px;margin-bottom:10px;">
+        <div style="color:#fca5a5;font-size:13px;font-weight:800;margin-bottom:8px;">🏷️ 광고 라벨 위반 ${r.adLabelIssues.length}건 — "스폰서 링크" 또는 "광고"로 통일 필요</div>
+        <div style="max-height:200px;overflow-y:auto;">
+          ${r.adLabelIssues.slice(0, 10).map((issue) => `
+            <div style="padding:6px 8px;background:rgba(15,23,42,0.4);border-radius:4px;margin-bottom:4px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+                <a href="${escHtml(issue.url)}" target="_blank" rel="noopener" style="color:#fbbf24;font-size:11px;text-decoration:none;font-weight:700;flex:1;">${escHtml(issue.title)}</a>
+                <span style="color:#94a3b8;font-size:10px;white-space:nowrap;">${issue.foundPatterns.length}건</span>
+              </div>
+              <div style="color:#fca5a5;font-size:10px;margin-top:3px;">${issue.foundPatterns.slice(0, 2).map(escHtml).join(' · ')}</div>
+            </div>
+          `).join('')}
+          ${r.adLabelIssues.length > 10 ? `<div style="color:#64748b;font-size:10px;text-align:center;padding:4px;">... 외 ${r.adLabelIssues.length - 10}건</div>` : ''}
+        </div>
+        <div style="margin-top:8px;padding:8px;background:rgba(15,23,42,0.5);border-left:3px solid #14b8a6;border-radius:4px;color:#cbd5e1;font-size:11px;">
+          💡 <strong style="color:#a7f3d0;">공식 인용</strong> (<a href="https://support.google.com/adsense/answer/48182?hl=ko" target="_blank" rel="noopener" style="color:#7dd3fc;">AdSense Policy</a>): "스폰서 링크 또는 광고 라벨은 허용되지만 즐겨찾는 사이트 또는 오늘의 인기 상품과 같은 라벨은 허용되지 않습니다."
+        </div>
+      </div>
+    ` : `<div style="padding:10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:8px;color:#86efac;font-size:12px;margin-bottom:10px;">✅ 광고 라벨 위반 없음</div>`}
+
+    ${r.reputationRiskPosts.length > 0 ? `
+      <div style="padding:12px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:10px;margin-bottom:10px;">
+        <div style="color:#fde68a;font-size:13px;font-weight:800;margin-bottom:8px;">⚠️ Site Reputation Abuse 위험 ${r.reputationRiskPosts.length}건 — 2024.11 강화 정책 대상</div>
+        <div style="max-height:200px;overflow-y:auto;">
+          ${r.reputationRiskPosts.slice(0, 10).map((risk) => `
+            <div style="padding:6px 8px;background:rgba(15,23,42,0.4);border-radius:4px;margin-bottom:4px;">
+              <a href="${escHtml(risk.url)}" target="_blank" rel="noopener" style="color:#fbbf24;font-size:11px;text-decoration:none;font-weight:700;">${escHtml(risk.title)}</a>
+              <div style="color:#fde68a;font-size:10px;margin-top:3px;">신호: ${risk.signals.join(' · ')}</div>
+            </div>
+          `).join('')}
+        </div>
+        <div style="margin-top:8px;padding:8px;background:rgba(15,23,42,0.5);border-left:3px solid #f59e0b;border-radius:4px;color:#cbd5e1;font-size:11px;">
+          💡 <strong style="color:#fde68a;">공식 인용</strong> (<a href="https://developers.google.com/search/blog/2024/11/site-reputation-abuse" target="_blank" rel="noopener" style="color:#7dd3fc;">Search Central 2024.11</a>): "제3자 콘텐츠 활용은 1차 당사자 관여·감독 여부 무관하게 위반". manual action 가능.
+        </div>
+      </div>
+    ` : `<div style="padding:10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:8px;color:#86efac;font-size:12px;margin-bottom:10px;">✅ Site Reputation Abuse 신호 없음</div>`}
+
+    <div style="padding:12px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.3);border-radius:10px;margin-bottom:10px;">
+      <div style="color:#93c5fd;font-size:13px;font-weight:800;margin-bottom:8px;">📊 YMYL 토픽 분류 (2025.9 SQRG 개정 반영)</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;">
+        ${Object.entries(ymyl).filter(([k]) => k !== 'other').map(([key, cat]) => {
+          if (cat.count === 0) return '';
+          const riskColor = cat.risk === 'high' ? '#fca5a5' : cat.risk === 'medium' ? '#fde68a' : '#86efac';
+          return `
+            <div style="padding:8px 10px;background:rgba(15,23,42,0.5);border-left:3px solid ${riskColor};border-radius:4px;">
+              <div style="color:#fff;font-size:11px;font-weight:800;">${escHtml(cat.label)}</div>
+              <div style="color:${riskColor};font-size:18px;font-weight:900;margin-top:3px;">${cat.count}개 <span style="color:#94a3b8;font-size:11px;font-weight:600;">(${cat.percent}%)</span></div>
+              <div style="color:#cbd5e1;font-size:10px;margin-top:4px;line-height:1.4;">${escHtml(cat.guidance)}</div>
+            </div>
+          `;
+        }).join('')}
+        ${ymyl.other.count > 0 ? `
+          <div style="padding:8px 10px;background:rgba(15,23,42,0.5);border-left:3px solid #86efac;border-radius:4px;">
+            <div style="color:#fff;font-size:11px;font-weight:800;">${escHtml(ymyl.other.label)}</div>
+            <div style="color:#86efac;font-size:18px;font-weight:900;margin-top:3px;">${ymyl.other.count}개 <span style="color:#94a3b8;font-size:11px;font-weight:600;">(${ymyl.other.percent}%)</span></div>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+
+    <div style="padding:12px;background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.3);border-radius:10px;">
+      <div style="color:#e9d5ff;font-size:13px;font-weight:800;margin-bottom:8px;">🔎 URL Inspection 색인 진단 안내 (수동 단계)</div>
+      <div style="color:#cbd5e1;font-size:11px;line-height:1.6;margin-bottom:8px;">${escHtml(r.urlInspectionGuide.why)}</div>
+      <ol style="margin:0;padding-left:20px;color:#e2e8f0;font-size:11px;line-height:1.8;">
+        ${r.urlInspectionGuide.steps.map((step) => `<li>${escHtml(step)}</li>`).join('')}
+      </ol>
+      <button onclick="window.open('https://search.google.com/search-console', '_blank')" style="margin-top:10px;width:100%;padding:10px;background:linear-gradient(135deg,#a855f7,#7e22ce);color:white;border:0;border-radius:8px;font-weight:800;font-size:12px;cursor:pointer;">🔗 Search Console 새창으로 열기</button>
+    </div>
+  `;
 }
 
 window.openAdSenseFixerModal = openAdSenseFixerModal;
