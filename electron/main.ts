@@ -10329,6 +10329,23 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
     const preferredEngine = resolveExternalTrafficEngine(payload, envData);
     const preferredGeminiModel = resolveExternalTrafficModel(payload, envData);
 
+    // v3.8.269: 에이전트 모드 (Codex CLI / Claude Code CLI) 분기 준비
+    // 거미줄 발행과 동일 패턴 — payload.executionMode === 'agent' && payload.agentProvider 명시 필요
+    const useAgentMode = payload.executionMode === 'agent' && payload.agentProvider;
+    let agentProfile: AgentProfile | null = null;
+    if (useAgentMode) {
+      agentProfile = findAgentProfile(undefined, payload.agentProvider as AgentModeProvider);
+      if (!agentProfile) {
+        console.warn(`[EXT-TRAFFIC v2] 에이전트 모드 요청됐으나 profile 없음 (provider=${payload.agentProvider}) — API로 폴백`);
+      } else {
+        const accessStatus = getAgentModeAccessStatus(agentProfile);
+        if (!accessStatus.allowed) {
+          console.warn(`[EXT-TRAFFIC v2] 에이전트 모드 권한 거부 (${accessStatus.reason}) — API로 폴백`);
+          agentProfile = null;
+        }
+      }
+    }
+
     // 최소 1개 키 필요
     if (!geminiKey && !openaiKey && !claudeKey && !perplexityKey) {
       return { success: false, error: 'API 키가 필요합니다. 설정 탭에서 Gemini / OpenAI / Claude / Perplexity 중 하나 이상 입력해주세요.' };
@@ -10368,19 +10385,43 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
         const baseMaxTokens = promptPair.maxOutputTokens
           || (isStructuredChannel ? 8000 : 4000);
         while (attempt < 3) {
-          const callRes = await callLLMWithPreference({
-            system: promptPair.system,
-            user: userPrompt,
-            maxOutputTokens: baseMaxTokens, // 처음부터 최대값 고정
-            temperature: 0.85,
-            geminiKey,
-            openaiKey,
-            claudeKey,
-            perplexityKey,
-            preferredEngine,
-            preferredGeminiModel,
-            fallback,
-          });
+          // v3.8.269: 에이전트 모드 우선 시도. 실패 시 API로 자동 폴백.
+          let callRes: { text: string; provider: string; model: string } | null = null;
+          if (agentProfile) {
+            try {
+              const agentText = await runExternalTrafficAgent({
+                profile: agentProfile,
+                system: promptPair.system,
+                user: userPrompt,
+                channelId: ch.id,
+                channelName: channelObj.name || ch.id,
+                isStructured: isStructuredChannel,
+              });
+              if (agentText && agentText.length >= 100) {
+                callRes = { text: agentText, provider: `agent:${agentProfile.provider}`, model: agentProfile.provider };
+                console.log(`[EXT-TRAFFIC v2] ✅ ${ch.id} agent (${agentProfile.provider}) 응답 ${agentText.length}자`);
+              } else {
+                console.warn(`[EXT-TRAFFIC v2] ${ch.id} agent 응답 너무 짧음 (${agentText?.length || 0}자) — API 폴백`);
+              }
+            } catch (agentErr: any) {
+              console.warn(`[EXT-TRAFFIC v2] ${ch.id} agent 실패 → API 폴백:`, agentErr?.message || agentErr);
+            }
+          }
+          if (!callRes) {
+            callRes = await callLLMWithPreference({
+              system: promptPair.system,
+              user: userPrompt,
+              maxOutputTokens: baseMaxTokens,
+              temperature: 0.85,
+              geminiKey,
+              openaiKey,
+              claudeKey,
+              perplexityKey,
+              preferredEngine,
+              preferredGeminiModel,
+              fallback,
+            });
+          }
           const text = (callRes.text || '').trim();
           const fullPrompt = `${promptPair.system}\n\n${userPrompt}`;
           const inputTokens = Math.ceil(fullPrompt.length / 2.5);
@@ -10445,6 +10486,60 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
 });
 
 // v3.8.1: 환경설정 모델 선호 + llm-fallback 통합 호출
+// v3.8.269: 외부유입 글 생성용 에이전트 실행 헬퍼
+// 거미줄 발행과 동일 패턴: instructions.md + payload.json → runAgentProcess → result/article.html 또는 final-message
+// 외부유입은 채널마다 JSON 출력 형식이라, instructions.md에 schema 명시 + JSON 추출 로직 포함
+async function runExternalTrafficAgent(opts: {
+  profile: AgentProfile;
+  system: string;
+  user: string;
+  channelId: string;
+  channelName: string;
+  isStructured: boolean;
+}): Promise<string> {
+  const jobDir = path.join(app.getPath('userData'), 'external-traffic-agent-jobs', `${opts.channelId}-${Date.now()}`);
+  fs.mkdirSync(path.join(jobDir, 'result'), { recursive: true });
+  const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
+  const outputPath = path.join(jobDir, 'result', 'article.html'); // 거미줄과 동일한 경로 (LLM이 익숙)
+
+  // instructions.md: 시스템 프롬프트 + 사용자 프롬프트 + 출력 형식
+  const instructions = [
+    '# 외부유입 글 생성 작업',
+    '',
+    `## 대상 채널: ${opts.channelName} (id: ${opts.channelId})`,
+    '',
+    '## 시스템 지시',
+    opts.system,
+    '',
+    '## 사용자 지시',
+    opts.user,
+    '',
+    '## 출력 규칙',
+    '- 위 시스템 + 사용자 지시에 명시된 형식 그대로 응답',
+    opts.isStructured
+      ? `- JSON XML 태그 형식(<${opts.channelId.toUpperCase()}_RESULT_JSON> ... </${opts.channelId.toUpperCase()}_RESULT_JSON> 등) 그대로 출력`
+      : '- 평문 그대로 출력',
+    '- 응답을 `result/article.html` 파일에 작성 (HTML 아니어도 됨 — 단순 텍스트/JSON도 가능)',
+    '- 파일 작성 외 다른 부가 설명 X',
+  ].join('\n');
+
+  fs.writeFileSync(path.join(jobDir, 'instructions.md'), instructions, 'utf-8');
+  fs.writeFileSync(path.join(jobDir, 'payload.json'), JSON.stringify({
+    channelId: opts.channelId,
+    channelName: opts.channelName,
+    isStructured: opts.isStructured,
+  }, null, 2), 'utf-8');
+
+  // 에이전트 실행
+  const run = await runAgentProcess(opts.profile, jobDir, lastMessagePath);
+  const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
+  const raw = String(result.content || result.finalMessage || '').trim();
+
+  // 외부유입 JSON 응답이 HTML 태그로 감싸지지 않도록 정리
+  // (readAgentJobResult가 HTML 파싱하는데, JSON 응답은 그냥 raw로 처리해야 함)
+  return raw;
+}
+
 async function callLLMWithPreference(opts: {
   system: string;
   user: string;
