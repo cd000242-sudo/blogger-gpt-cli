@@ -21,69 +21,45 @@ const BANNED_PROMO_PHRASES = [
 ];
 
 function buildStructuredOutputInstructions() {
+  // v3.8.255: Schema 슬림화 (토큰 75% 절감)
+  //   - context 11필드 → 3필드 (mustKeepFacts/doNotUse만 진짜 필요)
+  //   - firstLineCandidates 10개 요구 제거 (UI에서 안 씀)
+  //   - critique 6축 breakdown 제거, score + notes만
+  //   - 중복 메타필드 (label/goal/tone/hookEngine) 제거
+  //   - 결과: 4000+ → 1000 토큰 budget으로 충분
   return `[출력 형식]
 반드시 아래 XML 태그 사이에 JSON만 출력한다. Markdown 코드블록은 금지한다.
 ${JSON_START}
 {
   "context": {
-    "sourceTitle": "원문 제목",
-    "coreTopic": "핵심 주제",
-    "articleType": "자동 분류한 글 유형",
-    "targetReader": "예상 독자",
-    "readerSituation": "독자가 지금 놓인 상황",
-    "mainQuestion": "댓글로 이어질 질문",
-    "commentAngle": "댓글이 달릴 만한 관점",
-    "shareReason": "공유할 이유",
-    "linkReason": "링크를 남겨도 자연스러운 이유",
-    "mustKeepFacts": ["원문에서 확인된 사실"],
-    "doNotUse": ["원문에 없어서 쓰면 안 되는 내용"]
+    "coreTopic": "핵심 주제 한 문장",
+    "mustKeepFacts": ["원문 확인된 사실 핵심만 3개 이내"],
+    "doNotUse": ["원문에 없어 쓰면 안 되는 내용 2개 이내"]
   },
   "variants": [
     {
       "key": "A",
-      "label": "댓글형",
-      "tone": "친구에게 툭 말하는 반말",
-      "goal": "댓글을 먼저 끌어내는 글",
-      "hookEngine": "질문/반전/공감/논쟁 중 선택한 훅",
-      "firstLineCandidates": [
-        { "text": "첫 줄 후보", "score": 90 }
-      ],
-      "selectedFirstLine": "선택한 첫 줄",
-      "firstLineScore": 90,
-      "selectedReason": "선택 이유",
-      "body": "초안 본문",
+      "selectedFirstLine": "첫 줄",
+      "body": "본문 (URL 포함 500자 이내)",
       "commentPrompt": "댓글 유도 한 줄",
       "sharePrompt": "공유 유도 한 줄",
-      "linkPrompt": "자연스러운 링크 한 줄 또는 URL",
-      "critique": {
-        "score": 90,
-        "notes": "자체 비평",
-        "breakdown": {
-          "threadTone": 20,
-          "hook": 20,
-          "comment": 20,
-          "share": 10,
-          "lowAd": 15,
-          "truth": 15
-        }
-      },
+      "linkPrompt": "링크 한 줄 또는 URL",
+      "critique": { "score": 90, "notes": "자체 비평 한 줄" },
       "finalRevision": {
         "firstLine": "최종 첫 줄",
-        "body": "최종 본문",
+        "body": "최종 본문 (URL 포함 500자 이내)",
         "commentPrompt": "최종 댓글 유도",
         "sharePrompt": "최종 공유 유도",
-        "linkPrompt": "최종 링크 한 줄 또는 URL"
+        "linkPrompt": "최종 링크 또는 URL"
       }
     }
   ]
 }
 ${JSON_END}
 
-variants는 A/B/C 3개만 만든다.
-A는 댓글형, B는 공감형, C는 공유형이다.
-각 variant의 firstLineCandidates는 반드시 10개다.
+variants는 정확히 A/B/C 3개 (A=댓글형 반말, B=공감형 존댓말, C=공유형).
 finalRevision에는 사용자가 복사해서 바로 올릴 최종 게시문 구성요소만 넣는다.
-후보, 점수, 비평, JSON 설명은 finalRevision 안에 절대 넣지 않는다.
+후보·점수·비평·JSON 설명은 finalRevision 안에 절대 넣지 않는다.
 해시태그는 쓰지 않는다.
 최종 글은 URL 포함 500자 이내로 만든다.`;
 }
