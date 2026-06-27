@@ -53,7 +53,7 @@ const REDDIT_GENERIC = require('./prompts/international/reddit-generic');
 const GITHUB_DISCUSSIONS = require('./prompts/international/github-discussions');
 const MEDIUM = require('./prompts/international/medium');
 
-const { postFormat } = require('./_shared/post-format');
+const { postFormat, isTruncatedNotice } = require('./_shared/post-format');
 const { validateLength, buildRetryHint } = require('./_shared/length-guard');
 const { validateGenerateV2Payload } = require('./_shared/validate-input');
 const { applyCommonResponseGuard } = require('./prompts/_shared/common-context-guard');
@@ -193,6 +193,11 @@ function processResponse(channelId, rawText) {
   const lengthViolations = validateLength(formatted, channel);
   if (commonGuard.review && commonGuard.review.violations && commonGuard.review.violations.length) {
     lengthViolations.push(...commonGuard.review.violations.map((item) => `공통 안전검수: ${item}`));
+  }
+  // v3.8.252: postFormat이 truncation 안내 반환 시 명시적 위반으로 등록 → 자동 재시도 트리거
+  // 기존엔 안내만 반환하고 위반 0이라 재시도 안 됨. 이제 LLM이 finalRevision 못 만들면 자동 재시도.
+  if (formatted && isTruncatedNotice(formatted.body)) {
+    lengthViolations.push('생성 중단: LLM이 finalRevision을 마무리하지 못함 (자동 재시도 필요)');
   }
   if (channelId === 'instagram') {
     const variants = Array.isArray(extra.instagram && extra.instagram.variants)

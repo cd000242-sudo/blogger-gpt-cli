@@ -10360,12 +10360,17 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
         let userPrompt: string = promptPair.user;
         let attempt = 0;
         let lastResult: any = null;
-        while (attempt < 2) {
-          // 사용자 선호 엔진 우선, 실패 시 fallback chain
+        // v3.8.252: 재시도 횟수 2 → 3 (truncation 대응)
+        // structured 채널은 JSON 출력이라 토큰 더 많이 필요 — 기본 2000 → 4000으로 상향
+        const isStructuredChannel = typeof channelObj.processStructuredResponse === 'function';
+        const baseMaxTokens = promptPair.maxOutputTokens || (isStructuredChannel ? 4000 : 2000);
+        while (attempt < 3) {
+          // 재시도마다 max tokens 점진 증가 (truncation 회피)
+          const dynamicMaxTokens = Math.min(8000, baseMaxTokens + attempt * 1000);
           const callRes = await callLLMWithPreference({
             system: promptPair.system,
             user: userPrompt,
-            maxOutputTokens: promptPair.maxOutputTokens || 2000,
+            maxOutputTokens: dynamicMaxTokens,
             temperature: 0.85,
             geminiKey,
             openaiKey,

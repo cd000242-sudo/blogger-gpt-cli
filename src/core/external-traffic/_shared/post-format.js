@@ -350,6 +350,13 @@ const GENERATION_TRUNCATED_NOTICE = [
   '• 같은 채널을 한 번 더 선택해 새로 생성',
 ].join('\n');
 
+// v3.8.252: postFormat 결과가 truncation 안내인지 감지 (자동 재시도 트리거용)
+function isTruncatedNotice(text) {
+  if (!text) return false;
+  const s = String(text);
+  return s.startsWith('⚠️ 생성이 중간에 끊겼어요') || s.includes('finalRevision)을 마무리하지 못했습니다');
+}
+
 /**
  * raw JSON 텍스트에서 finalRevision의 body/commentPrompt/linkPrompt/title 등
  * 사람이 읽을 텍스트만 순서대로 이어붙여 반환. 실패 시 빈 문자열.
@@ -414,5 +421,7 @@ module.exports = {
   insertPhotoPlaceholders,
   computeMaxEmptyLines,
   stripStructuredArtifacts,
+  isTruncatedNotice,
+  GENERATION_TRUNCATED_NOTICE,
   SEPARATOR_EMOJI,
 };
