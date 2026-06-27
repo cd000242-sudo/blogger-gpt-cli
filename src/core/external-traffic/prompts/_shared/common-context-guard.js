@@ -36,7 +36,10 @@ const COMMON_CONTEXT_FIELDS = [
   'platformAngles',
 ];
 
+// v3.8.258: 공통 BANNED phrases — viral DNA 모듈에서 universal 리스트 가져와 통합
+const { UNIVERSAL_BANNED_PHRASES: VIRAL_DNA_BANNED } = require('../../_shared/viral-dna');
 const COMMON_BANNED_PHRASES = [
+  // 기존 허위/과장
   '무조건 가능합니다',
   '누구나 가능합니다',
   '100% 보장됩니다',
@@ -47,14 +50,12 @@ const COMMON_BANNED_PHRASES = [
   '치료됩니다',
   '완치됩니다',
   '수익 보장',
-  '대박',
-  '역대급',
-  '안 보면 손해',
-  '지금 바로 클릭',
   '아래 링크 클릭',
   '무조건 확인',
   '무조건 저장',
   '무조건 공유',
+  // v3.8.258: viral DNA universal 차단어 통합 (광고티/클리셰/스팸/AI흔적)
+  ...VIRAL_DNA_BANNED,
 ];
 
 const SAFE_REPLACEMENTS = [
@@ -432,10 +433,13 @@ function buildPlatformSystemPrompt(platformId) {
   const variants = Object.entries(profile.variants)
     .map(([key, label]) => `- ${key}안: ${label}`)
     .join('\n');
+  // v3.8.258: viral DNA 블록 자동 주입 (모든 채널 공유)
+  const { buildViralDnaBlock } = require('../../_shared/viral-dna');
+  const viralDnaBlock = buildViralDnaBlock({ platformName: profile.name, requireAllPatternsDistinct: true });
   return `당신은 ${profile.name} 외부유입 콘텐츠를 만드는 프롬프트 엔지니어입니다.
 
 이번 작업은 같은 글을 복사 변환하는 일이 아닙니다.
-원문 제목, 본문, URL, 키워드를 먼저 분석한 뒤 ${profile.name} 사용자의 소비 방식에 맞는 완전히 다른 유입 콘텐츠를 만듭니다.
+원문 제목, 본문, URL, 키워드를 먼저 분석한 뒤 ${profile.name} 사용자의 소비 방식에 맞는 **손가락이 멈추는 viral 콘텐츠**를 만듭니다.
 
 [${profile.name} 역할]
 - 목적: ${profile.purpose}
@@ -445,7 +449,7 @@ function buildPlatformSystemPrompt(platformId) {
 
 [A/B/C 구조]
 ${variants}
-
+${viralDnaBlock}
 [공통 원칙]
 - 특정 주제, 특히 청년내일저축계좌를 기본값처럼 하드코딩하지 않습니다.
 - 지원금 전용 구조를 보험, 건강, 이슈, 자동화툴 등 다른 글에 섞지 않습니다.
@@ -462,14 +466,15 @@ ${formatList(COMMON_BANNED_PHRASES)}
 [권장 대체 표현]
 ${formatList(SAFE_REPLACEMENTS)}
 
-[공통 최종 검수 100점]
-- 첫 문장/첫 훅 강도 (**스크롤 멈추는 힘**): 35점 ★ 최우선
-- 원문 문맥 정확도: 15점
-- 플랫폼 말투와 구조 적합도: 15점
-- 자연스러운 CTA: 10점
-- 광고 냄새 최소화: 10점
-- 원문에 없는 허위·과장 없음: 10점
-- 하드코딩 흔적 없음: 5점
+[공통 최종 검수 100점 — v3.8.258 viral 가중]
+- 첫 문장/첫 훅 강도 (**스크롤 멈추는 힘**): 45점 ★ 최우선 (35→45)
+- viral 패턴 적용도 (5패턴 중 1개 확실히 적용): 15점 ★ 신규
+- 원문 문맥 정확도: 10점
+- 플랫폼 말투와 구조 적합도: 10점
+- 자연스러운 CTA (광고티 0): 10점
+- 원문에 없는 허위·과장 없음: 5점
+- 클리셰/광고 클리셰 부재: 5점 ★ 신규
+- viralStrength 70점 미만이면 자동 재작성 트리거
 
 [🔥 첫 줄 절대 규칙 — 스크롤을 멈추게 하는 힘]
 
