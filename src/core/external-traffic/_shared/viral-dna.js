@@ -86,6 +86,14 @@ const VIRAL_PATTERNS = {
     hint: '원문 범위만 나열. "총정리" / "완벽 가이드" 같은 광고 표현 X',
     awarenessLevel: 'unaware',
   },
+  // v3.8.267: Soufan (Arabic X 16K tweets) — hedging이 댓글 +81.5% / 리포스트 +65.2% / 좋아요 +47.0% 유발
+  hedging_invitation: {
+    key: '헷지초대',
+    desc: 'hedging 표현으로 대화 초대 (좋아요보다 댓글·리포스트 유발)',
+    example: '[정책] 이거 진짜 5천이 세전인지 확실치 않은데, 경험 있으신 분? / [건강] OO이 진짜 효과 있는 건지 잘 모르겠는데 / [IT] 이게 진짜 호환되는 게 맞는지 헷갈리는 분?',
+    hint: '"~인 것 같은데", "~인지 확실치 않은데", "경험 있으신 분?" 표현. 확신 X, 대화 초대 O. 광고 글은 절대 hedging 안 함 = 진정성 신호',
+    awarenessLevel: 'both',
+  },
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -139,6 +147,18 @@ const UNIVERSAL_BANNED_PHRASES = [
   '글에 정리해놨음', '글에 정리해뒀음', '자세한 건 여기',
   '여기 정리해둔', '정확한 비율은 글에', '정확한 매칭은 글에',
   '자세한 내용은 링크', '여기서 확인',
+  // ━━━━ v3.8.267 — 공정위/경찰 적발 맘카페 조직적 광고 신호 차단 ━━━━
+  // 출처: 2025 공정위 한헬스케어 사건 + 2018 26,000+ 자문자답 광고 경찰 수사
+  '써보니 좋더라', '써봤는데 진짜 좋아요', '써본 결과 만족',
+  '추천드려요', '강추합니다', '강력 추천',
+  '솔직한 후기인데', '광고 아니고 진짜로',
+  '진짜 좋더라구요', '이거 진짜 대박',
+  '저도 처음에는 반신반의했는데', '믿고 써봤는데',
+  // 자문자답 광고 신호 (질문 후 다른 ID로 답 다는 패턴)
+  '경험 있으신 분 답변 부탁', '아시는 분 답변 부탁드립니다',
+  // 한 관점 폭주 광고 신호
+  '단점은 전혀', '아쉬운 점이 없어요', '완벽해요',
+  '의심점이 없네요', '단점을 못 찾겠어요',
 ];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -228,7 +248,25 @@ ${patternListText}
 - unaware 청중: 패턴 1,2,3,5,6,8 위주, 1~2개 stacking
 - aware 청중: 패턴 4,7 위주, 또는 1+4 / 2+7 stacking
 - mixed 청중: aware 1 + unaware 1 강제 stacking (양쪽 모두 잡기)
+- **댓글 KPI 채널 (Threads/Naver Cafe/커뮤니티)**: hedging_invitation (9번) 1개 강제 stacking → 댓글 +81.5%
 ${requireAllPatternsDistinct ? '\nA/B/C는 stacking 조합 서로 다르게.' : ''}
+
+[v3.8.267 — Shorts/Threads 3초 hook 알고리즘 임계점 (출처: Opus Pro)]
+다음 채널은 첫 3초/첫 줄에 **즉각적 hook** 필수. 일반 인사 → 50-60% 즉시 이탈:
+  - YouTube Shorts / TikTok / Threads / X
+  - ❌ "안녕하세요", "오늘은", "여러분", "이번에는" → 자동 실패
+  - ✅ 첫 3단어 안에 viral 패턴 활성화: 숫자/의심/모순/위기
+
+[v3.8.267 — 긍정 정서 단일 톤 = 광고 신호 (출처: Marketing Science Upworthy 32K A/B)]
+- 긍정 정서로만 채워진 글은 CTR↓ (광고로 분류)
+- ✅ CTR↑ 신호: 인칭대명사 + 부정/대조 + 구체 숫자
+- ❌ "완벽해요", "단점이 없어요", "추천해요" 단일 긍정 = 광고 분류
+- ✅ "장점은 있는데 단점도" 양면 노출 = viral 분류
+
+[v3.8.267 — 의심점 명시가 viral 가산 신호]
+공정위 적발된 광고 글의 공통점: 의심점/리스크 명시 0개.
+진짜 viral 글은 본문에 의심/리스크/제약 반드시 1개 포함.
+의심점 없으면 자동 광고 분류 → engagement 폭락.
 
 [v3.8.263 — 절대 금지 표현 (${platformName} 출력 즉시 실패)]
 ${UNIVERSAL_BANNED_PHRASES.map((p) => `  - "${p}"`).join('\n')}
@@ -265,16 +303,19 @@ critique.naturalness (≥70 통과 — link bait 어조 X 검증)
 critique.adFreeScore (≥80 통과 — 클리셰 0 검증)
 critique.awarenessMatch (audienceAwareness에 맞는 패턴인지 0/1)
 
-[마지막 자가 체크 8가지 — 모두 YES여야 통과]
+[마지막 자가 체크 12가지 — 모두 YES여야 통과 (v3.8.267 실데이터 보강)]
 1. 모든 사실이 원문에서 나왔는가? (FACT)
 2. 꾸며낸 인물/통계/사례 있는가? NO여야 함
 3. 작성자 본인 신원(나이/직업/소득) 추측했는가? NO여야 함
 4. "원문 보니까" 같은 link bait 어조 있는가? NO여야 함
 5. 첫 줄에서 멈춘 후 끝까지 읽히는가? YES여야 함
 6. 이미 들어본 사람도 "내가 모르는 게 있나?" 자기 점검하는가? YES여야 함
-7. **★ 본문에 디테일 hint 2개 이상 자연스럽게 심었는가? (aware 클릭 trigger)** YES여야 함
-   예: "케이스마다 다른 듯", "본인 이율에 따라", "시점별로 다름"
+7. 본문에 디테일 hint 2개 이상 자연스럽게 심었는가? YES여야 함
 8. 평균 조회수 1만+ 목표라면 그대로 쓰겠는가? YES여야 함
+9. **[v3.8.267 신규] 본문에 의심점/리스크 1개 이상 명시했는가? (의심 없는 글 = 광고 자동 분류, 공정위 적발 기준)** YES여야 함
+10. **[v3.8.267 신규] 단일 긍정 톤인가? (Marketing Science: 긍정 단일 톤 = CTR↓)** NO여야 함. 양면 노출 강제
+11. **[v3.8.267 신규] Shorts/Threads/X면 첫 3초/첫 줄에 즉각적 hook 활성화? (일반 인사 = 50-60% 즉시 이탈)** YES여야 함
+12. **[v3.8.267 신규] 댓글 KPI 채널(Cafe/커뮤니티/Threads)이면 hedging 표현 1개 포함? (Soufan: hedging = 댓글 +81.5%)** YES여야 함
 `;
 }
 
@@ -296,8 +337,12 @@ const VIRAL_CRITIQUE_FIELDS = `      "critique": {
         "naturalness": 75,
         "adFreeScore": 85,
         "awarenessMatch": 1,
-        "awareClickTriggers": ["디테일 hint 1 — 케이스별 차이 표현", "디테일 hint 2 — 정밀 정보 부재 자연 인정"],
-        "notes": "7원칙 + aware click trigger 종합 평가",
+        "awareClickTriggers": ["디테일 hint 1", "디테일 hint 2"],
+        "doubtMarker": "본문에 명시된 의심점/리스크 1개 (광고는 의심 안 함 = viral 가산 신호)",
+        "hedgingMarker": "댓글 채널이면 hedging 표현 1개 (예: '경험 있으신 분?', '~인지 확실치 않은데')",
+        "groupReactionStrategy": "FMKorea/DCInside류: 다양한 그룹이 반응할 구조 명시 (한 관점 폭주 NO)",
+        "trendContext": "이 글이 게시 전 추세 (상승 중/하락 중/평탄) 가정 + 추세 반전 전략",
+        "notes": "7원칙 + 실데이터 검증 신호 종합 평가",
         "mustImprove": "발견한 약점 1개"
       },`;
 
