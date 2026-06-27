@@ -952,7 +952,8 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog?.('[PROGRESS] 44% - ⚠️ 거미줄 모드에서 factCheckMode=off는 위험 → 자동으로 auto로 폴백');
     }
     let factEnrichedContents = contents;
-    if (factCheckMode !== 'off') {
+    // v3.8.265: factCheckMode는 이제 'off'가 'auto'로 폴백되므로 항상 실행
+    {
       try {
         const factModeLabel = factCheckMode === 'perplexity' ? 'Perplexity'
           : factCheckMode === 'naver' ? 'Naver'
