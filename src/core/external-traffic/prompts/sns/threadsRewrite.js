@@ -358,12 +358,21 @@ function orderUniqueThreadsVariants(variants) {
 
 function buildCopyFromVariant(variant) {
   const finalRevision = variant && variant.finalRevision || {};
+  const body = finalRevision.body || variant.body || '';
+  const linkPrompt = finalRevision.linkPrompt || variant.linkPrompt || '';
+
+  // v3.8.268: 링크 중복 제거 — body에 이미 URL이 있으면 linkPrompt의 같은 URL 제거
+  const urlInBody = body.match(/https?:\/\/[^\s]+/);
+  const cleanedLinkPrompt = urlInBody && linkPrompt.includes(urlInBody[0])
+    ? linkPrompt.replace(urlInBody[0], '').replace(/^\s*→\s*$/, '').trim()
+    : linkPrompt;
+
   return [
     finalRevision.firstLine || variant.selectedFirstLine,
-    finalRevision.body || variant.body,
+    body,
     finalRevision.commentPrompt || variant.commentPrompt,
     finalRevision.sharePrompt || variant.sharePrompt,
-    finalRevision.linkPrompt || variant.linkPrompt,
+    cleanedLinkPrompt,
   ]
     .map(stripPromoPhrases)
     .filter(Boolean)

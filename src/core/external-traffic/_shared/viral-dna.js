@@ -159,6 +159,25 @@ const UNIVERSAL_BANNED_PHRASES = [
   // 한 관점 폭주 광고 신호
   '단점은 전혀', '아쉬운 점이 없어요', '완벽해요',
   '의심점이 없네요', '단점을 못 찾겠어요',
+  // ━━━━ v3.8.268 — 실제 출력에서 누락 발견된 차단어 보강 ━━━━
+  // 사용자 실제 v3.8.267 출력에서 통과한 클리셰들 (긴급 차단)
+  '정보 공유 좀', '정보 공유 좀 해줘', '정보 공유 해줘',
+  '공유 좀 해줘', '공유해줘', '공유해 주세요',
+  '친구들한테도 알려줘', '친구들한테 알려줘',
+  '같이 얘기해보고 싶다면', '같이 얘기해보고싶다면',
+  '같이 만들자', '같이 모으자', '같이 해보자',
+  '주변 친구들', '주변 사람들에게',
+  '같이 N 만들자', // 패턴
+  '너희는 어떻게', '너희는 어떻게 생각해',
+  '장점만 있는 걸까', '단점만 있는 걸까',
+  '솔직히 의심됨', // 너무 직접적, 다양한 표현으로 대체 필요
+  '어떻게 생각해?', // 클리셰 댓글 유도
+];
+
+// v3.8.268: 동그란 수 단독 사용 추가 패턴 (prompt에서 명시 차단용)
+const ROUND_NUMBER_PHRASES = [
+  '2,200만원', '1,000만원', '2,000만원', '3,000만원', '5,000만원',
+  '1,500만원', '500만원',
 ];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -271,9 +290,11 @@ ${requireAllPatternsDistinct ? '\nA/B/C는 stacking 조합 서로 다르게.' : 
 [v3.8.263 — 절대 금지 표현 (${platformName} 출력 즉시 실패)]
 ${UNIVERSAL_BANNED_PHRASES.map((p) => `  - "${p}"`).join('\n')}
 
-[수치 작성 규칙 (FACT)]
+[수치 작성 규칙 (FACT) — v3.8.268 강화]
 - 원문 수치 그대로 사용 (정밀화/변형 X)
-- 원문 "2,200만원" → 그대로 "2,200만원"
+- 단, **동그란 큰 수("2,200만원", "1,000만원", "5,000만원") 단독 사용 시 광고 분류 위험**
+  → 원문에 동그란 수가 있으면 반드시 맥락 함께: "2,200만원 (원문 기준)", "약 2,200만원 정도"
+  → 또는 비교/단서 함께: "월 30 넣어서 2,200" / "3년 만기로 2,200"
 - 비교용 계산값은 OK ("일반 적금 4%로 부으면 1,400 정도")
 - "월 N × N년 = N" 정형 광고 카피 형식 X
 - 수치 옆에 출처 명시 X (NATURAL 원칙)
@@ -327,23 +348,14 @@ const VIRAL_VARIANT_FIELDS = `      "viralPatternStack": ["사실의심 | 비교
       "firstLineCandidates": ["7원칙 통합 첫 줄 후보1", "후보2", "후보3"],
       "selectedFirstLine": "위 3개 중 7원칙 모두 자연스럽게 녹은 선택",`;
 
+// v3.8.268: schema 슬림화 — critique 13필드 → 6필드 (출력 토큰 절약, C안 truncation 방지)
+// 점수는 1개로 통합, 신호는 mustImprove 안에 자연 문장으로
 const VIRAL_CRITIQUE_FIELDS = `      "critique": {
-        "score": 90,
-        "factCheck": 100,
-        "factCheckNotes": "모든 사실(수치/인물/사례/시점)이 원문에서 나왔는지 확인",
-        "viralStrength": 75,
-        "emotionalIntensity": 70,
-        "holdStrength": 75,
-        "naturalness": 75,
-        "adFreeScore": 85,
-        "awarenessMatch": 1,
-        "awareClickTriggers": ["디테일 hint 1", "디테일 hint 2"],
-        "doubtMarker": "본문에 명시된 의심점/리스크 1개 (광고는 의심 안 함 = viral 가산 신호)",
-        "hedgingMarker": "댓글 채널이면 hedging 표현 1개 (예: '경험 있으신 분?', '~인지 확실치 않은데')",
-        "groupReactionStrategy": "FMKorea/DCInside류: 다양한 그룹이 반응할 구조 명시 (한 관점 폭주 NO)",
-        "trendContext": "이 글이 게시 전 추세 (상승 중/하락 중/평탄) 가정 + 추세 반전 전략",
-        "notes": "7원칙 + 실데이터 검증 신호 종합 평가",
-        "mustImprove": "발견한 약점 1개"
+        "viralScore": "viralStrength + holdStrength + naturalness + adFree + factCheck 종합 0~100",
+        "factCheckPass": true,
+        "doubtMarker": "본문 의심점 1개 (의심 없으면 광고로 분류됨)",
+        "hedgingMarker": "댓글 채널이면 hedging 표현 1개 (예: '~확실치 않은데')",
+        "mustImprove": "발견한 약점 1개 (클리셰/광고티/동그란수/의심점부재)"
       },`;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
