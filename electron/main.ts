@@ -10338,9 +10338,9 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
       if (!agentProfile) {
         console.warn(`[EXT-TRAFFIC v2] 에이전트 모드 요청됐으나 profile 없음 (provider=${payload.agentProvider}) — API로 폴백`);
       } else {
-        const accessStatus = getAgentModeAccessStatus(agentProfile);
+        const accessStatus = await getAgentModeAccessStatus();
         if (!accessStatus.allowed) {
-          console.warn(`[EXT-TRAFFIC v2] 에이전트 모드 권한 거부 (${accessStatus.reason}) — API로 폴백`);
+          console.warn(`[EXT-TRAFFIC v2] 에이전트 모드 권한 거부 (${accessStatus.message || '권한 없음'}) — API로 폴백`);
           agentProfile = null;
         }
       }
