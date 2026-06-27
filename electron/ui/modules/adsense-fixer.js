@@ -135,6 +135,18 @@ function openAdSenseFixerModal() {
           </div>
           <ul style="margin:0;padding-left:18px;color:#cbd5e1;font-size:12px;line-height:1.7;">${violationList || '<li>없음 ✅</li>'}</ul>
         </div>
+        <!-- v3.8.250: 차별화 끝판왕 — 승인 극한 부스터 (7축 종합 readiness) -->
+        <div style="padding:16px;background:linear-gradient(135deg,rgba(168,85,247,0.12),rgba(236,72,153,0.08));border:2px solid rgba(168,85,247,0.45);border-radius:14px;margin-bottom:14px;box-shadow:0 10px 30px rgba(168,85,247,0.15);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div>
+              <div style="color:#e9d5ff;font-size:15px;font-weight:900;">🎯 AdSense 승인 극한 부스터 (차별화 끝판왕)</div>
+              <div style="color:#cbd5e1;font-size:11px;margin-top:3px;line-height:1.5;">7축 종합 진단: 콘텐츠가치 · 페이지 · Schema.org · AI탐지회피(Burstiness) · Topical Authority · 저자신호 · 크롤친화도</div>
+            </div>
+            <button id="adsense-readiness-btn" style="padding:10px 16px;background:linear-gradient(135deg,#a855f7,#7e22ce);color:white;border:0;border-radius:10px;font-weight:900;font-size:12px;cursor:pointer;white-space:nowrap;box-shadow:0 6px 20px rgba(168,85,247,0.4);">🎯 극한 부스터 실행</button>
+          </div>
+          <div id="adsense-readiness-result"></div>
+        </div>
+
         <!-- v3.8.244: "가치가 별로 없는 콘텐츠" 사유 대응 — 본문 가치 분석 -->
         <div style="padding:14px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.08));border:2px solid rgba(239,68,68,0.35);border-radius:12px;margin-bottom:12px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
@@ -193,6 +205,28 @@ function openAdSenseFixerModal() {
             alert('❌ ' + cr.error);
           }
           createBtn.disabled = false; createBtn.textContent = '📄 누락된 페이지 자동 생성';
+        });
+      }
+
+      // v3.8.250: 승인 극한 부스터 — 7축 종합 readiness 진단
+      const readinessBtn = document.getElementById('adsense-readiness-btn');
+      if (readinessBtn) {
+        readinessBtn.addEventListener('click', async () => {
+          const p = platformGuardOrAlert();
+          if (!p) return;
+          const publicSiteUrl = (document.getElementById('adsense-fixer-url')?.value || '').trim();
+          const readyEl = document.getElementById('adsense-readiness-result');
+          readinessBtn.disabled = true; readinessBtn.textContent = '⏳ 7축 진단 중...';
+          readyEl.innerHTML = `<div style="padding:10px;background:rgba(15,23,42,0.6);border-radius:8px;color:#cbd5e1;font-size:12px;">⏳ 7축 동시 진단 중... (콘텐츠 30개 페치 + sitemap/robots/저자페이지 검증, 60~90초)</div>`;
+          try {
+            const r = await window.electronAPI.adsenseApprovalReadinessCheck({ ...p, publicSiteUrl });
+            if (!r.ok) { readyEl.innerHTML = `<div style="padding:10px;background:rgba(239,68,68,0.12);border-radius:8px;color:#fca5a5;font-size:12px;">❌ ${r.error}</div>`; return; }
+            renderReadinessResult(readyEl, r, p);
+          } catch (e) {
+            readyEl.innerHTML = `<div style="padding:10px;background:rgba(239,68,68,0.12);border-radius:8px;color:#fca5a5;font-size:12px;">❌ ${e?.message || e}</div>`;
+          } finally {
+            readinessBtn.disabled = false; readinessBtn.textContent = '🎯 극한 부스터 재실행';
+          }
         });
       }
 
@@ -967,6 +1001,113 @@ function showYearlyResultModal(r, platform, postId, currentYear) {
     if (real.ok) alert(`✅ ${currentYear}년 갱신 완료\n${real.titleChanged ? '제목 + 본문 갱신' : '본문 갱신'}`);
     else alert('❌ 갱신 실패: ' + real.error);
   });
+}
+
+// v3.8.250: 7축 readiness 결과 렌더 (차별화 끝판왕)
+function renderReadinessResult(el, r, platform) {
+  const score = r.totalScore;
+  const html = `
+    <div style="padding:14px;background:linear-gradient(135deg,${r.verdictColor}25,${r.verdictColor}10);border:2px solid ${r.verdictColor};border-radius:12px;margin-bottom:12px;display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center;">
+      <div style="text-align:center;padding:0 8px;">
+        <div style="font-size:38px;font-weight:900;color:${r.verdictColor};line-height:1;">${score}</div>
+        <div style="color:${r.verdictColor};font-size:10px;font-weight:800;margin-top:3px;">/100점</div>
+      </div>
+      <div>
+        <div style="color:${r.verdictColor};font-size:14px;font-weight:900;line-height:1.3;">${r.verdict}</div>
+        <div style="color:#cbd5e1;font-size:12px;margin-top:4px;line-height:1.5;">💡 ${r.recommendation}</div>
+        <div style="color:#94a3b8;font-size:10px;margin-top:4px;">분석 대상: 최근 글 ${r.sampleSize}개</div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+      ${r.axes.map((ax) => {
+        const statusColor = ax.status === 'good' ? '#22c55e' : ax.status === 'warn' ? '#f59e0b' : '#ef4444';
+        const statusIcon = ax.status === 'good' ? '✅' : ax.status === 'warn' ? '⚠️' : '❌';
+        const fixBtn = renderReadinessFixButton(ax, platform);
+        return `
+          <div style="padding:10px 14px;background:rgba(15,23,42,0.6);border-left:3px solid ${statusColor};border-radius:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+              <div style="flex:1;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span style="font-size:14px;">${statusIcon}</span>
+                  <span style="color:#fff;font-size:13px;font-weight:800;">${ax.label}</span>
+                  <span style="color:${statusColor};font-size:11px;font-weight:900;margin-left:auto;">${Math.round(ax.score)}/100 · 가중치 ${ax.weight}%</span>
+                </div>
+                <div style="color:#94a3b8;font-size:11px;margin-top:3px;margin-left:20px;">${escHtml(ax.hint)}</div>
+              </div>
+              ${fixBtn}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+    <div style="padding:10px;background:rgba(168,85,247,0.08);border-left:3px solid #a855f7;border-radius:6px;color:#e9d5ff;font-size:11px;line-height:1.6;">
+      <div style="font-weight:800;color:#fff;margin-bottom:4px;">💎 이 도구만의 차별화 7축</div>
+      <div>다른 AdSense 도구가 안 보는 영역까지 점검 — Schema.org 구조화 데이터, AI Burstiness, Topical Authority, 저자 E-E-A-T 신호, 크롤 친화도, 콘텐츠 가치, 필수 페이지</div>
+    </div>
+  `;
+  el.innerHTML = html;
+
+  // fix 버튼 핸들러 등록
+  el.querySelectorAll('[data-readiness-fix]').forEach((btn) => {
+    btn.addEventListener('click', () => handleReadinessFix(btn.getAttribute('data-readiness-fix'), platform, r));
+  });
+}
+
+function renderReadinessFixButton(ax, platform) {
+  if (ax.status === 'good') return '';
+  const fixMap = {
+    content: { label: '📊 본문 가치 분석으로', action: 'goto-value' },
+    pages: { label: '📄 페이지 자동 생성', action: 'create-pages' },
+    schema: { label: '🏷️ Schema.org 일괄 주입', action: 'inject-schema' },
+    burstiness: { label: '💬 본문 가치 보강으로', action: 'goto-value' },
+    topical: { label: '📚 토픽 클러스터 보기', action: 'goto-cluster' },
+    author: { label: '✍️ 저자 페이지 생성', action: 'create-author' },
+    crawl: { label: '🌐 안내', action: 'crawl-help' },
+  };
+  const fix = fixMap[ax.key];
+  if (!fix) return '';
+  return `<button data-readiness-fix="${fix.action}" style="padding:6px 12px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:white;border:0;border-radius:6px;font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;">${fix.label}</button>`;
+}
+
+async function handleReadinessFix(action, platform, readinessResult) {
+  if (action === 'goto-value') {
+    document.getElementById('adsense-analyze-value-btn')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.getElementById('adsense-analyze-value-btn')?.click();
+    return;
+  }
+  if (action === 'create-pages') {
+    if (platform.platform !== 'blogger') { alert('페이지 자동 생성은 Blogger 전용입니다 (WordPress는 관리자 수동 생성 권장).'); return; }
+    if (!confirm(targetConfirmText(platform, '📄 누락된 About/Privacy/Contact 페이지를 자동 생성합니다.'))) return;
+    const missing = [];
+    if (!readinessResult.meta.hasAbout) missing.push('about');
+    if (!readinessResult.meta.hasPrivacy) missing.push('privacy');
+    if (!readinessResult.meta.hasContact) missing.push('contact');
+    if (missing.length === 0) { alert('이미 모두 존재합니다.'); return; }
+    const cr = await window.electronAPI.adsenseCreatePages({ blogId: platform.blogId, pages: missing });
+    if (cr.ok) {
+      const success = cr.results.filter((x) => x.ok).length;
+      alert(`✅ ${success}개 페이지 생성 완료\n\n` + cr.results.map((x) => `${x.ok ? '✅' : '❌'} ${x.name}: ${x.ok ? x.url : x.error}`).join('\n'));
+    } else alert('❌ ' + cr.error);
+  }
+  if (action === 'create-author') {
+    if (platform.platform !== 'blogger') { alert('저자 페이지 자동 생성은 Blogger 전용입니다.'); return; }
+    const authorName = prompt('저자 이름 (또는 필명)을 입력하세요:', '운영자');
+    if (!authorName) return;
+    if (!confirm(targetConfirmText(platform, `✍️ 저자 페이지를 생성합니다.\n저자명: ${authorName}\n\nSchema.org Person 자동 포함, E-E-A-T Author 신호 강화.`))) return;
+    const cr = await window.electronAPI.adsenseCreateAuthorPage({ blogId: platform.blogId, authorName });
+    if (cr.ok) alert(`✅ 저자 페이지 생성 완료\n🔗 ${cr.url}`);
+    else alert('❌ ' + cr.error);
+  }
+  if (action === 'inject-schema') {
+    if (!confirm(targetConfirmText(platform, `🏷️ Schema.org JSON-LD를 누락된 글에 일괄 주입합니다.\n\n각 글에 Article + Author + Publisher 구조화 데이터 추가.\n예상 소요: 글 개수 × 2초`))) return;
+    alert('💡 Schema.org 일괄 주입은 본문 가치 분석에서 글 선택 후 개별 진행을 권장합니다.\n(현재는 단일 글 IPC만 노출 — 향후 일괄 버전 추가 예정)');
+  }
+  if (action === 'goto-cluster') {
+    alert('💡 Topical Authority 강화 방법:\n\n1. 사이트가 다루는 핵심 토픽 1~2개를 선정\n2. 그 토픽의 cornerstone 글 1편 + spoke 글 5~10편 작성\n3. 거미줄(내부 일관) 모드로 발행하면 자동 클러스터링\n4. 상위 3토픽이 전체 60%+를 차지하면 통과');
+  }
+  if (action === 'crawl-help') {
+    alert('💡 크롤 친화도 강화:\n\nBlogspot 사용자:\n• sitemap.xml: 자동 생성됨 (https://[블로그].blogspot.com/sitemap.xml)\n• robots.txt: 자동 생성됨\n• → 둘 다 자동인데 fail로 나오면 URL 입력란을 확인하세요\n\nWordPress 사용자:\n• Yoast SEO 또는 Rank Math 플러그인 설치 권장\n• 또는 wp-sitemap.xml 자동 활성화 확인');
+  }
 }
 
 window.openAdSenseFixerModal = openAdSenseFixerModal;

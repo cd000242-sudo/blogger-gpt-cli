@@ -11608,5 +11608,309 @@ ${originalHtml}
   }
 });
 
-console.log('[APP] ✅ AdSense 자동 해결 IPC 등록 완료 (open-console/diagnose/create-pages/list-clickbait-posts/clean-post-titles/analyze-content-value/boost-post-value/bulk-cleanup-posts/list-yearly-posts/refresh-yearly-post)');
+// v3.8.250: 차별화 끝판왕 — AdSense 승인 극한 부스터
+// 다른 자동화 도구가 안 하는 7가지 검사를 종합해 100점 readiness 점수 산출 + 자동 해결
+ipcMain.handle('adsense:approval-readiness-check', async (_evt, payload: {
+  blogId?: string; siteUrl?: string; username?: string; password?: string; jwtToken?: string;
+  platform?: AdSensePlatform; publicSiteUrl?: string;
+}) => {
+  try {
+    const envData = loadEnvFromFile() as any;
+    const creds = loadPlatformCredsFromEnv(envData, payload);
+    const axios = (await import('axios')).default;
+    const adapter = buildPlatformAdapter(creds, axios);
+
+    // 공개 사이트 URL (sitemap/robots 체크용)
+    const publicUrl = String(payload.publicSiteUrl || creds.siteUrl || '').replace(/\/$/, '');
+
+    // 전체 글 페치 (sample 30 — readiness check는 빠르게)
+    const posts = await adapter.listPosts({ fetchBodies: true, maxResults: 30 });
+    if (posts.length === 0) return { ok: false, error: '분석할 글 없음' };
+
+    const stripHtml = (s: string) => s.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+
+    // ── 축 1: 콘텐츠 가치 (analyze-content-value 동일 채점 평균) ──
+    const PERSONAL = [/저(는|희)/g, /제(가|일|경우)/g, /경험상/g, /직접\s*(써|해)\s*보(니|면)/g];
+    const SPECIFIC = [/\d{4}년\s*\d+월/g, /\d+만원|\d+,\d+원/g, /\d+%/g, /비교표|체크리스트/g];
+    const EEAT = [/출처\s*[:：]/g, /정부|보건복지부|국세청|식약처/g, /논문|연구|보고서/g];
+    const SCALED = [/흔히\s*알려진/g, /많은\s*분(들)?(이|들이)/g, /오늘은\s*[가-힯\s]+에\s*대해\s*(알아|살펴)\s*보(겠습니다|아요)/g];
+    let totalContentScore = 0;
+    for (const p of posts) {
+      const text = stripHtml(p.content);
+      const wc = text.length;
+      const h2 = (p.content.match(/<h2[^>]*>/gi) || []).length;
+      const personalN = PERSONAL.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+      const specificN = SPECIFIC.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+      const eeatN = EEAT.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+      const scaledN = SCALED.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+      let s = 0;
+      if (wc >= 2500) s += 40; else if (wc >= 1500) s += 28; else if (wc >= 1000) s += 15; else s += 5;
+      if (h2 >= 5) s += 10; else if (h2 >= 3) s += 6; else s += 2;
+      if (personalN >= 3) s += 20; else if (personalN >= 1) s += 10;
+      if (specificN >= 3) s += 15; else if (specificN >= 1) s += 8;
+      if (eeatN >= 2) s += 10; else if (eeatN >= 1) s += 5;
+      if (scaledN >= 3) s -= 15; else if (scaledN >= 1) s -= 7;
+      totalContentScore += Math.max(0, Math.min(100, s));
+    }
+    const avgContentScore = totalContentScore / posts.length;
+
+    // ── 축 2: Schema.org JSON-LD 주입 비율 ──
+    let withSchema = 0;
+    for (const p of posts) {
+      if (/application\/ld\+json/i.test(p.content) || /"@type"\s*:\s*"(Article|BlogPosting)"/i.test(p.content)) {
+        withSchema++;
+      }
+    }
+    const schemaRatio = (withSchema / posts.length) * 100;
+
+    // ── 축 3: AI Burstiness (문장 길이 표준편차) — LLM 흔적 측정 ──
+    // 사람 글: 표준편차 12+ / LLM 양산: 표준편차 5~8
+    let totalBurstiness = 0;
+    for (const p of posts) {
+      const text = stripHtml(p.content);
+      const sentences = text.split(/[.!?。][\s]+/).filter((s) => s.length > 5);
+      if (sentences.length < 5) continue;
+      const lengths = sentences.map((s) => s.length);
+      const mean = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+      const variance = lengths.reduce((sum, len) => sum + Math.pow(len - mean, 2), 0) / lengths.length;
+      totalBurstiness += Math.sqrt(variance);
+    }
+    const avgBurstiness = totalBurstiness / posts.length;
+    // 점수: 12+ = 100점 / 8 = 50점 / 5 이하 = 0점
+    const burstinessScore = Math.max(0, Math.min(100, ((avgBurstiness - 5) / 7) * 100));
+
+    // ── 축 4: Topical Authority (토픽 클러스터 비율) ──
+    // 제목에서 명사 추출 → 상위 3개 토픽이 전체에서 차지하는 비율
+    const topicCount: Record<string, number> = {};
+    for (const p of posts) {
+      const keywords = (p.title.match(/[가-힯]{2,8}/g) || []).slice(0, 3);
+      for (const kw of keywords) topicCount[kw] = (topicCount[kw] || 0) + 1;
+    }
+    const sortedTopics = Object.entries(topicCount).sort((a, b) => b[1] - a[1]);
+    const top3Sum = sortedTopics.slice(0, 3).reduce((s, [, n]) => s + n, 0);
+    const topicalAuthorityRatio = posts.length > 0 ? (top3Sum / posts.length) * 100 : 0;
+
+    // ── 축 5: sitemap.xml + robots.txt 검증 ──
+    let hasSitemap = false, hasRobotsTxt = false;
+    if (publicUrl) {
+      try {
+        const sm = await axios.get(`${publicUrl}/sitemap.xml`, { timeout: 10000, validateStatus: () => true });
+        if (sm.status === 200 && /<urlset|<sitemapindex/i.test(String(sm.data))) hasSitemap = true;
+      } catch {}
+      try {
+        const rb = await axios.get(`${publicUrl}/robots.txt`, { timeout: 10000, validateStatus: () => true });
+        if (rb.status === 200 && /User-agent/i.test(String(rb.data))) hasRobotsTxt = true;
+      } catch {}
+    }
+
+    // ── 축 6: 저자 페이지 + 작성자 표기 ──
+    let hasAuthorPage = false, postsWithAuthor = 0;
+    if (publicUrl) {
+      try {
+        const authorUrls = [`${publicUrl}/p/author.html`, `${publicUrl}/author/`, `${publicUrl}/p/profile.html`];
+        for (const u of authorUrls) {
+          const r = await axios.get(u, { timeout: 8000, validateStatus: () => true });
+          if (r.status === 200) { hasAuthorPage = true; break; }
+        }
+      } catch {}
+    }
+    for (const p of posts) {
+      if (/작성자|글쓴이|by\s+[A-Za-z]/i.test(p.content) || /"author"\s*:/i.test(p.content)) postsWithAuthor++;
+    }
+    const authorRatio = (postsWithAuthor / posts.length) * 100;
+
+    // ── 축 7: 필수 페이지 (About/Privacy/Contact) ──
+    let hasAbout = false, hasPrivacy = false, hasContact = false;
+    if (publicUrl) {
+      const checks = await Promise.all([
+        axios.get(`${publicUrl}/p/about.html`, { timeout: 8000, validateStatus: () => true }).then((r) => r.status === 200).catch(() => false),
+        axios.get(`${publicUrl}/p/privacy-policy.html`, { timeout: 8000, validateStatus: () => true }).then((r) => r.status === 200).catch(() => false),
+        axios.get(`${publicUrl}/p/contact.html`, { timeout: 8000, validateStatus: () => true }).then((r) => r.status === 200).catch(() => false),
+      ]);
+      [hasAbout, hasPrivacy, hasContact] = checks;
+    }
+
+    // ── 종합 100점 readiness 점수 (7축 가중치) ──
+    const axes = [
+      { key: 'content', label: '콘텐츠 가치', weight: 30, score: avgContentScore, status: avgContentScore >= 65 ? 'good' : avgContentScore >= 45 ? 'warn' : 'fail', hint: avgContentScore < 65 ? `평균 ${Math.round(avgContentScore)}점 — 본문 가치 보강 필요` : `평균 ${Math.round(avgContentScore)}점 양호` },
+      { key: 'pages', label: '필수 페이지', weight: 15, score: ((hasAbout?1:0) + (hasPrivacy?1:0) + (hasContact?1:0)) / 3 * 100, status: (hasAbout && hasPrivacy && hasContact) ? 'good' : 'fail', hint: !hasAbout || !hasPrivacy || !hasContact ? `누락: ${[!hasAbout && 'About', !hasPrivacy && 'Privacy', !hasContact && 'Contact'].filter(Boolean).join(', ')}` : '3종 모두 존재' },
+      { key: 'schema', label: 'Schema.org 구조화', weight: 10, score: schemaRatio, status: schemaRatio >= 80 ? 'good' : schemaRatio >= 30 ? 'warn' : 'fail', hint: `${withSchema}/${posts.length}개 글에 JSON-LD 적용 (${Math.round(schemaRatio)}%)` },
+      { key: 'burstiness', label: 'AI 탐지 회피 (Burstiness)', weight: 15, score: burstinessScore, status: burstinessScore >= 70 ? 'good' : burstinessScore >= 40 ? 'warn' : 'fail', hint: `문장 길이 σ=${avgBurstiness.toFixed(1)} (사람:12+ / LLM:5~8)` },
+      { key: 'topical', label: 'Topical Authority', weight: 10, score: topicalAuthorityRatio, status: topicalAuthorityRatio >= 60 ? 'good' : topicalAuthorityRatio >= 30 ? 'warn' : 'fail', hint: `상위 3토픽이 ${Math.round(topicalAuthorityRatio)}% 차지 (60%+ 권장)` },
+      { key: 'author', label: '저자 신호 (E-E-A-T Author)', weight: 10, score: (hasAuthorPage ? 50 : 0) + Math.min(50, authorRatio / 2), status: (hasAuthorPage && authorRatio >= 50) ? 'good' : (hasAuthorPage || authorRatio >= 30) ? 'warn' : 'fail', hint: `저자 페이지 ${hasAuthorPage ? '✅' : '❌'} · 글의 ${Math.round(authorRatio)}%에 작성자 표기` },
+      { key: 'crawl', label: '크롤 친화도', weight: 10, score: (hasSitemap ? 60 : 0) + (hasRobotsTxt ? 40 : 0), status: (hasSitemap && hasRobotsTxt) ? 'good' : (hasSitemap || hasRobotsTxt) ? 'warn' : 'fail', hint: `sitemap.xml ${hasSitemap ? '✅' : '❌'} · robots.txt ${hasRobotsTxt ? '✅' : '❌'}` },
+    ];
+    const totalScore = axes.reduce((s, ax) => s + (ax.score * ax.weight / 100), 0);
+
+    // 종합 판정
+    let verdict: string, verdictColor: string, recommendation: string;
+    if (totalScore >= 85) {
+      verdict = '🎯 극한 준비 완료 — 재신청 강력 권장';
+      verdictColor = '#22c55e';
+      recommendation = '모든 차별화 축 통과. 즉시 재신청하세요.';
+    } else if (totalScore >= 70) {
+      verdict = '✅ 양호 — 재신청 가능';
+      verdictColor = '#84cc16';
+      recommendation = '주요 사유는 모두 해결됨. 경고 축만 마저 손보면 더 안전.';
+    } else if (totalScore >= 55) {
+      verdict = '⚠️ 보통 — 부족 축 해결 후 재신청 권장';
+      verdictColor = '#f59e0b';
+      recommendation = '아래 fail 축들을 자동 해결 버튼으로 처리 후 재신청.';
+    } else {
+      verdict = '❌ 위험 — 재거절 가능성 높음';
+      verdictColor = '#ef4444';
+      recommendation = '핵심 fail 축이 많아 재신청 즉시는 위험. 우선 자동 해결 후 1~2주 안정화.';
+    }
+
+    return {
+      ok: true,
+      totalScore: Math.round(totalScore),
+      verdict, verdictColor, recommendation,
+      axes,
+      sampleSize: posts.length,
+      meta: {
+        avgContentScore: Math.round(avgContentScore),
+        schemaRatio: Math.round(schemaRatio),
+        avgBurstiness: parseFloat(avgBurstiness.toFixed(2)),
+        burstinessScore: Math.round(burstinessScore),
+        topicalAuthorityRatio: Math.round(topicalAuthorityRatio),
+        hasSitemap, hasRobotsTxt, hasAuthorPage,
+        hasAbout, hasPrivacy, hasContact,
+        postsWithAuthor, topPosts: sortedTopics.slice(0, 5).map(([t, n]) => ({ topic: t, count: n })),
+      },
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+  }
+});
+
+// v3.8.250: Schema.org JSON-LD 자동 주입 (글 본문 끝에 Article + Author + Publisher 추가)
+ipcMain.handle('adsense:inject-schema-org', async (_evt, payload: {
+  blogId?: string; siteUrl?: string; username?: string; password?: string; jwtToken?: string;
+  platform?: AdSensePlatform; postId: string; authorName?: string; siteName?: string; dryRun?: boolean;
+}) => {
+  try {
+    const envData = loadEnvFromFile() as any;
+    const creds = loadPlatformCredsFromEnv(envData, payload);
+    const postId = String(payload.postId || '').trim();
+    if (!postId) return { ok: false, error: 'postId 누락' };
+    const dryRun = payload.dryRun !== false;
+    const axios = (await import('axios')).default;
+    const adapter = buildPlatformAdapter(creds, axios);
+    const post = await adapter.getPost(postId);
+    if (!post.content) return { ok: false, error: '본문 없음' };
+
+    // 이미 Schema.org 있으면 skip
+    if (/application\/ld\+json/i.test(post.content)) {
+      return { ok: true, skipped: true, reason: '이미 JSON-LD 적용됨', postId, title: post.title };
+    }
+
+    const authorName = payload.authorName || envData.authorName || envData.ownerName || '운영자';
+    const siteName = payload.siteName || envData.siteName || '블로그';
+    const published = post.published || new Date().toISOString();
+
+    // 첫 이미지 추출 (Article schema의 image 필드)
+    const firstImg = post.content.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] || '';
+
+    const jsonLd = {
+      '@context': 'https://schema.org',
+      '@type': 'Article',
+      'headline': post.title,
+      'image': firstImg ? [firstImg] : undefined,
+      'datePublished': published,
+      'dateModified': new Date().toISOString(),
+      'author': {
+        '@type': 'Person',
+        'name': authorName,
+      },
+      'publisher': {
+        '@type': 'Organization',
+        'name': siteName,
+      },
+      'url': post.url,
+      'mainEntityOfPage': { '@type': 'WebPage', '@id': post.url },
+    };
+    const jsonLdHtml = `\n<script type="application/ld+json">${JSON.stringify(jsonLd, null, 2)}</script>`;
+    const newContent = post.content + jsonLdHtml;
+
+    if (dryRun) {
+      return { ok: true, dryRun: true, postId, title: post.title, url: post.url, jsonLd, schemaInjected: true };
+    }
+    await adapter.updatePost(postId, { content: newContent });
+    return { ok: true, dryRun: false, postId, title: post.title, url: post.url, message: '✅ Schema.org JSON-LD 주입 완료' };
+  } catch (e: any) {
+    return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+  }
+});
+
+// v3.8.250: 저자 페이지 자동 생성 (E-E-A-T Author 신호 강화)
+ipcMain.handle('adsense:create-author-page', async (_evt, payload: {
+  blogId: string; authorName: string; bio?: string; expertise?: string[]; socialLinks?: { name: string; url: string }[];
+}) => {
+  try {
+    const envData = loadEnvFromFile() as any;
+    const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
+    const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
+    if (!blogId || !accessToken) return { ok: false, error: 'Blogger Blog ID 또는 OAuth 토큰 누락' };
+
+    const authorName = String(payload.authorName || '').trim() || '운영자';
+    const bio = payload.bio || `안녕하세요, ${authorName}입니다. 본 블로그에서 다루는 주제에 관심을 가지고 정확하고 실용적인 정보를 정리하고 있습니다.`;
+    const expertise = payload.expertise || ['정부 정책', '세금·환급', '복지·장려금', '생활 정보'];
+    const socials = payload.socialLinks || [];
+
+    const today = new Date().toLocaleDateString('ko-KR');
+    const content = `<div style="font-size:16px;line-height:1.85;color:#1f2937;padding:20px 0;">
+<h2 style="font-size:24px;font-weight:900;margin:0 0 16px;">${authorName} 소개</h2>
+<p>${bio}</p>
+
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">관심 분야 / 전문성</h3>
+<ul style="padding-left:20px;line-height:1.8;">
+${expertise.map((e) => `<li>${e}</li>`).join('')}
+</ul>
+
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">콘텐츠 작성 원칙</h3>
+<ul style="padding-left:20px;line-height:1.8;">
+<li>정부24·홈택스·복지로 등 공식 자료 우선 인용</li>
+<li>변동 가능 정보(세율·일정·금액)는 공식 사이트 확인 권장 명시</li>
+<li>1인칭 경험 기반 + 객관적 데이터 병행</li>
+<li>광고·과장 없는 정확한 정보 전달</li>
+</ul>
+
+${socials.length > 0 ? `
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">소셜/연락</h3>
+<ul style="padding-left:20px;line-height:1.8;">
+${socials.map((s) => `<li>${s.name}: <a href="${s.url}" target="_blank" rel="noopener" style="color:#0ea5e9;">${s.url}</a></li>`).join('')}
+</ul>
+` : ''}
+
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">신뢰성 정책</h3>
+<p>본 블로그는 광고(Google AdSense 등)를 게재할 수 있으나, 광고와 콘텐츠는 분리되며 콘텐츠 내용에 광고 영향을 받지 않습니다. 모든 글은 일관된 작성 원칙 하에 작성되며, 정정 사항은 신속히 반영합니다.</p>
+
+<p style="margin-top:32px;font-size:12px;color:#6b7280;">최종 업데이트: ${today}</p>
+
+<script type="application/ld+json">
+${JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'Person',
+  'name': authorName,
+  'description': bio,
+  'knowsAbout': expertise,
+  ...(socials.length > 0 ? { 'sameAs': socials.map((s) => s.url) } : {}),
+}, null, 2)}
+</script>
+</div>`;
+
+    const axios = (await import('axios')).default;
+    const r: any = await axios.post(
+      `https://www.googleapis.com/blogger/v3/blogs/${blogId}/pages`,
+      { title: `${authorName} 소개 — 작성자 프로필`, content },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 30000 }
+    );
+    return { ok: true, url: r.data?.url || '', message: '✅ 저자 페이지 생성 완료' };
+  } catch (e: any) {
+    return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+  }
+});
+
+console.log('[APP] ✅ AdSense 자동 해결 IPC 등록 완료 (open-console/diagnose/create-pages/list-clickbait-posts/clean-post-titles/analyze-content-value/boost-post-value/bulk-cleanup-posts/list-yearly-posts/refresh-yearly-post/approval-readiness-check/inject-schema-org/create-author-page)');
 console.log('[APP] ✅ Electron 앱 초기화 완료');

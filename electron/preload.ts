@@ -402,6 +402,9 @@ export type BloggerApi = {
   adsenseBulkCleanupPosts(payload: { blogId: string; action: 'delete' | 'list-only'; threshold?: number; dryRun?: boolean }): Promise<any>;
   adsenseListYearlyPosts(payload: { blogId: string; currentYear?: number }): Promise<any>;
   adsenseRefreshYearlyPost(payload: { blogId: string; postId: string; currentYear?: number; dryRun?: boolean }): Promise<any>;
+  adsenseApprovalReadinessCheck(payload: any): Promise<any>;
+  adsenseInjectSchemaOrg(payload: any): Promise<any>;
+  adsenseCreateAuthorPage(payload: any): Promise<any>;
 };
 
 /** ───────── 공통 유틸 ───────── */
@@ -624,6 +627,9 @@ const api: BloggerApi = {
   adsenseBulkCleanupPosts: (payload: any) => ipcRenderer.invoke('adsense:bulk-cleanup-posts', payload),
   adsenseListYearlyPosts: (payload: any) => ipcRenderer.invoke('adsense:list-yearly-posts', payload),
   adsenseRefreshYearlyPost: (payload: any) => ipcRenderer.invoke('adsense:refresh-yearly-post', payload),
+  adsenseApprovalReadinessCheck: (payload: any) => ipcRenderer.invoke('adsense:approval-readiness-check', payload),
+  adsenseInjectSchemaOrg: (payload: any) => ipcRenderer.invoke('adsense:inject-schema-org', payload),
+  adsenseCreateAuthorPage: (payload: any) => ipcRenderer.invoke('adsense:create-author-page', payload),
 
   // ── 플랫폼 연동 확인 ──
   checkPlatformAuth: (platform) => ipcRenderer.invoke('check-platform-auth', platform),
