@@ -18,6 +18,31 @@ const BANNED_PROMO_PHRASES = [
   '지금 바로 클릭',
   '무조건',
   '100% 보장',
+  // v3.8.257 — 손가락 멈추는 viral 강제 + 클리셰/광고티 차단
+  '한 줄기 빛',
+  '구원',
+  '꼭 알려줘',
+  '꼭 공유',
+  '꼭 알려주세요',
+  '참고해봐',
+  '참고하세요',
+  '처음엔 나도 믿기 힘들었는데',
+  '진짜면 이잖아',
+  '혹시 너희 중에도',
+  '다들 어떻게 생각해',
+  '여기 정리해둔 글',
+  '자세한 건 여기',
+  '본인 케이스에 해당되는지',
+  '놀라운',
+  '충격',
+  '대박',
+  '꿀팁',
+  '비법',
+  '버린 셈',
+  '버린거나 마찬가지',
+  '손해 본 셈',
+  '이거 모르고',
+  '이거 모르면',
 ];
 
 function buildStructuredOutputInstructions() {
@@ -45,17 +70,18 @@ ${JSON_START}
   "variants": [
     {
       "key": "A",
-      "approach": "글 전략 한 줄 (어조 + 목표 + 훅 통합)",
-      "firstLineCandidates": ["첫 줄 후보1", "첫 줄 후보2", "첫 줄 후보3"],
-      "selectedFirstLine": "위 3개 중 가장 강한 선택",
-      "body": "초안 본문 (URL 포함 500자 이내)",
-      "commentPrompt": "댓글 유도 한 줄",
-      "sharePrompt": "공유 유도 한 줄",
-      "linkPrompt": "링크 한 줄 또는 URL",
+      "viralPattern": "구체메커니즘 | 시간압박 | 모순반전 | 공감위기감 | 댓글유발의견갈림 (정확히 1개)",
+      "approach": "글 전략 한 줄 (어조 + 목표 + viral 패턴 활용 방식)",
+      "firstLineCandidates": ["viral 패턴 적용된 첫 줄 후보1", "후보2", "후보3"],
+      "selectedFirstLine": "위 3개 중 가장 강한 선택 (클리셰/광고티 없을 것)",
+      "body": "초안 본문 — 메커니즘→의심점→댓글유발 흐름 (URL 포함 500자 이내)",
+      "commentPrompt": "댓글 유도 한 줄 (답 명확한 질문 NO, 의견 갈리는 질문 YES)",
+      "sharePrompt": "공유 유도 한 줄 ('꼭 알려줘' 같은 클리셰 금지)",
+      "linkPrompt": "URL 단독 또는 '원문은 여기: URL' 짧게",
       "critique": {
         "score": 90,
-        "notes": "자체 비평 한 줄 (어조/훅/진정성 종합)",
-        "mustImprove": "초안의 가장 약한 부분 1줄"
+        "notes": "자체 비평 한 줄 (viral 패턴 강도/클리셰 유무/진정성)",
+        "mustImprove": "초안에서 발견한 클리셰·광고티·약한 훅 1개 명시"
       },
       "finalRevision": {
         "firstLine": "mustImprove 반영한 최종 첫 줄",
