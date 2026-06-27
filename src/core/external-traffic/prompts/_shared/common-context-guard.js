@@ -109,21 +109,23 @@ const PLATFORM_PROFILES = {
   },
   'naver-blog': {
     name: '네이버 블로그',
-    purpose: '검색 유입, 신뢰 형성, 원문 이동',
-    format: '700자에서 1200자 미니 포스팅',
-    tone: '신뢰감 있는 존댓말',
-    avoid: '반말, 짧은 SNS 문구, 키워드 나열',
-    variants: { A: '검색 정리형', B: '경험 공감형', C: '체크리스트형' },
-    output: '제목, 도입부, 소제목, 본문, 원문 유도, 댓글 유도, 해시태그',
+    purpose: '검색 유입 (SEO), 키워드 노출, 원문 신뢰 이동',
+    format: '700~1200자 SEO 친화 미니 포스팅 — 키워드 자연 배치 + 소제목 구조',
+    tone: '검색자에게 답하는 정보 전달자 (정중한 존댓말, 정리하는 톤)',
+    avoid: '반말, SNS 짧은 문구, 키워드 무리 나열, 댓글 유도 X (검색 결과 클릭이 목표), 일기형 도입부',
+    variants: { A: '검색 정리형 (Q&A)', B: '단계별 안내형', C: '체크리스트/표 정리형' },
+    output: '제목, 소제목 2~3개, 본문, 해시태그 (댓글 유도 최소화)',
+    distinctNote: '★ Blog와 Cafe는 다릅니다. Blog = 검색자에게 정리해주는 정보 글. Cafe = 회원끼리 경험 공유.',
   },
   'naver-cafe': {
     name: '네이버 카페',
-    purpose: '광고 거부감 최소화, 댓글, 자연스러운 링크 확인',
-    format: '커뮤니티형 질문 또는 경험공유 글',
-    tone: '친근한 존댓말',
-    avoid: '처음부터 링크, 블로그 홍보문, 판매글 느낌',
-    variants: { A: '질문형', B: '경험 공유형', C: '정보 공유형' },
-    output: '제목, 본문, 댓글 유도, 링크 유도',
+    purpose: '회원 댓글 유도, 광고 거부감 최소화, 자연스러운 정보 공유',
+    format: '400~900자 커뮤니티 질문/경험공유 — 일기처럼 자연스러운 흐름',
+    tone: '같은 회원에게 말하듯 친근한 존댓말 (정보 정리 X, 경험 공유 O)',
+    avoid: '처음부터 링크, 블로그식 정리 톤, 판매글 느낌, 소제목/표 구조 (X)',
+    variants: { A: '질문형 (도와주세요)', B: '본인 경험 공유형', C: '발견 공유형 (얼마 전에 알게 됐는데)' },
+    output: '제목 (의문문/감탄문), 본문, 댓글 유도 (필수), 자연스러운 링크',
+    distinctNote: '★ Cafe는 Blog와 다릅니다. 정리해주는 톤 X, 같은 회원으로서 묻거나 공유하는 톤 O. 댓글이 핵심 KPI.',
   },
   x: {
     name: 'X',
@@ -446,7 +448,7 @@ function buildPlatformSystemPrompt(platformId) {
 - 형태: ${profile.format}
 - 말투: ${profile.tone}
 - 금지: ${profile.avoid}
-
+${profile.distinctNote ? `\n[채널 차별화 ★ 필수]\n${profile.distinctNote}\n` : ''}
 [A/B/C 구조]
 ${variants}
 ${viralDnaBlock}

@@ -1,11 +1,14 @@
 'use strict';
 const { makeChannel } = require('../_shared/channel-factory');
 const { appendUserNoteSafely } = require('../../_shared/sanitize');
+// v3.8.265: 전문 채널들도 viral DNA + UNIVERSAL_BANNED_PHRASES 통합
+const { UNIVERSAL_BANNED_PHRASES, buildViralDnaBlock } = require('../../_shared/viral-dna');
 
 // v3.8.129: specialized 채널 베이스 강화
 // - maxOutputTokens 1600 → 3500 (본문 잘림 방지)
 // - 본문 길이 통일: 400~700자 (커뮤니티 평균에 맞춤, 미끼 강도↑)
 // - 심층 분석 + 미끼 전략 + 첫 줄 강한 후크 기본 적용
+// v3.8.265: + viral DNA 7원칙 + 디테일 hint + FACT 강제 통합
 
 function makeSpecialized(spec) {
   return makeChannel({
@@ -19,6 +22,8 @@ function makeSpecialized(spec) {
       '제 블로그', '방문해주세요', '구독 부탁', '홍보',
       '여러분', '안녕하세요 이웃님들',
       '바로 클릭', '지금 신청', '100% 보장', '무조건',
+      // v3.8.265: viral DNA 50+개 차단어 자동 통합
+      ...UNIVERSAL_BANNED_PHRASES,
     ].concat(spec.bannedPhrases || []),
     popularityTriggers: spec.popularityTriggers || ['도메인 전문성', '실측 데이터', '실제 경험담'],
     toneSignature: spec.toneSignature || { formality: 'casual', emoji: 'minimal', slang: [], pronouns: [] },
@@ -34,7 +39,10 @@ function makeSpecialized(spec) {
     userWarning: spec.userWarning || 'R4 deep-research에서 약관·정지 사례 1차 출처 미확보 — confidence: inferred. 도메인 전문성·진성 어조 필수.',
 
     buildSystemPrompt: (subChannel, userCustomRule) => {
+      // v3.8.265: viral DNA 블록 자동 주입
+      const viralDnaBlock = buildViralDnaBlock({ platformName: spec.name, requireAllPatternsDistinct: true });
       const base = `당신은 ${spec.name} 회원입니다 (${spec.domainNote || '전문 도메인'}).
+${viralDnaBlock}
 
 [1단계: 원문 심층 분석 (글 작성 전 머리에서만 수행)]
 1. 원문이 던지는 진짜 문제 1개를 식별 (제목·요약·데이터 종합)

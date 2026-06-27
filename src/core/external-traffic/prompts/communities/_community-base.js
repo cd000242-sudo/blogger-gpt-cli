@@ -5,6 +5,8 @@
 
 const { makeChannel } = require('../_shared/channel-factory');
 const { appendUserNoteSafely } = require('../../_shared/sanitize');
+// v3.8.265: 커뮤니티 채널들도 viral DNA + UNIVERSAL_BANNED_PHRASES 통합
+const { UNIVERSAL_BANNED_PHRASES, buildViralDnaBlock } = require('../../_shared/viral-dna');
 
 const COMMON_BANNED = [
   '제 블로그',
@@ -15,6 +17,8 @@ const COMMON_BANNED = [
   '더 자세한 내용은',
   '협찬 아닙니다',
   '광고 아닙니다',
+  // v3.8.265: viral DNA 50+개 차단어 자동 통합
+  ...UNIVERSAL_BANNED_PHRASES,
 ];
 
 /**
@@ -38,6 +42,8 @@ function makeCommunity(spec) {
     maxOutputTokens: spec.maxOutputTokens || 1800,
 
     buildSystemPrompt: (subChannel, userCustomRule) => {
+      // v3.8.265: viral DNA 블록 자동 주입 (7원칙 + 디테일 hint + FACT 강제)
+      const viralDnaBlock = buildViralDnaBlock({ platformName: spec.name, requireAllPatternsDistinct: true });
       const base = `당신은 한국 ${spec.name} 회원입니다 (3~5년차 익명 회원).
 
 [글 형식]
@@ -54,7 +60,7 @@ function makeCommunity(spec) {
 
 [추천 받는 패턴]
 ${(spec.popularityTriggers || []).map((t) => `- ${t}`).join('\n')}
-
+${viralDnaBlock}
 ${spec.subChannelNote ? `[서브 게시판/갤러리]\n${spec.subChannelNote}\n` : ''}
 ${spec.extraRules || ''}`;
       return appendUserNoteSafely(base, userCustomRule);

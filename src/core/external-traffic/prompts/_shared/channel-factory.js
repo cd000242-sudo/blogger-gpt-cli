@@ -5,6 +5,8 @@
 
 const { assessRiskMultiAxis } = require('../../_shared/risk-assess');
 const { appendUserNoteSafely } = require('../../_shared/sanitize');
+// v3.8.265: 모든 채널이 viral DNA 차단어를 자동 받도록 통합
+const { UNIVERSAL_BANNED_PHRASES } = require('../../_shared/viral-dna');
 
 /**
  * 채널 객체 생성 헬퍼.
@@ -25,7 +27,9 @@ function makeChannel(spec) {
     openUrl: spec.openUrl,
 
     killerHookPatterns: spec.killerHookPatterns || [],
-    bannedPhrases: spec.bannedPhrases || [],
+    // v3.8.265: UNIVERSAL_BANNED_PHRASES 자동 병합 — 36개 채널 전부 viral DNA 차단어 적용
+    // (중복은 안전. Set 변환으로 dedupe)
+    bannedPhrases: Array.from(new Set([...(spec.bannedPhrases || []), ...UNIVERSAL_BANNED_PHRASES])),
     popularityTriggers: spec.popularityTriggers || [],
     toneSignature: spec.toneSignature || { formality: 'mixed', emoji: 'minimal', slang: [], pronouns: [] },
     transformationAxes: spec.transformationAxes || {

@@ -791,7 +791,10 @@ export async function generateUltimateMaxModeArticleFinal(
       if (sectionScope) {
         console.log(`[SECTION-GUIDE] 🎯 한정자 "${sectionScope.qualifier}" → 본문 sectionPromptBlock에 SCOPE OVERRIDE 주입`);
       }
-      const sourceGuard = `\n📊 **출처/팩트 규칙**\n- 확인 가능한 공식·기관·언론·협회 자료를 우선 사용하고, 수치에는 출처 맥락을 붙이세요.\n- 출처를 모르는 숫자나 일정은 단정하지 말고 "공식 자료 확인 필요"로 표현하세요.\n- 존재하지 않는 글 제목/URL, 가상의 시리즈 문구는 만들지 마세요.\n`;
+      // v3.8.265: 거미줄 모드 sourceGuard를 단일 일관 모드 SOURCE_MANDATE 수준으로 강화
+      // 기존 문제: 권장 어조 "우선 사용하세요" → LLM이 가짜 통계 생성 가능
+      // 강화: 절대 금지 어조 "출처 모르면 빼라"
+      const sourceGuard = `\n📊 **외부 출처 인용 필수 (AI 환각·가짜 통계 차단 — 거미줄 cornerstone↔spokes 일관성 필수)**\n- 본문 중 최소 2회 이상 검증 가능한 한국 공공·기관 데이터를 인용하세요.\n  예: "통계청 KOSIS 자료에 따르면", "한국소비자원 2026년 조사", "보건복지부 공식 발표"\n- 인용 형식: "[기관명] [연도] [조사명]에 따르면 [구체 수치/내용]"\n- 출처를 모르는 데이터는 "공식 자료를 참고하세요"라고만 표현. 추측 통계 절대 금지.\n- **수치를 본문에 넣을 때 출처를 함께 명시하지 못하면 그 수치는 빼세요.**\n- 존재하지 않는 글 제목/URL, 가상의 시리즈 문구는 만들지 마세요.\n- **거미줄 일관성**: 같은 토픽의 다른 글(cornerstone↔spokes)이 서로 다른 수치/조건을 가지면 안 됩니다. 원문 사실에 충실하세요.\n`;
       const guides = INTERNAL_CONSISTENCY_SECTIONS.map((sec, idx) => {
         // LLM이 만든 실제 H2 제목을 가이드에 그대로 사용 (없으면 의도 기반 fallback)
         const t = h2Titles[idx] || fallbackTitles[idx] || `${keyword} 핵심 정보`;
@@ -942,7 +945,12 @@ export async function generateUltimateMaxModeArticleFinal(
     onLog?.('[PROGRESS] 45% - 📝 AI가 전체 본문 생성 중 (1회 호출)...');
 
     // 🔍 팩트체크: 글 생성 전 실시간 검색으로 팩트 수집 (할루시네이션 방지)
-    const factCheckMode: FactCheckMode = payload.factCheckMode || 'auto';
+    // v3.8.265: 'off' 명시해도 강제로 'auto'로 폴백 (거미줄에서 팩트체크 끄면 가짜 통계 위험 큼)
+    const rawFactMode: FactCheckMode = payload.factCheckMode || 'auto';
+    const factCheckMode: FactCheckMode = rawFactMode === 'off' ? 'auto' : rawFactMode;
+    if (rawFactMode === 'off') {
+      onLog?.('[PROGRESS] 44% - ⚠️ 거미줄 모드에서 factCheckMode=off는 위험 → 자동으로 auto로 폴백');
+    }
     let factEnrichedContents = contents;
     if (factCheckMode !== 'off') {
       try {
