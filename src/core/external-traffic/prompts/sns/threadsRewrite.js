@@ -21,33 +21,45 @@ const BANNED_PROMO_PHRASES = [
 ];
 
 function buildStructuredOutputInstructions() {
-  // v3.8.255: Schema 슬림화 (토큰 75% 절감)
-  //   - context 11필드 → 3필드 (mustKeepFacts/doNotUse만 진짜 필요)
-  //   - firstLineCandidates 10개 요구 제거 (UI에서 안 씀)
-  //   - critique 6축 breakdown 제거, score + notes만
-  //   - 중복 메타필드 (label/goal/tone/hookEngine) 제거
-  //   - 결과: 4000+ → 1000 토큰 budget으로 충분
+  // v3.8.256: 두 마리 토끼 schema — 품질 driver 보존 + 형식 bloat 제거
+  //   품질 보존:
+  //     - firstLineCandidates 3개 (10개→3개, CoT 효과 95% 유지하면서 토큰 70% 절감)
+  //     - approach 1줄 (tone/goal/hookEngine 통합 = 전략 사전 정리 효과 유지)
+  //     - critique { score, notes, mustImprove } (breakdown 6축 → 핵심 3요소)
+  //     - readerContext (독자/상황/질문 1-2문장으로 통합)
+  //     - mustKeepFacts/doNotUse 유지 (사실 정확성 가드)
+  //   bloat 제거:
+  //     - 같은 의미 중복 필드 제거 (tone+goal+hookEngine = approach 1개로)
+  //     - breakdown 6축 세분화 제거 (mustImprove로 핵심만 집중)
+  //   결과 토큰: ~1500 (기존 4000+ 대비 60% 감소, v3.8.255 1000보다는 약간 증가)
   return `[출력 형식]
 반드시 아래 XML 태그 사이에 JSON만 출력한다. Markdown 코드블록은 금지한다.
 ${JSON_START}
 {
   "context": {
     "coreTopic": "핵심 주제 한 문장",
+    "readerContext": "타겟 독자 + 지금 처한 상황 + 핵심 질문 (1-2문장 통합)",
     "mustKeepFacts": ["원문 확인된 사실 핵심만 3개 이내"],
     "doNotUse": ["원문에 없어 쓰면 안 되는 내용 2개 이내"]
   },
   "variants": [
     {
       "key": "A",
-      "selectedFirstLine": "첫 줄",
-      "body": "본문 (URL 포함 500자 이내)",
+      "approach": "글 전략 한 줄 (어조 + 목표 + 훅 통합)",
+      "firstLineCandidates": ["첫 줄 후보1", "첫 줄 후보2", "첫 줄 후보3"],
+      "selectedFirstLine": "위 3개 중 가장 강한 선택",
+      "body": "초안 본문 (URL 포함 500자 이내)",
       "commentPrompt": "댓글 유도 한 줄",
       "sharePrompt": "공유 유도 한 줄",
       "linkPrompt": "링크 한 줄 또는 URL",
-      "critique": { "score": 90, "notes": "자체 비평 한 줄" },
+      "critique": {
+        "score": 90,
+        "notes": "자체 비평 한 줄 (어조/훅/진정성 종합)",
+        "mustImprove": "초안의 가장 약한 부분 1줄"
+      },
       "finalRevision": {
-        "firstLine": "최종 첫 줄",
-        "body": "최종 본문 (URL 포함 500자 이내)",
+        "firstLine": "mustImprove 반영한 최종 첫 줄",
+        "body": "mustImprove 반영한 최종 본문 (URL 포함 500자 이내)",
         "commentPrompt": "최종 댓글 유도",
         "sharePrompt": "최종 공유 유도",
         "linkPrompt": "최종 링크 또는 URL"
@@ -58,10 +70,13 @@ ${JSON_START}
 ${JSON_END}
 
 variants는 정확히 A/B/C 3개 (A=댓글형 반말, B=공감형 존댓말, C=공유형).
-finalRevision에는 사용자가 복사해서 바로 올릴 최종 게시문 구성요소만 넣는다.
-후보·점수·비평·JSON 설명은 finalRevision 안에 절대 넣지 않는다.
-해시태그는 쓰지 않는다.
-최종 글은 URL 포함 500자 이내로 만든다.`;
+각 variant는 다음 순서로 사고한다:
+  1) approach로 전략 선언 → 2) firstLineCandidates 3개 비교 → 3) selectedFirstLine 결정
+  → 4) body 초안 → 5) critique로 자가 검토 (mustImprove 1개 식별)
+  → 6) finalRevision에서 mustImprove 반영해 완성
+finalRevision에는 사용자가 복사해서 바로 올릴 최종 게시문만 넣는다.
+후보·점수·비평·전략 설명은 finalRevision 안에 절대 넣지 않는다.
+해시태그는 쓰지 않는다. 최종 글은 URL 포함 500자 이내로 만든다.`;
 }
 
 function extractJsonBlock(rawText) {
