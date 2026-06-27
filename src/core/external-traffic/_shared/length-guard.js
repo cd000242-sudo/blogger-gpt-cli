@@ -110,6 +110,19 @@ function validateLength(formatted, channel) {
  */
 function buildRetryHint(violations) {
   if (!violations.length) return '';
+  // v3.8.253: truncation 케이스는 별도 hint (길이 초과 아니라 미완성)
+  const isTruncation = violations.some((v) => /생성 중단|finalRevision을 마무리/.test(v));
+  if (isTruncation) {
+    return (
+      '\n\n⚠️ 이전 응답이 중간에 끊겼습니다. 다음을 엄격히 지켜 다시 작성해주세요:\n\n' +
+      '1. **context 분석 섹션 생략** — 바로 variants 3개와 finalRevision만 출력\n' +
+      '2. variants 각 항목은 핵심 필드(firstLine, body, commentPrompt)만 작성, 부가 설명 금지\n' +
+      '3. finalRevision은 variants[0]을 그대로 복사해도 됨 (정밀 보정 생략 가능)\n' +
+      '4. JSON 태그를 반드시 마무리(JSON_END)까지 출력\n' +
+      '5. 본문은 짧고 간결하게 (channel 길이 제약 준수)\n\n' +
+      '핵심: 분량을 줄여서 token 한도 안에 완전한 JSON을 출력하는 것이 최우선.'
+    );
+  }
   return (
     '\n\n앞서 출력이 길이 제약을 초과했습니다. 다음 항목을 더 짧게 다시 작성하세요:\n- ' +
     violations.join('\n- ')
