@@ -7567,6 +7567,15 @@ async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessag
 
       child.on('close', (exitCode: number | null) => {
         clearTimeout(timeout);
+        // v3.8.283: 실제 CLI가 정상 종료/타임아웃/에러 어떤지 진단 로그 강화
+        console.log(`[AGENT-CLI] 🏁 종료: exitCode=${exitCode}, timedOut=${timedOut}, stdout=${stdout.length}자, stderr=${stderr.length}자`);
+        if (timedOut) {
+          console.warn(`[AGENT-CLI] ⚠️ TIMEOUT (12분 초과) — agent가 시간 안에 못 끝남. CLI 한도/모델/네트워크 의심.`);
+        }
+        if (exitCode !== 0 && !timedOut) {
+          console.warn(`[AGENT-CLI] ⚠️ 비정상 종료 exitCode=${exitCode}`);
+          console.warn(`[AGENT-CLI] stderr 마지막 500자: ${stderr.slice(-500)}`);
+        }
         resolve({ exitCode, stdout, stderr, timedOut });
       });
     });
@@ -7743,25 +7752,74 @@ function findAgentHtmlOutput(jobDir: string): string {
 function readAgentJobResult(jobDir: string, stdout: string, lastMessagePath: string): { content: string; title: string; metadata: any; finalMessage: string } {
   const articlePath = path.join(jobDir, 'result', 'article.html');
   const metadataPath = path.join(jobDir, 'result', 'metadata.json');
+
+  // v3.8.283: 진단 로그 강화 — 어디서 잘림 발생하는지 정확히 추적
+  console.log(`[AGENT-RESULT] 📂 jobDir=${jobDir}`);
+  console.log(`[AGENT-RESULT] 📄 article.html 존재? ${fs.existsSync(articlePath) ? 'YES' : 'NO'}`);
+  console.log(`[AGENT-RESULT] 📋 metadata.json 존재? ${fs.existsSync(metadataPath) ? 'YES' : 'NO'}`);
+
   const finalMessage = readTextFileIfExists(lastMessagePath)
     || extractAgentFinalMessageFromJsonl(stdout)
     || stdout;
 
-  let content = readTextFileIfExists(articlePath)
-    || findAgentHtmlOutput(jobDir)
-    || extractHtmlFromAgentText(finalMessage)
-    || extractHtmlFromAgentText(stdout);
+  let content = '';
+  let contentSource = '';
+
+  const articleFile = readTextFileIfExists(articlePath);
+  if (articleFile) {
+    content = articleFile;
+    contentSource = 'article.html';
+  } else {
+    const foundHtml = findAgentHtmlOutput(jobDir);
+    if (foundHtml) {
+      content = foundHtml;
+      contentSource = 'findAgentHtmlOutput(jobDir)';
+    } else {
+      const fromFinal = extractHtmlFromAgentText(finalMessage);
+      if (fromFinal) {
+        content = fromFinal;
+        contentSource = 'finalMessage';
+      } else {
+        content = extractHtmlFromAgentText(stdout);
+        contentSource = 'stdout (fallback)';
+      }
+    }
+  }
+
+  console.log(`[AGENT-RESULT] ✅ content 소스=${contentSource}, 길이=${content.length}자`);
+  console.log(`[AGENT-RESULT] 📏 마지막 200자: ${content.slice(-200).replace(/\s+/g, ' ')}`);
+
+  // 잘림 추정 검증
+  const hasClosingTag = /<\/article>|<\/div>|<\/section>|<\/html>/i.test(content.slice(-500));
+  const hasEllipsis = /\.\.\./g.test(content.slice(-500));
+  const lastH2Match = content.match(/<h2[^>]*>([^<]+)<\/h2>/gi);
+  const lastH2 = lastH2Match ? lastH2Match[lastH2Match.length - 1] : '';
+  console.log(`[AGENT-RESULT] 🔍 잘림 검증: 닫힘 태그=${hasClosingTag ? 'OK' : '❌'}, '...' 발견=${hasEllipsis ? '⚠️' : 'OK'}`);
+  console.log(`[AGENT-RESULT] 🔚 마지막 H2: ${lastH2}`);
 
   let metadata: any = {};
   try {
     if (fs.existsSync(metadataPath)) {
       metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+      const promptKeys = Object.keys(metadata?.imagePrompts || {});
+      console.log(`[AGENT-RESULT] 🖼️ imagePrompts 키: [${promptKeys.join(', ') || '없음 ⚠️'}]`);
+      if (metadata?.imagePrompts?.thumbnail) {
+        console.log(`[AGENT-RESULT] 🖼️ 썸네일 prompt: ${String(metadata.imagePrompts.thumbnail).slice(0, 100)}...`);
+      } else {
+        console.warn(`[AGENT-RESULT] ⚠️ 썸네일 prompt 누락! 사이트에 X 아이콘만 표시됨`);
+      }
+    } else {
+      console.warn(`[AGENT-RESULT] ⚠️ metadata.json 없음 — 썸네일 + Schema 자동 생성 안 됨`);
     }
   } catch (error) {
     metadata = { warnings: [`metadata.json 파싱 실패: ${error instanceof Error ? error.message : String(error)}`] };
+    console.error(`[AGENT-RESULT] ❌ metadata.json 파싱 실패:`, error);
   }
 
   const title = String(metadata?.title || extractHtmlTitle(content) || '').trim();
+  console.log(`[AGENT-RESULT] 📝 최종 title: "${title}"`);
+  console.log(`[AGENT-RESULT] 📂 디버깅: 위 jobDir 경로 열어서 article.html / metadata.json 직접 확인 가능`);
+
   return { content, title, metadata, finalMessage };
 }
 
