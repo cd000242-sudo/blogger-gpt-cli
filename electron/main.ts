@@ -4955,18 +4955,66 @@ ipcMain.handle('publish-content', async (_evt, data) => {
     // v3.8.116/120: 본문 첫 img 자동 채택 — http(s) URL뿐 아니라 data:image base64도 처리
     //   사용자 보고: WP 글 목록 썸네일 여전히 누락 → codex가 base64로 박은 경우 v3.8.116 정규식이 못 잡음.
     //   수정: data:image도 채택 → WP publisher가 ArrayBuffer로 변환·업로드.
+    // v3.8.286: SVG/svg+xml URL은 채택 거부 (Blogger 미리보기에서 표시 불가 — 사용자 보고 X 아이콘 원인).
+    //   또한 첫 img가 svg면 다음 img를 시도 (raster jpg/png 우선).
+    const isUnsupportedThumbUrl = (u: string): boolean => {
+      if (!u) return true;
+      const lower = u.toLowerCase();
+      if (lower.startsWith('data:image/svg')) return true;
+      if (/\.svg(\?|$)/i.test(u)) return true;
+      if (/svg\+xml/i.test(u)) return true;
+      return false;
+    };
     if (!String(data.thumbnailUrl || '').trim() && data.content) {
-      const httpMatch = String(data.content).match(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/i);
-      const dataMatch = !httpMatch ? String(data.content).match(/<img[^>]+src=["'](data:image\/[a-z+]+;base64,[^"']+)["'][^>]*>/i) : null;
-      const recovered = httpMatch?.[1] || dataMatch?.[1] || '';
+      // 본문에서 모든 img src 추출 (svg 제외하고 첫 raster 채택)
+      const allHttp: string[] = [];
+      const httpRegex = /<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/gi;
+      let m: RegExpExecArray | null;
+      while ((m = httpRegex.exec(String(data.content))) !== null) {
+        allHttp.push(m[1]);
+      }
+      const allData: string[] = [];
+      const dataRegex = /<img[^>]+src=["'](data:image\/[a-z+]+;base64,[^"']+)["'][^>]*>/gi;
+      while ((m = dataRegex.exec(String(data.content))) !== null) {
+        allData.push(m[1]);
+      }
+      const firstRasterHttp = allHttp.find(u => !isUnsupportedThumbUrl(u));
+      const firstRasterData = allData.find(u => !isUnsupportedThumbUrl(u));
+      const recovered = firstRasterHttp || firstRasterData || '';
       if (recovered) {
-        const kind = httpMatch ? '외부 URL' : 'base64 data URL';
-        console.log(`[PUBLISH] 🛟 thumbnailUrl 비어 있음 → 본문 첫 img 자동 채택 (${kind}): ${recovered.slice(0, 80)}...`);
-        _evt.sender?.send?.('log-line', `[PUBLISH] 🛟 썸네일 자동 복구 (${kind}): ${recovered.slice(0, 80)}...`);
+        const kind = firstRasterHttp ? '외부 URL' : 'base64 data URL';
+        const skipped = (allHttp.length + allData.length) - (firstRasterHttp ? 1 : 0) - (firstRasterData ? 1 : 0);
+        const skipNote = skipped > 0 ? ` (SVG ${skipped}장 건너뜀)` : '';
+        console.log(`[PUBLISH] 🛟 thumbnailUrl 비어 있음 → 본문 첫 raster img 채택 (${kind})${skipNote}: ${recovered.slice(0, 80)}...`);
+        _evt.sender?.send?.('log-line', `[PUBLISH] 🛟 썸네일 자동 복구 (${kind})${skipNote}: ${recovered.slice(0, 80)}...`);
         data.thumbnailUrl = recovered;
       } else {
-        console.warn('[PUBLISH] ⚠️ thumbnailUrl 비어 있고 본문에 img 자체 없음');
-        _evt.sender?.send?.('log-line', '[PUBLISH] ⚠️ 썸네일 누락 (본문에 img 없음)');
+        const totalImgs = allHttp.length + allData.length;
+        const warnMsg = totalImgs > 0
+          ? `[PUBLISH] ⚠️ 썸네일 누락 (본문 img ${totalImgs}장 모두 SVG/지원 안 함)`
+          : '[PUBLISH] ⚠️ 썸네일 누락 (본문에 img 없음)';
+        console.warn(warnMsg);
+        _evt.sender?.send?.('log-line', warnMsg);
+      }
+    } else if (data.thumbnailUrl && isUnsupportedThumbUrl(String(data.thumbnailUrl))) {
+      const warn = `[PUBLISH] ⚠️ 입력 썸네일이 SVG (${String(data.thumbnailUrl).slice(0, 60)}...) — Blogger 미표시 위험. 본문 raster img로 대체 시도`;
+      console.warn(warn);
+      _evt.sender?.send?.('log-line', warn);
+      const httpRegex = /<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/gi;
+      const allHttp: string[] = [];
+      let mm: RegExpExecArray | null;
+      while ((mm = httpRegex.exec(String(data.content || ''))) !== null) allHttp.push(mm[1]);
+      const replacement = allHttp.find(u => !isUnsupportedThumbUrl(u));
+      if (replacement) {
+        data.thumbnailUrl = replacement;
+        const ok = `[PUBLISH] ✅ 본문 raster img로 대체: ${replacement.slice(0, 80)}...`;
+        console.log(ok);
+        _evt.sender?.send?.('log-line', ok);
+      } else {
+        data.thumbnailUrl = '';
+        const fail = `[PUBLISH] 🆘 raster 대체 실패 — 썸네일 없이 발행 (X 아이콘 회피)`;
+        console.warn(fail);
+        _evt.sender?.send?.('log-line', fail);
       }
     }
 
@@ -4983,6 +5031,125 @@ ipcMain.handle('publish-content', async (_evt, data) => {
       } catch {}
     };
     traceToRenderer('publish-content 진입', data.content);
+
+    // v3.8.287: base64 이미지 폭증 root cause 발견 — Blogger API publish 전 모든 base64 → 외부 호스팅 강제 변환
+    //   사용자 보고 (홍명보 6명 분석 글): HTML 1.6MB 폭증, 본문 70% 잘림.
+    //   분석: Agent finalMessage 19KB (img 0). 앱 이미지 엔진이 7장 base64 박음 (장당 230KB) → 1.6MB.
+    //         publish-content 내부 Blogger media.insert 7/7 실패 (API deprecated) → 외부 호스팅 4/7 복구 → 3장 base64 잔존.
+    //   해법: publish 진입 즉시 모든 base64를 외부 호스팅으로 일괄 변환. 실패한 img는 통째 제거 (placeholder X).
+    //   SVG mime은 거부 (Blogger 미표시 — 사용자 보고 X 아이콘 원인). JPEG/PNG/WebP만 허용.
+    // v3.8.288: 썸네일 base64도 외부 호스팅 강제 변환 (사용자 보고: 본문 7장은 성공하는데 썸네일만 X 아이콘)
+    //   원인: uploadDataUrlThumbnail은 Blogger media.insert(deprecated) 먼저 시도 → 실패 → "기본 SVG placeholder" 박음 → svg+xml로 호스팅됨 → X 아이콘.
+    //   해법: publish 진입 즉시 썸네일 base64를 외부 호스팅 URL로 변환. JPEG/PNG 정상 → Blogger OG 메타 정상 표시.
+    let _thumbUploader: ((dataUrl: string, name?: string) => Promise<string | null>) | null = null;
+    try {
+      const _helpers = require('../dist/core/final/image-helpers');
+      if (typeof _helpers?.uploadBase64ToImageHost === 'function') _thumbUploader = _helpers.uploadBase64ToImageHost;
+    } catch {}
+
+    if (typeof data.thumbnailUrl === 'string' && /^data:image\/([a-z+]+);base64,/i.test(data.thumbnailUrl)) {
+      const mimeMatch = data.thumbnailUrl.match(/^data:image\/([a-z+]+);base64,/i);
+      const mime = mimeMatch?.[1] || '';
+      const thumbSize = data.thumbnailUrl.length;
+      const thumbLog = `[THUMB-FIX] 🔍 썸네일 base64 감지 (${(thumbSize/1024).toFixed(0)}KB, mime=${mime}) — 외부 호스팅 강제 변환`;
+      console.log(thumbLog);
+      _evt.sender?.send?.('log-line', thumbLog);
+
+      if (/svg/i.test(mime)) {
+        const reject = `[THUMB-FIX] 🗑️ SVG 썸네일 거부 — 빈 썸네일로 (기본 placeholder 박힘 방지)`;
+        console.warn(reject);
+        _evt.sender?.send?.('log-line', reject);
+        data.thumbnailUrl = '';
+      } else if (_thumbUploader) {
+        try {
+          const externalUrl = await _thumbUploader(data.thumbnailUrl, 'thumbnail');
+          if (externalUrl && !/svg/i.test(externalUrl)) {
+            data.thumbnailUrl = externalUrl;
+            const ok = `[THUMB-FIX] ✅ 썸네일 외부 호스팅 성공: ${externalUrl.slice(0, 80)}...`;
+            console.log(ok);
+            _evt.sender?.send?.('log-line', ok);
+          } else {
+            const failLog = `[THUMB-FIX] 🗑️ 외부 호스팅 실패/SVG 반환 → 썸네일 비움 (placeholder 차단)`;
+            console.warn(failLog);
+            _evt.sender?.send?.('log-line', failLog);
+            data.thumbnailUrl = '';
+          }
+        } catch (err) {
+          const exLog = `[THUMB-FIX] 🗑️ 예외 → 썸네일 비움: ${(err as Error)?.message}`;
+          console.warn(exLog);
+          _evt.sender?.send?.('log-line', exLog);
+          data.thumbnailUrl = '';
+        }
+      } else {
+        // uploader 없으면 비움
+        data.thumbnailUrl = '';
+      }
+    }
+
+    if (typeof data.content === 'string' && /<img[^>]+src=["']data:image\//i.test(data.content)) {
+      const base64Matches = [...data.content.matchAll(/<img[^>]+src=["'](data:image\/([a-z+]+);base64,[^"']+)["'][^>]*>/gi)];
+      const totalBase64 = base64Matches.length;
+      if (totalBase64 > 0) {
+        const startLog = `[BASE64-FIX] 🔍 본문 base64 이미지 ${totalBase64}장 감지 (현재 HTML ${(data.content.length/1024).toFixed(0)}KB) — 외부 호스팅 강제 변환 시작`;
+        console.log(startLog);
+        _evt.sender?.send?.('log-line', startLog);
+
+        let uploader: ((dataUrl: string, name?: string) => Promise<string | null>) | null = null;
+        try {
+          const helpers = require('../dist/core/final/image-helpers');
+          if (typeof helpers?.uploadBase64ToImageHost === 'function') uploader = helpers.uploadBase64ToImageHost;
+        } catch (e) {
+          console.warn('[BASE64-FIX] image-helpers 로드 실패:', (e as Error)?.message);
+        }
+
+        const isSvgMime = (mime: string): boolean => /svg/i.test(mime || '');
+        let converted = 0;
+        let removed = 0;
+        for (let i = 0; i < base64Matches.length; i++) {
+          const fullTag = base64Matches[i][0];
+          const dataUrl = base64Matches[i][1];
+          const mime = base64Matches[i][2];
+
+          if (isSvgMime(mime)) {
+            // SVG는 Blogger에서 표시 불가 → 통째 제거
+            data.content = data.content.replace(fullTag, '');
+            removed++;
+            console.log(`[BASE64-FIX] ${i+1}/${totalBase64} 🗑️ SVG 거부 → img 통째 제거`);
+            continue;
+          }
+
+          if (!uploader) {
+            // uploader 없으면 img 제거 (base64 남기면 폭증)
+            data.content = data.content.replace(fullTag, '');
+            removed++;
+            continue;
+          }
+
+          try {
+            const externalUrl = await uploader(dataUrl, `body-img-${i}`);
+            if (externalUrl && !/svg/i.test(externalUrl)) {
+              const newTag = fullTag.replace(dataUrl, externalUrl);
+              data.content = data.content.replace(fullTag, newTag);
+              converted++;
+              console.log(`[BASE64-FIX] ${i+1}/${totalBase64} ✅ 외부 URL: ${externalUrl.slice(0, 60)}...`);
+            } else {
+              // 호스팅 실패 또는 SVG 반환 → img 통째 제거
+              data.content = data.content.replace(fullTag, '');
+              removed++;
+              console.log(`[BASE64-FIX] ${i+1}/${totalBase64} 🗑️ 호스팅 실패/SVG → img 통째 제거`);
+            }
+          } catch (err) {
+            data.content = data.content.replace(fullTag, '');
+            removed++;
+            console.log(`[BASE64-FIX] ${i+1}/${totalBase64} 🗑️ 예외 → 제거: ${(err as Error)?.message}`);
+          }
+        }
+        const doneLog = `[BASE64-FIX] ✅ 완료: ${converted}장 외부 호스팅, ${removed}장 제거. HTML 현재 ${(data.content.length/1024).toFixed(0)}KB`;
+        console.log(doneLog);
+        _evt.sender?.send?.('log-line', doneLog);
+        traceToRenderer('base64 변환 후', data.content);
+      }
+    }
 
     // v3.8.167: 모든 플랫폼에서 markdown bold(**텍스트**) → <strong> 자동 변환
     if (typeof data.content === 'string' && data.content.includes('**')) {
@@ -6959,6 +7126,64 @@ function describeAgentImagePolicy(policy: string): string {
   return '썸네일 1장과 모든 H2 소제목 이미지를 생성한다.';
 }
 
+// v3.8.289: toneStyle별 동적 어조 가이드 (사용자 보고: "존댓말만 강제하지 말고 상세설정 글톤에 맞춰야지")
+//   디폴트는 한국어 블로그 관행상 존댓말 — 어조 변형만 톤에 맞춰 다양화.
+function describeToneStyle(toneStyle: string): string[] {
+  const normalized = String(toneStyle || '').toLowerCase().trim();
+  const common = [
+    '     - 평서문 종결("~이다", "~한다", "~된다", "~좁아진다") 절대 금지 — 한국 블로그 독자 거부감',
+    '     - 표 셀, 콜아웃, 체크리스트, FAQ 답변, 면책 박스 등 본문 100% 적용',
+  ];
+  if (normalized === 'friendly') {
+    return [
+      '8-1. 🚨 **글 톤: 친근한 존댓말 (사용자 설정: 친근한)**',
+      '     - 종결: ~해요 / ~이에요 / ~예요 / ~거든요 / ~죠 중심 (~합니다는 30% 이하로 줄이고 따뜻한 ~해요/~예요 우선)',
+      '     - 예: "~필요합니다 → ~필요해요" / "~확인하세요 → ~확인해보세요" / "~중요한 부분입니다 → ~중요한 부분이에요"',
+      '     - 1인칭 경험을 자주 ("저도 처음엔 헷갈렸어요", "제 경우엔...")',
+      ...common,
+    ];
+  }
+  if (normalized === 'casual') {
+    return [
+      '8-1. 🚨 **글 톤: 캐주얼 존댓말 (사용자 설정: 캐주얼)**',
+      '     - 종결: ~요 / ~네요 / ~더라고요 / ~잖아요 / ~죠 — 가볍고 편안한 톤',
+      '     - 짧은 감탄/리액션 허용 ("진짜요?", "이게 의외로 큰 차이예요", "결론부터요")',
+      '     - 격식 표현(~사료됩니다, ~말씀드립니다) 금지. 자연스럽게.',
+      '     - 예: "~확인이 필요합니다 → 한번 보고 가세요" / "~포함되어야 합니다 → 꼭 챙겨야 돼요"',
+      ...common,
+    ];
+  }
+  if (normalized === 'formal') {
+    return [
+      '8-1. 🚨 **글 톤: 격식있는 존댓말 (사용자 설정: 격식있는)**',
+      '     - 종결: ~합니다 / ~입니다 / ~됩니다 / ~사료됩니다 / ~말씀드립니다 — 공식 보고서 톤',
+      '     - 감탄, 구어체 표현 금지. 정제된 문장.',
+      '     - 1인칭은 최소화. "저"보다 "필자"/"본 글에서는" 같은 표현 일부 허용',
+      '     - 예: "~확인해보세요 → ~확인이 요구됩니다" / "~챙겨야 돼요 → ~포함되어야 합니다"',
+      ...common,
+    ];
+  }
+  if (normalized === 'conversational') {
+    return [
+      '8-1. 🚨 **글 톤: 대화체 존댓말 (사용자 설정: 대화체)**',
+      '     - 종결: ~인 거예요 / ~잖아요 / ~죠 / ~보셨어요? / ~해보셨죠? — 친구에게 말 거는 톤',
+      '     - 독자에게 질문 던지기 자주 ("그런데 여기서 이상한 점, 느끼셨나요?", "왜 그럴까요?")',
+      '     - 한 호흡 짧은 감탄/추임새 허용 ("아", "근데", "사실은")',
+      '     - 1인칭 빈도 높임 ("제가 해보니", "저는 이렇게 생각해요")',
+      ...common,
+    ];
+  }
+  // professional (디폴트) — v3.8.286 기존 정중한 존댓말
+  return [
+    '8-1. 🚨 **글 톤: 전문적 존댓말 (사용자 설정: 전문적 — 디폴트)**',
+    '     - 종결: ~합니다 / ~입니다 / ~됩니다 중심 (~해요는 보조 30% 이하)',
+    '     - 신뢰감 우선. 객관적·중립적 문체.',
+    '     - 1인칭 경험은 절제해서 ("실제로 시도해본 결과", "관련 자료를 살펴보면")',
+    '     - 예: "~좁아진다 → ~좁아집니다" / "~나뉜다 → ~나뉩니다" / "~필요하다 → ~필요합니다"',
+    ...common,
+  ];
+}
+
 function getAgentReferenceLines(payload: any): string[] {
   const urls = [
     ...(Array.isArray(payload?.manualCrawlUrls) ? payload.manualCrawlUrls : []),
@@ -6977,6 +7202,8 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
   const imagePolicy = normalizeAgentImagePolicy(payload.imagePolicy || payload.h2ImageMode || payload?.h2Images?.imagePolicy || payload?.h2Images?.mode);
   const thumbnailTextIncluded = payload.thumbnailTextIncluded !== false && payload.thumbnailIncludeText !== false;
   const referenceLines = getAgentReferenceLines(payload);
+  // v3.8.289: 사용자 상세설정의 글톤(toneStyle)을 instructions에 동적 반영
+  const toneStyleLines = describeToneStyle(payload.toneStyle || 'professional');
   return [
     '# LEADERNAM Orbit Max Agent 작업',
     '',
@@ -7070,6 +7297,47 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
     '아래 24가지 모든 요건을 **작성하면서 동시에 적용**하고, **출력 직전 마지막 검증** 1회만 수행하세요.',
     '6단계로 나누지 마세요 — 시간 낭비입니다.',
     '',
+    '## 🔍 심층 웹 리서치 (v3.8.294 — 병렬 처리로 2~3분 안에)',
+    '',
+    '**당신은 Agent입니다 — API LLM과 달리 웹 검색·페이지 fetch가 가능합니다.**',
+    '하지만 검색에 너무 오래 쓰지 마세요. **병렬 검색**으로 압축하세요. 총 리서치 2~3분, 작성 5~6분, 총 8~10분 목표.',
+    '',
+    '### 1단계: 병렬 다각도 검색 (1~2분, 동시 5~7회)',
+    '주제를 3~4개 sub-angle로 분해 → **한 번에 모두 동시 검색**:',
+    '   - 시간축: "주제 2024", "주제 최근 발표"',
+    '   - 주체축: "주제 공식 + 협회/정부", "주제 인터뷰"',
+    '   - 수치축: "주제 통계", "주제 예산"',
+    '   - 이면축: "주제 + 비판", "주제 + 해외 비교"',
+    '   - ❌ 순차 검색 (1회 후 결과 보고 또 1회) — 시간 낭비',
+    '   - ✅ 동시 검색 (병렬로 5~7개 query 한번에 던지기)',
+    '',
+    '### 2단계: 핵심 키워드 2차 (1분, 병렬 2~3회)',
+    '1차에서 발견한 **새 인물/사건명 2~3개만** 깊게 — 사퇴 이유, 회의록, 인터뷰 원문',
+    '   - 예: 1차에서 "정해성 위원장" 발견 → 2차 병렬로 "정해성 사퇴 이유", "KFA 이사회 의사록 2024"',
+    '',
+    '### 3단계: 비주류 자료 1~2건 fetch (1분)',
+    '시간 절약 위해 모든 카테고리 X — **공식 공시/회의록 1건 + 영문 비교 자료 1건**만 (가장 가치 큰 2건)',
+    '',
+    '### 4단계: 추출 (작성 중 inline)',
+    '각 출처에서 추출 → 별도 단계 X, 글 쓰면서 동시:',
+    '   - 날짜(월·일) + 수치 + 인물 이름·직책 + 1차 인용문 + "사람들 잘 모르는 정보" 1개',
+    '   - 핵심 수치는 **2~3개 출처 교차 확인** (전체 X — 핵심만)',
+    '',
+    '### 5단계: 글에 반영 (5~6분)',
+    '- **💡 잘 알려지지 않은 사실: 박스 3건+** (H2 내부 콜아웃 형태)',
+    '- **📚 참고 출처: 섹션 (5~8개 URL)** — 본문 끝 면책 박스 위, rel="nofollow noopener" target="_blank"',
+    '- 검증 못한 정보 제외 (할루시네이션 = AdSense 정책 위반)',
+    '- 출처 간 수치 차이 있으면 본문에 명시 (그게 인사이트)',
+    '',
+    '### ⏱️ 시간 관리',
+    '- 리서치 2~3분 → 작성 5~6분 → 검증 1분 = **총 8~10분 목표**',
+    '- 검색 15회 넘어가면 멈추고 작성 시작 (충분함)',
+    '- 한 검색 결과에서 페이지 fetch는 1~2개 최대',
+    '',
+    '### 결과 차이 (효율적 심층 리서치 후)',
+    '- 표면 글: "홍명보가 재선임됐고 무패 행진 중" (이미 알려진 사실)',
+    '- **심층 글**: "2024-07-30 KFA 이사회 의사록: 황선홍 vs 홍명보 6시간 토론, 외국인 사령탑 안은 예산 250억 추가 필요 (KFA 2024-08-05 공시). 일본은 모리야스 5년 장기 — 한국이 4년 단기인 이유는 정몽규 회장 임기 연동"',
+    '',
     '## 작성 전 머릿속 분석 (파일 작성 X)',
     '',
     '시작하기 전 머릿속에서 다음을 정리하세요 (파일 X):',
@@ -7106,6 +7374,20 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
     '6. 모든 수치 출처 명시 (없으면 "공식 자료 확인")',
     '7. 마크다운 (**, ##, ###) 누락 0건',
     '8. AI 흔적 표현 0건 ("여러분이 아셔야 할", "마치며", "결론적으로", "함께 알아볼까요", "오늘은 ~에 대해 알아보겠습니다")',
+    ...toneStyleLines,
+    '8-2. 🚫 **진부한 클리셰 도입/연결 표현 절대 금지**',
+    '     - 도입 금지: "한겨울에 눈이 내리듯", "봄이 오는 길목에서", "여러분 안녕하세요", "오늘은 ~에 대해", "한 번쯤은 들어보셨을"',
+    '     - 연결 금지: "한편", "그렇다면", "정리하자면", "결론적으로"',
+    '     - 일반 클리셰 금지: "두 마리 토끼", "마음을 사로잡는", "꼭 알아두어야 할", "이 글 하나로 끝", "주목받고 있다"',
+    '     - 대체: 첫 문장은 사실/숫자/구체적 상황으로 시작',
+    '8-3. 🔥 **누구나 아는 상식·당연한 말 0건 — 콘텐츠 차별화 필수** (v3.8.290 사용자 핵심 보고: "여름은 덥다 식의 뻔한 말만 있어")',
+    '     - **상식 정의**: 주제와 무관한 일반 독자도 검색 없이 답할 수 있는 정보 (예: "감독은 팀을 이끄는 사람입니다", "월드컵은 4년마다 열립니다", "한국 축구는 도전에 직면해 있습니다", "올바른 선택이 중요합니다")',
+    '     - **상식 차단 기준**: 검색 결과 1페이지 상위 3개 글이 모두 다루는 정보는 본문에 단독으로 넣지 않음. 넣더라도 새 각도(데이터/시점/사례)와 결합',
+    '     - **각 H2마다 의무 포함**: ① 상위 3개 글에 없는 새 정보 1개 + ② 구체 숫자/날짜/이름 1개 + ③ "다른 사람들이 놓치는 포인트" 1줄',
+    '     - **희소 자료 소스 우선**: 통계청 보조 표, 정부24 사업 세부 페이지, 한국은행 분기보고서, 협회 공시, 해외 동일 사례 비교, 공식 인터뷰/회의록',
+    '     - **추상 표현 → 구체 변환**: "중요합니다 → 30% 차이가 납니다" / "다양한 ~ → 6가지 ~" / "최근 ~ → 2024년 7월 ~" / "전문가들은 ~ → KFA A 대표팀 분석가 김OO 인터뷰에서 ~"',
+    '     - **금지 패턴 예시**: "~은 ~이다 (정의 반복)", "여러 가지 요소를 고려해야 한다", "신중한 선택이 필요하다", "장단점이 있다" — 추상적 일반론',
+    '     - **허용 패턴 예시**: "2024년 7월 KFA가 사령탑 재선임 결정 직후, 11월 무패 행진은 외형상 성공이지만 슈팅 점유율은 47% → 39%로 하락" — 구체 수치 + 시점 + 분석',
     '9. 잘림 0건 — 마지막 면책 박스의 마침표까지 한 호흡에 완성',
     '10. <img>/<figure>/이미지 캡션 텍스트 0건',
     '11. 본문 일관성 (H2와 본문 주제 일치)',
@@ -7121,11 +7403,63 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
     '',
     '**[구글봇 SEO + HCU 6개]**',
     '19. SEO 제목 50~60자, 주 키워드 30자 안 배치, 숫자/연도 포함',
+    '19-1. 🇰🇷 **제목 한국어 자연스러움 검증** (v3.8.293 사용자 보고: "현실적인 이름" → "현실적인 인물"이 자연스러움)',
+    '     - 사람을 가리키는 단어 — "이름" X, "인물/후보/감독/선수/대상자" O',
+    '     - 사물/현상을 가리키는 단어 — "물건" X, "제품/기기/도구" O',
+    '     - 행동/방법 — "수단" X (격식), "방법/요령/단계" O',
+    '     - 정보 — "내용" X (모호), "정리/분석/비교/총정리" O',
+    '     - 한국 블로그 독자가 검색창에 칠 표현으로. "현실적인 이름" 같은 LLM 직역체 X',
+    '     - 작성 후 자기 검증: "한국 원어민이 1초 안에 자연스럽다고 느끼는가?" NO면 단어 교체',
     '20. Featured Snippet 구조: 첫 H2 = 핵심 질문, 직후 첫 단락 = 40~60단어 명확한 답변',
     '21. 첫 100자 안에 주 키워드 + LSI 키워드 2~3개 자연 등장',
     '22. LSI 키워드 5~10개 본문 H2/H3에 자연 분포',
     '23. 외부 권위 출처 (정부24/홈택스/복지로/통계청/한국은행) 최소 2회 인용',
     '24. Topical Depth: 한 주제만 깊게 (HCU "People-first")',
+    '',
+    '**[행동 유도 (CTA + 후킹) 4개 — v3.8.295 사용자 보고: 행동 유도 빠지면 글이 떠 있는 정보일 뿐]**',
+    '25. 🎯 **CTA 배치 + 디자인 원칙** (v3.8.297 사용자 필수 보고: "광고처럼 보이면 클릭 0")',
+    '     ',
+    '     **❌ 절대 금지**:',
+    '     - 본문 끝에 무조건 박는 마무리 CTA 박스 (사용자 의도와 무관 → 광고 인식)',
+    '     - 본문 스킨(베이지/오렌지 따뜻한 톤)과 이질적인 짙은 보라·네온 그라데이션 박스 (= 즉시 광고 인식 → 클릭률 0)',
+    '     - 모든 CTA를 동일한 큰 박스로 (위화감) — 광고임을 자각시킴',
+    '     ',
+    '     **✅ 올바른 배치 — 독자 행동 욕구 정점에서**',
+    '     글을 읽다가 독자가 "이거 해야겠다"는 욕구가 생기는 **자연스러운 시점**에만 CTA 삽입:',
+    '     - "신청 조건/자격" H2 본문 끝 → 자격 체크 페이지 CTA',
+    '     - "공식 발표/회의록 인용" 직후 → "원문 30초 확인" CTA',
+    '     - "사례 비교 분석" 끝 → "유사 사례 더 보기" CTA',
+    '     - "비용/시간/예상 결과" 정리 직후 → 행동 페이지 CTA',
+    '     - **욕구가 안 생긴 자리에 박지 말 것** (단순 설명 H2, FAQ, 면책 직전 X)',
+    '     - 빈도: 글 전체 1~3개 (글 분량·행동 직결성에 따라). 0개도 OK (행동 욕구 정점이 없는 정보 글이면)',
+    '     ',
+    '     **✅ 올바른 디자인 — 본문 스킨과 자연 일체 (광고로 안 보임)**',
+    '     - 베이지·오렌지 따뜻한 톤 (글 본문 S6 체크리스트 박스와 같은 톤)',
+    '     - 강조는 작은 버튼 하나에만 (전체 박스가 화려 X)',
+    '     - 후킹 카피는 정보 톤 (광고 톤 X — "지금 즉시 신청 X", "더 정확한 조건은 ~" O)',
+    '     - 박스 = 종이/카드 느낌, 본문 위에 자연스럽게 얹힌 보조 카드',
+    '     - 절대 박스 배경색과 글자색 같게 X (반드시 대비)',
+    '     ',
+    '     **반드시 아래 HTML 그대로 박기 (텍스트 부분 [...]만 글 주제로 교체)**:',
+    '     ```html',
+    '     <div style="background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border:1px solid #fde68a;border-left:4px solid #f59e0b;border-radius:14px;padding:22px 26px;margin:28px 0;box-shadow:0 3px 10px rgba(245,158,11,0.10);">',
+    '       <div style="font-size:13px;font-weight:800;color:#92400e;letter-spacing:0.03em;margin-bottom:8px;">📍 [상황 라벨 — "정확한 조건 확인", "공식 자료에서 한 번 더", "신청 페이지 안내" 등 정보 톤]</div>',
+    '       <div style="font-size:16px;color:#1f2937;line-height:1.72;margin-bottom:16px;">[자연스러운 안내 1~2줄 — 글 본문 흐름 톤 그대로. 광고 호객 X]</div>',
+    '       <a href="[검증 URL]" rel="nofollow noopener" target="_blank" style="display:inline-block;padding:11px 22px;background:#f59e0b;color:#ffffff;border-radius:10px;font-weight:800;text-decoration:none;font-size:15px;box-shadow:0 3px 8px rgba(245,158,11,0.28);">[동사형 버튼 텍스트] →</a>',
+    '       <span style="display:inline-block;margin-left:12px;font-size:13px;color:#92400e;font-weight:600;">📌 [출처/안내 — "공식 사이트", "원문 보기", "관련 글" 등]</span>',
+    '     </div>',
+    '     ```',
+    '     - 색상 검증: 박스 배경 베이지(#fffbeb~#fef3c7) ≠ 본문 회색(#1f2937) ≠ 라벨 갈색(#92400e) ≠ 버튼 흰색(#ffffff) on 오렌지(#f59e0b)',
+    '     - 본문 H2 박스 톤(S2 베이지/오렌지)과 자연 이어짐 → 광고 인식 X',
+    '     - 절대 위 명세 색상 임의 변경 X',
+    '26. **인라인 자연 링크 (강제 X)** — 본문 흐름 안에 자연스러운 출처/공식 인용 링크 1~3개',
+    '     - 예: "신청 자격은 만 19~34세인데, 자세한 조건은 [복지로 청년도약계좌 안내 페이지](URL)에서 한 번 더 확인하시는 편이 안전합니다."',
+    '     - CTA 박스 형태가 아닌 **본문 문장 안의 인라인 링크** (광고 인식 X, 정보 인용 인식 O)',
+    '     - 광고 톤 금지. "지금 신청하세요" X / "정확한 조건은 ~에서" O',
+    '27. **블로그 내부 회유** (sourcePosts 없으면 스킵):',
+    '     - 본문 중 1곳에 "관련해서 [주제]도 같이 보면 좋습니다" 후킹 링크 (다음 글 클릭 유도)',
+    '28. **클릭률을 망치는 표현 금지**:',
+    '     - "여기서 잠깐", "잠시만요", "꿀팁", "비법", "끝판왕", "이 글 하나면 끝" (광고 톤 → 신뢰 하락 + AdSense 위험)',
     '',
     '## 출력 직전 마지막 검증 (단 1회만)',
     '',

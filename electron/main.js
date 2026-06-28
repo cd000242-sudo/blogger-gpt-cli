@@ -4663,19 +4663,74 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
         // v3.8.116/120: 본문 첫 img 자동 채택 — http(s) URL뿐 아니라 data:image base64도 처리
         //   사용자 보고: WP 글 목록 썸네일 여전히 누락 → codex가 base64로 박은 경우 v3.8.116 정규식이 못 잡음.
         //   수정: data:image도 채택 → WP publisher가 ArrayBuffer로 변환·업로드.
+        // v3.8.286: SVG/svg+xml URL은 채택 거부 (Blogger 미리보기에서 표시 불가 — 사용자 보고 X 아이콘 원인).
+        //   또한 첫 img가 svg면 다음 img를 시도 (raster jpg/png 우선).
+        const isUnsupportedThumbUrl = (u) => {
+            if (!u)
+                return true;
+            const lower = u.toLowerCase();
+            if (lower.startsWith('data:image/svg'))
+                return true;
+            if (/\.svg(\?|$)/i.test(u))
+                return true;
+            if (/svg\+xml/i.test(u))
+                return true;
+            return false;
+        };
         if (!String(data.thumbnailUrl || '').trim() && data.content) {
-            const httpMatch = String(data.content).match(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/i);
-            const dataMatch = !httpMatch ? String(data.content).match(/<img[^>]+src=["'](data:image\/[a-z+]+;base64,[^"']+)["'][^>]*>/i) : null;
-            const recovered = httpMatch?.[1] || dataMatch?.[1] || '';
+            // 본문에서 모든 img src 추출 (svg 제외하고 첫 raster 채택)
+            const allHttp = [];
+            const httpRegex = /<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/gi;
+            let m;
+            while ((m = httpRegex.exec(String(data.content))) !== null) {
+                allHttp.push(m[1]);
+            }
+            const allData = [];
+            const dataRegex = /<img[^>]+src=["'](data:image\/[a-z+]+;base64,[^"']+)["'][^>]*>/gi;
+            while ((m = dataRegex.exec(String(data.content))) !== null) {
+                allData.push(m[1]);
+            }
+            const firstRasterHttp = allHttp.find(u => !isUnsupportedThumbUrl(u));
+            const firstRasterData = allData.find(u => !isUnsupportedThumbUrl(u));
+            const recovered = firstRasterHttp || firstRasterData || '';
             if (recovered) {
-                const kind = httpMatch ? '외부 URL' : 'base64 data URL';
-                console.log(`[PUBLISH] 🛟 thumbnailUrl 비어 있음 → 본문 첫 img 자동 채택 (${kind}): ${recovered.slice(0, 80)}...`);
-                _evt.sender?.send?.('log-line', `[PUBLISH] 🛟 썸네일 자동 복구 (${kind}): ${recovered.slice(0, 80)}...`);
+                const kind = firstRasterHttp ? '외부 URL' : 'base64 data URL';
+                const skipped = (allHttp.length + allData.length) - (firstRasterHttp ? 1 : 0) - (firstRasterData ? 1 : 0);
+                const skipNote = skipped > 0 ? ` (SVG ${skipped}장 건너뜀)` : '';
+                console.log(`[PUBLISH] 🛟 thumbnailUrl 비어 있음 → 본문 첫 raster img 채택 (${kind})${skipNote}: ${recovered.slice(0, 80)}...`);
+                _evt.sender?.send?.('log-line', `[PUBLISH] 🛟 썸네일 자동 복구 (${kind})${skipNote}: ${recovered.slice(0, 80)}...`);
                 data.thumbnailUrl = recovered;
             }
             else {
-                console.warn('[PUBLISH] ⚠️ thumbnailUrl 비어 있고 본문에 img 자체 없음');
-                _evt.sender?.send?.('log-line', '[PUBLISH] ⚠️ 썸네일 누락 (본문에 img 없음)');
+                const totalImgs = allHttp.length + allData.length;
+                const warnMsg = totalImgs > 0
+                    ? `[PUBLISH] ⚠️ 썸네일 누락 (본문 img ${totalImgs}장 모두 SVG/지원 안 함)`
+                    : '[PUBLISH] ⚠️ 썸네일 누락 (본문에 img 없음)';
+                console.warn(warnMsg);
+                _evt.sender?.send?.('log-line', warnMsg);
+            }
+        }
+        else if (data.thumbnailUrl && isUnsupportedThumbUrl(String(data.thumbnailUrl))) {
+            const warn = `[PUBLISH] ⚠️ 입력 썸네일이 SVG (${String(data.thumbnailUrl).slice(0, 60)}...) — Blogger 미표시 위험. 본문 raster img로 대체 시도`;
+            console.warn(warn);
+            _evt.sender?.send?.('log-line', warn);
+            const httpRegex = /<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/gi;
+            const allHttp = [];
+            let mm;
+            while ((mm = httpRegex.exec(String(data.content || ''))) !== null)
+                allHttp.push(mm[1]);
+            const replacement = allHttp.find(u => !isUnsupportedThumbUrl(u));
+            if (replacement) {
+                data.thumbnailUrl = replacement;
+                const ok = `[PUBLISH] ✅ 본문 raster img로 대체: ${replacement.slice(0, 80)}...`;
+                console.log(ok);
+                _evt.sender?.send?.('log-line', ok);
+            }
+            else {
+                data.thumbnailUrl = '';
+                const fail = `[PUBLISH] 🆘 raster 대체 실패 — 썸네일 없이 발행 (X 아이콘 회피)`;
+                console.warn(fail);
+                _evt.sender?.send?.('log-line', fail);
             }
         }
         // v3.8.108: 본문 trace를 renderer 콘솔로 전달 (사용자가 main 콘솔을 볼 수 없는 문제 해결)
@@ -4692,6 +4747,126 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
             catch { }
         };
         traceToRenderer('publish-content 진입', data.content);
+        // v3.8.287: base64 이미지 폭증 root cause 발견 — Blogger API publish 전 모든 base64 → 외부 호스팅 강제 변환
+        //   사용자 보고 (홍명보 6명 분석 글): HTML 1.6MB 폭증, 본문 70% 잘림.
+        //   분석: Agent finalMessage 19KB (img 0). 앱 이미지 엔진이 7장 base64 박음 (장당 230KB) → 1.6MB.
+        //         publish-content 내부 Blogger media.insert 7/7 실패 (API deprecated) → 외부 호스팅 4/7 복구 → 3장 base64 잔존.
+        //   해법: publish 진입 즉시 모든 base64를 외부 호스팅으로 일괄 변환. 실패한 img는 통째 제거 (placeholder X).
+        //   SVG mime은 거부 (Blogger 미표시 — 사용자 보고 X 아이콘 원인). JPEG/PNG/WebP만 허용.
+        // v3.8.288: 썸네일 base64도 외부 호스팅 강제 변환 (사용자 보고: 본문 7장은 성공하는데 썸네일만 X 아이콘)
+        //   원인: uploadDataUrlThumbnail은 Blogger media.insert(deprecated) 먼저 시도 → 실패 → "기본 SVG placeholder" 박음 → svg+xml로 호스팅됨 → X 아이콘.
+        //   해법: publish 진입 즉시 썸네일 base64를 외부 호스팅 URL로 변환. JPEG/PNG 정상 → Blogger OG 메타 정상 표시.
+        let _thumbUploader = null;
+        try {
+            const _helpers = require('../dist/core/final/image-helpers');
+            if (typeof _helpers?.uploadBase64ToImageHost === 'function')
+                _thumbUploader = _helpers.uploadBase64ToImageHost;
+        }
+        catch { }
+        if (typeof data.thumbnailUrl === 'string' && /^data:image\/([a-z+]+);base64,/i.test(data.thumbnailUrl)) {
+            const mimeMatch = data.thumbnailUrl.match(/^data:image\/([a-z+]+);base64,/i);
+            const mime = mimeMatch?.[1] || '';
+            const thumbSize = data.thumbnailUrl.length;
+            const thumbLog = `[THUMB-FIX] 🔍 썸네일 base64 감지 (${(thumbSize / 1024).toFixed(0)}KB, mime=${mime}) — 외부 호스팅 강제 변환`;
+            console.log(thumbLog);
+            _evt.sender?.send?.('log-line', thumbLog);
+            if (/svg/i.test(mime)) {
+                const reject = `[THUMB-FIX] 🗑️ SVG 썸네일 거부 — 빈 썸네일로 (기본 placeholder 박힘 방지)`;
+                console.warn(reject);
+                _evt.sender?.send?.('log-line', reject);
+                data.thumbnailUrl = '';
+            }
+            else if (_thumbUploader) {
+                try {
+                    const externalUrl = await _thumbUploader(data.thumbnailUrl, 'thumbnail');
+                    if (externalUrl && !/svg/i.test(externalUrl)) {
+                        data.thumbnailUrl = externalUrl;
+                        const ok = `[THUMB-FIX] ✅ 썸네일 외부 호스팅 성공: ${externalUrl.slice(0, 80)}...`;
+                        console.log(ok);
+                        _evt.sender?.send?.('log-line', ok);
+                    }
+                    else {
+                        const failLog = `[THUMB-FIX] 🗑️ 외부 호스팅 실패/SVG 반환 → 썸네일 비움 (placeholder 차단)`;
+                        console.warn(failLog);
+                        _evt.sender?.send?.('log-line', failLog);
+                        data.thumbnailUrl = '';
+                    }
+                }
+                catch (err) {
+                    const exLog = `[THUMB-FIX] 🗑️ 예외 → 썸네일 비움: ${err?.message}`;
+                    console.warn(exLog);
+                    _evt.sender?.send?.('log-line', exLog);
+                    data.thumbnailUrl = '';
+                }
+            }
+            else {
+                // uploader 없으면 비움
+                data.thumbnailUrl = '';
+            }
+        }
+        if (typeof data.content === 'string' && /<img[^>]+src=["']data:image\//i.test(data.content)) {
+            const base64Matches = [...data.content.matchAll(/<img[^>]+src=["'](data:image\/([a-z+]+);base64,[^"']+)["'][^>]*>/gi)];
+            const totalBase64 = base64Matches.length;
+            if (totalBase64 > 0) {
+                const startLog = `[BASE64-FIX] 🔍 본문 base64 이미지 ${totalBase64}장 감지 (현재 HTML ${(data.content.length / 1024).toFixed(0)}KB) — 외부 호스팅 강제 변환 시작`;
+                console.log(startLog);
+                _evt.sender?.send?.('log-line', startLog);
+                let uploader = null;
+                try {
+                    const helpers = require('../dist/core/final/image-helpers');
+                    if (typeof helpers?.uploadBase64ToImageHost === 'function')
+                        uploader = helpers.uploadBase64ToImageHost;
+                }
+                catch (e) {
+                    console.warn('[BASE64-FIX] image-helpers 로드 실패:', e?.message);
+                }
+                const isSvgMime = (mime) => /svg/i.test(mime || '');
+                let converted = 0;
+                let removed = 0;
+                for (let i = 0; i < base64Matches.length; i++) {
+                    const fullTag = base64Matches[i][0];
+                    const dataUrl = base64Matches[i][1];
+                    const mime = base64Matches[i][2];
+                    if (isSvgMime(mime)) {
+                        // SVG는 Blogger에서 표시 불가 → 통째 제거
+                        data.content = data.content.replace(fullTag, '');
+                        removed++;
+                        console.log(`[BASE64-FIX] ${i + 1}/${totalBase64} 🗑️ SVG 거부 → img 통째 제거`);
+                        continue;
+                    }
+                    if (!uploader) {
+                        // uploader 없으면 img 제거 (base64 남기면 폭증)
+                        data.content = data.content.replace(fullTag, '');
+                        removed++;
+                        continue;
+                    }
+                    try {
+                        const externalUrl = await uploader(dataUrl, `body-img-${i}`);
+                        if (externalUrl && !/svg/i.test(externalUrl)) {
+                            const newTag = fullTag.replace(dataUrl, externalUrl);
+                            data.content = data.content.replace(fullTag, newTag);
+                            converted++;
+                            console.log(`[BASE64-FIX] ${i + 1}/${totalBase64} ✅ 외부 URL: ${externalUrl.slice(0, 60)}...`);
+                        }
+                        else {
+                            // 호스팅 실패 또는 SVG 반환 → img 통째 제거
+                            data.content = data.content.replace(fullTag, '');
+                            removed++;
+                            console.log(`[BASE64-FIX] ${i + 1}/${totalBase64} 🗑️ 호스팅 실패/SVG → img 통째 제거`);
+                        }
+                    }
+                    catch (err) {
+                        data.content = data.content.replace(fullTag, '');
+                        removed++;
+                        console.log(`[BASE64-FIX] ${i + 1}/${totalBase64} 🗑️ 예외 → 제거: ${err?.message}`);
+                    }
+                }
+                const doneLog = `[BASE64-FIX] ✅ 완료: ${converted}장 외부 호스팅, ${removed}장 제거. HTML 현재 ${(data.content.length / 1024).toFixed(0)}KB`;
+                console.log(doneLog);
+                _evt.sender?.send?.('log-line', doneLog);
+                traceToRenderer('base64 변환 후', data.content);
+            }
+        }
         // v3.8.167: 모든 플랫폼에서 markdown bold(**텍스트**) → <strong> 자동 변환
         if (typeof data.content === 'string' && data.content.includes('**')) {
             const before = data.content.length;
@@ -6516,6 +6691,63 @@ function describeAgentImagePolicy(policy) {
         return '이미지를 생성하지 않고 글 HTML만 완성한다.';
     return '썸네일 1장과 모든 H2 소제목 이미지를 생성한다.';
 }
+// v3.8.289: toneStyle별 동적 어조 가이드 (사용자 보고: "존댓말만 강제하지 말고 상세설정 글톤에 맞춰야지")
+//   디폴트는 한국어 블로그 관행상 존댓말 — 어조 변형만 톤에 맞춰 다양화.
+function describeToneStyle(toneStyle) {
+    const normalized = String(toneStyle || '').toLowerCase().trim();
+    const common = [
+        '     - 평서문 종결("~이다", "~한다", "~된다", "~좁아진다") 절대 금지 — 한국 블로그 독자 거부감',
+        '     - 표 셀, 콜아웃, 체크리스트, FAQ 답변, 면책 박스 등 본문 100% 적용',
+    ];
+    if (normalized === 'friendly') {
+        return [
+            '8-1. 🚨 **글 톤: 친근한 존댓말 (사용자 설정: 친근한)**',
+            '     - 종결: ~해요 / ~이에요 / ~예요 / ~거든요 / ~죠 중심 (~합니다는 30% 이하로 줄이고 따뜻한 ~해요/~예요 우선)',
+            '     - 예: "~필요합니다 → ~필요해요" / "~확인하세요 → ~확인해보세요" / "~중요한 부분입니다 → ~중요한 부분이에요"',
+            '     - 1인칭 경험을 자주 ("저도 처음엔 헷갈렸어요", "제 경우엔...")',
+            ...common,
+        ];
+    }
+    if (normalized === 'casual') {
+        return [
+            '8-1. 🚨 **글 톤: 캐주얼 존댓말 (사용자 설정: 캐주얼)**',
+            '     - 종결: ~요 / ~네요 / ~더라고요 / ~잖아요 / ~죠 — 가볍고 편안한 톤',
+            '     - 짧은 감탄/리액션 허용 ("진짜요?", "이게 의외로 큰 차이예요", "결론부터요")',
+            '     - 격식 표현(~사료됩니다, ~말씀드립니다) 금지. 자연스럽게.',
+            '     - 예: "~확인이 필요합니다 → 한번 보고 가세요" / "~포함되어야 합니다 → 꼭 챙겨야 돼요"',
+            ...common,
+        ];
+    }
+    if (normalized === 'formal') {
+        return [
+            '8-1. 🚨 **글 톤: 격식있는 존댓말 (사용자 설정: 격식있는)**',
+            '     - 종결: ~합니다 / ~입니다 / ~됩니다 / ~사료됩니다 / ~말씀드립니다 — 공식 보고서 톤',
+            '     - 감탄, 구어체 표현 금지. 정제된 문장.',
+            '     - 1인칭은 최소화. "저"보다 "필자"/"본 글에서는" 같은 표현 일부 허용',
+            '     - 예: "~확인해보세요 → ~확인이 요구됩니다" / "~챙겨야 돼요 → ~포함되어야 합니다"',
+            ...common,
+        ];
+    }
+    if (normalized === 'conversational') {
+        return [
+            '8-1. 🚨 **글 톤: 대화체 존댓말 (사용자 설정: 대화체)**',
+            '     - 종결: ~인 거예요 / ~잖아요 / ~죠 / ~보셨어요? / ~해보셨죠? — 친구에게 말 거는 톤',
+            '     - 독자에게 질문 던지기 자주 ("그런데 여기서 이상한 점, 느끼셨나요?", "왜 그럴까요?")',
+            '     - 한 호흡 짧은 감탄/추임새 허용 ("아", "근데", "사실은")',
+            '     - 1인칭 빈도 높임 ("제가 해보니", "저는 이렇게 생각해요")',
+            ...common,
+        ];
+    }
+    // professional (디폴트) — v3.8.286 기존 정중한 존댓말
+    return [
+        '8-1. 🚨 **글 톤: 전문적 존댓말 (사용자 설정: 전문적 — 디폴트)**',
+        '     - 종결: ~합니다 / ~입니다 / ~됩니다 중심 (~해요는 보조 30% 이하)',
+        '     - 신뢰감 우선. 객관적·중립적 문체.',
+        '     - 1인칭 경험은 절제해서 ("실제로 시도해본 결과", "관련 자료를 살펴보면")',
+        '     - 예: "~좁아진다 → ~좁아집니다" / "~나뉜다 → ~나뉩니다" / "~필요하다 → ~필요합니다"',
+        ...common,
+    ];
+}
 function getAgentReferenceLines(payload) {
     const urls = [
         ...(Array.isArray(payload?.manualCrawlUrls) ? payload.manualCrawlUrls : []),
@@ -6533,6 +6765,8 @@ function buildAgentJobInstructions(request, profile) {
     const imagePolicy = normalizeAgentImagePolicy(payload.imagePolicy || payload.h2ImageMode || payload?.h2Images?.imagePolicy || payload?.h2Images?.mode);
     const thumbnailTextIncluded = payload.thumbnailTextIncluded !== false && payload.thumbnailIncludeText !== false;
     const referenceLines = getAgentReferenceLines(payload);
+    // v3.8.289: 사용자 상세설정의 글톤(toneStyle)을 instructions에 동적 반영
+    const toneStyleLines = describeToneStyle(payload.toneStyle || 'professional');
     return [
         '# LEADERNAM Orbit Max Agent 작업',
         '',
@@ -6569,8 +6803,8 @@ function buildAgentJobInstructions(request, profile) {
         '   - `<article>` 또는 발행 가능한 HTML 본문만 저장합니다.',
         '   - script, iframe, form, onclick, 추적 코드는 넣지 않습니다.',
         '   - H1 1개, **H2 정확히 6~8개**, 각 H2 안에 H3 2~3개, FAQ + 결론·면책 섹션 포함.',
-        '   - **본문 글자수 (HTML 태그 제외 순수 텍스트) 8,000자 이상 12,000자 권장, 절대 5,000자 미만 금지**.',
-        '     각 H2 본문 1,000~1,500자, H3 세부 섹션 500~700자.',
+        '   - **본문 글자수 (HTML 태그 제외 순수 텍스트) 8,000~14,000자 권장, 절대 5,000자 미만 금지** (v3.8.277: 시간 충분 → 풍부).',
+        '     각 H2 본문 1,200~1,800자, H3 세부 섹션 500~800자.',
         '   - **잘림 절대 금지**: "(이하 생략)", "(계속)", "..." 절대 X. 결론 면책 조항의 마침표까지 한 호흡에 완성.',
         '   - 출력은 반드시 `</article>` 또는 마지막 `</div>` 닫기 태그로 끝나야 함.',
         '',
@@ -6592,23 +6826,409 @@ function buildAgentJobInstructions(request, profile) {
         '     - "~할 수 있습니다", "~될 수 있습니다" 수동·간접 30% 미만 — 능동·직접 우선',
         '     - 가끔 짧은 한 줄, 가끔 구어체 ("이게 핵심이에요"), 본인 경험 1인칭 ("저는 ~ 해봤는데")',
         '',
-        '2. `result/metadata.json`',
-        '   - 아래 JSON 구조로 저장합니다.',
+        '2. `result/metadata.json` (v3.8.276 — 썸네일 누락 방지)',
+        '   - **반드시 imagePrompts 작성**. 빈 배열/누락 시 사이트에 썸네일이 안 박힙니다.',
+        '   - 썸네일 프롬프트: 글 주제를 시각화한 풍경/오브젝트 묘사. 텍스트/간판/자막/로고/워터마크 X.',
+        '   - H2별 이미지 프롬프트: 각 H2 주제에 맞는 장면. 텍스트 없음.',
         '```json',
         '{',
-        '  "title": "최종 제목",',
-        '  "summary": "검수 요약",',
+        '  "title": "최종 H1 제목 (50~60자, 검색 친화, 숫자/연도 포함 권장)",',
+        '  "summary": "글 자체 검수 요약 (300자)",',
         `  "imagePolicy": "${imagePolicy}",`,
         `  "thumbnailTextIncluded": ${thumbnailTextIncluded ? 'true' : 'false'},`,
         '  "h2TextIncluded": false,',
-        '  "imagePrompts": ["썸네일 프롬프트", "본문 이미지 아이디어"],',
+        '  "imagePrompts": {',
+        '    "thumbnail": "썸네일 이미지 prompt (글 주제 핵심 시각화, 자연 풍경/상징, 한글 텍스트 없음)",',
+        '    "h2_1": "H2 1번 섹션 이미지 prompt (텍스트 없음)",',
+        '    "h2_2": "H2 2번 섹션 이미지 prompt (텍스트 없음)",',
+        '    "h2_3": "H2 3번 섹션 이미지 prompt (텍스트 없음)",',
+        '    "h2_4": "H2 4번 섹션 이미지 prompt (텍스트 없음)",',
+        '    "h2_5": "H2 5번 섹션 이미지 prompt (텍스트 없음)",',
+        '    "h2_6": "H2 6번 섹션 이미지 prompt (텍스트 없음)"',
+        '  },',
         '  "warnings": []',
         '}',
         '```',
+        '   - 🚨 imagePrompts.thumbnail은 반드시 채워넣으세요. 누락 시 사이트에 X 아이콘만 표시됩니다.',
+        '',
+        // v3.8.281: 6단계 → Single Shot으로 압축 (속도 5~8분)
+        // 사용자 지적: '25분이면 너무 오래걸려. 퀄리티는 최고에 속도까지 빨라야'
+        // 정확함. 6단계 = LLM 6번 호출 = 12~25분. Single shot이면 4~8분.
+        // 24자가체크는 별도 단계 X — 작성 중 동시 적용 + 출력 직전 검증으로 inline
+        '## v3.8.281 — Single Shot 끝판왕 (5~8분, 퀄리티 그대로)',
+        '당신은 Agent입니다. **단 한 번의 작업으로** article.html과 metadata.json을 만듭니다.',
+        '아래 24가지 모든 요건을 **작성하면서 동시에 적용**하고, **출력 직전 마지막 검증** 1회만 수행하세요.',
+        '6단계로 나누지 마세요 — 시간 낭비입니다.',
+        '',
+        '## 🔍 심층 웹 리서치 (v3.8.294 — 병렬 처리로 2~3분 안에)',
+        '',
+        '**당신은 Agent입니다 — API LLM과 달리 웹 검색·페이지 fetch가 가능합니다.**',
+        '하지만 검색에 너무 오래 쓰지 마세요. **병렬 검색**으로 압축하세요. 총 리서치 2~3분, 작성 5~6분, 총 8~10분 목표.',
+        '',
+        '### 1단계: 병렬 다각도 검색 (1~2분, 동시 5~7회)',
+        '주제를 3~4개 sub-angle로 분해 → **한 번에 모두 동시 검색**:',
+        '   - 시간축: "주제 2024", "주제 최근 발표"',
+        '   - 주체축: "주제 공식 + 협회/정부", "주제 인터뷰"',
+        '   - 수치축: "주제 통계", "주제 예산"',
+        '   - 이면축: "주제 + 비판", "주제 + 해외 비교"',
+        '   - ❌ 순차 검색 (1회 후 결과 보고 또 1회) — 시간 낭비',
+        '   - ✅ 동시 검색 (병렬로 5~7개 query 한번에 던지기)',
+        '',
+        '### 2단계: 핵심 키워드 2차 (1분, 병렬 2~3회)',
+        '1차에서 발견한 **새 인물/사건명 2~3개만** 깊게 — 사퇴 이유, 회의록, 인터뷰 원문',
+        '   - 예: 1차에서 "정해성 위원장" 발견 → 2차 병렬로 "정해성 사퇴 이유", "KFA 이사회 의사록 2024"',
+        '',
+        '### 3단계: 비주류 자료 1~2건 fetch (1분)',
+        '시간 절약 위해 모든 카테고리 X — **공식 공시/회의록 1건 + 영문 비교 자료 1건**만 (가장 가치 큰 2건)',
+        '',
+        '### 4단계: 추출 (작성 중 inline)',
+        '각 출처에서 추출 → 별도 단계 X, 글 쓰면서 동시:',
+        '   - 날짜(월·일) + 수치 + 인물 이름·직책 + 1차 인용문 + "사람들 잘 모르는 정보" 1개',
+        '   - 핵심 수치는 **2~3개 출처 교차 확인** (전체 X — 핵심만)',
+        '',
+        '### 5단계: 글에 반영 (5~6분)',
+        '- **💡 잘 알려지지 않은 사실: 박스 3건+** (H2 내부 콜아웃 형태)',
+        '- **📚 참고 출처: 섹션 (5~8개 URL)** — 본문 끝 면책 박스 위, rel="nofollow noopener" target="_blank"',
+        '- 검증 못한 정보 제외 (할루시네이션 = AdSense 정책 위반)',
+        '- 출처 간 수치 차이 있으면 본문에 명시 (그게 인사이트)',
+        '',
+        '### ⏱️ 시간 관리',
+        '- 리서치 2~3분 → 작성 5~6분 → 검증 1분 = **총 8~10분 목표**',
+        '- 검색 15회 넘어가면 멈추고 작성 시작 (충분함)',
+        '- 한 검색 결과에서 페이지 fetch는 1~2개 최대',
+        '',
+        '### 결과 차이 (효율적 심층 리서치 후)',
+        '- 표면 글: "홍명보가 재선임됐고 무패 행진 중" (이미 알려진 사실)',
+        '- **심층 글**: "2024-07-30 KFA 이사회 의사록: 황선홍 vs 홍명보 6시간 토론, 외국인 사령탑 안은 예산 250억 추가 필요 (KFA 2024-08-05 공시). 일본은 모리야스 5년 장기 — 한국이 4년 단기인 이유는 정몽규 회장 임기 연동"',
+        '',
+        '## 작성 전 머릿속 분석 (파일 작성 X)',
+        '',
+        '시작하기 전 머릿속에서 다음을 정리하세요 (파일 X):',
+        '',
+        '**A. 구글봇 SEO 전략**',
+        '- Search Intent: Informational / Navigational / Transactional / Commercial 중 무엇?',
+        '- 주 키워드 1개 + LSI 키워드 5~10개 (예: 주=청년미래적금, LSI=청년/적금/2026/신청조건/소득기준/만기수령/3년/정부매칭)',
+        '- Featured Snippet 노릴 핵심 질문 1개',
+        '- Long-tail 검색어 5개 (질문형 ~방법, ~조건, ~신청, ~얼마)',
+        '',
+        '**B. 본문 구조 + 스킨 매핑**',
+        '- H2 6~8개 제목 (각 1~2줄 요약)',
+        '- 각 H2의 스킨 컴포넌트 매핑 (TL;DR/체크리스트/비교표/콜아웃/단계박스/FAQ/결론/면책)',
+        '- 1인칭 경험 표현 3~5곳 위치',
+        '- 의심점/리스크 명시 1~2곳 위치',
+        '- 정부/공식 출처 인용 2회+ 위치 (정부24/홈택스/복지로/통계청/한국은행 등)',
+        '',
+        '**C. 청중 + 사실**',
+        '- 청중 인지도 (unaware / aware / mixed)',
+        '- 핵심 사실(수치/조건/시점) 5~10개',
+        '- 만들면 안 되는 정보 (출처 모르는 통계/인물/사례)',
+        '',
+        '## article.html 작성 (단 한 번에 풍부하게)',
+        '',
+        '8,000~14,000자의 풍부한 HTML 본문을 `result/article.html`에 작성합니다.',
+        '아래 **24가지 요건을 작성하면서 동시에 적용**하세요:',
+        '',
+        '**[글 품질 12개]**',
+        '1. 8,000~14,000자',
+        '2. H2 정확히 6~8개, 각 H2 안에 H3 2~3개, FAQ + 결론 + 면책',
+        '3. 모든 컴포넌트에 inline style (스킨 12 컴포넌트 명세 그대로)',
+        '4. 1인칭 경험 표현 3곳+ 자연스럽게',
+        '5. 의심점/리스크 명시 1곳+',
+        '6. 모든 수치 출처 명시 (없으면 "공식 자료 확인")',
+        '7. 마크다운 (**, ##, ###) 누락 0건',
+        '8. AI 흔적 표현 0건 ("여러분이 아셔야 할", "마치며", "결론적으로", "함께 알아볼까요", "오늘은 ~에 대해 알아보겠습니다")',
+        ...toneStyleLines,
+        '8-2. 🚫 **진부한 클리셰 도입/연결 표현 절대 금지**',
+        '     - 도입 금지: "한겨울에 눈이 내리듯", "봄이 오는 길목에서", "여러분 안녕하세요", "오늘은 ~에 대해", "한 번쯤은 들어보셨을"',
+        '     - 연결 금지: "한편", "그렇다면", "정리하자면", "결론적으로"',
+        '     - 일반 클리셰 금지: "두 마리 토끼", "마음을 사로잡는", "꼭 알아두어야 할", "이 글 하나로 끝", "주목받고 있다"',
+        '     - 대체: 첫 문장은 사실/숫자/구체적 상황으로 시작',
+        '8-3. 🔥 **누구나 아는 상식·당연한 말 0건 — 콘텐츠 차별화 필수** (v3.8.290 사용자 핵심 보고: "여름은 덥다 식의 뻔한 말만 있어")',
+        '     - **상식 정의**: 주제와 무관한 일반 독자도 검색 없이 답할 수 있는 정보 (예: "감독은 팀을 이끄는 사람입니다", "월드컵은 4년마다 열립니다", "한국 축구는 도전에 직면해 있습니다", "올바른 선택이 중요합니다")',
+        '     - **상식 차단 기준**: 검색 결과 1페이지 상위 3개 글이 모두 다루는 정보는 본문에 단독으로 넣지 않음. 넣더라도 새 각도(데이터/시점/사례)와 결합',
+        '     - **각 H2마다 의무 포함**: ① 상위 3개 글에 없는 새 정보 1개 + ② 구체 숫자/날짜/이름 1개 + ③ "다른 사람들이 놓치는 포인트" 1줄',
+        '     - **희소 자료 소스 우선**: 통계청 보조 표, 정부24 사업 세부 페이지, 한국은행 분기보고서, 협회 공시, 해외 동일 사례 비교, 공식 인터뷰/회의록',
+        '     - **추상 표현 → 구체 변환**: "중요합니다 → 30% 차이가 납니다" / "다양한 ~ → 6가지 ~" / "최근 ~ → 2024년 7월 ~" / "전문가들은 ~ → KFA A 대표팀 분석가 김OO 인터뷰에서 ~"',
+        '     - **금지 패턴 예시**: "~은 ~이다 (정의 반복)", "여러 가지 요소를 고려해야 한다", "신중한 선택이 필요하다", "장단점이 있다" — 추상적 일반론',
+        '     - **허용 패턴 예시**: "2024년 7월 KFA가 사령탑 재선임 결정 직후, 11월 무패 행진은 외형상 성공이지만 슈팅 점유율은 47% → 39%로 하락" — 구체 수치 + 시점 + 분석',
+        '9. 잘림 0건 — 마지막 면책 박스의 마침표까지 한 호흡에 완성',
+        '10. <img>/<figure>/이미지 캡션 텍스트 0건',
+        '11. 본문 일관성 (H2와 본문 주제 일치)',
+        '12. 한 단락 2~3문장 이내',
+        '',
+        '**[AdSense 안전성 6개]**',
+        '13. Schema.org Article JSON-LD 본문 끝에 삽입 (S13)',
+        '14. FAQPage Schema FAQ 섹션에 삽입 (S14)',
+        '15. Person Schema 저자 정보 삽입 (S15)',
+        '16. AdSense 금지 표현 0건 ("이거 모르면 손해", "꿀팁", "비법", "끝판왕", "놀라운", "충격", "대박", "역대급")',
+        '17. Clickbait 제목 X (질문형/숫자형/구체형 OK)',
+        '18. 광고 라벨 ("스폰서 링크", "광고"만 허용. "추천 콘텐츠", "관련 링크", "오늘의 인기 상품" 0건)',
+        '',
+        '**[구글봇 SEO + HCU 6개]**',
+        '19. SEO 제목 50~60자, 주 키워드 30자 안 배치, 숫자/연도 포함',
+        '19-1. 🇰🇷 **제목 한국어 자연스러움 검증** (v3.8.293 사용자 보고: "현실적인 이름" → "현실적인 인물"이 자연스러움)',
+        '     - 사람을 가리키는 단어 — "이름" X, "인물/후보/감독/선수/대상자" O',
+        '     - 사물/현상을 가리키는 단어 — "물건" X, "제품/기기/도구" O',
+        '     - 행동/방법 — "수단" X (격식), "방법/요령/단계" O',
+        '     - 정보 — "내용" X (모호), "정리/분석/비교/총정리" O',
+        '     - 한국 블로그 독자가 검색창에 칠 표현으로. "현실적인 이름" 같은 LLM 직역체 X',
+        '     - 작성 후 자기 검증: "한국 원어민이 1초 안에 자연스럽다고 느끼는가?" NO면 단어 교체',
+        '20. Featured Snippet 구조: 첫 H2 = 핵심 질문, 직후 첫 단락 = 40~60단어 명확한 답변',
+        '21. 첫 100자 안에 주 키워드 + LSI 키워드 2~3개 자연 등장',
+        '22. LSI 키워드 5~10개 본문 H2/H3에 자연 분포',
+        '23. 외부 권위 출처 (정부24/홈택스/복지로/통계청/한국은행) 최소 2회 인용',
+        '24. Topical Depth: 한 주제만 깊게 (HCU "People-first")',
+        '',
+        '**[행동 유도 (CTA + 후킹) 4개 — v3.8.295 사용자 보고: 행동 유도 빠지면 글이 떠 있는 정보일 뿐]**',
+        '25. 🎯 **CTA 배치 + 디자인 원칙** (v3.8.297 사용자 필수 보고: "광고처럼 보이면 클릭 0")',
+        '     ',
+        '     **❌ 절대 금지**:',
+        '     - 본문 끝에 무조건 박는 마무리 CTA 박스 (사용자 의도와 무관 → 광고 인식)',
+        '     - 본문 스킨(베이지/오렌지 따뜻한 톤)과 이질적인 짙은 보라·네온 그라데이션 박스 (= 즉시 광고 인식 → 클릭률 0)',
+        '     - 모든 CTA를 동일한 큰 박스로 (위화감) — 광고임을 자각시킴',
+        '     ',
+        '     **✅ 올바른 배치 — 독자 행동 욕구 정점에서**',
+        '     글을 읽다가 독자가 "이거 해야겠다"는 욕구가 생기는 **자연스러운 시점**에만 CTA 삽입:',
+        '     - "신청 조건/자격" H2 본문 끝 → 자격 체크 페이지 CTA',
+        '     - "공식 발표/회의록 인용" 직후 → "원문 30초 확인" CTA',
+        '     - "사례 비교 분석" 끝 → "유사 사례 더 보기" CTA',
+        '     - "비용/시간/예상 결과" 정리 직후 → 행동 페이지 CTA',
+        '     - **욕구가 안 생긴 자리에 박지 말 것** (단순 설명 H2, FAQ, 면책 직전 X)',
+        '     - 빈도: 글 전체 1~3개 (글 분량·행동 직결성에 따라). 0개도 OK (행동 욕구 정점이 없는 정보 글이면)',
+        '     ',
+        '     **✅ 올바른 디자인 — 본문 스킨과 자연 일체 (광고로 안 보임)**',
+        '     - 베이지·오렌지 따뜻한 톤 (글 본문 S6 체크리스트 박스와 같은 톤)',
+        '     - 강조는 작은 버튼 하나에만 (전체 박스가 화려 X)',
+        '     - 후킹 카피는 정보 톤 (광고 톤 X — "지금 즉시 신청 X", "더 정확한 조건은 ~" O)',
+        '     - 박스 = 종이/카드 느낌, 본문 위에 자연스럽게 얹힌 보조 카드',
+        '     - 절대 박스 배경색과 글자색 같게 X (반드시 대비)',
+        '     ',
+        '     **반드시 아래 HTML 그대로 박기 (텍스트 부분 [...]만 글 주제로 교체)**:',
+        '     ```html',
+        '     <div style="background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border:1px solid #fde68a;border-left:4px solid #f59e0b;border-radius:14px;padding:22px 26px;margin:28px 0;box-shadow:0 3px 10px rgba(245,158,11,0.10);">',
+        '       <div style="font-size:13px;font-weight:800;color:#92400e;letter-spacing:0.03em;margin-bottom:8px;">📍 [상황 라벨 — "정확한 조건 확인", "공식 자료에서 한 번 더", "신청 페이지 안내" 등 정보 톤]</div>',
+        '       <div style="font-size:16px;color:#1f2937;line-height:1.72;margin-bottom:16px;">[자연스러운 안내 1~2줄 — 글 본문 흐름 톤 그대로. 광고 호객 X]</div>',
+        '       <a href="[검증 URL]" rel="nofollow noopener" target="_blank" style="display:inline-block;padding:11px 22px;background:#f59e0b;color:#ffffff;border-radius:10px;font-weight:800;text-decoration:none;font-size:15px;box-shadow:0 3px 8px rgba(245,158,11,0.28);">[동사형 버튼 텍스트] →</a>',
+        '       <span style="display:inline-block;margin-left:12px;font-size:13px;color:#92400e;font-weight:600;">📌 [출처/안내 — "공식 사이트", "원문 보기", "관련 글" 등]</span>',
+        '     </div>',
+        '     ```',
+        '     - 색상 검증: 박스 배경 베이지(#fffbeb~#fef3c7) ≠ 본문 회색(#1f2937) ≠ 라벨 갈색(#92400e) ≠ 버튼 흰색(#ffffff) on 오렌지(#f59e0b)',
+        '     - 본문 H2 박스 톤(S2 베이지/오렌지)과 자연 이어짐 → 광고 인식 X',
+        '     - 절대 위 명세 색상 임의 변경 X',
+        '26. **인라인 자연 링크 (강제 X)** — 본문 흐름 안에 자연스러운 출처/공식 인용 링크 1~3개',
+        '     - 예: "신청 자격은 만 19~34세인데, 자세한 조건은 [복지로 청년도약계좌 안내 페이지](URL)에서 한 번 더 확인하시는 편이 안전합니다."',
+        '     - CTA 박스 형태가 아닌 **본문 문장 안의 인라인 링크** (광고 인식 X, 정보 인용 인식 O)',
+        '     - 광고 톤 금지. "지금 신청하세요" X / "정확한 조건은 ~에서" O',
+        '27. **블로그 내부 회유** (sourcePosts 없으면 스킵):',
+        '     - 본문 중 1곳에 "관련해서 [주제]도 같이 보면 좋습니다" 후킹 링크 (다음 글 클릭 유도)',
+        '28. **클릭률을 망치는 표현 금지**:',
+        '     - "여기서 잠깐", "잠시만요", "꿀팁", "비법", "끝판왕", "이 글 하나면 끝" (광고 톤 → 신뢰 하락 + AdSense 위험)',
+        '',
+        '## 출력 직전 마지막 검증 (단 1회만)',
+        '',
+        'article.html 작성 후, 다시 읽고 위 24가지 중 NO인 항목 있으면 그 부분만 수정하세요.',
+        '**전체 재작성 X** — 약점 부분만 patch.',
+        '특히 9번 잘림 검증: 마지막 면책 박스의 마침표까지 한 호흡에 완성됐는지 확인.',
+        '',
+        '⏱️ 예상 시간: 5~8분 (Single shot이라 6단계 분리보다 3~4배 빠름)',
+        '',
+        '## v3.8.273 — 스킨 12 컴포넌트 inline style 명세 (반드시 그대로 박기)',
+        'API LLM은 inline style을 자주 빠뜨리지만, Agent는 정확히 박을 수 있습니다.',
+        '',
+        '### S1) TL;DR 박스 (H1 직후 필수)',
+        '```html',
+        '<div style="background:linear-gradient(135deg,#fef3c7,#fed7aa);border-left:5px solid #f59e0b;border-radius:12px;padding:20px 24px;margin:18px 0 28px;box-shadow:0 4px 14px rgba(245,158,11,0.18);">',
+        '  <div style="font-size:13px;font-weight:900;color:#92400e;letter-spacing:0.05em;margin-bottom:8px;">📌 핵심 요약 (TL;DR)</div>',
+        '  <div style="font-size:16px;line-height:1.75;color:#1f2937;font-weight:600;">3~5문장으로 글 전체 결론 요약</div>',
+        '</div>',
+        '```',
+        '',
+        '### S2) H2 섹션 카드 (각 H2)',
+        '```html',
+        '<h2 style="font-size:26px;font-weight:900;color:#92400e;margin:40px 0 16px;padding:14px 18px;background:linear-gradient(90deg,#fef3c7 0%,transparent 100%);border-left:6px solid #f59e0b;border-radius:8px;line-height:1.4;">H2 제목</h2>',
+        '```',
+        '',
+        '### S3) H3 sub-section',
+        '```html',
+        '<h3 style="font-size:19px;font-weight:800;color:#92400e;margin:28px 0 10px;padding-left:14px;border-left:4px solid #f59e0b;">H3 제목</h3>',
+        '```',
+        '',
+        '### S4) 본문 단락',
+        '```html',
+        '<p style="font-size:16px;line-height:1.85;color:#1f2937;margin:0 0 18px;">본문 내용 (한 단락 2~3문장)</p>',
+        '```',
+        '',
+        '### S5) 강조 인용 박스',
+        '```html',
+        '<blockquote style="margin:20px 0;padding:18px 22px;background:rgba(0,0,0,0.025);border-left:4px solid #f59e0b;border-radius:8px;font-style:italic;color:#92400e;font-size:15px;line-height:1.7;">핵심 한 줄</blockquote>',
+        '```',
+        '',
+        '### S6) 체크리스트 박스',
+        '```html',
+        '<div style="background:#fff9eb;border:1px solid #fde68a;border-radius:12px;padding:18px 22px;margin:20px 0;">',
+        '  <div style="font-weight:900;color:#92400e;margin-bottom:10px;font-size:15px;">✅ 체크포인트</div>',
+        '  <ul style="margin:0;padding-left:20px;color:#1f2937;line-height:1.8;font-size:15px;">',
+        '    <li>비밀번호 변경하세요</li><li>2단계 인증 켜세요</li>',
+        '  </ul>',
+        '</div>',
+        '```',
+        '',
+        '### S7) 비교표',
+        '```html',
+        '<table style="width:100%;border-collapse:collapse;margin:20px 0;background:#fff;border:1px solid #fde68a;border-radius:8px;overflow:hidden;">',
+        '  <thead><tr style="background:#fef3c7;"><th style="padding:12px 14px;text-align:left;font-weight:900;color:#92400e;font-size:14px;border-bottom:2px solid #f59e0b;">항목</th><th style="padding:12px 14px;text-align:left;font-weight:900;color:#92400e;font-size:14px;border-bottom:2px solid #f59e0b;">값</th></tr></thead>',
+        '  <tbody><tr><td style="padding:10px 14px;border-bottom:1px solid #f3f4f6;font-size:14px;">A</td><td style="padding:10px 14px;border-bottom:1px solid #f3f4f6;font-size:14px;">설명</td></tr></tbody>',
+        '</table>',
+        '```',
+        '',
+        '### S8) 콜아웃 박스 (주의/팁/위험)',
+        '```html',
+        '<div style="background:linear-gradient(135deg,#fef9c3,#fef3c7);border-left:4px solid #ca8a04;border-radius:10px;padding:16px 20px;margin:18px 0;color:#854d0e;font-size:15px;line-height:1.7;">',
+        '  <strong>⚠️ 주의:</strong> 변동 가능 정보는 공식 사이트 확인 필수.',
+        '</div>',
+        '```',
+        '',
+        '### S9) 단계 박스 (1, 2, 3 절차)',
+        '```html',
+        '<div style="margin:20px 0;padding:18px 22px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;">',
+        '  <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px;">',
+        '    <span style="flex-shrink:0;width:28px;height:28px;background:#f59e0b;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;">1</span>',
+        '    <div style="font-size:15px;line-height:1.7;color:#1f2937;">1단계 설명</div>',
+        '  </div>',
+        '</div>',
+        '```',
+        '',
+        '### S10) FAQ 박스',
+        '```html',
+        '<div style="background:#fff;border:2px solid #fde68a;border-radius:14px;padding:20px 24px;margin:24px 0;">',
+        '  <div style="font-weight:900;color:#f59e0b;margin-bottom:6px;font-size:15px;">❓ Q. 질문 텍스트</div>',
+        '  <div style="font-size:15px;line-height:1.8;color:#1f2937;">답변...</div>',
+        '</div>',
+        '```',
+        '',
+        '### S11) 결론 박스 (글 끝)',
+        '```html',
+        '<div style="background:linear-gradient(135deg,#fef3c7,#fed7aa);border-radius:14px;padding:24px 28px;margin:32px 0 24px;border-left:5px solid #f59e0b;">',
+        '  <div style="font-size:18px;font-weight:900;color:#92400e;margin-bottom:12px;">📝 결론</div>',
+        '  <div style="font-size:16px;line-height:1.85;color:#1f2937;">결론 한 단락 (1인칭 경험 포함)</div>',
+        '</div>',
+        '```',
+        '',
+        '### S12) 면책 박스 (글 마지막)',
+        '```html',
+        '<div style="margin:24px 0 0;padding:14px 18px;background:rgba(0,0,0,0.03);border-radius:8px;font-size:12px;color:#6b7280;line-height:1.7;">',
+        '  ⚠️ 본 글은 정보 제공 목적이며 정확한 정책·금액·일정은 공식 사이트에서 확인하세요. 본 글의 정보로 인한 손해에 책임지지 않습니다.',
+        '</div>',
+        '```',
+        '',
+        '## v3.8.278 — AdSense 강화 Schema.org JSON-LD 3종 (article.html 끝에 반드시 포함)',
+        'API LLM이 자주 빠뜨리는 부분 — Agent가 정확히 박음. 글 끝에 다음 3개 script 태그 삽입.',
+        '',
+        '### S13) Article Schema (글 본문 끝에 필수)',
+        '```html',
+        '<script type="application/ld+json">',
+        '{',
+        '  "@context": "https://schema.org",',
+        '  "@type": "Article",',
+        '  "headline": "최종 H1 제목 그대로",',
+        '  "description": "글 요약 150자",',
+        '  "datePublished": "오늘 ISO 날짜 (YYYY-MM-DD)",',
+        '  "dateModified": "오늘 ISO 날짜",',
+        '  "author": { "@type": "Person", "name": "운영자" },',
+        '  "publisher": { "@type": "Organization", "name": "리더남" },',
+        '  "mainEntityOfPage": "(URL 자리)"',
+        '}',
+        '</script>',
+        '```',
+        '',
+        '### S14) FAQPage Schema (FAQ 섹션이 있으면 필수)',
+        '```html',
+        '<script type="application/ld+json">',
+        '{',
+        '  "@context": "https://schema.org",',
+        '  "@type": "FAQPage",',
+        '  "mainEntity": [',
+        '    {',
+        '      "@type": "Question",',
+        '      "name": "FAQ 질문 1",',
+        '      "acceptedAnswer": { "@type": "Answer", "text": "FAQ 답변 1 (HTML 태그 제거 평문)" }',
+        '    },',
+        '    { "@type": "Question", "name": "FAQ 질문 2", "acceptedAnswer": { "@type": "Answer", "text": "FAQ 답변 2" } },',
+        '    { "@type": "Question", "name": "FAQ 질문 3", "acceptedAnswer": { "@type": "Answer", "text": "FAQ 답변 3" } }',
+        '  ]',
+        '}',
+        '</script>',
+        '```',
+        '',
+        '### S15) Person Schema (저자, 본문 끝에 필수)',
+        '```html',
+        '<script type="application/ld+json">',
+        '{',
+        '  "@context": "https://schema.org",',
+        '  "@type": "Person",',
+        '  "name": "운영자",',
+        '  "description": "정부 정책·세금·복지 정보를 정리하는 블로그 운영자",',
+        '  "knowsAbout": ["정부 지원금", "세금·환급", "복지 정책", "생활 정보"]',
+        '}',
+        '</script>',
+        '```',
+        '',
+        '## v3.8.278 — AdSense 안전 표현 가이드 (Clickbait/광고 라벨 차단)',
+        '✅ 허용 제목 형식: 질문형 ("2026년 OO 신청방법 정리"), 숫자형 ("OO 5가지"), 구체형',
+        '❌ 금지 제목/본문: "이거 모르면 손해", "꿀팁", "비법", "끝판왕", "놀라운", "충격", "대박", "역대급", "꼭 알아둬야 할"',
+        '❌ 금지 광고 라벨: "추천 콘텐츠", "관련 링크", "오늘의 인기 상품", "스폰서 콘텐츠"',
+        '✅ 허용 광고 라벨: "스폰서 링크", "광고" (단, 본 글엔 광고 X — Orbit 앱이 발행 후 AdSense 게재)',
+        '',
+        '## v3.8.279 — 구글봇 SEO 끝판왕 가이드 (HCU + Featured Snippet)',
+        '',
+        '### 🎯 SEO 제목 작성 규칙 (50~60자, CTR↑)',
+        '- **주 키워드를 제목 앞쪽 (30자 안)에 배치**',
+        '- **숫자/연도 포함** (CTR 30% ↑)',
+        '- **모바일 검색 결과 잘림 방지**: 60자 안',
+        '- **검색 의도와 1:1 매칭** (Informational이면 "정리/방법/조건", Commercial이면 "비교/추천")',
+        '- ❌ 금지: 클릭베이트, 자극적 단어, 키워드 스터핑',
+        '- ✅ 예시:',
+        '  - "2026년 청년미래적금 신청방법 및 조건 정리" (정보형, 27자)',
+        '  - "에너지바우처 2026 신청 대상 5가지 체크" (정보형, 23자)',
+        '  - "근로장려금 2026 자녀장려금 비교 가이드" (커머셜, 22자)',
+        '',
+        '### 🎯 Featured Snippet 구조 강제 (검색 결과 0순위)',
+        '- **첫 H2 = "[주 키워드] [핵심 질문]?"** (구글이 답변으로 픽업하기 쉬운 형식)',
+        '  예: "청년미래적금 2026, 누가 신청할 수 있나?"',
+        '- **첫 H2 직후 첫 단락 = 40~60단어 명확한 답변** (Featured Snippet 후보)',
+        '  - 정의/조건/대상을 한 문단에 명료하게',
+        '  - HTML 태그 적게, 깔끔한 텍스트',
+        '- **그 다음 디테일 설명** (Skim-then-Read 패턴 충족)',
+        '',
+        '### 🎯 첫 100자 안에 검색어 배치 (강제)',
+        '- 도입부 첫 단락에 주 키워드 자연스럽게 등장',
+        '- LSI 키워드 2~3개 도입부에 분산',
+        '- 키워드 스터핑 X (문장 어색하면 안 됨)',
+        '',
+        '### 🎯 LSI 키워드 자연 분포',
+        '- 본문 8~14개 H2/H3에 LSI 키워드 자연 배치',
+        '- 같은 키워드 반복 X (구글이 LSI로 같은 토픽 인식)',
+        '- H2/H3 제목에 LSI 키워드 1~2개씩',
+        '',
+        '### 🎯 외부 권위 출처 인용 (E-E-A-T Authority 강화)',
+        '- **본문에 최소 2회 정부/공식 기관 인용**',
+        '  - 정부 정책: "정부24", "복지로", "공식 안내", "보건복지부"',
+        '  - 세금: "국세청", "홈택스"',
+        '  - 통계: "통계청 KOSIS", "한국은행 ECOS"',
+        '- **인용 형식**: "[기관명] [연도] 안내에 따르면 [구체 수치/내용]"',
+        '- ❌ 가짜 통계/익명 출처 절대 금지',
+        '',
+        '### 🎯 Topical Depth (한 주제 깊게)',
+        '- 한 글에서 한 주제(주 키워드)만 깊게 파기',
+        '- 옆길 주제(LSI 외) 따로 빼지 말기',
+        '- 8,000~14,000자 = 한 주제 끝까지 답함',
+        '- HCU "People-first content" 충족: 검색자 의도 완전 충족',
         '',
         '## 출력 규칙',
-        '- 최종 답변은 짧게 작성합니다. 실제 본문은 반드시 `result/article.html`에 저장하세요.',
-        '- 실패했을 때만 왜 실패했는지 설명하세요.',
+        '- 6단계 모두 파일로 작성 (생략 X)',
+        '- 최종 답변은 짧게. 실제 본문은 `result/article.html`에 저장.',
+        '- 마지막 닫기 태그까지 한 호흡에 완성 (잘림 절대 X)',
+        '- Schema.org JSON-LD 3종 (S13/S14/S15) 반드시 article.html 끝에 포함',
         '',
         '## 앱에서 생성한 글 작업지시서',
         request.articleTask || '(글 작업지시서 없음)',
@@ -6641,12 +7261,39 @@ function buildAgentRunEnv(profile) {
     else {
         env.CLAUDE_CONFIG_DIR = profile.profileDir;
     }
+    // v3.8.241: Claude Code 네이티브 설치 경로 (~/.local/bin)를 PATH에 자동 주입
+    // 공식 설치기가 PATH를 등록하지 않은 케이스에서도 claude.exe가 자식 프로세스(node, sh 등)를 찾을 수 있도록
+    if (profile.provider === 'claude') {
+        const extraPaths = getClaudeNativeInstallDirs().filter((p) => {
+            try {
+                return fs.existsSync(p);
+            }
+            catch {
+                return false;
+            }
+        });
+        if (extraPaths.length > 0) {
+            const sep = process.platform === 'win32' ? ';' : ':';
+            const currentPath = env.PATH || env.Path || '';
+            const merged = [...extraPaths, currentPath].filter(Boolean).join(sep);
+            env.PATH = merged;
+            if (process.platform === 'win32')
+                env.Path = merged;
+        }
+    }
     return env;
 }
 function buildAgentRunCommand(profile, jobDir, lastMessagePath, model = getCodexAgentModel()) {
+    // v3.8.284: prompt 강화 — 사용자 진단 결과 Codex가 stdout만 출력하고 파일 안 만듬
+    // 핵심 fix: write_file 도구 명시 + 파일 검증 + 누락 시 fail 명시
     const prompt = [
-        'Read instructions.md and payload.json, then create result/article.html and result/metadata.json exactly as requested.',
-        'If file writing is blocked, print the full article HTML between ARTICLE_HTML_BEGIN and ARTICLE_HTML_END.',
+        'CRITICAL: You MUST use the write_file tool (or apply_patch/shell tee) to create EXACTLY these two files:',
+        '  1. result/article.html — complete HTML article body (8,000~14,000 Korean characters)',
+        '  2. result/metadata.json — JSON with title, summary, imagePrompts (thumbnail + h2_1~6)',
+        'After writing both files, verify they exist using ls or cat. If either file is missing, the task FAILS.',
+        'DO NOT just print HTML to stdout. DO NOT skip metadata.json. DO NOT use placeholders.',
+        'Read instructions.md for the detailed schema. Read payload.json for context.',
+        'If file writing is blocked, print between ARTICLE_HTML_BEGIN and ARTICLE_HTML_END as last resort.',
         'Do not ask questions.',
     ].join(' ');
     if (profile.provider === 'codex') {
@@ -6804,8 +7451,10 @@ async function runAgentProcess(profile, jobDir, lastMessagePath) {
             child.on('error', (error) => {
                 stderr = (stderr + `\n${error.message}`).slice(-240000);
             });
-            // v3.8.114: timeout 12분 → 6분 단축 (한도 도달 시 사용자가 너무 오래 기다림)
-            const TIMEOUT_MS = 6 * 60 * 1000;
+            // v3.8.281: timeout 25분 → 12분 (Single shot이라 6단계 안 거침)
+            // 사용자 지적: '25분이면 너무 오래걸려. 그시간에 수동으로해도 빠르게하겠다'
+            // 정확함. Single shot이면 5~8분에 완성. 12분이면 안전 마진 충분.
+            const TIMEOUT_MS = 12 * 60 * 1000;
             const timeout = setTimeout(() => {
                 timedOut = true;
                 try {
@@ -6817,6 +7466,15 @@ async function runAgentProcess(profile, jobDir, lastMessagePath) {
             }, TIMEOUT_MS);
             child.on('close', (exitCode) => {
                 clearTimeout(timeout);
+                // v3.8.283: 실제 CLI가 정상 종료/타임아웃/에러 어떤지 진단 로그 강화
+                console.log(`[AGENT-CLI] 🏁 종료: exitCode=${exitCode}, timedOut=${timedOut}, stdout=${stdout.length}자, stderr=${stderr.length}자`);
+                if (timedOut) {
+                    console.warn(`[AGENT-CLI] ⚠️ TIMEOUT (12분 초과) — agent가 시간 안에 못 끝남. CLI 한도/모델/네트워크 의심.`);
+                }
+                if (exitCode !== 0 && !timedOut) {
+                    console.warn(`[AGENT-CLI] ⚠️ 비정상 종료 exitCode=${exitCode}`);
+                    console.warn(`[AGENT-CLI] stderr 마지막 500자: ${stderr.slice(-500)}`);
+                }
                 resolve({ exitCode, stdout, stderr, timedOut });
             });
         });
@@ -6992,23 +7650,106 @@ function findAgentHtmlOutput(jobDir) {
 function readAgentJobResult(jobDir, stdout, lastMessagePath) {
     const articlePath = path.join(jobDir, 'result', 'article.html');
     const metadataPath = path.join(jobDir, 'result', 'metadata.json');
+    // v3.8.283: 진단 로그 강화 — 어디서 잘림 발생하는지 정확히 추적
+    console.log(`[AGENT-RESULT] 📂 jobDir=${jobDir}`);
+    console.log(`[AGENT-RESULT] 📄 article.html 존재? ${fs.existsSync(articlePath) ? 'YES' : 'NO'}`);
+    console.log(`[AGENT-RESULT] 📋 metadata.json 존재? ${fs.existsSync(metadataPath) ? 'YES' : 'NO'}`);
     const finalMessage = readTextFileIfExists(lastMessagePath)
         || extractAgentFinalMessageFromJsonl(stdout)
         || stdout;
-    let content = readTextFileIfExists(articlePath)
-        || findAgentHtmlOutput(jobDir)
-        || extractHtmlFromAgentText(finalMessage)
-        || extractHtmlFromAgentText(stdout);
+    let content = '';
+    let contentSource = '';
+    const articleFile = readTextFileIfExists(articlePath);
+    if (articleFile) {
+        content = articleFile;
+        contentSource = 'article.html';
+    }
+    else {
+        const foundHtml = findAgentHtmlOutput(jobDir);
+        if (foundHtml) {
+            content = foundHtml;
+            contentSource = 'findAgentHtmlOutput(jobDir)';
+        }
+        else {
+            const fromFinal = extractHtmlFromAgentText(finalMessage);
+            if (fromFinal) {
+                content = fromFinal;
+                contentSource = 'finalMessage';
+            }
+            else {
+                content = extractHtmlFromAgentText(stdout);
+                contentSource = 'stdout (fallback)';
+            }
+        }
+    }
+    console.log(`[AGENT-RESULT] ✅ content 소스=${contentSource}, 길이=${content.length}자`);
+    console.log(`[AGENT-RESULT] 📏 마지막 200자: ${content.slice(-200).replace(/\s+/g, ' ')}`);
+    // 잘림 추정 검증
+    const hasClosingTag = /<\/article>|<\/div>|<\/section>|<\/html>/i.test(content.slice(-500));
+    const hasEllipsis = /\.\.\./g.test(content.slice(-500));
+    const lastH2Match = content.match(/<h2[^>]*>([^<]+)<\/h2>/gi);
+    const lastH2 = lastH2Match ? lastH2Match[lastH2Match.length - 1] : '';
+    console.log(`[AGENT-RESULT] 🔍 잘림 검증: 닫힘 태그=${hasClosingTag ? 'OK' : '❌'}, '...' 발견=${hasEllipsis ? '⚠️' : 'OK'}`);
+    console.log(`[AGENT-RESULT] 🔚 마지막 H2: ${lastH2}`);
     let metadata = {};
     try {
         if (fs.existsSync(metadataPath)) {
             metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+            const promptKeys = Object.keys(metadata?.imagePrompts || {});
+            console.log(`[AGENT-RESULT] 🖼️ imagePrompts 키: [${promptKeys.join(', ') || '없음 ⚠️'}]`);
+            if (metadata?.imagePrompts?.thumbnail) {
+                console.log(`[AGENT-RESULT] 🖼️ 썸네일 prompt: ${String(metadata.imagePrompts.thumbnail).slice(0, 100)}...`);
+            }
+            else {
+                console.warn(`[AGENT-RESULT] ⚠️ 썸네일 prompt 누락! 사이트에 X 아이콘만 표시됨`);
+            }
+        }
+        else {
+            // v3.8.284: 안전망 — metadata.json 없으면 finalMessage/stdout에서 JSON 블록 추출 시도
+            console.warn(`[AGENT-RESULT] ⚠️ metadata.json 파일 없음 — finalMessage/stdout에서 JSON 추출 시도`);
+            const allText = `${finalMessage}\n${stdout}`;
+            const jsonBlockMatch = allText.match(/\{[\s\S]*?"imagePrompts"[\s\S]*?\}/);
+            if (jsonBlockMatch) {
+                try {
+                    // 시작 { 부터 균형 잡힌 } 까지 추출
+                    const startIdx = allText.indexOf(jsonBlockMatch[0]);
+                    let depth = 0;
+                    let endIdx = -1;
+                    for (let i = startIdx; i < allText.length; i++) {
+                        if (allText[i] === '{')
+                            depth++;
+                        else if (allText[i] === '}') {
+                            depth--;
+                            if (depth === 0) {
+                                endIdx = i;
+                                break;
+                            }
+                        }
+                    }
+                    if (endIdx > startIdx) {
+                        const extracted = allText.slice(startIdx, endIdx + 1);
+                        metadata = JSON.parse(extracted);
+                        console.log(`[AGENT-RESULT] ✅ 안전망: finalMessage/stdout에서 metadata 추출 성공 (${extracted.length}자)`);
+                        const promptKeys = Object.keys(metadata?.imagePrompts || {});
+                        console.log(`[AGENT-RESULT] 🖼️ imagePrompts 키 (추출): [${promptKeys.join(', ') || '없음'}]`);
+                    }
+                }
+                catch (extractErr) {
+                    console.warn(`[AGENT-RESULT] ⚠️ 안전망 추출 실패:`, extractErr.message);
+                }
+            }
+            if (!metadata.imagePrompts) {
+                console.warn(`[AGENT-RESULT] ⚠️ 썸네일 + Schema 자동 생성 안 됨 (metadata 없음)`);
+            }
         }
     }
     catch (error) {
         metadata = { warnings: [`metadata.json 파싱 실패: ${error instanceof Error ? error.message : String(error)}`] };
+        console.error(`[AGENT-RESULT] ❌ metadata.json 파싱 실패:`, error);
     }
     const title = String(metadata?.title || extractHtmlTitle(content) || '').trim();
+    console.log(`[AGENT-RESULT] 📝 최종 title: "${title}"`);
+    console.log(`[AGENT-RESULT] 📂 디버깅: 위 jobDir 경로 열어서 article.html / metadata.json 직접 확인 가능`);
     return { content, title, metadata, finalMessage };
 }
 function normalizeAgentErrorMessage(value) {
@@ -7482,6 +8223,25 @@ function isBlockedAgentBinaryCandidate(candidate, binaryName) {
     const normalized = candidate.replace(/\//g, '\\').toLowerCase();
     return normalized.includes('\\windowsapps\\');
 }
+function getClaudeNativeInstallDirs() {
+    // v3.8.241: Claude Code 공식 네이티브 설치기는 ~/.local/bin (Windows: C:\Users\<user>\.local\bin)에 설치
+    // PATH 미등록 케이스 대응 — 직접 후보 경로로 추가
+    const dirs = [];
+    const home = electron_1.app.getPath('home');
+    if (home)
+        pushUniquePath(dirs, path.join(home, '.local', 'bin'));
+    if (process.platform === 'win32') {
+        if (process.env.USERPROFILE)
+            pushUniquePath(dirs, path.join(process.env.USERPROFILE, '.local', 'bin'));
+        if (process.env.LOCALAPPDATA)
+            pushUniquePath(dirs, path.join(process.env.LOCALAPPDATA, 'Programs', 'claude-code'));
+    }
+    else {
+        if (process.env.HOME)
+            pushUniquePath(dirs, path.join(process.env.HOME, '.local', 'bin'));
+    }
+    return dirs;
+}
 function getAgentBinaryCandidates(binaryName) {
     const candidates = [];
     const npmPrefixes = [];
@@ -7499,6 +8259,15 @@ function getAgentBinaryCandidates(binaryName) {
             pushUniquePath(candidates, path.join(prefix, binaryName));
             pushUniquePath(candidates, path.join(prefix, `${binaryName}.ps1`));
         }
+        // v3.8.241: Claude Code 네이티브 설치 경로 (~/.local/bin) — PATH 미등록 케이스
+        if (binaryName === 'claude') {
+            for (const dir of getClaudeNativeInstallDirs()) {
+                pushUniquePath(candidates, path.join(dir, 'claude.exe'));
+                pushUniquePath(candidates, path.join(dir, 'claude.cmd'));
+                pushUniquePath(candidates, path.join(dir, 'claude.bat'));
+                pushUniquePath(candidates, path.join(dir, 'claude'));
+            }
+        }
     }
     else {
         pushUniquePath(npmPrefixes, process.env.npm_config_prefix);
@@ -7507,6 +8276,12 @@ function getAgentBinaryCandidates(binaryName) {
             if (binaryName === 'codex')
                 pushUniquePath(candidates, getCodexNativeBinaryCandidate(prefix));
             pushUniquePath(candidates, path.join(prefix, 'bin', binaryName));
+        }
+        // v3.8.241: Claude Code 네이티브 설치 경로 (~/.local/bin) — macOS/Linux 동일
+        if (binaryName === 'claude') {
+            for (const dir of getClaudeNativeInstallDirs()) {
+                pushUniquePath(candidates, path.join(dir, 'claude'));
+            }
         }
     }
     const locator = process.platform === 'win32' ? 'where.exe' : 'which';
@@ -9564,8 +10339,29 @@ electron_1.ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payl
         const perplexityKey = (envData.perplexityKey || envData.PERPLEXITY_API_KEY || process.env['PERPLEXITY_API_KEY'] || '').trim();
         const preferredEngine = resolveExternalTrafficEngine(payload, envData);
         const preferredGeminiModel = resolveExternalTrafficModel(payload, envData);
-        // 최소 1개 키 필요
-        if (!geminiKey && !openaiKey && !claudeKey && !perplexityKey) {
+        // v3.8.271: 에이전트 모드 (Codex CLI / Claude Code CLI) 분기 — API 폴백 X
+        // 사용자가 명시적으로 'agent' 선택했으면 끝까지 agent 사용. 모르게 API 비용 발생 X.
+        const useAgentMode = payload.executionMode === 'agent' && payload.agentProvider;
+        let agentProfile = null;
+        if (useAgentMode) {
+            agentProfile = findAgentProfile(undefined, payload.agentProvider);
+            if (!agentProfile) {
+                // v3.8.271: 폴백 X — 명확한 에러로 사용자에게 진단 정보 제공
+                return {
+                    success: false,
+                    error: `AGENT_PROFILE_NOT_FOUND: ${payload.agentProvider} 프로필을 찾을 수 없습니다.\n\n환경설정 → AI 엔진에서:\n1. Codex/Claude Code 계정 로그인 확인\n2. CLI 설치 확인 (Codex: npm install -g @openai/codex, Claude Code: irm https://claude.ai/install.ps1 | iex)\n3. 다시 외부유입 글 생성 시도`,
+                };
+            }
+            const accessStatus = await getAgentModeAccessStatus();
+            if (!accessStatus.allowed) {
+                return {
+                    success: false,
+                    error: `AGENT_ACCESS_DENIED: ${accessStatus.message || '에이전트 모드 사용 권한 없음'}\n\n구독 상태 확인 후 다시 시도하세요.\n또는 환경설정 → AI 엔진에서 API 모드로 변경.`,
+                };
+            }
+        }
+        // API 모드만 키 검증 (agent 모드는 API 키 불필요)
+        if (!useAgentMode && !geminiKey && !openaiKey && !claudeKey && !perplexityKey) {
             return { success: false, error: 'API 키가 필요합니다. 설정 탭에서 Gemini / OpenAI / Claude / Perplexity 중 하나 이상 입력해주세요.' };
         }
         const sourceSummary = dispatcher.buildMinimalSummary(validated.sourceTitle, validated.sourceText || validated.sourceUrl);
@@ -9590,21 +10386,75 @@ electron_1.ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payl
                 let userPrompt = promptPair.user;
                 let attempt = 0;
                 let lastResult = null;
-                while (attempt < 2) {
-                    // 사용자 선호 엔진 우선, 실패 시 fallback chain
-                    const callRes = await callLLMWithPreference({
-                        system: promptPair.system,
-                        user: userPrompt,
-                        maxOutputTokens: promptPair.maxOutputTokens || 2000,
-                        temperature: 0.85,
-                        geminiKey,
-                        openaiKey,
-                        claudeKey,
-                        perplexityKey,
-                        preferredEngine,
-                        preferredGeminiModel,
-                        fallback,
-                    });
+                // v3.8.254: 처음부터 최대 토큰 사용 (불필요한 truncation 재시도 차단)
+                // 모든 LLM 프로바이더 안전 공통 한도 = 8000 (Gemini Flash 8192, Claude Sonnet 8192,
+                // GPT-4o 16384, Gemini Pro 65536) — 8000이면 모든 프로바이더에서 안전
+                // structured 채널은 처음부터 8000, 일반 채널은 4000 (regular는 본문만 짧음)
+                const isStructuredChannel = typeof channelObj.processStructuredResponse === 'function';
+                const baseMaxTokens = promptPair.maxOutputTokens
+                    || (isStructuredChannel ? 8000 : 4000);
+                while (attempt < 3) {
+                    // v3.8.271: 에이전트 모드 명시 시 API 폴백 X. 끝까지 agent. 사용자 의도 존중.
+                    let callRes = null;
+                    if (agentProfile) {
+                        // === Agent 모드 (폴백 없음) ===
+                        try {
+                            const agentText = await runExternalTrafficAgent({
+                                profile: agentProfile,
+                                system: promptPair.system,
+                                user: userPrompt,
+                                channelId: ch.id,
+                                channelName: channelObj.name || ch.id,
+                                isStructured: isStructuredChannel,
+                            });
+                            if (agentText && agentText.length >= 100) {
+                                callRes = { text: agentText, provider: `agent:${agentProfile.provider}`, model: agentProfile.provider };
+                                console.log(`[EXT-TRAFFIC v2] ✅ ${ch.id} agent (${agentProfile.provider}) 응답 ${agentText.length}자`);
+                            }
+                            else {
+                                // 응답 너무 짧음 → 다음 시도 (max_tokens 늘려서 retry)
+                                console.warn(`[EXT-TRAFFIC v2] ${ch.id} agent 응답 너무 짧음 (${agentText?.length || 0}자, attempt ${attempt + 1}/3)`);
+                                attempt++;
+                                if (attempt >= 3) {
+                                    // 3회 모두 실패 → 채널 에러로 반환 (다른 채널은 계속 진행)
+                                    results[ch.id] = {
+                                        error: `AGENT_RESPONSE_TOO_SHORT: ${agentProfile.provider} CLI가 충분한 응답을 생성하지 못했습니다 (${agentText?.length || 0}자, 3회 시도). 환경설정 → AI 엔진 → API 모드로 변경하거나 같은 채널 다시 시도.`,
+                                    };
+                                    break;
+                                }
+                                continue;
+                            }
+                        }
+                        catch (agentErr) {
+                            const msg = agentErr?.message || String(agentErr);
+                            console.error(`[EXT-TRAFFIC v2] ${ch.id} agent 실행 실패:`, msg);
+                            // agent 실패 → 채널 에러로 반환 (API 폴백 X)
+                            results[ch.id] = {
+                                error: `AGENT_EXECUTION_FAILED: ${agentProfile.provider} CLI 실행 실패. ${msg.slice(0, 200)}\n\n다음을 확인하세요:\n1. ${agentProfile.provider} CLI 설치/로그인 상태\n2. 환경설정 → AI 엔진 → 권한 확인\n3. 또는 API 모드로 변경`,
+                            };
+                            break;
+                        }
+                    }
+                    else {
+                        // === API 모드 (기존 동작) ===
+                        callRes = await callLLMWithPreference({
+                            system: promptPair.system,
+                            user: userPrompt,
+                            maxOutputTokens: baseMaxTokens,
+                            temperature: 0.85,
+                            geminiKey,
+                            openaiKey,
+                            claudeKey,
+                            perplexityKey,
+                            preferredEngine,
+                            preferredGeminiModel,
+                            fallback,
+                        });
+                    }
+                    if (!callRes) {
+                        // agent 실패 케이스에서 break로 빠져나옴 — 다음 채널로
+                        break;
+                    }
                     const text = (callRes.text || '').trim();
                     const fullPrompt = `${promptPair.system}\n\n${userPrompt}`;
                     const inputTokens = Math.ceil(fullPrompt.length / 2.5);
@@ -9673,6 +10523,159 @@ electron_1.ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payl
     }
 });
 // v3.8.1: 환경설정 모델 선호 + llm-fallback 통합 호출
+// v3.8.272: 외부유입 글 생성용 에이전트 실행 — Agent를 API보다 압도적으로 만드는 5축
+// 1. Agent 사고력 활용: 6단계 thinking 강제 (분석→전략→초안→자가비평→재작성→최종)
+// 2. 풍부한 컨텍스트: 채널별 viral DNA 전체 + 7원칙 + 자가체크 12가지 명시
+// 3. Self-critique 루프: agent가 자기 출력을 점수화하고 약점 발견 시 재작성
+// 4. 다중 파일 분리: thinking.md (사고) + draft.md (초안) + critique.md (비평) + output.json/txt (최종)
+// 5. JSON output 정확성: structured 채널은 output.json 명시, parser가 정확히 추출
+async function runExternalTrafficAgent(opts) {
+    const jobDir = path.join(electron_1.app.getPath('userData'), 'external-traffic-agent-jobs', `${opts.channelId}-${Date.now()}`);
+    fs.mkdirSync(path.join(jobDir, 'result'), { recursive: true });
+    const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
+    const outputJsonPath = path.join(jobDir, 'result', 'output.json');
+    const outputTxtPath = path.join(jobDir, 'result', 'output.txt');
+    const articleHtmlPath = path.join(jobDir, 'result', 'article.html');
+    const channelIdUpper = opts.channelId.toUpperCase().replace(/-/g, '_');
+    // v3.8.272: Agent의 진짜 강점을 활용하는 풍부한 instructions
+    const instructions = [
+        '# 외부유입 글 생성 — 끝판왕 작업',
+        '',
+        `## 대상 채널: ${opts.channelName} (id: \`${opts.channelId}\`)`,
+        `## 출력 형식: ${opts.isStructured ? 'Structured JSON' : 'Plain Text'}`,
+        '',
+        '## 작업 목표',
+        `당신은 ${opts.channelName} 외부유입 글 1개를 생성합니다. 평균 조회수 1만+ 가능한 viral 글이 목표.`,
+        'API LLM 호출과 달리, 당신(Agent)는 다음 능력을 활용합니다:',
+        '- **다단계 사고**: 분석 → 전략 → 초안 → 자가비평 → 재작성',
+        '- **중간 파일 작성**: thinking/draft/critique 단계별 파일',
+        '- **자가 점검 루프**: 12가지 viral 자가체크 항목 모두 통과까지 재작성',
+        '',
+        '## 6단계 사고 프로세스 — 반드시 순서대로 파일 작성',
+        '',
+        '### 1단계: 원문 분석 (thinking.md)',
+        '`result/thinking.md` 파일에 다음을 작성:',
+        '- 원문 핵심 토픽 1줄',
+        '- 청중 인지도 (unaware / aware / mixed)',
+        '- 원문에 있는 명확한 사실 (수치/조건/시점) 3~5개',
+        '- 원문에 없어서 만들면 안 되는 정보 (인물/통계/사례)',
+        '- 이 채널의 KPI (댓글/공유/저장/검색)',
+        '',
+        '### 2단계: viral 패턴 선택 (strategy.md)',
+        '`result/strategy.md` 파일에 작성:',
+        '- A안 viral 패턴 stack (2개): 어떤 패턴 + 왜',
+        '- B안 viral 패턴 stack (2개): 다른 조합',
+        '- C안 viral 패턴 stack (2개): 또 다른 조합',
+        '- 각 안의 첫 줄 후보 3개씩',
+        '',
+        '### 3단계: 초안 작성 (draft.md)',
+        '`result/draft.md` 파일에 A/B/C 3안 작성. 다음 시스템 지시 따름:',
+        '',
+        '```',
+        opts.system,
+        '```',
+        '',
+        '### 4단계: 자가 비평 (critique.md)',
+        '`result/critique.md` 파일에 각 안 12가지 자가체크:',
+        '1. 모든 사실이 원문에서 나왔는가? (FACT)',
+        '2. 꾸며낸 인물/통계/사례 있는가? NO여야',
+        '3. 작성자 본인 신원(나이/직업/소득) 추측 있는가? NO여야',
+        '4. "원문 보니까" link bait 어조 있는가? NO여야',
+        '5. 첫 줄에서 멈춘 후 끝까지 읽히는가?',
+        '6. aware 청중도 자기 점검하며 클릭할까?',
+        '7. 디테일 hint 2개 자연스럽게 심었는가?',
+        '8. 평균 조회수 1만+ 목표라면 그대로 쓸까?',
+        '9. 본문에 의심점/리스크 1개 명시? (광고 차단)',
+        '10. 단일 긍정 톤은 아닌가? (양면 노출 필수)',
+        '11. (Shorts/Threads/X) 첫 3초 hook 즉각? 일반 인사 X',
+        '12. (댓글 채널) hedging 표현 1개? "~인 것 같은데"',
+        '',
+        '점수: 각 자가체크 통과 12개 중 몇 개? 12개 모두 YES면 통과. 1개라도 NO면 5단계.',
+        '',
+        '### 5단계: 약점 재작성 (refined.md)',
+        'critique.md에서 NO인 항목을 모두 통과하도록 본문 재작성. `result/refined.md`에 작성.',
+        '',
+        '### 6단계: 최종 출력',
+        opts.isStructured
+            ? [
+                '`result/output.json` 파일에 다음 형식의 JSON 작성:',
+                '```json',
+                '{',
+                `  "rawText": "<${channelIdUpper}_RESULT_JSON>{ ... 채널별 schema ... }</${channelIdUpper}_RESULT_JSON>"`,
+                '}',
+                '```',
+                '',
+                'rawText 안에는 사용자 지시(아래)에 명시된 정확한 XML 태그 + JSON 스키마 그대로:',
+                '',
+                '```',
+                opts.user,
+                '```',
+                '',
+                '**중요**: rawText는 채널 파서가 정확히 파싱해야 하므로 schema 필드명 정확히. variants 3개 (A/B/C), 각 variant에 finalRevision 필수.',
+            ].join('\n')
+            : [
+                '`result/output.txt` 파일에 평문 응답 작성:',
+                '',
+                '```',
+                opts.user,
+                '```',
+            ].join('\n'),
+        '',
+        '## 사용자 지시 (원본)',
+        opts.user,
+        '',
+        '## 절대 규칙',
+        '- 6단계 모두 파일 작성 필수 (생략 X)',
+        '- 마지막 출력 파일에 부가 설명/머리말/마무리말 X (순수 본문/JSON만)',
+        '- 코드펜스(```) 사용 X',
+        '- 사실 조작 = 즉시 실패. 원문에 없는 인물/통계/사례 만들기 절대 금지',
+        '- 광고/낚시 톤 = 즉시 실패. "꼭 알려줘" / "참고해봐" 등',
+        '',
+        '## 출력 마감',
+        opts.isStructured
+            ? 'result/output.json — JSON 형식 정확히, variants 3개 finalRevision 모두 채움'
+            : 'result/output.txt — 평문, viral DNA 적용된 최종',
+    ].join('\n');
+    fs.writeFileSync(path.join(jobDir, 'instructions.md'), instructions, 'utf-8');
+    fs.writeFileSync(path.join(jobDir, 'payload.json'), JSON.stringify({
+        channelId: opts.channelId,
+        channelName: opts.channelName,
+        isStructured: opts.isStructured,
+        expectedOutputFile: opts.isStructured ? 'result/output.json' : 'result/output.txt',
+    }, null, 2), 'utf-8');
+    // 에이전트 실행
+    const run = await runAgentProcess(opts.profile, jobDir, lastMessagePath);
+    // v3.8.272: 출력 파일 우선순위 — output.json → output.txt → article.html → final-message
+    let raw = '';
+    try {
+        if (opts.isStructured && fs.existsSync(outputJsonPath)) {
+            const jsonContent = JSON.parse(fs.readFileSync(outputJsonPath, 'utf-8'));
+            raw = String(jsonContent.rawText || '').trim();
+            if (raw) {
+                console.log(`[EXT-TRAFFIC AGENT] ✅ ${opts.channelId} output.json 사용 (${raw.length}자)`);
+            }
+        }
+        if (!raw && fs.existsSync(outputTxtPath)) {
+            raw = fs.readFileSync(outputTxtPath, 'utf-8').trim();
+            if (raw)
+                console.log(`[EXT-TRAFFIC AGENT] ✅ ${opts.channelId} output.txt 사용 (${raw.length}자)`);
+        }
+        if (!raw && fs.existsSync(articleHtmlPath)) {
+            raw = fs.readFileSync(articleHtmlPath, 'utf-8').trim();
+            if (raw)
+                console.log(`[EXT-TRAFFIC AGENT] ${opts.channelId} article.html fallback (${raw.length}자)`);
+        }
+    }
+    catch (parseErr) {
+        console.warn(`[EXT-TRAFFIC AGENT] ${opts.channelId} 출력 파일 파싱 실패:`, parseErr?.message);
+    }
+    if (!raw) {
+        const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
+        raw = String(result.content || result.finalMessage || '').trim();
+        console.log(`[EXT-TRAFFIC AGENT] ${opts.channelId} final-message fallback (${raw.length}자)`);
+    }
+    return raw;
+}
 async function callLLMWithPreference(opts) {
     const params = {
         system: opts.system,
@@ -9829,7 +10832,149 @@ electron_1.ipcMain.handle('adsense:open-console', async (_evt, payload) => {
         return { ok: false, error: e?.message || String(e) };
     }
 });
-// 사이트 자동 진단 (RSS 파싱 + 패턴 검사)
+function loadPlatformCredsFromEnv(envData, override) {
+    const platform = override?.platform === 'wordpress' ? 'wordpress' : 'blogger';
+    if (platform === 'wordpress') {
+        return {
+            platform,
+            siteUrl: String(override?.siteUrl || envData.wordpressSiteUrl || envData.wpSiteUrl || envData.WORDPRESS_SITE_URL || envData.WP_SITE_URL || '').replace(/\/$/, ''),
+            username: String(override?.username || envData.wordpressUsername || envData.wpUsername || envData.WORDPRESS_USERNAME || envData.WP_USERNAME || ''),
+            password: String(override?.password || envData.wordpressPassword || envData.wpPassword || envData.WORDPRESS_PASSWORD || envData.WP_PASSWORD || envData.WORDPRESS_APP_PASSWORD || ''),
+            jwtToken: String(override?.jwtToken || envData.jwtToken || envData.wordpressJwtToken || envData.WP_JWT_TOKEN || ''),
+        };
+    }
+    return {
+        platform: 'blogger',
+        blogId: String(override?.blogId || envData.blogId || envData.BLOG_ID || '').trim(),
+        bloggerToken: String(override?.bloggerToken || envData.BLOGGER_ACCESS_TOKEN || ''),
+    };
+}
+function buildPlatformAdapter(creds, axiosInstance) {
+    if (creds.platform === 'wordpress') {
+        const siteUrl = creds.siteUrl;
+        if (!siteUrl)
+            throw new Error('WordPress 사이트 URL 누락');
+        const headers = {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'User-Agent': 'LEADERNAM-Orbit/AdSense',
+        };
+        if (creds.jwtToken)
+            headers.Authorization = `Bearer ${creds.jwtToken}`;
+        else if (creds.username && creds.password)
+            headers.Authorization = `Basic ${Buffer.from(`${creds.username}:${creds.password}`).toString('base64')}`;
+        else
+            throw new Error('WordPress 인증 정보 누락 (Application Password 또는 JWT)');
+        return {
+            platform: 'wordpress',
+            async listPosts(opts = {}) {
+                const items = [];
+                const maxResults = opts.maxResults || 1000;
+                let page = 1;
+                while (items.length < maxResults && page <= 50) {
+                    const r = await axiosInstance.get(`${siteUrl}/wp-json/wp/v2/posts`, {
+                        params: { per_page: 100, page, context: opts.fetchBodies ? 'edit' : 'view', status: 'publish' },
+                        headers, timeout: 45000, validateStatus: () => true,
+                    });
+                    if (r.status === 400 && r.data?.code === 'rest_post_invalid_page_number')
+                        break;
+                    if (r.status !== 200) {
+                        if (r.status === 401)
+                            throw new Error('WordPress 인증 실패 (Application Password 확인 필요)');
+                        throw new Error(`WordPress 목록 조회 실패 (${r.status}): ${JSON.stringify(r.data).slice(0, 160)}`);
+                    }
+                    const arr = Array.isArray(r.data) ? r.data : [];
+                    if (arr.length === 0)
+                        break;
+                    for (const p of arr) {
+                        const contentValue = p.content;
+                        const content = typeof contentValue === 'string' ? contentValue : (contentValue?.raw || contentValue?.rendered || '');
+                        const titleValue = p.title;
+                        const title = typeof titleValue === 'string' ? titleValue : (titleValue?.raw || titleValue?.rendered || '');
+                        items.push({ id: String(p.id), title, url: p.link || '', content: opts.fetchBodies ? content : '', published: p.date });
+                    }
+                    page++;
+                }
+                return items;
+            },
+            async getPost(postId) {
+                const r = await axiosInstance.get(`${siteUrl}/wp-json/wp/v2/posts/${encodeURIComponent(postId)}?context=edit`, {
+                    headers, timeout: 30000,
+                });
+                const p = r.data;
+                const content = typeof p.content === 'string' ? p.content : (p.content?.raw || p.content?.rendered || '');
+                const title = typeof p.title === 'string' ? p.title : (p.title?.raw || p.title?.rendered || '');
+                return { id: String(p.id), title, url: p.link || '', content, published: p.date };
+            },
+            async updatePost(postId, fields) {
+                const body = {};
+                if (fields.title !== undefined)
+                    body.title = fields.title;
+                if (fields.content !== undefined)
+                    body.content = fields.content;
+                await axiosInstance.post(`${siteUrl}/wp-json/wp/v2/posts/${encodeURIComponent(postId)}`, body, {
+                    headers, timeout: 30000,
+                });
+            },
+            async deletePost(postId) {
+                await axiosInstance.delete(`${siteUrl}/wp-json/wp/v2/posts/${encodeURIComponent(postId)}?force=true`, {
+                    headers, timeout: 30000,
+                });
+            },
+        };
+    }
+    // Blogger
+    const blogId = creds.blogId;
+    const accessToken = creds.bloggerToken;
+    if (!blogId)
+        throw new Error('Blog ID 누락');
+    if (!accessToken)
+        throw new Error('Blogger OAuth 토큰 누락');
+    const bloggerHeaders = { Authorization: `Bearer ${accessToken}` };
+    return {
+        platform: 'blogger',
+        async listPosts(opts = {}) {
+            const items = [];
+            const maxResults = opts.maxResults || 1000;
+            let pageToken;
+            do {
+                const r = await axiosInstance.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts`, {
+                    headers: bloggerHeaders,
+                    params: { maxResults: 50, fetchBodies: !!opts.fetchBodies, status: 'live', pageToken },
+                    timeout: 45000,
+                });
+                for (const p of (r.data?.items || [])) {
+                    items.push({ id: p.id, title: p.title || '', url: p.url || '', content: p.content || '', published: p.published });
+                }
+                pageToken = r.data?.nextPageToken;
+                if (items.length >= maxResults)
+                    break;
+            } while (pageToken);
+            return items;
+        },
+        async getPost(postId) {
+            const r = await axiosInstance.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`, {
+                headers: bloggerHeaders, timeout: 30000,
+            });
+            return { id: r.data.id, title: r.data.title || '', url: r.data.url || '', content: r.data.content || '', published: r.data.published };
+        },
+        async updatePost(postId, fields) {
+            const body = {};
+            if (fields.title !== undefined)
+                body.title = fields.title;
+            if (fields.content !== undefined)
+                body.content = fields.content;
+            await axiosInstance.patch(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`, body, {
+                headers: { ...bloggerHeaders, 'Content-Type': 'application/json' }, timeout: 30000,
+            });
+        },
+        async deletePost(postId) {
+            await axiosInstance.delete(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`, {
+                headers: bloggerHeaders, timeout: 30000,
+            });
+        },
+    };
+}
 electron_1.ipcMain.handle('adsense:diagnose', async (_evt, payload) => {
     try {
         const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
@@ -9865,11 +11010,15 @@ electron_1.ipcMain.handle('adsense:diagnose', async (_evt, payload) => {
                 topicCount[kw] = (topicCount[kw] || 0) + 1;
             }
         }
-        const duplicates = Object.entries(topicCount)
+        // v3.8.243: 토픽 반복 = 거미줄/cornerstone 전략으로 의도된 케이스가 많음
+        // AdSense의 실제 "중복 콘텐츠" 위반은 본문이 거의 동일한 페이지를 의미하지, 같은 토픽의 다각도 글이 아님
+        // → 토픽 반복은 "위반"이 아닌 "구조 분석" 정보로 분리. 거미줄 사용자에게 친절한 안내 추가.
+        const topicClusters = Object.entries(topicCount)
             .filter(([, n]) => n >= 4)
             .sort((a, b) => b[1] - a[1])
             .slice(0, 10)
             .map(([topic, count]) => ({ topic, count }));
+        const duplicates = topicClusters; // 하위 호환 (기존 UI 동작 유지)
         // 기능 페이지 확인 (about, privacy, contact)
         const pageChecks = await Promise.all([
             axios.get(`${siteUrl}/p/about.html`, { timeout: 10000, validateStatus: () => true }).then((r) => ({ name: 'about', exists: r.status === 200 })).catch(() => ({ name: 'about', exists: false })),
@@ -9882,13 +11031,17 @@ electron_1.ipcMain.handle('adsense:diagnose', async (_evt, payload) => {
             total,
             titleViolationsCount: titleViolations.length,
             titleViolations: titleViolations.slice(0, 50),
+            // v3.8.243: 두 키 모두 전달. duplicateTopics는 하위 호환, topicClusters가 정확한 의미
             duplicateTopics: duplicates,
+            topicClusters,
+            topicClustersNote: '같은 토픽 4회+ 등장은 거미줄(cornerstone+spokes) 전략으로 의도된 경우가 많습니다. 본문이 실제로 동일하지 않다면 AdSense 위반이 아닙니다.',
             missingPages,
             summary: {
                 totalPosts: total,
                 clickbaitCount: titleViolations.length,
                 clickbaitPercent: total > 0 ? Math.round((titleViolations.length / Math.min(entries.length, total)) * 100) : 0,
                 duplicateTopicCount: duplicates.length,
+                topicClusterCount: topicClusters.length,
                 missingPageCount: missingPages.length,
             },
         };
@@ -9995,55 +11148,218 @@ electron_1.ipcMain.handle('adsense:create-pages', async (_evt, payload) => {
 electron_1.ipcMain.handle('adsense:list-clickbait-posts', async (_evt, payload) => {
     try {
         const envData = (0, env_1.loadEnvFromFile)();
-        const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
-        const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
-        if (!blogId || !accessToken)
-            return { ok: false, error: 'Blog ID 또는 OAuth 토큰 누락' };
+        const creds = loadPlatformCredsFromEnv(envData, payload);
         const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
-        const posts = [];
-        let pageToken;
+        const adapter = buildPlatformAdapter(creds, axios);
         const PATTERNS = [
             /놓치(면|지)?\s*(안\s*)?(될|마)/, /꿀팁/, /왜\s*아무도/, /고수만/, /비법/, /완벽\s*가이드/,
             /효율\s*\d+%/, /\d+분\s*만에/, /놀라운/, /충격/, /이것만\s*알면/, /믿기지\s*않는/,
             /절대\s*하지\s*마/, /절대후회/, /역대급/, /레전드/, /미쳤다/, /대박/, /끝판왕/,
             /총정리/, /모든\s*것/, /A\s*to\s*Z/,
         ];
-        do {
-            const r = await axios.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts`, {
-                headers: { Authorization: `Bearer ${accessToken}` },
-                params: { maxResults: 50, fetchBodies: false, status: 'live', pageToken },
-                timeout: 30000,
-            });
-            for (const p of (r.data?.items || [])) {
-                const matches = [];
-                for (const pat of PATTERNS)
-                    if (pat.test(p.title || ''))
-                        matches.push(String(pat).replace(/^\/|\/[gimsuy]*$/g, ''));
-                if (matches.length > 0)
-                    posts.push({ id: p.id, title: p.title, url: p.url, matches });
-            }
-            pageToken = r.data?.nextPageToken;
+        // v3.8.247: 어댑터로 제목만 페치 (fetchBodies: false)
+        const allPosts = await adapter.listPosts({ fetchBodies: false, maxResults: 1000 });
+        const posts = [];
+        for (const p of allPosts) {
+            const matches = [];
+            for (const pat of PATTERNS)
+                if (pat.test(p.title || ''))
+                    matches.push(String(pat).replace(/^\/|\/[gimsuy]*$/g, ''));
+            if (matches.length > 0)
+                posts.push({ id: p.id, title: p.title, url: p.url, matches });
             if (posts.length >= 500)
                 break;
-        } while (pageToken);
+        }
         return { ok: true, total: posts.length, posts };
     }
     catch (e) {
         return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
     }
 });
-// 자동 제목 정리 (사용자 승인 후 실행)
+// v3.8.244: "가치가 별로 없는 콘텐츠" 사유 대응 — 본문 가치 점수 진단기
+// AdSense 거절 사유 #2 (Clickbait/누락 페이지와 별개 차원의 문제)
+// 다축 채점: 깊이(글자수/H2수) + 1인칭/경험 마커 + 구조 다양성 + E-E-A-T 신호 + 원본 데이터
+electron_1.ipcMain.handle('adsense:analyze-content-value', async (_evt, payload) => {
+    try {
+        const envData = (0, env_1.loadEnvFromFile)();
+        const creds = loadPlatformCredsFromEnv(envData, payload);
+        const sampleSize = Math.min(Math.max(payload.sampleSize || 20, 5), 50);
+        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const adapter = buildPlatformAdapter(creds, axios);
+        // v3.8.247: 플랫폼 어댑터로 sample 글 페치 (Blogger + WordPress 통합)
+        const items = await adapter.listPosts({ fetchBodies: true, maxResults: sampleSize });
+        if (items.length === 0)
+            return { ok: false, error: '분석할 글 없음 (publish/live 상태 글 0개)' };
+        // 점수 계산 함수
+        const stripHtml = (s) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+        // 1인칭/경험 마커: AI 양산이면 거의 안 나옴
+        const PERSONAL_MARKERS = [
+            /\b저(는|는요|희|희들|는\s*개인적으로)\b/g, /\b제(가|일|경우|입장에서)\b/g,
+            /경험상/g, /실제로\s*해보(니|니까|면)/g, /직접\s*(써|사용|먹어|입어|발라)\s*보(니|면)/g,
+            /개인적으로/g, /제\s*생각/g, /제\s*경험/g, /제가\s*(가본|먹어본|써본|입어본|발라본)/g,
+            /처음엔/g, /원래는/g, /솔직히/g, /\b결론적으로\s*저는\b/g,
+        ];
+        // 구체 데이터 마커: 가치 있는 글의 특징
+        const SPECIFIC_DATA_MARKERS = [
+            /\d{4}년\s*\d+월/g, /\d+만원|\d+,\d+원/g, /\d+%(?!\s*할인)/g,
+            /비교표|체크리스트|단계별|순서|예시/g, /vs\.?\s*[가-힯]/g,
+            /\d+개월\s*(써|사용|복용)/g, /실측|측정\s*결과/g,
+        ];
+        // E-E-A-T 신호: 출처/근거
+        const EEAT_MARKERS = [
+            /출처\s*[:：]/g, /근거\s*[:：]/g, /참고\s*[:：]/g, /\[자료\]/g,
+            /정부|보건복지부|국세청|식약처|공정거래위원회|식품의약품안전처/g,
+            /논문|연구|보고서|학회/g,
+        ];
+        // 양산형 의심 패턴
+        const SCALED_PATTERNS = [
+            /흔히\s*알려진/g, /많은\s*분(들)?(이|들이)/g, /\b여러분\s*안녕(하세요)?\b/g,
+            /오늘은\s*[가-힯\s]+에\s*대해\s*(알아|살펴)\s*보(겠습니다|아요|자)/g,
+            /지금\s*바로\s*확인하세요/g, /자세히\s*알아보(겠습니다|아요)/g,
+        ];
+        const scores = [];
+        for (const it of items) {
+            const html = String(it.content || '');
+            const text = stripHtml(html);
+            const wordCount = text.length;
+            const h2Count = (html.match(/<h2[^>]*>/gi) || []).length;
+            const imageCount = (html.match(/<img[^>]+>/gi) || []).length;
+            const personalScore = PERSONAL_MARKERS.reduce((sum, p) => sum + (text.match(p)?.length || 0), 0);
+            const specificScore = SPECIFIC_DATA_MARKERS.reduce((sum, p) => sum + (text.match(p)?.length || 0), 0);
+            const eeatScore = EEAT_MARKERS.reduce((sum, p) => sum + (text.match(p)?.length || 0), 0);
+            const scaledScore = SCALED_PATTERNS.reduce((sum, p) => sum + (text.match(p)?.length || 0), 0);
+            // 종합 점수 (100점 만점) — Google이 보는 신호 가중치 반영
+            let total = 0;
+            const reasons = [];
+            // 깊이 (40점)
+            if (wordCount >= 2500)
+                total += 40;
+            else if (wordCount >= 1500)
+                total += 28;
+            else if (wordCount >= 1000)
+                total += 15;
+            else {
+                total += 5;
+                reasons.push(`얇음 (${wordCount}자, 1500자+ 권장)`);
+            }
+            // 구조 (10점)
+            if (h2Count >= 5)
+                total += 10;
+            else if (h2Count >= 3)
+                total += 6;
+            else {
+                total += 2;
+                reasons.push(`H2 부족 (${h2Count}개, 5+ 권장)`);
+            }
+            // 1인칭/경험 (20점) — AI 양산 판별 핵심
+            if (personalScore >= 3)
+                total += 20;
+            else if (personalScore >= 1)
+                total += 10;
+            else {
+                total += 0;
+                reasons.push('1인칭/경험 표현 0개 (AI 양산 의심)');
+            }
+            // 구체 데이터 (15점)
+            if (specificScore >= 3)
+                total += 15;
+            else if (specificScore >= 1)
+                total += 8;
+            else {
+                total += 0;
+                reasons.push('구체 데이터 0개 (숫자/비교/사례 부족)');
+            }
+            // E-E-A-T 출처 (10점)
+            if (eeatScore >= 2)
+                total += 10;
+            else if (eeatScore >= 1)
+                total += 5;
+            else {
+                total += 0;
+                reasons.push('출처/근거 0개');
+            }
+            // 이미지 (5점)
+            if (imageCount >= 3)
+                total += 5;
+            else if (imageCount >= 1)
+                total += 3;
+            else {
+                total += 0;
+                reasons.push('이미지 0개');
+            }
+            // 양산형 패턴 감점 (최대 -15점)
+            if (scaledScore >= 3) {
+                total -= 15;
+                reasons.push(`AI 양산 표현 ${scaledScore}개 발견`);
+            }
+            else if (scaledScore >= 1) {
+                total -= 7;
+                reasons.push(`AI 양산 표현 ${scaledScore}개 발견`);
+            }
+            total = Math.max(0, Math.min(100, total));
+            const risk = total < 40 ? 'high' : total < 65 ? 'medium' : 'low';
+            const link = it.url || '';
+            scores.push({
+                id: it.id, title: it.title || '(제목 없음)', url: link,
+                wordCount, h2Count, imageCount,
+                personalScore, specificScore, eeatScore, scaledScore,
+                totalScore: total, risk, reasons,
+            });
+        }
+        // 위험도순 정렬
+        scores.sort((a, b) => a.totalScore - b.totalScore);
+        const avgScore = scores.reduce((s, x) => s + x.totalScore, 0) / scores.length;
+        const highRisk = scores.filter((s) => s.risk === 'high').length;
+        const mediumRisk = scores.filter((s) => s.risk === 'medium').length;
+        const lowRisk = scores.filter((s) => s.risk === 'low').length;
+        // 사이트 전체 진단 (AdSense 관점)
+        let verdict;
+        let action;
+        if (avgScore >= 65 && highRisk === 0) {
+            verdict = '✅ 양호 — AdSense "가치 없는 콘텐츠" 사유 재발 가능성 낮음';
+            action = '재신청 가능';
+        }
+        else if (avgScore >= 50) {
+            verdict = `⚠️ 보통 — 평균 ${Math.round(avgScore)}점, 위험 글 ${highRisk}개`;
+            action = `위험 글 ${highRisk}개를 우선 보강 후 재신청 권장`;
+        }
+        else {
+            verdict = `❌ 위험 — 평균 ${Math.round(avgScore)}점, 위험 글 ${highRisk}개`;
+            action = '재신청 시 같은 사유로 재거절 위험 높음. 본문 가치 보강 필수.';
+        }
+        return {
+            ok: true,
+            sampleSize: scores.length,
+            avgScore: Math.round(avgScore),
+            highRisk, mediumRisk, lowRisk,
+            verdict, action,
+            scores,
+            tips: [
+                '1인칭 표현 추가: "저는", "제가 직접 써본 결과", "경험상" 등',
+                '구체 데이터 추가: 실측값, 비교표, 가격, 기간, % 수치',
+                '출처 명기: 정부/공공기관/논문 인용 + [자료] 표기',
+                '얇은 글 보강: 1500자+ / H2 5개+ / 이미지 3개+',
+                'AI 양산 표현 제거: "오늘은 ~에 대해 알아보겠습니다", "흔히 알려진" 등',
+            ],
+        };
+    }
+    catch (e) {
+        return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+    }
+});
+// v3.8.178: dry-run 모드 추가 — 실제 patch 전 사용자가 미리보기로 확인 후 승인
+//   payload.dryRun: true → API patch 안 함, 미리보기 결과만 반환
+//   payload.dryRun: false → 실제 patch 실행
 electron_1.ipcMain.handle('adsense:clean-post-titles', async (_evt, payload) => {
     try {
         const envData = (0, env_1.loadEnvFromFile)();
-        const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
-        const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
-        if (!blogId || !accessToken)
-            return { ok: false, error: 'Blog ID 또는 OAuth 토큰 누락' };
+        const creds = loadPlatformCredsFromEnv(envData, payload);
+        const dryRun = payload.dryRun !== false;
         const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const adapter = buildPlatformAdapter(creds, axios);
         const CLEANUP_RULES = [
-            [/\s*[!?]+\s*[🚀✅⚡💡🔥💰🚨🎯📌🏆💯🎉]+\s*$/gu, ''], // 끝 이모지 + 느낌표 제거
-            [/[🚀✅⚡💡🔥💰🚨🎯📌🏆💯🎉]+/gu, ''], // 모든 이모지 제거
+            [/\s*[!?]+\s*[🚀✅⚡💡🔥💰🚨🎯📌🏆💯🎉]+\s*$/gu, ''],
+            [/[🚀✅⚡💡🔥💰🚨🎯📌🏆💯🎉]+/gu, ''],
             [/놓치(면|지)?\s*(안\s*)?(될|마)\s*[^,!?:]*/g, ''], [/꿀팁/g, '핵심'], [/왜\s*아무도\s*안?\s*알려[^?!.]+[?!.]?/g, ''],
             [/고수만\s*아는\s*/g, ''], [/비법/g, '방법'], [/완벽\s*가이드/g, '안내'],
             [/효율\s*\d+%/g, ''], [/\d+분\s*만에\s*끝내는?/g, ''], [/놀라운/g, ''], [/충격/g, ''],
@@ -10051,38 +11367,987 @@ electron_1.ipcMain.handle('adsense:clean-post-titles', async (_evt, payload) => 
             [/역대급|레전드|미쳤다|대박|끝판왕/g, ''], [/총정리|모든\s*것|A\s*to\s*Z/g, '정리'],
             [/\s{2,}/g, ' '], [/^[\s,.!?:;]+|[\s,.!?:;]+$/g, ''],
         ];
+        // 4가지 결과 카테고리로 분류
         const results = [];
+        let totalProcessed = 0;
+        let networkFailed = 0;
         for (const postId of (payload.postIds || []).slice(0, 100)) {
+            totalProcessed++;
+            let oldTitle = '';
             try {
-                const g = await axios.get(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`, {
-                    headers: { Authorization: `Bearer ${accessToken}` }, timeout: 30000,
-                });
-                const oldTitle = String(g.data?.title || '').trim();
-                let newTitle = oldTitle;
-                for (const [pat, repl] of CLEANUP_RULES)
-                    newTitle = newTitle.replace(pat, repl);
-                newTitle = newTitle.replace(/\s+/g, ' ').trim();
-                if (!newTitle || newTitle === oldTitle) {
-                    results.push({ id: postId, oldTitle, newTitle, ok: true });
-                    continue;
-                }
-                if (newTitle.length < 10) {
-                    results.push({ id: postId, oldTitle, newTitle, ok: false, error: '정리 후 너무 짧음 — skip' });
-                    continue;
-                }
-                await axios.patch(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts/${postId}`, { title: newTitle }, { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 30000 });
-                results.push({ id: postId, oldTitle, newTitle, ok: true });
-                await new Promise((r) => setTimeout(r, 600)); // rate limit
+                // v3.8.247: 어댑터로 글 페치 (Blogger + WordPress)
+                const fetched = await adapter.getPost(postId);
+                oldTitle = String(fetched.title || '').trim();
             }
             catch (e) {
-                results.push({ id: postId, oldTitle: '', newTitle: '', ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) });
+                networkFailed++;
+                const errMsg = e?.response?.status === 401 ? '인증 토큰 만료 — 환경설정 재인증 필요'
+                    : e?.response?.status === 403 ? 'API 권한 거부 (403)'
+                        : e?.response?.status === 404 ? '글 없음 (이미 삭제됨)'
+                            : (e?.response?.data?.error?.message || e?.message || String(e));
+                results.push({ id: postId, oldTitle: '', newTitle: '', status: 'fetch_failed', error: errMsg });
+                if (e?.response?.status === 401)
+                    break;
+                continue;
+            }
+            let newTitle = oldTitle;
+            for (const [pat, repl] of CLEANUP_RULES)
+                newTitle = newTitle.replace(pat, repl);
+            newTitle = newTitle.replace(/\s+/g, ' ').trim();
+            if (!newTitle || newTitle === oldTitle) {
+                results.push({ id: postId, oldTitle, newTitle, status: 'no_change' });
+                continue;
+            }
+            if (newTitle.length < 10) {
+                results.push({ id: postId, oldTitle, newTitle, status: 'too_short', error: `정리 후 ${newTitle.length}자로 너무 짧음 — skip` });
+                continue;
+            }
+            if (dryRun) {
+                results.push({ id: postId, oldTitle, newTitle, status: 'preview' });
+            }
+            else {
+                try {
+                    await adapter.updatePost(postId, { title: newTitle });
+                    results.push({ id: postId, oldTitle, newTitle, status: 'patched' });
+                    await new Promise((r) => setTimeout(r, 600));
+                }
+                catch (e) {
+                    const errMsg = e?.response?.status === 401 ? '인증 토큰 만료'
+                        : (e?.response?.data?.error?.message || e?.message || String(e));
+                    results.push({ id: postId, oldTitle, newTitle, status: 'patch_failed', error: errMsg });
+                    if (e?.response?.status === 401)
+                        break;
+                }
             }
         }
-        return { ok: true, results };
+        // 5) 카테고리별 통계
+        const stats = {
+            total: totalProcessed,
+            patched: results.filter((r) => r.status === 'patched').length,
+            preview: results.filter((r) => r.status === 'preview').length,
+            no_change: results.filter((r) => r.status === 'no_change').length,
+            too_short: results.filter((r) => r.status === 'too_short').length,
+            fetch_failed: results.filter((r) => r.status === 'fetch_failed').length,
+            patch_failed: results.filter((r) => r.status === 'patch_failed').length,
+        };
+        return { ok: true, dryRun, stats, results };
     }
     catch (e) {
         return { ok: false, error: e?.message || String(e) };
     }
 });
-console.log('[APP] ✅ AdSense 자동 해결 IPC 등록 완료 (open-console/diagnose/create-pages/list-clickbait-posts/clean-post-titles)');
+// v3.8.245: "가치가 별로 없는 콘텐츠" 사유 — 본문 자동 보강 IPC
+// 입력: blogId + postId + dryRun (default true)
+// 처리:
+//   1. Blogger API로 본문 페치
+//   2. 현재 가치 점수 계산 (analyze-content-value와 동일 채점)
+//   3. 부족한 축 LLM에 요청 (기존 본문 골격 유지, 부족한 부분만 자연스럽게 삽입)
+//   4. dryRun이면 before/after 반환, false면 Blogger API patch
+electron_1.ipcMain.handle('adsense:boost-post-value', async (_evt, payload) => {
+    try {
+        const envData = (0, env_1.loadEnvFromFile)();
+        const creds = loadPlatformCredsFromEnv(envData, payload);
+        const postId = String(payload.postId || '').trim();
+        if (!postId)
+            return { ok: false, error: 'postId 누락' };
+        const dryRun = payload.dryRun !== false;
+        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const adapter = buildPlatformAdapter(creds, axios);
+        const post = await adapter.getPost(postId);
+        if (!post || !post.content)
+            return { ok: false, error: '글을 찾을 수 없거나 본문이 비어 있습니다' };
+        const originalTitle = post.title;
+        const originalHtml = post.content;
+        const stripHtml = (s) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+        const originalText = stripHtml(originalHtml);
+        const originalLength = originalText.length;
+        // LLM에 보강 요청
+        const boostPrompt = `당신은 한국 블로그 글의 AdSense 승인 가치를 높이는 전문가입니다.
+
+아래 블로그 글의 **HTML 구조와 사실 정보는 그대로 유지**하면서, AdSense "가치가 별로 없는 콘텐츠" 거절 사유를 해결하기 위해 다음 5가지만 자연스럽게 보강해 주세요:
+
+1. **1인칭/경험 표현 삽입** — 도입부와 결론 부근에 "저는 이 주제를 OO 동안 다뤄왔는데", "제가 직접 알아본 결과", "경험상" 같은 표현을 자연스럽게 1~3곳 추가
+2. **구체 데이터 보강** — 추상적 표현을 실제 수치로 교체 또는 추가 ("많이 비싸다" → "월 평균 35,000원 정도", "오래 걸린다" → "약 2~3주")
+3. **출처/근거 명시** — 본문 중 1~2곳에 신뢰 출처 인용 추가 ("정부 식약처 자료에 따르면 [자료]", "한국소비자원 2026년 조사 기준")
+4. **양산형 표현 제거** — "오늘은 ~에 대해 알아보겠습니다", "흔히 알려진 대로", "지금 바로 확인하세요" 같은 AI 양산 패턴이 있으면 자연스러운 인간 어조로 교체
+5. **결론부 추가** — 본문 마지막에 1인칭 종합 의견 + 마지막 업데이트 시점(예: "2026년 6월 기준") 1단락 추가
+
+**절대 금지**:
+- 새로운 사실/주장 만들기 (출처 인용은 일반적이고 검증 가능한 기관만 — 정부/공공기관/식약처/소비자원 등)
+- 기존 H2/H3 구조 변경
+- 기존 이미지 태그 삭제
+- 광고 CTA, 어필리에이트 링크, 외부 판매 링크 추가
+- 클릭베이트 표현 ("완벽가이드", "꿀팁", "끝판왕" 등)
+- HTML 구조 단순화 (테이블/리스트가 있으면 유지)
+
+**출력**: 보강된 HTML만 출력 (설명/머리말 없이 HTML 본문만). 제목은 변경하지 마세요.
+
+---
+[원본 제목]
+${originalTitle}
+
+[원본 HTML]
+${originalHtml}
+---
+
+이제 위 5가지 보강이 적용된 HTML을 출력하세요:`;
+        // LLM 호출 (callLLM은 src/core/llm/llm-caller.ts에 있음)
+        const { callLLM } = await Promise.resolve().then(() => __importStar(require('../src/core/llm')));
+        // 가성비 + 한국어 품질 좋은 순서로 시도: claude → openai → perplexity
+        let boostedHtml = '';
+        let usedProvider = '';
+        const providers = ['claude', 'openai', 'perplexity'];
+        let lastError = '';
+        for (const p of providers) {
+            try {
+                boostedHtml = await callLLM(p, boostPrompt);
+                usedProvider = p;
+                if (boostedHtml && boostedHtml.length > 200)
+                    break;
+            }
+            catch (e) {
+                lastError = e?.message || String(e);
+                continue;
+            }
+        }
+        if (!boostedHtml || boostedHtml.length < 200) {
+            return { ok: false, error: `LLM 호출 실패: ${lastError || '모든 프로바이더 실패'}` };
+        }
+        // 응답에서 ```html 같은 코드펜스가 있으면 제거
+        boostedHtml = boostedHtml
+            .replace(/^```(?:html|HTML)?\s*\n/, '')
+            .replace(/\n```\s*$/, '')
+            .trim();
+        const boostedText = stripHtml(boostedHtml);
+        const boostedLength = boostedText.length;
+        // v3.8.249: 수정 내역 분석 — 사용자가 무엇이 바뀌었는지 정확히 알 수 있도록
+        const PERSONAL_MARKERS = [/저(는|희)/g, /제(가|일|경우)/g, /경험상/g, /직접\s*(써|해)\s*보(니|면)/g, /개인적으로/g];
+        const SPECIFIC_MARKERS = [/\d{4}년\s*\d+월/g, /\d+만원|\d+,\d+원/g, /\d+%/g, /비교표|체크리스트/g];
+        const EEAT_MARKERS_LOCAL = [/출처\s*[:：]/g, /\[자료\]/g, /정부|보건복지부|국세청|식약처|소비자원/g, /논문|연구|보고서/g];
+        const SCALED_MARKERS_LOCAL = [/흔히\s*알려진/g, /많은\s*분(들)?(이|들이)/g, /오늘은\s*[가-힯\s]+에\s*대해\s*(알아|살펴)\s*보(겠습니다|아요)/g, /지금\s*바로\s*확인하세요/g];
+        const countMarkers = (text, markers) => markers.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+        const personalBefore = countMarkers(originalText, PERSONAL_MARKERS);
+        const personalAfter = countMarkers(boostedText, PERSONAL_MARKERS);
+        const specificBefore = countMarkers(originalText, SPECIFIC_MARKERS);
+        const specificAfter = countMarkers(boostedText, SPECIFIC_MARKERS);
+        const eeatBefore = countMarkers(originalText, EEAT_MARKERS_LOCAL);
+        const eeatAfter = countMarkers(boostedText, EEAT_MARKERS_LOCAL);
+        const scaledBefore = countMarkers(originalText, SCALED_MARKERS_LOCAL);
+        const scaledAfter = countMarkers(boostedText, SCALED_MARKERS_LOCAL);
+        const changes = {
+            personalAdded: Math.max(0, personalAfter - personalBefore),
+            specificAdded: Math.max(0, specificAfter - specificBefore),
+            eeatAdded: Math.max(0, eeatAfter - eeatBefore),
+            scaledRemoved: Math.max(0, scaledBefore - scaledAfter),
+            lengthDelta: boostedLength - originalLength,
+            h2CountDelta: ((boostedHtml.match(/<h2[^>]*>/gi) || []).length) - ((originalHtml.match(/<h2[^>]*>/gi) || []).length),
+        };
+        const summaryLines = [];
+        if (changes.personalAdded > 0)
+            summaryLines.push(`1인칭/경험 표현 +${changes.personalAdded}곳`);
+        if (changes.specificAdded > 0)
+            summaryLines.push(`구체 데이터 +${changes.specificAdded}곳`);
+        if (changes.eeatAdded > 0)
+            summaryLines.push(`출처/근거 +${changes.eeatAdded}곳`);
+        if (changes.scaledRemoved > 0)
+            summaryLines.push(`양산 표현 -${changes.scaledRemoved}곳`);
+        if (changes.lengthDelta !== 0)
+            summaryLines.push(`${changes.lengthDelta > 0 ? '+' : ''}${changes.lengthDelta}자`);
+        // dryRun이면 비교 결과만 반환
+        if (dryRun) {
+            return {
+                ok: true,
+                dryRun: true,
+                postId,
+                title: originalTitle,
+                url: post.url, // v3.8.249: 사이트 직링크
+                provider: usedProvider,
+                changes,
+                summaryLines,
+                before: { length: originalLength, htmlPreview: originalHtml.slice(0, 800), personal: personalBefore, specific: specificBefore, eeat: eeatBefore, scaled: scaledBefore },
+                after: { length: boostedLength, htmlPreview: boostedHtml.slice(0, 800), fullHtml: boostedHtml, personal: personalAfter, specific: specificAfter, eeat: eeatAfter, scaled: scaledAfter },
+                delta: boostedLength - originalLength,
+            };
+        }
+        // v3.8.247: 플랫폼 어댑터로 실제 patch (Blogger + WordPress)
+        await adapter.updatePost(postId, { content: boostedHtml });
+        return {
+            ok: true,
+            dryRun: false,
+            postId,
+            title: originalTitle,
+            url: post.url, // v3.8.249: 사이트 직링크
+            provider: usedProvider,
+            changes,
+            summaryLines,
+            before: { length: originalLength, personal: personalBefore, specific: specificBefore, eeat: eeatBefore, scaled: scaledBefore },
+            after: { length: boostedLength, personal: personalAfter, specific: specificAfter, eeat: eeatAfter, scaled: scaledAfter },
+            delta: boostedLength - originalLength,
+            message: '✅ 본문이 사이트에 반영됐습니다',
+        };
+    }
+    catch (e) {
+        return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+    }
+});
+// v3.8.246: 사이트 전체 일괄 정리 — AdSense 모드로 생성 안 한 글들 처리
+// 옵션 1: 위험 글 일괄 삭제 (테스트 데이터 정리, AdSense 승인 전 상태)
+// 옵션 2: 위험 글 일괄 보강 (기존 boost-post-value를 모든 위험 글에 적용)
+electron_1.ipcMain.handle('adsense:bulk-cleanup-posts', async (_evt, payload) => {
+    try {
+        const envData = (0, env_1.loadEnvFromFile)();
+        const creds = loadPlatformCredsFromEnv(envData, payload);
+        const dryRun = payload.dryRun !== false;
+        const threshold = payload.threshold ?? 40;
+        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const adapter = buildPlatformAdapter(creds, axios);
+        // v3.8.247: 어댑터로 전체 글 페치 (Blogger + WordPress)
+        const allPosts = await adapter.listPosts({ fetchBodies: true, maxResults: 1000 });
+        if (allPosts.length === 0)
+            return { ok: false, error: '글 없음' };
+        // 채점 (analyze-content-value와 동일 로직 간략화)
+        const stripHtml = (s) => s.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+        const PERSONAL = [/저(는|희)/g, /제(가|일|경우)/g, /경험상/g, /직접\s*(써|해)\s*보(니|면)/g, /개인적으로/g];
+        const SPECIFIC = [/\d{4}년\s*\d+월/g, /\d+만원|\d+,\d+원/g, /\d+%/g, /비교표|체크리스트/g];
+        const EEAT = [/출처\s*[:：]/g, /정부|보건복지부|국세청|식약처/g, /논문|연구|보고서/g];
+        const SCALED = [/흔히\s*알려진/g, /많은\s*분(들)?(이|들이)/g, /오늘은\s*[가-힯\s]+에\s*대해\s*(알아|살펴)\s*보(겠습니다|아요)/g];
+        const scored = allPosts.map((p) => {
+            const html = p.content;
+            const text = stripHtml(html);
+            const wc = text.length;
+            const h2 = (html.match(/<h2[^>]*>/gi) || []).length;
+            const personalN = PERSONAL.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+            const specificN = SPECIFIC.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+            const eeatN = EEAT.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+            const scaledN = SCALED.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+            let total = 0;
+            if (wc >= 2500)
+                total += 40;
+            else if (wc >= 1500)
+                total += 28;
+            else if (wc >= 1000)
+                total += 15;
+            else
+                total += 5;
+            if (h2 >= 5)
+                total += 10;
+            else if (h2 >= 3)
+                total += 6;
+            else
+                total += 2;
+            if (personalN >= 3)
+                total += 20;
+            else if (personalN >= 1)
+                total += 10;
+            if (specificN >= 3)
+                total += 15;
+            else if (specificN >= 1)
+                total += 8;
+            if (eeatN >= 2)
+                total += 10;
+            else if (eeatN >= 1)
+                total += 5;
+            if (scaledN >= 3)
+                total -= 15;
+            else if (scaledN >= 1)
+                total -= 7;
+            total = Math.max(0, Math.min(100, total));
+            return { id: p.id, title: p.title, url: p.url, score: total, wordCount: wc };
+        });
+        const targets = scored.filter((s) => s.score < threshold).sort((a, b) => a.score - b.score);
+        if (dryRun || payload.action === 'list-only') {
+            return {
+                ok: true, dryRun: true,
+                totalPosts: allPosts.length,
+                targetCount: targets.length,
+                targets,
+                scored,
+                threshold,
+            };
+        }
+        // 실제 삭제 (payload.action === 'delete') — 어댑터 사용
+        let deleted = 0;
+        let failed = 0;
+        const log = [];
+        for (const t of targets) {
+            try {
+                await adapter.deletePost(t.id);
+                deleted++;
+                log.push({ id: t.id, title: t.title, ok: true });
+                await new Promise((res) => setTimeout(res, 700));
+            }
+            catch (e) {
+                failed++;
+                log.push({ id: t.id, title: t.title, ok: false, error: e?.message || String(e) });
+            }
+        }
+        return { ok: true, deleted, failed, totalPosts: allPosts.length, log };
+    }
+    catch (e) {
+        return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+    }
+});
+// v3.8.246: 연도 의존 글 자동 갱신 — 설날/종합소득세/연말정산 등 연단위 토픽 LLM 리프레시
+// 1. 모든 글 페치
+// 2. 연도 마커("2026년", "올해", "작년"), 계절 키워드, 세금/공휴일 키워드 감지
+// 3. 현재 연도와 다르면 LLM에게 "최신 연도 정보로 업데이트" 요청
+// 4. dryRun → before/after 비교, false → patch
+electron_1.ipcMain.handle('adsense:list-yearly-posts', async (_evt, payload) => {
+    try {
+        const envData = (0, env_1.loadEnvFromFile)();
+        const creds = loadPlatformCredsFromEnv(envData, payload);
+        const currentYear = payload.currentYear || new Date().getFullYear();
+        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const adapter = buildPlatformAdapter(creds, axios);
+        // 연도/계절/세금 키워드 — 연단위로 변하는 토픽
+        const YEARLY_TOPIC_KEYWORDS = [
+            '설날', '추석', '연말정산', '종합소득세', '부가가치세',
+            '주민세', '재산세', '자동차세', '국민연금', '건강보험',
+            '근로장려금', '자녀장려금', '청년도약계좌', '청년희망적금',
+            '신년', '새해', '연초', '연말', '추석연휴', '설연휴',
+            '최저임금', '기초연금', '실업급여',
+        ];
+        // v3.8.247: 어댑터로 전체 글 페치 (Blogger + WordPress)
+        const allPosts = await adapter.listPosts({ fetchBodies: true, maxResults: 1000 });
+        const candidates = [];
+        for (const p of allPosts) {
+            const text = p.title + ' ' + p.content.replace(/<[^>]+>/g, ' ');
+            const years = new Set();
+            let m;
+            const re = /\b(20[12][0-9])년/g;
+            while ((m = re.exec(text)))
+                years.add(parseInt(m[1], 10));
+            const matchedTopics = YEARLY_TOPIC_KEYWORDS.filter((kw) => text.includes(kw));
+            const yearArr = Array.from(years).sort();
+            const hasOldYear = yearArr.some((y) => y < currentYear);
+            const hasRelativeOld = /(작년|지난해|올해|이번\s*해)/.test(text);
+            if (matchedTopics.length > 0 && (hasOldYear || hasRelativeOld)) {
+                candidates.push({
+                    id: p.id, title: p.title, url: p.url,
+                    mentionedYears: yearArr, topics: matchedTopics,
+                    outdated: hasOldYear || hasRelativeOld,
+                    published: p.published || '',
+                });
+            }
+            if (candidates.length >= 500)
+                break;
+        }
+        return { ok: true, currentYear, total: candidates.length, candidates };
+    }
+    catch (e) {
+        return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+    }
+});
+electron_1.ipcMain.handle('adsense:refresh-yearly-post', async (_evt, payload) => {
+    try {
+        const envData = (0, env_1.loadEnvFromFile)();
+        const creds = loadPlatformCredsFromEnv(envData, payload);
+        const postId = String(payload.postId || '').trim();
+        if (!postId)
+            return { ok: false, error: 'postId 누락' };
+        const dryRun = payload.dryRun !== false;
+        const currentYear = payload.currentYear || new Date().getFullYear();
+        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const adapter = buildPlatformAdapter(creds, axios);
+        // v3.8.247: 어댑터로 글 페치
+        const post = await adapter.getPost(postId);
+        const originalTitle = post.title;
+        const originalHtml = post.content;
+        if (!originalHtml)
+            return { ok: false, error: '글 본문이 비어 있습니다' };
+        const refreshPrompt = `당신은 한국 블로그 글의 연단위 정보 갱신 전문가입니다.
+
+아래 글은 연도 의존성 토픽(설날, 종합소득세, 연말정산, 청년도약계좌 등)을 다루고 있어서 매년 정보 갱신이 필요합니다.
+
+**현재 기준**: ${currentYear}년
+
+다음 원칙으로 본문과 제목을 갱신해 주세요:
+
+1. **연도 표기 갱신**:
+   - 본문/제목의 모든 "20XX년" 표기를 ${currentYear}년 기준으로 업데이트
+   - 작년 → ${currentYear - 1}년, 올해 → ${currentYear}년, 내년 → ${currentYear + 1}년으로 명확화
+   - 날짜는 ${currentYear}년 기준 최신화
+
+2. **정책/세율/금액 갱신**:
+   - ${currentYear}년 적용 정부 정책/세율/금액으로 업데이트 (확실하지 않으면 "${currentYear}년 기준 정확한 수치는 정부 공식 사이트 확인 권장"으로 명시)
+   - 신청 기간/마감일을 ${currentYear}년 일정으로 갱신
+   - 변경된 부분은 자연스럽게 본문에 녹임
+
+3. **마지막 업데이트 표기**:
+   - 본문 마지막에 "📅 ${currentYear}년 ${new Date().getMonth() + 1}월 기준 최신화" 추가
+
+4. **신뢰 보강**:
+   - 정부/공공기관 출처 인용 추가 ("국세청 공식 안내 참조 [자료]")
+   - 1~2곳에 "정확한 정보는 ${currentYear}년 ${new Date().getMonth() + 1}월 기준 공식 사이트 확인 필수" 추가
+
+**절대 금지**:
+- 확실하지 않은 구체 수치 만들기 (모르면 "공식 사이트 확인 권장"으로 처리)
+- 기존 H2/H3 구조 변경
+- 기존 이미지 태그 삭제
+- 광고 CTA 추가
+
+**출력 형식** (반드시 이 JSON 형식만 출력, 다른 텍스트 없이):
+{
+  "title": "갱신된 제목",
+  "html": "갱신된 HTML 본문 전체"
+}
+
+---
+[원본 제목]
+${originalTitle}
+
+[원본 HTML]
+${originalHtml}
+---`;
+        const { callLLM } = await Promise.resolve().then(() => __importStar(require('../src/core/llm')));
+        const providers = ['claude', 'openai', 'perplexity'];
+        let llmText = '';
+        let usedProvider = '';
+        let lastError = '';
+        for (const p of providers) {
+            try {
+                llmText = await callLLM(p, refreshPrompt);
+                usedProvider = p;
+                if (llmText && llmText.length > 200)
+                    break;
+            }
+            catch (e) {
+                lastError = e?.message || String(e);
+                continue;
+            }
+        }
+        if (!llmText)
+            return { ok: false, error: `LLM 호출 실패: ${lastError}` };
+        // JSON 파싱
+        let parsed = {};
+        try {
+            const jsonMatch = llmText.match(/\{[\s\S]*"title"[\s\S]*"html"[\s\S]*\}/);
+            if (jsonMatch)
+                parsed = JSON.parse(jsonMatch[0]);
+            else
+                parsed = JSON.parse(llmText);
+        }
+        catch {
+            // JSON 실패 시 HTML만 추출 시도
+            const htmlMatch = llmText.match(/"html"\s*:\s*"([\s\S]+)"\s*\}/);
+            if (htmlMatch)
+                parsed = { title: originalTitle, html: htmlMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n') };
+        }
+        if (!parsed.html)
+            return { ok: false, error: 'LLM 응답 파싱 실패' };
+        const newTitle = parsed.title || originalTitle;
+        const newHtml = parsed.html;
+        if (dryRun) {
+            return {
+                ok: true, dryRun: true,
+                postId, provider: usedProvider,
+                before: { title: originalTitle, htmlPreview: originalHtml.slice(0, 800) },
+                after: { title: newTitle, htmlPreview: newHtml.slice(0, 800), fullTitle: newTitle, fullHtml: newHtml },
+            };
+        }
+        // v3.8.247: 어댑터로 patch (Blogger + WordPress)
+        await adapter.updatePost(postId, { title: newTitle, content: newHtml });
+        return {
+            ok: true, dryRun: false,
+            postId, provider: usedProvider,
+            titleChanged: newTitle !== originalTitle,
+            before: { title: originalTitle },
+            after: { title: newTitle },
+            message: `✅ ${currentYear}년 정보로 갱신 완료`,
+        };
+    }
+    catch (e) {
+        return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+    }
+});
+// v3.8.250: 차별화 끝판왕 — AdSense 승인 극한 부스터
+// 다른 자동화 도구가 안 하는 7가지 검사를 종합해 100점 readiness 점수 산출 + 자동 해결
+electron_1.ipcMain.handle('adsense:approval-readiness-check', async (_evt, payload) => {
+    try {
+        const envData = (0, env_1.loadEnvFromFile)();
+        const creds = loadPlatformCredsFromEnv(envData, payload);
+        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const adapter = buildPlatformAdapter(creds, axios);
+        // 공개 사이트 URL (sitemap/robots 체크용)
+        const publicUrl = String(payload.publicSiteUrl || creds.siteUrl || '').replace(/\/$/, '');
+        // 전체 글 페치 (sample 30 — readiness check는 빠르게)
+        const posts = await adapter.listPosts({ fetchBodies: true, maxResults: 30 });
+        if (posts.length === 0)
+            return { ok: false, error: '분석할 글 없음' };
+        const stripHtml = (s) => s.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+        // ── 축 1: 콘텐츠 가치 (analyze-content-value 동일 채점 평균) ──
+        const PERSONAL = [/저(는|희)/g, /제(가|일|경우)/g, /경험상/g, /직접\s*(써|해)\s*보(니|면)/g];
+        const SPECIFIC = [/\d{4}년\s*\d+월/g, /\d+만원|\d+,\d+원/g, /\d+%/g, /비교표|체크리스트/g];
+        const EEAT = [/출처\s*[:：]/g, /정부|보건복지부|국세청|식약처/g, /논문|연구|보고서/g];
+        const SCALED = [/흔히\s*알려진/g, /많은\s*분(들)?(이|들이)/g, /오늘은\s*[가-힯\s]+에\s*대해\s*(알아|살펴)\s*보(겠습니다|아요)/g];
+        let totalContentScore = 0;
+        for (const p of posts) {
+            const text = stripHtml(p.content);
+            const wc = text.length;
+            const h2 = (p.content.match(/<h2[^>]*>/gi) || []).length;
+            const personalN = PERSONAL.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+            const specificN = SPECIFIC.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+            const eeatN = EEAT.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+            const scaledN = SCALED.reduce((s, r) => s + (text.match(r)?.length || 0), 0);
+            let s = 0;
+            if (wc >= 2500)
+                s += 40;
+            else if (wc >= 1500)
+                s += 28;
+            else if (wc >= 1000)
+                s += 15;
+            else
+                s += 5;
+            if (h2 >= 5)
+                s += 10;
+            else if (h2 >= 3)
+                s += 6;
+            else
+                s += 2;
+            if (personalN >= 3)
+                s += 20;
+            else if (personalN >= 1)
+                s += 10;
+            if (specificN >= 3)
+                s += 15;
+            else if (specificN >= 1)
+                s += 8;
+            if (eeatN >= 2)
+                s += 10;
+            else if (eeatN >= 1)
+                s += 5;
+            if (scaledN >= 3)
+                s -= 15;
+            else if (scaledN >= 1)
+                s -= 7;
+            totalContentScore += Math.max(0, Math.min(100, s));
+        }
+        const avgContentScore = totalContentScore / posts.length;
+        // ── 축 2: Schema.org JSON-LD 주입 비율 ──
+        let withSchema = 0;
+        for (const p of posts) {
+            if (/application\/ld\+json/i.test(p.content) || /"@type"\s*:\s*"(Article|BlogPosting)"/i.test(p.content)) {
+                withSchema++;
+            }
+        }
+        const schemaRatio = (withSchema / posts.length) * 100;
+        // ── 축 3: AI Burstiness (문장 길이 표준편차) — LLM 흔적 측정 ──
+        // 사람 글: 표준편차 12+ / LLM 양산: 표준편차 5~8
+        let totalBurstiness = 0;
+        for (const p of posts) {
+            const text = stripHtml(p.content);
+            const sentences = text.split(/[.!?。][\s]+/).filter((s) => s.length > 5);
+            if (sentences.length < 5)
+                continue;
+            const lengths = sentences.map((s) => s.length);
+            const mean = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+            const variance = lengths.reduce((sum, len) => sum + Math.pow(len - mean, 2), 0) / lengths.length;
+            totalBurstiness += Math.sqrt(variance);
+        }
+        const avgBurstiness = totalBurstiness / posts.length;
+        // 점수: 12+ = 100점 / 8 = 50점 / 5 이하 = 0점
+        const burstinessScore = Math.max(0, Math.min(100, ((avgBurstiness - 5) / 7) * 100));
+        // ── 축 4: Topical Authority (토픽 클러스터 비율) ──
+        // 제목에서 명사 추출 → 상위 3개 토픽이 전체에서 차지하는 비율
+        const topicCount = {};
+        for (const p of posts) {
+            const keywords = (p.title.match(/[가-힯]{2,8}/g) || []).slice(0, 3);
+            for (const kw of keywords)
+                topicCount[kw] = (topicCount[kw] || 0) + 1;
+        }
+        const sortedTopics = Object.entries(topicCount).sort((a, b) => b[1] - a[1]);
+        const top3Sum = sortedTopics.slice(0, 3).reduce((s, [, n]) => s + n, 0);
+        const topicalAuthorityRatio = posts.length > 0 ? (top3Sum / posts.length) * 100 : 0;
+        // ── 축 5: sitemap.xml + robots.txt 검증 ──
+        let hasSitemap = false, hasRobotsTxt = false;
+        if (publicUrl) {
+            try {
+                const sm = await axios.get(`${publicUrl}/sitemap.xml`, { timeout: 10000, validateStatus: () => true });
+                if (sm.status === 200 && /<urlset|<sitemapindex/i.test(String(sm.data)))
+                    hasSitemap = true;
+            }
+            catch { }
+            try {
+                const rb = await axios.get(`${publicUrl}/robots.txt`, { timeout: 10000, validateStatus: () => true });
+                if (rb.status === 200 && /User-agent/i.test(String(rb.data)))
+                    hasRobotsTxt = true;
+            }
+            catch { }
+        }
+        // ── 축 6: 저자 페이지 + 작성자 표기 ──
+        let hasAuthorPage = false, postsWithAuthor = 0;
+        if (publicUrl) {
+            try {
+                const authorUrls = [`${publicUrl}/p/author.html`, `${publicUrl}/author/`, `${publicUrl}/p/profile.html`];
+                for (const u of authorUrls) {
+                    const r = await axios.get(u, { timeout: 8000, validateStatus: () => true });
+                    if (r.status === 200) {
+                        hasAuthorPage = true;
+                        break;
+                    }
+                }
+            }
+            catch { }
+        }
+        for (const p of posts) {
+            if (/작성자|글쓴이|by\s+[A-Za-z]/i.test(p.content) || /"author"\s*:/i.test(p.content))
+                postsWithAuthor++;
+        }
+        const authorRatio = (postsWithAuthor / posts.length) * 100;
+        // ── 축 7: 필수 페이지 (About/Privacy/Contact) ──
+        let hasAbout = false, hasPrivacy = false, hasContact = false;
+        if (publicUrl) {
+            const checks = await Promise.all([
+                axios.get(`${publicUrl}/p/about.html`, { timeout: 8000, validateStatus: () => true }).then((r) => r.status === 200).catch(() => false),
+                axios.get(`${publicUrl}/p/privacy-policy.html`, { timeout: 8000, validateStatus: () => true }).then((r) => r.status === 200).catch(() => false),
+                axios.get(`${publicUrl}/p/contact.html`, { timeout: 8000, validateStatus: () => true }).then((r) => r.status === 200).catch(() => false),
+            ]);
+            [hasAbout, hasPrivacy, hasContact] = checks;
+        }
+        // ── 종합 100점 readiness 점수 (7축 가중치) ──
+        const axes = [
+            { key: 'content', label: '콘텐츠 가치', weight: 30, score: avgContentScore, status: avgContentScore >= 65 ? 'good' : avgContentScore >= 45 ? 'warn' : 'fail', hint: avgContentScore < 65 ? `평균 ${Math.round(avgContentScore)}점 — 본문 가치 보강 필요` : `평균 ${Math.round(avgContentScore)}점 양호` },
+            { key: 'pages', label: '필수 페이지', weight: 15, score: ((hasAbout ? 1 : 0) + (hasPrivacy ? 1 : 0) + (hasContact ? 1 : 0)) / 3 * 100, status: (hasAbout && hasPrivacy && hasContact) ? 'good' : 'fail', hint: !hasAbout || !hasPrivacy || !hasContact ? `누락: ${[!hasAbout && 'About', !hasPrivacy && 'Privacy', !hasContact && 'Contact'].filter(Boolean).join(', ')}` : '3종 모두 존재' },
+            { key: 'schema', label: 'Schema.org 구조화', weight: 10, score: schemaRatio, status: schemaRatio >= 80 ? 'good' : schemaRatio >= 30 ? 'warn' : 'fail', hint: `${withSchema}/${posts.length}개 글에 JSON-LD 적용 (${Math.round(schemaRatio)}%)` },
+            { key: 'burstiness', label: 'AI 탐지 회피 (Burstiness)', weight: 15, score: burstinessScore, status: burstinessScore >= 70 ? 'good' : burstinessScore >= 40 ? 'warn' : 'fail', hint: `문장 길이 σ=${avgBurstiness.toFixed(1)} (사람:12+ / LLM:5~8)` },
+            { key: 'topical', label: 'Topical Authority', weight: 10, score: topicalAuthorityRatio, status: topicalAuthorityRatio >= 60 ? 'good' : topicalAuthorityRatio >= 30 ? 'warn' : 'fail', hint: `상위 3토픽이 ${Math.round(topicalAuthorityRatio)}% 차지 (60%+ 권장)` },
+            { key: 'author', label: '저자 신호 (E-E-A-T Author)', weight: 10, score: (hasAuthorPage ? 50 : 0) + Math.min(50, authorRatio / 2), status: (hasAuthorPage && authorRatio >= 50) ? 'good' : (hasAuthorPage || authorRatio >= 30) ? 'warn' : 'fail', hint: `저자 페이지 ${hasAuthorPage ? '✅' : '❌'} · 글의 ${Math.round(authorRatio)}%에 작성자 표기` },
+            { key: 'crawl', label: '크롤 친화도', weight: 10, score: (hasSitemap ? 60 : 0) + (hasRobotsTxt ? 40 : 0), status: (hasSitemap && hasRobotsTxt) ? 'good' : (hasSitemap || hasRobotsTxt) ? 'warn' : 'fail', hint: `sitemap.xml ${hasSitemap ? '✅' : '❌'} · robots.txt ${hasRobotsTxt ? '✅' : '❌'}` },
+        ];
+        const totalScore = axes.reduce((s, ax) => s + (ax.score * ax.weight / 100), 0);
+        // 종합 판정
+        let verdict, verdictColor, recommendation;
+        if (totalScore >= 85) {
+            verdict = '🎯 극한 준비 완료 — 재신청 강력 권장';
+            verdictColor = '#22c55e';
+            recommendation = '모든 차별화 축 통과. 즉시 재신청하세요.';
+        }
+        else if (totalScore >= 70) {
+            verdict = '✅ 양호 — 재신청 가능';
+            verdictColor = '#84cc16';
+            recommendation = '주요 사유는 모두 해결됨. 경고 축만 마저 손보면 더 안전.';
+        }
+        else if (totalScore >= 55) {
+            verdict = '⚠️ 보통 — 부족 축 해결 후 재신청 권장';
+            verdictColor = '#f59e0b';
+            recommendation = '아래 fail 축들을 자동 해결 버튼으로 처리 후 재신청.';
+        }
+        else {
+            verdict = '❌ 위험 — 재거절 가능성 높음';
+            verdictColor = '#ef4444';
+            recommendation = '핵심 fail 축이 많아 재신청 즉시는 위험. 우선 자동 해결 후 1~2주 안정화.';
+        }
+        return {
+            ok: true,
+            totalScore: Math.round(totalScore),
+            verdict, verdictColor, recommendation,
+            axes,
+            sampleSize: posts.length,
+            meta: {
+                avgContentScore: Math.round(avgContentScore),
+                schemaRatio: Math.round(schemaRatio),
+                avgBurstiness: parseFloat(avgBurstiness.toFixed(2)),
+                burstinessScore: Math.round(burstinessScore),
+                topicalAuthorityRatio: Math.round(topicalAuthorityRatio),
+                hasSitemap, hasRobotsTxt, hasAuthorPage,
+                hasAbout, hasPrivacy, hasContact,
+                postsWithAuthor, topPosts: sortedTopics.slice(0, 5).map(([t, n]) => ({ topic: t, count: n })),
+            },
+        };
+    }
+    catch (e) {
+        return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+    }
+});
+// v3.8.250: Schema.org JSON-LD 자동 주입 (글 본문 끝에 Article + Author + Publisher 추가)
+electron_1.ipcMain.handle('adsense:inject-schema-org', async (_evt, payload) => {
+    try {
+        const envData = (0, env_1.loadEnvFromFile)();
+        const creds = loadPlatformCredsFromEnv(envData, payload);
+        const postId = String(payload.postId || '').trim();
+        if (!postId)
+            return { ok: false, error: 'postId 누락' };
+        const dryRun = payload.dryRun !== false;
+        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const adapter = buildPlatformAdapter(creds, axios);
+        const post = await adapter.getPost(postId);
+        if (!post.content)
+            return { ok: false, error: '본문 없음' };
+        // 이미 Schema.org 있으면 skip
+        if (/application\/ld\+json/i.test(post.content)) {
+            return { ok: true, skipped: true, reason: '이미 JSON-LD 적용됨', postId, title: post.title };
+        }
+        const authorName = payload.authorName || envData.authorName || envData.ownerName || '운영자';
+        const siteName = payload.siteName || envData.siteName || '블로그';
+        const published = post.published || new Date().toISOString();
+        // 첫 이미지 추출 (Article schema의 image 필드)
+        const firstImg = post.content.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] || '';
+        const jsonLd = {
+            '@context': 'https://schema.org',
+            '@type': 'Article',
+            'headline': post.title,
+            'image': firstImg ? [firstImg] : undefined,
+            'datePublished': published,
+            'dateModified': new Date().toISOString(),
+            'author': {
+                '@type': 'Person',
+                'name': authorName,
+            },
+            'publisher': {
+                '@type': 'Organization',
+                'name': siteName,
+            },
+            'url': post.url,
+            'mainEntityOfPage': { '@type': 'WebPage', '@id': post.url },
+        };
+        const jsonLdHtml = `\n<script type="application/ld+json">${JSON.stringify(jsonLd, null, 2)}</script>`;
+        const newContent = post.content + jsonLdHtml;
+        if (dryRun) {
+            return { ok: true, dryRun: true, postId, title: post.title, url: post.url, jsonLd, schemaInjected: true };
+        }
+        await adapter.updatePost(postId, { content: newContent });
+        return { ok: true, dryRun: false, postId, title: post.title, url: post.url, message: '✅ Schema.org JSON-LD 주입 완료' };
+    }
+    catch (e) {
+        return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+    }
+});
+// v3.8.250: 저자 페이지 자동 생성 (E-E-A-T Author 신호 강화)
+electron_1.ipcMain.handle('adsense:create-author-page', async (_evt, payload) => {
+    try {
+        const envData = (0, env_1.loadEnvFromFile)();
+        const blogId = String(payload.blogId || envData.blogId || envData.BLOG_ID || '').trim();
+        const accessToken = envData.BLOGGER_ACCESS_TOKEN || '';
+        if (!blogId || !accessToken)
+            return { ok: false, error: 'Blogger Blog ID 또는 OAuth 토큰 누락' };
+        const authorName = String(payload.authorName || '').trim() || '운영자';
+        const bio = payload.bio || `안녕하세요, ${authorName}입니다. 본 블로그에서 다루는 주제에 관심을 가지고 정확하고 실용적인 정보를 정리하고 있습니다.`;
+        const expertise = payload.expertise || ['정부 정책', '세금·환급', '복지·장려금', '생활 정보'];
+        const socials = payload.socialLinks || [];
+        const today = new Date().toLocaleDateString('ko-KR');
+        const content = `<div style="font-size:16px;line-height:1.85;color:#1f2937;padding:20px 0;">
+<h2 style="font-size:24px;font-weight:900;margin:0 0 16px;">${authorName} 소개</h2>
+<p>${bio}</p>
+
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">관심 분야 / 전문성</h3>
+<ul style="padding-left:20px;line-height:1.8;">
+${expertise.map((e) => `<li>${e}</li>`).join('')}
+</ul>
+
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">콘텐츠 작성 원칙</h3>
+<ul style="padding-left:20px;line-height:1.8;">
+<li>정부24·홈택스·복지로 등 공식 자료 우선 인용</li>
+<li>변동 가능 정보(세율·일정·금액)는 공식 사이트 확인 권장 명시</li>
+<li>1인칭 경험 기반 + 객관적 데이터 병행</li>
+<li>광고·과장 없는 정확한 정보 전달</li>
+</ul>
+
+${socials.length > 0 ? `
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">소셜/연락</h3>
+<ul style="padding-left:20px;line-height:1.8;">
+${socials.map((s) => `<li>${s.name}: <a href="${s.url}" target="_blank" rel="noopener" style="color:#0ea5e9;">${s.url}</a></li>`).join('')}
+</ul>
+` : ''}
+
+<h3 style="font-size:18px;font-weight:800;margin:24px 0 10px;">신뢰성 정책</h3>
+<p>본 블로그는 광고(Google AdSense 등)를 게재할 수 있으나, 광고와 콘텐츠는 분리되며 콘텐츠 내용에 광고 영향을 받지 않습니다. 모든 글은 일관된 작성 원칙 하에 작성되며, 정정 사항은 신속히 반영합니다.</p>
+
+<p style="margin-top:32px;font-size:12px;color:#6b7280;">최종 업데이트: ${today}</p>
+
+<script type="application/ld+json">
+${JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'Person',
+            'name': authorName,
+            'description': bio,
+            'knowsAbout': expertise,
+            ...(socials.length > 0 ? { 'sameAs': socials.map((s) => s.url) } : {}),
+        }, null, 2)}
+</script>
+</div>`;
+        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const r = await axios.post(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/pages`, { title: `${authorName} 소개 — 작성자 프로필`, content }, { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 30000 });
+        return { ok: true, url: r.data?.url || '', message: '✅ 저자 페이지 생성 완료' };
+    }
+    catch (e) {
+        return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+    }
+});
+// v3.8.251: 딥리서치 기반 고급 정책 스캔
+// 1) 광고 라벨 검사 (공식 금지 패턴 감지)
+// 2) Site Reputation Abuse 자가 체크 (2024.11 강화 정책 대응)
+// 3) YMYL 토픽 자동 분류 (2025.9 SQRG 개정 반영)
+// 4) URL Inspection 안내 (Search Console 색인 진단)
+electron_1.ipcMain.handle('adsense:advanced-policy-scan', async (_evt, payload) => {
+    try {
+        const envData = (0, env_1.loadEnvFromFile)();
+        const creds = loadPlatformCredsFromEnv(envData, payload);
+        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const adapter = buildPlatformAdapter(creds, axios);
+        const posts = await adapter.listPosts({ fetchBodies: true, maxResults: 50 });
+        if (posts.length === 0)
+            return { ok: false, error: '분석할 글 없음' };
+        const stripHtml = (s) => s.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+        // ── A. 광고 라벨 검사 (공식 AdSense Policy 인용) ──
+        // 공식 허용: "스폰서 링크", "광고"
+        // 공식 금지: "즐겨찾는 사이트", "오늘의 인기 상품", "추천 콘텐츠" 등 모호 라벨 + 유도 문구
+        const FORBIDDEN_AD_LABELS = [
+            { pattern: /즐겨찾는\s*사이트/g, hint: '"즐겨찾는 사이트" 라벨은 공식 금지 (사용자 혼동 유발)' },
+            { pattern: /오늘의\s*인기\s*(상품|글|콘텐츠)/g, hint: '"오늘의 인기 상품/글" 라벨은 공식 금지' },
+            { pattern: /추천\s*콘텐츠/g, hint: '"추천 콘텐츠" 라벨은 모호 = 공식 금지 영역' },
+            { pattern: /관련\s*링크(?!\s*수정|\s*편집)/g, hint: '"관련 링크" 라벨은 모호 = 광고와 콘텐츠 혼동' },
+            { pattern: /스폰서\s*콘텐츠/g, hint: '"스폰서 콘텐츠"는 모호 = "스폰서 링크" 또는 "광고"로 변경 권장' },
+            // 유도 문구 (공식 금지)
+            { pattern: /지금\s*바로\s*클릭/g, hint: '"지금 바로 클릭하세요" 유도 문구 금지' },
+            { pattern: /이\s*링크를?\s*방문/g, hint: '"이 링크를 방문하세요" 유도 문구 금지' },
+            { pattern: /도와주세요(?!.*댓글)/g, hint: '"도와주세요" 유도 문구 (광고 클릭 유도 의심)' },
+        ];
+        const adLabelIssues = [];
+        for (const p of posts) {
+            const text = p.content + ' ' + p.title;
+            const found = [];
+            for (const f of FORBIDDEN_AD_LABELS) {
+                if (f.pattern.test(text))
+                    found.push(f.hint);
+            }
+            if (found.length > 0)
+                adLabelIssues.push({ postId: p.id, title: p.title, url: p.url, foundPatterns: found });
+        }
+        // ── B. Site Reputation Abuse 자가 체크 (2024.11 강화) ──
+        // 외부 기고/제휴/파트너 콘텐츠 신호 감지
+        const REPUTATION_RISK_PATTERNS = [
+            { pattern: /(?:^|\s)외부\s*기고/g, signal: '외부 기고 콘텐츠' },
+            { pattern: /(?:^|\s)기고문/g, signal: '기고문 형식' },
+            { pattern: /파트너\s*콘텐츠/g, signal: '파트너 콘텐츠' },
+            { pattern: /제휴\s*글|제휴\s*콘텐츠/g, signal: '제휴 콘텐츠' },
+            { pattern: /협찬\s*(글|콘텐츠|받았)/g, signal: '협찬 글' },
+            { pattern: /광고성?\s*콘텐츠/g, signal: '광고성 콘텐츠 표기' },
+            { pattern: /원고료\s*받(았|고)/g, signal: '원고료 수령 명시' },
+            { pattern: /by\s+[A-Z][a-z]+\s+[A-Z][a-z]+/g, signal: '외부 작성자(영문 by) 표기' },
+        ];
+        const reputationRiskPosts = [];
+        for (const p of posts) {
+            const text = stripHtml(p.content);
+            const signals = [];
+            for (const r of REPUTATION_RISK_PATTERNS) {
+                if (r.pattern.test(text))
+                    signals.push(r.signal);
+            }
+            if (signals.length > 0)
+                reputationRiskPosts.push({ postId: p.id, title: p.title, url: p.url, signals });
+        }
+        // ── C. YMYL 토픽 자동 분류 (2025.9 SQRG 개정 반영) ──
+        const YMYL_CATEGORIES = {
+            financial: {
+                label: 'Financial Security (금융 안정)',
+                risk: 'high',
+                keywords: ['세금', '환급', '연말정산', '종합소득세', '부가가치세', '주민세', '재산세', '자동차세', '투자', '주식', '펀드', 'ETF', '코인', '비트코인', '연금', '국민연금', '퇴직연금', '대출', '신용', '카드론', '보험', '실손보험', '자동차보험', '부동산', '아파트', '전세', '월세', '청약', '자산'],
+                guidance: '✅ E-E-A-T 강화 필수. 출처 명시(국세청/금감원/공정위), "공식 사이트 확인 권장" 명시, 최종 업데이트 날짜 표기',
+            },
+            government: {
+                label: 'Government, Civics & Society (정부·시민·사회) — 2025.9 신설',
+                risk: 'high',
+                keywords: ['선거', '투표', '시민', '국회', '대통령', '정부', '공무원', '공공기관', '시청', '구청', '동사무소', '주민센터', '복지', '기초생활수급', '근로장려금', '자녀장려금', '청년정책', '청년도약', '청년희망', '주거지원'],
+                guidance: '⚠️ 2025.9 SQRG 강화 영역. 정부 공식 자료 직접 인용 필수, 변경 가능성 명시',
+            },
+            health: {
+                label: 'Health & Safety (건강·안전)',
+                risk: 'high',
+                keywords: ['의료', '병원', '의사', '약', '복용', '처방', '증상', '진단', '치료', '수술', '다이어트', '운동', '영양제', '건강검진', '백신', '코로나', '독감', '암', '당뇨', '고혈압', '안전', '사고', '응급'],
+                guidance: '✅ 의료 면책 조항 권장 ("의료 자문 아님, 전문의 상담 필수"). 식약처/대한의사협회 출처 권장',
+            },
+            lifeEvents: {
+                label: 'Major Life Events (인생 주요 사건)',
+                risk: 'medium',
+                keywords: ['결혼', '신혼', '이혼', '출산', '육아', '입학', '취업', '이직', '퇴직', '사망', '상속', '장례'],
+                guidance: '✅ 법률/세무 정보는 출처 명시, 개인 상황별 차이 명시',
+            },
+            other: {
+                label: '비-YMYL (일반 콘텐츠)',
+                risk: 'low',
+                keywords: [],
+                guidance: 'YMYL 외 일반 콘텐츠. E-E-A-T 기준 일반 적용',
+            },
+        };
+        const ymylClassification = {};
+        for (const k of Object.keys(YMYL_CATEGORIES))
+            ymylClassification[k] = { count: 0, posts: [] };
+        for (const p of posts) {
+            const text = p.title + ' ' + stripHtml(p.content).slice(0, 2000);
+            let assigned = false;
+            for (const [key, cat] of Object.entries(YMYL_CATEGORIES)) {
+                if (key === 'other')
+                    continue;
+                const matchedKw = cat.keywords.filter((kw) => text.includes(kw));
+                if (matchedKw.length >= 2) {
+                    ymylClassification[key].count++;
+                    if (ymylClassification[key].posts.length < 10)
+                        ymylClassification[key].posts.push({ id: p.id, title: p.title, url: p.url });
+                    assigned = true;
+                    break;
+                }
+            }
+            if (!assigned) {
+                ymylClassification.other.count++;
+                if (ymylClassification.other.posts.length < 5)
+                    ymylClassification.other.posts.push({ id: p.id, title: p.title, url: p.url });
+            }
+        }
+        // ── D. 종합 리스크 평가 ──
+        const totalPosts = posts.length;
+        const highRiskYmylRatio = ((ymylClassification.financial.count + ymylClassification.government.count + ymylClassification.health.count) / totalPosts) * 100;
+        const adLabelRiskRatio = (adLabelIssues.length / totalPosts) * 100;
+        const reputationRiskRatio = (reputationRiskPosts.length / totalPosts) * 100;
+        const summaryRecommendations = [];
+        if (adLabelIssues.length > 0) {
+            summaryRecommendations.push(`🚨 광고 라벨 위험 ${adLabelIssues.length}개 글 — "스폰서 링크" 또는 "광고"로 통일`);
+        }
+        if (reputationRiskPosts.length > 0) {
+            summaryRecommendations.push(`⚠️ Site Reputation Abuse 위험 ${reputationRiskPosts.length}개 글 — 외부 기고/협찬 표기 제거 또는 정책 검토`);
+        }
+        if (ymylClassification.financial.count > 0) {
+            summaryRecommendations.push(`💰 Financial Security YMYL ${ymylClassification.financial.count}개 글 — 출처 명시 + 면책 조항 강화`);
+        }
+        if (ymylClassification.government.count > 0) {
+            summaryRecommendations.push(`🏛️ Government YMYL ${ymylClassification.government.count}개 글 — 2025.9 SQRG 강화 대응 (정부 공식 자료 직접 인용)`);
+        }
+        if (ymylClassification.health.count > 0) {
+            summaryRecommendations.push(`⚕️ Health YMYL ${ymylClassification.health.count}개 글 — 의료 면책 조항 권장`);
+        }
+        if (summaryRecommendations.length === 0) {
+            summaryRecommendations.push('✅ 고급 정책 스캔 통과 — 추가 조치 없음');
+        }
+        return {
+            ok: true,
+            sampleSize: totalPosts,
+            adLabelIssues,
+            reputationRiskPosts,
+            ymylClassification: Object.fromEntries(Object.entries(ymylClassification).map(([k, v]) => [k, { ...v, ...YMYL_CATEGORIES[k], percent: Math.round((v.count / totalPosts) * 100) }])),
+            summaryStats: {
+                adLabelRiskCount: adLabelIssues.length,
+                reputationRiskCount: reputationRiskPosts.length,
+                highRiskYmylRatio: Math.round(highRiskYmylRatio),
+                adLabelRiskRatio: Math.round(adLabelRiskRatio),
+                reputationRiskRatio: Math.round(reputationRiskRatio),
+            },
+            summaryRecommendations,
+            // URL Inspection 안내 (자동화 불가, 사용자 직접 단계)
+            urlInspectionGuide: {
+                steps: [
+                    'Google Search Console에 사이트 등록 (https://search.google.com/search-console)',
+                    '좌측 메뉴 "URL 검사" 또는 상단 검색바에 글 URL 붙여넣기',
+                    '결과 확인: "URL이 Google에 등록되어 있습니다" = 정상',
+                    '"Discovered but not indexed" = 발견했지만 색인 안 됨 → AdSense 신청 보류 권장',
+                    '"색인 요청" 버튼으로 즉시 색인 요청 가능 (글마다)',
+                    '"페이지 색인 생성" 보고서에서 사이트 전체 색인 상태 일괄 확인',
+                ],
+                why: 'AdSense 공식 가이드엔 명시되지 않았지만, 색인되지 않은 글이 많으면 "Insufficient content" 사유 가능성 증가 (deep-research 검증)',
+            },
+        };
+    }
+    catch (e) {
+        return { ok: false, error: e?.response?.data?.error?.message || e?.message || String(e) };
+    }
+});
+console.log('[APP] ✅ AdSense 자동 해결 IPC 등록 완료 (open-console/diagnose/create-pages/list-clickbait-posts/clean-post-titles/analyze-content-value/boost-post-value/bulk-cleanup-posts/list-yearly-posts/refresh-yearly-post/approval-readiness-check/inject-schema-org/create-author-page/advanced-policy-scan)');
 console.log('[APP] ✅ Electron 앱 초기화 완료');
