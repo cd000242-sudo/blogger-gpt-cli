@@ -10329,25 +10329,30 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
     const preferredEngine = resolveExternalTrafficEngine(payload, envData);
     const preferredGeminiModel = resolveExternalTrafficModel(payload, envData);
 
-    // v3.8.269: 에이전트 모드 (Codex CLI / Claude Code CLI) 분기 준비
-    // 거미줄 발행과 동일 패턴 — payload.executionMode === 'agent' && payload.agentProvider 명시 필요
+    // v3.8.271: 에이전트 모드 (Codex CLI / Claude Code CLI) 분기 — API 폴백 X
+    // 사용자가 명시적으로 'agent' 선택했으면 끝까지 agent 사용. 모르게 API 비용 발생 X.
     const useAgentMode = payload.executionMode === 'agent' && payload.agentProvider;
     let agentProfile: AgentProfile | null = null;
     if (useAgentMode) {
       agentProfile = findAgentProfile(undefined, payload.agentProvider as AgentModeProvider);
       if (!agentProfile) {
-        console.warn(`[EXT-TRAFFIC v2] 에이전트 모드 요청됐으나 profile 없음 (provider=${payload.agentProvider}) — API로 폴백`);
-      } else {
-        const accessStatus = await getAgentModeAccessStatus();
-        if (!accessStatus.allowed) {
-          console.warn(`[EXT-TRAFFIC v2] 에이전트 모드 권한 거부 (${accessStatus.message || '권한 없음'}) — API로 폴백`);
-          agentProfile = null;
-        }
+        // v3.8.271: 폴백 X — 명확한 에러로 사용자에게 진단 정보 제공
+        return {
+          success: false,
+          error: `AGENT_PROFILE_NOT_FOUND: ${payload.agentProvider} 프로필을 찾을 수 없습니다.\n\n환경설정 → AI 엔진에서:\n1. Codex/Claude Code 계정 로그인 확인\n2. CLI 설치 확인 (Codex: npm install -g @openai/codex, Claude Code: irm https://claude.ai/install.ps1 | iex)\n3. 다시 외부유입 글 생성 시도`,
+        };
+      }
+      const accessStatus = await getAgentModeAccessStatus();
+      if (!accessStatus.allowed) {
+        return {
+          success: false,
+          error: `AGENT_ACCESS_DENIED: ${accessStatus.message || '에이전트 모드 사용 권한 없음'}\n\n구독 상태 확인 후 다시 시도하세요.\n또는 환경설정 → AI 엔진에서 API 모드로 변경.`,
+        };
       }
     }
 
-    // 최소 1개 키 필요
-    if (!geminiKey && !openaiKey && !claudeKey && !perplexityKey) {
+    // API 모드만 키 검증 (agent 모드는 API 키 불필요)
+    if (!useAgentMode && !geminiKey && !openaiKey && !claudeKey && !perplexityKey) {
       return { success: false, error: 'API 키가 필요합니다. 설정 탭에서 Gemini / OpenAI / Claude / Perplexity 중 하나 이상 입력해주세요.' };
     }
 
@@ -10385,9 +10390,10 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
         const baseMaxTokens = promptPair.maxOutputTokens
           || (isStructuredChannel ? 8000 : 4000);
         while (attempt < 3) {
-          // v3.8.269: 에이전트 모드 우선 시도. 실패 시 API로 자동 폴백.
+          // v3.8.271: 에이전트 모드 명시 시 API 폴백 X. 끝까지 agent. 사용자 의도 존중.
           let callRes: { text: string; provider: string; model: string } | null = null;
           if (agentProfile) {
+            // === Agent 모드 (폴백 없음) ===
             try {
               const agentText = await runExternalTrafficAgent({
                 profile: agentProfile,
@@ -10401,13 +10407,29 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
                 callRes = { text: agentText, provider: `agent:${agentProfile.provider}`, model: agentProfile.provider };
                 console.log(`[EXT-TRAFFIC v2] ✅ ${ch.id} agent (${agentProfile.provider}) 응답 ${agentText.length}자`);
               } else {
-                console.warn(`[EXT-TRAFFIC v2] ${ch.id} agent 응답 너무 짧음 (${agentText?.length || 0}자) — API 폴백`);
+                // 응답 너무 짧음 → 다음 시도 (max_tokens 늘려서 retry)
+                console.warn(`[EXT-TRAFFIC v2] ${ch.id} agent 응답 너무 짧음 (${agentText?.length || 0}자, attempt ${attempt + 1}/3)`);
+                attempt++;
+                if (attempt >= 3) {
+                  // 3회 모두 실패 → 채널 에러로 반환 (다른 채널은 계속 진행)
+                  results[ch.id] = {
+                    error: `AGENT_RESPONSE_TOO_SHORT: ${agentProfile.provider} CLI가 충분한 응답을 생성하지 못했습니다 (${agentText?.length || 0}자, 3회 시도). 환경설정 → AI 엔진 → API 모드로 변경하거나 같은 채널 다시 시도.`,
+                  };
+                  break;
+                }
+                continue;
               }
             } catch (agentErr: any) {
-              console.warn(`[EXT-TRAFFIC v2] ${ch.id} agent 실패 → API 폴백:`, agentErr?.message || agentErr);
+              const msg = agentErr?.message || String(agentErr);
+              console.error(`[EXT-TRAFFIC v2] ${ch.id} agent 실행 실패:`, msg);
+              // agent 실패 → 채널 에러로 반환 (API 폴백 X)
+              results[ch.id] = {
+                error: `AGENT_EXECUTION_FAILED: ${agentProfile.provider} CLI 실행 실패. ${msg.slice(0, 200)}\n\n다음을 확인하세요:\n1. ${agentProfile.provider} CLI 설치/로그인 상태\n2. 환경설정 → AI 엔진 → 권한 확인\n3. 또는 API 모드로 변경`,
+              };
+              break;
             }
-          }
-          if (!callRes) {
+          } else {
+            // === API 모드 (기존 동작) ===
             callRes = await callLLMWithPreference({
               system: promptPair.system,
               user: userPrompt,
@@ -10421,6 +10443,10 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
               preferredGeminiModel,
               fallback,
             });
+          }
+          if (!callRes) {
+            // agent 실패 케이스에서 break로 빠져나옴 — 다음 채널로
+            break;
           }
           const text = (callRes.text || '').trim();
           const fullPrompt = `${promptPair.system}\n\n${userPrompt}`;
