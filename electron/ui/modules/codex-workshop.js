@@ -1057,7 +1057,8 @@ function renderAgentProviderPanel() {
             <p>${escapeHtml(meta.estimateText)}</p>
             <p>로컬 기록 리셋까지 ${escapeHtml(history.nextResetText)} 남았습니다. 토큰/비용은 CLI가 반환한 경우에만 실측으로 기록됩니다.</p>
           </div>
-          ${renderAgentImageSettingsPanel(provider)}
+          <!-- v3.8.275: 이미지 생성 범위 카드 임시 숨김 (Codex/Claude Code는 글만 생성, 이미지는 별도 엔진/API).
+               향후 에이전트가 이미지도 생성 가능한지 연구 후 재추가 예정. -->
         </div>
 
         <aside class="agent-mode-action-panel">
