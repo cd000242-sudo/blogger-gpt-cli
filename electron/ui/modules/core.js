@@ -358,9 +358,10 @@ export const ButtonStateManager = {
       this.saveOriginalState(buttonId);
     }
 
+    // v3.8.280: 발행 중에 버튼 누르면 중지 버튼으로 인식 — 진행 모달 없이도 중단 가능
     const loadingMessages = {
-      publishBtn: message || '<span style="position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 12px;"><span style="font-size: 28px; animation: pulse 2s infinite;">⏳</span><span style="text-shadow: 0 2px 10px rgba(0,0,0,0.2);">발행 중...</span><span style="font-size: 24px; animation: pulse 2s infinite 0.5s;">✨</span></span>',
-      generateBtn: message || '⏳ 생성 중...',
+      publishBtn: message || '<span style="position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 12px;"><span style="font-size: 28px; animation: pulse 2s infinite;">⏳</span><span style="text-shadow: 0 2px 10px rgba(0,0,0,0.2);">발행 중... <small style="font-size:13px;opacity:0.85;">(클릭하면 중지)</small></span><span style="font-size: 24px; animation: pulse 2s infinite 0.5s;">🛑</span></span>',
+      generateBtn: message || '⏳ 생성 중... (클릭하면 중지)',
       runBtn: message || '실행 중...'
     };
 
@@ -375,6 +376,31 @@ export const ButtonStateManager = {
       button.innerHTML = loadingMessages[buttonId];
     }
 
+    // v3.8.280: publishBtn/generateBtn 로딩 중 클릭 = 중지
+    // capture phase로 다른 click 핸들러 가로채기
+    if (buttonId === 'publishBtn' || buttonId === 'generateBtn') {
+      if (!button._cancelHandler) {
+        const cancelHandler = (e) => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          try {
+            // ui.js의 cancelRunningTask 호출 (전역 노출됨 v3.5.98)
+            if (typeof window.cancelRunningTask === 'function') {
+              window.cancelRunningTask();
+            } else if (window.electronAPI?.cancelTask) {
+              if (confirm('진행 중인 작업을 중지하시겠습니까?\n생성 중인 글은 저장되지 않습니다.')) {
+                window.electronAPI.cancelTask();
+              }
+            }
+          } catch (err) {
+            console.error('[ButtonStateManager] 중지 핸들러 오류:', err);
+          }
+        };
+        button._cancelHandler = cancelHandler;
+        button.addEventListener('click', cancelHandler, true); // capture: true
+      }
+    }
+
     console.log(`[ButtonStateManager] ${buttonId} 로딩 상태 설정:`, loadingMessages[buttonId]);
   },
 
@@ -383,6 +409,12 @@ export const ButtonStateManager = {
     if (!button) {
       console.warn(`[ButtonStateManager] 버튼을 찾을 수 없습니다: ${buttonId}`);
       return;
+    }
+
+    // v3.8.280: 로딩 중 추가한 cancel 핸들러 제거 (원래 발행 동작 복원)
+    if (button._cancelHandler) {
+      button.removeEventListener('click', button._cancelHandler, true);
+      delete button._cancelHandler;
     }
 
     const originalState = this.getOriginalState(buttonId);
