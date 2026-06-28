@@ -1057,6 +1057,85 @@ function renderAgentProviderPanel() {
             <p>${escapeHtml(meta.estimateText)}</p>
             <p>로컬 기록 리셋까지 ${escapeHtml(history.nextResetText)} 남았습니다. 토큰/비용은 CLI가 반환한 경우에만 실측으로 기록됩니다.</p>
           </div>
+
+          <!-- v3.8.282: 플랜별 글 작성 가능 수 — 도구 선택 도움 -->
+          ${provider === 'claude' ? `
+          <div style="margin-top:14px;padding:14px;background:rgba(34,197,94,0.05);border:1px solid rgba(34,197,94,0.25);border-radius:10px;">
+            <div style="font-size:13px;font-weight:800;color:#86efac;margin-bottom:10px;">📊 Claude Code 플랜별 글 작성 가능 수 (v3.8.281 single shot 기준)</div>
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+              <thead>
+                <tr style="border-bottom:1px solid rgba(34,197,94,0.3);">
+                  <th style="text-align:left;padding:6px 8px;color:#a7f3d0;font-weight:700;">플랜</th>
+                  <th style="text-align:right;padding:6px 8px;color:#a7f3d0;font-weight:700;">가격/월</th>
+                  <th style="text-align:right;padding:6px 8px;color:#a7f3d0;font-weight:700;">5시간</th>
+                  <th style="text-align:right;padding:6px 8px;color:#a7f3d0;font-weight:700;">하루(8h)</th>
+                  <th style="text-align:right;padding:6px 8px;color:#a7f3d0;font-weight:700;">월</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                  <td style="padding:6px 8px;color:#cbd5e1;">Pro</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">$20</td>
+                  <td style="text-align:right;padding:6px 8px;color:#fff;font-weight:700;">15글</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">30글</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">600~1,500</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                  <td style="padding:6px 8px;color:#cbd5e1;">Max 5x</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">$100</td>
+                  <td style="text-align:right;padding:6px 8px;color:#fff;font-weight:700;">75글</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">150글</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">4,500~6,000</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 8px;color:#cbd5e1;">Max 20x</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">$200</td>
+                  <td style="text-align:right;padding:6px 8px;color:#fff;font-weight:700;">300글</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">600+</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">무제한급</td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="font-size:10px;color:#94a3b8;margin-top:8px;line-height:1.5;">
+              ⚠️ 추정치 (글 1개당 약 13,000 토큰 / Claude Sonnet 4.6 기준). Anthropic 정책에 따라 변동.
+            </div>
+          </div>
+          ` : `
+          <div style="margin-top:14px;padding:14px;background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.25);border-radius:10px;">
+            <div style="font-size:13px;font-weight:800;color:#93c5fd;margin-bottom:10px;">📊 Codex 플랜별 글 작성 가능 수 (v3.8.281 single shot 기준)</div>
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+              <thead>
+                <tr style="border-bottom:1px solid rgba(59,130,246,0.3);">
+                  <th style="text-align:left;padding:6px 8px;color:#bfdbfe;font-weight:700;">플랜</th>
+                  <th style="text-align:right;padding:6px 8px;color:#bfdbfe;font-weight:700;">가격/월</th>
+                  <th style="text-align:right;padding:6px 8px;color:#bfdbfe;font-weight:700;">5시간</th>
+                  <th style="text-align:right;padding:6px 8px;color:#bfdbfe;font-weight:700;">하루(8h)</th>
+                  <th style="text-align:right;padding:6px 8px;color:#bfdbfe;font-weight:700;">월</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                  <td style="padding:6px 8px;color:#cbd5e1;">Plus</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">$20</td>
+                  <td style="text-align:right;padding:6px 8px;color:#fff;font-weight:700;">6글</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">10~16글</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">120~600</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 8px;color:#cbd5e1;">Pro</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">$200</td>
+                  <td style="text-align:right;padding:6px 8px;color:#fff;font-weight:700;">30글</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">60글</td>
+                  <td style="text-align:right;padding:6px 8px;color:#cbd5e1;">1,800~3,000</td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="font-size:10px;color:#94a3b8;margin-top:8px;line-height:1.5;">
+              ⚠️ 추정치 (글 1개당 약 13,000 토큰 / GPT-5 기준). OpenAI 정책에 따라 변동.
+            </div>
+          </div>
+          `}
+
           <!-- v3.8.275: 이미지 생성 범위 카드 임시 숨김 (Codex/Claude Code는 글만 생성, 이미지는 별도 엔진/API).
                향후 에이전트가 이미지도 생성 가능한지 연구 후 재추가 예정. -->
         </div>
