@@ -462,6 +462,15 @@ function getProviderLoginLabel(provider, profile = getProviderProfile(provider))
   return '로그인 필요';
 }
 
+// v3.8.274: select option용 간단 라벨 (이메일만 — 사용자 헷갈림 방지)
+function buildAgentSelectLabel(profile) {
+  if (!profile) return '';
+  const id = profile.loginIdentity;
+  if (id && id.email) return id.email;
+  // 이메일 없으면 fallback
+  return profile.label || profile.id || profile.provider || '';
+}
+
 function getLocalAgentHistory(provider) {
   const summary = getUsageSummary(provider);
   const jobs = Array.isArray(summary.usageState?.jobs)
@@ -830,8 +839,8 @@ function renderSettingsProfileSelect() {
   select.disabled = false;
   select.innerHTML = providerProfiles
     .map((profile) => {
-      const provider = profile.provider === 'claude' ? 'Claude Code' : 'Codex';
-      const label = `${provider} · ${profile.label || profile.id} · ${getProviderLoginLabel(profile.provider, profile)}`;
+      // v3.8.274: 이메일만 표시 (사용자 헷갈림 방지)
+      const label = buildAgentSelectLabel(profile);
       return `<option value="${escapeHtml(profile.id)}">${escapeHtml(label)}</option>`;
     })
     .join('');
@@ -2592,7 +2601,8 @@ function renderAgentProfileSelect() {
   select.disabled = false;
   select.innerHTML = profiles
     .map((profile) => {
-      const label = `${profile.provider === 'claude' ? 'Claude' : 'Codex'} · ${profile.label} · ${getProviderLoginLabel(profile.provider, profile)}`;
+      // v3.8.274: 이메일만 표시 (사용자 헷갈림 방지)
+      const label = buildAgentSelectLabel(profile);
       return `<option value="${escapeHtml(profile.id)}">${escapeHtml(label)}</option>`;
     })
     .join('');
