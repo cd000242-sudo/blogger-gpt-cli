@@ -609,10 +609,19 @@ function preCleanupBloggerBody(html) {
   const beforeLen = cleaned.length;
   console.log(`[BODY-TRACE] preCleanupBloggerBody 시작: ${beforeLen}자`);
 
+  // v3.8.285: 각 단계마다 마지막 H2 추적 — 어디서 본문 끝부분 잘리는지 정확히 찾기
+  const traceLastH2 = (label) => {
+    const matches = cleaned.match(/<h2[^>]*>([^<]+)<\/h2>/gi) || [];
+    const lastH2 = matches.length > 0 ? matches[matches.length - 1].replace(/<[^>]+>/g, '') : '(없음)';
+    console.log(`[BODY-TRACE] [${label}] H2 개수=${matches.length}, 마지막 H2="${lastH2.slice(0, 60)}", 길이=${cleaned.length}`);
+  };
+  traceLastH2('진입');
+
   // v3.8.110: 사용자 보고 — 본문에 H1 여러 개 또는 article 내부 H1 잔존
   //   기존: ^ 시작 첫 H1만 제거. 본문 중간 H1, article 내부 H1은 통과 → Blogger 글 제목 영역과 중복.
   //   수정: 모든 H1 제거 (Blogger는 글 제목을 자체 렌더링).
   cleaned = cleaned.replace(/<h1[^>]*>[\s\S]*?<\/h1>/gi, '');
+  traceLastH2('H1 제거 후');
 
   // v3.8.98: 블로거에도 WP와 동일한 깨진 img sanitizer (사용자 보고: 농어촌 글 깨진 이미지 + alt 박스)
   //   - src가 빈 문자열인 img 제거
@@ -624,6 +633,7 @@ function preCleanupBloggerBody(html) {
     .replace(/<img\b[^>]*\bsrc=["']javascript:[^"']*["'][^>]*>/gi, '')
     .replace(/<img\b[^>]*\bsrc=["']data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]{0,200}["'][^>]*>/gi, '')
     .replace(/<figure[^>]*>\s*(?:<a[^>]*>)?\s*(?:<\/a>)?\s*<\/figure>/gi, '');
+  traceLastH2('img/figure 정리 후');
 
   const captionPatterns = [
     /<p[^>]*>\s*\[?(?:이미지|사진|썸네일|섬네일|illustration|image|figure)\s*[:：][\s\S]{1,200}?\]?\s*<\/p>/gi,
@@ -632,6 +642,7 @@ function preCleanupBloggerBody(html) {
     /<p[^>]*>\s*<em[^>]*>\s*[\[(]?(?:이미지|사진|썸네일)[\s\S]{1,150}?[\])]?\s*<\/em>\s*<\/p>/gi,
   ];
   for (const pat of captionPatterns) cleaned = cleaned.replace(pat, '');
+  traceLastH2('caption 정리 후');
 
   const highlightInsideText = (text) => {
     return text
@@ -645,6 +656,7 @@ function preCleanupBloggerBody(html) {
     const enhanced = highlightInsideText(inner);
     return `<${tag}${attrs}>${enhanced}</${tag}>`;
   });
+  traceLastH2('p/li 하이라이트 후');
 
   // v3.8.101: 본문이 30% 이상 줄어들면 경고 + 원본 복구 (sanitizer가 과도하게 깎는 것 방지)
   const afterLen = cleaned.length;
@@ -681,11 +693,27 @@ function applyInlineStyles(html) {
       .replace(/&#128161;/g, '💡');
 
     let styledHtml = normalizeBloggerTables(html);
+    // v3.8.285: applyInlineStyles 단계별 추적
+    {
+      const m = styledHtml.match(/<h2[^>]*>([^<]+)<\/h2>/gi) || [];
+      const last = m.length > 0 ? m[m.length - 1].replace(/<[^>]+>/g, '') : '(없음)';
+      console.log(`[BODY-TRACE] [normalizeBloggerTables 후] H2=${m.length}, 마지막="${last.slice(0, 60)}", 길이=${styledHtml.length}`);
+    }
 
     // ── ** 볼드 마크다운 마커 → <strong> 변환 ──
     styledHtml = styledHtml.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     styledHtml = styledHtml.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+    {
+      const m = styledHtml.match(/<h2[^>]*>([^<]+)<\/h2>/gi) || [];
+      const last = m.length > 0 ? m[m.length - 1].replace(/<[^>]+>/g, '') : '(없음)';
+      console.log(`[BODY-TRACE] [<style> 제거 후] H2=${m.length}, 마지막="${last.slice(0, 60)}", 길이=${styledHtml.length}`);
+    }
     styledHtml = bgptInlinePlatformComponents(styledHtml);
+    {
+      const m = styledHtml.match(/<h2[^>]*>([^<]+)<\/h2>/gi) || [];
+      const last = m.length > 0 ? m[m.length - 1].replace(/<[^>]+>/g, '') : '(없음)';
+      console.log(`[BODY-TRACE] [bgptInlinePlatformComponents 후] H2=${m.length}, 마지막="${last.slice(0, 60)}", 길이=${styledHtml.length}`);
+    }
 
     // ── 수익 최적화 통일 디자인 시스템 ──
     // 색상: 틸 #0d9488 (H2), 시안 #0891b2 (H3/링크)
