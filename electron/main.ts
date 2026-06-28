@@ -7392,9 +7392,16 @@ function buildAgentRunCommand(
   lastMessagePath: string,
   model: string | null = getCodexAgentModel()
 ): { command: string; args: string[] } {
+  // v3.8.284: prompt 강화 — 사용자 진단 결과 Codex가 stdout만 출력하고 파일 안 만듬
+  // 핵심 fix: write_file 도구 명시 + 파일 검증 + 누락 시 fail 명시
   const prompt = [
-    'Read instructions.md and payload.json, then create result/article.html and result/metadata.json exactly as requested.',
-    'If file writing is blocked, print the full article HTML between ARTICLE_HTML_BEGIN and ARTICLE_HTML_END.',
+    'CRITICAL: You MUST use the write_file tool (or apply_patch/shell tee) to create EXACTLY these two files:',
+    '  1. result/article.html — complete HTML article body (8,000~14,000 Korean characters)',
+    '  2. result/metadata.json — JSON with title, summary, imagePrompts (thumbnail + h2_1~6)',
+    'After writing both files, verify they exist using ls or cat. If either file is missing, the task FAILS.',
+    'DO NOT just print HTML to stdout. DO NOT skip metadata.json. DO NOT use placeholders.',
+    'Read instructions.md for the detailed schema. Read payload.json for context.',
+    'If file writing is blocked, print between ARTICLE_HTML_BEGIN and ARTICLE_HTML_END as last resort.',
     'Do not ask questions.',
   ].join(' ');
 
@@ -7809,7 +7816,37 @@ function readAgentJobResult(jobDir: string, stdout: string, lastMessagePath: str
         console.warn(`[AGENT-RESULT] ⚠️ 썸네일 prompt 누락! 사이트에 X 아이콘만 표시됨`);
       }
     } else {
-      console.warn(`[AGENT-RESULT] ⚠️ metadata.json 없음 — 썸네일 + Schema 자동 생성 안 됨`);
+      // v3.8.284: 안전망 — metadata.json 없으면 finalMessage/stdout에서 JSON 블록 추출 시도
+      console.warn(`[AGENT-RESULT] ⚠️ metadata.json 파일 없음 — finalMessage/stdout에서 JSON 추출 시도`);
+      const allText = `${finalMessage}\n${stdout}`;
+      const jsonBlockMatch = allText.match(/\{[\s\S]*?"imagePrompts"[\s\S]*?\}/);
+      if (jsonBlockMatch) {
+        try {
+          // 시작 { 부터 균형 잡힌 } 까지 추출
+          const startIdx = allText.indexOf(jsonBlockMatch[0]);
+          let depth = 0;
+          let endIdx = -1;
+          for (let i = startIdx; i < allText.length; i++) {
+            if (allText[i] === '{') depth++;
+            else if (allText[i] === '}') {
+              depth--;
+              if (depth === 0) { endIdx = i; break; }
+            }
+          }
+          if (endIdx > startIdx) {
+            const extracted = allText.slice(startIdx, endIdx + 1);
+            metadata = JSON.parse(extracted);
+            console.log(`[AGENT-RESULT] ✅ 안전망: finalMessage/stdout에서 metadata 추출 성공 (${extracted.length}자)`);
+            const promptKeys = Object.keys(metadata?.imagePrompts || {});
+            console.log(`[AGENT-RESULT] 🖼️ imagePrompts 키 (추출): [${promptKeys.join(', ') || '없음'}]`);
+          }
+        } catch (extractErr: any) {
+          console.warn(`[AGENT-RESULT] ⚠️ 안전망 추출 실패:`, extractErr.message);
+        }
+      }
+      if (!metadata.imagePrompts) {
+        console.warn(`[AGENT-RESULT] ⚠️ 썸네일 + Schema 자동 생성 안 됨 (metadata 없음)`);
+      }
     }
   } catch (error) {
     metadata = { warnings: [`metadata.json 파싱 실패: ${error instanceof Error ? error.message : String(error)}`] };
