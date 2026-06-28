@@ -10512,9 +10512,12 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
 });
 
 // v3.8.1: 환경설정 모델 선호 + llm-fallback 통합 호출
-// v3.8.269: 외부유입 글 생성용 에이전트 실행 헬퍼
-// 거미줄 발행과 동일 패턴: instructions.md + payload.json → runAgentProcess → result/article.html 또는 final-message
-// 외부유입은 채널마다 JSON 출력 형식이라, instructions.md에 schema 명시 + JSON 추출 로직 포함
+// v3.8.272: 외부유입 글 생성용 에이전트 실행 — Agent를 API보다 압도적으로 만드는 5축
+// 1. Agent 사고력 활용: 6단계 thinking 강제 (분석→전략→초안→자가비평→재작성→최종)
+// 2. 풍부한 컨텍스트: 채널별 viral DNA 전체 + 7원칙 + 자가체크 12가지 명시
+// 3. Self-critique 루프: agent가 자기 출력을 점수화하고 약점 발견 시 재작성
+// 4. 다중 파일 분리: thinking.md (사고) + draft.md (초안) + critique.md (비평) + output.json/txt (최종)
+// 5. JSON output 정확성: structured 채널은 output.json 명시, parser가 정확히 추출
 async function runExternalTrafficAgent(opts: {
   profile: AgentProfile;
   system: string;
@@ -10526,27 +10529,110 @@ async function runExternalTrafficAgent(opts: {
   const jobDir = path.join(app.getPath('userData'), 'external-traffic-agent-jobs', `${opts.channelId}-${Date.now()}`);
   fs.mkdirSync(path.join(jobDir, 'result'), { recursive: true });
   const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
-  const outputPath = path.join(jobDir, 'result', 'article.html'); // 거미줄과 동일한 경로 (LLM이 익숙)
+  const outputJsonPath = path.join(jobDir, 'result', 'output.json');
+  const outputTxtPath = path.join(jobDir, 'result', 'output.txt');
+  const articleHtmlPath = path.join(jobDir, 'result', 'article.html');
 
-  // instructions.md: 시스템 프롬프트 + 사용자 프롬프트 + 출력 형식
+  const channelIdUpper = opts.channelId.toUpperCase().replace(/-/g, '_');
+
+  // v3.8.272: Agent의 진짜 강점을 활용하는 풍부한 instructions
   const instructions = [
-    '# 외부유입 글 생성 작업',
+    '# 외부유입 글 생성 — 끝판왕 작업',
     '',
-    `## 대상 채널: ${opts.channelName} (id: ${opts.channelId})`,
+    `## 대상 채널: ${opts.channelName} (id: \`${opts.channelId}\`)`,
+    `## 출력 형식: ${opts.isStructured ? 'Structured JSON' : 'Plain Text'}`,
     '',
-    '## 시스템 지시',
+    '## 작업 목표',
+    `당신은 ${opts.channelName} 외부유입 글 1개를 생성합니다. 평균 조회수 1만+ 가능한 viral 글이 목표.`,
+    'API LLM 호출과 달리, 당신(Agent)는 다음 능력을 활용합니다:',
+    '- **다단계 사고**: 분석 → 전략 → 초안 → 자가비평 → 재작성',
+    '- **중간 파일 작성**: thinking/draft/critique 단계별 파일',
+    '- **자가 점검 루프**: 12가지 viral 자가체크 항목 모두 통과까지 재작성',
+    '',
+    '## 6단계 사고 프로세스 — 반드시 순서대로 파일 작성',
+    '',
+    '### 1단계: 원문 분석 (thinking.md)',
+    '`result/thinking.md` 파일에 다음을 작성:',
+    '- 원문 핵심 토픽 1줄',
+    '- 청중 인지도 (unaware / aware / mixed)',
+    '- 원문에 있는 명확한 사실 (수치/조건/시점) 3~5개',
+    '- 원문에 없어서 만들면 안 되는 정보 (인물/통계/사례)',
+    '- 이 채널의 KPI (댓글/공유/저장/검색)',
+    '',
+    '### 2단계: viral 패턴 선택 (strategy.md)',
+    '`result/strategy.md` 파일에 작성:',
+    '- A안 viral 패턴 stack (2개): 어떤 패턴 + 왜',
+    '- B안 viral 패턴 stack (2개): 다른 조합',
+    '- C안 viral 패턴 stack (2개): 또 다른 조합',
+    '- 각 안의 첫 줄 후보 3개씩',
+    '',
+    '### 3단계: 초안 작성 (draft.md)',
+    '`result/draft.md` 파일에 A/B/C 3안 작성. 다음 시스템 지시 따름:',
+    '',
+    '```',
     opts.system,
+    '```',
     '',
-    '## 사용자 지시',
+    '### 4단계: 자가 비평 (critique.md)',
+    '`result/critique.md` 파일에 각 안 12가지 자가체크:',
+    '1. 모든 사실이 원문에서 나왔는가? (FACT)',
+    '2. 꾸며낸 인물/통계/사례 있는가? NO여야',
+    '3. 작성자 본인 신원(나이/직업/소득) 추측 있는가? NO여야',
+    '4. "원문 보니까" link bait 어조 있는가? NO여야',
+    '5. 첫 줄에서 멈춘 후 끝까지 읽히는가?',
+    '6. aware 청중도 자기 점검하며 클릭할까?',
+    '7. 디테일 hint 2개 자연스럽게 심었는가?',
+    '8. 평균 조회수 1만+ 목표라면 그대로 쓸까?',
+    '9. 본문에 의심점/리스크 1개 명시? (광고 차단)',
+    '10. 단일 긍정 톤은 아닌가? (양면 노출 필수)',
+    '11. (Shorts/Threads/X) 첫 3초 hook 즉각? 일반 인사 X',
+    '12. (댓글 채널) hedging 표현 1개? "~인 것 같은데"',
+    '',
+    '점수: 각 자가체크 통과 12개 중 몇 개? 12개 모두 YES면 통과. 1개라도 NO면 5단계.',
+    '',
+    '### 5단계: 약점 재작성 (refined.md)',
+    'critique.md에서 NO인 항목을 모두 통과하도록 본문 재작성. `result/refined.md`에 작성.',
+    '',
+    '### 6단계: 최종 출력',
+    opts.isStructured
+      ? [
+          '`result/output.json` 파일에 다음 형식의 JSON 작성:',
+          '```json',
+          '{',
+          `  "rawText": "<${channelIdUpper}_RESULT_JSON>{ ... 채널별 schema ... }</${channelIdUpper}_RESULT_JSON>"`,
+          '}',
+          '```',
+          '',
+          'rawText 안에는 사용자 지시(아래)에 명시된 정확한 XML 태그 + JSON 스키마 그대로:',
+          '',
+          '```',
+          opts.user,
+          '```',
+          '',
+          '**중요**: rawText는 채널 파서가 정확히 파싱해야 하므로 schema 필드명 정확히. variants 3개 (A/B/C), 각 variant에 finalRevision 필수.',
+        ].join('\n')
+      : [
+          '`result/output.txt` 파일에 평문 응답 작성:',
+          '',
+          '```',
+          opts.user,
+          '```',
+        ].join('\n'),
+    '',
+    '## 사용자 지시 (원본)',
     opts.user,
     '',
-    '## 출력 규칙',
-    '- 위 시스템 + 사용자 지시에 명시된 형식 그대로 응답',
+    '## 절대 규칙',
+    '- 6단계 모두 파일 작성 필수 (생략 X)',
+    '- 마지막 출력 파일에 부가 설명/머리말/마무리말 X (순수 본문/JSON만)',
+    '- 코드펜스(```) 사용 X',
+    '- 사실 조작 = 즉시 실패. 원문에 없는 인물/통계/사례 만들기 절대 금지',
+    '- 광고/낚시 톤 = 즉시 실패. "꼭 알려줘" / "참고해봐" 등',
+    '',
+    '## 출력 마감',
     opts.isStructured
-      ? `- JSON XML 태그 형식(<${opts.channelId.toUpperCase()}_RESULT_JSON> ... </${opts.channelId.toUpperCase()}_RESULT_JSON> 등) 그대로 출력`
-      : '- 평문 그대로 출력',
-    '- 응답을 `result/article.html` 파일에 작성 (HTML 아니어도 됨 — 단순 텍스트/JSON도 가능)',
-    '- 파일 작성 외 다른 부가 설명 X',
+      ? 'result/output.json — JSON 형식 정확히, variants 3개 finalRevision 모두 채움'
+      : 'result/output.txt — 평문, viral DNA 적용된 최종',
   ].join('\n');
 
   fs.writeFileSync(path.join(jobDir, 'instructions.md'), instructions, 'utf-8');
@@ -10554,15 +10640,40 @@ async function runExternalTrafficAgent(opts: {
     channelId: opts.channelId,
     channelName: opts.channelName,
     isStructured: opts.isStructured,
+    expectedOutputFile: opts.isStructured ? 'result/output.json' : 'result/output.txt',
   }, null, 2), 'utf-8');
 
   // 에이전트 실행
   const run = await runAgentProcess(opts.profile, jobDir, lastMessagePath);
-  const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
-  const raw = String(result.content || result.finalMessage || '').trim();
 
-  // 외부유입 JSON 응답이 HTML 태그로 감싸지지 않도록 정리
-  // (readAgentJobResult가 HTML 파싱하는데, JSON 응답은 그냥 raw로 처리해야 함)
+  // v3.8.272: 출력 파일 우선순위 — output.json → output.txt → article.html → final-message
+  let raw = '';
+  try {
+    if (opts.isStructured && fs.existsSync(outputJsonPath)) {
+      const jsonContent = JSON.parse(fs.readFileSync(outputJsonPath, 'utf-8'));
+      raw = String(jsonContent.rawText || '').trim();
+      if (raw) {
+        console.log(`[EXT-TRAFFIC AGENT] ✅ ${opts.channelId} output.json 사용 (${raw.length}자)`);
+      }
+    }
+    if (!raw && fs.existsSync(outputTxtPath)) {
+      raw = fs.readFileSync(outputTxtPath, 'utf-8').trim();
+      if (raw) console.log(`[EXT-TRAFFIC AGENT] ✅ ${opts.channelId} output.txt 사용 (${raw.length}자)`);
+    }
+    if (!raw && fs.existsSync(articleHtmlPath)) {
+      raw = fs.readFileSync(articleHtmlPath, 'utf-8').trim();
+      if (raw) console.log(`[EXT-TRAFFIC AGENT] ${opts.channelId} article.html fallback (${raw.length}자)`);
+    }
+  } catch (parseErr: any) {
+    console.warn(`[EXT-TRAFFIC AGENT] ${opts.channelId} 출력 파일 파싱 실패:`, parseErr?.message);
+  }
+
+  if (!raw) {
+    const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
+    raw = String(result.content || result.finalMessage || '').trim();
+    console.log(`[EXT-TRAFFIC AGENT] ${opts.channelId} final-message fallback (${raw.length}자)`);
+  }
+
   return raw;
 }
 
