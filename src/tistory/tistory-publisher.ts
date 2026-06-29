@@ -152,6 +152,10 @@ function extractTags(payload: Record<string, any>): string[] {
     payload['hashTags'],
     payload['keywords'],
     payload['keyword'],
+    // v3.8.300: agent 모드 metadata.json 안의 tags (codex-workshop이 payload.metadata로 넘김)
+    payload['metadata']?.tags,
+    payload['metadata']?.hashtags,
+    payload['metadata']?.keywords,
   ];
 
   const tags: string[] = [];
@@ -166,6 +170,25 @@ function extractTags(payload: Record<string, any>): string[] {
       if (tags.length >= 10) return tags;
     }
   }
+
+  // v3.8.300 폴백: tags 비어있으면 title에서 한국어 명사 추출 자동 생성 (사용자 보고: 해시태그 #태그입력 빈 상태로 발행됨)
+  if (tags.length === 0) {
+    const title = String(payload['title'] || payload['topic'] || payload['keyword'] || '').trim();
+    if (title) {
+      // 한국어 명사 후보: 2자 이상 한글/숫자 토큰
+      const tokens = title
+        .replace(/[^가-힣a-zA-Z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(t => t.length >= 2 && t.length <= 12);
+      const stopwords = new Set(['그리고', '하지만', '이번', '오늘', '최근', '관련', '대한', '대해', '이런', '저런', '어떤', '그것', '이것', '저것']);
+      for (const tok of tokens) {
+        if (stopwords.has(tok)) continue;
+        if (!tags.includes(tok)) tags.push(tok);
+        if (tags.length >= 6) break;
+      }
+    }
+  }
+
   return tags;
 }
 
