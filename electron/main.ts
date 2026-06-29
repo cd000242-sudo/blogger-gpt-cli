@@ -4923,6 +4923,53 @@ ipcMain.handle('prepare-publish-content', async (_evt, data) => {
       return { ok: true, content: _out1 };
     }
 
+    // v3.8.299: 티스토리 — inline style 박지 않고 H1 제거 + base64 외부 호스팅 정리만 (티스토리는 자체 에디터 스타일 사용)
+    if (/tistory|티스토리/i.test(platform)) {
+      let out = String(content || '');
+      const before = out.length;
+
+      // (1) H1 통째 제거 (제목 중복 차단)
+      const h1Count = (out.match(/<h1[^>]*>[\s\S]*?<\/h1>/gi) || []).length;
+      if (h1Count > 0) {
+        out = out.replace(/<h1[^>]*>[\s\S]*?<\/h1>/gi, '');
+        const log = `[PREPARE/TISTORY] 🗑️ 본문 H1 ${h1Count}개 제거 (제목 중복 차단)`;
+        console.log(log); _evt.sender?.send?.('log-line', log);
+      }
+
+      // (2) 본문 base64 이미지 → 외부 호스팅 강제 변환 (티스토리도 동일 처리)
+      if (/<img[^>]+src=["']data:image\//i.test(out)) {
+        const matches = [...out.matchAll(/<img[^>]+src=["'](data:image\/([a-z+]+);base64,[^"']+)["'][^>]*>/gi)];
+        const total = matches.length;
+        let uploader: ((dataUrl: string, name?: string) => Promise<string | null>) | null = null;
+        try {
+          const helpers = require('../dist/core/final/image-helpers');
+          if (typeof helpers?.uploadBase64ToImageHost === 'function') uploader = helpers.uploadBase64ToImageHost;
+        } catch {}
+
+        let converted = 0, removed = 0;
+        for (let i = 0; i < matches.length; i++) {
+          const fullTag = matches[i][0];
+          const dataUrl = matches[i][1];
+          const mime = matches[i][2];
+          if (/svg/i.test(mime) || !uploader) {
+            out = out.replace(fullTag, ''); removed++; continue;
+          }
+          try {
+            const externalUrl = await uploader(dataUrl, `tistory-body-${i}`);
+            if (externalUrl && !/svg/i.test(externalUrl)) {
+              out = out.replace(fullTag, fullTag.replace(dataUrl, externalUrl)); converted++;
+            } else {
+              out = out.replace(fullTag, ''); removed++;
+            }
+          } catch { out = out.replace(fullTag, ''); removed++; }
+        }
+        const log = `[PREPARE/TISTORY] ✅ base64 ${total}장 정리: ${converted}장 외부 호스팅, ${removed}장 제거. ${(before/1024).toFixed(0)}KB → ${(out.length/1024).toFixed(0)}KB`;
+        console.log(log); _evt.sender?.send?.('log-line', log);
+      }
+
+      return { ok: true, content: out };
+    }
+
     if (!/wordpress|wp|워드프레스/i.test(platform)) {
       return { ok: true, content };
     }
@@ -5031,6 +5078,22 @@ ipcMain.handle('publish-content', async (_evt, data) => {
       } catch {}
     };
     traceToRenderer('publish-content 진입', data.content);
+
+    // v3.8.299: 본문 H1 중복 제거 — 모든 플랫폼이 제목을 별도 입력받으므로 본문 H1은 중복 표시 원인
+    //   사용자 보고: 에이전트로 티스토리 발행 시 본문 첫 줄에 H1 제목이 다시 나옴.
+    //   원인: 에이전트가 article.html에 H1 박음. Blogger 자체 publisher는 preCleanupBloggerBody에서 제거하지만 티스토리는 별도 흐름이라 미적용.
+    //   대응: publish-content 진입 즉시 H1 통째 제거 (모든 플랫폼 안전 — blogger도 이중 제거 무해, 티스토리/WP 중복 해결).
+    if (typeof data.content === 'string') {
+      const h1Match = data.content.match(/<h1[^>]*>[\s\S]*?<\/h1>/gi);
+      if (h1Match && h1Match.length > 0) {
+        const before = data.content.length;
+        data.content = data.content.replace(/<h1[^>]*>[\s\S]*?<\/h1>/gi, '');
+        const removed = before - data.content.length;
+        const h1Log = `[H1-DUP-FIX] 🗑️ 본문 H1 ${h1Match.length}개 제거 (${removed}자 절감) — 제목 중복 차단`;
+        console.log(h1Log);
+        _evt.sender?.send?.('log-line', h1Log);
+      }
+    }
 
     // v3.8.287: base64 이미지 폭증 root cause 발견 — Blogger API publish 전 모든 base64 → 외부 호스팅 강제 변환
     //   사용자 보고 (홍명보 6명 분석 글): HTML 1.6MB 폭증, 본문 70% 잘림.

@@ -1087,6 +1087,11 @@ async function uploadThumbnailThroughTistoryEditor(
 }
 
 function buildTistoryFinalHtml(html: string, thumbnailUrl: string, uploadedThumbnailBlock: string, title: string): string {
+  // v3.8.299 보험: publish-content를 우회한 경로(직접 publishToTistory 호출)도 대비 — 본문 H1 통째 제거
+  if (typeof html === 'string') {
+    html = html.replace(/<h1[^>]*>[\s\S]*?<\/h1>/gi, '');
+  }
+
   if (uploadedThumbnailBlock) {
     const bodyWithoutGeneratedThumbnail = stripGeneratedThumbnailHero(html, thumbnailUrl);
     return `${uploadedThumbnailBlock}\n${bodyWithoutGeneratedThumbnail}`.trim();

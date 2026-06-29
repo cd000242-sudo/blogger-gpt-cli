@@ -3372,9 +3372,11 @@ function normalizeCodexContent(raw = '', payload = {}) {
 
 async function prepareContentForPlatform(html, payload) {
   const targetPlatform = String(payload?.targetPlatform || payload?.platform || '').toLowerCase();
+  // v3.8.299: 티스토리도 prepare-publish-content 통과 — H1 중복 제거 + base64 외부 호스팅
   const platform = /wordpress|wp|워드프레스/i.test(targetPlatform)
     ? 'wordpress'
-    : (/blogger|blogspot|블로그스팟/i.test(targetPlatform) ? 'blogspot' : '');
+    : (/blogger|blogspot|블로그스팟/i.test(targetPlatform) ? 'blogspot'
+    : (/tistory|티스토리/i.test(targetPlatform) ? 'tistory' : ''));
 
   if (!platform || !window.electronAPI?.invoke) return html;
 
