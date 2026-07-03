@@ -1,11 +1,11 @@
 // 🔧 설정 관리 관련 함수들
 import { getErrorHandler, getStorageManager, addLog, debugLog } from './core.js';
 
-function normalizePlatformValue(value) {
+function normalizePlatformValue(value, fallback = 'blogger') {
   const platform = String(value || '').toLowerCase().trim();
   if (platform === 'blogspot') return 'blogger';
   if (platform === 'blogger' || platform === 'wordpress' || platform === 'tistory') return platform;
-  return 'wordpress';
+  return fallback;
 }
 
 function getPlatformDisplay(platform) {
@@ -19,15 +19,86 @@ function getPlatformDisplay(platform) {
   return { label: 'WordPress', color: '#3b82f6', background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' };
 }
 
+function pickSettingValue(source = {}, keys = []) {
+  for (const key of keys) {
+    const value = source?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      return String(value).trim();
+    }
+  }
+  return '';
+}
+
+function hasBloggerSettings(source = {}) {
+  return Boolean(
+    pickSettingValue(source, ['blogId', 'bloggerId', 'BLOG_ID', 'BLOGGER_ID', 'GOOGLE_BLOG_ID', 'BLOGGER_BLOG_ID'])
+    || pickSettingValue(source, ['googleClientId', 'clientId', 'GOOGLE_CLIENT_ID', 'BLOGGER_CLIENT_ID'])
+    || pickSettingValue(source, ['googleClientSecret', 'clientSecret', 'GOOGLE_CLIENT_SECRET', 'BLOGGER_CLIENT_SECRET'])
+  );
+}
+
+function hasWordPressSettings(source = {}) {
+  return Boolean(
+    pickSettingValue(source, ['wordpressSiteUrl', 'wpSiteUrl', 'wordpressUrl', 'WORDPRESS_SITE_URL', 'WP_SITE_URL'])
+    || pickSettingValue(source, ['wordpressUsername', 'wpUsername', 'WORDPRESS_USERNAME', 'WP_USERNAME'])
+    || pickSettingValue(source, ['wordpressPassword', 'wpPassword', 'WORDPRESS_PASSWORD', 'WP_PASSWORD'])
+  );
+}
+
+function resolvePlatformValue(saved = {}, env = {}, fallback = 'blogger') {
+  const savedRaw = pickSettingValue(saved, ['platform', 'PLATFORM', 'blogPlatform', 'BLOG_PLATFORM']);
+  if (savedRaw) return normalizePlatformValue(savedRaw, fallback);
+
+  const envRaw = pickSettingValue(env, ['platform', 'PLATFORM', 'blogPlatform', 'BLOG_PLATFORM']);
+  if (envRaw) return normalizePlatformValue(envRaw, fallback);
+
+  if (hasBloggerSettings(saved) || hasBloggerSettings(env)) return 'blogger';
+  if (hasWordPressSettings(saved) || hasWordPressSettings(env)) return 'wordpress';
+  return fallback;
+}
+
+async function loadEnvSettingsForRecovery() {
+  const methods = [
+    () => window.blogger?.getEnv?.(),
+    () => window.electronAPI?.loadEnvironmentSettings?.(),
+    () => window.blogger?.loadEnvironmentSettings?.(),
+  ];
+
+  for (const method of methods) {
+    try {
+      const result = await method();
+      if (!result) continue;
+      if (result.ok && result.data) return result.data;
+      if (result.ok && result.settings) return result.settings;
+      if (typeof result === 'object' && !Array.isArray(result) && !result.error) return result;
+    } catch {
+      // Try the next bridge.
+    }
+  }
+  return {};
+}
+
+function restoreBloggerAliases(settings = {}, env = {}) {
+  const restored = { ...settings };
+  if (!restored.blogId) restored.blogId = pickSettingValue(env, ['blogId', 'bloggerId', 'BLOG_ID', 'BLOGGER_ID', 'GOOGLE_BLOG_ID', 'BLOGGER_BLOG_ID']);
+  if (!restored.googleClientId) restored.googleClientId = pickSettingValue(env, ['googleClientId', 'clientId', 'GOOGLE_CLIENT_ID', 'BLOGGER_CLIENT_ID']);
+  if (!restored.googleClientSecret) restored.googleClientSecret = pickSettingValue(env, ['googleClientSecret', 'clientSecret', 'GOOGLE_CLIENT_SECRET', 'BLOGGER_CLIENT_SECRET']);
+  return restored;
+}
+
 // 설정 로드 (비동기)
 export async function loadSettings() {
   const storage = getStorageManager();
   let settings = {};
+  let hadStoredSettings = false;
+  let hadStoredPlatform = false;
 
   try {
     const savedSettings = await storage.get('bloggerSettings', true);
     if (savedSettings) {
       settings = savedSettings;
+      hadStoredSettings = true;
+      hadStoredPlatform = !!savedSettings.platform;
     }
   } catch (e) {
     getErrorHandler().handle(e, {
@@ -37,9 +108,20 @@ export async function loadSettings() {
     settings = {};
   }
 
+  const envSettings = await loadEnvSettingsForRecovery();
   const originalPlatform = settings.platform;
-  settings.platform = normalizePlatformValue(settings.platform);
+  settings = restoreBloggerAliases(settings, envSettings);
+  settings.platform = resolvePlatformValue(settings, envSettings, 'blogger');
   console.log('[LOAD] 플랫폼 설정:', { original: originalPlatform || '(empty)', normalized: settings.platform });
+
+  if ((!hadStoredSettings || !hadStoredPlatform) && (hasBloggerSettings(settings) || hasWordPressSettings(settings))) {
+    try {
+      await storage.set('bloggerSettings', settings, true);
+      console.log('[LOAD] platform/settings recovered from .env into bloggerSettings');
+    } catch (e) {
+      console.warn('[LOAD] recovered settings save skipped:', e);
+    }
+  }
 
   return settings;
 }
@@ -74,7 +156,7 @@ export async function saveSettings() {
     tistoryBlogName: document.getElementById('tistoryBlogName')?.value || '',
     tistoryDefaultCategory: document.getElementById('tistoryDefaultCategory')?.value || '',
     tistoryDefaultVisibility: document.getElementById('tistoryDefaultVisibility')?.value || 'private',
-    platform: document.querySelector('input[name="platform"]:checked')?.value || 'wordpress',
+    platform: document.querySelector('input[name="platform"]:checked')?.value || 'blogger',
     primaryGeminiTextModel: document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value || 'gemini-2.5-flash',
     generationEngine: (() => {
       // 🔥 환경설정의 primaryGeminiTextModel 라디오를 단일 진실 소스로 사용
@@ -155,6 +237,7 @@ export async function saveSettings() {
         generationEngine: settings.generationEngine,
         primaryGeminiTextModel: settings.primaryGeminiTextModel,
         defaultAiProvider: settings.defaultAiProvider,
+        platform: settings.platform,
         executionMode: settings.executionMode,
         activeAgentProvider: settings.activeAgentProvider,
         activeApiTextProvider: settings.activeApiTextProvider,
@@ -195,7 +278,7 @@ export async function saveSettings() {
   }
 
   // 저장된 플랫폼으로 라디오 버튼 명시적으로 업데이트
-  const savedPlatform = settings.platform || 'wordpress';
+  const savedPlatform = settings.platform || 'blogger';
   const platformBloggerEl = document.getElementById('platform-blogger');
   const platformWordpressEl = document.getElementById('platform-wordpress');
   const platformTistoryEl = document.getElementById('platform-tistory');
@@ -296,14 +379,14 @@ export function updateApiKeyStatus(settings) {
 
 // 플랫폼 상태 업데이트
 export async function updatePlatformStatus() {
-  let platform = 'wordpress';
+  let platform = 'blogger';
 
   try {
     const settings = await loadSettings();
     platform = normalizePlatformValue(settings?.platform);
   } catch (error) {
     console.warn('[PLATFORM-STATUS] 설정 로드 실패, 기본값 사용:', error);
-    platform = 'wordpress';
+    platform = 'blogger';
   }
 
   const statusBadge = document.getElementById('platformStatus');
@@ -507,15 +590,20 @@ export async function loadSettingsContent() {
 
   // 설정 병합 (env가 우선, 단 플랫폼은 savedSettings 우선)
   const mergedSettings = { ...savedSettings, ...envSettings };
+  const resolvedPlatform = resolvePlatformValue(savedSettings, envSettings, 'blogger');
+  Object.assign(mergedSettings, restoreBloggerAliases(mergedSettings, envSettings));
 
   // 플랫폼 설정: 모달을 열 때는 항상 WordPress를 기본값으로 표시
   // 사용자가 Blogger를 선택하고 저장하면, 그 다음에 모달을 열 때는 Blogger가 선택되어 있어야 함
   // 하지만 사용자가 원하는 것은 앱 시작 시 WordPress가 기본값이므로,
   // 모달을 열 때 저장된 값이 명시적으로 'blogger'인 경우에만 Blogger를 표시
-  if (savedSettings && savedSettings.platform === 'blogger') {
+  if (resolvedPlatform === 'blogger') {
     // 사용자가 명시적으로 Blogger를 선택하고 저장한 경우에만 Blogger 사용
     mergedSettings.platform = 'blogger';
     console.log('🔧 [MODAL] 플랫폼 설정: blogger (사용자가 저장한 값)');
+  } else if (resolvedPlatform === 'tistory') {
+    mergedSettings.platform = 'tistory';
+    console.log('[MODAL] platform resolved: tistory');
   } else {
     // 기본값은 WordPress
     mergedSettings.platform = 'wordpress';
@@ -544,12 +632,12 @@ export async function loadSettingsContent() {
         'naverSecretKey': mergedSettings.naverSecretKey || mergedSettings.naverSecret || mergedSettings.naverClientSecret || '',
         'googleCseKey': mergedSettings.googleCseKey || mergedSettings.cseKey || mergedSettings.googleApiKey || '',
         'googleCseCx': mergedSettings.googleCseCx || mergedSettings.cseCx || mergedSettings.googleCseId || '',
-        'blogId': mergedSettings.blogId || mergedSettings.bloggerId || '',
-        'googleClientId': mergedSettings.googleClientId || mergedSettings.clientId || '',
-        'googleClientSecret': mergedSettings.googleClientSecret || mergedSettings.clientSecret || '',
-        'wordpressSiteUrl': mergedSettings.wordpressSiteUrl || mergedSettings.wpSiteUrl || mergedSettings.wordpressUrl || '',
-        'wordpressUsername': mergedSettings.wordpressUsername || mergedSettings.wpUsername || mergedSettings.wordpressUser || '',
-        'wordpressPassword': mergedSettings.wordpressPassword || mergedSettings.wpPassword || mergedSettings.wordpressPass || '',
+        'blogId': pickSettingValue(mergedSettings, ['blogId', 'bloggerId', 'BLOG_ID', 'BLOGGER_ID', 'GOOGLE_BLOG_ID', 'BLOGGER_BLOG_ID']),
+        'googleClientId': pickSettingValue(mergedSettings, ['googleClientId', 'clientId', 'GOOGLE_CLIENT_ID', 'BLOGGER_CLIENT_ID']),
+        'googleClientSecret': pickSettingValue(mergedSettings, ['googleClientSecret', 'clientSecret', 'GOOGLE_CLIENT_SECRET', 'BLOGGER_CLIENT_SECRET']),
+        'wordpressSiteUrl': pickSettingValue(mergedSettings, ['wordpressSiteUrl', 'wpSiteUrl', 'wordpressUrl', 'WORDPRESS_SITE_URL', 'WP_SITE_URL']),
+        'wordpressUsername': pickSettingValue(mergedSettings, ['wordpressUsername', 'wpUsername', 'wordpressUser', 'WORDPRESS_USERNAME', 'WP_USERNAME']),
+        'wordpressPassword': pickSettingValue(mergedSettings, ['wordpressPassword', 'wpPassword', 'wordpressPass', 'WORDPRESS_PASSWORD', 'WP_PASSWORD']),
         'tistoryBlogName': mergedSettings.tistoryBlogName || mergedSettings.TISTORY_BLOG_NAME || mergedSettings.tistoryBlogUrl || '',
         'tistoryDefaultCategory': mergedSettings.tistoryDefaultCategory || mergedSettings.TISTORY_DEFAULT_CATEGORY || '',
         'tistoryDefaultVisibility': mergedSettings.tistoryDefaultVisibility || mergedSettings.TISTORY_DEFAULT_VISIBILITY || 'private',
@@ -585,7 +673,7 @@ export async function loadSettingsContent() {
       // 플랫폼 선택: 사용자가 원하는 것은 앱 시작 시 WordPress가 기본값이므로,
       // 모달을 열 때 저장된 값이 명시적으로 'blogger'인 경우에만 Blogger 표시
       // 그 외에는 항상 WordPress를 기본값으로 표시
-      const platformToShow = (savedSettings && (savedSettings.platform === 'blogger' || savedSettings.platform === 'tistory')) ? savedSettings.platform : 'wordpress';
+      const platformToShow = mergedSettings.platform || resolvedPlatform || 'blogger';
       console.log('🔧 플랫폼 설정 (모달 라디오 버튼):', platformToShow, '(저장된 값:', savedSettings?.platform, ')');
 
       const platformBloggerEl = document.getElementById('platform-blogger');

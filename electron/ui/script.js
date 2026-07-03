@@ -5415,7 +5415,7 @@ async function saveSettings() {
     wordpressUsername: document.getElementById('wordpressUsername')?.value || '',
     wordpressPassword: document.getElementById('wordpressPassword')?.value || '',
     wordpressCategories: document.getElementById('wordpressCategories')?.value || '',
-    platform: document.querySelector('input[name="platform"]:checked')?.value || 'blogspot',
+    platform: document.querySelector('input[name="platform"]:checked')?.value || 'blogger',
     promptMode: 'max-mode', // MAX모드로 고정
     toneStyle: document.getElementById('toneStyle')?.value || 'professional', // 말투/어투 선택
   };
@@ -5574,10 +5574,10 @@ async function loadSettings() {
     settings = {};
   }
 
-  // 플랫폼 기본값 보장 (워드프레스)
+  // 플랫폼 기본값 보장 (Blogger)
   if (!settings.platform) {
-    settings.platform = 'wordpress';
-    console.log('[LOAD] 플랫폼 기본값 설정: wordpress');
+    settings.platform = 'blogger';
+    console.log('[LOAD] 플랫폼 기본값 설정: blogger');
     // 🔧 StorageManager 사용
     const storage = getStorageManager();
     await storage.set('bloggerSettings', settings, true);
@@ -5631,9 +5631,9 @@ async function loadSettings() {
     }
   });
 
-  // 플랫폼 기본값이 없으면 워드프레스로 설정
+  // 플랫폼 기본값이 없으면 Blogger로 설정
   if (!settings.platform) {
-    settings.platform = 'wordpress';
+    settings.platform = 'blogger';
   }
 
   // 설정 저장 (기본값 반영)
@@ -6648,7 +6648,7 @@ function normalizePlatformDisplayValue(platform) {
   const value = String(platform || '').toLowerCase().trim();
   if (value === 'blogspot') return 'blogger';
   if (value === 'blogger' || value === 'wordpress' || value === 'tistory') return value;
-  return 'wordpress';
+  return 'blogger';
 }
 
 function getPlatformDisplayInfo(platform) {
@@ -9547,7 +9547,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   // 저장된 설정에서 플랫폼 로드 (🔥 async: await 필수)
   const savedSettings = await loadSettings();
   // 🔥 blogger와 blogspot을 "Blogger 계열"로 통합 처리
-  const rawPlatform = savedSettings.platform || 'wordpress';
+  const rawPlatform = savedSettings.platform || 'blogger';
   const isBloggerPlatform = rawPlatform === 'blogger' || rawPlatform === 'blogspot';
   console.log('[INIT] 플랫폼 설정:', rawPlatform, '→ Blogger 계열?', isBloggerPlatform);
 
@@ -9579,12 +9579,12 @@ document.addEventListener('DOMContentLoaded', async function () {
     }, 200);
   }
 
-  // 설정이 없거나 플랫폼이 유효하지 않으면 워드프레스로 기본값 설정 (🔥 사용자가 저장한 blogger/blogspot은 존중)
+  // 설정이 없거나 플랫폼이 유효하지 않으면 Blogger로 기본값 설정 (🔥 사용자가 저장한 blogger/blogspot은 존중)
   const validPlatforms = ['wordpress', 'blogger', 'blogspot'];
   if (!savedSettings.platform || !validPlatforms.includes(savedSettings.platform)) {
-    savedSettings.platform = 'wordpress';
+    savedSettings.platform = 'blogger';
     localStorage.setItem('bloggerSettings', JSON.stringify(savedSettings));
-    console.log('[INIT] 플랫폼 기본값 설정: wordpress');
+    console.log('[INIT] 플랫폼 기본값 설정: blogger');
   }
 
   const platform = isBloggerPlatform ? 'blogger' : 'wordpress';
@@ -10398,7 +10398,7 @@ function runExcelBatch() {
           fileData: data,
           settings: {
             // 현재 UI 설정값들 전달
-            platform: document.querySelector('input[name="platform"]:checked')?.value || 'blogspot',
+            platform: document.querySelector('input[name="platform"]:checked')?.value || 'blogger',
             contentMode: DOMCache.getValue('contentMode') || 'external',
             promptMode: 'max-mode',
             h2Images: getH2ImageSections(),

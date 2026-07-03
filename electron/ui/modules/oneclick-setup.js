@@ -210,6 +210,16 @@ function showInputModal({ title, placeholder, defaultValue = '', onConfirm, onCa
 // 블로그스팟 전용 사전 입력 모달
 // ═══════════════════════════════════════════════
 
+async function getSavedBloggerBlogId() {
+  try {
+    const creds = await getStoredBloggerOAuthSettings();
+    return String(creds?.blogId || '').trim();
+  } catch (e) {
+    console.warn('[ONECLICK] saved Blogger Blog ID load skipped:', e);
+    return '';
+  }
+}
+
 function showBlogspotSetupModal(onComplete) {
   const existing = document.getElementById('blogspot-setup-modal');
   if (existing) existing.remove();
@@ -423,6 +433,13 @@ function showBlogspotSetupModal(onComplete) {
   modal.appendChild(card);
   document.body.appendChild(modal);
   setBlogspotPurpose('create-new');
+  getSavedBloggerBlogId().then((blogId) => {
+    const input = document.getElementById('bs-existing-id');
+    if (!blogId) return;
+    if (input && !input.value) input.value = blogId;
+    setBlogspotPurpose('existing');
+    requestAnimationFrame(() => input?.focus());
+  });
   requestAnimationFrame(() => document.getElementById('bs-title')?.focus());
 }
 
@@ -2305,6 +2322,22 @@ function listenForProgress(platformId) {
     try {
       const status = await window.electronAPI?.invoke('oneclick:get-status', { platform: platformId });
       if (!status) return;
+      if (status.ok === false) {
+        pfPollErrors++;
+        if (pfPollErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+          clearPoll('platform');
+          const errorMessage = status.error || '원클릭 세팅 상태를 확인하지 못했습니다. 다시 시작해주세요.';
+          updateLiveOneclickGuide('setup', platformId, {
+            currentStep: status.currentStep,
+            totalSteps: PLATFORMS[platformId]?.steps?.length || status.totalSteps,
+            stepStatus: 'error',
+            error: errorMessage,
+            message: errorMessage,
+          });
+          setSetupFailed(platformId, errorMessage);
+        }
+        return;
+      }
       pfPollErrors = 0;
       updateLiveOneclickGuide('setup', platformId, {
         currentStep: status.currentStep,
