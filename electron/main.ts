@@ -6816,7 +6816,8 @@ type AgentJobRequest = {
 const AGENT_MODE_REQUIRED_FEATURE = 'maxAgentMode' as const;
 const AGENT_MODE_REQUIRED_TIER = 'standard';
 const AGENT_MODE_REQUIRED_NAME = '스탠다드 (3개월)';
-const AGENT_JOB_TIMEOUT_MS = 12 * 60 * 1000;
+// v3.8.304: 12분 → 25분 (사용자 보고: 외부유입글 일부 작성 안 됨. 심층 리서치(v3.8.292+)로 14-20분 걸리는 케이스 timeout으로 실패).
+const AGENT_JOB_TIMEOUT_MS = 25 * 60 * 1000;
 const AGENT_LOGIN_URL_WAIT_MS = 25000;
 const CODEX_AGENT_DEFAULT_MODEL = 'gpt-5.5';
 const CODEX_CHATGPT_MODEL_ERROR_RE = /not supported when using Codex with a ChatGPT account|gpt-5\.3-codex/i;
@@ -8068,10 +8069,10 @@ async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessag
         stderr = (stderr + `\n${error.message}`).slice(-240000);
       });
 
-      // v3.8.281: timeout 25분 → 12분 (Single shot이라 6단계 안 거침)
-      // 사용자 지적: '25분이면 너무 오래걸려. 그시간에 수동으로해도 빠르게하겠다'
-      // 정확함. Single shot이면 5~8분에 완성. 12분이면 안전 마진 충분.
-      const TIMEOUT_MS = 12 * 60 * 1000;
+      // v3.8.304: 12분 → 25분 재조정 (사용자 보고: 외부유입글 일부 timeout 실패)
+      // v3.8.292 이후 심층 리서치(5-7 sub-angle 병렬 + 2단 + 비주류 자료 fetch) 추가로 실제 14-20분 소요.
+      // 12분은 상한이지 목표가 아님 — 목표는 여전히 8-10분, 상한만 안전 마진 확보.
+      const TIMEOUT_MS = 25 * 60 * 1000;
       const timeout = setTimeout(() => {
         timedOut = true;
         try {
