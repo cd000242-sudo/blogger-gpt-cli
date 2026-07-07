@@ -1696,6 +1696,7 @@ export async function createPayload(options = {}) {
     preGeneratedImages: (window.__preGeneratedImagesForArticle || []).length > 0
       ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, dataUrl: img.dataUrl }))
       : undefined,
+    folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai',
 
     // 초안 (페러프레이징)
     draftContent: contentModeValue === 'paraphrasing' && draftContentValue ? draftContentValue : undefined,

@@ -84,6 +84,51 @@ const URL_FETCH_TIMEOUT_MS = 10000;
 const MAX_TITLE_LENGTH = 30;
 const MIN_TITLE_LENGTH = 5;
 const MAX_OUTPUT_TOKENS_TITLE = 500;
+function resolvePuppeteerExecutablePath() {
+    const envCandidates = [
+        process.env['PUPPETEER_EXECUTABLE_PATH'],
+        process.env['CHROME_PATH'],
+        process.env['PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'],
+    ].filter(Boolean);
+    for (const candidate of envCandidates) {
+        try {
+            if (candidate && fs.existsSync(candidate))
+                return candidate;
+        }
+        catch { }
+    }
+    try {
+        const { chromium } = require('playwright');
+        const playwrightPath = chromium?.executablePath?.();
+        if (playwrightPath && fs.existsSync(playwrightPath))
+            return playwrightPath;
+    }
+    catch { }
+    const localAppData = process.env['LOCALAPPDATA'] || '';
+    const programFiles = process.env['PROGRAMFILES'] || 'C:\\Program Files';
+    const programFilesX86 = process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)';
+    const candidates = [
+        path.join(programFiles, 'Google\\Chrome\\Application\\chrome.exe'),
+        path.join(programFilesX86, 'Google\\Chrome\\Application\\chrome.exe'),
+        path.join(localAppData, 'Google\\Chrome\\Application\\chrome.exe'),
+        path.join(programFiles, 'Microsoft\\Edge\\Application\\msedge.exe'),
+        path.join(programFilesX86, 'Microsoft\\Edge\\Application\\msedge.exe'),
+    ];
+    return candidates.find((candidate) => {
+        try {
+            return !!candidate && fs.existsSync(candidate);
+        }
+        catch {
+            return false;
+        }
+    });
+}
+function withPuppeteerBrowserFallback(options) {
+    if (options.executablePath)
+        return options;
+    const executablePath = resolvePuppeteerExecutablePath();
+    return executablePath ? { ...options, executablePath } : options;
+}
 const SPIDER_EYE_COMFORT_PALETTES = [
     {
         primary: '#2f6f61',
@@ -1232,10 +1277,10 @@ electron_1.ipcMain.handle('generate-internal-consistency', async (_evt, payload)
         let browser = null;
         try {
             sendDiag('🕷️ 크롤링 시작 (Puppeteer 실행)');
-            browser = await puppeteer_extra_1.default.launch({
+            browser = await puppeteer_extra_1.default.launch(withPuppeteerBrowserFallback({
                 headless: true, // "new" is deprecated in latest puppeteer
                 args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-            });
+            }));
             for (const post of posts) {
                 try {
                     const url = post.url || '';
@@ -2177,6 +2222,31 @@ ${tail}
                             }
                             try {
                                 console.log(`[INTERNAL-CONSISTENCY] 🖼️ H2 ${idx1}/${h2Nodes.length} 이미지 시작: "${h2Text.substring(0, 30)}…"`);
+                                const preGeneratedImages = Array.isArray(payload.preGeneratedImages) ? payload.preGeneratedImages : [];
+                                const preGenMatch = preGeneratedImages.find((img) => Number(img?.h2Index) === idx1 && (img?.dataUrl || img?.url));
+                                if (preGenMatch) {
+                                    const rawH2 = String(preGenMatch.dataUrl || preGenMatch.url || '');
+                                    const hosted = await _hostGeneratedImage(rawH2, `sw-folder-h2-${idx1}`);
+                                    const imgTag = `<p style="text-align:center;margin:18px 0;"><img src="${hosted.url}" alt="${h2Text.replace(/"/g, '&quot;')}" style="max-width:100%;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.1);"></p>`;
+                                    $(h2El).after(imgTag);
+                                    imageStats.h2Generated++;
+                                    imageStats.hostProviders.push(`h2-${idx1}:${hosted.provider}:folder`);
+                                    sendDiag(`H2 ${idx1} folder image inserted`);
+                                    try {
+                                        const { BrowserWindow: BW } = await Promise.resolve().then(() => __importStar(require('electron')));
+                                        const allWindows = BW.getAllWindows();
+                                        allWindows.forEach((w) => w.webContents.send('sw-image-generated', {
+                                            kind: 'h2', label: `H2 ${idx1}: ${h2Text.substring(0, 30)}`, url: hosted.previewUrl || hosted.url, hostedUrl: hosted.url, provider: hosted.provider, queueImageToken,
+                                        }));
+                                    }
+                                    catch { }
+                                    continue;
+                                }
+                                const folderImageMissingPolicy = String(payload.folderImageMissingPolicy || '').toLowerCase();
+                                if (preGeneratedImages.length > 0 && (folderImageMissingPolicy === 'blank' || folderImageMissingPolicy === 'empty')) {
+                                    sendDiag(`H2 ${idx1} folder image blank policy skip`);
+                                    continue;
+                                }
                                 const h2Result = await dispatchH2ImageGeneration(h2Engine, h2Text + textTail, h2Text);
                                 const hasDataUrl = !!(h2Result && (h2Result.dataUrl || h2Result.url));
                                 console.log(`[INTERNAL-CONSISTENCY] 🖼️ H2 ${idx1} 결과: ok=${h2Result && h2Result.ok}, hasDataUrl=${hasDataUrl}, source=${h2Result && h2Result.source}, error=${h2Result && h2Result.error ? String(h2Result.error).substring(0, 100) : 'none'}`);
@@ -3569,6 +3639,46 @@ electron_1.ipcMain.handle('get-folder-images', async (_evt, folderPath) => {
     }
 });
 // 이미지 폴더 삭제
+electron_1.ipcMain.handle('select-image-folder', async () => {
+    try {
+        const result = await electron_1.dialog.showOpenDialog({
+            title: '이미지 폴더 선택',
+            properties: ['openDirectory'],
+        });
+        if (result.canceled || !result.filePaths?.[0]) {
+            return { ok: false, canceled: true, folderPath: '' };
+        }
+        return { ok: true, folderPath: result.filePaths[0] };
+    }
+    catch (error) {
+        return { ok: false, folderPath: '', error: error.message || String(error) };
+    }
+});
+electron_1.ipcMain.handle('read-local-image-data-url', async (_evt, filePath) => {
+    try {
+        const resolved = path.resolve(String(filePath || ''));
+        if (!fs.existsSync(resolved))
+            return { ok: false, error: '이미지 파일을 찾을 수 없습니다.' };
+        const ext = path.extname(resolved).toLowerCase();
+        const mimeByExt = {
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.webp': 'image/webp',
+            '.gif': 'image/gif',
+            '.bmp': 'image/bmp',
+            '.avif': 'image/avif',
+        };
+        const mime = mimeByExt[ext];
+        if (!mime)
+            return { ok: false, error: '지원하지 않는 이미지 형식입니다.' };
+        const buffer = fs.readFileSync(resolved);
+        return { ok: true, dataUrl: `data:${mime};base64,${buffer.toString('base64')}` };
+    }
+    catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+});
 electron_1.ipcMain.handle('delete-image-folder', async (_evt, folderPath) => {
     try {
         const { deleteImageFolder } = await Promise.resolve().then(() => __importStar(require('../dist/image-collector.js')));
@@ -10467,14 +10577,38 @@ function normalizeExternalTrafficEngine(value) {
         return 'gemini';
     if (raw.startsWith('openai'))
         return 'openai';
+    if (raw.startsWith('gpt-'))
+        return 'openai';
     if (raw.startsWith('claude'))
         return 'claude';
     if (raw.startsWith('perplexity'))
         return 'perplexity';
+    if (raw.startsWith('sonar'))
+        return 'perplexity';
+    return '';
+}
+function inferExternalTrafficEngineFromModel(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw)
+        return '';
+    if (raw.startsWith('gemini-'))
+        return 'gemini';
+    if (raw.startsWith('openai-') || raw.startsWith('gpt-'))
+        return 'openai';
+    if (raw.startsWith('claude-'))
+        return 'claude';
+    if (raw.startsWith('perplexity-') || raw.startsWith('sonar'))
+        return 'perplexity';
     return '';
 }
 function resolveExternalTrafficEngine(payload, envData) {
-    return normalizeExternalTrafficEngine(payload?.generationEngine ||
+    const modelEngine = inferExternalTrafficEngineFromModel(payload?.primaryGeminiTextModel ||
+        payload?.textGenerator ||
+        payload?.textModel ||
+        payload?.model ||
+        envData.primaryGeminiTextModel ||
+        envData.PRIMARY_TEXT_MODEL);
+    return modelEngine || normalizeExternalTrafficEngine(payload?.generationEngine ||
         payload?.provider ||
         payload?.defaultAiProvider ||
         envData.generationEngine ||
@@ -10485,6 +10619,7 @@ function resolveExternalTrafficEngine(payload, envData) {
 }
 function resolveExternalTrafficModel(payload, envData) {
     return String(payload?.primaryGeminiTextModel ||
+        payload?.textGenerator ||
         payload?.textModel ||
         payload?.model ||
         envData.primaryGeminiTextModel ||
@@ -10865,6 +11000,9 @@ async function callLLMWithPreference(opts) {
         user: opts.user,
         maxOutputTokens: opts.maxOutputTokens,
         temperature: opts.temperature,
+        model: opts.preferredGeminiModel,
+        textGenerator: opts.preferredGeminiModel,
+        primaryGeminiTextModel: opts.preferredGeminiModel,
     };
     const keys = {
         gemini: opts.geminiKey,
@@ -10873,7 +11011,30 @@ async function callLLMWithPreference(opts) {
         perplexity: opts.perplexityKey,
     };
     // 사용자가 환경설정에서 명시 선택한 엔진/모델 우선 시도
-    const preferred = opts.preferredEngine;
+    const preferred = inferExternalTrafficEngineFromModel(opts.preferredGeminiModel)
+        || normalizeExternalTrafficEngine(opts.preferredEngine)
+        || 'gemini';
+    const strictNonGeminiPreferred = preferred !== 'gemini' && Boolean(opts.preferredGeminiModel || opts.preferredEngine);
+    const providerLabel = (provider) => {
+        if (provider === 'openai')
+            return 'OpenAI';
+        if (provider === 'claude')
+            return 'Claude';
+        if (provider === 'perplexity')
+            return 'Perplexity';
+        return 'Gemini';
+    };
+    const selectedModelLabel = opts.preferredGeminiModel || 'default';
+    const selectedProviderKey = preferred === 'openai'
+        ? opts.openaiKey
+        : preferred === 'claude'
+            ? opts.claudeKey
+            : preferred === 'perplexity'
+                ? opts.perplexityKey
+                : opts.geminiKey;
+    if (strictNonGeminiPreferred && !selectedProviderKey) {
+        throw new Error(`${providerLabel(preferred)} 모델(${selectedModelLabel})을 선택했지만 해당 API 키가 없습니다. Gemini로 자동 폴백하지 않았습니다. 환경설정에서 ${providerLabel(preferred)} API 키를 입력하거나 모델을 다시 선택해주세요.`);
+    }
     if (preferred === 'gemini' && opts.geminiKey) {
         try {
             // primaryGeminiTextModel 우선
@@ -10905,6 +11066,10 @@ async function callLLMWithPreference(opts) {
             return { text: r.text, provider: r.provider, model: r.model };
         }
         catch (e) {
+            if (strictNonGeminiPreferred) {
+                const msg = e?.message || String(e);
+                throw new Error(`선택한 OpenAI 모델(${selectedModelLabel}) 호출에 실패했습니다. Gemini로 자동 폴백하지 않았습니다.\n원인: ${msg}`);
+            }
             console.warn('[EXT-TRAFFIC v2] OpenAI 실패, fallback 시도:', e?.message?.slice(0, 100));
         }
     }
@@ -10914,6 +11079,10 @@ async function callLLMWithPreference(opts) {
             return { text: r.text, provider: r.provider, model: r.model };
         }
         catch (e) {
+            if (strictNonGeminiPreferred) {
+                const msg = e?.message || String(e);
+                throw new Error(`선택한 Claude 모델(${selectedModelLabel}) 호출에 실패했습니다. Gemini로 자동 폴백하지 않았습니다.\n원인: ${msg}`);
+            }
             console.warn('[EXT-TRAFFIC v2] Claude 실패, fallback 시도:', e?.message?.slice(0, 100));
         }
     }
@@ -10924,6 +11093,10 @@ async function callLLMWithPreference(opts) {
             return { text: r.text, provider: r.provider, model: r.model };
         }
         catch (e) {
+            if (strictNonGeminiPreferred) {
+                const msg = e?.message || String(e);
+                throw new Error(`선택한 Perplexity 모델(${selectedModelLabel}) 호출에 실패했습니다. Gemini로 자동 폴백하지 않았습니다.\n원인: ${msg}`);
+            }
             console.warn('[EXT-TRAFFIC v2] Perplexity 실패, fallback 시도:', e?.message?.slice(0, 100));
         }
     }

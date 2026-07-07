@@ -24,6 +24,92 @@ function _getPublishedPostId(post) {
   return _firstNonEmpty(post?.postId, post?.id, post?.post_id, post?.wpPostId, post?.bloggerPostId);
 }
 
+function _normalizeTextKey(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+function _canonicalizePostUrlForKey(url) {
+  const normalized = _normalizePostUrl(url || '');
+  if (!normalized) return '';
+  try {
+    const u = new URL(normalized);
+    const postId = u.searchParams.get('p') || '';
+    u.hash = '';
+    u.search = postId ? `?p=${postId}` : '';
+    u.pathname = (u.pathname || '/').replace(/\/+$/, '') || '/';
+    return `${u.protocol}//${u.hostname.toLowerCase()}${u.port ? ':' + u.port : ''}${u.pathname}${u.search}`;
+  } catch {
+    return String(normalized).trim().replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+function _getPostDedupeKey(post) {
+  if (!post) return '';
+  const url = _normalizePostUrl(post.url || post.postUrl || '');
+  const platform = _normalizeStoredPlatform(post.platform || post.targetPlatform, url) || 'blog';
+  const postId = _getPublishedPostId(post);
+  const blogScope = _firstNonEmpty(post.blogId, post.bloggerBlogId, post.googleBlogId, post.siteUrl, post.wordpressSiteUrl, post.wpSiteUrl);
+  if (postId) return `${platform}|id|${_normalizeTextKey(blogScope) || 'default'}|${String(postId).trim()}`;
+  const urlKey = _canonicalizePostUrlForKey(url);
+  return urlKey ? `${platform}|url|${urlKey}` : '';
+}
+
+function _getPostLooseDedupeKey(post) {
+  if (!post) return '';
+  const url = _normalizePostUrl(post.url || post.postUrl || '');
+  const platform = _normalizeStoredPlatform(post.platform || post.targetPlatform, url) || 'blog';
+  const titleKey = _normalizeTextKey(post.title || '');
+  if (!titleKey || titleKey.length < 8 || titleKey === _normalizeTextKey('제목 없음')) return '';
+  return `${platform}|title|${titleKey}`;
+}
+
+function _samePublishedPost(a, b) {
+  if (!a || !b) return false;
+  const aStrong = _getPostDedupeKey(a);
+  const bStrong = _getPostDedupeKey(b);
+  if (aStrong && bStrong && aStrong === bStrong) return true;
+  const aLoose = _getPostLooseDedupeKey(a);
+  const bLoose = _getPostLooseDedupeKey(b);
+  return !!(aLoose && bLoose && aLoose === bLoose);
+}
+
+function _mergePublishedPostRecord(target, source) {
+  if (!target || !source) return target || source;
+  for (const key of ['summary', 'thumbnail', 'postId', 'id', 'blogId', 'siteUrl', 'wordpressSiteUrl', 'platform']) {
+    if (!target[key] && source[key]) target[key] = source[key];
+  }
+  if ((!target.title || target.title === '제목 없음') && source.title) target.title = source.title;
+  if (!target.url && source.url) target.url = source.url;
+  return target;
+}
+
+function _dedupePublishedPosts(posts) {
+  const out = [];
+  const byStrong = new Map();
+  const byLoose = new Map();
+  for (const post of posts || []) {
+    if (!post || !post.url) continue;
+    const strong = _getPostDedupeKey(post);
+    const loose = _getPostLooseDedupeKey(post);
+    const existing = (strong && byStrong.get(strong)) || (loose && byLoose.get(loose));
+    if (existing) {
+      _mergePublishedPostRecord(existing, post);
+      const mergedStrong = _getPostDedupeKey(existing);
+      const mergedLoose = _getPostLooseDedupeKey(existing);
+      if (mergedStrong) byStrong.set(mergedStrong, existing);
+      if (mergedLoose) byLoose.set(mergedLoose, existing);
+      continue;
+    }
+    out.push(post);
+    if (strong) byStrong.set(strong, post);
+    if (loose) byLoose.set(loose, post);
+  }
+  return out;
+}
+
 function _normalizePostRecord(post, fallbackOrder) {
   const normalizedUrl = _normalizePostUrl(post?.url || post?.postUrl || '');
   const postId = _getPublishedPostId(post);
@@ -255,10 +341,10 @@ function clearUrlInputs() {
  * 입력 필드에서 선택한 글 목록 업데이트
  */
 function updateSelectedPostsFromInputs() {
-  const previousByUrl = new Map();
+  const previousByKey = new Map();
   selectedPosts.forEach((post) => {
-    const key = _normalizePostUrl(post?.url || '');
-    if (key) previousByUrl.set(key, post);
+    const keys = [_getPostDedupeKey(post), _getPostLooseDedupeKey(post), _canonicalizePostUrlForKey(post?.url || '')].filter(Boolean);
+    keys.forEach((key) => previousByKey.set(key, post));
   });
   const nextPosts = [];
 
@@ -266,9 +352,12 @@ function updateSelectedPostsFromInputs() {
     const input = document.getElementById(`spiderWebUrl${i}`);
     if (input && input.value.trim()) {
       const url = _normalizePostUrl(input.value.trim());
+      const candidate = { url };
+      const strongKey = _getPostDedupeKey(candidate);
+      const urlKey = _canonicalizePostUrlForKey(url);
       // 중복 체크
-      if (!nextPosts.find(p => p.url === url)) {
-        const known = previousByUrl.get(url) || _findPublishedPostByUrl(url);
+      if (!nextPosts.find(p => _samePublishedPost(p, candidate) || _canonicalizePostUrlForKey(p.url) === urlKey)) {
+        const known = (strongKey && previousByKey.get(strongKey)) || (urlKey && previousByKey.get(urlKey)) || _findPublishedPostByUrl(url);
         nextPosts.push(_normalizePostRecord({
           ...(known || {}),
           url,
@@ -340,10 +429,21 @@ function savePublishedPost(post) {
     };
 
     // 중복 체크 (URL 기준) — 기존 URL-only 레코드는 postId 등 메타를 병합
+    const recordStrongKey = _getPostDedupeKey(record);
+    const recordLooseKey = _getPostLooseDedupeKey(record);
+
     for (const dk of Object.keys(store)) {
       const list = store[dk];
       if (!Array.isArray(list)) continue;
-      const idx = list.findIndex((p) => p && _normalizePostUrl(p.url) === post.url);
+      const idx = list.findIndex((p) => {
+        if (!p) return false;
+        const existingStrong = _getPostDedupeKey(p);
+        const existingLoose = _getPostLooseDedupeKey(p);
+        return (
+          (recordStrongKey && existingStrong && existingStrong === recordStrongKey) ||
+          (recordLooseKey && existingLoose && existingLoose === recordLooseKey)
+        );
+      });
       if (idx >= 0) {
         list[idx] = {
           ...list[idx],
@@ -407,10 +507,10 @@ function getPublishedPosts() {
       };
     };
     if (Array.isArray(parsed)) {
-      return parsed
+      return _dedupePublishedPosts(parsed
         .map((p) => normalizeFlatPost(p, ''))
         .filter(Boolean)
-        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)));
     }
     if (!parsed || typeof parsed !== 'object') return [];
     const flat = [];
@@ -422,7 +522,7 @@ function getPublishedPosts() {
       });
     });
     flat.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-    return flat;
+    return _dedupePublishedPosts(flat);
   } catch (error) {
     console.error('[SPIDER-WEB] 발행글 불러오기 실패:', error);
     return [];
@@ -626,10 +726,17 @@ function openPublishedPostsModal(opts) {
     const sortedPosts = modalPosts;
     // 현재 입력 필드에 이미 들어가 있는 URL은 기본 체크 + 비활성화 처리
     const existingUrls = new Set();
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 10; i++) {
       const input = document.getElementById(`spiderWebUrl${i}`);
       const v = (input && input.value || '').trim();
-      if (v) existingUrls.add(v);
+      if (v) {
+        const found = _findPublishedPostByUrl(v);
+        existingUrls.add(_canonicalizePostUrlForKey(v) || _normalizePostUrl(v));
+        if (found) {
+          const looseKey = _getPostLooseDedupeKey(found);
+          if (looseKey) existingUrls.add(looseKey);
+        }
+      }
     }
 
     // v3.8.2: 상단 안내 배너 mode 분기
@@ -665,7 +772,7 @@ function openPublishedPostsModal(opts) {
           const backlinkBadge = canAutoBacklink
             ? '<span style="padding: 2px 8px; background: rgba(34,197,94,0.16); color: #86efac; border: 1px solid rgba(34,197,94,0.35); border-radius: 6px; font-size: 10px; font-weight: 800;">↩ 자동 돌아가기</span>'
             : '<span style="padding: 2px 8px; background: rgba(251,191,36,0.14); color: #fde68a; border: 1px solid rgba(251,191,36,0.28); border-radius: 6px; font-size: 10px; font-weight: 800;">URL만</span>';
-          const alreadyIn = existingUrls.has(post.url);
+          const alreadyIn = existingUrls.has(_canonicalizePostUrlForKey(post.url) || post.url) || existingUrls.has(_getPostLooseDedupeKey(post));
           // v3.7.21: 우측 썸네일 미리보기 — 없으면 첫 글자로 그라데이션 placeholder
           const titleInitial = (post.title || '?').trim().charAt(0) || '?';
           const thumbBlock = safeThumb
@@ -1012,7 +1119,7 @@ function addSelectedPostsToInputs() {
   for (const post of picks) {
     // 빈 입력칸 우선 채움
     let placed = false;
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 10; i++) {
       const input = document.getElementById(`spiderWebUrl${i}`);
       if (input && !input.value.trim()) {
         input.value = post.url;
@@ -1069,7 +1176,7 @@ function selectPostFromModal(index) {
     return;
   }
   
-  if (selectedPosts.find(p => p.url === post.url)) {
+  if (selectedPosts.find(p => _samePublishedPost(p, post))) {
     alert('⚠️ 이미 선택한 글입니다.');
     return;
   }
@@ -1227,7 +1334,11 @@ async function generateSpiderWebContent() {
             platform: post.platform || '',
             blogId: post.blogId || '',
             siteUrl: post.siteUrl || post.wordpressSiteUrl || '',
-          }))
+          })),
+          preGeneratedImages: (window.__preGeneratedImagesForArticle || []).length > 0
+            ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, dataUrl: img.dataUrl }))
+            : undefined,
+          folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai'
         });
       } else if (window.blogger && window.blogger.generateInternalLinkContent) {
         result = await window.blogger.generateInternalLinkContent({
@@ -1242,7 +1353,11 @@ async function generateSpiderWebContent() {
             platform: post.platform || '',
             blogId: post.blogId || '',
             siteUrl: post.siteUrl || post.wordpressSiteUrl || '',
-          }))
+          })),
+          preGeneratedImages: (window.__preGeneratedImagesForArticle || []).length > 0
+            ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, dataUrl: img.dataUrl }))
+            : undefined,
+          folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai'
         });
       } else {
         throw new Error('API를 사용할 수 없습니다. electronAPI 또는 blogger API가 필요합니다.');
@@ -2132,7 +2247,11 @@ async function generateAndPublishSpiderWeb() {
         imageH2Engine,
         // v3.8.7: 텍스트 포함 (나노바나나·GPT 덕테이프 등에서 한글 텍스트 오버레이)
         imageIncludeText,
+        preGeneratedImages: (window.__preGeneratedImagesForArticle || []).length > 0
+          ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, dataUrl: img.dataUrl }))
+          : undefined,
         // v3.8.8: 발행 플랫폼 — 백엔드가 WP 미디어 우선 업로드 결정
+        folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai',
         platform: platformEarly,
       };
       // v3.8.170: 거미줄도 에이전트 모드 지원 — UI에서 executionMode + provider 전달

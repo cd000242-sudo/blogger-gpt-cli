@@ -174,7 +174,7 @@ async function runBlogspotSetup(state, adminUrl, blogspotConfig, waitForLogin) {
         }
         // ─── Step 3: 클라우드 스킨 CSS 적용 ───
         if (resumeFrom <= 3) {
-            await (0, applySkinCSS_1.applySkinCSS)(state, page, blogId);
+            await (0, applySkinCSS_1.applySkinCSS)(state, page, blogId, config);
             if (state.cancelled)
                 return;
             recordStep(3, '스킨 CSS 적용', state.stepStatus !== 'error', state.message);

@@ -3490,6 +3490,20 @@ function removeAgentSuppliedImages(html = '') {
   }
 }
 
+function getPreGeneratedH2Image(payload = {}, h2Index) {
+  const list = Array.isArray(payload?.preGeneratedImages) ? payload.preGeneratedImages : [];
+  return list.find((item) => {
+    const src = String(item?.dataUrl || item?.url || '').trim();
+    return Number(item?.h2Index) === Number(h2Index) && src.length > 0;
+  }) || null;
+}
+
+function shouldLeaveUnmappedFolderImageBlank(payload = {}) {
+  const hasManualImages = Array.isArray(payload?.preGeneratedImages) && payload.preGeneratedImages.length > 0;
+  const policy = String(payload?.folderImageMissingPolicy || '').toLowerCase();
+  return hasManualImages && (policy === 'blank' || policy === 'empty');
+}
+
 // dispatcher 기반 (Agent 모드 공통 — 앱 이미지 엔진/API 호출)
 async function enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload = {}, title = '') {
   const policy = getPayloadImagePolicy(payload);
@@ -3537,19 +3551,32 @@ async function enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload = {}, tit
       const h2Text = (h2.textContent || '').replace(/\s+/g, ' ').trim();
       if (!h2Text) continue;
 
-      updateAgentProgress(Math.min(82, 76 + inserted + 1), `H2 ${index} 이미지 생성 중: ${h2Text.slice(0, 28)}`, 'info');
-      const imageUrl = await generateAgentImage(
-        h2Engine,
-        buildAgentH2ImagePrompt(h2Text, topic),
-        false,
-        `H2 ${index}`
-      );
+      const folderImage = getPreGeneratedH2Image(payload, index);
+      let imageUrl = String(folderImage?.dataUrl || folderImage?.url || '').trim();
+      const isFolderImage = imageUrl.length > 0;
+
+      if (isFolderImage) {
+        updateAgentProgress(Math.min(82, 76 + inserted + 1), `H2 ${index} 내 폴더 이미지 삽입 중: ${h2Text.slice(0, 28)}`, 'info');
+        addLog(`H2 ${index}에는 사용자가 배치한 내 폴더 이미지를 사용합니다.`, 'info');
+      } else if (shouldLeaveUnmappedFolderImageBlank(payload)) {
+        addLog(`H2 ${index}는 내 폴더 이미지 미배치 상태라 공란으로 둡니다.`, 'info');
+        continue;
+      } else {
+        updateAgentProgress(Math.min(82, 76 + inserted + 1), `H2 ${index} 이미지 생성 중: ${h2Text.slice(0, 28)}`, 'info');
+        imageUrl = await generateAgentImage(
+          h2Engine,
+          buildAgentH2ImagePrompt(h2Text, topic),
+          false,
+          `H2 ${index}`
+        );
+      }
+
       if (!imageUrl) continue;
-      appendAgentGeneratedImagePreview({ url: imageUrl, label: `H2 ${index}` });
+      appendAgentGeneratedImagePreview({ url: imageUrl, label: isFolderImage ? `H2 ${index} (내 폴더)` : `H2 ${index}` });
 
       const figure = doc.createElement('figure');
       figure.className = 'agent-generated-h2-image';
-      figure.setAttribute('data-agent-image', 'generated');
+      figure.setAttribute('data-agent-image', isFolderImage ? 'folder' : 'generated');
       figure.setAttribute('style', 'margin:18px 0;text-align:center;');
       const img = doc.createElement('img');
       img.src = imageUrl;

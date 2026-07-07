@@ -545,6 +545,93 @@ function getItemManualCta(item) {
   return item.manualCta;
 }
 
+function getActivePreGeneratedImagesForQueue() {
+  try {
+    const images = Array.isArray(window.__preGeneratedImagesForArticle)
+      ? window.__preGeneratedImagesForArticle
+      : [];
+    return images
+      .filter(img => img && Number(img.h2Index) > 0 && typeof img.dataUrl === 'string' && img.dataUrl.startsWith('data:image/'))
+      .map(img => ({
+        h2Index: Number(img.h2Index),
+        dataUrl: img.dataUrl,
+        prompt: img.prompt || '',
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function getActivePreGeneratedImageCount() {
+  return getActivePreGeneratedImagesForQueue().length;
+}
+
+function refreshQueueFolderImagesBadge() {
+  const count = getActivePreGeneratedImageCount();
+  const badge = document.getElementById('pq-folder-images-count');
+  const hint = document.getElementById('pq-folder-images-hint');
+  const clearBtn = document.getElementById('pq-folder-images-clear');
+  if (badge) {
+    badge.textContent = count > 0
+      ? `현재 ${count}장 H2 매핑 적용 중`
+      : '현재 적용된 내 폴더 이미지 없음';
+    badge.style.color = count > 0 ? '#86efac' : 'rgba(226,232,240,0.66)';
+  }
+  if (hint) {
+    hint.textContent = count > 0
+      ? '연속발행 각 글의 같은 H2 번호에 이 매핑을 재사용합니다. 매핑되지 않은 H2는 기존 이미지 설정대로 생성됩니다.'
+      : '폴더 이미지를 고른 뒤 H2 번호별로 배치하면 발행 시 API 이미지 생성 없이 그대로 사용합니다.';
+  }
+  if (clearBtn) clearBtn.disabled = count === 0;
+}
+
+async function openQueueFolderImagesModal() {
+  if (typeof window.openFolderImagesForArticleModal !== 'function') {
+    alert('내 폴더 이미지 배치 기능이 아직 로드되지 않았습니다. 앱을 새로고침한 뒤 다시 시도해주세요.');
+    return;
+  }
+  await window.openFolderImagesForArticleModal();
+  setTimeout(refreshQueueFolderImagesBadge, 120);
+}
+
+function clearQueueFolderImages() {
+  if (getActivePreGeneratedImageCount() === 0) return;
+  if (!confirm('연속발행에 적용 중인 내 폴더 이미지 매핑을 초기화할까요?')) return;
+  window.__preGeneratedImagesForArticle = [];
+  window.__preGeneratedMappingMode = 'auto';
+  window.refreshPreGeneratedBadge?.();
+  refreshQueueFolderImagesBadge();
+  try {
+    window.dispatchEvent(new CustomEvent('leadernam:preGeneratedImagesChanged', {
+      detail: { source: 'publish-queue-clear', count: 0 },
+    }));
+  } catch {}
+}
+
+function ensureQueueFolderImagePanel() {
+  const h2Mode = document.getElementById('pq-bulk-h2-mode');
+  const anchor = h2Mode?.closest('label');
+  if (!anchor || document.getElementById('pq-folder-images-panel')) return;
+  const panel = document.createElement('div');
+  panel.id = 'pq-folder-images-panel';
+  panel.className = 'pq-folder-panel';
+  panel.innerHTML = `
+    <div class="pq-folder-panel-title">
+      <span>내 폴더 이미지 H2 배치</span>
+      <span id="pq-folder-images-count">현재 적용된 내 폴더 이미지 없음</span>
+    </div>
+    <p id="pq-folder-images-hint">폴더 이미지를 고른 뒤 H2 번호별로 배치하면 발행 시 API 이미지 생성 없이 그대로 사용합니다.</p>
+    <div class="pq-folder-panel-actions">
+      <button type="button" id="pq-folder-images-btn" class="pq-btn" style="background:linear-gradient(135deg,#16a34a,#059669);border:1px solid rgba(134,239,172,0.35);min-height:34px;padding:7px 12px;font-size:12px;font-weight:900;">내 폴더 이미지 선택</button>
+      <button type="button" id="pq-folder-images-clear" class="pq-btn" style="background:rgba(239,68,68,0.14);border:1px solid rgba(248,113,113,0.32);color:#fecaca;min-height:34px;padding:7px 12px;font-size:12px;font-weight:900;">초기화</button>
+    </div>
+  `;
+  anchor.insertAdjacentElement('afterend', panel);
+  document.getElementById('pq-folder-images-btn')?.addEventListener('click', openQueueFolderImagesModal);
+  document.getElementById('pq-folder-images-clear')?.addEventListener('click', clearQueueFolderImages);
+  refreshQueueFolderImagesBadge();
+}
+
 function ensureItemManualCta(item) {
   const current = getItemManualCta(item);
   if (!current.url && !current.text && !current.hook) {
@@ -632,6 +719,7 @@ function getCurrentQueueSnapshot() {
     urlAiCheck: !!document.getElementById('urlImageAiCheck')?.checked,
     urlAiFill: !!document.getElementById('urlImageAiFill')?.checked,
     urlThreshold: 60,
+    folderImageCount: getActivePreGeneratedImageCount(),
   };
 }
 
@@ -658,6 +746,7 @@ function cloneQueueSnapshot(snapshot) {
     urlAiCheck: !!snap.urlAiCheck,
     urlAiFill: !!snap.urlAiFill,
     urlThreshold: Number(snap.urlThreshold) || 60,
+    folderImageCount: Number(snap.folderImageCount || getActivePreGeneratedImageCount() || 0),
   };
 }
 
@@ -683,6 +772,7 @@ function snapshotFromItem(item) {
     urlAiCheck: item.urlAiCheck,
     urlAiFill: item.urlAiFill,
     urlThreshold: item.urlThreshold,
+    folderImageCount: getActivePreGeneratedImageCount(),
   });
 }
 
@@ -739,6 +829,10 @@ function buildSnapshotChips(snapshot) {
     ['섹션', `${snapshot.sectionCount}개`],
     ['팩트체크', snapshot.factCheckMode],
   ];
+  const folderImageCount = getActivePreGeneratedImageCount();
+  if (folderImageCount > 0) {
+    chips.splice(6, 0, ['내 폴더 이미지', `${folderImageCount}장`]);
+  }
   if (snapshot.postingMode === 'schedule' && snapshot.scheduleDate) {
     chips.splice(2, 0, ['예약', snapshot.scheduleDate.replace('T', ' ')]);
   }
@@ -890,6 +984,50 @@ function buildModalHtml() {
       padding: 7px 9px;
       font-size: 12px;
       box-sizing: border-box;
+    }
+    .pq-folder-panel {
+      margin-top: 4px;
+      padding: 12px;
+      border: 1px solid rgba(34,197,94,0.26);
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(22,101,52,0.18), rgba(15,23,42,0.68));
+      display: grid;
+      gap: 9px;
+    }
+    .pq-folder-panel-title {
+      color: #bbf7d0;
+      font-size: 12px;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .pq-folder-panel p {
+      margin: 0;
+      color: rgba(226,232,240,0.72);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .pq-folder-panel-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .pq-folder-static {
+      min-height: 34px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(99,102,241,0.28);
+      background: rgba(15,23,42,0.64);
+      color: #c4b5fd;
+      font-size: 12px;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
     }
     .pq-cta-panel {
       margin-top: 12px;
@@ -1306,11 +1444,10 @@ function buildItemRow(item, idx) {
     </div>
     <div class="pq-field">
       <label>플랫폼</label>
-      <select class="pq-item-platform">
-        <option value="blogspot" ${platform === 'blogspot' ? 'selected' : ''}>Blogspot</option>
-        <option value="wordpress" ${platform === 'wordpress' ? 'selected' : ''}>WordPress</option>
-        <option value="tistory" ${platform === 'tistory' ? 'selected' : ''}>Tistory</option>
-      </select>
+      <div class="pq-folder-static">
+        <span>${escHtml(labelOf('platform', platform))}</span>
+        <span style="color:rgba(226,232,240,0.56);font-size:11px;font-weight:800;">상단 플랫폼 설정 기준</span>
+      </div>
     </div>
     <div class="pq-field">
       <label>발행 방식</label>
@@ -1462,11 +1599,6 @@ function bindItemEvents() {
       item.ctaMode = e.target.value;
       if (item.mode === 'adsense') item.ctaMode = 'none';
       if (item.ctaMode === 'manual') ensureItemManualCta(item);
-      saveItem();
-      refreshList();
-    });
-    row.querySelector('.pq-item-platform')?.addEventListener('change', e => {
-      item.platform = normalizeQueuePlatform(e.target.value);
       saveItem();
       refreshList();
     });
@@ -1694,6 +1826,7 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
   const manualCtas = !isAdsense && item.ctaMode === 'manual'
     ? buildManualCtasForItem(item)
     : undefined;
+  const folderImages = getActivePreGeneratedImagesForQueue();
   return {
     topic: item.keyword,
     title: item.keyword,
@@ -1709,6 +1842,10 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     h2ImageMode,
     h2ImageSections: h2Sections,
     h2Images: { source: normalizeThumbEngine(item.h2ImageSource || item.thumb), sections: h2Sections, mode: h2ImageMode, leonardoModel: item.leonardoModel || 'seedream-4.5' },
+    preGeneratedImages: folderImages.length > 0
+      ? folderImages.map(img => ({ h2Index: img.h2Index, dataUrl: img.dataUrl }))
+      : undefined,
+    folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai',
     skipImages: h2ImageMode === 'none',
     ctaMode: isAdsense ? 'none' : (item.ctaMode || 'auto'),
     manualCtas,
@@ -2288,6 +2425,7 @@ function bindModalEvents() {
   document.getElementById('pq-interval-value')?.addEventListener('input', () => syncIntervalControl());
   document.getElementById('pq-interval-value')?.addEventListener('change', () => syncIntervalControl());
   syncIntervalControl();
+  ensureQueueFolderImagePanel();
 
   // v3.8.145: Tistory 일괄 카테고리 dropdown — 환경설정 #tistoryDefaultCategory option 자동 복제
   // v3.8.146: WordPress 일괄 카테고리 dropdown도 같이 — #wpCategory option 자동 복제
@@ -2921,6 +3059,14 @@ function close() {
 
 export function initPublishQueue() {
   bindMainIntervalControl();
+  if (!window.__publishQueuePreGeneratedListenerBound) {
+    window.__publishQueuePreGeneratedListenerBound = true;
+    window.addEventListener('leadernam:preGeneratedImagesChanged', () => {
+      refreshQueueFolderImagesBadge();
+      const chipbar = document.getElementById('pq-current-settings');
+      if (chipbar) chipbar.innerHTML = buildSnapshotChips(getCurrentQueueSnapshot());
+    });
+  }
   // textarea 변경 감지 → 배지 표시/숨김 동기화
   const ta = document.getElementById('keywordInput');
   if (ta) {

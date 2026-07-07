@@ -2120,6 +2120,11 @@ window.refreshPreGeneratedBadge = function () {
   } else {
     badge.style.display = 'none';
   }
+  try {
+    window.dispatchEvent(new CustomEvent('leadernam:preGeneratedImagesChanged', {
+      detail: { source: 'pre-generated-badge', count: arr.length, mode },
+    }));
+  } catch {}
 };
 
 window.clearPreGeneratedImages = function () {
@@ -2130,8 +2135,488 @@ window.clearPreGeneratedImages = function () {
   alert('초기화 완료. 다음 글 생성 시 이미지를 새로 생성합니다.');
 };
 
+async function _folderImageToDataUrlForArticle(image) {
+  if (!image) return '';
+  if (typeof image.dataUrl === 'string' && image.dataUrl.startsWith('data:image/')) return image.dataUrl;
+  if (typeof image.url === 'string' && image.url.startsWith('data:image/')) return image.url;
+  const rawPath = image.path || image.url || '';
+  if (!rawPath) return '';
+  if (image.path && window.electronAPI?.invoke) {
+    try {
+      const ipcResult = await window.electronAPI.invoke('read-local-image-data-url', image.path);
+      if (ipcResult?.ok && ipcResult.dataUrl) return ipcResult.dataUrl;
+    } catch (e) {
+      console.warn('[FOLDER-IMAGE] IPC 변환 실패, file fetch로 폴백:', e?.message || e);
+    }
+  }
+  const src = /^file:\/\//i.test(rawPath)
+    ? rawPath
+    : `file:///${String(rawPath).replace(/\\/g, '/').replace(/^\/+/, '')}`;
+  try {
+    const res = await fetch(src);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    if (!/^image\//i.test(blob.type || '')) throw new Error('이미지 파일이 아닙니다');
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(String(reader.result || ''));
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.warn('[FOLDER-IMAGE] dataUrl 변환 실패:', e?.message || e);
+    return '';
+  }
+}
+
+window.loadFolderImagesForArticle = async function (folderPath) {
+  if (!folderPath) return;
+  if (!window.blogger?.getFolderImages) {
+    alert('폴더 이미지 불러오기 기능을 사용할 수 없습니다.');
+    return;
+  }
+  const result = await window.blogger.getFolderImages(folderPath);
+  if (!result?.ok || !Array.isArray(result.images) || result.images.length === 0) {
+    alert(result?.error || '선택한 폴더에서 이미지를 찾지 못했습니다.');
+    return;
+  }
+  const images = result.images.slice(0, 60);
+  const converted = [];
+  for (let i = 0; i < images.length; i++) {
+    const dataUrl = await _folderImageToDataUrlForArticle(images[i]);
+    if (dataUrl) {
+      converted.push({
+        prompt: images[i].name || `folder-image-${i + 1}`,
+        dataUrl,
+        sourcePath: images[i].path || '',
+      });
+    }
+  }
+  if (converted.length === 0) {
+    alert('이미지를 읽지 못했습니다. JPG/PNG/WebP 파일인지 확인해주세요.');
+    return;
+  }
+  window.__batchImageResults = converted;
+  window.__preGeneratedMappingMode = 'manual';
+  window.openManualH2MappingModal?.();
+};
+
+window.openFolderImagesForArticleModal = async function () {
+  try {
+    if (!window.blogger?.getImageFolders) {
+      const directPath = prompt('이미지 폴더 경로를 입력해주세요.');
+      if (directPath) await window.loadFolderImagesForArticle(directPath.trim());
+      return;
+    }
+    const result = await window.blogger.getImageFolders();
+    const folders = Array.isArray(result?.folders) ? result.folders : [];
+    if (folders.length === 0) {
+      const directPath = prompt('등록된 이미지 폴더가 없습니다. 사용할 이미지 폴더 경로를 입력해주세요.');
+      if (directPath) await window.loadFolderImagesForArticle(directPath.trim());
+      return;
+    }
+    const message = folders
+      .slice(0, 20)
+      .map((f, i) => `${i + 1}. ${f.name || f.path} (${f.imageCount || 0}장)\n   ${f.path}`)
+      .join('\n\n');
+    const answer = prompt(`사용할 이미지 폴더 번호를 입력해주세요.\n\n${message}\n\n직접 경로를 붙여넣어도 됩니다.`);
+    if (!answer) return;
+    const idx = Number(answer.trim());
+    const folder = Number.isInteger(idx) && idx >= 1 ? folders[idx - 1] : null;
+    await window.loadFolderImagesForArticle(folder?.path || answer.trim());
+  } catch (e) {
+    console.error('[FOLDER-IMAGE] 폴더 이미지 선택 실패:', e);
+    alert('폴더 이미지 선택 중 오류가 발생했습니다: ' + (e?.message || e));
+  }
+};
+
 // v3.7.3: 이미지 lightbox — 결과 클릭 시 전체 화면 미리보기 + ← → 네비게이션
 window.__lightboxIdx = 0;
+function _escapeFolderMapperHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[ch]));
+}
+
+function _getFolderMapperSectionCount() {
+  const direct = Number(
+    document.getElementById('sectionCount')?.value
+    || document.getElementById('h2Count')?.value
+    || 0
+  );
+  if (Number.isFinite(direct) && direct > 0) return Math.min(12, Math.max(1, Math.round(direct)));
+  const radio = Number(document.querySelector('input[name="sectionCount"]:checked')?.value || 0);
+  if (Number.isFinite(radio) && radio > 0) return Math.min(12, Math.max(1, Math.round(radio)));
+  return 6;
+}
+
+function _getFolderMapperSectionTitles(count) {
+  const rawPromptList = document.getElementById('batchPromptList')?.value || '';
+  let parsed = [];
+  try {
+    parsed = typeof window.parseBatchPromptList === 'function'
+      ? window.parseBatchPromptList(rawPromptList)
+      : rawPromptList.split('\n').map(v => v.trim()).filter(Boolean);
+  } catch {
+    parsed = [];
+  }
+  const topic = (
+    document.getElementById('keywordInput')?.value
+    || document.getElementById('spiderWebTitle')?.value
+    || ''
+  ).split('\n').map(v => v.trim()).filter(Boolean)[0] || '';
+  return Array.from({ length: count }, (_, idx) => {
+    const title = parsed[idx] || '';
+    return {
+      index: idx + 1,
+      title: title || `소제목 ${idx + 1}번`,
+      analysisKey: `${title} ${topic}`.trim(),
+    };
+  });
+}
+
+function _tokenizeFolderMapperText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/[^\w가-힣]+/g, ' ')
+    .split(/\s+/)
+    .filter(token => token.length >= 2);
+}
+
+function _scoreFolderImageMatch(section, image) {
+  const sectionTokens = new Set(_tokenizeFolderMapperText(section.analysisKey || section.title));
+  const imageTokens = _tokenizeFolderMapperText(`${image.prompt || ''} ${image.sourcePath || ''}`);
+  if (sectionTokens.size === 0 || imageTokens.length === 0) return 0;
+  let score = 0;
+  imageTokens.forEach((token) => {
+    if (sectionTokens.has(token)) score += 3;
+    sectionTokens.forEach((sectionToken) => {
+      if (token !== sectionToken && (token.includes(sectionToken) || sectionToken.includes(token))) score += 1;
+    });
+  });
+  return score;
+}
+
+function _ensureFolderImageMapperModal() {
+  let modal = document.getElementById('folderImageMapperModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'folderImageMapperModal';
+  modal.style.cssText = 'display:none;position:fixed;inset:0;z-index:10050;background:rgba(2,6,23,0.82);backdrop-filter:blur(12px);padding:22px;overflow:auto;';
+  modal.innerHTML = `
+    <style>
+      #folderImageMapperModal * { box-sizing: border-box; letter-spacing: 0; }
+      .fim-shell { width:min(1420px,calc(100vw - 44px)); margin:0 auto; min-height:calc(100vh - 44px); background:linear-gradient(135deg,#0f172a,#172033 58%,#111827); border:1px solid rgba(45,212,191,0.34); border-radius:18px; box-shadow:0 30px 90px rgba(0,0,0,0.62); overflow:hidden; display:flex; flex-direction:column; }
+      .fim-head { padding:18px 22px; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+      .fim-title { margin:0; color:#f8fafc; font-size:20px; font-weight:900; line-height:1.25; }
+      .fim-sub { margin:5px 0 0; color:#99f6e4; font-size:12px; line-height:1.5; }
+      .fim-btn { min-height:36px; padding:8px 13px; border-radius:10px; border:1px solid rgba(255,255,255,0.14); background:rgba(255,255,255,0.08); color:#f8fafc; font-size:12px; font-weight:900; cursor:pointer; white-space:nowrap; }
+      .fim-body { padding:18px 22px; display:grid; grid-template-columns:minmax(0,1.2fr) minmax(360px,0.8fr); gap:18px; flex:1; min-height:0; }
+      .fim-panel { background:rgba(15,23,42,0.64); border:1px solid rgba(148,163,184,0.16); border-radius:14px; padding:14px; min-height:0; }
+      .fim-panel-title { color:#e2e8f0; font-size:12px; font-weight:900; margin:0 0 10px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+      .fim-folder-row { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
+      .fim-folder-path { flex:1; min-height:36px; padding:9px 10px; border-radius:9px; border:1px solid rgba(148,163,184,0.18); background:rgba(2,6,23,0.45); color:#cbd5e1; font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .fim-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(132px,1fr)); gap:10px; max-height:62vh; overflow:auto; padding-right:4px; }
+      .fim-img-card { border:1px solid rgba(148,163,184,0.18); background:rgba(2,6,23,0.5); border-radius:12px; padding:8px; cursor:pointer; transition:transform .15s,border-color .15s,box-shadow .15s; min-width:0; text-align:left; }
+      .fim-img-card:hover { transform:translateY(-1px); border-color:rgba(45,212,191,0.62); }
+      .fim-img-card.is-selected { border-color:#22c55e; box-shadow:0 0 0 2px rgba(34,197,94,0.25); }
+      .fim-img-card img { width:100%; aspect-ratio:16/10; object-fit:cover; border-radius:8px; display:block; background:#020617; }
+      .fim-img-name { margin-top:7px; color:#e2e8f0; font-size:11px; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .fim-section-list { display:flex; flex-direction:column; gap:9px; max-height:52vh; overflow:auto; padding-right:4px; }
+      .fim-section-row { display:grid; grid-template-columns:86px minmax(0,1fr) 72px; gap:8px; align-items:center; padding:9px; border:1px solid rgba(148,163,184,0.15); border-radius:12px; background:rgba(2,6,23,0.34); }
+      .fim-slot-btn { min-height:36px; border-radius:9px; border:1px solid rgba(99,102,241,0.36); background:rgba(99,102,241,0.16); color:#c7d2fe; font-weight:900; cursor:pointer; }
+      .fim-slot-btn.is-filled { border-color:rgba(34,197,94,0.72); background:rgba(22,163,74,0.22); color:#bbf7d0; }
+      .fim-section-title { color:#f8fafc; font-size:12px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .fim-assigned-thumb { width:60px; height:40px; object-fit:cover; border-radius:8px; border:1px solid rgba(255,255,255,0.14); opacity:.35; background:#020617; }
+      .fim-assigned-thumb.is-filled { opacity:1; }
+      .fim-options { margin-top:12px; padding:12px; border-radius:12px; background:rgba(15,23,42,0.72); border:1px solid rgba(251,191,36,0.24); display:grid; gap:8px; }
+      .fim-radio { display:flex; gap:8px; align-items:flex-start; color:#e2e8f0; font-size:12px; line-height:1.45; cursor:pointer; }
+      .fim-notice { min-height:28px; margin-top:10px; padding:7px 10px; border-radius:9px; background:rgba(34,197,94,0.12); border:1px solid rgba(34,197,94,0.22); color:#bbf7d0; font-size:12px; font-weight:800; opacity:0; transition:opacity .15s; }
+      .fim-notice.is-visible { opacity:1; }
+      .fim-footer { padding:14px 22px; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; background:rgba(2,6,23,0.28); }
+      @media (max-width:960px) { .fim-body { grid-template-columns:1fr; } .fim-grid { max-height:42vh; } .fim-section-list { max-height:none; } }
+    </style>
+    <div class="fim-shell">
+      <div class="fim-head">
+        <div>
+          <h2 class="fim-title">내 폴더 이미지 H2 배치</h2>
+          <p class="fim-sub">PC 폴더의 이미지를 불러온 뒤, 이미지를 클릭하고 소제목 번호를 눌러 배치합니다. 같은 버튼을 다시 누르면 취소됩니다.</p>
+        </div>
+        <button type="button" class="fim-btn" id="fimCloseBtn">닫기</button>
+      </div>
+      <div class="fim-body">
+        <section class="fim-panel">
+          <div class="fim-panel-title"><span>이미지 그리드</span><span id="fimImageCount">0장</span></div>
+          <div class="fim-folder-row">
+            <div class="fim-folder-path" id="fimFolderPath">폴더를 선택해주세요.</div>
+            <button type="button" class="fim-btn" id="fimPickFolderBtn" style="background:linear-gradient(135deg,#14b8a6,#22c55e);border-color:rgba(134,239,172,0.35);">폴더 선택</button>
+          </div>
+          <div class="fim-grid" id="fimImageGrid"></div>
+        </section>
+        <aside class="fim-panel">
+          <div class="fim-panel-title">
+            <span>소제목별 배치</span>
+            <button type="button" class="fim-btn" id="fimAutoMatchBtn" style="min-height:30px;padding:6px 10px;">파일명 기준 자동추천</button>
+          </div>
+          <div class="fim-section-list" id="fimSectionList"></div>
+          <div class="fim-options">
+            <strong style="color:#fde68a;font-size:12px;">이미지가 부족하거나 비워둔 소제목 처리</strong>
+            <label class="fim-radio"><input type="radio" name="fimMissingPolicy" value="ai" checked> 선택한 AI 이미지 엔진으로 부족분 생성</label>
+            <label class="fim-radio"><input type="radio" name="fimMissingPolicy" value="blank"> 공란으로 두기</label>
+          </div>
+          <div class="fim-notice" id="fimNotice"></div>
+        </aside>
+      </div>
+      <div class="fim-footer">
+        <div id="fimSummary" style="color:#cbd5e1;font-size:12px;font-weight:800;">이미지를 선택한 뒤 소제목 번호를 눌러주세요.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="fim-btn" id="fimClearBtn" style="background:rgba(239,68,68,0.14);border-color:rgba(248,113,113,0.34);color:#fecaca;">전체 배치 초기화</button>
+          <button type="button" class="fim-btn" id="fimApplyBtn" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);border-color:rgba(196,181,253,0.36);">배치 적용</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  document.getElementById('fimCloseBtn')?.addEventListener('click', () => window.closeFolderImageMapper?.());
+  document.getElementById('fimPickFolderBtn')?.addEventListener('click', () => window.openFolderImagesForArticleModal?.({ forcePick: true }));
+  document.getElementById('fimAutoMatchBtn')?.addEventListener('click', () => window.autoMatchFolderImagesToSections?.());
+  document.getElementById('fimClearBtn')?.addEventListener('click', () => window.clearFolderImageMapperAssignments?.());
+  document.getElementById('fimApplyBtn')?.addEventListener('click', () => window.applyFolderImageMapper?.());
+  return modal;
+}
+
+function _showFolderMapperNotice(message) {
+  const notice = document.getElementById('fimNotice');
+  if (!notice) return;
+  notice.textContent = message;
+  notice.classList.add('is-visible');
+  clearTimeout(window.__folderImageMapperNoticeTimer);
+  window.__folderImageMapperNoticeTimer = setTimeout(() => notice.classList.remove('is-visible'), 1700);
+}
+
+function _renderFolderImageMapper() {
+  const state = window.__folderImageMapperState || {};
+  _ensureFolderImageMapperModal();
+  const images = state.images || [];
+  const sections = state.sections || _getFolderMapperSectionTitles(_getFolderMapperSectionCount());
+  const assignments = state.assignments || {};
+  const selected = Number(state.selectedImageIndex ?? -1);
+  const grid = document.getElementById('fimImageGrid');
+  const sectionList = document.getElementById('fimSectionList');
+  const countEl = document.getElementById('fimImageCount');
+  const folderPath = document.getElementById('fimFolderPath');
+  const summary = document.getElementById('fimSummary');
+  if (countEl) countEl.textContent = `${images.length}장`;
+  if (folderPath) folderPath.textContent = state.folderPath || '폴더를 선택해주세요.';
+  if (grid) {
+    grid.innerHTML = images.map((img, idx) => `
+      <button type="button" class="fim-img-card ${idx === selected ? 'is-selected' : ''}" data-fim-img="${idx}" title="${_escapeFolderMapperHtml(img.sourcePath || img.prompt)}">
+        <img src="${img.dataUrl}" alt="${_escapeFolderMapperHtml(img.prompt || `이미지 ${idx + 1}`)}">
+        <div class="fim-img-name">${idx + 1}. ${_escapeFolderMapperHtml(img.prompt || `이미지 ${idx + 1}`)}</div>
+      </button>
+    `).join('');
+    grid.querySelectorAll('[data-fim-img]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.selectedImageIndex = Number(btn.getAttribute('data-fim-img'));
+        window.__folderImageMapperState = state;
+        _renderFolderImageMapper();
+        _showFolderMapperNotice(`${state.selectedImageIndex + 1}번 이미지를 선택했습니다.`);
+      });
+    });
+  }
+  if (sectionList) {
+    sectionList.innerHTML = sections.map((section) => {
+      const assignedIdx = assignments[section.index];
+      const assigned = Number.isInteger(assignedIdx) ? images[assignedIdx] : null;
+      return `
+        <div class="fim-section-row">
+          <button type="button" class="fim-slot-btn ${assigned ? 'is-filled' : ''}" data-fim-slot="${section.index}">${section.index}번</button>
+          <div class="fim-section-title" title="${_escapeFolderMapperHtml(section.title)}">${_escapeFolderMapperHtml(section.title)}</div>
+          <img class="fim-assigned-thumb ${assigned ? 'is-filled' : ''}" src="${assigned?.dataUrl || ''}" alt="">
+        </div>
+      `;
+    }).join('');
+    sectionList.querySelectorAll('[data-fim-slot]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const slot = Number(btn.getAttribute('data-fim-slot'));
+        const selectedIdx = Number(state.selectedImageIndex ?? -1);
+        if (!Number.isInteger(selectedIdx) || selectedIdx < 0 || !images[selectedIdx]) {
+          _showFolderMapperNotice('먼저 배치할 이미지를 클릭해주세요.');
+          return;
+        }
+        if (assignments[slot] === selectedIdx) {
+          delete assignments[slot];
+          _showFolderMapperNotice(`${slot}번 이미지 배치가 취소되었습니다.`);
+        } else {
+          assignments[slot] = selectedIdx;
+          _showFolderMapperNotice(`${slot}번에 ${selectedIdx + 1}번 이미지가 배치되었습니다.`);
+        }
+        state.assignments = assignments;
+        window.__folderImageMapperState = state;
+        _renderFolderImageMapper();
+      });
+    });
+  }
+  const filledCount = Object.keys(assignments).filter(k => images[assignments[k]]).length;
+  if (summary) {
+    const extra = Math.max(0, images.length - sections.length);
+    const missing = Math.max(0, sections.length - filledCount);
+    summary.textContent = `배치 ${filledCount}/${sections.length}개 · 미배치 ${missing}개${extra > 0 ? ` · 남는 이미지 ${extra}장은 제외` : ''}`;
+  }
+}
+
+async function _loadFolderImagesForMapper(folderPath) {
+  if (!folderPath) return;
+  if (!window.blogger?.getFolderImages) {
+    alert('폴더 이미지 불러오기 기능을 사용할 수 없습니다.');
+    return;
+  }
+  const modal = _ensureFolderImageMapperModal();
+  modal.style.display = 'block';
+  const grid = document.getElementById('fimImageGrid');
+  if (grid) grid.innerHTML = '<div style="grid-column:1/-1;color:#cbd5e1;padding:22px;text-align:center;font-weight:800;">이미지를 읽는 중입니다...</div>';
+  const result = await window.blogger.getFolderImages(folderPath);
+  if (!result?.ok || !Array.isArray(result.images) || result.images.length === 0) {
+    alert(result?.error || '선택한 폴더에서 이미지를 찾지 못했습니다.');
+    return;
+  }
+  const converted = [];
+  for (const image of result.images.slice(0, 80)) {
+    const dataUrl = await _folderImageToDataUrlForArticle(image);
+    if (dataUrl) {
+      converted.push({
+        prompt: image.name || `folder-image-${converted.length + 1}`,
+        dataUrl,
+        sourcePath: image.path || '',
+      });
+    }
+  }
+  if (converted.length === 0) {
+    alert('이미지를 읽지 못했습니다. JPG/PNG/WebP 파일인지 확인해주세요.');
+    return;
+  }
+  const sections = _getFolderMapperSectionTitles(_getFolderMapperSectionCount());
+  window.__batchImageResults = converted.slice(0, sections.length);
+  window.__folderImageMapperState = {
+    folderPath,
+    images: converted,
+    sections,
+    assignments: {},
+    selectedImageIndex: 0,
+  };
+  _renderFolderImageMapper();
+  _showFolderMapperNotice('폴더 이미지를 불러왔습니다. 이미지를 선택하고 소제목 번호를 눌러주세요.');
+}
+
+window.loadFolderImagesForArticle = async function (folderPath) {
+  await _loadFolderImagesForMapper(folderPath);
+};
+
+window.openFolderImagesForArticleModal = async function (options = {}) {
+  try {
+    const modal = _ensureFolderImageMapperModal();
+    modal.style.display = 'block';
+    const selected = window.electronAPI?.invoke
+      ? await window.electronAPI.invoke('select-image-folder')
+      : (window.blogger?.selectImageFolder ? await window.blogger.selectImageFolder() : null);
+    if (selected?.ok && selected.folderPath) {
+      await _loadFolderImagesForMapper(selected.folderPath);
+      return;
+    }
+    if (selected?.canceled) return;
+    if (!options.forcePick && window.blogger?.getImageFolders) {
+      const result = await window.blogger.getImageFolders();
+      const folders = Array.isArray(result?.folders) ? result.folders : [];
+      if (folders[0]?.path) {
+        await _loadFolderImagesForMapper(folders[0].path);
+        return;
+      }
+    }
+    const directPath = prompt('이미지 폴더 경로를 입력해주세요.');
+    if (directPath) await _loadFolderImagesForMapper(directPath.trim());
+  } catch (e) {
+    console.error('[FOLDER-IMAGE] 폴더 이미지 선택 실패:', e);
+    alert('폴더 이미지 선택 중 오류가 발생했습니다: ' + (e?.message || e));
+  }
+};
+
+window.autoMatchFolderImagesToSections = function () {
+  const state = window.__folderImageMapperState || {};
+  const images = state.images || [];
+  const sections = state.sections || [];
+  if (images.length === 0 || sections.length === 0) {
+    _showFolderMapperNotice('자동추천할 이미지와 소제목이 없습니다.');
+    return;
+  }
+  const used = new Set();
+  const assignments = {};
+  sections.forEach((section) => {
+    let bestIdx = -1;
+    let bestScore = -1;
+    images.forEach((image, idx) => {
+      if (used.has(idx)) return;
+      const score = _scoreFolderImageMatch(section, image);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = idx;
+      }
+    });
+    if (bestIdx >= 0 && bestIdx < images.length) {
+      assignments[section.index] = bestIdx;
+      used.add(bestIdx);
+    }
+  });
+  state.assignments = assignments;
+  window.__folderImageMapperState = state;
+  _renderFolderImageMapper();
+  _showFolderMapperNotice('파일명과 소제목 기준으로 자동 배치했습니다. 필요하면 직접 바꿔주세요.');
+};
+
+window.clearFolderImageMapperAssignments = function () {
+  const state = window.__folderImageMapperState || {};
+  state.assignments = {};
+  window.__folderImageMapperState = state;
+  _renderFolderImageMapper();
+  _showFolderMapperNotice('전체 배치를 초기화했습니다.');
+};
+
+window.applyFolderImageMapper = function () {
+  const state = window.__folderImageMapperState || {};
+  const images = state.images || [];
+  const sections = state.sections || [];
+  const assignments = state.assignments || {};
+  const mapping = sections
+    .map((section) => {
+      const imageIndex = assignments[section.index];
+      const image = Number.isInteger(imageIndex) ? images[imageIndex] : null;
+      return image ? {
+        h2Index: section.index,
+        dataUrl: image.dataUrl,
+        prompt: image.prompt,
+        sourcePath: image.sourcePath || '',
+      } : null;
+    })
+    .filter(Boolean);
+  const policy = document.querySelector('input[name="fimMissingPolicy"]:checked')?.value || 'ai';
+  window.__preGeneratedImagesForArticle = mapping;
+  window.__folderImageMissingPolicy = policy;
+  window.__preGeneratedMappingMode = 'manual';
+  window.refreshPreGeneratedBadge?.();
+  window.closeFolderImageMapper?.();
+  const missing = Math.max(0, sections.length - mapping.length);
+  alert(`내 폴더 이미지 배치 완료\n배치: ${mapping.length}개 / 소제목: ${sections.length}개\n미배치: ${missing}개 → ${policy === 'blank' ? '공란으로 둠' : '선택한 AI 이미지 엔진으로 생성'}`);
+};
+
+window.closeFolderImageMapper = function () {
+  const modal = document.getElementById('folderImageMapperModal');
+  if (modal) modal.style.display = 'none';
+};
+
 window.openImageLightbox = function (idx) {
   const results = (window.__batchImageResults || []).filter(r => r && r.dataUrl);
   if (results.length === 0) return;

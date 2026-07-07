@@ -216,6 +216,7 @@ function _getPinterestImageInstruction() {
 let _selectedSource = null; // { title, url, html, thumbnail, ... }
 let _activePlatformId = null;
 const _generatedCache = new Map(); // platformId → { text, generatedAt }
+const _selectedBatchPlatformIds = new Set();
 
 // ─── 발행글 목록 모달 (single-select 모드) ────────────────────────────────────────────────
 function _deriveExtTrafficProviderFromModel(modelValue) {
@@ -282,12 +283,36 @@ function extTrafficClearSource() {
 }
 
 // ─── 좌측 세로 서브탭 렌더 ────────────────────────────────────────────────
+function _updateBatchSelectionCount() {
+  const el = document.getElementById('extTrafficBatchSelectedCount');
+  if (el) el.textContent = `${_selectedBatchPlatformIds.size}개 선택`;
+}
+
+function extTrafficToggleBatchPlatform(platformId, checked) {
+  if (checked) _selectedBatchPlatformIds.add(platformId);
+  else _selectedBatchPlatformIds.delete(platformId);
+  _updateBatchSelectionCount();
+}
+
+function extTrafficSelectBatchPlatforms(mode = 'all') {
+  _selectedBatchPlatformIds.clear();
+  if (mode === 'all') {
+    PLATFORMS.forEach((p) => _selectedBatchPlatformIds.add(p.id));
+  }
+  _renderPlatformList();
+}
+
+function _getBatchSelectedPlatforms() {
+  return PLATFORMS.filter((p) => _selectedBatchPlatformIds.has(p.id));
+}
+
 function _renderPlatformList() {
   const wrap = document.getElementById('extTrafficPlatformList');
   if (!wrap) return;
   wrap.innerHTML = PLATFORMS.map((p) => {
     const isActive = _activePlatformId === p.id;
     const hasCache = _generatedCache.has(p.id);
+    const isChecked = _selectedBatchPlatformIds.has(p.id);
     return `
       <button type="button" data-platform="${p.id}" onclick="extTrafficSelectPlatform('${p.id}')"
         style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: ${isActive ? 'linear-gradient(135deg, rgba(99,102,241,0.22), rgba(168,85,247,0.18))' : 'rgba(255,255,255,0.04)'}; border: 1px solid ${isActive ? 'rgba(99,102,241,0.4)' : 'rgba(148,163,184,0.1)'}; border-radius: 10px; color: #e2e8f0; font-size: 13px; font-weight: 600; cursor: pointer; width: 100%; text-align: left; transition: all 0.15s ease;"
@@ -298,6 +323,24 @@ function _renderPlatformList() {
         ${hasCache ? '<span style="font-size: 10px; color: #34d399;" title="생성됨">✓</span>' : ''}
       </button>`;
   }).join('');
+  wrap.querySelectorAll('button[data-platform]').forEach((btn) => {
+    const platformId = btn.getAttribute('data-platform') || '';
+    const row = document.createElement('div');
+    const checked = _selectedBatchPlatformIds.has(platformId);
+    row.setAttribute('data-platform-row', platformId);
+    row.style.cssText = `display:flex;align-items:center;gap:8px;padding:6px;background:${checked ? 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.025)'};border:1px solid ${checked ? 'rgba(34,197,94,0.25)' : 'rgba(148,163,184,0.08)'};border-radius:12px;`;
+    const label = document.createElement('label');
+    label.title = '생성 대상 선택';
+    label.style.cssText = 'width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(15,23,42,0.65);border:1px solid rgba(148,163,184,0.14);cursor:pointer;flex-shrink:0;';
+    label.innerHTML = `<input type="checkbox" ${checked ? 'checked' : ''} style="width:15px;height:15px;accent-color:#22c55e;cursor:pointer;">`;
+    const checkbox = label.querySelector('input');
+    checkbox?.addEventListener('change', () => extTrafficToggleBatchPlatform(platformId, checkbox.checked));
+    btn.parentNode.insertBefore(row, btn);
+    row.appendChild(label);
+    row.appendChild(btn);
+    btn.style.minWidth = '0';
+  });
+  _updateBatchSelectionCount();
 }
 
 // ─── 결과 placeholder ────────────────────────────────────────────────
@@ -2856,6 +2899,67 @@ async function extTrafficGenerateAll() {
 }
 
 // ─── 헬퍼 ────────────────────────────────────────────────
+async function extTrafficGenerateSelected() {
+  if (!_selectedSource) {
+    _flashToast('원본 글을 먼저 선택해주세요');
+    return;
+  }
+  const platforms = _getBatchSelectedPlatforms();
+  if (platforms.length === 0) {
+    _flashToast('생성할 플랫폼을 체크해주세요');
+    return;
+  }
+  await _ensureGeneralConsent();
+  _startExtTrafficProgress({
+    platform: EXT_TRAFFIC_ALL_PROGRESS_PLATFORM,
+    total: platforms.length,
+    phase: '선택 플랫폼 생성 준비',
+  });
+  _addExtTrafficProgressLog(`선택한 ${platforms.length}개 플랫폼을 순서대로 생성합니다.`, 'info');
+
+  let successCount = 0;
+  for (const [index, platform] of platforms.entries()) {
+    try {
+      const current = index + 1;
+      const basePercent = Math.round((index / platforms.length) * 100);
+      const softCap = Math.min(96, Math.round(((index + 0.82) / platforms.length) * 100));
+      _updateExtTrafficProgress({
+        platform,
+        current: index,
+        total: platforms.length,
+        percent: Math.max(basePercent, 8),
+        phase: `${current}/${platforms.length} ${platform.label} 생성 중`,
+        softCap,
+      });
+      _addExtTrafficProgressLog(`${current}/${platforms.length} ${platform.label} 생성 요청`, 'info');
+      const result = await _callLLM(platform, _selectedSource);
+      _generatedCache.set(platform.id, { ...result, sourceUrl: _getExtTrafficSourceUrl(), generatedAt: new Date().toISOString() });
+      successCount++;
+      _updateExtTrafficProgress({
+        current,
+        percent: Math.round((current / platforms.length) * 100),
+        phase: `${platform.label} 완료`,
+        softCap: Math.min(99, Math.round(((current + 0.15) / platforms.length) * 100)),
+      });
+      _addExtTrafficProgressLog(`${platform.label} 생성 완료`, 'success');
+      _renderPlatformList();
+    } catch (e) {
+      _addExtTrafficProgressLog(`${platform.label} 생성 실패: ${e?.message || '알 수 없는 오류'}`, 'error');
+      console.warn(`[EXT-TRAFFIC] ${platform.label} 선택 생성 실패:`, e?.message);
+    }
+  }
+  _finishExtTrafficProgress();
+  _renderPlatformList();
+  const active = platforms.find((p) => _generatedCache.has(p.id))
+    || PLATFORMS.find((p) => p.id === _activePlatformId && _generatedCache.has(p.id))
+    || PLATFORMS.find((p) => _generatedCache.has(p.id));
+  if (active) {
+    _activePlatformId = active.id;
+    _renderResultPanel(active);
+  }
+  _flashToast(`선택 플랫폼 ${successCount}/${platforms.length}개 생성 완료`);
+}
+
 function escapeHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -3320,6 +3424,9 @@ window.extTrafficClearSource = extTrafficClearSource;
 window.extTrafficSelectPlatform = extTrafficSelectPlatform;
 window.extTrafficGenerateOne = extTrafficGenerateOne;
 window.extTrafficGenerateAll = extTrafficGenerateAll;
+window.extTrafficGenerateSelected = extTrafficGenerateSelected;
+window.extTrafficToggleBatchPlatform = extTrafficToggleBatchPlatform;
+window.extTrafficSelectBatchPlatforms = extTrafficSelectBatchPlatforms;
 window.extTrafficCopyResult = extTrafficCopyResult;
 window.extTrafficCopyFromTextarea = extTrafficCopyFromTextarea;
 window.extTrafficCopyCombined = extTrafficCopyCombined;

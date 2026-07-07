@@ -235,7 +235,7 @@ function showBlogspotSetupModal(onComplete) {
   const card = document.createElement('div');
   card.style.cssText = `
     background: linear-gradient(145deg, #1e293b, #0f172a); border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 20px; padding: 32px; width: 520px; max-width: 95vw; max-height: 90vh;
+    border-radius: 20px; padding: 32px; width: 620px; max-width: 95vw; max-height: 90vh;
     overflow-y: auto; box-shadow: 0 24px 64px rgba(0,0,0,0.5);
   `;
 
@@ -284,6 +284,51 @@ function showBlogspotSetupModal(onComplete) {
     '기존'
   ));
   card.appendChild(purposeWrap);
+
+  let blogspotSkinPreset = 'approval-revenue';
+  const skinSection = document.createElement('div');
+  skinSection.style.cssText = 'margin-bottom:18px;';
+  skinSection.innerHTML = `
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:9px;">
+      <div>
+        <div style="font-size:12px; font-weight:900; color:#f8fafc;">테마스킨 선택</div>
+        <div style="font-size:10px; color:#94a3b8; margin-top:2px;">광고를 버튼처럼 속이지 않고, 탐색 버튼과 광고 영역을 분리합니다.</div>
+      </div>
+    </div>
+  `;
+  const skinWrap = document.createElement('div');
+  skinWrap.style.cssText = 'display:grid; grid-template-columns:1fr 1fr; gap:10px;';
+  const skinButtons = {};
+  function createSkinButton(preset, title, desc, badge) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.skinPreset = preset;
+    btn.style.cssText = 'text-align:left; min-height:94px; padding:14px; border-radius:13px; border:1px solid rgba(255,255,255,0.12); background:rgba(15,23,42,0.62); color:#e5e7eb; cursor:pointer; transition:all .18s ease;';
+    btn.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:7px;">
+        <span style="font-size:13px; font-weight:900;">${title}</span>
+        <span style="font-size:10px; font-weight:900; color:#fed7aa;">${badge}</span>
+      </div>
+      <div style="font-size:11px; color:#94a3b8; line-height:1.5;">${desc}</div>
+    `;
+    btn.onclick = () => setBlogspotSkinPreset(preset);
+    skinButtons[preset] = btn;
+    return btn;
+  }
+  skinWrap.appendChild(createSkinButton(
+    'approval-revenue',
+    '애드센스 승인형',
+    '고급형 본문 폭, 명확한 내비게이션, 정책 안전 광고 슬롯, 버튼형 관련글/CTA를 적용합니다.',
+    '추천'
+  ));
+  skinWrap.appendChild(createSkinButton(
+    'cloud',
+    '기존 클라우드',
+    '기존 리더남 클라우드 글 디자인을 유지합니다. 이미 쓰던 스타일이 필요할 때 선택하세요.',
+    '기존'
+  ));
+  skinSection.appendChild(skinWrap);
+  card.appendChild(skinSection);
 
   // 필드 생성 함수
   function createField(label, id, placeholder, required = false, helpText = '') {
@@ -353,7 +398,7 @@ function showBlogspotSetupModal(onComplete) {
       실제 글 발행은 아래의 <strong style="color:#fed7aa;">앱 연동</strong>에서 OAuth와 Blog ID가 완료되면 가능합니다.
     </div>
     <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-      ${['검색엔진 표시 ON', 'HTTPS 활성화', '시간대: 서울', '댓글 숨기기', '이미지 라이트박스', '이미지 지연로드', 'WebP 형식', '성인콘텐츠 OFF', '글 표시 6개', '날짜 형식 yyyy.MM.dd', '스킨 CSS 적용']
+      ${['검색엔진 표시 ON', 'HTTPS 활성화', '시간대: 서울', '댓글 숨기기', '이미지 라이트박스', '이미지 지연로드', 'WebP 형식', '성인콘텐츠 OFF', '글 표시 6개', '날짜 형식 yyyy.MM.dd', '선택 테마스킨 적용']
         .map(item => `<span style="padding: 3px 8px; background: rgba(255,255,255,0.05); border-radius: 6px; font-size: 10px; color: rgba(255,255,255,0.5);">✓ ${item}</span>`).join('')}
     </div>
   `;
@@ -378,6 +423,16 @@ function showBlogspotSetupModal(onComplete) {
       ? '검색엔진에 노출되는 설명문입니다. 키워드 중심 2~3줄 권장'
       : '비워두면 기존 설명을 유지합니다. 입력하면 기존 블로그 설명/메타 설명 최적화에 사용합니다';
     startBtn.textContent = createMode ? '🚀 새 블로그 만들기 시작' : '🔎 기존 블로그 점검 시작';
+  }
+
+  function setBlogspotSkinPreset(preset) {
+    blogspotSkinPreset = preset;
+    Object.entries(skinButtons).forEach(([key, btn]) => {
+      const active = key === preset;
+      btn.style.background = active ? 'rgba(34,197,94,0.14)' : 'rgba(15,23,42,0.62)';
+      btn.style.borderColor = active ? 'rgba(74,222,128,0.45)' : 'rgba(255,255,255,0.12)';
+      btn.style.boxShadow = active ? '0 0 0 1px rgba(74,222,128,0.14), 0 10px 28px rgba(34,197,94,0.10)' : 'none';
+    });
   }
 
   // 버튼
@@ -409,6 +464,7 @@ function showBlogspotSetupModal(onComplete) {
 
     const config = {
       setupPurpose: blogspotSetupPurpose,
+      skinPreset: blogspotSkinPreset,
       useExistingBlog: !createMode,
       forceCreateNew: createMode,
       existingBlogId: !createMode ? existingBlogId : '',
@@ -433,6 +489,7 @@ function showBlogspotSetupModal(onComplete) {
   modal.appendChild(card);
   document.body.appendChild(modal);
   setBlogspotPurpose('create-new');
+  setBlogspotSkinPreset('approval-revenue');
   getSavedBloggerBlogId().then((blogId) => {
     const input = document.getElementById('bs-existing-id');
     if (!blogId) return;
@@ -672,7 +729,7 @@ const PLATFORMS = {
       { id: 'login', title: 'Google 로그인', desc: '에드센스 계정과 동일한 Google 계정으로 로그인', action: '열린 Chrome 창에서 Blogger에 쓸 Google 계정으로 로그인하고, 2단계 인증/CAPTCHA가 나오면 완료하세요.', icon: '🔐', manual: true },
       { id: 'create-blog', title: '블로그 확인 또는 생성', desc: '목적에 따라 기존 블로그를 감지하거나 새 blogspot 주소로 블로그를 만듭니다', action: '새 블로그면 제목/주소를 확인하고, 기존 블로그면 목록에서 사용할 블로그를 한 번 선택하거나 Blog ID를 입력하세요.', icon: '📝', manual: true },
       { id: 'settings', title: '기초 설정 자동 최적화', desc: '검색엔진 표시, HTTPS, 시간대, 댓글, 이미지 최적화 등 기본 항목', action: '앱이 Blogger 설정 화면을 열고 항목이 실제로 보이는지 검사합니다. Chrome 창을 닫지 마세요.', icon: '⚙️', manual: false },
-      { id: 'skin', title: '리더남 클라우드 스킨 적용', desc: '수익 최적화 전용 테마 CSS 자동 적용', action: '앱이 테마 HTML 편집기를 열고 b:skin 위치를 확인한 뒤 CSS를 삽입합니다. 저장 화면이 보이면 그대로 두세요.', icon: '🎨', manual: false },
+      { id: 'skin', title: '선택 테마스킨 적용', desc: '애드센스 승인형 또는 기존 클라우드 테마 CSS 자동 적용', action: '앱이 테마 HTML 편집기를 열고 b:skin 위치를 확인한 뒤 선택한 CSS를 삽입합니다. 저장 화면이 보이면 그대로 두세요.', icon: '🎨', manual: false },
       { id: 'done', title: '기초 세팅 완료!', desc: '발행은 앱 연동에서 OAuth와 Blog ID가 완료되면 가능합니다', action: '다음은 계정 추가 / 앱 연동에서 OAuth와 Blog ID를 완료하면 발행 준비가 끝납니다.', icon: '✅', manual: false },
     ]
   },

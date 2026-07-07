@@ -25,10 +25,77 @@ function isAvailable(provider, keys) {
   return k.length >= 20;
 }
 
+const MODEL_CHAINS = {
+  gemini: {
+    'gemini-2.5-flash-lite': ['gemini-2.5-flash-lite', 'gemini-2.5-flash'],
+    'gemini-2.5-flash': ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+    'gemini-2.5-pro': ['gemini-2.5-pro', 'gemini-2.5-flash'],
+  },
+  openai: {
+    'openai-gpt4o-mini': ['gpt-5-nano', 'gpt-5-mini', 'gpt-4.1-mini'],
+    'openai-gpt41': ['gpt-5-mini', 'gpt-5-nano', 'gpt-4.1'],
+    'openai-gpt4o': ['gpt-5', 'gpt-5-mini', 'gpt-4.1'],
+    'gpt-5-nano': ['gpt-5-nano', 'gpt-5-mini', 'gpt-4.1-mini'],
+    'gpt-5-mini': ['gpt-5-mini', 'gpt-5-nano', 'gpt-4.1'],
+    'gpt-5': ['gpt-5', 'gpt-5-mini', 'gpt-4.1'],
+  },
+  claude: {
+    'claude-haiku': ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6'],
+    'claude-sonnet': ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
+    'claude-opus': ['claude-opus-4-7', 'claude-sonnet-4-6'],
+  },
+  perplexity: {
+    'perplexity-sonar': ['sonar-pro', 'sonar'],
+    'sonar-pro': ['sonar-pro', 'sonar'],
+    sonar: ['sonar', 'sonar-pro'],
+  },
+};
+
+function unique(items) {
+  return [...new Set(items.filter(Boolean))];
+}
+
+function getRequestedModel(params) {
+  return String(
+    params?.primaryGeminiTextModel ||
+    params?.textGenerator ||
+    params?.textModel ||
+    params?.model ||
+    ''
+  ).trim();
+}
+
+function inferProviderFromModel(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return '';
+  if (value.startsWith('gemini-')) return 'gemini';
+  if (value.startsWith('openai-') || value.startsWith('gpt-')) return 'openai';
+  if (value.startsWith('claude-')) return 'claude';
+  if (value.startsWith('perplexity-') || value.startsWith('sonar')) return 'perplexity';
+  return '';
+}
+
+function resolveCandidateModels(provider, params, defaults) {
+  const requested = getRequestedModel(params);
+  const requestedKey = requested.toLowerCase();
+  const requestedProvider = inferProviderFromModel(requestedKey);
+  if (!requested || (requestedProvider && requestedProvider !== provider)) {
+    return [...defaults];
+  }
+  const mapped = MODEL_CHAINS[provider]?.[requestedKey];
+  if (mapped) {
+    return unique([...mapped, ...defaults]);
+  }
+  if (requestedProvider === provider) {
+    return unique([requested, ...defaults]);
+  }
+  return [...defaults];
+}
+
 async function callGemini(params, key) {
   const { GoogleGenerativeAI } = require('@google/generative-ai');
   const genAI = new GoogleGenerativeAI(key);
-  const candidates = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'];
+  const candidates = resolveCandidateModels('gemini', params, ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro']);
   let lastErr = null;
   // v3.8.127: JSON 모드 강제 — schema instruction에 finalRevision이 있으면 응답을 순수 JSON으로 받음.
   // schema 부분 무시(context만 출력하고 끝)를 방지.
@@ -60,7 +127,7 @@ async function callGemini(params, key) {
 async function callOpenAI(params, key) {
   const OpenAI = require('openai').default || require('openai');
   const client = new OpenAI({ apiKey: key });
-  const candidates = ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'];
+  const candidates = resolveCandidateModels('openai', params, ['gpt-5-nano', 'gpt-5-mini', 'gpt-4.1-mini', 'gpt-4.1']);
   let lastErr = null;
   // v3.8.127: OpenAI JSON 모드 — finalRevision 누락 방지.
   const wantsJson = params.responseFormat === 'json'
@@ -73,10 +140,13 @@ async function callOpenAI(params, key) {
           { role: 'system', content: params.system },
           { role: 'user', content: params.user },
         ],
-        // v3.8.254: 기본값 2000 → 4000 (structured 호출은 8000 명시 전달)
-        max_tokens: params.maxOutputTokens || 4000,
-        temperature: typeof params.temperature === 'number' ? params.temperature : 0.85,
       };
+      if (/^gpt-5/i.test(modelName)) {
+        req.max_completion_tokens = params.maxOutputTokens || 4000;
+      } else {
+        req.max_tokens = params.maxOutputTokens || 4000;
+        req.temperature = typeof params.temperature === 'number' ? params.temperature : 0.85;
+      }
       if (wantsJson) req.response_format = { type: 'json_object' };
       const resp = await client.chat.completions.create(req);
       const text = (resp && resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content || '').trim();
@@ -98,7 +168,7 @@ async function callClaude(params, key) {
     throw new Error('CLAUDE_SDK_NOT_INSTALLED');
   }
   const client = new Anthropic({ apiKey: key });
-  const candidates = ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'];
+  const candidates = resolveCandidateModels('claude', params, ['claude-sonnet-4-6', 'claude-opus-4-7', 'claude-haiku-4-5-20251001']);
   let lastErr = null;
   for (const modelName of candidates) {
     try {
@@ -119,7 +189,7 @@ async function callClaude(params, key) {
 }
 
 async function callPerplexity(params, key) {
-  const candidates = ['sonar-pro', 'sonar'];
+  const candidates = resolveCandidateModels('perplexity', params, ['sonar-pro', 'sonar']);
   let lastErr = null;
   for (const modelName of candidates) {
     try {
@@ -193,5 +263,7 @@ module.exports = {
   callClaude,
   callPerplexity,
   isAvailable,
+  inferProviderFromModel,
+  resolveCandidateModels,
   PROVIDERS,
 };

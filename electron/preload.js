@@ -321,6 +321,7 @@ const api = {
     },
     getImageFolders: () => electron_1.ipcRenderer.invoke('get-image-folders'),
     getFolderImages: (folderPath) => electron_1.ipcRenderer.invoke('get-folder-images', folderPath),
+    selectImageFolder: () => electron_1.ipcRenderer.invoke('select-image-folder'),
     deleteImageFolder: (folderPath) => electron_1.ipcRenderer.invoke('delete-image-folder', folderPath),
     // 🔥 Blogger OAuth 인증 (환경설정에서 직접 인증)
     authenticateBlogger: (args) => {

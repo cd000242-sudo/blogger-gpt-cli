@@ -12,6 +12,8 @@
 
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import * as fs from 'fs';
+import * as path from 'path';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -24,6 +26,41 @@ const URL_GEN_CONTEXT_CHARS = Number(process.env['URL_GEN_CONTEXT_CHARS'] || 700
 const URL_GEN_TARGET_H2 = Number(process.env['URL_GEN_TARGET_H2'] || 5);
 const URL_GEN_H3_PER_H2 = Number(process.env['URL_GEN_H3_PER_H2'] || 2);
 const URL_GEN_ENABLE_BROWSER_FALLBACK = /^(1|true|yes)$/i.test(String(process.env['URL_GEN_ENABLE_BROWSER_FALLBACK'] || ''));
+
+function resolvePuppeteerExecutablePath(): string | undefined {
+  const envCandidates = [
+    process.env['PUPPETEER_EXECUTABLE_PATH'],
+    process.env['CHROME_PATH'],
+    process.env['PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'],
+  ].filter(Boolean) as string[];
+  for (const candidate of envCandidates) {
+    try { if (candidate && fs.existsSync(candidate)) return candidate; } catch {}
+  }
+  try {
+    const { chromium } = require('playwright');
+    const playwrightPath = chromium?.executablePath?.();
+    if (playwrightPath && fs.existsSync(playwrightPath)) return playwrightPath;
+  } catch {}
+  const localAppData = process.env['LOCALAPPDATA'] || '';
+  const programFiles = process.env['PROGRAMFILES'] || 'C:\\Program Files';
+  const programFilesX86 = process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)';
+  const candidates = [
+    path.join(programFiles, 'Google\\Chrome\\Application\\chrome.exe'),
+    path.join(programFilesX86, 'Google\\Chrome\\Application\\chrome.exe'),
+    path.join(localAppData, 'Google\\Chrome\\Application\\chrome.exe'),
+    path.join(programFiles, 'Microsoft\\Edge\\Application\\msedge.exe'),
+    path.join(programFilesX86, 'Microsoft\\Edge\\Application\\msedge.exe'),
+  ];
+  return candidates.find((candidate) => {
+    try { return !!candidate && fs.existsSync(candidate); } catch { return false; }
+  });
+}
+
+function withPuppeteerBrowserFallback<T extends Record<string, any>>(options: T): T {
+  if (options['executablePath']) return options;
+  const executablePath = resolvePuppeteerExecutablePath();
+  return executablePath ? { ...options, executablePath } : options;
+}
 
 // ============================================
 // 타입 정의
@@ -818,10 +855,10 @@ async function crawlWithPuppeteer(url: string): Promise<string> {
   let browser = null;
   try {
     puppeteer.use(StealthPlugin());
-    browser = await puppeteer.launch({
+    browser = await puppeteer.launch(withPuppeteerBrowserFallback({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    });
+    }));
 
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');

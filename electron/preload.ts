@@ -310,6 +310,7 @@ export type BloggerApi = {
   
   getImageFolders(): Promise<{ ok: boolean; folders: Array<{ name: string; path: string; imageCount: number }>; error?: string }>;
   getFolderImages(folderPath: string): Promise<{ ok: boolean; images: Array<{ path: string; name: string }>; error?: string }>;
+  selectImageFolder(): Promise<{ ok: boolean; folderPath: string; canceled?: boolean; error?: string }>;
   deleteImageFolder(folderPath: string): Promise<{ ok: boolean; error?: string }>;
 
   /** 🔥 Blogger OAuth 인증 (환경설정에서 직접 인증) */
@@ -746,6 +747,7 @@ const api: BloggerApi = {
   
   getImageFolders: () => ipcRenderer.invoke('get-image-folders'),
   getFolderImages: (folderPath) => ipcRenderer.invoke('get-folder-images', folderPath),
+  selectImageFolder: () => ipcRenderer.invoke('select-image-folder'),
   deleteImageFolder: (folderPath) => ipcRenderer.invoke('delete-image-folder', folderPath),
 
   // 🔥 Blogger OAuth 인증 (환경설정에서 직접 인증)

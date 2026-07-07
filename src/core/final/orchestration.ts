@@ -1373,6 +1373,12 @@ export async function generateUltimateMaxModeArticleFinal(
           return { dataUrl: preGenMatch.dataUrl, source: '미리 생성 (이미지 생성 탭)' };
         }
 
+        const folderImageMissingPolicy = String((payload as any).folderImageMissingPolicy || '').toLowerCase();
+        if (preGen.length > 0 && (folderImageMissingPolicy === 'blank' || folderImageMissingPolicy === 'empty')) {
+          onLog?.(`   H2 #${h2Number}: 내 폴더 이미지 미배치 -> 공란 처리`);
+          return { dataUrl: '', source: '' };
+        }
+
         let imageResult: { ok: boolean; dataUrl?: string; error?: string } = { ok: false };
         let usedSource = '';
 

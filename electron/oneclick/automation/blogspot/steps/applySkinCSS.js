@@ -7,6 +7,12 @@ const browser_1 = require("../../../utils/browser");
 const skinLoader_1 = require("../../../utils/skinLoader");
 const selectors_1 = require("../../../config/selectors");
 const bloggerSmartNavigator_1 = require("../bloggerSmartNavigator");
+function resolveSkinPreset(config) {
+    if (config?.skinPreset === 'cloud') {
+        return { skinType: 'blogspot', label: '클라우드 스킨' };
+    }
+    return { skinType: 'blogspot-approval', label: '애드센스 승인형 테마스킨' };
+}
 async function scanThemeEditor(page) {
     return page.evaluate(() => {
         const text = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
@@ -92,7 +98,7 @@ async function openAndVerifyThemeEditor(state, page, blogId) {
 /**
  * Blogger 테마 HTML 에디터에서 <b:skin> 섹션에 클라우드 스킨 CSS를 삽입한다.
  */
-async function applySkinCSS(state, page, blogId) {
+async function applySkinCSS(state, page, blogId, config = {}) {
     state.currentStep = 3;
     state.stepStatus = 'running';
     state.message = '테마 HTML 편집 페이지로 이동 중...';
@@ -104,71 +110,85 @@ async function applySkinCSS(state, page, blogId) {
             state.error = state.message;
             return;
         }
-        const skinCSS = (0, skinLoader_1.loadSkinCSS)('blogspot');
+        const { skinType, label } = resolveSkinPreset(config);
+        const skinCSS = (0, skinLoader_1.loadSkinCSS)(skinType);
         if (skinCSS) {
-            state.message = '클라우드 스킨 CSS 자동 적용 중...';
+            state.message = `${label} CSS 자동 적용 중...`;
             try {
                 const editor = await page.locator(selectors_1.BLOGGER_SELECTORS.codeEditor).first();
                 if (await editor.isVisible({ timeout: 5000 })) {
-                    const inserted = await page.evaluate((css) => {
-                        // 2026-04: CodeMirror → 대안 에디터도 지원
-                        const marker = '/* === LEADERNAM CLOUD SKIN START === */';
-                        // 방법 1: CodeMirror (기존)
+                    const inserted = await page.evaluate(({ css, skinName }) => {
+                        const markerStart = '/* === LEADERNAM BLOGSPOT SKIN START === */';
+                        const markerEnd = '/* === LEADERNAM BLOGSPOT SKIN END === */';
+                        const legacyStart = '/* === LEADERNAM CLOUD SKIN START === */';
+                        const legacyEnd = '/* === LEADERNAM CLOUD SKIN END === */';
+                        const block = `${markerStart}\n/* preset: ${skinName} */\n${css}\n${markerEnd}\n`;
+                        const hasSkinBlock = (content) => content.includes(markerStart) || content.includes(legacyStart);
+                        const stripSkinBlocks = (content) => {
+                            let output = content;
+                            const pairs = [
+                                [markerStart, markerEnd],
+                                [legacyStart, legacyEnd],
+                            ];
+                            for (const [startMarker, endMarker] of pairs) {
+                                let start = output.indexOf(startMarker);
+                                while (start > -1) {
+                                    const end = output.indexOf(endMarker, start);
+                                    if (end === -1)
+                                        break;
+                                    output = output.slice(0, start) + output.slice(end + endMarker.length);
+                                    start = output.indexOf(startMarker);
+                                }
+                            }
+                            return output;
+                        };
+                        const buildUpdatedContent = (content) => {
+                            const cleaned = stripSkinBlocks(content);
+                            const insertPoint = cleaned.indexOf(']]></b:skin>');
+                            if (insertPoint === -1)
+                                return null;
+                            return `${cleaned.slice(0, insertPoint).trimEnd()}\n${block}${cleaned.slice(insertPoint)}`;
+                        };
                         const cm = document.querySelector('.CodeMirror')?.CodeMirror;
                         if (cm) {
                             const content = cm.getValue();
-                            if (content.includes(marker))
-                                return { ok: true, changed: false, method: 'CodeMirror', reason: 'already-applied' };
-                            const insertPoint = content.indexOf(']]></b:skin>');
-                            if (insertPoint > -1) {
-                                cm.setValue(content.slice(0, insertPoint) + '\n' + marker + '\n' + css + '\n/* === LEADERNAM CLOUD SKIN END === */\n' + content.slice(insertPoint));
-                                return { ok: true, changed: true, method: 'CodeMirror' };
-                            }
-                            return { ok: false, changed: false, method: 'CodeMirror', reason: 'skin-close-not-found' };
+                            const updated = buildUpdatedContent(content);
+                            if (!updated)
+                                return { ok: false, changed: false, method: 'CodeMirror', reason: 'skin-close-not-found' };
+                            cm.setValue(updated);
+                            return { ok: true, changed: updated !== content, replaced: hasSkinBlock(content), method: 'CodeMirror' };
                         }
-                        // 방법 2: Ace Editor
                         const ace = document.querySelector('.ace_editor')?.env?.editor;
                         if (ace) {
                             const content = ace.getValue();
-                            if (content.includes(marker))
-                                return { ok: true, changed: false, method: 'Ace', reason: 'already-applied' };
-                            const insertPoint = content.indexOf(']]></b:skin>');
-                            if (insertPoint > -1) {
-                                ace.setValue(content.slice(0, insertPoint) + '\n' + marker + '\n' + css + '\n/* === LEADERNAM CLOUD SKIN END === */\n' + content.slice(insertPoint));
-                                return { ok: true, changed: true, method: 'Ace' };
-                            }
-                            return { ok: false, changed: false, method: 'Ace', reason: 'skin-close-not-found' };
+                            const updated = buildUpdatedContent(content);
+                            if (!updated)
+                                return { ok: false, changed: false, method: 'Ace', reason: 'skin-close-not-found' };
+                            ace.setValue(updated);
+                            return { ok: true, changed: updated !== content, replaced: hasSkinBlock(content), method: 'Ace' };
                         }
-                        // 방법 3: textarea 직접
                         const textarea = document.querySelector('textarea');
                         if (textarea) {
                             const content = textarea.value;
-                            if (content.includes(marker))
-                                return { ok: true, changed: false, method: 'textarea', reason: 'already-applied' };
-                            const insertPoint = content.indexOf(']]></b:skin>');
-                            if (insertPoint > -1) {
-                                textarea.value = content.slice(0, insertPoint) + '\n' + marker + '\n' + css + '\n/* === LEADERNAM CLOUD SKIN END === */\n' + content.slice(insertPoint);
-                                textarea.dispatchEvent(new Event('input', { bubbles: true }));
-                                return { ok: true, changed: true, method: 'textarea' };
-                            }
-                            return { ok: false, changed: false, method: 'textarea', reason: 'skin-close-not-found' };
+                            const updated = buildUpdatedContent(content);
+                            if (!updated)
+                                return { ok: false, changed: false, method: 'textarea', reason: 'skin-close-not-found' };
+                            textarea.value = updated;
+                            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                            return { ok: true, changed: updated !== content, replaced: hasSkinBlock(content), method: 'textarea' };
                         }
-                        // 방법 4: contenteditable
                         const editable = document.querySelector('[contenteditable="true"], [role="textbox"]');
                         if (editable) {
                             const content = editable.textContent || '';
-                            if (content.includes(marker))
-                                return { ok: true, changed: false, method: 'contenteditable', reason: 'already-applied' };
-                            const insertPoint = content.indexOf(']]></b:skin>');
-                            if (insertPoint > -1) {
-                                editable.textContent = content.slice(0, insertPoint) + '\n' + marker + '\n' + css + '\n/* === LEADERNAM CLOUD SKIN END === */\n' + content.slice(insertPoint);
-                                editable.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: css }));
-                                return { ok: true, changed: true, method: 'contenteditable' };
-                            }
-                            return { ok: false, changed: false, method: 'contenteditable', reason: 'skin-close-not-found' };
+                            const updated = buildUpdatedContent(content);
+                            if (!updated)
+                                return { ok: false, changed: false, method: 'contenteditable', reason: 'skin-close-not-found' };
+                            editable.textContent = updated;
+                            editable.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: css }));
+                            return { ok: true, changed: updated !== content, replaced: hasSkinBlock(content), method: 'contenteditable' };
                         }
                         return { ok: false, changed: false, method: 'none', reason: 'editor-not-found' };
-                    }, skinCSS);
+                    }, { css: skinCSS, skinName: label });
                     if (!inserted?.ok) {
                         state.stepStatus = 'error';
                         state.message = `스킨 CSS 삽입 위치를 찾지 못했습니다. HTML 편집기가 보이는지 확인해주세요. 사유: ${inserted?.reason || 'unknown'}`;
@@ -185,7 +205,7 @@ async function applySkinCSS(state, page, blogId) {
                     }
                     catch { /* 수동 저장 필요 */ }
                     const verify = await page.evaluate(() => {
-                        const marker = '/* === LEADERNAM CLOUD SKIN START === */';
+                        const marker = '/* === LEADERNAM BLOGSPOT SKIN START === */';
                         const values = [
                             document.querySelector('.CodeMirror')?.CodeMirror?.getValue?.() || '',
                             document.querySelector('.ace_editor')?.env?.editor?.getValue?.() || '',
@@ -200,7 +220,7 @@ async function applySkinCSS(state, page, blogId) {
                         state.error = state.message;
                         return;
                     }
-                    state.message = `✅ 클라우드 스킨 CSS 적용 완료 (${inserted.method}${inserted.changed ? ', 새로 삽입' : ', 이미 적용됨'})`;
+                    state.message = `✅ ${label} CSS 적용 완료 (${inserted.method}${inserted.replaced ? ', 기존 스킨 교체' : inserted.changed ? ', 새로 삽입' : ', 이미 적용됨'})`;
                 }
                 else {
                     state.stepStatus = 'error';
