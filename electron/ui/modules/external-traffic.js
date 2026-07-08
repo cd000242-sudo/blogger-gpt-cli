@@ -223,7 +223,7 @@ function _deriveExtTrafficProviderFromModel(modelValue) {
   const value = String(modelValue || '').trim();
   if (!value) return '';
   if (value.startsWith('gemini-')) return 'gemini';
-  if (value.startsWith('openai-')) return 'openai';
+  if (value.startsWith('openai-') || value.startsWith('gpt-') || /^o\d/i.test(value)) return 'openai';
   if (value.startsWith('claude-')) return 'claude';
   if (value === 'perplexity-sonar' || value.startsWith('perplexity-')) return 'perplexity';
   return '';

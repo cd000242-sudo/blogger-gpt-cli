@@ -156,7 +156,10 @@ export const DEFAULT_TIER_VALUE = 'gemini-2.5-flash';
 
 export function findTier(value: string | undefined | null): TierModel | undefined {
   if (!value) return undefined;
-  return TIER_MODELS.find(t => t.value === value);
+  const normalized = String(value).trim();
+  const exact = TIER_MODELS.find(t => t.value === normalized || t.modelId === normalized);
+  if (exact) return exact;
+  return TIER_MODELS.find(t => t.fallback.includes(normalized));
 }
 
 /**

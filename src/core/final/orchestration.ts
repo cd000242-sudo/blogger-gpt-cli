@@ -396,13 +396,12 @@ export async function generateUltimateMaxModeArticleFinal(
     // 🔥 1순위: 사용자가 포스팅 탭 드롭다운에서 직접 선택한 엔진
     const mapped = providerModelMap[payload.provider];
     // provider와 primaryGeminiTextModel이 일치하면 구체적 모델 사용
-    const isConsistent = payload.primaryGeminiTextModel &&
-      payload.primaryGeminiTextModel.startsWith(
-        payload.provider === 'gemini' ? 'gemini-' :
-        payload.provider === 'openai' ? 'openai-' :
-        payload.provider === 'claude' ? 'claude-' :
-        payload.provider === 'perplexity' ? 'perplexity-' : '__NO_MATCH__'
-      );
+    const modelValue = String(payload.primaryGeminiTextModel || '');
+    const isConsistent =
+      (payload.provider === 'gemini' && modelValue.startsWith('gemini-')) ||
+      (payload.provider === 'openai' && (modelValue.startsWith('openai-') || modelValue.startsWith('gpt-') || /^o\d/i.test(modelValue))) ||
+      (payload.provider === 'claude' && modelValue.startsWith('claude-')) ||
+      (payload.provider === 'perplexity' && modelValue.startsWith('perplexity-'));
     const finalModel = isConsistent ? payload.primaryGeminiTextModel : mapped;
     process.env['PRIMARY_TEXT_MODEL'] = finalModel!;
     onLog?.(`[PROGRESS] 0% - 🎯 AI 엔진: ${payload.provider} → ${finalModel}`);

@@ -133,7 +133,11 @@ exports.DEFAULT_TIER_VALUE = 'gemini-2.5-flash';
 function findTier(value) {
     if (!value)
         return undefined;
-    return exports.TIER_MODELS.find(t => t.value === value);
+    const normalized = String(value).trim();
+    const exact = exports.TIER_MODELS.find(t => t.value === normalized || t.modelId === normalized);
+    if (exact)
+        return exact;
+    return exports.TIER_MODELS.find(t => t.fallback.includes(normalized));
 }
 /**
  * primaryGeminiTextModel → defaultAiProvider 자동 파생

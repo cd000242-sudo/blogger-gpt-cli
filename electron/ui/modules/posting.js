@@ -1454,7 +1454,7 @@ export async function createPayload(options = {}) {
   const deriveProviderFromModel = (v) => {
     if (!v) return '';
     if (v.startsWith('gemini-')) return 'gemini';
-    if (v.startsWith('openai-')) return 'openai';
+    if (v.startsWith('openai-') || v.startsWith('gpt-') || /^o\d/i.test(v)) return 'openai';
     if (v.startsWith('claude-')) return 'claude';
     if (v === 'perplexity-sonar') return 'perplexity';
     return '';
@@ -1638,7 +1638,7 @@ export async function createPayload(options = {}) {
   // 라디오 모델이 현재 provider와 같은 계열이면 유지, 아니면 provider 기본 모델
   const radioMatchesProvider =
     (provider === 'gemini' && radioValue.startsWith('gemini-')) ||
-    (provider === 'openai' && radioValue.startsWith('openai-')) ||
+    (provider === 'openai' && (radioValue.startsWith('openai-') || radioValue.startsWith('gpt-') || /^o\d/i.test(radioValue))) ||
     (provider === 'claude' && radioValue.startsWith('claude-')) ||
     (provider === 'perplexity' && radioValue.startsWith('perplexity-'));
   const primaryGeminiTextModelValue = radioMatchesProvider

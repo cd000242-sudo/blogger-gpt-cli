@@ -163,7 +163,7 @@ export async function saveSettings() {
       const m = document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value;
       if (!m) return 'gemini';
       if (m.startsWith('gemini-')) return 'gemini';
-      if (m.startsWith('openai-')) return 'openai';
+      if (m.startsWith('openai-') || m.startsWith('gpt-') || /^o\d/i.test(m)) return 'openai';
       if (m.startsWith('claude-')) return 'claude';
       if (m === 'perplexity-sonar') return 'perplexity';
       return 'gemini';
@@ -172,7 +172,7 @@ export async function saveSettings() {
       const m = document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value;
       if (!m) return 'gemini';
       if (m.startsWith('gemini-')) return 'gemini';
-      if (m.startsWith('openai-')) return 'openai';
+      if (m.startsWith('openai-') || m.startsWith('gpt-') || /^o\d/i.test(m)) return 'openai';
       if (m.startsWith('claude-')) return 'claude';
       if (m === 'perplexity-sonar') return 'perplexity';
       return 'gemini';
