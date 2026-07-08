@@ -23,6 +23,13 @@ export interface FactCheckResult {
   success: boolean;
 }
 
+export interface FactCheckReferenceTime {
+  currentYear: number;
+  nextYear: number;
+  currentDateIso: string;
+  currentDateKo: string;
+}
+
 // ── 환경변수 캐시 ──
 let _envCache: Record<string, string> | null = null;
 let _envCacheTime = 0;
@@ -34,6 +41,26 @@ function getCachedEnv(): Record<string, string> {
     _envCacheTime = now;
   }
   return _envCache;
+}
+
+export function getFactCheckReferenceTime(now: Date = new Date()): FactCheckReferenceTime {
+  const parts = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const year = parts.find((p) => p.type === 'year')?.value || String(now.getFullYear());
+  const month = parts.find((p) => p.type === 'month')?.value || String(now.getMonth() + 1).padStart(2, '0');
+  const day = parts.find((p) => p.type === 'day')?.value || String(now.getDate()).padStart(2, '0');
+  const currentYear = Number(year);
+
+  return {
+    currentYear,
+    nextYear: currentYear + 1,
+    currentDateIso: `${year}-${month}-${day}`,
+    currentDateKo: `${currentYear}년 ${Number(month)}월 ${Number(day)}일`,
+  };
 }
 
 // ══════════════════════════════════════════════════════
@@ -159,12 +186,14 @@ export async function fetchFactContext(
  */
 export function injectFactContext(originalPrompt: string, factContext: string): string {
   if (!factContext || factContext.trim().length < 10) return originalPrompt;
+  const ref = getFactCheckReferenceTime();
 
   return `${originalPrompt}
 
-## 📚 팩트 기반 컨텍스트 (실시간 검색 결과 — 반드시 참고하여 정확하게 작성)
-아래 내용은 실시간 웹 검색으로 확인된 최신 팩트입니다. 
+## 📚 팩트 기반 컨텍스트 (실시간 검색 결과 — ${ref.currentDateKo} 현재 기준)
+아래 내용은 ${ref.currentDateKo} 현재 실시간 웹 검색으로 확인된 최신 팩트입니다.
 이 정보를 기반으로 정확한 수치, 최신 동향, 검증된 정보만 포함하세요.
+정책·지원금·신청기간·가격·모델명처럼 시점이 중요한 정보는 반드시 ${ref.currentYear}년 최신 기준으로 판단하세요.
 추측이나 불확실한 정보는 작성하지 마세요.
 
 ${factContext}
@@ -177,13 +206,27 @@ ${factContext}
 // 🔧 Internal
 // ══════════════════════════════════════════════════════
 
-const FACT_CHECK_PROMPT = (keyword: string) => `"${keyword}" 키워드에 대해 블로그 글을 작성하려고 합니다.
+export const buildFactCheckPrompt = (keyword: string, now: Date = new Date()): string => {
+  const ref = getFactCheckReferenceTime(now);
+  return `"${keyword}" 키워드에 대해 블로그 글을 작성하려고 합니다.
+현재 날짜는 ${ref.currentDateKo}(${ref.currentDateIso})입니다.
+반드시 이 날짜를 기준으로 최신 정보를 확인하고, 오래된 ${ref.currentYear - 1}년 이하 자료가 현재와 다르면 현재 기준으로 교정해주세요.
 다음 정보를 500자 이내로 간결하게 정리해주세요:
-1. 핵심 사실과 최신 동향 (2025-2026년 기준)
-2. 관련 수치/통계 (있다면)
-3. 일반적인 오해나 잘못된 정보 (있다면)
+1. 핵심 사실과 최신 동향 (${ref.currentDateKo} 현재, ${ref.currentYear}년 최신 기준)
+2. 관련 수치/통계/신청기간/마감일/조건 (있다면)
+3. 일반적인 오해나 오래된 정보와 현재 기준의 차이 (있다면)
 4. 신뢰할 수 있는 출처 기반 정보만 포함
 한국어로 답변해주세요. 마크다운 형식은 사용하지 마세요.`;
+};
+
+export function buildLatestNaverFactQuery(keyword: string, now: Date = new Date()): string {
+  const ref = getFactCheckReferenceTime(now);
+  const compact = keyword.replace(/\s+/g, ' ').trim();
+  const hasCurrentYear = new RegExp(`(^|\\D)${ref.currentYear}(\\D|$)`).test(compact);
+  const hasNextYear = new RegExp(`(^|\\D)${ref.nextYear}(\\D|$)`).test(compact);
+  const freshnessTerms = hasCurrentYear || hasNextYear ? '최신 변경사항 공식' : `${ref.currentYear} 최신 변경사항 공식`;
+  return `${compact} ${freshnessTerms}`.trim();
+}
 
 async function callPerplexityFactCheck(apiKey: string, keyword: string): Promise<string | null> {
   const MODELS = ['sonar', 'sonar-pro'];
@@ -200,8 +243,8 @@ async function callPerplexityFactCheck(apiKey: string, keyword: string): Promise
         body: JSON.stringify({
           model,
           messages: [
-            { role: 'system', content: '당신은 한국어 팩트체커입니다. 실시간 웹 검색을 통해 정확한 정보만 제공합니다.' },
-            { role: 'user', content: FACT_CHECK_PROMPT(keyword) },
+            { role: 'system', content: `당신은 한국어 팩트체커입니다. 현재 날짜는 ${getFactCheckReferenceTime().currentDateKo}입니다. 실시간 웹 검색을 통해 현재 기준 최신 정보만 제공합니다.` },
+            { role: 'user', content: buildFactCheckPrompt(keyword) },
           ],
           max_tokens: 1024,
           temperature: 0.3,
@@ -229,7 +272,7 @@ async function callGeminiGroundingFactCheck(_apiKey: string, keyword: string): P
   // 🔥 통합 디스패처 사용 — Gemini면 Grounding, 다른 엔진이면 일반 호출로 자동 폴백
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { callGeminiWithGrounding } = require('./final/gemini-engine');
-  const result = await callGeminiWithGrounding(FACT_CHECK_PROMPT(keyword));
+  const result = await callGeminiWithGrounding(buildFactCheckPrompt(keyword));
   const content = (typeof result === 'string' ? result : result?.text || '').trim();
   return content && content.length > 50 ? content : null;
 }
@@ -241,7 +284,9 @@ async function callGeminiGroundingFactCheck(_apiKey: string, keyword: string): P
  * - 실제 블로그 제목 + 요약(description)을 팩트 소스로 반환
  */
 async function callNaverFactCheck(clientId: string, clientSecret: string, keyword: string): Promise<string | null> {
-  const url = `https://openapi.naver.com/v1/search/blog.json?query=${encodeURIComponent(keyword)}&display=10&sort=sim`;
+  const ref = getFactCheckReferenceTime();
+  const query = buildLatestNaverFactQuery(keyword);
+  const url = `https://openapi.naver.com/v1/search/blog.json?query=${encodeURIComponent(query)}&display=10&sort=date`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
@@ -267,8 +312,9 @@ async function callNaverFactCheck(clientId: string, clientSecret: string, keywor
     // HTML 태그 제거 후 실제 블로그 자료를 팩트 컨텍스트로 포맷
     const stripTags = (s: string) => String(s || '').replace(/<[^>]+>/g, '').replace(/&[^;]+;/g, ' ').trim();
     const lines: string[] = [];
-    lines.push(`[네이버 블로그 실시간 검색 결과 — "${keyword}"]`);
-    lines.push(`총 ${items.length}개 블로그 자료 수집됨. 아래 정보를 팩트 소스로 활용:`);
+    lines.push(`[네이버 블로그 최신순 검색 결과 — "${query}"]`);
+    lines.push(`기준일: ${ref.currentDateKo} (${ref.currentYear}년 최신 기준)`);
+    lines.push(`총 ${items.length}개 블로그 자료 수집됨. 최신순 자료이지만, 정책·지원금·신청기간은 공식 출처와 교차 확인이 필요한 팩트 소스로 활용:`);
     lines.push('');
 
     items.slice(0, 10).forEach((it: any, i: number) => {
