@@ -20,7 +20,20 @@ import { launchPersistentContextWithAutoInstall } from '../utils/playwright-brow
 
 const BOARD_URL = 'https://aistudio.dropshot.io/ko/workspace/board?panel=image&imageModelName=google/nano-banana-pro';
 const PROFILE_NAME = 'dropshot-profile';
-const PROMPT_SELECTOR = 'textarea[placeholder="어떤 장면을 만들고 싶나요?"]';
+const PROMPT_SELECTORS = [
+  'textarea[placeholder="어떤 장면을 만들고 싶나요?"]',
+  'textarea[placeholder*="어떤"]',
+  'textarea[placeholder*="장면"]',
+  'textarea[placeholder*="만들"]',
+  'textarea[placeholder*="prompt"]',
+  'textarea[placeholder*="describe"]',
+  'textarea:not([disabled])',
+  '[role="textbox"][contenteditable="true"]',
+  '[role="textbox"]',
+  '[data-slate-editor="true"]',
+  '.ProseMirror',
+  '[contenteditable="true"]',
+];
 
 let cachedContext: any = null;
 let cachedPage: any = null;
@@ -193,31 +206,83 @@ async function resetDropshotBoard(page: any, onLog?: (m: string) => void): Promi
 }
 
 async function fillDropshotPrompt(page: any, prompt: string): Promise<void> {
-  const selectors = [
-    PROMPT_SELECTOR,
-    'textarea[placeholder*="장면"]',
-    'textarea[placeholder*="만들"]',
-    'textarea',
-  ];
-  for (const selector of selectors) {
+  for (const selector of PROMPT_SELECTORS) {
     try {
-      const el = await page.$(selector);
-      if (!el) continue;
-      await el.click({ timeout: 3000 });
-      await el.fill(prompt, { timeout: 5000 });
-      return;
+      const handles = await page.$$(selector);
+      for (const el of handles) {
+        const usable = await el.evaluate((node: any) => {
+          const rect = node.getBoundingClientRect?.();
+          const style = window.getComputedStyle?.(node);
+          const tag = String(node.tagName || '').toLowerCase();
+          const role = String(node.getAttribute?.('role') || '').toLowerCase();
+          const className = String(node.className || '');
+          const disabled = node.disabled === true || node.getAttribute?.('aria-disabled') === 'true';
+          const visible = !!rect && rect.width > 20 && rect.height > 10
+            && style?.display !== 'none'
+            && style?.visibility !== 'hidden'
+            && Number(style?.opacity || '1') > 0;
+          const editable = tag === 'textarea'
+            || tag === 'input'
+            || node.isContentEditable
+            || role === 'textbox'
+            || node.getAttribute?.('data-slate-editor') === 'true'
+            || /ProseMirror/i.test(className);
+          const type = String(node.getAttribute?.('type') || '').toLowerCase();
+          const excluded = ['hidden', 'password', 'email', 'search', 'url'].includes(type);
+          return visible && editable && !disabled && !excluded;
+        }).catch(() => false);
+        if (!usable) continue;
+
+        await el.click({ timeout: 3000 }).catch(() => {});
+        const filled = await el.evaluate((node: any, value: string) => {
+          const tag = String(node.tagName || '').toLowerCase();
+          if (tag === 'textarea' || tag === 'input') {
+            const proto = tag === 'textarea' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+            if (setter) setter.call(node, value);
+            else node.value = value;
+            node.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+            node.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          }
+          return false;
+        }, prompt).catch(() => false);
+
+        if (!filled) {
+          await page.keyboard.press('Control+A').catch(() => {});
+          await page.keyboard.press('Backspace').catch(() => {});
+          await page.keyboard.insertText(prompt).catch(async () => {
+            await page.keyboard.type(prompt, { delay: 2 });
+          });
+        }
+
+        const hasValue = await el.evaluate((node: any, expected: string) => {
+          const current = String(node.value || node.textContent || node.innerText || '');
+          return current.includes(expected.slice(0, 24)) || current.length >= Math.min(24, expected.length);
+        }, prompt).catch(() => false);
+        if (hasValue) return;
+      }
     } catch { /* try next selector */ }
   }
 
-  const editable = await page.$('[contenteditable="true"]');
-  if (editable) {
-    await editable.click({ timeout: 3000 });
-    await page.keyboard.press('Control+A');
-    await page.keyboard.type(prompt);
-    return;
-  }
+  const diagnostics = await page.evaluate(() => {
+    const candidates = Array.from(document.querySelectorAll('textarea,input,[contenteditable="true"],[role="textbox"],[data-slate-editor="true"],.ProseMirror'))
+      .slice(0, 12)
+      .map((node: any) => {
+        const rect = node.getBoundingClientRect?.();
+        const tag = String(node.tagName || '').toLowerCase();
+        const attrs = [
+          node.getAttribute?.('placeholder'),
+          node.getAttribute?.('aria-label'),
+          node.getAttribute?.('data-placeholder'),
+          node.getAttribute?.('role'),
+        ].filter(Boolean).join('/');
+        return `${tag}[${Math.round(rect?.width || 0)}x${Math.round(rect?.height || 0)}] ${attrs}`.trim();
+      });
+    return `url=${location.href}; candidates=${candidates.join(' | ') || 'none'}`;
+  }).catch((e: any) => `diagnostics failed: ${e?.message || e}`);
 
-  throw new Error('Dropshot 프롬프트 입력창을 찾지 못했습니다');
+  throw new Error(`Dropshot 프롬프트 입력창을 찾지 못했습니다 (${diagnostics})`);
 }
 
 async function clickDropshotGenerate(page: any): Promise<boolean> {
@@ -225,11 +290,23 @@ async function clickDropshotGenerate(page: any): Promise<boolean> {
     const findPrompt = (): Element | null => {
       const exact = document.querySelector('textarea[placeholder="어떤 장면을 만들고 싶나요?"]');
       if (exact) return exact;
-      const textareas = Array.from(document.querySelectorAll('textarea'));
-      return textareas.find((ta: any) => {
-        const p = String(ta.getAttribute('placeholder') || '');
-        return /장면|만들|prompt|describe|image/i.test(p) || String(ta.value || '').length > 0;
-      }) || document.querySelector('[contenteditable="true"]');
+      const candidates = Array.from(document.querySelectorAll('textarea,[contenteditable="true"],[role="textbox"],[data-slate-editor="true"],.ProseMirror'));
+      return candidates.find((node: any) => {
+        const rect = node.getBoundingClientRect?.();
+        const style = window.getComputedStyle?.(node);
+        const meta = [
+          node.getAttribute?.('placeholder'),
+          node.getAttribute?.('aria-label'),
+          node.getAttribute?.('data-placeholder'),
+          node.getAttribute?.('role'),
+          node.value,
+          node.textContent,
+        ].filter(Boolean).join(' ');
+        return rect && rect.width > 20 && rect.height > 10
+          && style?.display !== 'none'
+          && style?.visibility !== 'hidden'
+          && /장면|만들|prompt|describe|image|textbox/i.test(meta);
+      }) || null;
     };
 
     const promptEl = findPrompt();

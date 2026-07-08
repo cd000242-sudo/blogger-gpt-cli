@@ -1698,13 +1698,17 @@ window.updateBatchImageCost = function () {
 
   // v3.7.2: ImageFX/Flow 선택 시 Google 로그인 상태 카드 (두 엔진은 같은 labs.google 세션)
   const fxCard = document.getElementById('batchImageFxStatusCard');
+  const fxQuickWrap = document.getElementById('batchImageFxQuickLoginWrap');
   if (fxCard) {
     const isFxOrFlow = engine === 'imagefx' || engine === 'flow';
     fxCard.style.display = isFxOrFlow ? 'block' : 'none';
+    if (fxQuickWrap) fxQuickWrap.style.display = isFxOrFlow ? 'block' : 'none';
     if (isFxOrFlow && !window.__imagefxStatusChecked) {
       window.__imagefxStatusChecked = true;
       setTimeout(() => window.refreshImageFxLoginStatus?.(), 200);
     }
+  } else if (fxQuickWrap) {
+    fxQuickWrap.style.display = 'none';
   }
 
   // v3.7.3+v3.7.4: UI 자동화 엔진(dropshot/imagefx/flow)은 단일 브라우저라 병렬 X — parallel=1 강제
@@ -1874,18 +1878,21 @@ window.refreshDropshotLoginStatus = async function (options = {}) {
 };
 
 // v3.7.2: ImageFX/Flow Google 로그인 상태 확인 (둘이 같은 labs.google 세션 공유)
-window.refreshImageFxLoginStatus = async function () {
+window.refreshImageFxLoginStatus = async function (options = {}) {
   const card = document.getElementById('batchImageFxStatusCard');
   if (!card) return;
   const icon = document.getElementById('batchImageFxStatusIcon');
   const title = document.getElementById('batchImageFxStatusTitle');
   const sub = document.getElementById('batchImageFxStatusSub');
   const loginBtn = document.getElementById('batchImageFxLoginBtn');
+  const quickLoginBtn = document.getElementById('batchImageFxQuickLoginBtn');
+  const autoLogin = options?.autoLogin !== false;
 
   if (icon) icon.textContent = '⏳';
   if (title) title.textContent = '확인 중...';
   if (sub) sub.textContent = 'Google 로그인 상태 조회 중';
   if (loginBtn) loginBtn.style.display = 'none';
+  if (quickLoginBtn) quickLoginBtn.style.display = 'inline-block';
 
   try {
     const result = await window.electronAPI?.invoke?.('flow:check-login');
@@ -1894,8 +1901,9 @@ window.refreshImageFxLoginStatus = async function () {
       if (title) title.textContent = 'Google 로그인 필요 — 브라우저 자동 열림';
       if (sub) sub.textContent = result?.message || 'Flow는 Google 계정 로그인이 필요합니다. 브라우저 창이 곧 자동으로 열립니다.';
       if (loginBtn) loginBtn.style.display = 'inline-block';
+      if (quickLoginBtn) quickLoginBtn.style.display = 'inline-block';
       // 자동 visible 로그인 trigger (1회만)
-      if (!window.__imagefxAutoLoginTried) {
+      if (autoLogin && !window.__imagefxAutoLoginTried) {
         window.__imagefxAutoLoginTried = true;
         setTimeout(() => window.runImageFxLogin?.(), 600);
       }
@@ -1905,17 +1913,45 @@ window.refreshImageFxLoginStatus = async function () {
     if (title) title.textContent = `Google 로그인 완료 — Flow 사용 가능`;
     if (sub) sub.textContent = `${result.userName || result.email || '확인됨'} · Flow 무료 사용은 Google AI Plus/Pro 구독 계정 기준`;
     if (loginBtn) loginBtn.style.display = 'none';
+    if (quickLoginBtn) quickLoginBtn.style.display = 'none';
   } catch (e) {
     if (icon) icon.textContent = '❌';
     if (title) title.textContent = '확인 실패';
     if (sub) sub.textContent = e?.message?.slice(0, 100) || '네트워크 또는 IPC 오류';
     if (loginBtn) loginBtn.style.display = 'inline-block';
+    if (quickLoginBtn) quickLoginBtn.style.display = 'inline-block';
+  }
+};
+
+window.checkFlowLoginStatusNow = async function () {
+  const btn = document.getElementById('batchImageFxStatusCheckBtn');
+  const originalText = btn?.textContent || '로그인상태 확인하기';
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '확인 중...';
+      btn.style.opacity = '0.65';
+    }
+    await window.refreshImageFxLoginStatus?.({ autoLogin: false });
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      btn.style.opacity = '1';
+    }
   }
 };
 
 window.runImageFxLogin = async function () {
-  const btn = document.getElementById('batchImageFxLoginBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ 브라우저 열림...'; }
+  const buttons = [
+    document.getElementById('batchImageFxLoginBtn'),
+    document.getElementById('batchImageFxQuickLoginBtn')
+  ].filter(Boolean);
+  buttons.forEach((btn) => {
+    btn.disabled = true;
+    btn.textContent = '브라우저 열림...';
+    btn.style.opacity = '0.65';
+  });
   try {
     const result = await window.electronAPI?.invoke?.('flow:login');
     if (result?.loggedIn) {
@@ -1927,7 +1963,11 @@ window.runImageFxLogin = async function () {
   } catch (e) {
     alert('Google 로그인 오류: ' + (e?.message || e));
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🔐 Google 로그인'; }
+    buttons.forEach((btn) => {
+      btn.disabled = false;
+      btn.textContent = 'FLOW 로그인하기';
+      btn.style.opacity = '1';
+    });
   }
 };
 
@@ -7652,7 +7692,7 @@ async function handleImageFxLogin() {
     if (loginBtn) {
       loginBtn.disabled = false;
       if (!loginBtn.innerHTML.includes('✅')) {
-        loginBtn.innerHTML = '<span style="font-size: 16px;">🔑</span> Google 로그인';
+        loginBtn.innerHTML = '<span style="font-size: 16px;">🔑</span> FLOW 로그인하기';
         loginBtn.style.background = 'linear-gradient(135deg, #4285f4, #34a853)';
       }
     }

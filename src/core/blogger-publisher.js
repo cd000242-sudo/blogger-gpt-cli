@@ -2351,32 +2351,70 @@ function clearAuthCache() {
 /**
  * Blogger API를 사용하여 블로그 포스트를 발행하는 함수
  */
+function isPublishableBloggerImageUrl(value) {
+  const url = String(value || '').trim();
+  if (!/^https?:\/\//i.test(url)) return false;
+  if (/^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::|\/|$)/i.test(url)) return false;
+  if (/\.svg(?:[?#]|$)/i.test(url) || /svg\+xml/i.test(url)) return false;
+  return true;
+}
+
+async function hostDataUrlForBlogger(dataUrl, name, onLog) {
+  try {
+    const helpers = require('./final/image-helpers');
+    const hostFn = helpers.uploadBase64ToImageHost || null;
+    if (typeof hostFn !== 'function') {
+      onLog?.('[PUBLISH] ⚠️ 외부 이미지 호스팅 모듈을 찾지 못했습니다.');
+      return null;
+    }
+
+    const externalUrl = await hostFn(dataUrl, name || 'blogger-thumbnail').catch(() => null);
+    if (isPublishableBloggerImageUrl(externalUrl)) {
+      onLog?.(`[PUBLISH] ✅ 썸네일 외부 호스팅 성공: ${String(externalUrl).substring(0, 80)}...`);
+      return externalUrl;
+    }
+
+    if (externalUrl) {
+      onLog?.('[PUBLISH] ⚠️ 외부 호스팅 결과가 Blogger용 HTTP 이미지가 아니라 제외했습니다.');
+    }
+  } catch (hostErr) {
+    console.warn('[PUBLISH] 외부 이미지 호스팅 fallback 실패:', hostErr?.message || hostErr);
+  }
+  return null;
+}
+
 async function uploadDataUrlThumbnail(bloggerClient, blogId, dataUrl, onLog) {
-  // blogId 검증 (undefined 체크 포함)
-  if (!blogId || typeof blogId === 'undefined' || blogId === null) {
-    onLog?.('⚠️ uploadDataUrlThumbnail: blogId가 정의되지 않았습니다.');
-    return null;
-  }
-
   if (!dataUrl || typeof dataUrl !== 'string') {
-    return null;
-  }
-
-  // bloggerClient 검증
-  if (!bloggerClient) {
-    onLog?.('⚠️ uploadDataUrlThumbnail: bloggerClient가 정의되지 않았습니다.');
-    return null;
-  }
-
-  // media.insert 메서드 존재 확인
-  if (!bloggerClient.media || typeof bloggerClient.media.insert !== 'function') {
-    onLog?.('⚠️ uploadDataUrlThumbnail: bloggerClient.media.insert 메서드를 사용할 수 없습니다. Blogger API v3에는 media.insert가 없을 수 있습니다.');
     return null;
   }
 
   const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
   if (!match) {
     return null;
+  }
+
+  const tryExternalFallback = async (reason) => {
+    console.warn(`[PUBLISH] [썸네일] Blogger media 업로드 불가 (${reason}) → 외부 호스팅 fallback 시도`);
+    onLog?.(`[PUBLISH] 썸네일 Blogger 업로드 불가 → 외부 호스팅으로 전환 (${reason})`);
+    return await hostDataUrlForBlogger(dataUrl, 'blogger-thumbnail', onLog);
+  };
+
+  // blogId 검증 (undefined 체크 포함)
+  if (!blogId || typeof blogId === 'undefined' || blogId === null) {
+    onLog?.('⚠️ uploadDataUrlThumbnail: blogId가 정의되지 않았습니다.');
+    return await tryExternalFallback('missing-blog-id');
+  }
+
+  // bloggerClient 검증
+  if (!bloggerClient) {
+    onLog?.('⚠️ uploadDataUrlThumbnail: bloggerClient가 정의되지 않았습니다.');
+    return await tryExternalFallback('missing-blogger-client');
+  }
+
+  // media.insert 메서드 존재 확인
+  if (!bloggerClient.media || typeof bloggerClient.media.insert !== 'function') {
+    onLog?.('⚠️ uploadDataUrlThumbnail: bloggerClient.media.insert 메서드를 사용할 수 없습니다. Blogger API v3에는 media.insert가 없을 수 있습니다.');
+    return await tryExternalFallback('blogger-media-insert-missing');
   }
 
   const mimeType = match[1];
@@ -2438,19 +2476,14 @@ async function uploadDataUrlThumbnail(bloggerClient, blogId, dataUrl, onLog) {
     //   원인: 기존엔 media.insert 실패 시 곧바로 null → 본문 base64 → sanitizer가 placeholder로 치환.
     //   해결: media.insert 실패 즉시 hostBase64ToExternal 호출해 외부 CDN에 업로드 시도.
     try {
-      const helpers = require('./final/image-helpers');
-      const hostFn = helpers.uploadBase64ToImageHost || null;
-      if (typeof hostFn === 'function') {
-        const base64 = buffer.toString('base64');
-        const dataUrl = `data:${mimeType};base64,${base64}`;
-        onLog?.('🛟 Blogger 업로드 실패 → 외부 호스팅 6단계 fallback 시도');
-        const externalUrl = await hostFn(dataUrl, 'blogger-thumbnail').catch(() => null);
-        if (externalUrl) {
-          onLog?.(`✅ 외부 호스팅 성공: ${String(externalUrl).substring(0, 60)}...`);
-          return externalUrl;
-        }
-        onLog?.('⚠️ 외부 호스팅 6단계도 모두 실패');
+      const base64 = buffer.toString('base64');
+      const retryDataUrl = `data:${mimeType};base64,${base64}`;
+      onLog?.('🛟 Blogger 업로드 실패 → 외부 호스팅 fallback 시도');
+      const externalUrl = await hostDataUrlForBlogger(retryDataUrl, 'blogger-thumbnail', onLog);
+      if (externalUrl) {
+        return externalUrl;
       }
+      onLog?.('⚠️ 외부 호스팅도 실패하여 썸네일 없이 진행합니다.');
     } catch (hostErr) {
       console.warn('[PUBLISH] 외부 호스팅 fallback 호출 실패:', hostErr?.message || hostErr);
     }
@@ -3406,6 +3439,12 @@ async function publishToBlogger(payload, title, html, thumbnailUrl, onLog, posti
       processedThumbnailUrl = null;
     }
 
+    if (processedThumbnailUrl && !isPublishableBloggerImageUrl(processedThumbnailUrl)) {
+      console.warn(`[PUBLISH] 🛡️ Blogger 발행용 썸네일 URL이 아니라 제외: ${String(processedThumbnailUrl).substring(0, 80)}...`);
+      onLog?.('[PUBLISH] ⚠️ 썸네일 URL이 Blogger 표시용 HTTP 이미지가 아니라 썸네일 없이 진행합니다.');
+      processedThumbnailUrl = null;
+    }
+
     console.log(`[PUBLISH] [썸네일 최종] processedThumbnailUrl: ${processedThumbnailUrl ? '설정됨' : 'null'}`);
 
     // 🔧 최종 요청 데이터 확인 및 로그
@@ -4236,24 +4275,9 @@ html body .content-inner {
     } else {
       console.log(`[PUBLISH] [썸네일 확인] processedThumbnailUrl: ${processedThumbnailUrl ? '있음' : '없음'}`);
 
-      // 썸네일 URL 유효성 검증
-      let isValidThumbnailUrl = false;
+      // 썸네일 URL 유효성 검증: Blogger 공개 본문에는 HTTP(S) raster URL만 삽입한다.
+      const isValidThumbnailUrl = isPublishableBloggerImageUrl(processedThumbnailUrl);
       if (processedThumbnailUrl) {
-        // data:image는 이미 업로드되었으므로 유효
-        if (processedThumbnailUrl.startsWith('data:image')) {
-          isValidThumbnailUrl = true;
-        }
-        // Blogger 업로드 URL 검증
-        else if (processedThumbnailUrl.includes('googleusercontent.com') ||
-          processedThumbnailUrl.includes('blogger.com') ||
-          processedThumbnailUrl.includes('blogspot.com')) {
-          isValidThumbnailUrl = true;
-        }
-        // HTTP/HTTPS URL 검증
-        else if (processedThumbnailUrl.startsWith('http://') || processedThumbnailUrl.startsWith('https://')) {
-          isValidThumbnailUrl = true;
-        }
-
         console.log(`[PUBLISH] [썸네일 검증] URL 유효성: ${isValidThumbnailUrl ? '유효' : '무효'}`);
       }
 
@@ -4314,68 +4338,10 @@ html body .content-inner {
         console.log(`[PUBLISH] ✅ 썸네일 HTML 추가됨 (separator 구조, CSS 앞에 배치, ${thumbnailHtml.length}자)`);
         onLog?.(`[PUBLISH] ✅ 썸네일 추가 완료 (separator 구조, CSS 앞에 배치)`);
       } else {
-        console.log(`[PUBLISH] ℹ️ 유효한 썸네일 없음 - 기본 이미지 추가`);
-
-        // 기본 썸네일 이미지 추가 (실제 제목 표시)
-        // 제목을 SVG용으로 안전하게 처리 (특수문자, HTML 엔티티, 이모지 제거)
-        const safeTitle = (title || '새 글')
-          // 모든 이모지 제거 (이모지 유니코드 범위)
-          .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
-          .replace(/[\u{2600}-\u{26FF}]/gu, '')
-          .replace(/[\u{2700}-\u{27BF}]/gu, '')
-          .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
-          .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
-          .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '')
-          .replace(/[\uD800-\uDFFF]/g, '') // 서로게이트 쌍 제거
-          .replace(/[🚨🔥💰✅❌⚠️📌📊💡🎯]/g, '') // 일반적인 이모지 직접 제거
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;')
-          .trim()
-          .substring(0, 40); // 40자 제한
-
-        // 제목 줄바꿈 처리 (20자 단위)
-        const titleLines = [];
-        for (let i = 0; i < safeTitle.length; i += 20) {
-          titleLines.push(safeTitle.substring(i, i + 20));
-        }
-
-        // SVG에서 tspan으로 여러 줄 렌더링
-        const titleTspans = titleLines.map((line, idx) => {
-          const yOffset = 315 + (idx - (titleLines.length - 1) / 2) * 70;
-          return `<tspan x="600" y="${yOffset}">${line}</tspan>`;
-        }).join('');
-
-        const defaultThumbnailHtml = `<div style="margin: 0 0 20px 0; text-align: center;">
-  <img src="data:image/svg+xml;base64,${Buffer.from(`
-<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="orangeBorder" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#f97316;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#ea580c;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#dc2626;stop-opacity:1" />
-    </linearGradient>
-    <filter id="textShadow" x="-50%" y="-50%" width="200%" height="200%">
-      <feDropShadow dx="2" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.15"/>
-    </filter>
-  </defs>
-  <rect width="1200" height="630" fill="#f5f5f5"/>
-  <rect x="50" y="50" width="1100" height="530" fill="#ffffff" stroke="url(#orangeBorder)" stroke-width="8" rx="16" ry="16"/>
-  <text font-family="'Noto Sans KR', 'Malgun Gothic', sans-serif"
-        font-size="55" font-weight="900"
-        text-anchor="middle" fill="#1a1a1a"
-        filter="url(#textShadow)" letter-spacing="-1">
-    ${titleTspans}
-  </text>
-</svg>`).toString('base64')}"
-       alt="${safeTitle}" style="max-width: 100%; height: auto; border-radius: 8px; display: block; margin: 0 auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" />
-</div>`;
-
-        finalHtmlContent = finalHtmlContent.replace(separatorSlotMarker, defaultThumbnailHtml);
-        console.log(`[PUBLISH] ✅ 기본 썸네일 추가됨 (CSS 앞에 배치)`);
-        onLog?.(`[PUBLISH] ✅ 기본 썸네일 이미지 추가 (CSS 앞에 배치)`);
+        finalHtmlContent = finalHtmlContent.replace(separatorSlotMarker, '');
+        processedThumbnailUrl = null;
+        console.log(`[PUBLISH] ℹ️ 유효한 썸네일 없음 - 깨진 기본 SVG를 넣지 않고 썸네일 없이 진행`);
+        onLog?.(`[PUBLISH] ℹ️ 썸네일 URL 확보 실패 - 깨진 이미지 방지를 위해 썸네일 없이 진행`);
       }
     } // hasThumbnailAlready guard end
 
@@ -6450,6 +6416,7 @@ module.exports = {
   clearAuthCache,
   // v3.8.26: 거미줄 미리보기 = 발행 일치 — applyInlineStyles를 거미줄 백엔드에서도 호출 가능하도록
   applyInlineStyles,
+  isPublishableBloggerImageUrl,
 };
 
 

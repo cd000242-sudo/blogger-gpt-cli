@@ -1376,7 +1376,7 @@
               <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
                 <!-- v3.8.23: 기본 플랫폼 Blogger — 진한 노랑 강조 (선택 상태) -->
                 <div id="blogger-select-box" onclick="selectPlatform('blogger')"
-                  style="padding: 20px; border: 3px solid #f59e0b; border-radius: 12px; cursor: pointer; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); transition: all 0.25s; box-shadow: 0 10px 28px rgba(245, 158, 11, 0.45), 0 0 0 4px rgba(251, 191, 36, 0.18); transform: scale(1.03); opacity: 1;">
+                  style="padding: 20px; border: 3px solid #f59e0b; border-radius: 12px; cursor: pointer; background: linear-gradient(135deg, #fff176 0%, #fbbf24 48%, #f59e0b 100%); transition: all 0.25s; box-shadow: 0 16px 42px rgba(245, 158, 11, 0.48), 0 0 0 4px rgba(251, 191, 36, 0.20); transform: scale(1.03); opacity: 1;">
                   <input type="radio" name="platform" id="platform-blogger" value="blogger" checked style="display: none;">
                   <div style="text-align: center; pointer-events: none;">
                     <div style="font-size: 40px; margin-bottom: 8px;">🅱️</div>
@@ -1385,7 +1385,7 @@
                   </div>
                 </div>
                 <div id="wordpress-select-box" onclick="selectPlatform('wordpress')"
-                  style="padding: 20px; border: 2px solid #e2e8f0; border-radius: 12px; cursor: pointer; background: white; transition: all 0.25s; opacity: 0.55;">
+                  style="padding: 20px; border: 2px solid #38bdf8; border-radius: 12px; cursor: pointer; background: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 48%, #2563eb 100%); transition: all 0.25s; opacity: 0.62; filter: saturate(0.88) brightness(0.9);">
                   <input type="radio" name="platform" id="platform-wordpress" value="wordpress"
                     style="display: none;">
                   <div style="text-align: center; pointer-events: none;">
@@ -1395,7 +1395,7 @@
                   </div>
                 </div>
                 <div id="tistory-select-box" onclick="selectPlatform('tistory')"
-                  style="padding: 20px; border: 2px solid #e2e8f0; border-radius: 12px; cursor: pointer; background: white; transition: all 0.25s; opacity: 0.55;">
+                  style="padding: 20px; border: 2px solid #fb923c; border-radius: 12px; cursor: pointer; background: linear-gradient(135deg, #fed7aa 0%, #fb923c 48%, #f97316 100%); transition: all 0.25s; opacity: 0.62; filter: saturate(0.88) brightness(0.9);">
                   <input type="radio" name="platform" id="platform-tistory" value="tistory"
                     style="display: none;">
                   <div style="text-align: center; pointer-events: none;">
@@ -2355,6 +2355,7 @@
             tistoryBox.style.borderColor = isTistory ? '#14b8a6' : '#e2e8f0';
             tistoryBox.style.background = isTistory ? '#ecfdf5' : 'white';
           }
+          window.__paintPlatformSelectionCards?.(selectedPlatform);
 
           // 플랫폼 상태 업데이트
           updatePlatformStatusBox(selectedPlatform);
@@ -2438,13 +2439,50 @@
           const badge = document.createElement('div');
           badge.className = '__selected-badge';
           badge.innerHTML = '✓ 선택됨';
-          badge.style.cssText = 'position:absolute; top:8px; right:8px; padding:4px 10px; background:linear-gradient(135deg,#8b5cf6,#6366f1); color:white; font-size:11px; font-weight:800; border-radius:999px; box-shadow:0 4px 12px rgba(139,92,246,0.5);';
+          badge.style.cssText = 'position:absolute; top:8px; right:8px; padding:4px 10px; background:rgba(255,255,255,0.88); color:#111827; font-size:11px; font-weight:800; border-radius:999px; box-shadow:0 4px 12px rgba(15,23,42,0.18);';
           box.appendChild(badge);
         };
         window.__removeSelectedBadge = function (box) {
           if (!box) return;
           const badge = box.querySelector('.__selected-badge');
           if (badge) badge.remove();
+        };
+        window.__platformCardTheme = {
+          blogger: {
+            primary: '#f59e0b',
+            secondary: '#fbbf24',
+            gradient: 'linear-gradient(135deg, #fff176 0%, #fbbf24 48%, #f59e0b 100%)',
+            shadow: '0 16px 42px rgba(245, 158, 11, 0.48), 0 0 0 4px rgba(251, 191, 36, 0.20)'
+          },
+          wordpress: {
+            primary: '#2563eb',
+            secondary: '#38bdf8',
+            gradient: 'linear-gradient(135deg, #7dd3fc 0%, #38bdf8 48%, #2563eb 100%)',
+            shadow: '0 16px 42px rgba(37, 99, 235, 0.44), 0 0 0 4px rgba(56, 189, 248, 0.20)'
+          },
+          tistory: {
+            primary: '#f97316',
+            secondary: '#fb923c',
+            gradient: 'linear-gradient(135deg, #fed7aa 0%, #fb923c 48%, #f97316 100%)',
+            shadow: '0 16px 42px rgba(249, 115, 22, 0.44), 0 0 0 4px rgba(251, 146, 60, 0.20)'
+          }
+        };
+        window.__paintPlatformSelectionCards = function (selectedPlatform) {
+          const themes = window.__platformCardTheme || {};
+          ['blogger', 'wordpress', 'tistory'].forEach((id) => {
+            const box = document.getElementById(`${id}-select-box`);
+            const theme = themes[id];
+            if (!box || !theme) return;
+            const selected = id === selectedPlatform;
+            box.style.border = selected ? `3px solid ${theme.primary}` : `2px solid ${theme.secondary}`;
+            box.style.background = theme.gradient;
+            box.style.opacity = selected ? '1' : '0.62';
+            box.style.filter = selected ? 'saturate(1.08) brightness(1.02)' : 'saturate(0.88) brightness(0.9)';
+            box.style.transform = selected ? 'scale(1.03)' : 'scale(1)';
+            box.style.boxShadow = selected ? theme.shadow : 'inset 0 0 0 1px rgba(255,255,255,0.18)';
+            box.style.position = 'relative';
+            box.style.transition = 'all 0.25s ease';
+          });
         };
 
         // 🔥 플랫폼 선택 함수 (전역)
@@ -2459,8 +2497,8 @@
           // v3.6.4: 시각적 강조 — 선택 카드를 명확히 표시
           //   선택: 보라 그라데이션 + 두꺼운 보라 border + 체크 마크 + 살짝 위로 떠올리기
           //   미선택: 회색 톤 + 옅은 border + 흐릿한 색
-          const SELECTED_STYLE = 'padding: 20px; border: 3px solid #8b5cf6; border-radius: 12px; cursor: pointer; background: linear-gradient(135deg, rgba(139,92,246,0.25), rgba(99,102,241,0.18)); transition: all 0.2s; transform: translateY(-2px); box-shadow: 0 10px 30px -8px rgba(139,92,246,0.5), 0 0 0 1px rgba(139,92,246,0.3) inset; position: relative;';
-          const UNSELECTED_STYLE = 'padding: 20px; border: 2px solid rgba(255,255,255,0.08); border-radius: 12px; cursor: pointer; background: rgba(15, 23, 42, 0.4); transition: all 0.2s; opacity: 0.55; position: relative;';
+          const SELECTED_STYLE = 'padding: 20px; border: 3px solid #f59e0b; border-radius: 12px; cursor: pointer; background: linear-gradient(135deg, #fff176 0%, #fbbf24 48%, #f59e0b 100%); transition: all 0.2s; transform: scale(1.03); box-shadow: 0 16px 42px rgba(245, 158, 11, 0.48); position: relative;';
+          const UNSELECTED_STYLE = 'padding: 20px; border: 2px solid #38bdf8; border-radius: 12px; cursor: pointer; background: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 48%, #2563eb 100%); transition: all 0.2s; opacity: 0.62; filter: saturate(0.88) brightness(0.9); position: relative;';
 
           if (platform === 'blogger') {
             if (bloggerRadio) bloggerRadio.checked = true;
@@ -2473,6 +2511,7 @@
             if (bloggerBox) { bloggerBox.style.cssText = UNSELECTED_STYLE; window.__removeSelectedBadge?.(bloggerBox); }
             if (wordpressBox) { wordpressBox.style.cssText = SELECTED_STYLE; window.__applySelectedBadge?.(wordpressBox); }
           }
+          window.__paintPlatformSelectionCards?.(platform);
 
           // 환경설정 UI 업데이트
           if (typeof window.toggleSettingsPlatformFields === 'function') {
@@ -4286,11 +4325,11 @@
                     </div>
                     <!-- v3.7.7: Flow 로그인 카드 — 해당 엔진 선택 시만 표시 -->
                     <div class="acc-field" id="imagefxLoginCardWrap" style="display: none;">
-                      <label class="acc-label">🔐 Flow Google 로그인</label>
+                      <label class="acc-label">🔐 FLOW 로그인</label>
                       <div style="display: flex; gap: 8px; align-items: center;">
                         <button id="imagefxLoginBtn" type="button" onclick="handleImageFxLogin()"
                           style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #4285f4, #34a853); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.3s ease;">
-                          <span style="font-size: 16px;">🔑</span> Google 로그인
+                          <span style="font-size: 16px;">🔑</span> FLOW 로그인하기
                         </button>
                         <button id="imagefxCheckBtn" type="button" onclick="handleImageFxCheckLogin()"
                           style="padding: 10px 16px; background: rgba(255,255,255,0.1); color: white; border: 2px solid rgba(66,133,244,0.4); border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.3s ease;">
@@ -5439,11 +5478,11 @@
 
             <!-- v3.8.7: Flow Google 로그인 카드 (해당 엔진 선택 시만 표시) -->
             <div id="swImagefxLoginCard" style="display: none; margin-top: 12px; padding: 12px; background: rgba(66,133,244,0.08); border: 1px solid rgba(66,133,244,0.35); border-radius: 10px;">
-              <label style="color: white; font-size: 12px; font-weight: 800; display: block; margin-bottom: 8px;">🔐 Flow Google 로그인</label>
+              <label style="color: white; font-size: 12px; font-weight: 800; display: block; margin-bottom: 8px;">🔐 FLOW 로그인</label>
               <div style="display: flex; gap: 8px; align-items: center;">
                 <button type="button" onclick="window.handleImageFxLogin && window.handleImageFxLogin()"
                   style="flex: 1; padding: 10px 16px; background: linear-gradient(135deg, #4285f4, #34a853); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                  <span style="font-size: 16px;">🔑</span> Google 로그인
+                  <span style="font-size: 16px;">🔑</span> FLOW 로그인하기
                 </button>
                 <button type="button" onclick="window.spiderHandleImageFxCheckLogin && window.spiderHandleImageFxCheckLogin()"
                   style="padding: 10px 16px; background: rgba(255,255,255,0.1); color: white; border: 2px solid rgba(66,133,244,0.4); border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;">
@@ -5809,6 +5848,13 @@
                 <option value="dropshot-nanobanana-pro">🍌 Dropshot 나노바나나 Pro (Pro 구독자 무제한 · 구독료별 · UI 자동화)</option>
               </select>
 
+              <div id="batchImageFxQuickLoginWrap" style="display: none; margin-top: 10px;">
+                <button id="batchImageFxQuickLoginBtn" type="button" onclick="window.runImageFxLogin && window.runImageFxLogin()"
+                  style="width: 100%; padding: 11px 14px; background: linear-gradient(135deg, #0ea5e9, #2563eb); border: 1px solid rgba(125,211,252,0.5); color: white; font-size: 13px; font-weight: 900; border-radius: 10px; cursor: pointer; box-shadow: 0 10px 24px rgba(37, 99, 235, 0.24);">
+                  FLOW 로그인하기
+                </button>
+              </div>
+
               <!-- v3.7.1: 한국어 호환성 안내 카드 (엔진별 동적 표시) -->
               <div id="batchKoreanCompatCard" style="display: none; margin-top: 12px; padding: 10px 12px; border-radius: 10px; font-size: 11px; line-height: 1.5;">
                 <div id="batchKoreanCompatBody"></div>
@@ -5826,11 +5872,15 @@
                   </div>
                   <button id="batchImageFxLoginBtn" type="button" onclick="window.runImageFxLogin && window.runImageFxLogin()"
                     style="display: none; padding: 8px 14px; background: linear-gradient(135deg, #3b82f6, #6366f1); border: none; color: white; font-size: 12px; font-weight: 800; border-radius: 8px; cursor: pointer; white-space: nowrap;">
-                    🔐 Google 로그인
+                    FLOW 로그인하기
                   </button>
                   <button id="batchImageFxRecheckBtn" type="button" onclick="window.refreshImageFxLoginStatus && window.refreshImageFxLoginStatus()"
                     style="padding: 6px 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px; border-radius: 6px; cursor: pointer; white-space: nowrap;">
                     🔄 새로고침
+                  </button>
+                  <button id="batchImageFxStatusCheckBtn" type="button" onclick="window.checkFlowLoginStatusNow && window.checkFlowLoginStatusNow()"
+                    style="padding: 6px 10px; background: rgba(59,130,246,0.18); border: 1px solid rgba(96,165,250,0.45); color: #dbeafe; font-size: 11px; font-weight: 800; border-radius: 6px; cursor: pointer; white-space: nowrap;">
+                    로그인상태 확인하기
                   </button>
                 </div>
               </div>
@@ -6779,8 +6829,8 @@
       blogger: {
         primary: '#f59e0b', // amber-500 — Blogger 노랑
         secondary: '#fbbf24',
-        gradient: 'linear-gradient(135deg, rgba(245,158,11,0.55), rgba(217,119,6,0.40))',
-        shadow: '0 14px 36px rgba(245, 158, 11, 0.65), 0 0 0 5px rgba(251, 191, 36, 0.28), inset 0 0 0 1px rgba(255,255,255,0.06)',
+        gradient: 'linear-gradient(135deg, #fff176 0%, #fbbf24 48%, #f59e0b 100%)',
+        shadow: '0 16px 42px rgba(245, 158, 11, 0.48), 0 0 0 4px rgba(251, 191, 36, 0.20), inset 0 0 0 1px rgba(255,255,255,0.20)',
         statusBoxBg: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
         statusBoxBorder: '#f59e0b',
         statusBoxShadow: '0 6px 20px rgba(245, 158, 11, 0.35)',
@@ -6790,8 +6840,8 @@
       wordpress: {
         primary: '#0ea5e9', // sky-500 — 하늘색
         secondary: '#38bdf8',
-        gradient: 'linear-gradient(135deg, rgba(14,165,233,0.55), rgba(2,132,199,0.40))',
-        shadow: '0 14px 36px rgba(14, 165, 233, 0.65), 0 0 0 5px rgba(56, 189, 248, 0.28), inset 0 0 0 1px rgba(255,255,255,0.06)',
+        gradient: 'linear-gradient(135deg, #7dd3fc 0%, #38bdf8 48%, #2563eb 100%)',
+        shadow: '0 16px 42px rgba(37, 99, 235, 0.44), 0 0 0 4px rgba(56, 189, 248, 0.20), inset 0 0 0 1px rgba(255,255,255,0.20)',
         statusBoxBg: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)',
         statusBoxBorder: '#0ea5e9',
         statusBoxShadow: '0 6px 20px rgba(14, 165, 233, 0.35)',
@@ -6801,8 +6851,8 @@
       tistory: {
         primary: '#f97316', // orange-500 — Tistory 주황 (공식 #E36C2D 계열)
         secondary: '#fb923c',
-        gradient: 'linear-gradient(135deg, rgba(249,115,22,0.55), rgba(234,88,12,0.40))',
-        shadow: '0 14px 36px rgba(249, 115, 22, 0.65), 0 0 0 5px rgba(251, 146, 60, 0.28), inset 0 0 0 1px rgba(255,255,255,0.06)',
+        gradient: 'linear-gradient(135deg, #fed7aa 0%, #fb923c 48%, #f97316 100%)',
+        shadow: '0 16px 42px rgba(249, 115, 22, 0.44), 0 0 0 4px rgba(251, 146, 60, 0.20), inset 0 0 0 1px rgba(255,255,255,0.20)',
         statusBoxBg: 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)',
         statusBoxBorder: '#f97316',
         statusBoxShadow: '0 6px 20px rgba(249, 115, 22, 0.35)',
@@ -6823,11 +6873,12 @@
         if (fields) fields.style.display = selected ? 'block' : 'none';
         const c = COLORS[id];
         if (box) {
-          box.style.opacity = selected ? '1' : '0.55';
+          box.style.opacity = selected ? '1' : '0.62';
+          box.style.filter = selected ? 'saturate(1.08) brightness(1.02)' : 'saturate(0.88) brightness(0.9)';
           box.style.transform = selected ? 'scale(1.03)' : 'scale(1)';
-          box.style.border = selected ? `3px solid ${c.primary}` : '2px solid rgba(255,255,255,0.08)';
-          box.style.background = selected ? c.gradient : 'rgba(15, 23, 42, 0.4)';
-          box.style.boxShadow = selected ? c.shadow : 'none';
+          box.style.border = selected ? `3px solid ${c.primary}` : `2px solid ${c.secondary || c.primary}`;
+          box.style.background = c.gradient;
+          box.style.boxShadow = selected ? c.shadow : 'inset 0 0 0 1px rgba(255,255,255,0.18)';
           box.style.position = 'relative';
           box.style.transition = 'all 0.25s ease';
         }
