@@ -1424,6 +1424,7 @@ window.refreshEngineLoginCards = function () {
 // 탭 진입/엔진 선택 때마다 실행하지 않고, 최근 성공/실패 결과를 짧게 캐시해 갑작스러운 체크와 렉을 줄인다.
 const DROPSHOT_LOGIN_OK_CACHE_MS = 10 * 60 * 1000;
 const DROPSHOT_LOGIN_FAIL_CACHE_MS = 30 * 1000;
+const DROPSHOT_READY_CACHE_MS = 2 * 60 * 1000;
 
 function normalizeDropshotSubscription(value) {
   const raw = String(value || '').trim().toLowerCase();
@@ -1437,7 +1438,7 @@ window.normalizeDropshotLoginStatus = function (result) {
   const subscription = normalizeDropshotSubscription(result.subscription);
   const subscriptionLabel = subscription === 'pro'
     ? 'Pro 구독자 무제한'
-    : (subscription === 'free' ? '무료 사용자' : '구독 정보 미확인');
+    : (subscription === 'free' ? '무료 사용자' : '플랜 확인 필요');
   return {
     ...result,
     subscription,
@@ -1449,7 +1450,7 @@ window.normalizeDropshotLoginStatus = function (result) {
 window.getDropshotSubscriptionLabel = function (result) {
   const normalized = window.normalizeDropshotLoginStatus?.(result) || result;
   if (!normalized?.loggedIn) return '';
-  return normalized.subscriptionLabel || '구독 정보 미확인';
+  return normalized.subscriptionLabel || '플랜 확인 필요';
 };
 
 window.getDropshotSubscriptionNote = function (result) {
@@ -1457,7 +1458,7 @@ window.getDropshotSubscriptionNote = function (result) {
   if (!normalized?.loggedIn) return '';
   if (normalized.subscription === 'pro') return ' · ✅ Pro 구독자 무제한';
   if (normalized.subscription === 'free') return ' · ⚠️ 무료 사용자';
-  return ' · 구독 정보 미확인';
+  return ' · ⚠️ 플랜 확인 필요';
 };
 
 function getFreshDropshotLoginCache(maxAgeMs) {
@@ -1498,6 +1499,27 @@ window.checkDropshotLoginCached = async function (options = {}) {
   return window.normalizeDropshotLoginStatus?.(result) || result;
 };
 
+window.verifyDropshotGenerationReady = async function (options = {}) {
+  const force = options.force === true;
+  if (!force) {
+    const cache = window.__dropshotGenerationReadyCache;
+    if (cache?.ts && cache?.result && Date.now() - cache.ts < DROPSHOT_READY_CACHE_MS) {
+      return { ...cache.result, cached: true };
+    }
+  }
+
+  const result = await window.electronAPI?.invoke?.('dropshot:verify-ready', { force });
+  const normalized = window.normalizeDropshotLoginStatus?.(result) || result || {
+    ready: false,
+    loggedIn: false,
+    message: 'Dropshot 준비 확인 IPC를 찾지 못했습니다. 앱을 다시 실행해주세요.',
+  };
+  const readyResult = { ...normalized, ready: normalized?.ready === true };
+  window.__dropshotGenerationReadyCache = { ts: Date.now(), result: readyResult };
+  window.rememberDropshotLoginStatus?.(readyResult);
+  return readyResult;
+};
+
 window.setBatchDropshotStatusIdle = function () {
   const icon = document.getElementById('batchDropshotStatusIcon');
   const title = document.getElementById('batchDropshotStatusTitle');
@@ -1506,9 +1528,12 @@ window.setBatchDropshotStatusIdle = function () {
   const cached = getFreshDropshotLoginCache();
   if (cached?.loggedIn) {
     const subTxt = window.getDropshotSubscriptionNote?.(cached) || '';
-    if (icon) icon.textContent = '✅';
-    if (title) title.textContent = '최근 로그인 확인됨';
-    if (sub) sub.textContent = `${cached.userName || cached.email || '로그인 세션'}${subTxt}`;
+    const known = cached.subscriptionKnown === true || cached.subscription === 'pro' || cached.subscription === 'free';
+    if (icon) icon.textContent = known ? '✅' : '⚠️';
+    if (title) title.textContent = known ? '최근 로그인 확인됨' : '최근 로그인 세션만 확인됨';
+    if (sub) sub.textContent = known
+      ? `${cached.userName || cached.email || '로그인 세션'}${subTxt}`
+      : `${cached.userName || cached.email || '로그인 세션'} · 플랜 API 미응답 — 무제한/무료 여부는 새로고침으로 다시 확인해주세요.`;
     if (loginBtn) loginBtn.style.display = 'none';
     return;
   }
@@ -1532,8 +1557,15 @@ window.handleDropshotLogin = async function () {
     }
     if (r?.loggedIn) {
       window.rememberDropshotLoginStatus?.(r);
-      if (status) { status.textContent = `✅ 로그인 완료${r.userName ? ' — ' + r.userName : ''}`; status.style.color = '#86efac'; }
-      alert('리더스 나노바나나 로그인 완료!' + (r.userName ? ' (' + r.userName + ')' : ''));
+      if (status) { status.textContent = '⏳ 로그인 완료 · 실제 생성 연동을 확인 중...'; status.style.color = 'rgba(255,255,255,0.7)'; }
+      const ready = await window.verifyDropshotGenerationReady?.({ force: true });
+      if (ready?.ready) {
+        if (status) { status.textContent = `✅ 실행 준비 완료${ready.userName ? ' — ' + ready.userName : ''}`; status.style.color = '#86efac'; }
+        alert('리더스 나노바나나 로그인 및 생성 연동이 완료되었습니다.' + (ready.userName ? ' (' + ready.userName + ')' : ''));
+      } else {
+        if (status) { status.textContent = `❌ 로그인됨 · 생성 연동 필요 — ${ready?.message || '생성 버튼을 확인하지 못했습니다.'}`; status.style.color = '#fca5a5'; }
+        alert('로그인은 됐지만 생성 연동이 준비되지 않았습니다. 상태 확인에서 안내를 확인해주세요.');
+      }
     } else {
       if (status) { status.textContent = '❌ ' + (r?.message || '시간 초과'); status.style.color = '#fca5a5'; }
       alert('로그인 실패: ' + (r?.message || '시간 초과'));
@@ -1548,17 +1580,20 @@ window.handleDropshotLogin = async function () {
 
 window.handleDropshotCheckLogin = async function () {
   const status = document.getElementById('dropshotLoginStatusSettings');
-  if (status) { status.textContent = '⏳ 확인 중...'; status.style.color = 'rgba(255,255,255,0.6)'; }
+  if (status) { status.textContent = '⏳ 로그인과 실제 생성 버튼을 확인 중...'; status.style.color = 'rgba(255,255,255,0.6)'; }
   try {
-    const r = await window.checkDropshotLoginCached?.({ force: true });
+    const r = await window.verifyDropshotGenerationReady?.({ force: true });
     // v3.7.11: PAYMENT_REQUIRED → 모달 + 상태 라벨 정리
     if (window.handlePaymentRequiredResponse && window.handlePaymentRequiredResponse(r)) {
       if (status) { status.textContent = '🛡️ 유료 라이선스 필요'; status.style.color = '#fbbf24'; }
       return;
     }
-    if (r?.loggedIn) {
-      const subTxt = window.getDropshotSubscriptionNote?.(r) || '';
-      if (status) { status.textContent = `✅ 로그인됨${r.userName ? ' — ' + r.userName : ''}${subTxt}`; status.style.color = '#86efac'; }
+    if (r?.ready) {
+      const normalized = window.normalizeDropshotLoginStatus?.(r) || r;
+      const subTxt = window.getDropshotSubscriptionNote?.(normalized) || '';
+      if (status) { status.textContent = `✅ 실행 준비 완료${normalized.userName ? ' — ' + normalized.userName : ''}${subTxt}`; status.style.color = '#86efac'; }
+    } else if (r?.loggedIn) {
+      if (status) { status.textContent = `❌ 로그인됨 · 생성 연동 필요 — ${r?.message || '실제 생성 버튼을 찾지 못했습니다.'}`; status.style.color = '#fca5a5'; }
     } else {
       if (status) { status.textContent = '🔐 ' + (r?.message || '로그인 필요 — 위 [로그인] 버튼 클릭'); status.style.color = '#fbbf24'; }
     }
@@ -1868,11 +1903,11 @@ window.refreshDropshotLoginStatus = async function (options = {}) {
 
   if (icon) icon.textContent = '⏳';
   if (title) title.textContent = '확인 중...';
-  if (sub) sub.textContent = '리더스 나노바나나 로그인/구독 상태 조회 중';
+  if (sub) sub.textContent = '로그인, 구독, 실제 이미지 생성 버튼을 확인 중';
   if (loginBtn) loginBtn.style.display = 'none';
 
   try {
-    const result = await window.checkDropshotLoginCached?.({ force: options.force === true });
+    const result = await window.verifyDropshotGenerationReady?.({ force: options.force === true });
     // v3.7.11: PAYMENT_REQUIRED → 모달 + 상태 라벨 정리
     if (window.handlePaymentRequiredResponse && window.handlePaymentRequiredResponse(result)) {
       if (icon) icon.textContent = '🛡️';
@@ -1891,20 +1926,25 @@ window.refreshDropshotLoginStatus = async function (options = {}) {
 
     // 로그인 완료 — 구독 상태에 따라 분기
     const normalized = window.normalizeDropshotLoginStatus?.(result) || result;
-    if (normalized.subscription === 'pro') {
+    if (!normalized.ready) {
+      if (icon) icon.textContent = '❌';
+      if (title) title.textContent = '로그인됨 · 생성 연동 필요';
+      if (sub) sub.textContent = `${normalized.userName || normalized.email || normalized.userId || '로그인 세션'} — ${normalized.message || '실제 생성 버튼을 확인하지 못했습니다.'}`;
+      if (loginBtn) loginBtn.style.display = 'inline-block';
+    } else if (normalized.subscription === 'pro') {
       if (icon) icon.textContent = '✅';
-      if (title) title.textContent = `Pro 구독자 — 무제한 사용 가능`;
+      if (title) title.textContent = `실행 준비 완료 · Pro 구독자`;
       if (sub) sub.textContent = `로그인: ${normalized.userName || normalized.email || normalized.userId || '확인됨'} · 이미지당 추가비용 0원`;
       if (loginBtn) loginBtn.style.display = 'none';
     } else if (normalized.subscription === 'free') {
       if (icon) icon.textContent = '⚠️';
-      if (title) title.textContent = `무료 사용자 — 일일 quota 안에서 작동`;
+      if (title) title.textContent = `실행 준비 완료 · 무료 사용자`;
       if (sub) sub.textContent = `로그인: ${normalized.userName || normalized.email || '확인됨'} · creditCost 75/장 (quota 소진 시 자동 실패)`;
       if (loginBtn) loginBtn.style.display = 'none';
     } else {
-      if (icon) icon.textContent = '👤';
-      if (title) title.textContent = `로그인 완료 (구독 정보 미확인)`;
-      if (sub) sub.textContent = `${normalized.userName || normalized.email || normalized.userId || '확인됨'} — Dropshot 플랜 API가 응답하지 않았지만 로그인 세션은 확인됐습니다.`;
+      if (icon) icon.textContent = '⚠️';
+      if (title) title.textContent = `실행 준비 완료 · 플랜 확인 필요`;
+      if (sub) sub.textContent = `${normalized.userName || normalized.email || normalized.userId || '세션 확인됨'} — Dropshot 플랜 API가 응답하지 않아 Pro/무료 여부를 확정하지 못했습니다. 생성은 시도할 수 있지만 무제한 사용 가능 상태로 보지 않습니다.`;
       if (loginBtn) loginBtn.style.display = 'none';
     }
   } catch (e) {
@@ -2020,9 +2060,14 @@ window.runDropshotLogin = async function () {
       return;
     }
     if (result?.loggedIn) {
-      window.rememberDropshotLoginStatus?.(result);
-      alert('리더스 나노바나나 로그인 완료! ' + (result.userName ? '(' + result.userName + ')' : ''));
-      window.refreshDropshotLoginStatus?.({ force: false });
+      const normalized = window.normalizeDropshotLoginStatus?.(result) || result;
+      window.rememberDropshotLoginStatus?.(normalized);
+      if (normalized.subscriptionKnown === false || normalized.subscription === 'unknown') {
+        alert('리더스 나노바나나 로그인 세션은 확인됐지만 플랜 정보는 아직 확인하지 못했습니다. 새로고침으로 Pro/무료 여부를 다시 확인해주세요.');
+      } else {
+        alert('리더스 나노바나나 로그인 완료! ' + (normalized.userName ? '(' + normalized.userName + ')' : ''));
+      }
+      window.refreshDropshotLoginStatus?.({ force: true });
     } else {
       alert('리더스 나노바나나 로그인 실패: ' + (result?.message || '시간 초과'));
     }

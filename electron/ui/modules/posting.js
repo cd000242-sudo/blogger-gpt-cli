@@ -616,10 +616,10 @@ export async function runPosting() {
   //   원인: shouldUseAgentGeneration이 !isQueueRun 조건 → 큐에서는 무조건 API 모드
   //   해결: 큐 모드여도 executionMode='agent'면 에이전트 사용
   //         (단 generatedContent가 이미 있으면 그것 사용 — 재발행 케이스)
-  const shouldUseAgentGeneration = executionMode === 'agent'
-    && !appState.generatedContent?.content?.trim()
-    && typeof window.runAgentJobFromPosting === 'function';
-  if (isQueueRun && shouldUseAgentGeneration) {
+  const wantsAgentGeneration = executionMode === 'agent'
+    && (!appState.generatedContent?.content?.trim() || isQueueRun);
+  const shouldUseAgentGeneration = wantsAgentGeneration;
+  if (isQueueRun && wantsAgentGeneration) {
     console.log('[POSTING] 🤖 큐 모드 + 에이전트 모드 인식 — 에이전트로 생성·발행 진행');
   }
   try {
@@ -710,6 +710,26 @@ export async function runPosting() {
     if (imageSettings.shoppingUrl) {
       payload.manualCrawlUrls = [...(payload.manualCrawlUrls || []), imageSettings.shoppingUrl];
       debugLog('POSTING', `쇼핑 상품 URL 크롤링 대상 추가: ${imageSettings.shoppingUrl}`);
+    }
+
+    // Agent 모드는 텍스트 CLI, 이미지 엔진, 발행 플랫폼이 각각 다른 연결을 사용한다.
+    // 단발 발행에서는 시작 전에 모두 실제 확인하고, 연속발행은 큐가 한 번만 같은 검사를 수행한다.
+    if (shouldUseAgentGeneration && !isQueueRun && typeof window.verifyAgentExecutionReadiness === 'function') {
+      const agentImageEngines = [payload.thumbnailType || payload.thumbnailMode];
+      if (payload.imagePolicy !== 'thumbnail-only' && payload.h2ImageMode !== 'none') {
+        agentImageEngines.push(payload.h2ImageSource);
+      }
+      const readiness = await window.verifyAgentExecutionReadiness({
+        showStatus: true,
+        imageEngines: agentImageEngines.filter(Boolean),
+        platforms: [payload.targetPlatform || payload.platform].filter(Boolean),
+      });
+      if (!readiness?.ready) {
+        const blocked = Array.isArray(readiness?.checks)
+          ? readiness.checks.filter((check) => !check.ready).map((check) => `${check.label}: ${check.detail}`).join(' / ')
+          : '';
+        throw new Error(`Agent 실행 준비 확인 실패: ${blocked || readiness?.message || '환경설정에서 바로 연동하기를 진행해주세요.'}`);
+      }
     }
 
     // ── Guard: 백엔드 연결 확인 ──

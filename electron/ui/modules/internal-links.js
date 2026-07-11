@@ -979,7 +979,7 @@ function getSpiderDropshotSubscriptionNote(result) {
   const raw = String(result?.subscriptionLabel || result?.subscription || '').trim().toLowerCase();
   if (raw === 'pro' || raw.includes('pro')) return ' · ✅ Pro 구독자 무제한';
   if (raw === 'free' || raw === 'basic') return ' · ⚠️ 무료 사용자';
-  return result?.loggedIn ? ' · 구독 정보 미확인' : '';
+  return result?.loggedIn ? ' · ⚠️ 플랜 확인 필요' : '';
 }
 
 async function spiderHandleDropshotCheckLogin() {
@@ -997,9 +997,17 @@ async function spiderHandleDropshotCheckLogin() {
       return;
     }
     if (r?.loggedIn) {
-      const subTxt = getSpiderDropshotSubscriptionNote(r);
-      status.textContent = `✅ 로그인됨${r.userName ? ' — ' + r.userName : ''}${subTxt}`;
-      status.style.color = '#86efac';
+      const normalized = typeof window.normalizeDropshotLoginStatus === 'function'
+        ? window.normalizeDropshotLoginStatus(r)
+        : r;
+      const subTxt = getSpiderDropshotSubscriptionNote(normalized);
+      if (normalized.subscriptionKnown === false || normalized.subscription === 'unknown') {
+        status.textContent = `⚠️ 로그인 세션만 확인됨${normalized.userName ? ' — ' + normalized.userName : ''}${subTxt}`;
+        status.style.color = '#fbbf24';
+      } else {
+        status.textContent = `✅ 로그인됨${normalized.userName ? ' — ' + normalized.userName : ''}${subTxt}`;
+        status.style.color = '#86efac';
+      }
     } else {
       status.textContent = '🔐 ' + (r?.message || '로그인 필요 — 위 [로그인] 버튼 클릭');
       status.style.color = '#fbbf24';

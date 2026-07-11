@@ -6621,7 +6621,7 @@ function quotePowerShell(value) {
 function buildAgentLoginCommand(profile) {
     const dir = quotePowerShell(profile.profileDir);
     if (profile.provider === 'claude') {
-        return `$env:CLAUDE_CONFIG_DIR=${dir}; Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue; Remove-Item Env:ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue; claude`;
+        return `$env:CLAUDE_CONFIG_DIR=${dir}; Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue; Remove-Item Env:ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue; claude auth login`;
     }
     return `$env:CODEX_HOME=${dir}; Remove-Item Env:CODEX_API_KEY -ErrorAction SilentlyContinue; Remove-Item Env:OPENAI_API_KEY -ErrorAction SilentlyContinue; codex login`;
 }
@@ -8169,7 +8169,7 @@ function buildAgentLoginScript(profile) {
     const dir = quotePowerShell(profile.profileDir);
     const title = profile.provider === 'claude' ? 'LEADERNAM Claude Code Login' : 'LEADERNAM Codex Login';
     const loginCommand = profile.provider === 'claude'
-        ? 'claude'
+        ? 'claude auth login'
         : 'codex login';
     return [
         `$Host.UI.RawUI.WindowTitle = ${quotePowerShell(title)}`,
@@ -8224,7 +8224,7 @@ function buildAgentLoginProcess(profile) {
     const env = buildAgentRunEnv(profile);
     env.NO_COLOR = '1';
     if (profile.provider === 'claude') {
-        return { command: resolveAgentBinaryCommand(profile.provider), args: [], env };
+        return { command: resolveAgentBinaryCommand(profile.provider), args: ['auth', 'login'], env };
     }
     return { command: resolveAgentBinaryCommand(profile.provider), args: ['login'], env };
 }
@@ -8274,11 +8274,6 @@ function extractAgentAuthUrl(text, provider) {
     }
     return null;
 }
-function getAgentLoginFallbackUrl(provider) {
-    return provider === 'claude'
-        ? 'https://claude.ai/login'
-        : 'https://chatgpt.com/auth/login';
-}
 function waitForAgentLoginUrl(child, provider) {
     return new Promise((resolve) => {
         let output = '';
@@ -8310,12 +8305,10 @@ async function openAgentLoginInSystemBrowser(targetUrl) {
     await electron.shell.openExternal(targetUrl);
 }
 async function startVisibleAgentLogin(profile) {
-    const fallbackUrl = getAgentLoginFallbackUrl(profile.provider);
-    await openAgentLoginInSystemBrowser(fallbackUrl);
     const launched = spawnAgentLoginProcess(profile);
     if (launched.child) {
         void waitForAgentLoginUrl(launched.child, profile.provider).then((auth) => {
-            if (auth.url && auth.url !== fallbackUrl) {
+            if (auth.url) {
                 return openAgentLoginInSystemBrowser(auth.url);
             }
             return undefined;
@@ -8329,7 +8322,7 @@ async function startVisibleAgentLogin(profile) {
     return {
         pid: launched.child?.pid,
         command: buildAgentLoginCommand(profile),
-        url: fallbackUrl,
+        url: undefined,
         browser: 'system',
         output: launched.error,
     };
@@ -8612,17 +8605,42 @@ function resolveAgentBinaryCommand(provider) {
     return getAgentBinaryCandidates(binaryName)[0] || binaryName;
 }
 function buildAgentLoginVerifyCommand(profile) {
-    const prompt = 'Reply exactly AUTH_OK. Do not write files. Do not browse.';
     if (profile.provider === 'codex') {
         return {
             command: resolveAgentBinaryCommand(profile.provider),
-            args: ['exec', '--json', '--sandbox', 'read-only', '--skip-git-repo-check', prompt],
+            args: ['login', 'status'],
         };
     }
     return {
         command: resolveAgentBinaryCommand(profile.provider),
-        args: ['-p', '--permission-mode', 'dontAsk', '--max-turns', '1', '--output-format', 'json', prompt],
+        args: ['auth', 'status'],
     };
+}
+function parseAgentLoginStatus(profile, stdout, stderr) {
+    const combined = `${stdout || ''}\n${stderr || ''}`.trim();
+    if (!combined)
+        return null;
+    if (profile.provider === 'claude') {
+        const lines = combined.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).reverse();
+        for (const line of lines) {
+            try {
+                const parsed = JSON.parse(line);
+                if (typeof parsed?.loggedIn === 'boolean')
+                    return parsed.loggedIn;
+            }
+            catch {
+                // Claude CLI may add a non-JSON informational line before its JSON status payload.
+            }
+        }
+    }
+    const normalized = combined.toLowerCase();
+    if (/not\s+(?:logged in|authenticated)|not logged in|login required|please (?:log in|login)|authentication required|unauthorized|401/.test(normalized)) {
+        return false;
+    }
+    if (/logged in|authenticated|using chatgpt|using api key|"loggedin"\s*:\s*true/.test(normalized)) {
+        return true;
+    }
+    return null;
 }
 async function verifyAgentLoginSession(profile) {
     return new Promise((resolve) => {
@@ -8648,13 +8666,14 @@ async function verifyAgentLoginSession(profile) {
             settled = true;
             clearTimeout(timer);
             const combined = `${stdout}\n${stderr}\n${errorMessage}`;
+            const loginStatus = parseAgentLoginStatus(profile, stdout, stderr);
             const quotaExceeded = profile.provider === 'codex'
                 ? CODEX_OUT_OF_CREDITS_RE.test(combined) || /5\s*hour.*limit|hourly.*limit/i.test(combined)
                 : /usage limit|rate limit|quota|too many requests/i.test(combined);
             const authRequired = profile.provider === 'codex'
-                ? CODEX_AUTH_REQUIRED_RE.test(combined) || AGENT_AUTH_REQUIRED_RE.test(combined)
-                : AGENT_AUTH_REQUIRED_RE.test(combined);
-            const ready = !timedOut && !authRequired && !quotaExceeded && exitCode === 0;
+                ? loginStatus === false || CODEX_AUTH_REQUIRED_RE.test(combined) || AGENT_AUTH_REQUIRED_RE.test(combined)
+                : loginStatus === false || AGENT_AUTH_REQUIRED_RE.test(combined);
+            const ready = !timedOut && !authRequired && !quotaExceeded && loginStatus === true && exitCode === 0;
             if (ready)
                 updateAgentProfileStatus(profile.id, 'ready');
             else if (authRequired)
@@ -8678,7 +8697,9 @@ async function verifyAgentLoginSession(profile) {
                             ? `${label} 인증이 만료되었거나 현재 프로필에 로그인 세션이 없습니다. 로그인 창 열기로 다시 로그인해주세요.`
                             : timedOut
                                 ? `${label} 로그인 세션 확인이 시간 초과되었습니다. CLI 로그인 창이 막혀 있거나 네트워크가 느릴 수 있습니다.`
-                                : `${label} 로그인 세션 확인 실패: ${errorMessage || stderr || stdout || `exitCode=${exitCode}`}`,
+                                : loginStatus === null
+                                    ? `${label} CLI가 로그인 상태를 응답하지 않았습니다. CLI를 최신 버전으로 업데이트한 뒤 다시 확인해주세요.`
+                                    : `${label} 로그인 세션 확인 실패: ${errorMessage || stderr || stdout || `exitCode=${exitCode}`}`,
                 stdout: stdout.slice(-4000),
                 stderr: stderr.slice(-4000),
             });
@@ -10346,7 +10367,7 @@ function normalizeDropshotIpcStatus(raw) {
         : (subscriptionRaw === 'free' || subscriptionRaw === 'basic' || subscriptionRaw.includes('free') ? 'free' : 'unknown');
     const subscriptionLabel = subscription === 'pro'
         ? 'Pro 구독자 무제한'
-        : (subscription === 'free' ? '무료 사용자' : '구독 정보 미확인');
+        : (subscription === 'free' ? '무료 사용자' : '플랜 확인 필요');
     return {
         ...raw,
         subscription,
@@ -10355,7 +10376,7 @@ function normalizeDropshotIpcStatus(raw) {
     };
 }
 try {
-    const { checkDropshotLogin, loginDropshot } = require('../dist/core/dropshotGenerator');
+    const { checkDropshotLogin, loginDropshot, verifyDropshotGenerationReady } = require('../dist/core/dropshotGenerator');
     electron_1.ipcMain.handle('dropshot:check-login', async (_event, options) => {
         try {
             const { checkImageGenAccess } = require('../dist/utils/license-tier-manager');
@@ -10367,6 +10388,19 @@ try {
         }
         catch (e) {
             return { loggedIn: false, message: e.message || 'Dropshot 로그인 확인 실패' };
+        }
+    });
+    electron_1.ipcMain.handle('dropshot:verify-ready', async (_event, options) => {
+        try {
+            const { checkImageGenAccess } = require('../dist/utils/license-tier-manager');
+            const access = checkImageGenAccess();
+            if (!access.allowed) {
+                return { ready: false, loggedIn: false, message: access.message, code: `PAYMENT_REQUIRED:${access.reason}`, paymentUrl: access.paymentUrl, kakaoUrl: access.kakaoUrl };
+            }
+            return normalizeDropshotIpcStatus(await verifyDropshotGenerationReady({ force: options?.force === true }));
+        }
+        catch (e) {
+            return { ready: false, loggedIn: false, message: e.message || 'Dropshot 생성 준비 확인 실패' };
         }
     });
     electron_1.ipcMain.handle('dropshot:login', async () => {

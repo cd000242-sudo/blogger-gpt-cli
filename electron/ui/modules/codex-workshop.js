@@ -57,6 +57,8 @@ const state = {
   activeAgentProvider: 'codex',
   activeApiTextProvider: 'gemini',
   activeApiImageProvider: 'stability',
+  executionReadiness: null,
+  executionReadinessPending: false,
 };
 
 function $(id) {
@@ -416,6 +418,309 @@ function getAgentImageSettingsMode() {
     thumbnailIncludeText: settings.thumbnailTextMode !== 'none',
     h2TextIncluded: false,
   };
+}
+
+function normalizeAgentIntegrationPlatform(value = '') {
+  const raw = String(value || '').trim().toLowerCase();
+  if (/blogger|blogspot|블로거|블로그스팟/.test(raw)) return 'blogger';
+  if (/wordpress|워드프레스|\bwp\b/.test(raw)) return 'wordpress';
+  if (/tistory|티스토리/.test(raw)) return 'tistory';
+  return raw || 'blogger';
+}
+
+function readAgentStoredSettings() {
+  try {
+    const raw = localStorage.getItem('bloggerSettings');
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function readAgentSettingValue(id, settings = {}, aliases = []) {
+  const fromUi = String($(id)?.value || '').trim();
+  if (fromUi) return fromUi;
+  for (const key of [id, ...aliases]) {
+    const candidate = settings?.[key] ?? settings?.apiKeys?.[key];
+    if (String(candidate || '').trim()) return String(candidate).trim();
+  }
+  return '';
+}
+
+function getAgentPlatformConfig() {
+  const settings = readAgentStoredSettings();
+  const selected = document.querySelector('input[name="platform"]:checked')?.value
+    || settings.platform
+    || 'blogger';
+  return {
+    platform: normalizeAgentIntegrationPlatform(selected),
+    blogId: readAgentSettingValue('blogId', settings, ['BLOG_ID', 'BLOGGER_ID']),
+    googleClientId: readAgentSettingValue('googleClientId', settings, ['clientId', 'GOOGLE_CLIENT_ID', 'BLOGGER_CLIENT_ID']),
+    googleClientSecret: readAgentSettingValue('googleClientSecret', settings, ['clientSecret', 'GOOGLE_CLIENT_SECRET', 'BLOGGER_CLIENT_SECRET']),
+    wordpressSiteUrl: readAgentSettingValue('wordpressSiteUrl', settings, ['siteUrl', 'WP_URL', 'WORDPRESS_SITE_URL']),
+    wordpressUsername: readAgentSettingValue('wordpressUsername', settings, ['username', 'WP_USERNAME', 'WORDPRESS_USERNAME']),
+    wordpressPassword: readAgentSettingValue('wordpressPassword', settings, ['password', 'WP_JWT_TOKEN', 'WORDPRESS_PASSWORD']),
+    tistoryBlogName: readAgentSettingValue('tistoryBlogName', settings, ['TISTORY_BLOG_NAME', 'tistoryBlogUrl', 'blogUrl']),
+  };
+}
+
+function normalizeAgentImageEngine(value = '') {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw || raw === 'auto') return 'nanobanana2';
+  return raw;
+}
+
+function getAgentImageEnginesForReadiness(options = {}) {
+  const configured = Array.isArray(options.imageEngines) ? options.imageEngines : null;
+  if (configured) {
+    return [...new Set(configured.map(normalizeAgentImageEngine).filter(Boolean))];
+  }
+
+  const imageMode = getAgentImageSettingsMode();
+  if (!imageMode.isAgentMode || imageMode.imagePolicy === 'none') return [];
+  const thumbnail = normalizeAgentImageEngine(
+    $('thumbnailType')?.value || $('scheduleThumbnailMode')?.value || 'nanobanana2',
+  );
+  const h2Source = normalizeAgentImageEngine(
+    $('h2ImageSource')?.value
+      || document.querySelector('input[name="h2ImageSource"]:checked')?.value
+      || thumbnail,
+  );
+  const engines = [thumbnail];
+  if (imageMode.imagePolicy !== 'thumbnail-only') engines.push(h2Source);
+  return [...new Set(engines)];
+}
+
+function getAgentImageEngineMeta(engine = '') {
+  const normalized = normalizeAgentImageEngine(engine);
+  if (/^dropshot/.test(normalized)) return { kind: 'dropshot', label: 'Dropshot 이미지', action: 'dropshot-login' };
+  if (normalized === 'flow' || normalized === 'imagefx') return { kind: 'flow', label: 'Flow 이미지', action: 'flow-login' };
+  if (/^gptimage|^dall[\-e]/.test(normalized)) return { kind: 'api', label: 'OpenAI 이미지 API', keyId: 'openaiKey', action: 'image-api' };
+  if (/^nanobanana|^gemini/.test(normalized)) return { kind: 'api', label: 'Gemini 이미지 API', keyId: 'geminiKey', action: 'image-api' };
+  if (normalized === 'prodia') return { kind: 'api', label: 'Prodia 이미지 API', keyId: 'prodiaApiKey', action: 'image-api' };
+  if (normalized === 'deepinfra') return { kind: 'api', label: 'DeepInfra 이미지 API', keyId: 'deepInfraApiKey', action: 'image-api' };
+  if (normalized === 'leonardo') return { kind: 'api', label: 'Leonardo 이미지 API', keyId: 'leonardoKey', action: 'image-api' };
+  if (normalized === 'stability') return { kind: 'api', label: 'Stability 이미지 API', keyId: 'stabilityApiKey', action: 'image-api' };
+  if (/^(none|custom|crawled|folder|local|manual)$/.test(normalized)) return { kind: 'local', label: '로컬/수집 이미지', action: '' };
+  return { kind: 'unknown', label: `${engine || '선택한'} 이미지 엔진`, action: 'image-settings' };
+}
+
+function readAgentImageApiKey(keyId = '') {
+  const aliases = {
+    openaiKey: ['openaiApiKey', 'OPENAI_API_KEY'],
+    geminiKey: ['geminiApiKey', 'GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+    prodiaApiKey: ['prodiaKey', 'PRODIA_API_KEY'],
+    deepInfraApiKey: ['deepinfraKey', 'DEEPINFRA_API_KEY'],
+    leonardoKey: ['leonardoApiKey', 'LEONARDO_API_KEY'],
+    stabilityApiKey: ['stabilityKey', 'STABILITY_API_KEY'],
+  };
+  const settings = readAgentStoredSettings();
+  return readAgentSettingValue(keyId, settings, [keyId === 'openaiKey' ? 'openaiKeyHidden' : '', ...(aliases[keyId] || [])].filter(Boolean));
+}
+
+function createAgentReadinessCheck(id, label, ready, detail, action = '', extra = {}) {
+  return { id, label, ready: ready === true, detail: String(detail || ''), action, ...extra };
+}
+
+async function verifyAgentImageIntegration(engine) {
+  const normalized = normalizeAgentImageEngine(engine);
+  const meta = getAgentImageEngineMeta(normalized);
+  const bridge = getBridgeApi();
+
+  if (meta.kind === 'local') {
+    return createAgentReadinessCheck(`image:${normalized}`, meta.label, true, '별도 로그인이나 API 키가 필요하지 않은 이미지 소스입니다.');
+  }
+  if (meta.kind === 'dropshot') {
+    try {
+      const result = typeof window.verifyDropshotGenerationReady === 'function'
+        ? await window.verifyDropshotGenerationReady({ force: true })
+        : await bridge?.invoke?.('dropshot:verify-ready', { force: true });
+      return createAgentReadinessCheck(
+        `image:${normalized}`,
+        meta.label,
+        result?.ready === true,
+        result?.ready
+          ? (result?.message || '로그인과 실제 이미지 생성 버튼을 확인했습니다.')
+          : (result?.message || 'Dropshot 로그인 또는 생성 연동이 필요합니다.'),
+        result?.ready ? '' : meta.action,
+      );
+    } catch (error) {
+      return createAgentReadinessCheck(`image:${normalized}`, meta.label, false, `확인 실패: ${error?.message || error}`, meta.action);
+    }
+  }
+  if (meta.kind === 'flow') {
+    try {
+      const result = await bridge?.invoke?.('flow:check-login');
+      const ready = result?.loggedIn === true;
+      return createAgentReadinessCheck(
+        `image:${normalized}`,
+        meta.label,
+        ready,
+        ready
+          ? 'Google 로그인 세션을 확인했습니다. Flow 무료 사용은 Google AI Plus/Pro 구독 계정 기준입니다.'
+          : (result?.message || 'Flow용 Google 로그인이 필요합니다.'),
+        ready ? '' : meta.action,
+      );
+    } catch (error) {
+      return createAgentReadinessCheck(`image:${normalized}`, meta.label, false, `확인 실패: ${error?.message || error}`, meta.action);
+    }
+  }
+  if (meta.kind === 'api') {
+    const hasKey = !!readAgentImageApiKey(meta.keyId);
+    return createAgentReadinessCheck(
+      `image:${normalized}`,
+      meta.label,
+      hasKey,
+      hasKey
+        ? 'API 키 입력을 확인했습니다. 실제 잔액과 권한은 제공사 응답 기준입니다.'
+        : '이미지 생성용 API 키가 입력되지 않았습니다.',
+      hasKey ? '' : meta.action,
+      { keyId: meta.keyId },
+    );
+  }
+  return createAgentReadinessCheck(`image:${normalized}`, meta.label, false, '이 이미지 엔진의 연동 방식을 확인하지 못했습니다. 이미지 설정을 확인해주세요.', meta.action);
+}
+
+async function verifyAgentPlatformIntegration(platform, config = getAgentPlatformConfig()) {
+  const normalized = normalizeAgentIntegrationPlatform(platform);
+  const bridge = getBridgeApi();
+  if (normalized === 'blogger') {
+    const configured = !!(config.blogId && config.googleClientId && config.googleClientSecret);
+    if (!configured) {
+      return createAgentReadinessCheck('platform:blogger', 'Blogspot 발행', false, 'Blog ID와 Google OAuth Client ID/Secret을 먼저 입력해주세요.', 'platform-settings');
+    }
+    try {
+      const result = typeof bridge?.checkBloggerAuthStatus === 'function'
+        ? await bridge.checkBloggerAuthStatus()
+        : await bridge?.invoke?.('blogger-check-auth-status');
+      const ready = result?.authenticated === true;
+      return createAgentReadinessCheck(
+        'platform:blogger',
+        'Blogspot 발행',
+        ready,
+        ready ? 'Blogger OAuth 토큰을 확인했습니다.' : (result?.error || 'Blogger OAuth 로그인이 필요합니다.'),
+        ready ? '' : 'blogger-auth',
+      );
+    } catch (error) {
+      return createAgentReadinessCheck('platform:blogger', 'Blogspot 발행', false, `인증 확인 실패: ${error?.message || error}`, 'blogger-auth');
+    }
+  }
+  if (normalized === 'wordpress') {
+    const configured = !!(config.wordpressSiteUrl && config.wordpressUsername && config.wordpressPassword);
+    if (!configured) {
+      return createAgentReadinessCheck('platform:wordpress', 'WordPress 발행', false, '사이트 URL, 사용자명, 애플리케이션 비밀번호를 먼저 입력해주세요.', 'wordpress-settings');
+    }
+    try {
+      const result = typeof bridge?.testWordPressConnection === 'function'
+        ? await bridge.testWordPressConnection({ siteUrl: config.wordpressSiteUrl, username: config.wordpressUsername, password: config.wordpressPassword })
+        : await bridge?.invoke?.('test-wordpress-connection', { siteUrl: config.wordpressSiteUrl, username: config.wordpressUsername, password: config.wordpressPassword });
+      const ready = result?.connected === true;
+      return createAgentReadinessCheck(
+        'platform:wordpress',
+        'WordPress 발행',
+        ready,
+        ready ? (result?.message || 'WordPress REST API 연결을 확인했습니다.') : (result?.error || result?.message || 'WordPress REST API 연결을 확인하지 못했습니다.'),
+        ready ? '' : 'wordpress-settings',
+      );
+    } catch (error) {
+      return createAgentReadinessCheck('platform:wordpress', 'WordPress 발행', false, `연결 확인 실패: ${error?.message || error}`, 'wordpress-settings');
+    }
+  }
+  if (normalized === 'tistory') {
+    if (!config.tistoryBlogName) {
+      return createAgentReadinessCheck('platform:tistory', 'Tistory 발행', false, '티스토리 블로그명 또는 주소를 먼저 입력해주세요.', 'platform-settings');
+    }
+    try {
+      const result = typeof bridge?.checkTistorySession === 'function'
+        ? await bridge.checkTistorySession({ tistoryBlogName: config.tistoryBlogName })
+        : await bridge?.invoke?.('tistory-check-session', { tistoryBlogName: config.tistoryBlogName });
+      const ready = result?.authenticated === true;
+      return createAgentReadinessCheck(
+        'platform:tistory',
+        'Tistory 발행',
+        ready,
+        ready ? (result?.blogUrl || '티스토리 글쓰기 세션을 확인했습니다.') : (result?.error || '티스토리 로그인이 필요합니다.'),
+        ready ? '' : 'tistory-login',
+      );
+    } catch (error) {
+      return createAgentReadinessCheck('platform:tistory', 'Tistory 발행', false, `세션 확인 실패: ${error?.message || error}`, 'tistory-login');
+    }
+  }
+  return createAgentReadinessCheck(`platform:${normalized}`, '발행 플랫폼', false, `지원하지 않는 플랫폼 설정입니다: ${platform}`, 'platform-settings');
+}
+
+async function verifyAgentExecutionReadiness(options = {}) {
+  loadExecutionPrefs();
+  if (state.executionMode !== 'agent') {
+    return { ok: true, ready: true, skipped: true, checks: [] };
+  }
+
+  state.executionReadinessPending = true;
+  renderAgentExecutionReadiness();
+  const provider = state.activeAgentProvider === 'claude' ? 'claude' : 'codex';
+  const label = provider === 'claude' ? 'Claude Code' : 'Codex';
+  const checks = [];
+  try {
+    const login = options.agentResult || await verifyActiveAgentLogin({ showStatus: false });
+    checks.push(createAgentReadinessCheck(
+      'agent',
+      `${label} Agent`,
+      login?.ready === true,
+      login?.ready ? (login?.message || 'CLI 로그인 세션을 확인했습니다.') : (login?.message || login?.error || 'Agent 로그인이 필요합니다.'),
+      login?.ready ? '' : 'agent-login',
+    ));
+
+    const engines = getAgentImageEnginesForReadiness(options);
+    if (engines.length === 0) {
+      checks.push(createAgentReadinessCheck('images:none', '이미지 생성', true, '이미지 생성 없음 또는 로컬 이미지 설정이라 별도 이미지 연동이 필요하지 않습니다.'));
+    } else {
+      for (const engine of engines) {
+        checks.push(await verifyAgentImageIntegration(engine));
+      }
+    }
+
+    const config = getAgentPlatformConfig();
+    const requestedPlatforms = Array.isArray(options.platforms) && options.platforms.length
+      ? options.platforms
+      : [config.platform];
+    for (const platform of [...new Set(requestedPlatforms.map(normalizeAgentIntegrationPlatform))]) {
+      checks.push(await verifyAgentPlatformIntegration(platform, config));
+    }
+
+    const ready = checks.every((check) => check.ready === true);
+    const result = {
+      ok: ready,
+      ready,
+      provider,
+      checks,
+      checkedAt: Date.now(),
+      message: ready
+        ? 'Agent, 이미지 엔진, 발행 플랫폼의 실행 준비를 확인했습니다.'
+        : '실행 준비가 완료되지 않았습니다. 빨간 항목의 바로 연동하기를 진행해주세요.',
+    };
+    state.executionReadiness = result;
+    if (options.showStatus !== false) {
+      setSettingsStatus(result.message, ready ? 'success' : 'error');
+      addLog(result.message, ready ? 'success' : 'warning');
+    }
+    return result;
+  } catch (error) {
+    const result = {
+      ok: false,
+      ready: false,
+      provider,
+      checks: [createAgentReadinessCheck('system', '실행 준비 확인', false, `확인 실패: ${error?.message || error}`, 'agent-login')],
+      checkedAt: Date.now(),
+      message: `실행 준비 확인 실패: ${error?.message || error}`,
+    };
+    state.executionReadiness = result;
+    if (options.showStatus !== false) setSettingsStatus(result.message, 'error');
+    return result;
+  } finally {
+    state.executionReadinessPending = false;
+    renderAgentExecutionReadiness();
+  }
 }
 
 function refreshGlobalAiModelBadge() {
@@ -1193,7 +1498,7 @@ function renderAgentProviderPanel() {
     button.addEventListener('click', async () => {
       const previousText = button.textContent;
       button.disabled = true;
-      button.textContent = '세션 확인 중...';
+      button.textContent = '실제 연동 확인 중...';
       try {
         await refreshAgentSettingsAndVerify(provider);
       } finally {
@@ -1225,6 +1530,137 @@ function renderAgentProviderPanel() {
   renderSettingsProfileSelect();
 }
 
+function getAgentReadinessActionLabel(check = {}) {
+  const action = check.action || '';
+  if (action === 'agent-login') return 'Agent 로그인하기';
+  if (action === 'dropshot-login') return 'Dropshot 로그인/연동';
+  if (action === 'flow-login') return 'Flow 로그인하기';
+  if (action === 'blogger-auth') return 'Blogger OAuth 인증';
+  if (action === 'tistory-login') return 'Tistory 로그인하기';
+  if (action === 'image-api') return '이미지 API 키 입력';
+  if (action === 'wordpress-settings' || action === 'platform-settings') return '플랫폼 설정 열기';
+  return '바로 연동하기';
+}
+
+function openAgentPlatformSettings(fieldId = '') {
+  try { window.switchSettingsTab?.('platform'); } catch {}
+  setTimeout(() => {
+    const target = fieldId ? $(fieldId) : $('tab-platform');
+    target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    target?.focus?.({ preventScroll: true });
+  }, 60);
+}
+
+async function openAgentIntegrationFix(check = {}) {
+  const action = check.action || '';
+  if (action === 'agent-login') {
+    let profile = getSelectedAgentProfile();
+    if (!profile) profile = await createAgentProfile(state.activeAgentProvider);
+    if (profile?.id) await startAgentLogin(profile.provider || state.activeAgentProvider, profile.id);
+    return;
+  }
+  if (action === 'dropshot-login') {
+    if (typeof window.runDropshotLogin === 'function') {
+      await window.runDropshotLogin();
+    } else {
+      setSettingsStatus('Dropshot 로그인 도구를 불러오지 못했습니다. 앱을 다시 실행해주세요.', 'error');
+    }
+    return;
+  }
+  if (action === 'flow-login') {
+    if (typeof window.runImageFxLogin === 'function') {
+      await window.runImageFxLogin();
+    } else {
+      setSettingsStatus('Flow 로그인 도구를 불러오지 못했습니다. 앱을 다시 실행해주세요.', 'error');
+    }
+    return;
+  }
+  if (action === 'blogger-auth') {
+    openAgentPlatformSettings('bloggerAuthBtn');
+    setTimeout(() => {
+      if (typeof window.authenticateBlogger === 'function') window.authenticateBlogger();
+      else $('bloggerAuthBtn')?.click();
+    }, 120);
+    return;
+  }
+  if (action === 'tistory-login') {
+    openAgentPlatformSettings('tistoryBlogName');
+    setTimeout(() => window.openTistoryLoginFromSettings?.(), 120);
+    return;
+  }
+  if (action === 'image-api') {
+    setExecutionMode('api');
+    const keyId = check.keyId || '';
+    setTimeout(() => {
+      const field = $(keyId);
+      field?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      field?.focus?.({ preventScroll: true });
+    }, 80);
+    setSettingsStatus('이미지 API 키를 입력한 뒤 Agent 모드를 다시 선택하고 실제 연동 새로고침을 눌러주세요.', 'warning');
+    return;
+  }
+  openAgentPlatformSettings(action === 'wordpress-settings' ? 'wordpressSiteUrl' : '');
+}
+
+function renderAgentExecutionReadiness() {
+  const host = $('agentModeExecutionReadiness');
+  if (!host) return;
+  const agentMode = state.executionMode === 'agent';
+  host.style.display = agentMode ? '' : 'none';
+  if (!agentMode) return;
+
+  const snapshot = state.executionReadiness;
+  const pending = state.executionReadinessPending === true;
+  const checks = Array.isArray(snapshot?.checks) ? snapshot.checks : [];
+  const allReady = snapshot?.ready === true;
+  const firstBlocked = checks.find((check) => !check.ready && check.action);
+  const checkedText = snapshot?.checkedAt
+    ? new Date(snapshot.checkedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : '아직 실제 확인 전';
+
+  host.innerHTML = `
+    <div class="agent-mode-readiness-head">
+      <div>
+        <strong>Agent 실행 준비 상태</strong>
+        <span>${pending ? '각 연동을 실제로 확인 중입니다.' : (snapshot?.message || '실제 연동 새로고침을 누르면 로그인, 이미지, 발행 설정을 각각 확인합니다.')}</span>
+      </div>
+      <span class="agent-mode-pill ${allReady ? 'is-ready' : 'is-locked'}">${pending ? '확인 중' : (allReady ? '전체 준비 완료' : '연동 필요')}</span>
+    </div>
+    <div class="agent-mode-readiness-grid">
+      ${checks.length ? checks.map((check) => `
+        <div class="agent-mode-readiness-item ${check.ready ? 'is-ready' : 'is-blocked'}">
+          <span class="agent-mode-readiness-icon">${check.ready ? '✓' : '!'}</span>
+          <div>
+            <strong>${escapeHtml(check.label)}</strong>
+            <span>${escapeHtml(check.detail)}</span>
+          </div>
+        </div>
+      `).join('') : `
+        <div class="agent-mode-readiness-item is-pending">
+          <span class="agent-mode-readiness-icon">?</span>
+          <div><strong>실제 연동 확인 전</strong><span>새로고침 전에는 준비 완료로 표시하지 않습니다.</span></div>
+        </div>
+      `}
+    </div>
+    <div class="agent-mode-readiness-actions">
+      <span>마지막 확인: ${escapeHtml(checkedText)}</span>
+      <div>
+        <button type="button" data-agent-readiness-refresh="true" ${pending ? 'disabled' : ''}>실제 연동 새로고침</button>
+        ${firstBlocked ? `<button type="button" class="agent-mode-primary-action" data-agent-readiness-fix="${escapeHtml(firstBlocked.id)}" ${pending ? 'disabled' : ''}>바로 연동하기</button>` : ''}
+      </div>
+    </div>
+  `;
+
+  host.querySelector('[data-agent-readiness-refresh]')?.addEventListener('click', () => {
+    verifyAgentExecutionReadiness({ showStatus: true });
+  });
+  host.querySelector('[data-agent-readiness-fix]')?.addEventListener('click', async (event) => {
+    const id = event.currentTarget?.getAttribute('data-agent-readiness-fix');
+    const target = checks.find((check) => check.id === id);
+    if (target) await openAgentIntegrationFix(target);
+  });
+}
+
 function setExecutionMode(mode) {
   const nextMode = mode === 'agent' ? 'agent' : 'api';
   if (nextMode === 'agent' && !isMaxAgentAllowed(state.agentStatus)) {
@@ -1238,10 +1674,14 @@ function setExecutionMode(mode) {
   renderAgentSettingsSection();
   refreshGlobalAiModelBadge();
   addLog(`실행 모드를 ${state.executionMode === 'agent' ? 'Agent 모드' : 'API 키 모드'}로 변경했습니다.`, 'info');
+  if (state.executionMode === 'agent') {
+    verifyAgentExecutionReadiness({ showStatus: false });
+  }
 }
 
 function setAgentProvider(provider) {
   state.activeAgentProvider = provider === 'claude' ? 'claude' : 'codex';
+  state.executionReadiness = null;
   state.articleTask = '';
   state.imageTask = '';
   if (state.payload) {
@@ -1370,6 +1810,7 @@ function renderAgentSettingsSection() {
   renderApiProviderCards();
   renderAgentProviderPanel();
   renderSettingsProfileSelect();
+  renderAgentExecutionReadiness();
 }
 
 function ensureAgentSettingsSection() {
@@ -1446,6 +1887,8 @@ function ensureAgentSettingsSection() {
           </div>
         </div>
 
+        <div id="agentModeExecutionReadiness" class="agent-mode-readiness"></div>
+
         <div class="agent-mode-maintenance-actions">
           <button type="button" id="agentUsageResetBtn">로컬 기록 초기화</button>
         </div>
@@ -1486,7 +1929,7 @@ function ensureAgentSettingsSection() {
     const previousText = button?.textContent || '';
     if (button) {
       button.disabled = true;
-      button.textContent = '세션 확인 중...';
+      button.textContent = '실제 연동 확인 중...';
     }
     try {
       await refreshAgentSettingsAndVerify(
@@ -2334,6 +2777,99 @@ function ensureStyles() {
       background: rgba(2, 6, 23, 0.26);
       border: 1px solid rgba(148, 163, 184, 0.14);
     }
+    .agent-mode-readiness {
+      display: grid;
+      gap: 12px;
+      margin: 16px 0 12px;
+      padding: 16px 0 0;
+      border-top: 1px solid rgba(148, 163, 184, 0.18);
+    }
+    .agent-mode-readiness-head,
+    .agent-mode-readiness-actions {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .agent-mode-readiness-head strong {
+      display: block;
+      color: #f8fafc;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+    .agent-mode-readiness-head span,
+    .agent-mode-readiness-actions > span {
+      color: rgba(226, 232, 240, 0.66);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .agent-mode-readiness-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .agent-mode-readiness-item {
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr);
+      gap: 8px;
+      min-height: 70px;
+      padding: 10px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 10px;
+      background: rgba(2, 6, 23, 0.2);
+    }
+    .agent-mode-readiness-item.is-ready { border-color: rgba(34, 197, 94, 0.35); }
+    .agent-mode-readiness-item.is-blocked { border-color: rgba(248, 113, 113, 0.4); }
+    .agent-mode-readiness-item.is-pending { border-color: rgba(251, 191, 36, 0.32); }
+    .agent-mode-readiness-icon {
+      width: 22px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: rgba(148, 163, 184, 0.15);
+      color: #e2e8f0;
+      font-size: 12px;
+      font-weight: 900;
+    }
+    .agent-mode-readiness-item.is-ready .agent-mode-readiness-icon { background: rgba(34, 197, 94, 0.18); color: #86efac; }
+    .agent-mode-readiness-item.is-blocked .agent-mode-readiness-icon { background: rgba(248, 113, 113, 0.16); color: #fecaca; }
+    .agent-mode-readiness-item strong {
+      display: block;
+      color: #f8fafc;
+      font-size: 12px;
+      margin-bottom: 3px;
+    }
+    .agent-mode-readiness-item span:not(.agent-mode-readiness-icon) {
+      display: block;
+      color: rgba(226, 232, 240, 0.64);
+      font-size: 11px;
+      line-height: 1.42;
+      word-break: break-word;
+    }
+    .agent-mode-readiness-actions > div {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .agent-mode-readiness-actions button {
+      min-height: 34px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, 0.24);
+      background: rgba(51, 65, 85, 0.68);
+      color: #e2e8f0;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .agent-mode-readiness-actions .agent-mode-primary-action {
+      color: #082f49;
+      border-color: transparent;
+      background: linear-gradient(135deg, #fde68a, #f59e0b);
+    }
     .agent-mode-action-panel > strong {
       color: #f8fafc;
       font-size: 13px;
@@ -2530,11 +3066,14 @@ function ensureStyles() {
       .agent-mode-control-grid,
       .agent-mode-provider-layout,
       .agent-mode-plan-grid,
+      .agent-mode-readiness-grid,
       .agent-image-policy-grid {
         grid-template-columns: 1fr;
       }
       .agent-mode-settings-head,
       .agent-mode-usage-head,
+      .agent-mode-readiness-head,
+      .agent-mode-readiness-actions,
       .agent-image-policy-head,
       .agent-thumb-text-row {
         align-items: stretch;
@@ -2907,10 +3446,29 @@ async function checkAgentLoginStatus(provider = state.activeAgentProvider, profi
   return result || { ok: false, ready: false };
 }
 
+async function verifyActiveAgentLogin(options = {}) {
+  loadExecutionPrefs();
+  await loadAgentModeStatus(true);
+  const profile = getSelectedAgentProfile();
+  const provider = profile?.provider === 'claude' ? 'claude' : 'codex';
+  if (!profile) {
+    const message = `${provider === 'claude' ? 'Claude Code' : 'Codex'} 로그인 계정을 찾지 못했습니다. 환경설정에서 로그인 창 열기로 구독 계정을 먼저 연결해주세요.`;
+    if (options.showStatus) {
+      setSettingsStatus(message, 'error');
+      addLog(message, 'warning');
+    }
+    return { ok: false, ready: false, error: message, message };
+  }
+  return checkAgentLoginStatus(profile.provider, profile.id, {
+    verify: true,
+    showStatus: options.showStatus === true,
+  });
+}
+
 async function refreshAgentSettingsAndVerify(provider = state.activeAgentProvider, profileId = '') {
   const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
   const selectedProfileId = profileId || $('agentModeSettingsProfileSelect')?.value || getActiveAgentProfileId(normalizedProvider);
-  setSettingsStatus(`${normalizedProvider === 'claude' ? 'Claude Code' : 'Codex'} 상태를 새로고침하고 로그인 세션을 확인합니다...`);
+  setSettingsStatus(`${normalizedProvider === 'claude' ? 'Claude Code' : 'Codex'} 로그인, 이미지, 발행 연동을 실제로 확인합니다...`);
   await loadAgentModeStatus(true);
   const profile = selectedProfileId
     ? getProfileById(normalizedProvider, selectedProfileId)
@@ -2919,9 +3477,10 @@ async function refreshAgentSettingsAndVerify(provider = state.activeAgentProvide
     const message = `${normalizedProvider === 'claude' ? 'Claude Code' : 'Codex'} 로그인 계정이 없습니다. 먼저 로그인 계정 추가하기 또는 로그인 창 열기를 눌러주세요.`;
     setSettingsStatus(message, 'error');
     addLog(message, 'warning');
-    return { ok: false, ready: false, error: message };
+    return verifyAgentExecutionReadiness({ showStatus: true });
   }
-  return checkAgentLoginStatus(normalizedProvider, profile.id, { verify: true, showStatus: true });
+  const login = await checkAgentLoginStatus(normalizedProvider, profile.id, { verify: true, showStatus: true });
+  return verifyAgentExecutionReadiness({ showStatus: true, agentResult: login });
 }
 
 function startAgentLoginPolling(provider = state.activeAgentProvider, profileId = '') {
@@ -3789,6 +4348,8 @@ export function initCodexWorkshop() {
   window.closeCodexWorkshopPanel = closeCodexWorkshopPanel;
   window.applyCodexResult = applyCodexResult;
   window.runAgentJobFromPosting = runAgentJobFromPosting;
+  window.verifyActiveAgentLogin = verifyActiveAgentLogin;
+  window.verifyAgentExecutionReadiness = verifyAgentExecutionReadiness;
   window.getAgentImageSettingsMode = getAgentImageSettingsMode;
   window.refreshAgentModeSettings = () => {
     ensureAgentSettingsSection();

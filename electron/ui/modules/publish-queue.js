@@ -25,10 +25,10 @@ let queueStopRequested = false;
 function getDropshotQueueLoginLabel(result) {
   if (!result?.loggedIn) return '';
   if (typeof window.getDropshotSubscriptionLabel === 'function') {
-    return window.getDropshotSubscriptionLabel(result) || '구독 정보 미확인';
+    return window.getDropshotSubscriptionLabel(result) || '플랜 확인 필요';
   }
   const raw = String(result.subscriptionLabel || result.subscription || '').trim();
-  if (!raw || /^unknown$/i.test(raw)) return '구독 정보 미확인';
+  if (!raw || /^unknown$/i.test(raw)) return '플랜 확인 필요';
   if (raw === 'pro') return 'Pro 구독자 무제한';
   if (raw === 'free') return '무료 사용자';
   return raw;
@@ -136,6 +136,75 @@ function getQueueAgentImageMode() {
     agentUsesImageApi: executionMode === 'agent',
     claudeNeedsImageEngine: executionMode === 'agent',
   };
+}
+
+function isQueueAgentMode() {
+  return getQueueAgentImageMode().isAgentMode === true;
+}
+
+async function verifyQueueAgentExecutionReadiness(runModal, enabled = []) {
+  if (!isQueueAgentMode()) return { ok: true };
+
+  const provider = getQueueAgentImageMode().provider === 'claude' ? 'claude' : 'codex';
+  const label = provider === 'claude' ? 'Claude Code' : 'Codex';
+  const imageEngines = [...new Set(enabled.flatMap((item) => {
+    const h2Mode = String(item?.h2ImageMode || '').toLowerCase();
+    return [
+      item?.thumb,
+      ...(h2Mode === 'none' || h2Mode === 'thumbnail-only' ? [] : [item?.h2ImageSource]),
+    ];
+  }).filter(Boolean))];
+  const platforms = [...new Set(enabled.map((item) => item?.platform).filter(Boolean))];
+  runModal.log(`${label} Agent · 이미지 엔진 · 발행 플랫폼 실제 연동 확인 중...`);
+  if (typeof window.verifyAgentExecutionReadiness !== 'function') {
+    return {
+      ok: false,
+      error: 'Agent 실행 준비 모듈을 아직 준비하지 못했습니다. 앱을 다시 실행한 뒤 시도해주세요.',
+    };
+  }
+
+  try {
+    const result = await window.verifyAgentExecutionReadiness({
+      showStatus: false,
+      imageEngines,
+      platforms,
+    });
+    if (!result?.ready) {
+      const blocked = Array.isArray(result?.checks)
+        ? result.checks.filter((check) => !check.ready).map((check) => `${check.label}: ${check.detail}`).join(' / ')
+        : '';
+      return {
+        ok: false,
+        error: blocked || result?.message || result?.error || `${label} 실행 준비를 확인하지 못했습니다.`,
+      };
+    }
+    runModal.log(`${label} Agent 실행 준비 확인 완료`);
+    return { ok: true, result };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.message || String(error || `${label} 로그인 세션 확인 실패`),
+    };
+  }
+}
+
+async function verifyQueueDropshotReadiness(runModal, enabled = []) {
+  const usesDropshot = enabled.some((item) => item?.thumb === 'dropshot-nanobanana-pro' || item?.h2ImageSource === 'dropshot-nanobanana-pro');
+  if (!usesDropshot || isQueueAgentMode()) return { ok: true };
+  runModal.log('Dropshot 로그인과 실제 생성 버튼을 확인 중...');
+  if (typeof window.verifyDropshotGenerationReady !== 'function') {
+    return { ok: false, error: 'Dropshot 준비 확인 모듈을 찾지 못했습니다. 앱을 다시 실행해주세요.' };
+  }
+  try {
+    const result = await window.verifyDropshotGenerationReady({ force: true });
+    if (!result?.ready) {
+      return { ok: false, error: result?.message || 'Dropshot 로그인 또는 생성 연동이 필요합니다.' };
+    }
+    runModal.log(`Dropshot 실행 준비 확인: ${getDropshotQueueLoginLabel(result)}`);
+    return { ok: true, result };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error || 'Dropshot 준비 확인 실패') };
+  }
 }
 
 function isQueueCodexImageManaged() {
@@ -2012,6 +2081,18 @@ function applyItemToMainForm(item, scheduleDateIso) {
   if (item.postingMode === 'schedule' && scheduleDateIso) {
     setValue('scheduleDateTime', toLocalDateTimeInputValue(new Date(scheduleDateIso)));
   }
+
+  // Every queue item must start from an empty article. Otherwise Agent mode can
+  // see the prior article and enter the re-publish/API path instead of generating
+  // the next keyword's content.
+  if (window.__queueRunning) {
+    try {
+      const appState = typeof getAppState === 'function' ? getAppState() : null;
+      if (appState) appState.generatedContent = null;
+    } catch (error) {
+      console.warn('[QUEUE] previous generated content reset failed:', error);
+    }
+  }
 }
 
 // v3.8.140: 대기열 진행 미니바 (닫기 시 최소화, 클릭 시 모달 재오픈)
@@ -2954,22 +3035,16 @@ function bindModalEvents() {
     close();
     const runModal = createQueueRunModal(enabled, intervalLabel);
 
-    try {
-      const usesDropshot = enabled.some(it => it.thumb === 'dropshot-nanobanana-pro' || it.h2ImageSource === 'dropshot-nanobanana-pro');
-      if (usesDropshot) {
-        runModal.log('리더스 나노바나나 무제한 감지: 이미지 생성은 1개씩 순차 실행합니다.');
-        if (window.electronAPI?.invoke) {
-          const checkLogin = typeof window.checkDropshotLoginCached === 'function'
-            ? window.checkDropshotLoginCached({ maxAgeMs: 10 * 60 * 1000 })
-            : window.electronAPI.invoke('dropshot:check-login');
-          checkLogin.then((r) => {
-            if (r?.loggedIn) runModal.log(`Dropshot 로그인 확인: ${getDropshotQueueLoginLabel(r)}${r.cached ? ' · 최근 확인값' : ''}`);
-            else runModal.log(`Dropshot 로그인 확인 필요: ${r?.message || '로그인 정보 없음'}`);
-          }).catch((e) => runModal.log(`Dropshot 상태 확인 실패: ${e?.message || e}`));
-        }
-      }
-    } catch (preflightErr) {
-      runModal.log(`사전 확인 실패: ${preflightErr?.message || preflightErr}`);
+    const agentPreflight = await verifyQueueAgentExecutionReadiness(runModal, enabled);
+    if (!agentPreflight.ok) {
+      runModal.finish(`실패: Agent 실행 준비 확인 실패 — ${agentPreflight.error}`);
+      return;
+    }
+
+    const dropshotPreflight = await verifyQueueDropshotReadiness(runModal, enabled);
+    if (!dropshotPreflight.ok) {
+      runModal.finish(`실패: Dropshot 실행 준비 확인 실패 — ${dropshotPreflight.error}`);
+      return;
     }
 
     // 🛡️ v3.5.84: 큐 모드 플래그 — posting.js가 단발 모달 대신 누적하도록 신호

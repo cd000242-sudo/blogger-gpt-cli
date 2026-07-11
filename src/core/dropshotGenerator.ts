@@ -39,7 +39,7 @@ let cachedContext: any = null;
 let cachedPage: any = null;
 let _ensurePagePromise: Promise<any> | null = null;
 
-type DropshotLoginStatus = {
+export type DropshotLoginStatus = {
   loggedIn: boolean;
   userId?: string;
   userName?: string;
@@ -57,6 +57,17 @@ type DropshotClickResult = {
   diagnostics?: string;
 };
 
+type DropshotGenerateControlResult = DropshotClickResult & {
+  ready: boolean;
+  candidate?: string;
+};
+
+export type DropshotGenerationReadiness = DropshotLoginStatus & {
+  ready: boolean;
+  generateControl?: string;
+  diagnostics?: string;
+};
+
 type DropshotImageCandidate = {
   src: string;
   width: number;
@@ -70,6 +81,7 @@ const LOGIN_CHECK_OK_TTL_MS = 10 * 60 * 1000;
 const LOGIN_CHECK_FAIL_TTL_MS = 30 * 1000;
 const DROPSHOT_RESULT_WAIT_MS = 210_000;
 const DROPSHOT_RESULT_POLL_MS = 2_500;
+const DROPSHOT_GENERATION_START_WAIT_MS = 12_000;
 
 function normalizeDropshotSubscription(value: unknown): 'pro' | 'free' | 'unknown' {
   const raw = String(value || '').trim().toLowerCase();
@@ -82,7 +94,7 @@ function getDropshotSubscriptionLabel(subscription: unknown): string {
   const normalized = normalizeDropshotSubscription(subscription);
   if (normalized === 'pro') return 'Pro 구독자 무제한';
   if (normalized === 'free') return '무료 사용자';
-  return '구독 정보 미확인';
+  return '플랜 확인 필요';
 }
 
 function withDropshotSubscriptionMeta<T extends DropshotLoginStatus>(status: T): T {
@@ -98,13 +110,19 @@ function withDropshotSubscriptionMeta<T extends DropshotLoginStatus>(status: T):
 
 async function closeDropshotContext(context: any, delayMs = 350): Promise<void> {
   if (!context) return;
-  try {
-    const pages = typeof context.pages === 'function' ? context.pages() : [];
-    await Promise.allSettled(
-      pages.map((page: any) => page?.close?.({ runBeforeUnload: false }).catch?.(() => undefined) || Promise.resolve()),
-    );
-  } catch { /* ignore */ }
+  const browser = typeof context.browser === 'function' ? context.browser() : null;
+  if (context === cachedContext) {
+    cachedContext = null;
+    cachedPage = null;
+  }
   try { await context.close(); } catch { /* ignore */ }
+  // Persistent contexts own a dedicated browser process. Closing the process as well
+  // prevents Chromium from leaving a blank last-tab window behind on Windows.
+  try {
+    if (browser && (typeof browser.isConnected !== 'function' || browser.isConnected())) {
+      await browser.close();
+    }
+  } catch { /* context.close() already closed it in most Playwright builds */ }
   if (delayMs > 0) await wait(delayMs);
 }
 
@@ -127,10 +145,9 @@ async function launchBrowser(profileDir: string, headless: boolean, onLog?: (msg
     chromium = (await import('playwright')).chromium;
   }
 
-  const forceVisible = String(process.env['VISIBLE_BROWSER'] || '').toLowerCase() === 'true';
-  // 로그인 유도처럼 caller가 명시적으로 headless=false를 요청할 때만 visible.
-  // 이미 로그인된 뒤의 자동 생성/세션 확인은 VISIBLE_BROWSER가 켜져 있어도 숨김으로 유지한다.
-  const effectiveHeadless = headless ? true : (forceVisible ? false : headless);
+  // Visible mode is reserved for the explicit login action. Session checks and
+  // automated generation must never surface an empty browser window to the user.
+  const effectiveHeadless = headless !== false;
 
   const baseOptions: any = {
     headless: effectiveHeadless,
@@ -237,14 +254,41 @@ async function ensureDropshotControls(page: any, onLog?: (m: string) => void): P
   }
 }
 
-async function isLoggedIn(page: any): Promise<boolean> {
+async function getDropshotSessionInfo(page: any): Promise<Pick<DropshotLoginStatus, 'loggedIn' | 'userId' | 'userName' | 'email' | 'message'>> {
   try {
-    const has = await page.evaluate(() => {
+    return await page.evaluate(async () => {
       const text = document.body.innerText || '';
-      return text.includes('이미지 생성') || text.includes('플랜 업그레이드') || text.includes('워크스페이스');
+      const hasBoardUi = /이미지 생성|플랜 업그레이드|워크스페이스|image generation|upgrade plan|workspace/i.test(text)
+        || !!document.querySelector('textarea:not([disabled]), [role="textbox"], [data-slate-editor="true"], .ProseMirror');
+      const cookies = document.cookie;
+      const cognitoMatch = cookies.match(/CognitoIdentityServiceProvider\.[^.]+\.LastAuthUser=([^;]+)/);
+      if (!cognitoMatch) {
+        return { loggedIn: false, message: 'Cognito 쿠키 없음 — 로그인 필요' };
+      }
+
+      const res = await fetch('/api/me', { credentials: 'include' }).catch(() => null);
+      if (res?.ok) {
+        const data = await res.json().catch(() => ({}));
+        return {
+          loggedIn: true,
+          userName: data?.name,
+          email: data?.email,
+          userId: data?.externalId,
+          message: 'OK',
+        };
+      }
+
+      return hasBoardUi
+        ? { loggedIn: true, message: 'Cognito 세션과 board UI 확인' }
+        : { loggedIn: false, message: 'Cognito 세션은 있으나 board UI를 확인하지 못함' };
     });
-    return !!has;
-  } catch { return false; }
+  } catch (error: any) {
+    return { loggedIn: false, message: `session evaluate err: ${error?.message || error}` };
+  }
+}
+
+async function isLoggedIn(page: any): Promise<boolean> {
+  return (await getDropshotSessionInfo(page)).loggedIn;
 }
 
 async function wait(ms: number): Promise<void> {
@@ -340,8 +384,11 @@ async function fillDropshotPrompt(page: any, prompt: string): Promise<void> {
   throw new Error(`Dropshot 프롬프트 입력창을 찾지 못했습니다 (${diagnostics})`);
 }
 
-async function clickDropshotGenerate(page: any): Promise<DropshotClickResult> {
-  const result = await page.evaluate(() => {
+async function resolveDropshotGenerateControl(
+  page: any,
+  options: { trigger?: boolean } = {},
+): Promise<DropshotGenerateControlResult> {
+  return await page.evaluate((shouldTrigger: boolean) => {
     const isVisible = (node: Element | null): boolean => {
       if (!node) return false;
       const rect = (node as HTMLElement).getBoundingClientRect?.();
@@ -354,39 +401,29 @@ async function clickDropshotGenerate(page: any): Promise<DropshotClickResult> {
         && Number(style?.opacity || '1') > 0;
     };
 
-    const buttonText = (button: HTMLButtonElement): string => [
+    const actionMeta = (button: HTMLButtonElement): string => [
       button.textContent,
       button.getAttribute('aria-label'),
       button.title,
       button.getAttribute('data-testid'),
-      button.getAttribute('type'),
+      button.getAttribute('data-action'),
+      button.getAttribute('name'),
       button.className,
     ].filter(Boolean).join(' ').trim();
 
-    const isBadButton = (button: HTMLButtonElement): boolean => {
-      const meta = buttonText(button);
-      return /업로드|upload|reference|참조|삭제|remove|trash|취소|cancel|닫기|close|로그인|login|요금|구독|플랜|plan|upgrade|무제한|unlimited|minus|plus|증가|감소|새\s*창/i.test(meta);
+    const buttonText = (button: HTMLButtonElement): string => {
+      const meta = actionMeta(button);
+      return `${meta} type=${button.getAttribute('type') || 'button'}`.trim();
     };
 
-    const scoreButton = (button: HTMLButtonElement, promptRect?: DOMRect | null): number => {
-      if (!isVisible(button) || button.disabled || button.getAttribute('aria-disabled') === 'true') return -999;
-      if (isBadButton(button)) return -100;
-      const meta = buttonText(button);
-      let score = 0;
-      if (/이미지\s*생성|생성하기|생성|만들기|만들|전송|보내기|generate|create|submit|send/i.test(meta)) score += 120;
-      if (button.type === 'submit') score += 60;
-      if (button.querySelector('svg,img')) score += 20;
-      const rect = button.getBoundingClientRect();
-      if (promptRect) {
-        const closeToPrompt = rect.left >= promptRect.left - 40
-          && rect.right <= promptRect.right + 120
-          && rect.top >= promptRect.top - 80
-          && rect.bottom <= promptRect.bottom + 140;
-        if (closeToPrompt) score += 35;
-        if (rect.left > promptRect.left + promptRect.width * 0.55) score += 15;
-      }
-      if (/absolute|right-|bottom-|rounded-full/i.test(meta)) score += 8;
-      return score;
+    const hasExplicitGenerateIntent = (button: HTMLButtonElement): boolean => {
+      const meta = actionMeta(button);
+      return /이미지\s*(?:생성|만들기)|생성(?:하기)?|만들기|생성\s*실행|generate|create|submit|send|제출|보내기/i.test(meta);
+    };
+
+    const isBadButton = (button: HTMLButtonElement): boolean => {
+      const meta = actionMeta(button);
+      return /업로드|upload|reference|참조|삭제|remove|trash|취소|cancel|닫기|close|로그인|login|요금|결제|구독|플랜|plan|upgrade|무제한|unlimited|minus|plus|증가|감소|새\s*창|프롬프트\s*자동\s*완성|자동\s*완성|autocomplete|auto[\s_-]*complete|suggest(?:ion)?|추천|enhance/i.test(meta);
     };
 
     const findPrompt = (): Element | null => {
@@ -413,56 +450,123 @@ async function clickDropshotGenerate(page: any): Promise<DropshotClickResult> {
 
     const promptEl = findPrompt();
     const promptRect = promptEl ? (promptEl as HTMLElement).getBoundingClientRect?.() : null;
-    if (promptEl) {
-      let parent: Element | null = promptEl.parentElement;
-      for (let depth = 0; depth < 7 && parent; depth++) {
-        const scored = Array.from(parent.querySelectorAll('button'))
-          .map((button: any) => ({ button: button as HTMLButtonElement, score: scoreButton(button as HTMLButtonElement, promptRect) }))
-          .sort((a, b) => b.score - a.score);
-        const best = scored[0];
-        if (best && best.score >= 40) {
-          best.button.click();
-          return { clicked: true, detail: `button score=${best.score} text="${buttonText(best.button).slice(0, 80)}"` };
-        }
-        parent = parent.parentElement;
-      }
+    const promptForm = promptEl?.closest('form') as HTMLFormElement | null;
+    const isPromptSubmit = (button: HTMLButtonElement): boolean => {
+      if (button.type !== 'submit' || !promptForm) return false;
+      const owner = button.form || button.closest('form');
+      return owner === promptForm || promptForm.contains(button);
+    };
 
-      const form = promptEl.closest('form') as HTMLFormElement | null;
-      if (form) {
-        try {
-          form.requestSubmit();
-          return { clicked: true, detail: 'form.requestSubmit()' };
-        } catch { /* fallback below */ }
+    const scoreButton = (button: HTMLButtonElement): number => {
+      if (!isVisible(button) || button.disabled || button.getAttribute('aria-disabled') === 'true') return -999;
+      if (isBadButton(button)) return -500;
+      const explicit = hasExplicitGenerateIntent(button);
+      const promptSubmit = isPromptSubmit(button);
+      // Proximity and icons are only tie-breakers. They must never turn a
+      // helper such as "프롬프트 자동완성" into a generation action.
+      if (!explicit && !promptSubmit) return -400;
+      let score = explicit ? 180 : 0;
+      if (promptSubmit) score += 140;
+      if (button.querySelector('svg,img')) score += 12;
+      const rect = button.getBoundingClientRect();
+      if (promptRect) {
+        const closeToPrompt = rect.left >= promptRect.left - 40
+          && rect.right <= promptRect.right + 120
+          && rect.top >= promptRect.top - 80
+          && rect.bottom <= promptRect.bottom + 140;
+        if (closeToPrompt) score += 35;
+        if (rect.left > promptRect.left + promptRect.width * 0.55) score += 15;
       }
-    }
+      return score;
+    };
 
     const allButtons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
-    const fallback = allButtons
-      .map(button => ({ button, score: scoreButton(button, promptRect) }))
-      .sort((a, b) => b.score - a.score)[0];
-    if (fallback && fallback.score >= 90) {
-      fallback.button.click();
-      return { clicked: true, detail: `fallback score=${fallback.score} text="${buttonText(fallback.button).slice(0, 80)}"` };
+    const candidates = allButtons
+      .map(button => ({
+        button,
+        score: scoreButton(button),
+        explicit: hasExplicitGenerateIntent(button),
+        promptSubmit: isPromptSubmit(button),
+      }))
+      .filter(item => item.score >= 120 && (item.explicit || item.promptSubmit))
+      .sort((a, b) => b.score - a.score);
+    const best = candidates[0];
+    if (best) {
+      const detail = `button score=${best.score} text="${buttonText(best.button).slice(0, 120)}"`;
+      if (shouldTrigger) best.button.click();
+      return {
+        ready: true,
+        clicked: shouldTrigger,
+        detail,
+        candidate: actionMeta(best.button).slice(0, 160),
+      };
     }
 
-    const diagnostics = allButtons.slice(0, 16).map((button, idx) => {
+    const diagnostics = allButtons.slice(0, 24).map((button, idx) => {
       const rect = button.getBoundingClientRect();
-      return `${idx + 1}:${button.disabled ? 'disabled' : 'enabled'}:${Math.round(rect.width)}x${Math.round(rect.height)}:${buttonText(button).slice(0, 60)}`;
+      return `${idx + 1}:${button.disabled ? 'disabled' : 'enabled'}:${Math.round(rect.width)}x${Math.round(rect.height)}:${buttonText(button).slice(0, 80)}`;
     }).join(' | ');
     return {
+      ready: false,
       clicked: false,
-      detail: '생성 버튼 후보를 찾지 못함',
+      detail: '실제 이미지 생성 버튼 후보를 찾지 못함',
       diagnostics,
     };
-  });
-  if (!result.clicked) {
-    await page.keyboard.press('Enter').catch(() => {});
-    return {
-      ...result,
-      detail: `${result.detail}; Enter fallback 실행`,
-    };
-  }
-  return result;
+  }, options.trigger === true);
+}
+
+async function clickDropshotGenerate(page: any): Promise<DropshotClickResult> {
+  return await resolveDropshotGenerateControl(page, { trigger: true });
+}
+
+function createDropshotGenerationStartObserver(page: any) {
+  let requestUrl = '';
+  const onRequest = (request: any) => {
+    try {
+      const url = String(request?.url?.() || '');
+      const method = String(request?.method?.() || '').toUpperCase();
+      const isGenerationRequest = method === 'POST'
+        && /dropshot\.io/i.test(url)
+        && /generat|image|task|job|create|run|queue/i.test(url)
+        && !/analytics|telemetry|sentry|event/i.test(url);
+      if (isGenerationRequest) requestUrl = url;
+    } catch {
+      // Request diagnostics are advisory. The DOM fallback below remains valid.
+    }
+  };
+  try { page.on?.('request', onRequest); } catch { /* no event bridge */ }
+
+  const hasDomStartSignal = async (): Promise<boolean> => {
+    return await page.evaluate(() => {
+      const isVisible = (node: Element | null): boolean => {
+        if (!node) return false;
+        const rect = (node as HTMLElement).getBoundingClientRect?.();
+        const style = window.getComputedStyle?.(node);
+        return !!rect && rect.width > 4 && rect.height > 4
+          && style?.display !== 'none' && style?.visibility !== 'hidden'
+          && Number(style?.opacity || '1') > 0;
+      };
+      const bodyText = document.body?.innerText || '';
+      if (/이미지\s*생성\s*중|생성\s*중|generating|processing|queued|queue\s*position|대기열/i.test(bodyText)) return true;
+      return Array.from(document.querySelectorAll('[aria-busy="true"], [data-state="loading"], [data-loading="true"], .animate-spin, .loading, .loader'))
+        .some(node => isVisible(node));
+    }).catch(() => false);
+  };
+
+  return {
+    async waitForStart(): Promise<{ started: boolean; detail: string }> {
+      const deadline = Date.now() + DROPSHOT_GENERATION_START_WAIT_MS;
+      while (Date.now() < deadline) {
+        if (requestUrl) return { started: true, detail: `POST ${requestUrl}` };
+        if (await hasDomStartSignal()) return { started: true, detail: 'board 생성 진행 상태 확인' };
+        await wait(500);
+      }
+      return { started: false, detail: '생성 요청 POST 또는 board 진행 상태를 확인하지 못함' };
+    },
+    dispose(): void {
+      try { page.off?.('request', onRequest); } catch { /* ignore */ }
+    },
+  };
 }
 
 async function getDropshotImageSnapshot(page: any): Promise<string[]> {
@@ -649,36 +753,10 @@ async function _ensurePageInternal(onLog?: (m: string) => void): Promise<any> {
     return page;
   }
 
-  // visible 로그인 유도
-  onLog?.('🔐 [Dropshot] 로그인 필요 → 브라우저 표시 (최대 5분)');
+  // 자동 이미지 생성 중에는 로그인 창을 띄우지 않는다. 빈 자동화 창이 남지 않도록
+  // 환경설정의 명시적인 로그인 버튼에서만 visible 브라우저를 열게 한다.
   await closeDropshotContext(context);
-  context = await launchBrowser(profileDir, false, onLog);
-  page = context.pages()[0] || await context.newPage();
-  await page.goto('https://aistudio.dropshot.io', { waitUntil: 'domcontentloaded', timeout: 45000 });
-
-  let loggedIn = false;
-  for (let i = 0; i < 60; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    try {
-      const pages = context.pages();
-      page = pages.find((p: any) => { try { return p.url().includes('dropshot.io'); } catch { return false; } })
-        || pages[pages.length - 1];
-      if (await isLoggedIn(page)) { loggedIn = true; break; }
-    } catch { continue; }
-    if (i % 6 === 5) onLog?.(`⏳ [Dropshot] 로그인 대기 (${Math.round((i+1)*5/60)}분 경과)`);
-  }
-  if (!loggedIn) { await closeDropshotContext(context); throw new Error('Dropshot 로그인 시간 초과'); }
-
-  // visible 닫고 headless로 재진입
-  await closeDropshotContext(context);
-  const hctx = await launchBrowser(profileDir, true, onLog);
-  const hpage = hctx.pages()[0] || await hctx.newPage();
-  await hpage.goto(BOARD_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
-  await new Promise(r => setTimeout(r, 4000));
-
-  cachedContext = hctx; cachedPage = hpage;
-  onLog?.('✅ [Dropshot] 준비 완료');
-  return hpage;
+  throw new Error('Dropshot 로그인이 필요합니다. 이미지 생성 탭에서 "리더스 나노바나나 로그인"을 먼저 완료해주세요.');
 }
 
 // ═══════════════════════════════════════════════════
@@ -725,25 +803,7 @@ export async function checkDropshotLogin(options: { force?: boolean } = {}): Pro
       }
     }
 
-    const info = await page.evaluate(async () => {
-      try {
-        // /v1/user/{externalId} 엔드포인트로 확인 — 사이트 UI가 정상 호출하면 200
-        const cookies = document.cookie;
-        const cognitoMatch = cookies.match(/CognitoIdentityServiceProvider\.[^.]+\.LastAuthUser=([^;]+)/);
-        if (!cognitoMatch) return { loggedIn: false, message: 'Cognito 쿠키 없음 — 로그인 필요' };
-
-        // 사이트의 fetch wrapper를 통해 자체 user info 조회 — page 내부에서 fetch (자동 인증)
-        const res = await fetch('/api/me', { credentials: 'include' }).catch(() => null);
-        if (res && res.ok) {
-          const data = await res.json();
-          return { loggedIn: true, userName: data?.name, email: data?.email, userId: data?.externalId, message: 'OK' };
-        }
-        // 대체: localStorage 또는 다른 source
-        return { loggedIn: true, message: 'Cognito 세션 있음 (상세 조회는 사이트 내에서)' };
-      } catch (e: any) {
-        return { loggedIn: false, message: `evaluate err: ${e.message}` };
-      }
-    });
+    const info = await getDropshotSessionInfo(page);
 
     // 구독 상태 — best-effort (API 호출 실패해도 loggedIn 정보는 살림)
     let subscription: 'pro' | 'free' | 'unknown' = 'unknown';
@@ -772,6 +832,69 @@ export async function checkDropshotLogin(options: { force?: boolean } = {}): Pro
     const result = { loggedIn: false, message: `예외: ${e.message || e}` };
     _loginCheckCache = { ts: Date.now(), result };
     return result;
+  }
+}
+
+/**
+ * 로그인 쿠키만이 아니라, 현재 board에서 실제 이미지 생성 컨트롤까지 확인한다.
+ * 이 검사는 생성 요청을 보내지 않는다. 환경설정/연속발행의 사전 점검용이다.
+ */
+export async function verifyDropshotGenerationReady(
+  options: { force?: boolean } = {},
+): Promise<DropshotGenerationReadiness> {
+  const login = await checkDropshotLogin({ force: options.force === true });
+  if (!login.loggedIn) {
+    return {
+      ...login,
+      ready: false,
+      message: login.message || 'Dropshot 로그인이 필요합니다.',
+    };
+  }
+
+  let context: any = cachedContext;
+  let page: any = cachedPage;
+  let openedFresh = false;
+  try {
+    if (!context || !page) {
+      context = await launchBrowser(getProfileDir(), true);
+      page = context.pages()[0] || await context.newPage();
+      openedFresh = true;
+    }
+    await page.goto(BOARD_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await wait(2_500);
+
+    const boardSession = await getDropshotSessionInfo(page);
+    if (!boardSession.loggedIn) {
+      return {
+        ...withDropshotSubscriptionMeta(login),
+        ready: false,
+        message: boardSession.message || 'Dropshot board 로그인 세션을 확인하지 못했습니다.',
+      };
+    }
+
+    const control = await resolveDropshotGenerateControl(page);
+    const status = withDropshotSubscriptionMeta({
+      ...login,
+      ...boardSession,
+    });
+    const readiness: DropshotGenerationReadiness = {
+      ...status,
+      ready: control.ready,
+      generateControl: control.candidate || control.detail,
+      message: control.ready
+        ? 'Dropshot 로그인과 실제 이미지 생성 버튼을 확인했습니다.'
+        : `${control.detail}. 자동완성/추천 버튼은 생성 버튼으로 사용하지 않습니다.`,
+    };
+    if (control.diagnostics) readiness.diagnostics = control.diagnostics;
+    return readiness;
+  } catch (error: any) {
+    return {
+      ...withDropshotSubscriptionMeta(login),
+      ready: false,
+      message: `Dropshot 생성 준비 확인 실패: ${error?.message || error}`,
+    };
+  } finally {
+    if (openedFresh && context) await closeDropshotContext(context);
   }
 }
 
@@ -975,11 +1098,27 @@ async function _makeDropshotImageInternal(
         await fillDropshotPrompt(page, promptWithVariation);
         await wait(1000);
 
-        // 4. 생성 버튼 클릭 — UI 변경 대비 다중 fallback
-        const clickResult = await clickDropshotGenerate(page);
-        onLog?.(`🖱️ [Dropshot] 생성 실행: ${clickResult.detail}`);
-        if (!clickResult.clicked && clickResult.diagnostics) {
-          onLog?.(`⚠️ [Dropshot] 생성 버튼 진단: ${clickResult.diagnostics.slice(0, 240)}`);
+        // 4. 실제 생성 버튼만 클릭하고, 요청 시작 신호를 바로 확인한다.
+        // 자동완성처럼 prompt 가까이에 있는 보조 버튼을 클릭한 뒤 210초를
+        // 기다리는 상황을 차단한다.
+        const startObserver = createDropshotGenerationStartObserver(page);
+        try {
+          const clickResult = await clickDropshotGenerate(page);
+          onLog?.(`🖱️ [Dropshot] 생성 실행: ${clickResult.detail}`);
+          if (!clickResult.clicked) {
+            if (clickResult.diagnostics) {
+              onLog?.(`⚠️ [Dropshot] 생성 버튼 진단: ${clickResult.diagnostics.slice(0, 240)}`);
+            }
+            throw new Error(`${clickResult.detail}. 자동완성/추천 버튼은 실행하지 않았습니다.`);
+          }
+
+          const started = await startObserver.waitForStart();
+          if (!started.started) {
+            throw new Error(`Dropshot 생성 요청이 시작되지 않았습니다: ${started.detail}`);
+          }
+          onLog?.(`✅ [Dropshot] 생성 요청 확인: ${started.detail}`);
+        } finally {
+          startObserver.dispose();
         }
 
         // 5. 결과 이미지 대기 — snapshot에 없던 NEW 이미지만 잡음
