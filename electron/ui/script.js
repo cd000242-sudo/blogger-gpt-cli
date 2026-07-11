@@ -1425,6 +1425,41 @@ window.refreshEngineLoginCards = function () {
 const DROPSHOT_LOGIN_OK_CACHE_MS = 10 * 60 * 1000;
 const DROPSHOT_LOGIN_FAIL_CACHE_MS = 30 * 1000;
 
+function normalizeDropshotSubscription(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'pro' || raw.includes('pro') || raw.includes('paid') || raw.includes('premium')) return 'pro';
+  if (raw === 'free' || raw === 'basic' || raw.includes('free')) return 'free';
+  return 'unknown';
+}
+
+window.normalizeDropshotLoginStatus = function (result) {
+  if (!result || result.loggedIn !== true) return result;
+  const subscription = normalizeDropshotSubscription(result.subscription);
+  const subscriptionLabel = subscription === 'pro'
+    ? 'Pro 구독자 무제한'
+    : (subscription === 'free' ? '무료 사용자' : '구독 정보 미확인');
+  return {
+    ...result,
+    subscription,
+    subscriptionKnown: subscription !== 'unknown',
+    subscriptionLabel: result.subscriptionLabel || subscriptionLabel,
+  };
+};
+
+window.getDropshotSubscriptionLabel = function (result) {
+  const normalized = window.normalizeDropshotLoginStatus?.(result) || result;
+  if (!normalized?.loggedIn) return '';
+  return normalized.subscriptionLabel || '구독 정보 미확인';
+};
+
+window.getDropshotSubscriptionNote = function (result) {
+  const normalized = window.normalizeDropshotLoginStatus?.(result) || result;
+  if (!normalized?.loggedIn) return '';
+  if (normalized.subscription === 'pro') return ' · ✅ Pro 구독자 무제한';
+  if (normalized.subscription === 'free') return ' · ⚠️ 무료 사용자';
+  return ' · 구독 정보 미확인';
+};
+
 function getFreshDropshotLoginCache(maxAgeMs) {
   const now = Date.now();
   let cache = window.__dropshotLoginCheckCache || null;
@@ -1439,13 +1474,15 @@ function getFreshDropshotLoginCache(maxAgeMs) {
     ? maxAgeMs
     : (cache.result.loggedIn ? DROPSHOT_LOGIN_OK_CACHE_MS : DROPSHOT_LOGIN_FAIL_CACHE_MS);
   if (now - cache.ts > ttl) return null;
+  cache.result = window.normalizeDropshotLoginStatus?.(cache.result) || cache.result;
   window.__dropshotLoginCheckCache = cache;
   return cache.result;
 }
 
 window.rememberDropshotLoginStatus = function (result) {
   if (!result) return;
-  const cache = { ts: Date.now(), result };
+  const normalized = window.normalizeDropshotLoginStatus?.(result) || result;
+  const cache = { ts: Date.now(), result: normalized };
   window.__dropshotLoginCheckCache = cache;
   try { sessionStorage.setItem('dropshotLoginCheckCache', JSON.stringify(cache)); } catch {}
 };
@@ -1458,7 +1495,7 @@ window.checkDropshotLoginCached = async function (options = {}) {
   }
   const result = await window.electronAPI?.invoke?.('dropshot:check-login', { force });
   window.rememberDropshotLoginStatus?.(result);
-  return result;
+  return window.normalizeDropshotLoginStatus?.(result) || result;
 };
 
 window.setBatchDropshotStatusIdle = function () {
@@ -1468,7 +1505,7 @@ window.setBatchDropshotStatusIdle = function () {
   const loginBtn = document.getElementById('batchDropshotLoginBtn');
   const cached = getFreshDropshotLoginCache();
   if (cached?.loggedIn) {
-    const subTxt = cached.subscription === 'pro' ? ' · Pro 구독자 무제한' : '';
+    const subTxt = window.getDropshotSubscriptionNote?.(cached) || '';
     if (icon) icon.textContent = '✅';
     if (title) title.textContent = '최근 로그인 확인됨';
     if (sub) sub.textContent = `${cached.userName || cached.email || '로그인 세션'}${subTxt}`;
@@ -1520,7 +1557,7 @@ window.handleDropshotCheckLogin = async function () {
       return;
     }
     if (r?.loggedIn) {
-      const subTxt = r.subscription === 'pro' ? ' · ✅ Pro 구독자 무제한' : (r.subscription === 'free' ? ' · ⚠️ 무료 사용자' : '');
+      const subTxt = window.getDropshotSubscriptionNote?.(r) || '';
       if (status) { status.textContent = `✅ 로그인됨${r.userName ? ' — ' + r.userName : ''}${subTxt}`; status.style.color = '#86efac'; }
     } else {
       if (status) { status.textContent = '🔐 ' + (r?.message || '로그인 필요 — 위 [로그인] 버튼 클릭'); status.style.color = '#fbbf24'; }
@@ -1853,20 +1890,21 @@ window.refreshDropshotLoginStatus = async function (options = {}) {
     }
 
     // 로그인 완료 — 구독 상태에 따라 분기
-    if (result.subscription === 'pro') {
+    const normalized = window.normalizeDropshotLoginStatus?.(result) || result;
+    if (normalized.subscription === 'pro') {
       if (icon) icon.textContent = '✅';
       if (title) title.textContent = `Pro 구독자 — 무제한 사용 가능`;
-      if (sub) sub.textContent = `로그인: ${result.userName || result.email || result.userId || '확인됨'} · 이미지당 추가비용 0원`;
+      if (sub) sub.textContent = `로그인: ${normalized.userName || normalized.email || normalized.userId || '확인됨'} · 이미지당 추가비용 0원`;
       if (loginBtn) loginBtn.style.display = 'none';
-    } else if (result.subscription === 'free') {
+    } else if (normalized.subscription === 'free') {
       if (icon) icon.textContent = '⚠️';
       if (title) title.textContent = `무료 사용자 — 일일 quota 안에서 작동`;
-      if (sub) sub.textContent = `로그인: ${result.userName || result.email || '확인됨'} · creditCost 75/장 (quota 소진 시 자동 실패)`;
+      if (sub) sub.textContent = `로그인: ${normalized.userName || normalized.email || '확인됨'} · creditCost 75/장 (quota 소진 시 자동 실패)`;
       if (loginBtn) loginBtn.style.display = 'none';
     } else {
       if (icon) icon.textContent = '👤';
       if (title) title.textContent = `로그인 완료 (구독 정보 미확인)`;
-      if (sub) sub.textContent = `${result.userName || result.email || result.userId || '확인됨'} — 사이트에서 직접 구독 확인 권장`;
+      if (sub) sub.textContent = `${normalized.userName || normalized.email || normalized.userId || '확인됨'} — Dropshot 플랜 API가 응답하지 않았지만 로그인 세션은 확인됐습니다.`;
       if (loginBtn) loginBtn.style.display = 'none';
     }
   } catch (e) {

@@ -60,6 +60,36 @@
   --transition-fast: 150ms ease;
   --transition-base: 250ms ease;
   --transition-slow: 350ms ease;
+  --app-motion-scale: 1;
+  --app-fast-transition: 150ms;
+  --app-base-transition: 250ms;
+}
+
+html.perf-balanced {
+  --transition-fast: var(--app-fast-transition);
+  --transition-base: var(--app-base-transition);
+  --transition-slow: 240ms ease;
+}
+
+html.perf-balanced * {
+  scroll-behavior: auto !important;
+}
+
+html.perf-balanced .card:hover,
+html.perf-balanced .btn:hover {
+  transform: none !important;
+}
+
+html.perf-reduced-motion *,
+html.app-background-paused * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+html.app-background-paused * {
+  animation-play-state: paused !important;
 }
 
 /* Reset & Base */

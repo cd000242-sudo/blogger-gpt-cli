@@ -1,5 +1,6 @@
 // 🔧 메인 모듈 - 모든 모듈 통합 및 초기화
 
+import '../performance-optimizer.js';
 import { DOMCache, getAppState, getStorageManager, ButtonStateManager, getProgressManager, addLog, debugLog } from './core.js';
 import { showTab, openSettingsModal, closeSettingsModal, showProgressModal, hideProgressModal, setRunning, cancelProgress, startAutoBackup, openPexelsApiPage, openDalleApiPage, openNaverApiPage, openGoogleOAuthPage, openGoogleTrends, openGeminiApiPage, openGoogleCseApiPage, openKeywordMasterModal, closeKeywordMasterModal, openKeywordMaster, togglePlatformFields, showNotification } from './ui.js';
 import { openExternalLinksModal, closeExternalLinksModal } from './external-links.js';
@@ -22,11 +23,36 @@ window.__bgptUseModuleProgressListener = true;
 const deferredModuleCache = new Map();
 
 function idleTask(callback, timeout = 1800) {
+  if (window.performanceOptimizer?.scheduleIdle) {
+    window.performanceOptimizer.scheduleIdle(callback, { timeout });
+    return;
+  }
   if (typeof window.requestIdleCallback === 'function') {
     window.requestIdleCallback(callback, { timeout });
     return;
   }
   setTimeout(callback, Math.min(timeout, 1200));
+}
+
+async function runDeferredGroup(tasks, label, options = {}) {
+  const runner = window.performanceOptimizer?.runChunked;
+  const wrappedTasks = tasks.map(([name, task]) => async () => {
+    try {
+      return await task();
+    } catch (error) {
+      console.warn(`[${label}] deferred task failed: ${name}`, error);
+      return null;
+    }
+  });
+  if (runner) {
+    return runner.call(window.performanceOptimizer, wrappedTasks, options);
+  }
+  const results = [];
+  for (const task of wrappedTasks) {
+    results.push(await task());
+    await new Promise(resolve => setTimeout(resolve, options.gapMs ?? 80));
+  }
+  return results;
 }
 
 function loadDeferredModule(key, importer) {
@@ -84,15 +110,19 @@ function installDeferredGlobalWrappers() {
 
 function scheduleDeferredStartupModules() {
   idleTask(async () => {
-    try { await loadDeferredModule('leword-launcher', () => import('./leword-launcher.js')); } catch {}
-    try { await loadDeferredModule('quality-report-modal', () => import('./quality-report-modal.js')); } catch {}
+    await runDeferredGroup([
+      ['leword-launcher', () => loadDeferredModule('leword-launcher', () => import('./leword-launcher.js'))],
+      ['quality-report-modal', () => loadDeferredModule('quality-report-modal', () => import('./quality-report-modal.js'))],
+    ], 'STARTUP-A', { chunkSize: 1, gapMs: 70 });
   }, 900);
 
   idleTask(async () => {
-    try { await loadDeferredModule('semi-auto', () => import('./semi-auto.js')); } catch {}
-    try { await loadDeferredModule('internal-links', () => import('./internal-links.js')); } catch {}
-    try { await loadDeferredModule('external-traffic', () => import('./external-traffic.js')); } catch {}
-    try { await loadDeferredModule('adsense-tools', () => import('./adsense-tools.js')); } catch {}
+    await runDeferredGroup([
+      ['semi-auto', () => loadDeferredModule('semi-auto', () => import('./semi-auto.js'))],
+      ['internal-links', () => loadDeferredModule('internal-links', () => import('./internal-links.js'))],
+      ['external-traffic', () => loadDeferredModule('external-traffic', () => import('./external-traffic.js'))],
+      ['adsense-tools', () => loadDeferredModule('adsense-tools', () => import('./adsense-tools.js'))],
+    ], 'STARTUP-B', { chunkSize: 1, gapMs: 95 });
   }, 1600);
 
   idleTask(async () => {

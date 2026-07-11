@@ -1067,19 +1067,20 @@ const ProgressManager = (() => {
     }
 
     updateStepProgress(percentage) {
-      console.log(`📊 단계별 진행률 업데이트: ${percentage}%`);
-
       if (!this.elements.progressBarFill || !this.elements.progressText) this.init();
 
       const clampedPercentage = Math.min(100, Math.max(0, percentage));
+      const rounded = Math.round(clampedPercentage);
+      if (this._lastStepProgress === rounded) return;
+      this._lastStepProgress = rounded;
 
       if (this.elements.progressBarFill) {
-        this.elements.progressBarFill.style.transition = 'width 0.2s ease-out';
+        this.elements.progressBarFill.style.transition = 'width var(--app-fast-transition, 0.2s) ease-out';
         this.elements.progressBarFill.style.width = `${clampedPercentage}%`;
       }
 
       if (this.elements.progressText) {
-        this.elements.progressText.textContent = `${Math.round(clampedPercentage)}%`;
+        this.elements.progressText.textContent = `${rounded}%`;
       }
 
       this.updateOverallProgressBar(clampedPercentage);
@@ -1092,26 +1093,23 @@ const ProgressManager = (() => {
     }
 
     updateOverallProgressBar(percentage) {
-      this.overallProgress = Math.min(100, Math.max(0, percentage));
-      console.log(`📈 전체 진행률 업데이트: ${this.overallProgress}%`);
+      const nextProgress = Math.min(100, Math.max(0, percentage));
+      const rounded = Math.round(nextProgress);
+      if (this._lastOverallProgress === rounded) return;
+      this._lastOverallProgress = rounded;
+      this.overallProgress = nextProgress;
 
       // 진행률 바 업데이트 (금색, 부드러운 애니메이션) - premiumProgressBar 내부의 progressFill
       const progressFill = document.getElementById('progressFill');
       if (progressFill) {
-        progressFill.style.transition = 'width 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+        progressFill.style.transition = 'width var(--app-base-transition, 0.8s) cubic-bezier(0.25, 0.46, 0.45, 0.94)';
         progressFill.style.width = `${this.overallProgress}%`;
-        console.log(`✅ progressFill 업데이트: ${this.overallProgress}%`);
-      } else {
-        console.warn('⚠️ progressFill 요소를 찾을 수 없음');
       }
 
       // 진행률 퍼센트 텍스트 업데이트 - premiumProgressBar 내부의 progressPercentage
       const progressPercentage = document.getElementById('progressPercentage');
       if (progressPercentage) {
-        progressPercentage.textContent = `${Math.round(this.overallProgress)}%`;
-        console.log(`✅ progressPercentage 업데이트: ${Math.round(this.overallProgress)}%`);
-      } else {
-        console.warn('⚠️ progressPercentage 요소를 찾을 수 없음');
+        progressPercentage.textContent = `${rounded}%`;
       }
 
       // 시간 정보 업데이트
@@ -1120,12 +1118,12 @@ const ProgressManager = (() => {
       if (!this.elements.fillEl || !this.elements.textEl) this.init();
 
       if (this.elements.fillEl) {
-        this.elements.fillEl.style.transition = 'width 0.3s ease-out';
+        this.elements.fillEl.style.transition = 'width var(--app-fast-transition, 0.3s) ease-out';
         this.elements.fillEl.style.width = `${this.overallProgress}%`;
       }
 
       if (this.elements.textEl) {
-        this.elements.textEl.textContent = `${Math.round(this.overallProgress)}%`;
+        this.elements.textEl.textContent = `${rounded}%`;
       }
     }
 
@@ -1145,7 +1143,6 @@ const ProgressManager = (() => {
           this.elements.circle.style.filter = 'drop-shadow(0 0 10px rgba(76, 175, 80, 0.5))';
         }
 
-        console.log(`🎯 진행률: ${percentage}%, 오프셋: ${offset}`);
       }
     }
 
@@ -1158,6 +1155,8 @@ const ProgressManager = (() => {
       this.progressStartTime = Date.now();
       this.overallProgress = 0;
       this.currentProgress = 0;
+      this._lastStepProgress = null;
+      this._lastOverallProgress = null;
       if (this.progressAnimationId) {
         cancelAnimationFrame(this.progressAnimationId);
         this.progressAnimationId = null;
@@ -1282,9 +1281,12 @@ export function sanitizeHTML(html, options = {}) {
 // 로그 관리 객체
 const LogManager = {
   logContent: null,
+  maxEntries: 360,
+  scrollScheduled: false,
 
   init() {
     this.logContent = document.getElementById('logContent');
+    this.maxEntries = window.performanceOptimizer?.getLogLimit?.() || this.maxEntries;
   },
 
   getLogContent() {
@@ -1358,21 +1360,42 @@ const LogManager = {
       }
 
       logContent.appendChild(logEntry);
-
-      // 부드럽게 스크롤 (진행상황 로그와 동기화)
-      requestAnimationFrame(() => {
-        const logContainer = document.getElementById('logContainer');
-        if (logContainer) {
-          logContainer.scrollTo({
-            top: logContainer.scrollHeight,
-            behavior: 'smooth'
-          });
-        } else {
-          // 폴백: 직접 스크롤
-          logContent.scrollTop = logContent.scrollHeight;
-        }
-      });
+      this.trim(logContent);
+      this.scheduleScroll(logContent);
     }
+  },
+
+  trim(logContent) {
+    const max = this.maxEntries || 360;
+    const overflow = logContent.children.length - max;
+    if (overflow <= 0) return;
+    const removeCount = Math.min(overflow, 40);
+    for (let i = 0; i < removeCount; i++) {
+      logContent.firstElementChild?.remove();
+    }
+  },
+
+  scheduleScroll(logContent) {
+    if (this.scrollScheduled) return;
+    this.scrollScheduled = true;
+    const runner = window.performanceOptimizer?.requestFrame
+      ? (cb) => window.performanceOptimizer.requestFrame('log-scroll', cb)
+      : requestAnimationFrame;
+    runner(() => {
+      this.scrollScheduled = false;
+      const logContainer = document.getElementById('logContainer');
+      const target = logContainer || logContent;
+      if (!target) return;
+      const smooth = document.documentElement.dataset.perfTier !== 'balanced' && !document.hidden;
+      if (typeof target.scrollTo === 'function') {
+        target.scrollTo({
+          top: target.scrollHeight,
+          behavior: smooth ? 'smooth' : 'auto'
+        });
+      } else {
+        target.scrollTop = target.scrollHeight;
+      }
+    });
   },
 
   clear() {
@@ -1386,18 +1409,6 @@ const LogManager = {
 // 로그 추가 함수 (진행상황 로그와 동기화, 부드럽게 스크롤)
 export function addLog(message, type = 'info') {
   LogManager.add(message, type);
-
-  // 로그 컨테이너를 부드럽게 스크롤
-  const logContainer = document.getElementById('logContainer');
-  if (logContainer) {
-    // requestAnimationFrame을 사용하여 부드럽게 스크롤
-    requestAnimationFrame(() => {
-      logContainer.scrollTo({
-        top: logContainer.scrollHeight,
-        behavior: 'smooth'
-      });
-    });
-  }
 }
 
 // 로그 지우기

@@ -6919,6 +6919,7 @@ const AGENT_MODE_REQUIRED_NAME = '스탠다드 (3개월)';
 // v3.8.304: 12분 → 25분 (사용자 보고: 외부유입글 일부 작성 안 됨. 심층 리서치(v3.8.292+)로 14-20분 걸리는 케이스 timeout으로 실패).
 const AGENT_JOB_TIMEOUT_MS = 25 * 60 * 1000;
 const AGENT_LOGIN_URL_WAIT_MS = 25000;
+const AGENT_LOGIN_VERIFY_TIMEOUT_MS = 45 * 1000;
 const CODEX_AGENT_DEFAULT_MODEL = 'gpt-5.5';
 const CODEX_CHATGPT_MODEL_ERROR_RE = /not supported when using Codex with a ChatGPT account|gpt-5\.3-codex/i;
 const CODEX_UPGRADE_REQUIRED_RE = /requires a newer version of Codex/i;
@@ -6929,6 +6930,7 @@ const CODEX_UPGRADE_REQUIRED_RE = /requires a newer version of Codex/i;
 //             ③ codex login이 다른 워크스페이스로 잘못 매핑
 const CODEX_OUT_OF_CREDITS_RE = /out of credits|workspace.{0,20}credit|insufficient.{0,20}(quota|credit)|exceeded.{0,20}quota|billing.{0,20}(limit|hard cap)/i;
 const CODEX_AUTH_REQUIRED_RE = /not (?:logged in|authenticated)|please (?:log in|login)|run `codex login`|authentication required|401\s*unauthorized/i;
+const AGENT_AUTH_REQUIRED_RE = /not (?:logged in|authenticated)|please (?:log in|login)|login required|authentication required|auth(?:entication)? failed|unauthorized|401|run [`"]?(?:codex login|claude)[`"]?|invalid api key|no api key|oauth token/i;
 
 function isAgentModeDevOverride(): boolean {
   return !app.isPackaged || process.env.DEV_MODE === 'true' || process.env.NODE_ENV === 'development';
@@ -7250,6 +7252,19 @@ function findAgentProfile(profileId?: string, provider?: string): AgentProfile |
   }
   const normalizedProvider = provider ? normalizeAgentProvider(provider) : null;
   return profiles.find((item) => !normalizedProvider || item.provider === normalizedProvider) || null;
+}
+
+function updateAgentProfileStatus(profileId: string, status: AgentProfile['status']): AgentProfile | null {
+  const profiles = loadAgentProfiles();
+  let updated: AgentProfile | null = null;
+  const now = new Date().toISOString();
+  const next = profiles.map((profile) => {
+    if (profile.id !== profileId) return profile;
+    updated = { ...profile, status, updatedAt: now };
+    return updated;
+  });
+  if (updated) saveAgentProfiles(next);
+  return updated;
 }
 
 function sanitizeJobTitle(value: unknown): string {
@@ -9082,6 +9097,120 @@ function resolveAgentBinaryCommand(provider: AgentModeProvider): string {
   return getAgentBinaryCandidates(binaryName)[0] || binaryName;
 }
 
+type AgentLoginVerification = {
+  ok: boolean;
+  ready: boolean;
+  verified: boolean;
+  provider: AgentModeProvider;
+  profileId: string;
+  timedOut?: boolean;
+  exitCode?: number | null;
+  quotaExceeded?: boolean;
+  authRequired?: boolean;
+  message: string;
+  stdout?: string;
+  stderr?: string;
+};
+
+function buildAgentLoginVerifyCommand(profile: AgentProfile): { command: string; args: string[] } {
+  const prompt = 'Reply exactly AUTH_OK. Do not write files. Do not browse.';
+  if (profile.provider === 'codex') {
+    return {
+      command: resolveAgentBinaryCommand(profile.provider),
+      args: ['exec', '--json', '--sandbox', 'read-only', '--skip-git-repo-check', prompt],
+    };
+  }
+  return {
+    command: resolveAgentBinaryCommand(profile.provider),
+    args: ['-p', '--permission-mode', 'dontAsk', '--max-turns', '1', '--output-format', 'json', prompt],
+  };
+}
+
+async function verifyAgentLoginSession(profile: AgentProfile): Promise<AgentLoginVerification> {
+  return new Promise((resolve) => {
+    const { spawn } = require('child_process') as typeof import('child_process');
+    const { command, args } = buildAgentLoginVerifyCommand(profile);
+    const env = buildAgentRunEnv(profile);
+    env.NO_COLOR = '1';
+    const jobDir = path.join(app.getPath('userData'), 'agent-login-checks', profile.provider, profile.id);
+    fs.mkdirSync(jobDir, { recursive: true });
+
+    const isWindows = process.platform === 'win32';
+    const useShell = isWindows && (!path.extname(command) || /\.(cmd|bat)$/i.test(command));
+    const spawnCommand = useShell ? buildShellCommandLine(command, args) : command;
+    const spawnArgs = useShell ? [] : args;
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    let timedOut = false;
+    let child: any = null;
+    let timer: NodeJS.Timeout;
+
+    const finish = (exitCode: number | null, errorMessage = '') => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const combined = `${stdout}\n${stderr}\n${errorMessage}`;
+      const quotaExceeded = profile.provider === 'codex'
+        ? CODEX_OUT_OF_CREDITS_RE.test(combined) || /5\s*hour.*limit|hourly.*limit/i.test(combined)
+        : /usage limit|rate limit|quota|too many requests/i.test(combined);
+      const authRequired = profile.provider === 'codex'
+        ? CODEX_AUTH_REQUIRED_RE.test(combined) || AGENT_AUTH_REQUIRED_RE.test(combined)
+        : AGENT_AUTH_REQUIRED_RE.test(combined);
+      const ready = !timedOut && !authRequired && !quotaExceeded && exitCode === 0;
+
+      if (ready) updateAgentProfileStatus(profile.id, 'ready');
+      else if (authRequired) updateAgentProfileStatus(profile.id, 'needs-login');
+
+      const label = profile.provider === 'claude' ? 'Claude Code' : 'Codex';
+      resolve({
+        ok: ready || authRequired || quotaExceeded || timedOut,
+        ready,
+        verified: true,
+        provider: profile.provider,
+        profileId: profile.id,
+        timedOut,
+        exitCode,
+        quotaExceeded,
+        authRequired,
+        message: ready
+          ? `${label} 로그인 세션이 실제 실행으로 확인되었습니다.`
+          : quotaExceeded
+            ? `${label} 로그인은 되어 있지만 구독 사용량/한도에 걸려 지금은 실행할 수 없습니다.`
+            : authRequired
+              ? `${label} 인증이 만료되었거나 현재 프로필에 로그인 세션이 없습니다. 로그인 창 열기로 다시 로그인해주세요.`
+              : timedOut
+                ? `${label} 로그인 세션 확인이 시간 초과되었습니다. CLI 로그인 창이 막혀 있거나 네트워크가 느릴 수 있습니다.`
+                : `${label} 로그인 세션 확인 실패: ${errorMessage || stderr || stdout || `exitCode=${exitCode}`}`,
+        stdout: stdout.slice(-4000),
+        stderr: stderr.slice(-4000),
+      });
+    };
+
+    timer = setTimeout(() => {
+      timedOut = true;
+      try { child?.kill(); } catch { /* ignore */ }
+      finish(null, 'timeout');
+    }, AGENT_LOGIN_VERIFY_TIMEOUT_MS);
+
+    try {
+      child = spawn(spawnCommand, spawnArgs, {
+        cwd: jobDir,
+        env,
+        shell: useShell,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+      child.stdout?.on('data', (chunk: Buffer | string) => { stdout = (stdout + String(chunk || '')).slice(-20000); });
+      child.stderr?.on('data', (chunk: Buffer | string) => { stderr = (stderr + String(chunk || '')).slice(-20000); });
+      child.on('error', (error: Error) => finish(null, error.message));
+      child.on('close', (exitCode: number | null) => finish(exitCode ?? null));
+    } catch (error) {
+      finish(null, error instanceof Error ? error.message : String(error || 'spawn failed'));
+    }
+  });
+}
+
 function testAgentBinary(binaryPath: string, binaryName: string): Promise<{ usable: boolean; version?: string; error?: string }> {
   return new Promise((resolve) => {
     try {
@@ -9328,7 +9457,7 @@ ipcMain.handle('agent-mode:get-login-command', async (_evt, args: { id?: string 
   }
 });
 
-ipcMain.handle('agent-mode:check-login', async (_evt, args: { id?: string; provider?: string }) => {
+ipcMain.handle('agent-mode:check-login', async (_evt, args: { id?: string; provider?: string; verify?: boolean }) => {
   try {
     const profiles = refreshAgentProfileStatuses();
     const normalizedProvider = args?.provider ? normalizeAgentProvider(args.provider) : null;
@@ -9336,9 +9465,34 @@ ipcMain.handle('agent-mode:check-login', async (_evt, args: { id?: string; provi
       || profiles.find((item) => !normalizedProvider || item.provider === normalizedProvider)
       || null;
 
+    if (args?.verify && profile) {
+      const verification = await verifyAgentLoginSession(profile);
+      const refreshedProfiles = refreshAgentProfileStatuses();
+      const refreshedProfile = refreshedProfiles.find((item) => item.id === profile.id) || profile;
+      return {
+        ok: verification.ok,
+        ready: verification.ready,
+        verified: verification.verified,
+        authRequired: verification.authRequired,
+        quotaExceeded: verification.quotaExceeded,
+        timedOut: verification.timedOut,
+        message: verification.message,
+        error: verification.ready ? '' : verification.message,
+        exitCode: verification.exitCode,
+        profile: toAgentProfileView(refreshedProfile),
+        profiles: refreshedProfiles.map(toAgentProfileView),
+        stdout: verification.stdout,
+        stderr: verification.stderr,
+      };
+    }
+
     return {
       ok: true,
       ready: profile?.status === 'ready',
+      verified: false,
+      message: profile?.status === 'ready'
+        ? '저장된 로그인 세션 파일이 감지되었습니다. 실제 실행 확인은 세션 확인 버튼으로 진행합니다.'
+        : '로그인 세션 파일을 찾지 못했습니다.',
       profile: profile ? toAgentProfileView(profile) : null,
       profiles: profiles.map(toAgentProfileView),
     };
@@ -9456,6 +9610,20 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
       return {
         ok: false,
         error: '사용할 Agent 계정 준비가 없습니다. 로그인 창 열기로 공식 로그인을 먼저 진행하세요.',
+      };
+    }
+
+    const loginVerification = await verifyAgentLoginSession(profile);
+    if (!loginVerification.ready) {
+      return {
+        ok: false,
+        profile: toAgentProfileView(findAgentProfile(profile.id, profile.provider) || profile),
+        error: loginVerification.message,
+        authRequired: loginVerification.authRequired,
+        quotaExceeded: loginVerification.quotaExceeded,
+        timedOut: loginVerification.timedOut,
+        stdout: loginVerification.stdout,
+        stderr: loginVerification.stderr,
       };
     }
 
@@ -10861,6 +11029,25 @@ try {
 // 🍌 v3.6.7: Dropshot 로그인/체크 IPC + 대량 이미지 생성 IPC
 //   main.ts에 직접 등록 (main.js만 수정 시 다음 빌드에서 덮어씌워지던 이전 버그 fix)
 // 🛡️ v3.7.11: license gate — 무료체험/none/expired는 dropshot 진입 자체 차단.
+function normalizeDropshotIpcStatus(raw: any): any {
+  if (!raw || raw.loggedIn !== true) return raw;
+  const subscriptionRaw = String(raw.subscription || '').trim().toLowerCase();
+  const subscription =
+    subscriptionRaw === 'pro' || subscriptionRaw.includes('pro') || subscriptionRaw.includes('paid') || subscriptionRaw.includes('premium')
+      ? 'pro'
+      : (subscriptionRaw === 'free' || subscriptionRaw === 'basic' || subscriptionRaw.includes('free') ? 'free' : 'unknown');
+  const subscriptionLabel =
+    subscription === 'pro'
+      ? 'Pro 구독자 무제한'
+      : (subscription === 'free' ? '무료 사용자' : '구독 정보 미확인');
+  return {
+    ...raw,
+    subscription,
+    subscriptionKnown: subscription !== 'unknown',
+    subscriptionLabel: raw.subscriptionLabel || subscriptionLabel,
+  };
+}
+
 try {
   const { checkDropshotLogin, loginDropshot } = require('../dist/core/dropshotGenerator');
   ipcMain.handle('dropshot:check-login', async (_event, options?: { force?: boolean }) => {
@@ -10870,7 +11057,7 @@ try {
       if (!access.allowed) {
         return { loggedIn: false, message: access.message, code: `PAYMENT_REQUIRED:${access.reason}`, paymentUrl: access.paymentUrl, kakaoUrl: access.kakaoUrl };
       }
-      return await checkDropshotLogin({ force: options?.force === true });
+      return normalizeDropshotIpcStatus(await checkDropshotLogin({ force: options?.force === true }));
     }
     catch (e: any) { return { loggedIn: false, message: e.message || 'Dropshot 로그인 확인 실패' }; }
   });
@@ -10881,7 +11068,7 @@ try {
       if (!access.allowed) {
         return { loggedIn: false, message: access.message, code: `PAYMENT_REQUIRED:${access.reason}`, paymentUrl: access.paymentUrl, kakaoUrl: access.kakaoUrl };
       }
-      return await loginDropshot();
+      return normalizeDropshotIpcStatus(await loginDropshot());
     }
     catch (e: any) { return { loggedIn: false, message: e.message || 'Dropshot 로그인 실패' }; }
   });

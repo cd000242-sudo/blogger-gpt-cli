@@ -46,6 +46,51 @@ describe('image Flow and Dropshot UI regression guard', () => {
     expect(dropshot).toContain('Dropshot 프롬프트 입력창을 찾지 못했습니다 (${diagnostics})');
   });
 
+  test('Dropshot login status never exposes raw unknown subscription labels', () => {
+    const script = read('electron/ui/script.js');
+    const queue = read('electron/ui/modules/publish-queue.js');
+    const spider = read('electron/ui/modules/internal-links.js');
+    const main = read('electron/main.ts');
+    const dropshot = read('src/core/dropshotGenerator.ts');
+
+    expect(script).toContain('window.normalizeDropshotLoginStatus = function');
+    expect(script).toContain('구독 정보 미확인');
+    expect(queue).toContain('getDropshotQueueLoginLabel');
+    expect(queue).toContain('구독 정보 미확인');
+    expect(spider).toContain('getSpiderDropshotSubscriptionNote');
+    expect(main).toContain('normalizeDropshotIpcStatus');
+    expect(dropshot).toContain('subscriptionKnown?: boolean');
+    expect(dropshot).toContain('subscriptionLabel?: string');
+    expect(queue).not.toContain("r.subscription || 'unknown'");
+  });
+
+  test('Dropshot visible login closes browser contexts safely and skips visible window when already logged in', () => {
+    const dropshot = read('src/core/dropshotGenerator.ts');
+
+    expect(dropshot).toContain('async function closeDropshotContext');
+    expect(dropshot).toContain('page?.close?.({ runBeforeUnload: false })');
+    expect(dropshot).toContain('const preCheck = await checkDropshotLogin({ force: true })');
+    expect(dropshot).toContain('if (preCheck.loggedIn)');
+    expect(dropshot).toContain('이미 로그인되어 있습니다.');
+    expect(dropshot).toContain('await closeDropshotContext(context)');
+    expect(dropshot.match(/await context\.close\(\);/g) || []).toHaveLength(1);
+  });
+
+  test('Dropshot generation waits long enough and detects modern result image URLs', () => {
+    const dropshot = read('src/core/dropshotGenerator.ts');
+
+    expect(dropshot).toContain('const DROPSHOT_RESULT_WAIT_MS = 210_000');
+    expect(dropshot).toContain('async function findDropshotResultDataUrl');
+    expect(dropshot).toContain("src.startsWith('blob:')");
+    expect(dropshot).toContain('img.currentSrc');
+    expect(dropshot).toContain("img.getAttribute('srcset')");
+    expect(dropshot).toContain('backgroundImage');
+    expect(dropshot).toContain('결과 대기 중...');
+    expect(dropshot).toContain('결과 감지 진단');
+    expect(dropshot).not.toContain('90초 내 결과 이미지 미발견');
+    expect(dropshot).not.toContain('while ((Date.now() - startTs) < 85_000)');
+  });
+
   test('renderer script remains valid JavaScript', () => {
     const script = read('electron/ui/script.js');
 

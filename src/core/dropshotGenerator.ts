@@ -45,13 +45,68 @@ type DropshotLoginStatus = {
   userName?: string;
   email?: string;
   subscription?: 'pro' | 'free' | 'unknown';
+  subscriptionKnown?: boolean;
+  subscriptionLabel?: string;
   message?: string;
   cached?: boolean;
+};
+
+type DropshotClickResult = {
+  clicked: boolean;
+  detail: string;
+  diagnostics?: string;
+};
+
+type DropshotImageCandidate = {
+  src: string;
+  width: number;
+  height: number;
+  area: number;
+  kind: string;
 };
 
 let _loginCheckCache: { ts: number; result: DropshotLoginStatus } | null = null;
 const LOGIN_CHECK_OK_TTL_MS = 10 * 60 * 1000;
 const LOGIN_CHECK_FAIL_TTL_MS = 30 * 1000;
+const DROPSHOT_RESULT_WAIT_MS = 210_000;
+const DROPSHOT_RESULT_POLL_MS = 2_500;
+
+function normalizeDropshotSubscription(value: unknown): 'pro' | 'free' | 'unknown' {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'pro' || raw.includes('pro') || raw.includes('paid') || raw.includes('premium')) return 'pro';
+  if (raw === 'free' || raw === 'basic' || raw.includes('free')) return 'free';
+  return 'unknown';
+}
+
+function getDropshotSubscriptionLabel(subscription: unknown): string {
+  const normalized = normalizeDropshotSubscription(subscription);
+  if (normalized === 'pro') return 'Pro 구독자 무제한';
+  if (normalized === 'free') return '무료 사용자';
+  return '구독 정보 미확인';
+}
+
+function withDropshotSubscriptionMeta<T extends DropshotLoginStatus>(status: T): T {
+  if (!status?.loggedIn) return status;
+  const subscription = normalizeDropshotSubscription(status.subscription);
+  return {
+    ...status,
+    subscription,
+    subscriptionKnown: subscription !== 'unknown',
+    subscriptionLabel: status.subscriptionLabel || getDropshotSubscriptionLabel(subscription),
+  };
+}
+
+async function closeDropshotContext(context: any, delayMs = 350): Promise<void> {
+  if (!context) return;
+  try {
+    const pages = typeof context.pages === 'function' ? context.pages() : [];
+    await Promise.allSettled(
+      pages.map((page: any) => page?.close?.({ runBeforeUnload: false }).catch?.(() => undefined) || Promise.resolve()),
+    );
+  } catch { /* ignore */ }
+  try { await context.close(); } catch { /* ignore */ }
+  if (delayMs > 0) await wait(delayMs);
+}
 
 // v3.7.3: generation mutex — dropshot은 단일 브라우저 페이지 공유하므로
 //   동시 호출 시 textarea가 덮어써져 마지막 prompt만 처리됨 (모든 결과가 마지막 prompt로 도배).
@@ -285,8 +340,55 @@ async function fillDropshotPrompt(page: any, prompt: string): Promise<void> {
   throw new Error(`Dropshot 프롬프트 입력창을 찾지 못했습니다 (${diagnostics})`);
 }
 
-async function clickDropshotGenerate(page: any): Promise<boolean> {
-  const clicked = await page.evaluate(() => {
+async function clickDropshotGenerate(page: any): Promise<DropshotClickResult> {
+  const result = await page.evaluate(() => {
+    const isVisible = (node: Element | null): boolean => {
+      if (!node) return false;
+      const rect = (node as HTMLElement).getBoundingClientRect?.();
+      const style = window.getComputedStyle?.(node);
+      return !!rect
+        && rect.width > 4
+        && rect.height > 4
+        && style?.display !== 'none'
+        && style?.visibility !== 'hidden'
+        && Number(style?.opacity || '1') > 0;
+    };
+
+    const buttonText = (button: HTMLButtonElement): string => [
+      button.textContent,
+      button.getAttribute('aria-label'),
+      button.title,
+      button.getAttribute('data-testid'),
+      button.getAttribute('type'),
+      button.className,
+    ].filter(Boolean).join(' ').trim();
+
+    const isBadButton = (button: HTMLButtonElement): boolean => {
+      const meta = buttonText(button);
+      return /업로드|upload|reference|참조|삭제|remove|trash|취소|cancel|닫기|close|로그인|login|요금|구독|플랜|plan|upgrade|무제한|unlimited|minus|plus|증가|감소|새\s*창/i.test(meta);
+    };
+
+    const scoreButton = (button: HTMLButtonElement, promptRect?: DOMRect | null): number => {
+      if (!isVisible(button) || button.disabled || button.getAttribute('aria-disabled') === 'true') return -999;
+      if (isBadButton(button)) return -100;
+      const meta = buttonText(button);
+      let score = 0;
+      if (/이미지\s*생성|생성하기|생성|만들기|만들|전송|보내기|generate|create|submit|send/i.test(meta)) score += 120;
+      if (button.type === 'submit') score += 60;
+      if (button.querySelector('svg,img')) score += 20;
+      const rect = button.getBoundingClientRect();
+      if (promptRect) {
+        const closeToPrompt = rect.left >= promptRect.left - 40
+          && rect.right <= promptRect.right + 120
+          && rect.top >= promptRect.top - 80
+          && rect.bottom <= promptRect.bottom + 140;
+        if (closeToPrompt) score += 35;
+        if (rect.left > promptRect.left + promptRect.width * 0.55) score += 15;
+      }
+      if (/absolute|right-|bottom-|rounded-full/i.test(meta)) score += 8;
+      return score;
+    };
+
     const findPrompt = (): Element | null => {
       const exact = document.querySelector('textarea[placeholder="어떤 장면을 만들고 싶나요?"]');
       if (exact) return exact;
@@ -310,33 +412,187 @@ async function clickDropshotGenerate(page: any): Promise<boolean> {
     };
 
     const promptEl = findPrompt();
+    const promptRect = promptEl ? (promptEl as HTMLElement).getBoundingClientRect?.() : null;
     if (promptEl) {
       let parent: Element | null = promptEl.parentElement;
       for (let depth = 0; depth < 7 && parent; depth++) {
-        const btn = Array.from(parent.querySelectorAll('button')).find((b: any) => {
-          const text = String(b.textContent || b.getAttribute('aria-label') || b.title || '');
-          return !b.disabled && (
-            b.classList.contains('absolute')
-            || /생성|만들|전송|generate|create|submit|send/i.test(text)
-          );
-        }) as HTMLButtonElement | undefined;
-        if (btn) { btn.click(); return true; }
+        const scored = Array.from(parent.querySelectorAll('button'))
+          .map((button: any) => ({ button: button as HTMLButtonElement, score: scoreButton(button as HTMLButtonElement, promptRect) }))
+          .sort((a, b) => b.score - a.score);
+        const best = scored[0];
+        if (best && best.score >= 40) {
+          best.button.click();
+          return { clicked: true, detail: `button score=${best.score} text="${buttonText(best.button).slice(0, 80)}"` };
+        }
         parent = parent.parentElement;
+      }
+
+      const form = promptEl.closest('form') as HTMLFormElement | null;
+      if (form) {
+        try {
+          form.requestSubmit();
+          return { clicked: true, detail: 'form.requestSubmit()' };
+        } catch { /* fallback below */ }
       }
     }
 
     const allButtons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
-    const fallback = allButtons.find((b: HTMLButtonElement) => {
-      const text = String(b.textContent || b.getAttribute('aria-label') || b.title || '');
-      return !b.disabled && /이미지\s*생성|생성|만들|전송|generate|create|submit|send/i.test(text);
-    });
-    if (fallback) { fallback.click(); return true; }
-    return false;
+    const fallback = allButtons
+      .map(button => ({ button, score: scoreButton(button, promptRect) }))
+      .sort((a, b) => b.score - a.score)[0];
+    if (fallback && fallback.score >= 90) {
+      fallback.button.click();
+      return { clicked: true, detail: `fallback score=${fallback.score} text="${buttonText(fallback.button).slice(0, 80)}"` };
+    }
+
+    const diagnostics = allButtons.slice(0, 16).map((button, idx) => {
+      const rect = button.getBoundingClientRect();
+      return `${idx + 1}:${button.disabled ? 'disabled' : 'enabled'}:${Math.round(rect.width)}x${Math.round(rect.height)}:${buttonText(button).slice(0, 60)}`;
+    }).join(' | ');
+    return {
+      clicked: false,
+      detail: '생성 버튼 후보를 찾지 못함',
+      diagnostics,
+    };
   });
-  if (!clicked) {
-    await page.keyboard.press('Enter');
+  if (!result.clicked) {
+    await page.keyboard.press('Enter').catch(() => {});
+    return {
+      ...result,
+      detail: `${result.detail}; Enter fallback 실행`,
+    };
   }
-  return !!clicked;
+  return result;
+}
+
+async function getDropshotImageSnapshot(page: any): Promise<string[]> {
+  return await page.evaluate(() => {
+    const out = new Set<string>();
+    const add = (value: string | null | undefined) => {
+      const raw = String(value || '').trim();
+      if (!raw) return;
+      for (const part of raw.split(',')) {
+        const url = part.trim().split(/\s+/)[0];
+        if (url) out.add(url);
+      }
+    };
+    for (const img of Array.from(document.querySelectorAll('img')) as HTMLImageElement[]) {
+      add(img.src);
+      add(img.currentSrc);
+      add(img.getAttribute('src'));
+      add(img.getAttribute('srcset'));
+    }
+    for (const source of Array.from(document.querySelectorAll('source')) as HTMLSourceElement[]) {
+      add(source.srcset);
+    }
+    for (const node of Array.from(document.querySelectorAll('*')) as HTMLElement[]) {
+      const bg = window.getComputedStyle(node).backgroundImage || '';
+      const match = bg.match(/url\(["']?([^"')]+)["']?\)/);
+      if (match?.[1]) add(match[1]);
+    }
+    return Array.from(out).filter(src =>
+      (src.startsWith('data:image/')
+        || src.startsWith('blob:')
+        || /^https?:\/\//i.test(src))
+      && !/\/icons?\/|\/sample\/|placeholder|avatar|logo|sprite|favicon|blank/i.test(src)
+    );
+  });
+}
+
+function isLikelyDropshotResultUrl(src: string): boolean {
+  const raw = String(src || '').trim();
+  if (!raw) return false;
+  if (/\/icons?\/|\/sample\/|placeholder|avatar|logo|sprite|favicon|blank/i.test(raw)) return false;
+  if (raw.startsWith('data:image/')) return raw.length > 20_000;
+  if (raw.startsWith('blob:')) return true;
+  return /aistudio\.dropshot\.io|dropshot|cdn|cloudfront|r2\.dev|storage|supabase|googleusercontent|oaidalleapiprodscus/i.test(raw);
+}
+
+async function getDropshotGenerationDiagnostics(page: any): Promise<string> {
+  return await page.evaluate(() => {
+    const text = (document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 360);
+    const imgs = Array.from(document.querySelectorAll('img')) as HTMLImageElement[];
+    const buttons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
+    const imageSummary = imgs.slice(-8).map((img, idx) => {
+      const src = img.currentSrc || img.src || '';
+      return `${idx + 1}:${img.naturalWidth}x${img.naturalHeight}:${src.slice(0, 70)}`;
+    }).join(' | ');
+    const buttonSummary = buttons.slice(-10).map((button, idx) => {
+      const meta = [button.textContent, button.getAttribute('aria-label'), button.title, button.getAttribute('type')]
+        .filter(Boolean).join('/').replace(/\s+/g, ' ').slice(0, 60);
+      return `${idx + 1}:${button.disabled ? 'disabled' : 'enabled'}:${meta}`;
+    }).join(' | ');
+    return `url=${location.href}; imgs=${imgs.length}; buttons=${buttons.length}; text="${text}"; recentImgs=${imageSummary}; recentButtons=${buttonSummary}`;
+  }).catch((e: any) => `diagnostics failed: ${e?.message || e}`);
+}
+
+async function urlToDataUrlInPage(page: any, url: string): Promise<string | null> {
+  if (url.startsWith('data:image/')) return url;
+  return await page.evaluate(async (imageUrl: string) => {
+    const response = await fetch(imageUrl);
+    if (!response.ok) throw new Error(`fetch failed ${response.status}`);
+    const blob = await response.blob();
+    if (!blob.type.startsWith('image/')) throw new Error(`not image ${blob.type}`);
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('blob read failed'));
+      reader.readAsDataURL(blob);
+    });
+  }, url).catch(() => null);
+}
+
+async function findDropshotResultDataUrl(page: any, beforeSrcs: string[], onLog?: (m: string) => void): Promise<string | null> {
+  const candidates: DropshotImageCandidate[] = await page.evaluate((before: string[]) => {
+    const beforeSet = new Set(before);
+    const out: DropshotImageCandidate[] = [];
+    const add = (src: string | null | undefined, width: number, height: number, kind: string) => {
+      const raw = String(src || '').trim();
+      if (!raw || beforeSet.has(raw)) return;
+      if (/\/icons?\/|\/sample\/|placeholder|avatar|logo|sprite|favicon|blank/i.test(raw)) return;
+      if (!(raw.startsWith('data:image/') || raw.startsWith('blob:') || /^https?:\/\//i.test(raw))) return;
+      if (width < 256 || height < 180) return;
+      out.push({ src: raw, width, height, area: width * height, kind });
+    };
+
+    for (const img of Array.from(document.querySelectorAll('img')) as HTMLImageElement[]) {
+      const width = img.naturalWidth || img.width || img.getBoundingClientRect().width || 0;
+      const height = img.naturalHeight || img.height || img.getBoundingClientRect().height || 0;
+      add(img.currentSrc || img.src, width, height, 'img');
+      add(img.getAttribute('src'), width, height, 'img-src');
+      const srcset = img.getAttribute('srcset') || '';
+      for (const part of srcset.split(',')) add(part.trim().split(/\s+/)[0], width, height, 'img-srcset');
+    }
+
+    for (const node of Array.from(document.querySelectorAll('*')) as HTMLElement[]) {
+      const rect = node.getBoundingClientRect();
+      const bg = window.getComputedStyle(node).backgroundImage || '';
+      const match = bg.match(/url\(["']?([^"')]+)["']?\)/);
+      if (match?.[1]) add(match[1], rect.width, rect.height, 'background');
+    }
+
+    return out
+      .filter(item => {
+        if (item.src.startsWith('data:image/')) return item.src.length > 20_000;
+        if (item.src.startsWith('blob:')) return true;
+        return /aistudio\.dropshot\.io|dropshot|cdn|cloudfront|r2\.dev|storage|supabase|googleusercontent|oaidalleapiprodscus/i.test(item.src);
+      })
+      .sort((a, b) => b.area - a.area);
+  }, beforeSrcs).catch(() => []);
+
+  if (!candidates.length) return null;
+  const firstCandidate = candidates[0];
+  if (firstCandidate) {
+    onLog?.(`🔎 [Dropshot] 결과 후보 ${candidates.length}개 감지: ${firstCandidate.kind} ${firstCandidate.width}x${firstCandidate.height}`);
+  }
+  for (const candidate of candidates.slice(0, 4)) {
+    if (!isLikelyDropshotResultUrl(candidate.src)) continue;
+    const dataUrl = await urlToDataUrlInPage(page, candidate.src);
+    if (dataUrl && dataUrl.startsWith('data:image/') && dataUrl.length > 20_000) {
+      return dataUrl;
+    }
+  }
+  return null;
 }
 
 export async function ensurePage(onLog?: (m: string) => void): Promise<any> {
@@ -350,7 +606,7 @@ export async function ensurePage(onLog?: (m: string) => void): Promise<any> {
           await wait(3000);
         }
         if (await isLoggedIn(cachedPage)) return cachedPage;
-        try { await cachedContext.close(); } catch { /* ignore */ }
+        await closeDropshotContext(cachedContext);
         cachedPage = null; cachedContext = null;
       } catch { /* 죽음 → 재초기화 */ }
     }
@@ -371,7 +627,7 @@ async function _ensurePageInternal(onLog?: (m: string) => void): Promise<any> {
       }
       if (await isLoggedIn(cachedPage)) return cachedPage;
       onLog?.('🔐 [Dropshot] 캐시 세션 만료 감지 — 로그인 흐름으로 전환');
-      try { await cachedContext.close(); } catch { /* ignore */ }
+      await closeDropshotContext(cachedContext);
       cachedPage = null; cachedContext = null;
     } catch {
       cachedPage = null; cachedContext = null;
@@ -395,7 +651,7 @@ async function _ensurePageInternal(onLog?: (m: string) => void): Promise<any> {
 
   // visible 로그인 유도
   onLog?.('🔐 [Dropshot] 로그인 필요 → 브라우저 표시 (최대 5분)');
-  await context.close();
+  await closeDropshotContext(context);
   context = await launchBrowser(profileDir, false, onLog);
   page = context.pages()[0] || await context.newPage();
   await page.goto('https://aistudio.dropshot.io', { waitUntil: 'domcontentloaded', timeout: 45000 });
@@ -411,10 +667,10 @@ async function _ensurePageInternal(onLog?: (m: string) => void): Promise<any> {
     } catch { continue; }
     if (i % 6 === 5) onLog?.(`⏳ [Dropshot] 로그인 대기 (${Math.round((i+1)*5/60)}분 경과)`);
   }
-  if (!loggedIn) { await context.close(); throw new Error('Dropshot 로그인 시간 초과'); }
+  if (!loggedIn) { await closeDropshotContext(context); throw new Error('Dropshot 로그인 시간 초과'); }
 
   // visible 닫고 headless로 재진입
-  await context.close();
+  await closeDropshotContext(context);
   const hctx = await launchBrowser(profileDir, true, onLog);
   const hpage = hctx.pages()[0] || await hctx.newPage();
   await hpage.goto(BOARD_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
@@ -462,7 +718,7 @@ export async function checkDropshotLogin(options: { force?: boolean } = {}): Pro
         await page.goto('https://aistudio.dropshot.io', { waitUntil: 'domcontentloaded', timeout: 30000 });
         await new Promise(r => setTimeout(r, 4000));
       } catch (e: any) {
-        if (openedFresh) { try { await context.close(); } catch {} }
+        if (openedFresh) { await closeDropshotContext(context); }
         const result = { loggedIn: false, message: `navigate 실패: ${e.message}` };
         _loginCheckCache = { ts: Date.now(), result };
         return result;
@@ -506,10 +762,10 @@ export async function checkDropshotLogin(options: { force?: boolean } = {}): Pro
 
     if (openedFresh) {
       // 캐시 안 했으면 닫기 (별도 ensurePage가 나중에 다시 띄움)
-      try { await context.close(); } catch {}
+      await closeDropshotContext(context);
     }
 
-    const result = { ...info, subscription };
+    const result = withDropshotSubscriptionMeta({ ...info, subscription });
     _loginCheckCache = { ts: Date.now(), result };
     return result;
   } catch (e: any) {
@@ -527,12 +783,29 @@ export async function checkDropshotLogin(options: { force?: boolean } = {}): Pro
 export async function loginDropshot(): Promise<{
   loggedIn: boolean;
   userName?: string;
+  subscription?: 'pro' | 'free' | 'unknown';
+  subscriptionKnown?: boolean;
+  subscriptionLabel?: string;
   message?: string;
 }> {
   try {
     const profileDir = getProfileDir();
+
+    const preCheck = await checkDropshotLogin({ force: true });
+    if (preCheck.loggedIn) {
+      const result = withDropshotSubscriptionMeta({
+        ...preCheck,
+        cached: false,
+        message: preCheck.subscriptionKnown
+          ? '이미 로그인되어 있습니다.'
+          : '이미 로그인되어 있습니다. 구독 정보는 사이트 응답 제한으로 미확인입니다.',
+      });
+      _loginCheckCache = { ts: Date.now(), result };
+      return result;
+    }
+
     // 기존 cached 닫기 (visible 새로 띄움)
-    if (cachedContext) { try { await cachedContext.close(); } catch {} cachedContext = null; cachedPage = null; }
+    if (cachedContext) { await closeDropshotContext(cachedContext); cachedContext = null; cachedPage = null; }
 
     const context = await launchBrowser(profileDir, false);
     const page = context.pages()[0] || await context.newPage();
@@ -559,11 +832,14 @@ export async function loginDropshot(): Promise<{
         }
       } catch { continue; }
     }
-    try { await context.close(); } catch {}
+    await closeDropshotContext(context);
     if (loggedIn) {
-      const result = userName
-        ? { loggedIn: true, userName, message: '로그인 완료' }
-        : { loggedIn: true, message: '로그인 완료' };
+      const verified = await checkDropshotLogin({ force: true }).catch(() => null);
+      const result = withDropshotSubscriptionMeta(verified?.loggedIn
+        ? { ...verified, message: '로그인 완료' }
+        : userName
+        ? { loggedIn: true, userName, message: '로그인 완료', subscription: 'unknown' }
+        : { loggedIn: true, message: '로그인 완료', subscription: 'unknown' });
       _loginCheckCache = { ts: Date.now(), result };
       return result;
     }
@@ -625,7 +901,7 @@ async function _makeDropshotImageInternal(
   } = {},
   onLog?: (m: string) => void,
 ): Promise<DropshotResult> {
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 2;
   let currentPrompt = prompt;
   let lastError: string | null = null;
 
@@ -659,11 +935,7 @@ async function _makeDropshotImageInternal(
         await ensureDropshotControls(page, onLog);
 
         // 2. 호출 전 DOM의 result 이미지 snapshot (이전 이미지 반복 캡처 방지)
-        const beforeSrcs: string[] = await page.evaluate(() => {
-          return Array.from(document.querySelectorAll('img'))
-            .map(i => i.src || '')
-            .filter(s => (s.startsWith('data:image/') || s.includes('cdn.aistudio.dropshot.io')) && !s.includes('/icons/') && !s.includes('/sample/'));
-        });
+        const beforeSrcs = await getDropshotImageSnapshot(page);
 
         // v3.6.0: reference 이미지가 있으면 i2i 모드 — 업로드 input에 setInputFiles로 주입
         const refList = (options.referenceImageList || []).slice(0, 4);
@@ -704,16 +976,22 @@ async function _makeDropshotImageInternal(
         await wait(1000);
 
         // 4. 생성 버튼 클릭 — UI 변경 대비 다중 fallback
-        await clickDropshotGenerate(page);
+        const clickResult = await clickDropshotGenerate(page);
+        onLog?.(`🖱️ [Dropshot] 생성 실행: ${clickResult.detail}`);
+        if (!clickResult.clicked && clickResult.diagnostics) {
+          onLog?.(`⚠️ [Dropshot] 생성 버튼 진단: ${clickResult.diagnostics.slice(0, 240)}`);
+        }
 
-        // 5. 결과 이미지 대기 — snapshot에 없던 NEW 이미지만 잡음 (최대 90초)
-        // v3.8.57: 햄스터/sample placeholder 차단 — 5초 grace + size 더 엄격 + dataUrl 짧으면 거부
-        // v3.8.60: dropshot 서버 에러 페이지 감지 — "이런, 문제가 발생했습니다" / "환불되었으니" 텍스트 → 즉시 폴백
+        // 5. 결과 이미지 대기 — snapshot에 없던 NEW 이미지만 잡음
+        // v3.8.130: nano-banana-pro는 90초를 넘기는 케이스가 있어 210초까지 기다린다.
+        //   기존 90초 retry는 결과가 나올 타이밍에 board를 새로고침해 작업을 끊는 문제가 있었다.
+        //   data:, blob:, currentSrc/srcset, background-image, CDN URL을 모두 후보로 본다.
         await new Promise(r => setTimeout(r, 5000)); // grace period: dropshot이 sample/placeholder를 일찍 보여주는 시간 회피
         const startTs = Date.now();
         let foundDataUrl: string | null = null;
-        while ((Date.now() - startTs) < 85_000) {
-          await new Promise(r => setTimeout(r, 2000));
+        let lastProgressLogAt = 0;
+        while ((Date.now() - startTs) < DROPSHOT_RESULT_WAIT_MS) {
+          await new Promise(r => setTimeout(r, DROPSHOT_RESULT_POLL_MS));
 
           // v3.8.60: dropshot 에러 페이지 감지 — 즉시 폴백
           const dropshotError = await page.evaluate(() => {
@@ -724,47 +1002,14 @@ async function _makeDropshotImageInternal(
             console.warn('[DROPSHOT] ⚠️ dropshot 서버 에러 페이지 감지 — 즉시 폴백');
             throw new Error('dropshot 서버 에러: 잠시 후 재시도 필요');
           }
-          const dataUrl = await page.evaluate((before: string[]) => {
-            const beforeSet = new Set(before);
-            const imgs = Array.from(document.querySelectorAll('img'));
-            const result = imgs.find(i => {
-              const src = i.src || '';
-              // v3.8.57: sample/placeholder/stock 이미지 차단 + 픽셀 800+ 강제 + dataUrl 최소 50KB
-              if (!src.startsWith('data:image/')) return false;
-              if (src.includes('icons/') || src.includes('/sample/') || src.includes('placeholder')) return false;
-              if (beforeSet.has(src)) return false;
-              if (i.naturalWidth < 800 || i.naturalHeight < 400) return false; // 작은 이미지(stock thumbnail) 거부
-              if (src.length < 50_000) return false; // dataUrl 너무 짧으면(< ~50KB) sample/placeholder
-              return true;
-            });
-            return result ? result.src : null;
-          }, beforeSrcs);
-          if (dataUrl) { foundDataUrl = dataUrl; break; }
 
-          // 또는 cdn.aistudio.dropshot.io의 NEW result 이미지
-          const cdnUrl: string | null = await page.evaluate((before: string[]) => {
-            const beforeSet = new Set(before);
-            const imgs = Array.from(document.querySelectorAll('img'));
-            const result = imgs.find(i => {
-              const src = i.src || '';
-              return src.includes('cdn.aistudio.dropshot.io') && !src.includes('/icons/') && !src.includes('/sample/') && i.naturalWidth > 200 && !beforeSet.has(src);
-            });
-            return result ? result.src : null;
-          }, beforeSrcs);
-          if (cdnUrl) {
-            // CDN URL을 dataUrl로 변환
-            const buf = await page.evaluate(async (url: string) => {
-              const r = await fetch(url);
-              const blob = await r.blob();
-              return await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.onerror = () => reject(new Error('blob read failed'));
-                reader.readAsDataURL(blob);
-              });
-            }, cdnUrl);
-            foundDataUrl = buf;
-            break;
+          foundDataUrl = await findDropshotResultDataUrl(page, beforeSrcs, onLog);
+          if (foundDataUrl) break;
+
+          const elapsed = Date.now() - startTs;
+          if (elapsed - lastProgressLogAt >= 30_000) {
+            lastProgressLogAt = elapsed;
+            onLog?.(`⏳ [Dropshot] 결과 대기 중... ${Math.round(elapsed / 1000)}초/${Math.round(DROPSHOT_RESULT_WAIT_MS / 1000)}초`);
           }
         }
 
@@ -773,13 +1018,15 @@ async function _makeDropshotImageInternal(
           return { ok: true, dataUrl: foundDataUrl };
         }
 
-        lastError = '90초 내 결과 이미지 미발견';
+        const diagnostics = await getDropshotGenerationDiagnostics(page);
+        lastError = `${Math.round(DROPSHOT_RESULT_WAIT_MS / 1000)}초 내 결과 이미지 미발견`;
+        onLog?.(`🧪 [Dropshot] 결과 감지 진단: ${diagnostics.slice(0, 500)}`);
         onLog?.(`⚠️ [Dropshot] ${lastError} (시도 ${attempt})`);
       } catch (e: any) {
         lastError = e.message || String(e);
         onLog?.(`❌ [Dropshot] 시도 ${attempt} 실패: ${lastError}`);
         if (lastError && /Target closed|WebSocket|frame was detached|로그인 세션|board 진입|프롬프트 입력창|서버 에러|Timeout/i.test(lastError)) {
-          try { await cachedContext?.close?.(); } catch { /* ignore */ }
+          await closeDropshotContext(cachedContext);
           cachedPage = null; cachedContext = null;
           if (attempt < MAX_RETRIES) {
             try { page = await ensurePage(onLog); } catch { /* next loop will return final error */ }

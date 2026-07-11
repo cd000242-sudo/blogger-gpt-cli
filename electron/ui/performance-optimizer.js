@@ -3,8 +3,55 @@ class PerformanceOptimizer {
   constructor() {
     this.debounceTimers = new Map();
     this.throttleTimers = new Map();
+    this.frameTimers = new Map();
+    this.idleTimers = new Set();
     this.observers = new Map();
     this.cache = new Map();
+    this.profile = this.detectProfile();
+    this.applyProfile();
+    this.bindVisibilityGuards();
+  }
+
+  detectProfile() {
+    const nav = window.navigator || {};
+    const cores = Number(nav.hardwareConcurrency || 4);
+    const memory = Number(nav.deviceMemory || 4);
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+    const lowPowerHint = cores <= 4 || memory <= 4 || reducedMotion;
+    return {
+      cores,
+      memory,
+      reducedMotion,
+      tier: lowPowerHint ? 'balanced' : 'performance',
+      idleDelayScale: lowPowerHint ? 1.45 : 0.85,
+      animationScale: reducedMotion ? 0 : (lowPowerHint ? 0.72 : 1),
+      logLimit: lowPowerHint ? 240 : 420,
+    };
+  }
+
+  applyProfile() {
+    const root = document.documentElement;
+    if (!root) return;
+    root.dataset.perfTier = this.profile.tier;
+    root.classList.toggle('perf-balanced', this.profile.tier === 'balanced');
+    root.classList.toggle('perf-reduced-motion', this.profile.reducedMotion);
+    root.style.setProperty('--app-motion-scale', String(this.profile.animationScale));
+    root.style.setProperty('--app-fast-transition', `${Math.max(80, Math.round(150 * this.profile.animationScale))}ms`);
+    root.style.setProperty('--app-base-transition', `${Math.max(120, Math.round(250 * this.profile.animationScale))}ms`);
+  }
+
+  bindVisibilityGuards() {
+    document.addEventListener('visibilitychange', () => {
+      document.documentElement.classList.toggle('app-background-paused', document.hidden);
+    }, { passive: true });
+  }
+
+  getAdaptiveDelay(delay = 0) {
+    return Math.max(0, Math.round(delay * this.profile.idleDelayScale));
+  }
+
+  getLogLimit() {
+    return this.profile.logLimit;
   }
 
   // 디바운스 함수 - 연속 호출을 방지
@@ -37,6 +84,53 @@ class PerformanceOptimizer {
         this.throttleTimers.delete(key);
       }, delay);
     };
+  }
+
+  requestFrame(key, callback) {
+    if (this.frameTimers.has(key)) {
+      cancelAnimationFrame(this.frameTimers.get(key));
+    }
+    const frame = requestAnimationFrame(() => {
+      this.frameTimers.delete(key);
+      callback();
+    });
+    this.frameTimers.set(key, frame);
+    return frame;
+  }
+
+  scheduleIdle(callback, options = {}) {
+    const timeout = this.getAdaptiveDelay(options.timeout ?? 1200);
+    let idleId = null;
+    const wrapped = (deadline) => {
+      if (idleId !== null) this.idleTimers.delete(idleId);
+      callback(deadline);
+    };
+
+    if (typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(wrapped, { timeout });
+      this.idleTimers.add(idleId);
+      return idleId;
+    }
+
+    idleId = setTimeout(() => wrapped({ didTimeout: true, timeRemaining: () => 0 }), Math.min(timeout, 1600));
+    this.idleTimers.add(idleId);
+    return idleId;
+  }
+
+  async runChunked(tasks, options = {}) {
+    const chunkSize = Math.max(1, Number(options.chunkSize || 1));
+    const gapMs = Math.max(0, Number(options.gapMs ?? (this.profile.tier === 'balanced' ? 120 : 55)));
+    const results = [];
+
+    for (let i = 0; i < tasks.length; i += chunkSize) {
+      const chunk = tasks.slice(i, i + chunkSize);
+      results.push(...await Promise.all(chunk.map(task => Promise.resolve().then(task))));
+      if (i + chunkSize < tasks.length) {
+        await new Promise(resolve => setTimeout(resolve, gapMs));
+      }
+    }
+
+    return results;
   }
 
   // Intersection Observer를 사용한 지연 로딩
@@ -89,6 +183,15 @@ class PerformanceOptimizer {
     
     this.throttleTimers.forEach(timer => clearTimeout(timer));
     this.throttleTimers.clear();
+
+    this.frameTimers.forEach(frame => cancelAnimationFrame(frame));
+    this.frameTimers.clear();
+
+    this.idleTimers.forEach(timer => {
+      if (typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(timer);
+      else clearTimeout(timer);
+    });
+    this.idleTimers.clear();
 
     // Observer 정리
     this.observers.forEach(observer => observer.disconnect());

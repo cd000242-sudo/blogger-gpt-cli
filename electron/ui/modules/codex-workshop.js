@@ -1190,7 +1190,19 @@ function renderAgentProviderPanel() {
     });
   });
   detail.querySelectorAll('[data-agent-refresh]').forEach((button) => {
-    button.addEventListener('click', () => loadAgentModeStatus(true));
+    button.addEventListener('click', async () => {
+      const previousText = button.textContent;
+      button.disabled = true;
+      button.textContent = '세션 확인 중...';
+      try {
+        await refreshAgentSettingsAndVerify(provider);
+      } finally {
+        if (button.isConnected) {
+          button.disabled = false;
+          button.textContent = previousText;
+        }
+      }
+    });
   });
   detail.querySelectorAll('[data-agent-image-policy]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -1469,8 +1481,24 @@ function ensureAgentSettingsSection() {
     state.activeAgentProvider,
     $('agentModeSettingsProfileSelect')?.value || '',
   ));
-  $('agentModeSettingsRefresh')?.addEventListener('click', () => {
-    loadAgentModeStatus(true);
+  $('agentModeSettingsRefresh')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    const previousText = button?.textContent || '';
+    if (button) {
+      button.disabled = true;
+      button.textContent = '세션 확인 중...';
+    }
+    try {
+      await refreshAgentSettingsAndVerify(
+        state.activeAgentProvider,
+        $('agentModeSettingsProfileSelect')?.value || '',
+      );
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = previousText || '상태 새로고침';
+      }
+    }
   });
   $('agentUsageResetBtn')?.addEventListener('click', () => {
     resetAgentUsageWindow();
@@ -2841,16 +2869,59 @@ function stopAgentLoginPolling() {
   }
 }
 
-async function checkAgentLoginStatus(provider = state.activeAgentProvider, profileId = '') {
+function getAgentLoginResultType(result = {}) {
+  if (result?.ready) return 'success';
+  return 'error';
+}
+
+function getAgentLoginResultMessage(provider, result = {}) {
+  const label = provider === 'claude' ? 'Claude Code' : 'Codex';
+  if (result?.ready) {
+    return result.message || `${label} 로그인 세션이 실제 실행으로 확인되었습니다.`;
+  }
+  if (result?.quotaExceeded) {
+    return result.message || `${label} 로그인은 되어 있지만 구독 사용량/한도 때문에 지금은 실행할 수 없습니다.`;
+  }
+  if (result?.timedOut) {
+    return result.message || `${label} 세션 확인이 시간 초과되었습니다. 로그인 창이나 네트워크 상태를 확인해주세요.`;
+  }
+  return result?.message || result?.error || `${label} 인증이 만료되었거나 로그인 세션을 확인하지 못했습니다.`;
+}
+
+async function checkAgentLoginStatus(provider = state.activeAgentProvider, profileId = '', options = {}) {
   const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
   const api = getBridgeApi();
-  const payload = { id: profileId || undefined, provider: normalizedProvider };
+  const payload = { id: profileId || undefined, provider: normalizedProvider, verify: options.verify === true };
+  if (options.showStatus) {
+    setSettingsStatus(`${normalizedProvider === 'claude' ? 'Claude Code' : 'Codex'} 로그인 세션을 실제 실행으로 확인하는 중입니다...`);
+  }
   const result = typeof api?.checkAgentLogin === 'function'
     ? await api.checkAgentLogin(payload)
     : await api?.invoke?.('agent-mode:check-login', payload);
 
   applyAgentLoginStatus(result);
+  if (options.showStatus) {
+    setSettingsStatus(getAgentLoginResultMessage(normalizedProvider, result), getAgentLoginResultType(result));
+    addLog(getAgentLoginResultMessage(normalizedProvider, result), result?.ready ? 'success' : 'warning');
+  }
   return result || { ok: false, ready: false };
+}
+
+async function refreshAgentSettingsAndVerify(provider = state.activeAgentProvider, profileId = '') {
+  const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
+  const selectedProfileId = profileId || $('agentModeSettingsProfileSelect')?.value || getActiveAgentProfileId(normalizedProvider);
+  setSettingsStatus(`${normalizedProvider === 'claude' ? 'Claude Code' : 'Codex'} 상태를 새로고침하고 로그인 세션을 확인합니다...`);
+  await loadAgentModeStatus(true);
+  const profile = selectedProfileId
+    ? getProfileById(normalizedProvider, selectedProfileId)
+    : getProviderProfile(normalizedProvider);
+  if (!profile) {
+    const message = `${normalizedProvider === 'claude' ? 'Claude Code' : 'Codex'} 로그인 계정이 없습니다. 먼저 로그인 계정 추가하기 또는 로그인 창 열기를 눌러주세요.`;
+    setSettingsStatus(message, 'error');
+    addLog(message, 'warning');
+    return { ok: false, ready: false, error: message };
+  }
+  return checkAgentLoginStatus(normalizedProvider, profile.id, { verify: true, showStatus: true });
 }
 
 function startAgentLoginPolling(provider = state.activeAgentProvider, profileId = '') {
@@ -2861,10 +2932,10 @@ function startAgentLoginPolling(provider = state.activeAgentProvider, profileId 
 
   const tick = async () => {
     try {
-      const result = await checkAgentLoginStatus(normalizedProvider, profileId);
+      const result = await checkAgentLoginStatus(normalizedProvider, profileId, { verify: true });
       if (result?.ready) {
         stopAgentLoginPolling();
-        setSettingsStatus(`${label} 로그인 완료를 확인했습니다. 이제 Agent 모드에서 사용할 수 있습니다.`, 'success');
+        setSettingsStatus(result.message || `${label} 로그인 완료를 확인했습니다. 이제 Agent 모드에서 사용할 수 있습니다.`, 'success');
         addLog(`${label} 로그인 완료가 자동 확인되었습니다.`, 'success');
         return;
       }
@@ -2879,7 +2950,7 @@ function startAgentLoginPolling(provider = state.activeAgentProvider, profileId 
   };
 
   tick();
-  state.loginPollTimer = setInterval(tick, 3000);
+  state.loginPollTimer = setInterval(tick, 8000);
 }
 
 async function installAgentTool(provider = state.activeAgentProvider, triggerButton = null) {
@@ -3013,9 +3084,16 @@ async function startAgentLogin(provider = state.activeAgentProvider, profileId =
   }
 
   if (isAgentProfileReady(profile)) {
-    setSettingsStatus(`${label} 로그인 완료 상태입니다. 바로 Agent 모드에서 사용할 수 있습니다.`, 'success');
-    addLog(`${label} 로그인 완료 상태를 확인했습니다.`, 'success');
-    return;
+    const check = await checkAgentLoginStatus(normalizedProvider, profile.id, { verify: true, showStatus: true });
+    if (check?.ready) {
+      setSettingsStatus(check.message || `${label} 로그인 완료 상태입니다. 바로 Agent 모드에서 사용할 수 있습니다.`, 'success');
+      addLog(`${label} 로그인 완료 상태를 확인했습니다.`, 'success');
+      return;
+    }
+    if (check?.quotaExceeded) {
+      return;
+    }
+    setSettingsStatus(`${label} 저장된 세션은 있지만 실제 실행 인증이 실패했습니다. 로그인 창을 다시 엽니다.`, 'error');
   }
 
   const api = getBridgeApi();
@@ -3070,6 +3148,15 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
     const providerLabel = state.activeAgentProvider === 'claude' ? 'Claude Code' : 'Codex';
     setSettingsStatus(`${providerLabel} 로그인 완료가 필요합니다. 로그인 성공이 자동으로 감지됩니다.`, 'error');
     throw new Error(`${providerLabel} 로그인이 아직 완료되지 않았습니다. 로그인 창 열기를 누른 뒤 완료될 때까지 기다려주세요.`);
+  }
+
+  const providerLabelForCheck = profile.provider === 'claude' ? 'Claude Code' : 'Codex';
+  if (source === 'posting') {
+    updateAgentProgress(28, `${providerLabelForCheck} 로그인 세션을 실제 실행으로 확인합니다.`);
+  }
+  const loginCheck = await checkAgentLoginStatus(profile.provider, profile.id, { verify: true, showStatus: true });
+  if (!loginCheck?.ready) {
+    throw new Error(getAgentLoginResultMessage(profile.provider, loginCheck));
   }
 
   if (source === 'posting') {
@@ -3705,7 +3792,7 @@ export function initCodexWorkshop() {
   window.getAgentImageSettingsMode = getAgentImageSettingsMode;
   window.refreshAgentModeSettings = () => {
     ensureAgentSettingsSection();
-    return loadAgentModeStatus(true);
+    return refreshAgentSettingsAndVerify(state.activeAgentProvider);
   };
 
   window.addEventListener('license-access-updated', () => {

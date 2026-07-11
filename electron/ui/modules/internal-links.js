@@ -972,6 +972,16 @@ function _updateThumbnailInDom(url, imageUrl) {
 // v3.8.12: 거미줄 전용 ImageFX/Dropshot 로그인 확인 wrapper
 //   글포스팅탭의 ID(dropshotLoginStatusSettings, imagefxLoginStatus)와 별개로
 //   거미줄 카드의 status element(swDropshotLoginStatus, swImagefxLoginStatus)를 직접 갱신.
+function getSpiderDropshotSubscriptionNote(result) {
+  if (typeof window.getDropshotSubscriptionNote === 'function') {
+    return window.getDropshotSubscriptionNote(result);
+  }
+  const raw = String(result?.subscriptionLabel || result?.subscription || '').trim().toLowerCase();
+  if (raw === 'pro' || raw.includes('pro')) return ' · ✅ Pro 구독자 무제한';
+  if (raw === 'free' || raw === 'basic') return ' · ⚠️ 무료 사용자';
+  return result?.loggedIn ? ' · 구독 정보 미확인' : '';
+}
+
 async function spiderHandleDropshotCheckLogin() {
   const status = document.getElementById('swDropshotLoginStatus');
   if (!status) return;
@@ -987,7 +997,7 @@ async function spiderHandleDropshotCheckLogin() {
       return;
     }
     if (r?.loggedIn) {
-      const subTxt = r.subscription === 'pro' ? ' · ✅ Pro 구독자 무제한' : (r.subscription === 'free' ? ' · ⚠️ 무료 사용자' : '');
+      const subTxt = getSpiderDropshotSubscriptionNote(r);
       status.textContent = `✅ 로그인됨${r.userName ? ' — ' + r.userName : ''}${subTxt}`;
       status.style.color = '#86efac';
     } else {

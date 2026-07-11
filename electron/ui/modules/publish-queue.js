@@ -20,6 +20,98 @@ const PUBLISH_QUEUE_STORAGE_KEY = 'publishQueueItems.v1';
 const PUBLISH_QUEUE_INTERVAL_STORAGE_KEY = 'publishQueueInterval.v1';
 const PUBLISH_QUEUE_MIN_MINUTES = 7;
 const PUBLISH_QUEUE_DEFAULT_INTERVAL = { mode: 'minutes', value: PUBLISH_QUEUE_MIN_MINUTES };
+let queueStopRequested = false;
+
+function getDropshotQueueLoginLabel(result) {
+  if (!result?.loggedIn) return '';
+  if (typeof window.getDropshotSubscriptionLabel === 'function') {
+    return window.getDropshotSubscriptionLabel(result) || '구독 정보 미확인';
+  }
+  const raw = String(result.subscriptionLabel || result.subscription || '').trim();
+  if (!raw || /^unknown$/i.test(raw)) return '구독 정보 미확인';
+  if (raw === 'pro') return 'Pro 구독자 무제한';
+  if (raw === 'free') return '무료 사용자';
+  return raw;
+}
+
+function setQueueStopRequested(value) {
+  queueStopRequested = value === true;
+  try { window.__publishQueueStopRequested = queueStopRequested; } catch {}
+}
+
+function isQueueStopRequested() {
+  try {
+    return queueStopRequested === true || window.__publishQueueStopRequested === true;
+  } catch {
+    return queueStopRequested === true;
+  }
+}
+
+function updateQueueStopUi(stopping = isQueueStopRequested()) {
+  const btn = document.getElementById('pqrStopBtn');
+  if (!btn) return;
+  const running = !!(window.__queueRunning || window.__queueProgressActive);
+  btn.style.display = running || stopping ? 'inline-flex' : 'none';
+  btn.disabled = stopping;
+  btn.style.opacity = stopping ? '0.75' : '1';
+  btn.style.cursor = stopping ? 'wait' : 'pointer';
+  btn.textContent = stopping
+    ? '\uc911\uc9c0 \uc694\uccad\ub428'
+    : '\u23f9 \uc5f0\uc18d\ubc1c\ud589 \uc911\uc9c0';
+  const progressText = document.getElementById('pqrProgressText');
+  if (stopping && progressText) {
+    progressText.textContent = '\uc911\uc9c0 \uc694\uccad\ub428 - \ud604\uc7ac \uc791\uc5c5 \uc815\ub9ac \uc911';
+  }
+}
+
+function resetQueueStopRequest() {
+  setQueueStopRequested(false);
+  updateQueueStopUi(false);
+}
+
+function requestQueueStop() {
+  const running = !!(window.__queueRunning || window.__queueProgressActive);
+  if (!running) return false;
+  setQueueStopRequested(true);
+  updateQueueStopUi(true);
+  try { window.electronAPI?.cancelTask?.(); } catch {}
+  try { window.blogger?.cancelTask?.(); } catch {}
+  try { window.dispatchEvent(new CustomEvent('bgpt:queue-stop-requested')); } catch {}
+  return true;
+}
+
+function createQueueStopSignal(delayMs = 1200) {
+  let cleanup = () => {};
+  let resolved = false;
+  const promise = new Promise((resolve) => {
+    const resolveStopped = () => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      setTimeout(() => resolve({ stopped: true }), Math.max(0, delayMs));
+    };
+    cleanup = () => {
+      try { window.removeEventListener('bgpt:queue-stop-requested', resolveStopped); } catch {}
+    };
+    try { window.addEventListener('bgpt:queue-stop-requested', resolveStopped, { once: true }); } catch {}
+    if (isQueueStopRequested()) resolveStopped();
+  });
+  return { promise, cleanup };
+}
+
+async function sleepQueueInterval(waitMs, runModal) {
+  const total = Math.max(0, Number(waitMs) || 0);
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < total) {
+    if (isQueueStopRequested()) {
+      runModal?.log?.('\uc911\uc9c0 \uc694\uccad\uc73c\ub85c \ub300\uae30\ub97c \uc885\ub8cc\ud569\ub2c8\ub2e4.');
+      return false;
+    }
+    const remaining = total - (Date.now() - startedAt);
+    await new Promise(resolve => setTimeout(resolve, Math.min(1000, Math.max(0, remaining))));
+  }
+  return !isQueueStopRequested();
+}
 
 function readQueueJsonStorage(key, fallback = '') {
   try {
@@ -1937,6 +2029,7 @@ function ensureQueueMiniBar() {
         <div id="pqMiniDetail" style="color:#94a3b8;font-size:11px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">곧 시작합니다</div>
       </div>
       <div id="pqMiniPct" style="color:#fbbf24;font-size:18px;font-weight:900;letter-spacing:-0.5px;">0%</div>
+      <button id="pqMiniStopBtn" type="button" title="연속발행 중지" style="width:32px;height:32px;border-radius:10px;border:1px solid rgba(248,113,113,0.58);background:rgba(239,68,68,0.18);color:#fecaca;font-size:14px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">⏹</button>
     </div>
     <div style="margin-top:10px;height:6px;background:rgba(15,23,42,0.7);border-radius:999px;overflow:hidden;">
       <div id="pqMiniFill" style="height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#60a5fa,#a78bfa);transition:width 0.35s ease;box-shadow:0 0 12px rgba(139,92,246,0.5);"></div>
@@ -1944,6 +2037,10 @@ function ensureQueueMiniBar() {
   `;
   mini.addEventListener('mouseover', () => { mini.style.transform = 'translateY(-2px)'; });
   mini.addEventListener('mouseout', () => { mini.style.transform = 'translateY(0)'; });
+  mini.querySelector('#pqMiniStopBtn')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    requestQueueStop();
+  });
   mini.addEventListener('click', () => {
     const m = document.getElementById('pqRunModal');
     if (m) {
@@ -1962,10 +2059,12 @@ function updateQueueMiniBar({ pct, label, detail, status }) {
   const pctEl = document.getElementById('pqMiniPct');
   const labelEl = document.getElementById('pqMiniLabel');
   const detailEl = document.getElementById('pqMiniDetail');
+  const stopBtn = document.getElementById('pqMiniStopBtn');
   if (fill && typeof pct === 'number') fill.style.width = pct + '%';
   if (pctEl && typeof pct === 'number') pctEl.textContent = pct + '%';
   if (labelEl && label) labelEl.textContent = label;
   if (detailEl && detail !== undefined) detailEl.textContent = detail;
+  if (stopBtn) stopBtn.style.display = (status === 'success' || status === 'error') ? 'none' : 'inline-flex';
   if (status === 'success') {
     mini.style.borderColor = 'rgba(34,197,94,0.6)';
     if (pctEl) pctEl.style.color = '#34d399';
@@ -2014,6 +2113,10 @@ function createQueueRunModal(items, intervalLabel) {
     .pqr-head { padding: 22px 26px 16px; display: flex; justify-content: space-between; gap: 18px; border-bottom: 1px solid rgba(255,255,255,0.08); }
     .pqr-head h2 { margin: 0; font-size: 24px; font-weight: 900; color: #fff; }
     .pqr-sub { margin-top: 5px; color: rgba(196,181,253,0.9); font-size: 12px; }
+    .pqr-head-actions { display: flex; align-items: flex-start; gap: 10px; flex: 0 0 auto; }
+    .pqr-stop { min-height: 38px; padding: 9px 14px; border-radius: 10px; border: 1px solid rgba(248,113,113,0.58); background: rgba(239,68,68,0.16); color: #fecaca; font-weight: 900; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
+    .pqr-stop:hover { background: rgba(239,68,68,0.26); border-color: rgba(248,113,113,0.82); color: #fff; }
+    .pqr-stop:disabled { opacity: 0.75; cursor: wait; }
     .pqr-close { min-height: 38px; padding: 9px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.08); color: #fff; font-weight: 800; cursor: pointer; }
     .pqr-progress { padding: 14px 26px; border-bottom: 1px solid rgba(255,255,255,0.08); background: rgba(30,41,59,0.48); }
     .pqr-progress-row { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 9px; color: rgba(226,232,240,0.86); font-size: 13px; font-weight: 800; }
@@ -2027,6 +2130,7 @@ function createQueueRunModal(items, intervalLabel) {
     .pqr-card.running { border-color: rgba(96,165,250,0.62); background: rgba(59,130,246,0.12); }
     .pqr-card.done { border-color: rgba(34,197,94,0.48); background: rgba(34,197,94,0.10); }
     .pqr-card.failed { border-color: rgba(239,68,68,0.55); background: rgba(239,68,68,0.10); }
+    .pqr-card.stopped { border-color: rgba(251,191,36,0.62); background: rgba(251,191,36,0.11); }
     .pqr-card-no { width: 30px; height: 30px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 9px; background: rgba(99,102,241,0.18); color: #c4b5fd; font-size: 12px; font-weight: 900; }
     .pqr-card-body { min-width: 0; flex: 1; }
     .pqr-title { color: #fff; font-size: 13px; font-weight: 900; line-height: 1.35; word-break: keep-all; overflow-wrap: anywhere; }
@@ -2058,7 +2162,10 @@ function createQueueRunModal(items, intervalLabel) {
         <h2>즉시 순차발행 진행</h2>
         <div class="pqr-sub">총 ${items.length}개 · 간격 ${escHtml(intervalLabel)} · 한 글 완료 후 다음 글 시작</div>
       </div>
-      <button class="pqr-close" id="pqrCloseBtn">닫기</button>
+      <div class="pqr-head-actions">
+        <button class="pqr-stop" id="pqrStopBtn" type="button">⏹ 연속발행 중지</button>
+        <button class="pqr-close" id="pqrCloseBtn">닫기</button>
+      </div>
     </div>
     <div class="pqr-progress">
       <div class="pqr-progress-row">
@@ -2134,7 +2241,7 @@ function createQueueRunModal(items, intervalLabel) {
     currentIndex = index;
     const card = modal?.querySelector(`[data-pqr-index="${index}"]`);
     if (!card) return;
-    card.classList.remove('running', 'done', 'failed');
+    card.classList.remove('running', 'done', 'failed', 'stopped');
     if (status) card.classList.add(status);
     const statusEl = card.querySelector('[data-pqr-status]');
     if (statusEl) statusEl.textContent = message || status || '대기';
@@ -2269,6 +2376,13 @@ function createQueueRunModal(items, intervalLabel) {
   document.getElementById('pqrImageLightbox')?.addEventListener('click', (e) => {
     if (e.target?.id === 'pqrImageLightbox') closeImageLightbox();
   });
+  document.getElementById('pqrStopBtn')?.addEventListener('click', () => {
+    const accepted = requestQueueStop();
+    if (accepted) {
+      log('\uc0ac\uc6a9\uc790\uac00 \uc5f0\uc18d\ubc1c\ud589 \uc911\uc9c0\ub97c \uc694\uccad\ud588\uc2b5\ub2c8\ub2e4.');
+      updateOverall(0, '\uc911\uc9c0 \uc694\uccad\ub428 - \ud604\uc7ac \uc791\uc5c5 \uc815\ub9ac \uc911');
+    }
+  });
   const lightboxKeyHandler = (e) => {
     if (e.key === 'Escape') closeImageLightbox();
   };
@@ -2356,6 +2470,11 @@ function createQueueRunModal(items, intervalLabel) {
       if (index < items.length - 1) resetImages(index + 1);
       updateOverall(0, `${completed}/${items.length} 처리`);
     },
+    markStopped(index, message = '\uc911\uc9c0') {
+      imageAccepting = false;
+      setItemStatus(index, 'stopped', message);
+      updateOverall(0, '\uc911\uc9c0\ub428');
+    },
     finish(message) {
       completed = items.length;
       finished = true;
@@ -2377,24 +2496,33 @@ function createQueueRunModal(items, intervalLabel) {
 
 async function runOneQueueItem(item) {
   const maxWaitMs = 45 * 60 * 1000;
+  const stopSignal = createQueueStopSignal();
   if (typeof window.runPosting === 'function') {
-    return await Promise.race([
-      Promise.resolve(window.runPosting()).then((runResult) => {
-        const publishResult = runResult || window.__lastPublishResult || {};
-        return {
-          timeout: false,
-          source: 'runPosting',
-          result: publishResult,
-          ok: publishResult?.ok === true,
-          error: publishResult?.error || '',
-        };
-      }),
-      new Promise(resolve => setTimeout(() => resolve({ timeout: true }), maxWaitMs)),
-    ]);
+    try {
+      return await Promise.race([
+        Promise.resolve(window.runPosting()).then((runResult) => {
+          const publishResult = runResult || window.__lastPublishResult || {};
+          return {
+            timeout: false,
+            source: 'runPosting',
+            result: publishResult,
+            ok: publishResult?.ok === true,
+            error: publishResult?.error || '',
+          };
+        }),
+        stopSignal.promise,
+        new Promise(resolve => setTimeout(() => resolve({ timeout: true }), maxWaitMs)),
+      ]);
+    } finally {
+      stopSignal.cleanup();
+    }
   }
 
   const btn = document.getElementById('publishBtn') || document.querySelector('[data-action="publish"]');
-  if (!btn) throw new Error('발행 버튼을 찾지 못했습니다.');
+  if (!btn) {
+    stopSignal.cleanup();
+    throw new Error('발행 버튼을 찾지 못했습니다.');
+  }
   const completion = new Promise((resolve) => {
     const handler = (e) => {
       window.removeEventListener('bgpt:publish-complete', handler);
@@ -2415,7 +2543,11 @@ async function runOneQueueItem(item) {
     window.addEventListener('bgpt:publish-complete', handler);
   });
   btn.click();
-  return await completion;
+  try {
+    return await Promise.race([completion, stopSignal.promise]);
+  } finally {
+    stopSignal.cleanup();
+  }
 }
 
 function bindModalEvents() {
@@ -2831,7 +2963,7 @@ function bindModalEvents() {
             ? window.checkDropshotLoginCached({ maxAgeMs: 10 * 60 * 1000 })
             : window.electronAPI.invoke('dropshot:check-login');
           checkLogin.then((r) => {
-            if (r?.loggedIn) runModal.log(`Dropshot 로그인 확인: ${r.subscription || 'unknown'}${r.cached ? ' · 최근 확인값' : ''}`);
+            if (r?.loggedIn) runModal.log(`Dropshot 로그인 확인: ${getDropshotQueueLoginLabel(r)}${r.cached ? ' · 최근 확인값' : ''}`);
             else runModal.log(`Dropshot 로그인 확인 필요: ${r?.message || '로그인 정보 없음'}`);
           }).catch((e) => runModal.log(`Dropshot 상태 확인 실패: ${e?.message || e}`));
         }
@@ -2841,17 +2973,23 @@ function bindModalEvents() {
     }
 
     // 🛡️ v3.5.84: 큐 모드 플래그 — posting.js가 단발 모달 대신 누적하도록 신호
+    resetQueueStopRequest();
     window.__queueRunning = true;
     window.__queueProgressActive = true;
+    updateQueueStopUi(false);
     try { window.clearQualityAccumulator?.(); } catch {}
 
     const scheduleBaseDate = getScheduleBaseDate();
     let scheduleOffsetMs = 0;
-    const enabledIds = new Set(enabled.map(item => item.id));
+    const completedIds = new Set();
     const failedIds = new Set();
 
     try {
       for (let i = 0; i < enabled.length; i++) {
+        if (isQueueStopRequested()) {
+          runModal.log('\uc911\uc9c0 \uc694\uccad\uc73c\ub85c \ub0a8\uc740 \ub300\uae30\uc5f4\uc744 \uc2e4\ud589\ud558\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4.');
+          break;
+        }
         const it = enabled[i];
         const itemScheduleDate = new Date(scheduleBaseDate.getTime() + scheduleOffsetMs).toISOString();
         const queueImageToken = `pq-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2875,12 +3013,21 @@ function bindModalEvents() {
         };
 
         await new Promise(r => setTimeout(r, 200));
+        if (isQueueStopRequested()) {
+          runModal.markStopped(i, '\uc911\uc9c0');
+          runModal.log(`${i + 1}\ubc88 \ud56d\ubaa9 \uc2dc\uc791 \uc804 \uc911\uc9c0\ub418\uc5c8\uc2b5\ub2c8\ub2e4.`);
+          break;
+        }
 
         const startedAt = Date.now();
         try {
           const result = await runOneQueueItem(it);
           const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(0);
-          if (result.timeout) {
+          if (result.stopped) {
+            runModal.markStopped(i, '\uc911\uc9c0');
+            runModal.log(`${i + 1}\ubc88 \uc911\uc9c0 \uc694\uccad \ucc98\ub9ac (${elapsedSec}\ucd08): \ub0a8\uc740 \ub300\uae30\uc5f4\uc740 \ubcf4\uc874\ub429\ub2c8\ub2e4.`);
+            break;
+          } else if (result.timeout) {
             failedIds.add(it.id);
             runModal.markFailed(i, '타임아웃');
             runModal.log(`${i + 1}번 타임아웃: 45분 내 완료 이벤트 없음`);
@@ -2890,12 +3037,18 @@ function bindModalEvents() {
             runModal.markFailed(i, '실패');
             runModal.log(`${i + 1}번 실패 (${elapsedSec}초): ${errorText}`);
           } else {
+            completedIds.add(it.id);
             runModal.markDone(i, `${elapsedSec}초`);
             runModal.log(`${i + 1}번 완료 (${elapsedSec}초)`);
           }
         } catch (itemErr) {
-          failedIds.add(it.id);
           const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(0);
+          if (isQueueStopRequested()) {
+            runModal.markStopped(i, '\uc911\uc9c0');
+            runModal.log(`${i + 1}\ubc88 \uc911\uc9c0 \uc694\uccad \ucc98\ub9ac (${elapsedSec}\ucd08): ${itemErr?.message || itemErr || '\uc0ac\uc6a9\uc790 \uc911\uc9c0'}`);
+            break;
+          }
+          failedIds.add(it.id);
           runModal.markFailed(i, '실패');
           runModal.log(`${i + 1}번 실패 (${elapsedSec}초): ${itemErr?.message || itemErr}`);
         }
@@ -2903,23 +3056,34 @@ function bindModalEvents() {
         try { window.__publishQueuePayloadOverrides = null; } catch {}
         try { window.__publishQueueActiveImageToken = null; } catch {}
 
+        if (isQueueStopRequested()) {
+          runModal.log('\uc911\uc9c0 \uc694\uccad\uc73c\ub85c \ub2e4\uc74c \ud56d\ubaa9\uc73c\ub85c \ub118\uc5b4\uac00\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4.');
+          break;
+        }
+
         if (i < enabled.length - 1) {
           const waitMs = intervalMode === 'random' ? getIntervalMs({ minMs: minIntervalMs }) : fixedIntervalMs;
           scheduleOffsetMs += waitMs;
           runModal.log(`다음 항목까지 ${formatIntervalMs(waitMs)} 대기`);
-          await new Promise(r => setTimeout(r, waitMs));
+          const waited = await sleepQueueInterval(waitMs, runModal);
+          if (!waited) break;
         }
       }
-      STATE.keywords = STATE.keywords.filter(item => !enabledIds.has(item.id) || failedIds.has(item.id));
+      STATE.keywords = STATE.keywords.filter(item => !completedIds.has(item.id));
       persistQueue();
       syncBadge();
-      const successCount = enabled.length - failedIds.size;
-      runModal.finish(failedIds.size > 0
+      const stopped = isQueueStopRequested();
+      const successCount = completedIds.size;
+      const remainingCount = Math.max(0, enabled.length - successCount - failedIds.size);
+      runModal.finish(stopped
+        ? `중지됨: 완료 ${successCount}개 · 실패 ${failedIds.size}개 · 남은 ${remainingCount}개`
+        : failedIds.size > 0
         ? `처리 완료: 성공 ${successCount}개 · 실패 ${failedIds.size}개`
         : `전체 ${enabled.length}개 순차발행 완료`);
     } finally {
       window.__queueRunning = false;
       window.__queueProgressActive = false;
+      resetQueueStopRequest();
       try { window.__publishQueueActiveImageToken = null; } catch (e) { /* ignore */ }
       try { window.__publishForceOptions = null; } catch (e) { /* ignore */ }
       try { window.__publishQueuePayloadOverrides = null; } catch (e) { /* ignore */ }
@@ -3084,6 +3248,15 @@ export function initPublishQueue() {
   bindPublishModeTabs();
 
   // 전역 노출
-  window.__publishQueue = { open, close, addCurrent, syncBadge, getCurrentMode, _state: STATE };
+  window.__publishQueue = {
+    open,
+    close,
+    addCurrent,
+    syncBadge,
+    getCurrentMode,
+    stop: requestQueueStop,
+    isStopRequested: isQueueStopRequested,
+    _state: STATE,
+  };
   console.log('[PUBLISH-QUEUE] ✅ 연속발행 대기열 모듈 + 서브탭 초기화 완료');
 }
