@@ -97,6 +97,37 @@ describe('image Flow and Dropshot UI regression guard', () => {
     expect(dropshot).toContain('finally {\n    if (context) await closeDropshotContext(context);');
   });
 
+  test('Dropshot background checks never launch a system browser window', () => {
+    const dropshot = read('src/core/dropshotGenerator.ts');
+
+    expect(dropshot).toContain("const channels: Array<'chrome' | 'msedge' | undefined> = effectiveHeadless");
+    expect(dropshot).toContain('? [undefined]');
+    expect(dropshot).toContain(": [undefined, 'msedge', 'chrome']");
+    expect(dropshot).toContain("engines.push({ label: 'playwright'");
+  });
+
+  test('Dropshot visible login prefers bundled Chromium with stable window settings', () => {
+    const dropshot = read('src/core/dropshotGenerator.ts');
+
+    expect(dropshot).toContain(": [undefined, 'msedge', 'chrome']");
+    expect(dropshot).toContain('baseOptions.viewport = null');
+    expect(dropshot).toContain("'--disable-gpu'");
+    expect(dropshot).toContain("'--use-angle=swiftshader'");
+    expect(dropshot).toContain("await ctx.pages()[0]?.bringToFront()");
+    expect(dropshot).toContain('await page.bringToFront()');
+  });
+
+  test('Dropshot confirms unlimited mode and a single image before generating', () => {
+    const dropshot = read('src/core/dropshotGenerator.ts');
+
+    expect(dropshot).toContain("input[role=\"switch\"]");
+    expect(dropshot).toContain('await unlimitedSwitch.check({ force: true, timeout: 3000 })');
+    expect(dropshot).toContain('무제한 모드 ON 확인');
+    expect(dropshot).toContain("button[aria-label=\"decrease\"]");
+    expect(dropshot).toContain('이미지 수량 1장 확인');
+    expect(dropshot).toContain('유료 크레딧 모드로는 자동 생성하지 않습니다.');
+  });
+
   test('Dropshot generation waits long enough and detects modern result image URLs', () => {
     const dropshot = read('src/core/dropshotGenerator.ts');
 

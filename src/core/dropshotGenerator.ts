@@ -140,16 +140,15 @@ function getProfileDir(): string {
 }
 
 async function launchBrowser(profileDir: string, headless: boolean, onLog?: (msg: string) => void): Promise<any> {
-  let chromium: any;
-  try {
-    chromium = (await import('patchright' as any)).chromium;
-  } catch {
-    chromium = (await import('playwright')).chromium;
-  }
-
-  // Visible mode is reserved for the explicit login action. Session checks and
-  // automated generation must never surface an empty browser window to the user.
   const effectiveHeadless = headless !== false;
+  const engines: Array<{ label: string; chromium: any }> = [];
+  try {
+    engines.push({ label: 'patchright', chromium: (await import('patchright' as any)).chromium });
+  } catch { /* fallback below */ }
+  try {
+    engines.push({ label: 'playwright', chromium: (await import('playwright')).chromium });
+  } catch { /* no usable engine */ }
+  if (!engines.length) throw new Error('Chrome/Edge/Chromium 실행 실패');
 
   const baseOptions: any = {
     headless: effectiveHeadless,
@@ -170,6 +169,19 @@ async function launchBrowser(profileDir: string, headless: boolean, onLog?: (msg
     ignoreDefaultArgs: ['--enable-automation'],
   };
 
+  if (!effectiveHeadless) {
+    // Use a real browser window for the one explicit user-login action. Avoid
+    // system Chrome's GPU/window quirks that could leave a blank white surface.
+    baseOptions.viewport = null;
+    baseOptions.args.push(
+      '--start-maximized',
+      '--disable-gpu',
+      '--use-angle=swiftshader',
+      '--disable-features=CalculateNativeWinOcclusion',
+    );
+    engines.sort((a, b) => (a.label === 'playwright' ? -1 : 1) - (b.label === 'playwright' ? -1 : 1));
+  }
+
   const stealthInit = () => {
     Object.defineProperty(navigator, 'languages', {
       get: () => ['ko-KR', 'ko', 'en-US', 'en'],
@@ -177,15 +189,31 @@ async function launchBrowser(profileDir: string, headless: boolean, onLog?: (msg
     });
   };
 
-  for (const channel of ['chrome', 'msedge', undefined]) {
-    try {
-      const opts = channel ? { ...baseOptions, channel } : baseOptions;
-      const ctx = await launchPersistentContextWithAutoInstall(chromium, profileDir, opts, onLog);
-      try { await ctx.addInitScript(stealthInit); } catch { /* ignore */ }
-      return ctx;
-    } catch { /* 다음 채널 */ }
+  // Background work must never surface a browser. Explicit login first uses
+  // bundled Chromium, then falls back to installed browsers only if necessary.
+  const channels: Array<'chrome' | 'msedge' | undefined> = effectiveHeadless
+    ? [undefined]
+    : [undefined, 'msedge', 'chrome'];
+
+  let lastError: any = null;
+  for (const engine of engines) {
+    for (const channel of channels) {
+      try {
+        const opts = channel ? { ...baseOptions, channel } : { ...baseOptions };
+        const ctx = await launchPersistentContextWithAutoInstall(engine.chromium, profileDir, opts, onLog);
+        try { await ctx.addInitScript(stealthInit); } catch { /* ignore */ }
+        if (!effectiveHeadless) {
+          try { await ctx.pages()[0]?.bringToFront(); } catch { /* ignore */ }
+        }
+        onLog?.(`[Dropshot] ${effectiveHeadless ? 'background' : 'login'} browser ready: ${engine.label}${channel ? `/${channel}` : '/bundled'}`);
+        return ctx;
+      } catch (error: any) {
+        lastError = error;
+        onLog?.(`[Dropshot] ${engine.label}${channel ? `/${channel}` : ''} launch failed: ${String(error?.message || error).slice(0, 120)}`);
+      }
+    }
   }
-  throw new Error('Chrome/Edge/Chromium 실행 실패');
+  throw new Error(`Chrome/Edge/Chromium 실행 실패: ${lastError?.message || 'usable browser not found'}`);
 }
 
 /** 사이트가 로그인 상태인지 — board 페이지 로드 후 "플랜 업그레이드" 또는 "이미지 생성" 메뉴 보이면 OK */
@@ -195,7 +223,7 @@ async function launchBrowser(profileDir: string, headless: boolean, onLog?: (msg
  *   - 카운터(생성 장수)를 1로 (기본 2개씩 생성 → 1개로 변경 — 우리는 1프롬프트=1이미지)
  *   호출 시점: makeDropshotImage 진입 시 매번 (idempotent — 이미 정상이면 no-op)
  */
-async function ensureDropshotControls(page: any, onLog?: (m: string) => void): Promise<void> {
+async function ensureDropshotControlsLegacy(page: any, onLog?: (m: string) => void): Promise<void> {
   try {
     // 1. 무제한 모드 토글 ON
     const switchHandles = await page.$$('input[role="switch"]');
@@ -253,6 +281,80 @@ async function ensureDropshotControls(page: any, onLog?: (m: string) => void): P
     });
   } catch (e: any) {
     onLog?.(`⚠️ [Dropshot] 컨트롤 자동 조정 실패 (무시): ${(e.message || '').slice(0, 80)}`);
+  }
+}
+
+async function ensureDropshotControls(page: any, onLog?: (m: string) => void): Promise<void> {
+  try {
+    const switchHandles = await page.$$('input[role="switch"]');
+    let unlimitedSwitch: any = null;
+    for (const sw of switchHandles) {
+      const isUnlimitedSwitch = await sw.evaluate((el: any) => {
+        let node: Element | null = el;
+        for (let depth = 0; depth < 7 && node; depth += 1, node = node.parentElement) {
+          const text = String((node as HTMLElement).innerText || node.textContent || '');
+          if (/무제한\s*모드|unlimited\s*mode/i.test(text)) return true;
+        }
+        return false;
+      });
+      if (isUnlimitedSwitch) {
+        unlimitedSwitch = sw;
+        break;
+      }
+    }
+    if (!unlimitedSwitch) throw new Error('Dropshot 무제한 모드 토글을 찾지 못했습니다. 사이트 UI 변경 여부를 확인해주세요.');
+
+    let unlimitedEnabled = await unlimitedSwitch.evaluate((el: any) => el.checked === true || el.getAttribute('aria-checked') === 'true');
+    if (!unlimitedEnabled) {
+      try {
+        await unlimitedSwitch.check({ force: true, timeout: 3000 });
+      } catch {
+        await unlimitedSwitch.evaluate((el: any) => {
+          const target = el.closest('label') || el;
+          (target as HTMLElement).click();
+        });
+      }
+      await wait(500);
+      unlimitedEnabled = await unlimitedSwitch.evaluate((el: any) => el.checked === true || el.getAttribute('aria-checked') === 'true');
+    }
+    if (!unlimitedEnabled) throw new Error('Dropshot 무제한 모드를 실제 ON 상태로 전환하지 못했습니다. 유료 크레딧 모드로는 자동 생성하지 않습니다.');
+    onLog?.('🎛️ [Dropshot] 무제한 모드 ON 확인');
+
+    const decreaseButtons = await page.$$('button[aria-label="decrease"]');
+    let imageCountConfigured = false;
+    for (const decreaseButton of decreaseButtons) {
+      const isImageCount = await decreaseButton.evaluate((button: any) => {
+        let node: Element | null = button.parentElement;
+        for (let depth = 0; depth < 5 && node; depth += 1, node = node.parentElement) {
+          const text = String((node as HTMLElement).innerText || node.textContent || '');
+          if (/무제한\s*모드|unlimited\s*mode/i.test(text)) return true;
+        }
+        return false;
+      });
+      if (!isImageCount) continue;
+
+      imageCountConfigured = true;
+      const readCount = async (): Promise<number> => await decreaseButton.evaluate((button: any) => {
+        const text = String(button.parentElement?.innerText || '');
+        const match = text.match(/(\d+)\s*장/);
+        return match ? Number(match[1]) : 0;
+      });
+      let count = await readCount();
+      let safety = 8;
+      while (count > 1 && safety-- > 0) {
+        await decreaseButton.click({ force: true, timeout: 3000 });
+        await wait(250);
+        count = await readCount();
+      }
+      if (count !== 1) throw new Error(`Dropshot 이미지 수량을 1장으로 설정하지 못했습니다 (현재 ${count || '알 수 없음'}장).`);
+      onLog?.('🖼️ [Dropshot] 이미지 수량 1장 확인');
+      break;
+    }
+    if (!imageCountConfigured) throw new Error('Dropshot 이미지 수량 컨트롤을 찾지 못했습니다. 사이트 UI 변경 여부를 확인해주세요.');
+  } catch (error: any) {
+    const message = error?.message || String(error);
+    onLog?.(`❌ [Dropshot] 무제한 설정 확인 실패: ${message.slice(0, 180)}`);
+    throw new Error(message);
   }
 }
 
@@ -365,6 +467,7 @@ async function openDropshotLoginSurface(page: any): Promise<DropshotLoginSurface
       ? DROPSHOT_HOME_URL
       : `${DROPSHOT_HOME_URL}?orbit_login_retry=${Date.now()}`;
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    try { await page.bringToFront(); } catch { /* ignore */ }
     last = await waitForDropshotLoginSurface(page);
     if (last.ready) return last;
   }
