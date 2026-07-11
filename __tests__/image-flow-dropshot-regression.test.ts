@@ -66,6 +66,10 @@ describe('image Flow and Dropshot UI regression guard', () => {
     expect(main).toContain('플랜 확인 필요');
     expect(dropshot).toContain('subscriptionKnown?: boolean');
     expect(dropshot).toContain('subscriptionLabel?: string');
+    expect(dropshot).toContain('const DROPSHOT_AUTH_URL =');
+    expect(dropshot).toContain('async function verifyDropshotGenerationSession');
+    expect(dropshot).toContain('Dropshot 생성 권한 인증이 필요합니다.');
+    expect(dropshot).not.toContain('const hasAuthenticatedWorkspace = hasBoardUi');
     expect(dropshot).toContain('플랜 확인 필요');
     expect(queue).not.toContain("r.subscription || 'unknown'");
   });
@@ -121,7 +125,9 @@ describe('image Flow and Dropshot UI regression guard', () => {
     const dropshot = read('src/core/dropshotGenerator.ts');
 
     expect(dropshot).toContain("input[role=\"switch\"]");
-    expect(dropshot).toContain('await unlimitedSwitch.check({ force: true, timeout: 3000 })');
+    expect(dropshot).toContain('async function ensureDropshotNanoBananaProModel');
+    expect(dropshot).toContain("page.locator('button').nth(controls.modelPickerIndex).click({ force: true, timeout: 5_000 })");
+    expect(dropshot).toContain('await unlimitedSwitch.check({ force: true, timeout: 5_000 })');
     expect(dropshot).toContain('무제한 모드 ON 확인');
     expect(dropshot).toContain("button[aria-label=\"decrease\"]");
     expect(dropshot).toContain('이미지 수량 1장 확인');
@@ -152,6 +158,12 @@ describe('image Flow and Dropshot UI regression guard', () => {
     expect(dropshot).toContain('async function resolveDropshotGenerateControl');
     expect(dropshot).toContain('자동완성');
     expect(dropshot).toContain('hasExplicitGenerateIntent');
+    expect(dropshot).toContain('buttonIndex: allButtons.indexOf(best.button)');
+    expect(dropshot).toContain('await button.click({ force: true, timeout: 5_000 })');
+    expect(dropshot).toContain('Playwright 실제 클릭 완료');
+    expect(dropshot).not.toContain('best.button.click()');
+    expect(dropshot).toContain("page.on?.('response', onResponse)");
+    expect(dropshot).toContain('responseStatus >= 200 && responseStatus < 300');
     expect(dropshot).toContain('자동완성/추천 버튼은 실행하지 않았습니다');
     expect(dropshot).toContain('export async function verifyDropshotGenerationReady');
     expect(dropshot).toContain('const DROPSHOT_GENERATION_START_WAIT_MS');

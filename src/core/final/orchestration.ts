@@ -42,6 +42,14 @@ import { scanContentQuality } from './quality-gate';
 import { validateArticleQuality } from './quality-gate';
 import { dispatchMode } from './mode-dispatcher';
 import { applyFinalSeoEnhancements } from './seo-enhancements';
+import {
+  buildFactIntegrityPrompt,
+  inspectArticleFactIntegrity,
+  inspectFactIntegrity,
+  sanitizeArticleFactClaims,
+  sanitizeFactUnsafeHtml,
+  type FactEvidence,
+} from './fact-integrity';
 
 // 🎯 동시 실행 시 process.env 충돌 방지 세마포어
 let engineLock: Promise<void> = Promise.resolve();
@@ -951,26 +959,42 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog?.('[PROGRESS] 44% - ⚠️ 거미줄 모드에서 factCheckMode=off는 위험 → 자동으로 auto로 폴백');
     }
     let factEnrichedContents = contents;
+    let factEvidence: FactEvidence = {
+      context: '',
+      provider: 'none',
+      trustLevel: 'none',
+    };
     // v3.8.265: factCheckMode는 이제 'off'가 'auto'로 폴백되므로 항상 실행
     {
       try {
         const factModeLabel = factCheckMode === 'perplexity' ? 'Perplexity'
           : factCheckMode === 'naver' ? 'Naver'
           : factCheckMode === 'grounding' ? 'Gemini Grounding'
-          : '자동 (Naver → Perplexity → Gemini)';
+          : '자동 (Perplexity → Gemini Grounding → Naver)';
         onLog?.(`[PROGRESS] 46% - 🔍 팩트체크 실행 중 (${factModeLabel})...`);
         const factResult = await fetchFactContext(keyword, factCheckMode);
+        factEvidence = {
+          context: factResult.context || '',
+          provider: factResult.provider || 'none',
+          trustLevel: factResult.trustLevel || 'none',
+          sourceUrls: factResult.sourceUrls || [],
+        };
         if (factResult.success && factResult.context) {
-          // 팩트 컨텍스트를 contents 맨 앞에 삽입 → generateAllSectionsFinal의 reference로 활용
-          factEnrichedContents = [`[팩트체크 결과 - ${factResult.provider}]\n${factResult.context}`, ...contents];
           onLog?.(`[PROGRESS] 47% - ✅ 팩트체크 완료 (${factResult.provider}, ${factResult.context.length}자)`);
         } else {
-          onLog?.('[PROGRESS] 47% - ⚠️ 팩트체크 실패, 기존 방식으로 진행');
+          onLog?.('[PROGRESS] 47% - ⚠️ 팩트체크 실패, 정확한 수치·일정 없이 안전 모드로 진행');
         }
       } catch (factErr: any) {
         onLog?.(`[PROGRESS] 47% - ⚠️ 팩트체크 오류: ${factErr.message?.slice(0, 60)}`);
       }
     }
+
+    // Always inject the hard evidence policy. A failed search must never mean unrestricted generation.
+    factEnrichedContents = [
+      buildFactIntegrityPrompt(keyword, factEvidence),
+      ...(factEvidence.context ? [`[FACT EVIDENCE - ${factEvidence.provider}]\n${factEvidence.context}`] : []),
+      ...contents,
+    ];
 
     // 섹션 프롬프트 블록은 "참고 데이터"가 아닌 별도 지시로 전달
     const draftContent = (payload as any).draftContent || '';
@@ -1145,6 +1169,31 @@ export async function generateUltimateMaxModeArticleFinal(
       }
     }
 
+    // A prompt is not enough: verify the returned JSON before any FAQ, image, or publishing work begins.
+    let factIntegrityReport = inspectArticleFactIntegrity(allSectionsObj, factEvidence);
+    if (factIntegrityReport.status === 'blocked') {
+      onLog?.(`[PROGRESS] 74% - [FACT] 근거와 일치하지 않는 주장 ${factIntegrityReport.violations.length}건을 제거 후 재검사합니다.`);
+      allSectionsObj = sanitizeArticleFactClaims(allSectionsObj, factEvidence);
+      factIntegrityReport = inspectArticleFactIntegrity(allSectionsObj, factEvidence);
+
+      if (factIntegrityReport.status === 'blocked') {
+        const firstIssue = factIntegrityReport.violations[0];
+        const detail = firstIssue ? `${firstIssue.location || 'article'}: ${firstIssue.detail}` : 'unknown evidence mismatch';
+        onLog?.(`[PROGRESS] 74% - [FACT] 차단: ${detail}`);
+        throw new Error(`팩트 무결성 검사를 통과하지 못했습니다. ${detail}`);
+      }
+      onLog?.('[PROGRESS] 74% - [FACT] 근거 없는 정확한 정보 제거 완료');
+    } else {
+      onLog?.(`[PROGRESS] 74% - [FACT] 근거 일치 검사 통과 (${factIntegrityReport.checkedClaims}개 문장 확인)`);
+    }
+
+    const escapedKeywordForTitle = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const generatedTitleOnly = h1.replace(new RegExp(escapedKeywordForTitle, 'gi'), '').trim();
+    if (!payload.useKeywordAsTitle && generatedTitleOnly && inspectFactIntegrity(generatedTitleOnly, factEvidence).status === 'blocked') {
+      h1 = keyword;
+      onLog?.('[PROGRESS] 74% - [FACT] 근거 없는 제목 수치를 제거하고 키워드 제목으로 정리했습니다.');
+    }
+
     const sections = allSectionsObj.sections;
     const introductionHTML = allSectionsObj.introduction;
     const conclusionHTML = allSectionsObj.conclusion;
@@ -1155,7 +1204,20 @@ export async function generateUltimateMaxModeArticleFinal(
     ].join('\n');
 
     // 4.5. 🔥 FAQ 생성 (별도 API 호출 — Schema.org FAQPage 포함)
-    const faqs = await generateFAQFinal(keyword, h2Titles, onLog, articleTextForAux);
+    let faqs = await generateFAQFinal(keyword, h2Titles, onLog, articleTextForAux);
+    const faqText = faqs.map((item) => `${item.question} ${item.answer}`).join('\n');
+    if (inspectFactIntegrity(faqText, factEvidence).status === 'blocked') {
+      onLog?.('[PROGRESS] 68% - [FACT] FAQ의 근거 없는 정확한 정보를 정리합니다.');
+      faqs = faqs.map((item) => ({
+        ...item,
+        question: sanitizeFactUnsafeHtml(item.question, factEvidence),
+        answer: sanitizeFactUnsafeHtml(item.answer, factEvidence),
+      }));
+      const sanitizedFaqText = faqs.map((item) => `${item.question} ${item.answer}`).join('\n');
+      if (inspectFactIntegrity(sanitizedFaqText, factEvidence).status === 'blocked') {
+        throw new Error('FAQ 팩트 무결성 검사를 통과하지 못했습니다. 공식 근거를 확인한 뒤 다시 시도하세요.');
+      }
+    }
 
     // 5. CTA 생성 (manualCtas 우선, 없으면 자동 생성)
     onLog?.('[PROGRESS] 70% - 💰 CTA 버튼 생성 중...');
@@ -1237,7 +1299,20 @@ export async function generateUltimateMaxModeArticleFinal(
     }
 
     // 6. 요약표
-    const summaryTable = await generateSummaryTableFinal(articleTextForAux);
+    let summaryTable = await generateSummaryTableFinal(articleTextForAux);
+    const summaryFactText = [...(summaryTable.headers || []), ...(summaryTable.rows || []).flat()].join(' ');
+    if (inspectFactIntegrity(summaryFactText, factEvidence).status === 'blocked') {
+      summaryTable = {
+        ...summaryTable,
+        headers: (summaryTable.headers || []).map((value) => sanitizeFactUnsafeHtml(value, factEvidence)),
+        rows: (summaryTable.rows || []).map((row) => row.map((value) => sanitizeFactUnsafeHtml(value, factEvidence))),
+      };
+      const sanitizedSummaryText = [...(summaryTable.headers || []), ...(summaryTable.rows || []).flat()].join(' ');
+      if (inspectFactIntegrity(sanitizedSummaryText, factEvidence).status === 'blocked') {
+        throw new Error('요약표 팩트 무결성 검사를 통과하지 못했습니다. 공식 근거를 확인한 뒤 다시 시도하세요.');
+      }
+      onLog?.('[PROGRESS] 70% - [FACT] 요약표의 근거 없는 정확한 정보를 정리했습니다.');
+    }
 
     // 7. 해시태그
     const hashtags = await generateHashtagsFinal(keyword, h2Titles);

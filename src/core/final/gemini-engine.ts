@@ -424,14 +424,21 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
   throw buildUserError('gemini', lastInfo, totalAttempts);
 }
 
-export async function callGeminiWithGrounding(prompt: string, maxRetries: number = 1): Promise<string> {
+export async function callGeminiWithGrounding(
+  prompt: string,
+  maxRetries: number = 1,
+  forceGeminiSearch: boolean = false,
+): Promise<string> {
   const primaryProvider = getPrimaryProvider();
-  if (primaryProvider !== 'gemini') {
+  if (!forceGeminiSearch && primaryProvider !== 'gemini') {
     console.log(`[Grounding] ${primaryProvider} selected; using selected provider without Gemini Search.`);
     return callGeminiWithRetry(prompt, maxRetries);
   }
 
   if (envFlag('DISABLE_GEMINI_GROUNDING')) {
+    if (forceGeminiSearch) {
+      throw new Error('Gemini Search Grounding is disabled, so verified fact evidence cannot be collected.');
+    }
     return callGeminiWithRetry(prompt, maxRetries);
   }
 
@@ -501,6 +508,10 @@ export async function callGeminiWithGrounding(prompt: string, maxRetries: number
         break;
       }
     }
+  }
+
+  if (forceGeminiSearch) {
+    throw buildUserError('gemini', lastInfo, totalAttempts, 'mandatory Google Search grounding');
   }
 
   console.log(`[Grounding] failed after ${totalAttempts} attempt(s); falling back to normal Gemini.`);

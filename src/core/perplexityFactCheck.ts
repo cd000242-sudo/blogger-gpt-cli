@@ -4,7 +4,7 @@
  * 글 생성 전 키워드를 실시간 검색하여 팩트 기반 컨텍스트를 확보합니다.
  *
  * 토글 옵션:
- * - 'auto'       → 🔥 자동 선택 (네이버 > Perplexity > Gemini Grounding 순)
+ * - 'auto'       → 🔥 자동 선택 (Perplexity > Gemini Grounding > Naver 순)
  * - 'naver'      → 네이버 블로그 검색 API (무료, 한국 콘텐츠 최강)
  * - 'perplexity' → Perplexity Sonar (유료, 더 정확)
  * - 'grounding'  → Gemini Search Grounding (무료)
@@ -14,6 +14,7 @@
  */
 
 import { loadEnvFromFile } from '../env';
+import type { FactTrustLevel } from './final/fact-integrity';
 
 export type FactCheckMode = 'auto' | 'naver' | 'grounding' | 'perplexity' | 'off';
 
@@ -21,6 +22,20 @@ export interface FactCheckResult {
   context: string;       // 팩트 기반 컨텍스트 (글 생성 프롬프트에 삽입)
   provider: string;      // 사용된 제공자
   success: boolean;
+  trustLevel: FactTrustLevel;
+  sourceUrls?: string[];
+}
+
+export function getFactCheckProviderPriority(availability: {
+  perplexity: boolean;
+  grounding: boolean;
+  naver: boolean;
+}): Array<'perplexity' | 'grounding' | 'naver'> {
+  const priority: Array<'perplexity' | 'grounding' | 'naver'> = [];
+  if (availability.perplexity) priority.push('perplexity');
+  if (availability.grounding) priority.push('grounding');
+  if (availability.naver) priority.push('naver');
+  return priority;
 }
 
 export interface FactCheckReferenceTime {
@@ -79,7 +94,7 @@ export async function fetchFactContext(
   mode: FactCheckMode = 'auto',
 ): Promise<FactCheckResult> {
   if (mode === 'off' || !keyword.trim()) {
-    return { context: '', provider: 'none', success: true };
+    return { context: '', provider: 'none', success: true, trustLevel: 'none' };
   }
 
   const env = getCachedEnv();
@@ -90,25 +105,19 @@ export async function fetchFactContext(
   const hasPerplexityKey = ((env['perplexityKey'] || env['PERPLEXITY_API_KEY'] || '').trim().length >= 10);
   const hasGeminiKey = ((env['geminiKey'] || env['GEMINI_API_KEY'] || '').trim().length >= 10);
 
-  // 🔥 'auto' 모드: 사용자가 가진 키에 따라 자동 선택
-  //   1순위: 네이버 (무료 + 한국 콘텐츠 최강)
-  //   2순위: Perplexity (유료, 가장 정확)
-  //   3순위: Gemini Grounding (무료지만 429 이슈 있음)
-  //   실패: 건너뜀 + 경고
   if (mode === 'auto') {
-    if (hasNaverKey) {
-      mode = 'naver';
-      console.log('[FACT-CHECK] 🤖 auto → 네이버 블로그 검색 (무료, 한국 콘텐츠)');
-    } else if (hasPerplexityKey) {
-      mode = 'perplexity';
-      console.log('[FACT-CHECK] 🤖 auto → Perplexity (유료, 정확)');
-    } else if (hasGeminiKey) {
-      console.log('[FACT-CHECK] auto: Gemini key only. Skip duplicate fact-check grounding because body generation already uses Gemini Grounding.');
-      return { context: '', provider: 'Gemini Grounding skipped in auto mode', success: false };
-    } else {
+    const priority = getFactCheckProviderPriority({
+      perplexity: hasPerplexityKey,
+      grounding: hasGeminiKey,
+      naver: hasNaverKey,
+    });
+    const selected = priority[0];
+    if (!selected) {
       console.log('[FACT-CHECK] ⚠️ 네이버/Perplexity/Gemini 키 모두 없음 → 팩트체크 스킵');
-      return { context: '', provider: 'none', success: false };
+      return { context: '', provider: 'none', success: false, trustLevel: 'none' };
     }
+    mode = selected;
+    console.log(`[FACT-CHECK] auto → ${selected} (priority: ${priority.join(' > ')})`);
   }
 
   // ── 네이버 블로그 검색 모드 ──
@@ -120,7 +129,7 @@ export async function fetchFactContext(
         const result = await callNaverFactCheck(naverClientId, naverClientSecret, keyword);
         if (result) {
           console.log(`[FACT-CHECK] ✅ 네이버 팩트체크 완료 (${result.length}자)`);
-          return { context: result, provider: 'Naver Blog Search', success: true };
+          return { context: result, provider: 'Naver Blog Search', success: true, trustLevel: 'weak' };
         }
       } catch (e: any) {
         console.log(`[FACT-CHECK] ⚠️ 네이버 실패: ${e.message?.slice(0, 80)} → Perplexity/Grounding 폴백`);
@@ -134,7 +143,7 @@ export async function fetchFactContext(
     } else if (hasGeminiKey) {
       mode = 'grounding';
     } else {
-      return { context: '', provider: 'none', success: false };
+      return { context: '', provider: 'none', success: false, trustLevel: 'none' };
     }
   }
 
@@ -144,9 +153,15 @@ export async function fetchFactContext(
     if (pplxKey && pplxKey.length >= 10) {
       try {
         const result = await callPerplexityFactCheck(pplxKey, keyword);
-        if (result) {
-          console.log(`[FACT-CHECK] ✅ Perplexity 팩트체크 완료 (${result.length}자)`);
-          return { context: result, provider: 'Perplexity Sonar', success: true };
+        if (result?.context) {
+          console.log(`[FACT-CHECK] ✅ Perplexity 팩트체크 완료 (${result.context.length}자, sources=${result.sourceUrls.length})`);
+          return {
+            context: result.context,
+            provider: 'Perplexity Sonar',
+            success: true,
+            trustLevel: result.sourceUrls.length > 0 ? 'strong' : 'weak',
+            sourceUrls: result.sourceUrls,
+          };
         }
       } catch (e: any) {
         console.log(`[FACT-CHECK] ⚠️ Perplexity 실패: ${e.message?.slice(0, 80)} → Grounding 폴백`);
@@ -166,7 +181,7 @@ export async function fetchFactContext(
         const result = await callGeminiGroundingFactCheck(geminiKey, keyword);
         if (result) {
           console.log(`[FACT-CHECK] ✅ Gemini Grounding 팩트체크 완료 (${result.length}자)`);
-          return { context: result, provider: 'Gemini Grounding', success: true };
+          return { context: result, provider: 'Gemini Grounding', success: true, trustLevel: 'strong' };
         }
       } catch (e: any) {
         console.log(`[FACT-CHECK] ⚠️ Gemini Grounding 실패: ${e.message?.slice(0, 80)}`);
@@ -178,7 +193,7 @@ export async function fetchFactContext(
 
   // 모두 실패
   console.log(`[FACT-CHECK] 📝 팩트체크 건너뜀 (API 연결 불가)`);
-  return { context: '', provider: 'none', success: false };
+  return { context: '', provider: 'none', success: false, trustLevel: 'none' };
 }
 
 /**
@@ -228,7 +243,7 @@ export function buildLatestNaverFactQuery(keyword: string, now: Date = new Date(
   return `${compact} ${freshnessTerms}`.trim();
 }
 
-async function callPerplexityFactCheck(apiKey: string, keyword: string): Promise<string | null> {
+async function callPerplexityFactCheck(apiKey: string, keyword: string): Promise<{ context: string; sourceUrls: string[] } | null> {
   const MODELS = ['sonar', 'sonar-pro'];
   let lastError: any = null;
 
@@ -258,7 +273,16 @@ async function callPerplexityFactCheck(apiKey: string, keyword: string): Promise
 
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content?.trim();
-      if (content && content.length > 50) return content;
+      const sourceUrls = Array.from(new Set([
+        ...(Array.isArray(data.citations) ? data.citations : []),
+        ...(Array.isArray(data.search_results) ? data.search_results.map((item: any) => item?.url) : []),
+      ].filter((url: unknown) => typeof url === 'string' && /^https?:\/\//i.test(url))));
+      if (content && content.length > 50) {
+        const sourceBlock = sourceUrls.length > 0
+          ? `\n\n[Verified source URLs]\n${sourceUrls.map((url) => `- ${url}`).join('\n')}`
+          : '';
+        return { context: `${content}${sourceBlock}`, sourceUrls };
+      }
     } catch (e: any) {
       lastError = e;
       console.log(`[FACT-CHECK] ⚠️ Perplexity ${model} 실패: ${e.message?.slice(0, 60)}`);
@@ -272,7 +296,7 @@ async function callGeminiGroundingFactCheck(_apiKey: string, keyword: string): P
   // 🔥 통합 디스패처 사용 — Gemini면 Grounding, 다른 엔진이면 일반 호출로 자동 폴백
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { callGeminiWithGrounding } = require('./final/gemini-engine');
-  const result = await callGeminiWithGrounding(buildFactCheckPrompt(keyword));
+  const result = await callGeminiWithGrounding(buildFactCheckPrompt(keyword), 1, true);
   const content = (typeof result === 'string' ? result : result?.text || '').trim();
   return content && content.length > 50 ? content : null;
 }
