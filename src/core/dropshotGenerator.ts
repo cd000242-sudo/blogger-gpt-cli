@@ -19,6 +19,7 @@ import * as os from 'node:os';
 import { launchPersistentContextWithAutoInstall } from '../utils/playwright-browser-installer';
 
 const BOARD_URL = 'https://aistudio.dropshot.io/ko/workspace/board?panel=image&imageModelName=google/nano-banana-pro';
+const DROPSHOT_HOME_URL = 'https://aistudio.dropshot.io/ko';
 const PROFILE_NAME = 'dropshot-profile';
 const PROMPT_SELECTORS = [
   'textarea[placeholder="어떤 장면을 만들고 싶나요?"]',
@@ -82,6 +83,7 @@ const LOGIN_CHECK_FAIL_TTL_MS = 30 * 1000;
 const DROPSHOT_RESULT_WAIT_MS = 210_000;
 const DROPSHOT_RESULT_POLL_MS = 2_500;
 const DROPSHOT_GENERATION_START_WAIT_MS = 12_000;
+const DROPSHOT_LOGIN_SURFACE_WAIT_MS = 12_000;
 
 function normalizeDropshotSubscription(value: unknown): 'pro' | 'free' | 'unknown' {
   const raw = String(value || '').trim().toLowerCase();
@@ -293,6 +295,84 @@ async function isLoggedIn(page: any): Promise<boolean> {
 
 async function wait(ms: number): Promise<void> {
   await new Promise(r => setTimeout(r, ms));
+}
+
+type DropshotLoginSurface = {
+  ready: boolean;
+  textLength: number;
+  controls: number;
+  title: string;
+  url: string;
+};
+
+async function inspectDropshotLoginSurface(page: any): Promise<DropshotLoginSurface> {
+  return await page.evaluate(() => {
+    const body = document.body;
+    const text = String(body?.innerText || '').replace(/\s+/g, ' ').trim();
+    const controls = body
+      ? body.querySelectorAll('button, a[href], input, textarea, [role="button"], [role="textbox"]').length
+      : 0;
+    return {
+      ready: text.length >= 24 && controls > 0,
+      textLength: text.length,
+      controls,
+      title: document.title || '',
+      url: location.href,
+    };
+  });
+}
+
+async function waitForDropshotLoginSurface(page: any, timeoutMs = DROPSHOT_LOGIN_SURFACE_WAIT_MS): Promise<DropshotLoginSurface> {
+  const deadline = Date.now() + timeoutMs;
+  let last: DropshotLoginSurface = {
+    ready: false,
+    textLength: 0,
+    controls: 0,
+    title: '',
+    url: '',
+  };
+  while (Date.now() < deadline) {
+    last = await inspectDropshotLoginSurface(page);
+    if (last.ready) return last;
+    await wait(500);
+  }
+  return last;
+}
+
+async function clearDropshotBrowserCache(page: any): Promise<void> {
+  try {
+    const context = typeof page.context === 'function' ? page.context() : null;
+    const session = context && typeof context.newCDPSession === 'function'
+      ? await context.newCDPSession(page)
+      : null;
+    if (!session) return;
+    try {
+      await session.send('Network.clearBrowserCache');
+      await session.send('Network.setCacheDisabled', { cacheDisabled: true });
+    } finally {
+      if (typeof session.detach === 'function') await session.detach().catch(() => undefined);
+    }
+  } catch {
+    // Cache recovery is best-effort. Cookies remain untouched so a login session is preserved.
+  }
+}
+
+async function openDropshotLoginSurface(page: any): Promise<DropshotLoginSurface> {
+  let last: DropshotLoginSurface | null = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (attempt > 0) await clearDropshotBrowserCache(page);
+    const url = attempt === 0
+      ? DROPSHOT_HOME_URL
+      : `${DROPSHOT_HOME_URL}?orbit_login_retry=${Date.now()}`;
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    last = await waitForDropshotLoginSurface(page);
+    if (last.ready) return last;
+  }
+
+  const detail = last
+    ? `text=${last.textLength}, controls=${last.controls}, title=${last.title || 'none'}`
+    : 'no document state';
+  throw new Error(`Dropshot 로그인 화면을 불러오지 못했습니다 (${detail}). 네트워크 상태를 확인한 뒤 다시 시도해주세요.`);
 }
 
 async function resetDropshotBoard(page: any, onLog?: (m: string) => void): Promise<void> {
@@ -911,6 +991,7 @@ export async function loginDropshot(): Promise<{
   subscriptionLabel?: string;
   message?: string;
 }> {
+  let context: any = null;
   try {
     const profileDir = getProfileDir();
 
@@ -930,9 +1011,9 @@ export async function loginDropshot(): Promise<{
     // 기존 cached 닫기 (visible 새로 띄움)
     if (cachedContext) { await closeDropshotContext(cachedContext); cachedContext = null; cachedPage = null; }
 
-    const context = await launchBrowser(profileDir, false);
+    context = await launchBrowser(profileDir, false);
     const page = context.pages()[0] || await context.newPage();
-    await page.goto('https://aistudio.dropshot.io', { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await openDropshotLoginSurface(page);
 
     let loggedIn = false;
     let userName: string | undefined;
@@ -955,7 +1036,6 @@ export async function loginDropshot(): Promise<{
         }
       } catch { continue; }
     }
-    await closeDropshotContext(context);
     if (loggedIn) {
       const verified = await checkDropshotLogin({ force: true }).catch(() => null);
       const result = withDropshotSubscriptionMeta(verified?.loggedIn
@@ -973,6 +1053,8 @@ export async function loginDropshot(): Promise<{
     const result = { loggedIn: false, message: `예외: ${e.message || e}` };
     _loginCheckCache = { ts: Date.now(), result };
     return result;
+  } finally {
+    if (context) await closeDropshotContext(context);
   }
 }
 

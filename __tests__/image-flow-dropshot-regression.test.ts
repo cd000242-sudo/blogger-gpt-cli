@@ -85,6 +85,18 @@ describe('image Flow and Dropshot UI regression guard', () => {
     expect(dropshot.match(/await context\.close\(\);/g) || []).toHaveLength(1);
   });
 
+  test('Dropshot visible login detects blank browser content, retries without clearing cookies, and always closes the context', () => {
+    const dropshot = read('src/core/dropshotGenerator.ts');
+
+    expect(dropshot).toContain('async function inspectDropshotLoginSurface');
+    expect(dropshot).toContain('async function waitForDropshotLoginSurface');
+    expect(dropshot).toContain('async function openDropshotLoginSurface');
+    expect(dropshot).toContain('Network.clearBrowserCache');
+    expect(dropshot).not.toContain("'Network.clearBrowserCookies'");
+    expect(dropshot).toContain('await openDropshotLoginSurface(page)');
+    expect(dropshot).toContain('finally {\n    if (context) await closeDropshotContext(context);');
+  });
+
   test('Dropshot generation waits long enough and detects modern result image URLs', () => {
     const dropshot = read('src/core/dropshotGenerator.ts');
 
