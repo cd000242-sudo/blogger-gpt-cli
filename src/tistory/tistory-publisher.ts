@@ -271,14 +271,42 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+export function normalizeTistoryPublishedImageUrl(value: string): string {
+  const source = String(value || '').trim();
+  if (!source || /^(?:blob:|data:|javascript:)/i.test(source)) return '';
+
+  const normalized = source.startsWith('//') ? `https:${source}` : source;
+  try {
+    const url = new URL(normalized);
+    return url.protocol === 'https:' ? url.toString() : '';
+  } catch {
+    return '';
+  }
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function stripLeadingTemporaryImage(html: string): string {
+  return String(html || '').replace(
+    /^\s*(?:<p\b[^>]*>\s*)?<img\b[^>]*\bsrc=["'](?:blob:|data:image\/|javascript:)[^"']*["'][^>]*>\s*(?:<\/p>\s*)?/i,
+    '',
+  );
+}
+
 function stripGeneratedThumbnailHero(html: string, thumbnailUrl: string): string {
-  let nextHtml = String(html || '');
+  let nextHtml = stripLeadingTemporaryImage(html);
   nextHtml = nextHtml.replace(
     /^\s*<div\b[^>]*class=["'][^"']*\bbgpt-thumbnail-box\b[^"']*["'][\s\S]*?<\/div>\s*/i,
     '',
   );
 
-  const source = String(thumbnailUrl || '').trim();
+  const source = normalizeTistoryPublishedImageUrl(thumbnailUrl);
   if (source) {
     const escapedSource = escapeRegExp(source);
     nextHtml = nextHtml.replace(
@@ -289,10 +317,10 @@ function stripGeneratedThumbnailHero(html: string, thumbnailUrl: string): string
   return nextHtml.trimStart();
 }
 
-function buildTistoryImageFallback(thumbnailUrl: string, title: string): string {
-  const source = String(thumbnailUrl || '').trim();
+export function buildTistoryImageFallback(thumbnailUrl: string, title: string): string {
+  const source = normalizeTistoryPublishedImageUrl(thumbnailUrl);
   if (!source) return '';
-  const safeTitle = title.replace(/"/g, '&quot;');
+  const safeTitle = escapeHtmlAttribute(title);
   return `<p><img src="${source}" alt="${safeTitle}" /></p>`;
 }
 
@@ -972,6 +1000,7 @@ async function captureUploadedThumbnailBlock(
       const isContentImage = (img: HTMLImageElement) => {
         const src = img.currentSrc || img.src || '';
         if (!src || sourceSet.has(src)) return false;
+        if (!/^https:\/\//i.test(src)) return false;
         if (/data:image\/svg|favicon|profile|avatar|emoji|emoticon|icon/i.test(src)) return false;
         const rect = img.getBoundingClientRect();
         return rect.width >= 80 && rect.height >= 60;
@@ -994,6 +1023,7 @@ async function captureUploadedThumbnailBlock(
     const scoreImage = (img: HTMLImageElement): number => {
       const src = img.currentSrc || img.src || '';
       if (!src || sourceSet.has(src)) return -1;
+      if (!/^https:\/\//i.test(src)) return -1;
       if (/data:image\/svg|favicon|profile|avatar|emoji|emoticon|icon/i.test(src)) return -1;
       const rect = img.getBoundingClientRect();
       if (rect.width < 80 || rect.height < 60) return -1;
@@ -1013,11 +1043,15 @@ async function captureUploadedThumbnailBlock(
     const target = sorted[0]?.img;
     if (!target) return '';
 
-    target.alt = target.alt || altText;
-    target.setAttribute('loading', target.getAttribute('loading') || 'lazy');
-    const wrapper = target.closest('figure,.imageblock,.imagegridblock,p,div') as HTMLElement | null;
-    const html = (wrapper && visible(wrapper) ? wrapper.outerHTML : target.outerHTML).trim();
-    return html;
+    const source = target.currentSrc || target.src || '';
+    if (!/^https:\/\//i.test(source)) return '';
+    const escapeAttribute = (value: string) => String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    const imageAlt = escapeAttribute(target.alt || altText);
+    return `<p><img src="${escapeAttribute(source)}" alt="${imageAlt}" loading="lazy" /></p>`;
   }, { previous: previousSources, altText: title }).catch(() => '');
 }
 
@@ -1095,35 +1129,40 @@ async function uploadThumbnailThroughTistoryEditor(
       return '';
     }
 
-    log(onLog, 'Thumbnail image uploaded to Tistory editor.');
+    log(onLog, 'Thumbnail upload accepted. Waiting for the permanent Tistory CDN URL.');
     await page.waitForTimeout(1200).catch(() => null);
     const imageBlock = await captureUploadedThumbnailBlock(page, beforeSources, title);
     if (!imageBlock) {
-      log(onLog, 'Uploaded thumbnail block was not detected. Falling back to HTML image tag.');
+      log(onLog, 'Permanent thumbnail URL was not detected. A temporary preview URL will not be published.');
       return '';
     }
     await trySetUploadedImageAsRepresentative(page, onLog).catch(() => false);
+    log(onLog, 'Permanent Tistory thumbnail URL confirmed.');
     return imageBlock;
   } finally {
     await prepared.cleanup().catch(() => undefined);
   }
 }
 
-function buildTistoryFinalHtml(html: string, thumbnailUrl: string, uploadedThumbnailBlock: string, title: string): string {
+export function buildTistoryFinalHtml(html: string, thumbnailUrl: string, uploadedThumbnailBlock: string, title: string): string {
   // v3.8.299 보험: publish-content를 우회한 경로(직접 publishToTistory 호출)도 대비 — 본문 H1 통째 제거
   if (typeof html === 'string') {
     html = html.replace(/<h1[^>]*>[\s\S]*?<\/h1>/gi, '');
   }
 
-  if (uploadedThumbnailBlock) {
+  const uploadedSource = String(uploadedThumbnailBlock || '').match(/<img\b[^>]*\bsrc=["']([^"']+)["']/i)?.[1] || '';
+  const permanentUploadedSource = normalizeTistoryPublishedImageUrl(uploadedSource);
+  if (permanentUploadedSource) {
     const bodyWithoutGeneratedThumbnail = stripGeneratedThumbnailHero(html, thumbnailUrl);
-    return `${uploadedThumbnailBlock}\n${bodyWithoutGeneratedThumbnail}`.trim();
+    return `${buildTistoryImageFallback(permanentUploadedSource, title)}\n${bodyWithoutGeneratedThumbnail}`.trim();
   }
 
-  if (thumbnailUrl && !/<img\b/i.test(html)) {
-    return `${buildTistoryImageFallback(thumbnailUrl, title)}\n${html}`.trim();
+  const bodyWithoutTemporaryPreview = stripLeadingTemporaryImage(html);
+  const fallbackThumbnail = buildTistoryImageFallback(thumbnailUrl, title);
+  if (fallbackThumbnail && !/<img\b/i.test(bodyWithoutTemporaryPreview)) {
+    return `${fallbackThumbnail}\n${bodyWithoutTemporaryPreview}`.trim();
   }
-  return html;
+  return bodyWithoutTemporaryPreview;
 }
 
 async function selectCategory(page: any, category: string | undefined, onLog?: (message: string) => void): Promise<void> {
