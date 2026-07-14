@@ -4,7 +4,7 @@
  * 무료/유료 사용자 판별 + 쿼터 가드 + 페이월 응답
  *
  * 기존 license-manager-new.ts의 라이선스 정보를 활용하여
- * 무료 체험 사용자에게 일일 1회 제한을 적용한다.
+ * 무료 체험 사용자는 글포스팅의 실제 발행 완료 3회만 사용할 수 있다.
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -40,6 +40,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.FREE_TRIAL_PUBLISH_LIMIT = void 0;
 exports.activateFreeTrial = activateFreeTrial;
 exports.isFreeTrial = isFreeTrial;
 exports.isFreeTierUser = isFreeTierUser;
@@ -48,11 +49,15 @@ exports.getFreeQuotaStatus = getFreeQuotaStatus;
 exports.enforceFreeTier = enforceFreeTier;
 exports.getPaywallResponse = getPaywallResponse;
 exports.blockIfFreeTier = blockIfFreeTier;
+exports.getFreeTrialRestrictedWorkflow = getFreeTrialRestrictedWorkflow;
+exports.enforceFreeTrialPostingWorkflow = enforceFreeTrialPostingWorkflow;
+exports.isConfirmedPublishedPost = isConfirmedPublishedPost;
+exports.recordFreeTrialPublishCompletion = recordFreeTrialPublishCompletion;
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const quotaManager = __importStar(require("./quota-manager"));
-const FREE_DAILY_LIMIT = 1;
+exports.FREE_TRIAL_PUBLISH_LIMIT = 3;
 // 무료 체험 세션 플래그 (앱 재시작 시 리셋)
 let _freeTrialSession = false;
 /** 무료 체험 모드 활성화 */
@@ -106,13 +111,13 @@ async function isFreeTierUser() {
         return true; // 에러 시 안전하게 무료로 처리
     }
 }
-/** 일일 무료 한도 반환 */
+/** 무료 체험 완료 발행 한도 반환 */
 function getFreeQuotaLimit() {
-    return FREE_DAILY_LIMIT;
+    return exports.FREE_TRIAL_PUBLISH_LIMIT;
 }
 /** 현재 쿼터 상태 조회 */
 async function getFreeQuotaStatus() {
-    return quotaManager.getQuotaStatus(FREE_DAILY_LIMIT);
+    return quotaManager.getQuotaStatus(exports.FREE_TRIAL_PUBLISH_LIMIT);
 }
 /**
  * 무료 사용자 쿼터 가드.
@@ -127,7 +132,7 @@ async function enforceFreeTier() {
     if (quota.isPaywalled) {
         return { allowed: false, response: await getPaywallResponse() };
     }
-    const canUse = await quotaManager.canConsume(FREE_DAILY_LIMIT);
+    const canUse = await quotaManager.canConsume(exports.FREE_TRIAL_PUBLISH_LIMIT);
     if (!canUse) {
         return { allowed: false, response: await getPaywallResponse() };
     }
@@ -139,15 +144,13 @@ async function getPaywallResponse(message) {
     return {
         ok: false,
         code: 'PAYWALL',
-        message: message || '⛔ 오늘의 무료 사용 한도(1회)를 모두 사용했어요.\n라이선스를 등록하면 무제한으로 사용할 수 있습니다.',
+        message: message || '⛔ 무료 체험 발행 3회를 모두 사용했어요.\n라이선스를 등록하면 모든 발행 기능을 사용할 수 있습니다.',
         quota,
     };
 }
 /**
- * v3.8.38: 글포스팅 외 기능들 무료 체험 차단.
- *   무료 체험은 글포스팅 탭의 글포스팅(1회/일)만 사용 가능.
- *   거미줄·외부유입·일괄 이미지 등은 모두 paywall.
- *   quota 소모 없이 차단만 (quota는 글포스팅 전용).
+ * 글포스팅 외 기능을 무료 체험에서 차단한다.
+ * 무료 체험은 글포스팅 탭의 실제 발행 완료 3회만 사용할 수 있다.
  */
 async function blockIfFreeTier(featureName = '이 기능') {
     const isFree = await isFreeTierUser();
@@ -159,8 +162,77 @@ async function blockIfFreeTier(featureName = '이 기능') {
         response: {
             ok: false,
             code: 'PAYWALL',
-            message: `⛔ ${featureName}은(는) 무료 체험으로 사용할 수 없습니다.\n\n무료 체험: 글포스팅 탭의 글포스팅만 일일 1회 사용 가능.\n${featureName} 사용은 라이선스 등록 후 가능합니다.`,
+            message: `⛔ ${featureName}은(는) 유료 플랜 전용 기능입니다.\n\n무료 체험에서는 글포스팅 탭에서 실제 발행이 완료된 글만 최대 3회 이용할 수 있습니다.\n${featureName} 사용은 라이선스 등록 후 가능합니다.`,
             quota,
         },
     };
+}
+/**
+ * 일반 글포스팅의 contentMode와 충돌하지 않도록 명시적인 workflow 표식만 사용한다.
+ */
+function getFreeTrialRestrictedWorkflow(payload) {
+    if (!payload || typeof payload !== 'object')
+        return null;
+    const request = payload;
+    const workflow = [
+        request.workflow,
+        request.publishWorkflow,
+        request.feature,
+        request.entryPoint,
+    ]
+        .filter((value) => typeof value === 'string')
+        .join(' ')
+        .toLowerCase();
+    if (/(spider[-_\s]?web|internal[-_\s]?links|거미줄)/i.test(workflow)) {
+        return '거미줄 포스팅';
+    }
+    if (/(external[-_\s]?(traffic|inflow)|외부유입)/i.test(workflow)) {
+        return '외부유입 글 생성';
+    }
+    return null;
+}
+/** 무료 체험의 유료 전용 발행 경로를 백엔드에서도 차단한다. */
+async function enforceFreeTrialPostingWorkflow(payload) {
+    const restrictedFeature = getFreeTrialRestrictedWorkflow(payload);
+    if (!restrictedFeature)
+        return { allowed: true };
+    return blockIfFreeTier(restrictedFeature);
+}
+function isImmediatePublicPublish(payload) {
+    if (!payload || typeof payload !== 'object')
+        return true;
+    const request = payload;
+    if (request.previewOnly === true)
+        return false;
+    const mode = String(request.postingMode
+        || request.publishType
+        || request.status
+        || '').trim().toLowerCase();
+    return !['draft', 'save', 'schedule', 'scheduled', 'preview'].includes(mode);
+}
+/** 실제 공개 발행이 완료됐다는 응답인지 판별한다. */
+function isConfirmedPublishedPost(result, payload) {
+    if (!result || typeof result !== 'object')
+        return false;
+    if (!isImmediatePublicPublish(payload))
+        return false;
+    const response = result;
+    if (response.ok !== true && response.success !== true)
+        return false;
+    if (response.preview === true || response.published === false)
+        return false;
+    return ['url', 'postUrl', 'postId', 'post_id', 'id'].some((key) => {
+        const value = response[key];
+        return (typeof value === 'string' && value.trim().length > 0)
+            || (typeof value === 'number' && Number.isFinite(value));
+    });
+}
+/** 실제 발행 완료 후에만 무료 체험 사용량을 1회 기록한다. */
+async function recordFreeTrialPublishCompletion() {
+    const isFree = await isFreeTierUser();
+    if (!isFree)
+        return { counted: false, quota: null };
+    const counted = await quotaManager.consumeIfAvailable(exports.FREE_TRIAL_PUBLISH_LIMIT);
+    const quota = await getFreeQuotaStatus();
+    return { counted, quota };
 }

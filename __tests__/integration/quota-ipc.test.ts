@@ -47,15 +47,30 @@ describe('Quota IPC Integration', () => {
     cleanFiles();
   });
 
-  it('free trial app limit is 1 publish per day', async () => {
+  it('free trial app limit is 3 completed publishes', async () => {
     const authUtils = require('../../electron/auth-utils.js');
 
-    expect(authUtils.getFreeQuotaLimit()).toBe(1);
+    expect(authUtils.getFreeQuotaLimit()).toBe(3);
 
     const status = await authUtils.getFreeQuotaStatus();
-    expect(status.limit).toBe(1);
+    expect(status.limit).toBe(3);
     expect(status.usage).toBe(0);
     expect(status.isPaywalled).toBe(false);
+  });
+
+  it('counts only confirmed publishes and identifies paid-only workflows', () => {
+    const authUtils = require('../../electron/auth-utils.js');
+
+    expect(authUtils.isConfirmedPublishedPost({ ok: true, url: 'https://example.com/post' })).toBe(true);
+    expect(authUtils.isConfirmedPublishedPost({ ok: true, preview: true, url: 'https://example.com/post' })).toBe(false);
+    expect(authUtils.isConfirmedPublishedPost({ ok: true, published: false, url: 'https://example.com/post' })).toBe(false);
+    expect(authUtils.isConfirmedPublishedPost({ ok: true, url: 'https://example.com/post' }, { postingMode: 'draft' })).toBe(false);
+    expect(authUtils.isConfirmedPublishedPost({ ok: true, url: 'https://example.com/post' }, { postingMode: 'schedule' })).toBe(false);
+    expect(authUtils.isConfirmedPublishedPost({ ok: true })).toBe(false);
+
+    expect(authUtils.getFreeTrialRestrictedWorkflow({ workflow: 'spider-web' })).toBe('거미줄 포스팅');
+    expect(authUtils.getFreeTrialRestrictedWorkflow({ workflow: 'external-traffic' })).toBe('외부유입 글 생성');
+    expect(authUtils.getFreeTrialRestrictedWorkflow({ contentMode: 'external' })).toBeNull();
   });
 
   it('consume → getQuotaStatus → isPaywalled 플로우', async () => {

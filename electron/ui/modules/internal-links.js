@@ -192,6 +192,7 @@ function getSpiderPublishIntent(defaultMode = 'publish') {
     ? String(document.getElementById('scheduleDateTime').value).trim()
     : '';
   return {
+    workflow: 'spider-web',
     publishType: postingMode,
     postingMode,
     scheduleDate: postingMode === 'schedule' && scheduleDateTime ? scheduleDateTime : undefined,

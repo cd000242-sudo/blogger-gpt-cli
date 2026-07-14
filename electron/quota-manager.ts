@@ -127,9 +127,13 @@ async function readState(): Promise<QuotaState> {
       };
     }
 
-    // 날짜 변경 → 리셋
+    // 날짜 변경 시에도 무료 체험 완료 발행 카운트는 유지
     if (parsed.date !== today) {
-      return EMPTY_STATE(today);
+      // Free trial usage is cumulative completed publishes, not a daily counter.
+      return {
+        date: today,
+        publish: Number(parsed.publish) || 0,
+      };
     }
 
     return {
@@ -144,10 +148,7 @@ async function readState(): Promise<QuotaState> {
         const backupParsed = JSON.parse(backupRaw) as SecureQuotaState;
         if (backupParsed._sig && verifySignature(backupParsed)) {
           console.log('[QuotaManager] ⚠️ 메인 파일 손상 → 백업에서 복구 성공');
-          if (backupParsed.date !== today && today >= (backupParsed.lastSeenDate || backupParsed.date)) {
-            return EMPTY_STATE(today);
-          }
-          return { date: backupParsed.date, publish: Number(backupParsed.publish) || 0 };
+          return { date: today, publish: Number(backupParsed.publish) || 0 };
         }
       } catch { /* 백업도 실패 */ }
     }
@@ -187,7 +188,7 @@ function writeState(state: QuotaState): void {
 
 // ── 공개 API ──
 
-/** 오늘의 발행 사용량 조회 */
+/** 무료 체험 완료 발행 사용량 조회 (기존 호출부 호환용 이름 유지) */
 export async function getUsageToday(): Promise<number> {
   const state = await readState();
   return state.publish;
@@ -214,7 +215,10 @@ export async function canConsume(limit: number, amount: number = 1): Promise<boo
 export async function consume(amount: number = 1): Promise<QuotaState> {
   const today = getLocalDateKey();
   const state = await readState();
-  const base = state.date === today ? state : EMPTY_STATE(today);
+  const base: QuotaState = {
+    date: today,
+    publish: state.publish,
+  };
 
   const next: QuotaState = {
     ...base,
@@ -224,6 +228,23 @@ export async function consume(amount: number = 1): Promise<QuotaState> {
   writeState(next);
   console.log(`[QuotaManager] 쿼터 소비: ${base.publish} → ${next.publish}`);
   return next;
+}
+
+/** Records a completed publish only when the lifetime trial limit still allows it. */
+export async function consumeIfAvailable(limit: number, amount: number = 1): Promise<boolean> {
+  const safeAmount = Math.max(0, Math.floor(Number(amount) || 0));
+  if (!Number.isFinite(limit) || limit < 0 || safeAmount <= 0) return false;
+
+  const state = await readState();
+  if (state.publish + safeAmount > limit) return false;
+
+  const next: QuotaState = {
+    date: getLocalDateKey(),
+    publish: state.publish + safeAmount,
+  };
+  writeState(next);
+  console.log(`[QuotaManager] Completed-publish quota recorded: ${state.publish} -> ${next.publish}`);
+  return true;
 }
 
 /** 쿼터 환불 (발행 실패 시) */

@@ -44,6 +44,7 @@ exports.getUsageToday = getUsageToday;
 exports.getQuotaStatus = getQuotaStatus;
 exports.canConsume = canConsume;
 exports.consume = consume;
+exports.consumeIfAvailable = consumeIfAvailable;
 exports.refund = refund;
 const electron_1 = require("electron");
 const fs = __importStar(require("fs"));
@@ -131,9 +132,13 @@ async function readState() {
                 publish: Number(parsed.publish) || 0,
             };
         }
-        // 날짜 변경 → 리셋
+        // 날짜 변경 시에도 무료 체험 완료 발행 카운트는 유지
         if (parsed.date !== today) {
-            return EMPTY_STATE(today);
+            // Free trial usage is cumulative completed publishes, not a daily counter.
+            return {
+                date: today,
+                publish: Number(parsed.publish) || 0,
+            };
         }
         return {
             date: parsed.date,
@@ -148,10 +153,7 @@ async function readState() {
                 const backupParsed = JSON.parse(backupRaw);
                 if (backupParsed._sig && verifySignature(backupParsed)) {
                     console.log('[QuotaManager] ⚠️ 메인 파일 손상 → 백업에서 복구 성공');
-                    if (backupParsed.date !== today && today >= (backupParsed.lastSeenDate || backupParsed.date)) {
-                        return EMPTY_STATE(today);
-                    }
-                    return { date: backupParsed.date, publish: Number(backupParsed.publish) || 0 };
+                    return { date: today, publish: Number(backupParsed.publish) || 0 };
                 }
             }
             catch { /* 백업도 실패 */ }
@@ -191,7 +193,7 @@ function writeState(state) {
     }
 }
 // ── 공개 API ──
-/** 오늘의 발행 사용량 조회 */
+/** 무료 체험 완료 발행 사용량 조회 (기존 호출부 호환용 이름 유지) */
 async function getUsageToday() {
     const state = await readState();
     return state.publish;
@@ -215,7 +217,10 @@ async function canConsume(limit, amount = 1) {
 async function consume(amount = 1) {
     const today = getLocalDateKey();
     const state = await readState();
-    const base = state.date === today ? state : EMPTY_STATE(today);
+    const base = {
+        date: today,
+        publish: state.publish,
+    };
     const next = {
         ...base,
         publish: base.publish + amount,
@@ -223,6 +228,22 @@ async function consume(amount = 1) {
     writeState(next);
     console.log(`[QuotaManager] 쿼터 소비: ${base.publish} → ${next.publish}`);
     return next;
+}
+/** Records a completed publish only when the lifetime trial limit still allows it. */
+async function consumeIfAvailable(limit, amount = 1) {
+    const safeAmount = Math.max(0, Math.floor(Number(amount) || 0));
+    if (!Number.isFinite(limit) || limit < 0 || safeAmount <= 0)
+        return false;
+    const state = await readState();
+    if (state.publish + safeAmount > limit)
+        return false;
+    const next = {
+        date: getLocalDateKey(),
+        publish: state.publish + safeAmount,
+    };
+    writeState(next);
+    console.log(`[QuotaManager] Completed-publish quota recorded: ${state.publish} -> ${next.publish}`);
+    return true;
 }
 /** 쿼터 환불 (발행 실패 시) */
 async function refund(amount = 1) {

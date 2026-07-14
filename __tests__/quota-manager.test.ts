@@ -114,15 +114,26 @@ describe('QuotaManager', () => {
     expect(usage).toBe(0);
   });
 
-  // ── 날짜 변경 (리셋) ──
+  // ── 날짜 변경 (누적 유지) ──
 
-  it('다른 날짜의 파일 → 리셋', async () => {
+  it('다른 날짜의 파일도 무료 체험 누적 발행 횟수를 유지', async () => {
     const yesterday = '2020-01-01';
     const sig = computeTestSignature({ date: yesterday, publish: 5, lastSeenDate: yesterday });
     writeRawQuotaFile({ date: yesterday, publish: 5, lastSeenDate: yesterday, _sig: sig });
 
     const usage = await quotaManager.getUsageToday();
-    expect(usage).toBe(0); // 리셋됨
+    expect(usage).toBe(5);
+  });
+
+  it('consumeIfAvailable: 한도 안에서만 완료 발행을 기록', async () => {
+    expect(await quotaManager.consumeIfAvailable(3)).toBe(true);
+    expect(await quotaManager.consumeIfAvailable(3)).toBe(true);
+    expect(await quotaManager.consumeIfAvailable(3)).toBe(true);
+    expect(await quotaManager.consumeIfAvailable(3)).toBe(false);
+
+    const status = await quotaManager.getQuotaStatus(3);
+    expect(status.usage).toBe(3);
+    expect(status.isPaywalled).toBe(true);
   });
 
   // ── 변조 감지 ──

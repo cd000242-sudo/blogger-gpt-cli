@@ -7597,8 +7597,8 @@
 
 <!-- 무료 사용 카운터 (고정 우상단) -->
 <div id="freeQuotaCounter" style="display: none; position: fixed; top: 16px; right: 20px; z-index: 9999; background: linear-gradient(135deg, rgba(99,102,241,0.95), rgba(168,85,247,0.95)); border-radius: 14px; padding: 10px 18px; box-shadow: 0 4px 20px rgba(99,102,241,0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.2); align-items: center; gap: 10px; color: white;">
-  <span style="font-size: 13px; font-weight: 600; opacity: 0.9;">오늘 발행</span>
-  <span id="freeQuotaText" style="font-size: 18px; font-weight: 900; letter-spacing: 1px;">0/2</span>
+  <span style="font-size: 13px; font-weight: 600; opacity: 0.9;">무료 체험 발행</span>
+  <span id="freeQuotaText" style="font-size: 18px; font-weight: 900; letter-spacing: 1px;">0/3</span>
 </div>
 
 <!-- 종료 확인 프리미엄 모달 -->
@@ -7683,13 +7683,13 @@ async function updateFreeQuotaCounter() {
       return;
     }
     var used = (status.quota && status.quota.usage) || 0;
-    var limit = (status.quota && status.quota.limit) || 1;
+    var limit = (status.quota && status.quota.limit) || 3;
     text.textContent = used + '/' + limit;
     var exhausted = (limit - used <= 0);
     text.style.color = exhausted ? '#fca5a5' : '#a5f3c4';
     counter.style.display = 'flex';
 
-    // 2/2 소진 시 구매 유도 모달 (한 번만)
+    // 무료 체험 3회 소진 시 구매 유도 모달 (한 번만)
     if (exhausted && !window._paywallShown) {
       window._paywallShown = true;
       showPaywallModal();
@@ -7705,13 +7705,13 @@ function showPaywallModal() {
   modal.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;';
   modal.innerHTML = '<div style="background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:24px;padding:36px;width:90%;max-width:440px;box-shadow:0 25px 60px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);text-align:center;">'
     + '<div style="font-size:56px;margin-bottom:12px;">🔒</div>'
-    + '<h2 style="color:white;font-size:22px;font-weight:800;margin:0 0 12px 0;">오늘의 무료 체험이 끝났어요</h2>'
-    + '<p style="color:rgba(255,255,255,0.7);font-size:14px;margin:0 0 24px 0;line-height:1.6;">하루 1회 무료 체험을 모두 사용했습니다.<br>라이선스를 등록하면 <strong style="color:#a5f3c4;">무제한</strong>으로 사용할 수 있어요!</p>'
+    + '<h2 style="color:white;font-size:22px;font-weight:800;margin:0 0 12px 0;">무료 체험 발행 3회를 모두 사용했어요</h2>'
+    + '<p style="color:rgba(255,255,255,0.7);font-size:14px;margin:0 0 24px 0;line-height:1.6;">글포스팅에서 실제 발행이 완료된 글 3회를 모두 사용했습니다.<br>라이선스를 등록하면 <strong style="color:#a5f3c4;">모든 발행 기능</strong>을 사용할 수 있어요.</p>'
     + '<div style="display:flex;flex-direction:column;gap:10px;">'
     + '<button onclick="window.blogger&&window.blogger.openExternal(\'https://leadernam.imweb.me\')" style="padding:14px 24px;background:linear-gradient(135deg,#6366f1,#a855f7);border:none;border-radius:12px;color:white;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(99,102,241,0.4);">🛒 라이선스 구매하기</button>'
-    + '<button onclick="document.getElementById(\'paywallModal\').remove()" style="padding:12px 24px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:12px;color:rgba(255,255,255,0.6);font-size:14px;cursor:pointer;">내일 다시 사용할게요</button>'
+    + '<button onclick="document.getElementById(\'paywallModal\').remove()" style="padding:12px 24px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:12px;color:rgba(255,255,255,0.6);font-size:14px;cursor:pointer;">닫기</button>'
     + '</div>'
-    + '<p style="color:rgba(255,255,255,0.4);font-size:11px;margin:16px 0 0 0;">내일 자정에 무료 체험이 다시 초기화됩니다</p>'
+    + '<p style="color:rgba(255,255,255,0.4);font-size:11px;margin:16px 0 0 0;">무료 체험은 실제 발행 완료 기준으로 최대 3회 제공됩니다</p>'
     + '</div>';
   document.body.appendChild(modal);
 }

@@ -800,6 +800,18 @@ export async function runPosting() {
       hasContent: !!(result?.html || result?.content),
     });
 
+    if (result?.code === 'PAYWALL') {
+      const paywallMessage = result?.message || '무료 체험 발행 횟수를 모두 사용했습니다.';
+      setFinalResult({ ok: false, published: false, error: paywallMessage });
+      addLog(paywallMessage, 'warning');
+      try { window.updateFreeQuotaCounter?.(); } catch {}
+      try {
+        window._paywallShown = true;
+        window.showPaywallModal?.();
+      } catch {}
+      return finalResult;
+    }
+
     // ── 결과 저장 ──
     if (result && (result.title || result.html || result.content)) {
       appState.generatedContent = {
@@ -847,6 +859,7 @@ export async function runPosting() {
         }
       } else {
         addLog('🎉 블로그 포스트가 성공적으로 발행되었습니다!', 'success');
+        try { window.updateFreeQuotaCounter?.(); } catch {}
       }
 
       // 미리보기 업데이트
@@ -1178,10 +1191,22 @@ export async function publishToPlatform() {
         throw new Error('발행 API를 찾을 수 없습니다.');
       }
 
+      if (result?.code === 'PAYWALL') {
+        const paywallMessage = result?.message || '무료 체험 발행 횟수를 모두 사용했습니다.';
+        addLog(paywallMessage, 'warning');
+        try { window.updateFreeQuotaCounter?.(); } catch {}
+        try {
+          window._paywallShown = true;
+          window.showPaywallModal?.();
+        } catch {}
+        return result;
+      }
+
       if (result?.ok || result?.success) {
         publishSucceeded = true;
         if (agentFlowActive) updateAgentProgressModal(100, '글 생성, 이미지 생성, 발행이 모두 완료되었습니다.', 'success', 'publish');
         addLog('✅ 콘텐츠 발행 완료!', 'success');
+        try { window.updateFreeQuotaCounter?.(); } catch {}
 
         // v3.8.102: 자동 진단 결론 출력 — 사용자가 캡처할 필요 없이 콘솔에 직접 표시
         try {

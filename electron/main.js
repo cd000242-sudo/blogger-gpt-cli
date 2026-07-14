@@ -4229,7 +4229,7 @@ safeRegisterHandler('run-semi-auto-post', async (_evt, payload) => {
 });
 // 포스트 실행 (콘텐츠 생성 + 자동 발행)
 electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
-    let preConsumed = false;
+    let freeTrialPublish = false;
     try {
         console.log('[RUN-POST] 포스트 실행 요청 받음');
         console.log('[RUN-POST] payload keys:', Object.keys(payload || {}));
@@ -4294,26 +4294,28 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
                 }
             }
         };
-        // 무료 사용자 쿼터 체크 (선차감)
+        // 무료 체험은 발행을 성공적으로 마친 뒤에만 1회 기록한다.
         try {
-            const { enforceFreeTier, isFreeTierUser } = require('./auth-utils');
-            const { consume, refund } = require('./quota-manager');
+            const { enforceFreeTier, enforceFreeTrialPostingWorkflow, isFreeTierUser, } = require('./auth-utils');
+            const workflowGate = await enforceFreeTrialPostingWorkflow(payload);
+            if (!workflowGate.allowed) {
+                return workflowGate.response;
+            }
             console.log('[RUN-POST] enforceFreeTier 호출...');
             const enforcement = await enforceFreeTier();
             console.log('[RUN-POST] enforceFreeTier 결과:', enforcement.allowed);
             if (!enforcement.allowed) {
                 return enforcement.response; // PAYWALL 응답
             }
-            const isFree = await isFreeTierUser();
-            console.log('[RUN-POST] isFreeTierUser:', isFree);
-            if (isFree) {
-                await consume(1);
-                preConsumed = true;
-                console.log('[QUOTA] 무료 사용자: 쿼터 선차감 완료');
+            freeTrialPublish = await isFreeTierUser();
+            console.log('[RUN-POST] isFreeTierUser:', freeTrialPublish);
+            if (freeTrialPublish) {
+                console.log('[QUOTA] 무료 체험: 발행 완료 후 쿼터를 기록합니다.');
             }
         }
         catch (quotaError) {
-            console.error('[QUOTA] 쿼터 체크 오류 (무시):', quotaError.message);
+            console.error('[QUOTA] 쿼터 체크 오류:', quotaError.message);
+            return { ok: false, error: '무료 체험 상태를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.', needsAuth: false };
         }
         // 1. 콘텐츠 생성
         console.log('[RUN-POST] generateMaxModeArticle 호출 시작...');
@@ -4643,6 +4645,21 @@ ${labelsPost.slice(0, 6).map((kw) => `<meta property="article:tag" content="${St
                 if (publishResult && publishResult.ok) {
                     onLog('[PROGRESS] 100% - ✅ 발행 완료!');
                     console.log('[RUN-POST] ✅ 발행 성공:', publishResult.url);
+                    if (freeTrialPublish) {
+                        try {
+                            const { isConfirmedPublishedPost, recordFreeTrialPublishCompletion } = require('./auth-utils');
+                            if (isConfirmedPublishedPost(publishResult, payload)) {
+                                const completion = await recordFreeTrialPublishCompletion();
+                                console.log('[QUOTA] 무료 체험 발행 완료 기록:', completion.counted, completion.quota);
+                            }
+                            else {
+                                console.warn('[QUOTA] 발행 완료 식별자(URL/ID)가 없어 무료 체험 카운트를 기록하지 않았습니다.');
+                            }
+                        }
+                        catch (quotaError) {
+                            console.error('[QUOTA] 무료 체험 완료 기록 실패:', quotaError);
+                        }
+                    }
                     // v3.8.89: 통합 success 신호
                     emitPublishSuccess({
                         url: publishResult.url,
@@ -4703,17 +4720,6 @@ ${labelsPost.slice(0, 6).map((kw) => `<meta property="article:tag" content="${St
     }
     catch (error) {
         console.error('[RUN-POST] 실행 실패:', error);
-        // 실패 시 환불
-        if (preConsumed) {
-            try {
-                const { refund } = require('./quota-manager');
-                await refund(1);
-                console.log('[QUOTA] 발행 실패: 쿼터 환불 완료');
-            }
-            catch (e) {
-                console.error('[QUOTA] 환불 실패:', e);
-            }
-        }
         const errorMessage = error instanceof Error ? error.message : '실행 실패';
         return { ok: false, error: errorMessage, needsAuth: false };
     }
@@ -4819,12 +4825,21 @@ electron_1.ipcMain.handle('prepare-publish-content', async (_evt, data) => {
     }
 });
 electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
+    let freeTrialPublish = false;
     try {
         console.log('[PUBLISH] 컨텐츠 발행 요청');
         console.log('[PUBLISH] 제목:', data.title?.substring(0, 50));
         console.log('[PUBLISH] 콘텐츠 길이:', data.content?.length || 0);
         console.log('[PUBLISH] 썸네일 URL:', data.thumbnailUrl ? '있음' : '없음');
         console.log('[PUBLISH] 발행 모드:', data.payload?.publishType || data.payload?.postingMode || 'immediate');
+        const { enforceFreeTier, enforceFreeTrialPostingWorkflow, isFreeTierUser, } = require('./auth-utils');
+        const workflowGate = await enforceFreeTrialPostingWorkflow(data?.payload || {});
+        if (!workflowGate.allowed)
+            return workflowGate.response;
+        const enforcement = await enforceFreeTier();
+        if (!enforcement.allowed)
+            return enforcement.response;
+        freeTrialPublish = await isFreeTierUser();
         // v3.8.116/120: 본문 첫 img 자동 채택 — http(s) URL뿐 아니라 data:image base64도 처리
         //   사용자 보고: WP 글 목록 썸네일 여전히 누락 → codex가 base64로 박은 경우 v3.8.116 정규식이 못 잡음.
         //   수정: data:image도 채택 → WP publisher가 ArrayBuffer로 변환·업로드.
@@ -5248,6 +5263,18 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
         }
         // v3.8.89: 발행 성공 시 renderer에 통합 신호 → 어느 흐름이든 동일한 완료 모달 표시
         if (result.ok && (result.url || result.postId || result.id)) {
+            if (freeTrialPublish) {
+                try {
+                    const { isConfirmedPublishedPost, recordFreeTrialPublishCompletion } = require('./auth-utils');
+                    if (isConfirmedPublishedPost(result, data?.payload)) {
+                        const completion = await recordFreeTrialPublishCompletion();
+                        console.log('[QUOTA] 무료 체험 발행 완료 기록:', completion.counted, completion.quota);
+                    }
+                }
+                catch (quotaError) {
+                    console.error('[QUOTA] 무료 체험 완료 기록 실패:', quotaError);
+                }
+            }
             emitPublishSuccess({
                 url: String(result.url || ''),
                 platform: String(data?.payload?.platform || data?.payload?.platformType || ''),
