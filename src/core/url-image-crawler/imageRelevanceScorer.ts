@@ -234,9 +234,8 @@ function openaiStrategy(model: string, apiKey: string): VisionStrategy {
     timeoutMs,
     async score(buf, mime, prompt) {
       const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
-      const body = {
+      const body: any = {
         model,
-        max_tokens: 100,
         response_format: { type: 'json_object' },
         messages: [{
           role: 'user',
@@ -246,6 +245,12 @@ function openaiStrategy(model: string, apiKey: string): VisionStrategy {
           ],
         }],
       };
+      if (/^gpt-5/i.test(model)) {
+        body.max_completion_tokens = 100;
+        if (/^gpt-5\.6/i.test(model)) body.reasoning_effort = 'medium';
+      } else {
+        body.max_tokens = 100;
+      }
       const res = await httpsPost('https://api.openai.com/v1/chat/completions', body, {
         'Authorization': `Bearer ${apiKey}`,
       }, timeoutMs);

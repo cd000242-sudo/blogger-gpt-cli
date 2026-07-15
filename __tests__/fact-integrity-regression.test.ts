@@ -39,6 +39,7 @@ describe('fact integrity regression', () => {
         '지원 금액은 25만원입니다.',
         '출처: https://www.seoul.go.kr/example',
       ].join('\n'),
+      sourceUrls: ['https://www.seoul.go.kr/example'],
     };
     const article = '<p>서울특별시는 2026년 7월 15일까지 신청을 받고 25만원을 지원한다고 안내했습니다.</p>';
 
@@ -56,6 +57,20 @@ describe('fact integrity regression', () => {
     };
 
     const report = inspectFactIntegrity('<p>2026년에 알아둘 내용입니다.</p>', evidence);
+
+    expect(report.status).toBe('blocked');
+    expect(report.violations.some((item) => item.kind === 'unsupported_exact_value')).toBe(true);
+  });
+
+  test('does not treat an uncited search summary as publishable evidence', () => {
+    const evidence: FactEvidence = {
+      provider: 'Gemini Grounding',
+      trustLevel: 'strong',
+      context: '서울특별시 공식 안내: 2026년 7월 15일까지 신청하면 25만원을 지원합니다.',
+      sourceUrls: [],
+    };
+
+    const report = inspectFactIntegrity('<p>2026년 7월 15일까지 신청하면 25만원을 받을 수 있습니다.</p>', evidence);
 
     expect(report.status).toBe('blocked');
     expect(report.violations.some((item) => item.kind === 'unsupported_exact_value')).toBe(true);

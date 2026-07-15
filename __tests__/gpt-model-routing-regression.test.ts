@@ -7,11 +7,17 @@ function read(relativePath: string): string {
 }
 
 describe('GPT model routing regression guard', () => {
-  test('native GPT model IDs resolve to OpenAI tiers', () => {
-    expect(pricing.findTier('gpt-5-nano')?.provider).toBe('openai');
-    expect(pricing.findTier('gpt-5-mini')?.provider).toBe('openai');
-    expect(pricing.findTier('gpt-5')?.provider).toBe('openai');
-    expect(pricing.deriveProvider('gpt-5-nano')).toBe('openai');
+  test('current GPT-5.6 model IDs resolve to OpenAI tiers', () => {
+    expect(pricing.findTier('gpt-5.6-luna')?.provider).toBe('openai');
+    expect(pricing.findTier('gpt-5.6-terra')?.provider).toBe('openai');
+    expect(pricing.findTier('gpt-5.6-sol')?.provider).toBe('openai');
+    expect(pricing.deriveProvider('gpt-5.6-luna')).toBe('openai');
+  });
+
+  test('legacy GPT radio values keep resolving to the current OpenAI tier', () => {
+    expect(pricing.findTier('openai-gpt4o-mini')?.modelId).toBe('gpt-5.6-luna');
+    expect(pricing.findTier('openai-gpt41')?.modelId).toBe('gpt-5.6-terra');
+    expect(pricing.findTier('openai-gpt4o')?.modelId).toBe('gpt-5.6-sol');
   });
 
   test('posting payload keeps GPT radio values in the OpenAI provider', () => {

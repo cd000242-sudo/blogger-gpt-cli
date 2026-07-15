@@ -100,13 +100,19 @@ function hasStrongEvidence(evidence: FactEvidence): boolean {
   return evidence.trustLevel === 'strong' && toPlainText(evidence.context).length >= 20;
 }
 
+function hasCitableEvidence(evidence: FactEvidence): boolean {
+  if (!hasStrongEvidence(evidence)) return false;
+  return Array.isArray(evidence.sourceUrls)
+    && evidence.sourceUrls.some((url) => typeof url === 'string' && /^https?:\/\//i.test(url.trim()));
+}
+
 function inspectSentence(sentence: string, evidence: FactEvidence): FactIntegrityViolation[] {
   const violations: FactIntegrityViolation[] = [];
   const exactValues = extractExactValues(sentence);
   const institutions = extractInstitutions(sentence);
   const sensitive = FACT_SENSITIVE_PATTERN.test(sentence);
   const evidenceText = normalize(evidence.context);
-  const evidenceIsStrong = hasStrongEvidence(evidence);
+  const evidenceIsStrong = hasCitableEvidence(evidence);
   const inherentlyTimeSensitiveValues = exactValues.filter((value) => /20\d{2}|월|만원|원|억|%|퍼센트|세|^\d{4}-/.test(value));
   const valuesToVerify = sensitive ? exactValues : inherentlyTimeSensitiveValues;
 
@@ -239,7 +245,7 @@ export function sanitizeArticleFactClaims<T extends FactIntegrityArticle>(articl
 }
 
 export function buildFactIntegrityPrompt(keyword: string, evidence: FactEvidence): string {
-  const evidenceState = hasStrongEvidence(evidence)
+  const evidenceState = hasCitableEvidence(evidence)
     ? `${evidence.provider}에서 수집한 검증 장부가 제공됩니다. 장부에 있는 사실만 사용할 수 있습니다.`
     : '검증 가능한 최신 근거가 충분하지 않습니다. 일반적인 설명만 쓰고, 세부 기준은 공식 안내 확인으로 안내해야 합니다.';
 

@@ -19,9 +19,9 @@ import {
 } from '../llm/provider-throttle';
 
 const GEMINI_BASE_MODELS = [
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-flash',
-  'gemini-2.5-pro',
+  'gemini-3.1-flash-lite',
+  'gemini-3.5-flash',
+  'gemini-3.1-pro-preview',
 ];
 
 export const GEMINI_MODELS = GEMINI_BASE_MODELS;
@@ -92,18 +92,39 @@ function unique(items: string[]): string[] {
   });
 }
 
+function getGeminiTemperature(prompt: string): number {
+  return /\[FACT EVIDENCE|FACT INTEGRITY|Verified source URLs|grounding response/i.test(prompt) ? 0.28 : 0.52;
+}
+
+export function extractGroundingSourceUrls(metadata: unknown): string[] {
+  const chunks = (metadata as { groundingChunks?: Array<{ web?: { uri?: unknown; url?: unknown } }> } | null)
+    ?.groundingChunks;
+  if (!Array.isArray(chunks)) return [];
+  return unique(chunks
+    .map((chunk) => chunk?.web?.uri ?? chunk?.web?.url)
+    .filter((value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value)));
+}
+
+function notifyGroundingEvidence(listener: ((sourceUrls: string[]) => void) | undefined, sourceUrls: string[]): void {
+  try {
+    listener?.(sourceUrls);
+  } catch {
+    // Evidence reporting must never interrupt generation.
+  }
+}
+
 function buildGeminiChain(): string[] {
   const tierValue = process.env['PRIMARY_TEXT_MODEL'] || DEFAULT_TIER_VALUE;
   const tier = findTier(tierValue);
   const selected = tier && tier.provider === 'gemini'
     ? unique([tier.modelId, ...tier.fallback, ...GEMINI_BASE_MODELS])
-    : unique(['gemini-2.5-flash', 'gemini-2.5-flash-lite', ...GEMINI_BASE_MODELS]);
+    : unique(['gemini-3.5-flash', 'gemini-3.1-flash-lite', ...GEMINI_BASE_MODELS]);
 
-  const selectedPro = tier?.provider === 'gemini' && tier.modelId === 'gemini-2.5-pro';
+  const selectedPro = tier?.provider === 'gemini' && tier.modelId === 'gemini-3.1-pro-preview';
   const allowProFallback = selectedPro || envFlag('GEMINI_ENABLE_PRO_FALLBACK');
   const withoutUnexpectedPro = allowProFallback
     ? selected
-    : selected.filter(model => model !== 'gemini-2.5-pro');
+    : selected.filter(model => model !== 'gemini-3.1-pro-preview');
 
   const limit = envInt('GEMINI_MAX_MODEL_FALLBACKS', DEFAULT_MODEL_FALLBACKS);
   return withoutUnexpectedPro.slice(0, Math.max(1, limit));
@@ -354,7 +375,7 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
         const result: any = await withTimeout(
           model.generateContent({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { maxOutputTokens: 16384, temperature: 0.8 },
+            generationConfig: { maxOutputTokens: 16384, temperature: getGeminiTemperature(prompt) },
           }),
           envInt('GEMINI_TIMEOUT_MS', DEFAULT_GEMINI_TIMEOUT_MS),
           modelName,
@@ -428,10 +449,12 @@ export async function callGeminiWithGrounding(
   prompt: string,
   maxRetries: number = 1,
   forceGeminiSearch: boolean = false,
+  onGroundingEvidence?: (sourceUrls: string[]) => void,
 ): Promise<string> {
   const primaryProvider = getPrimaryProvider();
   if (!forceGeminiSearch && primaryProvider !== 'gemini') {
     console.log(`[Grounding] ${primaryProvider} selected; using selected provider without Gemini Search.`);
+    notifyGroundingEvidence(onGroundingEvidence, []);
     return callGeminiWithRetry(prompt, maxRetries);
   }
 
@@ -439,6 +462,7 @@ export async function callGeminiWithGrounding(
     if (forceGeminiSearch) {
       throw new Error('Gemini Search Grounding is disabled, so verified fact evidence cannot be collected.');
     }
+    notifyGroundingEvidence(onGroundingEvidence, []);
     return callGeminiWithRetry(prompt, maxRetries);
   }
 
@@ -477,12 +501,14 @@ export async function callGeminiWithGrounding(
         if (!text.trim()) throw new Error('empty text response');
 
         const metadata = result?.response?.candidates?.[0]?.groundingMetadata;
+        const sourceUrls = extractGroundingSourceUrls(metadata);
         if (metadata?.webSearchQueries?.length) {
           console.log(`[Grounding] queries: ${metadata.webSearchQueries.join(', ')}`);
         }
         if (metadata?.groundingChunks?.length) {
           console.log(`[Grounding] referenced chunks: ${metadata.groundingChunks.length}`);
         }
+        notifyGroundingEvidence(onGroundingEvidence, sourceUrls);
 
         console.log(`[Grounding] ${modelName} success (${text.length} chars)`);
         return repairBrokenGeneratedText(`${modelName} grounding response`, text);
@@ -515,6 +541,7 @@ export async function callGeminiWithGrounding(
   }
 
   console.log(`[Grounding] failed after ${totalAttempts} attempt(s); falling back to normal Gemini.`);
+  notifyGroundingEvidence(onGroundingEvidence, []);
   const safePrompt = `${prompt}
 
 IMPORTANT:

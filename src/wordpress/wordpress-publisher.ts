@@ -1781,7 +1781,7 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
             try {
               const { GoogleGenerativeAI: GGA_C } = require('@google/generative-ai');
               const catGenAI = new GGA_C(options.geminiKey);
-              const catModel = catGenAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+              const catModel = catGenAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
               await waitForTextProviderTurn('gemini', 'wordpress/category-match');
               const catResult = await catModel.generateContent({
                 contents: [{ role: 'user', parts: [{ text: aiCatPrompt }] }],

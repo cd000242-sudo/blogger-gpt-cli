@@ -11,8 +11,9 @@ type Input = {
 
 // 텍스트 생성 모델 우선순위 (2026년 최신)
 const TEXT_MODELS = [
-  'gemini-3-pro-preview',       // Gemini 3 Pro (최고품질)
-  'gemini-2.5-flash',           // Gemini 2.5 Flash (빠르고 안정 - 폴백)
+  'gemini-3.1-pro-preview',
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
 ];
 
 export async function genWithGemini(apiKey: string, input: Input): Promise<string> {

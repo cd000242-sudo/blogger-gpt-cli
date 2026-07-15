@@ -38,6 +38,37 @@ interface LLMProviderConfig {
   extractText: (data: ChatCompletionResponse | ClaudeResponse) => string;
 }
 
+const KOREAN_BLOG_FACTUAL_SYSTEM = [
+  'Write publishable Korean blog content and always respond in Korean.',
+  'Preserve the requested structure and supplied evidence.',
+  'Treat dates, amounts, eligibility, schedules, statistics, organization names, and URLs as factual claims.',
+  'Use an exact factual claim only when it appears in supplied evidence; never combine unrelated facts into a new claim.',
+  'Never invent a source, citation, URL, or plausible-looking value. When evidence is missing, use a neutral official-verification note instead of guessing.',
+].join(' ');
+
+function getGenerationTemperature(prompt: string): number {
+  return /\[FACT EVIDENCE|FACT INTEGRITY|Verified source URLs|grounding response/i.test(prompt) ? 0.28 : 0.52;
+}
+
+function buildOpenAIChatBody(model: string, prompt: string): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model,
+    messages: [
+      { role: 'system', content: KOREAN_BLOG_FACTUAL_SYSTEM },
+      { role: 'user', content: prompt },
+    ],
+  };
+
+  if (/^gpt-5/i.test(model)) {
+    body['max_completion_tokens'] = 8192;
+    if (/^gpt-5\.6/i.test(model)) body['reasoning_effort'] = 'medium';
+  } else {
+    body['max_tokens'] = 8192;
+    body['temperature'] = getGenerationTemperature(prompt);
+  }
+  return body;
+}
+
 const PROVIDERS: Record<string, LLMProviderConfig> = {
   perplexity: {
     name: 'Perplexity',
@@ -54,11 +85,11 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
     buildBody: (model, prompt) => ({
       model,
       messages: [
-        { role: 'system', content: 'You are a helpful assistant that generates blog content in Korean. Always respond in Korean.' },
+        { role: 'system', content: KOREAN_BLOG_FACTUAL_SYSTEM },
         { role: 'user', content: prompt },
       ],
       max_tokens: 8192,
-      temperature: 0.7,
+      temperature: getGenerationTemperature(prompt),
     }),
     extractText: (data) => (data as ChatCompletionResponse)?.choices?.[0]?.message?.content || '',
   },
@@ -67,7 +98,7 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
     name: 'OpenAI',
     provider: 'openai',
     endpoint: 'https://api.openai.com/v1/chat/completions',
-    models: ['gpt-4.1', 'o3', 'gpt-4.1-mini'],
+    models: ['gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.6-sol'],
     timeout: 90_000,
     rateLimitPattern: /429|rate.*limit|quota|insufficient_quota/i,
     authErrorPattern: /401|403|unauthorized|forbidden|invalid.*key/i,
@@ -75,15 +106,7 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
       'Authorization': `Bearer ${key}`,
       'Content-Type': 'application/json',
     }),
-    buildBody: (model, prompt) => ({
-      model,
-      messages: [
-        { role: 'system', content: 'You are a helpful assistant that generates high-quality blog content in Korean. Always respond in Korean.' },
-        { role: 'user', content: prompt },
-      ],
-      max_tokens: 8192,
-      temperature: 0.7,
-    }),
+    buildBody: buildOpenAIChatBody,
     extractText: (data) => (data as ChatCompletionResponse)?.choices?.[0]?.message?.content || '',
   },
 
@@ -91,7 +114,7 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
     name: 'Claude',
     provider: 'claude',
     endpoint: 'https://api.anthropic.com/v1/messages',
-    models: ['claude-sonnet-4-6', 'claude-opus-4-7'],
+    models: ['claude-sonnet-5', 'claude-fable-5', 'claude-haiku-4-5-20251001'],
     timeout: 90_000,
     rateLimitPattern: /429|rate.*limit|overloaded/i,
     authErrorPattern: /401|403|unauthorized|forbidden|invalid.*key|authentication/i,
@@ -104,7 +127,8 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
       model,
       max_tokens: 8192,
       messages: [{ role: 'user', content: prompt }],
-      system: 'You are a helpful assistant that generates high-quality blog content in Korean. Always respond in Korean.',
+      system: KOREAN_BLOG_FACTUAL_SYSTEM,
+      temperature: getGenerationTemperature(prompt),
     }),
     extractText: (data) => {
       const content = (data as ClaudeResponse)?.content;

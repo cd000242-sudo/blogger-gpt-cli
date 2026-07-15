@@ -656,7 +656,7 @@ export function setupUtilityAiHandlers() {
   ipcMain.handle('gemini-chat', async (_event, args: { apiKey: string; message: string; history: any[]; modelName?: string }) => {
     console.log('[KEYWORD-MASTER] Gemini AI 채팅 요청 수신');
     try {
-      const { apiKey, message, history, modelName = 'gemini-2.5-flash' } = args;
+      const { apiKey, message, history, modelName = 'gemini-3.5-flash' } = args;
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: modelName });
 

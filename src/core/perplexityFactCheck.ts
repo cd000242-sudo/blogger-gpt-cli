@@ -153,7 +153,7 @@ export async function fetchFactContext(
     if (pplxKey && pplxKey.length >= 10) {
       try {
         const result = await callPerplexityFactCheck(pplxKey, keyword);
-        if (result?.context) {
+        if (result?.context && result.sourceUrls.length > 0) {
           console.log(`[FACT-CHECK] ✅ Perplexity 팩트체크 완료 (${result.context.length}자, sources=${result.sourceUrls.length})`);
           return {
             context: result.context,
@@ -162,6 +162,9 @@ export async function fetchFactContext(
             trustLevel: result.sourceUrls.length > 0 ? 'strong' : 'weak',
             sourceUrls: result.sourceUrls,
           };
+        }
+        if (result?.context) {
+          console.log('[FACT-CHECK] ⚠️ Perplexity 응답에 출처 URL이 없어 Gemini Grounding으로 재검증합니다.');
         }
       } catch (e: any) {
         console.log(`[FACT-CHECK] ⚠️ Perplexity 실패: ${e.message?.slice(0, 80)} → Grounding 폴백`);
@@ -179,9 +182,18 @@ export async function fetchFactContext(
     if (geminiKey && geminiKey.length >= 10) {
       try {
         const result = await callGeminiGroundingFactCheck(geminiKey, keyword);
-        if (result) {
-          console.log(`[FACT-CHECK] ✅ Gemini Grounding 팩트체크 완료 (${result.length}자)`);
-          return { context: result, provider: 'Gemini Grounding', success: true, trustLevel: 'strong' };
+        if (result?.context && result.sourceUrls.length > 0) {
+          console.log(`[FACT-CHECK] ✅ Gemini Grounding 팩트체크 완료 (${result.context.length}자, sources=${result.sourceUrls.length})`);
+          return {
+            context: result.context,
+            provider: 'Gemini Grounding',
+            success: true,
+            trustLevel: result.sourceUrls.length > 0 ? 'strong' : 'weak',
+            sourceUrls: result.sourceUrls,
+          };
+        }
+        if (result?.context) {
+          console.log('[FACT-CHECK] ⚠️ Gemini Grounding 응답에 출처 URL이 없어 팩트 장부로 사용하지 않습니다.');
         }
       } catch (e: any) {
         console.log(`[FACT-CHECK] ⚠️ Gemini Grounding 실패: ${e.message?.slice(0, 80)}`);
@@ -207,9 +219,9 @@ export function injectFactContext(originalPrompt: string, factContext: string): 
 
 ## 📚 팩트 기반 컨텍스트 (실시간 검색 결과 — ${ref.currentDateKo} 현재 기준)
 아래 내용은 ${ref.currentDateKo} 현재 실시간 웹 검색으로 확인된 최신 팩트입니다.
-이 정보를 기반으로 정확한 수치, 최신 동향, 검증된 정보만 포함하세요.
+출처 URL가 확인된 근거에 있는 정확한 수치, 최신 동향, 검증된 정보만 포함하세요.
 정책·지원금·신청기간·가격·모델명처럼 시점이 중요한 정보는 반드시 ${ref.currentYear}년 최신 기준으로 판단하세요.
-추측이나 불확실한 정보는 작성하지 마세요.
+근거에 없는 수치·날짜·조건·기관명·URL은 조합하거나 추측하지 말고, 공식 안내 확인이 필요하다고 작성하세요.
 
 ${factContext}
 
@@ -231,6 +243,7 @@ export const buildFactCheckPrompt = (keyword: string, now: Date = new Date()): s
 2. 관련 수치/통계/신청기간/마감일/조건 (있다면)
 3. 일반적인 오해나 오래된 정보와 현재 기준의 차이 (있다면)
 4. 신뢰할 수 있는 출처 기반 정보만 포함
+5. 각 사실은 출처 URL에 실제로 확인되는 내용만 기록하고, 서로 다른 출처의 수치나 조건을 임의로 조합하지 말 것
 한국어로 답변해주세요. 마크다운 형식은 사용하지 마세요.`;
 };
 
@@ -244,7 +257,7 @@ export function buildLatestNaverFactQuery(keyword: string, now: Date = new Date(
 }
 
 async function callPerplexityFactCheck(apiKey: string, keyword: string): Promise<{ context: string; sourceUrls: string[] } | null> {
-  const MODELS = ['sonar', 'sonar-pro'];
+  const MODELS = ['sonar-pro', 'sonar'];
   let lastError: any = null;
 
   for (const model of MODELS) {
@@ -258,7 +271,7 @@ async function callPerplexityFactCheck(apiKey: string, keyword: string): Promise
         body: JSON.stringify({
           model,
           messages: [
-            { role: 'system', content: `당신은 한국어 팩트체커입니다. 현재 날짜는 ${getFactCheckReferenceTime().currentDateKo}입니다. 실시간 웹 검색을 통해 현재 기준 최신 정보만 제공합니다.` },
+            { role: 'system', content: `당신은 한국어 팩트체커입니다. 현재 날짜는 ${getFactCheckReferenceTime().currentDateKo}입니다. 실시간 웹 검색을 통해 현재 기준 최신 정보만 제공합니다. 각 수치·날짜·조건·기관명은 실제 인용 URL에 있는 경우에만 기록하고, 확인되지 않은 사실이나 출처를 만들지 마세요.` },
             { role: 'user', content: buildFactCheckPrompt(keyword) },
           ],
           max_tokens: 1024,
@@ -292,13 +305,20 @@ async function callPerplexityFactCheck(apiKey: string, keyword: string): Promise
   throw lastError || new Error('Perplexity 팩트체크 실패');
 }
 
-async function callGeminiGroundingFactCheck(_apiKey: string, keyword: string): Promise<string | null> {
+async function callGeminiGroundingFactCheck(_apiKey: string, keyword: string): Promise<{ context: string; sourceUrls: string[] } | null> {
   // 🔥 통합 디스패처 사용 — Gemini면 Grounding, 다른 엔진이면 일반 호출로 자동 폴백
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { callGeminiWithGrounding } = require('./final/gemini-engine');
-  const result = await callGeminiWithGrounding(buildFactCheckPrompt(keyword), 1, true);
+  let sourceUrls: string[] = [];
+  const result = await callGeminiWithGrounding(buildFactCheckPrompt(keyword), 1, true, (urls: string[]) => {
+    sourceUrls = urls;
+  });
   const content = (typeof result === 'string' ? result : result?.text || '').trim();
-  return content && content.length > 50 ? content : null;
+  if (!content || content.length <= 50) return null;
+  const sourceBlock = sourceUrls.length > 0
+    ? `\n\n[Verified source URLs]\n${sourceUrls.map((url) => `- ${url}`).join('\n')}`
+    : '';
+  return { context: `${content}${sourceBlock}`, sourceUrls };
 }
 
 /**

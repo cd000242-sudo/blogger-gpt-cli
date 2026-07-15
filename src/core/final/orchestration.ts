@@ -328,7 +328,7 @@ export async function generateUltimateMaxModeArticleFinal(
         downloadsBase,
         projectName: 'LEADERNAM-Orbit',
         aiCheckEnabled: !!payload.urlImageSource.aiCheckEnabled,
-        textGenerator: payload.provider || 'gemini-2.5-flash',
+        textGenerator: payload.provider || 'gemini-3.5-flash',
         apiKeys,
         threshold: Number(payload.urlImageSource.threshold) || 60,
       });
@@ -379,7 +379,7 @@ export async function generateUltimateMaxModeArticleFinal(
     openai: 'openai-gpt41',
     claude: 'claude-sonnet',
     perplexity: 'perplexity-sonar',
-    gemini: 'gemini-2.5-flash',
+    gemini: 'gemini-3.5-flash',
   };
 
   // 🎲 LLM 모델 로테이션 (옵션) — adsense 모드에서 같은 모델로 양산하면 "scaled content abuse" 패턴 잡힘.

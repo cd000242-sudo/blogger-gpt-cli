@@ -24,8 +24,20 @@ const DEFAULT_LABELS = (process.env['DEFAULT_LABELS'] || '').split(',').map(s =>
 const ALLOW_COMMENTS = (process.env['ALLOW_COMMENTS'] || 'true') === 'true';
 const RATE_LIMIT_SECONDS = parseInt(process.env['RATE_LIMIT_SECONDS'] || '30', 10);
 
-const OPENAI_MODEL = process.env['OPENAI_MODEL'] || 'gpt-5-mini';
+const OPENAI_MODEL = process.env['OPENAI_MODEL'] || 'gpt-5.6-terra';
 const openai = new OpenAI({ apiKey: process.env['OPENAI_API_KEY'] });
+
+function buildOpenAIChatRequest(messages: any[], temperature: number): any {
+  const request: any = { model: OPENAI_MODEL, messages };
+  if (/^gpt-5/i.test(OPENAI_MODEL)) {
+    request.max_completion_tokens = 8000;
+    if (/^gpt-5\.6/i.test(OPENAI_MODEL)) request.reasoning_effort = 'medium';
+  } else {
+    request.temperature = temperature;
+    request.max_tokens = 8000;
+  }
+  return request;
+}
 
 const GEMINI_API_KEY = process.env['GEMINI_API_KEY'] || '';
 
@@ -373,14 +385,10 @@ async function generatePost(topic: string, minWords = 1000, _lang = 'ko', _style
 
 출력: JSON {"title": string, "html": string}`;
 
-  const chat = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages: [
+  const chat = await openai.chat.completions.create(buildOpenAIChatRequest([
       { role: 'system', content: sys },
       { role: 'user', content: user },
-    ],
-    temperature: 0.65,
-  });
+    ], 0.45));
 
   const content = chat.choices[0]?.message?.content || '{}';
   try {
@@ -417,14 +425,10 @@ async function expandArticleHtml(topic: string, previousHtml: string, targetChar
 원문:
 ${previousHtml}`;
 
-  const chat = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages: [
+  const chat = await openai.chat.completions.create(buildOpenAIChatRequest([
       { role: 'system', content: sys },
       { role: 'user', content: user },
-    ],
-    temperature: 0.5,
-  });
+    ], 0.4));
   const out = (chat.choices[0]?.message?.content || '').trim();
   return out.startsWith('<article') ? out : `<article>${out}</article>`;
 }

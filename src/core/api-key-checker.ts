@@ -37,7 +37,7 @@ export async function checkApiKeys(payload: any): Promise<ApiKeyStatus> {
       await openai.models.list();
       status.openai = {
         valid: true,
-        model: 'gpt-5-mini'
+        model: 'gpt-5.6-terra'
       };
       console.log('✅ OpenAI API 키 유효함');
     } catch (error: any) {
@@ -59,13 +59,13 @@ export async function checkApiKeys(payload: any): Promise<ApiKeyStatus> {
   if (payload.geminiKey) {
     try {
       const genAI = new GoogleGenerativeAI(payload.geminiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
 
       // 간단한 테스트 요청
       await model.generateContent('테스트');
       status.gemini = {
         valid: true,
-        model: 'gemini-2.5-flash'
+        model: 'gemini-3.5-flash'
       };
       console.log('✅ Gemini API 키 유효함');
     } catch (error: any) {
@@ -181,5 +181,4 @@ export function getApiKeySummary(status: ApiKeyStatus): string {
 
   return summary.join('\n');
 }
-
 

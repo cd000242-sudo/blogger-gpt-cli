@@ -4480,18 +4480,18 @@ async function loadSettingsContent() {
               </div>
               <select id="textModelSelect" onchange="updateModelBadge('text')" style="width: 100%; padding: 14px 16px; background: rgba(255, 255, 255, 0.08); border: 2px solid rgba(167, 139, 250, 0.3); border-radius: 12px; color: white; font-size: 14px; font-weight: 600; cursor: pointer; appearance: none; background-image: url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%23a78bfa%22 d=%22M2 4l4 4 4-4%22/></svg>'); background-repeat: no-repeat; background-position: right 14px center; transition: all 0.3s ease;">
                 <optgroup label="🔵 Google Gemini">
-                  <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash (빠름/무료)</option>
-                  <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (고품질)</option>
+                  <option value="gemini-3.5-flash">⚡ Gemini 3.5 Flash (균형/권장)</option>
+                  <option value="gemini-3.1-pro-preview">🧠 Gemini 3.1 Pro Preview (고품질)</option>
                 </optgroup>
                 <optgroup label="🟢 OpenAI">
-                  <option value="gpt-5-nano">⚡ GPT-5 nano (가성비)</option>
-                  <option value="gpt-5-mini">🚀 GPT-5 mini (균형)</option>
-                  <option value="gpt-5">👑 GPT-5 (최신 플래그십)</option>
+                  <option value="gpt-5.6-luna">⚡ GPT-5.6 Luna (가성비)</option>
+                  <option value="gpt-5.6-terra">🚀 GPT-5.6 Terra (균형)</option>
+                  <option value="gpt-5.6-sol">👑 GPT-5.6 Sol (최신 플래그십)</option>
                 </optgroup>
                 <optgroup label="🟣 Anthropic">
                   <option value="claude-haiku-4-5-20251001">💜 Claude Haiku 4.5 (가성비)</option>
-                  <option value="claude-sonnet-4-6">💎 Claude Sonnet 4.6 (균형)</option>
-                  <option value="claude-opus-4-7">👑 Claude Opus 4.7 (1M 컨텍스트)</option>
+                  <option value="claude-sonnet-5">💎 Claude Sonnet 5 (균형)</option>
+                  <option value="claude-fable-5">👑 Claude Fable 5 (최고 품질)</option>
                 </optgroup>
                 <optgroup label="🔮 Perplexity">
                   <option value="sonar-pro">🔍 Sonar Pro (검색 기반)</option>
@@ -4499,7 +4499,7 @@ async function loadSettingsContent() {
               </select>
               <div id="textModelBadge" style="margin-top: 12px; padding: 8px 14px; background: rgba(167, 139, 250, 0.15); border-radius: 8px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; color: #c4b5fd;">
                 <span style="display: inline-block; width: 6px; height: 6px; background: #a78bfa; border-radius: 50%; animation: pulse 2s infinite;"></span>
-                현재: Gemini 2.5 Flash
+                현재: Gemini 3.5 Flash
               </div>
             </div>
             
@@ -4793,7 +4793,16 @@ async function loadSettingsContent() {
     });
 
     // AI 모델 선택값 복원
-    const savedTextModel = mergedSettings.textModel || 'gemini-2.5-flash';
+    const legacyTextModelAliases = {
+      'gemini-2.5-flash': 'gemini-3.5-flash',
+      'gemini-2.5-pro': 'gemini-3.1-pro-preview',
+      'gpt-5-nano': 'gpt-5.6-luna',
+      'gpt-5-mini': 'gpt-5.6-terra',
+      'gpt-5': 'gpt-5.6-sol',
+      'claude-sonnet-4-6': 'claude-sonnet-5',
+      'claude-opus-4-7': 'claude-fable-5',
+    };
+    const savedTextModel = legacyTextModelAliases[mergedSettings.textModel] || mergedSettings.textModel || 'gemini-3.5-flash';
     const savedImageModel = mergedSettings.imageModel || 'gemini-3.1-flash-preview-image';
     if (document.getElementById('textModelSelect')) {
       document.getElementById('textModelSelect').value = savedTextModel;
@@ -4862,7 +4871,7 @@ async function saveSettings() {
     platform: document.querySelector('input[name="platform"]:checked')?.value || 'blogspot',
     promptMode: 'max-mode', // MAX모드로 고정
     toneStyle: document.getElementById('toneStyle')?.value || 'professional', // 말투/어투 선택
-    textModel: document.getElementById('textModelSelect')?.value || 'gemini-2.5-flash',
+    textModel: document.getElementById('textModelSelect')?.value || 'gemini-3.5-flash',
     imageModel: document.getElementById('imageModelSelect')?.value || 'gemini-3.1-flash-preview-image',
   };
 
@@ -4913,15 +4922,23 @@ async function saveSettings() {
 // AI 모델 선택 배지 업데이트
 function updateModelBadge(type) {
   const MODEL_LABELS = {
-    'gemini-2.5-flash-lite': '💰 Gemini 2.5 Flash-Lite',
-    'gemini-2.5-flash': '⚡ Gemini 2.5 Flash',
-    'gemini-2.5-pro': '🧠 Gemini 2.5 Pro',
-    'gpt-5-nano': '⚡ GPT-5 nano',
-    'gpt-5-mini': '🚀 GPT-5 mini',
-    'gpt-5': '👑 GPT-5',
+    'gemini-2.5-flash-lite': '💰 Gemini 3.1 Flash-Lite',
+    'gemini-2.5-flash': '⚡ Gemini 3.5 Flash',
+    'gemini-2.5-pro': '🧠 Gemini 3.1 Pro Preview',
+    'gpt-5-nano': '⚡ GPT-5.6 Luna',
+    'gpt-5-mini': '🚀 GPT-5.6 Terra',
+    'gpt-5': '👑 GPT-5.6 Sol',
+    'gemini-3.1-flash-lite': '💰 Gemini 3.1 Flash-Lite',
+    'gemini-3.5-flash': '⚡ Gemini 3.5 Flash',
+    'gemini-3.1-pro-preview': '🧠 Gemini 3.1 Pro Preview',
+    'gpt-5.6-luna': '⚡ GPT-5.6 Luna',
+    'gpt-5.6-terra': '🚀 GPT-5.6 Terra',
+    'gpt-5.6-sol': '👑 GPT-5.6 Sol',
     'claude-haiku-4-5-20251001': '💜 Claude Haiku 4.5',
-    'claude-sonnet-4-6': '💎 Claude Sonnet 4.6',
-    'claude-opus-4-7': '👑 Claude Opus 4.7',
+    'claude-sonnet-4-6': '💎 Claude Sonnet 5',
+    'claude-opus-4-7': '👑 Claude Fable 5',
+    'claude-sonnet-5': '💎 Claude Sonnet 5',
+    'claude-fable-5': '👑 Claude Fable 5',
     'sonar-pro': '🔍 Sonar Pro',
     'gemini-3.1-flash-preview-image': '⚡ Gemini 3.1 Flash Image',
     'imagen-4': '🖼️ Imagen 4',

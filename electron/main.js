@@ -521,12 +521,11 @@ async function selectGeminiModel(genAI) {
     if (cachedModel && cachedModelName) {
         return cachedModel;
     }
-    // 🔥 2.0 이상 모델만 사용 (1.5 버전 절대 사용 안 함)
-    // gemini-2.0-flash-preview는 404 오류로 제거, 실제 사용 가능한 모델만 사용
+    // Current stable Gemini text models, ordered for balanced quality then resilience.
     const modelNames = [
-        'gemini-2.5-flash', // 최신 모델 (우선 사용)
-        'gemini-2.0-flash-exp', // 실험적 모델
-        'gemini-2.0-flash-thinking-exp' // 실험적 모델
+        'gemini-3.5-flash',
+        'gemini-3.1-flash-lite',
+        'gemini-3.1-pro-preview',
     ];
     for (const modelName of modelNames) {
         // 이미 실패한 모델(404 등)은 건너뛰기
@@ -3204,10 +3203,9 @@ Requirements:
 - Focus on the main subject and setting
 
 Output only the image prompt (no explanations, no quotes, no markdown):`;
-                // 1단계: Gemini 2.0 이상 모델들 모두 시도 (1.5 버전 절대 사용 안 함)
-                // gemini-2.0-flash-preview는 404 오류로 제거
+                // Use the same current Gemini text family used by the article engine.
                 if (geminiKey) {
-                    const geminiModels = ['gemini-2.5-flash', 'gemini-2.0-flash-exp', 'gemini-2.0-flash-thinking-exp'];
+                    const geminiModels = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'];
                     let geminiLastError = null;
                     for (const model of geminiModels) {
                         try {
@@ -10537,7 +10535,7 @@ electron_1.ipcMain.handle('url-image:crawl-and-collect', async (_evt, payload) =
             downloadsBase,
             projectName: 'LEADERNAM-Orbit',
             aiCheckEnabled: !!payload.aiCheckEnabled,
-            textGenerator: payload.textGenerator || 'gemini-2.5-flash',
+            textGenerator: payload.textGenerator || 'gemini-3.5-flash',
             apiKeys,
             threshold: payload.threshold ?? 60,
             visible: !!payload.visible,
