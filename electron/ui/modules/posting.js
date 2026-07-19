@@ -1739,8 +1739,9 @@ export async function createPayload(options = {}) {
     //   각 원소: { h2Index, dataUrl, prompt }
     //   orchestration이 받으면 dispatchH2ImageGeneration 스킵하고 해당 dataUrl 사용
     preGeneratedImages: (window.__preGeneratedImagesForArticle || []).length > 0
-      ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, dataUrl: img.dataUrl }))
+      ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, h2Title: img.h2Title, dataUrl: img.dataUrl }))
       : undefined,
+    folderImageH2Titles: Array.isArray(window.__folderImageH2Titles) ? window.__folderImageH2Titles.slice(0, 12) : undefined,
     folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai',
 
     // 초안 (페러프레이징)

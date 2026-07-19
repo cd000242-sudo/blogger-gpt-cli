@@ -2254,6 +2254,8 @@ window.clearPreGeneratedImages = function () {
   if (!confirm('미리 생성한 이미지를 모두 초기화합니다. 계속할까요?')) return;
   window.__preGeneratedImagesForArticle = [];
   window.__preGeneratedMappingMode = 'auto';
+  window.__folderImageH2Titles = [];
+  window.__folderImageHeadingTopic = '';
   window.refreshPreGeneratedBadge?.();
   alert('초기화 완료. 다음 글 생성 시 이미지를 새로 생성합니다.');
 };
@@ -2377,7 +2379,66 @@ function _getFolderMapperSectionCount() {
   return 6;
 }
 
+function _cleanFolderMapperHeading(value) {
+  return String(value || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/^\s*\d+[.)\-:\s]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function _getFolderMapperTopic() {
+  return (
+    document.getElementById('keywordInput')?.value
+    || document.getElementById('spiderWebTitle')?.value
+    || ''
+  ).split('\n').map(v => v.trim()).filter(Boolean)[0] || '';
+}
+
+function _extractFolderMapperHeadingsFromHtml(html) {
+  if (!html) return [];
+  try {
+    const doc = new DOMParser().parseFromString(String(html), 'text/html');
+    return Array.from(doc.querySelectorAll('h2'))
+      .map(node => _cleanFolderMapperHeading(node.textContent))
+      .filter(Boolean)
+      .slice(0, 12);
+  } catch {
+    const matches = [...String(html).matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2>/gi)];
+    return matches.map(match => _cleanFolderMapperHeading(match[1])).filter(Boolean).slice(0, 12);
+  }
+}
+
+function _getCurrentArticleFolderMapperHeadings() {
+  if (window.__folderImageMapperContext === 'spider') return [];
+  try {
+    const state = getAppState();
+    const generated = state?.generatedContent || {};
+    const currentTopic = _getFolderMapperTopic().toLowerCase();
+    const generatedTopic = String(
+      generated?.payload?.topic
+      || generated?.payload?.title
+      || generated?.title
+      || ''
+    ).trim().toLowerCase();
+    if (currentTopic && generatedTopic && !generatedTopic.includes(currentTopic) && !currentTopic.includes(generatedTopic)) {
+      return [];
+    }
+    return _extractFolderMapperHeadingsFromHtml(generated?.content || generated?.html || '');
+  } catch {
+    return [];
+  }
+}
+
 function _getFolderMapperSectionTitles(count) {
+  const topic = _getFolderMapperTopic();
+  const spiderHeadings = window.__folderImageMapperContext === 'spider' && typeof window.getSpiderFolderImageHeadings === 'function'
+    ? window.getSpiderFolderImageHeadings()
+    : [];
+  const articleHeadings = _getCurrentArticleFolderMapperHeadings();
+  const analyzedHeadings = window.__folderImageHeadingTopic === topic
+    ? (window.__folderImageH2Titles || [])
+    : [];
   const rawPromptList = document.getElementById('batchPromptList')?.value || '';
   let parsed = [];
   try {
@@ -2387,13 +2448,11 @@ function _getFolderMapperSectionTitles(count) {
   } catch {
     parsed = [];
   }
-  const topic = (
-    document.getElementById('keywordInput')?.value
-    || document.getElementById('spiderWebTitle')?.value
-    || ''
-  ).split('\n').map(v => v.trim()).filter(Boolean)[0] || '';
-  return Array.from({ length: count }, (_, idx) => {
-    const title = parsed[idx] || '';
+  const knownTitles = [spiderHeadings, articleHeadings, analyzedHeadings, parsed]
+    .find(list => Array.isArray(list) && list.length > 0) || [];
+  const effectiveCount = Math.min(12, Math.max(1, knownTitles.length || count));
+  return Array.from({ length: effectiveCount }, (_, idx) => {
+    const title = _cleanFolderMapperHeading(knownTitles[idx] || '');
     return {
       index: idx + 1,
       title: title || `소제목 ${idx + 1}번`,
@@ -2454,7 +2513,9 @@ function _ensureFolderImageMapperModal() {
       .fim-section-row { display:grid; grid-template-columns:86px minmax(0,1fr) 72px; gap:8px; align-items:center; padding:9px; border:1px solid rgba(148,163,184,0.15); border-radius:12px; background:rgba(2,6,23,0.34); }
       .fim-slot-btn { min-height:36px; border-radius:9px; border:1px solid rgba(99,102,241,0.36); background:rgba(99,102,241,0.16); color:#c7d2fe; font-weight:900; cursor:pointer; }
       .fim-slot-btn.is-filled { border-color:rgba(34,197,94,0.72); background:rgba(22,163,74,0.22); color:#bbf7d0; }
-      .fim-section-title { color:#f8fafc; font-size:12px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .fim-section-title { width:100%; min-width:0; min-height:36px; padding:8px 10px; color:#f8fafc; font-size:12px; font-weight:800; border:1px solid rgba(148,163,184,0.2); border-radius:8px; background:rgba(15,23,42,0.72); outline:none; }
+      .fim-section-title:focus { border-color:#2dd4bf; box-shadow:0 0 0 2px rgba(45,212,191,0.14); }
+      .fim-heading-status { margin:-2px 0 10px; color:#99f6e4; font-size:11px; line-height:1.45; }
       .fim-assigned-thumb { width:60px; height:40px; object-fit:cover; border-radius:8px; border:1px solid rgba(255,255,255,0.14); opacity:.35; background:#020617; }
       .fim-assigned-thumb.is-filled { opacity:1; }
       .fim-options { margin-top:12px; padding:12px; border-radius:12px; background:rgba(15,23,42,0.72); border:1px solid rgba(251,191,36,0.24); display:grid; gap:8px; }
@@ -2484,8 +2545,12 @@ function _ensureFolderImageMapperModal() {
         <aside class="fim-panel">
           <div class="fim-panel-title">
             <span>소제목별 배치</span>
-            <button type="button" class="fim-btn" id="fimAutoMatchBtn" style="min-height:30px;padding:6px 10px;">파일명 기준 자동추천</button>
+            <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+              <button type="button" class="fim-btn" id="fimAnalyzeHeadingsBtn" style="min-height:30px;padding:6px 10px;background:rgba(20,184,166,0.2);border-color:rgba(45,212,191,0.42);">소제목 분석</button>
+              <button type="button" class="fim-btn" id="fimAutoMatchBtn" style="min-height:30px;padding:6px 10px;">파일명 기준 자동추천</button>
+            </span>
           </div>
+          <div class="fim-heading-status" id="fimHeadingStatus">키워드를 분석하면 실제 발행에 사용할 H2 제목이 여기에 고정됩니다.</div>
           <div class="fim-section-list" id="fimSectionList"></div>
           <div class="fim-options">
             <strong style="color:#fde68a;font-size:12px;">이미지가 부족하거나 비워둔 소제목 처리</strong>
@@ -2506,7 +2571,11 @@ function _ensureFolderImageMapperModal() {
   `;
   document.body.appendChild(modal);
   document.getElementById('fimCloseBtn')?.addEventListener('click', () => window.closeFolderImageMapper?.());
-  document.getElementById('fimPickFolderBtn')?.addEventListener('click', () => window.openFolderImagesForArticleModal?.({ forcePick: true }));
+  document.getElementById('fimPickFolderBtn')?.addEventListener('click', () => window.openFolderImagesForArticleModal?.({
+    forcePick: true,
+    context: window.__folderImageMapperContext || 'posting',
+  }));
+  document.getElementById('fimAnalyzeHeadingsBtn')?.addEventListener('click', () => window.analyzeFolderImageHeadings?.());
   document.getElementById('fimAutoMatchBtn')?.addEventListener('click', () => window.autoMatchFolderImagesToSections?.());
   document.getElementById('fimClearBtn')?.addEventListener('click', () => window.clearFolderImageMapperAssignments?.());
   document.getElementById('fimApplyBtn')?.addEventListener('click', () => window.applyFolderImageMapper?.());
@@ -2534,8 +2603,13 @@ function _renderFolderImageMapper() {
   const countEl = document.getElementById('fimImageCount');
   const folderPath = document.getElementById('fimFolderPath');
   const summary = document.getElementById('fimSummary');
+  const headingStatus = document.getElementById('fimHeadingStatus');
   if (countEl) countEl.textContent = `${images.length}장`;
   if (folderPath) folderPath.textContent = state.folderPath || '폴더를 선택해주세요.';
+  if (headingStatus) {
+    headingStatus.textContent = state.headingStatus
+      || '키워드를 분석하면 실제 발행에 사용할 H2 제목이 여기에 고정됩니다.';
+  }
   if (grid) {
     grid.innerHTML = images.map((img, idx) => `
       <button type="button" class="fim-img-card ${idx === selected ? 'is-selected' : ''}" data-fim-img="${idx}" title="${_escapeFolderMapperHtml(img.sourcePath || img.prompt)}">
@@ -2559,7 +2633,7 @@ function _renderFolderImageMapper() {
       return `
         <div class="fim-section-row">
           <button type="button" class="fim-slot-btn ${assigned ? 'is-filled' : ''}" data-fim-slot="${section.index}">${section.index}번</button>
-          <div class="fim-section-title" title="${_escapeFolderMapperHtml(section.title)}">${_escapeFolderMapperHtml(section.title)}</div>
+          <input class="fim-section-title" data-fim-title="${section.index}" value="${_escapeFolderMapperHtml(section.title)}" aria-label="${section.index}번 소제목">
           <img class="fim-assigned-thumb ${assigned ? 'is-filled' : ''}" src="${assigned?.dataUrl || ''}" alt="">
         </div>
       `;
@@ -2584,6 +2658,27 @@ function _renderFolderImageMapper() {
         _renderFolderImageMapper();
       });
     });
+    sectionList.querySelectorAll('[data-fim-title]').forEach((input) => {
+      input.addEventListener('change', () => {
+        const index = Number(input.getAttribute('data-fim-title'));
+        const section = sections.find(item => Number(item.index) === index);
+        const title = _cleanFolderMapperHeading(input.value);
+        if (!section || !title) {
+          input.value = section?.title || `소제목 ${index}번`;
+          _showFolderMapperNotice('소제목은 비워둘 수 없습니다.');
+          return;
+        }
+        section.title = title;
+        section.analysisKey = `${title} ${_getFolderMapperTopic()}`.trim();
+        state.sections = sections;
+        state.headingStatus = '소제목을 직접 수정했습니다. 수정한 제목이 최종 글 H2로 고정됩니다.';
+        window.__folderImageMapperState = state;
+        window.__folderImageH2Titles = sections.map(item => item.title);
+        window.__folderImageHeadingTopic = _getFolderMapperTopic();
+        _renderFolderImageMapper();
+        _showFolderMapperNotice(`${index}번 소제목을 수정했습니다.`);
+      });
+    });
   }
   const filledCount = Object.keys(assignments).filter(k => images[assignments[k]]).length;
   if (summary) {
@@ -2592,6 +2687,75 @@ function _renderFolderImageMapper() {
     summary.textContent = `배치 ${filledCount}/${sections.length}개 · 미배치 ${missing}개${extra > 0 ? ` · 남는 이미지 ${extra}장은 제외` : ''}`;
   }
 }
+
+window.analyzeFolderImageHeadings = async function (options = {}) {
+  const state = window.__folderImageMapperState || {};
+  const topic = _getFolderMapperTopic();
+  const count = _getFolderMapperSectionCount();
+  const button = document.getElementById('fimAnalyzeHeadingsBtn');
+  const previousLabel = button?.textContent || '소제목 분석';
+  if (button) {
+    button.disabled = true;
+    button.textContent = '분석 중...';
+  }
+
+  try {
+    let headings = [];
+    let headingStatus = '';
+    if (window.__folderImageMapperContext === 'spider' && typeof window.getSpiderFolderImageHeadings === 'function') {
+      headings = window.getSpiderFolderImageHeadings().map(_cleanFolderMapperHeading).filter(Boolean);
+      headingStatus = '선택한 거미줄 원본 글 기준 H2입니다. 이 순서대로 최종 통합글에 사용됩니다.';
+    }
+
+    if (headings.length === 0) {
+      headings = _getCurrentArticleFolderMapperHeadings();
+      if (headings.length > 0) {
+        headingStatus = '현재 생성·불러온 글의 실제 H2를 읽었습니다.';
+      }
+    }
+
+    if (headings.length === 0) {
+      if (!topic) throw new Error('키워드나 거미줄 통합글 제목을 먼저 입력해주세요.');
+      const request = { keyword: topic, sectionCount: count, referenceHeadings: [] };
+      const result = typeof window.blogger?.generateFolderImageHeadings === 'function'
+        ? await window.blogger.generateFolderImageHeadings(request)
+        : await window.electronAPI?.invoke?.('generate-folder-image-headings', request);
+      if (!result?.ok || !Array.isArray(result.headings) || result.headings.length === 0) {
+        throw new Error(result?.error || '소제목 분석 결과가 비어 있습니다.');
+      }
+      headings = result.headings.map(_cleanFolderMapperHeading).filter(Boolean);
+      headingStatus = 'AI가 분석한 H2입니다. 이 제목과 순서가 최종 글에 그대로 고정됩니다.';
+    }
+
+    const sections = headings.slice(0, 12).map((title, index) => ({
+      index: index + 1,
+      title,
+      analysisKey: `${title} ${topic}`.trim(),
+    }));
+    state.sections = sections;
+    state.headingStatus = headingStatus;
+    state.assignments = Object.fromEntries(
+      Object.entries(state.assignments || {}).filter(([index]) => Number(index) <= sections.length)
+    );
+    window.__folderImageMapperState = state;
+    window.__folderImageH2Titles = sections.map(section => section.title);
+    window.__folderImageHeadingTopic = topic;
+    _renderFolderImageMapper();
+    if (!options.silent) _showFolderMapperNotice(`소제목 ${sections.length}개를 확정했습니다.`);
+    return sections;
+  } catch (error) {
+    state.headingStatus = `소제목 분석 실패: ${error?.message || error}`;
+    window.__folderImageMapperState = state;
+    _renderFolderImageMapper();
+    if (!options.silent) alert(state.headingStatus);
+    return state.sections || [];
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = previousLabel;
+    }
+  }
+};
 
 async function _loadFolderImagesForMapper(folderPath) {
   if (!folderPath) return;
@@ -2631,8 +2795,10 @@ async function _loadFolderImagesForMapper(folderPath) {
     sections,
     assignments: {},
     selectedImageIndex: 0,
+    headingStatus: '키워드를 기준으로 실제 H2 구조를 분석합니다...',
   };
   _renderFolderImageMapper();
+  await window.analyzeFolderImageHeadings?.({ silent: true });
   _showFolderMapperNotice('폴더 이미지를 불러왔습니다. 이미지를 선택하고 소제목 번호를 눌러주세요.');
 }
 
@@ -2642,6 +2808,7 @@ window.loadFolderImagesForArticle = async function (folderPath) {
 
 window.openFolderImagesForArticleModal = async function (options = {}) {
   try {
+    window.__folderImageMapperContext = options.context === 'spider' ? 'spider' : 'posting';
     const modal = _ensureFolderImageMapperModal();
     modal.style.display = 'block';
     const selected = window.electronAPI?.invoke
@@ -2719,6 +2886,7 @@ window.applyFolderImageMapper = function () {
       const image = Number.isInteger(imageIndex) ? images[imageIndex] : null;
       return image ? {
         h2Index: section.index,
+        h2Title: section.title,
         dataUrl: image.dataUrl,
         prompt: image.prompt,
         sourcePath: image.sourcePath || '',
@@ -2727,6 +2895,8 @@ window.applyFolderImageMapper = function () {
     .filter(Boolean);
   const policy = document.querySelector('input[name="fimMissingPolicy"]:checked')?.value || 'ai';
   window.__preGeneratedImagesForArticle = mapping;
+  window.__folderImageH2Titles = sections.map(section => section.title);
+  window.__folderImageHeadingTopic = _getFolderMapperTopic();
   window.__folderImageMissingPolicy = policy;
   window.__preGeneratedMappingMode = 'manual';
   window.refreshPreGeneratedBadge?.();
@@ -3567,7 +3737,7 @@ async function loadLicenseInfo() {
         var qs = await api.getQuotaStatus();
         if (qs && qs.success && qs.isFree) {
           var u = (qs.quota && qs.quota.usage) || 0;
-          var l = (qs.quota && qs.quota.limit) || 1;
+          var l = (qs.quota && qs.quota.limit) || 3;
           setLicenseStatusElement(licenseStatusElement, '🆓 무료체험 (' + u + '/' + l + ')', '#10b981', true);
           setLicenseAccessState({
             isFreeTrial: true,
@@ -13233,7 +13403,7 @@ window.selectImageFolderPath = async function () {
 })();
 
 // ════════════════════════════════════════════════════════════════════
-// v3.7.11 — 결제 유도 모달 (AI 이미지 생성은 1개월 이상 유료 라이선스)
+// 결제 유도 모달 (독립 AI 이미지 생성은 유료, 무료체험 글 발행 이미지는 허용)
 // ════════════════════════════════════════════════════════════════════
 (function setupPaymentModal() {
   if (window.showPaymentModal) return;
@@ -13242,7 +13412,7 @@ window.selectImageFolderPath = async function () {
 
   window.showPaymentModal = function showPaymentModal(opts) {
     const o = opts || {};
-    const message = o.message || 'AI 이미지 생성은 1개월 이상 유료 라이선스가 필요합니다.';
+    const message = o.message || '독립 AI 이미지 생성은 1개월 이상 유료 라이선스가 필요합니다.';
     const paymentUrl = o.paymentUrl || DEFAULT_PAYMENT_URL;
     const kakaoUrl = o.kakaoUrl || DEFAULT_KAKAO_URL;
     const reason = o.reason || '';
@@ -13258,10 +13428,10 @@ window.selectImageFolderPath = async function () {
       <div style="background:linear-gradient(135deg,#1e293b 0%,#0f172a 100%);color:#f1f5f9;max-width:520px;width:90%;padding:32px;border-radius:20px;box-shadow:0 24px 64px rgba(0,0,0,0.5);border:1px solid rgba(245,158,11,0.3);">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
           <span style="font-size:32px;">🛡️</span>
-          <h2 style="margin:0;font-size:22px;font-weight:800;color:#fbbf24;">AI 이미지 생성은 유료 기능입니다</h2>
+          <h2 style="margin:0;font-size:22px;font-weight:800;color:#fbbf24;">독립 AI 이미지 생성은 유료 기능입니다</h2>
         </div>
         <p style="margin:0 0 8px;font-size:14px;line-height:1.6;white-space:pre-line;color:#cbd5e1;">${message.replace(/</g, '&lt;')}</p>
-        ${reason === 'trial' ? '<p style="margin:8px 0 16px;font-size:13px;color:#94a3b8;">※ 무료 체험에서는 이미지 없이 글 발행만 가능합니다. 이미지 옵션을 "없음/skip"으로 설정하면 발행은 진행됩니다.</p>' : '<div style="height:16px;"></div>'}
+        ${reason === 'trial' ? '<p style="margin:8px 0 16px;font-size:13px;color:#94a3b8;">※ 무료체험 글포스팅 3회에는 발행 과정의 이미지 생성도 포함됩니다. 이미지 생성 탭의 독립 작업만 유료 플랜 전용입니다.</p>' : '<div style="height:16px;"></div>'}
         <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">
           <button id="payment-modal-pay" style="flex:1;min-width:140px;padding:14px 16px;background:linear-gradient(135deg,#f59e0b,#d97706);color:white;border:none;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 4px 12px rgba(245,158,11,0.4);">💳 결제 페이지 열기</button>
           <button id="payment-modal-kakao" style="flex:1;min-width:140px;padding:14px 16px;background:linear-gradient(135deg,#fbbf24,#fde047);color:#422006;border:none;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 4px 12px rgba(251,191,36,0.4);">💬 1대1 문의</button>

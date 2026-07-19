@@ -1998,9 +1998,15 @@ function buildCodexArticleTask(payload = {}) {
   const topic = getTopic(payload);
   const references = getReferenceLines(payload);
   const platform = normalizePlatformName(payload.targetPlatform || payload.platform);
-  const sectionCount = Number(payload.sectionCount || 5);
+  const folderImageH2Titles = Array.isArray(payload.folderImageH2Titles)
+    ? payload.folderImageH2Titles.map(title => String(title || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 12)
+    : [];
+  const sectionCount = folderImageH2Titles.length || Number(payload.sectionCount || 5);
   const minChars = payload.minChars ? Number(payload.minChars).toLocaleString() : 'enough';
   const maxChars = payload.maxChars ? Number(payload.maxChars).toLocaleString() : 'natural';
+  const fixedHeadingBlock = folderImageH2Titles.length > 0
+    ? `\n- 확정 H2 제목과 순서:\n${folderImageH2Titles.map((title, index) => `  ${index + 1}. ${title}`).join('\n')}\n- 위 H2를 정확히 사용하고 제목 변경, 순서 변경, H2 추가·삭제를 하지 않는다.`
+    : '';
 
   return `Codex 작업실 지시서
 
@@ -2014,6 +2020,7 @@ function buildCodexArticleTask(payload = {}) {
 - 글 유형: ${payload.contentMode || 'general'}
 - 말투: ${payload.toneStyle || '친절한 존댓말'}
 - H2 소제목 수: ${sectionCount}개 내외
+${fixedHeadingBlock}
 - 목표 길이: ${minChars}자 이상, ${maxChars}자 이하
 - 참고 URL:
 ${references.length ? references.map((url, index) => `  ${index + 1}. ${url}`).join('\n') : '  없음'}
@@ -3806,12 +3813,18 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
     addLog(`⚠️ Agent 본문이 짧습니다 (${plainLen}자 / H2 ${h2Count}개) — 자동 재호출 시도`, 'warning');
     setAgentRunStatus(`🔄 본문 부족 (${plainLen}자) — 더 풍부하게 재시도`, 'warning');
     try {
+      const retryHeadings = Array.isArray(payload.folderImageH2Titles)
+        ? payload.folderImageH2Titles.map(title => String(title || '').trim()).filter(Boolean)
+        : [];
+      const retryH2Rule = retryHeadings.length > 0
+        ? `H2는 아래 ${retryHeadings.length}개를 제목과 순서까지 그대로 사용: ${retryHeadings.join(' / ')}`
+        : 'H2 정확히 6~8개';
       const retryPayload = {
         ...payload,
         articleTask: (payload.articleTask || '') +
           `\n\n🚨🚨🚨 **재시도 — 본문 분량 강제**: 직전 응답이 본문 ${plainLen}자, H2 ${h2Count}개로 부족했습니다.\n` +
           `반드시 다음 규칙을 지켜 result/article.html을 완전히 새로 작성하세요:\n` +
-          `- H2 정확히 6~8개\n` +
+          `- ${retryH2Rule}\n` +
           `- 각 H2 본문 최소 1,200자 (전체 평문 8,000자 이상)\n` +
           `- 도입부 600자+, 결론 400자+, 잘림 절대 금지\n` +
           `- 마지막은 반드시 </div> 또는 </article> 닫기 태그`,
@@ -4098,6 +4111,7 @@ async function generateAgentImage(engine, prompt, includeText, label) {
       aspectRatio: '16:9',
       prompt,
       includeText: !!includeText,
+      publishContext: true,
     });
     const url = getImageResultUrl(result);
     if (!url) {
@@ -4136,9 +4150,23 @@ function removeAgentSuppliedImages(html = '') {
   }
 }
 
-function getPreGeneratedH2Image(payload = {}, h2Index) {
+function normalizeFolderH2Title(value) {
+  return String(value || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/^\s*\d+[.)\-:\s]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function getPreGeneratedH2Image(payload = {}, h2Index, h2Title = '') {
   const list = Array.isArray(payload?.preGeneratedImages) ? payload.preGeneratedImages : [];
-  return list.find((item) => {
+  const headingKey = normalizeFolderH2Title(h2Title);
+  const byTitle = headingKey ? list.find((item) => {
+    const src = String(item?.dataUrl || item?.url || '').trim();
+    return normalizeFolderH2Title(item?.h2Title) === headingKey && src.length > 0;
+  }) : null;
+  return byTitle || list.find((item) => {
     const src = String(item?.dataUrl || item?.url || '').trim();
     return Number(item?.h2Index) === Number(h2Index) && src.length > 0;
   }) || null;
@@ -4197,7 +4225,7 @@ async function enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload = {}, tit
       const h2Text = (h2.textContent || '').replace(/\s+/g, ' ').trim();
       if (!h2Text) continue;
 
-      const folderImage = getPreGeneratedH2Image(payload, index);
+      const folderImage = getPreGeneratedH2Image(payload, index, h2Text);
       let imageUrl = String(folderImage?.dataUrl || folderImage?.url || '').trim();
       const isFolderImage = imageUrl.length > 0;
 

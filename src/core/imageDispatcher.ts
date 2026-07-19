@@ -372,6 +372,7 @@ function preSanitizePrompt(prompt: string, onLog?: (msg: string) => void): strin
 export interface DispatchExtraOptions {
   gptImageQuality?: 'low' | 'medium' | 'high';
   leonardoModel?: string;
+  allowFreeTrialPublishing?: boolean;
   /**
    * v3.6.0: dropshot 엔진의 i2i 모드 — reference 이미지 URL 배열.
    * 다른 엔진(nanobanana 등)은 무시한다. 쇼핑 모드의 productImages 자동 연결 등에 사용.
@@ -539,11 +540,13 @@ export async function dispatchH2ImageGeneration(
     return { ok: false, dataUrl: '', source: '', error: '이미지 생성 스킵 (사용자 선택)' };
   }
 
-  // 🛡️ v3.7.11 — 라이선스 게이트: 무료체험/none/expired는 이미지 생성 차단 (유료 유도).
+  // 라이선스 게이트: 무료체험은 글 발행 컨텍스트에서만 허용하고 독립 생성은 차단한다.
   //   error 코드 'PAYMENT_REQUIRED:<reason>'으로 표준화 → orchestration·UI가 동일 처리.
   {
     const { checkImageGenAccess } = await import('../utils/license-tier-manager');
-    const access = checkImageGenAccess();
+    const access = checkImageGenAccess({
+      allowFreeTrialPublishing: extra?.allowFreeTrialPublishing === true,
+    });
     if (!access.allowed) {
       const code = `PAYMENT_REQUIRED:${access.reason || 'none'}`;
       console.log(`[DISPATCH] 🛡️ 라이선스 게이트 차단 (${access.reason}) — ${access.message.split('\n')[0]}`);
@@ -707,7 +710,9 @@ export async function dispatchThumbnailGeneration(
   // 🛡️ v3.7.11 — 라이선스 게이트 (썸네일도 동일하게 무료체험/none/expired 차단)
   {
     const { checkImageGenAccess } = await import('../utils/license-tier-manager');
-    const access = checkImageGenAccess();
+    const access = checkImageGenAccess({
+      allowFreeTrialPublishing: extra?.allowFreeTrialPublishing === true,
+    });
     if (!access.allowed) {
       const code = `PAYMENT_REQUIRED:${access.reason || 'none'}`;
       console.log(`[DISPATCH-THUMB] 🛡️ 라이선스 게이트 차단 (${access.reason}) — ${access.message.split('\n')[0]}`);

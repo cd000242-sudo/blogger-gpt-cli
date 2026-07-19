@@ -418,7 +418,9 @@ function bindMainIntervalControl() {
 //   사용자 요청: "연속발행 모드에서는 숨겨주고 대기열에서 전부 가능하게"
 function togglePostingSettingsForQueue() {
   try {
-    const queueActive = (STATE.keywords?.length || 0) > 0 || window.__queueRunning === true;
+    const queueActive = getCurrentMode() === 'bulk'
+      || window.__queueRunning === true
+      || window.__queueProgressActive === true;
     const tabBar = document.querySelector('.posting-settings-tab-bar');
     const settingsArea = tabBar?.closest('.posting-settings-area') || tabBar?.parentElement;
     if (!settingsArea) return;
@@ -715,6 +717,7 @@ function getActivePreGeneratedImagesForQueue() {
       .filter(img => img && Number(img.h2Index) > 0 && typeof img.dataUrl === 'string' && img.dataUrl.startsWith('data:image/'))
       .map(img => ({
         h2Index: Number(img.h2Index),
+        h2Title: img.h2Title || '',
         dataUrl: img.dataUrl,
         prompt: img.prompt || '',
       }));
@@ -760,6 +763,8 @@ function clearQueueFolderImages() {
   if (!confirm('연속발행에 적용 중인 내 폴더 이미지 매핑을 초기화할까요?')) return;
   window.__preGeneratedImagesForArticle = [];
   window.__preGeneratedMappingMode = 'auto';
+  window.__folderImageH2Titles = [];
+  window.__folderImageHeadingTopic = '';
   window.refreshPreGeneratedBadge?.();
   refreshQueueFolderImagesBadge();
   try {
@@ -2004,8 +2009,9 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     h2ImageSections: h2Sections,
     h2Images: { source: normalizeThumbEngine(item.h2ImageSource || item.thumb), sections: h2Sections, mode: h2ImageMode, leonardoModel: item.leonardoModel || 'seedream-4.5' },
     preGeneratedImages: folderImages.length > 0
-      ? folderImages.map(img => ({ h2Index: img.h2Index, dataUrl: img.dataUrl }))
+      ? folderImages.map(img => ({ h2Index: img.h2Index, h2Title: img.h2Title, dataUrl: img.dataUrl }))
       : undefined,
+    folderImageH2Titles: Array.isArray(window.__folderImageH2Titles) ? window.__folderImageH2Titles.slice(0, 12) : undefined,
     folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai',
     skipImages: h2ImageMode === 'none',
     ctaMode: isAdsense ? 'none' : (item.ctaMode || 'auto'),

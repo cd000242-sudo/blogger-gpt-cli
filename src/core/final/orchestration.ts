@@ -33,6 +33,26 @@ import {
   generateIntentAwareFallbackH2Titles,
   isContextuallySafeCtaUrl,
 } from './generation';
+
+function normalizeFolderHeadingKey(value: unknown): string {
+  return String(value || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/^\s*\d+[.)\-:\s]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function getFolderImageH2Titles(payload: any): string[] {
+  const direct = Array.isArray(payload?.folderImageH2Titles) ? payload.folderImageH2Titles : [];
+  const fromMappings = Array.isArray(payload?.preGeneratedImages)
+    ? payload.preGeneratedImages.map((item: any) => item?.h2Title)
+    : [];
+  return [...(direct.length > 0 ? direct : fromMappings)]
+    .map((title) => String(title || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
 import { generateCSSFinal, generateTOCFinal } from './html';
 import { buildEeatMeta, EEAT_META_CSS } from './eeat-meta';
 import { buildSchemaJsonLd } from './schema-jsonld';
@@ -251,7 +271,7 @@ export async function generateUltimateMaxModeArticleFinal(
   }
 
   // 🛡️ v3.7.11 — 라이선스 게이트: AI 이미지 사용 의도가 있으면 본문 생성 시작 전에 즉시 차단.
-  //   사용자가 모든 이미지 옵션을 'none'/'skip'으로 명시한 경우는 통과(이미지 없는 발행은 무료 체험에서도 허용).
+  //   무료 체험의 글포스팅 발행 컨텍스트는 이미지 포함 여부와 무관하게 허용한다.
   //   throw 시 IPC 핸들러가 캐치 → UI는 error.message로 PAYMENT_REQUIRED:<reason> 감지 → 결제 유도 모달.
   try {
     const isSkip = (v: any) => v === 'none' || v === 'skip';
@@ -261,7 +281,7 @@ export async function generateUltimateMaxModeArticleFinal(
       !isSkip(payload?.imageSource);
     if (wantsImage) {
       const { checkImageGenAccess } = require('../../utils/license-tier-manager');
-      const access = checkImageGenAccess();
+      const access = checkImageGenAccess({ allowFreeTrialPublishing: true });
       if (!access.allowed) {
         const blockMsg = `${access.message}\n\n결제: ${access.paymentUrl}\n1대1 문의: ${access.kakaoUrl}`;
         onLog?.(`[PROGRESS] 0% - 🛡️ ${access.message.split('\n')[0]}`);
@@ -499,7 +519,9 @@ export async function generateUltimateMaxModeArticleFinal(
         if (!skipImages && !urlThumbnailDisabled) {
           onLog?.(`[PROGRESS] 92% - 🖼️ 썸네일 생성 중 (${urlThumbnailSource})...`);
           try {
-            const urlThumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; leonardoModel?: string } = {};
+            const urlThumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; leonardoModel?: string; allowFreeTrialPublishing?: boolean } = {
+              allowFreeTrialPublishing: true,
+            };
             if (payload.gptImageQuality === 'low' || payload.gptImageQuality === 'medium' || payload.gptImageQuality === 'high') {
               urlThumbExtra.gptImageQuality = payload.gptImageQuality;
             }
@@ -738,7 +760,12 @@ export async function generateUltimateMaxModeArticleFinal(
     });
 
     let h2Titles: string[];
-    if (modeResult.handledByPlugin && modeResult.h2Titles) {
+    const folderImageH2Titles = getFolderImageH2Titles(payload);
+    if (folderImageH2Titles.length > 0) {
+      h2Titles = folderImageH2Titles;
+      modeResult.sectionPromptBlock = `${modeResult.sectionPromptBlock || ''}\n\n📁 [사용자 확정 H2 구조]\n아래 H2 제목과 순서를 글에 정확히 사용하세요. 제목을 바꾸거나 합치거나 새 H2를 추가하지 마세요.\n${h2Titles.map((title, index) => `${index + 1}. ${title}`).join('\n')}`;
+      onLog?.(`[PROGRESS] 40% - 📁 내 폴더 이미지용 확정 H2 ${h2Titles.length}개 적용`);
+    } else if (modeResult.handledByPlugin && modeResult.h2Titles) {
       // 플러그인에서 H2 제목 제공
       h2Titles = modeResult.h2Titles;
       onLog?.(`[PROGRESS] 40% - ✅ ${contentMode} 모드: ${h2Titles.length}개 섹션 구조 적용`);
@@ -1439,7 +1466,13 @@ export async function generateUltimateMaxModeArticleFinal(
         //   사용자가 "📌 본 글 H2 소제목에 자동 배치" 토글을 켰을 때 publish payload에 포함됨.
         //   API 재호출 없이 즉시 사용 → 시간/비용 절감 + 정확히 원하는 이미지 보장.
         const preGen = (payload.preGeneratedImages as any[] | undefined) || [];
-        const preGenMatch = preGen.find((p: any) => Number(p?.h2Index) === h2Number && typeof p?.dataUrl === 'string' && p.dataUrl.length > 0);
+        const sectionHeadingKey = normalizeFolderHeadingKey(section.h2);
+        const preGenMatchByTitle = preGen.find((p: any) =>
+          normalizeFolderHeadingKey(p?.h2Title) === sectionHeadingKey
+          && typeof p?.dataUrl === 'string'
+          && p.dataUrl.length > 0
+        );
+        const preGenMatch = preGenMatchByTitle || preGen.find((p: any) => Number(p?.h2Index) === h2Number && typeof p?.dataUrl === 'string' && p.dataUrl.length > 0);
         if (preGenMatch) {
           console.log(`[IMG-${i + 1}] 📌 미리 생성한 이미지 사용 (H2 #${h2Number}, 길이 ${preGenMatch.dataUrl.length}B)`);
           onLog?.(`   📌 H2 #${h2Number}: 미리 생성한 이미지 사용 (API 호출 skip)`);
@@ -1509,7 +1542,9 @@ export async function generateUltimateMaxModeArticleFinal(
               const variationHint = ` [Section ${i + 1} of ${sections.length}: MUST show a unique scene visually distinct from all other sections — different angle, location, props, and composition; never repeat previous sections]`;
               const promptForDispatch = section.h2 + variationHint;
               // v3.5.89: GPT 이미지 quality 옵션 — UI에서 사용자가 선택한 값을 그대로 전달
-              const dispatchExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; leonardoModel?: string } = {};
+              const dispatchExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; leonardoModel?: string; allowFreeTrialPublishing?: boolean } = {
+                allowFreeTrialPublishing: true,
+              };
               if (payload.gptImageQuality === 'low' || payload.gptImageQuality === 'medium' || payload.gptImageQuality === 'high') {
                 dispatchExtra.gptImageQuality = payload.gptImageQuality;
               }
@@ -2186,7 +2221,9 @@ ${conclusionHTML}
     if (!thumbnailUrl && !thumbnailDisabled) {
       onLog?.(`[PROGRESS] 90% - 🖼️ 썸네일 생성 중 (요청: ${thumbnailSource})...`);
       try {
-        const thumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; referenceImageList?: string[]; leonardoModel?: string } = {};
+        const thumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; referenceImageList?: string[]; leonardoModel?: string; allowFreeTrialPublishing?: boolean } = {
+          allowFreeTrialPublishing: true,
+        };
         if (payload.gptImageQuality === 'low' || payload.gptImageQuality === 'medium' || payload.gptImageQuality === 'high') {
           thumbExtra.gptImageQuality = payload.gptImageQuality;
         }

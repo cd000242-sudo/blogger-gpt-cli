@@ -21,7 +21,7 @@ async function updateFreeQuotaCounter() {
     }
 
     const used = status.quota?.usage || 0;
-    const limit = status.quota?.limit || 2;
+    const limit = status.quota?.limit || 3;
     const remaining = Math.max(0, limit - used);
     const isExhausted = remaining <= 0;
 
@@ -2443,7 +2443,7 @@ async function loadLicenseInfo() {
         const quotaStatus = await window.blogger.getQuotaStatus();
         if (quotaStatus && quotaStatus.success && quotaStatus.isFree) {
           const used = quotaStatus.quota?.usage || 0;
-          const limit = quotaStatus.quota?.limit || 2;
+          const limit = quotaStatus.quota?.limit || 3;
           setLicenseStatusElement(licenseStatusElement, `🆓 무료체험 (${used}/${limit})`, '#10b981', true);
           return;
         }

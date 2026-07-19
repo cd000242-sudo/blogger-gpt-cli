@@ -1402,6 +1402,15 @@ electron_1.ipcMain.handle('generate-internal-consistency', async (_evt, payload)
             //   → cornerstone 가이드 구조 + 광고 친화 H2 6~7개 + 거미줄 회유 CTA + FAQ + 표 강제.
             const currentYear = new Date().getFullYear();
             const spiderTheme = pickSpiderEyeComfortPalette(`${title}|${sortedContents.map((item) => `${item.title}|${item.url}`).join('|')}`);
+            const folderImageH2Titles = Array.isArray(payload.folderImageH2Titles)
+                ? payload.folderImageH2Titles
+                    .map((value) => String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
+                    .filter(Boolean)
+                    .slice(0, 12)
+                : [];
+            const folderHeadingRequirement = folderImageH2Titles.length > 0
+                ? `\n📁 **사용자가 이미지 배치와 함께 확정한 H2 구조**\n아래 ${folderImageH2Titles.length}개 H2를 제목과 순서까지 정확히 사용하세요. 다른 H2를 추가하거나 제목을 바꾸지 마세요.\n${folderImageH2Titles.map((heading, index) => `${index + 1}. ${heading}`).join('\n')}\n`
+                : '';
             const prompt = `
 당신은 한국 애드센스 블로그 cornerstone 콘텐츠를 설계하는 SEO + UX 전문가입니다.
 **중요 — 피아식별**: 아래 ${sortedContents.length}개 원본 글은 모두 **작성자 본인이 직접 쓴 본인의 글**입니다. 타인/경쟁사 글 절대 아님.
@@ -1412,6 +1421,7 @@ electron_1.ipcMain.handle('generate-internal-consistency', async (_evt, payload)
 
 【통합글 제목】
 ${title}
+${folderHeadingRequirement}
 
 【본인이 작성한 글 ${sortedContents.length}개 — 자료원】
 ${sortedContents.map((item, idx) => `
@@ -2222,7 +2232,15 @@ ${tail}
                             try {
                                 console.log(`[INTERNAL-CONSISTENCY] 🖼️ H2 ${idx1}/${h2Nodes.length} 이미지 시작: "${h2Text.substring(0, 30)}…"`);
                                 const preGeneratedImages = Array.isArray(payload.preGeneratedImages) ? payload.preGeneratedImages : [];
-                                const preGenMatch = preGeneratedImages.find((img) => Number(img?.h2Index) === idx1 && (img?.dataUrl || img?.url));
+                                const normalizeHeadingKey = (value) => String(value || '')
+                                    .replace(/<[^>]+>/g, ' ')
+                                    .replace(/^\s*\d+[.)\-:\s]+/, '')
+                                    .replace(/\s+/g, ' ')
+                                    .trim()
+                                    .toLowerCase();
+                                const h2HeadingKey = normalizeHeadingKey(h2Text);
+                                const preGenMatchByTitle = preGeneratedImages.find((img) => normalizeHeadingKey(img?.h2Title) === h2HeadingKey && (img?.dataUrl || img?.url));
+                                const preGenMatch = preGenMatchByTitle || preGeneratedImages.find((img) => Number(img?.h2Index) === idx1 && (img?.dataUrl || img?.url));
                                 if (preGenMatch) {
                                     const rawH2 = String(preGenMatch.dataUrl || preGenMatch.url || '');
                                     const hosted = await _hostGeneratedImage(rawH2, `sw-folder-h2-${idx1}`);
@@ -3177,6 +3195,30 @@ catch (e) {
     // 무시 (핸들러가 없을 수 있음)
 }
 // 이미지 프롬프트 생성 IPC 핸들러 (CSP 우회)
+electron_1.ipcMain.handle('generate-folder-image-headings', async (_evt, payload) => {
+    try {
+        const keyword = String(payload?.keyword || '').trim();
+        if (!keyword)
+            return { ok: false, error: '소제목을 분석할 키워드를 먼저 입력해주세요.' };
+        const sectionCount = Math.min(12, Math.max(1, Math.round(Number(payload?.sectionCount) || 6)));
+        const referenceHeadings = Array.isArray(payload?.referenceHeadings)
+            ? payload.referenceHeadings.map((value) => String(value || '').trim()).filter(Boolean)
+            : [];
+        const { generateH2TitlesFinal } = require('../dist/core/final/generation');
+        const headings = await generateH2TitlesFinal(keyword, referenceHeadings, sectionCount);
+        return {
+            ok: true,
+            headings: (Array.isArray(headings) ? headings : [])
+                .map((value) => String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
+                .filter(Boolean)
+                .slice(0, sectionCount),
+        };
+    }
+    catch (error) {
+        console.error('[FOLDER-IMAGE] 소제목 분석 실패:', error);
+        return { ok: false, error: error?.message || '소제목 분석에 실패했습니다.' };
+    }
+});
 electron_1.ipcMain.handle('generate-image-prompts', async (_evt, payload) => {
     try {
         const { sections, topic, geminiKey, openaiKey, claudeKey } = payload;
@@ -10459,7 +10501,9 @@ electron_1.ipcMain.handle('batch-image-generate', async (_evt, payload) => {
         // 🛡️ v3.7.11 — license gate: 무료체험/none/expired는 일괄 이미지 생성 차단.
         //   dispatcher 진입부에서도 막히지만 IPC 레벨에서 명시적으로 표준 응답 반환 → UI 모달 처리 단일화.
         const { checkImageGenAccess } = require('../dist/utils/license-tier-manager');
-        const access = checkImageGenAccess();
+        const access = checkImageGenAccess({
+            allowFreeTrialPublishing: payload?.publishContext === true,
+        });
         if (!access.allowed) {
             return {
                 ok: false,
@@ -10482,6 +10526,7 @@ electron_1.ipcMain.handle('batch-image-generate', async (_evt, payload) => {
         const finalPrompt = `${prompt}${textTail}${variationTail}`;
         const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
         const extra = {};
+        extra.allowFreeTrialPublishing = payload?.publishContext === true;
         if (quality === 'low' || quality === 'medium' || quality === 'high')
             extra.gptImageQuality = quality;
         if (Array.isArray(referenceImageList) && referenceImageList.length > 0)

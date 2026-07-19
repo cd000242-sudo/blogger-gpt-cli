@@ -442,7 +442,7 @@ export async function loadLicenseInfo() {
         const quotaStatus = await api.getQuotaStatus();
         if (quotaStatus && quotaStatus.success && quotaStatus.isFree) {
           const usage = (quotaStatus.quota && quotaStatus.quota.usage) || 0;
-          const limit = (quotaStatus.quota && quotaStatus.quota.limit) || 1;
+          const limit = (quotaStatus.quota && quotaStatus.quota.limit) || 3;
 
           if (licenseStatus) {
             licenseStatus.textContent = `🆓 무료체험 (${usage}/${limit})`;

@@ -310,6 +310,7 @@ const api = {
     analyzeSmartBlockKeywords: (keyword, maxResults) => electron_1.ipcRenderer.invoke('analyze-smart-block-keywords', keyword, maxResults),
     // 이미지 프롬프트 생성 (CSP 우회를 위해 main process에서 처리)
     generateImagePrompts: (args) => electron_1.ipcRenderer.invoke('generate-image-prompts', args),
+    generateFolderImageHeadings: (args) => electron_1.ipcRenderer.invoke('generate-folder-image-headings', args),
     // 🖼️ AI 이미지 자동 수집
     collectImagesByTitle: (args) => {
         console.log('[PRELOAD] 🖼️ 제목 기반 이미지 수집 요청');

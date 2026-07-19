@@ -1355,8 +1355,9 @@ async function generateSpiderWebContent() {
             siteUrl: post.siteUrl || post.wordpressSiteUrl || '',
           })),
           preGeneratedImages: (window.__preGeneratedImagesForArticle || []).length > 0
-            ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, dataUrl: img.dataUrl }))
+            ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, h2Title: img.h2Title, dataUrl: img.dataUrl }))
             : undefined,
+          folderImageH2Titles: Array.isArray(window.__folderImageH2Titles) ? window.__folderImageH2Titles.slice(0, 12) : undefined,
           folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai'
         });
       } else if (window.blogger && window.blogger.generateInternalLinkContent) {
@@ -1374,8 +1375,9 @@ async function generateSpiderWebContent() {
             siteUrl: post.siteUrl || post.wordpressSiteUrl || '',
           })),
           preGeneratedImages: (window.__preGeneratedImagesForArticle || []).length > 0
-            ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, dataUrl: img.dataUrl }))
+            ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, h2Title: img.h2Title, dataUrl: img.dataUrl }))
             : undefined,
+          folderImageH2Titles: Array.isArray(window.__folderImageH2Titles) ? window.__folderImageH2Titles.slice(0, 12) : undefined,
           folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai'
         });
       } else {
@@ -2267,8 +2269,9 @@ async function generateAndPublishSpiderWeb() {
         // v3.8.7: 텍스트 포함 (나노바나나·GPT 덕테이프 등에서 한글 텍스트 오버레이)
         imageIncludeText,
         preGeneratedImages: (window.__preGeneratedImagesForArticle || []).length > 0
-          ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, dataUrl: img.dataUrl }))
+          ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, h2Title: img.h2Title, dataUrl: img.dataUrl }))
           : undefined,
+        folderImageH2Titles: Array.isArray(window.__folderImageH2Titles) ? window.__folderImageH2Titles.slice(0, 12) : undefined,
         // v3.8.8: 발행 플랫폼 — 백엔드가 WP 미디어 우선 업로드 결정
         folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai',
         platform: platformEarly,
@@ -2645,5 +2648,18 @@ window.restoreSpiderWebLast = restoreSpiderWebLast;
 window.updatePublishedSelectionCount = updatePublishedSelectionCount;
 window.selectAllPublishedPosts = selectAllPublishedPosts;
 window.addSelectedPostsToInputs = addSelectedPostsToInputs;
+window.getSpiderFolderImageHeadings = function () {
+  const sourcePosts = _buildSourcePostsForSync();
+  const topic = document.getElementById('spiderWebTitle')?.value?.trim() || '통합글';
+  const sourceHeadings = sourcePosts
+    .map((post, index) => String(post?.title || '').trim() || `${topic} 핵심 정보 ${index + 1}`)
+    .filter(Boolean);
+  return [
+    ...sourceHeadings,
+    `${topic} 한눈에 비교`,
+    `${topic} 실전 적용 체크리스트`,
+    `${topic} 더 깊이 알아보기`,
+  ].slice(0, 12);
+};
 
 console.log('[SPIDER-WEB] 모듈 로드 완료');

@@ -52,12 +52,20 @@ const path = __importStar(require("path"));
 const crypto = __importStar(require("crypto"));
 // ── 보안 ──
 const _INTERNAL_SALT = Buffer.from('T3JiaXRRdW90YVNhbHQyMDI2', 'base64').toString('utf-8');
+const COMPLETED_PUBLISH_POLICY_VERSION = 2;
 function computeSignature(state) {
-    const payload = JSON.stringify({
-        d: state.date,
-        p: state.publish,
-        l: state.lastSeenDate || state.date,
-    });
+    const payload = Number(state.policyVersion || 0) >= COMPLETED_PUBLISH_POLICY_VERSION
+        ? JSON.stringify({
+            v: COMPLETED_PUBLISH_POLICY_VERSION,
+            d: state.date,
+            p: state.publish,
+            l: state.lastSeenDate || state.date,
+        })
+        : JSON.stringify({
+            d: state.date,
+            p: state.publish,
+            l: state.lastSeenDate || state.date,
+        });
     return crypto.createHmac('sha256', _INTERNAL_SALT).update(payload).digest('hex').substring(0, 16);
 }
 function verifySignature(state) {
@@ -90,6 +98,7 @@ const TAMPERED_STATE = (date) => ({
 const EMPTY_STATE = (date) => ({
     date,
     publish: 0,
+    policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
 });
 // ── 읽기 ──
 async function readState() {
@@ -123,6 +132,14 @@ async function readState() {
                 return TAMPERED_STATE(today);
             }
         }
+        // 구버전은 "일일 무료 1회"를 선차감했다. 이 값을 새 완료 발행 3회
+        // 정책에 그대로 넘기면 첫 입장부터 1/3이 되므로 최초 이관 때만 초기화한다.
+        if (Number(parsed.policyVersion || 0) < COMPLETED_PUBLISH_POLICY_VERSION) {
+            const migrated = EMPTY_STATE(today);
+            writeState(migrated);
+            console.log(`[QuotaManager] 무료 체험 정책 v2 이관: 기존 ${Number(parsed.publish) || 0}회 -> 완료 발행 0회`);
+            return migrated;
+        }
         // 날짜 롤백 감지
         const lastSeen = parsed.lastSeenDate || parsed.date;
         if (today < lastSeen) {
@@ -130,6 +147,7 @@ async function readState() {
             return {
                 date: today,
                 publish: Number(parsed.publish) || 0,
+                policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
             };
         }
         // 날짜 변경 시에도 무료 체험 완료 발행 카운트는 유지
@@ -138,11 +156,13 @@ async function readState() {
             return {
                 date: today,
                 publish: Number(parsed.publish) || 0,
+                policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
             };
         }
         return {
             date: parsed.date,
             publish: Number(parsed.publish) || 0,
+            policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
         };
     }
     catch {
@@ -153,7 +173,16 @@ async function readState() {
                 const backupParsed = JSON.parse(backupRaw);
                 if (backupParsed._sig && verifySignature(backupParsed)) {
                     console.log('[QuotaManager] ⚠️ 메인 파일 손상 → 백업에서 복구 성공');
-                    return { date: today, publish: Number(backupParsed.publish) || 0 };
+                    if (Number(backupParsed.policyVersion || 0) < COMPLETED_PUBLISH_POLICY_VERSION) {
+                        const migrated = EMPTY_STATE(today);
+                        writeState(migrated);
+                        return migrated;
+                    }
+                    return {
+                        date: today,
+                        publish: Number(backupParsed.publish) || 0,
+                        policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
+                    };
                 }
             }
             catch { /* 백업도 실패 */ }
@@ -169,6 +198,7 @@ function writeState(state) {
     const today = getLocalDateKey();
     const secureState = {
         ...state,
+        policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
         lastSeenDate: today >= state.date ? today : state.date,
         _sig: '',
     };
@@ -220,6 +250,7 @@ async function consume(amount = 1) {
     const base = {
         date: today,
         publish: state.publish,
+        policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
     };
     const next = {
         ...base,
@@ -240,6 +271,7 @@ async function consumeIfAvailable(limit, amount = 1) {
     const next = {
         date: getLocalDateKey(),
         publish: state.publish + safeAmount,
+        policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
     };
     writeState(next);
     console.log(`[QuotaManager] Completed-publish quota recorded: ${state.publish} -> ${next.publish}`);

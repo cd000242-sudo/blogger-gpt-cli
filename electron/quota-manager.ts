@@ -16,6 +16,7 @@ import * as crypto from 'crypto';
 export interface QuotaState {
   date: string;
   publish: number;
+  policyVersion?: number;
 }
 
 interface SecureQuotaState extends QuotaState {
@@ -33,13 +34,21 @@ export interface QuotaStatus {
 // ── 보안 ──
 
 const _INTERNAL_SALT = Buffer.from('T3JiaXRRdW90YVNhbHQyMDI2', 'base64').toString('utf-8');
+const COMPLETED_PUBLISH_POLICY_VERSION = 2;
 
 function computeSignature(state: QuotaState & { lastSeenDate?: string }): string {
-  const payload = JSON.stringify({
-    d: state.date,
-    p: state.publish,
-    l: state.lastSeenDate || state.date,
-  });
+  const payload = Number(state.policyVersion || 0) >= COMPLETED_PUBLISH_POLICY_VERSION
+    ? JSON.stringify({
+      v: COMPLETED_PUBLISH_POLICY_VERSION,
+      d: state.date,
+      p: state.publish,
+      l: state.lastSeenDate || state.date,
+    })
+    : JSON.stringify({
+      d: state.date,
+      p: state.publish,
+      l: state.lastSeenDate || state.date,
+    });
   return crypto.createHmac('sha256', _INTERNAL_SALT).update(payload).digest('hex').substring(0, 16);
 }
 
@@ -78,6 +87,7 @@ const TAMPERED_STATE = (date: string): QuotaState => ({
 const EMPTY_STATE = (date: string): QuotaState => ({
   date,
   publish: 0,
+  policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
 });
 
 // ── 읽기 ──
@@ -117,6 +127,15 @@ async function readState(): Promise<QuotaState> {
       }
     }
 
+    // 구버전은 "일일 무료 1회"를 선차감했다. 이 값을 새 완료 발행 3회
+    // 정책에 그대로 넘기면 첫 입장부터 1/3이 되므로 최초 이관 때만 초기화한다.
+    if (Number(parsed.policyVersion || 0) < COMPLETED_PUBLISH_POLICY_VERSION) {
+      const migrated = EMPTY_STATE(today);
+      writeState(migrated);
+      console.log(`[QuotaManager] 무료 체험 정책 v2 이관: 기존 ${Number(parsed.publish) || 0}회 -> 완료 발행 0회`);
+      return migrated;
+    }
+
     // 날짜 롤백 감지
     const lastSeen = parsed.lastSeenDate || parsed.date;
     if (today < lastSeen) {
@@ -124,6 +143,7 @@ async function readState(): Promise<QuotaState> {
       return {
         date: today,
         publish: Number(parsed.publish) || 0,
+        policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
       };
     }
 
@@ -133,12 +153,14 @@ async function readState(): Promise<QuotaState> {
       return {
         date: today,
         publish: Number(parsed.publish) || 0,
+        policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
       };
     }
 
     return {
       date: parsed.date,
       publish: Number(parsed.publish) || 0,
+      policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
     };
   } catch {
     // 메인 파싱 실패 → 백업 시도
@@ -148,7 +170,16 @@ async function readState(): Promise<QuotaState> {
         const backupParsed = JSON.parse(backupRaw) as SecureQuotaState;
         if (backupParsed._sig && verifySignature(backupParsed)) {
           console.log('[QuotaManager] ⚠️ 메인 파일 손상 → 백업에서 복구 성공');
-          return { date: today, publish: Number(backupParsed.publish) || 0 };
+          if (Number(backupParsed.policyVersion || 0) < COMPLETED_PUBLISH_POLICY_VERSION) {
+            const migrated = EMPTY_STATE(today);
+            writeState(migrated);
+            return migrated;
+          }
+          return {
+            date: today,
+            publish: Number(backupParsed.publish) || 0,
+            policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
+          };
         }
       } catch { /* 백업도 실패 */ }
     }
@@ -166,6 +197,7 @@ function writeState(state: QuotaState): void {
 
   const secureState: SecureQuotaState = {
     ...state,
+    policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
     lastSeenDate: today >= state.date ? today : state.date,
     _sig: '',
   };
@@ -218,6 +250,7 @@ export async function consume(amount: number = 1): Promise<QuotaState> {
   const base: QuotaState = {
     date: today,
     publish: state.publish,
+    policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
   };
 
   const next: QuotaState = {
@@ -241,6 +274,7 @@ export async function consumeIfAvailable(limit: number, amount: number = 1): Pro
   const next: QuotaState = {
     date: getLocalDateKey(),
     publish: state.publish + safeAmount,
+    policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
   };
   writeState(next);
   console.log(`[QuotaManager] Completed-publish quota recorded: ${state.publish} -> ${next.publish}`);

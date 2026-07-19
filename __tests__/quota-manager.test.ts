@@ -39,13 +39,11 @@ function getToday(): string {
 }
 
 // 테스트용 서명 생성 (quota-manager 내부 로직 복제)
-function computeTestSignature(state: { date: string; publish: number; lastSeenDate?: string }): string {
+function computeTestSignature(state: { date: string; publish: number; lastSeenDate?: string; policyVersion?: number }): string {
   const salt = Buffer.from('T3JiaXRRdW90YVNhbHQyMDI2', 'base64').toString('utf-8');
-  const payload = JSON.stringify({
-    d: state.date,
-    p: state.publish,
-    l: state.lastSeenDate || state.date,
-  });
+  const payload = state.policyVersion === 2
+    ? JSON.stringify({ v: 2, d: state.date, p: state.publish, l: state.lastSeenDate || state.date })
+    : JSON.stringify({ d: state.date, p: state.publish, l: state.lastSeenDate || state.date });
   return crypto.createHmac('sha256', salt).update(payload).digest('hex').substring(0, 16);
 }
 
@@ -118,11 +116,25 @@ describe('QuotaManager', () => {
 
   it('다른 날짜의 파일도 무료 체험 누적 발행 횟수를 유지', async () => {
     const yesterday = '2020-01-01';
-    const sig = computeTestSignature({ date: yesterday, publish: 5, lastSeenDate: yesterday });
-    writeRawQuotaFile({ date: yesterday, publish: 5, lastSeenDate: yesterday, _sig: sig });
+    const sig = computeTestSignature({ date: yesterday, publish: 5, lastSeenDate: yesterday, policyVersion: 2 });
+    writeRawQuotaFile({ date: yesterday, publish: 5, lastSeenDate: yesterday, policyVersion: 2, _sig: sig });
 
     const usage = await quotaManager.getUsageToday();
     expect(usage).toBe(5);
+  });
+
+  it('기존 일일 1회 체험 기록은 완료 발행 3회 정책으로 최초 이관 시 0회로 시작', async () => {
+    const today = getToday();
+    const sig = computeTestSignature({ date: today, publish: 1, lastSeenDate: today });
+    writeRawQuotaFile({ date: today, publish: 1, lastSeenDate: today, _sig: sig });
+
+    const migrated = await quotaManager.getQuotaStatus(3);
+    expect(migrated.usage).toBe(0);
+    expect(migrated.limit).toBe(3);
+
+    await quotaManager.consumeIfAvailable(3);
+    const afterPublish = await quotaManager.getQuotaStatus(3);
+    expect(afterPublish.usage).toBe(1);
   });
 
   it('consumeIfAvailable: 한도 안에서만 완료 발행을 기록', async () => {
@@ -159,8 +171,8 @@ describe('QuotaManager', () => {
   it('날짜 롤백 → 기존 사용량 유지', async () => {
     // 미래 날짜로 저장 (lastSeenDate가 오늘보다 미래)
     const futureDate = '2099-12-31';
-    const sig = computeTestSignature({ date: futureDate, publish: 1, lastSeenDate: futureDate });
-    writeRawQuotaFile({ date: futureDate, publish: 1, lastSeenDate: futureDate, _sig: sig });
+    const sig = computeTestSignature({ date: futureDate, publish: 1, lastSeenDate: futureDate, policyVersion: 2 });
+    writeRawQuotaFile({ date: futureDate, publish: 1, lastSeenDate: futureDate, policyVersion: 2, _sig: sig });
 
     const usage = await quotaManager.getUsageToday();
     expect(usage).toBe(1); // 리셋되지 않고 기존 사용량 유지
@@ -170,10 +182,10 @@ describe('QuotaManager', () => {
 
   it('메인 파일 손상 → 백업에서 복구', async () => {
     const today = getToday();
-    const sig = computeTestSignature({ date: today, publish: 1, lastSeenDate: today });
+    const sig = computeTestSignature({ date: today, publish: 1, lastSeenDate: today, policyVersion: 2 });
 
     // 백업에만 유효한 데이터 저장
-    writeRawQuotaFile({ date: today, publish: 1, lastSeenDate: today, _sig: sig }, BACKUP_FILE);
+    writeRawQuotaFile({ date: today, publish: 1, lastSeenDate: today, policyVersion: 2, _sig: sig }, BACKUP_FILE);
     // 메인은 손상
     if (!fs.existsSync(QUOTA_DIR)) fs.mkdirSync(QUOTA_DIR, { recursive: true });
     fs.writeFileSync(QUOTA_FILE, 'corrupted!!!', 'utf-8');

@@ -292,6 +292,7 @@ export type BloggerApi = {
 
   // 이미지 프롬프트 생성 (CSP 우회를 위해 main process에서 처리)
   generateImagePrompts(args: { sections: Array<{ index: number; title: string }>; topic: string; geminiKey: string; openaiKey?: string; claudeKey?: string }): Promise<{ prompts: Array<{ sectionIndex: number; sectionTitle: string; prompt: string }>; errors: Array<{ sectionIndex: number; sectionTitle: string; error: string }>; successCount: number; totalCount: number }>;
+  generateFolderImageHeadings(args: { keyword: string; sectionCount: number; referenceHeadings?: string[] }): Promise<{ ok: boolean; headings?: string[]; error?: string }>;
 
   // 🖼️ AI 이미지 자동 수집
   collectImagesByTitle(args: {
@@ -733,6 +734,7 @@ const api: BloggerApi = {
 
   // 이미지 프롬프트 생성 (CSP 우회를 위해 main process에서 처리)
   generateImagePrompts: (args: { sections: Array<{ index: number; title: string }>; topic: string; geminiKey: string; openaiKey?: string; claudeKey?: string }) => ipcRenderer.invoke('generate-image-prompts', args),
+  generateFolderImageHeadings: (args: { keyword: string; sectionCount: number; referenceHeadings?: string[] }) => ipcRenderer.invoke('generate-folder-image-headings', args),
 
   // 🖼️ AI 이미지 자동 수집
   collectImagesByTitle: (args) => {

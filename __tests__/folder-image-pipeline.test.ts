@@ -17,10 +17,14 @@ describe('folder image H2 mapping pipeline', () => {
     expect(script).toContain("window.electronAPI.invoke('select-image-folder')");
     expect(script).toContain("window.electronAPI.invoke('read-local-image-data-url', image.path)");
     expect(script).toContain('h2Index: section.index');
+    expect(script).toContain('h2Title: section.title');
     expect(script).toContain('dataUrl: image.dataUrl');
     expect(script).toContain('sourcePath: image.sourcePath ||');
     expect(script).toContain('window.__preGeneratedImagesForArticle = mapping');
     expect(script).toContain('window.__folderImageMissingPolicy = policy');
+    expect(script).toContain('window.__folderImageH2Titles = sections.map');
+    expect(script).toContain('window.analyzeFolderImageHeadings');
+    expect(script).toContain("window.blogger.generateFolderImageHeadings");
   });
 
   test('posting, spider, and queue payloads forward folder image mappings', () => {
@@ -31,8 +35,10 @@ describe('folder image H2 mapping pipeline', () => {
     for (const source of [posting, internalLinks, queue]) {
       expect(source).toContain('preGeneratedImages');
       expect(source).toContain('h2Index: img.h2Index');
+      expect(source).toContain('h2Title: img.h2Title');
       expect(source).toContain('dataUrl: img.dataUrl');
       expect(source).toContain('folderImageMissingPolicy');
+      expect(source).toContain('folderImageH2Titles');
     }
   });
 
@@ -41,13 +47,17 @@ describe('folder image H2 mapping pipeline', () => {
     const main = read('electron/main.ts');
 
     expect(orchestration).toContain('Number(p?.h2Index) === h2Number');
+    expect(orchestration).toContain('normalizeFolderHeadingKey(p?.h2Title) === sectionHeadingKey');
+    expect(orchestration).toContain('folderImageH2Titles');
     expect(orchestration).toContain('return { dataUrl: preGenMatch.dataUrl');
     expect(orchestration).toContain('folderImageMissingPolicy');
     expect(orchestration).toContain('uploadBase64ToImageHost(img');
 
     expect(main).toContain("ipcMain.handle('select-image-folder'");
     expect(main).toContain("ipcMain.handle('read-local-image-data-url'");
+    expect(main).toContain("ipcMain.handle('generate-folder-image-headings'");
     expect(main).toContain('Number(img?.h2Index) === idx1');
+    expect(main).toContain('folderImageH2Titles');
     expect(main).toContain("_hostGeneratedImage(rawH2, `sw-folder-h2-${idx1}`)");
   });
 
@@ -55,7 +65,8 @@ describe('folder image H2 mapping pipeline', () => {
     const workshop = read('electron/ui/modules/codex-workshop.js');
 
     expect(workshop).toContain('function getPreGeneratedH2Image');
-    expect(workshop).toContain('const folderImage = getPreGeneratedH2Image(payload, index)');
+    expect(workshop).toContain('payload.folderImageH2Titles');
+    expect(workshop).toContain('const folderImage = getPreGeneratedH2Image(payload, index, h2Text)');
     expect(workshop).toContain('let imageUrl = String(folderImage?.dataUrl || folderImage?.url ||');
     expect(workshop).toContain('shouldLeaveUnmappedFolderImageBlank(payload)');
     expect(workshop).toContain("figure.setAttribute('data-agent-image', isFolderImage ? 'folder' : 'generated')");

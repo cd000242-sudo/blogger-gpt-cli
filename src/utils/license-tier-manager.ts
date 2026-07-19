@@ -472,14 +472,19 @@ export interface ImageGenAccessResult {
   message: string;
 }
 
+export interface ImageGenAccessOptions {
+  /** 무료 체험의 일반 글포스팅 발행 3회 안에서 실행되는 이미지 생성인지 여부 */
+  allowFreeTrialPublishing?: boolean;
+}
+
 const PAYMENT_URL = 'https://leaderspro.kr';
 const KAKAO_OPENCHAT_URL = 'https://open.kakao.com/o/sPcaslwh';
 
 /**
  * AI 이미지 생성 기능 사용 가능 여부 (무료체험 + 라이선스 티어 통합).
  *
- * 정책 (v3.7.11):
- *  - 무료 체험 세션(_freeTrialSession=true) → 차단, reason='trial'
+ * 정책:
+ *  - 무료 체험 세션(_freeTrialSession=true) → 글포스팅 발행 컨텍스트만 허용
  *  - 라이선스 없음(none) → 차단, reason='none'
  *  - 만료됨(expired) → 차단, reason='expired'
  *  - basic(1개월) 이상 유료 티어 → 허용
@@ -487,18 +492,27 @@ const KAKAO_OPENCHAT_URL = 'https://open.kakao.com/o/sPcaslwh';
  * 호출 컨텍스트가 Electron main 프로세스가 아닐 수 있어 require 실패 시 안전하게 허용 처리.
  * (예: 단위 테스트에서 app.getPath 호출 불가)
  */
-export function checkImageGenAccess(): ImageGenAccessResult {
+export function checkImageGenAccess(options: ImageGenAccessOptions = {}): ImageGenAccessResult {
   // 무료 체험 1순위 체크 — 라이선스 자체가 없는 상태(=none)와 구분
   try {
     // electron context에서만 동작하는 require — 단위 테스트/CLI 환경에선 catch로 빠짐
     const authUtils = require('../../electron/auth-utils');
     if (typeof authUtils?.isFreeTrial === 'function' && authUtils.isFreeTrial()) {
+      if (options.allowFreeTrialPublishing === true) {
+        return {
+          allowed: true,
+          currentTier: 'none',
+          paymentUrl: PAYMENT_URL,
+          kakaoUrl: KAKAO_OPENCHAT_URL,
+          message: '',
+        };
+      }
       return {
         allowed: false,
         reason: 'trial',
         paymentUrl: PAYMENT_URL,
         kakaoUrl: KAKAO_OPENCHAT_URL,
-        message: '무료 체험에서는 AI 이미지 생성을 사용할 수 없습니다.\n1개월 이상 유료 라이선스 결제 후 이용 가능합니다.',
+        message: '독립 AI 이미지 생성은 유료 플랜 전용입니다.\n무료 체험에서는 글포스팅 발행 3회 안에서 필요한 이미지를 함께 생성할 수 있습니다.',
       };
     }
   } catch {
