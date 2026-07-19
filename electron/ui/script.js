@@ -1390,6 +1390,10 @@ function handleH2ImageSourceChange() {
     window.refreshEngineLoginCards();
   }
 
+  if (!window.__syncingImagePlacementMode) {
+    window.syncImagePlacementMode?.({ source: 'h2-engine' });
+  }
+
   // 선택된 소스에 따른 추가 설정 표시/숨김
   const h2Sections = document.querySelectorAll('input[name="h2Sections"]');
 
@@ -1448,6 +1452,9 @@ function handleThumbnailTypeChange(value) {
   // v3.7.7: 로그인 카드 자동 토글
   if (typeof window.refreshEngineLoginCards === 'function') {
     window.refreshEngineLoginCards();
+  }
+  if (!window.__syncingImagePlacementMode) {
+    window.syncImagePlacementMode?.({ source: 'thumbnail-engine' });
   }
 }
 
@@ -2277,23 +2284,25 @@ window.startBatchImageGeneration = async function () {
 //   매핑 모드(수동/자동 순서)에 따라 표식 + 발행 안내 메시지 다르게 표시
 window.refreshPreGeneratedBadge = function () {
   const arr = window.__preGeneratedImagesForArticle || [];
+  const thumbnail = window.__preGeneratedThumbnailForArticle;
+  const totalCount = arr.length + (thumbnail?.dataUrl ? 1 : 0);
   const mode = window.__preGeneratedMappingMode || 'auto'; // 'manual' or 'auto'
   const badge = document.getElementById('preGeneratedImagesBadge');
   const countEl = document.getElementById('preGeneratedImagesCount');
   const titleEl = document.getElementById('preGeneratedImagesTitle');
   const subEl = document.getElementById('preGeneratedImagesSub');
   if (!badge) return;
-  if (arr.length > 0) {
+  if (totalCount > 0) {
     badge.style.display = 'flex';
-    if (countEl) countEl.textContent = String(arr.length);
+    if (countEl) countEl.textContent = String(totalCount);
     if (titleEl) {
       titleEl.innerHTML = mode === 'manual'
-        ? `🎛️ 수동 매핑 완료 — <span style="color:#86efac;">바로 발행 가능</span> (이미지 <span id="preGeneratedImagesCount" style="color:#c4b5fd;">${arr.length}</span>장)`
-        : `📌 미리 생성한 이미지 <span id="preGeneratedImagesCount" style="color:#c4b5fd;">${arr.length}</span>장 사용 중`;
+        ? `🎛️ 수동 매핑 완료 — <span style="color:#86efac;">바로 발행 가능</span> (이미지 <span id="preGeneratedImagesCount" style="color:#c4b5fd;">${totalCount}</span>장)`
+        : `📌 미리 생성한 이미지 <span id="preGeneratedImagesCount" style="color:#c4b5fd;">${totalCount}</span>장 사용 중`;
     }
     if (subEl) {
       subEl.textContent = mode === 'manual'
-        ? '✓ 사용자가 H2 ↔ 이미지를 직접 매핑함 — 글 생성 시 그대로 적용 (API 재호출 X)'
+        ? `✓ 썸네일 ${thumbnail?.dataUrl ? '배치됨' : '미배치'} · H2 ${arr.length}장 직접 매핑 — 글 생성 시 그대로 적용 (API 재호출 X)`
         : '글 생성 시 H2 #1, #2... 순서대로 자동 배치 (API 재호출 X)';
     }
     badge.style.background = mode === 'manual'
@@ -2307,7 +2316,7 @@ window.refreshPreGeneratedBadge = function () {
   }
   try {
     window.dispatchEvent(new CustomEvent('leadernam:preGeneratedImagesChanged', {
-      detail: { source: 'pre-generated-badge', count: arr.length, mode },
+      detail: { source: 'pre-generated-badge', count: totalCount, mode },
     }));
   } catch {}
 };
@@ -2315,6 +2324,7 @@ window.refreshPreGeneratedBadge = function () {
 window.clearPreGeneratedImages = function () {
   if (!confirm('미리 생성한 이미지를 모두 초기화합니다. 계속할까요?')) return;
   window.__preGeneratedImagesForArticle = [];
+  window.__preGeneratedThumbnailForArticle = null;
   window.__preGeneratedMappingMode = 'auto';
   window.__folderImageH2Titles = [];
   window.__folderImageHeadingTopic = '';
@@ -2573,6 +2583,7 @@ function _ensureFolderImageMapperModal() {
       .fim-img-name { margin-top:7px; color:#e2e8f0; font-size:11px; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .fim-section-list { display:flex; flex-direction:column; gap:9px; max-height:52vh; overflow:auto; padding-right:4px; }
       .fim-section-row { display:grid; grid-template-columns:86px minmax(0,1fr) 72px; gap:8px; align-items:center; padding:9px; border:1px solid rgba(148,163,184,0.15); border-radius:12px; background:rgba(2,6,23,0.34); }
+      .fim-section-row.is-thumbnail { border-color:rgba(251,191,36,0.42); background:rgba(120,53,15,0.2); }
       .fim-slot-btn { min-height:36px; border-radius:9px; border:1px solid rgba(99,102,241,0.36); background:rgba(99,102,241,0.16); color:#c7d2fe; font-weight:900; cursor:pointer; }
       .fim-slot-btn.is-filled { border-color:rgba(34,197,94,0.72); background:rgba(22,163,74,0.22); color:#bbf7d0; }
       .fim-section-title { width:100%; min-width:0; min-height:36px; padding:8px 10px; color:#f8fafc; font-size:12px; font-weight:800; border:1px solid rgba(148,163,184,0.2); border-radius:8px; background:rgba(15,23,42,0.72); outline:none; }
@@ -2590,8 +2601,8 @@ function _ensureFolderImageMapperModal() {
     <div class="fim-shell">
       <div class="fim-head">
         <div>
-          <h2 class="fim-title">내 폴더 이미지 H2 배치</h2>
-          <p class="fim-sub">PC 폴더의 이미지를 불러온 뒤, 이미지를 클릭하고 소제목 번호를 눌러 배치합니다. 같은 버튼을 다시 누르면 취소됩니다.</p>
+          <h2 class="fim-title">내 폴더 이미지 썸네일 · H2 배치</h2>
+          <p class="fim-sub">PC 폴더의 이미지를 불러온 뒤, 이미지를 클릭하고 썸네일 또는 소제목 번호를 눌러 배치합니다. 같은 버튼을 다시 누르면 취소됩니다.</p>
         </div>
         <button type="button" class="fim-btn" id="fimCloseBtn">닫기</button>
       </div>
@@ -2606,7 +2617,7 @@ function _ensureFolderImageMapperModal() {
         </section>
         <aside class="fim-panel">
           <div class="fim-panel-title">
-            <span>소제목별 배치</span>
+            <span>썸네일 · 소제목별 배치</span>
             <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
               <button type="button" class="fim-btn" id="fimAnalyzeHeadingsBtn" style="min-height:30px;padding:6px 10px;background:rgba(20,184,166,0.2);border-color:rgba(45,212,191,0.42);">소제목 분석</button>
               <button type="button" class="fim-btn" id="fimAutoMatchBtn" style="min-height:30px;padding:6px 10px;">파일명 기준 자동추천</button>
@@ -2689,7 +2700,16 @@ function _renderFolderImageMapper() {
     });
   }
   if (sectionList) {
-    sectionList.innerHTML = sections.map((section) => {
+    const thumbnailAssignedIdx = assignments.thumbnail;
+    const thumbnailAssigned = Number.isInteger(thumbnailAssignedIdx) ? images[thumbnailAssignedIdx] : null;
+    const thumbnailRow = `
+      <div class="fim-section-row is-thumbnail">
+        <button type="button" class="fim-slot-btn ${thumbnailAssigned ? 'is-filled' : ''}" data-fim-slot="thumbnail">썸네일</button>
+        <input class="fim-section-title" value="대표 썸네일 이미지" aria-label="대표 썸네일" readonly>
+        <img class="fim-assigned-thumb ${thumbnailAssigned ? 'is-filled' : ''}" src="${thumbnailAssigned?.dataUrl || ''}" alt="">
+      </div>
+    `;
+    sectionList.innerHTML = thumbnailRow + sections.map((section) => {
       const assignedIdx = assignments[section.index];
       const assigned = Number.isInteger(assignedIdx) ? images[assignedIdx] : null;
       return `
@@ -2702,7 +2722,9 @@ function _renderFolderImageMapper() {
     }).join('');
     sectionList.querySelectorAll('[data-fim-slot]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const slot = Number(btn.getAttribute('data-fim-slot'));
+        const rawSlot = btn.getAttribute('data-fim-slot');
+        const slot = rawSlot === 'thumbnail' ? 'thumbnail' : Number(rawSlot);
+        const slotLabel = slot === 'thumbnail' ? '썸네일' : `${slot}번`;
         const selectedIdx = Number(state.selectedImageIndex ?? -1);
         if (!Number.isInteger(selectedIdx) || selectedIdx < 0 || !images[selectedIdx]) {
           _showFolderMapperNotice('먼저 배치할 이미지를 클릭해주세요.');
@@ -2710,10 +2732,10 @@ function _renderFolderImageMapper() {
         }
         if (assignments[slot] === selectedIdx) {
           delete assignments[slot];
-          _showFolderMapperNotice(`${slot}번 이미지 배치가 취소되었습니다.`);
+          _showFolderMapperNotice(`${slotLabel} 이미지 배치가 취소되었습니다.`);
         } else {
           assignments[slot] = selectedIdx;
-          _showFolderMapperNotice(`${slot}번에 ${selectedIdx + 1}번 이미지가 배치되었습니다.`);
+          _showFolderMapperNotice(`${slotLabel}에 ${selectedIdx + 1}번 이미지가 배치되었습니다.`);
         }
         state.assignments = assignments;
         window.__folderImageMapperState = state;
@@ -2742,11 +2764,12 @@ function _renderFolderImageMapper() {
       });
     });
   }
-  const filledCount = Object.keys(assignments).filter(k => images[assignments[k]]).length;
+  const filledCount = sections.filter(section => images[assignments[section.index]]).length;
+  const hasThumbnail = Number.isInteger(assignments.thumbnail) && !!images[assignments.thumbnail];
   if (summary) {
-    const extra = Math.max(0, images.length - sections.length);
+    const extra = Math.max(0, images.length - sections.length - (hasThumbnail ? 1 : 0));
     const missing = Math.max(0, sections.length - filledCount);
-    summary.textContent = `배치 ${filledCount}/${sections.length}개 · 미배치 ${missing}개${extra > 0 ? ` · 남는 이미지 ${extra}장은 제외` : ''}`;
+    summary.textContent = `썸네일 ${hasThumbnail ? '배치 완료' : '미배치'} · H2 ${filledCount}/${sections.length}개 · 미배치 ${missing}개${extra > 0 ? ` · 남는 이미지 ${extra}장은 제외` : ''}`;
   }
 }
 
@@ -2797,7 +2820,7 @@ window.analyzeFolderImageHeadings = async function (options = {}) {
     state.sections = sections;
     state.headingStatus = headingStatus;
     state.assignments = Object.fromEntries(
-      Object.entries(state.assignments || {}).filter(([index]) => Number(index) <= sections.length)
+      Object.entries(state.assignments || {}).filter(([index]) => index === 'thumbnail' || Number(index) <= sections.length)
     );
     window.__folderImageMapperState = state;
     window.__folderImageH2Titles = sections.map(section => section.title);
@@ -2850,7 +2873,7 @@ async function _loadFolderImagesForMapper(folderPath) {
     return;
   }
   const sections = _getFolderMapperSectionTitles(_getFolderMapperSectionCount());
-  window.__batchImageResults = converted.slice(0, sections.length);
+  window.__batchImageResults = converted.slice(0, sections.length + 1);
   window.__folderImageMapperState = {
     folderPath,
     images: converted,
@@ -2907,6 +2930,23 @@ window.autoMatchFolderImagesToSections = function () {
   }
   const used = new Set();
   const assignments = {};
+  const thumbnailSection = {
+    title: `${_getFolderMapperTopic()} 대표 썸네일`,
+    analysisKey: `${_getFolderMapperTopic()} 대표 썸네일`.trim(),
+  };
+  let thumbnailIndex = -1;
+  let thumbnailScore = -1;
+  images.forEach((image, idx) => {
+    const score = _scoreFolderImageMatch(thumbnailSection, image);
+    if (score > thumbnailScore) {
+      thumbnailScore = score;
+      thumbnailIndex = idx;
+    }
+  });
+  if (thumbnailIndex >= 0) {
+    assignments.thumbnail = thumbnailIndex;
+    used.add(thumbnailIndex);
+  }
   sections.forEach((section) => {
     let bestIdx = -1;
     let bestScore = -1;
@@ -2956,7 +2996,14 @@ window.applyFolderImageMapper = function () {
     })
     .filter(Boolean);
   const policy = document.querySelector('input[name="fimMissingPolicy"]:checked')?.value || 'ai';
+  const thumbnailImageIndex = assignments.thumbnail;
+  const thumbnailImage = Number.isInteger(thumbnailImageIndex) ? images[thumbnailImageIndex] : null;
   window.__preGeneratedImagesForArticle = mapping;
+  window.__preGeneratedThumbnailForArticle = thumbnailImage ? {
+    dataUrl: thumbnailImage.dataUrl,
+    prompt: thumbnailImage.prompt,
+    sourcePath: thumbnailImage.sourcePath || '',
+  } : null;
   window.__folderImageH2Titles = sections.map(section => section.title);
   window.__folderImageHeadingTopic = _getFolderMapperTopic();
   window.__folderImageMissingPolicy = policy;
@@ -2964,7 +3011,7 @@ window.applyFolderImageMapper = function () {
   window.refreshPreGeneratedBadge?.();
   window.closeFolderImageMapper?.();
   const missing = Math.max(0, sections.length - mapping.length);
-  alert(`내 폴더 이미지 배치 완료\n배치: ${mapping.length}개 / 소제목: ${sections.length}개\n미배치: ${missing}개 → ${policy === 'blank' ? '공란으로 둠' : '선택한 AI 이미지 엔진으로 생성'}`);
+  alert(`내 폴더 이미지 배치 완료\n썸네일: ${thumbnailImage ? '배치 완료' : '미배치'}\nH2 배치: ${mapping.length}개 / 소제목: ${sections.length}개\n미배치: ${missing}개 → ${policy === 'blank' ? '공란으로 둠' : '선택한 AI 이미지 엔진으로 생성'}`);
 };
 
 window.closeFolderImageMapper = function () {
@@ -3171,6 +3218,62 @@ function getCurrentImageEngineCost() {
   };
 }
 
+function _setPlacementForcedNone(select, forced) {
+  if (!select) return false;
+  if (forced) {
+    if (select.value && select.value !== 'none') {
+      select.dataset.lastActiveImageEngine = select.value;
+    }
+    select.dataset.placementForced = 'true';
+    if (select.value !== 'none') {
+      select.value = 'none';
+      return true;
+    }
+    return false;
+  }
+  if (select.dataset.placementForced === 'true') {
+    const restoreValue = select.dataset.lastActiveImageEngine || 'nanobanana2';
+    select.value = Array.from(select.options || []).some(option => option.value === restoreValue)
+      ? restoreValue
+      : 'nanobanana2';
+    delete select.dataset.placementForced;
+    return true;
+  }
+  return false;
+}
+
+window.syncImagePlacementMode = function () {
+  if (window.__syncingImagePlacementMode) return;
+  const modeSelect = document.getElementById('h2ImageMode');
+  const thumbnailSelect = document.getElementById('thumbnailType');
+  const h2Select = document.getElementById('h2ImageSource');
+  if (!modeSelect || !thumbnailSelect || !h2Select) return;
+
+  window.__syncingImagePlacementMode = true;
+  try {
+    const mode = String(modeSelect.value || 'all').toLowerCase();
+    let thumbnailChanged = false;
+    let h2Changed = false;
+
+    if (mode === 'none') {
+      thumbnailChanged = _setPlacementForcedNone(thumbnailSelect, true);
+      h2Changed = _setPlacementForcedNone(h2Select, true);
+    } else if (mode === 'thumbnail-only') {
+      thumbnailChanged = _setPlacementForcedNone(thumbnailSelect, false);
+      h2Changed = _setPlacementForcedNone(h2Select, true);
+    } else {
+      thumbnailChanged = _setPlacementForcedNone(thumbnailSelect, false);
+      h2Changed = _setPlacementForcedNone(h2Select, false);
+    }
+
+    if (thumbnailChanged) handleThumbnailTypeChange(thumbnailSelect.value);
+    if (h2Changed) handleH2ImageSourceChange(h2Select.value);
+    window.refreshEngineLoginCards?.();
+  } finally {
+    window.__syncingImagePlacementMode = false;
+  }
+};
+
 window.updateImageCostPreview = function () {
   const previewEl = document.getElementById('imageCostPreviewValue');
   if (!previewEl) return;
@@ -3207,10 +3310,16 @@ window.updateImageCostPreview = function () {
 
 // 초기 표시 + 엔진 변경 시 자동 업데이트
 document.addEventListener('DOMContentLoaded', () => {
-  setTimeout(() => { if (window.updateImageCostPreview) window.updateImageCostPreview(); }, 500);
+  setTimeout(() => {
+    window.syncImagePlacementMode?.();
+    if (window.updateImageCostPreview) window.updateImageCostPreview();
+  }, 500);
   ['h2ImageSource', 'thumbnailType', 'h2ImageMode'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.addEventListener('change', () => { if (window.updateImageCostPreview) window.updateImageCostPreview(); });
+    if (el) el.addEventListener('change', () => {
+      window.syncImagePlacementMode?.();
+      if (window.updateImageCostPreview) window.updateImageCostPreview();
+    });
   });
   document.querySelectorAll('input[name="gptImageQuality"]').forEach(r => {
     r.addEventListener('change', () => { if (window.updateImageCostPreview) window.updateImageCostPreview(); });

@@ -5,6 +5,7 @@ export interface FactEvidence {
   provider: string;
   trustLevel: FactTrustLevel;
   sourceUrls?: string[];
+  topic?: string;
 }
 
 export type FactIntegrityViolationKind =
@@ -41,7 +42,7 @@ export interface FactIntegrityArticle {
   [key: string]: any;
 }
 
-const SAFE_FALLBACK = '세부 기준은 발행 시점의 공식 안내를 확인하세요.';
+const FACT_META_BOILERPLATE_PATTERN = /(?:세부\s*기준은\s*)?(?:발행\s*시점의\s*)?공식\s*안내(?:를)?\s*확인(?:해\s*주세요|하세요|이\s*필요합니다)?[.!]?/gi;
 const FACT_SENSITIVE_PATTERN = /(신청|접수|마감|지원|지급|대상|자격|요건|조건|기간|일정|발표|공고|모집|혜택|할인|가격|금액|수령|가능|받을|시행|개정|기준|출처|통계|조사|자료|안내|밝혔)/;
 const INSTITUTION_PATTERN = /[가-힣]{2,}(?:특별자치도|특별시|광역시|자치시|위원회|대학교|공단|공사|재단|센터|은행|부|청|원|도|시|군|구)/g;
 const VALUE_PATTERNS = [
@@ -106,18 +107,25 @@ function hasCitableEvidence(evidence: FactEvidence): boolean {
     && evidence.sourceUrls.some((url) => typeof url === 'string' && /^https?:\/\//i.test(url.trim()));
 }
 
+function isSupportedToken(value: string, evidence: FactEvidence, evidenceIsStrong = hasCitableEvidence(evidence)): boolean {
+  const normalizedValue = normalize(value);
+  if (!normalizedValue) return true;
+  const topicText = normalize(evidence.topic || '');
+  if (topicText && topicText.includes(normalizedValue)) return true;
+  return evidenceIsStrong && normalize(evidence.context).includes(normalizedValue);
+}
+
 function inspectSentence(sentence: string, evidence: FactEvidence): FactIntegrityViolation[] {
   const violations: FactIntegrityViolation[] = [];
   const exactValues = extractExactValues(sentence);
   const institutions = extractInstitutions(sentence);
   const sensitive = FACT_SENSITIVE_PATTERN.test(sentence);
-  const evidenceText = normalize(evidence.context);
   const evidenceIsStrong = hasCitableEvidence(evidence);
   const inherentlyTimeSensitiveValues = exactValues.filter((value) => /20\d{2}|월|만원|원|억|%|퍼센트|세|^\d{4}-/.test(value));
   const valuesToVerify = sensitive ? exactValues : inherentlyTimeSensitiveValues;
 
   if (valuesToVerify.length > 0) {
-    const unsupported = valuesToVerify.filter((value) => !evidenceIsStrong || !evidenceText.includes(value));
+    const unsupported = valuesToVerify.filter((value) => !isSupportedToken(value, evidence, evidenceIsStrong));
     if (unsupported.length > 0) {
       violations.push({
         kind: 'unsupported_exact_value',
@@ -128,7 +136,7 @@ function inspectSentence(sentence: string, evidence: FactEvidence): FactIntegrit
   }
 
   if (institutions.length > 0 && (sensitive || exactValues.length > 0)) {
-    const unsupported = institutions.filter((name) => !evidenceIsStrong || !evidenceText.includes(name));
+    const unsupported = institutions.filter((name) => !isSupportedToken(name, evidence, evidenceIsStrong));
     if (unsupported.length > 0) {
       violations.push({
         kind: 'unsupported_institution',
@@ -153,22 +161,39 @@ export function inspectFactIntegrity(html: string, evidence: FactEvidence): Fact
 }
 
 export function sanitizeFactUnsafeHtml(html: string, evidence: FactEvidence): string {
-  if (inspectFactIntegrity(html, evidence).status === 'passed') return html;
+  const withoutMetaBoilerplate = String(html || '').replace(FACT_META_BOILERPLATE_PATTERN, '').replace(/\s{2,}/g, ' ').trim();
+  if (inspectFactIntegrity(withoutMetaBoilerplate, evidence).status === 'passed') return withoutMetaBoilerplate;
 
-  const sanitizeBlock = (block: string): string =>
-    inspectFactIntegrity(block, evidence).status === 'blocked' ? SAFE_FALLBACK : block;
+  const keepVerifiedSentences = (block: string): string => {
+    const sentences = toPlainText(block).match(/[^.!?\n]+[.!?]?/g) || [];
+    return sentences
+      .map((sentence) => sentence.trim())
+      .filter((sentence) => sentence && inspectFactIntegrity(sentence, evidence).status === 'passed')
+      .join(' ')
+      .trim();
+  };
 
-  const tagged = String(html || '').replace(
+  const sanitizeHeading = (block: string): string => {
+    let value = toPlainText(block);
+    for (const pattern of VALUE_PATTERNS) {
+      value = value.replace(pattern, (match) => isSupportedToken(match, evidence) ? match : '');
+    }
+    value = value.replace(INSTITUTION_PATTERN, (match) => isSupportedToken(match, evidence) ? match : '');
+    return value.replace(/\s{2,}/g, ' ').replace(/^[\s,·\-:]+|[\s,·\-:]+$/g, '').trim() || '핵심 정보';
+  };
+
+  const tagged = withoutMetaBoilerplate.replace(
     /<(p|li|blockquote|td|h[1-6])(\b[^>]*)>([\s\S]*?)<\/\1>/gi,
     (_match, tag: string, attrs: string, inner: string) => {
       if (inspectFactIntegrity(inner, evidence).status === 'passed') return `<${tag}${attrs}>${inner}</${tag}>`;
-      return `<${tag}${attrs}>${SAFE_FALLBACK}</${tag}>`;
+      const cleaned = /^h[1-6]$/i.test(tag) ? sanitizeHeading(inner) : keepVerifiedSentences(inner);
+      return cleaned ? `<${tag}${attrs}>${cleaned}</${tag}>` : '';
     },
   );
 
   if (inspectFactIntegrity(tagged, evidence).status === 'passed') return tagged;
-  if (!/<[a-z][^>]*>/i.test(tagged)) return sanitizeBlock(tagged);
-  return `<p>${SAFE_FALLBACK}</p>`;
+  if (!/<[a-z][^>]*>/i.test(tagged)) return keepVerifiedSentences(tagged);
+  return '';
 }
 
 function mergeReports(reports: Array<{ report: FactIntegrityReport; location: string }>): FactIntegrityReport {
@@ -247,7 +272,7 @@ export function sanitizeArticleFactClaims<T extends FactIntegrityArticle>(articl
 export function buildFactIntegrityPrompt(keyword: string, evidence: FactEvidence): string {
   const evidenceState = hasCitableEvidence(evidence)
     ? `${evidence.provider}에서 수집한 검증 장부가 제공됩니다. 장부에 있는 사실만 사용할 수 있습니다.`
-    : '검증 가능한 최신 근거가 충분하지 않습니다. 일반적인 설명만 쓰고, 세부 기준은 공식 안내 확인으로 안내해야 합니다.';
+    : '검증 가능한 최신 근거가 충분하지 않습니다. 확인되지 않은 세부 조건은 쓰지 말고 검증 가능한 일반 설명만 작성하세요.';
 
   return `
 ## FACT INTEGRITY: NON-NEGOTIABLE
@@ -255,7 +280,8 @@ export function buildFactIntegrityPrompt(keyword: string, evidence: FactEvidence
 ${evidenceState}
 - 근거에 없는 날짜, 금액, 비율, 인원, 신청 기간, 자격 조건, 기관명, 통계, URL은 절대 작성하지 마세요.
 - 제공된 근거 장부에 없는 정확한 수치나 일정은 추정하거나 다른 사례로 보완하지 마세요.
-- 확실하지 않은 최신 기준은 "세부 기준은 발행 시점의 공식 안내를 확인하세요"로만 안내하세요.
+- 확인되지 않은 최신 기준은 경고문이나 확인 안내로 대신하지 말고 해당 주장 자체를 생략하세요.
+- "팩트체크 실패", "공식 안내를 확인하세요" 같은 내부 상태·면책 문구를 본문에 쓰지 마세요.
 - 사실처럼 보이는 예시 수치, 가상의 기관 발표, 출처 없는 인용을 만들지 마세요.
 `;
 }

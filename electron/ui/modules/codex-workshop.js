@@ -4173,7 +4173,9 @@ function getPreGeneratedH2Image(payload = {}, h2Index, h2Title = '') {
 }
 
 function shouldLeaveUnmappedFolderImageBlank(payload = {}) {
-  const hasManualImages = Array.isArray(payload?.preGeneratedImages) && payload.preGeneratedImages.length > 0;
+  const hasManualImages = (Array.isArray(payload?.preGeneratedImages) && payload.preGeneratedImages.length > 0)
+    || (Array.isArray(payload?.folderImageH2Titles) && payload.folderImageH2Titles.length > 0)
+    || !!String(payload?.preGeneratedThumbnail?.dataUrl || payload?.preGeneratedThumbnail?.url || '').trim();
   const policy = String(payload?.folderImageMissingPolicy || '').toLowerCase();
   return hasManualImages && (policy === 'blank' || policy === 'empty');
 }
@@ -4195,15 +4197,20 @@ async function enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload = {}, tit
   updateAgentProgress(76, `이미지 정책 적용 중: ${getAgentImagePolicyLabel(policy)}`, 'info');
 
   if (policy !== 'none') {
-    thumbnailUrl = await generateAgentImage(
-      thumbnailEngine,
-      buildAgentThumbnailPrompt(title || topic, topic, thumbnailTextIncluded),
-      thumbnailTextIncluded,
-      '썸네일'
-    );
+    thumbnailUrl = String(payload?.preGeneratedThumbnail?.dataUrl || payload?.preGeneratedThumbnail?.url || '').trim();
     if (thumbnailUrl) {
-      addLog('Agent 글용 썸네일 이미지를 앱 이미지 엔진/API로 생성했습니다.', 'success');
-      appendAgentGeneratedImagePreview({ url: thumbnailUrl, label: '썸네일' });
+      addLog('Agent 글용 썸네일은 사용자가 배치한 내 폴더 이미지를 사용합니다.', 'info');
+    } else {
+      thumbnailUrl = await generateAgentImage(
+        thumbnailEngine,
+        buildAgentThumbnailPrompt(title || topic, topic, thumbnailTextIncluded),
+        thumbnailTextIncluded,
+        '썸네일'
+      );
+    }
+    if (thumbnailUrl) {
+      addLog(payload?.preGeneratedThumbnail ? '내 폴더 썸네일을 적용했습니다.' : 'Agent 글용 썸네일 이미지를 앱 이미지 엔진/API로 생성했습니다.', 'success');
+      appendAgentGeneratedImagePreview({ url: thumbnailUrl, label: payload?.preGeneratedThumbnail ? '썸네일 (내 폴더)' : '썸네일' });
     }
   }
 

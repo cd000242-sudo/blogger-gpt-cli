@@ -93,6 +93,7 @@ export async function fetchFactContext(
   keyword: string,
   mode: FactCheckMode = 'auto',
 ): Promise<FactCheckResult> {
+  const requestedMode = mode;
   if (mode === 'off' || !keyword.trim()) {
     return { context: '', provider: 'none', success: true, trustLevel: 'none' };
   }
@@ -203,6 +204,21 @@ export async function fetchFactContext(
     }
   }
 
+  // auto 모드는 이름 그대로 마지막 Naver 검색까지 순서대로 모두 시도합니다.
+  if (requestedMode === 'auto' && hasNaverKey) {
+    const naverClientId = (env['naverClientId'] || env['NAVER_CLIENT_ID'] || env['naverCustomerId'] || '').trim();
+    const naverClientSecret = (env['naverClientSecret'] || env['NAVER_CLIENT_SECRET'] || env['naverSecretKey'] || '').trim();
+    try {
+      const result = await callNaverFactCheck(naverClientId, naverClientSecret, keyword);
+      if (result) {
+        console.log(`[FACT-CHECK] ✅ 최종 Naver 폴백 완료 (${result.length}자, 보조 근거)`);
+        return { context: result, provider: 'Naver Blog Search', success: true, trustLevel: 'weak' };
+      }
+    } catch (e: any) {
+      console.log(`[FACT-CHECK] ⚠️ 최종 Naver 폴백 실패: ${e.message?.slice(0, 80)}`);
+    }
+  }
+
   // 모두 실패
   console.log(`[FACT-CHECK] 📝 팩트체크 건너뜀 (API 연결 불가)`);
   return { context: '', provider: 'none', success: false, trustLevel: 'none' };
@@ -221,7 +237,8 @@ export function injectFactContext(originalPrompt: string, factContext: string): 
 아래 내용은 ${ref.currentDateKo} 현재 실시간 웹 검색으로 확인된 최신 팩트입니다.
 출처 URL가 확인된 근거에 있는 정확한 수치, 최신 동향, 검증된 정보만 포함하세요.
 정책·지원금·신청기간·가격·모델명처럼 시점이 중요한 정보는 반드시 ${ref.currentYear}년 최신 기준으로 판단하세요.
-근거에 없는 수치·날짜·조건·기관명·URL은 조합하거나 추측하지 말고, 공식 안내 확인이 필요하다고 작성하세요.
+근거에 없는 수치·날짜·조건·기관명·URL은 조합하거나 추측하지 말고 해당 세부 주장을 생략하세요.
+"팩트체크 실패", "공식 안내를 확인하세요" 같은 내부 상태·면책 문구는 독자용 본문에 넣지 마세요.
 
 ${factContext}
 

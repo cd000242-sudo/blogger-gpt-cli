@@ -21,6 +21,8 @@ describe('folder image H2 mapping pipeline', () => {
     expect(script).toContain('dataUrl: image.dataUrl');
     expect(script).toContain('sourcePath: image.sourcePath ||');
     expect(script).toContain('window.__preGeneratedImagesForArticle = mapping');
+    expect(script).toContain('window.__preGeneratedThumbnailForArticle = thumbnailImage');
+    expect(script).toContain('data-fim-slot="thumbnail"');
     expect(script).toContain('window.__folderImageMissingPolicy = policy');
     expect(script).toContain('window.__folderImageH2Titles = sections.map');
     expect(script).toContain('window.analyzeFolderImageHeadings');
@@ -34,6 +36,7 @@ describe('folder image H2 mapping pipeline', () => {
 
     for (const source of [posting, internalLinks, queue]) {
       expect(source).toContain('preGeneratedImages');
+      expect(source).toContain('preGeneratedThumbnail');
       expect(source).toContain('h2Index: img.h2Index');
       expect(source).toContain('h2Title: img.h2Title');
       expect(source).toContain('dataUrl: img.dataUrl');
@@ -50,6 +53,7 @@ describe('folder image H2 mapping pipeline', () => {
     expect(orchestration).toContain('normalizeFolderHeadingKey(p?.h2Title) === sectionHeadingKey');
     expect(orchestration).toContain('folderImageH2Titles');
     expect(orchestration).toContain('return { dataUrl: preGenMatch.dataUrl');
+    expect(orchestration).toContain('payload.preGeneratedThumbnail?.dataUrl');
     expect(orchestration).toContain('folderImageMissingPolicy');
     expect(orchestration).toContain('uploadBase64ToImageHost(img');
 
@@ -57,6 +61,7 @@ describe('folder image H2 mapping pipeline', () => {
     expect(main).toContain("ipcMain.handle('read-local-image-data-url'");
     expect(main).toContain("ipcMain.handle('generate-folder-image-headings'");
     expect(main).toContain('Number(img?.h2Index) === idx1');
+    expect(main).toContain('payload.preGeneratedThumbnail?.dataUrl');
     expect(main).toContain('folderImageH2Titles');
     expect(main).toContain("_hostGeneratedImage(rawH2, `sw-folder-h2-${idx1}`)");
   });
@@ -67,6 +72,7 @@ describe('folder image H2 mapping pipeline', () => {
     expect(workshop).toContain('function getPreGeneratedH2Image');
     expect(workshop).toContain('payload.folderImageH2Titles');
     expect(workshop).toContain('const folderImage = getPreGeneratedH2Image(payload, index, h2Text)');
+    expect(workshop).toContain('payload?.preGeneratedThumbnail?.dataUrl');
     expect(workshop).toContain('let imageUrl = String(folderImage?.dataUrl || folderImage?.url ||');
     expect(workshop).toContain('shouldLeaveUnmappedFolderImageBlank(payload)');
     expect(workshop).toContain("figure.setAttribute('data-agent-image', isFolderImage ? 'folder' : 'generated')");

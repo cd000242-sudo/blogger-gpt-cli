@@ -1425,6 +1425,7 @@ function getH2ImageSettingsFromDOM() {
     || 'all'
   );
   const legacyH2ImageMode = toLegacyH2ImageMode(selectedPolicy);
+  const forceH2None = selectedPolicy === 'thumbnail-only' || selectedPolicy === 'none';
   const thumbnailTextIncluded = agentImageMode?.thumbnailTextIncluded !== false;
   // window.getH2ImageSections가 있으면 우선 사용
   if (window.getH2ImageSections) {
@@ -1435,11 +1436,11 @@ function getH2ImageSettingsFromDOM() {
       || settings.leonardoModel
       || 'seedream-4.5';
     return {
-      h2ImageSource: settings.source || PAYLOAD_DEFAULTS.h2ImageSource,
-      h2ImageSections: settings.sections || [],
+      h2ImageSource: forceH2None ? 'none' : (settings.source || PAYLOAD_DEFAULTS.h2ImageSource),
+      h2ImageSections: forceH2None ? [] : (settings.sections || []),
       h2ImageMode: legacyH2ImageMode,
       imagePolicy: selectedPolicy,
-      h2Images: { ...settings, leonardoModel, mode: legacyH2ImageMode, imagePolicy: selectedPolicy, h2TextIncluded: false },
+      h2Images: { ...settings, source: forceH2None ? 'none' : (settings.source || PAYLOAD_DEFAULTS.h2ImageSource), sections: forceH2None ? [] : (settings.sections || []), leonardoModel, mode: legacyH2ImageMode, imagePolicy: selectedPolicy, h2TextIncluded: false },
       leonardoModel,
       thumbnailTextIncluded,
       thumbnailIncludeText: thumbnailTextIncluded,
@@ -1450,14 +1451,16 @@ function getH2ImageSettingsFromDOM() {
   // DOM에서 직접 읽기
   const h2ImageSourceSelect = document.getElementById('h2ImageSource') || document.getElementById('h2ImageSourceSelect');
   const h2ImageSourceRadio = document.querySelector('input[name="h2ImageSource"]:checked');
-  const h2ImageSourceValue = h2ImageSourceSelect?.value || h2ImageSourceRadio?.value || PAYLOAD_DEFAULTS.h2ImageSource;
+  const h2ImageSourceValue = forceH2None
+    ? 'none'
+    : (h2ImageSourceSelect?.value || h2ImageSourceRadio?.value || PAYLOAD_DEFAULTS.h2ImageSource);
   const leonardoModel = document.getElementById('h2LeonardoModel')?.value
     || document.getElementById('thumbnailTypeLeonardoModel')?.value
     || document.getElementById('thumbnailLeonardoModel')?.value
     || 'seedream-4.5';
 
   const h2ImageSectionCheckboxes = document.querySelectorAll('input[name="h2Sections"]:checked');
-  const h2ImageSections = Array.from(h2ImageSectionCheckboxes)
+  const h2ImageSections = forceH2None ? [] : Array.from(h2ImageSectionCheckboxes)
     .map(cb => parseInt(cb.value))
     .filter(n => Number.isFinite(n) && n > 0);
 
@@ -1589,6 +1592,7 @@ export async function createPayload(options = {}) {
   const toneStyleValue = document.getElementById('toneStyle')?.value || PAYLOAD_DEFAULTS.toneStyle;
   const sectionCount = getSectionCount();
   const h2ImageSettings = getH2ImageSettingsFromDOM();
+  const effectiveThumbnailModeValue = h2ImageSettings.imagePolicy === 'none' ? 'none' : thumbnailModeValue;
   const thumbnailTextIncluded = h2ImageSettings.thumbnailTextIncluded !== false;
   const thumbnailTextValue = thumbnailTextIncluded
     ? (savedThumbnailText || document.getElementById('thumbnailText')?.value?.trim() || '')
@@ -1726,9 +1730,9 @@ export async function createPayload(options = {}) {
     } : undefined,
 
     // 이미지
-    thumbnailMode: thumbnailModeValue,
-    thumbnailType: savedThumbnail ? 'custom' : thumbnailModeValue,
-    customThumbnail: savedThumbnail || undefined,
+    thumbnailMode: effectiveThumbnailModeValue,
+    thumbnailType: h2ImageSettings.imagePolicy === 'none' ? 'none' : (savedThumbnail ? 'custom' : effectiveThumbnailModeValue),
+    customThumbnail: h2ImageSettings.imagePolicy === 'none' ? undefined : (savedThumbnail || undefined),
     customThumbnailText: thumbnailTextValue || undefined,
     thumbnailTextIncluded,
     thumbnailIncludeText: thumbnailTextIncluded,
@@ -1740,6 +1744,9 @@ export async function createPayload(options = {}) {
     //   orchestration이 받으면 dispatchH2ImageGeneration 스킵하고 해당 dataUrl 사용
     preGeneratedImages: (window.__preGeneratedImagesForArticle || []).length > 0
       ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, h2Title: img.h2Title, dataUrl: img.dataUrl }))
+      : undefined,
+    preGeneratedThumbnail: window.__preGeneratedThumbnailForArticle?.dataUrl
+      ? { dataUrl: window.__preGeneratedThumbnailForArticle.dataUrl, prompt: window.__preGeneratedThumbnailForArticle.prompt || '' }
       : undefined,
     folderImageH2Titles: Array.isArray(window.__folderImageH2Titles) ? window.__folderImageH2Titles.slice(0, 12) : undefined,
     folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai',

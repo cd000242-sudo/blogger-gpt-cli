@@ -26,7 +26,7 @@ describe('fact integrity regression', () => {
     const sanitized = sanitizeFactUnsafeHtml(article, noEvidence);
     expect(sanitized).not.toContain('2026년 7월 15일');
     expect(sanitized).not.toContain('25만원');
-    expect(sanitized).toContain('공식 안내');
+    expect(sanitized).not.toContain('공식 안내');
   });
 
   test('accepts a current claim only when the exact date, amount, and institution exist in evidence', () => {
@@ -115,17 +115,36 @@ describe('fact integrity regression', () => {
 
     const sanitized = sanitizeArticleFactClaims(article, noEvidence);
 
-    const firstCell = sanitized.sections[0]?.h3Sections[0]?.tables?.[0]?.rows?.[0]?.[0] || '';
     expect(inspectArticleFactIntegrity(sanitized, noEvidence).status).toBe('passed');
-    expect(firstCell).toContain('공식 안내');
+    expect(JSON.stringify(sanitized)).not.toContain('공식 안내를 확인');
   });
 
   test('adds a non-negotiable evidence rule to every generation prompt', () => {
     const prompt = buildFactIntegrityPrompt('청년 지원금 신청 방법', noEvidence);
 
     expect(prompt).toContain('근거에 없는 날짜');
-    expect(prompt).toContain('공식 안내를 확인');
+    expect(prompt).toContain('해당 주장 자체를 생략');
+    expect(prompt).toContain('내부 상태·면책 문구를 본문에 쓰지 마세요');
     expect(prompt).toContain('절대 작성하지 마세요');
+  });
+
+  test('allows a year already supplied by the user topic without treating the topic label as hallucination', () => {
+    const evidence: FactEvidence = {
+      ...noEvidence,
+      topic: '2026년 국가장학금 신청 방법',
+    };
+
+    expect(inspectFactIntegrity('<h2>2026년 국가장학금 신청 방법</h2>', evidence).status).toBe('passed');
+    expect(inspectFactIntegrity('<p>신청 금액은 50만원입니다.</p>', evidence).status).toBe('blocked');
+  });
+
+  test('keeps verified general sentences while removing an unsupported claim and boilerplate', () => {
+    const html = '<p>신청 전에 준비 서류를 정리하면 확인이 쉽습니다. 2026년 7월 15일까지 신청하면 25만원을 받습니다. 공식 안내를 확인하세요.</p>';
+    const sanitized = sanitizeFactUnsafeHtml(html, noEvidence);
+
+    expect(sanitized).toContain('준비 서류를 정리하면');
+    expect(sanitized).not.toContain('25만원');
+    expect(sanitized).not.toContain('공식 안내');
   });
 
   test('prefers web-grounded evidence over Naver blog snippets in auto mode', () => {

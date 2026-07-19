@@ -1357,6 +1357,9 @@ async function generateSpiderWebContent() {
           preGeneratedImages: (window.__preGeneratedImagesForArticle || []).length > 0
             ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, h2Title: img.h2Title, dataUrl: img.dataUrl }))
             : undefined,
+          preGeneratedThumbnail: window.__preGeneratedThumbnailForArticle?.dataUrl
+            ? { dataUrl: window.__preGeneratedThumbnailForArticle.dataUrl, prompt: window.__preGeneratedThumbnailForArticle.prompt || '' }
+            : undefined,
           folderImageH2Titles: Array.isArray(window.__folderImageH2Titles) ? window.__folderImageH2Titles.slice(0, 12) : undefined,
           folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai'
         });
@@ -1376,6 +1379,9 @@ async function generateSpiderWebContent() {
           })),
           preGeneratedImages: (window.__preGeneratedImagesForArticle || []).length > 0
             ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, h2Title: img.h2Title, dataUrl: img.dataUrl }))
+            : undefined,
+          preGeneratedThumbnail: window.__preGeneratedThumbnailForArticle?.dataUrl
+            ? { dataUrl: window.__preGeneratedThumbnailForArticle.dataUrl, prompt: window.__preGeneratedThumbnailForArticle.prompt || '' }
             : undefined,
           folderImageH2Titles: Array.isArray(window.__folderImageH2Titles) ? window.__folderImageH2Titles.slice(0, 12) : undefined,
           folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai'
@@ -2270,6 +2276,9 @@ async function generateAndPublishSpiderWeb() {
         imageIncludeText,
         preGeneratedImages: (window.__preGeneratedImagesForArticle || []).length > 0
           ? window.__preGeneratedImagesForArticle.map(img => ({ h2Index: img.h2Index, h2Title: img.h2Title, dataUrl: img.dataUrl }))
+          : undefined,
+        preGeneratedThumbnail: window.__preGeneratedThumbnailForArticle?.dataUrl
+          ? { dataUrl: window.__preGeneratedThumbnailForArticle.dataUrl, prompt: window.__preGeneratedThumbnailForArticle.prompt || '' }
           : undefined,
         folderImageH2Titles: Array.isArray(window.__folderImageH2Titles) ? window.__folderImageH2Titles.slice(0, 12) : undefined,
         // v3.8.8: 발행 플랫폼 — 백엔드가 WP 미디어 우선 업로드 결정

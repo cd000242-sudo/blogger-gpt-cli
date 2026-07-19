@@ -608,6 +608,24 @@ function normalizeH2ImageMode(value) {
   return 'all';
 }
 
+function synchronizeQueueItemImageMode(item, modeValue) {
+  const mode = normalizeH2ImageMode(modeValue);
+  if (item.thumb && item.thumb !== 'none') item.lastActiveThumb = normalizeThumbEngine(item.thumb);
+  if (item.h2ImageSource && item.h2ImageSource !== 'none') item.lastActiveH2ImageSource = normalizeThumbEngine(item.h2ImageSource);
+  item.h2ImageMode = mode;
+
+  if (mode === 'none') {
+    item.thumb = 'none';
+    item.h2ImageSource = 'none';
+  } else if (mode === 'thumbnail-only') {
+    if (!item.thumb || item.thumb === 'none') item.thumb = item.lastActiveThumb || 'nanobanana2';
+    item.h2ImageSource = 'none';
+  } else {
+    if (!item.thumb || item.thumb === 'none') item.thumb = item.lastActiveThumb || 'nanobanana2';
+    if (!item.h2ImageSource || item.h2ImageSource === 'none') item.h2ImageSource = item.lastActiveH2ImageSource || item.thumb || 'nanobanana2';
+  }
+}
+
 const PQ_INTERVAL_FLOORS = {
   general: PUBLISH_QUEUE_MIN_MINUTES * 60 * 1000,
   slow: 7 * 60 * 1000,
@@ -726,8 +744,17 @@ function getActivePreGeneratedImagesForQueue() {
   }
 }
 
+function getActivePreGeneratedThumbnailForQueue() {
+  const thumbnail = window.__preGeneratedThumbnailForArticle;
+  if (!thumbnail || typeof thumbnail.dataUrl !== 'string' || !thumbnail.dataUrl.startsWith('data:image/')) return null;
+  return {
+    dataUrl: thumbnail.dataUrl,
+    prompt: thumbnail.prompt || '',
+  };
+}
+
 function getActivePreGeneratedImageCount() {
-  return getActivePreGeneratedImagesForQueue().length;
+  return getActivePreGeneratedImagesForQueue().length + (getActivePreGeneratedThumbnailForQueue() ? 1 : 0);
 }
 
 function refreshQueueFolderImagesBadge() {
@@ -737,7 +764,7 @@ function refreshQueueFolderImagesBadge() {
   const clearBtn = document.getElementById('pq-folder-images-clear');
   if (badge) {
     badge.textContent = count > 0
-      ? `현재 ${count}장 H2 매핑 적용 중`
+      ? `현재 ${count}장 썸네일·H2 매핑 적용 중`
       : '현재 적용된 내 폴더 이미지 없음';
     badge.style.color = count > 0 ? '#86efac' : 'rgba(226,232,240,0.66)';
   }
@@ -762,6 +789,7 @@ function clearQueueFolderImages() {
   if (getActivePreGeneratedImageCount() === 0) return;
   if (!confirm('연속발행에 적용 중인 내 폴더 이미지 매핑을 초기화할까요?')) return;
   window.__preGeneratedImagesForArticle = [];
+  window.__preGeneratedThumbnailForArticle = null;
   window.__preGeneratedMappingMode = 'auto';
   window.__folderImageH2Titles = [];
   window.__folderImageHeadingTopic = '';
@@ -851,13 +879,15 @@ function getCurrentSectionCount() {
 
 function getCurrentQueueSnapshot() {
   const contentMode = getSelectValue('contentMode') || getSelectValue('scheduleContentMode') || 'external';
-  const thumbnailMode = normalizeThumbEngine(getSelectValue('thumbnailType') || getSelectValue('scheduleThumbnailMode') || 'nanobanana2');
-  const h2ImageSource = getCurrentH2ImageSource();
+  const selectedThumbnailMode = normalizeThumbEngine(getSelectValue('thumbnailType') || getSelectValue('scheduleThumbnailMode') || 'nanobanana2');
+  const selectedH2ImageSource = getCurrentH2ImageSource();
   const leonardoModel = document.getElementById('h2LeonardoModel')?.value
     || document.getElementById('thumbnailTypeLeonardoModel')?.value
     || document.getElementById('thumbnailLeonardoModel')?.value
     || 'seedream-4.5';
   const h2ImageMode = getCurrentH2ImageMode();
+  const thumbnailMode = h2ImageMode === 'none' ? 'none' : selectedThumbnailMode;
+  const h2ImageSource = (h2ImageMode === 'none' || h2ImageMode === 'thumbnail-only') ? 'none' : selectedH2ImageSource;
   const ctaMode = getCurrentCtaMode();
   const platform = getCurrentPublishPlatform();
   const postingMode = getCurrentPostingMode();
@@ -1760,7 +1790,11 @@ function bindItemEvents() {
     });
     row.querySelector('.pq-item-thumb')?.addEventListener('change', e => { item.thumb = normalizeThumbEngine(e.target.value); saveItem(); });
     row.querySelector('.pq-item-h2')?.addEventListener('change', e => { item.h2ImageSource = normalizeThumbEngine(e.target.value); saveItem(); });
-    row.querySelector('.pq-item-h2-mode')?.addEventListener('change', e => { item.h2ImageMode = normalizeH2ImageMode(e.target.value); saveItem(); refreshList(); });
+    row.querySelector('.pq-item-h2-mode')?.addEventListener('change', e => {
+      synchronizeQueueItemImageMode(item, e.target.value);
+      saveItem();
+      refreshList();
+    });
     row.querySelector('.pq-item-cta')?.addEventListener('change', e => {
       item.ctaMode = e.target.value;
       if (item.mode === 'adsense') item.ctaMode = 'none';
@@ -1993,6 +2027,11 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     ? buildManualCtasForItem(item)
     : undefined;
   const folderImages = getActivePreGeneratedImagesForQueue();
+  const folderThumbnail = getActivePreGeneratedThumbnailForQueue();
+  const effectiveThumbnailEngine = h2ImageMode === 'none' ? 'none' : normalizeThumbEngine(item.thumb);
+  const effectiveH2Engine = (h2ImageMode === 'none' || h2ImageMode === 'thumbnail-only')
+    ? 'none'
+    : normalizeThumbEngine(item.h2ImageSource || item.thumb);
   return {
     topic: item.keyword,
     title: item.keyword,
@@ -2000,17 +2039,18 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     platform: normalizeQueuePlatform(item.platform || getCurrentPublishPlatform()),
     targetPlatform: normalizeQueuePlatform(item.platform || getCurrentPublishPlatform()),
     contentMode,
-    thumbnailMode: normalizeThumbEngine(item.thumb),
-    thumbnailType: normalizeThumbEngine(item.thumb),
-    thumbnailSource: normalizeThumbEngine(item.thumb),
-    h2ImageSource: normalizeThumbEngine(item.h2ImageSource || item.thumb),
+    thumbnailMode: effectiveThumbnailEngine,
+    thumbnailType: effectiveThumbnailEngine,
+    thumbnailSource: effectiveThumbnailEngine,
+    h2ImageSource: effectiveH2Engine,
     leonardoModel: item.leonardoModel || 'seedream-4.5',
     h2ImageMode,
     h2ImageSections: h2Sections,
-    h2Images: { source: normalizeThumbEngine(item.h2ImageSource || item.thumb), sections: h2Sections, mode: h2ImageMode, leonardoModel: item.leonardoModel || 'seedream-4.5' },
+    h2Images: { source: effectiveH2Engine, sections: (h2ImageMode === 'none' || h2ImageMode === 'thumbnail-only') ? [] : h2Sections, mode: h2ImageMode, leonardoModel: item.leonardoModel || 'seedream-4.5' },
     preGeneratedImages: folderImages.length > 0
       ? folderImages.map(img => ({ h2Index: img.h2Index, h2Title: img.h2Title, dataUrl: img.dataUrl }))
       : undefined,
+    preGeneratedThumbnail: folderThumbnail || undefined,
     folderImageH2Titles: Array.isArray(window.__folderImageH2Titles) ? window.__folderImageH2Titles.slice(0, 12) : undefined,
     folderImageMissingPolicy: window.__folderImageMissingPolicy || 'ai',
     skipImages: h2ImageMode === 'none',
@@ -2732,7 +2772,7 @@ function bindModalEvents() {
       if (t) item.thumb = normalizeThumbEngine(t);
       if (h === 'same') item.h2ImageSource = normalizeThumbEngine(item.thumb);
       else if (h) item.h2ImageSource = normalizeThumbEngine(h);
-      if (hm) item.h2ImageMode = normalizeH2ImageMode(hm);
+      if (hm) synchronizeQueueItemImageMode(item, hm);
       delete item.agentImageManaged;
       delete item.imageManagedBy;
       if (c) item.ctaMode = c;
@@ -2911,10 +2951,10 @@ function bindModalEvents() {
         publishType: postingMode,
         postingMode,
         scheduleDate: postingMode === 'schedule' ? scheduleDateIso : undefined,
-        thumbnailMode: it.thumb,
+        thumbnailMode: payload.thumbnailMode,
         platform,
-        h2Images: { source: it.h2ImageSource || it.thumb, sections: h2Sections, mode: h2ImageMode, leonardoModel: it.leonardoModel || 'seedream-4.5' },
-        h2ImageSource: it.h2ImageSource || it.thumb,
+        h2Images: payload.h2Images,
+        h2ImageSource: payload.h2ImageSource,
         leonardoModel: it.leonardoModel || 'seedream-4.5',
         h2ImageMode,
         h2ImageSections: h2Sections,

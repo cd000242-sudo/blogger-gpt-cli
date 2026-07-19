@@ -1247,6 +1247,7 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
   imageH2Engine?: string;          // v3.8.6
   imageIncludeText?: boolean;      // v3.8.7
   preGeneratedImages?: Array<{ h2Index?: number; h2Title?: string; dataUrl?: string; url?: string; prompt?: string }>;
+  preGeneratedThumbnail?: { dataUrl?: string; url?: string; prompt?: string };
   folderImageH2Titles?: string[];
   folderImageMissingPolicy?: string;
   platform?: string;               // v3.8.8: 'wordpress' | 'blogspot' (이미지 호스팅 분기)
@@ -2253,7 +2254,21 @@ ${tail}
 
           // 1) 썸네일 — 'none' 외 모든 정책에서 생성
           sendDiag(`🎨 LLM 생성 완료 (${generatedContent.length}자) — 이미지 단계 진입`);
-          if (typeof dispatchThumbnailGeneration === 'function' && thumbEngine !== 'none') {
+          const preGeneratedThumbnail = String(payload.preGeneratedThumbnail?.dataUrl || payload.preGeneratedThumbnail?.url || '').trim();
+          if (preGeneratedThumbnail) {
+            sendDiag('📁 내 폴더 썸네일 적용 시작');
+            const hosted = await _hostGeneratedImage(preGeneratedThumbnail, 'sw-folder-thumb');
+            thumbnailUrl = hosted.url;
+            imageStats.thumbnail = true;
+            imageStats.hostProviders.push(`thumbnail:${hosted.provider}:folder`);
+            try {
+              const { BrowserWindow: BW } = await import('electron');
+              BW.getAllWindows().forEach((w) => w.webContents.send('sw-image-generated', {
+                kind: 'thumbnail', label: '썸네일 (내 폴더)', url: hosted.previewUrl || hosted.url, hostedUrl: hosted.url, provider: hosted.provider, queueImageToken,
+              }));
+            } catch {}
+            sendDiag('✅ 내 폴더 썸네일 적용 완료');
+          } else if (typeof dispatchThumbnailGeneration === 'function' && thumbEngine !== 'none') {
             sendDiag(`🖼️ 썸네일 생성 시작 (엔진: ${thumbEngine})`);
             try {
               console.log('[INTERNAL-CONSISTENCY] 🖼️ 썸네일 생성 시작:', thumbEngine);
@@ -2357,7 +2372,10 @@ ${tail}
                   continue;
                 }
                 const folderImageMissingPolicy = String((payload as any).folderImageMissingPolicy || '').toLowerCase();
-                if (preGeneratedImages.length > 0 && (folderImageMissingPolicy === 'blank' || folderImageMissingPolicy === 'empty')) {
+                const hasFolderImageMapping = preGeneratedImages.length > 0
+                  || (Array.isArray(payload.folderImageH2Titles) && payload.folderImageH2Titles.length > 0)
+                  || !!String(payload.preGeneratedThumbnail?.dataUrl || payload.preGeneratedThumbnail?.url || '').trim();
+                if (hasFolderImageMapping && (folderImageMissingPolicy === 'blank' || folderImageMissingPolicy === 'empty')) {
                   sendDiag(`H2 ${idx1} folder image blank policy skip`);
                   continue;
                 }

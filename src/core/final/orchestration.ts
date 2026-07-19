@@ -275,10 +275,14 @@ export async function generateUltimateMaxModeArticleFinal(
   //   throw 시 IPC 핸들러가 캐치 → UI는 error.message로 PAYMENT_REQUIRED:<reason> 감지 → 결제 유도 모달.
   try {
     const isSkip = (v: any) => v === 'none' || v === 'skip';
-    const wantsImage =
-      !isSkip(payload?.h2ImageSource) ||
-      !isSkip(payload?.thumbnailSource) ||
-      !isSkip(payload?.imageSource);
+    const placementMode = String(payload?.h2ImageMode || payload?.imagePolicy || payload?.h2Images?.mode || 'all').toLowerCase();
+    const configuredSources = [
+      payload?.h2ImageSource || payload?.h2Images?.source,
+      payload?.thumbnailSource || payload?.thumbnailType || payload?.thumbnailMode,
+      payload?.imageSource,
+      payload?.preGeneratedThumbnail?.dataUrl || payload?.preGeneratedThumbnail?.url,
+    ].filter((value) => value !== undefined && value !== null && String(value).trim() !== '');
+    const wantsImage = placementMode !== 'none' && configuredSources.some((value) => !isSkip(value));
     if (wantsImage) {
       const { checkImageGenAccess } = require('../../utils/license-tier-manager');
       const access = checkImageGenAccess({ allowFreeTrialPublishing: true });
@@ -439,12 +443,21 @@ export async function generateUltimateMaxModeArticleFinal(
     onLog?.(`[PROGRESS] 0% - 🎯 AI 엔진 (모델 직접): ${payload.primaryGeminiTextModel}`);
   }
 
+  const rawPlacementMode = String(payload.h2ImageMode || payload.imagePolicy || payload.h2Images?.mode || 'all').toLowerCase();
+  const h2ImageMode = rawPlacementMode === 'odd-only'
+    ? 'odd'
+    : rawPlacementMode === 'even-only'
+      ? 'even'
+      : rawPlacementMode;
+
   // 🔥 빠른 모드 설정 (이미지 생성 최소화)
-  const fastMode = payload.fastMode === true || payload.skipImages === true;
-  const skipImages = payload.skipImages === true;
+  const skipImages = payload.skipImages === true || h2ImageMode === 'none';
+  const fastMode = payload.fastMode === true || skipImages;
 
   // 🔥 이미지 소스 설정 - 안정 기본값
-  const rawImageSource = payload.h2ImageSource || payload.h2Images?.source || '';
+  const rawImageSource = (h2ImageMode === 'thumbnail-only' || h2ImageMode === 'none')
+    ? 'none'
+    : (payload.h2ImageSource || payload.h2Images?.source || '');
   const imageSource = rawImageSource || 'nanobanana2';
 
   console.log('[ULTIMATE] 🎯 이미지 소스 설정:');
@@ -514,9 +527,21 @@ export async function generateUltimateMaxModeArticleFinal(
 
         // 썸네일 생성 — 🎯 사용자 선택 엔진 사용 (dispatcher 경유)
         let thumbnailUrl = '';
-        const urlThumbnailSource = payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'nanobanana2';
+        const urlThumbnailSource = h2ImageMode === 'none'
+          ? 'none'
+          : (payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'nanobanana2');
         const urlThumbnailDisabled = urlThumbnailSource === 'none' || urlThumbnailSource === 'skip';
-        if (!skipImages && !urlThumbnailDisabled) {
+        const preGeneratedThumbnail = String(payload.preGeneratedThumbnail?.dataUrl || payload.preGeneratedThumbnail?.url || '').trim();
+        if (!skipImages && preGeneratedThumbnail) {
+          thumbnailUrl = preGeneratedThumbnail.startsWith('data:')
+            ? (await uploadBase64ToImageHost(preGeneratedThumbnail, 'folder-thumbnail') || '')
+            : preGeneratedThumbnail;
+          if (thumbnailUrl) {
+            emitGeneratedImage('thumbnail', `썸네일: ${urlResult.title}`, preGeneratedThumbnail, { queueImageToken });
+            onLog?.('[PROGRESS] 92% - 📁 내 폴더 썸네일 사용 (새 이미지 생성 생략)');
+          }
+        }
+        if (!thumbnailUrl && !skipImages && !urlThumbnailDisabled) {
           onLog?.(`[PROGRESS] 92% - 🖼️ 썸네일 생성 중 (${urlThumbnailSource})...`);
           try {
             const urlThumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; leonardoModel?: string; allowFreeTrialPublishing?: boolean } = {
@@ -990,6 +1015,7 @@ export async function generateUltimateMaxModeArticleFinal(
       context: '',
       provider: 'none',
       trustLevel: 'none',
+      topic: keyword,
     };
     // v3.8.265: factCheckMode는 이제 'off'가 'auto'로 폴백되므로 항상 실행
     {
@@ -1005,11 +1031,12 @@ export async function generateUltimateMaxModeArticleFinal(
           provider: factResult.provider || 'none',
           trustLevel: factResult.trustLevel || 'none',
           sourceUrls: factResult.sourceUrls || [],
+          topic: keyword,
         };
         if (factResult.success && factResult.context) {
           onLog?.(`[PROGRESS] 47% - ✅ 팩트체크 완료 (${factResult.provider}, ${factResult.context.length}자)`);
         } else {
-          onLog?.('[PROGRESS] 47% - ⚠️ 팩트체크 실패, 정확한 수치·일정 없이 안전 모드로 진행');
+          onLog?.('[PROGRESS] 47% - ⚠️ 실시간 근거 미수집 — 검증되지 않은 수치·일정은 본문에서 생략합니다');
         }
       } catch (factErr: any) {
         onLog?.(`[PROGRESS] 47% - ⚠️ 팩트체크 오류: ${factErr.message?.slice(0, 60)}`);
@@ -1379,7 +1406,6 @@ export async function generateUltimateMaxModeArticleFinal(
     //   'even' → 짝수만 (2, 4)
     //   'thumbnail-only' → 본문 이미지 0장, 썸네일만
     //   'none' → 썸네일까지 모두 스킵 (이건 skipImages=true로 처리)
-    const h2ImageMode: string = String(payload.h2ImageMode || 'all').toLowerCase();
     let selectedH2SectionsRaw: any = payload.h2ImageSections || payload.h2Images?.sections || [];
 
     // 모드가 명시되면 sections 배열을 자동 계산 (UI에서 보낸 배열을 덮어씀)
@@ -1481,7 +1507,10 @@ export async function generateUltimateMaxModeArticleFinal(
         }
 
         const folderImageMissingPolicy = String((payload as any).folderImageMissingPolicy || '').toLowerCase();
-        if (preGen.length > 0 && (folderImageMissingPolicy === 'blank' || folderImageMissingPolicy === 'empty')) {
+        const hasFolderImageMapping = preGen.length > 0
+          || getFolderImageH2Titles(payload).length > 0
+          || !!String(payload.preGeneratedThumbnail?.dataUrl || payload.preGeneratedThumbnail?.url || '').trim();
+        if (hasFolderImageMapping && (folderImageMissingPolicy === 'blank' || folderImageMissingPolicy === 'empty')) {
           onLog?.(`   H2 #${h2Number}: 내 폴더 이미지 미배치 -> 공란 처리`);
           return { dataUrl: '', source: '' };
         }
@@ -2182,8 +2211,23 @@ ${conclusionHTML}
     let thumbnailUrl = '';
 
     // 🔥 thumbnailSource: 사용자 선택 값 (flow, nanobananapro, dalle, text 등)
-    const thumbnailSource = payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'nanobanana2';
+    const thumbnailSource = h2ImageMode === 'none'
+      ? 'none'
+      : (payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'nanobanana2');
     const thumbnailDisabled = thumbnailSource === 'none' || thumbnailSource === 'skip';
+    const preGeneratedThumbnail = String(payload.preGeneratedThumbnail?.dataUrl || payload.preGeneratedThumbnail?.url || '').trim();
+
+    if (h2ImageMode !== 'none' && preGeneratedThumbnail) {
+      thumbnailUrl = preGeneratedThumbnail.startsWith('data:')
+        ? (await uploadBase64ToImageHost(preGeneratedThumbnail, 'folder-thumbnail') || '')
+        : preGeneratedThumbnail;
+      if (thumbnailUrl) {
+        onLog?.('[PROGRESS] 90% - 📁 내 폴더 썸네일 사용 (새 이미지 생성 생략)');
+        emitGeneratedImage('thumbnail', `썸네일: ${h1}`, preGeneratedThumbnail, { queueImageToken });
+      } else {
+        onLog?.('[PROGRESS] 90% - ⚠️ 내 폴더 썸네일 업로드 실패 — 선택 엔진으로 생성을 계속합니다');
+      }
+    }
 
     // 🛡️ 사용자가 특정 AI 엔진을 명시 선택했는지 — auto/default가 아니고 'crawled'·'custom' 류도 아닌 경우
     //    명시 선택했으면 사용자 의도를 존중해 productImages를 무시하고 해당 엔진으로 직행
@@ -2207,12 +2251,12 @@ ${conclusionHTML}
       && (payload.productImages as any)?.length > 0
       && (isCrawledRequested || isShoppingMode || !userPickedAiEngine);
 
-    if (useProductImages) {
+    if (!thumbnailUrl && useProductImages) {
       thumbnailUrl = (payload.productImages as any)[0];
       onLog?.(`[PROGRESS] 90% - 🛒 수집된 상품 이미지로 썸네일 설정 (${(payload.productImages as any).length}장 중 1번째)`);
       console.log(`[THUMBNAIL] ✅ 수집 이미지 썸네일: ${thumbnailUrl.substring(0, 60)}...`);
       emitGeneratedImage('thumbnail', `썸네일: ${h1}`, thumbnailUrl, { queueImageToken });
-    } else if (userPickedAiEngine && (payload.productImages as any)?.length > 0) {
+    } else if (!thumbnailUrl && userPickedAiEngine && (payload.productImages as any)?.length > 0) {
       console.log(`[THUMBNAIL] 🛡️ 사용자 명시 엔진(${thumbnailSource}) 선택 — 수집 이미지 ${(payload.productImages as any).length}장 무시하고 AI 생성 진행`);
       onLog?.(`[PROGRESS] 90% - 🛡️ 사용자가 ${thumbnailSource} 엔진을 선택해 수집 이미지를 무시합니다`);
     }
