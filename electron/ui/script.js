@@ -7223,7 +7223,7 @@ async function updateAiModelStatus() {
     const deriveEngine = (v) => {
       if (!v) return '';
       if (v.startsWith('gemini-')) return 'gemini';
-      if (v.startsWith('openai-')) return 'openai';
+      if (v.startsWith('openai-') || v.startsWith('gpt-') || /^o\d/i.test(v)) return 'openai';
       if (v.startsWith('claude-')) return 'claude';
       if (v === 'perplexity-sonar') return 'perplexity';
       return '';
@@ -7235,9 +7235,14 @@ async function updateAiModelStatus() {
       'gemini-2.5-flash-lite': { label: 'Gemini 2.5 Flash Lite', short: 'Gemini Lite', emoji: '⚡', color: '#10b981' },
       'gemini-2.5-flash': { label: 'Gemini 2.5 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
       'gemini-2.5-pro': { label: 'Gemini 2.5 Pro', short: 'Gemini Pro', emoji: '💎', color: '#10b981' },
-      'openai-gpt41-mini': { label: 'OpenAI GPT-4.1 Mini', short: 'GPT-4.1 Mini', emoji: '⚡', color: '#a855f7' },
-      'openai-gpt41': { label: 'OpenAI GPT-4.1', short: 'GPT-4.1', emoji: '🟢', color: '#a855f7' },
-      'openai-gpt4o': { label: 'OpenAI GPT-4o', short: 'GPT-4o', emoji: '💎', color: '#a855f7' },
+      // 기존 openai-* 저장값은 유지하되 실제 라우팅되는 GPT-5.6 모델명을 표시한다.
+      'openai-gpt4o-mini': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
+      'openai-gpt41-mini': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
+      'openai-gpt41': { label: 'OpenAI GPT-5.6 Terra', short: 'GPT-5.6 Terra', emoji: '🟢', color: '#a855f7' },
+      'openai-gpt4o': { label: 'OpenAI GPT-5.6 Sol', short: 'GPT-5.6 Sol', emoji: '💎', color: '#a855f7' },
+      'gpt-5.6-luna': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
+      'gpt-5.6-terra': { label: 'OpenAI GPT-5.6 Terra', short: 'GPT-5.6 Terra', emoji: '🟢', color: '#a855f7' },
+      'gpt-5.6-sol': { label: 'OpenAI GPT-5.6 Sol', short: 'GPT-5.6 Sol', emoji: '💎', color: '#a855f7' },
       'claude-haiku': { label: 'Claude Haiku 4.5', short: 'Claude Haiku', emoji: '⚡', color: '#f97316' },
       'claude-sonnet': { label: 'Claude Sonnet 4', short: 'Claude Sonnet', emoji: '🟠', color: '#f97316' },
       'claude-opus': { label: 'Claude Opus 4', short: 'Claude Opus', emoji: '💎', color: '#f97316' },

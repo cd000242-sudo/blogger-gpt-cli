@@ -20,6 +20,16 @@ describe('GPT model routing regression guard', () => {
     expect(pricing.findTier('openai-gpt4o')?.modelId).toBe('gpt-5.6-sol');
   });
 
+  test('posting engine badge shows the routed GPT-5.6 tier instead of legacy GPT labels', () => {
+    const script = read('electron/ui/script.js');
+
+    expect(script).toContain("'openai-gpt4o-mini': { label: 'OpenAI GPT-5.6 Luna'");
+    expect(script).toContain("'openai-gpt41': { label: 'OpenAI GPT-5.6 Terra'");
+    expect(script).toContain("'openai-gpt4o': { label: 'OpenAI GPT-5.6 Sol'");
+    expect(script).toContain("'gpt-5.6-terra': { label: 'OpenAI GPT-5.6 Terra'");
+    expect(script).not.toContain("'openai-gpt41': { label: 'OpenAI GPT-4.1'");
+  });
+
   test('posting payload keeps GPT radio values in the OpenAI provider', () => {
     const posting = read('electron/ui/modules/posting.js');
     const settings = read('electron/ui/modules/settings.js');
