@@ -220,7 +220,7 @@ export function openLicenseModalFromFreeTrialUpgrade() {
   closeFreeTrialUpgradeModal({ redirectToPosting: true });
 
   setTimeout(() => {
-    const purchaseUrl = 'https://leaderspro.kr';
+    const purchaseUrl = 'https://leaderspro.kr/pricing';
     try {
       if (window.blogger && typeof window.blogger.openExternal === 'function') {
         window.blogger.openExternal(purchaseUrl);

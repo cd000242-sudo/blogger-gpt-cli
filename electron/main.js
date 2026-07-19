@@ -10447,7 +10447,9 @@ try {
     electron_1.ipcMain.handle('dropshot:check-login', async (_event, options) => {
         try {
             const { checkImageGenAccess } = require('../dist/utils/license-tier-manager');
-            const access = checkImageGenAccess();
+            const access = checkImageGenAccess({
+                allowFreeTrialPublishing: options?.publishContext === true,
+            });
             if (!access.allowed) {
                 return { loggedIn: false, message: access.message, code: `PAYMENT_REQUIRED:${access.reason}`, paymentUrl: access.paymentUrl, kakaoUrl: access.kakaoUrl };
             }
@@ -10460,7 +10462,9 @@ try {
     electron_1.ipcMain.handle('dropshot:verify-ready', async (_event, options) => {
         try {
             const { checkImageGenAccess } = require('../dist/utils/license-tier-manager');
-            const access = checkImageGenAccess();
+            const access = checkImageGenAccess({
+                allowFreeTrialPublishing: options?.publishContext === true,
+            });
             if (!access.allowed) {
                 return { ready: false, loggedIn: false, message: access.message, code: `PAYMENT_REQUIRED:${access.reason}`, paymentUrl: access.paymentUrl, kakaoUrl: access.kakaoUrl };
             }
@@ -10470,10 +10474,12 @@ try {
             return { ready: false, loggedIn: false, message: e.message || 'Dropshot 생성 준비 확인 실패' };
         }
     });
-    electron_1.ipcMain.handle('dropshot:login', async () => {
+    electron_1.ipcMain.handle('dropshot:login', async (_event, options) => {
         try {
             const { checkImageGenAccess } = require('../dist/utils/license-tier-manager');
-            const access = checkImageGenAccess();
+            const access = checkImageGenAccess({
+                allowFreeTrialPublishing: options?.publishContext === true,
+            });
             if (!access.allowed) {
                 return { loggedIn: false, message: access.message, code: `PAYMENT_REQUIRED:${access.reason}`, paymentUrl: access.paymentUrl, kakaoUrl: access.kakaoUrl };
             }

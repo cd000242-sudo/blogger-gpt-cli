@@ -48,6 +48,7 @@ export function initSidebar() {
 
     // 관리자 영상 업로드 (조건부)
     const adminItem = document.createElement('button');
+    adminItem.type = 'button';
     adminItem.id = 'tutorialUploadBtn'; // tutorial.js L77이 이 ID로 참조 — 반드시 일치
     adminItem.className = 'sidebar-item sidebar-admin-item';
     adminItem.style.display = 'none'; // 기본 숨김
@@ -93,12 +94,15 @@ export function initSidebar() {
 
 function renderItem(container, item, isNav) {
     const el = document.createElement('button');
+    el.type = 'button';
     el.id = item.id;                    // 규칙3: -tab 접미사 없음
     el.className = 'sidebar-item';      // 규칙1,2: tab-content/tab-btn 없음
     el.innerHTML = `<span class="sidebar-icon">${item.icon}</span><span class="sidebar-label">${item.label}</span>`;
     if (item.hidden) el.style.display = 'none';
 
-    el.addEventListener('click', () => { // 규칙4: onclick 없음
+    el.addEventListener('click', (event) => { // 규칙4: onclick 없음
+        event.preventDefault();
+        event.stopPropagation();
         if (isNav && item.id !== 'nav-main' && item.id !== 'nav-auto' && typeof window.blockFreeTrialFeatureAccess === 'function') {
             if (window.blockFreeTrialFeatureAccess(item.label)) return;
         }
@@ -133,9 +137,13 @@ function showFallbackNav() {
 
     tabs.forEach(t => {
         const btn = document.createElement('button');
+        btn.type = 'button';
         btn.textContent = t.name;
         btn.style.cssText = 'padding:6px 12px;background:#334155;color:#fff;border:none;border-radius:6px;cursor:pointer;';
-        btn.addEventListener('click', () => window.showTab?.(t.tab));
+        btn.addEventListener('click', (event) => {
+            event.preventDefault();
+            window.showTab?.(t.tab);
+        });
         fallback.appendChild(btn);
     });
 

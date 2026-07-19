@@ -830,6 +830,58 @@ textarea::placeholder {
   flex: 0 0 auto;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 0 0 auto;
+  min-width: max-content;
+  margin-left: auto;
+}
+
+.golden-keyword-shortcut {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid #f6c453;
+  border-radius: 8px;
+  background: #f4b942;
+  color: #2f2100;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  box-shadow: 0 4px 12px rgba(244, 185, 66, 0.22);
+  transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.golden-keyword-shortcut:hover {
+  background: #ffd36d;
+  border-color: #ffe09a;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(244, 185, 66, 0.3);
+}
+
+.golden-keyword-shortcut:active {
+  transform: translateY(0);
+}
+
+.golden-keyword-shortcut:focus-visible {
+  outline: 3px solid rgba(250, 204, 21, 0.35);
+  outline-offset: 2px;
+}
+
+.golden-keyword-shortcut:disabled {
+  opacity: 0.72;
+  cursor: wait;
+  transform: none;
+}
+
 /* 배지별 박스색·테두리·텍스트색을 분리해 시각적 구분 강화
    :has() 미지원 환경 대비 — 부모 .header-badge에 modifier 클래스를 추가하지 않고도
    자식 `.badge-success/info/warning`을 보고 부모를 스타일링하기 위해

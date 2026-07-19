@@ -4,7 +4,7 @@
  * 검증 포인트:
  *   1. 기본 = 보장형 폴백 (명시 선택 실패해도 신뢰성 API 폴백으로 이미지 보장)
  *   2. 'auto'/빈값 = 키 인식 신뢰성 1순위(nanobanana2)
- *   3. ImageFX/Flow 완전 제거 — 레거시 값은 nanobanana2로 graceful redirect
+ *   3. Flow 정식 지원 — 레거시 imagefx 값도 Flow로 graceful redirect
  *   4. 엄격 모드는 STRICT_* env opt-in 으로만 (폴백 차단 + STRICT_ENGINE_FAILED throw)
  *   5. 신규 엔진(나노바나나 3종 / GPT 2종 / Prodia) modelId·라벨 정확성
  */
@@ -15,6 +15,16 @@ jest.mock('../src/thumbnail', () => ({
   makeDeepInfraThumbnail: jest.fn(),
   makeGptImageThumbnail: jest.fn(),
   makeProdiaThumbnail: jest.fn(),
+  makeLeonardoPhoenixImage: jest.fn(),
+}));
+jest.mock('../src/core/flowGenerator', () => ({
+  makeFlowImage: jest.fn(),
+}));
+jest.mock('../src/core/dropshotGenerator', () => ({
+  makeDropshotImage: jest.fn(),
+}));
+jest.mock('../src/core/image-generation-queue', () => ({
+  runImageGenerationQueued: jest.fn(async (_meta: unknown, task: () => Promise<unknown>) => task()),
 }));
 jest.mock('../src/core/imagePromptInference', () => ({
   inferImagePrompt: jest.fn(async (prompt: string) => ({
@@ -31,6 +41,7 @@ jest.mock('../src/env', () => ({
     OPENAI_API_KEY: 'test-openai-key-1234567890',
     prodiaApiKey: 'test-prodia-key-1234567890',
     PRODIA_API_KEY: 'test-prodia-key-1234567890',
+    leonardoKey: 'test-leonardo-key-1234567890',
   })),
 }));
 jest.mock('../src/core/image-error-classifier', () => ({
@@ -58,12 +69,18 @@ import {
   makeGptImageThumbnail,
   makeProdiaThumbnail,
   makeDeepInfraThumbnail,
+  makeLeonardoPhoenixImage,
 } from '../src/thumbnail';
+import { makeFlowImage } from '../src/core/flowGenerator';
+import { makeDropshotImage } from '../src/core/dropshotGenerator';
 
 const mockNano = makeNanoBananaProThumbnail as jest.MockedFunction<typeof makeNanoBananaProThumbnail>;
 const mockGpt = makeGptImageThumbnail as jest.MockedFunction<typeof makeGptImageThumbnail>;
 const mockProdia = makeProdiaThumbnail as jest.MockedFunction<typeof makeProdiaThumbnail>;
 const mockDeep = makeDeepInfraThumbnail as jest.MockedFunction<typeof makeDeepInfraThumbnail>;
+const mockLeonardo = makeLeonardoPhoenixImage as jest.MockedFunction<typeof makeLeonardoPhoenixImage>;
+const mockFlow = makeFlowImage as jest.MockedFunction<typeof makeFlowImage>;
+const mockDropshot = makeDropshotImage as jest.MockedFunction<typeof makeDropshotImage>;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -105,16 +122,17 @@ describe('dispatchH2ImageGeneration — 보장형 폴백 (v3.6.0 기본)', () =>
     expect(mockNano).toHaveBeenCalled();
   });
 
-  it('레거시 "flow"/"imagefx" → nanobanana2로 redirect되어 정상 생성 (엔진 제거됨)', async () => {
-    mockNano.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,REDIR' } as any);
+  it('Flow 정식 엔진과 레거시 "imagefx" 별칭이 동일한 Flow 생성 경로를 사용', async () => {
+    mockFlow.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,FLOW', modelUsed: 'mock-flow' } as any);
 
     const r1 = await dispatchH2ImageGeneration('flow', 'test', 'kw');
     const r2 = await dispatchH2ImageGeneration('imagefx', 'test', 'kw');
 
     expect(r1.ok).toBe(true);
-    expect(r1.source).toBe('Nano Banana 2');
+    expect(r1.source).toContain('Flow');
     expect(r2.ok).toBe(true);
-    expect(r2.source).toBe('Nano Banana 2');
+    expect(r2.source).toContain('Flow');
+    expect(mockFlow).toHaveBeenCalledTimes(2);
   });
 
   it('"none" → 즉시 빈 결과 반환 (엔진 호출 없음)', async () => {
@@ -123,6 +141,43 @@ describe('dispatchH2ImageGeneration — 보장형 폴백 (v3.6.0 기본)', () =>
     expect(result.error).toMatch(/스킵/);
     expect(mockNano).not.toHaveBeenCalled();
     expect(mockProdia).not.toHaveBeenCalled();
+  });
+});
+
+describe('글포스팅 선택 가능 이미지 엔진 매트릭스', () => {
+  it('API·브라우저 기반 엔진 모두 H2와 썸네일 디스패처에서 정상 반환', async () => {
+    mockNano.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,NANO' } as any);
+    mockGpt.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,GPT' } as any);
+    mockProdia.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,PRODIA' } as any);
+    mockDeep.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,DEEP' } as any);
+    mockLeonardo.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,LEONARDO' } as any);
+    mockFlow.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,FLOW', modelUsed: 'mock-flow' } as any);
+    mockDropshot.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,DROPSHOT' } as any);
+
+    const engines = [
+      'nanobanana',
+      'nanobanana2',
+      'nanobananapro',
+      'gptimage1',
+      'gptimage2',
+      'prodia',
+      'deepinfra',
+      'leonardo',
+      'flow',
+      'dropshot-nanobanana-pro',
+    ];
+
+    for (const engine of engines) {
+      expect(SUPPORTED_IMAGE_ENGINES).toContain(engine);
+      const h2 = await dispatchH2ImageGeneration(engine, `${engine} section`, 'keyword', undefined, undefined, {
+        allowFreeTrialPublishing: true,
+      });
+      const thumbnail = await dispatchThumbnailGeneration(engine, `${engine} title`, 'keyword', undefined, {
+        allowFreeTrialPublishing: true,
+      });
+      expect(h2.ok).toBe(true);
+      expect(thumbnail.ok).toBe(true);
+    }
   });
 });
 
@@ -189,20 +244,21 @@ describe('에러 메시지 상세화 + 엄격 모드 opt-in (v3.6.0)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// v3.6.0 — ImageFX/Flow 제거 검증
+// 현재 엔진 별칭/지원 범위 검증
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('v3.6.0 — ImageFX/Flow 제거', () => {
-  it('SUPPORTED_IMAGE_ENGINES 에서 imagefx/flow 가 제거됨', () => {
+describe('Flow/Leonardo 정식 지원과 레거시 별칭', () => {
+  it('SUPPORTED_IMAGE_ENGINES에는 Flow/Leonardo가 있고 imagefx 별칭은 노출하지 않음', () => {
     expect(SUPPORTED_IMAGE_ENGINES).not.toContain('imagefx');
-    expect(SUPPORTED_IMAGE_ENGINES).not.toContain('flow');
+    expect(SUPPORTED_IMAGE_ENGINES).toContain('flow');
+    expect(SUPPORTED_IMAGE_ENGINES).toContain('leonardo');
   });
 
-  it('레거시 엔진/별칭은 nanobanana2 로 정규화됨', () => {
-    expect(normalizeImageEngine('imagefx')).toBe('nanobanana2');
-    expect(normalizeImageEngine('flow')).toBe('nanobanana2');
-    expect(normalizeImageEngine('labs-flow')).toBe('nanobanana2');
-    expect(normalizeImageEngine('leonardo')).toBe('nanobanana2');
+  it('레거시 ImageFX 계열은 Flow로, 제거된 Pollinations 선택은 nanobanana2로 정규화', () => {
+    expect(normalizeImageEngine('imagefx')).toBe('flow');
+    expect(normalizeImageEngine('flow')).toBe('flow');
+    expect(normalizeImageEngine('labs-flow')).toBe('flow');
+    expect(normalizeImageEngine('leonardo')).toBe('leonardo');
     expect(normalizeImageEngine('pollinations')).toBe('nanobanana2');
     expect(normalizeImageEngine('auto')).toBe('nanobanana2');
     expect(normalizeImageEngine('')).toBe('nanobanana2');

@@ -731,8 +731,60 @@ function startRealtimeUpdates() {
   setInterval(updateRealtimeDate, 60000);
 }
 
+const GOLDEN_KEYWORD_URL = 'https://leaderspro.kr/';
+let goldenKeywordOpenLocked = false;
+
+window.openGoldenKeywordSite = async function (event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+
+  if (goldenKeywordOpenLocked) return false;
+  goldenKeywordOpenLocked = true;
+
+  const shortcut = document.getElementById('goldenKeywordShortcut');
+  if (shortcut) shortcut.disabled = true;
+
+  try {
+    if (window.electronAPI?.openExternal) {
+      await window.electronAPI.openExternal(GOLDEN_KEYWORD_URL);
+    } else if (window.blogger?.openExternal) {
+      await window.blogger.openExternal(GOLDEN_KEYWORD_URL);
+    } else {
+      window.open(GOLDEN_KEYWORD_URL, '_blank', 'noopener,noreferrer');
+    }
+    return true;
+  } catch (error) {
+    console.error('[GOLDEN-KEYWORD] 바로가기 열기 실패:', error);
+    window.open(GOLDEN_KEYWORD_URL, '_blank', 'noopener,noreferrer');
+    return false;
+  } finally {
+    window.setTimeout(() => {
+      goldenKeywordOpenLocked = false;
+      if (shortcut) shortcut.disabled = false;
+    }, 700);
+  }
+};
+
+function stabilizeAppClickDefaults() {
+  document.querySelectorAll('button:not([type])').forEach((button) => {
+    button.setAttribute('type', 'button');
+  });
+
+  if (window.__stableAppClickDefaultsBound) return;
+  window.__stableAppClickDefaultsBound = true;
+  document.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const button = target?.closest('button');
+    if (button && !button.hasAttribute('type')) button.setAttribute('type', 'button');
+
+    const placeholderLink = target?.closest('a[href="#"], a[href=""]');
+    if (placeholderLink) event.preventDefault();
+  }, true);
+}
+
 // DOM이 로드되면 실시간 업데이트 시작
 document.addEventListener('DOMContentLoaded', function () {
+  stabilizeAppClickDefaults();
   startRealtimeUpdates();
 
   // 로그아웃 버튼
@@ -1461,12 +1513,14 @@ window.getDropshotSubscriptionNote = function (result) {
   return ' · ⚠️ 플랜 확인 필요';
 };
 
-function getFreshDropshotLoginCache(maxAgeMs) {
+function getFreshDropshotLoginCache(maxAgeMs, publishContext = false) {
   const now = Date.now();
-  let cache = window.__dropshotLoginCheckCache || null;
+  const memoryKey = publishContext ? '__dropshotPublishingLoginCheckCache' : '__dropshotLoginCheckCache';
+  const storageKey = publishContext ? 'dropshotPublishingLoginCheckCache' : 'dropshotLoginCheckCache';
+  let cache = window[memoryKey] || null;
   if (!cache) {
     try {
-      const raw = sessionStorage.getItem('dropshotLoginCheckCache');
+      const raw = sessionStorage.getItem(storageKey);
       if (raw) cache = JSON.parse(raw);
     } catch { cache = null; }
   }
@@ -1476,47 +1530,53 @@ function getFreshDropshotLoginCache(maxAgeMs) {
     : (cache.result.loggedIn ? DROPSHOT_LOGIN_OK_CACHE_MS : DROPSHOT_LOGIN_FAIL_CACHE_MS);
   if (now - cache.ts > ttl) return null;
   cache.result = window.normalizeDropshotLoginStatus?.(cache.result) || cache.result;
-  window.__dropshotLoginCheckCache = cache;
+  window[memoryKey] = cache;
   return cache.result;
 }
 
-window.rememberDropshotLoginStatus = function (result) {
+window.rememberDropshotLoginStatus = function (result, options = {}) {
   if (!result) return;
+  const publishContext = options.publishContext === true;
+  const memoryKey = publishContext ? '__dropshotPublishingLoginCheckCache' : '__dropshotLoginCheckCache';
+  const storageKey = publishContext ? 'dropshotPublishingLoginCheckCache' : 'dropshotLoginCheckCache';
   const normalized = window.normalizeDropshotLoginStatus?.(result) || result;
   const cache = { ts: Date.now(), result: normalized };
-  window.__dropshotLoginCheckCache = cache;
-  try { sessionStorage.setItem('dropshotLoginCheckCache', JSON.stringify(cache)); } catch {}
+  window[memoryKey] = cache;
+  try { sessionStorage.setItem(storageKey, JSON.stringify(cache)); } catch {}
 };
 
 window.checkDropshotLoginCached = async function (options = {}) {
   const force = options.force === true;
+  const publishContext = options.publishContext === true;
   if (!force) {
-    const cached = getFreshDropshotLoginCache(options.maxAgeMs);
+    const cached = getFreshDropshotLoginCache(options.maxAgeMs, publishContext);
     if (cached) return { ...cached, cached: true };
   }
-  const result = await window.electronAPI?.invoke?.('dropshot:check-login', { force });
-  window.rememberDropshotLoginStatus?.(result);
+  const result = await window.electronAPI?.invoke?.('dropshot:check-login', { force, publishContext });
+  window.rememberDropshotLoginStatus?.(result, { publishContext });
   return window.normalizeDropshotLoginStatus?.(result) || result;
 };
 
 window.verifyDropshotGenerationReady = async function (options = {}) {
   const force = options.force === true;
+  const publishContext = options.publishContext === true;
+  const cacheKey = publishContext ? '__dropshotPublishingGenerationReadyCache' : '__dropshotGenerationReadyCache';
   if (!force) {
-    const cache = window.__dropshotGenerationReadyCache;
+    const cache = window[cacheKey];
     if (cache?.ts && cache?.result && Date.now() - cache.ts < DROPSHOT_READY_CACHE_MS) {
       return { ...cache.result, cached: true };
     }
   }
 
-  const result = await window.electronAPI?.invoke?.('dropshot:verify-ready', { force });
+  const result = await window.electronAPI?.invoke?.('dropshot:verify-ready', { force, publishContext });
   const normalized = window.normalizeDropshotLoginStatus?.(result) || result || {
     ready: false,
     loggedIn: false,
     message: 'Dropshot 준비 확인 IPC를 찾지 못했습니다. 앱을 다시 실행해주세요.',
   };
   const readyResult = { ...normalized, ready: normalized?.ready === true };
-  window.__dropshotGenerationReadyCache = { ts: Date.now(), result: readyResult };
-  window.rememberDropshotLoginStatus?.(readyResult);
+  window[cacheKey] = { ts: Date.now(), result: readyResult };
+  window.rememberDropshotLoginStatus?.(readyResult, { publishContext });
   return readyResult;
 };
 
@@ -1544,21 +1604,22 @@ window.setBatchDropshotStatusIdle = function () {
 };
 
 // v3.7.7: 환경설정의 리더스 나노바나나(dropshot) 로그인/확인 핸들러
-window.handleDropshotLogin = async function () {
+window.handleDropshotLogin = async function (options = {}) {
+  const publishContext = options.publishContext === true;
   const btn = document.getElementById('dropshotLoginBtnSettings');
   const status = document.getElementById('dropshotLoginStatusSettings');
   if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.textContent = '⏳ 브라우저 열림...'; }
   try {
-    const r = await window.electronAPI?.invoke?.('dropshot:login');
+    const r = await window.electronAPI?.invoke?.('dropshot:login', { publishContext });
     // v3.7.11: PAYMENT_REQUIRED → 모달 + 상태 라벨 정리
     if (window.handlePaymentRequiredResponse && window.handlePaymentRequiredResponse(r)) {
       if (status) { status.textContent = '🛡️ 유료 라이선스 필요'; status.style.color = '#fbbf24'; }
       return;
     }
     if (r?.loggedIn) {
-      window.rememberDropshotLoginStatus?.(r);
+      window.rememberDropshotLoginStatus?.(r, { publishContext });
       if (status) { status.textContent = '⏳ 로그인 완료 · 실제 생성 연동을 확인 중...'; status.style.color = 'rgba(255,255,255,0.7)'; }
-      const ready = await window.verifyDropshotGenerationReady?.({ force: true });
+      const ready = await window.verifyDropshotGenerationReady?.({ force: true, publishContext });
       if (ready?.ready) {
         if (status) { status.textContent = `✅ 실행 준비 완료${ready.userName ? ' — ' + ready.userName : ''}`; status.style.color = '#86efac'; }
         alert('리더스 나노바나나 로그인 및 생성 연동이 완료되었습니다.' + (ready.userName ? ' (' + ready.userName + ')' : ''));
@@ -1578,11 +1639,12 @@ window.handleDropshotLogin = async function () {
   }
 };
 
-window.handleDropshotCheckLogin = async function () {
+window.handleDropshotCheckLogin = async function (options = {}) {
+  const publishContext = options.publishContext === true;
   const status = document.getElementById('dropshotLoginStatusSettings');
   if (status) { status.textContent = '⏳ 로그인과 실제 생성 버튼을 확인 중...'; status.style.color = 'rgba(255,255,255,0.6)'; }
   try {
-    const r = await window.verifyDropshotGenerationReady?.({ force: true });
+    const r = await window.verifyDropshotGenerationReady?.({ force: true, publishContext });
     // v3.7.11: PAYMENT_REQUIRED → 모달 + 상태 라벨 정리
     if (window.handlePaymentRequiredResponse && window.handlePaymentRequiredResponse(r)) {
       if (status) { status.textContent = '🛡️ 유료 라이선스 필요'; status.style.color = '#fbbf24'; }
@@ -9949,6 +10011,8 @@ window.logoutLicense = logoutLicense;
 // 이벤트 위임 관리자 (최적화됨)
 const EventManager = {
   init() {
+    if (this.initialized) return;
+    this.initialized = true;
     // 이벤트 위임으로 성능 최적화
     document.addEventListener('click', this.handleClick.bind(this));
     document.addEventListener('change', this.handleChange.bind(this));
@@ -9956,12 +10020,12 @@ const EventManager = {
   },
 
   handleClick(e) {
-    const target = e.target;
+    const target = e.target instanceof Element ? e.target.closest('.tab-btn') : null;
 
-    // 탭 전환
-    if (target.matches('.tab-btn')) {
-      const tabName = target.getAttribute('onclick')?.match(/showTab\('(.+)'\)/)?.[1];
-      if (tabName) showTab(tabName);
+    // onclick이 있는 기존 탭은 브라우저가 한 번만 실행한다. 위임에서 중복 호출하지 않는다.
+    if (target && !target.hasAttribute('onclick')) {
+      const tabName = target.dataset.tab;
+      if (tabName) window.showTab?.(tabName);
     }
 
     // 기타 클릭 이벤트들...
@@ -13407,7 +13471,7 @@ window.selectImageFolderPath = async function () {
 // ════════════════════════════════════════════════════════════════════
 (function setupPaymentModal() {
   if (window.showPaymentModal) return;
-  const DEFAULT_PAYMENT_URL = 'https://leaderspro.kr';
+  const DEFAULT_PAYMENT_URL = 'https://leaderspro.kr/pricing';
   const DEFAULT_KAKAO_URL = 'https://open.kakao.com/o/sPcaslwh';
 
   window.showPaymentModal = function showPaymentModal(opts) {

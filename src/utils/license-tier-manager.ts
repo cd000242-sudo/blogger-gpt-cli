@@ -477,7 +477,7 @@ export interface ImageGenAccessOptions {
   allowFreeTrialPublishing?: boolean;
 }
 
-const PAYMENT_URL = 'https://leaderspro.kr';
+const PAYMENT_URL = 'https://leaderspro.kr/pricing';
 const KAKAO_OPENCHAT_URL = 'https://open.kakao.com/o/sPcaslwh';
 
 /**
