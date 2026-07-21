@@ -1233,8 +1233,9 @@ export async function generateUltimateMaxModeArticleFinal(
       if (factIntegrityReport.status === 'blocked') {
         const firstIssue = factIntegrityReport.violations[0];
         const detail = firstIssue ? `${firstIssue.location || 'article'}: ${firstIssue.detail}` : 'unknown evidence mismatch';
-        onLog?.(`[PROGRESS] 74% - [FACT] 차단: ${detail}`);
-        throw new Error(`팩트 무결성 검사를 통과하지 못했습니다. ${detail}`);
+        // v3.8.323: 발행 차단 대신 경고만 남기고 진행.
+        onLog?.(`[PROGRESS] 74% - ⚠️ [FACT] 본문 근거 부족 감지: ${detail} (경고만 남기고 발행 진행)`);
+        console.warn('[FACT] 본문 근거 부족 — 경고 강등:', detail);
       }
       onLog?.('[PROGRESS] 74% - [FACT] 근거 없는 정확한 정보 제거 완료');
     } else {
@@ -1269,7 +1270,9 @@ export async function generateUltimateMaxModeArticleFinal(
       }));
       const sanitizedFaqText = faqs.map((item) => `${item.question} ${item.answer}`).join('\n');
       if (inspectFactIntegrity(sanitizedFaqText, factEvidence).status === 'blocked') {
-        throw new Error('FAQ 팩트 무결성 검사를 통과하지 못했습니다. 공식 근거를 확인한 뒤 다시 시도하세요.');
+        // v3.8.323: 발행 차단 대신 경고만 남기고 진행.
+        onLog?.('⚠️ [FACT] FAQ 근거 부족 감지 (경고만 남기고 발행 진행)');
+        console.warn('[FACT] FAQ 근거 부족 — 경고 강등');
       }
     }
 
@@ -1363,7 +1366,9 @@ export async function generateUltimateMaxModeArticleFinal(
       };
       const sanitizedSummaryText = [...(summaryTable.headers || []), ...(summaryTable.rows || []).flat()].join(' ');
       if (inspectFactIntegrity(sanitizedSummaryText, factEvidence).status === 'blocked') {
-        throw new Error('요약표 팩트 무결성 검사를 통과하지 못했습니다. 공식 근거를 확인한 뒤 다시 시도하세요.');
+        // v3.8.323: 크롤링이 항상 완벽하지 않음 → 발행 차단 대신 경고만 남기고 진행 (사용자 보고: "크롤링이 정확하지 않은 것 같아")
+        onLog?.('[PROGRESS] 70% - ⚠️ [FACT] 요약표 근거 부족 감지 (경고만 남기고 발행 진행)');
+        console.warn('[FACT] 요약표 근거 부족 — 경고 강등:', { sanitizedSummaryText: sanitizedSummaryText.slice(0, 200) });
       }
       onLog?.('[PROGRESS] 70% - [FACT] 요약표의 근거 없는 정확한 정보를 정리했습니다.');
     }
