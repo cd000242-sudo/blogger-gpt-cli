@@ -897,41 +897,70 @@ ${contents.slice(0, 10).map((c, i) => `
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      try {
-        // 방법 1: 일반적인 fetch 시도
-        let response = await fetch(url, {
-          signal: controller.signal,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'ko-KR,ko;q=0.8,en-US;q=0.5,en;q=0.3',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
-          }
-        });
-
-        if (!response.ok) {
-          // 방법 2: 프록시 서버를 통한 우회 시도
-          response = await this.tryProxyFetch(url);
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-        }
-
-        clearTimeout(timeoutId);
-
-        const html = await response.text();
-        return this.extractContentFromHTML(html, url, 'naver', topic, keywords);
-      } catch (fetchError: any) {
-        clearTimeout(timeoutId);
-        if (fetchError.name === 'AbortError') {
-          console.log(`[NAVER] 타임아웃: ${url}`);
-        } else {
-          console.log(`[NAVER] 우회 크롤링도 실패: ${url}`);
-        }
-        return null;
+      // v3.8.331: 네이버 블로그 iframe 우회 — URL 변환 순서로 시도
+      //   네이버 블로그는 `blog.naver.com/user/postId` 접근 시 iframe만 옴 (실제 본문 X).
+      //   해결책 3가지 URL 형식 순차 시도:
+      //   1) m.blog.naver.com — 모바일 (iframe 없음, 실제 본문)
+      //   2) blog.naver.com/PostView.naver?blogId=X&logNo=Y — 본문 직접
+      //   3) 원본 URL
+      const urlVariants: string[] = [url];
+      const naverMatch = url.match(/blog\.naver\.com\/([^/?#]+)\/(\d+)/i);
+      if (naverMatch) {
+        const blogId = naverMatch[1];
+        const logNo = naverMatch[2];
+        urlVariants.unshift(`https://m.blog.naver.com/${blogId}/${logNo}`);
+        urlVariants.unshift(`https://blog.naver.com/PostView.naver?blogId=${blogId}&logNo=${logNo}`);
       }
+
+      const commonHeaders = {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+      };
+
+      let lastError: any = null;
+      for (const tryUrl of urlVariants) {
+        try {
+          const response = await fetch(tryUrl, {
+            signal: controller.signal,
+            headers: commonHeaders,
+            redirect: 'follow',
+          });
+
+          if (response.ok) {
+            clearTimeout(timeoutId);
+            const html = await response.text();
+            // iframe만 있는 경우 감지 (본문 없이 iframe만 오는 케이스 방지)
+            const plainLen = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+            if (plainLen < 500 && /<iframe[^>]+id=["']mainFrame["']/i.test(html)) {
+              // iframe만 반환됨 → 다음 URL 시도
+              console.log(`[NAVER] ⚠️ iframe만 반환 (${plainLen}자) → 다음 URL 시도: ${tryUrl.slice(0, 60)}`);
+              continue;
+            }
+            const extracted = this.extractContentFromHTML(html, tryUrl, 'naver', topic, keywords);
+            if (extracted && String(extracted.content || '').length > 100) {
+              console.log(`[NAVER] ✅ fetch 성공 (${plainLen}자 → 추출 ${extracted.content.length}자): ${tryUrl.slice(0, 60)}`);
+              return extracted;
+            }
+          } else {
+            lastError = `HTTP ${response.status}`;
+          }
+        } catch (variantErr: any) {
+          lastError = variantErr;
+          if (variantErr.name === 'AbortError') {
+            clearTimeout(timeoutId);
+            console.log(`[NAVER] 타임아웃: ${tryUrl}`);
+            return null;
+          }
+        }
+      }
+
+      clearTimeout(timeoutId);
+      console.log(`[NAVER] ⚠️ 모든 URL 변형 실패 (${urlVariants.length}개 시도) - ${lastError?.message || lastError}: ${url.slice(0, 60)}`);
+      return null;
     } catch (error) {
       console.log(`[NAVER] 우회 크롤링도 실패: ${url}`);
       return null;
