@@ -827,20 +827,42 @@ ${contents.slice(0, 10).map((c, i) => `
 
         const data = await response.json();
         const contents: CrawledContent[] = [];
+        const items = data.items || [];
+        console.log(`[NAVER-DEBUG] ✅ 검색 결과: ${items.length}개 items 반환`);
 
-        for (const item of data.items || []) {
+        for (const item of items) {
+          // v3.8.330: 각 URL fetch 실패해도 API description을 그대로 사용 (핵심 개선)
+          //   네이버 블로그는 iframe/JS 렌더링이라 fetch 실패 잦음 → Grounding 폴백 원인.
+          //   API가 반환한 title + description (~200자)만으로도 크롤링 데이터 유효.
+          const apiTitle = String(item.title || '').replace(/<\/?[^>]+>/g, '').trim();
+          const apiDesc = String(item.description || '').replace(/<\/?[^>]+>/g, '').trim();
+          const apiUrl = String(item.link || '').trim();
+
+          let blogContent: CrawledContent | null = null;
+
+          // 1차 시도: 실제 페이지 fetch (성공 시 풍부한 콘텐츠)
           try {
-            // 네이버 블로그 내용 크롤링 (우회 방법들 시도)
-            const blogContent = await this.crawlNaverBlogContent(item.link, topic, keywords);
-            if (blogContent) {
-              contents.push(blogContent);
-            }
+            blogContent = await this.crawlNaverBlogContent(apiUrl, topic, keywords);
           } catch (error) {
-            console.log(`[NAVER] 블로그 크롤링 실패: ${item.link}`);
+            // 조용히 실패 → description 폴백으로
           }
+
+          // 폴백: API description을 콘텐츠로 사용 (fetch 실패해도 최소 정보 확보)
+          if (!blogContent && (apiTitle || apiDesc)) {
+            blogContent = {
+              title: apiTitle || topic,
+              url: apiUrl,
+              content: apiDesc || apiTitle,
+              subheadings: [],
+              source: 'naver-api',
+            } as any;
+            console.log(`[NAVER-DEBUG] 📄 API description 폴백 (${apiDesc.length}자): ${apiTitle.slice(0, 40)}`);
+          }
+
+          if (blogContent) contents.push(blogContent);
         }
 
-        console.log(`[NAVER] 크롤링 완료: ${contents.length}개 글 수집`);
+        console.log(`[NAVER] 크롤링 완료: ${contents.length}개 글 수집 (fetch 실패해도 API description 유지)`);
         return contents;
 
       } catch (error: any) {
@@ -1176,16 +1198,32 @@ ${contents.slice(0, 10).map((c, i) => `
           );
 
           if (!data?.items) continue;
+          console.log(`[CSE-DEBUG] "${query}" → ${data.items.length}개 items`);
 
           for (const item of data.items) {
+            let blogContent: CrawledContent | null = null;
+            // 1차: 실제 페이지 fetch (성공 시 풍부한 콘텐츠)
             try {
-              const blogContent = await this.crawlBlogContent(item.link, topic, keywords);
-              if (blogContent) {
-                contents.push(blogContent);
-              }
+              blogContent = await this.crawlBlogContent(item.link, topic, keywords);
             } catch (error) {
-              console.log(`[CSE] 블로그 크롤링 실패: ${item.link}`);
+              // 조용히 실패 → snippet 폴백으로
             }
+            // v3.8.330 폴백: 페이지 fetch 실패 시 CSE snippet 사용 (Grounding 폴백 방지)
+            if (!blogContent) {
+              const snippet = String(item.snippet || item.htmlSnippet || '').replace(/<\/?[^>]+>/g, '').trim();
+              const cseTitle = String(item.title || '').replace(/<\/?[^>]+>/g, '').trim();
+              if (snippet || cseTitle) {
+                blogContent = {
+                  title: cseTitle || topic,
+                  url: item.link || '',
+                  content: snippet || cseTitle,
+                  subheadings: [],
+                  source: 'cse-snippet',
+                } as any;
+                console.log(`[CSE-DEBUG] 📄 snippet 폴백 (${snippet.length}자): ${cseTitle.slice(0, 40)}`);
+              }
+            }
+            if (blogContent) contents.push(blogContent);
           }
         } catch (error: any) {
           // Rate Limiter가 429 오류를 처리하므로 여기서는 로그만 남김

@@ -698,9 +698,11 @@ export async function generateUltimateMaxModeArticleFinal(
       }
 
       if (crawledPosts.length === 0) {
-        onLog?.('[PROGRESS] 15% - 🌐 크롤링 결과 없음 → Grounding 폴백');
+        // v3.8.330: Grounding 폴백은 편당 ₩500~1,500 비용 → 사용자에게 명확한 경고
+        onLog?.('[PROGRESS] 15% - 🚨 크롤링 결과 없음 → Grounding 폴백 (편당 ₩500~1,500 추가 비용)');
+        onLog?.('[PROGRESS] 15% - 💡 절약 팁: (1) 키워드 구체화 (2) 네이버/CSE API 키 등록 (3) 팩트체크 모드 → naver');
       } else {
-        onLog?.(`[PROGRESS] 15% - ✅ 실시간 크롤링 ${crawledPosts.length}개 → 할루시네이션 차단`);
+        onLog?.(`[PROGRESS] 15% - ✅ 실시간 크롤링 ${crawledPosts.length}개 → 할루시네이션 차단 + Grounding 스킵 (비용 절약)`);
       }
     }
 
