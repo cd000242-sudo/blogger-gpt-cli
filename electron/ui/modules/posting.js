@@ -848,6 +848,28 @@ export async function runPosting() {
         addLog('⚠️ 콘텐츠는 생성되었지만 발행에 실패했습니다.', 'error');
         addLog('발행 오류: ' + result.publishError, 'error');
 
+        // v3.8.326: 생성된 콘텐츠 자동 저장 → 재발행 큐 (사용자 보고: "생성된 글 날아가는 게 아까움")
+        try {
+          const republishItem = {
+            id: `rp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            savedAt: new Date().toISOString(),
+            platform: payload?.platform || payload?.targetPlatform || 'blogger',
+            title: result.title || payload?.title || '',
+            html: result.html || result.content || '',
+            thumbnailUrl: result.thumbnailUrl || result.thumbnail || payload?.thumbnailUrl || '',
+            payload: payload || {},
+            lastError: publishErrorMessage,
+            keyword: payload?.keyword || payload?.title || '',
+          };
+          const queue = JSON.parse(localStorage.getItem('pendingRepublishQueue') || '[]');
+          queue.push(republishItem);
+          if (queue.length > 20) queue.splice(0, queue.length - 20); // 최대 20개 유지
+          localStorage.setItem('pendingRepublishQueue', JSON.stringify(queue));
+          addLog(`💾 콘텐츠 자동 저장됨 (재발행 대기열: ${queue.length}개) — 미리보기 탭에서 [🚀 재발행] 클릭`, 'info');
+        } catch (saveErr) {
+          console.warn('[REPUBLISH-QUEUE] 저장 실패:', saveErr);
+        }
+
         // 인증 오류 → 설정 탭으로 자동 이동
         if (result.needsAuth || /인증|auth|token|OAuth|invalid_grant/i.test(String(result.publishError))) {
           addLog('🔐 인증이 필요합니다. 환경설정 탭으로 이동합니다...', 'error');

@@ -146,13 +146,126 @@ export async function generatePreview() {
 }
 
 // 미리보기 탭에 콘텐츠 표시
+// v3.8.326: 재발행 대기열 배너 렌더 (사용자 보고: "생성된 글 날아가는 게 아까움")
+export function renderRepublishQueueBanner() {
+  try {
+    const previewContent = DOMCache.get('previewContent');
+    if (!previewContent) return;
+    const queue = JSON.parse(localStorage.getItem('pendingRepublishQueue') || '[]');
+    // 기존 배너 제거
+    document.getElementById('republishQueueBanner')?.remove();
+    if (!queue.length) return;
+
+    const banner = document.createElement('div');
+    banner.id = 'republishQueueBanner';
+    banner.style.cssText = 'background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #f59e0b;border-left:5px solid #d97706;border-radius:12px;padding:16px 20px;margin:0 0 20px;box-shadow:0 4px 12px rgba(245,158,11,0.15);';
+    banner.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:22px;">💾</span>
+          <div>
+            <div style="font-weight:900;color:#92400e;font-size:15px;">발행 대기 콘텐츠 ${queue.length}개</div>
+            <div style="font-size:12px;color:#78350f;">발행 실패한 글을 다시 발행할 수 있어요 (생성 스킵)</div>
+          </div>
+        </div>
+        <button id="republishClearAllBtn" style="padding:8px 14px;background:transparent;color:#92400e;border:1px solid #d97706;border-radius:8px;font-weight:700;cursor:pointer;font-size:12px;">모두 삭제</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${queue.map((item, i) => `
+          <div style="background:#fff;border:1px solid #fde68a;border-radius:10px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+              <div style="font-weight:700;color:#0f172a;font-size:14px;line-height:1.4;margin-bottom:4px;">${(item.title || item.keyword || '(제목 없음)').slice(0, 60)}</div>
+              <div style="font-size:11px;color:#6b7280;">${item.platform} · ${new Date(item.savedAt).toLocaleString('ko-KR')} · 실패: ${(item.lastError || '').slice(0, 60)}</div>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button class="republishBtn" data-id="${item.id}" style="padding:8px 16px;background:#f59e0b;color:#fff;border:none;border-radius:8px;font-weight:800;cursor:pointer;font-size:13px;box-shadow:0 2px 6px rgba(245,158,11,0.3);">🚀 재발행</button>
+              <button class="republishDeleteBtn" data-id="${item.id}" style="padding:8px 12px;background:#fff;color:#dc2626;border:1px solid #fca5a5;border-radius:8px;font-weight:700;cursor:pointer;font-size:12px;">🗑️</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    previewContent.parentNode?.insertBefore(banner, previewContent);
+
+    // 재발행 버튼 이벤트
+    banner.querySelectorAll('.republishBtn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const currentQueue = JSON.parse(localStorage.getItem('pendingRepublishQueue') || '[]');
+        const item = currentQueue.find(x => x.id === id);
+        if (!item) return;
+        e.currentTarget.disabled = true;
+        e.currentTarget.textContent = '⏳ 발행 중...';
+        try {
+          const publishData = {
+            platform: item.platform,
+            content: item.html,
+            title: item.title,
+            thumbnailUrl: item.thumbnailUrl || '',
+            payload: item.payload || {},
+          };
+          const result = await window.electronAPI.invoke('publish-content', publishData);
+          if (result?.ok || result?.success || result?.url) {
+            addLog(`✅ 재발행 성공: ${result.url || item.title}`, 'success');
+            // 성공 시 큐에서 제거
+            const filtered = currentQueue.filter(x => x.id !== id);
+            localStorage.setItem('pendingRepublishQueue', JSON.stringify(filtered));
+            renderRepublishQueueBanner();
+            alert(`✅ 재발행 성공!\n${result.url || ''}`);
+          } else {
+            const err = result?.error || result?.publishError || '알 수 없는 오류';
+            addLog(`❌ 재발행 실패: ${err}`, 'error');
+            alert(`❌ 재발행 실패\n\n${err}\n\n환경설정에서 문제 해결 후 다시 시도하세요.`);
+            e.currentTarget.disabled = false;
+            e.currentTarget.textContent = '🚀 재발행';
+          }
+        } catch (err) {
+          addLog(`❌ 재발행 예외: ${err.message}`, 'error');
+          alert(`❌ 재발행 예외\n\n${err.message}`);
+          e.currentTarget.disabled = false;
+          e.currentTarget.textContent = '🚀 재발행';
+        }
+      });
+    });
+
+    // 개별 삭제 버튼
+    banner.querySelectorAll('.republishDeleteBtn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        if (!confirm('이 콘텐츠를 재발행 대기열에서 삭제할까요?')) return;
+        const id = e.currentTarget.getAttribute('data-id');
+        const currentQueue = JSON.parse(localStorage.getItem('pendingRepublishQueue') || '[]');
+        const filtered = currentQueue.filter(x => x.id !== id);
+        localStorage.setItem('pendingRepublishQueue', JSON.stringify(filtered));
+        renderRepublishQueueBanner();
+      });
+    });
+
+    // 모두 삭제 버튼
+    document.getElementById('republishClearAllBtn')?.addEventListener('click', () => {
+      if (!confirm(`재발행 대기 콘텐츠 ${queue.length}개를 모두 삭제할까요?`)) return;
+      localStorage.setItem('pendingRepublishQueue', '[]');
+      renderRepublishQueueBanner();
+    });
+  } catch (err) {
+    console.warn('[REPUBLISH-BANNER] 렌더 실패:', err);
+  }
+}
+
+// 전역 등록 (탭 전환 시 호출 가능하게)
+if (typeof window !== 'undefined') {
+  window.renderRepublishQueueBanner = renderRepublishQueueBanner;
+}
+
 export function displayPreviewInModal() {
   console.log('[DISPLAY-PREVIEW] 미리보기 탭에 표시 시작');
-  
+
+  // v3.8.326: 재발행 대기열 배너 자동 표시
+  renderRepublishQueueBanner();
+
   const previewContent = DOMCache.get('previewContent');
   const previewTitleText = document.getElementById('previewTitleText');
   const previewCharCount = document.getElementById('previewCharCount');
-  
+
   if (!previewContent) {
     console.error('[DISPLAY-PREVIEW] previewContent 요소를 찾을 수 없습니다');
     return;
