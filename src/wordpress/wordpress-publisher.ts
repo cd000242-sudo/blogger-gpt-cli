@@ -2454,6 +2454,27 @@ export async function publishToWordPress(
     postData.content = repairBrokenText('WordPress 발행 본문', postData.content);
     const post = await wpApi.createPost(postData);
 
+    // v3.8.306: 발행 검증 강화 — 응답 상세 로깅 + status 필드 확인
+    console.log(`[WP-VERIFY] createPost 응답 상세:`, {
+      id: (post as any)?.id,
+      status: (post as any)?.status,
+      link: (post as any)?.link,
+      slug: (post as any)?.slug,
+      date: (post as any)?.date,
+      hasContent: !!(post as any)?.content?.rendered,
+    });
+
+    if (post && post.id && (post as any).status && (post as any).status !== 'trash') {
+      const actualStatus = String((post as any).status || '').toLowerCase();
+      if (actualStatus !== 'publish' && actualStatus !== 'draft' && actualStatus !== 'future' && actualStatus !== 'pending' && actualStatus !== 'private') {
+        onLog?.(`⚠️ WordPress 응답 status가 이상함: "${actualStatus}" — 실제 발행 여부 확인 필요`);
+        console.warn(`[WP-VERIFY] ⚠️ 응답 status "${actualStatus}" — 정상 상태(publish/draft/future/pending/private)가 아님`);
+      }
+    } else if (post && post.id && !(post as any).status) {
+      onLog?.(`⚠️ WordPress 응답에 status 필드 없음 — 발행 여부 확인 필요 (post.id=${post.id})`);
+      console.warn(`[WP-VERIFY] ⚠️ 응답에 status 없음 — 응답 body:`, JSON.stringify(post).slice(0, 500));
+    }
+
     if (post && post.id) {
       // v3.8.30: API 응답의 link 필드(공개 글 URL) 우선 사용. Pretty Permalinks 사이트에선 ?p=N도 404.
       const apiLink2 = (post as any).link;

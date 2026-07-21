@@ -197,7 +197,8 @@ export class WordPressAPI {
     return this.request<WordPressPost>(`/posts/${id}`, 'DELETE');
   }
 
-  // SEO 메타 필드 업데이트 (Yoast SEO 연동)
+  // SEO 메타 필드 업데이트 (Yoast SEO / Rank Math / AIOSEO 다중 지원)
+  // v3.8.306: Rank Math 필드 접두사 수정 (`_rank_math_*` → `rank_math_*`) — 사용자 보고: Rank Math에서 SEO 필드 인식 안 됨
   async updateSeoMeta(postId: number, seoData: {
     title?: string;
     description?: string;
@@ -206,16 +207,16 @@ export class WordPressAPI {
     try {
       const metaData = {
         meta: {
-          // Yoast SEO 플러그인 메타 필드
+          // Yoast SEO — 접두사 `_yoast_wpseo_`
           '_yoast_wpseo_title': seoData.title || '',
           '_yoast_wpseo_metadesc': seoData.description || '',
           '_yoast_wpseo_focuskw': seoData.focusKeyword || '',
-          
-          // 다른 SEO 플러그인 지원
-          '_rank_math_title': seoData.title || '',
-          '_rank_math_description': seoData.description || '',
-          '_rank_math_focus_keyword': seoData.focusKeyword || '',
-          
+
+          // Rank Math — 접두사 없음 (공식 필드명)
+          'rank_math_title': seoData.title || '',
+          'rank_math_description': seoData.description || '',
+          'rank_math_focus_keyword': seoData.focusKeyword || '',
+
           // All in One SEO Pack
           '_aioseop_title': seoData.title || '',
           '_aioseop_description': seoData.description || '',
@@ -224,6 +225,28 @@ export class WordPressAPI {
       };
 
       await this.request<WordPressPost>(`/posts/${postId}`, 'PUT', metaData);
+
+      // v3.8.306: Rank Math 전용 REST API 시도 (meta whitelist 우회)
+      // Rank Math는 register_meta로 자체 등록 안 하면 WP `meta:` 필드로는 저장 안 됨.
+      // 그래서 자체 REST endpoint로 재시도.
+      try {
+        const rankMathUrl = `${this.config.siteUrl.replace(/\/$/, '')}/wp-json/rankmath/v1/updatePostMeta`;
+        const auth = btoa(`${this.config.username}:${this.config.password}`);
+        await fetch(rankMathUrl, {
+          method: 'POST',
+          headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            objectID: postId,
+            objectType: 'post',
+            meta: {
+              rank_math_title: seoData.title || '',
+              rank_math_description: seoData.description || '',
+              rank_math_focus_keyword: seoData.focusKeyword || '',
+            },
+          }),
+        }).catch(() => null); // Rank Math 미설치 사이트면 조용히 실패
+      } catch { /* Rank Math 없으면 정상 */ }
+
       return { success: true };
     } catch (error) {
       console.error('SEO 메타 업데이트 실패:', error);
