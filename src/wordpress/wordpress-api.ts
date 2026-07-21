@@ -224,15 +224,27 @@ export class WordPressAPI {
         }
       };
 
-      await this.request<WordPressPost>(`/posts/${postId}`, 'PUT', metaData);
+      // v3.8.328: 응답 검증으로 실제 저장 여부 확인
+      const updateResp: any = await this.request<WordPressPost>(`/posts/${postId}`, 'PUT', metaData);
+      const savedMeta = updateResp?.meta || {};
+      const rankMathSaved = !!(savedMeta.rank_math_focus_keyword || savedMeta.rank_math_title || savedMeta.rank_math_description);
+      const yoastSaved = !!(savedMeta._yoast_wpseo_focuskw || savedMeta._yoast_wpseo_title);
 
-      // v3.8.306: Rank Math 전용 REST API 시도 (meta whitelist 우회)
-      // Rank Math는 register_meta로 자체 등록 안 하면 WP `meta:` 필드로는 저장 안 됨.
-      // 그래서 자체 REST endpoint로 재시도.
+      if (!rankMathSaved && seoData.focusKeyword) {
+        console.warn('[WP-SEO] ⚠️ Rank Math 필드가 저장 안 됨 — register_meta 미등록. WordPress에 다음 스니펫 필요:');
+        console.warn(`  add_action('init', function() {
+    register_post_meta('post', 'rank_math_focus_keyword', ['type'=>'string','single'=>true,'show_in_rest'=>true,'auth_callback'=>function(){return current_user_can('edit_posts');}]);
+    register_post_meta('post', 'rank_math_title', ['type'=>'string','single'=>true,'show_in_rest'=>true,'auth_callback'=>function(){return current_user_can('edit_posts');}]);
+    register_post_meta('post', 'rank_math_description', ['type'=>'string','single'=>true,'show_in_rest'=>true,'auth_callback'=>function(){return current_user_can('edit_posts');}]);
+  });`);
+        console.warn('[WP-SEO] 위 스니펫을 Code Snippets 플러그인 또는 functions.php에 추가하면 자동 저장 가능.');
+      }
+
+      // v3.8.306/328: Rank Math 전용 REST API 시도 (meta whitelist 우회 — 미설치 사이트엔 무해)
       try {
         const rankMathUrl = `${this.config.siteUrl.replace(/\/$/, '')}/wp-json/rankmath/v1/updatePostMeta`;
         const auth = btoa(`${this.config.username}:${this.config.password}`);
-        await fetch(rankMathUrl, {
+        const rmResp = await fetch(rankMathUrl, {
           method: 'POST',
           headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -244,10 +256,15 @@ export class WordPressAPI {
               rank_math_focus_keyword: seoData.focusKeyword || '',
             },
           }),
-        }).catch(() => null); // Rank Math 미설치 사이트면 조용히 실패
+        }).catch((e) => { console.warn('[WP-SEO/RankMath] REST 호출 예외 (미설치 가능성):', e?.message); return null; });
+        if (rmResp && rmResp.ok) {
+          console.log('[WP-SEO/RankMath] ✅ 전용 REST 저장 성공');
+        } else if (rmResp) {
+          console.warn(`[WP-SEO/RankMath] ⚠️ 전용 REST 응답 ${rmResp.status} — 미설치이거나 endpoint 없음`);
+        }
       } catch { /* Rank Math 없으면 정상 */ }
 
-      return { success: true };
+      return { success: rankMathSaved || yoastSaved };
     } catch (error) {
       console.error('SEO 메타 업데이트 실패:', error);
       return { success: false };
