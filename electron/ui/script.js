@@ -7339,12 +7339,18 @@ async function updateAiModelStatus() {
     };
     const engine = deriveEngine(tierValue) || savedEngine || 'gemini';
 
-    // 모델 → 표시명 매핑
+    // v3.8.324: pricing.js title과 동기화 — 사용자 보고 "글 생성 엔진 업데이트 안 됨" (배지가 옛날 라벨로 표시).
+    // legacy value(gemini-2.5-*, openai-gpt4*, claude-opus/sonnet/haiku)는 사용자 저장 설정 호환용이며,
+    // 실제 API는 pricing.js의 modelId(gemini-3.5-flash / gpt-5.6-sol / claude-fable-5 등)로 호출됨.
     const MODEL_DISPLAY = {
-      'gemini-2.5-flash-lite': { label: 'Gemini 2.5 Flash Lite', short: 'Gemini Lite', emoji: '⚡', color: '#10b981' },
-      'gemini-2.5-flash': { label: 'Gemini 2.5 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
-      'gemini-2.5-pro': { label: 'Gemini 2.5 Pro', short: 'Gemini Pro', emoji: '💎', color: '#10b981' },
-      // 기존 openai-* 저장값은 유지하되 실제 라우팅되는 GPT-5.6 모델명을 표시한다.
+      // Gemini (2026 최신 라벨)
+      'gemini-2.5-flash-lite': { label: 'Gemini 3.1 Flash-Lite', short: 'Gemini Lite', emoji: '⚡', color: '#10b981' },
+      'gemini-2.5-flash': { label: 'Gemini 3.5 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
+      'gemini-2.5-pro': { label: 'Gemini 3.1 Pro Preview', short: 'Gemini Pro', emoji: '💎', color: '#10b981' },
+      'gemini-3.1-flash-lite': { label: 'Gemini 3.1 Flash-Lite', short: 'Gemini Lite', emoji: '⚡', color: '#10b981' },
+      'gemini-3.5-flash': { label: 'Gemini 3.5 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
+      'gemini-3.1-pro-preview': { label: 'Gemini 3.1 Pro Preview', short: 'Gemini Pro', emoji: '💎', color: '#10b981' },
+      // OpenAI GPT-5.6 시리즈
       'openai-gpt4o-mini': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
       'openai-gpt41-mini': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
       'openai-gpt41': { label: 'OpenAI GPT-5.6 Terra', short: 'GPT-5.6 Terra', emoji: '🟢', color: '#a855f7' },
@@ -7352,10 +7358,17 @@ async function updateAiModelStatus() {
       'gpt-5.6-luna': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
       'gpt-5.6-terra': { label: 'OpenAI GPT-5.6 Terra', short: 'GPT-5.6 Terra', emoji: '🟢', color: '#a855f7' },
       'gpt-5.6-sol': { label: 'OpenAI GPT-5.6 Sol', short: 'GPT-5.6 Sol', emoji: '💎', color: '#a855f7' },
+      // Claude (Fable 5 / Sonnet 5 / Haiku 4.5)
       'claude-haiku': { label: 'Claude Haiku 4.5', short: 'Claude Haiku', emoji: '⚡', color: '#f97316' },
-      'claude-sonnet': { label: 'Claude Sonnet 4', short: 'Claude Sonnet', emoji: '🟠', color: '#f97316' },
-      'claude-opus': { label: 'Claude Opus 4', short: 'Claude Opus', emoji: '💎', color: '#f97316' },
-      'perplexity-sonar': { label: 'Perplexity Sonar', short: 'Perplexity', emoji: '🔮', color: '#3b82f6' },
+      'claude-sonnet': { label: 'Claude Sonnet 5', short: 'Claude Sonnet', emoji: '🟠', color: '#f97316' },
+      'claude-opus': { label: 'Claude Fable 5', short: 'Claude Fable', emoji: '💎', color: '#f97316' },
+      'claude-haiku-4-5-20251001': { label: 'Claude Haiku 4.5', short: 'Claude Haiku', emoji: '⚡', color: '#f97316' },
+      'claude-sonnet-5': { label: 'Claude Sonnet 5', short: 'Claude Sonnet', emoji: '🟠', color: '#f97316' },
+      'claude-fable-5': { label: 'Claude Fable 5', short: 'Claude Fable', emoji: '💎', color: '#f97316' },
+      'claude-opus-4-8': { label: 'Claude Opus 4.8', short: 'Claude Opus', emoji: '💎', color: '#f97316' },
+      // Perplexity
+      'perplexity-sonar': { label: 'Perplexity Sonar Pro', short: 'Perplexity', emoji: '🔮', color: '#3b82f6' },
+      'sonar-pro': { label: 'Perplexity Sonar Pro', short: 'Perplexity', emoji: '🔮', color: '#3b82f6' },
     };
 
     // engine → 기본 표시명
