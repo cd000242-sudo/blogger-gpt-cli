@@ -707,11 +707,11 @@ export async function generateUltimateMaxModeArticleFinal(
       }
 
       if (crawledPosts.length === 0) {
-        // v3.8.330: Grounding 폴백은 편당 ₩500~1,500 비용 → 사용자에게 명확한 경고
-        onLog?.('[PROGRESS] 15% - 🚨 크롤링 결과 없음 → Grounding 폴백 (편당 ₩500~1,500 추가 비용)');
-        onLog?.('[PROGRESS] 15% - 💡 절약 팁: (1) 키워드 구체화 (2) 네이버/CSE API 키 등록 (3) 팩트체크 모드 → naver');
+        // v3.8.333: Grounding 자동 폴백 완전 차단. 대신 Perplexity 팩트체크 결과 = 크롤링 소스로 통합 (사용자 제안).
+        onLog?.('[PROGRESS] 15% - ⚠️ 크롤링 4중 소스 결과 없음 — Perplexity 팩트체크 결과를 자동 통합 (Grounding 자동 폴백 X)');
+        onLog?.('[PROGRESS] 15% - 💡 Perplexity 저렴 (~₩5/편) + 실시간 검색 + 신뢰 소스 인용. Grounding (~₩700/편) 대체.');
       } else {
-        onLog?.(`[PROGRESS] 15% - ✅ 실시간 크롤링 ${crawledPosts.length}개 → 할루시네이션 차단 + Grounding 스킵 (비용 절약)`);
+        onLog?.(`[PROGRESS] 15% - ✅ 실시간 크롤링 ${crawledPosts.length}개 → 할루시네이션 차단`);
       }
     }
 
@@ -1018,6 +1018,22 @@ export async function generateUltimateMaxModeArticleFinal(
     // v3.8.265: 'off' 명시해도 강제로 'auto'로 폴백 (거미줄에서 팩트체크 끄면 가짜 통계 위험 큼)
     const rawFactMode: FactCheckMode = payload.factCheckMode || 'auto';
     const factCheckMode: FactCheckMode = rawFactMode === 'off' ? 'auto' : rawFactMode;
+
+    // v3.8.333: Grounding 자동 폴백 완전 차단 (사용자 보고: "그라운딩은 폴백으로 쓰지말고 선택으로 바꿔줘 자동폴백되면 과금원인")
+    //   Grounding은 편당 ₩500~1,500 과금. 사용자 명시 선택(factCheckMode='grounding') 아니면 자동 비활성화.
+    //   기본값: 크롤링 4중 소스로 데이터 확보 → Grounding 불필요 → 과금 원천 차단.
+    const groundingExplicitlyRequested = (rawFactMode === 'grounding');
+    if (!groundingExplicitlyRequested) {
+      process.env['DISABLE_GEMINI_GROUNDING'] = '1';
+      if (crawledPosts.length === 0) {
+        onLog?.('[PROGRESS] 45% - ⚠️ Grounding 자동 비활성화 (팩트체크 모드=grounding 명시 시만 활성). 콘텐츠는 검색 기반 지식으로 생성.');
+      } else {
+        onLog?.('[PROGRESS] 45% - ✅ Grounding 비활성화 (4중 크롤링 데이터 사용 → 과금 절약)');
+      }
+    } else {
+      delete process.env['DISABLE_GEMINI_GROUNDING'];
+      onLog?.('[PROGRESS] 45% - 🔍 Grounding 활성화 (사용자 명시 선택 — 편당 ₩500~1,500 추가 과금 발생)');
+    }
     if (rawFactMode === 'off') {
       onLog?.('[PROGRESS] 44% - ⚠️ 거미줄 모드에서 factCheckMode=off는 위험 → 자동으로 auto로 폴백');
     }
@@ -1046,6 +1062,20 @@ export async function generateUltimateMaxModeArticleFinal(
         };
         if (factResult.success && factResult.context) {
           onLog?.(`[PROGRESS] 47% - ✅ 팩트체크 완료 (${factResult.provider}, ${factResult.context.length}자)`);
+
+          // v3.8.333: Perplexity 등 팩트체크 결과를 크롤링 데이터로도 재사용 (사용자 제안: "폴백을 퍼플랙시티로")
+          //   Grounding 대신 이미 호출된 Perplexity 결과를 크롤링 소스로 활용 → 추가 과금 없음.
+          //   크롤링 4중 소스가 부족한 경우 특히 효과적.
+          if (crawledPosts.length < 5 && factResult.context.length > 300) {
+            crawledPosts.push({
+              title: `${keyword} — ${factResult.provider} 실시간 검색 요약`,
+              url: factResult.sourceUrls?.[0] || '',
+              content: factResult.context,
+              subheadings: [],
+              source: `factcheck-${factResult.provider}`,
+            } as any);
+            onLog?.(`[PROGRESS] 47% - 💾 ${factResult.provider} 결과 크롤링 데이터로 통합 (${factResult.context.length}자) — Grounding 폴백 불필요`);
+          }
         } else {
           onLog?.('[PROGRESS] 47% - ⚠️ 실시간 근거 미수집 — 검증되지 않은 수치·일정은 본문에서 생략합니다');
         }
