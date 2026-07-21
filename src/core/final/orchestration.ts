@@ -646,15 +646,24 @@ export async function generateUltimateMaxModeArticleFinal(
 
         let crawledFromAPI: any[] = [];
 
-        // 1순위: 네이버 API (키 있을 때)
+        // 1순위: 네이버 블로그 + 지식인 + 뉴스 + Google Suggest 병렬 수집 (v3.8.332)
+        //   사용자 요구: "궁금한 정보·모르는 정보·소제목·키워드에 딱 맞는 궁금증 해결"
+        //   지식인 = 실제 유저 질문 (궁금증 소스), Suggest = 실제 검색 키워드, News = 최신 트렌드
         if (naverClientId && naverClientSecret) {
-          try {
-            onLog?.(`   📘 네이버 블로그 API 검색 중...`);
-            crawledFromAPI = await crawler.crawlFromNaverAPI(crawlerConfig);
-            onLog?.(`   ✅ 네이버에서 ${crawledFromAPI.length}개 자료 수집`);
-          } catch (naverErr: any) {
-            onLog?.(`   ⚠️ 네이버 크롤링 실패: ${naverErr.message?.slice(0, 80)}`);
-          }
+          onLog?.(`   📘 네이버 블로그 + 지식인 + 뉴스 + Google Suggest 병렬 검색 중...`);
+          const [blogResults, kinResults, newsResults, suggestResults] = await Promise.all([
+            crawler.crawlFromNaverAPI(crawlerConfig).catch((e: any) => { console.warn('[CRAWL] 블로그 실패:', e.message); return []; }),
+            crawler.crawlFromNaverKin(crawlerConfig).catch((e: any) => { console.warn('[CRAWL] 지식인 실패:', e.message); return []; }),
+            crawler.crawlFromNaverNews(crawlerConfig).catch((e: any) => { console.warn('[CRAWL] 뉴스 실패:', e.message); return []; }),
+            crawler.crawlGoogleSuggest(crawlerConfig).catch((e: any) => { console.warn('[CRAWL] Suggest 실패:', e.message); return []; }),
+          ]);
+          crawledFromAPI.push(...blogResults, ...kinResults, ...newsResults, ...suggestResults);
+          onLog?.(`   ✅ 블로그 ${blogResults.length} + 지식인 ${kinResults.length} + 뉴스 ${newsResults.length} + 자동완성 ${suggestResults.length} = 총 ${crawledFromAPI.length}개 (궁금증·검색의도 파악)`);
+        } else {
+          // 네이버 키 없어도 Google Suggest는 무료 → 실행
+          const suggestOnly = await crawler.crawlGoogleSuggest(crawlerConfig).catch(() => []);
+          crawledFromAPI.push(...suggestOnly);
+          onLog?.(`   ⚠️ 네이버 API 키 없음 → Google Suggest만 수집 (${suggestOnly.length}개)`);
         }
 
         // 2순위: Google CSE (네이버 결과가 부족할 때)

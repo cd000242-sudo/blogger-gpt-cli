@@ -996,6 +996,124 @@ ${contents.slice(0, 10).map((c, i) => `
     throw new Error('모든 프록시 서비스 실패');
   }
 
+  // v3.8.332: 네이버 지식인(kin) 크롤링 — 실제 유저 질문 = 궁금증 소스 (사용자: "궁금증 해결 콘텐츠")
+  async crawlFromNaverKin(config: ContentCrawlerConfig): Promise<CrawledContent[]> {
+    const { topic, maxResults = 8, naverClientId, naverClientSecret } = config;
+    if (!naverClientId || !naverClientSecret) return [];
+    try {
+      const encodedQuery = encodeURIComponent(topic);
+      const apiUrl = `https://openapi.naver.com/v1/search/kin.json?query=${encodedQuery}&display=${maxResults}&sort=sim`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      console.log(`[NAVER-KIN] "${topic}" 지식인 검색...`);
+      const response = await fetch(apiUrl, {
+        signal: controller.signal,
+        headers: { 'X-Naver-Client-Id': naverClientId, 'X-Naver-Client-Secret': naverClientSecret },
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) {
+        console.warn(`[NAVER-KIN] API 실패: ${response.status}`);
+        return [];
+      }
+      const data = await response.json();
+      const items = data.items || [];
+      const contents: CrawledContent[] = [];
+      for (const item of items) {
+        const q = String(item.title || '').replace(/<\/?[^>]+>/g, '').trim();
+        const a = String(item.description || '').replace(/<\/?[^>]+>/g, '').trim();
+        if (q || a) {
+          contents.push({
+            title: `Q. ${q}`,
+            url: item.link || '',
+            content: `Q. ${q}\nA. ${a}`,
+            subheadings: [q],
+            source: 'naver-kin',
+          } as any);
+        }
+      }
+      console.log(`[NAVER-KIN] ✅ ${contents.length}개 실제 유저 질문·답변 수집`);
+      return contents;
+    } catch (e: any) {
+      console.warn('[NAVER-KIN] 실패:', e.message);
+      return [];
+    }
+  }
+
+  // v3.8.332: Google Suggest 자동완성 — 무료, 인증 불필요, 실제 검색 키워드
+  async crawlGoogleSuggest(config: ContentCrawlerConfig): Promise<CrawledContent[]> {
+    const { topic } = config;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const apiUrl = `https://suggestqueries.google.com/complete/search?client=chrome&q=${encodeURIComponent(topic)}&hl=ko`;
+      console.log(`[G-SUGGEST] "${topic}" 자동완성 조회...`);
+      const response = await fetch(apiUrl, {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/91.0' },
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) {
+        console.warn(`[G-SUGGEST] 실패: ${response.status}`);
+        return [];
+      }
+      const data = await response.json().catch(() => null);
+      if (!Array.isArray(data) || !Array.isArray(data[1])) return [];
+      const suggestions = data[1].filter(Boolean).slice(0, 12).map((s: any) => String(s || '').trim()).filter(Boolean);
+      if (suggestions.length === 0) return [];
+      console.log(`[G-SUGGEST] ✅ ${suggestions.length}개 자동완성 키워드: ${suggestions.slice(0, 3).join(', ')}...`);
+      return [{
+        title: `${topic} — 사람들이 함께 검색한 키워드`,
+        url: '',
+        content: suggestions.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n'),
+        subheadings: suggestions,
+        source: 'google-suggest',
+      } as any];
+    } catch (e: any) {
+      console.warn('[G-SUGGEST] 실패:', e.message);
+      return [];
+    }
+  }
+
+  // v3.8.332: 네이버 뉴스 크롤링 — 최신 트렌드 정보 (기존 검색 API 활용)
+  async crawlFromNaverNews(config: ContentCrawlerConfig): Promise<CrawledContent[]> {
+    const { topic, maxResults = 5, naverClientId, naverClientSecret } = config;
+    if (!naverClientId || !naverClientSecret) return [];
+    try {
+      const apiUrl = `https://openapi.naver.com/v1/search/news.json?query=${encodeURIComponent(topic)}&display=${maxResults}&sort=date`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      console.log(`[NAVER-NEWS] "${topic}" 최신 뉴스 검색...`);
+      const response = await fetch(apiUrl, {
+        signal: controller.signal,
+        headers: { 'X-Naver-Client-Id': naverClientId, 'X-Naver-Client-Secret': naverClientSecret },
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) return [];
+      const data = await response.json();
+      const items = data.items || [];
+      const contents: CrawledContent[] = [];
+      for (const item of items) {
+        const title = String(item.title || '').replace(/<\/?[^>]+>/g, '').trim();
+        const desc = String(item.description || '').replace(/<\/?[^>]+>/g, '').trim();
+        const pubDate = String(item.pubDate || '').trim();
+        if (title || desc) {
+          contents.push({
+            title: title || topic,
+            url: item.link || item.originallink || '',
+            content: `${desc}${pubDate ? `\n(${pubDate})` : ''}`,
+            subheadings: [],
+            source: 'naver-news',
+          } as any);
+        }
+      }
+      console.log(`[NAVER-NEWS] ✅ ${contents.length}개 최신 뉴스 수집`);
+      return contents;
+    } catch (e: any) {
+      console.warn('[NAVER-NEWS] 실패:', e.message);
+      return [];
+    }
+  }
+
   /**
    * 2단계: RSS 피드에서 내용 크롤링
    */
