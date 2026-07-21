@@ -2145,6 +2145,22 @@ async function publishToWordPress(options, onLog) {
             onLog?.(`⚠️ WordPress 응답에 status 필드 없음 — 발행 여부 확인 필요 (post.id=${post.id})`);
             console.warn(`[WP-VERIFY] ⚠️ 응답에 status 없음 — 응답 body:`, JSON.stringify(post).slice(0, 500));
         }
+        const rawId = post?.id;
+        const idIsValid = ((typeof rawId === 'number' && Number.isFinite(rawId) && rawId > 0) ||
+            (typeof rawId === 'string' && rawId.trim() && rawId !== 'undefined' && rawId !== 'null' && /^\d+$/.test(rawId.trim())));
+        if (/^http:\/\//i.test(String(options.siteUrl || ''))) {
+            onLog?.('⚠️ 사이트가 HTTP (비암호화) — WordPress Application Password는 HTTPS 필요. SSL 인증서 설치 후 시도 권장.');
+            console.warn('[WP-VERIFY] ⚠️ HTTP 사이트 감지 — Basic Auth 실패 가능성 높음:', options.siteUrl);
+        }
+        if (/\s/.test(String(options.username || ''))) {
+            onLog?.(`⚠️ Username "${options.username}"에 공백 포함 — Basic Auth 실패 가능성. WordPress 관리자 → 사용자 → username 확인 (표시 이름 아닌 로그인 username).`);
+            console.warn('[WP-VERIFY] ⚠️ Username 공백:', options.username);
+        }
+        if (!idIsValid) {
+            console.error('[WP-VERIFY] ❌ createPost 응답에 유효한 id 없음. 전체 응답:', JSON.stringify(post, null, 2).slice(0, 1000));
+            onLog?.(`❌ WordPress 응답에 유효한 post ID 없음 (받은 값: ${JSON.stringify(rawId)}). 원인: HTTP+공백 username 인증 실패 또는 REST API 오류 가능성.`);
+            throw new Error(`WordPress 응답에 유효한 post ID가 없습니다. 받은 id=${JSON.stringify(rawId)}. F12 콘솔의 [WP-VERIFY] 로그 확인 부탁드립니다.`);
+        }
         if (post && post.id) {
             const apiLink2 = post.link;
             const postUrl = (typeof apiLink2 === 'string' && /^https?:\/\//i.test(apiLink2) && !/\/wp-admin\//i.test(apiLink2))
