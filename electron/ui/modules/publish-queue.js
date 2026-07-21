@@ -1631,6 +1631,14 @@ function buildItemRow(item, idx) {
       </select>
     </div>
     <div class="pq-field">
+      <label>📁 내 폴더 이미지</label>
+      <div class="pq-folder-static" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <button type="button" class="pq-item-folder-btn" data-item-id="${escHtml(item.id || '')}" style="flex:1;min-height:34px;padding:7px 10px;background:linear-gradient(135deg,#16a34a,#059669);color:#fff;border:1px solid rgba(134,239,172,0.35);border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">📁 이 글 폴더 이미지 선택</button>
+        <button type="button" class="pq-item-folder-clear" data-item-id="${escHtml(item.id || '')}" style="min-height:34px;padding:6px 10px;background:rgba(239,68,68,0.14);border:1px solid rgba(248,113,113,0.32);color:#fecaca;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;">초기화</button>
+        <span class="pq-item-folder-badge" style="font-size:11px;color:${(item.perItemFolderImages && item.perItemFolderImages.length) ? '#86efac' : 'rgba(226,232,240,0.55)'};font-weight:700;">${(item.perItemFolderImages && item.perItemFolderImages.length) ? `${item.perItemFolderImages.length}장 개별 적용` : '일괄 설정 사용 중'}</span>
+      </div>
+    </div>
+    <div class="pq-field">
       <label>CTA</label>
       <select class="pq-item-cta">
         <option value="auto" ${item.ctaMode === 'auto' ? 'selected' : ''}>자동</option>
@@ -1844,6 +1852,59 @@ function bindItemEvents() {
     row.querySelector('.pq-item-wp-category')?.addEventListener('change', e => {
       item.wordpressCategory = e.target.value || '';
       saveItem();
+    });
+    // v3.8.329: 항목별 내 폴더 이미지 선택 (사용자 보고: "각각 대기열에는 없어")
+    row.querySelector('.pq-item-folder-btn')?.addEventListener('click', async () => {
+      if (typeof window.openFolderImagesForArticleModal !== 'function') {
+        alert('내 폴더 이미지 배치 기능이 아직 로드되지 않았습니다. 앱을 새로고침한 뒤 다시 시도해주세요.');
+        return;
+      }
+      // 기존 전역 백업
+      const savedGlobal = {
+        images: window.__preGeneratedImagesForArticle,
+        thumb: window.__preGeneratedThumbnailForArticle,
+        mode: window.__preGeneratedMappingMode,
+        titles: window.__folderImageH2Titles,
+        topic: window.__folderImageHeadingTopic,
+      };
+      // 항목별 기존 매핑 있으면 로드
+      if (item.perItemFolderImages) {
+        window.__preGeneratedImagesForArticle = item.perItemFolderImages;
+        window.__preGeneratedThumbnailForArticle = item.perItemFolderThumbnail || null;
+        window.__preGeneratedMappingMode = item.perItemFolderMode || 'auto';
+      }
+      await window.openFolderImagesForArticleModal();
+      // 저장 후 → 항목에 복사
+      item.perItemFolderImages = Array.isArray(window.__preGeneratedImagesForArticle) ? [...window.__preGeneratedImagesForArticle] : [];
+      item.perItemFolderThumbnail = window.__preGeneratedThumbnailForArticle;
+      item.perItemFolderMode = window.__preGeneratedMappingMode || 'auto';
+      // 전역 복원 (다른 항목/일괄 영향 X)
+      window.__preGeneratedImagesForArticle = savedGlobal.images;
+      window.__preGeneratedThumbnailForArticle = savedGlobal.thumb;
+      window.__preGeneratedMappingMode = savedGlobal.mode;
+      window.__folderImageH2Titles = savedGlobal.titles;
+      window.__folderImageHeadingTopic = savedGlobal.topic;
+      saveItem();
+      // 배지 갱신
+      const badge = row.querySelector('.pq-item-folder-badge');
+      if (badge) {
+        const count = item.perItemFolderImages.length;
+        badge.textContent = count > 0 ? `${count}장 개별 적용` : '일괄 설정 사용 중';
+        badge.style.color = count > 0 ? '#86efac' : 'rgba(226,232,240,0.55)';
+      }
+    });
+    row.querySelector('.pq-item-folder-clear')?.addEventListener('click', () => {
+      if (!(item.perItemFolderImages && item.perItemFolderImages.length)) return;
+      if (!confirm('이 글의 개별 폴더 이미지 매핑을 초기화할까요? (일괄 설정으로 되돌아감)')) return;
+      item.perItemFolderImages = null;
+      item.perItemFolderThumbnail = null;
+      item.perItemFolderMode = null;
+      saveItem();
+      const badge = row.querySelector('.pq-item-folder-badge');
+      if (badge) {
+        badge.textContent = '일괄 설정 사용 중';
+        badge.style.color = 'rgba(226,232,240,0.55)';
+      }
     });
     const saveManualCta = () => {
       item.manualCta = normalizeManualCta({
@@ -2126,6 +2187,20 @@ function applyItemToMainForm(item, scheduleDateIso) {
   setRadio('postingMode', item.postingMode === 'publish' ? 'immediate' : item.postingMode);
   if (item.postingMode === 'schedule' && scheduleDateIso) {
     setValue('scheduleDateTime', toLocalDateTimeInputValue(new Date(scheduleDateIso)));
+  }
+
+  // v3.8.329: 항목별 내 폴더 이미지 전역 적용 (사용자 보고: "각각 대기열에는 없어")
+  //   개별 매핑이 있으면 그것을 window 전역에 세팅 → payload 구성 시 자동 반영.
+  //   개별 매핑 없으면 일괄 설정(현재 window 값) 그대로 유지.
+  try {
+    if (item.perItemFolderImages && Array.isArray(item.perItemFolderImages) && item.perItemFolderImages.length > 0) {
+      window.__preGeneratedImagesForArticle = item.perItemFolderImages;
+      window.__preGeneratedThumbnailForArticle = item.perItemFolderThumbnail || null;
+      window.__preGeneratedMappingMode = item.perItemFolderMode || 'auto';
+      console.log(`[QUEUE] 📁 항목별 폴더 이미지 적용: ${item.perItemFolderImages.length}장`);
+    }
+  } catch (e) {
+    console.warn('[QUEUE] perItemFolderImages 적용 실패:', e);
   }
 
   // Every queue item must start from an empty article. Otherwise Agent mode can
