@@ -2165,6 +2165,23 @@ JSON만 출력:
       { pattern: /건강보험|건보|의료보험/, url: 'https://www.nhis.or.kr/', btnText: '🏥 건강보험 조회하기', hookText: '건강보험 자격·보험료를 공식 사이트에서 확인하세요.' },
       { pattern: /고용보험|실업급여|취업|구직/, url: 'https://www.ei.go.kr/', btnText: '💼 고용보험 조회하기', hookText: '고용보험 자격·실업급여를 바로 확인하세요.' },
       { pattern: /부동산|아파트|전세|월세|집값|매매|실거래/, url: 'https://rt.molit.go.kr/', btnText: '🏠 실거래가 조회하기', hookText: '국토교통부 실거래가 공개시스템에서 확인하세요.' },
+      // v3.8.327: 자격증·국가시험 매핑 (사용자 보고: "세무사 시험일정" 같은 자격증 CTA 부정확)
+      // 한국산업인력공단 Q-net — 대부분 국가전문자격시험 통합 관리
+      { pattern: /세무사|변리사|공인노무사|감정평가사|법무사|행정사|관세사|손해사정사|공인중개사|주택관리사|기술사|기능장|기능사|산업기사|기사\s|국가기술자격/, url: 'https://www.q-net.or.kr/', btnText: '📚 Q-net 시험 정보 확인', hookText: '한국산업인력공단 Q-net에서 시험 일정·응시 자격을 정확히 확인하세요.' },
+      // 회계사(공인회계사)
+      { pattern: /공인회계사|회계사\s?시험|CPA/, url: 'https://cpa.fss.or.kr/', btnText: '📊 금감원 CPA 시험 정보', hookText: '금융감독원 공식 CPA 시험 페이지에서 확인하세요.' },
+      // 변호사시험
+      { pattern: /변호사시험|로스쿨\s?시험|법조인|사법시험/, url: 'https://www.moj.go.kr/moj/index.do', btnText: '⚖️ 법무부 변호사시험 정보', hookText: '법무부 공식 페이지에서 확인하세요.' },
+      // 공무원시험
+      { pattern: /공무원\s?시험|9급|7급|국가직|지방직|경찰\s?시험|소방\s?시험/, url: 'https://gosi.kr/', btnText: '👮 사이버국가고시센터', hookText: '공무원시험 원서 접수·일정을 공식 사이트에서 확인하세요.' },
+      // 수능·모의고사
+      { pattern: /수능|대학수학능력|모의고사|EBS|한국교육과정평가원/, url: 'https://www.suneung.re.kr/', btnText: '🎓 수능 공식 사이트', hookText: '한국교육과정평가원 수능 공식 페이지에서 확인하세요.' },
+      // 토익·토플·오픽·JLPT 등 어학시험
+      { pattern: /토익|TOEIC|OPIC|오픽|토플|TOEFL|IELTS|아이엘츠|JLPT|일본어능력/, url: 'https://exam.toeic.co.kr/', btnText: '🎧 어학시험 공식 접수', hookText: '어학시험 원서 접수를 공식 사이트에서 확인하세요.' },
+      // 자동차·운전면허
+      { pattern: /운전면허|면허\s?시험|도로주행|기능시험/, url: 'https://dls.koroad.or.kr/', btnText: '🚗 도로교통공단 안전운전 통합민원', hookText: '운전면허 시험 예약·조회를 공식 사이트에서 하세요.' },
+      // 자격증 일반 (fallback)
+      { pattern: /자격증|국가시험|시험\s?일정|응시\s?자격|시험\s?접수/, url: 'https://www.q-net.or.kr/', btnText: '📚 Q-net 통합 자격 정보', hookText: '한국산업인력공단 Q-net에서 국가전문자격 정보를 확인하세요.' },
     ];
 
     if (safeCTAs.length === 0) {
@@ -2277,6 +2294,12 @@ JSON만 출력:
       // 채용
       { keywords: ['공무원시험'], actionUrl: 'https://gosi.kr/' },
       { keywords: ['공기업 채용', '나라일터'], actionUrl: 'https://www.gojobs.go.kr/' },
+      // v3.8.327: 자격증·국가전문자격시험 (Q-net 통합)
+      { keywords: ['세무사', '변리사', '공인노무사', '감정평가사', '법무사', '행정사', '관세사', '손해사정사', '공인중개사', '주택관리사', '기술사', '기능장', '기능사', '산업기사', '국가기술자격', 'Q-net', 'q-net'], actionUrl: 'https://www.q-net.or.kr/' },
+      { keywords: ['공인회계사', 'CPA', '회계사시험'], actionUrl: 'https://cpa.fss.or.kr/' },
+      { keywords: ['변호사시험', '로스쿨시험'], actionUrl: 'https://www.moj.go.kr/moj/index.do' },
+      { keywords: ['수능', '대학수학능력', '수능일정'], actionUrl: 'https://www.suneung.re.kr/' },
+      { keywords: ['토익', 'TOEIC', '토플', 'TOEFL', '오픽', 'OPIC', 'JLPT'], actionUrl: 'https://exam.toeic.co.kr/' },
     ];
     const detectIntent = (text: string): 'action' | 'info' => {
       const t = String(text || '').toLowerCase();
