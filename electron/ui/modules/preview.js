@@ -149,8 +149,10 @@ export async function generatePreview() {
 // v3.8.326: 재발행 대기열 배너 렌더 (사용자 보고: "생성된 글 날아가는 게 아까움")
 export function renderRepublishQueueBanner() {
   try {
+    // v3.8.334: 미리보기 DOM이 없어 배너가 표시되지 않던 버그 수정 — main-tab의 전용 컨테이너 우선
+    const host = document.getElementById('republishQueueContainer');
     const previewContent = DOMCache.get('previewContent');
-    if (!previewContent) return;
+    if (!host && !previewContent) return;
     const queue = JSON.parse(localStorage.getItem('pendingRepublishQueue') || '[]');
     // 기존 배너 제거
     document.getElementById('republishQueueBanner')?.remove();
@@ -178,6 +180,7 @@ export function renderRepublishQueueBanner() {
               <div style="font-size:11px;color:#6b7280;">${item.platform} · ${new Date(item.savedAt).toLocaleString('ko-KR')} · 실패: ${(item.lastError || '').slice(0, 60)}</div>
             </div>
             <div style="display:flex;gap:6px;">
+              <button class="republishEditBtn" data-id="${item.id}" style="padding:8px 14px;background:#6366f1;color:#fff;border:none;border-radius:8px;font-weight:800;cursor:pointer;font-size:13px;box-shadow:0 2px 6px rgba(99,102,241,0.3);">✏️ 편집</button>
               <button class="republishBtn" data-id="${item.id}" style="padding:8px 16px;background:#f59e0b;color:#fff;border:none;border-radius:8px;font-weight:800;cursor:pointer;font-size:13px;box-shadow:0 2px 6px rgba(245,158,11,0.3);">🚀 재발행</button>
               <button class="republishDeleteBtn" data-id="${item.id}" style="padding:8px 12px;background:#fff;color:#dc2626;border:1px solid #fca5a5;border-radius:8px;font-weight:700;cursor:pointer;font-size:12px;">🗑️</button>
             </div>
@@ -185,7 +188,19 @@ export function renderRepublishQueueBanner() {
         `).join('')}
       </div>
     `;
-    previewContent.parentNode?.insertBefore(banner, previewContent);
+    if (host) {
+      host.prepend(banner);
+    } else {
+      previewContent.parentNode?.insertBefore(banner, previewContent);
+    }
+
+    // ✏️ 편집 버튼 이벤트 (비주얼 편집기)
+    banner.querySelectorAll('.republishEditBtn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        window.openVisualEditor?.({ kind: 'republish', itemId: id });
+      });
+    });
 
     // 재발행 버튼 이벤트
     banner.querySelectorAll('.republishBtn').forEach(btn => {
@@ -258,6 +273,7 @@ if (typeof window !== 'undefined') {
 
 export function displayPreviewInModal() {
   console.log('[DISPLAY-PREVIEW] 미리보기 탭에 표시 시작');
+  window.veRefreshEntryButton?.();
 
   // v3.8.326: 재발행 대기열 배너 자동 표시
   renderRepublishQueueBanner();

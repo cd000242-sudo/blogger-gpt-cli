@@ -17,6 +17,7 @@ export function initSidebar() {
         { id: 'nav-auto', icon: '⚡', label: '글포스팅', action: () => window.showTab?.('settings') },
         { id: 'nav-intlinks-page', icon: '🕸️', label: '거미줄포스팅', action: () => window.showTab?.('internal-links') },
         { id: 'nav-external-traffic', icon: '🚀', label: '외부유입글생성', action: () => window.showTab?.('external-traffic') },
+        { id: 'nav-published-posts', icon: '📋', label: '생성된글목록', action: () => window.showTab?.('published-posts') },
         // 숨김 — 기존 메뉴 유지용
         { id: 'nav-semiauto', icon: '🎨', label: '반자동', action: () => window.showTab?.('semi-auto'), hidden: true },
         { id: 'nav-schedule', icon: '📅', label: '스케줄', action: () => window.showTab?.('schedule'), hidden: true },

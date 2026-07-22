@@ -16,6 +16,7 @@ const TOP_LEVEL_TAB_IDS = [
   'internal-links-tab',
   'external-traffic-tab',
   'image-batch-tab',
+  'published-posts-tab',
 ];
 
 function getTopLevelTabElements() {
@@ -405,6 +406,13 @@ export function showTab(tabName) {
         // 초기 비용 미리보기만 갱신한다.
         // v3.8.120: 탭 진입만으로 Dropshot 브라우저 로그인 체크를 실행하지 않는다.
         try { window.updateBatchImageCost?.(); } catch { /* ignore */ }
+      }
+      break;
+    case 'published-posts':
+      // v3.8.334: 생성된 글목록 탭 — Blogger 발행 글 목록·미리보기·수정발행
+      targetTab = document.getElementById('published-posts-tab');
+      if (targetTab && window.__initPublishedPostsTab) {
+        try { window.__initPublishedPostsTab(); } catch (e) { console.warn('[POSTS-TAB] init 실패:', e); }
       }
       break;
     default:

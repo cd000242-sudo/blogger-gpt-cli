@@ -106,6 +106,24 @@ function installDeferredGlobalWrappers() {
     if (typeof fn === 'function' && fn !== before) return fn(...args);
     return undefined;
   };
+
+  // ✏️ 비주얼 글 편집기 (생성 직후 / 재발행 대기열 / 외부 HTML 파일 / 발행된 글)
+  window.openVisualEditor = async (...args) => {
+    const mod = await loadDeferredModule('editor', () => import('./editor.js'));
+    return mod.openVisualEditor?.(...args);
+  };
+  window.openHtmlFileEditor = async () => window.openVisualEditor({ kind: 'file' });
+  window.__initPublishedPostsTab = async (...args) => {
+    const mod = await loadDeferredModule('published-posts', () => import('./published-posts.js'));
+    return mod.initPublishedPostsTab?.(...args);
+  };
+  window.veRefreshEntryButton = () => {
+    try {
+      const has = Boolean(String(getAppState().generatedContent?.content || '').trim());
+      const btn = document.getElementById('editGeneratedBtn');
+      if (btn) btn.style.display = has ? 'inline-flex' : 'none';
+    } catch { /* noop */ }
+  };
 }
 
 function scheduleDeferredStartupModules() {
@@ -154,6 +172,17 @@ function scheduleDeferredStartupModules() {
       console.warn('[WIZARD] deferred init failed:', error);
     }
   }, 2400);
+
+  // ✏️ 편집 버튼 표시 상태 + 재발행 대기열 배너 (앱 시작 시 복원)
+  idleTask(() => {
+    try {
+      getAppState().on('generatedContent', () => window.veRefreshEntryButton?.());
+    } catch (error) {
+      console.warn('[EDITOR] generatedContent listener 등록 실패:', error);
+    }
+    window.veRefreshEntryButton?.();
+    try { window.renderRepublishQueueBanner?.(); } catch (error) { console.warn('[REPUBLISH-BANNER] 초기 렌더 실패:', error); }
+  }, 2000);
 }
 
 installDeferredGlobalWrappers();

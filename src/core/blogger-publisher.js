@@ -6408,6 +6408,129 @@ async function getBloggerInfo(payload, onLog) {
   }
 }
 
+// ============================================
+// ✏️ 생성된 글목록 탭 — Blogger 글 목록 조회 / 수정발행
+// ============================================
+
+/**
+ * 인증된 Blogger API 클라이언트 + blogId 구성.
+ * publishToBlogger와 동일한 우선순위(payload → .env → process.env)로 설정을 읽고
+ * 저장된 토큰(blogger-token.json)으로 OAuth2 클라이언트를 만든다.
+ * refresh_token이 설정돼 있으면 googleapis가 만료 토큰을 자동 갱신한다.
+ */
+async function createBloggerApiClient(payload = {}) {
+  const envVars = loadEnvironmentVariables();
+
+  const clientId = String(
+    payload.googleClientId ||
+    envVars.GOOGLE_CLIENT_ID || envVars.googleClientId || envVars.google_client_id ||
+    process.env.GOOGLE_CLIENT_ID || ''
+  ).trim();
+  const clientSecret = String(
+    payload.googleClientSecret ||
+    envVars.GOOGLE_CLIENT_SECRET || envVars.googleClientSecret || envVars.google_client_secret ||
+    process.env.GOOGLE_CLIENT_SECRET || ''
+  ).trim();
+  const blogId = String(
+    payload.blogId ||
+    envVars.BLOGGER_BLOG_ID || envVars.bloggerBlogId ||
+    envVars.GOOGLE_BLOG_ID || envVars.googleBlogId ||
+    envVars.BLOG_ID || envVars.blogId ||
+    process.env.BLOGGER_BLOG_ID || process.env.GOOGLE_BLOG_ID || process.env.BLOG_ID || ''
+  ).trim();
+
+  if (!clientId || !clientSecret) {
+    throw new Error('Google OAuth2 Client ID/Secret이 설정되지 않았습니다. 환경설정을 확인해주세요.');
+  }
+  if (!blogId) {
+    throw new Error('Blogger Blog ID가 설정되지 않았습니다. 환경설정을 확인해주세요.');
+  }
+
+  const authStatus = await checkBloggerAuthStatus();
+  const tokenData = authStatus?.tokenData;
+  if (!tokenData?.access_token && !tokenData?.refresh_token) {
+    const err = new Error(authStatus?.error || 'Blogger 인증 토큰이 없습니다. 환경설정에서 "Blogger OAuth2 인증"을 진행해주세요.');
+    err.needsAuth = true;
+    throw err;
+  }
+
+  const { OAuth2Client } = require('google-auth-library');
+  const oauth2Client = new OAuth2Client(clientId, clientSecret, 'http://127.0.0.1:58392/callback');
+  oauth2Client.setCredentials({
+    access_token: tokenData.access_token || undefined,
+    refresh_token: tokenData.refresh_token || undefined,
+  });
+  const blogger = google.blogger({ version: 'v3', auth: oauth2Client });
+  return { blogger, blogId };
+}
+
+function toBloggerApiError(error) {
+  const message = error?.response?.data?.error?.message || error?.message || String(error);
+  const needsAuth = Boolean(error?.needsAuth) || /invalid_grant|unauthorized|401|invalid credentials/i.test(message);
+  return { ok: false, error: message, needsAuth };
+}
+
+/**
+ * 발행된 글 목록 조회 (live 글만) — 새로고침 시 블로그에서 삭제/수동수정된 내용이 그대로 반영된다.
+ * @returns { ok, items:[{id,title,url,published,updated,content}], nextPageToken, blogUrl }
+ */
+async function listBloggerPosts(options = {}) {
+  try {
+    const { blogger, blogId } = await createBloggerApiClient(options.payload || {});
+    const res = await blogger.posts.list({
+      blogId,
+      maxResults: Math.min(Math.max(Number(options.maxResults) || 20, 1), 50),
+      pageToken: options.pageToken || undefined,
+      orderBy: 'published',
+      status: 'live',
+      fetchBodies: true,
+      fetchImages: true,
+    });
+    const items = (res.data.items || []).map((p) => ({
+      id: String(p.id || ''),
+      title: p.title || '',
+      url: p.url || '',
+      published: p.published || '',
+      updated: p.updated || '',
+      content: p.content || '',
+      imageUrl: (Array.isArray(p.images) && p.images[0]?.url) || '',
+    }));
+    return { ok: true, items, nextPageToken: res.data.nextPageToken || null };
+  } catch (error) {
+    console.error('[POSTS-LIST] ❌ 글 목록 조회 실패:', error?.message || error);
+    return toBloggerApiError(error);
+  }
+}
+
+/**
+ * 수정발행 — posts.patch로 제목/본문만 갱신 (라벨/발행일 등은 보존).
+ * @returns { ok, postId, url, updated }
+ */
+async function updateBloggerPost(options = {}) {
+  try {
+    const postId = String(options.postId || '').trim();
+    const title = String(options.title || '').trim();
+    const content = String(options.content || '');
+    if (!postId) return { ok: false, error: 'postId가 없습니다.' };
+    if (!content.trim()) return { ok: false, error: '본문이 비어 있습니다.' };
+
+    const { blogger, blogId } = await createBloggerApiClient(options.payload || {});
+    const requestBody = { content };
+    if (title) requestBody.title = title.substring(0, MAX_TITLE_LENGTH);
+    const res = await blogger.posts.patch({ blogId, postId, requestBody });
+    console.log(`[POSTS-UPDATE] ✅ 수정발행 완료: ${res.data.url || postId}`);
+    return {
+      ok: true,
+      postId: String(res.data.id || postId),
+      url: res.data.url || '',
+      updated: res.data.updated || '',
+    };
+  } catch (error) {
+    console.error('[POSTS-UPDATE] ❌ 수정발행 실패:', error?.message || error);
+    return toBloggerApiError(error);
+  }
+}
+
 module.exports = {
   publishToBlogger,
   getBloggerAuthUrl,
@@ -6417,6 +6540,9 @@ module.exports = {
   // v3.8.26: 거미줄 미리보기 = 발행 일치 — applyInlineStyles를 거미줄 백엔드에서도 호출 가능하도록
   applyInlineStyles,
   isPublishableBloggerImageUrl,
+  // v3.8.334: 생성된 글목록 탭 — 목록 조회/수정발행
+  listBloggerPosts,
+  updateBloggerPost,
 };
 
 

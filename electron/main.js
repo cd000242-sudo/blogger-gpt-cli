@@ -3750,6 +3750,174 @@ electron_1.ipcMain.handle('delete-image-folder', async (_evt, folderPath) => {
 });
 console.log('[IMAGE-COLLECTOR] ✅ 이미지 수집 핸들러 등록 완료');
 // ============================================
+// ✏️ 비주얼 글 편집기 핸들러 (이미지 선택/호스팅 + HTML 파일 열기/저장)
+// ============================================
+const EDITOR_IMAGE_MIME_BY_EXT = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.bmp': 'image/bmp',
+    '.avif': 'image/avif',
+};
+const EDITOR_IMAGE_MAX_BYTES = 15 * 1024 * 1024;
+const EDITOR_HTML_MAX_BYTES = 20 * 1024 * 1024;
+electron_1.ipcMain.handle('select-image-files', async (_evt, opts) => {
+    try {
+        const result = await electron_1.dialog.showOpenDialog({
+            title: '이미지 선택',
+            properties: opts?.multi === false ? ['openFile'] : ['openFile', 'multiSelections'],
+            filters: [{ name: '이미지', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif'] }],
+        });
+        if (result.canceled || !result.filePaths?.length) {
+            return { ok: false, canceled: true, files: [] };
+        }
+        const files = [];
+        const skipped = [];
+        for (const filePath of result.filePaths) {
+            try {
+                const resolved = path.resolve(filePath);
+                const mime = EDITOR_IMAGE_MIME_BY_EXT[path.extname(resolved).toLowerCase()];
+                if (!mime) {
+                    skipped.push(`${path.basename(resolved)} (지원하지 않는 형식)`);
+                    continue;
+                }
+                const stat = fs.statSync(resolved);
+                if (stat.size > EDITOR_IMAGE_MAX_BYTES) {
+                    skipped.push(`${path.basename(resolved)} (15MB 초과)`);
+                    continue;
+                }
+                const buffer = fs.readFileSync(resolved);
+                files.push({ path: resolved, name: path.basename(resolved), dataUrl: `data:${mime};base64,${buffer.toString('base64')}` });
+            }
+            catch (e) {
+                skipped.push(`${path.basename(filePath)} (${e?.message || '읽기 실패'})`);
+            }
+        }
+        if (!files.length) {
+            return { ok: false, files: [], skipped, error: '선택한 이미지를 읽지 못했습니다.' };
+        }
+        return { ok: true, files, skipped };
+    }
+    catch (error) {
+        return { ok: false, files: [], error: error.message || String(error) };
+    }
+});
+electron_1.ipcMain.handle('host-user-image', async (_evt, args) => {
+    try {
+        const dataUrl = String(args?.dataUrl || '').trim();
+        if (!/^data:image\/(png|jpe?g|webp|gif|bmp|avif);base64,/i.test(dataUrl)) {
+            return { ok: false, error: '올바른 이미지 데이터가 아닙니다.' };
+        }
+        const label = String(args?.label || 'editor').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'editor';
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                const { uploadBase64ToImageHost } = require('../dist/core/final/image-helpers');
+                const hostedUrl = await uploadBase64ToImageHost(dataUrl, label);
+                if (typeof hostedUrl === 'string' && hostedUrl) {
+                    console.log(`[EDITOR] ✅ 사용자 이미지 호스팅 성공 (${label}, attempt=${attempt}):`, hostedUrl.substring(0, 80));
+                    return { ok: true, url: hostedUrl };
+                }
+            }
+            catch (e) {
+                console.warn(`[EDITOR] 사용자 이미지 호스팅 예외 (${label}, attempt=${attempt}):`, e?.message?.substring(0, 200));
+            }
+            if (attempt < 2)
+                await new Promise((r) => setTimeout(r, 2000));
+        }
+        return { ok: false, error: 'hosting_failed' };
+    }
+    catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+});
+electron_1.ipcMain.handle('open-html-file', async (_evt, args) => {
+    try {
+        let filePath = String(args?.filePath || '').trim();
+        if (!filePath) {
+            const result = await electron_1.dialog.showOpenDialog({
+                title: 'HTML/텍스트 파일 열기',
+                properties: ['openFile'],
+                filters: [
+                    { name: 'HTML/텍스트', extensions: ['html', 'htm', 'txt'] },
+                    { name: '모든 파일', extensions: ['*'] },
+                ],
+            });
+            if (result.canceled || !result.filePaths?.[0]) {
+                return { ok: false, canceled: true };
+            }
+            filePath = result.filePaths[0];
+        }
+        const resolved = path.resolve(filePath);
+        if (!fs.existsSync(resolved))
+            return { ok: false, error: '파일을 찾을 수 없습니다.' };
+        const stat = fs.statSync(resolved);
+        if (stat.size > EDITOR_HTML_MAX_BYTES)
+            return { ok: false, error: '파일이 너무 큽니다 (20MB 초과).' };
+        const content = fs.readFileSync(resolved, 'utf-8');
+        return { ok: true, filePath: resolved, content };
+    }
+    catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+});
+electron_1.ipcMain.handle('save-html-file', async (_evt, args) => {
+    try {
+        const content = String(args?.content ?? '');
+        let filePath = String(args?.filePath || '').trim();
+        if (!filePath) {
+            const result = await electron_1.dialog.showSaveDialog({
+                title: 'HTML 파일 저장',
+                defaultPath: String(args?.defaultName || '편집한-글.html'),
+                filters: [
+                    { name: 'HTML/텍스트', extensions: ['html', 'htm', 'txt'] },
+                    { name: '모든 파일', extensions: ['*'] },
+                ],
+            });
+            if (result.canceled || !result.filePath) {
+                return { ok: false, canceled: true };
+            }
+            filePath = result.filePath;
+        }
+        const resolved = path.resolve(filePath);
+        fs.writeFileSync(resolved, content, 'utf-8');
+        return { ok: true, filePath: resolved };
+    }
+    catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+});
+console.log('[EDITOR] ✅ 비주얼 편집기 핸들러 등록 완료');
+// ============================================
+// 📋 생성된 글목록 탭 핸들러 (Blogger 목록 조회 / 수정발행)
+// ============================================
+electron_1.ipcMain.handle('blogger-list-posts', async (_evt, args) => {
+    try {
+        const bloggerPublisher = require('../dist/core/blogger-publisher');
+        if (typeof bloggerPublisher.listBloggerPosts !== 'function') {
+            return { ok: false, error: '글 목록 기능을 사용할 수 없습니다. 앱을 재빌드해주세요.' };
+        }
+        return await bloggerPublisher.listBloggerPosts(args || {});
+    }
+    catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+});
+electron_1.ipcMain.handle('blogger-update-post', async (_evt, args) => {
+    try {
+        const bloggerPublisher = require('../dist/core/blogger-publisher');
+        if (typeof bloggerPublisher.updateBloggerPost !== 'function') {
+            return { ok: false, error: '수정발행 기능을 사용할 수 없습니다. 앱을 재빌드해주세요.' };
+        }
+        return await bloggerPublisher.updateBloggerPost(args || {});
+    }
+    catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+});
+console.log('[POSTS-TAB] ✅ 생성된 글목록 핸들러 등록 완료');
+// ============================================
 // 🔥 Blogger OAuth 인증 핸들러
 // ============================================
 function buildBloggerTokenFileData(tokenData) {

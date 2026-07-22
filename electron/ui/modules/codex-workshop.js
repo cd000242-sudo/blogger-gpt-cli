@@ -4364,6 +4364,7 @@ export async function applyCodexResult(options = {}) {
     displayPreviewInModal();
     closeCodexWorkshopPanel();
     addLog(`Codex 산출물을 미리보기로 적용했습니다. (${getTextLength(html).toLocaleString()}자)`, 'success');
+    window.veRefreshEntryButton?.();
   } catch (error) {
     console.error('[CODEX-WORKSHOP] apply failed:', error);
     alert(`Codex 산출물 적용에 실패했습니다: ${error?.message || error}`);
