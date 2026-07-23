@@ -44,7 +44,12 @@ describe('automateBloggerConnect manual gates', () => {
 
     expect(state.completed).toBe(false);
     expect(state.stepStatus).toBe('waiting-login');
-    expect(state.error).toContain('Google Cloud Console 창 준비를 확인하지 못했습니다');
+    // 사유는 message로 전달한다 — UI(oneclick-setup.js)가 `🔐 ${message}`로 표시한다.
+    expect(state.message).toContain('Google Cloud Console 창 준비를 확인하지 못했습니다');
+    // v3.8.123 one-click setup hardening: 수동 단계 대기는 치명적 오류가 아니다.
+    //   error를 채우면 UI가 폴링을 끊고 실패 처리(clearPoll + setFailed)해서,
+    //   사용자가 로그인을 마쳐도 이어서 진행되지 않는다.
+    expect(state.error).toBeNull();
     expect(page.goto).toHaveBeenCalledTimes(1);
     expect(page.goto.mock.calls.map((call: unknown[]) => call[0])).not.toContain('https://console.cloud.google.com/projectcreate');
   });

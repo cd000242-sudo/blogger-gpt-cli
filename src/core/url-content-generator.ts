@@ -18,6 +18,7 @@ import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { loadEnvFromFile } from '../env';
+import { isYouTubeUrl, fetchYouTubeSource, toCrawlContent } from './youtube-source';
 import { callGeminiWithRetry } from './final/gemini-engine';
 
 const URL_GEN_AXIOS_TIMEOUT_MS = Number(process.env['URL_GEN_AXIOS_TIMEOUT_MS'] || 8000);
@@ -224,6 +225,23 @@ function getGenAI(): GoogleGenerativeAI {
 
 export async function deepCrawlUrl(url: string): Promise<UrlCrawlResult> {
   console.log(`[URL-GEN] 🔍 URL 깊이 크롤링 시작: ${url.substring(0, 60)}...`);
+
+  // 🎬 유튜브는 영상 내용이 HTML에 없다 — cheerio로 긁으면 페이지 푸터(약관 문구)만 남아
+  //   영상과 무관한 글이 만들어진다. 전용 수집기(자막·설명)로 우회한다.
+  if (isYouTubeUrl(url)) {
+    const source = await fetchYouTubeSource(url);
+    console.log(`[URL-GEN] 🎬 유튜브 소스 확보: "${source.title}" (자막 ${source.transcript.length}자, 설명 ${source.description.length}자)`);
+    return {
+      url: source.url,
+      title: source.title,
+      content: toCrawlContent(source),
+      subheadings: [],
+      metaDescription: source.description.slice(0, 300),
+      keywords: source.title.split(/\s+/).filter(Boolean).slice(0, 6),
+      images: [`https://i.ytimg.com/vi/${source.videoId}/maxresdefault.jpg`],
+      author: source.channel,
+    };
+  }
 
   let html = '';
   try {
