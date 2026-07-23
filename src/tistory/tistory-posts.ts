@@ -3,7 +3,7 @@
 // 티스토리는 공개 Open API가 종료돼 REST 호출이 불가능하다. 그래서 발행과 똑같이
 // 로그인된 브라우저 세션(Playwright, tistory-session.ts)으로 관리 화면과 편집기를 직접 다룬다.
 //   목록  : /manage/posts 를 긁어 글 id·제목·날짜·썸네일 확보 (본문은 포함하지 않음)
-//   본문  : /manage/newpost/{id} 편집기를 HTML 모드로 열어 원본 HTML을 그대로 읽음
+//   본문  : /manage/post/{id} 편집기를 HTML 모드로 열어 원본 HTML을 그대로 읽음
 //   수정발행: 같은 편집기에 제목/본문을 채워 넣고 발행 레이어에서 "수정" 확인
 //
 // 응답 규격은 Blogger/WordPress와 동일하게 맞춘다.
@@ -105,50 +105,87 @@ async function ensureLoggedIn(page: any, config: TistoryConfig): Promise<boolean
 // 목록
 // ─────────────────────────────────────────────
 
-async function scrapeManagePosts(page: any): Promise<{ items: ScrapedPost[]; maxPage: number }> {
+type ScrapeDiagnostics = {
+  editLinks: number;
+  dataIdNodes: number;
+  checkboxes: number;
+  pageTitle: string;
+  bodyTextHead: string;
+};
+
+async function scrapeManagePosts(page: any): Promise<{ items: ScrapedPost[]; maxPage: number; diagnostics: ScrapeDiagnostics }> {
   return page.evaluate(() => {
     const normalize = (value: unknown) => String(value || '')
       .replace(/ /g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 
-    const findRow = (element: Element): Element | null => (
-      element.closest('li, tr, article, [class*="item" i], [class*="post" i]') || element.parentElement
-    );
+    // 실제 구조(2026-07 확인):
+    //   <ul class="list_post"><li>
+    //     <div class="check_blog"><input id="inpCheck313"></div>
+    //     <div class="post_cont">
+    //       <strong class="tit_post"><a class="link_cont" href="https://blog.tistory.com/entry/..." title="제목">제목</a></strong>
+    //       <a href="/manage/posts?category=N"><span class="txt_cate">카테고리</span></a>
+    //       <span class="txt_info">작성자</span><span class="txt_info">2026-06-29 18:15</span>
+    //     </div>
+    //     <div class="post_btn">... <a class="btn_post" href="/manage/post/313?returnURL=...">수정</a> ...</div>
+    //   </li></ul>
+    const rowNodes = new Set<Element>();
+    document.querySelectorAll('ul[class*="list_post"] > li').forEach((row) => rowNodes.add(row));
+    if (rowNodes.size === 0) {
+      // 목록 컨테이너 클래스가 바뀌었을 때의 폴백 — 글 id를 가진 링크에서 행을 거슬러 올라간다.
+      //   ⚠️ 앵커 자신이 행으로 잡히면 안 된다(예: <a class="btn_post">는 [class*="post"]에 매칭됨).
+      //   그래서 부모에서부터 closest를 시작한다.
+      document.querySelectorAll('a[href*="/manage/post/"], a[href*="/manage/newpost/"]').forEach((anchor) => {
+        const parent = anchor.parentElement;
+        const row = parent ? (parent.closest('li, tr, article') || parent.closest('[class*="item" i]')) : null;
+        if (row) rowNodes.add(row);
+      });
+    }
 
-    const actionLabel = /^(수정|편집|삭제|관리|미리보기|더보기|공유)$/;
+    const readPostId = (row: Element): string => {
+      const editHref = Array.from(row.querySelectorAll('a[href]'))
+        .map((anchor) => anchor.getAttribute('href') || '')
+        .find((href) => /\/manage\/(?:newpost|post)\/\d+/.test(href)) || '';
+      const fromEdit = editHref.match(/\/manage\/(?:newpost|post)\/(\d+)/);
+      if (fromEdit && fromEdit[1]) return fromEdit[1];
+
+      const statsHref = Array.from(row.querySelectorAll('a[href]'))
+        .map((anchor) => anchor.getAttribute('href') || '')
+        .find((href) => /\/manage\/statistics\/entry\/\d+/.test(href)) || '';
+      const fromStats = statsHref.match(/\/manage\/statistics\/entry\/(\d+)/);
+      if (fromStats && fromStats[1]) return fromStats[1];
+
+      const checkbox = row.querySelector('input[type="checkbox"][id]');
+      const fromCheckbox = (checkbox?.getAttribute('id') || '').match(/(\d+)/);
+      if (fromCheckbox && fromCheckbox[1]) return fromCheckbox[1];
+
+      const dataId = row.getAttribute('data-entry-id') || row.getAttribute('data-post-id') || row.getAttribute('data-id') || '';
+      return /^\d+$/.test(dataId.trim()) ? dataId.trim() : '';
+    };
+
     const found = new Map<string, { id: string; title: string; thumb: string; published: string; url: string }>();
 
-    document.querySelectorAll('a[href*="/manage/newpost/"]').forEach((anchor) => {
-      const href = anchor.getAttribute('href') || '';
-      const matched = href.match(/\/manage\/newpost\/(\d+)/);
-      if (!matched || !matched[1]) return;
-      const id = matched[1];
+    rowNodes.forEach((row) => {
+      const id = readPostId(row);
+      if (!id) return;
 
-      const row = findRow(anchor);
-      if (!row) return;
+      // 제목: 발행글로 나가는 링크(title 속성 우선)
+      const titleAnchor = row.querySelector('[class*="tit_post" i] a, a[class*="link_cont" i], a[href*="/entry/" i]') as HTMLAnchorElement | null;
+      const title = normalize(titleAnchor?.getAttribute('title') || titleAnchor?.innerText || titleAnchor?.textContent || '');
+
+      const entryHref = Array.from(row.querySelectorAll('a[href]'))
+        .map((anchor) => (anchor as HTMLAnchorElement).href || '')
+        .find((href) => /\/entry\//i.test(href) && !/\/manage\//i.test(href)) || '';
+
       const rowText = normalize((row as HTMLElement).innerText || row.textContent || '');
-
-      let title = normalize((anchor as HTMLElement).innerText || anchor.textContent || '');
-      if (!title || actionLabel.test(title)) {
-        const titleNode = row.querySelector('[class*="title" i], [class*="subject" i], strong, .tit');
-        title = normalize(titleNode ? ((titleNode as HTMLElement).innerText || titleNode.textContent) : '');
-      }
-      if (!title || actionLabel.test(title)) {
-        const linkNode = Array.from(row.querySelectorAll('a'))
-          .find((item) => !/\/manage\//.test(item.getAttribute('href') || '')
-            && !actionLabel.test(normalize((item as HTMLElement).innerText || item.textContent || '')));
-        title = normalize(linkNode ? ((linkNode as HTMLElement).innerText || linkNode.textContent) : '');
-      }
+      const dateMatch = rowText.match(/\d{4}[.\-/]\s?\d{1,2}[.\-/]\s?\d{1,2}(?:[.\s]+\d{1,2}:\d{2})?/);
 
       const image = row.querySelector('img') as HTMLImageElement | null;
       const thumb = image ? (image.currentSrc || image.getAttribute('src') || '') : '';
 
-      const dateMatch = rowText.match(/\d{4}[.\-/]\s?\d{1,2}[.\-/]\s?\d{1,2}(?:[.\s]+\d{1,2}:\d{2})?/);
-
-      const entryAnchor = Array.from(row.querySelectorAll('a'))
-        .map((item) => (item as HTMLAnchorElement).href || '')
-        .find((url) => /\.tistory\.com\//i.test(url) && !/\/manage\//i.test(url));
+      // 글 행의 최소 증거 — 제목·발행일·글주소 중 하나도 없으면 목록 행이 아니다
+      if (!title && !dateMatch && !entryHref) return;
 
       const previous = found.get(id);
       if (previous && previous.title && !title) return;
@@ -157,7 +194,7 @@ async function scrapeManagePosts(page: any): Promise<{ items: ScrapedPost[]; max
         title,
         thumb,
         published: dateMatch ? dateMatch[0] : '',
-        url: entryAnchor || '',
+        url: entryHref,
       });
     });
 
@@ -167,7 +204,16 @@ async function scrapeManagePosts(page: any): Promise<{ items: ScrapedPost[]; max
       if (matched && matched[1]) maxPage = Math.max(maxPage, Number(matched[1]));
     });
 
-    return { items: Array.from(found.values()), maxPage };
+    // 0건일 때 "글이 없음"인지 "화면 구조가 바뀌어 못 읽음"인지 구분하기 위한 진단값
+    const diagnostics = {
+      editLinks: document.querySelectorAll('a[href*="/manage/newpost/"], a[href*="/manage/post/"]').length,
+      dataIdNodes: rowNodes.size,
+      checkboxes: document.querySelectorAll('input[type="checkbox"]').length,
+      pageTitle: normalize(document.title).slice(0, 80),
+      bodyTextHead: normalize(document.body ? document.body.innerText : '').slice(0, 160),
+    };
+
+    return { items: Array.from(found.values()), maxPage, diagnostics };
   });
 }
 
@@ -187,16 +233,41 @@ export async function listTistoryPosts(options: {
     pageRef = session.page;
 
     const pageNo = Math.max(Number(options.pageToken) || 1, 1);
-    const listUrl = TISTORY_URLS.managePosts(session.config.blogName, pageNo);
-    await pageRef.goto(listUrl, { waitUntil: 'domcontentloaded', timeout: session.config.timeoutMs });
-    await pageRef.waitForTimeout(1500).catch(() => null);
+    // 관리 화면 주소가 개편될 수 있어 후보를 순서대로 열어보고, 글이 잡히는 첫 주소를 채택한다.
+    const candidateUrls = TISTORY_URLS.managePostsCandidates(session.config.blogName, pageNo);
+    let scraped: { items: ScrapedPost[]; maxPage: number; diagnostics: ScrapeDiagnostics } | null = null;
+    let lastUrl = '';
 
-    if (!(await ensureLoggedIn(pageRef, session.config))) {
-      throw authError('티스토리 로그인이 필요합니다. 환경설정 → 티스토리에서 카카오/티스토리 로그인을 완료한 뒤 새로고침해주세요.');
+    for (const listUrl of candidateUrls) {
+      await pageRef.goto(listUrl, { waitUntil: 'domcontentloaded', timeout: session.config.timeoutMs }).catch(() => null);
+      await pageRef.waitForTimeout(1500).catch(() => null);
+
+      if (!(await ensureLoggedIn(pageRef, session.config))) {
+        throw authError('티스토리 로그인이 필요합니다. 환경설정 → 티스토리에서 카카오/티스토리 로그인을 완료한 뒤 새로고침해주세요.');
+      }
+
+      // 관리 화면은 목록을 JS로 그리므로 DOM 준비까지 기다린다 (없으면 다음 후보 주소로)
+      await pageRef.waitForSelector('a[href*="/manage/newpost/"], a[href*="/manage/post/"]', { timeout: LIST_SELECTOR_TIMEOUT_MS }).catch(() => null);
+      await pageRef.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => null);
+
+      lastUrl = String(typeof pageRef.url === 'function' ? pageRef.url() : listUrl);
+      const attempt = await scrapeManagePosts(pageRef);
+      log(`목록 후보 ${listUrl} → 글 ${attempt.items.length}개 (편집링크 ${attempt.diagnostics.editLinks}개)`);
+      if (!scraped || attempt.items.length > scraped.items.length) scraped = attempt;
+      if (attempt.items.length > 0) break;
     }
 
-    await pageRef.waitForSelector('a[href*="/manage/newpost/"]', { timeout: LIST_SELECTOR_TIMEOUT_MS }).catch(() => null);
-    const scraped = await scrapeManagePosts(pageRef);
+    if (!scraped || scraped.items.length === 0) {
+      // 여기서 빈 목록을 성공으로 돌려주면 "발행된 글이 없습니다"로 표시돼
+      // 실제 원인(화면 구조 변경·권한)을 영영 알 수 없다. 진단값을 담아 실패로 알린다.
+      const diag = scraped?.diagnostics;
+      throw new Error(
+        '티스토리 관리 화면에서 글 목록을 읽지 못했습니다. '
+        + `(마지막 주소: ${lastUrl || '알 수 없음'}, 화면 제목: "${diag?.pageTitle || '없음'}", `
+        + `편집링크 ${diag?.editLinks ?? 0}개 · id요소 ${diag?.dataIdNodes ?? 0}개 · 체크박스 ${diag?.checkboxes ?? 0}개) `
+        + '실제로 발행한 글이 있는데도 이 메시지가 보이면 티스토리 관리 화면 구조가 바뀐 것이니 개발자에게 이 메시지를 그대로 알려주세요.',
+      );
+    }
 
     const maxResults = Math.max(Number(options.maxResults) || scraped.items.length || 0, 0);
     const sliced = maxResults > 0 ? scraped.items.slice(0, maxResults) : scraped.items;
@@ -238,7 +309,7 @@ async function waitForPostEditorReady(page: any, editUrl: string, config: Tistor
     const currentUrl = String(typeof page.url === 'function' ? page.url() : '');
     if (await isTistoryLoginPage(page)) {
       await clickTistoryKakaoLoginIfVisible(page, (message) => log(message), config.kakaoEmail);
-    } else if (!/\/manage\/newpost\//i.test(currentUrl) && Date.now() - lastNavigation > 8000) {
+    } else if (!/\/manage\/(?:newpost|post)\/\d+/i.test(currentUrl) && Date.now() - lastNavigation > 8000) {
       lastNavigation = Date.now();
       await page.goto(editUrl, { waitUntil: 'domcontentloaded', timeout: config.timeoutMs }).catch(() => null);
     }

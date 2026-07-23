@@ -256,6 +256,33 @@ const MAP: Record<string, string> = {
 const KNOWN_KEYS = Object.keys(MAP) as (keyof typeof MAP)[];
 
 /* ───────────────── 로드: .env -> UI형 객체 ───────────────── */
+/**
+ * .env에서 키 하나를 표기 흔들림까지 감안해 찾는다.
+ *
+ * 설정 저장 경로(main.ts)에 매핑이 누락된 키는 `key.toUpperCase()` 폴백으로
+ * 언더스코어가 빠진 채 저장된다(tistoryBlogName → `TISTORYBLOGNAME`).
+ * 로더가 `TISTORY_BLOG_NAME`만 찾으면 값이 있어도 못 읽어 "설정이 안 됐다"고 오판하므로,
+ * 언더스코어를 제거한 형태까지 함께 조회한다.
+ */
+export function pickEnvValue(
+  fileEnv: Record<string, string>,
+  upperKey: string,
+  camelKey?: string,
+): string | undefined {
+  const candidates = [
+    upperKey,
+    camelKey,
+    upperKey.replace(/_/g, ''),
+    camelKey ? camelKey.toUpperCase() : undefined,
+  ].filter((key): key is string => !!key);
+
+  for (const key of candidates) {
+    const value = fileEnv[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return undefined;
+}
+
 export function loadEnvFromFile(): Record<string, any> {
   // 1) 파일 읽기 - 프로젝트 루트 .env 파일도 확인
   let fileEnv: Record<string, string> = {};
@@ -316,9 +343,9 @@ export function loadEnvFromFile(): Record<string, any> {
       const camelKey = MAP[k];
       if (camelKey) {
         // fileEnv에서 대문자 키, camelCase 키 모두 시도
-        mergedUpper[k] = fileEnv[k] ?? fileEnv[camelKey] ?? (process.env[k] ?? process.env[camelKey] ?? '');
+        mergedUpper[k] = pickEnvValue(fileEnv, k, camelKey) ?? (process.env[k] ?? process.env[camelKey] ?? '');
       } else {
-        mergedUpper[k] = fileEnv[k] ?? process.env[k] ?? '';
+        mergedUpper[k] = pickEnvValue(fileEnv, k) ?? process.env[k] ?? '';
       }
     }
   }

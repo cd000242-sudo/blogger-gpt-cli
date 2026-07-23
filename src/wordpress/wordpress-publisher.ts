@@ -6,6 +6,22 @@ import { waitForTextProviderTurn } from '../core/llm/provider-throttle';
 
 // 🃏 소제목별 카드 래핑 함수
 // v3.8.26: 거미줄 미리보기 = 발행 일치를 위해 export
+/**
+ * 본문 상단의 전용 썸네일 블록(bgpt-thumbnail-box)만 제거한다.
+ *
+ * 워드프레스는 대표 이미지(featured_media)를 테마가 글 상단에 직접 그려주므로,
+ * 오케스트레이션이 본문에 넣어둔 같은 썸네일이 남아 있으면 같은 이미지가 두 번 보인다.
+ * H2 섹션 이미지는 본문 콘텐츠이므로 절대 건드리지 않는다 —
+ * 그래서 첫 <img>를 지우는 방식이 아니라 썸네일 전용 블록만 지목해서 제거한다.
+ */
+export function stripBodyThumbnailBox(html: string): string {
+  if (!html) return html;
+  return html.replace(
+    /<div[^>]*class=["'][^"']*bgpt-thumbnail-box[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
+    '',
+  );
+}
+
 export function wrapSectionsInCards(html: string): string {
   if (!html) return html;
 
@@ -1685,6 +1701,16 @@ export class WordPressPublisher {
         }
       } else {
         console.log(`[WP-PUBLISH] ⚠️ 대표 이미지 후보 없음 (featuredImageUrl + 본문 첫 img 모두 비어있음)`);
+      }
+
+      // v3.8.336: 같은 썸네일이 대표 이미지 자리와 본문 상단에 둘 다 보이던 문제.
+      //   업로드 실패 시(featuredMediaId 없음)에는 그대로 둬서 이미지가 아예 사라지는 것을 막는다.
+      if (featuredMediaId) {
+        const beforeLength = optimizedContent.length;
+        optimizedContent = stripBodyThumbnailBox(optimizedContent);
+        if (optimizedContent.length < beforeLength) {
+          console.log(`[WP-PUBLISH] 🧹 본문 썸네일 블록 제거 (대표 이미지와 중복, ${beforeLength - optimizedContent.length}자)`);
+        }
       }
 
       // v3.8.94: 본문 sanitizer — src 빈/data:image(<200자, 즉 placeholder)/javascript: img 제거

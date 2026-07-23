@@ -6,7 +6,15 @@ export const TISTORY_URLS = {
   category: (blogName: string) => `https://${blogName}.tistory.com/manage/category`,
   // 📋 생성된 글목록 탭 — 관리 화면 글 목록 / 기존 글 편집 / 공개 글 주소
   managePosts: (blogName: string, page = 1) => `https://${blogName}.tistory.com/manage/posts?page=${page}`,
-  editPost: (blogName: string, postId: string) => `https://${blogName}.tistory.com/manage/newpost/${postId}`,
+  // 티스토리 관리 화면 글목록 경로는 시기별로 달랐다(/manage/posts · /manage/post · /manage/entry).
+  // 어느 것이 살아있는지 앱이 알 수 없으므로 순서대로 열어보고 글 링크가 잡히는 첫 주소를 쓴다.
+  managePostsCandidates: (blogName: string, page = 1) => [
+    `https://${blogName}.tistory.com/manage/posts?page=${page}`,
+    `https://${blogName}.tistory.com/manage/post?page=${page}`,
+    `https://${blogName}.tistory.com/manage/entry?page=${page}`,
+  ],
+  // 기존 글 편집은 /manage/post/{id} (관리 화면의 "수정" 링크와 동일). /manage/newpost/{id}는 신규 글 경로라 열리지 않는다.
+  editPost: (blogName: string, postId: string) => `https://${blogName}.tistory.com/manage/post/${postId}`,
   entry: (blogName: string, postId: string) => `https://${blogName}.tistory.com/${postId}`,
 };
 

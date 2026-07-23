@@ -378,6 +378,12 @@ export interface DispatchExtraOptions {
    * 다른 엔진(nanobanana 등)은 무시한다. 쇼핑 모드의 productImages 자동 연결 등에 사용.
    */
   referenceImageList?: string[];
+  /**
+   * v3.8.336: 사용자가 "썸네일에 텍스트 미포함"을 선택한 경우.
+   * 썸네일 구도(hero 16:9)는 유지하되 제목 오버레이 지시를 텍스트 금지로 바꾼다.
+   * 소제목(H2) 이미지는 원래부터 텍스트 금지라 이 값과 무관하다.
+   */
+  thumbnailNoText?: boolean;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -905,7 +911,9 @@ async function _tryEngineInternal(
   // 🧠 AI 추론 프롬프트: 1회만 호출하여 모든 엔진에서 재사용
   // NanoBanana 3종 + Flow + GPT Image + Prodia는 내부에서 generateEnglishPrompt 호출하므로 추론 불필요
   let inferredPrompt = prompt;
-  const allowImageText = promptModeAllowsImageText(engine, isThumbnail);
+  // v3.8.336: 사용자가 "텍스트 미포함 썸네일"을 켜면 텍스트 허용 엔진이라도 오버레이를 금지한다.
+  const userWantsNoText = extra?.thumbnailNoText === true;
+  const allowImageText = promptModeAllowsImageText(engine, isThumbnail) && !userWantsNoText;
   const promptIsThumbnail = allowImageText;
   // v3.7.1: 한국어 처리 호환성 분류
   //   ✅ 한국어 OK (skip): nanobanana 3종, gptimage2(덕테이프), flow, imagefx, dropshot
@@ -957,6 +965,8 @@ async function _tryEngineInternal(
           apiKey,
           aspectRatio: '16:9',
           isThumbnail,
+          // 썸네일 구도는 유지하고 제목 오버레이만 끈다
+          noTextOverlay: userWantsNoText,
           modelId: m.id,
         });
         if (result.ok) {
@@ -1091,6 +1101,7 @@ async function _tryEngineInternal(
           width: isThumbnail ? 1280 : 1024,
           height: isThumbnail ? 720 : 576,
           isThumbnail,
+          noTextOverlay: userWantsNoText,
         };
         if (extra?.leonardoModel) leonardoOptions.modelPreference = extra.leonardoModel;
         const result = await makeLeonardoPhoenixImage(prompt, keyword, leonardoOptions);
@@ -1118,7 +1129,7 @@ async function _tryEngineInternal(
         console.log('[DISPATCH] Flow browser image engine start...');
         const { makeFlowImage } = await import('./flowGenerator');
         const result = await makeFlowImage(
-          inferredPrompt,
+          userWantsNoText ? enforceNoTextPrompt(inferredPrompt) : inferredPrompt,
           { aspectRatio: '16:9', isThumbnail },
           onLog,
         );
@@ -1152,7 +1163,11 @@ async function _tryEngineInternal(
         //   dispatchThumbnailGeneration이 `prompt` 인자에 원본 한글 제목을 그대로 넣어주므로
         //   isThumbnail=true 일 때 그 제목을 강제 오버레이 지시로 덧붙인다.
         let dropshotPrompt = inferredPrompt;
-        if (isThumbnail && prompt) {
+        // v3.8.336: "텍스트 미포함" 선택 시 오버레이 지시 대신 텍스트 금지를 건다.
+        //   dropshot(나노바나나 프로)은 지시가 없으면 제목을 임의로 그려 넣는 경향이 있어 명시 금지가 필요.
+        if (userWantsNoText) {
+          dropshotPrompt = enforceNoTextPrompt(inferredPrompt);
+        } else if (isThumbnail && prompt) {
           const titleSafe = String(prompt).replace(/["]/g, "'").trim().slice(0, 80);
           if (titleSafe) {
             dropshotPrompt = `${inferredPrompt}\n\nTEXT OVERLAY (MANDATORY): Render the exact KOREAN title "${titleSafe}" as a large, bold, high-contrast KOREAN typography prominently baked into the image as a hero design element. The title text must be clearly legible, well-balanced with the composition, with drop shadow or gradient fill, in a modern premium-blog-thumbnail style. Do NOT translate, paraphrase, or transliterate the title — preserve the Korean characters verbatim.`;

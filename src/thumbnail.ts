@@ -56,6 +56,7 @@ export type NanoBananaProOptions = {
   height?: number;  // 기본 1024
   aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4'; // 기본 '16:9'
   isThumbnail?: boolean; // true: 썸네일용 (텍스트 허용), false: 소제목 이미지용 (텍스트 없음)
+  noTextOverlay?: boolean; // v3.8.336: 썸네일이어도 텍스트 금지 (사용자 "텍스트 미포함" 선택)
   // v3.5.88: 사용자 명시 모델 선택. 미지정 시 기존 2단 폴백 체인(3.1 → 2.5) 유지.
   //   'gemini-2.5-flash-image'         = 나노바나나 (저비용 원조)
   //   'gemini-3.1-flash-image-preview' = 나노바나나2 (Pro 품질·Flash 가격)
@@ -98,6 +99,7 @@ export type LeonardoPhoenixOptions = {
   height?: number;  // 기본 768 (16:9)
   modelPreference?: LeonardoModelPreference | string; // 기본 'seedream-4.5'
   isThumbnail?: boolean; // 썸네일 vs 소제목 이미지
+  noTextOverlay?: boolean; // v3.8.336: 썸네일이어도 텍스트 금지 (사용자 "텍스트 미포함" 선택)
 };
 
 export type BackgroundImageOptions = {
@@ -204,12 +206,18 @@ function fallbackKeywordTranslate(text: string): string {
 
 // 영어 프롬프트 생성 함수
 // isThumbnail: true면 썸네일용 (텍스트 허용), false면 소제목 이미지용 (텍스트 없음)
-function generateEnglishPrompt(title: string, topic: string, isThumbnail: boolean = false): string {
+// noTextOverlay: v3.8.336 — 썸네일이어도 사용자가 "텍스트 미포함"을 선택하면 소제목 이미지와 동일하게 텍스트 금지
+function generateEnglishPrompt(
+  title: string,
+  topic: string,
+  isThumbnail: boolean = false,
+  noTextOverlay: boolean = false,
+): string {
   // 입력이 한국어인지 영어인지 감지
   const isKorean = /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF]/.test(title + topic);
 
   // 🔥🔥🔥 소제목 이미지는 텍스트 완전 배제! (매우 강력한 지시)
-  const noTextRule = isThumbnail
+  const noTextRule = (isThumbnail && !noTextOverlay)
     ? ''
     : `
 
@@ -254,7 +262,7 @@ SCENE FOCUS (priority order):
 
 CONTEXT: For Korean audience. All people must look Korean. Korean setting.
 Style: modern, clean, photorealistic, commercial quality, well-lit, sharp focus.
-OUTPUT FORMAT: widescreen landscape 16:9 composition, wide blog hero image, fill the horizontal frame without empty margins.`
+OUTPUT FORMAT: widescreen landscape 16:9 composition, wide blog hero image, fill the horizontal frame without empty margins.${noTextRule}`
     : `Generate a cinematic, photorealistic image representing: "${englishPrompt}"
 
 IMAGE COMPOSITION PRIORITY:
@@ -1710,13 +1718,14 @@ export async function makeNanoBananaProThumbnail(
 
   // 영어 프롬프트 생성 (isThumbnail: true면 텍스트 허용, false면 텍스트 없음)
   const isThumbnail = options.isThumbnail ?? false;
-  const prompt = generateEnglishPrompt(title, topic, isThumbnail);
+  const noTextOverlay = options.noTextOverlay === true;
+  const prompt = generateEnglishPrompt(title, topic, isThumbnail, noTextOverlay);
 
   console.log(`[NANO-BANANA-PRO] 🍌 Gemini 이미지 생성 시작...`);
   console.log(`[NANO-BANANA-PRO] 📝 프롬프트: ${prompt.slice(0, 80)}...`);
 
   // Imagen 3 제거 → Gemini 네이티브 이미지 생성 직접 호출
-  return await tryGeminiExperimentalImageGeneration(title, topic, options.apiKey, isThumbnail, options.modelId, options.aspectRatio);
+  return await tryGeminiExperimentalImageGeneration(title, topic, options.apiKey, isThumbnail, options.modelId, options.aspectRatio, noTextOverlay);
 }
 
 // 🔥 Gemini 3 이미지 생성 (Nano Banana / Nano Banana Pro)
@@ -1727,7 +1736,8 @@ async function tryGeminiExperimentalImageGeneration(
   apiKey: string,
   isThumbnail: boolean = false,
   modelIdHint?: 'gemini-2.5-flash-image' | 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview',
-  aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4'
+  aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4',
+  noTextOverlay: boolean = false,
 ): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
   const startTime = Date.now();
 
@@ -1792,6 +1802,17 @@ Now generate a scene for "${topic}" — "${title}":`;
   }
 
   if (isThumbnail) {
+    // v3.8.336: 사용자가 "텍스트 미포함 썸네일"을 선택하면 5번 항목(제목 오버레이)을 텍스트 금지로 교체.
+    //   썸네일 구도(hero)는 그대로 유지하고 글자만 뺀다.
+    const thumbnailTextRule = noTextOverlay
+      ? `5. NO TEXT: ABSOLUTELY NO text, letters, words, numbers, or symbols anywhere in the image
+
+CONTEXT: For Korean blog. All people must be Korean. This image must be 100% text-free — no titles, no captions, no signs, no labels, no watermarks.
+Style: Modern, vibrant, eye-catching, clean composition with no typography.`
+      : `5. TEXT OVERLAY: Include the title as stylish KOREAN text overlay
+
+CONTEXT: For Korean blog. All people must be Korean. Use Korean text if any text appears.
+Style: Modern, vibrant, eye-catching, bold typography.`;
     prompt = `Generate a professional blog thumbnail image for a KOREAN audience.
 Topic: ${translatedTopic}.
 Concept: ${translatedTitle}.
@@ -1801,10 +1822,7 @@ COMPOSITION PRIORITY:
 2. ACTION: Depict the process or situation
 3. OBJECTS: Include key items or products
 4. PEOPLE: If people appear, they MUST be Korean/East Asian
-5. TEXT OVERLAY: Include the title as stylish KOREAN text overlay
-
-CONTEXT: For Korean blog. All people must be Korean. Use Korean text if any text appears.
-Style: Modern, vibrant, eye-catching, bold typography.`;
+${thumbnailTextRule}`;
   } else if (aiGeneratedPrompt) {
     // 🔥 AI 추론 프롬프트 사용 (동적 생성 성공 시)
     prompt = `TOPIC: ${translatedTopic}
@@ -2285,14 +2303,15 @@ export async function makeLeonardoPhoenixImage(
   const width = options.width ?? 1024;
   const height = options.height ?? 1024;
   const isThumbnail = options.isThumbnail ?? false;
+  const noTextOverlay = options.noTextOverlay === true;
 
   // 🔥 AI로 영어 프롬프트 추론 생성 (Gemini 활용)
   let prompt: string;
   try {
-    prompt = await generateLeonardoPromptWithAI(title, topic, isThumbnail);
+    prompt = await generateLeonardoPromptWithAI(title, topic, isThumbnail, noTextOverlay);
     console.log(`[LEONARDO] 🤖 AI 프롬프트 생성 완료: ${prompt.slice(0, 100)}...`);
   } catch (e: any) {
-    prompt = generateEnglishPrompt(title, topic, isThumbnail);
+    prompt = generateEnglishPrompt(title, topic, isThumbnail, noTextOverlay);
     console.log(`[LEONARDO] ⚠️ AI 프롬프트 생성 실패, 폴백 사용: ${e.message}`);
   }
 
@@ -2531,8 +2550,13 @@ async function pollLeonardoGeneration(
 async function generateLeonardoPromptWithAI(
   title: string,
   topic: string,
-  isThumbnail: boolean
+  isThumbnail: boolean,
+  noTextOverlay: boolean = false,
 ): Promise<string> {
+  // v3.8.336: 썸네일이어도 "텍스트 미포함" 선택 시 텍스트 금지 조항을 명시 요구사항으로 추가
+  const thumbnailNoTextRequirement = noTextOverlay
+    ? '\n- ABSOLUTELY NO TEXT, letters, words, numbers, or symbols in the generated image'
+    : '';
   const systemInstruction = isThumbnail
     ? `You are an expert AI image prompt engineer. Given a blog post title and topic, create a detailed, creative English prompt for AI image generation. The image will be used as a KOREAN blog thumbnail.
 Requirements:
@@ -2543,7 +2567,7 @@ Requirements:
 - Settings should feel Korean (Korean office, Korean city, Korean home, etc.)
 - Mention camera angle, lens type, and lighting setup
 - The prompt should produce a visually striking, click-worthy thumbnail
-- Keep the prompt under 200 words
+- Keep the prompt under 200 words${thumbnailNoTextRequirement}
 - Output ONLY the prompt, nothing else`
     : `You are an expert AI image prompt engineer. Given a blog post subtitle/section heading and topic, create a detailed, creative English prompt for AI image generation. The image will illustrate a KOREAN blog section.
 Requirements:

@@ -21,6 +21,7 @@ import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTI
 import { fetchFactContext, type FactCheckMode } from '../perplexityFactCheck';
 import { searchCoupangProducts, createCoupangDeeplink, formatProductsForPrompt, renderCoupangProductBlock } from '../coupang-partners';
 import { uploadBase64ToImageHost } from './image-helpers';
+import { resolveUrlModeKeyword } from './url-mode';
 import { crawlSingleUrlFast } from './crawlers';
 import { callGeminiWithGrounding, callGeminiWithRetry } from './gemini-engine';
 import { FinalCrawledPost, FinalTableData, FinalCTAData } from './types';
@@ -515,6 +516,11 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog?.(`   📋 ${manualUrls.length}개 URL을 참고하여 완전히 새로운 글 작성`);
       onLog?.('   ⚠️ 원본 복사 없이 AI가 100% 새롭게 작성합니다 (중복 문서 방지)');
 
+      const urlModeKeyword = resolveUrlModeKeyword(payload.urlBasedGeneration, keyword);
+      if (payload.urlBasedGeneration === true && keyword && keyword.trim()) {
+        onLog?.(`   ℹ️ URL 모드 — 전달된 키워드("${keyword.slice(0, 30)}")는 무시하고 URL 본문에서 주제를 추출합니다`);
+      }
+
       try {
         // URL 콘텐츠 생성기 사용
         const firstUrl = manualUrls[0];
@@ -522,8 +528,8 @@ export async function generateUltimateMaxModeArticleFinal(
           throw new Error('URL이 유효하지 않습니다.');
         }
         const urlResult = manualUrls.length === 1
-          ? await generateContentFromUrl(firstUrl, keyword || undefined, onLog)
-          : await generateContentFromUrls(manualUrls, keyword || undefined, onLog);
+          ? await generateContentFromUrl(firstUrl, urlModeKeyword || undefined, onLog)
+          : await generateContentFromUrls(manualUrls, urlModeKeyword || undefined, onLog);
 
         // 썸네일 생성 — 🎯 사용자 선택 엔진 사용 (dispatcher 경유)
         let thumbnailUrl = '';
@@ -544,8 +550,9 @@ export async function generateUltimateMaxModeArticleFinal(
         if (!thumbnailUrl && !skipImages && !urlThumbnailDisabled) {
           onLog?.(`[PROGRESS] 92% - 🖼️ 썸네일 생성 중 (${urlThumbnailSource})...`);
           try {
-            const urlThumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; leonardoModel?: string; allowFreeTrialPublishing?: boolean } = {
+            const urlThumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; leonardoModel?: string; allowFreeTrialPublishing?: boolean; thumbnailNoText?: boolean } = {
               allowFreeTrialPublishing: true,
+              thumbnailNoText: payload.thumbnailNoText === true,
             };
             if (payload.gptImageQuality === 'low' || payload.gptImageQuality === 'medium' || payload.gptImageQuality === 'high') {
               urlThumbExtra.gptImageQuality = payload.gptImageQuality;
@@ -557,7 +564,7 @@ export async function generateUltimateMaxModeArticleFinal(
             const thumbResult = await dispatchThumbnailGeneration(
               urlThumbnailSource,
               urlResult.title,
-              keyword || urlResult.title,
+              urlModeKeyword || urlResult.title,
               (msg) => onLog?.(`   ${msg}`),
               urlThumbExtra,
             );
@@ -2311,8 +2318,10 @@ ${conclusionHTML}
     if (!thumbnailUrl && !thumbnailDisabled) {
       onLog?.(`[PROGRESS] 90% - 🖼️ 썸네일 생성 중 (요청: ${thumbnailSource})...`);
       try {
-        const thumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; referenceImageList?: string[]; leonardoModel?: string; allowFreeTrialPublishing?: boolean } = {
+        const thumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; referenceImageList?: string[]; leonardoModel?: string; allowFreeTrialPublishing?: boolean; thumbnailNoText?: boolean } = {
           allowFreeTrialPublishing: true,
+          // v3.8.336: 사용자가 "썸네일에 텍스트 미포함"을 선택하면 제목 오버레이를 끈다
+          thumbnailNoText: payload.thumbnailNoText === true,
         };
         if (payload.gptImageQuality === 'low' || payload.gptImageQuality === 'medium' || payload.gptImageQuality === 'high') {
           thumbExtra.gptImageQuality = payload.gptImageQuality;

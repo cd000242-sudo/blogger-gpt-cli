@@ -1,6 +1,7 @@
 // 📋 생성된 글목록 탭 — 블로그스팟/워드프레스/티스토리에 발행된 글을 목록으로 보여주고, 비주얼 편집기로 수정발행한다.
 // 목록은 항상 각 플랫폼에서 직접 가져오므로 새로고침 시 블로그에서 삭제/수동수정한 내용이 그대로 반영된다.
 import { addLog } from './core.js';
+import { loadSettings } from './settings.js';
 
 const PAGE_SIZE = 20;
 
@@ -47,6 +48,31 @@ const PLATFORMS = [
 
 function getPlatform(key) {
   return PLATFORMS.find((item) => item.key === key) || PLATFORMS[0];
+}
+
+/**
+ * 플랫폼별 접속에 필요한 설정을 발행 경로와 동일한 소스에서 모아준다.
+ *
+ * 티스토리는 공개 API가 없어 블로그 주소로 관리 화면 URL을 만들어야 하는데,
+ * 이 값은 화면 입력칸/저장설정에 있고 .env에는 없을 수 있다.
+ * (블로그스팟·워드프레스는 메인 프로세스가 토큰/자격증명을 직접 들고 있어 빈 값이어도 무방)
+ */
+async function buildPlatformPayload(platformKey) {
+  if (platformKey !== 'tistory') return undefined;
+  try {
+    const settings = await loadSettings() || {};
+    const blogName = (
+      document.getElementById('tistoryBlogName')?.value
+      || settings.tistoryBlogName
+      || settings.TISTORY_BLOG_NAME
+      || settings.tistoryBlogUrl
+      || ''
+    ).trim();
+    return blogName ? { tistoryBlogName: blogName } : undefined;
+  } catch (err) {
+    console.warn('[POSTS-TAB] 티스토리 설정 로드 실패 — .env 값으로 시도합니다:', err);
+    return undefined;
+  }
 }
 
 const state = {
@@ -135,6 +161,8 @@ export function initPublishedPostsTab() {
       if (btn) switchPlatform(btn.getAttribute('data-platform'));
     });
     window.__refreshPublishedPosts = () => refreshPosts();
+    // 편집기(editor.js)의 수정발행도 목록과 똑같은 플랫폼 설정을 쓰도록 노출
+    window.__buildPublishedPlatformPayload = (platformKey) => buildPlatformPayload(platformKey);
   }
 
   syncPlatformView();
@@ -211,6 +239,9 @@ async function loadPosts({ append }) {
     const res = await window.electronAPI.invoke(platform.listChannel, {
       maxResults: PAGE_SIZE,
       pageToken: append ? (current.nextPageToken || undefined) : undefined,
+      // 티스토리는 .env가 아니라 화면 설정(블로그 주소)이 있어야 관리 화면을 열 수 있다.
+      // 발행 경로와 같은 값을 실어 보내 "발행은 되는데 목록만 안 나오는" 불일치를 없앤다.
+      payload: await buildPlatformPayload(platform.key),
     });
 
     // 응답 대기 중 사용자가 다른 플랫폼 탭으로 옮겼다면 화면을 덮어쓰지 않는다
@@ -309,7 +340,10 @@ async function openEditorFor(index) {
     const statusEl = document.getElementById('ppStatus');
     if (statusEl) statusEl.textContent = `⏳ ${platform.label} 편집기에서 본문을 불러오는 중… (최대 1분)`;
     try {
-      const res = await window.electronAPI.invoke(platform.detailChannel, { postId: item.id });
+      const res = await window.electronAPI.invoke(platform.detailChannel, {
+        postId: item.id,
+        payload: await buildPlatformPayload(platform.key),
+      });
       if (!res?.ok) {
         const msg = res?.error || '알 수 없는 오류';
         if (statusEl) statusEl.innerHTML = res?.needsAuth ? platform.authHint : `❌ 본문을 불러오지 못했습니다: ${esc(msg)}`;

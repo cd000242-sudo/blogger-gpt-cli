@@ -1505,6 +1505,16 @@ function normalizePlatform(platform) {
   return platform;
 }
 
+/** 현재 단일 발행 입력 소스가 'URL로 생성'인지 — 키워드/URL 판별의 단일 진실 소스 */
+function isUrlInputModeActive() {
+  let mode = 'keyword';
+  try { mode = localStorage.getItem('singleInputMode') || 'keyword'; }
+  catch { /* localStorage 접근 불가 시 키워드 모드로 간주 */ }
+  if (mode !== 'url') return false;
+  const referenceUrlValue = document.getElementById('referenceUrl')?.value?.trim() || '';
+  return referenceUrlValue.split('\n').some((line) => /^https?:\/\//i.test(line.trim()));
+}
+
 /**
  * 통합 Payload 생성 함수 — 모든 발행/미리보기 경로의 단일 진입점
  * 🔥 async: loadSettings()는 Promise를 반환하므로 반드시 await 필요
@@ -1540,9 +1550,16 @@ export async function createPayload(options = {}) {
   //   기존: DOMCache.get('keywordInput')만 사용 → 큐 항목 간 캐시된 노드가 stale 가능
   //   변경: document.getElementById 직접 호출을 우선, fallback으로 DOMCache
   const keywordInput = document.getElementById('keywordInput') || DOMCache.get('keywordInput');
-  const keywordValue = keywordInput ? keywordInput.value.trim() : '';
+  const rawKeywordValue = keywordInput ? keywordInput.value.trim() : '';
   if (DOMCache.get('keywordInput') && DOMCache.get('keywordInput') !== document.getElementById('keywordInput')) {
     console.warn('[PAYLOAD] ⚠️ DOMCache keywordInput stale 감지 — 직접 DOM 사용');
+  }
+  // 🔗 URL 모드에서는 키워드 입력란이 화면에서 숨겨질 뿐 이전 발행 때 쓴 값이 그대로 남아 있다.
+  //   그 값을 payload.topic으로 보내면 백엔드가 URL 본문이 아니라 직전 키워드를 주제로 글을 써버린다.
+  //   (증상: URL로 생성했는데 이전에 키워드로 발행했던 글이 다시 나옴)
+  const keywordValue = isUrlInputModeActive() ? '' : rawKeywordValue;
+  if (rawKeywordValue && !keywordValue) {
+    console.log('[PAYLOAD] 🔗 URL 모드 — 숨겨진 키워드 입력란의 이전 값 무시:', rawKeywordValue.slice(0, 40));
   }
 
   const titleModeSelect = document.getElementById('titleMode');
@@ -1662,11 +1679,7 @@ export async function createPayload(options = {}) {
     referenceUrls = referenceUrlEl.value.split('\n').map(u => u.trim()).filter(u => /^https?:\/\//i.test(u));
     manualUrls.push(...referenceUrls);
   }
-  const singleInputMode = (() => {
-    try { return localStorage.getItem('singleInputMode') || 'keyword'; }
-    catch { return 'keyword'; }
-  })();
-  const isUrlInputMode = singleInputMode === 'url' && referenceUrls.length > 0;
+  const isUrlInputMode = isUrlInputModeActive();
 
   // ── 초안 (페러프레이징 모드) ──
   const draftInputEl = document.getElementById('draftInput');
@@ -1826,6 +1839,8 @@ export async function createPayload(options = {}) {
     ctaMode: ctaModeValue,
     ctaAiStrictMode: !!document.getElementById('ctaAiStrictMode')?.checked,
     strictThumbnailEngine: !!document.getElementById('strictThumbnailEngine')?.checked,
+    // 🚫 v3.8.336: 썸네일 텍스트 미포함 — 제목 오버레이 대신 텍스트 금지 지시를 건다
+    thumbnailNoText: !!document.getElementById('thumbnailNoText')?.checked,
     // 🛡️ S-1 (v3.5.84): H2 섹션 이미지 엔진 strict 모드 — 폴백 차단
     strictH2ImageEngine: !!document.getElementById('strictH2ImageEngine')?.checked,
     // v3.7.8: 빠른 모드 — 본문 품질 보강 스킵 (~3~4분 절약, 단 품질 다소 떨어질 수 있음)

@@ -291,6 +291,7 @@ function getQueueInputEntries() {
       keyword: labelFromUrl(url, index),
       contentUrl: url,
       sourceUrl: url,
+      urlBased: true,
     }));
   }
 
@@ -301,8 +302,27 @@ function getQueueInputEntries() {
       keyword: keywordIsUrl ? labelFromUrl(rawKeyword, index) : rawKeyword,
       contentUrl,
       sourceUrl: contentUrl,
+      // 키워드 칸에 URL을 붙여넣은 경우도 주제가 아니라 URL이 원본이다.
+      urlBased: keywordIsUrl,
     };
   });
+}
+
+/**
+ * 이 큐 항목이 'URL로 생성' 항목인지 — keyword 필드가 진짜 주제가 아니라 URL 표시용 라벨인 경우.
+ *
+ * URL 모드 항목의 keyword는 labelFromUrl()이 만든 "URL 1: host/path" 라벨이다.
+ * 이 라벨이 payload.topic으로 백엔드에 넘어가면 라벨을 주제로 삼아 글을 써버리므로
+ * urlBasedGeneration 플래그를 세워 백엔드가 URL 본문에서 주제를 추출하게 해야 한다.
+ * urlBased 플래그가 없는 기존 저장 항목(localStorage)도 라벨 형태로 판별한다.
+ */
+function isUrlBasedQueueItem(item) {
+  if (!item) return false;
+  if (item.urlBased === true) return true;
+  const sourceUrl = item.contentUrl || item.sourceUrl || '';
+  if (!sourceUrl) return false;
+  const keyword = String(item.keyword || '').trim();
+  return /^URL \d+(:|$)/.test(keyword) || isHttpUrl(keyword);
 }
 
 function ensureBadgePlacement() {
@@ -911,6 +931,8 @@ function getCurrentQueueSnapshot() {
     factCheckMode: getSelectValue('factCheckMode') || 'auto',
     useKeywordAsTitle: !!document.getElementById('useKeywordAsTitle')?.checked,
     keywordFront: !!document.getElementById('keywordFront')?.checked,
+    // 🚫 v3.8.336: 썸네일 텍스트 미포함 — 대기열 추가 시점의 값을 항목에 고정
+    thumbnailNoText: !!document.getElementById('thumbnailNoText')?.checked,
     urlImageSource,
     urlAiCheck: !!document.getElementById('urlImageAiCheck')?.checked,
     urlAiFill: !!document.getElementById('urlImageAiFill')?.checked,
@@ -938,6 +960,7 @@ function cloneQueueSnapshot(snapshot) {
     factCheckMode: snap.factCheckMode || 'auto',
     useKeywordAsTitle: !!snap.useKeywordAsTitle,
     keywordFront: !!snap.keywordFront,
+    thumbnailNoText: !!snap.thumbnailNoText,
     urlImageSource: snap.urlImageSource || '',
     urlAiCheck: !!snap.urlAiCheck,
     urlAiFill: !!snap.urlAiFill,
@@ -964,6 +987,7 @@ function snapshotFromItem(item) {
     factCheckMode: item.factCheckMode,
     useKeywordAsTitle: item.useKeywordAsTitle,
     keywordFront: item.keywordFront,
+    thumbnailNoText: item.thumbnailNoText,
     urlImageSource: item.url,
     urlAiCheck: item.urlAiCheck,
     urlAiFill: item.urlAiFill,
@@ -1006,6 +1030,7 @@ function applySnapshotToItem(item, snapshot, options = {}) {
   if (force || !item.factCheckMode) item.factCheckMode = snap.factCheckMode;
   if (force || item.useKeywordAsTitle == null) item.useKeywordAsTitle = snap.useKeywordAsTitle;
   if (force || item.keywordFront == null) item.keywordFront = snap.keywordFront;
+  if (force || item.thumbnailNoText == null) item.thumbnailNoText = snap.thumbnailNoText;
   if (force || item.url == null) item.url = snap.urlImageSource;
   if (force || item.urlAiCheck == null) item.urlAiCheck = snap.urlAiCheck;
   if (force || item.urlAiFill == null) item.urlAiFill = snap.urlAiFill;
@@ -2093,10 +2118,14 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
   const effectiveH2Engine = (h2ImageMode === 'none' || h2ImageMode === 'thumbnail-only')
     ? 'none'
     : normalizeThumbEngine(item.h2ImageSource || item.thumb);
+  const urlBased = isUrlBasedQueueItem(item);
   return {
     topic: item.keyword,
     title: item.keyword,
     keywords: [{ keyword: item.keyword, title: item.keyword }],
+    // 🔗 URL 모드 항목은 keyword가 "URL 1: host/path" 라벨이라 주제가 될 수 없다.
+    //   백엔드(orchestration)가 이 플래그를 보고 라벨을 버리고 URL 본문에서 주제를 추출한다.
+    urlBasedGeneration: urlBased ? true : undefined,
     platform: normalizeQueuePlatform(item.platform || getCurrentPublishPlatform()),
     targetPlatform: normalizeQueuePlatform(item.platform || getCurrentPublishPlatform()),
     contentMode,
@@ -2126,6 +2155,8 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     factCheckMode: item.factCheckMode || 'auto',
     useKeywordAsTitle: !!item.useKeywordAsTitle,
     keywordFront: !!item.keywordFront,
+    // 🚫 v3.8.336: 항목에 고정된 "텍스트 미포함 썸네일" 설정을 백엔드로 전달
+    thumbnailNoText: !!item.thumbnailNoText,
     sourceUrl: sourceUrl || undefined,
     contentUrl: sourceUrl || undefined,
     manualCrawlUrls: sourceUrl ? [sourceUrl] : undefined,
@@ -3342,6 +3373,8 @@ function addCurrent() {
       //   main form의 `#contentUrl` input 현재값을 항목별로 스냅샷.
       sourceUrl: contentUrl,
       contentUrl,
+      // 🔗 URL로 생성 항목 표시 — keyword는 라벨일 뿐이라 주제로 쓰면 안 된다.
+      urlBased: entry.urlBased === true,
     }, snapshot));
     added++;
   });
@@ -3394,6 +3427,7 @@ function open() {
       enabled: true,
       sourceUrl: entry.contentUrl || entry.sourceUrl || '',
       contentUrl: entry.contentUrl || entry.sourceUrl || '',
+      urlBased: entry.urlBased === true,
     }, snapshot));
     persistQueue();
   }

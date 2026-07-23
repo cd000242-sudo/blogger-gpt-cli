@@ -408,6 +408,8 @@ async function saveCurrentSession(saveAs) {
         postId: session.postId,
         title,
         content: html,
+        // 티스토리는 블로그 주소(화면 설정)가 있어야 편집기 URL을 만들 수 있다 — 목록 조회와 같은 소스를 쓴다
+        payload: await window.__buildPublishedPlatformPayload?.(session.kind),
       });
       if (res?.ok) {
         addLog(`🚀 ${published.label} 수정발행 완료: ${res.url || title}`, 'success');

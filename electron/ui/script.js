@@ -525,6 +525,15 @@ async function executeSchedule(scheduleId) {
       || storedPayload.sourceUrl
       || storedPayload.contentUrl
       || '';
+    const scheduleUrlBasedGeneration = (schedule.urlBasedGeneration === true || storedPayload.urlBasedGeneration === true)
+      ? true
+      : undefined;
+    // 🚫 v3.8.336: 예약 당시 저장된 "텍스트 미포함 썸네일" 값.
+    //   저장값이 없는 구버전 예약은 키 자체를 넘기지 않아 현재 화면 설정(createPayload)이 살아남게 한다.
+    const storedThumbnailNoText = schedule.thumbnailNoText ?? storedPayload.thumbnailNoText;
+    const scheduleThumbnailNoTextOverride = storedThumbnailNoText == null
+      ? {}
+      : { thumbnailNoText: storedThumbnailNoText === true };
     const scheduleManualCrawlUrls = [
       ...(Array.isArray(schedule.manualCrawlUrls) ? schedule.manualCrawlUrls : []),
       ...(Array.isArray(storedPayload.manualCrawlUrls) ? storedPayload.manualCrawlUrls : []),
@@ -559,6 +568,11 @@ async function executeSchedule(scheduleId) {
         draftContent: schedule.draftContent || storedPayload.draftContent || undefined,
         sourceUrl: scheduleSourceUrl || undefined,
         manualCrawlUrls: scheduleManualCrawlUrls.length > 0 ? scheduleManualCrawlUrls : undefined,
+        // 🔗 URL로 생성 항목은 topic이 "URL 1: host/path" 라벨이라 주제가 될 수 없다.
+        //   플래그를 넘겨야 백엔드가 라벨을 버리고 URL 본문에서 주제를 추출한다.
+        urlBasedGeneration: scheduleUrlBasedGeneration,
+        // 🚫 v3.8.336: 예약 당시 저장된 "텍스트 미포함 썸네일" 설정을 그대로 사용
+        ...scheduleThumbnailNoTextOverride,
       }
     }) : {
       // fallback: createPayload 미로딩시
@@ -572,6 +586,8 @@ async function executeSchedule(scheduleId) {
       draftContent: schedule.draftContent || storedPayload.draftContent || undefined,
       sourceUrl: scheduleSourceUrl || undefined,
       manualCrawlUrls: scheduleManualCrawlUrls.length > 0 ? scheduleManualCrawlUrls : undefined,
+      urlBasedGeneration: scheduleUrlBasedGeneration,
+      ...scheduleThumbnailNoTextOverride,
       previewOnly: false
     };
 
@@ -10423,6 +10439,23 @@ document.addEventListener('DOMContentLoaded', async function () {
   // v3.7.20: 기본값 보장 — 사용자가 저장한 값이 없을 때만 나노바나나 2로
   if (thumbnailTypeSelect && !thumbnailTypeSelect.value) {
     thumbnailTypeSelect.value = 'nanobanana2';
+  }
+
+  // 🚫 v3.8.336: 썸네일 텍스트 미포함 체크박스 — 세션 간 유지 (기본값 = 해제 = 기존처럼 텍스트 포함)
+  const thumbnailNoTextEl = document.getElementById('thumbnailNoText');
+  if (thumbnailNoTextEl) {
+    try {
+      thumbnailNoTextEl.checked = localStorage.getItem('thumbnailNoText.v1') === 'true';
+    } catch (e) {
+      console.warn('[INIT] 썸네일 텍스트 설정 복원 실패 (기본값 사용):', e);
+    }
+    thumbnailNoTextEl.addEventListener('change', () => {
+      try {
+        localStorage.setItem('thumbnailNoText.v1', thumbnailNoTextEl.checked ? 'true' : 'false');
+      } catch (e) {
+        console.warn('[INIT] 썸네일 텍스트 설정 저장 실패 (이번 세션에는 적용됨):', e);
+      }
+    });
   }
 
 

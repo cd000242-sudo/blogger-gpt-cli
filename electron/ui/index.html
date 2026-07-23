@@ -4235,6 +4235,16 @@
                         <button type="button" onclick="openOpenAiVerification()"
                           style="margin-left: 8px; padding: 2px 10px; background: rgba(239, 68, 68, 0.3); border: 1px solid rgba(239, 68, 68, 0.6); border-radius: 6px; color: #fef2f2; font-size: 11px; font-weight: 700; cursor: pointer;">바로 인증하기 →</button>
                       </div>
+                      <!-- v3.8.336: 텍스트 미포함 썸네일 (연속발행·스케줄도 이 설정을 상속) -->
+                      <div style="margin-top: 10px; padding: 12px; background: rgba(15,23,42,0.5); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;">
+                        <label style="display: flex; align-items: start; gap: 10px; cursor: pointer;">
+                          <input type="checkbox" id="thumbnailNoText" style="width: 16px; height: 16px; accent-color: #fbbf24; flex-shrink: 0; margin-top: 2px;">
+                          <div style="flex: 1;">
+                            <div style="color: white; font-size: 12px; font-weight: 800;">🚫 썸네일에 텍스트 없이 생성</div>
+                            <div style="color: rgba(255,255,255,0.55); font-size: 10px; margin-top: 1px;">제목 글자를 빼고 이미지만 생성합니다 (연속발행·예약발행에도 함께 적용). 소제목 이미지는 원래부터 텍스트가 없습니다.</div>
+                          </div>
+                        </label>
+                      </div>
                     </div>
                     <div class="acc-field">
                       <label class="acc-label">🖼️ 소제목 이미지</label>
