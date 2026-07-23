@@ -1,12 +1,18 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WordPressPublisher = void 0;
+exports.stripBodyThumbnailBox = stripBodyThumbnailBox;
 exports.wrapSectionsInCards = wrapSectionsInCards;
 exports.applyWordPressInlineStyles = applyWordPressInlineStyles;
 exports.publishToWordPress = publishToWordPress;
 const wordpress_api_1 = require("./wordpress-api");
 const gemini_engine_1 = require("../core/final/gemini-engine");
 const provider_throttle_1 = require("../core/llm/provider-throttle");
+function stripBodyThumbnailBox(html) {
+    if (!html)
+        return html;
+    return html.replace(/<div[^>]*class=["'][^"']*bgpt-thumbnail-box[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '');
+}
 function wrapSectionsInCards(html) {
     if (!html)
         return html;
@@ -1507,6 +1513,13 @@ class WordPressPublisher {
             }
             else {
                 console.log(`[WP-PUBLISH] ⚠️ 대표 이미지 후보 없음 (featuredImageUrl + 본문 첫 img 모두 비어있음)`);
+            }
+            if (featuredMediaId) {
+                const beforeLength = optimizedContent.length;
+                optimizedContent = stripBodyThumbnailBox(optimizedContent);
+                if (optimizedContent.length < beforeLength) {
+                    console.log(`[WP-PUBLISH] 🧹 본문 썸네일 블록 제거 (대표 이미지와 중복, ${beforeLength - optimizedContent.length}자)`);
+                }
             }
             optimizedContent = optimizedContent
                 .replace(/<img\b[^>]*\bsrc=["']\s*["'][^>]*>/gi, '')

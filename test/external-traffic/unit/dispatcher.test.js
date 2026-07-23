@@ -6,10 +6,14 @@
 const dispatcher = require('../../../src/core/external-traffic');
 
 describe('listChannels', () => {
-  test('전체 채널 등록 (MVP 6 + 확장 28 = 34)', () => {
+  // v3.8.123 local-board, v3.8.2xx kakao-channel 추가로 34 → 36
+  test('전체 채널 등록 (MVP 6 + 확장 30 = 36)', () => {
     const list = dispatcher.listChannels();
-    expect(list.length).toBe(34);
+    expect(list.length).toBe(36);
     const ids = list.map((c) => c.id);
+    // 채널 id 중복 등록 방지 (개수만 세면 중복이 숨는다)
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(expect.arrayContaining(['local-board', 'kakao-channel']));
     // 핵심 채널들 포함 확인
     expect(ids).toEqual(expect.arrayContaining([
       'instagram', 'threads', 'x', 'facebook', 'pinterest', 'naver-blog',

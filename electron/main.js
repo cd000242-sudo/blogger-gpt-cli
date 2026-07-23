@@ -2026,9 +2026,10 @@ ${tail}
             //   nano-banana/dropshot 계열은 영문 지시문을 메타 명령으로 인식하고, 한글은 렌더링 대상으로 인식.
             //   따라서 지시는 영문, 그리고 싶은 한국어 텍스트(=제목)는 prompt 본문에만 노출.
             const imageIncludeText = !!payload.imageIncludeText;
+            // v3.8.336: 체크 해제 시 지시가 없어 모델이 임의로 글자를 그려 넣던 문제 → 텍스트 금지를 명시.
             const textTail = imageIncludeText
                 ? `\n\nTEXT OVERLAY POLICY: If you render any text on the image, render ONLY the Korean title above as a bold, high-contrast Korean typography hero element. Do NOT render this English instruction, brackets, colons, prompt metadata, watermarks, or any other text. Pure-Korean characters only — no English, no romanization, no garbled glyphs.`
-                : '';
+                : `\n\nTEXT OVERLAY POLICY: Generate pure visual imagery only. Absolutely NO Korean text, NO English text, NO letters, NO words, NO numbers, NO signs, NO labels, NO typography, NO logos, and NO watermarks.`;
             // v3.8.8: dataURL → 호스팅 URL 변환
             // v3.8.9: WP 자격증명 보유 시 platform 무관하게 WP 미디어 우선 (블로그스팟도 wp 사이트 URL 빌려 사용)
             // v3.8.123: 브라우저 이미지 엔진이 반환하는 signed/CDN URL도 즉시 다운로드 후 재호스팅.
@@ -4395,6 +4396,16 @@ electron_1.ipcMain.handle('save-env', async (_evt, envData) => {
             'wordpressTags': 'WORDPRESS_TAGS',
             'blogUrl': 'BLOG_URL',
             'imageFolderPath': 'IMAGE_FOLDER_PATH',
+            // 🔥 v3.8.336: 티스토리 키 누락 → `TISTORYBLOGNAME`으로 저장되어 로더(TISTORY_BLOG_NAME)가 못 읽었다.
+            //   발행은 렌더러 payload로 블로그 주소를 받아 동작했지만, env만 보는 글목록 조회가 통째로 실패했다.
+            'tistoryBlogName': 'TISTORY_BLOG_NAME',
+            'tistoryBlogUrl': 'TISTORY_BLOG_URL',
+            'tistoryProfileId': 'TISTORY_PROFILE_ID',
+            'tistoryDefaultCategory': 'TISTORY_DEFAULT_CATEGORY',
+            'tistoryDefaultVisibility': 'TISTORY_DEFAULT_VISIBILITY',
+            'tistoryProtectedPassword': 'TISTORY_PROTECTED_PASSWORD',
+            'tistoryKakaoEmail': 'TISTORY_KAKAO_EMAIL',
+            'tistoryBrowserExecutablePath': 'TISTORY_BROWSER_EXECUTABLE_PATH',
         };
         // 기존 .env 파일 읽기
         const envMap = new Map();

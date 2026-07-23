@@ -7,6 +7,7 @@ const {
   buildPlatformUserPrompt,
   buildStructuredJsonInstructions,
   scoreCommonReview,
+  applyCommonResponseGuard,
   COMMON_BANNED_PHRASES,
 } = require('../../../src/core/external-traffic/prompts/_shared/common-context-guard');
 
@@ -121,5 +122,29 @@ describe('common external traffic context guard', () => {
       '아래 링크 클릭',
       '수익 보장',
     ]));
+  });
+
+  // v3.8.337: 해시태그는 sanitize 대상이 아니라 그대로 발행된다.
+  //   검사에 넣으면 스스로 고칠 수 없는 위반이 되고, 그 위반이 재생성 루프를 돌려 비용만 태운다.
+  test('해시태그의 클리셰 단어는 안전검수 위반으로 잡지 않는다', () => {
+    const out = applyCommonResponseGuard('instagram', {
+      body: '생활정보 정리했습니다. 자세한 내용은 원문에서 확인해보세요.',
+      hashtags: ['#생활정보', '#체크리스트', '#꿀팁', '#원문확인'],
+    }, {});
+    expect(out.review.violations).toEqual([]);
+    // 해시태그 자체는 손상 없이 그대로 유지되어야 한다
+    expect(out.formatted.hashtags).toContain('#꿀팁');
+  });
+
+  // 실제 차단은 sanitize(본문에서 삭제)가 담당한다 — inspectSafety는 sanitize 이후에 돌기 때문.
+  // 그래서 목록에서 빠진 표현은 "경고 없이 그대로 발행"된다(= '지금 바로 클릭' 누락이 위험했던 이유).
+  test('본문의 금지 표현은 발행 전에 제거된다', () => {
+    const out = applyCommonResponseGuard('instagram', {
+      body: '정리했습니다. 지금 바로 클릭 후 확인하세요. 수익 보장 문구도 포함.',
+      hashtags: ['#생활정보'],
+    }, {});
+    expect(out.formatted.body).not.toContain('지금 바로 클릭');
+    expect(out.formatted.body).not.toContain('수익 보장');
+    expect(out.formatted.body).toContain('정리했습니다');
   });
 });

@@ -50,6 +50,9 @@ const COMMON_BANNED_PHRASES = [
   '치료됩니다',
   '완치됩니다',
   '수익 보장',
+  // v3.8.337: v3.8.258 viral DNA 통합 때 대체 없이 사라졌던 항목 복구.
+  //   '아래 링크 클릭'·'클릭하세요'로는 이 표현이 걸리지 않아 스팸성 CTA가 그대로 통과했다.
+  '지금 바로 클릭',
   '아래 링크 클릭',
   '무조건 확인',
   '무조건 저장',
@@ -779,8 +782,15 @@ function inspectSafety(text) {
   return violations;
 }
 
-function scoreCommonReview(platformId, text, context = {}) {
-  const safety = inspectSafety(text);
+/**
+ * @param {object} [options]
+ * @param {string} [options.safetyText] 금지 표현 검사에만 쓸 텍스트.
+ *   해시태그는 sanitize 대상이 아니라(그대로 발행됨) 검사에 넣으면 스스로 고칠 수 없는 위반이 되고,
+ *   그 위반이 재생성 루프(main.ts의 lengthViolations 재시도)를 돌려 비용만 태운다.
+ *   그래서 본문만 넘겨 검사하고, 나머지 점수 항목은 해시태그를 포함한 전체 텍스트로 매긴다.
+ */
+function scoreCommonReview(platformId, text, context = {}, options = {}) {
+  const safety = inspectSafety(typeof options.safetyText === 'string' ? options.safetyText : text);
   const hardcoding = inspectHardcoding(platformId, text, context);
   const platformMix = inspectPlatformMix(platformId, text);
   const violations = [...safety, ...hardcoding, ...platformMix];
@@ -885,8 +895,13 @@ function applyCommonResponseGuard(platformId, formatted, extra = {}) {
     nextFormatted && nextFormatted.hashtags && nextFormatted.hashtags.join(' '),
     nextFormatted && nextFormatted.parts && Object.values(nextFormatted.parts).join('\n'),
   ].filter(Boolean).join('\n');
+  // 금지 표현 검사는 본문/파트만 — 해시태그(#꿀팁 등)는 sanitize가 건드리지 않으므로 위반으로 잡으면 안 된다
+  const bodyOnly = [
+    nextFormatted && nextFormatted.body,
+    nextFormatted && nextFormatted.parts && Object.values(nextFormatted.parts).join('\n'),
+  ].filter(Boolean).join('\n');
   const context = extraKey && nextExtra[extraKey] ? nextExtra[extraKey].context : {};
-  const review = scoreCommonReview(platformId, flat, context || {});
+  const review = scoreCommonReview(platformId, flat, context || {}, { safetyText: bodyOnly });
   return {
     formatted: nextFormatted,
     extra: nextExtra,
