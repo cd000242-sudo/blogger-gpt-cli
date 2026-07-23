@@ -44,7 +44,7 @@ type TistoryBlockingState = {
   needsAuth?: boolean;
 };
 
-type TistoryDialogMonitor = {
+export type TistoryDialogMonitor = {
   messages: string[];
   dispose: () => void;
 };
@@ -364,7 +364,8 @@ async function firstUsableLocator(page: any, selectors: string[], timeoutMs = SH
   return null;
 }
 
-async function clickFirst(page: any, selectors: string[], timeoutMs = SHORT_TIMEOUT_MS): Promise<boolean> {
+// 📋 생성된 글목록 탭(tistory-posts.ts)에서도 동일한 조작 헬퍼를 재사용한다
+export async function clickFirst(page: any, selectors: string[], timeoutMs = SHORT_TIMEOUT_MS): Promise<boolean> {
   // v3.8.159: 첫 매칭 selector를 human-like click (ghost-cursor 베지어 곡선 + random delay)
   for (const sel of selectors) {
     try {
@@ -390,7 +391,7 @@ async function clickFirst(page: any, selectors: string[], timeoutMs = SHORT_TIME
   }
 }
 
-function attachTistoryDialogMonitor(page: any, onLog?: (message: string) => void): TistoryDialogMonitor {
+export function attachTistoryDialogMonitor(page: any, onLog?: (message: string) => void): TistoryDialogMonitor {
   const messages: string[] = [];
   const handler = async (dialog: any) => {
     const message = String(typeof dialog?.message === 'function' ? dialog.message() : '').trim();
@@ -503,7 +504,7 @@ async function throwIfTistoryBlocked(
   throw createTistoryBlockedError(state, phase);
 }
 
-async function fillFirst(page: any, selectors: string[], value: string, timeoutMs = SHORT_TIMEOUT_MS): Promise<boolean> {
+export async function fillFirst(page: any, selectors: string[], value: string, timeoutMs = SHORT_TIMEOUT_MS): Promise<boolean> {
   // v3.8.160: 길이별 행동 분기 — 사람의 실제 입력 패턴 모방
   //   - 짧은 입력 (≤30자: 태그/카테고리 검색 등): humanType (글자별 IME delay)
   //   - 중간 (31~200자: 제목 등): humanPaste (clipboard paste — 사람도 제목은 가끔 복붙)
@@ -553,7 +554,7 @@ async function fillFirst(page: any, selectors: string[], value: string, timeoutM
   }
 }
 
-async function hasTitleInput(page: any, timeoutMs = 1200): Promise<boolean> {
+export async function hasTitleInput(page: any, timeoutMs = 1200): Promise<boolean> {
   return Boolean(await firstUsableLocator(page, TISTORY_SELECTORS.editor.titleInputs, timeoutMs));
 }
 
@@ -799,7 +800,7 @@ async function waitForEditorReady(
   return hasTitleInput(page, 2000);
 }
 
-async function dismissIntroModals(page: any, onLog?: (message: string) => void): Promise<void> {
+export async function dismissIntroModals(page: any, onLog?: (message: string) => void): Promise<void> {
   for (let i = 0; i < 3; i += 1) {
     const clicked = await clickFirst(page, TISTORY_SELECTORS.editor.introModalCloseButtons, 1200);
     if (!clicked) break;
@@ -808,7 +809,7 @@ async function dismissIntroModals(page: any, onLog?: (message: string) => void):
   }
 }
 
-async function switchToHtmlMode(page: any, onLog?: (message: string) => void): Promise<boolean> {
+export async function switchToHtmlMode(page: any, onLog?: (message: string) => void): Promise<boolean> {
   const opened = await clickFirst(page, TISTORY_SELECTORS.editor.modeButtons, 5000);
   if (!opened) {
     const htmlEditorAlready = await firstUsableLocator(page, TISTORY_SELECTORS.editor.htmlEditors, 1500);
@@ -879,7 +880,7 @@ async function fillCodeEditor(page: any, html: string): Promise<boolean> {
   }
 }
 
-async function fillHtmlEditor(page: any, html: string): Promise<boolean> {
+export async function fillHtmlEditor(page: any, html: string): Promise<boolean> {
   if (await fillFirst(page, TISTORY_SELECTORS.editor.htmlEditors, html, 5000)) return true;
   if (await fillCodeEditor(page, html)) return true;
   if (await fillFirst(page, TISTORY_SELECTORS.editor.richEditors, html, 5000)) return true;

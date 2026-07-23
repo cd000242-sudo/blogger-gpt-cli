@@ -4,6 +4,10 @@ export const TISTORY_URLS = {
   manage: 'https://www.tistory.com/',
   write: (blogName: string) => `https://${blogName}.tistory.com/manage/newpost`,
   category: (blogName: string) => `https://${blogName}.tistory.com/manage/category`,
+  // 📋 생성된 글목록 탭 — 관리 화면 글 목록 / 기존 글 편집 / 공개 글 주소
+  managePosts: (blogName: string, page = 1) => `https://${blogName}.tistory.com/manage/posts?page=${page}`,
+  editPost: (blogName: string, postId: string) => `https://${blogName}.tistory.com/manage/newpost/${postId}`,
+  entry: (blogName: string, postId: string) => `https://${blogName}.tistory.com/${postId}`,
 };
 
 export const TISTORY_SELECTORS = {
@@ -128,6 +132,17 @@ export const TISTORY_SELECTORS = {
       '.layer_publish button:has-text("\\uACF5\\uAC1C \\uBC1C\\uD589")',
       'button:has-text("\\uACF5\\uAC1C \\uBC1C\\uD589")',
       'button:has-text("\\uBC1C\\uD589")',
+    ],
+    // 기존 글 수정발행 시 확인 버튼 — 새 글은 "발행", 수정은 "수정"으로 라벨이 바뀐다
+    updateConfirmButtons: [
+      '#publish-btn',
+      '.layer_publish #publish-btn',
+      'button#publish-btn',
+      '.layer_publish button:has-text("수정")',
+      '.layer_publish button:has-text("공개 발행")',
+      '.layer_publish button:has-text("발행")',
+      'button:has-text("수정")',
+      'button:has-text("발행")',
     ],
     visibility: {
       public: [

@@ -199,3 +199,43 @@ export interface WordPressConfig {
   tags?: string[];
   status?: string;
 }
+
+// 📋 생성된 글목록 탭 — Blogger/WordPress/Tistory 공통 응답 규격
+// 렌더러(published-posts.js·editor.js)가 플랫폼 분기 없이 같은 흐름으로 동작하도록 형태를 맞춘다.
+export interface PublishedPostItem {
+  id: string;
+  title: string;
+  url: string;
+  published: string;
+  updated: string;
+  content: string;
+  imageUrl: string;
+}
+
+export interface PublishedPostListResult {
+  ok: boolean;
+  items?: PublishedPostItem[];
+  nextPageToken?: string | null;
+  error?: string;
+  needsAuth?: boolean;
+}
+
+/** 목록에서 본문을 함께 받아오지 못하는 플랫폼(Tistory)이 본문만 따로 읽어올 때 쓰는 결과 */
+export interface PublishedPostDetailResult {
+  ok: boolean;
+  postId?: string;
+  title?: string;
+  url?: string;
+  content?: string;
+  error?: string;
+  needsAuth?: boolean;
+}
+
+export interface PublishedPostUpdateResult {
+  ok: boolean;
+  postId?: string;
+  url?: string;
+  updated?: string;
+  error?: string;
+  needsAuth?: boolean;
+}

@@ -3916,7 +3916,68 @@ electron_1.ipcMain.handle('blogger-update-post', async (_evt, args) => {
         return { ok: false, error: error.message || String(error) };
     }
 });
-console.log('[POSTS-TAB] ✅ 생성된 글목록 핸들러 등록 완료');
+electron_1.ipcMain.handle('wordpress-list-posts', async (_evt, args) => {
+    try {
+        const wordpressPosts = require('../dist/wordpress/wordpress-posts');
+        if (typeof wordpressPosts.listWordPressPosts !== 'function') {
+            return { ok: false, error: '워드프레스 글 목록 기능을 사용할 수 없습니다. 앱을 재빌드해주세요.' };
+        }
+        return await wordpressPosts.listWordPressPosts(args || {});
+    }
+    catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+});
+electron_1.ipcMain.handle('wordpress-update-post', async (_evt, args) => {
+    try {
+        const wordpressPosts = require('../dist/wordpress/wordpress-posts');
+        if (typeof wordpressPosts.updateWordPressPost !== 'function') {
+            return { ok: false, error: '워드프레스 수정발행 기능을 사용할 수 없습니다. 앱을 재빌드해주세요.' };
+        }
+        return await wordpressPosts.updateWordPressPost(args || {});
+    }
+    catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+});
+electron_1.ipcMain.handle('tistory-list-posts', async (_evt, args) => {
+    try {
+        const tistoryPosts = require('../dist/tistory/tistory-posts');
+        if (typeof tistoryPosts.listTistoryPosts !== 'function') {
+            return { ok: false, error: '티스토리 글 목록 기능을 사용할 수 없습니다. 앱을 재빌드해주세요.' };
+        }
+        return await tistoryPosts.listTistoryPosts(args || {});
+    }
+    catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+});
+// 티스토리는 목록에 본문이 없어(관리 화면 스크래핑) 편집 직전에 본문만 따로 읽어온다
+electron_1.ipcMain.handle('tistory-get-post', async (_evt, args) => {
+    try {
+        const tistoryPosts = require('../dist/tistory/tistory-posts');
+        if (typeof tistoryPosts.getTistoryPost !== 'function') {
+            return { ok: false, error: '티스토리 본문 조회 기능을 사용할 수 없습니다. 앱을 재빌드해주세요.' };
+        }
+        return await tistoryPosts.getTistoryPost(args || {});
+    }
+    catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+});
+electron_1.ipcMain.handle('tistory-update-post', async (_evt, args) => {
+    try {
+        const tistoryPosts = require('../dist/tistory/tistory-posts');
+        if (typeof tistoryPosts.updateTistoryPost !== 'function') {
+            return { ok: false, error: '티스토리 수정발행 기능을 사용할 수 없습니다. 앱을 재빌드해주세요.' };
+        }
+        return await tistoryPosts.updateTistoryPost(args || {});
+    }
+    catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+});
+console.log('[POSTS-TAB] ✅ 생성된 글목록 핸들러 등록 완료 (블로그스팟·워드프레스·티스토리)');
 // ============================================
 // 🔥 Blogger OAuth 인증 핸들러
 // ============================================

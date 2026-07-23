@@ -1,7 +1,19 @@
 // ✏️ 비주얼 글 편집기 — HTML 코드를 보지 않고 실제 렌더 화면에서 글/이미지 수정
-// 3가지 소스 지원: appstate(생성 직후) / republish(재발행 대기열) / file(외부 HTML/TXT)
+// 소스: appstate(생성 직후) / republish(재발행 대기열) / file(외부 HTML/TXT)
+//       + 생성된 글목록 탭의 발행된 글(blogger / wordpress / tistory) 수정발행
 import { getAppState, addLog, getTextLength } from './core.js';
 import { initImageEditing, detachImageEditing, hostPendingImages, undoImageOp, hasImageOps, insertImagesAtCaret } from './editor-images.js';
+
+// 생성된 글목록 탭에서 넘어온 "이미 발행된 글" 소스 — 저장 = 해당 플랫폼에 수정발행
+const PUBLISHED_POST_SOURCES = {
+  blogger: { label: '블로그스팟', updateChannel: 'blogger-update-post' },
+  wordpress: { label: '워드프레스', updateChannel: 'wordpress-update-post' },
+  tistory: { label: '티스토리', updateChannel: 'tistory-update-post' },
+};
+
+function getPublishedSource(kind) {
+  return PUBLISHED_POST_SOURCES[kind] || null;
+}
 
 let session = null;
 let modalRefs = null;
@@ -273,8 +285,8 @@ export async function openVisualEditor(source) {
       filePath = res.filePath;
       html = res.content;
       title = '';
-    } else if (kind === 'blogger') {
-      // 생성된 글목록 탭: 발행된 글을 불러와 수정 후 Blogger에 업데이트(수정발행)
+    } else if (getPublishedSource(kind)) {
+      // 생성된 글목록 탭: 발행된 글을 불러와 수정 후 해당 플랫폼에 업데이트(수정발행)
       postId = source.postId;
       postUrl = source.postUrl || '';
       title = source.title || '';
@@ -310,7 +322,7 @@ export async function openVisualEditor(source) {
     refs.saveAsBtn.style.display = kind === 'file' ? '' : 'none';
     refs.saveBtn.textContent = kind === 'appstate' ? '✅ 적용 (발행 시 반영)'
       : kind === 'republish' ? '✅ 대기열에 저장'
-      : kind === 'blogger' ? '🚀 수정발행하기'
+      : getPublishedSource(kind) ? '🚀 수정발행하기'
       : '✅ 파일에 저장';
     setStatus(kind === 'file' ? `편집 중: ${filePath}` : '아래 화면은 블로그에 보이는 실제 모습입니다. 고치고 싶은 곳을 클릭하세요.');
     refs.overlay.style.display = 'flex';
@@ -382,24 +394,28 @@ async function saveCurrentSession(saveAs) {
       window.renderRepublishQueueBanner?.();
       addLog('✏️ 대기열 항목이 수정되었습니다. 재발행 시 편집본이 발행됩니다.', 'success');
       hideModalAfterSave();
-    } else if (session.kind === 'blogger') {
-      if (!confirm('편집한 내용으로 블로그 글을 수정발행할까요?\n블로그에 올라간 글이 즉시 바뀝니다.')) {
+    } else if (getPublishedSource(session.kind)) {
+      const published = getPublishedSource(session.kind);
+      const slowNotice = session.kind === 'tistory'
+        ? '\n\n티스토리는 브라우저로 편집기를 조작하므로 1분 정도 걸릴 수 있습니다.'
+        : '';
+      if (!confirm(`편집한 내용으로 ${published.label} 글을 수정발행할까요?\n블로그에 올라간 글이 즉시 바뀝니다.${slowNotice}`)) {
         setStatus('수정발행이 취소되었습니다.');
         return;
       }
-      setStatus('🚀 수정발행 중…');
-      const res = await window.electronAPI.invoke('blogger-update-post', {
+      setStatus(`🚀 ${published.label} 수정발행 중…`);
+      const res = await window.electronAPI.invoke(published.updateChannel, {
         postId: session.postId,
         title,
         content: html,
       });
       if (res?.ok) {
-        addLog(`🚀 수정발행 완료: ${res.url || title}`, 'success');
+        addLog(`🚀 ${published.label} 수정발행 완료: ${res.url || title}`, 'success');
         window.__refreshPublishedPosts?.();
         alert(`✅ 수정발행 완료!\n${res.url || ''}`);
         hideModalAfterSave();
       } else {
-        alert('❌ 수정발행 실패\n\n' + (res?.error || '알 수 없는 오류'));
+        alert(`❌ ${published.label} 수정발행 실패\n\n` + (res?.error || '알 수 없는 오류'));
         setStatus('수정발행에 실패했습니다.');
       }
     } else if (session.kind === 'file') {
