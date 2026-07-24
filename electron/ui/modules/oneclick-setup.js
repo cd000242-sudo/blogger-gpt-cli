@@ -1486,86 +1486,22 @@ function renderBlogspotCreationExamples() {
 
 export function renderOneclickSetupTab() {
   return `
-    <div style="display: flex; flex-direction: column; gap: 24px;">
-      <!-- 헤더 -->
-      <div style="text-align: center; padding: 20px 0 8px;">
-        <div style="font-size: 32px; margin-bottom: 8px;">🚀</div>
-        <h3 style="margin: 0; font-size: 22px; font-weight: 800; color: white; letter-spacing: -0.5px;">
-          원클릭 블로그 세팅
-        </h3>
-        <p style="margin: 8px 0 0; font-size: 13px; color: rgba(255,255,255,0.5); line-height: 1.6;">
-          반자동 세팅 — 로그인과 필수 입력은 직접, 설정·등록 반복작업은 자동으로 처리합니다
-        </p>
-      </div>
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      <!-- v3.8.344: 시작전준비/헬스체크/beginnerPath/STEP 1 모두 삭제 (사용자 요청 — 계정 추가/앱 연동 + 준비 상태 외 다 제거). 헤더도 간소화. -->
 
-      <!-- 📋 시작 전 준비사항 (초보 구매자 기대치 관리) -->
-      <div id="oneclick-prereq" style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(234, 179, 8, 0.35); border-radius: 16px; padding: 20px;">
-        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
-          <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #eab308, #ca8a04); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
-            <span style="font-size: 20px;">📋</span>
-          </div>
+      <!-- 🎬 세팅 영상 안내 (사용자 요청: 세팅 영상은 원클릭 연동에 같이) -->
+      <div style="background: linear-gradient(135deg, rgba(239,68,68,0.10) 0%, rgba(220,38,38,0.08) 100%); border: 1px solid rgba(239,68,68,0.35); border-radius: 14px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span style="font-size: 28px;">▶️</span>
           <div>
-            <h4 style="margin: 0; font-weight: 800; color: white; font-size: 16px; letter-spacing: -0.3px;">시작 전 준비사항</h4>
-            <p style="margin: 3px 0 0; font-size: 11px; color: #fde68a;">아래 항목이 준비되어야 원클릭이 끊기지 않고 완주됩니다</p>
+            <div style="color: white; font-weight: 800; font-size: 14px;">처음이신가요? 세팅 영상부터 보세요</div>
+            <div style="color: rgba(226,232,240,0.65); font-size: 12px; margin-top: 3px;">계정 추가·앱 연동을 단계별로 따라 하는 5분 가이드 영상</div>
           </div>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: rgba(255,255,255,0.75);">
-          <div style="padding: 10px 12px; background: rgba(234, 179, 8, 0.08); border: 1px solid rgba(234, 179, 8, 0.2); border-radius: 8px;">
-            <div style="font-weight: 700; color: #fde047;">🔵 블로그스팟 쪽</div>
-            <ul style="margin: 6px 0 0; padding-left: 18px; line-height: 1.7;">
-              <li>Google 계정 (2단계 인증 해제 권장)</li>
-              <li>블로그 제목·주소 (신규 생성 시)</li>
-              <li>기존 블로그를 쓸 경우 Blog ID는 자동 감지 가능</li>
-              <li><strong>발행 필수:</strong> 아래 STEP 2 앱 연동에서 OAuth와 Blog ID를 완료하세요</li>
-            </ul>
-          </div>
-          <div style="padding: 10px 12px; background: rgba(234, 179, 8, 0.08); border: 1px solid rgba(234, 179, 8, 0.2); border-radius: 8px;">
-            <div style="font-weight: 700; color: #fde047;">🟠 워드프레스/인프라 쪽</div>
-            <ul style="margin: 6px 0 0; padding-left: 18px; line-height: 1.7;">
-              <li>도메인 구입 (가비아·Namecheap 등에서 사전 구매)</li>
-              <li><strong>Cloudways 계정 + 앱 생성</strong> — 인프라 자동화는 앱이 이미 만들어진 상태에서 시작합니다. <a href="#" data-oneclick-help="cloudways" style="color:#93c5fd;">가입하기</a></li>
-              <li>도메인 DNS A레코드를 Cloudways 서버 IP로 변경 (전파 24~48시간)</li>
-              <li>WordPress 관리자 계정 (ID/비밀번호)</li>
-              <li>Gemini API 키 (Google AI Studio 프로젝트/쿼터 확인). <a href="#" data-oneclick-help="gemini" style="color:#93c5fd;">발급</a></li>
-            </ul>
-          </div>
-        </div>
-        <div style="margin-top: 12px; padding: 10px 12px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px; font-size: 12px; color: #fca5a5;">
-          ⚠️ 블로그스팟 원클릭 세팅은 블로그 개설/기초 설정용입니다. 실제 발행은 STEP 2 앱 연동이 완료되어야 가능합니다.
-        </div>
+        <a href="https://www.youtube.com/watch?v=_AJLxsyI-JY" target="_blank" rel="noopener" style="padding: 10px 18px; background: linear-gradient(135deg,#ef4444,#dc2626); border-radius: 10px; color: white; font-size: 13px; font-weight: 800; text-decoration: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;">▶️ 세팅 영상 보기</a>
       </div>
 
-      <!-- 🔍 환경 헬스체크 (이미 수동 세팅한 사용자용) -->
-      <div id="oneclick-healthcheck" style="background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 16px; padding: 20px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(59, 130, 246, 0.25);">
-              <span style="font-size: 20px;">🔍</span>
-            </div>
-            <div>
-              <h4 style="margin: 0; font-weight: 800; color: white; font-size: 16px; letter-spacing: -0.3px;">환경 헬스체크</h4>
-              <p style="margin: 3px 0 0; font-size: 11px; color: #94a3b8;">이미 수동으로 세팅을 마쳤다면 — 원클릭을 다시 돌리지 않고 현재 상태만 검증합니다</p>
-            </div>
-          </div>
-          <button id="oneclick-healthcheck-btn" style="padding: 10px 16px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;">
-            🔍 검증만 실행
-          </button>
-        </div>
-        <div id="oneclick-healthcheck-results" style="margin-top: 8px;"></div>
-      </div>
-
-      ${renderBeginnerPathCard()}
-
-      <!-- STEP 1: 새 블로그/사이트 준비 -->
-      <div style="display: flex; align-items: center; gap: 14px; margin: 8px 0 4px;">
-        <span style="padding: 5px 12px; background: linear-gradient(135deg, #f97316, #ea580c); color: white; border-radius: 8px; font-size: 11px; font-weight: 900; letter-spacing: 0.05em; box-shadow: 0 4px 12px rgba(249, 115, 22, 0.4);">STEP 1</span>
-        <h4 style="margin: 0; color: #fed7aa; font-size: 15px; font-weight: 800; letter-spacing: -0.2px;">새 블로그/사이트 준비</h4>
-        <span style="color: rgba(254, 215, 170, 0.6); font-size: 11px;">처음이면 여기부터, 이미 있다면 STEP 2로 이동하세요</span>
-      </div>
-      ${renderPlatformCard(PLATFORMS.blogspot)}
-      ${renderPlatformCard(PLATFORMS.wordpress)}
-
-      <!-- STEP 2: 계정 추가 / 앱 연동 -->
+      <!-- 🔗 STEP: 계정 추가 / 앱 연동 (유일하게 유지된 원클릭 세팅 카드) -->
       <div style="background: rgba(30, 41, 59, 0.4); border: 2px solid rgba(139, 92, 246, 0.45); border-radius: 16px; padding: 24px; box-shadow: 0 12px 36px rgba(139, 92, 246, 0.18);">
         <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 16px;">
           <div style="position: relative; flex-shrink: 0;">
