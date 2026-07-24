@@ -1535,71 +1535,73 @@ export function renderOneclickSetupTab() {
             </div>
             ${renderConnectStepRail('blogspot', { compact: true })}
             <div id="oneclick-connect-msg-blogger" style="display: none; padding: 10px 14px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-bottom: 10px; font-size: 12px; color: #a78bfa; transition: all 0.3s;"></div>
+            <!-- v3.8.345: 초보자 친화 재구성 — 큰 가이드 버튼 하나 + [▼ 수동 설정] 접기 -->
             <div id="oneclick-blogger-oauth-helper" style="padding: 14px; background: rgba(15, 23, 42, 0.45); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; margin-bottom: 12px;">
-              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px;">
-                <div>
-                  <div style="font-size: 12px; font-weight: 800; color: #fed7aa;">Google OAuth 연동 상태</div>
-                  <div style="font-size: 10px; color: rgba(255,255,255,0.45); margin-top: 3px; line-height: 1.5;">
-                    원클릭에서 가져온 Client ID/Secret/Blog ID는 블로그 플랫폼 탭의 기존 필드에 자동으로 들어갑니다.
+              <div style="display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px;">
+                <div style="flex: 1;">
+                  <div style="font-size: 12px; font-weight: 800; color: #fed7aa;">Google OAuth 연동</div>
+                  <div style="font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 3px; line-height: 1.55;">
+                    아래 <strong style="color:#fbbf24;">가이드 시작</strong>을 누르면 Google Cloud Client 생성 → Blogger API 활성화 → 테스트 사용자 추가 → 저장 후 인증까지 순서대로 안내합니다. 초보자는 이 버튼 하나로 완료 가능합니다.
                   </div>
                 </div>
-                <button type="button" onclick="window.__oneclickSetup?.loadBloggerOAuthFields()"
-                  style="padding: 7px 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; border-radius: 8px; font-size: 10px; font-weight: 700; cursor: pointer; white-space: nowrap;">
-                  불러오기
-                </button>
-                <button type="button" onclick="window.__oneclickSetup?.showBloggerOAuthGuide()"
-                  style="padding: 7px 10px; background: rgba(251,191,36,0.16); border: 1px solid rgba(251,191,36,0.35); color: #fde68a; border-radius: 8px; font-size: 10px; font-weight: 800; cursor: pointer; white-space: nowrap;">
-                  가이드 시작
-                </button>
               </div>
-              <div id="oneclick-blogger-manual-details" style="margin-top: 10px;">
-              <div style="padding:10px 12px; border-radius:10px; background:rgba(255,112,67,0.10); border:1px solid rgba(255,112,67,0.24); color:#fed7aa; font-size:12px; font-weight:850; margin-bottom:10px;">
-                직접 입력은 <button type="button" onclick="window.__oneclickSetup?.openBloggerPlatformFields('blogId')" style="padding:4px 8px; margin:0 4px; background:rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.18); color:#fff7ed; border-radius:7px; font-size:11px; font-weight:850; cursor:pointer;">블로그 플랫폼 필드</button>에서 합니다.
-                <span style="display:block; margin-top:3px; color:rgba(255,255,255,0.48); font-size:10px; font-weight:600;">원클릭으로 추출한 값도 해당 필드에 자동 삽입됩니다.</span>
-              </div>
-              <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 10px;">
-                <input id="oneclick-oauth-redirect" type="text" readonly value="${BLOGGER_OAUTH_REDIRECT_URI}"
-                  style="width: 100%; padding: 9px 10px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #93c5fd; font-size: 11px; box-sizing: border-box;" />
-                <button type="button" onclick="window.__oneclickSetup?.copyBloggerOAuthRedirectUri()"
-                  style="padding: 9px 12px; background: rgba(59,130,246,0.18); border: 1px solid rgba(59,130,246,0.35); color: #bfdbfe; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
-                  Redirect 복사
-                </button>
-              </div>
-              <label style="display:flex; align-items:flex-start; gap:8px; padding:10px 11px; margin-bottom:10px; background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.22); border-radius:9px; color:#fde68a; font-size:11px; line-height:1.5; cursor:pointer;">
-                <input id="oneclick-oauth-test-user-confirm" type="checkbox" style="margin-top:2px;" />
-                <span><strong>현재 Chrome에 로그인된 Gmail</strong>을 Google Cloud → Audience → Test users에 추가하고 저장했습니다. 이 확인 없이 인증을 열면 Google 403 access_denied가 뜰 수 있습니다.</span>
-              </label>
-              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <button type="button" onclick="window.__oneclickSetup?.openGoogleOAuthConsole('clients')"
-                  style="flex: 1; min-width: 120px; padding: 9px 10px; background: rgba(255,112,67,0.16); border: 1px solid rgba(255,112,67,0.35); color: #fed7aa; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
-                  Client 만들기
-                </button>
-                <button type="button" onclick="window.__oneclickSetup?.openGoogleOAuthConsole('bloggerApi')"
-                  style="flex: 1; min-width: 120px; padding: 9px 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
-                  Blogger API 열기
-                </button>
-                <button type="button" onclick="window.__oneclickSetup?.openGoogleOAuthConsole('audience')"
-                  style="flex: 1; min-width: 128px; padding: 9px 10px; background: rgba(251,191,36,0.16); border: 1px solid rgba(251,191,36,0.35); color: #fde68a; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;">
-                  테스트 사용자
-                </button>
-                <button type="button" onclick="window.__oneclickSetup?.startBloggerBlogIdExtract()"
-                  style="flex: 1; min-width: 130px; padding: 9px 10px; background: rgba(14,165,233,0.16); border: 1px solid rgba(14,165,233,0.35); color: #bae6fd; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
-                  Blog ID 자동
-                </button>
-                <button type="button" onclick="window.__oneclickSetup?.openBloggerPlatformFields('googleClientId')"
-                  style="flex: 1; min-width: 140px; padding: 9px 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #e5e7eb; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;">
-                  플랫폼 필드 열기
-                </button>
-                <button type="button" onclick="window.__oneclickSetup?.saveBloggerOAuthCredentials(false)"
-                  style="flex: 1; min-width: 120px; padding: 9px 10px; background: rgba(16,185,129,0.16); border: 1px solid rgba(16,185,129,0.35); color: #bbf7d0; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
-                  플랫폼 값 저장
-                </button>
-                <button type="button" onclick="window.__oneclickSetup?.saveBloggerOAuthCredentials(true)"
-                  style="flex: 1.3; min-width: 140px; padding: 9px 10px; background: linear-gradient(135deg, #8b5cf6, #6366f1); border: none; color: white; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;">
-                  저장 후 인증
-                </button>
-              </div>
-              </div>
+
+              <!-- 큰 가이드 버튼 (초보자 메인 액션) -->
+              <button type="button" onclick="window.__oneclickSetup?.showBloggerOAuthGuide()"
+                style="width: 100%; padding: 14px; background: linear-gradient(135deg, #fbbf24, #f59e0b); border: none; color: #1f2937; border-radius: 10px; font-size: 14px; font-weight: 900; cursor: pointer; box-shadow: 0 4px 14px rgba(251,191,36,0.35); display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px;"
+                onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 8px 24px rgba(251,191,36,0.5)'"
+                onmouseout="this.style.transform='none'; this.style.boxShadow='0 4px 14px rgba(251,191,36,0.35)'">
+                <span style="font-size: 18px;">▶️</span>
+                <span>5분 가이드로 OAuth 연동 시작 (초보자 추천)</span>
+              </button>
+
+              <!-- 저장된 값 불러오기 (보조 액션) -->
+              <button type="button" onclick="window.__oneclickSetup?.loadBloggerOAuthFields()"
+                style="width: 100%; padding: 9px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer; margin-bottom: 10px;">
+                📥 저장된 값 다시 불러오기
+              </button>
+
+              <!-- 수동 설정 (고급/자동 실패 시) — 기본 접힘 -->
+              <details style="margin-top: 4px;">
+                <summary style="list-style:none; cursor:pointer; padding:10px 12px; border-radius:10px; background:rgba(255,112,67,0.10); border:1px solid rgba(255,112,67,0.24); color:#fed7aa; font-size:12px; font-weight:850;">
+                  ▼ 자동 안 될 때만 열기 — 수동 설정 (고급)
+                  <span style="display:block; margin-top:3px; color:rgba(255,255,255,0.48); font-size:10px; font-weight:600;">Client ID/Secret 붙여넣기, Blog ID 수동 감지, Redirect URI 복사 등</span>
+                </summary>
+                <div id="oneclick-blogger-manual-details" style="margin-top: 12px;">
+                  <div style="padding:10px 12px; border-radius:10px; background:rgba(255,112,67,0.10); border:1px solid rgba(255,112,67,0.24); color:#fed7aa; font-size:12px; font-weight:850; margin-bottom:10px;">
+                    직접 입력은 <button type="button" onclick="window.__oneclickSetup?.openBloggerPlatformFields('blogId')" style="padding:4px 8px; margin:0 4px; background:rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.18); color:#fff7ed; border-radius:7px; font-size:11px; font-weight:850; cursor:pointer;">블로그 플랫폼 필드</button>에서 합니다.
+                    <span style="display:block; margin-top:3px; color:rgba(255,255,255,0.48); font-size:10px; font-weight:600;">원클릭으로 추출한 값도 해당 필드에 자동 삽입됩니다.</span>
+                  </div>
+                  <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 10px;">
+                    <input id="oneclick-oauth-redirect" type="text" readonly value="${BLOGGER_OAUTH_REDIRECT_URI}"
+                      style="width: 100%; padding: 9px 10px; background: rgba(2, 6, 23, 0.65); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #93c5fd; font-size: 11px; box-sizing: border-box;" />
+                    <button type="button" onclick="window.__oneclickSetup?.copyBloggerOAuthRedirectUri()"
+                      style="padding: 9px 12px; background: rgba(59,130,246,0.18); border: 1px solid rgba(59,130,246,0.35); color: #bfdbfe; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
+                      Redirect 복사
+                    </button>
+                  </div>
+                  <label style="display:flex; align-items:flex-start; gap:8px; padding:10px 11px; margin-bottom:10px; background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.22); border-radius:9px; color:#fde68a; font-size:11px; line-height:1.5; cursor:pointer;">
+                    <input id="oneclick-oauth-test-user-confirm" type="checkbox" style="margin-top:2px;" />
+                    <span><strong>현재 Chrome에 로그인된 Gmail</strong>을 Google Cloud → Audience → Test users에 추가하고 저장했습니다. 이 확인 없이 인증을 열면 Google 403 access_denied가 뜰 수 있습니다.</span>
+                  </label>
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button type="button" onclick="window.__oneclickSetup?.openGoogleOAuthConsole('clients')"
+                      style="flex: 1; min-width: 120px; padding: 9px 10px; background: rgba(255,112,67,0.16); border: 1px solid rgba(255,112,67,0.35); color: #fed7aa; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">Client 만들기</button>
+                    <button type="button" onclick="window.__oneclickSetup?.openGoogleOAuthConsole('bloggerApi')"
+                      style="flex: 1; min-width: 120px; padding: 9px 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">Blogger API 열기</button>
+                    <button type="button" onclick="window.__oneclickSetup?.openGoogleOAuthConsole('audience')"
+                      style="flex: 1; min-width: 128px; padding: 9px 10px; background: rgba(251,191,36,0.16); border: 1px solid rgba(251,191,36,0.35); color: #fde68a; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;">테스트 사용자</button>
+                    <button type="button" onclick="window.__oneclickSetup?.startBloggerBlogIdExtract()"
+                      style="flex: 1; min-width: 130px; padding: 9px 10px; background: rgba(14,165,233,0.16); border: 1px solid rgba(14,165,233,0.35); color: #bae6fd; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">Blog ID 자동</button>
+                    <button type="button" onclick="window.__oneclickSetup?.openBloggerPlatformFields('googleClientId')"
+                      style="flex: 1; min-width: 140px; padding: 9px 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #e5e7eb; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;">플랫폼 필드 열기</button>
+                    <button type="button" onclick="window.__oneclickSetup?.saveBloggerOAuthCredentials(false)"
+                      style="flex: 1; min-width: 120px; padding: 9px 10px; background: rgba(16,185,129,0.16); border: 1px solid rgba(16,185,129,0.35); color: #bbf7d0; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer;">플랫폼 값 저장</button>
+                    <button type="button" onclick="window.__oneclickSetup?.saveBloggerOAuthCredentials(true)"
+                      style="flex: 1.3; min-width: 140px; padding: 9px 10px; background: linear-gradient(135deg, #8b5cf6, #6366f1); border: none; color: white; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;">저장 후 인증</button>
+                  </div>
+                </div>
+              </details>
               <div id="oneclick-oauth-helper-msg" style="display: none; margin-top: 10px; padding: 9px 10px; background: rgba(0,0,0,0.18); border-radius: 8px; color: #c4b5fd; font-size: 11px; line-height: 1.5;"></div>
             </div>
             <button id="oneclick-connect-btn-blogger" onclick="window.__oneclickSetup?.startPlatformConnect('blogger')"
