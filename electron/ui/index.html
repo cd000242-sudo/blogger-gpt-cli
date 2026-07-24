@@ -2874,6 +2874,26 @@
           <!-- v3.8.340: 시작하기 배너 삭제 -->
           <!-- v3.8.344: 메인에 잘못 배치한 준비 상태 카드 삭제 (사용자 재정정 — 환경설정 원클릭 탭 안에 있어야 함) -->
 
+          <!-- v3.8.347: 오늘의 리더남 황금키워드 대형 배너 (상단 빈 공간 활용, 사용자 요청) -->
+          <div style="background: linear-gradient(135deg, rgba(251,191,36,0.10) 0%, rgba(217,119,6,0.06) 50%, rgba(139,92,246,0.06) 100%); border: 1px solid rgba(251,191,36,0.32); border-radius: 16px; padding: 18px 22px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 26px;">🥇</span>
+                <div>
+                  <h3 style="margin: 0; color: #fbbf24; font-size: 16px; font-weight: 900; letter-spacing: -0.02em;">오늘의 리더남 황금키워드</h3>
+                  <div id="golden-report-date" style="margin-top: 2px; font-size: 11px; color: rgba(226,232,240,0.55);">관리자가 매일 업데이트합니다</div>
+                </div>
+              </div>
+              <button id="golden-keyword-edit-btn" onclick="openGoldenKeywordEditor()" style="padding: 7px 14px; background: rgba(251,191,36,0.14); border: 1px solid rgba(251,191,36,0.38); color: #fde68a; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap;">🔒 관리자 편집</button>
+            </div>
+            <div id="golden-keyword-items" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px;">
+              <div style="grid-column: 1 / -1; padding: 24px; text-align: center; color: #64748b; font-size: 13px;">
+                <div style="font-size: 28px; margin-bottom: 8px;">🥇</div>
+                관리자가 등록하면 여기에 키워드가 표시됩니다
+              </div>
+            </div>
+          </div>
+
           <!-- 2. 빠른 통계 -->
           <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <div id="stat-today"
@@ -2896,41 +2916,18 @@
           <!-- 3. 메인 수평 레이아웃 (최근발행 좌측, 캘린더 우측) -->
           <div style="display: flex; gap: 16px; flex: 1; min-height: 0;">
 
-            <!-- v3.8.346: 좌측 = 황금키워드 리포트(상단) + 최근 발행(하단) 통합 -->
-            <div style="display: flex; flex-direction: column; gap: 12px; width: 320px; flex-shrink: 0;">
-              <!-- 황금키워드 리포트 카드 -->
-              <div style="background: linear-gradient(160deg, rgba(251,191,36,0.06) 0%, rgba(217,119,6,0.04) 100%); border-radius: 16px; border: 1px solid rgba(251,191,36,0.28); display: flex; flex-direction: column; overflow: hidden; flex: 1; min-height: 300px;">
-                <div style="padding: 14px 16px 10px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(251,191,36,0.15);">
-                  <h3 style="color: #fbbf24; font-size: 14px; font-weight: 800; margin: 0; display: flex; align-items: center; gap: 6px;">
-                    <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: rgba(251,191,36,0.16); border-radius: 6px;">🥇</span>
-                    황금키워드 리포트
-                  </h3>
-                  <button id="golden-keyword-edit-btn" onclick="openGoldenKeywordEditor()" style="padding: 4px 10px; background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.35); color: #fde68a; border-radius: 8px; font-size: 10px; font-weight: 700; cursor: pointer; white-space: nowrap;">🔒 관리자 편집</button>
-                </div>
-                <div id="golden-keyword-content" style="flex: 1; overflow-y: auto; padding: 12px 14px; font-size: 12px; color: #e2e8f0; line-height: 1.65; white-space: pre-wrap; word-break: break-word;">
-                  <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #64748b; font-size: 12px; text-align: center; padding: 20px 12px;">
-                    <div>
-                      <div style="font-size: 24px; margin-bottom: 8px;">🥇</div>
-                      매일 갱신되는 황금키워드 리포트<br>
-                      <span style="font-size: 10px; color: #475569;">관리자가 등록하면 여기에 표시됩니다</span>
-                    </div>
-                  </div>
-                </div>
+            <!-- v3.8.347: 좌측 = 최근 발행만 (황금키워드는 상단 대형 배너로 이동) -->
+            <div style="background: linear-gradient(160deg, #0f172a 0%, #1e293b 100%); border-radius: 16px; border: 1px solid rgba(148, 163, 184, 0.1); display: flex; flex-direction: column; overflow: hidden; width: 260px; flex-shrink: 0;">
+              <div style="padding: 14px 16px 10px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(148, 163, 184, 0.08);">
+                <h3 style="color: #f1f5f9; font-size: 14px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 6px;">
+                  <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: rgba(16, 185, 129, 0.12); border-radius: 6px;">📄</span>
+                  최근 발행
+                </h3>
+                <span id="recent-post-count" style="color: #64748b; font-size: 11px; font-weight: 500;">0건</span>
               </div>
-
-              <!-- 최근 발행 카드 (아래로) -->
-              <div style="background: linear-gradient(160deg, #0f172a 0%, #1e293b 100%); border-radius: 16px; border: 1px solid rgba(148, 163, 184, 0.1); display: flex; flex-direction: column; overflow: hidden; height: 240px;">
-                <div style="padding: 12px 16px 8px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(148, 163, 184, 0.08);">
-                  <h3 style="color: #f1f5f9; font-size: 13px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 6px;">
-                    <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; background: rgba(16, 185, 129, 0.12); border-radius: 6px;">📄</span>
-                    최근 발행
-                  </h3>
-                  <span id="recent-post-count" style="color: #64748b; font-size: 11px; font-weight: 500;">0건</span>
-                </div>
-                <div id="recent-posts-list" style="flex: 1; overflow-y: auto; padding: 6px 8px;">
-                  <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #475569; font-size: 12px; text-align: center; padding: 12px;">
-                    <div>발행된 글이 없습니다</div>
-                  </div>
+              <div id="recent-posts-list" style="flex: 1; overflow-y: auto; padding: 8px 10px;">
+                <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #475569; font-size: 12px; text-align: center; padding: 20px 12px;">
+                  <div>발행된 글이 없습니다</div>
                 </div>
               </div>
             </div>
@@ -8058,87 +8055,255 @@ function renderRecentPosts() {
 }
 window.renderRecentPosts = renderRecentPosts;
 
-// v3.8.346: 황금키워드 리포트 (관리자 편집 + 모두 보기, 비밀번호 인증)
+// v3.8.347: 오늘의 리더남 황금키워드 (관리자 편집 — 키워드+추천제목 구조화)
 var GOLDEN_KEYWORD_STORAGE_KEY = 'goldenKeywordReport';
 var GOLDEN_ADMIN_PASSWORD = '2021645';
 
-function renderGoldenKeyword() {
-  var contentEl = document.getElementById('golden-keyword-content');
-  if (!contentEl) return;
+function getGoldenData() {
   try {
     var stored = localStorage.getItem(GOLDEN_KEYWORD_STORAGE_KEY);
-    if (!stored || !stored.trim()) {
-      contentEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:12px;text-align:center;padding:20px 12px;"><div><div style="font-size:24px;margin-bottom:8px;">🥇</div>매일 갱신되는 황금키워드 리포트<br><span style="font-size:10px;color:#475569;">관리자가 등록하면 여기에 표시됩니다</span></div></div>';
-      return;
-    }
-    var data = null;
-    try { data = JSON.parse(stored); } catch (_) { data = { content: stored, savedAt: '' }; }
-    var savedAtStr = data.savedAt ? new Date(data.savedAt).toLocaleString('ko-KR') : '';
-    // HTML escape
-    var content = String(data.content || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    contentEl.innerHTML =
-      (savedAtStr ? '<div style="font-size:10px;color:#94a3b8;margin-bottom:8px;text-align:right;">📅 ' + savedAtStr + ' 등록</div>' : '') +
-      '<pre style="margin:0;font-family:inherit;font-size:12px;color:#e2e8f0;line-height:1.65;white-space:pre-wrap;word-break:break-word;">' + content + '</pre>';
-  } catch (e) {
-    console.warn('[GOLDEN-KEYWORD] 렌더링 실패:', e);
+    if (!stored) return { reportDate: '', items: [] };
+    var parsed = JSON.parse(stored);
+    // 신규 구조: {reportDate, items: [{keyword, titles: []}]}
+    if (parsed && Array.isArray(parsed.items)) return parsed;
+    // 구 구조 (v3.8.346 raw text) 호환 — 빈 items 반환
+    return { reportDate: '', items: [] };
+  } catch (_) {
+    return { reportDate: '', items: [] };
   }
+}
+
+function renderGoldenKeyword() {
+  var itemsEl = document.getElementById('golden-keyword-items');
+  var dateEl = document.getElementById('golden-report-date');
+  if (!itemsEl) return;
+  var data = getGoldenData();
+  if (dateEl) {
+    dateEl.textContent = data.reportDate ? '📅 ' + data.reportDate : '관리자가 매일 업데이트합니다';
+  }
+  if (!data.items || data.items.length === 0) {
+    itemsEl.innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:#64748b;font-size:13px;"><div style="font-size:28px;margin-bottom:8px;">🥇</div>관리자가 등록하면 여기에 키워드가 표시됩니다</div>';
+    return;
+  }
+  itemsEl.innerHTML = data.items.map(function(item, idx) {
+    var num = item.num || (idx + 1);
+    var keyword = String(item.keyword || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    var note = item.note ? '<span style="color:#f59e0b;font-size:10px;font-weight:700;">' + String(item.note).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' : '';
+    var titleCount = Array.isArray(item.titles) ? item.titles.filter(function(t) { return t && String(t).trim(); }).length : 0;
+    var keywordEsc = keyword.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    return '<div style="background:rgba(15,23,42,0.6);border:1px solid rgba(251,191,36,0.22);border-radius:12px;padding:12px 14px;">' +
+      '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px;">' +
+        '<span style="flex-shrink:0;padding:3px 8px;background:rgba(251,191,36,0.16);border:1px solid rgba(251,191,36,0.32);color:#fde68a;border-radius:6px;font-size:11px;font-weight:900;">' + num + '</span>' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:13px;font-weight:700;color:#f1f5f9;line-height:1.45;">' + keyword + '</div>' +
+          (note ? '<div style="margin-top:3px;">' + note + '</div>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+        '<button onclick="useGoldenKeywordForPost(\'' + keywordEsc + '\')" style="flex:1;min-width:130px;padding:8px 10px;background:linear-gradient(135deg,#8b5cf6,#6366f1);border:none;color:white;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;">🚀 이 키워드로 글쓰기</button>' +
+        (titleCount > 0 ? '<button onclick="showGoldenTitles(' + idx + ')" style="flex:1;min-width:110px;padding:8px 10px;background:rgba(59,130,246,0.16);border:1px solid rgba(59,130,246,0.35);color:#bfdbfe;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;">📝 추천 제목 ' + titleCount + '개</button>' : '') +
+      '</div>' +
+    '</div>';
+  }).join('');
 }
 window.renderGoldenKeyword = renderGoldenKeyword;
 
+// [🚀 이 키워드로 글쓰기] 클릭 → 키워드 input에 자동 입력
+function useGoldenKeywordForPost(keyword) {
+  var input = document.getElementById('keywordInput');
+  if (!input) {
+    alert('❌ 키워드 입력 필드를 찾을 수 없습니다.');
+    return;
+  }
+  input.value = keyword;
+  // input 이벤트 발생시켜 다른 리스너들 반영
+  try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+  try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+  // 글포스팅 탭 스크롤/포커스
+  try { input.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+  input.focus();
+  // 토스트 알림
+  alert('✅ 키워드가 입력되었습니다:\n' + keyword + '\n\n발행 옵션(플랫폼/모드/이미지) 확인 후 미리보기 또는 발행 버튼 눌러주세요.');
+}
+window.useGoldenKeywordForPost = useGoldenKeywordForPost;
+
+// [📝 추천 제목] 클릭 → 모달로 제목 리스트 표시 + 각 제목 복사 가능
+function showGoldenTitles(idx) {
+  var data = getGoldenData();
+  var item = data.items[idx];
+  if (!item || !Array.isArray(item.titles) || item.titles.length === 0) {
+    alert('추천 제목이 없습니다.');
+    return;
+  }
+  var existing = document.getElementById('golden-titles-modal');
+  if (existing) existing.remove();
+  var modal = document.createElement('div');
+  modal.id = 'golden-titles-modal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(8px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  var titleList = item.titles.filter(function(t) { return t && String(t).trim(); }).map(function(t, i) {
+    var esc = String(t).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    var escSafe = esc.replace(/'/g, "\\'");
+    return '<div style="padding:12px 14px;background:rgba(15,23,42,0.6);border:1px solid rgba(59,130,246,0.25);border-radius:10px;margin-bottom:8px;display:flex;align-items:flex-start;gap:10px;">' +
+      '<span style="flex-shrink:0;padding:3px 8px;background:rgba(59,130,246,0.16);color:#bfdbfe;border-radius:5px;font-size:10px;font-weight:800;">제목 ' + (i + 1) + '</span>' +
+      '<div style="flex:1;color:#e2e8f0;font-size:13px;line-height:1.55;">' + esc + '</div>' +
+      '<button onclick="navigator.clipboard.writeText(\'' + escSafe + '\').then(function(){this.textContent=\'✓ 복사됨\'}.bind(event.target))" style="flex-shrink:0;padding:6px 10px;background:rgba(59,130,246,0.18);border:1px solid rgba(59,130,246,0.38);color:#bfdbfe;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">📋 복사</button>' +
+    '</div>';
+  }).join('');
+  modal.innerHTML =
+    '<div style="background:#0f172a;border:1px solid rgba(59,130,246,0.35);border-radius:16px;padding:22px;max-width:650px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.6);">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">' +
+        '<h3 style="margin:0;color:#93c5fd;font-size:16px;font-weight:800;">📝 추천 제목 (' + item.titles.length + '개)</h3>' +
+        '<button onclick="document.getElementById(\'golden-titles-modal\').remove()" style="padding:6px 12px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fecaca;border-radius:8px;font-size:12px;cursor:pointer;">닫기</button>' +
+      '</div>' +
+      '<div style="font-size:12px;color:#94a3b8;margin-bottom:12px;padding:8px 12px;background:rgba(59,130,246,0.06);border-radius:6px;">💡 키워드: <strong style="color:#e2e8f0;">' + String(item.keyword || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</strong></div>' +
+      titleList +
+    '</div>';
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+}
+window.showGoldenTitles = showGoldenTitles;
+
+// [🔒 관리자 편집] — 구조화 편집 UI
 function openGoldenKeywordEditor() {
   var pw = prompt('관리자 비밀번호를 입력하세요:');
-  if (pw === null) return; // 취소
+  if (pw === null) return;
   if (pw !== GOLDEN_ADMIN_PASSWORD) {
     alert('❌ 비밀번호가 틀렸습니다.');
     return;
   }
-  // 편집 모달 생성
-  var existingModal = document.getElementById('golden-keyword-modal');
-  if (existingModal) existingModal.remove();
+  var existing = document.getElementById('golden-keyword-modal');
+  if (existing) existing.remove();
 
-  var stored = localStorage.getItem(GOLDEN_KEYWORD_STORAGE_KEY) || '';
-  var currentContent = '';
-  try {
-    var parsed = JSON.parse(stored);
-    currentContent = parsed.content || '';
-  } catch (_) {
-    currentContent = stored;
-  }
+  var data = getGoldenData();
+  var items = (data.items && data.items.length > 0) ? JSON.parse(JSON.stringify(data.items)) : [{ num: 1, keyword: '', titles: [''], note: '' }];
+  var reportDate = data.reportDate || new Date().toISOString().slice(0, 10);
 
   var modal = document.createElement('div');
   modal.id = 'golden-keyword-modal';
-  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(8px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
-  modal.innerHTML =
-    '<div style="background:#0f172a;border:1px solid rgba(251,191,36,0.35);border-radius:16px;padding:24px;max-width:900px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.6);">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">' +
-        '<h2 style="margin:0;color:#fbbf24;font-size:18px;font-weight:800;">🥇 황금키워드 리포트 관리자 편집</h2>' +
-        '<button id="golden-modal-close" style="padding:6px 12px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fecaca;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">닫기</button>' +
-      '</div>' +
-      '<textarea id="golden-modal-textarea" placeholder="여기에 황금키워드 리포트를 붙여넣으세요..." style="flex:1;min-height:400px;padding:14px 16px;background:rgba(2,6,23,0.7);border:1px solid rgba(148,163,184,0.15);border-radius:10px;color:#e2e8f0;font-size:13px;font-family:\'Consolas\',\'Monaco\',monospace;line-height:1.65;resize:vertical;outline:none;box-sizing:border-box;">' + currentContent.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</textarea>' +
-      '<div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
-        '<div style="font-size:11px;color:#94a3b8;">💡 마크다운/텍스트 그대로 붙여넣기 가능. 저장하면 앱 좌측 상단 카드에 즉시 표시됩니다.</div>' +
-        '<div style="display:flex;gap:8px;">' +
-          '<button id="golden-modal-clear" style="padding:9px 16px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fecaca;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">삭제</button>' +
-          '<button id="golden-modal-save" style="padding:9px 18px;background:linear-gradient(135deg,#fbbf24,#f59e0b);border:none;color:#1f2937;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;">💾 저장</button>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-  document.body.appendChild(modal);
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.88);backdrop-filter:blur(8px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
 
-  document.getElementById('golden-modal-close').addEventListener('click', function() { modal.remove(); });
-  document.getElementById('golden-modal-save').addEventListener('click', function() {
-    var text = document.getElementById('golden-modal-textarea').value;
-    localStorage.setItem(GOLDEN_KEYWORD_STORAGE_KEY, JSON.stringify({ content: text, savedAt: new Date().toISOString() }));
-    renderGoldenKeyword();
-    modal.remove();
-    alert('✅ 저장 완료!');
-  });
-  document.getElementById('golden-modal-clear').addEventListener('click', function() {
-    if (!confirm('황금키워드 리포트를 삭제할까요?')) return;
-    localStorage.removeItem(GOLDEN_KEYWORD_STORAGE_KEY);
-    renderGoldenKeyword();
-    modal.remove();
-  });
+  function renderEditor() {
+    var itemsHtml = items.map(function(it, idx) {
+      var titlesHtml = (it.titles || ['']).map(function(t, tIdx) {
+        return '<div style="display:flex;gap:6px;margin-bottom:5px;">' +
+          '<input type="text" data-title-idx="' + idx + '-' + tIdx + '" value="' + String(t || '').replace(/"/g, '&quot;') + '" placeholder="추천 제목 ' + (tIdx + 1) + '" style="flex:1;padding:7px 10px;background:rgba(2,6,23,0.6);border:1px solid rgba(148,163,184,0.15);border-radius:6px;color:#e2e8f0;font-size:12px;outline:none;" />' +
+          '<button data-remove-title="' + idx + '-' + tIdx + '" style="padding:4px 10px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.32);color:#fecaca;border-radius:6px;font-size:11px;cursor:pointer;">×</button>' +
+        '</div>';
+      }).join('');
+      return '<div style="padding:14px;background:rgba(2,6,23,0.5);border:1px solid rgba(251,191,36,0.22);border-radius:10px;margin-bottom:10px;">' +
+        '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">' +
+          '<span style="padding:4px 10px;background:rgba(251,191,36,0.16);color:#fde68a;border-radius:6px;font-size:12px;font-weight:800;">' + (it.num || (idx + 1)) + '</span>' +
+          '<input type="text" data-keyword-idx="' + idx + '" value="' + String(it.keyword || '').replace(/"/g, '&quot;') + '" placeholder="키워드 (예: 한전 누진단계 카톡 알림 450kWh)" style="flex:1;padding:9px 11px;background:rgba(2,6,23,0.6);border:1px solid rgba(251,191,36,0.25);border-radius:6px;color:#f1f5f9;font-size:13px;font-weight:600;outline:none;" />' +
+          '<input type="text" data-note-idx="' + idx + '" value="' + String(it.note || '').replace(/"/g, '&quot;') + '" placeholder="적합도 92점" style="width:110px;padding:9px 10px;background:rgba(2,6,23,0.6);border:1px solid rgba(148,163,184,0.15);border-radius:6px;color:#f59e0b;font-size:11px;outline:none;" />' +
+          '<button data-remove-item="' + idx + '" style="padding:6px 12px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fecaca;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">항목 삭제</button>' +
+        '</div>' +
+        '<div style="padding-left:12px;">' +
+          '<div style="font-size:11px;color:#94a3b8;margin-bottom:5px;">추천 제목 (여러 개 가능)</div>' +
+          titlesHtml +
+          '<button data-add-title="' + idx + '" style="margin-top:4px;padding:5px 12px;background:rgba(59,130,246,0.14);border:1px solid rgba(59,130,246,0.32);color:#bfdbfe;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">+ 제목 추가</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    modal.innerHTML =
+      '<div style="background:#0f172a;border:1px solid rgba(251,191,36,0.35);border-radius:16px;padding:22px;max-width:1000px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.6);">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">' +
+          '<h2 style="margin:0;color:#fbbf24;font-size:18px;font-weight:900;">🥇 오늘의 리더남 황금키워드 편집</h2>' +
+          '<button id="gk-close" style="padding:6px 12px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fecaca;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">닫기</button>' +
+        '</div>' +
+        '<div style="display:flex;gap:10px;margin-bottom:12px;align-items:center;">' +
+          '<label style="color:#fde68a;font-size:12px;font-weight:700;">📅 리포트 날짜:</label>' +
+          '<input type="date" id="gk-date" value="' + reportDate + '" style="padding:7px 10px;background:rgba(2,6,23,0.6);border:1px solid rgba(251,191,36,0.28);border-radius:6px;color:#e2e8f0;font-size:12px;outline:none;" />' +
+        '</div>' +
+        '<div id="gk-items" style="flex:1;overflow-y:auto;padding:4px 2px;">' + itemsHtml + '</div>' +
+        '<div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
+          '<button id="gk-add-item" style="padding:9px 16px;background:rgba(16,185,129,0.14);border:1px solid rgba(16,185,129,0.35);color:#bbf7d0;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;">+ 키워드 항목 추가</button>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<button id="gk-clear" style="padding:9px 14px;background:rgba(239,68,68,0.14);border:1px solid rgba(239,68,68,0.35);color:#fecaca;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">전체 삭제</button>' +
+            '<button id="gk-save" style="padding:9px 18px;background:linear-gradient(135deg,#fbbf24,#f59e0b);border:none;color:#1f2937;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;">💾 저장</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    // 이벤트 바인딩
+    modal.querySelector('#gk-close').onclick = function() { modal.remove(); };
+    modal.querySelector('#gk-add-item').onclick = function() {
+      // 현재 편집 상태 스냅샷
+      captureEditorState();
+      items.push({ num: items.length + 1, keyword: '', titles: [''], note: '' });
+      renderEditor();
+    };
+    modal.querySelector('#gk-clear').onclick = function() {
+      if (!confirm('모든 키워드 항목을 삭제할까요?')) return;
+      localStorage.removeItem(GOLDEN_KEYWORD_STORAGE_KEY);
+      renderGoldenKeyword();
+      modal.remove();
+    };
+    modal.querySelector('#gk-save').onclick = function() {
+      captureEditorState();
+      // 빈 항목 제거
+      var cleaned = items.filter(function(it) { return String(it.keyword || '').trim(); }).map(function(it, i) {
+        return {
+          num: i + 1,
+          keyword: String(it.keyword || '').trim(),
+          note: String(it.note || '').trim(),
+          titles: (it.titles || []).map(function(t) { return String(t || '').trim(); }).filter(Boolean),
+        };
+      });
+      var payload = { reportDate: modal.querySelector('#gk-date').value || new Date().toISOString().slice(0, 10), items: cleaned, savedAt: new Date().toISOString() };
+      localStorage.setItem(GOLDEN_KEYWORD_STORAGE_KEY, JSON.stringify(payload));
+      renderGoldenKeyword();
+      modal.remove();
+      alert('✅ 저장 완료! ' + cleaned.length + '개 키워드');
+    };
+    modal.querySelectorAll('[data-remove-item]').forEach(function(btn) {
+      btn.onclick = function() {
+        captureEditorState();
+        var i = parseInt(btn.dataset.removeItem);
+        items.splice(i, 1);
+        items = items.map(function(it, ii) { return { ...it, num: ii + 1 }; });
+        renderEditor();
+      };
+    });
+    modal.querySelectorAll('[data-add-title]').forEach(function(btn) {
+      btn.onclick = function() {
+        captureEditorState();
+        var i = parseInt(btn.dataset.addTitle);
+        if (!items[i].titles) items[i].titles = [];
+        items[i].titles.push('');
+        renderEditor();
+      };
+    });
+    modal.querySelectorAll('[data-remove-title]').forEach(function(btn) {
+      btn.onclick = function() {
+        captureEditorState();
+        var parts = btn.dataset.removeTitle.split('-');
+        var i = parseInt(parts[0]), t = parseInt(parts[1]);
+        items[i].titles.splice(t, 1);
+        renderEditor();
+      };
+    });
+  }
+
+  function captureEditorState() {
+    modal.querySelectorAll('[data-keyword-idx]').forEach(function(el) {
+      var i = parseInt(el.dataset.keywordIdx);
+      if (items[i]) items[i].keyword = el.value;
+    });
+    modal.querySelectorAll('[data-note-idx]').forEach(function(el) {
+      var i = parseInt(el.dataset.noteIdx);
+      if (items[i]) items[i].note = el.value;
+    });
+    modal.querySelectorAll('[data-title-idx]').forEach(function(el) {
+      var parts = el.dataset.titleIdx.split('-');
+      var i = parseInt(parts[0]), t = parseInt(parts[1]);
+      if (items[i] && items[i].titles) items[i].titles[t] = el.value;
+    });
+    var dateEl = modal.querySelector('#gk-date');
+    if (dateEl) reportDate = dateEl.value;
+  }
+
+  document.body.appendChild(modal);
+  renderEditor();
 }
 window.openGoldenKeywordEditor = openGoldenKeywordEditor;
 
