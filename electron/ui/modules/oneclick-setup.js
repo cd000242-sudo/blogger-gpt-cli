@@ -1758,124 +1758,26 @@ export function renderOneclickSetupTab() {
         </div>
       </div>
 
-      <!-- v3.7.23: STEP 3 — 🔍 웹마스터도구 자동 세팅 -->
-      <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 16px; padding: 24px;">
-        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 8px;">
-          <div style="position: relative; flex-shrink: 0;">
-            <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(245, 158, 11, 0.3);">
-              <span style="font-size: 22px;">🔍</span>
-            </div>
-            <span style="position: absolute; top: -8px; right: -8px; padding: 3px 8px; background: linear-gradient(135deg, #fbbf24, #f59e0b); color: white; border-radius: 8px; font-size: 10px; font-weight: 900; letter-spacing: 0.05em; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.5);">STEP 3</span>
-          </div>
-          <div style="flex: 1; min-width: 0;">
-            <h4 style="margin: 0; font-weight: 800; color: white; font-size: 17px; letter-spacing: -0.3px;">웹마스터도구 최적 세팅</h4>
-            <p style="margin: 4px 0 0; font-size: 11px; color: #fbbf24;">로그인만 해주세요! 사이트맵, RSS, 색인 요청까지 자동 설정 (4대 검색엔진)</p>
-          </div>
-        </div>
-
-        <!-- 블로그 URL 입력 (환경설정에서 불러오기) -->
-        <div style="margin: 16px 0; padding: 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;">
-          <label style="display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.6); margin-bottom: 8px;">📍 등록할 블로그 주소</label>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <input id="oneclick-webmaster-url" type="text" placeholder="https://yourblog.com"
-              style="flex: 1; padding: 12px 16px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; color: white; font-size: 14px; outline: none; box-sizing: border-box;"
-              oninput="this.style.borderColor = this.value ? 'rgba(245, 158, 11, 0.5)' : 'rgba(255,255,255,0.15)'"
-            />
-            <button id="oneclick-load-blog-url" onclick="window.__loadBlogUrlFromSettings && window.__loadBlogUrlFromSettings()"
-              style="padding: 12px 16px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; border-radius: 10px; color: white; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: all 0.2s;"
-              onmouseover="this.style.transform='scale(1.05)'"
-              onmouseout="this.style.transform='scale(1)'"
-            >⚙️ 설정에서 불러오기</button>
-          </div>
-          <p style="margin: 6px 0 0; font-size: 11px; color: rgba(255,255,255,0.4);">
-            💡 환경설정 → 플랫폼 설정 → <strong style="color: #fbbf24;">내 블로그 주소</strong>에 저장된 URL을 불러옵니다
-          </p>
-        </div>
-
-        <!-- 4개 웹마스터도구 카드 -->
-        <div style="display: flex; flex-direction: column; gap: 10px;">
-          ${renderWebmasterCard({ id: 'google', title: '🔵 구글 서치 콘솔', subtitle: 'Google Search Console',
-            bgColor: 'rgba(66, 133, 244, 0.15)', borderColor: 'rgba(66, 133, 244, 0.3)', textColor: '#93bbfc', gradient: 'linear-gradient(135deg, #4285f4, #1a73e8)',
-            features: ['URL 접두어 방식 사이트 추가', '사이트맵 자동 제출 (/sitemap.xml)', '색인 생성 요청'] })}
-          ${renderWebmasterCard({ id: 'naver', title: '🟢 네이버 서치어드바이저', subtitle: 'Naver Search Advisor',
-            bgColor: 'rgba(0, 200, 83, 0.15)', borderColor: 'rgba(0, 200, 83, 0.3)', textColor: '#6ee7b7', gradient: 'linear-gradient(135deg, #00c853, #009624)',
-            features: ['사이트 자동 추가', '사이트맵 제출 (/sitemap.xml)', 'RSS 피드 등록', '웹 페이지 수집 요청'] })}
-          ${renderWebmasterCard({ id: 'daum', title: '🔷 다음 웹마스터도구', subtitle: 'Daum Webmaster Tools (PIN 인증)',
-            bgColor: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.3)', textColor: '#93c5fd', gradient: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-            features: ['PIN코드 자동 발급 (webmaster.daum.net/join)', 'PIN 인증 자동 처리', 'RSS 피드 등록'] })}
-          ${renderWebmasterCard({ id: 'bing', title: '🟠 Bing 웹마스터도구', subtitle: 'Bing Webmaster Tools',
-            bgColor: 'rgba(242, 142, 38, 0.15)', borderColor: 'rgba(242, 142, 38, 0.3)', textColor: '#fbbf24', gradient: 'linear-gradient(135deg, #f28e26, #e67e22)',
-            features: ['Microsoft 로그인 → 사이트 추가', '사이트맵 자동 제출', 'URL 제출'] })}
-        </div>
-
-        <!-- 진행 상태 영역 -->
-        <div id="oneclick-webmaster-progress" style="display: none; margin-top: 16px;">
-          <div id="oneclick-webmaster-steps" style="display: flex; flex-direction: column; gap: 8px;"></div>
-        </div>
-      </div>
-
-      <!-- v3.7.23: STEP 4 — 🔒 인프라 세팅 (Cloudways DNS + SSL) — 워드프레스 전용 -->
-      <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 16px; padding: 24px;">
-        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 8px;">
-          <div style="position: relative; flex-shrink: 0;">
-            <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #10b981, #059669); border-radius: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(16, 185, 129, 0.3);">
-              <span style="font-size: 22px;">🔒</span>
-            </div>
-            <span style="position: absolute; top: -8px; right: -8px; padding: 3px 8px; background: linear-gradient(135deg, #34d399, #10b981); color: white; border-radius: 8px; font-size: 10px; font-weight: 900; letter-spacing: 0.05em; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.5);">STEP 4</span>
-          </div>
-          <div style="flex: 1; min-width: 0;">
-            <h4 style="margin: 0; font-weight: 800; color: white; font-size: 17px; letter-spacing: -0.3px;">인프라 원클릭 세팅 <span style="margin-left: 6px; padding: 2px 6px; background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border-radius: 5px; font-size: 9px; font-weight: 700;">WP 전용</span></h4>
-            <p style="margin: 4px 0 0; font-size: 11px; color: #6ee7b7;">Cloudways 도메인 연결 + SSL 인증서 자동 설치 (워드프레스 전용)</p>
-          </div>
-        </div>
-
-        <!-- 안내 배너 -->
-        <div style="margin: 12px 0; padding: 12px 16px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 10px;">
-          <p style="margin: 0; font-size: 11px; color: rgba(255,255,255,0.5); line-height: 1.6;">
-            💡 <strong style="color: #6ee7b7;">사전 준비:</strong> 도메인 등록업체(가비아 등)에서 A레코드를 Cloudways 서버 IP로 설정해주세요.
-            <br>이후 Cloudways 로그인만 하면 도메인 연결 → SSL 인증서 설치까지 자동으로 완료됩니다!
-          </p>
-        </div>
-
-        <!-- 도메인 & 이메일 입력 -->
-        <div style="margin: 16px 0; display: flex; flex-direction: column; gap: 10px;">
-          <div>
-            <label style="display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.6); margin-bottom: 6px;">🌐 도메인</label>
-            <input id="oneclick-infra-domain" type="text" placeholder="leadernam.com"
-              style="width: 100%; padding: 12px 16px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; color: white; font-size: 14px; outline: none; box-sizing: border-box;"
-              oninput="this.style.borderColor = this.value ? 'rgba(16, 185, 129, 0.5)' : 'rgba(255,255,255,0.15)'"
-            />
+      <!-- v3.8.341: STEP 3 웹마스터도구 자동세팅 + STEP 4 인프라 원클릭(Cloudways) 삭제 (사용자 요청) -->
+      <!--   자동화 대신 반자동 안내 카드로 교체. 각 서비스는 사용자가 직접 로그인·설정. -->
+      <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 16px; padding: 24px;">
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+          <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #64748b, #475569); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+            <span style="font-size: 20px;">🔧</span>
           </div>
           <div>
-            <label style="display: block; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.6); margin-bottom: 6px;">📧 이메일 (SSL 인증용)</label>
-            <input id="oneclick-infra-email" type="email" placeholder="your@email.com"
-              style="width: 100%; padding: 12px 16px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; color: white; font-size: 14px; outline: none; box-sizing: border-box;"
-              oninput="this.style.borderColor = this.value ? 'rgba(16, 185, 129, 0.5)' : 'rgba(255,255,255,0.15)'"
-            />
+            <h4 style="margin: 0; font-weight: 800; color: white; font-size: 16px;">웹마스터도구 · 인프라 설정 (직접 진행)</h4>
+            <p style="margin: 4px 0 0; font-size: 11px; color: rgba(226,232,240,0.55);">각 서비스에 직접 로그인해서 등록하세요. 아래는 바로가기 링크.</p>
           </div>
         </div>
-
-        <!-- 5단계 프리뷰 뱃지 -->
-        <div style="display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap;">
-          <span style="padding: 5px 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; font-size: 11px; color: rgba(255,255,255,0.5);">🔐 로그인 <span style="color: #fbbf24; font-size: 9px;">(수동)</span></span>
-          <span style="padding: 5px 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; font-size: 11px; color: rgba(255,255,255,0.5);">📱 앱 선택</span>
-          <span style="padding: 5px 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; font-size: 11px; color: rgba(255,255,255,0.5);">🌐 도메인</span>
-          <span style="padding: 5px 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; font-size: 11px; color: rgba(255,255,255,0.5);">🔒 SSL</span>
-          <span style="padding: 5px 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; font-size: 11px; color: rgba(255,255,255,0.5);">✅ HTTPS</span>
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 14px;">
+          <a href="https://search.google.com/search-console" target="_blank" rel="noopener" style="padding: 12px 14px; background: rgba(66,133,244,0.14); border: 1px solid rgba(66,133,244,0.35); border-radius: 10px; color: #93bbfc; font-size: 12px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 8px;">🔵 구글 서치콘솔 →</a>
+          <a href="https://searchadvisor.naver.com" target="_blank" rel="noopener" style="padding: 12px 14px; background: rgba(0,200,83,0.14); border: 1px solid rgba(0,200,83,0.35); border-radius: 10px; color: #6ee7b7; font-size: 12px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 8px;">🟢 네이버 서치어드바이저 →</a>
+          <a href="https://webmaster.daum.net" target="_blank" rel="noopener" style="padding: 12px 14px; background: rgba(59,130,246,0.14); border: 1px solid rgba(59,130,246,0.35); border-radius: 10px; color: #93c5fd; font-size: 12px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 8px;">🔷 다음 웹마스터 →</a>
+          <a href="https://www.bing.com/webmasters" target="_blank" rel="noopener" style="padding: 12px 14px; background: rgba(242,142,38,0.14); border: 1px solid rgba(242,142,38,0.35); border-radius: 10px; color: #fbbf24; font-size: 12px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 8px;">🟠 Bing 웹마스터 →</a>
         </div>
-
-        <!-- 시작 버튼 -->
-        <button id="oneclick-infra-btn" onclick="window.__oneclickSetup?.startInfraSetup()"
-          style="width: 100%; padding: 14px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4); transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px;"
-          onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 10px 30px rgba(16, 185, 129, 0.5)'"
-          onmouseout="this.style.transform='none'; this.style.boxShadow='0 6px 20px rgba(16, 185, 129, 0.4)'">
-          <span>▶</span>
-          <span>인프라 자동 세팅 시작</span>
-        </button>
-
-        <!-- 진행 상태 (기본 숨김) -->
-        <div id="oneclick-infra-progress" style="display: none; margin-top: 16px;">
-          <div id="oneclick-infra-steps" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        <div style="margin-top: 14px; padding: 10px 14px; background: rgba(255,255,255,0.03); border-radius: 8px; font-size: 11px; color: rgba(226,232,240,0.6); line-height: 1.6;">
+          💡 각 사이트에 로그인 → 내 블로그 URL 등록 → 사이트맵(<code style="color:#fbbf24;">/sitemap.xml</code>) 제출. Cloudways/SSL 등 인프라는 각 호스팅 관리 페이지에서 직접 진행.
         </div>
       </div>
     </div>
