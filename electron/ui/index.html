@@ -2887,18 +2887,7 @@
       <div id="main-tab" class="tab-content active">
         <div style="padding: 24px 28px; height: 100%; display: flex; flex-direction: column; gap: 20px;">
 
-          <!-- 1. 원클릭세팅 유도 배너 -->
-          <div style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); border-radius: 16px; padding: 20px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px;">
-            <div>
-              <div style="color: white; font-size: 18px; font-weight: 800; margin-bottom: 4px;">🚀 시작하기</div>
-              <div style="color: rgba(255,255,255,0.8); font-size: 13px;">환경설정에서 원클릭세팅으로 블로그를 먼저 설정하세요</div>
-            </div>
-            <button onclick="if(typeof openSettingsModal==='function') openSettingsModal();"
-              style="padding: 10px 20px; background: white; color: #6366f1; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: all 0.2s;"
-              onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='translateY(0)'">
-              ⚙️ 환경설정 열기
-            </button>
-          </div>
+          <!-- v3.8.340: 시작하기 배너 삭제 (사용자 요청) -->
 
           <!-- 2. 빠른 통계 -->
           <div style="display: flex; gap: 10px; flex-wrap: wrap;">
@@ -3084,21 +3073,7 @@
             </button>
           </div>
 
-          <!-- 블로그 진단 -->
-          <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 20px; border: 1px solid rgba(255,255,255,0.1); margin-top: 20px;">
-            <h3 style="font-size: 16px; font-weight: 700; color: white; margin: 0 0 12px 0;">🩺 블로그 건강 진단</h3>
-            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-              <input type="text" id="diagnoseBlogUrl" placeholder="블로그 URL (예: https://myblog.blogspot.com)"
-                style="flex: 1; padding: 10px 14px; background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: white; font-size: 13px; outline: none;"
-                onkeydown="if(event.key==='Enter') runBlogDiagnosis()">
-              <button onclick="runBlogDiagnosis()"
-                style="padding: 10px 18px; background: linear-gradient(135deg, #6366f1, #a855f7); border: none; border-radius: 8px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;">
-                🔍 진단하기
-              </button>
-            </div>
-            <div id="diagnosisResult" style="display: none; background: rgba(15,23,42,0.4); border-radius: 10px; padding: 16px; font-size: 13px; color: rgba(255,255,255,0.8); max-height: 300px; overflow-y: auto;">
-            </div>
-          </div>
+          <!-- v3.8.340: 블로그 건강 진단 카드 삭제 (사용자 요청) -->
 
         </div>
       </div>
