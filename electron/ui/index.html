@@ -8177,14 +8177,48 @@ function showGoldenTitles(idx) {
 }
 window.showGoldenTitles = showGoldenTitles;
 
-// [🔒 관리자 편집] — 구조화 편집 UI
+// [🔒 관리자 편집] — 구조화 편집 UI (v3.8.349: prompt() 미지원 → 커스텀 비밀번호 모달)
 function openGoldenKeywordEditor() {
-  var pw = prompt('관리자 비밀번호를 입력하세요:');
-  if (pw === null) return;
-  if (pw !== GOLDEN_ADMIN_PASSWORD) {
-    alert('❌ 비밀번호가 틀렸습니다.');
-    return;
+  // Electron은 prompt() 미지원 → 커스텀 모달로 비밀번호 입력
+  var pwModal = document.getElementById('golden-pw-modal');
+  if (pwModal) pwModal.remove();
+  pwModal = document.createElement('div');
+  pwModal.id = 'golden-pw-modal';
+  pwModal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.88);backdrop-filter:blur(8px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  pwModal.innerHTML =
+    '<div style="background:#0f172a;border:1px solid rgba(251,191,36,0.35);border-radius:14px;padding:22px;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.6);">' +
+      '<h3 style="margin:0 0 14px;color:#fbbf24;font-size:16px;font-weight:800;">🔒 관리자 비밀번호</h3>' +
+      '<input id="golden-pw-input" type="password" placeholder="비밀번호 입력" autocomplete="off" style="width:100%;padding:11px 14px;background:rgba(2,6,23,0.6);border:1px solid rgba(148,163,184,0.2);border-radius:8px;color:#e2e8f0;font-size:14px;box-sizing:border-box;outline:none;margin-bottom:12px;" />' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;">' +
+        '<button id="golden-pw-cancel" style="padding:9px 16px;background:rgba(148,163,184,0.15);border:1px solid rgba(148,163,184,0.25);color:#cbd5e1;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">취소</button>' +
+        '<button id="golden-pw-ok" style="padding:9px 18px;background:linear-gradient(135deg,#fbbf24,#f59e0b);border:none;color:#1f2937;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;">확인</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(pwModal);
+  var pwInput = document.getElementById('golden-pw-input');
+  pwInput.focus();
+
+  function submitPw() {
+    var pw = pwInput.value;
+    pwModal.remove();
+    if (pw !== GOLDEN_ADMIN_PASSWORD) {
+      alert('❌ 비밀번호가 틀렸습니다.');
+      return;
+    }
+    openGoldenKeywordEditorInternal();
   }
+
+  document.getElementById('golden-pw-ok').addEventListener('click', submitPw);
+  document.getElementById('golden-pw-cancel').addEventListener('click', function() { pwModal.remove(); });
+  pwInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); submitPw(); }
+    else if (e.key === 'Escape') { pwModal.remove(); }
+  });
+  pwModal.addEventListener('click', function(e) { if (e.target === pwModal) pwModal.remove(); });
+}
+
+// 편집 UI 실제 렌더 (비밀번호 통과 후 호출)
+function openGoldenKeywordEditorInternal() {
   var existing = document.getElementById('golden-keyword-modal');
   if (existing) existing.remove();
 
