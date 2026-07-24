@@ -2886,7 +2886,7 @@
               </div>
               <button id="golden-keyword-edit-btn" onclick="openGoldenKeywordEditor()" style="padding: 7px 14px; background: rgba(251,191,36,0.14); border: 1px solid rgba(251,191,36,0.38); color: #fde68a; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap;">🔒 관리자 편집</button>
             </div>
-            <div id="golden-keyword-items" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px;">
+            <div id="golden-keyword-items" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
               <div style="grid-column: 1 / -1; padding: 24px; text-align: center; color: #64748b; font-size: 13px;">
                 <div style="font-size: 28px; margin-bottom: 8px;">🥇</div>
                 관리자가 등록하면 여기에 키워드가 표시됩니다
@@ -8003,6 +8003,20 @@ document.addEventListener('DOMContentLoaded', function() {
     if (typeof checkPostingReadiness === 'function') checkPostingReadiness();
     if (typeof renderRecentPosts === 'function') renderRecentPosts();
     if (typeof renderGoldenKeyword === 'function') renderGoldenKeyword();
+
+    // v3.8.348: 관리자 편집 버튼 이벤트 백업 바인딩 (onclick 반응 없는 문제 fix)
+    var editBtn = document.getElementById('golden-keyword-edit-btn');
+    if (editBtn) {
+      editBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        if (typeof window.openGoldenKeywordEditor === 'function') {
+          window.openGoldenKeywordEditor();
+        } else {
+          alert('편집 함수를 찾을 수 없습니다. 앱 새로고침 후 다시 시도해주세요.');
+        }
+      });
+      console.log('[GOLDEN-KEYWORD] 관리자 편집 버튼 이벤트 등록됨');
+    }
   }, 800);
 });
 
