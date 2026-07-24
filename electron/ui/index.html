@@ -2889,6 +2889,22 @@
 
           <!-- v3.8.340: 시작하기 배너 삭제 (사용자 요청) -->
 
+          <!-- v3.8.342: 글쓰기 준비 상태 최상단 이동 + 세팅 영상 링크 (사용자 요청) -->
+          <div style="background: linear-gradient(135deg, rgba(16,185,129,0.10) 0%, rgba(6,182,212,0.10) 100%); border: 1px solid rgba(16,185,129,0.35); border-radius: 16px; padding: 20px 24px;">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
+              <span style="font-size: 26px;">📋</span>
+              <div style="flex: 1;">
+                <h3 style="margin: 0; font-weight: 800; color: white; font-size: 16px;">글쓰기 준비 상태</h3>
+                <p style="margin: 4px 0 0; font-size: 12px; color: rgba(226,232,240,0.65);">모든 항목이 ✅이면 바로 글을 쓸 수 있어요. 미완료 항목 클릭 시 설정 페이지로 이동.</p>
+              </div>
+              <button onclick="if(typeof checkPostingReadiness==='function') checkPostingReadiness();" style="padding: 8px 14px; background: rgba(16,185,129,0.22); border: 1px solid rgba(16,185,129,0.45); border-radius: 8px; color: #6ee7b7; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;">🔄 새로고침</button>
+              <a href="https://www.youtube.com/watch?v=_AJLxsyI-JY" target="_blank" rel="noopener" style="padding: 8px 14px; background: linear-gradient(135deg,#ef4444,#dc2626); border-radius: 8px; color: white; font-size: 12px; font-weight: 700; text-decoration: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;">▶️ 세팅 영상 보기</a>
+            </div>
+            <div id="mainReadinessChecklist" style="display: flex; flex-direction: column; gap: 6px;">
+              <div style="color: rgba(226,232,240,0.5); font-size: 12px; padding: 8px 12px;">🔄 새로고침을 클릭하세요</div>
+            </div>
+          </div>
+
           <!-- 2. 빠른 통계 -->
           <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <div id="stat-today"
@@ -8008,7 +8024,17 @@ function checkPostingReadiness() {
   }
 
   list.innerHTML = html;
+  // v3.8.342: 메인 대시보드 최상단 체크리스트에도 동일 렌더링 (사용자 요청)
+  var mainList = document.getElementById('mainReadinessChecklist');
+  if (mainList) mainList.innerHTML = html;
 }
+
+// v3.8.342: 앱 시작 시 메인 대시보드 준비 상태 자동 로드
+document.addEventListener('DOMContentLoaded', function() {
+  setTimeout(function() {
+    if (typeof checkPostingReadiness === 'function') checkPostingReadiness();
+  }, 800);
+});
 
 // 체크리스트 자동 갱신 (보이는 동안만, 30초마다)
 setInterval(function() {
