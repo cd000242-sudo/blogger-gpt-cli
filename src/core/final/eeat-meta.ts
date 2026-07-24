@@ -120,7 +120,11 @@ export function buildEeatMeta(input: EeatMetaInput): EeatMetaResult {
         ? `<span class="eeat-citations">📊 출처 ${citationCount}개 인용</span>`
         : '';
 
-    const metaBox = `
+    // v3.8.334: 글 상단 메타 박스 기본 제거 (사용자 보고: "글 상단에는 이게 굳이 꼭 필요하니???")
+    //   발행일/수정일/저자/독서 시간은 Schema.org Article JSON-LD로 이미 SEO 반영됨 → 시각 노출은 불필요.
+    //   원한다면 payload.showEeatMetaBox=true 명시 시만 노출.
+    const showMetaBox = (input as any).showEeatMetaBox === true;
+    const metaBox = showMetaBox ? `
 <div class="eeat-meta-box" style="margin: 16px 0 28px; padding: 14px 18px; background: rgba(15,23,42,0.04); border-left: 3px solid #6366f1; border-radius: 6px; font-size: 13px; color: #475569; line-height: 1.7;">
   <div style="display: flex; flex-wrap: wrap; gap: 14px; align-items: center;">
     ${authorLine}
@@ -131,7 +135,7 @@ export function buildEeatMeta(input: EeatMetaInput): EeatMetaResult {
     ${citationLine}
   </div>
 </div>
-`;
+` : '';
 
     return {
         metaBox,

@@ -2855,26 +2855,30 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.warn('[INTERNAL-CONSISTENCY] FAQPage/HowTo 자동 추출 실패:', faqHowtoErr?.message);
       }
 
-      // v3.8.72 (Phase 3 작업 11): Freshness 시그널 — Last updated 표 가시화
-      //   Perplexity <13주 인용 50% / ChatGPT <30일 인용 76.4% (Rank-and-Convert·APIServent)
-      //   본문 상단에 "마지막 업데이트" 표 + ISO datetime + 갱신 이력 안내
-      try {
-        const nowISO = new Date().toISOString();
-        const nowKo = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
-        const freshnessBlock = `<div class="freshness-meta" style="margin:12px 0 20px;padding:10px 14px;background:#f0fdf4;border-left:3px solid #10b981;border-radius:0 8px 8px 0;font-size:12px;color:#065f46;line-height:1.6;">
+      // v3.8.72 → v3.8.334: Freshness 시각 배지 기본 제거 (사용자 보고: "글 상단에는 이게 굳이 꼭 필요하니???")
+      //   Schema.org dateModified는 아래 JSON-LD로 여전히 SEO에 반영됨.
+      //   사용자가 명시(payload.showFreshnessBadge=true) 시만 시각 노출.
+      const showFreshness = (payload as any)?.showFreshnessBadge === true;
+      if (showFreshness) {
+        try {
+          const nowISO = new Date().toISOString();
+          const nowKo = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+          const freshnessBlock = `<div class="freshness-meta" style="margin:12px 0 20px;padding:10px 14px;background:#f0fdf4;border-left:3px solid #10b981;border-radius:0 8px 8px 0;font-size:12px;color:#065f46;line-height:1.6;">
   <span style="font-weight:800;">🔄 최신 업데이트</span>
   <time datetime="${nowISO}" itemprop="dateModified" style="margin-left:8px;color:#047857;font-weight:700;">${nowKo}</time>
   <span style="margin-left:12px;color:#6b7280;">· 본 정보는 정기적으로 검토·갱신됩니다</span>
 </div>`;
-        // H1 직후에 freshness 블록 삽입 (TL;DR 박스 위)
-        if (/<\/h1>/i.test(generatedContent)) {
-          generatedContent = generatedContent.replace(/<\/h1>/i, (m) => m + '\n' + freshnessBlock);
-        } else {
-          generatedContent = freshnessBlock + '\n' + generatedContent;
+          if (/<\/h1>/i.test(generatedContent)) {
+            generatedContent = generatedContent.replace(/<\/h1>/i, (m) => m + '\n' + freshnessBlock);
+          } else {
+            generatedContent = freshnessBlock + '\n' + generatedContent;
+          }
+          console.log(`[INTERNAL-CONSISTENCY] ✅ Freshness 시그널 (Last updated ${nowKo}) 삽입 (사용자 명시 opt-in)`);
+        } catch (freshErr: any) {
+          console.warn('[INTERNAL-CONSISTENCY] Freshness 시그널 실패:', freshErr?.message);
         }
-        console.log(`[INTERNAL-CONSISTENCY] ✅ Freshness 시그널 (Last updated ${nowKo}) 삽입`);
-      } catch (freshErr: any) {
-        console.warn('[INTERNAL-CONSISTENCY] Freshness 시그널 실패:', freshErr?.message);
+      } else {
+        console.log('[INTERNAL-CONSISTENCY] ⚡ Freshness 시각 배지 스킵 (기본 off, Schema.org dateModified는 유지)');
       }
 
       // v3.8.71 (Phase 3 작업 10): 네이버 SEO + 한국어 NLP 최적화
