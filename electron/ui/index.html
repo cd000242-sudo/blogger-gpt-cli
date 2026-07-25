@@ -8046,8 +8046,8 @@ function renderRecentPosts() {
       listEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#475569;font-size:11px;text-align:center;padding:12px;">발행된 글이 없습니다</div>';
       return;
     }
-    // 최대 20개
-    var top = posts.slice(0, 20);
+    // v3.8.351: 최근 5개만 표시 (사용자 요청: "80개 다보여주려하지말고 5개만")
+    var top = posts.slice(0, 5);
     listEl.innerHTML = top.map(function(p) {
       var title = String(p.title || p.keyword || '(제목 없음)').slice(0, 40);
       var platform = String(p.platform || '').slice(0, 12);
