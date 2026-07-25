@@ -127,13 +127,26 @@ function isSystemKnownYearToken(normalizedValue: string): boolean {
   return year === currentYear || year === currentYear + 1;
 }
 
+// v3.8.369: 출처 URL이 없다는 이유로 근거 본문 전체가 무시되던 문제 fix
+//   과거: evidenceIsStrong(= trustLevel 'strong' + sourceUrls 보유)이 false면
+//         isSupportedToken이 무조건 false를 반환해 본문의 모든 수치·기관명이 "미확인"이 됐다.
+//         팩트체크 Naver 폴백은 trustLevel='weak' + sourceUrls 없음으로 반환되므로,
+//         2,000자 넘는 근거를 확보하고도 본문 25건이 통째로 삭제되어 글이 회피성으로 남았다.
+//         (사용자 보고: "4장 전체가 '고용24 화면 안내를 기준으로'로만 끝난다")
+//   현재: 근거 본문이 충분히 길면 그 본문 대조로 검증한다.
+//         URL 인용 여부는 근거의 '강도'일 뿐 '유무'가 아니다.
+//         토큰이 근거 본문에 실제로 등장해야 통과하므로 없는 수치를 지어내는 것은 여전히 차단된다.
+const SUBSTANTIAL_CONTEXT_MIN_LENGTH = 200;
+
 function isSupportedToken(value: string, evidence: FactEvidence, evidenceIsStrong = hasCitableEvidence(evidence)): boolean {
   const normalizedValue = normalize(value);
   if (!normalizedValue) return true;
   if (isSystemKnownYearToken(normalizedValue)) return true;
   const topicText = normalize(evidence.topic || '');
   if (topicText && topicText.includes(normalizedValue)) return true;
-  return evidenceIsStrong && normalize(evidence.context).includes(normalizedValue);
+  const contextText = normalize(evidence.context || '');
+  if (!contextText.includes(normalizedValue)) return false;
+  return evidenceIsStrong || contextText.length >= SUBSTANTIAL_CONTEXT_MIN_LENGTH;
 }
 
 function inspectSentence(sentence: string, evidence: FactEvidence): FactIntegrityViolation[] {
