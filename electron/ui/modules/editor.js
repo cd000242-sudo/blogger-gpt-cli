@@ -320,7 +320,10 @@ export async function openVisualEditor(source) {
     refs.titleInput.style.display = kind === 'file' ? 'none' : '';
     refs.hostImagesLabel.style.display = kind === 'file' ? 'inline-flex' : 'none';
     refs.saveAsBtn.style.display = kind === 'file' ? '' : 'none';
-    refs.saveBtn.textContent = kind === 'appstate' ? '✅ 적용 (발행 시 반영)'
+    // v3.8.357: 반자동 발행 모드에서는 저장 + 즉시 발행
+    const isSemiAuto = kind === 'appstate' && !!window.__semiAutoMode;
+    refs.saveBtn.textContent = isSemiAuto ? '🚀 저장하고 발행'
+      : kind === 'appstate' ? '✅ 적용 (발행 시 반영)'
       : kind === 'republish' ? '✅ 대기열에 저장'
       : getPublishedSource(kind) ? '🚀 수정발행하기'
       : '✅ 파일에 저장';
@@ -376,6 +379,17 @@ async function saveCurrentSession(saveAs) {
         localStorage.setItem('lastGeneratedContent', html);
         localStorage.setItem('lastGeneratedTitle', title);
       } catch { /* 저장 실패해도 발행에는 지장 없음 */ }
+      // v3.8.357: 반자동 발행 모드 — 저장 후 즉시 발행
+      if (window.__semiAutoMode && typeof window.publishToPlatform === 'function') {
+        addLog('🚀 반자동 발행: 편집 내용 적용 완료 → 발행 시작', 'success');
+        hideModalAfterSave();
+        try {
+          await window.publishToPlatform();
+        } finally {
+          window.__semiAutoMode = false;
+        }
+        return;
+      }
       addLog('✏️ 편집 내용이 적용되었습니다. 발행 시 편집본이 반영됩니다.', 'success');
       window.veRefreshEntryButton?.();
       hideModalAfterSave();

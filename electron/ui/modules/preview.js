@@ -145,6 +145,59 @@ export async function generatePreview() {
   }
 }
 
+// v3.8.357: 반자동 발행 — 키워드로 글만 먼저 생성 → 편집기 자동 오픈 → 편집 + 이미지 수동 추가 → "저장하고 발행" 클릭 → 발행
+//   사용자 요구: "생성된 글 편집을 반자동 발행으로. 이미지 생성 전 미리보기, 수정, 이미지 추가, 발행"
+export async function startSemiAutoPublish() {
+  const appState = getAppState();
+  if (appState.isRunning) {
+    alert('작업이 실행 중입니다. 완료 후 다시 시도해주세요.');
+    return;
+  }
+  const hasExisting = !!(appState.generatedContent?.content?.trim());
+  const keyword = (document.getElementById('keywordInput')?.value || '').trim();
+
+  // 이미 생성된 콘텐츠가 있고 키워드도 같으면 → 바로 편집기 열기
+  if (hasExisting) {
+    const savedKeyword = String(
+      appState.generatedContent?.payload?.topic
+      || appState.generatedContent?.payload?.title
+      || appState.generatedContent?.title
+      || ''
+    ).trim();
+    const sameKeyword = keyword && savedKeyword && keyword === savedKeyword;
+    if (sameKeyword) {
+      window.__semiAutoMode = true;
+      window.openVisualEditor?.({ kind: 'appstate' });
+      return;
+    }
+    // 다른 키워드 → 이전 콘텐츠 폐기하고 새로 생성
+    if (!confirm(`이전 글("${savedKeyword.slice(0, 30)}")을 폐기하고 새 키워드("${keyword.slice(0, 30)}")로 다시 생성할까요?`)) {
+      window.__semiAutoMode = true;
+      window.openVisualEditor?.({ kind: 'appstate' });
+      return;
+    }
+    appState.generatedContent = null;
+  }
+
+  if (!keyword) {
+    alert('키워드를 입력해주세요.');
+    return;
+  }
+
+  addLog('🎨 반자동 발행 시작 — 이미지 없이 글만 먼저 생성합니다...', 'info');
+  window.__semiAutoMode = true;
+  // 이미지 없이 콘텐츠만 생성 (previewOnly: true로 이미지 생성 스킵)
+  await generatePreview();
+  // 생성 완료 후 편집기 자동 오픈
+  const gen = getAppState().generatedContent;
+  if (gen?.content?.trim()) {
+    addLog('✏️ 편집기가 곧 열립니다. 글을 수정하고 이미지를 추가한 뒤 "🚀 저장하고 발행"을 누르세요.', 'info');
+    setTimeout(() => window.openVisualEditor?.({ kind: 'appstate' }), 500);
+  } else {
+    window.__semiAutoMode = false;
+  }
+}
+
 // 미리보기 탭에 콘텐츠 표시
 // v3.8.326: 재발행 대기열 배너 렌더 (사용자 보고: "생성된 글 날아가는 게 아까움")
 export function renderRepublishQueueBanner() {

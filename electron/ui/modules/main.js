@@ -6,7 +6,7 @@ import { showTab, openSettingsModal, closeSettingsModal, showProgressModal, hide
 import { openExternalLinksModal, closeExternalLinksModal } from './external-links.js';
 import { showGuide, closeGuide } from './guide.js';
 import { runPosting, publishToPlatform, createPayload, createPayloadFromForm, createPreviewPayload } from './posting.js';
-import { generatePreview, displayPreviewInModal, showPreviewModal, closePreviewModal } from './preview.js';
+import { generatePreview, displayPreviewInModal, showPreviewModal, closePreviewModal, startSemiAutoPublish } from './preview.js';
 import { loadSettings, saveSettings, loadSettingsContent, updateApiKeyStatus, updatePlatformStatus, loadLicenseInfo, isLicenseValid, checkPlatformConnection, checkCseConnection, startBloggerOAuth, closeBloggerAuthCodeModal } from './settings.js';
 import { updateKeywordCount, addKeyword, removeKeyword, getAllKeywords, getH2ImageSections, updateRealtimeClock, updateRealtimeDate, initializeProgressSteps, resetProgressSteps, updateProgressStep, onCalendarDateClick, toggleCalendarMemoComplete } from './utils.js';
 import { onLog, onProgress } from './api.js';
@@ -535,6 +535,8 @@ console.log('[MAIN] 워드프레스 함수 즉시 정의 완료');
   window.displayPreviewInModal = displayPreviewInModal;
   window.showPreviewModal = showPreviewModal;
   window.closePreviewModal = closePreviewModal;
+  // v3.8.357: 반자동 발행 (편집 후 발행)
+  window.startSemiAutoPublish = startSemiAutoPublish;
 
   // 설정 함수들
   window.loadSettings = loadSettings;
