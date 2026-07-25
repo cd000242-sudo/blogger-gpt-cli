@@ -929,7 +929,9 @@ function getCurrentQueueSnapshot() {
     titleMode: getSelectValue('titleMode') || 'auto',
     toneStyle: getSelectValue('toneStyle') || 'professional',
     factCheckMode: getSelectValue('factCheckMode') || 'auto',
-    useKeywordAsTitle: !!document.getElementById('useKeywordAsTitle')?.checked,
+    // v3.8.354: titleMode='auto'이면 useKeywordAsTitle 강제 false (자동 생성 우선)
+    useKeywordAsTitle: (getSelectValue('titleMode') || 'auto') !== 'auto'
+      && !!document.getElementById('useKeywordAsTitle')?.checked,
     keywordFront: !!document.getElementById('keywordFront')?.checked,
     // 🚫 v3.8.336: 썸네일 텍스트 미포함 — 대기열 추가 시점의 값을 항목에 고정
     thumbnailNoText: !!document.getElementById('thumbnailNoText')?.checked,

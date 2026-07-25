@@ -4014,10 +4014,37 @@
                         <small style="color: rgba(168,85,247,0.7); font-size: 11px; margin-top: 4px; display: block;">💡 키워드와 별도로 원하는 제목을 지정할 수 있습니다</small>
                       </div>
                       <script>
-                        document.getElementById('titleMode').addEventListener('change', function () {
-                          const w = document.getElementById('customTitleWrapper');
-                          if (w) w.style.display = this.value === 'custom' ? 'block' : 'none';
-                        });
+                        // v3.8.354: titleMode='auto'이면 useKeywordAsTitle 체크박스 자동 해제 + 비활성 표시
+                        (function () {
+                          const titleModeSel = document.getElementById('titleMode');
+                          const applyLock = () => {
+                            const useKw = document.getElementById('useKeywordAsTitle');
+                            if (!useKw) return;
+                            if (titleModeSel.value === 'auto') {
+                              useKw.checked = false;
+                              useKw.disabled = true;
+                              const lbl = useKw.closest('label');
+                              if (lbl) {
+                                lbl.style.opacity = '0.45';
+                                lbl.title = '자동 생성 모드에서는 사용할 수 없습니다';
+                              }
+                            } else {
+                              useKw.disabled = false;
+                              const lbl = useKw.closest('label');
+                              if (lbl) {
+                                lbl.style.opacity = '';
+                                lbl.title = '';
+                              }
+                            }
+                          };
+                          titleModeSel.addEventListener('change', function () {
+                            const w = document.getElementById('customTitleWrapper');
+                            if (w) w.style.display = this.value === 'custom' ? 'block' : 'none';
+                            applyLock();
+                          });
+                          document.addEventListener('DOMContentLoaded', applyLock);
+                          setTimeout(applyLock, 0);
+                        })();
                       </script>
                     </div>
 
@@ -7698,13 +7725,13 @@ function showPaywallModal() {
   modal.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;';
   modal.innerHTML = '<div style="background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:24px;padding:36px;width:90%;max-width:440px;box-shadow:0 25px 60px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);text-align:center;">'
     + '<div style="font-size:56px;margin-bottom:12px;">🔒</div>'
-    + '<h2 style="color:white;font-size:22px;font-weight:800;margin:0 0 12px 0;">무료 체험 발행 3회를 모두 사용했어요</h2>'
-    + '<p style="color:rgba(255,255,255,0.7);font-size:14px;margin:0 0 24px 0;line-height:1.6;">글포스팅에서 실제 발행이 완료된 글 3회를 모두 사용했습니다.<br>라이선스를 등록하면 <strong style="color:#a5f3c4;">모든 발행 기능</strong>을 사용할 수 있어요.</p>'
+    + '<h2 style="color:white;font-size:22px;font-weight:800;margin:0 0 12px 0;">오늘의 무료 체험 발행 3회를 모두 사용했어요</h2>'
+    + '<p style="color:rgba(255,255,255,0.7);font-size:14px;margin:0 0 24px 0;line-height:1.6;">오늘 실제 발행이 완료된 글 3회를 모두 사용했습니다.<br>내일 다시 3회가 제공됩니다. 라이선스를 등록하면 <strong style="color:#a5f3c4;">모든 발행 기능</strong>을 사용할 수 있어요.</p>'
     + '<div style="display:flex;flex-direction:column;gap:10px;">'
     + '<button onclick="window.blogger&&window.blogger.openExternal(\'https://leadernam.imweb.me\')" style="padding:14px 24px;background:linear-gradient(135deg,#6366f1,#a855f7);border:none;border-radius:12px;color:white;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(99,102,241,0.4);">🛒 라이선스 구매하기</button>'
     + '<button onclick="document.getElementById(\'paywallModal\').remove()" style="padding:12px 24px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:12px;color:rgba(255,255,255,0.6);font-size:14px;cursor:pointer;">닫기</button>'
     + '</div>'
-    + '<p style="color:rgba(255,255,255,0.4);font-size:11px;margin:16px 0 0 0;">무료 체험은 실제 발행 완료 기준으로 최대 3회 제공됩니다</p>'
+    + '<p style="color:rgba(255,255,255,0.4);font-size:11px;margin:16px 0 0 0;">무료 체험은 실제 발행 완료 기준으로 하루 최대 3회 제공됩니다 (매일 자정 초기화)</p>'
     + '</div>';
   document.body.appendChild(modal);
 }

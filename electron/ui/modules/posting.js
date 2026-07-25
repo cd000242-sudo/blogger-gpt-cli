@@ -1771,8 +1771,12 @@ export async function createPayload(options = {}) {
     keywords: [{ keyword: keywordValue, title: titleValue }],
 
     // 제목 옵션
+    // v3.8.354: titleMode='auto'이면 useKeywordAsTitle을 강제 무시 (자동 생성 우선)
+    //   과거: 체크박스가 살아있으면 titleMode='auto'인데도 키워드가 그대로 제목이 됨
+    //   현재: 자동생성을 선택하면 AI 생성이 무조건 우선
     titleMode: titleModeValue,
-    useKeywordAsTitle: document.getElementById('useKeywordAsTitle')?.checked || false,
+    useKeywordAsTitle: titleModeValue !== 'auto'
+      && (document.getElementById('useKeywordAsTitle')?.checked || false),
     keywordFront: document.getElementById('keywordFront')?.checked || false,
 
     // 콘텐츠
