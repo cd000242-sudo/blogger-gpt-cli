@@ -1309,16 +1309,21 @@ export async function loginDropshot(): Promise<{
     const page = context.pages()[0] || await context.newPage();
     await openDropshotLoginSurface(page);
 
+    // v3.8.363: 폴링 간격 5s → 1.2s 로 단축 (사용자 로그인 즉시 감지)
+    //   기존: 최대 5초 지연으로 "로그인했는데 창이 안 닫힘" 체감
+    //   신규: 최대 1.2초 내 감지, 총 대기 시간은 6분(300 * 1.2s)으로 유지
     let loggedIn = false;
     let userName: string | undefined;
-    for (let i = 0; i < 60; i++) {
-      await new Promise(r => setTimeout(r, 5000));
+    let boardPage: any = null;
+    for (let i = 0; i < 300; i++) {
+      await new Promise(r => setTimeout(r, 1200));
       try {
         const pages = context.pages();
         const p = pages.find((pg: any) => { try { return pg.url().includes('dropshot.io'); } catch { return false; } }) || pages[pages.length - 1];
         const ok = isDropshotBoardUrl(String(p?.url?.() || ''));
         if (ok) {
           loggedIn = true;
+          boardPage = p;
           try {
             const u = await p.evaluate(async () => {
               const r = await fetch('/api/me', { credentials: 'include' });
@@ -1330,17 +1335,37 @@ export async function loginDropshot(): Promise<{
         }
       } catch { continue; }
     }
+    // v3.8.363: 이미 열린 board page로 즉시 generation ready 확인 → 별도 verify 왕복 제거
     if (loggedIn) {
       const verified = await checkDropshotLogin({ force: true }).catch(() => null);
-      const result = withDropshotSubscriptionMeta(verified?.loggedIn
+      const result: any = withDropshotSubscriptionMeta(verified?.loggedIn
         ? { ...verified, message: '로그인 완료' }
         : userName
         ? { loggedIn: true, userName, message: '로그인 완료', subscription: 'unknown' }
         : { loggedIn: true, message: '로그인 완료', subscription: 'unknown' });
       _loginCheckCache = { ts: Date.now(), result };
+      try {
+        if (boardPage) {
+          const genSession = await verifyDropshotGenerationSession(boardPage);
+          if (genSession.authenticated) {
+            const control = await resolveDropshotGenerateControl(boardPage);
+            result.ready = control.ready;
+            result.generateControl = control.candidate || control.detail;
+            result.generationMessage = control.ready
+              ? 'Dropshot 로그인과 실제 이미지 생성 버튼을 확인했습니다.'
+              : control.detail;
+          } else {
+            result.ready = false;
+            result.generationMessage = genSession.message;
+          }
+        }
+      } catch (verifyErr: any) {
+        result.ready = false;
+        result.generationMessage = `생성 준비 확인 실패: ${verifyErr?.message || verifyErr}`;
+      }
       return result;
     }
-    const result = { loggedIn: false, message: '5분 내 로그인 미완료' };
+    const result = { loggedIn: false, message: '6분 내 로그인 미완료' };
     _loginCheckCache = { ts: Date.now(), result };
     return result;
   } catch (e: any) {

@@ -1641,14 +1641,21 @@ window.handleDropshotLogin = async function (options = {}) {
     }
     if (r?.loggedIn) {
       window.rememberDropshotLoginStatus?.(r, { publishContext });
-      if (status) { status.textContent = '⏳ 로그인 완료 · 실제 생성 연동을 확인 중...'; status.style.color = 'rgba(255,255,255,0.7)'; }
-      const ready = await window.verifyDropshotGenerationReady?.({ force: true, publishContext });
+      // v3.8.363: loginDropshot이 이미 generation ready까지 확인함 (같은 열린 창에서)
+      //   기존: 별도 verifyDropshotGenerationReady 호출 → 새 브라우저 열어 세션 재확인 (사용자 대기 + 세션 불일치로 fail)
+      //   신규: r.ready가 있으면 그대로 사용. 없으면(구버전 백엔드) fallback으로 verify 호출.
+      let ready = r;
+      if (typeof r.ready !== 'boolean') {
+        if (status) { status.textContent = '⏳ 로그인 완료 · 실제 생성 연동을 확인 중...'; status.style.color = 'rgba(255,255,255,0.7)'; }
+        ready = await window.verifyDropshotGenerationReady?.({ force: true, publishContext });
+      }
       if (ready?.ready) {
         if (status) { status.textContent = `✅ 실행 준비 완료${ready.userName ? ' — ' + ready.userName : ''}`; status.style.color = '#86efac'; }
         alert('리더스 나노바나나 로그인 및 생성 연동이 완료되었습니다.' + (ready.userName ? ' (' + ready.userName + ')' : ''));
       } else {
-        if (status) { status.textContent = `❌ 로그인됨 · 생성 연동 필요 — ${ready?.message || '생성 버튼을 확인하지 못했습니다.'}`; status.style.color = '#fca5a5'; }
-        alert('로그인은 됐지만 생성 연동이 준비되지 않았습니다. 상태 확인에서 안내를 확인해주세요.');
+        const detailMsg = ready?.generationMessage || ready?.message || '생성 버튼을 확인하지 못했습니다.';
+        if (status) { status.textContent = `❌ 로그인됨 · 생성 연동 필요 — ${detailMsg}`; status.style.color = '#fca5a5'; }
+        alert('로그인은 됐지만 생성 연동이 준비되지 않았습니다:\n' + detailMsg + '\n\n리더스 나노바나나 사이트에서 이미지 생성 버튼이 활성화됐는지 직접 확인해주세요 (구독 상태·정책 안내 등).');
       }
     } else {
       if (status) { status.textContent = '❌ ' + (r?.message || '시간 초과'); status.style.color = '#fca5a5'; }
