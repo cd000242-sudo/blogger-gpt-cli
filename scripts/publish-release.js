@@ -23,18 +23,47 @@ console.log(`\n🚀 [publish-release] ${tag} 릴리즈 공개 처리 중...`);
 
 try {
   // 릴리즈 존재 여부 + draft 상태 확인
-  const info = execSync(
-    `gh release view ${tag} --repo ${owner}/${repo} --json isDraft`,
-    { encoding: 'utf8' }
-  );
-  const { isDraft } = JSON.parse(info);
+  let releaseExists = true;
+  let isDraft = false;
+  try {
+    const info = execSync(
+      `gh release view ${tag} --repo ${owner}/${repo} --json isDraft`,
+      { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    isDraft = JSON.parse(info).isDraft;
+  } catch (viewErr) {
+    // v3.8.364: release가 존재하지 않는 경우 (GH_TOKEN 없이 electron-builder --publish 실패)
+    //   → gh CLI로 직접 release 생성 (gh는 별도 auth 필요 없음, 이미 로그인된 상태 사용)
+    releaseExists = false;
+    console.log(`⚠️ [publish-release] ${tag} release가 존재하지 않음. gh CLI로 직접 생성 시도...`);
+    const path = require('path');
+    const fs = require('fs');
+    const releaseDir = path.join(__dirname, '..', 'release');
+    const requiredFiles = [
+      `LEADERNAM-Orbit-${version}.exe`,
+      `LEADERNAM-Orbit-${version}.exe.blockmap`,
+      'latest.yml',
+    ];
+    const uploadFiles = requiredFiles
+      .map(f => path.join(releaseDir, f))
+      .filter(p => fs.existsSync(p));
+    if (uploadFiles.length < 3) {
+      throw new Error(`release 파일 부족: ${uploadFiles.length}/3 (재빌드 필요: npm run build && electron-builder --win)`);
+    }
+    const filesArg = uploadFiles.map(p => `"${p}"`).join(' ');
+    execSync(
+      `gh release create ${tag} ${filesArg} --repo ${owner}/${repo} --title "${version}" --notes "v${version} 자동 업로드 (GH_TOKEN 없이 gh CLI fallback)"`,
+      { stdio: 'inherit' }
+    );
+    console.log(`✅ [publish-release] ${tag} gh CLI로 릴리스 생성 완료 (3개 파일 업로드)`);
+  }
 
   // 항상 draft=false + latest=true로 설정 (멱등)
   execSync(
     `gh release edit ${tag} --repo ${owner}/${repo} --draft=false --latest`,
     { stdio: 'inherit' }
   );
-  console.log(`✅ [publish-release] ${tag} → Latest로 공개 완료! ${isDraft ? '(Draft에서 Published로 전환)' : '(이미 Published, Latest 재확인)'}`);
+  console.log(`✅ [publish-release] ${tag} → Latest로 공개 완료! ${!releaseExists ? '(gh CLI 신규 생성)' : isDraft ? '(Draft에서 Published로 전환)' : '(이미 Published, Latest 재확인)'}`);
 
   // 🔧 자동 수정 런처(FIX-AUTO-UPDATE.bat) 동봉 — 단일 파일에 PowerShell 스크립트 포함
   const path = require('path');
