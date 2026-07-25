@@ -19,7 +19,7 @@ import { findRelatedPosts, insertInternalLinks } from '../internal-links';
 import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
 import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTIONS } from '../max-mode/mode-sections-extended';
 import { fetchFactContext, type FactCheckMode } from '../perplexityFactCheck';
-import { searchCoupangProducts, createCoupangDeeplink, formatProductsForPrompt, renderCoupangProductBlock } from '../coupang-partners';
+import { searchCoupangProducts, createCoupangDeeplink, formatProductsForPrompt, renderCoupangProductBlock, renderCoupangDisclosureBanner, enforceCoupangCompliance } from '../coupang-partners';
 import { uploadBase64ToImageHost } from './image-helpers';
 import { resolveUrlModeKeyword } from './url-mode';
 import { crawlSingleUrlFast } from './crawlers';
@@ -1561,6 +1561,11 @@ export async function generateUltimateMaxModeArticleFinal(
     // 이 스크립트가 생성하는 H1은 확실하게 백서 컨테이너 안쪽에 랜딩 페이지 타이틀처럼 배치합니다.
     html += `\n<h1 class="post-title">${h1}</h1>\n`;
 
+    // 🛒 v3.8.375: 쿠팡 파트너스 대가성 문구 자리 — 반드시 H1 직후, 이미지·링크·태그보다 앞.
+    //   쿠팡 가이드가 "태그, 링크, 이미지 다음에 작성하는 경우"를 금지하므로 최상단에 고정한다.
+    //   상품이 없으면 아래에서 자리표시자만 제거된다.
+    html += `<!-- COUPANG_DISCLOSURE_PLACEHOLDER -->`;
+
     // 🛡️ E-E-A-T 메타 박스 자리 표시 — 후처리에서 채움 (작성자/검토자/발행일/읽기시간/출처)
     html += `<!-- EEAT_META_PLACEHOLDER -->`;
 
@@ -2064,11 +2069,28 @@ export async function generateUltimateMaxModeArticleFinal(
       const coupangProducts = (payload as any).coupangProducts;
       if (Array.isArray(coupangProducts) && coupangProducts.length > 0) {
         html += renderCoupangProductBlock(coupangProducts);
+        // v3.8.375: 대가성 문구를 본문 최상단(H1 직후)에 삽입 — 쿠팡 가이드 준수.
+        //   기존에는 문구가 상품 블록 안에만 있어서 글 맨 끝(모든 이미지·링크 뒤)에 위치했고,
+        //   글자도 13px 회색이라 "본문보다 크게 또는 눈에 띄는 색" 요건에 미달했다.
+        html = html.replace('<!-- COUPANG_DISCLOSURE_PLACEHOLDER -->', renderCoupangDisclosureBanner());
         console.log(`[MAX-MODE] 🛒 쿠팡 상품 카드 ${Math.min(coupangProducts.length, 6)}개 삽입 완료 (제휴링크 활성화)`);
+        console.log('[MAX-MODE] 🛒 대가성 문구를 본문 최상단에 배치 (쿠팡 파트너스 가이드 준수)');
+
+        // v3.8.375: 본문 안 LLM 작성 링크·문구까지 최종 강제
+        //   프롬프트에 제휴링크를 넘기므로 LLM이 본문에 직접 <a>를 쓸 수 있는데 rel이 없다.
+        //   또 LLM이 "수수료를 받을 수 있습니다" 같은 조건부 표현을 쓰면 가이드 (3) 위반이다.
+        const compliance = enforceCoupangCompliance(html);
+        html = compliance.html;
+        compliance.fixes.forEach(f => {
+          console.log(`[MAX-MODE] 🛒 컴플라이언스 교정: ${f}`);
+          onLog?.(`[PROGRESS] 92% - 🛒 쿠팡 컴플라이언스: ${f}`);
+        });
       } else {
         console.log('[MAX-MODE] ⚠️ 쇼핑 모드인데 쿠팡 상품 데이터 없음 — 카드 블록 스킵');
       }
     }
+    // 제휴 상품이 없으면 자리표시자만 제거
+    html = html.replace('<!-- COUPANG_DISCLOSURE_PLACEHOLDER -->', '');
 
     // v3.7.13 — 면책 중복 제거: 이전엔 여기(섹션 끝)와 line ~1701(결론 다음) 두 곳에 면책이 박혀
     //   같은 글에 디스클레임이 2번 표시됨. 결론 다음의 .disclaimer 블록만 유지하고 여기는 삭제.

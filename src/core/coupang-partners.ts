@@ -237,10 +237,96 @@ export function renderCoupangProductBlock(products: CoupangProduct[]): string {
   return `
 <div class="coupang-product-showcase" style="margin:48px 0;padding:24px;background:#f9fafb;border-radius:16px;">
   <h2 style="font-size:22px;font-weight:800;color:#111;margin:0 0 8px;padding:0;border:none;">🛒 추천 상품 한눈에 보기</h2>
-  <p style="font-size:13px;color:#6b7280;margin:0 0 20px;">아래 상품은 쿠팡 파트너스 활동의 일환으로, 일정액의 수수료를 제공받습니다.</p>
+  <p style="font-size:15px;color:#c62828;font-weight:700;margin:0 0 20px;">이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.</p>
   ${cards}
 </div>
 `;
+}
+
+/**
+ * 🛒 쿠팡 파트너스 대가성 문구 배너 — **게시물 최상단(첫 부분)** 전용.
+ *
+ * 쿠팡 파트너스 「대가성 문구 표기 권장 가이드」 준수:
+ *   (1) 게시물의 제목 또는 첫 부분에 본문과 구별되게 표기
+ *       → H1 바로 다음, 이미지·링크·태그보다 앞에 삽입한다.
+ *   (2) 글자 크기를 본문보다 크게 하거나 눈에 띄는 색으로 변경
+ *       → 본문 16px 대비 17px + 빨강(#c62828) + 굵게 + 좌측 테두리로 본문과 분리
+ *   (3) 조건부/불확정적 표현 금지
+ *       → "제공받을 수 있습니다"(X) 가 아니라 "제공받습니다"(O) 확정형.
+ *         "소정의" 같은 표현도 쓰지 않는다.
+ *
+ * 가이드가 금지하는 배치(태그·링크·이미지 뒤)를 피하기 위해 반드시 본문 최상단에 넣어야 한다.
+ */
+export function renderCoupangDisclosureBanner(): string {
+  return `
+<p class="coupang-disclosure" style="font-size:17px;line-height:1.6;font-weight:700;color:#c62828;background:#fff5f5;border-left:5px solid #c62828;border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 24px;">
+이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.
+</p>
+`;
+}
+
+/** 확정형 표준 문구 — 쿠팡 가이드 예시문 */
+const CANONICAL_DISCLOSURE = '이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.';
+
+/**
+ * LLM이 본문에 써넣은 조건부 대가성 표현을 확정형으로 교정한다.
+ * 쿠팡 가이드 (3): "‘소정의 수수료를 지급받을 수 있음’과 같은 조건부/불확정적 표현 없이" 기재해야 한다.
+ * 앞이 아니라 뒤(문장 단위)만 손대므로 문맥이 깨지지 않는다.
+ */
+const CONDITIONAL_FIXES: Array<[RegExp, string]> = [
+  // 문장 통째로 교체 — "쿠팡 파트너스 …" 로 시작하는 조건부 고지문
+  [/[^.。<>]{0,40}쿠팡\s*파트너스[^.。<>]{0,80}?수수료[^.。<>]{0,30}?(?:받을\s*수\s*있습니다|받을\s*수\s*있어요|지급받을\s*수\s*있습니다|제공받을\s*수\s*있습니다)\.?/g,
+    CANONICAL_DISCLOSURE],
+  // 부분 표현 교정
+  [/소정의\s*수수료/g, '일정액의 수수료'],
+  [/수수료를\s*지급받을\s*수\s*있습니다/g, '수수료를 제공받습니다'],
+  [/수수료를\s*제공받을\s*수\s*있습니다/g, '수수료를 제공받습니다'],
+  [/수수료를\s*받을\s*수\s*있습니다/g, '수수료를 제공받습니다'],
+  [/수수료가\s*지급될\s*수\s*있습니다/g, '수수료를 제공받습니다'],
+];
+
+const COUPANG_LINK_HOST = /(?:link\.coupang\.com|coupa\.ng|coupang\.com)/i;
+
+/**
+ * 🛒 쿠팡 파트너스 컴플라이언스 최종 강제 (후처리, 추가 LLM 호출 없음).
+ *
+ * 1) 본문 안 모든 쿠팡 링크에 rel="nofollow sponsored" 보장
+ *    — 구글은 제휴 링크에 sponsored/nofollow를 요구한다. LLM이 직접 쓴 <a>에는 rel이 없다.
+ * 2) LLM이 써넣은 조건부 대가성 표현을 확정형으로 교정 (쿠팡 가이드 (3))
+ */
+export function enforceCoupangCompliance(html: string): { html: string; fixes: string[] } {
+  if (!html) return { html, fixes: [] };
+  let out = String(html);
+  const fixes: string[] = [];
+
+  // 1) 쿠팡 링크 rel 보강
+  let relAdded = 0;
+  out = out.replace(/<a\b([^>]*?)href\s*=\s*(["'])([^"']*)\2([^>]*)>/gi, (full, pre, q, href, post) => {
+    if (!COUPANG_LINK_HOST.test(href)) return full;
+    const attrs = `${pre} ${post}`;
+    const relMatch = attrs.match(/\brel\s*=\s*(["'])([^"']*)\1/i);
+    const existing = relMatch ? relMatch[2]! : '';
+    const tokens = new Set(existing.split(/\s+/).filter(Boolean).map(t => t.toLowerCase()));
+    const before = tokens.size;
+    tokens.add('nofollow');
+    tokens.add('sponsored');
+    tokens.add('noopener');
+    if (relMatch && tokens.size === before) return full; // 이미 충분
+    relAdded++;
+    const relValue = Array.from(tokens).join(' ');
+    const stripped = full.replace(/\s*\brel\s*=\s*(["'])[^"']*\1/gi, '');
+    return stripped.replace(/>$/, ` rel="${relValue}">`);
+  });
+  if (relAdded > 0) fixes.push(`쿠팡 링크 ${relAdded}개에 rel="nofollow sponsored" 보강`);
+
+  // 2) 조건부 대가성 표현 교정
+  let conditionalFixed = 0;
+  for (const [pattern, replacement] of CONDITIONAL_FIXES) {
+    out = out.replace(pattern, () => { conditionalFixed++; return replacement; });
+  }
+  if (conditionalFixed > 0) fixes.push(`조건부 대가성 표현 ${conditionalFixed}건을 확정형으로 교정`);
+
+  return { html: out, fixes };
 }
 
 // ═══════════════════════════════════════════════════════════════════
