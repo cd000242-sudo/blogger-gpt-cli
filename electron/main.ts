@@ -11216,6 +11216,25 @@ app.whenReady().then(async () => {
   console.log('[APP] Electron 앱 준비 완료');
   console.log(`[VERSION] LEADERNAM Orbit v${app.getVersion()}`);
 
+  // v3.8.365: 앱 실행 시 renderer 캐시 자동 삭제 → 신규 버전 fix가 즉시 반영
+  //   과거: index.html 등이 Chromium HTTP/Code 캐시에 남아 앱 업데이트 후에도 이전 UI 렌더링
+  //   현재: 매 실행 시 clearCache로 fresh renderer 보장 (사용자가 Ctrl+R 안 눌러도 됨)
+  try {
+    const { session } = require('electron');
+    const currentVersion = app.getVersion();
+    const lastLoadedVersion = require('path').join(app.getPath('userData'), 'last-loaded-version.txt');
+    let previousVersion = '';
+    try { previousVersion = require('fs').readFileSync(lastLoadedVersion, 'utf-8').trim(); } catch {}
+    if (previousVersion !== currentVersion) {
+      await session.defaultSession.clearCache();
+      await session.defaultSession.clearCodeCaches({});
+      require('fs').writeFileSync(lastLoadedVersion, currentVersion, 'utf-8');
+      console.log(`[APP] 🧹 renderer 캐시 삭제 완료 (${previousVersion || '(첫 실행)'} → ${currentVersion})`);
+    }
+  } catch (cacheErr: any) {
+    console.log('[APP] 캐시 삭제 스킵 (무시):', cacheErr?.message);
+  }
+
   // 🔥 개발 모드 확인: npm start로 실행 시 라이선스 체크 건너뛰기
   const isDev = !app.isPackaged || process.env.NODE_ENV === 'development';
 
