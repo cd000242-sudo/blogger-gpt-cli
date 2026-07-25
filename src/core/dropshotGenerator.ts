@@ -521,64 +521,83 @@ function isDropshotLoginUrl(url: string): boolean {
 //         API가 불확실할 때만 기존 리다이렉트 검사로 폴백하며, 대기 시간을 20초로 늘렸다.
 const DROPSHOT_AUTH_REDIRECT_WAIT_MS = 20_000;
 
+// v3.8.370: 실제 브라우저로 엔드포인트를 실측해 확정한 인증 신호.
+//   실측 결과 (aistudio.dropshot.io board, 로그인 상태):
+//     api.aistudio.dropshot.io/v1/user/subscription  -> TypeError: Failed to fetch (엔드포인트 없음/CORS)
+//     /api/me, /api/user, /api/v1/me                 -> 404
+//     /api/auth/session                              -> 200 {"user":{"id","email","name",...},"idToken":"..."}
+//   즉 기존 코드가 쓰던 구독 API는 항상 예외로 떨어져 catch에 삼켜지고 있었다.
+//   유일하게 동작하는 인증 신호는 /api/auth/session 이며, 세션 쿠키는 ds.session-token.* 이다.
+const DROPSHOT_SESSION_API = 'https://aistudio.dropshot.io/api/auth/session';
+
 async function probeDropshotAuthApi(page: any): Promise<{ ok: boolean; status?: number; name?: string }> {
   try {
-    return await page.evaluate(async () => {
-      const tryFetch = async (url: string) => {
-        try {
-          const res = await fetch(url, { credentials: 'include' });
-          return { status: res.status, ok: res.ok, body: res.ok ? await res.json().catch(() => null) : null };
-        } catch {
-          return null;
-        }
-      };
-      // 1순위: 구독 API — checkDropshotLogin이 이미 쓰는 검증된 엔드포인트
-      const sub = await tryFetch('https://api.aistudio.dropshot.io/v1/user/subscription?lang=ko');
-      if (sub && sub.ok) return { ok: true, status: sub.status, name: '' };
-      if (sub && (sub.status === 401 || sub.status === 403)) return { ok: false, status: sub.status };
-      // 2순위: /api/me
-      const me = await tryFetch('/api/me');
-      if (me && me.ok) {
-        const body: any = me.body;
-        const name = String(body?.name || body?.email || body?.user?.name || body?.user?.email || '');
-        return { ok: !!(body && (body.id || body.userId || body.user?.id || name)), status: me.status, name };
+    return await page.evaluate(async (sessionUrl: string) => {
+      try {
+        const res = await fetch(sessionUrl, { credentials: 'include' });
+        if (!res.ok) return { ok: false, status: res.status };
+        const body: any = await res.json().catch(() => null);
+        const user = body && body.user;
+        const name = user ? String(user.name || user.email || '') : '';
+        // user.id 또는 email이 있어야 실제 로그인 세션 (로그아웃 시엔 빈 객체/401)
+        return { ok: !!(user && (user.id || user.email)), status: res.status, name };
+      } catch {
+        return { ok: false };
       }
-      if (me && (me.status === 401 || me.status === 403)) return { ok: false, status: me.status };
-      return { ok: false };
-    });
+    }, DROPSHOT_SESSION_API);
   } catch {
     return { ok: false };
   }
 }
 
+// 세션 쿠키 존재 여부 — API가 네트워크 문제로 실패했을 때의 보조 신호.
+// 실측 확인: 로그인 시 .dropshot.io 도메인에 ds.session-token.0 / ds.session-token.1 (httpOnly)이 생성된다.
+async function hasDropshotSessionCookie(page: any): Promise<boolean> {
+  try {
+    const context = typeof page.context === 'function' ? page.context() : null;
+    if (!context || typeof context.cookies !== 'function') return false;
+    const cookies = await context.cookies();
+    return (cookies || []).some((c: any) =>
+      /dropshot/i.test(String(c?.domain || '')) &&
+      /^ds\.session-token/i.test(String(c?.name || '')) &&
+      String(c?.value || '').length > 100,
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function verifyDropshotGenerationSession(page: any): Promise<DropshotGenerationSession> {
   try {
-    // 이미 board에 있으면 페이지를 옮기지 않고 API로 인증을 직접 확인한다.
-    if (isDropshotBoardUrl(String(page.url?.() || ''))) {
-      const probe = await probeDropshotAuthApi(page);
-      if (probe.ok) {
-        return {
-          authenticated: true,
-          message: `Dropshot 생성 권한 세션 확인${probe.name ? ` (${probe.name})` : ''}`,
-        };
-      }
-      if (probe.status === 401 || probe.status === 403) {
-        return { authenticated: false, message: 'Dropshot 생성 권한 인증이 필요합니다. Google 또는 Kakao 로그인을 완료해주세요.' };
-      }
-      // status 불명 = 네트워크/차단 등 불확실 → 아래 리다이렉트 검사로 폴백
+    // v3.8.370 실측: 로그인 URL(stock.dropshot.io/ko/logIn?redirectTo=board)은
+    //   로그인이 완료된 상태에서도 board로 자동 리다이렉트하지 않는다(16초 관찰 결과 그대로 머무름).
+    //   따라서 "로그인 URL로 보내서 리다이렉트되는지 본다"는 기존 판정은 항상 실패했다.
+    //   → board로 직접 이동한 뒤 세션 API로 확인한다. 로그인 안 됐으면 board가 로그인 페이지로 튕긴다.
+    if (!isDropshotBoardUrl(String(page.url?.() || ''))) {
+      await page.goto(BOARD_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
     }
 
-    await page.goto(DROPSHOT_AUTH_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
     const deadline = Date.now() + DROPSHOT_AUTH_REDIRECT_WAIT_MS;
     while (Date.now() < deadline) {
       const url = String(page.url?.() || '');
-      if (isDropshotBoardUrl(url)) {
-        return { authenticated: true, message: 'Dropshot 생성 권한 세션 확인' };
+      if (isDropshotLoginUrl(url)) {
+        return { authenticated: false, message: 'Dropshot 생성 권한 인증이 필요합니다. Google 또는 Kakao 로그인을 완료해주세요.' };
       }
-      // 리다이렉트가 늦어도 세션이 살아있으면 API가 먼저 확인해준다
-      if (!isDropshotLoginUrl(url)) {
+      if (isDropshotBoardUrl(url)) {
         const probe = await probeDropshotAuthApi(page);
-        if (probe.ok) return { authenticated: true, message: 'Dropshot 생성 권한 세션 확인 (API)' };
+        if (probe.ok) {
+          return {
+            authenticated: true,
+            message: `Dropshot 생성 권한 세션 확인${probe.name ? ` (${probe.name})` : ''}`,
+          };
+        }
+        if (probe.status === 401 || probe.status === 403) {
+          return { authenticated: false, message: 'Dropshot 생성 권한 인증이 필요합니다. Google 또는 Kakao 로그인을 완료해주세요.' };
+        }
+        // 세션 API가 네트워크 오류로 불확실할 때만 쿠키를 보조 신호로 사용
+        if (await hasDropshotSessionCookie(page)) {
+          return { authenticated: true, message: 'Dropshot 생성 권한 세션 확인 (세션 쿠키)' };
+        }
       }
       await wait(500);
     }
