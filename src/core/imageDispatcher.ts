@@ -630,11 +630,24 @@ export async function dispatchH2ImageGeneration(
       }
     }
 
-    // 3회 모두 실패 → throw
+    // v3.8.358: STRICT 3회 실패 후에도 폴백 체인 시도 (사용자 시간·비용 낭비 방지)
+    //   과거: OpenAI 520 등 일시 장애 시 30분 넘게 낭비하고 발행 전면 실패
+    //   현재: 최후 수단으로 다른 엔진 시도 → 발행은 진행하되 로그로 사용자에게 명확히 알림
     const finalCategory = lastClassification?.category || 'unknown';
     const finalMsg = lastClassification?.userMessage || '알 수 없는 에러';
-    console.error(`[DISPATCH] ❌ Strict 모드 ${MAX_STRICT_RETRIES}회 모두 실패: ${imageSource} (${finalCategory})`);
-    onLog?.(`❌ '${imageSource}' ${MAX_STRICT_RETRIES}회 시도 후 실패 — 발행 차단`);
+    console.error(`[DISPATCH] ❌ Strict ${MAX_STRICT_RETRIES}회 실패 (${finalCategory}) → 최후 폴백 체인 시도`);
+    onLog?.(`⚠️ '${imageSource}' ${MAX_STRICT_RETRIES}회 실패 → 다른 엔진으로 자동 폴백 시도 (사용자 시간 낭비 방지)`);
+    const strictFallbackOrder = buildFallbackChain(imageSource, env);
+    for (const engine of strictFallbackOrder) {
+      const result = await tryEngine(engine, prompt, keyword, env, onLog, false, contentMode, extra);
+      if (result.ok) {
+        console.log(`[DISPATCH] ✅ Strict 최후 폴백 성공: ${imageSource} → ${engine}`);
+        onLog?.(`🔄 Strict 모드 최후 폴백 성공: ${imageSource} → ${engine} 엔진으로 이미지 생성됨`);
+        return { ...result, source: `${result.source} (${imageSource} strict 실패 → 최후 폴백)` };
+      }
+    }
+    console.error(`[DISPATCH] ❌ Strict + 최후 폴백 모두 실패: ${imageSource} (${finalCategory})`);
+    onLog?.(`❌ '${imageSource}' + 폴백 모두 실패 — 발행 차단`);
     throw new Error(`STRICT_ENGINE_FAILED:${finalCategory}:${finalMsg}`);
   }
 
