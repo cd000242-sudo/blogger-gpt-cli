@@ -8188,23 +8188,31 @@ function renderGoldenKeyword() {
 window.renderGoldenKeyword = renderGoldenKeyword;
 
 // [🚀 이 키워드로 글쓰기] 클릭 → 글포스팅 탭 이동 + 키워드 입력 + 플랫폼 선택 + 상세설정 오픈
-// v3.8.362: 사용자 요구 — 클릭 한 번으로 글쓰기 준비 완료
+// v3.8.366: 탭 이동 대상을 런타임에 계산 (하드코딩 'main' 제거)
+//   버그: showTab('main')이 황금키워드가 있는 메인 탭을 다시 열어서 아무 변화가 없었음.
+//         keywordInput은 실제로 settings-tab(글포스팅 화면의 레거시 id) 안에 있음.
+//   수정: keywordInput의 조상 .tab-content id에서 탭 이름을 역산 → 탭 구조가 바뀌어도 자동 추종.
 function useGoldenKeywordForPost(keyword, platform) {
-  // 1) 글포스팅 탭(main-tab)으로 이동
+  // 1) keywordInput이 실제로 속한 탭을 찾아 그 탭으로 이동
+  var input = document.getElementById('keywordInput');
+  if (!input) {
+    alert('❌ 키워드 입력 필드를 찾을 수 없습니다.');
+    return;
+  }
   try {
+    var tabEl = input.closest ? input.closest('.tab-content') : null;
+    var tabName = (tabEl && tabEl.id) ? tabEl.id.replace(/-tab$/, '') : 'settings';
+    console.log('[GOLDEN] 글쓰기 탭으로 이동:', tabName, '(keywordInput 소속:', tabEl && tabEl.id, ')');
     if (typeof window.showTab === 'function') {
-      window.showTab('main');
+      window.showTab(tabName);
     }
-  } catch (_) {}
+  } catch (tabErr) {
+    console.warn('[GOLDEN] 탭 이동 실패:', tabErr);
+  }
 
   // 탭 전환 후 DOM이 준비될 시간 확보
   setTimeout(function() {
     // 2) 키워드 필드 자동 입력
-    var input = document.getElementById('keywordInput');
-    if (!input) {
-      alert('❌ 키워드 입력 필드를 찾을 수 없습니다.');
-      return;
-    }
     input.value = keyword;
     try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
     try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
@@ -8232,8 +8240,11 @@ function useGoldenKeywordForPost(keyword, platform) {
       var acc = document.getElementById('postingSettingsAccordion');
       if (acc && acc.style.display === 'none' && typeof window.togglePostingSettingsPanel === 'function') {
         window.togglePostingSettingsPanel();
+        console.log('[GOLDEN] 상세설정 패널 오픈');
       }
-    } catch (_) {}
+    } catch (accErr) {
+      console.warn('[GOLDEN] 상세설정 오픈 실패:', accErr);
+    }
 
     // 5) 상세설정으로 스크롤 (열린 패널이 잘 보이도록)
     setTimeout(function() {
@@ -8244,7 +8255,11 @@ function useGoldenKeywordForPost(keyword, platform) {
         } else {
           input.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
-      } catch (_) {}
+        try { input.focus(); } catch (_) {}
+        console.log('[GOLDEN] ✅ 완료 — 키워드 입력 + 플랫폼 선택 + 상세설정 스크롤');
+      } catch (scrollErr) {
+        console.warn('[GOLDEN] 스크롤 실패:', scrollErr);
+      }
     }, 200);
   }, 150);
 }
