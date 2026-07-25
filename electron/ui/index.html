@@ -8135,22 +8135,28 @@ function renderGoldenKeyword() {
     itemsEl.innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:#64748b;font-size:13px;"><div style="font-size:28px;margin-bottom:8px;">🥇</div>관리자가 등록하면 여기에 키워드가 표시됩니다</div>';
     return;
   }
+  // v3.8.362: 추천 플랫폼 → 키워드 옆에 화살표 표기 + [이 키워드로 글쓰기] 클릭 시 플랫폼 자동 선택
+  var PLATFORM_LABELS = { blogger: '블로거스팟', wordpress: '워드프레스', tistory: '티스토리' };
   itemsEl.innerHTML = data.items.map(function(item, idx) {
     var num = item.num || (idx + 1);
     var keyword = String(item.keyword || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     var note = item.note ? '<span style="color:#f59e0b;font-size:10px;font-weight:700;">' + String(item.note).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' : '';
     var titleCount = Array.isArray(item.titles) ? item.titles.filter(function(t) { return t && String(t).trim(); }).length : 0;
     var keywordEsc = keyword.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    var platform = String(item.platform || '').toLowerCase();
+    var platformLabel = PLATFORM_LABELS[platform] || '';
+    var platformArrow = platformLabel ? ' <span style="color:#94a3b8;font-weight:500;">→</span> <span style="color:#93c5fd;font-weight:700;">' + platformLabel + '</span>' : '';
+    var platformEsc = platform.replace(/'/g, '');
     return '<div style="background:rgba(15,23,42,0.6);border:1px solid rgba(251,191,36,0.22);border-radius:12px;padding:12px 14px;">' +
       '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px;">' +
         '<span style="flex-shrink:0;padding:3px 8px;background:rgba(251,191,36,0.16);border:1px solid rgba(251,191,36,0.32);color:#fde68a;border-radius:6px;font-size:11px;font-weight:900;">' + num + '</span>' +
         '<div style="flex:1;min-width:0;">' +
-          '<div style="font-size:13px;font-weight:700;color:#f1f5f9;line-height:1.45;">' + keyword + '</div>' +
+          '<div style="font-size:13px;font-weight:700;color:#f1f5f9;line-height:1.45;">' + keyword + platformArrow + '</div>' +
           (note ? '<div style="margin-top:3px;">' + note + '</div>' : '') +
         '</div>' +
       '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
-        '<button onclick="useGoldenKeywordForPost(\'' + keywordEsc + '\')" style="flex:1;min-width:130px;padding:8px 10px;background:linear-gradient(135deg,#8b5cf6,#6366f1);border:none;color:white;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;">🚀 이 키워드로 글쓰기</button>' +
+        '<button onclick="useGoldenKeywordForPost(\'' + keywordEsc + '\', \'' + platformEsc + '\')" style="flex:1;min-width:130px;padding:8px 10px;background:linear-gradient(135deg,#8b5cf6,#6366f1);border:none;color:white;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;">🚀 이 키워드로 글쓰기</button>' +
         (titleCount > 0 ? '<button onclick="showGoldenTitles(' + idx + ')" style="flex:1;min-width:110px;padding:8px 10px;background:rgba(59,130,246,0.16);border:1px solid rgba(59,130,246,0.35);color:#bfdbfe;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;">📝 추천 제목 ' + titleCount + '개</button>' : '') +
       '</div>' +
     '</div>';
@@ -8158,22 +8164,66 @@ function renderGoldenKeyword() {
 }
 window.renderGoldenKeyword = renderGoldenKeyword;
 
-// [🚀 이 키워드로 글쓰기] 클릭 → 키워드 input에 자동 입력
-function useGoldenKeywordForPost(keyword) {
-  var input = document.getElementById('keywordInput');
-  if (!input) {
-    alert('❌ 키워드 입력 필드를 찾을 수 없습니다.');
-    return;
-  }
-  input.value = keyword;
-  // input 이벤트 발생시켜 다른 리스너들 반영
-  try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
-  try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
-  // 글포스팅 탭 스크롤/포커스
-  try { input.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
-  input.focus();
-  // 토스트 알림
-  alert('✅ 키워드가 입력되었습니다:\n' + keyword + '\n\n발행 옵션(플랫폼/모드/이미지) 확인 후 미리보기 또는 발행 버튼 눌러주세요.');
+// [🚀 이 키워드로 글쓰기] 클릭 → 글포스팅 탭 이동 + 키워드 입력 + 플랫폼 선택 + 상세설정 오픈
+// v3.8.362: 사용자 요구 — 클릭 한 번으로 글쓰기 준비 완료
+function useGoldenKeywordForPost(keyword, platform) {
+  // 1) 글포스팅 탭(main-tab)으로 이동
+  try {
+    if (typeof window.showTab === 'function') {
+      window.showTab('main');
+    }
+  } catch (_) {}
+
+  // 탭 전환 후 DOM이 준비될 시간 확보
+  setTimeout(function() {
+    // 2) 키워드 필드 자동 입력
+    var input = document.getElementById('keywordInput');
+    if (!input) {
+      alert('❌ 키워드 입력 필드를 찾을 수 없습니다.');
+      return;
+    }
+    input.value = keyword;
+    try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+    try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+
+    // 3) 추천 플랫폼 자동 선택 (라디오 버튼)
+    var chosenPlatform = String(platform || '').toLowerCase();
+    if (chosenPlatform === 'blogger' || chosenPlatform === 'wordpress' || chosenPlatform === 'tistory') {
+      try {
+        var radio = document.querySelector('input[name="platform"][value="' + chosenPlatform + '"]');
+        if (radio) {
+          radio.checked = true;
+          radio.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        // localStorage에도 저장 (기존 라디오 로드 로직 호환)
+        try { localStorage.setItem('platform', chosenPlatform); } catch (_) {}
+        // togglePlatformFields로 관련 UI 갱신
+        if (typeof window.togglePlatformFields === 'function') {
+          window.togglePlatformFields();
+        }
+      } catch (_) {}
+    }
+
+    // 4) 상세설정 패널 자동 오픈 (닫혀 있을 때만)
+    try {
+      var acc = document.getElementById('postingSettingsAccordion');
+      if (acc && acc.style.display === 'none' && typeof window.togglePostingSettingsPanel === 'function') {
+        window.togglePostingSettingsPanel();
+      }
+    } catch (_) {}
+
+    // 5) 상세설정으로 스크롤 (열린 패널이 잘 보이도록)
+    setTimeout(function() {
+      try {
+        var target = document.getElementById('postingSettingsAccordion');
+        if (target && target.style.display !== 'none') {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      } catch (_) {}
+    }, 200);
+  }, 150);
 }
 window.useGoldenKeywordForPost = useGoldenKeywordForPost;
 
@@ -8274,10 +8324,18 @@ function openGoldenKeywordEditorInternal() {
           '<button data-remove-title="' + idx + '-' + tIdx + '" style="padding:4px 10px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.32);color:#fecaca;border-radius:6px;font-size:11px;cursor:pointer;">×</button>' +
         '</div>';
       }).join('');
+      // v3.8.362: 추천 플랫폼 select 필드 추가
+      var currentPlatform = String(it.platform || '').toLowerCase();
+      var platformOptions =
+        '<option value=""' + (currentPlatform === '' ? ' selected' : '') + '>플랫폼 선택 안함</option>' +
+        '<option value="blogger"' + (currentPlatform === 'blogger' ? ' selected' : '') + '>블로거스팟</option>' +
+        '<option value="wordpress"' + (currentPlatform === 'wordpress' ? ' selected' : '') + '>워드프레스</option>' +
+        '<option value="tistory"' + (currentPlatform === 'tistory' ? ' selected' : '') + '>티스토리</option>';
       return '<div style="padding:14px;background:rgba(2,6,23,0.5);border:1px solid rgba(251,191,36,0.22);border-radius:10px;margin-bottom:10px;">' +
-        '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">' +
+        '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap;">' +
           '<span style="padding:4px 10px;background:rgba(251,191,36,0.16);color:#fde68a;border-radius:6px;font-size:12px;font-weight:800;">' + (it.num || (idx + 1)) + '</span>' +
-          '<input type="text" data-keyword-idx="' + idx + '" value="' + String(it.keyword || '').replace(/"/g, '&quot;') + '" placeholder="키워드 (예: 한전 누진단계 카톡 알림 450kWh)" style="flex:1;padding:9px 11px;background:rgba(2,6,23,0.6);border:1px solid rgba(251,191,36,0.25);border-radius:6px;color:#f1f5f9;font-size:13px;font-weight:600;outline:none;" />' +
+          '<input type="text" data-keyword-idx="' + idx + '" value="' + String(it.keyword || '').replace(/"/g, '&quot;') + '" placeholder="키워드 (예: 한전 누진단계 카톡 알림 450kWh)" style="flex:1;min-width:220px;padding:9px 11px;background:rgba(2,6,23,0.6);border:1px solid rgba(251,191,36,0.25);border-radius:6px;color:#f1f5f9;font-size:13px;font-weight:600;outline:none;" />' +
+          '<select data-platform-idx="' + idx + '" title="추천 발행 플랫폼" style="width:130px;padding:9px 10px;background:rgba(2,6,23,0.6);border:1px solid rgba(59,130,246,0.32);border-radius:6px;color:#bfdbfe;font-size:12px;font-weight:600;outline:none;">' + platformOptions + '</select>' +
           '<input type="text" data-note-idx="' + idx + '" value="' + String(it.note || '').replace(/"/g, '&quot;') + '" placeholder="적합도 92점" style="width:110px;padding:9px 10px;background:rgba(2,6,23,0.6);border:1px solid rgba(148,163,184,0.15);border-radius:6px;color:#f59e0b;font-size:11px;outline:none;" />' +
           '<button data-remove-item="' + idx + '" style="padding:6px 12px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fecaca;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">항목 삭제</button>' +
         '</div>' +
@@ -8325,11 +8383,13 @@ function openGoldenKeywordEditorInternal() {
     modal.querySelector('#gk-save').onclick = function() {
       captureEditorState();
       // 빈 항목 제거
+      // v3.8.362: platform 필드 포함 저장
       var cleaned = items.filter(function(it) { return String(it.keyword || '').trim(); }).map(function(it, i) {
         return {
           num: i + 1,
           keyword: String(it.keyword || '').trim(),
           note: String(it.note || '').trim(),
+          platform: String(it.platform || '').trim().toLowerCase(),
           titles: (it.titles || []).map(function(t) { return String(t || '').trim(); }).filter(Boolean),
         };
       });
@@ -8381,6 +8441,11 @@ function openGoldenKeywordEditorInternal() {
       var parts = el.dataset.titleIdx.split('-');
       var i = parseInt(parts[0]), t = parseInt(parts[1]);
       if (items[i] && items[i].titles) items[i].titles[t] = el.value;
+    });
+    // v3.8.362: 추천 플랫폼 값 캡처
+    modal.querySelectorAll('[data-platform-idx]').forEach(function(el) {
+      var i = parseInt(el.dataset.platformIdx);
+      if (items[i]) items[i].platform = el.value;
     });
     var dateEl = modal.querySelector('#gk-date');
     if (dateEl) reportDate = dateEl.value;
