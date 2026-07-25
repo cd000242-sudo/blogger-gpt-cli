@@ -22,6 +22,12 @@ export interface ModeDispatchResult {
   postProcessPlugin: ContentModePlugin | null;
   /** 플러그인이 처리했는지 여부 */
   handledByPlugin: boolean;
+  /**
+   * v3.8.373: 고정 H2 모드의 '섹션 역할' 정보.
+   * h2Titles가 고정 템플릿에서 왔을 때, 제목 문자열만 AI로 다시 짓기 위한 근거다.
+   * 구조(순서/개수/역할)는 유지하고 표기만 키워드에 맞게 바꾸는 데 쓴다.
+   */
+  sectionRoles?: Array<{ title: string; role: string; contentFocus: string }>;
 }
 
 /**
@@ -214,11 +220,22 @@ export function dispatchMode(
   const cssPlugin = plugin.generateCSS ? plugin : null;
   const postProcessPlugin = plugin.postProcess ? plugin : null;
 
+  // v3.8.373: 고정 H2를 쓰는 모드는 섹션 역할을 함께 반환 → orchestration이 제목만 재생성한다.
+  //   구조(순서/개수/역할)는 그대로 두고 표기 문자열만 키워드에 맞게 바꾸기 위한 근거다.
+  const sectionRoles = (!isDynamicH2Mode && activeSections.length > 0)
+    ? activeSections.map((sec: any) => ({
+        title: String(sec?.title || ''),
+        role: String(sec?.role || ''),
+        contentFocus: String(sec?.contentFocus || ''),
+      }))
+    : undefined;
+
   return {
     h2Titles,
     sectionPromptBlock,
     cssPlugin,
     postProcessPlugin,
     handledByPlugin: true,
+    ...(sectionRoles ? { sectionRoles } : {}),
   };
 }

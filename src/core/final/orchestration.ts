@@ -26,7 +26,7 @@ import { crawlSingleUrlFast } from './crawlers';
 import { callGeminiWithGrounding, callGeminiWithRetry } from './gemini-engine';
 import { FinalCrawledPost, FinalTableData, FinalCTAData } from './types';
 import {
-  generateH1TitleFinal, generateH2TitlesFinal,
+  generateH1TitleFinal, generateH2TitlesFinal, generateSectionTitlesFromRoles,
   generateAllSectionsFinal, generateFAQFinal, buildFAQHtml,
   sanitizeCtaText,
   generateCTAsFinal, generateSummaryTableFinal, generateHashtagsFinal,
@@ -839,6 +839,24 @@ export async function generateUltimateMaxModeArticleFinal(
     } else if (modeResult.handledByPlugin && modeResult.h2Titles) {
       // 플러그인에서 H2 제목 제공
       h2Titles = modeResult.h2Titles;
+      // v3.8.373: 고정 템플릿 제목을 키워드 맞춤으로 재생성 (구조/순서/개수는 그대로 유지)
+      //   사용자 지적: '[주제] 핵심 스펙 총정리' 처럼 키워드가 뭐든 같은 뼈대가 나온다.
+      //   섹션 역할(role/contentFocus)은 보존하고 표기 문자열만 AI가 새로 짓는다.
+      //   실패하거나 개수가 안 맞으면 템플릿 제목을 그대로 유지하므로 회귀 위험이 없다.
+      const roles = (modeResult as any).sectionRoles as Array<{ title: string; role: string; contentFocus: string }> | undefined;
+      if (Array.isArray(roles) && roles.length === h2Titles.length) {
+        onLog?.(`[PROGRESS] 37% - ✍️ ${contentMode} 모드 소제목을 키워드에 맞게 재생성 중...`);
+        try {
+          const rewritten = await generateSectionTitlesFromRoles(keyword, roles, demandSignals);
+          if (Array.isArray(rewritten) && rewritten.length === h2Titles.length) {
+            const changed = rewritten.filter((t, i) => t !== h2Titles![i]).length;
+            h2Titles = rewritten;
+            onLog?.(`[PROGRESS] 39% - ✅ 소제목 ${changed}/${rewritten.length}개를 키워드 맞춤으로 교체`);
+          }
+        } catch (titleErr: any) {
+          console.warn('[MODE] 섹션 제목 재생성 실패 — 템플릿 유지:', titleErr?.message || titleErr);
+        }
+      }
       onLog?.(`[PROGRESS] 40% - ✅ ${contentMode} 모드: ${h2Titles.length}개 섹션 구조 적용`);
     } else if (contentMode === 'adsense') {
       // 폴백: 기존 하드코딩 (플러그인 미등록 시)

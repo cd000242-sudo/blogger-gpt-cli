@@ -703,6 +703,80 @@ function finalizeH2TitlesWithIntentGuard(
 //         블로그 소제목과 flatMap으로 뭉뚱그려 넘기고 있어, "이건 실제 검색자 질문"이라는
 //         신호가 사라졌다. 그 결과 H2가 크롤링 소제목 빈도에만 끌려가 정형화됐다.
 //   해결: 질문/검색어를 별도 인자로 받아 프롬프트에 최우선 근거로 주입한다.
+/**
+ * v3.8.373: 고정 H2 템플릿 모드(애드센스/쇼핑/페러프레이징)의 "제목만" 다시 짓는다.
+ *
+ * 문제: 이 모드들은 H2가 '[주제] 핵심 스펙 총정리' 같은 고정 문자열이라
+ *       키워드가 뭐든 같은 뼈대가 나왔다. (사용자 지적)
+ * 해결: 섹션의 '역할(role)'과 '다룰 내용(contentFocus)'은 그대로 유지해 구조 안정성을 지키고,
+ *       표기 문자열만 키워드와 실제 검색자 질문에 맞게 AI가 짓게 한다.
+ *
+ * 실패하면 원래 템플릿 제목을 그대로 돌려주므로 회귀 위험이 없다.
+ * 개수와 순서는 반드시 보존한다 (섹션별 본문 지시와 1:1 대응해야 하므로).
+ */
+export async function generateSectionTitlesFromRoles(
+  keyword: string,
+  sections: Array<{ title: string; role?: string; contentFocus?: string }>,
+  demandSignals?: { userQuestions?: string[]; searchQueries?: string[] },
+): Promise<string[]> {
+  const fallback = sections.map((s) => String(s?.title || '').replace(/\[주제\]/g, keyword).trim());
+  if (!Array.isArray(sections) || sections.length === 0) return fallback;
+
+  const clean = (list?: string[]) => [...new Set((list || [])
+    .map((s) => String(s || '').replace(/^Q\.\s*/i, '').trim())
+    .filter((s) => s.length >= 4 && s.length <= 80))].slice(0, 12);
+  const questions = clean(demandSignals?.userQuestions);
+  const queries = clean(demandSignals?.searchQueries);
+
+  const demandBlock = (questions.length || queries.length)
+    ? `\n🔥 [검색자가 실제로 알고 싶어하는 것 — 제목에 반영할 것]\n`
+      + (questions.length ? `실제 질문:\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n` : '')
+      + (queries.length ? `함께 검색한 키워드:\n${queries.join(', ')}\n` : '')
+    : '';
+
+  const roleList = sections.map((s, i) => {
+    const role = String(s?.role || '').trim();
+    const focus = String(s?.contentFocus || '').trim();
+    return `${i + 1}. [역할] ${role || '(미지정)'}\n   [다룰 내용] ${focus || '(미지정)'}\n   [기존 임시 제목] ${String(s?.title || '').replace(/\[주제\]/g, keyword)}`;
+  }).join('\n\n');
+
+  const prompt = `키워드: "${keyword}"
+${demandBlock}
+아래는 이 글의 섹션 구조다. 각 섹션의 **역할은 절대 바꾸지 말고**, 제목 문자열만 이 키워드에 딱 맞게 새로 지어라.
+
+${roleList}
+
+작성 규칙:
+1. 정확히 ${sections.length}개, 위와 **같은 순서**로 출력 (역할과 1:1 대응)
+2. "기존 임시 제목"을 그대로 쓰지 마라. 그건 어떤 키워드에도 붙는 껍데기 문구다.
+3. "핵심 개요", "심층 분석", "체계적 정리", "완전히 이해하기", "총정리" 같은
+   **어느 글에나 붙는 뻔한 표현 금지**. 이 키워드에서만 나올 수 있는 구체적인 제목을 지어라.
+4. 검색자 질문이 주어졌다면 그 궁금증이 드러나게 제목을 지어라.
+5. 각 15~25자, 번호/접두어 없이 제목 텍스트만
+6. 한글/영문/숫자만. 확인되지 않은 수치·마감일을 제목에 만들어 넣지 마라.
+
+JSON 배열만 출력 (${sections.length}개 문자열):`;
+
+  try {
+    const raw = await callGeminiWithRetry(prompt);
+    const json = raw.trim().replace(/```json\n?/gi, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) return fallback;
+    const titles = parsed
+      .map((t: any) => String(t || '').replace(/[一-鿿㐀-䶿]/g, '').replace(/^\d+[.):\s]+/, '').trim())
+      .filter((t: string) => t.length > 0);
+    // 개수가 안 맞으면 구조가 깨지므로 폴백 (섹션별 본문 지시와 1:1 대응 필요)
+    if (titles.length !== sections.length) {
+      console.warn(`[SECTION-TITLES] 개수 불일치(${titles.length}/${sections.length}) — 템플릿 제목 유지`);
+      return fallback;
+    }
+    return titles;
+  } catch (e: any) {
+    console.warn('[SECTION-TITLES] 제목 재생성 실패 — 템플릿 제목 유지:', e?.message || e);
+    return fallback;
+  }
+}
+
 export async function generateH2TitlesFinal(
   keyword: string,
   subheadings: string[],
