@@ -8135,32 +8135,55 @@ function renderGoldenKeyword() {
     itemsEl.innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:#64748b;font-size:13px;"><div style="font-size:28px;margin-bottom:8px;">🥇</div>관리자가 등록하면 여기에 키워드가 표시됩니다</div>';
     return;
   }
-  // v3.8.362: 추천 플랫폼 → 키워드 옆에 화살표 표기 + [이 키워드로 글쓰기] 클릭 시 플랫폼 자동 선택
-  var PLATFORM_LABELS = { blogger: '블로거스팟', wordpress: '워드프레스', tistory: '티스토리' };
+  // v3.8.364: 화살표 제거 → 컬러 배지 (워드=파랑, 블로거=노랑, 티스토리=주황)
+  //   + onclick 문자열 escape 이슈 방지: addEventListener로 이벤트 바인딩 (버튼 반응 없던 원인 fix)
+  var PLATFORM_META = {
+    blogger:   { label: '블로거스팟', bg: 'rgba(251,191,36,0.18)',  border: 'rgba(251,191,36,0.55)',  color: '#fde68a' },
+    wordpress: { label: '워드프레스', bg: 'rgba(59,130,246,0.18)',  border: 'rgba(59,130,246,0.55)',  color: '#bfdbfe' },
+    tistory:   { label: '티스토리',   bg: 'rgba(249,115,22,0.20)',  border: 'rgba(249,115,22,0.55)',  color: '#fed7aa' },
+  };
   itemsEl.innerHTML = data.items.map(function(item, idx) {
     var num = item.num || (idx + 1);
     var keyword = String(item.keyword || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     var note = item.note ? '<span style="color:#f59e0b;font-size:10px;font-weight:700;">' + String(item.note).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' : '';
     var titleCount = Array.isArray(item.titles) ? item.titles.filter(function(t) { return t && String(t).trim(); }).length : 0;
-    var keywordEsc = keyword.replace(/'/g, "\\'").replace(/"/g, '&quot;');
     var platform = String(item.platform || '').toLowerCase();
-    var platformLabel = PLATFORM_LABELS[platform] || '';
-    var platformArrow = platformLabel ? ' <span style="color:#94a3b8;font-weight:500;">→</span> <span style="color:#93c5fd;font-weight:700;">' + platformLabel + '</span>' : '';
-    var platformEsc = platform.replace(/'/g, '');
-    return '<div style="background:rgba(15,23,42,0.6);border:1px solid rgba(251,191,36,0.22);border-radius:12px;padding:12px 14px;">' +
+    var meta = PLATFORM_META[platform];
+    var platformBadge = meta
+      ? '<span style="flex-shrink:0;padding:4px 10px;background:' + meta.bg + ';border:1px solid ' + meta.border + ';color:' + meta.color + ';border-radius:6px;font-size:11px;font-weight:800;white-space:nowrap;">추천 플랫폼: ' + meta.label + '</span>'
+      : '';
+    return '<div data-golden-idx="' + idx + '" style="background:rgba(15,23,42,0.6);border:1px solid rgba(251,191,36,0.22);border-radius:12px;padding:12px 14px;">' +
       '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px;">' +
         '<span style="flex-shrink:0;padding:3px 8px;background:rgba(251,191,36,0.16);border:1px solid rgba(251,191,36,0.32);color:#fde68a;border-radius:6px;font-size:11px;font-weight:900;">' + num + '</span>' +
         '<div style="flex:1;min-width:0;">' +
-          '<div style="font-size:13px;font-weight:700;color:#f1f5f9;line-height:1.45;">' + keyword + platformArrow + '</div>' +
+          '<div style="font-size:13px;font-weight:700;color:#f1f5f9;line-height:1.45;">' + keyword + '</div>' +
           (note ? '<div style="margin-top:3px;">' + note + '</div>' : '') +
         '</div>' +
+        platformBadge +
       '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
-        '<button onclick="useGoldenKeywordForPost(\'' + keywordEsc + '\', \'' + platformEsc + '\')" style="flex:1;min-width:130px;padding:8px 10px;background:linear-gradient(135deg,#8b5cf6,#6366f1);border:none;color:white;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;">🚀 이 키워드로 글쓰기</button>' +
-        (titleCount > 0 ? '<button onclick="showGoldenTitles(' + idx + ')" style="flex:1;min-width:110px;padding:8px 10px;background:rgba(59,130,246,0.16);border:1px solid rgba(59,130,246,0.35);color:#bfdbfe;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;">📝 추천 제목 ' + titleCount + '개</button>' : '') +
+        '<button type="button" data-golden-use="' + idx + '" style="flex:1;min-width:130px;padding:8px 10px;background:linear-gradient(135deg,#8b5cf6,#6366f1);border:none;color:white;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;">🚀 이 키워드로 글쓰기</button>' +
+        (titleCount > 0 ? '<button type="button" data-golden-titles="' + idx + '" style="flex:1;min-width:110px;padding:8px 10px;background:rgba(59,130,246,0.16);border:1px solid rgba(59,130,246,0.35);color:#bfdbfe;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;">📝 추천 제목 ' + titleCount + '개</button>' : '') +
       '</div>' +
     '</div>';
   }).join('');
+
+  // v3.8.364: onclick 대신 addEventListener로 이벤트 바인딩 (문자열 escape 이슈 원천 차단)
+  itemsEl.querySelectorAll('[data-golden-use]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var i = parseInt(btn.getAttribute('data-golden-use'), 10);
+      var it = (data.items || [])[i];
+      if (!it) { console.warn('[GOLDEN] 항목을 찾을 수 없습니다:', i); return; }
+      console.log('[GOLDEN] 클릭:', it.keyword, '/ 플랫폼:', it.platform || '(미지정)');
+      useGoldenKeywordForPost(String(it.keyword || ''), String(it.platform || ''));
+    });
+  });
+  itemsEl.querySelectorAll('[data-golden-titles]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var i = parseInt(btn.getAttribute('data-golden-titles'), 10);
+      showGoldenTitles(i);
+    });
+  });
 }
 window.renderGoldenKeyword = renderGoldenKeyword;
 
