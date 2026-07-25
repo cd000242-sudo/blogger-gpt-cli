@@ -8199,12 +8199,28 @@ function useGoldenKeywordForPost(keyword, platform) {
     alert('❌ 키워드 입력 필드를 찾을 수 없습니다.');
     return;
   }
+  // v3.8.367: 역산한 탭 이름이 showTab의 switch에 없으면 targetTab이 null이 되어
+  //   또 조용히 아무 일도 안 일어난다. 이동 후 실제 가시성을 확인하고 실패 시 'settings'로 폴백.
+  var isVisible = function (el) {
+    return !!(el && el.offsetParent !== null);
+  };
   try {
     var tabEl = input.closest ? input.closest('.tab-content') : null;
     var tabName = (tabEl && tabEl.id) ? tabEl.id.replace(/-tab$/, '') : 'settings';
     console.log('[GOLDEN] 글쓰기 탭으로 이동:', tabName, '(keywordInput 소속:', tabEl && tabEl.id, ')');
     if (typeof window.showTab === 'function') {
       window.showTab(tabName);
+      // 이동이 실제로 먹혔는지 검증 — 안 먹혔으면 알려진 글포스팅 탭으로 폴백
+      if (!isVisible(input) && tabName !== 'settings') {
+        console.warn('[GOLDEN] "' + tabName + '" 탭 전환이 반영되지 않음 → settings로 폴백');
+        window.showTab('settings');
+      }
+      if (!isVisible(input)) {
+        console.error('[GOLDEN] ❌ 키워드 입력란이 여전히 숨겨져 있습니다. 사이드바에서 [글포스팅]을 눌러주세요.');
+        alert('글포스팅 화면으로 자동 이동하지 못했습니다.\n사이드바에서 [글포스팅]을 눌러주세요.\n키워드는 미리 입력해 두겠습니다.');
+      }
+    } else {
+      console.warn('[GOLDEN] window.showTab 없음 — 탭 이동 생략');
     }
   } catch (tabErr) {
     console.warn('[GOLDEN] 탭 이동 실패:', tabErr);
