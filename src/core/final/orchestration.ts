@@ -2190,20 +2190,24 @@ ${conclusionHTML}
 </div>
 `;
 
-    // 💰 공유 버튼 — v5.0 워드프레스 완전 호환 (script 태그 제거, 순수 HTML 링크)
-    // 🔥 공유 URL은 발행 후 실제 permalink으로 교체됨 (WordPress/Blogger publisher에서 처리)
-    // 여기서는 빈 URL placeholder를 쓰지 않고, 제목 기반 검색 링크를 설정
-    const shareUrl = encodeURIComponent(`https://www.google.com/search?q=${encodeURIComponent(h1)}`);
+    // 💰 공유 버튼 — v3.8.363: 클릭 시 실제 페이지 URL로 자동 교체 (onclick 인라인 스크립트)
+    //   과거: 발행 후 permalink 교체 로직이 실제로 안 붙어 google.com/search?q=키워드 공유 → 자기 글 유입 0
+    //   현재: 각 링크에 onclick으로 window.location.href를 실시간 인코딩해 붙임 (Blogger/WP 모두 지원)
     const shareTitle = encodeURIComponent(h1);
+    const shareOnClickFor = (baseTemplate: string, extraTitle: boolean) => {
+      // baseTemplate 예: 'https://story.kakao.com/share?url='
+      const titleParam = extraTitle ? `+'&title=${shareTitle}'` : '';
+      return `this.href='${baseTemplate}'+encodeURIComponent(location.href)${titleParam}`;
+    };
     html += `
 <div style="margin:40px 0 20px !important;padding:28px 24px !important;background:linear-gradient(135deg, #f8faff 0%, #f0f4ff 100%) !important;border:1px solid #e0e8f5 !important;border-radius:16px !important;text-align:center !important;display:block !important;visibility:visible !important;">
   <div style="font-size:15px !important;font-weight:700 !important;color:#333 !important;-webkit-text-fill-color:#333 !important;margin-bottom:6px !important;">📢 이 글이 도움이 되셨다면 공유해보세요</div>
   <p style="font-size:13px !important;color:#888 !important;margin:0 0 16px !important;">도움이 필요한 분들에게 알려주세요</p>
   <div style="display:flex !important;flex-wrap:wrap !important;justify-content:center !important;gap:10px !important;">
-    <a href="https://story.kakao.com/share?url=${shareUrl}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#FEE500 !important;color:#3C1E1E !important;-webkit-text-fill-color:#3C1E1E !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(254,229,0,0.3) !important;">💛 카카오</a>
-    <a href="https://share.naver.com/web/shareView?url=${shareUrl}&title=${shareTitle}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#03C75A !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(3,199,90,0.3) !important;">🟢 네이버</a>
-    <a href="https://twitter.com/intent/tweet?url=${shareUrl}&text=${shareTitle}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#000 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(0,0,0,0.2) !important;">✖ X</a>
-    <a href="https://www.facebook.com/sharer/sharer.php?u=${shareUrl}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#1877F2 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(24,119,242,0.3) !important;">🔵 Facebook</a>
+    <a href="https://story.kakao.com/share" onclick="${shareOnClickFor('https://story.kakao.com/share?url=', false)}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#FEE500 !important;color:#3C1E1E !important;-webkit-text-fill-color:#3C1E1E !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(254,229,0,0.3) !important;">💛 카카오</a>
+    <a href="https://share.naver.com/web/shareView" onclick="${shareOnClickFor('https://share.naver.com/web/shareView?url=', true)}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#03C75A !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(3,199,90,0.3) !important;">🟢 네이버</a>
+    <a href="https://twitter.com/intent/tweet" onclick="${shareOnClickFor('https://twitter.com/intent/tweet?url=', true).replace('&title=', '&text=')}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#000 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(0,0,0,0.2) !important;">✖ X</a>
+    <a href="https://www.facebook.com/sharer/sharer.php" onclick="${shareOnClickFor('https://www.facebook.com/sharer/sharer.php?u=', false)}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#1877F2 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(24,119,242,0.3) !important;">🔵 Facebook</a>
   </div>
 </div>
 `;

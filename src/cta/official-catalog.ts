@@ -122,9 +122,10 @@ export const OFFICIAL_CATALOG: OfficialLink[] = [
   // ========== 자동차/보험 ==========
   { txt: "현대자동차", url: "https://www.hyundai.com", tags: ["자동차","차량","구매","견적","시승"], weight: 6 },
   { txt: "기아자동차", url: "https://www.kia.com", tags: ["자동차","차량","구매","견적","시승"], weight: 6 },
-  { txt: "삼성화재", url: "https://www.samsungfire.com", tags: ["보험","자동차보험","실손","암보험"], weight: 5 },
-  { txt: "현대해상", url: "https://www.hi.co.kr", tags: ["보험","자동차보험","실손","암보험"], weight: 5 },
-  { txt: "DB손해보험", url: "https://www.idbins.com", tags: ["보험","자동차보험","실손","암보험"], weight: 5 },
+  // v3.8.362: 태그에서 단독 "보험" 제거 — "4대보험/육아휴직/사회보험" 검색이 민간 손해보험사로 매칭되던 버그 방지
+  { txt: "삼성화재", url: "https://www.samsungfire.com", tags: ["자동차보험","실손보험","암보험","민간보험"], weight: 5 },
+  { txt: "현대해상", url: "https://www.hi.co.kr", tags: ["자동차보험","실손보험","암보험","민간보험"], weight: 5 },
+  { txt: "DB손해보험", url: "https://www.idbins.com", tags: ["자동차보험","실손보험","암보험","민간보험"], weight: 5 },
   
   // ========== 패션/의류 ==========
   { txt: "무신사", url: "https://www.musinsa.com", tags: ["패션","의류","쇼핑","브랜드","남성","여성","스트릿"], weight: 8 },

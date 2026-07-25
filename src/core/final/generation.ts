@@ -213,6 +213,33 @@ function applyCasualTransform(text: string): string {
     .replace(/없습니다\./g, '없어요.');
 }
 
+// v3.8.361: AI가 결과 본문에 프롬프트 메타 표현을 그대로 뱉는 문제 후처리 sanitize
+//   예: "제공된 참고 자료에는~", "본문 근거만으로는~", "자료에는 나와 있지 않아요"
+//   원인: 프롬프트가 "참고 데이터 기반만" 지시 → 정보 부족 시 AI가 그대로 회피 답변
+//   해결: 유출 표현을 자연스러운 표현으로 치환하거나 삭제
+export function sanitizePromptLeaks(html: string): string {
+  if (!html) return html;
+  let out = String(html);
+  // 문장 단위 회피형 유출을 자연스러운 안내로 치환
+  const replacements: Array<[RegExp, string]> = [
+    [/제공된\s*(참고\s*)?(자료|데이터)에는?\s*[^.。<]{0,120}?(제시되지|나와\s*있지|언급되지|확인되지)\s*않(?:아요|았어요|습니다)\.?/g,
+      '이 부분은 상황에 따라 달라질 수 있으므로 관련 공식 사이트에서 확인하시는 것이 정확합니다.'],
+    [/본문\s*근거(만으로는|만으론)?\s*[^.。<]{0,120}?(확정하기|단정하기|판단하기)?\s*(어렵|힘드)(?:어요|습니다)\.?/g,
+      '정확한 기준은 관련 기관 공식 안내를 함께 확인하시는 것이 좋습니다.'],
+    [/(제공된|위)\s*자료에는?\s*[^.。<]{0,80}?(있지|나와\s*있지)\s*않(?:아요|습니다)\.?/g,
+      '이 항목은 공식 확인이 가장 정확합니다.'],
+    [/(본문|글)\s*근거(가|는)?\s*(부족|없)(?:어요|습니다)\.?/g, ''],
+    [/(위\s*)?참고\s*(자료|데이터)에\s*[^.。<]{0,80}?없(?:어요|습니다)\.?/g, ''],
+    [/근거로\s*제시되지\s*않았(?:어요|습니다)\.?/g, ''],
+  ];
+  for (const [pattern, replacement] of replacements) {
+    out = out.replace(pattern, replacement);
+  }
+  // 빈 <p></p> 제거
+  out = out.replace(/<p[^>]*>\s*<\/p>/g, '');
+  return out;
+}
+
 // 🔥 AI 응답에서 테이블 데이터를 안전하게 파싱
 function parseTables(raw: unknown): FinalTableData[] {
   if (!raw || !Array.isArray(raw)) return [];
@@ -907,9 +934,10 @@ export async function generateAllSectionsFinal(
   const h2List = h2Titles.map((h2, i) => `${i + 1}. ${h2}`).join('\n');
 
   // 🌐 참고 데이터: 크롤링 데이터 있으면 활용, 없으면 검색 지시
+  // v3.8.361: 본문에 "참고 자료/제공된 자료/본문 근거" 같은 메타 표현이 그대로 새어나가던 심각한 문제 fix
   const contentReference = reference.trim().length > 100
-    ? `===== 참고 데이터 =====\n${reference}\n=====\n\n모든 정보는 위 참고 데이터 기반 + 논리적 확장만`
-    : `🌐 Google에서 "${keyword}"를 검색하여 최신 정보를 찾은 뒤, 검색 결과에서 발견한 실제 데이터(숫자, 사례, 공식 정보)를 기반으로 작성하세요.\n검색에서 확인한 팩트만 사용하고, 추측이나 허위 정보를 작성하지 마세요.`;
+    ? `===== 백그라운드 컨텍스트 (독자에게 절대 언급 금지) =====\n${reference}\n=====\n\n위 컨텍스트를 참고해서 자연스럽게 서술하되 다음을 절대 지키세요:\n\n🚫🚫🚫 본문에 절대 쓰지 말 것 (프롬프트 유출):\n- "제공된 참고 자료에는~", "제공된 자료에는~", "본문 근거만으로는~", "제시되지 않았어요", "근거로 확인되지 않아요", "참고 데이터에 없어요"\n- "정확한 산식이 나와 있지 않다", "본문에서 확인되지 않는다" 같은 자기 참조\n- 독자는 이 컨텍스트의 존재를 모릅니다. AI가 자기 프롬프트를 읊는 것처럼 보이면 즉시 신뢰가 무너집니다.\n\n✅ 정보가 부족할 때 올바른 태도:\n- 일반적으로 알려진 상식+원리 수준의 답을 먼저 제공\n- 정확한 수치·금액·마감일은 만들지 말고 "공식 사이트/공단에서 최종 확인" 정도로 자연스럽게 안내\n- "회사에 물어보세요", "직접 대조해보세요"만 반복하지 말고, 최소한 판단 기준·체크 포인트를 서술로 제시`
+    : `🌐 "${keyword}" 주제의 일반 상식과 공식 원칙을 기반으로 서술하세요. 확인되지 않은 수치/마감일/금액은 만들지 말고 "관련 기관 공식 확인" 정도로 자연스럽게 안내하세요.\n\n🚫 본문에 절대 쓰지 말 것: "제공된 자료에는~", "본문 근거만으로는~", "참고 데이터에~" 등 프롬프트 메타 표현 (독자는 이 지시의 존재를 모릅니다).`;
 
   // 📝 내부 일관성 모드 — 단일 글 정보 전달 구조 (시리즈 지시 제거)
   const internalModePromptBlock = contentMode === 'internal' ? `
@@ -1386,18 +1414,18 @@ JSON만 출력:
       conclusion: allSectionsObj.conclusion || '',
       sections: (allSectionsObj.sections || []).map((sec, idx) => ({
         h2: (h2Titles[idx] || sec.h2 || '').replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, ''),
-        h3Sections: (sec.h3Sections || []).map(h3Sec => ({
-          h3: (h3Sec.h3 || '').replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, ''),
-          content: (h3Sec.content || '')
+        h3Sections: (sec.h3Sections || []).map((h3Sec, h3Idx) => ({
+          h3: ((h3Sec.h3 || '').replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '').trim() || `\uD575\uC2EC \uC815\uB9AC ${h3Idx + 1}`),
+          content: sanitizePromptLeaks(h3Sec.content || '')
             // 🛡️ AI가 본문에 H1/H2 태그를 직접 출력하는 경우 강제 제거 (H2 번호 사라짐 버그 방지)
             .replace(/<h1[^>]*>[\s\S]*?<\/h1>/gi, '')
             .replace(/<h2[^>]*>[\s\S]*?<\/h2>/gi, '')
-            // 친근한 말투 변환
-            .replace(/입니다\./g, '이에요.')
-            .replace(/습니다\./g, '어요.')
-            .replace(/합니다\./g, '해요.')
-            .replace(/있습니다\./g, '있어요.')
-            .replace(/없습니다\./g, '없어요.')
+            // v3.8.364: 강제 반말 치환은 friendly/casual/conversational 톤에서만 (v3.8.356 fix 확장)
+            .replace(/입니다\./g, shouldApplyCasualTransform() ? '이에요.' : '입니다.')
+            .replace(/습니다\./g, shouldApplyCasualTransform() ? '어요.' : '습니다.')
+            .replace(/합니다\./g, shouldApplyCasualTransform() ? '해요.' : '합니다.')
+            .replace(/있습니다\./g, shouldApplyCasualTransform() ? '있어요.' : '있습니다.')
+            .replace(/없습니다\./g, shouldApplyCasualTransform() ? '없어요.' : '없습니다.')
             // 🔥 AI티 나는 이모지 접두어 제거
             .replace(/🔥후킹:\s*/g, '')
             .replace(/💡핵심:\s*/g, '')
@@ -1479,9 +1507,10 @@ export async function generateFAQFinal(
     .replace(/\s+/g, ' ')
     .trim();
   const groundedText = stripFaqGroundingHtml(groundedContent || '').slice(0, 7000);
+  // v3.8.361: "본문 근거", "제공된 자료" 같은 메타 표현이 결과에 유출되던 문제 방지
   const faqGroundingBlock = groundedText.length > 200
-    ? `\n===== 이미 검증된 본문 근거 =====\n${groundedText}\n=====\n\nFAQ는 반드시 위 본문 근거와 H2 제목에서만 파생하세요. 위 근거에 없는 숫자/금액/기간/마감일/기관명/URL은 새로 만들지 마세요.\n`
-    : '\n본문 근거가 부족합니다. 키워드와 H2 제목에서 자연스럽게 파생되는 질문만 만들고, 확인되지 않은 숫자/금액/기간/마감일은 쓰지 마세요.\n';
+    ? `\n===== 백그라운드 (독자 앞에서 언급 금지) =====\n${groundedText}\n=====\n\nFAQ는 위 컨텍스트와 H2 제목에서만 파생하세요. 컨텍스트에 없는 숫자/금액/기간/마감일/기관명/URL은 만들지 마세요.\n🚫 답변에 "본문 근거", "제공된 자료", "본문에 나와 있지 않다" 같은 메타 표현 금지 — 독자는 이 컨텍스트를 모릅니다.\n`
+    : '\n컨텍스트가 부족합니다. 키워드와 H2 제목에서 자연스럽게 파생되는 질문만 만들고, 확인되지 않은 수치는 쓰지 말고 일반 원칙+공식 확인 안내로 서술하세요.\n🚫 "본문 근거가 없어요" 같은 메타 표현 금지.\n';
   const prompt = `
 키워드: ${keyword}
 ${faqScopeBlock}📅 오늘 날짜: ${faqToday}
@@ -1745,7 +1774,8 @@ export async function generateH3ContentFinal(
 ${h3}에 대해 400자 내외로 작성하세요.
 ${toneInstructionBlock()}
 - p태그 2~3개
-- 위 참고 데이터에 있는 정보만 기반으로 작성. 참고 데이터가 부족하면 확인되지 않은 수치/마감일은 쓰지 말고 공식 확인을 안내!
+- 위 컨텍스트를 참고하되, 컨텍스트가 부족하면 일반 상식+원칙 수준으로 서술하고 확인되지 않은 수치/마감일은 만들지 마세요.
+- v3.8.361 필수: 본문에 "참고 자료", "제공된 데이터", "본문 근거", "자료에는 나와 있지 않다" 같은 메타 표현 절대 금지! 독자는 이 지시의 존재를 모릅니다.
 - 마감된 사업/이벤트 언급 금지. 현재 진행 중이거나 미래 일정만!
 - 한글/영문/숫자만 사용. 중국어 한자 금지!
 
@@ -2185,6 +2215,13 @@ JSON만 출력:
     }
 
     const specificMappings: { pattern: RegExp; url: string; btnText: string; hookText: string }[] = [
+      // v3.8.362: 4대보험 관련 매핑을 최상단에 배치 (specificMappings는 첫 매칭 우선)
+      //   과거: '보험' 키워드가 finance 카테고리로 매칭돼 삼성화재/현대해상 오매칭
+      //   현재: 4대사회보험 정보연계센터 및 각 공단을 우선 매핑
+      { pattern: /4대\s*보험|사회\s*보험|4대사회보험/, url: 'https://www.4insure.or.kr/', btnText: '🏛️ 4대사회보험 정보연계센터', hookText: '4대보험 자격·납부·증명 발급을 통합 조회하세요.' },
+      { pattern: /육아휴직|출산휴가|육아기\s?근로시간|배우자\s?출산/, url: 'https://www.ei.go.kr/ei/eih/cm/hm/main.do', btnText: '👶 고용노동부 모성보호', hookText: '육아휴직·출산휴가 급여·신청 절차를 공식 안내에서 확인하세요.' },
+      { pattern: /국민연금|납부예외|납부유예|노령연금|장애연금|유족연금/, url: 'https://www.nps.or.kr/', btnText: '🏛️ 국민연금공단 바로가기', hookText: '국민연금 가입·납부·수령을 공식 사이트에서 확인하세요.' },
+      { pattern: /산재보험|산업재해|근로복지공단/, url: 'https://www.kcomwel.or.kr/', btnText: '🛡️ 근로복지공단', hookText: '산재보험 신청·보상 절차를 공식 사이트에서 확인하세요.' },
       { pattern: /지원금|보조금|연금|수당|청년|장려금|바우처|복지/, url: 'https://www.bokjiro.go.kr/', btnText: '🎁 복지로에서 혜택 찾기', hookText: '나에게 맞는 복지 혜택을 복지로에서 확인하세요!' },
       { pattern: /세금|국세|종소세|부가세|연말정산|원천징수/, url: 'https://www.hometax.go.kr/', btnText: '💰 홈택스 바로가기', hookText: '세금 관련 신고·조회를 홈택스에서 바로 처리하세요.' },
       { pattern: /건강보험|건보|의료보험/, url: 'https://www.nhis.or.kr/', btnText: '🏥 건강보험 조회하기', hookText: '건강보험 자격·보험료를 공식 사이트에서 확인하세요.' },

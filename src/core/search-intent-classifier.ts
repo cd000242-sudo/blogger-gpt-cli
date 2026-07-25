@@ -58,16 +58,21 @@ const YMYL_RULES: YmylRule[] = [
   },
   {
     category: 'insurance',
+    // v3.8.362: 4대보험(사회보험) 관련 키워드는 민간 보험 카테고리에서 제외
+    //   과거: '보험'만 있으면 insurance intent로 잡혀 민간보험 disclaimer("약관·공시·설계사 상담")가 사회보험 글에 붙음
+    //   현재: 4대보험/국민연금/건강보험/고용보험/산재/육아휴직/납부예외/납부유예 등이 함께 있으면 insurance intent 제외
     patterns: [
-      /(보험|실비|실손|암보험|종신보험|정기보험|변액보험|연금보험)/i,
+      /(?<!(?:4대|사회|국민|건강|의료|고용|산재)\s*)(?:보험|실비|실손|암보험|종신보험|정기보험|변액보험|연금보험)/i,
       /(자동차보험|다이렉트보험|운전자보험|여행자보험)/i,
       /(태아보험|어린이보험|치아보험|간병보험)/i,
-      /(보장|특약|납입|보험료|해지환급금|청구)/i,
+      /(?<!(?:국민|건강|고용|산재|사회)\s*)(?:보험료|해지환급금)/i,
       /(손해보험|생명보험|화재보험|배상책임)/i,
     ],
+    // v3.8.362: 사회보험 배제 필터 — 4대보험 관련 키워드가 있으면 이 intent 스킵
+    excludeIfMatches: /(4대\s*보험|사회\s*보험|국민연금|건강보험|의료보험|고용보험|산재\s*보험|산업재해|육아휴직|출산휴가|납부예외|납부유예)/i,
     weight: 5,
     cpcRange: [5000, 20000],
-  },
+  } as any,
   {
     category: 'medical',
     patterns: [
@@ -290,6 +295,9 @@ export function classifyYmyl(keyword: string): YmylCategory {
   let bestScore = 0;
 
   for (const rule of YMYL_RULES) {
+    // v3.8.362: excludeIfMatches — 사회보험/공공 카테고리가 민간 보험 intent로 오분류되지 않도록 배제 필터
+    const excludeRegex = (rule as any).excludeIfMatches as RegExp | undefined;
+    if (excludeRegex && excludeRegex.test(k)) continue;
     let score = 0;
     for (const pattern of rule.patterns) {
       if (pattern.test(k)) score += rule.weight;

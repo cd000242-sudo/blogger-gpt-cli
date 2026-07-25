@@ -45,16 +45,22 @@ function detectCategoryV2(query: string): string[] {
   const q = norm(query);
   const categories = new Set<string>();
 
+  // v3.8.362: 사회보험(4대보험/국민연금/건강보험/고용보험/산재/육아휴직) 감지
+  //   과거: '보험' 키워드가 finance로 매칭돼 삼성화재/현대해상 같은 민간 손해보험사가 오매칭됨
+  //   현재: 사회보험이면 government/health/jobs만 사용, finance는 강제 제외
+  const isSocialInsurance = /(4대\s*보험|사회\s*보험|국민연금|건강보험|의료보험|고용보험|산재\s*보험|산업재해|육아휴직|출산휴가|납부예외|납부유예|nhis|nps|kcomwel|ei\.go\.kr)/i.test(q);
+
   if (/(여행|관광|항공|항공권|비행기|숙박|호텔|렌터카|ktx|srt|코레일|철도|기차|여권|비자|입국|출국|해외여행|국내여행)/i.test(q)) categories.add('travel');
   if (/(예약|예매|티켓|공연|영화관|좌석|발권|취소|환불)/i.test(q)) categories.add('booking');
   if (/(쇼핑|구매|가격|최저가|할인|상품|제품|리뷰|후기|비교|배송|쿠폰|공식몰|선물|가전|패션|뷰티)/i.test(q)) categories.add('shopping');
-  if (/(정부|공공|민원|증명|발급|신청|접수|등록|지원금|보조금|복지|연금|수당|장려금|바우처|정책)/i.test(q)) categories.add('government');
+  if (isSocialInsurance || /(정부|공공|민원|증명|발급|신청|접수|등록|지원금|보조금|복지|연금|수당|장려금|바우처|정책)/i.test(q)) categories.add('government');
   if (/(세금|국세|지방세|종소세|종합소득세|부가세|연말정산|홈택스|위택스|환급|신고)/i.test(q)) categories.add('tax');
-  if (/(건강|의료|병원|진료|보험료|건강보험|의료보험|요양|검진|약값|질병)/i.test(q)) categories.add('health');
-  if (/(고용|취업|구직|채용|실업급여|일자리|이력서|hrd|직업훈련)/i.test(q)) categories.add('jobs');
+  if (isSocialInsurance || /(건강|의료|병원|진료|보험료|건강보험|의료보험|요양|검진|약값|질병)/i.test(q)) categories.add('health');
+  if (isSocialInsurance || /(고용|취업|구직|채용|실업급여|일자리|이력서|hrd|직업훈련)/i.test(q)) categories.add('jobs');
   if (/(부동산|아파트|청약|주택|전세|월세|매매|실거래|분양|임대)/i.test(q)) categories.add('realestate');
   if (/(교육|학교|대학|입시|강의|수능|학습|자격증|인강|hrd)/i.test(q)) categories.add('education');
-  if (/(금융|은행|대출|적금|예금|카드|보험|투자|송금|이체|간편결제)/i.test(q)) categories.add('finance');
+  // v3.8.362: 사회보험이면 finance 강제 제외 (민간 손해보험사 오매칭 차단)
+  if (!isSocialInsurance && /(금융|은행|대출|적금|예금|카드|보험|투자|송금|이체|간편결제)/i.test(q)) categories.add('finance');
   if (/(음식|맛집|배달|레시피|식품|카페|커피|치킨|피자|주문)/i.test(q)) categories.add('food');
   if (/(날씨|기상|예보|태풍|미세먼지|대기질|환경)/i.test(q)) categories.add('weather');
 
