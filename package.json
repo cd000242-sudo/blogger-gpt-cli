@@ -50,7 +50,11 @@
     "dist:mac:unsigned": "node scripts/build-mac.js --arch both --unsigned",
     "dist:mac:arm64:unsigned": "node scripts/build-mac.js --arch arm64 --unsigned",
     "dist:mac:universal:unsigned": "node scripts/build-mac.js --arch universal --unsigned",
-    "release:mac:unsigned": "node scripts/build-mac.js --arch both --unsigned --publish"
+    "release:mac:unsigned": "node scripts/build-mac.js --arch both --unsigned --publish",
+    "test:fast": "jest -c jest.fast.cjs",
+    "test:watch": "jest -c jest.fast.cjs --watch",
+    "test:guard": "jest -c jest.fast.cjs --testPathPattern \"(guard|roundtrip|reentrancy|persistence|503|prefill)\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
