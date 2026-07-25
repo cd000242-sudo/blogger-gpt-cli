@@ -1146,6 +1146,25 @@ export async function publishToPlatform() {
     return await runPosting();
   }
 
+  // v3.8.353: 키워드 변경 감지 → 이전 콘텐츠 폐기 (무한루프 방지)
+  // 사용자가 새 키워드를 입력하고 발행 버튼을 눌러도 이전 생성물이 재발행되던 버그 fix.
+  if (appState.generatedContent?.content?.trim()) {
+    const currentKeyword = (document.getElementById('keywordInput')?.value || '').trim();
+    const savedKeyword = String(
+      appState.generatedContent.payload?.topic
+      || appState.generatedContent.payload?.title
+      || appState.generatedContent.title
+      || ''
+    ).trim();
+    if (currentKeyword && savedKeyword && currentKeyword !== savedKeyword) {
+      debugLog('PUBLISH', '키워드 변경 감지 → 이전 콘텐츠 폐기 (새 글 생성)', {
+        current: currentKeyword,
+        saved: savedKeyword,
+      });
+      appState.generatedContent = null;
+    }
+  }
+
   // 이미 생성된 콘텐츠가 있으면 재발행 경로
   if (appState.generatedContent?.content?.trim()) {
     try {
@@ -1304,6 +1323,12 @@ export async function publishToPlatform() {
         }
         // 🔥 발행 완료 알림 (모달은 finally에서 닫힘)
         try { showNotification('🎉 블로그 포스트 발행 완료!', 4000); } catch {}
+        // v3.8.353: 발행 성공 후 상태 초기화 (다음 발행 시 이전 콘텐츠 재사용 방지)
+        try {
+          appState.generatedContent = null;
+          window.__preGeneratedImagesForArticle = [];
+          window.__preGeneratedThumbnailForArticle = null;
+        } catch {}
         return result;
       } else {
         const publishError = result?.error || '알 수 없는 오류';
