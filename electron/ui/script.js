@@ -1513,7 +1513,7 @@ window.normalizeDropshotLoginStatus = function (result) {
   const subscription = normalizeDropshotSubscription(result.subscription);
   const subscriptionLabel = subscription === 'pro'
     ? 'Pro 구독자 무제한'
-    : (subscription === 'free' ? '무료 사용자' : '플랜 확인 필요');
+    : (subscription === 'free' ? '무료 사용자' : '연동됨');
   return {
     ...result,
     subscription,
@@ -1525,7 +1525,7 @@ window.normalizeDropshotLoginStatus = function (result) {
 window.getDropshotSubscriptionLabel = function (result) {
   const normalized = window.normalizeDropshotLoginStatus?.(result) || result;
   if (!normalized?.loggedIn) return '';
-  return normalized.subscriptionLabel || '플랜 확인 필요';
+  return normalized.subscriptionLabel || '연동됨';
 };
 
 window.getDropshotSubscriptionNote = function (result) {
@@ -1533,7 +1533,9 @@ window.getDropshotSubscriptionNote = function (result) {
   if (!normalized?.loggedIn) return '';
   if (normalized.subscription === 'pro') return ' · ✅ Pro 구독자 무제한';
   if (normalized.subscription === 'free') return ' · ⚠️ 무료 사용자';
-  return ' · ⚠️ 플랜 확인 필요';
+  // v3.8.371: 등급 조회 API가 존재하지 않아 등급은 확인 불가. 생성 권한은 무제한 모드 토글로
+  //   별도 강제 확인되므로 경고(⚠️) 대신 연동 완료로 표기한다.
+  return ' · ✅ 연동됨';
 };
 
 function getFreshDropshotLoginCache(maxAgeMs, publishContext = false) {
@@ -1611,12 +1613,12 @@ window.setBatchDropshotStatusIdle = function () {
   const cached = getFreshDropshotLoginCache();
   if (cached?.loggedIn) {
     const subTxt = window.getDropshotSubscriptionNote?.(cached) || '';
-    const known = cached.subscriptionKnown === true || cached.subscription === 'pro' || cached.subscription === 'free';
-    if (icon) icon.textContent = known ? '✅' : '⚠️';
-    if (title) title.textContent = known ? '최근 로그인 확인됨' : '최근 로그인 세션만 확인됨';
-    if (sub) sub.textContent = known
-      ? `${cached.userName || cached.email || '로그인 세션'}${subTxt}`
-      : `${cached.userName || cached.email || '로그인 세션'} · 플랜 API 미응답 — 무제한/무료 여부는 새로고침으로 다시 확인해주세요.`;
+    // v3.8.371: 등급 조회 API가 없어 subscriptionKnown이 false여도 연동 자체는 정상이다.
+    //   기존엔 ⚠️ + '플랜 API 미응답' 문구가 떠서 정상 상태인데도 불안하게 보였다.
+    //   로그인 세션이 확인되면 연동 완료로 표기한다.
+    if (icon) icon.textContent = '✅';
+    if (title) title.textContent = '최근 로그인 확인됨';
+    if (sub) sub.textContent = `${cached.userName || cached.email || '로그인 세션'}${subTxt}`;
     if (loginBtn) loginBtn.style.display = 'none';
     return;
   }
@@ -2035,7 +2037,7 @@ window.refreshDropshotLoginStatus = async function (options = {}) {
       if (loginBtn) loginBtn.style.display = 'none';
     } else {
       if (icon) icon.textContent = '⚠️';
-      if (title) title.textContent = `실행 준비 완료 · 플랜 확인 필요`;
+      if (title) title.textContent = `실행 준비 완료 · 연동됨`;
       if (sub) sub.textContent = `${normalized.userName || normalized.email || normalized.userId || '세션 확인됨'} — Dropshot 플랜 API가 응답하지 않아 Pro/무료 여부를 확정하지 못했습니다. 생성은 시도할 수 있지만 무제한 사용 가능 상태로 보지 않습니다.`;
       if (loginBtn) loginBtn.style.display = 'none';
     }

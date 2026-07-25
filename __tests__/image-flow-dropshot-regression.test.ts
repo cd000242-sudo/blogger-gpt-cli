@@ -46,7 +46,7 @@ describe('image Flow and Dropshot UI regression guard', () => {
     expect(dropshot).toContain('Dropshot 프롬프트 입력창을 찾지 못했습니다 (${diagnostics})');
   });
 
-  test('Dropshot login status treats unknown subscription as a warning, not completion', () => {
+  test('Dropshot login status shows 연동됨 for unknown subscription (plan API does not exist)', () => {
     const script = read('electron/ui/script.js');
     const queue = read('electron/ui/modules/publish-queue.js');
     const spider = read('electron/ui/modules/internal-links.js');
@@ -54,23 +54,23 @@ describe('image Flow and Dropshot UI regression guard', () => {
     const dropshot = read('src/core/dropshotGenerator.ts');
 
     expect(script).toContain('window.normalizeDropshotLoginStatus = function');
-    expect(script).toContain('플랜 확인 필요');
-    expect(script).toContain('실행 준비 완료 · 플랜 확인 필요');
+    expect(script).toContain('연동됨');
+    expect(script).toContain('실행 준비 완료 · 연동됨');
     expect(script).not.toContain('로그인 완료 (구독 정보 미확인)');
     expect(script).not.toContain('Dropshot 플랜 API가 응답하지 않았지만 로그인 세션은 확인됐습니다.');
     expect(queue).toContain('getDropshotQueueLoginLabel');
-    expect(queue).toContain('플랜 확인 필요');
+    expect(queue).toContain('연동됨');
     expect(spider).toContain('getSpiderDropshotSubscriptionNote');
     expect(spider).toContain('로그인 세션만 확인됨');
     expect(main).toContain('normalizeDropshotIpcStatus');
-    expect(main).toContain('플랜 확인 필요');
+    expect(main).toContain('연동됨');
     expect(dropshot).toContain('subscriptionKnown?: boolean');
     expect(dropshot).toContain('subscriptionLabel?: string');
-    expect(dropshot).toContain('const DROPSHOT_AUTH_URL =');
+    expect(dropshot).toContain('const DROPSHOT_SESSION_API =');
     expect(dropshot).toContain('async function verifyDropshotGenerationSession');
     expect(dropshot).toContain('Dropshot 생성 권한 인증이 필요합니다.');
     expect(dropshot).not.toContain('const hasAuthenticatedWorkspace = hasBoardUi');
-    expect(dropshot).toContain('플랜 확인 필요');
+    expect(dropshot).toContain('연동됨');
     expect(queue).not.toContain("r.subscription || 'unknown'");
   });
 

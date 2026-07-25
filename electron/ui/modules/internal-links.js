@@ -980,7 +980,7 @@ function getSpiderDropshotSubscriptionNote(result) {
   const raw = String(result?.subscriptionLabel || result?.subscription || '').trim().toLowerCase();
   if (raw === 'pro' || raw.includes('pro')) return ' · ✅ Pro 구독자 무제한';
   if (raw === 'free' || raw === 'basic') return ' · ⚠️ 무료 사용자';
-  return result?.loggedIn ? ' · ⚠️ 플랜 확인 필요' : '';
+  return result?.loggedIn ? ' · ⚠️ 연동됨' : '';
 }
 
 async function spiderHandleDropshotCheckLogin() {

@@ -25,10 +25,10 @@ let queueStopRequested = false;
 function getDropshotQueueLoginLabel(result) {
   if (!result?.loggedIn) return '';
   if (typeof window.getDropshotSubscriptionLabel === 'function') {
-    return window.getDropshotSubscriptionLabel(result) || '플랜 확인 필요';
+    return window.getDropshotSubscriptionLabel(result) || '연동됨';
   }
   const raw = String(result.subscriptionLabel || result.subscription || '').trim();
-  if (!raw || /^unknown$/i.test(raw)) return '플랜 확인 필요';
+  if (!raw || /^unknown$/i.test(raw)) return '연동됨';
   if (raw === 'pro') return 'Pro 구독자 무제한';
   if (raw === 'free') return '무료 사용자';
   return raw;

@@ -11417,7 +11417,7 @@ function normalizeDropshotIpcStatus(raw: any): any {
   const subscriptionLabel =
     subscription === 'pro'
       ? 'Pro 구독자 무제한'
-      : (subscription === 'free' ? '무료 사용자' : '플랜 확인 필요');
+      : (subscription === 'free' ? '무료 사용자' : '연동됨');
   return {
     ...raw,
     subscription,

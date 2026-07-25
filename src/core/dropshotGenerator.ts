@@ -97,7 +97,11 @@ function getDropshotSubscriptionLabel(subscription: unknown): string {
   const normalized = normalizeDropshotSubscription(subscription);
   if (normalized === 'pro') return 'Pro 구독자 무제한';
   if (normalized === 'free') return '무료 사용자';
-  return '플랜 확인 필요';
+  // v3.8.371: 등급 조회 API가 실제로 존재하지 않아(전 엔드포인트 404/CORS) 등급은 알 수 없다.
+  //   다만 실제 생성 권한은 makeDropshotImage가 "무제한 모드 토글 ON"을 강제 확인하고
+  //   실패 시 예외로 생성을 중단하므로, 등급 미확인이 기능 저하를 뜻하지 않는다.
+  //   사용자에게 불필요한 불안을 주지 않도록 '연동됨'으로 표기한다.
+  return '연동됨';
 }
 
 function withDropshotSubscriptionMeta<T extends DropshotLoginStatus>(status: T): T {
@@ -1373,7 +1377,8 @@ export async function loginDropshot(): Promise<{
         cached: false,
         message: preCheck.subscriptionKnown
           ? '이미 로그인되어 있습니다.'
-          : '이미 로그인되어 있습니다. 구독 정보는 사이트 응답 제한으로 미확인입니다.',
+          // v3.8.371: 등급 API 부재는 정상 상태이므로 불안한 문구를 쓰지 않는다
+          : '이미 로그인되어 있습니다. 연동 완료 상태입니다.',
       });
       _loginCheckCache = { ts: Date.now(), result };
       return result;
