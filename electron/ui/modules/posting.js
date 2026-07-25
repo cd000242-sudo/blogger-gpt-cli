@@ -1079,6 +1079,18 @@ export async function runPosting() {
     hideProgressModal();
     // 🔥 예외 발생 시에도 사용자에게 명확히 알림
     try { getErrorHandler().showToast?.('❌ 발행 오류: ' + error.message.slice(0, 120), 'error'); } catch {}
+    // v3.8.360: STRICT_ENGINE_FAILED 등 이미지·엔진 실패 시 상태 초기화
+    //   과거: 실패해도 window.__preGeneratedImages 등이 남아 다음 발행에서 재사용되며 이전 payload 오염 위험
+    //   현재: 실패 시 명시적으로 초기화해 다음 발행이 완전히 새 컨텍스트에서 시작
+    try {
+      const errMsg = String(error?.message || '');
+      if (/STRICT_ENGINE_FAILED|OPENAI_HTTP_5\d\d|이미지 생성 실패/i.test(errMsg)) {
+        appState.generatedContent = null;
+        window.__preGeneratedImagesForArticle = [];
+        window.__preGeneratedThumbnailForArticle = null;
+        debugLog('POSTING', '이미지 실패로 상태 초기화 (다음 발행 시 새 컨텍스트)');
+      }
+    } catch {}
     if (isQueueRun) {
       addLog('연속발행 큐 오류 처리: ' + (error?.message || error), 'error');
     } else {
