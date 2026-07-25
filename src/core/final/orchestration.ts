@@ -69,6 +69,7 @@ import {
   inspectFactIntegrity,
   sanitizeArticleFactClaims,
   sanitizeFactUnsafeHtml,
+  sanitizeFactUnsafeHeading,
   type FactEvidence,
 } from './fact-integrity';
 
@@ -1301,11 +1302,19 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog?.(`[PROGRESS] 74% - [FACT] 근거 일치 검사 통과 (${factIntegrityReport.checkedClaims}개 문장 확인)`);
     }
 
-    const escapedKeywordForTitle = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const generatedTitleOnly = h1.replace(new RegExp(escapedKeywordForTitle, 'gi'), '').trim();
-    if (!payload.useKeywordAsTitle && generatedTitleOnly && inspectFactIntegrity(generatedTitleOnly, factEvidence).status === 'blocked') {
-      h1 = keyword;
-      onLog?.('[PROGRESS] 74% - [FACT] 근거 없는 제목 수치를 제거하고 키워드 제목으로 정리했습니다.');
+    // v3.8.368: 제목이 통째로 키워드로 되돌아가던 버그 fix
+    //   과거: 제목에서 키워드를 뺀 나머지에 근거 미확인 값이 하나라도 있으면 h1 = keyword 로 전체 교체.
+    //         generateH1TitleFinal은 프롬프트에서 "2026년"을 제목 맨 앞에 넣으라고 지시하는데,
+    //         그 연도가 크롤링 스니펫에 없다는 이유로 AI가 만든 제목 전체가 버려졌다.
+    //         (사용자 보고: "자동생성으로 선택했는데 키워드가 그대로 제목으로 발행됨")
+    //   현재: H2/H3와 동일하게 sanitizeFactUnsafeHeading으로 "근거 미확인 토큰만" 도려낸다.
+    //         전부 도려내져 남는 게 없을 때만 키워드로 폴백.
+    if (!payload.useKeywordAsTitle) {
+      const sanitizedH1 = sanitizeFactUnsafeHeading(h1, factEvidence, keyword);
+      if (sanitizedH1 && sanitizedH1 !== h1) {
+        onLog?.(`[PROGRESS] 74% - [FACT] 제목의 근거 미확인 값만 정리했습니다: "${sanitizedH1}"`);
+        h1 = sanitizedH1;
+      }
     }
 
     const sections = allSectionsObj.sections;
@@ -1322,11 +1331,34 @@ export async function generateUltimateMaxModeArticleFinal(
     const faqText = faqs.map((item) => `${item.question} ${item.answer}`).join('\n');
     if (inspectFactIntegrity(faqText, factEvidence).status === 'blocked') {
       onLog?.('[PROGRESS] 68% - [FACT] FAQ의 근거 없는 정확한 정보를 정리합니다.');
-      faqs = faqs.map((item) => ({
-        ...item,
-        question: sanitizeFactUnsafeHtml(item.question, factEvidence),
-        answer: sanitizeFactUnsafeHtml(item.answer, factEvidence),
-      }));
+      // v3.8.368: FAQ 질문/답변 짝이 밀리던 버그 fix
+      //   과거: question에도 문장 단위 삭제형(sanitizeFactUnsafeHtml)을 적용.
+      //         "육아휴직 급여는 언제부터 신청하나요?" 처럼 민감어(신청)+숫자가 있는 질문은
+      //         문장 전체가 삭제되어 빈 질문이 되고, 접기 UI에서 Q/A 짝이 한 칸씩 밀렸다.
+      //   현재: question은 라벨이므로 sanitizeFactUnsafeHeading(토큰만 도려내기)을 쓰고,
+      //         그래도 비면 해당 FAQ 항목을 통째로 버려 짝이 절대 밀리지 않게 한다.
+      const beforeCount = faqs.length;
+      faqs = faqs
+        .map((item) => {
+          const q = sanitizeFactUnsafeHeading(String(item.question || ''), factEvidence, '');
+          const a = sanitizeFactUnsafeHtml(String(item.answer || ''), factEvidence);
+          return { ...item, question: q, answer: a };
+        })
+        .filter((item) => {
+          const hasQ = String(item.question || '').trim().length > 0;
+          const hasA = String(item.answer || '').replace(/<[^>]*>/g, '').trim().length > 0;
+          if (!hasQ || !hasA) {
+            console.warn('[FACT] FAQ 항목 제거 (질문 또는 답변이 비어 짝 밀림 방지):', {
+              question: String(item.question || '').slice(0, 60),
+              answerLen: String(item.answer || '').length,
+            });
+            return false;
+          }
+          return true;
+        });
+      if (faqs.length !== beforeCount) {
+        onLog?.(`[PROGRESS] 68% - [FACT] FAQ ${beforeCount - faqs.length}개 항목 제거 (내용 유실로 짝 밀림 방지) — 남은 ${faqs.length}개`);
+      }
       const sanitizedFaqText = faqs.map((item) => `${item.question} ${item.answer}`).join('\n');
       if (inspectFactIntegrity(sanitizedFaqText, factEvidence).status === 'blocked') {
         // v3.8.323: 발행 차단 대신 경고만 남기고 진행.
@@ -2190,24 +2222,28 @@ ${conclusionHTML}
 </div>
 `;
 
-    // 💰 공유 버튼 — v3.8.363: 클릭 시 실제 페이지 URL로 자동 교체 (onclick 인라인 스크립트)
-    //   과거: 발행 후 permalink 교체 로직이 실제로 안 붙어 google.com/search?q=키워드 공유 → 자기 글 유입 0
-    //   현재: 각 링크에 onclick으로 window.location.href를 실시간 인코딩해 붙임 (Blogger/WP 모두 지원)
+    // 💰 공유 버튼 — v3.8.368: onclick 제거하고 순수 href + 발행 후 URL 치환 방식으로 전환
+    //   v3.8.361 회귀: href를 파라미터 없는 base URL로 두고 onclick으로 주입하게 바꿨는데,
+    //     Blogger가 인라인 이벤트 핸들러(onclick)를 제거해버려 파라미터 없는 href만 남았다.
+    //     → 클릭 시 story.kakao.com/share 로만 이동하는 빈 공유창. (사용자 보고)
+    //   현재: href에 플레이스홀더 토큰을 넣고, 발행 직후 실제 글 URL로 치환한다(blogger-publisher.js).
+    //     치환이 불가능한 경로에서는 블로그 홈 URL이 기본값으로 들어가 최소한 링크가 살아있게 한다.
     const shareTitle = encodeURIComponent(h1);
-    const shareOnClickFor = (baseTemplate: string, extraTitle: boolean) => {
-      // baseTemplate 예: 'https://story.kakao.com/share?url='
-      const titleParam = extraTitle ? `+'&title=${shareTitle}'` : '';
-      return `this.href='${baseTemplate}'+encodeURIComponent(location.href)${titleParam}`;
-    };
+    // 기본값 = 블로그 홈 URL(인코딩). 발행 직후 publisher가 실제 글 URL로 치환한다.
+    // 치환에 실패하더라도 홈 URL이 남아 링크가 깨지지 않는다.
+    const shareHomeUrl = String(
+      payload.blogUrl || payload.wordpressSiteUrl || payload.siteUrl || ''
+    ).trim().replace(/\/+$/, '');
+    const shareUrlValue = encodeURIComponent(shareHomeUrl || 'https://www.google.com');
     html += `
 <div style="margin:40px 0 20px !important;padding:28px 24px !important;background:linear-gradient(135deg, #f8faff 0%, #f0f4ff 100%) !important;border:1px solid #e0e8f5 !important;border-radius:16px !important;text-align:center !important;display:block !important;visibility:visible !important;">
   <div style="font-size:15px !important;font-weight:700 !important;color:#333 !important;-webkit-text-fill-color:#333 !important;margin-bottom:6px !important;">📢 이 글이 도움이 되셨다면 공유해보세요</div>
   <p style="font-size:13px !important;color:#888 !important;margin:0 0 16px !important;">도움이 필요한 분들에게 알려주세요</p>
   <div style="display:flex !important;flex-wrap:wrap !important;justify-content:center !important;gap:10px !important;">
-    <a href="https://story.kakao.com/share" onclick="${shareOnClickFor('https://story.kakao.com/share?url=', false)}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#FEE500 !important;color:#3C1E1E !important;-webkit-text-fill-color:#3C1E1E !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(254,229,0,0.3) !important;">💛 카카오</a>
-    <a href="https://share.naver.com/web/shareView" onclick="${shareOnClickFor('https://share.naver.com/web/shareView?url=', true)}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#03C75A !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(3,199,90,0.3) !important;">🟢 네이버</a>
-    <a href="https://twitter.com/intent/tweet" onclick="${shareOnClickFor('https://twitter.com/intent/tweet?url=', true).replace('&title=', '&text=')}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#000 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(0,0,0,0.2) !important;">✖ X</a>
-    <a href="https://www.facebook.com/sharer/sharer.php" onclick="${shareOnClickFor('https://www.facebook.com/sharer/sharer.php?u=', false)}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#1877F2 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(24,119,242,0.3) !important;">🔵 Facebook</a>
+    <a data-orbit-share="1" href="https://story.kakao.com/share?url=${shareUrlValue}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#FEE500 !important;color:#3C1E1E !important;-webkit-text-fill-color:#3C1E1E !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(254,229,0,0.3) !important;">💛 카카오</a>
+    <a data-orbit-share="1" href="https://share.naver.com/web/shareView?url=${shareUrlValue}&title=${shareTitle}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#03C75A !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(3,199,90,0.3) !important;">🟢 네이버</a>
+    <a data-orbit-share="1" href="https://twitter.com/intent/tweet?url=${shareUrlValue}&text=${shareTitle}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#000 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(0,0,0,0.2) !important;">✖ X</a>
+    <a data-orbit-share="1" href="https://www.facebook.com/sharer/sharer.php?u=${shareUrlValue}" target="_blank" rel="nofollow noopener noreferrer" style="display:inline-flex !important;align-items:center !important;gap:6px !important;padding:10px 20px !important;background:#1877F2 !important;color:#fff !important;-webkit-text-fill-color:#fff !important;border:none !important;border-radius:10px !important;font-size:14px !important;font-weight:700 !important;text-decoration:none !important;box-shadow:0 2px 8px rgba(24,119,242,0.3) !important;">🔵 Facebook</a>
   </div>
 </div>
 `;

@@ -5796,6 +5796,34 @@ html body .content-inner {
         onLog?.(`[DEBUG] 포스트 ID: "${postId || '없음'}"`);
         onLog?.(`[DEBUG] 포스트 URL: "${postUrl || '없음'}"`);
 
+        // v3.8.368: 공유 버튼 URL을 실제 글 주소로 치환 (발행 직후 1회 patch)
+        //   본문 생성 시점엔 글 URL을 알 수 없어 블로그 홈 URL을 기본값으로 넣어둔다.
+        //   발행 후 실제 URL이 확보되면 data-orbit-share 링크의 url 파라미터만 교체한다.
+        //   (v3.8.361의 onclick 방식은 Blogger가 인라인 핸들러를 제거해 파라미터가 통째로 사라졌음)
+        if (postUrl && postId && !isDraftMode && typeof finalHtmlContent === 'string'
+            && finalHtmlContent.includes('data-orbit-share')) {
+          try {
+            const encodedPostUrl = encodeURIComponent(postUrl);
+            const patchedContent = finalHtmlContent.replace(
+              /(<a\b[^>]*\bdata-orbit-share="1"[^>]*\bhref="[^"]*?[?&](?:url|u)=)([^"&]*)/gi,
+              (_m, prefix) => `${prefix}${encodedPostUrl}`,
+            );
+            if (patchedContent !== finalHtmlContent) {
+              await blogger.posts.patch({
+                blogId,
+                postId,
+                requestBody: { content: patchedContent },
+              });
+              console.log(`[PUBLISH] ✅ 공유 버튼 URL을 실제 글 주소로 갱신: ${postUrl}`);
+              onLog?.('🔗 공유 버튼 URL을 실제 글 주소로 갱신했습니다.');
+            }
+          } catch (shareErr) {
+            // 실패해도 홈 URL이 남아 링크는 동작하므로 발행 자체는 성공 처리
+            console.warn(`[PUBLISH] ⚠️ 공유 URL 갱신 실패 (무시): ${shareErr?.message || shareErr}`);
+            onLog?.('⚠️ 공유 버튼 URL 갱신 실패 — 블로그 홈 주소로 유지됩니다.');
+          }
+        }
+
         // 발행 후 포스트 존재 여부 및 제목 일치 검증
         let verificationWarning;
         if (postId && !isDraftMode && !isScheduleMode) {
