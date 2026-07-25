@@ -1158,12 +1158,24 @@ export function buildTistoryFinalHtml(html: string, thumbnailUrl: string, upload
     return `${buildTistoryImageFallback(permanentUploadedSource, title)}\n${bodyWithoutGeneratedThumbnail}`.trim();
   }
 
-  const bodyWithoutTemporaryPreview = stripLeadingTemporaryImage(html);
+  // v3.8.355: 대표 이미지 보장 강화
+  //   과거: 본문에 <img>가 있으면 fallback 썸네일 스킵 → 티스토리가 첫 이미지를 대표로 인식 못할 때 블로그 목록에서 썸네일 사라짐
+  //   현재: 원본 hero 박스를 제거한 뒤 유효한 fallback 썸네일을 무조건 최상단에 삽입
+  const strippedBody = stripGeneratedThumbnailHero(stripLeadingTemporaryImage(html), thumbnailUrl);
   const fallbackThumbnail = buildTistoryImageFallback(thumbnailUrl, title);
-  if (fallbackThumbnail && !/<img\b/i.test(bodyWithoutTemporaryPreview)) {
-    return `${fallbackThumbnail}\n${bodyWithoutTemporaryPreview}`.trim();
+  if (fallbackThumbnail) {
+    return `${fallbackThumbnail}\n${strippedBody}`.trim();
   }
-  return bodyWithoutTemporaryPreview;
+  // v3.8.355: thumbnailUrl이 무효(base64/blob 등)면 본문 첫 이미지를 대표로 승격
+  const firstImgMatch = strippedBody.match(/<img\b[^>]*\bsrc=["']([^"']+)["']/i);
+  const firstImgSrc = firstImgMatch?.[1] || '';
+  if (firstImgSrc) {
+    const promoted = normalizeTistoryPublishedImageUrl(firstImgSrc);
+    if (promoted) {
+      return `<p><img src="${promoted}" alt="${escapeHtmlAttribute(title)}" /></p>\n${strippedBody}`.trim();
+    }
+  }
+  return strippedBody;
 }
 
 async function selectCategory(page: any, category: string | undefined, onLog?: (message: string) => void): Promise<void> {
