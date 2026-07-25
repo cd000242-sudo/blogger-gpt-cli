@@ -182,6 +182,36 @@ async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000,
 import { validateCtaUrl } from '../../cta/validate-cta-url';
 import { callGeminiWithGrounding, callGeminiWithRetry } from './gemini-engine';
 import { FinalCrawledPost, FinalTableData, FinalCTAData, FAQItem } from './types';
+import { getToneInstruction } from '../max-mode/tone-text-utils';
+
+// v3.8.356: toneStyle을 orchestration에서 module-scope로 전달받아 프롬프트/후처리에 반영.
+//   과거: final 경로가 toneStyle을 무시하고 모든 존댓말(~습니다)을 강제로 반말(~어요)로 치환 → 사용자가 formal/casual 등을 선택해도 결과는 무조건 friendly.
+//   현재: activeToneStyle이 프롬프트에 지시문으로 삽입되고, 강제 치환은 friendly/casual/conversational에서만 적용.
+type ToneStyle = 'professional' | 'friendly' | 'casual' | 'formal' | 'conversational';
+let activeToneStyle: ToneStyle = 'professional';
+export function setActiveToneStyle(tone?: string | null): void {
+  const allowed: ToneStyle[] = ['professional', 'friendly', 'casual', 'formal', 'conversational'];
+  const normalized = String(tone || '').toLowerCase() as ToneStyle;
+  activeToneStyle = allowed.includes(normalized) ? normalized : 'professional';
+}
+export function getActiveToneStyle(): ToneStyle {
+  return activeToneStyle;
+}
+function toneInstructionBlock(): string {
+  return getToneInstruction(activeToneStyle);
+}
+function shouldApplyCasualTransform(): boolean {
+  return activeToneStyle === 'friendly' || activeToneStyle === 'casual' || activeToneStyle === 'conversational';
+}
+function applyCasualTransform(text: string): string {
+  if (!shouldApplyCasualTransform()) return text;
+  return text
+    .replace(/입니다\./g, '이에요.')
+    .replace(/습니다\./g, '어요.')
+    .replace(/합니다\./g, '해요.')
+    .replace(/있습니다\./g, '있어요.')
+    .replace(/없습니다\./g, '없어요.');
+}
 
 // 🔥 AI 응답에서 테이블 데이터를 안전하게 파싱
 function parseTables(raw: unknown): FinalTableData[] {
@@ -1649,11 +1679,13 @@ ${h3List}
 
 🔴 각 H3마다 400~500자 본문을 작성하세요.
 
+${toneInstructionBlock()}
+
 필수 규칙:
 1. 크롤링 데이터의 팩트만 사용 (추측 금지)
-2. 친근한 말투 (~해요, ~거든요)
-3. 딱딱한 문어체 금지 (~이다, ~한다)
-4. 각 H3는 서로 다른 내용으로 작성
+2. 위 말투/어투 지시를 일관되게 유지
+3. 각 H3는 서로 다른 내용으로 작성
+4. 반말체 금지, 존댓말 유지 (~다 어미도 존댓말 문맥에서만 사용)
 
 JSON 형식으로 출력:
 [
@@ -1672,15 +1704,9 @@ JSON만:
     const json = response.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
     const sections = JSON.parse(json) as Array<{ h3: string; content: string }>;
 
-    // 결과 반환 (표 생성 없이 빠르게)
+    // v3.8.356: 강제 반말 치환은 friendly/casual/conversational 톤에서만 적용
     return sections.map((sec, idx) => {
-      let content = sec.content
-        .replace(/입니다\./g, '이에요.')
-        .replace(/습니다\./g, '어요.')
-        .replace(/합니다\./g, '해요.')
-        .replace(/있습니다\./g, '있어요.')
-        .replace(/없습니다\./g, '없어요.');
-
+      const content = applyCasualTransform(sec.content);
       return {
         h3: h3s[idx] || sec.h3,
         content,
@@ -1717,7 +1743,7 @@ export async function generateH3ContentFinal(
 참고: ${reference.slice(0, 1500)}
 
 ${h3}에 대해 400자 내외로 작성하세요.
-- 친근한 말투 (~해요, ~거든요)
+${toneInstructionBlock()}
 - p태그 2~3개
 - 위 참고 데이터에 있는 정보만 기반으로 작성. 참고 데이터가 부족하면 확인되지 않은 수치/마감일은 쓰지 말고 공식 확인을 안내!
 - 마감된 사업/이벤트 언급 금지. 현재 진행 중이거나 미래 일정만!
@@ -1728,10 +1754,9 @@ HTML만:
 
   let content = await callGeminiWithRetry(prompt);
   content = content.trim()
-    .replace(/^```html\n?/gi, '').replace(/```$/gi, '')
-    .replace(/입니다\./g, '이에요.')
-    .replace(/습니다\./g, '어요.')
-    .replace(/합니다\./g, '해요.');
+    .replace(/^```html\n?/gi, '').replace(/```$/gi, '');
+  // v3.8.356: 강제 반말 치환은 friendly/casual/conversational 톤에서만 적용
+  content = applyCasualTransform(content);
 
   return { content, tables: [] };
 }

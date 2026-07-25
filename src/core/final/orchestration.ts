@@ -262,6 +262,15 @@ export async function generateUltimateMaxModeArticleFinal(
   env: any,
   onLog?: (s: string) => void
 ): Promise<{ html: string; title: string; labels: string[]; thumbnail: string; qualityReport?: any }> {
+  // v3.8.356: 사용자가 선택한 말투/어투를 final 생성 경로에 전달 (module-scope 상태)
+  //   generation.ts의 프롬프트 조립과 반말 치환 로직이 이 값을 참조
+  try {
+    const { setActiveToneStyle } = require('./generation');
+    setActiveToneStyle(payload?.toneStyle);
+    onLog?.(`[PROGRESS] 5% - 🎭 말투/어투 적용: ${payload?.toneStyle || 'professional'}`);
+  } catch (e) {
+    console.warn('[orchestration] setActiveToneStyle 실패:', (e as any)?.message);
+  }
   const queueImageToken = typeof payload?.queueImageToken === 'string' ? payload.queueImageToken : '';
 
   // 🚧 쇼핑 모드 임시 차단 (점검 중) — UI에서 disabled 처리했지만 IPC/스케줄 경로로도 유입될 수 있으므로 이중 가드
