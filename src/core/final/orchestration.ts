@@ -541,10 +541,12 @@ export async function generateUltimateMaxModeArticleFinal(
           : await generateContentFromUrls(manualUrls, urlModeKeyword || undefined, onLog);
 
         // 썸네일 생성 — 🎯 사용자 선택 엔진 사용 (dispatcher 경유)
+        // v3.8.359: h2ImageMode와 썸네일 소스 분리 — 사용자가 명시한 썸네일 소스가 있으면 h2ImageMode='none'이어도 존중
         let thumbnailUrl = '';
-        const urlThumbnailSource = h2ImageMode === 'none'
-          ? 'none'
-          : (payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'nanobanana2');
+        const explicitUrlThumb = String(payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || '').trim().toLowerCase();
+        const urlThumbnailSource = explicitUrlThumb && explicitUrlThumb !== 'none' && explicitUrlThumb !== 'skip'
+          ? explicitUrlThumb
+          : (h2ImageMode === 'none' ? 'none' : (explicitUrlThumb || 'nanobanana2'));
         const urlThumbnailDisabled = urlThumbnailSource === 'none' || urlThumbnailSource === 'skip';
         const preGeneratedThumbnail = String(payload.preGeneratedThumbnail?.dataUrl || payload.preGeneratedThumbnail?.url || '').trim();
         if (!skipImages && preGeneratedThumbnail) {
@@ -2272,11 +2274,16 @@ ${conclusionHTML}
     // 🖼️ 썸네일 생성 - 수집 이미지 우선, 그 다음 나노 바나나 프로 또는 SVG
     let thumbnailUrl = '';
 
-    // 🔥 thumbnailSource: 사용자 선택 값 (flow, nanobananapro, dalle, text 등)
-    const thumbnailSource = h2ImageMode === 'none'
-      ? 'none'
-      : (payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || 'nanobanana2');
+    // v3.8.359: h2ImageMode와 썸네일 소스를 완전 분리
+    //   과거: h2ImageMode='none'이면 썸네일도 자동 'none' → 사용자가 "본문 이미지 없이 썸네일만" 조합 불가
+    //         (단일/일관 모드에서 사용자가 이렇게 설정했을 때 블로그스팟 대표 이미지가 사라지던 원인)
+    //   현재: 사용자가 명시한 thumbnailSource가 유효하면 그대로 사용. 명시 없을 때만 h2ImageMode 따라가기
+    const explicitThumb = String(payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || '').trim().toLowerCase();
+    const thumbnailSource = explicitThumb && explicitThumb !== 'none' && explicitThumb !== 'skip'
+      ? explicitThumb
+      : (h2ImageMode === 'none' ? 'none' : (explicitThumb || 'nanobanana2'));
     const thumbnailDisabled = thumbnailSource === 'none' || thumbnailSource === 'skip';
+    onLog?.(`[PROGRESS] 90% - 🖼️ 썸네일 정책: source=${thumbnailSource}, h2ImageMode=${h2ImageMode}, contentMode=${contentMode} (분리 판정)`);
     const preGeneratedThumbnail = String(payload.preGeneratedThumbnail?.dataUrl || payload.preGeneratedThumbnail?.url || '').trim();
 
     if (h2ImageMode !== 'none' && preGeneratedThumbnail) {
