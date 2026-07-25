@@ -2885,21 +2885,11 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
       //   - 네이버 검색 60%+ 점유 + AI Briefing(2025.3) 출시 → 별도 메타 강화
       //   - Naver Open Graph 추가 + Naver Search Advisor meta
       //   - 한국어 명사 원형 키워드 (조사 제거) → 네이버 키워드 매칭 정확성
-      try {
-        // 네이버용 메타 태그 (head용 — 본문에 박아도 Blogger/WP가 자동 인식)
-        const naverMeta = `<meta name="naver-site-verification" content="" />
-<meta property="og:locale" content="ko_KR" />
-<meta property="article:section" content="${(generatedLabels[0] || '').toString().replace(/[<>"']/g, '')}" />
-<meta property="og:site_name" content="${((loadEnvFromFile() as any).wordpressSiteName || (loadEnvFromFile() as any).blogTitle || 'LEADERNAM').toString().replace(/[<>"']/g, '')}" />
-${generatedLabels.slice(0, 6).map((kw) => `<meta property="article:tag" content="${String(kw).replace(/[<>"']/g, '')}" />`).join('\n')}
-`;
-        generatedContent = naverMeta + generatedContent;
-
-        // v3.8.79: 한국어 NLP 키워드 정규화는 위 라벨 생성 단계에서 이미 적용됨 (중복 처리 제거)
-        console.log(`[INTERNAL-CONSISTENCY] ✅ 네이버 SEO 메타 적용 (라벨 ${generatedLabels.length}개)`);
-      } catch (naverErr: any) {
-        console.warn('[INTERNAL-CONSISTENCY] 네이버 SEO/한국어 NLP 실패:', naverErr?.message);
-      }
+      // v3.8.374: 본문 <meta> 주입 제거 — "본문에 박아도 자동 인식"이라는 기존 전제가 틀렸다.
+      //   실측(2026-07-25, leadernam.com): 발행글 본문마다 og:locale·og:site_name·article:tag 등 meta 9개가
+      //   <body> 안에 남아 있었고, <head>의 Yoast/테마 출력과 중복 + 값 불일치("LEADERNAM" vs 실제 사이트명)를 만들었다.
+      //   태그/카테고리는 REST payload(tags/categories)로 이미 전달되므로 정보 손실도 없다.
+      console.log('[INTERNAL-CONSISTENCY] ⚡ 본문 <meta> 주입 스킵 (og:*/article:*는 <head>에서 SEO 플러그인이 담당)');
 
       // v3.8.77: 평문 "한눈에 답변" 중복 자동 제거 (LLM이 박스 wrap 빠뜨린 경우)
       try {
@@ -4955,7 +4945,6 @@ ipcMain.handle('run-post', async (_evt, payload) => {
     try {
       let htmlPost = String(result.html || result.content || '');
       const titlePost = result.title || payload.topic || '';
-      const labelsPost = result.labels || payload.generatedLabels || [];
       const thumbPost = result.thumbnail || result.thumbnailUrl || '';
       const excerptPost = String(result.excerpt || '').substring(0, 250);
       const metaDescPost = String(result.metaDescription || payload.metaDescription || '').substring(0, 250);
@@ -5030,18 +5019,20 @@ ipcMain.handle('run-post', async (_evt, payload) => {
       }
 
       // 작업 10: 네이버 SEO + 한국어 NLP
-      try {
-        const naverMeta = `<meta property="og:locale" content="ko_KR" />
-<meta property="article:section" content="${(labelsPost[0] || '').toString().replace(/[<>"']/g, '')}" />
-<meta property="og:site_name" content="${siteNameP.replace(/[<>"']/g, '')}" />
-${labelsPost.slice(0, 6).map((kw: string) => `<meta property="article:tag" content="${String(kw).replace(/[<>"']/g, '')}" />`).join('\n')}
-`;
-        htmlPost = naverMeta + htmlPost;
-      } catch {}
+      // v3.8.374: 본문(<body>) 안에 <meta> 태그를 심던 로직 제거.
+      //   <meta>는 <head>에서만 유효하다. 워드프레스 본문에 넣으면 Yoast/테마가 이미 <head>에
+      //   출력한 og:site_name·og:locale과 중복되고, 값도 달라서(예: "LEADERNAM" vs 실제 사이트명)
+      //   SNS 크롤러가 잘못된 쪽을 집을 수 있다. 실측(2026-07-25): 발행글 본문마다 meta 9개 삽입됨.
+      //   og:*/article:*는 Yoast(WP)·테마가 <head>에서 담당하므로 앱이 중복 출력할 이유가 없다.
 
       // 작업 11: Freshness Last updated 표
+      // v3.8.374: 시각 배지 기본 off — 위 generate-internal-consistency 경로(v3.8.334)와 동작 통일.
+      //   이 경로만 게이트가 빠져 있어서 배지가 계속 본문 최상단에 삽입됐고,
+      //   테마가 본문 앞부분으로 og:description을 만들면서 "🔄 최신 업데이트 … ⏱ 약 N분 소요"가 새어나갔다.
+      //   Schema.org dateModified는 JSON-LD로 계속 나가므로 SEO 신호 손실 없음.
       try {
-        if (!/class\s*=\s*["'][^"']*freshness-meta/i.test(htmlPost)) {
+        const showFreshnessPost = (payload as any)?.showFreshnessBadge === true;
+        if (showFreshnessPost && !/class\s*=\s*["'][^"']*freshness-meta/i.test(htmlPost)) {
           const nowISO = new Date().toISOString();
           const nowKo = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
           const freshness = `<div class="freshness-meta" style="margin:12px 0 20px;padding:10px 14px;background:#f0fdf4;border-left:3px solid #10b981;border-radius:0 8px 8px 0;font-size:12px;color:#065f46;line-height:1.6;">
@@ -5066,7 +5057,8 @@ ${labelsPost.slice(0, 6).map((kw: string) => `<meta property="article:tag" conte
           'DefinedTerm Schema': /"@type"\s*:\s*"DefinedTerm"/i.test(htmlPost),
           'Speakable Schema': /"@type"\s*:\s*"SpeakableSpecification"/i.test(htmlPost),
           'ImageObject Schema': /"@type"\s*:\s*"ImageObject"/i.test(htmlPost),
-          '네이버 og:locale': /og:locale.+ko_KR/i.test(htmlPost),
+          // v3.8.374: '네이버 og:locale' 체크 제거 — 본문 <meta> 주입을 없앴으므로 항상 ❌가 되어 로그만 오염시킨다.
+          //   og:locale은 Yoast(WP)·테마가 <head>에서 출력한다.
         };
         const passed = Object.values(checks).filter(Boolean).length;
         const total = Object.keys(checks).length;

@@ -56,6 +56,7 @@ function getFolderImageH2Titles(payload: any): string[] {
 }
 import { generateCSSFinal, generateTOCFinal } from './html';
 import { buildEeatMeta, EEAT_META_CSS } from './eeat-meta';
+import { scanSubstance, buildSubstanceRetryBlock } from './substance-gate';
 import { buildSchemaJsonLd } from './schema-jsonld';
 import { scanAdsensePolicy } from './policy-scanner';
 import { scanAdsenseHardening } from './adsense-hardening';
@@ -710,6 +711,10 @@ export async function generateUltimateMaxModeArticleFinal(
         }
 
         // CrawledContent → FinalCrawledPost 변환
+        // v3.8.374: 크롤러가 붙인 source 태그를 보존한다.
+        //   기존에는 여기서 전부 'external'로 덮어써서 content-crawler가 붙인 'naver-kin'/'google-suggest'
+        //   태그가 사라졌고, 그 결과 아래 bySource()가 항상 []를 반환 → v3.8.372/373의 demandSignals가
+        //   한 번도 채워진 적이 없었다(항상 "검색자 질문 데이터 없음" 로그).
         if (crawledFromAPI.length > 0) {
           for (const item of crawledFromAPI) {
             crawledPosts.push({
@@ -717,7 +722,7 @@ export async function generateUltimateMaxModeArticleFinal(
               url: item.url || '',
               content: item.content || '',
               subheadings: item.subheadings || [],
-              source: 'external',
+              source: (item as any).source || 'external',
             } as any);
           }
         }
@@ -1315,6 +1320,46 @@ export async function generateUltimateMaxModeArticleFinal(
           onLog?.(`[PROGRESS] 74% - ⚠️ 본문 재시도 오류 (그대로 진행): ${retryErr?.message?.slice(0, 80)}`);
         }
       }
+    }
+
+    // 🧱 v3.8.374: 실속(정보 밀도) 게이트 — 분량만 채우고 알맹이가 없는 글 차단
+    //   기존 게이트는 전부 분량 지표(글자수·단락수·출처 언급수)라서 "9,000자짜리 헛소리"가 다 통과했다.
+    //   여기서는 구체 팩트(금액·비율·기간·수량·날짜·기관명) 밀도를 재고, 미달이면 1회 재생성한다.
+    //   실측 보정(2026-07-25, 발행글 10편): 통과 6 / 미달 4 — 사용자가 지적한 글이 정확히 미달로 잡힘.
+    try {
+      const collectBodyHtml = (obj: any): string => [
+        String(obj?.introduction || ''),
+        ...(obj?.sections || []).flatMap((s: any) => (s.h3Sections || []).map((h: any) => String(h?.content || ''))),
+        String(obj?.conclusion || ''),
+      ].join('\n');
+
+      let substanceReport = scanSubstance({ contentHtml: collectBodyHtml(allSectionsObj) });
+      onLog?.(`[PROGRESS] 74% - 🧱 ${substanceReport.summary}`);
+      console.log(`[SUBSTANCE] ${substanceReport.summary}`);
+
+      if (!substanceReport.passed) {
+        substanceReport.worstSentences.slice(0, 3).forEach(s => console.warn(`[SUBSTANCE] 알맹이 없는 문장: ${s}`));
+        onLog?.('[PROGRESS] 75% - 🧱 실속 부족 → 구체 정보를 강제하는 프롬프트로 1회 재생성 중...');
+        const substanceBlock = scopedSectionBlock + buildSubstanceRetryBlock(substanceReport);
+        try {
+          const retried = await generateAllSectionsFinal(
+            keyword, h2Titles, factEnrichedContents, onLog, contentMode, draftContent, substanceBlock, skipQualityBoost,
+          );
+          const retriedReport = scanSubstance({ contentHtml: collectBodyHtml(retried) });
+          if (retriedReport.score > substanceReport.score) {
+            allSectionsObj = retried;
+            substanceReport = retriedReport;
+            onLog?.(`[PROGRESS] 76% - ✅ 재생성으로 실속 개선: ${retriedReport.summary}`);
+          } else {
+            onLog?.(`[PROGRESS] 76% - ⚠️ 재생성도 점수 ${retriedReport.score} (기존 ${substanceReport.score}) — 원본 유지`);
+          }
+        } catch (retryErr: any) {
+          console.warn(`[SUBSTANCE] 재생성 실패: ${retryErr?.message?.slice(0, 100)}`);
+          onLog?.(`[PROGRESS] 76% - ⚠️ 실속 재생성 오류 (그대로 진행): ${retryErr?.message?.slice(0, 80)}`);
+        }
+      }
+    } catch (substanceErr: any) {
+      console.warn('[SUBSTANCE] 실속 게이트 오류 (발행 계속):', substanceErr?.message);
     }
 
     // A prompt is not enough: verify the returned JSON before any FAQ, image, or publishing work begins.

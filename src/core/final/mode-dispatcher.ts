@@ -127,8 +127,10 @@ export function dispatchMode(
   const applyJosaAndVariant = (raw: string, seed: number): string => {
     // 조사 처리: [주제]란 → 받침 있으면 [주제]이란
     let result = raw;
-    if (/\[주제\]란\b/.test(result)) {
-      result = result.replace(/\[주제\]란\b/g, josa(keyword, '이란', '란'));
+    // v3.8.374: `\b`는 한글 뒤에서 경계로 인정되지 않아 "[주제]란 무엇인가"가 매치되지 않았고,
+    //   결과적으로 else 분기를 타서 "전기차 보조금란 무엇인가"처럼 조사가 틀린 제목이 나왔다.
+    if (/\[주제\]란(?![가-힣])/.test(result)) {
+      result = result.replace(/\[주제\]란(?![가-힣])/g, josa(keyword, '이란', '란'));
       // 후행 패턴 변형 적용
       const variantSuffix = pickVariant('란 무엇인가', seed);
       result = result.replace(/(이란|란)\s*무엇인가/, variantSuffix.startsWith('란') || variantSuffix.startsWith('의') || variantSuffix.startsWith(' ')
@@ -150,6 +152,15 @@ export function dispatchMode(
       .replace(/\[소주제\]/g, keyword);
     return result;
   };
+
+  /** 변형(variant) 없이 자리표시자만 키워드로 치환 — 프롬프트 가이드 라벨용
+   *  주의: `\b`는 한글 뒤에서 동작하지 않는다("[주제]란" 끝에서 항상 실패). 그래서 lookahead로 판정한다. */
+  const resolvePlaceholders = (raw: string): string => (raw || '')
+    .replace(/\[주제\]란(?![가-힣])/g, josa(keyword, '이란', '란'))
+    .replace(/\[주제\]/g, keyword)
+    .replace(/\[제품명\]/g, keyword)
+    .replace(/\[실전 경험\]/g, `${keyword} 실전 경험`)
+    .replace(/\[소주제\]/g, keyword);
 
   // v3.5.97: external 모드는 AI 동적 H2 생성으로 회귀.
   // v3.7.29: internal도 키워드 범위가 너무 넓어 정형 H2를 쓰면
@@ -177,17 +188,21 @@ export function dispatchMode(
     if (activeSections.length > 0) {
       // 섹션이 있는 모드 (adsense/internal/shopping/paraphrasing)
       const sectionGuides = activeSections.map((sec, idx) => {
+        // v3.8.374: 섹션 가이드에 [주제] 자리표시자가 그대로 남아 프롬프트로 넘어가던 문제 fix.
+        //   h2Titles에만 치환이 걸려 있어서, external/adsense 모드 프롬프트에는
+        //   "[섹션 1: [주제]란 무엇인가]" 같은 미치환 라벨이 그대로 실렸다.
+        const resolvedTitle = resolvePlaceholders(sec.title || '');
         const params = {
           topic: keyword,
           keywords: [keyword],
-          section: sec,
-          subtopic: sec.title || '',
+          section: { ...sec, title: resolvedTitle },
+          subtopic: resolvedTitle,
           authorInfo: options?.authorInfo,
         };
         try {
-          return `[섹션 ${idx + 1}: ${sec.title}]\n${plugin.buildSectionPrompt(params)}`;
+          return `[섹션 ${idx + 1}: ${resolvedTitle}]\n${plugin.buildSectionPrompt(params)}`;
         } catch {
-          return `[섹션 ${idx + 1}: ${sec.title}]\n${sec.description || ''}`;
+          return `[섹션 ${idx + 1}: ${resolvedTitle}]\n${sec.description || ''}`;
         }
       });
 

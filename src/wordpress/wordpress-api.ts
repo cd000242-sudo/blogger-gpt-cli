@@ -47,6 +47,37 @@ export interface WordPressTag {
   count: number;
 }
 
+/** \uC124\uCE58\uB41C SEO \uD50C\uB7EC\uADF8\uC778 \uC2DD\uBCC4\uC790. 'unknown' = \uAC10\uC9C0 \uC2E4\uD328(=\uD50C\uB7EC\uADF8\uC778 \uC804\uCCB4 \uD0A4\uB97C \uBCF4\uB0B4\uB294 \uC548\uC804 \uD3F4\uBC31). */
+export type SeoPluginId = 'yoast' | 'rankmath' | 'aioseo';
+
+/** REST \uB8E8\uD2B8 `namespaces` \u2192 SEO \uD50C\uB7EC\uADF8\uC778 \uB9E4\uD551. \uAC01 \uD50C\uB7EC\uADF8\uC778\uC774 \uC790\uAE30 \uB124\uC784\uC2A4\uD398\uC774\uC2A4\uB97C \uB4F1\uB85D\uD55C\uB2E4. */
+const SEO_PLUGIN_NAMESPACES: Array<{ plugin: SeoPluginId; namespace: RegExp }> = [
+  { plugin: 'yoast', namespace: /^yoast\/v\d+$/i },
+  { plugin: 'rankmath', namespace: /^rankmath\/v\d+$/i },
+  { plugin: 'aioseo', namespace: /^aioseo\/v\d+$/i },
+];
+
+/** \uC0AC\uC774\uD2B8\uBCC4 \uAC10\uC9C0 \uACB0\uACFC \uCE90\uC2DC \u2014 \uBC1C\uD589 1\uAC74\uB9C8\uB2E4 /wp-json/ \uC744 \uB2E4\uC2DC \uB54C\uB9AC\uC9C0 \uC54A\uB3C4\uB85D. */
+const seoPluginCache = new Map<string, SeoPluginId[]>();
+
+/** \uD14C\uC2A4\uD2B8/\uC124\uC815 \uBCC0\uACBD\uC6A9 \u2014 \uCE90\uC2DC \uBE44\uC6B0\uAE30 */
+export function clearSeoPluginCache(): void {
+  seoPluginCache.clear();
+}
+
+/** REST \uB8E8\uD2B8 \uC751\uB2F5\uC758 namespaces \uBC30\uC5F4\uC5D0\uC11C SEO \uD50C\uB7EC\uADF8\uC778 \uBAA9\uB85D\uC744 \uBF51\uB294\uB2E4. (\uC21C\uC218 \uD568\uC218 \u2014 \uB2E8\uC704 \uD14C\uC2A4\uD2B8 \uB300\uC0C1) */
+export function detectSeoPluginsFromNamespaces(namespaces: unknown): SeoPluginId[] {
+  if (!Array.isArray(namespaces)) return [];
+  const found = new Set<SeoPluginId>();
+  for (const ns of namespaces) {
+    if (typeof ns !== 'string') continue;
+    for (const { plugin, namespace } of SEO_PLUGIN_NAMESPACES) {
+      if (namespace.test(ns)) found.add(plugin);
+    }
+  }
+  return Array.from(found);
+}
+
 const WP_API_BROKEN_TEXT_PATTERN = /\uFFFD|&#(?:65533|xfffd);|%EF%BF%BD/gi;
 
 function repairBrokenTextValue(label: string, value: string): string {
@@ -197,74 +228,126 @@ export class WordPressAPI {
     return this.request<WordPressPost>(`/posts/${id}`, 'DELETE');
   }
 
-  // SEO 메타 필드 업데이트 (Yoast SEO / Rank Math / AIOSEO 다중 지원)
-  // v3.8.306: Rank Math 필드 접두사 수정 (`_rank_math_*` → `rank_math_*`) — 사용자 보고: Rank Math에서 SEO 필드 인식 안 됨
+  /**
+   * 설치된 SEO 플러그인 감지. `/wp-json/` 루트의 namespaces 목록을 근거로 판정하고 사이트별로 캐시한다.
+   * 감지 실패(네트워크 오류 등) 시 빈 배열 → 호출부가 "모든 키 전송" 안전 폴백을 쓴다.
+   */
+  async detectSeoPlugins(): Promise<SeoPluginId[]> {
+    const siteKey = this.baseUrl;
+    const cached = seoPluginCache.get(siteKey);
+    if (cached) return cached;
+
+    try {
+      const rootUrl = `${this.baseUrl.replace(/\/wp-json\/wp\/v2$/, '')}/wp-json/`;
+      const response = await fetch(rootUrl, { headers: { 'Accept': 'application/json' } });
+      if (!response.ok) {
+        console.warn(`[WP-SEO] SEO 플러그인 감지 실패 (HTTP ${response.status}) — 전체 키 전송 폴백`);
+        return [];
+      }
+      const root: any = await response.json();
+      const plugins = detectSeoPluginsFromNamespaces(root?.namespaces);
+      seoPluginCache.set(siteKey, plugins);
+      console.log(`[WP-SEO] 감지된 SEO 플러그인: ${plugins.length > 0 ? plugins.join(', ') : '없음'}`);
+      return plugins;
+    } catch (error: any) {
+      console.warn('[WP-SEO] SEO 플러그인 감지 예외 — 전체 키 전송 폴백:', error?.message);
+      return [];
+    }
+  }
+
+  // SEO 메타 필드 업데이트 (Yoast SEO / Rank Math / AIOSEO)
+  // v3.8.306: Rank Math 필드 접두사 수정 (`_rank_math_*` → `rank_math_*`)
+  // v3.8.374: 플러그인을 실제로 감지해서 해당 플러그인 키만 전송.
+  //   기존에는 9개 키를 항상 뿌리고, 성공 판정도 `rankMathSaved || yoastSaved`라 Yoast 전용 사이트에서
+  //   "Rank Math 필드 저장 안 됨" 경고가 매번 떴고, Rank Math 전용 REST도 매 발행마다 헛호출됐다.
   async updateSeoMeta(postId: number, seoData: {
     title?: string;
     description?: string;
     focusKeyword?: string;
   }): Promise<{ success: boolean }> {
     try {
-      const metaData = {
-        meta: {
-          // Yoast SEO — 접두사 `_yoast_wpseo_`
+      const plugins = await this.detectSeoPlugins();
+      // 감지 실패 시에는 예전처럼 전부 전송 (안전 폴백)
+      const unknown = plugins.length === 0;
+      const useYoast = unknown || plugins.includes('yoast');
+      const useRankMath = unknown || plugins.includes('rankmath');
+      const useAioseo = unknown || plugins.includes('aioseo');
+
+      const meta: Record<string, string> = {
+        ...(useYoast ? {
           '_yoast_wpseo_title': seoData.title || '',
           '_yoast_wpseo_metadesc': seoData.description || '',
           '_yoast_wpseo_focuskw': seoData.focusKeyword || '',
-
-          // Rank Math — 접두사 없음 (공식 필드명)
+        } : {}),
+        ...(useRankMath ? {
           'rank_math_title': seoData.title || '',
           'rank_math_description': seoData.description || '',
           'rank_math_focus_keyword': seoData.focusKeyword || '',
-
-          // All in One SEO Pack
+        } : {}),
+        ...(useAioseo ? {
           '_aioseop_title': seoData.title || '',
           '_aioseop_description': seoData.description || '',
           '_aioseop_keywords': seoData.focusKeyword || '',
-        }
+        } : {}),
       };
 
       // v3.8.328: 응답 검증으로 실제 저장 여부 확인
-      const updateResp: any = await this.request<WordPressPost>(`/posts/${postId}`, 'PUT', metaData);
+      const updateResp: any = await this.request<WordPressPost>(`/posts/${postId}`, 'PUT', { meta });
       const savedMeta = updateResp?.meta || {};
+      const yoastSaved = !!(savedMeta._yoast_wpseo_focuskw || savedMeta._yoast_wpseo_title || savedMeta._yoast_wpseo_metadesc);
       const rankMathSaved = !!(savedMeta.rank_math_focus_keyword || savedMeta.rank_math_title || savedMeta.rank_math_description);
-      const yoastSaved = !!(savedMeta._yoast_wpseo_focuskw || savedMeta._yoast_wpseo_title);
+      const aioseoSaved = !!(savedMeta._aioseop_title || savedMeta._aioseop_description);
 
-      if (!rankMathSaved && seoData.focusKeyword) {
-        console.warn('[WP-SEO] ⚠️ Rank Math 필드가 저장 안 됨 — register_meta 미등록. WordPress에 다음 스니펫 필요:');
-        console.warn(`  add_action('init', function() {
+      // 설치된 플러그인 기준으로만 성공/실패를 판정한다.
+      const success = unknown
+        ? (yoastSaved || rankMathSaved || aioseoSaved)
+        : ((plugins.includes('yoast') && yoastSaved)
+          || (plugins.includes('rankmath') && rankMathSaved)
+          || (plugins.includes('aioseo') && aioseoSaved));
+
+      if (!success && seoData.focusKeyword) {
+        const target = unknown ? 'SEO' : plugins.join('/');
+        console.warn(`[WP-SEO] ⚠️ ${target} 메타가 저장되지 않았습니다 — register_meta(show_in_rest) 미등록일 수 있습니다.`);
+        if (useRankMath) {
+          console.warn(`  add_action('init', function() {
     register_post_meta('post', 'rank_math_focus_keyword', ['type'=>'string','single'=>true,'show_in_rest'=>true,'auth_callback'=>function(){return current_user_can('edit_posts');}]);
     register_post_meta('post', 'rank_math_title', ['type'=>'string','single'=>true,'show_in_rest'=>true,'auth_callback'=>function(){return current_user_can('edit_posts');}]);
     register_post_meta('post', 'rank_math_description', ['type'=>'string','single'=>true,'show_in_rest'=>true,'auth_callback'=>function(){return current_user_can('edit_posts');}]);
   });`);
-        console.warn('[WP-SEO] 위 스니펫을 Code Snippets 플러그인 또는 functions.php에 추가하면 자동 저장 가능.');
+          console.warn('[WP-SEO] 위 스니펫을 Code Snippets 플러그인 또는 functions.php에 추가하면 자동 저장 가능.');
+        }
+      } else if (success) {
+        const saved = [yoastSaved && 'Yoast', rankMathSaved && 'Rank Math', aioseoSaved && 'AIOSEO'].filter(Boolean).join(', ');
+        console.log(`[WP-SEO] ✅ SEO 메타 저장 확인: ${saved}`);
       }
 
-      // v3.8.306/328: Rank Math 전용 REST API 시도 (meta whitelist 우회 — 미설치 사이트엔 무해)
-      try {
-        const rankMathUrl = `${this.config.siteUrl.replace(/\/$/, '')}/wp-json/rankmath/v1/updatePostMeta`;
-        const auth = btoa(`${this.config.username}:${this.config.password}`);
-        const rmResp = await fetch(rankMathUrl, {
-          method: 'POST',
-          headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            objectID: postId,
-            objectType: 'post',
-            meta: {
-              rank_math_title: seoData.title || '',
-              rank_math_description: seoData.description || '',
-              rank_math_focus_keyword: seoData.focusKeyword || '',
-            },
-          }),
-        }).catch((e) => { console.warn('[WP-SEO/RankMath] REST 호출 예외 (미설치 가능성):', e?.message); return null; });
-        if (rmResp && rmResp.ok) {
-          console.log('[WP-SEO/RankMath] ✅ 전용 REST 저장 성공');
-        } else if (rmResp) {
-          console.warn(`[WP-SEO/RankMath] ⚠️ 전용 REST 응답 ${rmResp.status} — 미설치이거나 endpoint 없음`);
-        }
-      } catch { /* Rank Math 없으면 정상 */ }
+      // Rank Math 전용 REST API — Rank Math가 실제로 설치된 경우에만 호출 (meta whitelist 우회용)
+      if (useRankMath && !rankMathSaved) {
+        try {
+          const rankMathUrl = `${this.config.siteUrl.replace(/\/$/, '')}/wp-json/rankmath/v1/updatePostMeta`;
+          const auth = btoa(`${this.config.username}:${this.config.password}`);
+          const rmResp = await fetch(rankMathUrl, {
+            method: 'POST',
+            headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              objectID: postId,
+              objectType: 'post',
+              meta: {
+                rank_math_title: seoData.title || '',
+                rank_math_description: seoData.description || '',
+                rank_math_focus_keyword: seoData.focusKeyword || '',
+              },
+            }),
+          }).catch((e) => { console.warn('[WP-SEO/RankMath] REST 호출 예외:', e?.message); return null; });
+          if (rmResp && rmResp.ok) {
+            console.log('[WP-SEO/RankMath] ✅ 전용 REST 저장 성공');
+            return { success: true };
+          }
+          if (rmResp) console.warn(`[WP-SEO/RankMath] ⚠️ 전용 REST 응답 ${rmResp.status}`);
+        } catch { /* Rank Math endpoint 없음 */ }
+      }
 
-      return { success: rankMathSaved || yoastSaved };
+      return { success };
     } catch (error) {
       console.error('SEO 메타 업데이트 실패:', error);
       return { success: false };

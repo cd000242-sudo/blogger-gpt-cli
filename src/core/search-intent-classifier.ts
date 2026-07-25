@@ -263,19 +263,111 @@ export function getIntentH2Archetypes(intent: SearchIntent): {
   }
 }
 
+/** 마지막 글자에 받침이 있는지 (한글 음절이 아니면 false) */
+function hasFinalConsonant(word: string): boolean {
+  const last = (word || '').trim().charCodeAt((word || '').trim().length - 1);
+  if (Number.isNaN(last) || last < 0xac00 || last > 0xd7a3) return false;
+  return (last - 0xac00) % 28 !== 0;
+}
+
+/** 받침 유무에 맞는 조사 형태를 돌려준다. (보조금 + '가' → '이', 그리스 + '이란' → '란') */
+function attachJosa(word: string, particle: string): string {
+  const PAIRS: Record<string, [string, string]> = {
+    // particle → [받침 있을 때, 받침 없을 때]
+    '란': ['이란', '란'], '이란': ['이란', '란'],
+    '가': ['이', '가'], '이': ['이', '가'],
+    '를': ['을', '를'], '을': ['을', '를'],
+    '는': ['은', '는'], '은': ['은', '는'],
+    '와': ['과', '와'], '과': ['과', '와'],
+    '로': ['으로', '로'], '으로': ['으로', '로'],
+  };
+  const pair = PAIRS[particle];
+  if (!pair) return particle;
+  return hasFinalConsonant(word) ? pair[0] : pair[1];
+}
+
+/** 크롤링으로 수집한 실제 검색자 수요 신호 */
+export interface DemandSignals {
+  /** 네이버 지식iN 등에서 수집한 실제 유저 질문 */
+  userQuestions?: string[];
+  /** 자동완성 등 실제 검색 키워드 */
+  searchQueries?: string[];
+}
+
+/**
+ * 실제 수집된 질문·검색어에서 검색 의도를 도출한다.
+ *
+ * v3.8.374: 기존 classifyIntent()는 **키워드 한 줄**만 정규식으로 훑어서, 한정자가 없는
+ *   대부분의 키워드가 informational 기본값으로 떨어졌다(예: "시애틀 공항 다운타운" → 매칭 0).
+ *   이제는 크롤러가 모아온 실제 질문 15개·검색어 15개를 함께 투표에 넣는다.
+ *   질문 문장은 키워드보다 의도가 훨씬 선명하다("얼마나 드나요" → transactional 신호).
+ *
+ * 신호가 없으면 기존 키워드 기반 판정으로 자연스럽게 폴백한다.
+ */
+export function classifyIntentFromSignals(keyword: string, signals?: DemandSignals): SearchIntent {
+  const questions = (signals?.userQuestions || []).map(q => String(q || '').trim()).filter(Boolean);
+  const queries = (signals?.searchQueries || []).map(q => String(q || '').trim()).filter(Boolean);
+  if (questions.length === 0 && queries.length === 0) return classifyIntent(keyword);
+
+  const scores: Record<SearchIntent, number> = {
+    informational: 0,
+    investigational: 0,
+    transactional: 0,
+  };
+
+  // 키워드 자체도 한 표 (가중치 1) — 한정자가 있으면 여전히 강한 신호다.
+  const keywordIntent = classifyIntent(keyword);
+  scores[keywordIntent] += 1;
+
+  // 실제 질문은 가중치 2, 자동완성 검색어는 가중치 1.
+  const vote = (text: string, weight: number) => {
+    const t = text.toLowerCase();
+    for (const rule of INTENT_RULES) {
+      for (const pattern of rule.patterns) {
+        if (pattern.test(t)) {
+          scores[rule.intent] += weight;
+          break; // 한 문장 안에서 같은 의도를 중복 계수하지 않는다
+        }
+      }
+    }
+  };
+  questions.forEach(q => vote(q, 2));
+  queries.forEach(q => vote(q, 1));
+
+  const max = Math.max(scores.transactional, scores.investigational, scores.informational);
+  if (max === 0) return 'informational';
+  if (scores.transactional === max) return 'transactional';
+  if (scores.investigational === max) return 'investigational';
+  return 'informational';
+}
+
 /**
  * 모드 프롬프트에 주입할 의도 가이드 블록
+ * @param signals 수집된 실제 질문/검색어 — 있으면 키워드 정규식보다 우선해 의도를 도출한다.
  */
-export function buildIntentPromptBlock(keyword: string): string {
-  const intent = classifyIntent(keyword);
+export function buildIntentPromptBlock(keyword: string, signals?: DemandSignals): string {
+  const intent = classifyIntentFromSignals(keyword, signals);
   const guide = getIntentH2Archetypes(intent);
   const ymyl = classifyYmyl(keyword);
   const ymylBlock = ymyl ? buildYmylPromptBlock(ymyl, keyword) : '';
+  const questionCount = (signals?.userQuestions || []).length;
+  const queryCount = (signals?.searchQueries || []).length;
+  const basis = (questionCount > 0 || queryCount > 0)
+    ? `실제 검색자 질문 ${questionCount}개 + 검색어 ${queryCount}개 기반`
+    : '키워드 패턴 기반';
+  // v3.8.374: 아키타입의 [주제]/[제품명] 자리표시자를 키워드로 치환.
+  //   그대로 두면 프롬프트에 "[주제]란 무엇인가"가 실려서 LLM이 대괄호째 복사하는 사고가 난다.
+  //   단순 치환만 하면 "보조금란/보조금가" 같은 비문이 되므로 받침에 따라 조사를 맞춘다.
+  const fillPlaceholders = (s: string) => s
+    .replace(/\[(?:주제|제품명)\](란|이란|가|이|를|을|는|은|와|과|로|으로)?/g,
+      (_m, particle?: string) => keyword + (particle ? attachJosa(keyword, particle) : ''))
+    .replace(/\[A\]/g, `${keyword} A안`)
+    .replace(/\[B\]/g, `${keyword} B안`);
   return `
-🎯 **검색 의도 분석 결과**: ${guide.label}
+🎯 **검색 의도 분석 결과**: ${guide.label} (${basis})
 📌 가이드라인: ${guide.guideline}
-📋 권장 H2 아키타입 (참고용):
-${guide.archetypes.map((a, i) => `  ${i + 1}. ${a}`).join('\n')}
+📋 H2 아키타입 — **형태 참고용일 뿐, 문구를 그대로 복사하지 마세요**:
+${guide.archetypes.map((a, i) => `  ${i + 1}. ${fillPlaceholders(a)}`).join('\n')}
 ${ymylBlock}`;
 }
 
