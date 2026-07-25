@@ -745,6 +745,22 @@ export async function generateUltimateMaxModeArticleFinal(
     const contents = crawledPosts.map(p => p.content);
     const subheadings = crawledPosts.flatMap(p => p.subheadings);
 
+    // v3.8.372: 검색자의 실제 궁금증을 H2 생성에 최우선 근거로 전달
+    //   지식인 질문/자동완성 키워드는 그동안 subheadings에 뭉뚱그려 섞여 "실제 검색자 수요"라는
+    //   신호를 잃고 경쟁 글 소제목 빈도에 묻혔다. source 태그로 분리해 별도 인자로 넘긴다.
+    const bySource = (tag: string) => crawledPosts
+      .filter((p: any) => String(p?.source || '') === tag)
+      .flatMap((p: any) => Array.isArray(p?.subheadings) ? p.subheadings : []);
+    const demandSignals = {
+      userQuestions: bySource('naver-kin'),
+      searchQueries: bySource('google-suggest'),
+    };
+    if (demandSignals.userQuestions.length > 0 || demandSignals.searchQueries.length > 0) {
+      onLog?.(`[PROGRESS] 34% - 🎯 검색자 수요 신호 확보: 지식인 질문 ${demandSignals.userQuestions.length}개 · 자동완성 ${demandSignals.searchQueries.length}개 → 소제목 생성에 반영`);
+    } else {
+      onLog?.('[PROGRESS] 34% - ⚠️ 검색자 질문 데이터 없음 — 경쟁 글 소제목 기준으로 생성합니다');
+    }
+
     // 2. H1 생성 — 🔥 키워드 제목 옵션 체크박스 반영
     // 🛡️ 제목 연도 복구기 — 단독 토큰 '년'에만 currentYear 주입.
     //    단독 토큰 = (문장 시작 또는 공백) + '년' + (공백 또는 문장 끝)
@@ -858,7 +874,7 @@ export async function generateUltimateMaxModeArticleFinal(
       const internalScope = detectKeywordScope(keyword);
       const fallbackTitles = generateIntentAwareFallbackH2Titles(keyword, 5, internalScope);
       try {
-        const llmTitles = await generateH2TitlesFinal(keyword, subheadings, 5);
+        const llmTitles = await generateH2TitlesFinal(keyword, subheadings, 5, demandSignals);
         if (Array.isArray(llmTitles) && llmTitles.length >= 5) {
           h2Titles = llmTitles.slice(0, 5);
           onLog?.(`[PROGRESS] 38% - 🧠 LLM 기반 구체 H2 5개 생성: ${h2Titles.join(' / ')}`);
@@ -963,7 +979,7 @@ export async function generateUltimateMaxModeArticleFinal(
       const maxH2Count = (typeof payload.sectionCount === 'number' && Number.isFinite(payload.sectionCount) && payload.sectionCount > 0)
         ? Math.floor(payload.sectionCount)
         : undefined;
-      h2Titles = await generateH2TitlesFinal(keyword, subheadings, maxH2Count);
+      h2Titles = await generateH2TitlesFinal(keyword, subheadings, maxH2Count, demandSignals);
       onLog?.(`[PROGRESS] 40% - ✅ 소제목 ${h2Titles.length}개 완료`);
     }
 

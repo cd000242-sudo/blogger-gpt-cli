@@ -698,7 +698,17 @@ function finalizeH2TitlesWithIntentGuard(
   return (rawTitles || []).filter(Boolean).slice(0, targetCount);
 }
 
-export async function generateH2TitlesFinal(keyword: string, subheadings: string[], maxCount?: number): Promise<string[]> {
+// v3.8.372: 검색자의 실제 궁금증을 H2에 반영
+//   문제: 지식인 질문(source='naver-kin')과 자동완성 키워드(source='google-suggest')를
+//         블로그 소제목과 flatMap으로 뭉뚱그려 넘기고 있어, "이건 실제 검색자 질문"이라는
+//         신호가 사라졌다. 그 결과 H2가 크롤링 소제목 빈도에만 끌려가 정형화됐다.
+//   해결: 질문/검색어를 별도 인자로 받아 프롬프트에 최우선 근거로 주입한다.
+export async function generateH2TitlesFinal(
+  keyword: string,
+  subheadings: string[],
+  maxCount?: number,
+  demandSignals?: { userQuestions?: string[]; searchQueries?: string[] },
+): Promise<string[]> {
   // 빈도 분석
   const freq = new Map<string, number>();
   subheadings.forEach(h => {
@@ -746,9 +756,31 @@ export async function generateH2TitlesFinal(keyword: string, subheadings: string
   const currentYear = new Date().getFullYear();
 
   // 🌐 소제목 참고 데이터: 크롤링 데이터 있으면 활용, 없으면 검색 지시
+  // v3.8.372: 검색자가 실제로 물어본 질문 / 실제로 검색한 키워드를 최우선 근거로 제시
+  const dedupe = (list?: string[]) => [...new Set((list || [])
+    .map((s) => String(s || '').replace(/^Q\.\s*/i, '').trim())
+    .filter((s) => s.length >= 4 && s.length <= 80))];
+  const userQuestions = dedupe(demandSignals?.userQuestions).slice(0, 15);
+  const searchQueries = dedupe(demandSignals?.searchQueries).slice(0, 15);
+
+  const demandBlock = (userQuestions.length > 0 || searchQueries.length > 0)
+    ? `\n🔥🔥🔥 [최우선 근거 — 검색자가 실제로 알고 싶어하는 것] 🔥🔥🔥\n`
+      + (userQuestions.length > 0
+        ? `\n■ 실제 유저가 올린 질문 (네이버 지식인):\n${userQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n`
+        : '')
+      + (searchQueries.length > 0
+        ? `\n■ 사람들이 실제로 함께 검색한 키워드 (자동완성):\n${searchQueries.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n`
+        : '')
+      + `\n🔴 위 질문/검색어는 "이 키워드를 검색한 사람이 진짜 알고 싶은 것"의 직접 증거다.\n`
+      + `   H2 소제목은 **이 궁금증들을 실제로 해결해주는 내용**으로 구성하라.\n`
+      + `   - 여러 질문이 같은 주제면 하나의 H2로 묶어라.\n`
+      + `   - 질문이 다루지 않은 주제를 굳이 넣지 마라 (검색자가 안 궁금해하는 내용).\n`
+      + `   - 단, H2 제목을 질문 문장 그대로 복사하지 말고 소제목답게 다듬어라.\n`
+    : '';
+
   const subheadingReference = sorted.length > 0
-    ? `🔍 참고할 크롤링 소제목:\n${sorted.join('\n')}\n\n===== H2 소제목 후보 =====\n${sorted.slice(0, targetCount).map((h, i) => `${i + 1}. ${h}`).join('\n')}\n=====\n\n위 크롤링 데이터를 분석하여 **서로 다른 정보**를 담은 H2 소제목 ${targetCount}개를 만드세요.`
-    : `🔍 크롤링 소제목이 부족합니다. 키워드와 일반적인 검색 의도 패턴을 기준으로 핵심 소주제 ${targetCount}개를 만들되, 확인되지 않은 최신 트렌드/수치/마감일은 새로 만들지 마세요.`;
+    ? `${demandBlock}\n🔍 참고할 크롤링 소제목 (경쟁 글 구조 — 보조 자료):\n${sorted.join('\n')}\n\n===== H2 소제목 후보 =====\n${sorted.slice(0, targetCount).map((h, i) => `${i + 1}. ${h}`).join('\n')}\n=====\n\n위 자료를 분석하여 **서로 다른 정보**를 담은 H2 소제목 ${targetCount}개를 만드세요.${userQuestions.length > 0 || searchQueries.length > 0 ? ' 경쟁 글 소제목을 베끼지 말고, 검색자 궁금증(최우선 근거)을 먼저 반영하세요.' : ''}`
+    : `${demandBlock}\n🔍 크롤링 소제목이 부족합니다. ${userQuestions.length > 0 || searchQueries.length > 0 ? '위 검색자 질문/검색어를 근거로' : '키워드와 일반적인 검색 의도 패턴을 기준으로'} 핵심 소주제 ${targetCount}개를 만들되, 확인되지 않은 최신 트렌드/수치/마감일은 새로 만들지 마세요.`;
 
   // 🎯 검색 의도 자동 분류 — 의도별로 다른 H2 아키타입 제시
   const { buildIntentPromptBlock } = require('../search-intent-classifier');
