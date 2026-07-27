@@ -253,13 +253,18 @@ export function insertInternalLinks(
     return html;
   }
   
-  const $ = cheerio.load(html, { decodeEntities: false });
+  // v3.8.377: fragment 모드(3번째 인자 false) — document 모드는 본문을 <html><head></head><body>로
+  //   감싸서 발행 글에 래퍼가 그대로 실렸다 (실측: 발행 322편 중 5편 오염 — id 4281,1771,1641,1534,1035).
+  //   ⚠️ $('body').html() 로 고치면 안 된다: cheerio가 선두 <style>을 <head>로 옮겨 CSS가 통째로 사라진다.
+  //   (internal-links-roundtrip.test.ts가 두 함정 모두 고정)
+  // (타입 정의가 3번째 인자 isDocument를 모르는 버전이라 함수 캐스트 — 런타임 동작은 실행으로 검증됨)
+  const $ = (cheerio.load as any)(html, { decodeEntities: false }, false);
   
   // H2 섹션 찾기
   const h2Sections = $('h2');
   let linkIndex = 0;
   
-  h2Sections.each((idx, h2) => {
+  h2Sections.each((idx: number, h2: any) => {
     if (linkIndex >= links.length) return;
     
     // 해당 H2의 다음 콘텐츠 영역 찾기

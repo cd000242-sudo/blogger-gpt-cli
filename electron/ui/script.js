@@ -9876,9 +9876,14 @@ function toggleScheduleSettings() {
   if (selectedMode === 'schedule') {
     scheduleSettings.style.display = 'block';
     // 예약 시간 기본값 설정 (현재 시간 + 1시간)
+    // v3.8.377: datetime-local 입력은 값을 "로컬 시각"으로 해석한다.
+    //   기존 toISOString()(UTC)은 KST에서 8시간 과거가 되어, 사용자가 시간을 안 고치면
+    //   wordpress-publisher가 과거 시각으로 판정 → 예약이 조용히 즉시발행으로 강등됐다.
+    //   (publish-queue.js의 toLocalDateTimeInputValue와 동일 방식 — schedule-prefill-guard.test.ts가 고정)
     const now = new Date();
     now.setHours(now.getHours() + 1);
-    const dateTimeString = now.toISOString().slice(0, 16);
+    const pad = (n) => String(n).padStart(2, '0');
+    const dateTimeString = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
     const scheduleDateTime = document.getElementById('scheduleDateTime');
     if (scheduleDateTime) {
       scheduleDateTime.value = dateTimeString;
