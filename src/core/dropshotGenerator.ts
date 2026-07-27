@@ -352,7 +352,11 @@ async function waitForDropshotEditorControls(page: any, timeoutMs = 18_000): Pro
     try {
       const controls = await inspectDropshotEditorControls(page);
       lastControls = controls;
-      if (controls.modelPickerIndex >= 0) return controls;
+      // v3.8.376: 모델 버튼만 뜬 하이드레이션 중간 스냅샷을 그대로 쓰면 이후 nth(index)가
+      //   다른 스위치를 집을 수 있다 — 무제한 토글 인덱스까지 잡힌 뒤에만 반환한다.
+      //   (데드라인 마지막 2초는 기존 조건으로 완화 — 토글이 진짜 없는 레이아웃 폴백)
+      if (controls.modelPickerIndex >= 0 && controls.unlimitedSwitchIndex >= 0) return controls;
+      if (controls.modelPickerIndex >= 0 && Date.now() > deadline - 2_000) return controls;
     } catch (error: any) {
       lastError = error?.message || String(error);
     }
@@ -414,15 +418,34 @@ async function ensureDropshotControls(page: any, onLog?: (m: string) => void): P
         throw new Error('Dropshot 무제한 모드 토글을 찾지 못했습니다. 사이트 UI 변경 여부를 확인해주세요.');
       }
       const unlimitedSwitch = page.locator('input[role="switch"]').nth(controls.unlimitedSwitchIndex);
-      let unlimitedEnabled = await unlimitedSwitch.evaluate((el: any) => el.checked === true || el.getAttribute('aria-checked') === 'true');
+      const readSwitchState = () => unlimitedSwitch.evaluate((el: any) => el.checked === true || el.getAttribute('aria-checked') === 'true');
+      let unlimitedEnabled = await readSwitchState();
       if (!unlimitedEnabled) {
+        // v3.8.376: sr-only input은 직접 클릭이 실제 토글로 이어지지 않는다 (연속발행 "인증오류"의 주범).
+        //   구버전(ensureDropshotControlsLegacy)에 있던 부모 label/button 클릭 우회를 복원한다.
+        //   기존 코드는 이미 ON인 따뜻한 페이지에서만 통과했고, cold board(OFF)에서는 절대 못 켰다.
+        const handle = await unlimitedSwitch.elementHandle().catch(() => null);
+        if (handle) {
+          const parentHandle = await handle.evaluateHandle(
+            (el: any) => el.closest('label') || el.closest('button') || el.parentElement,
+          ).catch(() => null);
+          const parentEl = parentHandle?.asElement?.();
+          if (parentEl) {
+            await parentEl.click({ force: true, timeout: 5_000 }).catch(() => {});
+            await wait(700);
+            unlimitedEnabled = await readSwitchState();
+          }
+        }
+      }
+      if (!unlimitedEnabled) {
+        // 부모 클릭도 실패하면 기존 방식 재시도 (일부 렌더링에서는 직접 클릭이 유효)
         try {
           await unlimitedSwitch.check({ force: true, timeout: 5_000 });
         } catch {
-          await unlimitedSwitch.click({ force: true, timeout: 5_000 });
+          await unlimitedSwitch.click({ force: true, timeout: 5_000 }).catch(() => {});
         }
         await wait(500);
-        unlimitedEnabled = await unlimitedSwitch.evaluate((el: any) => el.checked === true || el.getAttribute('aria-checked') === 'true');
+        unlimitedEnabled = await readSwitchState();
       }
       if (!unlimitedEnabled) throw new Error('Dropshot 무제한 모드를 실제 ON 상태로 전환하지 못했습니다. 유료 크레딧 모드로는 자동 생성하지 않습니다.');
       onLog?.('🎛️ [Dropshot] 무제한 모드 ON 확인');
@@ -1278,8 +1301,15 @@ export async function checkDropshotLogin(options: { force?: boolean } = {}): Pro
     } catch { /* subscription 정보 못 가져와도 loggedIn 정보는 유효 */ }
 
     if (openedFresh) {
-      // 캐시 안 했으면 닫기 (별도 ensurePage가 나중에 다시 띄움)
-      await closeDropshotContext(context);
+      // v3.8.376: 인증 확인에 성공한 컨텍스트는 닫지 않고 캐시로 인계한다 (warm 인계).
+      //   기존에는 여기서 닫고 곧이어 ensurePage가 다시 냉시작(cold board) → 무제한 토글이
+      //   OFF/미하이드레이션 상태로 잡혀 연속발행에서 "인증오류"가 났다.
+      if (!cachedContext && !cachedPage) {
+        cachedContext = context;
+        cachedPage = page;
+      } else {
+        await closeDropshotContext(context);
+      }
     }
 
     const result = withDropshotSubscriptionMeta({ ...info, subscription });
@@ -1349,7 +1379,16 @@ export async function verifyDropshotGenerationReady(
       message: `Dropshot 생성 준비 확인 실패: ${error?.message || error}`,
     };
   } finally {
-    if (openedFresh && context) await closeDropshotContext(context);
+    // v3.8.376: 준비 확인에 쓴 컨텍스트를 닫지 않고 캐시로 인계 (warm 인계).
+    //   프리플라이트 직후 이어지는 실제 생성이 cold board에서 시작하지 않게 한다.
+    if (openedFresh && context) {
+      if (!cachedContext && !cachedPage && page) {
+        cachedContext = context;
+        cachedPage = page;
+      } else {
+        await closeDropshotContext(context);
+      }
+    }
   }
 }
 

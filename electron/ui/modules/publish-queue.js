@@ -196,6 +196,8 @@ async function verifyQueueDropshotReadiness(runModal, enabled = []) {
     return { ok: false, error: 'Dropshot 준비 확인 모듈을 찾지 못했습니다. 앱을 다시 실행해주세요.' };
   }
   try {
+    // 주의: publishContext를 넘기지 않는 것은 의도된 정책이다 (free-trial-ui-policy.test.ts가 고정).
+    //   무료체험 발행 권한이 대기열 경로로 상속되지 않도록 큐 프리플라이트는 엄격 모드를 유지한다.
     const result = await window.verifyDropshotGenerationReady({ force: true });
     if (!result?.ready) {
       return { ok: false, error: result?.message || 'Dropshot 로그인 또는 생성 연동이 필요합니다.' };

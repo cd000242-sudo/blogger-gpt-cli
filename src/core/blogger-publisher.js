@@ -3353,7 +3353,8 @@ async function publishToBlogger(payload, title, html, thumbnailUrl, onLog, posti
 
     isDraftMode = cleanPostingStatus === 'draft';
     isScheduleMode = cleanPostingStatus === 'schedule';
-    const finalStatus = (isDraftMode || isScheduleMode) ? 'DRAFT' : 'LIVE';
+    // v3.8.376: 표시용 status를 실제 동작과 일치시킴 — 예약은 DRAFT가 아니라 SCHEDULED(서버 예약)다
+    const finalStatus = isScheduleMode ? 'SCHEDULED' : (isDraftMode ? 'DRAFT' : 'LIVE');
 
     console.log(`[PUBLISH] 원본 postingStatus: "${postingStatus}"`);
     console.log(`[PUBLISH] 정제된 postingStatus: "${cleanPostingStatus}"`);
@@ -5255,7 +5256,8 @@ html body .content-inner {
     console.log(`[PUBLISH] 요청 본문 준비 완료`);
     console.log(`[PUBLISH] 요청 본문 크기: ${JSON.stringify(body).length}`);
     console.log(`[PUBLISH] Blog ID: "${blogId}"`);
-    console.log(`[PUBLISH] isDraft: ${isDraftMode || isScheduleMode || false}`);
+    // v3.8.376: 로그를 실제 전송값과 일치시킴 — 예약 발행은 isDraft=false 로 나간다 (블로거 서버가 예약 처리)
+    console.log(`[PUBLISH] isDraft: ${isDraftMode && !isScheduleMode}`);
     console.log(`[PUBLISH] requestBody 구조:`, {
       kind: body.kind,
       blog: body.blog,
@@ -6246,7 +6248,7 @@ html body .content-inner {
 
       const sentDataInfo = {
         blogId: blogIdDisplay,
-        isDraft: isDraftMode || isScheduleMode || false,
+        isDraft: isDraftMode && !isScheduleMode, // v3.8.376: 실제 전송값과 일치 (예약=false)
         requestBodyKeys: body ? Object.keys(body) : [],
         requestBodyFull: requestBodyFullStr,
         requestBodySample: body ? {

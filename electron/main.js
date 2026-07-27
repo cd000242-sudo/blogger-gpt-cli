@@ -4967,7 +4967,8 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
                         try {
                             const { submitToIndexNow } = require('../dist/core/indexnow');
                             submitToIndexNow(publishResult.url, [publishResult.url]).then((indexResult) => {
-                                console.log('[INDEXNOW] 자동 색인 요청:', indexResult.ok ? '성공' : '실패');
+                                // v3.8.376: 정직한 로그 — 키 미설정 스킵을 '성공'으로 찍지 않는다
+                                console.log('[INDEXNOW] 자동 색인 요청:', indexResult.skipped ? '스킵(키 미설정)' : (indexResult.ok ? '성공' : `실패(${indexResult.error || 'unknown'})`));
                             }).catch(() => { });
                         }
                         catch { /* ignore */ }

@@ -485,6 +485,32 @@ export async function generateUltimateMaxModeArticleFinal(
     const keyword = payload.topic || '';
     const platform = payload.platform || 'wordpress'; // wordpress or blogspot
 
+    // 🛡️ v3.8.376: 리더스(Dropshot) 엔진 프리플라이트 — 본문 생성 "전에" 이미지 엔진 상태를 확인한다.
+    //   실측(2026-07-26 연속발행): 본문+보강+FAQ+CTA를 전부 생성(유료 호출 ~5회)한 뒤 이미지 단계에서
+    //   STRICT_ENGINE_FAILED로 발행이 차단되어 그 텍스트 비용이 전액 낭비됐다 (같은 글을 두 번 생성 = $0.68).
+    //   strict 엔진은 폴백이 없으므로, 준비가 안 됐으면 토큰을 쓰기 전에 여기서 중단한다.
+    const thumbSourceForPreflight = String(payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || '');
+    const needsDropshotPreflight = String(imageSource).toLowerCase().includes('dropshot')
+      || thumbSourceForPreflight.toLowerCase().includes('dropshot');
+    if (needsDropshotPreflight) {
+      onLog?.('[PROGRESS] 2% - 🛡️ 리더스 이미지 엔진 사전 점검 중... (비용 보호)');
+      let preflightFailReason = '';
+      try {
+        const { verifyDropshotGenerationReady } = await import('../dropshotGenerator');
+        const readiness: any = await verifyDropshotGenerationReady();
+        if (!readiness?.ready) preflightFailReason = String(readiness?.message || '준비 상태 확인 실패');
+      } catch (preflightErr: any) {
+        preflightFailReason = String(preflightErr?.message || preflightErr).slice(0, 160);
+      }
+      if (preflightFailReason) {
+        throw new Error(
+          `STRICT_ENGINE_PREFLIGHT: 리더스 이미지 엔진이 준비되지 않아 본문 생성 전에 중단했습니다 (LLM 비용 소모 0). `
+          + `사유: ${preflightFailReason}. 설정 → 이미지 엔진에서 Dropshot 로그인 상태를 확인한 뒤 다시 시도해주세요.`,
+        );
+      }
+      onLog?.('[PROGRESS] 3% - ✅ 리더스 이미지 엔진 준비 확인 — 본문 생성 시작');
+    }
+
     // 1. 크롤링 - URL이 있으면 URL 크롤링, 없으면 키워드 크롤링
     const manualUrls: string[] = payload.manualCrawlUrls || [];
     const sourceUrl = payload.sourceUrl || payload.crawlUrl || '';
@@ -1337,9 +1363,20 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog?.(`[PROGRESS] 74% - 🧱 ${substanceReport.summary}`);
       console.log(`[SUBSTANCE] ${substanceReport.summary}`);
 
-      if (!substanceReport.passed) {
+      // v3.8.376: 자동 재생성 기본 OFF — 측정·경고만 하고 추가 LLM 호출은 하지 않는다.
+      //   실측(2026-07-26, 유료 OpenAI 엔진 연속발행): 재생성이 매 편 발동해 편당 본문급 호출 +1,
+      //   심지어 점수가 되레 하락(41→29)해 결과도 버려짐 = 비용 100% 낭비.
+      //   사용자 원칙: "비용은 고정되어야 한다" — 재생성은 명시적 opt-in만 허용.
+      //   opt-in: payload.substanceAutoRegen === true 또는 env SUBSTANCE_AUTO_REGEN=1
+      const substanceAutoRegen = (payload as any)?.substanceAutoRegen === true
+        || process.env['SUBSTANCE_AUTO_REGEN'] === '1';
+
+      if (!substanceReport.passed && !substanceAutoRegen) {
         substanceReport.worstSentences.slice(0, 3).forEach(s => console.warn(`[SUBSTANCE] 알맹이 없는 문장: ${s}`));
-        onLog?.('[PROGRESS] 75% - 🧱 실속 부족 → 구체 정보를 강제하는 프롬프트로 1회 재생성 중...');
+        onLog?.('[PROGRESS] 75% - 🧱 실속 미달 경고만 기록 (자동 재생성 OFF — 추가 비용 없음)');
+      } else if (!substanceReport.passed) {
+        substanceReport.worstSentences.slice(0, 3).forEach(s => console.warn(`[SUBSTANCE] 알맹이 없는 문장: ${s}`));
+        onLog?.('[PROGRESS] 75% - 🧱 실속 부족 → 구체 정보를 강제하는 프롬프트로 1회 재생성 중... (opt-in)');
         const substanceBlock = scopedSectionBlock + buildSubstanceRetryBlock(substanceReport);
         try {
           const retried = await generateAllSectionsFinal(
