@@ -42,6 +42,9 @@ export class ScheduleManager {
     const userDataPath = app.getPath('userData');
     this.scheduleFilePath = path.join(userDataPath, 'scheduled-posts.json');
     this.loadScheduleData();
+    // v3.8.381(R6): 부팅 시 좌초 예약 회수 — 프로세스가 막 시작됐으므로
+    //   'processing' 상태는 전부 이전 실행이 크래시로 남긴 것이다 (영구 유실 방지).
+    this.recoverStuckProcessing(0);
   }
 
   // 스케줄 데이터 로드
@@ -159,12 +162,34 @@ export class ScheduleManager {
   }
 
   // 예약된 포스트 조회 (현재 시간 기준)
+  // v3.8.381(R6): 시간순 정렬 — 가장 이른 예약부터 처리되도록 보장 (기존엔 삽입 순서 그대로)
   getPendingSchedules(): ScheduledPost[] {
     const now = new Date();
-    return this.scheduleData.filter(post => {
-      const scheduleTime = new Date(post.scheduleDateTime);
-      return post.status === 'pending' && scheduleTime <= now;
+    return this.scheduleData
+      .filter(post => {
+        const scheduleTime = new Date(post.scheduleDateTime);
+        return post.status === 'pending' && scheduleTime <= now;
+      })
+      .sort((a, b) => new Date(a.scheduleDateTime).getTime() - new Date(b.scheduleDateTime).getTime());
+  }
+
+  // v3.8.381(R6): 크래시로 'processing'에 멈춘 예약 회수 — 영구 유실 방지.
+  //   getPendingSchedules가 processing을 제외하므로, 처리 중 앱이 죽으면 그 예약은
+  //   영원히 실행되지 않았다. maxAgeMs=0이면 나이 무관 전부 회수 (부팅 직후용 —
+  //   프로세스가 막 시작됐으므로 'processing'은 전부 좌초 상태다).
+  recoverStuckProcessing(maxAgeMs: number = 0): number {
+    const now = Date.now();
+    const stuck = this.scheduleData.filter(post => {
+      if (post.status !== 'processing') return false;
+      if (maxAgeMs <= 0) return true;
+      const updatedAt = new Date(post.updatedAt || post.createdAt || 0).getTime();
+      return !Number.isFinite(updatedAt) || now - updatedAt >= maxAgeMs;
     });
+    stuck.forEach(post => this.updateSchedule(post.id, { status: 'pending' }));
+    if (stuck.length > 0) {
+      console.log(`♻️ 'processing'에 멈춰 있던 예약 ${stuck.length}개를 pending으로 회수했습니다`);
+    }
+    return stuck.length;
   }
 
   // 스케줄 통계 조회
@@ -220,25 +245,43 @@ export class ScheduleManager {
   }
 
   // 예약된 포스트 확인 및 처리
+  // v3.8.381(R6): 3중 방어 —
+  //   ① 재진입 가드: 30초 tick이 겹치면(발행이 30초보다 길면 반드시 겹친다) 같은 예약이
+  //      두 번 processScheduledPost에 들어가 동일 글이 2회 발행됐다.
+  //   ② 틱당 1건: 밀린 예약이 한꺼번에 버스트로 나가지 않게 가장 이른 것 하나만 처리.
+  //   ③ 처리 직전 status 재확인: 스냅샷이 낡았을 가능성 차단.
+  //   (schedule-manager-reentrancy.test.ts가 고정)
+  private isTicking = false;
+
   private async checkPendingSchedules(): Promise<void> {
-    const pendingSchedules = this.getPendingSchedules();
-    
-    if (pendingSchedules.length === 0) {
-      return;
-    }
+    if (this.isTicking) return; // ① 재진입 가드
+    this.isTicking = true;
+    try {
+      const pendingSchedules = this.getPendingSchedules();
+      if (pendingSchedules.length === 0) {
+        return;
+      }
 
-    console.log(`🔍 예약된 포스트 확인: ${pendingSchedules.length}개 발견`);
+      console.log(`🔍 예약된 포스트 확인: ${pendingSchedules.length}개 발견 (틱당 1건 처리)`);
 
-    for (const schedule of pendingSchedules) {
+      const schedule = pendingSchedules[0]; // ② 가장 이른 것 하나만 (getPendingSchedules가 정렬)
+      if (!schedule) return;
+
+      // ③ 처리 직전 최신 상태 재확인
+      const current = this.scheduleData.find(post => post.id === schedule.id);
+      if (!current || current.status !== 'pending') return;
+
       try {
-        await this.processScheduledPost(schedule);
+        await this.processScheduledPost(current);
       } catch (error) {
-        console.error(`❌ 스케줄 처리 실패: ${schedule.id}`, error);
-        this.updateSchedule(schedule.id, {
+        console.error(`❌ 스케줄 처리 실패: ${current.id}`, error);
+        this.updateSchedule(current.id, {
           status: 'failed',
           errorMessage: error instanceof Error ? error.message : '알 수 없는 오류'
         });
       }
+    } finally {
+      this.isTicking = false;
     }
   }
 

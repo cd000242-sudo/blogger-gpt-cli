@@ -10517,6 +10517,19 @@ async function forcedRemoteUpdateCheck() {
 electron_1.app.whenReady().then(async () => {
     console.log('[APP] Electron 앱 준비 완료');
     console.log(`[VERSION] LEADERNAM Orbit v${electron_1.app.getVersion()}`);
+    // v3.8.381(R6): 부팅 시 스케줄 감시 자동 재개 — 기존에는 사용자가 대기열에서 "예약"을
+    //   눌러야만 감시가 시작되어, 앱 재시작 후 기존 예약이 조용히 실행되지 않았다.
+    //   (생성자에서 좌초된 'processing' 회수도 함께 수행됨 — schedule-manager.ts 참조)
+    try {
+        const { getScheduleManager } = require('../dist/core/schedule-manager');
+        const scheduleMgr = getScheduleManager();
+        const pendingCount = scheduleMgr.getSchedulesByStatus('pending').length;
+        scheduleMgr.startMonitoring();
+        console.log(`[APP] ⏰ 스케줄 감시 자동 시작 (대기 중 예약 ${pendingCount}개)`);
+    }
+    catch (schedErr) {
+        console.warn('[APP] 스케줄 감시 자동 시작 실패:', schedErr?.message);
+    }
     // v3.8.365: 앱 실행 시 renderer 캐시 자동 삭제 → 신규 버전 fix가 즉시 반영
     //   과거: index.html 등이 Chromium HTTP/Code 캐시에 남아 앱 업데이트 후에도 이전 UI 렌더링
     //   현재: 매 실행 시 clearCache로 fresh renderer 보장 (사용자가 Ctrl+R 안 눌러도 됨)

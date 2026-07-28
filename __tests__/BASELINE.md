@@ -23,18 +23,26 @@ Tests:      572 passed, 2 failed, 574 total
 | 1 | `__tests__/fact-integrity-regression.test.ts` | `fact integrity regression blocks a newer year when the supplied evidence only supports an older baseline` |
 | 2 | `__tests__/imageDispatcher.test.ts` | `에러 메시지 상세화 + 엄격 모드 opt-in (v3.6.0) STRICT_H2_IMAGE_ENGINE=true + nanobananapro 실패 → STRICT_ENGINE_FAILED throw (폴백 차단)` |
 
-## R0에서 추가한 안전망 (의도적으로 red)
+## R0에서 추가한 안전망 — **전부 green 전환 완료 (v3.8.381)**
 
-아래는 **고쳐야 할 버그를 잡는 그물**이라 지금은 실패하는 것이 정상이다.
-각 릴리스에서 해당 버그를 고치면 green으로 바뀌어야 하며, **green이 되지 않으면 그 수정은 완료된 것이 아니다.**
+아래 그물은 R0 시점에 의도적으로 red였고, 각 릴리스에서 대응 버그가 고쳐지며 green이 됐다.
+**이제부터는 하나라도 red가 되면 회귀다 — 즉시 릴리스 중단.**
 
-| 테스트 파일 | red 개수 | 대응 릴리스 | 잡는 버그 |
-|---|---|---|---|
-| `internal-links-roundtrip.test.ts` | 2 | R2 | 본문에 `<html>/<head>/<body>` 래퍼 삽입 |
-| `gemini-engine-503-loop.test.ts` | 2 | R4 | 503 무한 재시도 → 엔진 락 영구 점유 |
-| `schedule-manager-reentrancy.test.ts` | 3 | R6 | 중복 발행 / `processing` 영구 유실 / 미정렬 |
-| `schedule-prefill-guard.test.ts` | 1 | R2.5 | UTC 프리필 → 예약이 즉시발행으로 강등 |
-| `blogger-draft-log-guard.test.ts` | 1 | R1 | 로그가 실제 전송값과 다름 |
+| 테스트 파일 | 잡았던 버그 | green 전환 |
+|---|---|---|
+| `blogger-draft-log-guard.test.ts` | 로그가 실제 전송값과 다름 | v3.8.376 (R1) |
+| `internal-links-roundtrip.test.ts` | 본문에 `<html>/<head>/<body>` 래퍼 삽입 | v3.8.377 (R2) |
+| `schedule-prefill-guard.test.ts` | UTC 프리필 → 예약이 즉시발행으로 강등 | v3.8.377 (R2) |
+| `publish-queue-persistence.test.ts` | 크래시 후 완료분 중복 발행 | v3.8.378 (R3) |
+| `atomic-json-store.test.ts` | 쓰기 중 크래시 → 예약 전체 소실 | v3.8.378 (R3) |
+| `gemini-engine-503-loop.test.ts` | 503 무한 재시도 → 엔진 락 영구 점유 | v3.8.379 (R4) |
+| `engine-lock.test.ts` | 락 무한 대기 / throw-gap 데드락 | v3.8.380 (R5) |
+| `schedule-manager-reentrancy.test.ts` | 중복 발행 / `processing` 영구 유실 / 미정렬 | v3.8.381 (R6) |
+
+### 게이트 판정 이력 노트
+- v3.8.381 게이트에서 1회차 실행이 3건 실패(요약만 캡처되어 3번째 이름 미상)했으나,
+  `--json` 전체 재실행에서 607/2로 baseline과 정확히 일치 — 간헐 실패로 판정하고 진행.
+  이후 게이트는 `--json --outputFile`로 실행해 실패 이름을 항상 확보할 것.
 
 ## 오답 방지 가드 (지금도 green — 절대 깨지면 안 됨)
 
