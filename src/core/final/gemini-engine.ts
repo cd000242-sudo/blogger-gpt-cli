@@ -363,8 +363,22 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
   let lastInfo: FailureInfo = { kind: 'unknown', message: 'No Gemini model was called' };
   let totalAttempts = 0;
 
+  // v3.8.379(R4): 요청 단위 누적 재시도 마감 — "이 요청은 최대 N분"의 절대 상한.
+  //   개별 카운터가 어떤 버그로 다시 깨져도 함수가 유한 시간 안에 반드시 반환하게 한다
+  //   (미반환 = orchestration의 finally가 실행되지 않아 engineLock 영구 점유 = 그날 0편).
+  //   env GEMINI_RETRY_DEADLINE_MS 로 조정, '0'이면 마감 비활성(킬스위치 — 이전 동작 복원).
+  const deadlineEnvRaw = process.env['GEMINI_RETRY_DEADLINE_MS'];
+  const retryDeadlineMs = deadlineEnvRaw === '0' ? 0 : envInt('GEMINI_RETRY_DEADLINE_MS', 20 * 60_000);
+  const retryDeadlineAt = retryDeadlineMs > 0 ? Date.now() + retryDeadlineMs : 0;
+  let deadlineExceeded = false;
+
   for (const modelName of geminiChain) {
+    // v3.8.379(R4): 503 백오프 카운터를 실제 변수로 승격 (모델별 리셋).
+    //   기존 __svcRetry는 catch 진입마다 `lastInfo = info`가 먼저 덮어써 항상 0으로 읽혔고,
+    //   retry-- 와 결합해 "2분 대기"를 영원히 반복했다 (gemini-engine-503-loop.test.ts로 재현).
+    let svcRetryCount = 0;
     for (let retry = 0; retry < attemptsPerModel; retry++) {
+      if (retryDeadlineAt && Date.now() > retryDeadlineAt) { deadlineExceeded = true; break; }
       totalAttempts++;
       try {
         await waitForTextProviderTurn('gemini', modelName);
@@ -405,14 +419,19 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
         //   backoff: 2분 → 5분 → 10분 → 20분 → 30분 (5회, 총 67분 max)
         //   첫 2분은 정말 일시적 spike 회복용, 그 이후 점진적으로 길게
         if (info.kind === 'service_unavailable') {
-          const svcRetry = (lastInfo.kind === 'service_unavailable' ? (lastInfo as any).__svcRetry || 0 : 0);
           const backoffSchedule: number[] = [120000, 300000, 600000, 1200000, 1800000]; // 2m, 5m, 10m, 20m, 30m
-          if (svcRetry < backoffSchedule.length) {
-            const backoff: number = backoffSchedule[svcRetry] ?? 600000;
+          if (svcRetryCount < backoffSchedule.length) {
+            const backoff: number = backoffSchedule[svcRetryCount] ?? 600000;
+            // 마감을 넘길 대기는 아예 시작하지 않는다 (30분 자고 나서 마감 초과 확인하는 낭비 방지)
+            if (retryDeadlineAt && Date.now() + backoff > retryDeadlineAt) {
+              console.log(`[Gemini] ${modelName} 503 — 누적 재시도 마감(${Math.round(retryDeadlineMs / 60000)}분) 초과 예정, 재시도 중단`);
+              deadlineExceeded = true;
+              break;
+            }
             const mins = Math.round(backoff / 60000);
-            console.log(`[Gemini] ${modelName} 503/overloaded — ${mins}분 대기 후 재시도 (${svcRetry + 1}/${backoffSchedule.length})`);
+            console.log(`[Gemini] ${modelName} 503/overloaded — ${mins}분 대기 후 재시도 (${svcRetryCount + 1}/${backoffSchedule.length})`);
             await sleep(backoff);
-            lastInfo = { ...info, __svcRetry: svcRetry + 1 } as any;
+            svcRetryCount++;
             retry--; // 같은 retry 슬롯 재사용 (모델 폴백 안 함)
             continue;
           }
@@ -437,6 +456,12 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
         break;
       }
     }
+    // v3.8.379(R4): 마감 초과 시 남은 모델 체인도 건너뛰고 즉시 종료 (유한 반환 보장)
+    if (deadlineExceeded) break;
+  }
+
+  if (deadlineExceeded) {
+    console.warn(`[Gemini] 누적 재시도 마감(${Math.round(retryDeadlineMs / 60000)}분) 초과 — 재시도 전면 중단 (env GEMINI_RETRY_DEADLINE_MS로 조정 가능)`);
   }
 
   // v3.8.164: provider auto-fallback 제거 — 사용자 선택 존중
