@@ -6828,8 +6828,13 @@ const CODEX_UPGRADE_REQUIRED_RE = /requires a newer version of Codex/i;
 //             ② ChatGPT Plus/Pro 구독 미보유 또는 5h 사용량 한도 도달
 //             ③ codex login이 다른 워크스페이스로 잘못 매핑
 const CODEX_OUT_OF_CREDITS_RE = /out of credits|workspace.{0,20}credit|insufficient.{0,20}(quota|credit)|exceeded.{0,20}quota|billing.{0,20}(limit|hard cap)/i;
-const CODEX_AUTH_REQUIRED_RE = /not (?:logged in|authenticated)|please (?:log in|login)|run `codex login`|authentication required|401\s*unauthorized/i;
-const AGENT_AUTH_REQUIRED_RE = /not (?:logged in|authenticated)|please (?:log in|login)|login required|authentication required|auth(?:entication)? failed|unauthorized|401|run [`"]?(?:codex login|claude)[`"]?|invalid api key|no api key|oauth token/i;
+// v3.8.382: 리프레시 토큰 무효화 문구를 인증 실패로 분류한다.
+//   실측(2026-07-26): 사용자가 본 "Your access token could not be refreshed. Please log out and sign in again."
+//   / "invalid_refresh_token" / "token_expired" 가 아래 정규식 어디에도 안 걸려,
+//   재로그인 안내가 나가지 않고 큐가 남은 항목을 계속 실행했다.
+//   ("please log **out**"이라 기존 "please log in" 패턴에 걸리지 않았다)
+const CODEX_AUTH_REQUIRED_RE = /not (?:logged in|authenticated)|please (?:log in|login)|run `codex login`|authentication required|401\s*unauthorized|invalid_refresh_token|token_expired|could not be refreshed|could not validate your refresh token|token is expired|refresh token (?:has expired|was already used|was revoked)|log (?:out|off) and sign in|try signing in again/i;
+const AGENT_AUTH_REQUIRED_RE = /not (?:logged in|authenticated)|please (?:log in|login)|login required|authentication required|auth(?:entication)? failed|unauthorized|401|run [`"]?(?:codex login|claude)[`"]?|invalid api key|no api key|oauth token|invalid_refresh_token|token_expired|could not be refreshed|could not validate your refresh token|token is expired|refresh token (?:has expired|was already used|was revoked)|log (?:out|off) and sign in|try signing in again/i;
 function isAgentModeDevOverride() {
     return !electron_1.app.isPackaged || process.env.DEV_MODE === 'true' || process.env.NODE_ENV === 'development';
 }
@@ -9460,6 +9465,18 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
         const hasContent = !!String(result.content || '').trim();
         if (!hasContent) {
             const errorMessage = buildAgentFailureMessage(profile, run);
+            // v3.8.382: 실행 중 드러난 인증 실패를 응답에 실어 보낸다.
+            //   사전 점검(codex login status)은 로컬 auth 파일만 읽으므로 서버측 토큰 무효화를 감지할 수 없다.
+            //   실제 실행에서만 드러나므로, 여기서 authRequired를 분류해 UI가 재로그인 안내를 띄우고
+            //   큐가 남은 항목을 중단할 수 있게 한다 (기존엔 필드 자체가 없어 계속 실행됐다).
+            const failureText = `${run.stderr}\n${run.stdout}`;
+            const authRequired = profile.provider === 'codex'
+                ? CODEX_AUTH_REQUIRED_RE.test(failureText)
+                : AGENT_AUTH_REQUIRED_RE.test(failureText);
+            if (authRequired) {
+                updateAgentProfileStatus(profile.id, 'needs-login');
+                console.warn(`[AGENT] 실행 중 인증 만료 감지 → 프로필 ${profile.id} 상태를 needs-login으로 변경`);
+            }
             return {
                 ok: false,
                 jobId,
@@ -9467,6 +9484,7 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
                 profile: toAgentProfileView(profile),
                 exitCode: run.exitCode,
                 timedOut: run.timedOut,
+                authRequired,
                 error: errorMessage,
                 stdout: run.stdout.slice(-12000),
                 stderr: run.stderr.slice(-12000),

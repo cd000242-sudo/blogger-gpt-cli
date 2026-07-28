@@ -3788,6 +3788,10 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   }
 
   if (!result?.ok) {
+    // v3.8.382: 인증 만료는 재시도해도 무조건 실패한다 — 연속발행이 남은 항목을 헛돌지 않도록 신호를 남긴다.
+    if (result?.authRequired) {
+      try { window.__agentAuthRevoked = true; } catch { /* noop */ }
+    }
     const detail = [result?.error, result?.stderr, result?.stdout].filter(Boolean).join('\n\n').trim();
     setAgentRunStatus(detail || 'Agent 생성에 실패했습니다.', 'error');
     throw new Error(detail || result?.error || 'Agent 생성에 실패했습니다. 로그인 상태를 확인해주세요.');

@@ -3204,6 +3204,8 @@ function bindModalEvents() {
     }
 
     // 🛡️ v3.5.84: 큐 모드 플래그 — posting.js가 단발 모달 대신 누적하도록 신호
+    // v3.8.382: 이전 실행에서 남은 인증 만료 플래그 초기화 (재로그인 후 재시작이 막히지 않도록)
+    try { window.__agentAuthRevoked = false; } catch { /* noop */ }
     resetQueueStopRequest();
     window.__queueRunning = true;
     window.__queueProgressActive = true;
@@ -3293,6 +3295,14 @@ function bindModalEvents() {
 
         try { window.__publishQueuePayloadOverrides = null; } catch {}
         try { window.__publishQueueActiveImageToken = null; } catch {}
+
+        // v3.8.382: Agent 인증이 만료되면 남은 항목은 전부 같은 실패를 반복한다 — 즉시 중단.
+        //   사전 점검(codex login status)은 로컬 파일만 읽어 서버측 토큰 무효화를 못 잡으므로,
+        //   실제 실행에서 드러난 시점에 멈추는 것이 유일한 방어다.
+        if (window.__agentAuthRevoked) {
+          runModal.log('Agent 인증이 만료되어 남은 항목을 실행하지 않습니다. 환경설정 → Agent 계정에서 재로그인해주세요.');
+          break;
+        }
 
         if (isQueueStopRequested()) {
           runModal.log('\uc911\uc9c0 \uc694\uccad\uc73c\ub85c \ub2e4\uc74c \ud56d\ubaa9\uc73c\ub85c \ub118\uc5b4\uac00\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4.');

@@ -571,7 +571,14 @@ export async function callGeminiWithGrounding(
 
 IMPORTANT:
 - Search grounding is unavailable for this request, so do not invent exact numbers, dates, URLs, or statistics.
-- If a fact cannot be verified from the supplied context, write that the reader should confirm it on the official site.
+- v3.8.382: 확인 불가한 값이 있어도 "공식 사이트에서 확인하세요"로 문단을 끝내지 마라.
+  그 문장은 독자에게 아무것도 주지 않고, 실속 게이트(substance-gate.ts)가 탈락시키는 바로 그 패턴이다.
+  대신 아래를 구체적으로 써라:
+  ① 판단 기준 — 어떤 조건이면 A이고 어떤 조건이면 B인지
+  ② 절차 — 무엇을 어디서 어떤 순서로 (메뉴 이름·서류 이름 수준까지)
+  ③ 확인 경로 — "공식 사이트"가 아니라 정확한 기관명 + 메뉴 경로 + 준비물
+  ④ 흔한 실수 — 사람들이 여기서 무엇을 놓쳐 손해를 보는지
+- 주어진 컨텍스트에 실제 숫자·기간·금액·기관명이 있으면 그대로 본문에 옮겨라. 요약하며 숫자를 빼지 마라.
 - Keep the answer useful, but avoid unsupported claims.`;
 
   try {
