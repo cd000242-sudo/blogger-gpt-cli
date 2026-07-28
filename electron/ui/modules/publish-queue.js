@@ -3203,6 +3203,20 @@ function bindModalEvents() {
       return;
     }
 
+    // v3.8.383: 클러스터 키워드 분화 검사 — 생성 전 경고(차단 안 함).
+    //   실측(2026-07-28): 수식어만 다른 키워드 4개("목돈 마법/목돈 마련 완벽/비법/비밀")가
+    //   본문 유사도 0.47 글을 만들어 구글이 "중복 페이지"로 색인에서 탈락시켰다.
+    //   토큰을 쓰기 전에 알려주면 비용과 색인 손실을 동시에 막는다.
+    try {
+      const clusterCheck = await window.electronAPI?.invoke?.('keywords:check-cluster', enabled.map((it) => it.keyword));
+      if (clusterCheck && clusterCheck.ok === false) {
+        runModal.log('⚠️ 키워드 중복 위험이 감지되었습니다 (발행은 계속 진행합니다):');
+        (clusterCheck.warnings || []).forEach((w) => runModal.log(`   ${w}`));
+      }
+    } catch (clusterErr) {
+      console.warn('[QUEUE] 키워드 분화 검사 스킵:', clusterErr?.message);
+    }
+
     // 🛡️ v3.5.84: 큐 모드 플래그 — posting.js가 단발 모달 대신 누적하도록 신호
     // v3.8.382: 이전 실행에서 남은 인증 만료 플래그 초기화 (재로그인 후 재시작이 막히지 않도록)
     try { window.__agentAuthRevoked = false; } catch { /* noop */ }

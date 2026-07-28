@@ -11467,6 +11467,19 @@ try {
     }
     catch (e: any) { return { loggedIn: false, message: e.message || 'Dropshot 로그인 확인 실패' }; }
   });
+  // v3.8.383: 클러스터 키워드 분화 검사 — 생성 전에 "같은 글이 나올 조합"을 잡는다.
+  //   실측(2026-07-28): 수식어만 다른 키워드 4개가 유사도 0.47 글을 만들어 구글 색인에서 탈락했다.
+  //   경고만 반환하며 차단하지 않는다 (의도적 재발행이라는 정상 사용이 있다).
+  ipcMain.handle('keywords:check-cluster', async (_event, keywords?: string[]) => {
+    try {
+      const { analyzeKeywordCluster } = require('../dist/core/keyword-cluster-check');
+      return analyzeKeywordCluster(keywords);
+    } catch (error: any) {
+      console.warn('[KEYWORD-CLUSTER] 검사 실패 (발행은 계속):', error?.message);
+      return { ok: true, groups: [], warnings: [] };
+    }
+  });
+
   ipcMain.handle('dropshot:verify-ready', async (_event, options?: DropshotAccessOptions) => {
     try {
       const { checkImageGenAccess } = require('../dist/utils/license-tier-manager');

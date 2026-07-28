@@ -147,14 +147,12 @@ async function readState(): Promise<QuotaState> {
       };
     }
 
-    // 날짜 변경 시에도 무료 체험 완료 발행 카운트는 유지
+    // 날짜가 바뀌면 무료 체험 발행 횟수를 초기화한다 (일일 3회 정책)
     if (parsed.date !== today) {
-      // Free trial usage is cumulative completed publishes, not a daily counter.
-      return {
-        date: today,
-        publish: Number(parsed.publish) || 0,
-        policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
-      };
+      const reset = EMPTY_STATE(today);
+      writeState(reset);
+      console.log(`[QuotaManager] 날짜 변경(${parsed.date} → ${today}) → 무료 체험 발행 횟수 초기화`);
+      return reset;
     }
 
     return {
@@ -174,6 +172,12 @@ async function readState(): Promise<QuotaState> {
             const migrated = EMPTY_STATE(today);
             writeState(migrated);
             return migrated;
+          }
+          // 백업도 날짜가 지났으면 일일 초기화
+          if (backupParsed.date !== today) {
+            const reset = EMPTY_STATE(today);
+            writeState(reset);
+            return reset;
           }
           return {
             date: today,
@@ -263,7 +267,7 @@ export async function consume(amount: number = 1): Promise<QuotaState> {
   return next;
 }
 
-/** Records a completed publish only when the lifetime trial limit still allows it. */
+/** Records a completed publish only when the daily trial limit still allows it. */
 export async function consumeIfAvailable(limit: number, amount: number = 1): Promise<boolean> {
   const safeAmount = Math.max(0, Math.floor(Number(amount) || 0));
   if (!Number.isFinite(limit) || limit < 0 || safeAmount <= 0) return false;

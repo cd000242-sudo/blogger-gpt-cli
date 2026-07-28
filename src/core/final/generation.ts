@@ -286,7 +286,7 @@ function parseTables(raw: unknown): FinalTableData[] {
     .slice(0, 3);
 }
 
-export async function generateH1TitleFinal(keyword: string, crawledTitles: string[]): Promise<string> {
+export async function generateH1TitleFinal(keyword: string, crawledTitles: string[], demandHint?: string): Promise<string> {
   // 🔥 현재 날짜 주입
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
@@ -326,7 +326,10 @@ export async function generateH1TitleFinal(keyword: string, crawledTitles: strin
 키워드: ${keyword}
 
 ${titleReference}
-
+${demandHint ? `
+**검색 실측 (최우선 규칙 — 아래 스타일보다 우선):**
+${demandHint}
+` : ''}
 **이번에 사용할 제목 스타일 (아래 중 하나 선택):**
 ${archetypeGuide}
 

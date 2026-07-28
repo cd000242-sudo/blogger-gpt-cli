@@ -112,15 +112,28 @@ describe('QuotaManager', () => {
     expect(usage).toBe(0);
   });
 
-  // ── 날짜 변경 (누적 유지) ──
+  // ── 날짜 변경 (일일 초기화) ──
 
-  it('다른 날짜의 파일도 무료 체험 누적 발행 횟수를 유지', async () => {
+  it('날짜가 지나면 무료 체험 발행 횟수가 0으로 초기화 (일일 3회)', async () => {
     const yesterday = '2020-01-01';
-    const sig = computeTestSignature({ date: yesterday, publish: 5, lastSeenDate: yesterday, policyVersion: 2 });
-    writeRawQuotaFile({ date: yesterday, publish: 5, lastSeenDate: yesterday, policyVersion: 2, _sig: sig });
+    const sig = computeTestSignature({ date: yesterday, publish: 3, lastSeenDate: yesterday, policyVersion: 2 });
+    writeRawQuotaFile({ date: yesterday, publish: 3, lastSeenDate: yesterday, policyVersion: 2, _sig: sig });
 
-    const usage = await quotaManager.getUsageToday();
-    expect(usage).toBe(5);
+    const status = await quotaManager.getQuotaStatus(3);
+    expect(status.usage).toBe(0);
+    expect(status.isPaywalled).toBe(false);
+    expect(await quotaManager.canConsume(3, 1)).toBe(true);
+  });
+
+  it('날짜 초기화 후 상태 파일도 오늘 날짜 0회로 갱신됨', async () => {
+    const yesterday = '2020-01-01';
+    const sig = computeTestSignature({ date: yesterday, publish: 3, lastSeenDate: yesterday, policyVersion: 2 });
+    writeRawQuotaFile({ date: yesterday, publish: 3, lastSeenDate: yesterday, policyVersion: 2, _sig: sig });
+
+    await quotaManager.getUsageToday();
+    const saved = JSON.parse(fs.readFileSync(QUOTA_FILE, 'utf-8'));
+    expect(saved.date).toBe(getToday());
+    expect(saved.publish).toBe(0);
   });
 
   it('기존 일일 1회 체험 기록은 완료 발행 3회 정책으로 최초 이관 시 0회로 시작', async () => {

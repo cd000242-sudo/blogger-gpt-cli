@@ -1808,6 +1808,31 @@ export async function publishGeneratedContent(
     console.log('[PUBLISH] 제목:', title?.substring(0, 50));
     console.log('[PUBLISH] HTML 길이:', html?.length || 0);
 
+    // 🔎 v3.8.383: 발행 의도 중복 관측 — **경고만, 차단하지 않는다**
+    //   기존 중복 방지는 티스토리 전용 + 메모리 + 3분 창이라 며칠 뒤 재발행을 못 잡는다.
+    //   하루 5~10편을 수동 키워드로 발행하면 같은 주제 중복이 반드시 생기므로 먼저 충돌률을 모은다.
+    //   (차단 전환은 실측 데이터 확보 후 별도 판단 — 같은 날 의도적 2편이라는 정상 사용이 있다)
+    try {
+      const { recordPublishIntent, defaultIntentStorePath } = require('./publish-intent');
+      const { app } = require('electron');
+      const intent = recordPublishIntent({
+        platform,
+        blogIdentity: String(
+          payload?.tistoryBlogName || payload?.wordpressSiteUrl || payload?.blogId || payload?.siteUrl || 'default',
+        ),
+        topic: String(payload?.topic || title || ''),
+        storePath: defaultIntentStorePath(app.getPath('userData')),
+      });
+      if (intent.duplicate) {
+        console.warn(
+          `[PUBLISH-INTENT] ⚠️ 중복 발행 의심: "${payload?.topic || title}" — `
+          + `${intent.daysSince}일 전에 같은 주제를 이 채널에 발행했습니다 (관측만, 발행은 계속 진행)`,
+        );
+      }
+    } catch (intentErr: any) {
+      console.warn('[PUBLISH-INTENT] 관측 스킵:', intentErr?.message);
+    }
+
     if (platform === 'blogspot' || platform === 'blogger') {
       // 블로그스팟/블로거
       const { publishToBlogger } = require('./blogger-publisher.js');

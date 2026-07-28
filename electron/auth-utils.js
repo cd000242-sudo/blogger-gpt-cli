@@ -144,13 +144,13 @@ async function getPaywallResponse(message) {
     return {
         ok: false,
         code: 'PAYWALL',
-        message: message || '⛔ 무료 체험 발행 3회를 모두 사용했어요.\n라이선스를 등록하면 모든 발행 기능을 사용할 수 있습니다.',
+        message: message || '⛔ 오늘의 무료 체험 발행 3회를 모두 사용했어요.\n내일 다시 3회가 제공됩니다. 라이선스를 등록하면 모든 발행 기능을 사용할 수 있습니다.',
         quota,
     };
 }
 /**
  * 글포스팅 외 기능을 무료 체험에서 차단한다.
- * 무료 체험은 글포스팅 탭의 실제 발행 완료 3회만 사용할 수 있다.
+ * 무료 체험은 글포스팅 탭의 실제 발행 완료 하루 3회만 사용할 수 있다.
  */
 async function blockIfFreeTier(featureName = '이 기능') {
     const isFree = await isFreeTierUser();
@@ -162,7 +162,7 @@ async function blockIfFreeTier(featureName = '이 기능') {
         response: {
             ok: false,
             code: 'PAYWALL',
-            message: `⛔ ${featureName}은(는) 유료 플랜 전용 기능입니다.\n\n무료 체험에서는 글포스팅 탭에서 실제 발행이 완료된 글만 최대 3회 이용할 수 있습니다.\n${featureName} 사용은 라이선스 등록 후 가능합니다.`,
+            message: `⛔ ${featureName}은(는) 유료 플랜 전용 기능입니다.\n\n무료 체험에서는 글포스팅 탭에서 실제 발행이 완료된 글만 하루 최대 3회 이용할 수 있습니다.\n${featureName} 사용은 라이선스 등록 후 가능합니다.`,
             quota,
         },
     };

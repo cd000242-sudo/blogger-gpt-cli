@@ -255,10 +255,10 @@ export function showFreeTrialUpgradeModal(featureName = '프리미엄 기능') {
         <div class="free-trial-upgrade-badge">무료체험 제한 기능</div>
         <h2 class="free-trial-upgrade-title" id="freeTrialUpgradeTitle">${sanitizeHTML(label)}은 유료 플랜에서 사용할 수 있습니다.</h2>
         <p class="free-trial-upgrade-copy">
-          무료체험에서는 글포스팅 탭에서 실제 발행이 완료된 글을 최대 3회까지 이용할 수 있습니다. 거미줄포스팅과 외부유입 글 생성은 유료 플랜 전용입니다.
+          무료체험에서는 글포스팅 탭에서 실제 발행이 완료된 글을 하루 최대 3회까지 이용할 수 있습니다. 거미줄포스팅과 외부유입 글 생성은 유료 플랜 전용입니다.
         </p>
         <ul class="free-trial-upgrade-list">
-          <li>글포스팅: 실제 발행 완료 기준 최대 3회</li>
+          <li>글포스팅: 실제 발행 완료 기준 하루 최대 3회 (매일 초기화)</li>
           <li>거미줄포스팅·외부유입 글 생성은 유료 플랜 전용</li>
           <li>발행 실패·초안·미리보기는 무료 체험 횟수에 포함되지 않음</li>
         </ul>

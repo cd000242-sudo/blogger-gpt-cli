@@ -16,6 +16,7 @@ import '../content-modes/register-all'; // 5개 모드 플러그인 자동 등�
 import { generateContentFromUrl, generateContentFromUrls } from '../url-content-generator';
 import { validateCtaUrl, validateCtaUrlFormat } from '../../cta/validate-cta-url';
 import { findRelatedPosts, insertInternalLinks } from '../internal-links';
+import { analyzeKeywordDemand } from '../keyword-demand';
 import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
 import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTIONS } from '../max-mode/mode-sections-extended';
 import { fetchFactContext, type FactCheckMode } from '../perplexityFactCheck';
@@ -817,6 +818,28 @@ export async function generateUltimateMaxModeArticleFinal(
       );
     };
 
+    // 🔎 키워드 수요 실측 게이트 (v3.8.383, 관측 전용 — 발행을 절대 막지 않는다)
+    //    검색광고 자격증명이 등록된 적이 없어 앱의 "검색량"은 문서수×0.3 추정 폴백이었다
+    //    (naver-datalab-api.ts getBlogSearchFallback — 경쟁도를 수요로 오인시키는 거꾸로 된 신호).
+    //    여기서는 DataLab 실측으로 "이 표현을 실제로 검색하는가"를 판정해 제목 생성에 반영한다.
+    //    실측 근거: GSC 90일 — 4~10위 26편의 페이지당 노출 17회. 순위가 아니라 표현이 병목.
+    let demandTitleHint: string | undefined;
+    try {
+      const envForDemand = loadEnvFromFile();
+      const dlId = (envForDemand['NAVER_CLIENT_ID'] || '').trim();
+      const dlSecret = (envForDemand['NAVER_CLIENT_SECRET'] || '').trim();
+      if (dlId && dlSecret) {
+        const demand = await analyzeKeywordDemand(keyword, { clientId: dlId, clientSecret: dlSecret });
+        if (demand.verdict !== 'error') {
+          onLog?.(`[PROGRESS] 24% - 🔎 수요 실측: ${demand.summary}`);
+          if (demand.verdict === 'no-demand') {
+            onLog?.('[DEMAND-GATE] ⚠️ 이 키워드 계열 전체가 검색량 측정 하한 미만 — 색인돼도 검색 유입을 기대하기 어렵습니다. 발행은 계속합니다.');
+          }
+          demandTitleHint = demand.titleHint ?? undefined;
+        }
+      }
+    } catch { /* 관측 전용 — 어떤 실패도 발행 흐름에 영향을 주지 않는다 */ }
+
     let h1: string;
     if (payload.useKeywordAsTitle) {
       // ✅ 키워드를 제목 그대로 사용
@@ -825,7 +848,7 @@ export async function generateUltimateMaxModeArticleFinal(
     } else {
       // 🤖 AI 자동 생성
       onLog?.('[PROGRESS] 25% - ✍️ AI가 제목(H1) 생성 중...');
-      h1 = await generateH1TitleFinal(keyword, titles);
+      h1 = await generateH1TitleFinal(keyword, titles, demandTitleHint);
       h1 = repairTitleYear(h1);
 
       // 📌 키워드를 제목 맨앞에 배치
@@ -2417,8 +2440,15 @@ ${conclusionHTML}
     }
     try {
       const URLData = loadEnvFromFile();
+      // ⚠️ env 키 이름 함정: .env 에 실제로 저장되는 키는 WORDPRESS_SITE_URL 이다. WP_URL 은 존재하지 않는다.
+      //    v3.8.382 까지 여기서 WP_URL 을 읽어 blogUrl 이 항상 '' 이 되었고,
+      //    그 결과 내부 링크 삽입이 예외 없이 조용히 스킵됐다(발행 328편 중 인바운드 0인 글 280편 = 85.6%).
+      //    payload 가 이번 발행 대상 플랫폼의 URL을 들고 있으므로 payload 를 우선한다(2375줄과 같은 체인).
       const blogUrl = contentMode !== 'adsense'
-        ? (URLData['BLOGGER_URL'] || URLData['TISTORY_URL'] || URLData['WP_URL'] || payload.url || '')
+        ? String(
+            payload.blogUrl || payload.wordpressSiteUrl || payload.siteUrl || payload.url ||
+            URLData['WORDPRESS_SITE_URL'] || URLData['BLOGGER_URL'] || URLData['TISTORY_URL'] || ''
+          ).trim().replace(/\/+$/, '')
         : '';
 
       if (blogUrl) {
@@ -2651,7 +2681,11 @@ ${conclusionHTML}
     try {
       const authorInfo = (payload as any).adsenseAuthorInfo || {};
       const env = loadEnvFromFile();
-      const baseSiteUrl = (payload as any).url || env['BLOGGER_URL'] || env['WP_URL'] || '';
+      // ⚠️ 위 2421줄과 동일한 env 키 함정. WP_URL 은 .env 에 없다 — WORDPRESS_SITE_URL 이 실제 키다.
+      const baseSiteUrl = String(
+        (payload as any).url || payload.blogUrl || payload.wordpressSiteUrl || payload.siteUrl ||
+        env['WORDPRESS_SITE_URL'] || env['BLOGGER_URL'] || env['TISTORY_URL'] || ''
+      ).trim().replace(/\/+$/, '');
       const schema = buildSchemaJsonLd({
         title: h1,
         description: (introductionHTML || '').replace(/<[^>]+>/g, ' ').slice(0, 250) || undefined,
