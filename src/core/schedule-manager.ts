@@ -4,6 +4,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
+import { writeJsonAtomic } from './utils/atomic-json';
 
 export interface ScheduledPost {
   id: string;
@@ -64,7 +65,9 @@ export class ScheduleManager {
   // 스케줄 데이터 저장
   private saveScheduleData(): void {
     try {
-      fs.writeFileSync(this.scheduleFilePath, JSON.stringify(this.scheduleData, null, 2));
+      // v3.8.378: 원자적 저장 — 직접 writeFileSync는 쓰기 도중 크래시 시 파일이 반토막 나서
+      //   JSON.parse 실패 → 예약 전체 소실로 이어졌다. temp+rename으로 교체.
+      writeJsonAtomic(this.scheduleFilePath, this.scheduleData);
       console.log(`💾 스케줄 데이터 저장됨: ${this.scheduleData.length}개 항목`);
     } catch (error) {
       console.error('❌ 스케줄 데이터 저장 실패:', error);

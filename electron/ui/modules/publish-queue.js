@@ -3269,6 +3269,13 @@ function bindModalEvents() {
             runModal.log(`${i + 1}번 실패 (${elapsedSec}초): ${errorText}`);
           } else {
             completedIds.add(it.id);
+            // v3.8.378: 항목 단위 즉시 영속화 — 10개 중 8개 발행 후 크래시하면 완료된 8개가
+            //   대기열에 남아 재시작 시 중복 발행되던 문제. 완료 즉시 큐에서 빼고 저장한다.
+            //   (루프는 enabled 스냅샷을 돌므로 STATE.keywords 변경이 순회에 영향 없음.
+            //    루프 종료 후 최종 필터는 멱등 이중 안전망으로 유지)
+            STATE.keywords = STATE.keywords.filter(item => item.id !== it.id);
+            persistQueue();
+            syncBadge();
             runModal.markDone(i, `${elapsedSec}초`);
             runModal.log(`${i + 1}번 완료 (${elapsedSec}초)`);
           }
