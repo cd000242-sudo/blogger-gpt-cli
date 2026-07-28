@@ -1833,6 +1833,45 @@ export async function publishGeneratedContent(
       console.warn('[PUBLISH-INTENT] 관측 스킵:', intentErr?.message);
     }
 
+    // 🔧 v3.8.384: 발행 자동 수리 — 색인에서 떨어지는 알려진 결함을 발행 전에 **고친다**.
+    //   2026-07-26 사고: 메타디스크립션 JSON 오염 6편 + 본문 이미지 0개가 전부 "성공"으로 기록됐다.
+    //   ⚠️ 차단하지 않는다. 스케줄 발행(schedule-manager.ts:329)이 이 경로를 타므로,
+    //      새벽에 차단이 걸리면 아무도 모르는 사이 예약 글이 유실된다.
+    //      고칠 수 있으면 고치고, 못 고치면 경고만 남기고 그대로 발행한다.
+    //   비상 우회: .env 에 VERIFY_GATE=off
+    try {
+      const gateMode = String(loadEnvFromFile()['VERIFY_GATE'] || '').toLowerCase();
+      if (gateMode !== 'off') {
+        const { repairBeforePublish } = require('./publish-repair');
+        // ⚠️ 워드프레스 단일발행 UI 경로의 payload 에는 사이트 URL 필드가 없다
+        //    (electron/ui/modules/posting.js createPayload 가 안 넣는다).
+        //    payload 만 보면 주력 경로에서 FAKE_SCHEMA_URL·NO_INTERNAL_LINK 가 상시 무동작이고
+        //    그 위에 "결함 없음" 이라는 거짓 요약이 얹힌다 — env 로 폴백한다.
+        const envForRepair = loadEnvFromFile();
+        const siteUrlForRepair =
+          (payload as any)?.wordpressSiteUrl || (payload as any)?.blogUrl || (payload as any)?.siteUrl ||
+          envForRepair['WORDPRESS_SITE_URL'] || envForRepair['BLOGGER_URL'] || envForRepair['TISTORY_URL'] || '';
+        const fixed = repairBeforePublish({
+          html,
+          metaDescription: (payload as any)?.metaDescription,
+          siteUrl: siteUrlForRepair,
+        });
+        for (const r of fixed.repairs) console.log(`[AUTO-REPAIR] 🔧 ${r.code}: ${r.detail}`);
+        for (const w of fixed.warnings) console.warn(`[AUTO-REPAIR] ⚠️ ${w.code}: ${w.detail}`);
+        console.log(`[AUTO-REPAIR] ${fixed.repairs.length > 0 ? '✅ 수리 후 발행' : '▶ 발행'} — ${fixed.summary}`);
+
+        if (fixed.repairs.length > 0) {
+          html = fixed.html;
+          if (fixed.metaDescription !== undefined && payload) {
+            (payload as any).metaDescription = fixed.metaDescription;
+          }
+        }
+      }
+    } catch (gateErr: any) {
+      // 수리기 자체가 죽어도 발행은 원본 그대로 계속된다
+      console.warn('[AUTO-REPAIR] 수리 스킵(발행 계속):', gateErr?.message);
+    }
+
     if (platform === 'blogspot' || platform === 'blogger') {
       // 블로그스팟/블로거
       const { publishToBlogger } = require('./blogger-publisher.js');

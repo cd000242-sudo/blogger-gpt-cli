@@ -1,4 +1,9 @@
-import { WordPressAPI, WordPressConfig, WordPressPost } from './wordpress-api';
+import { WordPressAPI, WordPressConfig, WordPressPost, WordPressTag } from './wordpress-api';
+// ⚠️ v3.8.384: 메타 생성에는 반드시 stripNonProse 를 쓴다.
+//   replace(/<[^>]*>/g,'') 는 태그만 벗기고 <script> 안의 JSON-LD 본문을 남긴다 —
+//   그 결과 메타디스크립션에 {"@context":"https://schema.org"… 가 그대로 저장됐다(2026-07-26, 11편).
+import { stripNonProse } from '../core/publish-verifier';
+import { sanitizeTagNames, matchExistingTag } from '../core/tag-hygiene';
 import { Provider } from '../core/index';
 import { callGeminiWithRetry } from '../core/final/gemini-engine';
 import { waitForTextProviderTurn } from '../core/llm/provider-throttle';
@@ -1967,33 +1972,57 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
     return categoryIds;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // v3.8.384: 고아 태그 양산 차단.
+  //   이전 구현은 getTags()(첫 100개)로 기존 태그를 찾아, 2,563개 중 96%를 못 보고
+  //   매번 새 태그를 만들었다. 그 결과 글 318편에 고아 태그 2,396개가 쌓였고
+  //   구글 크롤 예산이 noindex 태그 아카이브 1,505건에 묶였다(GSC 2026-07-28 실측).
+  //   이제: ①이름 정규화·불량 제거·상한 5개 ②태그별 search 로 기존 태그 정확 조회 ③없을 때만 생성.
   private async resolveTags(tagNames: string[]): Promise<number[]> {
-    if (tagNames.length === 0) return [];
+    const cleaned = sanitizeTagNames(tagNames);
+    if (cleaned.length === 0) {
+      if (tagNames.length > 0) {
+        console.log(`[WP-TAGS] 입력 ${tagNames.length}개가 전부 불량이라 태그 없이 발행합니다`);
+      }
+      return [];
+    }
+    if (cleaned.length < tagNames.length) {
+      console.log(`[WP-TAGS] 태그 정리: ${tagNames.length}개 → ${cleaned.length}개 (${cleaned.join(', ')})`);
+    }
 
-    const existingTags = await this.wpApi.getTags();
     const tagIds: number[] = [];
+    let reused = 0, created = 0;
 
-    for (const tagName of tagNames) {
-      let tag = existingTags.find(t =>
-        t.name.toLowerCase() === tagName.toLowerCase()
-      );
-
-      if (!tag) {
-        // 태그가 없으면 생성
-        try {
-          tag = await this.wpApi.createTag(tagName);
-        } catch (error) {
-          console.warn(`태그 "${tagName}" 생성 실패:`, error);
-          continue;
-        }
+    for (const tagName of cleaned) {
+      let tag: WordPressTag | null = null;
+      try {
+        tag = matchExistingTag(tagName, await this.wpApi.searchTags(tagName));
+      } catch (error) {
+        console.warn(`[WP-TAGS] "${tagName}" 조회 실패 — 생성으로 진행:`, error);
       }
 
       if (tag) {
-        tagIds.push(tag.id);
+        reused++;
+      } else {
+        try {
+          tag = await this.wpApi.createTag(tagName);
+          created++;
+        } catch (error) {
+          // 동시 발행 등으로 이미 만들어졌으면 한 번 더 찾아본다
+          try {
+            tag = matchExistingTag(tagName, await this.wpApi.searchTags(tagName));
+            if (tag) reused++;
+          } catch { /* 무시 */ }
+          if (!tag) {
+            console.warn(`[WP-TAGS] 태그 "${tagName}" 생성 실패(건너뜀):`, error);
+            continue;
+          }
+        }
       }
+
+      if (tag) tagIds.push(tag.id);
     }
 
+    console.log(`[WP-TAGS] 재사용 ${reused}개 / 신규 ${created}개`);
     return tagIds;
   }
 
@@ -2083,7 +2112,7 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
       const prompt = `당신은 한국어 SEO 전문가입니다. 다음 블로그 제목과 본문에서 Yoast SEO '초점 키프레이즈(Focus Keyphrase)'를 추출하세요.
 
 제목: ${title}
-본문 요약: ${content.replace(/<[^>]*>/g, '').substring(0, 300)}
+본문 요약: ${stripNonProse(content).substring(0, 300)}
 
 🔴 핵심 원칙:
 1. 사용자가 Google/네이버에서 실제로 검색할 법한 키워드여야 합니다.
@@ -2116,7 +2145,7 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
     const fallbackTags = this.extractTagsFallback(title);
 
     try {
-      const plainText = content.replace(/<[^>]*>/g, '').substring(0, 800);
+      const plainText = stripNonProse(content).substring(0, 800);
 
       const prompt = `다음 블로그 글의 제목과 본문을 분석하여 WordPress 태그를 생성하세요.
 
@@ -2181,7 +2210,7 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
   // 메타 설명 스마트 생성 (AI 활용)
   // 🔥 apiKey 가드 제거: 디스패처가 선택된 엔진 키 내부 해결
   private async generateMetaDescriptionSmart(content: string, _apiKey?: string): Promise<string> {
-    const plainText = content.replace(/<[^>]*>/g, '').substring(0, 1000);
+    const plainText = stripNonProse(content).substring(0, 1000);
 
     try {
       // 🔥 제목도 함께 전달하여 더 정확한 메타 디스크립션 생성
@@ -2209,11 +2238,9 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
   // 메타 설명 생성 함수 (폴백용)
   private generateMetaDescriptionFallback(content: string, limit: number = 155): string {
     try {
-      // HTML 태그 제거
-      let cleanContent = content
-        .replace(/<[^>]*>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+      // HTML 제거 — stripNonProse 는 script/style 블록을 통째로 걷어낸다.
+      // 태그만 벗기면 <script type="application/ld+json"> 안의 JSON 본문이 그대로 남는다.
+      let cleanContent = stripNonProse(content);
 
       // 첫 번째 문단이나 문장 추출 (150자 이내)
       const combinedSentence = cleanContent.replace(/。/g, '.').replace(/！/g, '!').replace(/？/g, '?');

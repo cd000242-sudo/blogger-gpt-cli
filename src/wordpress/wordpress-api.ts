@@ -406,8 +406,19 @@ export class WordPressAPI {
   }
 
   // 태그 관리
+  // ⚠️ per_page=100 은 **첫 100개만** 돌려준다. 태그가 수천 개인 사이트에서 이걸로
+  //    "기존 태그 있나" 를 판정하면 96%를 못 찾아 매번 새 태그를 만든다.
+  //    (2026-07-28 실측: 글 318편에 태그 2,563개 — 그중 2,396개가 고아 태그였다)
+  //    재사용 판정에는 반드시 searchTags() 를 써라.
   async getTags(): Promise<WordPressTag[]> {
     return this.request<WordPressTag[]>('/tags?per_page=100');
+  }
+
+  /** 이름으로 태그를 검색한다 (부분 일치). 정확 일치 판정은 호출부에서 한다. */
+  async searchTags(name: string): Promise<WordPressTag[]> {
+    const q = encodeURIComponent(String(name || '').trim());
+    if (!q) return [];
+    return this.request<WordPressTag[]>(`/tags?search=${q}&per_page=100`);
   }
 
   async createTag(name: string, description?: string): Promise<WordPressTag> {

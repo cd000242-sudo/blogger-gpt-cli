@@ -17,6 +17,7 @@ import { generateContentFromUrl, generateContentFromUrls } from '../url-content-
 import { validateCtaUrl, validateCtaUrlFormat } from '../../cta/validate-cta-url';
 import { findRelatedPosts, insertInternalLinks } from '../internal-links';
 import { analyzeKeywordDemand } from '../keyword-demand';
+import { analyzeKeywordAngle, composeTitleDirective } from '../keyword-angle';
 import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
 import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTIONS } from '../max-mode/mode-sections-extended';
 import { fetchFactContext, type FactCheckMode } from '../perplexityFactCheck';
@@ -828,6 +829,7 @@ export async function generateUltimateMaxModeArticleFinal(
       const envForDemand = loadEnvFromFile();
       const dlId = (envForDemand['NAVER_CLIENT_ID'] || '').trim();
       const dlSecret = (envForDemand['NAVER_CLIENT_SECRET'] || '').trim();
+      let demandHint: string | null = null;
       if (dlId && dlSecret) {
         const demand = await analyzeKeywordDemand(keyword, { clientId: dlId, clientSecret: dlSecret });
         if (demand.verdict !== 'error') {
@@ -835,9 +837,14 @@ export async function generateUltimateMaxModeArticleFinal(
           if (demand.verdict === 'no-demand') {
             onLog?.('[DEMAND-GATE] ⚠️ 이 키워드 계열 전체가 검색량 측정 하한 미만 — 색인돼도 검색 유입을 기대하기 어렵습니다. 발행은 계속합니다.');
           }
-          demandTitleHint = demand.titleHint ?? undefined;
+          demandHint = demand.titleHint;
         }
       }
+      // 🎯 개인 승산 5문형 판정 (SERP 실측 근거) — 제목 "꼴"과 본문 H2 구성을 정한다.
+      //    수요 게이트가 제목 "머리"를, 이 분류기가 "꼴"을 담당한다.
+      const angle = analyzeKeywordAngle(keyword);
+      onLog?.(`[PROGRESS] 24% - 🎯 각도 판정: ${angle.summary}`);
+      demandTitleHint = composeTitleDirective(demandHint, angle) ?? undefined;
     } catch { /* 관측 전용 — 어떤 실패도 발행 흐름에 영향을 주지 않는다 */ }
 
     let h1: string;
