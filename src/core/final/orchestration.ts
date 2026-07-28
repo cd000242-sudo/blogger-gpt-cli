@@ -57,6 +57,7 @@ function getFolderImageH2Titles(payload: any): string[] {
 import { generateCSSFinal, generateTOCFinal } from './html';
 import { buildEeatMeta, EEAT_META_CSS } from './eeat-meta';
 import { scanSubstance, buildSubstanceRetryBlock } from './substance-gate';
+import { acquireEngineLock } from './engine-lock';
 import { buildSchemaJsonLd } from './schema-jsonld';
 import { scanAdsensePolicy } from './policy-scanner';
 import { scanAdsenseHardening } from './adsense-hardening';
@@ -74,8 +75,7 @@ import {
   type FactEvidence,
 } from './fact-integrity';
 
-// 🎯 동시 실행 시 process.env 충돌 방지 세마포어
-let engineLock: Promise<void> = Promise.resolve();
+// 🎯 동시 실행 시 process.env 충돌 방지 세마포어 — v3.8.380부터 ./engine-lock.ts 로 이동 (대기자 워치독 포함)
 
 const FINAL_CTA_BOX_STYLE = 'margin:32px auto !important;padding:26px 24px !important;background:var(--rv-cta-bg,linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%)) !important;border:1px solid var(--rv-cta-border,#93c5fd) !important;border-radius:10px !important;text-align:center !important;display:flex !important;flex-direction:column !important;align-items:center !important;gap:12px !important;box-sizing:border-box !important;max-width:100% !important;';
 const FINAL_CTA_BADGE_STYLE = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;padding:5px 12px !important;background:var(--rv-cta-badge-bg,#eff6ff) !important;color:var(--rv-cta-note,#0369a1) !important;-webkit-text-fill-color:var(--rv-cta-note,#0369a1) !important;border:1px solid var(--rv-cta-border,#bae6fd) !important;border-radius:999px !important;font-size:12px !important;font-weight:800 !important;line-height:1.2 !important;margin:0 !important;';
@@ -402,15 +402,19 @@ export async function generateUltimateMaxModeArticleFinal(
   }
 
   // 🎯 동시 실행 시 순차 처리 (process.env 보호)
-  // 🛡️ releaseLock을 항상 no-op으로 초기화 — 예외 경로에서 미할당 상태로 finally 진입 시 TypeError → 영구 데드락 방지
+  // v3.8.380(R5): 락을 engine-lock.ts로 추출 — 대기자 워치독(기본 60분, ENGINE_LOCK_WAIT_MS='0'=무제한).
+  //   보유자가 멈춰도 대기자는 유한 시간 안에 명확한 에러로 실패한다 (조용한 무한 대기 제거).
+  //   "강제 해제"가 아니라 "대기자 타임아웃"인 이유는 engine-lock.ts 상단 주석 참조.
   let releaseLock: () => void = () => { /* no-op until assigned */ };
-  const prevLock = engineLock;
-  engineLock = new Promise<void>(resolve => { releaseLock = resolve; });
-  await prevLock;
-
+  releaseLock = await acquireEngineLock('generateUltimateMaxModeArticleFinal');
+  const previousTextModel = process.env['PRIMARY_TEXT_MODEL'] || '';
+  const startTime = Date.now();
+  // v3.8.380(R5): 락 획득 직후 곧바로 try 진입 — 기존에는 락을 쥔 채 try 밖에서 ~80줄이 실행되어
+  //   거기서 예외가 나면 finally(releaseLock)가 없어 영구 데드락이었다 (engine-lock.test.ts가 고정).
+  //   아래 블록 들여쓰기는 diff·앵커 안정성을 위해 유지한다.
+  try {
   // 🎯 사용자 선택 AI 엔진을 런타임에 반영
   // 🔥 우선순위 수정: provider(드롭다운, 최신 UI)가 primaryGeminiTextModel(라디오, 모달)보다 우선
-  const previousTextModel = process.env['PRIMARY_TEXT_MODEL'] || '';
   const providerModelMap: Record<string, string> = {
     openai: 'openai-gpt41',
     claude: 'claude-sonnet',
@@ -479,9 +483,7 @@ export async function generateUltimateMaxModeArticleFinal(
 
   onLog?.(`[PROGRESS] 0% - 🔥 끝판왕 콘텐츠 생성 시작! ${fastMode ? '(빠른 모드)' : ''}`);
   onLog?.(`[PROGRESS] 0% - 🎯 이미지 소스: ${imageSource} (원본: ${payload.h2ImageSource || '없음'})`);
-  const startTime = Date.now();
-
-  try {
+  // v3.8.380(R5): startTime 선언과 try 진입은 락 획득 직후로 이동됨 (위 참조)
     const keyword = payload.topic || '';
     const platform = payload.platform || 'wordpress'; // wordpress or blogspot
 
