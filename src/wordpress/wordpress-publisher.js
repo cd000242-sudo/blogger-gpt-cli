@@ -6,6 +6,8 @@ exports.wrapSectionsInCards = wrapSectionsInCards;
 exports.applyWordPressInlineStyles = applyWordPressInlineStyles;
 exports.publishToWordPress = publishToWordPress;
 const wordpress_api_1 = require("./wordpress-api");
+const publish_verifier_1 = require("../core/publish-verifier");
+const tag_hygiene_1 = require("../core/tag-hygiene");
 const gemini_engine_1 = require("../core/final/gemini-engine");
 const provider_throttle_1 = require("../core/llm/provider-throttle");
 function stripBodyThumbnailBox(html) {
@@ -1737,25 +1739,51 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
         return categoryIds;
     }
     async resolveTags(tagNames) {
-        if (tagNames.length === 0)
+        const cleaned = (0, tag_hygiene_1.sanitizeTagNames)(tagNames);
+        if (cleaned.length === 0) {
+            if (tagNames.length > 0) {
+                console.log(`[WP-TAGS] 입력 ${tagNames.length}개가 전부 불량이라 태그 없이 발행합니다`);
+            }
             return [];
-        const existingTags = await this.wpApi.getTags();
+        }
+        if (cleaned.length < tagNames.length) {
+            console.log(`[WP-TAGS] 태그 정리: ${tagNames.length}개 → ${cleaned.length}개 (${cleaned.join(', ')})`);
+        }
         const tagIds = [];
-        for (const tagName of tagNames) {
-            let tag = existingTags.find(t => t.name.toLowerCase() === tagName.toLowerCase());
-            if (!tag) {
-                try {
-                    tag = await this.wpApi.createTag(tagName);
-                }
-                catch (error) {
-                    console.warn(`태그 "${tagName}" 생성 실패:`, error);
-                    continue;
-                }
+        let reused = 0, created = 0;
+        for (const tagName of cleaned) {
+            let tag = null;
+            try {
+                tag = (0, tag_hygiene_1.matchExistingTag)(tagName, await this.wpApi.searchTags(tagName));
+            }
+            catch (error) {
+                console.warn(`[WP-TAGS] "${tagName}" 조회 실패 — 생성으로 진행:`, error);
             }
             if (tag) {
-                tagIds.push(tag.id);
+                reused++;
             }
+            else {
+                try {
+                    tag = await this.wpApi.createTag(tagName);
+                    created++;
+                }
+                catch (error) {
+                    try {
+                        tag = (0, tag_hygiene_1.matchExistingTag)(tagName, await this.wpApi.searchTags(tagName));
+                        if (tag)
+                            reused++;
+                    }
+                    catch { }
+                    if (!tag) {
+                        console.warn(`[WP-TAGS] 태그 "${tagName}" 생성 실패(건너뜀):`, error);
+                        continue;
+                    }
+                }
+            }
+            if (tag)
+                tagIds.push(tag.id);
         }
+        console.log(`[WP-TAGS] 재사용 ${reused}개 / 신규 ${created}개`);
         return tagIds;
     }
     extractExcerpt(content, maxLength = 160) {
@@ -1825,7 +1853,7 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
             const prompt = `당신은 한국어 SEO 전문가입니다. 다음 블로그 제목과 본문에서 Yoast SEO '초점 키프레이즈(Focus Keyphrase)'를 추출하세요.
 
 제목: ${title}
-본문 요약: ${content.replace(/<[^>]*>/g, '').substring(0, 300)}
+본문 요약: ${(0, publish_verifier_1.stripNonProse)(content).substring(0, 300)}
 
 🔴 핵심 원칙:
 1. 사용자가 Google/네이버에서 실제로 검색할 법한 키워드여야 합니다.
@@ -1853,7 +1881,7 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
     async generateTagsSmart(title, content, _apiKey) {
         const fallbackTags = this.extractTagsFallback(title);
         try {
-            const plainText = content.replace(/<[^>]*>/g, '').substring(0, 800);
+            const plainText = (0, publish_verifier_1.stripNonProse)(content).substring(0, 800);
             const prompt = `다음 블로그 글의 제목과 본문을 분석하여 WordPress 태그를 생성하세요.
 
 제목: ${title}
@@ -1907,7 +1935,7 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
         return clean4.trim().substring(0, 30);
     }
     async generateMetaDescriptionSmart(content, _apiKey) {
-        const plainText = content.replace(/<[^>]*>/g, '').substring(0, 1000);
+        const plainText = (0, publish_verifier_1.stripNonProse)(content).substring(0, 1000);
         try {
             const prompt = `당신은 Google SERP CTR 전문가입니다. 다음 블로그 본문을 바탕으로 검색 결과에서 클릭률을 극대화하는 '메타 설명(Meta Description)'을 작성하세요.
 
@@ -1932,10 +1960,7 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
     }
     generateMetaDescriptionFallback(content, limit = 155) {
         try {
-            let cleanContent = content
-                .replace(/<[^>]*>/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
+            let cleanContent = (0, publish_verifier_1.stripNonProse)(content);
             const combinedSentence = cleanContent.replace(/。/g, '.').replace(/！/g, '!').replace(/？/g, '?');
             const sentences = combinedSentence.split(/[.!?]/);
             for (const sentence of sentences) {

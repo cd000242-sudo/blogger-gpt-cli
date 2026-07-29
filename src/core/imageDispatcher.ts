@@ -929,19 +929,22 @@ async function _tryEngineInternal(
   const allowImageText = promptModeAllowsImageText(engine, isThumbnail) && !userWantsNoText;
   const promptIsThumbnail = allowImageText;
   // v3.7.1: 한국어 처리 호환성 분류
-  //   ✅ 한국어 OK (skip): nanobanana 3종, gptimage2(덕테이프), flow, imagefx, dropshot
+  //   ✅ 한국어 OK (skip): nanobanana 3종, gptimage2(덕테이프), flow, imagefx
   //   ⚠️ 영어 변환 필수 (inferImagePrompt 적용): prodia, deepinfra, gptimage1
   //   prodia(FLUX schnell), gptimage1은 영어 위주 모델이라 한국어 받으면 의미 못 잡음.
-  if (
-    engine !== 'nanobanana' &&
-    engine !== 'nanobanana2' &&
-    engine !== 'nanobananapro' &&
-    engine !== 'gptimage2' && // 덕테이프 — 한국어 OK
-    engine !== 'flow' &&
-    engine !== 'dropshot' &&
-    engine !== 'dropshot-nanobanana-pro'
-    // prodia, deepinfra, gptimage1, imagefx는 inferImagePrompt 적용 (영어 변환)
-  ) {
+  //
+  // 🔴 v3.8.385 사고 수정: dropshot 을 이 목록에서 뺐다.
+  //   기존 논리는 "한국어를 알아들으니 추론이 불필요하다"였는데, 두 가지를 혼동했다.
+  //     (a) 언어 변환  — 나노바나나는 한국어를 알아들으므로 불필요
+  //     (b) 장면 추론  — 제목 문장을 "무엇을 찍은 사진인지"로 바꾸는 것. 언어와 무관하게 필요하다.
+  //   추론을 건너뛰면 프롬프트가 H2 제목 문장 그대로가 된다.
+  //   실측(2026-07-29 발행분): 8개 섹션 이미지가 전부 같은 여성 인물 사진이었고
+  //   제목 문장이 뭉개진 한글로 그림에 박혀 나왔다. 장면 지시가 없으니 모델이
+  //   기본값 인물 사진으로 채우고, 받은 게 문장이라 그걸 그리려 한 것이다.
+  //   inferImagePrompt 의 섹션 이미지 지시에는 'Pure visual — text-free' 가 이미 들어 있다.
+  const skipInference = engine === 'nanobanana' || engine === 'nanobanana2'
+    || engine === 'nanobananapro' || engine === 'gptimage2' || engine === 'flow';
+  if (!skipInference) {
     try {
       const inference = await inferImagePrompt(prompt, keyword, promptIsThumbnail, contentMode);
       inferredPrompt = allowImageText ? inference.prompt : enforceNoTextPrompt(inference.prompt);
@@ -1178,7 +1181,14 @@ async function _tryEngineInternal(
         let dropshotPrompt = inferredPrompt;
         // v3.8.336: "텍스트 미포함" 선택 시 오버레이 지시 대신 텍스트 금지를 건다.
         //   dropshot(나노바나나 프로)은 지시가 없으면 제목을 임의로 그려 넣는 경향이 있어 명시 금지가 필요.
-        if (userWantsNoText) {
+        //
+        // 🔴 v3.8.385 사고 수정: 위 "임의로 그려 넣는 경향"이 **본문 이미지에서 그대로 터졌다.**
+        //   기존 분기는 (a) 텍스트미포함 → 금지, (b) 썸네일 → 오버레이, (c) 그 외 → 지시 없음 이었고,
+        //   본문 섹션 이미지(isThumbnail=false)는 전부 (c)로 빠져 아무 지시도 못 받았다.
+        //   실측(2026-07-29 발행분): 본문 이미지 8장 전부에 뭉개진 한글이 박혀 나왔다.
+        //   나노바나나는 한글 글리프를 제대로 못 그려서 한자처럼 보이는 문자 덩어리가 된다.
+        //   → 본문 이미지는 텍스트를 넣을 이유가 없다. 명시적으로 금지한다.
+        if (userWantsNoText || !isThumbnail) {
           dropshotPrompt = enforceNoTextPrompt(inferredPrompt);
         } else if (isThumbnail && prompt) {
           const titleSafe = String(prompt).replace(/["]/g, "'").trim().slice(0, 80);

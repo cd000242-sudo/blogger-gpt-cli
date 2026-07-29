@@ -1169,7 +1169,11 @@ function activateLicenseFromModal() {
   }
 
   // 실제 라이센스 검증 로직 (상용 환경에서)
-  console.log('🔑 [LICENSE] 라이센스 활성화 시도:', { licenseKey, licenseEmail });
+  // 🔐 라이선스 키는 마스킹 — 로그 공유 시 그대로 유출된다
+  console.log('🔑 [LICENSE] 라이센스 활성화 시도:', {
+    licenseKey: licenseKey ? `${String(licenseKey).slice(0, 4)}…(${String(licenseKey).length}자)` : '(없음)',
+    licenseEmail,
+  });
 
   // 여기에 실제 라이센스 검증 API 호출 로직 추가
   alert('라이센스 활성화가 완료되었습니다!');
@@ -6557,6 +6561,20 @@ async function loadSettings() {
     await storage.set('bloggerSettings', settings, true);
   }
 
+  // 🔐 v3.8.385: 설정값 로깅 마스킹
+  //   사고: 콘솔에 OpenAI·Claude·Gemini·Perplexity·DALL-E·Pexels·Prodia 키와
+  //   Google Client Secret, 워드프레스 비밀번호가 전부 평문으로 찍혔다.
+  //   로그를 지원 문의나 화면 공유로 넘기면 그대로 유출된다.
+  //   키 이름 패턴으로 판정한다 — 새 키가 추가돼도 자동으로 가려진다.
+  const SECRET_KEY_PATTERN = /(key|secret|password|token|credential|clientid|customerid)/i;
+  const maskSettingValue = (key, value) => {
+    if (!SECRET_KEY_PATTERN.test(String(key))) return value;
+    const s = String(value ?? '');
+    if (!s) return '(없음)';
+    // 앞 4자만 남겨 어떤 키인지는 구분되게 하되 재사용은 불가능하게
+    return `${s.slice(0, 4)}…(${s.length}자, 마스킹됨)`;
+  };
+
   // 설정 적용
   Object.keys(settings).forEach(key => {
     if (key === 'platform') {
@@ -6583,7 +6601,7 @@ async function loadSettings() {
         if (key === 'thumbnailType') {
           if (settings[key] && settings[key].trim() !== '') {
             element.value = settings[key];
-            console.log(`[LOAD] ${key} 설정 로드: ${settings[key]}`);
+            console.log(`[LOAD] ${key} 설정 로드: ${maskSettingValue(key, settings[key])}`);
           } else {
             element.value = 'text';
             console.log(`[LOAD] ${key} 빈 값, 기본값 설정: text`);
@@ -6592,14 +6610,14 @@ async function loadSettings() {
           // 프롬프트 모드는 빈 값일 때 기본값 설정
           if (settings[key] && settings[key].trim() !== '') {
             element.value = settings[key];
-            console.log(`[LOAD] ${key} 설정 로드: ${settings[key]}`);
+            console.log(`[LOAD] ${key} 설정 로드: ${maskSettingValue(key, settings[key])}`);
           } else {
             element.value = 'max-mode';
             console.log(`[LOAD] ${key} 빈 값, 기본값 설정: max-mode`);
           }
         } else {
           element.value = settings[key];
-          console.log(`[LOAD] ${key} 설정 로드: ${settings[key]}`);
+          console.log(`[LOAD] ${key} 설정 로드: ${maskSettingValue(key, settings[key])}`);
         }
       }
     }

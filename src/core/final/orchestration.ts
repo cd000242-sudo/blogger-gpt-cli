@@ -18,6 +18,7 @@ import { validateCtaUrl, validateCtaUrlFormat } from '../../cta/validate-cta-url
 import { findRelatedPosts, insertInternalLinks } from '../internal-links';
 import { analyzeKeywordDemand } from '../keyword-demand';
 import { analyzeKeywordAngle, composeTitleDirective } from '../keyword-angle';
+import { buildUniquenessBlock } from './substance-rules';
 import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
 import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTIONS } from '../max-mode/mode-sections-extended';
 import { fetchFactContext, type FactCheckMode } from '../perplexityFactCheck';
@@ -1222,6 +1223,30 @@ export async function generateUltimateMaxModeArticleFinal(
       scopedSectionBlock = `${scopePrepend}${scopedSectionBlock}`;
       console.log(`[ORCHESTRATION] 🎯 글 전체 스코프 prepend (mode=${contentMode}, qualifier="${overallScope.qualifier}")`);
       onLog?.(`[PROGRESS] 41% - 🎯 스코프 한정 "${overallScope.qualifier}" 적용 (모드: ${contentMode})`);
+    }
+
+    // 🧬 v3.8.385: 중복 회피 — 같은 사이트의 비슷한 글 제목을 프롬프트에 넣어 각도를 벌린다.
+    //   차단하지 않는다(사용자 원칙: "검수 때문에 발행이 안 되면 절대 안 된다").
+    //   추가 LLM 호출 없이 워드프레스 REST 조회 1회뿐이라 비용도 늘지 않는다.
+    //   실측(2026-07-28): 본문 유사도 0.35+ 가 4클러스터 11편. 지금은 작지만
+    //   하루 5~10편을 같은 주제군에서 뽑으면 반드시 커진다.
+    try {
+      const envForDup = loadEnvFromFile();
+      const dupSiteUrl = String(
+        payload.blogUrl || payload.wordpressSiteUrl || payload.siteUrl || payload.url ||
+        envForDup['WORDPRESS_SITE_URL'] || ''
+      ).trim().replace(/\/+$/, '');
+      if (dupSiteUrl) {
+        const existing = await findRelatedPosts(dupSiteUrl, keyword, 8);
+        const block = buildUniquenessBlock(existing.map(e => e.title));
+        if (block) {
+          scopedSectionBlock += block;
+          onLog?.(`[PROGRESS] 42% - 🧬 중복 회피: 기존 유사 글 ${existing.length}편을 프롬프트에 반영`);
+        }
+      }
+    } catch (dupErr: any) {
+      // 조회 실패는 발행에 영향을 주지 않는다
+      console.warn('[UNIQUENESS] 기존 글 조회 스킵:', dupErr?.message?.slice(0, 80));
     }
 
     let allSectionsObj = await generateAllSectionsFinal(

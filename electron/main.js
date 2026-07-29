@@ -5122,7 +5122,22 @@ electron_1.ipcMain.handle('prepare-publish-content', async (_evt, data) => {
 });
 electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
     let freeTrialPublish = false;
+    const onLog = (line) => {
+        if (_evt.sender && !_evt.sender.isDestroyed()) {
+            _evt.sender.send('log-line', line);
+        }
+        const progressMatch = line.match(/\[PROGRESS\]\s*(\d+)%\s*-\s*(.+)/);
+        if (progressMatch) {
+            const percent = parseInt(progressMatch[1], 10);
+            let label = progressMatch[2] || '';
+            label = label.replace(/^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]\s*/u, '').trim();
+            if (!isNaN(percent) && _evt.sender && !_evt.sender.isDestroyed()) {
+                _evt.sender.send('run-progress', { p: percent, label });
+            }
+        }
+    };
     try {
+        onLog('[PROGRESS] 10% - 🚀 발행 요청 검증 및 준비 중...');
         console.log('[PUBLISH] 컨텐츠 발행 요청');
         console.log('[PUBLISH] 제목:', data.title?.substring(0, 50));
         console.log('[PUBLISH] 콘텐츠 길이:', data.content?.length || 0);
@@ -5136,6 +5151,7 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
         if (!enforcement.allowed)
             return enforcement.response;
         freeTrialPublish = await isFreeTierUser();
+        onLog('[PROGRESS] 25% - 🖼️ 썸네일 검사 및 이미지 경로 정제 중...');
         // v3.8.116/120: 본문 첫 img 자동 채택 — http(s) URL뿐 아니라 data:image base64도 처리
         //   사용자 보고: WP 글 목록 썸네일 여전히 누락 → codex가 base64로 박은 경우 v3.8.116 정규식이 못 잡음.
         //   수정: data:image도 채택 → WP publisher가 ArrayBuffer로 변환·업로드.
@@ -5315,6 +5331,8 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
                 let converted = 0;
                 let removed = 0;
                 for (let i = 0; i < base64Matches.length; i++) {
+                    const stepProgress = Math.min(75, 30 + Math.floor(((i + 1) / totalBase64) * 45));
+                    onLog(`[PROGRESS] ${stepProgress}% - 🖼️ 본문 이미지 (${i + 1}/${totalBase64}) 외부 호스팅 변환 중...`);
                     const fullTag = base64Matches[i][0];
                     const dataUrl = base64Matches[i][1];
                     const mime = base64Matches[i][2];
@@ -5376,6 +5394,7 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
         //   2) 이미지 alt 자동 보강 (직전 H2 텍스트 기반)
         //   3) CTA 공식 홈페이지 자동 매핑 (google 검색 URL → 공식 사이트)
         if (typeof data.content === 'string' && data.content.length > 0) {
+            onLog('[PROGRESS] 80% - 📝 HTML 메타데이터 및 이미지 alt 태그 보강 중...');
             const enrichmentLog = [];
             const OFFICIAL_SITES = [
                 // 정부·청원
@@ -5537,6 +5556,7 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
             console.warn(warn);
             _evt.sender?.send?.('log-line', warn);
         }
+        onLog('[PROGRESS] 90% - 📡 플랫폼 블로그 API 글 게시 요청 중...');
         const { publishGeneratedContent } = require('../dist/core/index');
         const result = await publishGeneratedContent(data.payload, data.title, data.content, data.thumbnailUrl);
         console.log('[PUBLISH] 발행 결과:', {
@@ -5550,7 +5570,14 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
         // publishGeneratedContent가 이미 { ok, url, ... } 형태로 반환하므로 그대로 반환
         if (!result || typeof result !== 'object') {
             console.error('[PUBLISH] publishGeneratedContent가 유효하지 않은 값을 반환:', result);
+            onLog('[PROGRESS] 100% - ⚠️ 발행 실패: 유효하지 않은 결과');
             return { ok: false, error: '발행 결과가 유효하지 않습니다.' };
+        }
+        if (result.ok) {
+            onLog('[PROGRESS] 100% - ✅ 발행 완료!');
+        }
+        else {
+            onLog(`[PROGRESS] 100% - ⚠️ 발행 실패: ${result.error || '알 수 없는 오류'}`);
         }
         // URL이 없으면 경고 로그
         if (result.ok && !result.url && !result.postId && !result.id) {
@@ -5583,6 +5610,7 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
     catch (error) {
         console.error('[PUBLISH] 발행 실패:', error);
         const errorMessage = error instanceof Error ? error.message : '발행 실패';
+        onLog(`[PROGRESS] 100% - ❌ 발행 실패: ${errorMessage}`);
         return { ok: false, error: errorMessage, needsAuth: false };
     }
 });
