@@ -1537,8 +1537,12 @@ window.getDropshotSubscriptionNote = function (result) {
   if (!normalized?.loggedIn) return '';
   if (normalized.subscription === 'pro') return ' · ✅ Pro 구독자 무제한';
   if (normalized.subscription === 'free') return ' · ⚠️ 무료 사용자';
-  // v3.8.371: 등급 조회 API가 존재하지 않아 등급은 확인 불가. 생성 권한은 무제한 모드 토글로
-  //   별도 강제 확인되므로 경고(⚠️) 대신 연동 완료로 표기한다.
+  // v3.8.386: 등급 조회 API는 실측상 전 엔드포인트가 404다(존재하지 않는다).
+  //   대신 백엔드가 보드의 "무제한 모드" 토글을 실측해 subscriptionLabel로 내려준다.
+  //   실제 생성 권한과 같은 신호라 등급 API보다 정확하므로, 있으면 그대로 보여준다.
+  if (normalized.subscriptionLabel && normalized.subscriptionLabel !== '연동됨') {
+    return ' · ✅ ' + normalized.subscriptionLabel;
+  }
   return ' · ✅ 연동됨';
 };
 
@@ -11644,7 +11648,7 @@ function addKeyword() {
           <select id="${keywordId}_contentMode" style="background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); color: white; border-radius: 8px; padding: 8px 10px; font-size: 13px; width: 100%;">
             <option value="external">🔗 단일 외부링크 (SEO)</option>
             <option value="internal">🕸️ 내부링크 거미줄치기</option>
-            <option value="shopping" disabled>🛒 쇼핑/구매유도 (준비 중)</option>
+            <option value="shopping">🛒 쇼핑/구매유도</option>
           </select>
           <small style="color: rgba(255, 255, 255, 0.6); font-size: 10px; margin-top: 4px; display: block;">외부: 공식 사이트 유도, 내부: 관련 글 연결, 쇼핑: 제품 리뷰</small>
         </div>

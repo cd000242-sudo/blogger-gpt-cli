@@ -1793,8 +1793,62 @@ export async function generateUltimateMaxModeArticleFinal(
         let usedSource = '';
 
         try {
+          // 🛒 v3.8.385: 쇼핑모드 본문 이미지 전략 (글포스팅 → 이미지 탭에서 선택)
+          //   product-all : 수집한 상품 사진을 소제목마다 그대로 배치 (신뢰도 최우선 · 기본값)
+          //   product-i2i : 실제 상품을 reference 로 소제목 내용에 맞는 이미지를 새로 생성
+          //   ⚠️ 썸네일은 두 전략 모두 실제 상품 사진을 쓴다(orchestration:2561 useProductImages).
+          //      "어떤 제품인지"가 안 보이면 구매로 이어지지 않기 때문이다.
+          const shoppingStrategy = String((payload as any).shoppingImageStrategy || 'product-all');
+          const productPool = (payload.productImages as string[] | undefined) || [];
+          if (contentMode === 'shopping' && productPool.length > 0) {
+            if (shoppingStrategy === 'product-all') {
+              // 썸네일이 0번을 쓰므로 본문은 1번부터 순환 — 같은 사진이 두 번 나오지 않게
+              const picked = productPool[(i + 1) % productPool.length];
+              if (picked) {
+                console.log(`[IMG-${i + 1}] 🛒 상품 사진 그대로 (전략: product-all)`);
+                onLog?.(`   [IMG-${i + 1}] 🛒 상품 사진 배치 (${(i + 1) % productPool.length + 1}/${productPool.length})`);
+                imageResult = { ok: true, dataUrl: picked };
+                usedSource = '쿠팡 상품 이미지';
+              }
+            } else if (shoppingStrategy === 'product-i2i') {
+              // 실제 상품을 reference 로 넘겨 소제목 내용에 맞는 이미지를 생성
+              const refs = productPool.slice(0, 4);
+              console.log(`[IMG-${i + 1}] 🎨 상품 기반 i2i (전략: product-i2i, ref ${refs.length}장)`);
+              onLog?.(`   [IMG-${i + 1}] 🎨 상품 기반 생성 (참고 이미지 ${refs.length}장)`);
+              try {
+                const i2i = await dispatchH2ImageGeneration(
+                  imageSource,
+                  section.h2,
+                  keyword,
+                  (msg: string) => onLog?.(`   [IMG-${i + 1}] ${msg}`),
+                  contentMode,
+                  { referenceImageList: refs },
+                );
+                if (i2i.ok && i2i.dataUrl) {
+                  imageResult = { ok: true, dataUrl: i2i.dataUrl };
+                  usedSource = `상품 기반 생성 (${i2i.source || imageSource})`;
+                } else {
+                  // 생성 실패 시 실물 사진으로 되돌린다 — 빈 자리보다 낫다
+                  const fallback = productPool[(i + 1) % productPool.length];
+                  if (fallback) {
+                    onLog?.(`   [IMG-${i + 1}] ⚠️ 생성 실패 → 상품 사진으로 대체`);
+                    imageResult = { ok: true, dataUrl: fallback };
+                    usedSource = '쿠팡 상품 이미지 (생성 실패 대체)';
+                  }
+                }
+              } catch (e: any) {
+                const fallback = productPool[(i + 1) % productPool.length];
+                if (fallback) {
+                  onLog?.(`   [IMG-${i + 1}] ⚠️ 생성 예외 → 상품 사진으로 대체: ${e?.message?.slice(0, 60)}`);
+                  imageResult = { ok: true, dataUrl: fallback };
+                  usedSource = '쿠팡 상품 이미지 (예외 대체)';
+                }
+              }
+            }
+          }
+
           // 🛒 수집 이미지 모드: 크롤러에서 수집한 이미지를 직접 사용
-          if (imageSource === 'crawled' && payload.productImages?.length > 0) {
+          if (!imageResult.ok && imageSource === 'crawled' && payload.productImages?.length > 0) {
             // idx=0은 썸네일과 중복이므로 idx+1부터 매칭 (이미지가 부족하면 순환)
             const imgIdx = (i + 1) % payload.productImages.length;
             const crawledUrl = payload.productImages[imgIdx];

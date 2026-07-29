@@ -5861,7 +5861,26 @@ ipcMain.handle('publish-content', async (_evt, data) => {
 
     onLog('[PROGRESS] 90% - 📡 플랫폼 블로그 API 글 게시 요청 중...');
     const { publishGeneratedContent } = require('../dist/core/index');
-    const result = await publishGeneratedContent(data.payload, data.title, data.content, data.thumbnailUrl);
+
+    // v3.8.385: 발행 진행률을 렌더러로 전달한다.
+    //   기존엔 onLog 를 안 넘겨서 이 경로에 진행률 통로가 아예 없었다.
+    //   run-post 핸들러만 run-progress 를 쏘고 있었고, publish-content 는 조용했다.
+    //   증상: 발행 18분간 0% 고정 → 사용자가 멈춘 줄 알고 취소·재클릭.
+    const publishOnLog = (line: string) => {
+      if (!_evt.sender || _evt.sender.isDestroyed()) return;
+      _evt.sender.send('log-line', line);
+      const m = String(line).match(/\[PROGRESS\]\s*(\d+)%\s*-\s*(.+)/);
+      if (m) {
+        const percent = parseInt(m[1], 10);
+        const label = (m[2] || '')
+          .replace(/^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]\s*/u, '').trim();
+        if (!isNaN(percent)) _evt.sender.send('run-progress', { p: percent, label });
+      }
+    };
+
+    const result = await publishGeneratedContent(
+      data.payload, data.title, data.content, data.thumbnailUrl, publishOnLog,
+    );
 
     console.log('[PUBLISH] 발행 결과:', {
       ok: result?.ok,

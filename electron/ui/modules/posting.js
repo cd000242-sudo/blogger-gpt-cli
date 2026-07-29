@@ -1394,6 +1394,7 @@ const PAYLOAD_DEFAULTS = {
   thumbnailMode: 'nanobanana2',
   ctaMode: 'auto',
   h2ImageSource: 'nanobanana2',
+  shoppingImageStrategy: 'product-all',
   sectionCount: 5,
   minSectionCount: 1,
   maxSectionCount: 20,
@@ -1497,6 +1498,10 @@ function getH2ImageSettingsFromDOM() {
     return {
       h2ImageSource: forceH2None ? 'none' : (settings.source || PAYLOAD_DEFAULTS.h2ImageSource),
       h2ImageSections: forceH2None ? [] : (settings.sections || []),
+      // v3.8.385: 쇼핑모드 본문 이미지 전략 (썸네일은 항상 실제 상품 사진)
+      shoppingImageStrategy: settings.shoppingImageStrategy
+        || document.getElementById('shoppingImageStrategy')?.value
+        || PAYLOAD_DEFAULTS.shoppingImageStrategy,
       h2ImageMode: legacyH2ImageMode,
       imagePolicy: selectedPolicy,
       h2Images: { ...settings, source: forceH2None ? 'none' : (settings.source || PAYLOAD_DEFAULTS.h2ImageSource), sections: forceH2None ? [] : (settings.sections || []), leonardoModel, mode: legacyH2ImageMode, imagePolicy: selectedPolicy, h2TextIncluded: false },
@@ -1523,9 +1528,13 @@ function getH2ImageSettingsFromDOM() {
     .map(cb => parseInt(cb.value))
     .filter(n => Number.isFinite(n) && n > 0);
 
+  const shoppingImageStrategy = document.getElementById('shoppingImageStrategy')?.value
+    || PAYLOAD_DEFAULTS.shoppingImageStrategy;
+
   return {
     h2ImageSource: h2ImageSourceValue,
     h2ImageSections: h2ImageSections,
+    shoppingImageStrategy,
     h2ImageMode: legacyH2ImageMode,
     imagePolicy: selectedPolicy,
     h2Images: { source: h2ImageSourceValue, sections: h2ImageSections, leonardoModel, mode: legacyH2ImageMode, imagePolicy: selectedPolicy, h2TextIncluded: false },

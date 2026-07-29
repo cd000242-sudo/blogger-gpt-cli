@@ -541,7 +541,7 @@
                     onblur="this.style.borderColor='#e5e7eb'; this.style.backgroundColor='#f9fafb';">
                     <option value="external">🎯 SEO 최적화 모드/정보전달</option>
                     <option value="internal">🕸️ 단일 완결 (자동 내부링크 거미줄)</option>
-                    <option value="shopping" disabled>🛍️ 쇼핑/구매유도 모드 (준비 중 — 점검 후 재오픈)</option>
+                    <option value="shopping">🛍️ 쇼핑/구매유도 모드</option>
                     <option value="adsense">🏆 에드센스승인 모드/정보전달</option>
                     <option value="paraphrasing">🔄 페러프레이징 모드 (MAX 구조)</option>
                   </select>
@@ -4054,7 +4054,7 @@
                       <select id="contentMode">
                         <option value="external">🎯 SEO 최적화 모드/정보전달</option>
                         <option value="internal">🕸️ 단일 완결 (자동 내부링크 거미줄)</option>
-                        <option value="shopping" disabled>🛍️ 쇼핑/구매유도 모드 (준비 중 — 점검 후 재오픈)</option>
+                        <option value="shopping">🛍️ 쇼핑/구매유도 모드</option>
                         <option value="adsense">🏆 에드센스승인 모드/정보전달</option>
                         <option value="paraphrasing">🔄 페러프레이징 모드 (MAX 구조)</option>
                       </select>
@@ -4256,6 +4256,21 @@
                       <option value="none">❌ 이미지 없음</option>
                     </select>
                     <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 모든 소제목에 자동으로 이미지가 배치됩니다 · 선택 엔진 실패 시 폴백 없이 즉시 에러로 알려줍니다</small>
+
+                    <!-- 🛒 v3.8.385: 쇼핑모드 이미지 전략 — 썸네일은 항상 실제 상품 사진, 본문만 선택 -->
+                    <div class="acc-field" style="margin-top: 14px; background: rgba(255, 107, 53, 0.08); border: 1px solid rgba(255, 107, 53, 0.3); border-radius: 10px; padding: 14px;">
+                      <label class="acc-label" style="color: #ff9966;">🛒 쇼핑모드 본문 이미지 전략</label>
+                      <select id="shoppingImageStrategy" style="width: 100%; padding: 10px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: white; font-size: 13px;">
+                        <option value="product-all" selected>📸 상품 사진 그대로 — 소제목마다 수집한 상품 이미지 배치</option>
+                        <option value="product-i2i">🎨 상품 기반 생성(i2i) — 실제 상품을 참고해 소제목별로 새로 생성</option>
+                      </select>
+                      <small style="color: rgba(255, 153, 102, 0.9); font-size: 11px; margin-top: 6px; display: block; line-height: 1.6;">
+                        🖼️ <strong>썸네일은 두 경우 모두 실제 상품 사진</strong>입니다 — 어떤 제품인지 바로 보여야 구매로 이어집니다.<br>
+                        📸 <strong>상품 사진 그대로</strong>: 신뢰도가 가장 높습니다. 실제 판매 이미지라 "이 제품 맞다"가 증명됩니다.<br>
+                        🎨 <strong>상품 기반 생성</strong>: 소제목 내용(사용 장면·비교·구성품 등)에 맞춘 그림이 나옵니다. 단 실물과 다를 수 있습니다.<br>
+                        ⚠️ 이 설정은 <strong>쇼핑/구매유도 모드에서만</strong> 적용됩니다.
+                      </small>
+                    </div>
                     <div id="h2LeonardoModelWrap" style="display:none; margin-top:10px; padding:12px; background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.35); border-radius:10px;">
                       <label class="acc-label" style="color:#fde68a;">🦁 Leonardo AI 모델 선택</label>
                       <select id="h2LeonardoModel" onchange="if(window.updateImageCostPreview)window.updateImageCostPreview()"

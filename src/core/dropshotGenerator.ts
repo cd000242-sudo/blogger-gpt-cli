@@ -487,35 +487,50 @@ async function ensureDropshotControls(page: any, onLog?: (m: string) => void): P
   throw new Error(message);
 }
 
+// v3.8.386: 죽은 신호 → 살아있는 신호로 교체.
+//   구버전은 /api/me 와 CognitoIdentityServiceProvider 쿠키만 봤는데, 실측상 전자는 404이고
+//   후자는 현재 사이트가 쓰지 않는다(지금은 ds.session-token.*). 그래서 정상 로그인 상태에서도
+//   계정(userName/email)이 늘 비었고, 화면엔 "로그인 세션 · 연동됨"만 떠서
+//   "무제한이 인식이 안 된다"로 보였다. 기능은 되는데 표기만 죽어 있던 셈이다.
+//   실측 2026-07-30: /api/auth/session -> 200 { user: { id, email, name, firebaseUid } }
 async function getDropshotSessionInfo(page: any): Promise<Pick<DropshotLoginStatus, 'loggedIn' | 'userId' | 'userName' | 'email' | 'message'>> {
   try {
-    return await page.evaluate(async () => {
-      const text = document.body.innerText || '';
-      const hasBoardUi = /이미지 생성|플랜 업그레이드|워크스페이스|image generation|upgrade plan|workspace/i.test(text)
-        || !!document.querySelector('textarea:not([disabled]), [role="textbox"], [data-slate-editor="true"], .ProseMirror');
-      const cookies = document.cookie;
-      const cognitoMatch = cookies.match(/CognitoIdentityServiceProvider\.[^.]+\.LastAuthUser=([^;]+)/);
-
-      const res = await fetch('/api/me', { credentials: 'include' }).catch(() => null);
-      if (res?.ok) {
-        const data = await res.json().catch(() => ({}));
+    const raw = await page.evaluate(async (sessionUrl: string) => {
+      try {
+        const res = await fetch(sessionUrl, { credentials: 'include' });
+        if (!res.ok) return { ok: false, status: res.status };
+        const body: any = await res.json().catch(() => null);
+        const user = body && body.user;
+        // 로그아웃 상태에서는 빈 객체/401이 온다 — id 또는 email이 있어야 실제 세션이다.
+        if (!user || !(user.id || user.email)) return { ok: false, status: res.status };
         return {
-          loggedIn: true,
-          userName: data?.name,
-          email: data?.email,
-          userId: data?.externalId,
-          message: 'OK',
+          ok: true,
+          userId: user.id ? String(user.id) : '',
+          userName: user.name ? String(user.name) : '',
+          email: user.email ? String(user.email) : '',
         };
+      } catch (e: any) {
+        return { ok: false, err: String(e?.message || e).slice(0, 80) };
       }
+    }, DROPSHOT_SESSION_API);
 
-      if (!cognitoMatch) {
-        return { loggedIn: false, message: 'Dropshot 인증 세션을 확인하지 못했습니다.' };
-      }
+    if (raw?.ok) {
+      const info: Pick<DropshotLoginStatus, 'loggedIn' | 'userId' | 'userName' | 'email' | 'message'> = {
+        loggedIn: true,
+        message: 'OK',
+      };
+      // exactOptionalPropertyTypes — 빈 값은 아예 넣지 않는다.
+      if (raw.userId) info.userId = raw.userId;
+      if (raw.userName) info.userName = raw.userName;
+      if (raw.email) info.email = raw.email;
+      return info;
+    }
 
-      return hasBoardUi
-        ? { loggedIn: true, message: 'Cognito 세션과 board UI 확인' }
-        : { loggedIn: false, message: 'Cognito 세션은 있으나 board UI를 확인하지 못함' };
-    });
+    // API가 네트워크/CORS로 실패했을 때의 보조 신호. 계정 정보는 못 채우지만 로그인은 인정한다.
+    if (await hasDropshotSessionCookie(page)) {
+      return { loggedIn: true, message: '세션 쿠키로 확인 (계정 정보는 조회하지 못함)' };
+    }
+    return { loggedIn: false, message: 'Dropshot 인증 세션을 확인하지 못했습니다.' };
   } catch (error: any) {
     return { loggedIn: false, message: `session evaluate err: ${error?.message || error}` };
   }
@@ -1285,20 +1300,31 @@ export async function checkDropshotLogin(options: { force?: boolean } = {}): Pro
       message: generationSession.message,
     };
 
-    // 구독 상태 — best-effort (API 호출 실패해도 loggedIn 정보는 살림)
-    let subscription: 'pro' | 'free' | 'unknown' = 'unknown';
+    // 구독 상태 — best-effort (확인 실패해도 loggedIn 정보는 살림)
+    // v3.8.386: 등급 조회 API는 실측상 전부 404다.
+    //   /api/user/subscription, /api/subscription, /api/user/plan,
+    //   /api/billing/subscription, /api/credits, /api/user  → 404 (2026-07-30 측정)
+    //   기존 코드는 존재하지도 않는 api.aistudio.dropshot.io/v1/user/subscription 을 두드렸고,
+    //   TypeError가 catch에 삼켜져 등급이 영원히 'unknown'이었다.
+    //   실제로 참인 신호는 보드의 "무제한 모드" 토글이다. 이 토글이 곧 무제한 생성 권한이며
+    //   makeDropshotImage가 생성 직전에 ON을 강제 확인하는 바로 그 컨트롤이라, 등급 API보다 정확하다.
+    const subscription: 'pro' | 'free' | 'unknown' = 'unknown';
+    let subscriptionLabel = '';
     try {
-      const sub = await page.evaluate(async () => {
-        const r = await fetch('https://api.aistudio.dropshot.io/v1/user/subscription?lang=ko', { credentials: 'include' });
-        if (!r.ok) return null;
-        return await r.json();
+      const hasUnlimitedToggle = await page.evaluate(() => {
+        const ancestorsContain = (node: Element | null, pattern: RegExp, limit: number): boolean => {
+          let current = node;
+          for (let depth = 0; depth < limit && current; depth += 1, current = current.parentElement) {
+            const text = String((current as HTMLElement).innerText || current.textContent || '');
+            if (pattern.test(text)) return true;
+          }
+          return false;
+        };
+        const switches = Array.from(document.querySelectorAll('input[role="switch"]'));
+        return switches.some((sw) => ancestorsContain(sw, /무제한\s*모드|unlimited\s*mode/i, 7));
       });
-      if (sub && typeof sub === 'object') {
-        const planType = String((sub as any)?.current?.plan || (sub as any)?.plan || '').toLowerCase();
-        if (planType === 'pro' || planType.includes('pro')) subscription = 'pro';
-        else if (planType === 'free' || planType === 'basic') subscription = 'free';
-      }
-    } catch { /* subscription 정보 못 가져와도 loggedIn 정보는 유효 */ }
+      if (hasUnlimitedToggle) subscriptionLabel = '무제한 모드 사용 가능';
+    } catch { /* 토글 확인 실패해도 loggedIn 정보는 유효 */ }
 
     if (openedFresh) {
       // v3.8.376: 인증 확인에 성공한 컨텍스트는 닫지 않고 캐시로 인계한다 (warm 인계).
@@ -1312,7 +1338,11 @@ export async function checkDropshotLogin(options: { force?: boolean } = {}): Pro
       }
     }
 
-    const result = withDropshotSubscriptionMeta({ ...info, subscription });
+    const result = withDropshotSubscriptionMeta({
+      ...info,
+      subscription,
+      ...(subscriptionLabel ? { subscriptionLabel } : {}),
+    });
     _loginCheckCache = { ts: Date.now(), result };
     return result;
   } catch (e: any) {

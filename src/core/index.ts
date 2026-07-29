@@ -1742,12 +1742,25 @@ export async function runSemiAutoPost(payload: any, onLog?: (msg: string) => voi
  * 
  * 블로거/워드프레스 등 플랫폼에 실제 발행하는 함수
  */
+/**
+ * @param onLog v3.8.385 신설. 발행 진행 로그 콜백.
+ *   기존에는 이 인자가 없어서 publish-content 경로가 진행률을 화면에 보낼 통로가 없었다.
+ *   (run-progress 채널을 쏘는 건 run-post 핸들러 하나뿐이었고, 그건 onLog 의
+ *    `[PROGRESS] N% - …` 를 파싱해서 보낸다. 여기에 콜백이 없으니 UI 가 멈춰 보였다.)
+ *   실측 사고(2026-07-29): 발행 18분간 진행률 0% 고정 → 사용자가 취소 후 재클릭 3회 →
+ *   결국 finally 폴백이 성공 모달을 띄웠다.
+ */
 export async function publishGeneratedContent(
   payload: any,
   title: string,
   html: string,
-  thumbnailUrl?: string
+  thumbnailUrl?: string,
+  onLog?: (msg: string) => void
 ): Promise<PublishGeneratedContentResult> {
+  const emit = (msg: string) => {
+    try { onLog?.(msg); } catch { /* 로깅 실패가 발행을 막지 않는다 */ }
+    console.log(msg);
+  };
   try {
     // 플랫폼 값 정규화: 'blogger'와 'blogspot' 통일
     // v3.8.141: payload.platform이 누락되어도 무조건 'blogspot' default였던 버그 fix
@@ -1800,6 +1813,7 @@ export async function publishGeneratedContent(
       throw new Error('예약 발행에는 올바른 예약 날짜와 시간이 필요합니다.');
     }
 
+    emit('[PROGRESS] 92% - 📤 발행 준비 중...');
     console.log('[PUBLISH] publishGeneratedContent 호출');
     console.log('[PUBLISH] 원본 플랫폼 값:', payload?.platform);
     console.log('[PUBLISH] 정규화된 플랫폼:', platform);
@@ -1873,6 +1887,7 @@ export async function publishGeneratedContent(
     }
 
     if (platform === 'blogspot' || platform === 'blogger') {
+      emit('[PROGRESS] 94% - 📤 Blogger 발행 중...');
       // 블로그스팟/블로거
       const { publishToBlogger } = require('./blogger-publisher.js');
 
@@ -1881,7 +1896,7 @@ export async function publishGeneratedContent(
         title,
         html,
         thumbnailUrl || '',
-        (msg: string) => console.log(msg), // onLog
+        emit, // onLog — v3.8.385: 렌더러까지 전달 (기존엔 console.log 로만 삼켰다)
         postingMode,
         scheduleDate
       );
@@ -1897,6 +1912,7 @@ export async function publishGeneratedContent(
         needsAuth: result.needsAuth
       };
     } else if (platform === 'tistory') {
+      emit('[PROGRESS] 94% - 📤 티스토리 발행 중...');
       console.log('[PUBLISH] 티스토리 발행 시작');
 
       cleanupRecentTistoryPublishes();
@@ -1971,6 +1987,7 @@ export async function publishGeneratedContent(
         ACTIVE_TISTORY_PUBLISHES.delete(dedupeKey);
       }
     } else if (platform === 'wordpress') {
+      emit('[PROGRESS] 94% - 📤 워드프레스 발행 중...');
       // 워드프레스
       console.log('[PUBLISH] 워드프레스 발행 시작');
 
