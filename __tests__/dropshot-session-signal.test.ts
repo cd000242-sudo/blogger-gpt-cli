@@ -77,6 +77,21 @@ describe('getDropshotSessionInfo — 살아있는 신호만 쓴다', () => {
   });
 });
 
+describe('파일 전체 — 죽은 엔드포인트가 어디에도 안 남아 있다', () => {
+  // 첫 수정 때 getDropshotSessionInfo 만 고쳐서 loginDropshot 안의 같은 호출을 놓쳤다.
+  // 함수 단위가 아니라 파일 단위로 막는다.
+  it('/api/me 를 fetch 하는 코드가 하나도 없다', () => {
+    expect(src).not.toMatch(/fetch\(\s*['"`]\/api\/me['"`]/);
+  });
+
+  it('Cognito 쿠키를 파싱하는 코드가 없다', () => {
+    // 이름만으로 검사하면 "왜 안 쓰는지" 설명한 주석까지 잡힌다.
+    // 실제 파싱 대상인 LastAuthUser 로 판정한다.
+    expect(src).not.toContain('LastAuthUser');
+    expect(src).not.toMatch(/cookies?\.match\(\s*\/CognitoIdentityServiceProvider/);
+  });
+});
+
 describe('등급 판정 — 존재하지 않는 API 를 두드리지 않는다', () => {
   it('죽은 구독 API 호출이 남아 있지 않다', () => {
     expect(src).not.toContain('api.aistudio.dropshot.io/v1/user/subscription?lang=ko');

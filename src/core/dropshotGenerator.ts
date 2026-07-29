@@ -1476,10 +1476,15 @@ export async function loginDropshot(): Promise<{
           loggedIn = true;
           boardPage = p;
           try {
-            const u = await p.evaluate(async () => {
-              const r = await fetch('/api/me', { credentials: 'include' });
-              return r.ok ? await r.json() : null;
-            });
+            // v3.8.386: 여기도 죽은 /api/me 를 쓰고 있었다(404 → userName 항상 undefined).
+            //   아래 checkDropshotLogin 결과가 우선이라 화면엔 티가 안 났지만, 그 조회가
+            //   실패했을 때의 폴백 이름까지 비는 문제가 있어 살아있는 세션 API로 교체한다.
+            const u = await p.evaluate(async (sessionUrl: string) => {
+              const r = await fetch(sessionUrl, { credentials: 'include' });
+              if (!r.ok) return null;
+              const body: any = await r.json().catch(() => null);
+              return (body && body.user) || null;
+            }, DROPSHOT_SESSION_API);
             userName = u?.name || u?.email;
           } catch {}
           break;
