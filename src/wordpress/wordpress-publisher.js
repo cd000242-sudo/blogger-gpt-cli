@@ -1470,6 +1470,7 @@ class WordPressPublisher {
             else {
                 console.log(`[WP-PUBLISH] ⚠️ CSS가 없음 - 기본 텍스트 서식만 적용될 수 있음`);
             }
+            optimizedContent = await this.uploadInlineBase64Images(optimizedContent, options.title);
             let featuredMediaId;
             const resolveFeaturedUrl = () => {
                 if (options.featuredImageUrl)
@@ -1817,6 +1818,55 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
         catch (error) {
             throw new Error(`이미지 다운로드 중 오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
         }
+    }
+    async uploadInlineBase64Images(html, title) {
+        const source = String(html || '');
+        const matches = [...source.matchAll(/<img\b[^>]*\bsrc=["'](data:image\/[a-z+]+;base64,[A-Za-z0-9+/=\s]+)["'][^>]*>/gi)];
+        if (matches.length === 0)
+            return source;
+        const replacements = [];
+        const doneByDataUrl = new Map();
+        let uploaded = 0;
+        for (let i = 0; i < matches.length; i += 1) {
+            const tag = matches[i]?.[0] || '';
+            const rawSrc = String(matches[i]?.[1] || '');
+            const dataUrl = rawSrc.replace(/\s+/g, '');
+            if (!tag || dataUrl.length <= 200)
+                continue;
+            const already = doneByDataUrl.get(dataUrl);
+            if (already !== undefined) {
+                replacements.push({ tag, next: already ? tag.replace(rawSrc, already) : '' });
+                continue;
+            }
+            try {
+                const base64Part = dataUrl.replace(/^data:image\/[a-z+]+;base64,/i, '');
+                const buf = Buffer.from(base64Part, 'base64');
+                if (buf.byteLength < 1024)
+                    throw new Error(`디코드 결과가 너무 작다 (${buf.byteLength}B)`);
+                const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+                const ext = (dataUrl.match(/^data:image\/([a-z+]+);/i)?.[1] || 'png').toLowerCase()
+                    .replace('jpeg', 'jpg').replace(/[^a-z0-9]/g, '');
+                const media = await this.wpApi.uploadMedia(arrayBuffer, `${Date.now()}-body-${i + 1}.${ext || 'png'}`, title);
+                if (media?.source_url) {
+                    doneByDataUrl.set(dataUrl, media.source_url);
+                    replacements.push({ tag, next: tag.replace(rawSrc, media.source_url) });
+                    uploaded += 1;
+                    continue;
+                }
+                throw new Error('source_url 없음');
+            }
+            catch (error) {
+                console.warn(`[WP-PUBLISH] ⚠️ 본문 이미지 ${i + 1} 미디어 업로드 실패 → 해당 이미지만 제거: ${String(error?.message || error).slice(0, 90)}`);
+                doneByDataUrl.set(dataUrl, '');
+                replacements.push({ tag, next: '' });
+            }
+        }
+        let out = source;
+        replacements.forEach(({ tag, next }) => { out = out.split(tag).join(next); });
+        if (uploaded > 0) {
+            console.log(`[WP-PUBLISH] ✅ 본문 base64 이미지 ${uploaded}/${matches.length}개를 미디어 라이브러리로 업로드`);
+        }
+        return out;
     }
     async publishBatch(posts) {
         const results = [];

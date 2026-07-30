@@ -23,6 +23,12 @@ import * as path from 'path';
 
 const DIR = path.resolve('.tmp-tests/test-schedule');
 
+// v3.8.387: 이 테스트들은 it() 안에서 schedule-manager 를 콜드 require 한다.
+//   ts-jest 컴파일 비용이 테스트 시간에 포함되므로, 전체 게이트에서 워커가 경합하면
+//   기본 5초를 넘겨 타임아웃으로 죽었다(단독 실행 시 147ms). 컴파일 시간은 검증 대상이
+//   아니고, 이 흔들림 때문에 진짜 회귀를 구분할 수 없어 명시적으로 넉넉히 잡는다.
+jest.setTimeout(30_000);
+
 function resetStore() {
   try { fs.rmSync(DIR, { recursive: true, force: true }); } catch { /* noop */ }
   fs.mkdirSync(DIR, { recursive: true });
