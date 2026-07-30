@@ -19,6 +19,7 @@ import { findRelatedPosts, insertInternalLinks } from '../internal-links';
 import { analyzeKeywordDemand } from '../keyword-demand';
 import { analyzeKeywordAngle, composeTitleDirective } from '../keyword-angle';
 import { buildUniquenessBlock } from './substance-rules';
+import { collectOfficialSources, buildOfficialSourceBlock } from './official-sources';
 import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
 import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTIONS } from '../max-mode/mode-sections-extended';
 import { fetchFactContext, type FactCheckMode } from '../perplexityFactCheck';
@@ -1201,9 +1202,37 @@ export async function generateUltimateMaxModeArticleFinal(
       }
     }
 
+    // v3.8.389: 공공기관 확인 근거를 수집해 맨 앞에 넣는다.
+    //   실측 2026-07-30 — 실속 규칙(v3.8.385) 적용 후 두루뭉실 표현은 -52.8% 로 줄었는데
+    //   기관 출처는 +3.5%(사실상 보합)였다. 프롬프트가 약해서가 아니라, 크롤링 소스가
+    //   티스토리·워드프레스·뉴스·카페·RSS 뿐이어서 **자료에 기관 근거가 아예 없었기** 때문이다.
+    //   규칙 6("확인 못한 숫자는 지어내지 말라")을 지키면 모델은 안 쓰는 게 맞다.
+    //   그래서 압박을 늘리는 대신 근거를 찾아서 준다.
+    //   generation.ts 가 crawledContents 를 12,000자에서 자르므로 반드시 앞쪽에 둔다.
+    //   실패하면 빈 문자열 → 아무것도 추가되지 않는다(악화 없음, 발행도 안 막는다).
+    let officialBlock = '';
+    try {
+      const envForOfficial = loadEnvFromFile();
+      const cseKey = envForOfficial['googleCseKey'] || envForOfficial['GOOGLE_CSE_KEY']
+        || envForOfficial['GOOGLE_CSE_API_KEY'] || '';
+      const cseCx = envForOfficial['googleCseId'] || envForOfficial['GOOGLE_CSE_ID']
+        || envForOfficial['googleCseCx'] || envForOfficial['GOOGLE_CSE_CX'] || '';
+      if (cseKey && cseCx) {
+        onLog?.('[PROGRESS] 43% - 🏛️ 공공기관 확인 근거 수집 중...');
+        const sources = await collectOfficialSources(keyword, cseKey, cseCx, onLog);
+        officialBlock = buildOfficialSourceBlock(sources);
+        if (officialBlock) {
+          onLog?.(`[PROGRESS] 43% - 🏛️ 기관 근거 ${sources.length}곳 확보 → 프롬프트 주입`);
+        }
+      }
+    } catch (officialErr: any) {
+      console.warn('[OFFICIAL] 공공출처 수집 스킵:', String(officialErr?.message || officialErr).slice(0, 80));
+    }
+
     // Always inject the hard evidence policy. A failed search must never mean unrestricted generation.
     factEnrichedContents = [
       buildFactIntegrityPrompt(keyword, factEvidence),
+      ...(officialBlock ? [officialBlock] : []),
       ...(factEvidence.context ? [`[FACT EVIDENCE - ${factEvidence.provider}]\n${factEvidence.context}`] : []),
       ...contents,
     ];
