@@ -2064,8 +2064,19 @@ export async function generateUltimateMaxModeArticleFinal(
           return uploadedUrl;
         }
       } catch (e) { /* 무시 */ }
-      // 모든 호스팅 실패 — base64 그대로 사용하면 Blogger API 400 발생
-      // 빈 문자열 반환하여 이미지 없이 발행 (400보다 낫다)
+      // v3.8.387: 여기서 이미지를 버리는 게 "본문 이미지 0개"의 원인이었다.
+      //   실측 2026-07-30 — 발행글 141/323편(43.7%)이 본문 이미지 0개, 썸네일은 전부 정상.
+      //   썸네일은 wpApi.uploadMedia(자체 미디어)로 올라가는데 본문만 무료 외부 호스트
+      //   5곳(imgbb/imghippo/freeimage/catbox…)에만 의존했고, 그 무료 호스트들이 한꺼번에
+      //   막히면 통째로 버려졌다. 07-26 이후 10편 연속 0개가 정확히 그 모양이다.
+      //   워드프레스는 인증된 자체 미디어 라이브러리가 있으니 base64를 그대로 넘긴다 —
+      //   퍼블리셔가 미디어로 올려 자기 도메인 URL로 바꾼다(썸네일과 동일 경로).
+      //   부수 효과: 이미지가 자기 도메인에 놓여 이미지 색인·링크 수명에도 유리하다.
+      //   Blogger/티스토리는 본문 base64가 API 400을 유발하므로 기존대로 제거한다.
+      if (platform === 'wordpress') {
+        console.warn(`[IMAGE] ⚠️ 외부 호스팅 전부 실패 → 워드프레스 미디어 업로드로 위임 (섹션 ${idx + 1})`);
+        return img;
+      }
       console.warn(`[IMAGE] ⚠️ 모든 호스팅 실패 → 이미지 제거 (섹션 ${idx + 1}) — Blogger 400 방지`);
       return '';
     });

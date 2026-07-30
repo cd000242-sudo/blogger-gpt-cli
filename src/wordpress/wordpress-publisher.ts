@@ -1660,6 +1660,12 @@ export class WordPressPublisher {
       // (이중 래핑 시 WordPress가 "클래식" 블록으로 잘못 파싱함)
 
       // 썸네일 처리 (대표 이미지 설정)
+      // v3.8.387: 본문에 남은 base64 이미지를 워드프레스 미디어 라이브러리로 올린다.
+      //   orchestration 이 무료 외부 호스트 전멸 시 base64 를 그대로 넘겨주므로,
+      //   여기서 자기 미디어로 올려 이미지가 사라지지 않게 한다(썸네일과 동일 경로).
+      //   실패해도 절대 발행을 막지 않는다 — 해당 img 만 제거하고 계속 진행한다.
+      optimizedContent = await this.uploadInlineBase64Images(optimizedContent, options.title);
+
       let featuredMediaId: number | undefined;
 
       // v3.8.94/120: featuredImageUrl 누락 시 본문 첫 img 자동 채택 (http URL 또는 base64 data URL 모두 처리)
@@ -2067,6 +2073,79 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
     } catch (error) {
       throw new Error(`이미지 다운로드 중 오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
     }
+  }
+
+  /**
+   * v3.8.387: 본문의 base64 <img> 를 워드프레스 미디어 라이브러리로 올려 실제 URL로 바꾼다.
+   *
+   * 배경(실측 2026-07-30): 발행글 141/323편(43.7%)이 본문 이미지 0개였다.
+   *   썸네일은 이 클래스의 uploadMedia 경로로 전부 정상 업로드됐는데, 본문 이미지만
+   *   무료 외부 호스트(imgbb/imghippo/freeimage/catbox)에만 의존했고 그것들이 함께
+   *   막히면 orchestration 이 이미지를 통째로 버렸다.
+   *
+   * 원칙: 절대 발행을 막지 않는다. 업로드 실패한 img 는 태그만 제거하고 계속 간다
+   *       (거대한 data: URI 가 본문에 남는 것보다 낫다 — 기존 동작과 동일한 결과).
+   */
+  private async uploadInlineBase64Images(html: string, title?: string): Promise<string> {
+    const source = String(html || '');
+    const matches = [...source.matchAll(
+      /<img\b[^>]*\bsrc=["'](data:image\/[a-z+]+;base64,[A-Za-z0-9+/=\s]+)["'][^>]*>/gi,
+    )];
+    if (matches.length === 0) return source;
+
+    // [찾은 태그, 바꿀 값] 목록을 만든 뒤 한 번에 치환한다 (치환 중 인덱스 밀림 방지)
+    const replacements: Array<{ tag: string; next: string }> = [];
+    // 같은 이미지가 여러 섹션에 쓰이면 한 번만 올린다 (중복 업로드 = 낭비)
+    const doneByDataUrl = new Map<string, string>();
+    let uploaded = 0;
+
+    for (let i = 0; i < matches.length; i += 1) {
+      const tag = matches[i]?.[0] || '';
+      const rawSrc = String(matches[i]?.[1] || '');   // 태그 안의 원문 (치환 대상)
+      const dataUrl = rawSrc.replace(/\s+/g, '');     // 디코드용 (줄바꿈 제거)
+      // 200자 이하는 placeholder — 올릴 가치가 없다(기존 sanitizer가 제거하는 대상)
+      if (!tag || dataUrl.length <= 200) continue;
+
+      const already = doneByDataUrl.get(dataUrl);
+      if (already !== undefined) {
+        replacements.push({ tag, next: already ? tag.replace(rawSrc, already) : '' });
+        continue;
+      }
+
+      try {
+        const base64Part = dataUrl.replace(/^data:image\/[a-z+]+;base64,/i, '');
+        const buf = Buffer.from(base64Part, 'base64');
+        if (buf.byteLength < 1024) throw new Error(`디코드 결과가 너무 작다 (${buf.byteLength}B)`);
+        const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+        const ext = (dataUrl.match(/^data:image\/([a-z+]+);/i)?.[1] || 'png').toLowerCase()
+          .replace('jpeg', 'jpg').replace(/[^a-z0-9]/g, '');
+        const media = await this.wpApi.uploadMedia(
+          arrayBuffer,
+          `${Date.now()}-body-${i + 1}.${ext || 'png'}`,
+          title,
+        );
+        if (media?.source_url) {
+          doneByDataUrl.set(dataUrl, media.source_url);
+          replacements.push({ tag, next: tag.replace(rawSrc, media.source_url) });
+          uploaded += 1;
+          continue;
+        }
+        throw new Error('source_url 없음');
+      } catch (error: any) {
+        console.warn(
+          `[WP-PUBLISH] ⚠️ 본문 이미지 ${i + 1} 미디어 업로드 실패 → 해당 이미지만 제거: ${String(error?.message || error).slice(0, 90)}`,
+        );
+        doneByDataUrl.set(dataUrl, '');   // 같은 이미지를 또 시도하지 않는다
+        replacements.push({ tag, next: '' });
+      }
+    }
+
+    let out = source;
+    replacements.forEach(({ tag, next }) => { out = out.split(tag).join(next); });
+    if (uploaded > 0) {
+      console.log(`[WP-PUBLISH] ✅ 본문 base64 이미지 ${uploaded}/${matches.length}개를 미디어 라이브러리로 업로드`);
+    }
+    return out;
   }
 
   // 배치 발행 (엑셀 파일에서 여러 포스트 발행)
