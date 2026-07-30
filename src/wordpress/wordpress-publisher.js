@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.WordPressPublisher = void 0;
 exports.stripBodyThumbnailBox = stripBodyThumbnailBox;
 exports.wrapSectionsInCards = wrapSectionsInCards;
+exports.foldRepeatedInlineStyles = foldRepeatedInlineStyles;
 exports.applyWordPressInlineStyles = applyWordPressInlineStyles;
 exports.publishToWordPress = publishToWordPress;
 const wordpress_api_1 = require("./wordpress-api");
@@ -273,6 +274,66 @@ function preCleanupWordPressBody(html) {
         return `<${tag}${attrs}>${enhanced}</${tag}>`;
     });
     return cleaned;
+}
+function foldRepeatedInlineStyles(html, minRepeat = 3) {
+    const source = String(html || '');
+    const empty = { html: source, css: '', folded: 0, savedBytes: 0 };
+    if (!source)
+        return empty;
+    const allImportant = (style) => {
+        const decls = style.split(';').map(s => s.trim()).filter(Boolean);
+        if (decls.length === 0)
+            return false;
+        return decls.every(d => /!\s*important$/i.test(d));
+    };
+    const vault = [];
+    const masked = source.replace(/<style\b[\s\S]*?<\/style>|<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/gi, (m) => { vault.push(m); return ` BGPTV${vault.length - 1} `; });
+    const tagRe = /<([a-z][a-z0-9]*)\b([^>]*?)(\/?)>/gi;
+    const styleAttrRe = /\sstyle\s*=\s*"([^"]*)"/i;
+    const freq = new Map();
+    let m;
+    while ((m = tagRe.exec(masked)) !== null) {
+        const raw = styleAttrRe.exec(m[2] || '')?.[1];
+        if (!raw)
+            continue;
+        const key = raw.trim();
+        if (key.length < 60 || !allImportant(key))
+            continue;
+        freq.set(key, (freq.get(key) || 0) + 1);
+    }
+    const chosen = new Map();
+    [...freq.entries()]
+        .filter(([, n]) => n >= minRepeat)
+        .sort((a, b) => b[1] * b[0].length - a[1] * a[0].length)
+        .forEach(([style], i) => { chosen.set(style, `bgpt-s${i + 1}`); });
+    if (chosen.size === 0)
+        return empty;
+    let savedBytes = 0;
+    let foldedCount = 0;
+    const replaced = masked.replace(tagRe, (full, tag, attrs = '', selfClose = '') => {
+        const sm = styleAttrRe.exec(attrs);
+        if (!sm)
+            return full;
+        const cls = chosen.get(String(sm[1]).trim());
+        if (!cls)
+            return full;
+        let nextAttrs = attrs.replace(sm[0], '');
+        const cm = /\sclass\s*=\s*"([^"]*)"/i.exec(nextAttrs);
+        if (cm)
+            nextAttrs = nextAttrs.replace(cm[0], ` class="${cm[1]} ${cls}"`);
+        else
+            nextAttrs = `${nextAttrs} class="${cls}"`;
+        savedBytes += sm[0].length - (cm ? cls.length + 1 : cls.length + 9);
+        foldedCount += 1;
+        return `<${tag}${nextAttrs.replace(/\s{2,}/g, ' ').replace(/\s+$/, '')}${selfClose}>`;
+    });
+    const rules = [...chosen.entries()].map(([style, cls]) => {
+        const decls = style.replace(/\s+/g, ' ').trim().replace(/;?$/, ';');
+        return `.wp-styled-content .${cls}.${cls}.${cls}{${decls}}`;
+    });
+    const out = replaced.replace(/ BGPTV(\d+) /g, (_all, i) => vault[Number(i)] ?? '');
+    const css = `<style>\n/* v3.8.388: 반복 인라인 style ${chosen.size}종 → 클래스 (HTML ${(savedBytes / 1024).toFixed(1)}KB 축소) */\n${rules.join('\n')}\n</style>\n`;
+    return { html: out, css, folded: foldedCount, savedBytes };
 }
 function applyWordPressInlineStyles(html) {
     if (!html)
@@ -1266,7 +1327,19 @@ function applyWordPressInlineStyles(html) {
         const containerStyle = usesFinalPreviewSkin
             ? `max-width: 100%; width: 100%; margin: 0; padding: 0; box-sizing: border-box; font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1e293b; word-break: keep-all; background: transparent; letter-spacing: 0;`
             : `max-width: 760px; margin: 0 auto; padding: 20px 18px; box-sizing: border-box; font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; line-height: 1.72; color: #1a1a1a; word-break: keep-all; background: #ffffff; letter-spacing: 0;`;
-        const wrappedContent = `${themeFriendlyCSS}<div class="wp-styled-content bgpt-wp-ready" data-bgpt-wp-ready="true" style="${containerStyle}">${styledHtml}</div>`;
+        let foldedCSS = '';
+        try {
+            const folded = foldRepeatedInlineStyles(styledHtml);
+            if (folded.folded > 0) {
+                styledHtml = folded.html;
+                foldedCSS = folded.css;
+                console.log(`[WP-PUBLISH] 🗜️ 반복 인라인 style ${folded.folded}개를 클래스로 접음 (${(folded.savedBytes / 1024).toFixed(1)}KB 축소)`);
+            }
+        }
+        catch (error) {
+            console.warn(`[WP-PUBLISH] ⚠️ 인라인 style 접기 실패 (원본 유지): ${String(error?.message || error).slice(0, 80)}`);
+        }
+        const wrappedContent = `${themeFriendlyCSS}${foldedCSS}<div class="wp-styled-content bgpt-wp-ready" data-bgpt-wp-ready="true" style="${containerStyle}">${styledHtml}</div>`;
         styledHtml = `<!-- wp:html -->
 ${wrappedContent}
 <!-- /wp:html -->`;
