@@ -1289,6 +1289,37 @@ export async function generateUltimateMaxModeArticleFinal(
       skipQualityBoost,
     );
 
+    // 🧬 v3.8.390: 자기중복 관측 — **차단하지 않는다.** 재고만 하고 발행은 그대로 진행한다.
+    //   v3.8.385 에 넣은 buildUniquenessBlock(기존 글 제목을 보여줘 각도를 다르게 잡게 하는 예방책)이
+    //   실제로 먹혔는지 재는 계기판이 없었다. 효과를 모르면 개선도 못 한다.
+    //   기존 유사도 검증은 페러프레이징 모드(원문 대비)뿐이고 "내 사이트 기존 글 대비"는 없었다.
+    //   비용: 워드프레스 REST 1회(본문 8편 동시 수신), LLM 호출 0.
+    try {
+      const overlapSiteUrl = String(
+        (payload as any).blogUrl || (payload as any).wordpressSiteUrl || (payload as any).siteUrl
+        || loadEnvFromFile()['WORDPRESS_SITE_URL'] || '',
+      ).trim().replace(/\/+$/, '');
+      // 워드프레스가 아니면 REST 조회가 실패하고 skipped 로 조용히 돌아온다 — 별도 분기 불필요
+      if (overlapSiteUrl) {
+        const bodyForOverlap = [
+          allSectionsObj.introduction,
+          ...allSectionsObj.sections.flatMap((s: any) =>
+            (s.h3Sections || []).map((h: any) => h.content || '')),
+          allSectionsObj.conclusion,
+        ].join('\n');
+        const { measureSelfOverlap, formatSelfOverlapLog } = await import('../self-overlap');
+        const report = await measureSelfOverlap(overlapSiteUrl, keyword, bodyForOverlap);
+        const line = formatSelfOverlapLog(report);
+        if (line) {
+          onLog?.(line);
+          console.log('[SELF-OVERLAP]', line.trim());
+        }
+      }
+    } catch (overlapErr: any) {
+      // 관측 실패는 발행에 어떤 영향도 주지 않는다
+      console.warn('[SELF-OVERLAP] 관측 스킵:', String(overlapErr?.message || overlapErr).slice(0, 80));
+    }
+
     // 🔄 페러프레이징 모드: 유사도 검증 + 임계값 초과 시 자동 재시도 1회
     if (contentMode === 'paraphrasing' && draftContent) {
       try {

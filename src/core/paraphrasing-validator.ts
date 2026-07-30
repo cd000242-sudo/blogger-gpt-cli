@@ -10,7 +10,8 @@
 /**
  * HTML 태그 제거 + 공백 정규화 후 순수 텍스트 추출
  */
-function stripToText(html: string): string {
+// v3.8.390: self-overlap(자기중복 관측)이 같은 계산을 써야 수치가 어긋나지 않는다 → export.
+export function stripToText(html: string): string {
   return (html || '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -25,7 +26,7 @@ function stripToText(html: string): string {
 /**
  * 문자 trigram 집합 추출
  */
-function trigramSet(text: string): Set<string> {
+export function trigramSet(text: string): Set<string> {
   const s = new Set<string>();
   if (text.length < 3) return s;
   for (let i = 0; i <= text.length - 3; i++) {
@@ -37,7 +38,7 @@ function trigramSet(text: string): Set<string> {
 /**
  * Jaccard 유사도 계산 (0.0 ~ 1.0)
  */
-function jaccard(a: Set<string>, b: Set<string>): number {
+export function jaccard(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 && b.size === 0) return 1;
   if (a.size === 0 || b.size === 0) return 0;
   let intersection = 0;
