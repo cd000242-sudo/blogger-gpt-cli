@@ -32,9 +32,20 @@ describe('실속 규칙 내용', () => {
     }
   });
 
-  it('출처 기관명을 함께 쓰라고 요구한다 (Princeton GEO 근거)', () => {
-    expect(SUBSTANCE_FIRST_PASS_RULES).toContain('출처 기관명');
-    expect(SUBSTANCE_FIRST_PASS_RULES).toContain('복지로'); // 좋은 예시가 실제로 들어있다
+  // v3.8.391: 사용자 결정 — "출처가 굳이 본문에 들어갈 필요가 없다".
+  //   괄호 출처 부기를 요구하던 규칙 2 를 뒤집었다. 숫자의 정확성은 유지하고
+  //   (official-sources 가 실제 기관 자료를 프롬프트에 넣어준다) 표기만 없앤다.
+  it('괄호 출처 부기를 금지한다', () => {
+    expect(SUBSTANCE_FIRST_PASS_RULES).toContain('출처 표기는 본문에 넣지 마세요');
+    expect(SUBSTANCE_FIRST_PASS_RULES).toContain('괄호 출처는 넣지 않습니다');
+  });
+
+  it('그래도 확인 안 된 숫자는 쓰지 말라는 원칙은 유지한다', () => {
+    expect(SUBSTANCE_FIRST_PASS_RULES).toContain('확인할 수 없는 숫자는 아예 쓰지 마세요');
+  });
+
+  it('법령·제도 이름은 정보이므로 문장에 녹이도록 허용한다', () => {
+    expect(SUBSTANCE_FIRST_PASS_RULES).toContain('법령·제도의 **이름 자체**는 정보');
   });
 
   it('"공식 사이트에서 확인하세요"로 끝내는 것을 금지한다', () => {
@@ -81,9 +92,12 @@ describe('배선 — 첫 생성 프롬프트에 들어간다', () => {
 });
 
 describe('최신성 규칙', () => {
-  it('기준 시점 명기를 요구한다', () => {
+  it('기준 시점 명기를 요구한다 — 다만 괄호가 아니라 문장 안에', () => {
     expect(FRESHNESS_RULES).toContain('언제 기준인지');
-    expect(FRESHNESS_RULES).toContain('2026년 공고 기준');
+    expect(FRESHNESS_RULES).toContain('문장 안에 녹이세요');
+    // v3.8.391: 괄호 부기 예시를 ❌ 로 뒤집었다 (사용자 결정: 출처·부기를 본문에 넣지 않는다)
+    expect(FRESHNESS_RULES).toContain('괄호 부기는 쓰지 않습니다');
+    expect(FRESHNESS_RULES).toContain('2026년 기준 지원금은 월 20만 원입니다');
   });
 
   it('끝난 사업을 현재형으로 쓰지 못하게 한다', () => {

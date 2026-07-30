@@ -151,8 +151,20 @@ describe('프롬프트 블록', () => {
     expect(block).toContain('공공기관 확인 근거');
   });
 
-  it('숫자와 기관명을 함께 쓰라고 지시한다', () => {
-    expect(buildOfficialSourceBlock(sources)).toContain('숫자와 기관명을 함께');
+  // v3.8.391: 사용자 결정 — "출처가 굳이 본문에 들어갈 필요가 없다".
+  //   수집은 유지하고(정확한 숫자를 주는 게 목적) 본문 출처 표기만 금지한다.
+  it('수집한 숫자를 본문에 그대로 쓰라고 지시한다', () => {
+    expect(buildOfficialSourceBlock(sources)).toContain('본문에 그대로');
+  });
+
+  it('괄호 출처 표기를 금지한다 — 독자는 이 블록을 모른다', () => {
+    const block = buildOfficialSourceBlock(sources);
+    expect(block).toContain('출처 표기는 본문에 넣지 마세요');
+    expect(block).toContain('공식 자료에 따르면');   // 금지 예시로 등장
+  });
+
+  it('법령 이름은 문장에 녹이도록 허용한다 — 그건 출처가 아니라 정보다', () => {
+    expect(buildOfficialSourceBlock(sources)).toContain('법령·제도의 이름 자체는 정보');
   });
 
   it('근거에 없는 숫자를 지어내지 말라고 못박는다 — 규칙 6과 충돌하면 안 된다', () => {

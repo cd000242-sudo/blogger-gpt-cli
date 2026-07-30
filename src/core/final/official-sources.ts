@@ -246,8 +246,15 @@ export function buildOfficialSourceBlock(sources: OfficialSource[], maxChars = 2
   lines.push('=====');
   lines.push('');
   lines.push('위 근거는 실제 기관 페이지에서 확인된 문장입니다. 해당 내용을 다루는 단락에서는');
-  lines.push('**숫자와 기관명을 함께** 쓰세요. 예: "증액은 1년 이내 청구할 수 없습니다(주택임대차보호법 제7조).".');
-  lines.push('근거에 없는 숫자는 이 블록에 있는 것처럼 쓰지 마세요.');
+  lines.push('**이 숫자·기간·조건을 본문에 그대로** 쓰세요. 두루뭉술하게 요약하지 마세요.');
+  lines.push('');
+  lines.push('🚫 출처 표기는 본문에 넣지 마세요. "(복지로 공고 기준)", "(○○공단 자료)" 같은');
+  lines.push('   괄호 출처나 "공식 자료에 따르면" 같은 도입부는 쓰지 않습니다.');
+  lines.push('   위 블록은 당신이 정확한 숫자를 쓰게 하려고 주는 것이고, 독자는 이 블록을 모릅니다.');
+  lines.push('   ✅ "증액은 1년 이내에는 청구할 수 없고, 한도는 5%입니다."');
+  lines.push('   법령·제도의 이름 자체는 정보이므로 필요하면 문장 안에 자연스럽게 녹이세요.');
+  lines.push('   ✅ "주택임대차보호법상 증액 한도는 5%입니다."');
+  lines.push('근거에 없는 숫자는 확인된 것처럼 쓰지 마세요.');
 
   const block = lines.join('\n');
   return block.length > maxChars ? block.slice(0, maxChars) + '\n=====' : block;
