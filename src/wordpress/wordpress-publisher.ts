@@ -322,6 +322,101 @@ function preCleanupWordPressBody(html: string): string {
   return cleaned;
 }
 
+/**
+ * v3.8.388: 반복되는 인라인 style 을 클래스로 접어 HTML 을 줄인다.
+ *
+ * 실측 (2026-07-30, leadernam.com):
+ *   글당 HTML 평균 54.7KB / 본문 텍스트 5.7KB → 9.7배
+ *   #4950 기준 style="" 속성 245개 = 63KB (HTML 의 55%), <style> 태그 26.9KB (24%)
+ *   같은 값이 그대로 반복된다:
+ *     color:#1e293b !important;… (270자) × 61회 = 16.1KB
+ *     min-width:0 !important;…   (273자) × 28회 =  7.5KB
+ *     font-size:21px !important;…(347자) × 12회 =  4.1KB
+ *
+ * 안전 설계 — 외관이 바뀌면 안 된다:
+ *   (a) 선언 전부가 !important 인 값만 접는다.
+ *       비-!important 인라인은 우선순위 계산이 미묘해(테마의 #id 규칙에 밀릴 수 있다)
+ *       손대지 않는다. 실측상 큰 덩어리는 전부 !important 라 절감은 거의 그대로 남는다.
+ *   (b) 셀렉터에 클래스를 3번 반복해 특이도 0,4,0 을 만든다.
+ *       기존 <style> 블록의 최대 특이도(약 0,2,2)를 확실히 넘겨서,
+ *       "인라인이 이기던 것"이 "클래스가 이기는 것"으로 그대로 보존된다.
+ *   (c) <style>/<script>/주석 내부는 자리표시자로 빼두고 건드리지 않는다.
+ */
+export function foldRepeatedInlineStyles(
+  html: string,
+  minRepeat = 3,
+): { html: string; css: string; folded: number; savedBytes: number } {
+  const source = String(html || '');
+  const empty = { html: source, css: '', folded: 0, savedBytes: 0 };
+  if (!source) return empty;
+
+  // 선언이 전부 !important 인가 (a)
+  const allImportant = (style: string): boolean => {
+    const decls = style.split(';').map(s => s.trim()).filter(Boolean);
+    if (decls.length === 0) return false;
+    return decls.every(d => /!\s*important$/i.test(d));
+  };
+
+  // (c) 손대면 안 되는 구간을 잠시 치워둔다
+  const vault: string[] = [];
+  const masked = source.replace(
+    /<style\b[\s\S]*?<\/style>|<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/gi,
+    (m) => { vault.push(m); return ` BGPTV${vault.length - 1} `; },
+  );
+
+  const tagRe = /<([a-z][a-z0-9]*)\b([^>]*?)(\/?)>/gi;
+  const styleAttrRe = /\sstyle\s*=\s*"([^"]*)"/i;
+
+  // 1) 같은 style 값이 몇 번 쓰였는지 센다
+  const freq = new Map<string, number>();
+  let m: RegExpExecArray | null;
+  while ((m = tagRe.exec(masked)) !== null) {
+    const raw = styleAttrRe.exec(m[2] || '')?.[1];
+    if (!raw) continue;
+    const key = raw.trim();
+    // 짧은 값은 클래스 이름이 더 비싸다
+    if (key.length < 60 || !allImportant(key)) continue;
+    freq.set(key, (freq.get(key) || 0) + 1);
+  }
+
+  // 2) 절감이 큰 순서로 클래스명을 부여
+  const chosen = new Map<string, string>();
+  [...freq.entries()]
+    .filter(([, n]) => n >= minRepeat)
+    .sort((a, b) => b[1] * b[0].length - a[1] * a[0].length)
+    .forEach(([style], i) => { chosen.set(style, `bgpt-s${i + 1}`); });
+  if (chosen.size === 0) return empty;
+
+  // 3) 태그를 다시 돌며 style="" → class 로 교체
+  let savedBytes = 0;
+  let foldedCount = 0;
+  const replaced = masked.replace(tagRe, (full, tag: string, attrs: string = '', selfClose: string = '') => {
+    const sm = styleAttrRe.exec(attrs);
+    if (!sm) return full;
+    const cls = chosen.get(String(sm[1]).trim());
+    if (!cls) return full;
+
+    let nextAttrs = attrs.replace(sm[0], '');
+    const cm = /\sclass\s*=\s*"([^"]*)"/i.exec(nextAttrs);
+    if (cm) nextAttrs = nextAttrs.replace(cm[0], ` class="${cm[1]} ${cls}"`);
+    else nextAttrs = `${nextAttrs} class="${cls}"`;
+
+    savedBytes += sm[0].length - (cm ? cls.length + 1 : cls.length + 9);
+    foldedCount += 1;
+    return `<${tag}${nextAttrs.replace(/\s{2,}/g, ' ').replace(/\s+$/, '')}${selfClose}>`;
+  });
+
+  // 4) (b) 특이도를 올린 규칙 생성
+  const rules = [...chosen.entries()].map(([style, cls]) => {
+    const decls = style.replace(/\s+/g, ' ').trim().replace(/;?$/, ';');
+    return `.wp-styled-content .${cls}.${cls}.${cls}{${decls}}`;
+  });
+
+  const out = replaced.replace(/ BGPTV(\d+) /g, (_all, i: string) => vault[Number(i)] ?? '');
+  const css = `<style>\n/* v3.8.388: 반복 인라인 style ${chosen.size}종 → 클래스 (HTML ${(savedBytes / 1024).toFixed(1)}KB 축소) */\n${rules.join('\n')}\n</style>\n`;
+  return { html: out, css, folded: foldedCount, savedBytes };
+}
+
 export function applyWordPressInlineStyles(html: string): string {
   if (!html) return html;
   if (/\bdata-bgpt-wp-ready\s*=\s*["']true["']|\bbgpt-wp-ready\b/i.test(html)) return html;
@@ -1362,7 +1457,21 @@ export function applyWordPressInlineStyles(html: string): string {
       ? `max-width: 100%; width: 100%; margin: 0; padding: 0; box-sizing: border-box; font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1e293b; word-break: keep-all; background: transparent; letter-spacing: 0;`
       : `max-width: 760px; margin: 0 auto; padding: 20px 18px; box-sizing: border-box; font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; line-height: 1.72; color: #1a1a1a; word-break: keep-all; background: #ffffff; letter-spacing: 0;`;
 
-    const wrappedContent = `${themeFriendlyCSS}<div class="wp-styled-content bgpt-wp-ready" data-bgpt-wp-ready="true" style="${containerStyle}">${styledHtml}</div>`;
+    // v3.8.388: 인라인 style 이 다 박힌 뒤 반복분을 클래스로 접는다 (HTML 축소).
+    //   실패하거나 접을 게 없으면 원본 그대로 — 발행을 막지 않는다.
+    let foldedCSS = '';
+    try {
+      const folded = foldRepeatedInlineStyles(styledHtml);
+      if (folded.folded > 0) {
+        styledHtml = folded.html;
+        foldedCSS = folded.css;
+        console.log(`[WP-PUBLISH] 🗜️ 반복 인라인 style ${folded.folded}개를 클래스로 접음 (${(folded.savedBytes / 1024).toFixed(1)}KB 축소)`);
+      }
+    } catch (error: any) {
+      console.warn(`[WP-PUBLISH] ⚠️ 인라인 style 접기 실패 (원본 유지): ${String(error?.message || error).slice(0, 80)}`);
+    }
+
+    const wrappedContent = `${themeFriendlyCSS}${foldedCSS}<div class="wp-styled-content bgpt-wp-ready" data-bgpt-wp-ready="true" style="${containerStyle}">${styledHtml}</div>`;
 
     // Gutenberg HTML 블록
     styledHtml = `<!-- wp:html -->
