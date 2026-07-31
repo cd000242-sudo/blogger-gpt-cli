@@ -7,7 +7,14 @@ import { createPreviewPayload } from './posting.js';
 // 미리보기 생성 함수
 export async function generatePreview() {
   console.log('[NEW-PREVIEW] 미리보기 함수 시작');
-  
+
+  // v3.8.394: appState 를 try 밖에서 선언한다.
+  //   기존엔 try 안에서 const 로 선언해 finally 에서 스코프 밖이었다.
+  //   실측 로그: "preview.js:144 Uncaught (in promise) ReferenceError: appState is not defined"
+  //   const 는 블록 스코프라 finally 에서 안 보인다. 라이선스 미등록 등으로 조기 return 해도
+  //   finally 는 실행되므로 null 가드가 필요하다.
+  let appState = null;
+
   try {
     // 이전 캐시 삭제
     localStorage.removeItem('lastGeneratedContent');
@@ -24,7 +31,7 @@ export async function generatePreview() {
     }
     
     // 실행 중 체크
-    const appState = getAppState();
+    appState = getAppState();
     if (appState.isRunning) {
       alert('작업이 실행 중입니다. 잠시 후 다시 시도해주세요.');
       return;
@@ -45,14 +52,20 @@ export async function generatePreview() {
     appState.isCanceled = false;
     
     // 버튼 로딩 상태
-    ButtonStateManager.setLoading('generateBtn', '⏳ 생성 중...');
+    // v3.8.394: 'generateBtn' 은 존재하지 않는 id 였다 (실측 로그로 확인).
+    //   반자동 발행의 진입 버튼은 editGeneratedBtn 이다.
+    ButtonStateManager.setLoading('editGeneratedBtn', '⏳ 생성 중...');
     
     addLog('[NEW-PREVIEW] 콘텐츠 생성 시작...');
     
     // Payload 생성
-    const payload = createPreviewPayload();
-    
-    console.log('[NEW-PREVIEW] Payload:', payload);
+    // v3.8.394: createPreviewPayload 는 async 다. await 가 빠져 Promise 가 그대로
+    //   IPC 로 넘어갔고, structured clone 이 Promise 를 직렬화하지 못해
+    //   "An object could not be cloned." 가 났다.
+    //   실측 로그가 "[NEW-PREVIEW] Payload: Promise" 라고 그대로 찍고 있었다.
+    const payload = await createPreviewPayload();
+
+    console.log('[NEW-PREVIEW] Payload keys:', payload && typeof payload === 'object' ? Object.keys(payload).length : payload);
     
     // API 호출
     const result = await window.blogger.runPost(payload);
@@ -139,9 +152,9 @@ export async function generatePreview() {
       step: '콘텐츠 생성'
     });
   } finally {
-    ButtonStateManager.restore('generateBtn');
+    ButtonStateManager.restore('editGeneratedBtn');
     setRunning(false);
-    appState.isCanceled = false;
+    if (appState) appState.isCanceled = false;   // 조기 return 시 null 일 수 있다
   }
 }
 

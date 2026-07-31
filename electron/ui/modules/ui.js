@@ -729,13 +729,19 @@ export function cancelRunningTask() {
 }
 
 // 실행 상태 설정
+// v3.8.394: 'runBtn' 은 index.html 에 없는 id 였다.
+//   실측 로그: "[ButtonStateManager] 버튼을 찾을 수 없습니다: runBtn"
+//   → 실행 중에 아무 버튼도 로딩 상태가 되지 않아 "멈춘 줄 알았다"는 체감으로 이어졌다.
+//   실제 존재하는 버튼(발행 / 반자동 발행)에 걸어준다.
+const RUNNING_BUTTON_IDS = ['publishBtn', 'editGeneratedBtn'];
+
 export function setRunning(running) {
   getAppState().isRunning = running;
-  if (running) {
-    ButtonStateManager.setLoading('runBtn', '실행 중...');
-  } else {
-    ButtonStateManager.restore('runBtn');
-  }
+  RUNNING_BUTTON_IDS.forEach((id) => {
+    if (!document.getElementById(id)) return;   // 화면에 없으면 조용히 건너뛴다
+    if (running) ButtonStateManager.setLoading(id, '실행 중...');
+    else ButtonStateManager.restore(id);
+  });
 }
 
 // 진행 취소
