@@ -6880,6 +6880,18 @@ const CODEX_OUT_OF_CREDITS_RE = /out of credits|workspace.{0,20}credit|insuffici
 //   ("please log **out**"이라 기존 "please log in" 패턴에 걸리지 않았다)
 const CODEX_AUTH_REQUIRED_RE = /not (?:logged in|authenticated)|please (?:log in|login)|run `codex login`|authentication required|401\s*unauthorized|invalid_refresh_token|token_expired|could not be refreshed|could not validate your refresh token|token is expired|refresh token (?:has expired|was already used|was revoked)|log (?:out|off) and sign in|try signing in again/i;
 const AGENT_AUTH_REQUIRED_RE = /not (?:logged in|authenticated)|please (?:log in|login)|login required|authentication required|auth(?:entication)? failed|unauthorized|401|run [`"]?(?:codex login|claude)[`"]?|invalid api key|no api key|oauth token|invalid_refresh_token|token_expired|could not be refreshed|could not validate your refresh token|token is expired|refresh token (?:has expired|was already used|was revoked)|log (?:out|off) and sign in|try signing in again/i;
+// v3.8.393: Claude Code 사용량 한도. 실측(2026-07-31) — 사용자가 본 화면:
+//   "Agent 산출물을 찾지 못했습니다." + 원문 JSON 그대로 노출
+//   {"is_error":true,"stop_reason":"stop_sequence","result":"You've hit your weekly limit
+//    · resets Aug 4, 4am (Asia/Seoul)"}
+//   진짜 원인(주간 한도)이 JSON 안에 묻혀 있어 사용자가 앱 버그로 오해했다.
+//   Codex 쪽에는 이미 전용 안내가 있는데 Claude Code 쪽만 없었다.
+const CLAUDE_USAGE_LIMIT_RE = /hit your (?:weekly|daily|5-hour|five hour) limit|usage limit reached|rate limit(?:ed)? exceeded|resets? (?:at |on )?[A-Z][a-z]{2} \d/i;
+/** 한도 안내문에서 리셋 시각을 뽑아 그대로 보여준다 (추측하지 않는다). */
+function extractLimitResetHint(text) {
+    const m = String(text || '').match(/resets?\s+([^"'\\}\n]{3,60})/i);
+    return m?.[1] ? m[1].trim().replace(/[.,;]+$/, '') : '';
+}
 function isAgentModeDevOverride() {
     return !electron_1.app.isPackaged || process.env.DEV_MODE === 'true' || process.env.NODE_ENV === 'development';
 }
@@ -8510,6 +8522,25 @@ function buildAgentFailureMessage(profile, run) {
     }
     if (profile.provider === 'codex' && CODEX_AUTH_REQUIRED_RE.test(combined)) {
         return 'Codex 인증이 만료되었거나 로그인이 풀렸습니다.\n설정 → Agent 계정 → "재로그인"을 눌러 codex login을 다시 실행해주세요.';
+    }
+    // v3.8.393: Claude Code 주간/일일 한도 — 원문 JSON 대신 사람이 읽는 안내로 바꾼다.
+    //   provider 를 가리지 않고 검사한다(한도 문구는 어느 쪽에서든 올 수 있다).
+    if (CLAUDE_USAGE_LIMIT_RE.test(combined)) {
+        const reset = extractLimitResetHint(combined);
+        return [
+            'Claude Code 사용량 한도에 도달했습니다.',
+            '',
+            reset ? `⏰ 한도 초기화: ${reset}` : '⏰ 한도 초기화 시각은 Claude 앱/CLI 에서 확인하세요.',
+            '',
+            '📌 앱 버그가 아니라 구독 사용량이 소진된 상태입니다.',
+            '   글은 생성되지 않았고 발행도 진행되지 않았습니다.',
+            '',
+            '🛠 지금 할 수 있는 것:',
+            '  1) 위 초기화 시각까지 대기 (대기 중에도 예약 발행은 그대로 남습니다)',
+            '  2) 글 생성 엔진을 Gemini / OpenAI / Claude API 로 바꿔서 진행',
+            '     — 이 엔진들은 Claude Code 구독과 **별개 사용량 풀**입니다',
+            '  3) 상위 요금제로 올리면 주간 한도가 늘어납니다',
+        ].join('\n');
     }
     if (processError) {
         return `${profile.provider === 'codex' ? 'Codex' : 'Claude Code'} 오류: ${processError}`;
@@ -10824,6 +10855,17 @@ try {
         catch (error) {
             console.warn('[KEYWORD-CLUSTER] 검사 실패 (발행은 계속):', error?.message);
             return { ok: true, groups: [], warnings: [] };
+        }
+    });
+    // v3.8.392: 금액 단일 출처. 화면이 자기 숫자를 들고 있으면 반드시 어긋난다
+    //   (실측: 같은 모델이 pricing.ts 80 / data-cost 20 / 라벨 ₩20 로 3중 불일치였다).
+    electron_1.ipcMain.handle('pricing:table', async () => {
+        try {
+            const { getPricingTable, COST_MODEL } = require('../src/core/llm/pricing');
+            return { ok: true, tiers: getPricingTable(), costModel: COST_MODEL };
+        }
+        catch (e) {
+            return { ok: false, error: String(e?.message || e), tiers: [] };
         }
     });
     electron_1.ipcMain.handle('dropshot:verify-ready', async (_event, options) => {
