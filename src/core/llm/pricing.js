@@ -11,24 +11,54 @@
  * 아래 표시 금액 × 약 8배. UI 표시는 Naver 자동화 기준 그대로 유지함.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_TIER_VALUE = exports.TIER_MODELS = void 0;
+exports.DEFAULT_TIER_VALUE = exports.TIER_MODELS = exports.COST_MODEL = void 0;
+exports.deriveCostKrw = deriveCostKrw;
+exports.tierCostKrw = tierCostKrw;
+exports.formatTierCost = formatTierCost;
+exports.getPricingTable = getPricingTable;
 exports.findTier = findTier;
 exports.deriveProvider = deriveProvider;
 exports.getCurrentTier = getCurrentTier;
 /**
+ * v3.8.392: 금액 단일 출처(single source of truth).
+ *
+ * 왜 만들었나 — 같은 모델 금액이 세 곳에서 전부 달랐다 (2026-07-31 실측):
+ *   Gemini 3.5 Flash   pricing.ts costKrw=80 / index.html data-cost=20 / 화면 라벨 ~₩20
+ *   Gemini Flash-Lite  costKrw=15 / data-cost=15 / 화면 라벨 ~₩12
+ * 근본 원인은 **토큰 단가가 없어서** 어느 숫자도 검증할 수 없었던 것이다.
+ * 이제 토큰 단가를 적고 금액을 계산으로 뽑는다. 화면·로그·설정은 이 값만 읽는다.
+ */
+exports.COST_MODEL = {
+    /** 표시 기준: LLM 호출 1회 (실제 발행은 약 8회 — UI 안내 문구에서 별도 고지) */
+    inputTokens: 15000,
+    outputTokens: 1200,
+    /** 평균 재시도 배수 */
+    retryFactor: 1.3,
+    /** 환율 (₩/$) */
+    usdToKrw: 1400,
+};
+/**
+ * 토큰 단가로 글 1편(호출 1회) 표시 금액을 계산한다.
+ * 단가를 모르는 모델은 계산하지 않고 선언된 costKrw 를 그대로 쓴다(추측 금지).
+ */
+function deriveCostKrw(price, declared) {
+    if (!price)
+        return declared;
+    const usd = ((exports.COST_MODEL.inputTokens / 1000000) * price.input
+        + (exports.COST_MODEL.outputTokens / 1000000) * price.output) * exports.COST_MODEL.retryFactor;
+    return Math.round(usd * exports.COST_MODEL.usdToKrw);
+}
+/**
  * 10개 티어 모델 (Naver 자동화 priceInfoModal 기반)
  */
-// v3.8.343: costKrw 실측 재조정 (사용자 지적: "이거 금액이 잘못된게 있는거같은데")
-//   기준: 편당 6번 호출 (H1/H2/본문/보강/FAQ/sanitize) + 팩트체크 1회. 총 Input 60K + Output 23K tokens.
-//   Gemini 계열은 매우 저렴, OpenAI/Claude 프리미엄은 실제 훨씬 비쌌음. 정확 값으로 정정 + 20% 안전 마진.
 exports.TIER_MODELS = [
-    // ─── Gemini ─── 실측 대비 정확
+    // ─── Gemini ───────────────────────────────
     {
         value: 'gemini-2.5-flash-lite',
         title: 'Gemini 3.1 Flash-Lite',
         tier: '가성비',
-        description: '대량 발행 최적 · 편당 원가 최저 · 빠른 응답',
-        costKrw: 12, // 실측 ₩10, 안전 마진 20%
+        description: '대량 발행 · 가장 저렴 · 빠른 속도',
+        costKrw: 15,
         provider: 'gemini',
         modelId: 'gemini-3.1-flash-lite',
         fallback: ['gemini-3.1-flash-lite', 'gemini-3.5-flash'],
@@ -37,8 +67,8 @@ exports.TIER_MODELS = [
         value: 'gemini-2.5-flash',
         title: 'Gemini 3.5 Flash',
         tier: '균형',
-        description: '품질·속도·가격 균형 · 일반 블로그 글에 최적 (추천)',
-        costKrw: 20, // 실측 ₩15, 안전 마진 (기존 ₩80은 과다 표기)
+        description: '품질·속도·가격 균형 · 일반 블로그 글에 최적',
+        costKrw: 80,
         provider: 'gemini',
         modelId: 'gemini-3.5-flash',
         fallback: ['gemini-3.5-flash', 'gemini-3.1-flash-lite'],
@@ -49,49 +79,59 @@ exports.TIER_MODELS = [
         title: 'Gemini 3.1 Pro Preview',
         tier: '프리미엄',
         description: '심층 추론 · 최고 품질 · Preview API',
-        costKrw: 90, // 실측 ₩76 (기존 ₩300은 과다 표기)
+        costKrw: 300,
         provider: 'gemini',
         modelId: 'gemini-3.1-pro-preview',
         fallback: ['gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'],
     },
-    // ─── OpenAI GPT-5.6 시리즈 (2026) ───
+    // ─── OpenAI (GPT-5 시리즈로 최신화, 2026-04) ───────────────────────────────
+    //   기존 value 키(openai-gpt4o-mini/openai-gpt41/openai-gpt4o)는 사용자 저장 설정 호환을 위해 유지,
+    //   modelId/title/description/costKrw만 최신 GPT-5 플래그십으로 업그레이드.
     {
         value: 'openai-gpt4o-mini',
         title: 'GPT-5.6 Luna',
         tier: '가성비',
-        description: 'GPT-5.6 Luna · 저비용 · 빠른 속도 · 대량 발행',
-        costKrw: 35, // 실측 ₩30 (기존 ₩12는 과소 표기)
+        // 2026-07-30 인하: 입력 $1 → $0.20, 출력 $6 → $1.20 (80% 인하)
+        description: 'GPT-5.6 Luna · 초저비용 · 빠른 속도 · 대량 발행',
+        costKrw: 8,
         provider: 'openai',
         modelId: 'gpt-5.6-luna',
         fallback: ['gpt-5.6-luna', 'gpt-5.6-terra'],
+        usdPer1M: { input: 0.20, output: 1.20, source: 'OpenAI 공식 블로그 2026-07-30 인하 (입력 $1→$0.20, 출력 $6→$1.20)' },
     },
     {
         value: 'openai-gpt41',
         title: 'GPT-5.6 Terra',
         tier: '균형',
-        description: 'GPT-5.6 Terra · 품질/가격 균형',
-        costKrw: 90, // 실측 ₩76 (기존 ₩30은 과소 표기)
+        // 2026-07-30 인하: 입력 $2.5 → $2, 출력 $15 → $12 (20% 인하)
+        description: 'GPT-5.6 Terra · 품질/가격 균형 · 일반 블로그에 최적',
+        costKrw: 81,
         provider: 'openai',
         modelId: 'gpt-5.6-terra',
         fallback: ['gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5-mini'],
+        usdPer1M: { input: 2, output: 12, source: 'OpenAI 공식 블로그 2026-07-30 인하 (입력 $2.5→$2, 출력 $15→$12)' },
     },
     {
         value: 'openai-gpt4o',
         title: 'GPT-5.6 Sol',
         tier: '프리미엄',
+        // 2026-07-30 인하 대상 아님 — $5/$30 유지
         description: 'OpenAI 최신 플래그십 · 강력한 추론 · 정확한 지시 이행',
-        costKrw: 600, // 실측 ₩500 (기존 ₩60은 심각한 과소 표기)
+        costKrw: 202,
         provider: 'openai',
         modelId: 'gpt-5.6-sol',
         fallback: ['gpt-5.6-sol', 'gpt-5.6-terra'],
+        usdPer1M: { input: 5, output: 30, source: 'OpenAI 공식 블로그 2026-07-30 (인하 대상 아님, $5/$30 유지)' },
     },
-    // ─── Anthropic Claude (2026 최신) ───
+    // ─── Claude (2026-04 기준 최신 ID로 교정) ───────────────────────────────
+    //   기존 코드의 'claude-sonnet-4-20250514' / 'claude-opus-4-20250514'는 1년 전 버전.
+    //   최신: claude-sonnet-4-6 (2025-09-29), claude-opus-4-7 (2025-12, 1M context).
     {
         value: 'claude-haiku',
         title: 'Claude Haiku 4.5',
         tier: '가성비',
         description: '빠른 응답 · 자연스러운 한국어 · 창의적 문체',
-        costKrw: 220, // 실측 ₩185 (기존 ₩39는 과소 표기)
+        costKrw: 39,
         provider: 'claude',
         modelId: 'claude-haiku-4-5-20251001',
         fallback: ['claude-haiku-4-5-20251001', 'claude-sonnet-5'],
@@ -100,8 +140,8 @@ exports.TIER_MODELS = [
         value: 'claude-sonnet',
         title: 'Claude Sonnet 5',
         tier: '균형',
-        description: '균형 잡힌 품질 · 자연스러운 한국어',
-        costKrw: 840, // 실측 ₩700 (기존 ₩63은 심각한 과소 표기)
+        description: 'Claude Sonnet 5 · 균형 잡힌 품질 · 자연스러운 한국어',
+        costKrw: 63,
         provider: 'claude',
         modelId: 'claude-sonnet-5',
         fallback: ['claude-sonnet-5', 'claude-haiku-4-5-20251001'],
@@ -110,25 +150,54 @@ exports.TIER_MODELS = [
         value: 'claude-opus',
         title: 'Claude Fable 5',
         tier: '프리미엄',
-        description: '최상급 추론 · 완벽한 글쓰기 · 매우 비쌈',
-        costKrw: 4200, // 실측 ₩3500 (기존 ₩735는 심각한 과소 표기 — 실제 5배 이상 비쌈)
+        description: 'Claude Fable 5 · 최상급 추론 · 프리미엄 글쓰기',
+        costKrw: 735,
         provider: 'claude',
         modelId: 'claude-fable-5',
         fallback: ['claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-5'],
     },
-    // ─── Perplexity ───
+    // ─── Perplexity ───────────────────────────
     {
         value: 'perplexity-sonar',
-        title: 'Perplexity Sonar Pro',
+        title: 'Perplexity Sonar',
         tier: '실시간',
-        description: '최신 웹 정보 기반 실시간 검색 · 팩트체크 소스',
-        costKrw: 70, // 팩트체크 소량 호출 ~₩60 실측
+        description: '최신 웹 정보 기반 실시간 검색 + AI 분석',
+        costKrw: 15,
         provider: 'perplexity',
         modelId: 'sonar-pro',
         fallback: ['sonar-pro', 'sonar'],
     },
 ];
 exports.DEFAULT_TIER_VALUE = 'gemini-3.5-flash';
+/**
+ * 화면·로그·설정이 공통으로 읽는 표시 금액.
+ * 단가를 아는 모델은 계산값, 모르는 모델은 선언값을 돌려준다.
+ */
+function tierCostKrw(tier) {
+    return deriveCostKrw(tier.usdPer1M, tier.costKrw);
+}
+/** 표시 문자열까지 한 곳에서 만든다 — 화면마다 포맷이 달라지지 않게. */
+function formatTierCost(tier) {
+    return `~₩${tierCostKrw(tier).toLocaleString('ko-KR')}/글`;
+}
+/**
+ * 렌더러(설정 화면·선택창)로 넘길 납작한 표.
+ * UI 가 자기 숫자를 들고 있지 않게 하는 것이 목적이다.
+ */
+function getPricingTable() {
+    return exports.TIER_MODELS.map(t => ({
+        value: t.value,
+        modelId: t.modelId,
+        title: t.title,
+        tier: t.tier,
+        description: t.description,
+        provider: t.provider,
+        costKrw: tierCostKrw(t),
+        costLabel: formatTierCost(t),
+        priceSource: t.usdPer1M?.source ?? '단가 미확인 — 선언값 표시',
+        derived: Boolean(t.usdPer1M),
+    }));
+}
 function findTier(value) {
     if (!value)
         return undefined;
