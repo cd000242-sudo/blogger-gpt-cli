@@ -13,6 +13,46 @@
 export type AiProvider = 'gemini' | 'openai' | 'claude' | 'perplexity';
 export type TierLabel = '가성비' | '균형' | '프리미엄' | '실시간';
 
+/**
+ * v3.8.392: 금액 단일 출처(single source of truth).
+ *
+ * 왜 만들었나 — 같은 모델 금액이 세 곳에서 전부 달랐다 (2026-07-31 실측):
+ *   Gemini 3.5 Flash   pricing.ts costKrw=80 / index.html data-cost=20 / 화면 라벨 ~₩20
+ *   Gemini Flash-Lite  costKrw=15 / data-cost=15 / 화면 라벨 ~₩12
+ * 근본 원인은 **토큰 단가가 없어서** 어느 숫자도 검증할 수 없었던 것이다.
+ * 이제 토큰 단가를 적고 금액을 계산으로 뽑는다. 화면·로그·설정은 이 값만 읽는다.
+ */
+export const COST_MODEL = {
+  /** 표시 기준: LLM 호출 1회 (실제 발행은 약 8회 — UI 안내 문구에서 별도 고지) */
+  inputTokens: 15_000,
+  outputTokens: 1_200,
+  /** 평균 재시도 배수 */
+  retryFactor: 1.3,
+  /** 환율 (₩/$) */
+  usdToKrw: 1_400,
+} as const;
+
+/** 100만 토큰당 USD 단가 */
+export interface TokenPrice {
+  input: number;
+  output: number;
+  /** 단가 출처·확인일 — 근거 없는 숫자를 넣지 않기 위해 필수 */
+  source: string;
+}
+
+/**
+ * 토큰 단가로 글 1편(호출 1회) 표시 금액을 계산한다.
+ * 단가를 모르는 모델은 계산하지 않고 선언된 costKrw 를 그대로 쓴다(추측 금지).
+ */
+export function deriveCostKrw(price: TokenPrice | undefined, declared: number): number {
+  if (!price) return declared;
+  const usd = (
+    (COST_MODEL.inputTokens / 1_000_000) * price.input
+    + (COST_MODEL.outputTokens / 1_000_000) * price.output
+  ) * COST_MODEL.retryFactor;
+  return Math.round(usd * COST_MODEL.usdToKrw);
+}
+
 export interface TierModel {
   /** 라디오 value (settings.json: primaryGeminiTextModel) */
   value: string;
@@ -32,6 +72,11 @@ export interface TierModel {
   fallback: string[];
   /** 기본 선택 여부 */
   default?: boolean;
+  /**
+   * 100만 토큰당 USD 단가. **확인된 모델만 채운다.**
+   * 없으면 costKrw 를 선언값 그대로 쓴다 — 모르는 단가를 지어내지 않기 위해서다.
+   */
+  usdPer1M?: TokenPrice;
 }
 
 /**
@@ -78,31 +123,37 @@ export const TIER_MODELS: readonly TierModel[] = [
     value: 'openai-gpt4o-mini',
     title: 'GPT-5.6 Luna',
     tier: '가성비',
+    // 2026-07-30 인하: 입력 $1 → $0.20, 출력 $6 → $1.20 (80% 인하)
     description: 'GPT-5.6 Luna · 초저비용 · 빠른 속도 · 대량 발행',
-    costKrw: 12,
+    costKrw: 8,
     provider: 'openai',
     modelId: 'gpt-5.6-luna',
     fallback: ['gpt-5.6-luna', 'gpt-5.6-terra'],
+    usdPer1M: { input: 0.20, output: 1.20, source: 'OpenAI 공식 블로그 2026-07-30 인하 (입력 $1→$0.20, 출력 $6→$1.20)' },
   },
   {
     value: 'openai-gpt41',
     title: 'GPT-5.6 Terra',
     tier: '균형',
+    // 2026-07-30 인하: 입력 $2.5 → $2, 출력 $15 → $12 (20% 인하)
     description: 'GPT-5.6 Terra · 품질/가격 균형 · 일반 블로그에 최적',
-    costKrw: 30,
+    costKrw: 81,
     provider: 'openai',
     modelId: 'gpt-5.6-terra',
     fallback: ['gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5-mini'],
+    usdPer1M: { input: 2, output: 12, source: 'OpenAI 공식 블로그 2026-07-30 인하 (입력 $2.5→$2, 출력 $15→$12)' },
   },
   {
     value: 'openai-gpt4o',
     title: 'GPT-5.6 Sol',
     tier: '프리미엄',
+    // 2026-07-30 인하 대상 아님 — $5/$30 유지
     description: 'OpenAI 최신 플래그십 · 강력한 추론 · 정확한 지시 이행',
-    costKrw: 60,
+    costKrw: 202,
     provider: 'openai',
     modelId: 'gpt-5.6-sol',
     fallback: ['gpt-5.6-sol', 'gpt-5.6-terra'],
+    usdPer1M: { input: 5, output: 30, source: 'OpenAI 공식 블로그 2026-07-30 (인하 대상 아님, $5/$30 유지)' },
   },
 
   // ─── Claude (2026-04 기준 최신 ID로 교정) ───────────────────────────────
@@ -153,6 +204,49 @@ export const TIER_MODELS: readonly TierModel[] = [
 ] as const;
 
 export const DEFAULT_TIER_VALUE = 'gemini-3.5-flash';
+
+/**
+ * 화면·로그·설정이 공통으로 읽는 표시 금액.
+ * 단가를 아는 모델은 계산값, 모르는 모델은 선언값을 돌려준다.
+ */
+export function tierCostKrw(tier: TierModel): number {
+  return deriveCostKrw(tier.usdPer1M, tier.costKrw);
+}
+
+/** 표시 문자열까지 한 곳에서 만든다 — 화면마다 포맷이 달라지지 않게. */
+export function formatTierCost(tier: TierModel): string {
+  return `~₩${tierCostKrw(tier).toLocaleString('ko-KR')}/글`;
+}
+
+/**
+ * 렌더러(설정 화면·선택창)로 넘길 납작한 표.
+ * UI 가 자기 숫자를 들고 있지 않게 하는 것이 목적이다.
+ */
+export function getPricingTable(): Array<{
+  value: string;
+  modelId: string;
+  title: string;
+  tier: TierLabel;
+  description: string;
+  provider: AiProvider;
+  costKrw: number;
+  costLabel: string;
+  priceSource: string;
+  derived: boolean;
+}> {
+  return TIER_MODELS.map(t => ({
+    value: t.value,
+    modelId: t.modelId,
+    title: t.title,
+    tier: t.tier,
+    description: t.description,
+    provider: t.provider,
+    costKrw: tierCostKrw(t),
+    costLabel: formatTierCost(t),
+    priceSource: t.usdPer1M?.source ?? '단가 미확인 — 선언값 표시',
+    derived: Boolean(t.usdPer1M),
+  }));
+}
 
 export function findTier(value: string | undefined | null): TierModel | undefined {
   if (!value) return undefined;

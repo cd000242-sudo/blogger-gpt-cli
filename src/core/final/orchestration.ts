@@ -20,6 +20,10 @@ import { analyzeKeywordDemand } from '../keyword-demand';
 import { analyzeKeywordAngle, composeTitleDirective } from '../keyword-angle';
 import { buildUniquenessBlock } from './substance-rules';
 import { collectOfficialSources, buildOfficialSourceBlock } from './official-sources';
+import {
+  normalizeExperience, hasExperience, buildExperienceBlock, NO_EXPERIENCE_GUARD,
+} from './experience-block';
+import { suggestNarrowerKeywords, buildNarrowFocusBlock } from '../keyword-narrowing';
 import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
 import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTIONS } from '../max-mode/mode-sections-extended';
 import { fetchFactContext, type FactCheckMode } from '../perplexityFactCheck';
@@ -1276,6 +1280,51 @@ export async function generateUltimateMaxModeArticleFinal(
     } catch (dupErr: any) {
       // 조회 실패는 발행에 영향을 주지 않는다
       console.warn('[UNIQUENESS] 기존 글 조회 스킵:', dupErr?.message?.slice(0, 80));
+    }
+
+    // 🧑 v3.8.392: 작성자 경험 메모 주입 — 이 글의 유일한 차별점이다.
+    //   근거(사용자 제공 영상): AI 요약이 1초에 답하는 단순 정보성 글은 클릭이 안 되고,
+    //   "4월 8일 수요일 어른 2명 9세 1명", "주말 오후 2시 40분 대기" 같은 1차 경험만
+    //   AI 로 대체되지 않는다. ⚠️ 도구는 경험을 **생성하지 않는다** — 만들면 허위다.
+    //   경험이 없으면 대신 "겪은 척 하지 말라" 안전장치를 넣는다(허위 방지가 더 중요하다).
+    try {
+      const expInput = normalizeExperience((payload as any).experience);
+      if (hasExperience(expInput)) {
+        const expBlock = buildExperienceBlock(expInput);
+        if (expBlock) {
+          scopedSectionBlock += expBlock;
+          onLog?.('[PROGRESS] 43% - 🧑 작성자 경험 메모를 본문 생성에 반영');
+        }
+      } else {
+        scopedSectionBlock += NO_EXPERIENCE_GUARD;
+      }
+    } catch (expErr: any) {
+      console.warn('[EXPERIENCE] 경험 블록 스킵:', String(expErr?.message || expErr).slice(0, 80));
+    }
+
+    // 🎯 v3.8.392: 초점 좁히기 — 키워드는 그대로 두고 본문 깊이만 좁힌다.
+    //   근거(영상 7:56~9:07): "좁아질수록 상위 노출에 유리하나 검색량을 반드시 확인하라."
+    //   실측 2026-07-30: 접미어형("○○ 신청방법")은 6개 중 4개가 측정됐고,
+    //   앞에 붙이는 형태("아이와 함께 ○○")는 6개 전부 데이터점 0이었다(어순 문제).
+    //   측정 안 되는 것은 제안하지 않는다 — 그게 "경쟁 없지만 유입도 없는" 함정을 막는다.
+    try {
+      const envForNarrow = loadEnvFromFile();
+      const naverId = envForNarrow['naverClientId'] || envForNarrow['NAVER_CLIENT_ID'] || '';
+      const naverSecret = envForNarrow['naverClientSecret'] || envForNarrow['NAVER_CLIENT_SECRET'] || '';
+      if (naverId && naverSecret) {
+        const narrowed = await suggestNarrowerKeywords(keyword, {
+          clientId: naverId, clientSecret: naverSecret,
+        });
+        const focusBlock = buildNarrowFocusBlock(narrowed);
+        if (focusBlock) {
+          scopedSectionBlock += focusBlock;
+          onLog?.(`[PROGRESS] 44% - 🎯 ${narrowed.summary}`);
+        } else if (narrowed.summary) {
+          onLog?.(`   [초점] ${narrowed.summary}`);
+        }
+      }
+    } catch (narrowErr: any) {
+      console.warn('[NARROWING] 초점 좁히기 스킵:', String(narrowErr?.message || narrowErr).slice(0, 80));
     }
 
     let allSectionsObj = await generateAllSectionsFinal(

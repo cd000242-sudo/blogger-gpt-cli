@@ -13,6 +13,7 @@ import { resolveOfficialLink } from '../../cta/resolve';
 // 실속 규칙은 재생성이 아니라 첫 생성에 넣는다 — 호출 수는 그대로, 결과만 좋아진다.
 // (v3.8.376 실측: 자동 재생성은 편당 호출 +1 인데 점수가 되레 하락해 결과가 버려졌다)
 import { SUBSTANCE_FIRST_PASS_RULES, FRESHNESS_RULES } from './substance-rules';
+import { DECISION_SUPPORT_RULES } from './decision-support';
 
 /**
  * 🔀 하이브리드 CTA 검증 — HTTP 1차 + (옵션) Perplexity AI 2차
@@ -1221,7 +1222,7 @@ ${contentMode === 'paraphrasing' && draftContent ? '' : draftReference}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${externalModePromptBlock}${internalModePromptBlock}${adsenseModePromptBlock}${shoppingModePromptBlock}${paraphrasingModePromptBlock}${sectionGuideBlock || ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}
+${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}
 
 🔴🔴🔴 [10억 점 ${
   contentMode === 'adsense' ? '전문 정보/E-E-A-T'

@@ -90,15 +90,21 @@ describe('StateManager', () => {
 
   // ── waitForLogin + confirmLogin ──
 
+  // v3.8.392 격리 수정: setTimeout 콜백이 `let manager` 를 그대로 붙잡고 있었다.
+  //   전체 게이트에서 워커가 경합해 이 테스트가 5초(내부 대기와 동일 = 여유 0)를 넘기면,
+  //   beforeEach 가 manager 를 새로 만든 뒤 뒤늦게 발화한 타이머가 **새 manager** 의
+  //   confirmLogin 을 호출했다. 그 결과 다음 테스트("타임아웃 → false")가 true 를 받았다.
+  //   → (a) 인스턴스를 지역 변수로 고정하고 (b) 내부 대기보다 넉넉한 테스트 한도를 준다.
   it('waitForLogin + confirmLogin: confirm 호출 시 true 반환', async () => {
-    const promise = manager.waitForLogin('key1', 5000);
+    const m = manager;
+    const promise = m.waitForLogin('key1', 5000);
 
     // 약간의 딜레이 후 confirm 호출
-    setTimeout(() => manager.confirmLogin('key1'), 50);
+    setTimeout(() => m.confirmLogin('key1'), 50);
 
     const result = await promise;
     expect(result).toBe(true);
-  });
+  }, 20000);
 
   it('waitForLogin: 타임아웃 → false 반환', async () => {
     const result = await manager.waitForLogin('key1', 100);
@@ -111,16 +117,17 @@ describe('StateManager', () => {
   });
 
   it('confirmLogin: 이중 호출은 두 번째에서 false', async () => {
-    const promise = manager.waitForLogin('key1', 5000);
+    const m = manager;   // 같은 이유로 인스턴스를 고정한다 (위 주석 참조)
+    const promise = m.waitForLogin('key1', 5000);
     setTimeout(() => {
-      const first = manager.confirmLogin('key1');
-      const second = manager.confirmLogin('key1');
+      const first = m.confirmLogin('key1');
+      const second = m.confirmLogin('key1');
       expect(first).toBe(true);
       expect(second).toBe(false);
     }, 50);
 
     await promise;
-  });
+  }, 20000);
 
   // ── reset 중 waitForLogin ──
 

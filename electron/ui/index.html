@@ -173,6 +173,20 @@
       color: rgba(255, 255, 255, 0.85);
     }
 
+    /* v3.8.392: 경험 메모 육하원칙 6칸 */
+    .exp-6w {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 10px;
+      border-radius: 7px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.05);
+      color: #fff;
+      font-size: 12px;
+    }
+    .exp-6w::placeholder { color: rgba(255, 255, 255, 0.38); }
+    .exp-6w:focus { outline: none; border-color: rgba(168, 85, 247, 0.6); }
+
 
     @keyframes notificationSlideIn {
       0% {
@@ -4088,9 +4102,19 @@
                         <small style="color: rgba(255,255,255,0.4); font-size: 10px; margin-top: 8px; display: block;">💡 비워두면 AI가 주제에 맞는 가상 전문가를 자동 생성합니다</small>
                       </div>
                       <script>
+                        // v3.8.393: 모드에 따라 보여줄 섹션을 한 곳에서 결정한다.
+                        //   기존엔 change 리스너와 복원 함수가 각각 adsense 만 처리해
+                        //   쇼핑 전략 필드가 모든 모드에서 계속 보였다.
+                        function syncContentModeSections(mode) {
+                          const author = document.getElementById('adsenseAuthorSection');
+                          if (author) author.style.display = mode === 'adsense' ? 'block' : 'none';
+                          const shopStrategy = document.getElementById('shoppingStrategyField');
+                          if (shopStrategy) shopStrategy.style.display = mode === 'shopping' ? 'block' : 'none';
+                        }
+                        window.syncContentModeSections = syncContentModeSections;
+
                         document.getElementById('contentMode').addEventListener('change', function () {
-                          const section = document.getElementById('adsenseAuthorSection');
-                          if (section) section.style.display = this.value === 'adsense' ? 'block' : 'none';
+                          syncContentModeSections(this.value);
                           // 🔥 사용자가 고른 contentMode를 localStorage에 즉시 저장
                           //   (DOM이 어떤 이유로 재렌더/리셋되더라도 createPayload가 이 값을 읽어 사용)
                           try { localStorage.setItem('contentMode', this.value); } catch (e) { /* ignore */ }
@@ -4099,14 +4123,11 @@
                         // 🔥 앱 시작 시 저장된 contentMode 복원
                         (function restoreContentMode() {
                           try {
-                            const saved = localStorage.getItem('contentMode');
                             const el = document.getElementById('contentMode');
-                            if (el && saved && el.value !== saved) {
-                              el.value = saved;
-                              // 저자 섹션 표시 여부도 동기화
-                              const section = document.getElementById('adsenseAuthorSection');
-                              if (section) section.style.display = saved === 'adsense' ? 'block' : 'none';
-                            }
+                            const saved = localStorage.getItem('contentMode');
+                            if (el && saved && el.value !== saved) el.value = saved;
+                            // 저장값이 없어도 현재 선택값 기준으로 섹션을 맞춘다
+                            syncContentModeSections(el?.value || 'external');
                           } catch (e) { /* ignore */ }
                         })();
 
@@ -4168,6 +4189,35 @@
                         <option value="formal">🎩 격식있는</option>
                         <option value="conversational">💬 대화체</option>
                       </select>
+                    </div>
+
+                    <!-- 🧑 v3.8.392: 작성자 경험 메모 — AI 요약이 대체할 수 없는 유일한 차별점.
+                         비워두면 이전과 동일하게 동작하고, 대신 "겪은 척 하지 말라" 안전장치가 들어간다. -->
+                    <div class="acc-field">
+                      <label class="acc-label">🧑 내 경험 메모 <span style="font-weight:600; font-size:11px; color:rgba(255,255,255,0.5);">(선택 · 넣으면 상위노출에 가장 큰 영향)</span></label>
+                      <textarea id="experienceNote" rows="4" placeholder="아무렇게나 적어도 됩니다. 예)
+4/8 수요일 오후 2시에 애들 데리고 갔는데 40분 대기했고 1인 18000원.
+주차장은 지하 3층까지 꽉 차 있었음. 애 어리면 비추."
+                        style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.05); color:#fff; font-size:12px; line-height:1.6; resize:vertical;"></textarea>
+                      <small style="color: rgba(255,255,255,0.55); font-size: 11px; margin-top: 6px; display: block;">
+                        💡 날짜·시간·인원·금액·대기시간처럼 <b>확인할 수 없는 값</b>은 AI가 만들어낼 수 없습니다.
+                        여기 적은 내용만 본문에 쓰이고, 없는 경험은 지어내지 않습니다.
+                      </small>
+                      <details style="margin-top: 8px;">
+                        <summary style="cursor:pointer; color:rgba(255,255,255,0.7); font-size:11px; font-weight:700; padding:6px 0;">
+                          ▸ 육하원칙으로 나눠 쓰기 (자유칸만 써도 됩니다)
+                        </summary>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px;">
+                          <input id="expWho" placeholder="누가 (어른2 + 9세 + 8세)" class="exp-6w">
+                          <input id="expWhen" placeholder="언제 (4월 8일 수요일 오후 2시)" class="exp-6w">
+                          <input id="expWhere" placeholder="어디서 (오사카 유니버셜)" class="exp-6w">
+                          <input id="expWhat" placeholder="무엇을 (익스프레스 패스 4)" class="exp-6w">
+                          <input id="expHow" placeholder="어떻게 (현장 구매, 40분 대기)" class="exp-6w">
+                          <input id="expWhy" placeholder="왜 (아이가 마리오 좋아해서)" class="exp-6w">
+                          <input id="expResult" placeholder="결과는 어땠나" class="exp-6w" style="grid-column:1/-1;">
+                          <input id="expTip" placeholder="처음 하는 사람에게 줄 팁" class="exp-6w" style="grid-column:1/-1;">
+                        </div>
+                      </details>
                     </div>
 
                     <div class="acc-field">
@@ -4258,7 +4308,8 @@
                     <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 모든 소제목에 자동으로 이미지가 배치됩니다 · 선택 엔진 실패 시 폴백 없이 즉시 에러로 알려줍니다</small>
 
                     <!-- 🛒 v3.8.385: 쇼핑모드 이미지 전략 — 썸네일은 항상 실제 상품 사진, 본문만 선택 -->
-                    <div class="acc-field" style="margin-top: 14px; background: rgba(255, 107, 53, 0.08); border: 1px solid rgba(255, 107, 53, 0.3); border-radius: 10px; padding: 14px;">
+                    <!-- v3.8.393: 쇼핑모드일 때만 보인다 (다른 모드에선 무의미한 선택지라 혼란만 준다) -->
+                    <div class="acc-field" id="shoppingStrategyField" style="display: none; margin-top: 14px; background: rgba(255, 107, 53, 0.08); border: 1px solid rgba(255, 107, 53, 0.3); border-radius: 10px; padding: 14px;">
                       <label class="acc-label" style="color: #ff9966;">🛒 쇼핑모드 본문 이미지 전략</label>
                       <select id="shoppingImageStrategy" style="width: 100%; padding: 10px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: white; font-size: 13px;">
                         <option value="product-all" selected>📸 상품 사진 그대로 — 소제목마다 수집한 상품 이미지 배치</option>

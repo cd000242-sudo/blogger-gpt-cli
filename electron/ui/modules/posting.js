@@ -1731,6 +1731,24 @@ export async function createPayload(options = {}) {
   const draftInputEl = document.getElementById('draftInput');
   const draftContentValue = draftInputEl?.value?.trim() || '';
 
+  // ── 🧑 v3.8.392: 작성자 경험 메모 (자유칸 + 접이식 육하원칙) ──
+  //   아무것도 안 채우면 undefined 를 넘겨 이전과 동일하게 동작시킨다.
+  function collectExperienceInput() {
+    const val = (id) => document.getElementById(id)?.value?.trim() || '';
+    const exp = {
+      note: val('experienceNote'),
+      who: val('expWho'),
+      when: val('expWhen'),
+      where: val('expWhere'),
+      what: val('expWhat'),
+      how: val('expHow'),
+      why: val('expWhy'),
+      result: val('expResult'),
+      tip: val('expTip'),
+    };
+    return Object.values(exp).some(Boolean) ? exp : undefined;
+  }
+
   // ── 워드프레스 카테고리 선택 ──
   const wpCategorySelectEl = document.getElementById('wpCategory');
   const wpCategoryValue = wpCategorySelectEl?.value || '';
@@ -1838,6 +1856,10 @@ export async function createPayload(options = {}) {
 
     // 초안 (페러프레이징)
     draftContent: contentModeValue === 'paraphrasing' && draftContentValue ? draftContentValue : undefined,
+
+    // 🧑 v3.8.392: 작성자 경험 메모 — AI 요약이 대체할 수 없는 유일한 차별점.
+    //   비우면 undefined → 백엔드가 "겪은 척 하지 말라" 안전장치를 대신 넣는다.
+    experience: collectExperienceInput(),
 
     // 수동 크롤링 URL
     manualCrawlUrls: manualUrls.length > 0 ? manualUrls : undefined,

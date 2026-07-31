@@ -117,16 +117,36 @@ function installDeferredGlobalWrappers() {
     const mod = await loadDeferredModule('published-posts', () => import('./published-posts.js'));
     return mod.initPublishedPostsTab?.(...args);
   };
+  // v3.8.392 회귀 수정: 반자동 발행 버튼이 처음 화면에서 안 보이던 문제.
+  //   v3.8.334 에서 이 버튼은 "생성된 글 편집" 진입점이라 글이 없으면 숨기는 게 맞았다.
+  //   v3.8.357 에서 "반자동 발행 (편집 후 발행)" 시작 버튼으로 재설계됐는데
+  //   숨김 로직이 그대로 남아, 글을 아직 안 만든 상태(=정상 시작 상태)에서는
+  //   버튼이 영영 안 보였다. startSemiAutoPublish 는 기존 글이 없으면
+  //   키워드로 새로 생성하는 정상 진입점이므로 항상 보여야 한다.
+  //   라벨만 상태에 맞게 바꾼다.
   window.veRefreshEntryButton = () => {
     try {
       const has = Boolean(String(getAppState().generatedContent?.content || '').trim());
       const btn = document.getElementById('editGeneratedBtn');
-      if (btn) btn.style.display = has ? 'inline-flex' : 'none';
+      if (!btn) return;
+      btn.style.display = 'inline-flex';
+      btn.textContent = has ? '🎨 생성된 글 편집하러 가기' : '🎨 반자동 발행 (편집 후 발행)';
     } catch { /* noop */ }
   };
 }
 
 function scheduleDeferredStartupModules() {
+  // v3.8.392: 금액 표기 통일 — 화면 하드코딩 값을 백엔드 단일 출처로 덮어쓴다.
+  //   실패해도 기존 화면 값이 남을 뿐이라 안전하다.
+  idleTask(async () => {
+    try {
+      const mod = await import('./pricing-sync.js');
+      await mod.initPricingSync?.();
+    } catch (e) {
+      console.warn('[PRICING] 동기화 모듈 로드 실패:', e?.message || e);
+    }
+  }, 600);
+
   idleTask(async () => {
     await runDeferredGroup([
       ['leword-launcher', () => loadDeferredModule('leword-launcher', () => import('./leword-launcher.js'))],
