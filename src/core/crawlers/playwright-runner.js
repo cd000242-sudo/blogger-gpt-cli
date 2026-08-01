@@ -106,6 +106,13 @@ async function executeFetch(targetUrl, options, chromium) {
             '--disable-extensions',
             '--disable-dev-shm-usage',
             '--lang=ko-KR,ko',
+            // v3.8.395: GPU 경로 차단 — Intel Iris Xe 구버전 드라이버에서
+            //   0x10E VIDEO_MEMORY_MANAGEMENT_INTERNAL 블루스크린이 발생했다(실측 2026-08-01).
+            //   크롤에 GPU 가속은 불필요하다.
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-gpu-compositing',
+            '--disable-features=CalculateNativeWinOcclusion',
         ],
     });
     let context = null;

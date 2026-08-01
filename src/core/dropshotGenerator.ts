@@ -164,6 +164,13 @@ async function launchBrowser(profileDir: string, headless: boolean, onLog?: (msg
       '--disable-dev-shm-usage',
       '--lang=ko-KR,ko',
       '--window-size=1280,900',
+      // v3.8.395: headless 에서도 GPU 를 끈다.
+      //   기존에는 아래 `if (!effectiveHeadless)` 안에서만 --disable-gpu 를 넣었는데,
+      //   요즘 headless 는 실제 GPU 경로를 탄다. 사용자 PC 가 하루 3번
+      //   0x10E VIDEO_MEMORY_MANAGEMENT_INTERNAL 로 재부팅됐다(실측 2026-08-01,
+      //   Intel Iris Xe 드라이버 2023-06-15 판). 이미지 스크래핑에 GPU 가속은 불필요하다.
+      '--disable-gpu',
+      '--disable-gpu-compositing',
     ],
     viewport: { width: 1280, height: 900 },
     locale: 'ko-KR',
