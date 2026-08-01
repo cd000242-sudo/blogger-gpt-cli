@@ -168,9 +168,34 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
   }
 }
 
-/** 쿠팡은 기존 coupang-partners.ts 가 담당한다 — 여기서 중복 구현하지 않는다. */
+/**
+ * 쿠팡 — 상품 크롤은 기존 coupang-partners.ts 가 담당한다(중복 구현하지 않는다).
+ * v3.8.398: 사용자가 제휴 링크 칸에 쿠팡 링크를 붙여넣는 실측이 있었다.
+ *   지원 목록에 없어 **조용히 무시**됐다. 이제 위임해서 처리한다.
+ */
+async function crawlCoupang(url: string, opts: CrawlOptions): Promise<AffiliateProduct> {
+  const { crawlCoupangProductFromUrl } = require('../coupang-partners');
+  const p = await crawlCoupangProductFromUrl(url);
+  return {
+    provider: 'coupang',
+    originalUrl: url,
+    resolvedUrl: p?.productUrl || url,
+    title: String(p?.productName || '').trim(),
+    imageUrl: String(p?.productImage || ''),
+    description: [p?.isRocket ? '로켓배송' : '', p?.isFreeShipping ? '무료배송' : '']
+      .filter(Boolean).join(' · '),
+    // isPriceKnown 이 false 면 크롤이 가격을 확신하지 못한 것 — 추정하지 않는다
+    priceKrw: (p?.isPriceKnown && Number(p?.productPrice) > 0) ? Number(p.productPrice) : null,
+    priceNote: (p?.isPriceKnown && Number(p?.productPrice) > 0)
+      ? ''
+      : '쿠팡 상품 페이지에서 가격을 확인하지 못했습니다. 본문에 가격을 쓰지 않습니다.',
+  };
+}
+
 export function isSupportedForCrawl(provider: AffiliateProviderId): boolean {
-  return provider === 'toss-sharelink' || provider === 'naver-shopping-connect';
+  return provider === 'toss-sharelink'
+    || provider === 'naver-shopping-connect'
+    || provider === 'coupang';
 }
 
 /**
@@ -184,8 +209,8 @@ export async function crawlAffiliateLink(
   const clean = String(url || '').trim();
   if (!/^https?:\/\//i.test(clean)) return null;
 
-  // 링크 호스트로 제휴사 판정
-  const provider = (['toss-sharelink', 'naver-shopping-connect'] as AffiliateProviderId[])
+  // 링크 호스트로 제휴사 판정 (쿠팡 포함 — 사용자가 실제로 붙여넣는다)
+  const provider = (['toss-sharelink', 'naver-shopping-connect', 'coupang'] as AffiliateProviderId[])
     .find((id) => getPolicy(id)!.linkHosts.test(clean));
   if (!provider) {
     opts.onLog?.(`   [제휴] 지원하지 않는 링크 — 건너뜀: ${clean.slice(0, 50)}`);
@@ -194,9 +219,9 @@ export async function crawlAffiliateLink(
 
   try {
     const t0 = Date.now();
-    const product = provider === 'toss-sharelink'
-      ? await crawlToss(clean, opts)
-      : await crawlNaver(clean, opts);
+    const product = provider === 'toss-sharelink' ? await crawlToss(clean, opts)
+      : provider === 'coupang' ? await crawlCoupang(clean, opts)
+        : await crawlNaver(clean, opts);
     const sec = ((Date.now() - t0) / 1000).toFixed(1);
 
     if (!product.title) {

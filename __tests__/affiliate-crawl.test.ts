@@ -164,10 +164,13 @@ describe('병렬 처리 — 네이버가 링크당 10초라 순차는 불가', (
 });
 
 describe('제휴사 판정', () => {
-  it('토스·네이버만 크롤 대상이다 (쿠팡은 기존 모듈 담당)', () => {
+  // v3.8.398: 쿠팡도 대상에 포함됐다.
+  //   사용자가 제휴 링크 칸에 실제로 쿠팡 링크를 붙여넣었는데 조용히 무시됐다.
+  //   단, 상품 크롤 자체는 기존 coupang-partners.ts 에 위임한다(중복 구현 안 함).
+  it('토스·네이버·쿠팡이 모두 크롤 대상이다', () => {
     expect(isSupportedForCrawl('toss-sharelink')).toBe(true);
     expect(isSupportedForCrawl('naver-shopping-connect')).toBe(true);
-    expect(isSupportedForCrawl('coupang')).toBe(false);
+    expect(isSupportedForCrawl('coupang')).toBe(true);
   });
 });
 

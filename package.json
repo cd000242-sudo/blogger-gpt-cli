@@ -1,6 +1,6 @@
 {
   "name": "lba",
-  "version": "3.8.397",
+  "version": "3.8.398",
   "description": "LEADERNAM Orbit - AI-powered blog automation",
   "main": "electron/main.js",
   "scripts": {
@@ -40,7 +40,8 @@
     "pack": "npm run build && node setup-pack-env.js && electron-builder --dir",
     "setup-pack-env": "node setup-pack-env.js",
     "pre-release": "node scripts/pre-release-check.js",
-    "release": "npm run build && electron-builder --win --publish never && node scripts/publish-release.js",
+    "release": "npm run build && electron-builder --win --publish never && node scripts/publish-release.js && node scripts/clean-release-folder.js",
+    "clean:release": "node scripts/clean-release-folder.js --deep",
     "release:mac": "node scripts/build-mac.js --arch both --publish",
     "release:all": "npm run build && electron-builder --win --mac --linux --publish always && node scripts/publish-release.js",
     "release:auto": "node scripts/release-auto.js",

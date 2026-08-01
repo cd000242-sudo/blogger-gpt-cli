@@ -253,6 +253,56 @@ export function enforceAffiliateCompliance(
 }
 
 /**
+ * v3.8.398: 본문 이미지를 전부 구매 링크로 감싼다.
+ *
+ * 사용자 요구(2026-08-01): "썸네일은 대표사진이고 배너는 당연히 클릭하면 구매링크로
+ *   전환되어야하고 이미지도 전부 클릭하면 구매링크로 가지게 해주세요."
+ *
+ * 쇼핑 글에서 이미지는 가장 큰 클릭 유발 요소인데, 지금은 그냥 그림이라 수익 누수가 난다.
+ *
+ * ⚠️ 정책 준수
+ *   · 링크는 사용자가 준 원본만 쓴다(변조 금지).
+ *   · rel="sponsored nofollow" 를 붙인다.
+ *   · 이미 <a> 안에 있는 이미지는 건드리지 않는다(중첩 <a> 는 잘못된 HTML 이다).
+ *   · 대가성 문구 블록 안의 이미지는 감싸지 않는다(고지문을 링크로 만들면 안 된다).
+ *   · 토스 "과도하게 클릭을 유도" 금지에 걸리지 않도록 **자동 실행·오버레이는 쓰지 않는다.**
+ *     이미지 자체를 링크로 만드는 것은 일반적인 상품 소개 형식이다.
+ */
+export function linkImagesToProduct(
+  html: string,
+  productUrl: string,
+  providerId?: string | null,
+): { html: string; linked: number } {
+  const source = String(html || '');
+  const url = String(productUrl || '').trim();
+  if (!source || !/^https?:\/\//i.test(url)) return { html: source, linked: 0 };
+  const policy = getPolicy(providerId);
+
+  // 이미 링크 안에 있는 <img> 의 위치를 미리 구해 둔다
+  const wrapped = new Set<number>();
+  for (const m of source.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/gi)) {
+    const start = m.index ?? 0;
+    for (const img of m[0].matchAll(/<img\b/gi)) wrapped.add(start + (img.index ?? 0));
+  }
+  // 고지문 블록 안의 이미지도 제외
+  for (const m of source.matchAll(/<p class="affiliate-disclosure"[\s\S]*?<\/p>/gi)) {
+    const start = m.index ?? 0;
+    for (const img of m[0].matchAll(/<img\b/gi)) wrapped.add(start + (img.index ?? 0));
+  }
+
+  let linked = 0;
+  const esc = url.replace(/"/g, '&quot;');
+  const out = source.replace(/<img\b[^>]*>/gi, (tag, offset: number) => {
+    if (wrapped.has(offset)) return tag;
+    linked += 1;
+    const label = policy ? ` aria-label="${policy.label} 상품 보러가기"` : '';
+    return `<a href="${esc}" target="_blank" rel="sponsored nofollow noopener"${label}>${tag}</a>`;
+  });
+
+  return { html: out, linked };
+}
+
+/**
  * 제목에 제휴 표시를 붙인다 (네이버 #7 가이드: "각 게시글 제목 앞").
  *
  * ⚠️ 전체 고지 문장을 제목에 넣으면 제목이 35자 이상 잡아먹혀 검색 노출이 망가진다.

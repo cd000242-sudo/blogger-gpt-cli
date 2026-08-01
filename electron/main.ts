@@ -4911,14 +4911,28 @@ ipcMain.handle('run-post', async (_evt, payload) => {
     const generatedHtml = String((result as any).html || (result as any).content || '');
     const h2Count = (generatedHtml.match(/<h2[^>]*>/gi) || []).length;
     const contentMode = String(payload?.contentMode || '').toLowerCase();
-    const minH2 =
+
+    // v3.8.398: 사용자가 고른 소제목 개수를 기준으로 판단한다.
+    //   기존에는 모드별 최소값이 하드코딩돼 있었다(shopping=6). 그런데 UI 기본 소제목 수는 5라
+    //   사용자가 기본값으로 쇼핑 글을 쓰면 **정상 생성됐는데도 무조건 차단**됐다.
+    //   (실측 2026-08-01: "H2 5개 (모드 'shopping' 최소 6개 필요)" 로 발행 실패)
+    //   이 게이트의 목적은 "LLM 응답이 잘렸는지" 탐지지 섹션 수 강요가 아니다.
+    //   → 요청한 개수 대비 70% 미만일 때만 잘림으로 본다. 요청대로 다 받으면 통과한다.
+    const modeFloor =
       contentMode === 'adsense' ? 5
       : contentMode === 'shopping' ? 6
       : contentMode === 'paraphrasing' ? 5
       : ['external', 'internal'].includes(contentMode) ? 4
       : 3;
+    const requestedSections = Number(payload?.sectionCount) || 0;
+    const minH2 = requestedSections > 0
+      ? Math.max(2, Math.ceil(requestedSections * 0.7))
+      : modeFloor;
     if (h2Count < minH2) {
-      const errMsg = `본문 H2 섹션이 ${h2Count}개 (모드 '${contentMode || '기본'}' 최소 ${minH2}개 필요) — LLM 응답이 잘렸거나 폴백 콘텐츠. 발행을 차단합니다.`;
+      const basis = requestedSections > 0
+        ? `요청 ${requestedSections}개 대비 70% 미만`
+        : `모드 '${contentMode || '기본'}' 최소 ${minH2}개`;
+      const errMsg = `본문 H2 섹션이 ${h2Count}개 (${basis}) — LLM 응답이 잘렸거나 폴백 콘텐츠. 발행을 차단합니다.`;
       console.error('[RUN-POST] 🛡️ 발행 차단:', errMsg);
       onLog(`[PROGRESS] 0% - 🛡️ 발행 차단: H2 ${h2Count}개 < 모드 '${contentMode || '기본'}' 최소 ${minH2}개`);
       onLog('[PROGRESS] 0% - 💡 LLM 호출이 타임아웃되었거나 응답이 잘렸습니다. 잠시 후 재시도하거나 다른 엔진을 선택하세요.');

@@ -4113,7 +4113,46 @@
                           // v3.8.396: 제휴 링크 칸도 쇼핑모드 전용
                           const affLinks = document.getElementById('affiliateLinkField');
                           if (affLinks) affLinks.style.display = mode === 'shopping' ? 'block' : 'none';
+                          // v3.8.398: 쇼핑모드면 이미지 소스도 상품 사진으로 맞춘다
+                          if (window.syncShoppingImageControls) window.syncShoppingImageControls();
                         }
+
+                        // v3.8.398: 쇼핑모드 이미지 컨트롤 정합
+                        //   사용자 지적: "쇼핑모드가 초기세팅된 경우 이미지가 쇼핑모드로 전환이 안 되어있다",
+                        //   "본문 이미지 전략이 상품 사진 그대로면 썸네일 타입·소제목 이미지는 비활성화되어야 정상 아닌가"
+                        //   → 상품 사진을 쓰기로 했으면 AI 엔진 선택은 의미가 없다. 끄고 이유를 보여준다.
+                        window.syncShoppingImageControls = function syncShoppingImageControls() {
+                          try {
+                            const mode = document.getElementById('contentMode')?.value || '';
+                            const isShopping = mode === 'shopping';
+                            const strategy = document.getElementById('shoppingImageStrategy')?.value || 'product-all';
+                            // 상품 사진 그대로 = AI 생성 안 함 → 엔진 선택 무의미
+                            const useProductPhotos = isShopping && strategy === 'product-all';
+
+                            [['thumbnailMode', '썸네일'], ['h2ImageSource', '소제목 이미지']].forEach(([id]) => {
+                              const el = document.getElementById(id);
+                              if (!el) return;
+                              el.disabled = useProductPhotos;
+                              el.style.opacity = useProductPhotos ? '0.45' : '1';
+                              el.title = useProductPhotos
+                                ? '쇼핑모드 · 상품 사진 그대로 — 수집한 실제 상품 사진을 씁니다(AI 생성 안 함)'
+                                : '';
+                              const note = document.getElementById(id + '-shopping-note');
+                              if (note) note.style.display = useProductPhotos ? 'block' : 'none';
+                            });
+
+                            // 쇼핑모드로 처음 들어왔는데 이미지 소스가 AI 로 남아 있으면 상품 사진으로 전환
+                            if (isShopping) {
+                              const h2 = document.getElementById('h2ImageSource');
+                              if (h2 && h2.value !== 'crawled' && h2.querySelector('option[value="crawled"]')) {
+                                h2.value = 'crawled';
+                              }
+                            }
+                          } catch (e) { /* 화면 정합 실패가 발행을 막지 않는다 */ }
+                        };
+
+                        document.getElementById('shoppingImageStrategy')
+                          ?.addEventListener('change', () => window.syncShoppingImageControls());
                         window.syncContentModeSections = syncContentModeSections;
 
                         document.getElementById('contentMode').addEventListener('change', function () {
@@ -4312,13 +4351,14 @@
 
                     <!-- 🔗 v3.8.396: 제휴 링크 (쇼핑모드 전용) — 한 글에 한 제휴사 원칙 -->
                     <div class="acc-field" id="affiliateLinkField" style="display: none; margin-top: 14px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 10px; padding: 14px;">
-                      <label class="acc-label" style="color: #93c5fd;">🔗 제휴 링크 <span style="font-weight:600; font-size:11px; color:rgba(255,255,255,0.5);">(네이버 쇼핑 커넥트 · 토스쇼핑 쉐어링크)</span></label>
+                      <label class="acc-label" style="color: #93c5fd;">🔗 제휴 링크 <span style="font-weight:600; font-size:11px; color:rgba(255,255,255,0.5);">(쿠팡 파트너스 · 네이버 쇼핑 커넥트 · 토스쇼핑 쉐어링크)</span></label>
                       <textarea id="affiliateLinks" rows="3" placeholder="파트너센터에서 받은 링크를 한 줄에 하나씩 붙여넣으세요. 예)
 https://naver.me/XXXXXXX
 https://toss.im/_m/XXXXXXX"
                         style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.25); color:#fff; font-size:12px; line-height:1.6; resize:vertical;"></textarea>
                       <small style="color: rgba(255,255,255,0.55); font-size: 11px; margin-top: 6px; display: block; line-height:1.6;">
                         💡 상품명·이미지·가격은 자동으로 가져오고, <b>대가성 문구와 rel="sponsored"는 자동으로 붙습니다.</b><br>
+                        🖼️ <b>본문 이미지는 전부 클릭하면 구매 링크로 이동합니다.</b><br>
                         ⚠️ 링크는 <b>받은 그대로</b> 사용됩니다(주소를 바꾸면 제휴 계약 위반입니다).<br>
                         ⚠️ 정책상 <b>한 글에는 한 제휴사만</b> 쓰세요. 섞으면 경고가 표시됩니다.<br>
                         ⏱️ 네이버 링크는 상품 조회에 링크당 약 10초가 걸립니다.

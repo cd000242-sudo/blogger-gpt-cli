@@ -2410,6 +2410,20 @@ export async function generateUltimateMaxModeArticleFinal(
         onLog?.(`[PROGRESS] 92% - 🛒 제휴 상품 카드 ${Math.min(affProducts.length, 6)}개 삽입`);
       }
 
+      // v3.8.398: 본문 이미지를 전부 구매 링크로 만든다 (사용자 요구).
+      //   쇼핑 글에서 이미지는 최대 클릭 유발 요소인데 그냥 그림이면 수익 누수다.
+      //   첫 상품 링크로 감싼다 — 한 글에 한 제휴사·한 상품군이 원칙이다.
+      if (Array.isArray(affProducts) && affProducts.length > 0) {
+        const { linkImagesToProduct } = await import('../affiliate/compliance');
+        const linkedResult = linkImagesToProduct(
+          html, affProducts[0].originalUrl, (payload as any).affiliateProvider || null,
+        );
+        if (linkedResult.linked > 0) {
+          html = linkedResult.html;
+          onLog?.(`[PROGRESS] 92% - 🖼️ 본문 이미지 ${linkedResult.linked}개를 구매 링크로 연결`);
+        }
+      }
+
       const { enforceAffiliateCompliance } = await import('../affiliate/compliance');
       const affCompliance = enforceAffiliateCompliance(html, (payload as any).affiliateProvider || null);
       if (affCompliance.provider) {
