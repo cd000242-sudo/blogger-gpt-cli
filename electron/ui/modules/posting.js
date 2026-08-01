@@ -1861,6 +1861,15 @@ export async function createPayload(options = {}) {
     //   비우면 undefined → 백엔드가 "겪은 척 하지 말라" 안전장치를 대신 넣는다.
     experience: collectExperienceInput(),
 
+    // 🔗 v3.8.396: 제휴 링크 (쇼핑모드 전용). 비우면 undefined → 이전과 동일 동작.
+    //   ⚠️ 원본 그대로 넘긴다 — 링크 변조는 제휴 계약 위반이다.
+    affiliateLinks: (() => {
+      const raw = document.getElementById('affiliateLinks')?.value?.trim() || '';
+      if (!raw) return undefined;
+      const list = raw.split(/[\n,]+/).map(s => s.trim()).filter(s => /^https?:\/\//i.test(s));
+      return list.length > 0 ? list : undefined;
+    })(),
+
     // 수동 크롤링 URL
     manualCrawlUrls: manualUrls.length > 0 ? manualUrls : undefined,
     sourceUrl: isUrlInputMode ? referenceUrls[0] : undefined,

@@ -1121,8 +1121,45 @@ export async function generateUltimateMaxModeArticleFinal(
         onLog?.(`[PROGRESS] 42% - ⚠️ 쿠팡 API 오류 (계속 진행): ${coupangErr.message?.slice(0, 80)}`);
       }
 
+      // ── v3.8.396: 네이버 쇼핑 커넥트 / 토스쇼핑 쉐어링크 링크 처리 ──
+      //   사용자가 파트너센터에서 받은 링크를 붙여넣으면 상품 정보를 뽑아
+      //   프롬프트·상품카드·이미지에 함께 쓴다.
+      //   ⚠️ 본문 링크는 **사용자가 준 원본 그대로** 쓴다(링크 변조 = 계약 해지 사유).
+      //   실패해도 발행을 막지 않는다 — 링크와 고지문만으로도 글은 나간다.
+      try {
+        const rawLinks: string[] = Array.isArray((payload as any).affiliateLinks)
+          ? (payload as any).affiliateLinks
+          : String((payload as any).affiliateLinks || '')
+            .split(/[\n,]+/).map((s: string) => s.trim()).filter(Boolean);
+
+        if (rawLinks.length > 0 && !(payload as any).affiliateProducts) {
+          onLog?.(`[PROGRESS] 41% - 🔗 제휴 링크 ${rawLinks.length}개 상품 정보 조회 중...`);
+          const { crawlAffiliateLinks } = await import('../affiliate/crawl');
+          const { formatAffiliateProductsForPrompt } = await import('../affiliate/render');
+          const products = await crawlAffiliateLinks(rawLinks, { onLog, concurrency: 3 });
+
+          if (products.length > 0) {
+            (payload as any).affiliateProducts = products;
+            // 제휴사는 첫 상품 기준 — 한 글에 한 제휴사 원칙
+            (payload as any).affiliateProvider = products[0]!.provider;
+            if (!(payload as any).productImages || (payload as any).productImages.length === 0) {
+              (payload as any).productImages = products.map(p => p.imageUrl).filter(Boolean);
+            }
+            modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '')
+              + formatAffiliateProductsForPrompt(products);
+            const priced = products.filter(p => p.priceKrw).length;
+            onLog?.(`[PROGRESS] 42% - ✅ 제휴 상품 ${products.length}개 확보 (가격 확인 ${priced}개)`);
+          } else {
+            onLog?.('[PROGRESS] 42% - ℹ️ 제휴 상품 정보를 얻지 못했습니다 — 링크만 사용합니다');
+          }
+        }
+      } catch (affErr: any) {
+        onLog?.(`[PROGRESS] 42% - ⚠️ 제휴 링크 처리 스킵: ${String(affErr?.message || affErr).slice(0, 80)}`);
+      }
+
       // ── 3순위: 실제 상품 데이터 없으면 가격 할루시 가드 강제 ──
-      const hasRealProducts = Array.isArray((payload as any).coupangProducts) && (payload as any).coupangProducts.length > 0;
+      const hasRealProducts = (Array.isArray((payload as any).coupangProducts) && (payload as any).coupangProducts.length > 0)
+        || (Array.isArray((payload as any).affiliateProducts) && (payload as any).affiliateProducts.length > 0);
       if (!hasRealProducts) {
         modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') +
           `\n\n🛡️ **가격 할루시네이션 방지 (실제 상품 데이터 없음)**:\n` +
@@ -2359,6 +2396,35 @@ export async function generateUltimateMaxModeArticleFinal(
     }
     // 제휴 상품이 없으면 자리표시자만 제거
     html = html.replace('<!-- COUPANG_DISCLOSURE_PLACEHOLDER -->', '');
+
+    // ── v3.8.396: 네이버/토스 제휴 — 상품 카드 + 정책 강제 ──
+    //   쿠팡과 별개 경로다(제휴사마다 고지 문구·금지 항목이 다르다).
+    //   컴플라이언스는 상품 카드가 없어도 돈다 — 사용자가 본문에 링크만 넣었을 수도 있다.
+    try {
+      const affProducts = (payload as any).affiliateProducts;
+      if (Array.isArray(affProducts) && affProducts.length > 0) {
+        const { renderAffiliateProductBlock } = await import('../affiliate/render');
+        html += renderAffiliateProductBlock(affProducts);
+        onLog?.(`[PROGRESS] 92% - 🛒 제휴 상품 카드 ${Math.min(affProducts.length, 6)}개 삽입`);
+      }
+
+      const { enforceAffiliateCompliance } = await import('../affiliate/compliance');
+      const affCompliance = enforceAffiliateCompliance(html, (payload as any).affiliateProvider || null);
+      if (affCompliance.provider) {
+        html = affCompliance.html;
+        affCompliance.fixes.forEach((f) => {
+          console.log(`[MAX-MODE] 🔗 제휴 컴플라이언스: ${f}`);
+          onLog?.(`[PROGRESS] 92% - 🔗 ${f}`);
+        });
+        // 경고는 사람이 봐야 하는 것 — 발행은 그대로 진행한다
+        affCompliance.warnings.forEach((w) => {
+          console.warn(`[MAX-MODE] ⚠️ 제휴 정책 주의: ${w}`);
+          onLog?.(`   ⚠️ [제휴 정책] ${w}`);
+        });
+      }
+    } catch (affRenderErr: any) {
+      console.warn('[MAX-MODE] 제휴 렌더/컴플라이언스 스킵:', String(affRenderErr?.message || affRenderErr).slice(0, 80));
+    }
 
     // v3.7.13 — 면책 중복 제거: 이전엔 여기(섹션 끝)와 line ~1701(결론 다음) 두 곳에 면책이 박혀
     //   같은 글에 디스클레임이 2번 표시됨. 결론 다음의 .disclaimer 블록만 유지하고 여기는 삭제.

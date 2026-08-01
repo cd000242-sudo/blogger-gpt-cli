@@ -41,9 +41,10 @@ export interface AffiliateProduct {
 
 export interface CrawlOptions {
   timeoutMs?: number;
-  onLog?: (msg: string) => void;
+  // exactOptionalPropertyTypes — 호출부가 undefined 를 그대로 넘길 수 있게 열어둔다
+  onLog?: ((msg: string) => void) | undefined;
   /** 테스트 주입용 */
-  fetchImpl?: typeof fetch;
+  fetchImpl?: typeof fetch | undefined;
 }
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '

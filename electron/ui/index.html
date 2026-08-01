@@ -4110,6 +4110,9 @@
                           if (author) author.style.display = mode === 'adsense' ? 'block' : 'none';
                           const shopStrategy = document.getElementById('shoppingStrategyField');
                           if (shopStrategy) shopStrategy.style.display = mode === 'shopping' ? 'block' : 'none';
+                          // v3.8.396: 제휴 링크 칸도 쇼핑모드 전용
+                          const affLinks = document.getElementById('affiliateLinkField');
+                          if (affLinks) affLinks.style.display = mode === 'shopping' ? 'block' : 'none';
                         }
                         window.syncContentModeSections = syncContentModeSections;
 
@@ -4306,6 +4309,21 @@
                       <option value="none">❌ 이미지 없음</option>
                     </select>
                     <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 모든 소제목에 자동으로 이미지가 배치됩니다 · 선택 엔진 실패 시 폴백 없이 즉시 에러로 알려줍니다</small>
+
+                    <!-- 🔗 v3.8.396: 제휴 링크 (쇼핑모드 전용) — 한 글에 한 제휴사 원칙 -->
+                    <div class="acc-field" id="affiliateLinkField" style="display: none; margin-top: 14px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 10px; padding: 14px;">
+                      <label class="acc-label" style="color: #93c5fd;">🔗 제휴 링크 <span style="font-weight:600; font-size:11px; color:rgba(255,255,255,0.5);">(네이버 쇼핑 커넥트 · 토스쇼핑 쉐어링크)</span></label>
+                      <textarea id="affiliateLinks" rows="3" placeholder="파트너센터에서 받은 링크를 한 줄에 하나씩 붙여넣으세요. 예)
+https://naver.me/XXXXXXX
+https://toss.im/_m/XXXXXXX"
+                        style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.25); color:#fff; font-size:12px; line-height:1.6; resize:vertical;"></textarea>
+                      <small style="color: rgba(255,255,255,0.55); font-size: 11px; margin-top: 6px; display: block; line-height:1.6;">
+                        💡 상품명·이미지·가격은 자동으로 가져오고, <b>대가성 문구와 rel="sponsored"는 자동으로 붙습니다.</b><br>
+                        ⚠️ 링크는 <b>받은 그대로</b> 사용됩니다(주소를 바꾸면 제휴 계약 위반입니다).<br>
+                        ⚠️ 정책상 <b>한 글에는 한 제휴사만</b> 쓰세요. 섞으면 경고가 표시됩니다.<br>
+                        ⏱️ 네이버 링크는 상품 조회에 링크당 약 10초가 걸립니다.
+                      </small>
+                    </div>
 
                     <!-- 🛒 v3.8.385: 쇼핑모드 이미지 전략 — 썸네일은 항상 실제 상품 사진, 본문만 선택 -->
                     <!-- v3.8.393: 쇼핑모드일 때만 보인다 (다른 모드에선 무의미한 선택지라 혼란만 준다) -->

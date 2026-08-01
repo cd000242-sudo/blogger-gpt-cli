@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
+import { withGpuSafeArgs } from './chromium-safe-args';
 
 const INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -181,12 +182,27 @@ export async function retryWithPlaywrightChromiumInstall<T>(
   }
 }
 
+/**
+ * v3.8.396: 모든 Chromium 실행에 GPU 안전 인자를 강제한다.
+ *
+ * 실측 2026-08-01 — 사용자 PC 가 하루 3번 블루스크린으로 재부팅됐다.
+ *   0x10E VIDEO_MEMORY_MANAGEMENT_INTERNAL ×2, 0x9F DRIVER_POWER_STATE_FAILURE ×1
+ *   Intel Iris Xe 드라이버가 2023-06-15 판이라 최신 Chromium 과 충돌한다.
+ *
+ * 실행 지점마다 사람이 기억해서 넣는 방식은 실패했다(7곳 중 4곳이 빠져 있었다).
+ * 그래서 **공용 래퍼에서 자동으로 합친다.** 호출부가 이미 넣었으면 중복하지 않는다.
+ */
+function ensureGpuSafe(options: Record<string, unknown>): Record<string, unknown> {
+  const current = Array.isArray(options?.['args']) ? (options['args'] as string[]) : [];
+  return { ...options, args: withGpuSafeArgs(current) };
+}
+
 export function launchChromiumWithAutoInstall(
   chromium: any,
   options: Record<string, unknown>,
   onLog?: (message: string) => void,
 ): Promise<any> {
-  return retryWithPlaywrightChromiumInstall(() => chromium.launch(options), onLog);
+  return retryWithPlaywrightChromiumInstall(() => chromium.launch(ensureGpuSafe(options)), onLog);
 }
 
 export function launchPersistentContextWithAutoInstall(
@@ -196,7 +212,7 @@ export function launchPersistentContextWithAutoInstall(
   onLog?: (message: string) => void,
 ): Promise<any> {
   return retryWithPlaywrightChromiumInstall(
-    () => chromium.launchPersistentContext(userDataDir, options),
+    () => chromium.launchPersistentContext(userDataDir, ensureGpuSafe(options)),
     onLog,
   );
 }
