@@ -283,12 +283,14 @@ export async function generateUltimateMaxModeArticleFinal(
   }
   const queueImageToken = typeof payload?.queueImageToken === 'string' ? payload.queueImageToken : '';
 
-  // 🚧 쇼핑 모드 임시 차단 (점검 중) — UI에서 disabled 처리했지만 IPC/스케줄 경로로도 유입될 수 있으므로 이중 가드
-  if (payload?.contentMode === 'shopping') {
-    const blockMsg = '🚧 쇼핑/구매유도 모드는 현재 점검 중입니다. 다른 모드(SEO/내부링크/애드센스/페러프레이징)를 선택해 주세요.';
-    onLog?.(`[PROGRESS] 0% - ${blockMsg}`);
-    throw new Error(blockMsg);
-  }
+  // v3.8.397: 쇼핑 모드 차단 해제.
+  //   v3.5.38(2026-04-24)에 "점검 중" 임시 차단으로 들어온 뒤 3개월 넘게 남아 있었다.
+  //   당시엔 UI 드롭다운도 disabled 였고 이건 IPC/스케줄 우회를 막는 이중 가드였다.
+  //   v3.8.386 에서 UI 잠금을 풀었지만 **이 백엔드 가드를 놓쳤고**, 그 위에
+  //   쇼핑 이미지 전략(v3.8.385)·제휴마케팅(v3.8.395~396)을 전부 쌓아 올렸다.
+  //   즉 만들어 놓은 기능 전체가 도달 불가 상태였다.
+  //   차단 이유(점검)는 이미 해소됐고 사용자가 명시적으로 쇼핑 모드를 요구했으므로 제거한다.
+  //   재발 방지: __tests__/shopping-mode-unblocked.test.ts 가 이 차단의 부활을 감시한다.
 
   // 🛡️ v3.7.11 — 라이선스 게이트: AI 이미지 사용 의도가 있으면 본문 생성 시작 전에 즉시 차단.
   //   무료 체험의 글포스팅 발행 컨텍스트는 이미지 포함 여부와 무관하게 허용한다.
