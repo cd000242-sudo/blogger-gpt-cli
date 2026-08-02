@@ -977,6 +977,13 @@ async function _tryEngineInternal(
       let detail = '사유 미상';
       try {
         console.log(`[DISPATCH] 🍌 ${m.label} 시도... (${m.id})`);
+        // 🖼️ v3.8.407 — 나노바나나도 i2i 를 지원한다. 참고 이미지를 실제로 넘긴다.
+        //   사용자 지적: "한글 되면서 이미지2이미지 되는 건 나노바나나랑 GPT 이미지2"
+        //   그동안 referenceImageList 를 dropshot 에만 넘겨 여기선 통째로 무시됐다.
+        const nbRefs = (extra as any)?.referenceImageList as string[] | undefined;
+        if (nbRefs?.length) {
+          onLog?.(`   🖼️ ${m.label} i2i — 상품 사진 ${Math.min(nbRefs.length, 3)}장 참고`);
+        }
         const result = await makeNanoBananaProThumbnail(prompt, keyword, {
           apiKey,
           aspectRatio: '16:9',
@@ -984,6 +991,7 @@ async function _tryEngineInternal(
           // 썸네일 구도는 유지하고 제목 오버레이만 끈다
           noTextOverlay: userWantsNoText,
           modelId: m.id,
+          ...(nbRefs?.length ? { referenceImages: nbRefs } : {}),
         });
         if (result.ok) {
           return { ok: true, dataUrl: result.dataUrl, source: m.label };
@@ -1018,12 +1026,18 @@ async function _tryEngineInternal(
       try {
         console.log(`[DISPATCH] 🎯 ${g.label} 시도... (${g.id}, quality=${gptQuality})`);
         const { makeGptImageThumbnail } = await import('../thumbnail');
+        // 🖼️ v3.8.407 — GPT Image 도 i2i 를 지원한다(images/edits). 참고 이미지를 넘긴다.
+        const gptRefs = (extra as any)?.referenceImageList as string[] | undefined;
+        if (gptRefs?.length) {
+          onLog?.(`   🖼️ ${g.label} i2i — 상품 사진 ${Math.min(gptRefs.length, 3)}장 참고`);
+        }
         const result = await makeGptImageThumbnail(prompt, keyword, {
           apiKey: openaiKey,
           modelId: g.id,
           isThumbnail: promptIsThumbnail,
           size: '1536x1024',
           quality: gptQuality,
+          ...(gptRefs?.length ? { referenceImages: gptRefs } : {}),
         });
         if (result.ok) {
           return { ok: true, dataUrl: result.dataUrl, source: `${g.label} · ${gptQuality}` };

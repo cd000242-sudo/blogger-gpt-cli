@@ -2105,6 +2105,23 @@ export async function generateUltimateMaxModeArticleFinal(
       // 선택된 H2 섹션 수만큼 이미지 생성 (fastMode 제한 해제)
       const maxImages = sections.length;
 
+      // 🖼️ v3.8.407 — **썸네일을 먼저 확보해 소제목 이미지의 참고로 쓴다.**
+      //   사용자 요구: "우리 썸네일을 가져오잖아? 그 이미지를 참고 이미지로 쓰면 되잖아. 순서 바꿔주고"
+      //   지금까지는 소제목 이미지(80~85%)가 썸네일(90%)보다 먼저라 참고할 게 없었고,
+      //   그래서 소제목마다 화풍이 제각각이었다.
+      //   쇼핑모드는 이미 상품 사진(=썸네일과 같은 사진)을 참고로 쓰므로 손대지 않는다.
+      //   비용: 참고 이미지가 붙어 요청이 조금 커진다. 사용자 확인 — "조금 늘어나도 괜찮다".
+      let toneReferenceImage = '';
+      if (!(payload as any).productImages?.length) {
+        const preThumb = String(
+          payload.preGeneratedThumbnail?.dataUrl || payload.preGeneratedThumbnail?.url || '',
+        ).trim();
+        if (preThumb) {
+          toneReferenceImage = preThumb;
+          onLog?.('[PROGRESS] 78% - 🖼️ 내 폴더 썸네일을 소제목 이미지의 톤 기준으로 씁니다');
+        }
+      }
+
       // 🚀 병렬 이미지 생성 — 모든 섹션의 이미지를 동시에 생성 (유료 티어: 충분한 RPM)
       const imageGenStartTime = Date.now();
       let completedCount = 0;
@@ -2307,9 +2324,17 @@ export async function generateUltimateMaxModeArticleFinal(
               const variationHint = ` [Section ${i + 1} of ${sections.length}: MUST show a unique scene visually distinct from all other sections — different angle, location, props, and composition; never repeat previous sections]`;
               const promptForDispatch = section.h2 + variationHint;
               // v3.5.89: GPT 이미지 quality 옵션 — UI에서 사용자가 선택한 값을 그대로 전달
-              const dispatchExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; leonardoModel?: string; allowFreeTrialPublishing?: boolean } = {
+              const dispatchExtra: {
+                gptImageQuality?: 'low' | 'medium' | 'high';
+                leonardoModel?: string;
+                allowFreeTrialPublishing?: boolean;
+                referenceImageList?: string[];
+              } = {
                 allowFreeTrialPublishing: true,
               };
+              // v3.8.407: 썸네일을 톤 기준으로 넘긴다 — 소제목마다 화풍이 달라 보이지 않게.
+              //   i2i 를 지원하는 엔진(나노바나나·GPT 이미지)만 실제로 쓰고 나머지는 무시한다.
+              if (toneReferenceImage) dispatchExtra.referenceImageList = [toneReferenceImage];
               if (payload.gptImageQuality === 'low' || payload.gptImageQuality === 'medium' || payload.gptImageQuality === 'high') {
                 dispatchExtra.gptImageQuality = payload.gptImageQuality;
               }
@@ -3124,7 +3149,19 @@ ${conclusionHTML}
     const thumbnailSource = explicitThumb && explicitThumb !== 'none' && explicitThumb !== 'skip'
       ? explicitThumb
       : (h2ImageMode === 'none' ? 'none' : (explicitThumb || 'nanobanana2'));
-    const thumbnailDisabled = thumbnailSource === 'none' || thumbnailSource === 'skip';
+
+    // 🛒 v3.8.407 — 쇼핑모드에서 수집한 상품 사진이 있으면 썸네일은 **절대 끄지 않는다.**
+    //   사용자 요구: "쇼핑모드로는 반자동 발행해도 썸네일은 돈 안 드니까 수집해서 대표이미지를 넣게 해줘"
+    //   맞다. 상품 사진은 이미 받아둔 것이라 AI 호출이 0원이다.
+    //   그런데 소제목 이미지를 끄면(h2ImageMode='none') 썸네일까지 같이 꺼져
+    //   대표 이미지 없는 글이 나갔다 — 목록에서 그림 없는 글은 클릭을 못 받는다.
+    const hasCollectedProductImage = contentMode === 'shopping'
+      && ((payload.productImages as string[] | undefined)?.length || 0) > 0;
+    const thumbnailDisabled = (thumbnailSource === 'none' || thumbnailSource === 'skip')
+      && !hasCollectedProductImage;
+    if (hasCollectedProductImage && (thumbnailSource === 'none' || thumbnailSource === 'skip')) {
+      onLog?.('[PROGRESS] 90% - 🛒 소제목 이미지는 껐지만 수집한 상품 사진이 있어 썸네일은 넣습니다 (추가 비용 없음)');
+    }
     onLog?.(`[PROGRESS] 90% - 🖼️ 썸네일 정책: source=${thumbnailSource}, h2ImageMode=${h2ImageMode}, contentMode=${contentMode} (분리 판정)`);
     const preGeneratedThumbnail = String(payload.preGeneratedThumbnail?.dataUrl || payload.preGeneratedThumbnail?.url || '').trim();
 

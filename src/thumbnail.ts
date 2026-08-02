@@ -57,6 +57,15 @@ export type NanoBananaProOptions = {
   aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4'; // 기본 '16:9'
   isThumbnail?: boolean; // true: 썸네일용 (텍스트 허용), false: 소제목 이미지용 (텍스트 없음)
   noTextOverlay?: boolean; // v3.8.336: 썸네일이어도 텍스트 금지 (사용자 "텍스트 미포함" 선택)
+  /**
+   * v3.8.407: 참고 이미지(i2i). 상품 사진을 넘기면 그 제품이 나오는 그림을 그린다.
+   *
+   * 사용자 지적(2026-08-02): "드롭샷 말고 기존에 한글 되면서 이미지2이미지 되는 건
+   *   나노바나나랑 GPT 이미지2 말곤 안 된다니까"
+   * 맞다. Gemini 이미지 모델은 parts 배열에 inlineData 를 함께 넣으면 i2i 가 된다.
+   * 그동안은 텍스트 프롬프트만 넘겨 참고 이미지가 통째로 무시됐다.
+   */
+  referenceImages?: string[];
   // v3.5.88: 사용자 명시 모델 선택. 미지정 시 기존 2단 폴백 체인(3.1 → 2.5) 유지.
   //   'gemini-2.5-flash-image'         = 나노바나나 (저비용 원조)
   //   'gemini-3.1-flash-image-preview' = 나노바나나2 (Pro 품질·Flash 가격)
@@ -100,6 +109,15 @@ export type LeonardoPhoenixOptions = {
   modelPreference?: LeonardoModelPreference | string; // 기본 'seedream-4.5'
   isThumbnail?: boolean; // 썸네일 vs 소제목 이미지
   noTextOverlay?: boolean; // v3.8.336: 썸네일이어도 텍스트 금지 (사용자 "텍스트 미포함" 선택)
+  /**
+   * v3.8.407: 참고 이미지(i2i). 상품 사진을 넘기면 그 제품이 나오는 그림을 그린다.
+   *
+   * 사용자 지적(2026-08-02): "드롭샷 말고 기존에 한글 되면서 이미지2이미지 되는 건
+   *   나노바나나랑 GPT 이미지2 말곤 안 된다니까"
+   * 맞다. Gemini 이미지 모델은 parts 배열에 inlineData 를 함께 넣으면 i2i 가 된다.
+   * 그동안은 텍스트 프롬프트만 넘겨 참고 이미지가 통째로 무시됐다.
+   */
+  referenceImages?: string[];
 };
 
 export type BackgroundImageOptions = {
@@ -1725,7 +1743,10 @@ export async function makeNanoBananaProThumbnail(
   console.log(`[NANO-BANANA-PRO] 📝 프롬프트: ${prompt.slice(0, 80)}...`);
 
   // Imagen 3 제거 → Gemini 네이티브 이미지 생성 직접 호출
-  return await tryGeminiExperimentalImageGeneration(title, topic, options.apiKey, isThumbnail, options.modelId, options.aspectRatio, noTextOverlay);
+  return await tryGeminiExperimentalImageGeneration(
+    title, topic, options.apiKey, isThumbnail, options.modelId, options.aspectRatio, noTextOverlay,
+    options.referenceImages,
+  );
 }
 
 // 🔥 Gemini 3 이미지 생성 (Nano Banana / Nano Banana Pro)
@@ -1738,6 +1759,7 @@ async function tryGeminiExperimentalImageGeneration(
   modelIdHint?: 'gemini-2.5-flash-image' | 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview',
   aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4',
   noTextOverlay: boolean = false,
+  referenceImages?: string[],
 ): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
   const startTime = Date.now();
 
@@ -1898,7 +1920,22 @@ CRITICAL RULES:
 
           // prompt 끝에 호출별 noise를 추가해 동일 요청 핑거프린트 분산 (이미지 모델은 무시할 수도 있지만 무해)
           const noisedPrompt = `${prompt}\n\n[generation token: ${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}]`;
-          const result = await model.generateContent(noisedPrompt);
+          // 🖼️ v3.8.407 — 참고 이미지가 있으면 **i2i** 로 부른다.
+          //   Gemini 이미지 모델은 parts 배열에 inlineData 를 함께 넣으면 그 사진을 보고 그린다.
+          //   그동안 텍스트 프롬프트만 넘겨 상품 사진이 통째로 무시됐다(사용자 지적).
+          //   내려받기에 실패하면 그냥 텍스트로 간다 — 이미지 생성을 막지 않는다.
+          const refParts = await buildGeminiReferenceParts(referenceImages);
+          const genRequest: any = refParts.length > 0
+            ? [
+                ...refParts,
+                `${noisedPrompt}\n\nUse the reference photo above as the actual product. `
+                + 'Keep its shape, color and proportions recognizable in the scene.',
+              ]
+            : noisedPrompt;
+          if (refParts.length > 0) {
+            console.log(`[NANO-BANANA] 🖼️ i2i 모드 — 참고 사진 ${refParts.length}장과 함께 생성`);
+          }
+          const result = await model.generateContent(genRequest);
           const response = result.response;
 
           // 🛡️ S-6 (v3.5.84): finishReason='SAFETY' 별도 감지 (200 OK 응답이지만 차단된 케이스)
@@ -2017,6 +2054,11 @@ CRITICAL RULES:
 export type GptImageOptions = {
   apiKey: string;
   modelId: 'gpt-image-1' | 'gpt-image-2';
+  /**
+   * v3.8.407: 참고 이미지(i2i). 있으면 images/edits 로 부른다.
+   * GPT Image 는 edits 엔드포인트에서 입력 이미지를 받는다 — generations 는 못 받는다.
+   */
+  referenceImages?: string[];
   isThumbnail?: boolean;
   size?: '1024x1024' | '1536x1024' | '1024x1536';   // 16:9 본문 = 1536x1024
   // v3.5.89: quality 옵션 — OpenAI 공식 가격은 quality별로 다름
@@ -2055,21 +2097,45 @@ export async function makeGptImageThumbnail(
   console.log(`[GPT-IMAGE] 🎯 ${options.modelId} 시도 (quality=${quality}, size=${size}) — prompt(${prompt.length}자): ${prompt.slice(0, 80)}...`);
 
   try {
-    const res = await fetch('https://api.openai.com/v1/images/generations', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${options.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: options.modelId,
-        prompt,
-        n: 1,
-        size,
-        quality,
-        // 기본 b64_json 반환
-      }),
-    });
+    // 🖼️ v3.8.407 — 참고 이미지가 있으면 **images/edits** 로 부른다(i2i).
+    //   generations 엔드포인트는 입력 이미지를 못 받는다. edits 만 받는다.
+    //   내려받기에 실패하면 조용히 generations 로 돌아간다 — 생성을 막지 않는다.
+    const gptRefs = await fetchImagesAsBlobs(options.referenceImages);
+    let res: Response;
+    if (gptRefs.length > 0) {
+      console.log(`[GPT-IMAGE] 🖼️ i2i 모드 — 참고 사진 ${gptRefs.length}장과 함께 편집 생성`);
+      const form = new FormData();
+      form.append('model', options.modelId);
+      form.append('prompt', `${prompt}
+
+Use the provided product photo as the actual product. `
+        + 'Keep its shape, color and proportions recognizable in the scene.');
+      form.append('n', '1');
+      form.append('size', size);
+      form.append('quality', quality);
+      gptRefs.forEach((b, i) => form.append('image[]', b, `ref${i}.png`));
+      res = await fetch('https://api.openai.com/v1/images/edits', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${options.apiKey}` },   // Content-Type 은 FormData 가 정한다
+        body: form as any,
+      });
+    } else {
+      res = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${options.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: options.modelId,
+          prompt,
+          n: 1,
+          size,
+          quality,
+          // 기본 b64_json 반환
+        }),
+      });
+    }
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -2600,4 +2666,76 @@ Requirements:
   // ===== 3. 최종 폴백: 키워드 기반 번역 =====
   console.log(`[AI-PROMPT] 📝 모든 AI 실패 → 키워드 기반 프롬프트 생성`);
   return generateEnglishPrompt(title, topic, isThumbnail);
+}
+
+/**
+ * 참고 이미지 URL/dataURL 을 Gemini inlineData part 로 만든다. (v3.8.407)
+ *
+ * 사용자 지적(2026-08-02): "드롭샷 말고 기존에 한글 되면서 이미지2이미지 되는 건
+ *   나노바나나랑 GPT 이미지2 말곤 안 된다니까"
+ * 맞다. 그동안 imageDispatcher 가 referenceImageList 를 dropshot 에만 넘겨
+ * 나노바나나·GPT 이미지에서는 상품 사진이 통째로 무시됐다.
+ *
+ * 실패는 조용히 건너뛴다 — 참고 이미지를 못 받았다고 이미지 생성을 막으면 안 된다.
+ * 최대 3장까지만 쓴다(그 이상은 모델이 산만해지고 요청도 커진다).
+ */
+export async function buildGeminiReferenceParts(urls?: string[]): Promise<any[]> {
+  const list = (urls || []).filter((u) => typeof u === 'string' && u.trim()).slice(0, 3);
+  if (list.length === 0) return [];
+
+  const parts: any[] = [];
+  for (const raw of list) {
+    try {
+      const u = raw.trim();
+      if (u.startsWith('data:image/')) {
+        const m = u.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+        if (m?.[1] && m[2]) parts.push({ inlineData: { mimeType: m[1], data: m[2] } });
+        continue;
+      }
+      if (!/^https?:\/\//i.test(u)) continue;
+      const res = await fetch(u, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      // 너무 작으면 깨진 것, 너무 크면 요청이 무거워진다
+      if (buf.length < 100 || buf.length > 8 * 1024 * 1024) continue;
+      const mimeType = (res.headers.get('content-type') || '').split(';')[0] || 'image/jpeg';
+      if (!/^image\//.test(mimeType)) continue;
+      parts.push({ inlineData: { mimeType, data: buf.toString('base64') } });
+    } catch {
+      /* 이 장은 건너뛴다 */
+    }
+  }
+  return parts;
+}
+
+
+/**
+ * 참고 이미지 URL 을 Blob 으로 받는다 — OpenAI images/edits 용. (v3.8.407)
+ * 실패는 조용히 건너뛴다. 최대 3장.
+ */
+export async function fetchImagesAsBlobs(urls?: string[]): Promise<Blob[]> {
+  const list = (urls || []).filter((u) => typeof u === 'string' && u.trim()).slice(0, 3);
+  const out: Blob[] = [];
+  for (const raw of list) {
+    try {
+      const u = raw.trim();
+      if (u.startsWith('data:image/')) {
+        const m = u.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+        if (!m?.[1] || !m[2]) continue;
+        out.push(new Blob([Buffer.from(m[2], 'base64')], { type: m[1] }));
+        continue;
+      }
+      if (!/^https?:\/\//i.test(u)) continue;
+      const res = await fetch(u, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 100 || buf.length > 8 * 1024 * 1024) continue;
+      const mimeType = (res.headers.get('content-type') || '').split(';')[0] || 'image/png';
+      if (!/^image\//.test(mimeType)) continue;
+      out.push(new Blob([buf], { type: mimeType }));
+    } catch {
+      /* 이 장은 건너뛴다 */
+    }
+  }
+  return out;
 }
