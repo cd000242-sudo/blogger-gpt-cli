@@ -4685,7 +4685,10 @@ html body .content-inner {
       //   2026 기준 권장은 본문 16~18px · 줄간격 1.6~1.8 · 한 문단 6줄 이내다.
       //   글자와 줄간격을 권장 상단으로 올리고, 문단 사이를 벌려 숨 쉴 곳을 만든다.
       //   (문단 길이 자체는 생성 프롬프트에서 줄인다 — 후처리로 문장을 쪼개면 뜻이 깨진다)
-      return `<p${attrs || ''} style="color: #1a1a1a; font-size: clamp(16px, 4.3vw, 18px); line-height: 1.8; display: block; margin-bottom: 26px; word-break: keep-all; overflow-wrap: break-word; letter-spacing: -0.01em;">`;
+      // v3.8.406: 어르신도 편하게 읽도록 한 단계 더 키웠다(사용자 요구).
+      //   17~20px — 2026 권장(16~18px) 상단을 넘어서지만, 독자층이 40~60대면 이게 맞다.
+      //   줄간격도 1.9 로 넓혀 글자가 커진 만큼 줄이 붙어 보이지 않게 한다.
+      return `<p${attrs || ''} style="color: #1a1a1a; font-size: clamp(17px, 4.6vw, 20px); line-height: 1.9; display: block; margin-bottom: 28px; word-break: keep-all; overflow-wrap: break-word; letter-spacing: -0.01em;">`;
     });
 
     // h2 태그

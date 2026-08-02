@@ -2063,6 +2063,14 @@ export async function generateUltimateMaxModeArticleFinal(
     // thumbnail-only 모드는 sentinel [-1]이라 위 filter에서 0개 통과 → effectiveSelectedH2Sections 빈 배열
     const isThumbnailOnly = h2ImageMode === 'thumbnail-only' || h2ImageMode === 'thumbnail_only';
 
+    // v3.8.406 — 이미지 생성이 크레딧 때문에 막혔는지 추적한다.
+    //   사용자 지적: "금액이 부족해서 소제목이 전부 썸네일로 채워졌다.
+    //   계속 돈 내라고 하면 누가 계속 쓰려 하겠니?"
+    //   상품 사진이 1장뿐이면 대체 이미지가 매번 같은 사진이라 글이 고장 난 것처럼 보인다.
+    //   발행은 막지 않되, 왜 그런지와 무엇을 하면 되는지를 반드시 알려준다.
+    let i2iCreditBlocked = false;
+    let i2iFallbackRepeats = 0;
+
     // 🔥 빠른 모드: 이미지 생성 스킵
     if (skipImages) {
       onLog?.('[PROGRESS] 80% - ⚡ 빠른 모드: 이미지 생성 스킵');
@@ -2184,12 +2192,30 @@ export async function generateUltimateMaxModeArticleFinal(
               if (i2iEngine !== imageSource) {
                 onLog?.(`   [IMG-${i + 1}] ℹ️ 소제목 엔진이 '${imageSource}' 라 i2i 를 못 합니다 — ${i2iEngine} 로 생성합니다`);
               }
+              // 🎨 v3.8.406 — **참고 이미지를 실제로 쓰는 엔진은 dropshot 하나뿐이다**
+              //   (imageDispatcher.ts 378행: "다른 엔진(nanobanana 등)은 무시한다")
+              //   사용자는 드롭샷 기간이 끝나 못 쓴다. 그래서 상품 정보를 **프롬프트에 실어** 보낸다.
+              //   이러면 gptimage·나노바나나 등 어떤 엔진이든 그 상품에 맞는 그림을 그린다.
+              //   픽셀 단위로 같은 사진은 아니지만, 소제목마다 다른 그림이 나오는 게 핵심이다.
+              //   (예전: 참고 이미지가 무시되고 생성이 실패하면 1장뿐인 상품 사진이 반복됐다)
+              const prodName = String(
+                (payload as any).affiliateProducts?.[0]?.title
+                || (payload as any).resolvedProductName
+                || (payload as any).coupangProducts?.[0]?.productName
+                || '',
+              ).trim();
+              const prodCategory = String((payload as any).coupangProducts?.[0]?.categoryName || '').trim();
+              const productHint = prodName
+                ? `${section.h2} — "${prodName}"${prodCategory ? ` (${prodCategory})` : ''} 제품이 실제로 쓰이는 장면`
+                : section.h2;
+              if (prodName) {
+                onLog?.(`   [IMG-${i + 1}] 🎨 상품 기반 생성 — "${prodName.slice(0, 24)}" 를 프롬프트에 반영`);
+              }
               console.log(`[IMG-${i + 1}] 🎨 상품 기반 i2i (전략: product-i2i, ref ${refs.length}장, 엔진 ${i2iEngine})`);
-              onLog?.(`   [IMG-${i + 1}] 🎨 상품 기반 생성 (참고 이미지 ${refs.length}장)`);
               try {
                 const i2i = await dispatchH2ImageGeneration(
                   i2iEngine,
-                  section.h2,
+                  productHint,
                   keyword,
                   (msg: string) => onLog?.(`   [IMG-${i + 1}] ${msg}`),
                   contentMode,
@@ -2205,14 +2231,25 @@ export async function generateUltimateMaxModeArticleFinal(
                     onLog?.(`   [IMG-${i + 1}] ⚠️ 생성 실패 → 상품 사진으로 대체`);
                     imageResult = { ok: true, dataUrl: fallback };
                     usedSource = '쿠팡 상품 이미지 (생성 실패 대체)';
+                    if (productPool.length === 1) i2iFallbackRepeats += 1;
                   }
                 }
               } catch (e: any) {
+                // v3.8.406 — 크레딧·결제 때문에 막힌 것인지 구분한다.
+                //   사용자 지적: "금액이 부족해서 소제목이 전부 썸네일로 채워졌다.
+                //   계속 돈 내라고 하면 누가 계속 쓰려 하겠니?"
+                //   상품 사진이 1장뿐이면 대체 이미지가 매번 같은 사진(=썸네일)이 된다.
+                //   조용히 같은 그림을 8번 넣으면 글이 고장 난 것처럼 보인다. 이유를 알려준다.
+                const msg = String(e?.message || e);
+                if (/PAYMENT_REQUIRED|quota|QUOTA|잔액|크레딧|billing|RESOURCE_EXHAUSTED|429/i.test(msg)) {
+                  i2iCreditBlocked = true;
+                }
                 const fallback = productPool[(i + 1) % productPool.length];
                 if (fallback) {
-                  onLog?.(`   [IMG-${i + 1}] ⚠️ 생성 예외 → 상품 사진으로 대체: ${e?.message?.slice(0, 60)}`);
+                  onLog?.(`   [IMG-${i + 1}] ⚠️ 생성 예외 → 상품 사진으로 대체: ${msg.slice(0, 60)}`);
                   imageResult = { ok: true, dataUrl: fallback };
                   usedSource = '쿠팡 상품 이미지 (예외 대체)';
+                  if (productPool.length === 1) i2iFallbackRepeats += 1;
                 }
               }
             }
@@ -2414,6 +2451,21 @@ export async function generateUltimateMaxModeArticleFinal(
       } else {
         onLog?.(`[PROGRESS] 85% - 🎉 이미지 ${successCount}/${totalToGenerate}장 완료 (${imageGenElapsed}초${needsSequential ? ' — 순차 처리' : ' — 공통 큐 처리'})`);
       }
+      // 💳 v3.8.406 — 크레딧 때문에 이미지가 같은 사진으로 반복됐으면 반드시 알린다.
+      //   사용자 지적: "금액이 부족해서 소제목이 전부 썸네일로 채워졌다.
+      //   계속 돈 내라고 하면 누가 계속 쓰려 하겠니?"
+      //   발행을 막지는 않는다(사용자 원칙). 대신 **왜 그렇게 됐고 뭘 하면 되는지**를 준다.
+      if (i2iCreditBlocked || i2iFallbackRepeats >= 2) {
+        const reason = i2iCreditBlocked
+          ? '이미지 생성 크레딧이 부족하거나 한도에 걸렸습니다'
+          : '이미지 생성이 실패했습니다';
+        onLog?.(`[PROGRESS] 85% - 💳 ${reason} — 소제목 이미지 ${i2iFallbackRepeats}장이 같은 상품 사진으로 채워졌습니다.`);
+        onLog?.('[PROGRESS] 85% -    이대로도 발행은 됩니다. 다만 같은 그림이 반복돼 글이 밋밋해 보입니다.');
+        onLog?.('[PROGRESS] 85% -    ① 크레딧을 충전하면 소제목마다 다른 이미지가 생성됩니다.');
+        onLog?.('[PROGRESS] 85% -    ② 또는 **반자동 발행**을 쓰시면 편집 화면에서 직접 이미지를 넣을 수 있어');
+        onLog?.('[PROGRESS] 85% -       이미지 API 비용이 전혀 들지 않습니다.');
+      }
+
       // 🛡️ v3.5.86: 누적 통계 한 줄 요약 (실측 기반 튜닝용)
       try {
         const { summaryLine } = require('../engine-stats');

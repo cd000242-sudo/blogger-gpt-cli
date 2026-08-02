@@ -24,6 +24,39 @@ export interface NormalizeOptions {
   minChars?: number;
   /** 한 문단에 넣을 문장 수 상한 */
   maxSentences?: number;
+  /**
+   * 문장마다 <br> 로 줄을 바꾼다 (모바일 기준). (v3.8.406)
+   * 사용자 요구: "모바일 기준으로 깔끔하게 문단 정리가 되어 있는 것"
+   * 문단만 나누면 데스크톱에선 한 줄이 60자가 넘어 여전히 답답하다.
+   */
+  breakSentences?: boolean;
+  /** 한 줄이 이보다 길면 쉼표에서 한 번 더 끊는다 */
+  maxLineChars?: number;
+}
+
+/**
+ * 한 문장이 길면 쉼표에서 끊는다 — 모바일 한 줄(25~35자)에 맞춘다.
+ * 태그 안의 쉼표에서는 끊지 않는다(속성값에 쉼표가 흔하다).
+ */
+export function breakLongLine(sentence: string, maxLineChars: number): string {
+  if (visibleLength(sentence) <= maxLineChars) return sentence;
+
+  const out: string[] = [];
+  let buf = '';
+  let inTag = false;
+  for (let i = 0; i < sentence.length; i += 1) {
+    const ch = sentence[i]!;
+    buf += ch;
+    if (ch === '<') { inTag = true; continue; }
+    if (ch === '>') { inTag = false; continue; }
+    if (inTag) continue;
+    if (ch === ',' && visibleLength(buf) >= maxLineChars * 0.6) {
+      out.push(buf.trim());
+      buf = '';
+    }
+  }
+  if (buf.trim()) out.push(buf.trim());
+  return out.join('<br>\n');
 }
 
 /**
@@ -91,10 +124,22 @@ export function regroupParagraph(inner: string, opts: NormalizeOptions = {}): st
   const maxChars = opts.maxChars ?? 150;
   const maxSentences = opts.maxSentences ?? 3;
 
-  if (visibleLength(inner) <= maxChars) return [inner.trim()];
-
   const sentences = splitSentencesSafe(inner);
+
+  // v3.8.406: 짧은 문단이어도 문장이 둘 이상이면 줄은 바꿔준다.
+  //   (예전엔 여기서 바로 반환해 짧은 문단은 한 줄로 뭉쳐 있었다)
+  if (visibleLength(inner) <= maxChars) {
+    if (opts.breakSentences === false || sentences.length <= 1) return [inner.trim()];
+    const maxLine0 = opts.maxLineChars ?? 38;
+    return [sentences.map((s) => breakLongLine(s, maxLine0)).join('<br>\n').trim()];
+  }
+
   if (sentences.length <= 1) return [inner.trim()];   // 한 문장이면 못 나눈다 — 그대로 둔다
+
+  // v3.8.406: 모바일에서는 문장마다 줄을 바꾼다. 문단만 나누면 한 줄이 여전히 길다.
+  const joiner = opts.breakSentences === false ? ' ' : '<br>\n';
+  const maxLine = opts.maxLineChars ?? 38;
+  const shape = (s: string) => (opts.breakSentences === false ? s : breakLongLine(s, maxLine));
 
   const groups: string[] = [];
   let cur: string[] = [];
@@ -103,14 +148,14 @@ export function regroupParagraph(inner: string, opts: NormalizeOptions = {}): st
     const len = visibleLength(sent);
     const wouldOverflow = curLen > 0 && (curLen + len > maxChars || cur.length >= maxSentences);
     if (wouldOverflow) {
-      groups.push(cur.join(' '));
+      groups.push(cur.join(joiner));
       cur = [];
       curLen = 0;
     }
-    cur.push(sent);
+    cur.push(shape(sent));
     curLen += len;
   }
-  if (cur.length) groups.push(cur.join(' '));
+  if (cur.length) groups.push(cur.join(joiner));
   return groups.filter((g) => g.trim());
 }
 

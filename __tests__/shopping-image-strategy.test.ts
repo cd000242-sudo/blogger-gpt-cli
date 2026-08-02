@@ -145,3 +145,56 @@ describe('썸네일 정책 — 전략과 무관하게 실제 상품 사진', () 
     expect(orchestrationSrc).toContain('isCrawledRequested || isShoppingMode || !userPickedAiEngine');
   });
 });
+
+/**
+ * 선택한 엔진으로 상품 기반 생성 (v3.8.406)
+ *
+ * 사용자 보고(2026-08-02):
+ *   "소제목 이미지를 이미지 엔진으로 AI 생성하게끔 한다 했는데 왜 무시됐나요"
+ *   "드롭샷은 기간 끝나서 내가 못 써. 선택한 이미지 생성 엔진으로 생성되게 해달라고"
+ *
+ * 원인 — imageDispatcher.ts 378행 주석 그대로:
+ *   "v3.6.0: dropshot 엔진의 i2i 모드 — reference 이미지 URL 배열.
+ *    **다른 엔진(nanobanana 등)은 무시한다.**"
+ *   즉 참고 이미지를 실제로 쓰는 엔진은 dropshot 하나뿐이었다.
+ *   사용자는 gptimage2 를 썼으니 상품을 전혀 안 보고 그렸고,
+ *   실패하면 1장뿐인 상품 사진이 소제목마다 반복됐다(= 전부 썸네일처럼 보임).
+ *
+ * 조치: 상품명·카테고리를 **프롬프트에 실어** 보낸다. 엔진을 가리지 않는다.
+ */
+describe('상품 기반 생성이 엔진을 가리지 않는다', () => {
+  const block = braceBlock(orchestrationSrc, "shoppingStrategy === 'product-i2i'");
+
+  it('⭐ 상품명을 프롬프트에 싣는다 (참고 이미지를 무시하는 엔진에서도 통한다)', () => {
+    expect(block).toContain('const productHint =');
+    expect(block).toContain('제품이 실제로 쓰이는 장면');
+  });
+
+  it('⭐ 소제목 대신 상품 힌트를 디스패처에 넘긴다', () => {
+    expect(block).toContain('i2iEngine,\n                  productHint,');
+  });
+
+  it('상품명 출처를 세 갈래로 찾는다 (제휴 상품 → 확정 상품명 → API 검색)', () => {
+    expect(block).toContain('affiliateProducts?.[0]?.title');
+    expect(block).toContain('resolvedProductName');
+    expect(block).toContain('coupangProducts?.[0]?.productName');
+  });
+
+  it('상품명이 없으면 예전처럼 소제목만 쓴다 (동작을 깨지 않는다)', () => {
+    expect(block).toContain(': section.h2;');
+  });
+
+  it('⭐ 사용자가 고른 엔진을 그대로 쓴다 (dropshot 강제 없음)', () => {
+    expect(block).toContain('i2iEngine');
+    expect(block).not.toContain("'dropshot-nanobanana-pro'");
+  });
+
+  it('무엇을 반영했는지 로그로 알린다', () => {
+    expect(block).toContain('를 프롬프트에 반영');
+  });
+
+  it('⭐ UI 문구가 사실과 맞는다 — "실제 상품을 참고해"는 거짓이었다', () => {
+    expect(uiHtml).toContain('상품 정보를 반영해 소제목별로 새 이미지 생성');
+    expect(uiHtml).not.toContain('실제 상품을 참고해 소제목별로 새로 생성');
+  });
+});
