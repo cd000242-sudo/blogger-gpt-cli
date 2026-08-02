@@ -230,16 +230,39 @@ describe('에러 메시지 상세화 + 엄격 모드 opt-in (v3.6.0)', () => {
     expect(mockProdia).not.toHaveBeenCalled(); // 폴백 차단
   });
 
-  it('STRICT_H2_IMAGE_ENGINE=true + nanobananapro 실패 → STRICT_ENGINE_FAILED throw (폴백 차단)', async () => {
+  /**
+   * v3.8.419 — 이 테스트는 원래 "지정 엔진이 실패하면 무조건 즉시 throw, 폴백 절대 없음"을
+   *   검증했다. 그런데 v3.8.358(이번 세션 이전, 오래된 변경)에서 strict 모드에 **최후
+   *   폴백 체인**이 추가됐다 — 지정 엔진이 3회 다 실패해도 곧바로 발행을 막지 않고
+   *   다른 엔진을 한 번 더 시도한 뒤에야 던진다(사용자 코멘트: "OpenAI 520 등 일시 장애 시
+   *   30분 넘게 낭비하고 발행 전면 실패"를 막기 위해서). 이 테스트의 mock 설정(Prodia만
+   *   성공)이 바로 그 최후 폴백 경로를 타서 "차단"이 아니라 "폴백 성공"이 나왔다 —
+   *   프로덕션 버그가 아니라 테스트가 v3.8.358 이전 계약을 검증하고 있었다.
+   *   그래서 두 개로 나눈다: ① 폴백 후보까지 전부 실패해야 진짜 throw 하는지,
+   *   ② 최후 폴백이 성공하면 발행이 계속되는지(이게 v3.8.358이 의도한 동작).
+   */
+  it('STRICT_H2_IMAGE_ENGINE=true + 지정 엔진과 모든 폴백 후보까지 실패 → STRICT_ENGINE_FAILED throw', async () => {
     process.env['STRICT_H2_IMAGE_ENGINE'] = 'true';
     mockNano.mockResolvedValue({ ok: false, dataUrl: '', error: 'BILLING_REQUIRED' } as any);
-    mockProdia.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,X' } as any);
+    mockProdia.mockResolvedValue({ ok: false, dataUrl: '', error: 'PRODIA_DOWN' } as any);
+    mockDeep.mockResolvedValue({ ok: false, dataUrl: '', error: 'DEEPINFRA_DOWN' } as any);
+    mockGpt.mockResolvedValue({ ok: false, dataUrl: '', error: 'GPT_DOWN' } as any);
 
     await expect(
       dispatchH2ImageGeneration('nanobananapro', 'test', 'kw'),
     ).rejects.toThrow(/STRICT_ENGINE_FAILED/);
+  });
 
-    expect(mockProdia).not.toHaveBeenCalled(); // 폴백 차단
+  it('STRICT_H2_IMAGE_ENGINE=true + 지정 엔진 실패해도 최후 폴백 엔진이 성공하면 발행은 계속된다 (v3.8.358)', async () => {
+    process.env['STRICT_H2_IMAGE_ENGINE'] = 'true';
+    mockNano.mockResolvedValue({ ok: false, dataUrl: '', error: 'BILLING_REQUIRED' } as any);
+    mockProdia.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,X' } as any);
+
+    const result = await dispatchH2ImageGeneration('nanobananapro', 'test', 'kw');
+
+    expect(result.ok).toBe(true);
+    expect(result.source).toMatch(/최후 폴백/);
+    expect(mockProdia).toHaveBeenCalled();
   });
 });
 

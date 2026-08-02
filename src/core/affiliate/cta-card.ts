@@ -110,7 +110,19 @@ export function insertCtaCards(html: string, product: CtaProduct): { html: strin
   let out = src;
   let inserted = 0;
 
-  // ① 핵심 요약 직후 — 요약 섹션의 끝을 찾는다
+  /**
+   * ① 핵심 요약 직후 — 요약 섹션의 끝을 찾는다.
+   *
+   * v3.8.419 — 이 함수는 orchestration.ts 에서 TOP_SUMMARY_CTA_PLACEHOLDER 가
+   *   아직 실제 요약/서론 HTML로 치환되기 **전**에 불린다(호출 순서상 이 함수가 먼저
+   *   실행되고, 요약·서론은 나중에 자리표시자 위치에 끼워 넣어진다). 그래서 실제 "핵심
+   *   요약" 헤딩 텍스트를 찾는 정규식은 이 시점엔 항상 실패한다 — 아직 헤딩 자체가
+   *   존재하지 않는다. 예전엔 이 조건이 그냥 조용히 실패해서 "요약 직후" 카드가
+   *   한 번도 삽입되지 않는 죽은 코드였다.
+   *   사용자: "핵심바로가기는 꺼주세요 이미지포함한 CTA를 배치해주시면됩니다" — 쇼핑모드
+   *   상단의 텍스트뿐인 "핵심 바로가기" 버튼을 빼고 그 자리를 이미지 포함 카드로 채우려면,
+   *   자리표시자 뒤(=나중에 요약·서론이 들어갈 자리 바로 다음)를 직접 앵커로 쓴다.
+   */
   const summaryHead = out.search(/<h[23][^>]*>[^<]*(성급한|핵심 요약|한눈에|3줄 요약)[^<]*<\/h[23]>/i);
   if (summaryHead >= 0) {
     // 요약 블록 다음에 오는 첫 번째 h2 앞에 넣는다
@@ -118,6 +130,14 @@ export function insertCtaCards(html: string, product: CtaProduct): { html: strin
     const at = nextH2 > 0 ? nextH2 : -1;
     if (at > 0) {
       out = out.slice(0, at) + card('summary') + '\n' + out.slice(at);
+      inserted += 1;
+    }
+  } else {
+    const placeholder = '<!-- TOP_SUMMARY_CTA_PLACEHOLDER -->';
+    const placeholderIdx = out.indexOf(placeholder);
+    if (placeholderIdx >= 0) {
+      const at = placeholderIdx + placeholder.length;
+      out = out.slice(0, at) + '\n' + card('summary') + out.slice(at);
       inserted += 1;
     }
   }
@@ -131,23 +151,18 @@ export function insertCtaCards(html: string, product: CtaProduct): { html: strin
   }
 
   /**
-   * ③ 글 끝 — 대가성 문구보다 앞에 둔다(고지문이 마지막이어야 자연스럽다).
+   * ③ 글 끝 — 항상 진짜 끝(HTML 맨 마지막)에 붙인다.
    *
-   * v3.8.417 — "coupang-disclosure" 를 추가했다(paragraph-normalizer.ts 에서
-   *   찾은 것과 같은 클래스명 불일치). 이 함수의 주 사용처는 쇼핑모드(cta-card 는
-   *   contentMode === 'shopping' 에서만 불린다)인데, 쿠팡 전용 고지문은
-   *   "coupang-disclosure" 클래스를 쓴다 — "affiliate-disclosure" 만 찾으면
-   *   쿠팡 글에서는 이 검색이 항상 실패한다.
-   *   실제로는 지금 무해하다 — v3.8.375 이후 쿠팡 고지문은 항상 H1 바로 뒤(최상단)에
-   *   있어서, 검색이 실패해 else 분기(글의 진짜 끝에 추가)로 가도 결과가 같다.
-   *   그래도 클래스명은 맞춰둔다 — 나중에 누가 고지문 위치를 바꾸면 조용히 다시 깨진다.
+   * v3.8.419 — 예전엔 "대가성 문구 바로 앞"을 찾아 거기 끼워 넣었다. 그건 고지문이
+   *   글 "끝"에 있던 시절(v3.8.375 이전) 얘기다. v3.8.375 이후 대가성 문구는 항상
+   *   H1 바로 뒤(최상단)로 고정됐는데, v3.8.417 에서 이 검색이 "coupang-disclosure"
+   *   클래스까지 찾도록 넓히면서 — 그때부터 이 카드가 최상단 고지문 바로 앞, 즉
+   *   **글의 첫머리**에 꽂히게 됐다. 실제 발행글 스크린샷으로 확인: "최저가 확인하고
+   *   구매하기" 카드가 대가성 문구보다 위에, 본문보다도 위에 떠 있었다 — 사용자 지적
+   *   ("공정위 문구는 항상 제일 상단에 올라가야 되는데")의 정체가 이거였다.
+   *   고지문 위치를 더 이상 찾지 않는다 — 늘 진짜 끝에 붙인다.
    */
-  const discIdx = out.search(/<p[^>]*class="[^"]*(affiliate|coupang)-disclosure/i);
-  if (discIdx > 0) {
-    out = out.slice(0, discIdx) + card('final') + '\n' + out.slice(discIdx);
-  } else {
-    out += `\n${card('final')}`;
-  }
+  out += `\n${card('final')}`;
   inserted += 1;
 
   return { html: out, inserted };

@@ -112,13 +112,12 @@ describe('② 사용자 링크 크롤링이 더 이상 스킵되지 않는다', 
 });
 
 /**
- * ③ "핵심 바로가기" 버튼이 사용자 링크가 아니었다 (v3.8.416)
+ * ③ "핵심 바로가기" 버튼이 사용자 링크가 아니었다 (v3.8.416) → 완전히 뺐다 (v3.8.419)
  *
- * 사용자: "핵심 바로가기도 내링크여야되는데 이것도 자동링크네"
- *
- * 원인 — topCta(글 맨 위 "핵심 바로가기" 버튼)는 ctas/supplementalCtas
- *   (검색·크롤링으로 찾은 일반 URL)에서 후보를 골랐다. v3.8.413 에서 본문 중간
- *   CTA(sectionCta)는 이미 쇼핑모드에서 껐는데, 이 상단 CTA는 같은 문제를 놓쳤다.
+ * v3.8.416: 사용자 "핵심 바로가기도 내링크여야되는데 이것도 자동링크네" — 링크 출처를 고쳤다.
+ * v3.8.419: 사용자 "핵심바로가기는 꺼주세요 이미지포함한 CTA를 배치해주시면됩니다
+ *   이미지 보시면 중복이라 겹칩니다." — 링크는 맞았지만 insertCtaCards()가 만드는
+ *   이미지+가격+버튼 카드와 완전히 중복이었다. 텍스트 버튼(topCtaHtml)을 아예 비운다.
  */
 describe('③ "핵심 바로가기"가 사용자의 제휴 링크를 가리킨다', () => {
   // ⚠️ braceBlock 은 if/else-if/else 사슬을 "같은 구문"으로 보고 뒤이은 else 블록까지
@@ -130,17 +129,14 @@ describe('③ "핵심 바로가기"가 사용자의 제휴 링크를 가리킨�
     '} else {',
   );
 
-  it('⭐ 쇼핑모드 + 링크가 있으면 일반 후보 로직을 타지 않는다', () => {
-    expect(shoppingCtaBlock).toContain('url: coupangLink');
+  it('⭐ 쇼핑모드 + 링크가 있으면 일반 후보 로직도, 텍스트 CTA 렌더링도 타지 않는다 (v3.8.419)', () => {
     expect(shoppingCtaBlock).not.toContain('topCandidates');
+    expect(shoppingCtaBlock).not.toContain('renderFinalCtaBlock');
   });
 
-  it('⭐ coupangLink 는 사용자가 입력한 원본 그대로다 (가공하지 않는다)', () => {
-    expect(shoppingCtaBlock).toContain('사용자가 입력한 그대로의 원본 링크');
-  });
-
-  it('⭐ 제휴 링크이므로 sponsored 를 명시한다', () => {
-    expect(shoppingCtaBlock).toContain("rel: 'nofollow sponsored noopener'");
+  it('⭐ 왜 뺐는지 — 이미지 CTA 카드와의 중복이 근거로 남아 있다', () => {
+    expect(shoppingCtaBlock).toContain('중복');
+    expect(shoppingCtaBlock).toContain('insertCtaCards');
   });
 
   it('⭐ renderFinalCtaBlock 이 rel 오버라이드를 지원한다 (기본값은 그대로)', () => {
@@ -353,12 +349,14 @@ describe('⑥⑦ 보충 CTA·하단 CTA 도 사용자 링크 아닌 곳으로 �
     expect(block).toContain('finalCandidates');
   });
 
-  it('⭐ renderFinalCtaBlock 호출부가 4곳으로 줄었다 (v3.8.418 — 보충 CTA 자동 검색 삭제)', () => {
+  it('⭐ renderFinalCtaBlock 호출부가 3곳으로 줄었다 (v3.8.418~419)', () => {
     // v3.8.417 까지 5곳: ①sectionCta ②topCta(일반) ②'topCta(쇼핑) ③보충CTA ④하단최종CTA
     //   (②가 일반/쇼핑 두 분기로 나뉘어 있어 5곳이었다)
-    // v3.8.418 에서 ③ 보충 CTA 의 검색-렌더링을 통째로 지웠다 — 남는 건 4곳뿐이다.
+    // v3.8.418: ③ 보충 CTA(자동 검색) 삭제 → 4곳.
+    // v3.8.419: ②'topCta(쇼핑, 텍스트 버튼)를 insertCtaCards()의 이미지 카드와 중복이라 삭제 → 3곳.
+    //   남은 3곳: sectionCta, topCta(일반 모드 전용), 하단 최종 CTA.
     const callSites = (orch.match(/renderFinalCtaBlock\(\{/g) || []).length;
-    expect(callSites).toBe(4);
+    expect(callSites).toBe(3);
   });
 });
 
@@ -411,16 +409,59 @@ describe('⑧ 쇼핑 글은 안 쓸 CTA 를 검색하지 않는다 (비용 절�
   });
 });
 
-describe('cta-card.ts — 대가성 문구 검색도 쿠팡 클래스명을 안다', () => {
+/**
+ * ⑨ 이미지 포함 CTA 카드가 대가성 문구보다 위로 꽂히던 버그 (v3.8.419)
+ *
+ * 사용자: "공정위 문구는 항상 제일 상단에 올라가야되구요" — 실측 스크린샷에서
+ *   "최저가 확인하고 구매하기" 카드(이미지+가격+버튼)가 대가성 문구보다도 위,
+ *   글의 맨 첫머리에 떠 있었다.
+ *
+ * 원인 — insertCtaCards()의 "③ 글 끝" 로직은 "대가성 문구 바로 앞에 넣는다"였다.
+ *   이건 고지문이 글 끝에 있던 시절(v3.8.375 이전) 얘기다. v3.8.375부터 고지문은
+ *   항상 H1 바로 뒤(최상단)로 고정됐는데, v3.8.417에서 이 검색 정규식이
+ *   "coupang-disclosure" 클래스까지 넓게 잡도록 고쳐지면서 — 이제 "글 끝" 카드가
+ *   최상단 고지문 바로 앞, 즉 글의 첫머리에 꽂히게 됐다.
+ *
+ * 고침 — 고지문 위치를 더 이상 찾지 않는다. "글 끝" 카드는 무조건 HTML 맨 끝에 붙는다.
+ */
+describe('⑨ 이미지 CTA 카드가 대가성 문구 위로 올라가지 않는다', () => {
   const ctaCardSrc = read('src', 'core', 'affiliate', 'cta-card.ts');
+  const insertBlock = blockBetween(ctaCardSrc, 'export function insertCtaCards(', 'export function providerLabel(');
 
-  it('⭐ affiliate-disclosure 뿐 아니라 coupang-disclosure 도 찾는다', () => {
-    expect(ctaCardSrc).toContain('(affiliate|coupang)-disclosure');
+  it('⭐ "글 끝" 카드는 더 이상 대가성 문구 위치를 검색하지 않는다', () => {
+    expect(insertBlock).not.toContain('discIdx');
+    expect(insertBlock).not.toContain('affiliate|coupang');
   });
 
-  it('지금은 무해했던 이유(쿠팡 고지문이 항상 최상단)가 근거로 남아 있다', () => {
-    // 시그니처 반환 타입에 타입 리터럴 중괄호가 있어 braceBlock 이 그걸 본문으로 오인한다
-    const block = blockBetween(ctaCardSrc, 'export function insertCtaCards(', 'export function providerLabel(');
-    expect(block).toContain('항상 H1 바로 뒤(최상단)');
+  it('⭐ 실측 재현 — 대가성 문구가 이미 최상단에 있어도 카드는 그 앞이 아니라 진짜 끝에 붙는다', () => {
+    const disclosureP = '<p class="coupang-disclosure">이 포스팅은 쿠팡 파트너스 활동의 일환으로...</p>';
+    const html = [
+      disclosureP,
+      '<h2>1. 첫 섹션</h2><p>본문</p>',
+      '<h2>2. 둘째 섹션</h2><p>본문</p>',
+    ].join('\n');
+    const { insertProductCtaCards } = requireInsertCtaCards();
+    const result = insertProductCtaCards(html, {
+      name: '테스트 상품', priceKrw: 10000, imageUrl: 'https://example.com/a.png',
+      url: 'https://coupa.ng/abc', provider: null,
+    });
+    // 카드가 대가성 문구 앞이 아니라, 대가성 문구보다 뒤(진짜 끝)에 나와야 한다
+    const discIdx = result.html.indexOf('coupang-disclosure');
+    const cardIdx = result.html.lastIndexOf('data-orbit-cta');
+    expect(cardIdx).toBeGreaterThan(discIdx);
+  });
+
+  it('⭐ "요약 직후" 카드는 TOP_SUMMARY_CTA_PLACEHOLDER가 아직 안 풀린 시점에도 자리를 잡는다', () => {
+    // orchestration.ts는 insertCtaCards()를 요약/서론이 TOP_SUMMARY_CTA_PLACEHOLDER에
+    // 실제로 끼워지기 전에 부른다 — 그래서 "핵심 요약" 헤딩 텍스트 검색은 항상 실패한다.
+    // 그 대체 앵커(자리표시자 자체)가 남아 있는지 확인한다.
+    expect(insertBlock).toContain("TOP_SUMMARY_CTA_PLACEHOLDER");
+    expect(insertBlock).toContain('placeholderIdx');
   });
 });
+
+function requireInsertCtaCards() {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const mod = require('../src/core/affiliate/cta-card');
+  return { insertProductCtaCards: mod.insertCtaCards };
+}

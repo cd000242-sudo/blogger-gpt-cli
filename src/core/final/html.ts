@@ -253,15 +253,26 @@ html { scroll-behavior: smooth !important; }
   border-bottom: none !important;
 }
 
+/* v3.8.419: H3가 그냥 굵은 텍스트뿐이라 H2 사이 구간에서 눈에 안 띈다는 지적 —
+   눈에 편안한 파스텔 색상 박스로 감싼다. 완전 무작위가 아니라 순서대로 6색을 돌려
+   같은 글 안에서 색이 튀지 않고 그래도 섹션마다 구분되게 한다. */
 .white-paper h3 {
   font-size: 21px !important;
   font-weight: 700;
   color: #0f172a;
   margin: 30px 0 12px !important;
-  padding: 0 !important;
+  padding: 14px 20px !important;
   letter-spacing: -0.01em;
   line-height: 1.45;
+  border-radius: 12px !important;
+  border: 1.5px solid transparent !important;
 }
+.white-paper h3:nth-of-type(6n+1) { background: #fef3f2 !important; border-color: #fecdca !important; }
+.white-paper h3:nth-of-type(6n+2) { background: #eff8ff !important; border-color: #b9e0fe !important; }
+.white-paper h3:nth-of-type(6n+3) { background: #f0fdf4 !important; border-color: #bbf7d0 !important; }
+.white-paper h3:nth-of-type(6n+4) { background: #fefbea !important; border-color: #fde68a !important; }
+.white-paper h3:nth-of-type(6n+5) { background: #f5f3ff !important; border-color: #ddd6fe !important; }
+.white-paper h3:nth-of-type(6n+6) { background: #fdf2f8 !important; border-color: #fbcfe8 !important; }
 
 .white-paper p {
   font-size: 17px !important;
@@ -587,12 +598,14 @@ article.hentry {
 }
 
 /* === 인용구 (Blockquote) === */
+/* v3.8.419: 왼쪽 색 줄만 있던 연한 박스가 흐릿해 눈에 잘 안 띈다는 지적 —
+   테두리를 검은색으로 뚜렷하게 둘러 그린다(사용자: "테두리를 검은색으로 뚜렷하게 보이게"). */
 .white-paper blockquote {
   margin: 32px 0 !important;
   padding: 24px 30px !important;
   background: #f8fafc !important;
-  border-left: 4px solid var(--rv-primary) !important;
-  border-radius: 0 12px 12px 0 !important;
+  border: 2px solid #1a1a1a !important;
+  border-radius: 12px !important;
   font-size: 16px !important;
   color: #334155;
   font-style: normal !important;

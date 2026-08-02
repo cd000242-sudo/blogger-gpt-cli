@@ -1526,7 +1526,8 @@ export async function generateUltimateMaxModeArticleFinal(
         const factModeLabel = factCheckMode === 'perplexity' ? 'Perplexity'
           : factCheckMode === 'naver' ? 'Naver'
           : factCheckMode === 'grounding' ? 'Gemini Grounding'
-          : '자동 (Perplexity → Gemini Grounding → Naver)';
+          // v3.8.418에서 auto 후보에서 grounding을 뺐다 — 로그 라벨도 실제 체인과 맞춘다.
+          : '자동 (Perplexity → Naver)';
         onLog?.(`[PROGRESS] 46% - 🔍 팩트체크 실행 중 (${factModeLabel})...`);
         const factResult = await fetchFactContext(keyword, factCheckMode);
         factEvidence = {
@@ -2843,13 +2844,32 @@ export async function generateUltimateMaxModeArticleFinal(
     // 🛒 쇼핑 모드 — 쿠팡 상품 카드 블록 강제 삽입 (실제 제휴링크가 최종 HTML에 들어가도록 보장)
     if (contentMode === 'shopping') {
       const coupangProducts = (payload as any).coupangProducts;
-      if (Array.isArray(coupangProducts) && coupangProducts.length > 0) {
-        html += renderCoupangProductBlock(coupangProducts);
+      /**
+       * v3.8.419 — "추천 상품 한눈에 보기"가 사용자가 특정 상품 링크를 넣었을 때도
+       *   여전히 나온다는 재지적. v3.8.416에서 고친 건 "coupangProducts가 조기에 채워져
+       *   사용자 링크 크롤링 자체가 스킵되는" 문제였지, 이 위젯이 렌더링되는지 여부가
+       *   아니었다 — coupangProducts는 여전히 별도로(2순위: 키워드 자동 검색) 채워지고,
+       *   이 위젯은 그 배열이 비어 있지만 않으면 무조건 그렸다.
+       *   사용자가 coupangLink(구체적 상품 링크)를 준 글은 "이 상품 하나"를 다루는 글이다 —
+       *   키워드로 찾은 다른 8개 "추천 상품"을 나란히 보여주면 사용자 본인 링크 대신
+       *   그쪽을 누르게 유도하는 꼴이다(사용자: "내 링크를 안누르고 추천상품을 누르는
+       *   경우가 생기잖아"). coupangLink가 있으면 이 다중 상품 위젯 자체를 생략한다 —
+       *   대신 insertCtaCards()가 그 "하나의" 상품 카드를 이미지와 함께 배치한다.
+       */
+      const hasProducts = Array.isArray(coupangProducts) && coupangProducts.length > 0;
+      if (hasProducts) {
+        // coupangLink(사용자가 준 구체적 상품 링크)가 있으면 "추천 상품 한눈에 보기"
+        // 다중 상품 위젯만 생략한다 — 대가성 문구·컴플라이언스는 이 상품이 있든 없든 필요하다.
+        if (!coupangLink) {
+          html += renderCoupangProductBlock(coupangProducts);
+          console.log(`[MAX-MODE] 🛒 쿠팡 상품 카드 ${Math.min(coupangProducts.length, 6)}개 삽입 완료 (제휴링크 활성화)`);
+        } else {
+          console.log('[MAX-MODE] 🛒 특정 상품 링크 모드 — "추천 상품 한눈에 보기" 위젯 생략 (다른 상품 유도 방지)');
+        }
         // v3.8.375: 대가성 문구를 본문 최상단(H1 직후)에 삽입 — 쿠팡 가이드 준수.
         //   기존에는 문구가 상품 블록 안에만 있어서 글 맨 끝(모든 이미지·링크 뒤)에 위치했고,
         //   글자도 13px 회색이라 "본문보다 크게 또는 눈에 띄는 색" 요건에 미달했다.
         html = html.replace('<!-- COUPANG_DISCLOSURE_PLACEHOLDER -->', renderCoupangDisclosureBanner());
-        console.log(`[MAX-MODE] 🛒 쿠팡 상품 카드 ${Math.min(coupangProducts.length, 6)}개 삽입 완료 (제휴링크 활성화)`);
         console.log('[MAX-MODE] 🛒 대가성 문구를 본문 최상단에 배치 (쿠팡 파트너스 가이드 준수)');
 
         // v3.8.375: 본문 안 LLM 작성 링크·문구까지 최종 강제
@@ -2861,8 +2881,33 @@ export async function generateUltimateMaxModeArticleFinal(
           console.log(`[MAX-MODE] 🛒 컴플라이언스 교정: ${f}`);
           onLog?.(`[PROGRESS] 92% - 🛒 쿠팡 컴플라이언스: ${f}`);
         });
+      } else if (coupangLink) {
+        // 키워드 검색 결과(coupangProducts)는 없어도 사용자 링크는 있다 — 고지문은 필요하다.
+        html = html.replace('<!-- COUPANG_DISCLOSURE_PLACEHOLDER -->', renderCoupangDisclosureBanner());
+        console.log('[MAX-MODE] 🛒 상품 검색 데이터 없음, 사용자 링크만 존재 — 위젯 생략 + 대가성 문구는 그대로 배치');
+        const compliance = enforceCoupangCompliance(html);
+        html = compliance.html;
       } else {
         console.log('[MAX-MODE] ⚠️ 쇼핑 모드인데 쿠팡 상품 데이터 없음 — 카드 블록 스킵');
+      }
+
+      /**
+       * v3.8.419 — "쇼핑모드에서는 이미지도 클릭하면 제품으로 이동한다는걸 어떻게
+       *   독자한테 알리면좋을까요 대책보고하세요"
+       *
+       * 검토한 방법과 왜 이걸 골랐는지:
+       *   · 이미지 위 오버레이 배지 — compliance.ts 268행에 이미 정책으로 금지돼 있다
+       *     ("토스 '과도하게 클릭을 유도' 금지에 걸리지 않도록 자동 실행·오버레이는
+       *     쓰지 않는다"). 오버레이는 제휴 정책 위반 위험이라 제외.
+       *   · 이미지마다 캡션 반복(8번) — 같은 문구를 8번 반복하면 그 자체가 "과도한
+       *     클릭 유도"로 읽힐 수 있고, 읽는 흐름을 방해한다. 제외.
+       *   · 채택: 글 맨 위, 대가성 문구 바로 아래에 **한 줄**로 안내한다. 링크는 이미
+       *     본문 곳곳(이미지·CTA 카드)에 있으니 "누르면 어디로 가는지"만 한 번
+       *     투명하게 밝히면 충분하고, 오버레이·반복 캡션보다 정책 리스크가 없다.
+       */
+      if (coupangLink) {
+        const imageClickNotice = `<p style="font-size:13px;color:#64748b;margin:0 0 24px;">📸 이 글의 사진을 누르면 소개하는 상품의 실제 판매 페이지로 이동합니다.</p>`;
+        html = html.replace('<!-- TOP_SUMMARY_CTA_PLACEHOLDER -->', imageClickNotice + '<!-- TOP_SUMMARY_CTA_PLACEHOLDER -->');
       }
     }
     // 제휴 상품이 없으면 자리표시자만 제거
@@ -3068,29 +3113,19 @@ export async function generateUltimateMaxModeArticleFinal(
       console.log('[MAX-MODE] 🛡️ 애드센스 모드 — 상단 CTA 생성 생략 (승인 정책 준수)');
     } else if (contentMode === 'shopping' && coupangLink) {
       /**
-       * v3.8.416 — 쇼핑 글의 "핵심 바로가기"는 사용자의 제휴 링크를 가리켜야 한다.
+       * v3.8.419 — 쇼핑 글의 텍스트뿐인 "핵심 바로가기" 버튼을 완전히 뺐다.
        *
-       * 사용자 보고: "핵심 바로가기도 내 링크여야 되는데 이것도 자동 링크네"
+       * 사용자: "핵심바로가기는 꺼주세요 이미지포함한 CTA를 배치해주시면됩니다
+       *   이미지 보시면 중복이라 겹칩니다."
        *
-       * 원인 — 이 자리는 원래 ctas/supplementalCtas(검색·크롤링으로 찾은 일반 URL)에서
-       *   후보를 골랐다. 쇼핑 글에서도 그 일반 후보 로직을 그대로 타서,
-       *   글 맨 위 가장 눈에 띄는 버튼이 사용자 링크가 아닌 다른 곳으로 갔다.
-       *   v3.8.413 에서 본문 중간 CTA(sectionCta)는 이미 막았는데 이 상단 CTA는 놓쳤다.
-       *
-       * coupangLink 는 "제목을 짓기 전에 상품을 확정"할 때(621행) 이미 구한,
-       *   **사용자가 입력한 그대로의 원본 링크**다 — 주소를 바꾸면 제휴 계약 위반이라
-       *   가공하지 않고 그대로 쓴다.
+       * 실측 스크린샷: 이 텍스트 버튼(파란 박스) 바로 위에 insertCtaCards()가 만드는
+       *   이미지+가격+버튼 카드가 이미 같은 상품·같은 링크로 떠 있었다 — 완전한 중복.
+       *   v3.8.416 에서 "핵심 바로가기가 사용자 링크를 안 가리킨다"는 문제는 고쳤지만,
+       *   "애초에 이미지 카드와 중복이다"라는 더 근본적인 지적은 이번에 반영한다.
+       *   이미지 카드는 cta-card.ts 의 "① 요약 직후" 위치(v3.8.419 수정으로 이제 정말
+       *   여기 삽입된다)가 이 자리를 대신 채운다 — topCtaHtml 은 비워 둔다.
        */
-      const productLabel = String((payload as any).resolvedProductName || keyword || '').trim();
-      topCtaHtml = renderFinalCtaBlock({
-        badge: '핵심 바로가기',
-        hook: productLabel ? `${productLabel}, 실제 가격과 옵션을 지금 확인하세요` : '실제 가격과 옵션을 지금 확인하세요',
-        buttonText: '🛒 쿠팡에서 가격 확인',
-        url: coupangLink,
-        rel: 'nofollow sponsored noopener',
-        marginTop: 20,
-      });
-      console.log('[MAX-MODE] 🛒 쇼핑 글 상단 CTA — 사용자 제휴 링크로 고정');
+      console.log('[MAX-MODE] 🛒 쇼핑 글 상단 CTA(텍스트 버튼) 생략 — 이미지 포함 카드가 같은 자리를 대신한다');
     } else {
       const topCandidates: RenderableCtaCandidate[] = [
         ...ctas.map(c => toRenderableCtaCandidate(c, `${keyword} 핵심 정보 바로가기`, '자세히 보기', '핵심')),

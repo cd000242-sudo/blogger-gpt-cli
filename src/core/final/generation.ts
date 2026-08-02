@@ -822,6 +822,9 @@ ${roleList}
 4. 검색자 질문이 주어졌다면 그 궁금증이 드러나게 제목을 지어라.
 5. 각 15~25자, 번호/접두어 없이 제목 텍스트만
 6. 한글/영문/숫자만. 확인되지 않은 수치·마감일을 제목에 만들어 넣지 마라.
+7. 띄어쓰기를 반드시 지켜라. 상품명·모델명·숫자가 여러 단어로 이어져도
+   "갤럭시Z플립8자급제구매전단점점검" 처럼 단어를 붙여 쓰지 말고 "갤럭시 Z 플립8 자급제 구매 전 단점 점검"
+   처럼 띄어 써라.
 
 JSON 배열만 출력 (${sections.length}개 문자열):`;
 
@@ -838,7 +841,26 @@ JSON 배열만 출력 (${sections.length}개 문자열):`;
       console.warn(`[SECTION-TITLES] 개수 불일치(${titles.length}/${sections.length}) — 템플릿 제목 유지`);
       return fallback;
     }
-    return titles;
+    /**
+     * v3.8.419 — 실측: "갤럭시Z플립8자급제구매전단점점검"(17자, 띄어쓰기 0개)처럼
+     *   AI가 가끔 띄어쓰기를 통째로 빼먹는다. 한국어 자동 띄어쓰기 교정은 신뢰할 만한
+     *   라이브러리 없이는 위험하니(잘못 끊으면 더 이상해진다) 직접 고치지 않는다 — 대신
+     *   "띄어쓰기가 비정상적으로 없다"를 감지해서 **그 제목 하나만** 원래 템플릿 제목으로
+     *   되돌린다. 나머지 제대로 된 제목들은 그대로 살아 있다(전체 폴백이 아니다).
+     */
+    const isSpacingBroken = (t: string): boolean => {
+      if (t.length < 12) return false;
+      const longestRun = Math.max(...t.split(/\s+/).map((w) => w.length));
+      return longestRun >= 12; // 12자 이상 공백 없이 이어지면 비정상으로 본다
+    };
+    const guarded = titles.map((t, i) => {
+      if (isSpacingBroken(t)) {
+        console.warn(`[SECTION-TITLES] ⚠️ 띄어쓰기 누락 감지 — 템플릿으로 되돌림: "${t}"`);
+        return fallback[i] ?? t;
+      }
+      return t;
+    });
+    return guarded;
   } catch (e: any) {
     console.warn('[SECTION-TITLES] 제목 재생성 실패 — 템플릿 제목 유지:', e?.message || e);
     return fallback;

@@ -50,13 +50,24 @@ describe('fact integrity regression', () => {
   });
 
   test('blocks a newer year when the supplied evidence only supports an older baseline', () => {
+    /**
+     * v3.8.419 — 이 테스트는 원래 "2026년"을 하드코딩해서 썼는데, 시스템 시계가 실제로
+     *   2026년에 접어들면서 이 테스트 자체가 깨졌다. fact-integrity.ts의
+     *   isSystemKnownYearToken()은 "현재 연도/내년 연도" 단독 토큰을 의도적으로
+     *   근거 검사 없이 통과시킨다(v3.8.368 — 시스템이 프롬프트에 직접 주입하는 연도라
+     *   근거가 필요 없다는 설계). 실행 시점의 현재 연도와 우연히 같은 값을 테스트
+     *   픽스처로 쓰면 시간이 지나 그 우연이 깨지는 순간 테스트가 실패한다 — 프로덕션
+     *   버그가 아니라 테스트가 "지금이 몇 년인지"에 의존한 게 문제였다.
+     *   그래서 "현재 연도 + 10"처럼 실행 시점과 무관하게 항상 미래로 남는 연도를 쓴다.
+     */
+    const farFutureYear = new Date().getFullYear() + 10;
     const evidence: FactEvidence = {
       provider: 'Perplexity Sonar',
       trustLevel: 'strong',
       context: '공식 안내는 2025년 기준으로 적용됩니다.',
     };
 
-    const report = inspectFactIntegrity('<p>2026년에 알아둘 내용입니다.</p>', evidence);
+    const report = inspectFactIntegrity(`<p>${farFutureYear}년에 알아둘 내용입니다.</p>`, evidence);
 
     expect(report.status).toBe('blocked');
     expect(report.violations.some((item) => item.kind === 'unsupported_exact_value')).toBe(true);

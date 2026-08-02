@@ -152,10 +152,20 @@ describe('구매 CTA 카드', () => {
     expect(r.inserted).toBe(3);
   });
 
-  it('⭐ 마지막 카드는 대가성 문구보다 앞에 온다', () => {
+  /**
+   * v3.8.419 — "마지막 카드는 대가성 문구보다 앞에 온다"였던 예전 계약을 뒤집었다.
+   *
+   * 실측: 쿠팡 대가성 문구는 v3.8.375부터 항상 H1 바로 뒤(최상단)에 고정된다.
+   * "카드를 고지문 앞에 넣는다"는 옛 규칙(고지문이 글 끝에 있던 시절 기준)을 그대로 두면,
+   * 최상단에 있는 고지문 바로 앞 — 즉 글의 맨 첫머리에 카드가 꽂힌다. 실제 발행글에서
+   * "최저가 확인하고 구매하기" 카드가 대가성 문구보다도 위에 뜬 게 바로 이 버그였다.
+   * 이제 "글 끝" 카드는 고지문 위치를 보지 않고 항상 HTML 진짜 끝에 붙는다 —
+   * 고지문이 최상단에 있으면 자연히 카드보다 앞에 남는다.
+   */
+  it('⭐ 마지막 카드는 대가성 문구보다 뒤(진짜 끝)에 온다', () => {
     const html = '<h2>A</h2><p>a</p><p class="affiliate-disclosure">고지문</p>';
     const r = insertCtaCards(html, P);
-    expect(r.html.indexOf('data-orbit-cta')).toBeLessThan(r.html.indexOf('affiliate-disclosure'));
+    expect(r.html.indexOf('data-orbit-cta')).toBeGreaterThan(r.html.indexOf('affiliate-disclosure'));
   });
 
   it('⭐ 두 번 호출해도 중복으로 심지 않는다', () => {
