@@ -18,12 +18,33 @@
  *    그건 지금까지의 동작과 같다(썸네일만 없을 뿐).
  */
 
+/**
+ * 프로토콜 없는 주소를 https 로 채운다 (v3.8.413)
+ *
+ * 실측(2026-08-02) — 발행된 글의 본문 이미지를 API 로 뜯어보니:
+ *   //thumbnail.coupangcdn.com/thumbnails/remote/492x492ex/image/…
+ *   ^^ 앞에 https: 가 없다. 쿠팡 og:image 가 이렇게 준다.
+ *
+ * 이 한 글자 때문에 세 곳이 동시에 깨졌다:
+ *   1) 썸네일 유효성 검사가 /^https?:\/\// 를 요구해서 통째로 탈락 → 썸네일 없음
+ *   2) fetchImageAsDataUrl 도 같은 검사라 변환 실패 → v3.8.412 수정이 무력화
+ *   3) 앱 미리보기는 file:// 로 뜨는데 //host 는 file://host 로 해석돼 이미지가 안 뜸
+ *
+ * 사용자가 본 증상 세 개가 전부 여기서 나왔다.
+ */
+export function normalizeImageUrl(url: string): string {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('//')) return `https:${raw}`;
+  return raw;
+}
+
 /** 쿠팡 CDN 은 주소에 크기가 박혀 있다 — 있으면 최고 화질로 올린다. */
 const COUPANG_SIZE_SEGMENT = /\/(\d{2,4})x(\d{2,4})(ex)?\//;
 
 /** 쿠팡 썸네일 주소를 큰 크기로 바꾼다. 크기 세그먼트가 없으면 그대로 돌려준다. */
 export function upgradeCoupangImageUrl(url: string, target = 1200): string {
-  const raw = String(url || '').trim();
+  const raw = normalizeImageUrl(url);
   if (!raw) return '';
   const m = raw.match(COUPANG_SIZE_SEGMENT);
   if (!m) return raw;                                  // 크기가 안 박힌 주소(서명 URL 등)
@@ -59,7 +80,7 @@ export async function fetchImageAsDataUrl(
   url: string,
   opts: FetchImageOptions = {},
 ): Promise<string | null> {
-  const raw = String(url || '').trim();
+  const raw = normalizeImageUrl(url);         // //host/… 를 https://host/… 로
   if (!raw || !/^https?:\/\//i.test(raw)) return null;
 
   const maxBytes = opts.maxBytes ?? 8 * 1024 * 1024;

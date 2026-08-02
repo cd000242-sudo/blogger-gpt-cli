@@ -2222,7 +2222,18 @@ export async function generateUltimateMaxModeArticleFinal(
           //   v3.8.401: 기본값을 product-i2i 로 바꿨다. 쿠팡 API 는 상품당 대표 이미지 **1장**만 주므로
           //   product-all 이면 같은 사진이 소제목 수만큼 반복된다(실측). 값이 없을 때 그쪽으로 떨어지면 안 된다.
           const shoppingStrategy = String((payload as any).shoppingImageStrategy || 'product-i2i');
-          const productPool = (payload.productImages as string[] | undefined) || [];
+          /**
+           * v3.8.413 — 주소에 프로토콜이 없으면 여기서 채운다.
+           *   쿠팡 og:image 는 //thumbnail.coupangcdn.com/… 형태로 온다(실측).
+           *   productImages 를 채우는 곳이 7군데라 각각 고치면 또 빠뜨린다 — 쓰기 직전 한 곳에서 막는다.
+           */
+          const productPool = ((payload.productImages as string[] | undefined) || [])
+            .map((u) => {
+              try { return require('../affiliate/product-image').normalizeImageUrl(u); }
+              catch { return u; }
+            })
+            .filter(Boolean);
+          if (productPool.length) (payload as any).productImages = productPool;
           if (contentMode === 'shopping' && productPool.length > 0) {
             if (shoppingStrategy === 'product-all') {
               // 썸네일이 0번을 쓰므로 본문은 1번부터 순환 — 같은 사진이 두 번 나오지 않게
@@ -2657,7 +2668,22 @@ export async function generateUltimateMaxModeArticleFinal(
 
       // 💰 CTA — 박동하는 쿠폰형 Max-Adsense 스타일
       const sectionCta = section.h3Sections.find(h3 => h3.cta)?.cta;
-      if (sectionCta) {
+      /**
+       * v3.8.413 — 쇼핑 글에는 공식 사이트 CTA 를 넣지 않는다.
+       *
+       * 사용자 지적(2026-08-02):
+       *   "공식사이트가 자동으로 삽입되는데 이건 굳이 필요없습니다.
+       *    내가 넣은 링크로만 보내주세요. 제품 판매해서 제휴수익을 얻는 목적이지
+       *    공식링크를 쇼핑모드까지 넣을 필요가 없어요."
+       *
+       * 맞는 말이다. 실측 화면에서 '카카오 T 바로가기' 버튼이 상품 글 한가운데 박혀 있었다.
+       * 제휴 글에서 독자를 바깥으로 내보내면 수익이 그대로 새고, 상품과 무관한 링크라
+       * 신뢰도도 떨어진다. 쇼핑 글의 버튼은 사용자가 넣은 제휴 링크뿐이어야 한다.
+       */
+      const isShoppingArticle = String((payload as any).contentMode || '') === 'shopping';
+      if (sectionCta && isShoppingArticle) {
+        console.log('[MAX-MODE] 🛒 쇼핑 글 — 공식 사이트 CTA 생략 (제휴 링크만 노출)');
+      } else if (sectionCta) {
         if (!isRenderableCta(sectionCta)) {
           console.log(`[MAX-MODE] ⚠️ CTA URL 무효 → 렌더링 생략: ${sectionCta.url}`);
         } else if (renderedCtaUrls.has(normalizeCtaUrlKey(sectionCta.url))) {
@@ -3239,7 +3265,12 @@ ${conclusionHTML}
       && (isCrawledRequested || isShoppingMode || !userPickedAiEngine);
 
     if (!thumbnailUrl && useProductImages) {
-      thumbnailUrl = (payload.productImages as any)[0];
+      // v3.8.413: 프로토콜 없는 주소(//host/…)면 여기서 채운다.
+      //   이미지 단계를 건너뛴 경우(반자동·이미지 없음)에는 위 정규화가 안 돌기 때문이다.
+      try {
+        const { normalizeImageUrl } = require('../affiliate/product-image');
+        thumbnailUrl = normalizeImageUrl((payload.productImages as any)[0]);
+      } catch { thumbnailUrl = (payload.productImages as any)[0]; }
       onLog?.(`[PROGRESS] 90% - 🛒 수집된 상품 이미지로 썸네일 설정 (${(payload.productImages as any).length}장 중 1번째)`);
       console.log(`[THUMBNAIL] ✅ 수집 이미지 썸네일: ${thumbnailUrl.substring(0, 60)}...`);
 

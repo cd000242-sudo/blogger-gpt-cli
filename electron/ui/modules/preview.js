@@ -508,6 +508,20 @@ export function displayPreviewInModal() {
         `;
       }
       
+      /**
+       * v3.8.413 — 프로토콜 없는 이미지 주소를 https 로 채운다.
+       *
+       * 사용자 보고: "앱 미리보기에는 수집한 이미지는 렌더링이 안 되는 버그가 있네요"
+       *
+       * 원인: 쿠팡 og:image 가 //thumbnail.coupangcdn.com/… 로 온다(실측).
+       *   미리보기 화면은 file:// 로 떠 있어서 //host 가 file://host 로 해석된다.
+       *   그런 파일은 없으니 이미지가 통째로 안 뜬다. 발행된 글에서는 https 라 보인다.
+       *   → 백엔드에서도 정규화하지만, 이미 만들어둔 글도 보이게 여기서도 채운다.
+       */
+      displayContent = String(displayContent || '')
+        .replace(/(<img[^>]+src=)(["'])\/\//gi, '$1$2https://')
+        .replace(/(<a[^>]+href=)(["'])\/\//gi, '$1$2https://');
+
       // Sanitize 적용
       let sanitizedContent;
       const previewSanitizeOptions = {

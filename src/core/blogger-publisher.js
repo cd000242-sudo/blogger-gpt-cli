@@ -4694,13 +4694,21 @@ html body .content-inner {
     // h2 태그
     finalHtmlContent = finalHtmlContent.replace(/<h2(\s[^>]*)?>/gi, (match, attrs) => {
       if (attrs && /style\s*=/i.test(attrs)) return match;
-      return `<h2${attrs || ''} style="color: #991b1b; font-size: 26px; font-weight: 700; display: block; margin: 40px 0 20px 0; padding: 18px 22px; background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%); border-left: 5px solid #ef4444; border-radius: 0 16px 16px 0; line-height: 1.4;">`;
+      // v3.8.413 — 사용자 지적: "스킨이 깔끔하고 이쁘면서 고급져야 되는데 끝판왕이 아닌데..?"
+      //   빨간 그라데이션은 눈에 띄지만 '고급'과는 거리가 멀다. 경고문처럼 보인다.
+      //   잉크빛 글자 + 가는 강조선으로 바꾼다. 큰 제목은 색이 아니라 크기와 여백으로 세운다.
+      return `<h2${attrs || ''} style="color: #0f172a; font-size: clamp(23px, 5.8vw, 28px); font-weight: 800; letter-spacing: -0.03em; display: block; margin: 52px 0 22px 0; padding: 0 0 0 16px; background: transparent; border-left: 4px solid #4f46e5; border-radius: 0; line-height: 1.35; word-break: keep-all;">`;
     });
 
     // h3 태그
     finalHtmlContent = finalHtmlContent.replace(/<h3(\s[^>]*)?>/gi, (match, attrs) => {
       if (attrs && /style\s*=/i.test(attrs)) return match;
-      return `<h3${attrs || ''} style="color: #1e293b; font-size: 21px; font-weight: 600; display: block; margin: 32px 0 16px 0; padding: 14px 18px; background: #f8fafc; border-left: 4px solid #10b981; border-radius: 0 12px 12px 0; line-height: 1.4;">`;
+      // v3.8.413 — H3 는 카드(section-card) 안에 들어간다.
+      //   카드가 이미 테두리와 그림자를 갖고 있으니 소제목까지 배경을 넣으면 지저분해진다.
+      //   담백한 글자 + 아래 실선으로 '여기부터 이 덩어리'만 표시한다.
+      //   이 파일은 dist/core/ 로 복사돼 실행되므로 dist/core/final/ 을 상대경로로 부른다.
+      const { H3_IN_CARD_STYLE } = require('./final/section-card');
+      return `<h3${attrs || ''} style="${H3_IN_CARD_STYLE}">`;
     });
 
     // h1 태그
@@ -4728,6 +4736,15 @@ html body .content-inner {
       return match.replace('>', ' style="display: block; max-width: 100%; width: 100%;">');
     });
 
+    // img 태그 — v3.8.413: 어떤 모드든 모바일에서 튀어나가지 않게
+    //   사용자 요구: "어떤 모드든 모바일 친화적으로 최적화되서 나와야 됩니다"
+    //   원본 크기가 큰 이미지(1200px 상품 사진 등)가 그대로 들어가면
+    //   좁은 화면에서 가로 스크롤이 생겨 글 전체가 어긋나 보인다.
+    finalHtmlContent = finalHtmlContent.replace(/<img(\s[^>]*)?>/gi, (match, attrs) => {
+      if (attrs && /style\s*=/i.test(attrs)) return match;   // 저자·썸네일 의도 보존
+      return `<img${attrs || ''} style="max-width: 100%; height: auto; display: block; margin: 20px auto; border-radius: 12px;">`;
+    });
+
     // strong 태그 스타일
     finalHtmlContent = finalHtmlContent.replace(/<strong(\s[^>]*)?>/gi, (match, attrs) => {
       return `<strong${attrs || ''} style="color: #0f172a !important; font-weight: 700 !important; display: inline !important; visibility: visible !important;">`;
@@ -4743,6 +4760,22 @@ html body .content-inner {
     });
 
     console.log('[PUBLISH] ✅ 인라인 스타일 강제 주입 완료 (넓은 레이아웃 적용)');
+
+    // 🎨 v3.8.413 — H3 섹션을 카드로 묶는다.
+    //   사용자 지적: "h3랑 본문은 박스로 못 감나요? 스킨이 깔끔하고 이쁘면서 고급져야 되는데"
+    //   스타일 주입이 끝난 뒤에 감싼다 — 먼저 감싸면 위 치환들이 카드 자체를 건드린다.
+    try {
+      const { wrapH3Sections } = require('./final/section-card');
+      const carded = wrapH3Sections(finalHtmlContent);
+      if (carded.wrapped > 0) {
+        finalHtmlContent = carded.html;
+        console.log(`[PUBLISH] 🎨 소제목 섹션 ${carded.wrapped}개를 카드로 묶었습니다`);
+        onLog?.(`🎨 소제목 ${carded.wrapped}개 구역을 카드로 정리했습니다`);
+      }
+    } catch (cardErr) {
+      // 꾸미기 실패가 발행을 막지 않는다 — 카드가 없어도 글은 멀쩡하다
+      console.warn('[PUBLISH] ⚠️ 카드 정리 건너뜀:', cardErr?.message || cardErr);
+    }
 
     // 2. CSS 중복 제거 (여러 style 태그를 하나로 통합)
     const styleTagMatches = finalHtmlContent.match(/<style[^>]*>[\s\S]*?<\/style>/gi) || [];

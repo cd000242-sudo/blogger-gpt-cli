@@ -32,6 +32,7 @@
  *   → 개별 후기는 **절대** 자르지 않는다. 총량이 상한에 닿으면 그 다음 후기부터 넣지 않는다.
  */
 import { CHROMIUM_GPU_SAFE_ARGS } from '../../utils/chromium-safe-args';
+import { normalizeImageUrl } from './product-image';
 
 export interface CoupangReview {
   body: string;
@@ -315,7 +316,7 @@ export async function enrichCoupangProduct(
         specs: cleanSpecs,
         options: cleanOptions,
         policy: cleanPolicy,
-        imageUrl: String(pageInfo.ogImage || ''),
+        imageUrl: normalizeImageUrl(String(pageInfo.ogImage || '')),   // v3.8.413: //host → https://host
         verified: false,
         note: '페이지 상품과 API 상품이 일치하지 않아 후기를 제외했습니다',
       };
@@ -382,7 +383,7 @@ export async function enrichCoupangProduct(
       specs: cleanSpecs,
       options: cleanOptions,
       policy: cleanPolicy,
-      imageUrl: String(pageInfo.ogImage || ''),
+      imageUrl: normalizeImageUrl(String(pageInfo.ogImage || '')),   // v3.8.413: //host → https://host
       verified: true,
       note: '',
     };

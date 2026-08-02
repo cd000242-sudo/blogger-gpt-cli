@@ -193,3 +193,84 @@ describe('모르는 모델 값이 조용히 Gemini 로 떨어지지 않는다', 
     expect(orch).toContain('제목 생성 모델:');
   });
 });
+
+/**
+ * 프로토콜 없는 주소 (v3.8.413) — 증상 3개의 공통 원인
+ *
+ * 사용자 보고 3건:
+ *   ① 블로그스팟 글목록에 썸네일이 안 뜬다
+ *   ② 앱 미리보기에 수집한 이미지가 렌더링 안 된다
+ *   ③ (v3.8.412 로 고쳤다던) 상품 사진 data URL 변환이 안 먹는다
+ *
+ * 실측 — 발행된 글의 본문 이미지를 Blogger API 로 뜯어보니:
+ *   //thumbnail.coupangcdn.com/thumbnails/remote/492x492ex/image/…
+ *   앞에 https: 가 없다. 쿠팡 og:image 가 이렇게 준다.
+ *
+ * 이 한 조각이 세 곳을 동시에 깼다:
+ *   ① isPublishableBloggerImageUrl 이 /^https?:\/\// 를 요구 → 썸네일 통째로 탈락
+ *   ② 미리보기는 file:// 로 떠서 //host 가 file://host 로 해석 → 이미지 없음
+ *   ③ fetchImageAsDataUrl 도 같은 검사 → 변환이 시작조차 안 됨
+ */
+describe('프로토콜 없는 주소를 https 로 채운다', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { normalizeImageUrl } = require('../src/core/affiliate/product-image');
+  const REAL = '//thumbnail.coupangcdn.com/thumbnails/remote/492x492ex/image/vendor/a.jpg';
+
+  it('⭐ 실측 주소가 https 로 바뀐다', () => {
+    expect(normalizeImageUrl(REAL)).toBe(`https:${REAL}`);
+  });
+
+  it('⭐ 이미 프로토콜이 있으면 건드리지 않는다', () => {
+    expect(normalizeImageUrl('https://x.com/a.jpg')).toBe('https://x.com/a.jpg');
+    expect(normalizeImageUrl('http://x.com/a.jpg')).toBe('http://x.com/a.jpg');
+    expect(normalizeImageUrl('data:image/png;base64,AA')).toBe('data:image/png;base64,AA');
+  });
+
+  it('빈 값에 안전하다', () => {
+    expect(normalizeImageUrl('')).toBe('');
+    expect(normalizeImageUrl(null as any)).toBe('');
+  });
+
+  it('⭐ 고화질 변환도 프로토콜을 채운 뒤에 한다', () => {
+    const up = upgradeCoupangImageUrl(REAL);
+    expect(up.startsWith('https://')).toBe(true);
+    expect(up).toContain('/1200x1200ex/');
+  });
+
+  it('⭐ 발행 유효성 검사(^https?://)를 통과한다 — 이게 썸네일 탈락의 원인이었다', () => {
+    expect(/^https?:\/\//i.test(REAL)).toBe(false);            // 고치기 전
+    expect(/^https?:\/\//i.test(normalizeImageUrl(REAL))).toBe(true);
+  });
+});
+
+describe('배선 — 세 곳 모두 막았다', () => {
+  it('⭐ 수집 시점(coupang-enrich)에서 정규화한다', () => {
+    expect(read('src', 'core', 'affiliate', 'coupang-enrich.ts')).toContain('normalizeImageUrl(String(pageInfo.ogImage');
+  });
+
+  it('⭐ 본문 이미지도 쓰기 직전에 정규화한다 (채우는 곳이 7군데라 각각 고치면 또 빠뜨린다)', () => {
+    expect(orch).toContain('normalizeImageUrl');
+    expect(orch).toContain('productImages 를 채우는 곳이 7군데');
+  });
+
+  it('⭐ 앱 미리보기도 채운다 — 이미 만들어둔 글도 보여야 한다', () => {
+    const preview = read('electron', 'ui', 'modules', 'preview.js');
+    expect(preview).toContain("$1$2https://");
+    expect(preview).toContain('file://host');
+  });
+});
+
+describe('쇼핑 글에는 공식 사이트 CTA 를 넣지 않는다', () => {
+  it('⭐ 쇼핑모드면 공식 CTA 를 건너뛴다', () => {
+    expect(orch).toContain('쇼핑 글 — 공식 사이트 CTA 생략');
+    expect(orch).toContain('sectionCta && isShoppingArticle');
+  });
+
+  it('다른 모드는 그대로 넣는다 (동작을 깨지 않는다)', () => {
+    expect(orch).toContain("badge: sectionCta.searchFallback ? '직접 확인' : '공식 권장'");
+  });
+
+  it('왜 빼는지 근거가 적혀 있다', () => {
+    expect(orch).toContain('제휴수익');
+  });
+});
