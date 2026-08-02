@@ -4,11 +4,15 @@
  * 글 생성 전 키워드를 실시간 검색하여 팩트 기반 컨텍스트를 확보합니다.
  *
  * 토글 옵션:
- * - 'auto'       → 🔥 자동 선택 (Perplexity > Gemini Grounding > Naver 순)
+ * - 'auto'       → 🔥 자동 선택 (Perplexity > Naver 순)
  * - 'naver'      → 네이버 블로그 검색 API (무료, 한국 콘텐츠 최강)
  * - 'perplexity' → Perplexity Sonar (유료, 더 정확)
- * - 'grounding'  → Gemini Search Grounding (무료)
+ * - 'grounding'  → Gemini Search Grounding (유료 — 편당 ₩500~1,500, 사용자가 직접 선택했을 때만)
  * - 'off'        → 팩트체크 비활성화
+ *
+ * v3.8.418 — 'auto' 에서 grounding 을 뺐다. 사용자 보고: "글 5개만 써도
+ *   10000원 가까이 나와서 자동으로 절대 안 돼". grounding 은 무료가 아니고
+ *   드롭다운에서 명시적으로 고를 때만 쓴다("선택형").
  *
  * @module perplexityFactCheck
  */
@@ -26,14 +30,27 @@ export interface FactCheckResult {
   sourceUrls?: string[];
 }
 
+/**
+ * v3.8.418 — 'auto' 우선순위에서 grounding 을 뺐다.
+ *
+ * 사용자: "Gemini Search Grounding 유료 호출은 선택형이니까 자동으로 하는구간은
+ *   전부다 끊어줘 비용이비싸기때문에 과금의 원인이되버려 글 5개만 써도
+ *   10000원가까이나와서 자동으로 절대안되"
+ *
+ * grounding 은 편당 ₩500~1,500 이 붙는다(orchestration.ts 실측 주석 참고).
+ * env 플래그(DISABLE_GEMINI_GROUNDING) 하나로 막던 기존 방식은 프로세스 전역
+ * 상태라 "이번 요청이 진짜 자동인지"를 구조적으로 보장하지 않는다 — 타이밍이나
+ * 호출 순서가 바뀌면 조용히 다시 새는 자리다. 그래서 여기서는 아예
+ * **auto 의 후보 목록에서 grounding 을 뺀다.** 명시적으로 "🌐 Gemini Grounding"을
+ * 드롭다운에서 고른 경우(mode==='grounding')만 여전히 쓸 수 있다 — 그게 "선택형"이다.
+ */
 export function getFactCheckProviderPriority(availability: {
   perplexity: boolean;
   grounding: boolean;
   naver: boolean;
-}): Array<'perplexity' | 'grounding' | 'naver'> {
-  const priority: Array<'perplexity' | 'grounding' | 'naver'> = [];
+}): Array<'perplexity' | 'naver'> {
+  const priority: Array<'perplexity' | 'naver'> = [];
   if (availability.perplexity) priority.push('perplexity');
-  if (availability.grounding) priority.push('grounding');
   if (availability.naver) priority.push('naver');
   return priority;
 }
@@ -139,10 +156,9 @@ export async function fetchFactContext(
       console.log(`[FACT-CHECK] ⚠️ 네이버 API 키 없음 → Perplexity/Grounding 폴백`);
     }
     // 네이버 실패 → 다음 옵션으로 폴백
+    //   v3.8.418: grounding 폴백을 뺐다 — auto 는 유료 검색 그라운딩으로 자동으로 안 넘어간다.
     if (hasPerplexityKey) {
       mode = 'perplexity';
-    } else if (hasGeminiKey) {
-      mode = 'grounding';
     } else {
       return { context: '', provider: 'none', success: false, trustLevel: 'none' };
     }
@@ -165,16 +181,26 @@ export async function fetchFactContext(
           };
         }
         if (result?.context) {
-          console.log('[FACT-CHECK] ⚠️ Perplexity 응답에 출처 URL이 없어 Gemini Grounding으로 재검증합니다.');
+          console.log('[FACT-CHECK] ⚠️ Perplexity 응답에 출처 URL이 없습니다 — auto 는 여기서 Naver 로 넘어갑니다(Grounding 자동 폴백 없음).');
         }
       } catch (e: any) {
-        console.log(`[FACT-CHECK] ⚠️ Perplexity 실패: ${e.message?.slice(0, 80)} → Grounding 폴백`);
+        console.log(`[FACT-CHECK] ⚠️ Perplexity 실패: ${e.message?.slice(0, 80)} → Naver 폴백 (Grounding 자동 폴백 없음)`);
       }
     } else {
-      console.log(`[FACT-CHECK] ⚠️ Perplexity API 키 없음 → Grounding 폴백`);
+      console.log(`[FACT-CHECK] ⚠️ Perplexity API 키 없음 → Naver 폴백 (Grounding 자동 폴백 없음)`);
     }
-    // Perplexity 실패 → Grounding으로 폴백
-    mode = 'grounding';
+    /**
+     * v3.8.418 — 여기서 예전엔 `mode = 'grounding'`으로 자동 전환됐다.
+     *
+     * 사용자: "Gemini Search Grounding 유료 호출은 선택형이니까 자동으로 하는구간은
+     *   전부다 끊어줘 … 글 5개만 써도 10000원가까이나와서 자동으로 절대안돼
+     *   … 최후의 방법으로 퍼플렉시티로 해도 충분한데"
+     *
+     * mode 를 그대로 'perplexity' 로 남겨둔다 — 아래 grounding 블록(mode==='grounding')은
+     * 안 타고, 맨 아래 "auto 모드는 마지막 Naver 검색까지" 블록으로 자연스럽게 넘어간다.
+     * 즉 auto 체인은 이제 Perplexity → Naver(무료) 뿐이다. Gemini Grounding 은
+     * 사용자가 드롭다운에서 "🌐 Gemini Grounding"을 **직접 선택했을 때만** 실행된다.
+     */
   }
 
   // ── Gemini Grounding 모드 ──

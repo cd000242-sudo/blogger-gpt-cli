@@ -2204,7 +2204,19 @@ ${modeCtaHint}
 JSON만 출력:
 `;
 
-    const ctaResponse = await callGeminiWithGrounding(ctaPrompt);
+    /**
+     * v3.8.418 — Gemini Search Grounding 대신 일반 호출을 쓴다.
+     *
+     * 사용자: "Gemini Search Grounding 유료 호출은 선택형이니까 자동으로 하는구간은
+     *   전부다 끊어줘 … 글 5개만 써도 10000원가까이나와서 자동으로 절대안돼"
+     *
+     * 이 CTA 는 모든 글마다(모드 불문) 자동으로 실행되는데 Grounding(편당 ₩500~1,500)을
+     * 붙일 이유가 없다 — 바로 아래에서 hybridValidateCta() 가 실제 HTTP 요청으로
+     * URL 생존 여부를 검증한다(160행). Grounding 없이 LLM 이 아는 URL 을 제안해도,
+     * 죽은 링크나 지어낸 URL 은 이 실검증 단계에서 걸러진다. CTA 는 있으면 좋고 없어도
+     * 되는 보충 기능이라 "가끔 CTA 가 안 잡힌다"는 손해가 "매 글 자동 과금"보다 훨씬 낫다.
+     */
+    const ctaResponse = await callGeminiWithRetry(ctaPrompt);
     const cleanJson = ctaResponse.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
 
     try {

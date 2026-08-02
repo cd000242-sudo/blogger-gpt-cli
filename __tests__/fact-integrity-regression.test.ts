@@ -147,10 +147,22 @@ describe('fact integrity regression', () => {
     expect(sanitized).not.toContain('공식 안내');
   });
 
-  test('prefers web-grounded evidence over Naver blog snippets in auto mode', () => {
+  test('prefers Perplexity over Naver blog snippets in auto mode', () => {
     expect(getFactCheckProviderPriority({ perplexity: true, grounding: true, naver: true }))
-      .toEqual(['perplexity', 'grounding', 'naver']);
+      .toEqual(['perplexity', 'naver']);
     expect(getFactCheckProviderPriority({ perplexity: false, grounding: true, naver: true }))
-      .toEqual(['grounding', 'naver']);
+      .toEqual(['naver']);
+  });
+
+  // v3.8.418 — Gemini Grounding은 편당 ₩500~1,500 유료 호출이라 auto 후보에서 뺐다.
+  //   사용자가 factCheckMode 드롭다운에서 "Gemini Grounding"을 직접 고를 때만 쓴다.
+  //   grounding:true(사용 가능)여도 auto 결과에 나오면 안 된다 — 이게 그 회귀 가드.
+  test('never includes grounding in auto-mode priority, even when available — opt-in only', () => {
+    expect(getFactCheckProviderPriority({ perplexity: true, grounding: true, naver: true }))
+      .not.toContain('grounding');
+    expect(getFactCheckProviderPriority({ perplexity: false, grounding: true, naver: true }))
+      .toEqual(['naver']);
+    expect(getFactCheckProviderPriority({ perplexity: false, grounding: true, naver: false }))
+      .toEqual([]);
   });
 });

@@ -31,7 +31,7 @@ import { searchCoupangProducts, createCoupangDeeplink, formatProductsForPrompt, 
 import { uploadBase64ToImageHost } from './image-helpers';
 import { resolveUrlModeKeyword } from './url-mode';
 import { crawlSingleUrlFast } from './crawlers';
-import { callGeminiWithGrounding, callGeminiWithRetry } from './gemini-engine';
+import { callGeminiWithRetry } from './gemini-engine';
 import { FinalCrawledPost, FinalTableData, FinalCTAData } from './types';
 import {
   generateH1TitleFinal, generateH2TitlesFinal, generateSectionTitlesFromRoles,
@@ -40,7 +40,6 @@ import {
   generateCTAsFinal, generateSummaryTableFinal, generateHashtagsFinal,
   detectKeywordScope,
   generateIntentAwareFallbackH2Titles,
-  isContextuallySafeCtaUrl,
 } from './generation';
 
 function normalizeFolderHeadingKey(value: unknown): string {
@@ -2993,122 +2992,25 @@ export async function generateUltimateMaxModeArticleFinal(
        */
       console.log('[MAX-MODE] 🛒 쇼핑 글 — 보충 CTA 검색 생략 (구매 버튼은 insertCtaCards 가 이미 배치)');
     } else if (currentCtaCount < 2) {
-      const needMore = 2 - currentCtaCount;
-      console.log(`[MAX-MODE] 🔥 CTA ${needMore}개 추가 필요 (최소 2개 보장)`);
-
-      // 🔥 Step 1: Perplexity로 실제 관련 URL 심층 검색
+      /**
+       * v3.8.418 — "CTA 최소 2개 보장" 자동 검색을 완전히 껐다.
+       *
+       * 사용자: "Gemini Search Grounding 유료 호출은 선택형이니까 자동으로 하는구간은
+       *   전부다 끊어줘 … 글 5개만 써도 10000원가까이나와서 자동으로 절대안돼"
+       *
+       * 여기서 Grounding 을 빼고 일반 호출로만 바꾸는 건 위험하다 — 이 결과를 받는
+       * isRenderableCta()(128행 isCtaUrlShapeSafe)는 URL **형식**만 보고 실제 살아있는
+       * 페이지인지는 확인하지 않는다(HTTP 요청이 없다). generation.ts 의 sectionCta 경로는
+       * hybridValidateCta() 가 실제 HTTP 요청으로 검증하지만, 이 "보충" 경로엔 그 안전망이
+       * 없다 — Grounding 을 빼면 지어낸 URL이 검증 없이 그대로 나갈 위험이 생긴다.
+       *
+       * 이 기능은 "CTA 가 1개뿐이면 억지로 2개를 채운다"는 보너스일 뿐, 없어도 글은
+       * 멀쩡하다. 비용 위험과 깨진 링크 위험을 둘 다 없애는 가장 확실한 방법은
+       * 이 자동 검색-삽입을 아예 하지 않는 것이다. sectionCta(개별 CTA 1개, 검증 포함)는
+       * 그대로 살아 있다 — 이건 그 위에 억지로 1개를 더 채우던 보충분만 끈 것이다.
+       */
+      console.log('[MAX-MODE] ℹ️ 보충 CTA 검색 생략 (자동 유료 검색 차단 — sectionCta 로 충분)');
       supplementalCtas = [];
-      try {
-        console.log(`[MAX-MODE] 🔍 Gemini로 CTA 관련 URL 심층 검색 중...`);
-        const searchPrompt = `"${keyword}" 주제에 대해 독자가 클릭하고 싶은 관련 정보 페이지를 ${needMore}개 찾아줘.
-
-조건:
-1. 실제 존재하는 정부기관, 공식사이트, 대형 포털의 정보 페이지 URL
-2. 블로그나 카페 링크 제외 — 공신력 있는 출처만
-3. 한국어 사이트 우선
-4. 각 URL과 함께 한줄 설명 포함
-
-JSON 형식: [{"url":"https://실제URL","title":"페이지제목","description":"한줄설명"}]
-JSON 배열만 반환해. 마크다운 없이 순수 JSON만.`;
-
-        const searchText = await callGeminiWithGrounding(searchPrompt);
-
-        if (searchText) {
-          try {
-            const cleanJson = searchText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-            const parsed = JSON.parse(cleanJson);
-
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              for (const item of parsed) {
-                if (supplementalCtas.length >= needMore) break;
-                const candidateUrl = String(item?.url || '').trim();
-                if (!isCtaUrlShapeSafe(candidateUrl)) {
-                  console.log(`[MAX-MODE] ⚠️ 보충 CTA URL 형식/차단 필터 실패: ${candidateUrl}`);
-                  continue;
-                }
-                if (!isContextuallySafeCtaUrl(candidateUrl, keyword, contentMode)) {
-                  console.log(`[MAX-MODE] ⚠️ 보충 CTA 주제 불일치 차단: ${candidateUrl}`);
-                  continue;
-                }
-                const validation = await validateCtaUrl(candidateUrl, { timeout: 5000 });
-                if (!validation.isValid) {
-                  console.log(`[MAX-MODE] ⚠️ 보충 CTA 접속 검증 실패: ${candidateUrl} (${validation.reason})`);
-                  continue;
-                }
-                supplementalCtas.push({
-                  label: supplementalCtas.length === 0 ? '필독' : '혜택',
-                  hookingMessage: item.description || item.title || `${keyword} 관련 핵심 정보`,
-                  buttonText: '바로 확인하기',
-                  url: candidateUrl
-                });
-              }
-              console.log(`[MAX-MODE] 🔍 Gemini URL 검증 완료: ${supplementalCtas.map(c => c.url.slice(0, 50)).join(' | ') || '유효 후보 없음'}`);
-            }
-          } catch (parseErr) {
-            console.log(`[MAX-MODE] ⚠️ Gemini CTA URL 파싱 실패 — 폴백으로 진행`);
-          }
-        }
-
-        {
-          // 🔥 Step 2: Gemini URL 있으면 CTA 카피 개선
-          if (supplementalCtas.length > 0) {
-            try {
-              const ctaCopyPrompt = `블로그 키워드: "${keyword}"
-아래 URL들에 대한 CTA 카피를 작성해줘:
-${supplementalCtas.map((c, i) => `${i + 1}. URL: ${c.url} / 설명: ${c.hookingMessage}`).join('\n')}
-
-각 CTA에 대해:
-- label: 짧은 라벨 (필독/혜택/추천/정보 중 택1)
-- hookingMessage: 클릭을 유도하는 한줄 후킹 문장 (25자 내외, 궁금증/긴급성/혜택 강조)
-- buttonText: 버튼 텍스트 (8자 내외, 행동 유도)
-
-JSON: [{"label":"필독","hookingMessage":"...","buttonText":"..."}]
-마크다운 없이 순수 JSON 배열만 반환해.`;
-
-              const copyText = await callGeminiWithRetry(ctaCopyPrompt);
-              if (copyText) {
-                const cleanCopy = copyText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-                const copyParsed = JSON.parse(cleanCopy);
-                if (Array.isArray(copyParsed)) {
-                  copyParsed.forEach((cp: any, idx: number) => {
-                    if (supplementalCtas[idx]) {
-                      supplementalCtas[idx] = {
-                        ...supplementalCtas[idx],
-                        label: cp.label || supplementalCtas[idx].label,
-                        hookingMessage: cp.hookingMessage || supplementalCtas[idx].hookingMessage,
-                        buttonText: cp.buttonText || supplementalCtas[idx].buttonText,
-                      };
-                    }
-                  });
-                  console.log(`[MAX-MODE] 🧠 Gemini CTA 카피 개선 완료`);
-                }
-              }
-            } catch (copyErr: any) {
-              console.log(`[MAX-MODE] ⚠️ CTA 카피 개선 실패 (검색 URL은 유지): ${copyErr.message}`);
-            }
-          }
-        }
-      } catch (e: any) {
-        console.log(`[MAX-MODE] ⚠️ Gemini CTA 검색 실패: ${e.message}`);
-      }
-
-      if (supplementalCtas.length < needMore) {
-        console.log(`[MAX-MODE] ℹ️ 보충 CTA ${needMore}개 중 ${supplementalCtas.length}개만 검증 통과 — 나머지는 생략`);
-      }
-
-      for (let ci = 0; ci < needMore && ci < supplementalCtas.length; ci++) {
-        const cta = supplementalCtas[ci]!;
-        if (!isRenderableCta(cta)) continue;
-        if (renderedCtaUrls.has(normalizeCtaUrlKey(cta.url))) continue;
-        html += renderFinalCtaBlock({
-          badge: cta.searchFallback ? '직접 확인' : '추천 링크',
-          hook: cta.hookingMessage,
-          buttonText: cta.buttonText,
-          url: cta.url
-        });
-        markRenderedCta(renderedCtaUrls, cta.url);
-      }
-      console.log(`[MAX-MODE] ✅ CTA ${Math.min(needMore, supplementalCtas.length)}개 보충 완료`);
     }
 
     // 🔥 실행 플랜 섹션 제거됨 (사용자 요청)

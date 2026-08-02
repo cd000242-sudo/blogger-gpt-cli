@@ -273,7 +273,7 @@ describe('섹션 템플릿 정의 자체 확인', () => {
  *   href="https://plan.danawa.com/info/?nPlanSeq=..."           (가격비교 포털)
  * — 둘 다 사용자의 쿠팡 링크가 아니다.
  *
- * renderFinalCtaBlock 호출부는 총 5곳이었다:
+ * renderFinalCtaBlock 호출부는 그 시점 총 5곳이었다:
  *   ① sectionCta(본문 중간)   — v3.8.413 에서 이미 shopping 제외 완료
  *   ② topCta(글 맨 위)        — v3.8.416 에서 coupangLink 로 재연결 완료
  *   ③ 보충 CTA("최소 2개 보장") — adsense 만 제외, shopping 은 안 걸러졌다 ← 신규 발견
@@ -284,32 +284,45 @@ describe('섹션 템플릿 정의 자체 확인', () => {
  * 별도 메커니즘)를 전혀 보지 못한다. v3.8.413 에서 sectionCta 를 껐더니
  * currentCtaCount 가 더 자주 0에 가까워져 ③이 오히려 더 자주 발동하게 됐다 —
  * 앞선 수정이 이 문제를 더 잘 드러낸 셈이다.
+ *
+ * v3.8.418 추가 — ③ "보충 CTA" 는 Gemini Search Grounding(편당 ₩500~1,500)을 매 글
+ *   자동으로 태웠다("글 5개만 써도 만원 가까이" 사용자 보고). 게다가 그 결과를 받는
+ *   isRenderableCta()는 URL 형식만 보고 실제 살아있는지 확인하지 않는다 — Grounding만
+ *   빼면 지어낸 URL이 검증 없이 나갈 위험이 있었다. 그래서 shopping/adsense 만 걸러내던
+ *   구조를 버리고 **모든 모드에서 이 자동 검색-삽입 자체를 없앴다**. sectionCta(검증 포함)는
+ *   그대로 살아 있어 손해가 크지 않다. 이 변경으로 renderFinalCtaBlock 호출부는 4곳으로 준다.
  */
 describe('⑥⑦ 보충 CTA·하단 CTA 도 사용자 링크 아닌 곳으로 새지 않는다', () => {
-  it('⭐ "보충 CTA"(최소 2개 보장)가 쇼핑모드에서 생략된다', () => {
-    const block = blockBetween(orch, "// 🔥 CTA 최소 2개 보장", "console.log(`[MAX-MODE] ✅ CTA ${Math.min(needMore, supplementalCtas.length)}개 보충 완료`);");
+  it('⭐ "보충 CTA"(최소 2개 보장) 자동 검색이 모든 모드에서 꺼졌다 (v3.8.418)', () => {
+    const block = blockBetween(orch, "// 🔥 CTA 최소 2개 보장", "// 🔥 실행 플랜 섹션 제거됨");
+    expect(block).toContain("if (contentMode === 'adsense') {");
     expect(block).toContain("} else if (contentMode === 'shopping') {");
+    expect(block).toContain("} else if (currentCtaCount < 2) {");
     expect(block).toContain('보충 CTA 검색 생략');
   });
 
-  it('⭐ 왜 생략하는지 — insertCtaCards 와의 중복/카운트 사각지대가 근거로 남아 있다', () => {
-    const block = blockBetween(orch, "// 🔥 CTA 최소 2개 보장", "console.log(`[MAX-MODE] ✅ CTA ${Math.min(needMore, supplementalCtas.length)}개 보충 완료`);");
-    expect(block).toContain('insertCtaCards');
-    expect(block).toContain('renderedCtaUrls.size');
+  it('⭐ 완전히 끈 근거(비용 위험 + 검증 안전망 부재)가 소스에 남아 있다', () => {
+    const block = blockBetween(orch, "// 🔥 CTA 최소 2개 보장", "// 🔥 실행 플랜 섹션 제거됨");
+    expect(block).toContain('비용 위험');
+    expect(block).toContain('isCtaUrlShapeSafe');
   });
 
-  it('adsense 는 여전히 차단된다 (분기 순서가 안 깨졌다)', () => {
-    const block = blockBetween(orch, "// 🔥 CTA 최소 2개 보장", "console.log(`[MAX-MODE] ✅ CTA ${Math.min(needMore, supplementalCtas.length)}개 보충 완료`);");
-    expect(block).toContain("if (contentMode === 'adsense') {");
+  it('adsense 는 여전히 별도 분기로 차단된다 (분기 순서가 안 깨졌다)', () => {
+    const block = blockBetween(orch, "// 🔥 CTA 최소 2개 보장", "// 🔥 실행 플랜 섹션 제거됨");
     const adsenseIdx = block.indexOf("if (contentMode === 'adsense') {");
     const shoppingIdx = block.indexOf("} else if (contentMode === 'shopping') {");
+    const restIdx = block.indexOf("} else if (currentCtaCount < 2) {");
+    expect(adsenseIdx).toBeGreaterThan(-1);
     expect(shoppingIdx).toBeGreaterThan(adsenseIdx);
+    expect(restIdx).toBeGreaterThan(shoppingIdx);
   });
 
-  it('다른 모드(외부유입 등)는 기존 검색 로직을 그대로 쓴다 (동작을 안 바꾼다)', () => {
-    const block = blockBetween(orch, "// 🔥 CTA 최소 2개 보장", "console.log(`[MAX-MODE] ✅ CTA ${Math.min(needMore, supplementalCtas.length)}개 보충 완료`);");
+  it('⭐ 다른 모드(외부유입 등)도 이제는 보충 검색을 하지 않는다 (v3.8.418 — 동작이 바뀐 지점)', () => {
+    const block = blockBetween(orch, "// 🔥 CTA 최소 2개 보장", "// 🔥 실행 플랜 섹션 제거됨");
     expect(block).toContain('currentCtaCount < 2');
-    expect(block).toContain('Gemini로 CTA 관련 URL 심층 검색');
+    expect(block).not.toContain('Gemini로 CTA 관련 URL 심층 검색');
+    expect(block).not.toContain('callGeminiWithGrounding');
+    expect(block).toContain('sectionCta 로 충분');
   });
 
   it('⭐ "하단 최종 CTA"(글이 끝나기 직전)가 쇼핑모드에서 생략된다', () => {
@@ -340,9 +353,12 @@ describe('⑥⑦ 보충 CTA·하단 CTA 도 사용자 링크 아닌 곳으로 �
     expect(block).toContain('finalCandidates');
   });
 
-  it('⭐ renderFinalCtaBlock 호출부 5곳을 전수 확인 — 전부 계정됐다', () => {
+  it('⭐ renderFinalCtaBlock 호출부가 4곳으로 줄었다 (v3.8.418 — 보충 CTA 자동 검색 삭제)', () => {
+    // v3.8.417 까지 5곳: ①sectionCta ②topCta(일반) ②'topCta(쇼핑) ③보충CTA ④하단최종CTA
+    //   (②가 일반/쇼핑 두 분기로 나뉘어 있어 5곳이었다)
+    // v3.8.418 에서 ③ 보충 CTA 의 검색-렌더링을 통째로 지웠다 — 남는 건 4곳뿐이다.
     const callSites = (orch.match(/renderFinalCtaBlock\(\{/g) || []).length;
-    expect(callSites).toBe(5);
+    expect(callSites).toBe(4);
   });
 });
 
