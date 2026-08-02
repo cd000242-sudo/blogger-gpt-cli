@@ -711,6 +711,16 @@ async function initializeApp() {
     const settings = await loadSettings();
     debugLog('MAIN', '설정 로드 완료', { platform: settings.platform });
 
+    // 6-0. v3.8.414: 지난번에 고른 글 생성 엔진(텍스트 모델) 복원
+    //   그동안 이 복원이 loadSettingsContent() 안에만 있어서 **환경설정을 열어야만** 반영됐다.
+    //   사용자 보고: "마지막에 선택한 모델이 환경설정을 클릭해서 띄워야만 자동으로 선택되나요?"
+    try {
+      const { applyTextModelRadio } = await import('./settings.js');
+      if (applyTextModelRadio(settings)) debugLog('MAIN', '글 생성 엔진 복원 완료');
+    } catch (e) {
+      debugLog('MAIN', '글 생성 엔진 복원 건너뜀', { error: e?.message });
+    }
+
     // 6-1. v3.8.411: 지난번에 고른 소제목 이미지 엔진 복원
     //   저장이 없어서 앱을 껐다 켜면 HTML 기본값(nanobanana2)으로 조용히 돌아갔다.
     //   사용자는 "지피티 이미지 2로 선택했는데 나노바나나2로 폴백됐다"고 겪었다.

@@ -5443,6 +5443,42 @@ ipcMain.handle('prepare-publish-content', async (_evt, data) => {
   }
 });
 
+/**
+ * 🛑 작업 중지 (v3.8.414)
+ *
+ * 사용자 보고: "작업중지 버튼 눌렀는데 중지가 안 돼요"
+ *   preload 는 cancel-task 를 보내는데 **받는 핸들러가 없었다.**
+ *   화면은 "중지 요청을 보냈습니다" 알림까지 띄우고 모달을 닫는데,
+ *   백엔드는 209초짜리 파이프라인을 끝까지 돌았다.
+ *
+ * 화면이 send 와 invoke 를 둘 다 쓰므로(ui.js / posting.js) 양쪽 다 받는다.
+ * 한쪽만 달면 또 조용히 새어나간다.
+ */
+function handleCancelTask(): { ok: boolean; accepted: boolean } {
+  try {
+    const { requestCancel } = require('../dist/core/cancel-token');
+    const accepted = requestCancel();
+    console.log(accepted
+      ? '[CANCEL] 🛑 중지 요청 접수 — 다음 확인 지점에서 멈춥니다'
+      : '[CANCEL] ℹ️ 중지 요청 무시 — 진행 중인 작업이 없습니다');
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('log-line', accepted
+          ? '🛑 중지 요청을 받았습니다 — 진행 중인 단계를 마치는 대로 멈춥니다.'
+          : 'ℹ️ 진행 중인 작업이 없습니다.');
+      }
+    }
+    return { ok: true, accepted };
+  } catch (error: any) {
+    console.error('[CANCEL] ❌ 중지 처리 실패:', error?.message || error);
+    return { ok: false, accepted: false };
+  }
+}
+
+ipcMain.on('cancel-task', () => { handleCancelTask(); });
+ipcMain.handle('cancel-task', async () => handleCancelTask());
+console.log('[CANCEL] ✅ 작업 중지 핸들러 등록 완료 (send · invoke 양쪽)');
+
 ipcMain.handle('publish-content', async (_evt, data) => {
   let freeTrialPublish = false;
 
@@ -5460,6 +5496,9 @@ ipcMain.handle('publish-content', async (_evt, data) => {
       }
     }
   };
+
+  // v3.8.414: 새 작업 시작 — 이전 중지 요청은 여기서 무효가 된다
+  try { require('../dist/core/cancel-token').beginRun(); } catch { /* noop */ }
 
   try {
     onLog('[PROGRESS] 10% - 🚀 발행 요청 검증 및 준비 중...');
@@ -5977,10 +6016,25 @@ ipcMain.handle('publish-content', async (_evt, data) => {
     }
     return result;
   } catch (error) {
+    // v3.8.414: 사용자가 직접 멈춘 것은 '실패'가 아니다.
+    //   빨간 실패 문구를 띄우면 뭔가 잘못된 줄 알고 다시 시도하게 된다.
+    try {
+      const { isCancellation } = require('../dist/core/cancel-token');
+      if (isCancellation(error)) {
+        console.log('[PUBLISH] 🛑 사용자 중지로 종료');
+        onLog('[PROGRESS] 100% - 🛑 작업을 중지했습니다. 발행하지 않았습니다.');
+        return { ok: false, canceled: true, error: '작업을 중지했습니다.', needsAuth: false };
+      }
+    } catch { /* 판정 실패 시 아래 일반 실패 경로로 */ }
+
     console.error('[PUBLISH] 발행 실패:', error);
     const errorMessage = error instanceof Error ? error.message : '발행 실패';
     onLog(`[PROGRESS] 100% - ❌ 발행 실패: ${errorMessage}`);
     return { ok: false, error: errorMessage, needsAuth: false };
+  } finally {
+    // 작업이 어떻게 끝났든 중지 표시를 지운다 —
+    // 안 지우면 "한 번 중지하면 다음 작업도 바로 멈춘다"가 된다.
+    try { require('../dist/core/cancel-token').endRun(); } catch { /* noop */ }
   }
 });
 

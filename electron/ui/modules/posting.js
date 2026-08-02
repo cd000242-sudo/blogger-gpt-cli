@@ -523,6 +523,56 @@ export function showAutoImageSourceModal() {
 // 🚀 발행 실행 함수 — 단일 진입점
 // ─────────────────────────────────────────────────────
 
+/**
+ * 발행이 끝나면 '이 글'에 딸린 상태를 전부 비운다. (v3.8.414)
+ *
+ * 사용자 요구(2026-08-02):
+ *   "한번 발행완료 되고나면 완벽하게 초기화되어서 다음글이 작성가능할 수 있는 환경이 마련되어야 합니다"
+ *
+ * 왜 필요한가 — 실측으로 확인한 누수:
+ *   · appState.generatedContent.payload 가 다음 발행 payload 에 통째로 스프레드된다
+ *     (publishToPlatform: `...(appState.generatedContent.payload || {})`)
+ *   · window.__preGeneratedImagesForArticle / __preGeneratedThumbnailForArticle 은
+ *     payload 를 만들 때마다 읽힌다(internal-links.js 여러 곳).
+ *   지우지 않으면 **다음 글에 지난 글의 이미지와 설정이 그대로 실린다.**
+ *   지금까지는 이미지 생성이 '실패'했을 때만 지웠다(v3.8.360) — 성공하면 그대로 남았다.
+ *
+ * ⚠️ 사용자가 입력한 값(키워드·링크·엔진 선택)은 건드리지 않는다.
+ *    그건 다음 글에도 쓸 설정이지 '이 글'의 상태가 아니다.
+ */
+export function resetArticleStateAfterPublish(reason = 'publish') {
+  const cleared = [];
+  try {
+    const appState = getAppState();
+    if (appState?.generatedContent) { appState.generatedContent = null; cleared.push('생성된 글'); }
+    if (appState) appState.isCanceled = false;
+  } catch { /* 상태 접근 실패가 다음 발행을 막지 않는다 */ }
+
+  try {
+    if ((window.__preGeneratedImagesForArticle || []).length) {
+      window.__preGeneratedImagesForArticle = [];
+      cleared.push('미리 생성 이미지');
+    }
+    if (window.__preGeneratedThumbnailForArticle) {
+      window.__preGeneratedThumbnailForArticle = null;
+      cleared.push('미리 생성 썸네일');
+    }
+    if (window.__shoppingCollectedImageCount !== undefined) {
+      window.__shoppingCollectedImageCount = undefined;
+      cleared.push('수집 이미지 수');
+    }
+    // 강제 옵션은 '이번 발행'에만 쓰는 값이라 반드시 비운다
+    if (window.__publishForceOptions) {
+      window.__publishForceOptions = null;
+      cleared.push('강제 옵션');
+    }
+  } catch { /* noop */ }
+
+  debugLog('POSTING', `발행 후 초기화 (${reason})`, { cleared });
+  if (cleared.length) addLog(`🧹 다음 글을 위해 초기화했습니다 (${cleared.join(' · ')})`, 'info');
+  return cleared;
+}
+
 export async function runPosting() {
   const appState = getAppState();
   let finalResult = {
@@ -967,6 +1017,9 @@ export async function runPosting() {
           addTodayWorkRecord('포스트 작성 완료', `${platformName}에 "${generatedTitle}" 게시`);
         });
 
+        // v3.8.414: 발행이 끝났으니 이 글에 딸린 상태를 비운다 — 다음 글이 깨끗하게 시작하도록
+        resetArticleStateAfterPublish('발행 완료');
+
         // 🔥 발행 완료 시 모달 닫기
         hideProgressModal();
         const suppressSingleSuccessUi = !!(window.__queueRunning || window.__queueProgressActive);
@@ -1409,6 +1462,7 @@ export async function publishToPlatform() {
         } catch {}
         if (agentFlowActive) updateAgentProgressModal(100, '글 생성, 이미지 생성, 발행이 모두 완료되었습니다.', 'success', 'publish');
         addLog('✅ 콘텐츠 발행 완료!', 'success');
+        resetArticleStateAfterPublish('콘텐츠 발행 완료');   // v3.8.414
         try { window.updateFreeQuotaCounter?.(); } catch {}
 
         // v3.8.102: 자동 진단 결론 출력 — 사용자가 캡처할 필요 없이 콘솔에 직접 표시

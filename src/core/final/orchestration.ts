@@ -491,6 +491,18 @@ export async function generateUltimateMaxModeArticleFinal(
   console.log('[ULTIMATE]    - payload.h2Images?.source:', payload.h2Images?.source);
   console.log('[ULTIMATE]    - 최종 imageSource:', imageSource);
 
+  /**
+   * v3.8.414 — 작업 중지 확인 지점.
+   *   사용자 보고: "작업중지 버튼 눌렀는데 중지가 안 돼요"
+   *   긴 단계(제목·본문·이미지 8장·발행) 앞에서 매번 확인해
+   *   버튼을 누른 뒤 오래 기다리지 않게 한다.
+   *   중지 기능을 못 불러와도 발행은 계속된다 — 멈추는 기능이 발행을 막으면 안 된다.
+   */
+  const checkCanceled = (where: string): void => {
+    try { require('../cancel-token').throwIfCanceled(where); }
+    catch (e: any) { if (e?.canceled) throw e; }
+  };
+
   onLog?.(`[PROGRESS] 0% - 🔥 끝판왕 콘텐츠 생성 시작! ${fastMode ? '(빠른 모드)' : ''}`);
   onLog?.(`[PROGRESS] 0% - 🎯 이미지 소스: ${imageSource} (원본: ${payload.h2ImageSource || '없음'})`);
   // v3.8.380(R5): startTime 선언과 try 진입은 락 획득 직후로 이동됨 (위 참조)
@@ -953,6 +965,7 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog?.(`[PROGRESS] 30% - 🎯 키워드를 제목으로 사용: "${h1}"`);
     } else {
       // 🤖 AI 자동 생성
+      checkCanceled('제목 생성 전');
       onLog?.('[PROGRESS] 25% - ✍️ AI가 제목(H1) 생성 중...');
       // v3.8.404: 쇼핑 글이면 상품 등록명을 '재료'로 넘긴다 — 그대로 제목이 되면 안 된다
       // contentMode 변수는 아래에서 선언되므로 payload 에서 직접 읽는다
@@ -1400,6 +1413,7 @@ export async function generateUltimateMaxModeArticleFinal(
     }
 
     // 4. 🔥 전체 본문 한 번에 생성 (API 호출 1회로 단축!)
+    checkCanceled('본문 생성 전');
     onLog?.('[PROGRESS] 45% - 📝 AI가 전체 본문 생성 중 (1회 호출)...');
 
     // 🔍 팩트체크: 글 생성 전 실시간 검색으로 팩트 수집 (할루시네이션 방지)
@@ -2114,6 +2128,7 @@ export async function generateUltimateMaxModeArticleFinal(
         sectionImageSources.push('');
       }
     } else {
+      checkCanceled('이미지 생성 전');
       onLog?.('[PROGRESS] 75% - 🖼️ 섹션별 이미지 생성 중...');
       onLog?.(`   🎯 선택된 이미지 소스: ${imageSource}`);
 
@@ -2182,6 +2197,21 @@ export async function generateUltimateMaxModeArticleFinal(
         const h2Number = i + 1;
         if (!effectiveSelectedH2Sections.includes(h2Number)) return { dataUrl: '', source: '' };
         if (i >= maxImages) return { dataUrl: '', source: '' };
+
+        /**
+         * v3.8.414 — 이미지 한 장마다 중지 여부를 본다.
+         *   실측: 이미지 8장에 102초가 걸린다. 여기서 안 보면
+         *   중지를 눌러도 1분 넘게 계속 도는 것처럼 느껴진다.
+         *   ⚠️ 여기서는 던지지 않고 **빈 결과로 조용히 빠진다** —
+         *      큐 안에서 던지면 나머지 장들의 오류 처리와 엉킨다.
+         *      루프가 끝난 뒤 바깥에서 한 번 제대로 멈춘다.
+         */
+        try {
+          if (require('../cancel-token').isCanceled()) {
+            onLog?.(`   [IMG-${i + 1}] 🛑 중지 요청 — 이미지 생성을 건너뜁니다`);
+            return { dataUrl: '', source: '중지됨' };
+          }
+        } catch { /* 중지 모듈을 못 읽어도 이미지 생성은 계속한다 */ }
 
         // v3.6.5: 미리 생성한 이미지 우선 — 이미지 생성 탭에서 만든 이미지를 H2 #N에 매핑
         //   사용자가 "📌 본 글 H2 소제목에 자동 배치" 토글을 켰을 때 publish payload에 포함됨.
@@ -3380,6 +3410,8 @@ ${conclusionHTML}
       html = html.replace('<!-- THUMBNAIL_PLACEHOLDER -->', '');
     }
 
+    // v3.8.414: 여기서 마지막으로 본다 — 중지를 눌렀는데 글이 발행되면 안 된다
+    checkCanceled('발행 직전');
     onLog?.(`[PROGRESS] 93% - ✅ 콘텐츠 생성 완료! (${duration}초)`);
     onLog?.(`   - 글자수: ${html.length}자`);
     onLog?.(`   - 썸네일: ${thumbnailUrl ? '생성됨' : '없음'}`);

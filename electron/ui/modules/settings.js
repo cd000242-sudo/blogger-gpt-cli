@@ -563,6 +563,39 @@ export function isLicenseValid() {
 }
 
 // 설정 내용 로드 (모달에 표시)
+/**
+ * 글 생성 엔진(텍스트 모델) 라디오를 저장값으로 되돌린다. (v3.8.414)
+ *
+ * 사용자 보고(2026-08-02):
+ *   "텍스트 엔진 선택이 왜 마지막에 선택한 모델이 환경설정을 클릭해서 띄워야만 자동으로 선택되나요?"
+ *
+ * 맞는 지적이다. 이 복원 코드가 loadSettingsContent() 안에만 있었는데,
+ * 그 함수는 **환경설정 패널을 열 때만** 돈다.
+ * 앱을 켜고 바로 발행하면 라디오가 HTML 기본값(gemini-2.5-flash)인 채로 발행된다.
+ * 화면에는 그렇게 보이지만 사용자는 지난번에 고른 모델일 거라 믿는다.
+ *
+ * 소제목 이미지 엔진(v3.8.411)과 똑같은 유형이다 —
+ * "고른 값이 저장은 되는데 시작할 때 화면에 안 올라온다".
+ *
+ * @returns 라디오를 찾아 적용했으면 true
+ */
+export function applyTextModelRadio(settings) {
+  const savedTier = settings?.primaryGeminiTextModel || 'gemini-2.5-flash';
+  const radios = document.querySelectorAll('input[name="primaryGeminiTextModel"]');
+  if (!radios.length) return false;
+
+  // 저장된 값이 목록에 없으면(모델 개편 등) 기본값을 존중한다 — 아무것도 안 골린 상태로 두지 않는다
+  const exists = Array.from(radios).some((r) => r.value === savedTier);
+  const target = exists ? savedTier : 'gemini-2.5-flash';
+  radios.forEach((r) => { r.checked = (r.value === target); });
+
+  if (typeof window.refreshTierCards === 'function') {
+    try { window.refreshTierCards(); } catch (e) { /* 카드 새로고침 실패가 선택을 되돌리진 않는다 */ }
+  }
+  console.log('[SETTINGS] 🧠 글 생성 엔진 복원:', target, exists ? '' : '(저장값이 목록에 없어 기본값)');
+  return true;
+}
+
 export async function loadSettingsContent() {
   debugLog('SETTINGS', '설정 내용 로드 시작');
 
@@ -652,12 +685,7 @@ export async function loadSettingsContent() {
       };
 
       // 라디오 카드 복원: primaryGeminiTextModel
-      const savedTier = mergedSettings.primaryGeminiTextModel || 'gemini-2.5-flash';
-      const tierRadios = document.querySelectorAll('input[name="primaryGeminiTextModel"]');
-      tierRadios.forEach(r => { r.checked = (r.value === savedTier); });
-      if (typeof window.refreshTierCards === 'function') {
-        try { window.refreshTierCards(); } catch (e) { /* ignore */ }
-      }
+      applyTextModelRadio(mergedSettings);
 
       Object.entries(fieldMappings).forEach(([fieldId, value]) => {
         const el = document.getElementById(fieldId);
