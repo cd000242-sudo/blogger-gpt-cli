@@ -4201,6 +4201,46 @@
                             //   이제 전략을 따른다.
                             const h2 = document.getElementById('h2ImageSource');
                             if (h2) {
+                              /**
+                               * v3.8.411 — 쇼핑모드에서는 i2i(이미지→이미지) 되는 엔진만 고를 수 있다.
+                               *
+                               * 사용자 지적(2026-08-02):
+                               *   "무조건 나노바나나2로 돌리지 말고 이미지2이미지가 되는 엔진만 사용 가능하게 하고
+                               *    나머지는 쇼핑모드에서 사용 못하게 비활성화하면 되잖아"
+                               *   "다른 모드에서도 활성화되면 절대 안 돼"
+                               *
+                               * ImageFX·Flow 는 브라우저를 조작하는 방식이라 참고 이미지를 넣을 수 없다.
+                               * 고를 수 있게 두면 상품 사진이 통째로 무시되고 백엔드가 몰래 엔진을 바꾼다.
+                               * 애초에 못 고르게 하는 편이 정직하다.
+                               *
+                               * ⚠️ 잠금은 **쇼핑모드에서만**이다. 다른 모드로 나가면 반드시 원래대로 푼다.
+                               *    그래서 우리가 잠근 항목에만 표식을 남기고, 그 표식이 있는 것만 되돌린다.
+                               *    (구분선 <option disabled> 를 잘못 풀면 구분선이 선택지가 된다)
+                               */
+                              const I2I_OK = /^(nanobanana|nanobanana2|nanobananapro|gptimage1|gptimage2|prodia|deepinfra|dropshot)/i;
+                              Array.from(h2.options).forEach((opt) => {
+                                if (!opt.value) return;                       // 구분선은 건드리지 않는다
+                                if (isShopping) {
+                                  // 'crawled' 는 '상품 사진 그대로' 전략에서 쓰는 정상 값이라 남긴다
+                                  const usable = I2I_OK.test(opt.value) || opt.value === 'crawled';
+                                  if (!usable && !opt.disabled) {
+                                    opt.disabled = true;
+                                    opt.dataset.i2iBlocked = '1';
+                                    opt.title = '이 엔진은 상품 사진을 참고할 수 없어 쇼핑모드에서 쓸 수 없습니다';
+                                  }
+                                } else if (opt.dataset.i2iBlocked === '1') {
+                                  opt.disabled = false;                       // 우리가 잠근 것만 푼다
+                                  delete opt.dataset.i2iBlocked;
+                                  opt.title = '';
+                                }
+                              });
+                              // 고른 엔진이 막혔으면 쓸 수 있는 것으로 옮겨준다 (조용히 두면 발행 때 엉뚱하게 바뀐다)
+                              if (isShopping && h2.selectedOptions[0]?.dataset?.i2iBlocked === '1') {
+                                const first = Array.from(h2.options)
+                                  .find((o) => o.value && !o.disabled && I2I_OK.test(o.value));
+                                if (first) h2.value = first.value;
+                              }
+
                               if (useProductPhotos) {
                                 if (h2.value !== 'crawled' && h2.querySelector('option[value="crawled"]')) {
                                   window.__preShoppingH2Source = h2.value;

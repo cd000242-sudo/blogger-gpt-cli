@@ -711,6 +711,14 @@ async function initializeApp() {
     const settings = await loadSettings();
     debugLog('MAIN', '설정 로드 완료', { platform: settings.platform });
 
+    // 6-1. v3.8.411: 지난번에 고른 소제목 이미지 엔진 복원
+    //   저장이 없어서 앱을 껐다 켜면 HTML 기본값(nanobanana2)으로 조용히 돌아갔다.
+    //   사용자는 "지피티 이미지 2로 선택했는데 나노바나나2로 폴백됐다"고 겪었다.
+    if (typeof window.restoreH2ImageSource === 'function') {
+      window.restoreH2ImageSource();
+      debugLog('MAIN', '소제목 이미지 엔진 복원 완료');
+    }
+
     // 7. 플랫폼 상태 업데이트
     updatePlatformStatus();
 

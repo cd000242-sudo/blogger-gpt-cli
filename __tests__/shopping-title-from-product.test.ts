@@ -56,16 +56,16 @@ describe('상품일 때는 제목 규칙이 달라진다', () => {
 });
 
 describe('orchestration 이 상품명을 넘긴다', () => {
+  // v3.8.411: 상품명 계산이 호출부 밖 변수로 빠졌다(후기 기반 제목 지시문이 붙으면서).
+  //   검증 대상은 그대로다 — "쇼핑모드일 때만" · "빈 문자열로 잘못 켜지지 않게".
   it('⭐ 쇼핑모드일 때만 상품명을 넘긴다', () => {
-    const i = orch.indexOf('generateH1TitleFinal(');
-    const block = braceBlock(orch, 'generateH1TitleFinal(');
-    expect(block).toContain('resolvedProductName');
-    expect(block).toContain("=== 'shopping'");
+    expect(orch).toContain("isShoppingTitle = String((payload as any).contentMode || '') === 'shopping'");
+    expect(orch).toContain('const shoppingProductName = isShoppingTitle');
+    expect(braceBlock(orch, 'h1 = await generateH1TitleFinal(')).toContain('shoppingProductName');
   });
 
   it('상품명을 못 얻었으면 undefined 로 넘긴다 (빈 문자열로 잘못 켜지지 않게)', () => {
-    const i = orch.indexOf('generateH1TitleFinal(');
-    expect(braceBlock(orch, 'generateH1TitleFinal(')).toContain("|| '') || undefined");
+    expect(orch).toContain("resolvedProductName || '') || undefined");
   });
 
   it('v3.8.403 에서 심은 resolvedProductName 을 쓴다', () => {

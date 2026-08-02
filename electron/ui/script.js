@@ -1386,9 +1386,44 @@ async function checkEnvironmentVariables() {
 window.checkEnvironmentVariables = checkEnvironmentVariables;
 
 // H2 이미지 소스 변경 시 처리
+/**
+ * v3.8.411 — 고른 소제목 이미지 엔진을 기억한다.
+ *
+ * 사용자 보고(2026-08-02): "지피티 이미지 2로 선택했는데 또 나노바나나2로 폴백됐어"
+ *   폴백이 아니었다. **저장이 안 됐던 것**이다.
+ *   실측 로그: 앱이 15:40:33 에 새로 켜지고 15:41:19 에 발행 → 원본: nanobanana2.
+ *   이 select 는 어디에도 저장되지 않아서, 앱을 껐다 켜면
+ *   HTML 기본값(<option value="nanobanana2" selected>)으로 조용히 돌아갔다.
+ *   그 결과 빌링이 없는 nanobanana2 로 8장 연속 실패하고 100초를 버렸다.
+ */
+const H2_ENGINE_KEY = 'leadernamH2ImageSource';
+
+function rememberH2ImageSource(value) {
+  try {
+    if (value) localStorage.setItem(H2_ENGINE_KEY, String(value));
+  } catch { /* 저장 실패가 발행을 막지 않는다 */ }
+}
+
+/** 시작할 때 지난번 선택으로 되돌린다. 그 항목이 사라졌으면 건드리지 않는다. */
+function restoreH2ImageSource() {
+  try {
+    const saved = localStorage.getItem(H2_ENGINE_KEY);
+    if (!saved) return;
+    const sel = document.getElementById('h2ImageSource');
+    if (!sel) return;
+    const opt = Array.from(sel.options).find((o) => o.value === saved);
+    if (!opt || opt.disabled) return;      // 없어졌거나 잠긴 항목이면 기본값을 존중한다
+    sel.value = saved;
+    if (typeof handleH2ImageSourceChange === 'function') handleH2ImageSourceChange(saved);
+    console.log('🖼️ [H2 IMAGE] 지난 선택 복원:', saved);
+  } catch { /* 복원 실패해도 기본값으로 계속 쓸 수 있다 */ }
+}
+window.restoreH2ImageSource = restoreH2ImageSource;
+
 function handleH2ImageSourceChange() {
   const selectedSource = document.getElementById('h2ImageSource')?.value || document.querySelector('input[name="h2ImageSource"]:checked')?.value;
   console.log('🖼️ [H2 IMAGE] 선택된 이미지 소스:', selectedSource);
+  rememberH2ImageSource(selectedSource);
 
   // v3.5.88 — GPT 이미지 1/2(덕테이프) 선택 시 인증 안내 토글
   const notice = document.getElementById('h2ImageVerifyNotice');

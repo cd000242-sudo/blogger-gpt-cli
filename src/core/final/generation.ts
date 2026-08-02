@@ -307,6 +307,15 @@ export async function generateH1TitleFinal(
   crawledTitles: string[],
   demandHint?: string,
   productName?: string,
+  /**
+   * v3.8.411: 쇼핑 글 전용 제목 지시문 (후기에서 뽑은 구매자 관심사).
+   *
+   * 사용자 지적: "브리즈 누비아 이동식 에어컨 듀얼덕트 핵심 정리 🔥 — 너라면 클릭하니?"
+   *   아래 아키타입 목록에 '핵심 정리형'이 통째로 들어 있다. 뽑히면 그 제목이 나온다.
+   *   상품 글에서는 그 꼴이 최악이다 — 상품명을 검색한 사람은 상품을 이미 알기 때문이다.
+   *   그래서 쇼핑 글이면 아키타입을 통째로 이 지시문으로 갈아끼운다.
+   */
+  shoppingDirective?: string,
 ): Promise<string> {
   // 🔥 현재 날짜 주입
   const currentYear = new Date().getFullYear();
@@ -351,11 +360,11 @@ ${demandHint ? `
 **검색 실측 (최우선 규칙 — 아래 스타일보다 우선):**
 ${demandHint}
 ` : ''}
-**이번에 사용할 제목 스타일 (아래 중 하나 선택):**
-${archetypeGuide}
+${shoppingDirective || `**이번에 사용할 제목 스타일 (아래 중 하나 선택):**
+${archetypeGuide}`}
 
 **작성 규칙:**
-- 위 스타일 중 하나를 골라 창의적으로 작성
+${shoppingDirective ? '- 위 쇼핑 글 제목 규칙을 따르세요' : '- 위 스타일 중 하나를 골라 창의적으로 작성'}
 - 이모지 1개 필수 포함 (🔥💡🎯✅🚀📊💰🏆 등)
 ${productName ? `- ⚠️ 위 문자열은 쇼핑몰 **상품 등록명**입니다. 제목이 아닙니다. **그대로 쓰지 마세요.**
   · 등록명은 검색 노출을 노린 키워드 나열이라 그대로 쓰면 사람이 읽기 힘든 제목이 됩니다.
@@ -385,6 +394,20 @@ ${productName ? `- ⚠️ 위 문자열은 쇼핑몰 **상품 등록명**입니�
     .replace(/["']/g, '')
     .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '')  // 한자 제거
     .trim();
+
+  // v3.8.411: 쇼핑 글이면 무의미한 꼬리표를 떼어낸다.
+  //   프롬프트로 금지해도 모델이 습관처럼 붙인다. 마지막에 한 번 더 거른다.
+  //   ⚠️ 떼고 남는 게 없으면 그대로 둔다 — 제목을 비우느니 밋밋한 게 낫다.
+  if (shoppingDirective) {
+    try {
+      const { findFillerTail } = require('../affiliate/buyer-concerns');
+      const tail = findFillerTail(title);
+      if (tail) {
+        const stripped = title.replace(new RegExp(`\\s*${tail}\\s*`), ' ').replace(/\s+/g, ' ').trim();
+        if (stripped.length >= 8) title = stripped;
+      }
+    } catch { /* 꼬리표 제거 실패가 제목 생성을 막지 않는다 */ }
+  }
 
   // 50자 초과시만 자르기 (긴 제목 허용)
   if (title.length > 50) {

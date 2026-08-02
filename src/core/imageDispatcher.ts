@@ -512,15 +512,37 @@ export function pickI2iEngine(preferred: string, env: Record<string, string>): {
     return { engine: want, switched: false, reason: '' };
   }
 
-  // 사용자가 쓰던 계열을 최대한 유지하는 순서로 찾는다
+  /**
+   * v3.8.411 — 바꿔야 할 때 **오늘 실제로 성공한 엔진**을 먼저 고른다.
+   *
+   * 사용자 지적(2026-08-02): "무조건 나노바나나2로 돌리지 말고"
+   *   실측 로그 그대로 — nanobanana2 2/19(11%) · gptimage2 16/16(100%).
+   *   nanobanana2 는 키가 있어도 BILLING_REQUIRED 로 8장 연속 실패했다.
+   *   즉 "키가 있다"와 "쓸 수 있다"는 다르다. 키만 보고 고르면 같은 실패를 반복한다.
+   *
+   * 기록이 없는 엔진은 중립(50)으로 둔다 — 안 써봤다고 불리하게 볼 이유가 없다.
+   */
   const CANDIDATES = ['nanobanana2', 'nanobanana', 'gptimage2', 'gptimage1', 'prodia', 'deepinfra'];
-  for (const c of CANDIDATES) {
-    if (engineKeyAvailable(c, env)) {
-      const reason = !engineSupportsI2i(want)
-        ? `${want || '선택 없음'} 는 상품 사진을 참고할 수 없습니다`
-        : `${want} 의 API 키가 없습니다`;
-      return { engine: c, switched: true, reason };
-    }
+  const usable = CANDIDATES.filter((c) => engineKeyAvailable(c, env));
+  if (usable.length) {
+    let ordered = usable;
+    try {
+      const { getSuccessRate } = require('./engine-stats');
+      const score = (e: string): number => {
+        const r = getSuccessRate(e);
+        return typeof r === 'number' ? r : 50;   // 기록 없음 = 중립
+      };
+      // 성공률 내림차순. 같으면 원래 순서를 지킨다(안정 정렬).
+      ordered = usable
+        .map((e, i) => ({ e, i, s: score(e) }))
+        .sort((a, b) => (b.s - a.s) || (a.i - b.i))
+        .map((x) => x.e);
+    } catch { /* 통계를 못 읽으면 기존 순서 그대로 — 선택은 계속된다 */ }
+
+    const reason = !engineSupportsI2i(want)
+      ? `${want || '선택 없음'} 는 상품 사진을 참고할 수 없습니다`
+      : `${want} 의 API 키가 없습니다`;
+    return { engine: ordered[0]!, switched: true, reason };
   }
   return { engine: want || 'nanobanana2', switched: false, reason: '' };   // 쓸 키가 하나도 없다
 }

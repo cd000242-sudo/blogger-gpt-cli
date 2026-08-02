@@ -955,14 +955,40 @@ export async function generateUltimateMaxModeArticleFinal(
       // 🤖 AI 자동 생성
       onLog?.('[PROGRESS] 25% - ✍️ AI가 제목(H1) 생성 중...');
       // v3.8.404: 쇼핑 글이면 상품 등록명을 '재료'로 넘긴다 — 그대로 제목이 되면 안 된다
+      // contentMode 변수는 아래에서 선언되므로 payload 에서 직접 읽는다
+      const isShoppingTitle = String((payload as any).contentMode || '') === 'shopping';
+      const shoppingProductName = isShoppingTitle
+        ? String((payload as any).resolvedProductName || '') || undefined
+        : undefined;
+
+      /**
+       * v3.8.411: 후기에서 '사기 전 걱정거리'를 뽑아 제목의 축으로 삼는다.
+       *
+       * 사용자 지적: "…듀얼덕트 핵심 정리 🔥 — 너라면 클릭하니?"
+       *   상품명을 검색한 사람은 상품을 이미 안다. 궁금한 건 "사도 되나?" 하나다.
+       *   후기 60건을 이미 모아두고도 제목이 그걸 하나도 안 봤다.
+       * 추가 API 호출 없음 — 수집해둔 텍스트만 센다(비용 고정).
+       */
+      let shoppingTitleDirective: string | undefined;
+      if (isShoppingTitle) {
+        try {
+          const { extractBuyerConcerns, composeShoppingTitleDirective } = require('../affiliate/buyer-concerns');
+          const enrichedForTitle = (payload as any).coupangEnrichment;
+          const bodies = (enrichedForTitle?.reviews || []).map((r: any) => String(r?.body || ''));
+          const concerns = extractBuyerConcerns(bodies, 3);
+          shoppingTitleDirective = composeShoppingTitleDirective(shoppingProductName || keyword, concerns);
+          onLog?.(concerns.length
+            ? `[PROGRESS] 25% - 🎯 제목 축: ${concerns.map((c: any) => `${c.label}(${c.count}건)`).join(' · ')}`
+            : '[PROGRESS] 25% - 🎯 후기가 없어 상품군 일반 관심사로 제목을 짓습니다');
+        } catch { /* 관심사 추출 실패해도 제목은 만든다 */ }
+      }
+
       h1 = await generateH1TitleFinal(
         keyword,
         titles,
         demandTitleHint,
-        // contentMode 변수는 아래에서 선언되므로 payload 에서 직접 읽는다
-        String((payload as any).contentMode || '') === 'shopping'
-          ? String((payload as any).resolvedProductName || '') || undefined
-          : undefined,
+        shoppingProductName,
+        shoppingTitleDirective,
       );
       h1 = repairTitleYear(h1);
 
