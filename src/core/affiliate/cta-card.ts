@@ -130,8 +130,19 @@ export function insertCtaCards(html: string, product: CtaProduct): { html: strin
     inserted += 1;
   }
 
-  // ③ 글 끝 — 대가성 문구보다 앞에 둔다(고지문이 마지막이어야 자연스럽다)
-  const discIdx = out.search(/<p[^>]*class="[^"]*affiliate-disclosure/i);
+  /**
+   * ③ 글 끝 — 대가성 문구보다 앞에 둔다(고지문이 마지막이어야 자연스럽다).
+   *
+   * v3.8.417 — "coupang-disclosure" 를 추가했다(paragraph-normalizer.ts 에서
+   *   찾은 것과 같은 클래스명 불일치). 이 함수의 주 사용처는 쇼핑모드(cta-card 는
+   *   contentMode === 'shopping' 에서만 불린다)인데, 쿠팡 전용 고지문은
+   *   "coupang-disclosure" 클래스를 쓴다 — "affiliate-disclosure" 만 찾으면
+   *   쿠팡 글에서는 이 검색이 항상 실패한다.
+   *   실제로는 지금 무해하다 — v3.8.375 이후 쿠팡 고지문은 항상 H1 바로 뒤(최상단)에
+   *   있어서, 검색이 실패해 else 분기(글의 진짜 끝에 추가)로 가도 결과가 같다.
+   *   그래도 클래스명은 맞춰둔다 — 나중에 누가 고지문 위치를 바꾸면 조용히 다시 깨진다.
+   */
+  const discIdx = out.search(/<p[^>]*class="[^"]*(affiliate|coupang)-disclosure/i);
   if (discIdx > 0) {
     out = out.slice(0, discIdx) + card('final') + '\n' + out.slice(discIdx);
   } else {

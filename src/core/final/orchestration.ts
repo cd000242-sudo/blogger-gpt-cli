@@ -2969,6 +2969,29 @@ export async function generateUltimateMaxModeArticleFinal(
     if (contentMode === 'adsense') {
       // 🛡️ 애드센스 모드: 보충 CTA 완전 차단
       console.log('[MAX-MODE] 🛡️ 애드센스 모드 — 보충 CTA 생성 생략 (승인 정책 준수)');
+    } else if (contentMode === 'shopping') {
+      /**
+       * v3.8.417 — "심층분석해서 완벽한 결과가 나오게" 요청으로 다시 훑다가 찾은
+       *   세 번째 미차단 경로.
+       *
+       * 이 블록은 "CTA 최소 2개 보장"을 위해 정부기관·공식사이트·대형 포털 URL을
+       * 검색해서 채운다. adsense 모드만 제외했지 shopping 은 걸러지지 않았다.
+       * 실측(Blogger API 로 발행글 원문 확인): 갤럭시 Z Flip8 글 본문에
+       *   href="https://www.samsung.com/sec/search/?searchvalue=..." (공식 사이트)
+       *   href="https://plan.danawa.com/info/?nPlanSeq=..." (가격비교 포털)
+       * 이 사용자 링크가 아닌 CTA 버튼으로 박혀 있었다.
+       *
+       * 게다가 이 판정은 renderedCtaUrls.size(=currentCtaCount)만 보는데,
+       * 쇼핑 글의 진짜 구매 버튼은 insertCtaCards()(요약 직후·본문 중간·글 끝,
+       * 3개)가 별도 메커니즘으로 나중에(2911행) 넣는다 — 이 카운트에 안 잡힌다.
+       * v3.8.413 에서 sectionCta 를 쇼핑 글에서 껐더니 currentCtaCount 가
+       * 항상 0에 가까워져 이 "보충" 검색이 오히려 **더** 자주 발동하게 됐다.
+       *
+       * 구매 버튼은 insertCtaCards 가 이미 3자리(요약 직후·본문 중간·글 끝)를
+       * 책임진다 — 여기서 또 채우면 사용자 링크와 무관한 CTA가 섞이거나,
+       * 제휴 링크 개수가 어뷰징 경고 임계치(10개)에 더 가까워질 뿐이다.
+       */
+      console.log('[MAX-MODE] 🛒 쇼핑 글 — 보충 CTA 검색 생략 (구매 버튼은 insertCtaCards 가 이미 배치)');
     } else if (currentCtaCount < 2) {
       const needMore = 2 - currentCtaCount;
       console.log(`[MAX-MODE] 🔥 CTA ${needMore}개 추가 필요 (최소 2개 보장)`);
@@ -3239,7 +3262,17 @@ ${conclusionHTML}
 `;
 
     // 💰 하단 최종 CTA 버튼 (마지막 클릭 유도) — 에드센스 모드에서는 생략
-    if (contentMode !== 'adsense') {
+    //
+    // v3.8.417 — "심층분석" 요청으로 renderFinalCtaBlock 호출부 5곳을 전부 다시 훑다가
+    //   찾은 네 번째 미차단 경로. adsense 만 제외했지 shopping 은 안 걸러졌다.
+    //   이 자리는 글이 끝나기 직전, 독자가 마지막으로 보는 버튼이다 —
+    //   사용자 링크가 아닌 일반 검색 후보(ctas/supplementalCtas)로 채워지면
+    //   "마지막 클릭 유도" 가 엉뚱한 곳으로 간다.
+    //   게다가 insertCtaCards()(2911행)가 쇼핑 글의 "글 끝" 구매 버튼을 이미 심어둔다 —
+    //   여기서 또 채우면 같은 자리에 버튼이 두 번 겹치거나 링크 개수만 늘어난다.
+    if (contentMode === 'shopping') {
+      console.log('[MAX-MODE] 🛒 쇼핑 글 — 하단 CTA 생략 (구매 버튼은 insertCtaCards 가 글 끝에 이미 배치)');
+    } else if (contentMode !== 'adsense') {
       const finalCandidates: RenderableCtaCandidate[] = [
         ...ctas.map(c => toRenderableCtaCandidate(c, `${keyword} 핵심 정보 바로가기`, '자세히 보기')),
         ...supplementalCtas

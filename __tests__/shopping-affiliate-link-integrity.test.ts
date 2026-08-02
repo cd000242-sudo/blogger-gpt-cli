@@ -260,3 +260,151 @@ describe('섹션 템플릿 정의 자체 확인', () => {
     expect(sections).toContain('id: "honest_cons"');
   });
 });
+
+/**
+ * ⑥⑦ renderFinalCtaBlock 5개 호출부 전수 조사 — 두 곳이 더 새고 있었다 (v3.8.417)
+ *
+ * 사용자: "좀더 심층분석해서 완벽한 결과가나오게끔해줘" — 요청을 받고
+ * renderFinalCtaBlock() 을 부르는 모든 지점을 다시 훑었다.
+ *
+ * 실측(Blogger API 로 갤럭시 Z Flip8 발행글 원문 재확인):
+ *   class="cta-btn" 2개, 각각
+ *   href="https://www.samsung.com/sec/search/?searchvalue=..."  (공식 사이트)
+ *   href="https://plan.danawa.com/info/?nPlanSeq=..."           (가격비교 포털)
+ * — 둘 다 사용자의 쿠팡 링크가 아니다.
+ *
+ * renderFinalCtaBlock 호출부는 총 5곳이었다:
+ *   ① sectionCta(본문 중간)   — v3.8.413 에서 이미 shopping 제외 완료
+ *   ② topCta(글 맨 위)        — v3.8.416 에서 coupangLink 로 재연결 완료
+ *   ③ 보충 CTA("최소 2개 보장") — adsense 만 제외, shopping 은 안 걸러졌다 ← 신규 발견
+ *   ④ 하단 최종 CTA(글 끝 직전) — adsense 만 제외, shopping 은 안 걸러졌다 ← 신규 발견
+ *
+ * ③④ 는 renderedCtaUrls.size(=currentCtaCount)로 "CTA 가 부족한지"를 판단하는데,
+ * 이 카운트는 insertCtaCards()(요약 직후·본문 중간·글 끝에 구매 버튼 3개를 넣는
+ * 별도 메커니즘)를 전혀 보지 못한다. v3.8.413 에서 sectionCta 를 껐더니
+ * currentCtaCount 가 더 자주 0에 가까워져 ③이 오히려 더 자주 발동하게 됐다 —
+ * 앞선 수정이 이 문제를 더 잘 드러낸 셈이다.
+ */
+describe('⑥⑦ 보충 CTA·하단 CTA 도 사용자 링크 아닌 곳으로 새지 않는다', () => {
+  it('⭐ "보충 CTA"(최소 2개 보장)가 쇼핑모드에서 생략된다', () => {
+    const block = blockBetween(orch, "// 🔥 CTA 최소 2개 보장", "console.log(`[MAX-MODE] ✅ CTA ${Math.min(needMore, supplementalCtas.length)}개 보충 완료`);");
+    expect(block).toContain("} else if (contentMode === 'shopping') {");
+    expect(block).toContain('보충 CTA 검색 생략');
+  });
+
+  it('⭐ 왜 생략하는지 — insertCtaCards 와의 중복/카운트 사각지대가 근거로 남아 있다', () => {
+    const block = blockBetween(orch, "// 🔥 CTA 최소 2개 보장", "console.log(`[MAX-MODE] ✅ CTA ${Math.min(needMore, supplementalCtas.length)}개 보충 완료`);");
+    expect(block).toContain('insertCtaCards');
+    expect(block).toContain('renderedCtaUrls.size');
+  });
+
+  it('adsense 는 여전히 차단된다 (분기 순서가 안 깨졌다)', () => {
+    const block = blockBetween(orch, "// 🔥 CTA 최소 2개 보장", "console.log(`[MAX-MODE] ✅ CTA ${Math.min(needMore, supplementalCtas.length)}개 보충 완료`);");
+    expect(block).toContain("if (contentMode === 'adsense') {");
+    const adsenseIdx = block.indexOf("if (contentMode === 'adsense') {");
+    const shoppingIdx = block.indexOf("} else if (contentMode === 'shopping') {");
+    expect(shoppingIdx).toBeGreaterThan(adsenseIdx);
+  });
+
+  it('다른 모드(외부유입 등)는 기존 검색 로직을 그대로 쓴다 (동작을 안 바꾼다)', () => {
+    const block = blockBetween(orch, "// 🔥 CTA 최소 2개 보장", "console.log(`[MAX-MODE] ✅ CTA ${Math.min(needMore, supplementalCtas.length)}개 보충 완료`);");
+    expect(block).toContain('currentCtaCount < 2');
+    expect(block).toContain('Gemini로 CTA 관련 URL 심층 검색');
+  });
+
+  it('⭐ "하단 최종 CTA"(글이 끝나기 직전)가 쇼핑모드에서 생략된다', () => {
+    const block = blockBetween(orch, "// 💰 하단 최종 CTA 버튼", "💎 백서 컨테이너 닫기");
+    expect(block).toContain("if (contentMode === 'shopping') {");
+    expect(block).toContain('하단 CTA 생략');
+  });
+
+  it('⭐ 하단 CTA 도 insertCtaCards 와의 중복이 근거로 남아 있다', () => {
+    const block = blockBetween(orch, "// 💰 하단 최종 CTA 버튼", "💎 백서 컨테이너 닫기");
+    expect(block).toContain('insertCtaCards');
+  });
+
+  it('adsense 도 여전히 하단 CTA 가 없다 — shopping 분기가 adsense 분기를 가리지 않는다', () => {
+    const block = blockBetween(orch, "// 💰 하단 최종 CTA 버튼", "💎 백서 컨테이너 닫기");
+    // 구조: if (shopping) { 생략 } else if (contentMode !== 'adsense') { 렌더링 }
+    // → adsense 는 두 조건 모두 해당 없어 렌더링 분기에 못 들어간다.
+    expect(block).toContain("if (contentMode === 'shopping') {");
+    expect(block).toContain("} else if (contentMode !== 'adsense') {");
+    const shoppingAt = block.indexOf("if (contentMode === 'shopping') {");
+    const elseAt = block.indexOf("} else if (contentMode !== 'adsense') {");
+    expect(elseAt).toBeGreaterThan(shoppingAt);
+  });
+
+  it('일반 모드는 하단 CTA 를 그대로 렌더링한다 (동작을 안 바꾼다)', () => {
+    const block = blockBetween(orch, "// 💰 하단 최종 CTA 버튼", "💎 백서 컨테이너 닫기");
+    expect(block).toContain('마무리 추천');
+    expect(block).toContain('finalCandidates');
+  });
+
+  it('⭐ renderFinalCtaBlock 호출부 5곳을 전수 확인 — 전부 계정됐다', () => {
+    const callSites = (orch.match(/renderFinalCtaBlock\(\{/g) || []).length;
+    expect(callSites).toBe(5);
+  });
+});
+
+/**
+ * ⑧ generateCTAsFinal 이 쇼핑 글에서 쓰지도 않을 CTA 를 유료로 찾아오고 있었다 (v3.8.417)
+ *
+ * generateCTAsFinal 의 "쇼핑 모드 CTA 특화 지시" 프롬프트를 보면, 애초에
+ * "쿠팡/네이버쇼핑/브랜드 공식몰/다나와 등"을 **일부러** 찾도록 설계돼 있었다.
+ * 실측 danawa.com·samsung.com CTA 가 바로 이 지시의 결과물이었다.
+ * 그런데 v3.8.413 이후 쇼핑 글은 sectionCta 를 렌더링하지 않는다 —
+ * 즉 Gemini Search Grounding 까지 불러서 찾아온 결과를 매번 버리고 있었다.
+ */
+describe('⑧ 쇼핑 글은 안 쓸 CTA 를 검색하지 않는다 (비용 절감)', () => {
+  const generationSrc = read('src', 'core', 'final', 'generation.ts');
+
+  it('⭐ generateCTAsFinal 이 쇼핑 모드에서 즉시 빈 배열을 반환한다', () => {
+    const block = blockBetween(
+      generationSrc,
+      'export async function generateCTAsFinal(',
+      "console.log(`[CTA] 🌐 Search Grounding으로",
+    );
+    expect(block).toContain("if (contentMode === 'shopping') {");
+    expect(block).toContain('return [];');
+  });
+
+  it('⭐ 왜 버려지고 있었는지 근거가 남아 있다 (sectionCta 가 렌더링 안 됨)', () => {
+    const block = blockBetween(
+      generationSrc,
+      'export async function generateCTAsFinal(',
+      "console.log(`[CTA] 🌐 Search Grounding으로",
+    );
+    expect(block).toContain('한 번도 렌더링되지 않는다');
+  });
+
+  it('쇼핑 모드 전용 프롬프트 지시가 다나와/공식몰을 유도하고 있었다는 사실이 남아 있다', () => {
+    expect(generationSrc).toContain('다나와');
+    expect(generationSrc).toContain('브랜드 공식몰');
+  });
+
+  it('adsense 는 여전히 먼저 차단된다 (분기 순서가 안 깨졌다)', () => {
+    const adsenseIdx = generationSrc.indexOf("if (contentMode === 'adsense') {");
+    const shoppingIdx = generationSrc.indexOf('쇼핑 모드 — 본문 CTA 는 사용자 제휴 링크만 쓴다');
+    expect(adsenseIdx).toBeGreaterThan(-1);
+    expect(shoppingIdx).toBeGreaterThan(adsenseIdx);
+  });
+
+  it('다른 모드(내부·페러프레이징 등)는 여전히 Gemini 검색을 탄다 (동작을 안 바꾼다)', () => {
+    expect(generationSrc).toContain('📝 **내부 정보 전달 모드 CTA 특화 지시**');
+    expect(generationSrc).toContain('🔄 **페러프레이징 모드 CTA 특화 지시**');
+  });
+});
+
+describe('cta-card.ts — 대가성 문구 검색도 쿠팡 클래스명을 안다', () => {
+  const ctaCardSrc = read('src', 'core', 'affiliate', 'cta-card.ts');
+
+  it('⭐ affiliate-disclosure 뿐 아니라 coupang-disclosure 도 찾는다', () => {
+    expect(ctaCardSrc).toContain('(affiliate|coupang)-disclosure');
+  });
+
+  it('지금은 무해했던 이유(쿠팡 고지문이 항상 최상단)가 근거로 남아 있다', () => {
+    // 시그니처 반환 타입에 타입 리터럴 중괄호가 있어 braceBlock 이 그걸 본문으로 오인한다
+    const block = blockBetween(ctaCardSrc, 'export function insertCtaCards(', 'export function providerLabel(');
+    expect(block).toContain('항상 H1 바로 뒤(최상단)');
+  });
+});

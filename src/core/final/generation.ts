@@ -2100,6 +2100,23 @@ export async function generateCTAsFinal(
     return [];
   }
 
+  /**
+   * v3.8.417 — "심층분석" 하다 찾았다: 쇼핑 글에서 이 함수의 결과가 통째로 버려지고 있었다.
+   *
+   * 바로 아래 "쇼핑 모드 CTA 특화 지시"를 보면 이 함수는 Gemini Search Grounding 으로
+   * "쿠팡/네이버쇼핑/브랜드 공식몰/다나와 등"을 **일부러** 찾아오도록 설계돼 있다.
+   * 실측(갤럭시 Z Flip8 발행글)에서 나온 samsung.com·danawa.com CTA 버튼이 바로 이 지시의 결과다.
+   *
+   * 그런데 orchestration.ts 에서 쇼핑 글은 v3.8.413 이후 sectionCta 를 렌더링하지 않는다
+   * (사용자 링크가 아닌 CTA 는 넣지 않는다는 결정) — 즉 이 함수가 Gemini 호출까지 해서
+   * 찾아온 CTA 는 section.h3Sections[...].cta 에 저장만 되고 **한 번도 렌더링되지 않는다.**
+   * 쇼핑 글마다 안 쓸 걸 알면서 유료 호출(LLM + Search Grounding)을 하고 있었다.
+   */
+  if (contentMode === 'shopping') {
+    console.log('[CTA] 🛒 쇼핑 모드 — 본문 CTA 는 사용자 제휴 링크만 쓴다 (검색 CTA 생성 생략, 비용 절감)');
+    return [];
+  }
+
   // 환경변수 로드
   const envData = loadEnvFromFile();
   const googleCseKey = envData['googleCseKey'] || envData['GOOGLE_CSE_KEY'] || (process.env as any)['GOOGLE_CSE_KEY'] || '';
