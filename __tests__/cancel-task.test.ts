@@ -18,7 +18,7 @@ import * as path from 'path';
 import {
   beginRun, requestCancel, isCanceled, endRun, throwIfCanceled, isCancellation, CanceledError,
 } from '../src/core/cancel-token';
-import { braceBlock } from './helpers/source-block';
+import { braceBlock, blockBetween } from './helpers/source-block';
 
 const ROOT = path.join(__dirname, '..');
 const read = (...p: string[]) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
@@ -261,5 +261,182 @@ describe('발행 후 초기화', () => {
     expect(block).not.toContain('affiliateLinks');    // 제휴 링크도 마찬가지
     expect(block).not.toContain('h2ImageSource');     // 엔진 선택은 '이 글'의 상태가 아니다
     expect(postingSrc).toContain('사용자가 입력한 값');    // 근거가 주석에 남아 있다(본문 밖 JSDoc)
+  });
+});
+
+/**
+ * v3.8.414 는 '취소가 작동한다'는 착각을 만들었다 — 배선이 엉뚱한 핸들러에 걸려 있었다 (v3.8.415)
+ *
+ * "끝까지 물고 늘어져서 완벽하게 수정해줘 다시 손 안 가게" 요청을 받고 다시 훑었다.
+ *
+ * 실제 발행 흐름을 끝까지 추적한 결과:
+ *   run-post (main.ts) → generateMaxModeArticle (index.ts) → generateUltimateMaxModeArticle
+ *   → generateUltimateMaxModeArticlePuppeteer → generateUltimateMaxModeArticleFinal (재export 3단)
+ *   → orchestration.ts 의 그 함수 (checkCanceled 가 있는 곳).
+ *
+ * 즉 사용자가 로그에서 본 209초짜리 파이프라인(제목→본문→이미지 8장→발행)은
+ * 전부 'run-post' IPC 핸들러 안에서 돈다. 그런데 v3.8.414 는 beginRun()/endRun() 을
+ * 'publish-content' 핸들러(반자동·큐의 "이미 생성된 글 발행" 전용, 별개 채널)에 걸었다.
+ *
+ * 재현(수정 전): beginRun() 을 한 번도 안 부른 채 requestCancel() 을 호출하면 false 가 나온다
+ * (currentRunId 가 0 이라서). run-post 로 생성 중일 때 중지를 눌러도
+ * "진행 중인 작업이 없습니다"라고 거짓 안내가 뜨고 실제로는 안 멈췄다 —
+ * 버튼도 없던 v3.8.413 이전보다 더 헷갈리는 상태였다.
+ */
+describe('v3.8.415 - beginRun/endRun 이 진짜 생성 핸들러(run-post)에 걸려 있다', () => {
+  it('run-post 핸들러 안에 beginRun() 이 있다 (이번 사고의 핵심)', () => {
+    const block = braceBlock(mainTs, "ipcMain.handle('run-post'");
+    expect(block).toContain("require('../dist/core/cancel-token').beginRun()");
+  });
+
+  it('run-post 의 catch 가 취소를 실패와 구분한다', () => {
+    const block = braceBlock(mainTs, "ipcMain.handle('run-post'");
+    expect(block).toContain('isCancellation(error)');
+    expect(block).toContain("canceled: true, error: '작업을 중지했습니다.'");
+  });
+
+  it('run-post 에도 반드시 endRun() 이 있다 (finally) - 안 지우면 다음 발행이 시작하자마자 멈춘다', () => {
+    const block = braceBlock(mainTs, "ipcMain.handle('run-post'");
+    expect(block).toContain("require('../dist/core/cancel-token').endRun()");
+  });
+
+  it('publish-content 핸들러도 여전히 걸려 있다 (반자동/큐 재발행 경로)', () => {
+    const block = braceBlock(mainTs, "ipcMain.handle('publish-content'");
+    expect(block).toContain("require('../dist/core/cancel-token').beginRun()");
+    expect(block).toContain("require('../dist/core/cancel-token').endRun()");
+  });
+
+  it('beginRun() 없이 requestCancel() 을 부르면 false 다 - 이게 거짓 안내의 원인이었다', () => {
+    endRun();
+    expect(requestCancel()).toBe(false);
+  });
+});
+
+/**
+ * Agent 모드(Codex/Claude CLI 구독)는 cancel-token 을 아예 거치지 않는다 (v3.8.415)
+ *
+ * orchestration.ts 를 안 거치고 codex/claude CLI 를 자식 프로세스로 최대 25분 띄운다.
+ * checkCanceled() 가 아무리 촘촘해도 이 프로세스 안에서는 절대 안 걸린다 -
+ * 실제로 프로세스를 죽여야 진짜 중지다.
+ *
+ * Windows 에서 useShell:true 로 뜬 프로세스는 spawn 이 돌려주는 pid 가 cmd.exe 의 pid 라
+ * child.kill() 을 해도 그 밑에서 실제로 토큰을 쓰는 codex/claude 는 안 죽는다.
+ * taskkill /pid PID /t /f 로 트리 전체를 죽여야 한다.
+ */
+describe('v3.8.415 - Agent 모드 자식 프로세스를 실제로 죽인다', () => {
+  it('실행 중인 프로세스를 추적하는 목록이 있다', () => {
+    expect(mainTs).toContain('const activeAgentChildren = new Set');
+  });
+
+  it('spawn 직후 추적 목록에 넣고, close 시 뺀다 (안 빼면 죽은 프로세스가 계속 쌓인다)', () => {
+    // v3.8.415 참고: braceBlock 은 마커 뒤 첫 '{' 를 본문 시작으로 본다.
+    //   이 함수들의 시그니처엔 TS 타입 리터럴(예: opts: { userCanceled?: boolean })이나
+    //   제네릭 반환 타입(Promise<{ ... }>)이 먼저 나와 braceBlock 이 그 중괄호를 본문으로 오인한다.
+    //   그래서 여기서는 브레이스 매칭이 필요 없는 blockBetween(경계 슬라이스)을 쓴다.
+    expect(mainTs).toContain('activeAgentChildren.add(child)');
+    expect(mainTs).toContain('activeAgentChildren.delete(child)');
+  });
+
+  it('Windows 에서는 taskkill /t /f 로 트리 전체를 죽인다 - child.kill() 만으로는 cmd.exe 만 죽는다', () => {
+    const block = blockBetween(mainTs, 'function killAgentChildTree(', 'function cancelActiveAgentProcesses(');
+    expect(block).toContain("'win32'");
+    expect(block).toContain("execFile('taskkill'");
+    expect(block).toContain("'/t'");
+    expect(block).toContain("'/f'");
+  });
+
+  it('세 킬 지점(한도초과/타임아웃/중지) 모두 트리킬을 쓴다 - raw child.kill() 이 남으면 Windows 에서 안 죽는다', () => {
+    // 두 곳(한도초과·타임아웃)은 runAgentProcess 안에, 나머지 한 곳(사용자 중지)은
+    // 형제 함수 cancelActiveAgentProcesses 안에 있다 — 그건 위 테스트가 따로 확인한다.
+    const block = blockBetween(mainTs, 'async function runAgentProcess(', 'function readTextFileIfExists(');
+    // 주석 줄은 세지 않는다 — "child.kill() 만으로는 안 된다"는 설명 자체가 그 문구를 담고 있다
+    const codeLines = block.split('\n').filter((l) => !/^\s*(\/\/|\*)/.test(l));
+    const rawKillCount = (codeLines.join('\n').match(/child\.kill\(\)/g) || []).length;
+    expect(rawKillCount).toBe(0);
+    const treeKillCount = (block.match(/killAgentChildTree\(child/g) || []).length;
+    expect(treeKillCount).toBe(2);
+  });
+
+  it('사용자가 중지시킨 것과 타임아웃/한도초과를 구분한다', () => {
+    const block = blockBetween(mainTs, 'function killAgentChildTree(', 'function cancelActiveAgentProcesses(');
+    expect(block).toContain('userCanceled');
+    expect(block).toContain('__userCanceled');
+  });
+
+  it('cancelActiveAgentProcesses() 가 실제로 도는 프로세스를 전부 죽이고 목록을 비운다', () => {
+    const block = braceBlock(mainTs, 'function cancelActiveAgentProcesses(');
+    expect(block).toContain('for (const child of activeAgentChildren) killAgentChildTree(child, { userCanceled: true })');
+    expect(block).toContain('activeAgentChildren.clear()');
+  });
+
+  it('handleCancelTask() 가 cancel-token 과 Agent 프로세스 종료를 둘 다 부른다', () => {
+    const block = blockBetween(mainTs, 'function handleCancelTask(', "ipcMain.on('cancel-task'");
+    expect(block).toContain('requestCancel()');
+    expect(block).toContain('cancelActiveAgentProcesses()');
+    expect(block).toContain('tokenAccepted || killedAgents > 0');
+  });
+
+  it('취소당해 산출물이 비었으면 재시도로 다른 모델을 또 띄우지 않는다', () => {
+    const block = blockBetween(mainTs, 'async function runAgentProcess(', 'function readTextFileIfExists(');
+    expect(block).toContain('if (run.canceled) return run;');
+  });
+
+  it('agent-mode:run-job 이 취소를 실패로 보고하지 않는다', () => {
+    const block = braceBlock(mainTs, "ipcMain.handle('agent-mode:run-job'");
+    expect(block).toContain('!hasContent && run.canceled');
+    expect(block).toContain('canceled: true');
+  });
+});
+
+/**
+ * 렌더러가 canceled 결과를 실패로 잘못 표시하지 않는다 (v3.8.415)
+ *
+ * main 프로세스가 아무리 정직하게 { ok:false, canceled:true } 를 돌려줘도
+ * 화면 쪽이 result.ok 만 보고 "발행 실패"를 띄우면 사용자에게는 똑같이 고장난 걸로 보인다.
+ */
+describe('v3.8.415 - 렌더러가 취소와 실패를 구분해서 보여준다', () => {
+  const postingSrc2 = read('electron', 'ui', 'modules', 'posting.js');
+  const previewSrc = read('electron', 'ui', 'modules', 'preview.js');
+  const codexSrc = read('electron', 'ui', 'modules', 'codex-workshop.js');
+
+  it('runPosting() 의 실패 분기가 canceled 를 먼저 본다 (일반 실패 알림보다 앞서야 한다)', () => {
+    const idx = postingSrc2.indexOf('} else if (result?.canceled) {');
+    const genericFailIdx = postingSrc2.indexOf("const errorMessage = result?.error || '알 수 없는 오류';");
+    expect(idx).toBeGreaterThan(-1);
+    expect(idx).toBeLessThan(genericFailIdx);
+  });
+
+  it('runPosting() 의 catch 도 canceled 를 먼저 본다', () => {
+    const block = braceBlock(postingSrc2, 'export async function runPosting()');
+    expect(block).toContain('if (error?.canceled)');
+  });
+
+  it('publishToPlatform() 도 성공/실패 분기와 catch 양쪽에서 canceled 를 본다', () => {
+    const block = braceBlock(postingSrc2, 'export async function publishToPlatform()');
+    expect(block).toContain('} else if (result?.canceled) {');
+    expect(block).toContain('if (error?.canceled)');
+  });
+
+  it('취소돼도 다음 글을 위해 상태를 초기화한다 - 완료 뿐 아니라 중지도 깨끗해야 한다', () => {
+    const hits = postingSrc2.split('\n').filter((l) => l.includes("resetArticleStateAfterPublish('중지')"));
+    expect(hits.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('반자동 미리보기 생성(preview.js)도 같은 run-post 를 쓴다 - canceled 를 본다', () => {
+    const block = braceBlock(previewSrc, 'export async function generatePreview()');
+    expect(block).toContain('else if (result?.canceled)');
+    expect(block).toContain('error?.canceled');
+  });
+
+  it('Agent 모드가 취소를 throw 로 알릴 때 canceled 플래그를 싣는다', () => {
+    // runAgentJob 의 첫 인자가 구조분해 파라미터라 시그니처 자체에 '{' 가 있다 — braceBlock 대신 경계 슬라이스
+    const block = blockBetween(codexSrc, 'async function runAgentJob(', 'async function runAgentJobFromModal()');
+    expect(block).toContain('result?.canceled');
+    expect(block).toContain('canceledErr.canceled = true');
+  });
+
+  it('그 throw 를 posting.js 의 바깥 catch 가 error.canceled 로 받아낸다 (두 조각이 맞물린다)', () => {
+    const block = braceBlock(postingSrc2, 'export async function runPosting()');
+    expect(block).toContain('error?.canceled');
   });
 });

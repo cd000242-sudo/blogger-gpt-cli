@@ -187,7 +187,15 @@ export function normalizeParagraphs(html: string, opts: NormalizeOptions = {}): 
       cursor = at + full.length;
 
       // CTA 카드·고지문은 손대지 않는다
-      if (/affiliate-disclosure|data-orbit-cta/i.test(attrs)) {
+      //
+      // v3.8.416 실측 사고 — 클래스명이 갈라져 있었다:
+      //   compliance.ts(토스·네이버 등 일반 제휴)는 "affiliate-disclosure"를 쓰는데
+      //   coupang-partners.ts(쿠팡 전용, renderCoupangDisclosureBanner)는 "coupang-disclosure"를 쓴다.
+      //   여기 가드는 앞의 것만 알고 있었다 — 쿠팡 고지문은 짧은 문단으로 보여
+      //   바로 다음 본문 문단과 강제로 합쳐졌다.
+      //   실제 발행글에서 확인: "이 포스팅은 쿠팡 파트너스... 제공받습니다.<br>스마트폰 저장 공간은..."
+      //   — 대가성 문구와 본문 첫 문장이 한 문단으로 뭉쳐 있었다.
+      if (/affiliate-disclosure|coupang-disclosure|data-orbit-cta/i.test(attrs)) {
         if (carry) { out += `<p${carry.attrs}>${carry.inner}</p>`; carry = null; }
         out += full;
         continue;

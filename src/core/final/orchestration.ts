@@ -214,11 +214,18 @@ function renderFinalCtaBlock(input: {
   url?: string;
   microcopy?: string;
   marginTop?: number;
+  /**
+   * v3.8.416 — 쿠팡 등 제휴 링크를 가리킬 때는 "sponsored" 가 반드시 필요하다.
+   *   기본값(nofollow noopener noreferrer)은 이전 동작을 그대로 유지한다 —
+   *   기존 호출부(비제휴 CTA)를 건드리지 않기 위해서다.
+   */
+  rel?: string;
 }): string {
   const badge = input.badge ? escapeHtmlText(sanitizeCtaText(input.badge)) : '';
   const hook = escapeHtmlText(sanitizeCtaText(input.hook || ''));
   const buttonText = escapeHtmlText(sanitizeCtaText(input.buttonText || 'Details'));
   const url = escapeHtmlAttr(input.url || '#');
+  const rel = escapeHtmlAttr(input.rel || 'nofollow noopener noreferrer');
   const ariaLabel = escapeHtmlAttr(sanitizeCtaText(input.buttonText || 'Details'));
   const microcopy = input.microcopy ? escapeHtmlText(sanitizeCtaText(input.microcopy)) : '';
   const boxStyle = input.marginTop != null
@@ -230,7 +237,7 @@ function renderFinalCtaBlock(input: {
   ${badge ? `<span class="cta-badge" style="${FINAL_CTA_BADGE_STYLE}">${badge}</span>` : ''}
   <p class="cta-hook" style="${FINAL_CTA_HOOK_STYLE}"><strong>${hook}</strong></p>
   <div class="cta-action-stack" style="${FINAL_CTA_ACTION_STACK_STYLE}">
-    <a class="cta-btn" href="${url}" target="_blank" rel="nofollow noopener noreferrer" role="button" aria-label="${ariaLabel}" style="${FINAL_CTA_BUTTON_STYLE}">
+    <a class="cta-btn" href="${url}" target="_blank" rel="${rel}" role="button" aria-label="${ariaLabel}" style="${FINAL_CTA_BUTTON_STYLE}">
       <span style="position:relative !important;z-index:2 !important;">${buttonText}</span>
     </a>
     ${microcopy ? `<span class="cta-microcopy" style="${FINAL_CTA_MICROCOPY_STYLE}">${microcopy}</span>` : ''}
@@ -1151,39 +1158,107 @@ export async function generateUltimateMaxModeArticleFinal(
       h2Titles = SHOPPING_CONVERSION_MODE_SECTIONS.map(sec => {
         return sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
       });
+      /**
+       * v3.8.416 — 후기가 0건이면 "실사용 후기" 섹션 지시를 바꾼다.
+       *
+       * 사용자 지적: "이건 사전구매라서 후기가 당연히 없고 스펙을 보고 단점과 장점을
+       *   설명해줘야 되는데 후기 없으니까 후기 없는 게 단점이다라고 하는데 이건 추론이
+       *   문제 있는 거 같은데?? … 후기가 없으면 신상품인지, 사전구매인지, 후기가 원래
+       *   없는 상품인지 추론을 해서 제품을 제대로 인지하고 작성해야 되잖아"
+       *
+       * 원인 — SHOPPING_CONVERSION_MODE_SECTIONS 의 'real_reviews' 섹션은 후기 유무와
+       *   무관하게 "실제 구매 후기 카드 3개 이상(별점 포함)"을 **무조건** 요구했다.
+       *   실제 후기가 0건이면 모델은 지어내거나(신뢰도 붕괴), 그 요구와
+       *   "후기가 없다"는 사실 사이에서 타협하며 "후기가 0개로 표시되므로…" 같은
+       *   자기 설명적 문장을 쓴다 — 사용자가 지적한 "AI가 쓴 티" 의 정체다.
+       *   'honest_cons' 도 마찬가지로, 진짜 단점 데이터가 없으면 "후기 없음"을
+       *   단점으로 둔갑시킨다. 사전구매 상품은 후기가 없는 게 당연한데도.
+       */
+      const shoppingEnrichment = (payload as any).coupangEnrichment as
+        { totalReviewCount?: number; reviews?: unknown[] } | undefined;
+      const reviewCount = Number(shoppingEnrichment?.totalReviewCount ?? -1);
+      const hasNoReviews = reviewCount === 0;
+
       // 섹션별 상세 지시 주입 (requiredElements/role/contentFocus/minChars)
       if (!modeResult.sectionPromptBlock) {
         const guides = SHOPPING_CONVERSION_MODE_SECTIONS.map((sec, idx) => {
           const t = sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
-          const reqs = (sec as any).requiredElements?.map((r: string) => `  - ${r}`).join('\n') || '';
-          return `[섹션 ${idx + 1}: ${t}] (최소 ${(sec as any).minChars || 1000}자)\n역할: ${(sec as any).role || ''}\n핵심: ${(sec as any).contentFocus || ''}\n필수 요소:\n${reqs}`;
+          let role = sec.role;
+          let contentFocus = sec.contentFocus;
+          let reqs = sec.requiredElements;
+
+          if (hasNoReviews && sec.id === 'real_reviews') {
+            role = '제품 분석가';
+            contentFocus = '후기가 없는 이유 추론 · 스펙 기반 예상 사용성 · 옵션별 차이 설명';
+            reqs = [
+              '⚠️ 이 상품은 실제 후기가 0건입니다 — 후기 카드·별점·"⭐4.7/5" 같은 숫자를 지어내지 마세요.',
+              '먼저 왜 0건인지 판단해 한두 문장으로 밝히세요: 최근 출시된 신상품인지, 사전구매/예약판매인지, 원래 후기가 적은 카테고리인지.',
+              '"후기가 없다" 자체는 단점이 아닙니다 — 이유를 밝히고 바로 다음 내용으로 넘어가세요.',
+              '후기 대신 스펙을 독자의 상황으로 번역해 예상 사용성을 설명하세요.',
+              '옵션(용량·구성)별 차이와 어떤 사람에게 어느 옵션이 맞는지를 이 섹션의 핵심으로 삼으세요.',
+            ];
+          } else if (hasNoReviews && sec.id === 'honest_cons') {
+            reqs = [
+              '이 제품의 단점은 후기가 아니라 **스펙·구조상 트레이드오프**에서 찾으세요.',
+              '⚠️ "후기가 없다/적다"를 단점으로 쓰지 마세요 — 사전구매·신상품이면 당연한 것입니다.',
+              '가격대·경쟁 모델 대비 부족한 스펙, 무게·크기, 호환성 제약처럼 스펙표로 확인 가능한 것만 쓰세요.',
+              '이런 사용자에게는 비추천 (사용 시나리오 명시)',
+              '단점에도 불구하고 추천하는 이유 (균형감)',
+            ];
+          }
+
+          const reqsText = reqs.map((r) => `  - ${r}`).join('\n');
+          return `[섹션 ${idx + 1}: ${t}] (최소 ${sec.minChars || 1000}자)\n역할: ${role}\n핵심: ${contentFocus}\n필수 요소:\n${reqsText}`;
         }).join('\n\n');
         modeResult.sectionPromptBlock = `\n\n📋 [쇼핑 모드 섹션별 상세 지시]\n${guides}`;
       }
-      // 🛒 쿠팡 파트너스 API로 실제 상품 데이터 수집 (키가 있으면)
-      try {
-        const envData = loadEnvFromFile();
-        const coupangAccessKey = (payload as any).coupangAccessKey || envData['coupangAccessKey'] || envData['COUPANG_ACCESS_KEY'] || '';
-        const coupangSecretKey = (payload as any).coupangSecretKey || envData['coupangSecretKey'] || envData['COUPANG_SECRET_KEY'] || '';
-        if (coupangAccessKey && coupangSecretKey) {
-          onLog?.('[PROGRESS] 37% - 🛒 쿠팡 파트너스 API: 실제 상품 데이터 조회 중...');
-          const products = await searchCoupangProducts(keyword, coupangAccessKey, coupangSecretKey, 10);
-          if (products.length > 0) {
-            (payload as any).coupangProducts = products;
-            // 상품 이미지를 썸네일/H2 이미지 소스로도 사용 가능
-            if (!(payload as any).productImages || (payload as any).productImages.length === 0) {
-              (payload as any).productImages = products.map(p => p.productImage).filter(Boolean);
-            }
-            // 섹션 가이드에 실제 상품 데이터 추가
-            modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') + formatProductsForPrompt(products);
-            onLog?.(`[PROGRESS] 38% - ✅ 쿠팡 상품 ${products.length}개 수집 완료 (할루시네이션 방지)`);
-          } else {
-            onLog?.('[PROGRESS] 38% - ℹ️ 쿠팡 검색 결과 없음');
+
+      /**
+       * v3.8.416 — 실제로 수집한 후기·스펙 원문을 프롬프트에 싣는다.
+       *
+       * 사용자 지적: "전혀 프롬프트를 안 타는 것 같아"
+       *
+       * coupang-enrich.ts 의 formatEnrichmentForPrompt() 는 이미 후기 0건 케이스를
+       * 정확히 다루도록 설계돼 있었다("후기가 있는 것처럼 쓰지 마세요", 스펙을 독자
+       * 상황으로 번역하는 법까지) — 그런데 실제로는 이 함수를 부르는 코드가
+       * "2순위: API 로 상품 구제" 라는 드문 경로에만 있었다. 매 세션 공들여 모은
+       * 후기(이번 세션만 60건·54,000자)가 **정작 본문을 쓰는 프롬프트에는 한 번도
+       * 실리지 않고 있었다.**
+       */
+      if (shoppingEnrichment) {
+        try {
+          const { formatEnrichmentForPrompt } = await import('../affiliate/coupang-enrich');
+          const enrichmentBlock = formatEnrichmentForPrompt(shoppingEnrichment as any);
+          if (enrichmentBlock) {
+            modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') + enrichmentBlock;
+            onLog?.(`[PROGRESS] 36% - ✅ 실제 ${reviewCount >= 0 ? `후기 ${reviewCount}건` : '수집 데이터'}를 프롬프트에 반영`);
           }
-        }
-      } catch (coupangErr: any) {
-        onLog?.(`[PROGRESS] 38% - ⚠️ 쿠팡 API 오류 (계속 진행): ${coupangErr.message?.slice(0, 80)}`);
+        } catch { /* 반영 실패해도 발행은 계속된다 */ }
       }
+      /**
+       * v3.8.416 — 여기 있던 "쿠팡 API 키워드 검색" 블록을 지웠다.
+       *
+       * 사용자 보고: "추천상품 한눈에보기는 다른 추천상품도 같이 넣던데 이렇게 하면
+       *   지금 소개하는 상품 말고 다른 상품으로 유도하는 꼴이고 내 링크를 안 누르고
+       *   추천상품을 누르는 경우가 생기잖아 뭔 생각으로 넣은 건지 이해가 안 가네"
+       * "핵심 바로가기도 내 링크여야 되는데 이것도 자동 링크네"
+       *
+       * 원인 — payload.coupangProducts 를 **두 곳**에서 채우고 있었다:
+       *   ① 여기(H2 제목 짜는 시점) — keyword 로 쿠팡 텍스트 검색 → 최대 10개 '비슷한 상품'
+       *   ② 조금 뒤 "3단계" 시스템 — 1순위 사용자 링크 크롤링 → 2순위 키워드 검색 → 3순위 가드
+       *
+       * ①이 먼저 실행되며 coupangProducts 를 채워버리면, ②의 1순위 가드
+       *   `if (manualUrls.length > 0 && !(payload as any).coupangProducts)` 가 거짓이 되어
+       *   **사용자가 넣은 링크를 크롤링하는 코드가 통째로 스킵됐다.**
+       *   그 결과 renderCoupangProductBlock() 이 ①의 '비슷한 상품' 최대 6개를
+       *   "🛒 추천 상품 한눈에 보기"로 렌더링했다 — 사용자 링크가 아닌 상품들이었다.
+       *   "핵심 바로가기" 버튼(topCta)도 같은 coupangProducts 를 참조해 같은 문제를 겪었다.
+       *
+       * 실제 발행글(갤럭시 Z Flip8 글) 실측으로 이 순서를 확인했다.
+       * ②가 실제 상품 데이터 프롬프트 주입(formatProductsForPrompt)도 똑같이 하므로
+       * 여기서 지워도 "할루시네이션 방지용 실제 데이터 제공" 기능은 그대로 유지된다 —
+       * 단지 사용자 링크가 있을 때 그 링크가 최우선이 되도록 순서를 지킬 뿐이다.
+       */
       // 🛡️ 쿠팡 실제 데이터가 없으면 본문에 가격 숫자 직접 표기 금지 (할루시네이션 방지)
       const hasRealProducts = Array.isArray((payload as any).coupangProducts) && (payload as any).coupangProducts.length > 0;
       if (!hasRealProducts) {
@@ -3066,6 +3141,31 @@ JSON: [{"label":"필독","hookingMessage":"...","buttonText":"..."}]
     if (contentMode === 'adsense') {
       // 🛡️ 애드센스 모드: 상단 CTA 완전 차단
       console.log('[MAX-MODE] 🛡️ 애드센스 모드 — 상단 CTA 생성 생략 (승인 정책 준수)');
+    } else if (contentMode === 'shopping' && coupangLink) {
+      /**
+       * v3.8.416 — 쇼핑 글의 "핵심 바로가기"는 사용자의 제휴 링크를 가리켜야 한다.
+       *
+       * 사용자 보고: "핵심 바로가기도 내 링크여야 되는데 이것도 자동 링크네"
+       *
+       * 원인 — 이 자리는 원래 ctas/supplementalCtas(검색·크롤링으로 찾은 일반 URL)에서
+       *   후보를 골랐다. 쇼핑 글에서도 그 일반 후보 로직을 그대로 타서,
+       *   글 맨 위 가장 눈에 띄는 버튼이 사용자 링크가 아닌 다른 곳으로 갔다.
+       *   v3.8.413 에서 본문 중간 CTA(sectionCta)는 이미 막았는데 이 상단 CTA는 놓쳤다.
+       *
+       * coupangLink 는 "제목을 짓기 전에 상품을 확정"할 때(621행) 이미 구한,
+       *   **사용자가 입력한 그대로의 원본 링크**다 — 주소를 바꾸면 제휴 계약 위반이라
+       *   가공하지 않고 그대로 쓴다.
+       */
+      const productLabel = String((payload as any).resolvedProductName || keyword || '').trim();
+      topCtaHtml = renderFinalCtaBlock({
+        badge: '핵심 바로가기',
+        hook: productLabel ? `${productLabel}, 실제 가격과 옵션을 지금 확인하세요` : '실제 가격과 옵션을 지금 확인하세요',
+        buttonText: '🛒 쿠팡에서 가격 확인',
+        url: coupangLink,
+        rel: 'nofollow sponsored noopener',
+        marginTop: 20,
+      });
+      console.log('[MAX-MODE] 🛒 쇼핑 글 상단 CTA — 사용자 제휴 링크로 고정');
     } else {
       const topCandidates: RenderableCtaCandidate[] = [
         ...ctas.map(c => toRenderableCtaCandidate(c, `${keyword} 핵심 정보 바로가기`, '자세히 보기', '핵심')),
