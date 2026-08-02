@@ -3788,6 +3788,16 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   }
 
   if (!result?.ok) {
+    // v3.8.415: 사용자가 중지시킨 것을 '실패'로 보고하면 안 된다.
+    //   Agent 모드는 codex/claude CLI 를 자식 프로세스로 띄우는데, cancel-token 만으로는
+    //   그 프로세스를 못 멈춘다 — main 프로세스가 실제로 트리 킬한 뒤 이 result.canceled 로 알려준다.
+    //   여기서 놓치면 posting.js 의 catch 가 "❌ 발행 오류" 빨간 알림을 띄운다(사용자가 직접 멈췄는데도).
+    if (result?.canceled) {
+      setAgentRunStatus('작업을 중지했습니다.', 'warning');
+      const canceledErr = new Error('작업을 중지했습니다.');
+      canceledErr.canceled = true;
+      throw canceledErr;
+    }
     // v3.8.382: 인증 만료는 재시도해도 무조건 실패한다 — 연속발행이 남은 항목을 헛돌지 않도록 신호를 남긴다.
     if (result?.authRequired) {
       try { window.__agentAuthRevoked = true; } catch { /* noop */ }

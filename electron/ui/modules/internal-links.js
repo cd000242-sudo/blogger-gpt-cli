@@ -2482,7 +2482,9 @@ async function generateAndPublishSpiderWeb() {
     }
 
     if (!pubResult || !pubResult.ok) {
-      _swFinishError(pubResult?.error || '발행에 실패했습니다.');
+      // v3.8.415: publish-content 가 사용자 중지로 { ok:false, canceled:true } 를 돌려줄 수 있다.
+      //   "발행에 실패했습니다"는 사용자가 직접 멈춘 것과 다른 이야기다.
+      _swFinishError(pubResult?.canceled ? '작업을 중지했습니다.' : (pubResult?.error || '발행에 실패했습니다.'));
       _renderSpiderWebPreview(generatedContent.html, null, null);
       _persistSpiderWebLast({ title: generatedContent.title, html: generatedContent.html, urls, publishedUrl: '', publishedAt: '' });
       return;

@@ -142,15 +142,24 @@ export async function generatePreview() {
       
       addLog('[NEW-PREVIEW] 미리보기 데이터 준비 완료! 미리보기 버튼을 클릭하세요.', 'success');
       
+    } else if (result?.canceled) {
+      // v3.8.415: 반자동 미리보기 생성도 posting.js 의 runPosting() 과 같은 'run-post' 를 쓴다.
+      //   중지를 눌러 { ok:false, canceled:true } 가 오면 "콘텐츠 생성 실패" 에러 토스트가 아니라
+      //   조용히 멈춘 것으로 보여야 한다.
+      addLog('🛑 작업을 중지했습니다.', 'info');
     } else {
       throw new Error(result?.error || result?.logs || '콘텐츠 생성 실패');
     }
-    
+
   } catch (error) {
-    getErrorHandler().handle(error, {
-      function: 'generatePreview',
-      step: '콘텐츠 생성'
-    });
+    if (error?.canceled) {
+      addLog('🛑 작업을 중지했습니다.', 'info');
+    } else {
+      getErrorHandler().handle(error, {
+        function: 'generatePreview',
+        step: '콘텐츠 생성'
+      });
+    }
   } finally {
     ButtonStateManager.restore('editGeneratedBtn');
     setRunning(false);

@@ -4554,6 +4554,22 @@ safeRegisterHandler('run-semi-auto-post', async (_evt, payload) => {
 // 포스트 실행 (콘텐츠 생성 + 자동 발행)
 electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
     let freeTrialPublish = false;
+    /**
+     * v3.8.415 — 이 핸들러가 진짜 생성 엔트리 포인트다.
+     *
+     * v3.8.414 에서 beginRun()/endRun() 을 'publish-content' 핸들러에 걸었는데,
+     * 사용자가 겪은 209초짜리 전체 파이프라인(제목→본문→이미지 8장→발행)은
+     * 전부 **이 'run-post' 핸들러 안**에서 돈다(generateMaxModeArticle → … →
+     * orchestration.ts 의 generateUltimateMaxModeArticleFinal, checkCanceled 가 있는 바로 그 함수).
+     * beginRun() 을 여기서 안 부르면 currentRunId 가 계속 0 이라
+     * isCanceled() 는 항상 false, requestCancel() 도 항상 false 를 반환한다.
+     * 즉 중지를 눌러도 **"진행 중인 작업이 없습니다"라고 거짓 안내**가 뜨고 실제로는 안 멈춘다.
+     * (재현: node 로 requestCancel() 을 run 시작 없이 호출하면 false 가 나온다 — 실측 확인.)
+     */
+    try {
+        require('../dist/core/cancel-token').beginRun();
+    }
+    catch { /* noop */ }
     try {
         console.log('[RUN-POST] 포스트 실행 요청 받음');
         console.log('[RUN-POST] payload keys:', Object.keys(payload || {}));
@@ -5058,9 +5074,25 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
         };
     }
     catch (error) {
+        // v3.8.415: 사용자가 직접 멈춘 것은 '실패'가 아니다 — publish-content 와 같은 규칙.
+        try {
+            const { isCancellation } = require('../dist/core/cancel-token');
+            if (isCancellation(error)) {
+                console.log('[RUN-POST] 🛑 사용자 중지로 종료');
+                return { ok: false, canceled: true, error: '작업을 중지했습니다.', needsAuth: false };
+            }
+        }
+        catch { /* 판정 실패 시 아래 일반 실패 경로로 */ }
         console.error('[RUN-POST] 실행 실패:', error);
         const errorMessage = error instanceof Error ? error.message : '실행 실패';
         return { ok: false, error: errorMessage, needsAuth: false };
+    }
+    finally {
+        // v3.8.415: 어떻게 끝났든 중지 표시를 지운다 — 안 지우면 다음 발행이 시작하자마자 멈춘다.
+        try {
+            require('../dist/core/cancel-token').endRun();
+        }
+        catch { /* noop */ }
     }
 });
 // 컨텐츠 발행
@@ -5164,7 +5196,7 @@ electron_1.ipcMain.handle('prepare-publish-content', async (_evt, data) => {
     }
 });
 /**
- * 🛑 작업 중지 (v3.8.414)
+ * 🛑 작업 중지 (v3.8.414 → v3.8.415 로 보강)
  *
  * 사용자 보고: "작업중지 버튼 눌렀는데 중지가 안 돼요"
  *   preload 는 cancel-task 를 보내는데 **받는 핸들러가 없었다.**
@@ -5173,13 +5205,25 @@ electron_1.ipcMain.handle('prepare-publish-content', async (_evt, data) => {
  *
  * 화면이 send 와 invoke 를 둘 다 쓰므로(ui.js / posting.js) 양쪽 다 받는다.
  * 한쪽만 달면 또 조용히 새어나간다.
+ *
+ * v3.8.415 — 다시 훑어보고 두 가지를 더 채웠다:
+ *   1) v3.8.414 는 beginRun()/endRun() 을 'publish-content' 핸들러에 걸었는데,
+ *      실제 209초짜리 생성 파이프라인은 'run-post' 핸들러 안에서 돈다.
+ *      거기엔 beginRun() 이 없어서 currentRunId 가 0 인 채로 남고,
+ *      isCanceled()/requestCancel() 이 항상 false — 중지를 눌러도
+ *      "진행 중인 작업이 없습니다"라고 **거짓 안내**가 떴다(재현 확인). → run-post 에도 걸었다.
+ *   2) Agent 모드(Codex/Claude CLI 구독)는 orchestration.ts 를 아예 안 거친다.
+ *      cancel-token 만으로는 절대 못 멈춘다 — 실제 자식 프로세스를 죽여야 한다.
+ *      → cancelActiveAgentProcesses() 로 taskkill /t /f 트리 킬.
  */
 function handleCancelTask() {
     try {
         const { requestCancel } = require('../dist/core/cancel-token');
-        const accepted = requestCancel();
+        const tokenAccepted = requestCancel();
+        const killedAgents = cancelActiveAgentProcesses();
+        const accepted = tokenAccepted || killedAgents > 0;
         console.log(accepted
-            ? '[CANCEL] 🛑 중지 요청 접수 — 다음 확인 지점에서 멈춥니다'
+            ? `[CANCEL] 🛑 중지 요청 접수 — 생성단계=${tokenAccepted ? 'O' : 'X'} · Agent 프로세스 ${killedAgents}개 종료`
             : '[CANCEL] ℹ️ 중지 요청 무시 — 진행 중인 작업이 없습니다');
         for (const win of electron_2.BrowserWindow.getAllWindows()) {
             if (!win.isDestroyed()) {
@@ -8186,6 +8230,52 @@ async function ensureLatestCodexCliForCompatibility() {
         };
     }
 }
+/**
+ * v3.8.415 — Agent 모드(Codex/Claude CLI)로 도는 자식 프로세스를 추적하고, 중지 시 실제로 죽인다.
+ *
+ * "물고 늘어져서" 다시 훑어보니 Agent 모드는 orchestration.ts 를 아예 거치지 않는다.
+ * codex/claude CLI 를 자식 프로세스로 띄워 최대 25분까지 기다리는데,
+ * cancel-token 의 checkCanceled() 는 그 프로세스 안에서는 절대 걸리지 않는다.
+ * 즉 Agent 모드로 생성 중일 때 🛑 을 눌러도 이 프로세스는 그대로 돈다 — 진짜 중지가 아니다.
+ *
+ * Windows 에서는 `useShell` 이면 spawn() 이 반환하는 pid 가 cmd.exe 의 pid 라
+ * child.kill() 을 해도 cmd.exe 아래에서 실제로 토큰을 쓰는 codex/claude 프로세스는 안 죽는다.
+ * `taskkill /t /f` 로 프로세스 트리 전체를 죽여야 한다.
+ */
+const activeAgentChildren = new Set();
+function killAgentChildTree(child, opts = {}) {
+    if (opts.userCanceled)
+        child.__userCanceled = true;
+    const pid = child.pid;
+    if (!pid)
+        return;
+    try {
+        if (process.platform === 'win32') {
+            const { execFile } = require('child_process');
+            // /t: 자식까지 트리 전체, /f: 강제 종료. 이미 죽었으면 에러가 나는데 무시해도 안전하다.
+            //   이걸 안 쓰면(그냥 child.kill()) useShell=true 일 때 cmd.exe 만 죽고
+            //   그 밑에서 실제로 토큰을 쓰는 codex/claude 프로세스는 계속 돈다.
+            execFile('taskkill', ['/pid', String(pid), '/t', '/f'], () => { });
+        }
+        else {
+            child.kill('SIGKILL');
+        }
+    }
+    catch (killErr) {
+        console.warn('[AGENT-CANCEL] 프로세스 종료 시도 실패(무시):', killErr?.message || killErr);
+    }
+}
+/** cancel-task 가 호출한다 — 지금 도는 Agent 프로세스가 있으면 전부 죽인다. */
+function cancelActiveAgentProcesses() {
+    const count = activeAgentChildren.size;
+    if (count > 0) {
+        console.log(`[AGENT-CANCEL] 🛑 실행 중인 Agent 프로세스 ${count}개 종료`);
+        for (const child of activeAgentChildren)
+            killAgentChildTree(child, { userCanceled: true });
+        activeAgentChildren.clear();
+    }
+    return count;
+}
 async function runAgentProcess(profile, jobDir, lastMessagePath) {
     const runOnce = (model) => {
         return new Promise((resolve) => {
@@ -8205,6 +8295,8 @@ async function runAgentProcess(profile, jobDir, lastMessagePath) {
                 stdio: ['ignore', 'pipe', 'pipe'],
                 windowsHide: true,
             });
+            // v3.8.415: 이 프로세스를 추적한다 — cancel-task 가 오면 여기서 찾아 죽인다.
+            activeAgentChildren.add(child);
             const append = (target, chunk) => {
                 const text = String(chunk || '');
                 if (target === 'stdout') {
@@ -8236,10 +8328,9 @@ async function runAgentProcess(profile, jobDir, lastMessagePath) {
                         });
                     }
                     catch { }
-                    try {
-                        child.kill();
-                    }
-                    catch { }
+                    // v3.8.415: child.kill() 하나만으로는 Windows 에서 cmd.exe 만 죽고
+                    //   그 아래 실제 codex/claude 프로세스는 계속 돈다 — 트리 전체를 죽인다.
+                    killAgentChildTree(child);
                 }
             };
             child.stdout?.on('data', (chunk) => { append('stdout', chunk); earlyKillIfQuota(String(chunk || '')); });
@@ -8253,25 +8344,25 @@ async function runAgentProcess(profile, jobDir, lastMessagePath) {
             const TIMEOUT_MS = 25 * 60 * 1000;
             const timeout = setTimeout(() => {
                 timedOut = true;
-                try {
-                    child.kill();
-                }
-                catch {
-                    // ignore
-                }
+                killAgentChildTree(child); // v3.8.415: 트리 전체 종료
             }, TIMEOUT_MS);
             child.on('close', (exitCode) => {
                 clearTimeout(timeout);
+                activeAgentChildren.delete(child); // v3.8.415: 끝났으니 추적 목록에서 뺀다
+                const canceled = !!child.__userCanceled;
                 // v3.8.283: 실제 CLI가 정상 종료/타임아웃/에러 어떤지 진단 로그 강화
-                console.log(`[AGENT-CLI] 🏁 종료: exitCode=${exitCode}, timedOut=${timedOut}, stdout=${stdout.length}자, stderr=${stderr.length}자`);
-                if (timedOut) {
-                    console.warn(`[AGENT-CLI] ⚠️ TIMEOUT (12분 초과) — agent가 시간 안에 못 끝남. CLI 한도/모델/네트워크 의심.`);
+                console.log(`[AGENT-CLI] 🏁 종료: exitCode=${exitCode}, timedOut=${timedOut}, canceled=${canceled}, stdout=${stdout.length}자, stderr=${stderr.length}자`);
+                if (canceled) {
+                    console.log('[AGENT-CLI] 🛑 사용자 중지로 종료');
                 }
-                if (exitCode !== 0 && !timedOut) {
+                else if (timedOut) {
+                    console.warn(`[AGENT-CLI] ⚠️ TIMEOUT (25분 초과) — agent가 시간 안에 못 끝남. CLI 한도/모델/네트워크 의심.`);
+                }
+                else if (exitCode !== 0) {
                     console.warn(`[AGENT-CLI] ⚠️ 비정상 종료 exitCode=${exitCode}`);
                     console.warn(`[AGENT-CLI] stderr 마지막 500자: ${stderr.slice(-500)}`);
                 }
-                resolve({ exitCode, stdout, stderr, timedOut });
+                resolve({ exitCode, stdout, stderr, timedOut, canceled });
             });
         });
     };
@@ -8285,11 +8376,16 @@ async function runAgentProcess(profile, jobDir, lastMessagePath) {
         stdout: '',
         stderr: '',
         timedOut: false,
+        canceled: false,
     };
     for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex++) {
         const model = attempts[attemptIndex];
         const run = await runOnce(model);
         lastRun = run;
+        // v3.8.415: 사용자가 중지시킨 것을 "실패해서 다른 모델로 재시도"로 오해하면 안 된다.
+        //   재시도하면 죽인 프로세스가 또 하나 더 뜬다 — 중지가 중지가 아니게 된다.
+        if (run.canceled)
+            return run;
         const combined = `${run.stderr || ''}\n${run.stdout || ''}`;
         if (!isCodexModelRetryableError(model, run)) {
             return run;
@@ -9641,6 +9737,12 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
         const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
         const usage = parseAgentRunUsage(profile.provider, run.stdout);
         const hasContent = !!String(result.content || '').trim();
+        // v3.8.415: 사용자가 중지시켜서 산출물이 비었을 뿐인데 "실패"로 보고하면
+        //   빨간 에러 문구("로그인 상태를 확인해주세요")가 뜨고 사용자는 뭔가 고장난 줄 안다.
+        if (!hasContent && run.canceled) {
+            console.log('[AGENT-MODE] 🛑 사용자 중지로 종료 — 산출물 없음(정상)');
+            return { ok: false, canceled: true, jobId, jobDir, error: '작업을 중지했습니다.' };
+        }
         if (!hasContent) {
             const errorMessage = buildAgentFailureMessage(profile, run);
             // v3.8.382: 실행 중 드러난 인증 실패를 응답에 실어 보낸다.

@@ -1061,6 +1061,15 @@ export async function runPosting() {
           }
         }
       }
+    } else if (result?.canceled) {
+      // v3.8.415: run-post 가 사용자 중지로 { ok:false, canceled:true } 를 돌려준 경우.
+      //   여기로 오는 이유: main.ts 의 checkCanceled() 는 예외를 throw 하지만,
+      //   run-post 핸들러가 그 예외를 잡아 canceled:true 결과로 '반환'하기 때문에
+      //   여기서는 throw 가 아니라 result.ok===false 분기로 들어온다.
+      //   "❌ 블로그 발행 실패"로 보이면 사용자가 다시 시도해야 하는 줄 안다 — 그게 아니다.
+      addLog('🛑 작업을 중지했습니다.', 'info');
+      hideProgressModal();
+      resetArticleStateAfterPublish('중지');
     } else {
       const errorMessage = result?.error || '알 수 없는 오류';
 
@@ -1112,6 +1121,16 @@ export async function runPosting() {
     }
 
   } catch (error) {
+    // v3.8.415: Agent 모드는 취소를 throw 로 알린다(codex-workshop.js 의 canceledErr).
+    //   여기서 못 걸러내면 "❌ 발행 오류: 작업을 중지했습니다" 라는 앞뒤가 안 맞는 토스트가 뜬다.
+    if (error?.canceled) {
+      setFinalResult({ ok: false, published: false, canceled: true, error: '작업을 중지했습니다.' });
+      addLog('🛑 작업을 중지했습니다.', 'info');
+      hideProgressModal();
+      resetArticleStateAfterPublish('중지');
+      return finalResult;
+    }
+
     setFinalResult({
       ok: false,
       published: false,
@@ -1539,12 +1558,16 @@ export async function publishToPlatform() {
         }
         // 🔥 발행 완료 알림 (모달은 finally에서 닫힘)
         try { showNotification('🎉 블로그 포스트 발행 완료!', 4000); } catch {}
-        // v3.8.353: 발행 성공 후 상태 초기화 (다음 발행 시 이전 콘텐츠 재사용 방지)
-        try {
-          appState.generatedContent = null;
-          window.__preGeneratedImagesForArticle = [];
-          window.__preGeneratedThumbnailForArticle = null;
-        } catch {}
+        // v3.8.415: resetArticleStateAfterPublish() 가 몇 줄 위에서 이미 이 일을 했다.
+        //   (v3.8.353 에 만들어진 이 자리 인라인 버전은 이제 그 함수의 부분집합이라 지웠다 —
+        //    두 벌로 남겨두면 다음에 하나만 고치고 잊어버리는 사고가 난다.)
+        return result;
+      } else if (result?.canceled) {
+        // v3.8.415: publish-content 가 사용자 중지로 { ok:false, canceled:true } 를 돌려준 경우.
+        //   "❌ 발행 실패"로 보이면 사용자가 뭔가 잘못됐다고 오해한다.
+        addLog('🛑 작업을 중지했습니다.', 'info');
+        if (agentFlowActive) updateAgentProgressModal(94, '작업을 중지했습니다.', 'warning', 'publish');
+        resetArticleStateAfterPublish('중지');
         return result;
       } else {
         const publishError = result?.error || '알 수 없는 오류';
@@ -1553,6 +1576,13 @@ export async function publishToPlatform() {
         return result || { ok: false, error: publishError };
       }
     } catch (error) {
+      // v3.8.415: 이 경로로 취소 예외가 오는 경우는 드물지만(주로 result.canceled 로 옴),
+      //   방어적으로 같은 규칙을 적용한다 — 한쪽만 처리하면 다른 쪽에서 또 헷갈린다.
+      if (error?.canceled) {
+        addLog('🛑 작업을 중지했습니다.', 'info');
+        resetArticleStateAfterPublish('중지');
+        return { ok: false, canceled: true, error: '작업을 중지했습니다.' };
+      }
       getErrorHandler().handle(error, { function: 'publishToPlatform' });
       return { ok: false, error: error?.message || String(error || 'publish_error') };
     } finally {
