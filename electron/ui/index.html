@@ -4113,6 +4113,31 @@
                           // v3.8.396: 제휴 링크 칸도 쇼핑모드 전용
                           const affLinks = document.getElementById('affiliateLinkField');
                           if (affLinks) affLinks.style.display = mode === 'shopping' ? 'block' : 'none';
+
+                          // v3.8.405 — 쇼핑모드에서는 '원본 URL' 칸을 감춘다.
+                          //   사용자 지적: "링크 넣을 곳이 두 군데인데 사람 심리상 두 군데 다 넣을 것 같다. 헷갈린다."
+                          //   맞는 말이다. 실제로 같은 링크를 양쪽에 넣어 쿠팡을 두 번 조회했다(실측).
+                          //   게다가 쇼핑모드에서 '원본 URL' 에 제휴가 아닌 참고 글을 넣으면
+                          //   URL 전용 모드가 켜져 쇼핑 파이프라인을 통째로 건너뛴다 — 조용한 사고다.
+                          //   상품 링크는 '제휴 링크' 칸 하나로 받는다.
+                          const refBlock = document.getElementById('referenceUrlBlock');
+                          if (refBlock) {
+                            refBlock.style.display = mode === 'shopping' ? 'none' : '';
+                            // 숨길 때 값을 지운다 — 안 지우면 안 보이는 칸의 값이 계속 따라다닌다
+                            if (mode === 'shopping') {
+                              const refInput = document.getElementById('referenceUrl');
+                              if (refInput && String(refInput.value || '').trim()) {
+                                const moved = String(refInput.value).trim();
+                                const affInput = document.getElementById('affiliateLinks');
+                                // 제휴 링크면 옮겨주고, 아니면 그냥 비운다
+                                if (affInput && /coupang\.com|coupa\.ng|naver\.me|smartstore\.naver|brand\.naver|toss\.im|toss\.shopping/i.test(moved)) {
+                                  const cur = String(affInput.value || '').trim();
+                                  if (!cur.includes(moved)) affInput.value = cur ? `${cur}\n${moved}` : moved;
+                                }
+                                refInput.value = '';
+                              }
+                            }
+                          }
                           // v3.8.398: 쇼핑모드면 이미지 소스도 상품 사진으로 맞춘다
                           if (window.syncShoppingImageControls) window.syncShoppingImageControls();
                         }
@@ -4410,7 +4435,7 @@ https://naver.me/XXXXXXX
 https://toss.im/_m/XXXXXXX"
                         style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.25); color:#fff; font-size:12px; line-height:1.6; resize:vertical;"></textarea>
                       <small style="color: rgba(255,255,255,0.55); font-size: 11px; margin-top: 6px; display: block; line-height:1.6;">
-                        ✅ <b>여기 아니면 위 '원본 URL' 칸, 둘 중 한 곳에만 넣으시면 됩니다.</b> 어디에 넣어도 상품으로 처리합니다.<br>
+                        ✅ <b>상품 링크는 여기에만 넣으시면 됩니다.</b> 쇼핑모드에서는 위 '원본 URL' 칸이 숨겨집니다.<br>
                         💡 상품명·이미지·가격은 자동으로 가져오고, <b>대가성 문구와 rel="sponsored"는 자동으로 붙습니다.</b><br>
                         🖼️ <b>본문 이미지는 전부 클릭하면 구매 링크로 이동합니다.</b><br>
                         ⚠️ 링크는 <b>받은 그대로</b> 사용됩니다(주소를 바꾸면 제휴 계약 위반입니다).<br>

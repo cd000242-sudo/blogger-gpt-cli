@@ -19,6 +19,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { AFFILIATE_PROVIDER_IDS, getPolicy } from '../src/core/affiliate/policies';
+import { blockBetween } from './helpers/source-block';
 
 const ROOT = path.join(__dirname, '..');
 const orch = fs.readFileSync(path.join(ROOT, 'src', 'core', 'final', 'orchestration.ts'), 'utf8');
@@ -173,7 +174,51 @@ describe('같은 링크는 한 번만 조회한다', () => {
   });
 
   it('UI 가 "한 곳에만 넣으면 된다"고 안내한다', () => {
+    // v3.8.405: 쇼핑모드에서 원본 URL 칸을 아예 감추면서 문구도 바뀌었다
     const html = fs.readFileSync(path.join(ROOT, 'electron', 'ui', 'index.html'), 'utf8');
-    expect(html).toContain("둘 중 한 곳에만 넣으시면 됩니다");
+    expect(html).toContain('상품 링크는 여기에만 넣으시면 됩니다');
+  });
+});
+
+/**
+ * 링크 입력 칸을 하나로 (v3.8.405)
+ *
+ * 사용자 지적(2026-08-02):
+ *   "UI가 링크 넣을 곳이 두 군데인데 사람 심리상 두 군데 다 넣을 것 같거든. 헷갈려.
+ *    둘 중 하나는 없애는 게 낫지 않니?"
+ *
+ * 맞는 지적이다. 실제로 양쪽에 넣어 쿠팡을 두 번 조회한 로그가 있었다
+ * ("제휴 링크 2개 상품 정보 조회 중" — 상품은 하나였다).
+ * 게다가 쇼핑모드에서 '원본 URL' 에 제휴가 아닌 참고 글을 넣으면
+ * URL 전용 모드가 켜져 쇼핑 파이프라인을 통째로 건너뛴다 — 조용한 사고다.
+ */
+describe('쇼핑모드에서는 링크 칸이 하나다', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'electron', 'ui', 'index.html'), 'utf8');
+  const block = blockBetween(html, "v3.8.405 — 쇼핑모드에서는 '원본 URL' 칸을 감춘다", '</script>');
+
+  it('⭐ 쇼핑모드면 원본 URL 칸을 감춘다', () => {
+    expect(block).toContain("refBlock.style.display = mode === 'shopping' ? 'none' : ''");
+  });
+
+  it('다른 모드에서는 그대로 보인다 (URL 기반 생성을 막으면 안 된다)', () => {
+    expect(block).toContain(": ''");
+  });
+
+  it('⭐ 숨길 때 값을 흘리지 않는다 — 안 보이는 칸의 값이 따라다니면 안 된다', () => {
+    expect(block).toContain("refInput.value = ''");
+  });
+
+  it('⭐ 숨기면서 제휴 링크면 옮겨준다 (사용자가 이미 넣어둔 걸 버리지 않는다)', () => {
+    expect(block).toContain('affInput.value =');
+    expect(block).toContain('coupang');
+    expect(block).toContain('toss');
+  });
+
+  it('이미 같은 링크가 있으면 중복으로 넣지 않는다', () => {
+    expect(block).toContain('!cur.includes(moved)');
+  });
+
+  it('안내 문구가 한 곳만 쓰라고 말한다', () => {
+    expect(html).toContain('상품 링크는 여기에만 넣으시면 됩니다');
   });
 });
