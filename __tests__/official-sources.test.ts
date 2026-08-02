@@ -24,6 +24,7 @@ import {
   buildOfficialSourceBlock,
   collectOfficialSources,
 } from '../src/core/final/official-sources';
+import { braceBlock } from './helpers/source-block';
 
 describe('기관명 판정 — 매핑에 없으면 채택하지 않는다', () => {
   it('공공 도메인을 기관명으로 바꾼다', () => {
@@ -213,21 +214,36 @@ describe('orchestration 배선', () => {
   it('공공출처 블록을 fact 근거보다 앞에 넣는다 — 12,000자 컷에서 살아남아야 한다', () => {
     const i = orch.indexOf('factEnrichedContents = [');
     expect(i).toBeGreaterThan(-1);
-    const block = orch.slice(i, i + 400);
+    const block = braceBlock(orch, 'factEnrichedContents = [');
     expect(block).toContain('officialBlock');
     // buildFactIntegrityPrompt 다음, FACT EVIDENCE 앞
     expect(block.indexOf('officialBlock')).toBeLessThan(block.indexOf('FACT EVIDENCE'));
   });
 
   it('수집 실패가 발행을 막지 않는다', () => {
+    // v3.8.403: 고정 길이(900자) 슬라이스는 주석 몇 줄만 늘어도 깨진다 — catch 위치로 경계를 잡는다
     const i = orch.indexOf("let officialBlock = ''");
     expect(i).toBeGreaterThan(-1);
-    const block = orch.slice(i, i + 900);
-    expect(block).toContain('try {');
-    expect(block).toContain('catch');
+    const end = orch.indexOf('catch (officialErr', i);
+    expect(end).toBeGreaterThan(i);
+    expect(orch.slice(i, end)).toContain('try {');
   });
 
   it('CSE 키가 있을 때만 호출한다 — 없는 키로 헛호출하지 않는다', () => {
-    expect(orch).toContain('if (cseKey && cseCx)');
+    expect(orch).toContain('cseKey && cseCx');
+  });
+
+  /**
+   * v3.8.403 — 사용자 지적(2026-08-02):
+   *   "네이버 크롤링이랑 공공기관 수집은 쇼핑모드에서 왜 하는 건데?"
+   *   맞는 지적이다. 상품 글의 근거는 상품 스펙과 구매자 후기지 통계청이 아니다.
+   *   "통계청 자료에 따르면 물놀이 튜브는…" 은 어색하고 신뢰를 깎는다. CSE 호출도 아낀다.
+   */
+  it('⭐ 쇼핑모드에서는 공공기관 근거를 모으지 않는다', () => {
+    expect(orch).toContain("cseKey && cseCx && contentMode !== 'shopping'");
+  });
+
+  it('쇼핑 외 모드는 그대로 수집한다 (할루시네이션 차단 유지)', () => {
+    expect(orch).toContain('collectOfficialSources(keyword, cseKey, cseCx, onLog)');
   });
 });

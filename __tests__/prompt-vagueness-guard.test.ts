@@ -11,6 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { braceBlock } from './helpers/source-block';
 
 const REPO = path.resolve(__dirname, '..');
 
@@ -38,7 +39,7 @@ describe('프롬프트 회피 지시 금지 (v3.8.382)', () => {
     const src = fs.readFileSync(path.join(REPO, 'src/core/final/gemini-engine.ts'), 'utf8');
     const idx = src.indexOf('Search grounding is unavailable');
     expect(idx).toBeGreaterThan(-1);
-    const block = src.slice(idx, idx + 1200);
+    const block = braceBlock(src, 'Search grounding is unavailable');
     expect(block).toMatch(/판단 기준/);
     expect(block).toMatch(/절차/);
     expect(block).toMatch(/기관명/);

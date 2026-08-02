@@ -10881,6 +10881,31 @@ try {
             return { ok: false, error: String(e?.message || e), tiers: [] };
         }
     });
+    /**
+     * 쇼핑모드 연속 발행 쿨다운 (v3.8.400)
+     *   실측: 쿠팡 상품 페이지를 짧은 시간에 반복 조회하면 실제 Chrome 도 403 이 된다.
+     *   막히면 후기·스펙을 못 가져와 글의 재료가 사라지므로, 몰아 쓰는 것을 잠깐 말린다.
+     *   ⚠️ 쇼핑모드에만 적용한다. 일반 글은 쿠팡을 두드리지 않는다.
+     */
+    electron_1.ipcMain.handle('shopping:cooldown-status', async () => {
+        try {
+            const { checkShoppingCooldown } = require('../dist/core/affiliate/shopping-cooldown');
+            return { ok: true, ...checkShoppingCooldown(electron_1.app.getPath('userData')) };
+        }
+        catch (e) {
+            // 상태를 못 읽으면 막지 않는다 — 발행을 막는 쪽으로 실패하지 않는다
+            return { ok: false, canPublish: true, remainingMs: 0, message: '', error: String(e?.message || e) };
+        }
+    });
+    electron_1.ipcMain.handle('shopping:cooldown-record', async () => {
+        try {
+            const { recordShoppingPublish } = require('../dist/core/affiliate/shopping-cooldown');
+            return { ok: true, state: recordShoppingPublish(electron_1.app.getPath('userData')) };
+        }
+        catch (e) {
+            return { ok: false, error: String(e?.message || e) };
+        }
+    });
     electron_1.ipcMain.handle('dropshot:verify-ready', async (_event, options) => {
         try {
             const { checkImageGenAccess } = require('../dist/utils/license-tier-manager');

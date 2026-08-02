@@ -16,6 +16,7 @@ import {
   crawlAffiliateLink, crawlAffiliateLinks, readMeta, extractPriceKrw, decodeEntities,
   isSupportedForCrawl,
 } from '../src/core/affiliate/crawl';
+import { braceBlock } from './helpers/source-block';
 
 const TOSS_SHORT = 'https://toss.im/_m/bMxjrwji';
 const TOSS_FINAL = 'https://toss.shopping/t/2526906561?k=7ab0e43f-e76f-419f-a094-864e77987e69&referrer=affiliate';
@@ -185,7 +186,7 @@ describe('네이버 경로 — Playwright 필수 근거가 코드에 남아있�
 
   it('브라우저를 반드시 닫는다 (finally)', () => {
     const i = src.indexOf('async function crawlNaver');
-    const block = src.slice(i, i + 2600);
+    const block = braceBlock(src, 'async function crawlNaver');
     expect(block).toContain('finally');
     expect(block).toContain('browser.close()');
   });

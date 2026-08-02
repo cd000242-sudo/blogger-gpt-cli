@@ -15,6 +15,7 @@
  *   하루 5~10편을 같은 주제군에서 뽑으면 반드시 커진다.
  */
 import { measureSelfOverlap, formatSelfOverlapLog, SelfOverlapReport } from '../src/core/self-overlap';
+import { braceBlock } from './helpers/source-block';
 
 /** 같은 문장을 반복하는 본문 — 같은 seed 끼리는 사실상 동일 문서가 된다 */
 const longBody = (seed: string) =>
@@ -228,7 +229,7 @@ describe('orchestration 배선', () => {
   it('관측 실패가 발행을 막지 않는다', () => {
     const i = orch.indexOf('🧬 v3.8.390');
     expect(i).toBeGreaterThan(-1);
-    const block = orch.slice(i, i + 1600);
+    const block = braceBlock(orch, '🧬 v3.8.390');
     expect(block).toContain('try {');
     expect(block).toContain('catch');
     expect(block).toContain('발행에 어떤 영향도 주지 않는다');
@@ -236,7 +237,7 @@ describe('orchestration 배선', () => {
 
   it('차단 분기가 없다 — 관측 결과로 흐름을 바꾸지 않는다', () => {
     const i = orch.indexOf('🧬 v3.8.390');
-    const block = orch.slice(i, i + 1600);
+    const block = braceBlock(orch, '🧬 v3.8.390');
     expect(block).not.toContain('throw');
     expect(block).not.toContain('return;');
   });

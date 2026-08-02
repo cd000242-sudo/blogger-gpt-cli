@@ -192,6 +192,65 @@ async function crawlCoupang(url: string, opts: CrawlOptions): Promise<AffiliateP
   };
 }
 
+/**
+ * 차단·오류 페이지의 제목인가.
+ *
+ * 실측(2026-08-01) — `https://link.coupang.com/a/...` 는 상품 페이지로 정상 리다이렉트되지만
+ * 쿠팡이 서버 요청과 헤드리스 브라우저 모두에 403 을 준다. 그때 받은 HTML 의 <title> 이
+ * "Access Denied" 였고, 크롤러는 그것을 상품명으로 반환했다.
+ *
+ * 상품명은 못 얻어도 괜찮다(링크와 고지문만으로 글은 나간다).
+ * 하지만 **틀린 상품명은 독자를 속인다.** 확실하지 않으면 버린다.
+ */
+export function isBlockedPageTitle(title: string): boolean {
+  const t = String(title || '').trim();
+  if (!t) return true;
+  if (t.length < 3) return true;
+  return /^(access denied|forbidden|error|not found|bad request|service unavailable)\b/i.test(t)
+    || /^(403|404|500|502|503)\b/.test(t)
+    || /just a moment|attention required|are you a robot|robot check|security check/i.test(t)
+    || /페이지를 찾을 수 없|접근이 거부|일시적인 오류|잘못된 요청|서비스 점검/.test(t);
+}
+
+/**
+ * 쿠팡 단축링크(link.coupang.com/a/…)가 가리키는 productId 를 얻는다.
+ *
+ * 왜 필요한가 — 실측(2026-08-01):
+ *   쿠팡은 상품 페이지 조회를 403 으로 막는다. 오픈 API 에도 "URL → 상품" 조회가 없다.
+ *   하지만 **리다이렉트는 인증 없이 따라갈 수 있다.** 302 Location 에 /vp/products/{id} 가 그대로 들어있다.
+ *   이 id 만 얻으면, 이미 받아둔 쿠팡 API 검색 결과에서 같은 id 를 찾아
+ *   공식 상품명·가격·대표이미지를 붙일 수 있다(추측이 아니라 쿠팡이 준 값이다).
+ *
+ * 실패해도 절대 throw 하지 않는다 — 발행을 막지 않는다.
+ */
+export async function resolveCoupangProductId(
+  url: string,
+  opts: { fetchImpl?: typeof fetch | undefined; maxHops?: number } = {},
+): Promise<string> {
+  const doFetch = opts.fetchImpl || fetch;
+  let cur = String(url || '').trim();
+  if (!/^https?:\/\//i.test(cur)) return '';
+
+  try {
+    for (let i = 0; i < (opts.maxHops ?? 5); i += 1) {
+      const direct = cur.match(/\/vp\/products\/(\d+)/);
+      if (direct?.[1]) return direct[1];
+
+      const res = await doFetch(cur, {
+        redirect: 'manual',
+        headers: { 'User-Agent': UA, 'Accept-Language': 'ko-KR,ko;q=0.9' },
+        signal: AbortSignal.timeout(15000),
+      });
+      const loc = res.headers.get('location');
+      if (!loc) break;
+      cur = loc.startsWith('http') ? loc : new URL(loc, cur).href;
+    }
+    return (cur.match(/\/vp\/products\/(\d+)/) || [])[1] || '';
+  } catch {
+    return '';
+  }
+}
+
 export function isSupportedForCrawl(provider: AffiliateProviderId): boolean {
   return provider === 'toss-sharelink'
     || provider === 'naver-shopping-connect'
@@ -226,6 +285,16 @@ export async function crawlAffiliateLink(
 
     if (!product.title) {
       opts.onLog?.(`   [제휴] 상품명을 얻지 못했습니다 (${sec}초) — 링크만 사용합니다`);
+      return null;
+    }
+    // v3.8.400 — 실측(2026-08-01): 쿠팡이 403 을 주면 오류 페이지의 <title>("Access Denied")이
+    //   그대로 상품명이 됐다. 그 이름이 프롬프트·상품카드·본문에 실려 나갔다.
+    //   차단 페이지를 상품으로 받아들이면 안 된다. 링크와 고지문만 남기고 상품 정보는 버린다.
+    if (isBlockedPageTitle(product.title)) {
+      opts.onLog?.(
+        `   [제휴] ⛔ ${getPolicy(provider)!.label}가 접근을 차단했습니다 ("${product.title.slice(0, 30)}") — `
+        + '상품 정보 없이 링크만 사용합니다. 상품명·가격·사진은 본문에 넣지 않습니다.',
+      );
       return null;
     }
     opts.onLog?.(

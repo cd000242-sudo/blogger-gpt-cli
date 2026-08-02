@@ -24,6 +24,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { braceBlock } from './helpers/source-block';
 
 const ROOT = path.join(__dirname, '..');
 const src = fs.readFileSync(path.join(ROOT, 'src', 'core', 'dropshotGenerator.ts'), 'utf8');
@@ -104,7 +105,7 @@ describe('등급 판정 — 존재하지 않는 API 를 두드리지 않는다',
 
   it('토글 확인이 실패해도 로그인 상태를 깨지 않는다 — 발행을 막으면 안 된다', () => {
     const i = src.indexOf('let subscriptionLabel');
-    const block = src.slice(i, i + 1200);
+    const block = braceBlock(src, 'let subscriptionLabel');
     expect(block).toContain('try {');
     expect(block).toContain('catch');
   });
@@ -118,7 +119,7 @@ describe('UI — 측정한 라벨을 실제로 보여준다', () => {
   it('subscriptionLabel 이 있으면 "연동됨" 대신 그것을 표시한다', () => {
     const i = uiScript.indexOf('window.getDropshotSubscriptionNote');
     expect(i).toBeGreaterThan(-1);
-    const block = uiScript.slice(i, i + 900);
+    const block = braceBlock(uiScript, 'window.getDropshotSubscriptionNote');
     expect(block).toContain("normalized.subscriptionLabel !== '연동됨'");
   });
 

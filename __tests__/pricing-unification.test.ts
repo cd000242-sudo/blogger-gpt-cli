@@ -17,6 +17,7 @@
 import {
   TIER_MODELS, COST_MODEL, deriveCostKrw, tierCostKrw, formatTierCost, getPricingTable, findTier,
 } from '../src/core/llm/pricing';
+import { braceBlock } from './helpers/source-block';
 
 describe('금액 계산 — 검증 가능한 산식', () => {
   it('토큰 단가로 계산한다 (입력 15K + 출력 1.2K, 재시도 1.3배, ₩1,400)', () => {
@@ -155,14 +156,14 @@ describe('반자동 발행 버튼 회귀 (v3.8.357~391 동안 안 보였다)', (
   it('생성된 글이 없어도 버튼을 숨기지 않는다', () => {
     const i = main.indexOf('window.veRefreshEntryButton');
     expect(i).toBeGreaterThan(-1);
-    const block = main.slice(i, i + 700);
+    const block = braceBlock(main, 'window.veRefreshEntryButton');
     expect(block).toContain("btn.style.display = 'inline-flex'");
     expect(block).not.toMatch(/display\s*=\s*has\s*\?/);
   });
 
   it('상태에 따라 라벨만 바꾼다', () => {
     const i = main.indexOf('window.veRefreshEntryButton');
-    const block = main.slice(i, i + 700);
+    const block = braceBlock(main, 'window.veRefreshEntryButton');
     expect(block).toContain('반자동 발행 (편집 후 발행)');
     expect(block).toContain('생성된 글 편집하러 가기');
   });

@@ -16,6 +16,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { braceBlock } from './helpers/source-block';
 
 const load = () => require('../src/core/final/engine-lock');
 
@@ -123,7 +124,7 @@ describe('orchestration 배선 — 락 획득 직후 try 진입 (R5)', () => {
     const src = fs.readFileSync(path.resolve(__dirname, '..', 'src', 'core', 'final', 'orchestration.ts'), 'utf8');
     const pos = src.indexOf('await acquireEngineLock');
     expect(pos).toBeGreaterThan(-1);
-    const codeOnly = src.slice(pos, pos + 1200)
+    const codeOnly = braceBlock(src, 'await acquireEngineLock')
       .split('\n')
       .filter(line => line.trim() && !line.trim().startsWith('//'))
       .join('\n');

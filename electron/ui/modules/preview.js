@@ -37,13 +37,13 @@ export async function generatePreview() {
       return;
     }
     
-    // 키워드 확인
-    const keywordInput = DOMCache.get('keywordInput');
-    const keyword = keywordInput?.value?.trim();
-    if (!keyword) {
-      alert('키워드를 입력해주세요.');
+    // 키워드 확인 — v3.8.402: URL 모드면 키워드 없이도 통과한다(일반 발행과 같은 규칙)
+    const topicInput = resolveTopicInput();
+    if (!topicInput.ok) {
+      alert(topicInput.message);
       return;
     }
+    const keyword = topicInput.keyword;
     
     console.log('[NEW-PREVIEW] 키워드:', keyword);
     
@@ -158,6 +158,37 @@ export async function generatePreview() {
   }
 }
 
+/**
+ * 무엇으로 글을 쓸지 정한다 — 키워드 또는 원본 URL. (v3.8.402)
+ *
+ * 일반 발행(posting.js runPosting)은 **URL 모드**를 지원한다:
+ *   singleInputMode 가 'url' 이고 referenceUrl 에 http(s) 주소가 있으면
+ *   키워드 없이 통과하고, 백엔드가 URL 본문에서 키워드를 뽑는다.
+ *
+ * 그런데 반자동 발행은 keywordInput 만 보고 "키워드를 입력해주세요"로 막았다.
+ * URL 기반으로 쓰는 사용자는 반자동을 아예 못 썼다(실측 보고 2026-08-02).
+ * 두 경로가 같은 규칙을 쓰도록 여기로 모은다.
+ */
+function resolveTopicInput() {
+  const keyword = (document.getElementById('keywordInput')?.value || '').trim();
+  if (keyword) return { ok: true, keyword };
+
+  let singleInputMode = 'keyword';
+  try { singleInputMode = localStorage.getItem('singleInputMode') || 'keyword'; } catch { /* noop */ }
+
+  const referenceUrl = (document.getElementById('referenceUrl')?.value || '').trim();
+  const hasValidUrl = referenceUrl.split('\n')
+    .map((u) => u.trim())
+    .some((u) => u.startsWith('http://') || u.startsWith('https://'));
+
+  if (singleInputMode === 'url') {
+    return hasValidUrl
+      ? { ok: true, keyword: '' }                                   // 백엔드가 URL 에서 추출한다
+      : { ok: false, message: 'URL 모드: 원본 URL을 입력해주세요.' };
+  }
+  return { ok: false, message: '키워드를 입력해주세요.' };
+}
+
 // v3.8.357: 반자동 발행 — 키워드로 글만 먼저 생성 → 편집기 자동 오픈 → 편집 + 이미지 수동 추가 → "저장하고 발행" 클릭 → 발행
 //   사용자 요구: "생성된 글 편집을 반자동 발행으로. 이미지 생성 전 미리보기, 수정, 이미지 추가, 발행"
 export async function startSemiAutoPublish() {
@@ -167,7 +198,9 @@ export async function startSemiAutoPublish() {
     return;
   }
   const hasExisting = !!(appState.generatedContent?.content?.trim());
-  const keyword = (document.getElementById('keywordInput')?.value || '').trim();
+  // v3.8.402: URL 모드면 키워드가 비어 있어도 정상이다 — 백엔드가 URL 본문에서 뽑는다
+  const topicInput = resolveTopicInput();
+  const keyword = topicInput.keyword;
 
   // 이미 생성된 콘텐츠가 있고 키워드도 같으면 → 바로 편집기 열기
   if (hasExisting) {
@@ -192,8 +225,8 @@ export async function startSemiAutoPublish() {
     appState.generatedContent = null;
   }
 
-  if (!keyword) {
-    alert('키워드를 입력해주세요.');
+  if (!topicInput.ok) {
+    alert(topicInput.message);
     return;
   }
 

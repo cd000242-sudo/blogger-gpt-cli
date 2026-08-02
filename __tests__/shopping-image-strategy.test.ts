@@ -15,6 +15,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { braceBlock } from './helpers/source-block';
 
 const ROOT = path.join(__dirname, '..');
 const orchestrationSrc = fs.readFileSync(path.join(ROOT, 'src', 'core', 'final', 'orchestration.ts'), 'utf8');
@@ -31,8 +32,39 @@ describe('UI — 글포스팅 이미지 서브탭에 선택지가 있다', () =>
     expect(uiHtml).toContain('value="product-i2i"');
   });
 
-  it('기본값은 상품 사진 그대로 — 신뢰도가 가장 높다', () => {
-    expect(uiHtml).toMatch(/value="product-all"\s+selected/);
+  /**
+   * v3.8.401 — 기본값을 바꿨다. 실측 근거:
+   *   쿠팡 오픈 API 응답의 이미지 필드는 productImage **1개뿐**이다.
+   *   1장으로 소제목 5개를 채우면 같은 사진이 5번 반복된다.
+   *   사용자 지적: "1장만 수집 가능하다면 상품 기반 생성만 가능해야 정상이네"
+   */
+  it('⭐ 기본값은 상품 기반 생성 — 수집 이미지가 1장뿐이라 반복 배치는 성립하지 않는다', () => {
+    expect(uiHtml).toMatch(/value="product-i2i"\s+selected/);
+    expect(uiHtml).not.toMatch(/value="product-all"\s+selected/);
+  });
+
+  it('⭐ 백엔드 기본값도 같이 바뀌었다 (값이 없을 때 옛 동작으로 떨어지면 안 된다)', () => {
+    const orch = fs.readFileSync(path.join(ROOT, 'src', 'core', 'final', 'orchestration.ts'), 'utf8');
+    expect(orch).toContain("shoppingImageStrategy || 'product-i2i'");
+    const posting = fs.readFileSync(path.join(ROOT, 'electron', 'ui', 'modules', 'posting.js'), 'utf8');
+    expect(posting).toContain("shoppingImageStrategy: 'product-i2i'");
+  });
+
+  it('⭐ 이미지가 1장이면 product-all 옵션을 잠근다', () => {
+    expect(uiHtml).toContain('allOpt.disabled = isShopping && collected < 2');
+    expect(uiHtml).toContain('수집한 상품 이미지가 1장뿐이라');
+  });
+
+  it('⭐ 상품 기반 생성을 골랐는데 소제목이 crawled 로 고정되던 버그가 없다', () => {
+    // 예전: if (isShopping) { h2.value = 'crawled' } — 전략과 무관하게 강제됐다
+    expect(uiHtml).not.toMatch(/if \(isShopping\) \{\s*const h2 = document\.getElementById\('h2ImageSource'\)/);
+    expect(uiHtml).toContain('__preShoppingH2Source');       // 되돌릴 값을 기억한다
+  });
+
+  it('⭐ i2i 인데 엔진이 crawled 면 백엔드가 생성 엔진으로 바꾼다', () => {
+    const orch = fs.readFileSync(path.join(ROOT, 'src', 'core', 'final', 'orchestration.ts'), 'utf8');
+    expect(orch).toContain('const i2iEngine =');
+    expect(orch).toContain("/^(crawled|custom|none|skip)/i");
   });
 
   it('썸네일은 항상 실제 상품 사진임을 UI가 안내한다', () => {
@@ -57,7 +89,8 @@ describe('payload 배선 — 두 경로 모두', () => {
   });
 
   it('기본값이 정의돼 있다', () => {
-    expect(postingSrc).toContain("shoppingImageStrategy: 'product-all'");
+    // v3.8.401: 수집 이미지가 1장뿐이라 product-all 이 기본값이면 같은 사진이 반복된다
+    expect(postingSrc).toContain("shoppingImageStrategy: 'product-i2i'");
   });
 });
 
@@ -69,7 +102,7 @@ describe('백엔드 — 전략별 동작', () => {
   it('product-all 은 상품 사진을 순환 배치한다', () => {
     const i = orchestrationSrc.indexOf("shoppingStrategy === 'product-all'");
     expect(i).toBeGreaterThan(-1);
-    const block = orchestrationSrc.slice(i, i + 420);
+    const block = braceBlock(orchestrationSrc, "shoppingStrategy === 'product-all'");
     expect(block).toContain('productPool[(i + 1) % productPool.length]');
   });
 
@@ -81,7 +114,7 @@ describe('백엔드 — 전략별 동작', () => {
   it('product-i2i 는 실제 상품을 reference 로 넘긴다', () => {
     const i = orchestrationSrc.indexOf("shoppingStrategy === 'product-i2i'");
     expect(i).toBeGreaterThan(-1);
-    const block = orchestrationSrc.slice(i, i + 900);
+    const block = braceBlock(orchestrationSrc, "shoppingStrategy === 'product-i2i'");
     expect(block).toContain('referenceImageList: refs');
     expect(block).toContain('productPool.slice(0, 4)');
   });
@@ -101,8 +134,8 @@ describe('백엔드 — 전략별 동작', () => {
     expect(orchestrationSrc).toContain("if (!imageResult.ok && imageSource === 'crawled'");
   });
 
-  it('전략 미지정 시 product-all 로 동작한다', () => {
-    expect(orchestrationSrc).toContain("(payload as any).shoppingImageStrategy || 'product-all'");
+  it('⭐ 전략 미지정 시 product-i2i 로 동작한다 (1장 반복 배치로 떨어지지 않는다)', () => {
+    expect(orchestrationSrc).toContain("(payload as any).shoppingImageStrategy || 'product-i2i'");
   });
 });
 

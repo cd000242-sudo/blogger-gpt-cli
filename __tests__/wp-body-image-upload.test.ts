@@ -20,6 +20,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { WordPressPublisher } from '../src/wordpress/wordpress-publisher';
+import { braceBlock, linesAfter } from './helpers/source-block';
 
 const ROOT = path.join(__dirname, '..');
 
@@ -174,7 +175,8 @@ describe('orchestration 배선 — 워드프레스만 base64 를 넘긴다', () 
   it('워드프레스면 base64 를 버리지 않고 그대로 넘긴다', () => {
     const i = orch.indexOf('외부 호스팅 전부 실패 → 워드프레스 미디어 업로드로 위임');
     expect(i).toBeGreaterThan(-1);
-    expect(orch.slice(i, i + 200)).toContain('return img;');
+    // 표식이 로그 문자열이라 뒤 첫 중괄호가 엉뚱하다 — 바로 다음 줄들을 본다
+    expect(linesAfter(orch, '외부 호스팅 전부 실패 → 워드프레스 미디어 업로드로 위임', 4)).toContain('return img;');
   });
 
   it('플랫폼 조건이 워드프레스로 한정돼 있다', () => {

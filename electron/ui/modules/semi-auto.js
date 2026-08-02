@@ -1058,14 +1058,15 @@ window.generateSemiAutoContent = async function () {
     return;
   }
 
-  // 🔒 콘텐츠 모드는 반드시 선택해야 함
-  const contentModeEl = document.getElementById('semiAutoContentMode');
-  if (!contentModeEl || !contentModeEl.value) {
-    alert('콘텐츠 모드를 반드시 선택해주세요.');
-    contentModeEl?.focus();
-    return;
-  }
-  const contentMode = contentModeEl.value;
+  // v3.8.401 — 'semiAutoContentMode' 는 **UI 에 존재하지 않는 id** 였다(실측: index.html 에 0개).
+  //   그래서 getElementById 가 항상 null 을 돌려주고, 반자동 탭은 어떤 모드에서도
+  //   "콘텐츠 모드를 반드시 선택해주세요" 만 띄우고 멈췄다. 쇼핑모드만의 문제가 아니었다.
+  //   사용자 요구: "반자동 발행도 어떤 모드든 가능하게 해주세요."
+  //   → 글포스팅 탭에서 이미 고른 contentMode 를 그대로 쓴다. 없으면 SEO 모드로 진행한다.
+  //     모드를 못 읽었다고 발행을 막지 않는다.
+  const contentModeEl = document.getElementById('semiAutoContentMode')
+    || document.getElementById('contentMode');
+  const contentMode = (contentModeEl?.value || '').trim() || 'external';
 
   // 말투/어투 설정 가져오기 (기본값 있음)
   const toneStyleEl = document.getElementById('semiAutoToneStyle');
@@ -1114,10 +1115,9 @@ window.generateSemiAutoContent = async function () {
     console.log(`[SEMI-AUTO] 키워드: ${finalTopic}`);
     console.log(`[SEMI-AUTO] 말투: ${toneStyle}`);
 
-    // 🔒 콘텐츠 모드 최종 검증 (이중 체크)
-    if (!contentMode || contentMode === '') {
-      throw new Error('콘텐츠 모드가 설정되지 않았습니다. 반드시 콘텐츠 모드를 선택해주세요.');
-    }
+    // v3.8.401: 위에서 'external' 로 채우므로 비어 있을 수 없다.
+    //   예전에는 여기서 throw 해 생성이 통째로 죽었다 — 모드를 못 읽었다고 글을 못 쓰게 할 이유가 없다.
+    console.log(`[SEMI-AUTO] 콘텐츠 모드: ${contentMode}`);
 
     // 🔥 수동 크롤링 URL 수집 (3개까지)
     const manualCrawlUrls = [];

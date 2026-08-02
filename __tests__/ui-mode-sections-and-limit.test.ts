@@ -15,6 +15,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { braceBlock } from './helpers/source-block';
 
 const ROOT = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(ROOT, 'electron', 'ui', 'index.html'), 'utf8');
@@ -35,25 +36,27 @@ describe('쇼핑모드 이미지 전략 — 쇼핑모드일 때만 보인다', (
 
   it('쇼핑모드에서만 표시한다', () => {
     const i = html.indexOf('function syncContentModeSections');
-    const block = html.slice(i, i + 600);
+    const block = braceBlock(html, 'function syncContentModeSections');
     expect(block).toContain("mode === 'shopping' ? 'block' : 'none'");
   });
 
   it('애드센스 저자 섹션 판정도 같은 함수가 한다', () => {
     const i = html.indexOf('function syncContentModeSections');
-    const block = html.slice(i, i + 600);
+    const block = braceBlock(html, 'function syncContentModeSections');
     expect(block).toContain("mode === 'adsense' ? 'block' : 'none'");
   });
 
   it('모드 변경 시 호출한다', () => {
     const i = html.indexOf("getElementById('contentMode').addEventListener('change'");
     expect(i).toBeGreaterThan(-1);
-    expect(html.slice(i, i + 400)).toContain('syncContentModeSections(this.value)');
+    expect(braceBlock(html, "getElementById('contentMode').addEventListener('change'")).toContain('syncContentModeSections(this.value)');
   });
 
   it('앱 시작 시에도 호출한다 — 저장값이 없어도 맞춘다', () => {
+    // v3.8.401: 고정 길이(600자) 슬라이스는 주석 몇 줄만 늘어도 깨진다 — 함수 끝을 경계로 잡는다
     const i = html.indexOf('function restoreContentMode');
-    const block = html.slice(i, i + 600);
+    expect(i).toBeGreaterThan(-1);
+    const block = html.slice(i, html.indexOf('})();', i));
     expect(block).toContain('syncContentModeSections(');
     expect(block).toContain("el?.value || 'external'");
   });
@@ -103,7 +106,7 @@ describe('Claude Code 사용량 한도 — 원문 JSON 대신 사람이 읽는 �
   it('리셋 시각을 원문에서 그대로 뽑는다 — 지어내지 않는다', () => {
     expect(mainTs).toContain('function extractLimitResetHint');
     const i = mainTs.indexOf('function extractLimitResetHint');
-    expect(mainTs.slice(i, i + 300)).toContain('resets?');
+    expect(braceBlock(mainTs, 'function extractLimitResetHint')).toContain('resets?');
   });
 
   it('한도 판정이 provider 를 가리지 않는다', () => {

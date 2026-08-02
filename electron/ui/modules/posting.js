@@ -1143,9 +1143,139 @@ export async function runPosting() {
 }
 
 // 발행 함수 (원클릭 발행) — runPosting의 래퍼
+/**
+ * 왜 기다려야 하는지 설명하는 모달 (v3.8.400)
+ *
+ * 사용자 지시: "이유는 초보자도 이해할 수 있게 쉽게 풀어서 명확히 설명시켜서 모달을 띄워주고"
+ * 토스트 한 줄로는 이유가 전달되지 않는다. 기다리라고만 하면 사용자는 도구가 고장난 줄 안다.
+ * 그래서 **무엇을 잃게 되는지**(후기 없는 밋밋한 글)를 먼저 말한다.
+ */
+function showShoppingCooldownModal(remainingMs) {
+  document.getElementById('shoppingCooldownModal')?.remove();
+
+  const mins = Math.max(1, Math.ceil(remainingMs / 60000));
+  const wrap = document.createElement('div');
+  wrap.id = 'shoppingCooldownModal';
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);'
+    + 'display:flex;align-items:center;justify-content:center;padding:20px;';
+  wrap.innerHTML = `
+    <div style="background:#0f172a;color:#e2e8f0;max-width:560px;width:100%;border-radius:16px;
+                border:1px solid #334155;box-shadow:0 20px 60px rgba(0,0,0,.5);overflow:hidden;">
+      <div style="padding:22px 26px 14px;border-bottom:1px solid #1e293b;">
+        <div style="font-size:19px;font-weight:800;color:#fbbf24;">잠깐만요 — 쿠팡 상품 정보를 못 가져올 수 있습니다</div>
+      </div>
+      <div style="padding:20px 26px;font-size:14.5px;line-height:1.75;">
+        <p style="margin:0 0 14px;">
+          쇼핑 글이 팔리는 이유는 <b style="color:#fff;">실제로 써본 사람의 후기</b> 때문입니다.
+          "3주 써보니 전기요금이 3천원 늘었다" 같은 문장이 있어야 독자가 사고 싶어집니다.
+        </p>
+        <p style="margin:0 0 14px;">
+          그 후기는 쿠팡 상품 페이지에서 가져옵니다. 그런데 쿠팡은
+          <b style="color:#fff;">짧은 시간에 여러 번 조회하면 접속을 막습니다.</b>
+          (저희가 직접 확인했습니다 — 15번쯤 연속으로 열자 차단됐습니다.)
+        </p>
+        <p style="margin:0 0 14px;padding:12px 14px;background:#1e293b;border-radius:10px;border-left:3px solid #ef4444;">
+          막히면 후기도 상품 스펙도 못 가져옵니다. 그러면 상품명과 가격만 남아서
+          <b style="color:#fca5a5;">누구나 쓸 수 있는 뻔한 글</b>이 됩니다.
+          클릭은 받아도 구매로 이어지지 않습니다.
+        </p>
+        <p style="margin:0 0 6px;">
+          <b style="color:#34d399;">${mins}분만 쉬었다 쓰시면</b> 후기를 정상적으로 가져옵니다.
+          기다리기 아까우시면 <b style="color:#60a5fa;">예약 발행</b>을 걸어두세요 — 예약은 지금 바로 됩니다.
+        </p>
+        <p style="margin:10px 0 0;font-size:12.5px;color:#94a3b8;">
+          <b>쿠팡 링크를 쓸 때만</b> 해당됩니다. 토스·네이버 링크나 일반 글은 쿠팡을 조회하지 않으니 언제든 발행하실 수 있습니다.
+        </p>
+      </div>
+      <div style="padding:14px 26px 22px;display:flex;gap:10px;justify-content:flex-end;">
+        <button id="cooldownGoSchedule" style="padding:11px 18px;border-radius:10px;border:1px solid #3b82f6;
+                background:transparent;color:#93c5fd;font-weight:700;cursor:pointer;">예약 발행하러 가기</button>
+        <button id="cooldownOk" style="padding:11px 20px;border-radius:10px;border:none;
+                background:#3b82f6;color:#fff;font-weight:700;cursor:pointer;">알겠습니다</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector('#cooldownOk')?.addEventListener('click', close);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  wrap.querySelector('#cooldownGoSchedule')?.addEventListener('click', () => {
+    close();
+    // 예약 입력칸으로 데려간다 (없으면 조용히 넘어간다 — 모달 때문에 발행이 막히면 안 된다)
+    const el = document.getElementById('scheduleDateTime') || document.getElementById('scheduleKeywords');
+    try { el?.scrollIntoView({ behavior: 'smooth', block: 'center' }); el?.focus(); } catch {}
+  });
+}
+
+/**
+ * 쇼핑모드 연속 발행 잠금 (v3.8.400)
+ *
+ * 왜: 쿠팡 상품 페이지를 짧은 시간에 반복 조회하면 실제 Chrome 도 403 이 된다(실측).
+ *   막히면 후기·스펙을 못 가져와 글의 재료가 사라진다. 그래서 잠깐 말린다.
+ *   시간이 지나면 **자동으로 풀린다** — 사람이 해제할 일이 없다.
+ *   ⚠️ 쇼핑모드에만 적용한다. 일반 글은 쿠팡을 두드리지 않는다.
+ *
+ * @returns 발행을 진행해도 되면 true
+ */
+async function passesShoppingCooldown() {
+  try {
+    const mode = document.getElementById('contentMode')?.value || '';
+    if (mode !== 'shopping') return true;                     // 쇼핑모드에만 해당
+
+    // v3.8.404 — **쿠팡 링크를 쓸 때만** 쿨다운을 건다.
+    //   사용자 보고(2026-08-02): "쿠팡하고 나서 토스로 링크 넣고 발행하려니까 5분 후 발행하라고 막혔다."
+    //   맞는 지적이다. 이 쿨다운은 쿠팡이 반복 조회를 403 으로 막기 때문에 만든 것이다.
+    //   토스는 정적 요청, 네이버는 헤드리스로 가져오고 둘 다 차단 이력이 없다.
+    //   쿠팡을 안 건드리는 발행까지 막을 이유가 없다.
+    const linkText = [
+      document.getElementById('affiliateLinks')?.value || '',
+      document.getElementById('referenceUrl')?.value || '',
+      document.getElementById('manualCoupangUrls')?.value || '',
+    ].join('\n');
+    if (!/coupang\.com|coupa\.ng/i.test(linkText)) return true;
+
+    const res = await window.electronAPI?.invoke?.('shopping:cooldown-status');
+    if (!res || res.canPublish !== false) return true;        // 못 읽으면 막지 않는다
+
+    const btn = document.getElementById('publishBtn');
+    const original = btn ? btn.innerHTML : '';
+    let left = Math.max(0, Number(res.remainingMs) || 0);
+
+    showShoppingCooldownModal(left);
+
+    if (btn) {
+      btn.disabled = true;
+      btn.dataset.cooldownLocked = '1';
+      const tick = () => {
+        left -= 1000;
+        if (left <= 0) {
+          clearInterval(timer);
+          btn.disabled = false;
+          delete btn.dataset.cooldownLocked;
+          btn.innerHTML = original;
+          if (window.showToast) window.showToast('✅ 이제 발행하실 수 있습니다', 'success', 5000);
+          return;
+        }
+        const m = Math.floor(left / 60000);
+        const s = Math.floor((left % 60000) / 1000);
+        btn.innerHTML = `⏳ ${m}:${String(s).padStart(2, '0')} 후 발행 가능 (예약 발행은 지금 가능)`;
+      };
+      tick();
+      const timer = setInterval(tick, 1000);
+    }
+    return false;
+  } catch (e) {
+    // 잠금 판정 실패가 발행을 막으면 안 된다
+    debugLog?.('PUBLISH', '쇼핑 쿨다운 확인 실패(무시하고 진행)', String(e?.message || e));
+    return true;
+  }
+}
+
 export async function publishToPlatform() {
   const appState = getAppState();
   const isQueueRun = !!(window.__queueRunning || window.__queueProgressActive);
+  // 쇼핑모드 연속 발행이면 잠그고 카운트다운 — 시간이 되면 자동으로 풀린다
+  if (!isQueueRun && !(await passesShoppingCooldown())) return;
   const agentFlowActive = !!window.__agentPublishFlowActive;
   let publishSucceeded = false;
   debugLog('PUBLISH', 'publishToPlatform 호출', {
@@ -1257,6 +1387,19 @@ export async function publishToPlatform() {
 
       if (result?.ok || result?.success) {
         publishSucceeded = true;
+        // v3.8.400: 쇼핑모드 발행 시각을 남긴다 — 다음 연속 발행 간격 계산에 쓰인다
+        //   v3.8.404: **쿠팡을 쓴 발행만** 기록한다. 토스·네이버 발행이 쿠팡 쿨다운을
+        //   시작시키면, 쿠팡을 한 번도 안 건드렸는데 다음 쿠팡 글이 막힌다.
+        try {
+          const usedCoupang = /coupang\.com|coupa\.ng/i.test([
+            document.getElementById('affiliateLinks')?.value || '',
+            document.getElementById('referenceUrl')?.value || '',
+            document.getElementById('manualCoupangUrls')?.value || '',
+          ].join('\n'));
+          if ((document.getElementById('contentMode')?.value || '') === 'shopping' && usedCoupang) {
+            window.electronAPI?.invoke?.('shopping:cooldown-record');
+          }
+        } catch {}
         if (agentFlowActive) updateAgentProgressModal(100, '글 생성, 이미지 생성, 발행이 모두 완료되었습니다.', 'success', 'publish');
         addLog('✅ 콘텐츠 발행 완료!', 'success');
         try { window.updateFreeQuotaCounter?.(); } catch {}
@@ -1394,7 +1537,7 @@ const PAYLOAD_DEFAULTS = {
   thumbnailMode: 'nanobanana2',
   ctaMode: 'auto',
   h2ImageSource: 'nanobanana2',
-  shoppingImageStrategy: 'product-all',
+  shoppingImageStrategy: 'product-i2i',
   sectionCount: 5,
   minSectionCount: 1,
   maxSectionCount: 20,

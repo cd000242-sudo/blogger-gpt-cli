@@ -15,6 +15,7 @@
  *   - <style>/<script>/주석 내부는 불변
  */
 import { foldRepeatedInlineStyles, applyWordPressInlineStyles } from '../src/wordpress/wordpress-publisher';
+import { braceBlock } from './helpers/source-block';
 
 /** 60자 넘고 전부 !important 인 값 (접기 대상) */
 const BIG = 'color:#1e293b !important;font-size:16px !important;line-height:1.8 !important;margin:0 0 18px 0 !important;';
@@ -185,7 +186,7 @@ describe('발행 경로 배선', () => {
       require('path').join(__dirname, '..', 'src', 'wordpress', 'wordpress-publisher.ts'), 'utf8');
     const i = src.indexOf('let foldedCSS');
     expect(i).toBeGreaterThan(-1);
-    const block = src.slice(i, i + 700);
+    const block = braceBlock(src, 'let foldedCSS');
     expect(block).toContain('try {');
     expect(block).toContain('catch');
     expect(block).toContain('원본 유지');

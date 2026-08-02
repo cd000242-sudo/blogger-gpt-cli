@@ -16,6 +16,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { braceBlock } from './helpers/source-block';
 
 const ROOT = path.join(__dirname, '..');
 const coreSrc = fs.readFileSync(path.join(ROOT, 'src', 'core', 'index.ts'), 'utf8');
@@ -38,7 +39,7 @@ describe('진행률 배선 — publish-content 경로', () => {
 
   it('main.ts 가 [PROGRESS] 를 파싱해 run-progress 로 보낸다', () => {
     const start = mainSrc.indexOf('const publishOnLog');
-    const block = mainSrc.slice(start, start + 900);
+    const block = braceBlock(mainSrc, 'const publishOnLog');
     expect(block).toContain("'run-progress'");
     expect(block).toContain('\\[PROGRESS\\]');
     expect(block).toContain("'log-line'");
@@ -54,7 +55,7 @@ describe('진행률 배선 — publish-content 경로', () => {
   it('onLog 실패가 발행을 막지 않는다', () => {
     // emit 은 try/catch 로 감싸야 한다 — 렌더러가 죽어도 발행은 계속돼야 한다
     const start = coreSrc.indexOf('const emit = (msg: string)');
-    const block = coreSrc.slice(start, start + 240);
+    const block = braceBlock(coreSrc, 'const emit = (msg: string)');
     expect(block).toContain('try {');
     expect(block).toContain('catch');
   });

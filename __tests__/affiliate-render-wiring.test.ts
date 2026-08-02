@@ -12,6 +12,7 @@ import {
   renderAffiliateProductBlock, formatAffiliateProductsForPrompt,
 } from '../src/core/affiliate/render';
 import type { AffiliateProduct } from '../src/core/affiliate/crawl';
+import { braceBlock, blockBetween } from './helpers/source-block';
 
 const ROOT = path.join(__dirname, '..');
 const read = (...p: string[]) => {
@@ -140,8 +141,9 @@ describe('orchestration 배선', () => {
   });
 
   it('상품 이미지를 본문 이미지로 넘긴다', () => {
-    const i = orch.indexOf('crawlAffiliateLinks');
-    expect(orch.slice(i, i + 1200)).toContain('productImages');
+    // 'crawlAffiliateLinks' 는 `const { crawlAffiliateLinks } = await import(...)` 의
+    // 구조분해 안에 있어 그 뒤 첫 중괄호가 엉뚱한 곳이다. 제휴 블록 경계로 자른다.
+    expect(blockBetween(orch, 'v3.8.396: 네이버 쇼핑 커넥트', 'catch (affErr')).toContain('productImages');
   });
 
   it('한 글에 한 제휴사 — 첫 상품 기준으로 정한다', () => {
@@ -160,11 +162,15 @@ describe('orchestration 배선', () => {
   });
 
   it('제휴 처리 실패가 발행을 막지 않는다', () => {
+    // v3.8.400: 고정 길이(2200자) 슬라이스는 블록이 커지면 catch 에 못 닿아 헛되이 깨진다.
+    //   (쿠팡 구제·후기 보강이 들어가며 실제로 깨졌다 — 동작은 그대로였다)
+    //   실제 catch 위치를 찾아 그 앞까지를 블록으로 본다.
     const i = orch.indexOf('v3.8.396: 네이버 쇼핑 커넥트');
     expect(i).toBeGreaterThan(-1);
-    const block = orch.slice(i, i + 2200);
+    const end = orch.indexOf('catch (affErr', i);
+    expect(end).toBeGreaterThan(i);          // 바깥 try 를 받는 catch 가 있다
+    const block = orch.slice(i, end);
     expect(block).toContain('try {');
-    expect(block).toContain('catch');
     expect(block).not.toContain('throw');
   });
 
@@ -203,6 +209,6 @@ describe('UI 배선', () => {
 
   it('비우면 undefined — 이전과 동일 동작', () => {
     const i = posting.indexOf('affiliateLinks:');
-    expect(posting.slice(i, i + 400)).toContain('return undefined');
+    expect(braceBlock(posting, 'affiliateLinks:')).toContain('return undefined');
   });
 });

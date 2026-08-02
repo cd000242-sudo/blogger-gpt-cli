@@ -494,7 +494,8 @@ export async function generateUltimateMaxModeArticleFinal(
   onLog?.(`[PROGRESS] 0% - 🔥 끝판왕 콘텐츠 생성 시작! ${fastMode ? '(빠른 모드)' : ''}`);
   onLog?.(`[PROGRESS] 0% - 🎯 이미지 소스: ${imageSource} (원본: ${payload.h2ImageSource || '없음'})`);
   // v3.8.380(R5): startTime 선언과 try 진입은 락 획득 직후로 이동됨 (위 참조)
-    const keyword = payload.topic || '';
+    // v3.8.403: let 으로 바꿨다 — 쇼핑모드에서 제휴 링크의 상품명을 주제로 삼기 위해서다(아래 참조)
+    let keyword = payload.topic || '';
     const platform = payload.platform || 'wordpress'; // wordpress or blogspot
 
     // 🛡️ v3.8.376: 리더스(Dropshot) 엔진 프리플라이트 — 본문 생성 "전에" 이미지 엔진 상태를 확인한다.
@@ -556,8 +557,98 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog?.(`[PROGRESS] 4% - ⚠️ 쿠팡 딥링크 변환 실패 (원본 URL 사용): ${dlErr.message?.slice(0, 60)}`);
     }
 
+    // 🔀 v3.8.402 — 원본 URL 칸에 들어온 **제휴 링크**를 골라낸다.
+    //
+    //   실측 사고(2026-08-02): 사용자가 쿠팡 단축링크를 '원본 URL' 칸에 넣고 발행했다.
+    //   그러면 아래 urlOnlyMode 가 켜져 **URL 분석 1회 호출로 글을 뽑고 즉시 반환**한다.
+    //   그 결과 쇼핑모드 파이프라인(쿠팡 API 상품·후기·스펙·제휴 컴플라이언스)이
+    //   통째로 건너뛰어졌다. 게다가 쿠팡이 403 을 주니 분석기가 주제를 못 뽑아
+    //   단축코드("fRJGxvXas8")를 제목 소재로 삼았다.
+    //
+    //   제휴 링크는 '참고할 원본 글'이 아니라 '팔 상품'이다. 성격이 다르므로 분리한다.
+    const affiliateInUrls: string[] = [];
+    try {
+      const { getPolicy, AFFILIATE_PROVIDER_IDS } = require('../affiliate/policies');
+      for (let i = manualUrls.length - 1; i >= 0; i -= 1) {
+        const u = String(manualUrls[i] || '');
+        if (AFFILIATE_PROVIDER_IDS.some((id: any) => getPolicy(id)!.linkHosts.test(u))) {
+          affiliateInUrls.unshift(u);
+          manualUrls.splice(i, 1);       // URL 분석 대상에서 제외한다
+        }
+      }
+    } catch { /* 판정 실패 시 기존 동작 유지 */ }
+
+    if (affiliateInUrls.length > 0) {
+      const existing = String((payload as any).affiliateLinks || '').trim();
+      (payload as any).affiliateLinks = existing
+        ? `${existing}\n${affiliateInUrls.join('\n')}`
+        : affiliateInUrls.join('\n');
+      onLog?.(`[PROGRESS] 4% - 🔗 원본 URL 칸의 제휴 링크 ${affiliateInUrls.length}개를 제휴 상품으로 처리합니다`);
+      // contentMode 변수는 아래에서 선언되므로 payload 에서 직접 읽는다
+      if (String((payload as any).contentMode || '') !== 'shopping') {
+        // 조용히 넘어가면 '상품 정보 없는 밋밋한 글'이 나가고 사용자는 이유를 모른다
+        onLog?.('[PROGRESS] 4% - ⚠️ 제휴 링크를 넣으셨는데 **쇼핑모드가 아닙니다**. '
+          + '상품명·가격·후기·대가성 문구가 반영되지 않습니다. 쇼핑/구매유도 모드로 바꿔 다시 발행하세요.');
+      }
+    }
+
+    // 🛒 v3.8.403 — **제목을 짓기 전에** 상품을 확정한다.
+    //
+    //   실측 사고(2026-08-02): 쿠팡 링크를 넣었는데 제목이
+    //   "와플래시 게임 아카이브 실행 안 될 때 해결법 총정리" 로 나왔다.
+    //   키워드 칸에 남아 있던 이전 키워드가 글의 주제가 됐기 때문이다.
+    //   그 키워드로 쿠팡 API 를 검색하니 당연히 0개였고("쿠팡 검색 결과 없음"),
+    //   결과가 0개라 productId 대조 구제 경로도 실행조차 못 했다.
+    //
+    //   순서가 문제였다 — 제목(25%)이 상품 조회(41%)보다 먼저였다.
+    //   링크에서 상품명을 먼저 알아내 주제로 삼으면 그 뒤가 전부 풀린다:
+    //     제목이 상품에 맞고 → API 검색이 상품명으로 돌아 상품을 찾고 → 가격·이미지·후기가 붙는다.
+    //   사용자 요구: "제목도 쇼핑모드면 그 제품에 딱 맞는 제목으로 최적화되어서 생성해줘야 돼요"
+    const affiliateAll = String((payload as any).affiliateLinks || '')
+      .split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+    const coupangLink = affiliateAll.find((u) => /coupang\.com|coupa\.ng/i.test(u));
+    if (coupangLink && String((payload as any).contentMode || '') === 'shopping') {
+      try {
+        const { resolveCoupangProductId } = await import('../affiliate/crawl');
+        const pid = await resolveCoupangProductId(coupangLink);
+        if (pid) {
+          const { enrichCoupangProduct, cleanProductName } = await import('../affiliate/coupang-enrich');
+          const cacheDir = (payload as any).userDataPath || process.env['ORBIT_USER_DATA'] || undefined;
+          // 이름을 모르는 상태로 부른다(2번째 인자 '') — 이 페이지가 이름의 출처다
+          const enriched = await enrichCoupangProduct(pid, '', { onLog, cacheDir });
+          const productName = cleanProductName(enriched?.pageTitle || '');
+          if (productName) {
+            // 뒤의 후기 보강이 브라우저를 또 열지 않도록 결과를 넘겨둔다
+            (payload as any).coupangEnrichment = enriched;
+            (payload as any).resolvedProductName = productName;
+
+            // v3.8.404 — **상품 사진을 여기서 확보한다.**
+            //   실측 사고(2026-08-02): 발행글 이미지 10장이 전부 AI 생성이고 쿠팡 사진은 0장이었다.
+            //   상품명만 가져오고 이미지를 안 가져왔기 때문이다.
+            //   썸네일이 "어떤 제품인지"를 보여줘야 구매로 이어진다.
+            const ogImg = String(enriched?.imageUrl || '').trim();
+            if (ogImg && !((payload as any).productImages || []).length) {
+              (payload as any).productImages = [ogImg];
+              onLog?.('[PROGRESS] 5% - 🖼️ 상품 대표 사진 확보 — 썸네일로 씁니다');
+            }
+            if (keyword.trim() && keyword.trim() !== productName) {
+              onLog?.(`[PROGRESS] 5% - 🛒 쇼핑 글이라 주제를 상품으로 바꿉니다: "${keyword.slice(0, 24)}" → "${productName.slice(0, 40)}"`);
+            } else {
+              onLog?.(`[PROGRESS] 5% - 🛒 링크 상품 확인: "${productName.slice(0, 40)}"`);
+            }
+            keyword = productName;
+            (payload as any).topic = productName;
+          }
+        }
+      } catch (nameErr: any) {
+        // 상품명을 못 얻어도 발행은 그대로 진행한다
+        onLog?.(`[PROGRESS] 5% - ⚠️ 링크에서 상품명을 얻지 못했습니다 (계속 진행): ${String(nameErr?.message || nameErr).slice(0, 60)}`);
+      }
+    }
+
     // 🔥 URL 전용 모드: URL만 있고 키워드가 없거나 URL 기반 생성 요청 시
     // 완전히 새로운 콘텐츠를 AI가 생성 (중복 문서 방지)
+    //   ⚠️ 제휴 링크만 넣은 경우에는 켜지지 않는다(위에서 manualUrls 에서 빠졌다).
     const urlOnlyMode = (manualUrls.length > 0) && (!keyword || keyword.trim() === '' || payload.urlBasedGeneration === true);
 
     if (urlOnlyMode) {
@@ -863,7 +954,16 @@ export async function generateUltimateMaxModeArticleFinal(
     } else {
       // 🤖 AI 자동 생성
       onLog?.('[PROGRESS] 25% - ✍️ AI가 제목(H1) 생성 중...');
-      h1 = await generateH1TitleFinal(keyword, titles, demandTitleHint);
+      // v3.8.404: 쇼핑 글이면 상품 등록명을 '재료'로 넘긴다 — 그대로 제목이 되면 안 된다
+      h1 = await generateH1TitleFinal(
+        keyword,
+        titles,
+        demandTitleHint,
+        // contentMode 변수는 아래에서 선언되므로 payload 에서 직접 읽는다
+        String((payload as any).contentMode || '') === 'shopping'
+          ? String((payload as any).resolvedProductName || '') || undefined
+          : undefined,
+      );
       h1 = repairTitleYear(h1);
 
       // 📌 키워드를 제목 맨앞에 배치
@@ -1129,10 +1229,27 @@ export async function generateUltimateMaxModeArticleFinal(
       //   ⚠️ 본문 링크는 **사용자가 준 원본 그대로** 쓴다(링크 변조 = 계약 해지 사유).
       //   실패해도 발행을 막지 않는다 — 링크와 고지문만으로도 글은 나간다.
       try {
-        const rawLinks: string[] = Array.isArray((payload as any).affiliateLinks)
+        const rawLinksAll: string[] = Array.isArray((payload as any).affiliateLinks)
           ? (payload as any).affiliateLinks
           : String((payload as any).affiliateLinks || '')
             .split(/[\n,]+/).map((s: string) => s.trim()).filter(Boolean);
+
+        // v3.8.404 — 같은 링크를 두 번 조회하지 않는다.
+        //   실측(2026-08-02): 사용자가 같은 쿠팡 링크를 '원본 URL'과 '제휴 링크' 양쪽에 넣어
+        //   "제휴 링크 2개 상품 정보 조회 중" 이 떴다. 같은 상품을 두 번 여는 셈이고,
+        //   쿠팡은 반복 조회를 차단하므로 **차단 위험만 두 배**가 된다.
+        //   비교는 정규화해서 한다 — 끝 슬래시·http/https·쿼리 유무로 갈리면 중복을 못 잡는다.
+        const seenLinks = new Set<string>();
+        const rawLinks: string[] = [];
+        for (const u of rawLinksAll) {
+          const norm = u.replace(/^https?:\/\//i, '').replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
+          if (seenLinks.has(norm)) continue;
+          seenLinks.add(norm);
+          rawLinks.push(u);
+        }
+        if (rawLinks.length < rawLinksAll.length) {
+          onLog?.(`[PROGRESS] 41% - ℹ️ 같은 링크 ${rawLinksAll.length - rawLinks.length}개가 중복이라 한 번만 조회합니다`);
+        }
 
         if (rawLinks.length > 0 && !(payload as any).affiliateProducts) {
           onLog?.(`[PROGRESS] 41% - 🔗 제휴 링크 ${rawLinks.length}개 상품 정보 조회 중...`);
@@ -1152,7 +1269,82 @@ export async function generateUltimateMaxModeArticleFinal(
             const priced = products.filter(p => p.priceKrw).length;
             onLog?.(`[PROGRESS] 42% - ✅ 제휴 상품 ${products.length}개 확보 (가격 확인 ${priced}개)`);
           } else {
-            onLog?.('[PROGRESS] 42% - ℹ️ 제휴 상품 정보를 얻지 못했습니다 — 링크만 사용합니다');
+            // v3.8.400 — 실측(2026-08-01): 쿠팡은 서버 요청·헤드리스 브라우저 모두에 403 을 준다.
+            //   오픈 API 에도 "링크 → 그 상품" 조회는 없다(검색·딥링크뿐이고 딥링크는 링크만 돌려준다).
+            //   그래도 **링크와 제휴사는 확실히 안다.** 상품 정보만 모를 뿐이다.
+            //   이걸 남겨두지 않으면 이미지가 구매 링크로 연결되지 않고 고지문 제휴사도 못 정한다.
+            //   (상품명·가격은 끝까지 지어내지 않는다. 본문 소재는 쿠팡 API 검색 결과가 담당한다.)
+            const { getPolicy, AFFILIATE_PROVIDER_IDS } = await import('../affiliate/policies');
+            const firstLink = rawLinks[0]!;
+            const provider = AFFILIATE_PROVIDER_IDS.find((id) => getPolicy(id)!.linkHosts.test(firstLink));
+
+            // 🛒 쿠팡 구제 경로 — 웹은 막혔지만 리다이렉트는 따라갈 수 있다.
+            //   링크 → productId 를 뽑아, 위 2순위에서 이미 받아둔 쿠팡 API 검색 결과와 대조한다.
+            //   맞으면 공식 상품명·가격·대표이미지를 그대로 쓴다(추측이 아니라 쿠팡이 준 값).
+            //   본문 링크는 끝까지 **사용자가 준 원본** 그대로 둔다(주소 변조 = 계약 위반).
+            let rescued = false;
+            const apiProducts = (payload as any).coupangProducts as any[] | undefined;
+            if (provider === 'coupang' && Array.isArray(apiProducts) && apiProducts.length > 0) {
+              const { resolveCoupangProductId } = await import('../affiliate/crawl');
+              const pid = await resolveCoupangProductId(firstLink);
+              const match = pid ? apiProducts.find((p) => String(p.productId) === pid) : undefined;
+              if (match) {
+                const rescuedProduct = {
+                  provider: 'coupang' as const,
+                  originalUrl: firstLink,
+                  resolvedUrl: String(match.productUrl || firstLink),
+                  title: String(match.productName || ''),
+                  imageUrl: String(match.productImage || ''),
+                  description: [match.isRocket ? '로켓배송' : '', match.isFreeShipping ? '무료배송' : ''].filter(Boolean).join(' · '),
+                  priceKrw: Number(match.productPrice) > 0 ? Number(match.productPrice) : null,
+                  priceNote: '',
+                };
+                (payload as any).affiliateProducts = [rescuedProduct];
+                (payload as any).affiliateProvider = 'coupang';
+                if (!(payload as any).productImages || (payload as any).productImages.length === 0) {
+                  (payload as any).productImages = [rescuedProduct.imageUrl].filter(Boolean);
+                }
+                modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '')
+                  + formatAffiliateProductsForPrompt([rescuedProduct as any]);
+                rescued = true;
+                onLog?.(`[PROGRESS] 42% - ✅ 쿠팡 API 로 링크 상품 확인: "${rescuedProduct.title.slice(0, 40)}"`
+                  + `${rescuedProduct.priceKrw ? ` · ${rescuedProduct.priceKrw.toLocaleString('ko-KR')}원` : ''}`);
+
+                // 🔎 API 가 못 주는 것만 브라우저로 보강한다 — 후기·별점·상세스펙.
+                //   숫자(가격)는 절대 여기서 가져오지 않는다: 5개 상품 대조에서 크롬 가격은 1/5 만 맞았다.
+                //   창이 잠깐 뜬다(사용자 확인: "오히려 신뢰를 줄 수 있어").
+                try {
+                  const { enrichCoupangProduct, formatEnrichmentForPrompt } = await import('../affiliate/coupang-enrich');
+                  // 캐시 폴더 — 같은 상품 재조회를 막아 쿠팡 차단 위험을 낮춘다
+                  const cacheDir = (payload as any).userDataPath
+                    || process.env['ORBIT_USER_DATA']
+                    || undefined;
+                  // v3.8.403: 앞에서 상품명을 알아내며 이미 수집했으면 그걸 쓴다 (창을 두 번 열지 않는다)
+                  const already = (payload as any).coupangEnrichment;
+                  const enriched = (already && already.productId === pid)
+                    ? already
+                    : await enrichCoupangProduct(pid, rescuedProduct.title, { onLog, cacheDir });
+                  const block = formatEnrichmentForPrompt(enriched);
+                  if (block) {
+                    modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') + block;
+                    (payload as any).coupangEnrichment = enriched;
+                  }
+                } catch (enrichErr: any) {
+                  // 보강 실패가 발행을 막지 않는다 — 상품 데이터만으로도 글은 나간다
+                  onLog?.(`[PROGRESS] 42% - ⚠️ 후기 보강 건너뜀: ${String(enrichErr?.message || enrichErr).slice(0, 60)}`);
+                }
+              } else if (pid) {
+                onLog?.(`[PROGRESS] 42% - ℹ️ 링크 상품(${pid})이 API 검색 결과에 없습니다 — 검색어를 상품명에 가깝게 쓰면 잡힙니다`);
+              }
+            }
+
+            if (!rescued && provider) {
+              (payload as any).affiliateFallbackUrl = firstLink;
+              (payload as any).affiliateProvider = provider;
+              onLog?.('[PROGRESS] 42% - ℹ️ 상품 정보는 못 얻었지만 링크·대가성 문구·이미지 링크는 그대로 적용합니다');
+            } else if (!rescued) {
+              onLog?.('[PROGRESS] 42% - ℹ️ 제휴 상품 정보를 얻지 못했습니다 — 링크만 사용합니다');
+            }
           }
         }
       } catch (affErr: any) {
@@ -1260,7 +1452,12 @@ export async function generateUltimateMaxModeArticleFinal(
         || envForOfficial['GOOGLE_CSE_API_KEY'] || '';
       const cseCx = envForOfficial['googleCseId'] || envForOfficial['GOOGLE_CSE_ID']
         || envForOfficial['googleCseCx'] || envForOfficial['GOOGLE_CSE_CX'] || '';
-      if (cseKey && cseCx) {
+      // v3.8.403 — 쇼핑 글에는 공공기관 근거를 모으지 않는다.
+      //   사용자 지적(2026-08-02): "네이버 크롤링이랑 공공기관 수집은 쇼핑모드에서 왜 하는 건데?"
+      //   맞는 지적이다. 상품 글의 근거는 **상품 스펙과 구매자 후기**지 통계청·보건복지부가 아니다.
+      //   "통계청 자료에 따르면 물놀이 튜브는…" 같은 문장은 어색하고 신뢰를 오히려 깎는다.
+      //   CSE 호출과 13초도 아낀다.
+      if (cseKey && cseCx && contentMode !== 'shopping') {
         onLog?.('[PROGRESS] 43% - 🏛️ 공공기관 확인 근거 수집 중...');
         const sources = await collectOfficialSources(keyword, cseKey, cseCx, onLog);
         officialBlock = buildOfficialSourceBlock(sources);
@@ -1365,6 +1562,22 @@ export async function generateUltimateMaxModeArticleFinal(
     } catch (narrowErr: any) {
       console.warn('[NARROWING] 초점 좁히기 스킵:', String(narrowErr?.message || narrowErr).slice(0, 80));
     }
+
+    // 📖 v3.8.404 — 가독성 규칙 (사용자 지적: "논문 같아서 가독성이 좀 떨어진다")
+    //   발행글 실측: 문단 46개, 평균 203자, **모바일에서 6줄을 넘는 문단이 42개(91%)**.
+    //   2026 기준 권장은 한 문단 6줄 이내다. 6줄이 넘으면 읽기 전에 부담부터 준다.
+    //   글자 크기·줄간격은 발행 단계에서 키웠고(16~18px·1.8), 문단 길이는 여기서 줄인다.
+    //   ⚠️ 후처리로 문장을 쪼개면 뜻과 흐름이 깨진다 — 처음부터 짧게 쓰게 한다.
+    modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') + `
+
+📖 **읽기 편하게 쓰는 법 (분량은 그대로, 덩어리만 나눈다)**
+- 한 문단은 **2~3문장, 120자 이내**로 끊으세요. 지금까지는 200자를 넘겨 읽기 부담스러웠습니다.
+- 한 가지 생각이 끝나면 문단을 바꾸세요. 관련 있다고 이어 붙이지 마세요.
+- 섹션마다 **목록(<ul><li>)을 최소 한 번** 쓰세요. 나열할 내용은 문장으로 늘어놓지 말고 목록으로.
+- 숫자·조건·비교가 3개 이상이면 **표(<table>)**로 정리하세요.
+- 핵심 문장은 <strong>으로 감싸 훑어보는 독자가 건질 수 있게 하세요.
+- 전체 분량은 줄이지 마세요. **같은 내용을 더 잘게 나누는 것**입니다.
+`;
 
     let allSectionsObj = await generateAllSectionsFinal(
       keyword,
@@ -1946,7 +2159,9 @@ export async function generateUltimateMaxModeArticleFinal(
           //   product-i2i : 실제 상품을 reference 로 소제목 내용에 맞는 이미지를 새로 생성
           //   ⚠️ 썸네일은 두 전략 모두 실제 상품 사진을 쓴다(orchestration:2561 useProductImages).
           //      "어떤 제품인지"가 안 보이면 구매로 이어지지 않기 때문이다.
-          const shoppingStrategy = String((payload as any).shoppingImageStrategy || 'product-all');
+          //   v3.8.401: 기본값을 product-i2i 로 바꿨다. 쿠팡 API 는 상품당 대표 이미지 **1장**만 주므로
+          //   product-all 이면 같은 사진이 소제목 수만큼 반복된다(실측). 값이 없을 때 그쪽으로 떨어지면 안 된다.
+          const shoppingStrategy = String((payload as any).shoppingImageStrategy || 'product-i2i');
           const productPool = (payload.productImages as string[] | undefined) || [];
           if (contentMode === 'shopping' && productPool.length > 0) {
             if (shoppingStrategy === 'product-all') {
@@ -1961,11 +2176,19 @@ export async function generateUltimateMaxModeArticleFinal(
             } else if (shoppingStrategy === 'product-i2i') {
               // 실제 상품을 reference 로 넘겨 소제목 내용에 맞는 이미지를 생성
               const refs = productPool.slice(0, 4);
-              console.log(`[IMG-${i + 1}] 🎨 상품 기반 i2i (전략: product-i2i, ref ${refs.length}장)`);
+              // v3.8.401 안전장치: 소제목 엔진이 'crawled'·'custom' 이면 생성 엔진이 아니라 i2i 가 불가능하다.
+              //   (예전 UI 버그로 쇼핑모드면 무조건 'crawled' 가 박혔다 — 그 상태로 저장된 설정이 남아 있을 수 있다)
+              const i2iEngine = /^(crawled|custom|none|skip)/i.test(String(imageSource))
+                ? 'nanobanana2'
+                : imageSource;
+              if (i2iEngine !== imageSource) {
+                onLog?.(`   [IMG-${i + 1}] ℹ️ 소제목 엔진이 '${imageSource}' 라 i2i 를 못 합니다 — ${i2iEngine} 로 생성합니다`);
+              }
+              console.log(`[IMG-${i + 1}] 🎨 상품 기반 i2i (전략: product-i2i, ref ${refs.length}장, 엔진 ${i2iEngine})`);
               onLog?.(`   [IMG-${i + 1}] 🎨 상품 기반 생성 (참고 이미지 ${refs.length}장)`);
               try {
                 const i2i = await dispatchH2ImageGeneration(
-                  imageSource,
+                  i2iEngine,
                   section.h2,
                   keyword,
                   (msg: string) => onLog?.(`   [IMG-${i + 1}] ${msg}`),
@@ -2413,10 +2636,54 @@ export async function generateUltimateMaxModeArticleFinal(
       // v3.8.398: 본문 이미지를 전부 구매 링크로 만든다 (사용자 요구).
       //   쇼핑 글에서 이미지는 최대 클릭 유발 요소인데 그냥 그림이면 수익 누수다.
       //   첫 상품 링크로 감싼다 — 한 글에 한 제휴사·한 상품군이 원칙이다.
-      if (Array.isArray(affProducts) && affProducts.length > 0) {
+      //   v3.8.400: 상품 조회가 막혀도(쿠팡 403) 링크는 아니까 이미지 연결은 그대로 한다.
+      const purchaseUrl = (Array.isArray(affProducts) && affProducts.length > 0)
+        ? affProducts[0].originalUrl
+        : (payload as any).affiliateFallbackUrl || '';
+
+      // 📖 v3.8.404 — 문단 길이를 고르게 만든다 (CTA 카드보다 **먼저** 돌려야 카드를 안 건드린다)
+      //   사용자 요구: "한 문단이 너무 길면 줄바꿈, 짧으면 두 문단 이런 식으로"
+      //   실측: 발행글 문단 91%가 모바일 6줄 초과였다. 긴 건 문장 경계에서 쪼개고 짧은 건 합친다.
+      try {
+        const { normalizeParagraphs } = await import('./paragraph-normalizer');
+        const norm = normalizeParagraphs(html);
+        if (norm.split > 0 || norm.merged > 0) {
+          html = norm.html;
+          onLog?.(`[PROGRESS] 92% - 📖 문단 정리: 긴 문단 ${norm.split}번 나누고 짧은 문단 ${norm.merged}번 합침`);
+        }
+      } catch (normErr: any) {
+        onLog?.(`[PROGRESS] 92% - ⚠️ 문단 정리 건너뜀: ${String(normErr?.message || normErr).slice(0, 60)}`);
+      }
+
+      // 🛒 v3.8.404 — **눈에 보이는 구매 버튼**을 심는다.
+      //   실측(2026-08-02): 발행글에 이미지 링크는 8개 있었는데 구매 버튼은 0개였다.
+      //   버튼이 없으면 독자는 "이미지를 눌러야 한다"는 걸 모른다.
+      //   자리 셋: 핵심 요약 직후(급한 사람) · 본문 중간(마음이 기운 지점) · 글 끝(+70%)
+      if (purchaseUrl && contentMode === 'shopping') {
+        try {
+          const { insertCtaCards } = await import('../affiliate/cta-card');
+          const p0 = (Array.isArray(affProducts) && affProducts[0]) ? affProducts[0] : null;
+          const enrich = (payload as any).coupangEnrichment;
+          const cardResult = insertCtaCards(html, {
+            name: String(p0?.title || (payload as any).resolvedProductName || keyword),
+            priceKrw: (p0 && typeof p0.priceKrw === 'number') ? p0.priceKrw : null,
+            imageUrl: String(p0?.imageUrl || enrich?.imageUrl || ((payload as any).productImages || [])[0] || ''),
+            url: purchaseUrl,
+            provider: (payload as any).affiliateProvider || null,
+            ...(p0?.description ? { note: String(p0.description) } : {}),
+          });
+          if (cardResult.inserted > 0) {
+            html = cardResult.html;
+            onLog?.(`[PROGRESS] 92% - 🛒 구매 버튼 ${cardResult.inserted}개 삽입 (요약 직후·본문 중간·글 끝)`);
+          }
+        } catch (ctaErr: any) {
+          onLog?.(`[PROGRESS] 92% - ⚠️ 구매 버튼 삽입 건너뜀: ${String(ctaErr?.message || ctaErr).slice(0, 60)}`);
+        }
+      }
+      if (purchaseUrl) {
         const { linkImagesToProduct } = await import('../affiliate/compliance');
         const linkedResult = linkImagesToProduct(
-          html, affProducts[0].originalUrl, (payload as any).affiliateProvider || null,
+          html, purchaseUrl, (payload as any).affiliateProvider || null,
         );
         if (linkedResult.linked > 0) {
           html = linkedResult.html;
@@ -2741,15 +3008,40 @@ ${conclusionHTML}
 
       if (blogUrl) {
         onLog?.('[PROGRESS] 88% - 🔗 내부 링크 검색 및 삽입 중...');
-        const relatedLinks = await findRelatedPosts(blogUrl, keyword, 5);
+
+        // v3.8.402 — 쇼핑 글은 **상품명**으로 형제 글을 찾는다.
+        //   사용자 요구: "비슷한 제품들끼리 묶어서 거미줄치기도 가능하게 해야 되잖아"
+        //   쇼핑 글 제목은 상품명이라 일반 키워드로는 서로 안 걸린다.
+        //   예: 키워드가 "여름"이면 "수영장 튜브" 글과 "물놀이 매트" 글이 이어지지 않는다.
+        //   상품명·카테고리로 찾으면 같은 제품군끼리 묶인다.
+        const affTitle = String((payload as any).affiliateProducts?.[0]?.title || '').trim();
+        const apiTitle = String((payload as any).coupangProducts?.[0]?.productName || '').trim();
+        const apiCategory = String((payload as any).coupangProducts?.[0]?.categoryName || '').trim();
+        const searchTerms = contentMode === 'shopping'
+          ? [affTitle, apiTitle, apiCategory, keyword].filter(Boolean)
+          : [keyword];
+
+        let relatedLinks: any[] = [];
+        for (const term of searchTerms) {
+          relatedLinks = await findRelatedPosts(blogUrl, term, 5);
+          if (relatedLinks.length > 0) {
+            if (term !== keyword) {
+              onLog?.(`[PROGRESS] 88% - 🕸️ "${term.slice(0, 25)}" 기준으로 관련 상품 글 ${relatedLinks.length}개를 찾았습니다`);
+            }
+            break;
+          }
+        }
+
         if (relatedLinks.length > 0) {
           // H2 섹션 1번째 이후부터 삽입 (최대 2개 섹션)
           html = insertInternalLinks(html, relatedLinks, 1);
           console.log(`[MAX-MODE] ✅ 내부 링크 ${relatedLinks.length}개 삽입 완료 (대상: ${blogUrl})`);
-        } else if (contentMode === 'internal') {
-          // 🛡️ internal 모드 폴백 — 관련도 70+ 글이 0개면 같은 블로그 최근 글 3개라도 삽입
+        } else if (contentMode === 'internal' || contentMode === 'shopping') {
+          // 🛡️ 폴백 — 관련도 70+ 글이 0개면 같은 블로그 최근 글 3개라도 삽입
           //    완전히 비워두면 "추가 탐색" 섹션이 무용지물이 되므로 신규 블로그 케이스 보강
-          console.log(`[MAX-MODE] 🔄 internal 모드 폴백: 관련도 70+ 글 0개 → 최근 글로 대체 시도`);
+          //    v3.8.402: 쇼핑모드도 포함. 상품 글이 서로 안 이어지면 한 편 보고 나가버린다.
+          //    (첫 상품 글은 형제가 없으니 최근 글이라도 이어줘야 다음 글로 넘어간다)
+          console.log(`[MAX-MODE] 🔄 ${contentMode} 모드 폴백: 관련도 70+ 글 0개 → 최근 글로 대체 시도`);
           try {
             const fallbackLinks = await findRelatedPosts(blogUrl, '', 3);
             if (fallbackLinks.length > 0) {

@@ -21,6 +21,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { braceBlock } from './helpers/source-block';
 
 const ROOT = path.join(__dirname, '..');
 const preview = fs.readFileSync(path.join(ROOT, 'electron', 'ui', 'modules', 'preview.js'), 'utf8');
@@ -89,7 +90,7 @@ describe('③ 로딩 표시가 실제 존재하는 버튼에 걸린다', () => {
 
   it('화면에 없는 버튼은 조용히 건너뛴다 — 경고 로그를 만들지 않는다', () => {
     const i = ui.indexOf('export function setRunning');
-    expect(ui.slice(i, i + 500)).toContain('if (!document.getElementById(id)) return');
+    expect(braceBlock(ui, 'export function setRunning')).toContain('if (!document.getElementById(id)) return');
   });
 
   it('대상 버튼들이 index.html 에 실제로 있다', () => {

@@ -17,6 +17,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { braceBlock } from './helpers/source-block';
 
 const REPO = path.resolve(__dirname, '..');
 const mainSource = fs.readFileSync(path.join(REPO, 'electron', 'main.ts'), 'utf8');
@@ -65,7 +66,7 @@ describe('인증 실패 전파 (v3.8.382)', () => {
   it('run-job 실패 응답이 authRequired를 실어 보낸다', () => {
     const idx = mainSource.indexOf('if (!hasContent) {');
     expect(idx).toBeGreaterThan(-1);
-    const block = mainSource.slice(idx, idx + 1400);
+    const block = braceBlock(mainSource, 'if (!hasContent) {');
     expect(block).toContain('authRequired');
     expect(block).toContain("updateAgentProfileStatus(profile.id, 'needs-login')");
   });
@@ -79,7 +80,7 @@ describe('큐 중단 동작 (v3.8.382)', () => {
   it('큐 루프가 인증 만료 시 남은 항목을 중단한다', () => {
     expect(queueSource).toMatch(/if \(window\.__agentAuthRevoked\)/);
     const idx = queueSource.indexOf('if (window.__agentAuthRevoked)');
-    const block = queueSource.slice(idx, idx + 300);
+    const block = braceBlock(queueSource, 'if (window.__agentAuthRevoked)');
     expect(block).toContain('break');
     expect(block).toMatch(/재로그인/);
   });

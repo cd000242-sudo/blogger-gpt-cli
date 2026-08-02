@@ -246,7 +246,19 @@ function removeCompetitorLinks(htmlStr, whitelistUrls = []) {
     'velog.io',
     'medium.com',
     'notion.so',
-    'notion.site'
+    'notion.site',
+    // 🛒 v3.8.404 — 경쟁 쇼핑몰 (제휴 수익을 남에게 넘기는 링크)
+    //   실측 사고(2026-08-02): 쇼핑 글 본문에 AI 가
+    //   "https://search.shopping.naver.com/search/all?query=시티가드..." 를 써넣었다.
+    //   ① 내 제휴 링크가 아니라 **수익이 0원**이고
+    //   ② 네이버가 외부 유입 검색 링크에 **캡차**를 띄워 독자가 튕긴다(사용자 캡처로 확인)
+    //   ③ 애써 데려온 구매 직전 독자를 경쟁 쇼핑몰로 보내는 셈이다
+    'search.shopping.naver.com',
+    'msearch.shopping.naver.com',
+    'shopping.naver.com',
+    'search.11st.co.kr',
+    'browse.gmarket.co.kr',
+    'search.danawa.com'
   ];
 
   let result = htmlStr;
@@ -4668,7 +4680,12 @@ html body .content-inner {
     // p 태그
     finalHtmlContent = finalHtmlContent.replace(/<p(\s[^>]*)?>/gi, (match, attrs) => {
       if (attrs && /style\s*=/i.test(attrs)) return match; // 저자 의도 보존
-      return `<p${attrs || ''} style="color: #1a1a1a; font-size: clamp(15px, 4.05vw, 17px); line-height: 1.72; display: block; margin-bottom: 16px; word-break: keep-all; overflow-wrap: break-word; letter-spacing: 0;">`;
+      // v3.8.404 — 가독성 실측 반영 (사용자 지적: "논문 같아서 가독성이 떨어진다")
+      //   발행글 측정: 문단 46개, 평균 203자, **모바일 6줄 초과 문단이 91%**.
+      //   2026 기준 권장은 본문 16~18px · 줄간격 1.6~1.8 · 한 문단 6줄 이내다.
+      //   글자와 줄간격을 권장 상단으로 올리고, 문단 사이를 벌려 숨 쉴 곳을 만든다.
+      //   (문단 길이 자체는 생성 프롬프트에서 줄인다 — 후처리로 문장을 쪼개면 뜻이 깨진다)
+      return `<p${attrs || ''} style="color: #1a1a1a; font-size: clamp(16px, 4.3vw, 18px); line-height: 1.8; display: block; margin-bottom: 26px; word-break: keep-all; overflow-wrap: break-word; letter-spacing: -0.01em;">`;
     });
 
     // h2 태그
@@ -5010,13 +5027,46 @@ html body .content-inner {
     }
 
     // HTML 구조 검증
-    const hasBasicHtml = finalHtmlContent.includes('<div>') || finalHtmlContent.includes('<p>') || finalHtmlContent.includes('<h');
-    if (!hasBasicHtml) {
-      console.error('[PUBLISH] ❌ HTML에 기본 구조가 없습니다');
-      return {
-        ok: false,
-        error: 'HTML 콘텐츠에 기본 구조가 없습니다. 콘텐츠 생성을 다시 시도해주세요.'
-      };
+    //   v3.8.399 — 사용자 보고(2026-08-01): 153초 걸려 생성한 글이 이 게이트에서 버려졌다.
+    //   기존 검사는 '<div>' '<p>' **완전일치**였는데, 위 인라인 스타일 주입(4669행)이
+    //   모든 <p> 를 <p style="..."> 로 바꾸므로 두 조건은 이미 죽어 있었다.
+    //   즉 사실상 '<h' 하나에만 걸려 있었고, 걸리면 돈과 시간이 통째로 날아갔다.
+    //   → 구조를 제대로 보고, 고칠 수 있으면 고쳐서 발행한다. 발행을 막는 건 최후 수단이다.
+    //   ⚠️ div 는 증거로 세지 않는다 — 위 4241행에서 발행기가 스스로 <div itemscope> 래퍼를 붙이므로
+    //      div 를 인정하면 본문이 텅 비어도 무조건 통과한다(빈 글 발행이 차단보다 나쁘다).
+    const hasBasicHtml = /<(p|h[1-6]|ul|ol|li|table|blockquote|figure|section|article|pre)[\s>]/i.test(finalHtmlContent);
+
+    // 태그를 걷어낸 실제 글자 수 — 이게 사실상 유일한 '본문이 있다'의 근거다
+    const visibleText = finalHtmlContent
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&[a-z#0-9]+;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!hasBasicHtml || visibleText.length < 50) {
+
+      // 다음에 또 나면 원인을 알 수 있도록 증거를 남긴다 (이번엔 남은 게 없어 추적이 막혔다)
+      const why = !hasBasicHtml ? '블록 태그 없음' : '본문 글자 부족';
+      console.error(`[PUBLISH] ❌ ${why} — HTML ${finalHtmlContent.length}자, 본문 텍스트 ${visibleText.length}자`);
+      console.error(`[PUBLISH]    앞 300자: ${finalHtmlContent.slice(0, 300)}`);
+      console.error(`[PUBLISH]    뒤 300자: ${finalHtmlContent.slice(-300)}`);
+      onLog?.(`⚠️ ${why} (본문 텍스트 ${visibleText.length}자) — 발췌: ${visibleText.slice(0, 120)}`);
+
+      if (visibleText.length >= 50) {
+        // 글자는 살아 있다 → 버리지 않는다. 통째로 <div> 로 감싸면 내용 손실 없이 구조가 생긴다
+        finalHtmlContent = `<div>\n${finalHtmlContent}\n</div>`;
+        body.content = finalHtmlContent.trim();
+        console.warn('[PUBLISH] 🔧 구조가 부족해 <div> 로 감싸 발행을 계속합니다 (내용 손실 없음)');
+        onLog?.('🔧 구조가 부족해 <div> 로 감싸 발행을 계속합니다 — 글은 그대로 유지됩니다');
+      } else {
+        // 여기서만 멈춘다. 이유를 두루뭉실하게 말하지 않는다
+        return {
+          ok: false,
+          error: `본문이 비어 있습니다 (HTML ${finalHtmlContent.length}자, 실제 글자 ${visibleText.length}자). 발행이 아니라 생성 단계에서 내용이 만들어지지 않았습니다.`
+        };
+      }
     }
 
     // JavaScript 코드 잔존 검증
@@ -5429,38 +5479,39 @@ html body .content-inner {
     console.log(`[PUBLISH]   - 실제 텍스트 길이 (HTML 태그 제외): ${textOnlyLength}자`);
     onLog?.(`[PUBLISH] 콘텐츠 크기: ${contentSizeKB}KB (문자열: ${contentLength}자, 실제 텍스트: ${textOnlyLength}자)`);
 
-    // Blogger API 제한: 증가 (500KB - 이미지 Base64 제외 시)
-    const MAX_CONTENT_SIZE = 500000; // 500KB
+    // 🔒 크기 제한 — 플랫폼 실제 한도에 맞춘다
+    //   v3.8.400 사용자 보고(2026-08-01): 797KB 글이 "제한 488KB" 로 차단됐다.
+    //   488KB(=500,000바이트)는 우리가 스스로 정한 값이었다. Blogger 실제 한도는 페이지당 1MB 다.
+    //   같은 파일 4155행은 이미 800KB 를 쓰고 있어 한 파일에 서로 다른 두 한도가 공존했다.
+    //
+    //   ⚠️ 예전 '자동 트리밍' 은 지웠다: <h2>/<h3> 로 split 한 뒤 마지막 두 섹션을 **삭제**했고,
+    //      split 은 구분자를 버리므로 남은 소제목 태그까지 통째로 사라졌다.
+    //      사용자가 쓴 글을 지워서 크기를 맞추는 건 실패보다 나쁘다.
+    const MAX_CONTENT_SIZE = 1000000;   // Blogger 실제 한도 (페이지당 1MB)
+    const WARN_CONTENT_SIZE = 500000;   // 이 위부터는 알려만 준다 — 막지 않는다
+
+    if (contentSizeBytes > WARN_CONTENT_SIZE && contentSizeBytes <= MAX_CONTENT_SIZE) {
+      console.warn(`[PUBLISH] ⚠️ 콘텐츠가 큽니다 (${contentSizeKB}KB) — 발행은 계속합니다`);
+      onLog?.(`⚠️ 콘텐츠 ${contentSizeKB}KB — 발행은 진행합니다. (Blogger 는 렌더된 페이지 기준 1MB 가 한도라 목록/아카이브 페이지에서 느려질 수 있습니다)`);
+    }
+
     if (contentSizeBytes > MAX_CONTENT_SIZE) {
-      // 🔥 자동 트리밍: 콘텐츠가 너무 크면 자동으로 줄임
-      console.log(`[PUBLISH] ⚠️ 콘텐츠 크기 초과 (${contentSizeKB}KB), 자동 트리밍 시도...`);
-      onLog?.(`⚠️ 콘텐츠 크기 초과 (${contentSizeKB}KB), 자동 트리밍 중...`);
-
-      // 🛡️ S-7 (v3.5.84): 'content' 미선언 ReferenceError 수정 — body.content 직접 사용
-      //   기존 코드가 외부 스코프 'content' 변수를 가정했으나 publishToBlogger 내에 선언된 적 없음.
-      //   500KB 초과 시 ReferenceError 발생 → 트리밍 안전망 자체가 무력화됐음.
-      //   이제 body.content를 직접 split/join하고 결과를 다시 body.content에 저장.
-      const sections = body.content.split(/<h[23][^>]*>/gi);
-      if (sections.length > 3) {
-        // 마지막 2-3개 섹션 제거
-        const trimmedSections = sections.slice(0, Math.max(3, sections.length - 2));
-        body.content = trimmedSections.join('');
-        const newSize = new TextEncoder().encode(body.content).length;
-        console.log(`[PUBLISH] ✅ 트리밍 완료: ${Math.round(newSize / 1024)}KB`);
-        onLog?.(`✅ 자동 트리밍 완료: ${Math.round(newSize / 1024)}KB`);
+      // 무엇이 용량을 차지하는지 밝힌다 — "줄여주세요" 는 사용자가 할 수 있는 게 없다
+      const b64 = body.content.match(/src=['"]data:image\/[^'"]+['"]/gi) || [];
+      const b64Bytes = b64.reduce((sum, s) => sum + s.length, 0);
+      const styleAttrBytes = (body.content.match(/\sstyle="[^"]*"/gi) || [])
+        .reduce((sum, s) => sum + s.length, 0);
+      const errorMsg = `콘텐츠가 Blogger 한도를 넘었습니다: ${Math.round(contentSizeBytes / 1024)}KB (한도 ${Math.round(MAX_CONTENT_SIZE / 1024)}KB). `
+        + `구성 — 본문 글자 ${textOnlyLength}자, base64 이미지 ${b64.length}장(${Math.round(b64Bytes / 1024)}KB), 인라인 스타일 ${Math.round(styleAttrBytes / 1024)}KB.`;
+      console.error(`[PUBLISH] ❌ ${errorMsg}`);
+      onLog?.(`❌ ${errorMsg}`);
+      if (b64.length > 0) {
+        onLog?.('   💡 base64 이미지가 남아 있습니다 — 이미지 호스팅이 실패했을 때 생깁니다. 로그의 [SANITIZER] 줄을 확인하세요.');
       }
-
-      // 여전히 크면 에러
-      const finalSize = new TextEncoder().encode(body.content).length;
-      if (finalSize > MAX_CONTENT_SIZE) {
-        const errorMsg = `콘텐츠 크기가 너무 큽니다: ${Math.round(finalSize / 1024)}KB (제한: ${Math.round(MAX_CONTENT_SIZE / 1024)}KB). 콘텐츠를 줄여주세요.`;
-        console.error(`[PUBLISH] ❌ ${errorMsg}`);
-        onLog?.(`❌ ${errorMsg}`);
-        return {
-          ok: false,
-          error: errorMsg
-        };
-      }
+      return {
+        ok: false,
+        error: errorMsg
+      };
     }
 
     // body 객체의 필수 필드 확인

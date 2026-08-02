@@ -8,6 +8,7 @@ import {
   analyzeKeywordAngle,
   composeTitleDirective,
 } from '../src/core/keyword-angle';
+import { braceBlock } from './helpers/source-block';
 
 describe('5문형 판정 — 실제 키워드로', () => {
   it.each([
@@ -177,7 +178,13 @@ describe('orchestration 배선 가드', () => {
 
   it('수요 힌트와 각도를 합쳐 제목 프롬프트에 넘긴다', () => {
     expect(src).toContain('composeTitleDirective(demandHint, angle)');
-    expect(src).toContain('generateH1TitleFinal(keyword, titles, demandTitleHint)');
+    // v3.8.404: 쇼핑 상품 등록명을 넘기려고 4번째 인자가 붙었다 — 인자 구성으로 확인한다
+    const j = src.indexOf('generateH1TitleFinal(');
+    expect(j).toBeGreaterThan(-1);
+    const callBlock = braceBlock(src, 'generateH1TitleFinal(');
+    expect(callBlock).toContain('keyword');
+    expect(callBlock).toContain('titles');
+    expect(callBlock).toContain('demandTitleHint');
   });
 
   it('전체가 try/catch 안에 있어 발행을 막지 않는다', () => {

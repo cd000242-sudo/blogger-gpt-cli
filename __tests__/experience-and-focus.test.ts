@@ -19,6 +19,7 @@ import { DECISION_SUPPORT_RULES, hasDecisionSupportRules } from '../src/core/fin
 import {
   pickSuffixes, buildNarrowTerms, suggestNarrowerKeywords, buildNarrowFocusBlock,
 } from '../src/core/keyword-narrowing';
+import { braceBlock } from './helpers/source-block';
 
 describe('경험 메모 — 입력 정리', () => {
   it('공백만 있는 값은 버린다', () => {
@@ -287,7 +288,7 @@ describe('orchestration·UI 배선', () => {
 
   it('경험·좁히기 실패가 발행을 막지 않는다', () => {
     const i = orch.indexOf('v3.8.392: 작성자 경험 메모 주입');
-    const block = orch.slice(i, i + 2600);
+    const block = braceBlock(orch, 'v3.8.392: 작성자 경험 메모 주입');
     expect(block).toContain('try {');
     expect(block).toContain('catch');
     expect(block).not.toContain('throw');
@@ -301,7 +302,7 @@ describe('orchestration·UI 배선', () => {
 
   it('육하원칙은 접이식이라 기본 화면을 어지럽히지 않는다', () => {
     const i = html.indexOf('id="experienceNote"');
-    expect(html.slice(i, i + 1800)).toContain('<details');
+    expect(braceBlock(html, 'id="experienceNote"')).toContain('<details');
   });
 
   it('payload 가 경험을 실어 보낸다', () => {

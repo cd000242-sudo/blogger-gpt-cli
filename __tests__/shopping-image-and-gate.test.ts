@@ -17,6 +17,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { linkImagesToProduct } from '../src/core/affiliate/compliance';
 import { isSupportedForCrawl } from '../src/core/affiliate/crawl';
+import { braceBlock } from './helpers/source-block';
 
 const ROOT = path.join(__dirname, '..');
 const read = (...p: string[]) => {
@@ -35,7 +36,7 @@ describe('① 발행 차단 — 사용자가 고른 섹션 수를 존중한다',
 
   it('모드별 하드코딩 최소값은 요청 수를 모를 때만 쓴다', () => {
     const i = main.indexOf('const requestedSections');
-    const block = main.slice(i, i + 400);
+    const block = braceBlock(main, 'const requestedSections');
     expect(block).toContain('requestedSections > 0');
     expect(block).toContain('modeFloor');
   });
@@ -131,18 +132,56 @@ describe('②③ 쇼핑모드 이미지 컨트롤 정합', () => {
     expect(html).toContain('function syncShoppingImageControls');
   });
 
-  it('상품 사진 그대로면 엔진 선택을 비활성화한다', () => {
+  it('상품 사진 그대로면 소제목 엔진 선택을 비활성화한다', () => {
+    // v3.8.401: 창 크기(1500자)에 의존하던 슬라이스를 함수 경계로 바꿨다 — 함수가 길어져도 안 깨진다
     const i = html.indexOf('function syncShoppingImageControls');
-    const block = html.slice(i, i + 1500);
+    const block = html.slice(i, html.indexOf('화면 정합 실패가 발행을 막지 않는다', i));
     expect(block).toContain("strategy === 'product-all'");
-    expect(block).toContain('el.disabled = useProductPhotos');
-    expect(block).toContain('thumbnailMode');
+    expect(block).toContain('h2.disabled = useProductPhotos');
+    expect(block).toContain('thumbnailType');
     expect(block).toContain('h2ImageSource');
+  });
+
+  it('⭐ 썸네일은 전략과 무관하게 쇼핑모드면 항상 잠긴다 (백엔드 동작과 동일)', () => {
+    const i = html.indexOf('function syncShoppingImageControls');
+    const block = html.slice(i, html.indexOf('화면 정합 실패가 발행을 막지 않는다', i));
+    expect(block).toContain('thumbSel.disabled = isShopping');
+    expect(block).toContain('쇼핑모드 썸네일은 항상 실제 상품 사진입니다');
+  });
+
+  /**
+   * v3.8.399 — 같은 유형의 버그가 반복된다: 존재하지 않는 id 를 getElementById 로 부르면
+   * 아무 에러 없이 조용히 아무 일도 안 일어난다. (앞서 generateBtn, 이번엔 thumbnailMode)
+   * 문자열 일치가 아니라 **id 실존**을 검증한다.
+   */
+  it('⭐ 정합 대상 id 가 실제로 index.html 에 존재한다 (thumbnailMode 오타 재발 방지)', () => {
+    const i = html.indexOf('function syncShoppingImageControls');
+    const block = html.slice(i, html.indexOf('};', i));
+    const ids = [...block.matchAll(/getElementById\(['"]([A-Za-z0-9_-]+)['"]\)/g)].map(m => m[1]);
+    const listed = [...block.matchAll(/\[['"]([A-Za-z0-9_-]+)['"],\s*'[^']+'\]/g)].map(m => m[1]);
+    const targets = [...new Set([...ids, ...listed])];
+
+    expect(targets.length).toBeGreaterThan(2);
+    const missing = targets.filter(id => !html.includes(`id="${id}"`));
+    expect(missing).toEqual([]);
+    expect(targets).toContain('thumbnailType');
+  });
+
+  it('⭐ 썸네일 표시값도 상품 사진으로 맞춘다 — 화면과 발행물이 달라 보이면 안 된다', () => {
+    expect(html).toContain("thumbSel.value = 'crawled'");
+    expect(html).toContain('__preShoppingThumbType');          // 쇼핑모드 나가면 되돌린다
+  });
+
+  it('⭐ 백엔드도 쇼핑모드면 수집 상품 사진을 썸네일로 쓴다', () => {
+    const orch = read('src', 'core', 'final', 'orchestration.ts');
+    expect(orch).toContain('isCrawledRequested || isShoppingMode || !userPickedAiEngine');
+    // AI 디스패치는 썸네일이 비었을 때만 — 상품 사진을 덮어쓰면 안 된다
+    expect(orch).toContain('if (!thumbnailUrl && !thumbnailDisabled)');
   });
 
   it('왜 꺼졌는지 이유를 보여준다', () => {
     const i = html.indexOf('function syncShoppingImageControls');
-    expect(html.slice(i, i + 1500)).toContain('AI 생성 안 함');
+    expect(html.slice(i, html.indexOf('화면 정합 실패가 발행을 막지 않는다', i))).toContain('AI 생성 안 함');
   });
 
   it('쇼핑모드 진입 시 이미지 소스를 상품 사진으로 전환한다', () => {
