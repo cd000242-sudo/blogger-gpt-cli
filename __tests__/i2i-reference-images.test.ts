@@ -199,3 +199,68 @@ describe('i2i 지원 엔진 정리', () => {
     expect((dispatcher.match(/\?\.length \? \{ referenceImages/g) || []).length).toBeGreaterThanOrEqual(4);
   });
 });
+
+/**
+ * 쇼핑모드는 i2i 되는 엔진으로 (v3.8.409)
+ *
+ * 사용자 요구: "쇼핑모드는 가능한 모델로 생성되게끔 조치를 취해놓으면 되지 않니?"
+ *
+ * ImageFX·Flow 는 브라우저 조작이라 이미지를 못 넣고, 'crawled'·'custom' 은 생성 엔진이 아니다.
+ * 그런 엔진이면 상품 사진이 통째로 무시되고, 생성이 실패하면
+ * 1장뿐인 상품 사진이 소제목마다 반복돼 글이 고장 난 것처럼 보인다(사용자가 겪은 증상).
+ */
+import { engineSupportsI2i, pickI2iEngine } from '../src/core/imageDispatcher';
+
+describe('i2i 가능 엔진 판정', () => {
+  it('⭐ 참고 이미지를 실제로 쓰는 엔진만 true', () => {
+    ['nanobanana', 'nanobanana2', 'nanobananapro', 'gptimage1', 'gptimage2', 'prodia', 'deepinfra', 'dropshot']
+      .forEach((e) => expect(engineSupportsI2i(e)).toBe(true));
+  });
+
+  it('⭐ 브라우저 조작 엔진과 비생성 값은 false', () => {
+    ['imagefx', 'flow', 'crawled', 'custom', 'none', 'leonardo', '']
+      .forEach((e) => expect(engineSupportsI2i(e)).toBe(false));
+  });
+});
+
+describe('쇼핑모드 엔진 자동 전환', () => {
+  const env = { GEMINI_API_KEY: 'x'.repeat(40), OPENAI_API_KEY: 'y'.repeat(50) };
+
+  it('⭐ 이미 가능한 엔진은 그대로 둔다 (멋대로 바꾸지 않는다)', () => {
+    expect(pickI2iEngine('nanobanana2', env)).toMatchObject({ engine: 'nanobanana2', switched: false });
+    expect(pickI2iEngine('gptimage2', env)).toMatchObject({ engine: 'gptimage2', switched: false });
+  });
+
+  it('⭐ i2i 불가 엔진이면 가능한 것으로 바꾼다', () => {
+    ['imagefx', 'flow', 'crawled'].forEach((e) => {
+      const r = pickI2iEngine(e, env);
+      expect(r.switched).toBe(true);
+      expect(engineSupportsI2i(r.engine)).toBe(true);
+    });
+  });
+
+  it('⭐ 왜 바꿨는지 이유를 준다 (조용히 바꾸지 않는다)', () => {
+    expect(pickI2iEngine('imagefx', env).reason).toContain('상품 사진을 참고할 수 없습니다');
+  });
+
+  it('⭐ 키가 있는 엔진만 고른다', () => {
+    // Gemini 키만 있으면 OpenAI 계열로 가지 않는다
+    const geminiOnly = { GEMINI_API_KEY: 'x'.repeat(40) };
+    expect(pickI2iEngine('imagefx', geminiOnly).engine).toMatch(/^nanobanana/);
+  });
+
+  it('⭐ 결과는 항상 i2i 가능한 엔진이거나 입력 그대로다 (엉뚱한 엔진으로 튀지 않는다)', () => {
+    // 빈 env 를 넘겨도 engineKeyAvailable 은 실제 .env 를 함께 본다(운영 동작).
+    // 그래서 "키가 하나도 없는 상황"은 여기서 흉내낼 수 없다.
+    // 대신 **어떤 입력에도 결과가 안전한지**를 본다.
+    ['imagefx', 'flow', 'crawled', 'custom', '', 'nanobanana2'].forEach((e) => {
+      const r = pickI2iEngine(e, {});
+      expect(engineSupportsI2i(r.engine) || r.engine === e).toBe(true);
+    });
+  });
+
+  it('orchestration 이 이 판정을 쓴다', () => {
+    expect(orch).toContain('pickI2iEngine');
+    expect(orch).toContain('i2iPick.switched');
+  });
+});

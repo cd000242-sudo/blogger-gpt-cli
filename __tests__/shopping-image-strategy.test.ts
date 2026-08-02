@@ -61,10 +61,14 @@ describe('UI — 글포스팅 이미지 서브탭에 선택지가 있다', () =>
     expect(uiHtml).toContain('__preShoppingH2Source');       // 되돌릴 값을 기억한다
   });
 
-  it('⭐ i2i 인데 엔진이 crawled 면 백엔드가 생성 엔진으로 바꾼다', () => {
+  it('⭐ i2i 인데 못 하는 엔진이면 가능한 엔진으로 바꾼다', () => {
+    // v3.8.409: 정규식 하드코딩을 pickI2iEngine 으로 대체했다.
+    //   이제 'crawled' 뿐 아니라 imagefx·flow 처럼 구조적으로 i2i 가 안 되는 엔진도 잡고,
+    //   **키가 있는** 엔진 중에서 고른다. 판정 자체는 i2i-reference-images.test.ts 가 검증한다.
     const orch = fs.readFileSync(path.join(ROOT, 'src', 'core', 'final', 'orchestration.ts'), 'utf8');
     expect(orch).toContain('const i2iEngine =');
-    expect(orch).toContain("/^(crawled|custom|none|skip)/i");
+    expect(orch).toContain('pickI2iEngine');
+    expect(orch).toContain('i2iPick.switched');
   });
 
   it('썸네일은 항상 실제 상품 사진임을 UI가 안내한다', () => {

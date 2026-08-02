@@ -2201,13 +2201,17 @@ export async function generateUltimateMaxModeArticleFinal(
             } else if (shoppingStrategy === 'product-i2i') {
               // 실제 상품을 reference 로 넘겨 소제목 내용에 맞는 이미지를 생성
               const refs = productPool.slice(0, 4);
-              // v3.8.401 안전장치: 소제목 엔진이 'crawled'·'custom' 이면 생성 엔진이 아니라 i2i 가 불가능하다.
-              //   (예전 UI 버그로 쇼핑모드면 무조건 'crawled' 가 박혔다 — 그 상태로 저장된 설정이 남아 있을 수 있다)
-              const i2iEngine = /^(crawled|custom|none|skip)/i.test(String(imageSource))
-                ? 'nanobanana2'
-                : imageSource;
-              if (i2iEngine !== imageSource) {
-                onLog?.(`   [IMG-${i + 1}] ℹ️ 소제목 엔진이 '${imageSource}' 라 i2i 를 못 합니다 — ${i2iEngine} 로 생성합니다`);
+              // 🎯 v3.8.409 — **상품 사진을 참고할 수 있는 엔진으로 맞춘다.**
+              //   사용자 요구: "쇼핑모드는 가능한 모델로 생성되게끔 조치를 취해놓으면 되지 않니?"
+              //   ImageFX·Flow 는 브라우저 조작이라 이미지를 못 넣고, 'crawled'·'custom' 은 생성 엔진이 아니다.
+              //   그런 엔진이면 상품 사진이 통째로 무시되고, 생성이 실패하면
+              //   1장뿐인 상품 사진이 소제목마다 반복돼 글이 고장 난 것처럼 보인다.
+              //   i2i 가 되면서 **키도 있는** 엔진으로 바꾼다. 이미 가능하면 그대로 둔다.
+              const { pickI2iEngine } = await import('../imageDispatcher');
+              const i2iPick = pickI2iEngine(String(imageSource), loadEnvFromFile());
+              const i2iEngine = i2iPick.engine;
+              if (i2iPick.switched) {
+                onLog?.(`   [IMG-${i + 1}] 🎯 ${i2iPick.reason} — ${i2iEngine} 로 상품 사진을 참고해 생성합니다`);
               }
               // 🎨 v3.8.406 — **참고 이미지를 실제로 쓰는 엔진은 dropshot 하나뿐이다**
               //   (imageDispatcher.ts 378행: "다른 엔진(nanobanana 등)은 무시한다")

@@ -479,6 +479,53 @@ function resolveAutoEngine(env: Record<string, string>): ImageEngine {
 }
 
 /**
+ * 참고 이미지(i2i)를 실제로 쓸 수 있는 엔진인가. (v3.8.409)
+ *
+ * 실측·문서 확인(2026-08-02):
+ *   나노바나나 1·2·Pro  Gemini generateContent — parts 에 inlineData 동봉 → 가능
+ *   GPT 이미지 1·2      images/edits 로 가능 (generations 는 불가)
+ *   Prodia              ...img2img.v1 작업 타입 + multipart → 가능
+ *   DeepInfra           FLUX.1-Kontext-dev + multipart → 가능
+ *   Dropshot            가능 (UI 자동화)
+ *   ImageFX / Flow      **불가** — 브라우저 조작이라 이미지를 넣을 수 없다
+ *   Leonardo            2단계 업로드가 필요해 아직 미구현
+ */
+export function engineSupportsI2i(engine: string): boolean {
+  return /^(nanobanana|nanobanana2|nanobananapro|gptimage1|gptimage2|prodia|deepinfra|dropshot)/i
+    .test(String(engine || '').trim());
+}
+
+/**
+ * 쇼핑모드 상품 기반 생성에서 쓸 엔진을 고른다. (v3.8.409)
+ *
+ * 사용자 요구: "쇼핑모드는 가능한 모델로 생성되게끔 조치를 취해놓으면 되지 않니?"
+ *
+ * 고른 엔진이 i2i 를 못 하면(ImageFX·Flow 등) 상품 사진이 통째로 무시되고,
+ * 생성이 실패하면 1장뿐인 상품 사진이 소제목마다 반복돼 글이 고장 난 것처럼 보인다.
+ * 그래서 **i2i 가 되면서 키도 있는 엔진**으로 바꿔준다.
+ *
+ * 사용자가 고른 엔진이 이미 가능하면 그대로 둔다 — 멋대로 바꾸지 않는다.
+ */
+export function pickI2iEngine(preferred: string, env: Record<string, string>): { engine: string; switched: boolean; reason: string } {
+  const want = String(preferred || '').trim();
+  if (engineSupportsI2i(want) && engineKeyAvailable(want, env)) {
+    return { engine: want, switched: false, reason: '' };
+  }
+
+  // 사용자가 쓰던 계열을 최대한 유지하는 순서로 찾는다
+  const CANDIDATES = ['nanobanana2', 'nanobanana', 'gptimage2', 'gptimage1', 'prodia', 'deepinfra'];
+  for (const c of CANDIDATES) {
+    if (engineKeyAvailable(c, env)) {
+      const reason = !engineSupportsI2i(want)
+        ? `${want || '선택 없음'} 는 상품 사진을 참고할 수 없습니다`
+        : `${want} 의 API 키가 없습니다`;
+      return { engine: c, switched: true, reason };
+    }
+  }
+  return { engine: want || 'nanobanana2', switched: false, reason: '' };   // 쓸 키가 하나도 없다
+}
+
+/**
  * 한 엔진을 에러 분류 기반으로 (최대 maxAttempts회) 시도한다. 절대 throw 하지 않음.
  *   - 우회 불가(billing/region/verification/permission_denied) → 재시도 무의미 → 즉시 반환
  *   - 우회 가능(transient) → cooldown(상한 maxCooldownMs) 후 재시도
