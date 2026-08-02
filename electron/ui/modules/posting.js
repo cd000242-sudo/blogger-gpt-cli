@@ -586,8 +586,15 @@ export async function runPosting() {
     try { return localStorage.getItem('singleInputMode') || 'keyword'; }
     catch { return 'keyword'; }
   })();
+  // v3.8.410 — 보이는 링크 칸이 곧 '원본 URL' 이다.
+  //   v3.8.405 에서 쇼핑모드의 '원본 URL' 칸을 감추고 '제휴 링크' 칸 하나로 합쳤는데,
+  //   검증은 referenceUrl 만 봐서 링크를 넣고도 "원본 URL을 입력해주세요"로 막혔다(실측 2026-08-02).
+  //   칸을 합쳤으면 검증도 합쳐야 한다.
   const referenceUrlEl = document.getElementById('referenceUrl');
-  const referenceUrlValue = referenceUrlEl?.value?.trim() || '';
+  const referenceUrlValue = [
+    referenceUrlEl?.value || '',
+    document.getElementById('affiliateLinks')?.value || '',
+  ].join('\n').trim();
   const hasValidUrl = referenceUrlValue.split('\n')
     .map(u => u.trim())
     .some(u => u.startsWith('http://') || u.startsWith('https://'));
@@ -1700,7 +1707,11 @@ function isUrlInputModeActive() {
   try { mode = localStorage.getItem('singleInputMode') || 'keyword'; }
   catch { /* localStorage 접근 불가 시 키워드 모드로 간주 */ }
   if (mode !== 'url') return false;
-  const referenceUrlValue = document.getElementById('referenceUrl')?.value?.trim() || '';
+  // v3.8.410: 쇼핑모드는 제휴 링크 칸이 원본 URL 칸을 대신한다
+  const referenceUrlValue = [
+    document.getElementById('referenceUrl')?.value || '',
+    document.getElementById('affiliateLinks')?.value || '',
+  ].join('\n').trim();
   return referenceUrlValue.split('\n').some((line) => /^https?:\/\//i.test(line.trim()));
 }
 

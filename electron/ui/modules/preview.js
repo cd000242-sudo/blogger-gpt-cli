@@ -176,7 +176,13 @@ function resolveTopicInput() {
   let singleInputMode = 'keyword';
   try { singleInputMode = localStorage.getItem('singleInputMode') || 'keyword'; } catch { /* noop */ }
 
-  const referenceUrl = (document.getElementById('referenceUrl')?.value || '').trim();
+  // v3.8.410 — 보이는 링크 칸이 곧 '원본 URL' 이다.
+  //   쇼핑모드는 '원본 URL' 칸을 감추고 '제휴 링크' 칸 하나로 받는다(v3.8.405).
+  //   그런데 검증이 referenceUrl 만 봐서, 링크를 제대로 넣고도 막혔다.
+  const referenceUrl = [
+    document.getElementById('referenceUrl')?.value || '',
+    document.getElementById('affiliateLinks')?.value || '',
+  ].join('\n').trim();
   const hasValidUrl = referenceUrl.split('\n')
     .map((u) => u.trim())
     .some((u) => u.startsWith('http://') || u.startsWith('https://'));

@@ -1,0 +1,39 @@
+# 줄바꿈을 LF 로 고정한다 (v3.8.410)
+#
+# 왜 필요한가:
+#   이 저장소는 core.autocrlf=true 인데 .gitattributes 가 없었다.
+#   그래서 git 이 파일을 만질 때마다(checkout · stash · clone) 작업본이 CRLF 로 바뀌었다.
+#   테스트 여러 곳이 소스를 읽어 "...')\n        ?.addEventListener(" 처럼
+#   **줄바꿈을 포함한 문자열**로 검증한다. CRLF 가 되면 이게 전부 조용히 깨진다.
+#
+# 실측(2026-08-02): red-green 확인하려고 git stash 를 한 번 돌렸더니
+#   index.html 8,803줄이 CRLF 로 바뀌며 통과하던 스위트가 실패했다.
+#   코드는 멀쩡했는데 "어느 git 명령을 마지막에 썼는지"에 따라 게이트 결과가 달라졌다.
+#
+# 이 파일이 있으면 checkout 이 항상 LF 로 내려준다 — 재발하지 않는다.
+
+* text=auto eol=lf
+
+# Windows 배치 스크립트는 CRLF 여야 실행된다
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# 바이너리는 건드리지 않는다
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.icns binary
+*.webp binary
+*.pdf  binary
+*.zip  binary
+*.exe  binary
+*.dll  binary
+*.node binary
+*.woff  binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.xlsx binary
