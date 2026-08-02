@@ -80,6 +80,8 @@ export type ProdiaThumbOptions = {
   height?: number;  // 기본 1024 (16:9 비율은 1024x576 또는 1280x720)
   model?: 'flux-schnell' | 'flux-dev' | 'sdxl' | 'sd15'; // 기본 'flux-schnell' (가장 빠름)
   steps?: number;   // 생성 단계 수 (기본 4, flux-schnell 최적값)
+  /** v3.8.408: 참고 이미지(i2i). 있으면 img2img 경로로 간다. */
+  referenceImages?: string[];
 };
 
 // 🔥 DeepInfra FLUX-2-dev 옵션 (32B 파라미터 초고품질 이미지 생성)
@@ -90,6 +92,8 @@ export type DeepInfraThumbOptions = {
   numInferenceSteps?: number; // 1-100, 기본 28
   guidanceScale?: number;     // 0-20, 기본 2.5
   seed?: number;              // 랜덤 시드 (빈 값이면 무작위)
+  /** v3.8.408: 참고 이미지(i2i). 있으면 img2img 경로로 간다. */
+  referenceImages?: string[];
 };
 
 
@@ -1250,14 +1254,34 @@ export async function makeDeepInfraThumbnail(
       requestBody.seed = options.seed;
     }
 
-    const response = await fetch('https://api.deepinfra.com/v1/inference/black-forest-labs/FLUX-2-dev', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    });
+    // 🖼️ v3.8.408 — DeepInfra 도 i2i 가 된다. 다만 **모델을 갈아야** 한다.
+    //   문서 확인(2026-08-02): FLUX-2-dev 는 txt2img 전용이고,
+    //   이미지 입력은 FLUX.1-Kontext-dev(편집)가 받는다. 전송은 multipart 로 `image` 필드.
+    //   사용자 요구: "가능하다면 가능하게 만들어주면 되지 않니?"
+    const diRefs = await fetchImagesAsBlobs(options.referenceImages);
+    let response: Response;
+    if (diRefs.length > 0) {
+      console.log(`[DEEPINFRA] 🖼️ i2i 모드 — FLUX.1-Kontext-dev (참고 사진 ${diRefs.length}장)`);
+      const form = new FormData();
+      form.append('image', diRefs[0]!, 'reference.png');
+      form.append('prompt', `${cleanPrompt}. Use the provided photo as the actual product; `
+        + 'keep its shape, color and proportions recognizable.');
+      form.append('n', '1');
+      response = await fetch('https://api.deepinfra.com/v1/inference/black-forest-labs/FLUX-1-Kontext-dev', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}` },   // Content-Type 은 FormData 가 정한다
+        body: form as any,
+      });
+    } else {
+      response = await fetch('https://api.deepinfra.com/v1/inference/black-forest-labs/FLUX-2-dev', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+    }
 
     if (!response.ok) {
       let errorMessage = `DeepInfra API 오류 (${response.status})`;
@@ -2226,31 +2250,70 @@ export async function makeProdiaThumbnail(
     'sd15': 'inference.sd.txt2img.v1'
   };
 
-  const jobType = modelTypeMap[model] || modelTypeMap['flux-schnell'];
+  // 🖼️ v3.8.408 — Prodia 도 i2i 가 된다. 작업 타입만 img2img 로 바꾸면 된다.
+  //   문서 확인(2026-08-02): inference.flux.dev.img2img.v1 / inference.flux.schnell.img2img.v1 실재.
+  //   요청은 multipart/form-data 로 job 설정 JSON + 이미지 파일을 함께 보낸다.
+  //   사용자 요구: "가능하다면 가능하게 만들어주면 되지 않니?"
+  const img2imgTypeMap: { [key: string]: string } = {
+    'flux-schnell': 'inference.flux.schnell.img2img.v1',
+    'flux-dev': 'inference.flux.dev.img2img.v1',
+    'sdxl': 'inference.sdxl.img2img.v1',
+    'sd15': 'inference.sd.img2img.v1'
+  };
+
+  const prodiaRefs = await fetchImagesAsBlobs(options.referenceImages);
+  const useImg2Img = prodiaRefs.length > 0;
+  const jobType = useImg2Img
+    ? (img2imgTypeMap[model] || img2imgTypeMap['flux-schnell'])
+    : (modelTypeMap[model] || modelTypeMap['flux-schnell']);
+  if (useImg2Img) {
+    console.log(`[PRODIA] 🖼️ i2i 모드 — ${jobType} (참고 사진 ${prodiaRefs.length}장)`);
+  }
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       // 1. 작업 생성
-      const createResponse = await fetch('https://inference.prodia.com/v2/job', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${options.apiKey}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          type: jobType,
-          config: {
-            prompt: prompt,
-            width: width,
-            height: height,
-            steps: steps,
-            cfg_scale: 3.5,  // Flux 최적값
-            sampler: 'euler_a',
-            negative_prompt: 'text, letters, words, numbers, watermark, logo, blurry, low quality'
-          }
-        })
-      });
+      const jobConfig = {
+        type: jobType,
+        config: {
+          prompt: useImg2Img
+            ? `${prompt}. Use the provided photo as the actual product; keep its shape, color and proportions.`
+            : prompt,
+          width: width,
+          height: height,
+          steps: steps,
+          cfg_scale: 3.5,  // Flux 최적값
+          sampler: 'euler_a',
+          negative_prompt: 'text, letters, words, numbers, watermark, logo, blurry, low quality'
+        }
+      };
+
+      let createResponse: Response;
+      if (useImg2Img) {
+        // img2img 는 multipart — job 설정 JSON + 이미지 파일
+        const form = new FormData();
+        form.append('job', JSON.stringify(jobConfig));
+        form.append('input', prodiaRefs[0]!, 'reference.png');
+        createResponse = await fetch('https://inference.prodia.com/v2/job', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${options.apiKey}`,
+            'Accept': 'application/json',
+            // Content-Type 은 FormData 가 boundary 와 함께 정한다
+          },
+          body: form as any,
+        });
+      } else {
+        createResponse = await fetch('https://inference.prodia.com/v2/job', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${options.apiKey}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(jobConfig)
+        });
+      }
 
       if (!createResponse.ok) {
         const errorData = await createResponse.json().catch(() => ({}));

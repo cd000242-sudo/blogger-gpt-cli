@@ -126,3 +126,76 @@ describe('반자동 쇼핑모드 — 썸네일은 공짜니까 넣는다', () =>
     expect(block).toContain("contentMode === 'shopping'");
   });
 });
+
+/**
+ * Prodia · DeepInfra i2i (v3.8.408)
+ *
+ * 사용자: "가능하다면 가능하게 만들어주면 되지 않니?"
+ *
+ * 문서 확인(2026-08-02):
+ *   Prodia    inference.flux.dev.img2img.v1 / .schnell.img2img.v1 실재.
+ *             multipart 로 job 설정 JSON + 이미지 파일.
+ *   DeepInfra FLUX-2-dev 는 txt2img 전용. 이미지 입력은 FLUX.1-Kontext-dev 가 받는다.
+ *             multipart 로 `image` 필드.
+ *   Leonardo  가능하나 2단계 — 이미지 업로드로 ID 를 받아 init_image_id 로 넘겨야 한다.
+ *             (사용자 환경에 Leonardo 키가 없어 후순위)
+ */
+describe('Prodia i2i', () => {
+  it('⭐ 참고 이미지가 있으면 img2img 작업 타입으로 바꾼다', () => {
+    expect(thumb).toContain('inference.flux.dev.img2img.v1');
+    expect(thumb).toContain('inference.flux.schnell.img2img.v1');
+  });
+
+  it('참고 이미지가 없으면 기존 txt2img 그대로', () => {
+    expect(thumb).toContain('inference.flux.schnell.txt2img.v1');
+  });
+
+  it('⭐ img2img 는 multipart 로 보낸다 (JSON 으로는 이미지를 못 싣는다)', () => {
+    const block = blockBetween(thumb, 'v3.8.408 — Prodia 도 i2i', '2. 작업 완료 대기');
+    expect(block).toContain('new FormData()');
+    expect(block).toContain("form.append('job'");
+    expect(block).toContain("form.append('input'");
+  });
+
+  it('디스패처가 Prodia 에 참고 이미지를 넘긴다', () => {
+    expect(dispatcher).toContain('v3.8.408: Prodia 도 img2img');
+    expect(dispatcher).toContain('referenceImages: prodiaRefs');
+  });
+});
+
+describe('DeepInfra i2i', () => {
+  it('⭐ i2i 일 때 FLUX.1-Kontext-dev 로 갈아탄다 (FLUX-2-dev 는 이미지를 못 받는다)', () => {
+    expect(thumb).toContain('FLUX-1-Kontext-dev');
+    expect(thumb).toContain('FLUX-2-dev');
+  });
+
+  it('⭐ multipart 의 image 필드로 보낸다', () => {
+    const block = blockBetween(thumb, 'v3.8.408 — DeepInfra 도 i2i', 'if (!response.ok)');
+    expect(block).toContain("form.append('image'");
+    expect(block).toContain('new FormData()');
+  });
+
+  it('참고 이미지가 없으면 기존 JSON 경로 그대로', () => {
+    const block = blockBetween(thumb, 'v3.8.408 — DeepInfra 도 i2i', 'if (!response.ok)');
+    expect(block).toContain('JSON.stringify(requestBody)');
+  });
+
+  it('디스패처가 DeepInfra 에 참고 이미지를 넘긴다', () => {
+    expect(dispatcher).toContain('referenceImages: diRefs');
+  });
+});
+
+describe('i2i 지원 엔진 정리', () => {
+  it('⭐ 네 엔진 계열 모두 참고 이미지를 받는다', () => {
+    // 나노바나나(Gemini) · GPT 이미지(OpenAI) · Prodia · DeepInfra
+    expect(dispatcher).toContain('referenceImages: nbRefs');
+    expect(dispatcher).toContain('referenceImages: gptRefs');
+    expect(dispatcher).toContain('referenceImages: prodiaRefs');
+    expect(dispatcher).toContain('referenceImages: diRefs');
+  });
+
+  it('참고 이미지가 없으면 어느 엔진이든 예전 경로를 쓴다', () => {
+    // 조건부 전개(...(refs?.length ? {...} : {}))라 없으면 옵션 자체가 안 붙는다
+    expect((dispatcher.match(/\?\.length \? \{ referenceImages/g) || []).length).toBeGreaterThanOrEqual(4);
+  });
+});

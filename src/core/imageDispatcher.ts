@@ -1065,12 +1065,16 @@ async function _tryEngineInternal(
       try {
         console.log(`[DISPATCH] 🚀 Prodia FLUX schnell 시도...`);
         const { makeProdiaThumbnail } = await import('../thumbnail');
+        // v3.8.408: Prodia 도 img2img 작업 타입이 있다 — 참고 이미지를 넘긴다
+        const prodiaRefs = (extra as any)?.referenceImageList as string[] | undefined;
+        if (prodiaRefs?.length) onLog?.(`   🖼️ Prodia i2i — 상품 사진 참고`);
         const result = await makeProdiaThumbnail(inferredPrompt, keyword, {
           apiKey,
           width: isThumbnail ? 1280 : 1024,
           height: isThumbnail ? 720 : 576,
           model: 'flux-schnell',
           steps: 4,
+          ...(prodiaRefs?.length ? { referenceImages: prodiaRefs } : {}),
         });
         if (result.ok) {
           return { ok: true, dataUrl: result.dataUrl, source: 'Prodia FLUX schnell' };
@@ -1096,11 +1100,15 @@ async function _tryEngineInternal(
       try {
         console.log(`[DISPATCH] 🔥 DeepInfra 시도...`);
         const { makeDeepInfraThumbnail } = await import('../thumbnail');
+        // v3.8.408: DeepInfra 는 i2i 일 때 FLUX.1-Kontext-dev 로 갈아탄다
+        const diRefs = (extra as any)?.referenceImageList as string[] | undefined;
+        if (diRefs?.length) onLog?.(`   🖼️ DeepInfra i2i — 상품 사진 참고`);
         const result = await makeDeepInfraThumbnail(inferredPrompt, keyword, {
           apiKey,
           width: 1024,
           height: 576,
           skipOverlay: true,
+          ...(diRefs?.length ? { referenceImages: diRefs } : {}),
         });
         if (result.ok) {
           return { ok: true, dataUrl: result.dataUrl, source: 'DeepInfra FLUX-2' };
