@@ -652,6 +652,13 @@ const PQ_INTERVAL_FLOORS = {
   general: PUBLISH_QUEUE_MIN_MINUTES * 60 * 1000,
   slow: 7 * 60 * 1000,
   browser: 8 * 60 * 1000,
+  // v3.8.420: 사용자 요청 — "쇼핑모드는 발행간격을 최소10분이상으로 두개해줘".
+  //   쇼핑 글은 쿠팡 상품 조회·후기 크롤링·이미지 8장(상품 기반 i2i)까지 겹쳐 다른
+  //   모드보다 API 호출이 훨씬 많다 — 짧은 간격은 쿠팡/이미지 엔진 레이트리밋에
+  //   더 쉽게 걸린다. 다른 플로어(이미지 엔진 기준)와 별개로 콘텐츠 모드 자체에 거는
+  //   바닥값이라 항상 최대값(Math.max)으로 합쳐진다 — 쇼핑 + 브라우저 이미지 엔진이면
+  //   그중 더 큰 10분이 적용된다.
+  shopping: 10 * 60 * 1000,
 };
 
 function classifyQueueImageEngine(engine) {
@@ -670,9 +677,11 @@ function getQueueItemMinIntervalMs(item) {
       ? [item?.thumb]
       : [item?.thumb, item?.h2ImageSource || item?.thumb];
   const classes = engines.map(classifyQueueImageEngine);
-  if (classes.includes('browser')) return PQ_INTERVAL_FLOORS.browser;
-  if (classes.includes('slow')) return PQ_INTERVAL_FLOORS.slow;
-  return PQ_INTERVAL_FLOORS.general;
+  const engineFloor = classes.includes('browser') ? PQ_INTERVAL_FLOORS.browser
+    : classes.includes('slow') ? PQ_INTERVAL_FLOORS.slow
+    : PQ_INTERVAL_FLOORS.general;
+  const modeFloor = item?.mode === 'shopping' ? PQ_INTERVAL_FLOORS.shopping : 0;
+  return Math.max(engineFloor, modeFloor);
 }
 
 function getQueueMinPublishIntervalMs(items) {
@@ -682,7 +691,10 @@ function getQueueMinPublishIntervalMs(items) {
 }
 
 function getQueueIntervalReason(items) {
-  const minMs = getQueueMinPublishIntervalMs(items);
+  const list = (items && items.length ? items : STATE.keywords).filter(item => item && item.enabled !== false);
+  const minMs = getQueueMinPublishIntervalMs(list);
+  const hasShopping = list.some(item => item?.mode === 'shopping');
+  if (hasShopping && minMs >= PQ_INTERVAL_FLOORS.shopping) return '쇼핑모드 포함: 최소 10분';
   if (minMs >= PQ_INTERVAL_FLOORS.browser) return '브라우저 이미지 엔진 감지: 최소 8분';
   if (minMs >= PQ_INTERVAL_FLOORS.slow) return '이미지 생성 엔진 기준: 최소 7분';
   return '연속발행 최소 간격: 7분';
@@ -1613,6 +1625,10 @@ function buildItemRow(item, idx) {
         <option value="internal" ${item.mode === 'internal' ? 'selected' : ''}>내부링크</option>
         <option value="adsense" ${item.mode === 'adsense' ? 'selected' : ''}>애드센스</option>
         <option value="paraphrasing" ${item.mode === 'paraphrasing' ? 'selected' : ''}>페러프레이징</option>
+        <!-- v3.8.420: 메인 화면에서 쇼핑모드로 대기열에 추가한 항목은 item.mode='shopping'인데
+             이 드롭다운엔 옵션이 없어 "SEO 외부"가 선택된 것처럼 보였다(데이터는 안 바뀌지만
+             혼동을 준다) — 옵션을 추가해 실제 상태를 그대로 보여준다. -->
+        <option value="shopping" ${item.mode === 'shopping' ? 'selected' : ''}>쇼핑</option>
       </select>
     </div>
     <div class="pq-field">
