@@ -983,6 +983,15 @@ export async function generateUltimateMaxModeArticleFinal(
         } catch { /* 관심사 추출 실패해도 제목은 만든다 */ }
       }
 
+      // v3.8.412: 어느 모델이 제목을 지었는지 남긴다.
+      //   함수 이름이 callGeminiWithRetry 라서 "제목은 왜 제미나이냐"는 오해를 샀다.
+      //   실제로는 PRIMARY_TEXT_MODEL 을 보고 선택한 제공자로 간다. 그걸 눈에 보이게 한다.
+      try {
+        const { findTier } = require('../llm/pricing');
+        const t = findTier(process.env['PRIMARY_TEXT_MODEL']);
+        if (t) onLog?.(`[PROGRESS] 25% - 🧠 제목 생성 모델: ${t.provider} / ${t.modelId}`);
+      } catch { /* 표시용 — 실패해도 제목은 만든다 */ }
+
       h1 = await generateH1TitleFinal(
         keyword,
         titles,
@@ -3233,6 +3242,28 @@ ${conclusionHTML}
       thumbnailUrl = (payload.productImages as any)[0];
       onLog?.(`[PROGRESS] 90% - 🛒 수집된 상품 이미지로 썸네일 설정 (${(payload.productImages as any).length}장 중 1번째)`);
       console.log(`[THUMBNAIL] ✅ 수집 이미지 썸네일: ${thumbnailUrl.substring(0, 60)}...`);
+
+      /**
+       * v3.8.412 — 외부 주소를 그대로 두면 썸네일이 안 생긴다.
+       *
+       * 사용자 실측: 쇼핑 글 2편만 글목록·블로그스팟 관리화면에서 썸네일이 비었다.
+       *   발행 코드는 data:image 만 업로드하고 외부 URL 은 통과시킨다(blogger-publisher).
+       *   Blogger 는 자기가 안 들고 있는 이미지로는 썸네일을 만들지 않는다.
+       * 내려받아 data:image 로 바꾸면 AI 이미지와 같은 업로드 경로를 타서
+       * 블로그스팟·워드프레스·티스토리 모두에서 썸네일이 생긴다.
+       * 실패하면 원래 주소를 그대로 쓴다 — 지금까지의 동작과 같다.
+       */
+      try {
+        const { fetchImageAsDataUrl } = require('../affiliate/product-image');
+        const asData = await fetchImageAsDataUrl(thumbnailUrl, { onLog });
+        if (asData) {
+          thumbnailUrl = asData;
+          onLog?.('[PROGRESS] 90% - 📤 상품 사진을 블로그에 올려 썸네일로 씁니다 (최고 화질)');
+        } else {
+          onLog?.('[PROGRESS] 90% - ⚠️ 상품 사진을 내려받지 못해 외부 주소를 그대로 씁니다 (썸네일이 안 보일 수 있습니다)');
+        }
+      } catch { /* 변환 실패가 발행을 막지 않는다 */ }
+
       emitGeneratedImage('thumbnail', `썸네일: ${h1}`, thumbnailUrl, { queueImageToken });
     } else if (!thumbnailUrl && userPickedAiEngine && (payload.productImages as any)?.length > 0) {
       console.log(`[THUMBNAIL] 🛡️ 사용자 명시 엔진(${thumbnailSource}) 선택 — 수집 이미지 ${(payload.productImages as any).length}장 무시하고 AI 생성 진행`);

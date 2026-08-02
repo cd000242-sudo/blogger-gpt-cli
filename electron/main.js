@@ -3973,6 +3973,36 @@ electron_1.ipcMain.handle('tistory-update-post', async (_evt, args) => {
         return { ok: false, error: error.message || String(error) };
     }
 });
+/**
+ * 글 삭제 (v3.8.412) — 사용자 요청 "글목록에서 글 삭제할 수 있는 기능은 못 넣나요?"
+ *
+ * 되돌릴 수 없는 동작이라 화면에서 제목을 직접 확인시키고 한 번 더 물은 뒤에만 부른다.
+ * 티스토리는 공개 API 가 아니라 관리화면 스크래핑이라 이번에 넣지 않았다(별도 작업).
+ */
+electron_1.ipcMain.handle('blogger-delete-post', async (_evt, args) => {
+    try {
+        const bloggerPublisher = require('../dist/core/blogger-publisher');
+        if (typeof bloggerPublisher.deleteBloggerPost !== 'function') {
+            return { ok: false, error: '삭제 기능을 사용할 수 없습니다. 앱을 재빌드해주세요.' };
+        }
+        return await bloggerPublisher.deleteBloggerPost(args || {});
+    }
+    catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+});
+electron_1.ipcMain.handle('wordpress-delete-post', async (_evt, args) => {
+    try {
+        const wordpressPosts = require('../dist/wordpress/wordpress-posts');
+        if (typeof wordpressPosts.deleteWordPressPost !== 'function') {
+            return { ok: false, error: '워드프레스 삭제 기능을 사용할 수 없습니다. 앱을 재빌드해주세요.' };
+        }
+        return await wordpressPosts.deleteWordPressPost(args || {});
+    }
+    catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+});
 console.log('[POSTS-TAB] ✅ 생성된 글목록 핸들러 등록 완료 (블로그스팟·워드프레스·티스토리)');
 // ============================================
 // 🔥 Blogger OAuth 인증 핸들러

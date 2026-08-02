@@ -235,3 +235,36 @@ export async function updateWordPressPost(options: {
     return toErrorResult(error);
   }
 }
+
+/**
+ * 발행된 글을 지운다 (v3.8.412)
+ *
+ * 사용자 요청: "생성된 글목록에서 글 삭제할 수 있는 기능은 못 넣나요?"
+ *
+ * 기본은 **휴지통**이다. 워드프레스는 force=true 를 줘야 영구 삭제인데,
+ * 되돌릴 수 없는 동작을 기본값으로 두지 않는다 — 실수로 지워도 복구할 수 있어야 한다.
+ */
+export async function deleteWordPressPost(options: {
+  postId?: string | number;
+  /** true 면 휴지통을 거치지 않고 영구 삭제한다 */
+  permanent?: boolean;
+  payload?: Record<string, any>;
+} = {}): Promise<PublishedPostUpdateResult> {
+  const postId = String(options.postId ?? '').trim();
+  if (!postId) return { ok: false, error: 'postId가 없습니다.' };
+
+  try {
+    const auth = resolveWordPressAuth(options.payload || {});
+    const query = options.permanent === true ? '?force=true' : '';
+    const response = await wpFetch(auth, `/posts/${encodeURIComponent(postId)}${query}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw await toHttpError(response);
+
+    console.log(`[WP-POSTS] ✅ 삭제 완료: ${postId}${options.permanent ? ' (영구)' : ' (휴지통)'}`);
+    return { ok: true, postId, url: '', updated: '' };
+  } catch (error) {
+    console.error('[WP-POSTS] ❌ 삭제 실패:', (error as Error)?.message || error);
+    return toErrorResult(error);
+  }
+}

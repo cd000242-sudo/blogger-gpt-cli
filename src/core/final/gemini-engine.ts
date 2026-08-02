@@ -130,8 +130,26 @@ function buildGeminiChain(): string[] {
   return withoutUnexpectedPro.slice(0, Math.max(1, limit));
 }
 
+/**
+ * v3.8.412 — 모르는 모델 값이면 조용히 Gemini 로 떨어지지 않는다.
+ *
+ * 사용자 지적: "제목은 왜 제미나이니?? 선택한 AI 모델로 생성해줘야 되잖아"
+ *   실제로는 선택한 모델로 가고 있었다(함수 이름이 오해를 샀다).
+ *   다만 확인하다 진짜 위험을 찾았다 —
+ *   findTier 가 못 찾으면 아무 말 없이 'gemini' 를 쓴다.
+ *   모델 목록이 바뀌거나 값에 오타가 나면
+ *   **선택한 모델과 다른 모델로 글이 써지는데 아무도 모르는** 상태가 된다.
+ *   조용한 실패는 이 프로젝트에서 이미 여러 번 사고를 냈다. 반드시 알린다.
+ */
 function getPrimaryProvider(): Provider {
-  const tier = findTier(process.env['PRIMARY_TEXT_MODEL']);
+  const raw = process.env['PRIMARY_TEXT_MODEL'];
+  const tier = findTier(raw);
+  if (raw && !tier) {
+    console.warn(
+      `[Engine] ⚠️ 등록되지 않은 모델 값 "${raw}" — Gemini 로 대체합니다.`
+      + ' 선택한 모델과 다른 모델로 글이 써집니다. 모델 목록(pricing.ts)을 확인하세요.',
+    );
+  }
   return (tier?.provider ?? 'gemini') as Provider;
 }
 

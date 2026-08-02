@@ -12,6 +12,7 @@ const PLATFORMS = [
     label: '블로그스팟',
     icon: '🅑',
     listChannel: 'blogger-list-posts',
+    deleteChannel: 'blogger-delete-post',   // v3.8.412
     editorKind: 'blogger',
     // 목록 응답에 본문(content)이 포함되는가 — false면 편집 직전에 따로 읽어온다
     listHasContent: true,
@@ -25,6 +26,7 @@ const PLATFORMS = [
     label: '워드프레스',
     icon: 'Ⓦ',
     listChannel: 'wordpress-list-posts',
+    deleteChannel: 'wordpress-delete-post', // v3.8.412 — 기본은 휴지통(복구 가능)
     editorKind: 'wordpress',
     listHasContent: true,
     detailChannel: null,
@@ -37,6 +39,9 @@ const PLATFORMS = [
     label: '티스토리',
     icon: 'Ⓣ',
     listChannel: 'tistory-list-posts',
+    // 티스토리는 공개 API 가 없어 관리화면 스크래핑이다. 삭제는 되돌릴 수 없어
+    // 화면 구조가 바뀌면 엉뚱한 글을 지울 위험이 있다 — 확실해질 때까지 넣지 않는다.
+    deleteChannel: null,
     editorKind: 'tistory',
     listHasContent: false,
     detailChannel: 'tistory-get-post',
@@ -305,6 +310,9 @@ function renderList() {
         <div style="display:flex;gap:6px;flex-shrink:0;">
           <button class="ppEditBtn" data-index="${i}" style="padding:9px 16px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:9px;font-weight:800;font-size:12px;cursor:pointer;">✏️ 미리보기·수정</button>
           <button class="ppOpenBtn" data-index="${i}" style="padding:9px 12px;background:#334155;color:#93c5fd;border:none;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;">🔗 글 열기</button>
+          ${getPlatform(state.active).deleteChannel
+            ? `<button class="ppDeleteBtn" data-index="${i}" title="블로그에서 이 글을 삭제합니다" style="padding:9px 12px;background:#334155;color:#fca5a5;border:none;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;">🗑️ 삭제</button>`
+            : ''}
         </div>
       </div>
     `;
@@ -312,8 +320,15 @@ function renderList() {
 
   list.querySelectorAll('.ppCard').forEach((card) => {
     card.addEventListener('click', (e) => {
-      if (e.target.closest('.ppOpenBtn')) return; // 링크 버튼은 별도 처리
+      if (e.target.closest('.ppOpenBtn')) return;   // 링크 버튼은 별도 처리
+      if (e.target.closest('.ppDeleteBtn')) return; // 삭제 버튼도 카드 클릭으로 새지 않게
       openEditorFor(Number(card.getAttribute('data-index')));
+    });
+  });
+  list.querySelectorAll('.ppDeleteBtn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deletePostAt(Number(e.currentTarget.getAttribute('data-index')));
     });
   });
   list.querySelectorAll('.ppOpenBtn').forEach((btn) => {
@@ -325,6 +340,56 @@ function renderList() {
       }
     });
   });
+}
+
+/**
+ * 발행된 글을 지운다 (v3.8.412)
+ *
+ * 사용자 요청: "생성된 글목록에서 글 삭제할 수 있는 기능은 못 넣나요?"
+ *
+ * 되돌릴 수 없는 동작이라 **어떤 글인지 제목을 직접 보여주고** 확인을 받는다.
+ * 목록 순서가 바뀌었는데 인덱스로만 지우면 엉뚱한 글이 날아간다 —
+ * 그래서 확인 문구에 제목을 넣고, 지운 뒤에는 그 항목만 화면에서 뺀다.
+ */
+async function deletePostAt(index) {
+  const platform = getPlatform(state.active);
+  const item = activeState().items[index];
+  if (!item || !platform.deleteChannel) return;
+
+  const postId = String(item.postId || item.id || '').trim();
+  if (!postId) {
+    alert('이 글의 ID를 찾지 못해 삭제할 수 없습니다. 새로고침 후 다시 시도해주세요.');
+    return;
+  }
+
+  const where = platform.key === 'wordpress'
+    ? '워드프레스 휴지통으로 보냅니다 (워드프레스에서 복구할 수 있습니다).'
+    : '블로그에서 완전히 삭제됩니다. 되돌릴 수 없습니다.';
+  const ok = confirm(`아래 글을 삭제할까요?\n\n"${item.title || '(제목 없음)'}"\n\n${where}`);
+  if (!ok) return;
+
+  const statusEl = document.getElementById('ppStatus');
+  if (statusEl) statusEl.textContent = '🗑️ 삭제하는 중…';
+
+  try {
+    const payload = await buildPlatformPayload(platform.key);
+    const res = await window.electronAPI.invoke(platform.deleteChannel, {
+      postId,
+      ...(payload ? { payload } : {}),
+    });
+    if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
+
+    // 지운 글만 목록에서 뺀다 — 전체를 다시 불러오면 느리고 스크롤이 튄다
+    activeState().items.splice(index, 1);
+    renderList();
+    if (statusEl) statusEl.textContent = `✅ 삭제 완료 · 남은 글 ${activeState().items.length}개`;
+    addLog(`🗑️ ${platform.label} 글 삭제: ${item.title || postId}`);
+  } catch (err) {
+    const msg = err?.message || String(err);
+    if (statusEl) statusEl.textContent = `⚠️ 삭제 실패: ${msg}`;
+    addLog(`⚠️ ${platform.label} 글 삭제 실패: ${msg}`);
+    alert(`삭제하지 못했습니다.\n\n${msg}`);
+  }
 }
 
 async function openEditorFor(index) {

@@ -6615,8 +6615,32 @@ async function updateBloggerPost(options = {}) {
   }
 }
 
+/**
+ * 발행된 글을 지운다 (v3.8.412)
+ *
+ * 사용자 요청: "생성된 글목록에서 글 삭제할 수 있는 기능은 못 넣나요?"
+ *
+ * 되돌릴 수 없는 동작이라 **부르는 쪽에서 반드시 확인을 받아야 한다.**
+ * 여기서는 postId 가 확실할 때만 지운다 — 빈 값이면 아무것도 하지 않는다.
+ */
+async function deleteBloggerPost(options = {}) {
+  try {
+    const postId = String(options.postId || '').trim();
+    if (!postId) return { ok: false, error: 'postId가 없습니다.' };
+
+    const { blogger, blogId } = await createBloggerApiClient(options.payload || {});
+    await blogger.posts.delete({ blogId, postId });
+    console.log(`[POSTS-DELETE] ✅ 삭제 완료: ${postId}`);
+    return { ok: true, postId };
+  } catch (error) {
+    console.error('[POSTS-DELETE] ❌ 삭제 실패:', error?.message || error);
+    return toBloggerApiError(error);
+  }
+}
+
 module.exports = {
   publishToBlogger,
+  deleteBloggerPost,
   getBloggerAuthUrl,
   getBloggerInfo,
   checkBloggerAuthStatus,

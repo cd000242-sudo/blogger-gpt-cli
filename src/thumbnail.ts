@@ -869,10 +869,12 @@ async function _disabledLegacyMakeAutoThumbnail(title: string, opt: ThumbOptions
   // PNG 랜더링 (최적화된 압축 설정)
   const png = await sharp(Buffer.from(svg))
     .png({
-      compressionLevel: 9,
-      quality: 85,        // 품질 최적화
-      progressive: true,  // 점진적 로딩
-      adaptiveFiltering: true  // 적응형 필터링
+      // v3.8.412: 화질을 최고로. 사용자 요구 "어떤 모드든지 이미지는 최고 화질로".
+      //   이미지는 업로드 후 URL 로 참조되므로 글 용량(1MB 제한)에 영향이 없다.
+      compressionLevel: 9,      // 무손실 압축 — 높을수록 작아지고 화질은 그대로
+      quality: 100,
+      progressive: true,
+      adaptiveFiltering: true
     })
     .toBuffer();
 
@@ -1070,7 +1072,8 @@ export async function makePexelsThumbnail(
               fit: 'cover',
               withoutEnlargement: true
             })
-            .jpeg({ quality: 85 })
+            // v3.8.412: 최고 화질 (85 → 95). chromaSubsampling 4:4:4 로 색번짐도 없앤다
+            .jpeg({ quality: 95, chromaSubsampling: '4:4:4' })
             .toBuffer();
           const base64 = resizedBuffer.toString('base64');
           const dataUrl = `data:image/jpeg;base64,${base64}`;
@@ -1458,7 +1461,7 @@ async function applyBottomTextOverlay(
       top: 0,
       left: 0
     }])
-    .png({ quality: 90 })
+    .png({ quality: 100, compressionLevel: 9 })   // v3.8.412: 최고 화질
     .toBuffer();
 
   return `data:image/png;base64,${finalImage.toString('base64')}`;
