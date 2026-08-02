@@ -1004,6 +1004,46 @@ article.hentry {
     color: #64748b !important;
     letter-spacing: 0 !important;
   }
+  /* v3.8.421: 스크린샷 실측 — "항목"/"내용" 2열 요약표가 모바일에서 카드형 스택으로
+     바뀌면서 행마다 "항목" 블록·"내용" 블록이 따로 죽 늘어서 스캔하기 어려웠다는 지적.
+     다른 다중 컬럼 표(스펙 비교표 등)는 카드형이 맞지만, 이 표는 라벨이 짧은 2열
+     key-value 표라 나란히 두는 편이 오히려 더 압축적이고 빨리 읽힌다 — 카드형 스택을
+     여기서만 되돌린다(선택자 특이도가 위 규칙보다 높아 우선 적용된다). */
+  .summary-container .summary-table {
+    display: table !important;
+    table-layout: fixed !important;
+  }
+  .summary-container .summary-table thead {
+    display: table-header-group !important;
+  }
+  .summary-container .summary-table tbody {
+    display: table-row-group !important;
+  }
+  .summary-container .summary-table tr {
+    display: table-row !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .summary-container .summary-table td,
+  .summary-container .summary-table .rt-td {
+    display: table-cell !important;
+    border: 0 !important;
+    border-bottom: 1px solid #edf2f7 !important;
+  }
+  .summary-container .summary-table td::before {
+    content: none !important;
+    display: none !important;
+  }
+  .summary-container .summary-table th:first-child,
+  .summary-container .summary-table td:first-child {
+    width: 34% !important;
+    font-weight: 700 !important;
+    color: #475569 !important;
+  }
   .white-paper .highlight,
   .white-paper .warning,
   .white-paper .success,

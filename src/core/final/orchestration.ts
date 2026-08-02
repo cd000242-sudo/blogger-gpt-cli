@@ -1151,124 +1151,6 @@ export async function generateUltimateMaxModeArticleFinal(
       }).join('\n\n');
       modeResult.sectionPromptBlock = `${sectionScopeOverride}${sourceGuard}\n\n📋 [내부 일관성 모드 섹션별 상세 지시]\n${guides}`;
       onLog?.(`[PROGRESS] 40% - ✅ 내부 일관성 구조 ${h2Titles.length}개 섹션 적용 완료`);
-    } else if (contentMode === 'shopping') {
-      // 🛍️ 쇼핑/구매유도 모드: 7단계 구매 퍼널 구조
-      onLog?.('[PROGRESS] 35% - 🛍️ 쇼핑 모드: 구매 퍼널 7섹션 구조 적용 중...');
-      h2Titles = SHOPPING_CONVERSION_MODE_SECTIONS.map(sec => {
-        return sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
-      });
-      /**
-       * v3.8.416 — 후기가 0건이면 "실사용 후기" 섹션 지시를 바꾼다.
-       *
-       * 사용자 지적: "이건 사전구매라서 후기가 당연히 없고 스펙을 보고 단점과 장점을
-       *   설명해줘야 되는데 후기 없으니까 후기 없는 게 단점이다라고 하는데 이건 추론이
-       *   문제 있는 거 같은데?? … 후기가 없으면 신상품인지, 사전구매인지, 후기가 원래
-       *   없는 상품인지 추론을 해서 제품을 제대로 인지하고 작성해야 되잖아"
-       *
-       * 원인 — SHOPPING_CONVERSION_MODE_SECTIONS 의 'real_reviews' 섹션은 후기 유무와
-       *   무관하게 "실제 구매 후기 카드 3개 이상(별점 포함)"을 **무조건** 요구했다.
-       *   실제 후기가 0건이면 모델은 지어내거나(신뢰도 붕괴), 그 요구와
-       *   "후기가 없다"는 사실 사이에서 타협하며 "후기가 0개로 표시되므로…" 같은
-       *   자기 설명적 문장을 쓴다 — 사용자가 지적한 "AI가 쓴 티" 의 정체다.
-       *   'honest_cons' 도 마찬가지로, 진짜 단점 데이터가 없으면 "후기 없음"을
-       *   단점으로 둔갑시킨다. 사전구매 상품은 후기가 없는 게 당연한데도.
-       */
-      const shoppingEnrichment = (payload as any).coupangEnrichment as
-        { totalReviewCount?: number; reviews?: unknown[] } | undefined;
-      const reviewCount = Number(shoppingEnrichment?.totalReviewCount ?? -1);
-      const hasNoReviews = reviewCount === 0;
-
-      // 섹션별 상세 지시 주입 (requiredElements/role/contentFocus/minChars)
-      if (!modeResult.sectionPromptBlock) {
-        const guides = SHOPPING_CONVERSION_MODE_SECTIONS.map((sec, idx) => {
-          const t = sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
-          let role = sec.role;
-          let contentFocus = sec.contentFocus;
-          let reqs = sec.requiredElements;
-
-          if (hasNoReviews && sec.id === 'real_reviews') {
-            role = '제품 분석가';
-            contentFocus = '후기가 없는 이유 추론 · 스펙 기반 예상 사용성 · 옵션별 차이 설명';
-            reqs = [
-              '⚠️ 이 상품은 실제 후기가 0건입니다 — 후기 카드·별점·"⭐4.7/5" 같은 숫자를 지어내지 마세요.',
-              '먼저 왜 0건인지 판단해 한두 문장으로 밝히세요: 최근 출시된 신상품인지, 사전구매/예약판매인지, 원래 후기가 적은 카테고리인지.',
-              '"후기가 없다" 자체는 단점이 아닙니다 — 이유를 밝히고 바로 다음 내용으로 넘어가세요.',
-              '후기 대신 스펙을 독자의 상황으로 번역해 예상 사용성을 설명하세요.',
-              '옵션(용량·구성)별 차이와 어떤 사람에게 어느 옵션이 맞는지를 이 섹션의 핵심으로 삼으세요.',
-            ];
-          } else if (hasNoReviews && sec.id === 'honest_cons') {
-            reqs = [
-              '이 제품의 단점은 후기가 아니라 **스펙·구조상 트레이드오프**에서 찾으세요.',
-              '⚠️ "후기가 없다/적다"를 단점으로 쓰지 마세요 — 사전구매·신상품이면 당연한 것입니다.',
-              '가격대·경쟁 모델 대비 부족한 스펙, 무게·크기, 호환성 제약처럼 스펙표로 확인 가능한 것만 쓰세요.',
-              '이런 사용자에게는 비추천 (사용 시나리오 명시)',
-              '단점에도 불구하고 추천하는 이유 (균형감)',
-            ];
-          }
-
-          const reqsText = reqs.map((r) => `  - ${r}`).join('\n');
-          return `[섹션 ${idx + 1}: ${t}] (최소 ${sec.minChars || 1000}자)\n역할: ${role}\n핵심: ${contentFocus}\n필수 요소:\n${reqsText}`;
-        }).join('\n\n');
-        modeResult.sectionPromptBlock = `\n\n📋 [쇼핑 모드 섹션별 상세 지시]\n${guides}`;
-      }
-
-      /**
-       * v3.8.416 — 실제로 수집한 후기·스펙 원문을 프롬프트에 싣는다.
-       *
-       * 사용자 지적: "전혀 프롬프트를 안 타는 것 같아"
-       *
-       * coupang-enrich.ts 의 formatEnrichmentForPrompt() 는 이미 후기 0건 케이스를
-       * 정확히 다루도록 설계돼 있었다("후기가 있는 것처럼 쓰지 마세요", 스펙을 독자
-       * 상황으로 번역하는 법까지) — 그런데 실제로는 이 함수를 부르는 코드가
-       * "2순위: API 로 상품 구제" 라는 드문 경로에만 있었다. 매 세션 공들여 모은
-       * 후기(이번 세션만 60건·54,000자)가 **정작 본문을 쓰는 프롬프트에는 한 번도
-       * 실리지 않고 있었다.**
-       */
-      if (shoppingEnrichment) {
-        try {
-          const { formatEnrichmentForPrompt } = await import('../affiliate/coupang-enrich');
-          const enrichmentBlock = formatEnrichmentForPrompt(shoppingEnrichment as any);
-          if (enrichmentBlock) {
-            modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') + enrichmentBlock;
-            onLog?.(`[PROGRESS] 36% - ✅ 실제 ${reviewCount >= 0 ? `후기 ${reviewCount}건` : '수집 데이터'}를 프롬프트에 반영`);
-          }
-        } catch { /* 반영 실패해도 발행은 계속된다 */ }
-      }
-      /**
-       * v3.8.416 — 여기 있던 "쿠팡 API 키워드 검색" 블록을 지웠다.
-       *
-       * 사용자 보고: "추천상품 한눈에보기는 다른 추천상품도 같이 넣던데 이렇게 하면
-       *   지금 소개하는 상품 말고 다른 상품으로 유도하는 꼴이고 내 링크를 안 누르고
-       *   추천상품을 누르는 경우가 생기잖아 뭔 생각으로 넣은 건지 이해가 안 가네"
-       * "핵심 바로가기도 내 링크여야 되는데 이것도 자동 링크네"
-       *
-       * 원인 — payload.coupangProducts 를 **두 곳**에서 채우고 있었다:
-       *   ① 여기(H2 제목 짜는 시점) — keyword 로 쿠팡 텍스트 검색 → 최대 10개 '비슷한 상품'
-       *   ② 조금 뒤 "3단계" 시스템 — 1순위 사용자 링크 크롤링 → 2순위 키워드 검색 → 3순위 가드
-       *
-       * ①이 먼저 실행되며 coupangProducts 를 채워버리면, ②의 1순위 가드
-       *   `if (manualUrls.length > 0 && !(payload as any).coupangProducts)` 가 거짓이 되어
-       *   **사용자가 넣은 링크를 크롤링하는 코드가 통째로 스킵됐다.**
-       *   그 결과 renderCoupangProductBlock() 이 ①의 '비슷한 상품' 최대 6개를
-       *   "🛒 추천 상품 한눈에 보기"로 렌더링했다 — 사용자 링크가 아닌 상품들이었다.
-       *   "핵심 바로가기" 버튼(topCta)도 같은 coupangProducts 를 참조해 같은 문제를 겪었다.
-       *
-       * 실제 발행글(갤럭시 Z Flip8 글) 실측으로 이 순서를 확인했다.
-       * ②가 실제 상품 데이터 프롬프트 주입(formatProductsForPrompt)도 똑같이 하므로
-       * 여기서 지워도 "할루시네이션 방지용 실제 데이터 제공" 기능은 그대로 유지된다 —
-       * 단지 사용자 링크가 있을 때 그 링크가 최우선이 되도록 순서를 지킬 뿐이다.
-       */
-      // 🛡️ 쿠팡 실제 데이터가 없으면 본문에 가격 숫자 직접 표기 금지 (할루시네이션 방지)
-      const hasRealProducts = Array.isArray((payload as any).coupangProducts) && (payload as any).coupangProducts.length > 0;
-      if (!hasRealProducts) {
-        modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') +
-          `\n\n🛡️ **가격 할루시네이션 방지 (실제 상품 데이터 없음)**:\n` +
-          `- 본문에 구체적 가격 숫자 직접 표기 절대 금지 ("12,900원", "₩50,000", "월 3만원" 등)\n` +
-          `- 가격은 "판매처별 상이", "가격대별 옵션", "예산에 맞게" 같은 추상 표현만 사용\n` +
-          `- 할인율, 정가, 세일가 등 임의 수치 생성 금지\n` +
-          `- 이유: 검증 불가능한 가격은 발행 시점에 틀려 신뢰도 즉시 붕괴\n`;
-      }
-      onLog?.(`[PROGRESS] 40% - ✅ 쇼핑 구매 퍼널 ${h2Titles.length}개 섹션 적용 완료`);
     } else if (contentMode === 'paraphrasing') {
       // 🔄 페러프레이징 모드: 6단계 재구성 구조
       onLog?.('[PROGRESS] 35% - 🔄 페러프레이징 모드: 재구성 6섹션 구조 적용 중...');
@@ -1298,6 +1180,122 @@ export async function generateUltimateMaxModeArticleFinal(
     // 🔥 API 키 없는 사용자 지원: payload.manualCoupangUrls 로 제휴 딥링크 직접 입력 가능
     //    (쿠팡 파트너스 15만원 매출 조건 충족 전에도 수익화 시작)
     if (contentMode === 'shopping') {
+      /**
+       * v3.8.422 — "후기형이랑 제품스펙 전문가형 2가지로 나눠놨는데 이것도 회귀됫네??"
+       *
+       * 이 섹션별 상세 지시 블록은 원래 위쪽(H2 제목 선택 단계)의
+       * `else if (contentMode === 'shopping')` 안에 있었다. 그런데 그 분기는 절대
+       * 실행되지 않는 죽은 코드였다 — orchestration.ts 15행이 register-all.ts를
+       * import해 shopping-mode.ts 플러그인이 자동 등록되는데, 그 플러그인이
+       * `sections: SHOPPING_CONVERSION_MODE_SECTIONS`(빈 배열 아님)를 갖고 있어서
+       * dispatchMode()가 h2Titles를 채워 돌려준다. 그러면 더 위에 있는
+       * `else if (modeResult.handledByPlugin && modeResult.h2Titles)` 분기가 먼저
+       * 매치돼 h2Titles만 채우고 끝나며(섹션 프롬프트는 안 건드림), 뒤에 있던
+       * "shopping" 전용 분기(hasNoReviews 인지형 가이드, 실제 후기/스펙 반영,
+       * 가격 할루시네이션 가드까지 전부)는 영원히 도달하지 못했다.
+       * 실측: 실제 발행 로그에 이 분기의 로그 문구("🛍️ 쇼핑 모드: 구매 퍼널 7섹션
+       * 구조 적용 중...")가 단 한 번도 찍히지 않았다 — 반면 위 죽은 분기가 아니라
+       * 살아있는 분기의 로그("shopping 모드 소제목을 키워드에 맞게 재생성 중...")만
+       * 매번 찍혔다.
+       * 그래서 실제로 실행되는 이 위치(항상 도달하는 사이드 이펙트 블록)로 옮긴다.
+       * h2Titles는 위에서 이미 확정됐으므로(AI가 키워드에 맞게 재작성한 실제 제목)
+       * 그 배열을 그대로 재사용해 섹션 라벨과 실제 H2가 어긋나지 않게 한다.
+       */
+      const shoppingEnrichment = (payload as any).coupangEnrichment as
+        { totalReviewCount?: number; reviews?: unknown[] } | undefined;
+      const reviewCount = Number(shoppingEnrichment?.totalReviewCount ?? -1);
+      const hasNoReviews = reviewCount === 0;
+
+      const guides = SHOPPING_CONVERSION_MODE_SECTIONS.map((sec, idx) => {
+        const t = h2Titles[idx] || sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
+        let role = sec.role;
+        let contentFocus = sec.contentFocus;
+        let reqs = sec.requiredElements;
+
+        if (sec.id === 'product_intro_spec') {
+          /**
+           * 사용자: "글을 잘보면 용량 내용말고는 크게없는데?? … 스펙이 있을꺼아냐
+           *   기본적으로 이제품에 대한 스펙을 파악하고 장단점이나 무게 그리고 어떤
+           *   기능이 추가되고 어떤게 안좋은지 어떤점이 성능과 기능이 향상됫는지
+           *   이런걸 위주로 적고 … 구매하고싶고 욕구를 끓어오르게하고"
+           *
+           * 처음엔 "무게를 반드시 포함"이라고 못 박았다가 바로 지적받았다:
+           * "내가 무게를 표시하라했다고 모든 제품을 무게를 표시하면안된다고
+           *   그제품에 관련해서 분석을해서 추론을 완벽히 한다음에 끝판왕으로
+           *   글을 써줘야할거아냐 내글로 제품이 팔려야된다니까??"
+           * 무게는 스마트폰 얘기를 하다 나온 예시 하나였지 모든 상품(구독
+           * 서비스·식품·소프트웨어 등)에 강제할 보편 스펙이 아니다. 하드코딩된
+           * 항목 대신 "이 제품군에서 실제로 중요한 스펙이 뭔지 스스로 판단하라"로
+           * 바꾸고, 목적을 "정보 전달"이 아니라 "이 글로 실제 구매가 일어나게"로
+           * 명시한다.
+           */
+          role = '제품 스펙 전문가';
+          contentFocus = '이 제품군에 실제로 중요한 스펙 파악 · 전작/경쟁 대비 신규·개선 기능 · 아쉬운 점 · 구매 전환';
+          reqs = [
+            '이 제품이 속한 카테고리에서 구매 결정에 실제로 영향을 주는 스펙이 무엇인지 먼저 판단하세요 — 모든 제품에 똑같은 항목(무게 등)을 기계적으로 넣지 말고, 이 제품에 맞는 스펙을 고르세요.',
+            '용량(저장공간) 옵션 하나만 반복해서 다루지 마세요 — 그 카테고리에서 중요한 다른 스펙도 함께 다루세요.',
+            '이전 세대/경쟁 모델 대비 새로 추가되거나 개선된 기능을 최소 2가지 구체적으로 설명하세요.',
+            '스펙상 아쉬운 점(향상되지 않았거나 오히려 후퇴한 부분)도 1가지 이상 솔직하게 짚으세요.',
+            '각 스펙이 실제 사용 경험에서 무엇을 뜻하는지 번역해서 독자가 구매를 그려보게 하세요.',
+            '목표는 정보 나열이 아니라 이 글을 읽고 실제로 사고 싶어지게 만드는 것입니다 — 근거 있는 확신을 주는 톤으로 쓰세요.',
+            '확인되지 않은 수치는 지어내지 말고, 크롤링/제품 데이터에 있는 것만 쓰세요.',
+          ];
+        }
+
+        if (hasNoReviews && sec.id === 'real_reviews') {
+          role = '제품 분석가';
+          contentFocus = '후기가 없는 이유 추론 · 스펙 기반 예상 사용성 · 옵션별 차이 설명';
+          reqs = [
+            '⚠️ 이 상품은 실제 후기가 0건입니다 — 후기 카드·별점·"⭐4.7/5" 같은 숫자를 지어내지 마세요.',
+            '먼저 왜 0건인지 판단해 한두 문장으로 밝히세요: 최근 출시된 신상품인지, 사전구매/예약판매인지, 원래 후기가 적은 카테고리인지. 밝힌 뒤에는 그 얘기를 반복하지 마세요.',
+            '"후기가 없다" 자체는 단점이 아닙니다 — 이유를 밝히고 바로 다음 내용으로 넘어가세요.',
+            '후기 대신 스펙을 독자의 상황으로 번역해 예상 사용성을 설명하세요.',
+            '옵션(용량·구성)별 차이와 어떤 사람에게 어느 옵션이 맞는지를 이 섹션의 핵심으로 삼으세요.',
+          ];
+        } else if (hasNoReviews && sec.id === 'honest_cons') {
+          reqs = [
+            '이 제품의 단점은 후기가 아니라 **스펙·구조상 트레이드오프**에서 찾으세요(무게, 배터리, 발열, 가격대, 호환성 등).',
+            '⚠️ "후기가 없다/적다"를 단점으로 쓰지 마세요 — 사전구매·신상품이면 당연한 것입니다.',
+            '가격대·이전 모델 대비 부족한 스펙, 무게·크기, 호환성 제약처럼 스펙표로 확인 가능한 것만 쓰세요.',
+            '이런 사용자에게는 비추천 (사용 시나리오 명시)',
+            '단점에도 불구하고 추천하는 이유 (균형감)',
+          ];
+        } else if (hasNoReviews && sec.id === 'comparison_guide') {
+          contentFocus = '전작 대비 스펙 비교 · 확인된 경쟁 모델과의 스펙 비교(가격은 확인된 것만)';
+          reqs = [
+            '가격 비교표를 만들 때 확인되지 않은 경쟁사 가격·할인율은 절대 지어내지 마세요 — 모르면 그 칸은 비우거나 "출시 후 확인 필요"라고 쓰세요.',
+            '경쟁사 가격이 불확실하면, 대신 전작(이전 세대) 모델과의 스펙 비교표를 중심으로 삼으세요.',
+            '상황별 맞춤 추천 (예산별/용도별/수준별)',
+            '가격 대비 성능 분석은 확정된 가격 정보가 있을 때만 하세요.',
+          ];
+        } else if (hasNoReviews && sec.id === 'price_deal') {
+          contentFocus = '확인된 공식 가격 · 사전구매 혜택(있는 경우만) · 실제 구매 채널';
+          reqs = [
+            '⚠️ 확인되지 않은 할인율·쿠폰 코드·"역대급 할인" 같은 표현을 지어내지 마세요 — 사전구매 상품은 아직 할인이 없는 경우가 많습니다.',
+            '사전구매 혜택이 실제로 확인된 경우에만 언급하세요 (카드사 무이자할부, 사전예약 특전 등).',
+            '구매처별 비교 (쿠팡, 네이버쇼핑, 공식몰 등) — 실제 판매 중인 채널만',
+            '구매 시기·타이밍 팁은 "사전구매 기간" 관점으로 (일반 세일 시즌 언급 금지)',
+          ];
+        }
+
+        const reqsText = reqs.map((r) => `  - ${r}`).join('\n');
+        return `[섹션 ${idx + 1}: ${t}] (최소 ${sec.minChars || 1000}자)\n역할: ${role}\n핵심: ${contentFocus}\n필수 요소:\n${reqsText}`;
+      }).join('\n\n');
+      modeResult.sectionPromptBlock = `\n\n📋 [쇼핑 모드 섹션별 상세 지시]\n${guides}`;
+
+      // 실제로 수집한 후기·스펙 원문을 프롬프트에 싣는다 (formatEnrichmentForPrompt는
+      // 후기 0건 케이스를 정확히 다루도록 이미 설계돼 있다).
+      if (shoppingEnrichment) {
+        try {
+          const { formatEnrichmentForPrompt } = await import('../affiliate/coupang-enrich');
+          const enrichmentBlock = formatEnrichmentForPrompt(shoppingEnrichment as any);
+          if (enrichmentBlock) {
+            modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') + enrichmentBlock;
+            onLog?.(`[PROGRESS] 36% - ✅ 실제 ${reviewCount >= 0 ? `후기 ${reviewCount}건` : '수집 데이터'}를 프롬프트에 반영`);
+          }
+        } catch { /* 반영 실패해도 발행은 계속된다 */ }
+      }
+
       // ── 1순위: 사용자 수동 입력 URL (API 키 불필요) ──
       const manualUrls: string[] = Array.isArray((payload as any).manualCoupangUrls)
         ? (payload as any).manualCoupangUrls.filter((u: any) => typeof u === 'string' && u.trim().length > 0)

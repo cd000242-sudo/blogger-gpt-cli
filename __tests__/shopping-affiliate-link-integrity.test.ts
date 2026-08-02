@@ -94,9 +94,11 @@ describe('② 사용자 링크 크롤링이 더 이상 스킵되지 않는다', 
   });
 
   it('⭐ 왜 지웠는지 근거가 소스에 남아 있다', () => {
-    const block = blockBetween(orch, "} else if (contentMode === 'shopping') {", "// 🛡️ 쿠팡 실제 데이터가 없으면");
-    expect(block).toContain('1순위 가드');
-    expect(block).toContain('사용자가 넣은 링크를 크롤링하는 코드가 통째로 스킵됐다');
+    // v3.8.422 — 이 근거가 있던 죽은 분기(else if (contentMode === 'shopping'))를 통째로
+    // 지우면서, 그 분기가 애초에 왜 죽어 있었는지에 대한 새 근거로 대체됐다.
+    const block = blockBetween(orch, '이 섹션별 상세 지시 블록은 원래', 'const shoppingEnrichment');
+    expect(block).toContain('handledByPlugin && modeResult.h2Titles');
+    expect(block).toContain('영원히 도달하지 못했다');
   });
 
   it('⭐ 3단계 시스템(수동 URL 우선)은 그대로 살아 있다', () => {
@@ -208,13 +210,13 @@ describe('④⑤ 후기 0건을 단점으로 추론하지 않고, 실제 데이�
   });
 
   it('⭐ 실제 후기·스펙 원문을 프롬프트에 싣는다 — 이전엔 이 호출이 없었다', () => {
-    const block = blockBetween(orch, "// 섹션별 상세 지시 주입", "} else if (contentMode === 'paraphrasing')");
+    const block = blockBetween(orch, 'const guides = SHOPPING_CONVERSION_MODE_SECTIONS.map((sec, idx) => {', "// ── 1순위: 사용자 수동 입력 URL");
     expect(block).toContain('formatEnrichmentForPrompt');
     expect(block).toContain('shoppingEnrichment');
   });
 
   it('반영 실패해도 발행은 계속된다', () => {
-    const block = blockBetween(orch, "if (shoppingEnrichment) {", "// 🛡️ 쿠팡 실제 데이터가 없으면");
+    const block = blockBetween(orch, "if (shoppingEnrichment) {", "// ── 1순위: 사용자 수동 입력 URL");
     expect(block).toContain('catch { /* 반영 실패해도 발행은 계속된다 */ }');
   });
 
@@ -465,3 +467,80 @@ function requireInsertCtaCards() {
   const mod = require('../src/core/affiliate/cta-card');
   return { insertProductCtaCards: mod.insertCtaCards };
 }
+
+/**
+ * ⑩ 후기 인지형 섹션 지시가 한 번도 프롬프트에 실리지 않았다 (v3.8.421 → v3.8.422)
+ *
+ * 사용자: "그래서 내가 후기형이랑 제품스펙 전문가형 2가지로 나눠놧는데 이것도 회귀됫네??"
+ *
+ * v3.8.421 진단(부분적으로 틀렸다) — orchestration.ts 15행이 register-all.ts를 import해
+ *   shopping-mode.ts 플러그인이 자동 등록된다. dispatchMode()는 이 플러그인의
+ *   buildSectionPrompt()로 modeResult.sectionPromptBlock을 먼저 채운다. hasNoReviews
+ *   override가 `if (!modeResult.sectionPromptBlock)` 가드 뒤에 있어서 이 조건이 늘
+ *   false였다 — 여기까지는 맞았고, 가드를 지웠다.
+ *
+ * v3.8.422 재진단(진짜 근본 원인) — 가드를 지운 뒤에도 사용자가 똑같이 재발을
+ *   보고했다. 다시 파보니 가드는 애초에 **부차적인** 문제였다: hasNoReviews override가
+ *   들어있던 `else if (contentMode === 'shopping')` 분기 자체가 도달 불가능이었다.
+ *   shopping-mode.ts 플러그인이 `sections`(빈 배열 아님)를 갖고 있어서 dispatchMode()가
+ *   h2Titles도 채워 돌려주는데, 그러면 더 위에 있는
+ *   `else if (modeResult.handledByPlugin && modeResult.h2Titles)` 분기가 shopping도
+ *   먼저 가로챈다 — 가드를 지웠어도 그 분기 자체에 코드 흐름이 도달하지 못했다.
+ *   실측: 실제 발행 로그에 이 죽은 분기의 로그 문구("🛍️ 쇼핑 모드: 구매 퍼널 7섹션
+ *   구조 적용 중...")가 한 번도 찍히지 않았다. 그래서 이 로직 전체를 실제로 항상
+ *   실행되는 "사이드 이펙트" 블록(수동 URL 우선 → API → 할루시 가드, if (contentMode
+ *   === 'shopping') 단독 블록)으로 옮겼다 — 그 블록은 h2Titles 분기와 무관하게 항상 돈다.
+ */
+describe('⑩ 후기 인지형 섹션 지시가 실제로 프롬프트에 실린다 (도달 가능한 위치에 있다)', () => {
+  it('⭐ sectionPromptBlock을 무조건 재구성한다 — 도달 불가능했던 옛 가드가 남아있지 않다', () => {
+    const block = blockBetween(orch, 'const guides = SHOPPING_CONVERSION_MODE_SECTIONS.map((sec, idx) => {', "// ── 1순위: 사용자 수동 입력 URL");
+    expect(block).not.toContain('if (!modeResult.sectionPromptBlock) {');
+    expect(block).toContain("modeResult.sectionPromptBlock = `\\n\\n📋 [쇼핑 모드 섹션별 상세 지시]");
+  });
+
+  it('⭐ 이 로직은 h2Titles 분기와 무관하게 항상 실행되는 사이드 이펙트 블록 안에 있다', () => {
+    // "else if (contentMode === 'shopping')" 죽은 분기가 아니라, 단독
+    // "if (contentMode === 'shopping')" 사이드 이펙트 블록 — 앞에 "} else"가 없어야
+    // h2Titles 선택 체인과 별개로 항상 돈다는 뜻이다.
+    const sideEffectIdx = orch.indexOf("// 🛒 쇼핑 모드 사이드 이펙트: 수동 URL 우선 → API → 할루시 가드 (3단계)");
+    const guidesIdx = orch.indexOf('const guides = SHOPPING_CONVERSION_MODE_SECTIONS.map((sec, idx) => {');
+    expect(sideEffectIdx).toBeGreaterThan(-1);
+    expect(guidesIdx).toBeGreaterThan(sideEffectIdx);
+    // 죽은 분기 특유의 로그 문구는 더 이상 소스에 없어야 한다(그 분기 자체를 지웠다).
+    expect(orch).not.toContain('🛍️ 쇼핑 모드: 구매 퍼널 7섹션 구조 적용 중...');
+  });
+
+  it('⭐ product_intro_spec은 용량 하나만 반복하지 않고 카테고리에 맞는 스펙·개선점을 요구한다', () => {
+    const block = blockBetween(orch, "if (sec.id === 'product_intro_spec') {", "if (hasNoReviews && sec.id === 'real_reviews')");
+    expect(block).toContain('개선된 기능');
+    expect(block).toContain('아쉬운 점');
+  });
+
+  /**
+   * v3.8.421 추가 검증 — 사용자: "내가 무게를 표시하라했다고 모든 제품을 무게를
+   *   표시하면안된다고 그제품에 관려해서 분석을해서 추론을 완벽히 한다음에 끝판왕으로
+   *   글을 써줘야할거아냐 내글로 제품이 팔려야된다니까??"
+   * 무게를 모든 제품에 강제하는 하드코딩을 지적받아 뺐다 — 그 회귀를 잡는다.
+   */
+  it('⭐ 특정 스펙(무게 등)을 모든 제품에 강제하지 않는다 — 제품군별로 스스로 판단하게 한다', () => {
+    const block = blockBetween(orch, "if (sec.id === 'product_intro_spec') {", "if (hasNoReviews && sec.id === 'real_reviews')");
+    expect(block).not.toContain('반드시 무게를 포함');
+    expect(block).toContain('이 제품에 맞는 스펙을 고르세요');
+  });
+
+  it('⭐ 목적이 정보 전달이 아니라 실제 구매 전환이라고 명시한다', () => {
+    const block = blockBetween(orch, "if (sec.id === 'product_intro_spec') {", "if (hasNoReviews && sec.id === 'real_reviews')");
+    expect(block).toContain('실제로 사고 싶어지게');
+  });
+
+  it('⭐ 사전구매/신상품이면 comparison_guide도 확인 안 된 경쟁사 가격을 지어내지 말라고 한다', () => {
+    const block = blockBetween(orch, "sec.id === 'comparison_guide'", "sec.id === 'price_deal'");
+    expect(block).toContain('지어내지');
+  });
+
+  it('⭐ 사전구매/신상품이면 price_deal도 없는 할인·쿠폰을 지어내지 말라고 한다', () => {
+    const block = blockBetween(orch, "hasNoReviews && sec.id === 'price_deal'", '});');
+    expect(block).toContain('할인율');
+    expect(block).toContain('지어내지');
+  });
+});
