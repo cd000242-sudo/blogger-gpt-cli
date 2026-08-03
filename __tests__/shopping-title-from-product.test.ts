@@ -82,7 +82,9 @@ describe('v3.8.427 — 토스/네이버 등 비-쿠팡 제휴 링크도 제목�
    * 플레이스홀더를 그대로 받아 모델이 그 문구를 문자 그대로 제목에 넣었다.
    */
   it('⭐ 쿠팡을 뺀 링크(토스/네이버)로 crawlAffiliateLinks를 미리 부른다', () => {
-    expect(orch).toContain('const nonCoupangLinks = affiliateAll.filter((u) => !/coupang\\.com|coupa\\.ng/i.test(u));');
+    // v3.8.430: "태그 우선 → 정규식 폴백" 삼항이 됐다. 폴백이 살아 있는지로 확인한다.
+    expect(orch).toContain('const nonCoupangLinks = explicitProvider');
+    expect(orch).toContain('affiliateAll.filter((u) => !/coupang\\.com|coupa\\.ng/i.test(u))');
     const block = braceBlock(orch, 'if (nonCoupangLinks.length > 0 && String((payload as any).contentMode || \'\') === \'shopping\'');
     expect(block).toContain("await import('../affiliate/crawl')");
     expect(block).toContain('crawlAffiliateLinks(nonCoupangLinks');
@@ -106,7 +108,7 @@ describe('v3.8.427 — 토스/네이버 등 비-쿠팡 제휴 링크도 제목�
   });
 
   it('⭐ 이 새 블록은 실제로 제목 생성(generateH1TitleFinal) 호출보다 코드상 앞에 있다 — 순서가 핵심이다', () => {
-    const newBlockIdx = orch.indexOf('const nonCoupangLinks = affiliateAll.filter');
+    const newBlockIdx = orch.indexOf('const nonCoupangLinks = explicitProvider');
     const titleCallIdx = orch.indexOf('h1 = await generateH1TitleFinal(');
     expect(newBlockIdx).toBeGreaterThan(-1);
     expect(titleCallIdx).toBeGreaterThan(-1);

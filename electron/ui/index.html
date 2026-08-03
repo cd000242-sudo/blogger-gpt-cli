@@ -4113,6 +4113,15 @@
                           // v3.8.396: 제휴 링크 칸도 쇼핑모드 전용
                           const affLinks = document.getElementById('affiliateLinkField');
                           if (affLinks) affLinks.style.display = mode === 'shopping' ? 'block' : 'none';
+                          // v3.8.430: 제휴사 선택 버튼도 쇼핑모드 전용.
+                          //   쇼핑모드를 벗어나면 선택을 초기화한다 — 안 그러면 예전 선택이
+                          //   조용히 남아 다음 쇼핑 글에 엉뚱한 제휴사로 딸려 들어간다.
+                          const affProvider = document.getElementById('affiliateProviderField');
+                          if (affProvider) affProvider.style.display = mode === 'shopping' ? 'block' : 'none';
+                          if (mode !== 'shopping') {
+                            document.querySelectorAll('input[name="affiliateProvider"]').forEach((r) => { r.checked = false; });
+                            if (window.selectAffiliateProvider) window.__syncAffiliateProviderBoxes?.();
+                          }
 
                           // v3.8.405 — 쇼핑모드에서는 '원본 URL' 칸을 감춘다.
                           //   사용자 지적: "링크 넣을 곳이 두 군데인데 사람 심리상 두 군데 다 넣을 것 같다. 헷갈린다."
@@ -4467,11 +4476,47 @@
                     </select>
                     <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 모든 소제목에 자동으로 이미지가 배치됩니다 · 선택 엔진 실패 시 폴백 없이 즉시 에러로 알려줍니다</small>
 
+                    <!-- 🏷️ v3.8.430: 제휴 파트너를 사용자가 직접 고른다 (쇼핑모드 전용)
+                         기존에는 붙여넣은 링크를 정규식으로 추측해 제휴사를 판별했다.
+                         사용자 요구: "쇼핑모드를 선택하면 버튼3개가 생기고 원하는 제휴사를
+                         클릭하면 그 제휴사의 하네스가 연동되서 최적의 글을 발행해주는거지
+                         쿠팡은 수집한 이미지로 발행 안 되니까 차별화해주고"
+                         → 고른 제휴사가 곧 파이프라인이다. 추측할 필요가 없어진다. -->
+                    <div class="acc-field" id="affiliateProviderField" style="display: none; margin-top: 14px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 10px; padding: 14px;">
+                      <label class="acc-label" style="color: #93c5fd;">🏷️ 제휴 파트너 선택 <span style="font-weight:600; font-size:11px; color:rgba(255,255,255,0.5);">(한 글에 한 제휴사)</span></label>
+                      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:8px;">
+                        <div id="provider-coupang-box" onclick="selectAffiliateProvider('coupang')"
+                          style="cursor:pointer; padding:12px 8px; border-radius:10px; border:2px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.25); text-align:center; transition:all 0.2s ease;">
+                          <input type="radio" name="affiliateProvider" id="affprovider-coupang" value="coupang" style="display:none;">
+                          <div style="font-size:20px; margin-bottom:4px;">🛒</div>
+                          <div style="font-size:12px; font-weight:800; color:#fff;">쿠팡 파트너스</div>
+                          <div style="font-size:10px; color:rgba(255,255,255,0.5); margin-top:3px;">AI 생성 이미지</div>
+                        </div>
+                        <div id="provider-toss-sharelink-box" onclick="selectAffiliateProvider('toss-sharelink')"
+                          style="cursor:pointer; padding:12px 8px; border-radius:10px; border:2px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.25); text-align:center; transition:all 0.2s ease;">
+                          <input type="radio" name="affiliateProvider" id="affprovider-toss-sharelink" value="toss-sharelink" style="display:none;">
+                          <div style="font-size:20px; margin-bottom:4px;">💙</div>
+                          <div style="font-size:12px; font-weight:800; color:#fff;">토스쇼핑 쉐어링크</div>
+                          <div style="font-size:10px; color:rgba(255,255,255,0.5); margin-top:3px;">수집 이미지 활용</div>
+                        </div>
+                        <div id="provider-naver-shopping-connect-box" onclick="selectAffiliateProvider('naver-shopping-connect')"
+                          style="cursor:pointer; padding:12px 8px; border-radius:10px; border:2px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.25); text-align:center; transition:all 0.2s ease;">
+                          <input type="radio" name="affiliateProvider" id="affprovider-naver-shopping-connect" value="naver-shopping-connect" style="display:none;">
+                          <div style="font-size:20px; margin-bottom:4px;">💚</div>
+                          <div style="font-size:12px; font-weight:800; color:#fff;">네이버 쇼핑 커넥트</div>
+                          <div style="font-size:10px; color:rgba(255,255,255,0.5); margin-top:3px;">수집 이미지 활용</div>
+                        </div>
+                      </div>
+                      <small id="affiliateProviderHint" style="color: rgba(255,255,255,0.55); font-size: 11px; margin-top: 8px; display: block; line-height:1.6;">
+                        💡 제휴사를 고르면 그 제휴사 전용 파이프라인(고지 문구·링크 처리·이미지 전략)이 적용됩니다.
+                      </small>
+                    </div>
+
                     <!-- 🔗 v3.8.396: 제휴 링크 (쇼핑모드 전용) — 한 글에 한 제휴사 원칙 -->
                     <div class="acc-field" id="affiliateLinkField" style="display: none; margin-top: 14px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 10px; padding: 14px;">
                       <!-- v3.8.410: 쇼핑모드에서 이 칸이 '원본 URL' 칸을 대신한다.
                            칸을 하나로 합쳤으면 이름도 그렇게 보여야 사용자가 헤매지 않는다. -->
-                      <label class="acc-label" style="color: #93c5fd;">🔗 원본 URL · 제휴 링크 <span style="font-weight:600; font-size:11px; color:rgba(255,255,255,0.5);">(쿠팡 파트너스 · 네이버 쇼핑 커넥트 · 토스쇼핑 쉐어링크)</span></label>
+                      <label class="acc-label" id="affiliateLinksLabel" style="color: #93c5fd;">🔗 원본 URL · 제휴 링크 <span style="font-weight:600; font-size:11px; color:rgba(255,255,255,0.5);">(위에서 제휴사를 먼저 고르세요)</span></label>
                       <textarea id="affiliateLinks" rows="3" placeholder="파트너센터에서 받은 링크를 한 줄에 하나씩 붙여넣으세요. 예)
 https://naver.me/XXXXXXX
 https://toss.im/_m/XXXXXXX"
@@ -6906,6 +6951,60 @@ https://toss.im/_m/XXXXXXX"
         guide.style.display = guide.style.display === 'none' ? 'block' : 'none';
       }
     }
+
+    /**
+     * 🏷️ v3.8.430 — 제휴 파트너 선택 (쇼핑모드 전용)
+     *
+     * 사용자 요구: "쇼핑모드를 선택하면 버튼3개가 생기고 원하는 제휴사를 클릭하면
+     *   그 제휴사의 하네스가 연동되서 최적의 글을 발행해주는거지"
+     * 고른 값이 payload.affiliateProvider 로 그대로 넘어가, 백엔드가 더 이상
+     * 링크 정규식으로 제휴사를 추측하지 않는다.
+     */
+    const AFFILIATE_PROVIDER_ACCENT = {
+      'coupang': '#ef4444',
+      'toss-sharelink': '#3b82f6',
+      'naver-shopping-connect': '#22c55e',
+    };
+    const AFFILIATE_PROVIDER_PLACEHOLDER = {
+      'coupang': '쿠팡 파트너스에서 받은 상품 링크를 붙여넣으세요. 예)\nhttps://link.coupang.com/a/XXXXXX',
+      'toss-sharelink': '토스쇼핑 쉐어링크를 붙여넣으세요. 예)\nhttps://toss.im/_m/XXXXXXX',
+      'naver-shopping-connect': '네이버 쇼핑 커넥트 링크를 붙여넣으세요. 예)\nhttps://naver.me/XXXXXXX',
+    };
+    const AFFILIATE_PROVIDER_HINT = {
+      'coupang': '🛒 쿠팡은 상품 페이지 수집이 차단돼 있어 <b>본문 이미지는 AI로 생성</b>합니다. 상품명·가격은 공식 API 로 가져옵니다.',
+      'toss-sharelink': '💙 토스는 <b>수집한 실제 상품 사진</b>을 본문에 씁니다. 가격은 웹에 노출되지 않아 본문에 넣지 않습니다.',
+      'naver-shopping-connect': '💚 네이버는 <b>수집한 실제 상품 사진</b>을 본문에 씁니다. 링크당 상품 조회에 약 10초가 걸립니다.',
+    };
+
+    window.__syncAffiliateProviderBoxes = function __syncAffiliateProviderBoxes() {
+      const picked = document.querySelector('input[name="affiliateProvider"]:checked')?.value || '';
+      ['coupang', 'toss-sharelink', 'naver-shopping-connect'].forEach((id) => {
+        const box = document.getElementById('provider-' + id + '-box');
+        if (!box) return;
+        const on = id === picked;
+        box.style.borderColor = on ? (AFFILIATE_PROVIDER_ACCENT[id] || '#3b82f6') : 'rgba(255,255,255,0.15)';
+        box.style.background = on ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.25)';
+        box.style.opacity = picked && !on ? '0.45' : '1';
+        box.style.transform = on ? 'scale(1.03)' : 'scale(1)';
+      });
+      // 링크 칸 안내를 고른 제휴사에 맞춘다 — 어떤 링크를 넣어야 하는지 헷갈리지 않게
+      const ta = document.getElementById('affiliateLinks');
+      if (ta) ta.placeholder = AFFILIATE_PROVIDER_PLACEHOLDER[picked] || '위에서 제휴사를 먼저 골라주세요.';
+      const hint = document.getElementById('affiliateProviderHint');
+      if (hint) {
+        hint.innerHTML = AFFILIATE_PROVIDER_HINT[picked]
+          || '💡 제휴사를 고르면 그 제휴사 전용 파이프라인(고지 문구·링크 처리·이미지 전략)이 적용됩니다.';
+      }
+    };
+
+    function selectAffiliateProvider(provider) {
+      // 라디오는 name 이 같아도 명시적으로 전부 해제한 뒤 하나만 켠다
+      document.querySelectorAll('input[name="affiliateProvider"]').forEach((r) => { r.checked = false; });
+      const radio = document.getElementById('affprovider-' + provider);
+      if (radio) radio.checked = true;
+      window.__syncAffiliateProviderBoxes();
+    }
+    window.selectAffiliateProvider = selectAffiliateProvider;
 
     // 플랫폼 선택
     function selectPlatform(platform) {

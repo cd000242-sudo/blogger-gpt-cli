@@ -624,7 +624,41 @@ export async function generateUltimateMaxModeArticleFinal(
     //   사용자 요구: "제목도 쇼핑모드면 그 제품에 딱 맞는 제목으로 최적화되어서 생성해줘야 돼요"
     const affiliateAll = String((payload as any).affiliateLinks || '')
       .split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
-    const coupangLink = affiliateAll.find((u) => /coupang\.com|coupa\.ng/i.test(u));
+
+    /**
+     * 🏷️ v3.8.430 — 사용자가 UI에서 고른 제휴사를 그대로 쓴다.
+     *
+     * 사용자 요구: "쇼핑모드를 선택하면 버튼3개가 생기고 원하는 제휴사를 클릭하면
+     *   그 제휴사의 하네스가 연동되서 최적의 글을 발행해주는거지"
+     *
+     * 그동안은 링크를 정규식으로 훑어 제휴사를 **추측**했다. 추측은 틀릴 수 있고
+     * (단축 URL·리다이렉트·새 도메인), 틀리면 엉뚱한 제휴사의 고지 문구가 붙는다.
+     * 이제는 고른 값이 곧 정답이다.
+     *
+     * 값이 없으면(구버전 UI로 만든 대기열 payload 등) 기존 자동판별로 폴백한다 —
+     * 이미 쌓여 있는 예약 발행이 깨지면 안 된다.
+     */
+    const explicitProvider = String((payload as any).affiliateProvider || '').trim();
+    if (explicitProvider) {
+      onLog?.(`[PROGRESS] 4% - 🏷️ 제휴사: ${explicitProvider} (사용자 선택 — 링크 추측 안 함)`);
+    }
+    const coupangLink = explicitProvider
+      ? (explicitProvider === 'coupang' ? affiliateAll[0] : undefined)
+      : affiliateAll.find((u) => /coupang\.com|coupa\.ng/i.test(u));
+    /**
+     * v3.8.429 — "사용자가 특정 상품 링크를 줬는가"는 제휴사와 무관한 사실이다.
+     *
+     * 그동안 이 판정을 coupangLink 로 대신했는데, 그러면 토스·네이버 링크를 넣은 글은
+     * "링크를 안 준 글"로 취급됐다. 실측 사고(2026-08-03, 토스 발행글):
+     *   · 상단에 텍스트뿐인 "핵심 바로가기" 버튼이 이미지 CTA 카드와 나란히 떠서 중복
+     *     (사용자 지적: "cta 문구도 중복이있습니다") — 3165행이 coupangLink 로만 막고 있었다.
+     *   · 키워드로 자동 검색된 **쿠팡** 상품 8개 위젯이 토스 글에 그대로 붙을 수 있었다
+     *     — 내 링크 대신 남의 상품을 누르게 만드는 꼴이고, 제휴사도 뒤섞인다.
+     *   · "사진을 누르면 판매 페이지로 갑니다" 안내도 쿠팡 글에만 나갔다.
+     * 쿠팡 전용 컴플라이언스(대가성 문구·enforceCoupangCompliance)는 그대로 coupangLink
+     * 판정을 쓴다 — 그건 진짜로 쿠팡에만 해당하는 규정이다.
+     */
+    const hasSpecificProductLink = affiliateAll.length > 0;
     if (coupangLink && String((payload as any).contentMode || '') === 'shopping') {
       try {
         const { resolveCoupangProductId } = await import('../affiliate/crawl');
@@ -673,12 +707,15 @@ export async function generateUltimateMaxModeArticleFinal(
     //   그대로 받았고, 모델이 그 문구를 문자 그대로 제목에 넣었다.
     //   쿠팡 링크는 위에서 이미 전용 경로(resolveCoupangProductId + enrichCoupangProduct)로
     //   처리했으므로 여기서는 제외한다 — 그쪽이 API로 실제 가격까지 얻는 더 정확한 경로다.
-    const nonCoupangLinks = affiliateAll.filter((u) => !/coupang\.com|coupa\.ng/i.test(u));
+    // v3.8.430: 제휴사를 골랐으면 그 값으로 판정한다(추측 금지). 없으면 기존 정규식 폴백.
+    const nonCoupangLinks = explicitProvider
+      ? (explicitProvider === 'coupang' ? [] : affiliateAll)
+      : affiliateAll.filter((u) => !/coupang\.com|coupa\.ng/i.test(u));
     if (nonCoupangLinks.length > 0 && String((payload as any).contentMode || '') === 'shopping'
       && !(payload as any).resolvedProductName) {
       try {
         const { crawlAffiliateLinks } = await import('../affiliate/crawl');
-        const products = await crawlAffiliateLinks(nonCoupangLinks, { onLog, concurrency: 3 });
+        const products = await crawlAffiliateLinks(nonCoupangLinks, { onLog, concurrency: 3, expectedProvider: (explicitProvider || undefined) as any });
         if (products.length > 0) {
           // 뒤의 1374행 블록이 같은 링크를 또 크롤하지 않도록 결과를 캐시해둔다
           (payload as any).affiliateProducts = products;
@@ -1418,7 +1455,9 @@ export async function generateUltimateMaxModeArticleFinal(
           onLog?.(`[PROGRESS] 41% - 🔗 제휴 링크 ${rawLinks.length}개 상품 정보 조회 중...`);
           const { crawlAffiliateLinks } = await import('../affiliate/crawl');
           const { formatAffiliateProductsForPrompt } = await import('../affiliate/render');
-          const products = await crawlAffiliateLinks(rawLinks, { onLog, concurrency: 3 });
+          const products = await crawlAffiliateLinks(rawLinks, {
+            onLog, concurrency: 3, expectedProvider: (explicitProvider || undefined) as any,
+          });
 
           if (products.length > 0) {
             (payload as any).affiliateProducts = products;
@@ -1439,7 +1478,9 @@ export async function generateUltimateMaxModeArticleFinal(
             //   (상품명·가격은 끝까지 지어내지 않는다. 본문 소재는 쿠팡 API 검색 결과가 담당한다.)
             const { getPolicy, AFFILIATE_PROVIDER_IDS } = await import('../affiliate/policies');
             const firstLink = rawLinks[0]!;
-            const provider = AFFILIATE_PROVIDER_IDS.find((id) => getPolicy(id)!.linkHosts.test(firstLink));
+            // v3.8.430: 사용자가 고른 제휴사가 있으면 그것이 정답이다(링크 추측 안 함).
+            const provider = (explicitProvider && getPolicy(explicitProvider) ? explicitProvider as any : undefined)
+              || AFFILIATE_PROVIDER_IDS.find((id) => getPolicy(id)!.linkHosts.test(firstLink));
 
             // 🛒 쿠팡 구제 경로 — 웹은 막혔지만 리다이렉트는 따라갈 수 있다.
             //   링크 → productId 를 뽑아, 위 2순위에서 이미 받아둔 쿠팡 API 검색 결과와 대조한다.
@@ -2909,9 +2950,11 @@ export async function generateUltimateMaxModeArticleFinal(
        */
       const hasProducts = Array.isArray(coupangProducts) && coupangProducts.length > 0;
       if (hasProducts) {
-        // coupangLink(사용자가 준 구체적 상품 링크)가 있으면 "추천 상품 한눈에 보기"
-        // 다중 상품 위젯만 생략한다 — 대가성 문구·컴플라이언스는 이 상품이 있든 없든 필요하다.
-        if (!coupangLink) {
+        // 사용자가 준 구체적 상품 링크가 있으면 "추천 상품 한눈에 보기" 다중 상품 위젯만
+        // 생략한다 — 대가성 문구·컴플라이언스는 이 상품이 있든 없든 필요하다.
+        // v3.8.429: 판정을 coupangLink → hasSpecificProductLink 로 넓힌다. 토스·네이버
+        //   링크를 준 글에 키워드로 검색된 쿠팡 상품 위젯이 붙던 것을 막는다.
+        if (!hasSpecificProductLink) {
           html += renderCoupangProductBlock(coupangProducts);
           console.log(`[MAX-MODE] 🛒 쿠팡 상품 카드 ${Math.min(coupangProducts.length, 6)}개 삽입 완료 (제휴링크 활성화)`);
         } else {
@@ -2956,7 +2999,8 @@ export async function generateUltimateMaxModeArticleFinal(
        *     본문 곳곳(이미지·CTA 카드)에 있으니 "누르면 어디로 가는지"만 한 번
        *     투명하게 밝히면 충분하고, 오버레이·반복 캡션보다 정책 리스크가 없다.
        */
-      if (coupangLink) {
+      // v3.8.429: 토스·네이버 글에서도 같은 안내가 필요하다 (제휴사와 무관한 안내다)
+      if (hasSpecificProductLink) {
         const imageClickNotice = `<p style="font-size:13px;color:#64748b;margin:0 0 24px;">📸 이 글의 사진을 누르면 소개하는 상품의 실제 판매 페이지로 이동합니다.</p>`;
         html = html.replace('<!-- TOP_SUMMARY_CTA_PLACEHOLDER -->', imageClickNotice + '<!-- TOP_SUMMARY_CTA_PLACEHOLDER -->');
       }
@@ -3162,7 +3206,7 @@ export async function generateUltimateMaxModeArticleFinal(
     if (contentMode === 'adsense') {
       // 🛡️ 애드센스 모드: 상단 CTA 완전 차단
       console.log('[MAX-MODE] 🛡️ 애드센스 모드 — 상단 CTA 생성 생략 (승인 정책 준수)');
-    } else if (contentMode === 'shopping' && coupangLink) {
+    } else if (contentMode === 'shopping' && hasSpecificProductLink) {
       /**
        * v3.8.419 — 쇼핑 글의 텍스트뿐인 "핵심 바로가기" 버튼을 완전히 뺐다.
        *
@@ -3175,6 +3219,10 @@ export async function generateUltimateMaxModeArticleFinal(
        *   "애초에 이미지 카드와 중복이다"라는 더 근본적인 지적은 이번에 반영한다.
        *   이미지 카드는 cta-card.ts 의 "① 요약 직후" 위치(v3.8.419 수정으로 이제 정말
        *   여기 삽입된다)가 이 자리를 대신 채운다 — topCtaHtml 은 비워 둔다.
+       *
+       *   v3.8.429 — 이 조건이 coupangLink 였던 탓에 **토스·네이버 글에는 이 생략이
+       *   적용되지 않아** 중복이 그대로 남아 있었다(사용자: "cta 문구도 중복이있습니다").
+       *   중복 여부는 제휴사와 무관하므로 hasSpecificProductLink 로 판정한다.
        */
       console.log('[MAX-MODE] 🛒 쇼핑 글 상단 CTA(텍스트 버튼) 생략 — 이미지 포함 카드가 같은 자리를 대신한다');
     } else {

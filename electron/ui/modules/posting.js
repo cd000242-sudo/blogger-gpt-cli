@@ -2108,6 +2108,14 @@ export async function createPayload(options = {}) {
       return list.length > 0 ? list : undefined;
     })(),
 
+    // 🏷️ v3.8.430: 사용자가 고른 제휴사를 그대로 넘긴다.
+    //   백엔드는 이 값이 있으면 링크 정규식으로 제휴사를 추측하지 않는다.
+    //   비어 있으면(구버전 UI로 만든 대기열 payload 등) 기존 자동판별로 폴백한다.
+    affiliateProvider: (() => {
+      const picked = document.querySelector('input[name="affiliateProvider"]:checked')?.value || '';
+      return picked || undefined;
+    })(),
+
     // 수동 크롤링 URL
     manualCrawlUrls: manualUrls.length > 0 ? manualUrls : undefined,
     sourceUrl: isUrlInputMode ? referenceUrls[0] : undefined,

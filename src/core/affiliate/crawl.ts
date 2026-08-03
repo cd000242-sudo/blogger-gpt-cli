@@ -45,6 +45,12 @@ export interface CrawlOptions {
   onLog?: ((msg: string) => void) | undefined;
   /** 테스트 주입용 */
   fetchImpl?: typeof fetch | undefined;
+  /**
+   * v3.8.430 — 사용자가 UI에서 고른 제휴사. 있으면 링크로 추측하지 않는다.
+   * 단, 넘어온 값이 이 링크의 호스트와 실제로 맞을 때만 쓴다 — 낡은/잘못된 값이
+   * 넘어와도 엉뚱한 제휴사로 크롤하지 않게 하는 안전장치다.
+   */
+  expectedProvider?: AffiliateProviderId | undefined;
 }
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -269,8 +275,13 @@ export async function crawlAffiliateLink(
   if (!/^https?:\/\//i.test(clean)) return null;
 
   // 링크 호스트로 제휴사 판정 (쿠팡 포함 — 사용자가 실제로 붙여넣는다)
-  const provider = (['toss-sharelink', 'naver-shopping-connect', 'coupang'] as AffiliateProviderId[])
-    .find((id) => getPolicy(id)!.linkHosts.test(clean));
+  //   v3.8.430: 사용자가 고른 제휴사가 이 링크와 실제로 맞으면 그걸 쓴다(추측 생략).
+  //   맞지 않으면 무시하고 기존 자동판별로 넘어간다 — 잘못된 태그로 오크롤하지 않는다.
+  const provider = (opts.expectedProvider && getPolicy(opts.expectedProvider)?.linkHosts.test(clean)
+    ? opts.expectedProvider
+    : undefined)
+    || (['toss-sharelink', 'naver-shopping-connect', 'coupang'] as AffiliateProviderId[])
+      .find((id) => getPolicy(id)!.linkHosts.test(clean));
   if (!provider) {
     opts.onLog?.(`   [제휴] 지원하지 않는 링크 — 건너뜀: ${clean.slice(0, 50)}`);
     return null;

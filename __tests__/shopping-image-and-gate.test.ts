@@ -121,7 +121,13 @@ describe('쿠팡 링크 지원 (사용자가 실제로 붙여넣었다)', () => 
   });
 
   it('UI 안내에 쿠팡이 포함된다', () => {
-    expect(read('electron', 'ui', 'index.html')).toContain('쿠팡 파트너스 · 네이버 쇼핑 커넥트');
+    // v3.8.430: 제휴사 목록이 링크 칸 라벨에서 **버튼 3개**로 옮겨갔다.
+    //   ("쇼핑모드를 선택하면 버튼3개가 생기고 원하는 제휴사를 클릭하면…")
+    //   확인할 것은 그대로다 — UI 가 세 제휴사를 안내하는가.
+    const html = read('electron', 'ui', 'index.html');
+    expect(html).toContain('쿠팡 파트너스');
+    expect(html).toContain('네이버 쇼핑 커넥트');
+    expect(html).toContain('토스쇼핑 쉐어링크');
   });
 });
 
