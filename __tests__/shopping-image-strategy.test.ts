@@ -43,11 +43,26 @@ describe('UI — 글포스팅 이미지 서브탭에 선택지가 있다', () =>
     expect(uiHtml).not.toMatch(/value="product-all"\s+selected/);
   });
 
-  it('⭐ 백엔드 기본값도 같이 바뀌었다 (값이 없을 때 옛 동작으로 떨어지면 안 된다)', () => {
-    const orch = fs.readFileSync(path.join(ROOT, 'src', 'core', 'final', 'orchestration.ts'), 'utf8');
-    expect(orch).toContain("shoppingImageStrategy || 'product-i2i'");
+  /**
+   * v3.8.442 에 정책이 바뀌었다.
+   *   이전: 기본값 고정 product-i2i (쿠팡 대표컷 1장이 반복 배치되는 걸 막으려고).
+   *   현재: 'auto' — **확보한 사진 장수**로 정한다. 쿠팡(1장)은 그대로 i2i 로
+   *         떨어지고, 토스·네이버(v3.8.440 부터 15장 확보)는 실제 사진을 쓴다.
+   * 근거: 구글 2026-03 코어 업데이트가 실사용 사진을 랭킹 요소로 올렸고,
+   *       네이버는 스톡/생성 이미지에 감점을 준다.
+   * 옛 기본값의 취지(1장짜리는 반복 배치 금지)는 장수 임계값이 그대로 지킨다.
+   */
+  it('⭐ 기본값은 auto — 사진 장수로 정하고, 1장짜리는 여전히 AI 생성으로 간다', () => {
     const posting = fs.readFileSync(path.join(ROOT, 'electron', 'ui', 'modules', 'posting.js'), 'utf8');
-    expect(posting).toContain("shoppingImageStrategy: 'product-i2i'");
+    expect(posting).toContain("shoppingImageStrategy: 'auto'");
+    // 옛 고정 기본값이 되살아나면 사진이 15장 있어도 AI 생성컷이 나간다
+    expect(posting).not.toContain("shoppingImageStrategy: 'product-i2i'");
+  });
+
+  it('⭐⭐ 직접 고른 값만 payload 에 실린다 (안 고르면 auto 로 백엔드가 판단)', () => {
+    const posting = fs.readFileSync(path.join(ROOT, 'electron', 'ui', 'modules', 'posting.js'), 'utf8');
+    // 이 게이트가 없으면 select 가 늘 값을 갖고 있어 백엔드 자동 판단이 죽는다
+    expect(posting).toContain('window.__strategyUserPicked');
   });
 
   it('⭐ 수집 사진을 못 쓰는 제휴사(쿠팡)면 product-all 옵션을 잠근다', () => {
@@ -100,7 +115,9 @@ describe('payload 배선 — 두 경로 모두', () => {
 
   it('기본값이 정의돼 있다', () => {
     // v3.8.401: 수집 이미지가 1장뿐이라 product-all 이 기본값이면 같은 사진이 반복된다
-    expect(postingSrc).toContain("shoppingImageStrategy: 'product-i2i'");
+    // v3.8.442: 그 판단을 고정값이 아니라 **확보한 사진 장수**로 한다 (auto).
+    //   사진이 1장이면 여전히 AI 생성으로 가므로 v3.8.401 의 취지는 그대로 지켜진다.
+    expect(postingSrc).toContain("shoppingImageStrategy: 'auto'");
   });
 });
 
@@ -164,8 +181,19 @@ describe('백엔드 — 전략별 동작', () => {
     expect(orchestrationSrc).toContain("if (!imageResult.ok && !leaveBlank && imageSource === 'crawled'");
   });
 
-  it('⭐ 전략 미지정 시 product-i2i 로 동작한다 (1장 반복 배치로 떨어지지 않는다)', () => {
-    expect(orchestrationSrc).toContain("(payload as any).shoppingImageStrategy || 'product-i2i'");
+  /**
+   * v3.8.442 — 미지정이면 확보한 사진 장수로 정한다.
+   * 옛 규칙("무조건 product-i2i")의 목적은 **사진 1장이 소제목마다 반복되는 것**을
+   * 막는 데 있었다. 그 목적은 장수 임계값이 그대로 지킨다 — 오히려 더 정확하다.
+   */
+  it('⭐ 전략 미지정이면 사진 장수로 정한다 (1장 반복 배치로 떨어지지 않는다)', () => {
+    expect(orchestrationSrc).toContain("const rawStrategy = String((payload as any).shoppingImageStrategy || '').trim();");
+    expect(orchestrationSrc).toContain("rawStrategy === 'auto' ? '' : rawStrategy");
+    const block = blockBetween(orchestrationSrc, 'const rawStrategy =', 'const productPool =');
+    const m = block.match(/collectedPhotoCount\s*>=\s*(\d+)\s*\?\s*'product-all'\s*:\s*'product-i2i'/);
+    expect(m).not.toBeNull();
+    // 임계값이 2 이하로 내려가면 쿠팡 대표컷 1장짜리가 product-all 로 새어들어간다
+    expect(Number(m![1])).toBeGreaterThanOrEqual(3);
   });
 });
 

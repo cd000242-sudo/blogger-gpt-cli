@@ -4582,8 +4582,11 @@ https://toss.im/_m/XXXXXXX"
                       </select>
                       <small style="color: rgba(255, 153, 102, 0.9); font-size: 11px; margin-top: 6px; display: block; line-height: 1.6;">
                         🖼️ <strong>썸네일은 두 경우 모두 실제 상품 사진</strong>입니다 — 어떤 제품인지 바로 보여야 구매로 이어집니다.<br>
-                        📸 <strong>상품 사진 그대로</strong>: 신뢰도가 가장 높습니다. 실제 판매 이미지라 "이 제품 맞다"가 증명됩니다.<br>
-                        🎨 <strong>상품 기반 생성</strong>: 소제목 내용(사용 장면·비교·구성품 등)에 맞춘 그림이 나옵니다. 단 실물과 다를 수 있습니다.<br>
+                        📸 <strong>상품 사진 그대로</strong> (권장): 실제 판매 이미지라 "이 제품 맞다"가 증명됩니다.
+                        <b>구글 2026년 3월 업데이트부터 실사용 사진이 검색 순위 요소</b>가 됐고, 네이버는 직접 촬영 이미지에 가산점·스톡 이미지에 감점을 줍니다.
+                        이미지 생성비도 들지 않습니다.<br>
+                        🎨 <strong>상품 기반 생성</strong>: 소제목 내용에 맞춘 그림이 나와 보기엔 깔끔하지만, 실물과 다를 수 있고 <b>검색 순위에는 불리</b>합니다.
+                        수집 사진이 부족할 때 쓰세요.<br>
                         ⚠️ 이 설정은 <strong>쇼핑/구매유도 모드에서만</strong> 적용됩니다.
                       </small>
                     </div>
@@ -7094,6 +7097,35 @@ https://toss.im/_m/XXXXXXX"
     window.__syncStrategyRadios = function __syncStrategyRadios(provider, allDisabled) {
       const accent = AFFILIATE_PROVIDER_ACCENT[provider] || '#ff9966';
       const sel = document.getElementById('shoppingImageStrategy');
+
+      /**
+       * 📸 v3.8.442 — **수집이 되는 제휴사는 실제 사진이 기본값이다.**
+       *
+       * 근거(2026-08 리서치):
+       *   · 구글 2026-03 코어 업데이트 — "리뷰어가 제품을 실제로 쓰는 모습의 사진·영상"이
+       *     유의미한 랭킹 요소가 됐다. E-E-A-T 의 첫 E(Experience)를 이전 모든 신호보다 증폭.
+       *   · 네이버 — 직접 촬영 이미지 10장 이상은 지수 가산점, 스톡 이미지는 **감점**.
+       * AI 생성 이미지는 "직접 찍은 사진"의 반대편 신호다. 예쁘지만 순위에 불리하다.
+       *
+       * 게다가 v3.8.440 부터 토스에서 상세컷을 15장까지 확보한다(실측). 예전에
+       * i2i 가 기본이던 이유("수집 사진이 1장뿐이라 반복 배치된다")가 사라졌다.
+       * 쿠팡은 여전히 대표 이미지 1장뿐이라 AI 생성이 맞다.
+       *
+       * ⚠️ 사용자가 직접 고른 뒤에는 건드리지 않는다 — 기본값일 때만 바꾼다.
+       */
+      if (!window.__strategyUserPicked && sel) {
+        const preferred = allDisabled ? 'product-i2i' : 'product-all';
+        if (sel.value !== preferred) {
+          sel.value = preferred;
+          try { sel.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+        }
+      }
+      // 쿠팡은 수집 자체가 막혀 있어 선택의 여지가 없다 — 값도 강제로 되돌린다
+      if (allDisabled && sel && sel.value === 'product-all') {
+        sel.value = 'product-i2i';
+        try { sel.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+      }
+
       const current = sel?.value || 'product-i2i';
 
       [['strategyOptAll', 'product-all'], ['strategyOptI2i', 'product-i2i']].forEach(([id, value]) => {
@@ -7142,6 +7174,8 @@ https://toss.im/_m/XXXXXXX"
       const value = box.getAttribute('data-strategy');
       const radio = box.querySelector('input[type="radio"]');
       if (!radio || box.style.cursor === 'not-allowed') return;
+      // v3.8.442: 사용자가 직접 골랐다 — 이후 제휴사를 바꿔도 기본값이 덮어쓰지 않는다
+      window.__strategyUserPicked = true;
       const sel = document.getElementById('shoppingImageStrategy');
       if (sel) {
         sel.value = value;

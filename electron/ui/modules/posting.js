@@ -1628,7 +1628,15 @@ const PAYLOAD_DEFAULTS = {
   thumbnailMode: 'nanobanana2',
   ctaMode: 'auto',
   h2ImageSource: 'nanobanana2',
-  shoppingImageStrategy: 'product-i2i',
+  /**
+   * v3.8.442 — 'auto' = 백엔드가 **확보한 사진 장수로** 정한다.
+   *   3장 이상이면 실제 상품 사진, 그 미만이면 AI 생성.
+   * 예전엔 여기가 'product-i2i' 로 고정이라 토스처럼 사진이 15장 있어도
+   * AI 생성컷이 나갔다. 구글 2026-03 업데이트 이후 실사용 사진이 랭킹 요소가
+   * 됐고 네이버는 스톡 이미지에 감점을 준다 — 사진이 있으면 쓰는 게 맞다.
+   * 사용자가 UI 에서 직접 고르면 그 값이 그대로 실린다.
+   */
+  shoppingImageStrategy: 'auto',
   sectionCount: 5,
   minSectionCount: 1,
   maxSectionCount: 20,
@@ -1733,8 +1741,10 @@ function getH2ImageSettingsFromDOM() {
       h2ImageSource: forceH2None ? 'none' : (settings.source || PAYLOAD_DEFAULTS.h2ImageSource),
       h2ImageSections: forceH2None ? [] : (settings.sections || []),
       // v3.8.385: 쇼핑모드 본문 이미지 전략 (썸네일은 항상 실제 상품 사진)
+      // v3.8.442: 사용자가 직접 고른 경우에만 값을 싣는다. 아니면 'auto' 로
+      //   보내 백엔드가 확보한 사진 장수로 정하게 한다(위 PAYLOAD_DEFAULTS 주석 참고).
       shoppingImageStrategy: settings.shoppingImageStrategy
-        || document.getElementById('shoppingImageStrategy')?.value
+        || (window.__strategyUserPicked ? document.getElementById('shoppingImageStrategy')?.value : '')
         || PAYLOAD_DEFAULTS.shoppingImageStrategy,
       h2ImageMode: legacyH2ImageMode,
       imagePolicy: selectedPolicy,
@@ -1762,7 +1772,9 @@ function getH2ImageSettingsFromDOM() {
     .map(cb => parseInt(cb.value))
     .filter(n => Number.isFinite(n) && n > 0);
 
-  const shoppingImageStrategy = document.getElementById('shoppingImageStrategy')?.value
+  // v3.8.442: 여기도 같은 규칙 — 직접 고른 값만 싣고, 아니면 'auto'
+  const shoppingImageStrategy = (window.__strategyUserPicked
+    ? document.getElementById('shoppingImageStrategy')?.value : '')
     || PAYLOAD_DEFAULTS.shoppingImageStrategy;
 
   return {
