@@ -1277,18 +1277,26 @@ export async function generateUltimateMaxModeArticleFinal(
       const isVisionProvider = prov === 'toss-sharelink' || prov === 'naver-shopping-connect'
         || (!prov && prods.some((p) => p?.provider === 'toss-sharelink' || p?.provider === 'naver-shopping-connect'));
       if (isVisionProvider && detailUrls.length > 0 && h2Titles.length > 0) {
-        const envForVision = loadEnvFromFile();
         const prodName = String((payload as any).resolvedProductName || prods[0]?.title || keyword);
         detailVisionPromise = (async () => {
           try {
             const { analyzeDetailImages } = await import('../affiliate/detail-image-vision');
+            /**
+             * v3.8.434 — 키는 **정식 로더(getApiKey)로만** 가져온다.
+             *
+             * 예전에는 여기서 env 이름을 직접 읽었다(GEMINI_API_KEY / ANTHROPIC_API_KEY
+             * / OPENAI_API_KEY). 그런데 이 앱은 UI 설정을 geminiKey · claudeKey ·
+             * CLAUDE_API_KEY 등 **여러 이름**으로 저장한다(main.ts keyMap 참고).
+             * 직접 읽으면 UI 로 저장한 Claude 키를 못 찾아 조용히 vision 을 건너뛴다.
+             * getApiKey 가 그 이름 목록을 이미 알고 있으니 그걸 쓴다.
+             */
+            const { getApiKey } = await import('../llm/api-keys');
+            const pick = (p: 'gemini' | 'claude' | 'openai') => {
+              try { return getApiKey(p) || undefined; } catch { return undefined; }
+            };
             return await analyzeDetailImages(detailUrls, h2Titles, prodName, {
               textGenerator: String(payload.aiModel || payload.textGenerator || 'gemini'),
-              apiKeys: {
-                gemini: (envForVision['GEMINI_API_KEY'] || envForVision['GOOGLE_API_KEY'] || '').trim() || undefined,
-                claude: (envForVision['ANTHROPIC_API_KEY'] || '').trim() || undefined,
-                openai: (envForVision['OPENAI_API_KEY'] || '').trim() || undefined,
-              },
+              apiKeys: { gemini: pick('gemini'), claude: pick('claude'), openai: pick('openai') },
               onLog,
             });
           } catch (e: any) {

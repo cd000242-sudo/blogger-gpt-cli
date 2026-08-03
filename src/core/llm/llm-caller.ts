@@ -50,6 +50,30 @@ function getGenerationTemperature(prompt: string): number {
   return /\[FACT EVIDENCE|FACT INTEGRITY|Verified source URLs|grounding response/i.test(prompt) ? 0.28 : 0.52;
 }
 
+/**
+ * 출력 토큰 상한 — **모든 제공자가 이 하나를 쓴다.** (v3.8.434)
+ *
+ * ## 왜
+ * 사용자 지적: "왜자꾸 기준을 제미나이로 잡는지 모르겠네 다른 API도 많은데"
+ *
+ * 맞는 지적이었다. v3.8.432~433 에서 본문이 통째로 비는 문제(응답 잘림)를
+ * 고치면서 Gemini 만 32,768 로 올렸다. 그런데 사용자가 글 생성 AI 로
+ * OpenAI(6,000) · Claude(8,192) · Perplexity(8,192) 를 고르면 **같은 버그가
+ * 그대로 남아 있었다.** 한국어는 글자당 토큰이 커서 H2 7개 분량이면
+ * 8,192 로는 거의 확실히 잘린다.
+ *
+ * 상한은 "여기까지 허용"이지 "여기까지 쓴다"가 아니다. 실사용량만큼 과금되므로
+ * 올린다고 비용이 늘지 않는다. 오히려 잘려서 다시 만드는 쪽이 비싸다.
+ *
+ * ⚠️ 새 제공자를 추가할 때 숫자를 직접 박지 말 것 — 이 함수를 쓸 것.
+ *    (wiring-integrity-guard.test.ts 가 숫자 직접 박기를 실패시킨다)
+ */
+export function resolveLlmMaxTokens(): number {
+  const raw = Number(process.env['LLM_MAX_OUTPUT_TOKENS'] || '');
+  if (Number.isFinite(raw) && raw >= 1024) return Math.floor(raw);
+  return 16384;
+}
+
 function buildOpenAIChatBody(model: string, prompt: string): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model,
@@ -60,10 +84,10 @@ function buildOpenAIChatBody(model: string, prompt: string): Record<string, unkn
   };
 
   if (/^gpt-5/i.test(model)) {
-    body['max_completion_tokens'] = 8192;
+    body['max_completion_tokens'] = resolveLlmMaxTokens();
     if (/^gpt-5\.6/i.test(model)) body['reasoning_effort'] = 'medium';
   } else {
-    body['max_tokens'] = 8192;
+    body['max_tokens'] = resolveLlmMaxTokens();
     body['temperature'] = getGenerationTemperature(prompt);
   }
   return body;
@@ -88,7 +112,7 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
         { role: 'system', content: KOREAN_BLOG_FACTUAL_SYSTEM },
         { role: 'user', content: prompt },
       ],
-      max_tokens: 8192,
+      max_tokens: resolveLlmMaxTokens(),
       temperature: getGenerationTemperature(prompt),
     }),
     extractText: (data) => (data as ChatCompletionResponse)?.choices?.[0]?.message?.content || '',
@@ -125,7 +149,7 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
     }),
     buildBody: (model, prompt) => ({
       model,
-      max_tokens: 8192,
+      max_tokens: resolveLlmMaxTokens(),
       messages: [{ role: 'user', content: prompt }],
       system: KOREAN_BLOG_FACTUAL_SYSTEM,
       temperature: getGenerationTemperature(prompt),

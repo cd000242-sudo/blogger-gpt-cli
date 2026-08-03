@@ -5,6 +5,7 @@ import readline from 'node:readline/promises';
 import { google } from 'googleapis';
 import { setTimeout as wait } from 'node:timers/promises';
 import OpenAI from 'openai';
+import { resolveLlmMaxTokens } from './core/llm/llm-caller';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -30,11 +31,11 @@ const openai = new OpenAI({ apiKey: process.env['OPENAI_API_KEY'] });
 function buildOpenAIChatRequest(messages: any[], temperature: number): any {
   const request: any = { model: OPENAI_MODEL, messages };
   if (/^gpt-5/i.test(OPENAI_MODEL)) {
-    request.max_completion_tokens = 8000;
+    request.max_completion_tokens = resolveLlmMaxTokens();
     if (/^gpt-5\.6/i.test(OPENAI_MODEL)) request.reasoning_effort = 'medium';
   } else {
     request.temperature = temperature;
-    request.max_tokens = 8000;
+    request.max_tokens = resolveLlmMaxTokens();
   }
   return request;
 }

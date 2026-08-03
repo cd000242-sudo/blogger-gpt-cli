@@ -25,7 +25,10 @@ const KEY_CONFIGS = {
     },
     claude: {
         envKeys: ['claudeKey', 'claudeApiKey', 'CLAUDE_API_KEY', 'ANTHROPIC_API_KEY'],
-        processEnvKeys: ['ANTHROPIC_API_KEY'],
+        // v3.8.434: 이 앱은 UI 설정을 CLAUDE_API_KEY 로 저장한다(main.ts keyMap).
+        //   process.env 폴백이 ANTHROPIC_API_KEY 만 보고 있어, .env 파일 읽기가
+        //   실패한 상황에서 저장해 둔 키를 못 찾았다. 둘 다 본다.
+        processEnvKeys: ['ANTHROPIC_API_KEY', 'CLAUDE_API_KEY'],
         minLength: 10,
     },
 };

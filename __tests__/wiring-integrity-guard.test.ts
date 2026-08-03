@@ -146,6 +146,90 @@ describe('⑤ 대기열이 단일 발행과 같은 필드를 보낸다 (조용�
   });
 });
 
+describe('⑦ 특정 제공자만 고치는 실수를 막는다 (v3.8.434)', () => {
+  /**
+   * 사용자 지적: "왜자꾸 기준을 제미나이로 잡는지 모르겠네 다른 API도 많은데"
+   *
+   * v3.8.432~433 에서 본문 잘림을 고치며 Gemini 만 32,768 로 올렸다.
+   * 사용자가 OpenAI(6,000)·Claude(8,192)·Perplexity(8,192) 를 고르면 같은 버그가
+   * 그대로였다. "한 제공자만 고치고 끝났다"를 구조적으로 막는다.
+   */
+  const caller = read('src', 'core', 'llm', 'llm-caller.ts');
+  const openaiMod = read('src', 'core', 'llm', 'openai.ts');
+
+  it('⭐ 공용 상한 함수가 있고 export 된다', () => {
+    expect(caller).toContain('export function resolveLlmMaxTokens()');
+  });
+
+  it('⭐ 본문 생성 제공자들이 상한 숫자를 직접 박지 않는다', () => {
+    // 8192 / 6000 같은 값이 다시 들어오면 한쪽만 고치는 사고가 재발한다
+    for (const src of [caller, openaiMod]) {
+      expect(src).not.toMatch(/max_tokens:\s*\d+/);
+      expect(src).not.toMatch(/max_completion_tokens'?\]?\s*[:=]\s*\d+/);
+    }
+  });
+
+  it('⭐ 세 제공자 모두 공용 함수를 실제로 쓴다', () => {
+    // perplexity · openai · claude 각 buildBody 안에 들어 있어야 한다
+    const uses = (caller.match(/resolveLlmMaxTokens\(\)/g) || []).length;
+    expect(uses).toBeGreaterThanOrEqual(4);   // openai(2분기) + perplexity + claude
+    expect(openaiMod).toContain('resolveLlmMaxTokens()');
+  });
+
+  it('⭐ Gemini 쪽 상한도 같은 취지의 함수로 관리된다', () => {
+    expect(gemini).toContain('export function resolveMaxOutputTokens()');
+  });
+});
+
+describe('⑧ API 키는 정식 로더로만 가져온다 (v3.8.434)', () => {
+  /**
+   * 이 앱은 같은 키를 여러 이름으로 저장한다(geminiKey / GEMINI_API_KEY,
+   * claudeKey / claudeApiKey / CLAUDE_API_KEY / ANTHROPIC_API_KEY …).
+   * 새 코드가 env 를 직접 읽으면 UI 로 저장한 키를 못 찾아 **조용히** 기능이 꺼진다.
+   * 실제로 detail-image-vision 배선이 Claude 키를 못 찾고 있었다.
+   */
+  const orchSrc = orch;
+
+  it('⭐ vision 배선이 getApiKey 를 쓴다 (env 직접 읽기 금지)', () => {
+    expect(orchSrc).toContain("await import('../llm/api-keys')");
+    expect(orchSrc).toContain("pick('gemini')");
+    expect(orchSrc).toContain("pick('claude')");
+    expect(orchSrc).toContain("pick('openai')");
+    // 예전처럼 env 이름을 직접 읽으면 안 된다
+    expect(orchSrc).not.toContain("envForVision['ANTHROPIC_API_KEY']");
+  });
+
+  it('⭐ Claude 키는 이 앱이 저장하는 이름을 모두 본다', () => {
+    const keys = read('src', 'core', 'llm', 'api-keys.ts');
+    expect(keys).toContain("'claudeKey'");
+    expect(keys).toContain("'CLAUDE_API_KEY'");
+    expect(keys).toContain("'ANTHROPIC_API_KEY'");
+    // process.env 폴백도 저장 이름을 봐야 한다
+    expect(keys).toContain("processEnvKeys: ['ANTHROPIC_API_KEY', 'CLAUDE_API_KEY']");
+  });
+});
+
+describe('⑨ 에이전트 모드가 같은 payload 를 쓴다 (v3.8.434)', () => {
+  /**
+   * 에이전트 경로가 payload 를 따로 조립하면, 단일 발행에만 추가한 필드가
+   * 에이전트 글에서는 조용히 빠진다(쇼핑 링크·제휴사 등).
+   * 지금은 createPayload 결과를 그대로 넘기고 있다 — 그 구조를 잠근다.
+   */
+  const posting = read('electron', 'ui', 'modules', 'posting.js');
+
+  it('⭐ 에이전트 실행이 createPayload 로 만든 payload 를 그대로 넘긴다', () => {
+    expect(posting).toContain('window.runAgentJobFromPosting(payload)');
+  });
+
+  it('⭐ 에이전트 전용으로 payload 를 다시 만들지 않는다', () => {
+    const idx = posting.indexOf('window.runAgentJobFromPosting(payload)');
+    expect(idx).toBeGreaterThan(-1);
+    // 호출 직전에 payload 를 새로 조립하는 코드가 있으면 필드 누락이 생긴다
+    const before = posting.slice(Math.max(0, idx - 1500), idx);
+    expect(before).not.toMatch(/const\s+payload\s*=\s*\{/);
+  });
+});
+
 describe('⑥ 연속발행 설정 잠금은 실행 중에만 (v3.8.433)', () => {
   const queue = read('electron', 'ui', 'modules', 'publish-queue.js');
 
