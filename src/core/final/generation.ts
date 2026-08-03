@@ -1604,13 +1604,75 @@ JSON만 출력:
       const improved = await callGeminiWithRetry(improvePrompt);
       const improvedJson = extractJsonObject(improved);
       try {
-        allSectionsObj = safeParseJson(improvedJson);
+        const candidate = safeParseJson(improvedJson);
+        /**
+         * v3.8.429 — 보강 결과를 **검증하고 나서** 교체한다.
+         *
+         * 사용자 보고(2026-08-03): "H2·H3 제목은 나오는데 본문 단락이 통째로 비어 있다."
+         *
+         * 원인: 지금까지는 파싱만 되면 무조건 `allSectionsObj = safeParseJson(...)` 로
+         *   원본을 통째로 덮어썼다. 그런데 이 보강 호출은 입력(원본 JSON 전체)도 크고
+         *   출력 요구(H3마다 600자 이상)도 커서 출력이 잘리기 쉽다. 잘린 응답이
+         *   safeParseJson 의 3차 복구(마지막 '}' 까지 잘라 파싱)를 타면 **"파싱은 됐지만
+         *   뒷부분 섹션 content 가 빈" JSON** 이 나온다. 그게 멀쩡한 원본을 덮어써서
+         *   제목만 남고 본문이 사라졌다. 조용한 실패라 로그에도 "보강 완료"로 찍혔다.
+         *
+         * 보강은 어디까지나 **선택적 개선**이다. 개선이 아니면 안 받는다 —
+         * 원본보다 나빠질 수는 없어야 한다.
+         */
+        const totalTextLen = (obj: any): number =>
+          (obj?.sections || []).reduce((sum: number, s: any) =>
+            sum + (s?.h3Sections || []).reduce((t: number, h: any) => t + textLength(h?.content || ''), 0), 0);
+        const sectionCount = (obj: any): number => (obj?.sections || []).length;
+        const emptyContentCount = (obj: any): number =>
+          (obj?.sections || []).reduce((n: number, s: any) =>
+            n + (s?.h3Sections || []).filter((h: any) => textLength(h?.content || '') < 50).length, 0);
+
+        const beforeLen = totalTextLen(allSectionsObj);
+        const afterLen = totalTextLen(candidate);
+        const reasons: string[] = [];
+        if (sectionCount(candidate) < sectionCount(allSectionsObj)) {
+          reasons.push(`섹션 수 감소(${sectionCount(allSectionsObj)}→${sectionCount(candidate)})`);
+        }
+        if (emptyContentCount(candidate) > emptyContentCount(allSectionsObj)) {
+          reasons.push(`빈 본문 증가(${emptyContentCount(allSectionsObj)}→${emptyContentCount(candidate)})`);
+        }
+        // 총 분량이 원본의 80% 미만이면 "보강"이 아니라 손실이다
+        if (beforeLen > 0 && afterLen < beforeLen * 0.8) {
+          reasons.push(`총 분량 감소(${beforeLen}자→${afterLen}자)`);
+        }
+
+        if (reasons.length > 0) {
+          console.warn(`[generateAllSections] 보강 결과가 원본보다 나빠 폐기: ${reasons.join(', ')}`);
+          onLog?.(`[PROGRESS] 65% - ⚠️ 보강 결과가 원본보다 부실해 폐기하고 원본을 유지합니다 (${reasons.join(', ')})`);
+        } else {
+          allSectionsObj = candidate;
+          onLog?.(`[PROGRESS] 65% - ✅ 본문 보강 반영 (${beforeLen}자 → ${afterLen}자)`);
+        }
       } catch (parseErr) {
         // v3.5.94: 보강 단계 JSON 실패 시 원본 유지 (보강 전 데이터로 fallback)
         console.warn('[generateAllSections] 보강 JSON 파싱 실패 — 보강 전 데이터로 유지:', (parseErr as Error).message);
         onLog?.('[PROGRESS] 65% - ⚠️ 본문 보강 JSON 파싱 실패 — 원본 유지');
       }
-      onLog?.('[PROGRESS] 65% - ✅ 본문 보강 완료!');
+    }
+
+    /**
+     * v3.8.429 — 본문이 빈 채로 조용히 나가지 않게 한다.
+     *
+     * 발행을 막지는 않는다(이 앱의 원칙: 품질 문제로 발행을 차단하지 않는다).
+     * 다만 "제목만 있고 본문이 없는" 상태는 품질 문제가 아니라 **고장**이므로,
+     * 지금까지처럼 아무 로그 없이 넘어가면 안 된다. 반드시 눈에 띄게 남긴다.
+     */
+    {
+      const emptyH3s = (allSectionsObj.sections || []).flatMap((s, si) =>
+        (s?.h3Sections || [])
+          .map((h, hi) => ({ si, hi, len: textLength(h?.content || '') }))
+          .filter((x) => x.len < 50));
+      if (emptyH3s.length > 0) {
+        const where = emptyH3s.map((x) => `${x.si + 1}-${x.hi + 1}`).join(', ');
+        console.error(`[generateAllSections] ⚠️ 본문이 비어 있는 소제목 ${emptyH3s.length}개: ${where}`);
+        onLog?.(`[PROGRESS] 65% - ⚠️ 본문이 비어 있는 소제목이 ${emptyH3s.length}개 있습니다 (${where}) — 발행은 계속하지만 확인이 필요합니다`);
+      }
     }
 
     // 결과 정규화 및 에디팅 톤 변환

@@ -125,9 +125,11 @@ describe('③ "핵심 바로가기"가 사용자의 제휴 링크를 가리킨�
   // ⚠️ braceBlock 은 if/else-if/else 사슬을 "같은 구문"으로 보고 뒤이은 else 블록까지
   //   이어 붙인다(의도된 동작 — } catch/else/finally { 는 한 문장이다). 그래서 여기서는
   //   "다음 else 블록 직전까지"로 정확히 자르는 blockBetween 을 쓴다.
+  //   v3.8.429: 조건이 coupangLink → hasSpecificProductLink 로 넓어졌다. 예전엔 이 생략이
+  //   쿠팡 글에만 적용돼서 토스·네이버 글에는 중복 CTA 가 그대로 남아 있었다.
   const shoppingCtaBlock = blockBetween(
     orch,
-    "} else if (contentMode === 'shopping' && coupangLink) {",
+    "} else if (contentMode === 'shopping' && hasSpecificProductLink) {",
     '} else {',
   );
 
@@ -151,7 +153,7 @@ describe('③ "핵심 바로가기"가 사용자의 제휴 링크를 가리킨�
   it('다른 모드는 기존 후보 로직을 그대로 쓴다 (동작을 안 바꾼다)', () => {
     // 새 쇼핑 전용 분기 "다음" else 블록에 기존 일반 후보 로직이 그대로 남아 있어야 한다
     const afterShoppingBranch = orch.slice(
-      orch.indexOf("} else if (contentMode === 'shopping' && coupangLink) {"),
+      orch.indexOf("} else if (contentMode === 'shopping' && hasSpecificProductLink) {"),
     );
     const fallbackBlock = afterShoppingBranch.slice(0, afterShoppingBranch.indexOf('end of non-adsense CTA block'));
     expect(fallbackBlock).toContain('topCandidates');
@@ -160,7 +162,7 @@ describe('③ "핵심 바로가기"가 사용자의 제휴 링크를 가리킨�
   it('애드센스 모드는 여전히 상단 CTA 를 차단한다 (분기 순서가 안 깨졌다)', () => {
     expect(orch).toContain("if (contentMode === 'adsense') {");
     const adsenseIdx = orch.indexOf("if (contentMode === 'adsense') {");
-    const shoppingIdx = orch.indexOf("} else if (contentMode === 'shopping' && coupangLink) {");
+    const shoppingIdx = orch.indexOf("} else if (contentMode === 'shopping' && hasSpecificProductLink) {");
     expect(shoppingIdx).toBeGreaterThan(adsenseIdx);
   });
 });
