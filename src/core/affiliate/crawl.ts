@@ -38,6 +38,19 @@ export interface AffiliateProduct {
   /** 가격을 못 얻은 이유 (UI 안내용) */
   priceNote: string;
   /**
+   * v3.8.438 — 실제 구매자 후기.
+   *
+   * 사용자 지적(2026-08-03): "링크 타고가니까 리뷰 1330개나 있는데 뭐가없다는건지"
+   * 맞는 지적이었다. 토스는 상품 페이지에 **schema.org JSON-LD** 로 후기를 그대로
+   * 심어놓는데(aggregateRating + review[]), 우리는 og 메타 3개만 읽고 있었다.
+   * 후기가 없다고 판단해 "상품군 일반 관심사"로 글을 쓰니 뻔한 글이 나왔다.
+   */
+  reviews?: Array<{ author: string; rating: number | null; body: string }>;
+  /** 전체 후기 수 (페이지에 표시된 값) */
+  reviewCount?: number | undefined;
+  /** 평균 평점 */
+  ratingValue?: number | undefined;
+  /**
    * v3.8.431 — 상세정보(인포그래픽) 이미지 주소들. 토스/네이버 전용.
    *
    * 한국 쇼핑몰 상세페이지는 글자 없는 **이미지 몇 장**인 경우가 많다.
@@ -141,6 +154,71 @@ export function extractPriceKrw(text: string): number | null {
   return Number.isFinite(n) && n >= 100 ? n : null;
 }
 
+/**
+ * 상품 페이지의 **schema.org 구조화 데이터**에서 후기를 뽑는다 (v3.8.438).
+ *
+ * ## 왜 이렇게 하나
+ * 실측(2026-08-03, 토스 상품 페이지): 후기가 JSON-LD 로 정적 HTML 에 그대로 있다.
+ *   "aggregateRating":{"ratingValue":4.7,"reviewCount":1331},
+ *   "review":[{"author":{"name":"박*숙"},"reviewRating":{"ratingValue":5},
+ *              "reviewBody":"포장이 넘 잘돼 왔어요\n배송도 빠르고요…"}, …]
+ * 브라우저를 띄울 필요도, 별도 API 도 필요 없다. 이미 받아온 HTML 안에 있다.
+ *
+ * ## 왜 JSON.parse 를 안 쓰나
+ * 이 데이터는 Next.js 스트리밍 청크(self.__next_f) 안에 **이스케이프된 채로** 박혀
+ * 있어서 통째로 파싱할 수 있는 온전한 JSON 이 아니다. 그래서 필요한 필드만
+ * 정규식으로 집어낸다 — 깨진 조각이 섞여도 나머지는 건진다.
+ *
+ * 실패해도 발행을 막지 않는다. 못 뽑으면 예전처럼 후기 없이 진행한다.
+ */
+export function extractSchemaReviews(html: string): {
+  reviews: Array<{ author: string; rating: number | null; body: string }>;
+  reviewCount?: number | undefined;
+  ratingValue?: number | undefined;
+} {
+  const src = String(html || '');
+  const out: Array<{ author: string; rating: number | null; body: string }> = [];
+
+  // 이스케이프(\" )와 일반(") 두 표기를 모두 받는다
+  const agg = src.match(/"aggregateRating"\s*:\s*\{[^}]*?"ratingValue"\s*:\s*"?([0-9.]+)"?[^}]*?"reviewCount"\s*:\s*"?(\d+)"?/)
+    || src.match(/\\"aggregateRating\\"\s*:\s*\{[^}]*?\\"ratingValue\\"\s*:\s*\\?"?([0-9.]+)\\?"?[^}]*?\\"reviewCount\\"\s*:\s*\\?"?(\d+)/);
+
+  // reviewBody 와 그 앞의 author/rating 을 함께 집는다
+  const re = /"author"\s*:\s*\{[^}]*?"name"\s*:\s*"((?:[^"\\]|\\.)*)"[^}]*?\}\s*,\s*"reviewRating"\s*:\s*\{[^}]*?"ratingValue"\s*:\s*"?([0-9.]+)"?[^}]*?\}\s*,\s*"reviewBody"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+  let m: RegExpExecArray | null;
+  const seen = new Set<string>();
+  while ((m = re.exec(src)) !== null && out.length < 40) {
+    const unescape = (s: string) => String(s || '')
+      .replace(/\\n/g, '\n').replace(/\\t/g, ' ')
+      .replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+      .replace(/\s+\n/g, '\n').trim();
+    const body = unescape(m[3] || '');
+    if (body.length < 5) continue;
+    const key = body.slice(0, 40);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const r = Number(m[2]);
+    out.push({
+      author: unescape(m[1] || ''),
+      rating: Number.isFinite(r) ? r : null,
+      body,
+    });
+  }
+
+  const result: {
+    reviews: Array<{ author: string; rating: number | null; body: string }>;
+    reviewCount?: number | undefined;
+    ratingValue?: number | undefined;
+  } = { reviews: out };
+  if (agg) {
+    const rv = Number(agg[1]);
+    const rc = Number(agg[2]);
+    if (Number.isFinite(rv)) result.ratingValue = rv;
+    if (Number.isFinite(rc)) result.reviewCount = rc;
+  }
+  return result;
+}
+
 /** 토스 — 정적 fetch 로 충분하다 (실측 확인) */
 async function crawlToss(url: string, opts: CrawlOptions): Promise<AffiliateProduct> {
   const doFetch = opts.fetchImpl || fetch;
@@ -159,6 +237,13 @@ async function crawlToss(url: string, opts: CrawlOptions): Promise<AffiliateProd
   if (detailImageUrls.length) {
     opts.onLog?.(`   [제휴] 상세 이미지 ${detailImageUrls.length}장 확보`);
   }
+  // v3.8.438: 후기도 같은 HTML 에서 뽑는다 (추가 요청 0회)
+  const schema = extractSchemaReviews(html);
+  if (schema.reviews.length) {
+    opts.onLog?.(`   [제휴] 실제 후기 ${schema.reviews.length}건 확보`
+      + (schema.reviewCount ? ` (전체 ${schema.reviewCount.toLocaleString('ko-KR')}건`
+        + (schema.ratingValue ? ` · 평점 ${schema.ratingValue}` : '') + ')' : ''));
+  }
   return {
     provider: 'toss-sharelink',
     originalUrl: url,
@@ -170,6 +255,9 @@ async function crawlToss(url: string, opts: CrawlOptions): Promise<AffiliateProd
     priceKrw: null,
     priceNote: '토스쇼핑은 웹 페이지에 가격을 노출하지 않습니다(실측 확인). 가격은 본문에 쓰지 않습니다.',
     detailImageUrls,
+    reviews: schema.reviews,
+    reviewCount: schema.reviewCount,
+    ratingValue: schema.ratingValue,
   };
 }
 
@@ -240,6 +328,28 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
     const price = extractPriceKrw(info.text);
     // DOM 에서 읽어도 이중 인코딩된 값이 올 수 있다 (실측: "&#40;주&#41;쇼마젠시")
     const title = decodeEntities(info.title);
+
+    /**
+     * v3.8.438 — 네이버도 후기를 뽑는다.
+     *
+     * 토스와 같은 이유다(사용자 지적: "리뷰 1330개나 있는데 뭐가없다는건지").
+     * 스마트스토어도 schema.org JSON-LD 를 심는 경우가 많으므로 **렌더된 HTML**
+     * 전체를 받아 같은 파서에 넣는다. 구조가 다르면 빈 배열이 나올 뿐 발행은 그대로 진행된다.
+     * ⚠️ 네이버 페이지 구조는 실측 검증이 더 필요하다 — 로그의 "실제 후기 N건 확보"로 확인할 것.
+     */
+    let schema: ReturnType<typeof extractSchemaReviews> = { reviews: [] };
+    try {
+      const rendered = await page.content();
+      schema = extractSchemaReviews(rendered);
+      if (schema.reviews.length) {
+        opts.onLog?.(`   [제휴] 실제 후기 ${schema.reviews.length}건 확보`
+          + (schema.reviewCount ? ` (전체 ${schema.reviewCount.toLocaleString('ko-KR')}건`
+            + (schema.ratingValue ? ` · 평점 ${schema.ratingValue}` : '') + ')' : ''));
+      } else {
+        opts.onLog?.('   [제휴] 이 페이지에서는 후기를 찾지 못했습니다 (후기 없이 진행)');
+      }
+    } catch { /* 후기를 못 얻어도 발행은 계속된다 */ }
+
     return {
       provider: 'naver-shopping-connect',
       originalUrl: url,
@@ -251,6 +361,9 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
       priceKrw: price,
       priceNote: price ? '' : '상품 페이지에서 가격을 확인하지 못했습니다. 본문에 가격을 쓰지 않습니다.',
       detailImageUrls: info.detail || [],
+      reviews: schema.reviews,
+      reviewCount: schema.reviewCount,
+      ratingValue: schema.ratingValue,
     };
   } finally {
     await browser.close().catch(() => { /* noop */ });

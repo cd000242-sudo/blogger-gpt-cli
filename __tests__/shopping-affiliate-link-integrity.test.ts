@@ -223,8 +223,14 @@ describe('④⑤ 후기 0건을 단점으로 추론하지 않고, 실제 데이�
   });
 
   it('후기가 있으면(reviewCount > 0) 원래의 후기 카드 지시를 그대로 쓴다', () => {
-    // hasNoReviews 는 reviewCount === 0 일 때만 참이다 — 후기가 있으면 원본 유지
-    expect(orch).toContain('const hasNoReviews = reviewCount === 0;');
+    /**
+     * v3.8.438: 후기 출처가 쿠팡 전용 → 제휴사 무관으로 넓어졌다.
+     *   (토스 후기 1,331건을 못 읽어 늘 "후기 없음"으로 판정하던 문제)
+     *   확인할 것은 그대로다 — 후기가 있으면 hasNoReviews 가 참이 되면 안 된다.
+     */
+    expect(orch).toContain('const hasNoReviews = reviewCount === 0');
+    // 토스·네이버 후기도 판정에 들어간다
+    expect(orch).toContain('affReviews.length === 0');
   });
 });
 

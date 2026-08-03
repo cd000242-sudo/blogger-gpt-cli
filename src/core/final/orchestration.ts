@@ -1116,7 +1116,15 @@ export async function generateUltimateMaxModeArticleFinal(
         try {
           const { extractBuyerConcerns, composeShoppingTitleDirective } = require('../affiliate/buyer-concerns');
           const enrichedForTitle = (payload as any).coupangEnrichment;
-          const bodies = (enrichedForTitle?.reviews || []).map((r: any) => String(r?.body || ''));
+          /**
+           * v3.8.438 — 제목의 축도 **제휴사 무관**하게 실제 후기에서 뽑는다.
+           *   여기가 쿠팡 후기만 보고 있어서, 후기 1,331건짜리 토스 상품인데도
+           *   "후기가 없어 상품군 일반 관심사로" 경로를 탔다(사용자 실측 로그).
+           */
+          const bodies = [
+            ...(enrichedForTitle?.reviews || []).map((r: any) => String(r?.body || '')),
+            ...(((payload as any).affiliateProducts || [])[0]?.reviews || []).map((r: any) => String(r?.body || '')),
+          ].filter(Boolean);
           const concerns = extractBuyerConcerns(bodies, 3);
           shoppingTitleDirective = composeShoppingTitleDirective(shoppingProductName || keyword, concerns);
           onLog?.(concerns.length
@@ -1377,8 +1385,28 @@ export async function generateUltimateMaxModeArticleFinal(
        */
       const shoppingEnrichment = (payload as any).coupangEnrichment as
         { totalReviewCount?: number; reviews?: unknown[] } | undefined;
-      const reviewCount = Number(shoppingEnrichment?.totalReviewCount ?? -1);
-      const hasNoReviews = reviewCount === 0;
+      /**
+       * v3.8.438 — 후기 출처를 **제휴사 무관**으로 넓힌다.
+       *
+       * 사용자 지적: "링크 타고가니까 리뷰 1330개나 있는데 뭐가없다는건지모르겠네"
+       *
+       * 맞는 지적이었다. 여기서 보던 shoppingEnrichment 는 **쿠팡 전용**이라
+       * 토스·네이버 글은 후기가 아무리 많아도 늘 "없음"으로 판정됐다.
+       * 그래서 "후기가 없으니 상품군 일반 관심사로" 경로를 타 뻔한 글이 나왔다.
+       * 이제 토스 JSON-LD 에서 뽑은 후기(crawl.ts extractSchemaReviews)도 같이 본다.
+       */
+      const affReviews = (((payload as any).affiliateProducts || [])[0]?.reviews || []) as
+        Array<{ author: string; rating: number | null; body: string }>;
+      const affReviewTotal = Number(((payload as any).affiliateProducts || [])[0]?.reviewCount ?? -1);
+      const reviewCount = Number(shoppingEnrichment?.totalReviewCount ?? -1) >= 0
+        ? Number(shoppingEnrichment?.totalReviewCount)
+        : (affReviewTotal >= 0 ? affReviewTotal : (affReviews.length > 0 ? affReviews.length : -1));
+      const hasNoReviews = reviewCount === 0
+        || (reviewCount < 0 && affReviews.length === 0 && !(shoppingEnrichment?.reviews || []).length);
+      if (affReviews.length > 0) {
+        onLog?.(`[PROGRESS] 36% - 💬 실제 후기 ${affReviews.length}건 반영`
+          + (affReviewTotal > 0 ? ` (전체 ${affReviewTotal.toLocaleString('ko-KR')}건)` : ''));
+      }
 
       const guides = SHOPPING_CONVERSION_MODE_SECTIONS.map((sec, idx) => {
         const t = h2Titles[idx] || sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
@@ -1511,6 +1539,32 @@ export async function generateUltimateMaxModeArticleFinal(
             onLog?.(`[PROGRESS] 36% - ✅ 실제 ${reviewCount >= 0 ? `후기 ${reviewCount}건` : '수집 데이터'}를 프롬프트에 반영`);
           }
         } catch { /* 반영 실패해도 발행은 계속된다 */ }
+      }
+
+      /**
+       * 💬 v3.8.438 — 토스·네이버 후기 **원문**을 프롬프트에 싣는다.
+       *
+       * 사용자가 이 글을 찾는 이유는 "산 사람들이 뭐라 하나"이다. 그 원문이
+       * 없으면 아무리 화자를 경험자로 바꿔도 쓸 재료가 없어 일반론이 나온다.
+       * 지어내라는 게 아니라 **실제로 있는 말**을 근거로 쓰게 한다.
+       */
+      if (affReviews.length > 0) {
+        const quoted = affReviews.slice(0, 12).map((r) => {
+          const body = String(r.body || '').replace(/\s*\n\s*/g, ' ').trim().slice(0, 160);
+          const star = r.rating ? `${r.rating}점` : '';
+          return `  · ${star ? `[${star}] ` : ''}"${body}"`;
+        }).join('\n');
+        modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') + `
+
+💬 **실제 구매자 후기 원문** (${affReviewTotal > 0 ? `전체 ${affReviewTotal.toLocaleString('ko-KR')}건 중 ${affReviews.length}건` : `${affReviews.length}건`})
+${quoted}
+
+이 후기들을 **글의 중심 재료로** 쓰세요.
+- 후기에서 반복되는 말(포장·배송·맛·재구매 등)이 곧 사람들이 실제로 궁금해하는 지점입니다.
+- 후기 표현을 그대로 베끼지 말고, **읽고 알게 된 사실**을 본인 말로 풀어 쓰세요.
+- 후기에 없는 내용을 후기인 것처럼 쓰지 마세요.
+- "리뷰가 좋다" 같은 뭉뚱그린 요약 금지 — **무엇이 어떻게 좋다고들 하는지** 구체적으로.`;
+        onLog?.(`[PROGRESS] 36% - 💬 후기 원문 ${Math.min(affReviews.length, 12)}건을 프롬프트에 실었습니다`);
       }
 
       // ── 1순위: 사용자 수동 입력 URL (API 키 불필요) ──
