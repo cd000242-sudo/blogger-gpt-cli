@@ -124,6 +124,10 @@ export function buildDetailPrompt(h2Titles: string[], productName: string): stri
     '- 상품을 쓰고 있는 장면·부분 확대컷도 상품이 보이면 true.',
     '- 상품을 **사용하는 모습이 담긴 움직이는 그림(GIF)** 은 구매 판단에 특히 도움이 되므로',
     '  반드시 true 로 두세요. 애니메이션이라는 이유로 false 를 주지 마세요.',
+    '- 🚫 **판촉 문구가 큼직하게 박힌 그림은 상품이 같이 보이더라도 false 입니다.**',
+    '  예) "포토리뷰 작성시 5,000원", "쿠폰 다운로드", "리뷰 이벤트", "무료배송", 할인율 배너.',
+    '  이런 그림이 글에 실리면 독자가 "판매 페이지에서 그냥 퍼왔구나"라고 느껴 신뢰를 잃습니다.',
+    '  판단 기준: 그림의 주인공이 **상품**이면 true, **문구/혜택 안내**면 false.',
     '',
     '[facts]',
     '- 이미지에 **실제로 보이는 것만** 적으세요. 치수·재질·용량·개수·사용 조건처럼',
@@ -166,6 +170,24 @@ export function parseDetailJson(text: string, h2Titles: string[]): Omit<DetailIm
   return { facts, bestH2, confidence, hasProduct };
 }
 
+/**
+ * 🔊 v3.8.444 — **API 오류를 조용히 삼키지 않는다.**
+ *
+ * 실측(2026-08-04): 사용자 Gemini 키가 "Your API key was reported as leaked"
+ *   로 403 을 받고 있었다. 그런데 화면에는
+ *     "🔍 상세 이미지 12장 분석 … ✅ 완료 — 0장 중 0장에서 사실 확보"
+ *   만 찍혔다. 오류 JSON 이 와도 `res?.candidates?.[0]…` 이 undefined 라
+ *   빈 문자열을 반환했고, 그러면 파서가 빈 결과를 주고 루프가 조용히 넘어갔다.
+ *   "분석했는데 아무것도 못 찾았다"와 "인증이 막혔다"가 화면상 구분이 안 됐다.
+ *
+ * 이 저장소에서 같은 유형(조용한 실패)이 반복돼 왔다. 오류는 던져서
+ * 위쪽 catch 가 이유를 로그에 남기게 한다 — 발행은 여전히 막지 않는다.
+ */
+function throwIfApiError(res: any, vendor: string): void {
+  const msg = res?.error?.message || res?.error?.type || res?.message;
+  if (msg) throw new Error(`${vendor} API 거부: ${String(msg).slice(0, 120)}`);
+}
+
 /** vendor 별 1회 질의 */
 async function askVision(
   routing: VisionRouting,
@@ -182,6 +204,7 @@ async function askVision(
       contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: mime, data: buf.toString('base64') } }] }],
       generationConfig: { temperature: 0.1, maxOutputTokens: 400, responseMimeType: 'application/json' },
     }, {}, timeoutMs);
+    throwIfApiError(res, 'gemini');
     return res?.candidates?.[0]?.content?.parts?.[0]?.text || '';
   }
   if (routing.vendor === 'claude') {
@@ -197,6 +220,7 @@ async function askVision(
         ],
       }],
     }, { 'x-api-key': keys.claude, 'anthropic-version': '2023-06-01' }, timeoutMs);
+    throwIfApiError(res, 'claude');
     return res?.content?.[0]?.text || '';
   }
   if (!keys.openai) throw new Error('openai 키 없음');
@@ -215,6 +239,7 @@ async function askVision(
   else body.max_tokens = 400;
   const res = await httpsPostJson('https://api.openai.com/v1/chat/completions', body,
     { Authorization: `Bearer ${keys.openai}` }, timeoutMs);
+  throwIfApiError(res, 'openai');
   return res?.choices?.[0]?.message?.content || '';
 }
 
@@ -260,7 +285,17 @@ export async function analyzeDetailImages(
   }
 
   const withFacts = out.filter((r) => r.facts.length > 0).length;
-  opts.onLog?.(`   ✅ 상세 이미지 분석 완료 — ${out.length}장 중 ${withFacts}장에서 사실 확보`);
+  /**
+   * v3.8.444 — 한 장도 못 건졌으면 **경고로 알린다.**
+   * 예전 문구는 "0장 중 0장에서 사실 확보 ✅" 라 성공처럼 보였다(실측).
+   * 전량 실패는 대개 키·요금·모델 문제이므로 사용자가 알아야 고칠 수 있다.
+   */
+  if (out.length === 0 && urls.length > 0) {
+    opts.onLog?.(`   ⚠️ 상세 이미지 ${urls.length}장을 분석했지만 결과를 하나도 받지 못했습니다`
+      + ' — API 키·요금제를 확인해 주세요. (이미지는 소제목 순서대로 배치됩니다)');
+  } else {
+    opts.onLog?.(`   ✅ 상세 이미지 분석 완료 — ${out.length}장 중 ${withFacts}장에서 사실 확보`);
+  }
   return out;
 }
 

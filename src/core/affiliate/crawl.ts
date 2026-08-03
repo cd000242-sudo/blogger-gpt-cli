@@ -411,12 +411,35 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
   //   블루스크린(0x10E VIDEO_MEMORY_MANAGEMENT_INTERNAL)으로 재부팅됐다.
   //   Intel Iris Xe 드라이버가 2023-06-15 판이라 최신 Chromium 과 충돌한다.
   const { CHROMIUM_GPU_SAFE_ARGS } = require('../../utils/chromium-safe-args');
-  const browser = await chromium.launch({ headless: true, args: [...CHROMIUM_GPU_SAFE_ARGS] });
+  /**
+   * 🔍 v3.8.444 — 눈으로 확인하고 싶을 때 브라우저를 띄운다.
+   *   ORBIT_CRAWL_HEADFUL=1        → 창을 보이게 (기본은 headless)
+   *   ORBIT_CRAWL_SLOWMO=<밀리초>  → 동작을 늦춰 하나씩 보이게
+   * 발행 경로는 건드리지 않는다. 값이 없으면 예전과 완전히 동일하게 돈다.
+   */
+  const headful = String(process.env['ORBIT_CRAWL_HEADFUL'] || '') === '1';
+  const slowMo = Number(process.env['ORBIT_CRAWL_SLOWMO'] || 0) || 0;
+  const browser = await chromium.launch({
+    headless: !headful,
+    args: [...CHROMIUM_GPU_SAFE_ARGS],
+    ...(slowMo > 0 ? { slowMo } : {}),
+  });
   try {
     const ctx = await browser.newContext({
       userAgent: UA,
       locale: 'ko-KR',
-      viewport: { width: 390, height: 844 },   // 브랜드커넥트는 모바일 전제
+      /**
+       * 🖥️ v3.8.444 — **데스크톱 뷰포트로 바꾼다.**
+       *
+       * 실측(2026-08-04, 같은 상품 · 같은 대기시간):
+       *   모바일 390px  : img[alt^="추가이미지"]  0개
+       *   데스크톱 1440px: img[alt^="추가이미지"] 10개
+       * 대표 갤러리(추가이미지)는 데스크톱 마크업에만 그 앵커로 나온다.
+       * 모바일에서도 캐러셀은 있지만 alt 가 없어 추천상품·판촉배너와 구분이 안 된다.
+       * 예전 주석("브랜드커넥트는 모바일 전제")은 리다이렉트 얘기였고, 실제로는
+       * 데스크톱에서도 브리지가 정상 동작한다(가격·제목·상세·후기 모두 확인).
+       */
+      viewport: { width: 1440, height: 900 },
     });
     const page = await ctx.newPage();
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: opts.timeoutMs ?? 45000 })
@@ -497,6 +520,84 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
        *   렌더된 폭이 300px 미만이면 아이콘·구분선으로 보고 버린다.
        *   ⚠️ 실제 스마트스토어 페이지로 검증이 필요한 휴리스틱이다.
        */
+      /**
+       * 🖼️ v3.8.444 — **대표 갤러리("추가이미지")를 함께 가져온다.**
+       *
+       * 사용자 제보로 위치를 특정했다:
+       *   <li><a …><img src="…?type=f40" alt="추가이미지0"></a></li>
+       * 지금까지는 .se-main-container(상세설명)만 봐서 이 갤러리를 통째로
+       * 버리고 있었다. 실측 결과 og:image 1장만 쓰고 나머지 2장을 버렸다.
+       *
+       * 갤러리 사진이 **본문 1번에 가장 좋다** — 배경 정리된 순수 제품컷이라서다.
+       * 상세컷은 글자가 잔뜩 박힌 세로 인포그래픽인 경우가 많다.
+       *
+       * 앵커는 `alt="추가이미지N"` 을 쓴다. 클래스명은 난독화된 무작위 10자라
+       * 배포마다 바뀌지만 이 alt 는 의미 기반이라 안정적이다.
+       *
+       * ⚠️ src 는 40px 짜리 썸네일(`?type=f40`)이다. **쿼리를 떼야 원본**이 온다.
+       *    실측: 원본 1254px(1.1MB) / ?type=f40 → 40px(1KB) / ?type=w800 → 404.
+       */
+      const bareUrl = (u: string) => String(u || '').split('?')[0] || '';
+      const gallery: string[] = [];
+      const gseen = new Set<string>();
+      document.querySelectorAll('img[alt^="추가이미지"]').forEach((el) => {
+        if (gallery.length >= maxImgs) return;
+        const raw = el.getAttribute('data-src') || el.getAttribute('src') || '';
+        if (!raw || raw.startsWith('data:')) return;
+        const abs = bareUrl(raw.startsWith('//') ? `https:${raw}` : raw);
+        if (!/^https?:\/\//i.test(abs)) return;
+        /**
+         * 쿼리를 뗀 뒤 **파일명이 남는 것만** 쓴다.
+         * 실측: 갤러리에 동영상이 섞이면 `phinf.pstatic.net/dthumb/?src=…` 형태라
+         *   쿼리를 떼면 `…/dthumb/` 만 남아 본문에 깨진 이미지로 나온다.
+         */
+        if (!/\.(jpg|jpeg|png|gif|webp)$/i.test(abs)) return;
+        if (gseen.has(abs)) return;
+        gseen.add(abs);
+        gallery.push(abs);
+      });
+
+      /**
+       * 📷 v3.8.444 — 포토리뷰 사진 (판매자 사진이 모자랄 때만 쓰는 폴백).
+       *
+       * 사용자 제보: "리뷰이미지는 여기에 엄청많아"
+       *   <li><a data-shp-contents-type="review" data-shp-contents-grp="event" …>
+       *       <img src="…checkout.phinf…" alt="포토리뷰 첨부 파일 대표이미지">
+       *
+       * 🚫 **이벤트 배너를 반드시 걸러낸다.** 사용자 지적:
+       *   "제품사진이나 gif인데 이런 이벤트 텍스트가 있으면 누가봐도
+       *    아 그냥 대충 퍼왔네 이소리할것같은데"
+       * 맞는 지적이다. "포토리뷰 Npay 5,000원" 같은 판촉 그래픽이 본문에 깔리면
+       * 글 전체가 싸구려로 보인다. 다행히 마크업이 구분해 준다 —
+       * data-shp-contents-grp="event" 가 붙은 것은 이벤트 콘텐츠다.
+       * alt/파일명에 판촉 단어가 있는 것도 함께 뺀다(이중 방어).
+       */
+      const reviewPhotos: string[] = [];
+      const rseen = new Set<string>();
+      /**
+       * 판촉 그래픽 판별어. 실측으로 확인한 실제 alt 들이 근거다 —
+       *   "N페이, 이벤트 참여하면 포인트 적립!"
+       *   "[가전Mega 빅세일] KRUPS 커피머신☕최대 ~ 29%"
+       *   "4천9백원 웰컴 선물이 왔어요! 멤버십만 누리는 추가 적립까지"
+       * 세일·할인율 배너도 잡아야 해서 세일/할인/최대 N% 를 함께 넣는다.
+       */
+      const PROMO = /이벤트|쿠폰|적립|혜택|증정|당첨|응모|세일|할인|특가|사은품|멤버십|웰컴|선물|pay\s*\d|최대\s*~?\s*\d+\s*%|\d+\s*%\s*(할인|세일)?/i;
+      document.querySelectorAll('img[src*="checkout.phinf"], img[data-src*="checkout.phinf"]').forEach((el) => {
+        if (reviewPhotos.length >= maxImgs) return;
+        const holder = el.closest('[data-shp-contents-grp]');
+        if (holder?.getAttribute('data-shp-contents-grp') === 'event') return;   // 판촉 배너
+        const alt = el.getAttribute('alt') || '';
+        if (PROMO.test(alt)) return;
+        const raw = el.getAttribute('data-src') || el.getAttribute('src') || '';
+        if (!raw || raw.startsWith('data:')) return;
+        const abs = bareUrl(raw.startsWith('//') ? `https:${raw}` : raw);
+        if (!/^https?:\/\//i.test(abs)) return;
+        if (PROMO.test(abs)) return;
+        if (rseen.has(abs)) return;
+        rseen.add(abs);
+        reviewPhotos.push(abs);
+      });
+
       const detail: string[] = [];
       const seen = new Set<string>();
       const nodes = document.querySelectorAll(
@@ -585,12 +686,48 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
         desc: m('og:description'),
         text: (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 4000),
         detail,
+        gallery,
+        reviewPhotos,
         reviews,
         reviewTotal,
       };
     }, MAX_DETAIL_IMAGES);
-    if (info.detail?.length) {
-      opts.onLog?.(`   [제휴] 상세 이미지 ${info.detail.length}장 확보`);
+    /**
+     * 🖼️ v3.8.444 — 토스와 **같은 우선순위**로 모은다.
+     *   ① 대표 갤러리("추가이미지") — 배경 정리된 순수 제품컷. 본문 1번에 가장 좋다.
+     *   ② 상세설명 이미지(.se-main-container)
+     *   ③ 그래도 모자라면 포토리뷰 사진 (이벤트 배너는 위 evaluate 에서 이미 제외)
+     *   ④ 그래도 모자라면 그냥 비워 둔다 — 편집기에서 넣으면 된다.
+     * 대표 갤러리 첫 장은 보통 og:image(썸네일)와 같은 파일이라 여기서 겹쳐도
+     * orchestration 의 정규화 키 중복 제거가 걸러낸다.
+     */
+    const naverGallery = ((info as any).gallery || []) as string[];
+    /**
+     * v3.8.444 — 대표 갤러리 1번은 보통 og:image(썸네일)와 **같은 파일**이다.
+     * 실측 시연에서 "2번은 1번과 같은 파일"로 잡혔다. 썸네일은 따로 쓰이므로
+     * 여기서 빼야 본문 첫 사진이 썸네일과 겹치지 않는다.
+     * 문자열이 아니라 정규화 키로 비교한다 — 같은 파일인데 주소 형태가 다를 수 있다.
+     */
+    const thumbKey = canonicalImageKey(info.image || '');
+    const sellerShots = [...naverGallery, ...(info.detail || [])]
+      .filter((u) => u && canonicalImageKey(u) !== thumbKey)
+      .filter((u, i, arr) => arr.indexOf(u) === i);
+    let naverDetail = sellerShots;
+    if (sellerShots.length < MIN_DETAIL_IMAGES) {
+      const pool = ((info as any).reviewPhotos || []) as string[];
+      const extra = pool.filter((u) => !sellerShots.includes(u))
+        .slice(0, MIN_DETAIL_IMAGES - sellerShots.length);
+      if (extra.length > 0) {
+        naverDetail = [...sellerShots, ...extra];
+        opts.onLog?.(`   [제휴] 판매자 사진이 ${sellerShots.length}장뿐이라 포토리뷰 ${extra.length}장을 보충합니다`);
+      }
+    }
+    if (naverDetail.length) {
+      opts.onLog?.(`   [제휴] 상세 이미지 ${naverDetail.length}장 확보`
+        + (naverGallery.length ? ` (대표 갤러리 ${naverGallery.length} + 상세 ${(info.detail || []).length}` : ' (상세')
+        + (naverDetail.length > sellerShots.length ? ` + 리뷰 ${naverDetail.length - sellerShots.length}` : '') + ')');
+    } else {
+      opts.onLog?.('   [제휴] 쓸 만한 상품 사진을 찾지 못했습니다 — 이미지는 비워둡니다(편집기에서 추가 가능)');
     }
 
     const price = extractPriceKrw(info.text);
@@ -653,7 +790,7 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
       description: decodeEntities(info.desc),
       priceKrw: price,
       priceNote: price ? '' : '상품 페이지에서 가격을 확인하지 못했습니다. 본문에 가격을 쓰지 않습니다.',
-      detailImageUrls: info.detail || [],
+      detailImageUrls: naverDetail,
       reviews: schema.reviews,
       reviewCount: schema.reviewCount,
       ratingValue: schema.ratingValue,

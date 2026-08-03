@@ -224,7 +224,9 @@ describe('⑦ 배선 — 크롤러·orchestration 에 실제로 연결돼 있다
     const fn = blockBetween(crawl, 'async function crawlNaver(', '쿠팡 — 상품 크롤은');
     expect(fn).toContain('.se-main-container img');
     expect(fn).toContain("getAttribute('data-src')");
-    expect(fn).toContain('detailImageUrls: info.detail');
+    // v3.8.444: 대표 갤러리 + 상세 + (부족 시) 포토리뷰를 합쳐 naverDetail 로 넘긴다
+    expect(fn).toContain('detailImageUrls: naverDetail');
+    expect(fn).toContain('const sellerShots = [...naverGallery,');
   });
 
   it('⭐ 쿠팡은 이 기능에서 제외된다 (상품 페이지 수집이 차단돼 있다)', () => {

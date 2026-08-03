@@ -191,7 +191,15 @@ describe('네이버 경로 — Playwright 필수 근거가 코드에 남아있�
     expect(block).toContain('browser.close()');
   });
 
-  it('모바일 뷰포트를 쓴다 — 브랜드커넥트는 모바일 전제', () => {
-    expect(src).toContain('viewport: { width: 390, height: 844 }');
+  /**
+   * v3.8.444 에 데스크톱으로 바꿨다.
+   *   실측: 대표 갤러리 앵커 img[alt^="추가이미지"] 가
+   *         모바일 390px → 0개 / 데스크톱 1440px → 10개.
+   * 예전 "모바일 전제"는 리다이렉트 얘기였고, 데스크톱에서도 브리지는 정상이며
+   * 가격·제목·상세·후기 모두 확인했다.
+   */
+  it('데스크톱 뷰포트를 쓴다 — 대표 갤러리가 데스크톱 마크업에만 나온다', () => {
+    expect(src).toContain('viewport: { width: 1440, height: 900 }');
+    expect(src).toContain('img[alt^="추가이미지"]');
   });
 });
