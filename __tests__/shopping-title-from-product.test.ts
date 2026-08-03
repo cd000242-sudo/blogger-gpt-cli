@@ -72,3 +72,50 @@ describe('orchestration 이 상품명을 넘긴다', () => {
     expect(orch).toContain('(payload as any).resolvedProductName = productName');
   });
 });
+
+describe('v3.8.427 — 토스/네이버 등 비-쿠팡 제휴 링크도 제목을 짓기 전에 상품명을 확정한다', () => {
+  /**
+   * 실측 사고(2026-08-03): 토스 쉐어링크만 넣고 발행했더니 제목이
+   * "상품명 없음 가격 대비 실제 사용성 괜찮을까"로 나왔다. 본문은 상품명을 정확히
+   * 썼지만(크롤 자체는 됐다), 그 크롤이 제목 생성보다 한참 뒤(구 1374행 부근)에
+   * 실행돼 제목 프롬프트는 상품명을 못 받고 buyer-concerns.ts 의 "(상품명 없음)"
+   * 플레이스홀더를 그대로 받아 모델이 그 문구를 문자 그대로 제목에 넣었다.
+   */
+  it('⭐ 쿠팡을 뺀 링크(토스/네이버)로 crawlAffiliateLinks를 미리 부른다', () => {
+    expect(orch).toContain('const nonCoupangLinks = affiliateAll.filter((u) => !/coupang\\.com|coupa\\.ng/i.test(u));');
+    const block = braceBlock(orch, 'if (nonCoupangLinks.length > 0 && String((payload as any).contentMode || \'\') === \'shopping\'');
+    expect(block).toContain("await import('../affiliate/crawl')");
+    expect(block).toContain('crawlAffiliateLinks(nonCoupangLinks');
+  });
+
+  it('⭐ 크롤 결과에서 얻은 상품명을 resolvedProductName과 keyword에 모두 반영한다', () => {
+    const block = braceBlock(orch, 'if (nonCoupangLinks.length > 0 && String((payload as any).contentMode || \'\') === \'shopping\'');
+    expect(block).toContain('(payload as any).resolvedProductName = productName');
+    expect(block).toContain('keyword = productName;');
+  });
+
+  it('⭐ 이미 resolvedProductName이 있으면(=쿠팡 경로에서 이미 잡혔으면) 다시 크롤하지 않는다', () => {
+    expect(orch).toContain("nonCoupangLinks.length > 0 && String((payload as any).contentMode || '') === 'shopping'\n      && !(payload as any).resolvedProductName");
+  });
+
+  it('⭐ 결과를 affiliateProducts에 캐시해 뒤쪽 블록이 같은 링크를 또 크롤하지 않는다', () => {
+    const block = braceBlock(orch, 'if (nonCoupangLinks.length > 0 && String((payload as any).contentMode || \'\') === \'shopping\'');
+    expect(block).toContain('(payload as any).affiliateProducts = products;');
+    // 뒤쪽(1374행 부근) 블록의 가드 — 이 캐시로 스킵되는지 실제로 확인한다
+    expect(orch).toContain('if (rawLinks.length > 0 && !(payload as any).affiliateProducts) {');
+  });
+
+  it('⭐ 이 새 블록은 실제로 제목 생성(generateH1TitleFinal) 호출보다 코드상 앞에 있다 — 순서가 핵심이다', () => {
+    const newBlockIdx = orch.indexOf('const nonCoupangLinks = affiliateAll.filter');
+    const titleCallIdx = orch.indexOf('h1 = await generateH1TitleFinal(');
+    expect(newBlockIdx).toBeGreaterThan(-1);
+    expect(titleCallIdx).toBeGreaterThan(-1);
+    expect(newBlockIdx).toBeLessThan(titleCallIdx);
+  });
+
+  it('쿠팡 링크는 제외한다 — 쿠팡은 이미 위 전용 경로(resolveCoupangProductId)로 처리됐다', () => {
+    const block = braceBlock(orch, 'if (nonCoupangLinks.length > 0 && String((payload as any).contentMode || \'\') === \'shopping\'');
+    // nonCoupangLinks 자체가 쿠팡을 걸러낸 배열이므로, 이 블록이 쿠팡 링크를 다시 취급하지 않는다
+    expect(block).not.toContain('resolveCoupangProductId');
+  });
+});

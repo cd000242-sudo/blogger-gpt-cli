@@ -664,6 +664,49 @@ export async function generateUltimateMaxModeArticleFinal(
       }
     }
 
+    // 🛒 v3.8.427 — 위 쿠팡 분기와 같은 이유로, 토스/네이버 등 **비-쿠팡** 제휴 링크도
+    //   제목을 짓기 전에 상품명을 확정한다.
+    //   실측 사고(2026-08-03): 토스 쉐어링크만 넣고 발행했더니 제목이 "상품명 없음 가격
+    //   대비 실제 사용성 괜찮을까"로 나갔다. 본문은 상품명을 정확히 썼는데(같은 크롤 결과를
+    //   쓰는 1374행 블록은 여기보다 한참 뒤, 제목 생성 이후에 실행된다) 제목 프롬프트만
+    //   resolvedProductName이 비어 있어 buyer-concerns.ts의 "(상품명 없음)" 플레이스홀더를
+    //   그대로 받았고, 모델이 그 문구를 문자 그대로 제목에 넣었다.
+    //   쿠팡 링크는 위에서 이미 전용 경로(resolveCoupangProductId + enrichCoupangProduct)로
+    //   처리했으므로 여기서는 제외한다 — 그쪽이 API로 실제 가격까지 얻는 더 정확한 경로다.
+    const nonCoupangLinks = affiliateAll.filter((u) => !/coupang\.com|coupa\.ng/i.test(u));
+    if (nonCoupangLinks.length > 0 && String((payload as any).contentMode || '') === 'shopping'
+      && !(payload as any).resolvedProductName) {
+      try {
+        const { crawlAffiliateLinks } = await import('../affiliate/crawl');
+        const products = await crawlAffiliateLinks(nonCoupangLinks, { onLog, concurrency: 3 });
+        if (products.length > 0) {
+          // 뒤의 1374행 블록이 같은 링크를 또 크롤하지 않도록 결과를 캐시해둔다
+          (payload as any).affiliateProducts = products;
+          (payload as any).affiliateProvider = products[0]!.provider;
+          const productName = String(products[0]!.title || '').trim();
+          if (productName) {
+            (payload as any).resolvedProductName = productName;
+            if (!(payload as any).productImages || (payload as any).productImages.length === 0) {
+              const imgs = products.map((p) => p.imageUrl).filter(Boolean);
+              if (imgs.length) {
+                (payload as any).productImages = imgs;
+                onLog?.('[PROGRESS] 5% - 🖼️ 상품 대표 사진 확보 — 썸네일로 씁니다');
+              }
+            }
+            if (keyword.trim() && keyword.trim() !== productName) {
+              onLog?.(`[PROGRESS] 5% - 🛒 쇼핑 글이라 주제를 상품으로 바꿉니다: "${keyword.slice(0, 24)}" → "${productName.slice(0, 40)}"`);
+            } else {
+              onLog?.(`[PROGRESS] 5% - 🛒 링크 상품 확인: "${productName.slice(0, 40)}"`);
+            }
+            keyword = productName;
+            (payload as any).topic = productName;
+          }
+        }
+      } catch (nameErr: any) {
+        onLog?.(`[PROGRESS] 5% - ⚠️ 링크에서 상품명을 얻지 못했습니다 (계속 진행): ${String(nameErr?.message || nameErr).slice(0, 60)}`);
+      }
+    }
+
     // 🔥 URL 전용 모드: URL만 있고 키워드가 없거나 URL 기반 생성 요청 시
     // 완전히 새로운 콘텐츠를 AI가 생성 (중복 문서 방지)
     //   ⚠️ 제휴 링크만 넣은 경우에는 켜지지 않는다(위에서 manualUrls 에서 빠졌다).
