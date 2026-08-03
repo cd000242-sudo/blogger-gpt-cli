@@ -423,6 +423,69 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
       .catch(() => { /* SPA 리다이렉트 중일 수 있다 — 아래 대기로 흡수 */ });
     await page.waitForTimeout(9000);   // 브리지 → 스마트스토어 리다이렉트 대기
 
+    /**
+     * 📜 v3.8.443 — **스크롤하지 않으면 상세 이미지는 영원히 0장이다.**
+     *
+     * 실측(2026-08-04, naver.me/xiLWsfo5 → brand.naver.com/krups/…):
+     *   스크롤 전 : .se-main-container img 31개 — 그중 **src 가 채워진 것 0개**
+     *   스크롤 후 : 31개 중 src 가 채워진 것 확보
+     * 셀렉터는 처음부터 맞았다. 네이버가 지연 로딩(lazy load)을 쓰기 때문에
+     * 화면에 들어오기 전에는 img 에 주소가 안 붙는다. 9초를 기다려도 소용없다 —
+     * 시간이 아니라 **뷰포트 진입**이 조건이기 때문이다.
+     * 그래서 "상세 이미지 0장"이 나왔고, 그러면 v3.8.442 의 실사진 우선 정책도
+     * 네이버에서는 발동하지 못한다(사진이 없으니 AI 생성으로 떨어진다).
+     *
+     * 끝까지 훑되, 더 이상 새로 로드되는 게 없으면 일찍 끊는다(시간 낭비 방지).
+     */
+    /**
+     * 🔽 v3.8.443 — **"상세정보 펼쳐보기"를 누르지 않으면 사진의 90%가 잠겨 있다.**
+     *
+     * 실측(2026-08-04, brand.naver.com/krups/…):
+     *   그냥 스크롤만  : .se-main-container img 31개 중 src 채워진 것 **3개**
+     *   펼치기 누른 뒤 : 31개 중 **31개** (문서 높이 20,926px)
+     * 스마트스토어는 상세 영역을 접어 두고 버튼을 눌러야 나머지를 붙인다.
+     * 접힌 부분은 스크롤해도 뷰포트에 들어오지 않으니 지연 로딩도 안 걸린다.
+     */
+    for (const label of ['상세정보 펼쳐보기', '상품정보 펼쳐보기']) {
+      try {
+        const btn = page.locator(`text=${label}`).first();
+        if (await btn.count() > 0) {
+          await btn.click({ timeout: 3000 });
+          await page.waitForTimeout(1200);
+          opts.onLog?.(`   [제휴] 상세정보를 펼쳤습니다 ("${label}")`);
+          break;
+        }
+      } catch { /* 버튼이 없거나 못 눌러도 아래 스크롤로 최대한 건진다 */ }
+    }
+
+    try {
+      await page.evaluate(async () => {
+        const loaded = () => {
+          let n = 0;
+          document.querySelectorAll('.se-main-container img').forEach((el) => {
+            const s = el.getAttribute('src') || el.getAttribute('data-src')
+              || el.getAttribute('data-original') || '';
+            if (s && !s.startsWith('data:')) n += 1;
+          });
+          return n;
+        };
+        let same = 0;
+        let prev = loaded();
+        for (let i = 0; i < 40; i += 1) {
+          window.scrollBy(0, Math.round(window.innerHeight * 0.9));
+          await new Promise((r) => setTimeout(r, 320));
+          const now = loaded();
+          // 바닥에 닿았고 새로 뜬 것도 없으면 두 번 더 확인하고 끝낸다
+          const atBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 40);
+          same = (now === prev && atBottom) ? same + 1 : 0;
+          prev = now;
+          if (same >= 3) break;
+        }
+        window.scrollTo(0, 0);
+      });
+      await page.waitForTimeout(1200);   // 마지막으로 뜬 이미지들이 붙을 시간
+    } catch { /* 스크롤에 실패해도 나머지 수집은 계속한다 */ }
+
     const info = await page.evaluate((maxImgs: number) => {
       const m = (p: string) => document.querySelector(
         `meta[property="${p}"], meta[name="${p}"]`,
@@ -455,6 +518,66 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
         seen.add(bare);
         detail.push(abs);
       });
+      /**
+       * 💬 v3.8.443 — 네이버 후기는 **DOM 에서** 긁는다.
+       *
+       * 실측(2026-08-04): 스마트스토어 JSON-LD 에는 review 도 aggregateRating 도
+       *   없다(len 607, review:false, agg:false). 토스와 달리 구조화 데이터가
+       *   아예 안 실린다. 그래서 extractSchemaReviews 로는 늘 0건이었다.
+       *
+       * 클래스명은 난독화된 무작위 10자라 배포마다 바뀐다 — 하드코딩하면
+       * 며칠 만에 깨진다. 대신 **구조로** 찾는다:
+       *   구매자 리뷰 사진은 checkout.phinf 도메인에서 온다. 그 사진이 들어 있는
+       *   영역이 곧 리뷰 목록이므로, 그 조상 아래의 '잎 텍스트'만 모은다.
+       *   사진이 없는 상품이면 "리뷰/구매평" 제목을 앵커로 쓴다.
+       */
+      const reviews: string[] = [];
+      try {
+        const anchorImg = document.querySelector('img[src*="checkout.phinf"]');
+        let scope: Element | null = null;
+        if (anchorImg) {
+          scope = anchorImg;
+          for (let i = 0; i < 8 && scope?.parentElement; i += 1) scope = scope.parentElement;
+        }
+        if (!scope) {
+          const heads: Element[] = [];
+          document.querySelectorAll('h2,h3,h4,strong,span').forEach((el) => {
+            if (/^(리뷰|구매평|쇼핑몰\s*리뷰)/.test((el.textContent || '').trim())) heads.push(el);
+          });
+          scope = heads[0]?.parentElement?.parentElement || null;
+        }
+        const seenText = new Set<string>();
+        (scope || document.body).querySelectorAll('span,p,div').forEach((el) => {
+          if (reviews.length >= 12) return;
+          if (el.children.length > 0) return;          // 잎 노드만
+          const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+          if (t.length < 20 || t.length > 400) return;
+          if (!/[가-힣]/.test(t)) return;
+          // 가격·배송 안내·버튼 문구 같은 UI 텍스트 배제
+          if (/^(총|배송|무료배송|적립|쿠폰|할인|구매하기|장바구니|옵션|수량)/.test(t)) return;
+          if (/원$|개$|%$/.test(t)) return;
+          if (seenText.has(t)) return;
+          seenText.add(t);
+          reviews.push(t);
+        });
+      } catch { /* 후기를 못 얻어도 나머지는 그대로 반환한다 */ }
+
+      /**
+       * v3.8.443 — 전체 후기 **건수**를 탭 문구에서 읽는다.
+       *   실측: 탭이 "상세정보 / 리뷰 10 / Q&A 14 / 판매자정보" 형태다.
+       * 이 숫자가 있어야 본문에서 후기 규모를 말할 수 있다(v3.8.441 지시 참고).
+       * 못 읽으면 0 을 반환하고, 그러면 본문은 규모를 언급하지 않는다.
+       */
+      let reviewTotal = 0;
+      try {
+        const tab = (document.body.innerText || '').replace(/\s+/g, ' ');
+        const mm = tab.match(/리뷰\s*([\d,]{1,12})/);
+        if (mm && mm[1]) {
+          const n = Number(mm[1].replace(/,/g, ''));
+          if (Number.isFinite(n) && n > 0) reviewTotal = n;
+        }
+      } catch { /* 못 읽으면 규모를 안 쓴다 */ }
+
       return {
         url: location.href,
         title: m('og:title') || document.title,
@@ -462,6 +585,8 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
         desc: m('og:description'),
         text: (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 4000),
         detail,
+        reviews,
+        reviewTotal,
       };
     }, MAX_DETAIL_IMAGES);
     if (info.detail?.length) {
@@ -484,14 +609,39 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
     try {
       const rendered = await page.content();
       schema = extractSchemaReviews(rendered);
-      if (schema.reviews.length) {
-        opts.onLog?.(`   [제휴] 실제 후기 ${schema.reviews.length}건 확보`
-          + (schema.reviewCount ? ` (전체 ${schema.reviewCount.toLocaleString('ko-KR')}건`
-            + (schema.ratingValue ? ` · 평점 ${schema.ratingValue}` : '') + ')' : ''));
-      } else {
-        opts.onLog?.('   [제휴] 이 페이지에서는 후기를 찾지 못했습니다 (후기 없이 진행)');
-      }
     } catch { /* 후기를 못 얻어도 발행은 계속된다 */ }
+
+    /**
+     * v3.8.443 — JSON-LD 가 비면 **DOM 에서 긁어온 후기**로 채운다.
+     *
+     * 실측: 스마트스토어는 JSON-LD 에 후기를 아예 안 싣는다(위 evaluate 주석 참고).
+     * 그래서 v3.8.438 이후로도 네이버는 계속 "후기 0건"이었고, 그러면 글이
+     * 후기 없는 상품 경로(스펙 위주)를 타 실제 구매평이 통째로 버려졌다.
+     * DOM 에서 뽑은 것은 별점·작성자를 못 얻으므로 본문만 채운다 — 그걸로 충분하다
+     * (프롬프트가 쓰는 건 "사람들이 무엇을 어떻게 말하는가"이지 별점 숫자가 아니다).
+     */
+    if (schema.reviews.length === 0 && Array.isArray((info as any).reviews)) {
+      const domReviews = ((info as any).reviews as string[])
+        .map((b) => String(b || '').trim())
+        .filter((b) => b.length >= 20);
+      if (domReviews.length > 0) {
+        const total = Number((info as any).reviewTotal || 0);
+        schema = {
+          ...schema,
+          reviews: domReviews.map((body) => ({ author: '', rating: null, body })),
+          // 탭에서 읽은 전체 건수가 있으면 함께 넘긴다 (본문이 규모를 말할 근거)
+          ...(total > 0 ? { reviewCount: total } : {}),
+        };
+      }
+    }
+
+    if (schema.reviews.length) {
+      opts.onLog?.(`   [제휴] 실제 후기 ${schema.reviews.length}건 확보`
+        + (schema.reviewCount ? ` (전체 ${schema.reviewCount.toLocaleString('ko-KR')}건`
+          + (schema.ratingValue ? ` · 평점 ${schema.ratingValue}` : '') + ')' : ''));
+    } else {
+      opts.onLog?.('   [제휴] 이 페이지에서는 후기를 찾지 못했습니다 (후기 없이 진행)');
+    }
 
     return {
       provider: 'naver-shopping-connect',
