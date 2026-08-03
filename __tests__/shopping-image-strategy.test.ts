@@ -50,9 +50,15 @@ describe('UI — 글포스팅 이미지 서브탭에 선택지가 있다', () =>
     expect(posting).toContain("shoppingImageStrategy: 'product-i2i'");
   });
 
-  it('⭐ 이미지가 1장이면 product-all 옵션을 잠근다', () => {
-    expect(uiHtml).toContain('allOpt.disabled = isShopping && collected < 2');
-    expect(uiHtml).toContain('수집한 상품 이미지가 1장뿐이라');
+  it('⭐ 수집 사진을 못 쓰는 제휴사(쿠팡)면 product-all 옵션을 잠근다', () => {
+    /**
+     * v3.8.435: 기준이 "수집 장수 < 2" → "제휴사"로 바뀌었다.
+     *   장수는 발행을 한 번 돌려야 정해지는 값이라, 설정 화면에서는 늘 1로 잡혀
+     *   토스·네이버인데도 옵션이 영원히 잠겨 있었다(사용자 지적).
+     *   제휴사를 고르는 순간 답이 나와 있으므로 그걸로 판정한다.
+     */
+    expect(uiHtml).toContain('const allDisabled = isShopping && !canUseCollected;');
+    expect(uiHtml).toContain('쿠팡은 상품 페이지 수집이 막혀 있어 사용할 수 없습니다');
   });
 
   it('⭐ 상품 기반 생성을 골랐는데 소제목이 crawled 로 고정되던 버그가 없다', () => {
@@ -200,7 +206,8 @@ describe('상품 기반 생성이 엔진을 가리지 않는다', () => {
   });
 
   it('⭐ UI 문구가 사실과 맞는다 — "실제 상품을 참고해"는 거짓이었다', () => {
-    expect(uiHtml).toContain('상품 정보를 반영해 소제목별로 새 이미지 생성');
+    // v3.8.435: 셀렉트 → 라디오로 바뀌며 문구가 짧아졌다. 뜻은 그대로다.
+    expect(uiHtml).toContain('상품 정보를 반영해 소제목별로 새 이미지를 만듭니다');
     expect(uiHtml).not.toContain('실제 상품을 참고해 소제목별로 새로 생성');
   });
 });

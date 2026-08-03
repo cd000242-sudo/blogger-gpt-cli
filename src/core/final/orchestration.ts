@@ -724,10 +724,34 @@ export async function generateUltimateMaxModeArticleFinal(
           if (productName) {
             (payload as any).resolvedProductName = productName;
             if (!(payload as any).productImages || (payload as any).productImages.length === 0) {
-              const imgs = products.map((p) => p.imageUrl).filter(Boolean);
+              /**
+               * 🖼️ v3.8.435 — 대표 사진 + **상세페이지 사진**을 함께 담는다.
+               *
+               * 사용자 지적: "토스 쉐어링크랑 네이버 쇼핑 커넥트를 선택하면 수집한
+               *   이미지 사용가능하게 활성화시켜져야되는거아닌가요?"
+               *
+               * 화면에서 '수집 사진 그대로'를 열어줘도, 여기서 대표 이미지 1장만
+               * 담으면 소제목마다 **같은 사진이 반복**된다(예전에 이 옵션을 잠가둔
+               * 이유가 그것이다). v3.8.431 부터 상세 이미지를 여러 장 모으므로
+               * 그걸 함께 넣어야 옵션이 실제로 성립한다.
+               * 대표 사진을 맨 앞에 둔다 — 썸네일이 0번을 쓴다.
+               */
+              const seenImg = new Set<string>();
+              const imgs = [
+                ...products.map((p) => p.imageUrl),
+                ...products.flatMap((p) => (p.detailImageUrls || [])),
+              ].filter((u) => {
+                const k = String(u || '').split('?')[0];
+                if (!k || seenImg.has(k)) return false;
+                seenImg.add(k);
+                return true;
+              });
               if (imgs.length) {
                 (payload as any).productImages = imgs;
-                onLog?.('[PROGRESS] 5% - 🖼️ 상품 대표 사진 확보 — 썸네일로 씁니다');
+                const detailCount = imgs.length - products.filter((p) => p.imageUrl).length;
+                onLog?.(detailCount > 0
+                  ? `[PROGRESS] 5% - 🖼️ 상품 사진 ${imgs.length}장 확보 (대표 + 상세 ${detailCount}장) — 소제목 배치에 씁니다`
+                  : '[PROGRESS] 5% - 🖼️ 상품 대표 사진 확보 — 썸네일로 씁니다');
               }
             }
             if (keyword.trim() && keyword.trim() !== productName) {
@@ -1515,7 +1539,18 @@ export async function generateUltimateMaxModeArticleFinal(
             // 제휴사는 첫 상품 기준 — 한 글에 한 제휴사 원칙
             (payload as any).affiliateProvider = products[0]!.provider;
             if (!(payload as any).productImages || (payload as any).productImages.length === 0) {
-              (payload as any).productImages = products.map(p => p.imageUrl).filter(Boolean);
+              // v3.8.435: 위 사전 크롤 경로와 동일하게 상세 사진까지 담는다
+              //   (한쪽만 고치면 어느 경로로 들어왔느냐에 따라 결과가 달라진다)
+              const seen2 = new Set<string>();
+              (payload as any).productImages = [
+                ...products.map(p => p.imageUrl),
+                ...products.flatMap(p => (p.detailImageUrls || [])),
+              ].filter((u) => {
+                const k = String(u || '').split('?')[0];
+                if (!k || seen2.has(k)) return false;
+                seen2.add(k);
+                return true;
+              });
             }
             modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '')
               + formatAffiliateProductsForPrompt(products);
