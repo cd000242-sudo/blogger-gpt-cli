@@ -6,6 +6,8 @@
  *   "정확한 내용은 공식 사이트에서 확인해주세요."가 섹션 마무리로 반복 등장했다.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   scanSubstance,
   buildSubstanceRetryBlock,
@@ -31,6 +33,18 @@ const CONCRETE_ARTICLE = `
 <p>2026년 신청 기간은 5월 1일부터 5월 21일까지 3주간입니다. 이 기간을 놓치면 다음 해까지 기다려야 합니다.</p>
 <p>흔한 실수는 가구소득 산정에서 나옵니다. 함께 사는 부모의 소득이 합산되는데, 이걸 몰라서 탈락하는 경우가 전체 탈락 사유의 40%를 차지합니다.</p>
 <p>3년 만기 시 본인 저축 360만 원에 정부 지원금 1,080만 원이 더해져 총 1,440만 원과 이자를 받게 됩니다.</p>
+`.repeat(3);
+
+/**
+ * v3.8.423 — "뻔한 소리"(진부한 상투구) 표본. 숫자·기관명이 없어서 concreteFacts에도
+ * 안 걸리고, "확인하세요"/"다를 수 있습니다" 같은 회피·얼버무림 패턴도 안 써서 기존
+ * 게이트로는 못 잡던 실패 모드다.
+ */
+const CLICHE_ARTICLE = `
+<p>말할 필요도 없이 이 제품은 정말 좋은 선택입니다. 두말할 나위 없이 다들 만족하실 거예요.</p>
+<p>누구나 다 아는 사실이지만, 생각보다 많은 분들이 이 제품을 찾고 계세요.</p>
+<p>새삼 강조할 필요 없이 이건 누구에게나 필요한 물건입니다. 이제는 선택이 아니라 필수라고 볼 수 있어요.</p>
+<p>굳이 설명하지 않아도 다들 아실 거예요. 그만큼 좋은 제품이라는 뜻이겠죠.</p>
 `.repeat(3);
 
 describe('substance-gate — 실속(정보 밀도) 게이트 (v3.8.374)', () => {
@@ -104,6 +118,76 @@ describe('substance-gate — 실속(정보 밀도) 게이트 (v3.8.374)', () => 
       expect(report.metrics.totalParagraphs).toBe(2);
       expect(report.metrics.emptyParagraphs).toBe(1);
     });
+
+    /**
+     * v3.8.423 — "한겨울에 눈이 온다" 같은 뻔한 소리 탐지.
+     * 사용자: "정보전달에 정확하게 이뤄지는게 맞는지... 한겨울에 흰눈내리는 그런 뻔한글을
+     *   작성하는건아닌지... 실속게이트를 끝판왕으로 해야 가치있는 글이되지않을까"
+     */
+    describe('진부한 상투구("뻔한 소리") 탐지 (v3.8.423)', () => {
+      it('"말할 필요도 없이" 등 뻔한 상투구를 센다', () => {
+        const report = scanSubstance({ contentHtml: CLICHE_ARTICLE });
+        expect(report.metrics.cliches).toBeGreaterThan(0);
+      });
+
+      it('뻔한 상투구로만 채워진 글은 숫자·회피 패턴이 없어도 미달로 판정된다', () => {
+        // CLICHE_ARTICLE엔 금액·비율·날짜 등 구체 팩트도, "확인하세요"류 회피 표현도 없다 —
+        // 클리셰 탐지가 없다면 이 글은 통과했을 것이다.
+        const report = scanSubstance({ contentHtml: CLICHE_ARTICLE });
+        expect(report.metrics.concreteFacts).toBe(0);
+        expect(report.metrics.deferrals).toBe(0);
+        expect(report.metrics.hedges).toBe(0);
+        expect(report.passed).toBe(false);
+      });
+
+      it('구체적인 글은 뻔한 소리로 오탐되지 않는다', () => {
+        const report = scanSubstance({ contentHtml: CONCRETE_ARTICLE });
+        expect(report.metrics.cliches).toBe(0);
+      });
+
+      it('일반적인 단정 문장("~는 좋은 제품입니다")은 오탐하지 않는다 — 좁은 패턴만 잡는다', () => {
+        // "필요한" "중요한" 같은 흔한 단어 자체가 아니라, "누구나 다 아는 사실이지만"처럼
+        // 명확히 진부한 어구 전체가 있을 때만 잡아야 한다.
+        const report = scanSubstance({ contentHtml: '<p>이 세탁기는 10kg 용량에 저소음 42dB로 밤에도 편하게 쓸 수 있는 좋은 제품입니다.</p>' });
+        expect(report.metrics.cliches).toBe(0);
+      });
+
+      it('뻔한 소리만 있는 문장도 worstSentences에 실제 문장 그대로 뽑힌다', () => {
+        const report = scanSubstance({ contentHtml: CLICHE_ARTICLE });
+        expect(report.worstSentences.length).toBeGreaterThan(0);
+        const plain = stripToPlainText(CLICHE_ARTICLE);
+        report.worstSentences.forEach(s => expect(plain).toContain(s));
+      });
+
+      it('뻔한 소리 글은 구체적인 글보다 항상 낮은 점수를 받는다', () => {
+        const cliche = scanSubstance({ contentHtml: CLICHE_ARTICLE });
+        const concrete = scanSubstance({ contentHtml: CONCRETE_ARTICLE });
+        expect(concrete.score).toBeGreaterThan(cliche.score);
+      });
+
+      it('⭐ 단락에 팩트가 섞여 있어 "빈 단락" 신호로는 못 잡는 경우에도 클리셰만으로 감점된다', () => {
+        // 각 단락에 숫자를 하나씩 섞어 emptyParagraphRatio가 0이 되게 만든다 —
+        // 클리셰 카운트가 없다면 이 글은 순수 팩트 밀도만으로 평가돼 오탐 없이 통과할 수 있다.
+        const mixed = `
+<p>말할 필요도 없이 이 제품은 10kg 용량입니다. 두말할 나위 없이 다들 만족하실 거예요.</p>
+<p>누구나 다 아는 사실이지만, 소음을 42% 줄였어요. 생각보다 많은 분들이 이 제품을 찾고 계세요.</p>
+<p>새삼 강조할 필요 없이 2026년 출시작입니다. 이제는 선택이 아니라 필수라고 볼 수 있어요.</p>
+`.repeat(3);
+        const withCliche = scanSubstance({ contentHtml: mixed });
+        expect(withCliche.metrics.emptyParagraphs).toBe(0); // 팩트가 있어 "빈 단락"엔 안 걸린다
+        expect(withCliche.metrics.cliches).toBeGreaterThan(0); // 그래도 클리셰는 잡힌다
+
+        const withoutCliche = mixed
+          .replace(/말할 필요도 없이|두말할 나위 없이/g, '')
+          .replace(/누구나 다 아는 사실이지만,?|생각보다 많은 분들이/g, '')
+          .replace(/새삼 강조할 필요 없이|이제는 선택이 아니라 필수라고 볼 수 있어요\./g, '');
+        const clean = scanSubstance({ contentHtml: withoutCliche });
+        expect(clean.metrics.cliches).toBe(0);
+        // 클리셰 문구만 뺐을 뿐 같은 팩트를 담고 있는 글이 항상 더 높은 점수를 받아야 한다 —
+        // 안 그러면 클리셰 카운트가 점수에 실질적으로 반영되지 않는다는 뜻이다.
+        expect(clean.score).toBeGreaterThan(withCliche.score);
+      });
+    });
   });
 
   describe('buildSubstanceRetryBlock', () => {
@@ -120,5 +204,42 @@ describe('substance-gate — 실속(정보 밀도) 게이트 (v3.8.374)', () => 
       expect(block).toContain('공식 사이트에서 확인하세요');
       expect(block).toContain('구체 정보');
     });
+
+    it('재시도 프롬프트가 뻔한 상투구 금지를 명시한다 (v3.8.423)', () => {
+      const report = scanSubstance({ contentHtml: CLICHE_ARTICLE });
+      const block = buildSubstanceRetryBlock(report);
+      expect(block).toContain('뻔한');
+      expect(block).toContain('말할 필요도 없이');
+    });
+  });
+});
+
+/**
+ * v3.8.423 — "비용은 고정되면서 초기부터 글이 완벽하게 생성되어야 정상아니니??"
+ *
+ * 재시도(retry) 프롬프트에만 클리셰 금지를 넣으면 재시도가 opt-in(기본 OFF)이라
+ * 대부분의 글에서 이 지시 자체가 전달되지 않는다. generateAllSectionsFinal은 매 글마다
+ * 정확히 1회 호출되는 메인 본문 생성 함수라, 여기 있는 지시는 재생성 여부와 무관하게
+ * 항상 모델에 전달된다 — "처음부터 완벽하게" 원칙은 이 프롬프트에 박아야 실현된다.
+ */
+describe('generateAllSectionsFinal 메인 프롬프트에도 클리셰 금지가 처음부터 박혀 있다 (v3.8.423)', () => {
+  const generationSrc = fs.readFileSync(
+    path.join(process.cwd(), 'src', 'core', 'final', 'generation.ts'),
+    'utf8',
+  );
+
+  it('⭐ [금지 사항] 블록에 뻔한 상투구 금지가 있다 — 재시도 없이도 매 글에 전달된다', () => {
+    expect(generationSrc).toContain('말할 필요도 없이');
+    expect(generationSrc).toContain('두말할 나위 없이');
+    expect(generationSrc).toContain('생각보다 많은 분들이');
+  });
+
+  it('⭐ 이 지시는 generateAllSectionsFinal(메인 1회 호출 함수) 안에 있다', () => {
+    const fnIdx = generationSrc.indexOf('export async function generateAllSectionsFinal(');
+    const banIdx = generationSrc.indexOf('말할 필요도 없이');
+    const nextFnIdx = generationSrc.indexOf('\nexport async function ', fnIdx + 1);
+    expect(fnIdx).toBeGreaterThan(-1);
+    expect(banIdx).toBeGreaterThan(fnIdx);
+    if (nextFnIdx > -1) expect(banIdx).toBeLessThan(nextFnIdx);
   });
 });

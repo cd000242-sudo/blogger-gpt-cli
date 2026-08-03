@@ -23,6 +23,10 @@ export interface SubstanceMetrics {
   hedges: number;
   /** 1,000자당 (회피 + 얼버무림) 수 */
   vaguePer1000: number;
+  /** 진부한 상투구("뻔한 소리") 수 */
+  cliches: number;
+  /** 1,000자당 진부한 상투구 수 */
+  clichesPer1000: number;
   /** 구체 팩트가 하나도 없는 단락 수 */
   emptyParagraphs: number;
   /** 전체 단락 수 */
@@ -72,6 +76,34 @@ const HEDGE_PATTERNS: RegExp[] = [
   /상황에\s*따라\s*(?:다르|달라)/g,
   /개인(?:별로|마다)\s*(?:다르|달라)/g,
   /경우에\s*따라\s*(?:다르|달라)/g,
+];
+
+/**
+ * v3.8.423 — 뻔한 소리(진부한 상투구) 탐지.
+ *
+ * 사용자: "정보전달에 정확하게 이뤄지는게 맞는지... 한겨울에 흰눈내리는 그런 뻔한글을
+ *   작성하는건아닌지... 실속게이트를 끝판왕으로 해야 가치있는 글이되지않을까"
+ *
+ * 회피(DEFERRAL)·얼버무림(HEDGE)은 "책임을 안 진다"는 실패 모드고, 이건 다른 실패
+ * 모드다 — 문장 자체는 확언하는데 **누가 봐도 아는 얘기라 정보량이 0**인 경우
+ * ("겨울에는 날씨가 춥습니다" 같은). 숫자·기관명이 없어서 concreteFacts에도 안 걸리고,
+ * "확인하세요"/"다를 수 있습니다" 패턴도 안 써서 회피·얼버무림에도 안 걸린다 — 그래서
+ * 팩트 밀도 지표만으로는 숨어서 통과한다. 오탐을 줄이려고 "누가 읽어도 확실히 진부한"
+ * 좁은 패턴만 잡는다(예: "말할 필요도 없이" 자체는 진짜 조언 앞에도 붙을 수 있지만,
+ * 그 뒤에 오는 내용까지 판단할 수는 없으니 "이 어구가 있다"는 신호만 쓴다 — 페널티는
+ * 작게, 여러 개 쌓이면 크게).
+ */
+const CLICHE_PATTERNS: RegExp[] = [
+  /말할\s*필요도\s*없이/g,
+  /두말할\s*나위\s*없이/g,
+  /누구나\s*(?:다\s*)?아는\s*(?:사실이지만|얘기지만|이야기지만)/g,
+  /새삼\s*(?:말할\s*것도\s*없이|강조할\s*필요\s*없이)/g,
+  /굳이\s*설명하지\s*않아도/g,
+  /생각보다\s*많은\s*(?:분들이|사람들이|이들이)/g,
+  /의외로\s*많은\s*(?:분들이|사람들이)/g,
+  /이는\s*비단\s*[^.。!?<]{0,20}만의\s*문제가\s*아닙니다/g,
+  /누구에게나\s*(?:필요한|해당되는)/g,
+  /이제는\s*선택이\s*아니라\s*필수/g,
 ];
 
 /** HTML → 평문 */
@@ -145,6 +177,8 @@ export const SUBSTANCE_THRESHOLDS = {
   minFactsPer1000: 6,
   /** 1,000자당 회피+얼버무림 최대 개수 */
   maxVaguePer1000: 1.2,
+  /** 1,000자당 진부한 상투구 최대 개수 (v3.8.423) */
+  maxClichesPer1000: 0.8,
   /** 팩트 없는 단락 비율 상한 */
   maxEmptyParagraphRatio: 0.55,
   /** 통과 최소 점수 */
@@ -158,10 +192,12 @@ export function scanSubstance(input: SubstanceInput): SubstanceReport {
   const concreteFacts = countMergedMatches(text, FACT_PATTERNS);
   const deferrals = countMatches(text, DEFERRAL_PATTERNS);
   const hedges = countMatches(text, HEDGE_PATTERNS);
+  const cliches = countMatches(text, CLICHE_PATTERNS);
 
   const per1000 = (n: number) => (chars > 0 ? (n / (chars / 1000)) : 0);
   const factsPer1000 = Number(per1000(concreteFacts).toFixed(2));
   const vaguePer1000 = Number(per1000(deferrals + hedges).toFixed(2));
+  const clichesPer1000 = Number(per1000(cliches).toFixed(2));
 
   // 단락별 검사
   const rawParagraphs = input.paragraphs && input.paragraphs.length > 0
@@ -174,22 +210,24 @@ export function scanSubstance(input: SubstanceInput): SubstanceReport {
   const totalParagraphs = paragraphTexts.length;
   const emptyParagraphRatio = totalParagraphs > 0 ? emptyParagraphs / totalParagraphs : 0;
 
-  // 문제 문장 추출 — 회피/얼버무림이 있고 구체 팩트가 없는 문장
+  // 문제 문장 추출 — 회피/얼버무림/진부한 상투구가 있고 구체 팩트가 없는 문장
   const worstSentences: string[] = [];
   for (const sentence of splitSentences(text)) {
     if (sentence.length < 20 || sentence.length > 200) continue;
     const isVague = countMatches(sentence, DEFERRAL_PATTERNS) > 0 || countMatches(sentence, HEDGE_PATTERNS) > 0;
-    if (isVague && countMergedMatches(sentence, FACT_PATTERNS) === 0) {
+    const isCliche = countMatches(sentence, CLICHE_PATTERNS) > 0;
+    if ((isVague || isCliche) && countMergedMatches(sentence, FACT_PATTERNS) === 0) {
       worstSentences.push(sentence);
       if (worstSentences.length >= 5) break;
     }
   }
 
-  // 점수 — 팩트 밀도 60점 + 회피 억제 25점 + 빈 단락 억제 15점
-  const factScore = Math.round(Math.min(1, factsPer1000 / SUBSTANCE_THRESHOLDS.minFactsPer1000) * 60);
-  const vagueScore = Math.round(Math.max(0, 1 - vaguePer1000 / Math.max(0.01, SUBSTANCE_THRESHOLDS.maxVaguePer1000)) * 25);
+  // 점수 — 팩트 밀도 50점 + 회피 억제 20점 + 빈 단락 억제 15점 + 진부함 억제 15점
+  const factScore = Math.round(Math.min(1, factsPer1000 / SUBSTANCE_THRESHOLDS.minFactsPer1000) * 50);
+  const vagueScore = Math.round(Math.max(0, 1 - vaguePer1000 / Math.max(0.01, SUBSTANCE_THRESHOLDS.maxVaguePer1000)) * 20);
   const paragraphScore = Math.round(Math.max(0, 1 - emptyParagraphRatio / Math.max(0.01, SUBSTANCE_THRESHOLDS.maxEmptyParagraphRatio)) * 15);
-  const score = Math.max(0, Math.min(100, factScore + vagueScore + paragraphScore));
+  const clicheScore = Math.round(Math.max(0, 1 - clichesPer1000 / Math.max(0.01, SUBSTANCE_THRESHOLDS.maxClichesPer1000)) * 15);
+  const score = Math.max(0, Math.min(100, factScore + vagueScore + paragraphScore + clicheScore));
 
   const passed = score >= SUBSTANCE_THRESHOLDS.minScore
     && factsPer1000 >= SUBSTANCE_THRESHOLDS.minFactsPer1000 * 0.7;
@@ -201,13 +239,15 @@ export function scanSubstance(input: SubstanceInput): SubstanceReport {
     deferrals,
     hedges,
     vaguePer1000,
+    cliches,
+    clichesPer1000,
     emptyParagraphs,
     totalParagraphs,
   };
 
   const summary = passed
-    ? `✅ 실속 게이트 통과 (점수 ${score}, 팩트 ${concreteFacts}개=${factsPer1000}/1000자, 회피 ${deferrals + hedges}건, 빈 단락 ${emptyParagraphs}/${totalParagraphs})`
-    : `⚠️ 실속 부족 (점수 ${score}/${SUBSTANCE_THRESHOLDS.minScore}, 팩트 ${factsPer1000}/1000자 < ${SUBSTANCE_THRESHOLDS.minFactsPer1000}, 회피 ${deferrals + hedges}건, 빈 단락 ${emptyParagraphs}/${totalParagraphs})`;
+    ? `✅ 실속 게이트 통과 (점수 ${score}, 팩트 ${concreteFacts}개=${factsPer1000}/1000자, 회피 ${deferrals + hedges}건, 뻔한 소리 ${cliches}건, 빈 단락 ${emptyParagraphs}/${totalParagraphs})`
+    : `⚠️ 실속 부족 (점수 ${score}/${SUBSTANCE_THRESHOLDS.minScore}, 팩트 ${factsPer1000}/1000자 < ${SUBSTANCE_THRESHOLDS.minFactsPer1000}, 회피 ${deferrals + hedges}건, 뻔한 소리 ${cliches}건, 빈 단락 ${emptyParagraphs}/${totalParagraphs})`;
 
   return { passed, score, metrics, worstSentences, summary };
 }
@@ -224,7 +264,8 @@ export function buildSubstanceRetryBlock(report: SubstanceReport): string {
 🚨🚨🚨 **재시도 — 실속(정보 밀도) 강제 규칙** 🚨🚨🚨
 직전 응답은 분량은 채웠지만 알맹이가 없었습니다.
 측정 결과: 구체 팩트 1,000자당 ${metrics.factsPer1000}개 (기준 ${SUBSTANCE_THRESHOLDS.minFactsPer1000}개 이상),
-책임 회피 문장 ${metrics.deferrals + metrics.hedges}건, 구체 정보가 아예 없는 단락 ${metrics.emptyParagraphs}/${metrics.totalParagraphs}개.${examples}
+책임 회피 문장 ${metrics.deferrals + metrics.hedges}건, 뻔한 상투구 ${metrics.cliches}건,
+구체 정보가 아예 없는 단락 ${metrics.emptyParagraphs}/${metrics.totalParagraphs}개.${examples}
 
 ✅ 이번엔 반드시 지키세요:
 1. **모든 단락에 최소 1개의 구체 정보**를 넣으세요. 구체 정보 = 금액·비율·기간·수량·날짜·기관명·법조문·메뉴 경로·서류 이름 중 하나.
@@ -232,7 +273,12 @@ export function buildSubstanceRetryBlock(report: SubstanceReport): string {
 3. **"상황에 따라 달라질 수 있습니다"만 쓰고 끝내지 마세요.** 무엇에 따라 어떻게 갈리는지 조건을 나열하세요.
    예) ❌ "지원금은 상황에 따라 달라질 수 있어요."
        ✅ "지원금은 가구원 수로 갈립니다. 1인 가구는 월 30만 원, 4인 가구는 월 80만 원 구간이에요."
-4. 백그라운드 컨텍스트에 실제 숫자·기관명이 있으면 **그대로 본문에 옮기세요.** 요약하면서 숫자를 빼지 마세요.
-5. 숫자를 확인할 수 없으면 지어내지 말고, 대신 **판단 기준 / 절차 / 준비물 / 흔한 실수**를 구체적으로 채우세요.
+4. **"말할 필요도 없이", "누구나 다 아는 얘기지만", "생각보다 많은 분들이" 같은 뻔한
+   상투구로 문장을 시작하지 마세요.** 이런 문장은 정보량이 0이라 검색해서 이 글을
+   찾아온 독자에게 아무것도 주지 못합니다.
+   예) ❌ "말할 필요도 없이 여름엔 에어컨이 필수죠."
+       ✅ "실외기 소음 42dB 이하 제품만 야간 사용이 편합니다."
+5. 백그라운드 컨텍스트에 실제 숫자·기관명이 있으면 **그대로 본문에 옮기세요.** 요약하면서 숫자를 빼지 마세요.
+6. 숫자를 확인할 수 없으면 지어내지 말고, 대신 **판단 기준 / 절차 / 준비물 / 흔한 실수**를 구체적으로 채우세요.
 `;
 }
