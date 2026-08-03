@@ -62,7 +62,9 @@ export async function generatePreview() {
     //   premiumProgressBar를 띄우는데, 여기는 그 호출이 아예 빠져 있었다 — 백엔드가 보내는
     //   onProgress 이벤트는 main.js의 전역 리스너가 이미 progressManager로 받고 있지만,
     //   그 상태를 화면에 보여주는 showProgressModal() 자체를 아무도 안 불러서 안 보였다.
-    window.showProgressModal?.();
+    // v3.8.426 — 사용자 요청: "반자동 발행 모달은 차이를 좀 뒀으면 좋겠는데 박스색상을
+    //   초록색으로 바꾼다던지" — 완전자동(보라)과 구분되도록 'semi-auto' 테마(초록)로 띄운다.
+    window.showProgressModal?.('semi-auto');
 
     addLog('[NEW-PREVIEW] 콘텐츠 생성 시작...');
     

@@ -461,12 +461,72 @@ export function showTab(tabName) {
 // 라이센스 관련 함수는 제거됨 (로그인 형식으로 변경)
 
 // 진행 상태 모달 표시
-export function showProgressModal() {
-  console.log('🚀 showProgressModal 호출됨');
+// v3.8.426 — 사용자 요청: "반자동 발행 모달은 차이를 좀 뒀으면 좋겠는데 박스색상을
+//   초록색으로 바꾼다던지". 완전자동(보라)과 반자동(초록)을 색으로 구분한다.
+const PROGRESS_MODAL_THEMES = {
+  auto: {
+    subtitle: '완전자동 발행 모드',
+    border: 'rgba(102, 126, 234, 0.5)',
+    glow: 'rgba(102, 126, 234, 0.3)',
+    iconBg: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    iconShadow: '0 8px 20px rgba(102, 126, 234, 0.5), inset 0 0 15px rgba(255,255,255,0.2)',
+    stops: ['#667eea', '#764ba2', '#f093fb'],
+  },
+  'semi-auto': {
+    subtitle: '반자동 발행 모드 (이미지 없이 글만 생성)',
+    border: 'rgba(34, 197, 94, 0.5)',
+    glow: 'rgba(34, 197, 94, 0.3)',
+    iconBg: 'linear-gradient(135deg, #22c55e 0%, #15803d 100%)',
+    iconShadow: '0 8px 20px rgba(34, 197, 94, 0.5), inset 0 0 15px rgba(255,255,255,0.2)',
+    stops: ['#4ade80', '#22c55e', '#15803d'],
+  },
+};
+
+function applyProgressModalTheme(mode) {
+  const theme = PROGRESS_MODAL_THEMES[mode] || PROGRESS_MODAL_THEMES.auto;
+
+  const card = document.getElementById('progressModalCard');
+  if (card) {
+    card.style.borderColor = theme.border;
+    card.style.boxShadow = `0 30px 80px rgba(0, 0, 0, 0.6), 0 0 60px ${theme.glow}`;
+  }
+  const glow = document.getElementById('progressModalGlow');
+  if (glow) {
+    glow.style.background = `radial-gradient(circle, ${theme.glow.replace('0.3)', '0.12)')} 0%, transparent 70%)`;
+  }
+  const icon = document.getElementById('progressModalIcon');
+  if (icon) {
+    icon.style.background = theme.iconBg;
+    icon.style.boxShadow = theme.iconShadow;
+  }
+  const subtitle = document.getElementById('progressModalSubtitle');
+  if (subtitle) {
+    subtitle.textContent = theme.subtitle;
+  }
+  const [s1, s2, s3] = theme.stops;
+  const stop1 = document.getElementById('progressGradientStop1');
+  const stop2 = document.getElementById('progressGradientStop2');
+  const stop3 = document.getElementById('progressGradientStop3');
+  if (stop1) stop1.style.stopColor = s1;
+  if (stop2) stop2.style.stopColor = s2;
+  if (stop3) stop3.style.stopColor = s3;
+  const progressFill = document.getElementById('progressFill');
+  if (progressFill) {
+    progressFill.style.background = `linear-gradient(90deg, ${s1} 0%, ${s2} 50%, ${s3} 100%)`;
+  }
+}
+
+/**
+ * @param {'auto'|'semi-auto'} [mode] — 모달 색 테마. 생략 시 완전자동(보라).
+ */
+export function showProgressModal(mode) {
+  console.log('🚀 showProgressModal 호출됨', mode || 'auto');
 
   const progressBar = document.getElementById('premiumProgressBar');
   const publishBtn = DOMCache.get('publishBtn');
   const cancelBtn = document.getElementById('cancelProgressBtn');
+
+  applyProgressModalTheme(mode);
 
   if (progressBar) {
     console.log('✅ 프리미엄 진행 바 표시 시작');

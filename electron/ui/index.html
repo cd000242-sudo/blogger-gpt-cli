@@ -4814,11 +4814,11 @@ https://toss.im/_m/XXXXXXX"
               <!-- 🚀 완전자동 발행 고급 모달 (센터, 적당한 크기) - position:fixed이므로 body 직속 레벨에서 렌더링 -->
               <div id="premiumProgressBar" class="premium-progress-bar"
                 style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(20px); z-index: 2147483647; align-items: center; justify-content: center; padding: 20px;">
-                <div
+                <div id="progressModalCard"
                   style="width: 90%; max-width: 520px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 20px; padding: 24px; border: 2px solid rgba(102, 126, 234, 0.5); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6), 0 0 60px rgba(102, 126, 234, 0.3); position: relative; overflow: hidden; margin: auto;">
 
                   <!-- 배경 글로우 -->
-                  <div
+                  <div id="progressModalGlow"
                     style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(102, 126, 234, 0.1) 0%, transparent 70%); pointer-events: none;">
                   </div>
 
@@ -4826,7 +4826,7 @@ https://toss.im/_m/XXXXXXX"
                   <div
                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; position: relative; z-index: 2;">
                     <div style="display: flex; align-items: center; gap: 12px;">
-                      <div
+                      <div id="progressModalIcon"
                         style="width: 46px; height: 46px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 20px rgba(102, 126, 234, 0.5), inset 0 0 15px rgba(255,255,255,0.2);">
                         <span style="font-size: 24px; animation: pulse 2s infinite;">⚡</span>
                       </div>
@@ -4834,7 +4834,7 @@ https://toss.im/_m/XXXXXXX"
                         <div
                           style="font-size: 18px; font-weight: 800; color: white; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);">
                           AI 콘텐츠 생성 중</div>
-                        <div style="font-size: 13px; color: rgba(255, 255, 255, 0.6); margin-top: 4px;">완전자동 발행 모드
+                        <div id="progressModalSubtitle" style="font-size: 13px; color: rgba(255, 255, 255, 0.6); margin-top: 4px;">완전자동 발행 모드
                         </div>
                       </div>
                     </div>
@@ -4873,9 +4873,9 @@ https://toss.im/_m/XXXXXXX"
                           style="transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1); filter: drop-shadow(0 0 12px rgba(102, 126, 234, 0.5));" />
                         <defs>
                           <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                            <stop offset="0%" style="stop-color:#667eea" />
-                            <stop offset="50%" style="stop-color:#764ba2" />
-                            <stop offset="100%" style="stop-color:#f093fb" />
+                            <stop id="progressGradientStop1" offset="0%" style="stop-color:#667eea" />
+                            <stop id="progressGradientStop2" offset="50%" style="stop-color:#764ba2" />
+                            <stop id="progressGradientStop3" offset="100%" style="stop-color:#f093fb" />
                           </linearGradient>
                         </defs>
                       </svg>

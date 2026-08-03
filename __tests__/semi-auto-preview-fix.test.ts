@@ -121,7 +121,7 @@ describe('④ 반자동 발행이 실제 진행률 모달(premiumProgressBar)을
     const fnStart = preview.indexOf('export async function generatePreview');
     const fnEnd = preview.indexOf('export async function startSemiAutoPublish');
     const body = preview.slice(fnStart, fnEnd);
-    expect(body).toContain('window.showProgressModal?.()');
+    expect(body).toContain('window.showProgressModal?.(');
   });
 
   it('⭐ 성공·실패·취소 어떤 경로든 finally에서 hideProgressModal을 부른다', () => {
@@ -134,7 +134,7 @@ describe('④ 반자동 발행이 실제 진행률 모달(premiumProgressBar)을
   });
 
   it('showProgressModal/hideProgressModal이 실제로 정의돼 있고 window에 전역 노출된다', () => {
-    expect(ui).toContain('export function showProgressModal()');
+    expect(ui).toContain('export function showProgressModal(mode)');
     expect(ui).toContain('export function hideProgressModal()');
     expect(ui).toMatch(/window\.showProgressModal\s*=\s*showProgressModal/);
     expect(ui).toMatch(/window\.hideProgressModal\s*=\s*hideProgressModal/);
@@ -200,5 +200,58 @@ describe('⑤ 반자동(previewOnly) 요청은 이미지 생성 자체를 건너
     // 그 경로들은 skipImages: false가 되어 기존처럼 이미지가 정상 생성된다.
     const fnBody = braceBlock(posting, 'export async function createPreviewPayload()');
     expect(fnBody).toContain("createPayload({ previewOnly: true, platformOverride: 'preview' })");
+  });
+});
+
+describe('⑥ 반자동 진행률 모달은 완전자동과 다른 색(초록)으로 뜬다 (v3.8.426)', () => {
+  it('⭐ preview.js가 semi-auto 테마로 모달을 띄운다', () => {
+    expect(preview).toContain("window.showProgressModal?.('semi-auto');");
+  });
+
+  it('⭐ 일반(완전자동) 발행 경로는 인자 없이 그대로 호출한다 — 테마 변경 전과 동일', () => {
+    // posting.js의 두 호출 지점 모두 인자 없이 showProgressModal()을 부른다.
+    // 이 값을 바꾸면 완전자동 모달까지 초록으로 바뀌어버린다 — 반자동만 달라야 한다.
+    const calls = posting.match(/showProgressModal\([^)]*\)/g) || [];
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call).toBe('showProgressModal()');
+    }
+  });
+
+  it('⭐ ui.js가 semi-auto/auto 두 테마를 정의하고 mode에 따라 카드·아이콘·그라디언트를 바꾼다', () => {
+    const themesBlock = braceBlock(ui, 'const PROGRESS_MODAL_THEMES = {');
+    expect(themesBlock).toContain("'semi-auto'");
+    expect(themesBlock).toContain('#22c55e');   // 반자동 = 초록
+    expect(themesBlock).toContain('#667eea');   // 완전자동 = 기존 보라 유지
+
+    const applyBlock = braceBlock(ui, 'function applyProgressModalTheme(mode) {');
+    expect(applyBlock).toContain("getElementById('progressModalCard')");
+    expect(applyBlock).toContain("getElementById('progressModalIcon')");
+    expect(applyBlock).toContain("getElementById('progressModalSubtitle')");
+  });
+
+  it('⭐ showProgressModal이 열릴 때마다 테마를 새로 적용한다 — 이전 호출의 색이 남지 않는다', () => {
+    const fnBody = braceBlock(ui, 'export function showProgressModal(mode) {');
+    expect(fnBody).toContain('applyProgressModalTheme(mode);');
+  });
+
+  it('index.html에 테마 적용 대상 id(카드/아이콘/부제/그라디언트 stop)가 실존한다', () => {
+    expect(html).toContain('id="progressModalCard"');
+    expect(html).toContain('id="progressModalIcon"');
+    expect(html).toContain('id="progressModalSubtitle"');
+    expect(html).toContain('id="progressGradientStop1"');
+    expect(html).toContain('id="progressGradientStop2"');
+    expect(html).toContain('id="progressGradientStop3"');
+  });
+
+  it('progressManager는 width만 갱신할 뿐, 배경색을 다시 보라색으로 덮어쓰지 않는다', () => {
+    // core.js의 updateProgress/updateProgressCircle이 progressFill.style.background나
+    // circle의 stroke를 직접 건드리면 showProgressModal이 세팅한 초록 테마가
+    // 진행률이 올라갈 때마다 도로 보라색으로 리셋된다 — 그러면 안 된다.
+    const core = fs.readFileSync(path.join(ROOT, 'electron', 'ui', 'modules', 'core.js'), 'utf8');
+    const updateProgressBlock = braceBlock(core, 'updateProgress(stepPercentage, targetPercentage = null, statusText = null) {');
+    expect(updateProgressBlock).not.toMatch(/fillEl\.style\.background\s*=/);
+    const circleBlock = braceBlock(core, 'updateProgressCircle(percentage) {');
+    expect(circleBlock).not.toMatch(/\.style\.stroke\s*=/);
   });
 });
