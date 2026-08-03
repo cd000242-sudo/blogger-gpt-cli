@@ -659,6 +659,25 @@ export async function generateUltimateMaxModeArticleFinal(
      * 판정을 쓴다 — 그건 진짜로 쿠팡에만 해당하는 규정이다.
      */
     const hasSpecificProductLink = affiliateAll.length > 0;
+
+    /**
+     * 🛒 v3.8.436 — "이 글이 쿠팡 글인가"를 **한 곳에서** 정한다.
+     *
+     * v3.8.432 에서 고지문·위젯만 막았는데, 사용자 실측 로그(2026-08-03)에서
+     * 토스 글인데도 이런 줄이 찍혔다:
+     *   🏷️ 제휴사: toss-sharelink (사용자 선택)
+     *   🛒 쿠팡 파트너스 API: 실제 상품 데이터 조회 중...
+     *   ✅ 쿠팡 상품 5개 수집 완료
+     * 검색 자체가 그대로 돌고 있었고, 그 결과가 formatProductsForPrompt 로
+     * **본문 프롬프트에 재료로 들어갔다.** 고지문보다 나쁘다 — 토스 글 본문이
+     * 남의 쿠팡 상품을 설명하게 된다. 게다가 불필요한 API 호출이다.
+     *
+     * 판정을 여기 하나로 모아 모든 쿠팡 전용 동작이 같은 기준을 쓰게 한다.
+     */
+    const isCoupangArticle = explicitProvider
+      ? explicitProvider === 'coupang'
+      : (!!coupangLink || !hasSpecificProductLink);
+
     if (coupangLink && String((payload as any).contentMode || '') === 'shopping') {
       try {
         const { resolveCoupangProductId } = await import('../affiliate/crawl');
@@ -1480,7 +1499,11 @@ export async function generateUltimateMaxModeArticleFinal(
         const envData = loadEnvFromFile();
         const coupangAccessKey = (payload as any).coupangAccessKey || envData['coupangAccessKey'] || envData['COUPANG_ACCESS_KEY'] || '';
         const coupangSecretKey = (payload as any).coupangSecretKey || envData['coupangSecretKey'] || envData['COUPANG_SECRET_KEY'] || '';
-        if (coupangAccessKey && coupangSecretKey && !(payload as any).coupangProducts) {
+        // v3.8.436: 쿠팡 글이 아니면 아예 조회하지 않는다.
+        //   결과가 프롬프트 재료로 들어가 토스·네이버 글이 남의 상품을 설명하게 된다.
+        if (!isCoupangArticle) {
+          onLog?.('[PROGRESS] 41% - ℹ️ 쿠팡 글이 아니라 쿠팡 상품 검색을 건너뜁니다');
+        } else if (coupangAccessKey && coupangSecretKey && !(payload as any).coupangProducts) {
           onLog?.('[PROGRESS] 41% - 🛒 쿠팡 파트너스 API: 실제 상품 데이터 조회 중...');
           const products = await searchCoupangProducts(keyword, coupangAccessKey, coupangSecretKey, 10);
           if (products.length > 0) {
@@ -3146,8 +3169,6 @@ export async function generateUltimateMaxModeArticleFinal(
       }
     }
 
-    // v3.8.433: 아래 제휴 컴플라이언스 단계에서도 이 판정이 필요해 함수 스코프로 둔다
-    let isCoupangArticle = false;
     // 🛒 쇼핑 모드 — 쿠팡 상품 카드 블록 강제 삽입 (실제 제휴링크가 최종 HTML에 들어가도록 보장)
     if (contentMode === 'shopping') {
       const coupangProducts = (payload as any).coupangProducts;
@@ -3166,10 +3187,11 @@ export async function generateUltimateMaxModeArticleFinal(
        * 판정: 고른 제휴사가 있으면 그것이 답이다. 없으면(구버전 payload) 쿠팡 링크
        *   유무로 보고, 링크 자체가 없으면 키워드로 찾은 쿠팡 상품이 곧 수익원이므로
        *   쿠팡 글로 본다 — 예전 동작 그대로다.
+       *
+       * v3.8.436: 판정을 여기서 다시 계산하지 않는다. 위(제휴 링크 파싱 직후)에서
+       *   한 번만 정하고 그 값을 쓴다 — 같은 판정이 두 곳에 있으면 한쪽만 고치는
+       *   사고가 난다(실제로 쿠팡 상품 검색이 그래서 안 막혔다).
        */
-      isCoupangArticle = explicitProvider
-        ? explicitProvider === 'coupang'
-        : (!!coupangLink || !hasSpecificProductLink);
       if (!isCoupangArticle) {
         onLog?.('[PROGRESS] 92% - ℹ️ 쿠팡 글이 아니므로 쿠팡 대가성 문구·상품 위젯을 넣지 않습니다');
       }

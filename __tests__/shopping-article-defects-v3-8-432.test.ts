@@ -25,9 +25,11 @@ const render = fs.readFileSync(path.join(ROOT, 'src', 'core', 'affiliate', 'rend
 
 describe('① 쿠팡 고지문은 쿠팡 글에만 넣는다', () => {
   it('⭐ isCoupangArticle 판정이 있다 — 고른 제휴사 우선, 없으면 기존 방식', () => {
-    // v3.8.433: 아래 컴플라이언스 단계에서도 필요해 함수 스코프 let 으로 올렸다
-    expect(orch).toContain('let isCoupangArticle = false;');
-    expect(orch).toContain('isCoupangArticle = explicitProvider');
+    // v3.8.436: 판정을 **제휴 링크 파싱 직후 한 곳**으로 모았다.
+    //   예전엔 렌더 시점에서 다시 계산해, 그보다 앞선 쿠팡 상품 검색은 못 막았다
+    //   (실측 로그: 토스 글인데 "쿠팡 상품 5개 수집 완료").
+    expect(orch).toContain('const isCoupangArticle = explicitProvider');
+    expect(orch).not.toContain('let isCoupangArticle = false;');
     expect(orch).toContain("explicitProvider === 'coupang'");
     expect(orch).toContain('(!!coupangLink || !hasSpecificProductLink)');
   });
