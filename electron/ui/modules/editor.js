@@ -101,11 +101,42 @@ function ensureEditorModal() {
       <button id="veSaveAsBtn" style="display:none;${BTN_BASE}background:#334155;color:#e2e8f0;">💾 다른 이름으로</button>
       <button id="veSaveBtn" style="${BTN_BASE}background:linear-gradient(135deg,#10b981,#059669);color:#fff;box-shadow:0 2px 8px rgba(16,185,129,0.4);">✅ 저장</button>
       <button id="veCancelBtn" style="${BTN_BASE}background:transparent;color:#94a3b8;border:1px solid #475569;">✕ 닫기</button>
+      <!-- ✍️ v3.8.440: 서식 도구.
+           사용자 요구: "링크삽입하는게 없고 글자크기나 하이라이트 그리고 박스추가 등등
+             기능이 많이 빠져있어 추가해줘"
+           본문에서 글자를 드래그해 고른 뒤 누르면 적용된다. -->
+      <div id="veFormatBar" style="width:100%;display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:#0f172a;border:1px solid #334155;border-radius:9px;padding:8px 10px;">
+        <span style="color:#64748b;font-size:11px;font-weight:700;margin-right:2px;">선택한 글자에 적용 →</span>
+        <button data-vefmt="bold" style="${BTN_BASE}background:#334155;color:#e2e8f0;font-weight:900;" title="굵게">B</button>
+        <button data-vefmt="italic" style="${BTN_BASE}background:#334155;color:#e2e8f0;font-style:italic;" title="기울임">I</button>
+        <button data-vefmt="underline" style="${BTN_BASE}background:#334155;color:#e2e8f0;text-decoration:underline;" title="밑줄">U</button>
+        <span style="width:1px;height:18px;background:#334155;"></span>
+        <button data-vefmt="size-up" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="글자 크게">🔠 크게</button>
+        <button data-vefmt="size-down" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="글자 작게">🔡 작게</button>
+        <span style="width:1px;height:18px;background:#334155;"></span>
+        <button data-vefmt="hl-yellow" style="${BTN_BASE}background:#fde68a;color:#78350f;font-weight:800;" title="노랑 형광펜">형광</button>
+        <button data-vefmt="hl-pink" style="${BTN_BASE}background:#fbcfe8;color:#831843;font-weight:800;" title="분홍 형광펜">형광</button>
+        <button data-vefmt="color-red" style="${BTN_BASE}background:#334155;color:#f87171;font-weight:800;" title="빨간 글자">가</button>
+        <button data-vefmt="clear" style="${BTN_BASE}background:#334155;color:#94a3b8;" title="서식 지우기">✕ 서식</button>
+        <span style="width:1px;height:18px;background:#334155;"></span>
+        <button data-vefmt="link" style="${BTN_BASE}background:#1d4ed8;color:#dbeafe;font-weight:800;" title="선택한 글자에 링크 걸기">🔗 링크</button>
+        <button data-vefmt="unlink" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="링크 해제">🔗✕</button>
+        <span style="width:1px;height:18px;background:#334155;"></span>
+        <button data-vefmt="box-gray" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="회색 박스로 감싸기">▢ 박스</button>
+        <button data-vefmt="box-tip" style="${BTN_BASE}background:#0e7490;color:#cffafe;" title="파란 정보 박스">💡 팁</button>
+        <button data-vefmt="box-warn" style="${BTN_BASE}background:#b45309;color:#fef3c7;" title="주황 주의 박스">⚠️ 주의</button>
+        <button data-vefmt="quote" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="인용문">❝ 인용</button>
+        <span style="width:1px;height:18px;background:#334155;"></span>
+        <button data-vefmt="ul" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="글머리 목록">• 목록</button>
+        <button data-vefmt="ol" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="번호 목록">1. 목록</button>
+        <button data-vefmt="hr" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="구분선">─ 구분선</button>
+      </div>
       <div id="veHintBar" style="width:100%;display:flex;gap:6px 18px;flex-wrap:wrap;background:#0f172a;border:1px solid #334155;border-radius:9px;padding:8px 14px;color:#cbd5e1;font-size:12px;line-height:1.5;">
         <span>✍️ <b style="color:#f1f5f9;">글자</b> 클릭 → 바로 수정 (Ctrl+Z 되돌리기)</span>
         <span>🖼️ <b style="color:#f1f5f9;">이미지</b> 클릭 → 교체·삭제</span>
         <span>🔗 <b style="color:#f1f5f9;">버튼·링크</b> 클릭 → 주소 수정·삭제</span>
         <span>➕ <b style="color:#f1f5f9;">이미지 추가</b> → 문단에 마우스 올리면 ＋ 버튼</span>
+        <span>✍️ <b style="color:#f1f5f9;">서식</b> → 글자를 드래그해 고른 뒤 위 도구 클릭</span>
       </div>
       <span id="veStatus" style="width:100%;color:#94a3b8;font-size:12px;min-height:14px;"></span>
     </div>
@@ -160,6 +191,30 @@ function ensureEditorModal() {
     const doc = getFrameDoc();
     if (doc) insertImagesAtCaret(doc);
   });
+
+  /**
+   * ✍️ v3.8.440 — 서식 도구 배선.
+   *
+   * 사용자 요구: "링크삽입하는게 없고 글자크기나 하이라이트 그리고 박스추가 등등
+   *   기능이 많이 빠져있어 추가해줘"
+   *
+   * ⚠️ mousedown 에서 preventDefault 하는 게 핵심이다. 버튼이 iframe 밖에 있어서
+   *   그냥 클릭하면 **누르는 순간 본문 선택이 풀린다**(이미지 삽입이 글 끝에 붙던
+   *   것과 같은 원인). 기본 동작을 막으면 선택이 유지된 채로 서식이 적용된다.
+   */
+  const formatBar = modalRefs.overlay.querySelector('#veFormatBar');
+  if (formatBar) {
+    formatBar.addEventListener('mousedown', (e) => {
+      if (e.target?.closest?.('[data-vefmt]')) e.preventDefault();
+    });
+    formatBar.addEventListener('click', (e) => {
+      const btn = e.target?.closest?.('[data-vefmt]');
+      if (!btn) return;
+      const doc = getFrameDoc();
+      if (!doc) return;
+      applyFormat(doc, btn.getAttribute('data-vefmt'));
+    });
+  }
   modalRefs.undoImageOpBtn.addEventListener('click', () => {
     const doc = getFrameDoc();
     if (!doc) return;
@@ -180,6 +235,143 @@ function ensureEditorModal() {
 
 function setStatus(text) {
   if (modalRefs?.status) modalRefs.status.textContent = text || '';
+}
+
+/**
+ * ✍️ v3.8.440 — 선택한 글자에 서식을 적용한다.
+ *
+ * 발행 대상이 블로그스팟·워드프레스·티스토리라 **인라인 스타일**로만 넣는다.
+ * 외부 CSS 는 플랫폼 스킨이 덮어쓰거나 아예 안 실린다(이 저장소가 본문 스타일을
+ * 전부 인라인으로 박는 이유와 같다).
+ */
+function applyFormat(doc, kind) {
+  const sel = doc.getSelection();
+  const hasText = sel && !sel.isCollapsed && String(sel.toString() || '').trim().length > 0;
+
+  /** 고른 글자를 태그로 감싼다 */
+  const wrap = (openTag, closeTag) => {
+    if (!hasText) { setStatus('먼저 본문에서 적용할 글자를 드래그해 선택하세요.'); return false; }
+    const range = sel.getRangeAt(0);
+    const html = doc.createElement('div');
+    html.appendChild(range.cloneContents());
+    range.deleteContents();
+    const frag = doc.createRange().createContextualFragment(`${openTag}${html.innerHTML}${closeTag}`);
+    range.insertNode(frag);
+    sel.removeAllRanges();
+    return true;
+  };
+
+  /** 문단 전체를 박스로 감싼다 (선택이 없으면 커서가 있는 문단) */
+  const wrapBlock = (style) => {
+    if (!sel || !sel.anchorNode) { setStatus('본문에서 감쌀 위치를 먼저 클릭하세요.'); return false; }
+    const el = sel.anchorNode.nodeType === Node.ELEMENT_NODE ? sel.anchorNode : sel.anchorNode.parentElement;
+    const block = el?.closest?.('p,h1,h2,h3,h4,li,blockquote,div');
+    if (!block) { setStatus('감쌀 문단을 찾지 못했습니다.'); return false; }
+    /**
+     * 본문 전체를 통째로 감싸는 사고를 막는다.
+     * 커서가 큰 래퍼 <div> 안에 있으면 closest 가 그 래퍼를 잡는다. 그대로 감싸면
+     * 글 전체가 박스 하나에 들어가고, 되돌리기도 번거롭다.
+     * 문단 하나라고 보기 어려운 것(본문 루트이거나 안에 H2 를 품은 것)은 거른다.
+     */
+    if (block === doc.body || block.parentNode === null
+      || block.querySelector('h2') || block.querySelector('figure.section-image')) {
+      setStatus('문단 안쪽을 클릭한 뒤 다시 눌러주세요. (글 전체가 감싸지는 걸 막았습니다)');
+      return false;
+    }
+    const box = doc.createElement('div');
+    box.setAttribute('style', style);
+    block.parentNode.insertBefore(box, block);
+    box.appendChild(block);
+    return true;
+  };
+
+  try {
+    switch (kind) {
+      case 'bold': return void (wrap('<strong>', '</strong>') && setStatus('굵게 적용'));
+      case 'italic': return void (wrap('<em>', '</em>') && setStatus('기울임 적용'));
+      case 'underline': return void (wrap('<u>', '</u>') && setStatus('밑줄 적용'));
+      case 'size-up': return void (wrap('<span style="font-size:1.25em;">', '</span>') && setStatus('글자 크게'));
+      case 'size-down': return void (wrap('<span style="font-size:0.85em;">', '</span>') && setStatus('글자 작게'));
+      case 'hl-yellow': return void (wrap('<mark style="background:#fde68a;padding:1px 3px;border-radius:3px;">', '</mark>') && setStatus('형광펜(노랑) 적용'));
+      case 'hl-pink': return void (wrap('<mark style="background:#fbcfe8;padding:1px 3px;border-radius:3px;">', '</mark>') && setStatus('형광펜(분홍) 적용'));
+      case 'color-red': return void (wrap('<span style="color:#dc2626;font-weight:700;">', '</span>') && setStatus('빨간 글자 적용'));
+      case 'quote':
+        return void (wrapBlock('border-left:5px solid #94a3b8;background:#f8fafc;padding:12px 18px;margin:18px 0;color:#334155;')
+          && setStatus('인용문으로 감쌌습니다'));
+      case 'box-gray':
+        return void (wrapBlock('border:3px solid #cbd5e1;background:#f8fafc;border-radius:12px;padding:16px 18px;margin:18px 0;')
+          && setStatus('박스로 감쌌습니다'));
+      case 'box-tip':
+        return void (wrapBlock('border:3px solid #67e8f9;background:#ecfeff;border-radius:12px;padding:16px 18px;margin:18px 0;')
+          && setStatus('팁 박스로 감쌌습니다'));
+      case 'box-warn':
+        return void (wrapBlock('border:3px solid #fcd34d;background:#fffbeb;border-radius:12px;padding:16px 18px;margin:18px 0;')
+          && setStatus('주의 박스로 감쌌습니다'));
+      case 'clear': {
+        if (!hasText) { setStatus('서식을 지울 글자를 먼저 선택하세요.'); return; }
+        const range = sel.getRangeAt(0);
+        const plain = String(sel.toString() || '');
+        range.deleteContents();
+        range.insertNode(doc.createTextNode(plain));
+        sel.removeAllRanges();
+        setStatus('서식을 지웠습니다');
+        return;
+      }
+      case 'link': {
+        if (!hasText) { setStatus('링크를 걸 글자를 먼저 선택하세요.'); return; }
+        const url = String(window.prompt('연결할 주소를 입력하세요 (https:// 로 시작)', 'https://') || '').trim();
+        if (!url) return;
+        if (!/^https?:\/\//i.test(url)) { setStatus('주소는 http:// 또는 https:// 로 시작해야 합니다.'); return; }
+        const safe = url.replace(/"/g, '&quot;');
+        // 외부 링크는 rel 을 붙인다 — 제휴 링크일 수 있으므로 sponsored 도 함께
+        wrap(`<a href="${safe}" target="_blank" rel="sponsored nofollow noopener">`, '</a>');
+        setStatus('링크를 걸었습니다');
+        return;
+      }
+      case 'unlink': {
+        if (!sel?.anchorNode) { setStatus('해제할 링크를 클릭하세요.'); return; }
+        const el = sel.anchorNode.nodeType === Node.ELEMENT_NODE ? sel.anchorNode : sel.anchorNode.parentElement;
+        const a = el?.closest?.('a');
+        if (!a) { setStatus('선택한 곳에 링크가 없습니다.'); return; }
+        a.replaceWith(...a.childNodes);
+        setStatus('링크를 해제했습니다');
+        return;
+      }
+      case 'ul':
+      case 'ol': {
+        if (!hasText) { setStatus('목록으로 만들 줄을 선택하세요.'); return; }
+        // 선택한 텍스트를 줄 단위로 끊어 각각 <li> 로 만든다 (줄바꿈이 없으면 1줄짜리 목록)
+        const tag = kind === 'ul' ? 'ul' : 'ol';
+        const lines = String(sel.toString() || '')
+          .split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+        if (lines.length === 0) { setStatus('목록으로 만들 내용이 없습니다.'); return; }
+        const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const items = lines.map((s) => `<li style="margin:4px 0;">${esc(s)}</li>`).join('');
+        const range3 = sel.getRangeAt(0);
+        range3.deleteContents();
+        range3.insertNode(doc.createRange().createContextualFragment(
+          `<${tag} style="margin:14px 0;padding-left:24px;">${items}</${tag}>`,
+        ));
+        sel.removeAllRanges();
+        setStatus(`${kind === 'ul' ? '글머리' : '번호'} 목록으로 만들었습니다 (${lines.length}줄)`);
+        return;
+      }
+      case 'hr': {
+        if (!sel?.anchorNode) { setStatus('구분선을 넣을 위치를 클릭하세요.'); return; }
+        const el = sel.anchorNode.nodeType === Node.ELEMENT_NODE ? sel.anchorNode : sel.anchorNode.parentElement;
+        const block = el?.closest?.('p,h1,h2,h3,h4,li,blockquote,div');
+        const hr = doc.createElement('hr');
+        hr.setAttribute('style', 'border:0;border-top:2px solid #e2e8f0;margin:28px 0;');
+        if (block) block.insertAdjacentElement('afterend', hr);
+        setStatus('구분선을 넣었습니다');
+        return;
+      }
+      default: return;
+    }
+  } catch (err) {
+    console.error('[EDITOR-FMT] 적용 실패:', err);
+    setStatus('서식 적용 실패: ' + (err?.message || err));
+  }
 }
 
 function protectSeparators(doc) {

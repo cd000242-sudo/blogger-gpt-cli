@@ -150,7 +150,8 @@ describe('백엔드 — 전략별 동작', () => {
   it('i2i 생성이 실패해도 상품 사진으로 대체한다 — 빈 자리를 남기지 않는다', () => {
     const i = orchestrationSrc.indexOf("shoppingStrategy === 'product-i2i'");
     // 블록 끝을 길이가 아니라 실제 경계로 잡는다 — 코드가 길어져도 테스트가 안 깨지게
-    const end = orchestrationSrc.indexOf("if (!imageResult.ok && imageSource === 'crawled'", i);
+    // v3.8.440: 경계 조건에 !leaveBlank 가 끼어들었다. 바뀌기 쉬운 부분을 뺀 짧은 표식으로 잡는다.
+    const end = orchestrationSrc.indexOf("imageSource === 'crawled' && payload.productImages?.length", i);
     expect(end).toBeGreaterThan(i);
     const block = orchestrationSrc.slice(i, end);
     expect(block).toContain('생성 실패 → 상품 사진으로 대체');
@@ -159,7 +160,8 @@ describe('백엔드 — 전략별 동작', () => {
 
   it('기존 crawled 경로를 덮어쓰지 않는다', () => {
     // 전략 분기가 먼저 돌고, 결과가 없을 때만 기존 crawled 로직이 실행돼야 한다
-    expect(orchestrationSrc).toContain("if (!imageResult.ok && imageSource === 'crawled'");
+    // v3.8.440: 여기에 !leaveBlank 가 추가됐다 (의도적으로 비운 자리는 건너뛴다)
+    expect(orchestrationSrc).toContain("if (!imageResult.ok && !leaveBlank && imageSource === 'crawled'");
   });
 
   it('⭐ 전략 미지정 시 product-i2i 로 동작한다 (1장 반복 배치로 떨어지지 않는다)', () => {

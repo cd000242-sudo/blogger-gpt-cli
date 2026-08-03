@@ -111,10 +111,72 @@ export function canonicalImageKey(url: string): string {
 export const MAX_DETAIL_IMAGES = 15;
 
 /**
+ * 이만큼은 있어야 소제목마다 **다른** 사진을 깔 수 있다 (v3.8.440).
+ *
+ * 쇼핑모드는 소제목이 8개로 고정이고(ui: MODE_FIXED_SECTIONS.shopping) 썸네일이
+ * 1장을 더 쓴다. 그래서 9장이다. 판매자 사진이 이보다 적을 때만 리뷰 사진으로
+ * 모자란 만큼 채운다 — 넘치게 가져오지 않는 건 저작권 노출을 줄이기 위해서다.
+ * (vision 분석은 어차피 MAX_VISION_IMAGES=12 장에서 끊기므로 비용 상한 안이다.)
+ */
+export const MIN_DETAIL_IMAGES = 9;
+
+/**
+ * 구매자 리뷰 사진만 따로 뽑는다 (부족할 때 보충용, v3.8.440).
+ *
+ * ⚠️ 저작권상 1순위가 아니다. 판매자 상세컷이 모자랄 때만 쓰며, 필요한 만큼만
+ *    가져온다. 사용자가 위험을 인지하고 "부족하면 쓰라"고 판단한 경로다.
+ */
+export function extractReviewImageUrls(rawHtml: string, excludeUrls: string[] = []): string[] {
+  const html = unescapeStreamedHtml(rawHtml);   // 상세컷과 같은 이유로 사본에서 찾는다
+  const out: string[] = [];
+  const seen = new Set<string>(excludeUrls.map((u) => canonicalImageKey(u)).filter(Boolean));
+  const re = /<img[^>]+(?:src|data-src|data-original)=["']([^"']+)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const raw = String(m[1] || '').trim();
+    if (!raw || raw.startsWith('data:')) continue;
+    const abs = raw.startsWith('//') ? `https:${raw}` : raw;
+    if (!/^https?:\/\//i.test(abs)) continue;
+    const key = canonicalImageKey(abs);
+    if (!key || seen.has(key)) continue;
+    if (NON_PRODUCT_IMAGE.test(key)) continue;
+    if (!REVIEW_IMAGE_PATH.test(key)) continue;   // 리뷰 사진만 고른다
+    seen.add(key);
+    out.push(abs);
+    if (out.length >= MAX_DETAIL_IMAGES) break;
+  }
+  return out;
+}
+
+/**
+ * 🔑 v3.8.440 — **판매자 상세 HTML 은 이스케이프된 채로 스트림 안에 들어 있다.**
+ *
+ * 실측(2026-08-04, https://toss.im/_m/bMxjrwji):
+ *   페이지의 진짜 `<img>` 태그는 3개뿐이다(토스 로고 · 대표사진 · 리뷰사진 1장).
+ *   그런데 판매자 상세컷 14장은 Next.js 스트리밍 청크 안에 이렇게 들어 있다 —
+ *     self.__next_f.push([1,"<img src=\"https://shopping.toss.im/…jpg\" />…"])
+ *   `<` 가 `<` 로 쓰여 있어서 `<img …>` 정규식이 **한 장도 못 찾았다.**
+ *   그래서 "상세 이미지 0장 → 리뷰 사진으로 보충"이라는 엉뚱한 결과가 나왔다.
+ *
+ * 여기서 `<` `>` `\"` `\/` 를 되돌려 그 안의 상세 HTML 이 보이게 만든다.
+ * 원본 HTML 은 건드리지 않고 **검색용 사본**만 만든다.
+ */
+export function unescapeStreamedHtml(html: string): string {
+  return String(html || '')
+    .replace(/\\u003c/gi, '<')
+    .replace(/\\u003e/gi, '>')
+    .replace(/\\u0026/gi, '&')
+    .replace(/\\"/g, '"')
+    .replace(/\\\//g, '/');
+}
+
+/**
  * HTML 문자열에서 상세 이미지 후보를 뽑는다 (토스용, best-effort).
  * 실제 페이지로 검증이 필요하다 — 셀렉터가 아니라 휴리스틱이다.
  */
-export function extractDetailImageUrls(html: string, excludeUrl?: string): string[] {
+export function extractDetailImageUrls(rawHtml: string, excludeUrl?: string): string[] {
+  // 스트리밍 청크 안의 상세 HTML 까지 함께 본다 (위 unescapeStreamedHtml 주석 참고)
+  const html = unescapeStreamedHtml(rawHtml);
   const out: string[] = [];
   const seen = new Set<string>();
   // v3.8.439: 래핑된 주소와 원본 주소가 섞여 오므로 **정규화한 키**로 비교한다.
@@ -278,9 +340,36 @@ async function crawlToss(url: string, opts: CrawlOptions): Promise<AffiliateProd
   const rawTitle = readMeta(html, 'og:title');
   const ogImage = readMeta(html, 'og:image');
   // v3.8.431: 이미 손에 있는 HTML 에서 상세 이미지도 같이 건진다 (추가 요청 0회)
-  const detailImageUrls = extractDetailImageUrls(html, ogImage);
+  /**
+   * 🖼️ v3.8.440 — 수집 우선순위: **판매자 상세컷 → (부족하면) 리뷰 사진 → 공란**
+   *
+   * 사용자 지시: "상세정보의 이미지먼저 수집해주고 … 부족하다면 리뷰이미지를
+   *   들고오도록 수정해줘 만약 그래도 부족하다면 공란으로 놔둬 이미지를
+   *   편집할수있으니까 따로넣으면되"
+   *
+   * v3.8.439 에서 저작권 우려로 리뷰 사진을 전면 차단했는데, 그러면 쓸 사진이
+   * 2장까지 줄어든다. 사용자가 위험을 인지한 상태에서 **부족할 때만** 쓰기로
+   * 판단했으므로 그 순서를 그대로 구현한다.
+   *   · 판매자 상세컷: 상품 소개용으로 제공된 것 — 1순위
+   *   · 리뷰 사진: 구매자 저작물 — 모자랄 때만 채움 (여전히 최소한으로)
+   *   · 그래도 모자라면 억지로 채우지 않는다. 편집기에서 직접 넣으면 된다.
+   */
+  const sellerImages = extractDetailImageUrls(html, ogImage);
+  let detailImageUrls = sellerImages;
+  if (sellerImages.length < MIN_DETAIL_IMAGES) {
+    const reviewPhotos = extractReviewImageUrls(html, [ogImage, ...sellerImages]);
+    if (reviewPhotos.length) {
+      const need = MIN_DETAIL_IMAGES - sellerImages.length;
+      detailImageUrls = [...sellerImages, ...reviewPhotos.slice(0, need)];
+      opts.onLog?.(`   [제휴] 판매자 사진이 ${sellerImages.length}장뿐이라 리뷰 사진 `
+        + `${Math.min(need, reviewPhotos.length)}장을 보충합니다`);
+    }
+  }
   if (detailImageUrls.length) {
-    opts.onLog?.(`   [제휴] 상세 이미지 ${detailImageUrls.length}장 확보`);
+    opts.onLog?.(`   [제휴] 상세 이미지 ${detailImageUrls.length}장 확보`
+      + (detailImageUrls.length > sellerImages.length ? ` (판매자 ${sellerImages.length} + 리뷰 ${detailImageUrls.length - sellerImages.length})` : ''));
+  } else {
+    opts.onLog?.('   [제휴] 쓸 만한 상품 사진을 찾지 못했습니다 — 이미지는 비워둡니다(편집기에서 추가 가능)');
   }
   // v3.8.438: 후기도 같은 HTML 에서 뽑는다 (추가 요청 0회)
   const schema = extractSchemaReviews(html);

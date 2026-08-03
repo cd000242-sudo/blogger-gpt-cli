@@ -44,6 +44,22 @@ export interface DetailImageFacts {
   bestH2: string | null;
   /** 0-100 */
   confidence: number;
+  /**
+   * 이 사진에 **상품 실물이 찍혀 있는가** (v3.8.440).
+   *
+   * 사용자 요구: "추론하면서 제품이미지가없는 이미지는 제외하고
+   *   제품이미지가있는이미지 위주로 수집해줘"
+   *
+   * 상세페이지에는 글자만 있는 안내판, 배송·교환 정책, 브랜드 스토리 배너가
+   * 섞여 있다. 그런 걸 소제목 삽화로 깔면 글이 지저분해지고 구매에도 도움이
+   * 안 된다. 같은 vision 호출에서 같이 물어보므로 **추가 비용은 0원**이다.
+   * 판정에 실패하면(구버전 응답 등) true 로 둔다 — 못 쓰게 막는 쪽이 더 위험하다.
+   *
+   * 선택 필드인 이유: "아직 판정하지 않음"이 실제로 존재하는 상태다(vision 이 안
+   * 돌았거나 장수 상한에 걸려 못 본 사진). 그래서 읽는 쪽은 전부 `=== false`,
+   * 즉 **모델이 명시적으로 아니라고 한 경우만** 제외한다. undefined 는 통과다.
+   */
+  hasProduct?: boolean;
 }
 
 export interface DetailVisionOptions {
@@ -99,7 +115,13 @@ export function buildDetailPrompt(h2Titles: string[], productName: string): stri
     '',
     '이 이미지를 보고 아래 JSON 으로만 답하세요.',
     '',
-    '{"facts": ["...", "..."], "bestH2Index": <숫자 또는 null>, "confidence": <0-100>}',
+    '{"facts": ["...", "..."], "bestH2Index": <숫자 또는 null>, "confidence": <0-100>, "hasProduct": <true 또는 false>}',
+    '',
+    '[hasProduct]',
+    '- 이 사진에 **상품 실물이 찍혀 있으면** true.',
+    '- 글자만 있는 안내문, 배송·교환·반품 정책, 브랜드 로고나 스토리 배너,',
+    '  인증마크만 있는 그림처럼 **상품이 안 보이는 사진**이면 false.',
+    '- 상품을 쓰고 있는 장면·부분 확대컷도 상품이 보이면 true.',
     '',
     '[facts]',
     '- 이미지에 **실제로 보이는 것만** 적으세요. 치수·재질·용량·개수·사용 조건처럼',
@@ -120,7 +142,8 @@ export function buildDetailPrompt(h2Titles: string[], productName: string): stri
 
 /** 모델 응답에서 JSON 을 안전하게 뽑는다 */
 export function parseDetailJson(text: string, h2Titles: string[]): Omit<DetailImageFacts, 'imageUrl'> {
-  const empty = { facts: [] as string[], bestH2: null as string | null, confidence: 0 };
+  // hasProduct 기본값은 true — 판정이 없다고 멀쩡한 사진을 버리면 손해가 더 크다
+  const empty = { facts: [] as string[], bestH2: null as string | null, confidence: 0, hasProduct: true };
   if (!text) return empty;
   const cleaned = String(text).replace(/```json\s*|\s*```/g, '').trim();
   const start = cleaned.indexOf('{');
@@ -136,7 +159,9 @@ export function parseDetailJson(text: string, h2Titles: string[]): Omit<DetailIm
   const bestH2 = idx >= 0 && idx < h2Titles.length ? h2Titles[idx]! : null;
   const confRaw = Number(obj?.confidence);
   const confidence = Number.isFinite(confRaw) ? Math.max(0, Math.min(100, Math.round(confRaw))) : 0;
-  return { facts, bestH2, confidence };
+  // 명시적으로 false 라고 답했을 때만 제외한다 (필드가 없으면 예전처럼 사용)
+  const hasProduct = obj?.hasProduct === false ? false : true;
+  return { facts, bestH2, confidence, hasProduct };
 }
 
 /** vendor 별 1회 질의 */
@@ -222,7 +247,9 @@ export async function analyzeDetailImages(
         ? await opts.askImpl(prompt, buf, mime)
         : await askVision(routing, opts.apiKeys, prompt, buf, mime, timeoutMs);
       const parsed = parseDetailJson(text, h2Titles);
-      if (parsed.facts.length === 0 && !parsed.bestH2) continue;
+      // v3.8.440: "상품이 안 보이는 사진"이라는 판정 자체가 결과다 — 사실이 없어도 기록해야
+      //   아래 filterProductPhotos 가 그 사진을 걸러낼 수 있다.
+      if (parsed.facts.length === 0 && !parsed.bestH2 && parsed.hasProduct) continue;
       out.push({ imageUrl, ...parsed });
     } catch (e: any) {
       // 한 장 실패가 나머지를 막지 않는다
@@ -248,6 +275,7 @@ export function buildPlacementMap(
   // 확신도 높은 것부터 자리를 잡는다
   const sorted = [...results].sort((a, b) => b.confidence - a.confidence);
   for (const r of sorted) {
+    if (r.hasProduct === false) continue;   // v3.8.440: 상품이 안 보이는 사진은 삽화로 쓰지 않는다
     if (!r.bestH2 || r.confidence < PLACEMENT_CONFIDENCE_MIN) continue;
     if (used.has(r.imageUrl)) continue;
     const key = normalizeKey(r.bestH2);
@@ -256,6 +284,28 @@ export function buildPlacementMap(
     used.add(r.imageUrl);
   }
   return map;
+}
+
+/**
+ * 상품이 안 보이는 사진을 후보에서 뺀다 (v3.8.440).
+ *
+ * 사용자 요구: "제품이미지가없는 이미지는 제외하고 제품이미지가있는이미지
+ *   위주로 수집해줘"
+ *
+ * **분석되지 않은 사진은 그대로 남긴다.** vision 이 안 돌았거나(키 없음)
+ * 장수 상한에 걸려 못 본 사진까지 버리면, 판정도 못 한 채 사진이 사라진다.
+ * 여기서 빼는 건 "모델이 상품이 안 보인다고 명시한" 것뿐이다.
+ *
+ * 전부 걸러져 한 장도 안 남으면 **원본을 그대로 돌려준다** — 모델이 전부
+ * false 로 답하는 오판 하나로 글에서 사진이 통째로 사라지면 안 된다.
+ */
+export function filterProductPhotos(urls: string[], results: DetailImageFacts[]): string[] {
+  const rejected = new Set(
+    results.filter((r) => r.hasProduct === false).map((r) => String(r.imageUrl || '')),
+  );
+  if (rejected.size === 0) return urls;
+  const kept = urls.filter((u) => !rejected.has(String(u || '')));
+  return kept.length > 0 ? kept : urls;
 }
 
 /**

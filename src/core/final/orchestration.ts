@@ -1914,7 +1914,26 @@ ${quoted}
           new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 60000)),
         ]);
         if (visionResults.length > 0) {
-          const { buildPlacementMap, formatDetailFactsForPrompt } = await import('../affiliate/detail-image-vision');
+          const { buildPlacementMap, formatDetailFactsForPrompt, filterProductPhotos } = await import('../affiliate/detail-image-vision');
+
+          /**
+           * 🧹 v3.8.440 — **상품이 안 보이는 사진을 후보에서 뺀다.**
+           *
+           * 사용자 요구: "추론하면서 제품이미지가없는 이미지는 제외하고
+           *   제품이미지가있는이미지 위주로 수집해줘"
+           *
+           * 상세페이지에는 배송/교환 안내, 브랜드 배너처럼 글자만 있는 그림이
+           * 섞여 있다. 그런 게 소제목 삽화로 깔리면 구매 판단에 도움이 안 된다.
+           * 판정은 이미 끝난 vision 결과를 재사용하므로 **추가 호출 0회**다.
+           */
+          const beforeFilter = ((payload.productImages as string[] | undefined) || []);
+          if (beforeFilter.length > 0) {
+            const kept = filterProductPhotos(beforeFilter, visionResults as any);
+            if (kept.length < beforeFilter.length) {
+              (payload as any).productImages = kept;
+              onLog?.(`[PROGRESS] 41% - 🧹 상품이 안 보이는 사진 ${beforeFilter.length - kept.length}장 제외 (남은 사진 ${kept.length}장)`);
+            }
+          }
           const factsBlock = formatDetailFactsForPrompt(visionResults as any);
           if (factsBlock) {
             modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') + factsBlock;
@@ -2697,6 +2716,16 @@ ${quoted}
 
         let imageResult: { ok: boolean; dataUrl?: string; error?: string } = { ok: false };
         let usedSource = '';
+        /**
+         * v3.8.440 — "이 자리는 의도적으로 비운다"는 표시.
+         *
+         * 그냥 imageResult 를 실패로 두면 아래 폴백들이 이어받아 **유료 이미지를
+         * 생성한다.** 수집 사진을 쓰겠다고 고른 사용자에게는 청구되면 안 되는
+         * 비용이다. 이 깃발이 서면 이후 생성 경로를 전부 건너뛴다.
+         * (여기서 return 하지 않는 이유: 함수 끝의 진행률 집계를 건너뛰면
+         *  진행바가 그 장 수만큼 멈춘 것처럼 보인다.)
+         */
+        let leaveBlank = false;
 
         try {
           // 🛒 v3.8.385: 쇼핑모드 본문 이미지 전략 (글포스팅 → 이미지 탭에서 선택)
@@ -2754,15 +2783,28 @@ ${quoted}
                * 예전에는 `productPool[(i + 1) % pool.length]` 로 돌렸다. 나머지 연산이라
                * 섹션 수가 사진 수보다 많으면 **반드시** 겹친다(사진 7장·섹션 8개면 한 장 중복).
                * 게다가 썸네일이 0번을 쓰는데 순환이 0번으로 돌아와 썸네일과도 겹쳤다.
-               * 이제 안 쓴 것부터 순서대로 쓰고, 다 떨어졌을 때만 처음부터 다시 돈다.
+               * 이제 안 쓴 것부터 순서대로 쓰고, 다 떨어지면 재사용하지 않는다(v3.8.440).
                */
-              let picked = productPool.find((u) => u && !usedProductImages.has(imgKey(u)));
+              const picked = productPool.find((u) => u && !usedProductImages.has(imgKey(u)));
               if (!picked) {
-                // 사진이 부족하다 — 그때는 어쩔 수 없이 재사용하되, 썸네일(0번)은 피한다
-                const reusable = productPool.slice(1).length > 0 ? productPool.slice(1) : productPool;
-                picked = reusable[i % reusable.length];
-              }
-              if (picked) {
+                /**
+                 * v3.8.440 — 사진이 떨어지면 **비워 둔다.** 재사용하지 않는다.
+                 *
+                 * 사용자 지시: "만약 그래도 부족하다면 공란으로 놔둬 이미지를
+                 *   편집할수있으니까 따로넣으면되"
+                 *
+                 * 예전엔 남은 자리를 이미 쓴 사진으로 채웠다. 같은 사진이 두 번
+                 * 나오면 글이 성의 없어 보이고, 사용자가 편집기에서 원하는 사진을
+                 * 넣을 자리도 사라진다. 빈 자리는 렌더 단계(`if (finalImageUrl)`)에서
+                 * 그냥 건너뛰므로 레이아웃도 깨지지 않는다.
+                 *
+                 * ⚠️ 여기서 그냥 두면 아래 디스패치로 흘러가 **유료 이미지가 생성된다.**
+                 *    수집 사진을 쓰겠다고 고른 사용자에게 청구될 비용이라 바로 빠진다.
+                 */
+                console.log(`[IMG-${i + 1}] ⬜ 상품 사진 소진 — 빈 자리로 둠 (전략: product-all)`);
+                onLog?.(`   [IMG-${i + 1}] ⬜ 수집한 상품 사진을 다 썼습니다 — 이 자리는 비워 둡니다 (편집기에서 직접 넣으실 수 있어요)`);
+                leaveBlank = true;
+              } else {
                 usedProductImages.add(imgKey(picked));
                 const idxInPool = productPool.indexOf(picked) + 1;
                 console.log(`[IMG-${i + 1}] 🛒 상품 사진 그대로 (전략: product-all)`);
@@ -2871,7 +2913,7 @@ ${quoted}
           }
 
           // 🛒 수집 이미지 모드: 크롤러에서 수집한 이미지를 직접 사용
-          if (!imageResult.ok && imageSource === 'crawled' && payload.productImages?.length > 0) {
+          if (!imageResult.ok && !leaveBlank && imageSource === 'crawled' && payload.productImages?.length > 0) {
             // idx=0은 썸네일과 중복이므로 idx+1부터 매칭 (이미지가 부족하면 순환)
             const imgIdx = (i + 1) % payload.productImages.length;
             const crawledUrl = payload.productImages[imgIdx];
@@ -2883,7 +2925,7 @@ ${quoted}
           }
 
           // 🛒→AI 모드: 수집 이미지를 참고하여 AI가 새로 생성
-          if (!imageResult.ok && (imageSource === 'crawled-ai-nanobananapro' || imageSource === 'crawled-ai-nanobanana2')) {
+          if (!imageResult.ok && !leaveBlank && (imageSource === 'crawled-ai-nanobananapro' || imageSource === 'crawled-ai-nanobanana2')) {
             const imgIdx = (i + 1) % (payload.productImages?.length || 1);
             const refImage = payload.productImages?.[imgIdx] || '';
             const enhancedPrompt = refImage
@@ -2913,7 +2955,8 @@ ${quoted}
           }
 
           // 🎯 이미지 디스패치: 사용자 선택 엔진 1순위 → 실패 시 폴백
-          if (!imageResult.ok) {
+          //   v3.8.440: leaveBlank 면 여기 오면 안 된다 — 유료 생성 경로다.
+          if (!imageResult.ok && !leaveBlank) {
             try {
               console.log(`[IMG-${i + 1}] 🎯 이미지 디스패치 (소스: ${imageSource})...`);
               // 🛡️ v3.5.83: 섹션별 영어 variation hint 주입 — nanobanana 본문 이미지 중복 방지

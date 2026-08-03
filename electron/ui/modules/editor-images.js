@@ -75,6 +75,8 @@ export function initImageEditing(frame, doc, { setStatus, onAfterRestore }) {
     frame, doc, setStatus, onAfterRestore,
     imgToolbar, insertMarker, linkToolbar,
     selectedImg: null, selectedLink: null, hoverBlock: null,
+    // v3.8.440: 마지막으로 커서가 있던 블록을 기억한다 (아래 주석 참고)
+    lastCaretBlock: null,
     opStack: [],
   };
 
@@ -82,6 +84,38 @@ export function initImageEditing(frame, doc, { setStatus, onAfterRestore }) {
   doc.addEventListener('mouseover', onDocMouseOver);
   doc.addEventListener('scroll', hideOverlays, true);
   doc.addEventListener('input', () => { /* 텍스트 편집 중 위치가 어긋나므로 숨김 */ hideOverlays(); });
+
+  /**
+   * 🎯 v3.8.440 — 커서 위치를 **미리** 기억해 둔다.
+   *
+   * 사용자 보고(2026-08-03): "원하는 위치에 커서를 두고 이미지 삽입버튼눌러서
+   *   이미지를 넣었는데 제일 하단에 이미지가 생성이되네"
+   *
+   * 원인: '이미지 삽입' 버튼은 iframe **바깥**(부모 문서)에 있다. 버튼을 누르는
+   *   순간 포커스가 iframe 을 떠나 안쪽 선택(커서)이 풀린다. 그래서 삽입 시점에
+   *   doc.getSelection() 이 비어 있고, 코드가 '글 끝(beforeend)' 폴백을 탔다.
+   *
+   * 해결: 사용자가 iframe 안에서 클릭·타이핑·키 이동을 할 때마다 그때의 블록을
+   *   저장해 둔다. 버튼을 눌러 선택이 풀려도 **저장해 둔 위치**에 넣으면 된다.
+   */
+  const rememberCaret = () => {
+    try {
+      const sel = doc.getSelection();
+      if (!sel || !sel.anchorNode) return;
+      const el = sel.anchorNode.nodeType === Node.ELEMENT_NODE
+        ? sel.anchorNode
+        : sel.anchorNode.parentElement;
+      const container = getArticleContainer(doc);
+      const blk = findDirectBlock(el, container)
+        || (container !== doc.body ? findDirectBlock(el, doc.body) : null);
+      if (blk) state.lastCaretBlock = blk;
+    } catch { /* 위치 기억 실패가 편집을 막지 않는다 */ }
+  };
+  doc.addEventListener('keyup', rememberCaret);
+  doc.addEventListener('mouseup', rememberCaret);
+  doc.addEventListener('selectionchange', rememberCaret);
+  // click 은 capture 로 이미 잡고 있어 그 뒤에 한 번 더 기록한다
+  doc.addEventListener('click', rememberCaret);
 
   if (!window.__veResizeBound) {
     window.__veResizeBound = true;
@@ -360,13 +394,22 @@ export async function insertImagesAtCaret(doc) {
     const el = selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement;
     block = findDirectBlock(el, container) || (container !== doc.body ? findDirectBlock(el, doc.body) : null);
   }
+  /**
+   * v3.8.440 — 선택이 풀렸으면 **기억해 둔 커서 위치**를 쓴다.
+   *   버튼이 iframe 밖에 있어 클릭 순간 선택이 사라진다(위 rememberCaret 주석 참고).
+   *   그때마다 글 끝에 붙던 것이 사용자가 겪은 문제다.
+   *   화면에서 사라진 블록(다른 글을 연 경우)은 쓰지 않는다 — isConnected 로 확인.
+   */
+  if (!block && state.lastCaretBlock?.isConnected) {
+    block = state.lastCaretBlock;
+  }
   await pickAndInsertImages((html) => {
     if (block) block.insertAdjacentHTML('afterend', html);
     else container.insertAdjacentHTML('beforeend', html);
-  });
+  }, !!block);
 }
 
-async function pickAndInsertImages(insertFn) {
+async function pickAndInsertImages(insertFn, atCaret = false) {
   try {
     const res = await window.electronAPI.invoke('select-image-files', { multi: true });
     if (!res?.ok || !res.files?.length) {
@@ -378,7 +421,10 @@ async function pickAndInsertImages(insertFn) {
     insertFn(html);
     hideOverlays();
     if (res.skipped?.length) alert('일부 이미지는 제외되었습니다:\n' + res.skipped.join('\n'));
-    state.setStatus(`이미지 ${res.files.length}장을 삽입했습니다. 저장 시 자동 업로드됩니다.`);
+    // v3.8.440: 어디에 들어갔는지 알려준다 — 맨 끝에 붙었으면 사용자가 바로 안다
+    state.setStatus(atCaret
+      ? `이미지 ${res.files.length}장을 커서 위치에 삽입했습니다. 저장 시 자동 업로드됩니다.`
+      : `이미지 ${res.files.length}장을 글 끝에 삽입했습니다(커서 위치를 찾지 못했습니다). 저장 시 자동 업로드됩니다.`);
   } catch (err) {
     console.error('[EDITOR-IMG] 삽입 실패:', err);
     alert('이미지 삽입 실패: ' + (err?.message || err));

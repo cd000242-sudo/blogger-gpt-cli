@@ -62,9 +62,19 @@ describe('② 수집 이미지가 중복 배치되던 문제', () => {
     expect(orch).not.toContain('const picked = productPool[(i + 1) % productPool.length];');
   });
 
-  it('⭐ 사진이 모자랄 때만 재사용하고, 그때도 썸네일(0번)은 피한다', () => {
+  /**
+   * v3.8.440 에 정책이 바뀌었다.
+   *   이전: 사진이 모자라면 썸네일을 뺀 나머지를 재사용해 자리를 채웠다.
+   *   현재: 재사용하지 않고 **비워 둔다.**
+   * 사용자 지시 — "만약 그래도 부족하다면 공란으로 놔둬 이미지를 편집할수있으니까
+   *   따로넣으면되". 같은 사진이 두 번 나오는 것보다 빈 자리가 낫다는 판단이다.
+   */
+  it('⭐ 사진이 모자라면 재사용하지 않고 비워 둔다 (v3.8.440)', () => {
     const block = blockBetween(orch, "if (shoppingStrategy === 'product-all') {", "} else if (shoppingStrategy === 'product-i2i')");
-    expect(block).toContain('productPool.slice(1)');
+    expect(block).toContain('leaveBlank = true;');
+    // 재사용 폴백은 완전히 사라져야 한다 — 남아 있으면 중복이 되살아난다
+    expect(block).not.toContain('productPool.slice(1)');
+    expect(block).not.toContain('% reusable.length');
   });
 
   it('⭐ 쓴 사진은 기록한다', () => {

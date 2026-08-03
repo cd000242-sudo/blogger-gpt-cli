@@ -7152,13 +7152,30 @@ https://toss.im/_m/XXXXXXX"
 
     // 플랫폼 선택
     function selectPlatform(platform) {
-      // 라디오 버튼 체크
-      const radio = document.getElementById('platform-' + platform);
-      if (radio) radio.checked = true;
-      // 반대편 라디오도 명시적으로 해제
-      const otherPlatform = platform === 'blogger' ? 'wordpress' : 'blogger';
-      const otherRadio = document.getElementById('platform-' + otherPlatform);
-      if (otherRadio) otherRadio.checked = false;
+      /**
+       * 🚨 v3.8.440 — 플랫폼이 **3개**인데 2개 전제로 짜여 있었다.
+       *
+       * 사용자 보고(2026-08-03): "블로그스팟 발행하고 워드프레스 발행하고 티스토리
+       *   발행하려고 티스토리를 선택했는데 안바껴서 워드프레스로 발행이되었어"
+       *
+       * 원인: 해제 대상을 "blogger 가 아니면 wordpress" 식 삼항 한 줄로 정하고 있었다.
+       * 티스토리를 고르면 blogger 만 해제하고 **wordpress 는 건드리지 않았다.**
+       * 게다가 박스 스타일 갱신도 blogger/wordpress 두 개만 다뤄 티스토리는
+       * 눌러도 화면이 안 바뀌었다(= "안 바뀐다"는 체감의 정체).
+       *
+       * 이제 목록을 돌며 **고른 것만 켜고 나머지는 전부 끈다.** 플랫폼이 늘어도
+       * 이 배열에만 추가하면 된다.
+       */
+      const ALL_PLATFORMS = ['blogger', 'wordpress', 'tistory'];
+      ALL_PLATFORMS.forEach((p) => {
+        const r = document.getElementById('platform-' + p);
+        if (r) r.checked = (p === platform);
+      });
+      // 라디오 변경을 구독하는 쪽(내부링크·엑셀 등)에도 즉시 알린다
+      try {
+        const picked = document.getElementById('platform-' + platform);
+        picked?.dispatchEvent(new Event('change', { bubbles: true }));
+      } catch (_) { /* 이벤트 실패가 선택을 막지 않는다 */ }
 
       // 선택 박스 스타일 업데이트
       const bloggerBox = document.getElementById('blogger-select-box');
@@ -7185,6 +7202,14 @@ https://toss.im/_m/XXXXXXX"
           box.style.boxShadow = '0 10px 28px rgba(37, 99, 235, 0.45), 0 0 0 4px rgba(59, 130, 246, 0.18)';
           box.style.transform = 'scale(1.03)';
           box.style.opacity = '1';
+        } else if (kind === 'tistory-on') {
+          // v3.8.440: 티스토리 전용 강조 (주황) — 예전엔 이 분기가 없어 워드프레스로 보였다
+          box.style.borderColor = '#f97316';
+          box.style.borderWidth = '3px';
+          box.style.background = 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)';
+          box.style.boxShadow = '0 10px 28px rgba(249, 115, 22, 0.45), 0 0 0 4px rgba(251, 146, 60, 0.18)';
+          box.style.transform = 'scale(1.03)';
+          box.style.opacity = '1';
         } else {
           box.style.borderColor = '#e2e8f0';
           box.style.borderWidth = '2px';
@@ -7195,17 +7220,17 @@ https://toss.im/_m/XXXXXXX"
         }
       };
 
-      if (platform === 'blogger') {
-        setSelectedBox(bloggerBox, 'blogger-on');
-        setSelectedBox(wordpressBox, 'off');
-        if (bloggerFields) bloggerFields.style.display = 'block';
-        if (wordpressFields) wordpressFields.style.display = 'none';
-      } else {
-        setSelectedBox(wordpressBox, 'wordpress-on');
-        setSelectedBox(bloggerBox, 'off');
-        if (wordpressFields) wordpressFields.style.display = 'block';
-        if (bloggerFields) bloggerFields.style.display = 'none';
-      }
+      /**
+       * v3.8.440 — 티스토리를 골라도 **워드프레스가 선택된 것처럼 보이던** 문제.
+       *   기존 else 분기가 "blogger 가 아니면 전부 WordPress" 로 처리했다.
+       *   화면이 거짓말을 하니 사용자는 "안 바뀐다"고 느낄 수밖에 없었다.
+       */
+      const tistoryBox = document.getElementById('tistory-select-box');
+      setSelectedBox(bloggerBox, platform === 'blogger' ? 'blogger-on' : 'off');
+      setSelectedBox(wordpressBox, platform === 'wordpress' ? 'wordpress-on' : 'off');
+      setSelectedBox(tistoryBox, platform === 'tistory' ? 'tistory-on' : 'off');
+      if (bloggerFields) bloggerFields.style.display = platform === 'blogger' ? 'block' : 'none';
+      if (wordpressFields) wordpressFields.style.display = platform === 'wordpress' ? 'block' : 'none';
 
       // 설정 모달 내부의 플랫폼 설명 박스 (설정 모달용)
       // v3.7.16: platformStatusBox 색상도 플랫폼별 변경 — Blogger 노랑 / WordPress 파랑
@@ -7214,7 +7239,21 @@ https://toss.im/_m/XXXXXXX"
       const platformStatus = document.getElementById('platformStatus');
       const platformStatusBox = document.getElementById('platformStatusBox');
       // v3.8.23: 상단 헤더 배지 색상 강화 — 진한 배경 그라데이션 + 두꺼운 테두리 + 강조 그림자
-      if (platform === 'blogger') {
+      /**
+       * v3.8.440 — 헤더 배지도 3개를 구분한다.
+       *   기존엔 blogger 가 아니면 무조건 "✓ WordPress 선택됨" 이라 적혔다.
+       *   티스토리를 골랐는데 화면이 WordPress 라고 말하니 안 바뀐 줄 알 수밖에 없었다.
+       */
+      if (platform === 'tistory') {
+        if (platformIcon) platformIcon.textContent = '🅃';
+        if (platformName) { platformName.textContent = '✓ Tistory 선택됨'; platformName.style.color = '#7c2d12'; platformName.style.fontWeight = '900'; platformName.style.fontSize = '20px'; }
+        if (platformStatus) { platformStatus.textContent = '카카오 티스토리 블로그'; platformStatus.style.color = '#9a3412'; platformStatus.style.fontWeight = '700'; }
+        if (platformStatusBox) {
+          platformStatusBox.style.background = 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)';
+          platformStatusBox.style.border = '3px solid #f97316';
+          platformStatusBox.style.boxShadow = '0 6px 20px rgba(249, 115, 22, 0.35)';
+        }
+      } else if (platform === 'blogger') {
         if (platformIcon) platformIcon.textContent = '🅱️';
         if (platformName) { platformName.textContent = '✓ Blogger 선택됨'; platformName.style.color = '#78350f'; platformName.style.fontWeight = '900'; platformName.style.fontSize = '20px'; }
         if (platformStatus) { platformStatus.textContent = 'Google 블로그 플랫폼'; platformStatus.style.color = '#92400e'; platformStatus.style.fontWeight = '700'; }
