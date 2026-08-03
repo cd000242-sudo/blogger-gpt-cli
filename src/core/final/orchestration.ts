@@ -1690,7 +1690,17 @@ export async function generateUltimateMaxModeArticleFinal(
     //   2026 기준 권장은 한 문단 6줄 이내다. 6줄이 넘으면 읽기 전에 부담부터 준다.
     //   글자 크기·줄간격은 발행 단계에서 키웠고(16~18px·1.8), 문단 길이는 여기서 줄인다.
     //   ⚠️ 후처리로 문장을 쪼개면 뜻과 흐름이 깨진다 — 처음부터 짧게 쓰게 한다.
-    modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') + `
+    //
+    //   v3.8.424 — 이 블록이 v3.8.404부터 한 번도 실제 프롬프트에 실리지 않았다. 원인 —
+    //   여기서는 modeResult.sectionPromptBlock에 추가했는데, 1611행에서 이미
+    //   `let scopedSectionBlock = modeResult.sectionPromptBlock || '';`로 **문자열을
+    //   복사**해 놓았고(원시값이라 참조가 아니다), 실제 generateAllSectionsFinal 호출은
+    //   그 이후로 전부 scopedSectionBlock만 쓴다. 여기서 modeResult.sectionPromptBlock을
+    //   아무리 바꿔도 이미 복사된 scopedSectionBlock에는 반영되지 않는다 — 죽은 코드였다.
+    //   바로 위(1634/1653/1657/1678행)의 다른 추가들이 전부 scopedSectionBlock에 직접
+    //   붙이는 것과 비교하면 이 줄만 실수로 다른 변수를 쓴 것이다. scopedSectionBlock으로
+    //   맞춘다.
+    scopedSectionBlock += `
 
 📖 **읽기 편하게 쓰는 법 (분량은 그대로, 덩어리만 나눈다)**
 - 한 문단은 **2~3문장, 120자 이내**로 끊으세요. 지금까지는 200자를 넘겨 읽기 부담스러웠습니다.
