@@ -44,6 +44,31 @@ const esc = (s: string) => String(s || '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /**
+ * 설명문에서 **상품명 중복을 걷어낸다.**
+ *
+ * 사용자 보고(2026-08-03): "CTA 사진 우측에 제품명이 중복인데 수정안했네요"
+ *
+ * 원인: 제휴사가 주는 설명(og:description)이 상품명으로 시작한다. 실측 —
+ *   제목 : "몽크로스 초강력 바디팬, 다크그레이, 2개"
+ *   설명 : "몽크로스 초강력 바디팬, 다크그레이, 2개, 리뷰 5개 · 평점 4.6점. 모레 도착 예정"
+ * 그대로 나란히 두면 같은 문장이 두 줄 겹쳐 보인다. 앞의 겹치는 부분만 떼고
+ * **남는 정보(리뷰·평점·배송)만** 보여준다. 남는 게 없으면 아예 표시하지 않는다.
+ */
+export function dedupeProductNote(note: string, name: string): string {
+  let out = String(note || '').trim();
+  const base = String(name || '').trim();
+  if (!out) return '';
+  if (!base) return out;
+  if (out === base) return '';
+  if (out.startsWith(base)) {
+    // 상품명 뒤에 붙은 구분자(, · | - 공백)까지 함께 떼어낸다
+    out = out.slice(base.length).replace(/^[\s,·|/–—-]+/, '').trim();
+  }
+  // 떼고 났는데 너무 짧으면(의미 없는 꼬리) 표시하지 않는다
+  return out.length >= 4 ? out : '';
+}
+
+/**
  * 카드 하나를 그린다.
  * 인라인 스타일만 쓴다 — 블로그 플랫폼마다 외부 CSS 가 먹지 않는 경우가 많다.
  */
@@ -59,28 +84,28 @@ export function renderProductCtaCard(
   const priceLine = product.priceKrw && product.priceKrw > 0
     ? `<div style="font-size:20px;font-weight:900;color:#e11d48;margin:4px 0 2px;">${product.priceKrw.toLocaleString('ko-KR')}원</div>`
     : '';                                            // 모르는 가격은 쓰지 않는다
-  const noteLine = product.note
-    ? `<div style="font-size:12.5px;color:#64748b;">${esc(product.note)}</div>`
+  // v3.8.432: 설명이 상품명으로 시작하면 겹치는 부분을 떼어낸다
+  const cleanNote = dedupeProductNote(String(product.note || ''), String(product.name || ''));
+  const noteLine = cleanNote
+    ? `<div style="font-size:13.5px;color:#64748b;text-align:center;margin-top:6px;">${esc(cleanNote)}</div>`
     : '';
   const img = String(product.imageUrl || '').trim();
+  // v3.8.432: 가운데 정렬 — 사진도 글도 버튼도 한 축에 놓는다.
+  //   사용자 요구: "중앙으로 정렬시켜주세요", "제품명도 크게 중앙정렬로 배치해주세요"
   const imgBox = img
     ? `<a href="${esc(url)}" target="_blank" rel="sponsored nofollow noopener"
-         style="flex:0 0 120px;display:block;"><img src="${esc(img)}" alt="${name}"
-         style="width:120px;height:120px;object-fit:cover;border-radius:12px;display:block;background:#f1f5f9;"></a>`
+         style="display:block;margin:0 auto 14px;width:180px;"><img src="${esc(img)}" alt="${name}"
+         style="width:180px;height:180px;object-fit:contain;border-radius:12px;display:block;background:#f1f5f9;"></a>`
     : '';
 
   return `
-<div style="margin:32px 0;padding:18px;border:2px solid #fecdd3;border-radius:18px;background:#fff7f8;">
-  <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
-    ${imgBox}
-    <div style="flex:1 1 220px;min-width:200px;">
-      <div style="font-size:15px;font-weight:800;color:#0f172a;line-height:1.45;">${name}</div>
-      ${priceLine}
-      ${noteLine}
-    </div>
-  </div>
+<div style="margin:32px 0;padding:22px 18px;border:3px solid #fda4af;border-radius:18px;background:#fff7f8;text-align:center;">
+  ${imgBox}
+  <div style="font-size:19px;font-weight:900;color:#0f172a;line-height:1.45;text-align:center;word-break:keep-all;">${name}</div>
+  ${priceLine}
+  ${noteLine}
   <a href="${esc(url)}" target="_blank" rel="sponsored nofollow noopener"
-     style="display:block;margin-top:14px;padding:18px 20px;background:#e11d48;color:#ffffff;
+     style="display:block;margin-top:16px;padding:18px 20px;background:#e11d48;color:#ffffff;
             font-size:18px;font-weight:900;text-align:center;text-decoration:none;border-radius:14px;
             box-shadow:0 6px 18px rgba(225,29,72,0.28);">${label}</a>
 </div>`.trim();

@@ -404,10 +404,20 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
         const model = genAI.getGenerativeModel({ model: modelName });
         // v3.8.99: maxOutputTokens 미지정 → Gemini가 기본 4096-8192 토큰으로 잘림 → 본문 짧음 (사용자 반복 보고).
         //   해결: 16,384 토큰 (한국어 약 12,000자 가능) 명시. 거미줄 v3.8.81/main.ts:1163과 동일.
+        //
+        // v3.8.432 — 16,384 로는 부족한 경우가 있다.
+        //   사용자 실측(2026-08-03 쇼핑 발행글): H2 7개 × H3 각 1~2개 구성인데
+        //   "3-1. 용도별 비교 기준", "6-1. 장바구니 가격 확인" 두 곳의 본문이 통째로 비었다.
+        //   본문 생성은 전 섹션을 **한 번의 JSON 응답**으로 받는다. H3 하나에 600자 이상을
+        //   요구하므로 7×2×600 = 8,400자에 HTML 태그·표·JSON 이스케이프가 더해지고,
+        //   한국어는 글자당 토큰이 커서 16,384 를 넘긴다. 넘긴 응답은 잘리고, 잘린 JSON 을
+        //   복구하는 과정에서 뒷부분 content 가 빈 채로 살아남는다.
+        //   → 상한을 올린다. 실제 사용량만큼만 과금되므로 상한을 올린다고 비용이 늘지 않는다.
+        const maxOutTokens = envInt('GEMINI_MAX_OUTPUT_TOKENS', 32768);
         const result: any = await withTimeout(
           model.generateContent({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { maxOutputTokens: 16384, temperature: getGeminiTemperature(prompt) },
+            generationConfig: { maxOutputTokens: maxOutTokens, temperature: getGeminiTemperature(prompt) },
           }),
           envInt('GEMINI_TIMEOUT_MS', DEFAULT_GEMINI_TIMEOUT_MS),
           modelName,

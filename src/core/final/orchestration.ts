@@ -1758,6 +1758,22 @@ export async function generateUltimateMaxModeArticleFinal(
             const factCount = visionResults.reduce((n: number, r: any) => n + (r?.facts?.length || 0), 0);
             onLog?.(`[PROGRESS] 41% - 📸 상세 이미지에서 확인한 사실 ${factCount}개를 본문에 반영합니다`);
           }
+          /**
+           * v3.8.432 — 뽑아낸 사실을 **이미지 프롬프트에도** 물려준다.
+           *
+           * 사용자 보고: "생성된 이미지에서는 사이즈가 좀 크고 대부분 차량이나 집에
+           *   놓고 사용하는 이미지인데 실제이미지는 크기가 작고 목에걸거나 옷에 착용하는
+           *   용도입니다 추론할떄 이런건 추론안하나요?"
+           *
+           * 맞는 지적이다. 그동안 이미지 프롬프트에는 **상품명만** 넘어갔다.
+           * 모델은 "바디팬"이라는 말만 보고 큰 탁상용을 그렸다.
+           * 상세 이미지에서 읽어낸 크기·착용 방식을 같이 넘기면 그럴 일이 줄어든다.
+           */
+          const allFacts = (visionResults as any[]).flatMap((r) => r?.facts || []).filter(Boolean);
+          if (allFacts.length > 0) {
+            (payload as any).detailImageFacts = allFacts.slice(0, 8);
+          }
+
           const placements = buildPlacementMap(visionResults as any, normalizeFolderHeadingKey);
           const placedCount = Object.keys(placements).length;
           if (placedCount > 0) {
@@ -2575,11 +2591,33 @@ export async function generateUltimateMaxModeArticleFinal(
                 || '',
               ).trim();
               const prodCategory = String((payload as any).coupangProducts?.[0]?.categoryName || '').trim();
+              /**
+               * 🎯 v3.8.432 — 상품의 **실제 생김새·크기·쓰는 방식**을 프롬프트에 넣는다.
+               *
+               * 사용자 보고: "생성된 이미지에서는 사이즈가 좀 크고 대부분 차량이나 집에
+               *   놓고 사용하는 이미지인데 실제이미지는 크기가 작고 목에걸거나 옷에
+               *   착용하는 용도입니다 추론할떄 이런건 추론안하나요?"
+               *
+               * 그동안 상품명 하나만 넘겼다. "바디팬"만 보고 모델이 큰 탁상용을 그렸다.
+               * 재료는 이미 손에 있다 —
+               *   · 상세 이미지에서 읽어낸 사실(v3.8.431 detailImageFacts)
+               *   · 제휴사 설명(og:description: "휴대용/웨어러블/핸즈프리" 같은 용도 표기)
+               * 이걸 같이 넘기고, **없는 건 지어내지 말라**고 못 박는다.
+               */
+              const prodDesc = String((payload as any).affiliateProducts?.[0]?.description || '').trim();
+              const visionFacts = ((payload as any).detailImageFacts || []) as string[];
+              const traits = [
+                ...visionFacts.slice(0, 5),
+                ...(prodDesc ? [prodDesc.slice(0, 120)] : []),
+              ].filter(Boolean);
+              const traitLine = traits.length
+                ? ` 이 제품의 실제 특징: ${traits.join(' / ')}. 이 특징(크기·착용 방식·사용 장소)을 반드시 지켜서 그리세요 — 실제보다 크게 그리거나 용도를 바꾸지 마세요.`
+                : '';
               const productHint = prodName
-                ? `${section.h2} — "${prodName}"${prodCategory ? ` (${prodCategory})` : ''} 제품이 실제로 쓰이는 장면`
+                ? `${section.h2} — "${prodName}"${prodCategory ? ` (${prodCategory})` : ''} 제품이 실제로 쓰이는 장면.${traitLine}`
                 : section.h2;
               if (prodName) {
-                onLog?.(`   [IMG-${i + 1}] 🎨 상품 기반 생성 — "${prodName.slice(0, 24)}" 를 프롬프트에 반영`);
+                onLog?.(`   [IMG-${i + 1}] 🎨 상품 기반 생성 — "${prodName.slice(0, 24)}"${traits.length ? ` + 실제 특징 ${traits.length}개 반영` : ''}`);
               }
               console.log(`[IMG-${i + 1}] 🎨 상품 기반 i2i (전략: product-i2i, ref ${refs.length}장, 엔진 ${i2iEngine})`);
               try {
@@ -2890,6 +2928,8 @@ export async function generateUltimateMaxModeArticleFinal(
 
     // H2 섹션들 — 💰 Revenue-Max: 카드 없이 플랫 구조
     const renderedCtaUrls = new Set<string>();
+    // v3.8.432: H3 박스 색을 글 전체에서 순서대로 돌리기 위한 카운터
+    let h3BoxCounter = 0;
     sections.forEach((section, idx) => {
       // 🔥 H2 제목에서 접두어 제거 (h2:, H2-, 소제목: 등)
       let cleanH2 = (section.h2 || '')
@@ -2932,8 +2972,30 @@ export async function generateUltimateMaxModeArticleFinal(
           .trim();
         const h3Number = `${idx + 1}-${h3Idx + 1}.`;
 
-        // 💰 H3 — 볼드, 여백 최적화
-        html += `\n<h3 style="font-size:21px !important;font-weight:800 !important;color:#222 !important;-webkit-text-fill-color:#222 !important;margin:30px 0 12px !important;padding:0 !important;letter-spacing:-0.02em !important;line-height:1.5 !important;background:none !important;border:none !important;border-radius:0 !important;box-shadow:none !important;display:block !important;word-break:keep-all !important;">${h3Number} ${cleanH3}</h3>\n`;
+        /**
+         * 💰 H3 — 파스텔 박스로 감싼다 (v3.8.432)
+         *
+         * 사용자 요구(2회): "H3도 박스로 감싸달라니까 언제 감쌀 건가요??",
+         *   "박스 테투리 선은 두껍게 해주세요 … 경계를 애매하게하지말고 명확히"
+         *
+         * 왜 그동안 안 됐나: html.ts 259~275행에 H3 박스 CSS 가 v3.8.419 부터 있었지만,
+         *   여기서 인라인으로 `background:none !important; border:none !important` 를
+         *   박아 그 CSS 를 죽이고 있었다. 인라인 !important 는 스타일시트 !important 를
+         *   이긴다 — 그래서 CSS 를 아무리 고쳐도 적용될 수가 없었다.
+         *   블로그 플랫폼은 외부 CSS 가 안 먹는 경우가 많으므로 **인라인으로 직접 그린다.**
+         *   색은 글 전체를 관통하는 카운터로 6색을 순서대로 돌린다(같은 글 안에서 튀지 않게).
+         */
+        const h3Palette = [
+          { bg: '#fef3f2', bd: '#f9a8a4' },
+          { bg: '#eff8ff', bd: '#7cc4fb' },
+          { bg: '#f0fdf4', bd: '#86efac' },
+          { bg: '#fefbea', bd: '#fcd34d' },
+          { bg: '#f5f3ff', bd: '#c4b5fd' },
+          { bg: '#fdf2f8', bd: '#f9a8d4' },
+        ];
+        const tone = h3Palette[h3BoxCounter % h3Palette.length]!;
+        h3BoxCounter += 1;
+        html += `\n<h3 style="font-size:21px !important;font-weight:800 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin:32px 0 14px !important;padding:14px 20px !important;letter-spacing:-0.02em !important;line-height:1.5 !important;background:${tone.bg} !important;border:3px solid ${tone.bd} !important;border-radius:12px !important;box-shadow:none !important;display:block !important;word-break:keep-all !important;">${h3Number} ${cleanH3}</h3>\n`;
 
         // 💰 본문 — 줄간격 1.8, 단락간 여백 확보로 가독성 극대화
         // <p> 간 간격이 자동으로 커지도록 CSS를 인젝트했지만, 인라인 스타일도 확실히 잡아줌
@@ -3043,6 +3105,28 @@ export async function generateUltimateMaxModeArticleFinal(
     if (contentMode === 'shopping') {
       const coupangProducts = (payload as any).coupangProducts;
       /**
+       * 🚨 v3.8.432 — 쿠팡 고지문은 **쿠팡 글에만** 넣는다.
+       *
+       * 사용자 보고(2026-08-03, 토스 발행글): "토스로했는데 쿠팡 공정위 문구가
+       *   하드코딩되어있는것같네요 없애주세요 네이버 브랜드커넥트에서도 마찬가지입니다."
+       *
+       * 원인: 이 블록은 contentMode === 'shopping' 이기만 하면 돌았다. 토스 글이어도
+       *   2순위 "키워드 자동 검색"이 coupangProducts 를 채워 두기 때문에 hasProducts 가
+       *   참이 되고, 그러면 아래에서 쿠팡 대가성 문구 배너를 그대로 꽂았다.
+       *   그 결과 토스 고지문(정상)과 쿠팡 고지문(엉뚱함)이 나란히 두 개 나갔다.
+       *   제휴사가 아닌 곳의 고지문을 다는 것은 표시광고법상으로도 사실과 다른 표시다.
+       *
+       * 판정: 고른 제휴사가 있으면 그것이 답이다. 없으면(구버전 payload) 쿠팡 링크
+       *   유무로 보고, 링크 자체가 없으면 키워드로 찾은 쿠팡 상품이 곧 수익원이므로
+       *   쿠팡 글로 본다 — 예전 동작 그대로다.
+       */
+      const isCoupangArticle = explicitProvider
+        ? explicitProvider === 'coupang'
+        : (!!coupangLink || !hasSpecificProductLink);
+      if (!isCoupangArticle) {
+        onLog?.('[PROGRESS] 92% - ℹ️ 쿠팡 글이 아니므로 쿠팡 대가성 문구·상품 위젯을 넣지 않습니다');
+      }
+      /**
        * v3.8.419 — "추천 상품 한눈에 보기"가 사용자가 특정 상품 링크를 넣었을 때도
        *   여전히 나온다는 재지적. v3.8.416에서 고친 건 "coupangProducts가 조기에 채워져
        *   사용자 링크 크롤링 자체가 스킵되는" 문제였지, 이 위젯이 렌더링되는지 여부가
@@ -3054,7 +3138,7 @@ export async function generateUltimateMaxModeArticleFinal(
        *   경우가 생기잖아"). coupangLink가 있으면 이 다중 상품 위젯 자체를 생략한다 —
        *   대신 insertCtaCards()가 그 "하나의" 상품 카드를 이미지와 함께 배치한다.
        */
-      const hasProducts = Array.isArray(coupangProducts) && coupangProducts.length > 0;
+      const hasProducts = isCoupangArticle && Array.isArray(coupangProducts) && coupangProducts.length > 0;
       if (hasProducts) {
         // 사용자가 준 구체적 상품 링크가 있으면 "추천 상품 한눈에 보기" 다중 상품 위젯만
         // 생략한다 — 대가성 문구·컴플라이언스는 이 상품이 있든 없든 필요하다.
@@ -3081,7 +3165,7 @@ export async function generateUltimateMaxModeArticleFinal(
           console.log(`[MAX-MODE] 🛒 컴플라이언스 교정: ${f}`);
           onLog?.(`[PROGRESS] 92% - 🛒 쿠팡 컴플라이언스: ${f}`);
         });
-      } else if (coupangLink) {
+      } else if (isCoupangArticle && coupangLink) {
         // 키워드 검색 결과(coupangProducts)는 없어도 사용자 링크는 있다 — 고지문은 필요하다.
         html = html.replace('<!-- COUPANG_DISCLOSURE_PLACEHOLDER -->', renderCoupangDisclosureBanner());
         console.log('[MAX-MODE] 🛒 상품 검색 데이터 없음, 사용자 링크만 존재 — 위젯 생략 + 대가성 문구는 그대로 배치');
@@ -3107,7 +3191,9 @@ export async function generateUltimateMaxModeArticleFinal(
        */
       // v3.8.429: 토스·네이버 글에서도 같은 안내가 필요하다 (제휴사와 무관한 안내다)
       if (hasSpecificProductLink) {
-        const imageClickNotice = `<p style="font-size:13px;color:#64748b;margin:0 0 24px;">📸 이 글의 사진을 누르면 소개하는 상품의 실제 판매 페이지로 이동합니다.</p>`;
+        // v3.8.432: 사용자 요구 — "박스로 감싸주시고 … 박스 테두리 선은 두껍게"
+        //   한 줄짜리 회색 글씨라 그냥 흘려 읽혔다. 테두리 3px 박스로 경계를 분명히 한다.
+        const imageClickNotice = `<div style="font-size:15px;color:#334155;margin:0 0 24px;padding:14px 18px;background:#f8fafc;border:3px solid #cbd5e1;border-radius:12px;line-height:1.6;">📸 이 글의 사진을 누르면 소개하는 상품의 실제 판매 페이지로 이동합니다.</div>`;
         html = html.replace('<!-- TOP_SUMMARY_CTA_PLACEHOLDER -->', imageClickNotice + '<!-- TOP_SUMMARY_CTA_PLACEHOLDER -->');
       }
     }

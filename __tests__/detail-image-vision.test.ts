@@ -174,14 +174,18 @@ describe('⑥ 실행 — 비용 상한과 실패 격리', () => {
   const png = Buffer.from('89504e470d0a1a0a', 'hex');
 
   it('⭐ 이미지 수가 많아도 상한까지만 호출한다 (비용 상한의 본체)', async () => {
+    // ⚠️ fetchImageImpl 을 주입해 **네트워크를 타지 않는다.** 예전엔 실제 fetch 를 타서
+    //   전체 게이트에서 CPU 가 붐빌 때 타임아웃으로 깨졌다 — 동작은 멀쩡한데 테스트만
+    //   깨지면 진짜 회귀와 구분할 수 없다.
     let calls = 0;
     const urls = Array.from({ length: 40 }, (_, i) => `https://x.com/${i}.png`);
-    await analyzeDetailImages(urls, H2, '상품', {
+    const r = await analyzeDetailImages(urls, H2, '상품', {
       apiKeys: {},
+      fetchImageImpl: async () => png,
       askImpl: async () => { calls += 1; return '{"facts":["a"],"bestH2Index":0,"confidence":80}'; },
-      // fetchImageBuffer 를 태우지 않도록 askImpl 이 먼저 걸리지만, 안전하게 상한만 본다
-    } as any).catch(() => { /* 네트워크 실패는 무시 — 상한만 확인한다 */ });
-    expect(calls).toBeLessThanOrEqual(MAX_VISION_IMAGES);
+    } as any);
+    expect(calls).toBe(MAX_VISION_IMAGES);
+    expect(r).toHaveLength(MAX_VISION_IMAGES);
   });
 
   it('⭐ 소제목이 없으면 아예 호출하지 않는다 (돈 낭비 방지)', async () => {

@@ -53,6 +53,12 @@ export interface DetailVisionOptions {
   onLog?: ((msg: string) => void) | undefined;
   /** 테스트 주입용 — 있으면 실제 API 를 부르지 않는다 */
   askImpl?: ((prompt: string, buf: Buffer, mime: string) => Promise<string>) | undefined;
+  /**
+   * 테스트 주입용 이미지 로더 — 있으면 네트워크를 타지 않는다.
+   * (crawl.ts 의 fetchImpl 과 같은 취지. 네트워크에 의존하는 테스트는
+   *  CPU 가 붐빌 때 타임아웃으로 깨져 '진짜 회귀'와 구분이 안 된다.)
+   */
+  fetchImageImpl?: ((url: string) => Promise<Buffer | null>) | undefined;
   timeoutMs?: number | undefined;
 }
 
@@ -207,7 +213,9 @@ export async function analyzeDetailImages(
 
   for (const imageUrl of urls) {
     try {
-      const buf = await fetchImageBuffer(imageUrl);
+      const buf = opts.fetchImageImpl
+        ? await opts.fetchImageImpl(imageUrl)
+        : await fetchImageBuffer(imageUrl);
       if (!buf) continue;
       const mime = detectMimeType(buf);
       const text = opts.askImpl

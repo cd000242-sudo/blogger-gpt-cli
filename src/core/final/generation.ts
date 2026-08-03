@@ -1671,7 +1671,67 @@ JSON만 출력:
       if (emptyH3s.length > 0) {
         const where = emptyH3s.map((x) => `${x.si + 1}-${x.hi + 1}`).join(', ');
         console.error(`[generateAllSections] ⚠️ 본문이 비어 있는 소제목 ${emptyH3s.length}개: ${where}`);
-        onLog?.(`[PROGRESS] 65% - ⚠️ 본문이 비어 있는 소제목이 ${emptyH3s.length}개 있습니다 (${where}) — 발행은 계속하지만 확인이 필요합니다`);
+        onLog?.(`[PROGRESS] 65% - ⚠️ 본문이 빈 소제목 ${emptyH3s.length}개 발견 (${where}) — 그 부분만 다시 채웁니다`);
+
+        /**
+         * v3.8.432 — **빈 곳만** 다시 채운다.
+         *
+         * 사용자 보고(2026-08-03): "용도별 비교기준의 본문이 또빠져있네요 …
+         *   장바구니 가격 확인도 빠져있구요"
+         *
+         * 이건 품질 보강이 아니라 **고장 수리**다. 제목만 있고 본문이 없는 글은
+         * 독자에게도 검색엔진에도 사고다. 그렇다고 글 전체를 다시 만들지는 않는다
+         * (사용자 원칙: "비용은 고정되면서 초기부터 글이 완벽하게 생성되어야 정상").
+         * 빈 소제목만 골라 **한 번의 작은 호출**로 그 부분만 받아온다 —
+         * 프롬프트도 응답도 작아서 전체 재생성과는 비용 차원이 다르다.
+         *
+         * 근본 대책은 따로 했다: 응답이 잘리지 않도록 출력 토큰 상한을 올렸다
+         * (gemini-engine.ts GEMINI_MAX_OUTPUT_TOKENS). 이건 그래도 빈 경우의 안전망이다.
+         */
+        try {
+          const targets = emptyH3s.map((x) => {
+            const sec = allSectionsObj.sections[x.si]!;
+            return { si: x.si, hi: x.hi, h2: sec.h2 || h2Titles[x.si] || '', h3: sec.h3Sections[x.hi]?.h3 || '' };
+          });
+          const repairPrompt = [
+            `키워드: ${keyword}`,
+            '',
+            '아래 소제목들의 **본문만** 작성하세요. 다른 소제목은 건드리지 마세요.',
+            '',
+            ...targets.map((t, i) => `${i}. [대제목] ${t.h2}\n   [소제목] ${t.h3}`),
+            '',
+            '규칙',
+            '- 각 본문은 <p> 태그로 감싼 4문단 이상, 합쳐서 600자 이상.',
+            '- 앞뒤 섹션과 중복되지 않게, 이 소제목이 약속한 내용만 구체적으로 쓰세요.',
+            '- 숫자·조건·비교가 3개 이상이면 표 대신 <ul><li>로 정리하세요.',
+            '- 확인되지 않은 가격·수치는 지어내지 마세요.',
+            '',
+            '아래 JSON 형식으로만 출력:',
+            '{"items":[{"index":0,"content":"<p>…</p>"}]}',
+            '',
+            '===== 참고 자료 =====',
+            reference.slice(0, 6000),
+          ].join('\n');
+
+          const repaired = await callGeminiWithRetry(repairPrompt);
+          const repairedObj = safeParseJson(extractJsonObject(repaired));
+          let filled = 0;
+          for (const item of (repairedObj?.items || [])) {
+            const t = targets[Number(item?.index)];
+            const body = String(item?.content || '');
+            if (!t || textLength(body) < 50) continue;
+            const target = allSectionsObj.sections[t.si]?.h3Sections?.[t.hi];
+            if (target) { target.content = body; filled += 1; }
+          }
+          if (filled > 0) {
+            onLog?.(`[PROGRESS] 66% - ✅ 빈 소제목 ${filled}개를 다시 채웠습니다`);
+          } else {
+            onLog?.('[PROGRESS] 66% - ⚠️ 빈 소제목을 채우지 못했습니다 — 발행은 계속합니다');
+          }
+        } catch (repairErr: any) {
+          // 수리 실패가 발행을 막지 않는다
+          onLog?.(`[PROGRESS] 66% - ⚠️ 빈 소제목 보충 실패 (계속 진행): ${String(repairErr?.message || repairErr).slice(0, 60)}`);
+        }
       }
     }
 

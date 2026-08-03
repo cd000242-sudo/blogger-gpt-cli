@@ -14,6 +14,7 @@
  */
 import { AffiliateProduct } from './crawl';
 import { getPolicy } from './policies';
+import { dedupeProductNote } from './cta-card';
 
 const esc = (v: string): string => String(v || '')
   .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
@@ -71,25 +72,33 @@ export function renderAffiliateProductBlock(products: AffiliateProduct[]): strin
       ? `<div style="font-size:20px;font-weight:800;color:#ef4444;margin:8px 0;">${p.priceKrw.toLocaleString('ko-KR')}원</div>`
       : '';
 
-    // 가격 대신 확인된 정보를 보여준다 (토스는 배송·판매자가 og:description 에 온다)
-    const infoHtml = !p.priceKrw && p.description
-      ? `<div style="font-size:13px;color:#6b7280;margin:8px 0;line-height:1.5;">${esc(p.description).slice(0, 90)}</div>`
+    /**
+     * v3.8.432 — 상품명이 두 번 나오던 문제.
+     *
+     * 사용자 보고: "소개한 상품은 우측 글이 … 이 두개중 아래에 얘를 없애버리고
+     *   상품보러가기를 다른 CTA처럼 중앙에 크게 배치하고 제품명도 크게 중앙정렬로"
+     *
+     * 제휴사 설명(og:description)이 상품명으로 시작해서 제목과 겹쳤다.
+     * 겹치는 앞부분을 떼고 남는 정보(리뷰·평점·배송)만 보여준다.
+     */
+    const cleanInfo = dedupeProductNote(String(p.description || ''), String(p.title || ''));
+    const infoHtml = !p.priceKrw && cleanInfo
+      ? `<div style="font-size:14px;color:#6b7280;margin:8px 0;line-height:1.6;text-align:center;">${esc(cleanInfo).slice(0, 90)}</div>`
       : '';
 
+    // 가운데 정렬 — 사진·상품명·버튼을 한 축에 놓는다
     const imgHtml = img
-      ? `<a href="${url}" target="_blank" rel="sponsored nofollow noopener" style="flex-shrink:0;">
-    <img src="${img}" alt="${name}" style="width:120px;height:120px;object-fit:cover;border-radius:8px;display:block;" loading="lazy" />
+      ? `<a href="${url}" target="_blank" rel="sponsored nofollow noopener" style="display:block;margin:0 auto 16px;width:220px;">
+    <img src="${img}" alt="${name}" style="width:220px;height:220px;object-fit:contain;border-radius:10px;display:block;background:#f8fafc;" loading="lazy" />
   </a>`
       : '';
 
     return `
-<div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:16px;background:#fff;display:flex;gap:16px;align-items:flex-start;">
+<div style="border:3px solid #dbe4ee;border-radius:14px;padding:22px 18px;margin-bottom:16px;background:#fff;text-align:center;">
   ${imgHtml}
-  <div style="flex:1;min-width:0;">
-    <a href="${url}" target="_blank" rel="sponsored nofollow noopener" style="font-size:16px;font-weight:700;color:#111827;text-decoration:none;line-height:1.4;display:block;margin-bottom:8px;">${name}</a>
-    ${priceHtml}${infoHtml}
-    <a href="${url}" target="_blank" rel="sponsored nofollow noopener" style="display:inline-block;background:#3b82f6;color:#fff;font-size:14px;font-weight:700;padding:10px 20px;border-radius:8px;text-decoration:none;margin-top:8px;">상품 보러가기 →</a>
-  </div>
+  <a href="${url}" target="_blank" rel="sponsored nofollow noopener" style="font-size:20px;font-weight:900;color:#111827;text-decoration:none;line-height:1.45;display:block;margin-bottom:8px;text-align:center;word-break:keep-all;">${name}</a>
+  ${priceHtml}${infoHtml}
+  <a href="${url}" target="_blank" rel="sponsored nofollow noopener" style="display:block;background:#2563eb;color:#fff;font-size:18px;font-weight:900;padding:18px 20px;border-radius:14px;text-decoration:none;margin-top:16px;text-align:center;box-shadow:0 6px 18px rgba(37,99,235,0.28);">🛒 상품 보러가기 →</a>
 </div>`;
   }).join('');
 

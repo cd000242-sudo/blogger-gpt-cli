@@ -604,7 +604,7 @@ article.hentry {
   margin: 32px 0 !important;
   padding: 24px 30px !important;
   background: #f8fafc !important;
-  border: 2px solid #1a1a1a !important;
+  border: 3px solid #1a1a1a !important;   /* v3.8.432: 경계를 분명하게 */
   border-radius: 12px !important;
   font-size: 16px !important;
   color: #334155;
@@ -1151,7 +1151,7 @@ article.hentry {
 }
 .white-paper .warning {
   background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%) !important;
-  border: 1px solid #fecaca !important;
+  border: 3px solid #fecaca !important;
   color: #dc2626 !important;
   padding: 20px !important;
   border-radius: 12px !important;
@@ -1159,7 +1159,7 @@ article.hentry {
 }
 .white-paper .success {
   background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%) !important;
-  border: 1px solid #bbf7d0 !important;
+  border: 3px solid #bbf7d0 !important;
   color: #16a34a !important;
   padding: 20px !important;
   border-radius: 12px !important;
@@ -1198,7 +1198,7 @@ article.hentry {
   background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%) !important;
   padding: 20px !important;
   border-radius: 12px !important;
-  border: 1px solid #bae6fd !important;
+  border: 3px solid #bae6fd !important;
   margin: 20px 0 !important;
 }
 .white-paper .checklist li {
@@ -1217,7 +1217,7 @@ article.hentry {
 }
 .white-paper .comparison-table {
   background: linear-gradient(135deg, #fefce8 0%, #fef3c7 100%) !important;
-  border: 1px solid #fde047 !important;
+  border: 3px solid #fde047 !important;
 }
 .white-paper .comparison-table th {
   background: linear-gradient(135deg, #fef3c7 0%, #fde047 100%) !important;

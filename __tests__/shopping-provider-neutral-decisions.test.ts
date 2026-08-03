@@ -59,16 +59,20 @@ describe('② "추천 상품 한눈에 보기" 위젯 — 링크를 준 글에�
 
 describe('③ 이미지 클릭 안내 — 제휴사 무관하게 표시', () => {
   it('⭐ 안내문 조건이 hasSpecificProductLink 기준이다', () => {
-    const block = braceBlock(orch, 'if (hasSpecificProductLink) {\n        const imageClickNotice');
+    // v3.8.432: 안내문이 <p> 한 줄 → 테두리 3px 박스(<div>)로 바뀌었다. 조건은 그대로다.
+    const block = braceBlock(orch, 'if (hasSpecificProductLink) {\n        // v3.8.432');
     expect(block).toContain('이 글의 사진을 누르면');
+    expect(block).toContain('border:3px solid');
   });
 });
 
 describe('쿠팡 전용 규정은 그대로 쿠팡 판정을 쓴다 (넓히면 안 되는 것)', () => {
   it('⭐ 대가성 문구·컴플라이언스 폴백 분기는 여전히 coupangLink로 판정한다', () => {
     // "키워드 검색 결과는 없지만 사용자 쿠팡 링크는 있다" 분기 — 쿠팡 고지문이 필요한 경우다.
-    expect(orch).toContain('} else if (coupangLink) {');
-    const block = braceBlock(orch, '} else if (coupangLink) {');
+    // v3.8.432: 여기에 isCoupangArticle 조건이 **추가**됐다. 토스 글인데 쿠팡 고지문이
+    //   붙던 사고(사용자 실측) 때문이다. coupangLink 판정 자체는 그대로 살아 있어야 한다.
+    expect(orch).toContain('} else if (isCoupangArticle && coupangLink) {');
+    const block = braceBlock(orch, '} else if (isCoupangArticle && coupangLink) {');
     expect(block).toContain('renderCoupangDisclosureBanner()');
     expect(block).toContain('enforceCoupangCompliance(html)');
   });
