@@ -2181,6 +2181,15 @@ export async function createPayload(options = {}) {
     publishType: previewOnly ? 'single' : publishTypeValue,
     postingMode: previewOnly ? 'single' : publishTypeValue,
     previewOnly,
+    // v3.8.425 — 사용자 보고: "반자동 발행이라고 로그에 인지했는데 왜 이미지까지 생성하는건데
+    //   이미지 비용이 얼만데 당장 수정해". 반자동(previewOnly)은 "이미지 없이 글만 먼저"가
+    //   설계 의도인데(preview.js 로그: "🎨 반자동 발행 시작 — 이미지 없이 글만 먼저
+    //   생성합니다..."), orchestration.ts 는 이미 skipImages 플래그로 이미지 생성 전체를
+    //   건너뛸 수 있음에도(486행: `payload.skipImages === true || h2ImageMode === 'none'`)
+    //   createPayload()가 이 플래그를 한 번도 세팅하지 않아서 이미지 8장이 매번 그대로
+    //   유료 생성됐다. previewOnly인 요청은 skipImages도 함께 켠다 — createPreviewPayload()
+    //   (반자동 전용, previewOnly: true의 유일한 호출자)만 영향을 받는다.
+    skipImages: previewOnly,
     scheduleDate: publishTypeValue === 'schedule' && scheduleDateTime ? scheduleDateTime : undefined,
 
     // 글자수 (미리보기/저장 설정 겸용)

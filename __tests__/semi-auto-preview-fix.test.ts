@@ -21,13 +21,14 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { braceBlock } from './helpers/source-block';
+import { braceBlock, blockBetween } from './helpers/source-block';
 
 const ROOT = path.join(__dirname, '..');
 const preview = fs.readFileSync(path.join(ROOT, 'electron', 'ui', 'modules', 'preview.js'), 'utf8');
 const ui = fs.readFileSync(path.join(ROOT, 'electron', 'ui', 'modules', 'ui.js'), 'utf8');
 const posting = fs.readFileSync(path.join(ROOT, 'electron', 'ui', 'modules', 'posting.js'), 'utf8');
 const html = fs.readFileSync(path.join(ROOT, 'electron', 'ui', 'index.html'), 'utf8');
+const orch = fs.readFileSync(path.join(ROOT, 'src', 'core', 'final', 'orchestration.ts'), 'utf8');
 
 describe('① payload 가 Promise 로 넘어가지 않는다', () => {
   it('createPreviewPayload 는 async 다 (await 가 필요한 근거)', () => {
@@ -100,5 +101,104 @@ describe('③ 로딩 표시가 실제 존재하는 버튼에 걸린다', () => {
   it('generateBtn / runBtn 은 index.html 에 없다 (이 테스트의 전제)', () => {
     expect(html).not.toContain('id="generateBtn"');
     expect(html).not.toContain('id="runBtn"');
+  });
+});
+
+/**
+ * ④ 진행률 모달이 아예 뜬 적이 없다 (v3.8.425)
+ *
+ * 사용자: "반자동 발행은 클릭하면 모달이 없네요? 프로그래스도없구요"
+ *
+ * generatePreview()는 버튼 텍스트만 "⏳ 생성 중..."으로 바꿀 뿐, 실제 진행률 모달
+ * (premiumProgressBar, showProgressModal/hideProgressModal)을 한 번도 부르지 않았다.
+ * 같은 'run-post' IPC를 쓰는 일반 발행(posting.js runPosting)은 showProgressModal()로
+ * 이 모달을 띄우는데 반자동 경로만 빠져 있었다 — semi-auto.js의 cancelSemiAutoGeneration()이
+ * window.hideProgressModal()을 부르는 것과 대조된다(그쪽은 애초에 show가 없어 hide할
+ * 대상도 없었다 — 이 파일은 다른, 실제로 버튼에 연결된 반자동 경로다).
+ */
+describe('④ 반자동 발행이 실제 진행률 모달(premiumProgressBar)을 띄운다', () => {
+  it('⭐ 생성 시작 시 showProgressModal을 부른다', () => {
+    const fnStart = preview.indexOf('export async function generatePreview');
+    const fnEnd = preview.indexOf('export async function startSemiAutoPublish');
+    const body = preview.slice(fnStart, fnEnd);
+    expect(body).toContain('window.showProgressModal?.()');
+  });
+
+  it('⭐ 성공·실패·취소 어떤 경로든 finally에서 hideProgressModal을 부른다', () => {
+    const fnStart = preview.indexOf('export async function generatePreview');
+    const fnEnd = preview.indexOf('export async function startSemiAutoPublish');
+    const body = preview.slice(fnStart, fnEnd);
+    const finallyIdx = body.indexOf('} finally {');
+    expect(finallyIdx).toBeGreaterThan(-1);
+    expect(body.slice(finallyIdx)).toContain('window.hideProgressModal?.()');
+  });
+
+  it('showProgressModal/hideProgressModal이 실제로 정의돼 있고 window에 전역 노출된다', () => {
+    expect(ui).toContain('export function showProgressModal()');
+    expect(ui).toContain('export function hideProgressModal()');
+    expect(ui).toMatch(/window\.showProgressModal\s*=\s*showProgressModal/);
+    expect(ui).toMatch(/window\.hideProgressModal\s*=\s*hideProgressModal/);
+  });
+
+  it('그 모달이 실제로 index.html에 존재한다 (premiumProgressBar)', () => {
+    expect(html).toContain('id="premiumProgressBar"');
+  });
+
+  it('반자동 발행 버튼(🎨 반자동 발행)은 실제로 startSemiAutoPublish를 호출한다', () => {
+    expect(html).toContain('onclick="window.startSemiAutoPublish && window.startSemiAutoPublish()"');
+    expect(html).toContain('반자동 발행');
+  });
+
+  /**
+   * 사용자: "반자동 발행이 완료되면 편집기가 바로떠야됩니다 이미지를 넣을수있게말이에요"
+   * 이 요구사항 자체는 v3.8.357부터 이미 구현돼 있었다(startSemiAutoPublish 끝의
+   * openVisualEditor 호출) — 새로 만들 필요는 없었지만, 실제로 배선돼 있는지 잠가둔다.
+   */
+  it('생성 완료 후 openVisualEditor(appstate)로 편집기를 자동으로 연다 — 이미지 삽입용', () => {
+    const fnStart = preview.indexOf('export async function startSemiAutoPublish');
+    expect(fnStart).toBeGreaterThan(-1);
+    const body = preview.slice(fnStart);
+    expect(body).toContain("window.openVisualEditor?.({ kind: 'appstate' })");
+  });
+});
+
+/**
+ * ⑤ 반자동 발행이 "이미지 없이 글만"이 아니라 이미지 8장을 그대로 유료 생성했다 (v3.8.425)
+ *
+ * 사용자: "반자동 발행이라고 로그에 인지했는데 왜 이미지까지 생성하는건데 이미지 비용이
+ *   얼만데 당장 수정해"
+ *
+ * 실측 로그: "🎨 반자동 발행 시작 — 이미지 없이 글만 먼저 생성합니다..."라고 찍힌 바로
+ *   뒤에 "🖼️ 섹션별 이미지 생성 중...", "🧵 이미지 공통 큐 생성 시작 (8장)..."이 그대로
+ *   이어졌다 — GPT Image 2로 8장을 실제로 생성했다(유료 API).
+ *
+ * 원인 — orchestration.ts 486행에 이미 `skipImages = payload.skipImages === true ||
+ *   h2ImageMode === 'none'`라는, 이미지 생성 전체(섹션 이미지 + 썸네일)를 건너뛰는
+ *   플래그가 있었다. 그런데 createPayload()(반자동이 쓰는 previewOnly:true 페이로드를
+ *   포함해 모든 발행 경로가 공유하는 단일 조립 함수)는 이 필드를 단 한 번도 채운
+ *   적이 없다 — previewOnly와 skipImages가 아예 연결돼 있지 않았다.
+ */
+describe('⑤ 반자동(previewOnly) 요청은 이미지 생성 자체를 건너뛴다 — 유료 API 호출 방지', () => {
+  it('⭐ createPayload가 previewOnly일 때 skipImages도 함께 켠다', () => {
+    const block = blockBetween(posting, 'publishType: previewOnly ?', 'scheduleDate: publishTypeValue');
+    expect(block).toContain('skipImages: previewOnly');
+  });
+
+  it('⭐ orchestration.ts는 skipImages===true면 섹션 이미지·썸네일 생성을 전부 건너뛴다', () => {
+    expect(orch).toContain("const skipImages = payload.skipImages === true || h2ImageMode === 'none';");
+    const block = braceBlock(orch, 'if (skipImages) {');
+    expect(block).toContain('빠른 모드: 이미지 생성 스킵');
+  });
+
+  it('썸네일도 skipImages를 확인한다 — "글만" 요청에서 썸네일까지 새는 걸 막는다', () => {
+    expect(orch).toMatch(/!skipImages\s*&&\s*preGeneratedThumbnail/);
+    expect(orch).toMatch(/!thumbnailUrl\s*&&\s*!skipImages/);
+  });
+
+  it('createPreviewPayload가 실제로 previewOnly:true로 createPayload를 부른다 (반자동의 유일한 진입점)', () => {
+    // 다른 곳(대기열/글포스팅 등)은 previewOnly: false를 명시적으로 넘긴다 —
+    // 그 경로들은 skipImages: false가 되어 기존처럼 이미지가 정상 생성된다.
+    const fnBody = braceBlock(posting, 'export async function createPreviewPayload()');
+    expect(fnBody).toContain("createPayload({ previewOnly: true, platformOverride: 'preview' })");
   });
 });

@@ -55,7 +55,15 @@ export async function generatePreview() {
     // v3.8.394: 'generateBtn' 은 존재하지 않는 id 였다 (실측 로그로 확인).
     //   반자동 발행의 진입 버튼은 editGeneratedBtn 이다.
     ButtonStateManager.setLoading('editGeneratedBtn', '⏳ 생성 중...');
-    
+
+    // v3.8.425 — 사용자 보고: "반자동 발행은 클릭하면 모달이 없네요? 프로그래스도없구요"
+    //   이 함수는 버튼 텍스트만 바꿀 뿐 진행률 모달을 한 번도 띄우지 않았다. 같은
+    //   'run-post' IPC를 쓰는 일반 발행(posting.js runPosting)은 showProgressModal()로
+    //   premiumProgressBar를 띄우는데, 여기는 그 호출이 아예 빠져 있었다 — 백엔드가 보내는
+    //   onProgress 이벤트는 main.js의 전역 리스너가 이미 progressManager로 받고 있지만,
+    //   그 상태를 화면에 보여주는 showProgressModal() 자체를 아무도 안 불러서 안 보였다.
+    window.showProgressModal?.();
+
     addLog('[NEW-PREVIEW] 콘텐츠 생성 시작...');
     
     // Payload 생성
@@ -164,6 +172,7 @@ export async function generatePreview() {
     ButtonStateManager.restore('editGeneratedBtn');
     setRunning(false);
     if (appState) appState.isCanceled = false;   // 조기 return 시 null 일 수 있다
+    window.hideProgressModal?.();
   }
 }
 
