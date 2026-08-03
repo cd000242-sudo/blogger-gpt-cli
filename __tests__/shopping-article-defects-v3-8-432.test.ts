@@ -25,7 +25,9 @@ const render = fs.readFileSync(path.join(ROOT, 'src', 'core', 'affiliate', 'rend
 
 describe('① 쿠팡 고지문은 쿠팡 글에만 넣는다', () => {
   it('⭐ isCoupangArticle 판정이 있다 — 고른 제휴사 우선, 없으면 기존 방식', () => {
-    expect(orch).toContain('const isCoupangArticle = explicitProvider');
+    // v3.8.433: 아래 컴플라이언스 단계에서도 필요해 함수 스코프 let 으로 올렸다
+    expect(orch).toContain('let isCoupangArticle = false;');
+    expect(orch).toContain('isCoupangArticle = explicitProvider');
     expect(orch).toContain("explicitProvider === 'coupang'");
     expect(orch).toContain('(!!coupangLink || !hasSpecificProductLink)');
   });
@@ -149,8 +151,9 @@ describe('④ AI 이미지가 실제 제품 특성을 따른다', () => {
 
 describe('⑤ 본문이 빈 채로 나가지 않는다', () => {
   it('⭐ 출력 토큰 상한을 올렸다 — 잘림이 근본 원인이었다', () => {
+    // v3.8.433: 두 경로가 같은 함수를 쓰도록 바꿨다 (한쪽만 올리는 실수 방지)
     expect(gemini).toContain("envInt('GEMINI_MAX_OUTPUT_TOKENS', 32768)");
-    expect(gemini).toContain('maxOutputTokens: maxOutTokens');
+    expect(gemini).toContain('maxOutputTokens: resolveMaxOutputTokens()');
     // 예전 고정값이 남아 있으면 안 된다
     expect(gemini).not.toContain('maxOutputTokens: 16384');
   });

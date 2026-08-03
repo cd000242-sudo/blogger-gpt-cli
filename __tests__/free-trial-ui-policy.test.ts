@@ -69,7 +69,8 @@ describe('free trial publishing policy UI', () => {
   test('saved queue entries do not disable detailed settings while single mode is selected', () => {
     const queue = read('electron/ui/modules/publish-queue.js');
 
-    expect(queue).toContain("const queueActive = getCurrentMode() === 'bulk'");
+    // v3.8.433: 탭 선택만으로는 잠그지 않는다 — 대기열에 담기 전 설정을 막으면 안 된다
+    expect(queue).toContain("const queueActive = window.__queueRunning === true");
     expect(queue).not.toContain('const queueActive = (STATE.keywords?.length || 0) > 0');
   });
 

@@ -1824,6 +1824,7 @@ Topic/Keyword: ${topic}
 
 CRITICAL: The image MUST be directly about "${topic}". Every element in the scene must relate to this topic.
 CRITICAL: All people depicted MUST be Korean/East Asian. The setting should be Korean (Korean office, Korean city, Korean home, etc.)
+CRITICAL (v3.8.433): If the Section Title states physical facts about a product — its SIZE, how it is WORN or ATTACHED (neck strap, clip-on, handheld, desk-standing), or WHERE it is used — you MUST depict exactly those facts. Do NOT scale the product up, do NOT move it to a desk or car if the title says it is worn on the body, and do NOT invent a different form factor. A small wearable device must look small and worn. Getting this wrong makes the image useless to the reader.
 
 Requirements:
 1. Describe a SPECIFIC visual scene (NOT abstract concepts) — what exactly would a photographer capture?

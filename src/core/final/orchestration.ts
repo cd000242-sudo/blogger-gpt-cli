@@ -2995,7 +2995,9 @@ export async function generateUltimateMaxModeArticleFinal(
         ];
         const tone = h3Palette[h3BoxCounter % h3Palette.length]!;
         h3BoxCounter += 1;
-        html += `\n<h3 style="font-size:21px !important;font-weight:800 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin:32px 0 14px !important;padding:14px 20px !important;letter-spacing:-0.02em !important;line-height:1.5 !important;background:${tone.bg} !important;border:3px solid ${tone.bd} !important;border-radius:12px !important;box-shadow:none !important;display:block !important;word-break:keep-all !important;">${h3Number} ${cleanH3}</h3>\n`;
+        //   data-orbit-h3box: 발행 단계(section-card.ts)가 이걸 보고 **또 감싸지 않는다.**
+        //   안 그러면 파스텔 박스가 흰 카드 안에 들어가 액자 속 액자가 된다.
+        html += `\n<h3 data-orbit-h3box="1" style="font-size:21px !important;font-weight:800 !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;margin:32px 0 14px !important;padding:14px 20px !important;letter-spacing:-0.02em !important;line-height:1.5 !important;background:${tone.bg} !important;border:3px solid ${tone.bd} !important;border-radius:12px !important;box-shadow:none !important;display:block !important;word-break:keep-all !important;">${h3Number} ${cleanH3}</h3>\n`;
 
         // 💰 본문 — 줄간격 1.8, 단락간 여백 확보로 가독성 극대화
         // <p> 간 간격이 자동으로 커지도록 CSS를 인젝트했지만, 인라인 스타일도 확실히 잡아줌
@@ -3101,6 +3103,8 @@ export async function generateUltimateMaxModeArticleFinal(
       }
     }
 
+    // v3.8.433: 아래 제휴 컴플라이언스 단계에서도 이 판정이 필요해 함수 스코프로 둔다
+    let isCoupangArticle = false;
     // 🛒 쇼핑 모드 — 쿠팡 상품 카드 블록 강제 삽입 (실제 제휴링크가 최종 HTML에 들어가도록 보장)
     if (contentMode === 'shopping') {
       const coupangProducts = (payload as any).coupangProducts;
@@ -3120,7 +3124,7 @@ export async function generateUltimateMaxModeArticleFinal(
        *   유무로 보고, 링크 자체가 없으면 키워드로 찾은 쿠팡 상품이 곧 수익원이므로
        *   쿠팡 글로 본다 — 예전 동작 그대로다.
        */
-      const isCoupangArticle = explicitProvider
+      isCoupangArticle = explicitProvider
         ? explicitProvider === 'coupang'
         : (!!coupangLink || !hasSpecificProductLink);
       if (!isCoupangArticle) {
@@ -3270,7 +3274,20 @@ export async function generateUltimateMaxModeArticleFinal(
       }
 
       const { enforceAffiliateCompliance } = await import('../affiliate/compliance');
-      const affCompliance = enforceAffiliateCompliance(html, (payload as any).affiliateProvider || null);
+      /**
+       * 🚨 v3.8.433 — 제휴사를 **추측하게 두지 않는다.**
+       *
+       * 두 번째 인자가 비면 compliance.ts 가 본문 HTML 의 링크를 훑어 제휴사를
+       * 자동 판별하고 그 제휴사 고지문을 꽂는다. 그런데 본문에는 참고용으로 크롤한
+       * 글의 쿠팡 링크가 섞여 들어올 수 있다 — 그러면 토스 글에 쿠팡 고지문이
+       * 붙는다. v3.8.432 에서 배너 삽입부는 막았지만 이 경로가 남아 있었다.
+       * 우리가 아는 값이 있으면 반드시 넘긴다: 사용자가 고른 제휴사 →
+       * 실제 크롤된 상품의 제휴사 → 그래도 없으면 그때만 자동 판별에 맡긴다.
+       */
+      const knownProvider = String((payload as any).affiliateProvider || '').trim()
+        || String(((payload as any).affiliateProducts || [])[0]?.provider || '').trim()
+        || (isCoupangArticle ? 'coupang' : '');
+      const affCompliance = enforceAffiliateCompliance(html, knownProvider || null);
       if (affCompliance.provider) {
         html = affCompliance.html;
         affCompliance.fixes.forEach((f) => {

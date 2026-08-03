@@ -83,7 +83,9 @@ export function renderAffiliateProductBlock(products: AffiliateProduct[]): strin
      */
     const cleanInfo = dedupeProductNote(String(p.description || ''), String(p.title || ''));
     const infoHtml = !p.priceKrw && cleanInfo
-      ? `<div style="font-size:14px;color:#6b7280;margin:8px 0;line-height:1.6;text-align:center;">${esc(cleanInfo).slice(0, 90)}</div>`
+      // v3.8.433: 자른 뒤에 이스케이프한다. 순서가 반대면 &amp; 가 &am 으로 잘려
+      //   화면에 깨진 문자가 그대로 보인다.
+      ? `<div style="font-size:14px;color:#6b7280;margin:8px 0;line-height:1.6;text-align:center;">${esc(cleanInfo.slice(0, 90))}</div>`
       : '';
 
     // 가운데 정렬 — 사진·상품명·버튼을 한 축에 놓는다

@@ -297,13 +297,31 @@ function getQueueInputEntries() {
     }));
   }
 
+  /**
+   * v3.8.433 — 쇼핑모드 연속발행: 제휴 링크도 줄 단위로 나눠 담는다.
+   *
+   * 사용자 요구: "쇼핑모드도 줄바꿈하면 연속으로 발행이가능하게끔해주고"
+   *
+   * 그동안 대기열 항목은 키워드·참고URL만 담고 **제휴 링크를 안 담았다.**
+   * 그래서 쇼핑모드로 대기열에 넣어도 상품 링크가 없어 파이프라인이 돌 재료가
+   * 없었다(상품명·가격·후기·고지문 전부 링크에서 나온다).
+   * 참고URL 과 같은 방식으로 **키워드 n번째 ↔ 링크 n번째**로 짝지어 준다.
+   * 링크가 하나뿐이면 모든 키워드가 그 링크를 쓴다(같은 상품으로 여러 각도의 글).
+   */
+  const affiliateLines = String(document.getElementById('affiliateLinks')?.value || '')
+    .split(/[\n,]+/).map(s => s.trim()).filter(s => /^https?:\/\//i.test(s));
+
   return keywords.map((rawKeyword, index) => {
     const keywordIsUrl = isHttpUrl(rawKeyword);
     const contentUrl = referenceUrls[index] || (keywordIsUrl ? rawKeyword : '');
+    const affiliateLink = affiliateLines.length === 1
+      ? affiliateLines[0]
+      : (affiliateLines[index] || '');
     return {
       keyword: keywordIsUrl ? labelFromUrl(rawKeyword, index) : rawKeyword,
       contentUrl,
       sourceUrl: contentUrl,
+      affiliateLink,
       // 키워드 칸에 URL을 붙여넣은 경우도 주제가 아니라 URL이 원본이다.
       urlBased: keywordIsUrl,
     };
@@ -438,10 +456,16 @@ function bindMainIntervalControl() {
 
 // v3.8.117: 연속발행 모드 활성 시 메인 5개 탭 (콘텐츠/이미지/발행/초안/카테고리) 숨김
 //   사용자 요청: "연속발행 모드에서는 숨겨주고 대기열에서 전부 가능하게"
+//
+// v3.8.433 — **탭 선택만으로는 잠그지 않는다.**
+//   사용자 보고: "연속발행모드일때는 상세설정이 비활성화되던데 이러면 대기열
+//     추가하기전에 세팅을 하고 추가할수가없자나 그리고 쇼핑모드도 사용못하게된다고"
+//   맞는 지적이다. 대기열은 "설정을 정해서 담는" 곳인데, 담기 전에 설정을
+//   막아버리면 콘텐츠 모드(쇼핑 포함)·이미지 엔진을 고를 방법이 없었다.
+//   잠금은 **실제로 발행이 도는 중**에만 건다 — 그때는 중간에 바꾸면 혼란스럽다.
 function togglePostingSettingsForQueue() {
   try {
-    const queueActive = getCurrentMode() === 'bulk'
-      || window.__queueRunning === true
+    const queueActive = window.__queueRunning === true
       || window.__queueProgressActive === true;
     const tabBar = document.querySelector('.posting-settings-tab-bar');
     const settingsArea = tabBar?.closest('.posting-settings-area') || tabBar?.parentElement;
@@ -455,7 +479,7 @@ function togglePostingSettingsForQueue() {
         banner = document.createElement('div');
         banner.id = 'queue-active-banner';
         banner.style.cssText = 'margin:10px 0;padding:12px 16px;background:linear-gradient(135deg,rgba(99,102,241,0.18),rgba(139,92,246,0.18));border:1px solid rgba(139,92,246,0.55);border-radius:12px;color:#c7d2fe;font-size:13px;font-weight:700;display:flex;align-items:center;gap:10px;';
-        banner.innerHTML = '⚡ <strong>연속발행 모드 활성</strong> — 메인 화면 옵션은 비활성화. 대기열 모달 (📋 대기열 보기 및 발행하러가기)에서 일괄 설정하세요.';
+        banner.innerHTML = '⚡ <strong>연속발행 진행 중</strong> — 발행이 도는 동안에는 설정을 바꿀 수 없습니다. 끝나면 다시 열립니다.';
         settingsArea.parentElement?.insertBefore(banner, settingsArea);
       }
     } else {
@@ -954,6 +978,9 @@ function getCurrentQueueSnapshot() {
     urlAiFill: !!document.getElementById('urlImageAiFill')?.checked,
     urlThreshold: 60,
     folderImageCount: getActivePreGeneratedImageCount(),
+    // v3.8.433: 쇼핑모드 연속발행 — 고른 제휴사를 대기열에도 그대로 물려준다
+    //   ("한 글에 한 제휴사" 원칙이라 항목별이 아니라 스냅샷 단위로 잡는다)
+    affiliateProvider: document.querySelector('input[name="affiliateProvider"]:checked')?.value || '',
   };
 }
 
@@ -961,6 +988,7 @@ function cloneQueueSnapshot(snapshot) {
   const snap = snapshot || {};
   return {
     contentMode: snap.contentMode || 'external',
+    affiliateProvider: snap.affiliateProvider || '',   // v3.8.433
     thumbnailMode: normalizeThumbEngine(snap.thumbnailMode || 'nanobanana2'),
     h2ImageSource: normalizeThumbEngine(snap.h2ImageSource || snap.thumbnailMode || 'nanobanana2'),
     leonardoModel: snap.leonardoModel || 'seedream-4.5',
@@ -1021,6 +1049,9 @@ function applySnapshotToItem(item, snapshot, options = {}) {
   const snap = cloneQueueSnapshot(snapshot || item.settingsSnapshot || getCurrentQueueSnapshot());
   const force = options.force === true;
   if (force || !item.mode) item.mode = snap.contentMode;
+  // v3.8.433: 제휴사는 스냅샷에서 상속한다. 항목별 링크(affiliateLink)는
+  //   키워드마다 다르므로 여기서 덮어쓰지 않는다.
+  if (force || !item.affiliateProvider) item.affiliateProvider = snap.affiliateProvider || '';
   if (force || !item.thumb) item.thumb = normalizeThumbEngine(snap.thumbnailMode);
   else item.thumb = normalizeThumbEngine(item.thumb);
   if (force || !item.h2ImageSource) item.h2ImageSource = normalizeThumbEngine(snap.h2ImageSource || item.thumb);
@@ -2149,6 +2180,16 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     platform: normalizeQueuePlatform(item.platform || getCurrentPublishPlatform()),
     targetPlatform: normalizeQueuePlatform(item.platform || getCurrentPublishPlatform()),
     contentMode,
+    /**
+     * 🛒 v3.8.433 — 쇼핑모드 연속발행에 필요한 두 값.
+     *
+     * 이게 없으면 쇼핑모드로 대기열을 돌려도 상품 링크가 안 넘어가서
+     * 상품명·가격·후기·대가성 문구가 전부 빠진 껍데기 글이 나간다.
+     * 단일 발행(posting.js createPayload)이 보내는 것과 같은 필드명이라
+     * 백엔드는 두 경로를 구분할 필요가 없다.
+     */
+    affiliateLinks: item.affiliateLink ? [item.affiliateLink] : undefined,
+    affiliateProvider: item.affiliateProvider || undefined,
     thumbnailMode: effectiveThumbnailEngine,
     thumbnailType: effectiveThumbnailEngine,
     thumbnailSource: effectiveThumbnailEngine,
@@ -3400,6 +3441,9 @@ function addCurrent() {
       id: `pq-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
       keyword: entry.keyword.trim(),
       mode: snapshot.contentMode,
+      // v3.8.433: 쇼핑모드 연속발행 — 항목마다 자기 상품 링크를 들고 간다
+      affiliateLink: entry.affiliateLink || '',
+      affiliateProvider: snapshot.affiliateProvider || '',
       thumb: snapshot.thumbnailMode,
       h2ImageSource: snapshot.h2ImageSource,
       leonardoModel: snapshot.leonardoModel,

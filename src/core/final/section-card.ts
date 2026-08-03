@@ -19,7 +19,7 @@
 const CARD_OPEN =
   '<section data-orbit-card="1" style="'
   + 'background:#ffffff;'
-  + 'border:1px solid #e8ecf1;'
+  + 'border:3px solid #d5dde7;'   /* v3.8.433: 경계를 분명하게 */
   + 'border-radius:18px;'
   // v3.8.413 모바일 — 사용자 요구 "어떤 모드든 모바일 친화적으로 최적화"
   //   좁은 화면에서 좌우 24px 씩 먹으면 본문 폭이 확 줄어 글이 답답해진다.
@@ -52,7 +52,10 @@ export const H3_IN_CARD_STYLE =
  * FAQ·CTA 처럼 이미 자기 박스를 가진 블록을 또 감싸면 액자 속 액자가 된다.
  */
 function alreadyBoxed(chunk: string): boolean {
-  return /data-orbit-cta|data-orbit-card|itemtype="https:\/\/schema\.org\/(FAQPage|Question)"/i.test(chunk);
+  // v3.8.433: data-orbit-h3box — H3 가 스스로 파스텔 박스를 두른 경우.
+  //   이걸 흰 카드로 또 감싸면 액자 속 액자가 된다(사용자 지적: "경계를 애매하게
+  //   하지말고 명확히 보이게"). 자기 박스가 있으면 그걸로 충분하다.
+  return /data-orbit-cta|data-orbit-card|data-orbit-h3box|itemtype="https:\/\/schema\.org\/(FAQPage|Question)"/i.test(chunk);
 }
 
 /** 눈에 보이는 내용이 있는가 — 빈 태그만 있는 조각은 카드로 만들 필요가 없다. */

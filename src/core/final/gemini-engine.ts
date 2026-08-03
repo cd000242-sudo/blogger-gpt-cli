@@ -92,6 +92,19 @@ function unique(items: string[]): string[] {
   });
 }
 
+/**
+ * 출력 토큰 상한 — **모든 Gemini 호출 경로가 이 하나를 쓴다.**
+ *
+ * v3.8.432 에서 상한을 올렸지만 callGeminiWithRetry 한쪽에만 넣었고, 정작
+ * 본문 생성이 타는 grounding 경로에는 안 걸려 있었다(그쪽은 generationConfig
+ * 자체가 없었다). "고쳤는데 실제 경로엔 안 닿는" 사고를 막으려고 함수로 뺀다.
+ *
+ * 실사용량만큼 과금되므로 상한을 올린다고 비용이 늘지 않는다.
+ */
+export function resolveMaxOutputTokens(): number {
+  return envInt('GEMINI_MAX_OUTPUT_TOKENS', 32768);
+}
+
 function getGeminiTemperature(prompt: string): number {
   return /\[FACT EVIDENCE|FACT INTEGRITY|Verified source URLs|grounding response/i.test(prompt) ? 0.28 : 0.52;
 }
@@ -413,11 +426,11 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
         //   한국어는 글자당 토큰이 커서 16,384 를 넘긴다. 넘긴 응답은 잘리고, 잘린 JSON 을
         //   복구하는 과정에서 뒷부분 content 가 빈 채로 살아남는다.
         //   → 상한을 올린다. 실제 사용량만큼만 과금되므로 상한을 올린다고 비용이 늘지 않는다.
-        const maxOutTokens = envInt('GEMINI_MAX_OUTPUT_TOKENS', 32768);
+        //   v3.8.433: grounding 경로와 **같은 함수**를 쓴다 (한쪽만 올리는 실수 방지).
         const result: any = await withTimeout(
           model.generateContent({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { maxOutputTokens: maxOutTokens, temperature: getGeminiTemperature(prompt) },
+            generationConfig: { maxOutputTokens: resolveMaxOutputTokens(), temperature: getGeminiTemperature(prompt) },
           }),
           envInt('GEMINI_TIMEOUT_MS', DEFAULT_GEMINI_TIMEOUT_MS),
           modelName,
@@ -545,8 +558,21 @@ export async function callGeminiWithGrounding(
           model: modelName,
           tools: groundingTool,
         });
+        /**
+         * 🚨 v3.8.433 — 이 경로에도 출력 토큰 상한을 건다.
+         *
+         * v3.8.432 에서 본문 누락(빈 소제목)의 원인이 응답 잘림이라 보고
+         * maxOutputTokens 를 32,768 로 올렸는데, **올린 곳이 callGeminiWithRetry
+         * 뿐이었다.** 본문 생성(generateAllSectionsFinal)은 여기 grounding 경로를
+         * 타는데 여기는 generationConfig 자체가 없어 Gemini 기본값(4k~8k)으로
+         * 잘리고 있었다 — 고쳤다고 생각한 게 실제 경로에는 닿지 않았다.
+         * 같은 실수를 또 하지 않도록 두 경로가 같은 상수를 쓰게 한다.
+         */
         const result: any = await withTimeout(
-          model.generateContent(prompt),
+          model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { maxOutputTokens: resolveMaxOutputTokens() },
+          }),
           envInt('GROUNDING_TIMEOUT_MS', DEFAULT_GROUNDING_TIMEOUT_MS),
           `${modelName} grounding`,
         );

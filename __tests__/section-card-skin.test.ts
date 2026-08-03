@@ -108,9 +108,10 @@ describe('H3 섹션을 카드로 묶는다', () => {
 describe('카드 생김새 — 깔끔하고 고급스럽게', () => {
   const card = wrapH3Sections('<h3>제목</h3><p>내용</p>').html;
 
-  it('흰 바탕에 얇은 테두리와 둥근 모서리', () => {
+  it('흰 바탕에 또렷한 테두리와 둥근 모서리', () => {
     expect(card).toContain('background:#ffffff');
-    expect(card).toContain('border:1px solid #e8ecf1');
+    // v3.8.433: 사용자 요구 "박스 테두리 선은 두껍게 … 경계를 명확히"
+    expect(card).toContain('border:3px solid #d5dde7');
     expect(card).toContain('border-radius:18px');
   });
 
