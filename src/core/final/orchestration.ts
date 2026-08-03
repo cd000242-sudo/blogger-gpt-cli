@@ -3356,6 +3356,11 @@ ${conclusionHTML}
 
     // 🖼️ 썸네일 생성 - 수집 이미지 우선, 그 다음 나노 바나나 프로 또는 SVG
     let thumbnailUrl = '';
+    // v3.8.428 — 실측: 토스 og:image는 세로 인물 사진인 경우가 많은데, 썸네일 박스가
+    //   16:9 고정 + object-fit:cover라 사람 머리가 잘려 나갔다. AI 생성 썸네일은 이미
+    //   16:9로 뽑혀서 cover가 문제없지만, 크롤한 실제 상품 사진은 원본 비율이 제각각이다
+    //   — 이 값이 true면 잘라내지 않고 여백을 두고 전체를 보여준다(object-fit:contain).
+    let thumbnailFromProductPhoto = false;
 
     // v3.8.359: h2ImageMode와 썸네일 소스를 완전 분리
     //   과거: h2ImageMode='none'이면 썸네일도 자동 'none' → 사용자가 "본문 이미지 없이 썸네일만" 조합 불가
@@ -3416,6 +3421,7 @@ ${conclusionHTML}
       && (isCrawledRequested || isShoppingMode || !userPickedAiEngine);
 
     if (!thumbnailUrl && useProductImages) {
+      thumbnailFromProductPhoto = true;
       // v3.8.413: 프로토콜 없는 주소(//host/…)면 여기서 채운다.
       //   이미지 단계를 건너뛴 경우(반자동·이미지 없음)에는 위 정규화가 안 돌기 때문이다.
       try {
@@ -3522,9 +3528,13 @@ ${conclusionHTML}
 
     // 💰 썸네일 — 풀블리드 (패딩/그림자 없음)
     if (thumbnailUrl) {
+      // v3.8.428 — 크롤한 실제 상품 사진은 16:9가 아닌 경우가 많아 cover로 자르면
+      //   사람 머리·상품 일부가 잘려 나간다. contain으로 전체를 보여주고 남는 공간은
+      //   박스 배경색(#f8fafc)으로 채운다. AI 생성 썸네일은 이미 16:9라 cover 그대로 둔다.
+      const thumbFit = thumbnailFromProductPhoto ? 'contain' : 'cover';
       const thumbnailHtml = `
 <div class="bgpt-thumbnail-box" style="width:100% !important;aspect-ratio:16/9 !important;margin:0;padding:0;overflow:hidden !important;border-radius:10px !important;background:#f8fafc !important;">
-  <img src="${thumbnailUrl}" alt="${h1}" style="width:100% !important;height:100% !important;aspect-ratio:16/9 !important;object-fit:cover !important;display:block !important;margin:0 !important;" loading="lazy" />
+  <img src="${thumbnailUrl}" alt="${h1}" style="width:100% !important;height:100% !important;aspect-ratio:16/9 !important;object-fit:${thumbFit} !important;display:block !important;margin:0 !important;" loading="lazy" />
 </div>`;
       html = html.replace('<!-- THUMBNAIL_PLACEHOLDER -->', thumbnailHtml);
     } else {
