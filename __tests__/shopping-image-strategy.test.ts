@@ -15,7 +15,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { braceBlock } from './helpers/source-block';
+import { braceBlock, blockBetween } from './helpers/source-block';
 
 const ROOT = path.join(__dirname, '..');
 const orchestrationSrc = fs.readFileSync(path.join(ROOT, 'src', 'core', 'final', 'orchestration.ts'), 'utf8');
@@ -109,11 +109,22 @@ describe('백엔드 — 전략별 동작', () => {
     expect(orchestrationSrc).toContain("contentMode === 'shopping' && productPool.length > 0");
   });
 
-  it('product-all 은 상품 사진을 순환 배치한다', () => {
-    const i = orchestrationSrc.indexOf("shoppingStrategy === 'product-all'");
-    expect(i).toBeGreaterThan(-1);
-    const block = braceBlock(orchestrationSrc, "shoppingStrategy === 'product-all'");
-    expect(block).toContain('productPool[(i + 1) % productPool.length]');
+  it('product-all 은 안 쓴 상품 사진부터 배치한다', () => {
+    /**
+     * ⚠️ 이 테스트는 v3.8.439 까지 `productPool[(i + 1) % productPool.length]` 를
+     *   검사하며 **통과하고 있었지만 이유가 틀렸다.** product-all 블록에서 그 순환은
+     *   v3.8.437 에 이미 제거됐는데, braceBlock 이 else-if 사슬을 한 구문으로 보고
+     *   뒤따르는 product-i2i 블록(거기엔 폴백으로 순환이 남아 있다)까지 함께
+     *   집어왔기 때문이다. 즉 없는 것을 있다고 통과시키고 있었다.
+     *   범위를 product-all 블록으로 정확히 잘라 실제 동작을 검사한다.
+     */
+    const block = blockBetween(
+      orchestrationSrc,
+      "if (shoppingStrategy === 'product-all') {",
+      "} else if (shoppingStrategy === 'product-i2i')",
+    );
+    expect(block).toContain('!usedProductImages.has(imgKey(u))');
+    expect(block).not.toContain('productPool[(i + 1) % productPool.length]');
   });
 
   it('썸네일과 같은 사진이 본문 1번에 또 나오지 않는다', () => {
@@ -124,7 +135,8 @@ describe('백엔드 — 전략별 동작', () => {
      *   → 0번을 미리 '사용함'으로 표시해 두는 것으로 보장한다.
      */
     expect(orchestrationSrc).toContain('const thumbCandidate = ((payload.productImages as string[] | undefined) || [])[0];');
-    expect(orchestrationSrc).toContain('if (thumbCandidate) usedProductImages.add(thumbCandidate);');
+    // v3.8.439: 래핑 주소와 원본이 같은 파일임을 알아보도록 정규화 키를 쓴다
+    expect(orchestrationSrc).toContain('usedProductImages.add(imgKey(thumbCandidate))');
   });
 
   it('product-i2i 는 실제 상품을 reference 로 넘긴다', () => {

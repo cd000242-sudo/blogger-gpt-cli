@@ -66,6 +66,47 @@ export interface AffiliateProduct {
 /** 상세 이미지 후보에서 명백한 비-상품 이미지를 걸러낸다 */
 const NON_PRODUCT_IMAGE = /icon|logo|sprite|badge|button|btn_|banner|blank|dot|arrow|star|bg_|_bg|placeholder|avatar|profile/i;
 
+/**
+ * 🚫 v3.8.439 — **구매자가 올린 리뷰 사진은 쓰지 않는다.**
+ *
+ * 사용자 지적(2026-08-03): "상세이미지가 없으면 리뷰이미지를 들고오게끔 했구나..??
+ *   근데 이렇게하면 중복문서나 저작권에 위험하지않을까"
+ *
+ * 맞는 지적이다. 실측으로 확인했다 — 토스 상품 페이지에서 수집한 6장 중 3장이
+ * `shopping.toss.im/product.review/…` 경로, 즉 **구매자가 직접 찍어 올린 사진**이었다.
+ *
+ * 왜 쓰면 안 되나:
+ *   1) 저작권 — 그 사진의 권리는 촬영한 구매자에게 있다. 판매자도 제휴사도
+ *      제3자에게 재배포할 권한을 주지 못한다. 제휴 계약은 '링크·상품정보' 사용
+ *      허락이지 '구매자 사진' 사용 허락이 아니다.
+ *   2) 중복 문서 — 같은 리뷰 사진이 여러 제휴 블로그에 동시에 퍼지면
+ *      검색엔진이 중복 이미지로 본다. 우리가 피하려는 바로 그 신호다.
+ *
+ * 판매자가 올린 상세컷(live/temp, detail 등)은 상품 소개용으로 제공된 것이라
+ * 성격이 다르다 — 그건 그대로 쓴다.
+ */
+const REVIEW_IMAGE_PATH = /product\.review|\/review[s]?[\/_-]|user[_-]?photo|buyer[_-]?image/i;
+
+/**
+ * CDN 최적화 래퍼를 풀어 **같은 파일인지 비교할 수 있는 형태**로 만든다.
+ *
+ * 실측: 토스는 원본과 래핑본을 섞어 쓴다.
+ *   og:image  → https://shopping.toss.im/live/temp/6b083d0c….png
+ *   본문 img  → https://resources-fe.toss.im/image-optimize/width=800,quality=75/https%3A%2F%2Fshopping.toss.im%2F…
+ * 문자열만 비교하면 **같은 사진인데 다른 것으로 보여** 썸네일이 본문 1번에 또 나왔다
+ * (사용자 보고: "썸네일 이미지 1번이미지로 그대로 사용하는 버그").
+ */
+export function canonicalImageKey(url: string): string {
+  let u = String(url || '').trim();
+  if (!u) return '';
+  // /image-optimize/…/https%3A%2F%2F… 처럼 원본이 인코딩돼 붙어 있으면 풀어낸다
+  const enc = u.match(/https?%3A%2F%2F.+$/i);
+  if (enc) {
+    try { u = decodeURIComponent(enc[0]); } catch { /* 실패하면 원본 문자열 유지 */ }
+  }
+  return u.split('?')[0]!.replace(/^https?:\/\//i, '').toLowerCase();
+}
+
 /** vision 비용을 묶어두기 위한 상한 — 수집 단계에서부터 자른다 */
 export const MAX_DETAIL_IMAGES = 15;
 
@@ -76,7 +117,9 @@ export const MAX_DETAIL_IMAGES = 15;
 export function extractDetailImageUrls(html: string, excludeUrl?: string): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
-  const exclude = String(excludeUrl || '').split('?')[0];
+  // v3.8.439: 래핑된 주소와 원본 주소가 섞여 오므로 **정규화한 키**로 비교한다.
+  //   그래야 og:image(원본 주소)와 본문 img(CDN 래핑)가 같은 파일임을 알아본다.
+  const excludeKey = canonicalImageKey(excludeUrl || '');
   const re = /<img[^>]+(?:src|data-src|data-original)=["']([^"']+)["']/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
@@ -84,11 +127,13 @@ export function extractDetailImageUrls(html: string, excludeUrl?: string): strin
     if (!raw || raw.startsWith('data:')) continue;          // 인라인 아이콘류
     const abs = raw.startsWith('//') ? `https:${raw}` : raw;
     if (!/^https?:\/\//i.test(abs)) continue;
-    const bare = abs.split('?')[0]!;
-    if (seen.has(bare)) continue;
-    if (exclude && bare === exclude) continue;              // 대표 이미지는 이미 따로 쓴다
-    if (NON_PRODUCT_IMAGE.test(bare)) continue;
-    seen.add(bare);
+    const key = canonicalImageKey(abs);
+    if (!key || seen.has(key)) continue;
+    if (excludeKey && key === excludeKey) continue;         // 대표 이미지는 이미 따로 쓴다
+    if (NON_PRODUCT_IMAGE.test(key)) continue;
+    // 🚫 구매자 리뷰 사진은 제외한다 (저작권 + 중복 문서). 위 REVIEW_IMAGE_PATH 주석 참고.
+    if (REVIEW_IMAGE_PATH.test(key)) continue;
+    seen.add(key);
     out.push(abs);
     if (out.length >= MAX_DETAIL_IMAGES) break;
   }

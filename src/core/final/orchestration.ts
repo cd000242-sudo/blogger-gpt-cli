@@ -2555,9 +2555,24 @@ ${quoted}
      *     안 쓴 것 고르기로 바꾸면서 이 의도를 명시적으로 옮겨 적는다.)
      */
     const usedProductImages = new Set<string>();
+    /**
+     * v3.8.439 — 같은 사진인지 **정규화한 키**로 비교한다.
+     *
+     * 사용자 보고: "썸네일 이미지 1번이미지로 그대로 사용하는 버그 발견"
+     *
+     * 원인: 토스는 원본 주소와 CDN 래핑 주소를 섞어 쓴다(실측).
+     *   썸네일 : https://shopping.toss.im/live/temp/6b083d0c….png
+     *   본문   : https://resources-fe.toss.im/image-optimize/…/https%3A%2F%2Fshopping.toss.im%2F…
+     * 문자열만 비교하니 **같은 사진인데 다른 것으로 보여** 중복 방지가 통과됐다.
+     * 래퍼를 풀어 같은 파일임을 알아보게 한다.
+     */
+    const imgKey = (u: string): string => {
+      try { return require('../affiliate/crawl').canonicalImageKey(u); }
+      catch { return String(u || '').split('?')[0] || ''; }
+    };
     {
       const thumbCandidate = ((payload.productImages as string[] | undefined) || [])[0];
-      if (thumbCandidate) usedProductImages.add(thumbCandidate);
+      if (thumbCandidate) usedProductImages.add(imgKey(thumbCandidate));
     }
 
     // 🔥 빠른 모드: 이미지 생성 스킵
@@ -2741,14 +2756,14 @@ ${quoted}
                * 게다가 썸네일이 0번을 쓰는데 순환이 0번으로 돌아와 썸네일과도 겹쳤다.
                * 이제 안 쓴 것부터 순서대로 쓰고, 다 떨어졌을 때만 처음부터 다시 돈다.
                */
-              let picked = productPool.find((u) => u && !usedProductImages.has(u));
+              let picked = productPool.find((u) => u && !usedProductImages.has(imgKey(u)));
               if (!picked) {
                 // 사진이 부족하다 — 그때는 어쩔 수 없이 재사용하되, 썸네일(0번)은 피한다
                 const reusable = productPool.slice(1).length > 0 ? productPool.slice(1) : productPool;
                 picked = reusable[i % reusable.length];
               }
               if (picked) {
-                usedProductImages.add(picked);
+                usedProductImages.add(imgKey(picked));
                 const idxInPool = productPool.indexOf(picked) + 1;
                 console.log(`[IMG-${i + 1}] 🛒 상품 사진 그대로 (전략: product-all)`);
                 onLog?.(`   [IMG-${i + 1}] 🛒 상품 사진 배치 (${idxInPool}/${productPool.length})`);
@@ -3158,9 +3173,12 @@ ${quoted}
          * 수집 사진이면 비율을 고정하지 않고 **원본 비율 그대로** 보여준다 —
          * 폭만 100% 로 맞추므로 모바일에서도 넘치지 않는다.
          */
-        const isCollectedPhoto = usedProductImages.has(finalImageUrl)
+        // v3.8.439: 여기도 정규화 키로 본다 — 래핑 주소 때문에 수집 사진을
+        //   AI 이미지로 오인해 16:9 로 잘라버리던 경로를 막는다.
+        const finalKey = imgKey(finalImageUrl);
+        const isCollectedPhoto = usedProductImages.has(finalKey)
           || usedDetailImageUrls.has(finalImageUrl)
-          || ((payload.productImages as string[] | undefined) || []).includes(finalImageUrl);
+          || ((payload.productImages as string[] | undefined) || []).some((u) => imgKey(u) === finalKey);
         const frameStyle = isCollectedPhoto
           ? 'width:100% !important;overflow:hidden !important;border-radius:10px !important;background:#f8fafc !important;'
           : 'width:100% !important;aspect-ratio:16/9 !important;overflow:hidden !important;border-radius:10px !important;background:#f8fafc !important;';

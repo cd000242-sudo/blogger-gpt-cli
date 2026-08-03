@@ -56,7 +56,8 @@ describe('① 3-1·6-1 누락 — 표를 요구한 섹션이 본문을 비우던
 describe('② 수집 이미지가 중복 배치되던 문제', () => {
   it('⭐ 안 쓴 사진부터 고른다 (나머지 연산 순환 제거)', () => {
     expect(orch).toContain('const usedProductImages = new Set<string>();');
-    expect(orch).toContain('productPool.find((u) => u && !usedProductImages.has(u))');
+    // v3.8.439: CDN 래핑 주소 때문에 정규화 키(imgKey)로 비교하도록 바뀌었다
+    expect(orch).toContain('productPool.find((u) => u && !usedProductImages.has(imgKey(u)))');
     // 예전의 무조건 순환은 섹션 수 > 사진 수면 반드시 겹쳤다
     expect(orch).not.toContain('const picked = productPool[(i + 1) % productPool.length];');
   });
@@ -67,7 +68,7 @@ describe('② 수집 이미지가 중복 배치되던 문제', () => {
   });
 
   it('⭐ 쓴 사진은 기록한다', () => {
-    expect(orch).toContain('usedProductImages.add(picked);');
+    expect(orch).toContain('usedProductImages.add(imgKey(picked));');
   });
 });
 
