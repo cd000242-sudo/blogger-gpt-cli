@@ -1256,6 +1256,49 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog?.(`[PROGRESS] 40% - ✅ 소제목 ${h2Titles.length}개 완료`);
     }
 
+    /**
+     * 📸 v3.8.431 — 상세정보 이미지를 읽어 본문에 반영한다 (토스/네이버 전용).
+     *
+     * 사용자 요구: "상세정보가 이미지로 되어있는데 완벽히 추론해서 글이 생성되게
+     *   해주시고 이미지 추론이 가능하면 이 이미지들중에서 소제목에 어울리는
+     *   이미지를 활용해주세요"
+     *
+     * 여기서 **착수만** 한다(await 하지 않는다). 소제목이 막 확정됐으니 분석에
+     * 필요한 재료는 다 모였고, 뒤이어 도는 CTA 생성·중복 검사 같은 작업과
+     * 병렬로 돌려 순수 대기 시간을 만들지 않는다. 결과는 본문 생성 직전에 받는다.
+     *
+     * 쿠팡은 제외한다 — 상품 페이지 수집이 차단돼 상세 이미지를 못 얻는다.
+     */
+    let detailVisionPromise: Promise<any[]> | null = null;
+    if (contentMode === 'shopping') {
+      const prov = String((payload as any).affiliateProvider || (payload as any).affiliateProvider || '');
+      const prods = ((payload as any).affiliateProducts || []) as any[];
+      const detailUrls: string[] = prods.flatMap((p) => (p?.detailImageUrls || []) as string[]);
+      const isVisionProvider = prov === 'toss-sharelink' || prov === 'naver-shopping-connect'
+        || (!prov && prods.some((p) => p?.provider === 'toss-sharelink' || p?.provider === 'naver-shopping-connect'));
+      if (isVisionProvider && detailUrls.length > 0 && h2Titles.length > 0) {
+        const envForVision = loadEnvFromFile();
+        const prodName = String((payload as any).resolvedProductName || prods[0]?.title || keyword);
+        detailVisionPromise = (async () => {
+          try {
+            const { analyzeDetailImages } = await import('../affiliate/detail-image-vision');
+            return await analyzeDetailImages(detailUrls, h2Titles, prodName, {
+              textGenerator: String(payload.aiModel || payload.textGenerator || 'gemini'),
+              apiKeys: {
+                gemini: (envForVision['GEMINI_API_KEY'] || envForVision['GOOGLE_API_KEY'] || '').trim() || undefined,
+                claude: (envForVision['ANTHROPIC_API_KEY'] || '').trim() || undefined,
+                openai: (envForVision['OPENAI_API_KEY'] || '').trim() || undefined,
+              },
+              onLog,
+            });
+          } catch (e: any) {
+            onLog?.(`   ⚠️ 상세 이미지 분석 실패 (계속 진행): ${String(e?.message || e).slice(0, 60)}`);
+            return [];
+          }
+        })();
+      }
+    }
+
     // 🛒 쇼핑 모드 사이드 이펙트: 수동 URL 우선 → API → 할루시 가드 (3단계)
     // 🔥 API 키 없는 사용자 지원: payload.manualCoupangUrls 로 제휴 딥링크 직접 입력 가능
     //    (쿠팡 파트너스 15만원 매출 조건 충족 전에도 수익화 시작)
@@ -1691,6 +1734,42 @@ export async function generateUltimateMaxModeArticleFinal(
     //   동일하게 적용. 키워드 한정자(혜택/신청방법/조건 등) 감지 시 sectionPromptBlock 최상단에
     //   "이 글의 모든 H3·본문·결론·CTA·FAQ는 오직 X만 다룬다"를 박는다.
     //   하드코딩 7섹션 모드(애드센스 등)도 본문 LLM 단계에서 한정자 외 내용을 막을 수 있다.
+    /**
+     * 📸 v3.8.431 — 아까 착수해 둔 상세 이미지 분석 결과를 여기서 받는다.
+     *
+     * 이 지점이 중요하다. 바로 아래에서 `scopedSectionBlock` 이 문자열로 **복사**되고,
+     * 그 뒤로는 아무도 `modeResult.sectionPromptBlock` 을 다시 읽지 않는다.
+     * (v3.8.424 에서 가독성 지시가 이 복사 이후에 붙는 바람에 한 번도 프롬프트에
+     *  실리지 않았던 사고가 있었다. 같은 실수를 반복하지 않는다.)
+     *
+     * 분석이 늦어져도 발행을 붙잡지 않는다 — 제한 시간을 두고, 넘으면 그냥 없이 간다.
+     */
+    if (detailVisionPromise) {
+      try {
+        const visionResults: any[] = await Promise.race([
+          detailVisionPromise,
+          new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 60000)),
+        ]);
+        if (visionResults.length > 0) {
+          const { buildPlacementMap, formatDetailFactsForPrompt } = await import('../affiliate/detail-image-vision');
+          const factsBlock = formatDetailFactsForPrompt(visionResults as any);
+          if (factsBlock) {
+            modeResult.sectionPromptBlock = (modeResult.sectionPromptBlock || '') + factsBlock;
+            const factCount = visionResults.reduce((n: number, r: any) => n + (r?.facts?.length || 0), 0);
+            onLog?.(`[PROGRESS] 41% - 📸 상세 이미지에서 확인한 사실 ${factCount}개를 본문에 반영합니다`);
+          }
+          const placements = buildPlacementMap(visionResults as any, normalizeFolderHeadingKey);
+          const placedCount = Object.keys(placements).length;
+          if (placedCount > 0) {
+            (payload as any).detailImagePlacements = placements;
+            onLog?.(`[PROGRESS] 41% - 🖼️ 소제목 ${placedCount}곳에 실제 상품 상세 사진을 배치합니다 (그만큼 이미지 생성 비용이 줄어듭니다)`);
+          }
+        }
+      } catch (e: any) {
+        onLog?.(`   ⚠️ 상세 이미지 반영 실패 (계속 진행): ${String(e?.message || e).slice(0, 60)}`);
+      }
+    }
+
     const overallScope = detectKeywordScope(keyword);
     let scopedSectionBlock = modeResult.sectionPromptBlock || '';
     if (overallScope) {
@@ -2286,6 +2365,8 @@ export async function generateUltimateMaxModeArticleFinal(
     //   발행은 막지 않되, 왜 그런지와 무엇을 하면 되는지를 반드시 알려준다.
     let i2iCreditBlocked = false;
     let i2iFallbackRepeats = 0;
+    // v3.8.431: 같은 상세 사진을 두 소제목에 중복 배치하지 않는다
+    const usedDetailImageUrls = new Set<string>();
 
     // 🔥 빠른 모드: 이미지 생성 스킵
     if (skipImages) {
@@ -2431,7 +2512,32 @@ export async function generateUltimateMaxModeArticleFinal(
             })
             .filter(Boolean);
           if (productPool.length) (payload as any).productImages = productPool;
-          if (contentMode === 'shopping' && productPool.length > 0) {
+
+          /**
+           * 📸 v3.8.431 — 이 소제목에 어울린다고 판정된 **실제 상세 사진**이 있으면 그걸 쓴다.
+           *
+           * 사용자 요구: "이미지 추론이 가능하면 이 이미지들중에서 소제목에 어울리는
+           *   이미지를 활용해주세요 그럼 토스랑 네이버 브랜드 커넥트는 수집한 이미지로
+           *   이미지 배치가 가능합니다"
+           *
+           * AI 로 그림을 새로 만드는 것보다 **실제 상품 사진**이 구매 판단에 낫고,
+           * 그 섹션은 유료 이미지 생성을 통째로 건너뛰므로 비용도 줄어든다.
+           * 매칭이 없으면 아래 기존 전략(product-all / product-i2i)이 그대로 돈다.
+           * 쿠팡은 애초에 placements 가 비어 있어 영향을 받지 않는다.
+           */
+          const detailPlacements = (payload as any).detailImagePlacements as Record<string, string> | undefined;
+          if (contentMode === 'shopping' && detailPlacements) {
+            const placedUrl = detailPlacements[normalizeFolderHeadingKey(section.h2)];
+            if (placedUrl && !usedDetailImageUrls.has(placedUrl)) {
+              usedDetailImageUrls.add(placedUrl);
+              console.log(`[IMG-${i + 1}] 📸 상세 사진 배치 (vision 매칭)`);
+              onLog?.(`   [IMG-${i + 1}] 📸 상세페이지 사진 배치 — 이 소제목에 맞는 실제 사진입니다 (생성 비용 0원)`);
+              imageResult = { ok: true, dataUrl: placedUrl };
+              usedSource = '상세페이지 사진 (vision 매칭)';
+            }
+          }
+
+          if (!imageResult.ok && contentMode === 'shopping' && productPool.length > 0) {
             if (shoppingStrategy === 'product-all') {
               // 썸네일이 0번을 쓰므로 본문은 1번부터 순환 — 같은 사진이 두 번 나오지 않게
               const picked = productPool[(i + 1) % productPool.length];

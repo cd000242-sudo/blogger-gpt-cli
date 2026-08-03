@@ -37,6 +37,49 @@ export interface AffiliateProduct {
   priceKrw: number | null;
   /** 가격을 못 얻은 이유 (UI 안내용) */
   priceNote: string;
+  /**
+   * v3.8.431 — 상세정보(인포그래픽) 이미지 주소들. 토스/네이버 전용.
+   *
+   * 한국 쇼핑몰 상세페이지는 글자 없는 **이미지 몇 장**인 경우가 많다.
+   * 그 안에 스펙·크기·사용법이 다 들어 있는데 지금까지는 og:image 한 장만
+   * 가져와서 그 정보를 통째로 버렸다. 여기 모아두면 vision 으로 읽어
+   * 본문에 반영하고, 소제목에 어울리는 사진으로 배치할 수 있다.
+   *
+   * ⚠️ best-effort 다. 못 모아도 발행은 그대로 진행된다.
+   */
+  detailImageUrls?: string[];
+}
+
+/** 상세 이미지 후보에서 명백한 비-상품 이미지를 걸러낸다 */
+const NON_PRODUCT_IMAGE = /icon|logo|sprite|badge|button|btn_|banner|blank|dot|arrow|star|bg_|_bg|placeholder|avatar|profile/i;
+
+/** vision 비용을 묶어두기 위한 상한 — 수집 단계에서부터 자른다 */
+export const MAX_DETAIL_IMAGES = 15;
+
+/**
+ * HTML 문자열에서 상세 이미지 후보를 뽑는다 (토스용, best-effort).
+ * 실제 페이지로 검증이 필요하다 — 셀렉터가 아니라 휴리스틱이다.
+ */
+export function extractDetailImageUrls(html: string, excludeUrl?: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const exclude = String(excludeUrl || '').split('?')[0];
+  const re = /<img[^>]+(?:src|data-src|data-original)=["']([^"']+)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const raw = String(m[1] || '').trim();
+    if (!raw || raw.startsWith('data:')) continue;          // 인라인 아이콘류
+    const abs = raw.startsWith('//') ? `https:${raw}` : raw;
+    if (!/^https?:\/\//i.test(abs)) continue;
+    const bare = abs.split('?')[0]!;
+    if (seen.has(bare)) continue;
+    if (exclude && bare === exclude) continue;              // 대표 이미지는 이미 따로 쓴다
+    if (NON_PRODUCT_IMAGE.test(bare)) continue;
+    seen.add(bare);
+    out.push(abs);
+    if (out.length >= MAX_DETAIL_IMAGES) break;
+  }
+  return out;
 }
 
 export interface CrawlOptions {
@@ -110,16 +153,23 @@ async function crawlToss(url: string, opts: CrawlOptions): Promise<AffiliateProd
   const resolvedUrl = (res as any).url || url;
 
   const rawTitle = readMeta(html, 'og:title');
+  const ogImage = readMeta(html, 'og:image');
+  // v3.8.431: 이미 손에 있는 HTML 에서 상세 이미지도 같이 건진다 (추가 요청 0회)
+  const detailImageUrls = extractDetailImageUrls(html, ogImage);
+  if (detailImageUrls.length) {
+    opts.onLog?.(`   [제휴] 상세 이미지 ${detailImageUrls.length}장 확보`);
+  }
   return {
     provider: 'toss-sharelink',
     originalUrl: url,
     resolvedUrl,
     // "몽크로스 초강력 바디팬, 다크그레이, 2개 | 토스쇼핑" → 사이트명 꼬리 제거
     title: rawTitle.replace(/\s*\|\s*토스쇼핑\s*$/i, '').trim(),
-    imageUrl: readMeta(html, 'og:image'),
+    imageUrl: ogImage,
     description: readMeta(html, 'og:description'),
     priceKrw: null,
     priceNote: '토스쇼핑은 웹 페이지에 가격을 노출하지 않습니다(실측 확인). 가격은 본문에 쓰지 않습니다.',
+    detailImageUrls,
   };
 }
 
@@ -142,18 +192,50 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
       .catch(() => { /* SPA 리다이렉트 중일 수 있다 — 아래 대기로 흡수 */ });
     await page.waitForTimeout(9000);   // 브리지 → 스마트스토어 리다이렉트 대기
 
-    const info = await page.evaluate(() => {
+    const info = await page.evaluate((maxImgs: number) => {
       const m = (p: string) => document.querySelector(
         `meta[property="${p}"], meta[name="${p}"]`,
       )?.getAttribute('content') || '';
+      /**
+       * v3.8.431 — 상세정보 이미지 수집.
+       *   .se-main-container 는 스마트에디터 ONE 이 렌더한 상세 영역이다(네이버 공통).
+       *   지연 로딩이 흔해 data-src/data-original 도 함께 본다.
+       *   렌더된 폭이 300px 미만이면 아이콘·구분선으로 보고 버린다.
+       *   ⚠️ 실제 스마트스토어 페이지로 검증이 필요한 휴리스틱이다.
+       */
+      const detail: string[] = [];
+      const seen = new Set<string>();
+      const nodes = document.querySelectorAll(
+        '.se-main-container img, .detail_content img, #INTRODUCE img, .product_detail img',
+      );
+      nodes.forEach((el) => {
+        if (detail.length >= maxImgs) return;
+        const img = el as HTMLImageElement;
+        const src = img.getAttribute('src') || img.getAttribute('data-src')
+          || img.getAttribute('data-original') || '';
+        if (!src || src.startsWith('data:')) return;
+        const abs = src.startsWith('//') ? `https:${src}` : src;
+        if (!/^https?:\/\//i.test(abs)) return;
+        const bare = abs.split('?')[0]!;
+        if (seen.has(bare)) return;
+        // 렌더된 크기를 알 수 있으면 작은 건 버린다 (아이콘·구분선)
+        const w = img.naturalWidth || img.width || 0;
+        if (w > 0 && w < 300) return;
+        seen.add(bare);
+        detail.push(abs);
+      });
       return {
         url: location.href,
         title: m('og:title') || document.title,
         image: m('og:image'),
         desc: m('og:description'),
         text: (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 4000),
+        detail,
       };
-    });
+    }, MAX_DETAIL_IMAGES);
+    if (info.detail?.length) {
+      opts.onLog?.(`   [제휴] 상세 이미지 ${info.detail.length}장 확보`);
+    }
 
     const price = extractPriceKrw(info.text);
     // DOM 에서 읽어도 이중 인코딩된 값이 올 수 있다 (실측: "&#40;주&#41;쇼마젠시")
@@ -168,6 +250,7 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
       description: decodeEntities(info.desc),
       priceKrw: price,
       priceNote: price ? '' : '상품 페이지에서 가격을 확인하지 못했습니다. 본문에 가격을 쓰지 않습니다.',
+      detailImageUrls: info.detail || [],
     };
   } finally {
     await browser.close().catch(() => { /* noop */ });
