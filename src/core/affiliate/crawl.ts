@@ -63,7 +63,16 @@ export interface AffiliateProduct {
   detailImageUrls?: string[];
 }
 
-/** 상세 이미지 후보에서 명백한 비-상품 이미지를 걸러낸다 */
+/**
+ * 상세 이미지 후보에서 명백한 비-상품 이미지를 걸러낸다.
+ *
+ * ⚠️ v3.8.441 — **확장자로 거르지 않는다.** 특히 .gif 를 막지 말 것.
+ *   사용자 판단: "제품을 사용하는 gif라면 분명 큰도움이 되니까".
+ *   실측(토스 연탄불고기)에서 수집한 15장 중 6장이 GIF 였고, 그중 상당수가
+ *   조리·사용 장면이다. 정지컷보다 구매 판단에 도움이 된다.
+ *   상품이 안 찍힌 GIF 는 vision 의 hasProduct 판정이 걸러내므로
+ *   여기서 확장자로 미리 자를 이유가 없다.
+ */
 const NON_PRODUCT_IMAGE = /icon|logo|sprite|badge|button|btn_|banner|blank|dot|arrow|star|bg_|_bg|placeholder|avatar|profile/i;
 
 /**
