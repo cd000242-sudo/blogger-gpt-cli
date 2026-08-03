@@ -121,7 +121,11 @@ export function renderProductCtaCard(
  *
  * 이미 카드가 있으면 다시 넣지 않는다(중복 삽입 방지).
  */
-export function insertCtaCards(html: string, product: CtaProduct): { html: string; inserted: number } {
+export function insertCtaCards(
+  html: string,
+  product: CtaProduct,
+  opts: { skipFinal?: boolean } = {},
+): { html: string; inserted: number } {
   const src = String(html || '');
   if (!src.trim()) return { html: src, inserted: 0 };
   if (src.includes('data-orbit-cta')) return { html: src, inserted: 0 };
@@ -187,8 +191,20 @@ export function insertCtaCards(html: string, product: CtaProduct): { html: strin
    *   ("공정위 문구는 항상 제일 상단에 올라가야 되는데")의 정체가 이거였다.
    *   고지문 위치를 더 이상 찾지 않는다 — 늘 진짜 끝에 붙인다.
    */
-  out += `\n${card('final')}`;
-  inserted += 1;
+  /**
+   * v3.8.437 — "소개한 상품" 위젯이 이미 글 끝에 있으면 이 카드를 넣지 않는다.
+   *
+   * 사용자 지적: "소개한 상품이 마지막에있는데 중복으로 CTA가 들어갈이유가없지
+   *   소개한 상품아래 CTA는 없애세요"
+   *
+   * 맞는 지적이다. 그 위젯은 상품 사진 + 상품명 + **폭 전체 구매 버튼**을 이미
+   * 갖고 있다(render.ts). 그 바로 아래에 같은 링크의 카드를 또 붙이면 버튼이
+   * 두 번 연달아 나와 지저분하고, 어느 걸 눌러야 하는지 헷갈린다.
+   */
+  if (!opts.skipFinal) {
+    out += `\n${card('final')}`;
+    inserted += 1;
+  }
 
   return { html: out, inserted };
 }

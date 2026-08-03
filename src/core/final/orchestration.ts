@@ -1455,7 +1455,50 @@ export async function generateUltimateMaxModeArticleFinal(
         const reqsText = reqs.map((r) => `  - ${r}`).join('\n');
         return `[섹션 ${idx + 1}: ${t}] (최소 ${sec.minChars || 1000}자)\n역할: ${role}\n핵심: ${contentFocus}\n필수 요소:\n${reqsText}`;
       }).join('\n\n');
-      modeResult.sectionPromptBlock = `\n\n📋 [쇼핑 모드 섹션별 상세 지시]\n${guides}`;
+      /**
+       * 🗣️ v3.8.437 — 이 글은 **써 본 사람의 글**이어야 한다.
+       *
+       * 사용자 지적: "후기인데 경험이나 공감을 간접적으로 알기위해 내글을 찾는건데
+       *   이건 후기가아니라 구매전에 메뉴얼을 가르쳐주는 글로밖에안보이고 이건
+       *   누구나 아는내용인데...?? 어딜봐서 글을 보고 구매를 결심할까요"
+       *
+       * 맞는 지적이다. 섹션 역할이 전부 3인칭 전문가였다 —
+       *   "제품 전문가이자 기술 분석가" · "비교 분석 전문가" · "구매 전략 컨설턴트"
+       * 분석가가 쓰면 분석문이 나온다. 후기가 나올 수가 없다.
+       *
+       * 역할 구조(8섹션)는 유지하되 **화자와 서술 방식**을 바꾼다.
+       * 지어내라는 게 아니다 — 수집한 실제 재료(후기·상세 이미지에서 읽은 사실·
+       * 상품 옵션)를 **겪은 사람의 말투로** 풀라는 것이다. 재료가 없으면 없다고
+       * 말하는 게 낫지, 누구나 아는 일반론으로 채우면 안 된다.
+       */
+      const voiceDirective = `
+
+🗣️ **이 글의 화자 — 전문가가 아니라 "써 본 사람"입니다 (가장 중요)**
+독자는 스펙이 궁금해서 온 게 아닙니다. **"이거 사도 되나, 나 같은 사람한테 맞나"**를
+알고 싶어서 왔습니다. 그래서 검색해서 남의 글을 찾는 겁니다.
+
+- 화자는 이 상품을 **직접 고르고 써 본 사람**입니다. 분석가·컨설턴트가 아닙니다.
+- 각 섹션의 '역할'은 다룰 내용의 범위일 뿐입니다. **말투와 시선은 전부 경험자**로 통일하세요.
+- 구체적인 상황을 먼저 놓고 시작하세요 — 언제, 어디서, 왜 이게 필요했는지.
+  예) ❌ "이 제품은 휴대성이 뛰어납니다."
+      ✅ "출근길 지하철에서 한 손으로 들고 있어야 했는데, 그때 무게가 체감됐어요."
+
+🚫 **일반론 금지 — 이게 이 글이 안 읽히는 진짜 이유입니다**
+아래 같은 문장은 **어떤 상품에 붙여도 말이 됩니다.** 즉 정보량이 0입니다. 쓰지 마세요.
+  · "구매 전 용도를 먼저 정하는 것이 좋습니다"
+  · "가격 대비 성능을 따져보세요"
+  · "리뷰를 꼼꼼히 확인하는 것이 중요합니다"
+  · "본인의 사용 목적에 맞게 선택하세요"
+  · "장바구니에서 옵션을 확인하세요"
+이런 문장을 쓸 자리에는, **이 상품에만 해당하는 구체적인 것**을 쓰세요.
+수집한 상품 정보·후기·상세 이미지에서 읽은 사실이 그 재료입니다.
+
+✅ **재료가 없으면 솔직하게**
+확인된 후기나 스펙이 없으면 지어내지 말고 "아직 후기가 많지 않다"고 쓰세요.
+없는 경험을 지어내는 것보다, 없다고 말하고 **상품 정보에서 읽히는 것**을 파고드는 편이
+독자에게 훨씬 신뢰를 줍니다.`;
+
+      modeResult.sectionPromptBlock = `\n\n📋 [쇼핑 모드 섹션별 상세 지시]${voiceDirective}\n${guides}`;
 
       // 실제로 수집한 후기·스펙 원문을 프롬프트에 싣는다 (formatEnrichmentForPrompt는
       // 후기 0건 케이스를 정확히 다루도록 이미 설계돼 있다).
@@ -2449,6 +2492,19 @@ export async function generateUltimateMaxModeArticleFinal(
     let i2iFallbackRepeats = 0;
     // v3.8.431: 같은 상세 사진을 두 소제목에 중복 배치하지 않는다
     const usedDetailImageUrls = new Set<string>();
+    /**
+     * v3.8.437: '상품 사진 그대로' 전략도 같은 사진을 두 번 쓰지 않는다.
+     *
+     * ⚠️ 썸네일이 productImages[0] 을 쓴다. 그래서 **0번을 미리 '사용함'으로
+     *    표시해 둔다** — 안 그러면 본문 1번이 썸네일과 같은 사진이 된다.
+     *    (예전 코드가 `(i + 1) % length` 로 1번부터 돌린 이유가 이것이었다.
+     *     안 쓴 것 고르기로 바꾸면서 이 의도를 명시적으로 옮겨 적는다.)
+     */
+    const usedProductImages = new Set<string>();
+    {
+      const thumbCandidate = ((payload.productImages as string[] | undefined) || [])[0];
+      if (thumbCandidate) usedProductImages.add(thumbCandidate);
+    }
 
     // 🔥 빠른 모드: 이미지 생성 스킵
     if (skipImages) {
@@ -2621,13 +2677,29 @@ export async function generateUltimateMaxModeArticleFinal(
 
           if (!imageResult.ok && contentMode === 'shopping' && productPool.length > 0) {
             if (shoppingStrategy === 'product-all') {
-              // 썸네일이 0번을 쓰므로 본문은 1번부터 순환 — 같은 사진이 두 번 나오지 않게
-              const picked = productPool[(i + 1) % productPool.length];
+              /**
+               * v3.8.437 — **아직 안 쓴 사진**을 고른다.
+               *
+               * 사용자 보고: "수집된이미지가 중복으로 나오는 버그 수정해주세요"
+               *
+               * 예전에는 `productPool[(i + 1) % pool.length]` 로 돌렸다. 나머지 연산이라
+               * 섹션 수가 사진 수보다 많으면 **반드시** 겹친다(사진 7장·섹션 8개면 한 장 중복).
+               * 게다가 썸네일이 0번을 쓰는데 순환이 0번으로 돌아와 썸네일과도 겹쳤다.
+               * 이제 안 쓴 것부터 순서대로 쓰고, 다 떨어졌을 때만 처음부터 다시 돈다.
+               */
+              let picked = productPool.find((u) => u && !usedProductImages.has(u));
+              if (!picked) {
+                // 사진이 부족하다 — 그때는 어쩔 수 없이 재사용하되, 썸네일(0번)은 피한다
+                const reusable = productPool.slice(1).length > 0 ? productPool.slice(1) : productPool;
+                picked = reusable[i % reusable.length];
+              }
               if (picked) {
+                usedProductImages.add(picked);
+                const idxInPool = productPool.indexOf(picked) + 1;
                 console.log(`[IMG-${i + 1}] 🛒 상품 사진 그대로 (전략: product-all)`);
-                onLog?.(`   [IMG-${i + 1}] 🛒 상품 사진 배치 (${(i + 1) % productPool.length + 1}/${productPool.length})`);
+                onLog?.(`   [IMG-${i + 1}] 🛒 상품 사진 배치 (${idxInPool}/${productPool.length})`);
                 imageResult = { ok: true, dataUrl: picked };
-                usedSource = '쿠팡 상품 이미지';
+                usedSource = '수집 상품 이미지';
               }
             } else if (shoppingStrategy === 'product-i2i') {
               // 실제 상품을 reference 로 넘겨 소제목 내용에 맞는 이미지를 생성
@@ -3020,10 +3092,32 @@ export async function generateUltimateMaxModeArticleFinal(
       // v3.5.55부터 adsense 첫 섹션에도 이미지 정상 삽입 (author_intro 섹션 제거됨)
       const finalImageUrl = processedImageUrls[idx];
       if (finalImageUrl) {
+        /**
+         * 🖼️ v3.8.437 — 수집한 실제 사진은 **잘라내지 않는다.**
+         *
+         * 사용자 보고: "수집된 이미지가 짤려서 나오는버그도 수정해주시구요
+         *   모바일 친화적으로 나와야됩니다."
+         *
+         * AI 생성 이미지는 16:9 로 뽑히니 cover 로 꽉 채워도 문제없다. 그런데
+         * 상세페이지 사진은 세로로 긴 인포그래픽이 많아서 cover 로 16:9 에 넣으면
+         * 위아래가 잘려 정작 읽어야 할 스펙이 사라진다.
+         * 수집 사진이면 비율을 고정하지 않고 **원본 비율 그대로** 보여준다 —
+         * 폭만 100% 로 맞추므로 모바일에서도 넘치지 않는다.
+         */
+        const isCollectedPhoto = usedProductImages.has(finalImageUrl)
+          || usedDetailImageUrls.has(finalImageUrl)
+          || ((payload.productImages as string[] | undefined) || []).includes(finalImageUrl);
+        const frameStyle = isCollectedPhoto
+          ? 'width:100% !important;overflow:hidden !important;border-radius:10px !important;background:#f8fafc !important;'
+          : 'width:100% !important;aspect-ratio:16/9 !important;overflow:hidden !important;border-radius:10px !important;background:#f8fafc !important;';
+        const imgStyle = isCollectedPhoto
+          // 원본 비율 유지 — 세로로 긴 상세컷도 전부 보인다. 폭은 화면에 맞춘다.
+          ? 'width:100% !important;height:auto !important;max-width:100% !important;object-fit:contain !important;border-radius:0 !important;display:block !important;margin:0 auto !important;'
+          : 'width:100% !important;height:100% !important;aspect-ratio:16/9 !important;object-fit:cover !important;border-radius:0 !important;display:block !important;margin:0 !important;';
         html += `
 <figure class="section-image" style="width:100% !important;margin:32px 0 40px !important;padding:0 !important;">
-  <div class="section-image-frame" style="width:100% !important;aspect-ratio:16/9 !important;overflow:hidden !important;border-radius:10px !important;background:#f8fafc !important;">
-    <img src="${finalImageUrl}" alt="${cleanH2}" title="${cleanH2}" style="width:100% !important;height:100% !important;aspect-ratio:16/9 !important;object-fit:cover !important;border-radius:0 !important;display:block !important;margin:0 !important;" loading="lazy" />
+  <div class="section-image-frame" style="${frameStyle}">
+    <img src="${finalImageUrl}" alt="${cleanH2}" title="${cleanH2}" style="${imgStyle}" loading="lazy" />
   </div>
   <figcaption style="text-align:center;font-size:13px;color:#999;margin-top:12px;font-style:italic;">${cleanH2}</figcaption>
 </figure>
@@ -3318,6 +3412,10 @@ export async function generateUltimateMaxModeArticleFinal(
             url: purchaseUrl,
             provider: (payload as any).affiliateProvider || null,
             ...(p0?.description ? { note: String(p0.description) } : {}),
+          }, {
+            // v3.8.437: "소개한 상품" 위젯이 이미 글 끝에 붙었으면(3279행) 그 아래에
+            //   같은 링크의 카드를 또 넣지 않는다 — 버튼이 두 번 연달아 나온다.
+            skipFinal: html.includes('affiliate-product-showcase'),
           });
           if (cardResult.inserted > 0) {
             html = cardResult.html;

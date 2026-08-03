@@ -117,8 +117,14 @@ describe('백엔드 — 전략별 동작', () => {
   });
 
   it('썸네일과 같은 사진이 본문 1번에 또 나오지 않는다', () => {
-    // 썸네일이 productImages[0] 을 쓰므로 본문은 인덱스 1부터 시작해야 한다
-    expect(orchestrationSrc).toContain('썸네일이 0번을 쓰므로 본문은 1번부터 순환');
+    /**
+     * v3.8.437: 방식이 "1번부터 순환" → "안 쓴 것부터 고르기"로 바뀌었다.
+     *   (순환은 섹션 수 > 사진 수면 반드시 중복됐다 — 사용자 실측)
+     *   확인할 것은 그대로다: 썸네일이 쓰는 0번이 본문에 다시 나오면 안 된다.
+     *   → 0번을 미리 '사용함'으로 표시해 두는 것으로 보장한다.
+     */
+    expect(orchestrationSrc).toContain('const thumbCandidate = ((payload.productImages as string[] | undefined) || [])[0];');
+    expect(orchestrationSrc).toContain('if (thumbCandidate) usedProductImages.add(thumbCandidate);');
   });
 
   it('product-i2i 는 실제 상품을 reference 로 넘긴다', () => {
