@@ -182,7 +182,8 @@ describe('②③ 쇼핑모드 이미지 컨트롤 정합', () => {
     const orch = read('src', 'core', 'final', 'orchestration.ts');
     expect(orch).toContain('isCrawledRequested || isShoppingMode || !userPickedAiEngine');
     // AI 디스패치는 썸네일이 비었을 때만 — 상품 사진을 덮어쓰면 안 된다
-    expect(orch).toContain('if (!thumbnailUrl && !thumbnailDisabled)');
+    // v3.8.457: 반자동(skipImages)에서 유료 썸네일이 새지 않게 게이트가 추가됐다
+    expect(orch).toContain('if (!thumbnailUrl && !thumbnailDisabled && !skipImages)');
   });
 
   it('왜 꺼졌는지 이유를 보여준다', () => {

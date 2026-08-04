@@ -4225,8 +4225,24 @@ ${conclusionHTML}
       onLog?.(`[PROGRESS] 90% - 🛡️ 사용자가 ${thumbnailSource} 엔진을 선택해 수집 이미지를 무시합니다`);
     }
 
+    /**
+     * 💸 v3.8.457 — 반자동(skipImages)에서는 **유료 썸네일을 생성하지 않는다.**
+     *
+     * 사용자 질문으로 드러난 누수: "반자동 발행으로 하면 썸네일은 대표이미지
+     * 수집한걸로 배치되고 나머지 이미지는 안나오는거맞지?"
+     * — 쇼핑모드는 맞다(수집 사진 = 0원, 위 useProductImages 경로).
+     * 그런데 **수집 사진이 없는 경우**(SEO·일관 모드, 또는 쇼핑인데 크롤 실패)는
+     * 이 분기로 흘러와 유료 AI 썸네일이 생성됐다. v3.8.425 의 설계 의도
+     * ("반자동 = 이미지 없이 글만 먼저")와 어긋나는 비용 누수다.
+     * skipImages 면 여기서 멈춘다 — 썸네일은 편집기에서 넣으면 된다.
+     * (URL 모드 썸네일 경로는 이미 !skipImages 게이트가 있다 — 847행. 이 분기만 빠져 있었다.)
+     */
+    if (!thumbnailUrl && !thumbnailDisabled && skipImages) {
+      onLog?.('[PROGRESS] 90% - ⏭️ 반자동/이미지 생략 모드 — 유료 썸네일 생성을 건너뜁니다 (편집기에서 넣을 수 있어요)');
+    }
+
     // 🎯 썸네일 디스패치: 사용자 선택 엔진 → 실패 시 폴백 → 최종 SVG
-    if (!thumbnailUrl && !thumbnailDisabled) {
+    if (!thumbnailUrl && !thumbnailDisabled && !skipImages) {
       onLog?.(`[PROGRESS] 90% - 🖼️ 썸네일 생성 중 (요청: ${thumbnailSource})...`);
       try {
         const thumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; referenceImageList?: string[]; leonardoModel?: string; allowFreeTrialPublishing?: boolean; thumbnailNoText?: boolean } = {
