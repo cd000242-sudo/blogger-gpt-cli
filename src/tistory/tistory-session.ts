@@ -1147,13 +1147,17 @@ async function extractTistoryCategoriesFromPage(page: any, source: 'editor' | 'm
         .replace(/\s+/g, ' ')
         .trim();
 
-      const blocked = /^(카테고리|카테고리 더보기|카테고리 없음|분류 전체보기|전체|전체보기|관리|추가|수정|삭제|저장|취소|확인|닫기|글쓰기|새 글|공개|비공개|보호|공지|홈|통계|스킨|댓글|방명록|콘텐츠|설정|블로그|메뉴|선택 안 함|선택 없음|기본모드|기본서체|HTML|마크다운|POWERED BY TINY)$/i;
+      // v3.8.459: 사용자 실측으로 걸러진 관리 화면 UI 문구를 추가
+      //   (카테고리 관리 · 자세히 보기 · 변경사항 저장 · 표시합니다/표시하지 않습니다 · "3일")
+      const blocked = /^(카테고리|카테고리 관리|카테고리 더보기|카테고리 없음|카테고리 추가|분류 전체보기|전체|전체보기|관리|추가|수정|삭제|저장|취소|확인|닫기|글쓰기|새 글|공개|비공개|보호|공지|홈|통계|스킨|댓글|방명록|콘텐츠|설정|블로그|메뉴|선택 안 함|선택 없음|기본모드|기본서체|HTML|마크다운|POWERED BY TINY|자세히 보기|더 보기|더보기|변경사항 저장|표시합니다|표시하지 않습니다|숨깁니다|접기|펼치기)$/i;
       const looksCategory = (text: string) => {
         const cleaned = normalizeText(text).replace(/\(\d+\)$/g, '').trim();
         if (!cleaned || cleaned.length > 60) return false;
         if (blocked.test(cleaned)) return false;
         if (/powered\s+by\s+tiny|tinymce|기본\s*(?:모드|서체)|html|markdown|마크다운/i.test(cleaned)) return false;
         if (/^\d+$/.test(cleaned)) return false;
+        // "3일" · "7일" 같은 기간 표기는 관리 화면 드롭다운 값이지 카테고리가 아니다
+        if (/^\d+\s*(일|시간|분|주|개월)$/.test(cleaned)) return false;
         if (/https?:\/\//i.test(cleaned)) return false;
         return /[가-힣a-zA-Z0-9]/.test(cleaned);
       };
@@ -1290,18 +1294,31 @@ export async function loadTistoryCategories(
       };
     }
 
-    await page.goto(TISTORY_URLS.category(config.blogName), { waitUntil: 'domcontentloaded', timeout: config.timeoutMs }).catch(() => null);
-    await page.waitForTimeout(1500).catch(() => null);
+    /**
+     * 🏷️ v3.8.459 — **에디터 드롭다운이 1순위, 관리 화면은 폴백.**
+     *
+     * 사용자 실측: 불러온 목록에 "카테고리 관리 · 자세히 보기 · 변경사항 저장 ·
+     * 표시합니다 · 표시하지 않습니다 · 3일" 같은 관리 화면 버튼 문구가 섞여 왔다
+     * ("이건 내카테고리가 아닌데..??").
+     *
+     * 예전 순서는 관리 화면(/manage/category)이 먼저였는데, 거기 셀렉터
+     * ([class*="category"] button 등)가 관리 UI 전체를 쓸어 담는다. 진짜 카테고리와
+     * 섞여 0건이 아니게 되니 에디터 폴백은 영영 실행되지 않았다.
+     *
+     * 에디터(글쓰기 화면)의 카테고리 드롭다운은 **발행 때 실제로 고를 수 있는
+     * 목록과 정확히 일치**한다 — selectCategory 가 클릭하는 바로 그 DOM 이다.
+     * 그래서 여기서 보이는 항목은 발행에서 반드시 선택 가능하다.
+     */
     let categories: TistoryCategory[] = [];
-    if (!(await isTistoryLoginPage(page))) {
-      categories = await extractTistoryCategoriesFromPage(page, 'manage');
-    }
+    await openEditorCategoryMenu(page);
+    categories = await extractTistoryCategoriesFromPage(page, 'editor');
+
     if (categories.length === 0) {
-      await page.goto(writeUrl, { waitUntil: 'domcontentloaded', timeout: config.timeoutMs }).catch(() => null);
-      await page.waitForTimeout(1200).catch(() => null);
+      onLog?.('[TISTORY] 에디터에서 카테고리를 못 읽어 관리 화면에서 다시 시도합니다');
+      await page.goto(TISTORY_URLS.category(config.blogName), { waitUntil: 'domcontentloaded', timeout: config.timeoutMs }).catch(() => null);
+      await page.waitForTimeout(1500).catch(() => null);
       if (!(await isTistoryLoginPage(page))) {
-        await openEditorCategoryMenu(page);
-        categories = await extractTistoryCategoriesFromPage(page, 'editor');
+        categories = await extractTistoryCategoriesFromPage(page, 'manage');
       }
     }
 
