@@ -1,6 +1,6 @@
 {
   "name": "lba",
-  "version": "3.8.453",
+  "version": "3.8.454",
   "description": "LEADERNAM Orbit - AI-powered blog automation",
   "main": "electron/main.js",
   "scripts": {
@@ -40,7 +40,7 @@
     "pack": "npm run build && node setup-pack-env.js && electron-builder --dir",
     "setup-pack-env": "node setup-pack-env.js",
     "pre-release": "node scripts/pre-release-check.js",
-    "release": "npm run build && electron-builder --win --publish never && node scripts/publish-release.js && node scripts/sync-site-download.js && node scripts/clean-release-folder.js",
+    "release": "node scripts/quiet-run.js npm run release:work",
     "sync:site": "node scripts/sync-site-download.js",
     "clean:release": "node scripts/clean-release-folder.js --deep",
     "release:mac": "node scripts/build-mac.js --arch both --publish",
@@ -56,7 +56,9 @@
     "test:fast": "jest -c jest.fast.cjs",
     "test:watch": "jest -c jest.fast.cjs --watch",
     "test:guard": "jest -c jest.fast.cjs --testPathPattern \"(guard|roundtrip|reentrancy|persistence|503|prefill)\"",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "release:work": "npm run build && electron-builder --win --publish never && node scripts/publish-release.js && node scripts/sync-site-download.js && node scripts/clean-release-folder.js",
+    "test:quiet": "node scripts/quiet-run.js npx jest"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
