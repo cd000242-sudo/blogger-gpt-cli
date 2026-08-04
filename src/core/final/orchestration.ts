@@ -3388,7 +3388,32 @@ ${quoted}
           // 원본 비율 유지 — 세로로 긴 상세컷도 전부 보인다. 폭은 화면에 맞춘다.
           ? 'width:100% !important;height:auto !important;max-width:100% !important;object-fit:contain !important;border-radius:0 !important;display:block !important;margin:0 auto !important;'
           : 'width:100% !important;height:100% !important;aspect-ratio:16/9 !important;object-fit:cover !important;border-radius:0 !important;display:block !important;margin:0 !important;';
-        html += `
+        /**
+         * ✂️ v3.8.448 — 수집 사진은 **비율 상자로 감싸지 않는다.**
+         *
+         * 사용자 보고: "이미지가 새로로 3/1정도가 위아래로 짤려있어",
+         *   "워드프레스랑 티스토리도 마찬가지이고 특히 수집된 이미지를
+         *    배치했을경우에 그게 심해"
+         *
+         * v3.8.437 에서 인라인 style 로 contain 을 줬는데 **발행 시점에 덮인다.**
+         * 실측으로 두 경로를 확인했다 —
+         *   · 블로그스팟: 퍼블리셔가 class="section-image-frame" 을 보고
+         *     `aspect-ratio:16/9 + overflow:hidden` 을 다시 씌운다
+         *     (blogger-publisher.js styles.imageFrame). 세로로 긴 상세컷이 잘린다.
+         *   · 워드프레스: REST 저장 과정에서 **인라인 style 이 통째로 제거**된다
+         *     (발행글 실측: 프레임·이미지 모두 style 속성 없음). 테마 CSS 가 정한다.
+         * 즉 style 로는 못 막는다. **자르는 구조 자체를 없앤다** —
+         * 수집 사진은 비율 상자 없이 img 만 내보낸다. 그러면 감쌀 상자가 없어
+         * 어느 플랫폼에서도 잘릴 수 없다. AI 생성컷은 원래 16:9 라 상자를 유지한다.
+         */
+        html += isCollectedPhoto
+          ? `
+<figure class="section-image" style="width:100% !important;margin:32px 0 40px !important;padding:0 !important;text-align:center !important;">
+  <img src="${finalImageUrl}" alt="${cleanH2}" title="${cleanH2}" data-orbit-nocrop="1" style="${imgStyle}" loading="lazy" />
+  <figcaption style="text-align:center;font-size:13px;color:#999;margin-top:12px;font-style:italic;">${cleanH2}</figcaption>
+</figure>
+`
+          : `
 <figure class="section-image" style="width:100% !important;margin:32px 0 40px !important;padding:0 !important;">
   <div class="section-image-frame" style="${frameStyle}">
     <img src="${finalImageUrl}" alt="${cleanH2}" title="${cleanH2}" style="${imgStyle}" loading="lazy" />

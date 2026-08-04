@@ -798,9 +798,20 @@ function applyInlineStyles(html) {
     styledHtml = styledHtml.replace(/<img\s+([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
       const className = bgptGetClassName(attrs);
-      const imageStyle = bgptHasClass(className, /section-image|bgpt-thumbnail|thumbnail-image|hero-image/)
-        ? 'display: block !important; visibility: visible !important; opacity: 1 !important; width: 100% !important; max-width: 100% !important; height: auto !important; aspect-ratio: 16 / 9 !important; object-fit: cover !important; margin: 0 auto !important; border-radius: 10px !important;'
-        : 'display: block !important; visibility: visible !important; opacity: 1 !important; max-width: 100% !important; height: auto !important; margin: 32px auto !important; border-radius: 6px !important;';
+      /**
+       * ✂️ v3.8.448 — data-orbit-nocrop 이 붙은 사진은 **절대 비율을 강제하지 않는다.**
+       *
+       * 사용자 보고: "이미지가 새로로 3/1정도가 위아래로 짤려있어".
+       * 판매 페이지에서 수집한 상세컷은 세로로 긴 인포그래픽이 많은데,
+       * 16:9 + object-fit:cover 로 넣으면 정작 읽어야 할 스펙이 잘려 나간다.
+       * orchestration 이 수집 사진에만 이 표시를 붙인다.
+       */
+      const noCrop = /data-orbit-nocrop\s*=\s*["']?1/i.test(attrs);
+      const imageStyle = noCrop
+        ? 'display: block !important; visibility: visible !important; opacity: 1 !important; width: 100% !important; max-width: 100% !important; height: auto !important; object-fit: contain !important; margin: 0 auto !important; border-radius: 10px !important;'
+        : bgptHasClass(className, /section-image|bgpt-thumbnail|thumbnail-image|hero-image/)
+          ? 'display: block !important; visibility: visible !important; opacity: 1 !important; width: 100% !important; max-width: 100% !important; height: auto !important; aspect-ratio: 16 / 9 !important; object-fit: cover !important; margin: 0 auto !important; border-radius: 10px !important;'
+          : 'display: block !important; visibility: visible !important; opacity: 1 !important; max-width: 100% !important; height: auto !important; margin: 32px auto !important; border-radius: 6px !important;';
       return `<img style="${imageStyle}" ${cleanAttrs}>`;
     });
     styledHtml = wrapBloggerTables(styledHtml);
