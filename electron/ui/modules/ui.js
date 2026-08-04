@@ -1150,20 +1150,37 @@ export function togglePlatformFields() {
     }
   }
 
-  // 워드프레스 카테고리 탭 표시/숨김
+  /**
+   * 🏷️ v3.8.456 — 카테고리 탭은 **워드프레스·티스토리 공용**이다.
+   *
+   * 사용자 실측: 티스토리를 선택했는데 카테고리 탭이 아예 없었다("없는데? 카테고리탭이?").
+   * 원인: togglePlatformFields 가 **두 벌**이다. script.js 쪽은 "블로거가 아니면 표시"로
+   * 맞게 고쳐졌는데, 이 함수(설정 저장·모달 닫기 후 실행)가 wordpress 만 표시하고
+   * 나머지를 전부 숨겨 같은 엘리먼트를 놓고 싸웠다 — 마지막에 실행되는 이쪽이 이겼다.
+   * (사용자 콘솔 로그가 증거: "togglePlatformFields 실행: tistory" 직후 "카테고리 탭: 숨김")
+   */
   const wpCategoryTab = document.getElementById('settingsTabCategory');
   const wpCategoryPanel = document.getElementById('tab-category');
+  const showCategoryTab = selectedPlatform === 'wordpress' || selectedPlatform === 'tistory';
   if (wpCategoryTab) {
-    if (selectedPlatform === 'wordpress') {
+    if (showCategoryTab) {
       wpCategoryTab.style.display = 'flex';
-      console.log('워드프레스 카테고리 탭: 표시');
+      console.log('카테고리 탭: 표시 (' + selectedPlatform + ')');
     } else {
       wpCategoryTab.style.display = 'none';
       if (wpCategoryPanel && wpCategoryPanel.classList.contains('active')) {
         if (window.switchPostingSettingsTab) window.switchPostingSettingsTab('tab-content');
       }
-      console.log('워드프레스 카테고리 탭: 숨김');
+      console.log('카테고리 탭: 숨김 (blogger)');
     }
+  }
+  // 탭 안의 블록도 플랫폼에 맞는 쪽만 보인다 (script.js 쪽과 동일 로직 — 어느 쪽이
+  // 마지막에 실행돼도 결과가 같도록 두 곳을 일치시킨다)
+  {
+    const postingWpBlock = document.getElementById('postingWpCategoryBlock');
+    const postingTistoryBlock = document.getElementById('postingTistoryCategoryBlock');
+    if (postingWpBlock) postingWpBlock.style.display = selectedPlatform === 'wordpress' ? 'block' : 'none';
+    if (postingTistoryBlock) postingTistoryBlock.style.display = selectedPlatform === 'tistory' ? 'block' : 'none';
   }
 
   // 블로거 설정 표시/숨김 (있는 경우)
