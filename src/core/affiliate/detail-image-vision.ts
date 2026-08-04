@@ -244,6 +244,35 @@ async function askVision(
 }
 
 /**
+ * 🎯 v3.8.445 — **쓰지도 않는 제공자로 새지 않게 한다.**
+ *
+ * 사용자 지적(2026-08-04): "제미나이 충전을 못해서 안쓴다고".
+ * 실제 설정은 `AI_PROVIDER=openai` 인데, 여기 기본값이 `'gemini'` 로 박혀 있어
+ * payload 가 모델명을 안 실어 보내면 **상세 이미지 추론만 Gemini 로 갔다.**
+ * 그 키는 죽어 있으니 추론이 통째로 실패했고, 그마저 조용했다(v3.8.444 에서 로그는 고침).
+ *
+ * 이제 순서는 이렇다:
+ *   ① 호출부가 넘긴 모델
+ *   ② 없으면 사용자가 설정한 AI_PROVIDER
+ *   ③ 그렇게 정한 vendor 에 **키가 없으면**, 키가 있는 vendor 로 옮긴다
+ * ③이 핵심이다 — 라우팅이 어긋나도 키가 있는 쪽으로 붙으면 기능은 살아난다.
+ */
+export function resolveRouting(opts: DetailVisionOptions): VisionRouting {
+  const asked = String(opts.textGenerator || '').trim()
+    || String(process.env['AI_PROVIDER'] || '').trim();
+  const routed = routeTextToVision(asked);
+  const has = (v: 'gemini' | 'claude' | 'openai') => !!(opts.apiKeys || {})[v];
+  if (has(routed.vendor)) return routed;
+
+  // 키가 있는 vendor 로 옮긴다. 설정값과 가까운 순서로 본다.
+  const order: Array<'openai' | 'claude' | 'gemini'> = ['openai', 'claude', 'gemini'];
+  const alt = order.find((v) => has(v));
+  if (!alt) return routed;              // 아무 키도 없으면 그대로 두고 위에서 실패 로그가 남는다
+  const altRouted = routeTextToVision(alt);
+  return { ...altRouted, fellBack: true, reason: `${routed.vendor} 키가 없어 ${alt} 로 전환` };
+}
+
+/**
  * 상세 이미지들을 분석한다. 실패는 조용히 건너뛴다(발행을 막지 않는다).
  * 비용은 `MAX_VISION_IMAGES` 장으로 묶인다.
  */
@@ -256,12 +285,13 @@ export async function analyzeDetailImages(
   const urls = (imageUrls || []).filter(Boolean).slice(0, MAX_VISION_IMAGES);
   if (urls.length === 0 || h2Titles.length === 0) return [];
 
-  const routing = routeTextToVision(String(opts.textGenerator || 'gemini'));
+  const routing = resolveRouting(opts);
   const timeoutMs = opts.timeoutMs ?? 30000;
   const prompt = buildDetailPrompt(h2Titles, productName);
   const out: DetailImageFacts[] = [];
 
-  opts.onLog?.(`   🔍 상세 이미지 ${urls.length}장 분석 (${routing.provider}) — 이미지당 1회 호출`);
+  opts.onLog?.(`   🔍 상세 이미지 ${urls.length}장 분석 (${routing.provider}) — 이미지당 1회 호출`
+    + (routing.fellBack && routing.reason ? ` · ${routing.reason}` : ''));
 
   for (const imageUrl of urls) {
     try {

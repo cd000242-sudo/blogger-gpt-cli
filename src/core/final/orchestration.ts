@@ -1346,7 +1346,14 @@ export async function generateUltimateMaxModeArticleFinal(
               try { return getApiKey(p) || undefined; } catch { return undefined; }
             };
             return await analyzeDetailImages(detailUrls, h2Titles, prodName, {
-              textGenerator: String(payload.aiModel || payload.textGenerator || 'gemini'),
+              /**
+               * v3.8.445 — 여기에 'gemini' 를 박아두면 **사용자가 안 쓰는 제공자로 샌다.**
+               * 사용자 설정은 AI_PROVIDER=openai 인데 이 기본값 때문에 상세 이미지
+               * 추론만 Gemini 로 갔고, 그 키가 죽어 추론이 통째로 실패했다.
+               * 빈 값으로 넘기면 analyzeDetailImages 가 AI_PROVIDER 를 보고,
+               * 그 vendor 키가 없으면 키 있는 쪽으로 알아서 옮긴다.
+               */
+              textGenerator: String(payload.aiModel || payload.textGenerator || ''),
               apiKeys: { gemini: pick('gemini'), claude: pick('claude'), openai: pick('openai') },
               onLog,
             });
