@@ -108,7 +108,8 @@ export async function crawlAndCollect(opts: CrawlAndCollectOptions): Promise<Cra
   if (opts.aiCheckEnabled) {
     const relOpts: RelevanceCheckOptions = {
       enabled: true,
-      textGenerator: opts.textGenerator || 'gemini-3.5-flash',
+      // v3.8.446: 설정(AI_PROVIDER)을 따른다 — 예전엔 gemini 로 고정이었다
+      textGenerator: opts.textGenerator || require('../llm/pricing').resolveDefaultTierValue(),
       apiKeys: opts.apiKeys || {},
       threshold: opts.threshold ?? 60,
     };

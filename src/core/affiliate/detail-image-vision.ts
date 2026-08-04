@@ -91,8 +91,24 @@ function httpsPostJson(urlStr: string, body: any, headers: Record<string, string
       const chunks: Buffer[] = [];
       res.on('data', (c) => chunks.push(c as Buffer));
       res.on('end', () => {
-        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf-8'))); }
-        catch (e) { reject(e); }
+        const raw = Buffer.concat(chunks).toString('utf-8');
+        /**
+         * v3.8.446 — **상태 코드를 본다.** 예전에는 4xx/5xx 여도 본문만 파싱해서
+         * 넘겼고, 그 JSON 에 candidates 가 없으니 호출부가 빈 문자열을 받고
+         * "결과 없음"으로 넘어갔다(v3.8.444 에서 드러난 403 사례).
+         * HTML 오류 페이지가 오면 JSON.parse 가 실패해 그마저 이유를 못 남겼다.
+         */
+        const status = res.statusCode || 0;
+        try {
+          const parsed = JSON.parse(raw);
+          if (status >= 400 && !parsed?.error) {
+            reject(new Error(`HTTP ${status}: ${raw.slice(0, 120)}`));
+            return;
+          }
+          resolve(parsed);
+        } catch {
+          reject(new Error(`HTTP ${status} 응답을 해석하지 못했습니다: ${raw.slice(0, 120)}`));
+        }
       });
       res.on('error', reject);
     });

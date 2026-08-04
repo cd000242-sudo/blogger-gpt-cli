@@ -257,16 +257,46 @@ export function findTier(value: string | undefined | null): TierModel | undefine
 }
 
 /**
- * primaryGeminiTextModel → defaultAiProvider 자동 파생
+ * 🎯 v3.8.446 — **기본값이 늘 Gemini 로 떨어지던 뿌리.**
+ *
+ * 사용자 지적(2026-08-04): "제미나이 충전을 못해서 안쓴다고".
+ * `.env` 는 `AI_PROVIDER=openai` 인데 이 파일의 `DEFAULT_TIER_VALUE` 가
+ * 'gemini-3.5-flash' 로 고정이라, 모델이 안 정해진 모든 경로가 Gemini 로 갔다.
+ * 그 키는 차단된 상태라 그 경로들은 전부 실패한다.
+ *
+ * 이제 설정을 먼저 본다. 설정이 없거나 모르는 값일 때만 예전 기본값을 쓴다.
+ * (여기 한 곳을 고치면 getCurrentTier·deriveProvider·gemini-engine 이 함께 따라온다.)
  */
-export function deriveProvider(value: string | undefined | null): AiProvider {
-  return findTier(value)?.provider ?? 'gemini';
+const PROVIDER_DEFAULT_TIER: Record<string, string> = {
+  openai: 'openai-gpt41',
+  claude: 'claude-sonnet',
+  perplexity: 'perplexity-sonar',
+  gemini: 'gemini-3.5-flash',
+};
+
+export function resolveDefaultTierValue(): string {
+  const p = String(process.env['AI_PROVIDER'] || '').trim().toLowerCase();
+  const mapped = PROVIDER_DEFAULT_TIER[p];
+  if (mapped && findTier(mapped)) return mapped;
+  return DEFAULT_TIER_VALUE;
+}
+
+/** 설정에서 파생한 기본 제공자 (모델을 못 정했을 때 쓰는 값) */
+export function resolveDefaultProvider(): AiProvider {
+  return findTier(resolveDefaultTierValue())?.provider ?? 'gemini';
 }
 
 /**
- * 환경변수에서 현재 선택된 티어를 읽음. 없으면 기본값.
+ * primaryGeminiTextModel → defaultAiProvider 자동 파생
+ */
+export function deriveProvider(value: string | undefined | null): AiProvider {
+  return findTier(value)?.provider ?? resolveDefaultProvider();
+}
+
+/**
+ * 환경변수에서 현재 선택된 티어를 읽음. 없으면 설정 기반 기본값.
  */
 export function getCurrentTier(): TierModel {
   const fromEnv = process.env['PRIMARY_TEXT_MODEL'];
-  return findTier(fromEnv) ?? findTier(DEFAULT_TIER_VALUE)!;
+  return findTier(fromEnv) ?? findTier(resolveDefaultTierValue()) ?? findTier(DEFAULT_TIER_VALUE)!;
 }

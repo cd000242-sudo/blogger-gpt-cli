@@ -12,7 +12,7 @@ import {
   getGenAI, getOpenAIApiKey, getClaudeApiKey, getPerplexityApiKey,
   callOpenAIAPI, callClaudeAPI, callPerplexityAPI,
 } from '../llm';
-import { findTier, DEFAULT_TIER_VALUE } from '../llm/pricing';
+import { findTier, DEFAULT_TIER_VALUE, resolveDefaultTierValue, resolveDefaultProvider } from '../llm/pricing';
 import {
   waitAfterProviderRateLimit,
   waitForTextProviderTurn,
@@ -127,7 +127,7 @@ function notifyGroundingEvidence(listener: ((sourceUrls: string[]) => void) | un
 }
 
 function buildGeminiChain(): string[] {
-  const tierValue = process.env['PRIMARY_TEXT_MODEL'] || DEFAULT_TIER_VALUE;
+  const tierValue = process.env['PRIMARY_TEXT_MODEL'] || resolveDefaultTierValue();
   const tier = findTier(tierValue);
   const selected = tier && tier.provider === 'gemini'
     ? unique([tier.modelId, ...tier.fallback, ...GEMINI_BASE_MODELS])
@@ -163,7 +163,8 @@ function getPrimaryProvider(): Provider {
       + ' 선택한 모델과 다른 모델로 글이 써집니다. 모델 목록(pricing.ts)을 확인하세요.',
     );
   }
-  return (tier?.provider ?? 'gemini') as Provider;
+  // v3.8.446: 모델이 안 정해졌으면 설정(AI_PROVIDER)을 따른다 — 예전엔 무조건 gemini 였다
+  return (tier?.provider ?? resolveDefaultProvider()) as Provider;
 }
 
 function errorToText(error: any): string {
@@ -355,7 +356,7 @@ function getProviderKey(provider: Provider): string {
 
 export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1): Promise<string> {
   const primaryProvider = getPrimaryProvider();
-  const modelValue = process.env['PRIMARY_TEXT_MODEL'] || DEFAULT_TIER_VALUE;
+  const modelValue = process.env['PRIMARY_TEXT_MODEL'] || resolveDefaultTierValue();
   const tier = findTier(modelValue);
   const providerName = PROVIDER_NAMES[primaryProvider] || primaryProvider;
   const attemptsPerModel = Math.max(1, Math.floor(maxRetries || 1));

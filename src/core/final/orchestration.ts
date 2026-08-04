@@ -380,7 +380,8 @@ export async function generateUltimateMaxModeArticleFinal(
         downloadsBase,
         projectName: 'LEADERNAM-Orbit',
         aiCheckEnabled: !!payload.urlImageSource.aiCheckEnabled,
-        textGenerator: payload.provider || 'gemini-3.5-flash',
+        // v3.8.446: 'gemini-3.5-flash' 하드코딩 제거 — 안 쓰는 제공자로 새던 경로
+        textGenerator: payload.provider || require('../llm/pricing').resolveDefaultTierValue(),
         apiKeys,
         threshold: Number(payload.urlImageSource.threshold) || 60,
       });
@@ -473,6 +474,19 @@ export async function generateUltimateMaxModeArticleFinal(
     // 2순위: provider가 없으면 primaryGeminiTextModel 직접 사용
     process.env['PRIMARY_TEXT_MODEL'] = payload.primaryGeminiTextModel;
     onLog?.(`[PROGRESS] 0% - 🎯 AI 엔진 (모델 직접): ${payload.primaryGeminiTextModel}`);
+  } else if (!process.env['PRIMARY_TEXT_MODEL']) {
+    /**
+     * 🎯 v3.8.446 — 3순위가 없어서 **설정을 무시하고 Gemini 로 가던 구멍.**
+     *
+     * payload 에 provider 도 primaryGeminiTextModel 도 없으면 여기서 아무것도
+     * 안 하고 지나갔다. 그러면 gemini-engine 의 기본값(gemini-3.5-flash)이 먹는다.
+     * 사용자가 AI_PROVIDER=openai 로 설정해 두었어도 그렇다.
+     * 대기열·스케줄처럼 payload 를 따로 조립하는 경로에서 실제로 생길 수 있다
+     * (payload 3경로 함정 — 새 필드는 3곳 모두 배선해야 한다).
+     */
+    const fromSetting = require('../llm/pricing').resolveDefaultTierValue();
+    process.env['PRIMARY_TEXT_MODEL'] = fromSetting;
+    onLog?.(`[PROGRESS] 0% - 🎯 AI 엔진 (설정값): ${fromSetting}`);
   }
 
   const rawPlacementMode = String(payload.h2ImageMode || payload.imagePolicy || payload.h2Images?.mode || 'all').toLowerCase();

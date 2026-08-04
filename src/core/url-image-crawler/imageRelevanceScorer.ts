@@ -276,6 +276,14 @@ function pickStrategy(routing: VisionRouting, keys: RelevanceCheckOptions['apiKe
   if (routing.vendor === 'gemini' && keys.gemini) return geminiStrategy(routing.model, keys.gemini);
   if (routing.vendor === 'claude' && keys.claude) return claudeStrategy(routing.model, keys.claude);
   if (routing.vendor === 'openai' && keys.openai) return openaiStrategy(routing.model, keys.openai);
+  /**
+   * v3.8.446 — 라우팅한 vendor 에 키가 없을 때의 대체.
+   * 예전에는 **무조건 Gemini** 였다. 사용자가 Gemini 를 안 쓰는데(키는 남아 있고
+   * 차단된 상태) 여기로 떨어지면 이미지 검증이 통째로 실패한다.
+   * 키가 있는 쪽으로 옮기되, 실제로 쓰는 제공자를 먼저 본다.
+   */
+  if (keys.openai) return openaiStrategy(VISION_MODELS.OPENAI_41, keys.openai);
+  if (keys.claude) return claudeStrategy(VISION_MODELS.CLAUDE_SONNET, keys.claude);
   if (keys.gemini) return geminiStrategy(VISION_MODELS.GEMINI_FLASH, keys.gemini);
   return null;
 }
