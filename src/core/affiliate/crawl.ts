@@ -751,6 +751,21 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
     const isLoginPage = loginish.test(title)
       || /nid\.naver\.com|\/login|accounts\.google/i.test(String(info.url || ''));
     if (isLoginPage) {
+      /**
+       * 실측(2026-08-04, naver.me/GT42MEXe → makkaejoo_market): 주류 상품이라
+       * 브랜드커넥트 링크도, 리다이렉트에 담긴 스마트스토어 원본 주소도 모두
+       * "네이버 서비스 이용을 위해 연령확인이 필요해요" 로 막힌다.
+       * 법으로 요구되는 연령확인이므로 **우회하지 않는다.** 대신 원인을 정확히
+       * 알려서 사용자가 다음에 뭘 할지 알게 한다("로그인 화면"만으로는 알 수 없다).
+       */
+      const ageGated = /연령\s*확인|성인\s*인증|미성년|19세/i.test(String(info.text || ''));
+      if (ageGated) {
+        throw new Error(
+          '성인인증이 필요한 상품이라 정보를 읽지 못했습니다(주류·성인용품 등).\n'
+          + '· 네이버 정책상 자동 수집이 불가능합니다. 우회하지 않습니다.\n'
+          + '· 발행하시려면 상품명·가격·사진을 직접 넣어 주세요. 제휴 링크는 그대로 동작합니다.',
+        );
+      }
       throw new Error(
         '네이버가 로그인 화면을 돌려줬습니다. 상품 정보를 읽지 못했습니다.\n'
         + '· 링크를 브라우저에서 열어 정상 상품 페이지인지 확인해 주세요.\n'

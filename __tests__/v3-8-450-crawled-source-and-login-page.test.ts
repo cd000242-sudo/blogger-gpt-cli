@@ -75,4 +75,26 @@ describe('③ 로그인 페이지를 상품으로 착각하지 않는다', () =>
   it('⭐ 그래도 발행 자체를 죽이지는 않는다 (호출부가 잡아서 계속 진행)', () => {
     expect(orch).toContain('링크에서 상품명을 얻지 못했습니다 (계속 진행)');
   });
+
+  /**
+   * v3.8.451 — 사용자가 준 두 번째 링크(naver.me/GT42MEXe)로 재현했다.
+   *   naver.me → brandconnect.naver.com/affiliates/… → nid.naver.com/nidlogin.login
+   *   본문: "네이버 서비스 이용을 위해 연령확인이 필요해요"
+   * 리다이렉트에 담긴 스마트스토어 원본 주소로 직접 가도 똑같이 막힌다(주류 상품).
+   * 법으로 요구되는 연령확인이라 **우회하지 않는다.** 원인만 정확히 알린다.
+   */
+  it('⭐⭐ 성인인증 상품은 원인을 구체적으로 알린다', () => {
+    const block = blockBetween(crawl, 'const ageGated =', '네이버가 로그인 화면을');
+    expect(block).toContain('성인인증이 필요한 상품');
+    expect(block).toContain('주류·성인용품');
+    expect(block).toContain('우회하지 않습니다');
+  });
+
+  it('⭐ 연령확인 판정은 본문 문구로 한다', () => {
+    expect(crawl).toContain('연령\\s*확인|성인\\s*인증|미성년|19세');
+  });
+
+  it('⭐ 성인인증이 아닌 일반 로그인은 별도 안내가 유지된다', () => {
+    expect(crawl).toContain('단축 링크(naver.me)가 만료됐다면');
+  });
 });
