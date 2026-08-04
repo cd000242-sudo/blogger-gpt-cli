@@ -1637,7 +1637,12 @@ const PAYLOAD_DEFAULTS = {
    * 사용자가 UI 에서 직접 고르면 그 값이 그대로 실린다.
    */
   shoppingImageStrategy: 'auto',
-  sectionCount: 5,
+  /**
+   * v3.8.447 — 0 = 자동. 소제목 수를 **재료가 정하게** 둔다.
+   * 예전 값 5 는 고르는 UI 도 없이 payload 에 실려 백엔드 상한으로 작동했고,
+   * 재료가 더 있어도 5개로 잘라냈다(위 getSectionCount 주석 참고).
+   */
+  sectionCount: 0,
   minSectionCount: 1,
   maxSectionCount: 20,
   promptMode: 'max-mode',
@@ -1666,19 +1671,35 @@ function getApiKeys(savedSettings) {
   };
 }
 
-/** 섹션 수 계산 (DOM 기반) */
+/**
+ * 섹션 수 계산 (DOM 기반).
+ *
+ * 🔢 v3.8.447 — **고르는 UI 가 없으면 0(자동)을 돌려준다.**
+ *
+ * 사용자 지적: "5개로만 되어있다면 글이 억지로 5개를 만들거나 정보가 더있는데도
+ *   5개만 만들수도있는 경우의수가 존재하자나 그럼안되지"
+ *
+ * 맞는 지적이었다. `sectionCount` 엘리먼트는 index.html 에 **존재하지 않는데**
+ * 여기서 기본값 5 를 채워 payload 에 실었다. 백엔드는 그 값을 상한으로 쓰므로
+ *   generation.ts: targetCount = Math.min(targetCount, 5)
+ * 재료가 10개어치여도 5개로 잘렸다. 소제목 수를 재료에 맞춰 5~10 으로 늘리는
+ * 로직이 이미 있는데, 유령 5 가 그걸 통째로 무력화하고 있었다.
+ *
+ * 0 을 보내면 백엔드가 상한을 걸지 않고 재료가 정하게 둔다.
+ * 나중에 고르는 UI 가 생기면 그 값이 그대로 상한으로 쓰인다(기존 배선 유지).
+ */
 function getSectionCount() {
   const sectionCountSelect = document.getElementById('sectionCount');
-  let count = PAYLOAD_DEFAULTS.sectionCount;
-  if (sectionCountSelect) {
-    if (sectionCountSelect.value === 'custom') {
-      const customInput = document.getElementById('customSectionCount');
-      count = customInput && customInput.value ? parseInt(customInput.value) : PAYLOAD_DEFAULTS.sectionCount;
-    } else {
-      count = parseInt(sectionCountSelect.value);
-    }
+  if (!sectionCountSelect) return 0;          // 자동 — 재료가 정한다
+  let count;
+  if (sectionCountSelect.value === 'custom') {
+    const customInput = document.getElementById('customSectionCount');
+    count = customInput && customInput.value ? parseInt(customInput.value) : 0;
+  } else {
+    count = parseInt(sectionCountSelect.value);
   }
-  return Math.max(PAYLOAD_DEFAULTS.minSectionCount, Math.min(PAYLOAD_DEFAULTS.maxSectionCount, count || PAYLOAD_DEFAULTS.sectionCount));
+  if (!Number.isFinite(count) || count <= 0) return 0;
+  return Math.max(PAYLOAD_DEFAULTS.minSectionCount, Math.min(PAYLOAD_DEFAULTS.maxSectionCount, count));
 }
 
 /** 수동 CTA 수집 */
@@ -2046,8 +2067,15 @@ export async function createPayload(options = {}) {
   // ── 미리보기 전용 필드 ──
   const authorNickname = document.getElementById('authorNickname')?.value?.trim() || '';
   const useGoogleSearch = document.getElementById('useGoogleSearch')?.checked || false;
-  const dynamicMinChars = sectionCount * 1200;
-  const dynamicMaxChars = sectionCount * 1500;
+  /**
+   * v3.8.447 — sectionCount 가 0(자동)이면 분량 하한이 0 이 되어 **길이 게이트가
+   * 통째로 사라진다.** 자동일 때는 백엔드가 실제로 만드는 범위(5~10섹션)의
+   * 아래쪽인 5섹션을 기준으로 잡는다 — 하한이지 상한이 아니므로 재료가 많아
+   * 섹션이 늘어나도 글이 잘리지 않는다.
+   */
+  const charBasisSections = sectionCount > 0 ? sectionCount : 5;
+  const dynamicMinChars = charBasisSections * 1200;
+  const dynamicMaxChars = charBasisSections * 1500;
 
   const payload = {
     // 핵심 필드

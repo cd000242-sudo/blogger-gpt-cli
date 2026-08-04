@@ -1314,11 +1314,23 @@ export async function generateUltimateMaxModeArticleFinal(
     } else {
       // 🤖 일반 모드: AI가 H2 소제목 생성
       onLog?.('[PROGRESS] 35% - 📊 AI가 소제목(H2) 생성 중...');
+      /**
+       * 🔢 v3.8.447 — 0 이면 **상한을 걸지 않는다** (재료가 정한다).
+       *
+       * 사용자 지적: "정보가 더있는데도 5개만 만들수도있는 경우의수가 존재하자나".
+       * generateH2TitlesFinal 은 이미 재료 양에 따라 5~10개로 늘리는데,
+       * 여기서 넘긴 값이 `Math.min(targetCount, maxCount)` 상한으로 쓰인다.
+       * 화면에 고르는 UI 도 없이 5가 실려 오던 탓에 늘 5개로 잘렸다.
+       */
       const maxH2Count = (typeof payload.sectionCount === 'number' && Number.isFinite(payload.sectionCount) && payload.sectionCount > 0)
         ? Math.floor(payload.sectionCount)
         : undefined;
+      if (maxH2Count) {
+        onLog?.(`[PROGRESS] 35% - 🔢 소제목 최대 ${maxH2Count}개로 제한 (사용자 지정)`);
+      }
       h2Titles = await generateH2TitlesFinal(keyword, subheadings, maxH2Count, demandSignals);
-      onLog?.(`[PROGRESS] 40% - ✅ 소제목 ${h2Titles.length}개 완료`);
+      onLog?.(`[PROGRESS] 40% - ✅ 소제목 ${h2Titles.length}개 완료`
+        + (maxH2Count ? '' : ' (재료에 맞춰 자동 결정)'));
     }
 
     /**

@@ -7074,16 +7074,34 @@ https://toss.im/_m/XXXXXXX"
         if (!sel) return;
         const mode = document.getElementById('contentMode')?.value || '';
         const picked = Number(document.getElementById('sectionCount')?.value || 0);
-        const total = MODE_FIXED_SECTIONS[mode] || (picked > 0 ? picked : 5);
-
-        const odds = [];
-        const evens = [];
-        for (let i = 1; i <= total; i += 1) (i % 2 === 1 ? odds : evens).push(i);
+        const fixed = MODE_FIXED_SECTIONS[mode];
+        const total = fixed || (picked > 0 ? picked : 0);
 
         const setText = (value, text) => {
           const opt = sel.querySelector(`option[value="${value}"]`);
           if (opt) opt.textContent = text;
         };
+
+        /**
+         * v3.8.447 — 소제목 수가 **고정이 아닌 모드**는 숫자를 지어내지 않는다.
+         *
+         * 예전에는 없는 값을 5로 가정해 "본문 5장 / 홀수 1·3·5번"이라고 적었는데,
+         * 실제로는 재료에 따라 5~10개가 만들어진다(generation.ts 의 targetCount).
+         * 화면이 거짓말을 하면 사용자가 배치를 잘못 고르게 된다.
+         */
+        if (!total) {
+          setText('all', '🖼️ 전체 (썸네일 + 본문 전체) — 기본');
+          setText('odd', '🎯 홀수 섹션만 (1·3·5…번)');
+          setText('even', '🎯 짝수 섹션만 (2·4·6…번)');
+          setText('thumbnail-only', '📸 썸네일만 (본문 이미지 0장)');
+          setText('none', '❌ 이미지 없음 (썸네일까지 모두 스킵, 글만 발행)');
+          return;
+        }
+
+        const odds = [];
+        const evens = [];
+        for (let i = 1; i <= total; i += 1) (i % 2 === 1 ? odds : evens).push(i);
+
         setText('all', `🖼️ 전체 (썸네일 + 본문 ${total}장) — 기본`);
         setText('odd', `🎯 홀수 섹션만 (썸네일 + ${odds.join('·')}번) — 본문 ${odds.length}장`);
         setText('even', `🎯 짝수 섹션만 (썸네일 + ${evens.join('·')}번) — 본문 ${evens.length}장`);
