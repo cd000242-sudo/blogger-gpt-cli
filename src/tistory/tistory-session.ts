@@ -1149,6 +1149,7 @@ async function extractTistoryCategoriesFromPage(page: any, source: 'editor' | 'm
 
       // v3.8.459: 사용자 실측으로 걸러진 관리 화면 UI 문구를 추가
       //   (카테고리 관리 · 자세히 보기 · 변경사항 저장 · 표시합니다/표시하지 않습니다 · "3일")
+      // v3.8.460: "기본모드·마크다운·HTML"(에디터 모드)도 같은 .mce-menu-item 이라 차단 유지
       const blocked = /^(카테고리|카테고리 관리|카테고리 더보기|카테고리 없음|카테고리 추가|분류 전체보기|전체|전체보기|관리|추가|수정|삭제|저장|취소|확인|닫기|글쓰기|새 글|공개|비공개|보호|공지|홈|통계|스킨|댓글|방명록|콘텐츠|설정|블로그|메뉴|선택 안 함|선택 없음|기본모드|기본서체|HTML|마크다운|POWERED BY TINY|자세히 보기|더 보기|더보기|변경사항 저장|표시합니다|표시하지 않습니다|숨깁니다|접기|펼치기)$/i;
       const looksCategory = (text: string) => {
         const cleaned = normalizeText(text).replace(/\(\d+\)$/g, '').trim();
@@ -1203,6 +1204,20 @@ async function extractTistoryCategoriesFromPage(page: any, source: 'editor' | 'm
         'a[href*="/category/"]',
         'a[href*="category"]',
       ] : [
+        /**
+         * 🎯 v3.8.460 — 에디터 카테고리 메뉴는 **TinyMCE 플로팅 패널**에 그려진다.
+         *
+         * 실측(2026-08-04, leadernam.tistory.com 에디터 DOM 덤프):
+         *   button#category-btn 을 누르면 메뉴가 열리는데, 항목은
+         *   `.mce-menu-item[role="option"]` 이고 `[class*="category"]` 컨테이너
+         *   **바깥**에 붙는다. 그래서 기존 셀렉터로는 "카테고리 더보기" 버튼
+         *   하나만 잡혔고(그마저 차단어), 결과 0건 → 관리 화면 폴백 →
+         *   사용자가 본 엉뚱한 목록(사회·건강·일상다반사…)이 나왔다.
+         *
+         * role="option" 인 것만 고른다 — 같은 .mce-menu-item 중
+         * role="menuitem" 은 에디터 모드(기본모드·마크다운·HTML)라 카테고리가 아니다.
+         */
+        '.mce-menu-item[role="option"]',
         '[data-category-id]',
         '[data-category]',
         '[class*="category" i] a',

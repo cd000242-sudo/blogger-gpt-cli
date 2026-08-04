@@ -33,6 +33,35 @@ describe('① 에디터 드롭다운이 1순위다', () => {
   });
 });
 
+describe('③ 에디터 메뉴는 TinyMCE 플로팅 패널에서 읽는다 (v3.8.460)', () => {
+  /**
+   * 실측(2026-08-04, leadernam.tistory.com 에디터 DOM 덤프):
+   *   button#category-btn 클릭 → 메뉴가 열리지만 항목은
+   *   `.mce-menu-item[role="option"]` 이고 [class*="category"] 컨테이너 **바깥**에 붙는다.
+   *   그래서 기존 셀렉터로는 "카테고리 더보기" 버튼 하나만 잡혀 0건 →
+   *   관리 화면 폴백 → 엉뚱한 목록(사회·건강·일상다반사…)이 나왔다.
+   * 수정 후 실제 코드 경로 검증: 이슈 관련·건강 정보·일상고급정보·지원금관련·
+   *   공연, 티켓정보 5건 (source=editor).
+   */
+  it('⭐⭐ mce-menu-item[role="option"] 셀렉터가 있다', () => {
+    expect(session).toContain('\'.mce-menu-item[role="option"]\'');
+  });
+
+  it('⭐⭐ role=menuitem(에디터 모드)은 안 잡히도록 role=option 으로 좁혔다', () => {
+    // 같은 .mce-menu-item 중 기본모드·마크다운·HTML 은 role="menuitem" 이다
+    expect(session).not.toContain("'.mce-menu-item',");
+  });
+
+  it('⭐ 에디터 모드 문구는 차단 목록에도 남아 있다 (이중 방어)', () => {
+    const m = session.match(/const blocked = (\/\^.*\$\/i);/);
+    // eslint-disable-next-line no-eval
+    const blocked: RegExp = eval(m![1]!);
+    for (const mode of ['기본모드', '마크다운', 'HTML', '카테고리 없음']) {
+      expect(blocked.test(mode)).toBe(true);
+    }
+  });
+});
+
 describe('② 실측된 관리 UI 문구가 전부 걸러진다', () => {
   // 소스에서 blocked 정규식을 뽑아 실제로 돌려본다
   const m = session.match(/const blocked = (\/\^.*\$\/i);/);
