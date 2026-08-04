@@ -1324,6 +1324,30 @@
                     </div>
                   </div>
 
+                  <!-- 🔐 v3.8.453: 네이버 로그인 (성인인증 상품 크롤용) -->
+                  <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(34,197,94,0.25); display: flex; flex-direction: column; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                       <span style="font-size: 18px;">🔐</span>
+                       <label style="font-weight: 700; color: rgba(255,255,255,0.9); font-size: 14px;">네이버 로그인 (성인인증 상품용)</label>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                      <button type="button" id="naverLoginBtn"
+                        onclick="window.openNaverLoginFromSettings && window.openNaverLoginFromSettings()"
+                        style="flex: 1; padding: 12px 14px; background: linear-gradient(135deg, #22c55e, #16a34a); border: none; border-radius: 10px; color: white; font-size: 13px; font-weight: 700; cursor: pointer;">
+                        네이버 로그인 창 열기
+                      </button>
+                      <button type="button" id="naverLogoutBtn" title="저장된 세션 삭제"
+                        onclick="window.clearNaverSessionFromSettings && window.clearNaverSessionFromSettings()"
+                        style="padding: 12px 14px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; color: rgba(255,255,255,0.7); font-size: 13px; cursor: pointer;">
+                        🗑️
+                      </button>
+                    </div>
+                    <small id="naverSessionStatus" style="color: rgba(255,255,255,0.5); font-size: 11px; line-height: 1.6;">
+                      주류·성인용품처럼 <b>연령확인이 걸린 상품</b>을 수집하려면 성인인증된 네이버 계정으로 로그인해 두세요.
+                      일반 상품 수집에는 로그인이 쓰이지 않습니다.
+                    </small>
+                  </div>
+
                   <!-- Google CSE API Key -->
                   <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 10px;">
                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -4839,9 +4863,9 @@ https://toss.im/_m/XXXXXXX"
                     </div>
                   </div>
 
-                  <!-- ⑤ 카테고리 (워드프레스) -->
+                  <!-- ⑤ 카테고리 (워드프레스 / 티스토리 — 플랫폼에 따라 하나만 보인다) -->
                   <div class="posting-settings-tab-panel" id="tab-category">
-                    <div class="acc-field">
+                    <div class="acc-field" id="postingWpCategoryBlock">
                       <label class="acc-label">📂 워드프레스 카테고리</label>
                       <div style="display: flex; gap: 8px;">
                         <select id="wpCategory" style="flex: 1; cursor: pointer; pointer-events: auto; position: relative; z-index: 5;">
@@ -4854,6 +4878,24 @@ https://toss.im/_m/XXXXXXX"
                         </button>
                       </div>
                       <small style="color:rgba(255,255,255,0.5); font-size:11px; margin-top:4px; display:block;">워드프레스 연결 정보를 입력한 후 카테고리를 로드하세요</small>
+                    </div>
+                    <!-- 🏷️ v3.8.453: 티스토리 카테고리 — 발행 화면에서 바로 고른다.
+                         사용자 보고: "티스토리 카테고리 선택은 어디로갓나요? 워드프레스처럼 떠야되는데"
+                         설정 모달 깊숙한 곳에만 있어서 묵은 값이 그대로 실려 나갔고,
+                         블로그에 없는 카테고리("이슈 관련")로 발행이 실패했다. -->
+                    <div class="acc-field" id="postingTistoryCategoryBlock" style="display: none;">
+                      <label class="acc-label">📂 티스토리 카테고리</label>
+                      <div style="display: flex; gap: 8px;">
+                        <select id="tistoryCategoryPosting" style="flex: 1; cursor: pointer; pointer-events: auto; position: relative; z-index: 5;">
+                          <option value="">카테고리를 먼저 로드하세요</option>
+                        </select>
+                        <button type="button" id="loadTistoryCategoriesBtn"
+                          onclick="if(window.loadTistoryCategoriesForPosting){window.loadTistoryCategoriesForPosting();}else{alert('카테고리 로드 기능 로딩중입니다.');}"
+                          style="padding: 10px 14px; background: linear-gradient(135deg, #f97316, #ea580c); border: none; border-radius: 10px; color: white; font-size: 13px; cursor: pointer;">
+                          🔄
+                        </button>
+                      </div>
+                      <small id="tistoryCategoryPostingStatus" style="color:rgba(255,255,255,0.5); font-size:11px; margin-top:4px; display:block;">티스토리 로그인 후 🔄 를 눌러 카테고리를 불러오세요 · 선택 안 하면 기본 카테고리로 발행됩니다</small>
                     </div>
                   </div>
 

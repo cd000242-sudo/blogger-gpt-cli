@@ -7884,6 +7884,14 @@ function togglePlatformFields() {
     wpCategoryPanel.classList.remove('active');
     if (window.switchPostingSettingsTab) window.switchPostingSettingsTab('tab-content');
   }
+  // 🏷️ v3.8.453: 카테고리 탭 안에서 플랫폼에 맞는 블록만 보인다
+  //   (예전엔 워드프레스 블록뿐이라 티스토리 사용자는 고를 곳이 없었다)
+  {
+    const postingWpBlock = document.getElementById('postingWpCategoryBlock');
+    const postingTistoryBlock = document.getElementById('postingTistoryCategoryBlock');
+    if (postingWpBlock) postingWpBlock.style.display = (!isBlogger && !isTistory) ? 'block' : 'none';
+    if (postingTistoryBlock) postingTistoryBlock.style.display = isTistory ? 'block' : 'none';
+  }
   if (bloggerAuthBtn) {
     bloggerAuthBtn.style.display = isBlogger ? 'inline-block' : 'none';
   }

@@ -1182,9 +1182,18 @@ async function selectCategory(page: any, category: string | undefined, onLog?: (
   const targetCategory = String(category || '').replace(/\s+/g, ' ').trim();
   if (!targetCategory) return;
 
+  /**
+   * ⚠️ v3.8.453 — 카테고리 선택 실패는 **발행을 막지 않는다.**
+   *
+   * 사용자 실측: "발행 실패: Tistory category option was not found: 이슈 관련"
+   * — 설정에 남아 있던 묵은 카테고리 하나 때문에 글 생성 비용을 전부 쓴 발행이
+   * 마지막 단계에서 통째로 죽었다. 카테고리는 발행 후 티스토리 관리자에서
+   * 옮길 수 있는 값이다. 글을 버리는 것보다 기본 카테고리로 내보내는 게 낫다.
+   */
   const opened = await clickFirst(page, TISTORY_SELECTORS.editor.categoryTriggers, 5000);
   if (!opened) {
-    throw new Error(`Tistory category trigger was not found. Selected category: ${targetCategory}`);
+    log(onLog, `⚠️ 카테고리 선택 버튼을 찾지 못했습니다 — 기본 카테고리로 발행합니다 (선택했던 값: ${targetCategory})`);
+    return;
   }
 
   await page.waitForTimeout(800).catch(() => null);
@@ -1258,7 +1267,12 @@ async function selectCategory(page: any, category: string | undefined, onLog?: (
   }, targetCategory).catch(() => false);
 
   if (!selectedByDom) {
-    throw new Error(`Tistory category option was not found: ${targetCategory}`);
+    // v3.8.453: 블로그에 그 카테고리가 없다 — 발행을 죽이지 않고 기본 카테고리로 간다 (위 주석 참고)
+    log(onLog, `⚠️ 카테고리 "${targetCategory}" 를 블로그에서 찾지 못했습니다 — 기본 카테고리로 발행합니다. `
+      + '발행 화면의 카테고리 탭에서 🔄 로 실제 카테고리를 불러와 선택해 주세요.');
+    // 열려 있는 카테고리 드롭다운을 닫는다 (다음 단계 클릭을 가리지 않게)
+    await page.keyboard.press('Escape').catch(() => null);
+    return;
   }
   log(onLog, `Selected category: ${targetCategory}`);
 }

@@ -218,6 +218,11 @@ export interface CrawlOptions {
   /** 테스트 주입용 */
   fetchImpl?: typeof fetch | undefined;
   /**
+   * v3.8.453 내부 플래그 — 저장된 네이버 로그인 세션으로 재시도 중인가.
+   * 직접 넘기지 말 것. crawlNaver 가 로그인/연령확인 화면을 만났을 때만 세운다.
+   */
+  _naverSession?: boolean | undefined;
+  /**
    * v3.8.430 — 사용자가 UI에서 고른 제휴사. 있으면 링크로 추측하지 않는다.
    * 단, 넘어온 값이 이 링크의 호스트와 실제로 맞을 때만 쓴다 — 낡은/잘못된 값이
    * 넘어와도 엉뚱한 제휴사로 크롤하지 않게 하는 안전장치다.
@@ -440,6 +445,13 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
        * 데스크톱에서도 브리지가 정상 동작한다(가격·제목·상세·후기 모두 확인).
        */
       viewport: { width: 1440, height: 900 },
+      /**
+       * 🔐 v3.8.453 — 성인인증 재시도일 때만 저장된 로그인 세션을 싣는다.
+       * 일반 크롤은 계속 비로그인이다(계정 노출 최소화 — naver-session.ts 주석 참고).
+       */
+      ...(opts._naverSession && require('./naver-session').hasNaverSession()
+        ? { storageState: require('./naver-session').getNaverSessionPath() }
+        : {}),
     });
     const page = await ctx.newPage();
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: opts.timeoutMs ?? 45000 })
@@ -758,12 +770,41 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
        * 법으로 요구되는 연령확인이므로 **우회하지 않는다.** 대신 원인을 정확히
        * 알려서 사용자가 다음에 뭘 할지 알게 한다("로그인 화면"만으로는 알 수 없다).
        */
+      /**
+       * 🔐 v3.8.453 — 저장된 네이버 로그인 세션이 있으면 **1회 재시도**한다.
+       *
+       * 사용자 판단: "수동입력을 하면 자동화툴을 쓰는 이유가 없자나 술이나
+       *   와인같은거 다루는사람들한테는 꼭필요해".
+       * 연령확인은 인증된 계정으로 로그인하면 통과된다 — 우회가 아니라
+       * 인증을 실제로 통과하는 것이다. 세션은 이 재시도에만 쓴다.
+       */
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const naverSession = require('./naver-session');
+      if (!opts._naverSession && naverSession.hasNaverSession()) {
+        opts.onLog?.('   [제휴] 🔐 로그인/연령확인 화면 감지 — 저장된 네이버 로그인으로 다시 시도합니다');
+        await browser.close().catch(() => { /* noop */ });
+        return crawlNaver(url, { ...opts, _naverSession: true });
+      }
+
       const ageGated = /연령\s*확인|성인\s*인증|미성년|19세/i.test(String(info.text || ''));
       if (ageGated) {
+        if (opts._naverSession) {
+          throw new Error(
+            '로그인했지만 연령확인을 통과하지 못했습니다.\n'
+            + '· 네이버 계정의 성인인증(실명확인) 상태를 확인해 주세요.\n'
+            + '· 인증을 마친 뒤 설정에서 "네이버 로그인"을 다시 해 주세요.',
+          );
+        }
         throw new Error(
           '성인인증이 필요한 상품이라 정보를 읽지 못했습니다(주류·성인용품 등).\n'
-          + '· 네이버 정책상 자동 수집이 불가능합니다. 우회하지 않습니다.\n'
-          + '· 발행하시려면 상품명·가격·사진을 직접 넣어 주세요. 제휴 링크는 그대로 동작합니다.',
+          + '· 설정 → API 연동의 "네이버 로그인" 버튼으로 성인인증된 계정에 로그인해 두면 자동 수집됩니다.\n'
+          + '· 로그인 없이 발행하시려면 상품명·가격·사진을 직접 넣어 주세요. 제휴 링크는 그대로 동작합니다.',
+        );
+      }
+      if (opts._naverSession) {
+        throw new Error(
+          '저장된 네이버 로그인이 만료된 것 같습니다.\n'
+          + '· 설정에서 "네이버 로그인"을 다시 해 주세요.',
         );
       }
       throw new Error(

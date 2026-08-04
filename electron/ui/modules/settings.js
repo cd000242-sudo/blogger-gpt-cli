@@ -1230,42 +1230,134 @@ window.openTistoryLoginFromSettings = async function () {
 };
 
 function setTistoryCategoryOptions(categories = [], selectedValue = '') {
-  const select = document.getElementById('tistoryDefaultCategory');
-  if (!select) return;
+  /**
+   * v3.8.453 — 설정 모달과 발행 화면(카테고리 탭)의 **두 select 를 함께** 채운다.
+   * 발행 화면에 티스토리 카테고리가 없어서 설정의 묵은 값이 그대로 실려 나갔고,
+   * 블로그에 없는 카테고리로 발행이 실패했다(사용자 실측 "이슈 관련").
+   */
+  const ids = ['tistoryDefaultCategory', 'tistoryCategoryPosting'];
+  ids.forEach((id) => {
+    const select = document.getElementById(id);
+    if (!select) return;
 
-  const current = String(selectedValue || select.value || '').trim();
-  select.innerHTML = '';
+    const current = String(selectedValue || select.value || '').trim();
+    select.innerHTML = '';
 
-  const emptyOption = document.createElement('option');
-  emptyOption.value = '';
-  emptyOption.textContent = categories.length ? '선택 안 함' : '카테고리를 먼저 불러오세요';
-  select.appendChild(emptyOption);
+    const emptyOption = document.createElement('option');
+    emptyOption.value = '';
+    emptyOption.textContent = categories.length ? '선택 안 함 (기본 카테고리)' : '카테고리를 먼저 불러오세요';
+    select.appendChild(emptyOption);
 
-  const seen = new Set();
-  categories.forEach((item) => {
-    const name = String(item?.name || item?.label || '').replace(/\s+/g, ' ').trim();
-    if (!name) return;
-    const key = name.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
+    const seen = new Set();
+    categories.forEach((item) => {
+      const name = String(item?.name || item?.label || '').replace(/\s+/g, ' ').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
 
-    const option = document.createElement('option');
-    option.value = name;
-    option.textContent = item?.label || name;
-    select.appendChild(option);
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = item?.label || name;
+      select.appendChild(option);
+    });
+
+    if (current && categories.length === 0 && !Array.from(select.options).some((option) => option.value === current)) {
+      const savedOption = document.createElement('option');
+      savedOption.value = current;
+      savedOption.textContent = `${current} (저장됨)`;
+      select.appendChild(savedOption);
+    }
+
+    if (current && Array.from(select.options).some((option) => option.value === current)) {
+      select.value = current;
+    }
   });
-
-  if (current && categories.length === 0 && !Array.from(select.options).some((option) => option.value === current)) {
-    const savedOption = document.createElement('option');
-    savedOption.value = current;
-    savedOption.textContent = `${current} (저장됨)`;
-    select.appendChild(savedOption);
-  }
-
-  if (current && Array.from(select.options).some((option) => option.value === current)) {
-    select.value = current;
-  }
 }
+
+/**
+ * 발행 화면(카테고리 탭)의 🔄 버튼 — 실제 블로그의 카테고리를 불러와 채운다.
+ * 블로그명은 설정 입력값 → 저장된 설정 순으로 찾는다 (설정 모달을 안 열어도 동작).
+ */
+window.loadTistoryCategoriesForPosting = async function () {
+  const status = document.getElementById('tistoryCategoryPostingStatus');
+  const select = document.getElementById('tistoryCategoryPosting');
+  const say = (msg) => { if (status) status.textContent = msg; };
+
+  let blogName = document.getElementById('tistoryBlogName')?.value?.trim() || '';
+  if (!blogName) {
+    try {
+      const env = await window.blogger?.getEnv?.();
+      blogName = String(env?.TISTORY_BLOG_NAME || env?.tistoryBlogName || '').trim();
+    } catch { /* env 못 읽으면 아래 안내로 */ }
+  }
+  if (!blogName) {
+    say('먼저 환경설정에서 티스토리 블로그명을 저장해 주세요.');
+    return;
+  }
+
+  try {
+    say('티스토리 카테고리를 불러오는 중입니다... (로그인 세션 필요)');
+    if (select) select.disabled = true;
+    const result = await window.blogger?.loadTistoryCategories?.({
+      tistoryBlogName: blogName,
+      tistoryDefaultCategory: select?.value || '',
+    });
+    if (!result?.ok || !result?.authenticated) {
+      say(result?.error || '티스토리 로그인이 필요합니다. 환경설정에서 로그인 창을 열어 로그인해 주세요.');
+      return;
+    }
+    const categories = Array.isArray(result.categories) ? result.categories : [];
+    setTistoryCategoryOptions(categories, select?.value || result.selectedCategory || '');
+    say(categories.length
+      ? `카테고리 ${categories.length}개를 불러왔습니다. 발행할 카테고리를 선택하세요.`
+      : '카테고리를 찾지 못했습니다. 티스토리 관리자에서 카테고리를 만든 뒤 다시 불러오세요.');
+  } catch (error) {
+    say(`카테고리 불러오기 실패: ${error?.message || error}`);
+  } finally {
+    if (select) select.disabled = false;
+  }
+};
+
+/**
+ * 🔐 v3.8.453 — 네이버 로그인 창 (성인인증 상품 크롤용).
+ * 로그인 완료(쿠키 확인)까지 기다렸다가 결과를 표시한다 — 최대 5분.
+ */
+window.openNaverLoginFromSettings = async function () {
+  const status = document.getElementById('naverSessionStatus');
+  const btn = document.getElementById('naverLoginBtn');
+  const say = (msg, color) => {
+    if (status) { status.textContent = msg; if (color) status.style.color = color; }
+  };
+  try {
+    if (btn) btn.disabled = true;
+    say('로그인 창이 열렸습니다 — 브라우저에서 네이버 로그인을 완료해 주세요 (최대 5분)...', 'rgba(255,255,255,0.7)');
+    const result = await window.electronAPI?.invoke?.('naver:open-login-window');
+    if (result?.ok && result?.loggedIn) {
+      say('✅ 로그인 세션이 저장됐습니다. 성인인증 상품도 자동 수집됩니다. (일반 상품 수집에는 쓰이지 않습니다)', '#86efac');
+    } else {
+      say(`로그인이 확인되지 않았습니다: ${result?.error || '다시 시도해 주세요.'}`, '#fbbf24');
+    }
+  } catch (error) {
+    say(`로그인 창 열기 실패: ${error?.message || error}`, '#f87171');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
+window.clearNaverSessionFromSettings = async function () {
+  const status = document.getElementById('naverSessionStatus');
+  try {
+    const result = await window.electronAPI?.invoke?.('naver:clear-session');
+    if (status) {
+      status.textContent = result?.ok
+        ? '저장된 네이버 로그인 세션을 삭제했습니다.'
+        : `세션 삭제 실패: ${result?.error || '알 수 없는 오류'}`;
+    }
+  } catch (error) {
+    if (status) status.textContent = `세션 삭제 실패: ${error?.message || error}`;
+  }
+};
 
 window.loadTistoryCategoriesFromSettings = async function (options = {}) {
   const blogName = document.getElementById('tistoryBlogName')?.value?.trim() || '';

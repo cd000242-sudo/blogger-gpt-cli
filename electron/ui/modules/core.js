@@ -350,7 +350,8 @@ export const ButtonStateManager = {
   setLoading(buttonId, message = null) {
     const button = this.buttons[buttonId];
     if (!button) {
-      console.warn(`[ButtonStateManager] 버튼을 찾을 수 없습니다: ${buttonId}`);
+      // v3.8.453: 이제 없는(제거된) 버튼 id 를 옛 코드가 여전히 부른다 — 무해하므로 debug 로 낮춘다
+      console.debug(`[ButtonStateManager] 버튼 없음(무해): ${buttonId}`);
       return;
     }
 
@@ -407,7 +408,8 @@ export const ButtonStateManager = {
   restore(buttonId) {
     const button = this.buttons[buttonId];
     if (!button) {
-      console.warn(`[ButtonStateManager] 버튼을 찾을 수 없습니다: ${buttonId}`);
+      // v3.8.453: 이제 없는(제거된) 버튼 id 를 옛 코드가 여전히 부른다 — 무해하므로 debug 로 낮춘다
+      console.debug(`[ButtonStateManager] 버튼 없음(무해): ${buttonId}`);
       return;
     }
 
@@ -464,7 +466,8 @@ export const ButtonStateManager = {
   setEnabled(buttonId, enabled) {
     const button = this.buttons[buttonId];
     if (!button) {
-      console.warn(`[ButtonStateManager] 버튼을 찾을 수 없습니다: ${buttonId}`);
+      // v3.8.453: 이제 없는(제거된) 버튼 id 를 옛 코드가 여전히 부른다 — 무해하므로 debug 로 낮춘다
+      console.debug(`[ButtonStateManager] 버튼 없음(무해): ${buttonId}`);
       return;
     }
 

@@ -10971,6 +10971,45 @@ ipcMain.handle('tistory-load-categories', async (_evt, payload: any = {}) => {
   }
 });
 
+/**
+ * 🔐 v3.8.453 — 네이버 로그인 창 (성인인증 상품 크롤용)
+ *
+ * 사용자 판단: "술이나 와인같은거 다루는사람들한테는 꼭필요해 로그인창을
+ * 띄워서 로그인할수있게해줘". 세션은 크롤이 연령확인 화면을 만났을 때의
+ * 재시도 1회에만 쓰인다(naver-session.ts 설계 주석 참고).
+ */
+ipcMain.handle('naver:open-login-window', async () => {
+  try {
+    const { openNaverLoginWindow } = require('../dist/core/affiliate/naver-session');
+    return await openNaverLoginWindow((m: string) => console.log(m));
+  } catch (error) {
+    return {
+      ok: false,
+      loggedIn: false,
+      error: error instanceof Error ? error.message : 'Naver login window failed',
+    };
+  }
+});
+
+ipcMain.handle('naver:session-status', async () => {
+  try {
+    const { hasNaverSession } = require('../dist/core/affiliate/naver-session');
+    return { ok: true, hasSession: hasNaverSession() };
+  } catch (error) {
+    return { ok: false, hasSession: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('naver:clear-session', async () => {
+  try {
+    const { clearNaverSession } = require('../dist/core/affiliate/naver-session');
+    clearNaverSession();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
 ipcMain.handle('tistory-open-login', async (_evt, payload: any = {}) => {
   try {
     const { openTistoryLogin } = require('../dist/tistory/tistory-publisher');

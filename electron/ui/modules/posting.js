@@ -2030,8 +2030,11 @@ export async function createPayload(options = {}) {
     || savedSettings.tistoryBlogUrl
     || ''
   ).trim();
+  // 🏷️ v3.8.453: 발행 화면(카테고리 탭)에서 고른 값이 1순위 —
+  //   설정 모달의 묵은 값이 그대로 실려 블로그에 없는 카테고리로 발행 실패하던 문제.
   const tistoryDefaultCategoryValue = (
-    document.getElementById('tistoryDefaultCategory')?.value
+    document.getElementById('tistoryCategoryPosting')?.value
+    || document.getElementById('tistoryDefaultCategory')?.value
     || savedSettings.tistoryDefaultCategory
     || savedSettings.TISTORY_DEFAULT_CATEGORY
     || ''
