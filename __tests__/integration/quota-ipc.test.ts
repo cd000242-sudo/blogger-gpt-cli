@@ -30,10 +30,14 @@ import * as path from 'path';
 const QUOTA_DIR = path.resolve('.tmp-tests/test-quota-ipc');
 const QUOTA_FILE = path.join(QUOTA_DIR, 'quota-state.json');
 const BACKUP_FILE = path.join(QUOTA_DIR, 'quota-state.backup.json');
+/** v3.8.461: userData 밖의 3번째 사본. 안 지우면 테스트 간 사용량이 누적된다 */
+const MIRROR_FILE = path.join(QUOTA_DIR, '.leadernam-orbit', 'quota-state.json');
 
 function cleanFiles() {
   try { fs.unlinkSync(QUOTA_FILE); } catch { /* ignore */ }
   try { fs.unlinkSync(BACKUP_FILE); } catch { /* ignore */ }
+  try { fs.unlinkSync(MIRROR_FILE); } catch { /* ignore */ }
+  try { fs.rmdirSync(path.dirname(MIRROR_FILE)); } catch { /* ignore */ }
   try { fs.rmdirSync(QUOTA_DIR); } catch { /* ignore */ }
 }
 
@@ -64,8 +68,18 @@ describe('Quota IPC Integration', () => {
     expect(authUtils.isConfirmedPublishedPost({ ok: true, url: 'https://example.com/post' })).toBe(true);
     expect(authUtils.isConfirmedPublishedPost({ ok: true, preview: true, url: 'https://example.com/post' })).toBe(false);
     expect(authUtils.isConfirmedPublishedPost({ ok: true, published: false, url: 'https://example.com/post' })).toBe(false);
-    expect(authUtils.isConfirmedPublishedPost({ ok: true, url: 'https://example.com/post' }, { postingMode: 'draft' })).toBe(false);
-    expect(authUtils.isConfirmedPublishedPost({ ok: true, url: 'https://example.com/post' }, { postingMode: 'schedule' })).toBe(false);
+    /**
+     * v3.8.461 — 임시/예약 발행도 1회로 센다.
+     * 두 모드는 글포스팅 탭의 라디오 버튼이라 무료 체험 사용자가 그대로 고를 수
+     * 있고, 고르면 글이 실제로 생성돼 블로그에 올라간다. 세지 않으면 조작 없이
+     * 무제한이 된다.
+     */
+    expect(authUtils.isConfirmedPublishedPost({ ok: true, url: 'https://example.com/post' }, { postingMode: 'draft' })).toBe(true);
+    expect(authUtils.isConfirmedPublishedPost({ ok: true, url: 'https://example.com/post' }, { postingMode: 'schedule' })).toBe(true);
+    expect(authUtils.isConfirmedPublishedPost({ ok: true, url: 'https://example.com/post' }, { postingMode: 'scheduled' })).toBe(true);
+    // 미리보기는 아무것도 발행하지 않으므로 세지 않는다
+    expect(authUtils.isConfirmedPublishedPost({ ok: true, url: 'https://example.com/post' }, { postingMode: 'single', previewOnly: true })).toBe(false);
+    expect(authUtils.isConfirmedPublishedPost({ ok: true, url: 'https://example.com/post' }, { postingMode: 'preview' })).toBe(false);
     expect(authUtils.isConfirmedPublishedPost({ ok: true })).toBe(false);
 
     expect(authUtils.getFreeTrialRestrictedWorkflow({ workflow: 'spider-web' })).toBe('거미줄 포스팅');

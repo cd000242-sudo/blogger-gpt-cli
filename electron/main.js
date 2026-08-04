@@ -2180,7 +2180,16 @@ ${tail}
                         sendDiag(`🖼️ 썸네일 생성 시작 (엔진: ${thumbEngine})`);
                         try {
                             console.log('[INTERNAL-CONSISTENCY] 🖼️ 썸네일 생성 시작:', thumbEngine);
-                            const thumbResult = await dispatchThumbnailGeneration(thumbEngine, title + textTail, title);
+                            /**
+                             * 🎟️ v3.8.449 — 무료 체험 발행 3회 안에서는 이 모드도 이미지가 나와야 한다.
+                             *
+                             * 사용자 지시: "3회동안은 글포스팅에있는 기능은 모두 쓸수있어야되".
+                             * 내부 일관성 모드는 글포스팅 탭의 콘텐츠 모드인데, 플래그를 안 넘겨
+                             * 라이선스 게이트에 걸려 **썸네일·본문 이미지가 통째로 막혀 있었다.**
+                             * 발행 횟수 자체는 enforceFreeTier(3회)가 별도로 막으므로,
+                             * 여기서 허용해도 무료로 무제한 쓸 수 있게 되지 않는다.
+                             */
+                            const thumbResult = await dispatchThumbnailGeneration(thumbEngine, title + textTail, title, undefined, { allowFreeTrialPublishing: true });
                             if (thumbResult && thumbResult.ok && (thumbResult.dataUrl || thumbResult.url)) {
                                 const rawThumb = thumbResult.dataUrl || thumbResult.url || '';
                                 // v3.8.123: dataURL/임시 CDN URL → 영구 후보 URL 변환 (WP 미디어 우선)
@@ -2284,7 +2293,8 @@ ${tail}
                                     sendDiag(`H2 ${idx1} folder image blank policy skip`);
                                     continue;
                                 }
-                                const h2Result = await dispatchH2ImageGeneration(h2Engine, h2Text + textTail, h2Text);
+                                // v3.8.449: 썸네일과 같은 이유로 본문 이미지도 체험 발행 컨텍스트다 (위 주석 참고)
+                                const h2Result = await dispatchH2ImageGeneration(h2Engine, h2Text + textTail, h2Text, undefined, undefined, { allowFreeTrialPublishing: true });
                                 const hasDataUrl = !!(h2Result && (h2Result.dataUrl || h2Result.url));
                                 console.log(`[INTERNAL-CONSISTENCY] 🖼️ H2 ${idx1} 결과: ok=${h2Result && h2Result.ok}, hasDataUrl=${hasDataUrl}, source=${h2Result && h2Result.source}, error=${h2Result && h2Result.error ? String(h2Result.error).substring(0, 100) : 'none'}`);
                                 if (h2Result && h2Result.ok && hasDataUrl) {
@@ -4179,6 +4189,16 @@ console.log('[BLOGGER-AUTH] ✅ Blogger OAuth 인증 핸들러 등록 완료');
 // ============================================
 electron_1.ipcMain.handle('run-multi-account-post', async (_evt, payload) => {
     try {
+        /**
+         * 🔒 v3.8.461 — 유료 전용 경로를 백엔드에서도 막는다.
+         * UI 탭은 무료 체험에서 숨겨져 있었지만 IPC 채널은 열려 있어, 개발자도구에서
+         * 직접 호출하면 하루 3회 제한을 지나쳐 무제한으로 발행할 수 있었다.
+         * 유료 사용자는 blockIfFreeTier 가 즉시 통과시키므로 영향이 없다.
+         */
+        const { blockIfFreeTier } = require('./auth-utils');
+        const paidOnly = await blockIfFreeTier('다중계정 발행');
+        if (!paidOnly.allowed)
+            return paidOnly.response;
         console.log('[MULTI-ACCOUNT] 🚀 다중 계정 발행 시작:', payload.platform, payload.keyword);
         // 기존 환경 설정 로드
         const envPath = path.join(electron_1.app.getPath('userData'), '.env');
@@ -5796,6 +5816,11 @@ electron_1.ipcMain.handle('get-schedules', async () => {
 // 스케줄 추가
 electron_1.ipcMain.handle('add-schedule', async (_evt, schedule) => {
     try {
+        // v3.8.461: 유료 전용 경로 — IPC 직접 호출도 막는다
+        const { blockIfFreeTier } = require('./auth-utils');
+        const paidOnly = await blockIfFreeTier('예약 발행 등록');
+        if (!paidOnly.allowed)
+            return paidOnly.response;
         const { getScheduleManager } = require('../dist/core/schedule-manager');
         const manager = getScheduleManager();
         const id = manager.addSchedule(schedule);
@@ -5849,6 +5874,11 @@ electron_1.ipcMain.handle('get-schedule-status', async () => {
 // 스케줄 모니터링 시작
 electron_1.ipcMain.handle('start-schedule-monitoring', async () => {
     try {
+        // v3.8.461: 유료 전용 경로 — IPC 직접 호출도 막는다
+        const { blockIfFreeTier } = require('./auth-utils');
+        const paidOnly = await blockIfFreeTier('예약 발행 모니터링');
+        if (!paidOnly.allowed)
+            return paidOnly.response;
         const { getScheduleManager } = require('../dist/core/schedule-manager');
         const manager = getScheduleManager();
         manager.startMonitoring();
@@ -10290,6 +10320,11 @@ safeRegisterHandler('generate-internal-link-content', async (_evt, request) => {
 });
 safeRegisterHandler('publish-internal-link-content', async (_evt, request) => {
     try {
+        // v3.8.461: 유료 전용 경로 — IPC 직접 호출도 막는다
+        const { blockIfFreeTier } = require('./auth-utils');
+        const paidOnly = await blockIfFreeTier('거미줄 포스팅');
+        if (!paidOnly.allowed)
+            return paidOnly.response;
         console.log('[INTERNAL-LINKS] 내부 링크 콘텐츠 발행 요청');
         const { html, title, publish } = request;
         const env = (0, env_1.loadEnvFromFile)();
@@ -10372,6 +10407,45 @@ electron_1.ipcMain.handle('tistory-load-categories', async (_evt, payload = {}) 
             categories: [],
             error: error instanceof Error ? error.message : 'Tistory category load failed',
         };
+    }
+});
+/**
+ * 🔐 v3.8.453 — 네이버 로그인 창 (성인인증 상품 크롤용)
+ *
+ * 사용자 판단: "술이나 와인같은거 다루는사람들한테는 꼭필요해 로그인창을
+ * 띄워서 로그인할수있게해줘". 세션은 크롤이 연령확인 화면을 만났을 때의
+ * 재시도 1회에만 쓰인다(naver-session.ts 설계 주석 참고).
+ */
+electron_1.ipcMain.handle('naver:open-login-window', async () => {
+    try {
+        const { openNaverLoginWindow } = require('../dist/core/affiliate/naver-session');
+        return await openNaverLoginWindow((m) => console.log(m));
+    }
+    catch (error) {
+        return {
+            ok: false,
+            loggedIn: false,
+            error: error instanceof Error ? error.message : 'Naver login window failed',
+        };
+    }
+});
+electron_1.ipcMain.handle('naver:session-status', async () => {
+    try {
+        const { hasNaverSession } = require('../dist/core/affiliate/naver-session');
+        return { ok: true, hasSession: hasNaverSession() };
+    }
+    catch (error) {
+        return { ok: false, hasSession: false, error: error instanceof Error ? error.message : String(error) };
+    }
+});
+electron_1.ipcMain.handle('naver:clear-session', async () => {
+    try {
+        const { clearNaverSession } = require('../dist/core/affiliate/naver-session');
+        clearNaverSession();
+        return { ok: true };
+    }
+    catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
 });
 electron_1.ipcMain.handle('tistory-open-login', async (_evt, payload = {}) => {

@@ -19,10 +19,17 @@ import * as crypto from 'crypto';
 const QUOTA_DIR = path.resolve('.tmp-tests/test-quota');
 const QUOTA_FILE = path.join(QUOTA_DIR, 'quota-state.json');
 const BACKUP_FILE = path.join(QUOTA_DIR, 'quota-state.backup.json');
+/**
+ * v3.8.461: userData 밖의 3번째 사본. app.getPath('home') 을 쓰므로 위 모킹에서
+ * 같은 임시 폴더 아래로 떨어진다. **반드시 같이 지워야** 테스트 간 사용량이 샌다.
+ */
+const MIRROR_FILE = path.join(QUOTA_DIR, '.leadernam-orbit', 'quota-state.json');
 
 function cleanQuotaFiles() {
   try { fs.unlinkSync(QUOTA_FILE); } catch { /* ignore */ }
   try { fs.unlinkSync(BACKUP_FILE); } catch { /* ignore */ }
+  try { fs.unlinkSync(MIRROR_FILE); } catch { /* ignore */ }
+  try { fs.rmdirSync(path.dirname(MIRROR_FILE)); } catch { /* ignore */ }
   try { fs.rmdirSync(QUOTA_DIR); } catch { /* ignore */ }
 }
 
@@ -39,10 +46,18 @@ function getToday(): string {
 }
 
 // 테스트용 서명 생성 (quota-manager 내부 로직 복제)
-function computeTestSignature(state: { date: string; publish: number; lastSeenDate?: string; policyVersion?: number }): string {
+function computeTestSignature(state: {
+  date: string; publish: number; lastSeenDate?: string; policyVersion?: number;
+  history?: Record<string, number>;
+}): string {
   const salt = Buffer.from('T3JiaXRRdW90YVNhbHQyMDI2', 'base64').toString('utf-8');
+  // v3.8.461: history 도 서명 대상 — 기록만 지우는 우회를 막기 위해
+  const h = Object.entries(state.history || {})
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${k}:${Number(v)}`)
+    .join(',');
   const payload = state.policyVersion === 2
-    ? JSON.stringify({ v: 2, d: state.date, p: state.publish, l: state.lastSeenDate || state.date })
+    ? JSON.stringify({ v: 2, d: state.date, p: state.publish, l: state.lastSeenDate || state.date, h })
     : JSON.stringify({ d: state.date, p: state.publish, l: state.lastSeenDate || state.date });
   return crypto.createHmac('sha256', salt).update(payload).digest('hex').substring(0, 16);
 }

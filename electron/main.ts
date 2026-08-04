@@ -4428,6 +4428,15 @@ ipcMain.handle('run-multi-account-post', async (_evt, payload: {
   tistoryDefaultVisibility?: string;
 }) => {
   try {
+    /**
+     * 🔒 v3.8.461 — 유료 전용 경로를 백엔드에서도 막는다.
+     * UI 탭은 무료 체험에서 숨겨져 있었지만 IPC 채널은 열려 있어, 개발자도구에서
+     * 직접 호출하면 하루 3회 제한을 지나쳐 무제한으로 발행할 수 있었다.
+     * 유료 사용자는 blockIfFreeTier 가 즉시 통과시키므로 영향이 없다.
+     */
+    const { blockIfFreeTier } = require('./auth-utils');
+    const paidOnly = await blockIfFreeTier('다중계정 발행');
+    if (!paidOnly.allowed) return paidOnly.response;
     console.log('[MULTI-ACCOUNT] 🚀 다중 계정 발행 시작:', payload.platform, payload.keyword);
 
     // 기존 환경 설정 로드
@@ -6113,6 +6122,10 @@ ipcMain.handle('get-schedules', async () => {
 // 스케줄 추가
 ipcMain.handle('add-schedule', async (_evt, schedule) => {
   try {
+    // v3.8.461: 유료 전용 경로 — IPC 직접 호출도 막는다
+    const { blockIfFreeTier } = require('./auth-utils');
+    const paidOnly = await blockIfFreeTier('예약 발행 등록');
+    if (!paidOnly.allowed) return paidOnly.response;
     const { getScheduleManager } = require('../dist/core/schedule-manager');
     const manager = getScheduleManager();
     const id = manager.addSchedule(schedule);
@@ -6166,6 +6179,10 @@ ipcMain.handle('get-schedule-status', async () => {
 // 스케줄 모니터링 시작
 ipcMain.handle('start-schedule-monitoring', async () => {
   try {
+    // v3.8.461: 유료 전용 경로 — IPC 직접 호출도 막는다
+    const { blockIfFreeTier } = require('./auth-utils');
+    const paidOnly = await blockIfFreeTier('예약 발행 모니터링');
+    if (!paidOnly.allowed) return paidOnly.response;
     const { getScheduleManager } = require('../dist/core/schedule-manager');
     const manager = getScheduleManager();
     manager.startMonitoring();
@@ -10885,6 +10902,10 @@ safeRegisterHandler('generate-internal-link-content', async (_evt: Electron.IpcM
 
 safeRegisterHandler('publish-internal-link-content', async (_evt: Electron.IpcMainInvokeEvent, request: any) => {
   try {
+    // v3.8.461: 유료 전용 경로 — IPC 직접 호출도 막는다
+    const { blockIfFreeTier } = require('./auth-utils');
+    const paidOnly = await blockIfFreeTier('거미줄 포스팅');
+    if (!paidOnly.allowed) return paidOnly.response;
     console.log('[INTERNAL-LINKS] 내부 링크 콘텐츠 발행 요청');
 
     const { html, title, publish } = request;

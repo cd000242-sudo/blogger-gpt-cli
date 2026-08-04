@@ -198,7 +198,19 @@ async function enforceFreeTrialPostingWorkflow(payload) {
         return { allowed: true };
     return blockIfFreeTier(restrictedFeature);
 }
-function isImmediatePublicPublish(payload) {
+/**
+ * 🧮 v3.8.461 — 무료 체험 3회에 **셀 것인지**를 판별한다.
+ *
+ * 예전에는 임시 발행(draft)·예약 발행(schedule)을 세지 않았다. 그런데 이 두
+ * 모드는 글포스팅 탭 안의 라디오 버튼(index.html 포스팅 모드)이라 무료 체험
+ * 사용자가 그대로 고를 수 있고, 고르면 **글이 실제로 생성되고 블로그에 올라간다**
+ * (예약은 플랫폼 자체 예약으로 올라가 그 시각에 공개된다). 즉 조작을 하나도
+ * 하지 않아도 예약 발행만 반복하면 3회 제한이 무의미했다.
+ *
+ * 생성 비용도 똑같이 들고 결과물도 진짜 글이므로 셋 다 1회로 센다.
+ * 미리보기만 예외다 — 아무것도 발행하지 않기 때문이다.
+ */
+function isCountablePublish(payload) {
     if (!payload || typeof payload !== 'object')
         return true;
     const request = payload;
@@ -208,13 +220,13 @@ function isImmediatePublicPublish(payload) {
         || request.publishType
         || request.status
         || '').trim().toLowerCase();
-    return !['draft', 'save', 'schedule', 'scheduled', 'preview'].includes(mode);
+    return !['preview', 'single'].includes(mode);
 }
 /** 실제 공개 발행이 완료됐다는 응답인지 판별한다. */
 function isConfirmedPublishedPost(result, payload) {
     if (!result || typeof result !== 'object')
         return false;
-    if (!isImmediatePublicPublish(payload))
+    if (!isCountablePublish(payload))
         return false;
     const response = result;
     if (response.ok !== true && response.success !== true)
