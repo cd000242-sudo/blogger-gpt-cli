@@ -3035,7 +3035,15 @@ ${quoted}
                   keyword,
                   (msg: string) => onLog?.(`   [IMG-${i + 1}] ${msg}`),
                   contentMode,
-                  { referenceImageList: refs },
+                  /**
+                   * 🎟️ v3.8.449 — 여기만 플래그가 빠져 있었다.
+                   *   쇼핑모드 기본 전략(product-i2i)의 본문 이미지 경로인데,
+                   *   무료 체험이면 라이선스 게이트에 걸려 매 섹션이 차단됐다.
+                   *   (아래 폴백이 상품 사진으로 때워서 발행은 됐지만, 같은 사진이
+                   *    반복되는 글이 나온다 — 사용자가 본 증상과 이어진다.)
+                   *   발행 횟수는 enforceFreeTier(3회)가 따로 막으므로 무제한이 되지 않는다.
+                   */
+                  { referenceImageList: refs, allowFreeTrialPublishing: true },
                 );
                 if (i2i.ok && i2i.dataUrl) {
                   imageResult = { ok: true, dataUrl: i2i.dataUrl };

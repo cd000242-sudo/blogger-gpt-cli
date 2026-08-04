@@ -2273,10 +2273,21 @@ ${tail}
             sendDiag(`🖼️ 썸네일 생성 시작 (엔진: ${thumbEngine})`);
             try {
               console.log('[INTERNAL-CONSISTENCY] 🖼️ 썸네일 생성 시작:', thumbEngine);
+              /**
+               * 🎟️ v3.8.449 — 무료 체험 발행 3회 안에서는 이 모드도 이미지가 나와야 한다.
+               *
+               * 사용자 지시: "3회동안은 글포스팅에있는 기능은 모두 쓸수있어야되".
+               * 내부 일관성 모드는 글포스팅 탭의 콘텐츠 모드인데, 플래그를 안 넘겨
+               * 라이선스 게이트에 걸려 **썸네일·본문 이미지가 통째로 막혀 있었다.**
+               * 발행 횟수 자체는 enforceFreeTier(3회)가 별도로 막으므로,
+               * 여기서 허용해도 무료로 무제한 쓸 수 있게 되지 않는다.
+               */
               const thumbResult = await dispatchThumbnailGeneration(
                 thumbEngine,
                 title + textTail,
                 title,
+                undefined,
+                { allowFreeTrialPublishing: true },
               );
               if (thumbResult && thumbResult.ok && (thumbResult.dataUrl || thumbResult.url)) {
                 const rawThumb = thumbResult.dataUrl || thumbResult.url || '';
@@ -2381,10 +2392,14 @@ ${tail}
                   continue;
                 }
 
+                // v3.8.449: 썸네일과 같은 이유로 본문 이미지도 체험 발행 컨텍스트다 (위 주석 참고)
                 const h2Result = await dispatchH2ImageGeneration(
                   h2Engine,
                   h2Text + textTail,
                   h2Text,
+                  undefined,
+                  undefined,
+                  { allowFreeTrialPublishing: true },
                 );
                 const hasDataUrl = !!(h2Result && (h2Result.dataUrl || h2Result.url));
                 console.log(`[INTERNAL-CONSISTENCY] 🖼️ H2 ${idx1} 결과: ok=${h2Result && h2Result.ok}, hasDataUrl=${hasDataUrl}, source=${h2Result && h2Result.source}, error=${h2Result && h2Result.error ? String(h2Result.error).substring(0, 100) : 'none'}`);
