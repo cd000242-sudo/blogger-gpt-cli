@@ -733,6 +733,17 @@ export async function dispatchH2ImageGeneration(
   );
   if (primaryResult.ok) return primaryResult;
 
+  /**
+   * 💸 v3.8.458 — 수집형 소스(crawled 등)는 **유료 폴백으로 넘어가지 않는다.**
+   * "수집 사진 그대로"를 고른 것은 비용 0 의도다. 사진이 없다고 유료 엔진을
+   * 돌리면 사용자 선택을 뒤집고 과금한다(실측: crawled 실패 → nanobanana→prodia→
+   * gptimage1 체인 진입). 그 자리는 비우는 게 맞다.
+   */
+  if (String(primaryResult.error || '').startsWith('NON_GENERATIVE_SOURCE')) {
+    onLog?.('⬜ 수집 사진이 없어 이 이미지는 비워 둡니다 (수집 모드 — 유료 폴백 안 함)');
+    return primaryResult;
+  }
+
   console.log(`[DISPATCH] ⚠️ 1순위 ${imageSource} 실패 (${primaryResult.error || '사유 미상'}) → 신뢰성 우선 폴백 체인 시작`);
   onLog?.(`⚠️ 선택 엔진(${imageSource}) 실패: ${primaryResult.error || '사유 미상'} → 신뢰성 우선 폴백 시도`);
 
@@ -743,6 +754,17 @@ export async function dispatchH2ImageGeneration(
   }
 
   for (const engine of fallbackOrder) {
+    /**
+     * 🛑 v3.8.458 — 중지 요청이 폴백 체인에서 무시되던 문제.
+     * 실측: 6:22:30 "중지 요청" 로그 후에도 nanobanana→prodia→gptimage1 이
+     * 8초 대기까지 끼워가며 계속 돌았다. 엔진 하나 넘어갈 때마다 확인한다.
+     */
+    try {
+      if (require('./cancel-token').isCanceled()) {
+        onLog?.('🛑 중지 요청 — 폴백 체인을 멈춥니다');
+        return { ok: false, dataUrl: '', source: '', error: 'CANCELED_BY_USER' };
+      }
+    } catch { /* cancel 모듈이 없어도 폴백은 계속 */ }
     const result = await tryEngine(engine, prompt, keyword, env, onLog, false, contentMode, extra);
     if (result.ok) {
       console.log(`[DISPATCH] ✅ 폴백 성공: ${imageSource} → ${engine}`);
@@ -860,12 +882,25 @@ export async function dispatchThumbnailGeneration(
     };
   }
 
+  // 💸 v3.8.458 — 수집형 소스는 유료 폴백 금지 (위 H2 체인과 같은 이유)
+  if (String(primaryResult.error || '').startsWith('NON_GENERATIVE_SOURCE')) {
+    onLog?.('⬜ 수집 사진이 없어 썸네일을 비워 둡니다 (수집 모드 — 유료 폴백 안 함)');
+    return primaryResult;
+  }
+
   onLog?.(`🔄 신뢰성 우선 폴백 체인 시작`);
 
   // 신뢰성 우선 폴백 체인 (키 준비된 API 엔진 먼저, 브라우저 엔진 마지막)
   const fallbackOrder = buildFallbackChain(thumbnailSource, env);
 
   for (const engine of fallbackOrder) {
+    // 🛑 v3.8.458 — 썸네일 폴백도 엔진마다 중지 여부를 본다 (실측: 중지 후에도 체인 계속)
+    try {
+      if (require('./cancel-token').isCanceled()) {
+        onLog?.('🛑 중지 요청 — 썸네일 폴백 체인을 멈춥니다');
+        return { ok: false, dataUrl: '', source: '', error: 'CANCELED_BY_USER' };
+      }
+    } catch { /* cancel 모듈이 없어도 폴백은 계속 */ }
     const result = await tryEngine(engine, title, keyword, env, onLog, true, undefined, extra);
     if (result.ok) {
       const sourceLabel = `${result.source} (요청한 ${thumbnailSource} 실패 → 폴백)`;
@@ -919,6 +954,13 @@ async function buildPlaceholderResult(
   isThumbnail: boolean,
   onLog?: (msg: string) => void,
 ): Promise<ImageResult> {
+  // 🛑 v3.8.458: 중지됐으면 안전망(pollinations·placeholder)도 돌리지 않는다
+  try {
+    if (require('./cancel-token').isCanceled()) {
+      return { ok: false, dataUrl: '', source: '', error: 'CANCELED_BY_USER' };
+    }
+  } catch { /* noop */ }
+
   // v3.8.104: placeholder 직전에 pollinations 무료 fallback 시도
   const pol = await tryPollinationsFallback(keyword, isThumbnail, onLog);
   if (pol) return pol;

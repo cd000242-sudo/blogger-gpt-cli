@@ -795,6 +795,24 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
             + '· 인증을 마친 뒤 설정에서 "네이버 로그인"을 다시 해 주세요.',
           );
         }
+        /**
+         * 🔔 v3.8.458 — 세션이 없으면 **로그인 창을 지금 띄운다** (앱 실행당 1회).
+         * 사용자 실측: "와인인데 왜 네이버로그인이 안뜨나요??" — 막힌 그 순간에
+         * 창이 떠야 쓸모가 있다. 로그인하면 즉시 세션으로 재시도한다.
+         * 안 하고 닫으면(또는 5분 초과) 기존 안내 오류로 이어진다 — 발행은 계속된다.
+         */
+        if (!naverSession.hasNaverSession() && naverSession.tryClaimLoginPrompt()) {
+          opts.onLog?.('   [제휴] 🔔 성인인증 상품 감지 — 네이버 로그인 창을 엽니다. 로그인하시면 자동으로 다시 시도합니다 (최대 5분)');
+          await browser.close().catch(() => { /* 로그인 창과 겹치지 않게 먼저 닫는다 */ });
+          const login = await naverSession.openNaverLoginWindow(
+            (m: string) => opts.onLog?.(`   ${m}`),
+          ).catch(() => ({ ok: false, loggedIn: false }));
+          if (login.ok && login.loggedIn) {
+            opts.onLog?.('   [제휴] ✅ 로그인 확인 — 세션으로 상품 정보를 다시 수집합니다');
+            return crawlNaver(url, { ...opts, _naverSession: true });
+          }
+          opts.onLog?.('   [제휴] 로그인이 확인되지 않아 상품 정보 없이 진행합니다');
+        }
         throw new Error(
           '성인인증이 필요한 상품이라 정보를 읽지 못했습니다(주류·성인용품 등).\n'
           + '· 설정 → API 연동의 "네이버 로그인" 버튼으로 성인인증된 계정에 로그인해 두면 자동 수집됩니다.\n'

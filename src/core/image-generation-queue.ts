@@ -94,7 +94,22 @@ export async function runImageGenerationQueued<T>(
     if (delayMs > 0) {
       const seconds = Math.ceil(delayMs / 1000);
       meta.onLog?.(`⏳ ${describeImageEnginePacing(engine)} 안정화 대기 ${seconds}초`);
-      await sleep(delayMs);
+      /**
+       * 🛑 v3.8.458 — 안정화 대기가 중지 요청을 무시하던 문제.
+       * 실측: 중지를 눌러도 엔진 사이 8초 대기들이 그대로 흘러 "안 멈추는 것처럼"
+       * 보였다. 0.5초 단위로 끊어 자면서 중지가 오면 즉시 깬다.
+       */
+      const step = 500;
+      for (let waited = 0; waited < delayMs; waited += step) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          if (require('./cancel-token').isCanceled()) {
+            meta.onLog?.('🛑 중지 요청 — 대기를 중단합니다');
+            break;
+          }
+        } catch { /* cancel 모듈이 없으면 그냥 계속 잔다 */ }
+        await sleep(Math.min(step, delayMs - waited));
+      }
     }
 
     activeEngine = engine;

@@ -54,6 +54,25 @@ export interface NaverLoginResult {
 }
 
 /**
+ * 🔔 v3.8.458 — 발행 중 성인인증을 만나면 로그인 창을 **자동으로 한 번** 띄운다.
+ *
+ * 사용자 실측: "와인인데 왜 네이버로그인이 안뜨나요??" — 설정에 버튼을 만들어
+ * 뒀지만, 발행하다 막힌 순간에 창이 떠야 쓸 수 있다는 기대가 맞다.
+ *
+ * 앱 실행당 1회만 띄운다:
+ *   · 동시 크롤 3개가 창을 3개 띄우는 것 방지 (동기적으로 선점)
+ *   · 예약발행처럼 무인 상태에서 창이 반복해서 뜨는 것 방지
+ * 로그인하지 않고 닫으면 이번 실행에서는 다시 묻지 않는다 — 설정 버튼은 언제나 열려 있다.
+ */
+let loginPromptUsedThisRun = false;
+
+export function tryClaimLoginPrompt(): boolean {
+  if (loginPromptUsedThisRun) return false;
+  loginPromptUsedThisRun = true;
+  return true;
+}
+
+/**
  * 로그인 창을 띄우고 사용자가 로그인을 마치면 세션을 저장한다.
  *
  * 완료를 기다렸다가 결과를 돌려준다(최대 5분) — UI 가 성공/실패를 바로 보여줄 수
