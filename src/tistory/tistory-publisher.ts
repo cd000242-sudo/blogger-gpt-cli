@@ -1126,19 +1126,31 @@ async function uploadThumbnailThroughTistoryEditor(
     }
 
     if (!uploaded) {
-      log(onLog, 'Tistory image upload control was not found. Falling back to HTML image tag.');
+      log(onLog, '⚠️ 티스토리 이미지 업로드 버튼을 찾지 못했습니다 — 외부 주소로 대체합니다. '
+        + '이 경우 블로그 목록 썸네일이 비어 보입니다(티스토리는 첨부된 이미지만 목록 썸네일로 씁니다).');
       return '';
     }
 
-    log(onLog, 'Thumbnail upload accepted. Waiting for the permanent Tistory CDN URL.');
+    log(onLog, '썸네일 업로드 접수 — 티스토리 영구 주소를 기다리는 중입니다.');
     await page.waitForTimeout(1200).catch(() => null);
     const imageBlock = await captureUploadedThumbnailBlock(page, beforeSources, title);
     if (!imageBlock) {
-      log(onLog, 'Permanent thumbnail URL was not detected. A temporary preview URL will not be published.');
+      log(onLog, '⚠️ 업로드는 됐지만 티스토리 영구 주소를 확인하지 못했습니다 — 외부 주소로 대체합니다. '
+        + '이 경우 블로그 목록 썸네일이 비어 보입니다.');
       return '';
     }
-    await trySetUploadedImageAsRepresentative(page, onLog).catch(() => false);
-    log(onLog, 'Permanent Tistory thumbnail URL confirmed.');
+    /**
+     * 🖼️ v3.8.455 — 대표이미지 지정 결과를 **삼키지 않는다.**
+     *
+     * 예전에는 반환값을 버리고 .catch(() => false) 로 예외까지 삼켰다(성공 로그만 있었다).
+     * 그래서 "og:image 는 있는데 블로그 목록 썸네일은 비어 있다"는 상태의 원인을
+     * 로그만 봐서는 알 수 없었다. 실패해도 발행은 계속한다 — 알리기만 한다.
+     */
+    const marked = await trySetUploadedImageAsRepresentative(page, onLog).catch(() => false);
+    if (!marked) {
+      log(onLog, '⚠️ 대표이미지 지정 컨트롤을 찾지 못했습니다 — 블로그 목록 썸네일이 비어 보일 수 있습니다 (본문 이미지는 정상)');
+    }
+    log(onLog, '✅ 썸네일이 티스토리에 업로드됐습니다 (영구 주소 확인)');
     return imageBlock;
   } finally {
     await prepared.cleanup().catch(() => undefined);

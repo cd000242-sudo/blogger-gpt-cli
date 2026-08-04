@@ -1948,7 +1948,18 @@ export async function publishGeneratedContent(
             title,
             html,
             thumbnailUrl || '',
-            (msg: string) => console.log(msg),
+            /**
+             * 🔊 v3.8.455 — **티스토리만 로그가 앱 화면에 안 오고 있었다.**
+             *
+             * 바로 위 Blogger 는 v3.8.385 에 emit 으로 바뀌면서 "기존엔 console.log 로만
+             * 삼켰다"는 주석까지 달렸는데, 티스토리는 그 수정에서 빠졌다.
+             * 그 결과 썸네일 진단 문구가 전부 개발자 콘솔로만 흘러갔다 —
+             *   'Tistory image upload control was not found'
+             *   'Permanent thumbnail URL was not detected'
+             *   'Thumbnail file preparation failed'
+             * 사용자는 "썸네일이 안 나온다"만 볼 뿐 이유를 알 길이 없었다.
+             */
+            emit,
             postingMode,
             scheduleDate
           );

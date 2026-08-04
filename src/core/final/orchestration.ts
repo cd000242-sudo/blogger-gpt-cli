@@ -1162,6 +1162,8 @@ export async function generateUltimateMaxModeArticleFinal(
         demandTitleHint,
         shoppingProductName,
         shoppingTitleDirective,
+        // v3.8.455: 검색자 실제 질문을 제목에도 넘긴다 — 예전엔 H2 에만 갔다
+        demandSignals,
       );
       h1 = repairTitleYear(h1);
 

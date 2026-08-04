@@ -316,6 +316,20 @@ export async function generateH1TitleFinal(
    *   그래서 쇼핑 글이면 아키타입을 통째로 이 지시문으로 갈아끼운다.
    */
   shoppingDirective?: string,
+  /**
+   * 🔎 v3.8.455 — **검색자가 실제로 올린 질문 / 실제로 친 검색어.**
+   *
+   * 사용자 지적: "제목은 우리블로거들은 궁금증 해결을 해주는사람이야 그러면 이
+   *   궁금증과 상황이 제목이되어야 제품이 잘팔리지않을까?? … 색인되더라도 사람들이
+   *   클릭을 해야 하나라도 구매전환이되자나"
+   *
+   * 맞는 지적이었다. 이 신호는 orchestration 에서 이미 수집해 왔는데(지식인 질문·
+   * 자동완성) **소제목(H2) 생성에만** 넘어가고 제목에는 한 번도 전달되지 않았다.
+   * 제목이 받던 demandHint 는 DataLab 검색량 판정 문구라 "어떤 말을 앞에 둘까"만
+   * 말하지 "검색자가 무엇이 궁금한가"는 말하지 않는다.
+   * 사람의 진짜 질문만큼 좋은 제목 재료는 없다.
+   */
+  demandSignals?: { userQuestions?: string[]; searchQueries?: string[] },
 ): Promise<string> {
   // 🔥 현재 날짜 주입
   const currentYear = new Date().getFullYear();
@@ -360,6 +374,22 @@ ${demandHint ? `
 **검색 실측 (최우선 규칙 — 아래 스타일보다 우선):**
 ${demandHint}
 ` : ''}
+${(() => {
+    // v3.8.455: 검색자의 실제 질문을 제목 재료로 올린다 (위 demandSignals 주석 참고)
+    const clean = (list?: string[]) => [...new Set((list || [])
+      .map((s) => String(s || '').replace(/^Q\.\s*/i, '').replace(/\s+/g, ' ').trim())
+      .filter((s) => s.length >= 4 && s.length <= 60))].slice(0, 8);
+    const qs = clean(demandSignals?.userQuestions);
+    const kw = clean(demandSignals?.searchQueries);
+    if (qs.length === 0 && kw.length === 0) return '';
+    return `
+🔎 **검색자가 실제로 물어본 것 — 제목의 1순위 재료입니다**
+${qs.length ? `실제 질문:\n${qs.map((q) => `  · ${q}`).join('\n')}\n` : ''}${kw.length ? `함께 검색한 말:\n  ${kw.join(' / ')}\n` : ''}
+- 이 사람들이 **무엇을 몰라서 검색했는지**를 제목에 담으세요. 그게 클릭의 이유입니다.
+- 질문을 그대로 베끼지 말고, 그 사람이 처한 **상황**으로 바꿔 쓰세요.
+- 위 목록에 없는 걱정거리를 지어내지 마세요.
+`;
+  })()}
 ${shoppingDirective || `**이번에 사용할 제목 스타일 (아래 중 하나 선택):**
 ${archetypeGuide}`}
 
