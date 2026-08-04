@@ -58,9 +58,15 @@ describe('② 백엔드는 0이면 상한을 걸지 않는다', () => {
     expect(orch).toContain('사용자 지정');
   });
 
+  /**
+   * v3.8.452 에 사다리가 바뀌었다 — 기준이 uniqueCount 에서 materialCount
+   * (고유 소제목 + 검색자 신호)로 넓어졌고, 얇은 주제는 3~4개까지 내려간다.
+   * 이 테스트의 의도는 그대로다: **재료에 따라 개수가 움직이는 로직이 살아 있는가.**
+   * 하한 정책 자체는 v3-8-452-section-count-honest.test.ts 가 따로 고정한다.
+   */
   it('⭐⭐ 재료 기반 확장 로직은 그대로 살아 있다', () => {
     // 이 사다리가 사라지면 자동으로 둬도 의미가 없다
-    expect(gen).toContain('if (uniqueCount <= 3) targetCount = 5;');
+    expect(gen).toContain('const materialCount = uniqueCount + demandCount;');
     expect(gen).toContain('else targetCount = 10;');
     expect(gen).toContain('if (rawSignalCount >= 50) targetCount = Math.max(targetCount, 8);');
   });

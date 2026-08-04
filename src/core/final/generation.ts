@@ -900,21 +900,45 @@ export async function generateH2TitlesFinal(
     .sort((a, b) => b[1] - a[1])
     .map(([h]) => h);
 
-  // 🔥 H2 섹션 수: 최소 5개 보장! (크롤링 데이터 부족해도 AI가 생성)
+  /**
+   * 🔢 v3.8.452 — **재료가 얇으면 억지로 5개를 채우지 않는다.**
+   *
+   * 사용자 판단: "강제하면 억지로 없는 내용이 나올수있으니까 신뢰와 글품질이
+   *   우선이야 유지할필요없어"
+   *
+   * 예전에는 어떤 경우에도 최소 5개였다. 쓸 내용이 2~3개뿐인 주제에서도
+   * 5개를 만들라고 하면 남는 두 칸은 지어내거나 뻔한 소리로 채워진다.
+   *
+   * ⚠️ 다만 **"크롤이 실패한 것"과 "주제가 얇은 것"은 다르다.**
+   *   수집 자체가 0건이면 얇다는 근거가 없다 — 그때는 예전처럼 5개로 둔다.
+   *   (크롤 실패 때문에 멀쩡한 주제가 3섹션으로 쪼그라들면 그게 더 나쁘다.)
+   * 재료의 양은 크롤 소제목뿐 아니라 **검색자 질문·연관 검색어**도 함께 본다.
+   */
   const uniqueCount = sorted.length;
   const rawSignalCount = Array.isArray(subheadings) ? subheadings.length : 0;
-  let targetCount = 5;  // 🔥 최소 5개 기본값!
+  const demandCount = new Set([
+    ...(demandSignals?.userQuestions || []),
+    ...(demandSignals?.searchQueries || []),
+  ].map((s) => String(s || '').trim()).filter((s) => s.length >= 4)).size;
 
-  // 고유 소제목 수에 따라 타겟 결정 (최소 5개 보장)
-  if (uniqueCount <= 3) targetCount = 5;
-  else if (uniqueCount <= 5) targetCount = 5;
-  else if (uniqueCount <= 8) targetCount = 6;
-  else if (uniqueCount <= 12) targetCount = 7;
-  else if (uniqueCount <= 18) targetCount = 8;
-  else if (uniqueCount <= 25) targetCount = 9;
-  else targetCount = 10;  // 🔥 최대 10개까지 확장!
+  // 재료의 총량 — 고유 소제목 + 검색자 신호
+  const materialCount = uniqueCount + demandCount;
+  const noEvidence = rawSignalCount === 0 && demandCount === 0;
 
-  // 크롤링 신호 수에 따라 상향 조정만 (최소 5개 유지)
+  let targetCount = 5;
+  if (noEvidence) {
+    // 판단 근거가 없다 — 예전 기본값 유지 (회귀 방지)
+    targetCount = 5;
+  } else if (materialCount <= 2) targetCount = 3;   // 정말 쓸 게 없는 주제
+  else if (materialCount <= 4) targetCount = 4;
+  else if (materialCount <= 8) targetCount = 5;
+  else if (materialCount <= 12) targetCount = 6;
+  else if (materialCount <= 18) targetCount = 7;
+  else if (materialCount <= 25) targetCount = 8;
+  else if (materialCount <= 35) targetCount = 9;
+  else targetCount = 10;
+
+  // 크롤링 신호가 많으면 위로만 조정한다 (아래로는 내리지 않는다)
   if (rawSignalCount >= 30) targetCount = Math.max(targetCount, 6);
   if (rawSignalCount >= 50) targetCount = Math.max(targetCount, 8);
 

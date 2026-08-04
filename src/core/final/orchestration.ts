@@ -2365,8 +2365,22 @@ ${quoted}
         return total;
       };
       let plainLen = sumPlain(allSectionsObj);
-      onLog?.(`[PROGRESS] 72% - 📏 본문 평문 ${plainLen.toLocaleString()}자 (목표 8,000자+, 최소 3,000자)`);
-      if (plainLen < 3000) {
+      /**
+       * 📏 v3.8.452 — 하한을 **섹션 수에 비례**시킨다.
+       *
+       * v3.8.452 부터 재료가 얇으면 소제목이 3~4개로 줄어든다(사용자 판단:
+       * "강제하면 억지로 없는 내용이 나올수있으니까 신뢰와 글품질이 우선").
+       * 그런데 하한이 3,000자 고정이면 **의도적으로 짧게 쓴 글**이 매번 걸려
+       * 유료 재시도가 돈다 — 비용 고정 원칙에 어긋난다.
+       *
+       * 섹션당 800자를 기준으로 잡되 3,000자를 넘기지 않는다. 이렇게 하면
+       * 이 게이트의 원래 목적("소제목만 많고 본문은 토막")은 그대로 잡힌다.
+       */
+      const sectionCountForGate = Math.max(1, (allSectionsObj?.sections || []).length);
+      const minPlainLen = Math.min(3000, sectionCountForGate * 800);
+      onLog?.(`[PROGRESS] 72% - 📏 본문 평문 ${plainLen.toLocaleString()}자 `
+        + `(목표 8,000자+, 최소 ${minPlainLen.toLocaleString()}자 · 소제목 ${sectionCountForGate}개 기준)`);
+      if (plainLen < minPlainLen) {
         onLog?.(`[PROGRESS] 73% - ⚠️ 본문 부족 (${plainLen}자) — 더 풍부하게 1회 재시도`);
         const richerBlock = scopedSectionBlock +
           `\n\n🚨 **재시도 — 본문 분량 강제 규칙**: 직전 응답의 본문 합계가 ${plainLen}자로 너무 짧았습니다.\n` +
