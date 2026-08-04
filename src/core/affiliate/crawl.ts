@@ -735,6 +735,30 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
     const title = decodeEntities(info.title);
 
     /**
+     * 🚨 v3.8.450 — **로그인 페이지를 상품으로 착각하지 않는다.**
+     *
+     * 사용자 실측(2026-08-04): 네이버 링크로 발행했더니 로그가 이랬다 —
+     *   🛒 링크 상품 확인: "NAVER 로그인"
+     *   ✅ 제목 완료: "NAVER 로그인, 보안 설정 없이 써도 될까"
+     * 즉 크롤이 로그인 리다이렉트를 받았는데 그걸 상품명으로 받아들여
+     * **엉뚱한 글을 그대로 써버렸다.** 이미지도 0장이라 뒤이어 발행까지 깨졌다.
+     *
+     * 잘못된 입력은 조용히 진행하는 것보다 **분명히 멈추고 알리는 편**이 낫다 —
+     * 글 한 편의 생성 비용을 버리고 사용자는 원인을 모른 채 이상한 글을 얻는다.
+     * (품질 때문에 막는 게 아니라, 상품 정보가 아예 없는 경우다.)
+     */
+    const loginish = /로그인|login|sign\s?in/i;
+    const isLoginPage = loginish.test(title)
+      || /nid\.naver\.com|\/login|accounts\.google/i.test(String(info.url || ''));
+    if (isLoginPage) {
+      throw new Error(
+        '네이버가 로그인 화면을 돌려줬습니다. 상품 정보를 읽지 못했습니다.\n'
+        + '· 링크를 브라우저에서 열어 정상 상품 페이지인지 확인해 주세요.\n'
+        + '· 단축 링크(naver.me)가 만료됐다면 상품 페이지에서 다시 복사해 주세요.',
+      );
+    }
+
+    /**
      * v3.8.438 — 네이버도 후기를 뽑는다.
      *
      * 토스와 같은 이유다(사용자 지적: "리뷰 1330개나 있는데 뭐가없다는건지").

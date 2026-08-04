@@ -1310,6 +1310,26 @@ async function _tryEngineInternal(
     //   - DALL-E: dall-e 5/12 EOL + gpt-image-* verification 장벽
     //   - Pollinations: 저품질 → 사용자 메인 타겟(나노바나나2)으로 자동 폴백되도록 제거
 
+    /**
+     * 🚫 v3.8.450 — 'crawled' 는 **생성 엔진이 아니다.**
+     *
+     * "URL 수집 이미지를 그대로 사용"이라는 선택지이고, orchestration 이 분기에서
+     * 처리한다. 수집한 사진이 0장이면 그 분기를 건너뛰어 여기까지 흘러오는데,
+     * 예전에는 default 로 떨어져 "알 수 없는 엔진"이 됐고 엔진 고정 모드가 그걸
+     * **발행 차단**으로 승격시켰다(사용자 실측 STRICT_ENGINE_FAILED).
+     *
+     * 여기서 이유를 분명히 밝혀 두면, 위 strict 분류기가 "우회 불가"로 오판하지 않고
+     * 로그도 원인을 정확히 가리킨다. 애초에 orchestration 이 먼저 막지만 이중 방어다.
+     */
+    case 'crawled':
+      console.log('[DISPATCH] ℹ️ crawled 는 생성 엔진이 아님 — 수집 사진이 없어 건너뜁니다');
+      return {
+        ok: false,
+        dataUrl: '',
+        source: '',
+        error: 'NON_GENERATIVE_SOURCE:crawled — 수집한 사진이 없어 이 자리는 비웁니다(발행은 계속됩니다)',
+      };
+
     default:
       console.log(`[DISPATCH] ⚠️ 알 수 없는 엔진: ${engine}`);
       return { ok: false, dataUrl: '', source: '', error: `알 수 없는 엔진: ${engine}` };

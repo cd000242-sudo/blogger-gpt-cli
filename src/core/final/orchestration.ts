@@ -3123,6 +3123,30 @@ ${quoted}
 
           // 🎯 이미지 디스패치: 사용자 선택 엔진 1순위 → 실패 시 폴백
           //   v3.8.440: leaveBlank 면 여기 오면 안 된다 — 유료 생성 경로다.
+          /**
+           * 🚫 v3.8.450 — **'crawled' 는 생성 엔진이 아니다. 디스패처로 보내면 안 된다.**
+           *
+           * 사용자 실측 오류:
+           *   "STRICT_ENGINE_FAILED:unknown:알 수 없는 오류: 알 수 없는 엔진: crawled"
+           *   → 발행이 통째로 차단됐다.
+           *
+           * 원인 사슬:
+           *   ① 네이버 링크가 로그인 페이지로 떨어져 상품 이미지를 0장 수집
+           *   ② 위 'crawled' 분기가 `productImages.length > 0` 조건이라 건너뛰어짐
+           *   ③ 여기까지 흘러와 dispatchH2ImageGeneration('crawled') 호출
+           *   ④ 디스패처 switch 에 crawled case 가 없어 "알 수 없는 엔진"
+           *   ⑤ 엔진 고정(strict) 모드가 그걸 발행 차단으로 승격
+           *
+           * 'crawled' 는 "수집한 사진을 그대로 쓴다"는 **선택지**일 뿐 생성기가 아니다.
+           * 쓸 사진이 없으면 그 자리는 비우면 된다 — 이 앱의 원칙은 **발행을 막지 않는 것**이다.
+           */
+          const NON_GENERATIVE_SOURCES = new Set(['crawled', 'none', 'skip']);
+          if (!imageResult.ok && !leaveBlank && NON_GENERATIVE_SOURCES.has(String(imageSource).toLowerCase())) {
+            leaveBlank = true;
+            console.log(`[IMG-${i + 1}] ⬜ '${imageSource}' 는 생성 엔진이 아님 — 빈 자리로 둠 (발행은 계속)`);
+            onLog?.(`   [IMG-${i + 1}] ⬜ 수집한 사진이 없어 이 자리는 비워 둡니다 (편집기에서 넣으실 수 있어요)`);
+          }
+
           if (!imageResult.ok && !leaveBlank) {
             try {
               console.log(`[IMG-${i + 1}] 🎯 이미지 디스패치 (소스: ${imageSource})...`);
