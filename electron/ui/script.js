@@ -10111,6 +10111,22 @@ function updateLicenseDisplay(status) {
  */
 function updateHeaderLicenseStatus(status) {
   const headerStatus = document.getElementById('licenseStatus');
+  if (!headerStatus) return;
+
+  /**
+   * v3.8.463 — 계산식을 한 곳(settings.js buildLicenseLabel)으로 모은다.
+   * 같은 배지를 두 함수가 각자 계산하면 표시가 어긋난다. 서버 시간이 오면
+   * 그걸 기준으로 세서 로컬 시계가 틀어져도 남은 날짜가 흔들리지 않는다.
+   */
+  if (typeof window.buildLicenseLabel === 'function') {
+    const nowMs = Number(status?.serverTime) || Date.now();
+    const { label, color } = window.buildLicenseLabel(status, nowMs);
+    headerStatus.textContent = label;
+    headerStatus.style.color = color;
+    if (headerStatus.dataset) headerStatus.dataset.valid = status && status.valid ? 'true' : 'false';
+    return;
+  }
+
   if (headerStatus) {
     if (status && status.valid) {
       if (status.type === 'permanent') {

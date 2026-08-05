@@ -802,13 +802,28 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
          * 안 하고 닫으면(또는 5분 초과) 기존 안내 오류로 이어진다 — 발행은 계속된다.
          */
         if (!naverSession.hasNaverSession() && naverSession.tryClaimLoginPrompt()) {
-          opts.onLog?.('   [제휴] 🔔 성인인증 상품 감지 — 네이버 로그인 창을 엽니다. 로그인하시면 자동으로 다시 시도합니다 (최대 5분)');
+          /**
+           * 🔞 v3.8.463 — **상품 주소를 넘긴다.**
+           *
+           * 사용자 지적: "로그인만하고 끝내는게아니고 성인인증을 해야되 … 정상적으로
+           * 상품창이뜨면 그때 크롤링이 들어가야되". 상품 주소로 창을 열면 네이버가
+           * 로그인 → 연령확인 → 상품 페이지까지 데려다 주고, 그 상품 화면이 실제로
+           * 뜬 것을 확인한 뒤에야 수집을 시작한다.
+           */
+          opts.onLog?.('   [제휴] 🔔 성인인증 상품 감지 — 네이버 창을 엽니다. 로그인 후 성인인증까지 마치시면 자동으로 수집합니다 (최대 10분)');
           await browser.close().catch(() => { /* 로그인 창과 겹치지 않게 먼저 닫는다 */ });
           const login = await naverSession.openNaverLoginWindow(
             (m: string) => opts.onLog?.(`   ${m}`),
-          ).catch(() => ({ ok: false, loggedIn: false }));
+            url,
+          ).catch(() => ({ ok: false, loggedIn: false, verified: false }));
+
+          if (login.ok && login.verified) {
+            opts.onLog?.('   [제휴] ✅ 성인인증 완료 — 상품 정보를 수집합니다');
+            return crawlNaver(url, { ...opts, _naverSession: true });
+          }
           if (login.ok && login.loggedIn) {
-            opts.onLog?.('   [제휴] ✅ 로그인 확인 — 세션으로 상품 정보를 다시 수집합니다');
+            // 로그인은 됐지만 연령확인이 안 끝났다. 세션은 저장됐으니 한 번은 시도해 본다.
+            opts.onLog?.('   [제휴] 로그인은 됐지만 연령확인이 확인되지 않았습니다 — 저장된 세션으로 한 번 시도합니다');
             return crawlNaver(url, { ...opts, _naverSession: true });
           }
           opts.onLog?.('   [제휴] 로그인이 확인되지 않아 상품 정보 없이 진행합니다');

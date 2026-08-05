@@ -7,7 +7,7 @@ import { openExternalLinksModal, closeExternalLinksModal } from './external-link
 import { showGuide, closeGuide } from './guide.js';
 import { runPosting, publishToPlatform, createPayload, createPayloadFromForm, createPreviewPayload } from './posting.js';
 import { generatePreview, displayPreviewInModal, showPreviewModal, closePreviewModal, startSemiAutoPublish } from './preview.js';
-import { loadSettings, saveSettings, loadSettingsContent, updateApiKeyStatus, updatePlatformStatus, loadLicenseInfo, isLicenseValid, checkPlatformConnection, checkCseConnection, startBloggerOAuth, closeBloggerAuthCodeModal } from './settings.js';
+import { loadSettings, saveSettings, loadSettingsContent, updateApiKeyStatus, updatePlatformStatus, loadLicenseInfo, buildLicenseLabel, daysUntil, isLicenseValid, checkPlatformConnection, checkCseConnection, startBloggerOAuth, closeBloggerAuthCodeModal } from './settings.js';
 import { updateKeywordCount, addKeyword, removeKeyword, getAllKeywords, getH2ImageSections, updateRealtimeClock, updateRealtimeDate, initializeProgressSteps, resetProgressSteps, updateProgressStep, onCalendarDateClick, toggleCalendarMemoComplete } from './utils.js';
 import { onLog, onProgress } from './api.js';
 import { renderCalendar, showWorkDiary, saveWorkRecord, getWorkRecords, formatDateKey, toggleWorkRecordCompletion, deleteWorkRecord, addTodayWorkRecord, addQuickWorkRecord, addWorkRecordTemplate, saveWorkRecordFromModal, addScheduleFromModal, editScheduleFromModal, cancelScheduleEdit, saveScheduleEdit, initWorkDiary } from './calendar.js';
@@ -565,6 +565,9 @@ console.log('[MAIN] 워드프레스 함수 즉시 정의 완료');
   window.updateApiKeyStatus = updateApiKeyStatus;
   window.updatePlatformStatus = updatePlatformStatus;
   window.loadLicenseInfo = loadLicenseInfo;
+  // v3.8.463: script.js 의 헤더 배지도 같은 계산식을 쓰게 한다
+  window.buildLicenseLabel = buildLicenseLabel;
+  window.daysUntil = daysUntil;
   window.isLicenseValid = isLicenseValid;
   window.checkPlatformConnection = checkPlatformConnection;
   window.checkCseConnection = checkCseConnection;

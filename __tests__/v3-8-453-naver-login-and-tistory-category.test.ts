@@ -38,9 +38,22 @@ describe('① 네이버 로그인 세션 — 성인인증 상품 크롤', () => 
     expect(block).toContain('_naverSession: true');
   });
 
-  it('⭐ 프로필 잠금이 아니라 storageState 다 (동시 크롤 3개와 공존해야 한다)', () => {
-    expect(session).not.toContain('launchPersistentContext');
-    expect(session).toContain('storageState');
+  /**
+   * v3.8.463 에서 정책이 **둘로 갈렸다.**
+   *
+   * 원래는 "프로필 잠금이 아니라 storageState" 하나였다. 동시 크롤 3개가 프로필
+   * 디렉토리를 공유하면 잠금이 충돌하기 때문이고, 그건 지금도 유효하다.
+   * 그런데 로그인 창은 사정이 다르다 — 실측(2026-08-06) 결과 storageState 로는
+   * 기기 지문이 매번 새것이 돼서 네이버가 자동화 탐지 캡차를 냈고 로그인이 아예
+   * 안 됐다. 로그인 창은 tryClaimLoginPrompt 로 한 번에 하나만 뜨므로 프로필
+   * 잠금이 충돌하지 않는다.
+   */
+  it('⭐⭐ 로그인 창은 영구 프로필, 크롤 재시도는 storageState (섞이면 안 된다)', () => {
+    expect(session).toContain('launchPersistentContext(PROFILE_DIR');
+    expect(session).toContain('storageState({ path: SESSION_PATH })');
+    // 동시성 3으로 도는 크롤은 프로필을 쓰면 안 된다
+    expect(crawl).not.toContain('launchPersistentContext');
+    expect(crawl).toContain("storageState: require('./naver-session').getNaverSessionPath()");
   });
 
   it('⭐ 로그인해도 안 되는 경우를 구분해 알린다 (계정에 성인인증이 없을 때)', () => {

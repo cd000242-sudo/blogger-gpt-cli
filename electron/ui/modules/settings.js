@@ -464,87 +464,132 @@ export async function loadLicenseInfo() {
       console.warn('[LICENSE] 무료체험 상태 확인 실패:', quotaError);
     }
 
-    if (window.blogger && window.blogger.readLicenseFile) {
-      const result = await window.blogger.readLicenseFile();
+    const license = await readLicenseForDisplay();
+    applyLicenseBadge(licenseStatus, license);
 
-      if (result && result.ok && result.license) {
-        // 라이선스 정보가 있는 경우
-        const license = result.license;
-
-        if (licenseStatus) {
-          // 영구제 또는 기간제 표시
-          if (license.type === 'permanent' || license.isPermanent) {
-            licenseStatus.textContent = '영구제';
-            licenseStatus.style.color = '#10b981'; // 초록색
-          } else if (license.expiryDate) {
-            const expiryDate = new Date(license.expiryDate);
-            const now = new Date();
-            const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
-
-            if (daysLeft > 30) {
-              licenseStatus.textContent = `기간제 (${daysLeft}일 남음)`;
-              licenseStatus.style.color = '#10b981'; // 초록색
-            } else if (daysLeft > 0) {
-              licenseStatus.textContent = `기간제 (${daysLeft}일 남음)`;
-              licenseStatus.style.color = '#f59e0b'; // 주황색 (경고)
-            } else {
-              licenseStatus.textContent = '만료됨';
-              licenseStatus.style.color = '#ef4444'; // 빨간색
-            }
-          } else {
-            licenseStatus.textContent = '기간제';
-            licenseStatus.style.color = '#10b981';
-          }
-        }
-
-        updateLicenseAccessStateFromSettings({
-          isFreeTrial: false,
-          valid: true,
-          licenseType: license.type || (license.isPermanent ? 'permanent' : null),
-          expiresAt: license.expiryDate || null,
-          source: 'settings-license-file',
-        });
-
-        console.log('✅ [LICENSE] 라이선스 정보 로드 완료:', license.type || '기간제');
-      } else {
-        // 라이선스 정보가 없는 경우 - 기본값으로 영구제 표시
-        if (licenseStatus) {
-          licenseStatus.textContent = '영구제';
-          licenseStatus.style.color = '#10b981';
-        }
-        updateLicenseAccessStateFromSettings({
-          isFreeTrial: false,
-          valid: true,
-          source: 'settings-default-license',
-        });
-        console.log('✅ [LICENSE] 기본 라이선스 적용 (영구제)');
-      }
-    } else {
-      // blogger API가 없는 경우 - 기본값으로 영구제 표시
-      if (licenseStatus) {
-        licenseStatus.textContent = '영구제';
-        licenseStatus.style.color = '#10b981';
-      }
-      updateLicenseAccessStateFromSettings({
-        isFreeTrial: false,
-        valid: true,
-        source: 'settings-default-no-api',
-      });
-      console.log('✅ [LICENSE] 기본 라이선스 적용 (영구제)');
-    }
-  } catch (error) {
-    console.error('[LICENSE] 라이선스 정보 로드 실패:', error);
-    // 에러 발생 시에도 기본값으로 영구제 표시
-    const licenseStatus = document.getElementById('licenseStatus');
-    if (licenseStatus) {
-      licenseStatus.textContent = '영구제';
-      licenseStatus.style.color = '#10b981';
-    }
     updateLicenseAccessStateFromSettings({
       isFreeTrial: false,
-      valid: true,
-      source: 'settings-load-error-default',
+      valid: license.valid,
+      licenseType: license.type || null,
+      expiresAt: license.expiresAt || null,
+      source: license.source,
     });
+
+    console.log('[LICENSE] 표시:', license.label, '|', license.source, license.expiresAt || '');
+  } catch (error) {
+    console.error('[LICENSE] 라이선스 정보 로드 실패:', error);
+    /**
+     * ⚠️ v3.8.463 — 실패 시 "영구제"로 떨어뜨리지 않는다.
+     * 예전에는 어떤 실패든 영구제로 표시해서, 기간제 사용자도 남은 날짜 대신
+     * "영구제"만 보였다. 모르면 모른다고 표시한다.
+     */
+    const licenseStatus = document.getElementById('licenseStatus');
+    applyLicenseBadge(licenseStatus, {
+      valid: false, type: null, expiresAt: null,
+      label: '확인 실패', color: '#f59e0b', source: 'settings-load-error',
+    });
+    updateLicenseAccessStateFromSettings({
+      isFreeTrial: false,
+      valid: false,
+      source: 'settings-load-error',
+    });
+  }
+}
+
+/** 남은 일수 — 날짜 경계 기준으로 센다 (같은 날이면 0, 내일 만료면 1) */
+export function daysUntil(expiresAt, nowMs = Date.now()) {
+  if (expiresAt === null || expiresAt === undefined || expiresAt === '') return null;
+  const expMs = typeof expiresAt === 'number' ? expiresAt : Date.parse(expiresAt);
+  if (!Number.isFinite(expMs)) return null;
+
+  const startOfDay = (ms) => {
+    const d = new Date(ms);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  };
+  return Math.round((startOfDay(expMs) - startOfDay(nowMs)) / 86400000);
+}
+
+/**
+ * 🪪 v3.8.463 — 코드 종류에 맞는 배지 문구를 만든다.
+ *
+ * 예전에는 헤더 배지가 index.html 에 '영구제'로 박혀 있었고, 갱신 함수도
+ * 라이선스를 못 읽으면 전부 '영구제'로 되돌렸다. 게다가 IPC 는 `{ok, data}` 를
+ * 주는데 `result.license` 를 읽어서 **항상** 못 읽는 상태였다 — 그래서 기간제
+ * 사용자도 남은 날짜를 볼 수 없었다.
+ */
+export function buildLicenseLabel(status, nowMs = Date.now()) {
+  const type = status?.type || status?.licenseType || null;
+  const expiresAt = status?.expiresAt ?? null;
+  const permanent = type === 'permanent' || (status?.valid && !expiresAt);
+
+  if (status && status.valid === false) {
+    const left = daysUntil(expiresAt, nowMs);
+    if (left !== null && left < 0) return { label: '만료됨', color: '#ef4444' };
+    return { label: '미등록', color: '#94a3b8' };
+  }
+  if (type === 'dev') return { label: '개발자 모드', color: '#a78bfa' };
+  if (permanent) return { label: '영구제', color: '#10b981' };
+
+  const left = daysUntil(expiresAt, nowMs);
+  if (left === null) return { label: '기간제', color: '#10b981' };
+  if (left < 0) return { label: '만료됨', color: '#ef4444' };
+  if (left === 0) return { label: '기간제 (오늘 만료)', color: '#ef4444' };
+  if (left <= 7) return { label: `기간제 (${left}일 남음)`, color: '#ef4444' };
+  if (left <= 30) return { label: `기간제 (${left}일 남음)`, color: '#f59e0b' };
+  return { label: `기간제 (${left}일 남음)`, color: '#10b981' };
+}
+
+/** license-status-new(서버 시간 검증 포함)를 1순위, 라이선스 파일을 폴백으로 읽는다 */
+async function readLicenseForDisplay() {
+  try {
+    if (window.electronAPI && typeof window.electronAPI.invoke === 'function') {
+      const status = await window.electronAPI.invoke('license-status-new');
+      if (status && (status.valid === true || status.valid === false)) {
+        /**
+         * 서버 시간이 오면 그걸 기준으로 남은 날짜를 센다.
+         * 로컬 시계가 틀어져 있어도 표시가 흔들리지 않는다.
+         */
+        const nowMs = Number(status.serverTime) || Date.now();
+        const { label, color } = buildLicenseLabel(status, nowMs);
+        return {
+          valid: !!status.valid,
+          type: status.type || null,
+          expiresAt: status.expiresAt ?? null,
+          label, color, source: 'license-status-new',
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('[LICENSE] license-status-new 실패, 파일로 폴백:', e);
+  }
+
+  // 폴백: 라이선스 파일 (IPC 는 { ok, data } 를 준다 — result.license 가 아니다)
+  if (window.blogger && typeof window.blogger.readLicenseFile === 'function') {
+    const result = await window.blogger.readLicenseFile();
+    const data = result && result.ok ? result.data : null;
+    if (data && (data.licenseType || data.type || data.expiresAt)) {
+      const type = data.licenseType || data.type || null;
+      const expiresAt = data.expiresAt ?? null;
+      const left = daysUntil(expiresAt);
+      const valid = type === 'permanent' || expiresAt === null || (left !== null && left >= 0);
+      const { label, color } = buildLicenseLabel({ valid, type, expiresAt });
+      return { valid, type, expiresAt, label, color, source: 'license-file' };
+    }
+  }
+
+  return { valid: false, type: null, expiresAt: null, label: '미등록', color: '#94a3b8', source: 'no-license' };
+}
+
+function applyLicenseBadge(el, license) {
+  if (!el) return;
+  el.textContent = license.label;
+  el.style.color = license.color;
+  if (el.dataset) el.dataset.valid = license.valid ? 'true' : 'false';
+  if (license.expiresAt) {
+    const d = new Date(typeof license.expiresAt === 'number' ? license.expiresAt : Date.parse(license.expiresAt));
+    if (!Number.isNaN(d.getTime())) el.title = `만료일: ${d.toLocaleDateString('ko-KR')}`;
+  } else {
+    el.title = '';
   }
 }
 

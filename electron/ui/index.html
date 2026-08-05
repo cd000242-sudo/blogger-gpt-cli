@@ -442,7 +442,8 @@
         <div class="header-badges">
           <div class="header-badge header-badge--success">
             <span class="badge-label">라이센스:</span>
-            <span id="licenseStatus" class="badge-value badge-success">영구제</span>
+            <!-- v3.8.463: '영구제' 하드코딩 제거 — 실제 라이선스를 읽어 채운다 -->
+            <span id="licenseStatus" class="badge-value badge-success">확인 중…</span>
           </div>
           <div class="header-badge header-badge--info">
             <span class="badge-label">플랫폼:</span>
@@ -8822,6 +8823,83 @@ async function refreshGoldenKeywordFromRemote() {
 }
 window.refreshGoldenKeywordFromRemote = refreshGoldenKeywordFromRemote;
 
+/**
+ * GitHub 토큰 입력 — Electron 은 prompt() 를 지원하지 않아 커스텀 모달로 받는다.
+ * 레포가 없는 설치본에서 배포할 때 한 번만 필요하고, 이후에는 이 PC 에 저장돼 다시 묻지 않는다.
+ */
+function askGoldenToken() {
+  return new Promise(function(resolve) {
+    var existing = document.getElementById('golden-token-modal');
+    if (existing) existing.remove();
+    var m = document.createElement('div');
+    m.id = 'golden-token-modal';
+    m.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.88);backdrop-filter:blur(8px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    m.innerHTML =
+      '<div style="background:#0f172a;border:1px solid rgba(251,191,36,0.35);border-radius:14px;padding:22px;max-width:460px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.6);">' +
+        '<h3 style="margin:0 0 10px;color:#fbbf24;font-size:16px;font-weight:800;">🔑 GitHub 토큰 (최초 1회)</h3>' +
+        '<p style="margin:0 0 12px;color:#94a3b8;font-size:12px;line-height:1.6;">' +
+          '이 PC 에는 레포가 없어 GitHub 에 직접 올려야 합니다.<br>' +
+          'Fine-grained token 의 <b style="color:#cbd5e1;">Contents: Read and write</b> 권한이 필요합니다.<br>' +
+          '토큰은 이 PC 에만 저장되고 배포되는 앱에는 들어가지 않습니다.' +
+        '</p>' +
+        '<input id="golden-token-input" type="password" placeholder="github_pat_..." autocomplete="off" style="width:100%;padding:11px 14px;background:rgba(2,6,23,0.6);border:1px solid rgba(148,163,184,0.2);border-radius:8px;color:#e2e8f0;font-size:13px;box-sizing:border-box;outline:none;margin-bottom:12px;" />' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end;">' +
+          '<button id="golden-token-cancel" style="padding:9px 16px;background:rgba(148,163,184,0.15);border:1px solid rgba(148,163,184,0.25);color:#cbd5e1;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">나중에</button>' +
+          '<button id="golden-token-ok" style="padding:9px 18px;background:linear-gradient(135deg,#fbbf24,#f59e0b);border:none;color:#1f2937;border-radius:8px;font-size:13px;font-weight:900;cursor:pointer;">저장하고 배포</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(m);
+    var input = document.getElementById('golden-token-input');
+    if (input) input.focus();
+    function done(value) { m.remove(); resolve(value); }
+    document.getElementById('golden-token-cancel').onclick = function() { done(''); };
+    document.getElementById('golden-token-ok').onclick = function() { done(input ? input.value.trim() : ''); };
+    if (input) {
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') done(input.value.trim());
+      });
+    }
+  });
+}
+
+/**
+ * 저장한 키워드를 GitHub 에 올린다 — 관리자가 터미널을 열 필요가 없다.
+ * 메인 프로세스가 환경을 보고 git push 든 GitHub API 든 알아서 고른다.
+ * 배포에 실패해도 이 PC 화면에는 이미 반영돼 있으니 저장 자체는 되돌리지 않고 사실만 알린다.
+ */
+async function publishGoldenKeywordToGitHub(payload) {
+  var api = window.electronAPI;
+  if (!api || typeof api.invoke !== 'function') {
+    return '\n\n⚠️ 배포를 건너뜁니다 — electronAPI 를 사용할 수 없습니다.\n(이 PC 화면에는 정상 반영되었습니다)';
+  }
+  try {
+    var res = await api.invoke('golden-keyword:publish', payload);
+
+    if (res && res.needsToken) {
+      var token = await askGoldenToken();
+      if (!token) {
+        return '\n\n⚠️ 배포하지 않았습니다 (토큰 미입력).\n이 PC 화면에는 반영됐지만 다른 사용자에게는 가지 않습니다.';
+      }
+      var saved = await api.invoke('golden-keyword:save-token', { token: token });
+      if (!saved || !saved.ok) {
+        return '\n\n⚠️ 토큰 저장 실패: ' + ((saved && saved.error) || '알 수 없는 오류');
+      }
+      res = await api.invoke('golden-keyword:publish', payload);
+    }
+
+    if (res && res.ok) {
+      return '\n\n🚀 배포 완료 — ' + (res.detail || '')
+        + '\n사용자 앱들이 다음 실행 때 이 키워드를 받습니다.'
+        + '\n(GitHub 캐시 때문에 최대 5분 걸릴 수 있습니다)';
+    }
+    return '\n\n⚠️ 배포 실패: ' + ((res && res.error) || '알 수 없는 오류')
+      + '\n(이 PC 화면에는 정상 반영되었습니다)';
+  } catch (e) {
+    return '\n\n⚠️ 배포 실패: ' + (e && e.message ? e.message : String(e))
+      + '\n(이 PC 화면에는 정상 반영되었습니다)';
+  }
+}
+
 function renderGoldenKeyword() {
   var itemsEl = document.getElementById('golden-keyword-items');
   var dateEl = document.getElementById('golden-report-date');
@@ -9158,25 +9236,8 @@ function openGoldenKeywordEditorInternal() {
       renderGoldenKeyword();
       modal.remove();
 
-      // 배포 원본(data/golden-keyword.json)에도 기록한다. 레포가 있는 개발 PC 에서만 성공하고,
-      // 실패해도 이 PC 화면에는 이미 반영돼 있으니 저장 자체를 되돌리지 않는다.
-      var publishNote = '';
-      try {
-        var api = window.electronAPI;
-        var res = (api && typeof api.invoke === 'function')
-          ? await api.invoke('golden-keyword:save-repo-file', payload)
-          : { ok: false, error: 'electronAPI 를 사용할 수 없습니다' };
-        if (res && res.ok) {
-          publishNote = '\n\n📄 배포 원본에 기록했습니다\n' + res.filePath
-            + '\n\n터미널에서 npm run golden:publish 를 실행하면 GitHub 에 올라가고,\n사용자 앱들이 다음 실행 때 이 키워드를 받습니다.';
-        } else {
-          publishNote = '\n\n⚠️ 배포 원본 기록은 건너뜁니다: ' + ((res && res.error) || '알 수 없는 오류')
-            + '\n(이 PC 화면에는 정상 반영되었습니다)';
-        }
-      } catch (e) {
-        publishNote = '\n\n⚠️ 배포 원본 기록 실패: ' + (e && e.message ? e.message : String(e))
-          + '\n(이 PC 화면에는 정상 반영되었습니다)';
-      }
+      // 저장과 동시에 GitHub 에 올린다 — 관리자가 따로 할 일이 없어야 배포자들이 바로 본다
+      var publishNote = await publishGoldenKeywordToGitHub(payload);
       alert('✅ 저장 완료! ' + cleaned.length + '개 키워드' + publishNote);
     };
     modal.querySelectorAll('[data-remove-item]').forEach(function(btn) {

@@ -23,9 +23,11 @@ import * as path from 'path';
 
 const SESSION_DIR = path.join(os.homedir(), '.leadernam-orbit');
 const SESSION_PATH = path.join(SESSION_DIR, 'naver-session.json');
-
-const REAL_CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-  + '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+/**
+ * v3.8.463 — 로그인 창 전용 영구 프로필.
+ * 기기 지문이 유지돼야 네이버가 로그인마다 자동화 탐지 캡차를 내지 않는다.
+ */
+const PROFILE_DIR = path.join(SESSION_DIR, 'naver-profile');
 
 const LOGIN_URL = 'https://nid.naver.com/nidlogin.login?mode=form&url=https%3A%2F%2Fwww.naver.com';
 
@@ -50,7 +52,50 @@ export function clearNaverSession(): void {
 export interface NaverLoginResult {
   ok: boolean;
   loggedIn: boolean;
+  /** 연령확인까지 통과해 상품 화면이 실제로 열렸는가 (targetUrl 을 준 경우에만 의미 있음) */
+  verified?: boolean;
   error?: string;
+}
+
+/**
+ * 지금 화면이 어느 단계인지 읽는다 — 로그인 화면 / 연령확인 / 진짜 상품 페이지.
+ *
+ * 상품 판정을 "로그인 화면이 아니다" 로만 하면 연령확인 안내 페이지를 상품으로
+ * 착각한다. 상품 구조(JSON-LD Product 또는 og:product 메타)가 실제로 있어야
+ * 통과시킨다 — 그래야 크롤러가 빈손으로 돌지 않는다.
+ */
+async function readPageState(page: {
+  isClosed: () => boolean;
+  evaluate: <T>(fn: () => T) => Promise<T>;
+}): Promise<{ ageGate: boolean; loginPage: boolean; productReady: boolean } | null> {
+  try {
+    if (page.isClosed()) return null;
+    return await page.evaluate(() => {
+      const text = (document.body?.innerText || '').slice(0, 4000);
+      const ageGate = /연령\s*확인|성인\s*인증|미성년|19세\s*미만|본인\s*확인이\s*필요/.test(text);
+      const loginPage = /nid\.naver\.com|nidlogin/i.test(location.href);
+
+      let hasProduct = false;
+      const nodes = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+      for (const node of nodes) {
+        try {
+          const parsed = JSON.parse(node.textContent || '{}');
+          const items = Array.isArray(parsed) ? parsed : [parsed];
+          if (items.some((it) => /Product/i.test(String(it?.['@type'] || '')))) { hasProduct = true; break; }
+        } catch { /* 다음 스크립트 */ }
+      }
+      if (!hasProduct) {
+        const ogType = document.querySelector('meta[property="og:type"]')?.getAttribute('content') || '';
+        const price = document.querySelector('meta[property="product:price:amount"]');
+        hasProduct = /product/i.test(ogType) || !!price;
+      }
+
+      return { ageGate, loginPage, productReady: hasProduct && !ageGate && !loginPage };
+    });
+  } catch {
+    // 페이지 이동 중이면 evaluate 가 실패한다 — 다음 폴링에서 다시 본다
+    return null;
+  }
 }
 
 /**
@@ -75,11 +120,27 @@ export function tryClaimLoginPrompt(): boolean {
 /**
  * 로그인 창을 띄우고 사용자가 로그인을 마치면 세션을 저장한다.
  *
- * 완료를 기다렸다가 결과를 돌려준다(최대 5분) — UI 가 성공/실패를 바로 보여줄 수
- * 있게 하기 위해서다. 판정은 네이버 로그인 쿠키(NID_AUT + NID_SES)로 한다.
+ * ## 🚦 v3.8.463 — 로그인만으로 끝내지 않는다
+ * 사용자 지적: "로그인창 띄우고나서 로그인만하고 끝내는게아니고 성인인증을 해야되
+ * … 정상적으로 상품창이뜨면 그때 크롤링이 들어가야되".
+ *
+ * 실측(2026-08-06, naver.me/GT42MEXe): 상품 주소로 들어가면 네이버가
+ * `nid.naver.com/nidlogin.login?...url=https%3A%2F%2Fsmartstore.naver.com%2Fmakkaejo…`
+ * 로 보내면서 "네이버 서비스 이용을 위해 연령확인이 필요해요" 를 띄운다.
+ * 즉 **되돌아갈 주소가 로그인 URL 안에 들어 있다.** 그래서 로그인 페이지가 아니라
+ * `targetUrl` 로 바로 열면, 로그인 → (필요하면) 성인인증 → 상품 페이지까지
+ * 네이버가 알아서 데려다 준다.
+ *
+ * 예전에는 `LOGIN_URL`(되돌아갈 곳 = naver.com)로 열고 쿠키 두 개만 생기면 바로
+ * 창을 닫았다. 성인인증은 **상품 페이지에서** 하는 단계라 창이 닫힌 뒤에 와야 할
+ * 화면이었고, 그래서 로그인을 해도 수집이 계속 실패했다.
+ *
+ * targetUrl 을 주면 상품 페이지가 진짜로 열릴 때까지 기다린다(최대 10분).
+ * 안 주면 예전처럼 로그인만 확인한다(설정의 "네이버 로그인" 버튼용, 최대 5분).
  */
 export async function openNaverLoginWindow(
   onLog?: (message: string) => void,
+  targetUrl?: string,
 ): Promise<NaverLoginResult> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { chromium } = require('playwright');
@@ -87,55 +148,141 @@ export async function openNaverLoginWindow(
   const { CHROMIUM_GPU_SAFE_ARGS } = require('../../utils/chromium-safe-args');
 
   fs.mkdirSync(SESSION_DIR, { recursive: true });
+  fs.mkdirSync(PROFILE_DIR, { recursive: true });
 
-  const browser = await chromium.launch({
+  /**
+   * 🤖 v3.8.463 — **번들 Chromium 으로는 네이버 로그인이 안 된다.**
+   *
+   * 실측(2026-08-06): 번들 Chromium 으로 로그인하니 네이버가
+   * "네이버 보안을 위해 추가 확인을 해주세요 / 영수증 빈칸 채우기" 자동화 탐지
+   * 화면을 띄우고, 그걸 지나도 다시 연령확인 로그인 화면으로 되돌렸다.
+   * 성인인증 단계는 구경도 못 했다. 같은 창을 실제 Chrome 으로 열자 봇 검사 없이
+   * 로그인이 통과했다. 쿠팡 수집기(coupang-enrich.ts)도 같은 이유로 channel:'chrome'.
+   *
+   * 프로필도 영구 디렉토리로 바꾼다. storageState 는 쿠키·localStorage 만 담아서
+   * 기기 지문이 매번 새것이 되고, 그러면 네이버가 로그인 때마다 다시 캡차를 낸다.
+   * (실측: 8/4 에 저장한 storageState 를 실었는데도 로그인 화면으로 튕겼다.)
+   * 로그인 창은 한 번에 하나만 뜨므로(tryClaimLoginPrompt) 프로필 잠금 충돌이 없다 —
+   * 동시성 3으로 도는 **크롤 재시도는 지금처럼 storageState** 를 쓴다.
+   */
+  const launchOptions = {
     headless: false,
-    // 자동화 흔적을 줄인다 — 로그인 화면에서 봇 탐지에 걸리면 사용자가 캡차 지옥에 빠진다
+    locale: 'ko-KR',
+    timezoneId: 'Asia/Seoul',
+    viewport: { width: 1200, height: 860 },
     ignoreDefaultArgs: ['--enable-automation'],
-    args: [...CHROMIUM_GPU_SAFE_ARGS, '--window-position=120,80', '--window-size=980,860'],
-  });
+    args: [
+      ...CHROMIUM_GPU_SAFE_ARGS,
+      '--disable-blink-features=AutomationControlled',
+      '--window-position=100,50',
+      '--window-size=1240,940',
+    ],
+  };
+
+  /**
+   * Chrome 이 안 깔린 PC 도 있다 — 그럴 땐 번들 Chromium 으로라도 창을 띄운다.
+   * 캡차를 만날 확률은 높지만, **창이 아예 안 뜨는 것보다는 낫다.**
+   * (channel:'chrome' 은 Chrome 이 없으면 실행 자체가 예외를 던진다)
+   */
+  let ctx: any;
+  try {
+    ctx = await chromium.launchPersistentContext(PROFILE_DIR, { ...launchOptions, channel: 'chrome' });
+  } catch (chromeError: any) {
+    onLog?.('[NAVER-LOGIN] ⚠️ 크롬을 찾지 못해 기본 브라우저로 엽니다 — 네이버가 추가 확인(캡차)을 요구할 수 있습니다');
+    console.warn('[NAVER-LOGIN] channel:chrome 실패 → 번들 Chromium 폴백:', chromeError?.message);
+    ctx = await chromium.launchPersistentContext(PROFILE_DIR, launchOptions);
+  }
 
   try {
-    const ctx = await browser.newContext({
-      userAgent: REAL_CHROME_UA,
-      locale: 'ko-KR',
-      timezoneId: 'Asia/Seoul',
-      viewport: { width: 960, height: 800 },
+    // navigator.webdriver 를 지운다 (playwright-runner.js 와 같은 패치)
+    await ctx.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined, configurable: true });
     });
-    const page = await ctx.newPage();
-    await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    onLog?.('[NAVER-LOGIN] 로그인 창을 열었습니다 — 브라우저에서 로그인해 주세요 (최대 5분 대기)');
 
-    const deadline = Date.now() + 5 * 60 * 1000;
+    const page = ctx.pages()[0] || await ctx.newPage();
+    // 상품 주소로 열면 로그인 URL 안에 되돌아갈 상품 주소가 실려서, 성인인증까지
+    // 마친 뒤 상품 페이지로 돌아온다. 주소가 없으면 예전처럼 로그인 페이지만 연다.
+    await page.goto(targetUrl || LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
+
+    const waitMinutes = targetUrl ? 10 : 5;
+    onLog?.(targetUrl
+      ? `[NAVER-LOGIN] 창을 열었습니다 — 로그인 후 **성인인증까지** 마쳐 주세요. 상품 화면이 뜨면 자동으로 수집을 이어갑니다 (최대 ${waitMinutes}분)`
+      : `[NAVER-LOGIN] 로그인 창을 열었습니다 — 브라우저에서 로그인해 주세요 (최대 ${waitMinutes}분 대기)`);
+
+    const deadline = Date.now() + waitMinutes * 60 * 1000;
+    let sawLogin = false;
+    let notifiedAgeStep = false;
+
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 2000));
 
       // 사용자가 창을 닫았으면 그대로 종료
       try {
         if (page.isClosed()) {
+          if (sawLogin) {
+            // 로그인은 됐는데 창을 닫았다 — 세션이라도 남겨 둔다
+            return { ok: true, loggedIn: true, verified: false, error: '창이 닫혔습니다. 성인인증이 끝나지 않았을 수 있습니다.' };
+          }
           return { ok: false, loggedIn: false, error: '로그인 창이 닫혔습니다. 다시 시도해 주세요.' };
         }
       } catch {
         return { ok: false, loggedIn: false, error: '로그인 창이 닫혔습니다. 다시 시도해 주세요.' };
       }
 
+      let loggedIn = false;
       try {
         const cookies: Array<{ name: string }> = await ctx.cookies('https://www.naver.com');
         const names = new Set(cookies.map((c) => c.name));
-        if (names.has('NID_AUT') && names.has('NID_SES')) {
-          await ctx.storageState({ path: SESSION_PATH });
-          onLog?.('[NAVER-LOGIN] ✅ 로그인 확인 — 세션을 저장했습니다');
-          return { ok: true, loggedIn: true };
-        }
+        loggedIn = names.has('NID_AUT') && names.has('NID_SES');
       } catch { /* 쿠키 조회 실패는 다음 폴링에서 다시 본다 */ }
+
+      if (loggedIn && !sawLogin) {
+        sawLogin = true;
+        onLog?.('[NAVER-LOGIN] ✅ 로그인 확인');
+      }
+
+      // 상품 주소가 없으면 로그인만 보고 끝낸다 (설정 버튼 경로)
+      if (!targetUrl) {
+        if (loggedIn) {
+          await ctx.storageState({ path: SESSION_PATH });
+          onLog?.('[NAVER-LOGIN] 세션을 저장했습니다');
+          return { ok: true, loggedIn: true, verified: false };
+        }
+        continue;
+      }
+
+      const state = await readPageState(page);
+      if (!state) continue;
+
+      if (state.productReady) {
+        await ctx.storageState({ path: SESSION_PATH });
+        onLog?.('[NAVER-LOGIN] 🎉 상품 화면 확인 — 세션을 저장하고 수집을 시작합니다');
+        return { ok: true, loggedIn: true, verified: true };
+      }
+
+      if (loggedIn && state.ageGate && !notifiedAgeStep) {
+        notifiedAgeStep = true;
+        onLog?.('[NAVER-LOGIN] 🔞 로그인은 됐지만 아직 연령확인이 남았습니다 — 창에서 본인확인을 마쳐 주세요');
+      }
+    }
+
+    if (sawLogin) {
+      // 로그인까지는 됐다 — 세션을 저장해 두면 다음 시도에서 성인인증만 하면 된다
+      try { await ctx.storageState({ path: SESSION_PATH }); } catch { /* noop */ }
+      return {
+        ok: true,
+        loggedIn: true,
+        verified: false,
+        error: `${waitMinutes}분 안에 연령확인이 끝나지 않았습니다. 네이버에서 본인확인을 마친 뒤 다시 시도해 주세요.`,
+      };
     }
 
     return {
       ok: false,
       loggedIn: false,
-      error: '5분 안에 로그인이 확인되지 않았습니다. 다시 시도해 주세요.',
+      error: `${waitMinutes}분 안에 로그인이 확인되지 않았습니다. 다시 시도해 주세요.`,
     };
   } finally {
-    await browser.close().catch(() => { /* noop */ });
+    await ctx.close().catch(() => { /* noop */ });
   }
 }
