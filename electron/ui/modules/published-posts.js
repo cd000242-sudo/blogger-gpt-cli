@@ -55,27 +55,56 @@ function getPlatform(key) {
   return PLATFORMS.find((item) => item.key === key) || PLATFORMS[0];
 }
 
+/** 값이 있는 항목만 남긴다 — 빈 값을 실어 보내면 메인 프로세스의 .env 폴백을 가린다. */
+function compact(obj) {
+  const entries = Object.entries(obj).filter(([, value]) => String(value || '').trim());
+  return entries.length ? Object.fromEntries(entries.map(([k, v]) => [k, String(v).trim()])) : undefined;
+}
+
 /**
  * 플랫폼별 접속에 필요한 설정을 발행 경로와 동일한 소스에서 모아준다.
  *
- * 티스토리는 공개 API가 없어 블로그 주소로 관리 화면 URL을 만들어야 하는데,
- * 이 값은 화면 입력칸/저장설정에 있고 .env에는 없을 수 있다.
- * (블로그스팟·워드프레스는 메인 프로세스가 토큰/자격증명을 직접 들고 있어 빈 값이어도 무방)
+ * 여기서 payload를 안 넘기면 메인 프로세스는 userData/.env 만 보게 된다.
+ * 그런데 설정 화면의 "연동완료" 표시와 발행 경로(posting.js getApiKeys)는
+ * loadSettings() 를 진실 소스로 쓴다. 두 소스가 갈리면
+ * "발행은 되는데 글목록만 🔒 인증 필요"가 뜬다 — 실제 사용자 신고 사례.
+ * 그래서 세 플랫폼 모두 발행 경로와 같은 소스에서 자격증명을 실어 보낸다.
+ *
+ * 값을 못 찾으면 undefined 를 돌려 기존의 .env 폴백을 그대로 살린다.
  */
 async function buildPlatformPayload(platformKey) {
-  if (platformKey !== 'tistory') return undefined;
   try {
     const settings = await loadSettings() || {};
-    const blogName = (
-      document.getElementById('tistoryBlogName')?.value
-      || settings.tistoryBlogName
-      || settings.TISTORY_BLOG_NAME
-      || settings.tistoryBlogUrl
-      || ''
-    ).trim();
-    return blogName ? { tistoryBlogName: blogName } : undefined;
+
+    if (platformKey === 'tistory') {
+      // 티스토리는 공개 API가 없어 블로그 주소로 관리 화면 URL을 만들어야 하는데,
+      // 이 값은 화면 입력칸/저장설정에 있고 .env에는 없을 수 있다.
+      const blogName = (
+        document.getElementById('tistoryBlogName')?.value
+        || settings.tistoryBlogName
+        || settings.TISTORY_BLOG_NAME
+        || settings.tistoryBlogUrl
+        || ''
+      ).trim();
+      return blogName ? { tistoryBlogName: blogName } : undefined;
+    }
+
+    if (platformKey === 'wordpress') {
+      return compact({
+        wordpressSiteUrl: settings.wordpressSiteUrl,
+        wordpressUsername: settings.wordpressUsername,
+        wordpressPassword: settings.wordpressPassword,
+      });
+    }
+
+    // blogspot — createBloggerApiClient 가 payload.blogId / googleClientId / googleClientSecret 를 먼저 본다
+    return compact({
+      blogId: settings.blogId,
+      googleClientId: settings.googleClientId,
+      googleClientSecret: settings.googleClientSecret,
+    });
   } catch (err) {
-    console.warn('[POSTS-TAB] 티스토리 설정 로드 실패 — .env 값으로 시도합니다:', err);
+    console.warn('[POSTS-TAB] 설정 로드 실패 — .env 값으로 시도합니다:', err);
     return undefined;
   }
 }
