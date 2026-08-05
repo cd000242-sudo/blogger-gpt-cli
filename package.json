@@ -42,6 +42,7 @@
     "pre-release": "node scripts/pre-release-check.js",
     "release": "node scripts/quiet-run.js npm run release:work",
     "sync:site": "node scripts/sync-site-download.js",
+    "golden:publish": "node scripts/publish-golden-keyword.js",
     "clean:release": "node scripts/clean-release-folder.js --deep",
     "release:mac": "node scripts/build-mac.js --arch both --publish",
     "release:all": "npm run build && electron-builder --win --mac --linux --publish always && node scripts/publish-release.js",

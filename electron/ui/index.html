@@ -8659,6 +8659,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (typeof checkPostingReadiness === 'function') checkPostingReadiness();
     if (typeof renderRecentPosts === 'function') renderRecentPosts();
     if (typeof renderGoldenKeyword === 'function') renderGoldenKeyword();
+    // 캐시/로컬로 먼저 그린 뒤, 원격 배포본이 도착하면 다시 그린다 (빈 화면 대기 없음)
+    if (typeof refreshGoldenKeywordFromRemote === 'function') refreshGoldenKeywordFromRemote();
 
     // v3.8.348: 관리자 편집 버튼 이벤트 백업 바인딩 (onclick 반응 없는 문제 fix)
     var editBtn = document.getElementById('golden-keyword-edit-btn');
@@ -8736,19 +8738,89 @@ window.renderRecentPosts = renderRecentPosts;
 var GOLDEN_KEYWORD_STORAGE_KEY = 'goldenKeywordReport';
 var GOLDEN_ADMIN_PASSWORD = '2021645';
 
-function getGoldenData() {
+/**
+ * 배포 경로 — 관리자 PC의 localStorage 에만 있던 키워드를 모든 사용자에게 전달한다.
+ *
+ * 그전까지 이 데이터는 저장도 읽기도 localStorage 뿐이라 관리자 화면에서만 보였고,
+ * 배포된 앱에는 전달될 수단이 아예 없었다. 레포가 공개라 raw JSON 을 그냥 읽으면 되고,
+ * CSP 의 connect-src 가 https: 를 이미 허용한다.
+ */
+var GOLDEN_KEYWORD_REMOTE_URL = 'https://raw.githubusercontent.com/cd000242-sudo/blogger-gpt-cli/master/data/golden-keyword.json';
+var GOLDEN_KEYWORD_REMOTE_CACHE_KEY = 'goldenKeywordReportRemoteCache';
+var GOLDEN_KEYWORD_FETCH_TIMEOUT_MS = 5000;
+
+var GOLDEN_EMPTY = { reportDate: '', items: [], updatedAt: 0 };
+
+/** 저장된 JSON 을 구조 검증까지 해서 읽는다 — 깨진 값이 렌더를 막지 않게 한다. */
+function readGoldenStore(key) {
   try {
-    var stored = localStorage.getItem(GOLDEN_KEYWORD_STORAGE_KEY);
-    if (!stored) return { reportDate: '', items: [] };
+    var stored = localStorage.getItem(key);
+    if (!stored) return null;
     var parsed = JSON.parse(stored);
     // 신규 구조: {reportDate, items: [{keyword, titles: []}]}
-    if (parsed && Array.isArray(parsed.items)) return parsed;
-    // 구 구조 (v3.8.346 raw text) 호환 — 빈 items 반환
-    return { reportDate: '', items: [] };
+    // 구 구조 (v3.8.346 raw text) 는 items 가 없어 걸러진다
+    return (parsed && Array.isArray(parsed.items)) ? parsed : null;
   } catch (_) {
-    return { reportDate: '', items: [] };
+    return null;
   }
 }
+
+/**
+ * 어느 쪽이 최신인지 판정하는 값.
+ * updatedAt(epoch ms) 이 정본이고, v3.8.347~ 로컬 데이터는 savedAt(ISO) 만 있어 함께 본다.
+ */
+function goldenUpdatedAt(data) {
+  if (!data) return 0;
+  if (Number(data.updatedAt) > 0) return Number(data.updatedAt);
+  var parsedSavedAt = Date.parse(data.savedAt || '');
+  return Number.isNaN(parsedSavedAt) ? 0 : parsedSavedAt;
+}
+
+/** 관리자 본인이 이 PC 에서 편집한 것 — 편집기 저장 대상 */
+function getGoldenLocalData() {
+  return readGoldenStore(GOLDEN_KEYWORD_STORAGE_KEY) || GOLDEN_EMPTY;
+}
+
+/**
+ * 화면에 그릴 데이터 — 로컬 편집본과 원격 배포본 중 **더 최신인 쪽**.
+ *
+ * 관리자가 방금 저장한 내용은 GitHub 반영 전에도 본인 화면에 즉시 보이고,
+ * 반영된 뒤에는 원격이 더 최신이 되어 모든 PC 가 같은 화면을 본다.
+ */
+function getGoldenData() {
+  var local = getGoldenLocalData();
+  var remote = readGoldenStore(GOLDEN_KEYWORD_REMOTE_CACHE_KEY);
+  if (!remote) return local;
+  return goldenUpdatedAt(remote) > goldenUpdatedAt(local) ? remote : local;
+}
+
+/**
+ * 원격 배포본을 받아 캐시에 넣고 다시 그린다.
+ *
+ * 실패해도 조용히 지나간다 — 캐시(마지막 성공분)나 로컬 편집본으로 계속 보여주면 되고,
+ * 오프라인이라고 빈 화면을 보여줄 이유가 없다.
+ */
+async function refreshGoldenKeywordFromRemote() {
+  var controller = typeof AbortController === 'function' ? new AbortController() : null;
+  var timer = controller ? setTimeout(function() { controller.abort(); }, GOLDEN_KEYWORD_FETCH_TIMEOUT_MS) : null;
+  try {
+    var res = await fetch(GOLDEN_KEYWORD_REMOTE_URL, {
+      cache: 'no-store',
+      signal: controller ? controller.signal : undefined,
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var data = await res.json();
+    if (!data || !Array.isArray(data.items)) throw new Error('형식이 올바르지 않습니다');
+    localStorage.setItem(GOLDEN_KEYWORD_REMOTE_CACHE_KEY, JSON.stringify(data));
+    console.log('[GOLDEN] 원격 키워드 ' + data.items.length + '건 수신 (' + (data.reportDate || '날짜 없음') + ')');
+    renderGoldenKeyword();
+  } catch (err) {
+    console.warn('[GOLDEN] 원격 키워드 로드 실패 — 캐시/로컬로 표시합니다:', err && err.message ? err.message : err);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+window.refreshGoldenKeywordFromRemote = refreshGoldenKeywordFromRemote;
 
 function renderGoldenKeyword() {
   var itemsEl = document.getElementById('golden-keyword-items');
@@ -9061,7 +9133,7 @@ function openGoldenKeywordEditorInternal() {
       renderGoldenKeyword();
       modal.remove();
     };
-    modal.querySelector('#gk-save').onclick = function() {
+    modal.querySelector('#gk-save').onclick = async function() {
       captureEditorState();
       // 빈 항목 제거
       // v3.8.362: platform 필드 포함 저장
@@ -9074,11 +9146,38 @@ function openGoldenKeywordEditorInternal() {
           titles: (it.titles || []).map(function(t) { return String(t || '').trim(); }).filter(Boolean),
         };
       });
-      var payload = { reportDate: modal.querySelector('#gk-date').value || new Date().toISOString().slice(0, 10), items: cleaned, savedAt: new Date().toISOString() };
+      var now = Date.now();
+      // updatedAt 이 로컬/원격 최신 판정의 정본이다 (savedAt 은 사람이 읽는 용도로 유지)
+      var payload = {
+        reportDate: modal.querySelector('#gk-date').value || new Date(now).toISOString().slice(0, 10),
+        items: cleaned,
+        updatedAt: now,
+        savedAt: new Date(now).toISOString(),
+      };
       localStorage.setItem(GOLDEN_KEYWORD_STORAGE_KEY, JSON.stringify(payload));
       renderGoldenKeyword();
       modal.remove();
-      alert('✅ 저장 완료! ' + cleaned.length + '개 키워드');
+
+      // 배포 원본(data/golden-keyword.json)에도 기록한다. 레포가 있는 개발 PC 에서만 성공하고,
+      // 실패해도 이 PC 화면에는 이미 반영돼 있으니 저장 자체를 되돌리지 않는다.
+      var publishNote = '';
+      try {
+        var api = window.electronAPI;
+        var res = (api && typeof api.invoke === 'function')
+          ? await api.invoke('golden-keyword:save-repo-file', payload)
+          : { ok: false, error: 'electronAPI 를 사용할 수 없습니다' };
+        if (res && res.ok) {
+          publishNote = '\n\n📄 배포 원본에 기록했습니다\n' + res.filePath
+            + '\n\n터미널에서 npm run golden:publish 를 실행하면 GitHub 에 올라가고,\n사용자 앱들이 다음 실행 때 이 키워드를 받습니다.';
+        } else {
+          publishNote = '\n\n⚠️ 배포 원본 기록은 건너뜁니다: ' + ((res && res.error) || '알 수 없는 오류')
+            + '\n(이 PC 화면에는 정상 반영되었습니다)';
+        }
+      } catch (e) {
+        publishNote = '\n\n⚠️ 배포 원본 기록 실패: ' + (e && e.message ? e.message : String(e))
+          + '\n(이 PC 화면에는 정상 반영되었습니다)';
+      }
+      alert('✅ 저장 완료! ' + cleaned.length + '개 키워드' + publishNote);
     };
     modal.querySelectorAll('[data-remove-item]').forEach(function(btn) {
       btn.onclick = function() {
