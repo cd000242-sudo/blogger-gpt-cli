@@ -24,6 +24,7 @@ import {
   normalizeExperience, hasExperience, buildExperienceBlock, NO_EXPERIENCE_GUARD,
 } from './experience-block';
 import { extractLivedSignals, buildLivedVoiceBlock, HUMAN_VOICE_RULES } from './lived-voice';
+import { guardFacts, buildGroundingReference } from './fact-guard';
 import { suggestNarrowerKeywords, buildNarrowFocusBlock } from '../keyword-narrowing';
 import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
 import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTIONS } from '../max-mode/mode-sections-extended';
@@ -2056,6 +2057,38 @@ ${quoted}
       }
     } catch (officialErr: any) {
       console.warn('[OFFICIAL] 공공출처 수집 스킵:', String(officialErr?.message || officialErr).slice(0, 80));
+    }
+
+    /**
+     * v3.8.471 — 검증 기준을 작성 기준과 맞춘다.
+     *
+     * 글은 크롤링 본문·공공기관 근거·상품 데이터를 보고 쓰는데, 수치 검증은
+     * 팩트체크 요약문만 근거로 삼았다. 요약문은 몇백 자 압축본이라 개별 수치가
+     * 다 들어 있을 리가 없다. 그래서 자료에서 정확히 옮긴 수치까지 "근거 없음" 으로
+     * 판정돼 **문장째 삭제**됐다(fact-integrity 는 고치는 게 아니라 지운다).
+     *
+     * 실측: "지원금은 월 최대 30만원입니다. 신청은 온라인으로 하면 됩니다.
+     *        소득 기준은 100% 이하입니다."(62자)
+     *     → "신청은 온라인으로 하면 됩니다."(24자)
+     * 알맹이 있는 두 문장이 사라지고 제일 두루뭉실한 문장만 남았다.
+     * 글이 밋밋했던 건 모델이 아니라 이 후처리 탓이었다.
+     */
+    const groundingReference = buildGroundingReference({
+      factContext: factEvidence.context,
+      crawledPosts: crawledPosts as any,
+      officialBlock,
+      productData: (payload as any).coupangEnrichment || (payload as any).affiliateProducts,
+    });
+    if (groundingReference.length > (factEvidence.context || '').length) {
+      factEvidence = {
+        ...factEvidence,
+        context: groundingReference,
+        sourceUrls: [
+          ...(factEvidence.sourceUrls || []),
+          ...crawledPosts.map((p) => p.url).filter((u) => /^https?:\/\//i.test(String(u || ''))),
+        ].slice(0, 20),
+      };
+      onLog?.(`[PROGRESS] 44% - 📚 근거 장부 확장: ${groundingReference.length}자 (크롤링 본문 포함)`);
     }
 
     // Always inject the hard evidence policy. A failed search must never mean unrestricted generation.
@@ -4714,6 +4747,29 @@ ${conclusionHTML}
       html = parts.map((part, i) => (i % 2 === 0 ? decodeEntities(part) : part)).join('');
     } catch (e: any) {
       console.warn('[orchestration] entity 정화 실패 (skip):', e?.message);
+    }
+
+    /**
+     * v3.8.471 — 발행 직전 마지막 수치 점검. 지우지 않고 **고친다.**
+     *
+     * 사장님: "ai로 돌리고 수정해서 올리는게낫지"
+     * 위 근거 장부 확장으로 대부분은 이미 통과한다. 여기까지 살아남은 건
+     * 정말로 자료에 없는 수치다 — 그건 삭제 대신 문단을 다시 써서 숫자를 뺀다.
+     *
+     * 근거 없는 수치가 0건이면 AI 를 아예 부르지 않는다(추가 비용 0).
+     * 그리고 어떤 경우에도 발행을 막지 않는다 — 실패하면 원본 그대로 나간다.
+     */
+    try {
+      const guarded = await guardFacts({
+        html,
+        reference: factEvidence.context || '',
+        keyword,
+        callLLM: (p: string) => callGeminiWithRetry(p),
+        onLog: (msg: string) => onLog?.(`[PROGRESS] 96% - ${msg}`),
+      });
+      html = guarded.html;
+    } catch (factGuardErr: any) {
+      console.warn('[FACT-GUARD] 스킵:', String(factGuardErr?.message || factGuardErr).slice(0, 120));
     }
 
     return {

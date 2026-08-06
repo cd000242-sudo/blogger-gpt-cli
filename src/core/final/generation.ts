@@ -185,6 +185,7 @@ async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000,
 }
 import { validateCtaUrl } from '../../cta/validate-cta-url';
 import { callGeminiWithGrounding, callGeminiWithRetry } from './gemini-engine';
+import { detectActionIntent, buildActionQuery } from '../../cta/action-intent';
 import { FinalCrawledPost, FinalTableData, FinalCTAData, FAQItem } from './types';
 import { getToneInstruction } from '../max-mode/tone-text-utils';
 
@@ -2326,15 +2327,26 @@ HTML만:
 }
 
 // 🔍 Google CSE를 사용해 공식 사이트 찾기
-async function searchOfficialSite(keyword: string, googleCseKey: string, googleCseCx: string, contentMode?: string): Promise<{ url: string; title: string } | null> {
+async function searchOfficialSite(keyword: string, googleCseKey: string, googleCseCx: string, contentMode?: string, skipActionIntent?: boolean): Promise<{ url: string; title: string } | null> {
   if (!googleCseKey || !googleCseCx) return null;
 
   try {
-    // 🎯 모드별 쿼리 — 쇼핑 모드면 쇼핑 페이지를, 나머지는 공식 홈페이지를
+    /**
+     * v3.8.471 — 홈페이지가 아니라 "행동하는 화면" 을 찾는다.
+     *
+     * 사장님: "코레일사이트에서 예약을 바로할수있는 링크로 걸어줘야되
+     *          막상 사이트갓는데 어떻게 하는지 모르자나"
+     *
+     * 예전 검색어가 `${keyword} 공식 홈페이지` 였다. 홈페이지를 달라고 했으니
+     * 홈페이지가 왔다. 독자는 첫 화면에서 메뉴를 다시 찾아야 했고 대개 거기서 이탈한다.
+     * 이제 키워드에서 행동(신청·예매·발급…)을 읽어 그 화면을 찾는다.
+     */
+    const actionIntent = (contentMode === 'shopping' || skipActionIntent) ? null : detectActionIntent(keyword);
     const query = contentMode === 'shopping'
       ? `${keyword} 최저가 구매`
-      : `${keyword} 공식 홈페이지`;
-    console.log(`[CTA] 🔍 ${contentMode === 'shopping' ? '쇼핑 페이지' : '공식 사이트'} 검색 시도: "${query}"`);
+      : buildActionQuery(keyword, actionIntent);
+    console.log(`[CTA] 🔍 ${contentMode === 'shopping' ? '쇼핑 페이지'
+      : actionIntent ? `${actionIntent} 화면` : '공식 사이트'} 검색: "${query}"`);
 
     const url = `https://www.googleapis.com/customsearch/v1?key=${googleCseKey}&cx=${googleCseCx}&q=${encodeURIComponent(query)}&num=5`;
     const response = await fetch(url);
@@ -2351,23 +2363,38 @@ async function searchOfficialSite(keyword: string, googleCseKey: string, googleC
       : ['.go.kr', '.or.kr', '.ac.kr', '.re.kr', '.edu', '.gov', '.mil'];
     const excludeDomains = ['blog.naver.com', 'tistory.com', 'velog.io', 'brunch.co.kr', 'namu.wiki', 'wikipedia.org', 'youtube.com', 'facebook.com', 'instagram.com', 'twitter.com', 'kin.naver.com'];
 
+    /**
+     * v3.8.471 — 살아있는 것만 내보낸다.
+     *
+     * 사장님: "단, 오류나 없는 페이지는 절대 나오면 안 되고"
+     * 행동 화면은 홈보다 깊은 경로라 사이트 개편 때 쉽게 죽는다.
+     * 그래서 내보내기 전에 확인하고, 죽었으면 다음 후보로 넣어간다.
+     */
+    const candidates: { url: string; title: string; trusted: boolean }[] = [];
     for (const item of data.items) {
       const link = item.link;
-      const title = item.title;
-
       if (excludeDomains.some(d => link.includes(d))) continue;
+      candidates.push({ url: link, title: item.title, trusted: trustedDomains.some(d => link.includes(d)) });
+    }
+    // 신뢰 도메인 먼저, 그 다음 나머지(예전의 "최상위 결과" 폴백과 같은 순서)
+    candidates.sort((a, b) => Number(b.trusted) - Number(a.trusted));
 
-      if (trustedDomains.some(d => link.includes(d))) {
-        console.log(`[CTA] ✅ ${contentMode === 'shopping' ? '쇼핑 페이지' : '공식/신뢰 사이트'} 발견: ${link} (${title})`);
-        return { url: link, title: title };
+    for (const c of candidates) {
+      const check = await validateCtaUrl(c.url, { timeout: 4000 });
+      if (check.isValid) {
+        console.log(`[CTA] ✅ ${actionIntent ? `${actionIntent} 화면` : '공식 사이트'} 확인됨: ${c.url} (${c.title})`);
+        return { url: c.url, title: c.title };
       }
+      console.warn(`[CTA] ⚠️ 살아있지 않아 건너뜀 (${check.reason}): ${c.url}`);
     }
 
-    // 신뢰 도메인을 못 찾았지만 첫 번째 결과가 제외 도메인이 아니라면 사용
-    const firstItem = data.items[0];
-    if (!excludeDomains.some(d => firstItem.link.includes(d))) {
-      console.log(`[CTA] ✅ 대체 사이트 발견 (최상위 결과): ${firstItem.link}`);
-      return { url: firstItem.link, title: firstItem.title };
+    /**
+     * 후보가 전부 죽었다면 행동 검색어 때문일 수 있다 — 홈페이지로 물러난다.
+     * 죽은 딥링크보다 살아있는 홈이 낫다.
+     */
+    if (actionIntent) {
+      console.log('[CTA] ↩️ 행동 화면을 못 찾아 공식 사이트로 폴백합니다');
+      return searchOfficialSite(keyword, googleCseKey, googleCseCx, contentMode, true);
     }
 
     return null;
