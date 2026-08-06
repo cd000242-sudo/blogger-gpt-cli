@@ -2146,6 +2146,8 @@ Use the provided product photo as the actual product. `
         method: 'POST',
         headers: { 'Authorization': `Bearer ${options.apiKey}` },   // Content-Type 은 FormData 가 정한다
         body: form as any,
+        // v3.8.466: 타임아웃이 없으면 멈춘 업로드가 엣지에서 끊길 때까지 매달린다(520 의 한 갈래)
+        signal: AbortSignal.timeout(180000),
       });
     } else {
       res = await fetch('https://api.openai.com/v1/images/generations', {
@@ -2162,6 +2164,7 @@ Use the provided product photo as the actual product. `
           quality,
           // 기본 b64_json 반환
         }),
+        signal: AbortSignal.timeout(180000),
       });
     }
 
@@ -2794,13 +2797,47 @@ export async function buildGeminiReferenceParts(urls?: string[]): Promise<any[]>
 export async function fetchImagesAsBlobs(urls?: string[]): Promise<Blob[]> {
   const list = (urls || []).filter((u) => typeof u === 'string' && u.trim()).slice(0, 3);
   const out: Blob[] = [];
+  let savedTotal = 0;
+
+  /**
+   * 🌩️ v3.8.466 — **참고 이미지를 줄여서 보낸다. 이게 520 의 진짜 원인이었다.**
+   *
+   * 사용자 지적: "할당량이 있는데 왜 520 오류가 생기냐는거지 이 오류가 안 생기게 하라는거야".
+   *
+   * 520 은 Cloudflare 가 "원서버가 응답을 제대로 못 줬다" 며 내는 값인데, 우리가
+   * 보내는 요청 자체가 과했다. 참고 이미지를 **원본 그대로** 실었다 —
+   * 장당 8MB 까지 허용, 최대 3장이니 한 번에 최대 24MB 멀티파트 업로드다.
+   * 네이버·토스 상세페이지 사진은 1~5MB 가 예사고, 소제목마다 이 요청이 반복된다.
+   * 가정용 업로드 속도로 그만한 본문을 밀어 넣으면 엣지에서 끊긴다.
+   * 게다가 `data:` 주소는 크기 검사조차 없어서 3MB 썸네일이 그대로 실렸다.
+   *
+   * 참고 이미지는 "이 제품의 생김새·색"만 전달하면 된다. 1024px 로 줄이면
+   * 그 목적은 그대로 달성되면서 요청이 수백 KB 로 떨어진다.
+   */
+  const shrink = async (buf: Buffer, mime: string): Promise<{ buf: Buffer; mime: string }> => {
+    try {
+      const { optimizeImageBuffer } = await import('./core/final/image-optimize');
+      const r = await optimizeImageBuffer(buf, mime, { maxWidth: 1024, skipUnderBytes: 200 * 1024 });
+      if (r.savedBytes > 0) savedTotal += r.savedBytes;
+      return { buf: r.buffer, mime: r.mime };
+    } catch {
+      return { buf, mime };   // 못 줄여도 보내기는 한다
+    }
+  };
+
+  /** 줄인 뒤에도 과하게 크면 아예 뺀다 — 한 장 빠지는 게 요청 전체가 죽는 것보다 낫다 */
+  const MAX_SEND_BYTES = 4 * 1024 * 1024;
+
   for (const raw of list) {
     try {
       const u = raw.trim();
       if (u.startsWith('data:image/')) {
         const m = u.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
         if (!m?.[1] || !m[2]) continue;
-        out.push(new Blob([Buffer.from(m[2], 'base64')], { type: m[1] }));
+        const shrunk = await shrink(Buffer.from(m[2], 'base64'), m[1]);
+        // v3.8.466: data: 주소도 상한을 적용한다 (예전에는 검사 자체가 없었다)
+        if (shrunk.buf.length < 100 || shrunk.buf.length > MAX_SEND_BYTES) continue;
+        out.push(new Blob([new Uint8Array(shrunk.buf)], { type: shrunk.mime }));
         continue;
       }
       if (!/^https?:\/\//i.test(u)) continue;
@@ -2810,10 +2847,17 @@ export async function fetchImagesAsBlobs(urls?: string[]): Promise<Blob[]> {
       if (buf.length < 100 || buf.length > 8 * 1024 * 1024) continue;
       const mimeType = (res.headers.get('content-type') || '').split(';')[0] || 'image/png';
       if (!/^image\//.test(mimeType)) continue;
-      out.push(new Blob([buf], { type: mimeType }));
+      const shrunk = await shrink(buf, mimeType);
+      if (shrunk.buf.length > MAX_SEND_BYTES) continue;
+      out.push(new Blob([new Uint8Array(shrunk.buf)], { type: shrunk.mime }));
     } catch {
       /* 이 장은 건너뛴다 */
     }
+  }
+
+  if (savedTotal > 0) {
+    const mb = (savedTotal / 1024 / 1024).toFixed(1);
+    console.log(`[IMAGE-REF] 🗜️ 참고 이미지 ${out.length}장 — 업로드 용량 ${mb}MB 절감 (520 방지)`);
   }
   return out;
 }

@@ -68,11 +68,18 @@ function isAnimatedGif(buf: Buffer): boolean {
  * 이미지 버퍼를 웹에 올리기 좋은 크기로 줄인다.
  * 실패하거나 이득이 없으면 원본을 그대로 돌려준다 — 예외를 던지지 않는다.
  */
-export async function optimizeImageBuffer(input: Buffer, inputMime = 'image/png'): Promise<OptimizeResult> {
+export async function optimizeImageBuffer(
+  input: Buffer,
+  inputMime = 'image/png',
+  opts: { maxWidth?: number; skipUnderBytes?: number } = {},
+): Promise<OptimizeResult> {
+  const maxWidth = opts.maxWidth ?? MAX_WIDTH;
+  const skipUnder = opts.skipUnderBytes ?? SKIP_UNDER_BYTES;
+
   const original: OptimizeResult = { buffer: input, mime: inputMime, savedBytes: 0 };
   if (!input || input.length === 0) return { ...original, reason: '빈 버퍼' };
   if (isAnimatedGif(input)) return { ...original, reason: '움직이는 GIF — 그대로 둔다' };
-  if (input.length < SKIP_UNDER_BYTES) return { ...original, reason: '이미 충분히 작다' };
+  if (input.length < skipUnder) return { ...original, reason: '이미 충분히 작다' };
 
   const sharp = loadSharp();
   if (!sharp) return { ...original, reason: 'sharp 없음' };
@@ -85,7 +92,7 @@ export async function optimizeImageBuffer(input: Buffer, inputMime = 'image/png'
 
     const base = () => sharp(input)
       .rotate()                                             // EXIF 회전 정보를 실제로 적용하고 태그는 버린다
-      .resize({ width: MAX_WIDTH, withoutEnlargement: true });
+      .resize({ width: maxWidth, withoutEnlargement: true });
 
     /**
      * 투명한 부분이 있으면 JPEG 는 쓸 수 없다 — 투명이 검게 칠해진다.

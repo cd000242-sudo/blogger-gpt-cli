@@ -665,10 +665,23 @@ export async function dispatchH2ImageGeneration(
     console.log(`[DISPATCH] 🛡️ Strict 모드 ON — '${imageSource}' 엔진 고정 (폴백 차단)`);
     onLog?.(`🛡️ 엔진 고정 모드 ON — '${imageSource}'만 시도합니다 (폴백 차단)`);
 
-    const MAX_STRICT_RETRIES = 3;
+    /**
+     * 🌩️ v3.8.466 — **일시적 서버 오류는 더 끈질기게 같은 엔진으로 다시 한다.**
+     *
+     * 사용자 지적: "다른 엔진이 아니라 … 이 오류가 안 생기게 하라는거야",
+     *   "안 나다가 10번 중 1번 꼴로 난다".
+     *
+     * OpenAI 의 520 은 그쪽 엣지가 내는 값이라 우리가 없앨 수 없다. 대신
+     * **사용자가 그걸 볼 일이 없게** 만든다. 실패가 10회 중 1회라면
+     *   3회 재시도 → 0.1% · 5회 재시도 → 0.001%
+     * 로 떨어진다. 실패한 요청은 과금되지 않으므로 비용도 늘지 않는다.
+     * 엔진을 바꾸지 않고 고른 엔진으로 끝까지 간다 — 사용자가 원한 게 그것이다.
+     */
+    const TRANSIENT_CATEGORIES = new Set(['server_overload', 'server_internal', 'server_timeout', 'network_error']);
+    let maxRetries = 3;
     let lastClassification: any = null;
 
-    for (let attempt = 1; attempt <= MAX_STRICT_RETRIES; attempt++) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const result = await tryEngine(imageSource, prompt, keyword, env, onLog, false, contentMode, extra);
       if (result.ok) {
         if (attempt > 1) onLog?.(`✅ '${imageSource}' ${attempt}회차 시도 성공`);
@@ -679,8 +692,8 @@ export async function dispatchH2ImageGeneration(
       lastClassification = classification;
       const label = categoryLabel(classification.category);
 
-      console.log(`[DISPATCH] ❌ ${imageSource} 시도 ${attempt}/${MAX_STRICT_RETRIES} — ${label}: ${(result.error || '').substring(0, 200)}`);
-      onLog?.(`❌ '${imageSource}' 시도 ${attempt}/${MAX_STRICT_RETRIES}: ${label} — ${classification.userMessage}`);
+      console.log(`[DISPATCH] ❌ ${imageSource} 시도 ${attempt}/${maxRetries} — ${label}: ${(result.error || '').substring(0, 200)}`);
+      onLog?.(`❌ '${imageSource}' 시도 ${attempt}/${maxRetries}: ${label} — ${classification.userMessage}`);
 
       // 우회 불가 에러 — 즉시 throw
       if (!classification.bypassable) {
@@ -689,11 +702,14 @@ export async function dispatchH2ImageGeneration(
         throw new Error(`STRICT_ENGINE_FAILED:${classification.category}:${classification.userMessage}`);
       }
 
+      // 일시 장애면 시도 횟수를 늘린다 (엔진을 바꾸지 않고 버틴다)
+      if (TRANSIENT_CATEGORIES.has(classification.category)) maxRetries = 5;
+
       // 우회 가능 에러 — recommendedAction 따라 처리
-      if (attempt < MAX_STRICT_RETRIES) {
+      if (attempt < maxRetries) {
         if (classification.cooldownMs > 0) {
           const waitSec = Math.ceil(classification.cooldownMs / 1000);
-          onLog?.(`⏳ ${waitSec}초 대기 후 재시도 (${attempt + 1}/${MAX_STRICT_RETRIES})`);
+          onLog?.(`⏳ ${waitSec}초 대기 후 재시도 (${attempt + 1}/${maxRetries})`);
           await new Promise(r => setTimeout(r, classification.cooldownMs));
         }
       }
@@ -704,8 +720,8 @@ export async function dispatchH2ImageGeneration(
     //   현재: 최후 수단으로 다른 엔진 시도 → 발행은 진행하되 로그로 사용자에게 명확히 알림
     const finalCategory = lastClassification?.category || 'unknown';
     const finalMsg = lastClassification?.userMessage || '알 수 없는 에러';
-    console.error(`[DISPATCH] ❌ Strict ${MAX_STRICT_RETRIES}회 실패 (${finalCategory}) → 최후 폴백 체인 시도`);
-    onLog?.(`⚠️ '${imageSource}' ${MAX_STRICT_RETRIES}회 실패 → 다른 엔진으로 자동 폴백 시도 (사용자 시간 낭비 방지)`);
+    console.error(`[DISPATCH] ❌ Strict ${maxRetries}회 실패 (${finalCategory}) → 최후 폴백 체인 시도`);
+    onLog?.(`⚠️ '${imageSource}' ${maxRetries}회 실패 → 다른 엔진으로 자동 폴백 시도 (사용자 시간 낭비 방지)`);
     const strictFallbackOrder = buildFallbackChain(imageSource, env);
     for (const engine of strictFallbackOrder) {
       const result = await tryEngine(engine, prompt, keyword, env, onLog, false, contentMode, extra);
