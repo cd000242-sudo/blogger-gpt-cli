@@ -11618,6 +11618,36 @@ app.whenReady().then(async () => {
   console.log('[APP] Electron 앱 준비 완료');
   console.log(`[VERSION] LEADERNAM Orbit v${app.getVersion()}`);
 
+  /**
+   * ⚙️ v3.8.468 — 설정을 **앱 시작 때 한 번 process.env 로 올린다.**
+   *
+   * 사용자 지적: "환경변수를 이용하지".
+   *
+   * 여러 모듈이 `process.env.AI_PROVIDER` 같은 값을 읽도록 짜여 있는데,
+   * 정작 그 값을 세우는 곳이 없었다. 그래서 사용자가 설정에서 제공자를
+   * openai 로 골라 두어도 payload 에 모델이 없는 경로(대기열·스케줄 등)에서는
+   * 기본값인 gemini-3.5-flash 로 떨어졌다.
+   * 실측(2026-08-06): 설정 AI_PROVIDER=openai · resolveDefaultProvider() → gemini
+   *
+   * 이미 있는 환경변수는 덮지 않는다 — 터미널에서 준 값이 더 명시적인 의사표시다.
+   */
+  try {
+    const { loadEnvFromFile } = require('../dist/env');
+    const settings = loadEnvFromFile() || {};
+    let applied = 0;
+    for (const [key, value] of Object.entries(settings)) {
+      const v = String(value ?? '').trim();
+      if (!v) continue;
+      if (process.env[key] !== undefined && String(process.env[key]).trim()) continue;
+      process.env[key] = v;
+      applied += 1;
+    }
+    console.log(`[APP] ⚙️ 설정 ${applied}개를 환경변수로 반영 (AI_PROVIDER=${process.env['AI_PROVIDER'] || '미설정'})`);
+  } catch (e: any) {
+    // 설정을 못 읽어도 앱은 떠야 한다 — 각 모듈이 알아서 파일을 다시 읽는다
+    console.warn('[APP] 설정 → 환경변수 반영 실패:', String(e?.message || e).slice(0, 100));
+  }
+
   // v3.8.381(R6): 부팅 시 스케줄 감시 자동 재개 — 기존에는 사용자가 대기열에서 "예약"을
   //   눌러야만 감시가 시작되어, 앱 재시작 후 기존 예약이 조용히 실행되지 않았다.
   //   (생성자에서 좌초된 'processing' 회수도 함께 수행됨 — schedule-manager.ts 참조)

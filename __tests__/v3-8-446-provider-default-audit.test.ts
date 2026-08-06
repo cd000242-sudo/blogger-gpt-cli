@@ -39,11 +39,38 @@ describe('① 기본값의 뿌리 — AI_PROVIDER 설정을 따른다', () => {
     expect(resolveDefaultProvider()).toBe('perplexity');
   });
 
-  it('⭐ 설정이 없거나 모르는 값이면 예전 기본값으로 돌아간다 (회귀 안전)', () => {
+  /**
+   * v3.8.468 — 이 테스트는 두 가지 이유로 고쳤다.
+   *
+   * ① 환경변수가 없을 때 **설정 파일도 본다**(v3.8.468). 원래 v3.8.446 이
+   *    노리던 게 "사용자 설정을 따른다" 였는데, 환경변수를 세우는 코드가
+   *    앱 어디에도 없어서 그 안전망이 한 번도 작동하지 않았다.
+   *    실측(2026-08-06): 설정 AI_PROVIDER=openai · resolveDefaultProvider() → gemini
+   * ② 예전 단정은 **개발자 PC 의 실제 설정 파일**을 읽어서 기계마다 결과가 달랐다.
+   *    설정을 흉내 내 격리한다 — 테스트는 어디서 돌려도 같은 답이 나와야 한다.
+   */
+  it('⭐ 설정도 환경변수도 없으면 예전 기본값으로 돌아간다 (회귀 안전)', () => {
+    jest.resetModules();
+    jest.doMock('../src/env', () => ({ loadEnvFromFile: () => ({}) }));
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const isolated = require('../src/core/llm/pricing');
     delete process.env['AI_PROVIDER'];
-    expect(resolveDefaultTierValue()).toBe('gemini-3.5-flash');
+    expect(isolated.resolveDefaultTierValue()).toBe('gemini-3.5-flash');
     process.env['AI_PROVIDER'] = '이상한값';
-    expect(resolveDefaultTierValue()).toBe('gemini-3.5-flash');
+    expect(isolated.resolveDefaultTierValue()).toBe('gemini-3.5-flash');
+    jest.dontMock('../src/env');
+    jest.resetModules();
+  });
+
+  it('⭐⭐ 환경변수가 없으면 설정 파일의 제공자를 따른다 (v3.8.468)', () => {
+    jest.resetModules();
+    jest.doMock('../src/env', () => ({ loadEnvFromFile: () => ({ AI_PROVIDER: 'openai' }) }));
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const isolated = require('../src/core/llm/pricing');
+    delete process.env['AI_PROVIDER'];
+    expect(isolated.resolveDefaultProvider()).toBe('openai');
+    jest.dontMock('../src/env');
+    jest.resetModules();
   });
 
   it('⭐ 모델명을 알아보면 그 제공자를 그대로 쓴다 (설정보다 우선)', () => {

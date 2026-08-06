@@ -274,8 +274,35 @@ const PROVIDER_DEFAULT_TIER: Record<string, string> = {
   gemini: 'gemini-3.5-flash',
 };
 
+/**
+ * 🩹 v3.8.468 — **설정 파일도 읽는다.**
+ *
+ * v3.8.446 이 "payload 에 모델이 없으면 설정값을 쓴다" 는 안전망을 넣었는데,
+ * 그 설정값을 `process.env.AI_PROVIDER` 에서만 읽었다. 그런데 앱 어디에서도
+ * 그 환경변수를 세우지 않는다(전수 확인). 그래서 사용자가 .env 에
+ * `AI_PROVIDER=openai` 를 넣어 두어도 **항상 gemini-3.5-flash 로 떨어졌다.**
+ * 안전망이 있는데 작동하지 않는 상태였다.
+ *
+ * 실측(2026-08-06): .env 의 AI_PROVIDER=openai · resolveDefaultProvider() → gemini
+ *
+ * 이제 환경변수가 없으면 .env 파일을 직접 본다. 읽기 실패는 무시한다 —
+ * 설정을 못 읽는다고 생성이 멈추면 안 된다.
+ */
+function readProviderFromSettings(): string {
+  const fromProcess = String(process.env['AI_PROVIDER'] || '').trim().toLowerCase();
+  if (fromProcess) return fromProcess;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { loadEnvFromFile } = require('../../env');
+    const env = loadEnvFromFile() || {};
+    return String(env['AI_PROVIDER'] || env['aiProvider'] || '').trim().toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
 export function resolveDefaultTierValue(): string {
-  const p = String(process.env['AI_PROVIDER'] || '').trim().toLowerCase();
+  const p = readProviderFromSettings();
   const mapped = PROVIDER_DEFAULT_TIER[p];
   if (mapped && findTier(mapped)) return mapped;
   return DEFAULT_TIER_VALUE;
