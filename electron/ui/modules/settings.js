@@ -444,11 +444,14 @@ export async function loadLicenseInfo() {
           const usage = (quotaStatus.quota && quotaStatus.quota.usage) || 0;
           const limit = (quotaStatus.quota && quotaStatus.quota.limit) || 3;
 
+          // v3.8.464: 두 경로가 같은 문구를 쓰도록 계산식을 공유한다
+          const free = buildLicenseLabel({ isFreeTrial: true, quota: quotaStatus.quota });
           if (licenseStatus) {
-            licenseStatus.textContent = `🆓 무료체험 (${usage}/${limit})`;
-            licenseStatus.style.color = '#10b981';
+            licenseStatus.textContent = free.label;
+            licenseStatus.style.color = free.color;
             if (!licenseStatus.dataset) licenseStatus.dataset = {};
             licenseStatus.dataset.valid = 'true';
+            licenseStatus.title = '무료 체험 — 하루 3회 발행';
           }
 
           updateLicenseAccessStateFromSettings({
@@ -518,6 +521,25 @@ export function daysUntil(expiresAt, nowMs = Date.now()) {
  * 사용자도 남은 날짜를 볼 수 없었다.
  */
 export function buildLicenseLabel(status, nowMs = Date.now()) {
+  /**
+   * 🆓 v3.8.464 — 무료체험이 가장 먼저다.
+   *
+   * 배지를 쓰는 경로가 둘인데(설정 로드 loadLicenseInfo, 환경설정 열 때
+   * refreshLicenseStatus) 한쪽만 무료체험을 알고 있었다. 그래서 앱을 켜면
+   * "🆓 무료체험 (0/3)" 이 뜨다가 **환경설정을 한 번 열면 "미등록" 으로 덮였다** —
+   * 무료체험 사용자에게는 라이선스가 없는 게 정상인데 그걸 미등록으로 읽은 것이다.
+   * 계산식을 한 곳으로 모은 김에 무료체험도 여기서 판정한다.
+   */
+  if (status?.isFreeTrial) {
+    const usage = Number(status?.quota?.usage) || 0;
+    const limit = Number(status?.quota?.limit) || 3;
+    const done = usage >= limit;
+    return {
+      label: done ? `🆓 무료체험 (${usage}/${limit} 소진)` : `🆓 무료체험 (${usage}/${limit})`,
+      color: done ? '#f59e0b' : '#10b981',
+    };
+  }
+
   const type = status?.type || status?.licenseType || null;
   const expiresAt = status?.expiresAt ?? null;
   const permanent = type === 'permanent' || (status?.valid && !expiresAt);

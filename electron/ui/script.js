@@ -9987,16 +9987,34 @@ async function refreshLicenseStatus() {
 
     console.log('[LICENSE] 상태:', status);
 
+    /**
+     * 🆓 v3.8.464 — 무료체험이면 헤더 배지를 라이선스로 덮지 않는다.
+     *
+     * 무료체험 사용자는 라이선스가 없는 게 정상이라 license-status-new 가
+     * valid:false 를 준다. 그걸 그대로 배지에 쓰면 "미등록" 이 찍힌다.
+     * 앱을 켤 때는 loadLicenseInfo 가 "🆓 무료체험 (0/3)" 으로 제대로 찍는데
+     * **환경설정을 한 번 열면 여기서 미등록으로 덮였다.**
+     * 그래서 쿼터를 먼저 읽고, 무료체험이면 그 정보로 배지를 만든다.
+     */
+    let quotaStatus = null;
+    try {
+      const api = window.blogger || window.electronAPI;
+      quotaStatus = api?.getQuotaStatus ? await api.getQuotaStatus() : null;
+    } catch (quotaError) {
+      console.warn('[LICENSE] 무료체험 상태 확인 실패:', quotaError);
+    }
+    const isFreeTrial = !!(quotaStatus && quotaStatus.success && quotaStatus.isFree);
+
     // UI 업데이트
     updateLicenseDisplay(status);
 
     // 헤더 라이선스 상태도 업데이트
-    updateHeaderLicenseStatus(status);
+    updateHeaderLicenseStatus(isFreeTrial
+      ? { isFreeTrial: true, valid: true, quota: quotaStatus.quota || null }
+      : status);
 
     try {
-      const api = window.blogger || window.electronAPI;
-      const quotaStatus = api?.getQuotaStatus ? await api.getQuotaStatus() : null;
-      if (quotaStatus && quotaStatus.success && quotaStatus.isFree) {
+      if (isFreeTrial) {
         setLicenseAccessState({
           isFreeTrial: true,
           valid: true,

@@ -132,4 +132,51 @@ describe('④ 날짜 계산 — 실제 소스에서 함수를 떼어내 돌린�
     expect(buildLicenseLabel({ valid: true, expiresAt: null }, NOW).label).toBe('영구제');
     expect(buildLicenseLabel({ valid: false, expiresAt: null }, NOW).label).toBe('미등록');
   });
+
+  /**
+   * v3.8.464 — 무료체험 사용자는 라이선스가 없는 게 정상이다.
+   * 그걸 "미등록" 으로 읽으면, 앱을 켤 때는 무료체험으로 뜨다가 환경설정을
+   * 한 번 열면 미등록으로 덮이는 일이 생긴다(실제로 그랬다).
+   */
+  it('⭐⭐ 무료체험이면 라이선스보다 먼저 무료체험으로 표시한다', () => {
+    const free = buildLicenseLabel({ isFreeTrial: true, valid: true, quota: { usage: 1, limit: 3 } }, NOW);
+    expect(free.label).toBe('🆓 무료체험 (1/3)');
+    expect(free.color).toBe('#10b981');
+  });
+
+  it('⭐⭐ 3회를 다 쓰면 소진으로 보인다', () => {
+    const done = buildLicenseLabel({ isFreeTrial: true, valid: true, quota: { usage: 3, limit: 3 } }, NOW);
+    expect(done.label).toBe('🆓 무료체험 (3/3 소진)');
+    expect(done.color).toBe('#f59e0b');
+  });
+
+  it('⭐ 쿼터 정보가 없어도 무료체험 문구는 나온다', () => {
+    expect(buildLicenseLabel({ isFreeTrial: true }, NOW).label).toBe('🆓 무료체험 (0/3)');
+  });
+});
+
+describe('⑤ 무료체험 배지가 다른 경로에서 덮이지 않는다', () => {
+  it('⭐⭐ refreshLicenseStatus 는 쿼터를 먼저 읽고 배지를 만든다', () => {
+    const fn = script.slice(
+      script.indexOf('async function refreshLicenseStatus()'),
+      script.indexOf('async function refreshLicenseStatus()') + 2400,
+    );
+    const quotaIdx = fn.indexOf('getQuotaStatus()');
+    const badgeIdx = fn.indexOf('updateHeaderLicenseStatus(');
+    expect(quotaIdx).toBeGreaterThan(-1);
+    expect(badgeIdx).toBeGreaterThan(-1);
+    // 쿼터를 나중에 읽으면 그 사이에 "미등록" 이 이미 찍혀 버린다
+    expect(quotaIdx).toBeLessThan(badgeIdx);
+    expect(fn).toContain('isFreeTrial: true, valid: true, quota:');
+  });
+
+  it('⭐⭐ 설정 로드 경로도 같은 계산식을 쓴다 (문구가 갈리면 안 된다)', () => {
+    const fn = settings.slice(
+      settings.indexOf('export async function loadLicenseInfo()'),
+      settings.indexOf('export function daysUntil('),
+    );
+    expect(fn).toContain('buildLicenseLabel({ isFreeTrial: true, quota: quotaStatus.quota })');
+    // 호출부에서 문자열을 직접 조립하면 두 경로의 문구가 어긋난다
+    expect(fn).not.toContain('🆓 무료체험 (');
+  });
 });
