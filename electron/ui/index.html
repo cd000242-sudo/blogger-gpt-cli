@@ -8365,6 +8365,7 @@ function showPaywallModal() {
     + '<p style="color:rgba(255,255,255,0.7);font-size:14px;margin:0 0 24px 0;line-height:1.6;">오늘 실제 발행이 완료된 글 3회를 모두 사용했습니다.<br>내일 다시 3회가 제공됩니다. 라이선스를 등록하면 <strong style="color:#a5f3c4;">모든 발행 기능</strong>을 사용할 수 있어요.</p>'
     + '<div style="display:flex;flex-direction:column;gap:10px;">'
     + '<button onclick="window.blogger&&window.blogger.openExternal(\'https://leaderspro.kr/pricing\')" style="padding:14px 24px;background:linear-gradient(135deg,#6366f1,#a855f7);border:none;border-radius:12px;color:white;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(99,102,241,0.4);">🛒 라이선스 구매하기</button>'
+    + '<button onclick="window.__goLoginFromPaywall&&window.__goLoginFromPaywall()" style="padding:12px 24px;background:rgba(99,102,241,0.18);border:1px solid rgba(99,102,241,0.45);border-radius:12px;color:#c7d2fe;font-size:14px;font-weight:700;cursor:pointer;">🔑 구매하셨나요? 로그인하러 가기</button>'
     + '<button onclick="window.__quitFromPaywall&&window.__quitFromPaywall()" style="padding:12px 24px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:12px;color:rgba(255,255,255,0.6);font-size:14px;cursor:pointer;">앱 종료</button>'
     + '</div>'
     + '<p style="color:rgba(255,255,255,0.4);font-size:11px;margin:16px 0 0 0;">무료 체험은 실제 발행 완료 기준으로 하루 최대 3회 제공됩니다 (매일 자정 초기화)</p>'
@@ -8377,6 +8378,36 @@ function showPaywallModal() {
  * 사용자 지적: "닫기 누르면 어차피 아무것도 못하는데 앱 닫히게해주고".
  * IPC 가 없는 환경(구버전 preload)에서는 창만 닫는다.
  */
+/**
+ * 🔑 v3.8.470 — 무료 체험을 끝내고 **바로 로그인 화면으로.**
+ *
+ * 사용자 요구: "구매하고나면 껏다 켜서 라이선스코드 등록하는게 아니고
+ * 바로 로그인하러가기하면 무료체험 로그아웃되고".
+ * 구매 직후에 "앱을 껐다 켜세요" 라고 하면 거기서 흐름이 끊긴다.
+ *
+ * 이미 로그인한 유료 계정은 건드리지 않는다 — 백엔드가 무료 체험일 때만 처리하고,
+ * 유료 계정은 기존 로그아웃 버튼을 그대로 쓴다.
+ */
+window.__goLoginFromPaywall = async function () {
+  try {
+    const api = window.blogger || window.electronAPI;
+    const call = api && (api.exitFreeTrial
+      ? api.exitFreeTrial()
+      : (api.invoke ? api.invoke('auth:exit-free-trial') : null));
+    if (call) {
+      const r = await call;
+      if (r && r.ok === false && r.reason === 'not-free-trial') {
+        alert('무료 체험 상태가 아닙니다. 화면 우측 상단의 로그아웃 버튼을 사용해 주세요.');
+        return;
+      }
+      return;   // 성공하면 앱이 로그인 화면으로 다시 뜬다
+    }
+  } catch (e) {
+    console.error('[PAYWALL] 로그인 전환 실패:', e);
+  }
+  alert('로그인 화면으로 전환하지 못했습니다. 앱을 다시 시작해 주세요.');
+};
+
 window.__quitFromPaywall = function () {
   try {
     if (window.blogger && typeof window.blogger.quitApp === 'function') { window.blogger.quitApp(); return; }

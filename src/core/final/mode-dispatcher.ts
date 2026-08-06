@@ -42,6 +42,11 @@ export function dispatchMode(
     authorInfo?: { name: string; title: string; credentials: string };
     /** 뼈대 변형 시드용 사이트 식별자 (블로그 주소·플랫폼 등). 같은 키워드라도 사이트가 다르면 구조가 달라진다 */
     siteKey?: string;
+    /**
+     * v3.8.470 — 작성자가 **실제로 적어준 경험 메모**가 있는가.
+     * 저자 이름 유무와는 다르다 — 이름은 경험이 아니다.
+     */
+    hasExperienceNote?: boolean;
   }
 ): ModeDispatchResult {
   const defaultResult: ModeDispatchResult = {
@@ -65,15 +70,31 @@ export function dispatchMode(
 
   console.log(`[MODE-DISPATCH] 모드 '${contentMode}' 플러그인 발견: ${plugin.config.name}`);
 
-  // 🛡️ 애드센스 모드: 저자 프로필이 없으면 personal_experience 섹션 자동 제거
-  // (허위 1인칭 경험담 생성 방지 — 구글 E-E-A-T 위반 리스크)
   let activeSections = plugin.sections || [];
-  const hasAuthorInfo = !!(options?.authorInfo?.name && options.authorInfo.name.trim());
-  if (contentMode === 'adsense' && !hasAuthorInfo) {
+
+  /**
+   * 🛡️ v3.8.470 — **경험 섹션은 진짜 경험이 있을 때만 남긴다.**
+   *
+   * 예전 가드에는 구멍이 둘 있었다.
+   *   ① 판정 기준이 `authorInfo.name` 이었다 — **이름은 경험이 아니다.**
+   *      저자 이름 한 글자만 채우면 "Before & After 구체적 수치" 를 1,500자
+   *      요구하는 섹션이 살아남았고, 같은 프롬프트의 NO_EXPERIENCE_GUARD
+   *      ("겪은 척 쓰지 마세요")와 정면으로 부딪혔다.
+   *   ② **애드센스 모드에만** 걸려 있었다. MAX 계열(SEO·쇼핑 등)의
+   *      personal_experience 는 가드를 타지 않아 "실패 사례 3가지 솔직하게",
+   *      "직접 촬영 사진 3-4장" 을 무조건 요구했다.
+   *
+   * 이제 **모든 모드**에서, **작성자가 실제로 적어준 경험 메모**가 있을 때만 남긴다.
+   * 근거: 애드센스 Misleading representation(콘텐츠 제작자·콘텐츠 자체에 대한
+   * 허위 서술 금지) · 공정위 추천보증 심사지침 2026-06-01 시행분
+   * (AI 가상인물이라도 겪지 않은 경험을 경험처럼 쓰면 부당 표시광고).
+   */
+  const hasWrittenExperience = !!(options?.hasExperienceNote);
+  if (!hasWrittenExperience) {
     const before = activeSections.length;
-    activeSections = activeSections.filter(sec => sec.id !== 'personal_experience');
+    activeSections = activeSections.filter((sec) => sec.id !== 'personal_experience');
     if (activeSections.length < before) {
-      console.log(`[MODE-DISPATCH] 🛡️ 저자 프로필 미입력 → personal_experience 섹션 자동 제외 (${before}→${activeSections.length})`);
+      console.log(`[MODE-DISPATCH] 🛡️ 작성자 경험 메모 없음 → personal_experience 섹션 제외 (${before}→${activeSections.length}, mode=${contentMode})`);
     }
   }
 

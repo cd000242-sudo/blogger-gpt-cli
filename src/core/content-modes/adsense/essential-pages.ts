@@ -44,10 +44,12 @@ export function generateEssentialPage(
   <p>본 블로그는 Google Analytics 및 Google AdSense를 통해 쿠키를 사용할 수 있습니다. 쿠키는 브라우저 설정에서 관리할 수 있습니다.</p>
 
   <h2>3. 제3자 광고 서비스</h2>
-  <p>본 블로그는 Google AdSense를 사용하여 광고를 게재할 수 있습니다. Google은 쿠키를 사용하여 이용자의 관심사에 맞는 광고를 제공합니다. 자세한 내용은 <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener">Google 광고 정책</a>을 참고하세요.</p>
+  <p>제3자 공급업체(Google 포함)는 쿠키를 사용하여 이용자가 본 블로그 또는 다른 웹사이트를 방문한 기록을 바탕으로 광고를 게재합니다.</p>
+  <p>이용자는 <a href="https://www.google.com/settings/ads" target="_blank" rel="noopener">Google 광고 설정</a>에서 맞춤 광고를 사용 중지할 수 있습니다. 일부 제3자 공급업체의 쿠키는 <a href="https://www.aboutads.info/choices/" target="_blank" rel="noopener">www.aboutads.info</a>에서 함께 사용 중지할 수 있습니다.</p>
+  <p>자세한 내용은 <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener">Google 광고 정책</a>을 참고하세요.</p>
 
   <h2>4. GDPR 준수 (EU 이용자)</h2>
-  <p>EU 지역 이용자의 경우, TCF v2.3(투명성 및 동의 프레임워크)에 따라 개인정보 수집 전 명시적 동의를 받습니다.</p>
+  <p>EU·영국 등 GDPR 적용 지역 이용자에게 맞춤 광고를 게재하는 경우, 관련 법령에 따라 사전 동의가 필요할 수 있습니다. 해당 지역 방문자가 있다면 동의 관리 도구(CMP)를 별도로 설치해 주세요.</p>
 
   <h2>5. 개인정보의 보유 및 이용 기간</h2>
   <p>본 블로그는 이용자의 개인정보를 수집하지 않으며, 댓글을 통해 제공된 정보는 댓글 삭제 시 함께 삭제됩니다.</p>

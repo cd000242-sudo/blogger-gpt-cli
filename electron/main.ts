@@ -815,6 +815,40 @@ ipcMain.handle('license-logout', async () => {
 });
 
 // 앱 재시작 (로그아웃 후)
+/**
+ * 🔑 v3.8.470 — **무료 체험 → 로그인 화면** (앱 재시작 없이).
+ *
+ * 사용자 요구: "구매하고나면 껏다 켜서 라이선스코드 등록하는게 아니고
+ * 바로 로그인하러가기하면 무료체험 로그아웃되고".
+ *
+ * 구매 직후에 앱을 껐다 켜라고 하면 거기서 흐름이 끊긴다.
+ * 무료 체험 세션만 내리고 로그인 창을 다시 띄운다 —
+ * **이미 로그인한 유료 계정은 건드리지 않는다**(기존 로그아웃 버튼 그대로).
+ */
+ipcMain.handle('auth:exit-free-trial', async () => {
+  try {
+    const { isFreeTrial, deactivateFreeTrial } = require('./auth-utils');
+    if (!isFreeTrial()) {
+      // 무료 체험이 아니면 아무것도 하지 않는다 — 유료 계정을 로그아웃시키면 안 된다
+      return { ok: false, reason: 'not-free-trial' };
+    }
+    deactivateFreeTrial();
+  } catch (e: any) {
+    console.error('[AUTH] 무료 체험 해제 실패:', e?.message);
+    return { ok: false, reason: 'deactivate-failed' };
+  }
+
+  /**
+   * 로그인 창을 새로 띄우는 가장 확실한 방법은 재시작이다.
+   * 세션 플래그가 메모리에만 있어서, 창만 바꾸면 다른 모듈이 들고 있는
+   * 상태와 어긋날 수 있다. 사용자 입장에서는 버튼 한 번에 로그인 화면이
+   * 뜨는 것이라 "껐다 켜라"는 안내와는 완전히 다르다.
+   */
+  app.relaunch();
+  app.exit(0);
+  return { ok: true };
+});
+
 ipcMain.handle('app-relaunch', async () => {
   app.relaunch();
   app.exit(0);
@@ -4605,6 +4639,8 @@ ipcMain.handle('run-multi-account-post', async (_evt, payload: {
   } catch (error: any) {
     console.error('[MULTI-ACCOUNT] ❌ 오류:', error);
     return { ok: false, error: error.message || '알 수 없는 오류' };
+    // v3.8.470: 외부 브라우저가 가져간 포커스를 앱 창에 돌려준다
+    restoreMainWindowFocus();
   }
 });
 
@@ -5411,6 +5447,8 @@ ipcMain.handle('run-post', async (_evt, payload) => {
   } finally {
     // v3.8.415: 어떻게 끝났든 중지 표시를 지운다 — 안 지우면 다음 발행이 시작하자마자 멈춘다.
     try { require('../dist/core/cancel-token').endRun(); } catch { /* noop */ }
+    // v3.8.470: 발행 중 열린 외부 브라우저가 가져간 포커스를 돌려준다 (두 번 눌러야 먹히던 문제)
+    restoreMainWindowFocus();
   }
 });
 
@@ -6111,6 +6149,8 @@ ipcMain.handle('publish-content', async (_evt, data) => {
     // 작업이 어떻게 끝났든 중지 표시를 지운다 —
     // 안 지우면 "한 번 중지하면 다음 작업도 바로 멈춘다"가 된다.
     try { require('../dist/core/cancel-token').endRun(); } catch { /* noop */ }
+    // v3.8.470: 외부 브라우저가 가져간 포커스를 앱 창에 돌려준다
+    restoreMainWindowFocus();
   }
 });
 
@@ -11479,6 +11519,30 @@ console.log('[MAIN] ✅ 모든 IPC 핸들러 등록 완료! (총 92+ 핸들러)'
 import { BrowserWindow, shell, screen } from 'electron';
 
 let mainWindow: BrowserWindow | null = null;
+
+/**
+ * 🖱️ v3.8.470 — **외부 브라우저가 닫힌 뒤 앱 창에 포커스를 돌려준다.**
+ *
+ * 사용자 보고: "가끔식 버튼이 안먹혀서 바탕화면 한번클릭하고 다시클릭하면
+ * 다시 버튼클릭되거나 필드가 클릭되는데 왜그런거니??"
+ *
+ * 원인: 발행 중에 **보이는 브라우저 창**이 열린다 — 쿠팡 상세 수집(실제 Chrome),
+ * 네이버 로그인, 쇼핑 크롤, 드롭샷·이미지FX 엔진. 그 창이 OS 포커스를 가져간 뒤
+ * 닫히면 포커스가 허공에 남고, **앱 창은 되찾지 않는다**(focus() 호출이 한 곳도 없었다).
+ * 그러면 사용자의 첫 클릭이 창 활성화에 쓰이고 사라진다 — 두 번 눌러야 먹히는 이유다.
+ * 바탕화면을 눌렀다 오면 되는 것도 그때 활성화가 정리되기 때문이다.
+ *
+ * 최소화해 둔 창을 억지로 띄우지는 않는다 — 사용자가 일부러 내려둔 것이다.
+ */
+function restoreMainWindowFocus(): void {
+  try {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) return;
+    mainWindow.focus();
+  } catch (e: any) {
+    console.warn('[APP] 창 포커스 복구 실패:', String(e?.message || e).slice(0, 80));
+  }
+}
 
 function createWindow() {
   console.log('[APP] 메인 윈도우 생성 중...');

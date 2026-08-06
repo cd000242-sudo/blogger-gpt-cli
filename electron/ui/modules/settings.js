@@ -694,21 +694,28 @@ export async function loadSettingsContent() {
   const resolvedPlatform = resolvePlatformValue(savedSettings, envSettings, 'blogger');
   Object.assign(mergedSettings, restoreBloggerAliases(mergedSettings, envSettings));
 
-  // 플랫폼 설정: 모달을 열 때는 항상 WordPress를 기본값으로 표시
-  // 사용자가 Blogger를 선택하고 저장하면, 그 다음에 모달을 열 때는 Blogger가 선택되어 있어야 함
-  // 하지만 사용자가 원하는 것은 앱 시작 시 WordPress가 기본값이므로,
-  // 모달을 열 때 저장된 값이 명시적으로 'blogger'인 경우에만 Blogger를 표시
-  if (resolvedPlatform === 'blogger') {
-    // 사용자가 명시적으로 Blogger를 선택하고 저장한 경우에만 Blogger 사용
-    mergedSettings.platform = 'blogger';
-    console.log('🔧 [MODAL] 플랫폼 설정: blogger (사용자가 저장한 값)');
-  } else if (resolvedPlatform === 'tistory') {
-    mergedSettings.platform = 'tistory';
-    console.log('[MODAL] platform resolved: tistory');
+  /**
+   * 🧭 v3.8.470 — **판정 결과를 버리고 워드프레스로 덮어쓰던 문제.**
+   *
+   * 사용자 보고: "왜 가끔씩 아무 버튼 누르면 마음대로 워드프레스 연동 모달이
+   * 자꾸 뜨는거니?"
+   *
+   * 바로 위에서 resolvePlatformValue() 가 저장값 → env → 설정 유무 순으로
+   * 제대로 판정해 놓고는, 여기서 **blogger·tistory 가 아니면 무조건 wordpress**
+   * 로 덮었다. 그래서 저장값을 아직 못 읽었거나 값이 비어 있으면 설정을 열 때마다
+   * 플랫폼이 워드프레스로 튀고, 워드프레스 연동 화면이 떴다.
+   *
+   * 판정 결과를 그대로 쓴다. 정말 아무 단서도 없을 때만 기본값을 쓴다.
+   */
+  const KNOWN_PLATFORMS = ['blogger', 'wordpress', 'tistory'];
+  if (KNOWN_PLATFORMS.includes(resolvedPlatform)) {
+    mergedSettings.platform = resolvedPlatform;
+    console.log(`[MODAL] 플랫폼: ${resolvedPlatform} (저장값·설정에서 판정)`);
   } else {
-    // 기본값은 WordPress
-    mergedSettings.platform = 'wordpress';
-    console.log('🔧 [MODAL] 플랫폼 기본값 설정: wordpress (기본값 또는 저장된 값 없음)');
+    // 화면에 이미 골라져 있는 값이 있으면 그걸 존중한다 — 사용자가 방금 고른 것일 수 있다
+    const onScreen = document.querySelector('input[name="platform"]:checked')?.value;
+    mergedSettings.platform = KNOWN_PLATFORMS.includes(onScreen) ? onScreen : 'wordpress';
+    console.log(`[MODAL] 플랫폼 단서 없음 → ${mergedSettings.platform}`);
   }
 
   // 모달 내용 생성 (HTML은 index.html에 이미 있으므로 여기서는 값만 채움)

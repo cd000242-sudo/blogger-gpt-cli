@@ -23,6 +23,7 @@ import { collectOfficialSources, buildOfficialSourceBlock } from './official-sou
 import {
   normalizeExperience, hasExperience, buildExperienceBlock, NO_EXPERIENCE_GUARD,
 } from './experience-block';
+import { extractLivedSignals, buildLivedVoiceBlock, HUMAN_VOICE_RULES } from './lived-voice';
 import { suggestNarrowerKeywords, buildNarrowFocusBlock } from '../keyword-narrowing';
 import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
 import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTIONS } from '../max-mode/mode-sections-extended';
@@ -1225,9 +1226,19 @@ export async function generateUltimateMaxModeArticleFinal(
       || (payload as any).tistoryBlogName || (payload as any).blogId || '',
     ).trim() || String((payload as any).platform || (payload as any).platformType || '').trim();
 
+    /**
+     * v3.8.470 — 경험 섹션 가드에 **실제 경험 메모 유무**를 넘긴다.
+     * 안 넘기면 가드가 늘 "없음" 으로 보고 섹션을 지운다(경험을 적어준 사용자가 손해).
+     */
+    const hasExperienceNote = (() => {
+      try { return hasExperience(normalizeExperience((payload as any).experience)); }
+      catch { return false; }
+    })();
+
     const modeResult = dispatchMode(contentMode, keyword, {
       authorInfo: (payload as any).adsenseAuthorInfo,
       siteKey: siteKeyForVariation,
+      hasExperienceNote,
     });
 
     let h2Titles: string[];
@@ -2181,8 +2192,46 @@ ${quoted}
           onLog?.('[PROGRESS] 43% - 🧑 작성자 경험 메모를 본문 생성에 반영');
         }
       } else {
+        // 경험 메모가 없을 때만 "겪은 척 쓰지 마라" 가드를 붙인다
         scopedSectionBlock += NO_EXPERIENCE_GUARD;
       }
+
+      /**
+       * 🗣️ v3.8.470 — **겪은 사람의 말투는 어떤 경우에도 넣는다.**
+       *
+       * 사용자 요구: "이게 어떤 모드든 이런 식으로 나와야 되".
+       * 예전에는 이 블록이 경험 메모가 **없을 때만** 들어갔다. 그러면 경험을
+       * 적어준 사용자는 오히려 "실제로 막힌 지점" 재료를 못 받았다 — 거꾸로였다.
+       * 메모가 있으면 메모 + 막힌 지점을 함께 쓰는 게 가장 좋은 글이 된다.
+       *
+       * 재료 창구는 모드마다 다르다:
+       *   정보성·SEO·애드센스·페러프레이징 → 지식인 답변
+       *   쇼핑 → 상품 후기 (구매자가 직접 쓴 글이라 지식인만큼 진짜다)
+       * 인용("누가 그러던데")도, 겪은 척("제가 해봤는데")도 하지 않는다.
+       */
+      const livedReviews = [
+        ...(((payload as any).shoppingEnrichment?.reviews) || []),
+        ...(((payload as any).coupangEnrichment?.reviews) || []),
+        ...((((payload as any).affiliateProducts || [])[0]?.reviews) || []),
+      ] as Array<{ body?: string }>;
+
+      const livedSignals = extractLivedSignals(crawledPosts as any, livedReviews);
+      const livedBlock = buildLivedVoiceBlock(livedSignals);
+      if (livedBlock) {
+        scopedSectionBlock += livedBlock;
+        onLog?.(`[PROGRESS] 43% - 🗣️ 실제로 막힌 지점 ${livedSignals.length}개를 본문 톤에 반영`);
+      } else {
+        /**
+         * 재료가 0이면 글이 안내문처럼 밋밋해진다. 왜 그런지 보이게 남긴다 —
+         * 조용히 넘어가면 "이 모드는 왜 밋밋하지?" 를 나중에 못 찾는다.
+         */
+        const kinCount = (crawledPosts as any[]).filter((p: any) => p?.source === 'naver-kin').length;
+        onLog?.(`[PROGRESS] 43% - ℹ️ 겪은 사람 말투 재료 없음 (지식인 ${kinCount}건 · 후기 ${livedReviews.length}건)`
+          + (kinCount === 0 && livedReviews.length === 0 ? ' — 네이버 API 키를 넣으면 지식인 답변을 재료로 씁니다' : ''));
+      }
+
+      /** 🖋️ v3.8.470 — 문체 층위. 재료가 있든 없든 항상 붙인다. */
+      scopedSectionBlock += HUMAN_VOICE_RULES;
     } catch (expErr: any) {
       console.warn('[EXPERIENCE] 경험 블록 스킵:', String(expErr?.message || expErr).slice(0, 80));
     }
