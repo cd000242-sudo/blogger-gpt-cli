@@ -191,13 +191,37 @@ async function tryCatbox(base64Only: string, mimeType: string): Promise<string |
  *   IMGHIPPO_API_KEY         — ImgHippo API 키
  */
 export async function uploadBase64ToImageHost(base64Data: string, name?: string): Promise<string | null> {
+  /**
+   * 🗜️ v3.8.465 — 올리기 전에 용량을 줄인다.
+   *
+   * 사용자 지적: "이미지 용량이 크면 페이지 렌더링하는데 오래걸리거든 이러면
+   * 이탈률이 발생할수있어". AI 이미지는 1024x1024 PNG 로 나와 사진형이면 3MB 다.
+   * 한 글에 8~10장이면 30MB — 모바일에서 첫 화면 전에 이탈한다.
+   *
+   * 생성이든 수집이든 호스팅되는 이미지는 **전부 이 함수를 지난다.**
+   * 그래서 여기 한 곳에서만 줄이면 모든 경로가 함께 좋아진다.
+   * 실패해도 원본으로 그대로 진행한다 — 압축 때문에 발행이 멈추면 안 된다.
+   */
+  let payload = base64Data;
+  try {
+    const { optimizeDataUrl, formatBytes } = await import('./image-optimize');
+    const optimized = await optimizeDataUrl(base64Data);
+    if (optimized.savedBytes > 0) {
+      payload = optimized.dataUrl;
+      console.log(`[IMAGE-HOST] 🗜️ 용량 ${formatBytes(optimized.savedBytes)} 절감 (${name || '이미지'})`);
+    }
+  } catch (optError: any) {
+    console.warn('[IMAGE-HOST] 용량 최적화 스킵:', String(optError?.message || optError).slice(0, 80));
+  }
+
   // MIME 타입 추출 (없으면 image/png 기본값)
-  const mimeMatch = base64Data.match(/^data:(image\/[a-z+]+);base64,/);
+  const mimeMatch = payload.match(/^data:(image\/[a-z+]+);base64,/);
   const mimeType = mimeMatch?.[1] ?? 'image/png';
-  const base64Only = base64Data.replace(/^data:image\/[a-z+]+;base64,/, '');
+  const base64Only = payload.replace(/^data:image\/[a-z+]+;base64,/, '');
 
   // 1. Cloudinary (사용자 env키)
-  const cloudinaryUrl = await tryCloudinary(base64Data);
+  // payload(최적화본)를 쓴다 — base64Data 를 쓰면 이 경로만 원본이 올라간다
+  const cloudinaryUrl = await tryCloudinary(payload);
   if (cloudinaryUrl) return cloudinaryUrl;
 
   // 2. ImgBB

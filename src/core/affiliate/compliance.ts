@@ -216,10 +216,30 @@ export function enforceAffiliateCompliance(
     return { html: out, fixes, warnings, provider: policy.id };
   }
 
-  // 5) 고지문이 없으면 최상단에 삽입 — 차단이 아니라 자동 수리
+  /**
+   * 5) 고지문이 없으면 최상단에 삽입 — 차단이 아니라 자동 수리.
+   *
+   * 🚨 v3.8.465 — **그 제휴사 링크가 본문에 실제로 있을 때만 넣는다.**
+   *
+   * 사용자 지적: "왜 어떤모드이든 쿠팡 공정위 문구가 하드코딩되어있나요??"
+   * 호출부가 제휴사를 잘못 넘기면(예: 판정 기본값이 쿠팡) 링크가 하나도 없는
+   * 정보성 글에도 "쿠팡 파트너스 활동의 일환으로 수수료를 제공받습니다" 가 박혔다.
+   * 받지도 않는 수수료를 받는다고 적는 것은 사실과 다른 표시라 고지문 자체가
+   * 위반이 된다. 링크가 없으면 고지할 대상도 없다.
+   *
+   * 진짜 제휴 글은 이 시점에 이미 링크가 들어 있다 — 상품 카드·CTA 버튼이
+   * 먼저 삽입되고 그 뒤에 이 함수가 돈다.
+   */
   if (!hasDisclosure(out, policy)) {
-    out = renderDisclosure(policy) + out;
-    fixes.push(`대가성 문구 자동 삽입 (${policy.label})`);
+    if (detectProvidersFromHtml(out).includes(policy.id)) {
+      out = renderDisclosure(policy) + out;
+      fixes.push(`대가성 문구 자동 삽입 (${policy.label})`);
+    } else {
+      warnings.push(
+        `${policy.label} 링크가 본문에 없어 대가성 문구를 넣지 않았습니다. `
+        + '제휴 링크를 넣으셨다면 고지문도 함께 들어가야 합니다.',
+      );
+    }
   }
 
   // 6) 이미지 안에 고지문을 넣은 경우 — 네이버 #7 가이드가 명시적으로 금지

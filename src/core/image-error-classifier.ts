@@ -169,7 +169,9 @@ export function classifyImageError(rawError: unknown): ImageErrorClassification 
   }
 
   // 일일 할당량 초과 (Pro 50장/일 등)
-  if (/quota.*exceeded|flow_quota_exceeded|daily.*limit|일일.*할당량/i.test(errMsg)) {
+  // v3.8.465: `OPENAI_QUOTA: 할당량 초과` 는 quota 뒤가 한국어라 예전 규칙에 안 걸려
+  //   unknown → "알 수 없는 오류" 로 보였다. 실제로는 원인이 분명한 오류다.
+  if (/quota.*exceeded|flow_quota_exceeded|daily.*limit|일일.*할당량|openai_quota|할당량.*초과/i.test(errMsg)) {
     return {
       category: 'quota_daily_exceeded',
       bypassable: false,
@@ -226,6 +228,50 @@ export function classifyImageError(rawError: unknown): ImageErrorClassification 
       recommendedAction: 'retry_after_cooldown',
       cooldownMs: 3000,
       userMessage: '서버 내부 오류 — 3초 후 자동 재시도',
+      shouldShowDialog: false,
+    };
+  }
+
+  /**
+   * 🪪 v3.8.465 — OpenAI 신분증(조직) 인증 미완료.
+   *
+   * gpt-image 계열은 조직 인증을 마쳐야 쓸 수 있다. 이건 기다린다고 풀리지
+   * 않으므로 재시도는 무의미하다 — 대신 **무엇을 하면 되는지**를 알려준다.
+   * 예전에는 unknown 으로 떨어져 "알 수 없는 오류" 로만 보였다.
+   */
+  if (/openai_verification_required|must be verified|organization.*verif|신분증 인증/i.test(errMsg)) {
+    return {
+      category: 'permission_denied',
+      bypassable: false,
+      recommendedAction: 'fail_fast',
+      cooldownMs: 0,
+      userMessage: 'OpenAI 신분증(조직) 인증이 필요한 모델입니다 — 설정의 "바로 인증하기"로 인증하거나 다른 이미지 엔진을 선택하세요',
+      shouldShowDialog: true,
+    };
+  }
+
+  /**
+   * 🌩️ v3.8.465 — **520~527 은 Cloudflare 가 내는 오류다.** (실측: OPENAI_HTTP_520)
+   *
+   * 사용자 화면: "STRICT_ENGINE_FAILED:unknown:알 수 없는 오류: GPT Image 2 실패:
+   *   OPENAI_HTTP_520: <!DOCTYPE html> …"
+   *
+   * 520 은 OpenAI 앞단 Cloudflare 가 "원서버 응답이 이상하다" 며 내는 값이고
+   * 본문이 JSON 이 아니라 안내 HTML 이라 그대로 사용자에게 찍혔다.
+   * 분류기가 500·503·504 만 알아서 520 은 unknown → bypassable:false →
+   * **재시도 0회로 즉시 발행 차단**됐다. 글 생성 비용을 다 쓴 뒤였다.
+   * 정작 코드에는 "OpenAI 520 등 일시 장애" 를 위한 최후 폴백 안전망이 있는데
+   * (imageDispatcher v3.8.358) unknown 이 먼저 throw 해서 거기까지 가지 못했다.
+   *
+   * 일시 장애이므로 잠깐 기다렸다 다시 하면 대개 된다.
+   */
+  if (/http_52[0-7]\b|52[0-7]\b.*cloudflare|cloudflare.*52[0-7]\b|web server (is )?return|origin (is )?unreachable/i.test(errMsg)) {
+    return {
+      category: 'server_overload',
+      bypassable: true,
+      recommendedAction: 'retry_after_cooldown',
+      cooldownMs: 8000,
+      userMessage: '이미지 서버가 일시적으로 응답하지 않습니다(520) — 8초 후 자동 재시도',
       shouldShowDialog: false,
     };
   }

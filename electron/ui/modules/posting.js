@@ -1740,9 +1740,25 @@ function getH2ImageSettingsFromDOM() {
   const agentImageMode = typeof window !== 'undefined' && typeof window.getAgentImageSettingsMode === 'function'
     ? window.getAgentImageSettingsMode()
     : null;
+  /**
+   * 🖼️ v3.8.465 — **에이전트 모드일 때만 에이전트 설정이 이긴다.**
+   *
+   * 사용자 지적: "이미지 홀수 짝수 선택해도 홀수면 짝수 스킵, 짝수면 홀수 스킵이
+   * 이뤄지지 않네요".
+   *
+   * 원인: getAgentImageSettingsMode() 는 에이전트 모드가 **아니어도** 항상
+   *   `imagePolicy: 'all'`(저장값이 없을 때의 기본값)을 돌려준다. 그 값이 늘
+   *   truthy 라서 `||` 사슬이 여기서 끊겼고, 아래의 `h2ImageMode` 드롭다운
+   *   (사용자가 실제로 고른 값)까지 **한 번도 도달하지 못했다.**
+   *   그래서 홀수/짝수를 골라도 언제나 'all' 로 발행됐다.
+   *
+   * 에이전트 모드가 아니면 그 설정은 없는 것으로 본다 — 화면에 보이는 선택이 답이다.
+   */
+  const agentPolicy = agentImageMode?.isAgentMode
+    ? (agentImageMode.imagePolicy || agentImageMode.policy || '')
+    : '';
   const selectedPolicy = normalizeImagePolicy(
-    agentImageMode?.imagePolicy
-    || agentImageMode?.policy
+    agentPolicy
     || document.querySelector('input[name="swImagePolicy"]:checked')?.value
     || document.getElementById('h2ImageMode')?.value
     || 'all'

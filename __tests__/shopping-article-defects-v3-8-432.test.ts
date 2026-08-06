@@ -31,7 +31,15 @@ describe('① 쿠팡 고지문은 쿠팡 글에만 넣는다', () => {
     expect(orch).toContain('const isCoupangArticle = explicitProvider');
     expect(orch).not.toContain('let isCoupangArticle = false;');
     expect(orch).toContain("explicitProvider === 'coupang'");
-    expect(orch).toContain('(!!coupangLink || !hasSpecificProductLink)');
+    /**
+     * v3.8.465 — 여기에 **쇼핑 모드 조건이 붙었다.**
+     *
+     * 예전 판정은 `!hasSpecificProductLink`(제휴 링크가 하나도 없음)만 봤다.
+     * 그 조건은 쇼핑 모드에서 "링크는 없지만 키워드로 찾은 쿠팡 상품이 수익원"
+     * 이라는 뜻이었는데, 정보성 글·애드센스 글도 링크가 없으니 그대로 참이 됐다.
+     * 사용자 지적: "왜 어떤모드이든 쿠팡 공정위 문구가 하드코딩되어있나요??"
+     */
+    expect(orch).toContain('(!!coupangLink || (isCoupangShoppingMode && !hasSpecificProductLink))');
   });
 
   it('⭐ 쿠팡 글이 아니면 쿠팡 상품 위젯도 안 그린다', () => {

@@ -688,9 +688,23 @@ export async function generateUltimateMaxModeArticleFinal(
      *
      * 판정을 여기 하나로 모아 모든 쿠팡 전용 동작이 같은 기준을 쓰게 한다.
      */
+    /**
+     * 🚨 v3.8.465 — **쇼핑 글이 아니면 쿠팡 글일 수 없다.**
+     *
+     * 사용자 지적: "왜 어떤모드이든 쿠팡 공정위 문구가 하드코딩되어있나요??"
+     *
+     * `!hasSpecificProductLink`(제휴 링크가 하나도 없음) 를 "쿠팡 글" 로 본 게 문제였다.
+     * 그 조건은 **쇼핑 모드**에서 "링크는 없지만 키워드로 찾은 쿠팡 상품이 수익원"
+     * 이라는 뜻으로 넣은 것인데, 정보성 글·애드센스 글처럼 제휴가 아예 없는 글도
+     * 링크가 없으니 그대로 참이 됐다. 그러면 아래 제휴 컴플라이언스(쇼핑 모드 밖에서
+     * 돈다)가 knownProvider 를 'coupang' 으로 잡고, 고지문이 없으니 **본문 최상단에
+     * 쿠팡 대가성 문구를 꽂았다.** 제휴 링크가 하나도 없는 글에 "수수료를 제공받습니다"
+     * 를 다는 것은 사실과 다른 표시다.
+     */
+    const isCoupangShoppingMode = String((payload as any).contentMode || '') === 'shopping';
     const isCoupangArticle = explicitProvider
       ? explicitProvider === 'coupang'
-      : (!!coupangLink || !hasSpecificProductLink);
+      : (!!coupangLink || (isCoupangShoppingMode && !hasSpecificProductLink));
 
     if (coupangLink && String((payload as any).contentMode || '') === 'shopping') {
       try {

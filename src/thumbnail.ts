@@ -2189,9 +2189,20 @@ Use the provided product photo as the actual product. `
           error: `OPENAI_QUOTA: 할당량/레이트리밋 초과 (${text.substring(0, 200)})`,
         };
       }
+      /**
+       * v3.8.465 — 오류 본문이 HTML 이면 그대로 보여주지 않는다.
+       *
+       * 실측: 520 일 때 Cloudflare 안내 페이지가 오는데, 그걸 그대로 실어서
+       * 사용자 화면에 `<!DOCTYPE html> <!--[if lt IE 7]> …` 이 찍혔다.
+       * 무슨 일인지 알 수 없는 메시지다. 사람이 읽을 문장으로 바꾼다.
+       */
+      const looksHtml = /^\s*(<!doctype|<html)/i.test(text);
+      const detail = looksHtml
+        ? '서버가 오류 안내 페이지를 돌려줬습니다(일시 장애일 가능성이 큽니다)'
+        : text.substring(0, 250);
       return {
         ok: false,
-        error: `OPENAI_HTTP_${status}: ${text.substring(0, 250)}`,
+        error: `OPENAI_HTTP_${status}: ${detail}`,
       };
     }
 
