@@ -1212,8 +1212,22 @@ export async function generateUltimateMaxModeArticleFinal(
     const contentMode = (payload as any).contentMode || 'external';
 
     // 3. H2 생성 — 모드 디스패처 우선, 없으면 기존 하드코딩 폴백
+    /**
+     * 🧬 v3.8.467 — 뼈대 변형 시드에 **어디에 올리는 글인지**를 넘긴다.
+     *
+     * 같은 키워드를 티스토리·워드프레스·블로그스팟에 각각 올리면 지금까지는
+     * 세 글의 소제목 구성이 똑같았다. 시드에 사이트 식별자를 넣으면 세 글이
+     * 서로 다른 축을 다루게 된다. 다른 고객끼리도 마찬가지다.
+     * 값이 없으면 플랫폼 이름만으로도 최소한의 분화는 생긴다.
+     */
+    const siteKeyForVariation = String(
+      (payload as any).blogUrl || (payload as any).wordpressSiteUrl || (payload as any).siteUrl
+      || (payload as any).tistoryBlogName || (payload as any).blogId || '',
+    ).trim() || String((payload as any).platform || (payload as any).platformType || '').trim();
+
     const modeResult = dispatchMode(contentMode, keyword, {
       authorInfo: (payload as any).adsenseAuthorInfo,
+      siteKey: siteKeyForVariation,
     });
 
     let h2Titles: string[];

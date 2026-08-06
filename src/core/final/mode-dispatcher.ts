@@ -38,7 +38,11 @@ export interface ModeDispatchResult {
 export function dispatchMode(
   contentMode: string,
   keyword: string,
-  options?: { authorInfo?: { name: string; title: string; credentials: string } }
+  options?: {
+    authorInfo?: { name: string; title: string; credentials: string };
+    /** 뼈대 변형 시드용 사이트 식별자 (블로그 주소·플랫폼 등). 같은 키워드라도 사이트가 다르면 구조가 달라진다 */
+    siteKey?: string;
+  }
 ): ModeDispatchResult {
   const defaultResult: ModeDispatchResult = {
     h2Titles: null,
@@ -73,25 +77,29 @@ export function dispatchMode(
     }
   }
 
-  // 🎲 애드센스 모드: 중간 섹션 셔플 + minChars ±20% 지터
-  // (patterned content 탐지 방지 — 같은 주제 여러 글이 동일 구조면 scaled abuse 플래그)
-  if (contentMode === 'adsense' && activeSections.length >= 4) {
-    const first = activeSections[0]!;          // author_intro 고정
-    const last = activeSections[activeSections.length - 1]!;  // conclusion 고정
-    const middle = activeSections.slice(1, -1);
-    // Fisher-Yates 셔플
-    for (let i = middle.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [middle[i], middle[j]] = [middle[j]!, middle[i]!];
+  /**
+   * 🧬 v3.8.467 — 같은 키워드로 써도 다른 글이 나오게 **뼈대를 바꾼다.**
+   *
+   * 예전에는 애드센스 모드에서만 중간 섹션을 Fisher-Yates 로 **섞었다.**
+   * 그런데 구글의 근접중복 판정은 셰인글링(겹치는 단어 묶음)으로 지문을 만들고
+   * 그 지문은 **집합 기반이라 순서와 무관하다** — 문단을 섞어도 같은 단어 묶음이
+   * 나오면 유사도는 그대로다. 즉 셔플은 중복 방지에 효과가 없었다.
+   *
+   * 실측 근거(self-overlap.ts): 발행글 322편 51,681쌍 중 유사도 0.35 초과 11쌍이
+   * 전부 **같은 주제를 여러 번 쓴 경우**였다(청년내일저축계좌 4편 0.40~0.55).
+   *
+   * 그래서 순서가 아니라 **다루는 각도**를 바꾼다. 시드는 키워드+사이트라서
+   * 같은 키워드라도 사이트(플랫폼)가 다르면 다른 축의 글이 나온다.
+   * 추가 LLM 호출은 없다 — 섹션 정의만 갈아끼운다.
+   */
+  {
+    const { planVariedSections, seedFrom } = require('../max-mode/section-variants');
+    const seed = seedFrom(keyword, options?.siteKey, contentMode);
+    const planned = planVariedSections(contentMode, activeSections, seed);
+    if (planned.changes.length > 0) {
+      activeSections = planned.sections;
+      console.log(`[MODE-DISPATCH] 🧬 뼈대 변형 (${planned.changes.join(', ')}) — 같은 키워드 중복 회피`);
     }
-    // minChars 지터 (각 섹션 ±20%)
-    const jittered = [first, ...middle, last].map(sec => {
-      const original = (sec as any).minChars || 800;
-      const jitter = 1 + (Math.random() * 0.4 - 0.2); // 0.8 ~ 1.2
-      return { ...sec, minChars: Math.round(original * jitter) };
-    });
-    activeSections = jittered;
-    console.log(`[MODE-DISPATCH] 🎲 애드센스 섹션 셔플 + minChars 지터 적용 (patterned content 방지)`);
   }
 
   // H2 제목: 활성 섹션에서 가져오기 (빈 배열이면 null → AI 생성 위임)
