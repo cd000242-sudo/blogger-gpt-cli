@@ -535,7 +535,8 @@ export function buildLicenseLabel(status, nowMs = Date.now()) {
     const limit = Number(status?.quota?.limit) || 3;
     const done = usage >= limit;
     return {
-      label: done ? `🆓 무료체험 (${usage}/${limit} 소진)` : `🆓 무료체험 (${usage}/${limit})`,
+      // v3.8.469: 차감식 — "쓴 횟수" 보다 "남은 횟수" 가 바로 읽힌다
+      label: done ? '🆓 무료체험 (소진)' : `🆓 무료체험 (${Math.max(0, limit - usage)}회 남음)`,
       color: done ? '#f59e0b' : '#10b981',
     };
   }

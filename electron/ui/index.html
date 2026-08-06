@@ -3056,7 +3056,7 @@
 
           <!-- 4. 하단 바 (구매/문의 + 링크) -->
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button onclick="window.blogger.openExternal('https://leadernam.imweb.me')"
+            <button onclick="window.blogger.openExternal('https://leaderspro.kr/pricing')"
               style="flex: 1; min-width: 120px; padding: 10px 16px; background: rgba(14, 165, 233, 0.06); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.12); border-radius: 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; gap: 6px;"
               onmouseover="this.style.background='rgba(14, 165, 233, 0.12)';this.style.borderColor='rgba(14, 165, 233, 0.25)'"
               onmouseout="this.style.background='rgba(14, 165, 233, 0.06)';this.style.borderColor='rgba(14, 165, 233, 0.12)'">
@@ -8246,8 +8246,8 @@ https://toss.im/_m/XXXXXXX"
 
 <!-- 무료 사용 카운터 (고정 우상단) -->
 <div id="freeQuotaCounter" style="display: none; position: fixed; top: 16px; right: 20px; z-index: 9999; background: linear-gradient(135deg, rgba(99,102,241,0.95), rgba(168,85,247,0.95)); border-radius: 14px; padding: 10px 18px; box-shadow: 0 4px 20px rgba(99,102,241,0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.2); align-items: center; gap: 10px; color: white;">
-  <span style="font-size: 13px; font-weight: 600; opacity: 0.9;">무료 체험 발행</span>
-  <span id="freeQuotaText" style="font-size: 18px; font-weight: 900; letter-spacing: 1px;">0/3</span>
+  <span style="font-size: 13px; font-weight: 600; opacity: 0.9;">오늘 무료 발행</span>
+  <span id="freeQuotaText" style="font-size: 18px; font-weight: 900; letter-spacing: 1px;">3회 남음</span>
 </div>
 
 <!-- 종료 확인 프리미엄 모달 -->
@@ -8333,8 +8333,15 @@ async function updateFreeQuotaCounter() {
     }
     var used = (status.quota && status.quota.usage) || 0;
     var limit = (status.quota && status.quota.limit) || 3;
-    text.textContent = used + '/' + limit;
-    var exhausted = (limit - used <= 0);
+    /**
+     * 🔢 v3.8.469 — 차감식으로 보여준다.
+     * 사용자 지적: "횟수 차감식으로 수정해야지".
+     * "0/3" 은 쓴 횟수라 남은 게 몇 번인지 한 번 더 계산해야 한다.
+     * "3회 남음" 이면 바로 읽힌다.
+     */
+    var left = Math.max(0, limit - used);
+    text.textContent = left > 0 ? (left + '회 남음') : '소진';
+    var exhausted = (left <= 0);
     text.style.color = exhausted ? '#fca5a5' : '#a5f3c4';
     counter.style.display = 'flex';
 
@@ -8357,13 +8364,27 @@ function showPaywallModal() {
     + '<h2 style="color:white;font-size:22px;font-weight:800;margin:0 0 12px 0;">오늘의 무료 체험 발행 3회를 모두 사용했어요</h2>'
     + '<p style="color:rgba(255,255,255,0.7);font-size:14px;margin:0 0 24px 0;line-height:1.6;">오늘 실제 발행이 완료된 글 3회를 모두 사용했습니다.<br>내일 다시 3회가 제공됩니다. 라이선스를 등록하면 <strong style="color:#a5f3c4;">모든 발행 기능</strong>을 사용할 수 있어요.</p>'
     + '<div style="display:flex;flex-direction:column;gap:10px;">'
-    + '<button onclick="window.blogger&&window.blogger.openExternal(\'https://leadernam.imweb.me\')" style="padding:14px 24px;background:linear-gradient(135deg,#6366f1,#a855f7);border:none;border-radius:12px;color:white;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(99,102,241,0.4);">🛒 라이선스 구매하기</button>'
-    + '<button onclick="document.getElementById(\'paywallModal\').remove()" style="padding:12px 24px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:12px;color:rgba(255,255,255,0.6);font-size:14px;cursor:pointer;">닫기</button>'
+    + '<button onclick="window.blogger&&window.blogger.openExternal(\'https://leaderspro.kr/pricing\')" style="padding:14px 24px;background:linear-gradient(135deg,#6366f1,#a855f7);border:none;border-radius:12px;color:white;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(99,102,241,0.4);">🛒 라이선스 구매하기</button>'
+    + '<button onclick="window.__quitFromPaywall&&window.__quitFromPaywall()" style="padding:12px 24px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:12px;color:rgba(255,255,255,0.6);font-size:14px;cursor:pointer;">앱 종료</button>'
     + '</div>'
     + '<p style="color:rgba(255,255,255,0.4);font-size:11px;margin:16px 0 0 0;">무료 체험은 실제 발행 완료 기준으로 하루 최대 3회 제공됩니다 (매일 자정 초기화)</p>'
     + '</div>';
   document.body.appendChild(modal);
 }
+
+/**
+ * 🚪 v3.8.469 — 페이월의 "앱 종료".
+ * 사용자 지적: "닫기 누르면 어차피 아무것도 못하는데 앱 닫히게해주고".
+ * IPC 가 없는 환경(구버전 preload)에서는 창만 닫는다.
+ */
+window.__quitFromPaywall = function () {
+  try {
+    if (window.blogger && typeof window.blogger.quitApp === 'function') { window.blogger.quitApp(); return; }
+    if (window.electronAPI && typeof window.electronAPI.invoke === 'function') { window.electronAPI.invoke('app:quit'); return; }
+  } catch (e) { /* 아래 폴백으로 */ }
+  try { window.close(); } catch (e) { /* noop */ }
+  var m = document.getElementById('paywallModal'); if (m) m.remove();
+};
 
 // 🛡️ AdsPower 탭 강제 제거 — DOM/CSS/JS 어디에서도 다시 표시 못 하도록 완전 삭제
 (function removeAdsPowerTab() {

@@ -28,6 +28,14 @@ export interface QuotaState {
    * 정상 사용자에게는 영향이 없다 — 진짜 새 날짜는 기록이 없어 0 이다.
    */
   history?: Record<string, number>;
+  /**
+   * 🔒 v3.8.469 — **이 차단은 지금 코드가 의도적으로 건 것**이라는 표시.
+   *
+   * v3.8.461/468 이 잘못 찍은 999 와 구별하기 위해 필요하다. 표시가 없는 999 는
+   * 그 시절의 오탐이므로 되살리고, 표시가 있는 999 는 진짜 위조 대응이므로 유지한다.
+   * 서명 대상이라 이 필드만 지워서 복구를 유도할 수도 없다.
+   */
+  blocked?: boolean;
 }
 
 interface SecureQuotaState extends QuotaState {
@@ -68,6 +76,8 @@ function computeSignature(state: QuotaState & { lastSeenDate?: string }): string
       l: state.lastSeenDate || state.date,
       // v3.8.461: history 도 서명 대상 — 아니면 기록만 지워 우회할 수 있다
       h: serializeHistory(state.history),
+      // v3.8.469: 차단 표시도 서명 대상 — 이 필드만 지워 복구를 유도할 수 없게
+      b: state.blocked ? 1 : 0,
     })
     : JSON.stringify({
       d: state.date,
@@ -77,9 +87,40 @@ function computeSignature(state: QuotaState & { lastSeenDate?: string }): string
   return crypto.createHmac('sha256', _INTERNAL_SALT).update(payload).digest('hex').substring(0, 16);
 }
 
+/**
+ * 🚑 v3.8.469 — **예전 서명 방식들.**
+ *
+ * 서명 payload 가 세 번 바뀌었다.
+ *   ~v3.8.460 : {v,d,p,l}
+ *   v3.8.461~468 : {v,d,p,l,h}        ← h(날짜별 기록) 추가
+ *   v3.8.469~ : {v,d,p,l,h,b}         ← b(차단 표시) 추가
+ * 새 방식으로만 검증하면 **예전에 저장된 멀쩡한 파일이 전부 위조로 판정**되고
+ * 사용량이 999(강제 차단)로 읽힌다. 실제로 v3.8.461 에서 그 사고가 났다.
+ *
+ * 사용자 보고: "오늘 무료체험으로는 한번도 안했는데 다소진됫다하고" (배지 999/3)
+ *
+ * 옛 서명도 인정하고, 다음 저장 때 새 형식으로 조용히 갈아 끼운다.
+ * 보안은 그대로다 — 옛 형식도 같은 비밀키로 만든 진짜 서명이어야 통과한다.
+ */
+function legacySignatures(state: QuotaState & { lastSeenDate?: string }): string[] {
+  const base = {
+    v: COMPLETED_PUBLISH_POLICY_VERSION,
+    d: state.date,
+    p: state.publish,
+    l: state.lastSeenDate || state.date,
+  };
+  const hmac = (payload: unknown) =>
+    crypto.createHmac('sha256', _INTERNAL_SALT).update(JSON.stringify(payload)).digest('hex').substring(0, 16);
+  return [
+    hmac(base),                                                     // ~v3.8.460
+    hmac({ ...base, h: serializeHistory(state.history) }),          // v3.8.461~468
+  ];
+}
+
 function verifySignature(state: SecureQuotaState): boolean {
-  const expected = computeSignature(state);
-  return state._sig === expected;
+  if (state._sig === computeSignature(state)) return true;
+  if (Number(state.policyVersion || 0) < COMPLETED_PUBLISH_POLICY_VERSION) return false;
+  return legacySignatures(state).includes(state._sig);
 }
 
 // ── 유틸 ──
@@ -125,9 +166,16 @@ function getMirrorFile(): string {
  */
 let sessionFloor: { date: string; publish: number } = { date: '', publish: 0 };
 
+/**
+ * 위조·손상을 만났을 때 쓰는 표식값. 사람이 하루에 이만큼 발행할 수는 없다.
+ * 그래서 **정상 서명이 붙은 999 는 우리가 쓴 표식**이라는 뜻이다.
+ */
+const BLOCKED_SENTINEL = 999;
+
 const TAMPERED_STATE = (date: string): QuotaState => ({
   date,
-  publish: 999,
+  publish: BLOCKED_SENTINEL,
+  blocked: true,
 });
 
 const EMPTY_STATE = (date: string): QuotaState => ({
@@ -229,6 +277,33 @@ async function readState(): Promise<QuotaState> {
     }
   }
   todayUsage = Math.max(todayUsage, Number(mergedHistory[today]) || 0, floor);
+
+  /**
+   * 🚑 v3.8.469 — **v3.8.461 이 잘못 찍은 차단 표식을 되살린다.**
+   *
+   * v3.8.461 의 서명 방식 변경으로 멀쩡한 기존 파일이 위조로 판정됐고,
+   * 그 999 가 **정상 서명과 함께 디스크에 저장**돼 버렸다. 서명 호환을 되살려도
+   * 이미 굳은 999 는 안 풀린다 — 파일 자체가 "오늘 999회 썼다" 고 말하니까.
+   *
+   * 사람이 하루 999회를 발행할 수는 없다. 그러니 **정상 서명이 붙은 999 는
+   * 우리가 쓴 표식**이고, 지금은 그게 오탐이었다는 걸 안다. 0 으로 되돌린다.
+   * 위조로 이득을 볼 수도 없다 — 999 를 쓰려면 서명을 위조해야 하는데,
+   * 위조하면 어차피 차단이다.
+   */
+  const markedBlocked = valid.some((r) => r.state.blocked === true && r.state.date === today);
+  if (todayUsage >= BLOCKED_SENTINEL && !markedBlocked) {
+    console.warn(`[QuotaManager] 🚑 잘못 기록된 차단 표식(${todayUsage}) 발견 → 오늘 사용량 0회로 복구`);
+    todayUsage = 0;
+    for (const d of Object.keys(mergedHistory)) {
+      if (Number(mergedHistory[d]) >= BLOCKED_SENTINEL) delete mergedHistory[d];
+    }
+    sessionFloor = { date: today, publish: 0 };
+    writeState({
+      date: today, publish: 0,
+      policyVersion: COMPLETED_PUBLISH_POLICY_VERSION,
+      history: mergedHistory,
+    });
+  }
 
   /**
    * 구버전(v1) 이관 — **세 사본이 전부 v1 일 때만.**

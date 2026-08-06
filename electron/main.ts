@@ -4756,6 +4756,18 @@ ipcMain.handle('save-env', async (_evt, envData: Record<string, string>) => {
 // ============================================
 
 // 라이센스 파일 읽기
+/**
+ * 🚪 v3.8.469 — 무료 체험을 다 쓰면 앱을 닫을 수 있게 한다.
+ *
+ * 사용자 지적: "닫기 누르면 어차피 아무것도 못하는데 앱 닫히게해주고".
+ * 페이월에서 "닫기"를 눌러도 발행이 안 되니 화면만 덩그러니 남았다.
+ */
+ipcMain.handle('app:quit', async () => {
+  console.log('[APP] 사용자 요청으로 종료합니다 (무료 체험 소진 안내)');
+  app.quit();
+  return { ok: true };
+});
+
 ipcMain.handle('read-license-file', async () => {
   try {
     const licensePath = path.join(app.getPath('userData'), 'license.json');

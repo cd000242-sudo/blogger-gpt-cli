@@ -140,18 +140,19 @@ describe('④ 날짜 계산 — 실제 소스에서 함수를 떼어내 돌린�
    */
   it('⭐⭐ 무료체험이면 라이선스보다 먼저 무료체험으로 표시한다', () => {
     const free = buildLicenseLabel({ isFreeTrial: true, valid: true, quota: { usage: 1, limit: 3 } }, NOW);
-    expect(free.label).toBe('🆓 무료체험 (1/3)');
+    // v3.8.469: 차감식 — "쓴 횟수" 보다 "남은 횟수" 가 바로 읽힌다
+    expect(free.label).toBe('🆓 무료체험 (2회 남음)');
     expect(free.color).toBe('#10b981');
   });
 
   it('⭐⭐ 3회를 다 쓰면 소진으로 보인다', () => {
     const done = buildLicenseLabel({ isFreeTrial: true, valid: true, quota: { usage: 3, limit: 3 } }, NOW);
-    expect(done.label).toBe('🆓 무료체험 (3/3 소진)');
+    expect(done.label).toBe('🆓 무료체험 (소진)');
     expect(done.color).toBe('#f59e0b');
   });
 
   it('⭐ 쿼터 정보가 없어도 무료체험 문구는 나온다', () => {
-    expect(buildLicenseLabel({ isFreeTrial: true }, NOW).label).toBe('🆓 무료체험 (0/3)');
+    expect(buildLicenseLabel({ isFreeTrial: true }, NOW).label).toBe('🆓 무료체험 (3회 남음)');
   });
 });
 

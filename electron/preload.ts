@@ -235,6 +235,8 @@ export type BloggerApi = {
 
   /** 라이센스 파일 시스템 접근 */
   readLicenseFile(): Promise<{ ok: true; data: any } | { ok: false; error?: string }>;
+  /** v3.8.469 — 무료 체험 소진 안내에서 앱을 닫을 때 쓴다 */
+  quitApp(): Promise<{ ok: boolean }>;
   writeLicenseFile(data: any): Promise<{ ok: true } | { ok: false; error?: string }>;
   
   /** 플랫폼 연동 확인 */
@@ -617,6 +619,7 @@ const api: BloggerApi = {
   
   // ── 라이센스 파일 시스템 접근 ──
   readLicenseFile: () => ipcRenderer.invoke('read-license-file'),
+  quitApp: () => ipcRenderer.invoke('app:quit'),
   writeLicenseFile: (data) => ipcRenderer.invoke('write-license-file', data),
   
   // ── v3.8.176: AdSense 자동 해결 ──
