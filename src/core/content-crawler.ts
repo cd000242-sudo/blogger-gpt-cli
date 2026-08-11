@@ -7,6 +7,7 @@ import { callGeminiWithRetry } from './final/gemini-engine';
 import pLimit from 'p-limit';
 import { MassCrawlingSystem, MassCrawledItem, MassCrawlingOptions } from './mass-crawler';
 import { isOfficialDomain } from './crawlers/official-domain';
+import { parseNaverPostDate, withFreshnessLabel, isStaleSource } from './crawlers/source-freshness';
 
 export interface CrawledContent {
   title: string;
@@ -829,6 +830,7 @@ ${contents.slice(0, 10).map((c, i) => `
         const data = await response.json();
         const contents: CrawledContent[] = [];
         const items = data.items || [];
+        let staleCount = 0;   // v3.8.479: 시점 경고를 붙인 자료 수
         console.log(`[NAVER-DEBUG] ✅ 검색 결과: ${items.length}개 items 반환`);
 
         for (const item of items) {
@@ -860,9 +862,29 @@ ${contents.slice(0, 10).map((c, i) => `
             console.log(`[NAVER-DEBUG] 📄 API description 폴백 (${apiDesc.length}자): ${apiTitle.slice(0, 40)}`);
           }
 
-          if (blogContent) contents.push(blogContent);
+          /**
+           * 🕐 v3.8.479 — 작성일을 재료에 박는다.
+           *
+           * 실측 사고: "2026 부산 청년 게임개발자 정착지원" 글에 2024년 조건
+           * (보증금 이자 지원 · 선정 후 2주 계약 · 소득·주택소유 무관)이 섞여 나갔다.
+           * 원인은 모델이 아니라 재료였다 — 검색이 sort=sim 이라 첫 시행 연도(2024)
+           * 글이 상위로 오는데, API 가 주는 postdate 를 **여기서 버리고 있었다.**
+           * 날짜가 없으니 모델은 그게 작년 자료인지 알 방법이 없었고,
+           * fact-integrity 는 "장부에 있는 수치"라 정상 통과시켰다.
+           */
+          if (blogContent) {
+            const isoDate = parseNaverPostDate((item as any).postdate);
+            if (isoDate) {
+              blogContent.content = withFreshnessLabel(blogContent.content, isoDate);
+              if (isStaleSource(isoDate)) staleCount += 1;
+            }
+            contents.push(blogContent);
+          }
         }
 
+        if (staleCount > 0) {
+          console.log(`[NAVER] 🕐 오래된 자료 ${staleCount}건 — 시점 경고를 붙였습니다 (그대로 옮기지 않도록)`);
+        }
         console.log(`[NAVER] 크롤링 완료: ${contents.length}개 글 수집 (fetch 실패해도 API description 유지)`);
         return contents;
 
