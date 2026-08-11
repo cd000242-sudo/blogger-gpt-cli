@@ -54,14 +54,21 @@ const BODY_CONTAINERS: RegExp[] = [
  * 여는 태그가 매치된 지점부터 **짝이 맞는 닫는 태그**까지의 안쪽 HTML 을 돌려준다.
  * 닫는 태그를 못 찾으면(잘린 HTML) 문서 끝까지 준다 — 없는 것보다 낫다.
  */
-export function extractBalancedDiv(html: string, openTagPattern: RegExp): string | null {
+export function extractBalancedBlock(
+  html: string,
+  openTagPattern: RegExp,
+  tagName: string = 'div',
+): string | null {
   const source = String(html || '');
   const opener = new RegExp(openTagPattern.source, openTagPattern.flags.replace(/g/g, ''));
   const found = opener.exec(source);
   if (!found) return null;
 
+  const tag = String(tagName || 'div').replace(/[^a-z0-9]/gi, '');
+  if (!tag) return null;
+
   const start = found.index + found[0].length;
-  const scanner = /<div\b[^>]*>|<\/div\s*>/gi;
+  const scanner = new RegExp(`<${tag}\\b[^>]*>|</${tag}\\s*>`, 'gi');
   scanner.lastIndex = start;
 
   let depth = 1;
@@ -77,6 +84,11 @@ export function extractBalancedDiv(html: string, openTagPattern: RegExp): string
   return source.slice(start);
 }
 
+/** div 전용 단축형 — 기존 호출부 호환 */
+export function extractBalancedDiv(html: string, openTagPattern: RegExp): string | null {
+  return extractBalancedBlock(html, openTagPattern, 'div');
+}
+
 /** 본문에 섞여 들어오면 안 되는 것들 — 태그를 지우기 전에 통째로 걷어낸다 */
 function stripNoise(html: string): string {
   return String(html || '')
@@ -86,7 +98,7 @@ function stripNoise(html: string): string {
 }
 
 /** 사람이 읽는 글자만 남긴다. 문단 경계는 공백으로 살린다. */
-function toPlainText(html: string): string {
+export function toPlainText(html: string): string {
   return stripNoise(html)
     .replace(/<(?:br|\/p|\/div|\/li|\/h[1-6])\s*\/?>/gi, ' \n')
     .replace(/<[^>]+>/g, ' ')

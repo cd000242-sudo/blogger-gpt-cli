@@ -1103,15 +1103,66 @@ ${contents.slice(0, 10).map((c, i) => `
             content: `${desc}${pubDate ? `\n(${pubDate})` : ''}`,
             subheadings: [],
             source: 'naver-news',
+            // v3.8.475: 본문 확보용 원문 주소 — 검색 API 만이 이걸 준다
+            originalLink: String(item.originallink || item.link || '').trim(),
           } as any);
         }
       }
+
+      /**
+       * v3.8.475 — 기사 본문을 실제로 가져온다.
+       *
+       * 지금까지는 description(약 150자)만 재료로 썼다. 그런데 검색 API 는
+       * 실제 기사 주소를 같이 준다 — 따라가면 본문이 통째로 나온다
+       * (실측: 연합뉴스 4,152자 · 한국경제 26,442자). 추가 키 0개다.
+       *
+       * 상위 3건만, 병렬로, 건당 8초 상한. 실패하면 description 을 그대로 둔다
+       * (지금까지의 동작과 같다 — 뉴스 수집이 늦어지거나 막히지 않는다).
+       */
+      await this.enrichNewsWithBodies(contents.slice(0, 3));
+
       console.log(`[NAVER-NEWS] ✅ ${contents.length}개 최신 뉴스 수집`);
       return contents;
     } catch (e: any) {
       console.warn('[NAVER-NEWS] 실패:', e.message);
       return [];
     }
+  }
+
+  /**
+   * v3.8.475 — 뉴스 항목의 원문 주소를 따라가 본문을 채운다.
+   *
+   * 절대 던지지 않는다. 한 건이라도 실패하면 그 건만 description 으로 남는다.
+   * 병렬 + 건당 8초 상한이라 전체 수집 시간에 8초 이상 얹히지 않는다.
+   */
+  private async enrichNewsWithBodies(items: CrawledContent[]): Promise<void> {
+    if (!Array.isArray(items) || items.length === 0) return;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { extractArticleBody } = require('./crawlers/article-body');
+
+    await Promise.all(items.map(async (item) => {
+      const url = String((item as any).originalLink || item.url || '').trim();
+      if (!/^https?:\/\//i.test(url)) return;
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36',
+            'Accept-Language': 'ko-KR,ko;q=0.9',
+          },
+          redirect: 'follow',
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!response.ok) return;
+        const body = extractArticleBody(await response.text());
+        if (!body) return;
+        // 원문이 description 보다 짧으면 잘못 잡은 것이다 — 바꾸지 않는다
+        if (body.text.length <= String(item.content || '').length) return;
+        console.log(`[NAVER-NEWS] 📄 본문 확보 ${body.rawLength}자 → ${body.text.length}자: ${String(item.title).slice(0, 30)}`);
+        item.content = body.text;
+      } catch {
+        // 언론사 차단·타임아웃은 흔하다. description 을 그대로 쓴다.
+      }
+    }));
   }
 
   /**
