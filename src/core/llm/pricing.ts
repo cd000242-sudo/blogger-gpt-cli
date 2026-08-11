@@ -94,26 +94,44 @@ export const TIER_MODELS: readonly TierModel[] = [
     modelId: 'gemini-3.1-flash-lite',
     fallback: ['gemini-3.1-flash-lite', 'gemini-3.5-flash'],
   },
+  /**
+   * v3.8.483 — Gemini 3.6 Flash 도입, 3.1 Pro Preview 제거.
+   *
+   * 공식 문서 확인(2026-08-11, ai.google.dev/gemini-api/docs/pricing):
+   *   gemini-3.6-flash  Stable   입력 $1.50 / 출력 $7.50
+   *   gemini-3.5-flash  Stable   입력 $1.50 / 출력 $9.00
+   *   gemini-3.1-pro    **Preview**
+   *
+   * 3.6 은 3.5 보다 **새로우면서 출력이 17% 싸다** — 품질·비용 둘 다 이기므로 기본값으로 올린다.
+   * 3.1 Pro 는 Preview 라 선불 티어에서 호출이 막힌다(사용자 실측). 목록에서 뺀다 —
+   * 고를 수 있는데 안 되는 모델은 조용한 실패를 만든다.
+   *
+   * ⚠️ `value` 는 사용자 저장 설정 키다. 옛 이름(gemini-2.5-*)을 그대로 둬야
+   *    기존 사용자의 선택이 안 깨진다. 바뀌는 것은 modelId·title·가격뿐이다.
+   */
   {
     value: 'gemini-2.5-flash',
-    title: 'Gemini 3.5 Flash',
+    title: 'Gemini 3.6 Flash',
     tier: '균형',
-    description: '품질·속도·가격 균형 · 일반 블로그 글에 최적',
-    costKrw: 80,
+    description: '최신 · 품질·속도·가격 균형 · 일반 블로그 글에 최적',
+    // 실단가에서 계산된 값(₩57). 예전 선언값 80 은 실제보다 비싸게 잡혀 있었다.
+    costKrw: 57,
     provider: 'gemini',
-    modelId: 'gemini-3.5-flash',
-    fallback: ['gemini-3.5-flash', 'gemini-3.1-flash-lite'],
+    modelId: 'gemini-3.6-flash',
+    fallback: ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'],
     default: true,
+    usdPer1M: { input: 1.50, output: 7.50, source: 'Gemini API 공식 가격표 2026-08-11 (Standard)' },
   },
   {
     value: 'gemini-2.5-pro',
-    title: 'Gemini 3.1 Pro Preview',
+    title: 'Gemini 3.5 Flash',
     tier: '프리미엄',
-    description: '심층 추론 · 최고 품질 · Preview API',
-    costKrw: 300,
+    description: '지속 추론 강점 · 긴 글·복잡한 주제에 유리',
+    costKrw: 61,
     provider: 'gemini',
-    modelId: 'gemini-3.1-pro-preview',
-    fallback: ['gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'],
+    modelId: 'gemini-3.5-flash',
+    fallback: ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'],
+    usdPer1M: { input: 1.50, output: 9.00, source: 'Gemini API 공식 가격표 2026-08-11 (Standard)' },
   },
 
   // ─── OpenAI (GPT-5 시리즈로 최신화, 2026-04) ───────────────────────────────
@@ -203,7 +221,14 @@ export const TIER_MODELS: readonly TierModel[] = [
   },
 ] as const;
 
-export const DEFAULT_TIER_VALUE = 'gemini-3.5-flash';
+/**
+ * v3.8.483 — 'gemini-3.5-flash' → 'gemini-3.6-flash'.
+ *
+ * 이 값은 findTier 가 modelId 로 찾는다. 3.5 는 이제 **프리미엄** 항목의 modelId 라
+ * 그대로 두면 기본값이 `default: true` 인 균형 티어가 아니라 프리미엄을 가리킨다.
+ * 기본 모델이 조용히 바뀌는 종류의 사고다.
+ */
+export const DEFAULT_TIER_VALUE = 'gemini-3.6-flash';
 
 /**
  * 화면·로그·설정이 공통으로 읽는 표시 금액.

@@ -16,6 +16,7 @@
  */
 import {
   TIER_MODELS, COST_MODEL, deriveCostKrw, tierCostKrw, formatTierCost, getPricingTable, findTier,
+  DEFAULT_TIER_VALUE,
 } from '../src/core/llm/pricing';
 import { braceBlock } from './helpers/source-block';
 
@@ -110,7 +111,10 @@ describe('렌더러로 넘기는 금액표', () => {
 
   it('계산값인지 선언값인지 구분해 알려준다', () => {
     expect(table.find(r => r.title === 'GPT-5.6 Luna')?.derived).toBe(true);
-    expect(table.find(r => r.title === 'Gemini 3.5 Flash')?.derived).toBe(false);
+    // v3.8.483: Gemini 도 공식 단가를 넣어 이제 계산값이다.
+    //   단가를 아직 모르는 모델(Claude 등)만 선언값으로 남는다.
+    expect(table.find(r => r.title === 'Gemini 3.6 Flash')?.derived).toBe(true);
+    expect(table.find(r => r.title === 'Claude Sonnet 5')?.derived).toBe(false);
   });
 
   it('findTier 가 UI value 와 modelId 양쪽으로 찾는다', () => {
@@ -173,5 +177,24 @@ describe('반자동 발행 버튼 회귀 (v3.8.357~391 동안 안 보였다)', (
       require('path').join(__dirname, '..', 'electron', 'ui', 'index.html'), 'utf8');
     expect(html).toContain('id="editGeneratedBtn"');
     expect(html).toContain('window.startSemiAutoPublish');
+  });
+});
+
+/**
+ * v3.8.483 — 기본 티어가 `default: true` 항목을 정확히 가리키는지.
+ *
+ * DEFAULT_TIER_VALUE 는 findTier 가 **modelId 로도** 찾는다. 3.6 도입으로
+ * 'gemini-3.5-flash' 가 프리미엄 항목의 modelId 가 되면서, 상수를 안 바꾸면
+ * 기본값이 균형이 아니라 프리미엄을 가리키게 됐다 — 기본 모델이 조용히 바뀌는 사고다.
+ */
+describe('기본 티어 정합성', () => {
+  it('DEFAULT_TIER_VALUE 가 default:true 인 항목을 가리킨다', () => {
+    const declaredDefault = TIER_MODELS.find(t => t.default === true);
+    expect(declaredDefault).toBeDefined();
+    expect(findTier(DEFAULT_TIER_VALUE)?.value).toBe(declaredDefault!.value);
+  });
+
+  it('default:true 는 하나뿐이다', () => {
+    expect(TIER_MODELS.filter(t => t.default === true)).toHaveLength(1);
   });
 });

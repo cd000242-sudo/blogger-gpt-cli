@@ -9,9 +9,13 @@ type Input = {
   minChars?: number;
 };
 
-// 텍스트 생성 모델 우선순위 (2026년 최신)
+/**
+ * 텍스트 생성 모델 우선순위 (v3.8.483, 2026-08-11 공식 문서 기준)
+ *   3.1 Pro 는 Preview 라 선불 티어에서 막힌다 — 1순위에 두면 매번 실패부터 하고 내려갔다.
+ *   3.6 Flash 가 Stable 이면서 3.5 보다 출력이 싸다($7.50 vs $9.00).
+ */
 const TEXT_MODELS = [
-  'gemini-3.1-pro-preview',
+  'gemini-3.6-flash',
   'gemini-3.5-flash',
   'gemini-3.1-flash-lite',
 ];

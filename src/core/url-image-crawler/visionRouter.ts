@@ -3,8 +3,10 @@
 // 원본: cd000242-sudo/naver — src/runtime/modelRegistry.ts (v2.7.62)
 
 export const VISION_MODELS = {
-  GEMINI_FLASH: 'gemini-3.5-flash',
-  GEMINI_PRO: 'gemini-3.1-pro-preview',
+  // v3.8.483: 3.6 Flash 가 Stable 이면서 3.5 보다 출력이 싸다 ($7.50 vs $9.00)
+  GEMINI_FLASH: 'gemini-3.6-flash',
+  // v3.8.483: 3.1 Pro 는 Preview 라 선불 티어에서 막힌다 → Stable 인 3.5 Flash 로
+  GEMINI_PRO: 'gemini-3.5-flash',
   CLAUDE_SONNET: 'claude-sonnet-5',
   OPENAI_41: 'gpt-5.6-terra',
   OPENAI_41_MINI: 'gpt-5.6-luna',
@@ -38,9 +40,11 @@ export function routeTextToVision(textKey: string): VisionRouting {
       return { provider: 'gemini-flash', model: VISION_MODELS.GEMINI_FLASH, vendor: 'gemini', fellBack: true, reason: 'Lite는 vision 없음 → Flash 자동' };
     case 'gemini-2.5-flash':
     case 'gemini-3.5-flash':
+    case 'gemini-3.6-flash':
     case 'gemini':
       return { provider: 'gemini-flash', model: VISION_MODELS.GEMINI_FLASH, vendor: 'gemini', fellBack: false };
     case 'gemini-2.5-pro':
+    // v3.8.483: 3.1 Pro Preview 를 골라둔 기존 설정도 Stable 로 받는다
     case 'gemini-3.1-pro-preview':
       return { provider: 'gemini-pro', model: VISION_MODELS.GEMINI_PRO, vendor: 'gemini', fellBack: false };
     case 'claude-sonnet':

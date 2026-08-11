@@ -54,10 +54,11 @@ describe('① 기본값의 뿌리 — AI_PROVIDER 설정을 따른다', () => {
     jest.doMock('../src/env', () => ({ loadEnvFromFile: () => ({}) }));
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const isolated = require('../src/core/llm/pricing');
+    // v3.8.483: 모델 이름을 박제하지 않는다 — 지키려는 것은 "기본값으로 돌아간다" 이다
     delete process.env['AI_PROVIDER'];
-    expect(isolated.resolveDefaultTierValue()).toBe('gemini-3.5-flash');
+    expect(isolated.resolveDefaultTierValue()).toBe(isolated.DEFAULT_TIER_VALUE);
     process.env['AI_PROVIDER'] = '이상한값';
-    expect(isolated.resolveDefaultTierValue()).toBe('gemini-3.5-flash');
+    expect(isolated.resolveDefaultTierValue()).toBe(isolated.DEFAULT_TIER_VALUE);
     jest.dontMock('../src/env');
     jest.resetModules();
   });

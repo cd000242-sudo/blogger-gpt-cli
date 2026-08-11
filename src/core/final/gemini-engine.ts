@@ -18,10 +18,16 @@ import {
   waitForTextProviderTurn,
 } from '../llm/provider-throttle';
 
+/**
+ * v3.8.483 — 3.6 Flash 도입, 3.1 Pro Preview 제거.
+ *   Preview 모델은 선불 티어에서 호출이 막힌다(사용자 실측). 폴백 체인에 두면
+ *   조용히 실패하고 다음 모델로 내려가느라 시간만 버린다.
+ *   최신순으로 둔다 — 앞이 먼저 시도된다.
+ */
 const GEMINI_BASE_MODELS = [
-  'gemini-3.1-flash-lite',
+  'gemini-3.6-flash',
   'gemini-3.5-flash',
-  'gemini-3.1-pro-preview',
+  'gemini-3.1-flash-lite',
 ];
 
 export const GEMINI_MODELS = GEMINI_BASE_MODELS;
@@ -131,16 +137,21 @@ function buildGeminiChain(): string[] {
   const tier = findTier(tierValue);
   const selected = tier && tier.provider === 'gemini'
     ? unique([tier.modelId, ...tier.fallback, ...GEMINI_BASE_MODELS])
-    : unique(['gemini-3.5-flash', 'gemini-3.1-flash-lite', ...GEMINI_BASE_MODELS]);
+    : unique(['gemini-3.6-flash', 'gemini-3.5-flash', ...GEMINI_BASE_MODELS]);
 
-  const selectedPro = tier?.provider === 'gemini' && tier.modelId === 'gemini-3.1-pro-preview';
-  const allowProFallback = selectedPro || envFlag('GEMINI_ENABLE_PRO_FALLBACK');
-  const withoutUnexpectedPro = allowProFallback
+  /**
+   * v3.8.483 — Preview 모델을 폴백 체인에서 걷어낸다.
+   *   3.1 Pro Preview 는 선불 티어에서 호출이 막혀(사용자 실측) 시도해봐야
+   *   실패만 하고 시간을 버린다. 사용자가 env 로 명시할 때만 남긴다.
+   *   (예전엔 티어에서 Pro 를 고른 경우를 허용했는데, 그 티어 자체를 없앴다.)
+   */
+  const allowPreview = envFlag('GEMINI_ENABLE_PRO_FALLBACK');
+  const withoutPreview = allowPreview
     ? selected
-    : selected.filter(model => model !== 'gemini-3.1-pro-preview');
+    : selected.filter(model => !/preview/i.test(model));
 
   const limit = envInt('GEMINI_MAX_MODEL_FALLBACKS', DEFAULT_MODEL_FALLBACKS);
-  return withoutUnexpectedPro.slice(0, Math.max(1, limit));
+  return withoutPreview.slice(0, Math.max(1, limit));
 }
 
 /**

@@ -62,12 +62,19 @@ describe('① 설정 파일의 제공자가 실제로 반영된다', () => {
     expect(pricing.resolveDefaultProvider()).toBe('claude');
   });
 
-  it('⭐ 설정이 아예 없으면 예전 기본값 그대로 (동작이 바뀌면 안 된다)', () => {
-    expect(loadPricingWith(null).resolveDefaultTierValue()).toBe('gemini-3.5-flash');
+  /**
+   * v3.8.483 — 기본 모델 값을 하드코딩하지 않는다.
+   *   이 테스트가 지키려는 것은 "설정이 없거나 이상하면 **기본값으로** 떨어진다" 이지
+   *   특정 모델 이름이 아니다. 3.6 도입 때 이 단언들이 깨지면서 드러났다.
+   */
+  it('⭐ 설정이 아예 없으면 기본값 그대로 (동작이 바뀌면 안 된다)', () => {
+    const pricing = loadPricingWith(null);
+    expect(pricing.resolveDefaultTierValue()).toBe(pricing.DEFAULT_TIER_VALUE);
   });
 
   it('⭐ 알 수 없는 값이면 기본값으로 떨어진다', () => {
-    expect(loadPricingWith('무슨제공자').resolveDefaultTierValue()).toBe('gemini-3.5-flash');
+    const pricing = loadPricingWith('무슨제공자');
+    expect(pricing.resolveDefaultTierValue()).toBe(pricing.DEFAULT_TIER_VALUE);
   });
 
   it('⭐ 설정 읽기가 실패해도 예외를 던지지 않는다 (생성이 멈추면 안 된다)', () => {
@@ -78,7 +85,7 @@ describe('① 설정 파일의 제공자가 실제로 반영된다', () => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const pricing = require('../src/core/llm/pricing');
     expect(() => pricing.resolveDefaultTierValue()).not.toThrow();
-    expect(pricing.resolveDefaultTierValue()).toBe('gemini-3.5-flash');
+    expect(pricing.resolveDefaultTierValue()).toBe(pricing.DEFAULT_TIER_VALUE);
   });
 });
 
