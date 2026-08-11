@@ -559,6 +559,7 @@
                     <option value="shopping">🛍️ 쇼핑/구매유도 모드</option>
                     <option value="adsense">🏆 에드센스승인 모드/정보전달</option>
                     <option value="paraphrasing">🔄 페러프레이징 모드 (MAX 구조)</option>
+                    <option value="discover">🔎 구글 디스커버 모드/정보전달</option>
                   </select>
                 </div>
 
@@ -1458,6 +1459,36 @@
 
               <!-- Blogger 설정 -->
               <!-- v3.7.16: 기본 플랫폼 Blogger이므로 초기에 노출 -->
+              <!-- 💰 v3.8.482: 수동 광고(애드센스) 등록.
+                   자동 광고는 위치를 못 고른다. 여기 등록해두면 글 편집기에서
+                   [💰 광고] 버튼으로 커서 위치에 넣을 수 있다. -->
+              <div id="adsense-fields"
+                style="display: block; background: rgba(124, 58, 237, 0.12); border: 1px solid rgba(167, 139, 250, 0.35); border-radius: 12px; padding: 20px; margin-bottom: 16px;">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                  <span style="font-size: 24px;">💰</span>
+                  <div>
+                    <h4 style="margin: 0; font-weight: 700; color: white;">수동 광고 (애드센스)</h4>
+                    <p style="margin: 4px 0 0 0; font-size: 12px; color: rgba(255,255,255,0.55);">애드센스 → 광고 → <b>광고 단위 기준</b>에서 만든 코드를 붙여넣으세요. 글 편집기에서 <b>커서 위치에</b> 넣을 수 있습니다.</p>
+                  </div>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin: 14px 0 10px 0;">
+                  <input type="text" id="adUnitNameInput" placeholder="이름 (예: 본문 상단)"
+                    style="width: 220px; padding: 11px 14px; border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; background: rgba(15,23,42,0.7); color: #e2e8f0; font-size: 13px;">
+                  <button id="adUnitAddBtn"
+                    style="padding: 11px 22px; background: linear-gradient(135deg,#7c3aed,#6d28d9); border: none; border-radius: 10px; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;">➕ 추가</button>
+                </div>
+                <textarea id="adUnitCodeInput" rows="5"
+                  placeholder="&lt;script async src=&quot;https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-...&quot;&gt;&lt;/script&gt;&#10;&lt;ins class=&quot;adsbygoogle&quot; ...&gt;&lt;/ins&gt;&#10;&lt;script&gt;(adsbygoogle = window.adsbygoogle || []).push({});&lt;/script&gt;"
+                  style="width: 100%; box-sizing: border-box; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; background: rgba(15,23,42,0.7); color: #e2e8f0; font-size: 12px; font-family: monospace; line-height: 1.5; resize: vertical;"></textarea>
+
+                <div id="adUnitList" style="margin-top: 14px;"></div>
+                <p style="font-size: 11px; color: rgba(255,255,255,0.45); margin: 12px 0 0 0; line-height: 1.6;">
+                  ※ 워드프레스는 글 쓰는 계정에 <b>unfiltered_html</b> 권한(관리자)이 있어야 광고 코드가 보존됩니다.
+                  leadernam.com 초안 발행으로 보존을 확인했습니다.
+                </p>
+              </div>
+
               <div id="blogger-fields"
                 style="display: block; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px;">
                 <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
@@ -4096,6 +4127,7 @@
                         <option value="shopping">🛍️ 쇼핑/구매유도 모드</option>
                         <option value="adsense">🏆 에드센스승인 모드/정보전달</option>
                         <option value="paraphrasing">🔄 페러프레이징 모드 (MAX 구조)</option>
+                        <option value="discover">🔎 구글 디스커버 모드/정보전달</option>
                       </select>
                       <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 6px; display: block;">
                         <strong>SEO:</strong> 검색 상위노출 중심 · <strong>일관:</strong> 내부 콘텐츠 연결 · <strong>쇼핑:</strong> 상품

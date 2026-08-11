@@ -13812,3 +13812,87 @@ window.selectImageFolderPath = async function () {
     return true;
   };
 })();
+
+// ---------------------------------------------
+// 💰 수동 광고(애드센스) 등록 관리 — v3.8.482
+// ---------------------------------------------
+// 자동 광고는 위치를 못 고른다. 여기 등록해두면 글 편집기에서
+// [💰 광고] 버튼으로 **커서 위치에** 넣을 수 있다.
+// 저장소 키는 editor 모듈(ad-slots.js)과 같아야 한다.
+const AD_UNITS_STORAGE_KEY = 'bgptAdUnits';
+
+function loadAdUnitsForSettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(AD_UNITS_STORAGE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter(u => u && u.id && u.code) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistAdUnits(units) {
+  localStorage.setItem(AD_UNITS_STORAGE_KEY, JSON.stringify(units));
+  renderAdUnitList();
+}
+
+function renderAdUnitList() {
+  const box = document.getElementById('adUnitList');
+  if (!box) return;
+  const units = loadAdUnitsForSettings();
+  if (units.length === 0) {
+    box.innerHTML = '<p style="font-size:13px;color:#999;margin:0;">아직 등록된 광고가 없습니다.</p>';
+    return;
+  }
+  box.innerHTML = units.map(u => {
+    // 코드 원문을 그대로 보여주면 길고 위험하다 — 식별에 필요한 슬롯 번호만 보여준다
+    const slot = (String(u.code).match(/data-ad-slot="([^"]+)"/) || [])[1] || '';
+    const name = String(u.name || '').replace(/[<>&"]/g, '');
+    return `<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;margin-bottom:8px;background:rgba(255,255,255,0.85);border:1px solid rgba(124,58,237,0.2);border-radius:10px;">
+      <b style="flex:1;color:#333;font-size:14px;">${name}</b>
+      <span style="font-family:monospace;font-size:12px;color:#777;">${slot ? 'slot ' + slot : '코드 등록됨'}</span>
+      <button data-ad-remove="${u.id}" style="padding:6px 12px;background:#fee2e2;color:#b91c1c;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">삭제</button>
+    </div>`;
+  }).join('');
+}
+
+function initAdUnitSettings() {
+  const addBtn = document.getElementById('adUnitAddBtn');
+  const nameInput = document.getElementById('adUnitNameInput');
+  const codeInput = document.getElementById('adUnitCodeInput');
+  const list = document.getElementById('adUnitList');
+  if (!addBtn || !nameInput || !codeInput || !list) return;
+
+  addBtn.addEventListener('click', () => {
+    const code = codeInput.value.trim();
+    if (!code) { alert('애드센스 광고 코드를 붙여넣어 주세요.'); return; }
+    // 애드센스 코드인지 최소 확인 — 엉뚱한 것을 넣으면 발행 후에야 알게 된다
+    if (!/adsbygoogle/i.test(code)) {
+      if (!confirm('애드센스 코드처럼 보이지 않습니다(adsbygoogle 없음). 그래도 등록할까요?')) return;
+    }
+    const units = loadAdUnitsForSettings();
+    units.push({
+      id: `ad-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: nameInput.value.trim() || `광고 ${units.length + 1}`,
+      code,
+    });
+    persistAdUnits(units);
+    nameInput.value = '';
+    codeInput.value = '';
+    addLog(`💰 광고 단위 등록: ${units[units.length - 1].name}`, 'success');
+  });
+
+  list.addEventListener('click', (e) => {
+    const id = e.target?.getAttribute?.('data-ad-remove');
+    if (!id) return;
+    if (!confirm('이 광고 등록을 삭제할까요?\n이미 발행된 글은 그대로입니다.')) return;
+    persistAdUnits(loadAdUnitsForSettings().filter(u => u.id !== id));
+  });
+
+  renderAdUnitList();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAdUnitSettings);
+} else {
+  initAdUnitSettings();
+}

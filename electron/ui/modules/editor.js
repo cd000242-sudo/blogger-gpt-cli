@@ -2,7 +2,8 @@
 // 소스: appstate(생성 직후) / republish(재발행 대기열) / file(외부 HTML/TXT)
 //       + 생성된 글목록 탭의 발행된 글(blogger / wordpress / tistory) 수정발행
 import { getAppState, addLog, getTextLength } from './core.js';
-import { initImageEditing, detachImageEditing, hostPendingImages, undoImageOp, hasImageOps, insertImagesAtCaret } from './editor-images.js';
+import { initImageEditing, detachImageEditing, hostPendingImages, undoImageOp, hasImageOps, insertImagesAtCaret, insertHtmlAtCaret } from './editor-images.js';
+import { loadAdUnits, makeAdSlotHtml, expandAdSlots, collapseAdBlocks, AD_SLOT_STYLE } from './ad-slots.js';
 
 // 생성된 글목록 탭에서 넘어온 "이미 발행된 글" 소스 — 저장 = 해당 플랫폼에 수정발행
 const PUBLISHED_POST_SOURCES = {
@@ -61,11 +62,23 @@ export function serializeEditor() {
   body.querySelectorAll('[data-bgpt-editor], [data-bgpt-editor-ui]').forEach((el) => el.remove());
   body.querySelectorAll('script').forEach((el) => el.remove());
 
+  /**
+   * 💰 v3.8.482 — 광고 자리를 실제 코드로 바꾼다.
+   *   **반드시 위 script 제거 뒤에** 한다. 애드센스 코드는 `<script>` 둘로 이뤄져
+   *   있어서, 먼저 넣으면 바로 위 줄이 지워버린다. 편집기 안에서 자리표시자로
+   *   두는 이유가 이것이다.
+   */
+  const expanded = expandAdSlots(body.innerHTML);
+  if (expanded.missing > 0) {
+    console.warn(`[EDITOR-AD] 등록이 삭제된 광고 자리 ${expanded.missing}개를 제거했습니다.`);
+  }
+  const bodyHtml = expanded.html;
+
   if (session.isFullDocument) {
-    return '<!doctype html>\n<html><head>' + session.originalHeadHtml + '</head><body>' + body.innerHTML + '</body></html>';
+    return '<!doctype html>\n<html><head>' + session.originalHeadHtml + '</head><body>' + bodyHtml + '</body></html>';
   }
   const stylePart = session.styles.length ? session.styles.join('\n') + '\n' : '';
-  return stylePart + body.innerHTML;
+  return stylePart + bodyHtml;
 }
 
 function computeThumbnailUrl() {
@@ -95,6 +108,9 @@ function ensureEditorModal() {
         <input id="veHostImagesChk" type="checkbox" checked /> 저장 시 이미지 업로드
       </label>
       <button id="veInsertImageBtn" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="현재 커서 위치(또는 글 끝)에 내 PC 이미지를 삽입합니다">🖼️ 이미지 삽입</button>
+      <!-- 💰 v3.8.482: 수동 광고 자리. 자동 광고는 위치를 못 고르므로 직접 찍는다. -->
+      <select id="veAdUnitSelect" style="${BTN_BASE}background:#0f172a;color:#e2e8f0;border:1px solid #475569;max-width:170px;" title="넣을 광고 단위를 고르세요"></select>
+      <button id="veInsertAdBtn" style="${BTN_BASE}background:#7c3aed;color:#ede9fe;" title="현재 커서 위치에 광고 자리를 넣습니다 (발행 시 실제 광고 코드로 바뀝니다)">💰 광고</button>
       <button id="veUndoImageOpBtn" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="이미지/링크 삭제·교체·삽입 작업을 한 단계 되돌립니다 (글자 수정은 Ctrl+Z)">↩️ 이미지·링크 취소</button>
       <button id="veRevertBtn" style="${BTN_BASE}background:#334155;color:#fbbf24;" title="모든 편집을 버리고 처음 상태로 되돌립니다">🔄 원본으로</button>
       <button id="veCopyHtmlBtn" style="${BTN_BASE}background:#334155;color:#93c5fd;" title="편집된 HTML을 클립보드로 복사합니다">📋 HTML 복사</button>
@@ -187,6 +203,50 @@ function ensureEditorModal() {
       setStatus('복사 실패: ' + (err?.message || err));
     }
   });
+  /**
+   * 🖼️ v3.8.482 — 이미지가 커서 위치가 아니라 **글 끝에 붙던** 문제.
+   *
+   * 사용자 보고: "이미지 여전히 맨아래에 삽입되는데?? 커서위치가아니고?"
+   *
+   * v3.8.440 이 mousedown+preventDefault 로 선택 유실을 막았는데, 그 가드가
+   * **서식 바(#veFormatBar)에만** 걸려 있었다. 이미지 삽입 버튼은 위쪽
+   * 툴바(#veToolbar)에 있어서 가드 밖이었다 — 누르는 순간 iframe 안 선택이
+   * 풀리고, 기억해 둔 위치(lastCaretBlock)마저 없으면 글 끝으로 갔다.
+   *
+   * 같은 줄의 다른 버튼(제목 입력·저장·닫기)은 기본 동작이 필요하므로
+   * **삽입 계열 버튼에만** 건다.
+   */
+  const toolbar = modalRefs.overlay.querySelector('#veToolbar');
+  if (toolbar) {
+    toolbar.addEventListener('mousedown', (e) => {
+      if (e.target?.closest?.('#veInsertImageBtn, #veInsertAdBtn')) e.preventDefault();
+    });
+  }
+
+  /**
+   * 💰 v3.8.482 — 커서 위치에 광고 자리를 넣는다.
+   *   편집기에는 회색 박스만 두고, 발행 직전(serializeEditor)에 실제 코드로 바꾼다.
+   *   serializeEditor 가 script 를 전부 지우기 때문에 원문을 그대로 두면 사라진다.
+   */
+  const adSelect = modalRefs.overlay.querySelector('#veAdUnitSelect');
+  const adBtn = modalRefs.overlay.querySelector('#veInsertAdBtn');
+  refreshAdUnitOptions(adSelect);
+  if (adBtn) {
+    adBtn.addEventListener('click', () => {
+      const doc = getFrameDoc();
+      if (!doc) return;
+      const units = loadAdUnits();
+      if (units.length === 0) {
+        setStatus('등록된 광고가 없습니다 — 설정에서 애드센스 광고 코드를 먼저 등록하세요.');
+        return;
+      }
+      const unit = units.find((u) => u.id === adSelect?.value) || units[0];
+      const atCaret = insertHtmlAtCaret(doc, makeAdSlotHtml(unit));
+      setStatus(atCaret
+        ? `광고 자리(${unit.name})를 커서 위치에 넣었습니다. 발행하면 실제 광고가 들어갑니다.`
+        : `광고 자리(${unit.name})를 글 끝에 넣었습니다(커서 위치를 찾지 못했습니다).`);
+    });
+  }
   modalRefs.insertImageBtn.addEventListener('click', () => {
     const doc = getFrameDoc();
     if (doc) insertImagesAtCaret(doc);
@@ -374,14 +434,36 @@ function applyFormat(doc, kind) {
   }
 }
 
+/**
+ * 💰 v3.8.482 — 등록된 광고 단위를 드롭다운에 채운다.
+ *   편집기를 열 때마다 다시 읽는다 — 설정에서 방금 추가한 광고가 바로 보여야 한다.
+ */
+function refreshAdUnitOptions(select) {
+  if (!select) return;
+  const units = loadAdUnits();
+  const previous = select.value;
+  select.innerHTML = units.length
+    ? units.map((u) => `<option value="${u.id}">${u.name}</option>`).join('')
+    : '<option value="">등록된 광고 없음</option>';
+  if (previous && units.some((u) => u.id === previous)) select.value = previous;
+  select.disabled = units.length === 0;
+}
+
 function protectSeparators(doc) {
   // 썸네일 separator는 타이핑/백스페이스로 파손되지 않게 보호 (이미지 툴바로만 관리)
   doc.querySelectorAll('div.separator').forEach((el) => el.setAttribute('contenteditable', 'false'));
 }
 
-function loadIntoFrame(bodyHtml) {
+function loadIntoFrame(rawBodyHtml) {
   const refs = ensureEditorModal();
   detachImageEditing();
+  /**
+   * 💰 v3.8.482 — 저장된 글에 이미 들어 있는 광고 코드는 **자리표시자로 되돌려** 연다.
+   *   안 하면 편집기에 스크립트 원문이 깔려서 "블로그에 보이는 실제 모습"이 깨지고,
+   *   저장할 때 script 제거에 걸려 광고가 통째로 사라진다.
+   */
+  const bodyHtml = collapseAdBlocks(rawBodyHtml);
+  refreshAdUnitOptions(refs.overlay.querySelector('#veAdUnitSelect'));
   const doc = refs.frame.contentDocument;
   const needsFallbackStyle = !session.styles.length && !session.isFullDocument;
   doc.open();
@@ -392,6 +474,7 @@ function loadIntoFrame(bodyHtml) {
       img{cursor:pointer;}
       .ve-img-selected{outline:3px solid #6366f1!important;outline-offset:2px;}
       .ve-link-selected{outline:2px dashed #f59e0b!important;outline-offset:3px;}
+      ${AD_SLOT_STYLE}
       ${needsFallbackStyle ? "body{font-family:'Noto Sans KR','Malgun Gothic',sans-serif;max-width:860px;margin:0 auto;line-height:1.8;color:#1f2937;} body img{max-width:100%;height:auto;}" : ''}
     </style>
   </head><body></body></html>`);

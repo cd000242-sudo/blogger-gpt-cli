@@ -385,8 +385,18 @@ async function insertAtHoverBlock() {
   await pickAndInsertImages((html) => block.insertAdjacentHTML('afterend', html));
 }
 
-export async function insertImagesAtCaret(doc) {
-  if (!state) return;
+/**
+ * 지금 커서가 놓인 블록을 찾는다.
+ *
+ * v3.8.440 — 선택이 풀렸으면 **기억해 둔 커서 위치**를 쓴다.
+ *   버튼이 iframe 밖에 있어 클릭 순간 선택이 사라진다(위 rememberCaret 주석 참고).
+ *   그때마다 글 끝에 붙던 것이 사용자가 겪은 문제다.
+ *   화면에서 사라진 블록(다른 글을 연 경우)은 쓰지 않는다 — isConnected 로 확인.
+ *
+ * v3.8.482: 이미지 전용이던 것을 광고 자리 삽입도 쓰도록 분리했다.
+ */
+export function findCaretBlock(doc) {
+  if (!state) return null;
   const container = getArticleContainer(doc);
   const selection = doc.getSelection();
   let block = null;
@@ -394,15 +404,27 @@ export async function insertImagesAtCaret(doc) {
     const el = selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement;
     block = findDirectBlock(el, container) || (container !== doc.body ? findDirectBlock(el, doc.body) : null);
   }
-  /**
-   * v3.8.440 — 선택이 풀렸으면 **기억해 둔 커서 위치**를 쓴다.
-   *   버튼이 iframe 밖에 있어 클릭 순간 선택이 사라진다(위 rememberCaret 주석 참고).
-   *   그때마다 글 끝에 붙던 것이 사용자가 겪은 문제다.
-   *   화면에서 사라진 블록(다른 글을 연 경우)은 쓰지 않는다 — isConnected 로 확인.
-   */
-  if (!block && state.lastCaretBlock?.isConnected) {
-    block = state.lastCaretBlock;
-  }
+  if (!block && state.lastCaretBlock?.isConnected) block = state.lastCaretBlock;
+  return block;
+}
+
+/**
+ * 커서 위치에 HTML 을 넣는다. 커서를 못 찾으면 글 끝에 붙이고 false 를 돌려준다 —
+ * 호출부가 사용자에게 "끝에 붙었다"고 알릴 수 있어야 한다(조용히 넘기지 않는다).
+ */
+export function insertHtmlAtCaret(doc, html) {
+  if (!state) return false;
+  pushImageOp();   // 되돌리기 스택 공유 — "이미지·링크 취소" 버튼으로 함께 되돌린다
+  const block = findCaretBlock(doc);
+  if (block) block.insertAdjacentHTML('afterend', html);
+  else getArticleContainer(doc).insertAdjacentHTML('beforeend', html);
+  return !!block;
+}
+
+export async function insertImagesAtCaret(doc) {
+  if (!state) return;
+  const container = getArticleContainer(doc);
+  const block = findCaretBlock(doc);
   await pickAndInsertImages((html) => {
     if (block) block.insertAdjacentHTML('afterend', html);
     else container.insertAdjacentHTML('beforeend', html);

@@ -95,7 +95,14 @@ describe('findDiscoverTitleViolations — 발행은 막지 않고 알리기만',
 describe('배선', () => {
   const generation = readFileSync(join(__dirname, '..', 'src/core/final/generation.ts'), 'utf8');
   const orchestration = readFileSync(join(__dirname, '..', 'src/core/final/orchestration.ts'), 'utf8');
-  const ui = readFileSync(join(__dirname, '..', 'src/ui/index.html'), 'utf8');
+  /**
+   * ⚠️ electron/ui 가 **실제로 앱이 읽는 파일**이다.
+   *   copy-ui.js: "src/ui/ files are NOT used by the app.
+   *                When modifying UI, ALWAYS edit electron/ui/ files directly."
+   *   v3.8.478 은 src/ui 만 고쳐서 **앱에서 고를 수 없는 모드**를 만들었고,
+   *   이 테스트가 src/ui 를 검사해 그걸 통과시켰다(2026-08-11 발견).
+   */
+  const ui = readFileSync(join(__dirname, '..', 'electron/ui/index.html'), 'utf8');
 
   it('본문 프롬프트에 디스커버 블록이 들어간다', () => {
     expect(generation).toContain('discoverModePromptBlock');
