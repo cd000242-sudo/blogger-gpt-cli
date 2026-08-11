@@ -4289,6 +4289,11 @@ ${conclusionHTML}
     //   16:9로 뽑혀서 cover가 문제없지만, 크롤한 실제 상품 사진은 원본 비율이 제각각이다
     //   — 이 값이 true면 잘라내지 않고 여백을 두고 전체를 보여준다(object-fit:contain).
     let thumbnailFromProductPhoto = false;
+    /**
+     * v3.8.477 — 디스커버 진단용. 업로드가 끝나면 thumbnailUrl 은 http 주소가 되어
+     * 크기를 잴 수 없다. 업로드 **전** data URL 을 여기에 남겨둔다.
+     */
+    let thumbnailProbeDataUrl = '';
 
     // v3.8.359: h2ImageMode와 썸네일 소스를 완전 분리
     //   과거: h2ImageMode='none'이면 썸네일도 자동 'none' → 사용자가 "본문 이미지 없이 썸네일만" 조합 불가
@@ -4374,6 +4379,7 @@ ${conclusionHTML}
         const asData = await fetchImageAsDataUrl(thumbnailUrl, { onLog });
         if (asData) {
           thumbnailUrl = asData;
+          thumbnailProbeDataUrl = asData;   // v3.8.477: 수집 사진이 작으면 디스커버 카드에서 탈락한다
           onLog?.('[PROGRESS] 90% - 📤 상품 사진을 블로그에 올려 썸네일로 씁니다 (최고 화질)');
         } else {
           onLog?.('[PROGRESS] 90% - ⚠️ 상품 사진을 내려받지 못해 외부 주소를 그대로 씁니다 (썸네일이 안 보일 수 있습니다)');
@@ -4445,6 +4451,7 @@ ${conclusionHTML}
           onLog?.(`   📊 썸네일 최종 엔진: ${thumbResult.source}`);
           // Base64 이미지를 호스팅에 업로드
           if (thumbResult.dataUrl.startsWith('data:')) {
+            thumbnailProbeDataUrl = thumbResult.dataUrl;   // v3.8.477: 디스커버 진단용
             const uploadedUrl = await uploadBase64ToImageHost(thumbResult.dataUrl, 'thumbnail');
             if (uploadedUrl) {
               thumbnailUrl = uploadedUrl;
@@ -4465,6 +4472,24 @@ ${conclusionHTML}
         console.error('[THUMBNAIL] 디스패치 실패:', e);
         onLog?.(`   ⚠️ 썸네일 생성 실패: ${e.message || e}`);
       }
+    }
+
+    /**
+     * 🔎 v3.8.477 — 디스커버 카드 자격 자가진단.
+     *   고칠 수 있는 건 이미 고쳤고(v3.8.472 로 썸네일이 16:9 1820x1024 로 나온다),
+     *   여기서는 **우리가 못 고치는 것**을 알린다 — 원본이 작은 수집 사진,
+     *   그리고 블로그스팟 테마의 head 메타. 발행은 막지 않는다.
+     */
+    try {
+      const { checkDiscoverReadiness } = await import('./discover-readiness');
+      for (const warning of checkDiscoverReadiness({
+        thumbnailDataUrl: thumbnailProbeDataUrl || (thumbnailUrl.startsWith('data:') ? thumbnailUrl : ''),
+        platform,
+      })) {
+        onLog?.(`[PROGRESS] 92% - 🔎 디스커버: ${warning.message}`);
+      }
+    } catch (discoverErr: any) {
+      console.warn('[DISCOVER] 자가진단 스킵:', String(discoverErr?.message || discoverErr).slice(0, 80));
     }
 
     const endTime = Date.now();
