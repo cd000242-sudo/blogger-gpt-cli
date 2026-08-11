@@ -2608,6 +2608,24 @@ ${quoted}
       onLog?.(`[PROGRESS] 74% - 🧱 ${substanceReport.summary}`);
       console.log(`[SUBSTANCE] ${substanceReport.summary}`);
 
+      /**
+       * 🕐 v3.8.479(4) — 근거와 본문의 시점이 어긋났는지 **측정**한다.
+       *
+       * 날짜 라벨(1·2번)은 모델에 대한 부탁이다. 안 지키거나 최신 자료가 애초에
+       * 없으면 그대로 나간다. 실측 사고가 그 모양이었다 — 본문은 2026년이라는데
+       * 근거는 전부 2024년 자료였다. 발행은 막지 않고 알린다.
+       */
+      try {
+        const { auditFreshness } = await import('../crawlers/freshness-audit');
+        const audit = auditFreshness(factEvidence.context || '', collectBodyHtml(allSectionsObj));
+        for (const warning of audit.warnings) {
+          onLog?.(`[PROGRESS] 74% - 🕐 ${warning}`);
+          console.warn(`[FRESHNESS] ${warning}`);
+        }
+      } catch (freshErr: any) {
+        console.warn('[FRESHNESS] 시점 감사 스킵:', String(freshErr?.message || freshErr).slice(0, 80));
+      }
+
       // v3.8.376: 자동 재생성 기본 OFF — 측정·경고만 하고 추가 LLM 호출은 하지 않는다.
       //   실측(2026-07-26, 유료 OpenAI 엔진 연속발행): 재생성이 매 편 발동해 편당 본문급 호출 +1,
       //   심지어 점수가 되레 하락(41→29)해 결과도 버려짐 = 비용 100% 낭비.

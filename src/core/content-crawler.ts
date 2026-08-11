@@ -829,9 +829,22 @@ ${contents.slice(0, 10).map((c, i) => `
 
         const data = await response.json();
         const contents: CrawledContent[] = [];
-        const items = data.items || [];
+        const simItems = data.items || [];
         let staleCount = 0;   // v3.8.479: 시점 경고를 붙인 자료 수
-        console.log(`[NAVER-DEBUG] ✅ 검색 결과: ${items.length}개 items 반환`);
+        console.log(`[NAVER-DEBUG] ✅ 검색 결과: ${simItems.length}개 items 반환`);
+
+        /**
+         * 🕐 v3.8.479 — 최신순 결과를 섞는다.
+         *
+         * sort=sim 단독이면 **글이 가장 많이 쓰인 연도**가 상위를 독점한다.
+         * 지원사업은 첫 시행 연도에 글이 몰리므로, 유사도만 보면 몇 년 전 공고가
+         * 재료 전부가 된다(실측: 2026 글에 2024 조건이 섞여 나갔다).
+         * 날짜 라벨(위)은 "이건 오래됐다"고 알려줄 뿐, **최신 자료가 아예 없으면**
+         * 모델이 참고할 게 없다. 그래서 최신순 결과를 직접 확보한다.
+         */
+        const items = await this.mergeRecentBlogItems(
+          simItems, encodedQuery, naverClientId, naverClientSecret, maxResults,
+        );
 
         for (const item of items) {
           // v3.8.330: 각 URL fetch 실패해도 API description을 그대로 사용 (핵심 개선)
@@ -909,6 +922,64 @@ ${contents.slice(0, 10).map((c, i) => `
       console.error('[NAVER] 네이버 API 크롤링 실패:', error);
       return [];
     }
+  }
+
+  /**
+   * v3.8.479 — 유사도순 결과에 **최신순 결과를 섞는다.**
+   *
+   * 배분은 최신 쪽에 하나 더 준다(5건이면 최신 3 · 유사 2). 절반씩이 아닌 이유는,
+   * 제도 글에서 **틀린 정보의 비용이 관련성 저하보다 크기** 때문이다.
+   * 순서도 최신이 앞이다 — 프롬프트 재료가 12,000자에서 잘릴 때 살아남아야 할 쪽이다.
+   *
+   * 본문을 받아올 대상 수(maxResults)는 그대로라 수집 시간이 늘지 않는다.
+   * 최신순 호출이 실패하면 유사도 결과를 그대로 쓴다 — 지금까지의 동작과 같다.
+   */
+  private async mergeRecentBlogItems(
+    simItems: any[],
+    encodedQuery: string,
+    naverClientId: string,
+    naverClientSecret: string,
+    maxResults: number,
+  ): Promise<any[]> {
+    const sim = Array.isArray(simItems) ? simItems : [];
+    const recentQuota = Math.min(sim.length > 0 ? Math.ceil(maxResults / 2) : maxResults, maxResults);
+
+    let recent: any[] = [];
+    try {
+      const url = `https://openapi.naver.com/v1/search/blog.json?query=${encodedQuery}&display=${maxResults}&sort=date`;
+      const response = await fetch(url, {
+        headers: { 'X-Naver-Client-Id': naverClientId, 'X-Naver-Client-Secret': naverClientSecret },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        recent = Array.isArray(data?.items) ? data.items : [];
+      }
+    } catch (e: any) {
+      console.warn('[NAVER] 최신순 보강 실패 (유사도 결과만 사용):', String(e?.message || e).slice(0, 60));
+    }
+
+    if (recent.length === 0) return sim.slice(0, maxResults);
+
+    const seen = new Set<string>();
+    const merged: any[] = [];
+    const take = (list: any[], limit: number) => {
+      for (const item of list) {
+        if (merged.length >= maxResults || limit <= 0) break;
+        const key = String(item?.link || '').trim();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        merged.push(item);
+        limit -= 1;
+      }
+    };
+
+    take(recent, recentQuota);        // 최신을 앞에
+    take(sim, maxResults);            // 남는 자리는 유사도로
+    take(recent, maxResults);         // 유사도가 모자라면 최신으로 마저 채운다
+
+    console.log(`[NAVER] 🕐 최신순 ${recentQuota}건 + 유사도 = 총 ${merged.length}건 (오래된 글 독점 방지)`);
+    return merged;
   }
 
   /**
