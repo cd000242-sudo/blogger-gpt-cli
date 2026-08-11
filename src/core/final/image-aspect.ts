@@ -61,6 +61,49 @@ export function computePaddedCanvas(
 }
 
 /**
+ * 헤더 바이트만 읽어 가로세로를 구한다. **sharp 를 부르지 않는다.**
+ *
+ * v3.8.474 — 이게 없으면 이미지 한 장마다 sharp 디코드가 한 번씩 붙는다.
+ * 대부분의 호출은 "이미 16:9라 할 일 없음" 이거나 "이미지가 아님" 이라
+ * 그 디코드는 통째로 낭비다(imageDispatcher.resilience 1000회 테스트가
+ * 60초 예산을 넘겨 이걸 잡아냈다). 헤더로 먼저 걸러 실제로 넓혀야 할 때만 sharp 를 깨운다.
+ *
+ * 못 읽으면 null — 손대지 않는다. 진짜 PNG/JPEG 는 항상 여기서 읽힌다.
+ */
+export function readImageSize(buf: Buffer): { width: number; height: number } | null {
+  if (!buf || buf.length < 24) return null;
+
+  // PNG — 8바이트 시그니처 + IHDR(width/height 가 16..24)
+  if (buf.readUInt32BE(0) === 0x89504e47 && buf.readUInt32BE(4) === 0x0d0a1a0a) {
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+  }
+
+  // GIF — 애니메이션일 수 있으니 크기만 읽고 판단은 호출부에 맡긴다
+  if (buf.subarray(0, 3).toString('ascii') === 'GIF') {
+    return { width: buf.readUInt16LE(6), height: buf.readUInt16LE(8) };
+  }
+
+  // JPEG — SOF 세그먼트에서 크기를 읽는다
+  if (buf[0] === 0xff && buf[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < buf.length) {
+      if (buf[offset] !== 0xff) { offset += 1; continue; }
+      const marker = buf[offset + 1]!;
+      // SOF0~SOF15 (DHT 0xC4 · JPG 0xC8 · DAC 0xCC 제외) 에만 크기가 들어 있다
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { height: buf.readUInt16BE(offset + 5), width: buf.readUInt16BE(offset + 7) };
+      }
+      const segmentLength = buf.readUInt16BE(offset + 2);
+      if (segmentLength < 2) return null;
+      offset += 2 + segmentLength;
+    }
+    return null;
+  }
+
+  return null;
+}
+
+/**
  * 이미지 버퍼를 목표 비율 캔버스에 **잘라내지 않고** 담는다.
  * 이미 목표 비율이거나 처리에 실패하면 null 을 돌려준다(호출부는 원본을 쓴다).
  */
@@ -68,8 +111,15 @@ export async function padBufferToAspect(
   input: Buffer,
   targetRatio: number,
 ): Promise<{ buffer: Buffer; mime: string; canvasWidth: number; canvasHeight: number } | null> {
+  if (!input || input.length === 0) return null;
+
+  // 값싼 선별이 먼저다 — 넓힐 필요가 없으면 sharp 를 아예 안 부른다.
+  const header = readImageSize(input);
+  if (!header) return null;
+  if (!computePaddedCanvas(header.width, header.height, targetRatio)) return null;
+
   const sharp = loadSharp();
-  if (!sharp || !input || input.length === 0) return null;
+  if (!sharp) return null;
 
   try {
     const meta = await sharp(input).metadata();

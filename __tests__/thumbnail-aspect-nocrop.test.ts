@@ -7,7 +7,12 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-import { computePaddedCanvas, PUBLISH_ASPECT_RATIO } from '../src/core/final/image-aspect';
+import {
+  computePaddedCanvas,
+  readImageSize,
+  padBufferToAspect,
+  PUBLISH_ASPECT_RATIO,
+} from '../src/core/final/image-aspect';
 
 describe('computePaddedCanvas — 자르지 않고 넓힌다', () => {
   it('GPT Image 의 1536x1024(3:2) 를 16:9 캔버스로 넓힌다', () => {
@@ -38,6 +43,41 @@ describe('computePaddedCanvas — 자르지 않고 넓힌다', () => {
     expect(computePaddedCanvas(0, 1024, PUBLISH_ASPECT_RATIO)).toBeNull();
     expect(computePaddedCanvas(1536, 0, PUBLISH_ASPECT_RATIO)).toBeNull();
     expect(computePaddedCanvas(NaN, 1024, PUBLISH_ASPECT_RATIO)).toBeNull();
+  });
+});
+
+describe('readImageSize — sharp 없이 헤더만 읽는다 (v3.8.474 성능 회귀 잠금)', () => {
+  /** 1536x1024 PNG 헤더 (시그니처 + IHDR) */
+  const pngHeader = (w: number, h: number): Buffer => {
+    const buf = Buffer.alloc(32);
+    buf.writeUInt32BE(0x89504e47, 0);
+    buf.writeUInt32BE(0x0d0a1a0a, 4);
+    buf.writeUInt32BE(w, 16);
+    buf.writeUInt32BE(h, 20);
+    return buf;
+  };
+
+  it('PNG 헤더에서 크기를 읽는다', () => {
+    expect(readImageSize(pngHeader(1536, 1024))).toEqual({ width: 1536, height: 1024 });
+  });
+
+  it('이미지가 아니면 null — 여기서 끊겨야 sharp 가 안 깨어난다', () => {
+    expect(readImageSize(Buffer.from('not an image at all, just some bytes here'))).toBeNull();
+    expect(readImageSize(Buffer.alloc(4))).toBeNull();
+  });
+
+  it('가짜 버퍼는 sharp 를 부르지 않고 즉시 null (1000회 몬테카를로가 타임아웃하던 원인)', async () => {
+    const junk = Buffer.from('x'.repeat(4096));
+    const started = Date.now();
+    for (let i = 0; i < 200; i++) {
+      expect(await padBufferToAspect(junk, PUBLISH_ASPECT_RATIO)).toBeNull();
+    }
+    // sharp 를 200번 깨웠다면 초 단위로 걸린다. 헤더 선별이면 밀리초다.
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('이미 16:9 인 PNG 도 sharp 없이 걸러진다', async () => {
+    expect(await padBufferToAspect(pngHeader(1920, 1080), PUBLISH_ASPECT_RATIO)).toBeNull();
   });
 });
 

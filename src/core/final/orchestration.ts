@@ -2079,7 +2079,20 @@ ${quoted}
       officialBlock,
       productData: (payload as any).coupangEnrichment || (payload as any).affiliateProducts,
     });
-    if (groundingReference.length > (factEvidence.context || '').length) {
+    /**
+     * v3.8.474 — 장부가 소스를 이미 품었는지 기록한다.
+     *
+     * buildGroundingReference 는 factContext + officialBlock + crawledPosts 전문을
+     * 하나로 합친다. 그런데 아래 조립에서 officialBlock 과 contents(= crawledPosts
+     * 본문)를 **또** 붙여 왔다. 즉 같은 글자를 두 번 보내고 두 번 과금했다.
+     * 12,000자 상한이 중복분을 잘라내 눈에 안 띄었을 뿐이다.
+     *
+     * 재료가 얇을 때는 손해가 안 보였지만(상한에 안 닿음), v3.8.473 으로 본문이
+     * 들어오기 시작하면 중복이 상한을 그대로 먹어 **정작 볼 자료가 밀려난다.**
+     * 사용자 요구는 "비용 최소" 이므로 중복을 없애 같은 예산에 더 많은 근거를 넣는다.
+     */
+    const ledgerCoversSources = groundingReference.length > (factEvidence.context || '').length;
+    if (ledgerCoversSources) {
       factEvidence = {
         ...factEvidence,
         context: groundingReference,
@@ -2094,10 +2107,15 @@ ${quoted}
     // Always inject the hard evidence policy. A failed search must never mean unrestricted generation.
     factEnrichedContents = [
       buildFactIntegrityPrompt(keyword, factEvidence),
-      ...(officialBlock ? [officialBlock] : []),
+      // 장부에 이미 들어간 것은 다시 넣지 않는다 (장부가 소스를 못 품은 경우에만 붙인다)
+      ...(officialBlock && !ledgerCoversSources ? [officialBlock] : []),
       ...(factEvidence.context ? [`[FACT EVIDENCE - ${factEvidence.provider}]\n${factEvidence.context}`] : []),
-      ...contents,
+      ...(ledgerCoversSources ? [] : contents),
     ];
+    if (ledgerCoversSources) {
+      const savedChars = officialBlock.length + contents.join('\n\n').length;
+      onLog?.(`[PROGRESS] 44% - 💸 프롬프트 중복 제거: ${savedChars.toLocaleString()}자 (같은 자료를 두 번 보내지 않습니다)`);
+    }
 
     // 섹션 프롬프트 블록은 "참고 데이터"가 아닌 별도 지시로 전달
     const draftContent = (payload as any).draftContent || '';
