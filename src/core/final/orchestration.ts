@@ -970,15 +970,25 @@ export async function generateUltimateMaxModeArticleFinal(
         //   사용자 요구: "궁금한 정보·모르는 정보·소제목·키워드에 딱 맞는 궁금증 해결"
         //   지식인 = 실제 유저 질문 (궁금증 소스), Suggest = 실제 검색 키워드, News = 최신 트렌드
         if (naverClientId && naverClientSecret) {
-          onLog?.(`   📘 네이버 블로그 + 지식인 + 뉴스 + Google Suggest 병렬 검색 중...`);
-          const [blogResults, kinResults, newsResults, suggestResults] = await Promise.all([
+          /**
+           * v3.8.476 — 웹문서(webkr)를 추가한다.
+           *   지금까지 blog·kin·news 셋만 썼다. webkr 은 블로그가 아닌 문서를 주는데,
+           *   주제가 정책이면 기관 공식 페이지가 그대로 올라온다(실측: "청년 월세 지원"
+           *   10건 중 10건이 bokjiro.go.kr·myhome.go.kr). CSE 를 대신하는 자리다 —
+           *   CSE 는 신규 발급이 막혔고 2027-01-01 에 종료된다.
+           *   같은 네이버 키를 쓰므로 추가 발급·과금이 없다.
+           */
+          onLog?.(`   📘 네이버 블로그 + 지식인 + 뉴스 + 웹문서 + Google Suggest 병렬 검색 중...`);
+          const [blogResults, kinResults, newsResults, webResults, suggestResults] = await Promise.all([
             crawler.crawlFromNaverAPI(crawlerConfig).catch((e: any) => { console.warn('[CRAWL] 블로그 실패:', e.message); return []; }),
             crawler.crawlFromNaverKin(crawlerConfig).catch((e: any) => { console.warn('[CRAWL] 지식인 실패:', e.message); return []; }),
             crawler.crawlFromNaverNews(crawlerConfig).catch((e: any) => { console.warn('[CRAWL] 뉴스 실패:', e.message); return []; }),
+            crawler.crawlFromNaverWeb(crawlerConfig).catch((e: any) => { console.warn('[CRAWL] 웹문서 실패:', e.message); return []; }),
             crawler.crawlGoogleSuggest(crawlerConfig).catch((e: any) => { console.warn('[CRAWL] Suggest 실패:', e.message); return []; }),
           ]);
-          crawledFromAPI.push(...blogResults, ...kinResults, ...newsResults, ...suggestResults);
-          onLog?.(`   ✅ 블로그 ${blogResults.length} + 지식인 ${kinResults.length} + 뉴스 ${newsResults.length} + 자동완성 ${suggestResults.length} = 총 ${crawledFromAPI.length}개 (궁금증·검색의도 파악)`);
+          crawledFromAPI.push(...blogResults, ...kinResults, ...newsResults, ...webResults, ...suggestResults);
+          const officialWeb = webResults.filter((r: any) => String(r?.source) === 'naver-web-official').length;
+          onLog?.(`   ✅ 블로그 ${blogResults.length} + 지식인 ${kinResults.length} + 뉴스 ${newsResults.length} + 웹문서 ${webResults.length}(기관 ${officialWeb}) + 자동완성 ${suggestResults.length} = 총 ${crawledFromAPI.length}개`);
         } else {
           // 네이버 키 없어도 Google Suggest는 무료 → 실행
           const suggestOnly = await crawler.crawlGoogleSuggest(crawlerConfig).catch(() => []);
@@ -2057,6 +2067,29 @@ ${quoted}
       }
     } catch (officialErr: any) {
       console.warn('[OFFICIAL] 공공출처 수집 스킵:', String(officialErr?.message || officialErr).slice(0, 80));
+    }
+
+    /**
+     * v3.8.476 — CSE 가 없거나 빈손이면 웹문서(webkr) 기관 결과로 채운다.
+     *
+     * CSE 는 신규 발급이 막혔고 2027-01-01 에 종료된다. 그때 공공기관 근거가
+     * 통째로 사라지면 안 된다. webkr 은 이미 쓰는 네이버 키 그대로다.
+     * 기관 결과가 없거나(정부 주제가 아님) 수치 문장이 없으면 빈 문자열 —
+     * 지금까지처럼 아무것도 추가되지 않는다(악화 없음).
+     */
+    if (!officialBlock && contentMode !== 'shopping') {
+      try {
+        const { buildOfficialSourcesFromWeb } = await import('../crawlers/official-from-web');
+        const webSources = buildOfficialSourcesFromWeb(crawledPosts as any);
+        if (webSources.length > 0) {
+          officialBlock = buildOfficialSourceBlock(webSources);
+          if (officialBlock) {
+            onLog?.(`[PROGRESS] 43% - 🏛️ 기관 근거 ${webSources.length}곳 확보 (네이버 웹문서 — CSE 불필요)`);
+          }
+        }
+      } catch (webOfficialErr: any) {
+        console.warn('[OFFICIAL] 웹문서 기관 근거 스킵:', String(webOfficialErr?.message || webOfficialErr).slice(0, 80));
+      }
     }
 
     /**

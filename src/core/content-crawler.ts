@@ -6,6 +6,7 @@ import OpenAI from 'openai';
 import { callGeminiWithRetry } from './final/gemini-engine';
 import pLimit from 'p-limit';
 import { MassCrawlingSystem, MassCrawledItem, MassCrawlingOptions } from './mass-crawler';
+import { isOfficialDomain } from './crawlers/official-domain';
 
 export interface CrawledContent {
   title: string;
@@ -1125,6 +1126,75 @@ ${contents.slice(0, 10).map((c, i) => `
       return contents;
     } catch (e: any) {
       console.warn('[NAVER-NEWS] 실패:', e.message);
+      return [];
+    }
+  }
+
+  /**
+   * v3.8.476 — 네이버 웹문서(webkr) 검색.
+   *
+   * 지금까지 blog · kin · news 세 개만 썼다. webkr 은 블로그가 아닌 문서를 주는데,
+   * 주제가 정책이면 **기관 공식 페이지**가 그대로 올라온다.
+   *
+   * 실측 2026-08-11 (display=10):
+   *   "청년 월세 지원"  10건 중 10건이 기관 도메인 (bokjiro.go.kr · myhome.go.kr)
+   *   "전기차 보조금"   10건 중  7건이 기관 도메인 (ev.or.kr · easylaw.go.kr)
+   *   "치아교정 비용"   10건 중  0건 (정부 주제가 아니니 정상 — 서울아산병원 등)
+   *
+   * 이게 CSE 를 대신한다. CSE 는 신규 발급이 막혔고 2027-01-01 에 종료된다.
+   * webkr 은 이미 쓰는 네이버 검색 키 그대로라 추가 발급이 없다.
+   *
+   * 본문 확보는 **되면 보너스**다 — 기관 사이트는 SPA(bokjiro·ev.or.kr, fetch 평문 0~3자)
+   * 이거나 컨테이너가 사이트 고유(easylaw `ovDivbox1`)라 범용 추출이 대체로 실패한다.
+   * 실패하면 검색 API 가 준 요약(68~126자)을 쓴다 — 그것도 기관이 직접 쓴 문장이다.
+   */
+  async crawlFromNaverWeb(config: ContentCrawlerConfig): Promise<CrawledContent[]> {
+    const { topic, maxResults = 10, naverClientId, naverClientSecret } = config;
+    if (!naverClientId || !naverClientSecret) return [];
+    try {
+      const apiUrl = `https://openapi.naver.com/v1/search/webkr.json?query=${encodeURIComponent(topic)}&display=${maxResults}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      console.log(`[NAVER-WEB] "${topic}" 웹문서 검색...`);
+      const response = await fetch(apiUrl, {
+        signal: controller.signal,
+        headers: { 'X-Naver-Client-Id': naverClientId, 'X-Naver-Client-Secret': naverClientSecret },
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) {
+        console.warn(`[NAVER-WEB] API 실패: ${response.status}`);
+        return [];
+      }
+      const data = await response.json();
+      const items = data.items || [];
+      const contents: CrawledContent[] = [];
+      for (const item of items) {
+        const title = String(item.title || '').replace(/<\/?[^>]+>/g, '').trim();
+        const desc = String(item.description || '').replace(/<\/?[^>]+>/g, '').trim();
+        const link = String(item.link || '').trim();
+        if (!title && !desc) continue;
+        contents.push({
+          title: title || topic,
+          url: link,
+          content: desc || title,
+          subheadings: [],
+          source: isOfficialDomain(link) ? 'naver-web-official' : 'naver-web',
+          originalLink: link,
+        } as any);
+      }
+      // 기관 문서를 앞에 둔다 — 프롬프트 예산이 잘릴 때 살아남아야 한다
+      contents.sort((a, b) =>
+        (String((b as any).source) === 'naver-web-official' ? 1 : 0)
+        - (String((a as any).source) === 'naver-web-official' ? 1 : 0));
+
+      // 본문은 되면 보너스. 실패해도 요약을 그대로 쓴다.
+      await this.enrichNewsWithBodies(contents.slice(0, 3));
+
+      const officialCount = contents.filter((c) => String((c as any).source) === 'naver-web-official').length;
+      console.log(`[NAVER-WEB] ✅ ${contents.length}개 웹문서 수집 (기관 도메인 ${officialCount}건)`);
+      return contents;
+    } catch (e: any) {
+      console.warn('[NAVER-WEB] 실패:', e.message);
       return [];
     }
   }
