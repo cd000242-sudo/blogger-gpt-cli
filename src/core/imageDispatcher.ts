@@ -1167,7 +1167,17 @@ async function _tryEngineInternal(
           ...(gptRefs?.length ? { referenceImages: gptRefs } : {}),
         });
         if (result.ok) {
-          return { ok: true, dataUrl: result.dataUrl, source: `${g.label} · ${gptQuality}` };
+          /**
+           * 🖼️ v3.8.472 — OpenAI 는 16:9 를 못 만든다. landscape 최대치가 1536x1024(3:2)다.
+           *   발행 경로(본문 썸네일 상자·워드프레스 주입 CSS·테마 대표 이미지)는 전부
+           *   16:9 하드 크롭이라 3:2 를 그대로 넘기면 **위아래가 15.6% 잘린다.**
+           *   여기서 캔버스만 넓혀 진짜 16:9 로 만들어 넘긴다 — 원본은 안 자른다.
+           *   실패하면 원본 그대로 (지금까지의 동작과 같다).
+           */
+          const { padDataUrlToAspect, PUBLISH_ASPECT_RATIO } = await import('./final/image-aspect');
+          const framed = await padDataUrlToAspect(result.dataUrl, PUBLISH_ASPECT_RATIO, g.label);
+          if (framed !== result.dataUrl) onLog?.(`   🖼️ ${g.label} 16:9 정규화 (잘림 방지)`);
+          return { ok: true, dataUrl: framed, source: `${g.label} · ${gptQuality}` };
         }
         detail = (result as any).error || detail;
         console.log(`[DISPATCH] ⚠️ ${g.label} 실패: ${detail}`);

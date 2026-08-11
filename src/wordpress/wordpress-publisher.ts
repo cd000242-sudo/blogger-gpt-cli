@@ -944,7 +944,6 @@ export function applyWordPressInlineStyles(html: string): string {
     border-radius: 10px !important;
     background: #f8fafc !important;
   }
-  .wp-styled-content .bgpt-thumbnail-box img,
   .wp-styled-content .section-image-frame img {
     display: block !important;
     width: 100% !important;
@@ -953,6 +952,20 @@ export function applyWordPressInlineStyles(html: string): string {
     aspect-ratio: 16 / 9 !important;
     object-fit: cover !important;
     margin: 0 !important;
+    border-radius: 0 !important;
+  }
+  /* v3.8.472 — 대표 이미지(썸네일)는 절대 자르지 않는다.
+     orchestration 이 인라인으로 준 object-fit:contain 을 워드프레스가 REST 저장에서
+     지워버려, 여기 !important cover 가 다시 씌워졌다. 수집한 세로 상품 사진은 물론
+     16:9 가 아닌 AI 썸네일(OpenAI 는 3:2 가 최대)까지 위아래가 잘려 나갔다.
+     16:9 인 이미지에는 contain 과 cover 가 같은 결과라 손해가 없다. */
+  .wp-styled-content .bgpt-thumbnail-box img {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
+    margin: 0 auto !important;
     border-radius: 0 !important;
   }
   .wp-styled-content figure.section-image > img {
