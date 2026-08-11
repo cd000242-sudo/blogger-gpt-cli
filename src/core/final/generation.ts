@@ -401,6 +401,16 @@ export async function generateH1TitleFinal(
    * 사람의 진짜 질문만큼 좋은 제목 재료는 없다.
    */
   demandSignals?: { userQuestions?: string[]; searchQueries?: string[] },
+  /**
+   * 🔎 v3.8.478 — 디스커버 모드는 제목 규칙이 다르다.
+   *
+   * 검색은 쿼리가 있어서 키워드를 앞에 두는 게 유리하지만, 디스커버 피드에는
+   * 쿼리가 없다. 게다가 공식 정책이 클릭베이트·선정성·핵심 감추기를 감점한다
+   * ("Avoid clickbait…by withholding crucial information", "Avoid sensationalism").
+   * 기본 아키타입 중 '놓치면 손실'형은 그 경계에 붙어 있어서, 디스커버 모드에서는
+   * 아키타입을 통째로 전용 지시문으로 갈아끼운다.
+   */
+  contentMode?: string,
 ): Promise<string> {
   // 🔥 현재 날짜 주입
   const currentYear = new Date().getFullYear();
@@ -448,7 +458,12 @@ export async function generateH1TitleFinal(
   // 랜덤으로 3개 아키타입 선택
   const shuffled = [...titleArchetypes].sort(() => Math.random() - 0.5);
   const selected = shuffled.slice(0, 3);
-  const archetypeGuide = selected.map((a, i) => `${i + 1}. **${a.name}형**: ${a.hint}`).join('\n');
+  // v3.8.478: 디스커버 모드는 아키타입 대신 전용 지시문을 쓴다 (위 contentMode 주석 참고)
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const discoverMode = require('./discover-mode') as typeof import('./discover-mode');
+  const archetypeGuide = discoverMode.isDiscoverMode(contentMode)
+    ? discoverMode.buildDiscoverTitleDirective(currentYear)
+    : selected.map((a, i) => `${i + 1}. **${a.name}형**: ${a.hint}`).join('\n');
 
   const todayH1 = new Date().toISOString().slice(0, 10);
   const prompt = `당신은 대한민국 최고의 바이럴 마케터입니다.
@@ -1408,6 +1423,19 @@ export async function generateAllSectionsFinal(
 - 장단점 정리 표 (최소 1개)
 ` : '';
 
+  /**
+   * 🔎 v3.8.478 — 구글 디스커버 모드.
+   *
+   * 검색과 최적화 방향이 갈리는 지점이 있어서 별도 모드로 둔다 —
+   * 디스커버에는 쿼리가 없으므로 키워드 앞배치가 이득이 없고, 공식 정책이
+   * 클릭베이트·선정성·핵심 감추기를 명시적으로 감점한다.
+   * 규칙 원문과 근거는 discover-mode.ts 주석에 있다.
+   */
+  const discoverModePromptBlock = contentMode === 'discover'
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    ? (require('./discover-mode') as typeof import('./discover-mode')).buildDiscoverBodyBlock(new Date().getFullYear())
+    : '';
+
   // 🔄 페러프레이징 모드 전용 프롬프트 블록
   const draftReference = contentMode === 'paraphrasing' && draftContent
     ? `\n===== 원본 초안 (페러프레이징 대상) =====\n${draftContent.slice(0, 8000)}\n=====\n`
@@ -1485,7 +1513,7 @@ ${contentMode === 'paraphrasing' && draftContent ? '' : draftReference}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔴🔴🔴 **[모드별 최우선 지시]** — 아래 모드 규칙이 이후 모든 일반 지시보다 우선입니다
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${externalModePromptBlock}${internalModePromptBlock}${adsenseModePromptBlock}${shoppingModePromptBlock}${paraphrasingModePromptBlock}${sectionGuideBlock || ''}
+${externalModePromptBlock}${internalModePromptBlock}${adsenseModePromptBlock}${shoppingModePromptBlock}${paraphrasingModePromptBlock}${discoverModePromptBlock}${sectionGuideBlock || ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}
 
@@ -1494,6 +1522,7 @@ ${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}
   : contentMode === 'shopping' ? '쇼핑 전환'
   : contentMode === 'internal' ? '내부 일관성 정보 전달'
   : contentMode === 'paraphrasing' ? '페러프레이징 재구성'
+  : contentMode === 'discover' ? '구글 디스커버 피드'
   : '검색 의도 기반 SEO'
 } 블로그 완벽 작성 가이드 (일반 규칙)] 🔴🔴🔴
 

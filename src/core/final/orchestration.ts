@@ -1076,6 +1076,13 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog?.('[PROGRESS] 34% - ⚠️ 검색자 질문 데이터 없음 — 경쟁 글 소제목 기준으로 생성합니다');
     }
 
+    /**
+     * 🔥 contentMode 추출.
+     * v3.8.478: H2 직전에서 **H1 앞으로 올렸다** — 디스커버 모드는 제목 규칙부터
+     * 달라서 H1 생성 시점에 이미 알고 있어야 한다. 값과 기본값은 그대로다.
+     */
+    const contentMode = (payload as any).contentMode || 'external';
+
     // 2. H1 생성 — 🔥 키워드 제목 옵션 체크박스 반영
     // 🛡️ 제목 연도 복구기 — 단독 토큰 '년'에만 currentYear 주입.
     //    단독 토큰 = (문장 시작 또는 공백) + '년' + (공백 또는 문장 끝)
@@ -1190,8 +1197,25 @@ export async function generateUltimateMaxModeArticleFinal(
         shoppingTitleDirective,
         // v3.8.455: 검색자 실제 질문을 제목에도 넘긴다 — 예전엔 H2 에만 갔다
         demandSignals,
+        // v3.8.478: 디스커버 모드는 제목 규칙이 다르다 (쿼리 없음 + 클릭베이트 감점)
+        contentMode,
       );
       h1 = repairTitleYear(h1);
+
+      /**
+       * 🔎 v3.8.478 — 디스커버 정책 위반어 검사.
+       *   발행은 막지 않는다(이 앱 원칙). 다만 조용히 넘기면 왜 노출이 안 되는지
+       *   알 길이 없으므로 로그로 남긴다.
+       */
+      try {
+        const { isDiscoverMode, findDiscoverTitleViolations } = await import('./discover-mode');
+        if (isDiscoverMode(contentMode)) {
+          const violations = findDiscoverTitleViolations(h1);
+          if (violations.length > 0) {
+            onLog?.(`[PROGRESS] 26% - 🔎 디스커버: 제목에 정책상 감점 표현이 있습니다 — ${violations.join(', ')} (발행은 계속합니다)`);
+          }
+        }
+      } catch { /* 진단이 발행을 막으면 안 된다 */ }
 
       // 📌 키워드를 제목 맨앞에 배치
       if (payload.keywordFront) {
@@ -1219,9 +1243,6 @@ export async function generateUltimateMaxModeArticleFinal(
         onLog?.(`[PROGRESS] 30% - ✅ 제목 완료: "${h1}"`);
       }
     };
-
-    // 🔥 contentMode를 H2 생성 전에 추출 (내부 일관성 모드 지원)
-    const contentMode = (payload as any).contentMode || 'external';
 
     // 3. H2 생성 — 모드 디스패처 우선, 없으면 기존 하드코딩 폴백
     /**
