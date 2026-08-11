@@ -1441,11 +1441,20 @@ ${contents.slice(0, 10).map((c, i) => `
       let content = '';
 
       if (platform === 'naver') {
-        // 네이버 블로그 특화 추출
-        const contentMatch = html.match(/<div[^>]*class="[^"]*post-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-          html.match(/<div[^>]*id="postViewArea"[^>]*>([\s\S]*?)<\/div>/i);
-        if (contentMatch && contentMatch[1]) {
-          content = contentMatch[1];
+        /**
+         * v3.8.473 — 네이버는 스마트에디터 ONE(`se-main-container`) 이다.
+         *   여기서 보던 `post-content`/`postViewArea` 는 각각 존재하지 않는 이름과
+         *   구버전 SE2 전용이라 라이브 글 3/3 에서 **0자**가 나왔다(실측 2026-08-11).
+         *   게다가 비탐욕 `</div>` 매칭이라 선택자를 고쳐도 첫 중첩에서 끊겼다.
+         *   두 문제를 함께 고친 전용 추출기로 옮긴다. 못 찾으면 아래 공통 경로처럼
+         *   빈 문자열이 되어 호출부가 API description 으로 폴백한다(후퇴 없음).
+         */
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { extractNaverPostBody } = require('./crawlers/naver-post-body');
+        const body = extractNaverPostBody(html);
+        if (body) {
+          console.log(`[NAVER] 📄 본문 추출 ${body.rawLength}자 → ${body.text.length}자 사용`);
+          content = body.text;
         }
       } else {
         // 일반적인 블로그 추출
