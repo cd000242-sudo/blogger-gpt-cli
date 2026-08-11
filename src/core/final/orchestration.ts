@@ -1025,6 +1025,29 @@ export async function generateUltimateMaxModeArticleFinal(
         //   기존에는 여기서 전부 'external'로 덮어써서 content-crawler가 붙인 'naver-kin'/'google-suggest'
         //   태그가 사라졌고, 그 결과 아래 bySource()가 항상 []를 반환 → v3.8.372/373의 demandSignals가
         //   한 번도 채워진 적이 없었다(항상 "검색자 질문 데이터 없음" 로그).
+        /**
+         * 🔁 v3.8.481 — 내가 쓴 글은 재료에서 뺀다.
+         *
+         * 실측: 사고를 낸 키워드의 최신순 1위가 "…소득 무관 월 25만원…" 이었는데,
+         * "소득 무관" 은 팩트체크에서 2024년 표현이라고 지적된 바로 그 문구다.
+         * 이 도구로 쓴 글이 다음 글의 근거가 되면 틀린 정보가 스스로를 강화한다.
+         * v3.8.480 으로 최신순을 섞으면서 이 위험이 오히려 커졌다 —
+         * 방금 쓴 글이 최신순 1위로 들어오기 때문이다.
+         */
+        try {
+          const { collectOwnSources, filterOwnSources } = await import('../crawlers/own-source-filter');
+          const ownSources = collectOwnSources(loadEnvFromFile());
+          if (ownSources.length > 0) {
+            const filtered = filterOwnSources(crawledFromAPI as Array<{ url?: string }>, ownSources);
+            if (filtered.removed > 0) {
+              crawledFromAPI = filtered.kept as any[];
+              onLog?.(`   🔁 내가 쓴 글 ${filtered.removed}건 제외 (자기 글을 근거로 다시 쓰지 않도록)`);
+            }
+          }
+        } catch (ownErr: any) {
+          console.warn('[CRAWL] 자기 글 필터 스킵:', String(ownErr?.message || ownErr).slice(0, 80));
+        }
+
         if (crawledFromAPI.length > 0) {
           for (const item of crawledFromAPI) {
             crawledPosts.push({
