@@ -2093,6 +2093,12 @@ ${quoted}
     //   generation.ts 가 crawledContents 를 12,000자에서 자르므로 반드시 앞쪽에 둔다.
     //   실패하면 빈 문자열 → 아무것도 추가되지 않는다(악화 없음, 발행도 안 막는다).
     let officialBlock = '';
+    /**
+     * v3.8.491 - 수집한 기관 페이지를 CTA 추론 재료로도 쓴다.
+     * 예전에는 프롬프트 문장(officialBlock)만 만들고 목록 자체는 버렸다.
+     * 그래서 CTA 는 모델의 기억에 의존해 옛 주소를 짚곤 했다.
+     */
+    let officialSources: Array<{ agency?: string; url?: string }> = [];
     try {
       const envForOfficial = loadEnvFromFile();
       const cseKey = envForOfficial['googleCseKey'] || envForOfficial['GOOGLE_CSE_KEY']
@@ -2107,6 +2113,7 @@ ${quoted}
       if (cseKey && cseCx && contentMode !== 'shopping') {
         onLog?.('[PROGRESS] 43% - 🏛️ 공공기관 확인 근거 수집 중...');
         const sources = await collectOfficialSources(keyword, cseKey, cseCx, onLog);
+        officialSources = sources;
         officialBlock = buildOfficialSourceBlock(sources);
         if (officialBlock) {
           onLog?.(`[PROGRESS] 43% - 🏛️ 기관 근거 ${sources.length}곳 확보 → 프롬프트 주입`);
@@ -2854,7 +2861,7 @@ ${quoted}
 
     // 수동 CTA가 없으면 자동 생성
     if (ctas.length === 0) {
-      ctas = await generateCTAsFinal(keyword, crawledPosts, sections, contentMode);
+      ctas = await generateCTAsFinal(keyword, crawledPosts, sections, contentMode, officialSources);
     }
 
     // CTA 배치

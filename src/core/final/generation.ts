@@ -187,6 +187,7 @@ import { validateCtaUrl } from '../../cta/validate-cta-url';
 import { callGeminiWithGrounding, callGeminiWithRetry } from './gemini-engine';
 import { detectActionIntent, buildActionQuery } from '../../cta/action-intent';
 import { judgeCtaHost, describeHostVerdict } from '../../cta/host-trust';
+import { buildOfficialCtaCandidates } from '../../cta/inference-candidates';
 import { dropEmptyFaqItems } from './empty-block-guard';
 import { buildArchetypeGuide } from './title-archetypes';
 import { FinalCrawledPost, FinalTableData, FinalCTAData, FAQItem } from './types';
@@ -2520,7 +2521,12 @@ export async function generateCTAsFinal(
   keyword: string,
   crawledPosts: FinalCrawledPost[],
   generatedSections?: any[],
-  contentMode?: string
+  contentMode?: string,
+  /**
+   * v3.8.491 - 글을 쓰면서 실제로 확인한 기관 페이지들.
+   * 이걸 주면 모델이 기억으로 주소를 짐작하지 않고 확인된 것 중에서 고른다.
+   */
+  officialSources?: Array<{ agency?: string; url?: string }>,
 ): Promise<FinalCTAData[]> {
   // 🛡️ 애드센스 모드: CTA 완전 차단
   if (contentMode === 'adsense') {
@@ -2604,9 +2610,10 @@ ${modeCtaHint}
 ✅ 좋은 CTA 예시 (모드별):
 - 쇼핑: "아이폰 16" → https://www.apple.com/kr/iphone-16 또는 쿠팡/네이버쇼핑 상품 페이지
 - SEO/정보: "청년도약계좌 신청" → https://www.kinfa.or.kr
-- 정보/예약: "KTX 예약" → https://www.letskorail.com
+- 정보/예약: "KTX 예약" → https://www.korail.com
 - 내부/정보: "국민연금 제도" → https://www.nps.or.kr (제도 설명 페이지)
 
+${buildOfficialCtaCandidates(officialSources || [])}
 📋 아래 JSON 형식으로 **정확히 1개** 출력:
 {
   "url": "검색에서 확인한 실제 URL (존재가 확인된 것만!)",
@@ -2658,7 +2665,20 @@ JSON만 출력:
         const isSearchPage = /search\.(naver|google|daum|bing)\.com|google\.com\/search|m\.search/i.test(ctaData.url);
         const isBlogPage = /blog\.naver|tistory|brunch|velog|medium\.com|blogspot|wordpress\.com/i.test(ctaData.url);
 
-        if (!isSearchPage && !isBlogPage) {
+        /**
+         * v3.8.491 — 여기가 비어 있던 구멍이었다.
+         *
+         * v3.8.490 에서 넣은 도메인 검증(judgeCtaHost)이 **CSE 폴백에만** 걸려 있었다.
+         * 정작 1순위인 이 AI 추론 경로는 "검색엔진·블로그인가" 와 "살아있는가" 만 봤다.
+         * 그래서 낯선 도메인도 살아있기만 하면 통과했다
+         * (사장님이 겪은 postmate.waffle-gl.org 가 이 경로로 나왔을 가능성이 크다).
+         */
+        const aiHostVerdict = judgeCtaHost(ctaData.url, keyword);
+        if (!aiHostVerdict.ok) {
+          console.warn(`[CTA] 🚫 AI 추론 주소 거절 — ${describeHostVerdict(aiHostVerdict)}: ${ctaData.url}`);
+        }
+
+        if (!isSearchPage && !isBlogPage && aiHostVerdict.ok) {
           // 🔀 하이브리드 검증: HTTP 1차 + (의심 시/엄격 모드) Perplexity AI 2차
           const isValid = await hybridValidateCta(ctaData.url, keyword, 5000, contentMode);
           if (isValid) {
