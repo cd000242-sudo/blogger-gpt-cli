@@ -2090,6 +2090,8 @@ export async function publishGeneratedContent(
           title,
           content: html,
           featuredImageUrl: thumbnailUrl, // 🔥 썸네일 주소 전달
+          // v3.8.490: 대표 이미지가 안 붙으면 조용히 넘어가지 않고 알린다
+          onLog: (msg: string) => { try { (onLog as any)?.(msg); } catch { console.log(msg); } },
           status,
           scheduleDate: scheduleDate ? scheduleDate.toISOString() : undefined,
           geminiKey: payload?.geminiKey || process.env['GEMINI_API_KEY'], // 🔥 AI SEO를 위한 키 전달

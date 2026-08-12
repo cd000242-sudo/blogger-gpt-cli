@@ -22,6 +22,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { blockBetween } from './helpers/source-block';
 import { detectActionIntent, buildActionQuery, ACTION_INTENTS } from '../src/cta/action-intent';
 
 const generation = fs.readFileSync(
@@ -95,10 +96,13 @@ describe('③ 발행 경로에 실제로 배선돼 있다', () => {
   });
 
   it('⭐⭐ 딥링크가 죽으면 홈으로 물러난다 (사장님: "오류나 없는 페이지는 절대 안 됨")', () => {
-    const block = generation.slice(
-      generation.indexOf('async function searchOfficialSite'),
-      generation.indexOf('async function searchOfficialSite') + 3500,
+    // 고정 길이로 자르면 코드가 길어질 때 범위 밖으로 밀린다 - 경계로 자른다
+    const block = blockBetween(
+      generation,
+      'async function searchOfficialSite',
+      'export function applySmartLinkToContent',
     );
+    expect(block.length).toBeGreaterThan(500);
     expect(block).toContain('validateCtaUrl');
     expect(block).toContain('폴백');
   });

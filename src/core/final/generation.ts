@@ -186,6 +186,7 @@ async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000,
 import { validateCtaUrl } from '../../cta/validate-cta-url';
 import { callGeminiWithGrounding, callGeminiWithRetry } from './gemini-engine';
 import { detectActionIntent, buildActionQuery } from '../../cta/action-intent';
+import { judgeCtaHost, describeHostVerdict } from '../../cta/host-trust';
 import { dropEmptyFaqItems } from './empty-block-guard';
 import { buildArchetypeGuide } from './title-archetypes';
 import { FinalCrawledPost, FinalTableData, FinalCTAData, FAQItem } from './types';
@@ -2394,13 +2395,33 @@ async function searchOfficialSite(keyword: string, googleCseKey: string, googleC
      * 행동 화면은 홈보다 깊은 경로라 사이트 개편 때 쉽게 죽는다.
      * 그래서 내보내기 전에 확인하고, 죽었으면 다음 후보로 넣어간다.
      */
+    /**
+     * v3.8.490 - 검색 결과를 그대로 믿지 않는다.
+     *
+     * 사장님 보고: 코레일 글의 CTA 가 postmate.waffle-gl.org/link/naver/... 로 나갔다.
+     * 예전 규칙은 "제외 목록에만 없으면 통과" 여서, 검색 결과에 섞여 든 낯선 집계·스팸
+     * 도메인이 200 만 돌려주면 그대로 실렸다. 게다가 신뢰 목록이 .go.kr 계열뿐이라
+     * korail.com 같은 진짜 공식 사이트가 오히려 우선순위를 못 받았다.
+     *
+     * 이제 **근거를 댈 수 있는 도메인만** 받는다(등록된 공식 사이트·공공기관·브랜드 일치).
+     * 근거가 없으면 CTA 를 넣지 않는다 - 남의 링크를 사장님 글에 싣는 것보다 낫다.
+     */
     const candidates: { url: string; title: string; trusted: boolean }[] = [];
     for (const item of data.items) {
       const link = item.link;
       if (excludeDomains.some(d => link.includes(d))) continue;
-      candidates.push({ url: link, title: item.title, trusted: trustedDomains.some(d => link.includes(d)) });
+      const verdict = judgeCtaHost(link, keyword);
+      if (!verdict.ok) {
+        console.warn(`[CTA] 🚫 ${describeHostVerdict(verdict)}: ${link}`);
+        continue;
+      }
+      candidates.push({
+        url: link,
+        title: item.title,
+        // 등록된 공식 사이트를 가장 먼저 본다
+        trusted: verdict.reason === 'catalog' || trustedDomains.some(d => link.includes(d)),
+      });
     }
-    // 신뢰 도메인 먼저, 그 다음 나머지(예전의 "최상위 결과" 폴백과 같은 순서)
     candidates.sort((a, b) => Number(b.trusted) - Number(a.trusted));
 
     for (const c of candidates) {

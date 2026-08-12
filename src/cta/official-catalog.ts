@@ -19,7 +19,11 @@ export const OFFICIAL_CATALOG: OfficialLink[] = [
   
   // ========== 교통/여행 ==========
   { txt: "SRT 예매", url: "https://etk.srail.kr", tags: ["srt","예매","좌석","발권","환불","취소","좌석변경","기차","여행"], weight: 8 },
-  { txt: "코레일 예매", url: "https://www.letskorail.com", tags: ["코레일","ktx","예매","기차","철도","여행","할인"], weight: 8 },
+  // v3.8.490: letskorail.com 은 korail.com 으로 리다이렉트된다(실측 2026-08-12).
+  //   옛 도메인만 등록돼 있어서 진짜 공식 사이트인 korail.com 이 신뢰 목록에 없었고,
+  //   그 틈으로 낯선 집계 도메인이 CTA 로 뽑혔다.
+  { txt: "코레일 예매", url: "https://www.korail.com", tags: ["코레일","ktx","예매","기차","철도","여행","할인"], weight: 8 },
+  { txt: "코레일(구 주소)", url: "https://www.letskorail.com", tags: ["코레일","ktx","예매","기차","철도"], weight: 6 },
   { txt: "대한항공", url: "https://www.koreanair.com", tags: ["항공","항공권","비행기","여행","해외","국내선","국제선"], weight: 7 },
   { txt: "아시아나항공", url: "https://flyasiana.com", tags: ["항공","항공권","비행기","여행","해외","국내선","국제선"], weight: 7 },
   { txt: "진에어", url: "https://www.jinair.com", tags: ["lcc","저가항공","항공권","진에어","비행기"], weight: 6 },

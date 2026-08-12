@@ -1551,6 +1551,8 @@ export class WordPressPublisher {
     geminiKey?: string; // AI 기능을 위한 키 추가
     categories?: string[]; // 🔥 사용자가 선택한 카테고리 (이름 또는 ID)
     preGeneratedTags?: string[]; // 🔥 오케스트레이션이 생성한 태그 (이게 있으면 AI 태그 생성 건너뜀)
+    /** v3.8.490: 대표 이미지 복구 결과를 사용자에게 알리는 통로 */
+    onLog?: (message: string) => void;
   }): Promise<{ success: boolean; url?: string; postId?: number; error?: string }> {
     try {
       // 호출 쿼ота 체크 (시간당 10, 일일 100)
@@ -1995,6 +1997,43 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
       postData.content = repairBrokenText('WordPress 발행 본문', postData.content);
       if (postData.excerpt) postData.excerpt = repairBrokenText('WordPress 발행 요약문', postData.excerpt);
       const createdPost = await this.wpApi.createPost(postData);
+
+      /**
+       * v3.8.490 - 대표 이미지가 실제로 붙었는지 확인하고, 안 붙었으면 붙인다.
+       *
+       * 사장님 보고(반복): "또 썸네일이 안나오네요 글들어가면 썸네일이 있습니다"
+       * 위 업로드 로직은 실패해도 로그만 남기고 넘어간다. 그래서 발행이 끝난 뒤
+       * 목록에서야 알아차렸다. 여기서 확인하고, 안 되면 사장님께 알린다.
+       */
+      if (createdPost?.id) {
+        try {
+          const { verifyAndRepairFeaturedImage } = require('./featured-image-repair');
+          const repair = await verifyAndRepairFeaturedImage({
+            api: {
+              getPost: (id: number) => this.wpApi.getPost(id),
+              setFeaturedMedia: async (id: number, mediaId: number) => {
+                const updated = await this.wpApi.updatePostFeaturedMedia(id, mediaId);
+                return !!updated;
+              },
+              uploadFromUrl: async (url: string, filename: string) => {
+                const buffer = await fetchImageAsArrayBuffer(url);
+                if (!buffer) return null;
+                const media = await this.wpApi.uploadMedia(buffer, `${Date.now()}-${filename}.jpg`, cleanTitle);
+                return media?.id || null;
+              },
+            },
+            postId: createdPost.id,
+            html: optimizedContent,
+            knownMediaId: featuredMediaId,
+            title: cleanTitle,
+          });
+          console.log(`[WP-FEATURED] ${repair.action}: ${repair.message}`);
+          if (!repair.ok) options.onLog?.(`⚠️ ${repair.message}`);
+          else if (repair.action !== 'already-set') options.onLog?.(`🖼️ ${repair.message}`);
+        } catch (repairErr: any) {
+          console.warn('[WP-FEATURED] 확인 스킵:', String(repairErr?.message || repairErr).slice(0, 120));
+        }
+      }
 
       // SEO 메타데이터 자동 처리 (초점 키프레이즈, 메타설명 등)
       if (createdPost.id) {
@@ -2473,6 +2512,27 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
 /**
  * WordPress 발행 헬퍼 함수 (간편한 인터페이스)
  */
+/**
+ * v3.8.490 - 이미지 주소(http 또는 data:base64)를 ArrayBuffer 로 바꾼다.
+ * 대표 이미지 복구에서 쓴다. 실패하면 null - 여기서 발행을 막지 않는다.
+ */
+async function fetchImageAsArrayBuffer(url: string): Promise<ArrayBuffer | null> {
+  try {
+    const src = String(url || '');
+    if (/^data:image\/[a-z+]+;base64,/i.test(src)) {
+      const base64 = src.replace(/^data:image\/[a-z+]+;base64,/i, '');
+      const buf = Buffer.from(base64, 'base64');
+      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    }
+    if (!/^https?:\/\//i.test(src)) return null;
+    const res = await fetch(src);
+    if (!res.ok) return null;
+    return await res.arrayBuffer();
+  } catch {
+    return null;
+  }
+}
+
 export async function publishToWordPress(
   options: {
     title: string;

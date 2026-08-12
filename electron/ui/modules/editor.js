@@ -94,6 +94,15 @@ function computeThumbnailUrl() {
 
 const BTN_BASE = 'padding:9px 14px;border:none;border-radius:9px;font-weight:700;cursor:pointer;font-size:13px;white-space:nowrap;';
 
+/**
+ * v3.8.490 — 도구 묶음 표시.
+ * 사장님: "이 도구들을 정리좀해줘 내눈에는 너무 어수선해보이고 뭐가뭔지모르겠어"
+ * 버튼 8개가 같은 크기·같은 색으로 한 줄에 늘어서 있어 무엇이 중요한지 안 보였다.
+ * 작은 글씨 라벨과 세로 구분선으로 묶어 눈이 쉬어갈 곳을 만든다.
+ */
+const GROUP_LABEL = 'color:#64748b;font-size:11px;font-weight:700;letter-spacing:0.02em;';
+const DIVIDER = 'width:1px;height:22px;background:#334155;margin:0 2px;';
+
 function ensureEditorModal() {
   if (modalRefs) return modalRefs;
 
@@ -107,15 +116,29 @@ function ensureEditorModal() {
       <label id="veHostImagesLabel" style="display:none;align-items:center;gap:5px;color:#cbd5e1;font-size:12px;cursor:pointer;">
         <input id="veHostImagesChk" type="checkbox" checked /> 저장 시 이미지 업로드
       </label>
-      <button id="veInsertImageBtn" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="현재 커서 위치(또는 글 끝)에 내 PC 이미지를 삽입합니다">🖼️ 이미지 삽입</button>
+      <!--
+        v3.8.490 - 도구를 네 묶음으로 나눈다.
+        사장님: "이 도구들을 정리좀해줘 내눈에는 너무 어수선해보이고 뭐가뭔지모르겠어"
+        한 줄에 8개가 같은 크기·같은 색으로 늘어서 있어 무엇이 중요한지 안 보였다.
+        [넣기] [되돌리기] [내보내기] [마무리] 로 묶고, 묶음 사이에 구분선을 둔다.
+      -->
+      <span style="${GROUP_LABEL}">넣기</span>
+      <button id="veInsertImageBtn" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="커서 위치(또는 글 끝)에 내 PC 이미지를 넣습니다">🖼️ 이미지</button>
       <!-- 💰 v3.8.482: 수동 광고 자리. 자동 광고는 위치를 못 고르므로 직접 찍는다. -->
-      <select id="veAdUnitSelect" style="${BTN_BASE}background:#0f172a;color:#e2e8f0;border:1px solid #475569;max-width:170px;" title="넣을 광고 단위를 고르세요"></select>
-      <button id="veInsertAdBtn" style="${BTN_BASE}background:#7c3aed;color:#ede9fe;" title="현재 커서 위치에 광고 자리를 넣습니다 (발행 시 실제 광고 코드로 바뀝니다)">💰 광고</button>
-      <button id="veUndoImageOpBtn" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="이미지/링크 삭제·교체·삽입 작업을 한 단계 되돌립니다 (글자 수정은 Ctrl+Z)">↩️ 이미지·링크 취소</button>
-      <button id="veRevertBtn" style="${BTN_BASE}background:#334155;color:#fbbf24;" title="모든 편집을 버리고 처음 상태로 되돌립니다">🔄 원본으로</button>
-      <button id="veCopyHtmlBtn" style="${BTN_BASE}background:#334155;color:#93c5fd;" title="편집된 HTML을 클립보드로 복사합니다">📋 HTML 복사</button>
+      <select id="veAdUnitSelect" style="${BTN_BASE}background:#0f172a;color:#e2e8f0;border:1px solid #475569;max-width:150px;" title="넣을 광고 단위를 고르세요"></select>
+      <button id="veInsertAdBtn" style="${BTN_BASE}background:#7c3aed;color:#ede9fe;" title="커서 위치에 광고 자리를 넣습니다 (발행 시 실제 광고 코드로 바뀝니다)">💰 광고</button>
+
+      <span style="${DIVIDER}"></span>
+      <span style="${GROUP_LABEL}">되돌리기</span>
+      <button id="veUndoImageOpBtn" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="방금 한 이미지·링크·광고 작업을 한 단계 되돌립니다 (글자 수정은 Ctrl+Z)">↩️ 되돌리기</button>
+      <button id="veRevertBtn" style="${BTN_BASE}background:#334155;color:#fbbf24;" title="편집을 모두 버리고 처음 상태로 돌아갑니다">🔄 처음으로</button>
+
+      <span style="${DIVIDER}"></span>
+      <button id="veCopyHtmlBtn" style="${BTN_BASE}background:#334155;color:#93c5fd;" title="편집된 HTML을 클립보드로 복사합니다">📋 HTML</button>
       <button id="veSaveAsBtn" style="display:none;${BTN_BASE}background:#334155;color:#e2e8f0;">💾 다른 이름으로</button>
-      <button id="veSaveBtn" style="${BTN_BASE}background:linear-gradient(135deg,#10b981,#059669);color:#fff;box-shadow:0 2px 8px rgba(16,185,129,0.4);">✅ 저장</button>
+
+      <span style="${DIVIDER}"></span>
+      <button id="veSaveBtn" style="${BTN_BASE}background:linear-gradient(135deg,#10b981,#059669);color:#fff;box-shadow:0 2px 8px rgba(16,185,129,0.4);font-weight:800;">✅ 저장</button>
       <button id="veCancelBtn" style="${BTN_BASE}background:transparent;color:#94a3b8;border:1px solid #475569;">✕ 닫기</button>
       <!-- ✍️ v3.8.440: 서식 도구.
            사용자 요구: "링크삽입하는게 없고 글자크기나 하이라이트 그리고 박스추가 등등
@@ -486,8 +509,27 @@ function loadIntoFrame(rawBodyHtml) {
   refreshAdUnitOptions(refs.overlay.querySelector('#veAdUnitSelect'));
   const doc = refs.frame.contentDocument;
   const needsFallbackStyle = !session.styles.length && !session.isFullDocument;
+  /**
+   * v3.8.490 — 미리보기에서 이미지가 전부 깨지던 문제.
+   *
+   * 사장님 보고: "미리보기에서 이미지가 모두 안보입니다 깨져보여요"
+   *
+   * 이 문서는 doc.write 로 만들어서 **기준 주소(base)가 없다.** 그래서 발행된 글을
+   * 불러와 편집할 때 본문의 상대경로 이미지(/wp-content/uploads/…)가 어디를 가리키는지
+   * 알 수 없어 전부 깨진다. 원본 글 주소를 기준으로 잡아주면 그대로 보인다.
+   */
+  const baseHref = (() => {
+    try {
+      const src = String(session.postUrl || '');
+      if (!/^https?:\/\//i.test(src)) return '';
+      return `<base href="${new URL(src).origin}/">`;
+    } catch {
+      return '';
+    }
+  })();
+
   doc.open();
-  doc.write(`<!doctype html><html><head><meta charset="utf-8">
+  doc.write(`<!doctype html><html><head><meta charset="utf-8">${baseHref}
     ${session.isFullDocument ? session.originalHeadHtml : session.styles.join('\n')}
     <style data-bgpt-editor="1">
       body{margin:0;padding:28px 24px;background:#fff;min-height:100vh;box-sizing:border-box;}
