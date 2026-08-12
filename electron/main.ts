@@ -8665,6 +8665,9 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
           keyword: topic,
           currentYear: new Date().getFullYear(),
           demandQuestions: getAgentDemandQuestions(payload),
+          // v3.8.486: 디스커버 모드면 제목·본문 규칙이 피드 기준으로 통째로 바뀐다.
+          //   이걸 안 넘기면 디스커버로 돌려도 검색용 규칙이 나간다.
+          contentMode: String((payload as any)?.contentMode || ''),
         });
       } catch (harnessErr) {
         console.warn('[AGENT] 공용 규칙 주입 실패(지시서는 계속 진행):', harnessErr);
@@ -9257,7 +9260,14 @@ function readAgentJobResult(jobDir: string, stdout: string, lastMessagePath: str
       console.log(`[AGENT-RESULT] 제목 정리: "${title}" -> "${normalized}"`);
       title = normalized;
     }
-    const report = harness.postProcessAgentArticle(content);
+    // 모드는 metadata.json 이 아니라 우리가 써둔 payload.json 에 있다 (에이전트가 만든 게 아니다)
+    let jobContentMode = '';
+    try {
+      const payloadJson = JSON.parse(fs.readFileSync(path.join(jobDir, 'payload.json'), 'utf-8'));
+      jobContentMode = String(payloadJson?.contentMode || '');
+    } catch { /* 없으면 검색 모드로 본다 */ }
+
+    const report = harness.postProcessAgentArticle(content, { contentMode: jobContentMode, title });
     content = report.html;
     for (const w of report.warnings) console.warn('[AGENT-RESULT] 품질 경고:', w);
   } catch (harnessErr) {

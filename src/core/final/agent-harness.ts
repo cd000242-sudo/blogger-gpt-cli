@@ -24,12 +24,15 @@ import { buildArchetypeGuide } from './title-archetypes';
 import { stripTitleCliches, dedupeKeywordInTitle, enforceTitleLength } from './generation';
 import { findEmptyBlocks, describeEmptyBlocks, dropEmptyFaqItems } from './empty-block-guard';
 import { findValuePromises } from './value-promise';
+import { isDiscoverMode, buildDiscoverTitleDirective, buildDiscoverBodyBlock, findDiscoverTitleViolations } from './discover-mode';
 
 export interface AgentHarnessInput {
   keyword: string;
   currentYear: number;
   /** 검색자가 실제로 던진 질문들 — 있으면 제목·소제목 재료로 준다 */
   demandQuestions?: string[];
+  /** 'discover' 면 제목·본문 규칙을 피드 기준으로 갈아끼운다 */
+  contentMode?: string;
 }
 
 /**
@@ -41,6 +44,26 @@ export interface AgentHarnessInput {
 function buildTitleRules(input: AgentHarnessInput): string {
   const { keyword, currentYear, demandQuestions } = input;
   const questions = (demandQuestions || []).filter(Boolean).slice(0, 8);
+
+  /**
+   * 디스커버는 검색이 아니다. 독자가 검색하지 않았고, 관심사에 맞아 피드에 뜬 카드를
+   * 제목만 보고 누른다. 그래서 규칙이 검색용과 정반대다 — 검색용은 키워드를 앞세우지만
+   * 디스커버는 결론을 담아야 하고 낚시를 금지한다.
+   * 둘을 함께 주면 서로 어긋나므로 **통째로 갈아끼운다.**
+   */
+  if (isDiscoverMode(input.contentMode)) {
+    return [
+      '',
+      buildDiscoverTitleDirective(currentYear),
+      questions.length
+        ? [
+          '',
+          '📥 **독자들이 이 주제에서 실제로 궁금해한 것입니다. 본문 소제목 재료로 쓰세요.**',
+          ...questions.map((q) => `   · ${q}`),
+        ].join('\n')
+        : '',
+    ].filter((line) => line !== '').join('\n');
+  }
 
   return [
     '',
@@ -81,6 +104,8 @@ function buildTitleRules(input: AgentHarnessInput): string {
 export function buildAgentHarnessRules(input: AgentHarnessInput): string {
   return [
     buildTitleRules(input),
+    // 디스커버는 본문 규칙도 피드 기준으로 다르다 (첫 화면에서 결론을 주고, 스크롤을 미끼로 쓰지 않는다)
+    isDiscoverMode(input.contentMode) ? buildDiscoverBodyBlock(input.currentYear) : '',
     SUBSTANCE_FIRST_PASS_RULES,
     HUMAN_VOICE_RULES,
     DECISION_SUPPORT_RULES,
@@ -111,6 +136,13 @@ export interface AgentArticleReport {
   /** 값을 약속하고 안 준 문장 수 — 로그·진단용 */
   valuePromises: number;
   emptyBlocks: number;
+  /** 디스커버 정책에 걸리는 제목 표현 — 검색 모드에서는 늘 빈 배열 */
+  titleViolations: string[];
+}
+
+export interface AgentArticleOptions {
+  contentMode?: string;
+  title?: string;
 }
 
 /**
@@ -119,7 +151,7 @@ export interface AgentArticleReport {
  * 여기서 발행을 막지는 않는다 — 에이전트 실행은 이미 몇 분을 썼고, 되돌릴 수 없다.
  * 대신 고칠 수 있는 건 고치고, 못 고치는 건 경고로 올려 사용자가 판단하게 한다.
  */
-export function postProcessAgentArticle(html: string): AgentArticleReport {
+export function postProcessAgentArticle(html: string, options?: AgentArticleOptions): AgentArticleReport {
   const warnings: string[] = [];
   let out = String(html || '');
 
@@ -146,7 +178,21 @@ export function postProcessAgentArticle(html: string): AgentArticleReport {
     if (emptyBlocks > 0) warnings.push(`내용이 빈 블록: ${describeEmptyBlocks(found)}`);
   } catch { /* 진단 실패는 무시한다 */ }
 
-  return { html: out, warnings, valuePromises, emptyBlocks };
+  /**
+   * 디스커버 제목 정책 검사. 막지 않는다 — 에이전트 실행에 이미 몇 분을 썼고,
+   * 제목을 다시 짓게 하려면 유료 호출이 필요하다. 알리고 사용자가 고르게 한다.
+   */
+  let titleViolations: string[] = [];
+  try {
+    if (isDiscoverMode(options?.contentMode) && options?.title) {
+      titleViolations = findDiscoverTitleViolations(options.title);
+      if (titleViolations.length > 0) {
+        warnings.push(`디스커버 제목 정책에 걸리는 표현: ${titleViolations.join(', ')}`);
+      }
+    }
+  } catch { /* 진단 실패는 무시한다 */ }
+
+  return { html: out, warnings, valuePromises, emptyBlocks, titleViolations };
 }
 
 /** 에이전트가 만든 FAQ 배열에도 같은 규칙을 적용한다 */
