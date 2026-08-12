@@ -5,6 +5,7 @@
 
 import axios from 'axios';
 import { loadEnvFromFile } from '../../env';
+import { describeModelForLog } from '../llm/pricing';
 import {
   getGeminiApiKey, getPerplexityApiKey, getOpenAIApiKey,
   callPerplexityAPI,
@@ -473,7 +474,7 @@ export async function generateUltimateMaxModeArticleFinal(
       (payload.provider === 'perplexity' && modelValue.startsWith('perplexity-'));
     const finalModel = isConsistent ? payload.primaryGeminiTextModel : mapped;
     process.env['PRIMARY_TEXT_MODEL'] = finalModel!;
-    onLog?.(`[PROGRESS] 0% - 🎯 AI 엔진: ${payload.provider} → ${finalModel}`);
+    onLog?.(`[PROGRESS] 0% - 🎯 AI 엔진: ${payload.provider} → ${describeModelForLog(String(finalModel || ''))}`);
   } else if (payload.primaryGeminiTextModel) {
     // 2순위: provider가 없으면 primaryGeminiTextModel 직접 사용
     process.env['PRIMARY_TEXT_MODEL'] = payload.primaryGeminiTextModel;

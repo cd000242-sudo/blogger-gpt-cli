@@ -242,6 +242,26 @@ function ensureEditorModal() {
       }
       const unit = units.find((u) => u.id === adSelect?.value) || units[0];
       const atCaret = insertHtmlAtCaret(doc, makeAdSlotHtml(unit));
+
+      /**
+       * v3.8.489 - 넣은 자리로 스크롤한다.
+       *
+       * 사장님 보고: "광고를 커서위치에 넣었다고하는데 ... 여기서 코드가 못보여주니??"
+       * 넣기는 제대로 넣었는데 글 중간이면 화면 밖이라 안 보였다.
+       * 방금 넣은 것만 bgpt-ad-slot-new 로 표시되므로 그것을 찾아 보여준다.
+       */
+      try {
+        const fresh = doc.querySelectorAll('.bgpt-ad-slot-new');
+        const target = fresh[fresh.length - 1];
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // 강조 표시는 한 번만 — 다음에 넣을 때 이전 것이 같이 깜빡이면 헷갈린다
+          setTimeout(() => {
+            fresh.forEach((el) => el.classList.remove('bgpt-ad-slot-new'));
+          }, 2600);
+        }
+      } catch { /* 스크롤 실패가 삽입을 되돌릴 이유는 없다 */ }
+
       setStatus(atCaret
         ? `광고 자리(${unit.name})를 커서 위치에 넣었습니다. 발행하면 실제 광고가 들어갑니다.`
         : `광고 자리(${unit.name})를 글 끝에 넣었습니다(커서 위치를 찾지 못했습니다).`);

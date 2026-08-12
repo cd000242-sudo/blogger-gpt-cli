@@ -68,8 +68,38 @@ function escapeHtml(text) {
 export function makeAdSlotHtml(unit) {
   const id = escapeHtml(unit?.id);
   const name = escapeHtml(unit?.name || '광고');
-  return `<div class="${AD_SLOT_CLASS}" data-bgpt-ad-unit="${id}" contenteditable="false"`
-    + ` title="발행하면 이 자리에 광고가 들어갑니다">📢 광고 자리 — ${name}</div>`;
+  const detail = escapeHtml(describeAdUnit(unit));
+  const line2 = detail ? `<div class="bgpt-ad-slot-detail">${detail}</div>` : '';
+  return `<div class="${AD_SLOT_CLASS} bgpt-ad-slot-new" data-bgpt-ad-unit="${id}" contenteditable="false"`
+    + ` title="발행하면 이 자리에 광고가 들어갑니다">`
+    + `<div>📢 광고 자리 — ${name}</div>${line2}</div>`;
+}
+
+/**
+ * 광고 코드에서 **무엇이 들어갈지 알아볼 수 있는 정보**를 뽑는다.
+ *
+ * 사장님 지적: "발행하기전에 여기서 코드가 못보여주니??"
+ * 원문 코드를 편집기에 그대로 넣을 수는 없다(serializeEditor 가 script 를 지운다).
+ * 대신 광고를 식별하는 값(client·slot)을 보여주면 어떤 광고인지 확인할 수 있다.
+ *
+ * 코드를 HTML 로 풀지 않고 **문자열로만** 뽑는다 — 편집기 안에서 실행되면 안 된다.
+ */
+export function describeAdUnit(unit) {
+  try {
+    const code = String(unit?.code || '');
+    if (!code) return '';
+    const client = code.match(/data-ad-client\s*=\s*["']([^"']+)["']/i)?.[1] || '';
+    const slot = code.match(/data-ad-slot\s*=\s*["']([^"']+)["']/i)?.[1] || '';
+    const format = code.match(/data-ad-format\s*=\s*["']([^"']+)["']/i)?.[1] || '';
+    const parts = [
+      client ? `client ${client}` : '',
+      slot ? `slot ${slot}` : '',
+      format ? `format ${format}` : '',
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join(' · ') : '발행 시 등록한 코드가 그대로 들어갑니다';
+  } catch {
+    return '';
+  }
 }
 
 /** 편집기 안에서 자리표시자를 보이게 하는 스타일 (iframe 에 주입) */
@@ -78,6 +108,19 @@ export const AD_SLOT_STYLE = `
     margin:22px 0;padding:18px 12px;border:2px dashed #94a3b8;border-radius:10px;
     background:#f1f5f9;color:#475569;font-size:14px;font-weight:700;text-align:center;
     user-select:none;
+  }
+  .bgpt-ad-slot-detail{
+    margin-top:6px;font-size:12px;font-weight:500;color:#64748b;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all;
+  }
+  /* 방금 넣은 자리를 잠깐 강조한다 — 글 중간에 넣으면 어디 들어갔는지 못 찾는다 */
+  .bgpt-ad-slot-new{
+    border-color:#f59e0b;background:#fffbeb;
+    animation:bgptAdSlotFlash 2.4s ease-out 1 forwards;
+  }
+  @keyframes bgptAdSlotFlash{
+    0%{box-shadow:0 0 0 6px rgba(245,158,11,0.35);}
+    100%{box-shadow:0 0 0 0 rgba(245,158,11,0);border-color:#94a3b8;background:#f1f5f9;}
   }
 `;
 

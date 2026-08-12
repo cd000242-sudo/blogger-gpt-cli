@@ -228,6 +228,21 @@ export const TIER_MODELS: readonly TierModel[] = [
  * 그대로 두면 기본값이 `default: true` 인 균형 티어가 아니라 프리미엄을 가리킨다.
  * 기본 모델이 조용히 바뀌는 종류의 사고다.
  */
+/**
+ * v3.8.489 - 로그에 찍을 모델 표기.
+ *
+ * 사장님 보고: "로그에는 2.5플래쉬라뜹니다".
+ * `value` 는 **사용자 설정 키**라 옛 이름(gemini-2.5-*)을 유지해야 한다 —
+ * 바꾸면 기존 사용자의 선택이 통째로 깨진다. 그래서 키는 두되,
+ * 로그에는 사람이 읽는 이름과 **실제 호출되는 모델 id** 를 함께 찍는다.
+ */
+export function describeModelForLog(tierValue: string): string {
+  const value = String(tierValue || '').trim();
+  if (!value) return '';
+  const tier = TIER_MODELS.find((t) => t.value === value || t.modelId === value);
+  return tier ? `${tier.title} (${tier.modelId})` : value;
+}
+
 export const DEFAULT_TIER_VALUE = 'gemini-3.6-flash';
 
 /**

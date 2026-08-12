@@ -7424,14 +7424,21 @@ async function updateAiModelStatus() {
     // v3.8.324: pricing.js title과 동기화 — 사용자 보고 "글 생성 엔진 업데이트 안 됨" (배지가 옛날 라벨로 표시).
     // legacy value(gemini-2.5-*, openai-gpt4*, claude-opus/sonnet/haiku)는 사용자 저장 설정 호환용이며,
     // 실제 API는 pricing.js의 modelId(gemini-3.5-flash / gpt-5.6-sol / claude-fable-5 등)로 호출됨.
+    /**
+     * ⚠️ v3.8.489 - 이 표는 src/core/llm/pricing.ts 의 TIER_MODELS 를 손으로 베낀 것이다.
+     *   v3.8.483 에서 백엔드만 3.6 으로 고쳐지고 여기는 3.5 로 남아,
+     *   3.6 을 골라도 화면에 3.5 로 떴다(사장님 보고).
+     *   **모델을 추가·변경하면 pricing.ts 와 여기를 함께 고쳐야 한다.**
+     *   어긋나면 __tests__/v3-8-489-model-label-drift.test.ts 가 잡는다.
+     */
     const MODEL_DISPLAY = {
       // Gemini (2026 최신 라벨)
       'gemini-2.5-flash-lite': { label: 'Gemini 3.1 Flash-Lite', short: 'Gemini Lite', emoji: '⚡', color: '#10b981' },
-      'gemini-2.5-flash': { label: 'Gemini 3.5 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
-      'gemini-2.5-pro': { label: 'Gemini 3.1 Pro Preview', short: 'Gemini Pro', emoji: '💎', color: '#10b981' },
+      'gemini-2.5-flash': { label: 'Gemini 3.6 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
+      'gemini-2.5-pro': { label: 'Gemini 3.5 Flash', short: 'Gemini Flash', emoji: '💎', color: '#10b981' },
       'gemini-3.1-flash-lite': { label: 'Gemini 3.1 Flash-Lite', short: 'Gemini Lite', emoji: '⚡', color: '#10b981' },
       'gemini-3.5-flash': { label: 'Gemini 3.5 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
-      'gemini-3.1-pro-preview': { label: 'Gemini 3.1 Pro Preview', short: 'Gemini Pro', emoji: '💎', color: '#10b981' },
+      'gemini-3.6-flash': { label: 'Gemini 3.6 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
       // OpenAI GPT-5.6 시리즈
       'openai-gpt4o-mini': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
       'openai-gpt41-mini': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
