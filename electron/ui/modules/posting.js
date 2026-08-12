@@ -583,12 +583,24 @@ export async function runPosting() {
     ts: Date.now(),
   };
   const setFinalResult = (next = {}) => {
+    const wasPublished = finalResult?.published === true;
     finalResult = {
       ...finalResult,
       ...next,
       ts: Date.now(),
     };
     try { window.__lastPublishResult = finalResult; } catch {}
+    /**
+     * v3.8.485 - 발행하면 글목록 탭을 새로고침한다.
+     *
+     * 글목록은 로컬 기록이 아니라 플랫폼 API 에서 그때그때 가져온다. 그런데 새로고침
+     * 호출이 "수정발행" 한 곳에만 있어서, 새로 발행한 글은 탭에 안 떴다. 글은 블로그에
+     * 정상적으로 올라가 있는데 앱에서만 안 보이는 상태였다 (사장님: "반자동 발행한건
+     * 왜 생성된 글목록에 안뜰까요"). 발행 성공으로 막 바뀐 순간에만 한 번 부른다.
+     */
+    if (!wasPublished && finalResult?.published === true) {
+      try { window.__refreshPublishedPosts?.(); } catch { /* 목록 갱신 실패가 발행을 망치면 안 된다 */ }
+    }
     return finalResult;
   };
   setFinalResult();

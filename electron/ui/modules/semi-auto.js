@@ -2185,7 +2185,7 @@ window.showImageModal = function (imageUrl, index, source = 'unknown') {
     
     <!-- 이미지 영역 -->
     <div style="max-width: 90%; max-height: 70%; animation: scaleIn 0.3s ease;">
-      <img id="modalImage" src="${imageUrl}" alt="미리보기" style="max-width: 100%; max-height: 70vh; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);">
+      <img id="modalImage" alt="미리보기" style="max-width: 100%; max-height: 70vh; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);">
     </div>
     
     <!-- 출처 정보 -->
@@ -2216,6 +2216,19 @@ window.showImageModal = function (imageUrl, index, source = 'unknown') {
   `;
 
   document.body.appendChild(modal);
+
+  /**
+   * v3.8.485 - 모달을 먼저 띄우고 이미지는 그 다음에 넣는다.
+   *
+   * 생성된 이미지는 data:image/png;base64,... 형태라 수 MB 짜리 문자열이다.
+   * 그걸 innerHTML 안에 넣으면 브라우저가 그 거대한 속성을 다 파싱한 뒤에야
+   * 모달이 화면에 나온다 - 사장님이 겪은 "모달이 너무 늦게 뜬다" 가 이것이다.
+   * 껍데기를 먼저 그려 붙이고, 다음 프레임에 src 를 넣으면 즉시 뜬다.
+   */
+  const modalImage = modal.querySelector('#modalImage');
+  if (modalImage) {
+    requestAnimationFrame(() => { modalImage.src = imageUrl; });
+  }
 
   // ESC 키로 닫기
   const handleKeydown = (e) => {

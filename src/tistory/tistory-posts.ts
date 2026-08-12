@@ -8,6 +8,7 @@
 //
 // 응답 규격은 Blogger/WordPress와 동일하게 맞춘다.
 import { loadEnvFromFile } from '../env';
+import { PICK_LAZY_IMAGE_SOURCE } from './lazy-image';
 import { TISTORY_SELECTORS, TISTORY_URLS } from './tistory-selectors';
 import {
   clickTistoryKakaoLoginIfVisible,
@@ -114,7 +115,14 @@ type ScrapeDiagnostics = {
 };
 
 async function scrapeManagePosts(page: any): Promise<{ items: ScrapedPost[]; maxPage: number; diagnostics: ScrapeDiagnostics }> {
-  return page.evaluate(() => {
+  /**
+   * v3.8.485 - 썸네일 고르기를 브라우저 안으로 주입한다.
+   * 이 콜백은 페이지 컨텍스트에서 돌기 때문에 모듈 import 가 닿지 않는다.
+   * 그래서 함수 소스를 문자열로 넘겨 되살린다 - 로직은 lazy-image.ts 한 곳에만 둔다.
+   */
+  return page.evaluate((pickLazyImageUrlSource: string) => {
+    // eslint-disable-next-line no-new-func
+    const pickLazyImageUrl = new Function(`return (${pickLazyImageUrlSource})`)() as (img: any) => string;
     const normalize = (value: unknown) => String(value || '')
       .replace(/ /g, ' ')
       .replace(/\s+/g, ' ')
@@ -181,8 +189,13 @@ async function scrapeManagePosts(page: any): Promise<{ items: ScrapedPost[]; max
       const rowText = normalize((row as HTMLElement).innerText || row.textContent || '');
       const dateMatch = rowText.match(/\d{4}[.\-/]\s?\d{1,2}[.\-/]\s?\d{1,2}(?:[.\s]+\d{1,2}:\d{2})?/);
 
-      const image = row.querySelector('img') as HTMLImageElement | null;
-      const thumb = image ? (image.currentSrc || image.getAttribute('src') || '') : '';
+      // 지연 로딩이라 첫 img 의 src 가 비어 있을 수 있다 - 행 안의 img 를 순서대로 본다
+      const images = Array.from(row.querySelectorAll('img'));
+      let thumb = '';
+      for (const candidate of images) {
+        thumb = pickLazyImageUrl(candidate);
+        if (thumb) break;
+      }
 
       // 글 행의 최소 증거 — 제목·발행일·글주소 중 하나도 없으면 목록 행이 아니다
       if (!title && !dateMatch && !entryHref) return;
@@ -214,7 +227,7 @@ async function scrapeManagePosts(page: any): Promise<{ items: ScrapedPost[]; max
     };
 
     return { items: Array.from(found.values()), maxPage, diagnostics };
-  });
+  }, PICK_LAZY_IMAGE_SOURCE);
 }
 
 /**

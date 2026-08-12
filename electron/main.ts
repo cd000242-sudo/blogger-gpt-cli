@@ -8022,6 +8022,37 @@ function describeToneStyle(toneStyle: string): string[] {
   ];
 }
 
+/**
+ * v3.8.485 - 검색자가 실제로 던진 질문을 지시서에 넘긴다.
+ *
+ * 사용자 지적: "추론이 하나도 안 되어 있고 검색한 누구나 아는 내용만 나열한 느낌".
+ * 원인의 하나는 재료다. API 경로는 지식인·연관검색어에서 뽑은 질문을 프롬프트에 넣는데,
+ * 에이전트 지시서에는 그 재료가 아예 없었다. 주제만 던지면 일반론이 나온다.
+ */
+function getAgentDemandQuestions(payload: any): string[] {
+  try {
+    const buckets = [
+      payload?.demandSignals,
+      payload?.demandSignals?.questions,
+      payload?.questions,
+      payload?.relatedQuestions,
+      payload?.subheadings,
+    ];
+    const out: string[] = [];
+    for (const bucket of buckets) {
+      if (!Array.isArray(bucket)) continue;
+      for (const item of bucket) {
+        const text = typeof item === 'string' ? item : String(item?.question || item?.text || item?.title || '');
+        const trimmed = text.trim();
+        if (trimmed.length >= 5 && !out.includes(trimmed)) out.push(trimmed);
+      }
+    }
+    return out.slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+
 function getAgentReferenceLines(payload: any): string[] {
   const urls = [
     ...(Array.isArray(payload?.manualCrawlUrls) ? payload.manualCrawlUrls : []),
@@ -8622,6 +8653,24 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
     '',
     '## 앱에서 생성한 이미지 작업지시서',
     request.imageTask || '(이미지 작업지시서 없음)',
+    '',
+    // v3.8.485: API 경로와 같은 규칙을 붙인다.
+    //   에이전트 모드는 orchestration 을 타지 않고 이 파일 안의 손으로 쓴 프롬프트만 쓴다.
+    //   그래서 제목 아키타입·문체 규칙·알맹이 규칙·값 약속 금지·경험 가드가 하나도 안 들어갔다.
+    //   문구를 여기서 다시 쓰지 않는다 - 복사해두면 한쪽만 고쳐지고 품질이 조용히 갈린다.
+    (() => {
+      try {
+        const { buildAgentHarnessRules } = require('../dist/core/final/agent-harness');
+        return buildAgentHarnessRules({
+          keyword: topic,
+          currentYear: new Date().getFullYear(),
+          demandQuestions: getAgentDemandQuestions(payload),
+        });
+      } catch (harnessErr) {
+        console.warn('[AGENT] 공용 규칙 주입 실패(지시서는 계속 진행):', harnessErr);
+        return '';
+      }
+    })(),
   ].join('\n');
 }
 
@@ -9190,7 +9239,31 @@ function readAgentJobResult(jobDir: string, stdout: string, lastMessagePath: str
     console.error(`[AGENT-RESULT] ❌ metadata.json 파싱 실패:`, error);
   }
 
-  const title = String(metadata?.title || extractHtmlTitle(content) || '').trim();
+  let title = String(metadata?.title || extractHtmlTitle(content) || '').trim();
+
+  /**
+   * v3.8.485 - 에이전트가 돌려준 결과도 API 경로와 같은 후처리를 통과시킨다.
+   *
+   * 제목: 상투어를 걷고 키워드 중복을 지우고 길이를 맞춘다. 추가 API 호출은 하지 않는다 -
+   *   에이전트 모드는 구독 CLI 를 쓰려고 고른 것이라 여기서 유료 호출을 끼우면 그 선택을 뒤집는다.
+   * 본문: 소제목을 되풀이하는 캡션을 걷어내고, 빈 블록·값 약속 문장을 세어 로그로 남긴다.
+   *   여기서 발행을 막지는 않는다 - 에이전트 실행에 이미 몇 분을 썼고 되돌릴 수 없다.
+   */
+  try {
+    const harness = require('../dist/core/final/agent-harness');
+    const keywordForTitle = String(metadata?.keyword || metadata?.topic || '').trim();
+    const normalized = harness.normalizeAgentTitle(title, keywordForTitle);
+    if (normalized && normalized !== title) {
+      console.log(`[AGENT-RESULT] 제목 정리: "${title}" -> "${normalized}"`);
+      title = normalized;
+    }
+    const report = harness.postProcessAgentArticle(content);
+    content = report.html;
+    for (const w of report.warnings) console.warn('[AGENT-RESULT] 품질 경고:', w);
+  } catch (harnessErr) {
+    console.warn('[AGENT-RESULT] 후처리 스킵:', harnessErr);
+  }
+
   console.log(`[AGENT-RESULT] 📝 최종 title: "${title}"`);
   console.log(`[AGENT-RESULT] 📂 디버깅: 위 jobDir 경로 열어서 article.html / metadata.json 직접 확인 가능`);
 

@@ -187,6 +187,7 @@ import { validateCtaUrl } from '../../cta/validate-cta-url';
 import { callGeminiWithGrounding, callGeminiWithRetry } from './gemini-engine';
 import { detectActionIntent, buildActionQuery } from '../../cta/action-intent';
 import { dropEmptyFaqItems } from './empty-block-guard';
+import { buildArchetypeGuide } from './title-archetypes';
 import { FinalCrawledPost, FinalTableData, FinalCTAData, FAQItem } from './types';
 import { getToneInstruction } from '../max-mode/tone-text-utils';
 
@@ -443,28 +444,15 @@ export async function generateH1TitleFinal(
    * 그래서 상투어 예시를 지우고 **무엇을 말할지(형태)** 만 남긴다.
    * 어떤 낱말로 쓸지는 모델이 그 글의 내용에서 뽑게 한다.
    */
-  const titleArchetypes = [
-    { name: '결론 선공개', hint: '읽기 전에 답부터 알려준다. 결론이나 판단을 제목에 넣는다.' },
-    { name: '조건 한정', hint: '누구에게 해당되는지를 못 박는다. 대상·상황을 앞세운다.' },
-    { name: '숫자 기준', hint: '금액·기간·비율 등 이 글에만 있는 구체적 수치를 제목에 넣는다.' },
-    { name: '질문 그대로', hint: '검색자가 실제로 던진 질문을 거의 그대로 제목으로 쓴다.' },
-    { name: '오해 교정', hint: '흔히 잘못 아는 내용을 제목에서 바로잡는다.' },
-    { name: '갈림길', hint: '두 선택지 중 무엇이 나은지를 제목에서 묻거나 답한다.' },
-    { name: '놓치면 손실', hint: '모르고 지나치면 잃는 것을 구체적으로 적는다. 겁주기가 아니라 사실로.' },
-    { name: '변경점', hint: `${currentYear}년에 무엇이 달라졌는지를 구체적으로 짚는다.` },
-    { name: '순서 안내', hint: '무엇부터 해야 하는지 첫 단계를 제목에 드러낸다.' },
-    { name: '경계 사례', hint: '되는 경우와 안 되는 경우가 갈리는 지점을 제목에 담는다.' },
-  ];
-
-  // 랜덤으로 3개 아키타입 선택
-  const shuffled = [...titleArchetypes].sort(() => Math.random() - 0.5);
-  const selected = shuffled.slice(0, 3);
+  // v3.8.485: 아키타입 목록을 title-archetypes 로 옮겼다.
+  //   에이전트 모드가 같은 목록을 쓴다 — 한쪽에만 있으면
+  //   엔진을 바꿨을 때 제목 품질이 조용히 달라진다.
   // v3.8.478: 디스커버 모드는 아키타입 대신 전용 지시문을 쓴다 (위 contentMode 주석 참고)
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const discoverMode = require('./discover-mode') as typeof import('./discover-mode');
   const archetypeGuide = discoverMode.isDiscoverMode(contentMode)
     ? discoverMode.buildDiscoverTitleDirective(currentYear)
-    : selected.map((a, i) => `${i + 1}. **${a.name}형**: ${a.hint}`).join('\n');
+    : buildArchetypeGuide(currentYear);
 
   const todayH1 = new Date().toISOString().slice(0, 10);
   const prompt = `당신은 대한민국 최고의 바이럴 마케터입니다.

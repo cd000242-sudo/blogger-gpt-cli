@@ -16,6 +16,7 @@
  * 모든 사용자가 같은 목록을 보니 제목이 그 몇 개로 수렴한다.
  */
 import * as fs from 'fs';
+import { blockBetween } from './helpers/source-block';
 import * as path from 'path';
 import { stripTitleCliches, dedupeKeywordInTitle, enforceTitleLength } from '../src/core/final/generation';
 
@@ -23,11 +24,14 @@ const gen = fs.readFileSync(path.join(__dirname, '..', 'src/core/final/generatio
 const main = fs.readFileSync(path.join(__dirname, '..', 'electron/main.ts'), 'utf-8');
 
 describe('① 제목 본보기에서 상투어를 걷어냈다', () => {
+  // v3.8.485: 목록이 title-archetypes.ts 로 옮겨갔다(에이전트 모드와 공유).
+  //   보장 내용은 그대로다 — 본보기에 상투어가 없어야 한다.
+  const archetypes = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'src/core/final/title-archetypes.ts'), 'utf-8',
+  ) as string;
+
   it('⭐⭐ 아키타입이 상투어 예시를 더 이상 보여주지 않는다', () => {
-    const block = gen.slice(
-      gen.indexOf('const titleArchetypes = ['),
-      gen.indexOf('const shuffled = [...titleArchetypes]'),
-    );
+    const block = blockBetween(archetypes, 'return [', '];');
     expect(block.length).toBeGreaterThan(100);
     for (const cliche of ['완벽 가이드', '핵심 정리', '총정리', '꿀팁 모음', '한눈에 보는']) {
       expect(block).not.toContain(cliche);
@@ -35,10 +39,7 @@ describe('① 제목 본보기에서 상투어를 걷어냈다', () => {
   });
 
   it('⭐⭐ 형태만 알려주고 낱말은 글에서 뽑게 한다', () => {
-    const block = gen.slice(
-      gen.indexOf('const titleArchetypes = ['),
-      gen.indexOf('const shuffled = [...titleArchetypes]'),
-    );
+    const block = blockBetween(archetypes, 'return [', '];');
     expect(block).toContain('hint:');
     expect(block).not.toContain('pattern:');
   });
