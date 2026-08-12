@@ -25,6 +25,9 @@ import { stripTitleCliches, dedupeKeywordInTitle, enforceTitleLength } from './g
 import { findEmptyBlocks, describeEmptyBlocks, dropEmptyFaqItems } from './empty-block-guard';
 import { findValuePromises } from './value-promise';
 import { isDiscoverMode, buildDiscoverTitleDirective, buildDiscoverBodyBlock, findDiscoverTitleViolations } from './discover-mode';
+import { buildModeStructureBlock } from './agent-mode-structure';
+import { buildResearchDirective } from './agent-research';
+import { buildOperatorBrief, MODE_LABELS } from './agent-operator';
 
 export interface AgentHarnessInput {
   keyword: string;
@@ -103,6 +106,25 @@ function buildTitleRules(input: AgentHarnessInput): string {
  */
 export function buildAgentHarnessRules(input: AgentHarnessInput): string {
   return [
+    /**
+     * v3.8.487 — 어떻게 읽을지를 먼저 정해준다.
+     * 규칙 뭉치보다 앞에 와야 한다 — 읽는 방식이 달라져야 규칙이 살아난다.
+     */
+    buildOperatorBrief({
+      keyword: input.keyword,
+      modeLabel: MODE_LABELS[String(input.contentMode || '').toLowerCase()],
+    }),
+    /**
+     * v3.8.487 — 먼저 찾아보고 쓰라고 시킨다.
+     * 에이전트는 스스로 웹을 검색할 수 있는데 지시서에 그 말이 한 줄도 없었다.
+     * 주제만 던지면 모델이 아는 것만으로 쓴다 — 그게 "누구나 아는 내용" 의 원인이다.
+     */
+    buildResearchDirective(input),
+    /**
+     * v3.8.487 — 이 모드가 어떤 글인지 알려준다.
+     * 구성을 여기서 다시 적지 않고 mode-registry(API 경로가 쓰는 그것)에서 읽는다.
+     */
+    buildModeStructureBlock(String(input.contentMode || ''), input.keyword),
     buildTitleRules(input),
     // 디스커버는 본문 규칙도 피드 기준으로 다르다 (첫 화면에서 결론을 주고, 스크롤을 미끼로 쓰지 않는다)
     isDiscoverMode(input.contentMode) ? buildDiscoverBodyBlock(input.currentYear) : '',
@@ -111,6 +133,19 @@ export function buildAgentHarnessRules(input: AgentHarnessInput): string {
     DECISION_SUPPORT_RULES,
     FRESHNESS_RULES,
     NO_EXPERIENCE_GUARD,
+    /**
+     * 쇼핑 글에서 에이전트가 만든 상품 링크는 100% 죽은 링크다.
+     * 실제 제휴링크는 글을 받은 뒤 앱이 쿠팡 파트너스로 만들어 붙인다.
+     */
+    String(input.contentMode || '').toLowerCase() === 'shopping'
+      ? [
+        '',
+        '🛒 **상품 링크를 직접 만들지 마세요.**',
+        '   쿠팡·스마트스토어 주소를 지어내거나 검색해서 넣지 마세요 — 앱이 실제 제휴링크로 붙입니다.',
+        '   본문에는 제품을 **말로** 설명하고, 링크 자리는 비워 두세요.',
+        '',
+      ].join('\n')
+      : '',
   ].join('\n');
 }
 

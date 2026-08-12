@@ -8138,8 +8138,9 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
     '   - H2별 이미지 프롬프트: 각 H2 주제에 맞는 장면. 텍스트 없음.',
     '```json',
     '{',
-    '  "title": "최종 H1 제목 (50~60자, 검색 친화, 숫자/연도 포함 권장)",',
+    '  "title": "최종 H1 제목 (아래 제목 규칙을 따르세요)",',
     '  "summary": "글 자체 검수 요약 (300자)",',
+    '  "sources": ["실제로 참고한 주소 (검색으로 확인한 것만, 없으면 빈 배열)"],',
     `  "imagePolicy": "${imagePolicy}",`,
     `  "thumbnailTextIncluded": ${thumbnailTextIncluded ? 'true' : 'false'},`,
     '  "h2TextIncluded": false,',
@@ -8731,9 +8732,11 @@ function buildAgentRunCommand(
   // v3.8.284: prompt 강화 — 사용자 진단 결과 Codex가 stdout만 출력하고 파일 안 만듬
   // 핵심 fix: write_file 도구 명시 + 파일 검증 + 누락 시 fail 명시
   const prompt = [
-    'CRITICAL: You MUST use the write_file tool (or apply_patch/shell tee) to create EXACTLY these two files:',
-    '  1. result/article.html — complete HTML article body (8,000~14,000 Korean characters)',
-    '  2. result/metadata.json — JSON with title, summary, imagePrompts (thumbnail + h2_1~6)',
+    'CRITICAL: You MUST use the write_file tool (or apply_patch/shell tee) to create these files:',
+    '  1. result/plan.md — SHORT plan BEFORE writing (reader situation, angle, section plan). Write this FIRST.',
+    '  2. result/article.html — complete HTML article body (8,000~14,000 Korean characters)',
+    '  3. result/metadata.json — JSON with title, summary, sources, imagePrompts (thumbnail + h2_1~6)',
+    'Search the web first if you have a search tool. Do not start writing before planning.',
     'After writing both files, verify they exist using ls or cat. If either file is missing, the task FAILS.',
     'DO NOT just print HTML to stdout. DO NOT skip metadata.json. DO NOT use placeholders.',
     'Read instructions.md for the detailed schema. Read payload.json for context.',
@@ -8746,6 +8749,10 @@ function buildAgentRunCommand(
       'exec',
       '--json',
       '--sandbox', 'workspace-write',
+      // v3.8.487: 웹 검색을 켠다. 에이전트가 스스로 최신 자료를 찾아 쓰게 하려면 필요하다.
+      //   codex exec 에는 --search 플래그가 없어서 config 로 켠다(--strict-config 를 쓰지 않으므로
+      //   이 키를 모르는 버전에서도 무시될 뿐 실행이 깨지지 않는다).
+      '-c', 'tools.web_search=true',
       '--skip-git-repo-check',
       '-o', lastMessagePath,
       prompt,
@@ -8764,7 +8771,9 @@ function buildAgentRunCommand(
     args: [
       '-p',
       '--permission-mode', 'dontAsk',
-      '--max-turns', '12',
+      // v3.8.487: 검색 -> 계획 -> 집필 -> 자가검토까지 하려면 12턴은 빠듯하다.
+      //   턴이 모자라면 글이 중간에 잘린 채 회수된다.
+      '--max-turns', '24',
       '--output-format', 'json',
       prompt,
     ],
