@@ -2728,6 +2728,20 @@ ${quoted}
       conclusionHTML,
     ].join('\n');
 
+    // [2026-08-12] 날조 검사 — 글에만 있고 재료에는 없는 금액·날짜·비율·인원·기관명.
+    //   충실도(누락)·환각(감정 뒤집힘) 검사가 못 잡던 방향이다.
+    //   측정·경고만 한다 — 발행을 막지도, 재작성을 걸지도 않는다.
+    try {
+      const { checkFabrication } = require('../fabrication-check');
+      const fab = checkFabrication(factEvidence.context || '', articleTextForAux);
+      if (fab.checked && fab.findings.length > 0) {
+        onLog?.(`[PROGRESS] 45% - 🚨 지어냄 의심 ${fab.findings.length}건 / 검증 대상 ${fab.totalClaims}건`);
+        for (const warning of fab.warnings) onLog?.(`   - ${warning}`);
+      }
+    } catch (fabErr) {
+      console.warn('[Fabrication] 검사 스킵:', (fabErr as Error)?.message);
+    }
+
     // 4.5. 🔥 FAQ 생성 (별도 API 호출 — Schema.org FAQPage 포함)
     let faqs = await generateFAQFinal(keyword, h2Titles, onLog, articleTextForAux);
     const faqText = faqs.map((item) => `${item.question} ${item.answer}`).join('\n');
