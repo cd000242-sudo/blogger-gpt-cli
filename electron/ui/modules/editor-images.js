@@ -77,6 +77,7 @@ export function initImageEditing(frame, doc, { setStatus, onAfterRestore }) {
     selectedImg: null, selectedLink: null, hoverBlock: null,
     // v3.8.440: 마지막으로 커서가 있던 블록을 기억한다 (아래 주석 참고)
     lastCaretBlock: null,
+    lastPointerBlock: null,
     opStack: [],
   };
 
@@ -365,11 +366,19 @@ function findDirectBlock(el, container) {
 
 function onDocMouseOver(e) {
   if (!state) return;
-  if (e.target?.tagName === 'IMG') return; // 이미지 위에서는 선택 툴바 우선
   const container = getArticleContainer(state.doc);
   let block = findDirectBlock(e.target, container);
   if (!block && container !== state.doc.body) block = findDirectBlock(e.target, state.doc.body);
   if (!block || block.tagName === 'STYLE') { return; }
+
+  /**
+   * v3.8.492 - 마우스가 지나간 블록을 삽입 폴백용으로 기록한다.
+   * 사장님처럼 스크롤만 하고 본문을 클릭하지 않으면 커서 기억(lastCaretBlock)이
+   * 비어서 광고·이미지가 글 끝으로 갔다. "보고 있던 자리" 가 두 번째 기준이 된다.
+   * 이미지 위도 기록한다 - "이미지를 보여주면 여기에 광고를 넣고싶거든" 이 바로 그 경우다.
+   */
+  state.lastPointerBlock = block;
+  if (e.target?.tagName === 'IMG') return; // 이미지 위에서는 +이미지 마커만 생략
 
   state.hoverBlock = block;
   const rect = block.getBoundingClientRect();
@@ -405,6 +414,24 @@ export function findCaretBlock(doc) {
     block = findDirectBlock(el, container) || (container !== doc.body ? findDirectBlock(el, doc.body) : null);
   }
   if (!block && state.lastCaretBlock?.isConnected) block = state.lastCaretBlock;
+
+  /**
+   * v3.8.492 - 커서 기억도 없으면 "보고 있는 자리" 로 물러난다.
+   *   1) 마우스가 마지막으로 지나간 블록 (스크롤해서 위치만 잡은 경우)
+   *   2) 그것도 없으면 화면 한가운데 보이는 블록 (키보드로만 스크롤한 경우)
+   * 예전엔 여기서 바로 글 끝으로 갔다 - 사장님이 겪은 "제일 하단으로 내려온다" 다.
+   */
+  if (!block && state.lastPointerBlock?.isConnected) block = state.lastPointerBlock;
+  if (!block) {
+    try {
+      const win = doc.defaultView;
+      const centerEl = doc.elementFromPoint((win?.innerWidth || 0) / 2, (win?.innerHeight || 0) / 2);
+      if (centerEl) {
+        block = findDirectBlock(centerEl, container)
+          || (container !== doc.body ? findDirectBlock(centerEl, doc.body) : null);
+      }
+    } catch { /* 못 찾으면 글 끝 - 예전과 같다 */ }
+  }
   return block;
 }
 

@@ -1197,13 +1197,17 @@ function generateBloggerLayoutCSS() {
        720px / mobile clamp / 1.72 / 틸 악센트
        ======================================== */
 
-    /* 컨테이너 - 720px 가독성 최적 폭 */
+    /* 컨테이너 - v3.8.492: 화면 크기별 폭.
+       사용자: "PC로볼때는 넓고 쾌적하게 보여야정상아닌가요?"
+       720px 고정은 넓은 모니터에서 답답했다. 워드프레스와 같은 단계(860/1000)로 맞춘다.
+       배경·글자색 강제는 여기서는 유지한다 - 이 스킨은 흰 배경 기준으로 색이 짜인
+       자기완결형이라, 배경만 풀면 안의 색들이 깨질 위험이 더 크다. */
     .blogger-gpt-content {
       display: block !important;
       visibility: visible !important;
       opacity: 1 !important;
       width: 100% !important;
-      max-width: 720px !important;
+      max-width: 860px !important;
       margin: 0 auto !important;
       padding: 32px 24px !important;
       box-sizing: border-box !important;
@@ -1972,6 +1976,11 @@ div[role="main"] .article-content {
 
 /* 핵 옵션 5: 미디어 쿼리별 완전 오버라이드 */
 @media (min-width: 1200px) {
+  /* v3.8.492: 테마 컨테이너만 넓히고 본문(.blogger-gpt-content)은 좁게 묶여 있었다 */
+  .blogger-gpt-content {
+    max-width: 1000px !important;
+    font-size: 17px !important;
+  }
   html body .post-outer .post-body,
   html body .post-outer .entry-content,
   html body .post-outer .post-content,
@@ -3752,6 +3761,11 @@ html body .content-inner {
 }
 /* 모든 미디어 쿼리 오버라이드 - 데스크톱 */
 @media (min-width: 1200px) {
+  /* v3.8.492: 본문도 함께 넓힌다 (테마만 넓히면 본문이 좁은 채 남는다) */
+  .blogger-gpt-content {
+    max-width: 1000px !important;
+    font-size: 17px !important;
+  }
   /* Blogger의 모든 컨테이너 요소들 강제 오버라이드 */
   .post-body, .entry-content, .post-content, .post-outer, .blog-post,
   .article-body, .content-section, .main, .content, .wrapper,

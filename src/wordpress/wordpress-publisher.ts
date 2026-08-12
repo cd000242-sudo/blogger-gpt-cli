@@ -518,7 +518,8 @@ export function applyWordPressInlineStyles(html: string): string {
       } else if (hasClass(className, /\b(?:tldr-answer-box|eeat-meta-box|freshness-meta|wp-intro-card)\b/i)) {
         style = 'width:100% !important;max-width:100% !important;margin:24px 0 !important;padding:22px 24px !important;background:#f8fafc !important;border:1px solid #e2e8f0 !important;border-radius:12px !important;box-sizing:border-box !important;color:#0f172a !important;-webkit-text-fill-color:#0f172a !important;';
       } else if (hasClass(className, /\bwp-section-card\b/i)) {
-        style = 'width:100% !important;max-width:100% !important;margin:24px 0 !important;padding:28px 32px !important;background:#ffffff !important;border:1px solid #e2e8f0 !important;border-radius:12px !important;box-sizing:border-box !important;box-shadow:0 1px 3px rgba(0,0,0,0.04) !important;';
+        // v3.8.492: 배경을 강제하는 상자는 글자색도 자기가 책임진다 - 문단 강제색을 푼 뒤에도 읽혀야 한다
+        style = 'width:100% !important;max-width:100% !important;margin:24px 0 !important;padding:28px 32px !important;background:#ffffff !important;border:1px solid #e2e8f0 !important;border-radius:12px !important;box-sizing:border-box !important;box-shadow:0 1px 3px rgba(0,0,0,0.04) !important;color:#1a1a1a !important;-webkit-text-fill-color:#1a1a1a !important;';
       } else if (hasClass(className, /\brv-share\b/i)) {
         style = 'margin:36px 0 16px !important;padding:20px 0 !important;border-top:1px solid #e2e8f0 !important;text-align:center !important;box-sizing:border-box !important;';
       } else if (hasClass(className, /\brv-share-label\b/i)) {
@@ -597,10 +598,10 @@ export function applyWordPressInlineStyles(html: string): string {
         return `<p${cleanAttrs ? ' ' + cleanAttrs : ''} style="${previewPStyle}">`;
       }
       if (/\barticle-p\b/i.test(className)) {
-        const articleStyle = `color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; font-size: 16px !important; line-height: 1.72 !important; margin: 0 0 16px 0 !important; word-break: keep-all !important; overflow-wrap: break-word !important; letter-spacing: 0 !important;`;
+        const articleStyle = `font-size: 16px !important; line-height: 1.72 !important; margin: 0 0 16px 0 !important; word-break: keep-all !important; overflow-wrap: break-word !important; letter-spacing: 0 !important;`;
         return `<p${cleanAttrs ? ' ' + cleanAttrs : ''} style="${articleStyle}">`;
       }
-      const newStyle = `color: #1a1a1a !important; -webkit-text-fill-color: #1a1a1a !important; font-size: 16px !important; line-height: 1.72 !important; margin: 0 0 16px 0 !important; word-break: keep-all !important; overflow-wrap: break-word !important; letter-spacing: 0 !important;`;
+      const newStyle = `font-size: 16px !important; line-height: 1.72 !important; margin: 0 0 16px 0 !important; word-break: keep-all !important; overflow-wrap: break-word !important; letter-spacing: 0 !important;`;
       return `<p${cleanAttrs ? ' ' + cleanAttrs : ''} style="${newStyle}">`;
     });
 
@@ -666,7 +667,7 @@ export function applyWordPressInlineStyles(html: string): string {
     // v3.8.83: LI 16→18px (+2px 가독성 강화), line-height 1.8 (CJK)
     styledHtml = styledHtml.replace(/<li\b([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      return `<li${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 0 0 10px 0 !important; padding-left: 4px !important; line-height: 1.72 !important; font-size: 15.5px !important; color: #1a1a1a !important; letter-spacing: 0 !important; overflow-wrap: break-word !important;">`;
+      return `<li${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 0 0 10px 0 !important; padding-left: 4px !important; line-height: 1.72 !important; font-size: 15.5px !important; letter-spacing: 0 !important; overflow-wrap: break-word !important;">`;
     });
 
     // 인용구
@@ -723,18 +724,36 @@ export function applyWordPressInlineStyles(html: string): string {
      - max-width 720px (60-70자/줄, GeneratePress 표준)
      - font 17px / line-height 1.8 (CJK 권장)
      - Pretendard 우선 (HTTP Archive 2024 한국 최다 사용) → Noto Sans KR → 시스템 폴백 */
+  /* v3.8.492: PC 에서 본문이 좁게 나오던 문제.
+     사용자: "PC로볼때는 넓고 쾌적하게 보여야정상아닌가요?"
+     760px 고정은 테마 폭 안에서 한 번 더 좁혀 넓은 모니터에서 답답했다.
+     화면 크기별로 나눈다 - 모바일은 기존 전체폭 규칙(아래 768px 쿼리)이 그대로 맡는다.
+     흰 배경·고정 패딩 강제도 푼다: 다크 테마에서 본문만 하얀 네모로 뜨고,
+     테마 여백과 겹쳐 두 번 좁아지던 원인이었다. 타이포그래피(글꼴·줄간격)만 우리가 정한다. */
   .wp-styled-content {
-    max-width: 760px !important;
     margin: 0 auto !important;
-    padding: 20px 18px !important;
     box-sizing: border-box !important;
     font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
     font-size: 16px !important;
     line-height: 1.72 !important;
-    color: #1a1a1a !important;
     word-break: keep-all !important;
-    background: #ffffff !important;
     letter-spacing: 0 !important;
+  }
+  /* 태블릿·노트북(769~1199px): 테마 폭을 따르되 과도하게 길어지지 않게 */
+  @media screen and (min-width: 769px) {
+    .wp-styled-content {
+      max-width: 860px !important;
+      padding: 20px 16px !important;
+    }
+  }
+  /* 넓은 화면(>=1200px): 쾌적하게 넓히되 한 줄 길이 상한(약 50자)은 지킨다 */
+  @media screen and (min-width: 1200px) {
+    .wp-styled-content {
+      max-width: 1000px !important;
+      padding: 24px 16px !important;
+      font-size: 17px !important;
+      line-height: 1.75 !important;
+    }
   }
   /* v3.8.78: 도입부 카드 P 정렬 — 첫 P margin-top 0, 마지막 P margin-bottom 0 */
   .wp-intro-card > p:first-child { margin-top: 0 !important; }
@@ -1468,7 +1487,7 @@ export function applyWordPressInlineStyles(html: string): string {
     // 컨테이너 스타일
     const containerStyle = usesFinalPreviewSkin
       ? `max-width: 100%; width: 100%; margin: 0; padding: 0; box-sizing: border-box; font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1e293b; word-break: keep-all; background: transparent; letter-spacing: 0;`
-      : `max-width: 760px; margin: 0 auto; padding: 20px 18px; box-sizing: border-box; font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; line-height: 1.72; color: #1a1a1a; word-break: keep-all; background: #ffffff; letter-spacing: 0;`;
+      : `margin: 0 auto; box-sizing: border-box; font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; line-height: 1.72; word-break: keep-all; letter-spacing: 0;`;
 
     // v3.8.388: 인라인 style 이 다 박힌 뒤 반복분을 클래스로 접는다 (HTML 축소).
     //   실패하거나 접을 게 없으면 원본 그대로 — 발행을 막지 않는다.
