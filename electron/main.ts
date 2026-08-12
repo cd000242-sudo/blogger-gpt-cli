@@ -8659,6 +8659,8 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
     //   에이전트 모드는 orchestration 을 타지 않고 이 파일 안의 손으로 쓴 프롬프트만 쓴다.
     //   그래서 제목 아키타입·문체 규칙·알맹이 규칙·값 약속 금지·경험 가드가 하나도 안 들어갔다.
     //   문구를 여기서 다시 쓰지 않는다 - 복사해두면 한쪽만 고쳐지고 품질이 조용히 갈린다.
+    // v3.8.488: 쿠팡에서 실제 조회한 상품 데이터. 없으면 에이전트가 제품과 가격을 지어낸다.
+    String((payload as any)?.shoppingPromptBlock || ''),
     (() => {
       try {
         const { buildAgentHarnessRules } = require('../dist/core/final/agent-harness');
@@ -8684,6 +8686,16 @@ function writeAgentJobFiles(jobDir: string, request: AgentJobRequest, profile: A
   fs.writeFileSync(path.join(jobDir, 'instructions.md'), buildAgentJobInstructions(request, profile), 'utf-8');
   fs.writeFileSync(path.join(jobDir, 'payload.json'), JSON.stringify(request.payload || {}, null, 2), 'utf-8');
   fs.writeFileSync(path.join(jobDir, 'profile.json'), JSON.stringify(toAgentProfileView(profile), null, 2), 'utf-8');
+  /**
+   * v3.8.489 - 마지막 응답 형태를 강제할 스키마. Codex 가 --output-schema 로 읽는다.
+   * 제목을 못 받아와 키워드로 떨어지던 버그의 뿌리를 막는다.
+   */
+  try {
+    const { AGENT_OUTPUT_SCHEMA } = require('../dist/core/final/agent-output-schema');
+    fs.writeFileSync(path.join(jobDir, 'output-schema.json'), JSON.stringify(AGENT_OUTPUT_SCHEMA, null, 2), 'utf-8');
+  } catch (schemaErr) {
+    console.warn('[AGENT] 출력 스키마 파일 생성 스킵:', schemaErr);
+  }
 }
 
 function buildAgentRunEnv(profile: AgentProfile): NodeJS.ProcessEnv {
@@ -8754,6 +8766,11 @@ function buildAgentRunCommand(
       //   이 키를 모르는 버전에서도 무시될 뿐 실행이 깨지지 않는다).
       '-c', 'tools.web_search=true',
       '--skip-git-repo-check',
+      // v3.8.489: 마지막 응답을 구조화한다 - 제목을 못 받아오던 문제의 뿌리를 막는다.
+      //   파일이 없으면 조용히 무시되도록 아래에서 존재 여부를 확인해 넣는다.
+      ...(fs.existsSync(path.join(jobDir, 'output-schema.json'))
+        ? ['--output-schema', path.join(jobDir, 'output-schema.json')]
+        : []),
       '-o', lastMessagePath,
       prompt,
     ];
@@ -9251,7 +9268,26 @@ function readAgentJobResult(jobDir: string, stdout: string, lastMessagePath: str
     console.error(`[AGENT-RESULT] ❌ metadata.json 파싱 실패:`, error);
   }
 
-  let title = String(metadata?.title || extractHtmlTitle(content) || '').trim();
+  /**
+   * v3.8.489 - 마지막 응답이 구조화돼 있으면 거기서 먼저 건진다.
+   * metadata.json 을 빠뜨려도 제목을 얻을 수 있어, 키워드로 떨어지는 일이 없어진다.
+   * 스키마를 못 쓰는 실행에서는 빈 값이 와서 기존 경로가 그대로 동작한다.
+   */
+  let structured = { title: '', summary: '', sources: [] as string[], articleHtml: '' };
+  try {
+    structured = require('../dist/core/final/agent-output-schema').parseAgentFinalResponse(finalMessage);
+  } catch { /* 파싱 실패는 기존 경로로 */ }
+
+  // 파일 쓰기가 막혀 본문이 비었는데 응답에 들어 있으면 그걸 쓴다 (최후 수단)
+  if (!String(content || '').trim() && structured.articleHtml) {
+    content = structured.articleHtml;
+    console.log('[AGENT-RESULT] 본문을 마지막 응답에서 회수했습니다 (파일 없음)');
+  }
+
+  let title = String(metadata?.title || structured.title || extractHtmlTitle(content) || '').trim();
+  if (!metadata?.sources && structured.sources.length > 0) {
+    metadata = { ...(metadata || {}), sources: structured.sources };
+  }
 
   /**
    * v3.8.485 - 에이전트가 돌려준 결과도 API 경로와 같은 후처리를 통과시킨다.
@@ -10472,11 +10508,60 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
     const jobId = createAgentJobId(profile.provider, request?.title || request?.payload?.title || request?.payload?.topic);
     const jobDir = path.join(ensureAgentJobsRoot(), jobId);
     fs.mkdirSync(jobDir, { recursive: true });
+
+    /**
+     * v3.8.488 — 쇼핑 글이면 실제 상품 데이터를 먼저 확보해 지시서에 넣는다.
+     *
+     * 에이전트는 외부 API 를 못 쓴다. 상품 정보를 안 주면 있지도 않은 제품과 가격을
+     * 지어낸다. API 경로는 이미 이 단계를 거치므로, 같은 결과를 내려면 여기서도 해야 한다.
+     * 실패해도 글은 나온다 — 상품 없이 진행할 뿐이다.
+     */
+    let agentShoppingProducts: any[] = [];
+    try {
+      const shoppingMode = String((request?.payload as any)?.contentMode || '');
+      const shoppingKeyword = String(
+        (request?.payload as any)?.keyword || request?.title || (request?.payload as any)?.topic || '',
+      );
+      const { fetchAgentShoppingMaterial } = require('../dist/core/final/agent-shopping');
+      const envData = require('../dist/env').loadEnvFromFile();
+      const material = await fetchAgentShoppingMaterial(shoppingKeyword, shoppingMode, {
+        accessKey: (request?.payload as any)?.coupangAccessKey || envData['coupangAccessKey'] || envData['COUPANG_ACCESS_KEY'] || '',
+        secretKey: (request?.payload as any)?.coupangSecretKey || envData['coupangSecretKey'] || envData['COUPANG_SECRET_KEY'] || '',
+      });
+      agentShoppingProducts = material.products || [];
+      if (material.promptBlock) {
+        // 지시서 빌더가 읽는 자리 — payload 에 실어야 instructions.md 에 들어간다
+        (request as any).payload = { ...(request?.payload || {}), shoppingPromptBlock: material.promptBlock };
+      }
+      if (material.note) console.log('[AGENT-SHOPPING]', material.note);
+    } catch (shoppingErr: any) {
+      console.warn('[AGENT-SHOPPING] 준비 스킵:', String(shoppingErr?.message || shoppingErr).slice(0, 120));
+    }
+
     writeAgentJobFiles(jobDir, request || {}, profile);
 
     const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
     const run = await runAgentProcess(profile, jobDir, lastMessagePath);
     const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
+
+    /**
+     * v3.8.488 - 쇼핑 글이면 상품 위젯·대가성 문구를 앱이 붙인다.
+     *
+     * 에이전트에게는 "상품 링크를 직접 만들지 마라" 고 막아뒀다 - 지어낸 제휴링크는
+     * 100% 죽은 링크이기 때문이다. 실제 딥링크가 박힌 위젯은 여기서 붙인다.
+     * 상품이 0개면 아무것도 안 붙인다 (제휴 관계가 없는데 대가성 문구를 달면 허위 고지다).
+     */
+    try {
+      const { attachAgentShoppingBlocks } = require('../dist/core/final/agent-shopping');
+      const shoppingMode = String((request?.payload as any)?.contentMode || '');
+      const attachResult = attachAgentShoppingBlocks(result.content, agentShoppingProducts, shoppingMode);
+      if (attachResult.attached.length > 0) {
+        result.content = attachResult.html;
+        console.log('[AGENT-SHOPPING] 부착 완료:', attachResult.attached.join(', '));
+      }
+    } catch (attachErr: any) {
+      console.warn('[AGENT-SHOPPING] 부착 스킵:', String(attachErr?.message || attachErr).slice(0, 120));
+    }
     const usage = parseAgentRunUsage(profile.provider, run.stdout);
     const hasContent = !!String(result.content || '').trim();
 
