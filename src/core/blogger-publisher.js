@@ -5903,11 +5903,10 @@ html body .content-inner {
         if (postUrl && postId && !isDraftMode && typeof finalHtmlContent === 'string'
             && finalHtmlContent.includes('data-orbit-share')) {
           try {
-            const encodedPostUrl = encodeURIComponent(postUrl);
-            const patchedContent = finalHtmlContent.replace(
-              /(<a\b[^>]*\bdata-orbit-share="1"[^>]*\bhref="[^"]*?[?&](?:url|u)=)([^"&]*)/gi,
-              (_m, prefix) => `${prefix}${encodedPostUrl}`,
-            );
+            // v3.8.484: 치환 로직을 공용 모듈로 옮겼다 — 퍼블리셔마다 따로 짜니
+            //   워드프레스에는 아예 없어서 공유 버튼이 홈 주소를 가리켰다.
+            const { applyShareUrl } = require('./final/share-url');
+            const patchedContent = applyShareUrl(finalHtmlContent, postUrl);
             if (patchedContent !== finalHtmlContent) {
               await blogger.posts.patch({
                 blogId,

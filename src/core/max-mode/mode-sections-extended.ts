@@ -670,10 +670,9 @@ export const SHOPPING_CONVERSION_MODE_SECTIONS: MaxModeSection[] = [
     description: "실제 사용자 후기와 Before&After로 신뢰를 구축하는 섹션",
     minChars: 1200,
     role: "사용자 경험 분석가",
-    contentFocus: "실제 후기 카드, 별점 시각화, Before&After, 사회적 증거",
+    contentFocus: "실제 후기에서 나온 말, 좋았던 점과 아쉬웠던 점, 사회적 증거",
     requiredElements: [
-      "실제 구매 후기 카드 3개 이상 (따옴표 스타일, 별점 포함)",
-      "별점 + 리뷰 요약 바 (예: ⭐4.7/5 — 1,234명 평가)",
+      "실제 구매 후기 카드 3개 이상 (따옴표 스타일)",
       "Before & After 비교 또는 결과 수치 명시",
       "⚠️ 후기·별점·평가 수는 **수집된 실제 데이터에 있는 값만** 쓰세요. 없으면 그 항목을 빼고, 지어내지 마세요 (구글은 실제 경험에 근거하지 않은 후기에 수동 조치를 취합니다)",
       "전문가·기관·언론 레퍼런스는 **자료에 실제로 있을 때만** 인용하세요 — 없으면 넣지 마세요"

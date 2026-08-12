@@ -954,7 +954,7 @@ export function applyWordPressInlineStyles(html: string): string {
     margin: 0 !important;
     border-radius: 0 !important;
   }
-  /* v3.8.472 — 대표 이미지(썸네일)는 절대 자르지 않는다.
+  /* v3.8.484 — 대표 이미지(썸네일)는 절대 자르지 않는다.
      orchestration 이 인라인으로 준 object-fit:contain 을 워드프레스가 REST 저장에서
      지워버려, 여기 !important cover 가 다시 씌워졌다. 수집한 세로 상품 사진은 물론
      16:9 가 아닌 AI 썸네일(OpenAI 는 3:2 가 최대)까지 위아래가 잘려 나갔다.
@@ -2760,6 +2760,25 @@ export async function publishToWordPress(
         ? apiLink2
         : `${options.siteUrl}/?p=${post.id}`;
       onLog?.(`✅ WordPress 포스트 생성 완료: ${postUrl}`);
+
+      /**
+       * v3.8.484 — 공유 버튼 주소를 실제 글 주소로 갈아끼운다.
+       * 이 치환이 blogger-publisher 에만 있어서, 워드프레스로 발행한 글은
+       * 공유 버튼이 블로그 홈을 가리켰다. 독자가 공유해도 그 글이 아니라 홈이 퍼진다.
+       * 실패해도 홈 주소가 남아 링크는 살아있으므로 발행을 막지 않는다.
+       */
+      try {
+        const { applyShareUrl } = require('../core/final/share-url');
+        const patched = applyShareUrl(options.content, postUrl);
+        if (patched !== options.content) {
+          const shareResult = await wpApi.updatePostContent(post.id, patched);
+          onLog?.(shareResult.success
+            ? '🔗 공유 버튼 URL을 실제 글 주소로 갱신했습니다.'
+            : '⚠️ 공유 버튼 URL 갱신에 실패했습니다 (홈 주소가 유지됩니다).');
+        }
+      } catch (shareErr: any) {
+        console.warn('[WP] 공유 URL 치환 스킵:', String(shareErr?.message || shareErr).slice(0, 100));
+      }
 
       // 🔧 Yoast SEO 필드 자동 설정 (초점 키프레이즈, 메타설명)
       // WordPressPublisher 클래스의 메서드 재사용 (중복 제거)

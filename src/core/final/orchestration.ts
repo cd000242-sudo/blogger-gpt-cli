@@ -25,6 +25,8 @@ import {
 } from './experience-block';
 import { extractLivedSignals, buildLivedVoiceBlock, HUMAN_VOICE_RULES } from './lived-voice';
 import { guardFacts, buildGroundingReference } from './fact-guard';
+import { findEmptyBlocks, describeEmptyBlocks, isSummaryRenderable } from './empty-block-guard';
+import { dropValuelessSections } from './value-promise';
 import { suggestNarrowerKeywords, buildNarrowFocusBlock } from '../keyword-narrowing';
 import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
 import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTIONS } from '../max-mode/mode-sections-extended';
@@ -2720,6 +2722,27 @@ ${quoted}
     }
 
     const sections = allSectionsObj.sections;
+    /**
+     * v3.8.484 - 값을 약속해놓고 못 지킨 소제목을 들어낸다.
+     *
+     * "지원 금액은 소득 구간에 따라 다릅니다" 는 틀린 말은 아니지만 독자가 알고 싶었던
+     * 걸 하나도 안 알려준다. 얼마인지 알려고 검색해서 들어온 사람이 "다릅니다" 를 읽고
+     * 나간다. 값을 모르면 그 소제목을 애초에 쓰지 않는 게 맞다 - 빈 약속을 목차에
+     * 걸어두면 독자를 두 번 속인다.
+     *
+     * 값을 약속하지 않는 제목(방법·절차·실수)은 수치가 없어도 그대로 둔다.
+     * 전부 탈락하면 최소 하나는 남긴다 - 본문이 통째로 비면 그게 더 나쁘다.
+     */
+    for (const section of sections) {
+      const before = (section.h3Sections || []).length;
+      if (before === 0) continue;
+      section.h3Sections = dropValuelessSections(section.h3Sections as any) as any;
+      const dropped = before - section.h3Sections.length;
+      if (dropped > 0) {
+        onLog?.(`[PROGRESS] 75% - 값을 약속하고 수치가 없는 소제목 ${dropped}개를 제외했습니다`);
+      }
+    }
+
     const introductionHTML = allSectionsObj.introduction;
     const conclusionHTML = allSectionsObj.conclusion;
     const articleTextForAux = [
@@ -3691,11 +3714,16 @@ ${quoted}
          * 수집 사진은 비율 상자 없이 img 만 내보낸다. 그러면 감쌀 상자가 없어
          * 어느 플랫폼에서도 잘릴 수 없다. AI 생성컷은 원래 16:9 라 상자를 유지한다.
          */
+        /**
+         * v3.8.484 — 이미지 캡션을 넣지 않는다.
+         * figcaption 이 바로 위 H2 제목을 그대로 되풀이해서, 소제목이 두 번(굵게 + 이탤릭)
+         * 찍혔다. 사장님 지적. alt·title 에 같은 문구가 이미 들어 있으므로
+         * 접근성·SEO 손실은 없고 화면에서 중복만 사라진다.
+         */
         html += isCollectedPhoto
           ? `
 <figure class="section-image" style="width:100% !important;margin:32px 0 40px !important;padding:0 !important;text-align:center !important;">
   <img src="${finalImageUrl}" alt="${cleanH2}" title="${cleanH2}" data-orbit-nocrop="1" style="${imgStyle}" loading="lazy" />
-  <figcaption style="text-align:center;font-size:13px;color:#999;margin-top:12px;font-style:italic;">${cleanH2}</figcaption>
 </figure>
 `
           : `
@@ -3703,7 +3731,6 @@ ${quoted}
   <div class="section-image-frame" style="${frameStyle}">
     <img src="${finalImageUrl}" alt="${cleanH2}" title="${cleanH2}" style="${imgStyle}" loading="lazy" />
   </div>
-  <figcaption style="text-align:center;font-size:13px;color:#999;margin-top:12px;font-style:italic;">${cleanH2}</figcaption>
 </figure>
 `;
       }
@@ -4142,7 +4169,16 @@ ${quoted}
       .replace(/>/g, '&gt;');
 
     // 💰 요약표를 상단(TOP_SUMMARY_CTA_PLACEHOLDER)에 배치
-    const topSummaryHtml = cleanedRows.length === 0 ? '' : `
+    /**
+     * v3.8.484 — 뼈대가 비면 표를 아예 그리지 않는다.
+     * 예전엔 "전부 빈 줄" 만 걸렀다. 그래서 헤더만 살아남거나 셀 절반이 빈
+     * 구멍 뚫린 표가 그대로 나갔다. 깨진 표를 보여주느니 없는 편이 낫다.
+     */
+    const summaryRenderable = isSummaryRenderable(cleanedHeaders, cleanedRows);
+    if (!summaryRenderable && (summaryTable.rows || []).length > 0) {
+      onLog?.('[PROGRESS] 93% - ℹ️ 핵심 요약표에 빈 항목이 많아 표를 넣지 않습니다');
+    }
+    const topSummaryHtml = !summaryRenderable ? '' : `
 <div class="summary-container" style="margin:0 0 30px;background:linear-gradient(135deg,var(--rv-gradient-start,#f8fafc) 0%,var(--rv-gradient-end,#eef2f7) 100%);border:2px solid var(--rv-heading-2-border,#cbd5e1);border-radius:16px;display:block;visibility:visible;box-sizing:border-box;max-width:100%;">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
     <span style="font-size:24px;">⚡</span>
@@ -4219,10 +4255,21 @@ ${conclusionHTML}
 ` : '';
     html += formattedConclusion;
 
-    // 💰 면책 조항 — 템플릿의 .disclaimer 부착
+    /**
+     * 💰 면책 조항 — v3.8.484: 제휴 문장을 무조건 붙이지 않는다.
+     *
+     * 예전에는 "일부 링크는 제휴 링크가 포함되어 있습니다" 가 모든 글에 하드코딩됐다.
+     * 제휴 링크가 하나도 없는 정보성 글에까지 붙어서, 있지도 않은 대가 관계를
+     * 스스로 고지하는 꼴이었다. 사실과 다른 고지는 그 자체로 문제다.
+     * 이제 본문에 실제 제휴 링크가 있을 때만 붙인다.
+     */
+    const hasAffiliateLink = /coupang\.com|link\.coupang|partners\.coupang|aliexpress|amzn\.to|amazon\.[a-z.]+\/.*tag=/i.test(html);
+    const affiliateNotice = hasAffiliateLink
+      ? ' 본 글에는 제휴 링크가 포함되어 있으며, 이를 통해 일정액의 수수료를 제공받을 수 있습니다.'
+      : '';
     html += `
 <div class="disclaimer">
-  ※ 본 글은 정보 제공 목적으로 작성되었으며, 전문적인 조언을 대체하지 않습니다. 일부 링크는 제휴 링크가 포함되어 있습니다.<br />
+  ※ 본 글은 정보 제공 목적으로 작성되었으며, 전문적인 조언을 대체하지 않습니다.${affiliateNotice}<br />
   ※ 실제 서비스 환경이나 시기에 따라 세부 내용이 일부 변경될 수 있습니다.
 </div>
 `;
@@ -4552,7 +4599,7 @@ ${conclusionHTML}
 
     /**
      * 🔎 v3.8.477 — 디스커버 카드 자격 자가진단.
-     *   고칠 수 있는 건 이미 고쳤고(v3.8.472 로 썸네일이 16:9 1820x1024 로 나온다),
+     *   고칠 수 있는 건 이미 고쳤고(v3.8.484 로 썸네일이 16:9 1820x1024 로 나온다),
      *   여기서는 **우리가 못 고치는 것**을 알린다 — 원본이 작은 수집 사진,
      *   그리고 블로그스팟 테마의 head 메타. 발행은 막지 않는다.
      */
@@ -4922,6 +4969,24 @@ ${conclusionHTML}
       html = guarded.html;
     } catch (factGuardErr: any) {
       console.warn('[FACT-GUARD] 스킵:', String(factGuardErr?.message || factGuardErr).slice(0, 120));
+    }
+
+    /**
+     * v3.8.484 — 발행 전 마지막 관문. 구조적으로 깨진 글은 내보내지 않는다.
+     *
+     * 사장님: "발행 전 검증 단계 추가 — 빈 필드 감지되면 발행 중단"
+     *
+     * 이건 품질 차단이 아니다. "검수 때문에 발행이 막히면 안 된다"는 규칙은 그대로다.
+     * 여기서 막는 건 글자가 아예 없는 소제목·답변 없는 FAQ 처럼 **눈에 띄게 깨진** 경우뿐이고,
+     * 렌더러들이 이미 빈 블록을 안 그리므로 여기까지 오는 일 자체가 드물다. 안전망이다.
+     */
+    const emptyBlocks = findEmptyBlocks(html);
+    if (emptyBlocks.length > 0) {
+      const detail = describeEmptyBlocks(emptyBlocks);
+      console.error('[EMPTY-BLOCK] 발행 중단:', detail, emptyBlocks.slice(0, 3));
+      onLog?.(`[PROGRESS] 0% - ❌ 내용이 빈 블록이 남아 있어 발행을 중단합니다 (${detail})`);
+      onLog?.('💡 같은 키워드로 다시 시도하면 대부분 해결됩니다. 반복되면 자료가 부족한 키워드일 수 있습니다.');
+      throw new Error(`빈 블록이 남아 발행을 중단했습니다 (${detail}). 깨진 글을 올리는 것보다 안 올리는 편이 낫습니다.`);
     }
 
     return {

@@ -186,6 +186,7 @@ async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000,
 import { validateCtaUrl } from '../../cta/validate-cta-url';
 import { callGeminiWithGrounding, callGeminiWithRetry } from './gemini-engine';
 import { detectActionIntent, buildActionQuery } from '../../cta/action-intent';
+import { dropEmptyFaqItems } from './empty-block-guard';
 import { FinalCrawledPost, FinalTableData, FinalCTAData, FAQItem } from './types';
 import { getToneInstruction } from '../max-mode/tone-text-utils';
 
@@ -2197,6 +2198,12 @@ JSON만 출력:
 
 // 🔥 FAQ HTML + Schema.org 마크업 생성
 export function buildFAQHtml(faqs: FAQItem[]): string {
+  /**
+   * v3.8.484 — 질문이나 답변 한쪽이 비면 그 항목을 버린다.
+   * 후처리가 근거 없는 문장을 지우면서 답변이 빈 문자열이 될 수 있는데,
+   * 그대로 그리면 "Q 만 있고 A 는 없는 아코디언" 이 나가고 구조화 데이터에도 실린다.
+   */
+  faqs = dropEmptyFaqItems(faqs || []);
   if (!faqs || faqs.length === 0) return '';
 
   // Schema.org FAQPage 구조화 데이터

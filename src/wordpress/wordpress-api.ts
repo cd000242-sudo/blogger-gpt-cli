@@ -260,6 +260,21 @@ export class WordPressAPI {
   // v3.8.374: 플러그인을 실제로 감지해서 해당 플러그인 키만 전송.
   //   기존에는 9개 키를 항상 뿌리고, 성공 판정도 `rankMathSaved || yoastSaved`라 Yoast 전용 사이트에서
   //   "Rank Math 필드 저장 안 됨" 경고가 매번 떴고, Rank Math 전용 REST도 매 발행마다 헛호출됐다.
+  /**
+   * v3.8.484 — 발행된 글의 본문만 갈아끼운다 (공유 버튼 URL 치환용).
+   * 본문 작성 시점엔 글 주소를 몰라 홈 주소를 넣어두는데, 워드프레스는
+   * 이 치환이 아예 없어서 공유 버튼이 영원히 홈을 가리켰다.
+   */
+  async updatePostContent(postId: number, content: string): Promise<{ success: boolean }> {
+    try {
+      await this.request<WordPressPost>(`/posts/${postId}`, 'PUT', { content });
+      return { success: true };
+    } catch (error: any) {
+      console.warn('[WP] 본문 갱신 실패:', String(error?.message || error).slice(0, 120));
+      return { success: false };
+    }
+  }
+
   async updateSeoMeta(postId: number, seoData: {
     title?: string;
     description?: string;

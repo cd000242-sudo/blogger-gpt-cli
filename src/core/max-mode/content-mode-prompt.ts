@@ -616,30 +616,8 @@ ${platform === 'wordpress' ? '<!-- /wp:html -->' : ''}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⭐ **필수 시각 컴포넌트 3: 별점 + 리뷰 바** (4번 섹션에서 사용)
-
-${platform === 'wordpress' ? '<!-- wp:html -->' : ''}
-<div style="margin:30px 0; padding:25px; background:linear-gradient(135deg, #FFF8F0 0%, #fff3e0 100%); border-radius:16px; border:2px solid #FF6B35; box-shadow:0 4px 15px rgba(255,107,53,0.1);">
-  <div style="text-align:center; margin-bottom:20px;">
-    <div style="font-size:42px; font-weight:900; color:#FF6B35; margin-bottom:4px;">4.7</div>
-    <div style="font-size:22px; margin-bottom:6px;">⭐⭐⭐⭐⭐</div>
-    <div style="font-size:14px; color:#666;">1,234명이 평가했어요</div>
-  </div>
-  <div style="display:flex; flex-direction:column; gap:8px;">
-    <div style="display:flex; align-items:center; gap:10px;">
-      <span style="font-size:13px; color:#888; width:40px;">5점</span>
-      <div style="flex:1; height:14px; background:#f5f5f5; border-radius:7px; overflow:hidden;"><div style="width:72%; height:100%; background:linear-gradient(90deg, #FF6B35, #ff8c42); border-radius:7px;"></div></div>
-      <span style="font-size:13px; color:#888; width:35px;">72%</span>
-    </div>
-    <div style="display:flex; align-items:center; gap:10px;">
-      <span style="font-size:13px; color:#888; width:40px;">4점</span>
-      <div style="flex:1; height:14px; background:#f5f5f5; border-radius:7px; overflow:hidden;"><div style="width:18%; height:100%; background:linear-gradient(90deg, #2EC4B6, #26a69a); border-radius:7px;"></div></div>
-      <span style="font-size:13px; color:#888; width:35px;">18%</span>
-    </div>
-  </div>
-</div>
-${platform === 'wordpress' ? '<!-- /wp:html -->' : ''}
-
+/* v3.8.484: 별점+리뷰 바 위젯을 요구에서 뺐다. 필수로 시키면 모델이 후기 데이터가 없어도
+   그럴듯한 4.7 같은 숫자를 만들어낸다. 구글은 실제 경험에 근거하지 않은 평점에 수동 조치를 한다. */
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 💬 **필수 시각 컴포넌트 4: 후기 카드** (4번 섹션에서 사용)
@@ -733,7 +711,6 @@ ${platform === 'wordpress' ? '<!-- /wp:html -->' : ''}
    - 재고 상태 → 배너 CTA의 긴급성 메시지에 활용
 
 ✅ **사용자 리뷰 크롤링 시**:
-   - 평점 분포 → 별점 + 리뷰 바로 시각화
    - 실제 구매자 후기 → 후기 카드 3개 이상
    - 만족도 키워드 → "95% 만족", "재구매율 1위"
    - 불만 사항 → 장단점 TABLE의 단점에 솔직하게 포함
@@ -761,7 +738,6 @@ ${platform === 'wordpress' ? '<!-- /wp:html -->' : ''}
 □ 장단점 비교 TABLE이 표 형식으로 포함되었는가? (텍스트 나열 금지!)
 □ 대형 배너 CTA 버튼이 특별 디자인으로 포함되었는가? (단순 링크 금지!)
 □ 제품 스펙 카드가 시각적으로 정리되었는가?
-□ 별점 + 리뷰 바가 포함되었는가?
 □ 가격 비교표에 할인율이 빨간 태그로 강조되었는가?
 □ 후기 카드가 3개 이상 포함되었는가?
 □ AI 티가 전혀 나지 않는 자연스러운 말투인가?
