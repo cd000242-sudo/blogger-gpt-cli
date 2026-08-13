@@ -105,6 +105,15 @@ export function buildDiscoverBodyBlock(currentYear: number): string {
    "왜 이게 문제가 되는지 → 어떻게 갈리는지 → 그래서 무엇을 하면 되는지" 순으로
    한 편의 흐름을 만드세요.
 
+5. **소제목도 사람에게 말하듯 쓰세요.** 제목은 사람에게 말하는데 소제목만
+   검색어를 늘어놓으면 톤이 어긋나 신뢰가 깨집니다. 디스커버에는 검색어가 없으므로
+   소제목에 키워드를 반복해 넣을 이유가 없습니다.
+   - 이렇게 쓰지 마세요: "가족 일상생활중 배상책임 II 누수 보장 한도와 특약"
+   - 이렇게 쓰세요: "한도가 1억이어도 다 안 나오는 경우"
+   - 이렇게 쓰지 마세요: "○○ 자기부담금 계산법"
+   - 이렇게 쓰세요: "자기부담금 얼마 떼고 받나"
+   같은 키워드를 소제목마다 반복하지 말고, 소제목만 훑어도 글의 흐름이 읽히게 하세요.
+
 🚫 **디스커버가 감점하는 것** (공식 정책 — 어기면 노출 자체가 막힙니다)
 - 제목·도입부에서 과장하거나 핵심을 감추고 클릭만 유도하기
 - 자극적 소재로 관심 끌기(공포·분노·선정성)
@@ -118,6 +127,42 @@ export function buildDiscoverBodyBlock(currentYear: number): string {
 /** 디스커버 모드인가 */
 export function isDiscoverMode(contentMode?: string): boolean {
   return String(contentMode || '').trim().toLowerCase() === 'discover';
+}
+
+/**
+ * 소제목이 키워드 나열로 굳었는지 본다.
+ *
+ * 실측 배경: leadernam.com 의 디스커버 모드 글에서 제목은 "부모님 집 누수인데
+ * 내 일상생활배상책임으로 될까" 로 사람에게 말하는데, 소제목은
+ * "가족 일상생활중 배상책임 II 누수 보장 한도와 특약" 처럼 검색어를 늘어놓고 있었다.
+ * 톤이 어긋나면 2026-02 디스커버 업데이트의 제목·본문 정합성 분류기에 불리하다.
+ *
+ * 발행을 막지 않는다 — 로그로 알리는 용도다(품질 때문에 발행이 멈추면 안 된다).
+ */
+export function findDiscoverHeadingIssues(html: string, keyword?: string): string[] {
+  const headings = [...String(html || '').matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi)]
+    .map((m) => String(m[1] || '').replace(/<[^>]*>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  if (!headings.length) return [];
+
+  const issues: string[] = [];
+
+  // ① 키워드가 소제목마다 되풀이되는가 (검색용 반복의 전형)
+  const core = String(keyword || '').trim().split(/\s+/).filter((w) => w.length >= 2);
+  if (core.length) {
+    const repeated = headings.filter((h) => core.every((w) => h.includes(w))).length;
+    if (repeated >= 3) issues.push(`소제목 ${repeated}개가 키워드를 그대로 반복합니다`);
+  }
+
+  // ② 서술어 없이 명사만 늘어놓은 소제목 (…법/…정리/…포인트 로 끝나는 꼴)
+  const nounOnly = headings.filter((h) =>
+    /(방법|계산법|정리|포인트|기준|조건|한도와|특약|총정리)$/.test(h.replace(/^\d+[.)]\s*/, '').trim())
+  );
+  if (nounOnly.length >= 3) {
+    issues.push(`명사로 끝나는 소제목 ${nounOnly.length}개 — 사람에게 말하는 문장으로 바꾸면 좋습니다`);
+  }
+
+  return issues;
 }
 
 /**

@@ -4733,6 +4733,22 @@ ${conclusionHTML}
       console.warn('[SCHEMA-JSONLD] ⚠️ 스키마 생성 실패(원본 유지):', schemaErr?.message);
     }
 
+    /**
+     * 🔎 디스커버: 소제목이 키워드 나열로 굳었는지 본다.
+     *   제목은 사람에게 말하는데 소제목만 검색어를 늘어놓으면 톤이 어긋난다.
+     *   제목 검사(26% 지점)와 달리 완성된 본문이 있어야 하므로 여기서 한다.
+     *   발행은 막지 않는다 — 로그로만 알린다.
+     */
+    try {
+      const { isDiscoverMode, findDiscoverHeadingIssues } = await import('./discover-mode');
+      if (isDiscoverMode(contentMode)) {
+        const headingIssues = findDiscoverHeadingIssues(html, keyword);
+        headingIssues.forEach((issue) => {
+          onLog?.(`[PROGRESS] 98% - 🔎 디스커버: ${issue} (발행은 계속합니다)`);
+        });
+      }
+    } catch { /* 진단이 발행을 막으면 안 된다 */ }
+
     // 🛡️ AdSense 정책 사전 스캔 — adsense 모드 강제, 그 외 모드는 옵트인
     if (contentMode === 'adsense' || payload?.adsensePolicyScan === true) {
       try {

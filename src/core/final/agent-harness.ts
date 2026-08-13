@@ -24,7 +24,7 @@ import { buildArchetypeGuide } from './title-archetypes';
 import { stripTitleCliches, dedupeKeywordInTitle, enforceTitleLength } from './generation';
 import { findEmptyBlocks, describeEmptyBlocks, dropEmptyFaqItems } from './empty-block-guard';
 import { findValuePromises } from './value-promise';
-import { isDiscoverMode, buildDiscoverTitleDirective, buildDiscoverBodyBlock, findDiscoverTitleViolations } from './discover-mode';
+import { isDiscoverMode, buildDiscoverTitleDirective, buildDiscoverBodyBlock, findDiscoverTitleViolations, findDiscoverHeadingIssues } from './discover-mode';
 import { buildModeStructureBlock } from './agent-mode-structure';
 import { buildResearchDirective } from './agent-research';
 import { buildOperatorBrief, MODE_LABELS } from './agent-operator';
@@ -178,6 +178,8 @@ export interface AgentArticleReport {
 export interface AgentArticleOptions {
   contentMode?: string;
   title?: string;
+  /** 소제목이 이 키워드를 되풀이하는지 보는 데 쓴다 (디스커버 모드) */
+  keyword?: string;
 }
 
 /**
@@ -224,6 +226,18 @@ export function postProcessAgentArticle(html: string, options?: AgentArticleOpti
       if (titleViolations.length > 0) {
         warnings.push(`디스커버 제목 정책에 걸리는 표현: ${titleViolations.join(', ')}`);
       }
+    }
+  } catch { /* 진단 실패는 무시한다 */ }
+
+  /**
+   * 소제목이 키워드 나열로 굳었는지도 같이 본다.
+   * 제목은 사람에게 말하는데 소제목만 검색어를 늘어놓으면 톤이 어긋난다(실측 사례).
+   * 여기서도 막지 않는다 — 알리기만 한다.
+   */
+  try {
+    if (isDiscoverMode(options?.contentMode)) {
+      const headingIssues = findDiscoverHeadingIssues(out, options?.keyword);
+      headingIssues.forEach((issue) => warnings.push(issue));
     }
   } catch { /* 진단 실패는 무시한다 */ }
 
