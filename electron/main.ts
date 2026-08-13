@@ -4855,22 +4855,44 @@ ipcMain.handle('cardnews:create', async (_evt, args: { keyword?: string; title?:
     // 캡션 + 카드별 Alt — 업로드할 때 그대로 붙여 넣게 텍스트로 준다
     const altLines = plan.cards.map((c: any, i: number) => `${i + 1}번 카드: ${c.alt}`);
     /**
-     * v3.8.495 - 클릭 동선은 플랫폼마다 다르다.
-     * 인스타: 캡션 링크가 눌리지 않는다 → 프로필 링크로 보내는 캡션 (+ 프로필에 글 주소 걸기 안내)
-     * 카카오채널: 본문 링크가 눌린다 → 글 주소를 캡션에 직접 넣는다
+     * v3.8.496 — 클릭 동선 3종 (리서치 2026-08-13 확인).
+     * 인스타 댓글·캡션의 링크는 눌리지 않는다(일반 텍스트). 그래서:
+     *   ① 프로필 링크 (기본 — 설정 없이 동작)
+     *   ② 고정 댓글에 링크 (안 눌려도 최상단 고정 + 복사 가능 — 실전에서 쓰이는 방식)
+     *   ③ 댓글 트리거 → DM 자동화 (2026 지배적 전략 — DM 링크는 눌리고 열람률 90%+,
+     *      단 ManyChat 류 도구 연결이 필요해 안내만 한다. 댓글이 늘어 도달에도 유리)
+     * 카카오채널은 본문 링크가 눌리므로 글 주소를 캡션에 직접 넣는다.
      */
     const postUrl = String(args?.url || '').trim();
+    const kakaoCaption = plan.caption.replace(/전체 글은 프로필 링크에서.*$/m, '').trim();
     const captionText = [
-      '[인스타그램 캡션]',
+      '[인스타그램 캡션 — 기본(프로필 링크)]',
       plan.caption,
       '',
       postUrl ? `※ 프로필 링크에 이 주소를 걸어두세요: ${postUrl}` : '',
       '',
+      '[인스타그램 캡션 — 댓글 유도형 (DM 자동화 도구를 쓰는 경우)]',
+      kakaoCaption,
+      '📩 전체 내용이 궁금하면 댓글에 "링크"라고 남겨주세요 — DM으로 바로 보내드릴게요',
+      '※ ManyChat 같은 DM 자동화 연결이 필요합니다. 댓글이 늘어 도달에도 유리합니다.',
+      '',
       '[카카오채널 캡션]',
-      plan.caption.replace(/전체 글은 프로필 링크에서.*$/m, '').trim(),
+      kakaoCaption,
       postUrl ? `전체 글 보기 👉 ${postUrl}` : '',
     ].filter((line, i, arr) => !(line === '' && arr[i - 1] === '')).join('\n');
     fs.writeFileSync(path.join(baseDir, '캡션.txt'), captionText, 'utf-8');
+
+    // 고정 댓글용 — 인스타 댓글 링크는 눌리지 않지만, 고정하면 최상단에 남고 복사해 갈 수 있다
+    if (postUrl) {
+      fs.writeFileSync(path.join(baseDir, '고정댓글.txt'), [
+        '업로드 직후 아래를 댓글로 달고, 그 댓글을 길게 눌러 "고정"하세요:',
+        '',
+        `전체 글 👉 ${postUrl}`,
+        '',
+        '※ 인스타 댓글의 링크는 눌리지 않고 복사만 됩니다(2026 현재).',
+        '   그래도 고정 댓글은 최상단에 남아 프로필 링크와 함께 많이 쓰이는 동선입니다.',
+      ].join('\n'), 'utf-8');
+    }
     fs.writeFileSync(path.join(baseDir, 'Alt텍스트.txt'),
       ['인스타 업로드 시 각 사진의 "대체 텍스트"에 붙여 넣으세요 (검색 노출 요소):', '', ...altLines].join('\n'), 'utf-8');
 

@@ -185,6 +185,24 @@ describe('⑤ 배선', () => {
     expect(ui).toContain('url: post.url');
   });
 
+  /**
+   * 사장님: "댓글에 링크달수도있고 본문자체에도 달수있을텐데"
+   * 리서치(2026-08-13): 인스타 댓글·캡션 링크는 눌리지 않는다(일반 텍스트).
+   * 실전 동선은 ① 프로필 링크 ② 고정 댓글(복사 가능) ③ 댓글 트리거→DM 자동화.
+   * 세 가지를 전부 준비물로 만들어 준다.
+   */
+  it('⭐⭐ 클릭 동선 3종을 전부 준비한다 (프로필 링크·고정 댓글·DM 자동화)', () => {
+    const main = read('electron/main.ts');
+    expect(main).toContain('고정댓글.txt');
+    expect(main).toContain('댓글 유도형');
+    expect(main).toContain('DM');
+  });
+
+  it('⭐⭐ 안 눌린다는 사실을 사용자에게 정직하게 알린다 (모르고 쓰면 왜 클릭이 없는지 모른다)', () => {
+    const main = read('electron/main.ts');
+    expect(main).toContain('눌리지 않고 복사만');
+  });
+
   it('⭐⭐ preload 가 노출한다', () => {
     const preload = read('electron/preload.ts');
     expect(preload).toContain("cardnewsCreate");
