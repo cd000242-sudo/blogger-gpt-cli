@@ -6157,6 +6157,11 @@ https://toss.im/_m/XXXXXXX"
             style="flex: 1; padding: 11px 16px; background: rgba(255,255,255,0.04); color: #cbd5e1; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">
             📊 사용량·비용
           </button>
+          <button type="button" data-subtab="cardnews" onclick="extTrafficShowSubtab('cardnews')"
+            class="ext-subtab-btn"
+            style="flex: 1; padding: 11px 16px; background: rgba(255,255,255,0.04); color: #cbd5e1; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">
+            🃏 카드뉴스
+          </button>
           <button type="button" data-subtab="patterns" onclick="extTrafficShowSubtab('patterns')"
             class="ext-subtab-btn"
             style="flex: 1; padding: 11px 16px; background: rgba(255,255,255,0.04); color: #cbd5e1; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">
@@ -6218,6 +6223,9 @@ https://toss.im/_m/XXXXXXX"
         </div><!-- /extTrafficSubtab-generate -->
 
         <!-- 서브탭: 사이트 모음 -->
+        <!-- 🃏 v3.8.495: 발행 글 → 카드뉴스 (내용은 cardnews.js 가 채운다) -->
+        <div id="extTrafficSubtab-cardnews" class="ext-subtab-content" style="display: none;"></div>
+
         <div id="extTrafficSubtab-sites" class="ext-subtab-content" style="display: none;">
           <div id="extTrafficInlineExtLinks" style="background: linear-gradient(160deg, rgba(15,23,42,0.96), rgba(30,41,59,0.96)); border: 1px solid rgba(148,163,184,0.12); border-radius: 16px; padding: 24px 28px; min-height: 400px;">
             <div style="text-align: center; padding: 40px 20px; color: #64748b;">사이트 목록 로딩 중…</div>

@@ -4804,6 +4804,97 @@ ipcMain.handle('app:quit', async () => {
   return { ok: true };
 });
 
+/**
+ * 🃏 v3.8.495 — 발행 글 → 카드뉴스 (인스타 4:5 + 카카오 1:1).
+ *
+ * 리서치(2026-08-13) 반영: 웹스토리는 뺐다(구글이 디스커버 캐러셀에서 제거).
+ * 인스타 캐러셀이 저장·공유 1위 형식이라 훅 첫 장·저장 유도 마지막 장·Alt 텍스트에 집중한다.
+ * 이미지는 AI 생성이 아니라 숨김 창 HTML 캡처 — 비용 0, 한글 선명.
+ * 문안만 AI 1회 호출(사용자 승인). 실패하면 어떤 파일도 만들지 않고 이유를 돌려준다.
+ */
+ipcMain.handle('cardnews:create', async (_evt, args: { keyword?: string; title?: string; html?: string; url?: string }) => {
+  let hiddenWin: InstanceType<typeof BrowserWindow> | null = null;
+  try {
+    const title = String(args?.title || '').trim();
+    const sourceHtml = String(args?.html || '');
+    const keyword = String(args?.keyword || title).trim();
+    if (!title || !sourceHtml) return { ok: false, error: '글 제목/본문이 비어 있습니다. 목록에서 글을 다시 선택해주세요.' };
+
+    const { buildCardPlanPrompt, parseCardPlan, extractArticleText } = require('../dist/core/cardnews/card-plan');
+    const { renderCardHtml, CARD_FORMATS } = require('../dist/core/cardnews/card-template');
+    const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
+
+    const prompt = buildCardPlanPrompt(keyword, title, extractArticleText(sourceHtml));
+    const plan = parseCardPlan(await callGeminiWithRetry(prompt));
+    if (!plan) return { ok: false, error: '카드 문안 생성에 실패했습니다. 잠시 후 다시 시도해주세요.' };
+
+    // 출력 폴더: 사진 폴더 아래에 글 제목으로 (겹치면 시각 붙임)
+    const slug = title.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40) || 'cardnews';
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+    const baseDir = path.join(app.getPath('pictures'), 'LEADERNAM-카드뉴스', `${slug}-${stamp}`);
+
+    // 숨김 창 하나로 카드·규격을 순서대로 캡처한다 (규격마다 창 크기만 바꾼다)
+    hiddenWin = new BrowserWindow({ show: false, frame: false, webPreferences: { offscreen: true } });
+    const files: Array<{ format: string; file: string }> = [];
+    for (const formatKey of Object.keys(CARD_FORMATS) as Array<keyof typeof CARD_FORMATS>) {
+      const format = CARD_FORMATS[formatKey];
+      const dir = path.join(baseDir, format.dir);
+      fs.mkdirSync(dir, { recursive: true });
+      hiddenWin.setContentSize(format.width, format.height);
+      for (let i = 0; i < plan.cards.length; i++) {
+        const cardHtml = renderCardHtml(plan.cards[i], { format: formatKey, index: i, total: plan.cards.length, keyword });
+        await hiddenWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(cardHtml));
+        await new Promise((r) => setTimeout(r, 120));   // 폰트·레이아웃 안정화 한 프레임
+        const image = await hiddenWin.webContents.capturePage({ x: 0, y: 0, width: format.width, height: format.height });
+        const file = path.join(dir, `${String(i + 1).padStart(2, '0')}.png`);
+        fs.writeFileSync(file, image.toPNG());
+        files.push({ format: format.dir, file });
+      }
+    }
+
+    // 캡션 + 카드별 Alt — 업로드할 때 그대로 붙여 넣게 텍스트로 준다
+    const altLines = plan.cards.map((c: any, i: number) => `${i + 1}번 카드: ${c.alt}`);
+    /**
+     * v3.8.495 - 클릭 동선은 플랫폼마다 다르다.
+     * 인스타: 캡션 링크가 눌리지 않는다 → 프로필 링크로 보내는 캡션 (+ 프로필에 글 주소 걸기 안내)
+     * 카카오채널: 본문 링크가 눌린다 → 글 주소를 캡션에 직접 넣는다
+     */
+    const postUrl = String(args?.url || '').trim();
+    const captionText = [
+      '[인스타그램 캡션]',
+      plan.caption,
+      '',
+      postUrl ? `※ 프로필 링크에 이 주소를 걸어두세요: ${postUrl}` : '',
+      '',
+      '[카카오채널 캡션]',
+      plan.caption.replace(/전체 글은 프로필 링크에서.*$/m, '').trim(),
+      postUrl ? `전체 글 보기 👉 ${postUrl}` : '',
+    ].filter((line, i, arr) => !(line === '' && arr[i - 1] === '')).join('\n');
+    fs.writeFileSync(path.join(baseDir, '캡션.txt'), captionText, 'utf-8');
+    fs.writeFileSync(path.join(baseDir, 'Alt텍스트.txt'),
+      ['인스타 업로드 시 각 사진의 "대체 텍스트"에 붙여 넣으세요 (검색 노출 요소):', '', ...altLines].join('\n'), 'utf-8');
+
+    return { ok: true, dir: baseDir, files, caption: plan.caption, alts: altLines, cards: plan.cards.length };
+  } catch (error: any) {
+    console.error('[CARDNEWS] 생성 실패:', error);
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  } finally {
+    try { hiddenWin?.destroy(); } catch { /* noop */ }
+  }
+});
+
+ipcMain.handle('cardnews:open-dir', async (_evt, args: { dir?: string }) => {
+  try {
+    const dir = String(args?.dir || '');
+    if (!dir || !fs.existsSync(dir)) return { ok: false, error: '폴더가 없습니다.' };
+    const { shell } = require('electron');
+    await shell.openPath(dir);
+    return { ok: true };
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
 ipcMain.handle('read-license-file', async () => {
   try {
     const licensePath = path.join(app.getPath('userData'), 'license.json');
