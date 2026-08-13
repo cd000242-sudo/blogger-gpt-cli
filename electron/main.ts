@@ -1,9 +1,32 @@
 import { ipcMain, app, globalShortcut, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import * as cheerio from 'cheerio';
+/**
+ * ⚡ 무거운 라이브러리는 쓸 때 불러온다 (v3.8.498)
+ *
+ * 실측: puppeteer-extra 353ms · cheerio 354ms · stealth 16ms = 723ms.
+ * 셋 다 최상위 import 였어서 앱을 켤 때마다 창이 뜨기 전에 0.7초를 먹었다.
+ * 그런데 puppeteer 는 브라우저를 띄울 때(5곳), cheerio 는 HTML 을 파싱할 때(6곳)만
+ * 필요하고 전부 함수 안이다. 첫 호출 때 한 번 로드되고 이후엔 require 캐시가 준다.
+ */
+type PuppeteerExtra = typeof import('puppeteer-extra').default;
+type Cheerio = typeof import('cheerio');
+
+let _puppeteer: PuppeteerExtra | null = null;
+function getPuppeteer(): PuppeteerExtra {
+  if (!_puppeteer) {
+    _puppeteer = require('puppeteer-extra') as PuppeteerExtra;
+    // 스텔스 플러그인은 puppeteer 를 처음 쓸 때 한 번만 끼운다
+    _puppeteer.use(require('puppeteer-extra-plugin-stealth')());
+  }
+  return _puppeteer;
+}
+
+let _cheerio: Cheerio | null = null;
+function getCheerio(): Cheerio {
+  if (!_cheerio) _cheerio = require('cheerio') as Cheerio;
+  return _cheerio;
+}
 import { readSnippetLibrary, writeSnippetLibrary } from '../dist/utils/snippet-library';
 import { loadEnvFromFile } from '../dist/env';
 // 기존 라이선스 시스템 (license-manager.js)
@@ -1369,8 +1392,8 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
     console.log('[INTERNAL-CONSISTENCY] URL 크롤링 시작 (Puppeteer 모드)...');
     const crawledContents: Array<{ url: string; title: string; content: string; order: number }> = [];
 
-    // Puppeteer 설정
-    puppeteer.use(StealthPlugin());
+    // Puppeteer 설정 — 여기서 처음 불러온다(스텔스 플러그인도 getPuppeteer 안에서 끼운다)
+    const puppeteer = getPuppeteer();
     let browser: any = null;
 
     try {
@@ -1396,7 +1419,7 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
           await new Promise(resolve => setTimeout(resolve, 2000));
 
           const html = await page.content();
-          const $ = cheerio.load(html);
+          const $ = getCheerio().load(html);
 
           // 제목 추출 (정밀)
           let extractedTitle = $('title').text().trim() || post.title || '제목 없음';
@@ -2356,7 +2379,7 @@ ${tail}
 
           // 2) H2 이미지 — 정책 분기
           if (imagePolicy !== 'thumbnail-only' && typeof dispatchH2ImageGeneration === 'function' && h2Engine !== 'none') {
-            const $ = cheerio.load(generatedContent, { decodeEntities: false } as any);
+            const $ = getCheerio().load(generatedContent, { decodeEntities: false } as any);
             const h2Nodes = $('h2').toArray();
             console.log('[INTERNAL-CONSISTENCY] 🖼️ H2 헤더', h2Nodes.length, '개 발견 · 정책:', imagePolicy, '· 엔진:', h2Engine);
             if (h2Nodes.length === 0) {
@@ -12642,7 +12665,7 @@ ipcMain.handle('fetch-og-image', async (_evt, payload: { url: string }) => {
       validateStatus: (s) => s < 500,
     });
     const html = String(res.data || '');
-    const $ = cheerio.load(html);
+    const $ = getCheerio().load(html);
     // 우선순위: og:image → twitter:image → 첫 본문 img
     let imageUrl =
       $('meta[property="og:image"]').attr('content') ||
