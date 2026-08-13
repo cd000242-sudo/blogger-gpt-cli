@@ -129,6 +129,44 @@ export const AD_SLOT_STYLE = `
  * **serializeEditor 가 script 를 지운 뒤에** 불러야 한다.
  * 등록이 사라진 단위는 자리표시자를 지운다 — 안내 문구가 발행되면 안 된다.
  */
+/**
+ * v3.8.494 — 여닫이 개수를 세어 요소 전체를 찾는다.
+ *
+ * 사고: v3.8.489 가 자리표시자를 두 겹(제목 줄 + client/slot 안내 줄)으로 바꿨는데,
+ * 변환 정규식은 비탐욕 `</div>` 라 **첫 닫힘에서 멈췄다.** 바깥 껍데기+첫 줄만
+ * 광고 코드로 바뀌고 안내 줄("client ca-pub-… · slot …")이 본문에 그대로 남아
+ * 발행됐다 — 사장님 스크린샷의 그 문구다.
+ * 광고 코드 쪽도 div 를 품을 수 있으므로(네트워크에 따라) 양쪽 다 균형 매칭으로 간다.
+ */
+function replaceBalancedDivs(source, className, replacer) {
+  const openRe = new RegExp(`<div[^>]*class="[^"]*\\b${className}\\b[^"]*"[^>]*>`, 'gi');
+  let out = '';
+  let cursor = 0;
+  let match;
+  while ((match = openRe.exec(source)) !== null) {
+    const start = match.index;
+    if (start < cursor) continue;               // 이미 소비한 구간 안이면 건너뛴다
+    const unitId = match[0].match(/data-bgpt-ad-unit="([^"]*)"/i)?.[1] ?? '';
+
+    // 여닫이 개수를 세어 이 요소의 진짜 끝을 찾는다
+    const tagRe = /<div\b[^>]*>|<\/div>/gi;
+    tagRe.lastIndex = start + match[0].length;
+    let depth = 1;
+    let end = -1;
+    let tag;
+    while (depth > 0 && (tag = tagRe.exec(source)) !== null) {
+      depth += tag[0][1] === '/' ? -1 : 1;
+      if (depth === 0) end = tag.index + tag[0].length;
+    }
+    if (end < 0) break;                          // 짝이 안 맞으면 그대로 둔다 — 글을 깨느니 안 바꾼다
+
+    out += source.slice(cursor, start) + replacer(String(unitId));
+    cursor = end;
+    openRe.lastIndex = cursor;
+  }
+  return out + source.slice(cursor);
+}
+
 export function expandAdSlots(html, units = loadAdUnits()) {
   const source = String(html || '');
   if (!source.includes(AD_SLOT_CLASS)) return { html: source, expanded: 0, missing: 0 };
@@ -137,17 +175,18 @@ export function expandAdSlots(html, units = loadAdUnits()) {
   let expanded = 0;
   let missing = 0;
 
-  const pattern = new RegExp(
-    `<div[^>]*class="[^"]*\\b${AD_SLOT_CLASS}\\b[^"]*"[^>]*data-bgpt-ad-unit="([^"]*)"[^>]*>[\\s\\S]*?<\\/div>`,
-    'gi',
-  );
-
-  const out = source.replace(pattern, (_full, unitId) => {
-    const unit = byId.get(String(unitId));
+  let out = replaceBalancedDivs(source, AD_SLOT_CLASS, (unitId) => {
+    const unit = byId.get(unitId);
     if (!unit) { missing += 1; return ''; }
     expanded += 1;
     return `<div class="${AD_BLOCK_CLASS}" data-bgpt-ad-unit="${escapeHtml(unit.id)}">${unit.code}</div>`;
   });
+
+  /**
+   * v3.8.489 버그로 이미 발행된 글에는 안내 줄 잔해가 홀로 남아 있다.
+   * 수정발행 때 여기서 걷어낸다 — 안내 문구가 독자에게 또 보이면 안 된다.
+   */
+  out = out.replace(/<div[^>]*class="[^"]*\bbgpt-ad-slot-detail\b[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
 
   return { html: out, expanded, missing };
 }
@@ -161,17 +200,9 @@ export function collapseAdBlocks(html, units = loadAdUnits()) {
   if (!source.includes(AD_BLOCK_CLASS)) return source;
 
   const byId = new Map(units.map((u) => [u.id, u]));
-  /**
-   * 애드센스 코드는 `<script>` 둘과 `<ins>` 로만 이뤄져 중첩 div 가 없다.
-   * 그래서 비탐욕 `</div>` 로 충분하다 — 여기서 균형 매칭까지 갈 필요가 없다.
-   */
-  const pattern = new RegExp(
-    `<div[^>]*class="[^"]*\\b${AD_BLOCK_CLASS}\\b[^"]*"[^>]*data-bgpt-ad-unit="([^"]*)"[^>]*>[\\s\\S]*?<\\/div>`,
-    'gi',
-  );
-
-  return source.replace(pattern, (_full, unitId) => {
-    const unit = byId.get(String(unitId)) || { id: String(unitId), name: '등록이 삭제된 광고' };
+  // v3.8.494: 광고 코드가 div 를 품는 경우(네트워크에 따라)에도 깨지지 않게 균형 매칭
+  return replaceBalancedDivs(source, AD_BLOCK_CLASS, (unitId) => {
+    const unit = byId.get(unitId) || { id: unitId, name: '등록이 삭제된 광고' };
     return makeAdSlotHtml(unit);
   });
 }
