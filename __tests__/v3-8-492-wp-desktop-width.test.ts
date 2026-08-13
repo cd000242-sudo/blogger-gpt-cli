@@ -139,12 +139,13 @@ describe('⑥ 커서 자리 삽입 — 클릭 없이 스크롤만 해도 보고 
   );
 
   it('⭐⭐ 마우스가 지나간 블록을 기록한다 (본문을 클릭하지 않는 사용자가 실제로 있다)', () => {
-    expect(images).toContain('state.lastPointerBlock = block');
+    // v3.8.493 에서 문단 수준 앵커가 우선이 됐다 - 기록 자체가 유지되는지를 본다
+    expect(images).toContain('state.lastPointerBlock = findInsertAnchor(e.target, container) || block');
   });
 
   it('⭐⭐ 이미지 위에서도 기록한다 ("이미지를 보여주면 여기에 광고를" 이 바로 그 경우)', () => {
     // lastPointerBlock 기록이 IMG 조기 반환보다 먼저 와야 한다
-    const record = images.indexOf('state.lastPointerBlock = block');
+    const record = images.indexOf('state.lastPointerBlock = findInsertAnchor');
     const imgSkip = images.indexOf("e.target?.tagName === 'IMG') return; // 이미지 위에서는 +이미지 마커만");
     expect(record).toBeGreaterThan(-1);
     expect(imgSkip).toBeGreaterThan(record);

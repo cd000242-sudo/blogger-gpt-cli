@@ -107,7 +107,7 @@ export function initImageEditing(frame, doc, { setStatus, onAfterRestore }) {
         ? sel.anchorNode
         : sel.anchorNode.parentElement;
       const container = getArticleContainer(doc);
-      const blk = findDirectBlock(el, container)
+      const blk = findInsertAnchor(el, container) || findDirectBlock(el, container)
         || (container !== doc.body ? findDirectBlock(el, doc.body) : null);
       if (blk) state.lastCaretBlock = blk;
     } catch { /* 위치 기억 실패가 편집을 막지 않는다 */ }
@@ -356,6 +356,34 @@ function getArticleContainer(doc) {
   return doc.querySelector('div.max-mode-article') || doc.body;
 }
 
+/**
+ * v3.8.493 - 삽입 앵커는 "컨테이너 직계 자식" 이 아니라 **문단 수준** 이어야 한다.
+ *
+ * 사장님 보고: "원하는위치에 클릭하고 커서 뜨는거보고 광고버튼눌럿는데 여전히 맨아래에"
+ *
+ * 발행된 글은 본문 전체가 래퍼 하나(.wp-styled-content 등)에 싸여 있다.
+ * findDirectBlock 은 컨테이너 직계 자식까지 올라가므로, 클릭한 문단이 아니라
+ * **글 전체 래퍼** 를 돌려줬다. 그 "다음(afterend)" 에 넣으니 맨 아래가 됐다.
+ * 커서는 제대로 찾았는데 앵커 해석이 틀렸던 것이다.
+ *
+ * 여기서는 클릭 지점에서 가장 가까운 블록 요소(P, H2, FIGURE...)를 앵커로 쓴다.
+ * 표 셀·목록 항목 안이면 그 안에 광고를 넣을 수 없으므로 TABLE/UL/OL 까지 올라간다.
+ */
+const INSERT_ANCHOR_TAG = /^(P|H1|H2|H3|H4|H5|H6|FIGURE|BLOCKQUOTE|PRE|TABLE|UL|OL|HR|INS|IFRAME)$/;
+const INSERT_ESCAPE_TAG = /^(TD|TH|TR|THEAD|TBODY|TFOOT|LI)$/;
+
+function findInsertAnchor(el, container) {
+  let node = el && el.nodeType === Node.ELEMENT_NODE ? el : el?.parentElement;
+  let candidate = null;
+  while (node && node !== container && node.tagName !== 'BODY' && node.tagName !== 'HTML') {
+    const tag = node.tagName || '';
+    if (INSERT_ESCAPE_TAG.test(tag)) candidate = null;          // 셀·항목 안이면 더 위로
+    else if (!candidate && INSERT_ANCHOR_TAG.test(tag)) candidate = node;
+    node = node.parentElement;
+  }
+  return candidate;
+}
+
 function findDirectBlock(el, container) {
   let node = el;
   while (node && node.parentElement && node.parentElement !== container) {
@@ -377,7 +405,7 @@ function onDocMouseOver(e) {
    * 비어서 광고·이미지가 글 끝으로 갔다. "보고 있던 자리" 가 두 번째 기준이 된다.
    * 이미지 위도 기록한다 - "이미지를 보여주면 여기에 광고를 넣고싶거든" 이 바로 그 경우다.
    */
-  state.lastPointerBlock = block;
+  state.lastPointerBlock = findInsertAnchor(e.target, container) || block;
   if (e.target?.tagName === 'IMG') return; // 이미지 위에서는 +이미지 마커만 생략
 
   state.hoverBlock = block;
@@ -411,7 +439,9 @@ export function findCaretBlock(doc) {
   let block = null;
   if (selection?.anchorNode) {
     const el = selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement;
-    block = findDirectBlock(el, container) || (container !== doc.body ? findDirectBlock(el, doc.body) : null);
+    block = findInsertAnchor(el, container)
+      || findDirectBlock(el, container)
+      || (container !== doc.body ? findDirectBlock(el, doc.body) : null);
   }
   if (!block && state.lastCaretBlock?.isConnected) block = state.lastCaretBlock;
 
@@ -427,7 +457,8 @@ export function findCaretBlock(doc) {
       const win = doc.defaultView;
       const centerEl = doc.elementFromPoint((win?.innerWidth || 0) / 2, (win?.innerHeight || 0) / 2);
       if (centerEl) {
-        block = findDirectBlock(centerEl, container)
+        block = findInsertAnchor(centerEl, container)
+          || findDirectBlock(centerEl, container)
           || (container !== doc.body ? findDirectBlock(centerEl, doc.body) : null);
       }
     } catch { /* 못 찾으면 글 끝 - 예전과 같다 */ }
