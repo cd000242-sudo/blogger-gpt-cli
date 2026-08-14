@@ -11,7 +11,27 @@ const PLATFORMS = [
   { key: 'tistory', label: '티스토리', channel: 'tistory-list-posts' },
 ];
 
-let state = { posts: [], selected: null, busy: false, lastDir: '' };
+// 이미지 소스 — main 의 card-image.ts CARD_IMAGE_ENGINES 와 값이 같아야 한다
+const ENGINES = [
+  { value: 'gptimage2', label: 'GPT 이미지 2 (덕테이프)', note: '글자 렌더링 최상 · 장당 과금' },
+  { value: 'dropshot-nanobanana-pro', label: 'dropshot 나노바나나 프로 무제한', note: '비용 0 · 장당 30~60초 · 보드 무제한 토글 ON 필요' },
+  { value: 'nanobanana2', label: '나노바나나2', note: 'Gemini 3.1 Flash · 빠름 · 장당 과금' },
+  { value: 'nanobananapro', label: '나노바나나 프로', note: 'Gemini 3 Pro · 품질 최상 · 비용 높음' },
+  { value: 'gptimage1', label: 'GPT 이미지 1', note: '구형 · 장당 과금' },
+  { value: 'none', label: '이미지 없이 (그라데이션)', note: '비용 0 · 즉시' },
+];
+/** full 모드가 의미 있는 엔진 — 나머지는 골라도 배경 모드로 내려간다 */
+const TEXT_CAPABLE = new Set(['gptimage2', 'dropshot-nanobanana-pro']);
+
+const MODES = [
+  { value: 'backdrop', label: '배경만 AI + 글자는 앱이 얹기', note: '숫자가 안 틀리고 7장 톤이 통일됩니다 (권장)' },
+  { value: 'full', label: '카드 전체를 AI 가 그리기', note: '글자까지 AI · 규격마다 따로 뽑아 이미지 수가 2배 · 숫자·날짜가 틀릴 수 있어 눈으로 검수 필수' },
+];
+
+let state = {
+  posts: [], selected: null, busy: false, lastDir: '',
+  plan: [], backdrops: [], engine: 'gptimage2', mode: 'backdrop', keyword: '',
+};
 
 export function initCardnews() {
   const panel = document.getElementById('extTrafficSubtab-cardnews');
@@ -33,6 +53,16 @@ export function initCardnews() {
         <button id="cnMakeBtn" disabled style="padding: 10px 16px; background: linear-gradient(135deg,#6366f1,#8b5cf6); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer; opacity: 0.5;">🃏 카드뉴스 만들기</button>
         <button id="cnOpenBtn" style="display:none; padding: 10px 16px; background: #10b981; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">📁 폴더 열기</button>
       </div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px;">
+        <span style="font-size: 12px; font-weight: 800; color: #cbd5e1;">이미지 소스</span>
+        <select id="cnEngine" style="padding: 9px 12px; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; font-size: 12.5px; font-weight: 700; min-width: 250px;">
+          ${ENGINES.map((e) => `<option value="${e.value}">${e.label}</option>`).join('')}
+        </select>
+        <select id="cnMode" style="padding: 9px 12px; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; font-size: 12.5px; font-weight: 700; min-width: 250px;">
+          ${MODES.map((m) => `<option value="${m.value}">${m.label}</option>`).join('')}
+        </select>
+      </div>
+      <div id="cnEngineNote" style="font-size: 11.5px; color: #64748b; margin-bottom: 12px;"></div>
       <div id="cnStatus" style="font-size: 12px; color: #94a3b8; margin-bottom: 10px;"></div>
       <div id="cnPostList" style="display: none; max-height: 260px; overflow-y: auto; border: 1px solid rgba(148,163,184,0.15); border-radius: 10px; margin-bottom: 12px;"></div>
       <div id="cnResult" style="display: none;"></div>
@@ -43,6 +73,32 @@ export function initCardnews() {
   panel.querySelector('#cnOpenBtn').addEventListener('click', () => {
     if (state.lastDir) window.blogger?.cardnewsOpenDir?.({ dir: state.lastDir });
   });
+  panel.querySelector('#cnEngine').addEventListener('change', syncEngineNote);
+  panel.querySelector('#cnMode').addEventListener('change', syncEngineNote);
+  syncEngineNote();
+}
+
+/** 고른 조합이 실제로 어떻게 동작하는지 그 자리에서 알려준다 — 조용히 다르게 동작하면 안 된다 */
+function syncEngineNote() {
+  const engineSel = document.getElementById('cnEngine');
+  const modeSel = document.getElementById('cnMode');
+  const note = document.getElementById('cnEngineNote');
+  if (!engineSel || !modeSel || !note) return;
+  state.engine = engineSel.value;
+  state.mode = modeSel.value;
+
+  const engine = ENGINES.find((e) => e.value === state.engine);
+  const mode = MODES.find((m) => m.value === state.mode);
+  const lines = [];
+  if (engine) lines.push(engine.note);
+  if (state.engine === 'none') {
+    lines.push('이미지를 만들지 않습니다 — 모드 설정은 무시됩니다.');
+  } else if (state.mode === 'full' && !TEXT_CAPABLE.has(state.engine)) {
+    lines.push('⚠️ 이 엔진은 이미지 안 글자를 제대로 못 그립니다 — 자동으로 “배경만 AI”로 동작합니다.');
+  } else if (mode) {
+    lines.push(mode.note);
+  }
+  note.textContent = lines.join('  ·  ');
 }
 
 function setStatus(msg) {
@@ -101,17 +157,33 @@ async function createCards() {
     setStatus('❌ 이 글은 본문을 함께 불러오지 못했습니다 — 다른 글을 선택하거나 다시 불러와 주세요.');
     return;
   }
+  syncEngineNote();
   state.busy = true;
-  setStatus('🃏 카드 문안을 설계하고 이미지를 만드는 중… (30초 안팎)');
-  addLog('🃏 카드뉴스 생성 시작: ' + post.title, 'info');
+  const slow = state.engine === 'dropshot-nanobanana-pro';
+  setStatus(state.engine === 'none'
+    ? '🃏 카드 문안을 설계하는 중… (30초 안팎)'
+    : `🃏 카드 문안 설계 + 이미지 생성 중… ${slow ? '(dropshot 은 장당 30~60초라 5분 넘게 걸릴 수 있습니다)' : '(1~3분)'}`);
+  addLog(`🃏 카드뉴스 생성 시작: ${post.title} (${state.engine} / ${state.mode})`, 'info');
   try {
-    const res = await window.blogger.cardnewsCreate({ title: post.title, html: post.content, keyword: post.title, url: post.url || '' });
+    const res = await window.blogger.cardnewsCreate({
+      title: post.title, html: post.content, keyword: post.title, url: post.url || '',
+      engine: state.engine, mode: state.mode,
+    });
     if (!res?.ok) throw new Error(res?.error || '생성 실패');
     state.lastDir = res.dir || '';
+    state.plan = Array.isArray(res.plan) ? res.plan : [];
+    state.backdrops = new Array(state.plan.length).fill('');
+    state.keyword = post.title;
+    if (res.engine) state.engine = res.engine;
+    if (res.mode) state.mode = res.mode;
     document.getElementById('cnOpenBtn').style.display = '';
     renderResult(res);
-    setStatus(`✅ 카드 ${res.cards}장 × 인스타/카카오 저장 완료`);
-    addLog(`✅ 카드뉴스 저장: ${res.dir}`, 'success');
+    // 이미지를 원했는데 일부가 빠졌으면 조용히 넘기지 않는다 (그라데이션으로 대체된 장)
+    const wanted = Number(res.imagesWanted || 0);
+    const made = Number(res.imagesMade || 0);
+    const miss = wanted > made ? ` · 이미지 ${wanted - made}장 실패(그라데이션으로 대체)` : '';
+    setStatus(`✅ 카드 ${res.cards}장 × 인스타/카카오 저장 완료${wanted ? ` · 이미지 ${made}/${wanted}` : ''}${miss}`);
+    addLog(`✅ 카드뉴스 저장: ${res.dir}`, miss ? 'warning' : 'success');
   } catch (err) {
     setStatus(`❌ ${err?.message || err}`);
     addLog('❌ 카드뉴스 생성 실패: ' + (err?.message || err), 'error');
@@ -120,20 +192,106 @@ async function createCards() {
   }
 }
 
+/**
+ * 카드마다 [미리보기 + 문안 수정 + 다시 만들기]를 나란히 둔다.
+ * 7장을 통째로 다시 뽑으면 마음에 들던 장까지 바뀌고 비용도 7배다 — 장 단위가 맞다.
+ */
 function renderResult(res) {
   const box = document.getElementById('cnResult');
   if (!box) return;
   const instaFiles = (res.files || []).filter((f) => f.format === 'instagram');
+  const plan = state.plan.length ? state.plan : instaFiles.map(() => ({ kind: 'body', title: '', body: '', alt: '' }));
   box.style.display = '';
   box.innerHTML = `
-    <div style="font-size: 12px; color: #94a3b8; margin-bottom: 8px;">미리보기 (인스타 4:5) — 파일과 캡션·Alt 는 폴더에 저장됐습니다</div>
-    <div style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px;">
-      ${instaFiles.map((f) => `<img src="file:///${String(f.file).replace(/\\/g, '/')}" style="height: 220px; border-radius: 10px; border: 1px solid rgba(148,163,184,0.2);" />`).join('')}
+    <div style="font-size: 12px; color: #94a3b8; margin-bottom: 10px;">
+      미리보기 (인스타 4:5) — 장마다 문안을 고치거나 이미지를 다시 뽑을 수 있습니다. 고치면 파일이 바로 덮어써집니다.
     </div>
-    <div style="margin-top: 10px; font-size: 12px; color: #cbd5e1;">
+    <div id="cnCards" style="display: grid; gap: 12px;">
+      ${plan.map((card, i) => cardRow(card, i, instaFiles[i], plan.length)).join('')}
+    </div>
+    <div style="margin-top: 14px; font-size: 12px; color: #cbd5e1;">
       <div style="font-weight: 800; margin-bottom: 4px;">캡션 (복사해서 업로드 시 붙여넣기)</div>
       <textarea readonly style="width: 100%; min-height: 70px; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; padding: 10px; font-size: 12px;">${escapeText(res.caption || '')}</textarea>
     </div>`;
+
+  box.querySelectorAll('[data-act]').forEach((btn) => {
+    btn.addEventListener('click', () => regenCard(Number(btn.dataset.idx), btn.dataset.act));
+  });
+}
+
+const KIND_LABEL = { hook: '훅 (첫 장)', body: '본문', save: '저장 유도', cta: '클릭 유도' };
+
+function cardRow(card, i, file, total) {
+  const src = file ? `file:///${String(file.file).replace(/\\/g, '/')}` : '';
+  return `
+    <div data-card="${i}" style="display: grid; grid-template-columns: 132px 1fr; gap: 12px; padding: 12px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 12px;">
+      <div>
+        ${src ? `<img data-img="${i}" src="${src}" style="width: 132px; border-radius: 8px; border: 1px solid rgba(148,163,184,0.2); display: block;" />` : ''}
+        <div style="margin-top: 6px; font-size: 11px; color: #64748b; text-align: center;">${i + 1} / ${total} · ${KIND_LABEL[card.kind] || '본문'}</div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <input data-title="${i}" value="${escapeText(card.title || '')}" placeholder="제목 (14자 이내가 잘 읽힙니다)"
+          style="padding: 8px 10px; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 7px; font-size: 13px; font-weight: 800;" />
+        <textarea data-body="${i}" placeholder="본문 (2줄·60자 이내)"
+          style="padding: 8px 10px; min-height: 54px; background: #0f172a; color: #cbd5e1; border: 1px solid #334155; border-radius: 7px; font-size: 12.5px; resize: vertical;">${escapeText(card.body || '')}</textarea>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <button data-act="text" data-idx="${i}" style="padding: 7px 12px; background: #334155; color: #e2e8f0; border: none; border-radius: 7px; font-size: 12px; font-weight: 800; cursor: pointer;">${state.mode === 'full' ? '✏️ 문안 고쳐 다시 그리기' : '✏️ 문안만 반영 (이미지 유지 · 무료)'}</button>
+          <button data-act="image" data-idx="${i}" style="padding: 7px 12px; background: linear-gradient(135deg,#6366f1,#8b5cf6); color: #fff; border: none; border-radius: 7px; font-size: 12px; font-weight: 800; cursor: pointer;">🖼️ 이미지 다시 뽑기</button>
+          <span data-msg="${i}" style="font-size: 11.5px; color: #64748b; align-self: center;"></span>
+        </div>
+      </div>
+    </div>`;
+}
+
+/**
+ * act='text'  — 이미지는 그대로 두고 글자만 다시 얹는다 (비용 0)
+ * act='image' — 이미지를 새로 뽑는다 (엔진에 따라 과금)
+ */
+async function regenCard(index, act) {
+  if (state.busy || !state.lastDir) return;
+  const box = document.getElementById('cnResult');
+  const msg = box?.querySelector(`[data-msg="${index}"]`);
+  const titleEl = box?.querySelector(`[data-title="${index}"]`);
+  const bodyEl = box?.querySelector(`[data-body="${index}"]`);
+  if (!titleEl || !String(titleEl.value).trim()) {
+    if (msg) msg.textContent = '❌ 제목이 비어 있습니다';
+    return;
+  }
+  const prev = state.plan[index] || { kind: 'body', alt: '' };
+  const card = {
+    kind: prev.kind || 'body',
+    title: String(titleEl.value),
+    body: String(bodyEl?.value || ''),
+    alt: prev.alt || '',
+  };
+  // 이미지를 유지하려면 직전에 만든 배경이 있어야 한다. 없으면 새로 뽑을 수밖에 없다.
+  const reuse = act === 'text' ? (state.backdrops[index] || '') : '';
+  if (act === 'text' && !reuse && state.mode !== 'none' && state.engine !== 'none') {
+    if (msg) msg.textContent = '이 장의 배경이 아직 손에 없어 새로 뽑습니다…';
+  }
+
+  state.busy = true;
+  if (msg) msg.textContent = act === 'image' ? '🖼️ 이미지 다시 뽑는 중…' : '✏️ 반영 중…';
+  try {
+    const res = await window.blogger.cardnewsRegenCard({
+      dir: state.lastDir, index, total: state.plan.length || 1, keyword: state.keyword,
+      card, engine: state.engine, mode: state.mode, reuseBackdrop: reuse,
+    });
+    if (!res?.ok) throw new Error(res?.error || '재생성 실패');
+    state.plan[index] = card;
+    if (res.backdrop) state.backdrops[index] = res.backdrop;
+    // 파일명이 같아 브라우저가 옛 그림을 계속 보여준다 — 쿼리를 붙여 강제로 다시 읽힌다
+    const img = box?.querySelector(`[data-img="${index}"]`);
+    const f = (res.files || []).find((x) => x.format === 'instagram');
+    if (img && f) img.src = `file:///${String(f.file).replace(/\\/g, '/')}?t=${Date.now()}`;
+    if (msg) msg.textContent = res.reused ? '✅ 문안만 반영 (이미지 유지)' : (res.imageMade ? '✅ 이미지·문안 갱신' : '✅ 반영 (이미지 없음 — 그라데이션)');
+    addLog(`🃏 카드 ${index + 1}번 갱신 (${act === 'image' ? '이미지 재생성' : '문안'})`, 'success');
+  } catch (err) {
+    if (msg) msg.textContent = `❌ ${err?.message || err}`;
+    addLog('❌ 카드 재생성 실패: ' + (err?.message || err), 'error');
+  } finally {
+    state.busy = false;
+  }
 }
 
 function escapeText(text) {

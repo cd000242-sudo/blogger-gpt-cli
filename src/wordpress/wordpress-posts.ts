@@ -153,14 +153,21 @@ function toPublishedPostItem(post: any): PublishedPostItem {
     updated: String(post?.modified_gmt ? `${post.modified_gmt}Z` : (post?.modified || '')),
     content: readRichField(post?.content),
     imageUrl: readFeaturedImage(post),
+    status: String(post?.status || 'publish'),
   };
 }
 
 /**
- * 발행된 글 목록 조회 (published 글만).
+ * 글 목록 조회 — 발행글 + 임시(draft) + 예약(future).
+ *
+ * 예전엔 status=publish 만 물어봐서 임시·예약 글이 목록에 아예 안 떴다.
+ * 앱에서 임시로 저장했는데 목록에 없으니 "사라졌다"고 보일 수밖에 없었다.
+ *
  * WordPress는 pageToken 대신 page 번호를 쓰므로, 다음 페이지 번호를 문자열 토큰으로 돌려준다.
  * context=edit으로 조회해 편집기가 원본 HTML(content.raw)을 그대로 왕복시킬 수 있게 한다.
+ * (draft·future 는 context=edit + 인증이 있어야 보인다 — 둘 다 이미 갖췄다)
  */
+const LIST_STATUSES = 'publish,draft,future,pending,private';
 export async function listWordPressPosts(options: {
   maxResults?: number;
   pageToken?: string;
@@ -171,7 +178,7 @@ export async function listWordPressPosts(options: {
     const perPage = Math.min(Math.max(Number(options.maxResults) || DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE);
     const page = Math.max(Number(options.pageToken) || 1, 1);
 
-    const query = `/posts?per_page=${perPage}&page=${page}&context=edit&status=publish`
+    const query = `/posts?per_page=${perPage}&page=${page}&context=edit&status=${LIST_STATUSES}`
       + '&orderby=date&order=desc&_embed=wp%3Afeaturedmedia';
     const response = await wpFetch(auth, query);
 

@@ -4835,7 +4835,45 @@ ipcMain.handle('app:quit', async () => {
  * 이미지는 AI 생성이 아니라 숨김 창 HTML 캡처 — 비용 0, 한글 선명.
  * 문안만 AI 1회 호출(사용자 승인). 실패하면 어떤 파일도 만들지 않고 이유를 돌려준다.
  */
-ipcMain.handle('cardnews:create', async (_evt, args: { keyword?: string; title?: string; html?: string; url?: string }) => {
+/**
+ * 카드 한 장에 쓸 이미지를 만든다 (모드에 따라 배경 또는 카드 전체).
+ * 실패해도 절대 던지지 않는다 — 이미지가 없으면 그라데이션으로 그리면 되고,
+ * 7장 중 한 장 실패로 전체가 무너지면 안 된다.
+ */
+async function makeCardImage(
+  card: any,
+  opts: { keyword: string; engine: string; mode: string; index: number; total: number; ratio?: '4:5' | '1:1' },
+): Promise<string> {
+  if (opts.mode === 'none' || opts.engine === 'none') return '';
+  try {
+    const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
+    const { buildBackdropPrompt, buildFullCardPrompt } = require('../dist/core/cardnews/card-image');
+    const isFull = opts.mode === 'full';
+    const prompt = isFull
+      ? buildFullCardPrompt(card, opts.keyword, { index: opts.index, total: opts.total, ratio: opts.ratio || '4:5' })
+      : buildBackdropPrompt(card, opts.keyword);
+    const result = await dispatchH2ImageGeneration(
+      opts.engine,
+      prompt,
+      opts.keyword,
+      (msg: string) => console.log('[CARDNEWS-IMG]', msg),
+      undefined,
+      // full 모드에서만 이미지 안 글자를 연다. backdrop 은 글자가 있으면 오히려 방해된다.
+      { allowImageText: isFull },
+    );
+    if (result?.ok && result.dataUrl) return String(result.dataUrl);
+    console.warn('[CARDNEWS-IMG] 실패(그라데이션으로 대체):', result?.error || '알 수 없음');
+    return '';
+  } catch (error: any) {
+    console.warn('[CARDNEWS-IMG] 예외(그라데이션으로 대체):', error?.message || error);
+    return '';
+  }
+}
+
+ipcMain.handle('cardnews:create', async (_evt, args: {
+  keyword?: string; title?: string; html?: string; url?: string;
+  engine?: string; mode?: string;
+}) => {
   let hiddenWin: InstanceType<typeof BrowserWindow> | null = null;
   try {
     const title = String(args?.title || '').trim();
@@ -4844,12 +4882,34 @@ ipcMain.handle('cardnews:create', async (_evt, args: { keyword?: string; title?:
     if (!title || !sourceHtml) return { ok: false, error: '글 제목/본문이 비어 있습니다. 목록에서 글을 다시 선택해주세요.' };
 
     const { buildCardPlanPrompt, parseCardPlan, extractArticleText } = require('../dist/core/cardnews/card-plan');
-    const { renderCardHtml, CARD_FORMATS } = require('../dist/core/cardnews/card-template');
+    const { renderCardHtml, renderImageOnlyHtml, CARD_FORMATS } = require('../dist/core/cardnews/card-template');
+    const { normalizeCardImageMode, resolveCardImageMode, DEFAULT_CARD_ENGINE } = require('../dist/core/cardnews/card-image');
     const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
+
+    const engine = String(args?.engine || DEFAULT_CARD_ENGINE).trim() || DEFAULT_CARD_ENGINE;
+    const mode = resolveCardImageMode(normalizeCardImageMode(args?.mode), engine);
 
     const prompt = buildCardPlanPrompt(keyword, title, extractArticleText(sourceHtml));
     const plan = parseCardPlan(await callGeminiWithRetry(prompt));
     if (!plan) return { ok: false, error: '카드 문안 생성에 실패했습니다. 잠시 후 다시 시도해주세요.' };
+
+    /**
+     * 배경 모드: 카드당 한 장만 만들고 두 규격이 나눠 쓴다.
+     *   배경은 어차피 cover 로 잘리므로 규격마다 새로 뽑아도 얻는 게 없고 비용만 두 배다.
+     * 전체 AI 모드: 규격마다 따로 뽑는다.
+     *   4:5 로 그린 글자를 1:1 에 cover 로 넣으면 위아래가 잘려 글자가 날아간다.
+     *   비용이 두 배지만, 글자가 잘린 카드는 쓸 수가 없다.
+     */
+    const isFull = mode === 'full';
+    const shared: string[] = [];
+    if (!isFull && mode !== 'none') {
+      for (let i = 0; i < plan.cards.length; i++) {
+        shared.push(await makeCardImage(plan.cards[i], {
+          keyword, engine, mode, index: i, total: plan.cards.length,
+        }));
+      }
+    }
+    let madeCount = shared.filter(Boolean).length;
 
     // 출력 폴더: 사진 폴더 아래에 글 제목으로 (겹치면 시각 붙임)
     const slug = title.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40) || 'cardnews';
@@ -4865,7 +4925,23 @@ ipcMain.handle('cardnews:create', async (_evt, args: { keyword?: string; title?:
       fs.mkdirSync(dir, { recursive: true });
       hiddenWin.setContentSize(format.width, format.height);
       for (let i = 0; i < plan.cards.length; i++) {
-        const cardHtml = renderCardHtml(plan.cards[i], { format: formatKey, index: i, total: plan.cards.length, keyword });
+        let cardHtml: string;
+        if (isFull) {
+          // 규격에 맞춰 따로 뽑고, 성공하면 그림만 놓는다 (글자는 이미 그림 안에 있다)
+          const ratio = formatKey === 'kakao11' ? '1:1' : '4:5';
+          const full = await makeCardImage(plan.cards[i], {
+            keyword, engine, mode, index: i, total: plan.cards.length, ratio,
+          });
+          if (full) madeCount++;
+          cardHtml = full
+            ? renderImageOnlyHtml(full, format)
+            // 실패하면 글자만이라도 남는다 — 빈 칸을 내보내는 것보다 낫다
+            : renderCardHtml(plan.cards[i], { format: formatKey, index: i, total: plan.cards.length, keyword });
+        } else {
+          cardHtml = renderCardHtml(plan.cards[i], {
+            format: formatKey, index: i, total: plan.cards.length, keyword, backdrop: shared[i],
+          });
+        }
         await hiddenWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(cardHtml));
         await new Promise((r) => setTimeout(r, 120));   // 폰트·레이아웃 안정화 한 프레임
         const image = await hiddenWin.webContents.capturePage({ x: 0, y: 0, width: format.width, height: format.height });
@@ -4919,9 +4995,95 @@ ipcMain.handle('cardnews:create', async (_evt, args: { keyword?: string; title?:
     fs.writeFileSync(path.join(baseDir, 'Alt텍스트.txt'),
       ['인스타 업로드 시 각 사진의 "대체 텍스트"에 붙여 넣으세요 (검색 노출 요소):', '', ...altLines].join('\n'), 'utf-8');
 
-    return { ok: true, dir: baseDir, files, caption: plan.caption, alts: altLines, cards: plan.cards.length };
+    // 카드 문안을 그대로 돌려준다 — UI 가 장마다 고쳐서 재생성을 요청할 수 있어야 한다
+    return {
+      ok: true, dir: baseDir, files, caption: plan.caption, alts: altLines,
+      cards: plan.cards.length, plan: plan.cards, engine, mode,
+      imagesMade: madeCount,
+      // 전체 AI 모드는 규격마다 따로 뽑으므로 기대치가 두 배다
+      imagesWanted: mode === 'none' ? 0 : plan.cards.length * (isFull ? Object.keys(CARD_FORMATS).length : 1),
+    };
   } catch (error: any) {
     console.error('[CARDNEWS] 생성 실패:', error);
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  } finally {
+    try { hiddenWin?.destroy(); } catch { /* noop */ }
+  }
+});
+
+/**
+ * 🃏 v3.8.498 — 카드 한 장만 다시 만든다.
+ *
+ * 7장을 통째로 다시 뽑으면 마음에 들던 6장까지 바뀌고 비용도 7배다.
+ * 문안만 고칠 수도(이미지 유지), 이미지만 다시 뽑을 수도 있어야 한다.
+ * 파일명은 그대로 덮어써서 폴더 순서가 흐트러지지 않게 한다.
+ */
+ipcMain.handle('cardnews:regen-card', async (_evt, args: {
+  dir?: string; index?: number; total?: number; keyword?: string;
+  card?: { kind?: string; title?: string; body?: string; alt?: string };
+  engine?: string; mode?: string; reuseBackdrop?: string;
+}) => {
+  let hiddenWin: InstanceType<typeof BrowserWindow> | null = null;
+  try {
+    const baseDir = String(args?.dir || '').trim();
+    const index = Number(args?.index);
+    const total = Math.max(1, Number(args?.total) || 1);
+    const keyword = String(args?.keyword || '').trim();
+    const card = args?.card;
+    if (!baseDir || !fs.existsSync(baseDir)) return { ok: false, error: '카드 폴더를 찾지 못했습니다. 다시 만들어 주세요.' };
+    if (!Number.isInteger(index) || index < 0 || index >= total) return { ok: false, error: '카드 번호가 올바르지 않습니다.' };
+    if (!card || !String(card.title || '').trim()) return { ok: false, error: '카드 제목이 비어 있습니다.' };
+
+    const { renderCardHtml, renderImageOnlyHtml, CARD_FORMATS } = require('../dist/core/cardnews/card-template');
+    const { normalizeCardImageMode, resolveCardImageMode, DEFAULT_CARD_ENGINE } = require('../dist/core/cardnews/card-image');
+
+    const engine = String(args?.engine || DEFAULT_CARD_ENGINE).trim() || DEFAULT_CARD_ENGINE;
+    const mode = resolveCardImageMode(normalizeCardImageMode(args?.mode), engine);
+    const isFull = mode === 'full';
+    const safeCard = {
+      kind: String(card.kind || 'body'),
+      title: String(card.title || ''),
+      body: String(card.body || ''),
+      alt: String(card.alt || ''),
+    };
+
+    /**
+     * reuseBackdrop 이 오면 이미지는 그대로 두고 글자만 다시 얹는다 (비용 0).
+     * 전체 AI 모드에서는 글자가 그림 안에 있어 "글자만 고치기"가 성립하지 않는다 —
+     * 문안을 바꾸면 그림을 새로 그리는 수밖에 없다.
+     */
+    const reuse = isFull ? '' : String(args?.reuseBackdrop || '').trim();
+    const backdrop = isFull ? '' : (reuse || await makeCardImage(safeCard, { keyword, engine, mode, index, total }));
+
+    hiddenWin = new BrowserWindow({ show: false, frame: false, webPreferences: { offscreen: true } });
+    const files: Array<{ format: string; file: string }> = [];
+    let anyImage = !!backdrop;
+    for (const formatKey of Object.keys(CARD_FORMATS) as Array<keyof typeof CARD_FORMATS>) {
+      const format = CARD_FORMATS[formatKey];
+      const dir = path.join(baseDir, format.dir);
+      fs.mkdirSync(dir, { recursive: true });
+      hiddenWin.setContentSize(format.width, format.height);
+      let cardHtml: string;
+      if (isFull) {
+        const ratio = formatKey === 'kakao11' ? '1:1' : '4:5';
+        const full = await makeCardImage(safeCard, { keyword, engine, mode, index, total, ratio });
+        if (full) anyImage = true;
+        cardHtml = full
+          ? renderImageOnlyHtml(full, format)
+          : renderCardHtml(safeCard, { format: formatKey, index, total, keyword });
+      } else {
+        cardHtml = renderCardHtml(safeCard, { format: formatKey, index, total, keyword, backdrop });
+      }
+      await hiddenWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(cardHtml));
+      await new Promise((r) => setTimeout(r, 120));
+      const image = await hiddenWin.webContents.capturePage({ x: 0, y: 0, width: format.width, height: format.height });
+      const file = path.join(dir, `${String(index + 1).padStart(2, '0')}.png`);
+      fs.writeFileSync(file, image.toPNG());
+      files.push({ format: format.dir, file });
+    }
+    return { ok: true, files, backdrop, reused: !!reuse, imageMade: anyImage };
+  } catch (error: any) {
+    console.error('[CARDNEWS] 카드 재생성 실패:', error);
     return { ok: false, error: String(error?.message || error).slice(0, 200) };
   } finally {
     try { hiddenWin?.destroy(); } catch { /* noop */ }

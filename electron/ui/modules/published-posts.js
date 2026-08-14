@@ -313,6 +313,32 @@ async function loadPosts({ append }) {
   }
 }
 
+/**
+ * 발행 상태 배지. 목록이 발행글만 보여줘서 임시·예약 글이 통째로 안 보였다(v3.8.498 수정).
+ * 이제 같이 나오므로 한눈에 구분돼야 한다 — 임시글을 발행글로 착각하면 안 된다.
+ * 상태를 안 주는 플랫폼(빈 값)은 배지를 달지 않는다.
+ */
+const STATUS_BADGE = {
+  draft: { label: '임시', bg: '#78350f', fg: '#fcd34d' },
+  scheduled: { label: '예약', bg: '#1e3a8a', fg: '#93c5fd' },
+  future: { label: '예약', bg: '#1e3a8a', fg: '#93c5fd' },
+  pending: { label: '검토중', bg: '#3f3f46', fg: '#d4d4d8' },
+  private: { label: '비공개', bg: '#4c1d95', fg: '#ddd6fe' },
+};
+
+function statusBadge(status) {
+  const s = STATUS_BADGE[String(status || '').toLowerCase()];
+  if (!s) return '';
+  return `<span style="display:inline-block;margin-right:7px;padding:2px 8px;border-radius:999px;background:${s.bg};color:${s.fg};font-size:10.5px;font-weight:800;vertical-align:middle;">${s.label}</span>`;
+}
+
+function statusDateLabel(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'draft') return '저장';
+  if (s === 'scheduled' || s === 'future') return '예약';
+  return '발행';
+}
+
 function renderList() {
   const list = document.getElementById('ppList');
   if (!list) return;
@@ -330,9 +356,9 @@ function renderList() {
             : '<span style="font-size:22px;">📝</span>'}
         </div>
         <div style="flex:1;min-width:0;">
-          <div style="font-weight:800;color:#f1f5f9;font-size:14px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(item.title || '(제목 없음)')}</div>
+          <div style="font-weight:800;color:#f1f5f9;font-size:14px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${statusBadge(item.status)}${esc(item.title || '(제목 없음)')}</div>
           <div style="font-size:11px;color:#94a3b8;margin-top:5px;">
-            발행 ${esc(formatDate(item.published))}
+            ${statusDateLabel(item.status)} ${esc(formatDate(item.published))}
             ${edited ? ` · <span style="color:#fbbf24;">수정됨 ${esc(formatDate(item.updated))}</span>` : ''}
           </div>
         </div>

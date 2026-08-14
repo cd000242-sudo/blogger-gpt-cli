@@ -39,7 +39,17 @@ describe('썸네일 텍스트 미포함 — 프롬프트 계층', () => {
 
   it('디스패처가 텍스트 허용 여부를 단일 게이트로 판단한다', () => {
     expect(dispatcherSource).toContain('const userWantsNoText = extra?.thumbnailNoText === true;');
-    expect(dispatcherSource).toContain('const allowImageText = promptModeAllowsImageText(engine, isThumbnail) && !userWantsNoText;');
+    // v3.8.499: 카드뉴스 "카드 전체 AI" 가 썸네일이 아닌데도 글자를 그려야 해서
+    // 입력(wantsImageText)이 넓어졌다. 판정 함수는 그대로 하나여야 한다.
+    expect(dispatcherSource).toContain('const wantsImageText = isThumbnail || extra?.allowImageText === true;');
+    expect(dispatcherSource).toContain('const allowImageText = promptModeAllowsImageText(engine, wantsImageText) && !userWantsNoText;');
+  });
+
+  it('텍스트 허용 판정이 두 갈래로 갈라지지 않는다 — 갈라지면 원인을 못 쫓는다', () => {
+    const calls = dispatcherSource.match(/promptModeAllowsImageText\(/g) || [];
+    // 정의 1 + 호출 1 = 2. 그보다 많으면 판정이 흩어진 것이다.
+    expect(calls.length).toBe(2);
+    expect(dispatcherSource).not.toMatch(/allowImageText\s*=\s*\([^)]*\|\|/);
   });
 
   it('텍스트를 강제 주입하던 엔진들이 옵션을 존중한다', () => {

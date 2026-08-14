@@ -6612,8 +6612,13 @@ function toBloggerApiError(error) {
 }
 
 /**
- * 발행된 글 목록 조회 (live 글만) — 새로고침 시 블로그에서 삭제/수동수정된 내용이 그대로 반영된다.
- * @returns { ok, items:[{id,title,url,published,updated,content}], nextPageToken, blogUrl }
+ * 글 목록 조회 — 발행(live) + 임시(draft) + 예약(scheduled).
+ *
+ * 예전엔 status:'live' 만 물어봐서 임시·예약 글이 목록에 아예 안 떴다.
+ * 앱에서 임시저장했는데 목록에 없으니 "사라졌다"고 보일 수밖에 없었다.
+ * Blogger API 는 status 를 배열로 받으며, live 가 아닌 상태는 인증이 있어야 보인다(이미 있음).
+ *
+ * @returns { ok, items:[{id,title,url,published,updated,content,status}], nextPageToken, blogUrl }
  */
 async function listBloggerPosts(options = {}) {
   try {
@@ -6622,8 +6627,9 @@ async function listBloggerPosts(options = {}) {
       blogId,
       maxResults: Math.min(Math.max(Number(options.maxResults) || 20, 1), 50),
       pageToken: options.pageToken || undefined,
-      orderBy: 'published',
-      status: 'live',
+      // 임시글은 published 가 비어 있을 수 있어 published 로 정렬하면 뒤죽박죽이 된다
+      orderBy: 'updated',
+      status: ['live', 'draft', 'scheduled'],
       fetchBodies: true,
       fetchImages: true,
     });
@@ -6635,6 +6641,8 @@ async function listBloggerPosts(options = {}) {
       updated: p.updated || '',
       content: p.content || '',
       imageUrl: (Array.isArray(p.images) && p.images[0]?.url) || '',
+      // 화면에서 구분하려면 상태가 필요하다. Blogger 는 LIVE/DRAFT/SCHEDULED 를 대문자로 준다.
+      status: String(p.status || 'LIVE').toLowerCase(),
     }));
     return { ok: true, items, nextPageToken: res.data.nextPageToken || null };
   } catch (error) {

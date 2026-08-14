@@ -384,6 +384,13 @@ export interface DispatchExtraOptions {
    * 소제목(H2) 이미지는 원래부터 텍스트 금지라 이 값과 무관하다.
    */
   thumbnailNoText?: boolean;
+  /**
+   * v3.8.498: 카드뉴스 "카드 전체 AI" 모드.
+   * 원래 이미지 안 글자는 썸네일에서만 허용한다(promptModeAllowsImageText).
+   * 카드뉴스는 썸네일이 아니지만 글자를 그려야 하므로 예외를 명시적으로 연다.
+   * 글자 렌더링이 되는 엔진에서만 효과가 있다.
+   */
+  allowImageText?: boolean;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -1053,7 +1060,13 @@ async function _tryEngineInternal(
   let inferredPrompt = prompt;
   // v3.8.336: 사용자가 "텍스트 미포함 썸네일"을 켜면 텍스트 허용 엔진이라도 오버레이를 금지한다.
   const userWantsNoText = extra?.thumbnailNoText === true;
-  const allowImageText = promptModeAllowsImageText(engine, isThumbnail) && !userWantsNoText;
+  /**
+   * v3.8.499: 카드뉴스 "카드 전체 AI" 모드는 썸네일이 아닌데도 글자를 그려야 한다.
+   * 그렇다고 판정을 따로 두면 안 된다 — 텍스트 허용이 두 군데서 갈리는 순간
+   * "왜 여기만 글자가 나오지"를 못 쫓는다. 게이트는 계속 promptModeAllowsImageText 하나다.
+   */
+  const wantsImageText = isThumbnail || extra?.allowImageText === true;
+  const allowImageText = promptModeAllowsImageText(engine, wantsImageText) && !userWantsNoText;
   const promptIsThumbnail = allowImageText;
   // v3.7.1: 한국어 처리 호환성 분류
   //   ✅ 한국어 OK (skip): nanobanana 3종, gptimage2(덕테이프), flow, imagefx

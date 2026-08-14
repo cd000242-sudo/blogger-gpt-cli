@@ -237,7 +237,9 @@ export type BloggerApi = {
   readLicenseFile(): Promise<{ ok: true; data: any } | { ok: false; error?: string }>;
   /** v3.8.469 — 무료 체험 소진 안내에서 앱을 닫을 때 쓴다 */
   quitApp(): Promise<{ ok: boolean }>;
-  cardnewsCreate(args: { keyword?: string; title: string; html: string }): Promise<{ ok: boolean; dir?: string; files?: Array<{ format: string; file: string }>; caption?: string; alts?: string[]; cards?: number; error?: string }>;
+  cardnewsCreate(args: { keyword?: string; title: string; html: string; url?: string; engine?: string; mode?: string }): Promise<{ ok: boolean; dir?: string; files?: Array<{ format: string; file: string }>; caption?: string; alts?: string[]; cards?: number; plan?: Array<{ kind: string; title: string; body: string; alt: string }>; engine?: string; mode?: string; imagesMade?: number; imagesWanted?: number; error?: string }>;
+  /** v3.8.498: 카드 한 장만 다시 (문안 수정 / 이미지만 재생성) */
+  cardnewsRegenCard(args: { dir: string; index: number; total: number; keyword?: string; card: { kind?: string; title?: string; body?: string; alt?: string }; engine?: string; mode?: string; reuseBackdrop?: string }): Promise<{ ok: boolean; files?: Array<{ format: string; file: string }>; backdrop?: string; reused?: boolean; imageMade?: boolean; error?: string }>;
   cardnewsOpenDir(args: { dir: string }): Promise<{ ok: boolean; error?: string }>;
   /** v3.8.470 — 무료 체험을 끝내고 로그인 화면으로 (유료 계정은 영향 없음) */
   exitFreeTrial(): Promise<{ ok: boolean; reason?: string }>;
@@ -626,6 +628,7 @@ const api: BloggerApi = {
   quitApp: () => ipcRenderer.invoke('app:quit'),
   // 🃏 v3.8.495: 발행 글 → 카드뉴스
   cardnewsCreate: (args) => ipcRenderer.invoke('cardnews:create', args),
+  cardnewsRegenCard: (args) => ipcRenderer.invoke('cardnews:regen-card', args),
   cardnewsOpenDir: (args) => ipcRenderer.invoke('cardnews:open-dir', args),
   exitFreeTrial: () => ipcRenderer.invoke('auth:exit-free-trial'),
   writeLicenseFile: (data) => ipcRenderer.invoke('write-license-file', data),

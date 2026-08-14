@@ -210,6 +210,12 @@ export interface PublishedPostItem {
   updated: string;
   content: string;
   imageUrl: string;
+  /**
+   * 발행 상태 — 'publish' | 'draft'(임시) | 'future'(예약) | 'pending' | 'private'.
+   * 목록이 발행글만 보여줘서 임시·예약이 통째로 안 보였다. 화면에서 구분하려면 상태가 필요하다.
+   * 상태를 안 주는 플랫폼은 비워 둔다(빈 값 = 발행글로 취급).
+   */
+  status?: string;
 }
 
 export interface PublishedPostListResult {
