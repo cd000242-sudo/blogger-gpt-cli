@@ -2985,14 +2985,8 @@ window.initExternalTrafficTab = async function () {
 // ─── 서브탭 전환 ────────────────────────────────────────────────
 function extTrafficShowSubtab(subtab) {
   _activeSubtab = subtab;
-  const all = ['generate', 'sites', 'usage', 'patterns', 'cardnews'];
-  // 🃏 v3.8.495: 카드뉴스 탭은 처음 열 때 모듈을 불러온다 (버튼만 있고 모듈이 안 뜨면 조용히 무효)
-  if (subtab === 'cardnews' && !window.__cardnewsLoaded) {
-    window.__cardnewsLoaded = true;
-    import('./cardnews.js')
-      .then((m) => m.initCardnews?.())
-      .catch((e) => { window.__cardnewsLoaded = false; console.error('[CARDNEWS] 모듈 로드 실패:', e); });
-  }
+  // v3.8.500: 카드뉴스는 사이드탭으로 나갔다 (showTab('cardnews'))
+  const all = ['generate', 'sites', 'usage', 'patterns'];
   for (const k of all) {
     const el = document.getElementById(`extTrafficSubtab-${k}`);
     if (el) el.style.display = k === subtab ? '' : 'none';

@@ -34,7 +34,8 @@ let state = {
 };
 
 export function initCardnews() {
-  const panel = document.getElementById('extTrafficSubtab-cardnews');
+  // v3.8.500: 외부유입 서브탭에서 사이드탭으로 승격 (#cardnews-tab)
+  const panel = document.getElementById('cardnews-tab');
   if (!panel || panel.dataset.ready) return;
   panel.dataset.ready = '1';
 

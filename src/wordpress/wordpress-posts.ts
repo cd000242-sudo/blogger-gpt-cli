@@ -46,7 +46,7 @@ function normalizeSiteUrl(raw: string): string {
  * 사이트 URL + 인증 헤더 구성.
  * 발행 경로(main.ts의 loadPlatformCredsFromEnv)와 동일한 키 우선순위를 그대로 따른다.
  */
-function resolveWordPressAuth(payload: Record<string, any> = {}): WordPressAuth {
+export function resolveWordPressAuth(payload: Record<string, any> = {}): WordPressAuth {
   const env = loadEnvFromFile();
 
   const siteUrl = normalizeSiteUrl(pickString(
@@ -83,11 +83,18 @@ function resolveWordPressAuth(payload: Record<string, any> = {}): WordPressAuth 
   return { siteUrl, authHeader };
 }
 
-async function wpFetch(auth: WordPressAuth, endpoint: string, init: RequestInit = {}): Promise<Response> {
+/**
+ * @param namespace 기본은 워드프레스 코어(wp/v2). 플러그인 API 는 자기 네임스페이스를 쓴다
+ *   (예: Pretty Links = pretty-links/v1). 인증·타임아웃 처리를 두 벌로 만들지 않으려고
+ *   여기 하나로 모은다 — 갈라놓으면 한쪽만 고쳐지는 사고가 난다.
+ */
+export async function wpFetch(
+  auth: WordPressAuth, endpoint: string, init: RequestInit = {}, namespace = 'wp/v2',
+): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    return await fetch(`${auth.siteUrl}/wp-json/wp/v2${endpoint}`, {
+    return await fetch(`${auth.siteUrl}/wp-json/${namespace}${endpoint}`, {
       ...init,
       headers: {
         Accept: 'application/json',
@@ -108,7 +115,7 @@ async function wpFetch(auth: WordPressAuth, endpoint: string, init: RequestInit 
   }
 }
 
-async function toHttpError(response: Response): Promise<AuthAwareError> {
+export async function toHttpError(response: Response): Promise<AuthAwareError> {
   const body = await response.text().catch(() => '');
   const short = body.replace(/\s+/g, ' ').trim().slice(0, 180);
 

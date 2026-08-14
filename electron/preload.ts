@@ -241,6 +241,12 @@ export type BloggerApi = {
   /** v3.8.498: 카드 한 장만 다시 (문안 수정 / 이미지만 재생성) */
   cardnewsRegenCard(args: { dir: string; index: number; total: number; keyword?: string; card: { kind?: string; title?: string; body?: string; alt?: string }; engine?: string; mode?: string; reuseBackdrop?: string }): Promise<{ ok: boolean; files?: Array<{ format: string; file: string }>; backdrop?: string; reused?: boolean; imageMade?: boolean; error?: string }>;
   cardnewsOpenDir(args: { dir: string }): Promise<{ ok: boolean; error?: string }>;
+  /** v3.8.500: 단축링크 (Pretty Links) */
+  shortlinkList(args?: { search?: string; payload?: any }): Promise<{ ok: boolean; items?: any[]; error?: string }>;
+  shortlinkCreate(args: { slug: string; url: string; name?: string; redirectType?: string; nofollow?: boolean; sponsored?: boolean; autoDedupe?: boolean; payload?: any }): Promise<{ ok: boolean; item?: any; error?: string }>;
+  shortlinkUpdate(args: { id: number; url?: string; name?: string; slug?: string; payload?: any }): Promise<{ ok: boolean; item?: any; error?: string }>;
+  shortlinkSuggest(args: { title?: string; postId?: string | number }): Promise<{ ok: boolean; slug?: string; error?: string }>;
+  shortlinkTop(args?: { limit?: number; payload?: any }): Promise<{ ok: boolean; items?: any[]; error?: string }>;
   /** v3.8.470 — 무료 체험을 끝내고 로그인 화면으로 (유료 계정은 영향 없음) */
   exitFreeTrial(): Promise<{ ok: boolean; reason?: string }>;
   writeLicenseFile(data: any): Promise<{ ok: true } | { ok: false; error?: string }>;
@@ -630,6 +636,11 @@ const api: BloggerApi = {
   cardnewsCreate: (args) => ipcRenderer.invoke('cardnews:create', args),
   cardnewsRegenCard: (args) => ipcRenderer.invoke('cardnews:regen-card', args),
   cardnewsOpenDir: (args) => ipcRenderer.invoke('cardnews:open-dir', args),
+  shortlinkList: (args) => ipcRenderer.invoke('shortlink:list', args),
+  shortlinkCreate: (args) => ipcRenderer.invoke('shortlink:create', args),
+  shortlinkUpdate: (args) => ipcRenderer.invoke('shortlink:update', args),
+  shortlinkSuggest: (args) => ipcRenderer.invoke('shortlink:suggest', args),
+  shortlinkTop: (args) => ipcRenderer.invoke('shortlink:top', args),
   exitFreeTrial: () => ipcRenderer.invoke('auth:exit-free-trial'),
   writeLicenseFile: (data) => ipcRenderer.invoke('write-license-file', data),
   

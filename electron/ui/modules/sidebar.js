@@ -18,6 +18,9 @@ export function initSidebar() {
         { id: 'nav-intlinks-page', icon: '🕸️', label: '거미줄포스팅', action: () => window.showTab?.('internal-links') },
         { id: 'nav-external-traffic', icon: '🚀', label: '외부유입글생성', action: () => window.showTab?.('external-traffic') },
         { id: 'nav-published-posts', icon: '📋', label: '생성된글목록', action: () => window.showTab?.('published-posts') },
+        // v3.8.500: 외부유입 서브탭에 묻혀 있던 둘을 꺼냈다 — 서브탭은 있는 줄도 모르고 지나친다
+        { id: 'nav-cardnews', icon: '🃏', label: '카드뉴스', action: () => window.showTab?.('cardnews') },
+        { id: 'nav-shortlinks', icon: '🔗', label: '단축링크', action: () => window.showTab?.('shortlinks') },
         // 숨김 — 기존 메뉴 유지용
         { id: 'nav-semiauto', icon: '🎨', label: '반자동', action: () => window.showTab?.('semi-auto'), hidden: true },
         { id: 'nav-schedule', icon: '📅', label: '스케줄', action: () => window.showTab?.('schedule'), hidden: true },

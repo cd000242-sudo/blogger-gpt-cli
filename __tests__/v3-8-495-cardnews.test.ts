@@ -209,16 +209,22 @@ describe('⑤ 배선', () => {
     expect(preload).toContain("'cardnews:create'");
   });
 
-  it('⭐⭐ 서브탭 버튼·패널이 있고 전환 목록에 들어 있다', () => {
+  // v3.8.500: 외부유입 서브탭 → 사이드탭으로 승격. 서브탭은 들어가 봐야 있는 줄 안다.
+  it('⭐⭐ 사이드탭 항목·패널이 있고 전환 목록에 들어 있다', () => {
     const html = read('electron/ui/index.html');
-    expect(html).toContain('extTrafficSubtab-cardnews');
-    expect(html).toContain("extTrafficShowSubtab('cardnews')");
-    const ext = read('electron/ui/modules/external-traffic.js');
-    expect(ext).toContain("'cardnews'");
+    expect(html).toContain('id="cardnews-tab"');
+    const sidebar = read('electron/ui/modules/sidebar.js');
+    expect(sidebar).toContain("label: '카드뉴스'");
+    expect(sidebar).toContain("window.showTab?.('cardnews')");
+    const ui = read('electron/ui/modules/ui.js');
+    expect(ui).toContain("'cardnews-tab',");
   });
 
-  it('⭐⭐ 서브탭을 열면 모듈이 로드된다 (버튼만 있고 모듈이 안 뜨면 조용히 무효)', () => {
-    const ext = read('electron/ui/modules/external-traffic.js');
-    expect(ext).toContain("import('./cardnews.js')");
+  it('⭐⭐ 탭을 열면 모듈이 로드된다 (항목만 있고 모듈이 안 뜨면 조용히 무효)', () => {
+    const ui = read('electron/ui/modules/ui.js');
+    expect(ui).toContain("case 'cardnews':");
+    expect(ui).toContain("import('./cardnews.js')");
+    // 모듈이 보는 컨테이너와 실제 id 가 어긋나면 아무것도 안 그려진다
+    expect(read('electron/ui/modules/cardnews.js')).toContain("getElementById('cardnews-tab')");
   });
 });

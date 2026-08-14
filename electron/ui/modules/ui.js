@@ -17,6 +17,8 @@ const TOP_LEVEL_TAB_IDS = [
   'external-traffic-tab',
   'image-batch-tab',
   'published-posts-tab',
+  'cardnews-tab',
+  'shortlinks-tab',
 ];
 
 function getTopLevelTabElements() {
@@ -406,6 +408,26 @@ export function showTab(tabName) {
         // 초기 비용 미리보기만 갱신한다.
         // v3.8.120: 탭 진입만으로 Dropshot 브라우저 로그인 체크를 실행하지 않는다.
         try { window.updateBatchImageCost?.(); } catch { /* ignore */ }
+      }
+      break;
+    case 'cardnews':
+      // v3.8.500: 카드뉴스 — 외부유입 서브탭에서 사이드탭으로 승격
+      targetTab = document.getElementById('cardnews-tab');
+      if (targetTab && !targetTab.dataset.initialized) {
+        targetTab.dataset.initialized = 'true';
+        import('./cardnews.js')
+          .then((m) => m.initCardnews?.())
+          .catch((e) => { targetTab.dataset.initialized = ''; console.error('[CARDNEWS] 모듈 로드 실패:', e); });
+      }
+      break;
+    case 'shortlinks':
+      // v3.8.500: 단축링크 — 긴 워드프레스 주소(평균 233자)를 leadernam.com/go/xxx 로
+      targetTab = document.getElementById('shortlinks-tab');
+      if (targetTab && !targetTab.dataset.initialized) {
+        targetTab.dataset.initialized = 'true';
+        import('./shortlinks.js')
+          .then((m) => m.initShortlinks?.())
+          .catch((e) => { targetTab.dataset.initialized = ''; console.error('[SHORTLINKS] 모듈 로드 실패:', e); });
       }
       break;
     case 'published-posts':

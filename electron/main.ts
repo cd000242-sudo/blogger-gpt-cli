@@ -5090,6 +5090,79 @@ ipcMain.handle('cardnews:regen-card', async (_evt, args: {
   }
 });
 
+/**
+ * 🔗 v3.8.500 — 단축링크 (Pretty Links 연동)
+ *
+ * 워드프레스 주소가 평균 233자다. 퍼머링크가 /%category%/%postname%/ 인데
+ * 슬러그가 한글이라 한 글자가 %eb%b6%80 처럼 9자로 부푼다.
+ * 외부에 뿌릴 때 깨져 보이고 무슨 글인지도 알 수 없어서 자체 도메인으로 줄인다.
+ */
+ipcMain.handle('shortlink:list', async (_evt, args?: { search?: string; payload?: any }) => {
+  try {
+    const { listShortLinks } = require('../dist/wordpress/pretty-links');
+    return await listShortLinks({ search: args?.search || '', payload: args?.payload || {} });
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  }
+});
+
+ipcMain.handle('shortlink:create', async (_evt, args: {
+  slug?: string; url?: string; name?: string;
+  redirectType?: '301' | '302' | '307'; nofollow?: boolean; sponsored?: boolean;
+  autoDedupe?: boolean; payload?: any;
+}) => {
+  try {
+    const { createShortLink } = require('../dist/wordpress/pretty-links');
+    return await createShortLink({
+      slug: String(args?.slug || ''),
+      url: String(args?.url || ''),
+      name: String(args?.name || ''),
+      redirectType: args?.redirectType || '307',
+      nofollow: !!args?.nofollow,
+      sponsored: !!args?.sponsored,
+      autoDedupe: args?.autoDedupe !== false,
+      payload: args?.payload || {},
+    });
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  }
+});
+
+/** 목적지 바꾸기 — 프로필 링크 하나로 이번 달 A글, 다음 달 B글 */
+ipcMain.handle('shortlink:update', async (_evt, args: {
+  id?: number; url?: string; name?: string; slug?: string; payload?: any;
+}) => {
+  try {
+    const { updateShortLink } = require('../dist/wordpress/pretty-links');
+    return await updateShortLink({
+      id: Number(args?.id || 0),
+      url: args?.url, name: args?.name, slug: args?.slug,
+      payload: args?.payload || {},
+    });
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  }
+});
+
+/** 제목에서 단축 주소를 제안한다 (AI 안 부름 — 돈도 안 들고 결과가 항상 같다) */
+ipcMain.handle('shortlink:suggest', async (_evt, args: { title?: string; postId?: string | number }) => {
+  try {
+    const { suggestSlug } = require('../dist/wordpress/pretty-links');
+    return { ok: true, slug: suggestSlug(String(args?.title || ''), args?.postId) };
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  }
+});
+
+ipcMain.handle('shortlink:top', async (_evt, args?: { limit?: number; payload?: any }) => {
+  try {
+    const { topShortLinks } = require('../dist/wordpress/pretty-links');
+    return await topShortLinks({ limit: Number(args?.limit) || 20, payload: args?.payload || {} });
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  }
+});
+
 ipcMain.handle('cardnews:open-dir', async (_evt, args: { dir?: string }) => {
   try {
     const dir = String(args?.dir || '');
