@@ -4840,6 +4840,23 @@ ipcMain.handle('app:quit', async () => {
  * 실패해도 절대 던지지 않는다 — 이미지가 없으면 그라데이션으로 그리면 되고,
  * 7장 중 한 장 실패로 전체가 무너지면 안 된다.
  */
+/**
+ * 카드뉴스 진행 상황을 화면에 알린다.
+ *
+ * 이미지를 켜면 14장(7카드 × 2규격)까지 만들어 몇 분이 걸린다. 그동안 화면이
+ * 아무 말도 안 하면 멈춘 걸로 보인다 — 어디까지 왔는지 그때그때 보내 준다.
+ */
+function sendCardnewsProgress(payload: {
+  phase: 'plan' | 'image' | 'render' | 'done';
+  index?: number; total?: number; label?: string; ok?: boolean;
+}): void {
+  try {
+    BrowserWindow.getAllWindows().forEach((w) => {
+      try { w.webContents.send('cardnews-progress', payload); } catch { /* 창이 닫혔으면 무시 */ }
+    });
+  } catch { /* noop */ }
+}
+
 async function makeCardImage(
   card: any,
   opts: { keyword: string; engine: string; mode: string; index: number; total: number; ratio?: '4:5' | '1:1' },
@@ -4889,6 +4906,7 @@ ipcMain.handle('cardnews:create', async (_evt, args: {
     const engine = String(args?.engine || DEFAULT_CARD_ENGINE).trim() || DEFAULT_CARD_ENGINE;
     const mode = resolveCardImageMode(normalizeCardImageMode(args?.mode), engine);
 
+    sendCardnewsProgress({ phase: 'plan', label: '카드 문안을 설계하는 중…' });
     const prompt = buildCardPlanPrompt(keyword, title, extractArticleText(sourceHtml));
     const plan = parseCardPlan(await callGeminiWithRetry(prompt));
     if (!plan) return { ok: false, error: '카드 문안 생성에 실패했습니다. 잠시 후 다시 시도해주세요.' };
@@ -4904,9 +4922,15 @@ ipcMain.handle('cardnews:create', async (_evt, args: {
     const shared: string[] = [];
     if (!isFull && mode !== 'none') {
       for (let i = 0; i < plan.cards.length; i++) {
-        shared.push(await makeCardImage(plan.cards[i], {
+        sendCardnewsProgress({
+          phase: 'image', index: i, total: plan.cards.length,
+          label: `${i + 1}/${plan.cards.length} 배경 이미지 만드는 중 — ${String(plan.cards[i]?.title || '').slice(0, 22)}`,
+        });
+        const made = await makeCardImage(plan.cards[i], {
           keyword, engine, mode, index: i, total: plan.cards.length,
-        }));
+        });
+        shared.push(made);
+        sendCardnewsProgress({ phase: 'image', index: i, total: plan.cards.length, ok: !!made });
       }
     }
     let madeCount = shared.filter(Boolean).length;
@@ -4926,6 +4950,10 @@ ipcMain.handle('cardnews:create', async (_evt, args: {
       hiddenWin.setContentSize(format.width, format.height);
       for (let i = 0; i < plan.cards.length; i++) {
         let cardHtml: string;
+        sendCardnewsProgress({
+          phase: 'render', index: i, total: plan.cards.length,
+          label: `${format.dir} ${i + 1}/${plan.cards.length} 카드 그리는 중`,
+        });
         if (isFull) {
           // 규격에 맞춰 따로 뽑고, 성공하면 그림만 놓는다 (글자는 이미 그림 안에 있다)
           const ratio = formatKey === 'kakao11' ? '1:1' : '4:5';
@@ -5097,6 +5125,16 @@ ipcMain.handle('cardnews:regen-card', async (_evt, args: {
  * 슬러그가 한글이라 한 글자가 %eb%b6%80 처럼 9자로 부푼다.
  * 외부에 뿌릴 때 깨져 보이고 무슨 글인지도 알 수 없어서 자체 도메인으로 줄인다.
  */
+/** 단축링크는 Pretty Links 가 있어야 동작한다 — 없으면 깔아 준다 */
+ipcMain.handle('shortlink:ensure-plugin', async (_evt, args?: { payload?: any }) => {
+  try {
+    const { ensurePrettyLinks } = require('../dist/wordpress/pretty-links');
+    return await ensurePrettyLinks(args?.payload || {});
+  } catch (error: any) {
+    return { ok: false, installed: false, active: false, error: String(error?.message || error).slice(0, 200) };
+  }
+});
+
 ipcMain.handle('shortlink:list', async (_evt, args?: { search?: string; payload?: any }) => {
   try {
     const { listShortLinks } = require('../dist/wordpress/pretty-links');

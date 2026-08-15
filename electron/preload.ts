@@ -242,6 +242,9 @@ export type BloggerApi = {
   cardnewsRegenCard(args: { dir: string; index: number; total: number; keyword?: string; card: { kind?: string; title?: string; body?: string; alt?: string }; engine?: string; mode?: string; reuseBackdrop?: string }): Promise<{ ok: boolean; files?: Array<{ format: string; file: string }>; backdrop?: string; reused?: boolean; imageMade?: boolean; error?: string }>;
   cardnewsOpenDir(args: { dir: string }): Promise<{ ok: boolean; error?: string }>;
   /** v3.8.500: 단축링크 (Pretty Links) */
+  shortlinkEnsurePlugin(args?: { payload?: any }): Promise<{ ok: boolean; installed: boolean; active: boolean; error?: string }>;
+  /** v3.8.502: 카드뉴스 진행 상황 — 이미지가 많으면 몇 분 걸린다 */
+  onCardnewsProgress?(listener: (payload: { phase: string; index?: number; total?: number; label?: string; ok?: boolean }) => void): () => void;
   shortlinkList(args?: { search?: string; payload?: any }): Promise<{ ok: boolean; items?: any[]; error?: string }>;
   shortlinkCreate(args: { slug: string; url: string; name?: string; redirectType?: string; nofollow?: boolean; sponsored?: boolean; autoDedupe?: boolean; payload?: any }): Promise<{ ok: boolean; item?: any; error?: string }>;
   shortlinkUpdate(args: { id: number; url?: string; name?: string; slug?: string; payload?: any }): Promise<{ ok: boolean; item?: any; error?: string }>;
@@ -636,6 +639,12 @@ const api: BloggerApi = {
   cardnewsCreate: (args) => ipcRenderer.invoke('cardnews:create', args),
   cardnewsRegenCard: (args) => ipcRenderer.invoke('cardnews:regen-card', args),
   cardnewsOpenDir: (args) => ipcRenderer.invoke('cardnews:open-dir', args),
+  shortlinkEnsurePlugin: (args) => ipcRenderer.invoke('shortlink:ensure-plugin', args),
+  onCardnewsProgress: ((listener: (payload: any) => void) => {
+    const handler = (_e: unknown, payload: any) => { try { listener(payload); } catch {} };
+    ipcRenderer.on('cardnews-progress', handler);
+    return () => ipcRenderer.off('cardnews-progress', handler);
+  }) as any,
   shortlinkList: (args) => ipcRenderer.invoke('shortlink:list', args),
   shortlinkCreate: (args) => ipcRenderer.invoke('shortlink:create', args),
   shortlinkUpdate: (args) => ipcRenderer.invoke('shortlink:update', args),

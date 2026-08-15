@@ -10516,11 +10516,17 @@ document.addEventListener('DOMContentLoaded', async function () {
     const buttonId = target.id || '';
     const parentButton = target.closest('button');
 
-    // 워드프레스 앱 비밀번호 가이드 버튼 (다양한 조건으로 감지)
+    /**
+     * 워드프레스 앱 비밀번호 가이드 버튼.
+     *
+     * v3.8.502: 예전엔 버튼 글자에 "발급 방법"만 있으면 열었다. 문서 전체에 걸린
+     * 위임이라, 앱 어디서든 그 글자가 든 버튼을 누르면 워드프레스 가이드가 튀어나왔다
+     * (증명서 발급 방법·단축링크 발급 방법…). id 로만 판단한다 —
+     * 글자로 기능을 고르면 무관한 화면까지 끌려온다.
+     */
     if (buttonId === 'wpAppPasswordGuideBtn' ||
       buttonId === 'wpAppPasswordGuideBtnSemiAuto' ||
-      buttonText.includes('발급 방법') ||
-      (parentButton && parentButton.textContent.includes('발급 방법'))) {
+      (parentButton && (parentButton.id === 'wpAppPasswordGuideBtn' || parentButton.id === 'wpAppPasswordGuideBtnSemiAuto'))) {
       e.preventDefault();
       e.stopPropagation();
       console.log('[WP 가이드] 버튼 클릭됨 (이벤트 위임)', { buttonId, buttonText: buttonText.substring(0, 20) });

@@ -301,3 +301,73 @@ export async function topShortLinks(options: {
     return fail(error);
   }
 }
+
+/** 플러그인 슬러그 — 워드프레스 저장소 기준 */
+const PLUGIN_SLUG = 'pretty-link';
+
+export interface PluginStatus {
+  ok: boolean;
+  installed: boolean;
+  active: boolean;
+  /** 사용자가 직접 해야 하는 상황이면 이유를 담는다 */
+  error?: string;
+  needsAuth?: boolean;
+}
+
+/**
+ * Pretty Links 가 깔려 있고 켜져 있는지 확인하고, 없으면 설치·활성화한다.
+ *
+ * 단축링크는 이 플러그인이 있어야 동작한다. "깔려 있다"를 전제로 두면
+ * 처음 쓰는 사람은 이유도 모르고 실패한다.
+ *
+ * 설치 권한(install_plugins)은 관리자에게만 있고, 호스팅에 따라 파일 수정이
+ * 막혀 있을 수 있다(DISALLOW_FILE_MODS). 그때는 조용히 실패하지 말고
+ * 무엇을 직접 해야 하는지 돌려준다.
+ */
+export async function ensurePrettyLinks(payload: Record<string, any> = {}): Promise<PluginStatus> {
+  try {
+    const auth = resolveWordPressAuth(payload);
+
+    const listRes = await wpFetch(auth, '/plugins?per_page=100&_fields=plugin,status,name', {});
+    if (!listRes.ok) throw await toHttpError(listRes);
+    const plugins = await listRes.json();
+    const found = (Array.isArray(plugins) ? plugins : []).find((p: any) =>
+      String(p?.plugin || '').split('/')[0] === PLUGIN_SLUG);
+
+    if (found) {
+      const active = String(found.status || '') === 'active';
+      if (active) return { ok: true, installed: true, active: true };
+
+      // 깔려는 있는데 꺼져 있으면 켠다
+      const on = await wpFetch(auth, `/plugins/${encodeURIComponent(String(found.plugin))}`, {
+        method: 'POST', body: JSON.stringify({ status: 'active' }),
+      });
+      if (!on.ok) {
+        return {
+          ok: false, installed: true, active: false,
+          error: 'Pretty Links 가 꺼져 있는데 자동으로 켜지 못했습니다. 워드프레스 → 플러그인에서 직접 활성화해주세요.',
+        };
+      }
+      return { ok: true, installed: true, active: true };
+    }
+
+    // 없으면 설치 + 활성화 (워드프레스가 한 번에 처리한다)
+    const install = await wpFetch(auth, '/plugins', {
+      method: 'POST', body: JSON.stringify({ slug: PLUGIN_SLUG, status: 'active' }),
+    });
+    if (!install.ok) {
+      const detail = await install.text().catch(() => '');
+      const blocked = /DISALLOW_FILE_MODS|file_mods|not allowed|cannot_install/i.test(detail);
+      return {
+        ok: false, installed: false, active: false,
+        error: blocked
+          ? '이 사이트는 플러그인 자동 설치가 막혀 있습니다(호스팅 설정). 워드프레스 → 플러그인 → 새로 추가에서 "Pretty Links" 를 직접 설치해주세요.'
+          : 'Pretty Links 자동 설치에 실패했습니다. 워드프레스 → 플러그인 → 새로 추가에서 "Pretty Links" 를 설치해주세요.',
+      };
+    }
+    return { ok: true, installed: true, active: true };
+  } catch (error) {
+    const e = error as (Error & { needsAuth?: boolean });
+    return { ok: false, installed: false, active: false, error: e?.message || String(error), needsAuth: !!e?.needsAuth };
+  }
+}

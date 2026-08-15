@@ -211,7 +211,16 @@ function classifyFailure(error: any): FailureInfo {
   const lower = message.toLowerCase();
   const status = getStatus(error);
 
-  if (/api key.*(not valid|invalid)|invalid.*api key|invalid.*key|unauthorized|authentication|401/.test(lower)) {
+  /**
+   * v3.8.502 — 차단된 키(유출 신고)가 미분류로 새던 구멍.
+   *
+   * 실사용 보고: 발행이 "응답 시간이 너무 길어 중단(60s×2)" 으로 실패했는데,
+   * 실제 원인은 403 PERMISSION_DENIED — "Your API key was reported as leaked" 였다.
+   * 이 문구가 어느 가지에도 안 걸려 재시도를 다 태우고 타임아웃으로 보고됐다.
+   * auth 로 잡히면 즉시 멈추고(재시도 없음) 키 안내가 나간다 — 그게 맞는 동작이다.
+   */
+  if (status === 403
+    || /api key.*(not valid|invalid)|invalid.*api key|invalid.*key|unauthorized|authentication|401|permission[_\s-]?denied|reported as leaked|use another api key/.test(lower)) {
     return { kind: 'auth', message, status };
   }
   if (/billing|payment|paid plan|pay-as-you-go|project.*billing|billing account|disabled billing/.test(lower)) {
@@ -272,12 +281,19 @@ function buildUserError(provider: Provider, info: FailureInfo, attempts: number,
       reason = `${providerName} API 키가 저장되어 있지 않습니다.`;
       fix = '환경 설정에서 API 키를 저장한 뒤 다시 시도해 주세요.';
       break;
-    case 'auth':
-      reason = `${providerName} API 키 인증 또는 프로젝트 권한 문제가 감지되었습니다.`;
+    case 'auth': {
+      // 유출 신고로 차단된 키는 충전(결제)으로 안 풀린다 — 새 키 발급이 유일한 해결이다
+      const leaked = /reported as leaked|use another api key/i.test(info.message);
+      reason = leaked
+        ? `${providerName} API 키가 유출 신고로 차단되어 있습니다. 결제를 충전해도 이 키로는 호출이 되지 않습니다.`
+        : `${providerName} API 키 인증 또는 프로젝트 권한 문제가 감지되었습니다.`;
       fix = provider === 'gemini'
-        ? 'Google AI Studio에서 유료/선불 결제된 프로젝트의 키가 맞는지 확인하고, 앱에 저장된 키를 다시 저장해 주세요.'
+        ? (leaked
+          ? 'Google AI Studio(aistudio.google.com/apikey)에서 새 API 키를 만들어 환경설정에 저장해 주세요. 충전한 잔액은 프로젝트에 남아 있어 새 키로 그대로 쓰입니다.'
+          : 'Google AI Studio에서 유료/선불 결제된 프로젝트의 키가 맞는지 확인하고, 앱에 저장된 키를 다시 저장해 주세요.')
         : `${providerName} 콘솔에서 키가 활성 상태인지 확인해 주세요.`;
       break;
+    }
     case 'billing':
       reason = `${providerName} 결제 또는 프로젝트 연결 문제가 감지되었습니다.`;
       fix = `${BILLING_URLS[provider]} 에서 결제 연결과 프로젝트를 확인해 주세요.`;

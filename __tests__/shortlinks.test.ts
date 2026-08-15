@@ -155,3 +155,48 @@ describe('배선 — 만들고 아무도 안 부르면 조용히 죽는다', () 
     expect(read('electron/ui/modules/cardnews.js')).toContain("getElementById('cardnews-tab')");
   });
 });
+
+describe('v3.8.502 — 사장님 보고 4건', () => {
+  it('가이드 모달을 버튼 글자로 열지 않는다 — 어디서든 튀어나오던 원인', () => {
+    const sc = read('electron/ui/script.js');
+    // "발급 방법" 이 든 버튼이면 무엇이든 워드프레스 가이드가 떴다
+    expect(sc).not.toContain("buttonText.includes('발급 방법')");
+    expect(sc).toContain("buttonId === 'wpAppPasswordGuideBtn'");
+  });
+
+  it('목적지 변경이 prompt() 에 기대지 않는다 — 일렉트론에서 눌러도 반응이 없었다', () => {
+    const sl = read('electron/ui/modules/shortlinks.js');
+    expect(sl).not.toMatch(/=\s*prompt\(|window\.prompt\(/);
+    expect(sl).toContain('data-edit=');   // 그 자리에서 고치는 입력칸
+    expect(sl).toContain('data-row=');    // 붙일 자리
+  });
+
+  it('Pretty Links 를 자동으로 깔아 준다 — 깔려 있다는 전제를 두지 않는다', () => {
+    const src = read('src/wordpress/pretty-links.ts');
+    expect(src).toContain('export async function ensurePrettyLinks');
+    expect(src).toContain("slug: PLUGIN_SLUG, status: 'active'");
+    // 호스팅이 막아 둔 경우엔 무엇을 해야 하는지 알려야 한다
+    expect(src).toContain('DISALLOW_FILE_MODS');
+    expect(read('electron/main.ts')).toContain("ipcMain.handle('shortlink:ensure-plugin'");
+    expect(read('electron/ui/modules/shortlinks.js')).toContain('shortlinkEnsurePlugin');
+  });
+
+  it('발행 글 목록에 썸네일과 상태 배지를 보여준다', () => {
+    const sl = read('electron/ui/modules/shortlinks.js');
+    expect(sl).toContain('function extractThumb');
+    expect(sl).toMatch(/object-fit:\s*cover/);
+    expect(sl).toContain('STATUS_BADGE');
+  });
+
+  it('카드뉴스가 진행 상황을 보낸다 — 몇 분씩 걸리는데 아무 말도 없었다', () => {
+    const m = read('electron/main.ts');
+    expect(m).toContain('function sendCardnewsProgress');
+    expect(m).toContain("phase: 'plan'");
+    expect(m).toContain("phase: 'image'");
+    expect(m).toContain("phase: 'render'");
+    // 받는 쪽도 있어야 한다 — 보내기만 하면 조용히 무효다
+    expect(read('electron/preload.ts')).toContain("ipcRenderer.on('cardnews-progress'");
+    expect(read('electron/ui/modules/cardnews.js')).toContain('onCardnewsProgress');
+    expect(read('electron/ui/modules/cardnews.js')).toContain('function renderProgress');
+  });
+});

@@ -65,6 +65,16 @@ export function initCardnews() {
       </div>
       <div id="cnEngineNote" style="font-size: 11.5px; color: #64748b; margin-bottom: 12px;"></div>
       <div id="cnStatus" style="font-size: 12px; color: #94a3b8; margin-bottom: 10px;"></div>
+      <!-- v3.8.502: 이미지가 붙으면 몇 분 걸린다. 아무 말도 안 하면 멈춘 걸로 보인다 -->
+      <div id="cnProgress" style="display:none; margin-bottom:12px;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+          <div style="flex:1; height:8px; border-radius:4px; background:rgba(148,163,184,0.2); overflow:hidden;">
+            <div id="cnBar" style="height:100%; width:0%; background:linear-gradient(90deg,#6366f1,#8b5cf6); transition:width .3s;"></div>
+          </div>
+          <span id="cnPct" style="font-size:11.5px; font-weight:800; color:#a5b4fc; min-width:38px; text-align:right;">0%</span>
+        </div>
+        <div id="cnPhase" style="font-size:11.5px; color:#94a3b8;"></div>
+      </div>
       <div id="cnPostList" style="display: none; max-height: 260px; overflow-y: auto; border: 1px solid rgba(148,163,184,0.15); border-radius: 10px; margin-bottom: 12px;"></div>
       <div id="cnResult" style="display: none;"></div>
     </div>`;
@@ -77,6 +87,34 @@ export function initCardnews() {
   panel.querySelector('#cnEngine').addEventListener('change', syncEngineNote);
   panel.querySelector('#cnMode').addEventListener('change', syncEngineNote);
   syncEngineNote();
+
+  // 진행 상황 구독 — 만드는 동안 어디까지 왔는지 보여준다
+  window.blogger?.onCardnewsProgress?.((p) => renderProgress(p));
+}
+
+/**
+ * 진행률. 이미지 단계가 가장 오래 걸리므로 전체의 70% 를 여기에 준다.
+ * 정확한 비율보다 "멈춘 게 아니다"를 보여주는 게 목적이다.
+ */
+function renderProgress(p) {
+  const box = document.getElementById('cnProgress');
+  const bar = document.getElementById('cnBar');
+  const pct = document.getElementById('cnPct');
+  const phase = document.getElementById('cnPhase');
+  if (!box || !bar) return;
+  box.style.display = '';
+
+  const total = Number(p?.total) || 1;
+  const done = Number(p?.index) || 0;
+  let value = 0;
+  if (p?.phase === 'plan') value = 5;
+  else if (p?.phase === 'image') value = 10 + Math.round((done / total) * 60);
+  else if (p?.phase === 'render') value = 75 + Math.round((done / total) * 20);
+  else if (p?.phase === 'done') value = 100;
+
+  bar.style.width = value + '%';
+  if (pct) pct.textContent = value + '%';
+  if (phase && p?.label) phase.textContent = p.label;
 }
 
 /** 고른 조합이 실제로 어떻게 동작하는지 그 자리에서 알려준다 — 조용히 다르게 동작하면 안 된다 */
@@ -185,9 +223,11 @@ async function createCards() {
     const miss = wanted > made ? ` · 이미지 ${wanted - made}장 실패(그라데이션으로 대체)` : '';
     setStatus(`✅ 카드 ${res.cards}장 × 인스타/카카오 저장 완료${wanted ? ` · 이미지 ${made}/${wanted}` : ''}${miss}`);
     addLog(`✅ 카드뉴스 저장: ${res.dir}`, miss ? 'warning' : 'success');
+    renderProgress({ phase: 'done', label: '완료' });
   } catch (err) {
     setStatus(`❌ ${err?.message || err}`);
     addLog('❌ 카드뉴스 생성 실패: ' + (err?.message || err), 'error');
+    const pb = document.getElementById('cnProgress'); if (pb) pb.style.display = 'none';
   } finally {
     state.busy = false;
   }
