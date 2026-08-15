@@ -4875,8 +4875,16 @@ async function makeCardImage(
       opts.keyword,
       (msg: string) => console.log('[CARDNEWS-IMG]', msg),
       undefined,
-      // full 모드에서만 이미지 안 글자를 연다. backdrop 은 글자가 있으면 오히려 방해된다.
-      { allowImageText: isFull },
+      {
+        // full 모드에서만 이미지 안 글자를 연다. backdrop 은 글자가 있으면 오히려 방해된다.
+        allowImageText: isFull,
+        /**
+         * v3.8.503 — 카드는 세로다. 방향을 안 넘기면 썸네일용 가로(1536x1024)로
+         * 뽑혀 세로 틀에서 좌우가 잘려나간다(실사용 보고).
+         * 카카오 1:1 은 정사각, 나머지는 세로.
+         */
+        imageAspect: opts.ratio === '1:1' ? 'square' : 'portrait',
+      },
     );
     if (result?.ok && result.dataUrl) return String(result.dataUrl);
     console.warn('[CARDNEWS-IMG] 실패(그라데이션으로 대체):', result?.error || '알 수 없음');

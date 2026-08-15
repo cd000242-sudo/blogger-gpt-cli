@@ -147,6 +147,41 @@ describe('카드 전체 AI 모드 — 글자를 두 번 그리면 안 된다', (
     const kakao = renderImageOnlyHtml('data:x', CARD_FORMATS.kakao11);
     expect(insta).toContain('width:1080px; height:1350px');
     expect(kakao).toContain('width:1080px; height:1080px');
-    expect(insta).toContain('object-fit:cover');
+  });
+
+  it('글자 카드를 cover 로 자르지 않는다 — 좌우 3분의 2가 잘려나간 실사고', () => {
+    const html = renderImageOnlyHtml('data:x', CARD_FORMATS.insta45);
+    expect(html).toContain('object-fit:contain');
+    expect(html).not.toContain('object-fit:cover');
+    // 남는 자리는 카드와 같은 어두운 바탕으로 (흰 띠가 생기면 더 흉하다)
+    expect(html).toContain('background:#0b1220');
+  });
+});
+
+describe('v3.8.503 — 카드 이미지는 세로로 뽑는다', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const dispatcher = fs.readFileSync(path.join(__dirname, '..', 'src/core/imageDispatcher.ts'), 'utf-8');
+  const mainTs = fs.readFileSync(path.join(__dirname, '..', 'electron/main.ts'), 'utf-8');
+
+  it('디스패처가 방향 힌트를 받는다 — 예전엔 1536x1024(가로) 고정이었다', () => {
+    expect(dispatcher).toContain("imageAspect?: 'portrait' | 'square' | 'landscape'");
+    expect(dispatcher).toContain("aspect === 'portrait' ? '1024x1536'");
+    expect(dispatcher).toContain("aspect === 'square' ? '1024x1024'");
+  });
+
+  it('세로·정사각 요청엔 16:9 정규화를 건너뛴다 — 하면 도로 가로가 된다', () => {
+    expect(dispatcher).toMatch(/if \(aspect !== 'landscape'\) \{/);
+  });
+
+  it('카드뉴스가 방향을 실제로 넘긴다 — 안 넘기면 기본값(가로)으로 되돌아간다', () => {
+    expect(mainTs).toContain("imageAspect: opts.ratio === '1:1' ? 'square' : 'portrait'");
+  });
+
+  it('미리보기를 누르면 크게 본다 — 132px 로는 글자 검수가 안 된다', () => {
+    const ui = fs.readFileSync(path.join(__dirname, '..', 'electron/ui/modules/cardnews.js'), 'utf-8');
+    expect(ui).toContain('function openLightbox');
+    expect(ui).toContain("addEventListener('click', () => openLightbox(img.src))");
+    expect(ui).toContain('zoom-in');
   });
 });

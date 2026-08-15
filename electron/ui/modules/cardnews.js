@@ -258,6 +258,31 @@ function renderResult(res) {
   box.querySelectorAll('[data-act]').forEach((btn) => {
     btn.addEventListener('click', () => regenCard(Number(btn.dataset.idx), btn.dataset.act));
   });
+  // v3.8.503: 미리보기가 132px 로는 글자 검수가 안 된다 — 누르면 크게 본다
+  box.querySelectorAll('[data-img]').forEach((img) => {
+    img.style.cursor = 'zoom-in';
+    img.title = '클릭하면 크게 봅니다';
+    img.addEventListener('click', () => openLightbox(img.src));
+  });
+}
+
+/** 미리보기 확대 — 카드 글자·숫자를 눈으로 검수하려면 실물 크기가 필요하다 */
+function openLightbox(src) {
+  const prev = document.getElementById('cnLightbox');
+  if (prev) prev.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'cnLightbox';
+  overlay.style.cssText = 'position:fixed; inset:0; z-index:99999; background:rgba(2,6,23,0.9);'
+    + ' display:flex; align-items:center; justify-content:center; cursor:zoom-out; padding:28px;';
+  overlay.innerHTML = `
+    <img src="${src}" style="max-width:min(92vw,760px); max-height:92vh; border-radius:12px;
+      box-shadow:0 20px 60px rgba(0,0,0,0.6);" />
+    <div style="position:fixed; top:16px; right:22px; color:#94a3b8; font-size:13px; font-weight:700;">클릭 또는 ESC 로 닫기</div>`;
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  overlay.addEventListener('click', close);
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(overlay);
 }
 
 const KIND_LABEL = { hook: '훅 (첫 장)', body: '본문', save: '저장 유도', cta: '클릭 유도' };

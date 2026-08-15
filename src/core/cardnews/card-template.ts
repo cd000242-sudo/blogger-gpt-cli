@@ -60,10 +60,17 @@ const SKINS: Record<CardItem['kind'], { bg: string; accent: string; label: strin
  * 그대로 저장하면 인스타 업로드에서 다시 잘린다.
  */
 export function renderImageOnlyHtml(dataUrl: string, format: CardFormat): string {
+  /**
+   * v3.8.503: cover → contain.
+   * 글자가 든 카드를 cover 로 자르면 문장이 잘려나간다 — 실사용에서 좌우가
+   * 3분의 2 잘린 카드가 나왔다. 모델이 주는 비율(세로 2:3·정사각)과 카드 규격
+   * (4:5·1:1)이 정확히 같을 수 없으니, 남는 자리는 카드와 같은 어두운 바탕으로
+   * 채운다. 살짝 띠가 생길 수 있지만 글자가 잘리는 것보다 백 배 낫다.
+   */
   return `<!doctype html><html><head><meta charset="utf-8"><style>
   * { margin:0; padding:0; }
   html,body { width:${format.width}px; height:${format.height}px; overflow:hidden; background:#0b1220; }
-  img { width:100%; height:100%; object-fit:cover; display:block; }
+  img { width:100%; height:100%; object-fit:contain; display:block; }
   </style></head><body><img src="${dataUrl}"></body></html>`;
 }
 

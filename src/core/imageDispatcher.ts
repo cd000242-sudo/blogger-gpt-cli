@@ -391,6 +391,12 @@ export interface DispatchExtraOptions {
    * 글자 렌더링이 되는 엔진에서만 효과가 있다.
    */
   allowImageText?: boolean;
+  /**
+   * v3.8.503: 결과물 방향. 기본은 landscape(썸네일 경로의 기존 동작 그대로).
+   * 카드뉴스가 생겼는데 호출이 1536x1024(가로) 고정이라, 세로 4:5 카드 틀에
+   * cover 로 들어가며 좌우가 3분의 2 잘려나갔다 — 글자 카드에서 치명상이다.
+   */
+  imageAspect?: 'portrait' | 'square' | 'landscape';
 }
 
 function sleep(ms: number): Promise<void> {
@@ -1171,11 +1177,20 @@ async function _tryEngineInternal(
         if (gptRefs?.length) {
           onLog?.(`   🖼️ ${g.label} i2i — 상품 사진 ${Math.min(gptRefs.length, 3)}장 참고`);
         }
+        /**
+         * v3.8.503 — 방향을 용도에 맞춘다. OpenAI 는 세 가지뿐이다:
+         *   1536x1024(가로) · 1024x1536(세로) · 1024x1024(정사각).
+         * 예전엔 가로 고정이라 카드뉴스(세로 4:5)에서 좌우가 잘려나갔다.
+         */
+        const aspect = extra?.imageAspect || 'landscape';
+        const gptSize = aspect === 'portrait' ? '1024x1536'
+          : aspect === 'square' ? '1024x1024'
+          : '1536x1024';
         const result = await makeGptImageThumbnail(prompt, keyword, {
           apiKey: openaiKey,
           modelId: g.id,
           isThumbnail: promptIsThumbnail,
-          size: '1536x1024',
+          size: gptSize,
           quality: gptQuality,
           ...(gptRefs?.length ? { referenceImages: gptRefs } : {}),
         });
@@ -1187,6 +1202,11 @@ async function _tryEngineInternal(
            *   여기서 캔버스만 넓혀 진짜 16:9 로 만들어 넘긴다 — 원본은 안 자른다.
            *   실패하면 원본 그대로 (지금까지의 동작과 같다).
            */
+          // v3.8.503: 16:9 정규화는 발행(가로) 경로에서만. 세로·정사각 요청에 이걸 하면
+          // 좌우에 띠를 붙여 도로 가로 그림이 된다 — 카드뉴스 잘림의 공범이었다.
+          if (aspect !== 'landscape') {
+            return { ok: true, dataUrl: result.dataUrl, source: `${g.label} · ${gptQuality}` };
+          }
           const { padDataUrlToAspect, PUBLISH_ASPECT_RATIO } = await import('./final/image-aspect');
           const framed = await padDataUrlToAspect(result.dataUrl, PUBLISH_ASPECT_RATIO, g.label);
           if (framed !== result.dataUrl) onLog?.(`   🖼️ ${g.label} 16:9 정규화 (잘림 방지)`);
