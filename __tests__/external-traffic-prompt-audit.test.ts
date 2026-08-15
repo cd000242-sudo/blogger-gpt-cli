@@ -61,8 +61,9 @@ describe('② 길이 상한 — 프롬프트가 말하고 가드가 지키는가
   it('스레드: 가드 상한 500자가 있고, 살아있는 프롬프트가 그걸 말한다', () => {
     const limits = lengthGuard.LIMITS || lengthGuard.limits
       || JSON.parse(JSON.stringify({ threads: { body: { max: 500 } } }));
+    // v3.8.505: 한 덩어리(body) → 칸별(parts) 한도로 바뀌었다
     const src = read('src/core/external-traffic/_shared/length-guard.js');
-    expect(src).toMatch(/threads:\s*\{\s*body:\s*\{\s*max:\s*500/);
+    expect(src).toMatch(/threads:\s*\{\s*parts:\s*\{\s*post:\s*\{\s*max:\s*500/);
     // 생성 모델에게도 말해야 한다 — 가드는 사후 검출일 뿐, 자르면 글이 깨진다
     const user = guard.buildPlatformUserPrompt('threads', { ...DUMMY, platformId: 'threads' }, '');
     const sys = guard.buildPlatformSystemPrompt('threads');
@@ -147,5 +148,75 @@ describe('검색형 채널에 낚시 훅을 강요하지 않는다', () => {
      */
     const forcesShock = /경악스럽|충격 인물|스크롤 멈추는 힘.*45점|45점 ★ 최우선/.test(sys);
     expect(forcesShock).toBe(false);
+  });
+});
+
+describe('v3.8.505 — 스레드 실물 검수에서 나온 규칙', () => {
+  const tr = require('../src/core/external-traffic/prompts/sns/threadsRewrite');
+  const th = require('../src/core/external-traffic/prompts/sns/threads');
+
+  const variant = {
+    key: 'A',
+    selectedFirstLine: '첫 줄',
+    finalRevision: {
+      firstLine: '첫 줄',
+      body: '본문 내용 https://leadernam.com/x 링크 섞임',
+      commentPrompt: '어떻게 생각해?',
+      sharePrompt: '주변에 알려줘',
+      linkPrompt: '원문은 여기 https://leadernam.com/x',
+    },
+  };
+
+  it('조립: 본문에서 URL 을 걷어낸다 — 본문 링크는 도달을 깎는다', () => {
+    const copy = tr.buildCopyFromVariant(variant);
+    expect(copy).not.toContain('https://');
+  });
+
+  it('조립: 재게시 유도문을 게시문에 넣지 않는다 — 퍼가라는 글은 광고다', () => {
+    const copy = tr.buildCopyFromVariant(variant);
+    expect(copy).not.toContain('주변에 알려줘');
+  });
+
+  it('조립: 첫 댓글 칸에 링크가 따로 나온다', () => {
+    const fc = tr.buildFirstCommentFromVariant(variant);
+    expect(fc).toContain('https://leadernam.com/x');
+  });
+
+  it('출력이 두 칸(parts) — X 의 tweet1/tweet2 와 같은 구조', () => {
+    const f = tr.buildFormattedFromThreadsResult({ variants: [variant] });
+    expect(f.parts).toBeTruthy();
+    expect(typeof f.parts.post).toBe('string');
+    expect(typeof f.parts.firstComment).toBe('string');
+    expect(f.body).toBeUndefined();
+  });
+
+  it('스키마 이중겹 제거 — 살아있는 프롬프트에 실물 검수 규칙이 실린다', () => {
+    /**
+     * 출력 스키마가 두 벌이었고 실제로 나가는 건 구식이었다(세 번째 죽은 겹).
+     * threads.js 의 지시 빌더가 threadsRewrite 스키마를 그대로 쓰는지 못 박는다.
+     */
+    const up = th.buildUserPrompt({
+      sourceSummary: 's', sourceUrl: 'https://x.kr/a', sourceTitle: 't',
+      sourceText: 'b', sourceKeywords: [], sourceType: 'guide',
+    });
+    expect(up).toContain('본문(body)에는 URL 을 넣지 않는다');
+    expect(up).toContain('새 사실 1~2개를 실명으로 푼다');
+    expect(up).toContain('재게시(공유) 유도 문장을 게시문에 넣지 않는다');
+    // 제목 숫자 재탕을 사실 공개로 치지 않는 규칙 (세 번째 재생성에서 잡은 회피 패턴)
+    expect(up).toContain('제목에 이미 있는 숫자를 다시 말하는 것은');
+    expect(up).not.toContain('재게시 유도 문장');   // 구식 스키마의 필드 설명
+  });
+
+  it('길이 가드가 칸별로 잰다 — 한 덩어리 시절 세 안 모두 500자를 넘겼다', () => {
+    const src = require('fs').readFileSync(
+      require('path').join(__dirname, '..', 'src/core/external-traffic/_shared/length-guard.js'), 'utf-8');
+    expect(src).toMatch(/threads:\s*\{\s*parts:\s*\{\s*post:\s*\{\s*max:\s*500/);
+  });
+
+  it('v1 폴백 프롬프트도 본문 URL 을 금지한다 — v2 실패 시 조용히 구식으로 돌아가면 안 된다', () => {
+    const ui = require('fs').readFileSync(
+      require('path').join(__dirname, '..', 'electron/ui/modules/external-traffic.js'), 'utf-8');
+    const threadsFallback = ui.slice(ui.indexOf("id: 'threads'"), ui.indexOf("id: 'naver-blog'"));
+    expect(threadsFallback).toContain('본문에 URL 을 넣지 마세요');
   });
 });

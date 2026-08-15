@@ -14,7 +14,9 @@ const HASHTAG_RE = /#[\p{L}\p{N}_]+/gu;
  */
 const CHANNEL_LENGTH_LIMITS = {
   instagram: { body: { max: 2200 }, hashtags: { min: 8, max: 12 } },
-  threads: { body: { max: 500 } },
+  // v3.8.505: 한 덩어리 → post/firstComment 두 칸. 실물 검수에서 링크 포함 조립이
+  // 세 안 모두 500자를 넘겼다 — 이제 칸별로 잰다 (스레드 한도는 칸마다 500).
+  threads: { parts: { post: { max: 500 }, firstComment: { max: 500 } } },
   x: {
     parts: {
       tweet1: { max: 280 },

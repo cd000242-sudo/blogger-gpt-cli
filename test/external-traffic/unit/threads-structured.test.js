@@ -60,10 +60,15 @@ ${JSON_END}`;
 
     const out = dispatcher.processResponse('threads', raw);
     expect(out.threads.variants).toHaveLength(3);
-    expect(out.formatted.body).toContain(url);
-    expect(out.formatted.body).not.toContain(JSON_START);
-    expect(out.formatted.body).not.toContain('"context"');
-    expect(out.formatted.body).not.toMatch(/자세한 내용은 링크|확인해보시기 바랍니다|부탁드립니다/);
+    /**
+     * v3.8.505: 계약이 바뀌었다 — 본문(post)에는 URL 이 없어야 한다(본문 링크는 도달 하락).
+     * 링크는 첫 댓글 칸(firstComment)으로 분리된다. 실물 검수(2026-08-16)에서 나온 구조.
+     */
+    expect(out.formatted.parts.post).not.toContain('https://');
+    expect(out.formatted.parts.firstComment).toContain(url);
+    expect(out.formatted.parts.post).not.toContain(JSON_START);
+    expect(out.formatted.parts.post).not.toContain('"context"');
+    expect(out.formatted.parts.post).not.toMatch(/자세한 내용은 링크|확인해보시기 바랍니다|부탁드립니다/);
   });
 
   test('loose malformed JSON is recovered into final copy', () => {
@@ -114,7 +119,8 @@ ${JSON_END}`;
     expect(parsed.variants).toHaveLength(3);
     const copy = buildCopyFromVariant(parsed.variants[0]);
     expect(copy).toContain('나만 이 기준 헷갈렸나?');
-    expect(copy).toContain(url);
+    // v3.8.505: 본문 복사문엔 URL 이 없다 — 링크는 buildFirstCommentFromVariant 몫
+    expect(copy).not.toContain('https://');
     expect(copy).not.toContain(JSON_START);
   });
 });

@@ -227,22 +227,18 @@ ${buildStructuredOutputInstructions()}`;
   lastVerified: '2026-06-03',
 };
 
+/**
+ * v3.8.505 — 스키마 이중화 제거.
+ *
+ * 출력 스키마가 두 벌이었다: threadsRewrite.buildStructuredOutputInstructions(상세)와
+ * 여기 공용 빌더 호출(구식 — 재게시 유도문·본문 URL 포함을 시켰다).
+ * 실제로 나가는 건 여기였고, 상세한 쪽은 죽은 코드였다 — 프롬프트 감사에서 이미
+ * 같은 무늬(살아있는 척하는 죽은 겹)를 두 번 잡았다. 한 벌로 합친다.
+ * 실물 검수(2026-08-16)에서 나온 규칙(본문 URL 금지·구체 사실 1개·재게시문 금지)은
+ * threadsRewrite 쪽 스키마에 있다.
+ */
 function buildThreadsOutputInstructions() {
-  return buildStructuredJsonInstructions({
-    jsonStart: '<THREADS_RESULT_JSON>',
-    jsonEnd: '</THREADS_RESULT_JSON>',
-    variantLabels: { A: '공감형', B: '논쟁형', C: '정보 티저형' },
-    candidateKey: 'firstLineCandidates',
-    selectedKey: 'selectedFirstLine',
-    scoreKey: 'firstLineScore',
-    finalRevision: {
-      firstLine: '최종 첫 줄',
-      body: '최종 본문',
-      commentPrompt: '댓글 유도 문장',
-      sharePrompt: '재게시 유도 문장',
-      linkPrompt: '자연스러운 링크 유도 문장',
-    },
-  });
+  return buildStructuredOutputInstructions();
 }
 
 THREADS.buildSystemPrompt = (subChannel, userCustomRule) => appendUserNoteSafely(

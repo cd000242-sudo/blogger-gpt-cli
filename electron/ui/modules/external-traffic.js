@@ -24,7 +24,8 @@ const PLATFORMS = [
     openUrl: 'https://www.threads.com/',
     color: '#000000',
     promptSystem: `당신은 한국 Threads 외부유입 글 에디터입니다. 블로그 요약문이나 홍보문이 아니라 댓글이 먼저 달리는 대화형 글을 씁니다. 500자 이내, 자연스러운 반말/친구 말투, 해시태그 금지, 강한 클릭 유도 금지. "자세한 내용은 링크 확인", "확인해보시기 바랍니다", "부탁드립니다" 같은 문구는 쓰지 않습니다.`,
-    promptUser: (src) => `원문 제목: "${src.title}"\n원문 URL: ${src.url}\n원문 내용: ${_extractExtTrafficSourceText(src) || '(요약 없음)'}\n\nThreads 게시문 1개를 작성하세요. 첫 줄은 질문/공감/반전 중 하나로 시작하고, 댓글이 자연스럽게 달릴 만한 관점으로 씁니다. 마지막 줄에는 URL만 자연스럽게 포함하세요: ${src.url}`,
+    // v3.8.505: 폴백도 본문에 URL 을 넣지 않는다 (본문 링크 = 도달 하락, 링크는 첫 댓글)
+    promptUser: (src) => `원문 제목: "${src.title}"\n원문 URL: ${src.url}\n원문 내용: ${_extractExtTrafficSourceText(src) || '(요약 없음)'}\n\nThreads 게시문 1개를 작성하세요. 첫 줄은 질문/공감/반전 중 하나로 시작하고, 원문에서 확인한 구체 사실 1~2개(대상·기한·금액 기준)를 실제로 알려준 뒤 댓글이 달릴 질문으로 끝냅니다. 본문에 URL 을 넣지 마세요 — 마지막 줄에 "첫 댓글: ${src.url}" 한 줄만 따로 적으세요.`,
   },
   {
     id: 'naver-blog',
@@ -2348,6 +2349,8 @@ const _PREVIEW_TEMPLATES = {
 
 function _renderMultiOutput(platform, parts) {
   const labels = {
+    post: '스레드 본문 (링크 없음 — 도달 보호)',
+    firstComment: '첫 댓글 (링크는 여기에)',
     tweet1: 'Tweet 1 (본문 미끼)',
     tweet2: 'Tweet 2 (첫 댓글)',
     personal: '개인 계정용',

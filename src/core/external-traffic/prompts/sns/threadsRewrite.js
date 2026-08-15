@@ -74,10 +74,9 @@ ${JSON_START}
       "approach": "글 전략 한 줄 (어조 + 목표 + viral 패턴 활용 방식)",
       "firstLineCandidates": ["viral 패턴 적용된 첫 줄 후보1", "후보2", "후보3"],
       "selectedFirstLine": "위 3개 중 가장 강한 선택 (클리셰/광고티 없을 것)",
-      "body": "초안 본문 — 메커니즘→의심점→댓글유발 흐름 (URL 포함 500자 이내)",
+      "body": "초안 본문 — 원문에서 확인한 구체 사실(숫자·조건) 최소 1개를 실제로 알려주고, 그 위에 의심점→댓글유발 흐름 (링크 없이 400자 이내)",
       "commentPrompt": "댓글 유도 한 줄 (답 명확한 질문 NO, 의견 갈리는 질문 YES)",
-      "sharePrompt": "공유 유도 한 줄 ('꼭 알려줘' 같은 클리셰 금지)",
-      "linkPrompt": "URL 단독 또는 '원문은 여기: URL' 짧게",
+      "linkPrompt": "URL 단독 한 줄 — 첫 댓글로 나간다. 본문에 URL 을 넣지 않는다",
       "critique": {
         "score": 90,
         "notes": "자체 비평 한 줄 (viral 패턴 강도/클리셰 유무/진정성)",
@@ -85,10 +84,9 @@ ${JSON_START}
       },
       "finalRevision": {
         "firstLine": "mustImprove 반영한 최종 첫 줄",
-        "body": "mustImprove 반영한 최종 본문 (URL 포함 500자 이내)",
+        "body": "mustImprove 반영한 최종 본문 (링크 없이 400자 이내, 구체 사실 최소 1개 포함)",
         "commentPrompt": "최종 댓글 유도",
-        "sharePrompt": "최종 공유 유도",
-        "linkPrompt": "최종 링크 또는 URL"
+        "linkPrompt": "URL 단독 한 줄 (첫 댓글용)"
       }
     }
   ]
@@ -102,7 +100,24 @@ variants는 정확히 A/B/C 3개 (A=댓글형 반말, B=공감형 존댓말, C=�
   → 6) finalRevision에서 mustImprove 반영해 완성
 finalRevision에는 사용자가 복사해서 바로 올릴 최종 게시문만 넣는다.
 후보·점수·비평·전략 설명은 finalRevision 안에 절대 넣지 않는다.
-해시태그는 쓰지 않는다. 최종 글은 URL 포함 500자 이내로 만든다.`;
+해시태그는 쓰지 않는다.
+본문(body)에는 URL 을 넣지 않는다 — 링크는 linkPrompt 에만 넣고 첫 댓글로 나간다.
+본문은 400자 이내 (스레드 한도 500자에서 여유를 둔다).
+
+[실물 검수에서 나온 절대 규칙 — v3.8.505. 다른 공용 규칙과 충돌하면 이 블록이 우선한다]
+- **본문(제목 제외)에 원문에서 확인한 새 사실 1~2개를 실명으로 푼다.**
+  대상·기한·금액 산정 기준 중 하나는 반드시 실제 내용으로 알려준다.
+  공용 미끼 규칙의 "조건을 풀지 마라"는 스레드에선 이렇게 적용한다:
+  1~2개는 풀어서 글쓴이가 원문을 읽었음을 증명하고, 나머지(전체 조건표·신청 절차·
+  서류·예외)는 남겨 클릭 이유로 쓴다.
+- 제목에 이미 있는 숫자를 다시 말하는 것은 "사실 공개"로 치지 않는다.
+  "기준은 봐야 알 듯", "공식 안내를 같이 봐야" 처럼 아무 정보 없이 궁금해하기만 하는
+  글은 실패다 — 글쓴이도 모르는 글을 누가 눌러보나.
+- 재게시(공유) 유도 문장을 게시문에 넣지 않는다. 자기 글을 퍼가라고 말하는 글은 광고다.
+- A/B/C 는 **원문에서 서로 다른 사실을 하나씩 골라** 그 사실을 중심으로 쓴다.
+  제목 숫자만 돌려 말하는 같은 질문의 변주 3개는 셋 다 버리는 것과 같다.
+- doNotUse 에는 "원문에 없는 것"만 넣는다. 원문에 있는 조건·기간을 doNotUse 로
+  묶어 두고 궁금해하는 척하지 마라.`;
 }
 
 function extractJsonBlock(rawText) {
@@ -356,29 +371,44 @@ function orderUniqueThreadsVariants(variants) {
     });
 }
 
+/**
+ * v3.8.505 — 실물 검수(2026-08-16)에서 조립이 글을 죽이고 있었다.
+ *
+ * 예전 조립: 첫줄 + 본문 + 댓글유도 + 재게시유도 + 링크를 전부 한 덩어리로.
+ *  ① 재게시 유도문("~에게 재게시로 남겨둘 만함")이 글 끝에 박혔다 —
+ *     자기 글을 퍼가라고 말하는 글은 광고로 읽힌다. 조립에서 뺀다.
+ *  ② 인코딩된 233자 URL이 본문 끝에 통째로 붙어 화면의 40%를 먹고,
+ *     본문 링크는 스레드 도달을 깎는다(2026 실측 통설). 첫 댓글로 분리한다.
+ *  ③ 그 결과 세 안 모두 500자를 넘겨 붙여넣다 잘렸다. 링크를 빼면 해결된다.
+ */
 function buildCopyFromVariant(variant) {
   const finalRevision = variant && variant.finalRevision || {};
   const body = finalRevision.body || variant.body || '';
-  const linkPrompt = finalRevision.linkPrompt || variant.linkPrompt || '';
 
-  // v3.8.268: 링크 중복 제거 — body에 이미 URL이 있으면 linkPrompt의 같은 URL 제거
-  const urlInBody = body.match(/https?:\/\/[^\s]+/);
-  const cleanedLinkPrompt = urlInBody && linkPrompt.includes(urlInBody[0])
-    ? linkPrompt.replace(urlInBody[0], '').replace(/^\s*→\s*$/, '').trim()
-    : linkPrompt;
+  // 본문에 URL이 섞여 나왔으면 걷어낸다 — 링크는 첫 댓글의 몫이다
+  const bodyNoLink = body.replace(/https?:\/\/[^\s]+/g, '').replace(/[ \t]+\n/g, '\n').trim();
 
   return [
     finalRevision.firstLine || variant.selectedFirstLine,
-    body,
+    bodyNoLink,
     finalRevision.commentPrompt || variant.commentPrompt,
-    finalRevision.sharePrompt || variant.sharePrompt,
-    cleanedLinkPrompt,
   ]
     .map(stripPromoPhrases)
     .filter(Boolean)
     .join('\n\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/** 첫 댓글 = 링크 한 줄. 글이 아니라 댓글에 붙여넣는 용도다. */
+function buildFirstCommentFromVariant(variant) {
+  const finalRevision = variant && variant.finalRevision || {};
+  const linkPrompt = String(finalRevision.linkPrompt || variant.linkPrompt || '').trim();
+  const url = (linkPrompt.match(/https?:\/\/[^\s]+/) || [])[0] || '';
+  if (!url) return '';
+  // 링크 앞 문구가 있으면 한 줄만 살린다 (길면 댓글도 광고처럼 보인다)
+  const lead = linkPrompt.replace(url, '').replace(/\s+/g, ' ').trim();
+  return lead && lead.length <= 30 ? `${lead} ${url}`.trim() : url;
 }
 
 function recoverLooseThreadsResult(rawText) {
@@ -460,8 +490,16 @@ function parseThreadsResult(rawText) {
 function buildFormattedFromThreadsResult(result) {
   if (!result || !Array.isArray(result.variants) || result.variants.length === 0) return null;
   const first = result.variants[0];
+  /**
+   * v3.8.505: 한 덩어리(body) → 두 칸(parts).
+   * X 가 이미 tweet1(본문)/tweet2(첫 댓글) 두 칸을 쓰는 것과 같은 구조 —
+   * UI(_renderMultiOutput)와 길이 가드가 칸별로 처리한다.
+   */
   return {
-    body: buildCopyFromVariant(first),
+    parts: {
+      post: buildCopyFromVariant(first),
+      firstComment: buildFirstCommentFromVariant(first),
+    },
   };
 }
 
@@ -474,4 +512,5 @@ module.exports = {
   parseThreadsResult,
   buildFormattedFromThreadsResult,
   buildCopyFromVariant,
+  buildFirstCommentFromVariant,
 };
