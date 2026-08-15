@@ -186,6 +186,7 @@ async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000,
 import { validateCtaUrl } from '../../cta/validate-cta-url';
 import { callGeminiWithGrounding, callGeminiWithRetry } from './gemini-engine';
 import { detectActionIntent, buildActionQuery } from '../../cta/action-intent';
+import { analyzeArticleContext, resolveActionLink } from '../../cta/action-link-harness';
 import { judgeCtaHost, describeHostVerdict } from '../../cta/host-trust';
 import { buildOfficialCtaCandidates } from '../../cta/inference-candidates';
 import { dropEmptyFaqItems } from './empty-block-guard';
@@ -2353,7 +2354,40 @@ HTML만:
 }
 
 // 🔍 Google CSE를 사용해 공식 사이트 찾기
-async function searchOfficialSite(keyword: string, googleCseKey: string, googleCseCx: string, contentMode?: string, skipActionIntent?: boolean): Promise<{ url: string; title: string } | null> {
+/**
+ * CTA 후보 페이지를 받아온다 — 하네스가 "여기서 되는가"를 보려면 본문이 필요하다.
+ *
+ * 발행 흐름 안에서 도는 일이라 짧게 끊는다. 못 받아오면 그 후보만 버리고 넘어간다
+ * (하네스가 알아서 다음 후보를 본다). 앞부분만 읽는 이유는 신청 버튼·제목이
+ * 대개 위쪽에 있고, 전체를 받으면 느려지기 때문이다.
+ */
+const CTA_PAGE_TIMEOUT_MS = 4000;
+const CTA_PAGE_MAX_CHARS = 200_000;
+
+async function fetchPageForCta(url: string): Promise<{ ok: boolean; html: string; finalUrl?: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CTA_PAGE_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: {
+        // 기관 사이트는 봇 UA 를 막는 곳이 있어 일반 브라우저처럼 요청한다
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
+      },
+    });
+    if (!res.ok) return { ok: false, html: '' };
+    const html = (await res.text()).slice(0, CTA_PAGE_MAX_CHARS);
+    return { ok: true, html, finalUrl: res.url || url };
+  } catch {
+    return { ok: false, html: '' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function searchOfficialSite(keyword: string, googleCseKey: string, googleCseCx: string, contentMode?: string, skipActionIntent?: boolean, articleText?: string): Promise<{ url: string; title: string } | null> {
   if (!googleCseKey || !googleCseCx) return null;
 
   try {
@@ -2425,13 +2459,52 @@ async function searchOfficialSite(keyword: string, googleCseKey: string, googleC
     }
     candidates.sort((a, b) => Number(b.trusted) - Number(a.trusted));
 
+    // 살아있는 후보만 남긴다 (죽은 주소는 하네스에 넣어도 소용없다)
+    const alive: { url: string; title: string }[] = [];
     for (const c of candidates) {
       const check = await validateCtaUrl(c.url, { timeout: 4000 });
-      if (check.isValid) {
-        console.log(`[CTA] ✅ ${actionIntent ? `${actionIntent} 화면` : '공식 사이트'} 확인됨: ${c.url} (${c.title})`);
-        return { url: c.url, title: c.title };
+      if (check.isValid) alive.push({ url: c.url, title: c.title });
+      else console.warn(`[CTA] ⚠️ 살아있지 않아 건너뜀 (${check.reason}): ${c.url}`);
+    }
+
+    /**
+     * v3.8.501 — 살아있다고 다 되는 게 아니다.
+     *
+     * 사장님: "홈으로 가서 다시 찾기 위해서가 아니라 클릭하면 바로 연결되기 위해서야,
+     *          광고처럼 말이야"
+     *
+     * 예전엔 첫 번째 살아있는 후보를 그대로 채택했다. 그게 기관 홈이어도 200 이니
+     * 통과했고, 독자는 홈에서 메뉴를 다시 찾아야 했다.
+     * 이제 후보를 실제로 열어 "여기서 그 행동이 되는가"를 채점한다.
+     * 글이 지목한 기관(본문에 반복해 나오는 이름)을 함께 보므로,
+     * 같은 "신청하기" 버튼이 있어도 엉뚱한 기관은 진다.
+     */
+    if (alive.length) {
+      if (actionIntent) {
+        try {
+          const ctx = analyzeArticleContext({ keyword, content: articleText || '', intent: actionIntent });
+          const picked = await resolveActionLink({
+            keyword,
+            intent: actionIntent,
+            agencies: ctx.agencies,
+            candidates: alive,
+            fetchPage: fetchPageForCta,
+            fallbackUrl: alive[0]!.url,
+          });
+          const chosen = alive.find((a) => a.url === picked.url) || alive[0]!;
+          const label = picked.stage === 'action' ? '행동 화면'
+            : picked.stage === 'guide' ? '제도 안내' : '기관 홈';
+          console.log(`[CTA] ✅ ${label} 채택(${picked.score}점): ${picked.url || chosen.url}`);
+          console.log(`[CTA]    근거: ${picked.reasons.join(' · ')}`);
+          if (ctx.agencies.length) console.log(`[CTA]    글이 지목한 기관: ${ctx.agencies.join(', ')}`);
+          return { url: picked.url || chosen.url, title: chosen.title };
+        } catch (error) {
+          // 하네스가 실패해도 발행을 막지 않는다 — 예전 방식으로 돌아간다
+          console.warn('[CTA] ⚠️ 행동 화면 판정 실패, 기존 방식으로:', (error as Error)?.message);
+        }
       }
-      console.warn(`[CTA] ⚠️ 살아있지 않아 건너뜀 (${check.reason}): ${c.url}`);
+      console.log(`[CTA] ✅ ${actionIntent ? `${actionIntent} 화면` : '공식 사이트'} 확인됨: ${alive[0]!.url}`);
+      return alive[0]!;
     }
 
     /**
@@ -2440,7 +2513,7 @@ async function searchOfficialSite(keyword: string, googleCseKey: string, googleC
      */
     if (actionIntent) {
       console.log('[CTA] ↩️ 행동 화면을 못 찾아 공식 사이트로 폴백합니다');
-      return searchOfficialSite(keyword, googleCseKey, googleCseCx, contentMode, true);
+      return searchOfficialSite(keyword, googleCseKey, googleCseCx, contentMode, true, articleText);
     }
 
     return null;
@@ -2732,7 +2805,20 @@ JSON만 출력:
   // 🔥 2단계: Grounding 실패 시 기존 Google CSE 폴백
   if (safeCTAs.length === 0 && googleCseKey && googleCseCx) {
     console.log('[CTA] 폴백: Google CSE로 공식 사이트 검색...');
-    const officialLink = await searchOfficialSite(keyword, googleCseKey, googleCseCx, contentMode);
+      /**
+     * v3.8.501 — 글 맥락을 함께 넘긴다.
+     * 본문에 "복지로에서 신청합니다" 처럼 어디서 하는 일인지 이미 적혀 있다.
+     * 그걸 읽어야 같은 "신청하기" 버튼이 있어도 엉뚱한 기관을 거를 수 있다.
+     * 새 인자를 만들 필요 없이 이미 받은 재료(섹션 본문 + 확인된 기관)를 쓴다.
+     */
+    const articleText = [
+      ...(Array.isArray(generatedSections)
+        ? generatedSections.map((sec: any) => `${sec?.title || ''} ${sec?.content || sec?.body || ''}`)
+        : []),
+      ...(Array.isArray(officialSources) ? officialSources.map((o) => String(o?.agency || '')) : []),
+    ].join(' ').slice(0, 20000);
+
+    const officialLink = await searchOfficialSite(keyword, googleCseKey, googleCseCx, contentMode, false, articleText);
     if (officialLink) {
       const shortKeyword = keyword.length > 15 ? keyword.split(/\s+/).slice(0, 2).join(' ') : keyword;
       let btnText = `🔗 ${shortKeyword} 공식 사이트`;

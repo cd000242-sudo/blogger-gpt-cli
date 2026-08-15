@@ -112,6 +112,10 @@ describe('③ 발행 경로에 실제로 배선돼 있다', () => {
     // 두 번째 호출은 skipActionIntent=true 로 들어가 반드시 한 번에 끝나야 한다.
     expect(generation).toContain('skipActionIntent?: boolean');
     expect(generation).toContain("(contentMode === 'shopping' || skipActionIntent) ? null : detectActionIntent(keyword)");
-    expect(generation).toContain('searchOfficialSite(keyword, googleCseKey, googleCseCx, contentMode, true)');
+    // v3.8.501: 글 맥락(articleText)이 뒤에 붙었다. 재귀를 끝내는 건 5번째 인자 true 다 —
+    // 그 자리가 true 인지만 본다. 뒤에 인자가 더 붙어도 종료 보장은 그대로다.
+    expect(generation).toMatch(
+      /searchOfficialSite\(keyword, googleCseKey, googleCseCx, contentMode, true(?:,[^)]*)?\)/,
+    );
   });
 });
