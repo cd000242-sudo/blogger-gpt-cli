@@ -108,11 +108,22 @@ const PLATFORM_PROFILES = {
     tone: '자연스러운 반말',
     avoid: '존댓말 공문체, 블로그식 정보글, 광고문',
     variants: { A: '공감형', B: '논쟁형', C: '정보 티저형' },
-    output: '첫 줄, 본문, 댓글 유도, 재게시 유도, 링크 유도, 해시태그 최대 3개',
+    /**
+     * v3.8.504: "해시태그 최대 3개" 삭제 — 모듈 금지 규칙과 정면충돌하고 있었다.
+     * 스레드는 해시태그 나열 문화가 없다. 주제 태그 1개만 다는 방식이고,
+     * #을 여러 개 붙이면 그 자체가 광고 신호로 읽힌다.
+     */
+    output: '첫 줄, 본문, 댓글 유도, 재게시 유도, 링크 유도 (해시태그 금지 — 필요하면 주제 태그 1개만)',
   },
   'naver-blog': {
     name: '네이버 블로그',
     purpose: '검색 유입 (SEO), 키워드 노출, 원문 신뢰 이동',
+    /**
+     * v3.8.504: 검색형 채널 표식. 공용 viral 훅(충격 첫줄 45점)을 이 채널엔 넣지 않는다.
+     * 검색 유입 글에 낚시 첫줄을 달면 체류시간이 무너지고 C-Rank 에 독이다 —
+     * 프로필 스스로 "검색자에게 답하는 정보 전달자"라면서 훅 블록이 반대를 시키고 있었다.
+     */
+    searchIntent: true,
     format: '700~1200자 SEO 친화 미니 포스팅 — 키워드 자연 배치 + 소제목 구조',
     tone: '검색자에게 답하는 정보 전달자 (정중한 존댓말, 정리하는 톤)',
     avoid: '반말, SNS 짧은 문구, 키워드 무리 나열, 댓글 유도 X (검색 결과 클릭이 목표), 일기형 도입부',
@@ -133,7 +144,12 @@ const PLATFORM_PROFILES = {
   x: {
     name: 'X',
     purpose: '첫 문장 멈춤, 답글, 리포스트, 링크 확인',
-    format: '280자 이내의 짧고 날카로운 티저',
+    /**
+     * v3.8.504: "280자"만 말하면 모델이 한글 280자를 만든다.
+     * X 는 한글·한자를 글자당 2로 세므로 실제 한도는 한글 기준 약 140자다 —
+     * 넘긴 글은 붙여넣을 때 잘리고, 사용자는 이유를 모른다.
+     */
+    format: '한글 기준 140자 이내(X는 한글을 글자당 2로 계산, 영문 혼용 시 총 280 무게)의 짧고 날카로운 티저',
     tone: '짧은 단정형 또는 문제제기형',
     avoid: '장문 설명, 해시태그 남발, 블로그 요약문',
     variants: { A: '링크 없는 티저형', B: '링크 포함 클릭형', C: '답글 유도형' },
@@ -433,14 +449,42 @@ function buildSourceInputBlock(params = {}, platformId) {
 ${body || '(본문 없음. 제목, URL, 요약에서 확인 가능한 범위만 사용)'}`;
 }
 
+/**
+ * v3.8.504 — 검색형 채널(searchIntent)은 낚시 훅 구간을 걷어낸다.
+ *
+ * 공용 템플릿은 20개 채널이 함께 쓰므로 본문을 건드리지 않고,
+ * 만들어진 문자열에서 해당 구간만 잘라내고 검색형 규칙으로 바꿔 넣는다.
+ * 잘라낼 구간을 못 찾으면(템플릿이 바뀌면) 아무것도 안 자른다 —
+ * 조용히 엉뚱한 데를 자르는 것보다 낫다. 하네스가 그 경우를 잡는다.
+ */
+const SEARCH_HOOK_BLOCK = `[검색형 첫 문장 규칙 — 낚시 금지]
+이 채널은 스크롤 피드가 아니라 **검색 결과**에서 읽힌다. 충격·경악·FOMO 훅을 쓰지 않는다.
+- 첫 문장 = 검색 질문에 대한 결론. 핵심 키워드를 자연스럽게 포함해 결론부터 말한다.
+- "나만 몰랐" / "충격" / "경악" / 구체 인물 미끼 첫줄 금지 — 검색 유입 글의 낚시 첫줄은
+  이탈률을 올리고 채널 품질 점수를 깎는다.
+- 점수 기준(100점): 검색 의도 적합(키워드 포함 결론형 첫 문장) 40점 /
+  소제목 구조·가독성 20점 / 원문을 눌러야 할 이유 만들기 20점 / 정중한 정보 톤 유지 20점
+- 85점 미만이면 finalRevision에서 재작성한다.
+`;
+
+function stripBetween(text, startMarker, endMarker, replacement) {
+  const start = text.indexOf(startMarker);
+  if (start < 0) return text;
+  const end = text.indexOf(endMarker, start);
+  if (end < 0) return text;
+  return text.slice(0, start) + replacement + text.slice(end);
+}
+
 function buildPlatformSystemPrompt(platformId) {
   const profile = PLATFORM_PROFILES[platformId] || PLATFORM_PROFILES.instagram;
   const variants = Object.entries(profile.variants)
     .map(([key, label]) => `- ${key}안: ${label}`)
     .join('\n');
-  // v3.8.258: viral DNA 블록 자동 주입 (모든 채널 공유)
+  // v3.8.258: viral DNA 블록 자동 주입 — v3.8.504: 검색형 채널은 제외
   const { buildViralDnaBlock } = require('../../_shared/viral-dna');
-  const viralDnaBlock = buildViralDnaBlock({ platformName: profile.name, requireAllPatternsDistinct: true });
+  const viralDnaBlock = profile.searchIntent
+    ? ''
+    : buildViralDnaBlock({ platformName: profile.name, requireAllPatternsDistinct: true });
   return `당신은 ${profile.name} 외부유입 콘텐츠를 만드는 프롬프트 엔지니어입니다.
 
 이번 작업은 같은 글을 복사 변환하는 일이 아닙니다.
@@ -586,6 +630,22 @@ finalRevision은 모든 검토 필드(critique, breakdown, candidates 10개 등)
 출력이 길어질 것 같으면 candidates를 3~5개로 줄이고 critique.breakdown을 생략해서라도 반드시 A/B/C 모두 finalRevision을 끝까지 완성하세요.
 context와 variants 검토 필드만 출력하고 finalRevision을 빠뜨리면 사용자가 글을 받지 못합니다.`;
 }
+
+/** 검색형 채널용 최종 가공 — buildPlatformSystemPrompt 밖에서 호출부가 감쌀 필요 없게 여기서 끝낸다 */
+const _origBuildPlatformSystemPrompt = buildPlatformSystemPrompt;
+buildPlatformSystemPrompt = function (platformId) {
+  const profile = PLATFORM_PROFILES[platformId] || PLATFORM_PROFILES.instagram;
+  let prompt = _origBuildPlatformSystemPrompt(platformId);
+  if (profile.searchIntent) {
+    prompt = stripBetween(
+      prompt,
+      '[공통 최종 검수 100점',
+      '[🎣 미끼·티저 전략',
+      SEARCH_HOOK_BLOCK + '\n',
+    );
+  }
+  return prompt;
+};
 
 function buildPlatformUserPrompt(platformId, params = {}, structuredInstructions = '') {
   const profile = PLATFORM_PROFILES[platformId] || PLATFORM_PROFILES.instagram;
