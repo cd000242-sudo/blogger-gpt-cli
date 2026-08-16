@@ -168,16 +168,35 @@ async function loadPosts() {
   }
 }
 
+/** 단축링크 탭과 같은 규칙 — 대표이미지가 없으면 본문 첫 이미지를 쓴다 */
+function extractThumb(post) {
+  const direct = String(post?.imageUrl || '').trim();
+  if (direct) return direct;
+  const m = String(post?.content || '').match(/<img[^>]+src=["']([^"']+)["']/i);
+  return m ? m[1] : '';
+}
+
 function renderPostList() {
   const list = document.getElementById('cnPostList');
   const makeBtn = document.getElementById('cnMakeBtn');
   if (!list) return;
   list.style.display = state.posts.length ? '' : 'none';
-  list.innerHTML = state.posts.map((p, i) => `
-    <div class="cn-post" data-idx="${i}" style="padding: 10px 14px; border-bottom: 1px solid rgba(148,163,184,0.08); cursor: pointer; font-size: 13px; color: #cbd5e1;">
-      ${escapeText(p.title)}
-      <span style="color:#64748b; font-size:11px; margin-left:8px;">${escapeText((p.published || '').slice(0, 10))}</span>
-    </div>`).join('');
+  // v3.8.506: 제목만 나열하면 어떤 글인지 못 알아본다 — 썸네일을 같이 보여준다 (사용자 보고)
+  list.innerHTML = state.posts.map((p, i) => {
+    const thumb = extractThumb(p);
+    return `
+    <div class="cn-post" data-idx="${i}" style="display: flex; align-items: center; gap: 11px; padding: 9px 13px; border-bottom: 1px solid rgba(148,163,184,0.08); cursor: pointer;">
+      <div style="width: 64px; height: 42px; flex-shrink: 0; border-radius: 7px; overflow: hidden; background: #0f172a; display: flex; align-items: center; justify-content: center;">
+        ${thumb
+          ? `<img src="${escapeText(thumb)}" alt="" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`
+          : '<span style="font-size: 17px;">📝</span>'}
+      </div>
+      <div style="flex: 1; min-width: 0;">
+        <div style="font-size: 12.5px; font-weight: 700; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeText(p.title)}</div>
+        <div style="font-size: 11px; color: #64748b; margin-top: 3px;">${escapeText((p.published || '').slice(0, 10))}</div>
+      </div>
+    </div>`;
+  }).join('');
   list.querySelectorAll('.cn-post').forEach((el) => {
     el.addEventListener('click', () => {
       state.selected = state.posts[Number(el.dataset.idx)] || null;

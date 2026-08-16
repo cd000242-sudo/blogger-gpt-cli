@@ -568,6 +568,21 @@ export function resetArticleStateAfterPublish(reason = 'publish') {
     }
   } catch { /* noop */ }
 
+  /**
+   * v3.8.506 — 발행이 "완료"됐을 때만 1회성 입력칸을 비운다.
+   * 키워드·직접 제목은 글마다 다른 값이라 남아 있으면 다음 발행에 그대로 실린다
+   * (사용자 보고). 중지(취소)일 땐 건드리지 않는다 — 같은 키워드로 다시 시도할 테니.
+   * 세팅(모드·체크박스·플랫폼)은 어느 경우에도 유지한다.
+   */
+  if (/완료/.test(String(reason))) {
+    try {
+      const kw = document.getElementById('keywordInput');
+      if (kw && kw.value) { kw.value = ''; cleared.push('키워드 칸'); }
+      const ct = document.getElementById('customTitle');
+      if (ct && ct.value) { ct.value = ''; cleared.push('직접 제목 칸'); }
+    } catch { /* noop */ }
+  }
+
   debugLog('POSTING', `발행 후 초기화 (${reason})`, { cleared });
   if (cleared.length) addLog(`🧹 다음 글을 위해 초기화했습니다 (${cleared.join(' · ')})`, 'info');
   return cleared;
@@ -1631,6 +1646,30 @@ export async function publishToPlatform() {
 // 🔧 Payload 생성 — 단일 진입점 (모든 발행/미리보기 공용)
 // ─────────────────────────────────────────────────────
 
+/**
+ * v3.8.506 — 제목 옵션 단일 소스.
+ * 아무것도 안 켜면 자동 생성. "키워드를 제목으로"는 키워드(필수) 칸을 그대로 쓴다.
+ * "직접 입력"은 체크가 켜져 있고 칸이 비어있지 않을 때만 유효 — 꺼진 칸의 낡은
+ * 글자는 어떤 경로로도 읽히지 않는다 (직접입력→자동 전환 후 낡은 제목 발행 사고의 수리).
+ */
+function getTitleOptions() {
+  const kwChecked = !!document.getElementById('useKeywordAsTitle')?.checked;
+  const cuChecked = !!document.getElementById('useCustomTitle')?.checked;
+  const customValue = cuChecked
+    ? String(document.getElementById('customTitle')?.value || '').trim()
+    : '';
+  const isCustom = cuChecked && customValue.length > 0;
+  return {
+    titleMode: isCustom ? 'custom' : 'auto',
+    title: isCustom ? customValue : null,
+    useKeywordAsTitle: !isCustom && kwChecked,
+    keywordFront: !isCustom && !kwChecked
+      && !!document.getElementById('keywordFront')?.checked,
+  };
+}
+// 큐·스케줄도 같은 소스를 쓴다 — 경로마다 따로 조립하면 또 샌다
+window.__getTitleOptions = getTitleOptions;
+
 /** 기본값 상수 */
 const PAYLOAD_DEFAULTS = {
   provider: 'gemini',
@@ -1907,14 +1946,16 @@ export async function createPayload(options = {}) {
     console.log('[PAYLOAD] 🔗 URL 모드 — 숨겨진 키워드 입력란의 이전 값 무시:', rawKeywordValue.slice(0, 40));
   }
 
-  const titleModeSelect = document.getElementById('titleMode');
-  const titleModeValue = titleModeSelect?.value || PAYLOAD_DEFAULTS.titleMode;
-
-  let titleValue = null;
-  if (titleModeValue === 'custom') {
-    const customTitleInput = document.getElementById('customTitle');
-    titleValue = customTitleInput?.value?.trim() || null;
-  }
+  /**
+   * v3.8.506 — 제목은 체크박스 상태에서만 파생한다 (셀렉트 삭제).
+   * 예전엔 셀렉트가 auto 로 돌아와도 직접입력 칸의 낡은 글자가 남아
+   * 다른 경로로 새 나갈 수 있었다. 이제 직접입력 체크가 꺼져 있으면
+   * 칸에 뭐가 남아 있든 절대 읽지 않는다.
+   * 단일·큐·스케줄이 같은 함수를 쓰라고 window 에도 노출한다 (payload 3경로 함정).
+   */
+  const titleOptions = getTitleOptions();
+  const titleModeValue = titleOptions.titleMode;
+  let titleValue = titleOptions.title;
   // 미리보기: 제목 없으면 키워드로 대체
   if (previewOnly && !titleValue && keywordValue) {
     titleValue = keywordValue;
@@ -2118,14 +2159,10 @@ export async function createPayload(options = {}) {
     title: titleValue,
     keywords: [{ keyword: keywordValue, title: titleValue }],
 
-    // 제목 옵션
-    // v3.8.354: titleMode='auto'이면 useKeywordAsTitle을 강제 무시 (자동 생성 우선)
-    //   과거: 체크박스가 살아있으면 titleMode='auto'인데도 키워드가 그대로 제목이 됨
-    //   현재: 자동생성을 선택하면 AI 생성이 무조건 우선
+    // 제목 옵션 — v3.8.506: 체크박스 상태가 곧 진실 (getTitleOptions 단일 소스)
     titleMode: titleModeValue,
-    useKeywordAsTitle: titleModeValue !== 'auto'
-      && (document.getElementById('useKeywordAsTitle')?.checked || false),
-    keywordFront: document.getElementById('keywordFront')?.checked || false,
+    useKeywordAsTitle: titleOptions.useKeywordAsTitle,
+    keywordFront: titleOptions.keywordFront,
 
     // 콘텐츠
     contentMode: contentModeValue,

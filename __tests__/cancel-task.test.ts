@@ -255,12 +255,20 @@ describe('발행 후 초기화', () => {
     expect(hits.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('⭐ 사용자가 입력한 값은 건드리지 않는다 (다음 글에도 쓸 설정이다)', () => {
+  it('⭐ 세팅은 건드리지 않고, 1회성 입력칸은 "완료"일 때만 비운다', () => {
+    /**
+     * v3.8.506 에서 계약이 바뀌었다 (사장님 지시):
+     *   "필드에 이전 키워드가 그대로 남아있고 세팅은 그대로 남아있는게 맞는데
+     *    필드는 초기화되어야지요"
+     * 키워드·직접 제목은 글마다 다른 값이라 완료 후 비운다 — 단, 중지(취소)일 땐
+     * 같은 키워드로 재시도할 테니 유지한다. 세팅(엔진·제휴 링크)은 어느 경우에도 유지.
+     */
     const block = braceBlock(postingSrc, 'export function resetArticleStateAfterPublish');
-    expect(block).not.toContain('keywordInput');      // 키워드를 지우면 다시 발행할 때 또 쳐야 한다
-    expect(block).not.toContain('affiliateLinks');    // 제휴 링크도 마찬가지
-    expect(block).not.toContain('h2ImageSource');     // 엔진 선택은 '이 글'의 상태가 아니다
-    expect(postingSrc).toContain('사용자가 입력한 값');    // 근거가 주석에 남아 있다(본문 밖 JSDoc)
+    expect(block).toContain("if (/완료/.test(String(reason)))");   // 완료에서만
+    expect(block).toContain('keywordInput');                        // 키워드 칸을 비운다
+    expect(block).toContain('customTitle');                         // 직접 제목 칸도
+    expect(block).not.toContain('affiliateLinks');    // 제휴 링크는 세팅 — 유지
+    expect(block).not.toContain('h2ImageSource');     // 엔진 선택도 세팅 — 유지
   });
 });
 

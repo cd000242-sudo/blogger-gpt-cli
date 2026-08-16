@@ -964,13 +964,16 @@ function getCurrentQueueSnapshot() {
     postingMode,
     scheduleDate,
     sectionCount: getCurrentSectionCount(),
-    titleMode: getSelectValue('titleMode') || 'auto',
+    /**
+     * v3.8.506 — 제목 옵션은 posting.js 의 단일 소스에서 읽는다.
+     * titleMode 셀렉트가 사라졌다. 여기서 따로 조립하면 또 새는 경로가 생긴다
+     * (payload 3경로 함정 — 낡은 직접입력 제목이 큐로 새던 실제 사고).
+     */
+    titleMode: (window.__getTitleOptions?.() || {}).titleMode || 'auto',
     toneStyle: getSelectValue('toneStyle') || 'professional',
     factCheckMode: getSelectValue('factCheckMode') || 'auto',
-    // v3.8.354: titleMode='auto'이면 useKeywordAsTitle 강제 false (자동 생성 우선)
-    useKeywordAsTitle: (getSelectValue('titleMode') || 'auto') !== 'auto'
-      && !!document.getElementById('useKeywordAsTitle')?.checked,
-    keywordFront: !!document.getElementById('keywordFront')?.checked,
+    useKeywordAsTitle: !!(window.__getTitleOptions?.() || {}).useKeywordAsTitle,
+    keywordFront: !!(window.__getTitleOptions?.() || {}).keywordFront,
     // 🚫 v3.8.336: 썸네일 텍스트 미포함 — 대기열 추가 시점의 값을 항목에 고정
     thumbnailNoText: !!document.getElementById('thumbnailNoText')?.checked,
     urlImageSource,

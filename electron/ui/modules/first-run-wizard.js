@@ -8,22 +8,37 @@ const WIZARD_COMPLETE_KEY = 'leadernam_wizard_complete';
 /**
  * 첫 실행 여부를 확인하고, 미완료 시 위저드를 표시한다.
  */
-export function checkFirstRun() {
-  const completed = localStorage.getItem(WIZARD_COMPLETE_KEY);
-  if (completed === 'true') return;
-
-  // 위저드 대신 바로 환경설정 탭으로 이동
-  localStorage.setItem(WIZARD_COMPLETE_KEY, 'true');
-  setTimeout(() => {
-    if (typeof window.showTab === 'function') {
-      window.showTab('settings');
-      // 설정 탭 내 API 키 탭 표시
-      if (typeof window.switchSettingsTab === 'function') {
-        window.switchSettingsTab('api-keys');
-      }
+/**
+ * v3.8.506 — "한 번 봤다" 플래그가 아니라 "플랫폼이 실제로 비었는가"로 판정한다.
+ *
+ * 예전엔 localStorage 1회성 플래그라, 설정을 안 하고 껐다 켜면 다시는 안 떴다.
+ * 게다가 여는 곳이 환경설정 모달이 아니라 글포스팅 탭이었다.
+ * 이제: 블로거·워드프레스·티스토리 어느 하나도 연결돼 있지 않으면
+ * 환경설정 모달을 띄운다 — 연결될 때까지 매 실행 반복. 연결되면 다시는 안 뜬다.
+ */
+export async function checkFirstRun() {
+  try {
+    let env = {};
+    if (window.blogger?.getEnv) {
+      const r = await window.blogger.getEnv();
+      if (r?.ok && r.data) env = r.data;
     }
-    addLog('[WIZARD] 첫 실행 → 환경설정으로 이동', 'info');
-  }, 500);
+    const pick = (...keys) => keys.some((k) => String(env[k] || '').trim().length > 0);
+    const hasPlatform =
+      pick('blogId', 'BLOG_ID', 'bloggerId')
+      || pick('wordpressSiteUrl', 'WORDPRESS_SITE_URL', 'wpSiteUrl')
+      || pick('tistoryBlogName', 'TISTORY_BLOG_NAME');
+    if (hasPlatform) return;
+
+    setTimeout(() => {
+      if (typeof window.openSettingsModal === 'function') {
+        window.openSettingsModal();
+        addLog('[WIZARD] 연결된 플랫폼이 없어 환경설정을 먼저 엽니다', 'info');
+      }
+    }, 600);
+  } catch (e) {
+    console.warn('[WIZARD] 첫 실행 판정 실패:', e);
+  }
 }
 
 function showFirstRunWizard() {

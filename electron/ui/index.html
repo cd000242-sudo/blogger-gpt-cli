@@ -4081,48 +4081,10 @@
                   <!-- ① 콘텐츠 설정 -->
                   <div class="posting-settings-tab-panel active" id="tab-content">
                     <div class="acc-field">
-                      <label class="acc-label">🤖 제목 생성 모드</label>
-                      <select id="titleMode">
-                        <option value="auto">🤖 자동 생성 (키워드 기반)</option>
-                        <option value="custom">✏️ 직접 입력</option>
-                      </select>
-                      <div id="customTitleWrapper" style="display: none; margin-top: 8px;">
-                        <input type="text" id="customTitle" placeholder="원하는 제목을 직접 입력하세요">
-                        <small style="color: rgba(168,85,247,0.7); font-size: 11px; margin-top: 4px; display: block;">💡 키워드와 별도로 원하는 제목을 지정할 수 있습니다</small>
-                      </div>
-                      <script>
-                        // v3.8.354: titleMode='auto'이면 useKeywordAsTitle 체크박스 자동 해제 + 비활성 표시
-                        (function () {
-                          const titleModeSel = document.getElementById('titleMode');
-                          const applyLock = () => {
-                            const useKw = document.getElementById('useKeywordAsTitle');
-                            if (!useKw) return;
-                            if (titleModeSel.value === 'auto') {
-                              useKw.checked = false;
-                              useKw.disabled = true;
-                              const lbl = useKw.closest('label');
-                              if (lbl) {
-                                lbl.style.opacity = '0.45';
-                                lbl.title = '자동 생성 모드에서는 사용할 수 없습니다';
-                              }
-                            } else {
-                              useKw.disabled = false;
-                              const lbl = useKw.closest('label');
-                              if (lbl) {
-                                lbl.style.opacity = '';
-                                lbl.title = '';
-                              }
-                            }
-                          };
-                          titleModeSel.addEventListener('change', function () {
-                            const w = document.getElementById('customTitleWrapper');
-                            if (w) w.style.display = this.value === 'custom' ? 'block' : 'none';
-                            applyLock();
-                          });
-                          document.addEventListener('DOMContentLoaded', applyLock);
-                          setTimeout(applyLock, 0);
-                        })();
-                      </script>
+                      <!-- v3.8.506: "제목 생성 모드" 셀렉트 삭제 — 제목 옵션 체크박스가 전부 결정한다.
+                           예전엔 셀렉트+체크박스+숨은 입력칸 3중 조합이라, 직접입력에 글자를 남긴 채
+                           자동생성으로 돌아와 발행하면 낡은 값이 제목으로 새는 경로가 있었다.
+                           지금은 체크박스 상태가 곧 진실이라 그 경로 자체가 없다. -->
                     </div>
 
                     <div class="acc-field">
@@ -4468,16 +4430,64 @@
 
                     <div class="acc-field">
                       <label class="acc-label">🎯 제목 옵션</label>
+                      <!-- v3.8.506: 셀렉트 없이 여기서 전부 결정. 아무것도 안 켜면 모드별 최적화 자동 생성(기본). -->
                       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                         <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: rgba(255,255,255,0.8); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); transition: all 0.2s ease;">
                           <input type="checkbox" id="useKeywordAsTitle" style="width: 14px; height: 14px; accent-color: #a855f7;">
                           키워드를 제목으로
                         </label>
                         <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: rgba(255,255,255,0.8); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); transition: all 0.2s ease;">
+                          <input type="checkbox" id="useCustomTitle" style="width: 14px; height: 14px; accent-color: #f59e0b;">
+                          제목 직접 입력
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: rgba(255,255,255,0.8); font-size: 12px; font-weight: 600; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); transition: all 0.2s ease;">
                           <input type="checkbox" id="keywordFront" style="width: 14px; height: 14px; accent-color: #3b82f6;">
                           키워드 맨앞 배치
                         </label>
                       </div>
+                      <div id="customTitleWrapper" style="display: none; margin-top: 8px;">
+                        <input type="text" id="customTitle" placeholder="원하는 제목을 직접 입력하세요">
+                      </div>
+                      <small id="titleOptionHint" style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 6px; display: block;">
+                        지금: 콘텐츠 모드에 맞춰 제목을 자동 생성합니다 (기본)
+                      </small>
+                      <script>
+                        /**
+                         * v3.8.506 — 제목 옵션 상태기.
+                         * "키워드를 제목으로"와 "직접 입력"은 서로 배타 — 하나를 켜면 다른 쪽이 꺼진다.
+                         * 직접 입력을 끄면 입력칸을 비운다: 낡은 글자가 남아 있다가
+                         * 다른 경로(큐·스케줄)로 새 나가던 사고의 뿌리를 여기서 자른다.
+                         */
+                        (function () {
+                          const kw = document.getElementById('useKeywordAsTitle');
+                          const cu = document.getElementById('useCustomTitle');
+                          const front = document.getElementById('keywordFront');
+                          const wrap = document.getElementById('customTitleWrapper');
+                          const input = document.getElementById('customTitle');
+                          const hint = document.getElementById('titleOptionHint');
+                          if (!kw || !cu) return;
+                          const sync = () => {
+                            if (wrap) wrap.style.display = cu.checked ? 'block' : 'none';
+                            if (!cu.checked && input) input.value = '';
+                            // 맨앞 배치는 자동 생성에서만 의미가 있다
+                            if (front) {
+                              front.disabled = kw.checked || cu.checked;
+                              const l = front.closest('label');
+                              if (l) l.style.opacity = front.disabled ? '0.45' : '';
+                            }
+                            if (hint) {
+                              hint.textContent = cu.checked
+                                ? '지금: 아래에 입력한 제목을 그대로 사용합니다 (비워두면 자동 생성)'
+                                : kw.checked
+                                  ? '지금: 키워드(필수) 칸의 키워드를 제목으로 그대로 사용합니다'
+                                  : '지금: 콘텐츠 모드에 맞춰 제목을 자동 생성합니다 (기본)';
+                            }
+                          };
+                          kw.addEventListener('change', () => { if (kw.checked) cu.checked = false; sync(); });
+                          cu.addEventListener('change', () => { if (cu.checked) kw.checked = false; sync(); });
+                          setTimeout(sync, 0);
+                        })();
+                      </script>
                     </div>
                   </div>
 

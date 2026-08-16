@@ -18,13 +18,24 @@ describe('agent mode settings UI regression guard', () => {
     expect(workshop).toContain('상태 새로고침');
   });
 
-  test('settings modal waits for the deferred agent UI', () => {
+  test('settings modal still loads the deferred agent UI (now without blocking display)', () => {
+    /**
+     * v3.8.506: 모달이 에이전트 모듈 로드를 기다렸다가 떠서 "환경설정이 오래
+     * 렌더링된다"(사장님 보고). 이제 표시가 먼저, 로드는 병렬이다.
+     * 이 테스트의 원래 의도(에이전트 구역이 반드시 로드된다)는 그대로 지킨다 —
+     * openSettingsModal 이 resolve 하기 전에 allSettled 로 기다리기 때문.
+     */
     const main = read('electron/ui/modules/main.js');
     const ui = read('electron/ui/modules/ui.js');
 
     expect(main).toContain('window.ensureAgentModeSettingsReady = async () =>');
     expect(main).toContain("document.getElementById('agentModeSettingsSection')");
-    expect(ui).toContain('await window.ensureAgentModeSettingsReady()');
+    const fn = ui.slice(ui.indexOf('export async function openSettingsModal'), ui.indexOf('export function closeSettingsModal'));
+    expect(fn).toContain('ensureAgentModeSettingsReady');   // 여전히 부른다
+    expect(fn).toContain('Promise.allSettled');             // resolve 전에 기다린다
+    // 표시가 로드보다 앞 — 이게 이번 수정의 핵심이다
+    expect(fn.indexOf("modal.style.display = 'flex'"))
+      .toBeLessThan(fn.indexOf('ensureAgentModeSettingsReady'));
   });
 
   test('agent mode selector and provider tabs remain available', () => {

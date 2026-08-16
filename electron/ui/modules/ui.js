@@ -841,32 +841,33 @@ export function startAutoBackup() {
 }
 
 // 환경설정 모달 열기
+/**
+ * v3.8.506 — 모달을 먼저 띄우고 내용은 병렬로 채운다.
+ *
+ * 예전 순서: 에이전트 설정 모듈(대형 동적 import) await → 표시 → 값 로드 await.
+ * 업데이트 직후나 다른 작업 뒤에 열면 그 import 가 끝날 때까지 화면에
+ * 아무것도 안 떠서 "환경설정이 오래 렌더링된다"로 보였다(사용자 보고).
+ * 이제 표시가 0순위다. 값과 에이전트 구역은 떠 있는 모달 위에 채워진다.
+ */
 export async function openSettingsModal() {
-  console.log('🔧 환경설정 모달 열기 시도...');
   const modal = document.getElementById('settingsModal');
-  console.log('🔍 모달 요소:', modal);
-
-  if (modal) {
-    try {
-      if (typeof window.ensureAgentModeSettingsReady === 'function') {
-        await window.ensureAgentModeSettingsReady();
-      }
-    } catch (error) {
-      console.error('❌ 에이전트 모드 설정 UI 준비 실패:', error);
-    }
-    console.log('✅ 모달 요소 찾음, 표시 중...');
-    modal.style.display = 'flex';
-    try {
-      if (window.loadSettingsContent) {
-        await window.loadSettingsContent();
-      }
-      console.log('✅ 환경설정 내용 로드 완료');
-    } catch (error) {
-      console.error('❌ 환경설정 내용 로드 실패:', error);
-    }
-  } else {
+  if (!modal) {
     console.error('❌ settingsModal 요소를 찾을 수 없습니다!');
+    return;
   }
+  modal.style.display = 'flex';
+
+  const jobs = [];
+  if (typeof window.ensureAgentModeSettingsReady === 'function') {
+    jobs.push(Promise.resolve().then(() => window.ensureAgentModeSettingsReady())
+      .catch((e) => console.error('❌ 에이전트 모드 설정 UI 준비 실패:', e)));
+  }
+  if (window.loadSettingsContent) {
+    jobs.push(Promise.resolve().then(() => window.loadSettingsContent())
+      .catch((e) => console.error('❌ 환경설정 내용 로드 실패:', e)));
+  }
+  await Promise.allSettled(jobs);
+  console.log('✅ 환경설정 준비 완료');
 }
 
 // 환경설정 모달 닫기
