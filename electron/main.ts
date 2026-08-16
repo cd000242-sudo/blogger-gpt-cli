@@ -13054,6 +13054,43 @@ function resolveExternalTrafficModel(payload: any, envData: any): string {
   ).trim();
 }
 
+// v3.8.510: 카카오톡 채널 소식 자동 발행 — 공식 API 없음(2026-08 확인) → business.kakao.com UI 자동화.
+// 사장님 손은 로그인 1회뿐. 비밀번호는 저장하지 않는다 (세션 프로필만). 하루 2회 하드캡.
+ipcMain.handle('kakao-channel-session-check', async (_evt, payload: any) => {
+  try {
+    const poster = require('../src/kakao-channel/kakao-poster');
+    return await poster.checkSession(String(payload?.channelId || ''));
+  } catch (error: any) {
+    return { ok: false, loggedIn: false, error: String(error?.message || error).slice(0, 200) };
+  }
+});
+
+ipcMain.handle('kakao-channel-login', async (_evt, payload: any) => {
+  try {
+    const poster = require('../src/kakao-channel/kakao-poster');
+    return await poster.loginInteractive(String(payload?.channelId || ''));
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  }
+});
+
+ipcMain.handle('kakao-channel-autopost', async (_evt, payload: any) => {
+  try {
+    const { blockIfFreeTier } = require('./auth-utils');
+    const gate = await blockIfFreeTier('카카오 채널 자동 발행');
+    if (!gate.allowed) return gate.response;
+    const poster = require('../src/kakao-channel/kakao-poster');
+    return await poster.postNews({
+      channelId: String(payload?.channelId || ''),
+      text: String(payload?.text || ''),
+      link: String(payload?.link || ''),
+      dryRun: Boolean(payload?.dryRun),
+    });
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 300) };
+  }
+});
+
 ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) => {
   try {
     // v3.8.38: 무료 체험은 글포스팅만 허용 — 외부유입 변환 차단

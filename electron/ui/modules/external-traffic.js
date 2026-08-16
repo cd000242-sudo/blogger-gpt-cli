@@ -509,6 +509,7 @@ function _renderV2ResultCard(platform, cached) {
     ${riskBadge}
     ${lengthWarn}
     ${bodyHtml}
+    ${platform.id === 'kakao-channel' ? _renderKakaoChannelAutoRow() : ''}
     ${_renderPreviewSimulation(platform.id, formatted)}
     ${_renderFeedbackRow(platform.id, riskScore, riskBand)}
     <div style="display: flex; gap: 10px; margin-top: 14px;">
@@ -718,6 +719,99 @@ function _getInstagramVariantCopy(variant, sourceUrl = _getExtTrafficSourceUrl()
     hashtags.join(' '),
   ].filter(Boolean).join('\n\n').trim();
   return _appendExtTrafficSourceUrl(copy, sourceUrl);
+}
+
+/**
+ * v3.8.510 — 카카오톡 채널 자동 발행 줄 (서브탭 없이 결과 카드 탑재 — 사장님 확정).
+ * 소식 공식 API 없음 → business.kakao.com UI 자동화. 하루 2회 상한.
+ */
+function _renderKakaoChannelAutoRow() {
+  const savedId = localStorage.getItem('kakaoChannelId') || '';
+  setTimeout(() => { try { extTrafficKakaoRefreshChip(); } catch {} }, 400);
+  return `
+    <div style="margin-top: 14px; padding: 14px 16px; background: linear-gradient(135deg, rgba(254,229,0,0.08), rgba(30,30,20,0.4)); border: 1px solid rgba(254,229,0,0.35); border-radius: 12px;">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <span style="font-weight: 900; color: #fee500; font-size: 13px;">💛 채널 자동 발행</span>
+        <span id="kakaoChannelSessionChip" onclick="extTrafficKakaoRefreshChip()" title="클릭하면 다시 확인"
+          style="padding: 5px 10px; background: rgba(255,255,255,0.08); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.15); border-radius: 999px; font-size: 11px; font-weight: 800; cursor: pointer;">세션 확인 전</span>
+        <input id="kakaoChannelIdInput" value="${escapeHtml(savedId)}" placeholder="채널 ID (_로 시작)"
+          style="width: 130px; padding: 7px 10px; background: rgba(2,6,23,0.6); border: 1px solid rgba(148,163,184,0.25); border-radius: 8px; color: #e2e8f0; font-size: 12px;" />
+        <button type="button" onclick="extTrafficKakaoLogin()"
+          style="padding: 8px 13px; background: rgba(255,255,255,0.10); color: #f8fafc; border: 1px solid rgba(255,255,255,0.22); border-radius: 8px; font-size: 12px; font-weight: 900; cursor: pointer;">
+          🔐 채널 연결
+        </button>
+        <button type="button" onclick="extTrafficKakaoAutoPost()"
+          style="padding: 8px 14px; background: linear-gradient(135deg, #fee500, #fbbf24); color: #1f2937; border: none; border-radius: 8px; font-size: 12px; font-weight: 900; cursor: pointer;">
+          🚀 채널에 자동 발행
+        </button>
+      </div>
+      <details id="kakaoChannelGuide" style="margin-top: 10px;">
+        <summary style="color: #fde68a; font-size: 12px; font-weight: 800; cursor: pointer;">📖 사용법 — 처음이라면 여기부터 (그대로 따라하면 됩니다)</summary>
+        <ol style="margin: 10px 0 4px; padding-left: 18px; color: #e2e8f0; font-size: 12px; line-height: 1.9;">
+          <li>① 위 칸에 <b>채널 ID</b>를 넣습니다 — 카카오 비즈니스 주소의 밑줄 부분입니다 (예: business.kakao.com/<b>_FmmBn</b>/... 이면 <b>_FmmBn</b>). 그리고 <b>[🔐 채널 연결]</b>을 누르면 카카오 로그인 창이 뜹니다. <b>로그인 1회만</b> 해주세요 — 비밀번호는 저장하지 않습니다 (로그인 세션만 이 컴퓨터에 남습니다).</li>
+          <li>② 이 탭 위쪽 <b>[발행 글에서 고르기]</b>로 채널에 올릴 원본 글을 선택합니다.</li>
+          <li>③ 카카오톡 채널의 <b>[생성]</b>을 눌러 글을 만들고, 나온 결과를 읽어봅니다.</li>
+          <li>④ 마음에 들면 <b>[🚀 채널에 자동 발행]</b> 클릭 — 앱이 관리자 화면을 대신 눌러 발행합니다 (30초쯤).</li>
+          <li>⑤ 완료 알림이 뜨면 <b>pf.kakao.com/채널ID</b> 에 들어가 올라간 소식을 확인합니다.</li>
+        </ol>
+        <div style="margin-top: 6px; color: #fca5a5; font-size: 11px;">⚠️ 하루 2회 상한 — 소식 도배는 채널 제재 리스크라 앱이 그 이상은 막습니다.</div>
+      </details>
+    </div>`;
+}
+
+function extTrafficKakaoRefreshChip() {
+  const chip = document.getElementById('kakaoChannelSessionChip');
+  const channelId = String(document.getElementById('kakaoChannelIdInput')?.value || '').trim();
+  if (!chip || !window.electronAPI || !window.electronAPI.invoke) return;
+  if (!channelId) { chip.textContent = '채널 ID 입력 필요'; return; }
+  chip.textContent = '세션 확인 중…';
+  window.electronAPI.invoke('kakao-channel-session-check', { channelId }).then((res) => {
+    if (res && res.loggedIn) {
+      chip.textContent = '🟢 채널 연결됨';
+      chip.style.color = '#6ee7b7';
+    } else {
+      chip.textContent = '🔴 로그인 필요 — [채널 연결] 클릭';
+      chip.style.color = '#fca5a5';
+    }
+  }).catch(() => { chip.textContent = '상태 확인 실패 — 클릭해서 재시도'; });
+}
+
+function _getKakaoChannelIdFromUi() {
+  const value = String(document.getElementById('kakaoChannelIdInput')?.value || '').trim();
+  if (value) localStorage.setItem('kakaoChannelId', value);
+  return value;
+}
+
+async function extTrafficKakaoLogin() {
+  const channelId = _getKakaoChannelIdFromUi();
+  if (!channelId) { _flashToast('채널 ID 를 먼저 입력해주세요 (_로 시작)'); return; }
+  if (!window.electronAPI || !window.electronAPI.invoke) return;
+  _flashToast('로그인 창을 여는 중 — 카카오 로그인만 해주세요 (비밀번호는 저장하지 않습니다)');
+  const res = await window.electronAPI.invoke('kakao-channel-login', { channelId }).catch((e) => ({ ok: false, error: e && e.message }));
+  if (res && res.ok) {
+    _flashToast('✅ 채널 연결 완료 — 이제 자동 발행할 수 있습니다');
+    extTrafficKakaoRefreshChip();
+  } else {
+    _flashToast('연결 실패: ' + ((res && res.error) || '알 수 없는 오류'));
+  }
+}
+
+async function extTrafficKakaoAutoPost() {
+  const channelId = _getKakaoChannelIdFromUi();
+  if (!channelId) { _flashToast('채널 ID 를 먼저 입력해주세요 (_로 시작)'); return; }
+  if (!window.electronAPI || !window.electronAPI.invoke) return;
+  const cached = _generatedCache.get('kakao-channel');
+  const text = String((cached && cached.formatted && cached.formatted.body) || (cached && cached.rawText) || '').trim();
+  if (!text) { _flashToast('먼저 카카오톡 채널 글을 [생성]해주세요'); return; }
+  const link = String((cached && cached.sourceUrl) || _getExtTrafficSourceUrl() || '').trim();
+  _flashToast('🚀 자동 발행 중 — 30초쯤 걸립니다. 창을 닫지 마세요');
+  const res = await window.electronAPI.invoke('kakao-channel-autopost', { channelId, text, link }).catch((e) => ({ ok: false, error: e && e.message }));
+  if (res && res.ok) {
+    _flashToast('✅ 채널 발행 완료 — pf.kakao.com/' + channelId + ' 에서 확인해보세요');
+  } else {
+    const where = res && res.step ? ` (${res.step} 단계에서 멈춤)` : '';
+    _flashToast('발행 실패' + where + ': ' + ((res && res.error) || '알 수 없는 오류'));
+  }
 }
 
 function _renderThreadsResultCard(platform, cached) {
@@ -3481,6 +3575,9 @@ window.extTrafficShowInstagramVariant = extTrafficShowInstagramVariant;
 window.extTrafficCopyInstagramFinal = extTrafficCopyInstagramFinal;
 window.extTrafficShowThreadsVariant = extTrafficShowThreadsVariant;
 window.extTrafficCopyThreadsPart = extTrafficCopyThreadsPart;
+window.extTrafficKakaoRefreshChip = extTrafficKakaoRefreshChip;
+window.extTrafficKakaoLogin = extTrafficKakaoLogin;
+window.extTrafficKakaoAutoPost = extTrafficKakaoAutoPost;
 window.extTrafficShowNaverBlogVariant = extTrafficShowNaverBlogVariant;
 window.extTrafficCopyNaverBlogFinal = extTrafficCopyNaverBlogFinal;
 window.extTrafficShowStructuredVariant = extTrafficShowStructuredVariant;
