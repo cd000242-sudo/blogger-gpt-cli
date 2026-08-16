@@ -14,12 +14,13 @@ const X = require('../../../src/core/external-traffic/prompts/sns/x');
 const NAVER_BLOG = require('../../../src/core/external-traffic/prompts/naver/blog');
 
 describe('validateLength — Instagram', () => {
+  // v3.8.509: 해시태그 정상 범위 8~12 → 3~5
   test('정상 길이는 빈 violations', () => {
-    const f = { body: 'a'.repeat(1500), hashtags: ['#a', '#b', '#c', '#d', '#e', '#f', '#g', '#h'] };
+    const f = { body: 'a'.repeat(1500), hashtags: ['#a', '#b', '#c', '#d'] };
     expect(validateLength(f, INSTAGRAM)).toEqual([]);
   });
   test('본문 초과 감지', () => {
-    const f = { body: 'a'.repeat(3000), hashtags: ['#a', '#b', '#c', '#d', '#e', '#f', '#g', '#h'] };
+    const f = { body: 'a'.repeat(3000), hashtags: ['#a', '#b', '#c', '#d'] };
     const v = validateLength(f, INSTAGRAM);
     expect(v.length).toBeGreaterThan(0);
     expect(v[0]).toContain('본문');

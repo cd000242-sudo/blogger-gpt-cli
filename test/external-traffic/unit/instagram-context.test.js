@@ -60,7 +60,7 @@ describe('Instagram structured result parser', () => {
       sharePrompt: '비슷한 상황의 지인에게 공유해보세요.',
       commentPrompt: '가장 헷갈리는 부분을 댓글로 남겨보세요.',
       linkPrompt: '세부 기준은 프로필 링크에서 확인할 수 있습니다.',
-      hashtags: ['#생활정보', '#체크리스트', '#정보정리', '#저장각', '#실생활팁', '#확인필수', '#꿀팁', '#원문확인'],
+      hashtags: ['#생활정보', '#체크리스트', '#정보정리', '#저장각'],
       expectedClickStrength: '높음',
       critique: { score, notes: '안전 표현 유지', breakdown: { hook: 15, context: 15, save: 15, share: 10, reader: 15, link: 10, lowAd: 10, truth: 10 } },
       finalRevision: {
@@ -70,7 +70,7 @@ describe('Instagram structured result parser', () => {
         sharePrompt: '비슷한 상황의 지인에게 공유해보세요.',
         commentPrompt: '어떤 부분이 가장 헷갈리나요?',
         linkPrompt: '자세한 기준은 프로필 링크에서 확인하세요.',
-        hashtags: ['#생활정보', '#체크리스트', '#정보정리', '#저장각', '#실생활팁', '#확인필수', '#꿀팁', '#원문확인'],
+        hashtags: ['#생활정보', '#체크리스트', '#정보정리', '#저장각'],
       },
     };
   }
@@ -111,7 +111,8 @@ ${JSON_END}`;
     const out = dispatcher.processResponse('instagram', raw);
     expect(out.instagram.variants).toHaveLength(3);
     expect(out.formatted.body).toContain('최종 본문');
-    expect(out.formatted.hashtags.length).toBeGreaterThanOrEqual(8);
+    expect(out.formatted.hashtags.length).toBeGreaterThanOrEqual(3);
+    expect(out.formatted.hashtags.length).toBeLessThanOrEqual(5);
     expect(out.lengthViolations).toEqual([]);
   });
 
@@ -149,7 +150,8 @@ ${JSON_END}`;
     expect(out.formatted.body).toContain('This tax mistake');
     expect(out.formatted.body).not.toContain('INSTAGRAM_RESULT_JSON');
     expect(out.formatted.body).not.toContain('finalRevision');
-    expect(out.formatted.hashtags.length).toBeGreaterThanOrEqual(8);
+    expect(out.formatted.hashtags.length).toBeGreaterThanOrEqual(3);
+    expect(out.formatted.hashtags.length).toBeLessThanOrEqual(5);
     expect(out.lengthViolations.join(' ')).toContain('A/B/C');
   });
 });

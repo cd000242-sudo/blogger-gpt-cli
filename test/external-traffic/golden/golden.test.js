@@ -21,7 +21,7 @@ const SAMPLE_INSTAGRAM_RAW = `오늘 진짜 놀라운 정보를 발견했어요
 
 👉 프로필 링크 클릭 ✨
 
-#정리 #인사이트 #생활팁 #한국블로그 #실용정보 #한국 #자기계발 #습관 #루틴 #생산성`;
+#정리 #인사이트 #생활팁 #실용정보`;
 
 const SAMPLE_THREADS_RAW = `솔직히 ~ 한 사람만 좋아요
 
@@ -96,9 +96,10 @@ describe('Golden — Instagram', () => {
   test('body 정의됨', () => {
     expect(result.body).toBeTruthy();
   });
-  test('hashtags 8~12개', () => {
-    expect(result.hashtags.length).toBeGreaterThanOrEqual(8);
-    expect(result.hashtags.length).toBeLessThanOrEqual(12);
+  // v3.8.509: 8~12 → 3~5 (2026 인스타 기준 8개 이상은 스팸 신호)
+  test('hashtags 3~5개', () => {
+    expect(result.hashtags.length).toBeGreaterThanOrEqual(3);
+    expect(result.hashtags.length).toBeLessThanOrEqual(5);
   });
   test('연속 빈 줄 1개 이하', () => {
     expect(result.body).not.toMatch(/\n{3,}/);

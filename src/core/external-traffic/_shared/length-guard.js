@@ -13,7 +13,8 @@ const HASHTAG_RE = /#[\p{L}\p{N}_]+/gu;
  * 토큰이 아닌 글자수로 통일 — 사용자에게 노출할 단위.
  */
 const CHANNEL_LENGTH_LIMITS = {
-  instagram: { body: { max: 2200 }, hashtags: { min: 8, max: 12 } },
+  // v3.8.509: 해시태그 8~12 → 3~5 (2026 인스타 기준 8개 이상은 스팸 신호)
+  instagram: { body: { max: 2200 }, hashtags: { min: 3, max: 5 } },
   // v3.8.505: 한 덩어리 → post/firstComment 두 칸. 실물 검수에서 링크 포함 조립이
   // 세 안 모두 500자를 넘겼다 — 이제 칸별로 잰다 (스레드 한도는 칸마다 500).
   threads: { parts: { post: { max: 500 }, firstComment: { max: 500 } } },
@@ -52,7 +53,8 @@ const CHANNEL_LENGTH_LIMITS = {
     },
   },
   'kakao-openchat': { body: { max: 450, min: 60 } },
-  'naver-blog': { body: { max: 1200, min: 700 }, hashtags: { min: 5, max: 8 } },
+  // v3.8.509: 상한 1200 → 1700 (체류 2분 30초 분량 — 프롬프트가 시키는 걸 가드가 막으면 안 된다)
+  'naver-blog': { body: { max: 1700, min: 700 }, hashtags: { min: 5, max: 8 } },
   'naver-cafe': { body: { max: 900, min: 400 } },
 };
 

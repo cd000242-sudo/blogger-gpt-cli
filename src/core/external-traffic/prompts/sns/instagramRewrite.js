@@ -81,7 +81,7 @@ ${JSON_END}
 variants는 A/B/C 3개만 만든다.
 A는 저장형, B는 공감형, C는 경고형이다.
 각 firstLineCandidates는 반드시 10개다.
-해시태그는 각 안마다 8~12개다.
+해시태그는 각 안마다 3~5개다 (2026 기준 8개 이상은 스팸 신호).
 본문의 한 문장은 20~35자 중심, 한 문단은 1~2줄 중심으로 짧게 줄바꿈한다.
 finalRevision은 사용자가 복사할 최종 게시문만 담는다.`;
 }
@@ -273,7 +273,8 @@ function normalizeHashtags(tags) {
     .filter(Boolean)
     .map((tag) => tag.startsWith('#') ? tag : `#${tag.replace(/^#+/, '')}`)
     .filter((tag, idx, arr) => arr.indexOf(tag) === idx)
-    .slice(0, 12);
+    // v3.8.509: 12 → 5 (2026 인스타 기준 8개 이상은 스팸 신호)
+    .slice(0, 5);
 }
 
 const FALLBACK_HASHTAGS = [
@@ -307,7 +308,7 @@ function buildFallbackInstagramHashtags(context, text) {
     .filter((word, idx, arr) => arr.indexOf(word) === idx)
     .slice(0, 6)
     .map((word) => `#${word}`);
-  return normalizeHashtags([...keywords, ...FALLBACK_HASHTAGS]).slice(0, 12);
+  return normalizeHashtags([...keywords, ...FALLBACK_HASHTAGS]).slice(0, 5);
 }
 
 function normalizeCandidates(candidates, context) {
