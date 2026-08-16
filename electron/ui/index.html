@@ -4466,7 +4466,10 @@
                           const input = document.getElementById('customTitle');
                           const hint = document.getElementById('titleOptionHint');
                           if (!kw || !cu) return;
+                          const cuLabel = cu.closest('label');
                           const sync = () => {
+                            // 키워드가 곧 제목이면 직접 입력은 존재할 이유가 없다 — 회색이 아니라 숨김 (v3.8.507)
+                            if (cuLabel) cuLabel.style.display = kw.checked ? 'none' : '';
                             if (wrap) wrap.style.display = cu.checked ? 'block' : 'none';
                             if (!cu.checked && input) input.value = '';
                             // 맨앞 배치는 자동 생성에서만 의미가 있다

@@ -34,6 +34,11 @@ describe('① 제목 옵션 — 체크박스 단일 소스', () => {
     expect(html).toContain("if (!cu.checked && input) input.value = ''");
   });
 
+  it('키워드를 제목으로 켜면 직접 입력은 선택지 자체가 사라진다 (v3.8.507)', () => {
+    // 배타 처리로 회색 비활성만 하면 "왜 있는데 못 누르지"가 남는다 — 아예 숨긴다
+    expect(html).toContain("cuLabel.style.display = kw.checked ? 'none' : ''");
+  });
+
   it('getTitleOptions: 직접 입력이 꺼져 있으면 칸의 값은 절대 읽지 않는다', () => {
     expect(posting).toContain('function getTitleOptions()');
     expect(posting).toMatch(/const customValue = cuChecked\s*\n?\s*\? String/);
