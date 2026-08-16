@@ -59,24 +59,34 @@ window.__threadsUiTest = {
     document.getElementById('app').innerHTML = window.__threadsUiTest.render(platform, cached);
     window.__threadsUiTest.show(2);
 
-    const textareas = Array.from(document.querySelectorAll('textarea[id^="threadsFinalCopy_"]'));
+    // v3.8.508: 한 덩어리(threadsFinalCopy_) → 본문/첫 댓글 두 칸(parts)
+    const postAreas = Array.from(document.querySelectorAll('textarea[id^="threadsPartPost_"]'));
+    const commentAreas = Array.from(document.querySelectorAll('textarea[id^="threadsPartComment_"]'));
     const tabs = Array.from(document.querySelectorAll('[id^="threadsVariantTab_"]'));
     const panels = Array.from(document.querySelectorAll('[id^="threadsVariantPanel_"]'));
     return {
-      textareas: textareas.length,
+      postAreas: postAreas.length,
+      commentAreas: commentAreas.length,
       tabs: tabs.length,
       panelDisplays: panels.map((panel) => panel.style.display),
       contextText: document.body.innerText.includes('자동분류')
         && document.body.innerText.includes('핵심주제')
         && document.body.innerText.includes('예상 독자')
         && document.body.innerText.includes('독자 상황'),
-      hasJson: /THREADS_RESULT_JSON|"context"|"variants"/.test(textareas.map((ta) => ta.value).join('\n')),
-      cCopy: textareas[2] && textareas[2].value,
+      hasJson: /THREADS_RESULT_JSON|"context"|"variants"/.test(
+        [...postAreas, ...commentAreas].map((ta) => ta.value).join('\n')
+      ),
+      // 본문에 링크가 없고, 링크는 첫 댓글에만 있어야 한다
+      postHasUrl: postAreas.some((ta) => /https?:\/\//.test(ta.value)),
+      commentHasUrl: commentAreas.every((ta) => /https?:\/\//.test(ta.value)),
+      cCopy: postAreas[2] && postAreas[2].value,
     };
   });
 
   await browser.close();
-  if (result.textareas !== 3 || result.tabs !== 3 || result.panelDisplays[2] !== 'block' || !result.contextText || result.hasJson) {
+  if (result.postAreas !== 3 || result.commentAreas !== 3 || result.tabs !== 3
+    || result.panelDisplays[2] !== 'block' || !result.contextText || result.hasJson
+    || result.postHasUrl || !result.commentHasUrl) {
     throw new Error(`Threads UI smoke failed: ${JSON.stringify(result)}`);
   }
   console.log(JSON.stringify(result, null, 2));

@@ -138,10 +138,15 @@ function getChannel(channelId) {
  * @returns {import('./_shared/types').Stage1Summary}
  */
 function buildMinimalSummary(title, contentHint) {
+  // v3.8.508: sourceText 폴백으로 URL 이 넘어오던 사고 — 인코딩된 URL 이
+  // coreValue(핵심 가치) 행세를 했다. URL 은 본문이 아니다.
+  const hint = contentHint && !/^https?:\/\/\S+$/i.test(String(contentHint).trim())
+    ? String(contentHint)
+    : '';
   return {
-    coreValue: contentHint ? contentHint.slice(0, 200) : title,
+    coreValue: hint ? hint.slice(0, 200) : title,
     hooks: [title, `${title} — 한 줄 정리`, `${title} 핵심`],
-    keyPoints: contentHint ? [contentHint.slice(0, 100)] : [title],
+    keyPoints: hint ? [hint.slice(0, 100)] : [title],
     keywords: title.split(/\s+/).filter((w) => w.length >= 2).slice(0, 10),
     dataPoints: [],
     sentiment: 'neutral',
@@ -275,4 +280,7 @@ module.exports = {
   validateGenerateV2Payload,
   buildRetryHint,
   flatten,
+  // v3.8.508: 발행 글 목록 source 에 본문이 없어 sourceText 가 비던 미배선 —
+  // main v2 핸들러가 요약 조립 전에 이걸로 원문을 복원한다.
+  ensureSourceText: require('./_shared/source-text').ensureSourceText,
 };

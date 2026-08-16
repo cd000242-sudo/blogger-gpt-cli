@@ -13114,6 +13114,9 @@ ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) =
       return { success: false, error: 'API 키가 필요합니다. 설정 탭에서 Gemini / OpenAI / Claude / Perplexity 중 하나 이상 입력해주세요.' };
     }
 
+    // v3.8.508: 발행 글 목록 source 에는 본문이 없다 — 얇으면 원문 페이지에서 직접
+    // 가져온다. 본문 없이는 "실명 사실 1~2개" 규칙이 물리적으로 지켜질 수 없다.
+    validated.sourceText = await dispatcher.ensureSourceText(validated);
     const sourceSummary = dispatcher.buildMinimalSummary(
       validated.sourceTitle,
       validated.sourceText || validated.sourceUrl

@@ -786,11 +786,22 @@ function _renderThreadsResultCard(platform, cached) {
   `;
 }
 
+// 실명 사실 = 숫자+단위 토큰. 제목에 이미 있는 숫자는 재탕이라 안 쳐준다 (v3.8.505 규칙의 화면 검증)
+function _countThreadsNamedFacts(post, title) {
+  const factsOf = (text) => new Set(String(text || '').match(/\d[\d,.]*\s?(?:%|년|개월|주|일|시간|만\s?원|억|원|회|배|가지|명|건)/g) || []);
+  const titleFacts = factsOf(title);
+  return [...factsOf(post)].filter((token) => !titleFacts.has(token)).length;
+}
+
 function _renderThreadsVariantPanel(variant, idx, sourceUrl = '') {
   const score = Number(variant?.critique?.score || 0);
   const display = idx === 0 ? 'block' : 'none';
-  const finalCopy = _getThreadsVariantCopy(variant, sourceUrl);
-  const copyId = `threadsFinalCopy_${idx}`;
+  const parts = _getThreadsVariantParts(variant, sourceUrl);
+  const sourceTitle = (_selectedSource && _selectedSource.title) || '';
+  const namedFacts = _countThreadsNamedFacts(parts.post, sourceTitle);
+  const factBadge = namedFacts > 0
+    ? `<span style="padding: 4px 9px; background: rgba(16,185,129,0.16); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.35); border-radius: 999px; font-size: 11px; font-weight: 900;">실명 사실 ${namedFacts}건</span>`
+    : `<span style="padding: 4px 9px; background: rgba(239,68,68,0.16); color: #fca5a5; border: 1px solid rgba(239,68,68,0.4); border-radius: 999px; font-size: 11px; font-weight: 900;">실명 사실 0건 — 다시 생성 권장</span>`;
   const metaRows = [
     ['선택 첫 줄', variant.selectedFirstLine],
     ['목표', variant.goal],
@@ -803,13 +814,10 @@ function _renderThreadsVariantPanel(variant, idx, sourceUrl = '') {
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
             <h3 style="margin: 0; color: #f8fafc; font-size: 17px; font-weight: 900;">${escapeHtml(variant.key || '')}안 · ${escapeHtml(variant.label || '')}</h3>
             ${score ? `<span style="padding: 4px 9px; background: rgba(248,250,252,0.10); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.12); border-radius: 999px; font-size: 11px; font-weight: 900;">${score}점</span>` : ''}
+            ${factBadge}
           </div>
           <div style="color: #94a3b8; font-size: 12px; margin-top: 5px;">${escapeHtml(variant.tone || 'Threads 대화체')}</div>
         </div>
-        <button type="button" onclick="extTrafficCopyThreadsFinal(${idx})"
-          style="padding: 10px 14px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 9px; font-size: 12px; font-weight: 900; cursor: pointer;">
-          최종 글 복사
-        </button>
       </div>
 
       ${metaRows.length ? `
@@ -822,34 +830,64 @@ function _renderThreadsVariantPanel(variant, idx, sourceUrl = '') {
         </div>` : ''}
 
       <div style="margin-top: 12px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px;">
-          <label style="color: #cbd5e1; font-size: 12px; font-weight: 900;">최종 게시문</label>
-          <span style="color: #64748b; font-size: 11px;">글자수: ${finalCopy.length}</span>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; gap: 10px; flex-wrap: wrap;">
+          <label style="color: #cbd5e1; font-size: 12px; font-weight: 900;">① 본문 — 링크 없음 <span style="color: #64748b; font-weight: 400;">(글자수 ${parts.post.length}/500)</span></label>
+          <button type="button" onclick="extTrafficCopyThreadsPart(${idx}, 'post')"
+            style="padding: 8px 13px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 8px; font-size: 12px; font-weight: 900; cursor: pointer;">
+            본문 복사
+          </button>
         </div>
-        <textarea id="${copyId}" readonly
-          style="width: 100%; min-height: 220px; padding: 15px 16px; background: rgba(2,6,23,0.62); border: 1px solid rgba(148,163,184,0.16); border-radius: 11px; color: #e2e8f0; font-size: 14px; line-height: 1.7; font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; resize: vertical; box-sizing: border-box; white-space: pre-wrap;">${escapeHtml(finalCopy)}</textarea>
+        <textarea id="threadsPartPost_${idx}" readonly
+          style="width: 100%; min-height: 180px; padding: 15px 16px; background: rgba(2,6,23,0.62); border: 1px solid rgba(148,163,184,0.16); border-radius: 11px; color: #e2e8f0; font-size: 14px; line-height: 1.7; font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; resize: vertical; box-sizing: border-box; white-space: pre-wrap;">${escapeHtml(parts.post || '(본문이 비었습니다 — 다시 생성해주세요)')}</textarea>
+      </div>
+
+      <div style="margin-top: 12px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; gap: 10px; flex-wrap: wrap;">
+          <label style="color: #cbd5e1; font-size: 12px; font-weight: 900;">② 첫 댓글 — 링크는 여기</label>
+          <button type="button" onclick="extTrafficCopyThreadsPart(${idx}, 'firstComment')"
+            style="padding: 8px 13px; background: rgba(255,255,255,0.10); color: #f8fafc; border: 1px solid rgba(255,255,255,0.22); border-radius: 8px; font-size: 12px; font-weight: 900; cursor: pointer;">
+            첫 댓글 복사
+          </button>
+        </div>
+        <textarea id="threadsPartComment_${idx}" readonly
+          style="width: 100%; min-height: 56px; padding: 12px 16px; background: rgba(2,6,23,0.62); border: 1px solid rgba(148,163,184,0.16); border-radius: 11px; color: #93c5fd; font-size: 13px; line-height: 1.6; font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; resize: vertical; box-sizing: border-box; white-space: pre-wrap;">${escapeHtml(parts.firstComment || '(원본 글 URL 이 없습니다)')}</textarea>
       </div>
       ${_renderStructuredCritique(variant)}
     </section>`;
 }
 
-function _getThreadsVariantCopy(variant, sourceUrl = _getExtTrafficSourceUrl()) {
-  if (!variant) return '';
+/**
+ * v3.8.508 — 변형 패널 조립을 main 쪽 parts 계약(threadsRewrite)과 일치시킨다.
+ * 예전 이 자리는 재게시 유도문까지 합치고 본문 끝에 URL 을 박았다 —
+ * v3.8.505 수술(본문 무링크·첫 댓글 링크)이 스레드 전용 카드에는 안 닿았던 구멍.
+ */
+function _getThreadsVariantParts(variant, sourceUrl = _getExtTrafficSourceUrl()) {
+  if (!variant) return { post: '', firstComment: '' };
   const finalRevision = variant.finalRevision || {};
-  const copy = [
-    finalRevision.firstLine || variant.selectedFirstLine,
-    finalRevision.body || variant.body,
-    finalRevision.commentPrompt || variant.commentPrompt,
-    finalRevision.sharePrompt || variant.sharePrompt,
-    finalRevision.linkPrompt || variant.linkPrompt,
-  ]
-    .filter(Boolean)
-    .join('\n\n')
+  const clean = (value) => String(value || '')
     .replace(/<THREADS_RESULT_JSON>|<\/THREADS_RESULT_JSON>/g, '')
     .replace(/```(?:json)?|```/gi, '')
-    .replace(/\n{3,}/g, '\n\n')
     .trim();
-  return _appendExtTrafficSourceUrl(copy, sourceUrl);
+  const body = clean(finalRevision.body || variant.body)
+    .replace(/https?:\/\/[^\s]+/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
+  const post = [
+    clean(finalRevision.firstLine || variant.selectedFirstLine),
+    body,
+    clean(finalRevision.commentPrompt || variant.commentPrompt),
+  ].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
+  const linkPrompt = clean(finalRevision.linkPrompt || variant.linkPrompt);
+  const promptUrl = (linkPrompt.match(/https?:\/\/[^\s]+/) || [])[0] || '';
+  const url = promptUrl || String(sourceUrl || '').trim();
+  const lead = linkPrompt.replace(promptUrl, '').replace(/\s+/g, ' ').trim();
+  const firstComment = url ? (lead && lead.length <= 30 ? `${lead} ${url}`.trim() : url) : '';
+  return { post, firstComment };
+}
+
+/** 목록 필터·미리보기 폴백용 — 게시문 본체(무링크)만 돌려준다 */
+function _getThreadsVariantCopy(variant, sourceUrl = _getExtTrafficSourceUrl()) {
+  return _getThreadsVariantParts(variant, sourceUrl).post;
 }
 
 function _renderNaverBlogResultCard(platform, cached) {
@@ -1797,27 +1835,30 @@ function extTrafficShowThreadsVariant(idx) {
   });
 }
 
-function extTrafficCopyThreadsFinal(idx) {
+function extTrafficCopyThreadsPart(idx, part) {
   const cached = _generatedCache.get('threads');
   const variant = cached?.threads?.variants?.[idx];
-  const value = _getThreadsVariantCopy(variant, cached?.sourceUrl || _getExtTrafficSourceUrl());
+  const parts = _getThreadsVariantParts(variant, cached?.sourceUrl || _getExtTrafficSourceUrl());
+  const isComment = part === 'firstComment';
+  const value = isComment ? parts.firstComment : parts.post;
+  const doneMsg = isComment ? '첫 댓글(링크) 복사 완료' : '본문 복사 완료 — 링크는 첫 댓글에 붙이세요';
   if (!value) {
-    _flashToast('복사할 Threads 최종 글이 없습니다');
+    _flashToast(isComment ? '복사할 첫 댓글이 없습니다' : '복사할 본문이 없습니다');
     return;
   }
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(value).then(() => {
-        _flashToast('Threads 최종 글만 복사됐어요');
+        _flashToast(doneMsg);
       }).catch(() => {
         _flashToast('복사 실패');
       });
     } else {
-      const ta = document.getElementById(`threadsFinalCopy_${idx}`);
+      const ta = document.getElementById(isComment ? `threadsPartComment_${idx}` : `threadsPartPost_${idx}`);
       if (ta) {
         ta.select();
         document.execCommand && document.execCommand('copy');
-        _flashToast('Threads 최종 글만 복사됐어요');
+        _flashToast(doneMsg);
       }
     }
   } catch {
@@ -3439,7 +3480,7 @@ window.extTrafficSendFeedback = extTrafficSendFeedback;
 window.extTrafficShowInstagramVariant = extTrafficShowInstagramVariant;
 window.extTrafficCopyInstagramFinal = extTrafficCopyInstagramFinal;
 window.extTrafficShowThreadsVariant = extTrafficShowThreadsVariant;
-window.extTrafficCopyThreadsFinal = extTrafficCopyThreadsFinal;
+window.extTrafficCopyThreadsPart = extTrafficCopyThreadsPart;
 window.extTrafficShowNaverBlogVariant = extTrafficShowNaverBlogVariant;
 window.extTrafficCopyNaverBlogFinal = extTrafficCopyNaverBlogFinal;
 window.extTrafficShowStructuredVariant = extTrafficShowStructuredVariant;
