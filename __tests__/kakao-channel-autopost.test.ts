@@ -107,6 +107,44 @@ describe('①-2 채널 자동 인식 — 사장님이 ID 를 타이핑할 이유
     expect(guide).toContain('자동으로 인식');
   });
 
+  it('카드뷰(카드뉴스) 실측 셀렉터가 박혀 있다 (2026-08-17 실이미지 업로드 실측)', () => {
+    const sel = require('../src/kakao-channel/kakao-selectors');
+    expect(sel.KAKAO_SELECTORS.cardViewTabText).toBe('카드뷰');
+    expect(sel.KAKAO_SELECTORS.cardTitleInput).toContain('제목을 입력해주세요');
+    expect(sel.KAKAO_SELECTORS.cardBodyInput).toContain('내용을 입력해주세요');
+    expect(sel.KAKAO_SELECTORS.cardButtonNameInput).toContain('버튼명');
+    expect(sel.KAKAO_SELECTORS.cardButtonUrlInput).toContain('예)');
+    // 실측 한도: 카드 제목 30자 / 내용 600자 / 버튼명 16자
+    expect(sel.CARD_LIMITS).toEqual({ title: 30, body: 600, buttonLabel: 16 });
+  });
+
+  it('카드 발행 흐름: 이미지 setInputFiles → 제목/내용 → 버튼(링크) → 확인 → 등록 순서', () => {
+    const src = read('src/kakao-channel/kakao-poster.js');
+    const flow = src.slice(src.indexOf('카드뷰 첨부'));
+    const upload = flow.indexOf('setInputFiles');
+    const button = flow.indexOf('cardButtonUrlInput');
+    const confirm = flow.indexOf('cardConfirmText');
+    expect(upload).toBeGreaterThan(-1);
+    expect(button).toBeGreaterThan(upload);
+    expect(confirm).toBeGreaterThan(button);
+  });
+
+  it('카드가 있으면 링크를 따로 안 붙인다 — 링크는 카드 버튼에 산다 (이중 첨부 금지)', () => {
+    const src = read('src/kakao-channel/kakao-poster.js');
+    expect(src).toContain('link && !cardAttached');
+  });
+
+  it('UI 다리: 카드뉴스 탭 결과를 넘겨받아 표지+링크 버튼으로 발행한다 (재생성 없음)', () => {
+    const cn = read('electron/ui/modules/cardnews.js');
+    expect(cn).toContain('window.__cardnewsLastResult');
+    const ui = read('electron/ui/modules/external-traffic.js');
+    expect(ui).toContain('function _getKakaoCardnewsAssets');
+    expect(ui).toMatch(/f\.format === 'kakao'/);
+    expect(ui).toContain('kakaoUseCardnews');
+    const post = ui.slice(ui.indexOf('async function extTrafficKakaoAutoPost'));
+    expect(post).toContain('buttonUrl');
+  });
+
   it('버튼 하나 UX: 자동 발행에서 세션이 없으면 로그인 창을 자동으로 띄우고 이어서 발행한다 (v3.8.513)', () => {
     const ui = read('electron/ui/modules/external-traffic.js');
     const post = ui.slice(ui.indexOf('async function extTrafficKakaoAutoPost'));

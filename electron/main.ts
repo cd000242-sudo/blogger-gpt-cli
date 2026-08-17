@@ -13095,6 +13095,14 @@ ipcMain.handle('kakao-channel-autopost', async (_evt, payload: any) => {
       text: String(payload?.text || ''),
       link: String(payload?.link || ''),
       dryRun: Boolean(payload?.dryRun),
+      // v3.8.514: 카드뉴스(카카오 1:1) 재사용 — 카드뷰 소식 + 링크 버튼
+      card: payload?.card && payload.card.imagePath ? {
+        imagePath: String(payload.card.imagePath || ''),
+        title: String(payload.card.title || ''),
+        body: String(payload.card.body || ''),
+        buttonLabel: String(payload.card.buttonLabel || ''),
+        buttonUrl: String(payload.card.buttonUrl || ''),
+      } : undefined,
     });
   } catch (error: any) {
     return { ok: false, error: String(error?.message || error).slice(0, 300) };

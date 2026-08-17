@@ -725,8 +725,31 @@ function _getInstagramVariantCopy(variant, sourceUrl = _getExtTrafficSourceUrl()
  * v3.8.510 — 카카오톡 채널 자동 발행 줄 (서브탭 없이 결과 카드 탑재 — 사장님 확정).
  * 소식 공식 API 없음 → business.kakao.com UI 자동화. 하루 2회 상한.
  */
+/** v3.8.514: 카드뉴스 탭에서 만든 카카오 1:1 카드 자산 — 있으면 카드 소식으로 발행한다 */
+function _getKakaoCardnewsAssets() {
+  const last = window.__cardnewsLastResult;
+  if (!last || !Array.isArray(last.files)) return null;
+  const kakaoFiles = last.files.filter((f) => f && f.format === 'kakao' && f.file).map((f) => f.file);
+  if (!kakaoFiles.length) return null;
+  return {
+    cover: kakaoFiles[0],
+    count: kakaoFiles.length,
+    cardTitle: String((last.plan && last.plan[0] && last.plan[0].title) || last.postTitle || '').slice(0, 30),
+    caption: String(last.caption || ''),
+    postUrl: String(last.postUrl || ''),
+    postTitle: String(last.postTitle || ''),
+  };
+}
+
 function _renderKakaoChannelAutoRow() {
   const savedId = localStorage.getItem('kakaoChannelId') || '';
+  const cardAssets = _getKakaoCardnewsAssets();
+  const cardRow = cardAssets
+    ? `<label style="display: flex; align-items: center; gap: 7px; color: #fde68a; font-size: 12px; font-weight: 800; cursor: pointer;">
+         <input type="checkbox" id="kakaoUseCardnews" checked style="width: 14px; height: 14px; accent-color: #fee500;">
+         🃏 카드뉴스 소식으로 발행 (${cardAssets.count}장 중 표지 + 링크 버튼 삽입)
+       </label>`
+    : `<span style="color: #94a3b8; font-size: 11px;">🃏 카드뉴스 없음 — 카드뉴스 탭에서 만들어두면 자동으로 카드 소식이 됩니다 (지금은 텍스트 소식)</span>`;
   // v3.8.512: 채널 ID 자동 인식 — 비어 있으면 세션에서 읽어와 채운다 (타이핑 불필요)
   setTimeout(() => { try { extTrafficKakaoDetectChannel().then(() => extTrafficKakaoRefreshChip()); } catch {} }, 400);
   return `
@@ -746,12 +769,13 @@ function _renderKakaoChannelAutoRow() {
           🚀 채널에 자동 발행
         </button>
       </div>
+      <div style="margin-top: 9px;">${cardRow}</div>
       <details id="kakaoChannelGuide" style="margin-top: 10px;">
         <summary style="color: #fde68a; font-size: 12px; font-weight: 800; cursor: pointer;">📖 사용법 — 처음이라면 여기부터 (그대로 따라하면 됩니다)</summary>
         <ol style="margin: 10px 0 4px; padding-left: 18px; color: #e2e8f0; font-size: 12px; line-height: 1.9;">
           <li>① <b>[🔐 채널 연결]</b>을 누르면 카카오 로그인 창이 뜹니다. <b>로그인 1회만</b> 해주세요 — 내 채널은 <b>자동으로 인식</b>되고, 비밀번호는 저장하지 않습니다 (로그인 세션만 이 컴퓨터에 남습니다). 채널이 여러 개인 경우에만 위 칸에서 직접 바꾸면 됩니다.</li>
           <li>② 이 탭 위쪽 <b>[발행 글에서 고르기]</b>로 채널에 올릴 원본 글을 선택합니다.</li>
-          <li>③ 카카오톡 채널의 <b>[생성]</b>을 눌러 글을 만들고, 나온 결과를 읽어봅니다.</li>
+          <li>③ 카카오톡 채널의 <b>[생성]</b>을 눌러 글을 만들고, 나온 결과를 읽어봅니다. <b>카드뉴스 탭</b>에서 같은 글로 카드뉴스를 만들어뒀다면 자동으로 "카드뉴스 소식"(이미지 카드 + 링크 버튼)으로 발행됩니다 — 재생성 없이 그대로 재사용합니다.</li>
           <li>④ 마음에 들면 <b>[🚀 채널에 자동 발행]</b> 클릭 — 앱이 관리자 화면을 대신 눌러 발행합니다 (30초쯤).</li>
           <li>⑤ 완료 알림이 뜨면 <b>pf.kakao.com/채널ID</b> 에 들어가 올라간 소식을 확인합니다.</li>
         </ol>
@@ -837,10 +861,23 @@ async function extTrafficKakaoAutoPost() {
   const text = String((cached && cached.formatted && cached.formatted.body) || (cached && cached.rawText) || '').trim();
   if (!text) { _flashToast('먼저 카카오톡 채널 글을 [생성]해주세요'); return; }
   const link = String((cached && cached.sourceUrl) || _getExtTrafficSourceUrl() || '').trim();
-  _flashToast('🚀 자동 발행 중 — 30초쯤 걸립니다. 창을 닫지 마세요');
-  const res = await window.electronAPI.invoke('kakao-channel-autopost', { channelId, text, link }).catch((e) => ({ ok: false, error: e && e.message }));
+  // v3.8.514: 카드뉴스가 준비돼 있고 체크가 켜져 있으면 카드 소식으로 발행 (표지 + 링크 버튼)
+  let card = null;
+  const useCardnews = document.getElementById('kakaoUseCardnews');
+  const cardAssets = _getKakaoCardnewsAssets();
+  if (cardAssets && (!useCardnews || useCardnews.checked)) {
+    card = {
+      imagePath: cardAssets.cover,
+      title: cardAssets.cardTitle,
+      body: text.slice(0, 600),
+      buttonLabel: '전체 글 보기',
+      buttonUrl: link || cardAssets.postUrl,
+    };
+  }
+  _flashToast(card ? '🚀 카드뉴스 소식 자동 발행 중 — 40초쯤 걸립니다' : '🚀 자동 발행 중 — 30초쯤 걸립니다. 창을 닫지 마세요');
+  const res = await window.electronAPI.invoke('kakao-channel-autopost', { channelId, text, link, card }).catch((e) => ({ ok: false, error: e && e.message }));
   if (res && res.ok) {
-    _flashToast('✅ 채널 발행 완료 — pf.kakao.com/' + channelId + ' 에서 확인해보세요');
+    _flashToast('✅ 채널 발행 완료' + (res.cardAttached ? ' (카드뉴스 + 링크 버튼)' : '') + ' — pf.kakao.com/' + channelId + ' 에서 확인해보세요');
   } else {
     const where = res && res.step ? ` (${res.step} 단계에서 멈춤)` : '';
     _flashToast('발행 실패' + where + ': ' + ((res && res.error) || '알 수 없는 오류'));

@@ -24,9 +24,22 @@ const KAKAO_SELECTORS = {
   // 발행 버튼은 정확히 "등록" — 목록의 "등록순" 버튼과 substring 매칭되면 안 된다 (실측에서 확인)
   submitExactText: '등록',
   submitClass: 'btn_rc_highlight',
+  // 카드뷰(카드뉴스) 모달 — 2026-08-17 실이미지 업로드 실측
+  cardViewTabText: '카드뷰',
+  cardFileInput: 'input[type="file"][accept*="jpeg"]', // setInputFiles 직접 주입 (첨부 클릭 불필요)
+  cardTitleInput: 'input[placeholder="제목을 입력해주세요."]',   // 30자 한도
+  cardBodyInput: 'textarea[placeholder="내용을 입력해주세요."]', // 600자 한도
+  cardButtonYesText: '예',                                        // exact — "예약"과 충돌 방지
+  cardButtonNameInput: 'input[placeholder="버튼명을 입력해주세요."]', // 16자 한도
+  cardButtonUrlInput: 'input[placeholder^="예)"]',                // 연결할 곳 URL
+  cardConfirmText: '확인',                                        // 모달 노란 버튼 (exact)
+  cardUploadedMarker: '이미지가 첨부되었습니다',
 };
+
+// 카드뷰 필드 한도 (실측)
+const CARD_LIMITS = { title: 30, body: 600, buttonLabel: 16 };
 
 // 도배 = 채널 제재 리스크 (계획서 확정값). 바꾸려면 계획서부터.
 const DAILY_CAP = 2;
 
-module.exports = { KAKAO_URLS, KAKAO_SELECTORS, DAILY_CAP };
+module.exports = { KAKAO_URLS, KAKAO_SELECTORS, CARD_LIMITS, DAILY_CAP };

@@ -232,6 +232,16 @@ async function createCards() {
     state.plan = Array.isArray(res.plan) ? res.plan : [];
     state.backdrops = new Array(state.plan.length).fill('');
     state.keyword = post.title;
+    // v3.8.514: 카카오 채널 자동 발행이 이 결과(카카오 1:1 카드)를 재사용한다 — 재생성 없음
+    window.__cardnewsLastResult = {
+      dir: res.dir || '',
+      files: Array.isArray(res.files) ? res.files : [],
+      plan: state.plan,
+      caption: res.caption || '',
+      postTitle: post.title || '',
+      postUrl: post.url || '',
+      at: Date.now(),
+    };
     if (res.engine) state.engine = res.engine;
     if (res.mode) state.mode = res.mode;
     document.getElementById('cnOpenBtn').style.display = '';
