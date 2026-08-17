@@ -90,6 +90,7 @@ export function initCardnews() {
 
   // 진행 상황 구독 — 만드는 동안 어디까지 왔는지 보여준다
   window.blogger?.onCardnewsProgress?.((p) => renderProgress(p));
+  window.cnOpenLightbox = openLightbox; // 순차 미리보기 onclick 에서 재사용 (v3.8.517)
 }
 
 /**
@@ -107,14 +108,53 @@ function renderProgress(p) {
   const total = Number(p?.total) || 1;
   const done = Number(p?.index) || 0;
   let value = 0;
-  if (p?.phase === 'plan') value = 5;
+  if (p?.phase === 'plan') { value = 5; _clearLivePreview(); }
   else if (p?.phase === 'image') value = 10 + Math.round((done / total) * 60);
   else if (p?.phase === 'render') value = 75 + Math.round((done / total) * 20);
+  else if (p?.phase === 'card-done') value = 75 + Math.round(((done + 1) / total) * 20);
   else if (p?.phase === 'done') value = 100;
 
   bar.style.width = value + '%';
   if (pct) pct.textContent = value + '%';
   if (phase && p?.label) phase.textContent = p.label;
+
+  // v3.8.517: 카드가 완성되는 대로 그 자리에서 순차 미리보기 (첫 규격 기준 1장씩)
+  if (p?.phase === 'card-done' && p.file && p.format === 'instagram') {
+    _appendLivePreview(p.file, done, total);
+  }
+}
+
+/** 순차 미리보기 스트립 — 진행 바 아래에 카드가 하나씩 나타난다 */
+function _ensureLiveStrip() {
+  let strip = document.getElementById('cnLive');
+  if (strip) return strip;
+  const box = document.getElementById('cnProgress');
+  if (!box || !box.parentElement) return null;
+  strip = document.createElement('div');
+  strip.id = 'cnLive';
+  strip.style.cssText = 'display:flex; gap:10px; flex-wrap:wrap; margin:12px 0; align-items:flex-start;';
+  box.parentElement.insertBefore(strip, box.nextSibling);
+  return strip;
+}
+
+function _clearLivePreview() {
+  const strip = document.getElementById('cnLive');
+  if (strip) strip.innerHTML = '';
+}
+
+function _appendLivePreview(file, index, total) {
+  const strip = _ensureLiveStrip();
+  if (!strip) return;
+  if (strip.querySelector(`[data-card="${index}"]`)) return; // 중복 방지
+  const cell = document.createElement('div');
+  cell.setAttribute('data-card', String(index));
+  cell.style.cssText = 'width:118px; text-align:center; animation:fadeIn .3s ease;';
+  cell.innerHTML = `
+    <img src="file:///${String(file).replace(/\\/g, '/')}" alt="카드 ${index + 1}"
+      style="width:118px; border-radius:9px; border:1px solid rgba(148,163,184,0.25); display:block; cursor:pointer;"
+      onclick="window.cnOpenLightbox && window.cnOpenLightbox(this.src)" />
+    <div style="color:#94a3b8; font-size:11px; margin-top:4px;">${index + 1}/${total}</div>`;
+  strip.appendChild(cell);
 }
 
 /** 고른 조합이 실제로 어떻게 동작하는지 그 자리에서 알려준다 — 조용히 다르게 동작하면 안 된다 */

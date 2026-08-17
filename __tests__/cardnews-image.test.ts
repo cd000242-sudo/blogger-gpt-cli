@@ -185,3 +185,31 @@ describe('v3.8.503 — 카드 이미지는 세로로 뽑는다', () => {
     expect(ui).toContain('zoom-in');
   });
 });
+
+describe('v3.8.517 — 렌더 크래시 수정 + 순차 미리보기', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const mainTs = fs.readFileSync(path.join(__dirname, '..', 'electron/main.ts'), 'utf-8');
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'electron/ui/modules/cardnews.js'), 'utf-8');
+
+  it('카드 렌더는 data: URL 이 아니라 임시 파일 로드 — ERR_INVALID_URL(-300) 재발 방지', () => {
+    // 배경 이미지가 크면 data: URL 이 크로미움 길이 한도를 넘어 조용히 죽는다 (실사고)
+    expect(mainTs).not.toContain("loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(cardHtml)");
+    expect(mainTs).toContain('.render.html');
+    expect(mainTs).toContain('hiddenWin.loadFile(renderHtmlFile)');
+  });
+
+  it('카드가 완성될 때마다 card-done 이벤트로 파일 경로를 흘려보낸다', () => {
+    expect(mainTs).toContain("phase: 'card-done'");
+    expect(mainTs).toMatch(/card-done'[^}]*file/);
+  });
+
+  it('UI 는 card-done 을 받아 순차 미리보기를 붙이고, 새 실행 시 비운다', () => {
+    expect(ui).toContain("p?.phase === 'card-done'");
+    expect(ui).toContain('function _appendLivePreview');
+    expect(ui).toContain('function _clearLivePreview');
+    expect(ui).toContain("p.format === 'instagram'");   // 규격당 1장만 (중복 방지)
+    expect(ui).toContain('data-card');                   // 같은 카드 중복 방지
+    expect(ui).toContain('window.cnOpenLightbox = openLightbox');
+  });
+});

@@ -4986,14 +4986,24 @@ ipcMain.handle('cardnews:create', async (_evt, args: {
             format: formatKey, index: i, total: plan.cards.length, keyword, backdrop: shared[i],
           });
         }
-        await hiddenWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(cardHtml));
+        /**
+         * v3.8.517: data: URL 로드 금지 — 배경 이미지가 크면 크로미움 URL 길이 한도를 넘어
+         * ERR_INVALID_URL(-300) 로 조용히 죽는다 (사장님 실사고). 파일 로드는 한도가 없다.
+         */
+        const renderHtmlFile = path.join(baseDir, '.render.html');
+        fs.writeFileSync(renderHtmlFile, cardHtml, 'utf-8');
+        await hiddenWin.loadFile(renderHtmlFile);
         await new Promise((r) => setTimeout(r, 120));   // 폰트·레이아웃 안정화 한 프레임
         const image = await hiddenWin.webContents.capturePage({ x: 0, y: 0, width: format.width, height: format.height });
         const file = path.join(dir, `${String(i + 1).padStart(2, '0')}.png`);
         fs.writeFileSync(file, image.toPNG());
         files.push({ format: format.dir, file });
+        // v3.8.517: 카드가 완성되는 즉시 UI 미리보기로 흘려보낸다 (순차 표시)
+        sendCardnewsProgress({ phase: 'card-done', index: i, total: plan.cards.length, format: format.dir, file });
       }
     }
+
+    try { fs.unlinkSync(path.join(baseDir, '.render.html')); } catch { /* 임시 렌더 파일 정리 실패는 무해 */ }
 
     // 캡션 + 카드별 Alt — 업로드할 때 그대로 붙여 넣게 텍스트로 준다
     const altLines = plan.cards.map((c: any, i: number) => `${i + 1}번 카드: ${c.alt}`);
@@ -5118,7 +5128,10 @@ ipcMain.handle('cardnews:regen-card', async (_evt, args: {
       } else {
         cardHtml = renderCardHtml(safeCard, { format: formatKey, index, total, keyword, backdrop });
       }
-      await hiddenWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(cardHtml));
+      // v3.8.517: data: URL 은 이미지가 크면 ERR_INVALID_URL — 파일 로드로 (생성 핸들러와 동일)
+      const regenHtmlFile = path.join(app.getPath('temp'), 'cardnews-regen-render.html');
+      fs.writeFileSync(regenHtmlFile, cardHtml, 'utf-8');
+      await hiddenWin.loadFile(regenHtmlFile);
       await new Promise((r) => setTimeout(r, 120));
       const image = await hiddenWin.webContents.capturePage({ x: 0, y: 0, width: format.width, height: format.height });
       const file = path.join(dir, `${String(index + 1).padStart(2, '0')}.png`);
