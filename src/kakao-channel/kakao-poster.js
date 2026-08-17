@@ -23,6 +23,7 @@ const { KAKAO_URLS, KAKAO_SELECTORS, DAILY_CAP } = require('./kakao-selectors');
 const PROFILE_ROOT = path.join(os.homedir(), '.leadernam-orbit', 'kakao-channel-profile');
 const STATE_FILE = path.join(PROFILE_ROOT, 'state.json'); // storageState 쿠키 백업
 const POST_LOG = path.join(PROFILE_ROOT, 'post-log.json');
+const CHANNEL_CACHE = path.join(PROFILE_ROOT, 'channel.json'); // 자동 인식된 채널 ID (사용자별)
 const DEBUG_DIR = path.join(PROFILE_ROOT, 'debug');
 
 function firstExistingPath(paths) {
@@ -119,19 +120,90 @@ async function saveDebugShot(page, step) {
   }
 }
 
-/** 백업 쿠키로 로그인 상태 확인 (헤드리스, 화면 안 뜸) */
-async function checkSession(channelId) {
-  const id = String(channelId || '').trim();
-  if (!id) return { ok: false, loggedIn: false, error: 'CHANNEL_ID_REQUIRED' };
-  if (!fs.existsSync(STATE_FILE)) return { ok: true, loggedIn: false };
+function readCachedChannelId() {
+  try {
+    return String(JSON.parse(fs.readFileSync(CHANNEL_CACHE, 'utf-8')).channelId || '');
+  } catch {
+    return '';
+  }
+}
+
+function cacheChannelId(channelId) {
+  try {
+    fs.mkdirSync(PROFILE_ROOT, { recursive: true });
+    fs.writeFileSync(CHANNEL_CACHE, JSON.stringify({ channelId, at: new Date().toISOString() }, null, 2), 'utf-8');
+  } catch { /* 캐시 실패는 치명적이지 않다 */ }
+}
+
+// _guest 는 비즈멤버십 안내용 자리표시자 — 채널이 아니다 (2026-08-17 실검증에서 오인식 사고)
+function extractRealChannelId(text) {
+  const match = String(text || '').match(/\/(_[A-Za-z0-9]+)/);
+  return match && match[1] !== '_guest' ? match[1] : '';
+}
+
+/**
+ * 채널 ID 자동 인식 — 사용자가 타이핑할 이유가 없다 (배포용: 사용자마다 자기 채널).
+ * 실검증 확정 경로(2026-08-17): 루트 → "내 비즈니스" 클릭 → 자기 채널 대시보드로 이동 → URL 에서 추출.
+ */
+async function detectChannelId(options = {}) {
+  const cached = readCachedChannelId();
+  if (cached && !options.force) return { ok: true, channelId: cached, cached: true };
+  if (!fs.existsSync(STATE_FILE)) return { ok: false, error: 'LOGIN_REQUIRED: 먼저 [채널 연결]로 로그인해주세요' };
   let browser = null;
   try {
     const launched = await launchWithState();
     browser = launched.browser;
     const page = launched.page;
-    await page.goto(KAKAO_URLS.dashboard(id), { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto('https://business.kakao.com/', { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForTimeout(4000);
+    if (!isLoggedInUrl(page.url())) {
+      return { ok: false, error: 'LOGIN_REQUIRED: 세션이 만료됐습니다 — [채널 연결]로 다시 로그인해주세요' };
+    }
+    let channelId = extractRealChannelId(page.url());
+    if (!channelId) {
+      // "내 비즈니스" → 자기 채널 대시보드로 이동한다 (실검증 경로)
+      const myBiz = page.locator('text=내 비즈니스').first();
+      if (await myBiz.count().catch(() => 0)) {
+        await myBiz.click({ timeout: 8000 }).catch(() => {});
+        await page.waitForTimeout(5000);
+        channelId = extractRealChannelId(page.url());
+      }
+    }
+    if (!channelId) {
+      // 다중 채널 선택 화면 폴백 — 첫 실채널 링크에서 추출
+      const anchors = page.locator('a[href*="/_"]');
+      const total = Math.min(await anchors.count().catch(() => 0), 60);
+      for (let i = 0; i < total; i++) {
+        const href = await anchors.nth(i).getAttribute('href').catch(() => '');
+        channelId = extractRealChannelId(href);
+        if (channelId) break;
+      }
+    }
+    if (!channelId) {
+      return { ok: false, error: 'CHANNEL_NOT_FOUND: 채널을 자동 인식하지 못했습니다 — ID 칸에 직접 입력해주세요' };
+    }
+    cacheChannelId(channelId);
+    return { ok: true, channelId };
+  } catch (error) {
+    return { ok: false, error: String(error && error.message || error).slice(0, 200) };
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+}
+
+/** 백업 쿠키로 로그인 상태 확인 (헤드리스, 화면 안 뜸). 채널 ID 없으면 캐시→루트 순으로 판정 */
+async function checkSession(channelId) {
+  const id = String(channelId || '').trim() || readCachedChannelId();
+  if (!fs.existsSync(STATE_FILE)) return { ok: true, loggedIn: false, channelId: id };
+  let browser = null;
+  try {
+    const launched = await launchWithState();
+    browser = launched.browser;
+    const page = launched.page;
+    const target = id ? KAKAO_URLS.dashboard(id) : 'https://business.kakao.com/';
+    await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(4000); // 리다이렉트 정착 대기 — 조기 판정 금지
-    return { ok: true, loggedIn: isLoggedInUrl(page.url()) };
+    return { ok: true, loggedIn: isLoggedInUrl(page.url()), channelId: id };
   } catch (error) {
     return { ok: false, loggedIn: false, error: String(error && error.message || error).slice(0, 200) };
   } finally {
@@ -145,14 +217,15 @@ async function checkSession(channelId) {
  * (본문 길이 검사는 Shadow DOM 때문에 영원히 실패한다 — 2026-08-17 사고).
  */
 async function loginInteractive(channelId, timeoutMs = 10 * 60 * 1000) {
+  // 채널 ID 는 몰라도 된다 — 루트로 들어가면 로그인 후 자기 채널로 리다이렉트되고 거기서 인식한다
   const id = String(channelId || '').trim();
-  if (!id) return { ok: false, error: 'CHANNEL_ID_REQUIRED' };
   let context = null;
   try {
     const launched = await launchLoginWindow();
     context = launched.context;
     let page = launched.page;
-    await page.goto(KAKAO_URLS.dashboard(id), { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+    const target = id ? KAKAO_URLS.dashboard(id) : 'https://business.kakao.com/';
+    await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
     await page.waitForTimeout(8000).catch(() => {}); // 리다이렉트 정착
     const deadline = Date.now() + timeoutMs;
     let confirmCount = 0;
@@ -169,7 +242,10 @@ async function loginInteractive(channelId, timeoutMs = 10 * 60 * 1000) {
           page = hit;
           // 세션 쿠키는 창을 닫으면 증발한다 — 지금 즉시 백업
           await context.storageState({ path: STATE_FILE });
-          return { ok: true };
+          // 로그인된 URL 에서 채널 ID 자동 인식 (배포용: 사용자마다 자기 채널, _guest 오인식 방지)
+          const detected = extractRealChannelId(page.url()) || id || readCachedChannelId();
+          if (detected) cacheChannelId(detected);
+          return { ok: true, channelId: detected || '' };
         }
       } else {
         confirmCount = 0;
@@ -289,6 +365,7 @@ module.exports = {
   PROFILE_ROOT,
   STATE_FILE,
   DAILY_CAP,
+  detectChannelId,
   checkSession,
   loginInteractive,
   postNews,

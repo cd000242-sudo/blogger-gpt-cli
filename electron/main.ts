@@ -13065,6 +13065,16 @@ ipcMain.handle('kakao-channel-session-check', async (_evt, payload: any) => {
   }
 });
 
+// v3.8.512: 채널 ID 자동 인식 — 배포용이라 하드코딩 금지, 각 사용자의 세션에서 자기 채널을 읽는다
+ipcMain.handle('kakao-channel-detect', async (_evt, payload: any) => {
+  try {
+    const poster = require('../src/kakao-channel/kakao-poster');
+    return await poster.detectChannelId({ force: Boolean(payload?.force) });
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  }
+});
+
 ipcMain.handle('kakao-channel-login', async (_evt, payload: any) => {
   try {
     const poster = require('../src/kakao-channel/kakao-poster');

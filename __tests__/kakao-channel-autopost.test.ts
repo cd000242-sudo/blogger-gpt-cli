@@ -67,6 +67,47 @@ describe('① 포스터 모듈 계약', () => {
   });
 });
 
+describe('①-2 채널 자동 인식 — 사장님이 ID 를 타이핑할 이유가 없다 (v3.8.512)', () => {
+  it('detectChannelId: 루트 → "내 비즈니스" 클릭 → URL 에서 _ID 추출 (실검증 확정 경로)', () => {
+    expect(typeof poster.detectChannelId).toBe('function');
+    const src = read('src/kakao-channel/kakao-poster.js');
+    const fn = src.slice(src.indexOf('async function detectChannelId'));
+    expect(fn).toContain("'https://business.kakao.com/'");
+    expect(fn).toContain('내 비즈니스');
+  });
+
+  it('_guest 자리표시자를 채널로 오인하지 않는다 (실검증에서 잡은 사고)', () => {
+    const src = read('src/kakao-channel/kakao-poster.js');
+    expect(src).toContain("'_guest'");
+    expect(src).toContain('function extractRealChannelId');
+  });
+
+  it('로그인도 채널 ID 없이 된다 (루트로 들어가 로그인 후 자동 인식)', () => {
+    const src = read('src/kakao-channel/kakao-poster.js');
+    const login = src.slice(src.indexOf('async function loginInteractive'), src.indexOf('async function postNews'));
+    expect(login).not.toContain('CHANNEL_ID_REQUIRED');
+  });
+
+  it('main 에 kakao-channel-detect IPC 가 있다', () => {
+    const main = read('electron/main.ts');
+    expect(main).toContain("ipcMain.handle('kakao-channel-detect'");
+  });
+
+  it('UI 가 렌더 시 자동 인식을 시도하고, 발행 전에도 폴백으로 인식한다', () => {
+    const ui = read('electron/ui/modules/external-traffic.js');
+    expect(ui).toContain('function extTrafficKakaoDetectChannel');
+    expect(ui).toContain("invoke('kakao-channel-detect'");
+    const post = ui.slice(ui.indexOf('async function extTrafficKakaoAutoPost'));
+    expect(post).toContain('extTrafficKakaoDetectChannel');
+  });
+
+  it('사용법이 "자동 인식"을 말한다 — 타이핑 지시 금지', () => {
+    const ui = read('electron/ui/modules/external-traffic.js');
+    const guide = ui.slice(ui.indexOf('kakaoChannelGuide'), ui.indexOf('function extTrafficKakaoRefreshChip'));
+    expect(guide).toContain('자동으로 인식');
+  });
+});
+
 describe('② 일일 상한 — 도배 방지', () => {
   const day = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 

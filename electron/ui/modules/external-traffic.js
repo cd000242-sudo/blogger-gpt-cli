@@ -727,14 +727,15 @@ function _getInstagramVariantCopy(variant, sourceUrl = _getExtTrafficSourceUrl()
  */
 function _renderKakaoChannelAutoRow() {
   const savedId = localStorage.getItem('kakaoChannelId') || '';
-  setTimeout(() => { try { extTrafficKakaoRefreshChip(); } catch {} }, 400);
+  // v3.8.512: 채널 ID 자동 인식 — 비어 있으면 세션에서 읽어와 채운다 (타이핑 불필요)
+  setTimeout(() => { try { extTrafficKakaoDetectChannel().then(() => extTrafficKakaoRefreshChip()); } catch {} }, 400);
   return `
     <div style="margin-top: 14px; padding: 14px 16px; background: linear-gradient(135deg, rgba(254,229,0,0.08), rgba(30,30,20,0.4)); border: 1px solid rgba(254,229,0,0.35); border-radius: 12px;">
       <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <span style="font-weight: 900; color: #fee500; font-size: 13px;">💛 채널 자동 발행</span>
         <span id="kakaoChannelSessionChip" onclick="extTrafficKakaoRefreshChip()" title="클릭하면 다시 확인"
           style="padding: 5px 10px; background: rgba(255,255,255,0.08); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.15); border-radius: 999px; font-size: 11px; font-weight: 800; cursor: pointer;">세션 확인 전</span>
-        <input id="kakaoChannelIdInput" value="${escapeHtml(savedId)}" placeholder="채널 ID (_로 시작)"
+        <input id="kakaoChannelIdInput" value="${escapeHtml(savedId)}" placeholder="채널 자동 인식 중…" title="자동으로 인식됩니다. 채널이 여러 개일 때만 직접 바꾸세요"
           style="width: 130px; padding: 7px 10px; background: rgba(2,6,23,0.6); border: 1px solid rgba(148,163,184,0.25); border-radius: 8px; color: #e2e8f0; font-size: 12px;" />
         <button type="button" onclick="extTrafficKakaoLogin()"
           style="padding: 8px 13px; background: rgba(255,255,255,0.10); color: #f8fafc; border: 1px solid rgba(255,255,255,0.22); border-radius: 8px; font-size: 12px; font-weight: 900; cursor: pointer;">
@@ -748,7 +749,7 @@ function _renderKakaoChannelAutoRow() {
       <details id="kakaoChannelGuide" style="margin-top: 10px;">
         <summary style="color: #fde68a; font-size: 12px; font-weight: 800; cursor: pointer;">📖 사용법 — 처음이라면 여기부터 (그대로 따라하면 됩니다)</summary>
         <ol style="margin: 10px 0 4px; padding-left: 18px; color: #e2e8f0; font-size: 12px; line-height: 1.9;">
-          <li>① 위 칸에 <b>채널 ID</b>를 넣습니다 — 카카오 비즈니스 주소의 밑줄 부분입니다 (예: business.kakao.com/<b>_FmmBn</b>/... 이면 <b>_FmmBn</b>). 그리고 <b>[🔐 채널 연결]</b>을 누르면 카카오 로그인 창이 뜹니다. <b>로그인 1회만</b> 해주세요 — 비밀번호는 저장하지 않습니다 (로그인 세션만 이 컴퓨터에 남습니다).</li>
+          <li>① <b>[🔐 채널 연결]</b>을 누르면 카카오 로그인 창이 뜹니다. <b>로그인 1회만</b> 해주세요 — 내 채널은 <b>자동으로 인식</b>되고, 비밀번호는 저장하지 않습니다 (로그인 세션만 이 컴퓨터에 남습니다). 채널이 여러 개인 경우에만 위 칸에서 직접 바꾸면 됩니다.</li>
           <li>② 이 탭 위쪽 <b>[발행 글에서 고르기]</b>로 채널에 올릴 원본 글을 선택합니다.</li>
           <li>③ 카카오톡 채널의 <b>[생성]</b>을 눌러 글을 만들고, 나온 결과를 읽어봅니다.</li>
           <li>④ 마음에 들면 <b>[🚀 채널에 자동 발행]</b> 클릭 — 앱이 관리자 화면을 대신 눌러 발행합니다 (30초쯤).</li>
@@ -782,14 +783,34 @@ function _getKakaoChannelIdFromUi() {
   return value;
 }
 
+function _setKakaoChannelIdUi(channelId) {
+  const input = document.getElementById('kakaoChannelIdInput');
+  if (input && channelId) input.value = channelId;
+  if (channelId) localStorage.setItem('kakaoChannelId', channelId);
+}
+
+/** v3.8.512: 채널 ID 자동 인식 — 세션에서 자기 채널을 읽는다 (배포용: 사용자마다 다름) */
+async function extTrafficKakaoDetectChannel(force = false) {
+  if (!window.electronAPI || !window.electronAPI.invoke) return '';
+  const existing = _getKakaoChannelIdFromUi();
+  if (existing && !force) return existing;
+  const res = await window.electronAPI.invoke('kakao-channel-detect', { force }).catch(() => null);
+  if (res && res.ok && res.channelId) {
+    _setKakaoChannelIdUi(res.channelId);
+    return res.channelId;
+  }
+  return existing;
+}
+
 async function extTrafficKakaoLogin() {
-  const channelId = _getKakaoChannelIdFromUi();
-  if (!channelId) { _flashToast('채널 ID 를 먼저 입력해주세요 (_로 시작)'); return; }
   if (!window.electronAPI || !window.electronAPI.invoke) return;
+  // 채널 ID 몰라도 된다 — 로그인하면 자동 인식된다
+  const channelId = _getKakaoChannelIdFromUi();
   _flashToast('로그인 창을 여는 중 — 카카오 로그인만 해주세요 (비밀번호는 저장하지 않습니다)');
   const res = await window.electronAPI.invoke('kakao-channel-login', { channelId }).catch((e) => ({ ok: false, error: e && e.message }));
   if (res && res.ok) {
-    _flashToast('✅ 채널 연결 완료 — 이제 자동 발행할 수 있습니다');
+    if (res.channelId) _setKakaoChannelIdUi(res.channelId);
+    _flashToast('✅ 채널 연결 완료' + (res.channelId ? ` (${res.channelId})` : '') + ' — 이제 자동 발행할 수 있습니다');
     extTrafficKakaoRefreshChip();
   } else {
     _flashToast('연결 실패: ' + ((res && res.error) || '알 수 없는 오류'));
@@ -797,9 +818,11 @@ async function extTrafficKakaoLogin() {
 }
 
 async function extTrafficKakaoAutoPost() {
-  const channelId = _getKakaoChannelIdFromUi();
-  if (!channelId) { _flashToast('채널 ID 를 먼저 입력해주세요 (_로 시작)'); return; }
   if (!window.electronAPI || !window.electronAPI.invoke) return;
+  // 채널 ID 가 비어 있으면 자동 인식 폴백
+  let channelId = _getKakaoChannelIdFromUi();
+  if (!channelId) channelId = await extTrafficKakaoDetectChannel();
+  if (!channelId) { _flashToast('채널을 인식하지 못했습니다 — 먼저 [채널 연결]로 로그인해주세요'); return; }
   const cached = _generatedCache.get('kakao-channel');
   const text = String((cached && cached.formatted && cached.formatted.body) || (cached && cached.rawText) || '').trim();
   if (!text) { _flashToast('먼저 카카오톡 채널 글을 [생성]해주세요'); return; }
