@@ -109,6 +109,41 @@ function isLoggedInUrl(url) {
     && !KAKAO_SELECTORS.loggedOutUrlPattern.test(url);
 }
 
+/** PNG IHDR 에서 가로·세로 읽기 (외부 의존성 없이) */
+function pngSize(file) {
+  try {
+    const buf = fs.readFileSync(file);
+    if (buf.length < 24 || buf.readUInt32BE(12) !== 0x49484452) return null; // 'IHDR'
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * v3.8.516 — 카드는 무조건 세로형(3:4)으로 나간다. 카드뉴스의 정체성이 세로형이다 (사장님 확정).
+ * 이미 3:4 이상이면 그대로, 아니면(1:1·4:5) 1080×1440 cover 로 변환해 임시 파일로 만든다.
+ * 변환 통과는 실검증됨 (2026-08-17: 변환한 1080×1440 이 카카오 세로형 검증 ✅).
+ */
+async function toPortraitFile(browser, file, outDir, index) {
+  const size = pngSize(file);
+  if (size && size.width > 0 && size.height / size.width >= 4 / 3) return file; // 이미 세로형
+  const mime = /\.jpe?g$/i.test(file) ? 'image/jpeg' : 'image/png';
+  const b64 = fs.readFileSync(file).toString('base64');
+  const page = await browser.newPage();
+  try {
+    await page.setViewportSize({ width: 1080, height: 1440 });
+    await page.setContent(`<body style="margin:0"><img src="data:${mime};base64,${b64}" style="width:1080px;height:1440px;object-fit:cover;display:block"></body>`);
+    await page.waitForTimeout(400);
+    fs.mkdirSync(outDir, { recursive: true });
+    const out = path.join(outDir, `portrait-${index}.png`);
+    await page.screenshot({ path: out, clip: { x: 0, y: 0, width: 1080, height: 1440 } });
+    return out;
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
 async function saveDebugShot(page, step) {
   try {
     fs.mkdirSync(DEBUG_DIR, { recursive: true });
@@ -315,18 +350,27 @@ async function postNews(input, testHooks = {}) {
 
     // 카드뷰(카드뉴스) 첨부 — 카드뉴스 탭에서 만든 카드를 전부 재사용 (재생성 없음, 비용 0).
     // v3.8.515: 여러 장 캐러셀 — 첫 장은 카드뷰 탭, 이후는 "카드 추가" 버튼. 링크 버튼은 마지막 카드에만.
+    // v3.8.516: 무조건 세로형 — 정사각형 폴백 없음 (카드뉴스의 정체성이 세로형, 사장님 확정).
+    //           3:4 미만 파일은 발행 직전 1080×1440 으로 자동 변환한다.
     const cards = Array.isArray(input && input.cards) && input.cards.length
       ? input.cards.filter((c) => c && c.imagePath).slice(0, CARD_MAX)
       : (input && input.card && input.card.imagePath ? [input.card] : []);
     let cardAttached = false;
     let cardsAttached = 0;
+    if (cards.length) {
+      step = '카드 세로형 변환';
+      const tmpDir = path.join(PROFILE_ROOT, 'tmp-cards');
+      for (let i = 0; i < cards.length; i++) {
+        if (!fs.existsSync(cards[i].imagePath)) {
+          return { ok: false, step, cardsAttached, error: `CARD_IMAGE_NOT_FOUND: 카드 이미지가 없습니다 — ${cards[i].imagePath}` };
+        }
+        cards[i] = { ...cards[i], imagePath: await toPortraitFile(browser, cards[i].imagePath, tmpDir, i) };
+      }
+    }
     for (let i = 0; i < cards.length; i++) {
       const cardItem = cards[i];
       const isLast = i === cards.length - 1;
       step = `카드 ${i + 1}/${cards.length} 첨부`;
-      if (!fs.existsSync(cardItem.imagePath)) {
-        return { ok: false, step, cardsAttached, error: `CARD_IMAGE_NOT_FOUND: 카드 이미지가 없습니다 — ${cardItem.imagePath}` };
-      }
       if (i === 0) {
         // btn_tab 스코프 — 화면 다른 곳의 동일 텍스트 오클릭 방지 (실측)
         await page.locator(KAKAO_SELECTORS.tabButton, { hasText: KAKAO_SELECTORS.cardViewTabText }).first().click({ timeout: 8000 });
@@ -338,11 +382,8 @@ async function postNews(input, testHooks = {}) {
         await addButton.click({ timeout: 8000 });
       }
       await page.waitForTimeout(2500);
-      // 이미지 형태 — portrait(세로형)는 3:4 이상 파일에서만 통과 (실측). square 는 1:1.
-      const shapeText = cardItem.shape === 'square'
-        ? KAKAO_SELECTORS.cardShapeSquareText
-        : KAKAO_SELECTORS.cardShapePortraitText;
-      await page.getByText(shapeText, { exact: true }).first().click({ timeout: 6000 }).catch(() => {});
+      // 항상 세로형 (v3.8.516) — 변환을 거쳤으니 검증(3:4 이상)을 반드시 통과한다
+      await page.getByText(KAKAO_SELECTORS.cardShapePortraitText, { exact: true }).first().click({ timeout: 6000 }).catch(() => {});
       await page.waitForTimeout(800);
       const fileInput = page.locator(KAKAO_SELECTORS.cardFileInput).last();
       if (!(await fileInput.count())) {

@@ -139,7 +139,7 @@ describe('①-2 채널 자동 인식 — 사장님이 ID 를 타이핑할 이유
     expect(cn).toContain('window.__cardnewsLastResult');
     const ui = read('electron/ui/modules/external-traffic.js');
     expect(ui).toContain('function _getKakaoCardnewsAssets');
-    expect(ui).toMatch(/f\.format === 'kakao'/);
+    expect(ui).toContain("pick('kakao-portrait')");
     expect(ui).toContain('kakaoUseCardnews');
     const post = ui.slice(ui.indexOf('async function extTrafficKakaoAutoPost'));
     expect(post).toContain('buttonUrl');
@@ -182,12 +182,19 @@ describe('①-2 채널 자동 인식 — 사장님이 ID 를 타이핑할 이유
     expect(main).toMatch(/kakao34.*portraitFull|portraitFull\[i\]/);
   });
 
-  it('인스타 4:5 는 카카오 카드에 절대 쓰지 않는다 — 세로형 검증(3:4 이상)에서 거부 (실측 사고)', () => {
+  it('무조건 세로형 (v3.8.516) — 정사각형 폴백 없음, 3:4 미만은 발행 직전 자동 변환', () => {
+    // 카드뉴스의 정체성 = 세로형 (사장님 확정). 변환이 있으니 어떤 규격이든 세로로 나간다.
     const ui = read('electron/ui/modules/external-traffic.js');
     const assets = ui.slice(ui.indexOf('function _getKakaoCardnewsAssets'), ui.indexOf('function _resolveKakaoShortLink'));
-    expect(assets).toContain("f.format === 'kakao-portrait'");
-    expect(assets).toContain("f.format === 'kakao'");
-    expect(assets).not.toContain("f.format === 'instagram'");
+    expect(assets).toContain("pick('kakao-portrait')"); // 원본 세로 우선
+    expect(assets).toContain("pick('instagram')");      // 4:5 — 변환 크롭 최소
+    expect(assets).toContain("pick('kakao')");          // 1:1 — 마지막 순위
+    const posterSrc = read('src/kakao-channel/kakao-poster.js');
+    expect(posterSrc).toContain('function toPortraitFile');
+    expect(posterSrc).toContain('카드 세로형 변환');
+    const flow = posterSrc.slice(posterSrc.indexOf('async function postNews'));
+    expect(flow).not.toContain('cardShapeSquareText');  // 발행 흐름에 정사각형이 없다
+    expect(flow).toContain('cardShapePortraitText');    // 항상 세로형
   });
 
   it('v3.8.515 단축링크: WP 글이면 Pretty Links 자동 생성, 실패 시 원링크 폴백 (발행 차단 금지)', () => {

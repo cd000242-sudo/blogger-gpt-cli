@@ -729,17 +729,16 @@ function _getInstagramVariantCopy(variant, sourceUrl = _getExtTrafficSourceUrl()
 function _getKakaoCardnewsAssets() {
   const last = window.__cardnewsLastResult;
   if (!last || !Array.isArray(last.files)) return null;
-  // v3.8.515: kakao-portrait(3:4 세로형) 우선, 없으면 kakao(1:1 정사각형) 폴백.
-  // 인스타 4:5 는 카카오 카드뷰 검증(3:4 이상)에서 거부된다 — 절대 쓰지 않는다 (실측 확인).
-  const portraitFiles = last.files.filter((f) => f && f.format === 'kakao-portrait' && f.file).map((f) => f.file);
-  const squareFiles = last.files.filter((f) => f && f.format === 'kakao' && f.file).map((f) => f.file);
-  const files = portraitFiles.length ? portraitFiles : squareFiles;
+  // v3.8.516: 무조건 세로형 — 정사각형 폴백 없음 (카드뉴스 정체성 = 세로형, 사장님 확정).
+  // 발행 직전 poster 가 3:4 미만 파일을 1080×1440 으로 자동 변환하므로 어떤 규격이든 세로로 나간다.
+  // 품질 순서: kakao-portrait(원본 세로) → instagram(4:5, 변환 크롭 최소) → kakao(1:1, 좌우 크롭 큼)
+  const pick = (format) => last.files.filter((f) => f && f.format === format && f.file).map((f) => f.file);
+  const files = [pick('kakao-portrait'), pick('instagram'), pick('kakao')].find((list) => list.length) || [];
   if (!files.length) return null;
   return {
     files,
     cover: files[0],
     count: files.length,
-    shape: portraitFiles.length ? 'portrait' : 'square',
     plan: Array.isArray(last.plan) ? last.plan : [],
     cardTitle: String((last.plan && last.plan[0] && last.plan[0].title) || last.postTitle || '').slice(0, 30),
     caption: String(last.caption || ''),
@@ -773,7 +772,7 @@ function _renderKakaoChannelAutoRow() {
   const cardRow = cardAssets
     ? `<label style="display: flex; align-items: center; gap: 7px; color: #fde68a; font-size: 12px; font-weight: 800; cursor: pointer;">
          <input type="checkbox" id="kakaoUseCardnews" checked style="width: 14px; height: 14px; accent-color: #fee500;">
-         🃏 카드뉴스 소식으로 발행 — ${cardAssets.count}장 전체 캐러셀 + 마지막 카드에 링크 버튼 (${cardAssets.shape === 'portrait' ? '세로형' : '정사각형'})
+         🃏 카드뉴스 소식으로 발행 — ${cardAssets.count}장 전체 캐러셀 + 마지막 카드에 링크 버튼 (세로형)
        </label>`
     : `<span style="color: #94a3b8; font-size: 11px;">🃏 카드뉴스 없음 — 카드뉴스 탭에서 만들어두면 자동으로 카드 소식이 됩니다 (지금은 텍스트 소식)</span>`;
   // v3.8.512: 채널 ID 자동 인식 — 비어 있으면 세션에서 읽어와 채운다 (타이핑 불필요)
@@ -896,7 +895,6 @@ async function extTrafficKakaoAutoPost() {
   if (cardAssets && (!useCardnews || useCardnews.checked)) {
     cards = cardAssets.files.map((file, i) => ({
       imagePath: file,
-      shape: cardAssets.shape,
       title: String((cardAssets.plan[i] && cardAssets.plan[i].title) || '').slice(0, 30) || `카드 ${i + 1}`,
       body: '',
     }));
