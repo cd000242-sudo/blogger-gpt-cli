@@ -205,6 +205,26 @@ const api = {
     fetchToken: (tokenData) => electron_1.ipcRenderer.invoke('fetch-token', tokenData),
     // ── 라이센스 파일 시스템 접근 ──
     readLicenseFile: () => electron_1.ipcRenderer.invoke('read-license-file'),
+    quitApp: () => electron_1.ipcRenderer.invoke('app:quit'),
+    // 🃏 v3.8.495: 발행 글 → 카드뉴스
+    cardnewsCreate: (args) => electron_1.ipcRenderer.invoke('cardnews:create', args),
+    cardnewsRegenCard: (args) => electron_1.ipcRenderer.invoke('cardnews:regen-card', args),
+    cardnewsOpenDir: (args) => electron_1.ipcRenderer.invoke('cardnews:open-dir', args),
+    shortlinkEnsurePlugin: (args) => electron_1.ipcRenderer.invoke('shortlink:ensure-plugin', args),
+    onCardnewsProgress: ((listener) => {
+        const handler = (_e, payload) => { try {
+            listener(payload);
+        }
+        catch { } };
+        electron_1.ipcRenderer.on('cardnews-progress', handler);
+        return () => electron_1.ipcRenderer.off('cardnews-progress', handler);
+    }),
+    shortlinkList: (args) => electron_1.ipcRenderer.invoke('shortlink:list', args),
+    shortlinkCreate: (args) => electron_1.ipcRenderer.invoke('shortlink:create', args),
+    shortlinkUpdate: (args) => electron_1.ipcRenderer.invoke('shortlink:update', args),
+    shortlinkSuggest: (args) => electron_1.ipcRenderer.invoke('shortlink:suggest', args),
+    shortlinkTop: (args) => electron_1.ipcRenderer.invoke('shortlink:top', args),
+    exitFreeTrial: () => electron_1.ipcRenderer.invoke('auth:exit-free-trial'),
     writeLicenseFile: (data) => electron_1.ipcRenderer.invoke('write-license-file', data),
     // ── v3.8.176: AdSense 자동 해결 ──
     adsenseOpenConsole: (payload = {}) => electron_1.ipcRenderer.invoke('adsense:open-console', payload),
@@ -386,6 +406,14 @@ const electronApi = {
 };
 electron_1.contextBridge.exposeInMainWorld('blogger', api);
 electron_1.contextBridge.exposeInMainWorld('electron', electronApi);
+/**
+ * v3.8.519 — 포커스 가드 브리지.
+ * 렌더러(focus-guard.js)가 팝업이 닫힌 직후 창 포커스 리셋을 요청하는 통로.
+ * 전용 통로를 두는 이유: 범용 invoke 가 늦게 붙거나 막혀도 포커스 복구는 살아야 한다.
+ */
+electron_1.contextBridge.exposeInMainWorld('focusGuard', {
+    refocus: () => electron_1.ipcRenderer.invoke('window:refocus'),
+});
 // 메인 프로세스에서 호출하는 함수들을 위한 별칭 (isPackaged 및 invoke 포함)
 const electronApiForWindow = {
     ...api,

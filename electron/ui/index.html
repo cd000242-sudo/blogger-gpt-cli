@@ -15,6 +15,13 @@
     media-src 'self' https: data: blob:;
   ">
 
+  <!--
+    v3.8.519 — Windows Electron 포커스 버그 가드.
+    반드시 다른 스크립트보다 먼저 로드한다: 나중에 로드하면 그 사이에 뜬 팝업이
+    래핑되지 않은 원본 alert/confirm 이라 창이 먹통이 된 채로 남는다.
+  -->
+  <script src="./modules/focus-guard.js"></script>
+
   <style>
     /* 드롭다운 옵션 텍스트 가시성 개선 */
     select option {

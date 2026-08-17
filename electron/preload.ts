@@ -861,6 +861,15 @@ const electronApi = {
 
 contextBridge.exposeInMainWorld('blogger', api);
 contextBridge.exposeInMainWorld('electron', electronApi);
+
+/**
+ * v3.8.519 — 포커스 가드 브리지.
+ * 렌더러(focus-guard.js)가 팝업이 닫힌 직후 창 포커스 리셋을 요청하는 통로.
+ * 전용 통로를 두는 이유: 범용 invoke 가 늦게 붙거나 막혀도 포커스 복구는 살아야 한다.
+ */
+contextBridge.exposeInMainWorld('focusGuard', {
+  refocus: () => ipcRenderer.invoke('window:refocus'),
+});
 // 메인 프로세스에서 호출하는 함수들을 위한 별칭 (isPackaged 및 invoke 포함)
 const electronApiForWindow = {
   ...api,

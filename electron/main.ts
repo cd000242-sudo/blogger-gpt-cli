@@ -27,6 +27,69 @@ function getCheerio(): Cheerio {
   if (!_cheerio) _cheerio = require('cheerio') as Cheerio;
   return _cheerio;
 }
+
+/**
+ * ── Windows Electron 포커스 버그 가드 (메인 계층, v3.8.519) ──
+ *
+ * 증상: 네이티브 팝업·파일 선택창이 닫힌 뒤 버튼·입력이 먹통. 바탕화면을 클릭해
+ *       포커스를 잃었다 되찾으면 정상화 → 창은 활성처럼 보이나 입력 라우팅이 어긋난 상태다.
+ * 처방: blur() 직후 focus() 로 라우팅을 강제로 되돌린다 (사용자가 손으로 하던 일).
+ *
+ * 안전장치: 창이 안 보이거나 최소화면 아무것도 하지 않는다.
+ *           사용자가 다른 앱을 쓰는 중에 포커스를 빼앗으면 버그보다 더 나쁘다.
+ */
+function resolveFocusGuardWindow(): InstanceType<typeof BrowserWindow> | null {
+  try {
+    const { BrowserWindow: BW } = require('electron');
+    return BW.getFocusedWindow()
+      || BW.getAllWindows().find((w: any) => !w.isDestroyed() && w.isVisible() && !w.isMinimized())
+      || null;
+  } catch {
+    return null;
+  }
+}
+
+function resetWindowFocus(win: any): void {
+  try {
+    if (!win || win.isDestroyed()) return;
+    if (!win.isVisible() || win.isMinimized()) return; // 포커스 강탈 금지
+    win.blur();
+    win.focus();
+  } catch { /* 포커스 복구 실패가 앱을 막으면 안 된다 */ }
+}
+
+/**
+ * dialog 도 같은 증상을 만든다. 호출부가 5곳이라 하나씩 감싸면 새로 늘 때 또 빠진다 —
+ * 모듈 레벨에서 한 번 감싸 어디서 부르든 닫힌 뒤 복구되게 한다.
+ */
+(function guardElectronDialogs() {
+  const targets: Array<'showOpenDialog' | 'showSaveDialog' | 'showMessageBox'> =
+    ['showOpenDialog', 'showSaveDialog', 'showMessageBox'];
+  for (const name of targets) {
+    const original = (dialog as any)[name];
+    if (typeof original !== 'function' || original.__focusGuarded) continue;
+    const guarded = async function (this: any, ...args: any[]) {
+      try {
+        return await original.apply(dialog, args);
+      } finally {
+        resetWindowFocus(resolveFocusGuardWindow());
+      }
+    };
+    (guarded as any).__focusGuarded = true;
+    (dialog as any)[name] = guarded;
+  }
+})();
+
+ipcMain.handle('window:refocus', (evt: any) => {
+  try {
+    const { BrowserWindow: BW } = require('electron');
+    const sender = BW.fromWebContents(evt?.sender);
+    resetWindowFocus(sender || resolveFocusGuardWindow());
+    return { ok: true };
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 120) };
+  }
+});
 import { readSnippetLibrary, writeSnippetLibrary } from '../dist/utils/snippet-library';
 import { loadEnvFromFile } from '../dist/env';
 // 기존 라이선스 시스템 (license-manager.js)
