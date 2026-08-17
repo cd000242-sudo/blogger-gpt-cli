@@ -4847,8 +4847,9 @@ ipcMain.handle('app:quit', async () => {
  * 아무 말도 안 하면 멈춘 걸로 보인다 — 어디까지 왔는지 그때그때 보내 준다.
  */
 function sendCardnewsProgress(payload: {
-  phase: 'plan' | 'image' | 'render' | 'done';
+  phase: 'plan' | 'image' | 'render' | 'card-done' | 'done'; // card-done: 카드 1장 완성 (v3.8.517 순차 미리보기)
   index?: number; total?: number; label?: string; ok?: boolean;
+  format?: string; file?: string;
 }): void {
   try {
     BrowserWindow.getAllWindows().forEach((w) => {
