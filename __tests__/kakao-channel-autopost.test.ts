@@ -35,6 +35,36 @@ describe('① 포스터 모듈 계약', () => {
   it('하루 상한은 2회 하드캡이다', () => {
     expect(poster.DAILY_CAP).toBe(2);
   });
+
+  it('실측 셀렉터가 박혀 있다 (2026-08-17 소식 작성 화면 실측·드라이런 검증)', () => {
+    const sel = require('../src/kakao-channel/kakao-selectors');
+    expect(sel.KAKAO_SELECTORS.titleInput).toBe('input[placeholder="제목"]');
+    expect(sel.KAKAO_SELECTORS.bodyInput).toBe('textarea[type="creator"]');
+    expect(sel.KAKAO_SELECTORS.submitExactText).toBe('등록');
+    expect(sel.KAKAO_URLS.posts('_x')).toContain('/posts');
+  });
+
+  it('등록 버튼은 정확 일치로 찾는다 — "등록순" 버튼 오클릭 방지 (실측 확인)', () => {
+    const src = read('src/kakao-channel/kakao-poster.js');
+    expect(src).toContain('exact: true');
+  });
+
+  it('로그인 성공 즉시 쿠키를 백업한다 — 카카오 세션은 창 종료 시 증발 (실측 확인)', () => {
+    const src = read('src/kakao-channel/kakao-poster.js');
+    const login = src.slice(src.indexOf('async function loginInteractive'), src.indexOf('async function postNews'));
+    expect(login).toContain('storageState({ path: STATE_FILE })');
+  });
+
+  it('발행·세션확인은 백업 쿠키 주입으로 연다 (재로그인 불필요 — 주입 복원 검증됨)', () => {
+    const src = read('src/kakao-channel/kakao-poster.js');
+    expect(src).toContain('storageState: STATE_FILE');
+  });
+
+  it('실제 크롬/엣지를 우선 실행한다 — 번들 크로미움은 카카오에서 빈 화면 스톨 (실측 사고)', () => {
+    const src = read('src/kakao-channel/kakao-poster.js');
+    expect(src).toContain('findBrowserExecutable');
+    expect(src).toContain('chrome.exe');
+  });
 });
 
 describe('② 일일 상한 — 도배 방지', () => {
