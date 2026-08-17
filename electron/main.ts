@@ -4923,16 +4923,24 @@ function sendCardnewsProgress(payload: {
 
 async function makeCardImage(
   card: any,
-  opts: { keyword: string; engine: string; mode: string; index: number; total: number; ratio?: '4:5' | '1:1' },
+  opts: {
+    keyword: string; engine: string; mode: string; index: number; total: number;
+    ratio?: '4:5' | '1:1';
+    /** v3.8.520 — product-i2i 에서 넘기는 실제 상품 사진 (data URI) */
+    referenceImage?: string;
+  },
 ): Promise<string> {
   if (opts.mode === 'none' || opts.engine === 'none') return '';
   try {
     const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
-    const { buildBackdropPrompt, buildFullCardPrompt } = require('../dist/core/cardnews/card-image');
+    const { buildBackdropPrompt, buildFullCardPrompt, buildProductI2iPrompt } = require('../dist/core/cardnews/card-image');
     const isFull = opts.mode === 'full';
-    const prompt = isFull
-      ? buildFullCardPrompt(card, opts.keyword, { index: opts.index, total: opts.total, ratio: opts.ratio || '4:5' })
-      : buildBackdropPrompt(card, opts.keyword);
+    const isProductI2i = opts.mode === 'product-i2i';
+    const prompt = isProductI2i
+      ? buildProductI2iPrompt(card, opts.keyword)
+      : isFull
+        ? buildFullCardPrompt(card, opts.keyword, { index: opts.index, total: opts.total, ratio: opts.ratio || '4:5' })
+        : buildBackdropPrompt(card, opts.keyword);
     const result = await dispatchH2ImageGeneration(
       opts.engine,
       prompt,
@@ -4942,6 +4950,8 @@ async function makeCardImage(
       {
         // full 모드에서만 이미지 안 글자를 연다. backdrop 은 글자가 있으면 오히려 방해된다.
         allowImageText: isFull,
+        // v3.8.520 — 실제 상품 사진을 참고 이미지로 (i2i). 이게 빠지면 그냥 AI 생성컷이 된다.
+        ...(isProductI2i && opts.referenceImage ? { referenceImageList: [opts.referenceImage] } : {}),
         /**
          * v3.8.503 — 카드는 세로다. 방향을 안 넘기면 썸네일용 가로(1536x1024)로
          * 뽑혀 세로 틀에서 좌우가 잘려나간다(실사용 보고).
@@ -5015,9 +5025,12 @@ ipcMain.handle('cardnews:create', async (_evt, args: {
     const engine = String(args?.engine || DEFAULT_CARD_ENGINE).trim() || DEFAULT_CARD_ENGINE;
     const mode = resolveCardImageMode(normalizeCardImageMode(args?.mode), engine);
 
+    const isProductI2i = mode === 'product-i2i';
     const isProduct = mode === 'product';
-    sendCardnewsProgress({ phase: 'plan', label: isProduct ? '상품 카드 문안을 설계하는 중…' : '카드 문안을 설계하는 중…' });
-    const prompt = buildCardPlanPrompt(keyword, title, extractArticleText(sourceHtml), { productMode: isProduct });
+    // 문안 설계는 두 상품 모드가 같다 — 배경을 실물로 쓰느냐 실물 기반으로 다듬느냐만 다르다
+    const productMode = isProduct || isProductI2i;
+    sendCardnewsProgress({ phase: 'plan', label: productMode ? '상품 카드 문안을 설계하는 중…' : '카드 문안을 설계하는 중…' });
+    const prompt = buildCardPlanPrompt(keyword, title, extractArticleText(sourceHtml), { productMode });
     const plan = parseCardPlan(await callGeminiWithRetry(prompt));
     if (!plan) return { ok: false, error: '카드 문안 생성에 실패했습니다. 잠시 후 다시 시도해주세요.' };
 
@@ -5030,7 +5043,41 @@ ipcMain.handle('cardnews:create', async (_evt, args: {
      */
     const isFull = mode === 'full';
     const shared: string[] = [];
-    if (isProduct) {
+    let i2iMadeCount = 0; // i2i 는 실패해도 실물 사진으로 채우므로 성공 수를 따로 센다
+    if (isProductI2i) {
+      /**
+       * v3.8.520 — 상품 i2i: 실제 상품 사진을 참고 이미지로 넣어 배경·조명만 다듬는다.
+       * 상품 자체는 실물 그대로 유지된다(프롬프트가 보존을 못박음).
+       *
+       * 사진을 못 찾으면 i2i 가 성립하지 않는다 — 그냥 AI 생성컷이 되어 오히려 역신호다.
+       * 그럴 땐 만들지 않고 그라데이션으로 간다.
+       */
+      const photos = await collectProductPhotos(sourceHtml);
+      const { pickI2iEngine } = require('../dist/core/imageDispatcher');
+      const picked = pickI2iEngine(engine, loadEnvFromFile() as any);
+      if (picked.switched) {
+        sendCardnewsProgress({ phase: 'image', index: 0, total: plan.cards.length, label: `i2i 가능한 엔진으로 전환 — ${picked.engine} (${picked.reason})` });
+      }
+      if (!photos.length) {
+        sendCardnewsProgress({ phase: 'image', index: 0, total: plan.cards.length, label: '본문에서 상품 사진을 찾지 못했습니다 — i2i 를 건너뜁니다 (그라데이션으로 진행)' });
+        for (let i = 0; i < plan.cards.length; i++) shared.push('');
+      } else {
+        for (let i = 0; i < plan.cards.length; i++) {
+          const reference = photos[i % photos.length]!;
+          sendCardnewsProgress({
+            phase: 'image', index: i, total: plan.cards.length,
+            label: `${i + 1}/${plan.cards.length} 상품 사진 기반 다듬는 중 — ${String(plan.cards[i]?.title || '').slice(0, 20)}`,
+          });
+          const made = await makeCardImage(plan.cards[i], {
+            keyword, engine: picked.engine, mode, index: i, total: plan.cards.length, referenceImage: reference,
+          });
+          // 생성이 실패하면 실물 사진을 그대로 쓴다 — 상품 글에서 배경을 잃는 것보다 낫다
+          shared.push(made || reference);
+          if (made) i2iMadeCount++;
+          sendCardnewsProgress({ phase: 'image', index: i, total: plan.cards.length, ok: !!made });
+        }
+      }
+    } else if (isProduct) {
       /**
        * v3.8.518 — 상품 모드: AI 를 부르지 않는다. 본문의 실제 상품 사진을 배경으로 쓴다.
        * 근거(전환 리서치 2026-08): 실사용 사진이 전환 요소, AI 생성컷은 역신호.
@@ -5058,7 +5105,8 @@ ipcMain.handle('cardnews:create', async (_evt, args: {
         sendCardnewsProgress({ phase: 'image', index: i, total: plan.cards.length, ok: !!made });
       }
     }
-    let madeCount = shared.filter(Boolean).length;
+    // i2i 는 실패분을 실물 사진으로 메우므로 shared 만 세면 실패가 0 으로 숨는다 (v3.8.520)
+    let madeCount = isProductI2i ? i2iMadeCount : shared.filter(Boolean).length;
 
     // 출력 폴더: 사진 폴더 아래에 글 제목으로 (겹치면 시각 붙임)
     const slug = title.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40) || 'cardnews';

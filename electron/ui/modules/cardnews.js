@@ -28,6 +28,8 @@ const MODES = [
   { value: 'full', label: '카드 전체를 AI 가 그리기', note: '글자까지 AI · 규격마다 따로 뽑아 이미지 수가 2배 · 숫자·날짜가 틀릴 수 있어 눈으로 검수 필수' },
   // v3.8.518 — 상품 글 전용. AI 생성컷은 전환에 역신호라 실제 상품 사진을 그대로 쓴다.
   { value: 'product', label: '🛒 상품 카드 (본문 상품 사진 사용)', note: '비용 0 · AI 생성 안 함 · 실제 상품 사진 위에 구매 유도 문안 (실사용컷이 전환에 유리)' },
+  // v3.8.520 — 실물 사진을 참고 이미지로 넣어 배경만 다듬는다 (상품 자체는 그대로)
+  { value: 'product-i2i', label: '🛒✨ 상품 카드 + 배경 다듬기 (실물 기반 i2i)', note: '장당 과금 · 상품 형태·라벨은 실물 그대로 두고 배경·조명만 정리 · i2i 가능한 엔진으로 자동 전환 · 실패하면 실물 사진 그대로' },
 ];
 
 let state = {
@@ -174,6 +176,15 @@ function syncEngineNote() {
   // 상품 모드는 AI 를 안 쓰므로 엔진 설명을 띄우면 오해를 만든다 (v3.8.518)
   if (state.mode === 'product') {
     note.textContent = `${mode.note}  ·  이미지 엔진 설정은 사용하지 않습니다`;
+    return;
+  }
+  // 상품 i2i 는 AI 를 쓰지만 참고 이미지를 넣을 수 있는 엔진에서만 성립한다 (v3.8.520)
+  if (state.mode === 'product-i2i') {
+    const I2I_CAPABLE = /^(nanobanana|nanobanana2|nanobananapro|gptimage1|gptimage2|dropshot)/i;
+    const warn = I2I_CAPABLE.test(state.engine)
+      ? ''
+      : `  ·  ⚠️ ${engine ? engine.label : state.engine} 은 참고 이미지를 못 넣습니다 — 가능한 엔진으로 자동 전환됩니다`;
+    note.textContent = `${mode.note}${warn}`;
     return;
   }
   if (engine) lines.push(engine.note);

@@ -262,3 +262,63 @@ describe('v3.8.518 — 상품 카드뉴스 (구매 유도)', () => {
     expect(ui).toContain('이미지 엔진 설정은 사용하지 않습니다');
   });
 });
+
+describe('v3.8.520 — 상품 i2i (실물 기반 배경 다듬기)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const mainTs = fs.readFileSync(path.join(__dirname, '..', 'electron/main.ts'), 'utf-8');
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'electron/ui/modules/cardnews.js'), 'utf-8');
+  const { buildProductI2iPrompt } = require('../src/core/cardnews/card-image');
+
+  const card = { kind: 'hook', title: '제목', body: '본문', alt: 'alt' } as any;
+
+  it("모드 'product-i2i' 가 정규화되고 유지된다", () => {
+    expect(normalizeCardImageMode('product-i2i')).toBe('product-i2i');
+    expect(resolveCardImageMode('product-i2i' as any, 'gptimage2')).toBe('product-i2i');
+    expect(resolveCardImageMode('product-i2i' as any, 'nanobanana2')).toBe('product-i2i');
+  });
+
+  it("엔진이 'none' 이면 실물 사진 모드로 내린다 — 상품 글에서 사진까지 잃으면 안 된다", () => {
+    expect(resolveCardImageMode('product-i2i' as any, 'none')).toBe('product');
+    expect(resolveCardImageMode('product-i2i' as any, 'skip')).toBe('product');
+  });
+
+  it('프롬프트가 상품 실물 보존을 못박는다 — 형태·라벨이 바뀌면 실사용컷의 이점이 사라진다', () => {
+    const p = buildProductI2iPrompt(card, '식기세척기');
+    expect(p).toContain('provided product photo as the base image');
+    expect(p).toMatch(/MUST KEEP EXACTLY/);
+    expect(p).toMatch(/label, logo/);
+    expect(p).toMatch(/ONLY CHANGE the surroundings/);
+    expect(p).toContain('No added text');            // 글자는 앱이 얹는다
+    expect(p).toContain('upper-left third');          // 글자 자리 비우기
+  });
+
+  it('참고 이미지가 실제로 실린다 — 이게 빠지면 그냥 AI 생성컷이라 역신호가 된다', () => {
+    const fn = mainTs.slice(mainTs.indexOf('async function makeCardImage'), mainTs.indexOf("ipcMain.handle('cardnews:create'"));
+    expect(fn).toContain('buildProductI2iPrompt');
+    expect(fn).toContain('referenceImageList: [opts.referenceImage]');
+    expect(fn).toContain('isProductI2i && opts.referenceImage'); // 사진 없으면 i2i 로 안 보낸다
+  });
+
+  it('사진을 못 찾으면 i2i 를 건너뛴다 (AI 생성컷 방지) + 실패 시 실물 사진 폴백', () => {
+    const handler = mainTs.slice(mainTs.indexOf("ipcMain.handle('cardnews:create'"));
+    const block = handler.slice(handler.indexOf('if (isProductI2i)'), handler.indexOf('} else if (isProduct)'));
+    expect(block).toContain('collectProductPhotos');
+    expect(block).toContain('i2i 를 건너뜁니다');
+    expect(block).toContain('made || reference');   // 생성 실패 → 실물 사진
+    expect(block).toContain('pickI2iEngine');        // i2i 가능한 엔진으로 자동 전환
+  });
+
+  it('i2i 실패가 성공으로 둔갑하지 않는다 — 폴백 사진을 생성 성공으로 세면 실패가 숨는다', () => {
+    expect(mainTs).toContain('let i2iMadeCount = 0');
+    expect(mainTs).toContain('if (made) i2iMadeCount++');
+    expect(mainTs).toContain('isProductI2i ? i2iMadeCount : shared.filter(Boolean).length');
+  });
+
+  it('UI 에 i2i 모드가 있고 과금·엔진 전환을 미리 알려준다', () => {
+    expect(ui).toContain("value: 'product-i2i'");
+    expect(ui).toContain('장당 과금');
+    expect(ui).toContain("state.mode === 'product-i2i'");
+    expect(ui).toContain('참고 이미지를 못 넣습니다');
+  });
+});
