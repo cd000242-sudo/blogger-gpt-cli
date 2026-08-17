@@ -106,6 +106,17 @@ describe('①-2 채널 자동 인식 — 사장님이 ID 를 타이핑할 이유
     const guide = ui.slice(ui.indexOf('kakaoChannelGuide'), ui.indexOf('function extTrafficKakaoRefreshChip'));
     expect(guide).toContain('자동으로 인식');
   });
+
+  it('버튼 하나 UX: 자동 발행에서 세션이 없으면 로그인 창을 자동으로 띄우고 이어서 발행한다 (v3.8.513)', () => {
+    const ui = read('electron/ui/modules/external-traffic.js');
+    const post = ui.slice(ui.indexOf('async function extTrafficKakaoAutoPost'));
+    // 로그인 폴백이 발행 흐름 안에 있고, 로그인 성공 시 받은 channelId 로 계속 간다
+    const loginIdx = post.indexOf("invoke('kakao-channel-login'");
+    const publishIdx = post.indexOf("invoke('kakao-channel-autopost'");
+    expect(loginIdx).toBeGreaterThan(-1);
+    expect(publishIdx).toBeGreaterThan(-1);
+    expect(loginIdx).toBeLessThan(publishIdx);
+  });
 });
 
 describe('② 일일 상한 — 도배 방지', () => {

@@ -735,7 +735,7 @@ function _renderKakaoChannelAutoRow() {
         <span style="font-weight: 900; color: #fee500; font-size: 13px;">💛 채널 자동 발행</span>
         <span id="kakaoChannelSessionChip" onclick="extTrafficKakaoRefreshChip()" title="클릭하면 다시 확인"
           style="padding: 5px 10px; background: rgba(255,255,255,0.08); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.15); border-radius: 999px; font-size: 11px; font-weight: 800; cursor: pointer;">세션 확인 전</span>
-        <input id="kakaoChannelIdInput" value="${escapeHtml(savedId)}" placeholder="채널 자동 인식 중…" title="자동으로 인식됩니다. 채널이 여러 개일 때만 직접 바꾸세요"
+        <input id="kakaoChannelIdInput" value="${escapeHtml(savedId)}" placeholder="로그인하면 자동 인식" title="자동으로 인식됩니다. 채널이 여러 개일 때만 직접 바꾸세요"
           style="width: 130px; padding: 7px 10px; background: rgba(2,6,23,0.6); border: 1px solid rgba(148,163,184,0.25); border-radius: 8px; color: #e2e8f0; font-size: 12px;" />
         <button type="button" onclick="extTrafficKakaoLogin()"
           style="padding: 8px 13px; background: rgba(255,255,255,0.10); color: #f8fafc; border: 1px solid rgba(255,255,255,0.22); border-radius: 8px; font-size: 12px; font-weight: 900; cursor: pointer;">
@@ -822,7 +822,17 @@ async function extTrafficKakaoAutoPost() {
   // 채널 ID 가 비어 있으면 자동 인식 폴백
   let channelId = _getKakaoChannelIdFromUi();
   if (!channelId) channelId = await extTrafficKakaoDetectChannel();
-  if (!channelId) { _flashToast('채널을 인식하지 못했습니다 — 먼저 [채널 연결]로 로그인해주세요'); return; }
+  if (!channelId) {
+    // v3.8.513: 버튼 하나 UX — 세션이 없으면 여기서 로그인 창을 바로 띄운다 (사장님 확정)
+    _flashToast('로그인이 필요합니다 — 카카오 로그인 창을 엽니다. 로그인하면 이어서 발행됩니다');
+    const login = await window.electronAPI.invoke('kakao-channel-login', { channelId: '' }).catch(() => null);
+    if (login && login.ok) {
+      if (login.channelId) _setKakaoChannelIdUi(login.channelId);
+      channelId = login.channelId || await extTrafficKakaoDetectChannel();
+      extTrafficKakaoRefreshChip();
+    }
+  }
+  if (!channelId) { _flashToast('채널을 인식하지 못했습니다 — [채널 연결]로 다시 시도해주세요'); return; }
   const cached = _generatedCache.get('kakao-channel');
   const text = String((cached && cached.formatted && cached.formatted.body) || (cached && cached.rawText) || '').trim();
   if (!text) { _flashToast('먼저 카카오톡 채널 글을 [생성]해주세요'); return; }
