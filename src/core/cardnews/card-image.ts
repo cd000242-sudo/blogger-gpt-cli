@@ -14,7 +14,11 @@
  */
 import type { CardItem } from './card-plan';
 
-export type CardImageMode = 'none' | 'backdrop' | 'full';
+/**
+ * v3.8.518 — 'product': 상품 카드 모드. AI 를 안 부르고 본문의 실제 상품 사진을 배경으로 쓴다.
+ * 근거(전환 리서치 2026-08): 실사용 사진이 전환 요소, AI 생성컷은 역신호. 이미지 비용 0.
+ */
+export type CardImageMode = 'none' | 'backdrop' | 'full' | 'product';
 
 /** UI 드롭다운에 그대로 쓰는 목록. value 는 imageDispatcher 의 엔진명과 같아야 한다. */
 export const CARD_IMAGE_ENGINES: Array<{ value: string; label: string; note: string; textCapable: boolean }> = [
@@ -35,6 +39,7 @@ export function normalizeCardImageMode(raw: unknown): CardImageMode {
   const v = String(raw ?? '').trim().toLowerCase();
   if (v === 'full') return 'full';
   if (v === 'none') return 'none';
+  if (v === 'product') return 'product';
   return 'backdrop';
 }
 
@@ -46,6 +51,8 @@ export function normalizeCardImageMode(raw: unknown): CardImageMode {
  */
 export function resolveCardImageMode(mode: CardImageMode, engine: string): CardImageMode {
   if (mode === 'none') return 'none';
+  // 상품 모드는 AI 엔진을 아예 안 쓴다 — 엔진 설정과 무관하게 유지 (v3.8.518)
+  if (mode === 'product') return 'product';
   if (engine === 'none' || engine === 'skip') return 'none';
   if (mode === 'full' && !TEXT_CAPABLE.has(engine)) return 'backdrop';
   return mode;

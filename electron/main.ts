@@ -4896,6 +4896,43 @@ async function makeCardImage(
   }
 }
 
+/**
+ * v3.8.518 — 상품 모드용 실제 상품 사진 수집.
+ *
+ * 본문 <img> 를 순서대로 받아 data URI 로 만든다. AI 를 부르지 않으므로 비용 0.
+ * 전환 리서치(2026-08): 실사용 사진이 랭킹·전환 요소, AI 생성컷은 역신호.
+ * 아이콘·배지·트래킹 픽셀은 거른다 (작은 이미지·흔한 UI 경로).
+ */
+async function collectProductPhotos(html: string, max = 8): Promise<string[]> {
+  const SKIP = /(icon|logo|badge|button|blank|spacer|pixel|avatar|emoji|1x1|banner_ad)/i;
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const re = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(String(html || ''))) && urls.length < max * 2) {
+    const src = String(m[1] || '').trim();
+    if (!/^https?:\/\//i.test(src) || SKIP.test(src) || seen.has(src)) continue;
+    seen.add(src);
+    urls.push(src);
+  }
+  const photos: string[] = [];
+  for (const url of urls) {
+    if (photos.length >= max) break;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(url, { signal: controller.signal, headers: { 'user-agent': 'Mozilla/5.0' } }).finally(() => clearTimeout(timer));
+      if (!res.ok) continue;
+      const type = String(res.headers.get('content-type') || '');
+      if (!/^image\//i.test(type)) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 12000) continue; // 12KB 미만은 아이콘·배지로 본다
+      photos.push(`data:${type.split(';')[0]};base64,${buf.toString('base64')}`);
+    } catch { /* 한 장 실패는 넘어간다 — 나머지로 채운다 */ }
+  }
+  return photos;
+}
+
 ipcMain.handle('cardnews:create', async (_evt, args: {
   keyword?: string; title?: string; html?: string; url?: string;
   engine?: string; mode?: string;
@@ -4915,8 +4952,9 @@ ipcMain.handle('cardnews:create', async (_evt, args: {
     const engine = String(args?.engine || DEFAULT_CARD_ENGINE).trim() || DEFAULT_CARD_ENGINE;
     const mode = resolveCardImageMode(normalizeCardImageMode(args?.mode), engine);
 
-    sendCardnewsProgress({ phase: 'plan', label: '카드 문안을 설계하는 중…' });
-    const prompt = buildCardPlanPrompt(keyword, title, extractArticleText(sourceHtml));
+    const isProduct = mode === 'product';
+    sendCardnewsProgress({ phase: 'plan', label: isProduct ? '상품 카드 문안을 설계하는 중…' : '카드 문안을 설계하는 중…' });
+    const prompt = buildCardPlanPrompt(keyword, title, extractArticleText(sourceHtml), { productMode: isProduct });
     const plan = parseCardPlan(await callGeminiWithRetry(prompt));
     if (!plan) return { ok: false, error: '카드 문안 생성에 실패했습니다. 잠시 후 다시 시도해주세요.' };
 
@@ -4929,7 +4967,22 @@ ipcMain.handle('cardnews:create', async (_evt, args: {
      */
     const isFull = mode === 'full';
     const shared: string[] = [];
-    if (!isFull && mode !== 'none') {
+    if (isProduct) {
+      /**
+       * v3.8.518 — 상품 모드: AI 를 부르지 않는다. 본문의 실제 상품 사진을 배경으로 쓴다.
+       * 근거(전환 리서치 2026-08): 실사용 사진이 전환 요소, AI 생성컷은 역신호.
+       * 사진이 카드 수보다 적으면 순환해서 채운다 (빈 카드는 그라데이션으로 자동 폴백).
+       */
+      const photos = await collectProductPhotos(sourceHtml);
+      sendCardnewsProgress({
+        phase: 'image', index: 0, total: plan.cards.length,
+        label: photos.length ? `상품 사진 ${photos.length}장 확보 — AI 생성 없이 그대로 씁니다` : '본문에서 상품 사진을 찾지 못했습니다 (그라데이션으로 진행)',
+      });
+      for (let i = 0; i < plan.cards.length; i++) {
+        shared.push(photos.length ? photos[i % photos.length]! : '');
+        sendCardnewsProgress({ phase: 'image', index: i, total: plan.cards.length, ok: photos.length > 0 });
+      }
+    } else if (!isFull && mode !== 'none') {
       for (let i = 0; i < plan.cards.length; i++) {
         sendCardnewsProgress({
           phase: 'image', index: i, total: plan.cards.length,

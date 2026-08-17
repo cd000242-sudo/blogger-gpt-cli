@@ -41,7 +41,13 @@ export function extractArticleText(html: string): string {
     .slice(0, MAX_ARTICLE_CHARS);
 }
 
-export function buildCardPlanPrompt(keyword: string, title: string, articleText: string): string {
+export function buildCardPlanPrompt(
+  keyword: string,
+  title: string,
+  articleText: string,
+  options?: { productMode?: boolean },
+): string {
+  if (options?.productMode) return buildProductCardPlanPrompt(keyword, title, articleText);
   return `당신은 인스타그램 캐러셀(카드뉴스)로 팔로워를 모으는 운영자입니다.
 아래 발행 글을 카드뉴스 6~8장으로 다시 설계하세요. 키워드: "${keyword}"
 
@@ -70,6 +76,49 @@ export function buildCardPlanPrompt(keyword: string, title: string, articleText:
    마지막 줄은 "전체 글은 프로필 링크에서 👆" 로 끝냅니다. 해시태그는 2~3개만 끝에.
 8. **본문에 없는 수치·날짜를 지어내지 마세요.** 위 발행 글에 있는 것만 씁니다.
    글에 수치가 없으면 수치 없는 문안으로 갑니다.
+
+## 출력 — JSON 만, 설명 금지
+{
+  "cards": [
+    { "kind": "hook", "title": "…", "body": "…", "alt": "…" },
+    { "kind": "body", "title": "…", "body": "…", "alt": "…" },
+    { "kind": "save", "title": "…", "body": "…", "alt": "…" },
+    { "kind": "cta", "title": "…", "body": "…", "alt": "…" }
+  ],
+  "caption": "…"
+}`;
+}
+
+/**
+ * v3.8.518 — 상품 카드뉴스 (구매 심리 프레임).
+ * 배경은 크롤링된 실제 상품 사진이다 (실사용컷=전환 요소, AI컷=역신호 — 전환 리서치 2026-08).
+ * 사진 위에 글자가 얹히므로 문안은 정보글 카드보다 더 짧아야 한다.
+ */
+function buildProductCardPlanPrompt(keyword: string, title: string, articleText: string): string {
+  return `당신은 상품을 파는 카드뉴스를 설계하는 커머스 마케터입니다.
+아래 상품 글을 카드뉴스 6~7장으로 다시 설계하세요. 키워드: "${keyword}"
+
+## 상품 글
+제목: ${title}
+본문: ${String(articleText || '').slice(0, MAX_ARTICLE_CHARS)}
+
+## 구매 심리 순서 (이 순서를 지키세요)
+1. **1장(kind: "hook") — 상품명 금지, 욕구/문제 먼저.** "설거지 30분, 아직도 손으로?"처럼
+   스크롤을 멈추는 문제 제기 또는 결과 한 줄. 상품명이 먼저 나오면 광고로 읽혀 넘겨버립니다.
+2. **2장 — 공감/비포.** 그 문제가 얼마나 성가신지 독자의 언어로.
+3. **3장 — 제품 등장 + 핵심 가치 하나만.** 스펙 나열 금지, "그래서 뭐가 좋아지는데"를 한 줄로.
+4. **4장 — 근거.** 본문에 있는 실측 수치·후기 평점·리뷰 수만 씁니다.
+   본문에 없는 숫자를 지어내면 안 됩니다 — 없으면 이 장은 사용 장면 묘사로 대체.
+5. **5장 — 가격·혜택.** 본문에 할인·가격 정보가 있으면 여기서. 없으면 차별점 한 가지.
+6. **끝에서 두 번째(kind: "save") — "사기 전 체크리스트" 저장 유도.** 구매 직전에 다시 열어볼 이유.
+7. **마지막(kind: "cta") — 구매 유도.** "가격·실사용 후기는 링크에서"처럼
+   눌러야 얻는 것을 지목. 조르는 톤("사세요") 금지 — 확인하는 톤("맞는지 보고 결정하세요").
+
+## 반드시 지킬 것
+- 배경이 실제 상품 사진이므로 title 12자 이내, body 1~2줄(50자) 이내 — 길면 사진을 가립니다.
+- 과장·최상급("최고", "1위", "무조건") 금지 — 본문에 근거 있는 표현만.
+- 카드마다 alt: 키워드를 넣은 한 문장 (검색 노출 요소).
+- caption: 3~4문장, 검색 키워드 자연 배치, 마지막 줄 "가격·후기는 프로필 링크에서 👆", 해시태그 2~3개.
 
 ## 출력 — JSON 만, 설명 금지
 {

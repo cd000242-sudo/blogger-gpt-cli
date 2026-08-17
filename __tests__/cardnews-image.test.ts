@@ -213,3 +213,52 @@ describe('v3.8.517 — 렌더 크래시 수정 + 순차 미리보기', () => {
     expect(ui).toContain('window.cnOpenLightbox = openLightbox');
   });
 });
+
+describe('v3.8.518 — 상품 카드뉴스 (구매 유도)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const mainTs = fs.readFileSync(path.join(__dirname, '..', 'electron/main.ts'), 'utf-8');
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'electron/ui/modules/cardnews.js'), 'utf-8');
+  const { buildCardPlanPrompt } = require('../src/core/cardnews/card-plan');
+
+  it("모드 'product' 가 정규화되고, 엔진 설정과 무관하게 유지된다 (AI 미사용)", () => {
+    expect(normalizeCardImageMode('product')).toBe('product');
+    // 엔진이 뭐든 product 는 product — backdrop/none 으로 새면 AI 를 부르거나 사진을 잃는다
+    expect(resolveCardImageMode('product' as any, 'gptimage2')).toBe('product');
+    expect(resolveCardImageMode('product' as any, 'none')).toBe('product');
+    expect(resolveCardImageMode('product' as any, 'nanobanana2')).toBe('product');
+  });
+
+  it('상품 프롬프트는 구매 심리 순서를 강제하고 정보글 프롬프트와 다르다', () => {
+    const product = buildCardPlanPrompt('식기세척기', '제목', '본문', { productMode: true });
+    const article = buildCardPlanPrompt('식기세척기', '제목', '본문');
+    expect(product).not.toBe(article);
+    expect(product).toContain('구매 심리 순서');
+    expect(product).toContain('상품명 금지');     // 1장은 문제 제기부터
+    expect(product).toContain('체크리스트');       // save 카드 = 구매 전 체크
+    expect(product).toContain('과장·최상급');      // 허위·과장 금지
+    expect(product).toContain('12자 이내');        // 사진 위 글자라 더 짧게
+  });
+
+  it('상품 모드는 makeCardImage 를 부르지 않고 본문 사진을 배경으로 쓴다', () => {
+    const handler = mainTs.slice(mainTs.indexOf("ipcMain.handle('cardnews:create'"));
+    const productBlock = handler.slice(handler.indexOf('if (isProduct)'), handler.indexOf('} else if (!isFull'));
+    expect(productBlock).toContain('collectProductPhotos');
+    expect(productBlock).not.toContain('makeCardImage'); // AI 호출 0 = 비용 0
+    expect(productBlock).toContain('photos[i % photos.length]'); // 사진이 모자라면 순환
+  });
+
+  it('사진 수집기는 아이콘·로고·트래킹 픽셀을 거르고 이미지 타입만 받는다', () => {
+    const fn = mainTs.slice(mainTs.indexOf('async function collectProductPhotos'), mainTs.indexOf("ipcMain.handle('cardnews:create'"));
+    expect(fn).toMatch(/icon\|logo\|badge/);
+    expect(fn).toMatch(/\^image\\\/\/i\.test\(type\)/);  // content-type 이 이미지인지 검사
+    expect(fn).toContain('12000');          // 12KB 미만은 아이콘으로 간주
+  });
+
+  it('UI 에 상품 모드가 있고, 선택 시 엔진 설명 대신 미사용 안내가 뜬다', () => {
+    expect(ui).toContain("value: 'product'");
+    expect(ui).toContain('상품 카드');
+    expect(ui).toContain("state.mode === 'product'");
+    expect(ui).toContain('이미지 엔진 설정은 사용하지 않습니다');
+  });
+});

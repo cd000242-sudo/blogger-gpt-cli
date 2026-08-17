@@ -26,6 +26,8 @@ const TEXT_CAPABLE = new Set(['gptimage2', 'dropshot-nanobanana-pro']);
 const MODES = [
   { value: 'backdrop', label: '배경만 AI + 글자는 앱이 얹기', note: '숫자가 안 틀리고 7장 톤이 통일됩니다 (권장)' },
   { value: 'full', label: '카드 전체를 AI 가 그리기', note: '글자까지 AI · 규격마다 따로 뽑아 이미지 수가 2배 · 숫자·날짜가 틀릴 수 있어 눈으로 검수 필수' },
+  // v3.8.518 — 상품 글 전용. AI 생성컷은 전환에 역신호라 실제 상품 사진을 그대로 쓴다.
+  { value: 'product', label: '🛒 상품 카드 (본문 상품 사진 사용)', note: '비용 0 · AI 생성 안 함 · 실제 상품 사진 위에 구매 유도 문안 (실사용컷이 전환에 유리)' },
 ];
 
 let state = {
@@ -169,6 +171,11 @@ function syncEngineNote() {
   const engine = ENGINES.find((e) => e.value === state.engine);
   const mode = MODES.find((m) => m.value === state.mode);
   const lines = [];
+  // 상품 모드는 AI 를 안 쓰므로 엔진 설명을 띄우면 오해를 만든다 (v3.8.518)
+  if (state.mode === 'product') {
+    note.textContent = `${mode.note}  ·  이미지 엔진 설정은 사용하지 않습니다`;
+    return;
+  }
   if (engine) lines.push(engine.note);
   if (state.engine === 'none') {
     lines.push('이미지를 만들지 않습니다 — 모드 설정은 무시됩니다.');
