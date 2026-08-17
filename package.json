@@ -1,6 +1,6 @@
 {
   "name": "lba",
-  "version": "3.8.514",
+  "version": "3.8.515",
   "description": "LEADERNAM Orbit - AI-powered blog automation",
   "main": "electron/main.js",
   "scripts": {

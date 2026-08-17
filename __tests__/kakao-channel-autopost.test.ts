@@ -120,7 +120,7 @@ describe('①-2 채널 자동 인식 — 사장님이 ID 를 타이핑할 이유
 
   it('카드 발행 흐름: 이미지 setInputFiles → 제목/내용 → 버튼(링크) → 확인 → 등록 순서', () => {
     const src = read('src/kakao-channel/kakao-poster.js');
-    const flow = src.slice(src.indexOf('카드뷰 첨부'));
+    const flow = src.slice(src.indexOf('카드뷰(카드뉴스) 첨부'));
     const upload = flow.indexOf('setInputFiles');
     const button = flow.indexOf('cardButtonUrlInput');
     const confirm = flow.indexOf('cardConfirmText');
@@ -143,6 +143,62 @@ describe('①-2 채널 자동 인식 — 사장님이 ID 를 타이핑할 이유
     expect(ui).toContain('kakaoUseCardnews');
     const post = ui.slice(ui.indexOf('async function extTrafficKakaoAutoPost'));
     expect(post).toContain('buttonUrl');
+  });
+
+  it('셀렉터 전수 실측 고정 (2026-08-17) — 추측값 없음', () => {
+    const sel = require('../src/kakao-channel/kakao-selectors');
+    // 링크 입력칸: 정확 실측 placeholder 가 첫 후보다
+    expect(sel.KAKAO_SELECTORS.linkInputCandidates[0]).toBe('input[placeholder="링크 (URL)을 입력해주세요."]');
+    // 첨부 탭은 btn_tab 스코프 — 오클릭 방지
+    expect(sel.KAKAO_SELECTORS.tabButton).toBe('button.btn_tab');
+    const src = read('src/kakao-channel/kakao-poster.js');
+    expect(src).toContain('KAKAO_SELECTORS.tabButton');
+    // 세로형 검증: 1080×1440 실물 업로드 통과 기록 — 4:5 는 거부 기록 (셀렉터 주석에 근거 보존)
+    const selSrc = read('src/kakao-channel/kakao-selectors.js');
+    expect(selSrc).toContain('1080×1440');
+    expect(selSrc).toContain('✅ 통과');
+    expect(selSrc).toContain('❌ 거부');
+  });
+
+  it('v3.8.515 멀티카드: 첫 장은 카드뷰 탭, 이후는 "카드 추가" — 링크 버튼은 마지막 카드에만', () => {
+    const sel = require('../src/kakao-channel/kakao-selectors');
+    expect(sel.KAKAO_SELECTORS.cardAddText).toBe('카드 추가');
+    expect(sel.CARD_MAX).toBe(10);
+    const src = read('src/kakao-channel/kakao-poster.js');
+    expect(src).toContain('i === 0');
+    expect(src).toContain('cardAddText');
+    expect(src).toContain('isLast && cardItem.buttonUrl');
+    // 확인 후 모달이 남아 있으면 형식 거부 — 조용히 넘기지 않는다
+    expect(src).toContain('CARD_REJECTED');
+  });
+
+  it('v3.8.515 세로형 규격: kakao34(1080×1440, 3:4) 추가 + insta45 재사용(추가 과금 0)', () => {
+    const template = read('src/core/cardnews/card-template.ts');
+    expect(template).toContain('kakao34');
+    expect(template).toContain('1440');
+    expect(template).toContain('kakao-portrait');
+    const main = read('electron/main.ts');
+    expect(main).toContain('portraitFull');
+    expect(main).toMatch(/kakao34.*portraitFull|portraitFull\[i\]/);
+  });
+
+  it('인스타 4:5 는 카카오 카드에 절대 쓰지 않는다 — 세로형 검증(3:4 이상)에서 거부 (실측 사고)', () => {
+    const ui = read('electron/ui/modules/external-traffic.js');
+    const assets = ui.slice(ui.indexOf('function _getKakaoCardnewsAssets'), ui.indexOf('function _resolveKakaoShortLink'));
+    expect(assets).toContain("f.format === 'kakao-portrait'");
+    expect(assets).toContain("f.format === 'kakao'");
+    expect(assets).not.toContain("f.format === 'instagram'");
+  });
+
+  it('v3.8.515 단축링크: WP 글이면 Pretty Links 자동 생성, 실패 시 원링크 폴백 (발행 차단 금지)', () => {
+    const ui = read('electron/ui/modules/external-traffic.js');
+    const fn = ui.slice(ui.indexOf('async function _resolveKakaoShortLink'), ui.indexOf('function _renderKakaoChannelAutoRow'));
+    expect(fn).toContain("!== 'wordpress'");     // 워드프레스만
+    expect(fn).toContain("invoke('shortlink:create'");
+    expect(fn).toContain('autoDedupe: true');     // 같은 글 재발행 시 중복 생성 방지
+    expect(fn).toContain('shortUrl || link');     // 실패 폴백
+    const post = ui.slice(ui.indexOf('async function extTrafficKakaoAutoPost'));
+    expect(post).toContain('_resolveKakaoShortLink');
   });
 
   it('버튼 하나 UX: 자동 발행에서 세션이 없으면 로그인 창을 자동으로 띄우고 이어서 발행한다 (v3.8.513)', () => {

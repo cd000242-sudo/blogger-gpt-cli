@@ -729,16 +729,42 @@ function _getInstagramVariantCopy(variant, sourceUrl = _getExtTrafficSourceUrl()
 function _getKakaoCardnewsAssets() {
   const last = window.__cardnewsLastResult;
   if (!last || !Array.isArray(last.files)) return null;
-  const kakaoFiles = last.files.filter((f) => f && f.format === 'kakao' && f.file).map((f) => f.file);
-  if (!kakaoFiles.length) return null;
+  // v3.8.515: kakao-portrait(3:4 세로형) 우선, 없으면 kakao(1:1 정사각형) 폴백.
+  // 인스타 4:5 는 카카오 카드뷰 검증(3:4 이상)에서 거부된다 — 절대 쓰지 않는다 (실측 확인).
+  const portraitFiles = last.files.filter((f) => f && f.format === 'kakao-portrait' && f.file).map((f) => f.file);
+  const squareFiles = last.files.filter((f) => f && f.format === 'kakao' && f.file).map((f) => f.file);
+  const files = portraitFiles.length ? portraitFiles : squareFiles;
+  if (!files.length) return null;
   return {
-    cover: kakaoFiles[0],
-    count: kakaoFiles.length,
+    files,
+    cover: files[0],
+    count: files.length,
+    shape: portraitFiles.length ? 'portrait' : 'square',
+    plan: Array.isArray(last.plan) ? last.plan : [],
     cardTitle: String((last.plan && last.plan[0] && last.plan[0].title) || last.postTitle || '').slice(0, 30),
     caption: String(last.caption || ''),
     postUrl: String(last.postUrl || ''),
     postTitle: String(last.postTitle || ''),
   };
+}
+
+/** v3.8.515: WP 글이면 단축링크(Pretty Links) 자동 생성 — 실패 시 원링크 폴백 (발행 차단 금지) */
+async function _resolveKakaoShortLink(link) {
+  try {
+    if (!link || !window.electronAPI || !window.electronAPI.invoke) return link;
+    const platform = String((_selectedSource && _selectedSource.platform) || '').toLowerCase();
+    if (platform !== 'wordpress') return link; // Pretty Links 는 워드프레스 전용
+    const title = String((_selectedSource && _selectedSource.title) || '');
+    const suggest = await window.electronAPI.invoke('shortlink:suggest', { title }).catch(() => null);
+    const slug = String((suggest && (suggest.slug || suggest.suggestion)) || '').trim();
+    const created = await window.electronAPI.invoke('shortlink:create', {
+      slug, url: link, name: title, autoDedupe: true,
+    }).catch(() => null);
+    const shortUrl = created && created.ok && created.link && created.link.prettyUrl;
+    return shortUrl || link;
+  } catch {
+    return link;
+  }
 }
 
 function _renderKakaoChannelAutoRow() {
@@ -747,7 +773,7 @@ function _renderKakaoChannelAutoRow() {
   const cardRow = cardAssets
     ? `<label style="display: flex; align-items: center; gap: 7px; color: #fde68a; font-size: 12px; font-weight: 800; cursor: pointer;">
          <input type="checkbox" id="kakaoUseCardnews" checked style="width: 14px; height: 14px; accent-color: #fee500;">
-         🃏 카드뉴스 소식으로 발행 (${cardAssets.count}장 중 표지 + 링크 버튼 삽입)
+         🃏 카드뉴스 소식으로 발행 — ${cardAssets.count}장 전체 캐러셀 + 마지막 카드에 링크 버튼 (${cardAssets.shape === 'portrait' ? '세로형' : '정사각형'})
        </label>`
     : `<span style="color: #94a3b8; font-size: 11px;">🃏 카드뉴스 없음 — 카드뉴스 탭에서 만들어두면 자동으로 카드 소식이 됩니다 (지금은 텍스트 소식)</span>`;
   // v3.8.512: 채널 ID 자동 인식 — 비어 있으면 세션에서 읽어와 채운다 (타이핑 불필요)
@@ -860,24 +886,29 @@ async function extTrafficKakaoAutoPost() {
   const cached = _generatedCache.get('kakao-channel');
   const text = String((cached && cached.formatted && cached.formatted.body) || (cached && cached.rawText) || '').trim();
   if (!text) { _flashToast('먼저 카카오톡 채널 글을 [생성]해주세요'); return; }
-  const link = String((cached && cached.sourceUrl) || _getExtTrafficSourceUrl() || '').trim();
-  // v3.8.514: 카드뉴스가 준비돼 있고 체크가 켜져 있으면 카드 소식으로 발행 (표지 + 링크 버튼)
-  let card = null;
+  const rawLink = String((cached && cached.sourceUrl) || _getExtTrafficSourceUrl() || '').trim();
+  // v3.8.515: WP 글이면 단축링크 자동 생성 (Pretty Links, 중복 방지) — 실패 시 원링크
+  const link = await _resolveKakaoShortLink(rawLink);
+  // v3.8.515: 카드뉴스가 있으면 전 장 캐러셀 — 마지막 카드에 링크 유도 버튼
+  let cards = null;
   const useCardnews = document.getElementById('kakaoUseCardnews');
   const cardAssets = _getKakaoCardnewsAssets();
   if (cardAssets && (!useCardnews || useCardnews.checked)) {
-    card = {
-      imagePath: cardAssets.cover,
-      title: cardAssets.cardTitle,
-      body: text.slice(0, 600),
-      buttonLabel: '전체 글 보기',
-      buttonUrl: link || cardAssets.postUrl,
-    };
+    cards = cardAssets.files.map((file, i) => ({
+      imagePath: file,
+      shape: cardAssets.shape,
+      title: String((cardAssets.plan[i] && cardAssets.plan[i].title) || '').slice(0, 30) || `카드 ${i + 1}`,
+      body: '',
+    }));
+    const lastCard = cards[cards.length - 1];
+    lastCard.body = text.slice(0, 600);
+    lastCard.buttonLabel = '전체 글 보기';
+    lastCard.buttonUrl = link || cardAssets.postUrl;
   }
-  _flashToast(card ? '🚀 카드뉴스 소식 자동 발행 중 — 40초쯤 걸립니다' : '🚀 자동 발행 중 — 30초쯤 걸립니다. 창을 닫지 마세요');
-  const res = await window.electronAPI.invoke('kakao-channel-autopost', { channelId, text, link, card }).catch((e) => ({ ok: false, error: e && e.message }));
+  _flashToast(cards ? `🚀 카드뉴스 소식 자동 발행 중 (${cards.length}장) — 장당 15초쯤 걸립니다` : '🚀 자동 발행 중 — 30초쯤 걸립니다. 창을 닫지 마세요');
+  const res = await window.electronAPI.invoke('kakao-channel-autopost', { channelId, text, link, cards }).catch((e) => ({ ok: false, error: e && e.message }));
   if (res && res.ok) {
-    _flashToast('✅ 채널 발행 완료' + (res.cardAttached ? ' (카드뉴스 + 링크 버튼)' : '') + ' — pf.kakao.com/' + channelId + ' 에서 확인해보세요');
+    _flashToast('✅ 채널 발행 완료' + (res.cardsAttached ? ` (카드 ${res.cardsAttached}장 + 링크 버튼)` : '') + ' — pf.kakao.com/' + channelId + ' 에서 확인해보세요');
   } else {
     const where = res && res.step ? ` (${res.step} 단계에서 멈춤)` : '';
     _flashToast('발행 실패' + where + ': ' + ((res && res.error) || '알 수 없는 오류'));

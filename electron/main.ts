@@ -4951,6 +4951,8 @@ ipcMain.handle('cardnews:create', async (_evt, args: {
     // 숨김 창 하나로 카드·규격을 순서대로 캡처한다 (규격마다 창 크기만 바꾼다)
     hiddenWin = new BrowserWindow({ show: false, frame: false, webPreferences: { offscreen: true } });
     const files: Array<{ format: string; file: string }> = [];
+    // v3.8.515: kakao34(세로형)는 insta45 에서 만든 세로 이미지를 재사용 — 규격 추가로 과금이 늘면 안 된다
+    const portraitFull: string[] = [];
     for (const formatKey of Object.keys(CARD_FORMATS) as Array<keyof typeof CARD_FORMATS>) {
       const format = CARD_FORMATS[formatKey];
       const dir = path.join(baseDir, format.dir);
@@ -4965,10 +4967,16 @@ ipcMain.handle('cardnews:create', async (_evt, args: {
         if (isFull) {
           // 규격에 맞춰 따로 뽑고, 성공하면 그림만 놓는다 (글자는 이미 그림 안에 있다)
           const ratio = formatKey === 'kakao11' ? '1:1' : '4:5';
-          const full = await makeCardImage(plan.cards[i], {
-            keyword, engine, mode, index: i, total: plan.cards.length, ratio,
-          });
-          if (full) madeCount++;
+          let full = '';
+          if (formatKey === 'kakao34' && portraitFull[i]) {
+            full = portraitFull[i]; // insta45 세로 이미지 재사용 — 추가 과금 0
+          } else {
+            full = await makeCardImage(plan.cards[i], {
+              keyword, engine, mode, index: i, total: plan.cards.length, ratio,
+            });
+            if (full) madeCount++;
+          }
+          if (formatKey === 'insta45' && full) portraitFull[i] = full;
           cardHtml = full
             ? renderImageOnlyHtml(full, format)
             // 실패하면 글자만이라도 남는다 — 빈 칸을 내보내는 것보다 낫다
@@ -5036,8 +5044,8 @@ ipcMain.handle('cardnews:create', async (_evt, args: {
       ok: true, dir: baseDir, files, caption: plan.caption, alts: altLines,
       cards: plan.cards.length, plan: plan.cards, engine, mode,
       imagesMade: madeCount,
-      // 전체 AI 모드는 규격마다 따로 뽑으므로 기대치가 두 배다
-      imagesWanted: mode === 'none' ? 0 : plan.cards.length * (isFull ? Object.keys(CARD_FORMATS).length : 1),
+      // 전체 AI 모드는 규격마다 따로 뽑는다 — 단 kakao34 는 insta45 를 재사용하므로 기대치에서 뺀다 (v3.8.515)
+      imagesWanted: mode === 'none' ? 0 : plan.cards.length * (isFull ? Object.keys(CARD_FORMATS).filter((k) => k !== 'kakao34').length : 1),
     };
   } catch (error: any) {
     console.error('[CARDNEWS] 생성 실패:', error);
@@ -13095,9 +13103,18 @@ ipcMain.handle('kakao-channel-autopost', async (_evt, payload: any) => {
       text: String(payload?.text || ''),
       link: String(payload?.link || ''),
       dryRun: Boolean(payload?.dryRun),
-      // v3.8.514: 카드뉴스(카카오 1:1) 재사용 — 카드뷰 소식 + 링크 버튼
+      // v3.8.515: 카드뉴스 전 장 캐러셀 — 마지막 카드에 링크 버튼. payload.card(단수)는 하위호환.
+      cards: Array.isArray(payload?.cards) ? payload.cards.map((c: any) => ({
+        imagePath: String(c?.imagePath || ''),
+        shape: String(c?.shape || ''),
+        title: String(c?.title || ''),
+        body: String(c?.body || ''),
+        buttonLabel: String(c?.buttonLabel || ''),
+        buttonUrl: String(c?.buttonUrl || ''),
+      })) : undefined,
       card: payload?.card && payload.card.imagePath ? {
         imagePath: String(payload.card.imagePath || ''),
+        shape: String(payload.card.shape || ''),
         title: String(payload.card.title || ''),
         body: String(payload.card.body || ''),
         buttonLabel: String(payload.card.buttonLabel || ''),

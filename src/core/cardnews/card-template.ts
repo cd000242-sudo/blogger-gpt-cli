@@ -21,9 +21,14 @@ export interface CardFormat {
 }
 
 /** 리서치 반영: 인스타 4:5(피드 점유 최대), 카카오채널 1:1 */
-export const CARD_FORMATS: Record<'insta45' | 'kakao11', CardFormat> = {
+export const CARD_FORMATS: Record<'insta45' | 'kakao11' | 'kakao34', CardFormat> = {
   insta45: { width: 1080, height: 1350, dir: 'instagram' },
   kakao11: { width: 1080, height: 1080, dir: 'kakao' },
+  /**
+   * v3.8.515 — 카카오 카드뷰 세로형. 실측(2026-08-17): 세로 비율이 3:4 보다 길어야
+   * 통과한다 (권장 720×960~2880). 인스타 4:5(1350)는 검증에서 거부됐다 — 1440 필수.
+   */
+  kakao34: { width: 1080, height: 1440, dir: 'kakao-portrait' },
 };
 
 export interface RenderOptions {

@@ -18,7 +18,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { KAKAO_URLS, KAKAO_SELECTORS, CARD_LIMITS, DAILY_CAP } = require('./kakao-selectors');
+const { KAKAO_URLS, KAKAO_SELECTORS, CARD_LIMITS, CARD_MAX, DAILY_CAP } = require('./kakao-selectors');
 
 const PROFILE_ROOT = path.join(os.homedir(), '.leadernam-orbit', 'kakao-channel-profile');
 const STATE_FILE = path.join(PROFILE_ROOT, 'state.json'); // storageState 쿠키 백업
@@ -313,47 +313,74 @@ async function postNews(input, testHooks = {}) {
     await bodyInput.click({ timeout: 8000 });
     await bodyInput.fill(bodyText, { timeout: 10000 });
 
-    // 카드뷰(카드뉴스) 첨부 — 카드뉴스 탭에서 만든 카카오 1:1 카드를 재사용 (재생성 없음, 비용 0)
-    const card = input && input.card && input.card.imagePath ? input.card : null;
+    // 카드뷰(카드뉴스) 첨부 — 카드뉴스 탭에서 만든 카드를 전부 재사용 (재생성 없음, 비용 0).
+    // v3.8.515: 여러 장 캐러셀 — 첫 장은 카드뷰 탭, 이후는 "카드 추가" 버튼. 링크 버튼은 마지막 카드에만.
+    const cards = Array.isArray(input && input.cards) && input.cards.length
+      ? input.cards.filter((c) => c && c.imagePath).slice(0, CARD_MAX)
+      : (input && input.card && input.card.imagePath ? [input.card] : []);
     let cardAttached = false;
-    if (card) {
-      step = '카드뷰 첨부';
-      if (!fs.existsSync(card.imagePath)) {
-        return { ok: false, step, error: `CARD_IMAGE_NOT_FOUND: 카드 이미지가 없습니다 — ${card.imagePath}` };
+    let cardsAttached = 0;
+    for (let i = 0; i < cards.length; i++) {
+      const cardItem = cards[i];
+      const isLast = i === cards.length - 1;
+      step = `카드 ${i + 1}/${cards.length} 첨부`;
+      if (!fs.existsSync(cardItem.imagePath)) {
+        return { ok: false, step, cardsAttached, error: `CARD_IMAGE_NOT_FOUND: 카드 이미지가 없습니다 — ${cardItem.imagePath}` };
       }
-      await page.locator(`button:has-text("${KAKAO_SELECTORS.cardViewTabText}")`).first().click({ timeout: 8000 });
+      if (i === 0) {
+        // btn_tab 스코프 — 화면 다른 곳의 동일 텍스트 오클릭 방지 (실측)
+        await page.locator(KAKAO_SELECTORS.tabButton, { hasText: KAKAO_SELECTORS.cardViewTabText }).first().click({ timeout: 8000 });
+      } else {
+        const addButton = page.locator(`button:has-text("${KAKAO_SELECTORS.cardAddText}")`).first();
+        if (!(await addButton.count())) {
+          return { ok: false, step, cardsAttached, error: 'CARD_ADD_NOT_FOUND: 카드 추가 버튼을 찾지 못했습니다', screenshot: await saveDebugShot(page, step) };
+        }
+        await addButton.click({ timeout: 8000 });
+      }
       await page.waitForTimeout(2500);
+      // 이미지 형태 — portrait(세로형)는 3:4 이상 파일에서만 통과 (실측). square 는 1:1.
+      const shapeText = cardItem.shape === 'square'
+        ? KAKAO_SELECTORS.cardShapeSquareText
+        : KAKAO_SELECTORS.cardShapePortraitText;
+      await page.getByText(shapeText, { exact: true }).first().click({ timeout: 6000 }).catch(() => {});
+      await page.waitForTimeout(800);
       const fileInput = page.locator(KAKAO_SELECTORS.cardFileInput).last();
       if (!(await fileInput.count())) {
-        return { ok: false, step, error: 'CARD_FILE_INPUT_NOT_FOUND: 카드 이미지 업로드 칸을 찾지 못했습니다', screenshot: await saveDebugShot(page, step) };
+        return { ok: false, step, cardsAttached, error: 'CARD_FILE_INPUT_NOT_FOUND: 카드 이미지 업로드 칸을 찾지 못했습니다', screenshot: await saveDebugShot(page, step) };
       }
-      await fileInput.setInputFiles(card.imagePath);
+      await fileInput.setInputFiles(cardItem.imagePath);
       await page.waitForTimeout(5000); // 업로드 완료 대기
-      await page.locator(KAKAO_SELECTORS.cardTitleInput).first().fill(String(card.title || titleLine).slice(0, CARD_LIMITS.title), { timeout: 8000 });
-      await page.locator(KAKAO_SELECTORS.cardBodyInput).first().fill(String(card.body || bodyText).slice(0, CARD_LIMITS.body), { timeout: 8000 });
-      if (card.buttonUrl) {
-        step = '카드 버튼(링크) 설정';
+      await page.locator(KAKAO_SELECTORS.cardTitleInput).first().fill(String(cardItem.title || titleLine).slice(0, CARD_LIMITS.title), { timeout: 8000 });
+      await page.locator(KAKAO_SELECTORS.cardBodyInput).first().fill(String(cardItem.body || '').slice(0, CARD_LIMITS.body), { timeout: 8000 });
+      if (isLast && cardItem.buttonUrl) {
+        step = `카드 ${i + 1} 버튼(링크) 설정`;
         await page.getByText(KAKAO_SELECTORS.cardButtonYesText, { exact: true }).first().click({ timeout: 6000 }).catch(() => {});
         await page.waitForTimeout(1200);
         const nameInput = page.locator(KAKAO_SELECTORS.cardButtonNameInput).first();
         if (await nameInput.count()) {
-          await nameInput.fill(String(card.buttonLabel || '전체 글 보기').slice(0, CARD_LIMITS.buttonLabel), { timeout: 6000 });
+          await nameInput.fill(String(cardItem.buttonLabel || '전체 글 보기').slice(0, CARD_LIMITS.buttonLabel), { timeout: 6000 });
         }
         const urlInput = page.locator(KAKAO_SELECTORS.cardButtonUrlInput).first();
         if (await urlInput.count()) {
-          await urlInput.fill(String(card.buttonUrl), { timeout: 6000 });
+          await urlInput.fill(String(cardItem.buttonUrl), { timeout: 6000 });
         }
       }
-      step = '카드뷰 확인';
+      step = `카드 ${i + 1} 확인`;
       await page.getByRole('button', { name: KAKAO_SELECTORS.cardConfirmText, exact: true }).last().click({ timeout: 8000 });
       await page.waitForTimeout(2500);
+      // 확인 후에도 모달이 열려 있으면 형식 거부(비율 등) — 조용히 넘기지 않는다
+      const modalStillOpen = await page.locator('text=카드뷰 만들기').count().catch(() => 0);
+      if (modalStillOpen) {
+        return { ok: false, step, cardsAttached, error: `CARD_REJECTED: 카드 ${i + 1} 이 첨부되지 않았습니다 (이미지 비율·형식 검증 거부 가능성)`, screenshot: await saveDebugShot(page, step) };
+      }
+      cardsAttached += 1;
       cardAttached = true;
     }
 
     let linkAttached = false;
     if (link && !cardAttached) { // 카드가 있으면 링크는 카드 버튼에 산다 — 이중 첨부 금지
       step = '링크 첨부';
-      const linkTab = page.locator(`button:has-text("${KAKAO_SELECTORS.linkTabText}")`).first();
+      const linkTab = page.locator(KAKAO_SELECTORS.tabButton, { hasText: KAKAO_SELECTORS.linkTabText }).first();
       if (await linkTab.count()) {
         await linkTab.click({ timeout: 6000 }).catch(() => {});
         await page.waitForTimeout(1500);
@@ -376,7 +403,7 @@ async function postNews(input, testHooks = {}) {
 
     if (dryRun) {
       const shot = await saveDebugShot(page, '드라이런-작성폼');
-      return { ok: true, dryRun: true, linkAttached, cardAttached, screenshot: shot };
+      return { ok: true, dryRun: true, linkAttached, cardAttached, cardsAttached, screenshot: shot };
     }
 
     step = '등록';
@@ -389,7 +416,7 @@ async function postNews(input, testHooks = {}) {
     await page.waitForTimeout(4000);
 
     recordPost();
-    return { ok: true, linkAttached, cardAttached, channelHome: KAKAO_URLS.channelHome(channelId) };
+    return { ok: true, linkAttached, cardAttached, cardsAttached, channelHome: KAKAO_URLS.channelHome(channelId) };
   } catch (error) {
     const screenshot = page ? await saveDebugShot(page, step) : '';
     return { ok: false, step, error: String(error && error.message || error).slice(0, 300), screenshot };
