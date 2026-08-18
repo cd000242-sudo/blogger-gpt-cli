@@ -48,21 +48,27 @@ describe('① 키 발급 안내는 새 발급처(API HUB)를 가리킨다', () =
 });
 
 describe('② 키가 막히면 무엇을 해야 하는지 알려준다', () => {
+  // v3.8.526: 문구 생성은 중앙 창구로 옮겼다 — 두 벌이면 어긋나므로 한 곳만 본다
+  const client = read('src/core/naver-search-client.ts');
   const checker = read('src/core/api-key-checker.ts');
 
   it('401·403 은 "키 문제"로, 404 는 "종료된 API"로 구분해 안내한다', () => {
-    expect(checker).toContain('describeNaverApiFailure');
-    expect(checker).toMatch(/401/);
-    expect(checker).toMatch(/404/);
+    expect(client).toContain('describeNaverFailure');
+    expect(client).toMatch(/401/);
+    expect(client).toMatch(/404/);
   });
 
   it('안내에 새 발급처가 들어 있다 — 처방 없는 진단은 사용자를 헤매게 한다', () => {
-    expect(checker).toContain('API HUB');
+    expect(client).toContain('네이버클라우드');
+    expect(client).toContain('API HUB');
   });
 
-  it('실패 문구가 상태코드만 던지지 않는다', () => {
-    // 예전: `네이버 API 오류 (${response.status})` 만 — 사용자가 할 수 있는 게 없다
-    expect(checker).not.toMatch(/error:\s*`네이버 API 오류 \(\$\{response\.status\}\)`/);
+  it('점검기가 상태코드만 던지지 않는다 (중앙 창구 문구를 쓴다)', () => {
+    expect(checker).toContain('describeNaverFailure');
+    // 옛 코드: 상태코드만 담아 던졌다 — 사용자가 할 수 있는 게 없었다
+    expect(checker).not.toContain('네이버 API 오류 (${response.status})');
+    // 점검도 중앙 창구로 나가야 HUB 키를 넣었을 때 옛 주소로 헛다리 짚지 않는다
+    expect(checker).toContain("naverSearch('news'");
   });
 });
 

@@ -143,6 +143,10 @@ export async function saveSettings() {
     coupangSecretKey: document.getElementById('coupangSecretKey')?.value || '',
     naverCustomerId: document.getElementById('naverCustomerId')?.value || '',
     naverSecretKey: document.getElementById('naverSecretKey')?.value || '',
+    // v3.8.526 — NAVER API HUB(네이버클라우드) 키. 넣으면 그 즉시 HUB 로 나간다.
+    // 칸만 만들고 여기서 안 담으면 조용히 무시된다 (이 저장소의 단골 사고).
+    naverApiHubKeyId: document.getElementById('naverApiHubKeyId')?.value || '',
+    naverApiHubKey: document.getElementById('naverApiHubKey')?.value || '',
     blogId: document.getElementById('blogId')?.value || '',
     googleClientId: document.getElementById('googleClientId')?.value || '',
     googleClientSecret: document.getElementById('googleClientSecret')?.value || '',
@@ -738,6 +742,9 @@ export async function loadSettingsContent() {
         'prodiaApiKey': mergedSettings.prodiaApiKey || mergedSettings.PRODIA_API_KEY || '',
         'naverCustomerId': mergedSettings.naverCustomerId || mergedSettings.naverId || mergedSettings.naverClientId || '',
         'naverSecretKey': mergedSettings.naverSecretKey || mergedSettings.naverSecret || mergedSettings.naverClientSecret || '',
+        // v3.8.526 — 저장했으면 다시 열었을 때도 보여야 한다 (안 채우면 빈 칸으로 보여 또 입력하게 된다)
+        'naverApiHubKeyId': pickSettingValue(mergedSettings, ['naverApiHubKeyId', 'NAVER_API_HUB_KEY_ID', 'naverHubKeyId']),
+        'naverApiHubKey': pickSettingValue(mergedSettings, ['naverApiHubKey', 'NAVER_API_HUB_KEY', 'naverHubKey']),
         'googleCseKey': mergedSettings.googleCseKey || mergedSettings.cseKey || mergedSettings.googleApiKey || '',
         'googleCseCx': mergedSettings.googleCseCx || mergedSettings.cseCx || mergedSettings.googleCseId || '',
         'blogId': pickSettingValue(mergedSettings, ['blogId', 'bloggerId', 'BLOG_ID', 'BLOGGER_ID', 'GOOGLE_BLOG_ID', 'BLOGGER_BLOG_ID']),

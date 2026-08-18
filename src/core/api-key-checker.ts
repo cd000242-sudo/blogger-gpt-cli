@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { resolveNaverCredentials, naverSearch, describeNaverFailure } from './naver-search-client';
 
 export interface ApiKeyStatus {
   openai: {
@@ -32,17 +33,8 @@ export interface ApiKeyStatus {
  * 상태코드마다 무엇이 문제이고 어디로 가야 하는지 적어 준다.
  */
 export function describeNaverApiFailure(httpStatus: number): string {
-  const hub = '네이버클라우드 NAVER API HUB(ncloud.com → NAVER API HUB)에서 새 인증 정보를 발급받아 환경설정에 다시 넣어주세요.';
-  if (httpStatus === 401 || httpStatus === 403) {
-    return `네이버 API 인증 실패 (${httpStatus}). 키가 만료됐거나 API HUB 이관이 안 된 계정일 수 있습니다. ${hub}`;
-  }
-  if (httpStatus === 404) {
-    return `네이버 API 없음 (404). 종료된 API 일 수 있습니다 — 쇼핑·책·전문자료 검색은 2026-07-31 종료됐고 대체 API 가 없습니다. 블로그·뉴스·카페 검색은 ${hub}`;
-  }
-  if (httpStatus === 429) {
-    return '네이버 API 호출 한도 초과 (429). 잠시 후 다시 시도하거나 API HUB 콘솔에서 사용량을 확인해주세요.';
-  }
-  return `네이버 API 오류 (${httpStatus}). 계속되면 ${hub}`;
+  // v3.8.526: 문구는 중앙 창구(naver-search-client) 한 곳에서만 만든다.
+  return describeNaverFailure(httpStatus, resolveNaverCredentials().mode);
 }
 
 export async function checkApiKeys(payload: any): Promise<ApiKeyStatus> {
@@ -106,25 +98,21 @@ export async function checkApiKeys(payload: any): Promise<ApiKeyStatus> {
     console.log('⚠️ Gemini API 키 미설정');
   }
 
-  // 네이버 API 키 확인
-  if (payload.naverClientId && payload.naverClientSecret) {
+  /**
+   * v3.8.526 — 네이버 키 점검도 중앙 창구(naver-search-client)로 나간다.
+   * 여기서 URL·헤더를 따로 조립하면 HUB 키를 넣어도 점검만 옛 주소로 가서
+   * "키가 틀렸다"는 엉뚱한 진단이 나온다 (배선이 두 벌이면 반드시 어긋난다).
+   */
+  const naverCred = resolveNaverCredentials(payload);
+  if (naverCred.mode !== 'none') {
     try {
-      const response = await fetch('https://openapi.naver.com/v1/search/news.json?query=테스트&display=1', {
-        headers: {
-          'X-Naver-Client-Id': payload.naverClientId,
-          'X-Naver-Client-Secret': payload.naverClientSecret
-        }
-      });
-
-      if (response.ok) {
+      const probe = await naverSearch('news', { query: '테스트', display: 1 }, { payload });
+      if (probe.ok) {
         status.naver = { valid: true };
-        console.log('✅ 네이버 API 키 유효함');
+        console.log(`✅ 네이버 API 키 유효함 (${probe.mode === 'hub' ? 'API HUB' : '기존 키'})`);
       } else {
-        status.naver = {
-          valid: false,
-          error: describeNaverApiFailure(response.status)
-        };
-        console.log('❌ 네이버 API 오류:', response.status);
+        status.naver = { valid: false, error: probe.error || '네이버 API 오류' };
+        console.log('❌ 네이버 API 오류:', probe.error);
       }
     } catch (error: any) {
       status.naver = {

@@ -5366,8 +5366,31 @@ https://toss.im/_m/XXXXXXX"
                   </div>
                 </div>
 
+                <!--
+                  v3.8.526 — NAVER API HUB (네이버클라우드) 키.
+                  2026-06-25 개편으로 신규 발급은 API HUB 다. 여기에 넣으면 그 즉시 HUB 로 나가고,
+                  비워두면 위의 기존 키로 나간다(이관 유예 2027-06-30). 사용자는 키만 넣으면 된다.
+                -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px;">
+                  <div class="form-group">
+                    <label class="form-label" style="color: rgba(255, 255, 255, 0.9); font-weight: 600;">API HUB Client ID
+                      <span style="color:#fbbf24; font-size:11px; font-weight:700;">신규 발급</span></label>
+                    <input type="text" id="naverApiHubKeyId" class="form-input" placeholder="네이버클라우드 Client ID"
+                      style="background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(251,191,36,0.45); color: white; backdrop-filter: blur(10px);">
+                  </div>
+
+                  <div class="form-group">
+                    <label class="form-label" style="color: rgba(255, 255, 255, 0.9); font-weight: 600;">API HUB Client Secret</label>
+                    <input type="text" id="naverApiHubKey" class="form-input" placeholder="네이버클라우드 Client Secret"
+                      style="background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(251,191,36,0.45); color: white; backdrop-filter: blur(10px);">
+                  </div>
+                </div>
+
                 <small class="form-text" style="color: rgba(255, 255, 255, 0.7); margin-top: 8px; display: block;">
-                  Google CSE 할당량 초과 시 네이버 검색으로 자동 폴백됩니다. (무료: 하루 25,000회)
+                  Google CSE 할당량 초과 시 네이버 검색으로 자동 폴백됩니다. (무료: 하루 25,000회)<br>
+                  <span style="color:#fbbf24;">2026년 개편</span> — 신규 발급은 네이버클라우드 <b>NAVER API HUB</b>(콘솔 → AI·NAVER API)입니다.
+                  HUB 키를 넣으면 <b>바로 그 키로 동작</b>하고, 비워두면 기존 키로 동작합니다(2027-06-30까지).
+                  쇼핑·책·전문자료 검색은 2026-07-31 종료돼 대체가 없습니다.
                 </small>
               </div>
 
