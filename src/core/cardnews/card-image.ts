@@ -15,14 +15,17 @@
 import type { CardItem } from './card-plan';
 
 /**
- * v3.8.518 — 'product': 상품 카드 모드. AI 를 안 부르고 본문의 실제 상품 사진을 배경으로 쓴다.
- * 근거(전환 리서치 2026-08): 실사용 사진이 전환 요소, AI 생성컷은 역신호. 이미지 비용 0.
+ * v3.8.521 — 'product': 상품 카드 모드 (단일).
  *
- * v3.8.520 — 'product-i2i': 실물 사진을 참고 이미지로 넣어 배경·조명만 다듬는다(image-to-image).
- * 상품 자체는 실물 그대로 유지되므로 "AI 생성컷" 역신호를 피하면서 배경 잡동사니·워터마크·
- * 흰 배경 같은 실사진의 약점만 정리한다. 장당 과금 — 그래서 'product' 와 별도 모드다.
+ * 실제 상품 사진을 참고 이미지로 넣고(i2i) **그 상품을 쓰는 장면·달라진 결과**를 만든다.
+ * 상품 자체는 실물 그대로 유지되므로 "AI 생성컷" 역신호(2026-08 리서치)를 피한다.
+ *
+ * 사진만 그대로 쓰던 모드는 사장님 판단으로 없앴다(v3.8.521):
+ * "상품을 보고 사는 게 아니라 그 상품으로 뭘 하는지를 보고 산다.
+ *  사진만 띡 주면 글로 승부해야 하는데 그건 스레드 게임이라 힘들다."
+ * 다만 생성이 실패하면 실물 사진으로 폴백한다 — 그건 모드가 아니라 비상구다.
  */
-export type CardImageMode = 'none' | 'backdrop' | 'full' | 'product' | 'product-i2i';
+export type CardImageMode = 'none' | 'backdrop' | 'full' | 'product';
 
 /** UI 드롭다운에 그대로 쓰는 목록. value 는 imageDispatcher 의 엔진명과 같아야 한다. */
 export const CARD_IMAGE_ENGINES: Array<{ value: string; label: string; note: string; textCapable: boolean }> = [
@@ -43,8 +46,8 @@ export function normalizeCardImageMode(raw: unknown): CardImageMode {
   const v = String(raw ?? '').trim().toLowerCase();
   if (v === 'full') return 'full';
   if (v === 'none') return 'none';
-  if (v === 'product') return 'product';
-  if (v === 'product-i2i') return 'product-i2i';
+  // v3.8.521: product-i2i 는 product 로 합쳐졌다 — 예전 설정이 남아 있어도 받아준다
+  if (v === 'product' || v === 'product-i2i') return 'product';
   return 'backdrop';
 }
 
@@ -56,15 +59,14 @@ export function normalizeCardImageMode(raw: unknown): CardImageMode {
  */
 export function resolveCardImageMode(mode: CardImageMode, engine: string): CardImageMode {
   if (mode === 'none') return 'none';
-  // 상품 모드는 AI 엔진을 아예 안 쓴다 — 엔진 설정과 무관하게 유지 (v3.8.518)
-  if (mode === 'product') return 'product';
   /**
-   * v3.8.520 — 상품 i2i. "이미지 없이"를 고르면 실물 사진 그대로(product)로 내린다 —
-   * 상품 사진까지 버리면 카드가 그라데이션만 남아 상품 글의 의미가 사라진다.
-   * i2i 가 되는 엔진으로 바꾸는 일은 호출부가 pickI2iEngine 으로 처리한다
+   * v3.8.521 — 상품 모드는 엔진 설정과 무관하게 유지한다.
+   * 엔진이 'none' 이어도 상품 사진 자체는 배경으로 쓸 수 있어야 한다(생성만 건너뜀) —
+   * 상품 글에서 사진까지 버리면 그라데이션만 남아 카드의 의미가 사라진다.
+   * i2i 가능한 엔진으로 바꾸는 일은 호출부가 pickI2iEngine 으로 처리한다
    * (엔진 능력 판정을 여기서 또 정의하면 두 벌이 되어 반드시 어긋난다).
    */
-  if (mode === 'product-i2i') return (engine === 'none' || engine === 'skip') ? 'product' : 'product-i2i';
+  if (mode === 'product') return 'product';
   if (engine === 'none' || engine === 'skip') return 'none';
   if (mode === 'full' && !TEXT_CAPABLE.has(engine)) return 'backdrop';
   return mode;
@@ -131,33 +133,48 @@ export function buildBackdropPrompt(card: CardItem, keyword: string): string {
 }
 
 /**
- * 상품 사진 기반 i2i 프롬프트 (모드: product-i2i, v3.8.520).
+ * 상품 카드 장면 (모드: product, v3.8.521).
  *
- * 참고 이미지로 **실제 상품 사진**이 들어간다. 그래서 이 프롬프트의 일은
- * "새로 그리기"가 아니라 **배경·조명만 정리하기**다.
- * 상품의 형태·색·라벨·로고를 바꾸면 그 순간 실물이 아니게 되고,
- * 전환에 유리한 실사용컷의 이점(2026-08 리서치)이 사라진다 — 그래서 보존을 최우선으로 못박는다.
+ * 사장님 확정: "상품을 보고 사는 게 아니라, **그 상품으로 뭘 하는지**를 보고 산다.
+ * 사진만 띡 주면 글로 승부해야 하는데 그건 스레드 게임이라 정말 힘들다."
+ *
+ * 그래서 이 프롬프트는 상품을 예쁘게 찍는 게 아니라 **쓰는 장면·달라진 결과**를 만든다.
+ * 참고 이미지로 실제 상품 사진이 들어가므로 상품 자체는 실물 그대로 유지된다 —
+ * 실물이 아니게 되는 순간 실사용컷의 전환 이점(2026-08 리서치)이 사라진다.
  */
-export function buildProductI2iPrompt(card: CardItem, keyword: string): string {
+const PRODUCT_SCENE: Record<CardItem['kind'], string> = {
+  // 훅: 이 상품이 없을 때의 성가신 순간 — 상품은 아직 조연으로 프레임 가장자리에
+  hook: 'Show the everyday problem this product solves: a real Korean person in a real home dealing with the hassle, tired or annoyed expression. The product sits unused at the edge of the frame.',
+  // 본문: 실제로 쓰는 손 — 구매 욕구는 "내가 쓰는 장면"이 그려질 때 생긴다
+  body: 'Show the product actually being used by real Korean hands in a real home setting, mid-action, natural candid moment.',
+  // 저장: 쓰고 난 뒤의 정돈된 결과 — 다시 열어볼 이유
+  save: 'Show the satisfying result after using the product: the finished, tidy, improved state in a real Korean home.',
+  // CTA: 달라진 사람 — 상품이 아니라 그 사람이 얻은 여유를 판다
+  cta: 'Show a real Korean person visibly relieved and satisfied after the product did its job, warm natural indoor light.',
+};
+
+export function buildProductScenePrompt(card: CardItem, keyword: string): string {
+  const scene = PRODUCT_SCENE[card.kind] || PRODUCT_SCENE.body;
   const kind = KIND_SHOT[card.kind] || KIND_SHOT.body;
   return [
-    'Use the provided product photo as the base image. This is a real product — keep it authentic.',
+    'Use the provided product photo as the reference for the product itself.',
+    'Do NOT make a catalog shot of the product alone — build a real-life scene around it.',
     '',
-    'MUST KEEP EXACTLY AS IN THE SOURCE PHOTO (do not redraw, do not restyle, do not replace):',
-    '  - the product shape, proportions, color and material',
-    '  - every label, logo, printed text and package design on the product',
-    '  - the number of items shown',
+    'THE PRODUCT MUST STAY EXACTLY AS IN THE REFERENCE (this is a real product):',
+    '  - same shape, proportions, color and material',
+    '  - same labels, logos, printed text and package design',
+    '  - do not invent extra units, variants or accessories',
     '',
-    'ONLY CHANGE the surroundings so it looks like a clean commercial photo:',
-    '  - replace a cluttered or plain white background with a simple, tasteful setting',
-    '  - even soft lighting, natural shadow under the product, gentle depth of field',
-    '  - remove watermarks, seller text overlays and distracting props',
-    `  - overall mood: ${kind.mood}`,
+    `SCENE TO CREATE: ${scene}`,
+    `Mood: ${kind.mood}.`,
+    `Subject / context: ${keyword}.`,
     '',
-    `Korean e-commerce quality, subject: ${keyword}.`,
+    'Photographic style: natural candid photo taken in a real Korean home, everyday realism,',
+    'soft available light, slight imperfection — NOT a glossy studio advertisement,',
+    'NOT a stock-photo smile, NOT a floating product on white background.',
     // 글자가 올라갈 자리를 비워 둔다 — 문안은 앱이 얹는다 (backdrop 과 같은 규칙)
-    'Composition: keep the product centered or on the right; leave the upper-left third and the bottom strip calm and uncluttered so a text overlay can sit there.',
-    'No added text, no captions, no price tags, no badges in the image.',
+    'Composition: leave the upper-left third and the bottom strip calm and uncluttered so a text overlay can sit there.',
+    'No added text, no captions, no price tags, no badges, no watermarks in the image.',
   ].join('\n');
 }
 
