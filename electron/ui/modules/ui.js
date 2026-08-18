@@ -930,10 +930,17 @@ export function openNaverApiPage() {
   try {
     console.log('🟢 [NAVER] 네이버 API 페이지 열기');
 
+    /**
+     * v3.8.525 — 발급처가 바뀌었다.
+     * 2026-06-25 NAVER API HUB(네이버클라우드) 출시로 검색 API·Search Trend 가 이관됐고,
+     * **신규 발급은 API HUB** 다 (개발자센터 키를 그대로 옮겨 쓰는 방식이 아니다).
+     * 옛 주소로 보내면 새 사용자가 키를 못 받는다.
+     */
+    const NAVER_API_HUB = 'https://www.ncloud.com/product/applicationService/naverApiHub';
     if (window.blogger && window.blogger.openExternal) {
-      window.blogger.openExternal('https://developers.naver.com/apps/#/myapps');
+      window.blogger.openExternal(NAVER_API_HUB);
     } else {
-      window.open('https://developers.naver.com/apps/#/myapps', '_blank');
+      window.open(NAVER_API_HUB, '_blank');
     }
 
     console.log('✅ [NAVER] 네이버 API 페이지 열기 완료');

@@ -22,6 +22,29 @@ export interface ApiKeyStatus {
   };
 }
 
+/**
+ * v3.8.525 — 네이버 API 실패를 "처방까지" 알려준다.
+ *
+ * 2026-06-25 NAVER API HUB(네이버클라우드) 출시로 검색 API·Search Trend 가 이관됐다.
+ * 쇼핑·책·전문자료 검색은 2026-07-31 완전 종료(대체 없음), 이관 신청자만
+ * 기존 방식을 2027-06-30 까지 쓸 수 있다.
+ * 예전엔 `네이버 API 오류 (401)` 만 띄워서 사용자가 할 수 있는 게 없었다 —
+ * 상태코드마다 무엇이 문제이고 어디로 가야 하는지 적어 준다.
+ */
+export function describeNaverApiFailure(httpStatus: number): string {
+  const hub = '네이버클라우드 NAVER API HUB(ncloud.com → NAVER API HUB)에서 새 인증 정보를 발급받아 환경설정에 다시 넣어주세요.';
+  if (httpStatus === 401 || httpStatus === 403) {
+    return `네이버 API 인증 실패 (${httpStatus}). 키가 만료됐거나 API HUB 이관이 안 된 계정일 수 있습니다. ${hub}`;
+  }
+  if (httpStatus === 404) {
+    return `네이버 API 없음 (404). 종료된 API 일 수 있습니다 — 쇼핑·책·전문자료 검색은 2026-07-31 종료됐고 대체 API 가 없습니다. 블로그·뉴스·카페 검색은 ${hub}`;
+  }
+  if (httpStatus === 429) {
+    return '네이버 API 호출 한도 초과 (429). 잠시 후 다시 시도하거나 API HUB 콘솔에서 사용량을 확인해주세요.';
+  }
+  return `네이버 API 오류 (${httpStatus}). 계속되면 ${hub}`;
+}
+
 export async function checkApiKeys(payload: any): Promise<ApiKeyStatus> {
   const status: ApiKeyStatus = {
     openai: { valid: false },
@@ -99,7 +122,7 @@ export async function checkApiKeys(payload: any): Promise<ApiKeyStatus> {
       } else {
         status.naver = {
           valid: false,
-          error: `네이버 API 오류 (${response.status})`
+          error: describeNaverApiFailure(response.status)
         };
         console.log('❌ 네이버 API 오류:', response.status);
       }

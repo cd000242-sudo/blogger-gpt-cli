@@ -149,51 +149,12 @@ export interface NaverShoppingResult {
   category4: string;
 }
 
-export async function searchNaverShopping(
-  query: string,
-  display = 20
-): Promise<NaverShoppingResult[]> {
-  if (!NAVER_CLIENT_ID || !NAVER_CLIENT_SECRET) {
-    console.warn('[네이버 쇼핑 API] Client ID/Secret이 설정되지 않았습니다.');
-    return [];
-  }
-
-  try {
-    const response = await axios.get('https://openapi.naver.com/v1/search/shop.json', {
-      params: {
-        query,
-        display: Math.min(display, 100), // 최대 100개
-        sort: 'sim' // sim: 정확도순, date: 날짜순, asc: 가격오름차순, dsc: 가격내림차순
-      },
-      headers: {
-        'X-Naver-Client-Id': NAVER_CLIENT_ID,
-        'X-Naver-Client-Secret': NAVER_CLIENT_SECRET
-      }
-    });
-
-    console.log(`[네이버 쇼핑 API] "${query}" 검색 결과: ${response.data.items?.length || 0}개`);
-
-    return response.data.items.map((item: any) => ({
-      title: item.title.replace(/<[^>]*>/g, ''), // HTML 태그 제거
-      link: item.link,
-      image: item.image,
-      lprice: item.lprice,
-      hprice: item.hprice || item.lprice,
-      mallName: item.mallName,
-      productId: item.productId,
-      productType: item.productType,
-      brand: item.brand || '',
-      maker: item.maker || '',
-      category1: item.category1 || '',
-      category2: item.category2 || '',
-      category3: item.category3 || '',
-      category4: item.category4 || ''
-    }));
-  } catch (error: any) {
-    console.error('[네이버 쇼핑 API] 에러:', error?.message || error);
-    return [];
-  }
-}
+/**
+ * v3.8.525 — 네이버 쇼핑 검색 API(shop.json)는 2026-07-31 완전 종료됐다.
+ * 실측(2026-08-18): 404 SE05 "존재하지 않는 검색 api". 공식 대체 API 없음.
+ * 호출하는 곳이 없어 그대로 지운다 — 남겨두면 누군가 다시 배선해 조용히 빈 배열을 받는다.
+ * 쇼핑 모드는 원래 브라우저 크롤링(search.shopping.naver.com)이라 이 종료와 무관하다.
+ */
 
 /**
  * 🛒 스마트스토어/브랜드스토어 상품 정보 가져오기
@@ -225,20 +186,13 @@ export async function getSmartStoreProductInfo(productUrl: string): Promise<{
       keyword = decodeURIComponent(urlParts[urlParts.length - 1] || urlParts[urlParts.length - 2] || '');
     }
     
-    // 네이버 쇼핑 API로 검색
-    const results = await searchNaverShopping(keyword, 5);
-    const product = results[0];
-    
-    if (product) {
-      return {
-        title: product.title,
-        price: `${parseInt(product.lprice).toLocaleString()}원`,
-        description: `${product.brand ? product.brand + ' ' : ''}${product.title} - ${product.category1} > ${product.category2} > ${product.category3}`,
-        category: `${product.category1} > ${product.category2} > ${product.category3}`.replace(/ > $/g, ''),
-        mallName: product.mallName
-      };
-    }
-    
+    /**
+     * v3.8.525 — 이 경로는 네이버 쇼핑 검색 API 로만 값을 얻었는데 그 API 가
+     * 2026-07-31 종료됐다(실측 404, 대체 없음). 그래서 더는 정보를 얻을 수 없다.
+     * 상품 정보는 브라우저로 직접 수집하는 shopping-crawler 가 담당한다 —
+     * 종료된 API 를 계속 두드리며 빈 값을 돌려주는 것보다 없다고 답하는 게 정직하다.
+     */
+    void keyword;
     return null;
   } catch (error: any) {
     console.error('[스마트스토어 정보 추출] 에러:', error?.message || error);

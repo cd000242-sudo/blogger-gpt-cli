@@ -195,6 +195,33 @@ const guideData = {
     title: '🟢 네이버 API 발급 완벽 가이드',
     steps: [
       {
+        title: '⚠️ 2026년 개편 — 발급처가 바뀌었습니다',
+        content: `
+          <div style="background:#fef3c7;padding:16px;border-radius:12px;margin-bottom:16px;border:2px solid #f59e0b;">
+            <strong style="color:#b45309;font-size:16px;">네이버 검색 API 가 네이버클라우드로 이관됐습니다</strong><br>
+            2026년 6월 25일 <b>NAVER API HUB</b> 출시. 블로그·뉴스·카페 검색과 데이터랩(Search Trend)은
+            이제 네이버클라우드에서 발급받습니다.
+          </div>
+
+          <strong style="font-size:16px;">① 새로 시작하는 경우</strong><br>
+          - 발급처: <code>ncloud.com → NAVER API HUB</code><br>
+          - 콘솔에서 Application 을 만들고 Search API / Search Trend 를 선택합니다<br>
+          - <b>기존 개발자센터 키를 그대로 옮겨 쓰는 방식이 아닙니다</b> — HUB 용 인증 정보를 새로 발급받습니다<br>
+          - 발급받은 Client ID / Secret 을 환경설정에 붙여넣습니다<br><br>
+
+          <strong style="font-size:16px;">② 이미 쓰던 키가 있는 경우</strong><br>
+          - 이관 신청을 마친 계정은 기존 방식으로 <b>2027년 6월 30일까지</b> 사용할 수 있습니다<br>
+          - 그 전에 API HUB 로 옮겨두면 갑자기 끊기는 일을 피할 수 있습니다<br>
+          - 키가 막히면 앱이 "인증 실패 — API HUB에서 새 인증 정보를 발급" 이라고 알려줍니다<br><br>
+
+          <div style="background:#fee2e2;padding:14px;border-radius:10px;border:2px solid #ef4444;">
+            <strong style="color:#b91c1c;">완전 종료된 API (대체 없음)</strong><br>
+            <b>쇼핑·책·전문자료 검색</b> API 는 2026년 7월 31일자로 종료됐습니다.<br>
+            <span style="color:#7f1d1d;font-size:13px;">앱의 쇼핑 모드는 이 API 를 쓰지 않고 브라우저로 직접 수집하므로 영향이 없습니다.</span>
+          </div>
+        `
+      },
+      {
         title: '📊 네이버 검색광고 API (키워드 분석용)',
         content: `
           <div style="background: #d1fae5; padding: 16px; border-radius: 12px; margin-bottom: 16px; border: 2px solid #10b981;">
