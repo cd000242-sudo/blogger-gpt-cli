@@ -219,15 +219,19 @@ function classifyFailure(error: any): FailureInfo {
    * 이 문구가 어느 가지에도 안 걸려 재시도를 다 태우고 타임아웃으로 보고됐다.
    * auth 로 잡히면 즉시 멈추고(재시도 없음) 키 안내가 나간다 — 그게 맞는 동작이다.
    */
-  if (status === 403
-    || /api key.*(not valid|invalid)|invalid.*api key|invalid.*key|unauthorized|authentication|401|permission[_\s-]?denied|reported as leaked|use another api key/.test(lower)) {
-    return { kind: 'auth', message, status };
+  // v3.8.528 — 잔액 소진이 401/403 으로 오는 provider 가 있다 (Perplexity 실측 2026-08-19:
+  //   401 + "exceeded your current quota"). 상태코드보다 메시지의 쿼터·결제 신호를 먼저 믿는다.
+  //   유출 차단 키(v3.8.502)는 쿼터·결제 문구가 없어 그대로 auth 로 잡힌다
+  //   (gemini-leaked-key.test.ts 가 잠근다).
+  if (/resource_exhausted|quota|exceeded.*limit|exceeded.*current|credits?|insufficient_quota/.test(lower)) {
+    return { kind: 'quota', message, status };
   }
   if (/billing|payment|paid plan|pay-as-you-go|project.*billing|billing account|disabled billing/.test(lower)) {
     return { kind: 'billing', message, status };
   }
-  if (/resource_exhausted|quota|exceeded.*limit|exceeded.*current|credits?|insufficient_quota/.test(lower)) {
-    return { kind: 'quota', message, status };
+  if (status === 403
+    || /api key.*(not valid|invalid)|invalid.*api key|invalid.*key|unauthorized|authentication|401|permission[_\s-]?denied|reported as leaked|use another api key/.test(lower)) {
+    return { kind: 'auth', message, status };
   }
   if (/429|too many requests|rate.*limit|rate_limit|rpm|requests per minute|temporarily overloaded/.test(lower)) {
     return { kind: 'rate_limit', message, status };

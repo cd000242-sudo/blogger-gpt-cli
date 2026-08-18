@@ -214,9 +214,14 @@ function classifyProviderFailure(config: LLMProviderConfig, error: unknown): Pro
   const msg = extractErrorMessage(error).toLowerCase();
   const status = error instanceof AxiosError ? error.response?.status : undefined;
 
-  if (config.authErrorPattern.test(msg) || status === 401 || status === 403) return 'auth';
-  if (/billing|payment|paid plan|pay-as-you-go|billing account|project.*billing|disabled billing/i.test(msg)) return 'billing';
+  // v3.8.528 — 잔액 소진을 HTTP 401 로 돌려주는 provider 가 있다 (Perplexity 실측 2026-08-19:
+  //   401 + "You exceeded your current quota, please check your plan and billing details").
+  //   401 이라고 무조건 auth 로 읽으면 "키가 만료됐다"는 오진이 나가고,
+  //   사용자는 멀쩡한 키를 재발급한다 — 진짜 처방은 충전이다.
+  //   메시지에 쿼터·결제 신호가 있으면 상태코드보다 그쪽을 먼저 믿는다.
   if (/quota|insufficient_quota|resource_exhausted|credits?|exceeded.*current|exceeded.*limit/i.test(msg)) return 'quota';
+  if (/billing|payment|paid plan|pay-as-you-go|billing account|project.*billing|disabled billing/i.test(msg)) return 'billing';
+  if (config.authErrorPattern.test(msg) || status === 401 || status === 403) return 'auth';
   if (config.rateLimitPattern.test(msg) || status === 429) return 'rate_limit';
   if (/model.*not.*found|invalid.*model|does not exist|unsupported model|404/i.test(msg)) return 'model';
   if (/timeout|timed out|time out|abort|deadline/i.test(msg)) return 'timeout';
