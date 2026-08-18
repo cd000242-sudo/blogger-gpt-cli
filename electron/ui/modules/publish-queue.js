@@ -584,6 +584,7 @@ const QUEUE_LABELS = {
     adsense: '애드센스',
     paraphrasing: '페러프레이징',
     shopping: '쇼핑',
+    discover: '구글 디스커버',   // v3.8.524: 없어서 큐 카드에 영문 "discover" 로 떴다
   },
   thumb: {
     nanobanana: '나노바나나',
@@ -1401,8 +1402,11 @@ function buildModalHtml() {
                 <option value="">변경 안 함</option>
                 <option value="external">🎯 SEO 외부링크</option>
                 <option value="internal">📝 내부링크 일관</option>
+                <option value="shopping">🛍️ 쇼핑/구매유도</option>
                 <option value="adsense">🏆 애드센스 승인</option>
                 <option value="paraphrasing">🔄 페러프레이징</option>
+                <!-- v3.8.524: 디스커버·쇼핑이 여기만 빠져 있었다 (단일·예약 발행엔 있었음) -->
+                <option value="discover">🔎 구글 디스커버</option>
               </select>
             </label>
           </div>
