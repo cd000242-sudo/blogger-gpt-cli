@@ -156,15 +156,16 @@ function _renderPlatformLogo(platform, size = 'list') {
   const border = platform.id === 'kakao-openchat'
     ? 'rgba(254,229,0,0.45)'
     : `${platform.color || '#64748b'}55`;
-  const iconUrl = `https://cdn.simpleicons.org/${meta.slug}/${meta.color}`;
+  /**
+   * v3.8.523 — 외부 CDN(cdn.simpleicons.org)에서 아이콘을 받아오다 DNS 가 막히면
+   * 아이콘이 전멸하고 콘솔이 ERR_NAME_NOT_RESOLVED 로 도배된다(사장님 화면 실측).
+   * 앱 아이콘이 남의 서버에 의존할 이유가 없다 — 앱 안에서 그린다.
+   */
   return `
     <span class="ext-platform-logo ext-platform-logo-${escapeHtml(platform.id)}"
-      title="${escapeHtml(platform.label)} 공식 로고"
+      title="${escapeHtml(platform.label)}"
       style="width:${boxSize}px;height:${boxSize}px;border-radius:${isHeader ? 12 : 7}px;background:${bg};border:1px solid ${border};display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;">
-      <img src="${iconUrl}" alt="${escapeHtml(platform.label)} logo" loading="lazy"
-        style="width:${imgSize}px;height:${imgSize}px;display:block;object-fit:contain;"
-        onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';">
-      <span style="display:none;align-items:center;justify-content:center;width:100%;height:100%;font-size:${isHeader ? 15 : 10}px;font-weight:900;color:${platform.id === 'kakao-openchat' ? '#000' : '#f8fafc'};">${escapeHtml(meta.fallback)}</span>
+      <span style="display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:${isHeader ? 20 : 12}px;font-weight:900;line-height:1;color:${platform.id === 'kakao-openchat' || platform.id === 'kakao-channel' ? '#000' : '#f8fafc'};">${escapeHtml(meta.fallback)}</span>
     </span>`;
 }
 
@@ -907,6 +908,26 @@ async function extTrafficKakaoAutoPost() {
   const res = await window.electronAPI.invoke('kakao-channel-autopost', { channelId, text, link, cards }).catch((e) => ({ ok: false, error: e && e.message }));
   if (res && res.ok) {
     _flashToast('✅ 채널 발행 완료' + (res.cardsAttached ? ` (카드 ${res.cardsAttached}장 + 링크 버튼)` : '') + ' — pf.kakao.com/' + channelId + ' 에서 확인해보세요');
+  } else if (/LOGIN_REQUIRED/.test(String(res && res.error || ''))) {
+    /**
+     * v3.8.523 — 카카오 세션은 만료된다(사장님 실측: 며칠 뒤 loggedIn=false).
+     * 예전엔 "로그인해주세요" 안내만 띄워 사용자가 [채널 연결]을 다시 찾아 눌러야 했다.
+     * 이제 그 자리에서 로그인 창을 띄우고, 로그인되면 **자동으로 재시도**한다.
+     */
+    _flashToast('세션이 만료됐습니다 — 로그인 창을 엽니다. 로그인하면 이어서 발행됩니다');
+    const login = await window.electronAPI.invoke('kakao-channel-login', { channelId }).catch(() => null);
+    if (login && login.ok) {
+      extTrafficKakaoRefreshChip();
+      const retry = await window.electronAPI.invoke('kakao-channel-autopost', { channelId, text, link, cards })
+        .catch((e) => ({ ok: false, error: e && e.message }));
+      if (retry && retry.ok) {
+        _flashToast('✅ 채널 발행 완료' + (retry.cardsAttached ? ` (카드 ${retry.cardsAttached}장 + 링크 버튼)` : '') + ' — pf.kakao.com/' + channelId + ' 에서 확인해보세요');
+      } else {
+        _flashToast('재시도 실패: ' + ((retry && retry.error) || '알 수 없는 오류'));
+      }
+    } else {
+      _flashToast('로그인이 취소돼 발행하지 못했습니다');
+    }
   } else {
     const where = res && res.step ? ` (${res.step} 단계에서 멈춤)` : '';
     _flashToast('발행 실패' + where + ': ' + ((res && res.error) || '알 수 없는 오류'));
@@ -2585,6 +2606,10 @@ function _renderMultiOutput(platform, parts) {
   const labels = {
     post: '스레드 본문 (링크 없음 — 도달 보호)',
     firstComment: '첫 댓글 (링크는 여기에)',
+    // v3.8.523 — 카카오 채널 소식 작성 폼의 칸 이름 그대로 (헤드라인/본문/버튼/링크)
+    headline: '헤드라인 (알림에 뜨는 줄 — 40자 이내)',
+    buttonLabel: '더보기 버튼 라벨',
+    url: '연결할 링크',
     tweet1: 'Tweet 1 (본문 미끼)',
     tweet2: 'Tweet 2 (첫 댓글)',
     personal: '개인 계정용',

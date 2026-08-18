@@ -134,3 +134,7 @@ URL: ${sourceUrl}
     '월간 무료 발송 한도 초과 시 건당 비용 발생 — 발송 빈도 조절 권장',
   ],
 });
+
+// v3.8.523: 마커 출력 파서 배선 (인스타·스레드에는 있는데 카카오만 빠져 있었다)
+const { processKakaoChannelResponse } = require('./kakao-channel-parse');
+module.exports.processStructuredResponse = processKakaoChannelResponse;
