@@ -283,12 +283,47 @@ export function inspectArticleFactIntegrity(article: FactIntegrityArticle, evide
   return mergeReports(checks);
 }
 
+/**
+ * v3.8.522 — 표 셀은 문장이 아니라 **라벨**이다.
+ *
+ * 사장님 실물 검수: "구분 | 가입 시점 | …" 표에서 앞 두 칸이 네 줄 모두 빈칸으로 나갔다.
+ * 원인: 셀마다 sanitizeFactUnsafeHtml(문장 단위 필터)이 걸렸다. "2009년 10월 이전" 같은
+ * 셀은 문장 하나뿐이라 근거 미확인이면 통째로 지워지고 빈 칸만 남는다.
+ * 제목(H2/H3)은 이미 같은 이유로 라벨 취급을 하고 있었는데 표는 빠져 있었다.
+ *
+ * 처방:
+ *  ① 셀은 문장이 아니라 라벨이므로 부분 삭제하지 않는다. 근거가 확인되면 그대로 두고,
+ *     아니면 그 칸은 못 쓴다고 본다.
+ *  ② 못 쓰는 칸이 하나라도 있으면 **그 줄을 통째로 버린다**.
+ *     구멍 난 표는 없는 표보다 나쁘다 — 무엇에 대한 값인지 알 수 없어 독자를 오도한다.
+ *     (근거 장부가 비어 있으면 결국 표가 통째로 빠진다. 검증 못 한 수치를 내보내는 것보다 낫다 —
+ *      "정리 후에는 근거 없는 값이 남지 않는다"는 기존 계약도 이 쪽이라야 지켜진다.)
+ *  ③ 줄이 하나도 안 남으면 표 자체를 버린다 (머리글만 남은 껍데기 금지).
+ */
+export function sanitizeFactUnsafeCell(value: string, evidence: FactEvidence): string {
+  const source = String(value ?? '').replace(FACT_META_BOILERPLATE_PATTERN, '').replace(/\s{2,}/g, ' ').trim();
+  if (!source) return '';
+  if (inspectFactIntegrity(source, evidence).status === 'passed') return source;
+  return ''; // 호출부가 이 줄을 버린다
+}
+
 export function sanitizeArticleFactClaims<T extends FactIntegrityArticle>(article: T, evidence: FactEvidence): T {
-  const sanitizeTable = (table: any) => ({
-    ...table,
-    headers: Array.isArray(table?.headers) ? table.headers.map((value: string) => sanitizeFactUnsafeHtml(value, evidence)) : table?.headers,
-    rows: Array.isArray(table?.rows) ? table.rows.map((row: string[]) => row.map((value: string) => sanitizeFactUnsafeHtml(value, evidence))) : table?.rows,
-  });
+  const sanitizeTable = (table: any) => {
+    const headers = Array.isArray(table?.headers)
+      ? table.headers.map((value: string) => sanitizeFactUnsafeCell(value, evidence) || String(value ?? ''))
+      : table?.headers;
+    if (!Array.isArray(table?.rows)) return { ...table, headers };
+    // ② 구멍이 생기는 줄은 버린다
+    const rows = table.rows.filter((row: string[]) => {
+      if (!Array.isArray(row)) return false;
+      return row.every((value) => {
+        const original = String(value ?? '').trim();
+        if (!original) return true;                       // 원래 빈 칸은 그대로 둔다
+        return !!sanitizeFactUnsafeCell(value, evidence);  // 지워지는 칸이 있으면 줄째로 탈락
+      });
+    });
+    return { ...table, headers, rows };
+  };
   const sanitizeCta = (cta: any) => !cta ? cta : {
     ...cta,
     hookingMessage: cta.hookingMessage ? sanitizeFactUnsafeHtml(cta.hookingMessage, evidence) : cta.hookingMessage,
@@ -308,7 +343,10 @@ export function sanitizeArticleFactClaims<T extends FactIntegrityArticle>(articl
         ...subsection,
         h3: sanitizeFactUnsafeHeading(subsection.h3, evidence, `핵심 정리 ${h3Idx + 1}`),
         content: sanitizeFactUnsafeHtml(subsection.content, evidence),
-        tables: Array.isArray(subsection.tables) ? subsection.tables.map(sanitizeTable) : subsection.tables,
+        // ③ 줄이 하나도 안 남은 표는 껍데기라 버린다
+        tables: Array.isArray(subsection.tables)
+          ? subsection.tables.map(sanitizeTable).filter((t: any) => !Array.isArray(t?.rows) || t.rows.length > 0)
+          : subsection.tables,
         cta: sanitizeCta(subsection.cta),
       })),
     })),

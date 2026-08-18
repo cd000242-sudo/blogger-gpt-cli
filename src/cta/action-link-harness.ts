@@ -300,7 +300,25 @@ export async function resolveActionLink(input: {
     // 신청 화면은 아니어도 그 제도를 설명하는 페이지 — 홈보다 한 걸음 가깝다
     return { url: best.url, stage: 'guide', score: best.s.score, reasons: best.s.reasons };
   }
+  /**
+   * v3.8.522 — 물러설 곳이 "그 글의 기관"일 때만 물러선다.
+   *
+   * 사장님 실물 검수: 본인부담상한제(국민건강보험공단) 글인데 버튼이 samsungfire.com
+   * 홈으로 나갔다. 글이 지목한 기관과 다른 회사 홈으로 보내는 건 물러섬이 아니라 오배송이다.
+   * 그런 링크는 독자를 엉뚱한 데로 보내니, 차라리 버튼을 안 넣는다
+   * (기존 원칙: "근거가 없으면 CTA 를 넣지 않는다 — 남의 링크를 싣는 것보다 낫다").
+   */
   if (fallback) {
+    const agencies = (input.agencies || []).filter(Boolean);
+    const mismatched = agencies.length > 0
+      && looksLikeHomeUrl(fallback)
+      && !agencies.some((agency) => hostMatches(fallback, agency));
+    if (mismatched) {
+      return {
+        url: '', stage: 'none', score: best?.s.score ?? 0,
+        reasons: [...(best?.s.reasons || []), `글이 지목한 기관(${agencies.join(', ')})과 다른 곳의 홈 — CTA 를 넣지 않음`],
+      };
+    }
     return {
       url: fallback, stage: 'home', score: best?.s.score ?? 0,
       reasons: [...(best?.s.reasons || []), '기준 미달 — 기관 홈으로 물러섬'],
