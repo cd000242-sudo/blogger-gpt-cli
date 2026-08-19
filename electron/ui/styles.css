@@ -2097,3 +2097,29 @@ textarea::placeholder {
     width: 100%;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   v3.8.540 — 유휴 성능: 백그라운드 일시정지 + 장식 애니메이션 절제
+   사장님: "컴퓨터가 느려도 렌더링 빠르고 동시작업해도 무리없게".
+   ⚠️ 이 규칙은 반드시 이 파일(styles.css)에 있어야 한다 —
+      style.css 는 index.html 이 로드하지 않는 쌍둥이 함정이라,
+      같은 규칙이 그쪽에만 있어서 클래스만 토글되고 아무것도 안 멈췄다
+      (6번째 조용한 미배선). performance-optimizer.js 가 클래스를 건다. */
+html.app-background-paused *,
+html.app-background-paused *::before,
+html.app-background-paused *::after {
+  animation-play-state: paused !important;
+  transition-duration: 0.001ms !important;
+}
+
+html.perf-reduced-motion * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* 발행 버튼 반짝임 — 상시(infinite)에서 호버 시에만으로.
+   항상 보이는 요소의 무한 애니메이션은 유휴 GPU 를 계속 깨운다. */
+.bgpt-btn-shimmer { animation: none; }
+#publishBtn:hover .bgpt-btn-shimmer { animation: shimmer 1.6s infinite; }

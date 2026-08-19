@@ -41,9 +41,19 @@ class PerformanceOptimizer {
   }
 
   bindVisibilityGuards() {
-    document.addEventListener('visibilitychange', () => {
-      document.documentElement.classList.toggle('app-background-paused', document.hidden);
-    }, { passive: true });
+    // v3.8.540: visibilitychange(최소화·숨김)만으로는 부족하다 —
+    //   앱이 다른 창 뒤에 "보이는 채로" 있는 시간이 훨씬 길다(발행 걸어두고 딴 작업).
+    //   window blur/focus 를 함께 봐서, 안 보고 있는 동안엔 장식 애니메이션을 전부 멈춘다.
+    //   소비 CSS 는 styles.css(로드되는 파일)에 있다 — style.css 쌍둥이에만 있던
+    //   미배선을 v3.8.540 에서 고쳤다.
+    const sync = () => {
+      const idle = document.hidden || !document.hasFocus();
+      document.documentElement.classList.toggle('app-background-paused', idle);
+    };
+    document.addEventListener('visibilitychange', sync, { passive: true });
+    window.addEventListener('blur', sync, { passive: true });
+    window.addEventListener('focus', sync, { passive: true });
+    sync();
   }
 
   getAdaptiveDelay(delay = 0) {
