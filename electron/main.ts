@@ -102,6 +102,7 @@ const getOrCreateDeviceId = oldLicenseManager.getOrCreateDeviceId;
 import { getLicenseManager } from '../dist/utils/license-manager-new';
 import { ScheduleManager } from '../dist/core/schedule-manager';
 import { checkLicenseWithAutoLogin, setupAutoLoginHandlers, setMainWindow } from './main-login';
+import { publishGoldenKeyword, hasGoldenToken, saveGoldenToken } from './golden-keyword-publisher';
 
 function installConsolePipeGuard(): void {
   const swallowPipeError = (error: any) => {
@@ -8043,38 +8044,28 @@ ipcMain.handle('set-admin-pin', async (_evt, args: { oldPin?: string; newPin: st
 });
 
 /**
- * 황금키워드 배포 원본(data/golden-keyword.json)에 쓴다.
+ * 황금키워드 배포 — 관리자가 저장하면 그 자리에서 GitHub 에 올라간다.
  *
- * 이 파일이 GitHub 에 올라가면 사용자 앱들이 raw URL 로 읽어간다.
- * 레포가 있는 개발 PC 에서만 의미가 있으므로 배포본에서는 명시적으로 거절한다.
- * 경로는 레포 안의 한 파일로 **고정**한다 — 렌더러가 임의 경로를 쓰게 두지 않는다.
+ * 개발 PC(레포 있음)면 git commit+push, 설치된 앱이면 저장해둔 토큰으로 GitHub API.
+ * 어느 쪽이든 사용자 앱들이 raw URL 로 읽는 파일 하나가 갱신된다.
+ * 경로·브랜치는 golden-keyword-publisher 안에 고정한다 — 렌더러가 정하게 두지 않는다.
  */
-ipcMain.handle('golden-keyword:save-repo-file', async (_evt, payload) => {
+ipcMain.handle('golden-keyword:publish', async (_evt, payload) => {
   try {
-    if (app.isPackaged) {
-      return { ok: false, error: '배포본에는 레포가 없습니다. 개발 PC 에서 저장해주세요.' };
-    }
-    if (!payload || !Array.isArray(payload.items)) {
-      return { ok: false, error: '저장할 키워드 데이터 형식이 올바르지 않습니다.' };
-    }
-
-    const filePath = path.join(__dirname, '..', 'data', 'golden-keyword.json');
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-    // 배포본에는 화면에 필요한 값만 담는다 (savedAt 등 로컬 전용 필드는 제외)
-    const content = {
-      reportDate: String(payload.reportDate || ''),
-      updatedAt: Number(payload.updatedAt) || Date.now(),
-      items: payload.items,
-    };
-    fs.writeFileSync(filePath, `${JSON.stringify(content, null, 2)}\n`, 'utf-8');
-    console.log(`[GOLDEN] 배포 원본 기록: ${filePath} (${payload.items.length}건)`);
-    return { ok: true, filePath, count: payload.items.length };
+    return await publishGoldenKeyword(payload);
   } catch (error) {
-    console.error('[GOLDEN] 배포 원본 기록 실패:', error);
-    return { ok: false, error: error instanceof Error ? error.message : '기록 실패' };
+    console.error('[GOLDEN] 배포 실패:', error);
+    return { ok: false, error: error instanceof Error ? error.message : '배포 실패' };
   }
+});
+
+/** 토큰 값은 돌려주지 않는다 — 저장돼 있는지만 알려준다 */
+ipcMain.handle('golden-keyword:token-status', async () => {
+  return { ok: true, hasToken: hasGoldenToken() };
+});
+
+ipcMain.handle('golden-keyword:save-token', async (_evt, args) => {
+  return saveGoldenToken(String(args?.token || ''));
 });
 
 // v3.8.89: 모든 발행 경로에서 사용하는 통합 success 신호 helper.
@@ -11917,9 +11908,6 @@ interface SpiderBacklinkSourcePost {
   wordpressSiteUrl?: string;
 }
 
-const SPIDER_HUB_CTA_START = '<!-- BGPT_SPIDER_HUB_CTA_START -->';
-const SPIDER_HUB_CTA_END = '<!-- BGPT_SPIDER_HUB_CTA_END -->';
-
 function pickText(...values: any[]): string {
   for (const value of values) {
     const text = value === undefined || value === null ? '' : String(value).trim();
@@ -11985,34 +11973,10 @@ function resolveBacklinkPostId(post: SpiderBacklinkSourcePost, platform: SpiderB
   return '';
 }
 
-function buildSpiderHubCtaBlock(hub: SpiderBacklinkHub): string {
-  const safeUrl = escapeHtmlInline(hub.url || '#');
-  const safeTitle = escapeHtmlInline(hub.title || '종합 가이드');
-  const theme = pickSpiderEyeComfortPalette(`${hub.title || ''}|${hub.url || ''}`);
-  return `${SPIDER_HUB_CTA_START}
-<div class="bgpt-spider-hub-cta" data-bgpt-role="spider-hub-backlink" style="margin:42px 0 34px;padding:24px 26px;background:linear-gradient(135deg,${theme.gradientStart} 0%,${theme.gradientEnd} 100%);border:1px solid ${theme.border};border-left:5px solid ${theme.primary};border-radius:14px;box-shadow:0 8px 22px ${theme.ctaShadow};font-family:'Noto Sans KR','Malgun Gothic',sans-serif;">
-  <p style="margin:0 0 8px;color:${theme.heading};font-size:14px;font-weight:800;line-height:1.55;">이 글은 종합 가이드의 일부입니다</p>
-  <p style="margin:0 0 16px;color:${theme.muted};font-size:14px;line-height:1.75;">관련 글 전체 흐름과 핵심 비교표는 종합글에서 한 번에 확인할 수 있습니다.</p>
-  <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:13px 22px;background:linear-gradient(135deg,${theme.ctaButtonStart} 0%,${theme.ctaButtonEnd} 100%);color:#fff !important;text-decoration:none;border-radius:10px;font-size:14px;font-weight:900;line-height:1.3;box-shadow:0 6px 16px ${theme.ctaShadow};">종합글로 돌아가기: ${safeTitle}</a>
-</div>
-${SPIDER_HUB_CTA_END}`;
-}
-
-function insertOrReplaceSpiderHubCta(html: string, ctaBlock: string): { html: string; action: 'inserted' | 'replaced' | 'unchanged' } {
-  const original = String(html || '');
-  const markerRegex = new RegExp(`${escapeRegExpInline(SPIDER_HUB_CTA_START)}[\\s\\S]*?${escapeRegExpInline(SPIDER_HUB_CTA_END)}`, 'i');
-  if (markerRegex.test(original)) {
-    const next = original.replace(markerRegex, ctaBlock);
-    return { html: next, action: next === original ? 'unchanged' : 'replaced' };
-  }
-  const oldBlockRegex = /<div[^>]+data-bgpt-role=["']spider-hub-backlink["'][\s\S]*?<\/div>/i;
-  if (oldBlockRegex.test(original)) {
-    return { html: original.replace(oldBlockRegex, ctaBlock), action: 'replaced' };
-  }
-  return { html: `${original.trim()}\n\n${ctaBlock}`, action: 'inserted' };
-}
-
 async function updateWordPressSpiderBacklink(post: SpiderBacklinkSourcePost, hub: SpiderBacklinkHub, settings: Record<string, any>) {
+  // v3.8.539: 처방 번역까지 함께 — GET 실패 경로가 아래 require 보다 앞서 참조하면 TDZ 라 첫머리에 둔다
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { applySpiderHubBacklinks, describeBacklinkFailure } = require('../src/core/spiderweb/hub-backlinks');
   const env = loadEnvFromFile() as any;
   const postId = resolveBacklinkPostId(post, 'wordpress');
   if (!postId) throw new Error('WordPress postId가 없어 기존 글을 수정할 수 없습니다.');
@@ -12073,7 +12037,7 @@ async function updateWordPressSpiderBacklink(post: SpiderBacklinkSourcePost, hub
   const getResponse = await fetch(getUrl, { headers });
   const getText = await getResponse.text();
   if (!getResponse.ok) {
-    throw new Error(`WordPress 글 조회 실패 (${getResponse.status}): ${getText.substring(0, 160)}`);
+    throw new Error(`WordPress 글 조회 실패 (${getResponse.status}) — ${describeBacklinkFailure(getResponse.status, 'wordpress')}`);
   }
   const wpPost = getText ? JSON.parse(getText) : {};
   const contentValue = wpPost?.content;
@@ -12082,7 +12046,8 @@ async function updateWordPressSpiderBacklink(post: SpiderBacklinkSourcePost, hub
     : pickText(contentValue?.raw, contentValue?.rendered);
   if (!currentHtml) throw new Error('WordPress 글 본문을 읽지 못했습니다.');
 
-  const patch = insertOrReplaceSpiderHubCta(currentHtml, buildSpiderHubCtaBlock(hub));
+  // v3.8.539: 상단·중간·하단 3위치 — 로직은 src/core/spiderweb/hub-backlinks.ts (하네스 대상)
+  const patch = applySpiderHubBacklinks(currentHtml, hub, pickSpiderEyeComfortPalette(`${hub.title || ''}|${hub.url || ''}`));
   if (patch.action === 'unchanged') {
     return { action: 'unchanged', url: wpPost.link || post.url || '' };
   }
@@ -12094,7 +12059,7 @@ async function updateWordPressSpiderBacklink(post: SpiderBacklinkSourcePost, hub
   });
   const putText = await putResponse.text();
   if (!putResponse.ok) {
-    throw new Error(`WordPress 글 수정 실패 (${putResponse.status}): ${putText.substring(0, 160)}`);
+    throw new Error(`WordPress 글 수정 실패 (${putResponse.status}) — ${describeBacklinkFailure(putResponse.status, 'wordpress')}`);
   }
   const updated = putText ? JSON.parse(putText) : {};
   return { action: patch.action, url: updated.link || wpPost.link || post.url || '' };
@@ -12197,7 +12162,10 @@ async function updateBloggerSpiderBacklink(post: SpiderBacklinkSourcePost, hub: 
   const currentHtml = pickText(current.content);
   if (!currentHtml) throw new Error('Blogger 글 본문을 읽지 못했습니다.');
 
-  const patch = insertOrReplaceSpiderHubCta(currentHtml, buildSpiderHubCtaBlock(hub));
+  // v3.8.539: 상단·중간·하단 3위치 — 로직은 src/core/spiderweb/hub-backlinks.ts (하네스 대상)
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { applySpiderHubBacklinks, describeBacklinkFailure } = require('../src/core/spiderweb/hub-backlinks');
+  const patch = applySpiderHubBacklinks(currentHtml, hub, pickSpiderEyeComfortPalette(`${hub.title || ''}|${hub.url || ''}`));
   if (patch.action === 'unchanged') {
     return { action: 'unchanged', url: current.url || post.url || '' };
   }
