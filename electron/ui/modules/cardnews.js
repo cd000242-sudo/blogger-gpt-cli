@@ -42,6 +42,53 @@ export function initCardnews() {
   if (!panel || panel.dataset.ready) return;
   panel.dataset.ready = '1';
 
+  // v3.8.532: 카드뉴스 전용 스타일 — #cardnews-tab 밖으로 새지 않는다.
+  //   inline 으로 못 쓰는 것(hover·focus·keyframes·스크롤바)만 여기 둔다.
+  if (!document.getElementById('cnStyles')) {
+    const st = document.createElement('style');
+    st.id = 'cnStyles';
+    st.textContent = `
+      @keyframes cnCardIn { from { opacity:0; transform:translateY(14px) scale(.96); } to { opacity:1; transform:none; } }
+      @keyframes cnSheen  { from { transform:translateX(-130%); } to { transform:translateX(330%); } }
+      @keyframes cnPulse  { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+      #cnBar { position:relative; overflow:hidden; }
+      #cnBar.cn-active::after { content:''; position:absolute; top:0; bottom:0; left:0; width:38%;
+        background:linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.30), rgba(255,255,255,0));
+        animation:cnSheen 1.8s linear infinite; }
+      #cnBar.cn-done { background:linear-gradient(90deg,#10b981,#059669) !important; }
+      #cnSteps span { font-size:10.5px; font-weight:800; padding:4px 10px; border-radius:999px;
+        color:#94a3b8; background:rgba(148,163,184,.08); border:1px solid rgba(148,163,184,.14);
+        transition:color .25s, background-color .25s, border-color .25s; }
+      #cnSteps span.on { color:#c7d2fe; background:rgba(99,102,241,.16); border-color:rgba(99,102,241,.35); }
+      #cnSteps span.ok { color:#6ee7b7; background:rgba(16,185,129,.12); border-color:rgba(16,185,129,.28); }
+      #cnLiveDot { width:8px; height:8px; border-radius:50%; background:#6366f1;
+        box-shadow:0 0 0 4px rgba(99,102,241,.18); animation:cnPulse 1.6s ease-in-out infinite; flex-shrink:0; }
+      #cnLiveWrap[data-state="done"] #cnLiveDot { background:#10b981; box-shadow:0 0 0 4px rgba(16,185,129,.16); animation:none; }
+      .cn-live-cell { width:150px; animation:cnCardIn .5s cubic-bezier(0.16,1,0.3,1) both; }
+      .cn-live-img { width:150px; aspect-ratio:4/5; object-fit:cover; display:block; border-radius:10px;
+        border:1px solid rgba(148,163,184,.22); background:#0f172a; cursor:pointer;
+        box-shadow:0 10px 24px rgba(2,6,23,.45);
+        transition:transform .18s cubic-bezier(0.16,1,0.3,1), border-color .18s, box-shadow .18s; }
+      .cn-live-img:hover { transform:translateY(-3px); border-color:rgba(129,140,248,.55); box-shadow:0 16px 32px rgba(2,6,23,.55); }
+      .cn-live-num { margin-top:6px; text-align:center; font-size:11px; font-weight:700; color:#94a3b8; font-variant-numeric:tabular-nums; }
+      .cn-kind { display:inline-block; padding:3px 9px; border:1px solid; border-radius:999px; font-size:10.5px; font-weight:800; }
+      #cnCards > [data-card] { transition:border-color .18s, background-color .18s; }
+      #cnCards > [data-card]:hover { border-color:rgba(148,163,184,.30) !important; background:rgba(15,23,42,.78) !important; }
+      #cardnews-tab input:focus, #cardnews-tab textarea:focus, #cardnews-tab select:focus {
+        outline:none; border-color:#6366f1 !important; box-shadow:0 0 0 3px rgba(99,102,241,.18); }
+      .cn-btn { transition:filter .15s, transform .15s; }
+      .cn-btn:hover:not(:disabled) { filter:brightness(1.12); }
+      .cn-btn:active:not(:disabled) { transform:translateY(1px); }
+      .cn-post { transition:background-color .15s; }
+      .cn-post:hover { background:rgba(148,163,184,.06); }
+      #cnPostList::-webkit-scrollbar { width:8px; }
+      #cnPostList::-webkit-scrollbar-thumb { background:#334155; border-radius:4px; }
+      #cnPostList::-webkit-scrollbar-thumb:hover { background:#475569; }
+      #cnPostList::-webkit-scrollbar-track { background:transparent; }
+    `;
+    document.head.appendChild(st);
+  }
+
   panel.innerHTML = `
     <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(148,163,184,0.15); border-radius: 14px; padding: 18px;">
       <div style="font-size: 15px; font-weight: 800; color: #e2e8f0; margin-bottom: 4px;">🃏 발행 글 → 카드뉴스</div>
@@ -53,9 +100,9 @@ export function initCardnews() {
         <select id="cnPlatform" style="padding: 10px 12px; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; font-size: 13px; font-weight: 700;">
           ${PLATFORMS.map((p) => `<option value="${p.key}">${p.label}</option>`).join('')}
         </select>
-        <button id="cnLoadBtn" style="padding: 10px 16px; background: #334155; color: #e2e8f0; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">📋 발행 글 불러오기</button>
-        <button id="cnMakeBtn" disabled style="padding: 10px 16px; background: linear-gradient(135deg,#6366f1,#8b5cf6); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer; opacity: 0.5;">🃏 카드뉴스 만들기</button>
-        <button id="cnOpenBtn" style="display:none; padding: 10px 16px; background: #10b981; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">📁 폴더 열기</button>
+        <button id="cnLoadBtn" class="cn-btn" style="padding: 10px 16px; background: #334155; color: #e2e8f0; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">📋 발행 글 불러오기</button>
+        <button id="cnMakeBtn" disabled class="cn-btn" style="padding: 10px 16px; background: linear-gradient(135deg,#6366f1,#8b5cf6); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer; opacity: 0.5;">🃏 카드뉴스 만들기</button>
+        <button id="cnOpenBtn" class="cn-btn" style="display:none; padding: 10px 16px; background: #10b981; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">📁 폴더 열기</button>
       </div>
       <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px;">
         <span style="font-size: 12px; font-weight: 800; color: #cbd5e1;">이미지 소스</span>
@@ -69,12 +116,20 @@ export function initCardnews() {
       <div id="cnEngineNote" style="font-size: 11.5px; color: #64748b; margin-bottom: 12px;"></div>
       <div id="cnStatus" style="font-size: 12px; color: #94a3b8; margin-bottom: 10px;"></div>
       <!-- v3.8.502: 이미지가 붙으면 몇 분 걸린다. 아무 말도 안 하면 멈춘 걸로 보인다 -->
-      <div id="cnProgress" style="display:none; margin-bottom:12px;">
+      <!-- v3.8.532: 어디까지 왔는지 단계로 보여준다 — 막대 하나로는 "좋은 걸 쓰는 느낌"이 없다 -->
+      <div id="cnProgress" style="display:none; margin-bottom:12px; padding:14px; background:rgba(15,23,42,0.55); border:1px solid rgba(148,163,184,0.14); border-radius:12px;">
+        <div id="cnSteps" style="display:flex; gap:6px; margin-bottom:10px;">
+          <span data-step="plan">✍️ 문안 설계</span>
+          <span data-step="image">🎨 이미지 생성</span>
+          <span data-step="render">🃏 카드 조립</span>
+        </div>
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
-          <div style="flex:1; height:8px; border-radius:4px; background:rgba(148,163,184,0.2); overflow:hidden;">
-            <div id="cnBar" style="height:100%; width:0%; background:linear-gradient(90deg,#6366f1,#8b5cf6); transition:width .3s;"></div>
+          <div style="flex:1; height:10px; border-radius:5px; background:rgba(148,163,184,0.16); overflow:hidden;">
+            <!-- v3.8.532: width 가 아니라 scaleX — 레이아웃 재계산 없이 GPU 합성으로 움직인다.
+                 모서리는 부모의 overflow:hidden 이 잘라주므로 시각 차이가 없다. -->
+            <div id="cnBar" style="height:100%; width:100%; transform:scaleX(0); transform-origin:left; background:linear-gradient(90deg,#6366f1,#8b5cf6); transition:transform .45s cubic-bezier(0.16,1,0.3,1);"></div>
           </div>
-          <span id="cnPct" style="font-size:11.5px; font-weight:800; color:#a5b4fc; min-width:38px; text-align:right;">0%</span>
+          <span id="cnPct" style="font-size:12px; font-weight:800; color:#a5b4fc; min-width:42px; text-align:right; font-variant-numeric:tabular-nums;">0%</span>
         </div>
         <div id="cnPhase" style="font-size:11.5px; color:#94a3b8;"></div>
       </div>
@@ -117,9 +172,29 @@ function renderProgress(p) {
   else if (p?.phase === 'card-done') value = 75 + Math.round(((done + 1) / total) * 20);
   else if (p?.phase === 'done') value = 100;
 
-  bar.style.width = value + '%';
+  bar.style.transform = `scaleX(${value / 100})`;
   if (pct) pct.textContent = value + '%';
   if (phase && p?.label) phase.textContent = p.label;
+
+  // v3.8.532: 단계 칩 — 지금 어느 단계인지, 지나온 단계는 무엇인지 한눈에.
+  //   phase 문자열은 main 의 sendCardnewsProgress 계약 그대로 쓴다 (새 배선 없음).
+  const STEP_ORDER = ['plan', 'image', 'render'];
+  const current = p?.phase === 'card-done' ? 'render' : p?.phase;
+  const isDone = current === 'done';
+  const curIdx = isDone ? STEP_ORDER.length : STEP_ORDER.indexOf(current);
+  box.querySelectorAll('#cnSteps [data-step]').forEach((chip) => {
+    const idx = STEP_ORDER.indexOf(chip.dataset.step);
+    chip.classList.toggle('ok', idx < curIdx);
+    chip.classList.toggle('on', !isDone && idx === curIdx);
+  });
+  // 진행 중엔 막대에 흐르는 광, 완료엔 에메랄드(앱 공통 "완료" 색)로 정착
+  bar.classList.toggle('cn-active', !isDone && value > 0);
+  bar.classList.toggle('cn-done', isDone);
+  const liveWrap = document.getElementById('cnLiveWrap');
+  if (liveWrap) {
+    if (isDone) liveWrap.setAttribute('data-state', 'done');
+    else if (p?.phase === 'plan') liveWrap.removeAttribute('data-state');
+  }
 
   // v3.8.517: 카드가 완성되는 대로 그 자리에서 순차 미리보기 (첫 규격 기준 1장씩)
   if (p?.phase === 'card-done' && p.file && p.format === 'instagram') {
@@ -133,10 +208,21 @@ function _ensureLiveStrip() {
   if (strip) return strip;
   const box = document.getElementById('cnProgress');
   if (!box || !box.parentElement) return null;
+  // v3.8.532: 라이브닷 헤더 — "지금 만들어지고 있다"가 눈에 보여야 기다림이 견딜 만하다
+  const wrap = document.createElement('div');
+  wrap.id = 'cnLiveWrap';
+  wrap.style.cssText = 'margin:12px 0;';
+  wrap.innerHTML = `
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+      <span id="cnLiveDot"></span>
+      <span style="font-size:12px; font-weight:800; color:#cbd5e1;">라이브 미리보기</span>
+      <span style="font-size:11px; color:#94a3b8;">카드가 완성되는 대로 나타납니다 — 누르면 크게 봅니다</span>
+    </div>`;
   strip = document.createElement('div');
   strip.id = 'cnLive';
-  strip.style.cssText = 'display:flex; gap:10px; flex-wrap:wrap; margin:12px 0; align-items:flex-start;';
-  box.parentElement.insertBefore(strip, box.nextSibling);
+  strip.style.cssText = 'display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start;';
+  wrap.appendChild(strip);
+  box.parentElement.insertBefore(wrap, box.nextSibling);
   return strip;
 }
 
@@ -151,12 +237,11 @@ function _appendLivePreview(file, index, total) {
   if (strip.querySelector(`[data-card="${index}"]`)) return; // 중복 방지
   const cell = document.createElement('div');
   cell.setAttribute('data-card', String(index));
-  cell.style.cssText = 'width:118px; text-align:center; animation:fadeIn .3s ease;';
+  cell.className = 'cn-live-cell';
   cell.innerHTML = `
-    <img src="file:///${String(file).replace(/\\/g, '/')}" alt="카드 ${index + 1}"
-      style="width:118px; border-radius:9px; border:1px solid rgba(148,163,184,0.25); display:block; cursor:pointer;"
+    <img src="file:///${String(file).replace(/\\/g, '/')}" alt="카드 ${index + 1}" class="cn-live-img"
       onclick="window.cnOpenLightbox && window.cnOpenLightbox(this.src)" />
-    <div style="color:#94a3b8; font-size:11px; margin-top:4px;">${index + 1}/${total}</div>`;
+    <div class="cn-live-num">${index + 1} / ${total}</div>`;
   strip.appendChild(cell);
 }
 
@@ -375,13 +460,25 @@ function openLightbox(src) {
 
 const KIND_LABEL = { hook: '훅 (첫 장)', body: '본문', save: '저장 유도', cta: '클릭 유도' };
 
+// v3.8.532: 역할이 다른 카드는 다르게 보여야 한다 — 앱 공통 시맨틱 색으로.
+//   훅=브랜드 인디고(시작), 저장=에메랄드(성과), 클릭=앰버(행동), 본문=슬레이트(바탕).
+const KIND_CHIP = {
+  hook: 'color:#c7d2fe; background:rgba(99,102,241,.16); border-color:rgba(99,102,241,.32);',
+  body: 'color:#cbd5e1; background:rgba(148,163,184,.10); border-color:rgba(148,163,184,.18);',
+  save: 'color:#6ee7b7; background:rgba(16,185,129,.14); border-color:rgba(16,185,129,.30);',
+  cta:  'color:#fde68a; background:rgba(251,191,36,.13); border-color:rgba(251,191,36,.30);',
+};
+
 function cardRow(card, i, file, total) {
   const src = file ? `file:///${String(file.file).replace(/\\/g, '/')}` : '';
   return `
     <div data-card="${i}" style="display: grid; grid-template-columns: 132px 1fr; gap: 12px; padding: 12px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 12px;">
       <div>
         ${src ? `<img data-img="${i}" src="${src}" style="width: 132px; border-radius: 8px; border: 1px solid rgba(148,163,184,0.2); display: block;" />` : ''}
-        <div style="margin-top: 6px; font-size: 11px; color: #64748b; text-align: center;">${i + 1} / ${total} · ${KIND_LABEL[card.kind] || '본문'}</div>
+        <div style="margin-top: 7px; display:flex; flex-direction:column; align-items:center; gap:5px;">
+          <span class="cn-kind" style="${KIND_CHIP[card.kind] || KIND_CHIP.body}">${KIND_LABEL[card.kind] || '본문'}</span>
+          <span style="font-size: 11px; color: #94a3b8; font-variant-numeric:tabular-nums;">${i + 1} / ${total}</span>
+        </div>
       </div>
       <div style="display: flex; flex-direction: column; gap: 6px;">
         <input data-title="${i}" value="${escapeText(card.title || '')}" placeholder="제목 (14자 이내가 잘 읽힙니다)"
@@ -389,9 +486,9 @@ function cardRow(card, i, file, total) {
         <textarea data-body="${i}" placeholder="본문 (2줄·60자 이내)"
           style="padding: 8px 10px; min-height: 54px; background: #0f172a; color: #cbd5e1; border: 1px solid #334155; border-radius: 7px; font-size: 12.5px; resize: vertical;">${escapeText(card.body || '')}</textarea>
         <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-          <button data-act="text" data-idx="${i}" style="padding: 7px 12px; background: #334155; color: #e2e8f0; border: none; border-radius: 7px; font-size: 12px; font-weight: 800; cursor: pointer;">${state.mode === 'full' ? '✏️ 문안 고쳐 다시 그리기' : '✏️ 문안만 반영 (이미지 유지 · 무료)'}</button>
-          <button data-act="image" data-idx="${i}" style="padding: 7px 12px; background: linear-gradient(135deg,#6366f1,#8b5cf6); color: #fff; border: none; border-radius: 7px; font-size: 12px; font-weight: 800; cursor: pointer;">🖼️ 이미지 다시 뽑기</button>
-          <span data-msg="${i}" style="font-size: 11.5px; color: #64748b; align-self: center;"></span>
+          <button data-act="text" data-idx="${i}" class="cn-btn" style="padding: 7px 12px; background: #334155; color: #e2e8f0; border: none; border-radius: 7px; font-size: 12px; font-weight: 800; cursor: pointer;">${state.mode === 'full' ? '✏️ 문안 고쳐 다시 그리기' : '✏️ 문안만 반영 (이미지 유지 · 무료)'}</button>
+          <button data-act="image" data-idx="${i}" class="cn-btn" style="padding: 7px 12px; background: linear-gradient(135deg,#6366f1,#8b5cf6); color: #fff; border: none; border-radius: 7px; font-size: 12px; font-weight: 800; cursor: pointer;">🖼️ 이미지 다시 뽑기</button>
+          <span data-msg="${i}" style="font-size: 11.5px; color: #94a3b8; align-self: center;"></span>
         </div>
       </div>
     </div>`;
