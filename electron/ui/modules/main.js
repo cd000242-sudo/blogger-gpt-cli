@@ -17,6 +17,8 @@ import { initTutorialModule } from './tutorial.js';
 import { initSidebar } from './sidebar.js';
 // v3.8.533: 발행 프리셋 콘솔 — 유효 설정 요약 칩 (기존 컨트롤의 뷰, payload 무변경)
 import { initPostingPresets } from './posting-presets.js';
+// v3.8.534: 헤더 배지 드롭다운 — 플랫폼·모델을 배지에서 변경 (라디오+부분 저장 경유)
+import { initHeaderBadges } from './header-badges.js';
 // v3.8.39: initKeywordDiscover 제거 — LEWORD 외부 앱으로 대체.
 import { initContentStubs } from './content-stubs.js';
 
@@ -702,6 +704,14 @@ async function initializeApp() {
       debugLog('MAIN', '발행 프리셋 콘솔 초기화 완료');
     } catch (presetErr) {
       console.error('[PRESET] 초기화 실패 (앱은 계속):', presetErr);
+    }
+
+    // 5.8. 헤더 배지 드롭다운 (v3.8.534) — 실패해도 앱 초기화는 계속돼야 한다
+    try {
+      initHeaderBadges();
+      debugLog('MAIN', '헤더 배지 드롭다운 초기화 완료');
+    } catch (badgeErr) {
+      console.error('[HEADER-BADGE] 초기화 실패 (앱은 계속):', badgeErr);
     }
 
     // v3.8.39: 황금키워드 탐색기 초기화 제거 — LEWORD 외부 앱으로 대체.
