@@ -102,7 +102,6 @@ const getOrCreateDeviceId = oldLicenseManager.getOrCreateDeviceId;
 import { getLicenseManager } from '../dist/utils/license-manager-new';
 import { ScheduleManager } from '../dist/core/schedule-manager';
 import { checkLicenseWithAutoLogin, setupAutoLoginHandlers, setMainWindow } from './main-login';
-import { publishGoldenKeyword, hasGoldenToken, saveGoldenToken } from './golden-keyword-publisher';
 
 function installConsolePipeGuard(): void {
   const swallowPipeError = (error: any) => {
@@ -8044,28 +8043,38 @@ ipcMain.handle('set-admin-pin', async (_evt, args: { oldPin?: string; newPin: st
 });
 
 /**
- * 황금키워드 배포 — 관리자가 저장하면 그 자리에서 GitHub 에 올라간다.
+ * 황금키워드 배포 원본(data/golden-keyword.json)에 쓴다.
  *
- * 개발 PC(레포 있음)면 git commit+push, 설치된 앱이면 저장해둔 토큰으로 GitHub API.
- * 어느 쪽이든 사용자 앱들이 raw URL 로 읽는 파일 하나가 갱신된다.
- * 경로·브랜치는 golden-keyword-publisher 안에 고정한다 — 렌더러가 정하게 두지 않는다.
+ * 이 파일이 GitHub 에 올라가면 사용자 앱들이 raw URL 로 읽어간다.
+ * 레포가 있는 개발 PC 에서만 의미가 있으므로 배포본에서는 명시적으로 거절한다.
+ * 경로는 레포 안의 한 파일로 **고정**한다 — 렌더러가 임의 경로를 쓰게 두지 않는다.
  */
-ipcMain.handle('golden-keyword:publish', async (_evt, payload) => {
+ipcMain.handle('golden-keyword:save-repo-file', async (_evt, payload) => {
   try {
-    return await publishGoldenKeyword(payload);
+    if (app.isPackaged) {
+      return { ok: false, error: '배포본에는 레포가 없습니다. 개발 PC 에서 저장해주세요.' };
+    }
+    if (!payload || !Array.isArray(payload.items)) {
+      return { ok: false, error: '저장할 키워드 데이터 형식이 올바르지 않습니다.' };
+    }
+
+    const filePath = path.join(__dirname, '..', 'data', 'golden-keyword.json');
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    // 배포본에는 화면에 필요한 값만 담는다 (savedAt 등 로컬 전용 필드는 제외)
+    const content = {
+      reportDate: String(payload.reportDate || ''),
+      updatedAt: Number(payload.updatedAt) || Date.now(),
+      items: payload.items,
+    };
+    fs.writeFileSync(filePath, `${JSON.stringify(content, null, 2)}\n`, 'utf-8');
+    console.log(`[GOLDEN] 배포 원본 기록: ${filePath} (${payload.items.length}건)`);
+    return { ok: true, filePath, count: payload.items.length };
   } catch (error) {
-    console.error('[GOLDEN] 배포 실패:', error);
-    return { ok: false, error: error instanceof Error ? error.message : '배포 실패' };
+    console.error('[GOLDEN] 배포 원본 기록 실패:', error);
+    return { ok: false, error: error instanceof Error ? error.message : '기록 실패' };
   }
-});
-
-/** 토큰 값은 돌려주지 않는다 — 저장돼 있는지만 알려준다 */
-ipcMain.handle('golden-keyword:token-status', async () => {
-  return { ok: true, hasToken: hasGoldenToken() };
-});
-
-ipcMain.handle('golden-keyword:save-token', async (_evt, args) => {
-  return saveGoldenToken(String(args?.token || ''));
 });
 
 // v3.8.89: 모든 발행 경로에서 사용하는 통합 success 신호 helper.
