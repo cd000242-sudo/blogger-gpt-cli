@@ -2392,7 +2392,7 @@ async function fetchPageForCta(url: string): Promise<{ ok: boolean; html: string
   }
 }
 
-async function searchOfficialSite(keyword: string, googleCseKey: string, googleCseCx: string, contentMode?: string, skipActionIntent?: boolean, articleText?: string): Promise<{ url: string; title: string } | null> {
+async function searchOfficialSite(keyword: string, googleCseKey: string, googleCseCx: string, contentMode?: string, skipActionIntent?: boolean, articleText?: string): Promise<{ url: string; title: string; smartLabel?: string } | null> {
   if (!googleCseKey || !googleCseCx) return null;
 
   try {
@@ -2407,11 +2407,27 @@ async function searchOfficialSite(keyword: string, googleCseKey: string, googleC
      * 이제 키워드에서 행동(신청·예매·발급…)을 읽어 그 화면을 찾는다.
      */
     const actionIntent = (contentMode === 'shopping' || skipActionIntent) ? null : detectActionIntent(keyword);
+
+    /**
+     * 🧭 v3.8.538 — 목적지를 AI 가 먼저 정한다 (사장님: "어떤 글이던지 스마트하게").
+     *   정규식·카탈로그는 분야마다 두더지 잡기였다 ('거래'→중고나라 사고).
+     *   AI 는 기관 "이름"만 정하고, 주소는 아래 기존 CSE+검증 파이프가 정한다.
+     *   실패하면 null → 기존 행동 의도 경로 그대로 (발행 절대 안 막힘).
+     *   재귀 폴백(skipActionIntent)에서는 다시 부르지 않는다 — 무한 루프 금지.
+     */
+    let smartTarget: { site: string; action: string; buttonLabel: string; searchQuery: string } | null = null;
+    if (contentMode !== 'shopping' && !skipActionIntent) {
+      const { resolveSmartCtaTarget } = require('../../cta/smart-cta');
+      smartTarget = await resolveSmartCtaTarget({
+        keyword, contentMode, articleHint: String(articleText || '').slice(0, 1200),
+      }).catch(() => null);
+    }
+
     const query = contentMode === 'shopping'
       ? `${keyword} 최저가 구매`
-      : buildActionQuery(keyword, actionIntent);
+      : (smartTarget?.searchQuery || buildActionQuery(keyword, actionIntent));
     console.log(`[CTA] 🔍 ${contentMode === 'shopping' ? '쇼핑 페이지'
-      : actionIntent ? `${actionIntent} 화면` : '공식 사이트'} 검색: "${query}"`);
+      : smartTarget ? `🧭 ${smartTarget.site}` : actionIntent ? `${actionIntent} 화면` : '공식 사이트'} 검색: "${query}"`);
 
     const url = `https://www.googleapis.com/customsearch/v1?key=${googleCseKey}&cx=${googleCseCx}&q=${encodeURIComponent(query)}&num=5`;
     const response = await fetch(url);
@@ -2502,14 +2518,14 @@ async function searchOfficialSite(keyword: string, googleCseKey: string, googleC
           console.log(`[CTA] ✅ ${label} 채택(${picked.score}점): ${picked.url || chosen.url}`);
           console.log(`[CTA]    근거: ${picked.reasons.join(' · ')}`);
           if (ctx.agencies.length) console.log(`[CTA]    글이 지목한 기관: ${ctx.agencies.join(', ')}`);
-          return { url: picked.url || chosen.url, title: chosen.title };
+          return { url: picked.url || chosen.url, title: chosen.title, ...(smartTarget?.buttonLabel ? { smartLabel: smartTarget.buttonLabel } : {}) };
         } catch (error) {
           // 하네스가 실패해도 발행을 막지 않는다 — 예전 방식으로 돌아간다
           console.warn('[CTA] ⚠️ 행동 화면 판정 실패, 기존 방식으로:', (error as Error)?.message);
         }
       }
       console.log(`[CTA] ✅ ${actionIntent ? `${actionIntent} 화면` : '공식 사이트'} 확인됨: ${alive[0]!.url}`);
-      return alive[0]!;
+      return { ...alive[0]!, ...(smartTarget?.buttonLabel ? { smartLabel: smartTarget.buttonLabel } : {}) };
     }
 
     /**
@@ -2836,7 +2852,12 @@ JSON만 출력:
         let btnText2 = docCse.isDoc ? docCse.btnText : `🔗 ${shortKeyword2} 공식 사이트`;
         let hookText2 = docCse.isDoc ? docCse.hookText : `${shortKeyword2}에 대해 더 알아보세요!`;
 
-        if (!docCse.isDoc) {
+        // 🧭 v3.8.538: AI 가 정한 목적지면 버튼 문구도 그 상황에 맞게
+        //   ("토지이음에서 용도지역 조회" — 키워드 정규식의 범용 문구보다 구체적)
+        if (!docCse.isDoc && (officialLink as any).smartLabel) {
+          btnText2 = `🔗 ${(officialLink as any).smartLabel}`;
+          hookText2 = `${(officialLink as any).smartLabel} — 공식 화면에서 바로 확인하세요.`;
+        } else if (!docCse.isDoc) {
           // 🛍️ 쇼핑 모드 우선 매핑 (모드가 shopping이면 구매/비교 CTA 먼저)
           if (contentMode === 'shopping') {
             if (keyword.match(/최저가|가격|할인|세일/)) {
