@@ -111,6 +111,20 @@ export function resolveMaxOutputTokens(): number {
   return envInt('GEMINI_MAX_OUTPUT_TOKENS', 32768);
 }
 
+/**
+ * 본문(섹션)급 호출의 응답 대기 상한 (v3.8.536)
+ *
+ * 실사고(2026-08-19): 본문 통짜 JSON(최대 32,768토큰 ≈ 한국어 12,000자)을
+ * 제목과 같은 60초 상한으로 기다리다 "gemini-3.5-flash timeout after 60s"
+ * 2회 시도 후 발행이 통째로 실패했다. 서버가 조금만 느린 날이면 반복된다.
+ *
+ * 제목·FAQ 같은 짧은 호출은 60초를 유지한다 — 죽은 서버에서 호출마다
+ * 3분씩 기다리는 낭비를 막기 위해, 긴 예산은 본문급 호출에만 준다.
+ */
+export function resolveSectionTimeoutMs(): number {
+  return envInt('GEMINI_SECTION_TIMEOUT_MS', 180_000);
+}
+
 function getGeminiTemperature(prompt: string): number {
   return /\[FACT EVIDENCE|FACT INTEGRITY|Verified source URLs|grounding response/i.test(prompt) ? 0.28 : 0.52;
 }
@@ -318,7 +332,8 @@ function buildUserError(provider: Provider, info: FailureInfo, attempts: number,
       break;
     case 'timeout':
       reason = `${providerName} 응답 시간이 너무 길어 중단되었습니다.`;
-      fix = 'Flash 계열 모델을 선택하거나 본문 길이/이미지 생성 옵션을 줄여 다시 시도해 주세요.';
+      // v3.8.536: "Flash 를 선택하라"는 처방은 이미 Flash 에서도 나는 오류라 헛짚었다 (실보고)
+      fix = '서버 혼잡일 수 있습니다 — 잠시 후 그대로 다시 시도해 주세요. 반복되면 이미지 생성 옵션이나 섹션 수를 줄여 보세요.';
       break;
     case 'safety':
       reason = `${providerName} 안전 정책으로 프롬프트 또는 응답이 차단되었습니다.`;
@@ -353,12 +368,26 @@ function buildUserError(provider: Provider, info: FailureInfo, attempts: number,
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timeoutId: NodeJS.Timeout | undefined;
   try {
-    return await Promise.race([
+    const contenders: Array<Promise<T>> = [
       promise,
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => reject(new Error(`${label} timeout after ${Math.round(timeoutMs / 1000)}s`)), timeoutMs);
       }),
-    ]);
+    ];
+    /**
+     * v3.8.536 — 중지 버튼 즉시 반응.
+     *   기존 취소는 "다음 단계 시작 전" 검문소 방식이라, 이미 굴러가는 60~180초
+     *   호출 중간에는 중지가 안 먹었다 (사장님: "칼같이 바로 중지되게 못하니").
+     *   여기(모든 Gemini 대기의 공통 관문)에 취소 레이스를 끼우면
+     *   버튼을 누르는 순간 진행 중 호출에서 즉시 탈출한다.
+     *   중지 기능을 못 불러와도 생성은 계속돼야 한다 — 조용히 건너뛴다.
+     */
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const cancelToken = require('../cancel-token');
+      if (typeof cancelToken.cancelRace === 'function') contenders.push(cancelToken.cancelRace(label));
+    } catch { /* 취소 모듈 없음 — 생성은 계속 */ }
+    return await Promise.race(contenders);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
@@ -385,7 +414,7 @@ function getProviderKey(provider: Provider): string {
   return '';
 }
 
-export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1): Promise<string> {
+export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1, opts?: { timeoutMs?: number }): Promise<string> {
   const primaryProvider = getPrimaryProvider();
   const modelValue = process.env['PRIMARY_TEXT_MODEL'] || resolveDefaultTierValue();
   const tier = findTier(modelValue);
@@ -410,6 +439,8 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
         return repairBrokenGeneratedText(`${providerName} response`, await callPerplexityAPI(prompt));
       }
     } catch (error: any) {
+    if (error?.canceled === true) throw error; // v3.8.536: 사용자 중지는 즉시 위로
+      if (error?.canceled === true) throw error; // v3.8.536: 사용자 중지는 실패 분류·재시도 없이 즉시 위로
       throw buildUserError(primaryProvider, classifyFailure(error), 1);
     }
 
@@ -420,6 +451,7 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
   try {
     genAI = getGenAI();
   } catch (error: any) {
+    if (error?.canceled === true) throw error; // v3.8.536: 사용자 중지는 즉시 위로
     throw buildUserError('gemini', { kind: 'missing_key', message: errorToText(error) }, 0);
   }
   const geminiChain = buildGeminiChain();
@@ -464,7 +496,7 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             generationConfig: { maxOutputTokens: resolveMaxOutputTokens(), temperature: getGeminiTemperature(prompt) },
           }),
-          envInt('GEMINI_TIMEOUT_MS', DEFAULT_GEMINI_TIMEOUT_MS),
+          opts?.timeoutMs ?? envInt('GEMINI_TIMEOUT_MS', DEFAULT_GEMINI_TIMEOUT_MS), // v3.8.536: 본문급은 호출자가 긴 예산을 준다
           modelName,
         );
         const text = result?.response?.text?.() || '';
@@ -472,6 +504,9 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
         console.log(`[Gemini] ${modelName} success (${text.length} chars)`);
         return repairBrokenGeneratedText(`${modelName} response`, text);
       } catch (error: any) {
+    if (error?.canceled === true) throw error; // v3.8.536: 사용자 중지는 즉시 위로
+        if (error?.canceled === true) throw error; // v3.8.536: 사용자 중지는 즉시 위로
+      if (error?.canceled === true) throw error; // v3.8.536: 사용자 중지는 실패 분류·재시도 없이 즉시 위로
         const info = classifyFailure(error);
         lastInfo = info;
         console.warn(`[Gemini] ${modelName} failed (${info.kind}): ${info.message.slice(0, 140)}`);
@@ -548,6 +583,7 @@ export async function callGeminiWithGrounding(
   maxRetries: number = 1,
   forceGeminiSearch: boolean = false,
   onGroundingEvidence?: (sourceUrls: string[]) => void,
+  opts?: { timeoutMs?: number },
 ): Promise<string> {
   const primaryProvider = getPrimaryProvider();
   if (!forceGeminiSearch && primaryProvider !== 'gemini') {
@@ -568,6 +604,7 @@ export async function callGeminiWithGrounding(
   try {
     genAI = getGenAI();
   } catch (error: any) {
+    if (error?.canceled === true) throw error; // v3.8.536: 사용자 중지는 즉시 위로
     throw buildUserError('gemini', { kind: 'missing_key', message: errorToText(error) }, 0, 'Grounding');
   }
   const attemptsPerModel = Math.max(1, Math.floor(maxRetries || 1));
@@ -605,7 +642,7 @@ export async function callGeminiWithGrounding(
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             generationConfig: { maxOutputTokens: resolveMaxOutputTokens() },
           }),
-          envInt('GROUNDING_TIMEOUT_MS', DEFAULT_GROUNDING_TIMEOUT_MS),
+          opts?.timeoutMs ?? envInt('GROUNDING_TIMEOUT_MS', DEFAULT_GROUNDING_TIMEOUT_MS), // v3.8.536
           `${modelName} grounding`,
         );
         const text = result?.response?.text?.() || '';
@@ -624,6 +661,9 @@ export async function callGeminiWithGrounding(
         console.log(`[Grounding] ${modelName} success (${text.length} chars)`);
         return repairBrokenGeneratedText(`${modelName} grounding response`, text);
       } catch (error: any) {
+    if (error?.canceled === true) throw error; // v3.8.536: 사용자 중지는 즉시 위로
+        if (error?.canceled === true) throw error; // v3.8.536: 사용자 중지는 즉시 위로
+      if (error?.canceled === true) throw error; // v3.8.536: 사용자 중지는 실패 분류·재시도 없이 즉시 위로
         const info = classifyFailure(error);
         lastInfo = info;
         console.warn(`[Grounding] ${modelName} failed (${info.kind}): ${info.message.slice(0, 140)}`);
@@ -668,7 +708,7 @@ IMPORTANT:
 - Keep the answer useful, but avoid unsupported claims.`;
 
   try {
-    return await callGeminiWithRetry(safePrompt, maxRetries);
+    return await callGeminiWithRetry(safePrompt, maxRetries, opts); // v3.8.536: 본문급 예산 상속
   } catch (fallbackError: any) {
     if (String(fallbackError?.message || '').includes('원인:')) {
       throw fallbackError;

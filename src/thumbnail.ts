@@ -2142,6 +2142,22 @@ export async function makeGptImageThumbnail(
      * 그 경우 기존 PNG 경로 그대로이고, v3.8.465 변환이 뒤에서 여전히 받쳐준다.
      */
     let outputFormat: 'webp' | null = 'webp';
+    /**
+     * v3.8.536 — 타임아웃 신호에 사용자 중지 신호를 합친다.
+     *   중지 버튼을 누르면 진행 중인 이미지 요청도 그 자리에서 끊긴다 (탈출 + 과금 중단).
+     *   취소 모듈이 없거나(AbortSignal.any 미지원 포함) 도는 작업이 없으면 기존과 동일.
+     */
+    const composeAbortSignal = (ms: number): AbortSignal => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const ct = require('./core/cancel-token');
+        const cancel = ct.getCancelSignal?.();
+        if (cancel && typeof (AbortSignal as any).any === 'function') {
+          return (AbortSignal as any).any([AbortSignal.timeout(ms), cancel]);
+        }
+      } catch { /* 취소 기능 없이도 타임아웃은 동작 */ }
+      return AbortSignal.timeout(ms);
+    };
     const doFetch = async (): Promise<Response> => {
       if (gptRefs.length > 0) {
         console.log(`[GPT-IMAGE] 🖼️ i2i 모드 — 참고 사진 ${gptRefs.length}장과 함께 편집 생성`);
@@ -2161,7 +2177,7 @@ Use the provided product photo as the actual product. `
           headers: { 'Authorization': `Bearer ${options.apiKey}` },   // Content-Type 은 FormData 가 정한다
           body: form as any,
           // v3.8.466: 타임아웃이 없으면 멈춘 업로드가 엣지에서 끊길 때까지 매달린다(520 의 한 갈래)
-          signal: AbortSignal.timeout(180000),
+          signal: composeAbortSignal(180000),
         });
       }
       return fetch('https://api.openai.com/v1/images/generations', {
@@ -2179,7 +2195,7 @@ Use the provided product photo as the actual product. `
           ...(outputFormat ? { output_format: outputFormat } : {}),
           // 기본 b64_json 반환
         }),
-        signal: AbortSignal.timeout(180000),
+        signal: composeAbortSignal(180000),
       });
     };
 

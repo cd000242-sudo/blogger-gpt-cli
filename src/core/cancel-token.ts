@@ -29,10 +29,13 @@ export class CanceledError extends Error {
 
 let canceledRunId = 0;
 let currentRunId = 0;
+// v3.8.536: 즉시 중지용 — run 세대마다 새 컨트롤러. 중지 순간 abort 가 퍼진다.
+let abortController: AbortController | null = null;
 
 /** 새 작업을 시작한다. 이전 취소 요청은 여기서 무효가 된다. */
 export function beginRun(): number {
   currentRunId += 1;
+  abortController = new AbortController(); // v3.8.536: 이 작업 전용 비상 브레이크
   return currentRunId;
 }
 
@@ -45,6 +48,9 @@ export function beginRun(): number {
 export function requestCancel(): boolean {
   if (currentRunId === 0 || canceledRunId === currentRunId) return false;
   canceledRunId = currentRunId;
+  // v3.8.536: 검문소 방식만으론 "이미 굴러가는 60~180초 호출"이 안 멈췄다
+  // (사장님: "칼같이 바로 중지되게 못하니"). abort 를 쏘면 cancelRace/HTTP signal 이 즉시 반응한다.
+  try { abortController?.abort(); } catch { /* abort 실패가 중지 표시를 막으면 안 된다 */ }
   return true;
 }
 
@@ -57,6 +63,7 @@ export function isCanceled(): boolean {
 export function endRun(): void {
   currentRunId = 0;
   canceledRunId = 0;
+  abortController = null;
 }
 
 /**
@@ -71,4 +78,34 @@ export function throwIfCanceled(where: string): void {
 /** 이 오류가 '사용자가 중지시킨 것'인가 — 실패로 보고하면 안 된다. */
 export function isCancellation(error: unknown): boolean {
   return !!error && ((error as any).canceled === true || (error as any).name === 'CanceledError');
+}
+
+/**
+ * 진행 중 HTTP 요청에 꽂을 취소 신호 (v3.8.536).
+ * 도는 작업이 없으면 null — 신호 없이도 요청은 정상 동작해야 한다.
+ */
+export function getCancelSignal(): AbortSignal | null {
+  return currentRunId !== 0 && abortController ? abortController.signal : null;
+}
+
+/**
+ * 긴 대기(Promise.race)에 끼워 넣는 취소 레이스 (v3.8.536).
+ *
+ * 중지 버튼을 누르는 순간 CanceledError 로 reject 되어, 이미 굴러가는
+ * 60~180초 LLM 대기에서 즉시 탈출한다. 도는 작업이 없으면 영원히
+ * 대기하는 프로미스를 준다 — race 의 다른 다리가 이긴다.
+ *
+ * 레이스가 먼저 끝난 뒤 늦게 취소가 와도 unhandledRejection 이 되지 않게
+ * 자체 catch 를 미리 붙여 둔다 (race 쪽 핸들러와 별개로 rejection 을 소화).
+ */
+export function cancelRace(where: string): Promise<never> {
+  if (currentRunId === 0 || !abortController) return new Promise<never>(() => { /* 영원히 대기 */ });
+  const signal = abortController.signal;
+  const p = new Promise<never>((_, reject) => {
+    const fire = () => reject(new CanceledError(where));
+    if (signal.aborted) fire();
+    else signal.addEventListener('abort', fire, { once: true });
+  });
+  p.catch(() => { /* 늦은 취소의 unhandledRejection 방지 */ });
+  return p;
 }

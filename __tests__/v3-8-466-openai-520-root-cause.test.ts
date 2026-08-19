@@ -96,8 +96,11 @@ describe('② 소스에 원인 차단이 남아 있다', () => {
     //   edits 블록은 다음 fetch 시작까지, generations 블록은 doFetch 호출부까지가 경계다.
     const editsCall = blockBetween(thumbnail, "fetch('https://api.openai.com/v1/images/edits'", "fetch('https://api.openai.com/v1/images/generations'");
     const genCall = blockBetween(thumbnail, "fetch('https://api.openai.com/v1/images/generations'", '\n    let res = await doFetch();');
-    expect(editsCall).toContain('AbortSignal.timeout(');
-    expect(genCall).toContain('AbortSignal.timeout(');
+    // v3.8.536: 타임아웃 신호에 사용자 중지 신호가 합쳐졌다(composeAbortSignal).
+    //   보증 사슬: 두 요청 모두 합성 신호를 쓰고, 합성 신호는 항상 타임아웃을 포함한다.
+    expect(editsCall).toContain('signal: composeAbortSignal(180000)');
+    expect(genCall).toContain('signal: composeAbortSignal(180000)');
+    expect(thumbnail).toContain('AbortSignal.timeout(ms)');
   });
 
   it('⭐ 못 줄여도 발행은 계속된다 (압축 실패가 생성을 막으면 안 된다)', () => {

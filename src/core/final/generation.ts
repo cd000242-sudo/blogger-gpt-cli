@@ -187,7 +187,7 @@ async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000,
   }
 }
 import { validateCtaUrl } from '../../cta/validate-cta-url';
-import { callGeminiWithGrounding, callGeminiWithRetry } from './gemini-engine';
+import { callGeminiWithGrounding, callGeminiWithRetry, resolveSectionTimeoutMs } from './gemini-engine';
 import { detectActionIntent, buildActionQuery } from '../../cta/action-intent';
 import { analyzeArticleContext, resolveActionLink } from '../../cta/action-link-harness';
 import { judgeCtaHost, describeHostVerdict } from '../../cta/host-trust';
@@ -1740,7 +1740,8 @@ JSON만 출력 (설명/마크다운 금지):
 
   try {
     onLog?.('[PROGRESS] 50% - 🤖 AI 본문 생성 중...');
-    let response = await callGeminiWithGrounding(prompt);
+    // v3.8.536: 본문 통짜 JSON 은 32k 토큰까지 받는다 — 60~75초 상한으론 서버가 조금만 느려도 실패한다 (실사고)
+    let response = await callGeminiWithGrounding(prompt, 1, false, undefined, { timeoutMs: resolveSectionTimeoutMs() });
     let json = extractJsonObject(response);
 
     let allSectionsObj: {
@@ -1757,7 +1758,7 @@ JSON만 출력 (설명/마크다운 금지):
     } catch (e) {
       onLog?.('[PROGRESS] 50% - 🔁 JSON 파싱 실패, 1회 재시도...');
       const retryPrompt = `${prompt}\n\nIMPORTANT: Return ONLY a valid JSON object starting with { and ending with }. No markdown, no code fences, no extra text. Do not add explanations after the closing brace.`;
-      response = await callGeminiWithRetry(retryPrompt);
+      response = await callGeminiWithRetry(retryPrompt, 1, { timeoutMs: resolveSectionTimeoutMs() });
       json = extractJsonObject(response);
       try {
         allSectionsObj = safeParseJson(json);
@@ -1831,7 +1832,7 @@ ${JSON.stringify(allSectionsObj)}
 
 JSON만 출력:
 `;
-      const improved = await callGeminiWithRetry(improvePrompt);
+      const improved = await callGeminiWithRetry(improvePrompt, 1, { timeoutMs: resolveSectionTimeoutMs() });
       const improvedJson = extractJsonObject(improved);
       try {
         const candidate = safeParseJson(improvedJson);
@@ -1943,7 +1944,7 @@ JSON만 출력:
             reference.slice(0, 6000),
           ].join('\n');
 
-          const repaired = await callGeminiWithRetry(repairPrompt);
+          const repaired = await callGeminiWithRetry(repairPrompt, 1, { timeoutMs: resolveSectionTimeoutMs() });
           const repairedObj = safeParseJson(extractJsonObject(repaired));
           let filled = 0;
           for (const item of (repairedObj?.items || [])) {

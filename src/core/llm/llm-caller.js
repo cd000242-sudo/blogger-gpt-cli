@@ -266,6 +266,15 @@ async function callLLM(provider, prompt) {
     const modelChain = resolveModelChain(provider);
     const maxRetries = (0, provider_throttle_1.getTextProviderMaxRetries)(config.provider);
     let totalAttempts = 0;
+    // v3.8.536: 중지 버튼 즉시 반응 — 진행 중 HTTP 를 실제로 끊는다 (탈출 + 과금 중단).
+    //   취소 모듈을 못 불러와도 호출은 정상 동작해야 한다.
+    let cancelToken = null;
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        cancelToken = require('../cancel-token');
+    }
+    catch { /* 취소 기능 없이 진행 */ }
+    const cancelSignal = cancelToken?.getCancelSignal?.() || undefined;
     for (const model of modelChain) {
         for (let attempt = 0; attempt < maxRetries; attempt++) {
             totalAttempts++;
@@ -275,6 +284,8 @@ async function callLLM(provider, prompt) {
                 const response = await axios_1.default.post(config.endpoint, config.buildBody(model, prompt), {
                     headers: config.buildHeaders(apiKey),
                     timeout: config.timeout,
+                    // v3.8.536: 중지 순간 요청 자체가 끊긴다 (신호 없으면 undefined — 평소와 동일)
+                    ...(cancelSignal ? { signal: cancelSignal } : {}),
                 });
                 const text = config.extractText(response.data);
                 if (text) {
@@ -283,6 +294,11 @@ async function callLLM(provider, prompt) {
                 throw new Error('빈 응답');
             }
             catch (error) {
+                // v3.8.536: 사용자 중지는 실패가 아니다 — 재시도·모델 체인 없이 즉시 위로 던진다.
+                //   axios 는 abort 시 code='ERR_CANCELED' 로 거절한다.
+                if (cancelToken && (error?.code === 'ERR_CANCELED' || cancelToken.isCancellation?.(error) || cancelToken.isCanceled?.())) {
+                    throw new cancelToken.CanceledError(`${config.name} 호출 중`);
+                }
                 const errorMsg = extractErrorMessage(error);
                 const kind = classifyProviderFailure(config, error);
                 lastError = buildProviderError(config, kind, model, totalAttempts, errorMsg);

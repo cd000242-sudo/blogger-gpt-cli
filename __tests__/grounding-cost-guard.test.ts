@@ -45,7 +45,8 @@ describe('Grounding cost guard — automatic call sites stay cut off', () => {
     // 이 호출 자체를 지우면 "선택형 Grounding" 기능 자체가 없어진다 — 그건 사용자 요구가 아니다.
     // orchestration.ts가 DISABLE_GEMINI_GROUNDING을 통해 기본 차단하고,
     // factCheckMode==='grounding' 명시 선택 시에만 연다.
-    expect(generationSrc).toContain('let response = await callGeminiWithGrounding(prompt);');
+    // v3.8.536: 본문급 타임아웃 인자가 붙어 호출 문자열이 바뀌었다 — 잠그는 건 "호출의 존재"다.
+    expect(generationSrc).toMatch(/let response = await callGeminiWithGrounding\(prompt,/);
   });
 
   test('orchestration.ts no longer imports or calls callGeminiWithGrounding at all', () => {
