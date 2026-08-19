@@ -98,4 +98,14 @@ describe('④ 배선 — 배지 실존 + 초기화', () => {
   it('배지가 없으면 조용히 죽지 않고 경고한다', () => {
     expect(mod).toContain('배지를 찾지 못했습니다');
   });
+
+  it('팝오버는 fixed + 좌표 계산 — 헤더의 overflow-y:hidden 에 잘리지 않는다 (v3.8.535)', () => {
+    // .app-header 는 배지 가로 스크롤용 overflow-x:auto + overflow-y:hidden 이라
+    // 상자 안 absolute 팝오버는 아래로 열리는 순간 잘린다 (실보고: "드롭다운이 어디있나요").
+    const css = read('electron/ui/styles.css');
+    expect(css).toMatch(/\.app-header\s*\{[^}]*overflow-y:\s*hidden/);
+    expect(mod).toContain('position:fixed');
+    expect(mod).toContain('getBoundingClientRect()');
+    expect(mod).not.toMatch(/\.hb-pop\s*\{[^}]*position:absolute/);
+  });
 });

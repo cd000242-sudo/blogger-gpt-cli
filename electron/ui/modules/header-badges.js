@@ -60,7 +60,10 @@ export function initHeaderBadges() {
       .header-badge.hb-click { cursor:pointer; position:relative; transition:filter .15s; }
       .header-badge.hb-click:hover { filter:brightness(1.18); }
       .header-badge.hb-click .hb-caret { font-size:9px; color:rgba(255,255,255,.55); margin-left:2px; }
-      .hb-pop { position:absolute; top:calc(100% + 8px); right:0; z-index:300; min-width:250px; max-height:340px; overflow-y:auto;
+      /* v3.8.535: absolute → fixed. .app-header 가 overflow-y:hidden 이라(배지 가로 스크롤용)
+         상자 안 absolute 팝오버는 아래로 열리는 순간 잘려서 안 보였다 (사장님 실보고).
+         fixed + 열 때 좌표 계산으로 상자 밖으로 탈출한다. 헤더는 sticky top 이라 좌표가 안정적이다. */
+      .hb-pop { position:fixed; z-index:9000; min-width:250px; max-height:340px; overflow-y:auto;
         background:#111a30; border:1px solid rgba(148,163,184,.3); border-radius:12px; padding:11px;
         box-shadow:0 16px 40px rgba(2,6,23,.6); display:none; text-align:left; }
       .hb-pop.open { display:block; }
@@ -85,6 +88,11 @@ export function initHeaderBadges() {
       document.querySelectorAll('.hb-pop.open').forEach((p) => p.classList.remove('open'));
     }
   });
+  // fixed 좌표는 스크롤·리사이즈에 어긋난다 — 열린 채 움직이면 그냥 닫는다 (배지 가로 스크롤 포함)
+  window.addEventListener('resize', closeAllPops);
+  document.addEventListener('scroll', closeAllPops, true);
+
+  addLog('🎫 헤더 배지 드롭다운 준비 완료 (플랫폼·AI 모델 클릭으로 변경)', 'info');
 }
 
 function wireBadge(valueEl, build) {
@@ -106,7 +114,14 @@ function wireBadge(valueEl, build) {
     if (e.target.closest('.hb-opt')) return;
     const was = pop.classList.contains('open');
     document.querySelectorAll('.hb-pop.open').forEach((p) => p.classList.remove('open'));
-    if (!was) { build(pop); pop.classList.add('open'); }
+    if (!was) {
+      build(pop);
+      // fixed 좌표: 배지 바로 아래, 오른쪽이 화면을 넘으면 안쪽으로 끌어온다
+      const r = badge.getBoundingClientRect();
+      pop.style.top = `${Math.round(r.bottom + 8)}px`;
+      pop.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 270)))}px`;
+      pop.classList.add('open');
+    }
     e.stopPropagation();
   });
 }
