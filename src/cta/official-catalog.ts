@@ -78,6 +78,9 @@ export const OFFICIAL_CATALOG: OfficialLink[] = [
   
   // ========== 부동산/주거 ==========
   { txt: "국토교통부", url: "https://www.molit.go.kr", tags: ["부동산","주택","청약","정책","임대"], weight: 5 },
+  // v3.8.537: 토지 계열의 공식 조회처 — 없어서 그린벨트 글 CTA 가 중고나라로 새는 사고가 났다.
+  //   토지이용계획·용도지역·토지거래허가 조회는 전부 토지이음 하나로 통한다 (딥링크 금지 원칙: 메인만).
+  { txt: "토지이음", url: "https://www.eum.go.kr", tags: ["토지이음","토지","토지이용계획","용도지역","그린벨트","개발제한구역","토지거래허가","지목","도시계획"], weight: 9 },
   { txt: "청약홈", url: "https://www.applyhome.co.kr", tags: ["청약","아파트","분양","신청","주택"], weight: 8 },
   { txt: "부동산114", url: "https://www.r114.com", tags: ["부동산","매매","전세","월세","시세"], weight: 6 },
   { txt: "직방", url: "https://www.zigbang.com", tags: ["부동산","원룸","오피스텔","전세","월세"], weight: 6 },
@@ -201,9 +204,12 @@ export const OFFICIAL_CATALOG: OfficialLink[] = [
   { txt: "밀리의서재", url: "https://www.millie.co.kr", tags: ["전자책","ebook","구독","독서","오디오북"], weight: 6 },
   
   // ========== 중고거래/플리마켓 ==========
-  { txt: "중고나라", url: "https://www.joonggonara.co.kr", tags: ["중고","거래","판매","구매","중고거래"], weight: 6 },
-  { txt: "번개장터", url: "https://www.bunjang.co.kr", tags: ["중고","거래","판매","구매","중고거래","패션"], weight: 7 },
-  { txt: "당근마켓", url: "https://www.daangn.com", tags: ["중고","거래","동네","지역","중고거래"], weight: 8 },
+  // v3.8.537: 맨몸 "거래"/"판매"/"구매" 태그 제거 — 부분 문자열 매칭이라
+  //   "토지거래허가"의 '거래'가 걸려 그린벨트 글 CTA 가 중고나라로 나갔다 (실사고).
+  //   '보험'→삼성화재(v3.8.362)와 같은 무늬다. 명시 신호(중고거래·중고판매)만 남긴다.
+  { txt: "중고나라", url: "https://www.joonggonara.co.kr", tags: ["중고","중고나라","중고거래","중고판매"], weight: 6 },
+  { txt: "번개장터", url: "https://www.bunjang.co.kr", tags: ["중고","번개장터","중고거래","중고판매","패션"], weight: 7 },
+  { txt: "당근마켓", url: "https://www.daangn.com", tags: ["중고","당근","동네","지역","중고거래"], weight: 8 },
   
   // ========== 꽃/화환/선물 ==========
   { txt: "플라워365", url: "https://www.flower365.co.kr", tags: ["꽃","화환","꽃배달","축하","선물","결혼","장례"], weight: 7 },

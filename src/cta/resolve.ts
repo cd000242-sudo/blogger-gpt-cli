@@ -57,7 +57,9 @@ function detectCategoryV2(query: string): string[] {
   if (/(세금|국세|지방세|종소세|종합소득세|부가세|연말정산|홈택스|위택스|환급|신고)/i.test(q)) categories.add('tax');
   if (isSocialInsurance || /(건강|의료|병원|진료|보험료|건강보험|의료보험|요양|검진|약값|질병)/i.test(q)) categories.add('health');
   if (isSocialInsurance || /(고용|취업|구직|채용|실업급여|일자리|이력서|hrd|직업훈련)/i.test(q)) categories.add('jobs');
-  if (/(부동산|아파트|청약|주택|전세|월세|매매|실거래|분양|임대)/i.test(q)) categories.add('realestate');
+  // v3.8.537: 토지 계열 추가 — 그린벨트/토지거래허가 키워드가 어느 카테고리에도 안 걸려
+  //   공공(.go.kr) 가점을 못 받았고, 중고나라의 맨몸 '거래' 태그를 막을 방어선이 없었다 (실사고)
+  if (/(부동산|아파트|청약|주택|전세|월세|매매|실거래|분양|임대|토지|그린벨트|개발제한구역|용도지역|토지거래허가|지목)/i.test(q)) categories.add('realestate');
   if (/(교육|학교|대학|입시|강의|수능|학습|자격증|인강|hrd)/i.test(q)) categories.add('education');
   // v3.8.362: 사회보험이면 finance 강제 제외 (민간 손해보험사 오매칭 차단)
   if (!isSocialInsurance && /(금융|은행|대출|적금|예금|카드|보험|투자|송금|이체|간편결제)/i.test(q)) categories.add('finance');
@@ -85,7 +87,7 @@ function hostMatchesCategory(category: string, h: string, url: string): boolean 
     case 'jobs':
       return /(work\.go\.kr|ei\.go\.kr|hrd\.go\.kr|saramin|jobkorea|linkedin)/i.test(target);
     case 'realestate':
-      return /(molit|rt\.molit|applyhome|r114|zigbang|dabang)/i.test(target);
+      return /(molit|rt\.molit|applyhome|r114|zigbang|dabang|eum\.go\.kr)/i.test(target); // v3.8.537: 토지이음
     case 'education':
       return /(moe\.go\.kr|neis|adiga|ebs|hrd\.go\.kr)/i.test(target);
     case 'finance':
