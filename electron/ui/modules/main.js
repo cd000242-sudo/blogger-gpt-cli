@@ -15,6 +15,8 @@ import { downloadExcelTemplate, runExcelBatch, downloadExcelResults, clearExcelR
 import { generateTextThumbnail, generateTextThumbnailWithBackground, downloadThumbnail, applyPreset, updateThumbnailPreview } from './thumbnail.js';
 import { initTutorialModule } from './tutorial.js';
 import { initSidebar } from './sidebar.js';
+// v3.8.533: 발행 프리셋 콘솔 — 유효 설정 요약 칩 (기존 컨트롤의 뷰, payload 무변경)
+import { initPostingPresets } from './posting-presets.js';
 // v3.8.39: initKeywordDiscover 제거 — LEWORD 외부 앱으로 대체.
 import { initContentStubs } from './content-stubs.js';
 
@@ -693,6 +695,14 @@ async function initializeApp() {
     // 5.6. 사이드바 초기화
     initSidebar();
     debugLog('MAIN', '사이드바 초기화 완료');
+
+    // 5.7. 발행 프리셋 콘솔 (v3.8.533) — 실패해도 앱 초기화는 계속돼야 한다
+    try {
+      initPostingPresets();
+      debugLog('MAIN', '발행 프리셋 콘솔 초기화 완료');
+    } catch (presetErr) {
+      console.error('[PRESET] 초기화 실패 (앱은 계속):', presetErr);
+    }
 
     // v3.8.39: 황금키워드 탐색기 초기화 제거 — LEWORD 외부 앱으로 대체.
 
