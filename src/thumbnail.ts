@@ -2129,28 +2129,42 @@ export async function makeGptImageThumbnail(
     //   generations 엔드포인트는 입력 이미지를 못 받는다. edits 만 받는다.
     //   내려받기에 실패하면 조용히 generations 로 돌아간다 — 생성을 막지 않는다.
     const gptRefs = await fetchImagesAsBlobs(options.referenceImages);
-    let res: Response;
-    if (gptRefs.length > 0) {
-      console.log(`[GPT-IMAGE] 🖼️ i2i 모드 — 참고 사진 ${gptRefs.length}장과 함께 편집 생성`);
-      const form = new FormData();
-      form.append('model', options.modelId);
-      form.append('prompt', `${prompt}
+
+    /**
+     * 🪶 v3.8.531 — WebP 를 엔진에서 **바로** 받는다.
+     *
+     * 기존엔 PNG(1024² 사진형이면 3MB)로 받아 발행 직전에 sharp 로 WebP 재압축했다
+     * (v3.8.465). gpt-image 계열은 output_format 을 지원하므로 처음부터 WebP 로 받으면
+     * 이중 인코딩(화질 손실)과 변환 CPU, 응답 전송량이 함께 사라진다.
+     *
+     * 단, 이 파라미터를 모르는 모델(gptimage2 덕테이프 등)이 400 을 돌려주면
+     * output_format 없이 즉시 한 번 더 시도한다 — **생성이 막히면 안 된다.**
+     * 그 경우 기존 PNG 경로 그대로이고, v3.8.465 변환이 뒤에서 여전히 받쳐준다.
+     */
+    let outputFormat: 'webp' | null = 'webp';
+    const doFetch = async (): Promise<Response> => {
+      if (gptRefs.length > 0) {
+        console.log(`[GPT-IMAGE] 🖼️ i2i 모드 — 참고 사진 ${gptRefs.length}장과 함께 편집 생성`);
+        const form = new FormData();
+        form.append('model', options.modelId);
+        form.append('prompt', `${prompt}
 
 Use the provided product photo as the actual product. `
-        + 'Keep its shape, color and proportions recognizable in the scene.');
-      form.append('n', '1');
-      form.append('size', size);
-      form.append('quality', quality);
-      gptRefs.forEach((b, i) => form.append('image[]', b, `ref${i}.png`));
-      res = await fetch('https://api.openai.com/v1/images/edits', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${options.apiKey}` },   // Content-Type 은 FormData 가 정한다
-        body: form as any,
-        // v3.8.466: 타임아웃이 없으면 멈춘 업로드가 엣지에서 끊길 때까지 매달린다(520 의 한 갈래)
-        signal: AbortSignal.timeout(180000),
-      });
-    } else {
-      res = await fetch('https://api.openai.com/v1/images/generations', {
+          + 'Keep its shape, color and proportions recognizable in the scene.');
+        form.append('n', '1');
+        form.append('size', size);
+        form.append('quality', quality);
+        if (outputFormat) form.append('output_format', outputFormat);
+        gptRefs.forEach((b, i) => form.append('image[]', b, `ref${i}.png`));
+        return fetch('https://api.openai.com/v1/images/edits', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${options.apiKey}` },   // Content-Type 은 FormData 가 정한다
+          body: form as any,
+          // v3.8.466: 타임아웃이 없으면 멈춘 업로드가 엣지에서 끊길 때까지 매달린다(520 의 한 갈래)
+          signal: AbortSignal.timeout(180000),
+        });
+      }
+      return fetch('https://api.openai.com/v1/images/generations', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${options.apiKey}`,
@@ -2162,14 +2176,27 @@ Use the provided product photo as the actual product. `
           n: 1,
           size,
           quality,
+          ...(outputFormat ? { output_format: outputFormat } : {}),
           // 기본 b64_json 반환
         }),
         signal: AbortSignal.timeout(180000),
       });
+    };
+
+    let res = await doFetch();
+    let errorText: string | null = null;
+    if (!res.ok) {
+      errorText = await res.text().catch(() => '');
+      if (res.status === 400 && outputFormat && /output_format/i.test(errorText)) {
+        console.warn(`[GPT-IMAGE] ${options.modelId} 가 output_format=webp 를 거부 — PNG 로 재시도`);
+        outputFormat = null;
+        res = await doFetch();
+        errorText = res.ok ? null : await res.text().catch(() => '');
+      }
     }
 
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
+      const text = errorText ?? '';
       const status = res.status;
       const lower = text.toLowerCase();
 
@@ -2224,14 +2251,19 @@ Use the provided product photo as the actual product. `
         const downloadedB64 = Buffer.from(buf).toString('base64');
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         console.log(`[GPT-IMAGE] ✅ ${options.modelId} 성공(URL 다운로드) — ${elapsed}초`);
-        return { ok: true, dataUrl: `data:image/png;base64,${downloadedB64}` };
+        // v3.8.531: 형식은 서버 응답이 진실 — 없으면 요청한 형식으로
+        const dlMime = imgRes.headers.get?.('content-type')?.split(';')[0]
+          || (outputFormat === 'webp' ? 'image/webp' : 'image/png');
+        return { ok: true, dataUrl: `data:${dlMime};base64,${downloadedB64}` };
       }
       return { ok: false, error: 'OPENAI_NO_IMAGE_DATA: 응답에 b64_json/url 없음' };
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`[GPT-IMAGE] ✅ ${options.modelId} 성공 — ${elapsed}초`);
-    return { ok: true, dataUrl: `data:image/png;base64,${b64}` };
+    // v3.8.531: webp 로 요청해 성공했으면 mime 도 webp — data URL 의 mime 이 거짓말하면
+    //   업로드 호스트가 확장자를 잘못 붙인다 (표시는 되지만 캐시·CDN 판단이 틀어진다)
+    return { ok: true, dataUrl: `data:image/${outputFormat === 'webp' ? 'webp' : 'png'};base64,${b64}` };
   } catch (e: any) {
     return { ok: false, error: `OPENAI_EXCEPTION: ${e?.message || String(e)}` };
   }

@@ -92,8 +92,10 @@ describe('② 소스에 원인 차단이 남아 있다', () => {
 
   it('⭐⭐ OpenAI 요청에 타임아웃이 있다 (멈춘 업로드가 엣지에서 끊기면 520 이다)', () => {
     // 길이가 아니라 경계로 자른다 (__tests__/helpers/source-block.ts 규칙)
-    const editsCall = blockBetween(thumbnail, "fetch('https://api.openai.com/v1/images/edits'", '\n    } else {');
-    const genCall = blockBetween(thumbnail, "fetch('https://api.openai.com/v1/images/generations'", '\n    if (!res.ok) {');
+    // v3.8.531: 두 요청이 doFetch 안으로 들어가며 if/else 표식이 사라졌다 —
+    //   edits 블록은 다음 fetch 시작까지, generations 블록은 doFetch 호출부까지가 경계다.
+    const editsCall = blockBetween(thumbnail, "fetch('https://api.openai.com/v1/images/edits'", "fetch('https://api.openai.com/v1/images/generations'");
+    const genCall = blockBetween(thumbnail, "fetch('https://api.openai.com/v1/images/generations'", '\n    let res = await doFetch();');
     expect(editsCall).toContain('AbortSignal.timeout(');
     expect(genCall).toContain('AbortSignal.timeout(');
   });
