@@ -14,6 +14,9 @@ import { resolveOfficialLink } from '../../cta/resolve';
 // (v3.8.376 실측: 자동 재생성은 편당 호출 +1 인데 점수가 되레 하락해 결과가 버려졌다)
 import { SUBSTANCE_FIRST_PASS_RULES, FRESHNESS_RULES } from './substance-rules';
 import { DECISION_SUPPORT_RULES } from './decision-support';
+// v3.8.529: StoryScope(COLM 2026) — 문체가 아니라 구조로 AI 티를 지운다.
+//   발행글 실측(2026-08-19)에서 곁가지 0건·지시형 종결이 그대로 새고 있었다.
+import { STORYSCOPE_STRUCTURE_RULES, STORYSCOPE_FAQ_ENDING_RULE } from './storyscope-rules';
 
 /**
  * 🔀 하이브리드 CTA 검증 — HTTP 1차 + (옵션) Perplexity AI 2차
@@ -1507,7 +1510,7 @@ ${contentMode === 'paraphrasing' && draftContent ? '' : draftReference}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${externalModePromptBlock}${internalModePromptBlock}${adsenseModePromptBlock}${shoppingModePromptBlock}${paraphrasingModePromptBlock}${discoverModePromptBlock}${sectionGuideBlock || ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}
+${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}${STORYSCOPE_STRUCTURE_RULES}
 
 🔴🔴🔴 [10억 점 ${
   contentMode === 'adsense' ? '전문 정보/E-E-A-T'
@@ -1526,7 +1529,7 @@ ${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}
 
 [2. '진짜 사람' 같은 극사실적 어조(Ultra-Human Tone)]
 - **완벽한 구어체 전환**: 기계 번역투, AI 특유의 장황한 설명체("중요한 사실입니다", "다양한 이점이 있습니다") 철저히 배제.
-- **디테일한 공감**: "많이들 헷갈리시죠?", "이 부분이 가장 중요한 포인트예요" 와 같이 독자와 공감하는 어조를 사용하세요. 단, 직접 경험하지 않은 것을 경험한 것처럼 쓰지 마세요.
+- **디테일한 공감**: "많이들 헷갈리시죠?", "여기서 다들 한 번씩 놓치세요" 와 같이 독자와 공감하는 어조를 사용하세요. 단, 직접 경험하지 않은 것을 경험한 것처럼 쓰지 마세요. (v3.8.529: "~가 가장 중요한 포인트예요" 류 예시는 교훈 떠먹이기 — 구조 규칙과 충돌해 교체)
 - **결론부 여운 강화 (Conclusion)**: 서론은 300~500자로 매력적인 훅(Hook)을 넣고, 결론은 200~400자로 뻔한 인사말("도움이 되셨길 바랍니다") 대신 ${contentMode === 'adsense' ? '핵심 요약과 추가 학습 리소스 제안으로 교육적으로 클로징하세요. CTA/행동 유도 문구는 절대 금지!' : '명확한 Next Action(다음 행동 유도)이나 꿀팁으로 강력하게 클로징하세요.'}
 
 [3. SEO 정보 밀도(Density)와 신뢰성(Trust) 극대화]
@@ -2086,6 +2089,7 @@ ${faqGroundingBlock}
 8. 🔴 추측/허위 데이터 절대 금지! 단, 확인할 수 없다고 "공식 사이트에서 확인하세요"로 답을 때우는 것도 금지입니다.
    값을 모르면 → 판단 기준(어떤 경우에 어떻게 되는지) + 확인 절차(정확한 기관명·메뉴 경로)를 대신 구체적으로 답하세요.
    답변 5개 중 최소 3개는 위 컨텍스트의 실제 숫자·기간·금액·기관명을 포함해야 합니다.
+9. ${STORYSCOPE_FAQ_ENDING_RULE}
 
 JSON 형식:
 [
