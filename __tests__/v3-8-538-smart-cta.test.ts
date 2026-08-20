@@ -38,6 +38,7 @@ describe('① 정상 경로 — 이름과 행동을 정하고 검색어를 만�
       site: '토지이음',
       action: '토지이용계획 조회',
       buttonLabel: '토지이음에서 용도지역 조회',
+      hookMessage: '', // v3.8.542: 모델이 안 주면 빈 값 — 호출자가 자기 폴백을 쓴다 (지어내지 않는다)
       searchQuery: '토지이음 토지이용계획 조회',
     });
   });
@@ -95,7 +96,10 @@ describe('③ 배선 — generation.ts 가 스마트 목적지를 실제로 쓴�
   it('searchOfficialSite 가 스마트 검색어를 우선하고, 재귀 폴백·쇼핑에선 안 부른다', () => {
     expect(genSrc).toContain("require('../../cta/smart-cta')");
     expect(genSrc).toContain('smartTarget?.searchQuery || buildActionQuery(keyword, actionIntent)');
-    expect(genSrc).toMatch(/contentMode !== 'shopping' && !skipActionIntent/);
+    // v3.8.542: 호출 지점이 generateCTAsFinal 로 올라갔다. 계약은 그대로다 —
+    //   쇼핑 모드는 부르지 않고(ensureSmartTarget 조기 반환), 재귀 폴백은 결과를 쓰지 않는다.
+    expect(genSrc).toMatch(/if \(contentMode === 'shopping'\) return null;/);
+    expect(genSrc).toContain('const smartTarget = skipActionIntent ? null : (smartTargetIn || null);');
   });
 
   it('버튼 문구까지 상황 맞춤으로 흐른다 (smartLabel)', () => {

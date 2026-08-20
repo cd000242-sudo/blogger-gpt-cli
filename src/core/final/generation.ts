@@ -2392,7 +2392,7 @@ async function fetchPageForCta(url: string): Promise<{ ok: boolean; html: string
   }
 }
 
-async function searchOfficialSite(keyword: string, googleCseKey: string, googleCseCx: string, contentMode?: string, skipActionIntent?: boolean, articleText?: string): Promise<{ url: string; title: string; smartLabel?: string } | null> {
+async function searchOfficialSite(keyword: string, googleCseKey: string, googleCseCx: string, contentMode?: string, skipActionIntent?: boolean, articleText?: string, smartTargetIn?: { site: string; action: string; buttonLabel: string; hookMessage?: string; searchQuery: string } | null): Promise<{ url: string; title: string; smartLabel?: string } | null> {
   if (!googleCseKey || !googleCseCx) return null;
 
   try {
@@ -2412,16 +2412,13 @@ async function searchOfficialSite(keyword: string, googleCseKey: string, googleC
      * 🧭 v3.8.538 — 목적지를 AI 가 먼저 정한다 (사장님: "어떤 글이던지 스마트하게").
      *   정규식·카탈로그는 분야마다 두더지 잡기였다 ('거래'→중고나라 사고).
      *   AI 는 기관 "이름"만 정하고, 주소는 아래 기존 CSE+검증 파이프가 정한다.
-     *   실패하면 null → 기존 행동 의도 경로 그대로 (발행 절대 안 막힘).
-     *   재귀 폴백(skipActionIntent)에서는 다시 부르지 않는다 — 무한 루프 금지.
+     *
+     * v3.8.542 — 호출은 호출자(generateCTAsFinal)가 한다. 여기서 부르면
+     *   같은 발행에서 여러 번 불릴 수 있고, 무엇보다 이 함수 자체가 폴백이라
+     *   "1단계가 성공하면 라우터가 영영 안 도는" 구조가 된다. 결정은 받아만 쓴다.
+     *   재귀 폴백(skipActionIntent)에서는 쓰지 않는다 — 같은 검색어를 반복하지 않기 위해.
      */
-    let smartTarget: { site: string; action: string; buttonLabel: string; searchQuery: string } | null = null;
-    if (contentMode !== 'shopping' && !skipActionIntent) {
-      const { resolveSmartCtaTarget } = require('../../cta/smart-cta');
-      smartTarget = await resolveSmartCtaTarget({
-        keyword, contentMode, articleHint: String(articleText || '').slice(0, 1200),
-      }).catch(() => null);
-    }
+    const smartTarget = skipActionIntent ? null : (smartTargetIn || null);
 
     const query = contentMode === 'shopping'
       ? `${keyword} 최저가 구매`
@@ -2611,6 +2608,96 @@ function detectDocumentCta(url: string): { isDoc: boolean; btnText: string; hook
   };
 }
 
+/**
+ * 🧾 CTA 문구의 재료 — 글이 실제로 다룬 내용을 뽑아낸다 (v3.8.542)
+ *
+ * 사장님: "공식 CTA 후킹 문구랑 버튼 문구도 제목 그대로 하지말고
+ *          본문에서 추론한 내용을 토대로 생성해야되"
+ *
+ * 재료를 넘기는 코드가 없던 게 아니다 — v3.8.501 부터 있었는데 **없는 키를 읽고 있었다**.
+ *   섹션의 실제 모양 : { h2, h3Sections: [{ h3, content }] }
+ *   그런데 읽던 것   : sec.title / sec.content / sec.body → 전부 undefined
+ * 그래서 "글 맥락"이라며 넘긴 문자열은 공백뿐이었고, AI 는 키워드 하나만 보고 문구를 지었다.
+ * 제목을 그대로 베낀 버튼("🔗 ○○ 공식 사이트")이 나온 진짜 이유가 이것이다.
+ *
+ * 다른 모양(title/content)으로 들어와도 버리지 않는다 — 세 경로가 payload 를 따로
+ * 조립하는 구조라 한쪽만 맞추면 또 조용히 비어버린다.
+ */
+export function buildCtaArticleContext(
+  generatedSections?: any[],
+  officialSources?: Array<{ agency?: string; url?: string }>,
+): { outline: string; excerpt: string; agencies: string; combined: string } {
+  const strip = (html: unknown) =>
+    String(html ?? '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&[a-z#0-9]+;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const sections = Array.isArray(generatedSections) ? generatedSections : [];
+  const outlineParts: string[] = [];
+  const excerptParts: string[] = [];
+
+  for (const sec of sections) {
+    const h2 = strip(sec?.h2 ?? sec?.title);
+    if (h2) outlineParts.push(`## ${h2}`);
+
+    const h3List = Array.isArray(sec?.h3Sections) ? sec.h3Sections : [];
+    for (const h3 of h3List) {
+      const head = strip(h3?.h3 ?? h3?.title);
+      if (head) outlineParts.push(`- ${head}`);
+      const body = strip(h3?.content ?? h3?.body);
+      if (body) excerptParts.push(body);
+    }
+
+    const flat = strip(sec?.content ?? sec?.body);
+    if (flat) excerptParts.push(flat);
+  }
+
+  const agencies = (Array.isArray(officialSources) ? officialSources : [])
+    .map((o) => strip(o?.agency))
+    .filter(Boolean)
+    .join(', ');
+
+  const outline = outlineParts.join('\n').slice(0, 1200);
+  // 문단마다 앞부분만 고르게 걷는다 — 첫 섹션만 길게 읽으면 글 전체를 못 본다
+  const excerpt = excerptParts.map((p) => p.slice(0, 400)).join('\n').slice(0, 3000);
+  const combined = [outline, excerpt, agencies ? `확인된 기관: ${agencies}` : ''].filter(Boolean).join('\n');
+
+  return { outline, excerpt, agencies, combined };
+}
+
+/**
+ * 🔁 제목을 되뇐 문구인가 — "키워드 + 범용어" 뿐이면 본문을 안 읽고 지은 문구다 (v3.8.542)
+ *
+ * "🔗 LH신혼부부전세임대 공식 사이트" 처럼 제목에서 단어만 잘라 붙인 버튼을 걸러낸다.
+ * 키워드를 전혀 안 쓴 문구는 검사 대상이 아니다 — 그건 이미 본문에서 나온 말이다.
+ */
+export function isCtaTextEchoOfTitle(text: string, keyword: string): boolean {
+  const clean = (s: string) => String(s || '').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+  const t = clean(text);
+  const k = clean(keyword);
+  if (!t || !k) return false;
+
+  // 아무 글에나 붙는 말들을 걷어낸다 — 남는 게 이 글만의 정보다
+  const rest = t.replace(
+    /(더알아보세요|알아보세요|자세히보기|바로가기|보러가기|알아보기|공식사이트|홈페이지|확인하세요|확인하기|바로|공식|사이트|보기|가기|하기|정보|에대해|관련|에서)/g,
+    '',
+  );
+
+  // 남은 게 없으면 범용어뿐이고, 남은 게 제목 안에 통째로 들어 있으면 제목을 옮겨 적은 것이다
+  return rest.length < 2 || k.includes(rest);
+}
+
+/** AI 가 정한 목적지 — src/cta/smart-cta.ts 의 결과 (순환 import 을 피해 구조만 적는다) */
+type SmartCtaTargetLike = {
+  site: string;
+  action: string;
+  buttonLabel: string;
+  hookMessage?: string;
+  searchQuery: string;
+};
+
 export async function generateCTAsFinal(
   keyword: string,
   crawledPosts: FinalCrawledPost[],
@@ -2621,6 +2708,12 @@ export async function generateCTAsFinal(
    * 이걸 주면 모델이 기억으로 주소를 짐작하지 않고 확인된 것 중에서 고른다.
    */
   officialSources?: Array<{ agency?: string; url?: string }>,
+  /**
+   * v3.8.542 - CTA 단계는 그동안 console.log 로만 말했다.
+   * 앱 화면에는 "💰 CTA 버튼 생성 중..." 뒤로 아무 말이 없어서, 라우터가 돌았는지
+   * 안 돌았는지 사장님이 확인할 방법이 없었다. 조용한 미배선과 구분이 안 된다.
+   */
+  onLog?: (message: string) => void,
 ): Promise<FinalCTAData[]> {
   // 🛡️ 애드센스 모드: CTA 완전 차단
   if (contentMode === 'adsense') {
@@ -2652,8 +2745,60 @@ export async function generateCTAsFinal(
 
   const safeCTAs: FinalCTAData[] = [];
 
-  // 🌐 1단계: Gemini Search Grounding으로 실질적 CTA URL 찾기!
-  console.log(`[CTA] 🌐 Search Grounding으로 "${keyword}" 관련 실질적 CTA URL 검색 중...`);
+  /**
+   * 🧾 v3.8.542 — 재료를 맨 앞에서 한 번만 만든다.
+   * 예전엔 2단계(CSE 폴백) 안에서만 만들었다. 그런데 실제로 대부분의 글은 1단계에서
+   * CTA 가 정해지고 끝난다 — 즉 본문 맥락은 거의 언제나 쓰이지 않았다.
+   */
+  const articleContext = buildCtaArticleContext(generatedSections, officialSources);
+  const articleText = articleContext.combined;
+
+  /**
+   * 🧭 v3.8.542 — 스마트 라우터(v3.8.538)는 "필요해질 때 한 번만" 부른다.
+   *
+   * 예전: searchOfficialSite() 안에 있었고 그 함수는 1단계 실패 시에만 불렸다.
+   *       1단계가 성공하는 한 라우터는 영영 돌지 않았다 — 지어놓고 안 쓴 셈이다.
+   * 이제: 본문 맥락이 1단계 프롬프트에 들어가므로 대개 1단계가 제대로 된 문구를 만든다.
+   *       라우터는 그게 실패했을 때(문구가 제목 복제거나, URL 을 못 찾았을 때)만 부른다.
+   *       → 발행당 추가 호출은 "평소 0회, 필요할 때 1회". 그라운딩은 쓰지 않는다.
+   * 한 발행 안에서 두 번 부르지 않도록 결과를 기억한다(모듈 캐시는 30분 · 키워드 단위).
+   */
+  let smartTargetResolved = false;
+  let smartTarget: SmartCtaTargetLike | null = null;
+  const ensureSmartTarget = async (): Promise<SmartCtaTargetLike | null> => {
+    if (smartTargetResolved) return smartTarget;
+    smartTargetResolved = true;
+    if (contentMode === 'shopping') return null;
+    try {
+      const { resolveSmartCtaTarget } = require('../../cta/smart-cta');
+      smartTarget = await resolveSmartCtaTarget({
+        keyword,
+        contentMode,
+        articleHint: articleContext.combined.slice(0, 2000),
+      });
+    } catch (e: any) {
+      console.log(`[CTA] 🧭 스마트 라우터 후퇴: ${String(e?.message || e).slice(0, 80)}`);
+      smartTarget = null;
+    }
+    onLog?.(
+      smartTarget
+        ? `[PROGRESS] 70% - 🧭 CTA 목적지 판정: ${smartTarget.site} · ${smartTarget.action}`
+        : '[PROGRESS] 70% - 🧭 CTA 목적지 판정 실패 — 기존 검색 경로로',
+    );
+    return smartTarget;
+  };
+
+  onLog?.(`[PROGRESS] 70% - 📖 CTA 문구 재료: 목차 ${articleContext.outline.length}자 · 본문 ${articleContext.excerpt.length}자`);
+
+  /**
+   * 🌐 1단계: 본문 맥락 + LLM 추론으로 실질적 CTA URL 찾기
+   *
+   * ⚠️ 이름에 속지 말 것 — 여기는 v3.8.418 부터 **Search Grounding 을 쓰지 않는다**
+   *   (자동 구간 유료 검색 금지). 로그 문구만 "Search Grounding" 으로 남아 있어서
+   *   그라운딩을 켠 것처럼 보였다. v3.8.542 에서 문구를 사실대로 고친다.
+   *   주소의 생존 여부는 아래 hybridValidateCta() 가 실제 HTTP 로 확인한다.
+   */
+  console.log(`[CTA] 🌐 본문 맥락 기반 CTA 추론 중 (그라운딩 미사용): "${keyword}"`);
 
   try {
     // 🎯 모드별 CTA 가이드 — 글 톤과 일치하는 CTA를 유도
@@ -2690,7 +2835,7 @@ export async function generateCTAsFinal(
 🎯 키워드: "${keyword}"
 📌 글 모드: ${contentMode || 'external (SEO)'}
 ⚠️ 한글/영문만 사용. 중국어 한자 금지! 존재하지 않는 서비스/혜택을 만들어내지 마세요!
-${modeCtaHint}
+${articleContext.outline ? `\n📑 이 글의 목차:\n${articleContext.outline}\n` : ''}${articleContext.excerpt ? `\n📖 이 글이 실제로 다룬 내용(발췌):\n${articleContext.excerpt.slice(0, 2000)}\n` : ''}${articleContext.agencies ? `\n🏛️ 이 글을 쓰며 실제로 확인한 기관: ${articleContext.agencies}\n` : ''}${modeCtaHint}
 🔴 **반드시 Google 검색으로** "${keyword}"에 대한 독자가 실제로 필요한 페이지를 찾으세요. (위 모드별 지시에 맞는 유형)
 
 🔥 CTA는 "클릭하면 바로 해당 액션(구매/비교/신청/조회/예약 등)이 가능한 실질적 페이지"이어야 합니다!
@@ -2715,6 +2860,16 @@ ${buildOfficialCtaCandidates(officialSources || [])}
   "buttonText": "행동 유발 버튼 텍스트 (모드 톤에 맞게)",
   "actionType": "apply|check|reserve|buy|info 중 하나"
 }
+
+✍️ **문구는 제목이 아니라 본문에서 뽑는다** (v3.8.542 — 사장님 지시):
+- ❌ 금지: 키워드/제목을 그대로 옮긴 문구 ("${keyword} 공식 사이트", "${keyword} 바로가기", "${keyword}에 대해 더 알아보세요")
+- ✅ 필수: 위 "이 글이 실제로 다룬 내용" 에 나온 **구체적인 항목 1개**를 문구에 넣어라
+  (그 글에서 다룬 서류·기한·조건·금액·절차 이름 등 — 본문에 없는 건 쓰지 마라)
+- hookingMessage: 본문에서 독자가 막혔던 지점을 짚고, 그 페이지에서 무엇이 해결되는지 한 문장
+  (예: "전세임대 계약이 남았는지부터 확인해야 퇴거 시점을 계산할 수 있습니다")
+- buttonText: "○○에서 △△" 꼴로 20자 이내. 무엇을 하러 가는지가 보여야 한다
+  (예: "LH 청약센터에서 계약 조회", "토지이음에서 용도지역 조회")
+- 본문 내용을 근거로 문구를 못 만들겠으면 buttonText/hookingMessage 를 빈 문자열로 두어라 — 지어내지 마라
 
 🚫 **buttonText/hookingMessage 작성 규칙** (v3.7.13 — 워드프레스 출력 깨짐 방지):
 - HTML entity 절대 금지: &#8594; / &rarr; / &amp; / &nbsp; / &hellip; 등 entity 문자열 사용 X
@@ -2787,13 +2942,39 @@ JSON만 출력:
               : contentMode === 'internal' ? `더 깊이 있는 정보는 공식 자료에서 확인하세요`
               : contentMode === 'paraphrasing' ? `주제의 원 출처와 추가 자료를 살펴보세요`
               : `${keyword}에 대해 더 알아보세요!`;
-            // 🔴 문서 URL이면 AI 텍스트 무시하고 강제로 다운로드 버튼 사용
+            /**
+             * ✍️ v3.8.542 — 문구 출처 우선순위 (사장님: "제목 그대로 하지말고 본문에서")
+             *   1) 문서 URL → 다운로드 문구 (기존 규칙 유지, 최우선)
+             *   2) 본문을 읽고 만든 AI 문구 — 단 제목을 되뇐 것이면 탈락시킨다
+             *   3) 스마트 라우터가 정한 목적지 문구 (여기서 처음 필요해지면 그때 호출)
+             *   4) 키워드 템플릿 (최후의 수단 — 이게 바로 사장님이 지적한 그 문구다)
+             */
+            const aiButton = String(ctaData.buttonText || '').trim();
+            const aiHook = String(ctaData.hookingMessage || '').trim();
+            const aiButtonUsable = !!aiButton && !isCtaTextEchoOfTitle(aiButton, keyword);
+            const aiHookUsable = !!aiHook && !isCtaTextEchoOfTitle(aiHook, keyword);
+            if (aiButton && !aiButtonUsable) {
+              console.log(`[CTA] 🔁 제목 복제 버튼 문구 기각: "${aiButton}"`);
+            }
+
+            const needFallbackText = !doc.isDoc && (!aiButtonUsable || !aiHookUsable);
+            const target = needFallbackText ? await ensureSmartTarget() : null;
+
             const finalButtonText = doc.isDoc
               ? doc.btnText
-              : (ctaData.buttonText || modeDefaultButton);
+              : aiButtonUsable
+                ? aiButton
+                : target?.buttonLabel
+                  ? `🔗 ${target.buttonLabel}`
+                  : modeDefaultButton;
             const finalHookMessage = doc.isDoc
               ? doc.hookText
-              : (ctaData.hookingMessage || modeDefaultHook);
+              : aiHookUsable
+                ? aiHook
+                : target?.hookMessage || (target?.buttonLabel ? `${target.buttonLabel} — 공식 화면에서 바로 확인하세요.` : modeDefaultHook);
+            onLog?.(
+              `[PROGRESS] 70% - 💰 CTA 문구: ${doc.isDoc ? '문서 다운로드' : aiButtonUsable ? '본문 근거' : target ? `목적지(${target.site})` : '키워드 기본값'} · "${finalButtonText}"`,
+            );
             if (doc.isDoc && ctaData.buttonText && ctaData.buttonText !== doc.btnText) {
               console.log(`[CTA] 🔧 문서 URL 감지 → AI 버튼 텍스트("${ctaData.buttonText}") 무시하고 "${doc.btnText}"로 교체`);
             }
@@ -2808,9 +2989,9 @@ JSON만 출력:
               text: finalButtonText,
               hook: finalHookMessage,
             });
-            console.log(`[CTA] ✅ Search Grounding CTA 하이브리드 검증 통과: ${ctaData.url}`);
+            console.log(`[CTA] ✅ 1단계(추론) CTA 하이브리드 검증 통과: ${ctaData.url}`);
           } else {
-            console.log(`[CTA] ❌ Search Grounding CTA 검증 실패 (HTTP+AI 하이브리드): ${ctaData.url}`);
+            console.log(`[CTA] ❌ 1단계(추론) CTA 검증 실패 (HTTP+AI 하이브리드): ${ctaData.url}`);
           }
         } else {
           console.log(`[CTA] ⚠️ 검색엔진/블로그 URL 감지, 필터링: ${ctaData.url}`);
@@ -2820,26 +3001,22 @@ JSON만 출력:
       console.log(`[CTA] ⚠️ Grounding CTA JSON 파싱 실패, 폴백으로 진행`);
     }
   } catch (groundingErr: any) {
-    console.log(`[CTA] ⚠️ Search Grounding CTA 실패: ${groundingErr.message?.substring(0, 100)}`);
+    console.log(`[CTA] ⚠️ 1단계(추론) CTA 실패: ${groundingErr.message?.substring(0, 100)}`);
   }
 
-  // 🔥 2단계: Grounding 실패 시 기존 Google CSE 폴백
+  // 🔥 2단계: 1단계 추론 실패 시 기존 Google CSE 폴백
   if (safeCTAs.length === 0 && googleCseKey && googleCseCx) {
     console.log('[CTA] 폴백: Google CSE로 공식 사이트 검색...');
-      /**
+    /**
      * v3.8.501 — 글 맥락을 함께 넘긴다.
      * 본문에 "복지로에서 신청합니다" 처럼 어디서 하는 일인지 이미 적혀 있다.
      * 그걸 읽어야 같은 "신청하기" 버튼이 있어도 엉뚱한 기관을 거를 수 있다.
-     * 새 인자를 만들 필요 없이 이미 받은 재료(섹션 본문 + 확인된 기관)를 쓴다.
+     *
+     * v3.8.542 — 여기서 만들던 재료가 없는 키(sec.title/sec.content)를 읽어 늘 비어 있었다.
+     * 이제 맨 위에서 실제 키(h2 / h3Sections[].content)로 만든 것을 그대로 쓴다.
      */
-    const articleText = [
-      ...(Array.isArray(generatedSections)
-        ? generatedSections.map((sec: any) => `${sec?.title || ''} ${sec?.content || sec?.body || ''}`)
-        : []),
-      ...(Array.isArray(officialSources) ? officialSources.map((o) => String(o?.agency || '')) : []),
-    ].join(' ').slice(0, 20000);
-
-    const officialLink = await searchOfficialSite(keyword, googleCseKey, googleCseCx, contentMode, false, articleText);
+    const cseSmartTarget = await ensureSmartTarget();
+    const officialLink = await searchOfficialSite(keyword, googleCseKey, googleCseCx, contentMode, false, articleText, cseSmartTarget);
     if (officialLink) {
       const shortKeyword = keyword.length > 15 ? keyword.split(/\s+/).slice(0, 2).join(' ') : keyword;
       let btnText = `🔗 ${shortKeyword} 공식 사이트`;
@@ -2856,7 +3033,9 @@ JSON만 출력:
         //   ("토지이음에서 용도지역 조회" — 키워드 정규식의 범용 문구보다 구체적)
         if (!docCse.isDoc && (officialLink as any).smartLabel) {
           btnText2 = `🔗 ${(officialLink as any).smartLabel}`;
-          hookText2 = `${(officialLink as any).smartLabel} — 공식 화면에서 바로 확인하세요.`;
+          // v3.8.542: 후킹 문구도 본문을 읽고 지은 것을 먼저 쓴다 (없을 때만 범용 문장)
+          hookText2 = cseSmartTarget?.hookMessage
+            || `${(officialLink as any).smartLabel} — 공식 화면에서 바로 확인하세요.`;
         } else if (!docCse.isDoc) {
           // 🛍️ 쇼핑 모드 우선 매핑 (모드가 shopping이면 구매/비교 CTA 먼저)
           if (contentMode === 'shopping') {

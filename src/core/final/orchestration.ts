@@ -2861,7 +2861,9 @@ ${quoted}
 
     // 수동 CTA가 없으면 자동 생성
     if (ctas.length === 0) {
-      ctas = await generateCTAsFinal(keyword, crawledPosts, sections, contentMode, officialSources);
+      // v3.8.542: onLog 를 넘긴다 — CTA 단계가 화면에 아무 말도 안 해서
+      //   라우터가 돌았는지 안 돌았는지 확인할 방법이 없었다.
+      ctas = await generateCTAsFinal(keyword, crawledPosts, sections, contentMode, officialSources, onLog);
     }
 
     // CTA 배치

@@ -29,6 +29,8 @@ export interface SmartCtaTarget {
   action: string;
   /** 버튼 문구 (이모지 없이 — 붙이는 건 호출자) */
   buttonLabel: string;
+  /** 후킹 문구 — 본문에서 독자가 막힌 지점을 짚는 한 문장 (v3.8.542) */
+  hookMessage: string;
   /** 기존 CSE 파이프에 넣을 검색어 */
   searchQuery: string;
 }
@@ -71,7 +73,7 @@ export async function resolveSmartCtaTarget(input: {
   const hit = CACHE.get(cacheKey);
   if (hit && hit.expireAt > Date.now()) return hit.value;
 
-  const hint = cleanText(input.articleHint, 1200);
+  const hint = cleanText(input.articleHint, 2000);
   const prompt = `한국 블로그 글의 CTA(행동 버튼) 목적지를 정하는 작업이다.
 
 글 키워드: "${keyword}"
@@ -84,9 +86,13 @@ ${hint ? `글 내용 요약(소제목 포함):\n${hint}\n` : ''}
 3. 공공·공식 기관을 우선하라. 특정 사기업은 그 글이 그 회사 이야기일 때만.
 4. buttonLabel 은 "○○에서 △△" 꼴 20자 이내, 이모지 금지.
 5. 이 글의 실제 내용에 맞춰라 — 키워드 단어 하나에 낚이지 마라 (예: "토지거래허가"는 중고거래가 아니라 토지 행정이다).
+6. hookMessage 는 **위 글 내용에서 뽑아라**. 제목·키워드를 그대로 옮겨 적지 마라.
+   글에서 독자가 막히는 지점을 짚고, 그 사이트에서 무엇이 풀리는지 한 문장(40자 이내)으로 쓴다.
+   ❌ "○○에 대해 더 알아보세요" 같은 아무 글에나 붙는 문장 금지.
+   ✅ "계약 잔여기간부터 확인해야 퇴거 시점을 계산할 수 있습니다"
 
 JSON 만 출력:
-{"site":"기관명","action":"행동(15자 이내)","buttonLabel":"버튼 문구","confidence":0.0~1.0}`;
+{"site":"기관명","action":"행동(15자 이내)","buttonLabel":"버튼 문구","hookMessage":"후킹 한 문장","confidence":0.0~1.0}`;
 
   let value: SmartCtaTarget | null = null;
   try {
@@ -96,21 +102,25 @@ JSON 만 출력:
     const site = cleanText(json?.site, 30);
     const action = cleanText(json?.action, 20);
     const buttonLabel = cleanText(json?.buttonLabel, 22);
+    const hookMessage = cleanText(json?.hookMessage, 60);
     const confidence = Number(json?.confidence);
 
     const invalid = !site
       || site === '없음'
       || looksLikeUrl(site)
       || looksLikeUrl(buttonLabel)
+      || looksLikeUrl(hookMessage)
       || !(confidence >= 0.6);
     if (!invalid) {
       value = {
         site,
         action: action || '공식 확인',
         buttonLabel: buttonLabel || `${site} 바로가기`,
+        // 본문 근거 문장을 못 만들었으면 비워 둔다 — 호출자가 자기 폴백을 쓰게 (지어내지 않는다)
+        hookMessage,
         searchQuery: action ? `${site} ${action}` : `${site} 공식 사이트`,
       };
-      console.log(`[SMART-CTA] 🧭 목적지: ${site} / ${action} (확신 ${confidence})`);
+      console.log(`[SMART-CTA] 🧭 목적지: ${site} / ${action} (확신 ${confidence})${hookMessage ? ` · 훅 "${hookMessage}"` : ''}`);
     } else {
       console.log(`[SMART-CTA] 후보 기각 (site="${site}", confidence=${confidence}) — 기존 경로로`);
     }
