@@ -8097,6 +8097,40 @@ function emitPublishSuccess(payload: { url?: string; platform?: string; title?: 
     BW.getAllWindows().forEach((win: any) => {
       try { if (win && !win.isDestroyed()) win.webContents.send('publish:success', message); } catch {}
     });
+
+    /**
+     * 🔎 v3.8.541 — 발행 즉시 색인 요청 (네이버·빙 IndexNow + 구글 옵트인).
+     *   이 함수는 단일/큐/스케줄/멀티계정 발행 성공이 전부 지나는 단일 깔때기라
+     *   여기 한 곳이면 모든 경로가 커버된다 (payload 3경로 함정 회피).
+     *   fire-and-forget — 색인 요청의 어떤 실패도 발행 흐름에 영향을 주지 않는다.
+     *   키 저장은 save-env 와 같은 병합 방식(빈 값 스킵)이라 다른 키를 못 지운다.
+     */
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { requestIndexingForUrl } = require('../src/core/indexing/index-request');
+      void requestIndexingForUrl(
+        { url, platform },
+        {
+          persistEnv: async (patch: Record<string, string>) => {
+            try {
+              const envPath = path.join(app.getPath('userData'), '.env');
+              const existing = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
+              const map = new Map<string, string>();
+              existing.split('\n').forEach((line) => {
+                const m = line.trim().match(/^([^=#]+)=(.*)$/);
+                if (m) map.set(m[1]!.trim(), m[2]!);
+              });
+              Object.entries(patch).forEach(([k, v]) => { if (v) { map.set(k, v); process.env[k] = v; } });
+              fs.writeFileSync(envPath, Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('\n'), 'utf-8');
+            } catch (persistErr) {
+              console.warn('[INDEXING] 키 저장 실패 (다음 발행 때 재시도):', persistErr);
+            }
+          },
+        },
+      );
+    } catch (idxErr) {
+      console.warn('[INDEXING] 색인 요청 모듈 로드 실패 (발행은 정상):', idxErr);
+    }
   } catch (e) {
     console.warn('[PUBLISH-SIGNAL] emit failed:', e);
   }
