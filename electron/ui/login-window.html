@@ -764,31 +764,163 @@
       <div id="welcomeCheckmark" class="welcome-checkmark"></div>
     </div>
   </div>
-  
+
+  <!-- ✅ [2026-08-21] 무료 체험 2단계 인증 모달 — 닉네임·폰번호 → 인증하기 → 인증완료 -->
+  <div id="trialModalBackdrop" style="display: none; position: fixed; inset: 0; background: rgba(2,6,23,0.75); z-index: 1000; align-items: center; justify-content: center;">
+    <div style="background: #0f172a; border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; padding: 28px; width: min(420px, 92vw); box-shadow: 0 20px 60px rgba(0,0,0,0.5);">
+      <h2 style="margin: 0 0 6px; color: white; font-size: 20px;">🆓 무료 체험 시작하기</h2>
+      <p style="margin: 0 0 20px; color: rgba(255,255,255,0.55); font-size: 13px;">인증 후 30일 · 매일 발행 3회 체험이 가능합니다</p>
+
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600; margin-bottom: 6px;">
+          오픈채팅 닉네임 <span style="color: #f59e0b;">(정확하게 기재)</span> <span style="color: #ef4444;">*</span>
+        </label>
+        <input type="text" id="trialNickname" placeholder="오픈채팅방에서 쓰는 닉네임 그대로" oninput="resetTrialVerified()"
+          style="width: 100%; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; background: rgba(255,255,255,0.06); color: white; font-size: 14px; box-sizing: border-box;">
+      </div>
+
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600; margin-bottom: 6px;">전화번호 <span style="color: #ef4444;">*</span></label>
+        <input type="tel" id="trialPhone" placeholder="01012345678" oninput="resetTrialVerified()"
+          style="width: 100%; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; background: rgba(255,255,255,0.06); color: white; font-size: 14px; box-sizing: border-box;">
+      </div>
+
+      <button type="button" id="trialVerifyBtn" onclick="trialVerify()"
+        style="width: 100%; padding: 12px; margin-bottom: 10px; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; border-radius: 10px; color: white; font-size: 14px; font-weight: 700; cursor: pointer;">🔎 인증하기</button>
+
+      <div id="trialModalMsg" style="display: none; font-size: 13px; font-weight: 600; margin-bottom: 12px; line-height: 1.5;"></div>
+
+      <button type="button" id="trialCompleteBtn" onclick="trialComplete()" disabled
+        style="width: 100%; padding: 13px; margin-bottom: 8px; background: linear-gradient(135deg, #10b981, #059669); border: none; border-radius: 10px; color: white; font-size: 15px; font-weight: 700; cursor: not-allowed; opacity: 0.5;">✅ 인증완료 (체험 시작)</button>
+      <button type="button" onclick="closeTrialModal()"
+        style="width: 100%; padding: 10px; background: transparent; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; color: rgba(255,255,255,0.6); font-size: 13px; cursor: pointer;">취소</button>
+    </div>
+  </div>
+
   <script>
     // contextBridge를 통해 노출된 API 사용
     const ipcApi = window.electronAPI || window.electron || window.blogger;
+
+    /*
+     * [2026-08-21] 무료 체험 개편 — 버튼 한 번 = 무기록 세션이던 흐름을 자동화
+     * 앱과 같은 2단계 인증으로 교체(사장님: "이 앱도 똑같이").
+     *   기존 체험자: 저장된 정보로 서버 확인 후 바로 입장(30일 유지).
+     *   첫 체험: 닉네임·폰번호 모달 → [인증하기] → [인증완료].
+     */
+    let trialVerified = false;
+
+    function trialModalMsg(text, isError) {
+      const el = document.getElementById('trialModalMsg');
+      if (!el) return;
+      el.textContent = text || '';
+      el.style.display = text ? 'block' : 'none';
+      el.style.color = isError ? '#ef4444' : '#22c55e';
+    }
+
+    function setTrialCompleteEnabled(enabled) {
+      const btn = document.getElementById('trialCompleteBtn');
+      if (!btn) return;
+      btn.disabled = !enabled;
+      btn.style.opacity = enabled ? '1' : '0.5';
+      btn.style.cursor = enabled ? 'pointer' : 'not-allowed';
+    }
+
+    function resetTrialVerified() {
+      trialVerified = false;
+      setTrialCompleteEnabled(false);
+      const vbtn = document.getElementById('trialVerifyBtn');
+      if (vbtn) { vbtn.disabled = false; vbtn.textContent = '🔎 인증하기'; }
+      trialModalMsg('');
+    }
+
+    function openTrialModal() {
+      resetTrialVerified();
+      const modal = document.getElementById('trialModalBackdrop');
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeTrialModal() {
+      const modal = document.getElementById('trialModalBackdrop');
+      if (modal) modal.style.display = 'none';
+      const btn = document.getElementById('freeTrialBtn');
+      if (btn) { btn.disabled = false; btn.innerHTML = '🆓 발행 3회 무료체험하기'; }
+    }
 
     async function startFreeTrial() {
       const btn = document.getElementById('freeTrialBtn');
       if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '⏳ 무료체험 접속 중...';
+        btn.innerHTML = '⏳ 무료체험 확인 중...';
       }
-
       try {
-        // Send free trial signal to main process
-        if (ipcApi && ipcApi.invoke) {
-          await ipcApi.invoke('auth:free-trial');
-        } else if (ipcApi && ipcApi.send) {
-          ipcApi.send('auth:free-trial');
+        // 인자 없이 호출 — 기존 체험자(저장된 정보)는 서버 확인 후 바로 입장.
+        const result = await ipcApi.invoke('auth:free-trial');
+        if (result && result.ok === true) return; // 창 전환은 메인 프로세스가 한다
+        if (result && result.code === 'NEED_INFO') {
+          openTrialModal();
+          return;
         }
+        alert((result && result.message) || '무료 체험을 시작하지 못했습니다.');
+        if (btn) { btn.disabled = false; btn.innerHTML = '🆓 발행 3회 무료체험하기'; }
       } catch (e) {
         console.error('Free trial error:', e);
-        if (btn) {
-          btn.disabled = false;
-          btn.innerHTML = '🆓 발행 3회 무료체험하기';
+        alert('무료 체험 확인에 실패했습니다. 인터넷 연결을 확인하세요.');
+        if (btn) { btn.disabled = false; btn.innerHTML = '🆓 발행 3회 무료체험하기'; }
+      }
+    }
+
+    async function trialVerify() {
+      const nickname = (document.getElementById('trialNickname')?.value || '').trim();
+      const phone = (document.getElementById('trialPhone')?.value || '').trim().replace(/[-\s]/g, '');
+      const vbtn = document.getElementById('trialVerifyBtn');
+      if (nickname.length < 2) { trialModalMsg('오픈채팅 닉네임을 정확하게 기재하세요. (2자 이상)', true); return; }
+      if (!/^01[0-9]{8,9}$/.test(phone)) { trialModalMsg('올바른 전화번호를 입력하세요. (예: 01012345678)', true); return; }
+      if (vbtn) { vbtn.disabled = true; vbtn.textContent = '확인 중...'; }
+      try {
+        const result = await ipcApi.invoke('auth:trial-verify', { nickname, phone });
+        if (!result || result.ok !== true) {
+          trialModalMsg((result && result.message) || '인증에 실패했습니다.', true);
+          if (vbtn) { vbtn.disabled = false; vbtn.textContent = '🔎 인증하기'; }
+          return;
         }
+        trialVerified = true;
+        setTrialCompleteEnabled(true);
+        if (vbtn) vbtn.textContent = '🔎 인증됨';
+        if (result.status === 'existing' && result.registeredAt) {
+          const expiryMs = new Date(result.registeredAt).getTime() + 30 * 24 * 60 * 60 * 1000;
+          const daysLeft = Math.max(0, Math.ceil((expiryMs - Date.now()) / (24 * 60 * 60 * 1000)));
+          if (daysLeft <= 0) {
+            trialVerified = false;
+            setTrialCompleteEnabled(false);
+            trialModalMsg('⚠️ 이 번호의 무료 체험 30일이 이미 만료되었습니다. 계속 사용하려면 라이선스를 구매해 주세요.', true);
+            return;
+          }
+          trialModalMsg(`✅ 인증되었습니다 — 기존 체험 이어서 진행합니다. (남은 기간 D-${daysLeft})`, false);
+        } else {
+          trialModalMsg('✅ 인증되었습니다 — 아래 [인증완료] 버튼을 눌러 체험을 시작하세요.', false);
+        }
+      } catch (e) {
+        trialModalMsg('인증 오류: ' + e.message, true);
+        if (vbtn) { vbtn.disabled = false; vbtn.textContent = '🔎 인증하기'; }
+      }
+    }
+
+    async function trialComplete() {
+      if (!trialVerified) { trialModalMsg('먼저 [인증하기]로 인증을 완료하세요.', true); return; }
+      const nickname = (document.getElementById('trialNickname')?.value || '').trim();
+      const phone = (document.getElementById('trialPhone')?.value || '').trim().replace(/[-\s]/g, '');
+      const cbtn = document.getElementById('trialCompleteBtn');
+      if (cbtn) { cbtn.disabled = true; cbtn.textContent = '체험 시작 중...'; }
+      try {
+        const result = await ipcApi.invoke('auth:free-trial', { nickname, phone });
+        if (result && result.ok === true) return; // 창 전환은 메인 프로세스가 한다
+        trialModalMsg((result && result.message) || '체험 시작에 실패했습니다.', true);
+        if (cbtn) { cbtn.textContent = '✅ 인증완료 (체험 시작)'; }
+        setTrialCompleteEnabled(trialVerified);
+      } catch (e) {
+        trialModalMsg('오류: ' + e.message, true);
+        if (cbtn) { cbtn.textContent = '✅ 인증완료 (체험 시작)'; }
+        setTrialCompleteEnabled(trialVerified);
       }
     }
     

@@ -102,6 +102,7 @@ const getOrCreateDeviceId = oldLicenseManager.getOrCreateDeviceId;
 import { getLicenseManager } from '../dist/utils/license-manager-new';
 import { ScheduleManager } from '../dist/core/schedule-manager';
 import { checkLicenseWithAutoLogin, setupAutoLoginHandlers, setMainWindow } from './main-login';
+import { publishGoldenKeyword, hasGoldenToken, saveGoldenToken } from './golden-keyword-publisher';
 
 function installConsolePipeGuard(): void {
   const swallowPipeError = (error: any) => {
@@ -8043,38 +8044,28 @@ ipcMain.handle('set-admin-pin', async (_evt, args: { oldPin?: string; newPin: st
 });
 
 /**
- * 황금키워드 배포 원본(data/golden-keyword.json)에 쓴다.
+ * 황금키워드 배포 — 관리자가 저장하면 그 자리에서 GitHub 에 올라간다.
  *
- * 이 파일이 GitHub 에 올라가면 사용자 앱들이 raw URL 로 읽어간다.
- * 레포가 있는 개발 PC 에서만 의미가 있으므로 배포본에서는 명시적으로 거절한다.
- * 경로는 레포 안의 한 파일로 **고정**한다 — 렌더러가 임의 경로를 쓰게 두지 않는다.
+ * 개발 PC(레포 있음)면 git commit+push, 설치된 앱이면 저장해둔 토큰으로 GitHub API.
+ * 어느 쪽이든 사용자 앱들이 raw URL 로 읽는 파일 하나가 갱신된다.
+ * 경로·브랜치는 golden-keyword-publisher 안에 고정한다 — 렌더러가 정하게 두지 않는다.
  */
-ipcMain.handle('golden-keyword:save-repo-file', async (_evt, payload) => {
+ipcMain.handle('golden-keyword:publish', async (_evt, payload) => {
   try {
-    if (app.isPackaged) {
-      return { ok: false, error: '배포본에는 레포가 없습니다. 개발 PC 에서 저장해주세요.' };
-    }
-    if (!payload || !Array.isArray(payload.items)) {
-      return { ok: false, error: '저장할 키워드 데이터 형식이 올바르지 않습니다.' };
-    }
-
-    const filePath = path.join(__dirname, '..', 'data', 'golden-keyword.json');
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-    // 배포본에는 화면에 필요한 값만 담는다 (savedAt 등 로컬 전용 필드는 제외)
-    const content = {
-      reportDate: String(payload.reportDate || ''),
-      updatedAt: Number(payload.updatedAt) || Date.now(),
-      items: payload.items,
-    };
-    fs.writeFileSync(filePath, `${JSON.stringify(content, null, 2)}\n`, 'utf-8');
-    console.log(`[GOLDEN] 배포 원본 기록: ${filePath} (${payload.items.length}건)`);
-    return { ok: true, filePath, count: payload.items.length };
+    return await publishGoldenKeyword(payload);
   } catch (error) {
-    console.error('[GOLDEN] 배포 원본 기록 실패:', error);
-    return { ok: false, error: error instanceof Error ? error.message : '기록 실패' };
+    console.error('[GOLDEN] 배포 실패:', error);
+    return { ok: false, error: error instanceof Error ? error.message : '배포 실패' };
   }
+});
+
+/** 토큰 값은 돌려주지 않는다 — 저장돼 있는지만 알려준다 */
+ipcMain.handle('golden-keyword:token-status', async () => {
+  return { ok: true, hasToken: hasGoldenToken() };
+});
+
+ipcMain.handle('golden-keyword:save-token', async (_evt, args) => {
+  return saveGoldenToken(String(args?.token || ''));
 });
 
 // v3.8.89: 모든 발행 경로에서 사용하는 통합 success 신호 helper.
@@ -11659,46 +11650,133 @@ ipcMain.handle('app:getVersion', () => {
   return app.getVersion();
 });
 
-// 무료 체험 접속 (라이선스 없이 앱 진입)
-ipcMain.handle('auth:free-trial', async () => {
-  console.log('[AUTH] 🆓 무료 체험 모드로 접속');
+/*
+ * [2026-08-21] 무료 체험 개편 — 자동화 앱과 같은 규율(사장님: "이 앱도 똑같이").
+ * 예전엔 버튼 한 번에 무기록 세션이라 재시작마다 새 체험 = 매일 3회 평생무료였다.
+ * 이제: 닉네임·폰번호 → [인증하기](trial-verify, 무기록 자격확인) → [인증완료]
+ * (trial-activate 등록) → 30일 닻은 서버 registeredAt 과 로컬 중 이른 날짜.
+ * 서버 확인 없인 체험을 열지 않는다(오프라인 우회 금지). GAS 는 자동화 앱과
+ * 같은 배포를 쓰되 product:'orbit' 으로 장부(TrialUsers_Orbit)가 분리된다.
+ */
+const TRIAL_GAS_URL = process.env.LICENSE_SERVER_URL
+  || 'https://script.google.com/macros/s/AKfycbxBOGkjVj4p-6XZ4SEFYKhW3FBmo5gt7Fv6djWhB1TljnDDmx_qlfZ4YdlJNohzIZ8NJw/exec';
 
-  // 무료 체험 세션 활성화
+async function callTrialGas(payload: Record<string, unknown>): Promise<any> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const { activateFreeTrial } = require('./auth-utils');
-    activateFreeTrial();
-  } catch (e) {
-    console.error('[AUTH] activateFreeTrial 실패:', e);
+    const response = await fetch(TRIAL_GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ ...payload, product: 'orbit', appVersion: app.getVersion() }),
+      signal: controller.signal,
+    });
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
   }
+}
 
-  // Free trial: close login window and open main window
-  const { BrowserWindow } = require('electron');
-  const allWindows = BrowserWindow.getAllWindows();
-
-  // Close login window
-  allWindows.forEach((win: any) => {
-    if (win.getTitle().includes('인증') || win.webContents.getURL().includes('login-window')) {
-      win.close();
+// [인증하기] — 등록 없이 자격만 확인 (차단·기기중복·기존체험 여부)
+ipcMain.handle('auth:trial-verify', async (_event, userInfo?: { nickname?: string; phone?: string }) => {
+  try {
+    const nickname = String(userInfo?.nickname || '').trim();
+    const phone = String(userInfo?.phone || '').trim().replace(/[-\s]/g, '');
+    if (nickname.length < 2) {
+      return { ok: false, message: '오픈채팅 닉네임을 2자 이상 정확하게 기재하세요.' };
     }
-  });
-
-  // Create main window (same as successful login)
-  if (typeof createWindow === 'function') {
-    createWindow();
+    if (!/^01[0-9]{8,9}$/.test(phone)) {
+      return { ok: false, message: '올바른 전화번호를 입력하세요. (예: 01012345678)' };
+    }
+    const { getDeviceId } = require('./auth-utils');
+    const deviceId = await getDeviceId();
+    const result = await callTrialGas({ action: 'trial-verify', nickname, phone, deviceId });
+    if (result.ok !== true) {
+      return { ok: false, message: result.error || '인증에 실패했습니다.' };
+    }
+    return {
+      ok: true,
+      status: result.status === 'existing' ? 'existing' : 'new',
+      registeredAt: typeof result.registeredAt === 'string' ? result.registeredAt : '',
+    };
+  } catch (e: any) {
+    console.error('[AUTH] trial-verify 실패:', e);
+    return { ok: false, message: '인증에 실패했습니다. 인터넷 연결을 확인하세요.' };
   }
+});
 
-  return { ok: true };
+// [인증완료] / 재입장 — 서버 등록 후 체험 시작. 인자 없으면 저장된 체험 상태로 재입장.
+ipcMain.handle('auth:free-trial', async (_event, userInfo?: { nickname?: string; phone?: string }) => {
+  try {
+    const authUtils = require('./auth-utils');
+    const stored = authUtils.loadTrialState();
+
+    const nickname = String(userInfo?.nickname || stored?.nickname || '').trim();
+    const phone = String(userInfo?.phone || stored?.phone || '').trim().replace(/[-\s]/g, '');
+    if (nickname.length < 2 || !/^01[0-9]{8,9}$/.test(phone)) {
+      // 첫 체험 — 렌더러가 닉네임·폰번호 입력 모달을 띄운다.
+      return { ok: false, code: 'NEED_INFO' };
+    }
+
+    const deviceId = await authUtils.getDeviceId();
+    let result: any;
+    try {
+      result = await callTrialGas({ action: 'trial-activate', email: '', nickname, phone, deviceId });
+    } catch (netErr) {
+      // 서버 확인 없인 체험을 열지 않는다 — 오프라인이 인증·중복검사 전체 우회였다.
+      console.error('[AUTH] trial-activate 전송 실패 — 활성화 거부:', netErr);
+      return { ok: false, message: '서버 연결에 실패했습니다. 인터넷 연결을 확인한 뒤 다시 시도하세요.' };
+    }
+    if (result.ok !== true) {
+      return { ok: false, message: result.error || '체험 등록에 실패했습니다.' };
+    }
+
+    // 30일의 닻 — 서버 최초 등록일과 로컬 저장분 중 더 이른 날짜.
+    const anchorCandidates = [stored?.registeredAt, result.registeredAt]
+      .filter((d: any) => typeof d === 'string' && Number.isFinite(new Date(d).getTime())) as string[];
+    const registeredAt = anchorCandidates.length > 0
+      ? new Date(Math.min(...anchorCandidates.map((d) => new Date(d).getTime()))).toISOString()
+      : new Date().toISOString();
+    const expiresAt = new Date(new Date(registeredAt).getTime() + authUtils.FREE_TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const state = { nickname, phone, registeredAt, expiresAt };
+    authUtils.saveTrialState(state);
+
+    if (authUtils.isTrialExpired(state)) {
+      return { ok: false, code: 'EXPIRED', message: '무료 체험 30일이 이미 만료되었습니다. 계속 사용하려면 라이선스를 구매해 주세요.' };
+    }
+
+    console.log(`[AUTH] 🆓 무료 체험 접속 — ${phone.slice(0, 3)}**** · 만료 ${expiresAt}`);
+    authUtils.activateFreeTrial();
+
+    // Free trial: close login window and open main window
+    const { BrowserWindow } = require('electron');
+    const allWindows = BrowserWindow.getAllWindows();
+    allWindows.forEach((win: any) => {
+      if (win.getTitle().includes('인증') || win.webContents.getURL().includes('login-window')) {
+        win.close();
+      }
+    });
+    if (typeof createWindow === 'function') {
+      createWindow();
+    }
+    return { ok: true, expiresAt };
+  } catch (e: any) {
+    console.error('[AUTH] free-trial 실패:', e);
+    return { ok: false, message: e?.message || '체험 시작에 실패했습니다.' };
+  }
 });
 
 ipcMain.handle('quota:getStatus', async () => {
   try {
-    const { isFreeTierUser, getFreeQuotaStatus } = require('./auth-utils');
+    const { isFreeTierUser, getFreeQuotaStatus, loadTrialState } = require('./auth-utils');
     const isFree = await isFreeTierUser();
     if (!isFree) {
       return { success: true, isFree: false };
     }
     const quota = await getFreeQuotaStatus();
-    return { success: true, isFree: true, quota };
+    // [2026-08-21] 체험 만료일 동봉 — "매일 3회"만 보이고 "언제까지"가 안 보이던 공백.
+    const trialState = loadTrialState();
+    return { success: true, isFree: true, quota, trialExpiresAt: trialState?.expiresAt || null };
   } catch (error: any) {
     console.error('[QUOTA] 상태 조회 실패:', error);
     return { success: false, message: error.message };

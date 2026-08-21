@@ -9,9 +9,75 @@
 import { app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
+import * as os from 'os';
 import * as quotaManager from './quota-manager';
 
 export const FREE_TRIAL_PUBLISH_LIMIT = 3;
+// [2026-08-21] 체험은 30일이다(사장님: "매일 3회씩 평생무료면 내 툴을 구매할 이유가 없거든").
+export const FREE_TRIAL_DAYS = 30;
+
+/**
+ * [2026-08-21] 체험 등록 상태 — 닉네임·전화번호·30일 만료를 디스크에 남긴다.
+ * 세션 플래그(_freeTrialSession)만으로는 재시작마다 새 체험이 시작돼
+ * "매일 3회 평생무료"였다. 30일의 닻은 서버(trial-activate registeredAt)와
+ * 로컬 중 더 이른 날짜다 — PC/재설치로 초기화되지 않는다.
+ */
+export interface FreeTrialState {
+  nickname: string;
+  phone: string;
+  registeredAt: string;
+  expiresAt: string;
+}
+
+function trialStatePath(): string {
+  return path.join(app.getPath('userData'), 'free-trial.json');
+}
+
+export function loadTrialState(): FreeTrialState | null {
+  try {
+    const raw = fs.readFileSync(trialStatePath(), 'utf8');
+    const state = JSON.parse(raw) as FreeTrialState;
+    if (!state || !state.phone || !state.expiresAt) return null;
+    return state;
+  } catch {
+    return null;
+  }
+}
+
+export function saveTrialState(state: FreeTrialState): void {
+  try {
+    fs.writeFileSync(trialStatePath(), JSON.stringify(state, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[AuthUtils] 체험 상태 저장 실패:', e);
+  }
+}
+
+export function isTrialExpired(state: FreeTrialState): boolean {
+  const expiryMs = new Date(state.expiresAt).getTime();
+  if (!Number.isFinite(expiryMs)) return false;
+  return Date.now() >= expiryMs;
+}
+
+/**
+ * 기기 고유번호 — 자동화 앱과 같은 유도식(sha256(플랫폼-호스트명-계정명) 32자).
+ * 같은 PC 면 두 앱에서 같은 값이 나와 GAS 교차검사가 일관된다.
+ */
+export async function getDeviceId(): Promise<string> {
+  const deviceIdPath = path.join(app.getPath('userData'), 'device.id');
+  try {
+    const existing = fs.readFileSync(deviceIdPath, 'utf8').trim();
+    if (existing && existing.length >= 16) return existing;
+  } catch { /* 없으면 새로 생성 */ }
+  const uniqueString = `${process.platform}-${os.hostname()}-${os.userInfo().username}`;
+  const deviceId = crypto.createHash('sha256').update(uniqueString).digest('hex').substring(0, 32);
+  try {
+    fs.writeFileSync(deviceIdPath, deviceId, 'utf8');
+  } catch (e) {
+    console.error('[AuthUtils] device.id 저장 실패:', e);
+  }
+  return deviceId;
+}
 
 // 무료 체험 세션 플래그 (앱 재시작 시 리셋)
 let _freeTrialSession = false;
@@ -25,6 +91,18 @@ export function activateFreeTrial(): void {
 /** 무료 체험 세션 여부 확인 */
 export function isFreeTrial(): boolean {
   return _freeTrialSession;
+}
+
+/**
+ * 🔑 v3.8.470 — 무료 체험을 끝내고 로그인 화면으로 돌아갈 때 쓴다.
+ *
+ * 사용자 요구: "체험판 들어오고 나서 구매하고나면 껏다 켜서 라이선스코드
+ * 등록하는게 아니고 바로 로그인하러가기하면 무료체험 로그아웃되고".
+ * 앱을 껐다 켜지 않아도 되게 만든다 — 구매 직후 흐름이 끊기면 안 된다.
+ */
+export function deactivateFreeTrial(): void {
+  _freeTrialSession = false;
+  console.log('[AuthUtils] 🔑 무료 체험 세션 해제 — 로그인 화면으로');
 }
 
 export interface PaywallResponse {
@@ -100,6 +178,22 @@ export async function enforceFreeTier(): Promise<
   const isFree = await isFreeTierUser();
   if (!isFree) {
     return { allowed: true, quota: null }; // 유료 → 무조건 통과
+  }
+
+  // [2026-08-21] 체험 30일 만료 — 세션이 살아 있어도 발행 게이트에서 잠근다.
+  if (_freeTrialSession) {
+    const trialState = loadTrialState();
+    if (trialState && isTrialExpired(trialState)) {
+      return {
+        allowed: false,
+        response: {
+          ok: false,
+          code: 'PAYWALL',
+          message: '⛔ 무료 체험 30일이 만료되었습니다.\n계속 사용하려면 라이선스를 구매해 주세요.',
+          quota: await getFreeQuotaStatus(),
+        },
+      };
+    }
   }
 
   const quota = await getFreeQuotaStatus();

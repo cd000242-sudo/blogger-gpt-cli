@@ -32,16 +32,90 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
-const puppeteer_extra_1 = __importDefault(require("puppeteer-extra"));
-const puppeteer_extra_plugin_stealth_1 = __importDefault(require("puppeteer-extra-plugin-stealth"));
-const cheerio = __importStar(require("cheerio"));
+let _puppeteer = null;
+function getPuppeteer() {
+    if (!_puppeteer) {
+        _puppeteer = require('puppeteer-extra');
+        // 스텔스 플러그인은 puppeteer 를 처음 쓸 때 한 번만 끼운다
+        _puppeteer.use(require('puppeteer-extra-plugin-stealth')());
+    }
+    return _puppeteer;
+}
+let _cheerio = null;
+function getCheerio() {
+    if (!_cheerio)
+        _cheerio = require('cheerio');
+    return _cheerio;
+}
+/**
+ * ── Windows Electron 포커스 버그 가드 (메인 계층, v3.8.519) ──
+ *
+ * 증상: 네이티브 팝업·파일 선택창이 닫힌 뒤 버튼·입력이 먹통. 바탕화면을 클릭해
+ *       포커스를 잃었다 되찾으면 정상화 → 창은 활성처럼 보이나 입력 라우팅이 어긋난 상태다.
+ * 처방: blur() 직후 focus() 로 라우팅을 강제로 되돌린다 (사용자가 손으로 하던 일).
+ *
+ * 안전장치: 창이 안 보이거나 최소화면 아무것도 하지 않는다.
+ *           사용자가 다른 앱을 쓰는 중에 포커스를 빼앗으면 버그보다 더 나쁘다.
+ */
+function resolveFocusGuardWindow() {
+    try {
+        const { BrowserWindow: BW } = require('electron');
+        return BW.getFocusedWindow()
+            || BW.getAllWindows().find((w) => !w.isDestroyed() && w.isVisible() && !w.isMinimized())
+            || null;
+    }
+    catch {
+        return null;
+    }
+}
+function resetWindowFocus(win) {
+    try {
+        if (!win || win.isDestroyed())
+            return;
+        if (!win.isVisible() || win.isMinimized())
+            return; // 포커스 강탈 금지
+        win.blur();
+        win.focus();
+    }
+    catch { /* 포커스 복구 실패가 앱을 막으면 안 된다 */ }
+}
+/**
+ * dialog 도 같은 증상을 만든다. 호출부가 5곳이라 하나씩 감싸면 새로 늘 때 또 빠진다 —
+ * 모듈 레벨에서 한 번 감싸 어디서 부르든 닫힌 뒤 복구되게 한다.
+ */
+(function guardElectronDialogs() {
+    const targets = ['showOpenDialog', 'showSaveDialog', 'showMessageBox'];
+    for (const name of targets) {
+        const original = electron_1.dialog[name];
+        if (typeof original !== 'function' || original.__focusGuarded)
+            continue;
+        const guarded = async function (...args) {
+            try {
+                return await original.apply(electron_1.dialog, args);
+            }
+            finally {
+                resetWindowFocus(resolveFocusGuardWindow());
+            }
+        };
+        guarded.__focusGuarded = true;
+        electron_1.dialog[name] = guarded;
+    }
+})();
+electron_1.ipcMain.handle('window:refocus', (evt) => {
+    try {
+        const { BrowserWindow: BW } = require('electron');
+        const sender = BW.fromWebContents(evt?.sender);
+        resetWindowFocus(sender || resolveFocusGuardWindow());
+        return { ok: true };
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 120) };
+    }
+});
 const snippet_library_1 = require("../dist/utils/snippet-library");
 const env_1 = require("../dist/env");
 // 기존 라이선스 시스템 (license-manager.js)
@@ -52,6 +126,7 @@ const getOrCreateDeviceId = oldLicenseManager.getOrCreateDeviceId;
 // 새로운 라이선스 시스템 (license-manager.ts)
 const license_manager_new_1 = require("../dist/utils/license-manager-new");
 const main_login_1 = require("./main-login");
+const golden_keyword_publisher_1 = require("./golden-keyword-publisher");
 function installConsolePipeGuard() {
     const swallowPipeError = (error) => {
         if (error?.code === 'EPIPE' || error?.code === 'ERR_STREAM_DESTROYED')
@@ -1304,12 +1379,12 @@ electron_1.ipcMain.handle('generate-internal-consistency', async (_evt, payload)
         // 2단계: 각 URL 크롤링하여 콘텐츠 추출
         console.log('[INTERNAL-CONSISTENCY] URL 크롤링 시작 (Puppeteer 모드)...');
         const crawledContents = [];
-        // Puppeteer 설정
-        puppeteer_extra_1.default.use((0, puppeteer_extra_plugin_stealth_1.default)());
+        // Puppeteer 설정 — 여기서 처음 불러온다(스텔스 플러그인도 getPuppeteer 안에서 끼운다)
+        const puppeteer = getPuppeteer();
         let browser = null;
         try {
             sendDiag('🕷️ 크롤링 시작 (Puppeteer 실행)');
-            browser = await puppeteer_extra_1.default.launch(withPuppeteerBrowserFallback({
+            browser = await puppeteer.launch(withPuppeteerBrowserFallback({
                 headless: true, // "new" is deprecated in latest puppeteer
                 args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
             }));
@@ -1327,7 +1402,7 @@ electron_1.ipcMain.handle('generate-internal-consistency', async (_evt, payload)
                     await page.evaluate(() => window.scrollBy(0, window.innerHeight));
                     await new Promise(resolve => setTimeout(resolve, 2000));
                     const html = await page.content();
-                    const $ = cheerio.load(html);
+                    const $ = getCheerio().load(html);
                     // 제목 추출 (정밀)
                     let extractedTitle = $('title').text().trim() || post.title || '제목 없음';
                     extractedTitle = extractedTitle.replace(/\s*\|\s*.*$/, '').replace(/\s*-\s*.*$/, '').trim();
@@ -2258,7 +2333,7 @@ ${tail}
                     }
                     // 2) H2 이미지 — 정책 분기
                     if (imagePolicy !== 'thumbnail-only' && typeof dispatchH2ImageGeneration === 'function' && h2Engine !== 'none') {
-                        const $ = cheerio.load(generatedContent, { decodeEntities: false });
+                        const $ = getCheerio().load(generatedContent, { decodeEntities: false });
                         const h2Nodes = $('h2').toArray();
                         console.log('[INTERNAL-CONSISTENCY] 🖼️ H2 헤더', h2Nodes.length, '개 발견 · 정책:', imagePolicy, '· 엔진:', h2Engine);
                         if (h2Nodes.length === 0) {
@@ -4530,6 +4605,515 @@ electron_1.ipcMain.handle('save-env', async (_evt, envData) => {
 // 라이센스 파일 핸들러
 // ============================================
 // 라이센스 파일 읽기
+/**
+ * 🚪 v3.8.469 — 무료 체험을 다 쓰면 앱을 닫을 수 있게 한다.
+ *
+ * 사용자 지적: "닫기 누르면 어차피 아무것도 못하는데 앱 닫히게해주고".
+ * 페이월에서 "닫기"를 눌러도 발행이 안 되니 화면만 덩그러니 남았다.
+ */
+electron_1.ipcMain.handle('app:quit', async () => {
+    console.log('[APP] 사용자 요청으로 종료합니다 (무료 체험 소진 안내)');
+    electron_1.app.quit();
+    return { ok: true };
+});
+/**
+ * 🃏 v3.8.495 — 발행 글 → 카드뉴스 (인스타 4:5 + 카카오 1:1).
+ *
+ * 리서치(2026-08-13) 반영: 웹스토리는 뺐다(구글이 디스커버 캐러셀에서 제거).
+ * 인스타 캐러셀이 저장·공유 1위 형식이라 훅 첫 장·저장 유도 마지막 장·Alt 텍스트에 집중한다.
+ * 이미지는 AI 생성이 아니라 숨김 창 HTML 캡처 — 비용 0, 한글 선명.
+ * 문안만 AI 1회 호출(사용자 승인). 실패하면 어떤 파일도 만들지 않고 이유를 돌려준다.
+ */
+/**
+ * 카드 한 장에 쓸 이미지를 만든다 (모드에 따라 배경 또는 카드 전체).
+ * 실패해도 절대 던지지 않는다 — 이미지가 없으면 그라데이션으로 그리면 되고,
+ * 7장 중 한 장 실패로 전체가 무너지면 안 된다.
+ */
+/**
+ * 카드뉴스 진행 상황을 화면에 알린다.
+ *
+ * 이미지를 켜면 14장(7카드 × 2규격)까지 만들어 몇 분이 걸린다. 그동안 화면이
+ * 아무 말도 안 하면 멈춘 걸로 보인다 — 어디까지 왔는지 그때그때 보내 준다.
+ */
+function sendCardnewsProgress(payload) {
+    try {
+        electron_2.BrowserWindow.getAllWindows().forEach((w) => {
+            try {
+                w.webContents.send('cardnews-progress', payload);
+            }
+            catch { /* 창이 닫혔으면 무시 */ }
+        });
+    }
+    catch { /* noop */ }
+}
+async function makeCardImage(card, opts) {
+    if (opts.mode === 'none' || opts.engine === 'none')
+        return '';
+    try {
+        const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
+        const { buildBackdropPrompt, buildFullCardPrompt, buildProductScenePrompt } = require('../dist/core/cardnews/card-image');
+        const isFull = opts.mode === 'full';
+        const isProductScene = opts.mode === 'product';
+        const prompt = isProductScene
+            ? buildProductScenePrompt(card, opts.keyword)
+            : isFull
+                ? buildFullCardPrompt(card, opts.keyword, { index: opts.index, total: opts.total, ratio: opts.ratio || '4:5' })
+                : buildBackdropPrompt(card, opts.keyword);
+        const result = await dispatchH2ImageGeneration(opts.engine, prompt, opts.keyword, (msg) => console.log('[CARDNEWS-IMG]', msg), undefined, {
+            // full 모드에서만 이미지 안 글자를 연다. backdrop 은 글자가 있으면 오히려 방해된다.
+            allowImageText: isFull,
+            // v3.8.521 — 실제 상품 사진을 참고 이미지로 (i2i). 이게 빠지면 그냥 AI 생성컷이 된다.
+            ...(isProductScene && opts.referenceImage ? { referenceImageList: [opts.referenceImage] } : {}),
+            /**
+             * v3.8.503 — 카드는 세로다. 방향을 안 넘기면 썸네일용 가로(1536x1024)로
+             * 뽑혀 세로 틀에서 좌우가 잘려나간다(실사용 보고).
+             * 카카오 1:1 은 정사각, 나머지는 세로.
+             */
+            imageAspect: opts.ratio === '1:1' ? 'square' : 'portrait',
+        });
+        if (result?.ok && result.dataUrl)
+            return String(result.dataUrl);
+        console.warn('[CARDNEWS-IMG] 실패(그라데이션으로 대체):', result?.error || '알 수 없음');
+        return '';
+    }
+    catch (error) {
+        console.warn('[CARDNEWS-IMG] 예외(그라데이션으로 대체):', error?.message || error);
+        return '';
+    }
+}
+/**
+ * v3.8.518 — 상품 모드용 실제 상품 사진 수집.
+ *
+ * 본문 <img> 를 순서대로 받아 data URI 로 만든다. AI 를 부르지 않으므로 비용 0.
+ * 전환 리서치(2026-08): 실사용 사진이 랭킹·전환 요소, AI 생성컷은 역신호.
+ * 아이콘·배지·트래킹 픽셀은 거른다 (작은 이미지·흔한 UI 경로).
+ */
+async function collectProductPhotos(html, max = 8) {
+    const SKIP = /(icon|logo|badge|button|blank|spacer|pixel|avatar|emoji|1x1|banner_ad)/i;
+    const urls = [];
+    const seen = new Set();
+    const re = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+    let m;
+    while ((m = re.exec(String(html || ''))) && urls.length < max * 2) {
+        const src = String(m[1] || '').trim();
+        if (!/^https?:\/\//i.test(src) || SKIP.test(src) || seen.has(src))
+            continue;
+        seen.add(src);
+        urls.push(src);
+    }
+    const photos = [];
+    for (const url of urls) {
+        if (photos.length >= max)
+            break;
+        try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 8000);
+            const res = await fetch(url, { signal: controller.signal, headers: { 'user-agent': 'Mozilla/5.0' } }).finally(() => clearTimeout(timer));
+            if (!res.ok)
+                continue;
+            const type = String(res.headers.get('content-type') || '');
+            if (!/^image\//i.test(type))
+                continue;
+            const buf = Buffer.from(await res.arrayBuffer());
+            if (buf.length < 12000)
+                continue; // 12KB 미만은 아이콘·배지로 본다
+            photos.push(`data:${type.split(';')[0]};base64,${buf.toString('base64')}`);
+        }
+        catch { /* 한 장 실패는 넘어간다 — 나머지로 채운다 */ }
+    }
+    return photos;
+}
+electron_1.ipcMain.handle('cardnews:create', async (_evt, args) => {
+    let hiddenWin = null;
+    try {
+        const title = String(args?.title || '').trim();
+        const sourceHtml = String(args?.html || '');
+        const keyword = String(args?.keyword || title).trim();
+        if (!title || !sourceHtml)
+            return { ok: false, error: '글 제목/본문이 비어 있습니다. 목록에서 글을 다시 선택해주세요.' };
+        const { buildCardPlanPrompt, parseCardPlan, extractArticleText } = require('../dist/core/cardnews/card-plan');
+        const { renderCardHtml, renderImageOnlyHtml, CARD_FORMATS } = require('../dist/core/cardnews/card-template');
+        const { normalizeCardImageMode, resolveCardImageMode, DEFAULT_CARD_ENGINE } = require('../dist/core/cardnews/card-image');
+        const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
+        const engine = String(args?.engine || DEFAULT_CARD_ENGINE).trim() || DEFAULT_CARD_ENGINE;
+        const mode = resolveCardImageMode(normalizeCardImageMode(args?.mode), engine);
+        const isProduct = mode === 'product';
+        sendCardnewsProgress({ phase: 'plan', label: isProduct ? '상품 카드 문안을 설계하는 중…' : '카드 문안을 설계하는 중…' });
+        const prompt = buildCardPlanPrompt(keyword, title, extractArticleText(sourceHtml), { productMode: isProduct });
+        const plan = parseCardPlan(await callGeminiWithRetry(prompt));
+        if (!plan)
+            return { ok: false, error: '카드 문안 생성에 실패했습니다. 잠시 후 다시 시도해주세요.' };
+        /**
+         * 배경 모드: 카드당 한 장만 만들고 두 규격이 나눠 쓴다.
+         *   배경은 어차피 cover 로 잘리므로 규격마다 새로 뽑아도 얻는 게 없고 비용만 두 배다.
+         * 전체 AI 모드: 규격마다 따로 뽑는다.
+         *   4:5 로 그린 글자를 1:1 에 cover 로 넣으면 위아래가 잘려 글자가 날아간다.
+         *   비용이 두 배지만, 글자가 잘린 카드는 쓸 수가 없다.
+         */
+        const isFull = mode === 'full';
+        const shared = [];
+        let i2iMadeCount = 0; // i2i 는 실패해도 실물 사진으로 채우므로 성공 수를 따로 센다
+        if (isProduct) {
+            /**
+             * v3.8.521 — 상품 모드: 실제 상품 사진을 참고로 **그 상품을 쓰는 장면**을 만든다.
+             * 사장님 확정: 상품 사진만 띡 주면 글로 승부해야 하고 그건 어려운 싸움이다.
+             * 상품 자체는 실물 그대로 유지된다(프롬프트가 보존을 못박음).
+             *
+             * 사진이 없으면 참고할 실물이 없어 그냥 AI 생성컷이 된다 — 그건 역신호라 만들지 않는다.
+             * 엔진이 'none' 이면 생성만 건너뛰고 실물 사진을 배경으로 쓴다.
+             */
+            const photos = await collectProductPhotos(sourceHtml);
+            const noEngine = engine === 'none' || engine === 'skip';
+            const { pickI2iEngine } = require('../dist/core/imageDispatcher');
+            const picked = noEngine ? { engine, switched: false, reason: '' } : pickI2iEngine(engine, (0, env_1.loadEnvFromFile)());
+            if (picked.switched) {
+                sendCardnewsProgress({ phase: 'image', index: 0, total: plan.cards.length, label: `참고 이미지가 되는 엔진으로 전환 — ${picked.engine} (${picked.reason})` });
+            }
+            if (!photos.length) {
+                sendCardnewsProgress({ phase: 'image', index: 0, total: plan.cards.length, label: '본문에서 상품 사진을 찾지 못했습니다 — 장면 생성을 건너뜁니다 (그라데이션으로 진행)' });
+                for (let i = 0; i < plan.cards.length; i++)
+                    shared.push('');
+            }
+            else if (noEngine) {
+                sendCardnewsProgress({ phase: 'image', index: 0, total: plan.cards.length, label: `이미지 엔진이 꺼져 있어 상품 사진 ${photos.length}장을 그대로 씁니다` });
+                for (let i = 0; i < plan.cards.length; i++) {
+                    shared.push(photos[i % photos.length]);
+                    sendCardnewsProgress({ phase: 'image', index: i, total: plan.cards.length, ok: true });
+                }
+            }
+            else {
+                for (let i = 0; i < plan.cards.length; i++) {
+                    const reference = photos[i % photos.length];
+                    sendCardnewsProgress({
+                        phase: 'image', index: i, total: plan.cards.length,
+                        label: `${i + 1}/${plan.cards.length} 상품 사용 장면 만드는 중 — ${String(plan.cards[i]?.title || '').slice(0, 20)}`,
+                    });
+                    const made = await makeCardImage(plan.cards[i], {
+                        keyword, engine: picked.engine, mode, index: i, total: plan.cards.length, referenceImage: reference,
+                    });
+                    // 생성이 실패하면 실물 사진을 그대로 쓴다 — 상품 글에서 배경을 잃는 것보다 낫다
+                    shared.push(made || reference);
+                    if (made)
+                        i2iMadeCount++;
+                    sendCardnewsProgress({ phase: 'image', index: i, total: plan.cards.length, ok: !!made });
+                }
+            }
+        }
+        else if (!isFull && mode !== 'none') {
+            for (let i = 0; i < plan.cards.length; i++) {
+                sendCardnewsProgress({
+                    phase: 'image', index: i, total: plan.cards.length,
+                    label: `${i + 1}/${plan.cards.length} 배경 이미지 만드는 중 — ${String(plan.cards[i]?.title || '').slice(0, 22)}`,
+                });
+                const made = await makeCardImage(plan.cards[i], {
+                    keyword, engine, mode, index: i, total: plan.cards.length,
+                });
+                shared.push(made);
+                sendCardnewsProgress({ phase: 'image', index: i, total: plan.cards.length, ok: !!made });
+            }
+        }
+        // 상품 모드는 실패분을 실물 사진으로 메우므로 shared 만 세면 실패가 0 으로 숨는다 (v3.8.521)
+        let madeCount = isProduct ? i2iMadeCount : shared.filter(Boolean).length;
+        // 출력 폴더: 사진 폴더 아래에 글 제목으로 (겹치면 시각 붙임)
+        const slug = title.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40) || 'cardnews';
+        const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+        const baseDir = path.join(electron_1.app.getPath('pictures'), 'LEADERNAM-카드뉴스', `${slug}-${stamp}`);
+        // 숨김 창 하나로 카드·규격을 순서대로 캡처한다 (규격마다 창 크기만 바꾼다)
+        hiddenWin = new electron_2.BrowserWindow({ show: false, frame: false, webPreferences: { offscreen: true } });
+        const files = [];
+        // v3.8.515: kakao34(세로형)는 insta45 에서 만든 세로 이미지를 재사용 — 규격 추가로 과금이 늘면 안 된다
+        const portraitFull = [];
+        for (const formatKey of Object.keys(CARD_FORMATS)) {
+            const format = CARD_FORMATS[formatKey];
+            const dir = path.join(baseDir, format.dir);
+            fs.mkdirSync(dir, { recursive: true });
+            hiddenWin.setContentSize(format.width, format.height);
+            for (let i = 0; i < plan.cards.length; i++) {
+                let cardHtml;
+                sendCardnewsProgress({
+                    phase: 'render', index: i, total: plan.cards.length,
+                    label: `${format.dir} ${i + 1}/${plan.cards.length} 카드 그리는 중`,
+                });
+                if (isFull) {
+                    // 규격에 맞춰 따로 뽑고, 성공하면 그림만 놓는다 (글자는 이미 그림 안에 있다)
+                    const ratio = formatKey === 'kakao11' ? '1:1' : '4:5';
+                    let full = '';
+                    if (formatKey === 'kakao34' && portraitFull[i]) {
+                        full = portraitFull[i]; // insta45 세로 이미지 재사용 — 추가 과금 0
+                    }
+                    else {
+                        full = await makeCardImage(plan.cards[i], {
+                            keyword, engine, mode, index: i, total: plan.cards.length, ratio,
+                        });
+                        if (full)
+                            madeCount++;
+                    }
+                    if (formatKey === 'insta45' && full)
+                        portraitFull[i] = full;
+                    cardHtml = full
+                        ? renderImageOnlyHtml(full, format)
+                        // 실패하면 글자만이라도 남는다 — 빈 칸을 내보내는 것보다 낫다
+                        : renderCardHtml(plan.cards[i], { format: formatKey, index: i, total: plan.cards.length, keyword });
+                }
+                else {
+                    cardHtml = renderCardHtml(plan.cards[i], {
+                        format: formatKey, index: i, total: plan.cards.length, keyword, backdrop: shared[i],
+                    });
+                }
+                /**
+                 * v3.8.517: data: URL 로드 금지 — 배경 이미지가 크면 크로미움 URL 길이 한도를 넘어
+                 * ERR_INVALID_URL(-300) 로 조용히 죽는다 (사장님 실사고). 파일 로드는 한도가 없다.
+                 */
+                const renderHtmlFile = path.join(baseDir, '.render.html');
+                fs.writeFileSync(renderHtmlFile, cardHtml, 'utf-8');
+                await hiddenWin.loadFile(renderHtmlFile);
+                await new Promise((r) => setTimeout(r, 120)); // 폰트·레이아웃 안정화 한 프레임
+                const image = await hiddenWin.webContents.capturePage({ x: 0, y: 0, width: format.width, height: format.height });
+                const file = path.join(dir, `${String(i + 1).padStart(2, '0')}.png`);
+                fs.writeFileSync(file, image.toPNG());
+                files.push({ format: format.dir, file });
+                // v3.8.517: 카드가 완성되는 즉시 UI 미리보기로 흘려보낸다 (순차 표시)
+                sendCardnewsProgress({ phase: 'card-done', index: i, total: plan.cards.length, format: format.dir, file });
+            }
+        }
+        try {
+            fs.unlinkSync(path.join(baseDir, '.render.html'));
+        }
+        catch { /* 임시 렌더 파일 정리 실패는 무해 */ }
+        // 캡션 + 카드별 Alt — 업로드할 때 그대로 붙여 넣게 텍스트로 준다
+        const altLines = plan.cards.map((c, i) => `${i + 1}번 카드: ${c.alt}`);
+        /**
+         * v3.8.496 — 클릭 동선 3종 (리서치 2026-08-13 확인).
+         * 인스타 댓글·캡션의 링크는 눌리지 않는다(일반 텍스트). 그래서:
+         *   ① 프로필 링크 (기본 — 설정 없이 동작)
+         *   ② 고정 댓글에 링크 (안 눌려도 최상단 고정 + 복사 가능 — 실전에서 쓰이는 방식)
+         *   ③ 댓글 트리거 → DM 자동화 (2026 지배적 전략 — DM 링크는 눌리고 열람률 90%+,
+         *      단 ManyChat 류 도구 연결이 필요해 안내만 한다. 댓글이 늘어 도달에도 유리)
+         * 카카오채널은 본문 링크가 눌리므로 글 주소를 캡션에 직접 넣는다.
+         */
+        const postUrl = String(args?.url || '').trim();
+        const kakaoCaption = plan.caption.replace(/전체 글은 프로필 링크에서.*$/m, '').trim();
+        const captionText = [
+            '[인스타그램 캡션 — 기본(프로필 링크)]',
+            plan.caption,
+            '',
+            postUrl ? `※ 프로필 링크에 이 주소를 걸어두세요: ${postUrl}` : '',
+            '',
+            '[인스타그램 캡션 — 댓글 유도형 (DM 자동화 도구를 쓰는 경우)]',
+            kakaoCaption,
+            '📩 전체 내용이 궁금하면 댓글에 "링크"라고 남겨주세요 — DM으로 바로 보내드릴게요',
+            '※ ManyChat 같은 DM 자동화 연결이 필요합니다. 댓글이 늘어 도달에도 유리합니다.',
+            '',
+            '[카카오채널 캡션]',
+            kakaoCaption,
+            postUrl ? `전체 글 보기 👉 ${postUrl}` : '',
+        ].filter((line, i, arr) => !(line === '' && arr[i - 1] === '')).join('\n');
+        fs.writeFileSync(path.join(baseDir, '캡션.txt'), captionText, 'utf-8');
+        // 고정 댓글용 — 인스타 댓글 링크는 눌리지 않지만, 고정하면 최상단에 남고 복사해 갈 수 있다
+        if (postUrl) {
+            fs.writeFileSync(path.join(baseDir, '고정댓글.txt'), [
+                '업로드 직후 아래를 댓글로 달고, 그 댓글을 길게 눌러 "고정"하세요:',
+                '',
+                `전체 글 👉 ${postUrl}`,
+                '',
+                '※ 인스타 댓글의 링크는 눌리지 않고 복사만 됩니다(2026 현재).',
+                '   그래도 고정 댓글은 최상단에 남아 프로필 링크와 함께 많이 쓰이는 동선입니다.',
+            ].join('\n'), 'utf-8');
+        }
+        fs.writeFileSync(path.join(baseDir, 'Alt텍스트.txt'), ['인스타 업로드 시 각 사진의 "대체 텍스트"에 붙여 넣으세요 (검색 노출 요소):', '', ...altLines].join('\n'), 'utf-8');
+        // 카드 문안을 그대로 돌려준다 — UI 가 장마다 고쳐서 재생성을 요청할 수 있어야 한다
+        return {
+            ok: true, dir: baseDir, files, caption: plan.caption, alts: altLines,
+            cards: plan.cards.length, plan: plan.cards, engine, mode,
+            imagesMade: madeCount,
+            // 전체 AI 모드는 규격마다 따로 뽑는다 — 단 kakao34 는 insta45 를 재사용하므로 기대치에서 뺀다 (v3.8.515)
+            imagesWanted: mode === 'none' ? 0 : plan.cards.length * (isFull ? Object.keys(CARD_FORMATS).filter((k) => k !== 'kakao34').length : 1),
+        };
+    }
+    catch (error) {
+        console.error('[CARDNEWS] 생성 실패:', error);
+        return { ok: false, error: String(error?.message || error).slice(0, 200) };
+    }
+    finally {
+        try {
+            hiddenWin?.destroy();
+        }
+        catch { /* noop */ }
+    }
+});
+/**
+ * 🃏 v3.8.498 — 카드 한 장만 다시 만든다.
+ *
+ * 7장을 통째로 다시 뽑으면 마음에 들던 6장까지 바뀌고 비용도 7배다.
+ * 문안만 고칠 수도(이미지 유지), 이미지만 다시 뽑을 수도 있어야 한다.
+ * 파일명은 그대로 덮어써서 폴더 순서가 흐트러지지 않게 한다.
+ */
+electron_1.ipcMain.handle('cardnews:regen-card', async (_evt, args) => {
+    let hiddenWin = null;
+    try {
+        const baseDir = String(args?.dir || '').trim();
+        const index = Number(args?.index);
+        const total = Math.max(1, Number(args?.total) || 1);
+        const keyword = String(args?.keyword || '').trim();
+        const card = args?.card;
+        if (!baseDir || !fs.existsSync(baseDir))
+            return { ok: false, error: '카드 폴더를 찾지 못했습니다. 다시 만들어 주세요.' };
+        if (!Number.isInteger(index) || index < 0 || index >= total)
+            return { ok: false, error: '카드 번호가 올바르지 않습니다.' };
+        if (!card || !String(card.title || '').trim())
+            return { ok: false, error: '카드 제목이 비어 있습니다.' };
+        const { renderCardHtml, renderImageOnlyHtml, CARD_FORMATS } = require('../dist/core/cardnews/card-template');
+        const { normalizeCardImageMode, resolveCardImageMode, DEFAULT_CARD_ENGINE } = require('../dist/core/cardnews/card-image');
+        const engine = String(args?.engine || DEFAULT_CARD_ENGINE).trim() || DEFAULT_CARD_ENGINE;
+        const mode = resolveCardImageMode(normalizeCardImageMode(args?.mode), engine);
+        const isFull = mode === 'full';
+        const safeCard = {
+            kind: String(card.kind || 'body'),
+            title: String(card.title || ''),
+            body: String(card.body || ''),
+            alt: String(card.alt || ''),
+        };
+        /**
+         * reuseBackdrop 이 오면 이미지는 그대로 두고 글자만 다시 얹는다 (비용 0).
+         * 전체 AI 모드에서는 글자가 그림 안에 있어 "글자만 고치기"가 성립하지 않는다 —
+         * 문안을 바꾸면 그림을 새로 그리는 수밖에 없다.
+         */
+        const reuse = isFull ? '' : String(args?.reuseBackdrop || '').trim();
+        const backdrop = isFull ? '' : (reuse || await makeCardImage(safeCard, { keyword, engine, mode, index, total }));
+        hiddenWin = new electron_2.BrowserWindow({ show: false, frame: false, webPreferences: { offscreen: true } });
+        const files = [];
+        let anyImage = !!backdrop;
+        for (const formatKey of Object.keys(CARD_FORMATS)) {
+            const format = CARD_FORMATS[formatKey];
+            const dir = path.join(baseDir, format.dir);
+            fs.mkdirSync(dir, { recursive: true });
+            hiddenWin.setContentSize(format.width, format.height);
+            let cardHtml;
+            if (isFull) {
+                const ratio = formatKey === 'kakao11' ? '1:1' : '4:5';
+                const full = await makeCardImage(safeCard, { keyword, engine, mode, index, total, ratio });
+                if (full)
+                    anyImage = true;
+                cardHtml = full
+                    ? renderImageOnlyHtml(full, format)
+                    : renderCardHtml(safeCard, { format: formatKey, index, total, keyword });
+            }
+            else {
+                cardHtml = renderCardHtml(safeCard, { format: formatKey, index, total, keyword, backdrop });
+            }
+            // v3.8.517: data: URL 은 이미지가 크면 ERR_INVALID_URL — 파일 로드로 (생성 핸들러와 동일)
+            const regenHtmlFile = path.join(electron_1.app.getPath('temp'), 'cardnews-regen-render.html');
+            fs.writeFileSync(regenHtmlFile, cardHtml, 'utf-8');
+            await hiddenWin.loadFile(regenHtmlFile);
+            await new Promise((r) => setTimeout(r, 120));
+            const image = await hiddenWin.webContents.capturePage({ x: 0, y: 0, width: format.width, height: format.height });
+            const file = path.join(dir, `${String(index + 1).padStart(2, '0')}.png`);
+            fs.writeFileSync(file, image.toPNG());
+            files.push({ format: format.dir, file });
+        }
+        return { ok: true, files, backdrop, reused: !!reuse, imageMade: anyImage };
+    }
+    catch (error) {
+        console.error('[CARDNEWS] 카드 재생성 실패:', error);
+        return { ok: false, error: String(error?.message || error).slice(0, 200) };
+    }
+    finally {
+        try {
+            hiddenWin?.destroy();
+        }
+        catch { /* noop */ }
+    }
+});
+/**
+ * 🔗 v3.8.500 — 단축링크 (Pretty Links 연동)
+ *
+ * 워드프레스 주소가 평균 233자다. 퍼머링크가 /%category%/%postname%/ 인데
+ * 슬러그가 한글이라 한 글자가 %eb%b6%80 처럼 9자로 부푼다.
+ * 외부에 뿌릴 때 깨져 보이고 무슨 글인지도 알 수 없어서 자체 도메인으로 줄인다.
+ */
+/** 단축링크는 Pretty Links 가 있어야 동작한다 — 없으면 깔아 준다 */
+electron_1.ipcMain.handle('shortlink:ensure-plugin', async (_evt, args) => {
+    try {
+        const { ensurePrettyLinks } = require('../dist/wordpress/pretty-links');
+        return await ensurePrettyLinks(args?.payload || {});
+    }
+    catch (error) {
+        return { ok: false, installed: false, active: false, error: String(error?.message || error).slice(0, 200) };
+    }
+});
+electron_1.ipcMain.handle('shortlink:list', async (_evt, args) => {
+    try {
+        const { listShortLinks } = require('../dist/wordpress/pretty-links');
+        return await listShortLinks({ search: args?.search || '', payload: args?.payload || {} });
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 200) };
+    }
+});
+electron_1.ipcMain.handle('shortlink:create', async (_evt, args) => {
+    try {
+        const { createShortLink } = require('../dist/wordpress/pretty-links');
+        return await createShortLink({
+            slug: String(args?.slug || ''),
+            url: String(args?.url || ''),
+            name: String(args?.name || ''),
+            redirectType: args?.redirectType || '307',
+            nofollow: !!args?.nofollow,
+            sponsored: !!args?.sponsored,
+            autoDedupe: args?.autoDedupe !== false,
+            payload: args?.payload || {},
+        });
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 200) };
+    }
+});
+/** 목적지 바꾸기 — 프로필 링크 하나로 이번 달 A글, 다음 달 B글 */
+electron_1.ipcMain.handle('shortlink:update', async (_evt, args) => {
+    try {
+        const { updateShortLink } = require('../dist/wordpress/pretty-links');
+        return await updateShortLink({
+            id: Number(args?.id || 0),
+            url: args?.url, name: args?.name, slug: args?.slug,
+            payload: args?.payload || {},
+        });
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 200) };
+    }
+});
+/** 제목에서 단축 주소를 제안한다 (AI 안 부름 — 돈도 안 들고 결과가 항상 같다) */
+electron_1.ipcMain.handle('shortlink:suggest', async (_evt, args) => {
+    try {
+        const { suggestSlug } = require('../dist/wordpress/pretty-links');
+        return { ok: true, slug: suggestSlug(String(args?.title || ''), args?.postId) };
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 200) };
+    }
+});
+electron_1.ipcMain.handle('shortlink:top', async (_evt, args) => {
+    try {
+        const { topShortLinks } = require('../dist/wordpress/pretty-links');
+        return await topShortLinks({ limit: Number(args?.limit) || 20, payload: args?.payload || {} });
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 200) };
+    }
+});
+electron_1.ipcMain.handle('cardnews:open-dir', async (_evt, args) => {
+    try {
+        const dir = String(args?.dir || '');
+        if (!dir || !fs.existsSync(dir))
+            return { ok: false, error: '폴더가 없습니다.' };
+        const { shell } = require('electron');
+        await shell.openPath(dir);
+        return { ok: true };
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error) };
+    }
+});
 electron_1.ipcMain.handle('read-license-file', async () => {
     try {
         const licensePath = path.join(electron_1.app.getPath('userData'), 'license.json');
@@ -7031,38 +7615,27 @@ electron_1.ipcMain.handle('set-admin-pin', async (_evt, args) => {
     }
 });
 /**
- * 황금키워드 배포 원본(data/golden-keyword.json)에 쓴다.
+ * 황금키워드 배포 — 관리자가 저장하면 그 자리에서 GitHub 에 올라간다.
  *
- * 이 파일이 GitHub 에 올라가면 사용자 앱들이 raw URL 로 읽어간다.
- * 레포가 있는 개발 PC 에서만 의미가 있으므로 배포본에서는 명시적으로 거절한다.
- * 경로는 레포 안의 한 파일로 **고정**한다 — 렌더러가 임의 경로를 쓰게 두지 않는다.
+ * 개발 PC(레포 있음)면 git commit+push, 설치된 앱이면 저장해둔 토큰으로 GitHub API.
+ * 어느 쪽이든 사용자 앱들이 raw URL 로 읽는 파일 하나가 갱신된다.
+ * 경로·브랜치는 golden-keyword-publisher 안에 고정한다 — 렌더러가 정하게 두지 않는다.
  */
-electron_1.ipcMain.handle('golden-keyword:save-repo-file', async (_evt, payload) => {
+electron_1.ipcMain.handle('golden-keyword:publish', async (_evt, payload) => {
     try {
-        if (electron_1.app.isPackaged) {
-            return { ok: false, error: '배포본에는 레포가 없습니다. 개발 PC 에서 저장해주세요.' };
-        }
-        if (!payload || !Array.isArray(payload.items)) {
-            return { ok: false, error: '저장할 키워드 데이터 형식이 올바르지 않습니다.' };
-        }
-        const filePath = path.join(__dirname, '..', 'data', 'golden-keyword.json');
-        const dir = path.dirname(filePath);
-        if (!fs.existsSync(dir))
-            fs.mkdirSync(dir, { recursive: true });
-        // 배포본에는 화면에 필요한 값만 담는다 (savedAt 등 로컬 전용 필드는 제외)
-        const content = {
-            reportDate: String(payload.reportDate || ''),
-            updatedAt: Number(payload.updatedAt) || Date.now(),
-            items: payload.items,
-        };
-        fs.writeFileSync(filePath, `${JSON.stringify(content, null, 2)}\n`, 'utf-8');
-        console.log(`[GOLDEN] 배포 원본 기록: ${filePath} (${payload.items.length}건)`);
-        return { ok: true, filePath, count: payload.items.length };
+        return await (0, golden_keyword_publisher_1.publishGoldenKeyword)(payload);
     }
     catch (error) {
-        console.error('[GOLDEN] 배포 원본 기록 실패:', error);
-        return { ok: false, error: error instanceof Error ? error.message : '기록 실패' };
+        console.error('[GOLDEN] 배포 실패:', error);
+        return { ok: false, error: error instanceof Error ? error.message : '배포 실패' };
     }
+});
+/** 토큰 값은 돌려주지 않는다 — 저장돼 있는지만 알려준다 */
+electron_1.ipcMain.handle('golden-keyword:token-status', async () => {
+    return { ok: true, hasToken: (0, golden_keyword_publisher_1.hasGoldenToken)() };
+});
+electron_1.ipcMain.handle('golden-keyword:save-token', async (_evt, args) => {
+    return (0, golden_keyword_publisher_1.saveGoldenToken)(String(args?.token || ''));
 });
 // v3.8.89: 모든 발행 경로에서 사용하는 통합 success 신호 helper.
 //   BrowserWindow.getAllWindows() 브로드캐스트로 어떤 윈도우든 수신.
@@ -7088,6 +7661,42 @@ function emitPublishSuccess(payload) {
             }
             catch { }
         });
+        /**
+         * 🔎 v3.8.541 — 발행 즉시 색인 요청 (네이버·빙 IndexNow + 구글 옵트인).
+         *   이 함수는 단일/큐/스케줄/멀티계정 발행 성공이 전부 지나는 단일 깔때기라
+         *   여기 한 곳이면 모든 경로가 커버된다 (payload 3경로 함정 회피).
+         *   fire-and-forget — 색인 요청의 어떤 실패도 발행 흐름에 영향을 주지 않는다.
+         *   키 저장은 save-env 와 같은 병합 방식(빈 값 스킵)이라 다른 키를 못 지운다.
+         */
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { requestIndexingForUrl } = require('../src/core/indexing/index-request');
+            void requestIndexingForUrl({ url, platform }, {
+                persistEnv: async (patch) => {
+                    try {
+                        const envPath = path.join(electron_1.app.getPath('userData'), '.env');
+                        const existing = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
+                        const map = new Map();
+                        existing.split('\n').forEach((line) => {
+                            const m = line.trim().match(/^([^=#]+)=(.*)$/);
+                            if (m)
+                                map.set(m[1].trim(), m[2]);
+                        });
+                        Object.entries(patch).forEach(([k, v]) => { if (v) {
+                            map.set(k, v);
+                            process.env[k] = v;
+                        } });
+                        fs.writeFileSync(envPath, Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('\n'), 'utf-8');
+                    }
+                    catch (persistErr) {
+                        console.warn('[INDEXING] 키 저장 실패 (다음 발행 때 재시도):', persistErr);
+                    }
+                },
+            });
+        }
+        catch (idxErr) {
+            console.warn('[INDEXING] 색인 요청 모듈 로드 실패 (발행은 정상):', idxErr);
+        }
     }
     catch (e) {
         console.warn('[PUBLISH-SIGNAL] emit failed:', e);
@@ -7579,6 +8188,39 @@ function describeToneStyle(toneStyle) {
         ...common,
     ];
 }
+/**
+ * v3.8.485 - 검색자가 실제로 던진 질문을 지시서에 넘긴다.
+ *
+ * 사용자 지적: "추론이 하나도 안 되어 있고 검색한 누구나 아는 내용만 나열한 느낌".
+ * 원인의 하나는 재료다. API 경로는 지식인·연관검색어에서 뽑은 질문을 프롬프트에 넣는데,
+ * 에이전트 지시서에는 그 재료가 아예 없었다. 주제만 던지면 일반론이 나온다.
+ */
+function getAgentDemandQuestions(payload) {
+    try {
+        const buckets = [
+            payload?.demandSignals,
+            payload?.demandSignals?.questions,
+            payload?.questions,
+            payload?.relatedQuestions,
+            payload?.subheadings,
+        ];
+        const out = [];
+        for (const bucket of buckets) {
+            if (!Array.isArray(bucket))
+                continue;
+            for (const item of bucket) {
+                const text = typeof item === 'string' ? item : String(item?.question || item?.text || item?.title || '');
+                const trimmed = text.trim();
+                if (trimmed.length >= 5 && !out.includes(trimmed))
+                    out.push(trimmed);
+            }
+        }
+        return out.slice(0, 8);
+    }
+    catch {
+        return [];
+    }
+}
 function getAgentReferenceLines(payload) {
     const urls = [
         ...(Array.isArray(payload?.manualCrawlUrls) ? payload.manualCrawlUrls : []),
@@ -7663,8 +8305,9 @@ function buildAgentJobInstructions(request, profile) {
         '   - H2별 이미지 프롬프트: 각 H2 주제에 맞는 장면. 텍스트 없음.',
         '```json',
         '{',
-        '  "title": "최종 H1 제목 (50~60자, 검색 친화, 숫자/연도 포함 권장)",',
+        '  "title": "최종 H1 제목 (아래 제목 규칙을 따르세요)",',
         '  "summary": "글 자체 검수 요약 (300자)",',
+        '  "sources": ["실제로 참고한 주소 (검색으로 확인한 것만, 없으면 빈 배열)"],',
         `  "imagePolicy": "${imagePolicy}",`,
         `  "thumbnailTextIncluded": ${thumbnailTextIncluded ? 'true' : 'false'},`,
         '  "h2TextIncluded": false,',
@@ -8178,6 +8821,30 @@ function buildAgentJobInstructions(request, profile) {
         '',
         '## 앱에서 생성한 이미지 작업지시서',
         request.imageTask || '(이미지 작업지시서 없음)',
+        '',
+        // v3.8.485: API 경로와 같은 규칙을 붙인다.
+        //   에이전트 모드는 orchestration 을 타지 않고 이 파일 안의 손으로 쓴 프롬프트만 쓴다.
+        //   그래서 제목 아키타입·문체 규칙·알맹이 규칙·값 약속 금지·경험 가드가 하나도 안 들어갔다.
+        //   문구를 여기서 다시 쓰지 않는다 - 복사해두면 한쪽만 고쳐지고 품질이 조용히 갈린다.
+        // v3.8.488: 쿠팡에서 실제 조회한 상품 데이터. 없으면 에이전트가 제품과 가격을 지어낸다.
+        String(payload?.shoppingPromptBlock || ''),
+        (() => {
+            try {
+                const { buildAgentHarnessRules } = require('../dist/core/final/agent-harness');
+                return buildAgentHarnessRules({
+                    keyword: topic,
+                    currentYear: new Date().getFullYear(),
+                    demandQuestions: getAgentDemandQuestions(payload),
+                    // v3.8.486: 디스커버 모드면 제목·본문 규칙이 피드 기준으로 통째로 바뀐다.
+                    //   이걸 안 넘기면 디스커버로 돌려도 검색용 규칙이 나간다.
+                    contentMode: String(payload?.contentMode || ''),
+                });
+            }
+            catch (harnessErr) {
+                console.warn('[AGENT] 공용 규칙 주입 실패(지시서는 계속 진행):', harnessErr);
+                return '';
+            }
+        })(),
     ].join('\n');
 }
 function writeAgentJobFiles(jobDir, request, profile) {
@@ -8186,6 +8853,17 @@ function writeAgentJobFiles(jobDir, request, profile) {
     fs.writeFileSync(path.join(jobDir, 'instructions.md'), buildAgentJobInstructions(request, profile), 'utf-8');
     fs.writeFileSync(path.join(jobDir, 'payload.json'), JSON.stringify(request.payload || {}, null, 2), 'utf-8');
     fs.writeFileSync(path.join(jobDir, 'profile.json'), JSON.stringify(toAgentProfileView(profile), null, 2), 'utf-8');
+    /**
+     * v3.8.489 - 마지막 응답 형태를 강제할 스키마. Codex 가 --output-schema 로 읽는다.
+     * 제목을 못 받아와 키워드로 떨어지던 버그의 뿌리를 막는다.
+     */
+    try {
+        const { AGENT_OUTPUT_SCHEMA } = require('../dist/core/final/agent-output-schema');
+        fs.writeFileSync(path.join(jobDir, 'output-schema.json'), JSON.stringify(AGENT_OUTPUT_SCHEMA, null, 2), 'utf-8');
+    }
+    catch (schemaErr) {
+        console.warn('[AGENT] 출력 스키마 파일 생성 스킵:', schemaErr);
+    }
 }
 function buildAgentRunEnv(profile) {
     const env = { ...process.env };
@@ -8230,9 +8908,11 @@ function buildAgentRunCommand(profile, jobDir, lastMessagePath, model = getCodex
     // v3.8.284: prompt 강화 — 사용자 진단 결과 Codex가 stdout만 출력하고 파일 안 만듬
     // 핵심 fix: write_file 도구 명시 + 파일 검증 + 누락 시 fail 명시
     const prompt = [
-        'CRITICAL: You MUST use the write_file tool (or apply_patch/shell tee) to create EXACTLY these two files:',
-        '  1. result/article.html — complete HTML article body (8,000~14,000 Korean characters)',
-        '  2. result/metadata.json — JSON with title, summary, imagePrompts (thumbnail + h2_1~6)',
+        'CRITICAL: You MUST use the write_file tool (or apply_patch/shell tee) to create these files:',
+        '  1. result/plan.md — SHORT plan BEFORE writing (reader situation, angle, section plan). Write this FIRST.',
+        '  2. result/article.html — complete HTML article body (8,000~14,000 Korean characters)',
+        '  3. result/metadata.json — JSON with title, summary, sources, imagePrompts (thumbnail + h2_1~6)',
+        'Search the web first if you have a search tool. Do not start writing before planning.',
         'After writing both files, verify they exist using ls or cat. If either file is missing, the task FAILS.',
         'DO NOT just print HTML to stdout. DO NOT skip metadata.json. DO NOT use placeholders.',
         'Read instructions.md for the detailed schema. Read payload.json for context.',
@@ -8244,7 +8924,16 @@ function buildAgentRunCommand(profile, jobDir, lastMessagePath, model = getCodex
             'exec',
             '--json',
             '--sandbox', 'workspace-write',
+            // v3.8.487: 웹 검색을 켠다. 에이전트가 스스로 최신 자료를 찾아 쓰게 하려면 필요하다.
+            //   codex exec 에는 --search 플래그가 없어서 config 로 켠다(--strict-config 를 쓰지 않으므로
+            //   이 키를 모르는 버전에서도 무시될 뿐 실행이 깨지지 않는다).
+            '-c', 'tools.web_search=true',
             '--skip-git-repo-check',
+            // v3.8.489: 마지막 응답을 구조화한다 - 제목을 못 받아오던 문제의 뿌리를 막는다.
+            //   파일이 없으면 조용히 무시되도록 아래에서 존재 여부를 확인해 넣는다.
+            ...(fs.existsSync(path.join(jobDir, 'output-schema.json'))
+                ? ['--output-schema', path.join(jobDir, 'output-schema.json')]
+                : []),
             '-o', lastMessagePath,
             prompt,
         ];
@@ -8261,7 +8950,9 @@ function buildAgentRunCommand(profile, jobDir, lastMessagePath, model = getCodex
         args: [
             '-p',
             '--permission-mode', 'dontAsk',
-            '--max-turns', '12',
+            // v3.8.487: 검색 -> 계획 -> 집필 -> 자가검토까지 하려면 12턴은 빠듯하다.
+            //   턴이 모자라면 글이 중간에 잘린 채 회수된다.
+            '--max-turns', '24',
             '--output-format', 'json',
             prompt,
         ],
@@ -8742,7 +9433,56 @@ function readAgentJobResult(jobDir, stdout, lastMessagePath) {
         metadata = { warnings: [`metadata.json 파싱 실패: ${error instanceof Error ? error.message : String(error)}`] };
         console.error(`[AGENT-RESULT] ❌ metadata.json 파싱 실패:`, error);
     }
-    const title = String(metadata?.title || extractHtmlTitle(content) || '').trim();
+    /**
+     * v3.8.489 - 마지막 응답이 구조화돼 있으면 거기서 먼저 건진다.
+     * metadata.json 을 빠뜨려도 제목을 얻을 수 있어, 키워드로 떨어지는 일이 없어진다.
+     * 스키마를 못 쓰는 실행에서는 빈 값이 와서 기존 경로가 그대로 동작한다.
+     */
+    let structured = { title: '', summary: '', sources: [], articleHtml: '' };
+    try {
+        structured = require('../dist/core/final/agent-output-schema').parseAgentFinalResponse(finalMessage);
+    }
+    catch { /* 파싱 실패는 기존 경로로 */ }
+    // 파일 쓰기가 막혀 본문이 비었는데 응답에 들어 있으면 그걸 쓴다 (최후 수단)
+    if (!String(content || '').trim() && structured.articleHtml) {
+        content = structured.articleHtml;
+        console.log('[AGENT-RESULT] 본문을 마지막 응답에서 회수했습니다 (파일 없음)');
+    }
+    let title = String(metadata?.title || structured.title || extractHtmlTitle(content) || '').trim();
+    if (!metadata?.sources && structured.sources.length > 0) {
+        metadata = { ...(metadata || {}), sources: structured.sources };
+    }
+    /**
+     * v3.8.485 - 에이전트가 돌려준 결과도 API 경로와 같은 후처리를 통과시킨다.
+     *
+     * 제목: 상투어를 걷고 키워드 중복을 지우고 길이를 맞춘다. 추가 API 호출은 하지 않는다 -
+     *   에이전트 모드는 구독 CLI 를 쓰려고 고른 것이라 여기서 유료 호출을 끼우면 그 선택을 뒤집는다.
+     * 본문: 소제목을 되풀이하는 캡션을 걷어내고, 빈 블록·값 약속 문장을 세어 로그로 남긴다.
+     *   여기서 발행을 막지는 않는다 - 에이전트 실행에 이미 몇 분을 썼고 되돌릴 수 없다.
+     */
+    try {
+        const harness = require('../dist/core/final/agent-harness');
+        const keywordForTitle = String(metadata?.keyword || metadata?.topic || '').trim();
+        const normalized = harness.normalizeAgentTitle(title, keywordForTitle);
+        if (normalized && normalized !== title) {
+            console.log(`[AGENT-RESULT] 제목 정리: "${title}" -> "${normalized}"`);
+            title = normalized;
+        }
+        // 모드는 metadata.json 이 아니라 우리가 써둔 payload.json 에 있다 (에이전트가 만든 게 아니다)
+        let jobContentMode = '';
+        try {
+            const payloadJson = JSON.parse(fs.readFileSync(path.join(jobDir, 'payload.json'), 'utf-8'));
+            jobContentMode = String(payloadJson?.contentMode || '');
+        }
+        catch { /* 없으면 검색 모드로 본다 */ }
+        const report = harness.postProcessAgentArticle(content, { contentMode: jobContentMode, title });
+        content = report.html;
+        for (const w of report.warnings)
+            console.warn('[AGENT-RESULT] 품질 경고:', w);
+    }
+    catch (harnessErr) {
+        console.warn('[AGENT-RESULT] 후처리 스킵:', harnessErr);
+    }
     console.log(`[AGENT-RESULT] 📝 최종 title: "${title}"`);
     console.log(`[AGENT-RESULT] 📂 디버깅: 위 jobDir 경로 열어서 article.html / metadata.json 직접 확인 가능`);
     return { content, title, metadata, finalMessage };
@@ -9834,10 +10574,57 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
         const jobId = createAgentJobId(profile.provider, request?.title || request?.payload?.title || request?.payload?.topic);
         const jobDir = path.join(ensureAgentJobsRoot(), jobId);
         fs.mkdirSync(jobDir, { recursive: true });
+        /**
+         * v3.8.488 — 쇼핑 글이면 실제 상품 데이터를 먼저 확보해 지시서에 넣는다.
+         *
+         * 에이전트는 외부 API 를 못 쓴다. 상품 정보를 안 주면 있지도 않은 제품과 가격을
+         * 지어낸다. API 경로는 이미 이 단계를 거치므로, 같은 결과를 내려면 여기서도 해야 한다.
+         * 실패해도 글은 나온다 — 상품 없이 진행할 뿐이다.
+         */
+        let agentShoppingProducts = [];
+        try {
+            const shoppingMode = String(request?.payload?.contentMode || '');
+            const shoppingKeyword = String(request?.payload?.keyword || request?.title || request?.payload?.topic || '');
+            const { fetchAgentShoppingMaterial } = require('../dist/core/final/agent-shopping');
+            const envData = require('../dist/env').loadEnvFromFile();
+            const material = await fetchAgentShoppingMaterial(shoppingKeyword, shoppingMode, {
+                accessKey: request?.payload?.coupangAccessKey || envData['coupangAccessKey'] || envData['COUPANG_ACCESS_KEY'] || '',
+                secretKey: request?.payload?.coupangSecretKey || envData['coupangSecretKey'] || envData['COUPANG_SECRET_KEY'] || '',
+            });
+            agentShoppingProducts = material.products || [];
+            if (material.promptBlock) {
+                // 지시서 빌더가 읽는 자리 — payload 에 실어야 instructions.md 에 들어간다
+                request.payload = { ...(request?.payload || {}), shoppingPromptBlock: material.promptBlock };
+            }
+            if (material.note)
+                console.log('[AGENT-SHOPPING]', material.note);
+        }
+        catch (shoppingErr) {
+            console.warn('[AGENT-SHOPPING] 준비 스킵:', String(shoppingErr?.message || shoppingErr).slice(0, 120));
+        }
         writeAgentJobFiles(jobDir, request || {}, profile);
         const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
         const run = await runAgentProcess(profile, jobDir, lastMessagePath);
         const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
+        /**
+         * v3.8.488 - 쇼핑 글이면 상품 위젯·대가성 문구를 앱이 붙인다.
+         *
+         * 에이전트에게는 "상품 링크를 직접 만들지 마라" 고 막아뒀다 - 지어낸 제휴링크는
+         * 100% 죽은 링크이기 때문이다. 실제 딥링크가 박힌 위젯은 여기서 붙인다.
+         * 상품이 0개면 아무것도 안 붙인다 (제휴 관계가 없는데 대가성 문구를 달면 허위 고지다).
+         */
+        try {
+            const { attachAgentShoppingBlocks } = require('../dist/core/final/agent-shopping');
+            const shoppingMode = String(request?.payload?.contentMode || '');
+            const attachResult = attachAgentShoppingBlocks(result.content, agentShoppingProducts, shoppingMode);
+            if (attachResult.attached.length > 0) {
+                result.content = attachResult.html;
+                console.log('[AGENT-SHOPPING] 부착 완료:', attachResult.attached.join(', '));
+            }
+        }
+        catch (attachErr) {
+            console.warn('[AGENT-SHOPPING] 부착 스킵:', String(attachErr?.message || attachErr).slice(0, 120));
+        }
         const usage = parseAgentRunUsage(profile.provider, run.stdout);
         const hasContent = !!String(result.content || '').trim();
         // v3.8.415: 사용자가 중지시켜서 산출물이 비었을 뿐인데 "실패"로 보고하면
@@ -10269,41 +11056,127 @@ electron_1.ipcMain.handle('check-api-keys', async () => {
 electron_1.ipcMain.handle('app:getVersion', () => {
     return electron_1.app.getVersion();
 });
-// 무료 체험 접속 (라이선스 없이 앱 진입)
-electron_1.ipcMain.handle('auth:free-trial', async () => {
-    console.log('[AUTH] 🆓 무료 체험 모드로 접속');
-    // 무료 체험 세션 활성화
+/*
+ * [2026-08-21] 무료 체험 개편 — 자동화 앱과 같은 규율(사장님: "이 앱도 똑같이").
+ * 예전엔 버튼 한 번에 무기록 세션이라 재시작마다 새 체험 = 매일 3회 평생무료였다.
+ * 이제: 닉네임·폰번호 → [인증하기](trial-verify, 무기록 자격확인) → [인증완료]
+ * (trial-activate 등록) → 30일 닻은 서버 registeredAt 과 로컬 중 이른 날짜.
+ * 서버 확인 없인 체험을 열지 않는다(오프라인 우회 금지). GAS 는 자동화 앱과
+ * 같은 배포를 쓰되 product:'orbit' 으로 장부(TrialUsers_Orbit)가 분리된다.
+ */
+const TRIAL_GAS_URL = process.env.LICENSE_SERVER_URL
+    || 'https://script.google.com/macros/s/AKfycbxBOGkjVj4p-6XZ4SEFYKhW3FBmo5gt7Fv6djWhB1TljnDDmx_qlfZ4YdlJNohzIZ8NJw/exec';
+async function callTrialGas(payload) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-        const { activateFreeTrial } = require('./auth-utils');
-        activateFreeTrial();
+        const response = await fetch(TRIAL_GAS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({ ...payload, product: 'orbit', appVersion: electron_1.app.getVersion() }),
+            signal: controller.signal,
+        });
+        return await response.json();
+    }
+    finally {
+        clearTimeout(timeout);
+    }
+}
+// [인증하기] — 등록 없이 자격만 확인 (차단·기기중복·기존체험 여부)
+electron_1.ipcMain.handle('auth:trial-verify', async (_event, userInfo) => {
+    try {
+        const nickname = String(userInfo?.nickname || '').trim();
+        const phone = String(userInfo?.phone || '').trim().replace(/[-\s]/g, '');
+        if (nickname.length < 2) {
+            return { ok: false, message: '오픈채팅 닉네임을 2자 이상 정확하게 기재하세요.' };
+        }
+        if (!/^01[0-9]{8,9}$/.test(phone)) {
+            return { ok: false, message: '올바른 전화번호를 입력하세요. (예: 01012345678)' };
+        }
+        const { getDeviceId } = require('./auth-utils');
+        const deviceId = await getDeviceId();
+        const result = await callTrialGas({ action: 'trial-verify', nickname, phone, deviceId });
+        if (result.ok !== true) {
+            return { ok: false, message: result.error || '인증에 실패했습니다.' };
+        }
+        return {
+            ok: true,
+            status: result.status === 'existing' ? 'existing' : 'new',
+            registeredAt: typeof result.registeredAt === 'string' ? result.registeredAt : '',
+        };
     }
     catch (e) {
-        console.error('[AUTH] activateFreeTrial 실패:', e);
+        console.error('[AUTH] trial-verify 실패:', e);
+        return { ok: false, message: '인증에 실패했습니다. 인터넷 연결을 확인하세요.' };
     }
-    // Free trial: close login window and open main window
-    const { BrowserWindow } = require('electron');
-    const allWindows = BrowserWindow.getAllWindows();
-    // Close login window
-    allWindows.forEach((win) => {
-        if (win.getTitle().includes('인증') || win.webContents.getURL().includes('login-window')) {
-            win.close();
+});
+// [인증완료] / 재입장 — 서버 등록 후 체험 시작. 인자 없으면 저장된 체험 상태로 재입장.
+electron_1.ipcMain.handle('auth:free-trial', async (_event, userInfo) => {
+    try {
+        const authUtils = require('./auth-utils');
+        const stored = authUtils.loadTrialState();
+        const nickname = String(userInfo?.nickname || stored?.nickname || '').trim();
+        const phone = String(userInfo?.phone || stored?.phone || '').trim().replace(/[-\s]/g, '');
+        if (nickname.length < 2 || !/^01[0-9]{8,9}$/.test(phone)) {
+            // 첫 체험 — 렌더러가 닉네임·폰번호 입력 모달을 띄운다.
+            return { ok: false, code: 'NEED_INFO' };
         }
-    });
-    // Create main window (same as successful login)
-    if (typeof createWindow === 'function') {
-        createWindow();
+        const deviceId = await authUtils.getDeviceId();
+        let result;
+        try {
+            result = await callTrialGas({ action: 'trial-activate', email: '', nickname, phone, deviceId });
+        }
+        catch (netErr) {
+            // 서버 확인 없인 체험을 열지 않는다 — 오프라인이 인증·중복검사 전체 우회였다.
+            console.error('[AUTH] trial-activate 전송 실패 — 활성화 거부:', netErr);
+            return { ok: false, message: '서버 연결에 실패했습니다. 인터넷 연결을 확인한 뒤 다시 시도하세요.' };
+        }
+        if (result.ok !== true) {
+            return { ok: false, message: result.error || '체험 등록에 실패했습니다.' };
+        }
+        // 30일의 닻 — 서버 최초 등록일과 로컬 저장분 중 더 이른 날짜.
+        const anchorCandidates = [stored?.registeredAt, result.registeredAt]
+            .filter((d) => typeof d === 'string' && Number.isFinite(new Date(d).getTime()));
+        const registeredAt = anchorCandidates.length > 0
+            ? new Date(Math.min(...anchorCandidates.map((d) => new Date(d).getTime()))).toISOString()
+            : new Date().toISOString();
+        const expiresAt = new Date(new Date(registeredAt).getTime() + authUtils.FREE_TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+        const state = { nickname, phone, registeredAt, expiresAt };
+        authUtils.saveTrialState(state);
+        if (authUtils.isTrialExpired(state)) {
+            return { ok: false, code: 'EXPIRED', message: '무료 체험 30일이 이미 만료되었습니다. 계속 사용하려면 라이선스를 구매해 주세요.' };
+        }
+        console.log(`[AUTH] 🆓 무료 체험 접속 — ${phone.slice(0, 3)}**** · 만료 ${expiresAt}`);
+        authUtils.activateFreeTrial();
+        // Free trial: close login window and open main window
+        const { BrowserWindow } = require('electron');
+        const allWindows = BrowserWindow.getAllWindows();
+        allWindows.forEach((win) => {
+            if (win.getTitle().includes('인증') || win.webContents.getURL().includes('login-window')) {
+                win.close();
+            }
+        });
+        if (typeof createWindow === 'function') {
+            createWindow();
+        }
+        return { ok: true, expiresAt };
     }
-    return { ok: true };
+    catch (e) {
+        console.error('[AUTH] free-trial 실패:', e);
+        return { ok: false, message: e?.message || '체험 시작에 실패했습니다.' };
+    }
 });
 electron_1.ipcMain.handle('quota:getStatus', async () => {
     try {
-        const { isFreeTierUser, getFreeQuotaStatus } = require('./auth-utils');
+        const { isFreeTierUser, getFreeQuotaStatus, loadTrialState } = require('./auth-utils');
         const isFree = await isFreeTierUser();
         if (!isFree) {
             return { success: true, isFree: false };
         }
         const quota = await getFreeQuotaStatus();
-        return { success: true, isFree: true, quota };
+        // [2026-08-21] 체험 만료일 동봉 — "매일 3회"만 보이고 "언제까지"가 안 보이던 공백.
+        const trialState = loadTrialState();
+        return { success: true, isFree: true, quota, trialExpiresAt: trialState?.expiresAt || null };
     }
     catch (error) {
         console.error('[QUOTA] 상태 조회 실패:', error);
@@ -10530,8 +11403,6 @@ electron_1.ipcMain.handle('tistory-open-login', async (_evt, payload = {}) => {
         return { ok: false, authenticated: false, error: error instanceof Error ? error.message : 'Tistory login launch failed' };
     }
 });
-const SPIDER_HUB_CTA_START = '<!-- BGPT_SPIDER_HUB_CTA_START -->';
-const SPIDER_HUB_CTA_END = '<!-- BGPT_SPIDER_HUB_CTA_END -->';
 function pickText(...values) {
     for (const value of values) {
         const text = value === undefined || value === null ? '' : String(value).trim();
@@ -10599,32 +11470,10 @@ function resolveBacklinkPostId(post, platform) {
         return bloggerEdit[2] || '';
     return '';
 }
-function buildSpiderHubCtaBlock(hub) {
-    const safeUrl = escapeHtmlInline(hub.url || '#');
-    const safeTitle = escapeHtmlInline(hub.title || '종합 가이드');
-    const theme = pickSpiderEyeComfortPalette(`${hub.title || ''}|${hub.url || ''}`);
-    return `${SPIDER_HUB_CTA_START}
-<div class="bgpt-spider-hub-cta" data-bgpt-role="spider-hub-backlink" style="margin:42px 0 34px;padding:24px 26px;background:linear-gradient(135deg,${theme.gradientStart} 0%,${theme.gradientEnd} 100%);border:1px solid ${theme.border};border-left:5px solid ${theme.primary};border-radius:14px;box-shadow:0 8px 22px ${theme.ctaShadow};font-family:'Noto Sans KR','Malgun Gothic',sans-serif;">
-  <p style="margin:0 0 8px;color:${theme.heading};font-size:14px;font-weight:800;line-height:1.55;">이 글은 종합 가이드의 일부입니다</p>
-  <p style="margin:0 0 16px;color:${theme.muted};font-size:14px;line-height:1.75;">관련 글 전체 흐름과 핵심 비교표는 종합글에서 한 번에 확인할 수 있습니다.</p>
-  <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:13px 22px;background:linear-gradient(135deg,${theme.ctaButtonStart} 0%,${theme.ctaButtonEnd} 100%);color:#fff !important;text-decoration:none;border-radius:10px;font-size:14px;font-weight:900;line-height:1.3;box-shadow:0 6px 16px ${theme.ctaShadow};">종합글로 돌아가기: ${safeTitle}</a>
-</div>
-${SPIDER_HUB_CTA_END}`;
-}
-function insertOrReplaceSpiderHubCta(html, ctaBlock) {
-    const original = String(html || '');
-    const markerRegex = new RegExp(`${escapeRegExpInline(SPIDER_HUB_CTA_START)}[\\s\\S]*?${escapeRegExpInline(SPIDER_HUB_CTA_END)}`, 'i');
-    if (markerRegex.test(original)) {
-        const next = original.replace(markerRegex, ctaBlock);
-        return { html: next, action: next === original ? 'unchanged' : 'replaced' };
-    }
-    const oldBlockRegex = /<div[^>]+data-bgpt-role=["']spider-hub-backlink["'][\s\S]*?<\/div>/i;
-    if (oldBlockRegex.test(original)) {
-        return { html: original.replace(oldBlockRegex, ctaBlock), action: 'replaced' };
-    }
-    return { html: `${original.trim()}\n\n${ctaBlock}`, action: 'inserted' };
-}
 async function updateWordPressSpiderBacklink(post, hub, settings) {
+    // v3.8.539: 처방 번역까지 함께 — GET 실패 경로가 아래 require 보다 앞서 참조하면 TDZ 라 첫머리에 둔다
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { applySpiderHubBacklinks, describeBacklinkFailure } = require('../src/core/spiderweb/hub-backlinks');
     const env = (0, env_1.loadEnvFromFile)();
     const postId = resolveBacklinkPostId(post, 'wordpress');
     if (!postId)
@@ -10652,7 +11501,7 @@ async function updateWordPressSpiderBacklink(post, hub, settings) {
     const getResponse = await fetch(getUrl, { headers });
     const getText = await getResponse.text();
     if (!getResponse.ok) {
-        throw new Error(`WordPress 글 조회 실패 (${getResponse.status}): ${getText.substring(0, 160)}`);
+        throw new Error(`WordPress 글 조회 실패 (${getResponse.status}) — ${describeBacklinkFailure(getResponse.status, 'wordpress')}`);
     }
     const wpPost = getText ? JSON.parse(getText) : {};
     const contentValue = wpPost?.content;
@@ -10661,7 +11510,8 @@ async function updateWordPressSpiderBacklink(post, hub, settings) {
         : pickText(contentValue?.raw, contentValue?.rendered);
     if (!currentHtml)
         throw new Error('WordPress 글 본문을 읽지 못했습니다.');
-    const patch = insertOrReplaceSpiderHubCta(currentHtml, buildSpiderHubCtaBlock(hub));
+    // v3.8.539: 상단·중간·하단 3위치 — 로직은 src/core/spiderweb/hub-backlinks.ts (하네스 대상)
+    const patch = applySpiderHubBacklinks(currentHtml, hub, pickSpiderEyeComfortPalette(`${hub.title || ''}|${hub.url || ''}`));
     if (patch.action === 'unchanged') {
         return { action: 'unchanged', url: wpPost.link || post.url || '' };
     }
@@ -10672,7 +11522,7 @@ async function updateWordPressSpiderBacklink(post, hub, settings) {
     });
     const putText = await putResponse.text();
     if (!putResponse.ok) {
-        throw new Error(`WordPress 글 수정 실패 (${putResponse.status}): ${putText.substring(0, 160)}`);
+        throw new Error(`WordPress 글 수정 실패 (${putResponse.status}) — ${describeBacklinkFailure(putResponse.status, 'wordpress')}`);
     }
     const updated = putText ? JSON.parse(putText) : {};
     return { action: patch.action, url: updated.link || wpPost.link || post.url || '' };
@@ -10743,7 +11593,10 @@ async function updateBloggerSpiderBacklink(post, hub, settings) {
     const currentHtml = pickText(current.content);
     if (!currentHtml)
         throw new Error('Blogger 글 본문을 읽지 못했습니다.');
-    const patch = insertOrReplaceSpiderHubCta(currentHtml, buildSpiderHubCtaBlock(hub));
+    // v3.8.539: 상단·중간·하단 3위치 — 로직은 src/core/spiderweb/hub-backlinks.ts (하네스 대상)
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { applySpiderHubBacklinks, describeBacklinkFailure } = require('../src/core/spiderweb/hub-backlinks');
+    const patch = applySpiderHubBacklinks(currentHtml, hub, pickSpiderEyeComfortPalette(`${hub.title || ''}|${hub.url || ''}`));
     if (patch.action === 'unchanged') {
         return { action: 'unchanged', url: current.url || post.url || '' };
     }
@@ -10988,6 +11841,38 @@ async function forcedRemoteUpdateCheck() {
 electron_1.app.whenReady().then(async () => {
     console.log('[APP] Electron 앱 준비 완료');
     console.log(`[VERSION] LEADERNAM Orbit v${electron_1.app.getVersion()}`);
+    /**
+     * ⚙️ v3.8.468 — 설정을 **앱 시작 때 한 번 process.env 로 올린다.**
+     *
+     * 사용자 지적: "환경변수를 이용하지".
+     *
+     * 여러 모듈이 `process.env.AI_PROVIDER` 같은 값을 읽도록 짜여 있는데,
+     * 정작 그 값을 세우는 곳이 없었다. 그래서 사용자가 설정에서 제공자를
+     * openai 로 골라 두어도 payload 에 모델이 없는 경로(대기열·스케줄 등)에서는
+     * 기본값인 gemini-3.5-flash 로 떨어졌다.
+     * 실측(2026-08-06): 설정 AI_PROVIDER=openai · resolveDefaultProvider() → gemini
+     *
+     * 이미 있는 환경변수는 덮지 않는다 — 터미널에서 준 값이 더 명시적인 의사표시다.
+     */
+    try {
+        const { loadEnvFromFile } = require('../dist/env');
+        const settings = loadEnvFromFile() || {};
+        let applied = 0;
+        for (const [key, value] of Object.entries(settings)) {
+            const v = String(value ?? '').trim();
+            if (!v)
+                continue;
+            if (process.env[key] !== undefined && String(process.env[key]).trim())
+                continue;
+            process.env[key] = v;
+            applied += 1;
+        }
+        console.log(`[APP] ⚙️ 설정 ${applied}개를 환경변수로 반영 (AI_PROVIDER=${process.env['AI_PROVIDER'] || '미설정'})`);
+    }
+    catch (e) {
+        // 설정을 못 읽어도 앱은 떠야 한다 — 각 모듈이 알아서 파일을 다시 읽는다
+        console.warn('[APP] 설정 → 환경변수 반영 실패:', String(e?.message || e).slice(0, 100));
+    }
     // v3.8.381(R6): 부팅 시 스케줄 감시 자동 재개 — 기존에는 사용자가 대기열에서 "예약"을
     //   눌러야만 감시가 시작되어, 앱 재시작 후 기존 예약이 조용히 실행되지 않았다.
     //   (생성자에서 좌초된 'processing' 회수도 함께 수행됨 — schedule-manager.ts 참조)
@@ -11604,7 +12489,7 @@ electron_1.ipcMain.handle('fetch-og-image', async (_evt, payload) => {
             validateStatus: (s) => s < 500,
         });
         const html = String(res.data || '');
-        const $ = cheerio.load(html);
+        const $ = getCheerio().load(html);
         // 우선순위: og:image → twitter:image → 첫 본문 img
         let imageUrl = $('meta[property="og:image"]').attr('content') ||
             $('meta[name="og:image"]').attr('content') ||
@@ -11715,6 +12600,71 @@ function resolveExternalTrafficModel(payload, envData) {
         envData.PRIMARY_TEXT_MODEL ||
         '').trim();
 }
+// v3.8.510: 카카오톡 채널 소식 자동 발행 — 공식 API 없음(2026-08 확인) → business.kakao.com UI 자동화.
+// 사장님 손은 로그인 1회뿐. 비밀번호는 저장하지 않는다 (세션 프로필만). 하루 2회 하드캡.
+electron_1.ipcMain.handle('kakao-channel-session-check', async (_evt, payload) => {
+    try {
+        const poster = require('../src/kakao-channel/kakao-poster');
+        return await poster.checkSession(String(payload?.channelId || ''));
+    }
+    catch (error) {
+        return { ok: false, loggedIn: false, error: String(error?.message || error).slice(0, 200) };
+    }
+});
+// v3.8.512: 채널 ID 자동 인식 — 배포용이라 하드코딩 금지, 각 사용자의 세션에서 자기 채널을 읽는다
+electron_1.ipcMain.handle('kakao-channel-detect', async (_evt, payload) => {
+    try {
+        const poster = require('../src/kakao-channel/kakao-poster');
+        return await poster.detectChannelId({ force: Boolean(payload?.force) });
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 200) };
+    }
+});
+electron_1.ipcMain.handle('kakao-channel-login', async (_evt, payload) => {
+    try {
+        const poster = require('../src/kakao-channel/kakao-poster');
+        return await poster.loginInteractive(String(payload?.channelId || ''));
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 200) };
+    }
+});
+electron_1.ipcMain.handle('kakao-channel-autopost', async (_evt, payload) => {
+    try {
+        const { blockIfFreeTier } = require('./auth-utils');
+        const gate = await blockIfFreeTier('카카오 채널 자동 발행');
+        if (!gate.allowed)
+            return gate.response;
+        const poster = require('../src/kakao-channel/kakao-poster');
+        return await poster.postNews({
+            channelId: String(payload?.channelId || ''),
+            text: String(payload?.text || ''),
+            link: String(payload?.link || ''),
+            dryRun: Boolean(payload?.dryRun),
+            // v3.8.515: 카드뉴스 전 장 캐러셀 — 마지막 카드에 링크 버튼. payload.card(단수)는 하위호환.
+            cards: Array.isArray(payload?.cards) ? payload.cards.map((c) => ({
+                imagePath: String(c?.imagePath || ''),
+                shape: String(c?.shape || ''),
+                title: String(c?.title || ''),
+                body: String(c?.body || ''),
+                buttonLabel: String(c?.buttonLabel || ''),
+                buttonUrl: String(c?.buttonUrl || ''),
+            })) : undefined,
+            card: payload?.card && payload.card.imagePath ? {
+                imagePath: String(payload.card.imagePath || ''),
+                shape: String(payload.card.shape || ''),
+                title: String(payload.card.title || ''),
+                body: String(payload.card.body || ''),
+                buttonLabel: String(payload.card.buttonLabel || ''),
+                buttonUrl: String(payload.card.buttonUrl || ''),
+            } : undefined,
+        });
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 300) };
+    }
+});
 electron_1.ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload) => {
     try {
         // v3.8.38: 무료 체험은 글포스팅만 허용 — 외부유입 변환 차단
@@ -11771,6 +12721,9 @@ electron_1.ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payl
         if (!useAgentMode && !geminiKey && !openaiKey && !claudeKey && !perplexityKey) {
             return { success: false, error: 'API 키가 필요합니다. 설정 탭에서 Gemini / OpenAI / Claude / Perplexity 중 하나 이상 입력해주세요.' };
         }
+        // v3.8.508: 발행 글 목록 source 에는 본문이 없다 — 얇으면 원문 페이지에서 직접
+        // 가져온다. 본문 없이는 "실명 사실 1~2개" 규칙이 물리적으로 지켜질 수 없다.
+        validated.sourceText = await dispatcher.ensureSourceText(validated);
         const sourceSummary = dispatcher.buildMinimalSummary(validated.sourceTitle, validated.sourceText || validated.sourceUrl);
         const results = {};
         for (const ch of validated.channels) {
