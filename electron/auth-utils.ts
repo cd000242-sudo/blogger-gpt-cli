@@ -53,7 +53,11 @@ export function saveTrialState(state: FreeTrialState): void {
   }
 }
 
+/** [2026-08-21] 30일 정책 시행일(사장님: "지금 바로는 갑작스럽다 — 9/1부터"). KST 자정. */
+export const FREE_TRIAL_POLICY_START_MS = new Date('2026-09-01T00:00:00+09:00').getTime();
+
 export function isTrialExpired(state: FreeTrialState): boolean {
+  if (Date.now() < FREE_TRIAL_POLICY_START_MS) return false; // 시행 전 — 만료 없음
   const expiryMs = new Date(state.expiresAt).getTime();
   if (!Number.isFinite(expiryMs)) return false;
   return Date.now() >= expiryMs;

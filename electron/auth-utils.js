@@ -40,7 +40,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.FREE_TRIAL_DAYS = exports.FREE_TRIAL_PUBLISH_LIMIT = void 0;
+exports.FREE_TRIAL_POLICY_START_MS = exports.FREE_TRIAL_DAYS = exports.FREE_TRIAL_PUBLISH_LIMIT = void 0;
 exports.loadTrialState = loadTrialState;
 exports.saveTrialState = saveTrialState;
 exports.isTrialExpired = isTrialExpired;
@@ -90,7 +90,11 @@ function saveTrialState(state) {
         console.error('[AuthUtils] 체험 상태 저장 실패:', e);
     }
 }
+/** [2026-08-21] 30일 정책 시행일(사장님: "지금 바로는 갑작스럽다 — 9/1부터"). KST 자정. */
+exports.FREE_TRIAL_POLICY_START_MS = new Date('2026-09-01T00:00:00+09:00').getTime();
 function isTrialExpired(state) {
+    if (Date.now() < exports.FREE_TRIAL_POLICY_START_MS)
+        return false; // 시행 전 — 만료 없음
     const expiryMs = new Date(state.expiresAt).getTime();
     if (!Number.isFinite(expiryMs))
         return false;
