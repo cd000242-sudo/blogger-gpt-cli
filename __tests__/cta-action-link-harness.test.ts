@@ -275,8 +275,11 @@ describe('발행 흐름 배선 — 만들고 아무도 안 부르면 조용히 �
   });
 
   it('글 맥락을 실제로 전달한다 — 안 넘기면 기관 판정이 조용히 무효다', () => {
-    expect(gen).toContain('const articleText = [');
-    expect(gen).toMatch(/searchOfficialSite\(keyword, googleCseKey, googleCseCx, contentMode, false, articleText\)/);
+    // v3.8.542: 재료 조립이 buildCtaArticleContext 로 빠졌고(맨 앞 1회 생성),
+    // 1단계 호출에는 스마트 라우터 목적지(cseSmartTarget)가 한 자리 더 붙었다.
+    // 불변식은 그대로 잠근다: articleText 가 만들어지고 두 경로 모두에 전달된다.
+    expect(gen).toContain('const articleText = articleContext.combined');
+    expect(gen).toMatch(/searchOfficialSite\(keyword, googleCseKey, googleCseCx, contentMode, false, articleText(, \w+)?\)/);
     // 폴백 재귀에도 이어져야 한다
     expect(gen).toMatch(/searchOfficialSite\(keyword, googleCseKey, googleCseCx, contentMode, true, articleText\)/);
     expect(gen).toContain('agencies: ctx.agencies');

@@ -14,6 +14,7 @@
  *  ⑥ emitPublishSuccess(전 경로 단일 깔때기)에 배선
  */
 import { requestIndexingForUrl, generateIndexNowKey } from '../src/core/indexing/index-request';
+import { blockBetween } from './helpers/source-block';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -120,8 +121,9 @@ describe('⑥ 배선 — 전 경로 단일 깔때기', () => {
   const mainTs = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.ts'), 'utf8');
 
   it('emitPublishSuccess 안에서 fire-and-forget 으로 부른다', () => {
-    const fnStart = mainTs.indexOf('function emitPublishSuccess');
-    const fnBody = mainTs.slice(fnStart, fnStart + 4000);
+    // 고정 길이 슬라이스 금지(source-block-helper 메타 규칙) — 경계로 자른다.
+    // braceBlock 은 매개변수 타입의 { 를 물어 서명에서 끝난다 — 다음 핸들러 앵커까지.
+    const fnBody = blockBetween(mainTs, 'function emitPublishSuccess', "ipcMain.handle('is-developer-mode'");
     expect(fnBody).toContain("require('../src/core/indexing/index-request')");
     expect(fnBody).toContain('void requestIndexingForUrl');
   });
@@ -132,8 +134,7 @@ describe('⑥ 배선 — 전 경로 단일 깔때기', () => {
   });
 
   it('키 저장은 병합 방식 — 기존 .env 를 읽어 합친다', () => {
-    const fnStart = mainTs.indexOf('function emitPublishSuccess');
-    const fnBody = mainTs.slice(fnStart, fnStart + 4000);
+    const fnBody = blockBetween(mainTs, 'function emitPublishSuccess', "ipcMain.handle('is-developer-mode'");
     expect(fnBody).toContain('existing.split');
     expect(fnBody).toContain('map.set');
   });

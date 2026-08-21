@@ -66,7 +66,9 @@ describe('① 확인된 기관 주소를 추론 재료로 만든다', () => {
 
 describe('② AI 추론 결과에도 도메인 검증을 건다', () => {
   it('⭐⭐ 1순위 경로가 judgeCtaHost 를 통과시킨다 (여기가 비어 있던 구멍이다)', () => {
-    const idx = generation.indexOf('Search Grounding CTA 하이브리드 검증 통과');
+    // v3.8.542 에서 로그 문구가 'Search Grounding …' → '1단계(추론) …' 로 바뀌었다.
+    // 잠그는 불변식은 그대로다: 1순위(AI 추론) 경로의 검증 통과 지점 앞에 judgeCtaHost.
+    const idx = generation.indexOf('1단계(추론) CTA 하이브리드 검증 통과');
     expect(idx).toBeGreaterThan(-1);
     const before = generation.slice(generation.indexOf('const ctaResponse = await callGeminiWithRetry'), idx);
     expect(before).toContain('judgeCtaHost(');

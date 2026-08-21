@@ -386,7 +386,7 @@ describe('⑧ 쇼핑 글은 안 쓸 CTA 를 검색하지 않는다 (비용 절�
     const block = blockBetween(
       generationSrc,
       'export async function generateCTAsFinal(',
-      "console.log(`[CTA] 🌐 Search Grounding으로",
+      '이름에 속지 말 것',  // v3.8.542: 예전 로그 앵커 삭제됨 — 안정 주석 앵커로 교체
     );
     expect(block).toContain("if (contentMode === 'shopping') {");
     expect(block).toContain('return [];');
@@ -396,7 +396,7 @@ describe('⑧ 쇼핑 글은 안 쓸 CTA 를 검색하지 않는다 (비용 절�
     const block = blockBetween(
       generationSrc,
       'export async function generateCTAsFinal(',
-      "console.log(`[CTA] 🌐 Search Grounding으로",
+      '이름에 속지 말 것',  // v3.8.542: 예전 로그 앵커 삭제됨 — 안정 주석 앵커로 교체
     );
     expect(block).toContain('한 번도 렌더링되지 않는다');
   });
