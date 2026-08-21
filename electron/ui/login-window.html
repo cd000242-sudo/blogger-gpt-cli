@@ -788,6 +788,13 @@
       <button type="button" id="trialVerifyBtn" onclick="trialVerify()"
         style="width: 100%; padding: 12px; margin-bottom: 10px; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; border-radius: 10px; color: white; font-size: 14px; font-weight: 700; cursor: pointer;">🔎 인증하기</button>
 
+      <!-- [2026-08-21] 문자/알림톡 인증번호 — 서버가 발송(codeSent)했을 때만 나타난다 -->
+      <div id="trialCodeRow" style="display: none; margin-bottom: 10px;">
+        <label style="display: block; color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600; margin-bottom: 6px;">인증번호 <span style="color: #ef4444;">*</span></label>
+        <input type="text" id="trialAuthCode" placeholder="문자/카톡으로 받은 6자리" maxlength="6" inputmode="numeric" autocomplete="one-time-code"
+          style="width: 100%; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; background: rgba(255,255,255,0.06); color: white; font-size: 14px; box-sizing: border-box;">
+      </div>
+
       <div id="trialModalMsg" style="display: none; font-size: 13px; font-weight: 600; margin-bottom: 12px; line-height: 1.5;"></div>
 
       <button type="button" id="trialCompleteBtn" onclick="trialComplete()" disabled
@@ -834,11 +841,17 @@
       btn.style.cursor = enabled ? 'pointer' : 'not-allowed';
     }
 
+    let trialCodeRequired = false;
     function resetTrialVerified() {
       trialVerified = false;
+      trialCodeRequired = false;
       setTrialCompleteEnabled(false);
       const vbtn = document.getElementById('trialVerifyBtn');
       if (vbtn) { vbtn.disabled = false; vbtn.textContent = '🔎 인증하기'; }
+      const codeRow = document.getElementById('trialCodeRow');
+      if (codeRow) codeRow.style.display = 'none';
+      const codeInput = document.getElementById('trialAuthCode');
+      if (codeInput) codeInput.value = '';
       trialModalMsg('');
     }
 
@@ -899,6 +912,12 @@
         trialVerified = true;
         setTrialCompleteEnabled(true);
         if (vbtn) vbtn.textContent = '🔎 인증됨';
+        // [2026-08-21] 서버가 인증번호를 발송했으면(솔라피 설정 시) 입력칸을 연다.
+        if (result.codeSent) {
+          trialCodeRequired = true;
+          const codeRow = document.getElementById('trialCodeRow');
+          if (codeRow) codeRow.style.display = 'block';
+        }
         if (result.status === 'existing' && result.registeredAt) {
           // [2026-08-21] 사장님 문구 확정: 1번호당 1회 인증.
           const expiryMs = new Date(result.registeredAt).getTime() + 30 * 24 * 60 * 60 * 1000;
@@ -910,9 +929,11 @@
             openPricingPage(); // 사장님 지시: 기간 다 되면 결제창 바로
             return;
           }
-          trialModalMsg(`⚠️ 이미 인증한 번호입니다 (1번호당 1회 인증). 기존 체험을 이어서 진행합니다 — 남은 기간 D-${daysLeft}`, false);
+          trialModalMsg(`⚠️ 이미 인증한 번호입니다 (1번호당 1회 인증). 기존 체험을 이어서 진행합니다 — 남은 기간 D-${daysLeft}${trialCodeRequired ? ' · 인증번호를 입력하세요' : ''}`, false);
         } else {
-          trialModalMsg('✅ 인증되었습니다 — 아래 [인증완료] 버튼을 눌러 체험을 시작하세요.', false);
+          trialModalMsg(trialCodeRequired
+            ? '📩 인증번호를 보냈습니다 — 문자/카톡으로 받은 6자리를 입력하고 [인증완료]를 누르세요.'
+            : '✅ 인증되었습니다 — 아래 [인증완료] 버튼을 눌러 체험을 시작하세요.', false);
         }
       } catch (e) {
         trialModalMsg('인증 오류: ' + e.message, true);
@@ -924,10 +945,15 @@
       if (!trialVerified) { trialModalMsg('먼저 [인증하기]로 인증을 완료하세요.', true); return; }
       const nickname = (document.getElementById('trialNickname')?.value || '').trim();
       const phone = (document.getElementById('trialPhone')?.value || '').trim().replace(/[-\s]/g, '');
+      const authCode = (document.getElementById('trialAuthCode')?.value || '').trim();
+      if (trialCodeRequired && !/^\d{6}$/.test(authCode)) {
+        trialModalMsg('문자/카톡으로 받은 인증번호 6자리를 입력하세요.', true);
+        return;
+      }
       const cbtn = document.getElementById('trialCompleteBtn');
       if (cbtn) { cbtn.disabled = true; cbtn.textContent = '체험 시작 중...'; }
       try {
-        const result = await ipcApi.invoke('auth:free-trial', { nickname, phone });
+        const result = await ipcApi.invoke('auth:free-trial', { nickname, phone, authCode });
         if (result && result.ok === true) return; // 창 전환은 메인 프로세스가 한다
         trialModalMsg((result && result.message) || '체험 시작에 실패했습니다.', true);
         if (cbtn) { cbtn.textContent = '✅ 인증완료 (체험 시작)'; }

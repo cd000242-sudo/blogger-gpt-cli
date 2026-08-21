@@ -11706,13 +11706,14 @@ ipcMain.handle('auth:trial-verify', async (_event, userInfo?: { nickname?: strin
 });
 
 // [인증완료] / 재입장 — 서버 등록 후 체험 시작. 인자 없으면 저장된 체험 상태로 재입장.
-ipcMain.handle('auth:free-trial', async (_event, userInfo?: { nickname?: string; phone?: string }) => {
+ipcMain.handle('auth:free-trial', async (_event, userInfo?: { nickname?: string; phone?: string; authCode?: string }) => {
   try {
     const authUtils = require('./auth-utils');
     const stored = authUtils.loadTrialState();
 
     const nickname = String(userInfo?.nickname || stored?.nickname || '').trim();
     const phone = String(userInfo?.phone || stored?.phone || '').trim().replace(/[-\s]/g, '');
+    const authCode = String(userInfo?.authCode || '').trim();
     if (nickname.length < 2 || !/^01[0-9]{8,9}$/.test(phone)) {
       // 첫 체험 — 렌더러가 닉네임·폰번호 입력 모달을 띄운다.
       return { ok: false, code: 'NEED_INFO' };
@@ -11721,7 +11722,7 @@ ipcMain.handle('auth:free-trial', async (_event, userInfo?: { nickname?: string;
     const deviceId = await authUtils.getDeviceId();
     let result: any;
     try {
-      result = await callTrialGas({ action: 'trial-activate', email: '', nickname, phone, deviceId });
+      result = await callTrialGas({ action: 'trial-activate', email: '', nickname, phone, deviceId, authCode });
     } catch (netErr) {
       // 서버 확인 없인 체험을 열지 않는다 — 오프라인이 인증·중복검사 전체 우회였다.
       console.error('[AUTH] trial-activate 전송 실패 — 활성화 거부:', netErr);

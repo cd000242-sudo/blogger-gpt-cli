@@ -11117,6 +11117,7 @@ electron_1.ipcMain.handle('auth:free-trial', async (_event, userInfo) => {
         const stored = authUtils.loadTrialState();
         const nickname = String(userInfo?.nickname || stored?.nickname || '').trim();
         const phone = String(userInfo?.phone || stored?.phone || '').trim().replace(/[-\s]/g, '');
+        const authCode = String(userInfo?.authCode || '').trim();
         if (nickname.length < 2 || !/^01[0-9]{8,9}$/.test(phone)) {
             // 첫 체험 — 렌더러가 닉네임·폰번호 입력 모달을 띄운다.
             return { ok: false, code: 'NEED_INFO' };
@@ -11124,7 +11125,7 @@ electron_1.ipcMain.handle('auth:free-trial', async (_event, userInfo) => {
         const deviceId = await authUtils.getDeviceId();
         let result;
         try {
-            result = await callTrialGas({ action: 'trial-activate', email: '', nickname, phone, deviceId });
+            result = await callTrialGas({ action: 'trial-activate', email: '', nickname, phone, deviceId, authCode });
         }
         catch (netErr) {
             // 서버 확인 없인 체험을 열지 않는다 — 오프라인이 인증·중복검사 전체 우회였다.
