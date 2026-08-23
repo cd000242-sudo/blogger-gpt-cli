@@ -21,6 +21,56 @@ function getAgentProgressStage(percent, explicitStage = '') {
   return AGENT_PROGRESS_STAGES.find((stage) => value >= stage.range[0] && value <= stage.range[1])?.id || 'prepare';
 }
 
+/**
+ * 발행에 실패한 글을 재발행 대기열에 담는다 — v3.8.550
+ *
+ * 사장님 보고: "발행 도중에 실패한 거 자동으로 기억하던데 이걸 불러오지는 못하네..?"
+ *
+ * ## 왜 못 불러왔나 (실측)
+ *   · 저장은 됐다. localStorage 'pendingRepublishQueue' 에 들어간다.
+ *   · 그런데 저장 직후 **배너를 다시 그리는 호출이 없었다.**
+ *     renderRepublishQueueBanner() 를 부르는 곳은 앱 시작(main.js 2초 뒤)과
+ *     미리보기 표시뿐이라, 실패한 그 자리에서는 화면에 아무것도 안 나타났다.
+ *     → 앱을 껐다 켜야만 보였다. "기억은 하는데 못 불러온다"의 정체다.
+ *   · 안내 문구도 "미리보기 탭에서" 였는데, 배너가 붙는 자리(#republishQueueContainer)는
+ *     글포스팅 화면의 발행 버튼 아래다. 엉뚱한 곳을 찾게 만들었다.
+ *
+ * 저장 자리가 두 곳(API 경로·Agent 경로)이라 함수로 뺀다 — 한쪽만 고쳐지면 또 갈라진다.
+ */
+function saveToRepublishQueue(entry = {}) {
+  try {
+    if (!entry.html) {
+      // 본문이 없으면 담아도 재발행할 수 없다 — 조용히 빈 항목을 쌓지 않는다
+      console.warn('[REPUBLISH-QUEUE] 본문이 없어 저장하지 않습니다');
+      return 0;
+    }
+    const item = {
+      id: `rp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      savedAt: new Date().toISOString(),
+      platform: entry.platform || 'blogger',
+      title: entry.title || '',
+      html: entry.html,
+      thumbnailUrl: entry.thumbnailUrl || '',
+      payload: entry.payload || {},
+      lastError: entry.lastError || '',
+      keyword: entry.keyword || entry.title || '',
+    };
+    const queue = JSON.parse(localStorage.getItem('pendingRepublishQueue') || '[]');
+    queue.push(item);
+    if (queue.length > 20) queue.splice(0, queue.length - 20); // 최대 20개 유지
+    localStorage.setItem('pendingRepublishQueue', JSON.stringify(queue));
+    // ⭐ 저장했으면 그 자리에서 보여준다 — 이게 빠져 있어서 못 불러왔다
+    try { window.renderRepublishQueueBanner?.(); } catch (renderErr) {
+      console.warn('[REPUBLISH-QUEUE] 배너 갱신 실패:', renderErr);
+    }
+    addLog(`💾 실패한 글을 보관했습니다 (재발행 대기열: ${queue.length}개) — 글포스팅 화면 발행 버튼 아래 [🚀 재발행]`, 'info');
+    return queue.length;
+  } catch (saveErr) {
+    console.warn('[REPUBLISH-QUEUE] 저장 실패:', saveErr);
+    return 0;
+  }
+}
+
 function restoreKeywordInputInteractivity() {
   try {
     const keywordInput = document.getElementById('keywordInput') || DOMCache.get('keywordInput');
@@ -47,144 +97,43 @@ function restoreKeywordInputInteractivity() {
   }
 }
 
-// v3.8.101: Codex 진행 모달 전면 리뉴얼 (사용자 요청 6건)
-//   1. 이미지 클릭 → lightbox 크게 보기
-//   2. 발행 완료 후 진행 모달 유지 (success 모달 뒤에서 보이게)
-//   3. 최소화 버튼 → 하단 mini progress bar
-//   4. 발행 중지 버튼
-//   5. 레이아웃 재구성 (좌상 큰 이미지 / 우상 그리드 / 하 로그)
-//   6. 초반부터 이미지 영역 보이게 (틀 유지)
+/**
+ * v3.8.547 — Agent 모드도 API 모드와 **같은 진행 모달**을 쓴다.
+ *
+ * 사장님: "에이전트 모드로 글 생성하려니까 왜 API랑 스킨이 다른 것 같은데, 모달 이거
+ *          일부러 의도한 거야? 똑같은 경로에서 글 생성만 바꿔줘."
+ *
+ * 이전 코드(v3.8.101)는 표준 진행 모달(#premiumProgressBar)의 innerHTML 을 통째로
+ * 갈아끼워 Agent 전용 패널을 그렸다. 그래서
+ *   · 스킨이 API 모드와 완전히 달라 보였고,
+ *   · 한 번이라도 Agent 로 돌리면 표준 모달의 자식(progressFill · progressCircle ·
+ *     progressStep · progressLogContent · 단계 카드 5개)이 그 세션 내내 사라져서
+ *     그 뒤 API 모드 진행률까지 안 움직였다.
+ *
+ * 이제 DOM 을 갈아끼우지 않는다. 진행률은 표준 ProgressManager 로 흘려보낸다 —
+ * codex-workshop.js 의 updateAgentProgress 도 이미 같은 매니저를 부르고 있었으므로
+ * 배선이 하나로 합쳐진다(모달을 부순 것만이 유일한 차이였다).
+ *
+ * 남는 차이는 "글을 누가 쓰느냐" 하나뿐이다.
+ */
 function ensureAgentProgressModal(provider = 'codex') {
-  const overlay = document.getElementById('premiumProgressBar');
-  if (!overlay) return;
-
   const providerLabel = provider === 'claude' ? 'Claude Code' : 'Codex';
-  overlay.classList.add('agent-progress-mode');
-  // 풀스크린 dim
-  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(6px);';
-  overlay.innerHTML = `
-    <div id="agentProgressPanel" style="width:min(1100px, calc(100vw - 48px)); max-height:calc(100vh - 48px); overflow:auto; background:linear-gradient(135deg,#0f172a 0%,#172033 100%); border:1px solid rgba(125,211,252,.28); border-radius:22px; box-shadow:0 30px 90px rgba(0,0,0,.48); padding:24px;">
 
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:18px;">
-        <div style="min-width:0;flex:1;">
-          <div style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.24);color:#a5f3fc;font-size:12px;font-weight:800;">${providerLabel} Agent Mode</div>
-          <h2 style="margin:12px 0 4px;color:#f8fafc;font-size:24px;line-height:1.2;">Agent 글 생성부터 API 이미지 생성, 발행까지 진행 중</h2>
-          <p id="agentProgressStatus" style="margin:0;color:#cbd5e1;font-size:13px;line-height:1.6;">Agent 작업을 준비하고 있습니다.</p>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
-          <div id="agentProgressPercent" style="color:#67e8f9;font-size:30px;font-weight:900;line-height:1;">0%</div>
-          <button id="agentMinimizeBtn" title="최소화" style="background:rgba(15,23,42,.8);color:#cbd5e1;border:1px solid rgba(148,163,184,.3);border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:16px;font-weight:700;">▾</button>
-          <button id="agentStopBtn" title="발행 중지" style="background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.5);border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:16px;font-weight:700;">✕</button>
-        </div>
-      </div>
+  // 틀·버튼·단계는 API 모드와 동일하게 두고, 부제만 지금 누가 글을 쓰는지 알린다.
+  const subtitle = document.getElementById('progressModalSubtitle');
+  if (subtitle) subtitle.textContent = `${providerLabel} Agent 모드 · 글 생성만 Agent, 나머지는 동일`;
 
-      <!-- v3.8.108: ChatGPT/Claude 등급별 한도 가이드 -->
-      ${provider === 'codex' ? `
-      <div style="margin-bottom:14px;padding:10px 14px;background:rgba(125,211,252,.08);border:1px solid rgba(125,211,252,.25);border-radius:10px;color:#a5f3fc;font-size:12px;line-height:1.6;">
-        💡 <strong>ChatGPT/Codex 구독 한도는 글 생성에 사용됩니다. 이미지는 선택한 Orbit 이미지 엔진/API 한도를 따릅니다.</strong><br/>
-        • <strong>Plus</strong> → 글 생성 한도 도달 시 chatgpt.com/codex에서 리셋 시각 확인<br/>
-        • <strong>Pro</strong> → 더 긴 글 생성 작업에 유리<br/>
-        • <strong>Team/Enterprise</strong> → Pro와 유사 또는 더 큼<br/>
-        한도 도달 메시지: <code style="background:rgba(0,0,0,.3);padding:1px 4px;border-radius:3px;">workspace out of credits</code>
-      </div>` : `
-      <div style="margin-bottom:14px;padding:10px 14px;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.25);border-radius:10px;color:#e9d5ff;font-size:12px;line-height:1.6;">
-        💡 <strong>Claude Code 등급별 5시간 한도 (글 1편 ≈ 10~15% 소비)</strong><br/>
-        • <strong>Pro</strong> ($20/월) → 5h당 <strong>6~10편</strong> · 이미지는 우리 앱 dispatcher (사용자 API 키)<br/>
-        • <strong>Max 5x</strong> ($100/월) → 5h당 <strong>30~50편</strong><br/>
-        • <strong>Max 20x</strong> ($200/월) → 5h당 <strong>100편+</strong> · 사실상 무제한<br/>
-        이미지: 선택한 Orbit 이미지 엔진/API 설정을 사용합니다.
-      </div>`}
+  // v3.8.108 의 등급 한도 안내는 전용 패널과 함께 사라지므로 로그로 남긴다 (정보는 유지).
+  addLog(provider === 'codex'
+    ? '💡 ChatGPT/Codex 구독 한도는 글 생성에 쓰입니다. 이미지는 선택한 Orbit 이미지 엔진/API 한도를 따릅니다.'
+    : '💡 Claude Code 5시간 한도는 글 생성에 쓰입니다(1편 ≈ 10~15%). 이미지는 선택한 Orbit 이미지 엔진/API 한도를 따릅니다.',
+    'info');
 
-      <div style="height:10px;background:rgba(15,23,42,.95);border:1px solid rgba(148,163,184,.18);border-radius:999px;overflow:hidden;margin-bottom:14px;">
-        <div id="agentProgressFill" style="height:100%;width:0%;background:linear-gradient(90deg,#22d3ee,#a78bfa,#34d399);border-radius:999px;transition:width .45s ease;"></div>
-      </div>
-
-      <div id="agentProgressStages" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:16px;">
-        ${AGENT_PROGRESS_STAGES.map((stage) => `
-          <div data-agent-stage="${stage.id}" style="padding:11px 10px;border-radius:10px;border:1px solid rgba(148,163,184,.18);background:rgba(15,23,42,.62);color:#94a3b8;font-size:12px;font-weight:800;text-align:center;transition:all .25s ease;">${stage.label}</div>
-        `).join('')}
-      </div>
-
-      <!-- 좌측: 큰 미리보기 / 우측: 그리드 미리보기 -->
-      <div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,1fr);gap:14px;margin-bottom:14px;">
-        <div style="background:rgba(2,6,23,.55);border:1px solid rgba(148,163,184,.16);border-radius:14px;padding:14px;display:flex;flex-direction:column;">
-          <div style="color:#e2e8f0;font-size:12px;font-weight:900;margin-bottom:10px;">선택한 이미지</div>
-          <div id="agentBigPreview" style="flex:1;display:flex;align-items:center;justify-content:center;min-height:260px;background:rgba(15,23,42,.7);border-radius:10px;color:#475569;font-size:13px;text-align:center;padding:12px;">이미지가 생성되면<br/>여기에 크게 표시됩니다</div>
-          <div id="agentBigPreviewLabel" style="margin-top:8px;color:#cbd5e1;font-size:12px;font-weight:700;text-align:center;"></div>
-        </div>
-        <div id="agentGeneratedImagePreviewWrap" style="background:rgba(2,6,23,.52);border:1px solid rgba(52,211,153,.2);border-radius:14px;padding:14px;display:flex;flex-direction:column;min-height:300px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
-            <strong style="color:#f8fafc;font-size:12px;">생성 이미지 미리보기</strong>
-            <span id="agentGeneratedImageCount" style="color:#86efac;font-size:11px;font-weight:800;">0장</span>
-          </div>
-          <div id="agentGeneratedImageGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;flex:1;align-content:start;overflow-y:auto;max-height:300px;"></div>
-        </div>
-      </div>
-
-      <!-- 하단: 로그 -->
-      <div style="background:rgba(2,6,23,.55);border:1px solid rgba(148,163,184,.16);border-radius:14px;padding:14px;">
-        <div style="color:#e2e8f0;font-size:12px;font-weight:900;margin-bottom:10px;">실시간 작업 로그</div>
-        <div id="agentProgressInlineLog" style="height:180px;overflow:auto;font-family:Consolas,Monaco,monospace;font-size:12px;line-height:1.7;color:#cbd5e1;"></div>
-      </div>
-    </div>
-  `;
-
-  // 최소화 mini bar (별도 DOM)
-  let miniBar = document.getElementById('agentMiniBar');
-  if (!miniBar) {
-    miniBar = document.createElement('div');
-    miniBar.id = 'agentMiniBar';
-    miniBar.style.cssText = 'position:fixed;bottom:20px;right:20px;width:340px;background:linear-gradient(135deg,#0f172a,#172033);border:1px solid rgba(125,211,252,.4);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.5);padding:14px 16px;color:#f8fafc;cursor:pointer;z-index:10000;display:none;transition:transform 0.2s;';
-    miniBar.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
-        <strong style="font-size:13px;color:#a5f3fc;">${providerLabel} Agent Mode</strong>
-        <span id="agentMiniPercent" style="color:#67e8f9;font-size:18px;font-weight:900;">0%</span>
-      </div>
-      <div style="height:6px;background:rgba(15,23,42,.95);border-radius:999px;overflow:hidden;margin-bottom:6px;">
-        <div id="agentMiniFill" style="height:100%;width:0%;background:linear-gradient(90deg,#22d3ee,#a78bfa,#34d399);border-radius:999px;transition:width .35s ease;"></div>
-      </div>
-      <p id="agentMiniStatus" style="margin:0;color:#cbd5e1;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">진행 중…</p>
-      <p style="margin:6px 0 0 0;color:#94a3b8;font-size:10px;text-align:center;">클릭하여 펼치기</p>
-    `;
-    document.body.appendChild(miniBar);
-    miniBar.addEventListener('click', () => {
-      miniBar.style.display = 'none';
-      overlay.style.display = 'flex';
-    });
-  } else {
-    // 라벨 갱신
-    const lblEl = miniBar.querySelector('strong');
-    if (lblEl) lblEl.textContent = `${providerLabel} Agent Mode`;
-  }
-
-  // 최소화 버튼
-  const minBtn = overlay.querySelector('#agentMinimizeBtn');
-  if (minBtn) minBtn.addEventListener('click', () => {
-    overlay.style.display = 'none';
-    miniBar.style.display = 'block';
-  });
-
-  // 발행 중지 버튼
-  const stopBtn = overlay.querySelector('#agentStopBtn');
-  if (stopBtn) stopBtn.addEventListener('click', async () => {
-    if (!confirm('진행 중인 Agent 작업을 중지하시겠습니까?\n생성된 글/이미지는 사라집니다.')) return;
-    try {
-      const api = window.api || null;
-      if (api?.cancelTask) api.cancelTask();
-      else if (api?.invoke) await api.invoke('cancel-task').catch(() => {});
-    } catch {}
-    overlay.style.display = 'none';
-    if (miniBar) miniBar.style.display = 'none';
-    window.__agentProgressActive = false;
-  });
-
-  window.__agentProgressActive = true;
-  window.__agentProgressOverlay = overlay;
-  window.__agentMiniBar = miniBar;
   window.updateAgentProgressUI = updateAgentProgressModal;
   window.appendAgentGeneratedImageUI = appendAgentGeneratedImagePreview;
-  updateAgentProgressModal(4, `${providerLabel} 전용 작업 모달을 열었습니다.`, 'info', 'prepare');
+  updateAgentProgressModal(4, `${providerLabel} Agent 모드로 준비 중입니다.`, 'info', 'prepare');
 }
+
 
 // v3.8.101: lightbox로 이미지 크게 보기
 function openImageLightbox(url, label = '') {
@@ -204,108 +153,87 @@ function openImageLightbox(url, label = '') {
 }
 window.openImageLightbox = openImageLightbox;
 
+/**
+ * v3.8.547 — 생성 이미지 미리보기도 표준 모달 안(발행 로그)으로 옮긴다.
+ * 전용 패널의 좌측 큰 미리보기 · 우측 그리드는 사라졌지만, 썸네일을 누르면
+ * 기존 lightbox 가 그대로 열려서 크게 보는 길은 남는다.
+ */
 function appendAgentGeneratedImagePreview(image = {}) {
   try {
     const url = String(image.url || image.imageUrl || image.thumbnailUrl || '').trim();
     if (!url) return;
-    const wrap = document.getElementById('agentGeneratedImagePreviewWrap');
-    const grid = document.getElementById('agentGeneratedImageGrid');
-    const countEl = document.getElementById('agentGeneratedImageCount');
-    const bigPreview = document.getElementById('agentBigPreview');
-    const bigLabel = document.getElementById('agentBigPreviewLabel');
-    if (!wrap || !grid) return;
+    const logEl = document.getElementById('progressLogContent');
+    if (!logEl) return;
 
     const labelText = String(image.label || '이미지');
-
-    // v3.8.101: 그리드 카드 — div + 클릭 시 큰 미리보기 + lightbox
-    const item = document.createElement('div');
-    item.style.cssText = 'background:rgba(15,23,42,.8);border:1px solid rgba(148,163,184,.16);border-radius:10px;overflow:hidden;color:#e2e8f0;cursor:pointer;transition:transform 0.15s, border-color 0.15s;';
-    item.title = '클릭: 위에 크게 표시 / 더블클릭: 전체 화면';
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:6px 0;cursor:zoom-in;';
+    row.title = '클릭하면 크게 봅니다';
 
     const img = document.createElement('img');
     img.src = url;
     img.alt = labelText;
     img.loading = 'lazy';
-    img.style.cssText = 'display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#0f172a;';
+    img.style.cssText = 'width:72px;height:41px;object-fit:cover;border-radius:6px;background:#0f172a;flex:0 0 auto;';
 
-    const label = document.createElement('div');
-    label.textContent = labelText;
-    label.style.cssText = 'padding:6px 8px;font-size:10px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+    const caption = document.createElement('span');
+    caption.textContent = `🖼️ ${labelText}`;
+    caption.style.cssText = 'font-size:12px;color:#bbf7d0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
 
-    item.appendChild(img);
-    item.appendChild(label);
+    row.appendChild(img);
+    row.appendChild(caption);
+    row.addEventListener('click', () => window.openImageLightbox?.(url, labelText));
 
-    // 큰 미리보기에 표시
-    const setBig = () => {
-      if (bigPreview) {
-        bigPreview.innerHTML = `<img src="${url}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;cursor:zoom-in;" />`;
-        const bigImg = bigPreview.querySelector('img');
-        if (bigImg) bigImg.addEventListener('click', () => window.openImageLightbox?.(url, labelText));
-      }
-      if (bigLabel) bigLabel.textContent = labelText;
-    };
-    item.addEventListener('click', setBig);
-    item.addEventListener('dblclick', () => window.openImageLightbox?.(url, labelText));
-
-    grid.appendChild(item);
-    if (countEl) countEl.textContent = `${grid.children.length}장`;
-    // 가장 최근 이미지를 큰 미리보기에 자동 표시
-    setBig();
+    logEl.appendChild(row);
+    scrollProgressLogToBottom(logEl);
   } catch (error) {
     console.warn('[AGENT-PROGRESS] image preview append failed:', error);
   }
 }
 
-// v3.8.101: mini bar sync
-function syncAgentMiniBar(percent, status) {
-  try {
-    const miniFill = document.getElementById('agentMiniFill');
-    const miniPct = document.getElementById('agentMiniPercent');
-    const miniStatus = document.getElementById('agentMiniStatus');
-    if (miniFill) miniFill.style.width = `${Math.round(percent)}%`;
-    if (miniPct) miniPct.textContent = `${Math.round(percent)}%`;
-    if (miniStatus && status) miniStatus.textContent = status;
-  } catch {}
+/** 표준 모달의 로그 상자는 progressLogContent 의 부모가 스크롤한다 */
+function scrollProgressLogToBottom(logEl) {
+  const box = logEl?.parentElement;
+  if (box) box.scrollTop = box.scrollHeight;
 }
 
+function appendAgentProgressLog(message, type = 'info') {
+  if (!message) return;
+  try {
+    const logEl = document.getElementById('progressLogContent');
+    if (!logEl) return;
+    const color = type === 'error' ? '#fecaca' : type === 'success' ? '#bbf7d0' : 'rgba(255,255,255,0.7)';
+    const row = document.createElement('div');
+    row.style.color = color;
+    const stamp = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    row.textContent = `[${stamp}] ${message}`;
+    logEl.appendChild(row);
+    scrollProgressLogToBottom(logEl);
+  } catch (error) {
+    console.warn('[AGENT-PROGRESS] log append failed:', error);
+  }
+}
+
+/**
+ * v3.8.547 — Agent 진행률을 표준 ProgressManager 로 흘려보낸다.
+ *
+ * 표준 모달은 퍼센트만 주면 원형 게이지 · 막대 · 경과/예상 시간 · 단계 카드 5개를
+ * 알아서 갱신한다(core.js _updateStageIndicators). 그래서 Agent 전용 단계 카드
+ * 4개를 따로 칠할 필요가 없다 — 단계 이름은 상태 문구로만 남긴다.
+ */
 function updateAgentProgressModal(percent, message = '', type = 'info', explicitStage = '') {
   const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
   const activeStage = getAgentProgressStage(safePercent, explicitStage);
-  // v3.8.101: mini bar 동시 sync
-  try { syncAgentMiniBar(safePercent, message); } catch {}
+  const stageLabel = AGENT_PROGRESS_STAGES.find((stage) => stage.id === activeStage)?.label || '';
+  const statusText = message || stageLabel;
   try {
-    const fill = document.getElementById('agentProgressFill');
-    const percentEl = document.getElementById('agentProgressPercent');
-    const statusEl = document.getElementById('agentProgressStatus');
-    if (fill) fill.style.width = `${safePercent}%`;
-    if (percentEl) percentEl.textContent = `${Math.round(safePercent)}%`;
-    if (statusEl && message) statusEl.textContent = message;
-    document.querySelectorAll('[data-agent-stage]').forEach((card) => {
-      const id = card.getAttribute('data-agent-stage');
-      const stageIndex = AGENT_PROGRESS_STAGES.findIndex((stage) => stage.id === id);
-      const activeIndex = AGENT_PROGRESS_STAGES.findIndex((stage) => stage.id === activeStage);
-      card.style.background = stageIndex < activeIndex
-        ? 'linear-gradient(135deg, rgba(16,185,129,.95), rgba(5,150,105,.95))'
-        : stageIndex === activeIndex
-          ? 'linear-gradient(135deg, rgba(14,165,233,.95), rgba(124,58,237,.95))'
-          : 'rgba(15,23,42,.62)';
-      card.style.color = stageIndex <= activeIndex ? '#fff' : '#94a3b8';
-      card.style.borderColor = stageIndex <= activeIndex ? 'rgba(255,255,255,.22)' : 'rgba(148,163,184,.18)';
-      card.style.boxShadow = stageIndex === activeIndex ? '0 10px 28px rgba(14,165,233,.24)' : 'none';
-    });
-
-    const logEl = document.getElementById('agentProgressInlineLog');
-    if (logEl && message) {
-      const color = type === 'error' ? '#fecaca' : type === 'success' ? '#bbf7d0' : '#cbd5e1';
-      const row = document.createElement('div');
-      row.style.color = color;
-      row.textContent = `[${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}] ${message}`;
-      logEl.appendChild(row);
-      logEl.scrollTop = logEl.scrollHeight;
-    }
+    const progressManager = getProgressManager();
+    progressManager.updateProgress(safePercent, safePercent, statusText);
+    if (statusText) progressManager.updateStatus(statusText);
   } catch (error) {
     console.warn('[AGENT-PROGRESS] update failed:', error);
   }
+  appendAgentProgressLog(message, type);
 }
 
 // 🔥 완전자동 이미지 소스 설정 모달
@@ -852,6 +780,27 @@ export async function runPosting() {
         publishedOk ? 'success' : 'error',
         'publish'
       );
+      /**
+       * v3.8.550 — Agent 모드 발행 실패도 글을 보관한다.
+       *
+       * 이 경로는 위쪽 API 경로보다 먼저 return 하므로, 재발행 대기열 저장을 한 번도
+       * 타지 않았다. Agent 가 글을 다 써놓고 발행만 실패하면 그 글이 그냥 사라졌다 —
+       * "생성된 글 날아가는 게 아까움"이라는 원래 이유가 여기선 지켜지지 않았다.
+       */
+      if (!publishedOk) {
+        const generated = (() => {
+          try { return getAppState().generatedContent || {}; } catch { return {}; }
+        })();
+        saveToRepublishQueue({
+          platform: payload?.platform || payload?.targetPlatform || 'blogger',
+          title: publishResult?.title || agentResult?.title || generated.title || payload?.title || '',
+          html: agentResult?.html || agentResult?.content || generated.content || generated.html || '',
+          thumbnailUrl: agentResult?.thumbnailUrl || generated.thumbnailUrl || '',
+          payload: payload || {},
+          lastError: publishResult?.error || 'agent_publish_failed',
+          keyword: payload?.keyword || payload?.topic || keywordValue || '',
+        });
+      }
       setFinalResult({
         ok: publishedOk,
         published: publishedOk,
@@ -933,26 +882,15 @@ export async function runPosting() {
         addLog('발행 오류: ' + result.publishError, 'error');
 
         // v3.8.326: 생성된 콘텐츠 자동 저장 → 재발행 큐 (사용자 보고: "생성된 글 날아가는 게 아까움")
-        try {
-          const republishItem = {
-            id: `rp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            savedAt: new Date().toISOString(),
-            platform: payload?.platform || payload?.targetPlatform || 'blogger',
-            title: result.title || payload?.title || '',
-            html: result.html || result.content || '',
-            thumbnailUrl: result.thumbnailUrl || result.thumbnail || payload?.thumbnailUrl || '',
-            payload: payload || {},
-            lastError: publishErrorMessage,
-            keyword: payload?.keyword || payload?.title || '',
-          };
-          const queue = JSON.parse(localStorage.getItem('pendingRepublishQueue') || '[]');
-          queue.push(republishItem);
-          if (queue.length > 20) queue.splice(0, queue.length - 20); // 최대 20개 유지
-          localStorage.setItem('pendingRepublishQueue', JSON.stringify(queue));
-          addLog(`💾 콘텐츠 자동 저장됨 (재발행 대기열: ${queue.length}개) — 미리보기 탭에서 [🚀 재발행] 클릭`, 'info');
-        } catch (saveErr) {
-          console.warn('[REPUBLISH-QUEUE] 저장 실패:', saveErr);
-        }
+        saveToRepublishQueue({
+          platform: payload?.platform || payload?.targetPlatform || 'blogger',
+          title: result.title || payload?.title || '',
+          html: result.html || result.content || '',
+          thumbnailUrl: result.thumbnailUrl || result.thumbnail || payload?.thumbnailUrl || '',
+          payload: payload || {},
+          lastError: publishErrorMessage,
+          keyword: payload?.keyword || payload?.title || '',
+        });
 
         // 인증 오류 → 설정 탭으로 자동 이동
         if (result.needsAuth || /인증|auth|token|OAuth|invalid_grant/i.test(String(result.publishError))) {
@@ -1280,7 +1218,8 @@ function showShoppingCooldownModal(remainingMs) {
           <b style="color:#fff;">짧은 시간에 여러 번 조회하면 접속을 막습니다.</b>
           (저희가 직접 확인했습니다 — 15번쯤 연속으로 열자 차단됐습니다.)
         </p>
-        <p style="margin:0 0 14px;padding:12px 14px;background:#1e293b;border-radius:10px;border-left:3px solid #ef4444;">
+        <!-- v3.8.551: 빨간색은 유지하고 굵기·채도만 낮춘다 (사장님: "은은하게 바꿔, 빨간 테두리 그대로 두고") -->
+        <p style="margin:0 0 14px;padding:12px 14px;background:#1e293b;border-radius:10px;border-left:2px solid rgba(239,68,68,0.5);">
           막히면 후기도 상품 스펙도 못 가져옵니다. 그러면 상품명과 가격만 남아서
           <b style="color:#fca5a5;">누구나 쓸 수 있는 뻔한 글</b>이 됩니다.
           클릭은 받아도 구매로 이어지지 않습니다.
@@ -1708,8 +1647,6 @@ function getApiKeys(savedSettings) {
     pexelsApiKey: savedSettings.pexelsApiKey || '',
     coupangAccessKey: savedSettings.coupangAccessKey || '',
     coupangSecretKey: savedSettings.coupangSecretKey || '',
-    googleCseKey: savedSettings.googleCseKey || '',
-    googleCseCx: savedSettings.googleCseCx || '',
     naverCustomerId: savedSettings.naverCustomerId || '',
     naverSecretKey: savedSettings.naverSecretKey || '',
     blogId: savedSettings.blogId || '',
@@ -2030,7 +1967,9 @@ export async function createPayload(options = {}) {
   const platformRadio = document.querySelector('input[name="platform"]:checked');
   const platformRadioValue = platformRadio?.value || '';
   const savedPlatformValue = savedSettings.platform || '';
-  const resolvedPlatformValue = platformRadioValue || savedPlatformValue || 'blogspot';
+  // v3.8.548: 최후 기본값을 blogspot → wordpress (사장님 지시).
+  //   라디오·저장값이 둘 다 비었을 때만 쓰인다.
+  const resolvedPlatformValue = platformRadioValue || savedPlatformValue || 'wordpress';
   const publishTargetPlatform = normalizePlatform(resolvedPlatformValue);
   let selectedPlatform;
   if (platformOverride) {
@@ -2038,11 +1977,11 @@ export async function createPayload(options = {}) {
   } else {
     // 1순위: 현재 라디오 체크 상태
     // 2순위: 저장된 설정
-    // 3순위: Blogspot 기본값
+    // 3순위: WordPress 기본값 (v3.8.548 — 예전엔 Blogspot)
     const platformRadio = document.querySelector('input[name="platform"]:checked');
     const radioValue = platformRadio?.value || '';
     const savedValue = savedSettings.platform || '';
-    selectedPlatform = normalizePlatform(radioValue || savedValue || 'blogspot');
+    selectedPlatform = normalizePlatform(radioValue || savedValue || 'wordpress');
     console.log('[PAYLOAD] 플랫폼 선택:', { radio: radioValue, saved: savedValue, final: selectedPlatform });
   }
 

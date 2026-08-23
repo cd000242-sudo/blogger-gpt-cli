@@ -14,6 +14,8 @@
 // ─────────────────────────────────────────────
 
 import { launchChromiumWithAutoInstall } from './playwright-browser-installer';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../core/naver-search-client';
 
 export interface CompetitorPost {
     title: string;
@@ -236,19 +238,17 @@ async function fetchSerpTop5(keyword: string): Promise<SerpItem[]> {
             sort: 'sim',
         });
 
-        const response = await fetch(`https://openapi.naver.com/v1/search/blog.json?${params}`, {
-            headers: {
-                'X-Naver-Client-Id': clientId,
-                'X-Naver-Client-Secret': clientSecret,
-            },
+        // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+        const res = await naverSearch('blog', Object.fromEntries(params as any), {
+            payload: { naverClientId: clientId, naverClientSecret: clientSecret },
         });
 
-        if (!response.ok) {
-            console.warn(`[VERIFIER] ⚠️ Naver API ${response.status}`);
+        if (!res.ok) {
+            console.warn(`[VERIFIER] ⚠️ Naver API(${res.mode}): ${res.error}`);
             return [];
         }
 
-        const data = await response.json();
+        const data = { items: res.items, total: res.total } as any;
         return (data.items || []).slice(0, 5);
     } catch (err) {
         console.error('[VERIFIER] ❌ SERP 수집 실패:', (err as Error)?.message);

@@ -178,11 +178,6 @@ const MAP: Record<string, string> = {
   COUPANG_ACCESS_KEY: 'coupangAccessKey',
   COUPANG_SECRET_KEY: 'coupangSecretKey',
 
-  // ✅ Google CSE (자동 링크/이미지용)
-  GOOGLE_CSE_KEY: 'googleCseKey',
-  GOOGLE_CSE_CX: 'googleCseCx',
-  GOOGLE_CSE_ID: 'googleCseCx',  // CSE ID와 CX는 같은 값
-  GOOGLE_CSE_API_KEY: 'googleCseKey', // CSE API Key와 Key는 같은 값
 
 
   // Blogger/Google OAuth
@@ -245,7 +240,7 @@ const MAP: Record<string, string> = {
   THUMB_SUBTITLE: 'thumbSubtitle',      // string (선택)
 
   // ── 새로 추가: 이미지 검색 제어
-  IMAGE_SOURCE: 'imageSource',        // 'cse' | 'unsplash' | 'none'
+  IMAGE_SOURCE: 'imageSource',        // 'nanobanana2' | 'unsplash' | 'none'
   IMAGE_SAFESEARCH: 'imageSafeSearch',    // boolean
 
   // 라이선스 서버 URL
@@ -411,7 +406,7 @@ export function loadEnvFromFile(): Record<string, any> {
   if (!out['thumbMode']) out['thumbMode'] = 'text';             // 'text' | 'photo'
   if (!out['thumbTextAlign']) out['thumbTextAlign'] = 'center'; // 가운데 정렬 기본
   if (!out['thumbTextFit']) out['thumbTextFit'] = 'shrink';     // 공간 맞춰 자동 축소
-  if (!out['imageSource']) out['imageSource'] = 'cse';          // 이미지 검색 기본: CSE
+  if (!out['imageSource']) out['imageSource'] = 'nanobanana2'; // v3.8.555: 기본 이미지 엔진(과거 'cse' 는 제거됨)
   if (!out['thumbSubtitle']) out['thumbSubtitle'] = '';         // 선택
   // 라이선스 서버 기본값(사용자가 미설정 시) - 관리 패널과 동일한 서버 사용
   if (!out['licenseRedeemUrl']) {

@@ -9,6 +9,8 @@
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import * as https from 'https';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from './core/naver-search-client';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import * as http from 'http';
 
@@ -513,77 +515,27 @@ export async function searchNaverWithApi(
       console.log(`[NAVER-API] ${searchType} 검색 시도 ${attempt}/${retries}: "${query}"`);
 
       // 네이버 검색 API URL
-      const apiUrl = `https://openapi.naver.com/v1/search/${searchType}.json`;
+      // v3.8.554: 창구 경유 — URL·헤더는 창구가 만든다 (HUB/기존 자동 토스)
       
-      const params = new URLSearchParams({
-        query: query,
-        display: '10', // 최대 10개 결과
-        start: '1',
-        sort: 'sim' // 정확도순
-      });
-
-      const headers = {
-        'X-Naver-Client-Id': customerId,
-        'X-Naver-Client-Secret': secretKey,
-        'Content-Type': 'application/json'
-      };
-
-      const response = await fetch(`${apiUrl}?${params}`, {
-        method: 'GET',
-        headers: headers,
-        // @ts-ignore
-        signal: AbortSignal.timeout(timeout)
+      /**
+       * v3.8.554 — 창구 경유. 상태코드별 처방 문구도 창구(describeNaverFailure)가 만든다.
+       * 여기서 따로 쓰면 HUB 키로 넘어간 뒤에도 "네이버 개발자 센터를 확인하세요" 같은
+       * 옛 안내가 나가 오진이 된다.
+       */
+      const response = await naverSearch(searchType as any, {
+        query, display: 10, start: 1, sort: 'sim',   // 최대 10개, 정확도순
+      }, {
+        payload: { naverClientId: customerId, naverClientSecret: secretKey },
+        timeoutMs: timeout,
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        
-        // 🔧 개선된 오류 처리: 사용자 친화적 메시지 + 크레딧 충전 안내
-        if (response.status === 401 || response.status === 403) {
-          const errorMessage = `❌ 네이버 검색 API 키 인증 실패! (${response.status})
-
-💡 해결 방법:
-1. 네이버 개발자 센터(https://developers.naver.com)에서 API 키 확인
-2. Customer ID와 Secret Key가 정확한지 확인
-3. 검색 API 사용 권한이 활성화되어 있는지 확인
-4. API 키가 만료되지 않았는지 확인
-
-⚠️ API 키가 유효하지 않거나
-크레딧이 부족할 수 있습니다.
-크레딧을 충전한 후 다시 시도해주세요.`;
-          console.error(`[NAVER-API] ${errorMessage}`);
-          throw new Error(errorMessage);
-        }
-
-        if (response.status === 429) {
-          const errorMessage = `❌ 네이버 검색 API 할당량 초과! (429)
-
-💡 해결 방법:
-1. 잠시 후 다시 시도하세요 (1분 대기 권장)
-2. 네이버 개발자 센터에서 사용량 확인
-3. 필요시 유료 플랜으로 업그레이드
-
-⚠️ 무료 할당량을 초과했습니다.
-크레딧을 충전하거나 유료 플랜을 사용하세요.`;
-          console.error(`[NAVER-API] ${errorMessage}`);
-          throw new Error(errorMessage);
-        }
-
-        if (response.status === 500) {
-          const errorMessage = `❌ 네이버 검색 서버 오류가 발생했습니다. (500)
-
-💡 해결 방법:
-1. 잠시 후 다시 시도해주세요
-2. 네이버 개발자 센터 상태 페이지 확인
-3. 문제가 지속되면 네이버 고객센터에 문의`;
-          console.error(`[NAVER-API] ${errorMessage}`);
-          throw new Error(errorMessage);
-        }
-
-        throw new Error(`네이버 검색 API 오류 ${response.status}: ${errorText}`);
+        const errorMessage = `❌ 네이버 검색 실패 (${response.mode})\n\n${response.error}`;
+        console.error(`[NAVER-API] ${errorMessage}`);
+        throw new Error(errorMessage);
       }
 
-      const data = await response.json();
+      const data = { items: response.items };
 
       if (!data.items || data.items.length === 0) {
         console.log(`[NAVER-API] ⚠️ ${searchType} 검색 결과 없음 (시도 ${attempt}/${retries})`);

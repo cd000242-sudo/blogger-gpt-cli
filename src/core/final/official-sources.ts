@@ -139,74 +139,7 @@ export function extractNumericSentences(text: string, limit = 3): string[] {
  * 공공기관 출처를 수집한다.
  * 실패·미확보 시 빈 배열 — 호출부는 아무것도 추가하지 않으면 된다(악화 없음).
  */
-export async function collectOfficialSources(
-  keyword: string,
-  cseKey: string,
-  cseCx: string,
-  onLog?: (msg: string) => void,
-  options: { maxAgencies?: number; maxPages?: number } = {},
-): Promise<OfficialSource[]> {
-  const kw = String(keyword || '').trim();
-  if (!kw || !cseKey || !cseCx) return [];
-  const maxAgencies = options.maxAgencies ?? 3;
-  const maxPages = options.maxPages ?? 4;
-
-  // 시민 안내 성격 도메인을 앞세우고, 문서 파일은 검색 단계에서 제외한다
-  const query = `${kw} (site:easylaw.go.kr OR site:law.go.kr OR site:bokjiro.go.kr OR site:gov.kr OR site:go.kr OR site:or.kr) -filetype:pdf -filetype:hwp`;
-
-  let items: Array<{ link?: string; title?: string }> = [];
-  try {
-    const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(cseKey)}`
-      + `&cx=${encodeURIComponent(cseCx)}&q=${encodeURIComponent(query)}&num=10&hl=ko`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
-    if (!res.ok) {
-      onLog?.(`   [공공출처] 검색 실패 HTTP ${res.status} — 건너뜀`);
-      return [];
-    }
-    const body: any = await res.json();
-    items = Array.isArray(body?.items) ? body.items : [];
-  } catch (error: any) {
-    onLog?.(`   [공공출처] 검색 예외 — 건너뜀: ${String(error?.message || error).slice(0, 60)}`);
-    return [];
-  }
-
-  const candidates = items
-    .map(it => ({ url: String(it?.link || ''), agency: resolveAgency(String(it?.link || '')) }))
-    .filter(c => c.url && c.agency && !BAD_URL.test(c.url))
-    .slice(0, maxPages);
-
-  if (candidates.length === 0) {
-    onLog?.(`   [공공출처] 채택 가능한 기관 페이지 없음 — 건너뜀`);
-    return [];
-  }
-
-  const sources: OfficialSource[] = [];
-  for (const candidate of candidates) {
-    if (sources.length >= maxAgencies) break;
-    try {
-      const res = await fetch(candidate.url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120' },
-        signal: AbortSignal.timeout(15000),
-      });
-      if (!res.ok) continue;
-      if (!/text\/html/i.test(String(res.headers.get('content-type') || ''))) continue;
-      const sentences = extractNumericSentences(await res.text());
-      if (sentences.length === 0) continue;
-      sources.push({ agency: candidate.agency, url: candidate.url, sentences });
-    } catch {
-      // 개별 페이지 실패는 무시한다 — 하나라도 건지면 이득이다
-    }
-  }
-
-  // 같은 기관이 여러 페이지로 잡히면 하나로 합친다 (프롬프트 가독성 + 토큰 절약).
-  //   실측: "찾기쉬운 생활법령정보" 가 3번 따로 표기됐다.
-  const merged = mergeByAgency(sources);
-  const total = merged.reduce((sum, s) => sum + s.sentences.length, 0);
-  onLog?.(merged.length > 0
-    ? `   [공공출처] 기관 ${merged.length}곳 · 근거 문장 ${total}개 확보 (${merged.map(s => s.agency).join(', ')})`
-    : `   [공공출처] 수치가 든 문장을 찾지 못함 — 건너뜀`);
-  return merged;
-}
+// v3.8.555: collectOfficialSources 삭제 — CSE 전용이었다. 기관 근거는 네이버 웹문서(official-from-web)로 만든다.
 
 /** 같은 기관의 여러 페이지를 하나로 합치고 문장 중복을 없앤다. */
 export function mergeByAgency(sources: OfficialSource[], maxPerAgency = 6): OfficialSource[] {

@@ -19,7 +19,6 @@ export interface UnifiedEnvConfig {
   
   // Google API Keys
   googleApiKey: string;
-  googleCseId: string;
   googleClientId: string;
   googleClientSecret: string;
   
@@ -104,7 +103,6 @@ export class UnifiedEnvManager {
         naverClientId: '',
         naverClientSecret: '',
         googleApiKey: '',
-        googleCseId: '',
         googleClientId: '',
         googleClientSecret: '',
         blogId: '',
@@ -160,7 +158,6 @@ export class UnifiedEnvManager {
         naverClientId: process.env['NAVER_CLIENT_ID'] || '',
         naverClientSecret: process.env['NAVER_CLIENT_SECRET'] || '',
         googleApiKey: process.env['GOOGLE_API_KEY'] || '',
-        googleCseId: process.env['GOOGLE_CSE_ID'] || '',
         googleClientId: process.env['GOOGLE_CLIENT_ID'] || '',
         googleClientSecret: process.env['GOOGLE_CLIENT_SECRET'] || '',
         blogId: process.env['BLOG_ID'] || '',
@@ -242,9 +239,6 @@ export class UnifiedEnvManager {
               break;
             case 'GOOGLE_API_KEY':
               config.googleApiKey = value;
-              break;
-            case 'GOOGLE_CSE_ID':
-              config.googleCseId = value;
               break;
             case 'GOOGLE_CLIENT_ID':
               config.googleClientId = value;
@@ -362,7 +356,6 @@ NAVER_CLIENT_SECRET=
 
 # Google API Keys
 GOOGLE_API_KEY=
-GOOGLE_CSE_ID=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 
@@ -492,7 +485,6 @@ NAVER_CLIENT_SECRET=${config.naverClientSecret}
 
 # Google API Keys
 GOOGLE_API_KEY=${config.googleApiKey}
-GOOGLE_CSE_ID=${config.googleCseId}
 GOOGLE_CLIENT_ID=${config.googleClientId}
 GOOGLE_CLIENT_SECRET=${config.googleClientSecret}
 

@@ -10,11 +10,13 @@ const X = require('./prompts/sns/x');
 const FACEBOOK = require('./prompts/sns/facebook');
 const PINTEREST = require('./prompts/sns/pinterest');
 
-// Naver (4)
+// Naver (5)
 const NAVER_BLOG = require('./prompts/naver/blog');
 const NAVER_CAFE = require('./prompts/naver/cafe-generic');
 const NAVER_BAND = require('./prompts/naver/band');
 const NAVER_JISIK_IN = require('./prompts/naver/jisik-in');
+// v3.8.544: 네이버 프리미엄콘텐츠 (사장님 요청)
+const NAVER_PREMIUM = require('./prompts/naver/premium-content');
 
 // Korean communities (10)
 const DCINSIDE = require('./prompts/communities/dcinside');
@@ -66,11 +68,12 @@ const CHANNEL_REGISTRY = {
   [X.id]: X,
   [FACEBOOK.id]: FACEBOOK,
   [PINTEREST.id]: PINTEREST,
-  // Naver 4
+  // Naver 5
   [NAVER_BLOG.id]: NAVER_BLOG,
   [NAVER_CAFE.id]: NAVER_CAFE,
   [NAVER_BAND.id]: NAVER_BAND,
   [NAVER_JISIK_IN.id]: NAVER_JISIK_IN,
+  [NAVER_PREMIUM.id]: NAVER_PREMIUM,
   // Community 10
   [DCINSIDE.id]: DCINSIDE,
   [FMKOREA.id]: FMKOREA,

@@ -8,6 +8,10 @@
 // - get-schedules, add-schedule, toggle-schedule
 
 import { ipcMain } from 'electron';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../core/naver-search-client';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../../core/naver-search-client';
 import * as licenseManager from '../../utils/licenseManager';
 import { EnvironmentManager } from '../../utils/environment-manager';
 import { MDPEngine, MDPResult } from '../../utils/mdp-engine';
@@ -287,22 +291,13 @@ export function setupKeywordDiscoveryHandlers() {
 
           try {
             // 실시간 이슈 뉴스 검색 (정확도순)
-            const newsApiUrl = 'https://openapi.naver.com/v1/search/news.json';
-            const newsParams = new URLSearchParams({
-              query: '뉴스',
-              display: '20', // 더 많은 뉴스 수집
-              sort: 'sim' // 정확도순
-            });
-
-            const newsResponse = await fetch(`${newsApiUrl}?${newsParams}`, {
-              headers: {
-                'X-Naver-Client-Id': naverClientId,
-                'X-Naver-Client-Secret': naverClientSecret
-              }
-            });
+            // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+            const newsResponse = await naverSearch('news', {
+              query: '뉴스', display: 20, sort: 'sim',   // 더 많은 뉴스, 정확도순
+            }, { payload: { naverClientId, naverClientSecret } });
 
             if (newsResponse.ok) {
-              const newsData = await newsResponse.json();
+              const newsData = { items: newsResponse.items } as any;
 
               // 모든 뉴스 제목에서 키워드 추출
               const allKeywords: string[] = [];
@@ -429,26 +424,12 @@ export function setupKeywordDiscoveryHandlers() {
                 : null;
 
               // 문서수 조회
-              const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-              const params = new URLSearchParams({
-                query: item.keyword,
-                display: '1'
-              });
-
               let docCount: number | null = null;
               try {
-                const response = await fetch(`${apiUrl}?${params}`, {
-                  headers: {
-                    'X-Naver-Client-Id': naverClientId,
-                    'X-Naver-Client-Secret': naverClientSecret
-                  }
-                });
+                // v3.8.554: 창구 경유
+                const response = await naverSearch('blog', { query: item.keyword, display: 1 }, { payload: { naverClientId, naverClientSecret } });
                 if (response.ok) {
-                  const data = await response.json();
-                  const rawTotal = (data as any)?.total;
-                  docCount = typeof rawTotal === 'number'
-                    ? rawTotal
-                    : (typeof rawTotal === 'string' ? parseInt(rawTotal, 10) : null);
+                  docCount = response.total;
                 }
               } catch (error) {
                 console.warn(`[KEYWORD-MASTER] 문서수 조회 실패 (${item.keyword}):`, error);
@@ -538,22 +519,14 @@ export function setupKeywordDiscoveryHandlers() {
           // 각 키워드의 검색량과 문서수 조회 (황금 키워드 계산)
           const keywordsWithData = await Promise.all(googleTrends.slice(0, 20).map(async (item) => {
             try {
-              // Google 검색으로 문서수 추정
-              const googleCseCx = env.googleCseId || process.env['GOOGLE_CSE_CX'] || process.env['GOOGLE_CSE_ID'] || '';
-              const googleApiKey = env.googleApiKey || process.env['GOOGLE_API_KEY'] || '';
-
+              // v3.8.555: Google CSE 문서수 → 네이버 블로그 문서수 (CSE 종료 대응)
               let docCount = 0;
-              if (googleCseCx && googleApiKey) {
-                try {
-                  const googleSearchUrl = `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${googleCseCx}&q=${encodeURIComponent(item.keyword)}&num=1`;
-                  const response = await fetch(googleSearchUrl);
-                  if (response.ok) {
-                    const data = await response.json();
-                    docCount = parseInt(data.searchInformation?.totalResults || '0');
-                  }
-                } catch (error) {
-                  console.warn(`[KEYWORD-MASTER] 문서수 조회 실패 (${item.keyword}):`, error);
-                }
+              try {
+                const res = await naverSearch('blog', { query: item.keyword, display: 1 },
+                  { payload: { naverClientId, naverClientSecret } });
+                if (res.ok) docCount = res.total;
+              } catch (error) {
+                console.warn(`[KEYWORD-MASTER] 문서수 조회 실패 (${item.keyword}):`, error);
               }
 
               // Google Trends는 검색량을 직접 제공하지 않으므로 추정
@@ -666,25 +639,16 @@ export function setupKeywordDiscoveryHandlers() {
               const viewCount = typeof item.viewCount === 'number' ? item.viewCount : null;
               const viewCountForCalc = viewCount ?? 0;
 
-              // Google 검색으로 문서수 추정 (YouTube 키워드로 검색)
-              const googleCseCxForUrl = env.googleCseId || process.env['GOOGLE_CSE_CX'] || process.env['GOOGLE_CSE_ID'] || '';
-              const googleSearchUrl = `https://www.googleapis.com/customsearch/v1?key=${youtubeApiKey}&cx=${googleCseCxForUrl}&q=${encodeURIComponent(item.keyword)}&num=1`;
+              // v3.8.555: 네이버 블로그 문서수로 추정 (Google CSE 종료 대응)
               let docCount: number | null = null;
-
-              const googleCseCx = env.googleCseId || process.env['GOOGLE_CSE_CX'] || process.env['GOOGLE_CSE_ID'] || '';
-              if (googleCseCx) {
+              {
                 try {
-                  const response = await fetch(googleSearchUrl);
-                  if (response.ok) {
-                    const data = await response.json();
-                    const raw = data.searchInformation?.totalResults;
-                    docCount = typeof raw === 'number' ? raw : (typeof raw === 'string' ? parseInt(raw, 10) : null);
-                  }
+                  const res = await naverSearch('blog', { query: item.keyword, display: 1 },
+                    { payload: { naverClientId, naverClientSecret } });
+                  if (res.ok) docCount = res.total;
                 } catch (error) {
                   console.warn(`[KEYWORD-MASTER] 문서수 조회 실패 (${item.keyword}):`, error);
                 }
-              } else {
-                docCount = null;
               }
 
               // 조회수/문서량 비율 계산 (낮을수록 황금 키워드)
@@ -819,23 +783,17 @@ export function setupKeywordDiscoveryHandlers() {
 
       // 네이버 블로그 검색 API 호출
       const encodedQuery = encodeURIComponent(keyword);
-      const apiUrl = `https://openapi.naver.com/v1/search/blog.json?query=${encodedQuery}&display=10&sort=sim`;
-
-      const response = await fetch(apiUrl, {
-        headers: {
-          'X-Naver-Client-Id': naverClientId,
-          'X-Naver-Client-Secret': naverClientSecret
-        }
-      });
+      // v3.8.554: 창구 경유
+      const response = await naverSearch('blog', {
+        query: decodeURIComponent(encodedQuery), display: 10, sort: 'sim',
+      }, { payload: { naverClientId, naverClientSecret } });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('[KEYWORD-MASTER] 네이버 API 호출 실패:', response.status, errorData);
-        throw new Error(`네이버 API 호출 실패: ${response.status}`);
+        console.error(`[KEYWORD-MASTER] 네이버 API 호출 실패(${response.mode}):`, response.error);
+        throw new Error(`네이버 API 호출 실패: ${response.error}`);
       }
 
-      const data = await response.json();
-      const competitors = (data.items || []).map((item: any, index: number) => {
+      const competitors = response.items.map((item: any, index: number) => {
         // 제목에서 HTML 태그 제거
         const title = (item.title || '').replace(/<[^>]*>/g, '').replace(/&[^;]+;/g, ' ');
         const description = (item.description || '').replace(/<[^>]*>/g, '').replace(/&[^;]+;/g, ' ');

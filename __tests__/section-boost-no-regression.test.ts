@@ -21,7 +21,10 @@ const gen = fs.readFileSync(path.join(ROOT, 'src', 'core', 'final', 'generation.
 /** 보강 호출 ~ 결과 정규화 직전까지 */
 const boostBlock = blockBetween(
   gen,
-  'const improved = await callGeminiWithRetry(improvePrompt);',
+  // v3.8.544: 인자까지 앵커에 박아 두었더니 v3.8.536(본문 타임아웃 분리)이 인자를 늘리면서
+  //   그물이 통째로 red 가 됐고, 그 상태로 릴리스가 이어졌다(게이트 무력화).
+  //   앵커는 "무엇을 부르는가"까지만 잡는다 — 인자는 바뀔 수 있는 것이다.
+  'const improved = await callGeminiWithRetry(improvePrompt',
   '// 결과 정규화 및 에디팅 톤 변환',
 );
 

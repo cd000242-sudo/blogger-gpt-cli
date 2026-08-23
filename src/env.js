@@ -214,11 +214,6 @@ const MAP = {
     // 🛒 쿠팡 파트너스 오픈 API (쇼핑 모드 실제 상품 데이터 + 제휴 딥링크)
     COUPANG_ACCESS_KEY: 'coupangAccessKey',
     COUPANG_SECRET_KEY: 'coupangSecretKey',
-    // ✅ Google CSE (자동 링크/이미지용)
-    GOOGLE_CSE_KEY: 'googleCseKey',
-    GOOGLE_CSE_CX: 'googleCseCx',
-    GOOGLE_CSE_ID: 'googleCseCx', // CSE ID와 CX는 같은 값
-    GOOGLE_CSE_API_KEY: 'googleCseKey', // CSE API Key와 Key는 같은 값
     // Blogger/Google OAuth
     GOOGLE_BLOG_ID: 'blogId',
     BLOGGER_BLOG_ID: 'blogId', // 두 가지 키명 모두 지원
@@ -272,7 +267,7 @@ const MAP = {
     THUMB_PAD: 'thumbPad', // number(px)
     THUMB_SUBTITLE: 'thumbSubtitle', // string (선택)
     // ── 새로 추가: 이미지 검색 제어
-    IMAGE_SOURCE: 'imageSource', // 'cse' | 'unsplash' | 'none'
+    IMAGE_SOURCE: 'imageSource', // 'nanobanana2' | 'unsplash' | 'none'
     IMAGE_SAFESEARCH: 'imageSafeSearch', // boolean
     // 라이선스 서버 URL
     LICENSE_REDEEM_URL: 'licenseRedeemUrl',
@@ -430,7 +425,7 @@ function loadEnvFromFile() {
     if (!out['thumbTextFit'])
         out['thumbTextFit'] = 'shrink'; // 공간 맞춰 자동 축소
     if (!out['imageSource'])
-        out['imageSource'] = 'cse'; // 이미지 검색 기본: CSE
+        out['imageSource'] = 'nanobanana2'; // v3.8.555: 기본 이미지 엔진(과거 'cse' 는 제거됨)
     if (!out['thumbSubtitle'])
         out['thumbSubtitle'] = ''; // 선택
     // 라이선스 서버 기본값(사용자가 미설정 시) - 관리 패널과 동일한 서버 사용

@@ -2,6 +2,9 @@
  * 네이버 검색 API를 사용한 실시간 링크 검색 및 유효성 검증
  */
 
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../core/naver-search-client';
+
 export interface ValidatedLink {
   url: string;
   title: string;
@@ -39,63 +42,24 @@ export async function searchNaverWithApi(
       throw new Error(errorMessage);
     }
 
-    const apiUrl = `https://openapi.naver.com/v1/search/webkr.json?query=${encodeURIComponent(keyword)}&display=${display}&sort=sim`;
-    
-    const response = await fetch(apiUrl, {
-      headers: {
-        'X-Naver-Client-Id': credentials.clientId,
-        'X-Naver-Client-Secret': credentials.clientSecret,
-        'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      }
-    });
+    // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+    const res = await naverSearch('webkr', { query: keyword, display, sort: 'sim' },
+      { payload: { naverClientId: credentials.clientId, naverClientSecret: credentials.clientSecret } });
 
-    if (!response.ok) {
-      // 🔧 개선된 오류 처리: 사용자 친화적 메시지 + 크레딧 충전 안내
-      if (response.status === 401 || response.status === 403) {
-        const errorMessage = `❌ 네이버 검색 API 키 인증 실패! (${response.status})
-
-💡 해결 방법:
-1. 네이버 개발자 센터(https://developers.naver.com)에서 API 키 확인
-2. Client ID와 Client Secret이 정확한지 확인
-3. 검색 API 사용 권한이 활성화되어 있는지 확인
-
-⚠️ API 키가 유효하지 않거나
-크레딧이 부족할 수 있습니다.
-크레딧을 충전한 후 다시 시도해주세요.`;
-        throw new Error(errorMessage);
-      }
-      if (response.status === 429) {
-        const errorMessage = `❌ 네이버 검색 API 할당량 초과! (429)
-
-💡 해결 방법:
-1. 잠시 후 다시 시도하세요 (1분 대기 권장)
-2. 네이버 개발자 센터에서 사용량 확인
-3. 필요시 유료 플랜으로 업그레이드
-
-⚠️ 무료 할당량을 초과했습니다.
-크레딧을 충전하거나 유료 플랜을 사용하세요.`;
-        throw new Error(errorMessage);
-      }
-      if (response.status === 500) {
-        const errorMessage = `❌ 네이버 검색 서버 오류가 발생했습니다. (500)
-
-💡 해결 방법:
-1. 잠시 후 다시 시도해주세요
-2. 네이버 개발자 센터 상태 페이지 확인
-3. 문제가 지속되면 네이버 고객센터에 문의`;
-        throw new Error(errorMessage);
-      }
-      throw new Error(`네이버 검색 API 오류: ${response.status}`);
+    /**
+     * v3.8.554 — 상태코드별 처방 문구는 창구(describeNaverFailure)가 만든다.
+     * 여기서 따로 쓰면 HUB 키로 넘어간 뒤에도 "네이버 개발자 센터를 확인하세요" 같은
+     * 옛 안내가 나가서 오진이 된다. 창구는 401/403/404/429 를 각각 다르게 설명한다.
+     */
+    if (!res.ok) {
+      throw new Error(`❌ 네이버 검색 실패 (${res.mode})\n\n${res.error}`);
     }
 
-    const data = await response.json();
-    
-    if (!data.items || !Array.isArray(data.items)) {
+    if (!res.items.length) {
       return [];
     }
 
-    return data.items.map((item: any) => ({
+    return res.items.map((item: any) => ({
       title: item.title?.replace(/<[^>]*>/g, '') || '',
       link: item.link || '',
       description: item.description?.replace(/<[^>]*>/g, '') || ''

@@ -4,6 +4,8 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import { callGeminiWithRetry } from './final/gemini-engine';
+// v3.8.553: 네이버 호출 단일 창구
+import { naverSearch } from './naver-search-client';
 
 // 유틸리티 함수
 function getDateDaysAgo(days: number): string {
@@ -28,8 +30,6 @@ export interface SubtopicCrawlerConfig {
   maxResults: number;
   naverClientId?: string;
   naverClientSecret?: string;
-  googleCseKey?: string;
-  googleCseCx?: string;
 }
 
 export class SubtopicCrawler {
@@ -64,24 +64,18 @@ export class SubtopicCrawler {
       
       const searchQuery = `${topic} ${keywords.join(' ')}`;
       const encodedQuery = encodeURIComponent(searchQuery);
-      const apiUrl = `https://openapi.naver.com/v1/search/blog.json?query=${encodedQuery}&display=${maxResults}&sort=sim`;
-      
-      const response = await fetch(apiUrl, {
-        headers: {
-          'X-Naver-Client-Id': naverClientId,
-          'X-Naver-Client-Secret': naverClientSecret
-        }
-      });
+      // v3.8.553: 창구 경유 (HUB 우선 + 자동 토스)
+      const res = await naverSearch('blog', { query: searchQuery, display: maxResults, sort: 'sim' },
+        { payload: { naverClientId, naverClientSecret }, timeoutMs: 10000 });
 
-      if (!response.ok) {
-        console.log(`[NAVER SUBTITLE] API 호출 실패: ${response.status}`);
+      if (!res.ok) {
+        console.log(`[NAVER SUBTITLE] API 호출 실패(${res.mode}): ${res.error}`);
         return [];
       }
 
-      const data = await response.json();
       const subtopics: CrawledSubtopic[] = [];
 
-      for (const item of data.items || []) {
+      for (const item of res.items) {
         try {
           // 네이버 블로그에서 소제목 추출
           const blogSubtopic = await this.crawlNaverBlogSubtopic(item.link, topic, keywords);
@@ -169,68 +163,7 @@ export class SubtopicCrawler {
   /**
    * Google CSE를 사용해서 주제 관련 검색 결과에서 소제목 크롤링
    */
-  async crawlSubtopicFromGoogle(
-    config: SubtopicCrawlerConfig
-  ): Promise<CrawledSubtopic[]> {
-    const { topic, keywords, maxResults = 20, googleCseKey, googleCseCx } = config;
-    
-    if (!googleCseKey || !googleCseCx) {
-      console.log('[CRAWLER] Google CSE 키가 없어서 기본 소제목 생성');
-      return this.generateDefaultSubtopic(topic, keywords);
-    }
-
-    try {
-      console.log(`[CRAWLER] "${topic}" 관련 소제목 크롤링 시작...`);
-      
-      const searchQuery = `${topic} ${keywords.join(' ')}`;
-      
-      // Rate Limiter import 및 사용
-      const { safeCSERequest } = await import('../utils/google-cse-rate-limiter');
-      
-      const data = await safeCSERequest<{ items?: any[] }>(
-        searchQuery,
-        async () => {
-          const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${googleCseKey}&cx=${googleCseCx}&q=${encodeURIComponent(searchQuery)}&num=${maxResults}`;
-          const response = await fetch(searchUrl);
-          
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-          
-          return await response.json() as { items?: any[] };
-        },
-        { useCache: true, priority: 'normal' }
-      );
-      
-      if (!data?.items || data.items.length === 0) {
-        console.log('[CRAWLER] 검색 결과가 없어서 기본 소제목 생성');
-        return this.generateDefaultSubtopic(topic, keywords);
-      }
-
-      // 검색 결과에서 소제목 추출
-      const subtopics: CrawledSubtopic[] = [];
-      
-      for (const item of data.items) {
-        try {
-          // 각 검색 결과 페이지 크롤링
-          const pageSubtopic = await this.crawlPageSubtopic(item.link, topic, keywords);
-          subtopics.push(...pageSubtopic);
-        } catch (error) {
-          console.log(`[CRAWLER] 페이지 크롤링 실패: ${item.link}`);
-        }
-      }
-
-      // 빈도수 기반으로 정렬하고 상위 5개 선택
-      const rankedSubtopic = this.rankSubtopicByFrequency(subtopics);
-      
-      console.log(`[CRAWLER] 크롤링 완료: ${rankedSubtopic.length}개 소제목 추출`);
-      return rankedSubtopic.slice(0, 5);
-      
-    } catch (error) {
-      console.error('[CRAWLER] Google CSE 크롤링 실패:', error);
-      return this.generateDefaultSubtopic(topic, keywords);
-    }
-  }
+  // v3.8.555: CSE 소제목 크롤러 삭제 (앞 단계의 네이버·RSS 수집이 그대로 남는다) — Google CSE 는 신규 발급 불가 + 2027-01-01 종료라 제거했다.
 
   /**
    * 개별 페이지에서 소제목 추출
@@ -726,14 +659,12 @@ export async function generateOptimalSubtopic(
     geminiKey?: string;
     naverClientId?: string;
     naverClientSecret?: string;
-    googleCseKey?: string;
-    googleCseCx?: string;
     provider?: 'openai' | 'gemini';
     crawledContents?: any[]; // 크롤링된 콘텐츠 추가
     targetYear?: number | null; // 🔧 타깃 연도 추가
   } = {}
 ): Promise<string[]> {
-  const { openaiKey, geminiKey, naverClientId, naverClientSecret, googleCseKey, googleCseCx, provider = 'gemini', crawledContents = [], targetYear } = options;
+  const { openaiKey, geminiKey, naverClientId, naverClientSecret, provider = 'gemini', crawledContents = [], targetYear } = options;
   
   const crawler = new SubtopicCrawler(openaiKey, geminiKey);
   
@@ -836,29 +767,10 @@ export async function generateOptimalSubtopic(
     console.log(`[SUBTITLE CRAWLER] ❌ RSS 실패: ${error}, 다음 단계로...`);
   }
   
-  // 🥉 4단계: Google CSE 소제목 크롤링
-  console.log(`[SUBTITLE CRAWLER] 🥉 4단계: Google CSE 소제목 크롤링 시도...`);
-  try {
-    const cseSubtopic = await crawler.crawlSubtopicFromGoogle({
-      topic,
-      keywords,
-      maxResults: 10,
-      ...(googleCseKey !== undefined && { googleCseKey }),
-      ...(googleCseCx !== undefined && { googleCseCx })
-    });
-    
-    if (cseSubtopic.length > 0) {
-      const titles = cseSubtopic.map(item => item.title);
-      allSubtopic.push(...titles);
-      console.log(`[SUBTITLE CRAWLER] ✅ CSE 성공: ${cseSubtopic.length}개 소제목 수집`);
-    } else {
-      console.log(`[SUBTITLE CRAWLER] ⚠️ CSE 결과 없음, 기본 소제목 사용...`);
-    }
-  } catch (error) {
-    console.log(`[SUBTITLE CRAWLER] ❌ CSE 실패: ${error}, 기본 소제목 사용...`);
-  }
-  
-  // 🛡️ 5단계: 기본 소제목 (최종 폴백)
+  // v3.8.555: 4단계(Google CSE) 삭제 — 신규 발급 불가 + 2027-01-01 종료.
+  //   앞의 네이버·RSS 단계가 그대로 남고, 실패하면 아래 기본 소제목으로 간다.
+
+  // 🛡️ 4단계: 기본 소제목 (최종 폴백)
   if (allSubtopic.length === 0) {
     console.log(`[SUBTITLE CRAWLER] 🛡️ 4단계: 모든 크롤링 실패, 기본 소제목 생성...`);
     return generateDefaultSubtopic(topic, keywords, targetYear);

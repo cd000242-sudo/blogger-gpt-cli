@@ -1352,8 +1352,6 @@ async function checkEnvironmentVariables() {
         console.log('  - Blogger ID:', mergedSettings.blogId ? '✅ 설정됨' : '❌ 미설정');
         console.log('  - Google Client ID:', mergedSettings.googleClientId ? '✅ 설정됨' : '❌ 미설정');
         console.log('  - Google Client Secret:', mergedSettings.googleClientSecret ? '✅ 설정됨' : '❌ 미설정');
-        console.log('  - Google CSE Key:', mergedSettings.googleCseKey ? '✅ 설정됨' : '❌ 미설정');
-        console.log('  - Google CSE CX:', mergedSettings.googleCseCx ? '✅ 설정됨' : '❌ 미설정');
 
         console.log('🌍 WordPress 설정:');
         console.log('  - 사이트 URL:', mergedSettings.wordpressSiteUrl ? '✅ 설정됨' : '❌ 미설정');
@@ -6046,15 +6044,6 @@ async function loadSettingsContent() {
       'NAVER_SECRET': 'naverSecretKey',
       'NAVER_CLIENT_SECRET': 'naverSecretKey', // 네이버 데이터랩 Client Secret
 
-      // Google CSE
-      'GOOGLE_CSE_KEY': 'googleCseKey',
-      'GOOGLE_CSE_API_KEY': 'googleCseKey',
-      'GOOGLE_API_KEY': 'googleCseKey',
-      'CSE_KEY': 'googleCseKey',
-      'GOOGLE_CSE_CX': 'googleCseCx',
-      'GOOGLE_CSE_ID': 'googleCseCx',
-      'CSE_CX': 'googleCseCx',
-      'CSE_ID': 'googleCseCx',
 
       // Blogger
       'BLOG_ID': 'blogId',
@@ -6269,19 +6258,6 @@ async function loadSettingsContent() {
         console.warn('⚠️ naverSecretKey 필드를 찾을 수 없습니다');
       }
 
-      // Google CSE
-      const googleCseKeyEl = document.getElementById('googleCseKey');
-      if (googleCseKeyEl) {
-        googleCseKeyEl.value = mergedSettings.googleCseKey || mergedSettings.cseKey || mergedSettings.googleApiKey || '';
-        console.log('✅ Google CSE Key 로드:', googleCseKeyEl.value ? '있음' : '없음');
-      }
-
-      const googleCseCxEl = document.getElementById('googleCseCx');
-      if (googleCseCxEl) {
-        googleCseCxEl.value = mergedSettings.googleCseCx || mergedSettings.cseCx || mergedSettings.googleCseId || '';
-        console.log('✅ Google CSE CX 로드:', googleCseCxEl.value ? '있음' : '없음');
-      }
-
       // Blogger ID
       const blogIdEl = document.getElementById('blogId');
       if (blogIdEl) {
@@ -6366,7 +6342,6 @@ async function loadSettingsContent() {
       const allFields = [
         'openaiKey', 'geminiKey', 'dalleApiKey', 'pexelsApiKey',
         'naverCustomerId', 'naverSecretKey',
-        'googleCseKey', 'googleCseCx',
         'blogId', 'googleClientId', 'googleClientSecret',
         'wordpressSiteUrl', 'wordpressUsername', 'wordpressPassword'
       ];
@@ -6425,8 +6400,6 @@ async function saveSettings() {
     blogId: document.getElementById('blogId')?.value || '',
     googleClientId: document.getElementById('googleClientId')?.value || '',
     googleClientSecret: document.getElementById('googleClientSecret')?.value || '',
-    googleCseKey: document.getElementById('googleCseKey')?.value || '',
-    googleCseCx: document.getElementById('googleCseCx')?.value || '',
     youtubeApiKey: document.getElementById('youtubeApiKey')?.value || '',
     wordpressSiteUrl: document.getElementById('wordpressSiteUrl')?.value || '',
     wordpressUsername: document.getElementById('wordpressUsername')?.value || '',
@@ -6453,8 +6426,6 @@ async function saveSettings() {
         wordpressSiteUrl: settings.wordpressSiteUrl,
         wordpressUsername: settings.wordpressUsername,
         wordpressPassword: settings.wordpressPassword,
-        googleCseKey: settings.googleCseKey,
-        googleCseCx: settings.googleCseCx,
         geminiKey: settings.geminiKey,
         pexelsApiKey: settings.pexelsApiKey,
         // 🔥 Stability AI API Key 추가
@@ -6524,8 +6495,6 @@ function updateApiKeyStatus(settings) {
       'Gemini': settings.geminiKey || '',
       '네이버 데이터랩 ID': settings.naverCustomerId || settings.naverClientId || '',
       '네이버 데이터랩 Secret': settings.naverSecretKey || settings.naverClientSecret || '',
-      'Google CSE Key': settings.googleCseKey || '',
-      'Google CSE CX': settings.googleCseCx || '',
       'Pexels API': settings.pexelsApiKey || '',
       'DALL-E API': settings.dalleApiKey || settings.openaiKey || ''
     };
@@ -6591,13 +6560,29 @@ async function loadSettings() {
     settings = {};
   }
 
-  // 플랫폼 기본값 보장 (Blogger)
+  /**
+   * 플랫폼 기본값 보장 — v3.8.548
+   *
+   * 예전엔 platform 이 비어 있으면 무조건 'blogger' 를 **저장소에 박았다.**
+   * 그러면 사장님이 지시한 "기본값 WordPress" 가 이 legacy 경로에 먼저 먹혀
+   * 영원히 적용되지 않는다.
+   *
+   * 그렇다고 반대로 'wordpress' 를 박으면 v3.8.304 사고가 그대로 재발한다 —
+   * Blogger 로 쓰던 사용자의 설정이 WordPress 로 뒤집혔던 그 사고다.
+   * 그래서 **증거를 보고 정한다** (settings.js 의 resolvePlatformValue 와 같은 규칙):
+   *   Blogger 연동 값이 있으면 blogger, 아니면 wordpress.
+   * 증거가 있을 때만 저장한다. 아무 단서도 없으면 저장하지 않고 기본값만 돌려준다 —
+   * 빈 상태를 굳혀 놓으면 나중에 제대로 판정할 기회가 사라진다.
+   */
   if (!settings.platform) {
-    settings.platform = 'blogger';
-    console.log('[LOAD] 플랫폼 기본값 설정: blogger');
-    // 🔧 StorageManager 사용
-    const storage = getStorageManager();
-    await storage.set('bloggerSettings', settings, true);
+    const hasBloggerCreds = !!(settings.blogId || settings.bloggerId
+      || settings.googleClientId || settings.googleClientSecret);
+    settings.platform = hasBloggerCreds ? 'blogger' : 'wordpress';
+    console.log('[LOAD] 플랫폼 기본값 설정:', settings.platform, hasBloggerCreds ? '(Blogger 연동값 있음)' : '(단서 없음)');
+    if (hasBloggerCreds) {
+      const storage = getStorageManager();
+      await storage.set('bloggerSettings', settings, true);
+    }
   }
 
   // 🔐 v3.8.385: 설정값 로깅 마스킹
@@ -6662,15 +6647,22 @@ async function loadSettings() {
     }
   });
 
-  // 플랫폼 기본값이 없으면 Blogger로 설정
+  // v3.8.548: 여기도 같은 규칙 — Blogger 연동 값이 있으면 blogger, 없으면 wordpress
   if (!settings.platform) {
-    settings.platform = 'blogger';
+    const hasBloggerCreds = !!(settings.blogId || settings.bloggerId
+      || settings.googleClientId || settings.googleClientSecret);
+    settings.platform = hasBloggerCreds ? 'blogger' : 'wordpress';
   }
 
   // 설정 저장 (기본값 반영)
+  //   ⚠️ v3.8.548: 단서 없이 고른 기본값은 저장하지 않는다. 저장해 버리면 그게
+  //      '사용자가 고른 값'으로 굳어서 이후 판정(.env·연동 설정)이 무력화된다.
   const storageManager = getStorageManager();
   const savedSettingsData = await storageManager.get('bloggerSettings', true);
-  if (!savedSettingsData || !savedSettingsData.platform) {
+  const hasPlatformEvidence = !!(settings.blogId || settings.bloggerId
+    || settings.googleClientId || settings.googleClientSecret
+    || settings.wordpressSiteUrl || settings.wordpressUsername || settings.wordpressPassword);
+  if ((!savedSettingsData || !savedSettingsData.platform) && hasPlatformEvidence) {
     await storage.set('bloggerSettings', settings, true);
   }
 
@@ -7948,8 +7940,7 @@ function updateApiStatusIndicators() {
     'status-openai': { el: document.getElementById('openaiKey'), required: false },
     'status-pexels': { el: document.getElementById('pexelsApiKey'), required: false },
     'status-stability': { el: document.getElementById('stabilityApiKey'), required: false },
-    'status-naver': { el: document.getElementById('naverCustomerId'), required: false },
-    'status-cse': { el: document.getElementById('googleCseKey'), required: false }
+    'status-naver': { el: document.getElementById('naverCustomerId'), required: false }
   };
 
   Object.entries(indicators).forEach(([statusId, info]) => {
@@ -8035,33 +8026,7 @@ async function checkPlatformConnection() {
 }
 
 // CSE 연동 확인
-async function checkCseConnection() {
-  try {
-    const settings = await loadSettings();
-
-    if (!settings.googleCseKey || !settings.googleCseCx) {
-      alert('❌ CSE 연동이 필요합니다.\n\n환경설정에서 구글 맞춤 검색 API 키와 검색 엔진 ID를 입력해주세요.');
-      return;
-    }
-
-    // 간단한 테스트 검색 수행
-    if (window.blogger && window.blogger.testCseConnection) {
-      const result = await window.blogger.testCseConnection(settings.googleCseKey, settings.googleCseCx);
-
-      if (result.success) {
-        alert('✅ CSE 연동이 완료되었습니다!\n\n검색 기능을 정상적으로 사용할 수 있습니다.');
-      } else {
-        alert(`❌ CSE 연동 확인 실패\n\n${result.error || 'API 키 또는 검색 엔진 ID를 확인해주세요.'}`);
-      }
-    } else {
-      // API가 없는 경우 간단히 설정 확인만
-      alert('✅ CSE 설정이 저장되어 있습니다.\n\nAPI 키: ' + settings.googleCseKey.substring(0, 10) + '...\n검색 엔진 ID: ' + settings.googleCseCx.substring(0, 10) + '...');
-    }
-  } catch (error) {
-    console.error('CSE 연동 확인 오류:', error);
-    alert('CSE 연동 확인 중 오류가 발생했습니다: ' + error.message);
-  }
-}
+// v3.8.555: checkCseConnection 삭제 — Google CSE 제거
 
 // Blogger OAuth 인증 (별칭 함수)
 async function authenticateBlogger() {
@@ -10352,16 +10317,13 @@ window.showPublishSuccessModal = function (payload) {
         ${hasUrl ? `<p style="color:rgba(255,255,255,0.7);font-size:11px;margin:14px 0 0 0;word-break:break-all;">${escUrl}</p>` : ''}
       </div>`;
     document.body.appendChild(overlay);
-    // v3.8.101: 발행 완료 모달 닫을 때 Agent 진행 모달도 함께 닫기 (사용자 요구: 진행 모달 뒤에 success 모달 유지)
+    // v3.8.101: 발행 완료 모달 닫을 때 진행 모달도 함께 닫는다
+    // v3.8.548: Agent 전용 오버레이·미니바가 사라졌다(표준 진행 모달로 통합).
+    //   없어진 전역(__agentProgressOverlay·__agentMiniBar)을 계속 뒤지면 조용히 아무 일도 안 한다.
+    //   표준 닫기 함수를 부른다 — API 모드와 같은 경로다.
     const close = () => {
       try { overlay.parentNode?.removeChild(overlay); } catch {}
-      try {
-        const agentOverlay = window.__agentProgressOverlay;
-        const agentMini = window.__agentMiniBar;
-        if (agentOverlay) agentOverlay.style.display = 'none';
-        if (agentMini) agentMini.style.display = 'none';
-        window.__agentProgressActive = false;
-      } catch {}
+      try { window.hideProgressModal?.(); } catch {}
     };
     overlay.querySelector('[data-ps-close]')?.addEventListener('click', (e) => { e.stopPropagation(); close(); });
     if (hasUrl) {
@@ -10411,12 +10373,10 @@ try {
   window.api?.onAgentQuotaExceeded?.((payload) => {
     console.log('[AGENT-QUOTA] 🛑 한도 도달 신호 수신:', payload);
     try {
-      // 진행 모달 닫기 + mini bar 닫기
-      const ov = window.__agentProgressOverlay;
-      const mini = window.__agentMiniBar;
-      if (ov) ov.style.display = 'none';
-      if (mini) mini.style.display = 'none';
-      window.__agentProgressActive = false;
+      // v3.8.548: 표준 진행 모달을 닫는다.
+      //   예전엔 Agent 전용 오버레이·미니바를 직접 숨겼는데 그 둘이 없어졌다.
+      //   그대로 두면 한도 알림 모달이 **진행 모달 위에 겹쳐** 떠서 뒤가 안 보인다.
+      window.hideProgressModal?.();
     } catch {}
 
     const existing = document.getElementById('agentQuotaModal');
@@ -13104,8 +13064,6 @@ async function createPayloadFromForm() {
     // API 키들은 저장된 설정에서 로드
     geminiKey: savedSettings.geminiKey || '',
     pexelsApiKey: savedSettings.pexelsApiKey || '',
-    googleCseKey: savedSettings.googleCseKey || '',
-    googleCseCx: savedSettings.googleCseCx || '',
     // 블로거 설정
     blogId: savedSettings.blogId || '',
     googleClientId: savedSettings.googleClientId || '',
@@ -13239,8 +13197,6 @@ async function createPreviewPayload() {
     // API 키들만 포함 (WordPress 인증 정보 제외)
     geminiKey: savedSettings.geminiKey || '',
     pexelsApiKey: savedSettings.pexelsApiKey || '',
-    googleCseKey: savedSettings.googleCseKey || '',
-    googleCseCx: savedSettings.googleCseCx || '',
     naverCustomerId: savedSettings.naverCustomerId || '',
     naverSecretKey: savedSettings.naverSecretKey || ''
   };
@@ -13685,7 +13641,6 @@ function updateCrawlingDetails(label) {
 
 // 전역 함수 등록
 window.checkPlatformConnection = checkPlatformConnection;
-window.checkCseConnection = checkCseConnection;
 window.startBloggerOAuth = startBloggerOAuth;
 window.publishToPlatform = publishToPlatform;
 

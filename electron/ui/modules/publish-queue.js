@@ -10,6 +10,9 @@
 //   - localStorage 'scheduledPosts' (스케줄러)
 //   - publishQueue 항목은 scheduledPosts와 같은 스키마로 변환
 
+// v3.8.549: 예약 시간 [📅 달력 열기] + 시/분 드롭다운 — 단일 발행과 같은 도구를 쓴다
+import { enhanceAllScheduleInputs } from './schedule-picker.js';
+
 const STATE = {
   keywords: [],     // [{ id, keyword, mode, ctaMode, manualCta, thumb, enabled }]
   isOpen: false,
@@ -19,6 +22,15 @@ const STATE = {
 const PUBLISH_QUEUE_STORAGE_KEY = 'publishQueueItems.v1';
 const PUBLISH_QUEUE_INTERVAL_STORAGE_KEY = 'publishQueueInterval.v1';
 const PUBLISH_QUEUE_MIN_MINUTES = 7;
+/**
+ * v3.8.545 — 입력칸이 받아들이는 최소값. 7분과 구분한다.
+ *
+ * 7분은 **생성** 바닥값이지 발행 시각 제약이 아니다. 예약발행에서는 발행 시각을
+ * 1분 간격으로 잡아도 되므로 입력 자체는 1분까지 허용한다.
+ * 즉시 연속발행 경로는 여전히 getIntervalMs({ minMs }) 로 바닥값을 올려 받으므로
+ * (3395줄 대기 로직) 여기를 낮춰도 레이트리밋 보호는 그대로다.
+ */
+const PUBLISH_QUEUE_MIN_INPUT_MINUTES = 1;
 const PUBLISH_QUEUE_DEFAULT_INTERVAL = { mode: 'minutes', value: PUBLISH_QUEUE_MIN_MINUTES };
 let queueStopRequested = false;
 
@@ -378,7 +390,7 @@ function clampIntervalValue(mode, value) {
   const normalized = normalizeIntervalMode(mode);
   if (normalized === 'hours') return clampNumber(value, 1, 72, 1);
   if (normalized === 'random') return PUBLISH_QUEUE_DEFAULT_INTERVAL.value;
-  return clampNumber(value, PUBLISH_QUEUE_MIN_MINUTES, 1440, PUBLISH_QUEUE_MIN_MINUTES);
+  return clampNumber(value, PUBLISH_QUEUE_MIN_INPUT_MINUTES, 1440, PUBLISH_QUEUE_MIN_MINUTES);
 }
 
 function fixedIntervalToMinutes(mode, value) {
@@ -429,7 +441,7 @@ function bindMainIntervalControl() {
   const input = document.getElementById('publishIntervalMinutes');
   if (!input || input.dataset.publishQueueIntervalBound === '1') return;
   input.dataset.publishQueueIntervalBound = '1';
-  input.min = String(PUBLISH_QUEUE_MIN_MINUTES);
+  input.min = String(PUBLISH_QUEUE_MIN_INPUT_MINUTES); // v3.8.545: 예약발행 발행 간격은 1분까지 허용
   input.step = '1';
   input.max = input.max || '1440';
 
@@ -999,7 +1011,7 @@ function cloneQueueSnapshot(snapshot) {
     h2ImageMode: normalizeH2ImageMode(snap.h2ImageMode || 'all'),
     ctaMode: snap.ctaMode || 'auto',
     manualCta: normalizeManualCta(snap.manualCta),
-    platform: normalizeQueuePlatform(snap.platform || 'blogspot'),
+    platform: normalizeQueuePlatform(snap.platform || 'wordpress'),   // v3.8.548
     postingMode: normalizePostingMode(snap.postingMode || 'publish'),
     scheduleDate: snap.scheduleDate || '',
     sectionCount: Number(snap.sectionCount || 5),
@@ -1479,6 +1491,18 @@ function buildModalHtml() {
             <strong style="color:#a7f3d0;font-size:13px;font-weight:900;">발행 관련</strong>
           </div>
           <div style="display:flex;flex-direction:column;gap:8px;">
+            <!-- v3.8.547: v3.8.117 에서 "플랫폼은 환경설정에서" 라며 뺐던 칸을 되살린다.
+                 대기열에 이미 담은 뒤에 플랫폼만 바꿀 방법이 없어서, 사장님이 큐를 통째로
+                 비우고 다시 담아야 했다. -->
+            <label style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#c4b5fd;font-size:11px;font-weight:700;">🌐 발행 플랫폼</span>
+              <select id="pq-bulk-platform">
+                <option value="">변경 안 함</option>
+                <option value="blogspot">Blogspot</option>
+                <option value="wordpress">WordPress</option>
+                <option value="tistory">Tistory</option>
+              </select>
+            </label>
             <label style="display:flex;flex-direction:column;gap:4px;">
               <span style="color:#cbd5e1;font-size:11px;font-weight:700;">제목 옵션</span>
               <select id="pq-bulk-title">
@@ -1578,10 +1602,11 @@ function buildModalHtml() {
         </div>
       </div>
 
-      <!-- v3.8.117 제거됨: 섹션 수(자동), 플랫폼(환경설정), CTA, 본문 배치(이미지 갯수 세팅으로 통합) -->
+      <!-- v3.8.117 제거됨: 섹션 수(자동), CTA, 본문 배치(이미지 갯수 세팅으로 통합) -->
+      <!-- v3.8.547: 플랫폼은 위 '발행 관련' 칸으로 되살렸다 — 여기 더미가 남아 있으면
+           같은 id 가 둘이라 document.getElementById 가 이 빈 칸을 집어 무동작이 된다. -->
       <!-- hidden compatibility 더미: legacy 코드가 이 ID들을 .value 접근하면 빈 값 반환 -->
       <select id="pq-bulk-cta" style="display:none;"><option value=""></option></select>
-      <select id="pq-bulk-platform" style="display:none;"><option value=""></option></select>
       <select id="pq-bulk-section" style="display:none;"><option value=""></option></select>
     </div>
 
@@ -1667,6 +1692,10 @@ function buildItemRow(item, idx) {
              이 드롭다운엔 옵션이 없어 "SEO 외부"가 선택된 것처럼 보였다(데이터는 안 바뀌지만
              혼동을 준다) — 옵션을 추가해 실제 상태를 그대로 보여준다. -->
         <option value="shopping" ${item.mode === 'shopping' ? 'selected' : ''}>쇼핑</option>
+        <!-- v3.8.544: 디스커버가 여기만 또 빠져 있었다. v3.8.524 가 고친 곳은 일괄변경 셀렉트(1407줄)와
+             QUEUE_LABELS 두 곳뿐이라, 정작 **항목 카드에서 디스커버로 바꾸는 길**이 없었다.
+             (라벨은 이미 '구글 디스커버'로 나오는데 드롭다운엔 없어 더 헷갈렸다) -->
+        <option value="discover" ${item.mode === 'discover' ? 'selected' : ''}>구글 디스커버</option>
       </select>
     </div>
     <div class="pq-field">
@@ -1729,12 +1758,18 @@ function buildItemRow(item, idx) {
         <option value="none" ${item.ctaMode === 'none' ? 'selected' : ''}>없음</option>
       </select>
     </div>
+    <!-- v3.8.547: 읽기 전용 → 선택. 사장님 보고: "여기서 수정을 못하니까 다 지우고
+         다시 플랫폼 선택하고 다시 대기열에 추가해야 되잖아."
+         항목별 platform 은 이미 발행까지 배선돼 있다(buildQueuePayloadOverrides 의
+         platform/targetPlatform, applyItemToMainForm 의 setRadio('platform')).
+         지금까지 막고 있던 건 이 칸이 span 이었다는 것뿐이다. -->
     <div class="pq-field">
       <label>플랫폼</label>
-      <div class="pq-folder-static">
-        <span>${escHtml(labelOf('platform', platform))}</span>
-        <span style="color:rgba(226,232,240,0.56);font-size:11px;font-weight:800;">상단 플랫폼 설정 기준</span>
-      </div>
+      <select class="pq-item-platform">
+        <option value="blogspot" ${platform === 'blogspot' ? 'selected' : ''}>Blogspot</option>
+        <option value="wordpress" ${platform === 'wordpress' ? 'selected' : ''}>WordPress</option>
+        <option value="tistory" ${platform === 'tistory' ? 'selected' : ''}>Tistory</option>
+      </select>
     </div>
     <div class="pq-field">
       <label>발행 방식</label>
@@ -1781,6 +1816,15 @@ function buildItemRow(item, idx) {
         <option value="off" ${item.factCheckMode === 'off' ? 'selected' : ''}>끄기</option>
       </select>
     </div>
+    ${platform === 'blogspot' ? `
+    <!-- v3.8.549: 사장님 보고 "블로그스팟은 카테고리 선택이 안 뜨네요".
+         블로그스팟엔 카테고리가 없다 — 라벨(label)이 그 자리다. 그래서 칸이 없었다.
+         비워두면 지금처럼 본문에서 자동 생성한다(기존 동작 유지). -->
+    <div class="pq-field">
+      <label>🏷️ Blogspot 라벨</label>
+      <input type="text" class="pq-item-labels" placeholder="비우면 자동 생성 · 쉼표로 구분"
+        value="${escHtml(item.blogspotLabels || '')}">
+    </div>` : ''}
     ${platform === 'wordpress' ? `
     <div class="pq-field">
       <label>📂 WordPress 카테고리</label>
@@ -1855,6 +1899,8 @@ function refreshList() {
 </div>`;
   listEl.innerHTML = `${header}<div class="pq-list-grid">${STATE.keywords.map((it, i) => buildItemRow(it, i)).join('')}</div>`;
   bindItemEvents();
+  // v3.8.549: 항목 카드를 다시 그릴 때마다 예약 시간 도구를 다시 붙인다 (이미 붙은 건 건너뛴다)
+  try { enhanceAllScheduleInputs(listEl); } catch (e) { console.warn('[QUEUE] 예약 시간 도구 부착 실패:', e); }
   try { window.applyAgentImageSettingsVisibility?.(document.getElementById('publishQueueModal') || document); } catch {}
   updateIntervalGuardHint();
 }
@@ -1893,6 +1939,12 @@ function bindItemEvents() {
       saveItem();
       refreshList();
     });
+    // v3.8.547: 항목별 플랫폼 변경. 카테고리·공개상태 칸이 플랫폼에 따라 달라지므로 다시 그린다.
+    row.querySelector('.pq-item-platform')?.addEventListener('change', e => {
+      item.platform = normalizeQueuePlatform(e.target.value);
+      saveItem();
+      refreshList();
+    });
     row.querySelector('.pq-item-posting')?.addEventListener('change', e => {
       item.postingMode = normalizePostingMode(e.target.value);
       saveItem();
@@ -1900,6 +1952,14 @@ function bindItemEvents() {
     });
     row.querySelector('.pq-item-schedule')?.addEventListener('change', e => {
       item.scheduleDate = e.target.value || '';
+      /**
+       * v3.8.546 — 여기서 직접 고른 시각만 "그 시각 그대로" 쓴다.
+       * 스냅샷/일괄편집으로 흘러들어온 값과 구분해야 한다 — 그건 전 항목이 같은 값이라
+       * 곧이곧대로 쓰면 30편이 같은 초에 발행된다. 그 값은 '시작 시각'으로 보고 간격을 벌린다.
+       */
+      item.scheduleDateManual = !!item.scheduleDate;
+      // 시각을 고른 것은 예약하겠다는 뜻이다 — 발행 방식이 즉시면 예약으로 맞춰준다
+      if (item.scheduleDate && item.postingMode !== 'schedule') item.postingMode = 'schedule';
       saveItem();
       refreshList();
     });
@@ -1934,6 +1994,11 @@ function bindItemEvents() {
     // v3.8.146: WordPress 카테고리 항목별 override
     row.querySelector('.pq-item-wp-category')?.addEventListener('change', e => {
       item.wordpressCategory = e.target.value || '';
+      saveItem();
+    });
+    // v3.8.549: Blogspot 라벨 항목별 지정 (비우면 자동 생성)
+    row.querySelector('.pq-item-labels')?.addEventListener('input', e => {
+      item.blogspotLabels = e.target.value || '';
       saveItem();
     });
     // v3.8.329: 항목별 내 폴더 이미지 선택 (사용자 보고: "각각 대기열에는 없어")
@@ -2036,13 +2101,13 @@ function normalizeQueuePlatform(platform) {
   const raw = String(platform || '').toLowerCase();
   if (/wordpress|wp|워드프레스/.test(raw)) return 'wordpress';
   if (/blogger|blogspot|블로거|블로그스팟/.test(raw)) return 'blogspot';
-  return raw || 'blogspot';
+  return raw || 'wordpress';   // v3.8.548: 기본값 WordPress (사장님 지시)
 }
 
 function getCurrentPublishPlatform() {
   const radioValue = document.querySelector('input[name="platform"]:checked')?.value || '';
   const scheduleValue = document.getElementById('schedulePlatform')?.value || '';
-  return normalizeQueuePlatform(radioValue || scheduleValue || 'blogspot');
+  return normalizeQueuePlatform(radioValue || scheduleValue || 'wordpress');
 }
 
 function normalizePostingMode(mode) {
@@ -2061,6 +2126,17 @@ function getCurrentPostingMode() {
 function toLocalDateTimeInputValue(date) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/**
+ * v3.8.546 — 항목에 찍힌 예약 시각을 ms 로. 비었거나 못 읽으면 null.
+ * datetime-local 값("2026-08-22T09:00")은 로컬 시각으로 해석된다 — 사장님이 보는 시계 그대로다.
+ */
+function queueItemScheduleMs(item) {
+  const raw = String(item?.scheduleDate || '').trim();
+  if (!raw) return null;
+  const t = new Date(raw).getTime();
+  return Number.isFinite(t) ? t : null;
 }
 
 function toQueueScheduleInputValue(value) {
@@ -2122,7 +2198,7 @@ function syncIntervalControl(options = {}) {
   fixedWrap.style.display = 'flex';
 
   if (mode === 'minutes') {
-    valueInput.min = String(PUBLISH_QUEUE_MIN_MINUTES);
+    valueInput.min = String(PUBLISH_QUEUE_MIN_INPUT_MINUTES); // v3.8.545
     valueInput.max = '1440';
     valueInput.step = '1';
     valueInput.value = String(clampIntervalValue('minutes', valueInput.value));
@@ -2146,8 +2222,13 @@ function updateIntervalGuardHint(items) {
   const minMs = getQueueMinPublishIntervalMs(list);
   const rawMs = getRawIntervalMs();
   const corrected = rawMs < minMs;
+  /**
+   * v3.8.545 — 예전엔 "N분 이상만 설정 가능"이라고 했지만 사실이 아니게 됐다.
+   * 바닥값이 걸리는 건 **생성**이고, 예약발행의 **발행 시각**은 자유다.
+   * 문구가 실제 동작과 다르면 사장님이 또 "왜 못 바꾸냐"를 묻게 된다.
+   */
   hint.textContent = corrected
-    ? `${getQueueIntervalReason(list)} · ${formatIntervalMs(minMs)} 이상만 설정 가능`
+    ? `${getQueueIntervalReason(list)} · 즉시 연속발행은 ${formatIntervalMs(minMs)}로 자동 보정 · 예약발행의 발행 시각은 입력한 ${formatIntervalMs(rawMs)} 그대로`
     : `${getQueueIntervalReason(list)} · 현재 간격 안전`;
 }
 
@@ -2242,6 +2323,15 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     // v3.8.144: Tistory 항목별 카테고리/공개상태 (item에 없으면 환경설정 default 사용)
     tistoryDefaultCategory: item.tistoryCategory || document.getElementById('tistoryDefaultCategory')?.value || '',
     tistoryDefaultVisibility: item.tistoryVisibility || document.getElementById('tistoryDefaultVisibility')?.value || 'private',
+    /**
+     * v3.8.549: Blogspot 라벨. 비어 있으면 아예 안 실어서 기존 자동 생성이 그대로 돈다.
+     * ⚠️ blogger-publisher.js(3274줄)는 generatedLabels 를 labels 보다 **먼저** 본다.
+     *    그래서 src/core/index.ts 에서 "사용자가 라벨을 줬으면 generatedLabels 를 안 채우도록"
+     *    같이 고쳤다. 여기만 채우면 입력해도 조용히 무시된다.
+     */
+    labels: String(item.blogspotLabels || '').trim()
+      ? String(item.blogspotLabels).split(',').map((s) => s.trim()).filter(Boolean)
+      : undefined,
     // v3.8.146: WordPress 항목별 카테고리 (item에 없으면 환경설정 default 사용)
     wordpressCategory: item.wordpressCategory || document.getElementById('wpCategory')?.value || '',
     wordpressCategories: item.wordpressCategory || document.getElementById('wpCategory')?.value || document.getElementById('wordpressCategories')?.value || '',
@@ -2882,7 +2972,16 @@ function bindModalEvents() {
   // v3.8.150: 환경설정 라디오 platform 기준으로 일괄 dropdown 조건부 노출
   //   WP 선택: WordPress 카테고리만 / Tistory 선택: Tistory 카테고리·공개상태 / Blogger 선택: 둘 다 숨김
   const updateBulkPlatformVisibility = () => {
-    const current = (document.querySelector('input[name="platform"]:checked')?.value || 'blogger').toLowerCase();
+    /**
+     * v3.8.547 — 일괄 플랫폼 칸이 생겼으므로 그 값이 우선이다.
+     * 여기서 Tistory 로 일괄 변경하려는데 카테고리·공개상태 칸이 환경설정(예: WordPress)
+     * 기준으로 숨어 있으면, 플랫폼만 바뀌고 카테고리는 못 고르는 반쪽이 된다.
+     */
+    const bulkPick = normalizeQueuePlatform(document.getElementById('pq-bulk-platform')?.value || '');
+    const hasBulkPick = !!(document.getElementById('pq-bulk-platform')?.value || '').trim();
+    const current = hasBulkPick
+      ? bulkPick
+      : (document.querySelector('input[name="platform"]:checked')?.value || 'blogger').toLowerCase();
     const isWP = current === 'wordpress';
     const isTistory = current === 'tistory';
     const wpWrap = document.getElementById('pq-bulk-wp-cat-wrap');
@@ -2897,6 +2996,8 @@ function bindModalEvents() {
   document.querySelectorAll('input[name="platform"]').forEach((r) => {
     r.addEventListener('change', updateBulkPlatformVisibility);
   });
+  // v3.8.547: 일괄 플랫폼 칸 변경도 같은 갱신을 탄다
+  document.getElementById('pq-bulk-platform')?.addEventListener('change', updateBulkPlatformVisibility);
 
   // v3.8.137: 발행 방식 = 예약 발행 선택 시 날짜/시간 input 자동 노출
   const bulkPostingSelect = document.getElementById('pq-bulk-posting');
@@ -2915,6 +3016,10 @@ function bindModalEvents() {
   };
   bulkPostingSelect?.addEventListener('change', toggleBulkSchedule);
   toggleBulkSchedule();
+  // v3.8.549: 일괄 예약 시간에도 같은 [📅 달력 열기] + 시/분 드롭다운을 붙인다
+  try {
+    if (bulkScheduleInput) enhanceAllScheduleInputs(bulkScheduleInput.parentElement || document);
+  } catch (e) { console.warn('[QUEUE] 일괄 예약 시간 도구 부착 실패:', e); }
 
   // 일괄 적용
   document.getElementById('pq-bulk-apply')?.addEventListener('click', () => {
@@ -3099,12 +3204,78 @@ function bindModalEvents() {
     enabled.forEach(item => applySnapshotToItem(item));
     if (!validateQueueManualCtas(enabled)) return;
 
-    let cursor = getScheduleBaseDate().getTime();
-    const minIntervalMs = getQueueMinPublishIntervalMs(enabled);
+    /**
+     * 🗓️ v3.8.545 — 예약발행은 "생성 시각"과 "발행 시각"이 다른 일이다.
+     *
+     * 사장님 지적: "예약발행을 하면 7분 발행간격을 지킬 필요 없지 않니?"
+     * 맞는 말이었다. 7분은 발행이 아니라 **생성** 때문에 생긴 값이다
+     * (PQ_INTERVAL_FLOORS 주석 — 이미지 엔진 레이트리밋·브라우저 자동화·쿠팡 조회).
+     * 그런데 예전엔 두 시각이 한 값이라, 발행 시각까지 7분씩 벌어졌다.
+     *
+     *   생성 시각(generateAt)      : 지금부터 레이트리밋 간격으로 순차 — 바닥값 유지
+     *   발행 시각(scheduleDateTime): 사장님이 정한 대로 — 바닥값 없음(1분 간격도 가능)
+     *
+     * 생성이 끝나면 아직 미래인 발행 시각을 플랫폼 예약으로 올리므로,
+     * 생성만 끝나면 앱을 꺼도 발행된다.
+     */
+    const genIntervalMs = getQueueMinPublishIntervalMs(enabled);
     const intervalReason = getQueueIntervalReason(enabled);
-    const newSchedules = enabled.map((it, i) => {
-      const d = new Date(cursor);
+    const schedIntervalMode = document.getElementById('pq-interval-mode')?.value || 'minutes';
+    // 무작위 모드는 4~8시간이라 바닥값이 의미 없다 — 기존 동작 그대로 둔다.
+    const pubIntervalMs = schedIntervalMode === 'random' ? null : getRawIntervalMs();
+
+    /**
+     * 🕐 v3.8.546 — 항목마다 찍어둔 "예약 시간"을 그대로 쓴다.
+     *
+     * 사장님: "아니 예약발행인데?? 원하는시간대에 예약하는 발행말이야"
+     * 맞다. 큐 카드에는 예약 시간 입력칸(.pq-item-schedule)이 **이미 있었고**,
+     * 값도 잘 저장되고 칩으로도 보였는데, 정작 스케줄을 만들 때 그 값을 버리고
+     * 간격으로 시각을 다시 계산하고 있었다. 찍어도 안 먹히니 예약발행이 아니었다.
+     *   (또 조용한 미배선 — 입력은 받는데 쓰는 곳이 없었다)
+     *
+     * 이제 두 갈래로 나눈다:
+     *   · 카드에서 직접 고른 시각(scheduleDateManual) → **그 시각 그대로**
+     *   · 안 고른 항목                                → 예전처럼 간격으로 자동 배치
+     * 섞어 써도 된다. 자동 배치 커서는 자동인 항목에서만 전진하므로
+     * 직접 고른 시각이 자동 배치 순서를 밀어내지 않는다.
+     */
+    const autoBaseMs = (() => {
+      // 일괄 편집으로 넣은 시각(= 시작 시각)이 있으면 그걸 기준으로 벌린다
+      const inherited = enabled
+        .filter(it => !it.scheduleDateManual)
+        .map(queueItemScheduleMs)
+        .filter(v => v !== null && v > Date.now());
+      return inherited.length ? Math.min(...inherited) : getScheduleBaseDate().getTime();
+    })();
+
+    let cursor = autoBaseMs;
+    const plan = enabled.map((it) => {
+      const manualMs = it.scheduleDateManual ? queueItemScheduleMs(it) : null;
+      if (manualMs !== null) return { it, publishMs: manualMs, manual: true };
+      const publishMs = cursor;
+      cursor += (pubIntervalMs === null ? getIntervalMs({ minMs: genIntervalMs }) : pubIntervalMs);
+      return { it, publishMs, manual: false };
+    });
+
+    /**
+     * 생성 순서는 **발행 시각 순**이다 — 먼저 나갈 글부터 만든다.
+     * 큐에 넣은 순서대로 만들면, 뒤에 넣었지만 먼저 나가야 할 글이
+     * 제 발행 시각을 넘긴 뒤에 만들어져 즉시발행으로 떨어진다.
+     */
+    const genOrder = new Map();
+    [...plan].sort((a, b) => a.publishMs - b.publishMs).forEach((p, rank) => genOrder.set(p.it, rank));
+
+    const genStartMs = Date.now(); // 첫 글은 다음 30초 틱에 바로 생성 시작
+    const lateItems = []; // 발행 시각이 제 생성 시각보다 이른 항목 = 진짜 예약이 못 된다
+    let genCursor = genStartMs;
+
+    const newSchedules = plan.map(({ it, publishMs }, i) => {
+      const d = new Date(publishMs);
       const scheduleDateIso = d.toISOString();
+      const genMs = genStartMs + (genOrder.get(it) || 0) * genIntervalMs;
+      const generateAtIso = new Date(genMs).toISOString();
+      genCursor = Math.max(genCursor, genMs);
+      if (publishMs <= genMs) lateItems.push(it.keyword);
       const postingMode = normalizePostingMode(it.postingMode || getCurrentPostingMode());
       const platform = normalizeQueuePlatform(it.platform || getCurrentPublishPlatform());
       const itemMode = it.mode || 'external';
@@ -3119,6 +3290,7 @@ function bindModalEvents() {
         date: d.toISOString().slice(0, 10),
         time: d.toTimeString().slice(0, 5),
         scheduleDateTime: scheduleDateIso,
+        generateAt: generateAtIso, // v3.8.545: 앱이 깨어나 글을 만드는 시각 (발행 시각과 별개)
         contentMode: itemMode,
         ctaMode: isAdsense ? 'none' : it.ctaMode,
         manualCtas: payload.manualCtas,
@@ -3146,10 +3318,10 @@ function bindModalEvents() {
         createdAt: new Date().toISOString(),
         fromQueue: true,
       };
-      // 다음 항목 시각 = 현재 + 사용자 지정 간격, 단 이미지 엔진별 최소 간격으로 자동 보정
-      cursor += getIntervalMs({ minMs: minIntervalMs });
       return item;
     });
+    // 발행 시각 순으로 정렬해 저장 — 목록·안내가 실제 나가는 순서와 같아야 한다
+    newSchedules.sort((a, b) => new Date(a.scheduleDateTime).getTime() - new Date(b.scheduleDateTime).getTime());
 
     try {
       const existing = JSON.parse(localStorage.getItem('scheduledPosts') || '[]');
@@ -3162,10 +3334,13 @@ function bindModalEvents() {
             platform: schedule.platform === 'blogspot' ? 'blogger' : schedule.platform,
             publishType: schedule.publishType || 'schedule',
             scheduleDateTime: schedule.scheduleDateTime,
+            // v3.8.545: 이 줄이 빠지면 스케줄러가 발행 시각에 깨어나 즉시발행으로 되돌아간다
+            generateAt: schedule.generateAt,
             payload: {
               ...(schedule.payload || {}),
               scheduleDate: schedule.scheduleDateTime,
               scheduleDateTime: schedule.scheduleDateTime,
+              generateAt: schedule.generateAt,
               settingsSnapshot: schedule.settingsSnapshot,
             },
             maxRetries: 3,
@@ -3173,7 +3348,29 @@ function bindModalEvents() {
         }
         try { await window.electronAPI.startScheduleMonitoring?.(); } catch {}
       }
-      alert(`✅ ${newSchedules.length}개 스케줄 추가됨\n간격: ${intervalReason}\n첫 글: ${newSchedules[0].date} ${newSchedules[0].time}\n마지막: ${newSchedules[newSchedules.length - 1].date} ${newSchedules[newSchedules.length - 1].time}`);
+      /**
+       * v3.8.545 — 두 시각을 나눠서 알린다.
+       * "앱을 언제까지 켜둬야 하나"가 사장님이 실제로 알아야 할 정보다.
+       */
+      const lastGenStart = new Date(genCursor);
+      const manualCount = plan.filter(p => p.manual).length;
+      const lateNote = lateItems.length
+        ? `\n\n⚠️ ${lateItems.length}개는 발행 시각이 제 생성 시각보다 일러서, 예약이 아니라 만들어지는 대로 바로 나갑니다.`
+          + `\n   (${lateItems.slice(0, 3).join(', ')}${lateItems.length > 3 ? ` 외 ${lateItems.length - 3}개` : ''})`
+          + `\n   그 항목의 예약 시간을 ${lastGenStart.toLocaleString('ko-KR')} 이후로 옮기면 예약으로 나갑니다.`
+        : '';
+      alert(
+        `✅ ${newSchedules.length}개 스케줄 추가됨`
+        + (manualCount ? ` (${manualCount}개는 직접 고른 시각 그대로)` : '')
+        + `\n\n`
+        + `🖊️ 생성: 지금부터 순차 — 앞 글이 끝나면 바로 다음 글\n`
+        + `   최소 간격 ${formatIntervalMs(genIntervalMs)} (${intervalReason}) · 생성이 더 오래 걸리면 그만큼만 걸립니다\n`
+        + `   마지막 글 생성 시작 ${lastGenStart.toLocaleString('ko-KR')} 무렵 — 그때까지 앱을 켜두세요\n\n`
+        + `🗓️ 발행: ${newSchedules[0].date} ${newSchedules[0].time} ~ `
+        + `${newSchedules[newSchedules.length - 1].date} ${newSchedules[newSchedules.length - 1].time}\n`
+        + `   생성이 끝나면 플랫폼 예약으로 올라가므로 앱을 꺼도 발행됩니다.`
+        + lateNote,
+      );
       STATE.keywords = [];
       persistQueue();
       close();
@@ -3302,6 +3499,9 @@ function bindModalEvents() {
           break;
         }
         const it = enabled[i];
+        // v3.8.546: 간격은 "끝난 뒤 더 기다리는 시간"이 아니라 "시작과 시작 사이의 최소 간격"이다.
+        //   그래서 항목이 시작한 시각을 재둔다 (아래 대기 계산에서 쓴다).
+        const itemStartedAt = Date.now();
         const itemScheduleDate = new Date(scheduleBaseDate.getTime() + scheduleOffsetMs).toISOString();
         const queueImageToken = `pq-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`;
         runModal.setCurrent(i, queueImageToken);
@@ -3388,11 +3588,36 @@ function bindModalEvents() {
         }
 
         if (i < enabled.length - 1) {
-          const waitMs = intervalMode === 'random' ? getIntervalMs({ minMs: minIntervalMs }) : fixedIntervalMs;
-          scheduleOffsetMs += waitMs;
-          runModal.log(`다음 항목까지 ${formatIntervalMs(waitMs)} 대기`);
-          const waited = await sleepQueueInterval(waitMs, runModal);
-          if (!waited) break;
+          /**
+           * ⏱️ v3.8.546 — 간격을 **더하지 않고 흡수한다.**
+           *
+           * 사장님: "발행하나당 10분잡고 5개를 예약발행한다면 50분정도 걸리는데
+           *          여기에 7분 발행간격이 적용되면 35분이 추가되자나"
+           *
+           * 맞다. 예전엔 항목이 다 끝난 **뒤에** 간격을 통째로 더 잤다.
+           *   생성 10분 + 대기 7분 = 편당 17분 → 5편이면 35분이 순수하게 늘었다.
+           *
+           * 7분은 이미지 엔진 레이트리밋을 위한 **시작-시작 최소 간격**이지
+           * 매 편 뒤에 붙이는 추가 휴식이 아니다. 생성이 이미 그 시간을 넘겼다면
+           * 레이트리밋 관점에서 기다릴 이유가 없다 — 모자란 만큼만 채운다.
+           */
+          const targetGapMs = intervalMode === 'random' ? getIntervalMs({ minMs: minIntervalMs }) : fixedIntervalMs;
+          const elapsedMs = Date.now() - itemStartedAt;
+          const waitMs = Math.max(0, targetGapMs - elapsedMs);
+          // 다음 항목의 예약 시각도 실제로 흐른 시간을 반영해야 한다
+          scheduleOffsetMs += Math.max(targetGapMs, elapsedMs);
+          if (waitMs <= 0) {
+            runModal.log(
+              `생성에 ${formatIntervalMs(elapsedMs)}가 걸려 최소 간격(${formatIntervalMs(targetGapMs)})을 이미 넘겼습니다 — 바로 다음 항목으로`,
+            );
+          } else {
+            runModal.log(
+              `다음 항목까지 ${formatIntervalMs(waitMs)} 대기`
+              + ` (최소 간격 ${formatIntervalMs(targetGapMs)} 중 ${formatIntervalMs(elapsedMs)}는 생성으로 채움)`,
+            );
+            const waited = await sleepQueueInterval(waitMs, runModal);
+            if (!waited) break;
+          }
         }
       }
       STATE.keywords = STATE.keywords.filter(item => !completedIds.has(item.id));

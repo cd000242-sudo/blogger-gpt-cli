@@ -9,6 +9,8 @@
  */
 
 import axios from 'axios';
+// v3.8.553: 데이터랩 호출 단일 창구
+import { naverDatalabSearch } from './naver-search-client';
 
 const NAVER_CLIENT_ID = process.env['NAVER_CLIENT_ID'] || '';
 const NAVER_CLIENT_SECRET = process.env['NAVER_CLIENT_SECRET'] || '';
@@ -59,20 +61,14 @@ export async function getSearchTrend(
       gender: '' // 전체 성별
     };
 
-    const response = await axios.post(
-      'https://openapi.naver.com/v1/datalab/search',
-      body,
-      {
-        headers: {
-          'X-Naver-Client-Id': NAVER_CLIENT_ID,
-          'X-Naver-Client-Secret': NAVER_CLIENT_SECRET,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000,
-      }
-    );
+    // v3.8.553: 창구 경유 (HUB 우선 + 자동 토스)
+    const dl = await naverDatalabSearch(body, { timeoutMs: 10000 });
+    if (!dl.ok) {
+      console.warn(`[네이버 데이터랩] 실패(${dl.mode}): ${dl.error}`);
+      return null;
+    }
 
-    return response.data;
+    return dl.data;
   } catch (error: any) {
     // 401 에러는 인증 문제 (검색광고 API 키 필요)
     if (error?.response?.status === 401) {

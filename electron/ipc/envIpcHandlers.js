@@ -64,8 +64,6 @@ const ENV_KEY_MAP = {
     deepInfraApiKey: 'DEEPINFRA_API_KEY',
     deepinfraApiKey: 'DEEPINFRA_API_KEY',
     prodiaApiKey: 'PRODIA_API_KEY',
-    googleCseKey: 'GOOGLE_CSE_KEY',
-    googleCseCx: 'GOOGLE_CSE_CX',
     youtubeApiKey: 'YOUTUBE_API_KEY',
     wordpressSiteUrl: 'WORDPRESS_SITE_URL',
     wordpressUsername: 'WORDPRESS_USERNAME',

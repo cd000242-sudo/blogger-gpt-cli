@@ -1,6 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 
+// 배포 모듈은 electron 의 app 만 쓴다 — userData 를 임시 폴더로 돌려 실제 앱 없이 실행한다
+jest.mock('electron', () => ({ app: { getPath: () => require('os').tmpdir() } }));
+
 function read(relativePath: string): string {
   return fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
 }
@@ -76,6 +79,30 @@ describe('황금키워드 원격 배포 회귀 가드', () => {
     });
   });
 
+  describe('배포 가드 (실행 검증)', () => {
+    // 컴파일된 결과를 부른다 — .ts 만 고치고 컴파일을 빠뜨리면 여기서 걸린다
+    const publisher = require('../electron/golden-keyword-publisher');
+
+    test('빈 목록은 git/API 를 건드리기 전에 막는다', async () => {
+      const res = await publisher.publishGoldenKeyword({ reportDate: '2026-08-05', items: [] });
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain('0건');
+      // 여기서 안 막히면 실제로 커밋이 나가 모든 사용자 화면이 비어버린다
+      expect(res.method).toBeUndefined();
+    });
+
+    test('형식이 틀린 데이터도 배포하지 않는다', async () => {
+      expect((await publisher.publishGoldenKeyword(null)).ok).toBe(false);
+      expect((await publisher.publishGoldenKeyword({ items: 'x' })).ok).toBe(false);
+      expect((await publisher.publishGoldenKeyword({})).ok).toBe(false);
+    });
+
+    test('토큰 존재 여부만 boolean 으로 알려준다', () => {
+      expect(typeof publisher.hasGoldenToken()).toBe('boolean');
+      expect(publisher.readGoldenToken).toBeUndefined();
+    });
+  });
+
   describe('배선', () => {
     test('공개 레포의 raw URL 을 읽고, 앱 시작 시 갱신한다', () => {
       const html = read('electron/ui/index.html');
@@ -86,21 +113,55 @@ describe('황금키워드 원격 배포 회귀 가드', () => {
       expect(html).toContain('if (typeof refreshGoldenKeywordFromRemote === \'function\') refreshGoldenKeywordFromRemote();');
     });
 
-    test('편집 저장이 updatedAt 을 남기고 배포 원본에 기록한다', () => {
+    test('편집 저장이 updatedAt 을 남기고 그 자리에서 배포까지 한다', () => {
       const html = read('electron/ui/index.html');
       expect(html).toContain('updatedAt: now,');
-      expect(html).toContain("api.invoke('golden-keyword:save-repo-file', payload)");
+      // 관리자가 터미널을 열어야 하면 배포자들에게 전달이 늦는다 — 저장 = 배포
+      expect(html).toContain("api.invoke('golden-keyword:publish', payload)");
+      expect(html).toContain('var publishNote = await publishGoldenKeywordToGitHub(payload);');
+      // 토큰이 필요하면 그 자리에서 받아 저장하고 한 번 더 시도한다
+      expect(html).toContain('if (res && res.needsToken)');
+      expect(html).toContain("api.invoke('golden-keyword:save-token', { token: token })");
     });
 
-    test('IPC 는 레포 안의 고정 경로에만 쓰고 배포본에서는 거절한다', () => {
+    test('IPC 3개가 등록돼 있고 컴파일 결과에도 들어가 있다', () => {
       const mainTs = read('electron/main.ts');
       const mainJs = read('electron/main.js');
-      // 렌더러가 임의 경로를 쓰게 두면 안 된다 — 경로는 코드에 고정
-      expect(mainTs).toContain("ipcMain.handle('golden-keyword:save-repo-file'");
-      expect(mainTs).toContain("path.join(__dirname, '..', 'data', 'golden-keyword.json')");
-      expect(mainTs).toContain('if (app.isPackaged) {');
-      // .ts 만 고치고 컴파일을 안 하면 배포본은 그대로다 — 컴파일 결과까지 확인
-      expect(mainJs).toContain("ipcMain.handle('golden-keyword:save-repo-file'");
+      for (const channel of ['golden-keyword:publish', 'golden-keyword:token-status', 'golden-keyword:save-token']) {
+        expect(mainTs).toContain(`ipcMain.handle('${channel}'`);
+        // .ts 만 고치고 컴파일을 안 하면 배포본은 그대로다 — 컴파일 결과까지 확인
+        expect(mainJs).toContain(`ipcMain.handle('${channel}'`);
+      }
+      expect(mainTs).toContain("from './golden-keyword-publisher'");
+    });
+
+    test('배포 경로를 환경에 따라 자동으로 고르고, 대상은 코드에 고정한다', () => {
+      const pub = read('electron/golden-keyword-publisher.ts');
+      // 렌더러가 경로/브랜치를 정하게 두면 안 된다
+      expect(pub).toContain("const REPO_BRANCH = 'master';");
+      expect(pub).toContain("const REPO_REL_PATH = 'data/golden-keyword.json';");
+      // 레포가 있으면 git, 없으면 토큰으로 API — 관리자가 어디서 열든 동작해야 한다
+      expect(pub).toContain('const root = findRepoRoot();');
+      expect(pub).toContain('if (root) return publishViaGit(root, payload);');
+      expect(pub).toContain('return publishViaApi(payload, token);');
+      // 작업 중인 다른 변경이 딸려 올라가면 안 된다
+      expect(pub).toContain("await git(['commit', '-m', buildMessage(payload), '--', REPO_REL_PATH]);");
+      // 빈 목록 배포는 모든 사용자 화면을 비운다
+      expect(pub).toContain('if (payload.items.length === 0)');
+      // 내용이 같아 커밋할 게 없는 경우는 실패가 아니다
+      expect(pub).toContain('nothing to commit|no changes added');
+    });
+
+    test('토큰 값은 렌더러로 돌려주지 않는다', () => {
+      const pub = read('electron/golden-keyword-publisher.ts');
+      const mainTs = read('electron/main.ts');
+      // 상태 조회는 존재 여부(boolean)만 준다
+      expect(pub).toContain('export function hasGoldenToken(): boolean');
+      expect(mainTs).toContain('return { ok: true, hasToken: hasGoldenToken() };');
+      // readGoldenToken 은 외부로 노출하지 않는다
+      expect(pub).not.toContain('export function readGoldenToken');
+      // 토큰은 userData 에만 둔다 — 레포/빌드에 들어가면 안 된다
+      expect(pub).toContain("path.join(app.getPath('userData'), 'golden-keyword-token.json')");
     });
 
     test('renderer 가 부르는 window.electronAPI.invoke 가 실제로 노출돼 있다', () => {

@@ -3,6 +3,8 @@
  */
 
 import * as path from 'path';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../core/naver-search-client';
 import * as fs from 'fs';
 
 export interface EnvConfig {
@@ -19,9 +21,6 @@ export interface EnvConfig {
   naverSearchAdSecretKey?: string;
   naverSearchAdCustomerId?: string; // 고객 ID (X-Customer 헤더용)
   googleApiKey?: string;
-  googleCseKey?: string;
-  googleCseId?: string;
-  googleCseCx?: string;
   youtubeApiKey?: string;
   massCrawlingEnabled: boolean;
   maxConcurrentRequests: number;
@@ -219,7 +218,6 @@ export class EnvironmentManager {
         process.env['NAVER_SEARCH_AD_CUSTOMER_ID'] || process.env['naverSearchAdCustomerId'] || process.env['naver_search_ad_customer_id'] || '',
       googleApiKey: envFileConfig['GOOGLE_API_KEY'] || envFileConfig['GOOGLE_CSE_KEY'] || envFileConfig['GOOGLE_CSE_API_KEY'] || 
         process.env['GOOGLE_API_KEY'] || process.env['GOOGLE_CSE_KEY'] || process.env['GOOGLE_CSE_API_KEY'] || '',
-      googleCseId: envFileConfig['GOOGLE_CSE_ID'] || envFileConfig['GOOGLE_CSE_CX'] || process.env['GOOGLE_CSE_ID'] || process.env['GOOGLE_CSE_CX'] || '',
       youtubeApiKey: envFileConfig['YOUTUBE_API_KEY'] || envFileConfig['youtubeApiKey'] || envFileConfig['youtube_api_key'] || 
         process.env['YOUTUBE_API_KEY'] || process.env['youtubeApiKey'] || process.env['youtube_api_key'] || '',
       massCrawlingEnabled: process.env['MASS_CRAWLING_ENABLED'] !== 'false',
@@ -473,7 +471,7 @@ export class EnvironmentManager {
    * Google API 키 확인
    */
   isGoogleApiConfigured(): boolean {
-    return !!(this.config.googleApiKey && this.config.googleCseId);
+    return !!this.config.googleApiKey;
   }
 
   /**
@@ -492,7 +490,7 @@ export class EnvironmentManager {
     console.log(`🔑 OpenAI API: ${this.config.openaiApiKey ? '✅ 설정됨' : '❌ 미설정'}`);
     console.log(`🔑 Gemini API: ${this.config.geminiApiKey ? '✅ 설정됨' : '❌ 미설정'}`);
     console.log(`🔑 네이버 API: ${this.isNaverApiConfigured() ? '✅ 설정됨' : '❌ 미설정'}`);
-    console.log(`🔑 Google CSE: ${this.isGoogleApiConfigured() ? '✅ 설정됨' : '❌ 미설정'}`);
+    console.log(`🔑 Google API: ${this.isGoogleApiConfigured() ? '✅ 설정됨' : '❌ 미설정'}`);
     console.log(`🚀 대량 크롤링: ${this.config.massCrawlingEnabled ? '✅ 활성화' : '❌ 비활성화'}`);
     console.log(`⚡ 최대 동시 요청: ${this.config.maxConcurrentRequests}개`);
     console.log(`📊 소스별 최대 결과: ${this.config.maxResultsPerSource}개`);
@@ -524,26 +522,19 @@ export async function testNaverApiConnection(
     
     const testQuery = '블로그 마케팅';
     const encodedQuery = encodeURIComponent(testQuery);
-    const apiUrl = `https://openapi.naver.com/v1/search/blog.json?query=${encodedQuery}&display=10&sort=sim`;
-    
-    const response = await fetch(apiUrl, {
-      headers: {
-        'X-Naver-Client-Id': naverClientId,
-        'X-Naver-Client-Secret': naverClientSecret
-      }
-    });
+    // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+    const res = await naverSearch('blog', {
+      query: decodeURIComponent(encodedQuery), display: 10, sort: 'sim',
+    }, { payload: { naverClientId, naverClientSecret } });
 
-    if (!response.ok) {
+    if (!res.ok) {
       return {
         success: false,
-        message: `네이버 API 호출 실패: ${response.status} ${response.statusText}`
+        message: `네이버 API 호출 실패(${res.mode}): ${res.error}`
       };
     }
 
-    const data = await response.json() as {
-      items?: Array<{ title?: string }>;
-      total?: number;
-    };
+    const data = { items: res.items as Array<{ title?: string }>, total: res.total };
     
     if (data.items && data.items.length > 0) {
       return {
@@ -604,9 +595,7 @@ export async function testMassCrawlingSystem(): Promise<{
     const { MassCrawlingSystem } = await import('../core/mass-crawler');
     const crawler = new MassCrawlingSystem(
       config.naverClientId,
-      config.naverClientSecret,
-      config.googleApiKey,
-      config.googleCseId
+      config.naverClientSecret
     );
 
     const testResult = await crawler.crawlAll('블로그 마케팅', {
@@ -657,7 +646,6 @@ export async function diagnoseSystem(): Promise<void> {
     if (crawlingTest.results) {
       console.log(`   - 네이버: ${crawlingTest.results.naverCount}개`);
       console.log(`   - RSS: ${crawlingTest.results.rssCount}개`);
-      console.log(`   - CSE: ${crawlingTest.results.cseCount}개`);
       console.log(`   - 처리 시간: ${crawlingTest.results.processingTimeMs}ms`);
     }
   }

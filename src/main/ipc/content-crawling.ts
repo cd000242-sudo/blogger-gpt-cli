@@ -2,6 +2,8 @@
 // Content Crawling IPC Handlers
 // crawl-url, transform-content, get-keyword-expansions, search-suffix-keywords, crawl-blog-index, crawl-multiple-blog-index
 import { ipcMain } from 'electron';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../../core/naver-search-client';
 import { EnvironmentManager } from '../../utils/environment-manager';
 import { getNaverKeywordSearchVolumeSeparate, getNaverRelatedKeywords } from '../../utils/naver-datalab-api';
 import { getNaverAutocompleteKeywords } from '../../utils/naver-autocomplete';
@@ -550,17 +552,13 @@ export function setupContentCrawlingHandlers() {
 
           // 2단계: 네이버 블로그 검색에서 추가 카테고리 키워드 추출
           try {
-            const blogSearchUrl = `https://openapi.naver.com/v1/search/blog.json?query=${encodeURIComponent(trimmedKeyword)}&display=100&sort=sim`;
-            const blogRes = await fetch(blogSearchUrl, {
-              headers: {
-                'X-Naver-Client-Id': naverClientId,
-                'X-Naver-Client-Secret': naverClientSecret
-              }
-            });
+            // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+            const blogRes = await naverSearch('blog', {
+              query: trimmedKeyword, display: 100, sort: 'sim',
+            }, { payload: { naverClientId, naverClientSecret } });
 
             if (blogRes.ok) {
-              const blogData = await blogRes.json() as { items?: Array<{ title: string; description: string }> };
-              const items = blogData.items || [];
+              const items = blogRes.items as Array<{ title: string; description: string }>;
 
               // 블로그 제목에서 같은 카테고리 키워드 추출 (vs, 비교 패턴)
               items.forEach((item: any) => {
@@ -716,26 +714,13 @@ export function setupContentCrawlingHandlers() {
           if (!hasNaverApiKeys || smartBlockOnlyFill) {
             throw new Error('skip patterns');
           }
-          const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-          const headers = {
-            'X-Naver-Client-Id': naverClientId,
-            'X-Naver-Client-Secret': naverClientSecret
-          };
-
-          const params = new URLSearchParams({
-            query: trimmedKeyword,
-            display: '100',
-            sort: 'sim'
-          });
-
-          const response = await fetch(`${apiUrl}?${params}`, {
-            method: 'GET',
-            headers: headers
-          });
+          // v3.8.554: 창구 경유
+          const response = await naverSearch('blog', {
+            query: trimmedKeyword, display: 100, sort: 'sim',
+          }, { payload: { naverClientId, naverClientSecret } });
 
           if (response.ok) {
-            const data = await response.json();
-            const items = data.items || [];
+            const items = response.items;
 
             const suggestedKeywords = new Set<string>();
 
@@ -1128,22 +1113,17 @@ export function setupContentCrawlingHandlers() {
               docCountLastRequestAt = Date.now();
 
               const encodedKeyword = encodeURIComponent(keyword);
-              const docCountUrl = `https://openapi.naver.com/v1/search/blog.json?query=${encodedKeyword}&display=1`;
-
               if (verboseDocLog) console.log(`[DOC-COUNT] 📡 API 호출 (${retry + 1}/${maxRetries}): "${keyword}"`);
 
-              const docCountRes = await fetch(docCountUrl, {
-                headers: {
-                  'X-Naver-Client-Id': naverClientId,
-                  'X-Naver-Client-Secret': naverClientSecret
-                }
-              });
+              // v3.8.554: 창구 경유
+              const docCountRes = await naverSearch('blog',
+                { query: decodeURIComponent(encodedKeyword), display: 1 }, { payload: { naverClientId, naverClientSecret } });
 
-              if (verboseDocLog) console.log(`[DOC-COUNT] 응답 상태: ${docCountRes.status} ${docCountRes.statusText}`);
+              if (verboseDocLog) console.log(`[DOC-COUNT] 응답: ok=${docCountRes.ok} (${docCountRes.mode})`);
 
               if (docCountRes.ok) {
                 try {
-                  const docData = (await docCountRes.json()) as { total?: number; lastBuildDate?: string; display?: number; start?: number };
+                  const docData = { total: docCountRes.total } as { total?: number; lastBuildDate?: string; display?: number; start?: number };
                   if (verboseDocLog) console.log(`[DOC-COUNT] 파싱된 데이터: total=${docData.total}, display=${docData.display}, start=${docData.start}`);
 
                   const count = docData.total;
@@ -1396,25 +1376,11 @@ export function setupContentCrawlingHandlers() {
               // 문서수 조회
               let documentCount: number | null = null;
               try {
-                const blogApiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-                const headers = {
-                  'X-Naver-Client-Id': naverClientId,
-                  'X-Naver-Client-Secret': naverClientSecret
-                };
-                const docParams = new URLSearchParams({
-                  query: combinedKeyword,
-                  display: '1'
-                });
-                const docResponse = await fetch(`${blogApiUrl}?${docParams}`, {
-                  method: 'GET',
-                  headers: headers
-                });
+                // v3.8.554: 창구 경유
+                const docResponse = await naverSearch('blog',
+                  { query: combinedKeyword, display: 1 }, { payload: { naverClientId, naverClientSecret } });
                 if (docResponse.ok) {
-                  const docData = await docResponse.json();
-                  const rawTotal = (docData as any)?.total;
-                  documentCount = typeof rawTotal === 'number'
-                    ? rawTotal
-                    : (typeof rawTotal === 'string' ? parseInt(rawTotal, 10) : null);
+                  documentCount = docResponse.total;
                 }
               } catch (docErr) {
                 console.warn(`[SUFFIX-SEARCH] "${combinedKeyword}" 문서수 조회 실패:`, docErr);

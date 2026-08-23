@@ -4522,8 +4522,6 @@ electron_1.ipcMain.handle('save-env', async (_evt, envData) => {
             'deepInfraApiKey': 'DEEPINFRA_API_KEY',
             'deepinfraApiKey': 'DEEPINFRA_API_KEY',
             'prodiaApiKey': 'PRODIA_API_KEY',
-            'googleCseKey': 'GOOGLE_CSE_KEY',
-            'googleCseCx': 'GOOGLE_CSE_CX',
             'youtubeApiKey': 'YOUTUBE_API_KEY',
             'wordpressSiteUrl': 'WORDPRESS_SITE_URL',
             'wordpressUsername': 'WORDPRESS_USERNAME',
@@ -10920,33 +10918,13 @@ electron_1.ipcMain.handle('blogger:oauth', async (_evt, oauthData) => {
 // ============================================
 // 누락 핸들러 Phase 4: API 연동 & 환경설정 (5개)
 // ============================================
-// Google CSE 연결 테스트
-electron_1.ipcMain.handle('test-google-cse-connection', async (_evt, args) => {
-    try {
-        console.log('[CSE-TEST] Google CSE 연결 테스트');
-        const testUrl = `https://www.googleapis.com/customsearch/v1?key=${args.cseKey}&cx=${args.cseCx}&q=test`;
-        const response = await fetch(testUrl);
-        if (!response.ok) {
-            throw new Error(`CSE 테스트 실패: ${response.status}`);
-        }
-        return { ok: true, connected: true, message: 'Google CSE 연결 성공' };
-    }
-    catch (error) {
-        console.error('[CSE-TEST] 연결 실패:', error);
-        return { ok: false, connected: false, error: error instanceof Error ? error.message : '연결 실패' };
-    }
-});
-// CSE 연결 테스트 (간단 버전)
-electron_1.ipcMain.handle('test-cse-connection', async (_evt, args) => {
-    try {
-        const testUrl = `https://www.googleapis.com/customsearch/v1?key=${args.cseKey}&cx=${args.cseCx}&q=test`;
-        const response = await fetch(testUrl);
-        return { ok: response.ok, connected: response.ok };
-    }
-    catch (error) {
-        return { ok: false, connected: false, error: error instanceof Error ? error.message : '연결 실패' };
-    }
-});
+/**
+ * v3.8.555 — Google CSE 연결 테스트 핸들러 삭제.
+ *
+ * CSE 는 신규 발급이 막혔고 2027-01-01 에 종료된다. 앱이 더 이상 CSE 를 부르지 않으므로
+ * 점검할 대상도 없다. 화면에서 부르던 자리도 함께 걷어냈다.
+ * (핸들러만 지우고 화면을 두면 "눌러도 아무 일 없음"이 된다 — 이 저장소의 단골 사고)
+ */
 // 환경 설정 저장
 electron_1.ipcMain.handle('save-environment-settings', async (_evt, settings) => {
     try {

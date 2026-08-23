@@ -22,14 +22,7 @@ export type PexelsThumbOptions = {
   size?: 'large' | 'medium' | 'small'; // 기본 'large'
 };
 
-export type CSEThumbOptions = {
-  apiKey: string;   // Google CSE API 키
-  cx: string;       // Custom Search Engine ID
-  width?: number;   // 기본 1200
-  height?: number;  // 기본 630
-  num?: number;     // 검색 결과 수 (기본 1)
-  safe?: 'active' | 'off'; // 안전 검색 (기본 'active')
-};
+// v3.8.555: CSEThumbOptions 삭제 — Google CSE 는 신규 발급 불가 + 2027-01-01 종료
 
 export type DalleThumbOptions = {
   apiKey: string;   // OpenAI API 키
@@ -956,59 +949,7 @@ export async function makeEnhancedThumbnail(
 }
 
 // CSE 썸네일 생성 함수
-export async function makeCSEThumbnail(
-  title: string,
-  topic: string,
-  options: CSEThumbOptions
-): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
-  try {
-    // 주제와 제목을 기반으로 검색 키워드 생성
-    const searchQuery = `${topic} ${title}`.replace(/[^\w\s가-힣]/g, ' ').trim();
-
-    // Rate Limiter import 및 사용
-    const { safeCSERequest } = await import('./utils/google-cse-rate-limiter');
-    const cacheKey = `thumbnail-cse:${searchQuery}`;
-
-    const data = await safeCSERequest<{ items?: Array<{ link: string }> }>(
-      searchQuery,
-      async () => {
-        const response = await fetch(`https://www.googleapis.com/customsearch/v1?key=${options.apiKey}&cx=${options.cx}&q=${encodeURIComponent(searchQuery)}&searchType=image&num=${options.num || 1}&safe=${options.safe || 'active'}&imgSize=large&imgType=photo`, {
-          method: 'GET',
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(`CSE API 오류: ${(errorData as any)?.error?.message || 'Unknown error'}`);
-        }
-
-        return await response.json();
-      },
-      { useCache: true, cacheKey, priority: 'low' }
-    );
-
-    const item = data?.items?.[0];
-
-    if (!item) {
-      return { ok: false, error: 'CSE에서 적절한 이미지를 찾지 못했습니다' };
-    }
-
-    const imageUrl = item.link;
-
-    if (!imageUrl) {
-      return { ok: false, error: 'CSE 이미지 URL을 받지 못했습니다' };
-    }
-
-    // 이미지를 Base64로 변환
-    const imageResponse = await fetch(imageUrl);
-    const imageBuffer = await imageResponse.arrayBuffer();
-    const base64 = Buffer.from(imageBuffer).toString('base64');
-    const dataUrl = `data:image/jpeg;base64,${base64}`;
-
-    return { ok: true, dataUrl };
-  } catch (error: any) {
-    return { ok: false, error: error.message || 'CSE 썸네일 생성 오류' };
-  }
-}
+// v3.8.555: makeCSEThumbnail 삭제 — 호출자가 없던 죽은 코드이고, Google CSE 는 2027-01-01 종료된다.
 
 // Pexels 썸네일 생성 함수
 export async function makePexelsThumbnail(
@@ -1579,16 +1520,13 @@ export async function makeSmartThumbnail(
   topic: string,
   _svgOptions: ThumbOptions = {},
   pexelsOptions?: PexelsThumbOptions,
-  _cseOptions?: CSEThumbOptions,
   dalleOptions?: DalleThumbOptions
 ): Promise<{ ok: true; dataUrl: string; type: 'dalle' | 'pexels' } | { ok: false; error: string }> {
 
   // 환경 변수에서 API 키 자동 로드
   const envApiKeys = {
     openai: process.env['OPENAI_API_KEY'],
-    pexels: process.env['PEXELS_API_KEY'],
-    cse: process.env['GOOGLE_CSE_API_KEY'],
-    cseId: process.env['GOOGLE_CSE_ID']
+    pexels: process.env['PEXELS_API_KEY']
   };
 
   // OpenAI(DALL-E) 라우트 비활성화 — 2026-05-12 EOL + verification 장벽. Pexels로 직행.

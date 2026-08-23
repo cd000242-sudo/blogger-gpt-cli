@@ -167,7 +167,12 @@ export function initPostingPresets() {
         cursor:pointer; font-size:12.5px; font-weight:700; color:#cbd5e1; }
       #postingPresetBar .pp-opt:hover { background:rgba(99,102,241,.14); }
       #postingPresetBar .pp-opt.sel { background:rgba(99,102,241,.2); color:#c7d2fe; }
-      #postingPresetBar .pp-x { margin-left:auto; color:#64748b; font-weight:900; padding:0 4px; border-radius:6px; }
+      /* v3.8.549: 우측 '적용' 체크박스 — 사장님 지시. 체크한 것이 지금 적용된 프리셋이다. */
+      #postingPresetBar .pp-apply { margin-left:auto; display:flex; align-items:center; gap:5px;
+        font-size:10.5px; font-weight:800; color:#94a3b8; white-space:nowrap; cursor:pointer; }
+      #postingPresetBar .pp-opt.sel .pp-apply { color:#c7d2fe; }
+      #postingPresetBar .pp-apply input { width:15px; height:15px; accent-color:#6366f1; cursor:pointer; margin:0; }
+      #postingPresetBar .pp-x { color:#64748b; font-weight:900; padding:0 4px; border-radius:6px; }
       #postingPresetBar .pp-x:hover { color:#fca5a5; background:rgba(239,68,68,.12); }
       #postingPresetBar .pp-save input { width:100%; box-sizing:border-box; background:#0b1120; border:1px solid #334155;
         color:#e2e8f0; border-radius:8px; padding:8px 10px; font-size:12.5px; margin-bottom:8px; }
@@ -264,7 +269,11 @@ function fillPresetPop(bar) {
     <div class="pp-t">저장된 프리셋 — 한 번에 전체 전환</div>
     ${store.list.length ? store.list.map((p) => `
       <div class="pp-opt${p.name === store.active ? ' sel' : ''}" data-pp-apply="${escapeHtml(p.name)}">
-        ${escapeHtml(p.name)}<span class="pp-x" data-pp-del="${escapeHtml(p.name)}" title="삭제">✕</span>
+        ${escapeHtml(p.name)}
+        <label class="pp-apply" title="체크하면 이 프리셋이 지금 설정에 적용됩니다">
+          <input type="checkbox" class="pp-check" data-pp-check="${escapeHtml(p.name)}" ${p.name === store.active ? 'checked' : ''}>적용
+        </label>
+        <span class="pp-x" data-pp-del="${escapeHtml(p.name)}" title="삭제">✕</span>
       </div>`).join('')
       : '<div class="pp-hint" style="padding:4px 2px 8px;">아직 없습니다 — 아래에서 지금 조합을 저장하세요</div>'}
     <div class="pp-save" style="margin-top:8px; border-top:1px solid rgba(148,163,184,.14); padding-top:10px;">
@@ -272,18 +281,52 @@ function fillPresetPop(bar) {
       <button id="ppSaveBtn">＋ 현재 칩 조합을 프리셋으로 저장</button>
     </div>`;
 
+  /**
+   * v3.8.549 — 적용은 **우측 '적용' 체크박스**가 한다 (사장님 지시).
+   * 줄 아무 데나 눌러도 같은 동작을 하도록 남겨둔다 — 체크박스만 정답인 UI 는
+   * 처음 쓰는 사람이 줄을 눌러보고 "안 되네" 하기 쉽다.
+   * 실제 적용 로직은 applyByName 한 곳뿐이다 (두 벌로 갈라지면 한쪽만 낡는다).
+   */
+  const applyByName = (name) => {
+    const preset = loadStore().list.find((p) => p.name === name);
+    if (!preset) {
+      console.warn('[PRESET] ⚠️ 적용할 프리셋을 찾지 못했습니다:', name);
+      return;
+    }
+    const n = applyPreset(preset);
+    const store2 = loadStore(); store2.active = name; saveStore(store2);
+    bar.querySelector('#ppPresetName').textContent = name;
+    fillPresetPop(bar);   // 체크 표시를 지금 상태에 맞춘다 (한 개만 체크된다)
+    refreshChips(bar);
+    addLog(`🎛️ 프리셋 적용: ${name} (${n}개 설정)`, 'info');
+  };
+
+  pop.querySelectorAll('[data-pp-check]').forEach((box) => {
+    box.addEventListener('click', (e) => e.stopPropagation());   // 줄 클릭과 겹치지 않게
+    box.addEventListener('change', (e) => {
+      const name = box.dataset.ppCheck;
+      if (box.checked) {
+        applyByName(name);
+      } else {
+        /**
+         * 체크를 풀면 "지금 적용된 프리셋 없음"으로만 바꾼다.
+         * 값을 되돌리지는 않는다 — 되돌리면 방금 손으로 고친 설정까지 날아간다.
+         */
+        const store2 = loadStore(); store2.active = null; saveStore(store2);
+        bar.querySelector('#ppPresetName').textContent = '프리셋 없음';
+        fillPresetPop(bar);
+        refreshChips(bar);
+        addLog(`🎛️ 프리셋 적용 표시 해제: ${name} (설정값은 그대로입니다)`, 'info');
+      }
+      e.stopPropagation();
+    });
+  });
+
   pop.querySelectorAll('[data-pp-apply]').forEach((row) => {
     row.addEventListener('click', (e) => {
-      if (e.target.closest('[data-pp-del]')) return;
-      const name = row.dataset.ppApply;
-      const preset = loadStore().list.find((p) => p.name === name);
-      if (!preset) return;
-      const n = applyPreset(preset);
-      const store2 = loadStore(); store2.active = name; saveStore(store2);
-      bar.querySelector('#ppPresetName').textContent = name;
-      refreshChips(bar);
+      if (e.target.closest('[data-pp-del]') || e.target.closest('.pp-apply')) return;
+      applyByName(row.dataset.ppApply);
       closePops(bar);
-      addLog(`🎛️ 프리셋 적용: ${name} (${n}개 설정)`, 'info');
       e.stopPropagation();
     });
   });

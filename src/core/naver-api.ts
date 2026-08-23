@@ -9,6 +9,8 @@
  */
 
 import axios from 'axios';
+// v3.8.553: 네이버 검색 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from './naver-search-client';
 
 // 네이버 개발자 센터에서 발급
 // https://developers.naver.com/apps/#/register
@@ -34,19 +36,14 @@ export async function searchNaverBlog(
   }
 
   try {
-    const response = await axios.get('https://openapi.naver.com/v1/search/blog.json', {
-      params: {
-        query,
-        display: Math.min(display, 100), // 10~100
-        sort: 'sim' // sim: 정확도순, date: 날짜순
-      },
-      headers: {
-        'X-Naver-Client-Id': NAVER_CLIENT_ID,
-        'X-Naver-Client-Secret': NAVER_CLIENT_SECRET
-      }
-    });
+    // v3.8.553: 창구 경유 (HUB 우선 + 자동 토스)
+    const res = await naverSearch('blog', { query, display: Math.min(display, 100), sort: 'sim' });
+    if (!res.ok) {
+      console.warn(`[네이버 블로그 API] 실패(${res.mode}): ${res.error}`);
+      return [];
+    }
 
-    return response.data.items.map((item: any) => ({
+    return res.items.map((item: any) => ({
       title: item.title.replace(/<[^>]*>/g, ''), // HTML 태그 제거
       link: item.link,
       description: item.description.replace(/<[^>]*>/g, '')
@@ -70,19 +67,14 @@ export async function searchNaverNews(
   }
 
   try {
-    const response = await axios.get('https://openapi.naver.com/v1/search/news.json', {
-      params: {
-        query,
-        display: Math.min(display, 100),
-        sort: 'date' // date: 최신순, sim: 정확도순
-      },
-      headers: {
-        'X-Naver-Client-Id': NAVER_CLIENT_ID,
-        'X-Naver-Client-Secret': NAVER_CLIENT_SECRET
-      }
-    });
+    // v3.8.553: 창구 경유
+    const res = await naverSearch('news', { query, display: Math.min(display, 100), sort: 'date' });
+    if (!res.ok) {
+      console.warn(`[네이버 뉴스 API] 실패(${res.mode}): ${res.error}`);
+      return [];
+    }
 
-    return response.data.items.map((item: any) => ({
+    return res.items.map((item: any) => ({
       title: item.title.replace(/<[^>]*>/g, ''),
       link: item.originallink || item.link,
       description: item.description.replace(/<[^>]*>/g, '')
@@ -106,19 +98,14 @@ export async function searchNaverCafe(
   }
 
   try {
-    const response = await axios.get('https://openapi.naver.com/v1/search/cafearticle.json', {
-      params: {
-        query,
-        display: Math.min(display, 100),
-        sort: 'sim'
-      },
-      headers: {
-        'X-Naver-Client-Id': NAVER_CLIENT_ID,
-        'X-Naver-Client-Secret': NAVER_CLIENT_SECRET
-      }
-    });
+    // v3.8.553: 창구 경유
+    const res = await naverSearch('cafearticle', { query, display: Math.min(display, 100), sort: 'sim' });
+    if (!res.ok) {
+      console.warn(`[네이버 카페 API] 실패(${res.mode}): ${res.error}`);
+      return [];
+    }
 
-    return response.data.items.map((item: any) => ({
+    return res.items.map((item: any) => ({
       title: item.title.replace(/<[^>]*>/g, ''),
       link: item.link,
       description: item.description.replace(/<[^>]*>/g, '')

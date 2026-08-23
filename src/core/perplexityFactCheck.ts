@@ -19,6 +19,8 @@
 
 import { loadEnvFromFile } from '../env';
 import type { FactTrustLevel } from './final/fact-integrity';
+// v3.8.553: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from './naver-search-client';
 
 export type FactCheckMode = 'auto' | 'naver' | 'grounding' | 'perplexity' | 'off';
 
@@ -373,27 +375,16 @@ async function callGeminiGroundingFactCheck(_apiKey: string, keyword: string): P
 async function callNaverFactCheck(clientId: string, clientSecret: string, keyword: string): Promise<string | null> {
   const ref = getFactCheckReferenceTime();
   const query = buildLatestNaverFactQuery(keyword);
-  const url = `https://openapi.naver.com/v1/search/blog.json?query=${encodeURIComponent(query)}&display=10&sort=date`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
-
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'X-Naver-Client-Id': clientId,
-        'X-Naver-Client-Secret': clientSecret,
-      },
-    });
-    clearTimeout(timeoutId);
+    // v3.8.553: 창구 경유 — 팩트체크도 HUB/기존 키 자동 토스를 탄다
+    const res = await naverSearch('blog', { query, display: 10, sort: 'date' },
+      { payload: { naverClientId: clientId, naverClientSecret: clientSecret }, timeoutMs: 10000 });
 
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Naver API ${res.status}: ${body.slice(0, 100)}`);
+      throw new Error(`Naver API(${res.mode}): ${res.error}`);
     }
 
-    const data: any = await res.json();
-    const items = Array.isArray(data?.items) ? data.items : [];
+    const items = res.items;
     if (items.length === 0) return null;
 
     // HTML 태그 제거 후 실제 블로그 자료를 팩트 컨텍스트로 포맷
@@ -420,7 +411,7 @@ async function callNaverFactCheck(clientId: string, clientSecret: string, keywor
     const result = lines.join('\n').trim();
     return result.length > 50 ? result : null;
   } catch (e: any) {
-    clearTimeout(timeoutId);
+    // v3.8.553: 타임아웃은 창구가 관리한다
     throw e;
   }
 }

@@ -86,9 +86,26 @@ describe('배선 — 보내는 쪽과 받는 쪽이 맞는가', () => {
   });
 
   it('⭐ invoke 로 부르는 경로도 받는다 — 한쪽만 달면 또 새어나간다', () => {
-    // posting.js 는 invoke('cancel-task') 를 쓴다. send 만 받으면 그 경로가 조용히 실패한다.
-    expect(read('electron', 'ui', 'modules', 'posting.js')).toContain("invoke('cancel-task')");
+    /**
+     * v3.8.547 — 앵커 현행화. 불변식은 그대로다.
+     *
+     * 이전엔 posting.js 의 Agent 전용 진행 패널 중지 버튼이 invoke('cancel-task') 를 썼다.
+     * 그 패널을 없애고 Agent 모드도 표준 진행 모달을 쓰게 바꾸면서(사장님: "똑같은 경로에서
+     * 글 생성만 바꿔줘") 화면에서 invoke 를 쓰는 곳이 사라졌다.
+     * 하지만 main 의 handle 은 남겨둔다 — 나중에 누가 invoke 로 부르면 또 허공으로 간다.
+     */
     expect(mainTs).toContain("ipcMain.handle('cancel-task'");
+  });
+
+  it('⭐ 중지 버튼이 실제로 IPC 를 부른다 (모달만 닫고 끝나면 그때 그 사고다)', () => {
+    // 표준 진행 모달의 🛑 → cancelRunningTask() → electronAPI.cancelTask() → send('cancel-task')
+    const ui = read('electron', 'ui', 'modules', 'ui.js');
+    const cancelFn = braceBlock(ui, 'export function cancelRunningTask');
+    expect(cancelFn).toContain('window.electronAPI?.cancelTask');
+    // preload.js 는 컴파일 산출물이라 ipcRenderer 앞에 electron_1. 이 붙는다
+    expect(preload).toMatch(/cancelTask: \(\) => (?:electron_1\.)?ipcRenderer\.send\('cancel-task'\)/);
+    // Agent 모드도 같은 버튼을 쓴다 — 전용 중지 버튼이 다시 생기면 이 줄이 알려준다
+    expect(read('electron', 'ui', 'modules', 'posting.js')).not.toContain('agentStopBtn');
   });
 
   it('⭐ 발행 시작 시 이전 중지 표시를 지운다', () => {

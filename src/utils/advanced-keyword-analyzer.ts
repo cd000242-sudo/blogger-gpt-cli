@@ -4,6 +4,8 @@
  */
 
 import { EnvironmentManager } from './environment-manager';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../core/naver-search-client';
 
 export interface AdvancedKeywordAnalysis {
   keyword: string;
@@ -134,12 +136,7 @@ export class AdvancedKeywordAnalyzer {
       const naverClientSecret = env.naverClientSecret || process.env['NAVER_CLIENT_SECRET'] || '';
       
       // 네이버 블로그 검색 결과 분석
-      const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-      const params = new URLSearchParams({
-        query: keyword,
-        display: '10', // 상위 10개 분석
-        sort: 'sim' // 정확도 순
-      });
+      // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
       
       let topCompetitorCount = Math.min(documentCount, 10);
       let avgQualityScore = 70; // 기본값
@@ -149,16 +146,12 @@ export class AdvancedKeywordAnalyzer {
       
       if (naverClientId && naverClientSecret) {
         try {
-          const response = await fetch(`${apiUrl}?${params}`, {
-            headers: {
-              'X-Naver-Client-Id': naverClientId,
-              'X-Naver-Client-Secret': naverClientSecret
-            }
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            const items = data.items || [];
+          const res = await naverSearch('blog', {
+            query: keyword, display: 10, sort: 'sim',   // 상위 10개, 정확도 순
+          }, { payload: { naverClientId, naverClientSecret } });
+
+          if (res.ok) {
+            const items = res.items;
             
             topCompetitorCount = items.length;
             

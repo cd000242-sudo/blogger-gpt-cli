@@ -13,7 +13,6 @@ function toNumberOrUndefined(v) {
 const api = {
     openLink: (href) => electron_1.ipcRenderer.invoke('open-link', href),
     // 저장 시 minChars를 숫자로 보정해서 main으로 전달
-    // (googleCseKey/googleCseCx 포함되어 그대로 전달됨)
     saveEnv: (env) => {
         const minChars = toNumberOrUndefined(env.minChars);
         return electron_1.ipcRenderer.invoke('save-env', { ...env, minChars });
@@ -194,8 +193,6 @@ const api = {
     checkAuthStatus: () => electron_1.ipcRenderer.invoke('blogger-check-auth-status'),
     // ── 인증 상태 확인 (메인 프로세스에서 호출용) ──
     checkWordPressAuthStatus: () => electron_1.ipcRenderer.invoke('wordpress-check-auth-status'),
-    // ── Google CSE 연동 확인 ──
-    testGoogleCseConnection: (args) => electron_1.ipcRenderer.invoke('test-google-cse-connection', args),
     // ── user-config.json 저장/불러오기 ──
     saveUserConfig: (config) => electron_1.ipcRenderer.invoke('save-user-config', config),
     getUserConfig: () => electron_1.ipcRenderer.invoke('get-user-config'),

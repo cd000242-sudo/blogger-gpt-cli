@@ -20,9 +20,6 @@ export type EnvConfig = {
   /** UI에서 문자열로 들어와도 허용, 저장 시 숫자로 보정 */
   minChars?: number | string;
 
-  /** ✅ Google CSE 자동 링크용 자격증명(선택) */
-  googleCseKey?: string; // Google CSE JSON API Key
-  googleCseCx?: string;  // Programmable Search Engine ID (cx)
   
   /** ✅ Pexels 무료 이미지 검색용 API 키 */
   pexelsApiKey?: string; // Pexels API Key for free image search
@@ -170,8 +167,6 @@ export type BloggerApi = {
   /** 워드프레스 태그 가져오기 */
   getWordPressTags(args: { siteUrl: string; username: string; password: string }): Promise<{ ok: boolean; tags?: Array<{ id: number; name: string; count: number }>; error?: string }>;
 
-  /** Google CSE 연결 테스트 */
-  testGoogleCseConnection(args: { googleCseKey: string; googleCseCx: string }): Promise<{ ok: boolean; message?: string; error?: string }>;
 
   /** 외부 브라우저로 URL 열기 */
   openExternal(url: string): Promise<boolean>;
@@ -439,7 +434,6 @@ const api: BloggerApi = {
   openLink: (href) => ipcRenderer.invoke('open-link', href),
 
   // 저장 시 minChars를 숫자로 보정해서 main으로 전달
-  // (googleCseKey/googleCseCx 포함되어 그대로 전달됨)
   saveEnv: (env) => {
     const minChars = toNumberOrUndefined(env.minChars);
     return ipcRenderer.invoke('save-env', { ...env, minChars });
@@ -619,8 +613,6 @@ const api: BloggerApi = {
   // ── 인증 상태 확인 (메인 프로세스에서 호출용) ──
   checkWordPressAuthStatus: () => ipcRenderer.invoke('wordpress-check-auth-status'),
   
-  // ── Google CSE 연동 확인 ──
-  testGoogleCseConnection: (args) => ipcRenderer.invoke('test-google-cse-connection', args),
 
   // ── user-config.json 저장/불러오기 ──
   saveUserConfig: (config) => ipcRenderer.invoke('save-user-config', config),

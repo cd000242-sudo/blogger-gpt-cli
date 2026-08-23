@@ -2,6 +2,8 @@
 // Advanced Hunting IPC Handlers
 // 카테고리 롱테일, 급상승, 자동완성, PRO 트래픽, RPM 분석, 뉴스, 연상 황금키워드, 지식인, 키워드 흐름
 import { ipcMain } from 'electron';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../../core/naver-search-client';
 import {
   generateCategoryLongtailKeywords,
   getAvailableCategories,
@@ -1514,26 +1516,13 @@ export function setupAdvancedHuntingHandlers() {
           // 네이버 API로 연관 키워드 수집
           try {
             // 네이버 검색 API로 연관 키워드 추출
-            const blogApiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-            const headers = {
-              'X-Naver-Client-Id': naverClientId,
-              'X-Naver-Client-Secret': naverClientSecret
-            };
-
-            const params = new URLSearchParams({
-              query: trimmedKeyword,
-              display: '100',
-              sort: 'sim'
-            });
-
-            const response = await fetch(`${blogApiUrl}?${params}`, {
-              method: 'GET',
-              headers
-            });
+            // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+            const response = await naverSearch('blog', {
+              query: trimmedKeyword, display: 100, sort: 'sim',
+            }, { payload: { naverClientId, naverClientSecret } });
 
             if (response.ok) {
-              const data = await response.json();
-              const items = data.items || [];
+              const items = response.items;
 
               // 제목에서 키워드 추출
               const keywordSet = new Set<string>();
@@ -1604,22 +1593,10 @@ export function setupAdvancedHuntingHandlers() {
               }
 
               // 문서수 조회
-              const blogApiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-              const headers = {
-                'X-Naver-Client-Id': naverClientId,
-                'X-Naver-Client-Secret': naverClientSecret
-              };
-              const docParams = new URLSearchParams({ query: kw, display: '1' });
-              const docResponse = await fetch(`${blogApiUrl}?${docParams}`, {
-                method: 'GET',
-                headers
-              });
+              // v3.8.554: 창구 경유
+              const docResponse = await naverSearch('blog', { query: kw, display: 1 }, { payload: { naverClientId, naverClientSecret } });
               if (docResponse.ok) {
-                const docData = await docResponse.json();
-                const rawTotal = (docData as any)?.total;
-                documentCount = typeof rawTotal === 'number'
-                  ? rawTotal
-                  : (typeof rawTotal === 'string' ? parseInt(rawTotal, 10) : null);
+                documentCount = docResponse.total;
               }
 
               await new Promise(resolve => setTimeout(resolve, 100)); // Rate limit

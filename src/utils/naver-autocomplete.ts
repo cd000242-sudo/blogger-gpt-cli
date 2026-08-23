@@ -3,6 +3,9 @@
  * 네이버 검색 페이지에서 실제 사용자가 검색하는 연관 검색어 추출
  */
 
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../core/naver-search-client';
+
 export interface NaverApiConfig {
   clientId: string;
   clientSecret: string;
@@ -20,26 +23,13 @@ export async function getNaverAutocompleteKeywords(
   try {
     // 방법 1: 네이버 검색 API의 연관 검색어 추출
     // 네이버 블로그 검색 결과에서 제목 패턴 분석
-    const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-    const headers = {
-      'X-Naver-Client-Id': config.clientId,
-      'X-Naver-Client-Secret': config.clientSecret
-    };
+    // v3.8.554: 창구 경유
+    const res = await naverSearch('blog', {
+      query: baseKeyword, display: 100, sort: 'sim',   // 정확도순 (실제 검색 패턴 반영)
+    }, { payload: { naverClientId: config.clientId, naverClientSecret: config.clientSecret } });
 
-    const params = new URLSearchParams({
-      query: baseKeyword,
-      display: '100',
-      sort: 'sim' // 정확도순 (실제 검색 패턴 반영)
-    });
-
-    const response = await fetch(`${apiUrl}?${params}`, {
-      method: 'GET',
-      headers: headers
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      const items = data.items || [];
+    if (res.ok) {
+      const items = res.items;
 
       // 제목에서 실제 검색 패턴 추출 + 연상 키워드 추출
       items.forEach((item: any) => {

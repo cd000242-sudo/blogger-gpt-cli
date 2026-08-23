@@ -7,7 +7,7 @@ import { openExternalLinksModal, closeExternalLinksModal } from './external-link
 import { showGuide, closeGuide } from './guide.js';
 import { runPosting, publishToPlatform, createPayload, createPayloadFromForm, createPreviewPayload } from './posting.js';
 import { generatePreview, displayPreviewInModal, showPreviewModal, closePreviewModal, startSemiAutoPublish } from './preview.js';
-import { loadSettings, saveSettings, loadSettingsContent, updateApiKeyStatus, updatePlatformStatus, loadLicenseInfo, buildLicenseLabel, daysUntil, isLicenseValid, checkPlatformConnection, checkCseConnection, startBloggerOAuth, closeBloggerAuthCodeModal } from './settings.js';
+import { loadSettings, saveSettings, loadSettingsContent, updateApiKeyStatus, updatePlatformStatus, loadLicenseInfo, buildLicenseLabel, daysUntil, isLicenseValid, checkPlatformConnection, startBloggerOAuth, closeBloggerAuthCodeModal } from './settings.js';
 import { updateKeywordCount, addKeyword, removeKeyword, getAllKeywords, getH2ImageSections, updateRealtimeClock, updateRealtimeDate, initializeProgressSteps, resetProgressSteps, updateProgressStep, onCalendarDateClick, toggleCalendarMemoComplete } from './utils.js';
 import { onLog, onProgress } from './api.js';
 import { renderCalendar, showWorkDiary, saveWorkRecord, getWorkRecords, formatDateKey, toggleWorkRecordCompletion, deleteWorkRecord, addTodayWorkRecord, addQuickWorkRecord, addWorkRecordTemplate, saveWorkRecordFromModal, addScheduleFromModal, editScheduleFromModal, cancelScheduleEdit, saveScheduleEdit, initWorkDiary } from './calendar.js';
@@ -140,6 +140,26 @@ function installDeferredGlobalWrappers() {
 }
 
 function scheduleDeferredStartupModules() {
+  /**
+   * v3.8.548 — 저장된 설정값을 **환경설정을 열지 않아도** 화면에 채운다.
+   *
+   * 사장님 보고: "설정이나 꼭 한번 버튼을 건드려야 이전값이 나오던데."
+   * 환경설정 모달의 HTML 은 index.html 에 이미 있고(loadSettingsContent 주석 실측),
+   * 그 함수는 **값만 채운다**. 그동안 그 채우기가 모달을 열 때만 돌아서,
+   * 열기 전까지 카테고리·톤·블로그 정보 칸이 전부 빈 값이었다.
+   *
+   * 발행에 직결되는 플랫폼 라디오는 시작 직후 따로 복원하고(6-2),
+   * 나머지 칸은 첫 화면을 늦추지 않도록 여기서 유휴 시간에 채운다.
+   */
+  idleTask(async () => {
+    try {
+      await loadSettingsContent({ skipPlatformRadio: true });
+      debugLog('MAIN', '저장된 설정값 사전 채우기 완료 (환경설정을 열지 않아도 반영)');
+    } catch (e) {
+      console.warn('[SETTINGS] 사전 채우기 실패:', e?.message || e);
+    }
+  }, 1200);
+
   // v3.8.392: 금액 표기 통일 — 화면 하드코딩 값을 백엔드 단일 출처로 덮어쓴다.
   //   실패해도 기존 화면 값이 남을 뿐이라 안전하다.
   idleTask(async () => {
@@ -194,6 +214,18 @@ function scheduleDeferredStartupModules() {
       mod.initFirstRunWizard?.();
     } catch (error) {
       console.warn('[WIZARD] deferred init failed:', error);
+    }
+
+    /**
+     * v3.8.552 — 첫 실행 안내 화살표 (딱 한 번, 사장님이 고른 조건).
+     * 첫 실행 마법사보다 **뒤에** 둔다 — 마법사가 환경설정을 열었으면 띄우지 않는다
+     * (창 두 개가 겹치면 오히려 헷갈린다). 그 판정은 maybeShowPlatformCoach 안에 있다.
+     */
+    try {
+      const tour = await import('./usage-tour.js');
+      tour.maybeShowPlatformCoach?.();
+    } catch (error) {
+      console.warn('[USAGE-TOUR] 첫 실행 안내 실패:', error);
     }
   }, 2400);
 
@@ -574,7 +606,6 @@ console.log('[MAIN] 워드프레스 함수 즉시 정의 완료');
   window.daysUntil = daysUntil;
   window.isLicenseValid = isLicenseValid;
   window.checkPlatformConnection = checkPlatformConnection;
-  window.checkCseConnection = checkCseConnection;
   window.startBloggerOAuth = startBloggerOAuth;
   window.closeBloggerAuthCodeModal = closeBloggerAuthCodeModal;
 
@@ -714,6 +745,31 @@ async function initializeApp() {
       console.error('[HEADER-BADGE] 초기화 실패 (앱은 계속):', badgeErr);
     }
 
+    /**
+     * 5.8-0. v3.8.552 — 사용법 안내 (헤더 [📖 사용법] 버튼 + 첫 실행 화살표).
+     * 배지가 붙은 뒤에 등록해야 화살표가 배지를 정확히 가리킨다.
+     */
+    try {
+      const { initUsageTour } = await import('./usage-tour.js');
+      initUsageTour();
+      debugLog('MAIN', '사용법 안내 초기화 완료');
+    } catch (tourErr) {
+      console.error('[USAGE-TOUR] 초기화 실패 (앱은 계속):', tourErr);
+    }
+
+    /**
+     * 5.8-1. v3.8.549 — 예약 시간 [📅 달력 열기] + 시/분 드롭다운.
+     * 사장님: "달력 표시가 검은색이라 잘 안 보여요. 달력 열기 버튼으로 바꿔줘."
+     * 단일 발행(#scheduleDateTime)에 붙인다. 연속발행 쪽은 큐가 그릴 때마다 스스로 붙인다.
+     */
+    try {
+      const { enhanceAllScheduleInputs } = await import('./schedule-picker.js');
+      const n = enhanceAllScheduleInputs(document);
+      debugLog('MAIN', '예약 시간 도구 부착 완료', { count: n });
+    } catch (schedErr) {
+      console.error('[SCHEDULE-PICKER] 초기화 실패 (앱은 계속):', schedErr);
+    }
+
     // v3.8.39: 황금키워드 탐색기 초기화 제거 — LEWORD 외부 앱으로 대체.
 
     // 5.8. 콘텐츠변환 stub 함수 등록
@@ -750,6 +806,35 @@ async function initializeApp() {
     if (typeof window.restoreH2ImageSource === 'function') {
       window.restoreH2ImageSource();
       debugLog('MAIN', '소제목 이미지 엔진 복원 완료');
+    }
+
+    /**
+     * 6-2. v3.8.548 — 지난번에 고른 **발행 플랫폼**을 라디오에 복원한다.
+     *
+     * 사장님 보고: "설정이나 꼭 한번 버튼을 건드려야 이전값이 나오던데.
+     *   깜빡하고 바로 글생성해버리면 실패되는 경우도 있으니까 말이야."
+     *
+     * 원인 — 시작할 때 플랫폼을 **배지에만** 칠하고 라디오는 손대지 않았다.
+     *   · updatePlatformStatus() 는 loadSettings() 로 제대로 판정한 값을 배지에 쓴다.
+     *   · 그런데 발행 payload 는 `input[name="platform"]:checked` 를 1순위로 읽는다.
+     *   · 그 라디오는 환경설정 모달을 열어(loadSettingsContent) 채워주기 전까지
+     *     index.html 의 하드코딩 checked 그대로였다.
+     *   → 배지는 WordPress 라고 적혀 있는데 발행은 다른 데로 나가는 상태가 된다.
+     *     "설정 한 번 열면 정상"의 정체가 이것이다.
+     *
+     * selectPlatform() 하나가 라디오·카드 강조·필드 토글·배지·localStorage 저장을
+     * 전부 처리한다(index.html 7342). 같은 일을 여기서 또 짜면 네 번째 경로가 된다.
+     */
+    try {
+      const restored = settings.platform === 'blogspot' ? 'blogger' : settings.platform;
+      if (restored && typeof window.selectPlatform === 'function') {
+        window.selectPlatform(restored);
+        debugLog('MAIN', '발행 플랫폼 복원 완료', { platform: restored });
+      } else if (!window.selectPlatform) {
+        console.warn('[MAIN] ⚠️ selectPlatform 이 없어 플랫폼 라디오를 복원하지 못했습니다');
+      }
+    } catch (e) {
+      console.warn('[MAIN] 플랫폼 라디오 복원 실패:', e?.message || e);
     }
 
     // 7. 플랫폼 상태 업데이트

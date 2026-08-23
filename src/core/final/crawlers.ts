@@ -910,24 +910,18 @@ export async function crawlAllWithFallback(keyword: string): Promise<FinalCrawle
     const naverClientId = envData['naverClientId'] || envData['NAVER_CLIENT_ID'] || '';
     const naverClientSecret = envData['naverClientSecret'] || envData['NAVER_CLIENT_SECRET'] || '';
 
-    // Google CSE 키 (다양한 형식 지원)
-    const googleCseKey = envData['googleCseKey'] || envData['GOOGLE_CSE_KEY'] || envData['GOOGLE_CSE_API_KEY'] || envData['googleApiKey'] || '';
-    const googleCseId = envData['googleCseId'] || envData['GOOGLE_CSE_ID'] || envData['googleCseCx'] || envData['GOOGLE_CSE_CX'] || '';
+    // v3.8.555: Google CSE 키 로드·표시 삭제 — 앱이 더 이상 CSE 를 부르지 않는다
 
     console.log('🔑 [API 키 확인]');
     console.log('   - 네이버 Client ID:', naverClientId ? '✅ ' + naverClientId.substring(0, 8) + '...' : '❌ 없음');
     console.log('   - 네이버 Client Secret:', naverClientSecret ? '✅ 있음' : '❌ 없음');
-    console.log('   - Google CSE Key:', googleCseKey ? '✅ ' + googleCseKey.substring(0, 10) + '...' : '❌ 없음');
-    console.log('   - Google CSE ID:', googleCseId ? '✅ ' + googleCseId.substring(0, 10) + '...' : '❌ 없음');
 
     if (naverClientId && naverClientSecret) {
       console.log('🔑 [크롤링] 네이버 API 키 발견 - MassCrawlingSystem 사용');
 
       const massCrawler = new MassCrawlingSystem(
         naverClientId,
-        naverClientSecret,
-        googleCseKey || undefined,
-        googleCseId || undefined
+        naverClientSecret
       );
 
       const massResult = await massCrawler.crawlAll(keyword, {
@@ -948,8 +942,7 @@ export async function crawlAllWithFallback(keyword: string): Promise<FinalCrawle
 
       console.log(`✅ [크롤링] MassCrawlingSystem 완료: ${allPosts.length}개`);
       console.log(`   - 네이버: ${massResult.stats.naverCount}`);
-      console.log(`   - RSS: ${massResult.stats.rssCount}`);
-      console.log(`   - CSE: ${massResult.stats.cseCount}\n`);
+      console.log(`   - RSS: ${massResult.stats.rssCount}\n`);
 
       if (allPosts.length >= 5) {
         // 충분한 데이터가 있으면 바로 반환

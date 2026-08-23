@@ -14,7 +14,26 @@
 //     ⚠️ settings.js 의 전체 saveSettings() 는 여기서 절대 부르지 않는다 —
 //     모달을 안 연 상태에선 다른 필드가 비어 있어 위험하다.
 import { updatePlatformStatus } from './settings.js';
-import { addLog } from './core.js';
+import { addLog, getStorageManager } from './core.js';
+
+/**
+ * v3.8.544 — .env 저장만으로는 화면도 재시작도 안 따라온다.
+ *
+ * settings.js 의 resolvePlatformValue(48~58줄) 실측: 저장된 bloggerSettings 값이 있으면
+ * **.env 를 보지도 않고** 그걸 쓴다. 배지에서 .env 만 고치면
+ *   · 방금 부른 updatePlatformStatus() 가 옛 값을 읽어 배지가 곧바로 되돌아가고
+ *   · 재시작하면 선택 자체가 사라진다.
+ * 그래서 저장 경로 두 곳(.env + bloggerSettings)에 같이 쓴다. 넘긴 키만 병합한다.
+ */
+async function mergeIntoLocalSettings(patch) {
+  try {
+    const storage = getStorageManager();
+    const current = (await storage.get('bloggerSettings', true)) || {};
+    await storage.set('bloggerSettings', { ...current, ...patch }, true);
+  } catch (err) {
+    console.warn('[HEADER-BADGE] bloggerSettings 병합 실패:', err);
+  }
+}
 
 const PLATFORMS = [
   { value: 'blogger', label: 'Blogger', color: '#f97316' },
@@ -62,11 +81,29 @@ export function initHeaderBadges() {
       .header-badge.hb-click .hb-caret { font-size:9px; color:rgba(255,255,255,.55); margin-left:2px; }
       /* v3.8.535: absolute → fixed. .app-header 가 overflow-y:hidden 이라(배지 가로 스크롤용)
          상자 안 absolute 팝오버는 아래로 열리는 순간 잘려서 안 보였다 (사장님 실보고).
-         fixed + 열 때 좌표 계산으로 상자 밖으로 탈출한다. 헤더는 sticky top 이라 좌표가 안정적이다. */
-      .hb-pop { position:fixed; z-index:9000; min-width:250px; max-height:340px; overflow-y:auto;
+         fixed + 열 때 좌표 계산으로 상자 밖으로 탈출한다. 헤더는 sticky top 이라 좌표가 안정적이다.
+
+         ⚠️ v3.8.544 — 그런데 fixed 만으로는 못 나간다. styles.css 실측:
+           .app-header  { backdrop-filter: blur(10px) }   (753~768줄)
+           .header-badge{ backdrop-filter: blur(10px) }   (802~808줄)
+         backdrop-filter 가 none 이 아닌 요소는 **fixed 자손의 컨테이닝 블록**이 된다(CSS 규격).
+         즉 팝오버를 배지 안에 두는 한 좌표 기준이 배지이고, 헤더 overflow:hidden 에 그대로 잘린다.
+         v3.8.535 가 안 통한 이유가 이것 — 그래서 팝오버를 document.body 로 옮긴다(아래 wireBadge).
+         body 에는 filter/transform 이 없으므로 그제서야 fixed 가 뷰포트 기준이 된다.
+
+         ⚠️ v3.8.547 — body 로 옮긴 뒤에도 안 보였다(사장님 3번째 보고: "드래그바만 뜨고").
+         fixed 는 조상 사슬 중 하나만 컨테이닝 블록을 만들어도 그 안에 갇히는 규칙이라,
+         "어느 조상이 범인인지" 를 계속 쫓는 방식으론 또 샌다. 그래서 추측을 끝낸다 —
+         popover(top layer)로 띄우면 브라우저가 문서 트리 밖 최상위 레이어에 그리므로
+         조상의 overflow·filter·stacking context·z-index 가 **전부 무효**가 된다.
+         (Electron 42 = Chromium 140, popover 정식 지원. 미지원 환경은 .open 클래스로 폴백.)
+         UA 가 [popover] 에 inset:0; margin:auto 를 걸므로 여기서 되돌려야 좌표가 먹는다. */
+      .hb-pop { position:fixed; z-index:2147483000; min-width:250px; max-height:340px; overflow-y:auto;
         background:#111a30; border:1px solid rgba(148,163,184,.3); border-radius:12px; padding:11px;
-        box-shadow:0 16px 40px rgba(2,6,23,.6); display:none; text-align:left; }
+        box-shadow:0 16px 40px rgba(2,6,23,.6); display:none; text-align:left;
+        margin:0; inset:auto; color:#cbd5e1; }
       .hb-pop.open { display:block; }
+      .hb-pop:popover-open { display:block; }
       .hb-pop .hb-t { font-size:11px; font-weight:800; color:#94a3b8; margin-bottom:7px; }
       .hb-pop .hb-note { font-size:10.5px; color:#fbbf24; margin-bottom:7px; line-height:1.45; }
       .hb-opt { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer;
@@ -84,13 +121,20 @@ export function initHeaderBadges() {
   wireBadge(modelBadge, buildModelPop);
 
   document.addEventListener('click', (e) => {
-    if (!e.target.closest('.header-badge.hb-click')) {
-      document.querySelectorAll('.hb-pop.open').forEach((p) => p.classList.remove('open'));
+    // v3.8.544: 팝오버가 body 로 나갔으므로 배지 밖 클릭 판정에 .hb-pop 도 포함해야 한다.
+    // 안 그러면 팝오버 제목줄만 눌러도 닫힌다.
+    if (!e.target.closest('.header-badge.hb-click') && !e.target.closest('.hb-pop')) {
+      closeAllPops();
     }
   });
-  // fixed 좌표는 스크롤·리사이즈에 어긋난다 — 열린 채 움직이면 그냥 닫는다 (배지 가로 스크롤 포함)
-  window.addEventListener('resize', closeAllPops);
-  document.addEventListener('scroll', closeAllPops, true);
+  /**
+   * v3.8.547 — 스크롤·리사이즈에 '닫지' 않고 '따라가게' 바꾼다.
+   * 이전 코드는 capture 로 문서 전체의 scroll 을 듣고 닫았다. 이 앱은 로그 패널이
+   * 알아서 바닥으로 스크롤하므로, 배지를 누른 직후 로그 한 줄만 찍혀도 팝오버가
+   * 그 자리에서 닫혔다 — "열리지도 않는다" 로 보이는 경로다.
+   */
+  window.addEventListener('resize', repositionOpenPops);
+  document.addEventListener('scroll', repositionOpenPops, true);
 
   addLog('🎫 헤더 배지 드롭다운 준비 완료 (플랫폼·AI 모델 클릭으로 변경)', 'info');
 }
@@ -108,22 +152,55 @@ function wireBadge(valueEl, build) {
   }
   const pop = document.createElement('div');
   pop.className = 'hb-pop';
-  badge.appendChild(pop);
+  /**
+   * v3.8.544 — 배지 안이 아니라 body 에 붙인다.
+   * 배지·헤더가 backdrop-filter 를 갖고 있어서 배지 안에 두면 fixed 가 뷰포트 기준이 되지 않고
+   * 배지 기준으로 잡힌 뒤 헤더 overflow 에 잘린다(v3.8.534/535 가 화면에 안 보였던 원인).
+   */
+  document.body.appendChild(pop);
+  // v3.8.547: top layer 로 띄운다. manual 이라 바깥 클릭 판정은 기존 document 리스너가 그대로 한다.
+  try { pop.setAttribute('popover', 'manual'); } catch { /* 미지원이면 .open 클래스 폴백 */ }
+  pop.__hbBadge = badge;   // 스크롤 시 다시 좌표를 잡으려면 어느 배지의 팝오버인지 알아야 한다
 
   badge.addEventListener('click', (e) => {
     if (e.target.closest('.hb-opt')) return;
-    const was = pop.classList.contains('open');
-    document.querySelectorAll('.hb-pop.open').forEach((p) => p.classList.remove('open'));
+    const was = isPopOpen(pop);
+    closeAllPops();
     if (!was) {
       build(pop);
-      // fixed 좌표: 배지 바로 아래, 오른쪽이 화면을 넘으면 안쪽으로 끌어온다
-      const r = badge.getBoundingClientRect();
-      pop.style.top = `${Math.round(r.bottom + 8)}px`;
-      pop.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 270)))}px`;
-      pop.classList.add('open');
+      placePop(pop);
+      openPop(pop);
     }
     e.stopPropagation();
   });
+}
+
+/** 팝오버 좌표: 배지 바로 아래, 오른쪽이 화면을 넘으면 안쪽으로 끌어온다 */
+function placePop(pop) {
+  const badge = pop.__hbBadge;
+  if (!badge) return;
+  const r = badge.getBoundingClientRect();
+  pop.style.top = `${Math.round(r.bottom + 8)}px`;
+  pop.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 270)))}px`;
+}
+
+function isPopOpen(pop) {
+  if (pop.classList.contains('open')) return true;
+  try { return pop.matches(':popover-open'); } catch { return false; }
+}
+
+function openPop(pop) {
+  pop.classList.add('open');   // 폴백 경로(구형 렌더러)에서도 보이게
+  try {
+    if (typeof pop.showPopover === 'function' && !pop.matches(':popover-open')) pop.showPopover();
+  } catch (err) {
+    // top layer 승격 실패해도 .open 클래스로는 그려진다 — 조용히 죽이지 않고 남긴다
+    console.warn('[HEADER-BADGE] showPopover 실패 — 클래스 폴백으로 표시합니다:', err);
+  }
+}
+
+function repositionOpenPops() {
+  document.querySelectorAll('.hb-pop').forEach((p) => { if (isPopOpen(p)) placePop(p); });
 }
 
 // ─── 플랫폼 ──────────────────────────────────────────────────
@@ -150,9 +227,17 @@ function buildPlatformPop(pop) {
       if (!radio) { console.warn('[HEADER-BADGE] ⚠️ 플랫폼 라디오 없음:', value); return; }
       radio.checked = true;
       radio.dispatchEvent(new Event('change', { bubbles: true })); // 기존 리스너(카드 UI 등)가 그대로 돈다
-      // ② 재시작 이후를 위해 부분 저장 (병합·빈값 스킵이라 다른 키 안전)
+      // ② 저장 경로 둘 다 — bloggerSettings 가 .env 보다 우선이라 하나만 쓰면 되돌아간다
+      await mergeIntoLocalSettings({ platform: value });
       try { await window.blogger?.saveEnv?.({ platform: value }); } catch (err) { console.warn('[HEADER-BADGE] 플랫폼 저장 실패:', err); }
-      // ③ 배지 라벨 갱신 — 저장값을 읽는 기존 함수 그대로
+      /**
+       * ③ 화면 갱신은 기존 selectPlatform 에 맡긴다 — 카드 강조·필드 토글·배지까지
+       *    한 함수가 다 한다(index.html 7602). 배지만 따로 칠하면 카드가 안 따라와서
+       *    "안 바뀐 것처럼" 보인다(v3.8.440 과 같은 체감).
+       */
+      if (typeof window.selectPlatform === 'function') {
+        try { window.selectPlatform(value); } catch (err) { console.warn('[HEADER-BADGE] selectPlatform 실패:', err); }
+      }
       try { await updatePlatformStatus(); } catch { /* 배지 갱신 실패는 발행과 무관 */ }
       closeAllPops();
       addLog(`🎫 발행 플랫폼 변경: ${value}`, 'info');
@@ -192,6 +277,12 @@ function buildModelPop(pop) {
       radio.dispatchEvent(new Event('change', { bubbles: true }));
       // ② 재시작·env 폴백 경로를 위해 부분 저장 — 엔진 파생은 saveSettings 와 같은 규칙
       const engine = deriveEngine(value);
+      // bloggerSettings 가 우선 소스라 여기도 같이 써야 재시작 후에도 남는다
+      await mergeIntoLocalSettings({
+        primaryGeminiTextModel: value,
+        generationEngine: engine,
+        defaultAiProvider: engine,
+      });
       try {
         await window.blogger?.saveEnv?.({
           primaryGeminiTextModel: value,
@@ -199,6 +290,8 @@ function buildModelPop(pop) {
           defaultAiProvider: engine,
         });
       } catch (err) { console.warn('[HEADER-BADGE] 모델 저장 실패:', err); }
+      // ③ 배지·엔진 칩 갱신 (라디오 change 리스너가 없을 때를 위한 직접 호출)
+      try { await window.updateAiModelStatus?.(); } catch { /* 배지 갱신 실패는 발행과 무관 */ }
       closeAllPops();
       addLog(`🎫 글 생성 모델 변경: ${value} (${engine})`, 'info');
     });
@@ -206,5 +299,8 @@ function buildModelPop(pop) {
 }
 
 function closeAllPops() {
-  document.querySelectorAll('.hb-pop.open').forEach((p) => p.classList.remove('open'));
+  document.querySelectorAll('.hb-pop').forEach((p) => {
+    p.classList.remove('open');
+    try { if (typeof p.hidePopover === 'function' && p.matches(':popover-open')) p.hidePopover(); } catch { /* 이미 닫힘 */ }
+  });
 }

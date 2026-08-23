@@ -3,6 +3,8 @@
 // infinite-keyword-search, export-keywords-to-excel, crawl-news-snippets, fetch-real-related-keywords,
 // get-niche-keywords, collect-now, get-system-status, gemini-chat, find-ultimate-niche-keywords
 import { ipcMain } from 'electron';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../../core/naver-search-client';
 import axios from 'axios';
 import { EnvironmentManager } from '../../utils/environment-manager';
 import { getNaverKeywordSearchVolumeSeparate } from '../../utils/naver-datalab-api';
@@ -113,24 +115,13 @@ export function setupUtilityAiHandlers() {
 
         try {
           // 네이버 검색 API로 연관 키워드 추출
-          const blogApiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-          const params = new URLSearchParams({
-            query: keyword,
-            display: '100', // 최대 100개 결과
-            sort: 'sim'
-          });
-
-          const response = await fetch(`${blogApiUrl}?${params}`, {
-            method: 'GET',
-            headers: {
-              'X-Naver-Client-Id': naverClientId,
-              'X-Naver-Client-Secret': naverClientSecret
-            }
-          });
+          // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+          const response = await naverSearch('blog', {
+            query: keyword, display: 100, sort: 'sim',   // 최대 100개 결과
+          }, { payload: { naverClientId, naverClientSecret } });
 
           if (response.ok) {
-            const data = await response.json();
-            const items = data.items || [];
+            const items = response.items;
 
             // 제목과 설명에서 연관 키워드 추출
             const extractedKeywords = new Set<string>();
@@ -360,25 +351,11 @@ export function setupUtilityAiHandlers() {
           // 2. 문서수 조회
           let documentCount: number | null = null;
           try {
-            const blogApiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-            const docParams = new URLSearchParams({
-              query: keyword,
-              display: '1'
-            });
-            const docResponse = await fetch(`${blogApiUrl}?${docParams}`, {
-              method: 'GET',
-              headers: {
-                'X-Naver-Client-Id': naverClientId,
-                'X-Naver-Client-Secret': naverClientSecret
-              }
-            });
+            // v3.8.554: 창구 경유
+            const docResponse = await naverSearch('blog', { query: keyword, display: 1 }, { payload: { naverClientId, naverClientSecret } });
 
             if (docResponse.ok) {
-              const docData = await docResponse.json();
-              const rawTotal = (docData as any)?.total;
-              documentCount = typeof rawTotal === 'number'
-                ? rawTotal
-                : (typeof rawTotal === 'string' ? parseInt(rawTotal, 10) : null);
+              documentCount = docResponse.total;
             }
           } catch (docErr: any) {
             console.warn(`[INFINITE-SEARCH] "${keyword}" 문서수 조회 실패:`, docErr.message);

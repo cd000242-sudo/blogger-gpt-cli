@@ -2,12 +2,21 @@
 // 본문 내용 크롤링 및 AI 믹싱 시스템 (대량 크롤링 업그레이드)
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
 import OpenAI from 'openai';
 import { callGeminiWithRetry } from './final/gemini-engine';
 import pLimit from 'p-limit';
 import { MassCrawlingSystem, MassCrawledItem, MassCrawlingOptions } from './mass-crawler';
 import { isOfficialDomain } from './crawlers/official-domain';
 import { parseNaverPostDate, withFreshnessLabel, isStaleSource } from './crawlers/source-freshness';
+/**
+ * v3.8.553 — 네이버 호출은 전부 단일 창구를 지난다.
+ *
+ * 창구(naver-search-client)는 v3.8.526 에 만들어 놓고도 **키 점검만** 쓰고 있었다.
+ * 실제 글 생성은 openapi.naver.com 을 직접 불러서, HUB 키를 넣어도 옛 API 로 나갔고
+ * 기존 키가 만료되면 자동 토스도 못 하고 그냥 멈추는 상태였다.
+ */
+import { naverSearch } from './naver-search-client';
 
 export interface CrawledContent {
   title: string;
@@ -42,8 +51,7 @@ export interface ContentCrawlerConfig {
   maxResults: number;
   naverClientId?: string;
   naverClientSecret?: string;
-  googleCseKey?: string;
-  googleCseCx?: string;
+  // v3.8.555: Google CSE 제거 (신규 발급 불가 · 2027-01-01 종료) — 네이버 웹문서로 대체
 }
 
 export class ContentCrawler {
@@ -65,15 +73,11 @@ export class ContentCrawler {
    */
   initializeMassCrawler(
     naverClientId?: string,
-    naverClientSecret?: string,
-    googleApiKey?: string,
-    googleCseId?: string
+    naverClientSecret?: string
   ): void {
     this.massCrawler = new MassCrawlingSystem(
       naverClientId,
-      naverClientSecret,
-      googleApiKey,
-      googleCseId
+      naverClientSecret
     );
   }
 
@@ -217,7 +221,7 @@ export class ContentCrawler {
     logMassCrawler('info', `[MASS-CRAWLER] ⏱️ 전체 크롤링 시간: ${duration}ms (${(duration / 1000).toFixed(2)}초)`);
 
     let allItems: MassCrawledItem[] = [];
-    const totalStats: any = { totalItems: 0, naverCount: 0, rssCount: 0, cseCount: 0 };
+    const totalStats: any = { totalItems: 0, naverCount: 0, rssCount: 0 };
 
     // 🔧 크롤링 순서 보장: 키워드 순서대로 결과 처리
     results.forEach(result => {
@@ -226,7 +230,6 @@ export class ContentCrawler {
         totalStats.totalItems += result.value.result.stats.totalItems;
         totalStats.naverCount += result.value.result.stats.naverCount;
         totalStats.rssCount += result.value.result.stats.rssCount;
-        totalStats.cseCount += result.value.result.stats.cseCount;
       } else {
         // 이미 위에서 상세 로그를 출력했으므로 여기서는 생략
       }
@@ -783,53 +786,33 @@ ${contents.slice(0, 10).map((c, i) => `
 
       const searchQuery = `${topic} ${keywords.join(' ')}`;
       const encodedQuery = encodeURIComponent(searchQuery);
-      const apiUrl = `https://openapi.naver.com/v1/search/blog.json?query=${encodedQuery}&display=${maxResults}&sort=sim`;
-
-      // 타임아웃 설정 (15초로 단축 - 성능 최적화)
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
 
       console.log(`[NAVER-DEBUG] 🔄 네이버 API 요청 시작`);
-      console.log(`[NAVER-DEBUG]    URL: ${apiUrl.substring(0, 100)}...`);
       console.log(`[NAVER-DEBUG]    키워드: "${topic}" ${keywords.join(', ')}`);
       console.log(`[NAVER-DEBUG]    타임아웃: 15초`);
 
       const requestStartTime = Date.now();
 
       try {
-        const response = await fetch(apiUrl, {
-          signal: controller.signal,
-          headers: {
-            'X-Naver-Client-Id': naverClientId,
-            'X-Naver-Client-Secret': naverClientSecret
-          }
-        });
+        /**
+         * v3.8.553 — 창구 경유. 상태코드별 처방 문구도 창구가 만든다
+         * (describeNaverFailure). 여기서 따로 쓰면 HUB 로 넘어간 뒤에도
+         * "네이버 개발자 센터를 확인하세요" 같은 옛 안내가 나간다.
+         */
+        const res = await naverSearch('blog', {
+          query: searchQuery, display: maxResults, sort: 'sim',
+        }, { payload: { naverClientId, naverClientSecret }, timeoutMs: 15000 });
 
-        clearTimeout(timeoutId);
         const requestTime = Date.now() - requestStartTime;
+        console.log(`[NAVER-DEBUG] ✅ 응답 수신 (${requestTime}ms, ${res.mode} 키)`);
 
-        console.log(`[NAVER-DEBUG] ✅ 응답 수신 (${requestTime}ms)`);
-        console.log(`[NAVER-DEBUG]    상태 코드: ${response.status}`);
-        console.log(`[NAVER-DEBUG]    상태 텍스트: ${response.statusText}`);
-
-        if (!response.ok) {
-          console.error(`[NAVER-DEBUG] ❌ API 호출 실패: ${response.status} ${response.statusText}`);
-
-          // 사용자 친화적인 오류 메시지
-          if (response.status === 401 || response.status === 403) {
-            throw new Error(`❌ 네이버 API 키 인증 실패!\n\n💡 해결 방법:\n1. 네이버 개발자 센터(https://developers.naver.com)에서 API 키를 확인하세요\n2. Client ID와 Client Secret이 정확한지 확인하세요\n3. API 사용 권한이 활성화되어 있는지 확인하세요\n\n⚠️ API 키가 유효하지 않거나 크레딧이 부족할 수 있습니다.\n크레딧을 충전한 후 다시 시도해주세요.`);
-          } else if (response.status === 429) {
-            throw new Error(`❌ 네이버 API 호출 한도 초과!\n\n💡 해결 방법:\n1. 잠시 후 다시 시도하세요 (1분 대기 권장)\n2. 네이버 개발자 센터에서 사용량을 확인하세요\n3. 필요시 크레딧을 충전하세요\n\n⚠️ 일일 호출 한도를 초과했습니다.`);
-          } else if (response.status === 500) {
-            throw new Error(`❌ 네이버 API 서버 오류!\n\n💡 해결 방법:\n1. 잠시 후 다시 시도하세요\n2. 네이버 API 서버가 일시적으로 불안정할 수 있습니다\n\n⚠️ 네이버 측 문제이므로 기다려주세요.`);
-          }
-
-          return [];
+        if (!res.ok) {
+          console.error(`[NAVER-DEBUG] ❌ API 호출 실패(${res.mode}): ${res.error}`);
+          throw new Error(`❌ 네이버 검색 실패\n\n${res.error}`);
         }
 
-        const data = await response.json();
         const contents: CrawledContent[] = [];
-        const simItems = data.items || [];
+        const simItems = res.items;
         let staleCount = 0;   // v3.8.479: 시점 경고를 붙인 자료 수
         console.log(`[NAVER-DEBUG] ✅ 검색 결과: ${simItems.length}개 items 반환`);
 
@@ -902,7 +885,7 @@ ${contents.slice(0, 10).map((c, i) => `
         return contents;
 
       } catch (error: any) {
-        clearTimeout(timeoutId);
+        // v3.8.553: 타임아웃은 창구가 관리한다 (여기서 만들던 controller/timeoutId 제거)
         const requestTime = Date.now() - requestStartTime;
 
         console.error(`[NAVER-DEBUG] ❌ 에러 발생 (${requestTime}ms)`);
@@ -946,15 +929,11 @@ ${contents.slice(0, 10).map((c, i) => `
 
     let recent: any[] = [];
     try {
-      const url = `https://openapi.naver.com/v1/search/blog.json?query=${encodedQuery}&display=${maxResults}&sort=date`;
-      const response = await fetch(url, {
-        headers: { 'X-Naver-Client-Id': naverClientId, 'X-Naver-Client-Secret': naverClientSecret },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        recent = Array.isArray(data?.items) ? data.items : [];
-      }
+      // v3.8.553: 창구 경유 — HUB/기존 키 자동 토스가 여기에도 걸린다
+      const res = await naverSearch('blog', {
+        query: decodeURIComponent(encodedQuery), display: maxResults, sort: 'date',
+      }, { payload: { naverClientId, naverClientSecret }, timeoutMs: 8000 });
+      if (res.ok) recent = res.items;
     } catch (e: any) {
       console.warn('[NAVER] 최신순 보강 실패 (유사도 결과만 사용):', String(e?.message || e).slice(0, 60));
     }
@@ -1095,22 +1074,15 @@ ${contents.slice(0, 10).map((c, i) => `
     const { topic, maxResults = 8, naverClientId, naverClientSecret } = config;
     if (!naverClientId || !naverClientSecret) return [];
     try {
-      const encodedQuery = encodeURIComponent(topic);
-      const apiUrl = `https://openapi.naver.com/v1/search/kin.json?query=${encodedQuery}&display=${maxResults}&sort=sim`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
       console.log(`[NAVER-KIN] "${topic}" 지식인 검색...`);
-      const response = await fetch(apiUrl, {
-        signal: controller.signal,
-        headers: { 'X-Naver-Client-Id': naverClientId, 'X-Naver-Client-Secret': naverClientSecret },
-      });
-      clearTimeout(timeoutId);
-      if (!response.ok) {
-        console.warn(`[NAVER-KIN] API 실패: ${response.status}`);
+      // v3.8.553: 창구 경유 (HUB 우선 → 막히면 기존 키로 자동 토스)
+      const res = await naverSearch('kin', { query: topic, display: maxResults, sort: 'sim' },
+        { payload: { naverClientId, naverClientSecret }, timeoutMs: 10000 });
+      if (!res.ok) {
+        console.warn(`[NAVER-KIN] API 실패(${res.mode}): ${res.error}`);
         return [];
       }
-      const data = await response.json();
-      const items = data.items || [];
+      const items = res.items;
       const contents: CrawledContent[] = [];
       for (const item of items) {
         const q = String(item.title || '').replace(/<\/?[^>]+>/g, '').trim();
@@ -1173,18 +1145,15 @@ ${contents.slice(0, 10).map((c, i) => `
     const { topic, maxResults = 5, naverClientId, naverClientSecret } = config;
     if (!naverClientId || !naverClientSecret) return [];
     try {
-      const apiUrl = `https://openapi.naver.com/v1/search/news.json?query=${encodeURIComponent(topic)}&display=${maxResults}&sort=date`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
       console.log(`[NAVER-NEWS] "${topic}" 최신 뉴스 검색...`);
-      const response = await fetch(apiUrl, {
-        signal: controller.signal,
-        headers: { 'X-Naver-Client-Id': naverClientId, 'X-Naver-Client-Secret': naverClientSecret },
-      });
-      clearTimeout(timeoutId);
-      if (!response.ok) return [];
-      const data = await response.json();
-      const items = data.items || [];
+      // v3.8.553: 창구 경유
+      const res = await naverSearch('news', { query: topic, display: maxResults, sort: 'date' },
+        { payload: { naverClientId, naverClientSecret }, timeoutMs: 10000 });
+      if (!res.ok) {
+        console.warn(`[NAVER-NEWS] API 실패(${res.mode}): ${res.error}`);
+        return [];
+      }
+      const items = res.items;
       const contents: CrawledContent[] = [];
       for (const item of items) {
         const title = String(item.title || '').replace(/<\/?[^>]+>/g, '').trim();
@@ -1245,21 +1214,15 @@ ${contents.slice(0, 10).map((c, i) => `
     const { topic, maxResults = 10, naverClientId, naverClientSecret } = config;
     if (!naverClientId || !naverClientSecret) return [];
     try {
-      const apiUrl = `https://openapi.naver.com/v1/search/webkr.json?query=${encodeURIComponent(topic)}&display=${maxResults}`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
       console.log(`[NAVER-WEB] "${topic}" 웹문서 검색...`);
-      const response = await fetch(apiUrl, {
-        signal: controller.signal,
-        headers: { 'X-Naver-Client-Id': naverClientId, 'X-Naver-Client-Secret': naverClientSecret },
-      });
-      clearTimeout(timeoutId);
-      if (!response.ok) {
-        console.warn(`[NAVER-WEB] API 실패: ${response.status}`);
+      // v3.8.553: 창구 경유
+      const res = await naverSearch('webkr', { query: topic, display: maxResults },
+        { payload: { naverClientId, naverClientSecret }, timeoutMs: 10000 });
+      if (!res.ok) {
+        console.warn(`[NAVER-WEB] API 실패(${res.mode}): ${res.error}`);
         return [];
       }
-      const data = await response.json();
-      const items = data.items || [];
+      const items = res.items;
       const contents: CrawledContent[] = [];
       for (const item of items) {
         const title = String(item.title || '').replace(/<\/?[^>]+>/g, '').trim();
@@ -1499,112 +1462,8 @@ ${contents.slice(0, 10).map((c, i) => `
     return contents;
   }
 
-  /**
-   * 3단계: Google CSE로 워드프레스/티스토리/블로그스팟 크롤링
-   */
-  async crawlFromCSE(config: ContentCrawlerConfig): Promise<CrawledContent[]> {
-    const { topic, keywords, maxResults = 10, googleCseKey, googleCseCx } = config;
-
-    if (!googleCseKey || !googleCseCx) {
-      console.log('[CSE] Google CSE 키가 없어서 건너뛰기');
-      return [];
-    }
-
-    try {
-      console.log(`[CSE] "${topic}" CSE 크롤링 시작...`);
-
-      // 워드프레스, 티스토리, 블로그스팟 사이트 검색
-      const searchQueries = [
-        `${topic} site:wordpress.com OR site:tistory.com OR site:blogspot.com`,
-        `${topic} ${keywords.join(' ')} site:*.wordpress.com OR site:*.tistory.com OR site:*.blogspot.com`
-      ];
-
-      const contents: CrawledContent[] = [];
-
-      // Rate Limiter import
-      const { safeCSERequest } = await import('../utils/google-cse-rate-limiter');
-
-      for (const query of searchQueries) {
-        try {
-          // Rate Limiter를 통한 안전한 요청 (낮은 우선순위로 비동기 처리)
-          const data = await safeCSERequest<{ items?: any[] }>(
-            query,
-            async () => {
-              const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${googleCseKey}&cx=${googleCseCx}&q=${encodeURIComponent(query)}&num=${maxResults}`;
-
-              // 타임아웃 설정 (15초로 단축 - 성능 최적화)
-              const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-              try {
-                const response = await fetch(searchUrl, {
-                  signal: controller.signal
-                });
-                clearTimeout(timeoutId);
-
-                if (!response.ok) {
-                  throw new Error(`HTTP ${response.status}`);
-                }
-
-                return await response.json() as { items?: any[] };
-              } catch (error: any) {
-                clearTimeout(timeoutId);
-                if (error.name === 'AbortError') {
-                  throw new Error('타임아웃');
-                }
-                throw error;
-              }
-            },
-            { useCache: true, priority: 'low' }
-          );
-
-          if (!data?.items) continue;
-          console.log(`[CSE-DEBUG] "${query}" → ${data.items.length}개 items`);
-
-          for (const item of data.items) {
-            let blogContent: CrawledContent | null = null;
-            // 1차: 실제 페이지 fetch (성공 시 풍부한 콘텐츠)
-            try {
-              blogContent = await this.crawlBlogContent(item.link, topic, keywords);
-            } catch (error) {
-              // 조용히 실패 → snippet 폴백으로
-            }
-            // v3.8.330 폴백: 페이지 fetch 실패 시 CSE snippet 사용 (Grounding 폴백 방지)
-            if (!blogContent) {
-              const snippet = String(item.snippet || item.htmlSnippet || '').replace(/<\/?[^>]+>/g, '').trim();
-              const cseTitle = String(item.title || '').replace(/<\/?[^>]+>/g, '').trim();
-              if (snippet || cseTitle) {
-                blogContent = {
-                  title: cseTitle || topic,
-                  url: item.link || '',
-                  content: snippet || cseTitle,
-                  subheadings: [],
-                  source: 'cse-snippet',
-                } as any;
-                console.log(`[CSE-DEBUG] 📄 snippet 폴백 (${snippet.length}자): ${cseTitle.slice(0, 40)}`);
-              }
-            }
-            if (blogContent) contents.push(blogContent);
-          }
-        } catch (error: any) {
-          // Rate Limiter가 429 오류를 처리하므로 여기서는 로그만 남김
-          if (error.message?.includes('Rate Limit') || error.message?.includes('할당량')) {
-            console.warn(`[CSE] ${error.message}: ${query}`);
-          } else {
-            console.log(`[CSE] 검색 실패: ${error.message || error}`);
-          }
-          continue;
-        }
-      }
-
-      console.log(`[CSE] 크롤링 완료: ${contents.length}개 글 수집`);
-      return contents;
-
-    } catch (error) {
-      console.error('[CSE] CSE 크롤링 실패:', error);
-      return [];
-    }
-  }
+  // v3.8.555: crawlFromCSE 삭제 — Google CSE 는 신규 발급 불가 + 2027-01-01 종료.
+  //   같은 자리를 네이버 웹문서(crawlFromNaverWeb)가 이미 맡고 있다.
 
   /**
    * 개별 블로그 내용 크롤링
@@ -2170,8 +2029,7 @@ export async function crawlAndMixContent(
     geminiKey?: string;
     naverClientId?: string;
     naverClientSecret?: string;
-    googleCseKey?: string;
-    googleCseCx?: string;
+    // v3.8.555: googleCseKey/googleCseCx 제거
     provider?: 'openai' | 'gemini';
     enableMassCrawling?: boolean; // 새로운 옵션
     manualCrawlUrls?: string[]; // 수동 크롤링 링크
@@ -2182,8 +2040,7 @@ export async function crawlAndMixContent(
     geminiKey,
     naverClientId,
     naverClientSecret,
-    googleCseKey,
-    googleCseCx,
+
     enableMassCrawling = true, // 기본값 true
     manualCrawlUrls = [] // 수동 크롤링 링크
   } = options;
@@ -2198,12 +2055,10 @@ export async function crawlAndMixContent(
   if (enableMassCrawling && naverClientId && naverClientSecret) {
     try {
       console.log(`[CRAWLER] 🚀 대량 크롤링 시스템 초기화...`);
-      console.log(`[CRAWLER] 🔑 API 키 확인: Naver=${!!naverClientId && !!naverClientSecret}, Google CSE=${!!googleCseKey && !!googleCseCx}`);
+      console.log(`[CRAWLER] 🔑 API 키 확인: Naver=${!!naverClientId && !!naverClientSecret}`);
       crawler.initializeMassCrawler(
         naverClientId,
-        naverClientSecret,
-        googleCseKey || undefined,
-        googleCseCx || undefined
+        naverClientSecret
       );
 
       // 다중 키워드 대량 크롤링 사용
@@ -2286,17 +2141,7 @@ export async function crawlAndMixContent(
       return [];
     }),
 
-    // CSE 크롤링 (API 키가 있을 때만 실행)
-    (googleCseKey && googleCseCx) ? crawler.crawlFromCSE({
-      topic,
-      keywords,
-      maxResults: 30, // 성능 최적화: 50 -> 30으로 감소
-      googleCseKey,
-      googleCseCx
-    }).catch(error => {
-      console.log(`[CRAWLER] ❌ CSE 실패: ${error}`);
-      return [];
-    }) : Promise.resolve([])
+    // v3.8.555: CSE 갈래 삭제 — 네이버 웹문서(webkr)가 같은 자리를 맡는다
   ];
 
   // 모든 크롤링 병렬 실행 (최대 45초 대기 - 성능 최적화: 1분 이내)

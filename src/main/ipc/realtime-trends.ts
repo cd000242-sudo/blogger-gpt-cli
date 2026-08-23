@@ -1,6 +1,8 @@
 // @ts-nocheck
 // 실시간 트렌드 IPC 핸들러
 import { ipcMain, app } from 'electron';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../../core/naver-search-client';
 import * as path from 'path';
 import * as fs from 'fs';
 import axios from 'axios';
@@ -1500,21 +1502,11 @@ export function setupRealtimeTrendsHandlers() {
               const [blogResult, volumeResult] = await Promise.allSettled([
                 // 1. 블로그 검색 API (문서수)
                 (async () => {
-                  const blogApiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-                  const blogParams = new URLSearchParams({ query: refinedKeyword, display: '1' });
-                  const blogResponse = await fetch(`${blogApiUrl}?${blogParams}`, {
-                    headers: {
-                      'X-Naver-Client-Id': naverClientId,
-                      'X-Naver-Client-Secret': naverClientSecret
-                    }
-                  });
+                  // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+                  const blogResponse = await naverSearch('blog',
+                    { query: refinedKeyword, display: 1 }, { payload: { naverClientId, naverClientSecret } });
                   if (blogResponse.ok) {
-                    const blogData = await blogResponse.json();
-                    const rawTotal = (blogData as any)?.total;
-                    const total = typeof rawTotal === 'number'
-                      ? rawTotal
-                      : (typeof rawTotal === 'string' ? parseInt(rawTotal, 10) : null);
-                    return total;
+                    return blogResponse.total;
                   }
                   return null;
                 })(),
@@ -1618,17 +1610,11 @@ export function setupRealtimeTrendsHandlers() {
               // 🚀 병렬 실행
               const [blogRes, volRes] = await Promise.allSettled([
                 (async () => {
-                  const blogApiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-                  const blogParams = new URLSearchParams({ query: refinedKeyword, display: '1' });
-                  const resp = await fetch(`${blogApiUrl}?${blogParams}`, {
-                    headers: { 'X-Naver-Client-Id': naverClientId, 'X-Naver-Client-Secret': naverClientSecret }
-                  });
+                  // v3.8.554: 창구 경유
+                  const resp = await naverSearch('blog',
+                    { query: refinedKeyword, display: 1 }, { payload: { naverClientId, naverClientSecret } });
                   if (resp.ok) {
-                    const data = await resp.json();
-                    const rawTotal = (data as any)?.total;
-                    return typeof rawTotal === 'number'
-                      ? rawTotal
-                      : (typeof rawTotal === 'string' ? parseInt(rawTotal, 10) : null);
+                    return resp.total;
                   }
                   return null;
                 })(),
@@ -1722,17 +1708,11 @@ export function setupRealtimeTrendsHandlers() {
                 // 🚀 병렬 실행
                 const [blogRes2, volRes2] = await Promise.allSettled([
                   (async () => {
-                    const blogApiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-                    const blogParams = new URLSearchParams({ query: refinedKeyword, display: '1' });
-                    const resp = await fetch(`${blogApiUrl}?${blogParams}`, {
-                      headers: { 'X-Naver-Client-Id': naverClientId2, 'X-Naver-Client-Secret': naverClientSecret2 }
-                    });
+                    // v3.8.554: 창구 경유 (이 자리는 두 번째 키 조합을 쓴다)
+                    const resp = await naverSearch('blog', { query: refinedKeyword, display: 1 },
+                      { payload: { naverClientId: naverClientId2, naverClientSecret: naverClientSecret2 } });
                     if (resp.ok) {
-                      const data = await resp.json();
-                      const rawTotal = (data as any)?.total;
-                      return typeof rawTotal === 'number'
-                        ? rawTotal
-                        : (typeof rawTotal === 'string' ? parseInt(rawTotal, 10) : null);
+                      return resp.total;
                     }
                     return null;
                   })(),
@@ -1796,18 +1776,10 @@ export function setupRealtimeTrendsHandlers() {
               try {
                 // 1. 네이버 블로그 API로 문서수 조회
                 if (naverClientId && naverClientSecret) {
-                  const blogResponse = await axios.get('https://openapi.naver.com/v1/search/blog.json', {
-                    params: { query: keyword, display: 1 },
-                    headers: {
-                      'X-Naver-Client-Id': naverClientId,
-                      'X-Naver-Client-Secret': naverClientSecret
-                    },
-                    timeout: 5000
-                  });
-                  const rawTotal = (blogResponse as any)?.data?.total;
-                  documentCount = typeof rawTotal === 'number'
-                    ? rawTotal
-                    : (typeof rawTotal === 'string' ? parseInt(rawTotal, 10) : null);
+                  // v3.8.554: 창구 경유
+                  const blogResponse = await naverSearch('blog', { query: keyword, display: 1 },
+                    { payload: { naverClientId, naverClientSecret }, timeoutMs: 5000 });
+                  documentCount = blogResponse.ok ? blogResponse.total : null;
                   console.log(`[LITE-API] "${keyword}" 문서수: ${typeof documentCount === 'number' ? documentCount.toLocaleString() : 'null'}`);
                 }
               } catch (e: any) {
@@ -2157,15 +2129,10 @@ export function setupRealtimeTrendsHandlers() {
               try {
                 // 1. 네이버 블로그 API로 문서수 조회
                 if (naverClientId && naverClientSecret) {
-                  const blogResponse = await axios.get('https://openapi.naver.com/v1/search/blog.json', {
-                    params: { query: keyword, display: 1 },
-                    headers: {
-                      'X-Naver-Client-Id': naverClientId,
-                      'X-Naver-Client-Secret': naverClientSecret
-                    },
-                    timeout: 5000
-                  });
-                  documentCount = blogResponse.data?.total || 0;
+                  // v3.8.554: 창구 경유
+                  const blogResponse = await naverSearch('blog', { query: keyword, display: 1 },
+                    { payload: { naverClientId, naverClientSecret }, timeoutMs: 5000 });
+                  documentCount = blogResponse.ok ? blogResponse.total : 0;
                 }
               } catch (e: any) {
                 console.warn(`[LITE-API] "${keyword}" 문서수 조회 실패:`, e.message);

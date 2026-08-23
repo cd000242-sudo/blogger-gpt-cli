@@ -91,7 +91,13 @@ describe('배선', () => {
 
   it('webkr 이 병렬 수집에 들어간다', () => {
     expect(crawler).toContain('async crawlFromNaverWeb');
-    expect(crawler).toContain('search/webkr.json');
+    /**
+     * v3.8.554 — 앵커 현행화. 불변식("webkr 로 수집한다")은 그대로다.
+     * 네이버 호출이 전부 단일 창구(naver-search-client)를 지나게 바뀌면서
+     * URL 문자열을 크롤러가 더 이상 만들지 않는다 — 창구가 만든다.
+     * 그래서 URL 리터럴 대신 **창구에 webkr 을 요청하는지**를 본다.
+     */
+    expect(crawler).toContain("naverSearch('webkr'");
     expect(orchestration).toContain('crawler.crawlFromNaverWeb(crawlerConfig)');
   });
 
@@ -100,8 +106,14 @@ describe('배선', () => {
     expect(crawler).toContain('contents.sort(');
   });
 
-  it('CSE 가 빈손일 때만 웹문서 기관 근거로 채운다 (CSE 결과를 덮지 않는다)', () => {
-    expect(orchestration).toContain("if (!officialBlock && contentMode !== 'shopping')");
-    expect(orchestration).toContain('buildOfficialSourcesFromWeb');
+  /**
+   * v3.8.555 — 이 파일이 예상했던 날이 왔다.
+   * 머리 주석에 적힌 대로 CSE 를 걷어냈고, 웹문서가 **폴백이 아니라 주 경로**다.
+   * 추가 호출도 추가 키도 없다 — 병렬 수집이 이미 가져온 결과를 재사용한다.
+   */
+  it('웹문서 기관 근거가 주 경로다 (CSE 폴백이 아니라)', () => {
+    expect(orchestration).toContain('buildOfficialSourcesFromWeb(crawledPosts as any)');
+    expect(orchestration).toContain("if (contentMode !== 'shopping') {");
+    expect(orchestration).not.toContain('collectOfficialSources(');
   });
 });

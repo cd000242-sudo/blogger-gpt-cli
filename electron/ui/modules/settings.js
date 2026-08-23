@@ -1,7 +1,8 @@
 // 🔧 설정 관리 관련 함수들
 import { getErrorHandler, getStorageManager, addLog, debugLog } from './core.js';
 
-function normalizePlatformValue(value, fallback = 'blogger') {
+// v3.8.548: 알 수 없는 값일 때의 기본값도 WordPress (사장님 지시)
+function normalizePlatformValue(value, fallback = 'wordpress') {
   const platform = String(value || '').toLowerCase().trim();
   if (platform === 'blogspot') return 'blogger';
   if (platform === 'blogger' || platform === 'wordpress' || platform === 'tistory') return platform;
@@ -45,7 +46,7 @@ function hasWordPressSettings(source = {}) {
   );
 }
 
-function resolvePlatformValue(saved = {}, env = {}, fallback = 'blogger') {
+function resolvePlatformValue(saved = {}, env = {}, fallback = 'wordpress') {
   const savedRaw = pickSettingValue(saved, ['platform', 'PLATFORM', 'blogPlatform', 'BLOG_PLATFORM']);
   if (savedRaw) return normalizePlatformValue(savedRaw, fallback);
 
@@ -111,7 +112,9 @@ export async function loadSettings() {
   const envSettings = await loadEnvSettingsForRecovery();
   const originalPlatform = settings.platform;
   settings = restoreBloggerAliases(settings, envSettings);
-  settings.platform = resolvePlatformValue(settings, envSettings, 'blogger');
+  // v3.8.548: 아무 단서도 없을 때의 기본값을 WordPress 로 (사장님 지시).
+  //   저장값·.env·연동 설정 유무가 먼저 판정되므로, 이 값은 첫 실행에서만 쓰인다.
+  settings.platform = resolvePlatformValue(settings, envSettings, 'wordpress');
   console.log('[LOAD] 플랫폼 설정:', { original: originalPlatform || '(empty)', normalized: settings.platform });
 
   if ((!hadStoredSettings || !hadStoredPlatform) && (hasBloggerSettings(settings) || hasWordPressSettings(settings))) {
@@ -150,8 +153,7 @@ export async function saveSettings() {
     blogId: document.getElementById('blogId')?.value || '',
     googleClientId: document.getElementById('googleClientId')?.value || '',
     googleClientSecret: document.getElementById('googleClientSecret')?.value || '',
-    googleCseKey: document.getElementById('googleCseKey')?.value || '',
-    googleCseCx: document.getElementById('googleCseCx')?.value || '',
+    // v3.8.555: Google CSE 제거 (신규 발급 불가 · 2027-01-01 종료)
     youtubeApiKey: document.getElementById('youtubeApiKey')?.value || '',
     wordpressSiteUrl: document.getElementById('wordpressSiteUrl')?.value || '',
     wordpressUsername: document.getElementById('wordpressUsername')?.value || '',
@@ -160,7 +162,8 @@ export async function saveSettings() {
     tistoryBlogName: document.getElementById('tistoryBlogName')?.value || '',
     tistoryDefaultCategory: document.getElementById('tistoryDefaultCategory')?.value || '',
     tistoryDefaultVisibility: document.getElementById('tistoryDefaultVisibility')?.value || 'private',
-    platform: document.querySelector('input[name="platform"]:checked')?.value || 'blogger',
+    // v3.8.548: 라디오가 하나도 안 켜져 있을 때의 기본값도 WordPress (사장님 지시)
+    platform: document.querySelector('input[name="platform"]:checked')?.value || 'wordpress',
     primaryGeminiTextModel: document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value || 'gemini-2.5-flash',
     generationEngine: (() => {
       // 🔥 환경설정의 primaryGeminiTextModel 라디오를 단일 진실 소스로 사용
@@ -219,8 +222,6 @@ export async function saveSettings() {
         tistoryBlogName: settings.tistoryBlogName,
         tistoryDefaultCategory: settings.tistoryDefaultCategory,
         tistoryDefaultVisibility: settings.tistoryDefaultVisibility,
-        googleCseKey: settings.googleCseKey,
-        googleCseCx: settings.googleCseCx,
         geminiKey: settings.geminiKey,
         pexelsApiKey: settings.pexelsApiKey,
         stabilityApiKey: settings.stabilityApiKey,
@@ -282,7 +283,7 @@ export async function saveSettings() {
   }
 
   // 저장된 플랫폼으로 라디오 버튼 명시적으로 업데이트
-  const savedPlatform = settings.platform || 'blogger';
+  const savedPlatform = settings.platform || 'wordpress';   // v3.8.548
   const platformBloggerEl = document.getElementById('platform-blogger');
   const platformWordpressEl = document.getElementById('platform-wordpress');
   const platformTistoryEl = document.getElementById('platform-tistory');
@@ -338,8 +339,6 @@ export function updateApiKeyStatus(settings) {
       'Gemini': settings.geminiKey || '',
       '네이버 데이터랩 ID': settings.naverCustomerId || settings.naverClientId || '',
       '네이버 데이터랩 Secret': settings.naverSecretKey || settings.naverClientSecret || '',
-      'Google CSE Key': settings.googleCseKey || '',
-      'Google CSE CX': settings.googleCseCx || '',
       'Pexels API': settings.pexelsApiKey || '',
       'DALL-E API': settings.dalleApiKey || settings.openaiKey || ''
     };
@@ -383,14 +382,14 @@ export function updateApiKeyStatus(settings) {
 
 // 플랫폼 상태 업데이트
 export async function updatePlatformStatus() {
-  let platform = 'blogger';
+  let platform = 'wordpress';   // v3.8.548: 기본값 WordPress
 
   try {
     const settings = await loadSettings();
     platform = normalizePlatformValue(settings?.platform);
   } catch (error) {
     console.warn('[PLATFORM-STATUS] 설정 로드 실패, 기본값 사용:', error);
-    platform = 'blogger';
+    platform = 'wordpress';
   }
 
   const statusBadge = document.getElementById('platformStatus');
@@ -668,7 +667,15 @@ export function applyTextModelRadio(settings) {
   return true;
 }
 
-export async function loadSettingsContent() {
+/**
+ * @param {{ skipPlatformRadio?: boolean }} [options]
+ *   skipPlatformRadio — v3.8.548 시작 시 사전 채우기용.
+ *   시작 경로는 이미 selectPlatform() 으로 플랫폼을 확정해 놓는다(main.js 6-2).
+ *   여기서 300ms 뒤에 저장값으로 한 번 더 덮으면, 그 사이 사장님이 배지로 바꾼 선택이
+ *   되돌아가는 창이 생긴다. 모달을 열어 부를 때는 지금까지처럼 그대로 다시 맞춘다.
+ */
+export async function loadSettingsContent(options = {}) {
+  const skipPlatformRadio = options.skipPlatformRadio === true;
   debugLog('SETTINGS', '설정 내용 로드 시작');
 
   const modalBody = document.getElementById('settingsModalBody');
@@ -695,7 +702,7 @@ export async function loadSettingsContent() {
 
   // 설정 병합 (env가 우선, 단 플랫폼은 savedSettings 우선)
   const mergedSettings = { ...savedSettings, ...envSettings };
-  const resolvedPlatform = resolvePlatformValue(savedSettings, envSettings, 'blogger');
+  const resolvedPlatform = resolvePlatformValue(savedSettings, envSettings, 'wordpress');   // v3.8.548
   Object.assign(mergedSettings, restoreBloggerAliases(mergedSettings, envSettings));
 
   /**
@@ -745,8 +752,6 @@ export async function loadSettingsContent() {
         // v3.8.526 — 저장했으면 다시 열었을 때도 보여야 한다 (안 채우면 빈 칸으로 보여 또 입력하게 된다)
         'naverApiHubKeyId': pickSettingValue(mergedSettings, ['naverApiHubKeyId', 'NAVER_API_HUB_KEY_ID', 'naverHubKeyId']),
         'naverApiHubKey': pickSettingValue(mergedSettings, ['naverApiHubKey', 'NAVER_API_HUB_KEY', 'naverHubKey']),
-        'googleCseKey': mergedSettings.googleCseKey || mergedSettings.cseKey || mergedSettings.googleApiKey || '',
-        'googleCseCx': mergedSettings.googleCseCx || mergedSettings.cseCx || mergedSettings.googleCseId || '',
         'blogId': pickSettingValue(mergedSettings, ['blogId', 'bloggerId', 'BLOG_ID', 'BLOGGER_ID', 'GOOGLE_BLOG_ID', 'BLOGGER_BLOG_ID']),
         'googleClientId': pickSettingValue(mergedSettings, ['googleClientId', 'clientId', 'GOOGLE_CLIENT_ID', 'BLOGGER_CLIENT_ID']),
         'googleClientSecret': pickSettingValue(mergedSettings, ['googleClientSecret', 'clientSecret', 'GOOGLE_CLIENT_SECRET', 'BLOGGER_CLIENT_SECRET']),
@@ -783,14 +788,17 @@ export async function loadSettingsContent() {
       // 플랫폼 선택: 사용자가 원하는 것은 앱 시작 시 WordPress가 기본값이므로,
       // 모달을 열 때 저장된 값이 명시적으로 'blogger'인 경우에만 Blogger 표시
       // 그 외에는 항상 WordPress를 기본값으로 표시
-      const platformToShow = mergedSettings.platform || resolvedPlatform || 'blogger';
+      const platformToShow = mergedSettings.platform || resolvedPlatform || 'wordpress';
       console.log('🔧 플랫폼 설정 (모달 라디오 버튼):', platformToShow, '(저장된 값:', savedSettings?.platform, ')');
 
       const platformBloggerEl = document.getElementById('platform-blogger');
       const platformWordpressEl = document.getElementById('platform-wordpress');
       const platformTistoryEl = document.getElementById('platform-tistory');
 
-      if (platformBloggerEl && platformWordpressEl) {
+      // v3.8.548: 시작 시 사전 채우기에서는 라디오를 건드리지 않는다 (위 주석 참조)
+      if (skipPlatformRadio) {
+        console.log('⏭️ 플랫폼 라디오는 시작 복원값을 유지합니다 (사전 채우기)');
+      } else if (platformBloggerEl && platformWordpressEl) {
         // 저장된 값이 명시적으로 'blogger'인 경우에만 Blogger 표시
         if (platformToShow === 'blogger') {
           platformBloggerEl.checked = true;
@@ -882,22 +890,7 @@ export async function checkPlatformConnection() {
   }
 }
 
-// CSE 연동 확인
-export async function checkCseConnection() {
-  try {
-    const settings = await loadSettings();
-
-    if (!settings.googleCseKey || !settings.googleCseCx) {
-      alert('❌ CSE 연동이 필요합니다.\n\n환경설정에서 구글 맞춤 검색 API 키와 검색 엔진 ID를 입력해주세요.');
-      return;
-    }
-
-    alert('✅ CSE 설정이 저장되어 있습니다.\n\nAPI 키: ' + settings.googleCseKey.substring(0, 10) + '...\n검색 엔진 ID: ' + settings.googleCseCx.substring(0, 10) + '...');
-  } catch (error) {
-    console.error('❌ CSE 연동 확인 오류:', error);
-    alert('❌ CSE 연동 확인 중 오류가 발생했습니다: ' + error.message);
-  }
-}
+// v3.8.555: checkCseConnection 삭제 — CSE 칸도 호출도 없어졌다
 
 // 🔥 Blogger OAuth2 인증 시작 (로컬 서버 기반 - OOB deprecated 대응)
 export async function startBloggerOAuth() {

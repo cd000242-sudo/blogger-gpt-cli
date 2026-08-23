@@ -95,7 +95,8 @@ describe('배선', () => {
 
   it('블로그 검색이 최신순을 섞는다 (유사도 단독 금지)', () => {
     expect(crawler).toContain('mergeRecentBlogItems');
-    expect(crawler).toContain('sort=date');
+    // v3.8.553: 직접 URL 조립 → 단일 창구(naverSearch) 호출. 앵커만 현행화한다.
+    expect(crawler).toContain("sort: 'date'");
   });
 
   it('최신순 호출이 실패해도 유사도 결과로 계속한다', () => {
@@ -104,7 +105,8 @@ describe('배선', () => {
       crawler.indexOf('private async mergeRecentBlogItems') + 2200,
     );
     expect(fn).toContain('if (recent.length === 0) return sim.slice(0, maxResults)');
-    expect(fn).toContain('AbortSignal.timeout(8000)');
+    // v3.8.553: 타임아웃은 창구 옵션으로 넘긴다(AbortSignal 조립은 창구가 한다).
+    expect(fn).toContain('timeoutMs: 8000');
   });
 
   it('최신을 앞에 둔다 — 프롬프트가 잘려도 살아남아야 한다', () => {

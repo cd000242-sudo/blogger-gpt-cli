@@ -4,6 +4,8 @@
  */
 
 import { getNaverKeywordSearchVolumeSeparate } from './naver-datalab-api';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../core/naver-search-client';
 import { searchNaverWithApi } from '../naver-crawler';
 import { EnvironmentManager } from './environment-manager';
 
@@ -74,25 +76,10 @@ export async function validateKeyword(
       
       // 직접 API로 total 가져오기 시도
       try {
-        const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-        const params = new URLSearchParams({
-          query: keyword,
-          display: '1',
-          start: '1',
-          sort: 'sim'
-        });
-        
-        const response = await fetch(`${apiUrl}?${params}`, {
-          headers: {
-            'X-Naver-Client-Id': clientId,
-            'X-Naver-Client-Secret': clientSecret
-          }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          documentCount = parseInt(data.total || '0');
-        }
+        // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+        const res = await naverSearch('blog', { query: keyword, display: 1, start: 1, sort: 'sim' },
+          { payload: { naverClientId: clientId, naverClientSecret: clientSecret } });
+        if (res.ok) documentCount = res.total;
       } catch (e) {
         // 실패해도 계속 진행
       }

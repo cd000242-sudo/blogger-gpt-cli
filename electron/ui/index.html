@@ -861,7 +861,6 @@
               <span id="status-gemini" style="display:none;">⚪</span>
               <span id="status-platform" style="display:none;">⚪</span>
               <span id="status-naver" style="display:none;">⚪</span>
-              <span id="status-cse" style="display:none;">⚪</span>
               <span id="status-openai" style="display:none;">⚪</span>
               <span id="status-pexels" style="display:none;">⚪</span>
               <span id="status-stability" style="display:none;">⚪</span>
@@ -1363,34 +1362,7 @@
                     </small>
                   </div>
 
-                  <!-- Google CSE API Key -->
-                  <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 10px;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                       <span style="font-size: 18px;">🟡</span>
-                       <label style="font-weight: 700; color: rgba(255,255,255,0.9); font-size: 14px;">Google CSE API Key</label>
-                    </div>
-                    <div style="position: relative; width: 100%;">
-                      <input type="password" id="googleCseKey" placeholder="AIza..."
-                        style="width: 100%; padding: 14px 44px 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box; transition: all 0.3s;"
-                        onfocus="this.style.borderColor='rgba(234, 179, 8, 0.5)'; this.style.background='rgba(0,0,0,0.4)'; this.style.boxShadow='0 0 0 3px rgba(234, 179, 8, 0.15)';"
-                        onblur="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(0,0,0,0.2)'; this.style.boxShadow='none';">
-                      <button onclick="togglePasswordVisibility(this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: rgba(255,255,255,0.4); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px; transition: all 0.2s;" onmouseover="this.style.color='white'; this.style.background='rgba(255,255,255,0.1)';" onmouseout="this.style.color='rgba(255,255,255,0.4)'; this.style.background='transparent';"><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path><circle cx='12' cy='12' r='3'></circle></svg></button>
-                    </div>
-                  </div>
-
-                  <!-- Google CSE ID -->
-                  <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 10px;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                       <span style="font-size: 18px;">🟡</span>
-                       <label style="font-weight: 700; color: rgba(255,255,255,0.9); font-size: 14px;">Google CSE ID (CX)</label>
-                    </div>
-                    <div style="position: relative; width: 100%;">
-                      <input type="text" id="googleCseCx" placeholder="검색엔진 ID"
-                        style="width: 100%; padding: 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box; transition: all 0.3s;"
-                        onfocus="this.style.borderColor='rgba(234, 179, 8, 0.5)'; this.style.background='rgba(0,0,0,0.4)'; this.style.boxShadow='0 0 0 3px rgba(234, 179, 8, 0.15)';"
-                        onblur="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(0,0,0,0.2)'; this.style.boxShadow='none';">
-                    </div>
-                  </div>
+                  <!-- v3.8.555: Google CSE 키·ID 칸 삭제 (신규 발급 불가 · 2027-01-01 종료) -->
                 </div>
               </div>
 
@@ -1427,7 +1399,11 @@
                     <span style="font-size: 32px;" id="platformIcon">🅱️</span>
                     <div>
                       <div style="font-weight: 700; color: #1e293b; font-size: 18px;" id="platformName">Blogger</div>
-                      <div style="font-size: 13px; color: #92400e;" id="platformStatus">Google 블로그 플랫폼</div>
+                      <!-- v3.8.544: id 를 platformStatus 에서 분리. 헤더 배지(457줄)와 id 가 같아서
+                           getElementById 가 항상 헤더 배지를 집었다 — 설정 박스용 설명("Google 블로그
+                           플랫폼", "✅ 연동 확인됨")이 헤더 배지 글자를 덮어쓰고, 정작 이 줄은 영영
+                           안 바뀌었다. 사장님이 본 "배지가 이상하게 뜬다"의 한 갈래. -->
+                      <div style="font-size: 13px; color: #92400e;" id="platformStatusDesc">Google 블로그 플랫폼</div>
                     </div>
                   </div>
                   <button id="testPlatformBtn" onclick="testPlatformConnection()"
@@ -1438,10 +1414,12 @@
 
               <!-- 플랫폼 선택 -->
               <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
-                <!-- v3.8.23: 기본 플랫폼 Blogger — 진한 노랑 강조 (선택 상태) -->
+                <!-- v3.8.548: 기본 플랫폼을 WordPress 로 (사장님 지시). 저장된 선택이 있으면
+                     시작 직후 main.js 6-2 가 selectPlatform() 으로 그 값을 복원하므로,
+                     이 하드코딩 기본값은 "아무 단서도 없는 첫 실행"에서만 쓰인다. -->
                 <div id="blogger-select-box" onclick="selectPlatform('blogger')"
-                  style="padding: 20px; border: 3px solid #f59e0b; border-radius: 12px; cursor: pointer; background: linear-gradient(135deg, #fff176 0%, #fbbf24 48%, #f59e0b 100%); transition: all 0.25s; box-shadow: 0 16px 42px rgba(245, 158, 11, 0.48), 0 0 0 4px rgba(251, 191, 36, 0.20); transform: scale(1.03); opacity: 1;">
-                  <input type="radio" name="platform" id="platform-blogger" value="blogger" checked style="display: none;">
+                  style="padding: 20px; border: 2px solid #f59e0b; border-radius: 12px; cursor: pointer; background: linear-gradient(135deg, #fff176 0%, #fbbf24 48%, #f59e0b 100%); transition: all 0.25s; opacity: 0.62; filter: saturate(0.88) brightness(0.9);">
+                  <input type="radio" name="platform" id="platform-blogger" value="blogger" style="display: none;">
                   <div style="text-align: center; pointer-events: none;">
                     <div style="font-size: 40px; margin-bottom: 8px;">🅱️</div>
                     <div style="font-weight: 800; color: #78350f; font-size: 17px;">Blogger</div>
@@ -1449,8 +1427,8 @@
                   </div>
                 </div>
                 <div id="wordpress-select-box" onclick="selectPlatform('wordpress')"
-                  style="padding: 20px; border: 2px solid #38bdf8; border-radius: 12px; cursor: pointer; background: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 48%, #2563eb 100%); transition: all 0.25s; opacity: 0.62; filter: saturate(0.88) brightness(0.9);">
-                  <input type="radio" name="platform" id="platform-wordpress" value="wordpress"
+                  style="padding: 20px; border: 3px solid #2563eb; border-radius: 12px; cursor: pointer; background: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 48%, #2563eb 100%); transition: all 0.25s; box-shadow: 0 16px 42px rgba(37, 99, 235, 0.48), 0 0 0 4px rgba(59, 130, 246, 0.20); transform: scale(1.03); opacity: 1;">
+                  <input type="radio" name="platform" id="platform-wordpress" value="wordpress" checked
                     style="display: none;">
                   <div style="text-align: center; pointer-events: none;">
                     <div style="font-size: 40px; margin-bottom: 8px;">🌐</div>
@@ -2450,7 +2428,7 @@
         function updatePlatformStatusBox(platform) {
           const icon = document.getElementById('platformIcon');
           const name = document.getElementById('platformName');
-          const status = document.getElementById('platformStatus');
+          const status = document.getElementById('platformStatusDesc');
           const box = document.getElementById('platformStatusBox');
 
           if (platform === 'blogger') {
@@ -2494,8 +2472,7 @@
             'status-openai': checkValue('openaiKey') ? '✅' : '⚪',
             'status-pexels': checkValue('pexelsApiKey') ? '✅' : '⚪',
             'status-stability': checkValue('stabilityApiKey') ? '✅' : '⚪',
-            'status-naver': checkValue('naverCustomerId') ? '✅' : '⚪',
-            'status-cse': checkValue('googleCseKey') ? '✅' : '⚪'
+            'status-naver': checkValue('naverCustomerId') ? '✅' : '⚪'
           };
 
           Object.entries(indicators).forEach(([id, status]) => {
@@ -2621,7 +2598,7 @@
             // 실제 연동 테스트 로직
             await new Promise(resolve => setTimeout(resolve, 1500));
 
-            const status = document.getElementById('platformStatus');
+            const status = document.getElementById('platformStatusDesc');
             if (status) status.textContent = '✅ 연동 확인됨';
             btn.textContent = '✅ 연동됨';
           } catch (e) {
@@ -2957,26 +2934,8 @@
           <!-- v3.8.340: 시작하기 배너 삭제 -->
           <!-- v3.8.344: 메인에 잘못 배치한 준비 상태 카드 삭제 (사용자 재정정 — 환경설정 원클릭 탭 안에 있어야 함) -->
 
-          <!-- v3.8.347: 오늘의 리더남 황금키워드 대형 배너 (상단 빈 공간 활용, 사용자 요청) -->
-          <div style="background: linear-gradient(135deg, rgba(251,191,36,0.10) 0%, rgba(217,119,6,0.06) 50%, rgba(139,92,246,0.06) 100%); border: 1px solid rgba(251,191,36,0.32); border-radius: 16px; padding: 18px 22px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 26px;">🥇</span>
-                <div>
-                  <h3 style="margin: 0; color: #fbbf24; font-size: 16px; font-weight: 900; letter-spacing: -0.02em;">오늘의 리더남 황금키워드</h3>
-                  <div id="golden-report-date" style="margin-top: 2px; font-size: 11px; color: rgba(226,232,240,0.55);">관리자가 매일 업데이트합니다</div>
-                </div>
-              </div>
-              <button id="golden-keyword-edit-btn" onclick="openGoldenKeywordEditor()" style="padding: 7px 14px; background: rgba(251,191,36,0.14); border: 1px solid rgba(251,191,36,0.38); color: #fde68a; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap;">🔒 관리자 편집</button>
-            </div>
-            <div id="golden-keyword-items" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
-              <div style="grid-column: 1 / -1; padding: 24px; text-align: center; color: #64748b; font-size: 13px;">
-                <div style="font-size: 28px; margin-bottom: 8px;">🥇</div>
-                관리자가 등록하면 여기에 키워드가 표시됩니다
-              </div>
-            </div>
-          </div>
-
+          <!-- v3.8.551: "오늘의 리더남 황금키워드" 대형 배너 삭제 (사장님 지시).
+               헤더의 [황금키워드 보러가기] 버튼과 관리자 편집기는 그대로 둔다. -->
           <!-- v3.8.350: 통계 카드 별도 행 삭제 → 스케줄 헤더 안 왼쪽으로 이동 (아래 스케줄 카드 참고) -->
 
           <!-- 3. 메인 수평 레이아웃 (최근발행 좌측, 캘린더 우측) -->
@@ -5310,37 +5269,8 @@ https://toss.im/_m/XXXXXXX"
                 </div>
               </div>
 
-              <!-- Google CSE 설정 -->
-              <div style="border-top: 2px solid rgba(255, 255, 255, 0.2); padding-top: 20px;">
-                <h3
-                  style="color: white; font-size: 18px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="11" cy="11" r="8"></circle>
-                    <path d="M21 21l-4.35-4.35"></path>
-                  </svg>
-                  Google 검색 설정
-                </h3>
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                  <div class="form-group">
-                    <label class="form-label" style="color: rgba(255, 255, 255, 0.9); font-weight: 600;">Google CSE
-                      Key</label>
-                    <input type="text" id="googleCseKey" class="form-input" placeholder="AIza..."
-                      style="background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); color: white; backdrop-filter: blur(10px);">
-                  </div>
-
-                  <div class="form-group">
-                    <label class="form-label" style="color: rgba(255, 255, 255, 0.9); font-weight: 600;">Google CSE
-                      CX</label>
-                    <input type="text" id="googleCseCx" class="form-input" placeholder="ab12cd34efg:xyz123"
-                      style="background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); color: white; backdrop-filter: blur(10px);">
-                  </div>
-                </div>
-
-                <small class="form-text" style="color: rgba(255, 255, 255, 0.7); margin-top: 8px; display: block;">
-                  할당량 초과 시 자동으로 AI 기반 폴백 검색이 작동합니다. (무료: 하루 100회)
-                </small>
-              </div>
+              <!-- v3.8.555: Google CSE 설정 칸 삭제 — 신규 발급 불가 + 2027-01-01 종료.
+                   검색 근거는 네이버 검색/웹문서가 전담합니다(아래 Naver API 설정). -->
 
               <!-- Naver API 설정 -->
               <div style="border-top: 2px solid rgba(255, 255, 255, 0.2); padding-top: 20px; margin-top: 20px;">
@@ -5392,7 +5322,7 @@ https://toss.im/_m/XXXXXXX"
                 </div>
 
                 <small class="form-text" style="color: rgba(255, 255, 255, 0.7); margin-top: 8px; display: block;">
-                  Google CSE 할당량 초과 시 네이버 검색으로 자동 폴백됩니다. (무료: 하루 25,000회)<br>
+                  네이버 검색 API 한 벌로 크롤링·데이터랩이 모두 돌아갑니다.<br>
                   <span style="color:#fbbf24;">2026년 개편</span> — 신규 발급은 네이버클라우드 <b>NAVER API HUB</b>(콘솔 → AI·NAVER API)입니다.<br>
                   <span style="color:#f87171;">⚠️ Application 등록 시 <b>서비스 선택</b>에서 <b>검색(웹검색·블로그·뉴스·지식iN)</b>과
                   <b>Search Trend(데이터랩)</b>를 전부 체크하세요.</span> 체크 안 한 서비스는 키가 맞아도 429로 거절됩니다.<br>
@@ -7420,7 +7350,7 @@ https://toss.im/_m/XXXXXXX"
       // v3.7.16: platformStatusBox 색상도 플랫폼별 변경 — Blogger 노랑 / WordPress 파랑
       const platformIcon = document.getElementById('platformIcon');
       const platformName = document.getElementById('platformName');
-      const platformStatus = document.getElementById('platformStatus');
+      const platformStatus = document.getElementById('platformStatusDesc'); // v3.8.544: 설정 박스 설명줄 (헤더 배지 아님)
       const platformStatusBox = document.getElementById('platformStatusBox');
       // v3.8.23: 상단 헤더 배지 색상 강화 — 진한 배경 그라데이션 + 두꺼운 테두리 + 강조 그림자
       /**
@@ -7487,10 +7417,14 @@ https://toss.im/_m/XXXXXXX"
       renderBloggerAccounts();
       refreshConnectionStatus();
       // v3.8.149: 페이지 로드 시 저장된 플랫폼으로 selectPlatform 자동 호출 (색상 즉시 반영)
+      // v3.8.548: 여기는 localStorage 만 본다 — .env 만 있고 저장값이 없으면 판정을 못 한다.
+      //   그 경우는 main.js 6-2 가 loadSettings() 로 .env 까지 보고 다시 확정한다.
+      //   기본값도 WordPress 로 맞춘다(사장님 지시) — 예전엔 여기서 'blogger' 로 못 박아
+      //   저장값이 없으면 무조건 Blogger 가 선택됐다.
       try {
         const raw = localStorage.getItem('bloggerSettings');
         const settings = raw ? JSON.parse(raw) : {};
-        const savedPlatform = settings.platform || 'blogger';
+        const savedPlatform = settings.platform || 'wordpress';
         const normalized = savedPlatform === 'blogspot' ? 'blogger' : savedPlatform;
         if (typeof window.selectPlatform === 'function') {
           window.selectPlatform(normalized);
@@ -7540,18 +7474,7 @@ https://toss.im/_m/XXXXXXX"
         if (naverText) naverText.textContent = '선택사항';
       }
 
-      // Google CSE 상태
-      const cseKey = document.getElementById('googleCseKey')?.value?.trim();
-      const cseCx = document.getElementById('googleCseCx')?.value?.trim();
-      const cseStatus = document.getElementById('status-cse');
-      const cseText = document.getElementById('status-cse-text');
-      if (cseKey && cseCx) {
-        if (cseStatus) cseStatus.textContent = '✅';
-        if (cseText) cseText.textContent = '연동됨';
-      } else {
-        if (cseStatus) cseStatus.textContent = '⚪';
-        if (cseText) cseText.textContent = '선택사항';
-      }
+      // v3.8.555: Google CSE 상태 표시 삭제 (칸·호출 모두 제거됨)
     }
 
     // 전역 스코프에 노출
@@ -7633,7 +7556,7 @@ https://toss.im/_m/XXXXXXX"
       // 헤더 상태박스 색상도 같이 변경
       const platformStatusBox = document.getElementById('platformStatusBox');
       const platformName = document.getElementById('platformName');
-      const platformStatus = document.getElementById('platformStatus');
+      const platformStatus = document.getElementById('platformStatusDesc'); // v3.8.544: 설정 박스 설명줄 (헤더 배지 아님)
       const platformIcon = document.getElementById('platformIcon');
       const c = COLORS[platform];
       if (c && platformStatusBox) {
@@ -8186,7 +8109,6 @@ https://toss.im/_m/XXXXXXX"
         'claude': 'https://console.anthropic.com/settings/keys',
         'deepinfra': 'https://deepinfra.com/dash/api_keys',
         'naver': 'https://www.ncloud.com/product/applicationService/naverApiHub',
-        'cse': 'https://programmablesearchengine.google.com/controlpanel/all',
         // v3.7.23: Leonardo + Prodia API 키 발급 페이지 추가
         'leonardo': 'https://app.leonardo.ai/settings/api',
         'prodia': 'https://app.prodia.com/api'
@@ -8288,16 +8210,6 @@ https://toss.im/_m/XXXXXXX"
           onmouseout="this.style.transform='translateX(0)'">
           <span style="font-size: 22px;">🟢</span>
           <span style="flex: 1; text-align: left;">네이버 API 키 발급하러 가기</span>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-        </button>
-
-        <!-- Google CSE -->
-        <button onclick="openApiPage('cse')"
-          style="width: 100%; padding: 14px 18px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 12px; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3); transition: all 0.3s ease;"
-          onmouseover="this.style.transform='translateX(6px)'"
-          onmouseout="this.style.transform='translateX(0)'">
-          <span style="font-size: 22px;">🟡</span>
-          <span style="flex: 1; text-align: left;">Google CSE 발급하러 가기</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
         </button>
 

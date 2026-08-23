@@ -4,6 +4,8 @@
  */
 
 import axios from 'axios';
+// v3.8.553: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from './naver-search-client';
 import * as cheerio from 'cheerio';
 import { downloadMultipleImages } from '../utils/image-downloader';
 import { writeSnippetLibrary, readSnippetLibrary } from '../utils/snippet-library';
@@ -113,7 +115,6 @@ export interface CrawlingStats {
   totalItems: number;
   naverCount: number;
   rssCount: number;
-  cseCount: number;
   fullContentCount: number;
   duplicatesRemoved: number;
   processingTimeMs: number;
@@ -226,44 +227,29 @@ export class NaverMassCrawler {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         // 🔧 네이버 블로그 대신 웹 검색 사용 (뉴스, 카페, 공식사이트 등 포함)
-        const url = 'https://openapi.naver.com/v1/search/webkr.json';
-        const params = {
-          query: keyword,
-          display: Math.min(display, 100), // API 제한
-          start: start,
-          sort: sort
-        };
+        const params = { query: keyword, display: Math.min(display, 100), start, sort };
 
         console.log(`[NAVER-MASS-DEBUG] 🔄 페이지 요청 시도 ${attempt}/${maxRetries}`);
-        console.log(`[NAVER-MASS-DEBUG]    URL: ${url}`);
         console.log(`[NAVER-MASS-DEBUG]    파라미터:`, params);
-        console.log(`[NAVER-MASS-DEBUG]    클라이언트 ID: ${this.clientId.substring(0, 8)}...`);
 
         const requestTime = Date.now();
-        const response = await axios.get(url, {
-          params: params,
-          headers: {
-            'X-Naver-Client-Id': this.clientId,
-            'X-Naver-Client-Secret': this.clientSecret,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          },
-          timeout: 30000, // 30초
-          validateStatus: (status) => status < 500 // 5xx 에러만 재시도
+        // v3.8.553: 창구 경유 (HUB 우선 + 자동 토스)
+        const res = await naverSearch('webkr', params, {
+          payload: { naverClientId: this.clientId, naverClientSecret: this.clientSecret },
+          timeoutMs: 30000,
         });
 
         const responseTime = Date.now() - requestTime;
-        console.log(`[NAVER-MASS-DEBUG] ✅ 응답 수신 (${responseTime}ms)`);
-        console.log(`[NAVER-MASS-DEBUG]    상태 코드: ${response.status}`);
-        console.log(`[NAVER-MASS-DEBUG]    응답 헤더:`, Object.keys(response.headers));
-        console.log(`[NAVER-MASS-DEBUG]    데이터 항목 수: ${response.data?.items?.length || 0}`);
+        console.log(`[NAVER-MASS-DEBUG] ✅ 응답 수신 (${responseTime}ms, ${res.mode} 키)`);
+        console.log(`[NAVER-MASS-DEBUG]    항목 수: ${res.items.length}`);
 
-        if (!response.data.items) {
-          console.log(`[NAVER-MASS] 페이지 ${start}에서 결과 없음`);
+        if (!res.ok || res.items.length === 0) {
+          console.log(`[NAVER-MASS] 페이지 ${start} 결과 없음${res.ok ? '' : `: ${res.error}`}`);
           return [];
         }
 
         // 🔧 웹 검색 결과 필터링: 네이버 블로그 제외, 다른 사이트 우선
-        const items = response.data.items
+        const items = res.items
           .filter((item: any) => {
             const link = item.link || '';
             // 네이버 블로그 완전 제외
@@ -1220,125 +1206,8 @@ export class MassRSSCrawler {
 /**
  * Google CSE 대량 크롤러
  */
-export class GoogleCSEMassCrawler {
-  private apiKey: string;
-  private cseId: string;
-
-  constructor(apiKey: string, cseId: string) {
-    this.apiKey = apiKey;
-    this.cseId = cseId;
-  }
-
-  /**
-   * Google CSE 대량 검색
-   */
-  async search(
-    keyword: string,
-    options: MassCrawlingOptions = {}
-  ): Promise<MassCrawledItem[]> {
-    const {
-      maxResults = 100,
-      dateRestrict = 'y1', // 최근 1년
-      // 🔧 네이버 블로그 제외, 다른 사이트 우선
-      siteSearch = '-blog.naver.com (tistory.com OR *.co.kr OR *.go.kr OR *.or.kr OR dcinside.com OR wordpress.com OR blogspot.com OR news.naver.com OR cafe.naver.com)'
-    } = options;
-
-    console.log(`[CSE-MASS] 🚀 Google CSE 크롤링 시작: "${keyword}" (목표: ${maxResults}개)`);
-
-    const results: MassCrawledItem[] = [];
-    const perPage = 10; // CSE 제한
-    const pages = Math.ceil(maxResults / perPage);
-
-    // Rate Limiter import
-    const { safeCSERequest } = await import('../utils/google-cse-rate-limiter');
-
-    for (let i = 0; i < pages; i++) {
-      const start = i * perPage + 1;
-      try {
-        const cacheKey = `mass-cse:${keyword}:${start}`;
-        const response = await safeCSERequest<{ items?: any[] }>(
-          `${keyword} (page ${start})`,
-          async () => {
-            const res = await axios.get(
-              'https://www.googleapis.com/customsearch/v1',
-              {
-                params: {
-                  key: this.apiKey,
-                  cx: this.cseId,
-                  q: keyword,
-                  start,
-                  num: perPage,
-                  dateRestrict,
-                  siteSearch,
-                  lr: 'lang_ko'
-                },
-                timeout: 10000
-              }
-            );
-            return res.data;
-          },
-          { useCache: true, cacheKey, priority: 'low' }
-        );
-
-        if (response.items) {
-          const items = response.items.map((item: any) => ({
-            title: this.cleanText(item.title),
-            description: this.cleanText(item.snippet),
-            link: item.link,
-            pubDate: item.pagemap?.metatags?.[0]?.['article:published_time'] || new Date().toISOString(),
-            source: 'cse' as const,
-            popularityScore: this.calculateCSEScore(item)
-          }));
-
-          results.push(...items);
-          console.log(`[CSE-MASS] 📊 페이지 ${i + 1}/${pages} 완료: ${items.length}개`);
-        }
-      } catch (error: any) {
-        // Rate Limit 오류인 경우 중단
-        if (error?.message?.includes('Rate Limit') || error?.message?.includes('할당량')) {
-          console.warn(`[CSE-MASS] 할당량 초과로 중단: ${error.message}`);
-          break;
-        }
-        console.error(`[CSE-MASS] 페이지 ${i + 1} 실패:`, error);
-        break;
-      }
-    }
-
-    console.log(`[CSE-MASS] ✅ CSE 크롤링 완료: ${results.length}개`);
-    return results;
-  }
-
-  /**
-   * CSE 아이템 점수 계산
-   */
-  private calculateCSEScore(item: any): number {
-    let score = 0;
-
-    // 제목 길이
-    score += item.title.length / 10;
-
-    // 설명 길이
-    score += item.snippet.length / 50;
-
-    // 검색 순위 (낮을수록 높은 점수)
-    if (item.index !== undefined) {
-      score += (100 - item.index) * 2;
-    }
-
-    return score;
-  }
-
-  /**
-   * 텍스트 정리
-   */
-  private cleanText(text: string): string {
-    return text
-      .replace(/<[^>]*>/g, '') // HTML 태그 제거
-      .replace(/&[a-zA-Z0-9#]+;/g, ' ') // HTML 엔티티 제거
-      .replace(/\s+/g, ' ') // 공백 정리
-      .trim();
-  }
-}
+// v3.8.555: GoogleCSEMassCrawler 삭제 — Google CSE 신규 발급 불가 + 2027-01-01 종료.
+//   대량 수집은 네이버 웹문서·RSS 로 계속된다.
 
 /**
  * 통합 대량 크롤링 시스템
@@ -1346,15 +1215,14 @@ export class GoogleCSEMassCrawler {
 export class MassCrawlingSystem {
   private naverCrawler?: NaverMassCrawler;
   private rssCrawler: MassRSSCrawler;
-  private cseCrawler?: GoogleCSEMassCrawler;
+  // v3.8.555: cseCrawler 제거 (Google CSE 종료)
   private performanceMonitor: PerformanceMonitor;
   private logger: Logger;
 
+  // v3.8.555: googleApiKey/googleCseId 인자 삭제 — CSE 크롤러가 없어졌다
   constructor(
     naverClientId?: string,
-    naverClientSecret?: string,
-    googleApiKey?: string,
-    googleCseId?: string
+    naverClientSecret?: string
   ) {
     this.performanceMonitor = new PerformanceMonitor();
     this.logger = new Logger('MassCrawlingSystem');
@@ -1366,11 +1234,6 @@ export class MassCrawlingSystem {
 
     this.rssCrawler = new MassRSSCrawler();
     this.logger.info('RSS 크롤러 초기화 완료');
-
-    if (googleApiKey && googleCseId) {
-      this.cseCrawler = new GoogleCSEMassCrawler(googleApiKey, googleCseId);
-      this.logger.info('Google CSE 크롤러 초기화 완료');
-    }
 
     this.logger.success('대량 크롤링 시스템 초기화 완료');
   }
@@ -1405,7 +1268,6 @@ export class MassCrawlingSystem {
     let allItems: MassCrawledItem[] = [];
     let naverCount = 0;
     let rssCount = 0;
-    let cseCount = 0;
 
     // 수동 크롤링 링크 우선 처리
     if (manualUrls && manualUrls.length > 0 && this.naverCrawler) {
@@ -1665,42 +1527,7 @@ export class MassCrawlingSystem {
       this.logger.error('RSS 실패:', error);
     }
 
-    // 3차: CSE (보완)
-    if (this.cseCrawler && allItems.length < maxResults * 0.8) {
-      console.log(`[MASS-CRAWLER-DEBUG] 🔄 CSE 크롤링 시작...`);
-      const cseStartTime = Date.now();
-      this.performanceMonitor.startMeasurement('cse-crawl');
-      try {
-        const cseTarget = Math.floor(maxResults * 0.2);
-        console.log(`[MASS-CRAWLER-DEBUG]    목표 항목: ${cseTarget}개`);
-        const cseResults = await this.cseCrawler.search(
-          keyword,
-          { maxResults: cseTarget }
-        );
-        cseCount = cseResults.length;
-        allItems.push(...cseResults);
-        const cseDuration = Date.now() - cseStartTime;
-        this.performanceMonitor.endMeasurement('cse-crawl', { items: cseCount });
-        console.log(`[MASS-CRAWLER-DEBUG] ✅ CSE 완료 (${(cseDuration / 1000).toFixed(2)}초): ${cseCount}개`);
-        console.log(`[MassCrawlingSystem] ℹ️ Google CSE 크롤링 완료: ${cseCount}개 추출`);
-        this.logger.success(`CSE: ${cseCount}개`);
-      } catch (error: any) {
-        const cseDuration = Date.now() - cseStartTime;
-        this.performanceMonitor.endMeasurement('cse-crawl');
-        console.error(`[MASS-CRAWLER-DEBUG] ❌ CSE 실패 (${(cseDuration / 1000).toFixed(2)}초):`);
-        console.error(`[MASS-CRAWLER-DEBUG]    에러 타입: ${error?.name || 'Unknown'}`);
-        console.error(`[MASS-CRAWLER-DEBUG]    에러 메시지: ${error?.message || String(error)}`);
-        console.error(`[MASS-CRAWLER-DEBUG]    에러 코드: ${error?.code || 'N/A'}`);
-        console.error(`[MASS-CRAWLER-DEBUG]    에러 스택:`, error?.stack || 'N/A');
-        this.logger.error('CSE 실패:', error);
-      }
-    } else {
-      if (!this.cseCrawler) {
-        console.log(`[MASS-CRAWLER-DEBUG] ⚠️ CSE 크롤러가 초기화되지 않음`);
-      } else {
-        console.log(`[MASS-CRAWLER-DEBUG] ⚠️ CSE 건너뜀 (이미 충분한 데이터: ${allItems.length}/${maxResults * 0.8})`);
-      }
-    }
+    // v3.8.555: 3차 CSE 보완 단계 삭제 — Google CSE 종료. 네이버·RSS 수집만으로 간다.
 
     // 중복 제거 및 정렬
     this.performanceMonitor.startMeasurement('deduplication');
@@ -1726,25 +1553,18 @@ export class MassCrawlingSystem {
         console.log(`[MASS-CRAWLER] 🔄 네이버 블로그 폴백 크롤링: ${fallbackTarget}개 목표`);
 
         // 네이버 블로그 검색 API 사용 (폴백용)
-        const blogUrl = 'https://openapi.naver.com/v1/search/blog.json';
-        const blogParams = {
-          query: keyword,
-          display: Math.min(100, fallbackTarget),
-          start: 1,
-          sort: 'sim'
-        };
-
-        const blogResponse = await axios.get(blogUrl, {
-          params: blogParams,
-          headers: {
-            'X-Naver-Client-Id': (this.naverCrawler as any).clientId,
-            'X-Naver-Client-Secret': (this.naverCrawler as any).clientSecret,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        // v3.8.553: 창구 경유
+        const blogRes = await naverSearch('blog', {
+          query: keyword, display: Math.min(100, fallbackTarget), start: 1, sort: 'sim',
+        }, {
+          payload: {
+            naverClientId: (this.naverCrawler as any).clientId,
+            naverClientSecret: (this.naverCrawler as any).clientSecret,
           },
-          timeout: 30000
+          timeoutMs: 30000,
         });
 
-        if (blogResponse.data?.items) {
+        if (blogRes.ok && blogRes.items.length > 0) {
           // 텍스트 정리 유틸리티 함수
           const cleanText = (text: string): string => {
             return text
@@ -1754,7 +1574,7 @@ export class MassCrawlingSystem {
               .trim();
           };
 
-          const blogItems: MassCrawledItem[] = blogResponse.data.items
+          const blogItems: MassCrawledItem[] = blogRes.items
             .map((item: any) => ({
               title: cleanText(item.title),
               description: cleanText(item.description),
@@ -1835,7 +1655,6 @@ export class MassCrawlingSystem {
       totalItems: uniqueItems.length,
       naverCount,
       rssCount,
-      cseCount,
       fullContentCount
     });
 
@@ -1844,7 +1663,6 @@ export class MassCrawlingSystem {
       totalItems: uniqueItems.length,
       naverCount,
       rssCount,
-      cseCount,
       fullContentCount,
       duplicatesRemoved,
       processingTimeMs: processingTime
@@ -1855,7 +1673,6 @@ export class MassCrawlingSystem {
     console.log(`[MASS-CRAWLER-DEBUG]    총 항목 수: ${uniqueItems.length}개`);
     console.log(`[MASS-CRAWLER-DEBUG]    네이버: ${naverCount}개`);
     console.log(`[MASS-CRAWLER-DEBUG]    RSS: ${rssCount}개`);
-    console.log(`[MASS-CRAWLER-DEBUG]    CSE: ${cseCount}개`);
     console.log(`[MASS-CRAWLER-DEBUG]    중복 제거: ${duplicatesRemoved}개`);
     console.log(`[MASS-CRAWLER-DEBUG]    전체 본문: ${fullContentCount}개`);
 

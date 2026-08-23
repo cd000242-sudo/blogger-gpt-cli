@@ -12,8 +12,6 @@ export interface RunOnePostPayload {
   contentMode?: string;
   manualCtas?: Record<string, { url: string; text: string; hook?: string }>;
   platform?: 'blogger' | 'wordpress' | 'preview';
-  googleCseKey?: string;
-  googleCseCx?: string;
   naverClientId?: string;      // 네이버 API 키워드 발굴 및 크롤링용
   naverClientSecret?: string;  // 네이버 API 키워드 발굴 및 크롤링용
   previewOnly?: boolean;        // 미리보기 전용 모드

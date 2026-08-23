@@ -13,6 +13,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DEFAULT_TIER_VALUE = exports.TIER_MODELS = exports.COST_MODEL = void 0;
 exports.deriveCostKrw = deriveCostKrw;
+exports.describeModelForLog = describeModelForLog;
 exports.tierCostKrw = tierCostKrw;
 exports.formatTierCost = formatTierCost;
 exports.getPricingTable = getPricingTable;
@@ -65,26 +66,44 @@ exports.TIER_MODELS = [
         modelId: 'gemini-3.1-flash-lite',
         fallback: ['gemini-3.1-flash-lite', 'gemini-3.5-flash'],
     },
+    /**
+     * v3.8.483 — Gemini 3.6 Flash 도입, 3.1 Pro Preview 제거.
+     *
+     * 공식 문서 확인(2026-08-11, ai.google.dev/gemini-api/docs/pricing):
+     *   gemini-3.6-flash  Stable   입력 $1.50 / 출력 $7.50
+     *   gemini-3.5-flash  Stable   입력 $1.50 / 출력 $9.00
+     *   gemini-3.1-pro    **Preview**
+     *
+     * 3.6 은 3.5 보다 **새로우면서 출력이 17% 싸다** — 품질·비용 둘 다 이기므로 기본값으로 올린다.
+     * 3.1 Pro 는 Preview 라 선불 티어에서 호출이 막힌다(사용자 실측). 목록에서 뺀다 —
+     * 고를 수 있는데 안 되는 모델은 조용한 실패를 만든다.
+     *
+     * ⚠️ `value` 는 사용자 저장 설정 키다. 옛 이름(gemini-2.5-*)을 그대로 둬야
+     *    기존 사용자의 선택이 안 깨진다. 바뀌는 것은 modelId·title·가격뿐이다.
+     */
     {
         value: 'gemini-2.5-flash',
-        title: 'Gemini 3.5 Flash',
+        title: 'Gemini 3.6 Flash',
         tier: '균형',
-        description: '품질·속도·가격 균형 · 일반 블로그 글에 최적',
-        costKrw: 80,
+        description: '최신 · 품질·속도·가격 균형 · 일반 블로그 글에 최적',
+        // 실단가에서 계산된 값(₩57). 예전 선언값 80 은 실제보다 비싸게 잡혀 있었다.
+        costKrw: 57,
         provider: 'gemini',
-        modelId: 'gemini-3.5-flash',
-        fallback: ['gemini-3.5-flash', 'gemini-3.1-flash-lite'],
+        modelId: 'gemini-3.6-flash',
+        fallback: ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'],
         default: true,
+        usdPer1M: { input: 1.50, output: 7.50, source: 'Gemini API 공식 가격표 2026-08-11 (Standard)' },
     },
     {
         value: 'gemini-2.5-pro',
-        title: 'Gemini 3.1 Pro Preview',
+        title: 'Gemini 3.5 Flash',
         tier: '프리미엄',
-        description: '심층 추론 · 최고 품질 · Preview API',
-        costKrw: 300,
+        description: '지속 추론 강점 · 긴 글·복잡한 주제에 유리',
+        costKrw: 61,
         provider: 'gemini',
-        modelId: 'gemini-3.1-pro-preview',
-        fallback: ['gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'],
+        modelId: 'gemini-3.5-flash',
+        fallback: ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'],
+        usdPer1M: { input: 1.50, output: 9.00, source: 'Gemini API 공식 가격표 2026-08-11 (Standard)' },
     },
     // ─── OpenAI (GPT-5 시리즈로 최신화, 2026-04) ───────────────────────────────
     //   기존 value 키(openai-gpt4o-mini/openai-gpt41/openai-gpt4o)는 사용자 저장 설정 호환을 위해 유지,
@@ -170,7 +189,29 @@ exports.TIER_MODELS = [
         fallback: ['sonar-pro', 'sonar'],
     },
 ];
-exports.DEFAULT_TIER_VALUE = 'gemini-3.5-flash';
+/**
+ * v3.8.483 — 'gemini-3.5-flash' → 'gemini-3.6-flash'.
+ *
+ * 이 값은 findTier 가 modelId 로 찾는다. 3.5 는 이제 **프리미엄** 항목의 modelId 라
+ * 그대로 두면 기본값이 `default: true` 인 균형 티어가 아니라 프리미엄을 가리킨다.
+ * 기본 모델이 조용히 바뀌는 종류의 사고다.
+ */
+/**
+ * v3.8.489 - 로그에 찍을 모델 표기.
+ *
+ * 사장님 보고: "로그에는 2.5플래쉬라뜹니다".
+ * `value` 는 **사용자 설정 키**라 옛 이름(gemini-2.5-*)을 유지해야 한다 —
+ * 바꾸면 기존 사용자의 선택이 통째로 깨진다. 그래서 키는 두되,
+ * 로그에는 사람이 읽는 이름과 **실제 호출되는 모델 id** 를 함께 찍는다.
+ */
+function describeModelForLog(tierValue) {
+    const value = String(tierValue || '').trim();
+    if (!value)
+        return '';
+    const tier = exports.TIER_MODELS.find((t) => t.value === value || t.modelId === value);
+    return tier ? `${tier.title} (${tier.modelId})` : value;
+}
+exports.DEFAULT_TIER_VALUE = 'gemini-3.6-flash';
 /**
  * 화면·로그·설정이 공통으로 읽는 표시 금액.
  * 단가를 아는 모델은 계산값, 모르는 모델은 선언값을 돌려준다.
@@ -226,8 +267,36 @@ const PROVIDER_DEFAULT_TIER = {
     perplexity: 'perplexity-sonar',
     gemini: 'gemini-3.5-flash',
 };
+/**
+ * 🩹 v3.8.468 — **설정 파일도 읽는다.**
+ *
+ * v3.8.446 이 "payload 에 모델이 없으면 설정값을 쓴다" 는 안전망을 넣었는데,
+ * 그 설정값을 `process.env.AI_PROVIDER` 에서만 읽었다. 그런데 앱 어디에서도
+ * 그 환경변수를 세우지 않는다(전수 확인). 그래서 사용자가 .env 에
+ * `AI_PROVIDER=openai` 를 넣어 두어도 **항상 gemini-3.5-flash 로 떨어졌다.**
+ * 안전망이 있는데 작동하지 않는 상태였다.
+ *
+ * 실측(2026-08-06): .env 의 AI_PROVIDER=openai · resolveDefaultProvider() → gemini
+ *
+ * 이제 환경변수가 없으면 .env 파일을 직접 본다. 읽기 실패는 무시한다 —
+ * 설정을 못 읽는다고 생성이 멈추면 안 된다.
+ */
+function readProviderFromSettings() {
+    const fromProcess = String(process.env['AI_PROVIDER'] || '').trim().toLowerCase();
+    if (fromProcess)
+        return fromProcess;
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { loadEnvFromFile } = require('../../env');
+        const env = loadEnvFromFile() || {};
+        return String(env['AI_PROVIDER'] || env['aiProvider'] || '').trim().toLowerCase();
+    }
+    catch {
+        return '';
+    }
+}
 function resolveDefaultTierValue() {
-    const p = String(process.env['AI_PROVIDER'] || '').trim().toLowerCase();
+    const p = readProviderFromSettings();
     const mapped = PROVIDER_DEFAULT_TIER[p];
     if (mapped && findTier(mapped))
         return mapped;

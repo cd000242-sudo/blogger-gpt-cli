@@ -1281,8 +1281,21 @@ export async function runPost(payload: any, onLog?: (s: string) => void): Promis
     const generatedLabels = Array.isArray(article.labels) ? article.labels : [];
     const thumbnail = article.thumbnail || '';
 
-    if (generatedLabels.length > 0) {
+    /**
+     * v3.8.549 — 사용자가 직접 적은 라벨이 있으면 자동 라벨로 덮지 않는다.
+     *
+     * blogger-publisher.js(3274줄)의 labelSource 는 generatedLabels 를 payload.labels 보다
+     * **먼저** 본다. 그래서 여기서 무조건 generatedLabels 를 채우면, 연속발행 카드에서
+     * 라벨을 적어도 화면만 받고 발행은 자동 라벨로 나간다 — 에러도 안 나는 조용한 무시다.
+     * (티스토리 태그도 같은 값을 읽으므로 함께 해결된다.)
+     */
+    const hasUserLabels = Array.isArray((payload as any).labels)
+      ? (payload as any).labels.length > 0
+      : String((payload as any).labels || '').trim().length > 0;
+    if (generatedLabels.length > 0 && !hasUserLabels) {
       payload.generatedLabels = generatedLabels;
+    } else if (hasUserLabels) {
+      onLog?.('🏷️ 사용자가 지정한 라벨을 사용합니다 (자동 생성 라벨 미적용)');
     }
 
     // 생성된 제목 추출

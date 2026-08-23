@@ -1712,7 +1712,7 @@ function applyExecutionModeToApp() {
     'openaiKey', 'geminiKey', 'claudeKey', 'perplexityKey', 'dalleApiKey',
     'pexelsApiKey', 'stabilityApiKey', 'deepInfraApiKey', 'prodiaApiKey',
     'leonardoKey', 'coupangAccessKey', 'coupangSecretKey', 'naverCustomerId',
-    'naverSecretKey', 'googleCseKey', 'googleCseCx', 'youtubeApiKey',
+    'naverSecretKey', 'youtubeApiKey',
     'generationEngine',
   ];
 

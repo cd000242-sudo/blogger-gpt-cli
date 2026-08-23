@@ -3,6 +3,9 @@
  * 네이버 블로그의 구조화된 콘텐츠 블록을 추출하여 키워드 분석에 활용
  */
 
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../core/naver-search-client';
+
 export interface NaverApiConfig {
   clientId: string;
   clientSecret: string;
@@ -375,22 +378,13 @@ export async function analyzeNaverBlogSmartBlocks(
 }> {
   try {
     // 1. 네이버 블로그 검색 API (공식 API 사용 - 안전함)
-    const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-    const params = new URLSearchParams({
-      query: keyword,
-      display: String(Math.min(maxResults, 100)), // 최대 100개
-      sort: 'sim'
-    });
+    // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+    const res = await naverSearch('blog', {
+      query: keyword, display: Math.min(maxResults, 100), sort: 'sim',   // 최대 100개
+    }, { payload: { naverClientId: config.clientId, naverClientSecret: config.clientSecret } });
 
-    const response = await fetch(`${apiUrl}?${params}`, {
-      headers: {
-        'X-Naver-Client-Id': config.clientId,
-        'X-Naver-Client-Secret': config.clientSecret
-      }
-    });
-
-    if (!response.ok) {
-      console.warn(`[NAVER-SMART-BLOCK] API 호출 실패: ${response.status}`);
+    if (!res.ok) {
+      console.warn(`[NAVER-SMART-BLOCK] API 호출 실패(${res.mode}): ${res.error}`);
       return {
         smartBlocks: [],
         relatedKeywords: [],
@@ -398,8 +392,7 @@ export async function analyzeNaverBlogSmartBlocks(
       };
     }
 
-    const data = await response.json();
-    const items = data.items || [];
+    const items = res.items;
 
     if (items.length === 0) {
       console.warn('[NAVER-SMART-BLOCK] 검색 결과 없음');

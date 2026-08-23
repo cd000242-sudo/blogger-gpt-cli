@@ -38,6 +38,8 @@
  * 비용: DataLab 1회 추가 호출(무료 API). LLM 호출 0.
  */
 import { buildDatalabBody } from './keyword-demand';
+// v3.8.553: 데이터랩 호출 단일 창구
+import { naverDatalabSearch } from './naver-search-client';
 
 export interface NarrowCandidate {
   /** 좁힌 표현 전체 (예: "청년월세 지원금 서류") */
@@ -157,35 +159,20 @@ export async function suggestNarrowerKeywords(
 
   const minShare = opts.minShare ?? 0.01;
   const minRatio = opts.minRatio ?? 1;
-  const doFetch = opts.fetchImpl || fetch;
   // 원본을 같은 호출에 넣어야 상대 비중을 계산할 수 있다 (DataLab 은 상대 비율만 준다)
   const terms = [kw, ...candidates.map(c => c.term)];
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 8000);
-  let res: Response;
-  try {
-    res = await doFetch('https://openapi.naver.com/v1/datalab/search', {
-      method: 'POST',
-      headers: {
-        'X-Naver-Client-Id': opts.clientId,
-        'X-Naver-Client-Secret': opts.clientSecret,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(buildDatalabBody(terms)),
-      signal: ctrl.signal,
-    });
-  } catch {
-    return { ...empty, summary: '좁히기 측정 실패(네트워크)' };
-  } finally {
-    clearTimeout(timer);
-  }
-  if (!res.ok) return { ...empty, summary: `좁히기 측정 실패(HTTP ${res.status})` };
+  // v3.8.553: 데이터랩도 창구 경유 (HUB 우선 + 자동 토스)
+  const dl = await naverDatalabSearch(buildDatalabBody(terms), {
+    payload: { naverClientId: opts.clientId, naverClientSecret: opts.clientSecret },
+    timeoutMs: opts.timeoutMs ?? 8000,
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+  });
+  if (!dl.ok) return { ...empty, summary: `좁히기 측정 실패(${dl.mode}: ${dl.error || '응답 없음'})` };
 
   let results: Array<{ title: string; data: Array<{ ratio: number }> }>;
   try {
-    const json = await res.json() as { results?: Array<{ title: string; data: Array<{ ratio: number }> }> };
-    results = json.results || [];
+    results = (dl.data?.results || []) as Array<{ title: string; data: Array<{ ratio: number }> }>;
   } catch {
     return { ...empty, summary: '좁히기 측정 실패(응답 파싱)' };
   }

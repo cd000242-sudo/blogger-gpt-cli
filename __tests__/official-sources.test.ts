@@ -22,7 +22,6 @@ import {
   extractNumericSentences,
   mergeByAgency,
   buildOfficialSourceBlock,
-  collectOfficialSources,
 } from '../src/core/final/official-sources';
 import { braceBlock } from './helpers/source-block';
 
@@ -187,25 +186,11 @@ describe('프롬프트 블록', () => {
   });
 });
 
-describe('수집 — 실패가 발행을 막지 않는다', () => {
-  it('CSE 키가 없으면 조용히 건너뛴다', async () => {
-    await expect(collectOfficialSources('테스트', '', '')).resolves.toEqual([]);
-  });
-
-  it('키워드가 비면 조용히 건너뛴다', async () => {
-    await expect(collectOfficialSources('', 'k', 'c')).resolves.toEqual([]);
-  });
-
-  it('검색이 실패해도 예외를 던지지 않는다', async () => {
-    const original = global.fetch;
-    global.fetch = (() => Promise.reject(new Error('네트워크 끊김'))) as any;
-    try {
-      await expect(collectOfficialSources('키워드', 'k', 'c')).resolves.toEqual([]);
-    } finally {
-      global.fetch = original;
-    }
-  });
-});
+/**
+ * v3.8.555 — CSE 전용 수집기(collectOfficialSources)가 삭제되면서 이 describe 도 사라진다.
+ * 지키던 불변식("수집 실패가 발행을 막지 않는다")은 네이버 웹문서 경로로 옮겨졌고,
+ * naver-web-official.test.ts 와 아래 'orchestration 배선' 에서 계속 검사한다.
+ */
 
 describe('orchestration 배선', () => {
   const orch = require('fs').readFileSync(
@@ -220,30 +205,37 @@ describe('orchestration 배선', () => {
     expect(block.indexOf('officialBlock')).toBeLessThan(block.indexOf('FACT EVIDENCE'));
   });
 
+  /**
+   * v3.8.555 — 앵커 현행화. **지키려는 것은 그대로다.**
+   * Google CSE 를 걷어내고(신규 발급 불가 · 2027-01-01 종료) 기관 근거를
+   * 네이버 웹문서(webkr)로만 만든다. 그래서 'cseKey' 를 붙잡던 앵커를
+   * 새 경로로 옮긴다 — 검사하는 불변식(실패해도 발행 계속 · 쇼핑 제외 · 수집은 한다)은 같다.
+   */
   it('수집 실패가 발행을 막지 않는다', () => {
-    // v3.8.403: 고정 길이(900자) 슬라이스는 주석 몇 줄만 늘어도 깨진다 — catch 위치로 경계를 잡는다
-    const i = orch.indexOf("let officialBlock = ''");
+    // 고정 길이 슬라이스는 주석 몇 줄만 늘어도 깨진다 — catch 위치로 경계를 잡는다
+    const i = orch.indexOf("let officialSources");
     expect(i).toBeGreaterThan(-1);
-    const end = orch.indexOf('catch (officialErr', i);
+    const end = orch.indexOf('catch (webOfficialErr', i);
     expect(end).toBeGreaterThan(i);
     expect(orch.slice(i, end)).toContain('try {');
   });
 
-  it('CSE 키가 있을 때만 호출한다 — 없는 키로 헛호출하지 않는다', () => {
-    expect(orch).toContain('cseKey && cseCx');
+  it('⭐ CSE 를 더 이상 부르지 않는다 (발급 불가 · 2027-01-01 종료)', () => {
+    expect(orch).not.toContain('cseKey');
+    expect(orch).not.toContain('collectOfficialSources(');
+    expect(orch).not.toContain('crawlFromCSE');
   });
 
   /**
    * v3.8.403 — 사용자 지적(2026-08-02):
    *   "네이버 크롤링이랑 공공기관 수집은 쇼핑모드에서 왜 하는 건데?"
    *   맞는 지적이다. 상품 글의 근거는 상품 스펙과 구매자 후기지 통계청이 아니다.
-   *   "통계청 자료에 따르면 물놀이 튜브는…" 은 어색하고 신뢰를 깎는다. CSE 호출도 아낀다.
    */
   it('⭐ 쇼핑모드에서는 공공기관 근거를 모으지 않는다', () => {
-    expect(orch).toContain("cseKey && cseCx && contentMode !== 'shopping'");
+    expect(orch).toContain("if (contentMode !== 'shopping') {");
   });
 
   it('쇼핑 외 모드는 그대로 수집한다 (할루시네이션 차단 유지)', () => {
-    expect(orch).toContain('collectOfficialSources(keyword, cseKey, cseCx, onLog)');
+    expect(orch).toContain('buildOfficialSourcesFromWeb(crawledPosts as any)');
   });
 });

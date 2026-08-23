@@ -46,6 +46,21 @@ const PLATFORMS = [
     promptUser: (src) => `원본 블로그: "${src.title}"\n원본 URL: ${src.url}\n\n네이버 카페에 정보 공유체로 글을 작성하세요 (1,500~2,500자). 본문은 정보 공유 비중 95%+, 말미에 자연스러운 출처 1줄 "더 자세히 정리해뒀어요 → ${src.url}". 광고 톤 절대 금지.`,
   },
   {
+    /**
+     * v3.8.544 — 네이버 프리미엄콘텐츠 (사장님 요청).
+     * id 는 반드시 src/core/external-traffic/prompts/naver/premium-content.js 의 id 와 같아야 한다.
+     * _V2_CHANNELS 는 listChannels() 결과로 채워지므로, id 가 어긋나면 조용히 v1 폴백으로 떨어져
+     * 아래 promptSystem 만 쓰이고 채널 규칙(길이·위험도)은 하나도 안 걸린다.
+     */
+    id: 'naver-premium-content',
+    label: '네이버 프리미엄콘텐츠',
+    icon: '💎',
+    openUrl: 'https://contents.premium.naver.com/',
+    color: '#03c75a',
+    promptSystem: `당신은 네이버 프리미엄콘텐츠 채널을 운영하는 한국 전문 창작자입니다. 독자가 "돈 낼 만한 글인가"를 보는 판이라 홍보문 어조는 즉시 이탈입니다. 무료 공개글은 판단 근거를 실제로 다 주고, 남겨둘 것은 정보가 아니라 실행 절차와 서류 양식입니다. 검색형+판단형 제목 1개, 본문 1,500~2,500자, 소제목 3~4개, 판단 기준표 1개, 본문 끝 외부 링크 1개. "총정리/완벽 가이드" 장식어 제목·구독 구걸·원문에 없는 수치 생성은 금지합니다.`,
+    promptUser: (src) => `원문 제목: "${src.title}"\n원문 URL: ${src.url}\n원문 내용: ${_extractExtTrafficSourceText(src) || '(요약 없음)'}\n\n네이버 프리미엄콘텐츠 무료 공개글 1편을 작성하세요.\n[제목] 검색형+판단형 1개 (25~40자)\n[본문] 1,500~2,500자, 소제목 3~4개\n[판단 기준] 표 또는 "해당 / 비해당" 목록 1개\n[원문 유도] 마지막 한 줄 "절차와 서류는 원문에 정리해뒀습니다: ${src.url}"\n\n원문에 없는 금액·기한·대상자·비율은 만들지 마세요. 모르면 그 문장을 빼세요.`,
+  },
+  {
     id: 'x',
     label: 'X (트위터)',
     icon: '🐦',
@@ -125,6 +140,7 @@ const PLATFORM_LOGOS = {
   threads: { slug: 'threads', color: 'FFFFFF', fallback: 'Th' },
   'naver-blog': { slug: 'naver', color: '03C75A', fallback: 'N' },
   'naver-cafe': { slug: 'naver', color: '03C75A', fallback: 'N' },
+  'naver-premium-content': { slug: 'naver', color: '03C75A', fallback: '💎' },
   x: { slug: 'x', color: 'FFFFFF', fallback: 'X' },
   facebook: { slug: 'facebook', color: '1877F2', fallback: 'f' },
   'kakao-openchat': { slug: 'kakaotalk', color: '000000', fallback: 'K' },

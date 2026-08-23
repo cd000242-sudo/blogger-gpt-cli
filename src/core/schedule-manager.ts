@@ -12,7 +12,25 @@ export interface ScheduledPost {
   keywords: string[];
   platform: 'blogger' | 'wordpress';
   publishType: 'draft' | 'now' | 'schedule';
+  /** 발행(예약) 시각 — 플랫폼이 글을 세상에 내보내는 시각 */
   scheduleDateTime: string; // ISO string
+  /**
+   * v3.8.545 — **생성** 시각. 앱이 깨어나 글을 만드는 시각이다.
+   *
+   * 이 필드가 생기기 전까지 이 앱의 "예약발행"은 진짜 예약이 아니었다:
+   * getPendingSchedules() 가 scheduleDateTime 이 지난 것만 꺼냈기 때문에
+   * processScheduledPost 의 shouldPublishNow 가 **항상 참**이 됐고,
+   * 플랫폼 예약(scheduleDate) 분기는 한 번도 타지 않았다.
+   * 결과: 예약 시각에 앱이 켜져 있어야만 글이 나갔다.
+   *
+   * 이제 생성은 generateAt 에, 발행은 scheduleDateTime 에 맡긴다.
+   * 생성이 끝나면 아직 미래인 scheduleDateTime 을 플랫폼에 넘겨
+   * WordPress future / Blogger SCHEDULED / Tistory 예약으로 올린다.
+   * → 생성만 끝나면 앱을 꺼도 발행된다.
+   *
+   * 없으면 scheduleDateTime 과 같은 것으로 본다 — 기존 예약이 그대로 동작한다.
+   */
+  generateAt?: string; // ISO string
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
   createdAt: string; // ISO string
   updatedAt: string; // ISO string
@@ -29,6 +47,16 @@ export interface ScheduleStats {
   completed: number;
   failed: number;
   cancelled: number;
+}
+
+/**
+ * 이 예약이 **생성**되어야 할 시각.
+ * generateAt 이 없거나 못 읽으면 발행 시각으로 되돌아간다(구버전 예약 호환).
+ */
+export function generationTimeOf(post: Pick<ScheduledPost, 'scheduleDateTime' | 'generateAt'>): Date {
+  const raw = post.generateAt || post.scheduleDateTime;
+  const at = new Date(raw);
+  return Number.isNaN(at.getTime()) ? new Date(post.scheduleDateTime) : at;
 }
 
 export class ScheduleManager {
@@ -163,14 +191,13 @@ export class ScheduleManager {
 
   // 예약된 포스트 조회 (현재 시간 기준)
   // v3.8.381(R6): 시간순 정렬 — 가장 이른 예약부터 처리되도록 보장 (기존엔 삽입 순서 그대로)
+  // v3.8.545: 기준이 **생성 시각**이다. 발행 시각이 아니다.
+  //   generateAt 이 없으면 scheduleDateTime 을 쓴다 — 이 필드 이전에 만들어진 예약은 그대로 동작한다.
   getPendingSchedules(): ScheduledPost[] {
     const now = new Date();
     return this.scheduleData
-      .filter(post => {
-        const scheduleTime = new Date(post.scheduleDateTime);
-        return post.status === 'pending' && scheduleTime <= now;
-      })
-      .sort((a, b) => new Date(a.scheduleDateTime).getTime() - new Date(b.scheduleDateTime).getTime());
+      .filter(post => post.status === 'pending' && generationTimeOf(post) <= now)
+      .sort((a, b) => generationTimeOf(a).getTime() - generationTimeOf(b).getTime());
   }
 
   // v3.8.381(R6): 크래시로 'processing'에 멈춘 예약 회수 — 영구 유실 방지.
@@ -322,6 +349,21 @@ export class ScheduleManager {
           : undefined,
         previewOnly: false,
       };
+
+      /**
+       * v3.8.545 — 두 갈래를 로그로 구분한다. 조용히 즉시발행으로 떨어지면
+       * "예약을 걸었는데 왜 지금 나갔지"를 아무도 설명 못 한다.
+       *   · 예약 유지: 생성이 발행 시각보다 먼저 끝났다 → 플랫폼에 예약을 건다(앱 꺼도 발행됨)
+       *   · 즉시 전환: 생성이 발행 시각을 이미 지나쳤다 → 지금 내보낸다(폴백)
+       */
+      if (postingMode === 'schedule') {
+        const publishAt = new Date(schedule.scheduleDateTime).toLocaleString('ko-KR');
+        console.log(
+          shouldPublishNow
+            ? `⏩ 예약 시각(${publishAt})이 이미 지나 즉시 발행합니다: ${schedule.id}`
+            : `🗓️ 플랫폼 예약으로 올립니다 (발행 예정 ${publishAt}) — 이 뒤로는 앱을 꺼도 발행됩니다: ${schedule.id}`,
+        );
+      }
 
       const result = await runPost(schedulePayload);
 

@@ -9,11 +9,13 @@
  * - 등급 변환은 일반적인 블로거 커뮤니티의 기준을 참고한 것입니다.
  * 
  * 사용 API:
- * - 네이버 블로그 검색 API (https://openapi.naver.com/v1/search/blog.json)
+ * - 네이버 블로그 검색 (v3.8.554 부터 단일 창구 naver-search-client 경유 — HUB/기존 키 자동 토스)
  * - 데이터랩 API는 사용하지 않음 (키워드 트렌드 조회용)
  */
 
 import { EnvironmentManager } from './environment-manager';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../core/naver-search-client';
 
 export interface BlogIndexViaApiResult {
   blogId: string;
@@ -252,27 +254,19 @@ export class BlogIndexViaDatalab {
    */
   private async getTotalPosts(blogId: string): Promise<number | null> {
     try {
-      const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-      const params = new URLSearchParams({
+      // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+      const res = await naverSearch('blog', {
         query: `site:blog.naver.com/${blogId}`,
-        display: '1', // 1개만 조회 (total 필드 확인용)
-        sort: 'date' // 최신순
-      });
-      
-      const response = await fetch(`${apiUrl}?${params}`, {
-        headers: {
-          'X-Naver-Client-Id': this.config.clientId,
-          'X-Naver-Client-Secret': this.config.clientSecret
-        }
-      });
-      
-      if (!response.ok) {
+        display: 1,        // 1개만 조회 (total 필드 확인용)
+        sort: 'date',      // 최신순
+      }, { payload: { naverClientId: this.config.clientId, naverClientSecret: this.config.clientSecret } });
+
+      if (!res.ok) {
         return null;
       }
-      
-      const data = await response.json();
-      const total = parseInt(data.total || '0', 10);
-      
+
+      const total = res.total;
+
       console.log(`[BLOG-INDEX-API] 총 포스트 수: ${total.toLocaleString()}`);
       return total;
       
@@ -291,26 +285,18 @@ export class BlogIndexViaDatalab {
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const dateStr = `${thirtyDaysAgo.getFullYear()}${String(thirtyDaysAgo.getMonth() + 1).padStart(2, '0')}${String(thirtyDaysAgo.getDate()).padStart(2, '0')}`;
       
-      const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-      const params = new URLSearchParams({
+      // v3.8.554: 창구 경유
+      const res = await naverSearch('blog', {
         query: `site:blog.naver.com/${blogId}`,
-        display: '100', // 최대 100개 조회
-        sort: 'date'
-      });
-      
-      const response = await fetch(`${apiUrl}?${params}`, {
-        headers: {
-          'X-Naver-Client-Id': this.config.clientId,
-          'X-Naver-Client-Secret': this.config.clientSecret
-        }
-      });
-      
-      if (!response.ok) {
+        display: 100,      // 최대 100개 조회
+        sort: 'date',
+      }, { payload: { naverClientId: this.config.clientId, naverClientSecret: this.config.clientSecret } });
+
+      if (!res.ok) {
         return null;
       }
-      
-      const data = await response.json();
-      const items = data.items || [];
+
+      const items = res.items;
       
       // 최근 30일 포스트 필터링
       let recentCount = 0;
@@ -332,7 +318,7 @@ export class BlogIndexViaDatalab {
       }
       
       // total이 100보다 크면 추정 필요
-      const total = parseInt(data.total || '0', 10);
+      const total = res.total;   // v3.8.554: 창구가 준 값
       if (total > 100) {
         // 최근 포스트 비율 추정
         const recentRatio = recentCount / Math.min(items.length, 100);
@@ -354,27 +340,15 @@ export class BlogIndexViaDatalab {
   private async getSearchResults(blogId: string): Promise<number | null> {
     try {
       // 블로그 ID로 검색
-      const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-      const params = new URLSearchParams({
-        query: blogId,
-        display: '1',
-        sort: 'sim'
-      });
-      
-      const response = await fetch(`${apiUrl}?${params}`, {
-        headers: {
-          'X-Naver-Client-Id': this.config.clientId,
-          'X-Naver-Client-Secret': this.config.clientSecret
-        }
-      });
-      
-      if (!response.ok) {
+      // v3.8.554: 창구 경유
+      const res = await naverSearch('blog', { query: blogId, display: 1, sort: 'sim' }, { payload: { naverClientId: this.config.clientId, naverClientSecret: this.config.clientSecret } });
+
+      if (!res.ok) {
         return null;
       }
-      
-      const data = await response.json();
-      const total = parseInt(data.total || '0', 10);
-      
+
+      const total = res.total;
+
       console.log(`[BLOG-INDEX-API] 검색 결과 수: ${total.toLocaleString()}`);
       return total;
       
@@ -448,26 +422,14 @@ export class BlogIndexViaDatalab {
   private async getSearchRank(blogId: string): Promise<number | null> {
     try {
       // 블로그 ID로 검색하여 순위 확인
-      const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-      const params = new URLSearchParams({
-        query: blogId,
-        display: '10',
-        sort: 'sim'
-      });
-      
-      const response = await fetch(`${apiUrl}?${params}`, {
-        headers: {
-          'X-Naver-Client-Id': this.config.clientId,
-          'X-Naver-Client-Secret': this.config.clientSecret
-        }
-      });
-      
-      if (!response.ok) {
+      // v3.8.554: 창구 경유
+      const res = await naverSearch('blog', { query: blogId, display: 10, sort: 'sim' }, { payload: { naverClientId: this.config.clientId, naverClientSecret: this.config.clientSecret } });
+
+      if (!res.ok) {
         return null;
       }
-      
-      const data = await response.json();
-      const items = data.items || [];
+
+      const items = res.items;
       
       // 블로그가 상위에 노출되는지 확인
       let rank = 0;
@@ -1045,31 +1007,21 @@ export class BlogIndexViaDatalab {
   private async getEngagementScore(blogId: string): Promise<number | null> {
     try {
       // 최근 포스트들의 평균 참여도 추정
-      const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-      const params = new URLSearchParams({
-        query: `site:blog.naver.com/${blogId}`,
-        display: '10',
-        sort: 'date'
-      });
-      
-      const response = await fetch(`${apiUrl}?${params}`, {
-        headers: {
-          'X-Naver-Client-Id': this.config.clientId,
-          'X-Naver-Client-Secret': this.config.clientSecret
-        }
-      });
-      
-      if (!response.ok) {
+      // v3.8.554: 창구 경유
+      const res = await naverSearch('blog', {
+        query: `site:blog.naver.com/${blogId}`, display: 10, sort: 'date',
+      }, { payload: { naverClientId: this.config.clientId, naverClientSecret: this.config.clientSecret } });
+
+      if (!res.ok) {
         return null;
       }
-      
-      const data = await response.json();
-      const items = data.items || [];
+
+      const items = res.items;
       
       // 포스트 수와 검색 결과 수를 기반으로 참여도 추정
       // 더 많은 포스트와 검색 결과 = 더 높은 참여도
       const postCount = items.length;
-      const total = parseInt(data.total || '0', 10);
+      const total = res.total;   // v3.8.554: 창구가 준 값
       
       // 참여도 점수 계산 (0-100)
       const engagementScore = Math.min(100, (postCount / 10) * 50 + (Math.min(total, 10000) / 10000) * 50);

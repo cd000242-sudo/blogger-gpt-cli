@@ -17,6 +17,7 @@ export interface ApiKeyStatus {
     valid: boolean;
     error?: string;
   };
+  /** @deprecated v3.8.555 — CSE 제거. 형태만 남긴다(호출자 호환) */
   googleCse: {
     valid: boolean;
     error?: string;
@@ -129,36 +130,8 @@ export async function checkApiKeys(payload: any): Promise<ApiKeyStatus> {
     console.log('⚠️ 네이버 API 키 미설정');
   }
 
-  // Google CSE API 키 확인
-  if (payload.googleCseKey && payload.googleCseCx) {
-    try {
-      const testUrl = `https://www.googleapis.com/customsearch/v1?key=${payload.googleCseKey}&cx=${payload.googleCseCx}&q=테스트`;
-      const response = await fetch(testUrl);
-
-      if (response.ok) {
-        status.googleCse = { valid: true };
-        console.log('✅ Google CSE API 키 유효함');
-      } else {
-        status.googleCse = {
-          valid: false,
-          error: `Google CSE API 오류 (${response.status})`
-        };
-        console.log('❌ Google CSE API 오류:', response.status);
-      }
-    } catch (error: any) {
-      status.googleCse = {
-        valid: false,
-        error: error.message || 'Google CSE API 키가 유효하지 않습니다.'
-      };
-      console.log('❌ Google CSE API 키 오류:', error.message);
-    }
-  } else {
-    status.googleCse = {
-      valid: false,
-      error: 'Google CSE API 키가 설정되지 않았습니다.'
-    };
-    console.log('⚠️ Google CSE API 키 미설정');
-  }
+  // v3.8.555: Google CSE 키 점검 삭제 — 신규 발급 불가 + 2027-01-01 종료.
+  //   앱은 더 이상 CSE 를 부르지 않으므로 점검할 것도 없다.
 
   return status;
 }
@@ -184,11 +157,6 @@ export function getApiKeySummary(status: ApiKeyStatus): string {
     summary.push(`❌ 네이버 API: ${status.naver.error}`);
   }
 
-  if (status.googleCse.valid) {
-    summary.push('✅ Google CSE');
-  } else {
-    summary.push(`❌ Google CSE: ${status.googleCse.error}`);
-  }
 
   return summary.join('\n');
 }

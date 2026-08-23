@@ -46,8 +46,6 @@ export type EnvConfig = {
   naverApiKey?: string;
   naverCustomerId?: string;  // 네이버 검색 API Customer ID
   naverSecretKey?: string;   // 네이버 검색 API Secret Key
-  googleCseKey?: string;
-  googleCseCx?: string;
   linksPosition?: 'top' | 'bottom' | 'both';
   stickyTopRibbon?: boolean;
   thumbWidth?: number;

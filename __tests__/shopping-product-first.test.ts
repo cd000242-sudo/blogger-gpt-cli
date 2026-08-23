@@ -106,7 +106,8 @@ describe('제목보다 상품을 먼저 확정한다', () => {
 
 describe('쇼핑 글에는 공공기관 근거를 모으지 않는다', () => {
   it('⭐ 쇼핑모드에서 CSE 수집을 건너뛴다', () => {
-    expect(orch).toContain("cseKey && cseCx && contentMode !== 'shopping'");
+    // v3.8.555 앵커 현행화 — CSE 제거. 불변식(쇼핑모드는 기관 근거를 안 모은다)은 그대로다.
+        expect(orch).toContain("if (contentMode !== 'shopping') {");
   });
 
   it('왜 빼는지 근거가 적혀 있다', () => {
@@ -115,6 +116,6 @@ describe('쇼핑 글에는 공공기관 근거를 모으지 않는다', () => {
   });
 
   it('다른 모드는 그대로 수집한다 (할루시네이션 차단은 유지)', () => {
-    expect(orch).toContain('collectOfficialSources(keyword, cseKey, cseCx, onLog)');
+    expect(orch).toContain('buildOfficialSourcesFromWeb(crawledPosts as any)');
   });
 });

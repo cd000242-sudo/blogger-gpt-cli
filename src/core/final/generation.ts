@@ -6,7 +6,8 @@
  */
 
 import axios from 'axios';
-import { loadEnvFromFile } from '../../env';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../naver-search-client';
 import { getGeminiApiKey, getPerplexityApiKey } from '../llm';
 import { validateCtaUrlWithAi } from '../../cta/validate-cta-ai';
 import { resolveOfficialLink } from '../../cta/resolve';
@@ -2392,9 +2393,7 @@ async function fetchPageForCta(url: string): Promise<{ ok: boolean; html: string
   }
 }
 
-async function searchOfficialSite(keyword: string, googleCseKey: string, googleCseCx: string, contentMode?: string, skipActionIntent?: boolean, articleText?: string, smartTargetIn?: { site: string; action: string; buttonLabel: string; hookMessage?: string; searchQuery: string } | null): Promise<{ url: string; title: string; smartLabel?: string } | null> {
-  if (!googleCseKey || !googleCseCx) return null;
-
+async function searchOfficialSite(keyword: string, contentMode?: string, skipActionIntent?: boolean, articleText?: string, smartTargetIn?: { site: string; action: string; buttonLabel: string; hookMessage?: string; searchQuery: string } | null): Promise<{ url: string; title: string; smartLabel?: string } | null> {
   try {
     /**
      * v3.8.471 — 홈페이지가 아니라 "행동하는 화면" 을 찾는다.
@@ -2426,14 +2425,29 @@ async function searchOfficialSite(keyword: string, googleCseKey: string, googleC
     console.log(`[CTA] 🔍 ${contentMode === 'shopping' ? '쇼핑 페이지'
       : smartTarget ? `🧭 ${smartTarget.site}` : actionIntent ? `${actionIntent} 화면` : '공식 사이트'} 검색: "${query}"`);
 
-    const url = `https://www.googleapis.com/customsearch/v1?key=${googleCseKey}&cx=${googleCseCx}&q=${encodeURIComponent(query)}&num=5`;
-    const response = await fetch(url);
-    const data = await response.json();
+    /**
+     * v3.8.555 — Google CSE → 네이버 웹문서(webkr).
+     *
+     * CSE 는 신규 발급이 막혔고 2027-01-01 에 종료된다. 그대로 두면 CTA 주소 찾기가
+     * 통째로 죽는다. webkr 은 **이미 쓰는 네이버 키 그대로**이고, 기관 도메인을 잘 물어온다
+     * (v3.8.476 실측: "청년 월세 지원" 기관 10/10, "기초연금 수급자격" 8/10).
+     * 아래 신뢰 도메인 필터·생존 확인 파이프는 그대로 둔다 — 재료만 바뀐다.
+     */
+    const searchRes = await naverSearch('webkr', { query, display: 10 });
 
-    if (!data.items || data.items.length === 0) {
-      console.log(`[CTA] ⚠️ 검색 결과 없음`);
+    if (!searchRes.ok || searchRes.items.length === 0) {
+      console.log(`[CTA] ⚠️ 검색 결과 없음${searchRes.ok ? '' : ` (${searchRes.mode}: ${searchRes.error})`}`);
       return null;
     }
+
+    // CSE 의 items 모양에 맞춰 둔다 (link/title) — 아래 로직을 건드리지 않기 위해
+    const data = {
+      items: searchRes.items.map((it: any) => ({
+        link: it.link,
+        title: String(it.title || '').replace(/<[^>]*>/g, ''),
+        snippet: String(it.description || '').replace(/<[^>]*>/g, ''),
+      })),
+    };
 
     // 🎯 모드별 신뢰 도메인
     const trustedDomains = contentMode === 'shopping'
@@ -2531,7 +2545,7 @@ async function searchOfficialSite(keyword: string, googleCseKey: string, googleC
      */
     if (actionIntent) {
       console.log('[CTA] ↩️ 행동 화면을 못 찾아 공식 사이트로 폴백합니다');
-      return searchOfficialSite(keyword, googleCseKey, googleCseCx, contentMode, true, articleText);
+      return searchOfficialSite(keyword, contentMode, true, articleText);
     }
 
     return null;
@@ -2738,11 +2752,7 @@ export async function generateCTAsFinal(
     return [];
   }
 
-  // 환경변수 로드
-  const envData = loadEnvFromFile();
-  const googleCseKey = envData['googleCseKey'] || envData['GOOGLE_CSE_KEY'] || (process.env as any)['GOOGLE_CSE_KEY'] || '';
-  const googleCseCx = envData['googleCseCx'] || envData['GOOGLE_CSE_CX'] || (process.env as any)['GOOGLE_CSE_CX'] || '';
-
+  // v3.8.555: CSE 키 로드 제거 — 공식 사이트 검색은 네이버 웹문서(단일 창구)로 간다
   const safeCTAs: FinalCTAData[] = [];
 
   /**
@@ -3004,9 +3014,9 @@ JSON만 출력:
     console.log(`[CTA] ⚠️ 1단계(추론) CTA 실패: ${groundingErr.message?.substring(0, 100)}`);
   }
 
-  // 🔥 2단계: 1단계 추론 실패 시 기존 Google CSE 폴백
-  if (safeCTAs.length === 0 && googleCseKey && googleCseCx) {
-    console.log('[CTA] 폴백: Google CSE로 공식 사이트 검색...');
+  // 🔥 2단계: 1단계 추론 실패 시 검색 폴백 (v3.8.555: CSE → 네이버 웹문서)
+  if (safeCTAs.length === 0) {
+    console.log('[CTA] 폴백: 네이버 웹문서로 공식 사이트 검색...');
     /**
      * v3.8.501 — 글 맥락을 함께 넘긴다.
      * 본문에 "복지로에서 신청합니다" 처럼 어디서 하는 일인지 이미 적혀 있다.
@@ -3016,7 +3026,7 @@ JSON만 출력:
      * 이제 맨 위에서 실제 키(h2 / h3Sections[].content)로 만든 것을 그대로 쓴다.
      */
     const cseSmartTarget = await ensureSmartTarget();
-    const officialLink = await searchOfficialSite(keyword, googleCseKey, googleCseCx, contentMode, false, articleText, cseSmartTarget);
+    const officialLink = await searchOfficialSite(keyword, contentMode, false, articleText, cseSmartTarget);
     if (officialLink) {
       const shortKeyword = keyword.length > 15 ? keyword.split(/\s+/).slice(0, 2).join(' ') : keyword;
       let btnText = `🔗 ${shortKeyword} 공식 사이트`;

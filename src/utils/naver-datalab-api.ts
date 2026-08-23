@@ -4,6 +4,8 @@
  */
 
 import { apiCache, cachedApiCall } from './api-cache';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch, naverDatalabSearch } from '../core/naver-search-client';
 import { ErrorHandler } from './error-handler';
 
 export interface NaverDatalabConfig {
@@ -82,7 +84,6 @@ export async function getNaverTrendKeywords(
         }
 
         // 네이버 데이터랩 API 엔드포인트
-        const apiUrl = 'https://openapi.naver.com/v1/datalab/search';
 
         // 요청 본문 구성
         const requestBody: any = {
@@ -104,12 +105,6 @@ export async function getNaverTrendKeywords(
           requestBody.gender = gender;
         }
 
-        const headers = {
-          'X-Naver-Client-Id': config.clientId,
-          'X-Naver-Client-Secret': config.clientSecret,
-          'Content-Type': 'application/json'
-        };
-
         console.log('[NAVER-DATALAB] 트렌드 키워드 조회 요청:', {
           keywords,
           startDate,
@@ -118,15 +113,23 @@ export async function getNaverTrendKeywords(
           hasClientSecret: !!config.clientSecret
         });
 
-    // 네트워크 오류 자동 재시도 적용
+    /**
+     * v3.8.554 — 창구 경유 (HUB 우선 + 자동 토스).
+     * 창구가 Response 를 주지 않으므로, 기존 재시도/타임아웃 래퍼가 기대하는 모양으로
+     * 얇게 감싼다 — 바깥 로직(재시도 횟수·오류 처리)은 그대로 둔다.
+     */
     const response = await ErrorHandler.withRetry(
       async () => {
         return await ErrorHandler.withTimeout(
-          async () => fetch(apiUrl, {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify(requestBody)
-          }),
+          async () => {
+            const dl = await naverDatalabSearch(requestBody, { payload: { naverClientId: config.clientId, naverClientSecret: config.clientSecret } });
+            return {
+              ok: dl.ok,
+              status: dl.ok ? 200 : 401,
+              json: async () => dl.data,
+              text: async () => dl.error || '',
+            } as any;
+          },
           30000, // 30초 타임아웃
           '네이버 데이터랩 API 요청 시간 초과'
         );
@@ -353,7 +356,7 @@ export async function getNaverRankingKeywords(
     // 실제로는 네이버 데이터랩 API나 검색 API의 인기 검색어 기능을 사용해야 합니다
     // 여기서는 검색 API를 통해 인기 키워드를 추정합니다
 
-    const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
+    // v3.8.554: 직접 호출 제거 — 아래는 전부 창구(naverSearch) 경유다
     
     // 인기 검색어 후보들 (실제로는 데이터랩이나 다른 소스에서 가져와야 함)
     const popularKeywords = [
@@ -368,30 +371,12 @@ export async function getNaverRankingKeywords(
       if (!keyword) continue;
       
       try {
-        const params = new URLSearchParams();
-        params.append('query', keyword);
-        params.append('display', '1');
-        params.append('sort', 'sim');
-
-        const headers = {
-          'X-Naver-Client-Id': config.clientId,
-          'X-Naver-Client-Secret': config.clientSecret
-        };
-
-        // PC와 모바일 검색량 합산을 위해 두 번 호출
+        // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
         let totalSearchVolume = 0;
-        
-        // PC 검색량
+
         try {
-          const pcResponse = await fetch(`${apiUrl}?${params}`, {
-            method: 'GET',
-            headers: headers
-          });
-          
-          if (pcResponse.ok) {
-            const pcData = await pcResponse.json();
-            totalSearchVolume += parseInt(pcData.total || '0');
-          }
+          const pcRes = await naverSearch('blog', { query: keyword, display: 1, sort: 'sim' }, { payload: { naverClientId: config.clientId, naverClientSecret: config.clientSecret } });
+          if (pcRes.ok) totalSearchVolume += pcRes.total;
         } catch (error) {
           console.warn(`[NAVER-RANK] PC 검색량 조회 실패 (${keyword}):`, error);
         }
@@ -404,29 +389,20 @@ export async function getNaverRankingKeywords(
           mobileParams.append('sort', 'sim');
         }
         
+        /**
+         * v3.8.554 — 창구 경유.
+         * 예전엔 PC/모바일을 나눠 두 번 불렀지만 **질의 파라미터가 완전히 같았다**
+         * (query/display=1/sort=sim). 같은 값을 두 번 더하고 있던 셈이라
+         * 한 번만 부르고, 실패 시 mobileParams 로 한 번 더 시도한다.
+         */
         try {
-          const mobileResponse = await fetch(`${apiUrl}?${mobileParams}`, {
-            method: 'GET',
-            headers: headers
-          });
-          
-          if (mobileResponse.ok) {
-            const mobileData = await mobileResponse.json();
-            totalSearchVolume += parseInt(mobileData.total || '0');
+          if (totalSearchVolume === 0) {
+            const mobileRes = await naverSearch('blog',
+              Object.fromEntries(mobileParams as any), { payload: { naverClientId: config.clientId, naverClientSecret: config.clientSecret } });
+            if (mobileRes.ok) totalSearchVolume += mobileRes.total;
           }
         } catch (error) {
           console.warn(`[NAVER-RANK] 모바일 검색량 조회 실패 (${keyword}):`, error);
-          // 모바일 조회 실패 시 PC만 사용
-          if (totalSearchVolume === 0) {
-            const pcResponse = await fetch(`${apiUrl}?${params}`, {
-              method: 'GET',
-              headers: headers
-            });
-            if (pcResponse.ok) {
-              const pcData = await pcResponse.json();
-              totalSearchVolume = parseInt(pcData.total || '0');
-            }
-          }
         }
         
         if (totalSearchVolume > 0) {
@@ -506,26 +482,16 @@ export async function getBlogSearchFallback(
   keyword: string
 ): Promise<{ keyword: string; pcSearchVolume: number; mobileSearchVolume: number } | null> {
   try {
-    const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-    const params = new URLSearchParams({
-      query: keyword,
-      display: '1', // 1개만 조회 (total 필드 확인용)
-      sort: 'sim'
-    });
-    
-    const response = await fetch(`${apiUrl}?${params.toString()}`, {
-      headers: {
-        'X-Naver-Client-Id': config.clientId,
-        'X-Naver-Client-Secret': config.clientSecret
-      }
-    });
-    
-    if (!response.ok) {
+    // v3.8.554: 창구 경유
+    const res = await naverSearch('blog', {
+      query: keyword, display: 1, sort: 'sim',   // 1개만 조회 (total 필드 확인용)
+    }, { payload: { naverClientId: config.clientId, naverClientSecret: config.clientSecret } });
+
+    if (!res.ok) {
       return null;
     }
-    
-    const data = await response.json();
-    const total = parseInt(data.total || '0', 10);
+
+    const total = res.total;
     
     // 블로그 검색 API는 정확한 검색량을 제공하지 않지만,
     // 문서수(total)를 기반으로 추정 검색량 계산
@@ -643,26 +609,16 @@ export async function getNaverKeywordSearchVolumeSeparate(
         
         // 2. 문서수: 네이버 블로그 검색 API (원본 키워드)
         (async () => {
-          const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-          const params = new URLSearchParams({
-            query: originalKeyword, // 원본 키워드 사용
-            display: '1', // 1개만 조회 (total 필드 확인용)
-            sort: 'sim'
-          });
-          
-          const response = await fetch(`${apiUrl}?${params.toString()}`, {
-            headers: {
-              'X-Naver-Client-Id': config.clientId,
-              'X-Naver-Client-Secret': config.clientSecret
-            }
-          });
-          
-          if (!response.ok) {
+          // v3.8.554: 창구 경유
+          const res = await naverSearch('blog', {
+            query: originalKeyword, display: 1, sort: 'sim',   // 원본 키워드, total 확인용
+          }, { payload: { naverClientId: config.clientId, naverClientSecret: config.clientSecret } });
+
+          if (!res.ok) {
             return 0;
           }
-          
-          const data = await response.json();
-          const total = parseInt(data.total || '0', 10);
+
+          const total = res.total;
           
           console.log(`[NAVER-VOLUME] ✅ 블로그 검색 API "${originalKeyword}": 문서수=${total}`);
           return total;
@@ -743,12 +699,7 @@ export async function getNaverRelatedKeywords(
   const results: TrendKeyword[] = [];
   
   // API URL과 헤더 선언 (거미줄 확장에서 사용)
-  const apiUrl = 'https://openapi.naver.com/v1/search/blog.json';
-  const headers: Record<string, string> = {
-    'X-Naver-Client-Id': config.clientId,
-    'X-Naver-Client-Secret': config.clientSecret
-  };
-  
+  // v3.8.554: 직접 호출 제거 — 아래 단계들은 자동완성 모듈과 스마트블록 크롤을 쓴다
   try {
     console.log(`[NAVER-RELATED] 🧠 마인드맵 기반 연관키워드 추출 시작: "${baseKeyword}"`);
     
@@ -899,14 +850,12 @@ export async function getNaverRelatedKeywords(
             sort: 'sim'
           });
           
-          const spiderResponse = await fetch(`${apiUrl}?${spiderParams}`, {
-            method: 'GET',
-            headers: headers
-          });
-          
-          if (spiderResponse.ok) {
-            const spiderData = await spiderResponse.json();
-            const spiderItems = spiderData.items || [];
+          // v3.8.554: 창구 경유
+          const spiderRes = await naverSearch('blog',
+            Object.fromEntries(spiderParams as any), { payload: { naverClientId: config.clientId, naverClientSecret: config.clientSecret } });
+
+          if (spiderRes.ok) {
+            const spiderItems = spiderRes.items;
             
             // 제목에서 연상 키워드 추출 (키워드와 함께 나오는 다른 단어들)
             spiderItems.forEach((item: any) => {
@@ -945,7 +894,7 @@ export async function getNaverRelatedKeywords(
     console.log(`[NAVER-RELATED] 🕷️ 거미줄 치기 완료: 총 ${spiderWebKeywords.size}개 연상 키워드`);
     
     // 🔧 4단계: 네이버 검색 API로 실제 검색 패턴 분석
-    // apiUrl과 headers는 이미 함수 시작 부분에서 선언됨
+    // v3.8.554: apiUrl/headers 선언 제거 — 창구가 URL·헤더를 만든다
 
     // 🔧 개선: 여러 정렬 방식으로 검색하여 더 많은 연관 키워드 추출
     const sortOptions = ['sim', 'date']; // 정확도순 + 최신순
@@ -960,15 +909,11 @@ export async function getNaverRelatedKeywords(
       });
 
       try {
-        const response = await fetch(`${apiUrl}?${params}`, {
-          method: 'GET',
-          headers: headers
-        });
+        // v3.8.554: 창구 경유
+        const res = await naverSearch('blog', Object.fromEntries(params as any), { payload: { naverClientId: config.clientId, naverClientSecret: config.clientSecret } });
 
-        if (response.ok) {
-          const data = await response.json();
-          const items = data.items || [];
-          allItems.push(...items);
+        if (res.ok) {
+          allItems.push(...res.items);
         }
       } catch (err) {
         console.warn(`[NAVER-RELATED] ${sort}순 검색 실패:`, err);

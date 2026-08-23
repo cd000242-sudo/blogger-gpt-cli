@@ -3,6 +3,9 @@
  * 키워드 입력 → 검색결과/블로그지수/작성일 분석
  */
 
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../core/naver-search-client';
+
 export interface NaverApiConfig {
   clientId: string;
   clientSecret: string;
@@ -79,27 +82,15 @@ export class NaverBlogSearchAPI {
     display: number;
     items: BlogSearchResult[];
   }> {
-    const url = 'https://openapi.naver.com/v1/search/blog.json';
-    
     try {
-      const params = new URLSearchParams({
-        query: keyword,
-        display: String(Math.min(display, 100)), // 최대 100개
-        sort: 'sim', // sim(정확도순) 또는 date(날짜순)
-      });
+      // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+      const res = await naverSearch('blog', {
+        query: keyword, display: Math.min(display, 100), sort: 'sim',   // sim(정확도순) / date(날짜순)
+      }, { payload: { naverClientId: this.config.clientId, naverClientSecret: this.config.clientSecret } });
 
-      const response = await fetch(`${url}?${params}`, {
-        headers: {
-          'X-Naver-Client-Id': this.config.clientId,
-          'X-Naver-Client-Secret': this.config.clientSecret,
-        },
-      });
+      if (!res.ok) throw new Error(`네이버 검색 실패(${res.mode}): ${res.error}`);
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      return await response.json();
+      return { items: res.items, total: res.total } as any;
     } catch (error: any) {
       console.error('[NAVER-BLOG-ANALYZER] API 호출 실패:', error);
       throw new Error('네이버 블로그 검색 실패');

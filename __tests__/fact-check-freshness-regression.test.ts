@@ -33,7 +33,10 @@ describe('fact-check freshness regression', () => {
   test('Naver fact-check search is latest-first, not relevance-first', () => {
     const source = fs.readFileSync(path.join(process.cwd(), 'src', 'core', 'perplexityFactCheck.ts'), 'utf8');
 
-    expect(source).toContain('&sort=date');
+    // v3.8.553: 직접 URL 조립 → 단일 창구(naverSearch) 호출. 앵커만 현행화한다.
+    // 불변식은 그대로: 팩트체크 검색은 최신순이고, 유사도순으로 돌아가지 않는다.
+    expect(source).toContain("sort: 'date'");
+    expect(source).not.toContain("sort: 'sim'");
     expect(source).not.toContain('&sort=sim');
   });
 });

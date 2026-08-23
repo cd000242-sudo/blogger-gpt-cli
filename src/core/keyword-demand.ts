@@ -19,6 +19,9 @@
  * 절대 규칙: 이 게이트는 발행을 막지 않는다. 실패 시 verdict='error'로 조용히 물러난다.
  */
 
+// v3.8.553: 데이터랩 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverDatalabSearch } from './naver-search-client';
+
 export interface DemandVariant {
   term: string;
   /** 13주 주간 상대지수 합 (호출 내 상대값, 0 = 측정 하한 미만) */
@@ -116,32 +119,20 @@ export async function analyzeKeywordDemand(
   }
 
   const variants = buildVariants(kw);
-  const doFetch = opts.fetchImpl || fetch;
-  let res: Response;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 8000);
-  try {
-    res = await doFetch('https://openapi.naver.com/v1/datalab/search', {
-      method: 'POST',
-      headers: {
-        'X-Naver-Client-Id': opts.clientId,
-        'X-Naver-Client-Secret': opts.clientSecret,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(buildDatalabBody(variants)),
-      signal: ctrl.signal,
-    });
-  } catch {
-    return base;
-  } finally {
-    clearTimeout(timer); // fetch가 throw 해도 타이머를 걷는다 (open handle 방지)
-  }
-  if (!res.ok) return { ...base, summary: `수요 실측 실패(HTTP ${res.status})` };
+  /**
+   * v3.8.553 — 데이터랩도 창구 경유. fetchImpl 은 그대로 넘겨서 테스트가 계속 갈아끼울 수 있게 한다.
+   */
+  const dl = await naverDatalabSearch(buildDatalabBody(variants), {
+    payload: { naverClientId: opts.clientId, naverClientSecret: opts.clientSecret },
+    timeoutMs: opts.timeoutMs ?? 8000,
+    // exactOptionalPropertyTypes: undefined 를 그대로 넘기면 타입이 어긋난다 — 있을 때만 넣는다
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+  });
+  if (!dl.ok) return { ...base, summary: `수요 실측 실패(${dl.mode}: ${dl.error || '응답 없음'})` };
 
   let results: Array<{ title: string; data: Array<{ ratio: number }> }>;
   try {
-    const json = await res.json() as { results?: Array<{ title: string; data: Array<{ ratio: number }> }> };
-    results = json.results || [];
+    results = (dl.data?.results || []) as Array<{ title: string; data: Array<{ ratio: number }> }>;
   } catch {
     return { ...base, summary: '수요 실측 실패(응답 파싱)' };
   }

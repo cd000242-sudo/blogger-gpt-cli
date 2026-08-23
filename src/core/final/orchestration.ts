@@ -4,6 +4,8 @@
  */
 
 import axios from 'axios';
+// v3.8.555: 공공기관 근거를 네이버 웹문서에서 만든다 (CSE 대체)
+import { buildOfficialSourcesFromWeb } from '../crawlers/official-from-web';
 import { loadEnvFromFile } from '../../env';
 import { describeModelForLog } from '../llm/pricing';
 import {
@@ -20,7 +22,14 @@ import { findRelatedPosts, insertInternalLinks } from '../internal-links';
 import { analyzeKeywordDemand } from '../keyword-demand';
 import { analyzeKeywordAngle, composeTitleDirective } from '../keyword-angle';
 import { buildUniquenessBlock } from './substance-rules';
-import { collectOfficialSources, buildOfficialSourceBlock } from './official-sources';
+// v3.8.544: 허브 헌장 게이트 — 단일 일관 모드 허브글의 "존재 이유"
+import {
+  buildHubJobPrompt, parseHubJob, validateHubJob, buildHubCharterBlock,
+  formatHubCharterBlockMessage, isHubCharterEnforced,
+  type HubCharterVerdict,
+} from './hub-charter';
+// v3.8.555: CSE 전용 수집기는 import 하지 않는다 — 기관 근거는 네이버 웹문서로만 만든다
+import { buildOfficialSourceBlock } from './official-sources';
 import {
   normalizeExperience, hasExperience, buildExperienceBlock, NO_EXPERIENCE_GUARD,
 } from './experience-block';
@@ -942,7 +951,7 @@ export async function generateUltimateMaxModeArticleFinal(
     } else {
       // 🔥 2026 모드: 키워드 기반 → 네이버 API 실제 크롤링 + Grounding 병행
       //   네이버 API 키 있으면 실제 블로그 데이터 수집 → 할루시네이션 원천 차단
-      //   네이버 없으면 RSS/CSE 폴백
+      //   네이버 없으면 RSS 폴백 (v3.8.555: CSE 제거)
       onLog?.('[PROGRESS] 5% - 🔎 네이버/Google 실시간 크롤링 시작...');
 
       try {
@@ -951,8 +960,6 @@ export async function generateUltimateMaxModeArticleFinal(
           envKw['naverClientId'] || envKw['NAVER_CLIENT_ID'] || envKw['naverCustomerId'] || '';
         const naverClientSecret = (payload as any).naverClientSecret || (payload as any).naverSecretKey ||
           envKw['naverClientSecret'] || envKw['NAVER_CLIENT_SECRET'] || envKw['naverSecretKey'] || '';
-        const googleCseKey = (payload as any).googleCseKey || envKw['googleCseKey'] || envKw['GOOGLE_CSE_KEY'] || '';
-        const googleCseCx = (payload as any).googleCseCx || envKw['googleCseCx'] || envKw['GOOGLE_CSE_CX'] || '';
 
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { ContentCrawler } = require('../content-crawler');
@@ -963,8 +970,6 @@ export async function generateUltimateMaxModeArticleFinal(
           maxResults: 5,
           naverClientId,
           naverClientSecret,
-          googleCseKey,
-          googleCseCx,
         };
 
         let crawledFromAPI: any[] = [];
@@ -999,19 +1004,13 @@ export async function generateUltimateMaxModeArticleFinal(
           onLog?.(`   ⚠️ 네이버 API 키 없음 → Google Suggest만 수집 (${suggestOnly.length}개)`);
         }
 
-        // 2순위: Google CSE (네이버 결과가 부족할 때)
-        if (crawledFromAPI.length < 2 && googleCseKey && googleCseCx) {
-          try {
-            onLog?.(`   🔍 Google CSE 검색 중...`);
-            const cseResults = await crawler.crawlFromCSE(crawlerConfig);
-            crawledFromAPI.push(...cseResults);
-            onLog?.(`   ✅ CSE에서 ${cseResults.length}개 추가 수집`);
-          } catch (cseErr: any) {
-            onLog?.(`   ⚠️ CSE 크롤링 실패: ${cseErr.message?.slice(0, 80)}`);
-          }
-        }
+        /**
+         * v3.8.555 — Google CSE 2순위 폴백 제거 (사장님 지시).
+         * CSE 는 신규 발급이 막혔고 2027-01-01 에 종료된다. 그 자리는 이미
+         * 네이버 웹문서(webkr)가 대신하고 있다 — 위 병렬 수집에 들어가 있다.
+         */
 
-        // 3순위: RSS 폴백 (API 키 없을 때)
+        // 2순위: RSS 폴백 (API 키 없을 때)
         if (crawledFromAPI.length === 0) {
           try {
             onLog?.(`   📡 RSS 폴백 검색 중...`);
@@ -2099,46 +2098,30 @@ ${quoted}
      * 그래서 CTA 는 모델의 기억에 의존해 옛 주소를 짚곤 했다.
      */
     let officialSources: Array<{ agency?: string; url?: string }> = [];
-    try {
-      const envForOfficial = loadEnvFromFile();
-      const cseKey = envForOfficial['googleCseKey'] || envForOfficial['GOOGLE_CSE_KEY']
-        || envForOfficial['GOOGLE_CSE_API_KEY'] || '';
-      const cseCx = envForOfficial['googleCseId'] || envForOfficial['GOOGLE_CSE_ID']
-        || envForOfficial['googleCseCx'] || envForOfficial['GOOGLE_CSE_CX'] || '';
-      // v3.8.403 — 쇼핑 글에는 공공기관 근거를 모으지 않는다.
-      //   사용자 지적(2026-08-02): "네이버 크롤링이랑 공공기관 수집은 쇼핑모드에서 왜 하는 건데?"
-      //   맞는 지적이다. 상품 글의 근거는 **상품 스펙과 구매자 후기**지 통계청·보건복지부가 아니다.
-      //   "통계청 자료에 따르면 물놀이 튜브는…" 같은 문장은 어색하고 신뢰를 오히려 깎는다.
-      //   CSE 호출과 13초도 아낀다.
-      if (cseKey && cseCx && contentMode !== 'shopping') {
-        onLog?.('[PROGRESS] 43% - 🏛️ 공공기관 확인 근거 수집 중...');
-        const sources = await collectOfficialSources(keyword, cseKey, cseCx, onLog);
-        officialSources = sources;
-        officialBlock = buildOfficialSourceBlock(sources);
-        if (officialBlock) {
-          onLog?.(`[PROGRESS] 43% - 🏛️ 기관 근거 ${sources.length}곳 확보 → 프롬프트 주입`);
-        }
-      }
-    } catch (officialErr: any) {
-      console.warn('[OFFICIAL] 공공출처 수집 스킵:', String(officialErr?.message || officialErr).slice(0, 80));
-    }
 
     /**
-     * v3.8.476 — CSE 가 없거나 빈손이면 웹문서(webkr) 기관 결과로 채운다.
+     * v3.8.555 — 공공기관 근거를 **네이버 웹문서(webkr)만으로** 만든다.
      *
-     * CSE 는 신규 발급이 막혔고 2027-01-01 에 종료된다. 그때 공공기관 근거가
-     * 통째로 사라지면 안 된다. webkr 은 이미 쓰는 네이버 키 그대로다.
+     * 예전엔 CSE 를 먼저 부르고, 빈손일 때만 webkr 로 채웠다(v3.8.476).
+     * 이제 CSE 를 걷어내면서 webkr 을 주 경로로 올린다 — 이미 병렬 수집에
+     * 들어와 있는 결과를 재사용하므로 **추가 호출도, 추가 키도 없다.**
+     *
+     * v3.8.403 — 쇼핑 글에는 공공기관 근거를 모으지 않는다.
+     *   사용자 지적(2026-08-02): "네이버 크롤링이랑 공공기관 수집은 쇼핑모드에서 왜 하는 건데?"
+     *   상품 글의 근거는 상품 스펙과 구매자 후기지 통계청·보건복지부가 아니다.
+     *
      * 기관 결과가 없거나(정부 주제가 아님) 수치 문장이 없으면 빈 문자열 —
-     * 지금까지처럼 아무것도 추가되지 않는다(악화 없음).
+     * 지금까지처럼 아무것도 추가되지 않는다(악화 없음, 발행도 안 막는다).
      */
-    if (!officialBlock && contentMode !== 'shopping') {
+    if (contentMode !== 'shopping') {
       try {
-        const { buildOfficialSourcesFromWeb } = await import('../crawlers/official-from-web');
+        onLog?.('[PROGRESS] 43% - 🏛️ 공공기관 확인 근거 수집 중...');
         const webSources = buildOfficialSourcesFromWeb(crawledPosts as any);
         if (webSources.length > 0) {
+          officialSources = webSources;
           officialBlock = buildOfficialSourceBlock(webSources);
           if (officialBlock) {
-            onLog?.(`[PROGRESS] 43% - 🏛️ 기관 근거 ${webSources.length}곳 확보 (네이버 웹문서 — CSE 불필요)`);
+            onLog?.(`[PROGRESS] 43% - 🏛️ 기관 근거 ${webSources.length}곳 확보 (네이버 웹문서)`);
           }
         }
       } catch (webOfficialErr: any) {
@@ -2297,6 +2280,10 @@ ${quoted}
     //   추가 LLM 호출 없이 워드프레스 REST 조회 1회뿐이라 비용도 늘지 않는다.
     //   실측(2026-07-28): 본문 유사도 0.35+ 가 4클러스터 11편. 지금은 작지만
     //   하루 5~10편을 같은 주제군에서 뽑으면 반드시 커진다.
+    // v3.8.544: 허브 헌장도 같은 조회 결과(하위 콘텐츠 목록)를 쓴다 — 조회를 두 번 하지 않는다
+    let relatedForHub: Array<{ title: string; url?: string }> = [];
+    /** 통과한 허브 헌장 한 문장 — 결과에 실어 화면·로그에서 확인할 수 있게 한다 */
+    let hubCharterSentence = '';
     try {
       const envForDup = loadEnvFromFile();
       const dupSiteUrl = String(
@@ -2305,6 +2292,7 @@ ${quoted}
       ).trim().replace(/\/+$/, '');
       if (dupSiteUrl) {
         const existing = await findRelatedPosts(dupSiteUrl, keyword, 8);
+        relatedForHub = (existing || []).map(e => ({ title: e.title, url: (e as any).url }));
         const block = buildUniquenessBlock(existing.map(e => e.title));
         if (block) {
           scopedSectionBlock += block;
@@ -2314,6 +2302,57 @@ ${quoted}
     } catch (dupErr: any) {
       // 조회 실패는 발행에 영향을 주지 않는다
       console.warn('[UNIQUENESS] 기존 글 조회 스킵:', dupErr?.message?.slice(0, 80));
+    }
+
+    /**
+     * 🧭 v3.8.544 — 허브 헌장 게이트 (단일 일관 모드 전용)
+     *
+     * 사장님 지시: "허브 존재 이유가 한 문장으로 설명 안 되면 발행하지 않는 것."
+     *
+     * 여기(42% 지점)에 두는 이유: 본문 섹션 생성이 아직 시작 전이다.
+     * 막을 거라면 비싼 호출 전에 막아야 돈이 안 샌다.
+     *
+     * 비용: 평상시 짧은 호출 1회. 판정에 걸렸을 때만 1회 더(최대 2회).
+     *       판정 자체는 규칙 기반이라 LLM 을 쓰지 않는다.
+     */
+    if (contentMode === 'internal') {
+      const hubEnforced = isHubCharterEnforced(loadEnvFromFile(), payload as any);
+      let verdict: HubCharterVerdict | null = null;
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        const prompt = buildHubJobPrompt({
+          keyword,
+          subContents: relatedForHub,
+          ...(attempt === 1 ? {} : { previousViolations: verdict?.violations || [] }),
+        });
+        let raw = '';
+        try {
+          raw = String(await callGeminiWithRetry(prompt, 1) || '');
+        } catch (hubErr: any) {
+          onLog?.(`[PROGRESS] 43% - ⚠️ 허브 사유 생성 호출 실패(${String(hubErr?.message || '').slice(0, 60)})`);
+        }
+        verdict = validateHubJob(parseHubJob(raw), { keyword, subCount: relatedForHub.length });
+        if (verdict.ok) break;
+        if (attempt === 1) {
+          onLog?.(`[PROGRESS] 43% - 🧭 허브 사유 반려 (${verdict.violations[0] || ''}) → 1회 재작성`);
+        }
+      }
+
+      if (verdict?.ok) {
+        scopedSectionBlock += buildHubCharterBlock(verdict, relatedForHub);
+        hubCharterSentence = verdict.sentence;
+        onLog?.(`[PROGRESS] 43% - 🧭 허브 헌장 확정: ${verdict.sentence}`);
+        console.log('[HUB-CHARTER] ✅', verdict.sentence);
+      } else {
+        const message = formatHubCharterBlockMessage(keyword, verdict?.violations || ['사유를 만들지 못했습니다']);
+        // 조용히 죽으면 안 된다 — 화면·콘솔 양쪽에 이유를 남긴다 (예약 발행 대비)
+        onLog?.(message);
+        console.error('[HUB-CHARTER] ⛔', message);
+        if (hubEnforced) {
+          throw new Error(message);
+        }
+        onLog?.('[PROGRESS] 43% - ⚠️ HUB_CHARTER_ENFORCE=false → 사유 없이 계속 진행합니다');
+      }
     }
 
     // 🧑 v3.8.392: 작성자 경험 메모 주입 — 이 글의 유일한 차별점이다.
@@ -5021,6 +5060,8 @@ ${conclusionHTML}
       labels: hashtags.split(',').map(t => t.trim()).slice(0, 15),
       thumbnail: thumbnailUrl,
       qualityReport: finalQualityReport, // v3.5.84: UI 모달 노출용 품질 리포트
+      // v3.8.544: 허브 헌장(단일 일관 모드에서만 채워진다) — 왜 이 허브를 발행했는지의 기록
+      ...(hubCharterSentence ? { hubCharter: hubCharterSentence } : {}),
     };
 
   } catch (error: any) {

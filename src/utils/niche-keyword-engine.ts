@@ -12,6 +12,8 @@
  */
 
 import * as fs from 'fs';
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../core/naver-search-client';
 import * as path from 'path';
 import { app } from 'electron';
 import { fetchNaverAutocomplete, fetchGoogleAutocomplete } from './naver-autocomplete';
@@ -224,23 +226,16 @@ export async function crawlNaverBlogDocCount(keyword: string): Promise<number> {
             return 500;
         }
 
-        const url = `https://openapi.naver.com/v1/search/blog.json?query=${encodeURIComponent(keyword)}&display=1`;
-        const resp = await fetch(url, {
-            headers: {
-                'X-Naver-Client-Id': clientId,
-                'X-Naver-Client-Secret': clientSecret,
-            },
-            signal: AbortSignal.timeout(10000),
-        });
+        // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+        const res = await naverSearch('blog', { query: keyword, display: 1 },
+            { payload: { naverClientId: clientId, naverClientSecret: clientSecret }, timeoutMs: 10000 });
 
-        if (!resp.ok) {
-            console.warn(`[NicheEngine] Blog API HTTP ${resp.status} (${keyword})`);
+        if (!res.ok) {
+            console.warn(`[NicheEngine] Blog API 실패(${res.mode}): ${res.error} (${keyword})`);
             return 500;
         }
 
-        const data = await resp.json();
-        const total = parseInt(data.total || '0', 10);
-        return total > 0 ? total : 1;
+        return res.total > 0 ? res.total : 1;
     } catch (err: any) {
         console.error(`[NicheEngine] 문서수 조회 실패 (${keyword}):`, err?.message || err);
         return 500;
@@ -601,18 +596,12 @@ async function getRealtimeNewsSeedTopics(seeds: string[]): Promise<string[]> {
 
         for (const seed of seeds.slice(0, 3)) {
             try {
-                const url = `https://openapi.naver.com/v1/search/news.json?query=${encodeURIComponent(seed)}&display=20&sort=date`;
-                const resp = await fetch(url, {
-                    headers: {
-                        'X-Naver-Client-Id': clientId,
-                        'X-Naver-Client-Secret': clientSecret,
-                    },
-                    signal: AbortSignal.timeout(8000),
-                });
+                // v3.8.554: 창구 경유 (HUB 우선 + 자동 토스)
+                const newsRes = await naverSearch('news', { query: seed, display: 20, sort: 'date' },
+                    { payload: { naverClientId: clientId, naverClientSecret: clientSecret }, timeoutMs: 8000 });
 
-                if (resp.ok) {
-                    const data = await resp.json();
-                    for (const item of (data.items || [])) {
+                if (newsRes.ok) {
+                    for (const item of newsRes.items) {
                         const title = (item.title || '')
                             .replace(/<[^>]*>/g, '')
                             .replace(/&quot;/g, '"')

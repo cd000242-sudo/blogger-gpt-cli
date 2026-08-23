@@ -4,6 +4,9 @@
  * 공식 API가 없으므로 웹 크롤링 방식 활용
  */
 
+// v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
+import { naverSearch } from '../core/naver-search-client';
+
 export interface GoogleTrendKeyword {
   rank: number;
   keyword: string;
@@ -12,24 +15,14 @@ export interface GoogleTrendKeyword {
 }
 
 /**
- * Google CSE를 사용하여 Google Trends 인기 검색어 가져오기 (우선순위 1)
+ * 네이버 웹문서로 인기 검색어 가져오기 (우선순위 1)
+ * v3.8.555: Google CSE 키 게이트 삭제 — 키가 없어도 네이버 키 한 벌로 돈다.
  */
-async function getGoogleTrendKeywordsWithCSE(): Promise<GoogleTrendKeyword[] | null> {
+async function getTrendKeywordsFromWeb(): Promise<GoogleTrendKeyword[] | null> {
   try {
-    // 환경 변수에서 Google CSE 키 로드
-    const { loadEnvFromFile } = await import('../env');
-    const env = loadEnvFromFile();
-    const googleCseKey = env['googleCseKey'] || env['GOOGLE_CSE_KEY'] || process.env['GOOGLE_CSE_KEY'];
-    const googleCseCx = env['googleCseCx'] || env['GOOGLE_CSE_CX'] || env['googleCseId'] || env['GOOGLE_CSE_ID'] || process.env['GOOGLE_CSE_CX'] || process.env['GOOGLE_CSE_ID'];
-    
-    if (!googleCseKey || !googleCseCx) {
-      console.log('[GOOGLE-TRENDS] Google CSE 키가 설정되지 않음, Puppeteer로 전환');
-      return null;
-    }
-    
-    console.log('[GOOGLE-TRENDS] Google CSE를 사용하여 트렌드 키워드 검색 시작');
-    
-    // Google CSE로 한국 인기 검색어 관련 쿼리들
+    console.log('[GOOGLE-TRENDS] 네이버 웹문서로 트렌드 키워드 검색 시작');
+
+    // 한국 인기 검색어 관련 쿼리들
     const trendingQueries = [
       '인기 검색어',
       '트렌드 검색어',
@@ -43,10 +36,15 @@ async function getGoogleTrendKeywordsWithCSE(): Promise<GoogleTrendKeyword[] | n
     
     for (const query of trendingQueries.slice(0, 3)) {
       try {
-        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${googleCseKey}&cx=${googleCseCx}&q=${encodeURIComponent(query)}&num=10&lr=lang_ko&cr=countryKR`;
-        const response = await fetch(searchUrl);
-        const data = await response.json();
-        
+        // v3.8.555: Google CSE → 네이버 웹문서 (CSE 신규 발급 불가 · 2027-01-01 종료)
+        const res = await naverSearch('webkr', { query, display: 10 });
+        const data = {
+          items: res.ok ? res.items.map((it: any) => ({
+            title: String(it.title || '').replace(/<[^>]*>/g, ''),
+            snippet: String(it.description || '').replace(/<[^>]*>/g, ''),
+          })) : [],
+        };
+
         if (data.items && data.items.length > 0) {
           data.items.forEach((item: any) => {
             // 제목에서 키워드 추출
@@ -98,19 +96,19 @@ async function getGoogleTrendKeywordsWithCSE(): Promise<GoogleTrendKeyword[] | n
         // API 호출 제한 고려
         await new Promise(resolve => setTimeout(resolve, 200));
       } catch (cseError: any) {
-        console.warn(`[GOOGLE-TRENDS] CSE 쿼리 "${query}" 실패:`, cseError.message);
+        console.warn(`[GOOGLE-TRENDS] 웹문서 쿼리 "${query}" 실패:`, cseError.message);
         continue;
       }
     }
     
     if (allKeywords.length > 0) {
-      console.log(`[GOOGLE-TRENDS] Google CSE에서 ${allKeywords.length}개 키워드 추출 성공`);
+      console.log(`[GOOGLE-TRENDS] 웹문서에서 ${allKeywords.length}개 키워드 추출 성공`);
       return allKeywords.slice(0, 10);
     }
     
     return null;
   } catch (error: any) {
-    console.warn('[GOOGLE-TRENDS] Google CSE 실패:', error.message);
+    console.warn('[GOOGLE-TRENDS] 웹문서 검색 실패:', error.message);
     return null;
   }
 }
@@ -119,10 +117,10 @@ async function getGoogleTrendKeywordsWithCSE(): Promise<GoogleTrendKeyword[] | n
  * Puppeteer를 사용하여 Google Trends 인기 검색어 크롤링 (Fallback)
  */
 export async function getGoogleTrendKeywords(): Promise<GoogleTrendKeyword[]> {
-  // 우선순위 1: Google CSE 사용
-  const cseKeywords = await getGoogleTrendKeywordsWithCSE();
-  if (cseKeywords && cseKeywords.length > 0) {
-    return cseKeywords;
+  // 우선순위 1: 네이버 웹문서
+  const webKeywords = await getTrendKeywordsFromWeb();
+  if (webKeywords && webKeywords.length > 0) {
+    return webKeywords;
   }
   
   // 우선순위 2: Puppeteer 사용
@@ -457,18 +455,11 @@ export async function getGoogleTrendKeywords(): Promise<GoogleTrendKeyword[]> {
       console.warn('[GOOGLE-TRENDS] RSS 피드도 실패:', rssError);
     }
     
-    // Fallback 2: Google CSE 사용 (환경 변수에서 키 로드)
-    console.log('[GOOGLE-TRENDS] Google CSE로 전환 시도...');
+    // Fallback 2: 네이버 웹문서 (v3.8.555: CSE 키 게이트 삭제 — 네이버 키 한 벌로 돈다)
+    console.log('[GOOGLE-TRENDS] 네이버 웹문서로 전환 시도...');
     try {
-      // 환경 변수에서 Google CSE 키 로드
-      const { loadEnvFromFile } = await import('../env');
-      const env = loadEnvFromFile();
-      const googleCseKey = env['googleCseKey'] || env['GOOGLE_CSE_KEY'];
-      const googleCseCx = env['googleCseCx'] || env['GOOGLE_CSE_CX'];
-      
-      if (googleCseKey && googleCseCx) {
-        console.log('[GOOGLE-TRENDS] Google CSE 키 확인됨, 인기 키워드 검색 시도...');
-        
+      {
+
         // 한국 인기 검색어 관련 쿼리들
         const popularQueries = [
           '인기 검색어',
@@ -482,10 +473,14 @@ export async function getGoogleTrendKeywords(): Promise<GoogleTrendKeyword[]> {
         
         for (const query of popularQueries.slice(0, 2)) { // 2개 쿼리만 시도
           try {
-            const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${googleCseKey}&cx=${googleCseCx}&q=${encodeURIComponent(query)}&num=10&lr=lang_ko&cr=countryKR`;
-            const response = await fetch(searchUrl);
-            const data = await response.json();
-            
+            // v3.8.555: Google CSE → 네이버 웹문서
+            const res = await naverSearch('webkr', { query, display: 10 });
+            const data = {
+              items: res.ok ? res.items.map((it: any) => ({
+                title: String(it.title || '').replace(/<[^>]*>/g, ''),
+              })) : [],
+            };
+
             if (data.items && data.items.length > 0) {
               data.items.forEach((item: any) => {
                 // 제목에서 키워드 추출
@@ -513,20 +508,18 @@ export async function getGoogleTrendKeywords(): Promise<GoogleTrendKeyword[]> {
             
             if (allKeywords.length >= 10) break;
           } catch (cseError) {
-            console.warn(`[GOOGLE-TRENDS] CSE 쿼리 "${query}" 실패:`, cseError);
+            console.warn(`[GOOGLE-TRENDS] 웹문서 쿼리 "${query}" 실패:`, cseError);
             continue;
           }
         }
         
         if (allKeywords.length > 0) {
-          console.log(`[GOOGLE-TRENDS] Google CSE에서 ${allKeywords.length}개 키워드 추출 성공`);
+          console.log(`[GOOGLE-TRENDS] 웹문서에서 ${allKeywords.length}개 키워드 추출 성공`);
           return allKeywords.slice(0, 10);
         }
-      } else {
-        console.warn('[GOOGLE-TRENDS] Google CSE 키가 설정되지 않았습니다.');
       }
     } catch (cseError) {
-      console.warn('[GOOGLE-TRENDS] Google CSE 실패:', cseError);
+      console.warn('[GOOGLE-TRENDS] 웹문서 검색 실패:', cseError);
     }
     
     // 모든 방법 실패 시 한국 인기 검색어 반환
