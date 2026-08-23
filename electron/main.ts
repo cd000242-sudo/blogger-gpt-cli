@@ -6214,6 +6214,33 @@ ipcMain.handle('publish-content', async (_evt, data) => {
     console.log('[PUBLISH] 썸네일 URL:', data.thumbnailUrl ? '있음' : '없음');
     console.log('[PUBLISH] 발행 모드:', data.payload?.publishType || data.payload?.postingMode || 'immediate');
 
+    /**
+     * 🎯 v3.8.556 — 최상위 platform 을 payload 에 실어준다.
+     *
+     * 발행 플랫폼을 정하는 곳은 publishGeneratedContent 하나이고, 그 함수는
+     * **payload.platform / targetPlatform / blogPlatform 만** 읽는다(src/core/index.ts).
+     * 그런데 재발행 대기열은 `{ platform, payload }` 처럼 최상위로 넘겨 왔다.
+     * 최상위 값은 아무도 안 읽으니, 화면에서 플랫폼을 바꿔도 발행은 payload 에
+     * 얼어붙은 옛 플랫폼으로 나갔다 — 에러 없이 조용히.
+     *
+     * 이제 최상위 platform 이 오면 그것이 사용자가 방금 고른 값이므로 payload 를 덮는다.
+     * 최상위가 없으면 아무것도 하지 않는다(기존 호출자 3곳은 payload 로만 넘긴다).
+     */
+    const explicitPlatform = String((data as any)?.platform || '').trim().toLowerCase();
+    if (explicitPlatform) {
+      const normalized = explicitPlatform === 'blogger' ? 'blogspot' : explicitPlatform;
+      data.payload = data.payload || {};
+      const previous = String((data.payload as any).platform || '').toLowerCase();
+      (data.payload as any).platform = normalized;
+      (data.payload as any).targetPlatform = normalized;
+      (data.payload as any).blogPlatform = normalized;
+      if (previous && previous !== normalized) {
+        const line = `[PUBLISH] 🎯 플랫폼 변경: ${previous} → ${normalized} (사용자 선택)`;
+        console.log(line);
+        _evt.sender?.send?.('log-line', line);
+      }
+    }
+
     const {
       enforceFreeTier,
       enforceFreeTrialPostingWorkflow,

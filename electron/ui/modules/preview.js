@@ -270,6 +270,57 @@ export async function startSemiAutoPublish() {
   }
 }
 
+/**
+ * 🎯 v3.8.556 — 대기 콘텐츠의 플랫폼을 바꿔 재발행한다.
+ *
+ * 사장님 보고: "플랫폼을 블로그스팟으로 하다 실패했는데 원하는 플랫폼이 워드프레스거든"
+ *
+ * 발행 실패로 담긴 글은 실패한 그 플랫폼에 얼어붙어 있었다. 원하는 플랫폼이 따로 있어도
+ * 대기열에서는 바꿀 방법이 없어, 글을 처음부터 다시 만들어야 했다.
+ *
+ * ⚠️ 이 값은 반드시 payload 까지 실어야 한다 — 발행 플랫폼을 정하는
+ *    publishGeneratedContent 는 payload.platform 만 읽는다(최상위 platform 은 안 본다).
+ *    v3.8.556 에서 publish-content 핸들러가 최상위→payload 를 덮도록 고쳤고,
+ *    여기서도 payload 를 직접 맞춰 이중으로 잠근다.
+ */
+export const REPUBLISH_PLATFORMS = [
+  { key: 'blogspot', label: '블로그스팟' },
+  { key: 'wordpress', label: '워드프레스' },
+  { key: 'tistory', label: '티스토리' },
+];
+
+/** 저장된 값이 'blogger' 인 항목이 있다 — 발행 코드가 쓰는 'blogspot' 으로 맞춘다 */
+export function normalizeRepublishPlatform(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'blogger' || raw === 'blogspot') return 'blogspot';
+  if (raw === 'wordpress' || raw === 'wp') return 'wordpress';
+  if (raw === 'tistory') return 'tistory';
+  return 'blogspot';
+}
+
+export function republishPlatformLabel(value) {
+  const key = normalizeRepublishPlatform(value);
+  return REPUBLISH_PLATFORMS.find((p) => p.key === key)?.label || key;
+}
+
+/** 항목 + 고른 플랫폼 → publish-content 가 받는 모양 (payload 까지 맞춘다) */
+export function buildRepublishData(item, platformValue) {
+  const platform = normalizeRepublishPlatform(platformValue ?? item?.platform);
+  return {
+    platform,
+    content: item?.html,
+    title: item?.title,
+    thumbnailUrl: item?.thumbnailUrl || '',
+    payload: {
+      ...(item?.payload || {}),
+      // 세 키를 나란히 명시한다 — 축약형을 쓰면 "세 키가 다 있나"를 눈으로 확인하기 어렵다
+      platform: platform,
+      targetPlatform: platform,
+      blogPlatform: platform,
+    },
+  };
+}
+
 // 미리보기 탭에 콘텐츠 표시
 // v3.8.326: 재발행 대기열 배너 렌더 (사용자 보고: "생성된 글 날아가는 게 아까움")
 export function renderRepublishQueueBanner() {
@@ -302,8 +353,15 @@ export function renderRepublishQueueBanner() {
           <div style="background:#fff;border:1px solid #fde68a;border-radius:10px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
               <div style="font-weight:700;color:#0f172a;font-size:14px;line-height:1.4;margin-bottom:4px;">${(item.title || item.keyword || '(제목 없음)').slice(0, 60)}</div>
-              <div style="font-size:11px;color:#6b7280;">${item.platform} · ${new Date(item.savedAt).toLocaleString('ko-KR')} · 실패: ${(item.lastError || '').slice(0, 60)}</div>
+              <div style="font-size:11px;color:#6b7280;">${new Date(item.savedAt).toLocaleString('ko-KR')} · 실패: ${(item.lastError || '').slice(0, 60)}</div>
             </div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#78350f;font-weight:700;">
+              발행할 곳
+              <select class="republishPlatformSel" data-id="${item.id}" title="이 글을 어느 블로그에 올릴지 고릅니다"
+                style="padding:6px 8px;border:1px solid #d97706;border-radius:8px;background:#fff;color:#0f172a;font-size:12px;font-weight:700;cursor:pointer;">
+                ${REPUBLISH_PLATFORMS.map((p) => `<option value="${p.key}" ${normalizeRepublishPlatform(item.platform) === p.key ? 'selected' : ''}>${p.label}</option>`).join('')}
+              </select>
+            </label>
             <div style="display:flex;gap:6px;">
               <button class="republishEditBtn" data-id="${item.id}" style="padding:8px 14px;background:#6366f1;color:#fff;border:none;border-radius:8px;font-weight:800;cursor:pointer;font-size:13px;box-shadow:0 2px 6px rgba(99,102,241,0.3);">✏️ 편집</button>
               <button class="republishBtn" data-id="${item.id}" style="padding:8px 16px;background:#f59e0b;color:#fff;border:none;border-radius:8px;font-weight:800;cursor:pointer;font-size:13px;box-shadow:0 2px 6px rgba(245,158,11,0.3);">🚀 재발행</button>
@@ -318,6 +376,23 @@ export function renderRepublishQueueBanner() {
     } else {
       previewContent.parentNode?.insertBefore(banner, previewContent);
     }
+
+    // 🎯 v3.8.556: 플랫폼 선택 — 고른 즉시 대기열에 저장한다.
+    //   저장해 두지 않으면 앱을 껐다 켜거나 편집기를 다녀오면 선택이 사라진다.
+    banner.querySelectorAll('.republishPlatformSel').forEach(sel => {
+      sel.addEventListener('change', (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const picked = normalizeRepublishPlatform(e.currentTarget.value);
+        const currentQueue = JSON.parse(localStorage.getItem('pendingRepublishQueue') || '[]');
+        const target = currentQueue.find(x => x.id === id);
+        if (!target) return;
+        target.platform = picked;
+        // payload 까지 맞춰 둔다 — 발행 코드가 읽는 건 payload 쪽이다
+        target.payload = { ...(target.payload || {}), platform: picked, targetPlatform: picked, blogPlatform: picked };
+        localStorage.setItem('pendingRepublishQueue', JSON.stringify(currentQueue));
+        addLog(`🎯 발행할 곳을 ${republishPlatformLabel(picked)}(으)로 바꿨습니다: ${(target.title || target.keyword || '').slice(0, 30)}`, 'info');
+      });
+    });
 
     // ✏️ 편집 버튼 이벤트 (비주얼 편집기)
     banner.querySelectorAll('.republishEditBtn').forEach(btn => {
@@ -337,13 +412,12 @@ export function renderRepublishQueueBanner() {
         e.currentTarget.disabled = true;
         e.currentTarget.textContent = '⏳ 발행 중...';
         try {
-          const publishData = {
-            platform: item.platform,
-            content: item.html,
-            title: item.title,
-            thumbnailUrl: item.thumbnailUrl || '',
-            payload: item.payload || {},
-          };
+          // 🎯 v3.8.556: 화면에서 방금 고른 값을 그대로 쓴다 (저장 이벤트를 놓쳐도 어긋나지 않게)
+          const picked = normalizeRepublishPlatform(
+            banner.querySelector(`.republishPlatformSel[data-id="${id}"]`)?.value || item.platform,
+          );
+          const publishData = buildRepublishData(item, picked);
+          addLog(`🚀 ${republishPlatformLabel(picked)}(으)로 재발행합니다: ${(item.title || '').slice(0, 40)}`, 'info');
           const result = await window.electronAPI.invoke('publish-content', publishData);
           if (result?.ok || result?.success || result?.url) {
             addLog(`✅ 재발행 성공: ${result.url || item.title}`, 'success');

@@ -16,6 +16,69 @@ function getPublishedSource(kind) {
   return PUBLISHED_POST_SOURCES[kind] || null;
 }
 
+/**
+ * 🎯 v3.8.556 — 발행할 곳 드롭다운.
+ *
+ * 값은 발행 코드(publishGeneratedContent)가 읽는 키와 같아야 한다: blogspot/wordpress/tistory.
+ * 글목록 탭의 kind 는 'blogger' 인데 발행 키는 'blogspot' 이라 여기서 한 번 번역한다 —
+ * 이 번역이 빠지면 "알 수 없는 플랫폼: blogger" 로 떨어진다.
+ */
+const EDITOR_PLATFORMS = [
+  { key: 'blogspot', label: '블로그스팟' },
+  { key: 'wordpress', label: '워드프레스' },
+  { key: 'tistory', label: '티스토리' },
+];
+
+function normalizeEditorPlatform(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'blogger' || raw === 'blogspot') return 'blogspot';
+  if (raw === 'wordpress' || raw === 'wp') return 'wordpress';
+  if (raw === 'tistory') return 'tistory';
+  return 'blogspot';
+}
+
+function editorPlatformLabel(value) {
+  const key = normalizeEditorPlatform(value);
+  return EDITOR_PLATFORMS.find((p) => p.key === key)?.label || key;
+}
+
+/** 글목록 탭의 kind('blogger'…) → 발행 키('blogspot'…) */
+function publishedKindToPlatform(kind) {
+  return normalizeEditorPlatform(kind);
+}
+
+/** 지금 편집기에서 고른 발행 플랫폼 (드롭다운이 안 보이는 소스면 null) */
+function selectedEditorPlatform() {
+  if (!session?.platformPickable) return null;
+  return normalizeEditorPlatform(modalRefs?.targetPlatform?.value || session.originalPlatform);
+}
+
+/** 이미 발행된 글인데 다른 플랫폼을 골랐나 — 그렇다면 수정이 아니라 새 발행이다 */
+function isCrossPlatformPublish() {
+  if (!session || !getPublishedSource(session.kind)) return false;
+  const picked = selectedEditorPlatform();
+  return !!picked && picked !== normalizeEditorPlatform(session.originalPlatform);
+}
+
+/**
+ * 저장 버튼 문구를 지금 상태에 맞춘다.
+ *
+ * 플랫폼을 바꾸는 순간 버튼이 "수정발행하기" → "워드프레스에 새 글 발행" 으로 바뀐다.
+ * 누르기 전에 **업데이트가 아니라는 것**을 알 수 있어야 하기 때문이다.
+ */
+function refreshSaveButtonLabel(isSemiAuto = false) {
+  if (!session || !modalRefs?.saveBtn) return;
+  const kind = session.kind;
+  const published = getPublishedSource(kind);
+  modalRefs.saveBtn.textContent = isSemiAuto ? '🚀 저장하고 발행'
+    : kind === 'appstate' ? '✅ 적용 (발행 시 반영)'
+    : kind === 'republish' ? '✅ 대기열에 저장'
+    : published ? (isCrossPlatformPublish()
+      ? `🚀 ${editorPlatformLabel(selectedEditorPlatform())}에 새 글 발행`
+      : '🚀 수정발행하기')
+    : '✅ 파일에 저장';
+}
+
 let session = null;
 let modalRefs = null;
 
@@ -137,6 +200,18 @@ function ensureEditorModal() {
       <button id="veCopyHtmlBtn" style="${BTN_BASE}background:#334155;color:#93c5fd;" title="편집된 HTML을 클립보드로 복사합니다">📋 HTML</button>
       <button id="veSaveAsBtn" style="display:none;${BTN_BASE}background:#334155;color:#e2e8f0;">💾 다른 이름으로</button>
 
+      <!--
+        🎯 v3.8.556 — 발행할 곳을 여기서 바꾼다.
+        사장님: "미리보기 수정버튼눌러서 가면 수정가능하자나 거기에서도 플랫폼변경할수있도록"
+        대기열 글은 고른 플랫폼으로 저장되고, 이미 발행된 글은 **원본을 그대로 둔 채**
+        고른 플랫폼에 새 글로 나간다(사장님 확정: 원본 유지).
+      -->
+      <span id="veTargetPlatformWrap" style="display:none;align-items:center;gap:6px;">
+        <span style="${DIVIDER}"></span>
+        <span style="${GROUP_LABEL}">발행할 곳</span>
+        <select id="veTargetPlatform" style="${BTN_BASE}background:#0f172a;color:#e2e8f0;border:1px solid #475569;max-width:150px;" title="이 글을 어느 블로그에 올릴지 고릅니다"></select>
+      </span>
+
       <span style="${DIVIDER}"></span>
       <button id="veSaveBtn" style="${BTN_BASE}background:linear-gradient(135deg,#10b981,#059669);color:#fff;box-shadow:0 2px 8px rgba(16,185,129,0.4);font-weight:800;">✅ 저장</button>
       <button id="veCancelBtn" style="${BTN_BASE}background:transparent;color:#94a3b8;border:1px solid #475569;">✕ 닫기</button>
@@ -198,6 +273,8 @@ function ensureEditorModal() {
     revertBtn: overlay.querySelector('#veRevertBtn'),
     copyHtmlBtn: overlay.querySelector('#veCopyHtmlBtn'),
     saveAsBtn: overlay.querySelector('#veSaveAsBtn'),
+    targetPlatformWrap: overlay.querySelector('#veTargetPlatformWrap'),
+    targetPlatform: overlay.querySelector('#veTargetPlatform'),
     saveBtn: overlay.querySelector('#veSaveBtn'),
     cancelBtn: overlay.querySelector('#veCancelBtn'),
     status: overlay.querySelector('#veStatus'),
@@ -326,6 +403,18 @@ function ensureEditorModal() {
     protectSeparators(doc);
     setStatus('이미지·링크 작업을 한 단계 되돌렸습니다.');
   });
+  // 🎯 v3.8.556: 발행할 곳을 바꾸면 버튼 문구와 안내를 그 자리에서 바꾼다
+  modalRefs.targetPlatform?.addEventListener('change', () => {
+    if (!session) return;
+    refreshSaveButtonLabel(session.kind === 'appstate' && !!window.__semiAutoMode);
+    const picked = selectedEditorPlatform();
+    if (isCrossPlatformPublish()) {
+      setStatus(`발행할 곳: ${editorPlatformLabel(picked)} — 원래 ${editorPlatformLabel(session.originalPlatform)} 글은 그대로 두고 새 글로 올립니다.`);
+    } else {
+      setStatus(`발행할 곳: ${editorPlatformLabel(picked)}`);
+    }
+  });
+
   modalRefs.saveBtn.addEventListener('click', () => saveCurrentSession(false));
   modalRefs.saveAsBtn.addEventListener('click', () => saveCurrentSession(true));
 
@@ -589,6 +678,7 @@ export async function openVisualEditor(source) {
     let itemId = null;
     let postId = null;
     let postUrl = null;
+    let originalPlatform = '';
 
     if (kind === 'appstate') {
       const appState = getAppState();
@@ -613,6 +703,7 @@ export async function openVisualEditor(source) {
       }
       title = item.title || item.keyword || '';
       html = item.html || '';
+      originalPlatform = normalizeEditorPlatform(item.platform);
     } else if (kind === 'file') {
       const res = await window.electronAPI.invoke('open-html-file', { filePath: source.filePath || undefined });
       if (!res?.ok) {
@@ -632,6 +723,7 @@ export async function openVisualEditor(source) {
         alert('글 내용을 불러오지 못했습니다. 목록을 새로고침 후 다시 시도해주세요.');
         return;
       }
+      originalPlatform = publishedKindToPlatform(kind);
     } else {
       console.warn('[EDITOR] 알 수 없는 편집 소스:', source);
       return;
@@ -650,6 +742,11 @@ export async function openVisualEditor(source) {
       originalHeadHtml: parts.headHtml,
       styles: parts.styles,
       baseline: '',
+      // 🎯 v3.8.556: 발행할 곳 — 대기열 글과 이미 발행된 글에서만 고를 수 있다.
+      //   생성 직후(appstate)는 글포스팅 화면의 플랫폼 라디오가 정하고,
+      //   파일(file)은 발행이 아니라 저장이라 고를 것이 없다.
+      originalPlatform,
+      platformPickable: kind === 'republish' || !!getPublishedSource(kind),
     };
 
     const refs = ensureEditorModal();
@@ -657,13 +754,21 @@ export async function openVisualEditor(source) {
     refs.titleInput.style.display = kind === 'file' ? 'none' : '';
     refs.hostImagesLabel.style.display = kind === 'file' ? 'inline-flex' : 'none';
     refs.saveAsBtn.style.display = kind === 'file' ? '' : 'none';
+
+    // 🎯 v3.8.556: 발행할 곳 드롭다운 채우기 + 표시
+    if (session.platformPickable) {
+      refs.targetPlatform.innerHTML = EDITOR_PLATFORMS
+        .map((p) => `<option value="${p.key}">${p.label}</option>`)
+        .join('');
+      refs.targetPlatform.value = normalizeEditorPlatform(originalPlatform);
+      refs.targetPlatformWrap.style.display = 'inline-flex';
+    } else {
+      refs.targetPlatformWrap.style.display = 'none';
+    }
+
     // v3.8.357: 반자동 발행 모드에서는 저장 + 즉시 발행
     const isSemiAuto = kind === 'appstate' && !!window.__semiAutoMode;
-    refs.saveBtn.textContent = isSemiAuto ? '🚀 저장하고 발행'
-      : kind === 'appstate' ? '✅ 적용 (발행 시 반영)'
-      : kind === 'republish' ? '✅ 대기열에 저장'
-      : getPublishedSource(kind) ? '🚀 수정발행하기'
-      : '✅ 파일에 저장';
+    refreshSaveButtonLabel(isSemiAuto);
     setStatus(kind === 'file' ? `편집 중: ${filePath}` : '아래 화면은 블로그에 보이는 실제 모습입니다. 고치고 싶은 곳을 클릭하세요.');
     refs.overlay.style.display = 'flex';
     loadIntoFrame(parts.bodyHtml);
@@ -741,10 +846,65 @@ async function saveCurrentSession(saveAs) {
       item.title = title;
       item.thumbnailUrl = computeThumbnailUrl();
       item.editedAt = new Date().toISOString();
+      // 🎯 v3.8.556: 고른 발행 플랫폼을 항목에 새긴다.
+      //   payload 까지 맞춰야 한다 — 발행 코드는 payload.platform 만 읽는다.
+      const pickedPlatform = selectedEditorPlatform();
+      if (pickedPlatform) {
+        const changed = normalizeEditorPlatform(item.platform) !== pickedPlatform;
+        item.platform = pickedPlatform;
+        item.payload = {
+          ...(item.payload || {}),
+          platform: pickedPlatform,
+          targetPlatform: pickedPlatform,
+          blogPlatform: pickedPlatform,
+        };
+        if (changed) addLog(`🎯 발행할 곳을 ${editorPlatformLabel(pickedPlatform)}(으)로 바꿨습니다.`, 'info');
+      }
       localStorage.setItem('pendingRepublishQueue', JSON.stringify(queue));
       window.renderRepublishQueueBanner?.();
       addLog('✏️ 대기열 항목이 수정되었습니다. 재발행 시 편집본이 발행됩니다.', 'success');
       hideModalAfterSave();
+    } else if (getPublishedSource(session.kind) && isCrossPlatformPublish()) {
+      /**
+       * 🎯 v3.8.556 — 다른 플랫폼을 골랐다: 수정이 아니라 **새 글 발행**이다.
+       *
+       * 사장님 확정: 원래 플랫폼의 글은 그대로 둔다(복사이지 이동이 아니다).
+       * 대상 플랫폼에는 이 글의 postId 가 없으므로 update 채널을 쓸 수 없다 —
+       * 일반 발행 경로(publish-content)로 보낸다.
+       */
+      const target = selectedEditorPlatform();
+      const targetLabel = editorPlatformLabel(target);
+      const fromLabel = editorPlatformLabel(session.originalPlatform);
+      const slowNotice = target === 'tistory'
+        ? '\n\n티스토리는 브라우저로 편집기를 조작하므로 1분 정도 걸릴 수 있습니다.'
+        : '';
+      if (!confirm(`${targetLabel}에 새 글로 발행할까요?\n\n원래 ${fromLabel} 글은 지우지 않고 그대로 둡니다.${slowNotice}`)) {
+        setStatus('발행이 취소되었습니다.');
+        return;
+      }
+      setStatus(`🚀 ${targetLabel}에 새 글 발행 중…`);
+      const res = await window.electronAPI.invoke('publish-content', {
+        platform: target,
+        title,
+        content: html,
+        thumbnailUrl: computeThumbnailUrl(),
+        payload: {
+          // published-posts.js 의 플랫폼 키와 같은 값을 넘긴다 (blogspot/wordpress/tistory)
+          ...(await window.__buildPublishedPlatformPayload?.(target) || {}),
+          platform: target,
+          targetPlatform: target,
+          blogPlatform: target,
+        },
+      });
+      if (res?.ok || res?.url) {
+        addLog(`🚀 ${targetLabel} 새 글 발행 완료: ${res.url || title}`, 'success');
+        window.__refreshPublishedPosts?.();
+        alert(`✅ ${targetLabel}에 새 글로 발행했습니다!\n${res.url || ''}\n\n원래 ${fromLabel} 글은 그대로 있습니다.`);
+        hideModalAfterSave();
+      } else {
+        alert(`❌ ${targetLabel} 발행 실패\n\n` + (res?.error || '알 수 없는 오류'));
+        setStatus('발행에 실패했습니다.');
+      }
     } else if (getPublishedSource(session.kind)) {
       const published = getPublishedSource(session.kind);
       const slowNotice = session.kind === 'tistory'

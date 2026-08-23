@@ -170,6 +170,7 @@ export function initPublishedPostsTab() {
             <h2 style="margin:0;font-size:22px;font-weight:900;color:#f1f5f9;">📋 생성된 글목록</h2>
             <p style="margin:6px 0 0;font-size:13px;color:#94a3b8;">
               블로그에 발행된 글을 최신순으로 보여줍니다. 글을 클릭하면 미리보기에서 바로 수정하고 <b style="color:#a5b4fc;">수정발행</b>할 수 있어요.
+              편집기 위쪽 <b style="color:#fbbf24;">발행할 곳</b>을 바꾸면 다른 블로그에 <b style="color:#fbbf24;">새 글로</b> 올라갑니다(원래 글은 그대로 둡니다).
               블로그에서 직접 삭제/수정한 글은 🔄 새로고침하면 그대로 반영됩니다.
             </p>
           </div>
