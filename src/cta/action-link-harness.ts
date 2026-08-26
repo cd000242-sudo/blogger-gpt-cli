@@ -245,7 +245,13 @@ export type PageFetcher = (url: string) => Promise<{ ok: boolean; html: string; 
  * 후보를 무한정 열지 않는다. 발행 한 번에 몇 초씩 늘어나면 안 되고,
  * 상위 몇 개를 넘어가면 어차피 관련 없는 결과다.
  */
-const MAX_PROBE = 3;
+/**
+ * v3.8.557 — 3 → 5.
+ * 사장님: "시간이 좀 더 걸리더라도 정확해야 된다."
+ * 기관 사이트는 검색 상위 두세 개가 홈·공지·PDF 인 경우가 흔해서 3개만 보면
+ * 진짜 신청 화면을 못 만나고 홈으로 물러섰다. 한 후보당 4초 상한이라 최악이 +8초다.
+ */
+const MAX_PROBE = 5;
 
 export async function resolveActionLink(input: {
   keyword: string;

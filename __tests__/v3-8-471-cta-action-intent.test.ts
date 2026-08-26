@@ -111,7 +111,10 @@ describe('③ 발행 경로에 실제로 배선돼 있다', () => {
     // 폴백이 자기를 다시 부르는데, 행동 의도를 안 끄면 같은 의도가 또 잡혀 무한히 돈다.
     // 두 번째 호출은 skipActionIntent=true 로 들어가 반드시 한 번에 끝나야 한다.
     expect(generation).toContain('skipActionIntent?: boolean');
-    expect(generation).toContain("(contentMode === 'shopping' || skipActionIntent) ? null : detectActionIntent(keyword)");
+    // v3.8.557: 행동을 스마트 라우터의 action 문장에서도 읽는다(키워드에 행동어가 없는 글).
+    //   재귀 차단 불변식은 그대로 — skipActionIntent 면 두 경로 다 null 이어야 한다.
+    expect(generation).toContain("const actionIntent = (contentMode === 'shopping' || skipActionIntent)");
+    expect(generation).toContain("(detectActionIntent(keyword) || (skipActionIntent ? null : detectActionIntent(smartActionText)))");
     // v3.8.501: 글 맥락(articleText)이 뒤에 붙었다. 재귀를 끝내는 건 skipActionIntent=true 다 —
     // 그 자리가 true 인지만 본다. 뒤에 인자가 더 붙어도 종료 보장은 그대로다.
     // v3.8.555: CSE 인자 두 개가 빠져 자리 번호가 앞으로 당겨졌다(불변식은 동일).

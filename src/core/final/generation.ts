@@ -191,6 +191,7 @@ import { validateCtaUrl } from '../../cta/validate-cta-url';
 import { callGeminiWithGrounding, callGeminiWithRetry, resolveSectionTimeoutMs } from './gemini-engine';
 import { detectActionIntent, buildActionQuery } from '../../cta/action-intent';
 import { analyzeArticleContext, resolveActionLink } from '../../cta/action-link-harness';
+import { gateCtaDestination, isDocumentUrl } from '../../cta/destination-gate';
 import { judgeCtaHost, describeHostVerdict } from '../../cta/host-trust';
 import { buildOfficialCtaCandidates } from '../../cta/inference-candidates';
 import { dropEmptyFaqItems } from './empty-block-guard';
@@ -2405,7 +2406,18 @@ async function searchOfficialSite(keyword: string, contentMode?: string, skipAct
      * 홈페이지가 왔다. 독자는 첫 화면에서 메뉴를 다시 찾아야 했고 대개 거기서 이탈한다.
      * 이제 키워드에서 행동(신청·예매·발급…)을 읽어 그 화면을 찾는다.
      */
-    const actionIntent = (contentMode === 'shopping' || skipActionIntent) ? null : detectActionIntent(keyword);
+    /**
+     * v3.8.557 — 행동을 키워드에서만 읽지 않는다.
+     *
+     * 예전엔 `detectActionIntent(keyword)` 하나였다. 키워드에 행동어가 없으면 null 이 되고,
+     * null 이면 아래 행동 화면 판정(하네스)이 통째로 꺼진다 — 검색 결과 1등이 기관 홈이든
+     * PDF 든 그대로 채택됐다. 스마트 라우터가 "무엇을 하러 가는지"(action)를 이미 정해 두므로
+     * 그 문장에서도 행동을 읽는다. ("근로장려금" → 라우터 action "근로장려금 신청" → 신청)
+     */
+    const smartActionText = String((smartTargetIn as any)?.action || '');
+    const actionIntent = (contentMode === 'shopping' || skipActionIntent)
+      ? null
+      : (detectActionIntent(keyword) || (skipActionIntent ? null : detectActionIntent(smartActionText)));
 
     /**
      * 🧭 v3.8.538 — 목적지를 AI 가 먼저 정한다 (사장님: "어떤 글이던지 스마트하게").
@@ -2477,6 +2489,15 @@ async function searchOfficialSite(keyword: string, contentMode?: string, skipAct
     for (const item of data.items) {
       const link = item.link;
       if (excludeDomains.some(d => link.includes(d))) continue;
+      /**
+       * v3.8.557 — 행동이 있는 글에서는 문서 파일을 후보에서 뺀다.
+       * 사장님: "PDF 파일을 연동시키거나 … 실제 행동할 수 있는 곳을 연동해야 된다."
+       * 안내문 PDF 는 신청 화면이 아니다. 행동을 못 읽은 글에서는 자료로서 의미가 있으니 남긴다.
+       */
+      if (actionIntent && isDocumentUrl(link)) {
+        console.log(`[CTA] 📄 문서 파일이라 행동 화면 후보에서 제외: ${link}`);
+        continue;
+      }
       const verdict = judgeCtaHost(link, keyword);
       if (!verdict.ok) {
         console.warn(`[CTA] 🚫 ${describeHostVerdict(verdict)}: ${link}`);
@@ -2515,20 +2536,36 @@ async function searchOfficialSite(keyword: string, contentMode?: string, skipAct
       if (actionIntent) {
         try {
           const ctx = analyzeArticleContext({ keyword, content: articleText || '', intent: actionIntent });
+          // v3.8.557: 라우터가 정한 기관도 기준에 넣는다 — 본문에 이름이 덜 나온 글에서 특히 크다
+          const gateAgencies = Array.from(new Set([
+            ...(smartTarget?.site ? [String(smartTarget.site)] : []),
+            ...ctx.agencies,
+          ]));
           const picked = await resolveActionLink({
             keyword,
             intent: actionIntent,
-            agencies: ctx.agencies,
+            agencies: gateAgencies,
             candidates: alive,
             fetchPage: fetchPageForCta,
             fallbackUrl: alive[0]!.url,
           });
+          /**
+           * v3.8.557 — 하네스가 "넣지 말라"(stage='none')고 하면 넣지 않는다.
+           *
+           * 예전 코드는 `picked.url || chosen.url` 이었다. 하네스가 오배송이라 판단해
+           * 빈 주소를 돌려줘도 alive[0] 로 되살아났다 — v3.8.522 의 오배송 차단이
+           * 여기서 조용히 무효가 됐다(보험 글의 삼성화재 홈이 이 경로로 살아났을 수 있다).
+           */
+          if (picked.stage === 'none') {
+            console.warn(`[CTA] 🚫 행동 화면 판정 결과 CTA 미부착: ${picked.reasons.join(' · ')}`);
+            return null;
+          }
           const chosen = alive.find((a) => a.url === picked.url) || alive[0]!;
           const label = picked.stage === 'action' ? '행동 화면'
             : picked.stage === 'guide' ? '제도 안내' : '기관 홈';
           console.log(`[CTA] ✅ ${label} 채택(${picked.score}점): ${picked.url || chosen.url}`);
           console.log(`[CTA]    근거: ${picked.reasons.join(' · ')}`);
-          if (ctx.agencies.length) console.log(`[CTA]    글이 지목한 기관: ${ctx.agencies.join(', ')}`);
+          if (gateAgencies.length) console.log(`[CTA]    글이 지목한 기관: ${gateAgencies.join(', ')}`);
           return { url: picked.url || chosen.url, title: chosen.title, ...(smartTarget?.buttonLabel ? { smartLabel: smartTarget.buttonLabel } : {}) };
         } catch (error) {
           // 하네스가 실패해도 발행을 막지 않는다 — 예전 방식으로 돌아간다
@@ -2764,6 +2801,23 @@ export async function generateCTAsFinal(
   const articleText = articleContext.combined;
 
   /**
+   * 🏛️ v3.8.557 — 이 글이 지목한 기관을 한 번만 뽑아 둔다.
+   * 목적지 검산(destination-gate)이 "보험 글에 국세청" 같은 오배송을 잡으려면
+   * 기준이 되는 기관 이름이 필요하다. 본문 빈출 기관 + 실제로 확인한 기관 둘 다 쓴다.
+   */
+  const ctaArticleAgencies = Array.from(new Set([
+    ...analyzeArticleContext({ keyword, content: articleText }).agencies,
+    ...articleContext.agencies.split(',').map((a) => a.trim()).filter(Boolean),
+  ])).slice(0, 4);
+
+  /**
+   * 🪫 v3.8.557 — 약한 후보 (기관은 맞는데 홈이거나 문서 파일).
+   * 2단계 검색이 제대로 된 행동 화면을 찾으면 버린다. 아무것도 못 찾았을 때만 쓴다 —
+   * 버튼이 아예 없으면 독자도 광고도 없다(사장님: "버튼을 눌러야 광고 수익이 난다").
+   */
+  let weakCta: { url: string; buttonText: string; hookingMessage: string; why: string } | null = null;
+
+  /**
    * 🧭 v3.8.542 — 스마트 라우터(v3.8.538)는 "필요해질 때 한 번만" 부른다.
    *
    * 예전: searchOfficialSite() 안에 있었고 그 함수는 1단계 실패 시에만 불렸다.
@@ -2863,9 +2917,23 @@ ${articleContext.outline ? `\n📑 이 글의 목차:\n${articleContext.outline}
 - 내부/정보: "국민연금 제도" → https://www.nps.or.kr (제도 설명 페이지)
 
 ${buildOfficialCtaCandidates(officialSources || [])}
+🧭 **주소를 고르기 전에 목적지를 먼저 정하라** (v3.8.557 — 사장님 지시):
+독자가 이 글을 읽고 **실제로 그 일을 끝낼 수 있는 화면**이어야 한다.
+글을 읽고 나가서 다시 검색하게 만들면 그 CTA 는 실패다.
+1) 이 글을 다 읽은 독자가 바로 할 행동 1개는 무엇인가? (예: 근로장려금 신청, 자격 조회)
+2) 그 행동을 **실제로 처리하는 기관**은 어디인가? (예: 근로장려금 → 국세청 홈택스)
+3) 그 기관의 **그 행동 화면** 주소를 적어라.
+
+🚫 목적지로 쓰면 안 되는 것 (전부 "다시 찾아라"는 말과 같다):
+- 기관 **홈 주소**(https://www.○○.go.kr/ 처럼 경로 없는 주소) → 그 행동 화면까지 들어가라
+- **PDF·HWP·XLSX 등 파일** → 읽을 수는 있어도 그 자리에서 신청·조회를 할 수 없다
+- 이 글의 주제와 **다른 기관** (예: 건강보험 글에 국세청) → 오배송이다
+
 📋 아래 JSON 형식으로 **정확히 1개** 출력:
 {
-  "url": "검색에서 확인한 실제 URL (존재가 확인된 것만!)",
+  "agency": "이 행동을 처리하는 기관 이름 (예: 국세청 홈택스, 국민건강보험공단)",
+  "action": "독자가 그 화면에서 할 행동 (예: 근로장려금 신청, 보험료 조회)",
+  "url": "검색에서 확인한 실제 URL (존재가 확인된 것만! 홈 주소·파일 금지)",
   "hookingMessage": "독자가 클릭하고 싶게 만드는 한 줄",
   "buttonText": "행동 유발 버튼 텍스트 (모드 톤에 맞게)",
   "actionType": "apply|check|reserve|buy|info 중 하나"
@@ -2940,7 +3008,54 @@ JSON만 출력:
         if (!isSearchPage && !isBlogPage && aiHostVerdict.ok) {
           // 🔀 하이브리드 검증: HTTP 1차 + (의심 시/엄격 모드) Perplexity AI 2차
           const isValid = await hybridValidateCta(ctaData.url, keyword, 5000, contentMode);
-          if (isValid) {
+
+          /**
+           * 🎯 v3.8.557 — 목적지 검산 (사장님: "PDF 를 연동하거나 보험 글에 국세청 홈이거나…
+           *   실제로 행동할 수 있는 곳을 연동해야 된다").
+           *
+           * 여기까지 통과했다는 건 "살아있는 주소"라는 뜻일 뿐이다. 살아있는 기관 홈도,
+           * 살아있는 안내문 PDF 도 그동안 그대로 버튼이 됐다. 이제 2단계(검색)에만 있던
+           * 행동 화면 판정을 여기에도 건다 — 경로가 달라도 기준은 하나여야 한다.
+           *
+           * 떨어져도 발행은 막지 않는다: demote 면 아래 2단계에 먼저 기회를 주고,
+           * 2단계도 못 찾으면 그때 이 주소를 쓴다(약한 후보). reject 면 아예 안 쓴다.
+           */
+          const gateIntent = detectActionIntent(keyword)
+            || detectActionIntent(String((ctaData as any)?.action || ''));
+          const gateAgencies = [
+            ...ctaArticleAgencies,
+            ...(typeof (ctaData as any)?.agency === 'string' ? [String((ctaData as any).agency)] : []),
+          ];
+          const gate = isValid
+            ? await gateCtaDestination({
+                url: ctaData.url,
+                keyword,
+                intent: gateIntent,
+                agencies: gateAgencies,
+                fetchPage: fetchPageForCta,
+              })
+            : null;
+
+          if (gate && !gate.ok) {
+            console.warn(`[CTA] 🚧 1단계 목적지 기각(${gate.severity}): ${ctaData.url}`);
+            console.warn(`[CTA]    근거: ${gate.reasons.join(' · ')}`);
+            if (gate.severity === 'demote') {
+              // 기관은 맞는데 행동 화면이 아니다 — 더 나은 걸 못 찾았을 때만 쓴다
+              const weakDoc = detectDocumentCta(ctaData.url);
+              weakCta = {
+                url: ctaData.url,
+                buttonText: weakDoc.isDoc
+                  ? weakDoc.btnText
+                  : sanitizeCtaText(String(ctaData.buttonText || '')) || `🔗 ${keyword} 공식 사이트`,
+                hookingMessage: weakDoc.isDoc
+                  ? weakDoc.hookText
+                  : sanitizeCtaText(String(ctaData.hookingMessage || '')) || `${keyword} 공식 화면에서 확인하세요.`,
+                why: gate.reasons.join(' · '),
+              };
+            }
+          }
+
+          if (isValid && (!gate || gate.ok)) {
             // 📥 파일 다운로드 URL 감지 — AI가 반환한 텍스트보다 우선 (AI가 "사이트 바로가기"로 잘못 생성하는 케이스 방지)
             const doc = detectDocumentCta(ctaData.url);
             // 🎯 모드별 기본 버튼/훅 텍스트
@@ -2999,8 +3114,8 @@ JSON만 출력:
               text: finalButtonText,
               hook: finalHookMessage,
             });
-            console.log(`[CTA] ✅ 1단계(추론) CTA 하이브리드 검증 통과: ${ctaData.url}`);
-          } else {
+            console.log(`[CTA] ✅ 1단계(추론) CTA 채택 (${gate?.stage === 'action' ? '행동 화면' : gate?.stage === 'guide' ? '제도 안내' : '검증 통과'}): ${ctaData.url}`);
+          } else if (!isValid) {
             console.log(`[CTA] ❌ 1단계(추론) CTA 검증 실패 (HTTP+AI 하이브리드): ${ctaData.url}`);
           }
         } else {
@@ -3095,6 +3210,28 @@ JSON만 출력:
         console.log(`[CTA] ❌ CSE 폴백 CTA 검증 실패 (HTTP+AI 하이브리드): ${officialLink.url}`);
       }
     }
+  }
+
+  /**
+   * 🪫 v3.8.557 — 약한 후보 되살리기.
+   *
+   * 1단계에서 "기관은 맞는데 행동 화면이 아니다"(홈·문서)로 미뤄 둔 주소가 있고,
+   * 2단계 검색도 더 나은 화면을 못 찾았다면 이제 그것을 쓴다.
+   * 순서를 이렇게 둔 이유: 이 주소는 **이 글을 읽고 고른 것**이라, 아래 3~5단계의
+   * 범용 매핑(복지로 홈 같은 것)보다 주제에 가깝다. 다만 행동 화면을 이기지는 못한다.
+   */
+  if (safeCTAs.length === 0 && weakCta) {
+    safeCTAs.push({
+      hookingMessage: weakCta.hookingMessage,
+      buttonText: weakCta.buttonText,
+      url: weakCta.url,
+      position: 1,
+      type: 'link',
+      design: 'button',
+      text: weakCta.buttonText,
+      hook: weakCta.hookingMessage,
+    });
+    console.log(`[CTA] 🪫 행동 화면을 못 찾아 1단계 후보로 물러섬: ${weakCta.url} (${weakCta.why})`);
   }
 
   // 🔥 3단계: 크롤링 데이터에서 공식 링크 탐색 (모드별 도메인 우선순위)

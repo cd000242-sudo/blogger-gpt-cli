@@ -170,7 +170,10 @@ describe('후보 고르기', () => {
       fetchPage: async () => { called++; return { ok: true, html: 기관홈 }; },
       fallbackUrl: 'https://x.kr',
     });
-    expect(called).toBeLessThanOrEqual(3);
+    // v3.8.557: 3 → 5 (사장님: "시간이 좀 더 걸리더라도 정확해야 된다").
+    //   상한이 있다는 불변식은 그대로 — 10개를 다 열지는 않는다.
+    expect(called).toBeLessThanOrEqual(5);
+    expect(called).toBeLessThan(10);
   });
 
   it('리다이렉트로 홈에 떨어지면 그 사실대로 채점한다', async () => {
@@ -283,7 +286,10 @@ describe('발행 흐름 배선 — 만들고 아무도 안 부르면 조용히 �
     expect(gen).toMatch(/searchOfficialSite\(keyword, contentMode, false, articleText(, \w+)?\)/);
     // 폴백 재귀에도 이어져야 한다
     expect(gen).toMatch(/searchOfficialSite\(keyword, contentMode, true, articleText\)/);
-    expect(gen).toContain('agencies: ctx.agencies');
+    // v3.8.557: 라우터가 정한 기관이 한 자리 더 붙어 gateAgencies 로 합쳐진다.
+    //   불변식은 그대로 — 본문에서 읽은 ctx.agencies 가 하네스까지 간다.
+    expect(gen).toContain('...ctx.agencies,');
+    expect(gen).toContain('agencies: gateAgencies');
   });
 
   it('살아있는 첫 후보를 그대로 채택하던 옛 경로가 남아 있지 않다', () => {
