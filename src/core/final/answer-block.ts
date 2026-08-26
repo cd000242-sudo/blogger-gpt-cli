@@ -105,7 +105,7 @@ export function buildAnswerBlock(input: AnswerBlockInput): string {
    * style 이 전부 지워져도 이 순서와 <strong> 만으로 읽힌다.
    */
   return `
-<section class="answer-first" style="margin:0 0 26px;padding:20px 22px;background:var(--rv-answer-bg,#f6faf9);border:1px solid var(--rv-answer-border,#cfe3de);border-left:4px solid var(--rv-answer-accent,#0f766e);border-radius:10px;box-sizing:border-box;max-width:100%;">
+<section class="answer-first" style="margin:0 0 26px;padding:20px 22px;background:var(--rv-answer-bg,#f6faf9);border:1px solid var(--rv-answer-border,#cfe3de);border-radius:10px;box-sizing:border-box;max-width:100%;">
   <p class="answer-first-q" style="margin:0 0 10px;font-size:15px;font-weight:800;color:var(--rv-answer-accent,#0f766e);-webkit-text-fill-color:var(--rv-answer-accent,#0f766e);line-height:1.5;word-break:keep-all;">${q}</p>
   <p class="answer-first-a" style="margin:0;font-size:17px;font-weight:700;color:#1f2937;-webkit-text-fill-color:#1f2937;line-height:1.68;word-break:keep-all;">${a}</p>${b ? `
   <p class="answer-first-basis" style="margin:10px 0 0;font-size:13px;font-weight:600;color:#64748b;-webkit-text-fill-color:#64748b;line-height:1.5;">근거: ${b}</p>` : ''}

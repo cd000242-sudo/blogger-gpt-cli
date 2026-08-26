@@ -1390,7 +1390,6 @@ export function applyWordPressInlineStyles(html: string): string {
     padding: 20px 22px !important;
     background: #f6faf9 !important;
     border: 1px solid #cfe3de !important;
-    border-left: 4px solid #0f766e !important;
     border-radius: 10px !important;
     box-sizing: border-box !important;
     max-width: 100% !important;
