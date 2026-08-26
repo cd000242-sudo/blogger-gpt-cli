@@ -36,6 +36,7 @@ import {
 import { extractLivedSignals, buildLivedVoiceBlock, HUMAN_VOICE_RULES } from './lived-voice';
 import { guardFacts, buildGroundingReference } from './fact-guard';
 import { findEmptyBlocks, describeEmptyBlocks, isSummaryRenderable } from './empty-block-guard';
+import { buildAnswerBlock } from './answer-block';
 import { dropValuelessSections } from './value-promise';
 import { suggestNarrowerKeywords, buildNarrowFocusBlock } from '../keyword-narrowing';
 import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
@@ -4322,9 +4323,31 @@ ${introductionHTML}
 </div>
 ` : '';
 
-    // 🔥 TOP_SUMMARY_CTA_PLACEHOLDER에 CTA 버튼 먼저 → 서론 → 핵심요약 삽입
-    // 사용자 구조: 접속 즉시 CTA 버튼 → 서론 → 요약 정보 → 목차 → 상세 콘텐츠 → 결론 → 하단 CTA
-    html = html.replace('<!-- TOP_SUMMARY_CTA_PLACEHOLDER -->', topCtaHtml + formattedIntro + topSummaryHtml);
+    /**
+     * 🎯 v3.8.559 — "결론부터" 블록을 서론 **앞**에 둔다.
+     *
+     * 해외 실측: AI 답변이 인용한 대목의 55%가 페이지 상단 30%에서 나온다.
+     * 그런데 우리 상단은 서론("오늘은 …에 대해 알아보겠습니다")이 차지하고 있었다 —
+     * 인용 가치가 가장 낮은 문단이 가장 좋은 자리에 있었던 셈이다.
+     *
+     * 답이 없으면 빈 문자열이라 예전 순서 그대로 나간다(억지로 만들지 않는다).
+     * 요약표 호출에서 필드만 더 받아 오므로 AI 호출은 늘지 않는다.
+     */
+    const answerBlockHtml = buildAnswerBlock({
+      keyword,
+      question: summaryTable.question,
+      answer: summaryTable.answer,
+      basis: summaryTable.basis,
+    });
+    if (answerBlockHtml) {
+      console.log('[ANSWER] ✅ 결론 블록을 서론 앞에 배치');
+    } else {
+      console.log('[ANSWER] ℹ️ 본문에서 답을 못 읽어 결론 블록 생략 (예전 순서 유지)');
+    }
+
+    // 🔥 TOP_SUMMARY_CTA_PLACEHOLDER에 CTA 버튼 → 결론 블록 → 서론 → 핵심요약 삽입
+    // 사용자 구조: 접속 즉시 CTA 버튼 → 결론부터 → 서론 → 요약 정보 → 목차 → 상세 콘텐츠 → 결론 → 하단 CTA
+    html = html.replace('<!-- TOP_SUMMARY_CTA_PLACEHOLDER -->', topCtaHtml + answerBlockHtml + formattedIntro + topSummaryHtml);
 
     const formattedConclusion = conclusionHTML ? `
 <div class="content conclusion-section" style="margin:40px 0 24px !important;padding:0 !important;background:none !important;border:none !important;border-radius:0 !important;box-shadow:none !important;font-size:16px !important;line-height:1.6 !important;color:#333 !important;">

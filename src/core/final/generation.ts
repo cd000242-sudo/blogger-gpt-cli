@@ -3604,9 +3604,21 @@ ${cleanedContent.slice(0, 2000)}
   ["상품", "<div class='...'>조르쥬 레쉬 자켓 289,000원 <button>구매하기</button></div>"]
   ["추천", "<img src='...'/><br>가격: 49,000원"]
 
+🎯 **그리고 "결론부터" 세 줄을 함께 만드세요** (v3.8.559):
+독자가 이 글에서 답을 얻으려던 질문 하나와, 그 답을 본문 근거로 적는다.
+글 맨 위에 그대로 실려서 **이것만 읽고도 답이 되는** 자리다.
+- question: 독자가 실제로 검색했을 법한 질문 한 줄 (40자 이내, 물음표 없이도 됨)
+- answer: 그 질문의 **답**. 2~4문장, 본문에 있는 숫자·조건을 그대로 쓴다.
+  "아래에서 알아보겠습니다" 같은 예고 금지 — 여기서 답을 끝낸다.
+- basis: 그 답의 근거가 되는 기관 이름과 기준 시점 (예: "국세청 · 2026-08 기준")
+본문에 답이 없으면 answer 를 빈 문자열로 두세요. 지어내지 마세요.
+
 JSON:
 {
   "type": "summary",
+  "question": "독자가 검색했을 질문 한 줄",
+  "answer": "본문 근거로 쓴 2~4문장 답",
+  "basis": "기관 이름 · 기준 시점",
   "headers": ["항목", "내용"],
   "rows": [
     ["주요 내용", "본문 기반 핵심"],
@@ -3637,6 +3649,14 @@ JSON만 (평문 셀):
     }
     if (parsed.headers) {
       parsed.headers = parsed.headers.map((h: string) => stripHtml((h || '').replace(cjk, '')));
+    }
+    /**
+     * v3.8.559 — 결론 블록 재료도 같은 방식으로 씻는다.
+     * 길이 제한·문장 경계 자르기는 answer-block 이 다시 하므로 여기서는 태그·한자만 벗긴다.
+     * 셋 다 없어도 정상이다 — 본문에 답이 없으면 안 만드는 게 맞다.
+     */
+    for (const field of ['question', 'answer', 'basis'] as const) {
+      if (parsed[field] != null) parsed[field] = stripHtml(String(parsed[field]).replace(cjk, ''));
     }
     return parsed;
   } catch {

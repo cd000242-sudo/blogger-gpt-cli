@@ -40,6 +40,15 @@ export interface FinalTableData {
   type: 'feature' | 'example' | 'summary' | 'info' | 'comparison' | 'checklist';
   headers: string[];
   rows: string[][];
+  /**
+   * v3.8.559 — 글 맨 위 "결론부터" 블록의 재료.
+   * 요약표를 만드는 호출에서 함께 받아 온다(AI 호출을 새로 늘리지 않기 위해).
+   * 셋 다 없을 수 있다 — 없으면 결론 블록을 그리지 않는다.
+   */
+  question?: string;
+  answer?: string;
+  /** 근거가 되는 기관과 기준일 (예: "국세청 · 2026-08 기준") */
+  basis?: string;
 }
 
 export interface FinalCTAData {
