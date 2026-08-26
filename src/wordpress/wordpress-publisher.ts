@@ -1425,6 +1425,49 @@ export function applyWordPressInlineStyles(html: string): string {
     .wp-styled-content .answer-first { padding: 16px 16px !important; }
     .wp-styled-content .answer-first-a { font-size: 16px !important; }
   }
+  /* v3.8.560: 글 맨 아래 독자 확보 블록.
+     answer-first 와 같은 이유로 style 속성이 지워지므로 여기서 결정한다.
+     본문보다 조용하게 — 읽고 나가는 길에 눈에 걸리기만 하면 된다. */
+  .wp-styled-content .audience-block {
+    display: block !important;
+    margin: 28px 0 8px !important;
+    padding: 18px 20px !important;
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 10px !important;
+    box-sizing: border-box !important;
+    max-width: 100% !important;
+  }
+  .wp-styled-content .audience-block-title {
+    margin: 0 0 8px !important;
+    font-size: 15px !important;
+    font-weight: 800 !important;
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+  }
+  .wp-styled-content .audience-block-line,
+  .wp-styled-content .audience-block-action {
+    margin: 0 0 6px !important;
+    font-size: 14px !important;
+    color: #475569 !important;
+    -webkit-text-fill-color: #475569 !important;
+    line-height: 1.65 !important;
+    word-break: keep-all !important;
+  }
+  .wp-styled-content .audience-block-link {
+    color: #0f766e !important;
+    -webkit-text-fill-color: #0f766e !important;
+    font-weight: 700 !important;
+    text-decoration: underline !important;
+  }
+  .wp-styled-content .audience-block-follow {
+    margin: 0 !important;
+    font-size: 13px !important;
+    color: #64748b !important;
+    -webkit-text-fill-color: #64748b !important;
+    line-height: 1.6 !important;
+    word-break: keep-all !important;
+  }
   /* 표 cell 자체의 폭 강제 — 광고가 어떻게든 들어와도 셀이 늘어나지 않도록 */
   .wp-styled-content .summary-table {
     contain: layout style !important;

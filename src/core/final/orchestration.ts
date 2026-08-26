@@ -37,6 +37,7 @@ import { extractLivedSignals, buildLivedVoiceBlock, HUMAN_VOICE_RULES } from './
 import { guardFacts, buildGroundingReference } from './fact-guard';
 import { findEmptyBlocks, describeEmptyBlocks, isSummaryRenderable } from './empty-block-guard';
 import { buildAnswerBlock } from './answer-block';
+import { buildAudienceBlock } from './audience-block';
 import { dropValuelessSections } from './value-promise';
 import { suggestNarrowerKeywords, buildNarrowFocusBlock } from '../keyword-narrowing';
 import { INTERNAL_CONSISTENCY_SECTIONS } from '../max-mode-structure';
@@ -4476,6 +4477,32 @@ ${conclusionHTML}
       } else {
         console.log('[MAX-MODE] ℹ️ 본문/상단 CTA와 겹치지 않는 하단 CTA 없음 — 하단 CTA 생략');
       }
+    }
+
+    /**
+     * 🔁 v3.8.560 — 독자 확보 블록 (하네스 A2·A4).
+     *
+     * 검색 트래픽이 줄어드는 흐름에서 살아남는 건 이 사이트를 **지목해 둔 독자**다.
+     * 구글이 그 지목 장치를 열어 줬다(Preferred Sources, 한국어 2026-04-30 개방).
+     * 도메인을 확실히 못 정하면 아무것도 넣지 않는다 — 티스토리 글에 워드프레스
+     * 도메인을 넣으면 독자가 엉뚱한 사이트를 지정하게 된다.
+     */
+    try {
+      const audienceHtml = buildAudienceBlock({
+        platform: String(payload?.platform || 'wordpress'),
+        env: { ...(loadEnvFromFile() || {}), ...(env || {}) },
+        ...(contentMode ? { contentMode } : {}),
+        siteName: String(payload?.siteName || '').trim(),
+      });
+      if (audienceHtml) {
+        html += audienceHtml;
+        console.log('[AUDIENCE] ✅ 독자 확보 블록 부착');
+      } else {
+        console.log('[AUDIENCE] ℹ️ 도메인 미확정 또는 애드센스 모드 — 독자 확보 블록 생략');
+      }
+    } catch (error) {
+      // 블록 하나 때문에 발행이 멈추면 안 된다
+      console.warn('[AUDIENCE] ⚠️ 독자 확보 블록 생략:', (error as any)?.message);
     }
 
     // 💎 백서 컨테이너 닫기 (bgpt-content + gradient-frame + white-paper)
