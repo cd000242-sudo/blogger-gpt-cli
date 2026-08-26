@@ -190,8 +190,10 @@ async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000,
 import { validateCtaUrl } from '../../cta/validate-cta-url';
 import { callGeminiWithGrounding, callGeminiWithRetry, resolveSectionTimeoutMs } from './gemini-engine';
 import { detectActionIntent, buildActionQuery } from '../../cta/action-intent';
+import type { ActionIntent } from '../../cta/action-intent';
 import { analyzeArticleContext, resolveActionLink } from '../../cta/action-link-harness';
 import { gateCtaDestination, isDocumentUrl } from '../../cta/destination-gate';
+import { collectActionVenues, resolveActionVenues, venueButtonText } from '../../cta/action-venues';
 import { judgeCtaHost, describeHostVerdict } from '../../cta/host-trust';
 import { buildOfficialCtaCandidates } from '../../cta/inference-candidates';
 import { dropEmptyFaqItems } from './empty-block-guard';
@@ -2738,6 +2740,79 @@ export function isCtaTextEchoOfTitle(text: string, keyword: string): boolean {
 
   // 남은 게 없으면 범용어뿐이고, 남은 게 제목 안에 통째로 들어 있으면 제목을 옮겨 적은 것이다
   return rest.length < 2 || k.includes(rest);
+}
+
+/**
+ * 🏦 v3.8.558 — 같은 행동을 할 수 있는 창구가 여러 곳이면 버튼도 여러 개 만든다.
+ *
+ * 사장님: "근로장려금 신청이라면 은행마다 신청이 가능하잖아. 가능한 은행을 버튼으로
+ *   전부 박스로 감싸서 깔끔하게. 농협이라면 농협 홈으로 가면 안 되고 근로장려금
+ *   신청할 수 있는 페이지로 가야 돼."
+ *
+ * 판단은 전부 src/cta/action-venues.ts 에 있다. 여기는 **재료만 넣어 주는 자리**다 —
+ * 검색은 네이버, 페이지 열기는 fetchPageForCta. 그래야 판단 쪽이 네트워크 없이 테스트된다.
+ *
+ * 애드센스 모드는 부르지 않는다(승인이 목적이라 CTA 자체를 넣지 않는다).
+ * 쇼핑 모드도 부르지 않는다 — 구매 버튼은 insertCtaCards 가 따로 책임진다.
+ */
+export async function generateVenueCtasFinal(input: {
+  keyword: string;
+  articleText: string;
+  contentMode?: string;
+  /** 이미 다른 자리에 쓰인 주소 — 같은 링크를 두 번 넣지 않는다 */
+  skipUrls?: string[];
+  onLog?: (message: string) => void;
+}): Promise<{ intent: ActionIntent | null; venues: Array<{ name: string; url: string; buttonText: string }> }> {
+  const { keyword, articleText, contentMode } = input;
+  const log = input.onLog || (() => {});
+  const none = { intent: null, venues: [] };
+
+  if (contentMode === 'adsense' || contentMode === 'shopping') return none;
+
+  const intent = detectActionIntent(keyword);
+  if (!intent) return none;
+
+  const ctx = analyzeArticleContext({ keyword, content: articleText, intent });
+  const venues = collectActionVenues(articleText, ctx.agencies);
+
+  /**
+   * 창구가 한 곳뿐이면 대표 버튼 하나로 충분하다. 굳이 검색을 더 돌려
+   * 발행 시간을 늘릴 이유가 없다 — 버튼을 늘리려고 억지로 만드는 게 아니다.
+   */
+  if (venues.length < 2) {
+    console.log(`[CTA] 🏦 본문에서 읽은 창구 ${venues.length}곳 — 창구 버튼 생략`);
+    return { intent, venues: [] };
+  }
+
+  console.log(`[CTA] 🏦 본문에서 읽은 창구 ${venues.length}곳: ${venues.join(', ')}`);
+  log(`[PROGRESS] 🏦 ${intent} 가능한 곳 ${venues.length}곳의 실제 화면을 찾는 중...`);
+
+  const found = await resolveActionVenues({
+    keyword,
+    intent,
+    venues,
+    agencies: ctx.agencies,
+    search: async (query) => {
+      const res = await naverSearch('webkr', { query, display: 10 });
+      if (!res.ok) return [];
+      return res.items.map((it: any) => ({
+        url: String(it.link || ''),
+        title: String(it.title || '').replace(/<[^>]*>/g, ''),
+      }));
+    },
+    fetchPage: fetchPageForCta,
+    ...(input.skipUrls ? { skipUrls: input.skipUrls } : {}),
+    onLog: (message) => console.log(message),
+  });
+
+  return {
+    intent,
+    venues: found.map((venue) => ({
+      name: venue.name,
+      url: venue.url,
+      buttonText: venueButtonText(venue.name, intent),
+    })),
+  };
 }
 
 /** AI 가 정한 목적지 — src/cta/smart-cta.ts 의 결과 (순환 import 을 피해 구조만 적는다) */

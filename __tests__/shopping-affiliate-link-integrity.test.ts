@@ -359,14 +359,25 @@ describe('⑥⑦ 보충 CTA·하단 CTA 도 사용자 링크 아닌 곳으로 �
     expect(block).toContain('finalCandidates');
   });
 
-  it('⭐ renderFinalCtaBlock 호출부가 3곳으로 줄었다 (v3.8.418~419)', () => {
+  it('⭐ renderFinalCtaBlock 호출부가 4곳이다 (v3.8.418~419 로 3곳, v3.8.558 로 +1)', () => {
     // v3.8.417 까지 5곳: ①sectionCta ②topCta(일반) ②'topCta(쇼핑) ③보충CTA ④하단최종CTA
     //   (②가 일반/쇼핑 두 분기로 나뉘어 있어 5곳이었다)
     // v3.8.418: ③ 보충 CTA(자동 검색) 삭제 → 4곳.
     // v3.8.419: ②'topCta(쇼핑, 텍스트 버튼)를 insertCtaCards()의 이미지 카드와 중복이라 삭제 → 3곳.
-    //   남은 3곳: sectionCta, topCta(일반 모드 전용), 하단 최종 CTA.
+    // v3.8.558: 하단 최종 CTA 자리에 분기가 하나 늘었다 → 4곳.
+    //   대표 CTA 가 이미 위에서 쓰였을 때 창구 버튼(은행별 신청 화면)만으로 박스를 만드는 자리다.
+    //   이 자리가 쇼핑·애드센스로 새지 않는다는 보장은 아래 두 가지다:
+    //     · 하단 최종 CTA 블록 안(= shopping 은 앞 분기에서 생략, adsense 는 else-if 조건에서 탈락)
+    //     · generateVenueCtasFinal 자체가 두 모드에서 빈 배열을 돌려준다(v3-8-558 테스트가 잠근다)
     const callSites = (orch.match(/renderFinalCtaBlock\(\{/g) || []).length;
-    expect(callSites).toBe(3);
+    expect(callSites).toBe(4);
+  });
+
+  it('⭐ 늘어난 호출부는 하단 최종 CTA 블록 안에만 있다 (쇼핑·애드센스로 새지 않는다)', () => {
+    const block = blockBetween(orch, "// 💰 하단 최종 CTA 버튼", "💎 백서 컨테이너 닫기");
+    // 하단 블록 안의 호출부는 2곳(대표 CTA 있을 때 / 창구 버튼만 있을 때)이고,
+    // 블록 밖 나머지는 예전 그대로 2곳(sectionCta, topCta)이다.
+    expect((block.match(/renderFinalCtaBlock\(\{/g) || []).length).toBe(2);
   });
 });
 

@@ -51,7 +51,7 @@ import {
   generateH1TitleFinal, generateH2TitlesFinal, generateSectionTitlesFromRoles,
   generateAllSectionsFinal, generateFAQFinal, buildFAQHtml,
   sanitizeCtaText,
-  generateCTAsFinal, generateSummaryTableFinal, generateHashtagsFinal,
+  generateCTAsFinal, generateVenueCtasFinal, generateSummaryTableFinal, generateHashtagsFinal,
   detectKeywordScope,
   generateIntentAwareFallbackH2Titles,
 } from './generation';
@@ -104,6 +104,13 @@ const FINAL_CTA_HOOK_STYLE = 'margin:0 !important;color:#0f172a !important;-webk
 const FINAL_CTA_BUTTON_STYLE = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;min-width:220px !important;max-width:100% !important;min-height:48px !important;margin:2px auto 0 !important;padding:14px 28px !important;background:linear-gradient(135deg,var(--rv-cta-button-start,#0891b2) 0%,var(--rv-cta-button-end,#0284c7) 100%) !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;border:0 !important;border-radius:8px !important;text-decoration:none !important;font-size:16px !important;font-weight:800 !important;line-height:1.35 !important;box-shadow:0 8px 18px var(--rv-cta-shadow,rgba(2,132,199,0.24)) !important;box-sizing:border-box !important;white-space:normal !important;word-break:keep-all !important;';
 const FINAL_CTA_MICROCOPY_STYLE = 'display:block !important;width:100% !important;margin:0 !important;color:var(--rv-cta-note,#0369a1) !important;-webkit-text-fill-color:var(--rv-cta-note,#0369a1) !important;font-size:12px !important;font-weight:600 !important;line-height:1.5 !important;opacity:.86 !important;text-align:center !important;';
 const FINAL_CTA_ACTION_STACK_STYLE = 'display:flex !important;flex-direction:column !important;align-items:center !important;justify-content:center !important;gap:8px !important;width:100% !important;max-width:100% !important;margin:0 auto !important;text-align:center !important;';
+
+/**
+ * v3.8.558 — 창구 버튼 묶음 (근로장려금 → 취급 은행 각각).
+ *   가로로 흐르다 넘치면 줄바꿈한다. 세로로만 쌓으면 6곳에서 박스가 탑이 된다.
+ */
+const FINAL_CTA_VENUE_GRID_STYLE = 'display:flex !important;flex-wrap:wrap !important;align-items:stretch !important;justify-content:center !important;gap:8px !important;width:100% !important;max-width:100% !important;margin:4px auto 0 !important;padding:12px 0 0 !important;border-top:1px dashed var(--rv-cta-border,#93c5fd) !important;box-sizing:border-box !important;';
+const FINAL_CTA_VENUE_BUTTON_STYLE = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;flex:0 1 auto !important;min-width:132px !important;max-width:100% !important;min-height:42px !important;margin:0 !important;padding:10px 16px !important;background:#ffffff !important;color:var(--rv-cta-note,#0369a1) !important;-webkit-text-fill-color:var(--rv-cta-note,#0369a1) !important;border:1px solid var(--rv-cta-border,#93c5fd) !important;border-radius:8px !important;text-decoration:none !important;font-size:14px !important;font-weight:700 !important;line-height:1.35 !important;box-shadow:0 2px 6px var(--rv-cta-shadow,rgba(2,132,199,0.14)) !important;box-sizing:border-box !important;white-space:normal !important;word-break:keep-all !important;';
 
 const CTA_PLACEHOLDER_DOMAINS = [
   'example.com', 'your-site.com', 'placeholder.com', 'test.com',
@@ -233,6 +240,11 @@ function renderFinalCtaBlock(input: {
    *   기존 호출부(비제휴 CTA)를 건드리지 않기 위해서다.
    */
   rel?: string;
+  /**
+   * v3.8.558 — 대표 버튼 아래에 붙는 창구 버튼들 (근로장려금 → 취급 은행 각각).
+   *   비어 있으면 예전과 완전히 같은 HTML 이 나온다 — 기존 호출부 5곳은 건드리지 않는다.
+   */
+  extraButtons?: Array<{ text: string; url: string }>;
 }): string {
   const badge = input.badge ? escapeHtmlText(sanitizeCtaText(input.badge)) : '';
   const hook = escapeHtmlText(sanitizeCtaText(input.hook || ''));
@@ -245,6 +257,23 @@ function renderFinalCtaBlock(input: {
     ? FINAL_CTA_BOX_STYLE.replace(/margin:[^;]+;/, `margin:${input.marginTop}px auto 32px !important;`)
     : FINAL_CTA_BOX_STYLE;
 
+  /**
+   * 창구 버튼은 대표 버튼보다 작게, 가로로 흐르게 둔다.
+   * 세로로만 쌓으면 은행 6곳에서 박스가 탑처럼 길어져 본문을 밀어낸다.
+   */
+  const extras = (input.extraButtons || []).filter((b) => b && b.url && b.text);
+  const extraHtml = extras.length
+    ? `
+  <div class="cta-venue-grid" style="${FINAL_CTA_VENUE_GRID_STYLE}">
+${extras.map((b) => {
+      const bText = escapeHtmlText(sanitizeCtaText(b.text));
+      const bUrl = escapeHtmlAttr(b.url);
+      const bAria = escapeHtmlAttr(sanitizeCtaText(b.text));
+      return `    <a class="cta-btn cta-venue-btn" href="${bUrl}" target="_blank" rel="${rel}" role="button" aria-label="${bAria}" style="${FINAL_CTA_VENUE_BUTTON_STYLE}">${bText}</a>`;
+    }).join('\n')}
+  </div>`
+    : '';
+
   return `
 <div class="cta-box" style="${boxStyle}">
   ${badge ? `<span class="cta-badge" style="${FINAL_CTA_BADGE_STYLE}">${badge}</span>` : ''}
@@ -254,7 +283,7 @@ function renderFinalCtaBlock(input: {
       <span style="position:relative !important;z-index:2 !important;">${buttonText}</span>
     </a>
     ${microcopy ? `<span class="cta-microcopy" style="${FINAL_CTA_MICROCOPY_STYLE}">${microcopy}</span>` : ''}
-  </div>
+  </div>${extraHtml}
 </div>
 `;
 }
@@ -4366,14 +4395,61 @@ ${conclusionHTML}
         ...supplementalCtas
       ];
       const finalCta = pickRenderableCta(finalCandidates, renderedCtaUrls);
+
+      /**
+       * 🏦 v3.8.558 — 같은 행동을 할 수 있는 창구가 여러 곳이면 버튼도 여러 개.
+       *
+       * 사장님: "근로장려금 신청이라면 은행마다 신청이 가능하잖아. 가능한 은행을
+       *   버튼으로 전부 박스로 감싸서 깔끔하게. 농협이면 농협 홈이 아니라
+       *   근로장려금 신청할 수 있는 페이지로 가야 돼."
+       *
+       * 이미 렌더된 주소를 그대로 넘겨 같은 링크가 두 번 나오지 않게 한다 —
+       * 중복 방지는 원래 잘 돌고 있었고, 없던 건 채울 후보 쪽이었다.
+       */
+      let venueButtons: Array<{ text: string; url: string }> = [];
+      try {
+        const venueResult = await generateVenueCtasFinal({
+          keyword,
+          articleText: articleTextForAux,
+          ...(contentMode ? { contentMode } : {}),
+          skipUrls: [...renderedCtaUrls, ...(finalCta ? [finalCta.url] : [])],
+          onLog: (message: string) => onLog?.(message),
+        });
+        venueButtons = venueResult.venues.map(v => ({ text: v.buttonText, url: v.url }));
+      } catch (error) {
+        // 창구를 못 찾아도 글은 나가야 한다 — 예전과 같은 하단 CTA 로 돌아간다
+        console.warn('[MAX-MODE] ⚠️ 창구 버튼 생성 실패 — 대표 CTA 만 사용:', error);
+      }
+
       if (finalCta) {
         html += renderFinalCtaBlock({
           badge: finalCta.searchFallback ? '직접 확인' : '마무리 추천',
           hook: finalCta.hookingMessage,
           buttonText: finalCta.buttonText,
-          url: finalCta.url
+          url: finalCta.url,
+          ...(venueButtons.length ? { extraButtons: venueButtons } : {}),
         });
         markRenderedCta(renderedCtaUrls, finalCta.url);
+        venueButtons.forEach(b => markRenderedCta(renderedCtaUrls, b.url));
+        if (venueButtons.length) {
+          console.log(`[MAX-MODE] 🏦 하단 박스에 창구 버튼 ${venueButtons.length}개 추가`);
+        }
+      } else if (venueButtons.length) {
+        /**
+         * 대표 CTA 는 이미 위나 본문에서 쓰였다(그래서 여기서 걸러졌다).
+         * 그래도 창구 버튼은 아직 아무 데도 안 나갔으므로 박스는 만든다 —
+         * 첫 창구를 대표 자리에, 나머지를 아래 묶음에 둔다(같은 버튼을 두 번 그리지 않기 위해).
+         */
+        const [lead, ...rest] = venueButtons;
+        html += renderFinalCtaBlock({
+          badge: '신청 창구',
+          hook: `${keyword}, 아래에서 바로 진행하세요.`,
+          buttonText: lead!.text,
+          url: lead!.url,
+          ...(rest.length ? { extraButtons: rest } : {}),
+        });
+        venueButtons.forEach(b => markRenderedCta(renderedCtaUrls, b.url));
+        console.log(`[MAX-MODE] 🏦 대표 CTA 는 이미 사용됨 — 창구 버튼 ${venueButtons.length}개로 하단 박스 구성`);
       } else {
         console.log('[MAX-MODE] ℹ️ 본문/상단 CTA와 겹치지 않는 하단 CTA 없음 — 하단 CTA 생략');
       }
