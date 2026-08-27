@@ -21,6 +21,8 @@
  * 독자가 엉뚱한 사이트를 지정하게 된다. 확실할 때만 넣는다.
  */
 
+import { blockStrings, normalizeBlockLanguage } from './block-strings';
+
 /** 플랫폼별로 사이트 주소가 담기는 환경변수 키 */
 const SITE_URL_KEYS: Record<string, string[]> = {
   wordpress: ['WORDPRESS_SITE_URL'],
@@ -68,6 +70,8 @@ export interface AudienceBlockInput {
   contentMode?: string;
   /** 사이트 이름 — 문구에 쓴다. 없으면 도메인을 쓴다 */
   siteName?: string;
+  /** v3.8.562 — 'ko' | 'en'. 없으면 한국어(기존 동작) */
+  language?: unknown;
 }
 
 /**
@@ -88,15 +92,17 @@ export function buildAudienceBlock(input: AudienceBlockInput): string {
 
   const safeName = escape(name);
   const href = escape(preferredSourceLink(domain));
+  // v3.8.562: 문구를 언어별 표에서 가져온다. language 를 안 주면 예전처럼 한국어다
+  const s = blockStrings(normalizeBlockLanguage(input.language));
 
   return `
 <aside class="audience-block" style="margin:28px 0 8px;padding:18px 20px;background:var(--rv-audience-bg,#f8fafc);border:1px solid var(--rv-audience-border,#e2e8f0);border-radius:10px;box-sizing:border-box;max-width:100%;">
-  <p class="audience-block-title" style="margin:0 0 8px;font-size:15px;font-weight:800;color:#334155;-webkit-text-fill-color:#334155;line-height:1.5;">이런 글, 놓치지 않으려면</p>
-  <p class="audience-block-line" style="margin:0 0 6px;font-size:14px;color:#475569;-webkit-text-fill-color:#475569;line-height:1.65;word-break:keep-all;">구글에서 <strong>${safeName}</strong>을(를) 즐겨 보는 출처로 지정해 두면, 다음에 비슷한 내용을 찾을 때 검색 결과 위쪽에서 다시 만날 수 있습니다.</p>
+  <p class="audience-block-title" style="margin:0 0 8px;font-size:15px;font-weight:800;color:#334155;-webkit-text-fill-color:#334155;line-height:1.5;">${s.audienceTitle}</p>
+  <p class="audience-block-line" style="margin:0 0 6px;font-size:14px;color:#475569;-webkit-text-fill-color:#475569;line-height:1.65;word-break:keep-all;">${s.audienceLine(safeName)}</p>
   <p class="audience-block-action" style="margin:0 0 10px;font-size:14px;line-height:1.65;">
-    <a class="audience-block-link" href="${href}" target="_blank" rel="nofollow noopener noreferrer" style="color:#0f766e;-webkit-text-fill-color:#0f766e;font-weight:700;text-decoration:underline;">즐겨 보는 출처로 지정하기</a>
+    <a class="audience-block-link" href="${href}" target="_blank" rel="nofollow noopener noreferrer" style="color:#0f766e;-webkit-text-fill-color:#0f766e;font-weight:700;text-decoration:underline;">${s.audienceCta}</a>
   </p>
-  <p class="audience-block-follow" style="margin:0;font-size:13px;color:#64748b;-webkit-text-fill-color:#64748b;line-height:1.6;word-break:keep-all;">모바일 크롬에서 이 페이지 메뉴의 <strong>팔로우</strong>를 누르면, 새 글이 올라올 때 크롬 첫 화면에 뜹니다.</p>
+  <p class="audience-block-follow" style="margin:0;font-size:13px;color:#64748b;-webkit-text-fill-color:#64748b;line-height:1.6;word-break:keep-all;">${s.audienceFollow}</p>
 </aside>
 `;
 }

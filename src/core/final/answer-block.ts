@@ -24,6 +24,8 @@
  * 티스토리·블로그스팟에서는 인라인 style 이 그대로 살아 두 경우 다 보기 좋다.
  */
 
+import { blockStrings, normalizeBlockLanguage } from './block-strings';
+
 /** 답으로 인정하는 최소 길이 — 이보다 짧으면 "네" 수준이라 인용 가치가 없다 */
 const MIN_ANSWER_LEN = 40;
 /** 최대 길이 — 넘으면 본문 요약이지 답이 아니다. 문장 경계에서 자른다 */
@@ -75,6 +77,8 @@ export function sanitizeAnswerText(raw: unknown, maxLen: number): string {
 
 export interface AnswerBlockInput {
   keyword: string;
+  /** v3.8.562 — 'ko' | 'en'. 없으면 한국어(기존 동작) */
+  language?: unknown;
   question?: unknown;
   answer?: unknown;
   /** 근거 — 기관 이름과 기준일 (예: "국세청 · 2026-08 기준") */
@@ -89,9 +93,12 @@ export function buildAnswerBlock(input: AnswerBlockInput): string {
   const answer = sanitizeAnswerText(input.answer, MAX_ANSWER_LEN);
   if (answer.length < MIN_ANSWER_LEN) return '';
 
+  // v3.8.562: 문구를 언어별 표에서 가져온다. language 를 안 주면 예전처럼 한국어다
+  const strings = blockStrings(normalizeBlockLanguage(input.language));
+
   const keyword = String(input.keyword || '').trim();
   const question = sanitizeAnswerText(input.question, MAX_QUESTION_LEN)
-    || (keyword ? `${keyword}, 결론부터` : '');
+    || (keyword ? strings.answerQuestionFallback(keyword) : '');
   if (!question) return '';
 
   const basis = sanitizeAnswerText(input.basis, MAX_BASIS_LEN);
@@ -108,7 +115,7 @@ export function buildAnswerBlock(input: AnswerBlockInput): string {
 <section class="answer-first" style="margin:0 0 26px;padding:20px 22px;background:var(--rv-answer-bg,#f6faf9);border:1px solid var(--rv-answer-border,#cfe3de);border-radius:10px;box-sizing:border-box;max-width:100%;">
   <p class="answer-first-q" style="margin:0 0 10px;font-size:15px;font-weight:800;color:var(--rv-answer-accent,#0f766e);-webkit-text-fill-color:var(--rv-answer-accent,#0f766e);line-height:1.5;word-break:keep-all;">${q}</p>
   <p class="answer-first-a" style="margin:0;font-size:17px;font-weight:700;color:#1f2937;-webkit-text-fill-color:#1f2937;line-height:1.68;word-break:keep-all;">${a}</p>${b ? `
-  <p class="answer-first-basis" style="margin:10px 0 0;font-size:13px;font-weight:600;color:#64748b;-webkit-text-fill-color:#64748b;line-height:1.5;">근거: ${b}</p>` : ''}
+  <p class="answer-first-basis" style="margin:10px 0 0;font-size:13px;font-weight:600;color:#64748b;-webkit-text-fill-color:#64748b;line-height:1.5;">${strings.answerBasisLabel}: ${b}</p>` : ''}
 </section>
 `;
 }

@@ -4339,6 +4339,8 @@ ${introductionHTML}
       question: summaryTable.question,
       answer: summaryTable.answer,
       basis: summaryTable.basis,
+      // v3.8.562: 발행 언어. payload 에 없으면 한국어로 떨어진다(기존 동작 그대로)
+      language: (payload as any)?.language,
     });
     if (answerBlockHtml) {
       console.log('[ANSWER] ✅ 결론 블록을 서론 앞에 배치');
@@ -4493,6 +4495,7 @@ ${conclusionHTML}
         env: { ...(loadEnvFromFile() || {}), ...(env || {}) },
         ...(contentMode ? { contentMode } : {}),
         siteName: String(payload?.siteName || '').trim(),
+        language: (payload as any)?.language,
       });
       if (audienceHtml) {
         html += audienceHtml;
