@@ -116,10 +116,27 @@ describe('② 18단계 따라하기', () => {
     expect(mainJs).toContain('window.ensureAgentModeSettingsReady');
   });
 
+  /**
+   * ⚠️ v3.8.563 에서 이 항목의 기대값을 바꿨다.
+   *
+   * 지키려는 것은 그대로다 — **대상을 못 찾아도 조용히 빈 화면을 보이지 않는다.**
+   * 바뀐 건 "어떻게 다음 단계로 가느냐"다.
+   *
+   * v3.8.563 이 step() 에 재진입 가드(stepping)를 넣었다. 사장님 보고
+   * "1번 3번 5번 이런식으로 넘어가거든" 의 원인이 화면 이동 중 중복 클릭이었기 때문이다.
+   * 그런데 renderStep 은 **step() 안에서** 돈다. 여기서 다시 step(+1) 을 부르면
+   * 자기가 세운 가드에 스스로 막혀 **대상 없는 단계에서 투어가 멎는다.**
+   * 그래서 커서만 직접 옮기고 다시 그린다.
+   */
   it('대상을 못 찾으면 경고를 남기고 그 단계만 건너뛴다 (조용히 빈 화면 금지)', () => {
     const render = braceBlock(tour, 'async function renderStep');
     expect(render).toContain('[USAGE-TOUR] ⚠️');
-    expect(render).toContain('await step(+1)');
+    // 커서를 직접 옮긴다 — step() 재호출은 자기 가드에 막힌다
+    expect(render).toContain('tourIndex += 1');
+    expect(render).toContain('await renderStep()');
+    expect(render).not.toContain('await step(+1)');
+    // 마지막 단계에서 넘어가려 하면 투어를 끝낸다 (범위 밖 접근 금지)
+    expect(render).toContain('if (tourIndex + 1 >= STEPS.length)');
   });
 
   it('헤더에 잘리지 않게 top layer(popover)로 띄운다', () => {

@@ -57,10 +57,43 @@ function ensureStyles() {
       filter:drop-shadow(0 -1px 0 rgba(148,163,184,.4));
       animation:ut-nudge 1.9s ease-in-out infinite; }
     @keyframes ut-nudge { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-4px);} }
-    .ut-lit { outline:2px solid rgba(129,140,248,.9) !important;
+    .ut-lit { outline:2px solid rgba(129,140,248,.95) !important;
       outline-offset:3px; border-radius:8px;
-      box-shadow:0 0 0 6px rgba(99,102,241,.18) !important; }
-    @media (prefers-reduced-motion: reduce) { .ut-tip-arrow { animation:none; } }
+      box-shadow:0 0 0 6px rgba(99,102,241,.22) !important; }
+
+    /* ── 스포트라이트 (v3.8.563) ────────────────────────────────
+       기존엔 대상에 얇은 테두리만 둘렀다. 화면이 복잡하면 어디를 보라는 건지
+       눈에 안 들어온다("위치가 정확하게 나와야 마우스가 따라가지").
+       주변을 어둡게 덮고 대상만 뚫어서, 볼 곳을 하나로 만든다.
+       카드와 같은 top layer 에 올려야 backdrop-filter 조상에 안 잘린다. */
+    .ut-spot { position:fixed; z-index:2147482999; margin:0; inset:auto; padding:0;
+      border:0; background:transparent; overflow:visible; display:none; pointer-events:none; }
+    .ut-spot:popover-open, .ut-spot.open { display:block; }
+    /* 구멍은 **전환 없이 바로 옮긴다.**
+       9999px 짜리 그림자를 깔고 있어서 width/height 를 전환하면 매 프레임 그 그림자를
+       다시 그린다 — 속도를 고치는 판에 느려질 걸 넣을 이유가 없다.
+       단계끼리 대상이 멀리 떨어져 있어 스르륵 움직여 봤자 눈만 따라다니느라 피곤하다.
+       "여기를 보라"는 신호는 아래 .ut-ring(transform 만 쓴다)이 맡는다. */
+    .ut-hole { position:fixed; border-radius:10px; pointer-events:none;
+      box-shadow:0 0 0 9999px rgba(2,6,23,.62);
+      outline:2px solid rgba(129,140,248,.95); outline-offset:0; }
+    .ut-ring { position:fixed; border-radius:12px; pointer-events:none;
+      border:2px solid rgba(129,140,248,.75);
+      animation:ut-ring 1.6s ease-out infinite; }
+    @keyframes ut-ring {
+      0%   { transform:scale(1);    opacity:.85; }
+      100% { transform:scale(1.09); opacity:0; }
+    }
+
+    /* 눌렀는데 반응이 없어 보이면 또 누른다 — 그래서 1→3→5 로 건너뛰었다.
+       누른 즉시 눌린 티를 내고, 준비되는 동안 못 누르게 막는다. */
+    .ut-card.is-busy .ut-btn { opacity:.55; cursor:progress; }
+    .ut-btn:active { transform:translateY(1px); }
+    .ut-btn[disabled] { pointer-events:none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ut-tip-arrow, .ut-ring { animation:none; }
+    }
   `;
   document.head.appendChild(st);
 }
@@ -95,36 +128,132 @@ function closePop() {
   try { if (typeof popEl.hidePopover === 'function' && popEl.matches(':popover-open')) popEl.hidePopover(); } catch { /* 이미 닫힘 */ }
 }
 
-/** 대상 아래에 배치하고, 화살표를 대상 중앙에 맞춘다 */
-function placeUnder(targets) {
+/** 여백 — 화면 가장자리에서 이만큼은 떨어뜨린다 */
+const EDGE = 14;
+
+/**
+ * 대상 옆에 카드를 놓는다.
+ *
+ * v3.8.563 — 예전엔 **무조건 아래**에 놓고 `top` 을 `innerHeight - 40` 으로만 잘랐다.
+ * 카드 높이는 200px 안팎인데 40px 만 남기고 자르니, 아래쪽 대상(예: 왼쪽 맨 아래 [설정])
+ * 에서는 카드가 통째로 화면 밖으로 나가 "1 / 18" 이 작업표시줄에 가렸다.
+ * 이제 **아래에 안 들어가면 위로 뒤집고**, 위아래 다 좁으면 옆으로 비킨다.
+ * 자를 때도 카드의 실제 높이를 쓴다.
+ */
+function placeNear(targets) {
   const pop = getPop();
   const card = pop.querySelector('.ut-card');
   if (!card) return;
+  const arrows = [...pop.querySelectorAll('.ut-tip-arrow')];
   const rects = targets.map((t) => t.getBoundingClientRect()).filter((r) => r.width || r.height);
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const w = card.offsetWidth || 368;
+  const h = card.offsetHeight || 190;
+
   if (!rects.length) {
-    // 대상이 화면에 없으면 가운데 위쪽에 띄운다 (마지막 인사 단계 등)
-    pop.style.top = '84px';
-    pop.style.left = `${Math.max(12, Math.round((window.innerWidth - card.offsetWidth) / 2))}px`;
-    pop.querySelectorAll('.ut-tip-arrow').forEach((a) => { a.style.display = 'none'; });
+    // 대상이 화면에 없으면 한가운데 (마지막 인사 단계 등)
+    pop.style.left = `${Math.round(Math.max(EDGE, (vw - w) / 2))}px`;
+    pop.style.top = `${Math.round(Math.max(EDGE, (vh - h) / 2))}px`;
+    arrows.forEach((a) => { a.style.display = 'none'; });
+    placeSpotlight([]);
     return;
   }
+
+  const top = Math.min(...rects.map((r) => r.top));
   const bottom = Math.max(...rects.map((r) => r.bottom));
   const centers = rects.map((r) => r.left + r.width / 2);
   const mid = centers.reduce((a, b) => a + b, 0) / centers.length;
-  const w = card.offsetWidth || 368;
-  const left = Math.max(12, Math.min(mid - w / 2, window.innerWidth - w - 12));
+
+  const GAP = 12;
+  const roomBelow = vh - bottom - GAP - EDGE;
+  const roomAbove = top - GAP - EDGE;
+
+  let y;
+  let below;
+  if (roomBelow >= h) { y = bottom + GAP; below = true; }
+  else if (roomAbove >= h) { y = top - GAP - h; below = false; }
+  else {
+    // 위아래 다 좁다 — 더 넓은 쪽에 붙이고 화면 안으로 밀어 넣는다
+    below = roomBelow >= roomAbove;
+    y = below ? bottom + GAP : top - GAP - h;
+  }
+  y = Math.max(EDGE, Math.min(y, vh - h - EDGE));
+
+  const left = Math.max(EDGE, Math.min(mid - w / 2, vw - w - EDGE));
   pop.style.left = `${Math.round(left)}px`;
-  pop.style.top = `${Math.round(Math.min(bottom + 12, window.innerHeight - 40))}px`;
-  pop.querySelectorAll('.ut-tip-arrow').forEach((arrow, i) => {
+  pop.style.top = `${Math.round(y)}px`;
+
+  // 화살표는 "카드가 대상 아래에 있을 때"만 위를 가리킨다.
+  // 위로 뒤집혔거나 카드가 대상을 덮으면 화살표가 엉뚱한 곳을 찌르므로 감춘다.
+  const pointing = below && Math.abs(y - (bottom + GAP)) < 1;
+  arrows.forEach((arrow, i) => {
     const c = centers[i];
-    if (c === undefined) { arrow.style.display = 'none'; return; }
+    if (!pointing || c === undefined) { arrow.style.display = 'none'; return; }
     arrow.style.display = 'block';
     arrow.style.left = `${Math.round(Math.max(10, Math.min(c - left - 9, w - 28)))}px`;
   });
+
+  placeSpotlight(rects);
+}
+
+// ─── 스포트라이트 ────────────────────────────────────────────
+
+let spotEl = null;
+
+function getSpot() {
+  if (spotEl && spotEl.isConnected) return spotEl;
+  ensureStyles();
+  spotEl = document.createElement('div');
+  spotEl.className = 'ut-spot';
+  document.body.appendChild(spotEl);
+  try { spotEl.setAttribute('popover', 'manual'); } catch { /* 미지원이면 클래스 폴백 */ }
+  return spotEl;
+}
+
+/** 대상들을 감싸는 구멍 하나를 뚫는다. 대상이 없으면 스포트라이트를 끈다. */
+function placeSpotlight(rects) {
+  const spot = getSpot();
+  if (!rects.length) { hideSpot(); return; }
+  const PAD = 6;
+  const x1 = Math.min(...rects.map((r) => r.left)) - PAD;
+  const y1 = Math.min(...rects.map((r) => r.top)) - PAD;
+  const x2 = Math.max(...rects.map((r) => r.right)) + PAD;
+  const y2 = Math.max(...rects.map((r) => r.bottom)) + PAD;
+  const box = `top:${Math.round(y1)}px;left:${Math.round(x1)}px;`
+    + `width:${Math.round(x2 - x1)}px;height:${Math.round(y2 - y1)}px;`;
+  let hole = spot.querySelector('.ut-hole');
+  let ring = spot.querySelector('.ut-ring');
+  if (!hole) {
+    spot.innerHTML = '<div class="ut-hole"></div><div class="ut-ring"></div>';
+    hole = spot.querySelector('.ut-hole');
+    ring = spot.querySelector('.ut-ring');
+  }
+  hole.style.cssText = `position:fixed;border-radius:10px;pointer-events:none;`
+    + `box-shadow:0 0 0 9999px rgba(2,6,23,.62);`
+    + `outline:2px solid rgba(129,140,248,.95);${box}`;
+  ring.style.cssText = `position:fixed;border-radius:12px;pointer-events:none;`
+    + `border:2px solid rgba(129,140,248,.75);${box}`;
+  showSpot();
+}
+
+function showSpot() {
+  const spot = getSpot();
+  spot.classList.add('open');
+  try {
+    if (typeof spot.showPopover === 'function' && !spot.matches(':popover-open')) spot.showPopover();
+  } catch { /* 미지원이면 클래스 폴백 */ }
+}
+
+function hideSpot() {
+  if (!spotEl) return;
+  spotEl.classList.remove('open');
+  try { if (typeof spotEl.hidePopover === 'function' && spotEl.matches(':popover-open')) spotEl.hidePopover(); } catch { /* 이미 닫힘 */ }
 }
 
 function clearHighlights() {
   document.querySelectorAll('.ut-lit').forEach((el) => el.classList.remove('ut-lit'));
+  hideSpot();
 }
 
 function escapeHtml(s) {
@@ -159,7 +288,7 @@ export function showPlatformCoach() {
   plat.classList.add('ut-lit');
   eng.classList.add('ut-lit');
   openPop();
-  placeUnder([plat, eng]);
+  placeNear([plat, eng]);
 
   const finish = () => {
     try { localStorage.setItem(COACH_SEEN_KEY, '1'); } catch { /* 저장 실패해도 닫기는 된다 */ }
@@ -178,7 +307,7 @@ export function showPlatformCoach() {
   eng.addEventListener('click', finish);
   document.addEventListener('keydown', onKey);
 
-  const reposition = () => placeUnder([plat, eng]);
+  const reposition = () => placeNear([plat, eng]);
   window.addEventListener('resize', reposition);
   document.addEventListener('scroll', reposition, true);
   return true;
@@ -353,15 +482,20 @@ let tourIndex = 0;
 let tourActive = false;
 
 export async function showUsageTour(startAt = 0) {
+  if (stepping) return;   // 헤더 버튼 연타로 두 번 시작되지 않게
   ensureStyles();
   tourActive = true;
   tourIndex = Math.max(0, Math.min(startAt, STEPS.length - 1));
   addLog('📖 사용법 따라하기를 시작합니다', 'info');
-  await renderStep();
+  stepping = true;
+  try { await renderStep(); }
+  finally { stepping = false; }
 }
 
 function endTour(reason = 'done') {
   tourActive = false;
+  stepping = false;
+  stopTracking();
   clearHighlights();
   closePop();
   document.removeEventListener('keydown', onTourKey);
@@ -375,12 +509,41 @@ function onTourKey(e) {
   else if (e.key === 'ArrowLeft') step(-1);
 }
 
+/**
+ * 🔒 v3.8.563 — 한 번에 한 걸음만.
+ *
+ * 사장님 보고: "F11 눌러서 버튼 누르니까 인식이 엄청 느려" +
+ *              "순차적으로 넘어가야 되는데 1번 3번 5번 이런식으로 넘어가거든"
+ *
+ * **두 증상은 같은 원인이다.** renderStep() 은 s.before() 로 화면을 옮기는데
+ * (환경설정 열기 + 탭 전환 + 런타임 섹션 준비) 여기서 0.5초 넘게 걸린다.
+ * 그 동안 화면에는 **이전 단계 카드가 그대로** 떠 있고 [다음] 버튼도 살아 있다.
+ * 반응이 없어 보이니 한 번 더 누르고, 그러면 step(+1) 이 두 번 돌아 한 칸을 건너뛴다.
+ *
+ * 그래서 두 가지를 같이 한다.
+ *   ① 진행 중에는 다음 요청을 **무시한다**(쌓아 두지 않는다 — 쌓으면 결국 또 건너뛴다)
+ *   ② 누른 즉시 버튼을 잠그고 눌린 티를 낸다(아래 markBusy) — 기다리는 줄 알게
+ */
+let stepping = false;
+
+/** 누른 즉시 반응을 보여 준다. 실제 이동은 그다음이다. */
+function markBusy() {
+  const card = popEl?.querySelector('.ut-card');
+  if (!card) return;
+  card.classList.add('is-busy');
+  card.querySelectorAll('.ut-btn').forEach((b) => { b.disabled = true; });
+}
+
 async function step(delta) {
+  if (stepping) return;               // ← 1→3→5 를 막는 자리
   const next = tourIndex + delta;
   if (next < 0) return;
   if (next >= STEPS.length) { endTour('done'); return; }
+  stepping = true;
+  markBusy();
   tourIndex = next;
-  await renderStep();
+  try { await renderStep(); }
+  finally { stepping = false; }
 }
 
 async function renderStep() {
@@ -400,7 +563,14 @@ async function renderStep() {
   });
   if (s.sel.length && !targets.length) {
     console.warn(`[USAGE-TOUR] ${tourIndex + 1}단계를 건너뜁니다 (대상 없음)`);
-    await step(+1);
+    /**
+     * ⚠️ step(+1) 을 부르면 안 된다 — renderStep 은 step() 안에서 실행되므로
+     * stepping 가드에 **자기가 막힌다**(대상 없는 단계에서 투어가 멎는다).
+     * 여기서는 커서만 직접 옮기고 다시 그린다.
+     */
+    if (tourIndex + 1 >= STEPS.length) { endTour('done'); return; }
+    tourIndex += 1;
+    await renderStep();
     return;
   }
 
@@ -421,20 +591,54 @@ async function renderStep() {
     </div>`;
 
   targets.forEach((t) => t.classList.add('ut-lit'));
-  try { targets[0]?.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { /* 스크롤 실패는 치명 아님 */ }
+  /**
+   * v3.8.563 — behavior:'smooth' 를 걷어냈다.
+   * 부드러운 스크롤은 끝날 때까지 좌표가 계속 움직여서, 그 사이 잡은 위치가 틀어진다.
+   * 그래서 예전엔 180ms 를 기다렸는데 그게 곧 "느리다"였다.
+   * 즉시 스크롤하면 좌표가 그 자리에서 확정되므로 기다릴 이유가 없다.
+   */
+  try { targets[0]?.scrollIntoView({ block: 'center', behavior: 'auto' }); } catch { /* 스크롤 실패는 치명 아님 */ }
 
   openPop();
-  // 스크롤이 끝난 뒤 좌표를 잡아야 화살표가 제자리에 온다
-  await wait(180);
-  placeUnder(targets);
+  // 레이아웃이 확정된 다음 프레임에 좌표를 잡는다 (고정 대기 대신)
+  await nextFrame();
+  placeNear(targets);
 
   pop.querySelector('[data-ut-next]')?.addEventListener('click', () => step(+1));
   pop.querySelector('[data-ut-prev]')?.addEventListener('click', () => step(-1));
   pop.querySelector('[data-ut-skip]')?.addEventListener('click', () => endTour('skip'));
   document.addEventListener('keydown', onTourKey);
 
-  const reposition = () => { if (tourActive) placeUnder(targets); };
-  window.addEventListener('resize', reposition, { once: true });
+  /**
+   * 대상이 움직이면 스포트라이트도 따라가야 한다.
+   * 예전엔 resize 만, 그것도 { once:true } 라 한 번 접히면 그만이었다.
+   * 스크롤·리사이즈를 투어가 끝날 때까지 계속 따라간다(끝날 때 endTour 가 뗀다).
+   */
+  trackTargets(targets);
+}
+
+/** 다음 페인트까지 — 고정 ms 대기보다 정확하고 빠르다 */
+function nextFrame() {
+  return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+}
+
+// ─── 대상 추적 ───────────────────────────────────────────────
+
+let untrack = null;
+
+function trackTargets(targets) {
+  stopTracking();
+  const reposition = () => { if (tourActive) placeNear(targets); };
+  window.addEventListener('resize', reposition);
+  document.addEventListener('scroll', reposition, true);
+  untrack = () => {
+    window.removeEventListener('resize', reposition);
+    document.removeEventListener('scroll', reposition, true);
+  };
+}
+
+function stopTracking() {
+  if (untrack) { untrack(); untrack = null; }
 }
 
 // ─── 전역 등록 + 헤더 버튼 ──────────────────────────────────

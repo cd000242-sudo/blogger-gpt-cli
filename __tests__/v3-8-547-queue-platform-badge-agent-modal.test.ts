@@ -47,7 +47,11 @@ describe('① 대기열에서 플랫폼을 바꿀 수 있다', () => {
     const ids = queue.match(/id="pq-bulk-platform"/g) || [];
     expect(ids).toHaveLength(1);
     expect(queue).not.toMatch(/<select id="pq-bulk-platform" style="display:none;">/);
-    const applyBlock = braceBlock(queue, "document.getElementById('pq-bulk-apply')");
+    // ⚠️ v3.8.563: 'pq-bulk-apply' 만으로는 표식이 흔들린다 —
+    //    마크업(버튼 정의)과 blockOnUnappliedBulkSchedule 의 scrollIntoView 도 같은 문자열을 갖는다.
+    //    실제로 그 함수가 추가되자 이 테스트가 엉뚱한 블록을 잡아 깨졌다.
+    //    리스너 등록 지점으로 표식을 좁힌다.
+    const applyBlock = braceBlock(queue, "document.getElementById('pq-bulk-apply')?.addEventListener");
     expect(applyBlock).toContain('item.platform = normalizeQueuePlatform(p)');
   });
 });

@@ -2166,6 +2166,46 @@ function applyTitleOptionToItem(item, value) {
   item.keywordFront = option === 'front' || option === 'keyword-front';
 }
 
+/**
+ * 🚧 v3.8.563 — **일괄 편집에 골라 놓고 [⚡ 일괄 적용]을 안 누른 경우를 잡는다.**
+ *
+ * 사장님 실측(2026-08-27): 일괄 편집에서 발행 방식 "예약 발행" + 날짜 2026-08-27 19:00 을
+ * 분명히 골랐는데, 대기열 카드는 여전히 "즉시 발행" · 예약 시간 빈칸이었다.
+ * 그대로 돌려서 전부 즉시발행으로 나갔다.
+ *
+ * 일괄 편집 값은 패널 맨 아래 [⚡ 일괄 적용]을 눌러야 항목에 들어간다.
+ * 그런데 그 버튼은 스크롤해야 보이고, 드롭다운에서 고르는 순간 이미 적용된 것처럼 보인다.
+ * **고른 것과 실제 상태가 다른데 아무도 말해 주지 않는 게 문제다.**
+ *
+ * 값을 마음대로 적용하지는 않는다 — 사장님이 고르다 만 것일 수도 있다.
+ * 대신 발행을 **시작하지 못하게 막고** 무엇이 어긋났는지 말해 준다.
+ *
+ * @returns {string|null} 적용되지 않은 예약 시각 문자열. 문제 없으면 null.
+ */
+function unappliedBulkSchedule(enabled) {
+  const pm = document.getElementById('pq-bulk-posting')?.value || '';
+  const val = (document.getElementById('pq-bulk-schedule')?.value || '').trim();
+  if (pm !== 'schedule' || !val) return null;
+  // 항목 중 하나라도 예약 발행이면 적용된 것으로 본다
+  const anyScheduled = (enabled || []).some((it) => normalizePostingMode(it.postingMode) === 'schedule');
+  return anyScheduled ? null : val;
+}
+
+/** 막고 알린다. 막았으면 true. */
+function blockOnUnappliedBulkSchedule(enabled) {
+  const pending = unappliedBulkSchedule(enabled);
+  if (!pending) return false;
+  alert(
+    '⚠️ 일괄 편집에서 "예약 발행"과 날짜를 골랐지만, 대기열 항목에는 아직 반영되지 않았습니다.\n\n'
+    + `   고른 예약 시각: ${pending.replace('T', ' ')}\n`
+    + '   현재 항목 상태: 즉시 발행\n\n'
+    + '일괄 편집 패널 맨 아래 [⚡ 일괄 적용] 버튼을 눌러 주세요.\n'
+    + '(누르지 않으면 예약이 무시되고 글이 바로 발행됩니다)',
+  );
+  document.getElementById('pq-bulk-apply')?.scrollIntoView({ block: 'center' });
+  return true;
+}
+
 function getScheduleBaseDate() {
   const value = document.getElementById('scheduleDateTime')?.value || '';
   const parsed = value ? new Date(value) : null;
@@ -3046,6 +3086,31 @@ function bindModalEvents() {
       document.getElementById('pq-bulk-schedule')?.focus();
       return;
     }
+    /**
+     * ⚠️ v3.8.563 — **반대 방향도 막는다.**
+     *
+     * 사장님 실측(2026-08-25): "분명 다음날로 맞춰뒀는데" 워드프레스에서 보니 즉시발행이었다.
+     *
+     * 여기가 그 자리다. 아래 적용 루프는 이렇게 돼 있다:
+     *     if (pm) item.postingMode = ...
+     *     if (pm === 'schedule' && scheduleVal) item.scheduleDate = scheduleVal;
+     * 발행 방식을 "(변경 안 함)"으로 두고 날짜만 넣으면 **두 줄 다 건너뛴다.**
+     * 날짜를 분명히 입력했는데 아무 데도 안 들어가고, 발행 방식은 기본값 '즉시'로 남는다.
+     * 그러면 payload 조립에서 `postingMode !== 'schedule'` 이라 예약 시각이 통째로 빠지고,
+     * 백엔드는 예약 정보가 없으니 그냥 발행한다 — **경고 한 줄 없이.**
+     *
+     * 연속발행 모드에서는 메인 발행 탭이 숨겨져 있어(v3.8.117) 여기 말고는 바꿀 데도 없다.
+     * 그래서 입력만 받고 조용히 버리는 이 조합을 아예 못 넘어가게 막는다.
+     */
+    if (scheduleVal && pm !== 'schedule') {
+      alert(
+        '⚠️ 예약 날짜·시간을 입력했는데 발행 방식이 "예약 발행"이 아닙니다.\n\n'
+        + '이대로 적용하면 입력한 시각이 무시되고 글이 바로 발행됩니다.\n'
+        + '발행 방식을 "예약 발행"으로 골라주세요.',
+      );
+      document.getElementById('pq-bulk-posting')?.focus();
+      return;
+    }
     STATE.keywords.forEach(item => {
       if (m) item.mode = m;
       if (t) item.thumb = normalizeThumbEngine(t);
@@ -3202,6 +3267,8 @@ function bindModalEvents() {
     const enabled = STATE.keywords.filter(k => k.enabled && k.keyword.trim());
     if (enabled.length === 0) return alert('활성화된 키워드가 없습니다.');
     enabled.forEach(item => applySnapshotToItem(item));
+    // v3.8.563: 일괄 편집에 골라 놓고 [⚡ 일괄 적용]을 안 누른 채 시작하는 걸 막는다
+    if (blockOnUnappliedBulkSchedule(enabled)) return;
     if (!validateQueueManualCtas(enabled)) return;
 
     /**
@@ -3385,6 +3452,8 @@ function bindModalEvents() {
     const enabled = STATE.keywords.filter(k => k.enabled && k.keyword.trim());
     if (enabled.length === 0) return alert('활성화된 키워드가 없습니다.');
     enabled.forEach(item => applySnapshotToItem(item));
+    // v3.8.563: 일괄 편집에 골라 놓고 [⚡ 일괄 적용]을 안 누른 채 시작하는 걸 막는다
+    if (blockOnUnappliedBulkSchedule(enabled)) return;
     if (!validateQueueManualCtas(enabled)) return;
     persistQueue();
     const intervalMode = document.getElementById('pq-interval-mode')?.value || 'hours';
@@ -3487,8 +3556,34 @@ function bindModalEvents() {
     updateQueueStopUi(false);
     try { window.clearQualityAccumulator?.(); } catch {}
 
-    const scheduleBaseDate = getScheduleBaseDate();
+    /**
+     * 🗓️ v3.8.563 — 즉시 순차발행도 **항목에 찍어 둔 예약 시각**을 쓴다.
+     *
+     * 사장님 보고: "예약발행을 연속발행으로 하면 첫글은 예약이 되는데, 두번째글부터
+     *   첫번째 글 예약발행한 시간부터 그냥 순차적으로 즉시발행이 되어버린다"
+     *
+     * 원인: 이 루프가 `item.scheduleDate` 를 **한 번도 안 읽었다.**
+     *   메인 폼 #scheduleDateTime 하나만 보고 거기에 간격을 더해 시각을 다시 만들었다.
+     *   그런데 연속발행 모드에서는 발행 탭이 숨겨져 있어(v3.8.117) 그 칸이 대개 비어 있고,
+     *   비면 `지금+1시간` 으로 떨어진다. 그래서 카드에 찍거나 일괄편집으로 넣은 시각이
+     *   통째로 버려지고, 2번째부터는 "기준시각 + 7분씩" 으로 줄줄이 나갔다.
+     *   거기에 생성이 간격보다 오래 걸리면 예약 시각이 발행 순간엔 이미 과거라
+     *   퍼블리셔가 "과거 날짜입니다. 즉시 발행합니다" 로 떨어뜨린다.
+     *
+     * ⚠️ 같은 버그를 v3.8.546 에서 [스케줄에 추가] 경로만 고치고 여기는 안 고쳤다.
+     *    규칙을 그쪽과 똑같이 맞춘다 — 찍은 건 그대로, 안 찍은 것만 간격으로 자동 배치.
+     */
+    const scheduleBaseDate = (() => {
+      // 카드에 직접 찍지 않은 항목들이 물려받은 시각(= 일괄편집으로 넣은 시작 시각)을 먼저 본다
+      const inherited = enabled
+        .filter((it) => !it.scheduleDateManual)
+        .map(queueItemScheduleMs)
+        .filter((v) => v !== null && v > Date.now());
+      return inherited.length ? new Date(Math.min(...inherited)) : getScheduleBaseDate();
+    })();
     let scheduleOffsetMs = 0;
+    /** 자동 배치 항목이 발행 순간에 과거로 떨어지지 않도록 확보하는 최소 여유 */
+    const MIN_SCHEDULE_LEAD_MS = 3 * 60 * 1000;
     const completedIds = new Set();
     const failedIds = new Set();
 
@@ -3502,10 +3597,88 @@ function bindModalEvents() {
         // v3.8.546: 간격은 "끝난 뒤 더 기다리는 시간"이 아니라 "시작과 시작 사이의 최소 간격"이다.
         //   그래서 항목이 시작한 시각을 재둔다 (아래 대기 계산에서 쓴다).
         const itemStartedAt = Date.now();
-        const itemScheduleDate = new Date(scheduleBaseDate.getTime() + scheduleOffsetMs).toISOString();
+
+        // ── 이 항목의 예약 시각을 정한다 (v3.8.563) ──
+        // 카드에 직접 찍은 시각이 있으면 **그 시각 그대로**. 없으면 기준시각 + 누적 간격.
+        const itemPostingMode = normalizePostingMode(it.postingMode || getCurrentPostingMode());
+        const manualScheduleMs = it.scheduleDateManual ? queueItemScheduleMs(it) : null;
+        let scheduleMs = manualScheduleMs !== null
+          ? manualScheduleMs
+          : scheduleBaseDate.getTime() + scheduleOffsetMs;
+        /** 로그는 "N/M 시작" 다음에 나와야 읽힌다 — 여기서는 모아만 둔다 */
+        const scheduleNotes = [];
+
+        /**
+         * ⚠️ v3.8.563 — **예약 시각은 있는데 발행 방식이 예약이 아닌 경우.**
+         *
+         * 사장님 실측(2026-08-25): 워드프레스에서 확인해 보니 예약이 아니라 즉시발행이었다.
+         * 분명 다음날로 맞춰 뒀는데도 그랬다.
+         *
+         * 이 조합이면 buildQueuePayloadOverrides 가
+         *   `scheduleDate: postingMode === 'schedule' ? ... : undefined`
+         * 에서 시각을 통째로 버리고, 퍼블리셔는 예약 정보가 없으니 그냥 즉시 발행한다.
+         * **에러도 경고도 없이** 조용히 그렇게 된다 — 그래서 여태 못 잡았다.
+         *
+         * 값을 마음대로 바꾸지는 않는다(찍어 둔 시각이 낡은 값일 수도 있다).
+         * 대신 **반드시 보이게 만든다** — 침묵이 이 버그를 여기까지 끌고 왔다.
+         */
+        const strandedScheduleMs = itemPostingMode !== 'schedule' ? queueItemScheduleMs(it) : null;
+        if (strandedScheduleMs !== null) {
+          scheduleNotes.push(
+            `   ⚠️ 예약 시각(${new Date(strandedScheduleMs).toLocaleString('ko-KR')})이 찍혀 있는데`
+            + ` 발행 방식이 '${itemPostingMode === 'draft' ? '임시 저장' : '즉시 발행'}'입니다.`,
+          );
+          scheduleNotes.push(
+            `      → 이대로면 예약이 무시되고 바로 발행됩니다.`
+            + ` 대기열 카드의 발행 방식을 '예약 발행'으로 바꿔 주세요.`,
+          );
+        }
+
+        if (itemPostingMode === 'schedule') {
+          if (manualScheduleMs !== null && scheduleMs <= Date.now()) {
+            // 사장님이 직접 찍은 시각은 임의로 밀지 않는다 — 대신 조용히 넘어가지 않는다.
+            scheduleNotes.push(
+              `   ⚠️ 찍어 둔 예약 시각(${new Date(scheduleMs).toLocaleString('ko-KR')})이 이미 지났습니다`
+              + ` — 이 글은 예약이 아니라 바로 발행됩니다.`,
+            );
+          } else if (manualScheduleMs === null && scheduleMs < Date.now() + MIN_SCHEDULE_LEAD_MS) {
+            /**
+             * 자동 배치 항목이 과거로 떨어지면 예약이 통째로 무너진다(= 이 버그의 증상).
+             * 앞 글 생성이 예상보다 오래 걸린 경우이므로, 밀어서라도 **예약을 지킨다.**
+             * 밀었다는 사실은 반드시 남긴다 — 조용히 바뀌면 또 못 알아챈다.
+             */
+            const pushed = Date.now() + MIN_SCHEDULE_LEAD_MS;
+            scheduleNotes.push(
+              `   ⚠️ 앞 글 생성이 길어져 예약 시각이 지났습니다`
+              + ` — ${new Date(pushed).toLocaleString('ko-KR')}로 밀어 예약을 유지합니다.`,
+            );
+            scheduleMs = pushed;
+          }
+        }
+        const itemScheduleDate = new Date(scheduleMs).toISOString();
         const queueImageToken = `pq-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`;
         runModal.setCurrent(i, queueImageToken);
         runModal.log(`${i + 1}/${enabled.length} 시작: ${it.keyword}`);
+        /**
+         * 📅 v3.8.563 — **예약이 걸렸으면 몇 시로 걸렸는지 말해 준다.**
+         *
+         * 사장님: "예약발행이 되었으면 언제 예약발행되었고 예약 시간을 알려줘야 되잖아"
+         * 맞다. 예전엔 이 값을 화면에 한 번도 안 보여 줬다. 그래서 시각이 사장님이 정한
+         * 것과 달라도 알 길이 없었고, "그냥 즉시발행됐다"로만 보였다.
+         * 어디서 온 시각인지(찍은 것 / 자동 배치)까지 같이 남긴다 —
+         * 자동이라고 나오는데 사장님이 찍은 기억이 있다면 그 자체가 신호다.
+         */
+        if (itemPostingMode === 'schedule') {
+          runModal.log(
+            `   📅 예약 시각: ${new Date(scheduleMs).toLocaleString('ko-KR')}`
+            + ` (${manualScheduleMs !== null ? '카드에 직접 찍은 시각' : '자동 배치'})`,
+          );
+        } else if (itemPostingMode === 'draft') {
+          runModal.log(`   📝 임시 저장 항목입니다 (발행 아님)`);
+        } else {
+          runModal.log(`   ⚡ 즉시 발행 항목입니다 (예약 아님)`);
+        }
+        scheduleNotes.forEach((note) => runModal.log(note));
         console.log(`[QUEUE] 🚀 ${i + 1}/${enabled.length}: ${it.keyword} (${it.mode}/${it.thumb}/${it.h2ImageSource})`);
 
         applyItemToMainForm(it, itemScheduleDate);
@@ -3556,8 +3729,13 @@ function bindModalEvents() {
             STATE.keywords = STATE.keywords.filter(item => item.id !== it.id);
             persistQueue();
             syncBadge();
+            // v3.8.563 — 예약 항목은 완료 줄에도 몇 시로 걸렸는지 같이 남긴다.
+            //   끝나고 나서 위로 스크롤하지 않아도 결과만 훑어볼 수 있어야 한다.
+            const doneSchedule = itemPostingMode === 'schedule'
+              ? ` · 📅 ${new Date(scheduleMs).toLocaleString('ko-KR')} 발행 예정`
+              : '';
             runModal.markDone(i, `${elapsedSec}초`);
-            runModal.log(`${i + 1}번 완료 (${elapsedSec}초)`);
+            runModal.log(`${i + 1}번 완료 (${elapsedSec}초)${doneSchedule}`);
           }
         } catch (itemErr) {
           const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(0);
@@ -3601,11 +3779,39 @@ function bindModalEvents() {
            * 매 편 뒤에 붙이는 추가 휴식이 아니다. 생성이 이미 그 시간을 넘겼다면
            * 레이트리밋 관점에서 기다릴 이유가 없다 — 모자란 만큼만 채운다.
            */
+          /**
+           * ⏱️ v3.8.563 — **생성 간격과 발행 간격은 다른 값이다.**
+           *
+           * 사장님 실측(2026-08-25 발행 이력):
+           *   발행 3:30 → 3:38 → 3:46 (8분 간격)  ·  생성 2:38 → 2:46 → 2:53
+           *   입력한 값은 **1분**이었는데 결과는 8분 = max(바닥값 7분, 실제 생성 8분).
+           *
+           * 바닥값 7분은 **이미지 엔진 레이트리밋 때문에 생성에 필요한 값**이지
+           * 글이 블로그에 뜨는 시각까지 벌려야 하는 값이 아니다.
+           * v3.8.545 가 [스케줄에 추가] 경로에서 이미 갈라 놓은 규칙인데 여기만 안 갈랐다.
+           * 화면 안내문("예약발행의 발행 시각은 입력한 N분 그대로")도 그동안 거짓이었다.
+           *
+           *   targetGapMs  — 다음 글 **생성**을 시작하기까지의 최소 간격 (바닥값 적용)
+           *   publishGapMs — 예약 **발행 시각**을 벌리는 간격 (사장님 입력 그대로)
+           */
           const targetGapMs = intervalMode === 'random' ? getIntervalMs({ minMs: minIntervalMs }) : fixedIntervalMs;
+          const publishGapMs = intervalMode === 'random' ? targetGapMs : rawFixedIntervalMs;
           const elapsedMs = Date.now() - itemStartedAt;
           const waitMs = Math.max(0, targetGapMs - elapsedMs);
-          // 다음 항목의 예약 시각도 실제로 흐른 시간을 반영해야 한다
-          scheduleOffsetMs += Math.max(targetGapMs, elapsedMs);
+          /**
+           * 다음 항목의 예약 시각도 실제로 흐른 시간을 반영해야 한다.
+           * v3.8.563 — 두 가지를 더 지킨다:
+           *   · 커서는 **실제로 배정된 시각**에서 이어 간다 (위에서 밀렸으면 그만큼 반영)
+           *   · 카드에 직접 찍은 항목은 자동 배치 순서를 밀어내지 않는다
+           *     ([스케줄에 추가] 경로와 같은 규칙이다)
+           */
+          if (manualScheduleMs === null) {
+            const assignedOffset = scheduleMs - scheduleBaseDate.getTime();
+            // ⚠️ max(targetGapMs, elapsedMs) 가 아니다 — 그게 1분 입력을 8분으로 만든 자리다.
+            //    발행 시각은 사장님이 입력한 간격만큼만 벌린다. 생성이 오래 걸려
+            //    그 시각이 지나 버리면 위쪽 MIN_SCHEDULE_LEAD_MS 가드가 밀고 로그를 남긴다.
+            scheduleOffsetMs = Math.max(scheduleOffsetMs, assignedOffset) + publishGapMs;
+          }
           if (waitMs <= 0) {
             runModal.log(
               `생성에 ${formatIntervalMs(elapsedMs)}가 걸려 최소 간격(${formatIntervalMs(targetGapMs)})을 이미 넘겼습니다 — 바로 다음 항목으로`,

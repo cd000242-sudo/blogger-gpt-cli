@@ -225,8 +225,34 @@ describe('⑦ v3.8.546 — 간격을 더하지 않고 흡수한다', () => {
     expect(wait).toContain('생성으로 채움');
   });
 
-  it('다음 항목 예약 시각도 실제로 흐른 시간을 반영한다', () => {
-    expect(wait).toContain('scheduleOffsetMs += Math.max(targetGapMs, elapsedMs)');
+  /**
+   * ⚠️ v3.8.563 에서 이 항목의 기대값을 **뒤집었다.**
+   *
+   * 원래는 이렇게 고정하고 있었다:
+   *     expect(wait).toContain('scheduleOffsetMs += Math.max(targetGapMs, elapsedMs)')
+   * "다음 항목 예약 시각도 실제로 흐른 시간을 반영한다"는 의도였는데,
+   * **그 줄이 바로 사장님이 넣은 1분을 8분으로 만든 자리였다.**
+   *
+   * 사장님 실측(2026-08-25 발행 이력):
+   *   발행 3:30 → 3:38 → 3:46 (8분)  ·  생성 2:38 → 2:46 → 2:53
+   *   입력값은 1분. 8분 = max(생성 바닥값 7분, 실제 생성 8분).
+   *
+   * 바닥값 7분은 이미지 엔진 레이트리밋 때문에 **생성**에 필요한 값이지
+   * 글이 블로그에 뜨는 시각까지 벌릴 값이 아니다 — v3.8.545 가 세운 원칙 그대로다.
+   * 발행 시각이 실제 시간에 뒤처지는 문제는 간격을 부풀리는 게 아니라
+   * **MIN_SCHEDULE_LEAD_MS 가드**(지났으면 밀고 로그를 남긴다)로 푼다.
+   */
+  it('⭐ 예약 시각은 사장님이 입력한 간격만큼만 벌린다 (생성 바닥값을 쓰지 않는다)', () => {
+    expect(wait).toContain('const publishGapMs =');
+    expect(wait).toContain('rawFixedIntervalMs');
+    expect(wait).toMatch(/scheduleOffsetMs = Math\.max\(scheduleOffsetMs, assignedOffset\) \+ publishGapMs/);
+    // 예전 형태가 되살아나면 1분이 다시 8분이 된다
+    expect(wait).not.toMatch(/scheduleOffsetMs\s*\+=\s*Math\.max\(targetGapMs, elapsedMs\)/);
+  });
+
+  it('⭐ 생성 대기는 여전히 바닥값 기준이다 (레이트리밋 방어는 안 건드렸다)', () => {
+    expect(wait).toContain('const waitMs = Math.max(0, targetGapMs - elapsedMs)');
+    expect(wait).toContain('sleepQueueInterval(waitMs, runModal)');
   });
 });
 
