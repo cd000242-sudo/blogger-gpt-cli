@@ -2148,8 +2148,129 @@ ${quoted}
       trustLevel: 'none',
       topic: keyword,
     };
+    /**
+     * ① 무료 근거를 **먼저** 모은다. (v3.8.582)
+     *
+     * 사장님: "내가 원하는 건 최후의 보루로 퍼플렉인데 네이버 api랑 크롤링만 해도 충분할까?"
+     *
+     * 그래서 순서를 뒤집었다. 예전엔 퍼플렉시티를 먼저 부르고 네이버는 그 뒤에 보탰다 —
+     * 즉 **모든 글이 과금됐다.** 지금은 무료로 먼저 채우고, 그것으로 모자랄 때만 올라간다.
+     *
+     * 장부가 얇으면 fact-guard 가 맞는 문장까지 지운다(실측: 62자 문단이 24자가 됐다).
+     * 그래서 근거 상태는 **항상** 남긴다 — 못 찾았으면 조용히 넘어가지 않는다.
+     */
+    let naverGrounding = '';
+    let groundingStats: { newsCount: number; webCount: number; officialCount: number } | null = null;
+    try {
+      const g = await fetchGrounding(keyword, naverSearch as any);
+      naverGrounding = g.text;
+      groundingStats = g;
+      const summary = describeGrounding(g);
+      console.log(`[GROUNDING] ${summary}`);
+      if (g.newsCount + g.webCount === 0 || g.newsCount === 0) onLog?.(`⚠️ ${summary}`);
+    } catch (groundErr: any) {
+      console.warn('[GROUNDING] 스킵:', String(groundErr?.message || groundErr).slice(0, 100));
+    }
+
+    /**
+     * ② 유료 팩트체크는 **최후의 보루**다. (v3.8.582)
+     *
+     * ## 왜 이 조건인가 — 실측으로 정했다
+     * 같은 키워드(해외 항공권 취소 수수료 면제)를 두 번 뽑아 앱 게이트로 쟀다:
+     *   퍼플렉시티 없이  장부 13,747자 · 실속 63 · 회피 3건   ← 발행 가능한 글이 나온다
+     *   퍼플렉시티 함께  장부 21,169자 · 실속 82 · 회피 1건   ← 더 좋다
+     * 즉 무료만으로도 **모든 관문을 통과한다.** 유료는 "되게 하는" 게 아니라
+     * "더 낫게 하는" 것이다. 그러면 매번 낼 이유가 없다 — 모자랄 때만 낸다.
+     *
+     * 모자람의 기준은 **권위 있는 출처가 하나도 없을 때**다.
+     * 뉴스도 기관 문서도 0건이면 남은 건 블로그·일반 웹뿐이고, 그건 사장님이 처음
+     * 걱정한 상황이다("잘못된 정보면 그대로 통과"). 그때는 돈을 쓰는 게 맞다.
+     * 실측에서 어린이집 건은 뉴스 0건이었지만 기관 원문 10건이 있었다 — 안 올라간다.
+     */
+    const FREE_EVIDENCE_MIN_CHARS = 3000;
+    /**
+     * 장부의 **팩트 밀도** 하한. 이게 진짜 판단 기준이다. (v3.8.583)
+     *
+     * ## 왜 밀도인가 — 실속 점수의 절반이 이것이다
+     * `SUBSTANCE_THRESHOLDS.minFactsPer1000 = 6` 이고, 점수 100점 중 **50점이 팩트 밀도**다.
+     * 나머지(회피 20 · 빈 단락 15 · 진부함 15)를 다 채워도 팩트가 없으면 60을 못 넘는다.
+     *
+     * ## 왜 12인가 — 기사는 장부 밀도의 절반쯤 물려받는다 (실측)
+     *   장부 7.56 → 기사 4.36 → 실속 63
+     *   장부 7.5  → 기사 3.25 → 실속 57 (미달)
+     *   퍼플렉시티 섞음 → 기사 5.79 → 실속 82
+     * 기사가 기준 6 을 넘으려면 장부가 그 두 배는 있어야 한다.
+     *
+     * ## 왜 무료만으로는 자주 모자란가 — 소스 접근성이 천장이다 (실측 2026-08-29)
+     * 정작 규정이 적힌 항공사 페이지(koreanair.com · flyasiana.com)는
+     * 일반 fetch 도 Playwright 도 `ERR_HTTP2_PROTOCOL_ERROR` 로 막힌다(봇 차단).
+     * 네이버 뉴스는 sort 를 바꿔도 결과가 같고 "국제선 99% 할인" 같은 홍보 기사가 온다.
+     * 즉 무료 장부의 밀도 6~8 은 우리 코드의 문제가 아니라 **읽을 수 있는 것의 한계**다.
+     * 퍼플렉시티는 자체 인덱스로 그걸 읽어 규칙을 정리해 준다 — 밀도 10~25.
+     *
+     * 사장님: "점수가 높아야 되 간당간당하면 자동으로 내 툴을 쓸 이유가 없지"
+     * 맞는 말이라 기준을 "돌아가느냐"가 아니라 **"좋게 나오느냐"** 로 옮긴다.
+     * 장부가 이미 두꺼우면(실측: 실손보험 13.93) 그때는 돈을 안 쓴다.
+     */
+    const LEDGER_FACT_DENSITY_MIN = 12;
+    const userChosePaid = rawFactMode === 'perplexity' || rawFactMode === 'grounding';
+    const authoritative = (groundingStats?.newsCount || 0) + (groundingStats?.officialCount || 0);
+
+    let ledgerDensity = 0;
+    try {
+      // 순수 로컬 계산이라 비용이 없다. 게이트가 기사에 쓰는 것과 **같은 자**를 쓴다.
+      const { scanSubstance } = require('./substance-gate');
+      const asParagraphs = `<p>${naverGrounding.split('\n').join('</p><p>')}</p>`;
+      ledgerDensity = scanSubstance({ contentHtml: asParagraphs }).metrics.factsPer1000 || 0;
+    } catch { /* 못 재면 아래 조건들로 판단한다 */ }
+
+    /**
+     * 왜 유료로 올라가는지 **이유를 모아서** 판단한다. (v3.8.585)
+     *
+     * ## 고친 사고 두 가지 (실측: 사장님이 준 URL 로 글을 뽑다가 발견)
+     *
+     * ### ① 로그가 거짓말을 했다
+     *   `🛟 무료 근거가 얇습니다 (팩트 밀도 16.07 < 12 ...)`
+     * 16.07 은 12 보다 크다. 밀도는 충분했는데 다른 조건에 걸린 것을 밀도 탓으로 찍었다.
+     * 조건을 OR 로 묶고 메시지엔 밀도를 무조건 끼워 넣은 탓이다.
+     * 이 저장소에서 **엉뚱한 원인을 찍는 로그는 진단을 불가능하게 만든다**(v3.8.578 참고).
+     *
+     * ### ② `crawledPosts.length < 5` 는 잘못된 조건이었다
+     * URL 입력 모드는 사용자가 준 주소 **하나만** 크롤하는 게 정상이다. 그런데 이 조건이
+     * "재료가 얇다"고 판단해 근거가 충분한데도 ₩40 을 썼다. 실제로 그 글은
+     * 근거 밀도 16.07 · 권위 출처 10건으로 넉넉했고, 유료 없이도 됐을 것이다.
+     *
+     * 크롤 건수는 근거의 **양이 아니라 경로**다. 양은 이미 밀도와 길이로 재고 있다.
+     * 그래서 독립 조건에서 뺀다.
+     */
+    const thinReasons: string[] = [];
+    if (authoritative === 0) thinReasons.push('권위 있는 출처 0건');
+    if (naverGrounding.length < FREE_EVIDENCE_MIN_CHARS) {
+      thinReasons.push(`근거 ${naverGrounding.length}자 < ${FREE_EVIDENCE_MIN_CHARS}자`);
+    }
+    if (ledgerDensity < LEDGER_FACT_DENSITY_MIN) {
+      thinReasons.push(`팩트 밀도 ${ledgerDensity} < ${LEDGER_FACT_DENSITY_MIN}`);
+    }
+
+    const freeEvidenceThin = thinReasons.length > 0;
+    const shouldPayForFacts = userChosePaid || freeEvidenceThin;
+
+    if (!shouldPayForFacts) {
+      onLog?.(`[PROGRESS] 46% - 💸 무료 근거로 충분합니다 (${naverGrounding.length}자 · 팩트 밀도 ${ledgerDensity}) — 유료 팩트체크 건너뜀`);
+      factEvidence = {
+        context: '',
+        provider: 'Naver Grounding',
+        trustLevel: 'weak',
+        topic: keyword,
+      };
+    }
+
     // v3.8.265: factCheckMode는 이제 'off'가 'auto'로 폴백되므로 항상 실행
-    {
+    // v3.8.582: 단, 무료 근거가 충분하면 유료 창구를 부르지 않는다 (위 참고)
+    if (shouldPayForFacts) {
+      if (freeEvidenceThin && !userChosePaid) {
+        onLog?.(`[PROGRESS] 46% - 🛟 무료 근거가 얇습니다 (${thinReasons.join(" · ")}) — 유료 팩트체크로 보강`);
+      }
       try {
         const factModeLabel = factCheckMode === 'perplexity' ? 'Perplexity'
           : factCheckMode === 'naver' ? 'Naver'
@@ -2261,22 +2382,6 @@ ${quoted}
      *
      * 실패하면 빈 문자열이 와서 예전과 똑같이 동작한다.
      */
-    let naverGrounding = '';
-    try {
-      const g = await fetchGrounding(keyword, naverSearch as any);
-      naverGrounding = g.text;
-      /**
-       * 근거가 얼마나 단단한지 **항상** 남긴다.
-       * 못 찾았으면 조용히 넘어가지 않고 "사람이 확인하라"고 말한다 —
-       * 장부가 얇으면 fact-guard 가 맞는 문장까지 지우기 때문이다.
-       */
-      const summary = describeGrounding(g);
-      console.log(`[GROUNDING] ${summary}`);
-      if (g.newsCount + g.webCount === 0 || g.newsCount === 0) onLog?.(`⚠️ ${summary}`);
-    } catch (groundErr: any) {
-      console.warn('[GROUNDING] 스킵:', String(groundErr?.message || groundErr).slice(0, 100));
-    }
-
     const groundingReference = buildGroundingReference({
       factContext: [factEvidence.context, naverGrounding].filter(Boolean).join('\n'),
       crawledPosts: crawledPosts as any,
@@ -4024,9 +4129,27 @@ ${quoted}
             hook: sectionCta.hookingMessage,
             buttonText: sectionCta.buttonText,
             url: sectionCta.url,
+            /**
+             * v3.8.584 — 앱이 스스로 감점당하던 문구를 고친다.
+             *
+             * 여기 있던 "정확한 내용은 공식 사이트에서 확인해주세요."는
+             * **실속 게이트가 잡으려고 만들어진 바로 그 문장**이다. substance-gate.ts 머리말에
+             * "🔍 노선 및 시간표 조회하기 정확한 내용은 공식 사이트에서 확인해주세요." 가
+             * 나쁜 예로 적혀 있는데, 정작 그 문장을 앱이 CTA 마다 고정으로 붙이고 있었다.
+             * 실속 규칙 3("공식 사이트에서 확인하세요로 문단을 끝내지 마세요")도 우리가 쓴 것이다.
+             *
+             * 실측(2026-08-29): 회피 문장 4건 중 1건이 이 고정 문구였다.
+             * 회피는 20점 항목이라 글 한 편마다 점수를 깎고 있었고,
+             * 무엇보다 **독자에게 아무것도 알려주지 않는다.**
+             *
+             * 그래서 "네가 확인해라"가 아니라 **"이 링크가 무엇인지"**를 말한다.
+             * 검색 폴백일 때만 주의를 주되, 그것도 판단 방법을 알려준다.
+             */
             microcopy: sectionCta.searchFallback
-              ? '검색 결과에서 공식 사이트 여부를 확인한 뒤 이용해주세요.'
-              : '정확한 내용은 공식 사이트에서 확인해주세요.'
+              ? '검색 결과 페이지입니다. 주소가 기관 도메인(go.kr·or.kr)인지 보고 들어가세요.'
+              : isOfficialDestination(sectionCta.url)
+                ? '기관이 직접 운영하는 안내 페이지입니다.'
+                : '운영 주체가 직접 안내하는 페이지입니다.'
           });
           markRenderedCta(renderedCtaUrls, sectionCta.url);
         }

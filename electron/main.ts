@@ -9311,6 +9311,8 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
           keyword: topic,
           currentYear: new Date().getFullYear(),
           demandQuestions: getAgentDemandQuestions(payload),
+          // v3.8.583: 무료 근거 장부. 위 쇼핑 블록과 같은 방식으로 payload 에 실려 온다.
+          evidence: String((payload as any)?.agentEvidenceBlock || ''),
           // v3.8.486: 디스커버 모드면 제목·본문 규칙이 피드 기준으로 통째로 바뀐다.
           //   이걸 안 넘기면 디스커버로 돌려도 검색용 규칙이 나간다.
           contentMode: String((payload as any)?.contentMode || ''),
@@ -11197,6 +11199,39 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
       if (material.note) console.log('[AGENT-SHOPPING]', material.note);
     } catch (shoppingErr: any) {
       console.warn('[AGENT-SHOPPING] 준비 스킵:', String(shoppingErr?.message || shoppingErr).slice(0, 120));
+    }
+
+    /**
+     * v3.8.583 — 에이전트에게도 **무료 근거 장부**를 넘긴다.
+     *
+     * 에이전트 모드는 orchestration 을 타지 않아 크롤링·네이버 근거·팩트체크가
+     * 하나도 넘어가지 않았다(넘어가던 건 키워드·연도·수요질문·모드뿐).
+     * 에이전트가 스스로 검색은 하지만 우리가 만든 검증은 하나도 안 걸린 자료다.
+     *
+     * 네이버 근거는 공짜이고 구독 CLI 도 공짜라, 합치면 **₩0 에 검증까지** 된다.
+     * 실패하면 조용히 넘어간다 — 근거가 없어도 예전처럼 동작해야 한다.
+     */
+    try {
+      const agentKeyword = String(
+        (request?.payload as any)?.topic || (request?.payload as any)?.keyword || '',
+      ).trim();
+      if (agentKeyword) {
+        const { fetchGrounding, describeGrounding } = require('../dist/core/final/naver-grounding');
+        const { naverSearch } = require('../dist/core/naver-search-client');
+        const g = await fetchGrounding(agentKeyword, (type: any, params: any) =>
+          naverSearch(type, params, { payload: request?.payload || {}, timeoutMs: 10000 }));
+        if (g?.text) {
+          console.log(`[AGENT-GROUNDING] ${describeGrounding(g)}`);
+          (request as any).payload = {
+            ...(request?.payload || {}),
+            agentEvidenceBlock: g.text,
+          };
+        } else {
+          console.log('[AGENT-GROUNDING] 근거 0건 — 에이전트가 스스로 찾습니다');
+        }
+      }
+    } catch (groundErr: any) {
+      console.warn('[AGENT-GROUNDING] 준비 스킵:', String(groundErr?.message || groundErr).slice(0, 120));
     }
 
     writeAgentJobFiles(jobDir, request || {}, profile);
