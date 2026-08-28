@@ -11,6 +11,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { blockBetween } from './helpers/source-block';
 import {
   isCtaCandidate, extractCtaUrls, classifyCtaLink, summarizePost, summarizeAudit, describeAudit,
 } from '../src/cta/cta-audit';
@@ -180,5 +181,49 @@ describe('④ 배선 — 앱에서 부를 수 있어야 도구다', () => {
 
   test('진행 상황을 알려준다 (수백 개를 훑으므로 멈춘 걸로 보인다)', () => {
     expect(main).toContain("send('cta-audit-progress'");
+  });
+});
+
+/**
+ * ⑤ 정밀 검사 — HTTP 로 못 읽는 것을 브라우저로 다시 본다.
+ *
+ * 실측: 미확인 54개 중 **35개가 갈렸다**(행동화면 22 · 홈 13).
+ * 이게 없으면 절반 넘는 CTA 가 영영 "미확인"으로 남아 도구가 반쪽이 된다.
+ */
+describe('⑤ 정밀 검사 (deep)', () => {
+  const main = read('electron/main.ts');
+  const block = blockBetween(main, 'if (payload?.deep) {', 'const summary = summarizeAudit(reports)');
+
+  test('미확인만 다시 본다 (전부 다시 열면 몇 시간 걸린다)', () => {
+    expect(block).toContain("c.verdict === 'unknown'");
+    expect(block).toContain('new Set(');
+  });
+
+  test('인증서가 불완전한 관공서 사이트를 위해 HTTPS 오류를 넘긴다', () => {
+    expect(block).toContain('ignoreHTTPSErrors: true');
+  });
+
+  /** alert 를 띄우는 관공서 페이지에서 스크립트가 통째로 멈춘 적이 있다 */
+  test('다이얼로그를 받아 넘긴다', () => {
+    expect(block).toContain("pg.on('dialog'");
+    expect(block).toContain('d.dismiss()');
+  });
+
+  /** 리다이렉트가 오류로 오는데 페이지는 떠 있다 — 이걸 죽음으로 보면 gov.kr 도 죽는다 */
+  test('리다이렉트 경합을 죽음으로 보지 않는다', () => {
+    expect(block).toContain('interrupted|Navigation');
+  });
+
+  test('브라우저에서도 DNS 실패만 죽음으로 넘긴다', () => {
+    expect(block).toContain('ERR_NAME_NOT_RESOLVED');
+    expect(block).toContain("'ENOTFOUND'");
+  });
+
+  test('다시 분류한 결과로 글 판정을 새로 만든다 (안 하면 화면이 안 바뀐다)', () => {
+    expect(block).toContain('reports[i] = summarizePost(');
+  });
+
+  test('브라우저는 반드시 닫는다', () => {
+    expect(block).toContain('finally { await browser.close()');
   });
 });

@@ -13484,8 +13484,72 @@ ipcMain.handle('cta-audit-run', async (evt, payload: any) => {
       try { evt.sender.send('cta-audit-progress', { done, total: Math.min(posts.length, limit) }); } catch {}
     }
 
+    /**
+     * 🔬 정밀 검사 (payload.deep) — HTTP 로 판정 못 한 것만 **브라우저로** 다시 본다.
+     *
+     * 왜 필요한가: 관공서 화면은 스크립트로 그리고 인증서 체인이 불완전한 곳이 많아
+     * HTTP 만으로는 본문이 비거나 연결이 실패한다. 실측에서 미확인 54개 중 **35개가 갈렸다**
+     * (행동화면 22 · 홈 13). 이게 없으면 절반 넘는 CTA 가 영영 "미확인"으로 남는다.
+     *
+     * 느리다(1개당 3~5초). 그래서 기본은 꺼 두고 필요할 때만 켠다.
+     */
+    if (payload?.deep) {
+      const unknownUrls = Array.from(new Set(
+        reports.flatMap((r: any) => r.checks.filter((c: any) => c.verdict === 'unknown').map((c: any) => c.url)),
+      )) as string[];
+
+      if (unknownUrls.length) {
+        const { chromium } = require('playwright');
+        const browser = await chromium.launch({ headless: true });
+        try {
+          const ctx = await browser.newContext({
+            viewport: { width: 1366, height: 900 },
+            ignoreHTTPSErrors: true,   // 인증서 체인이 불완전한 관공서 사이트 때문에 반드시 필요하다
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+          });
+          let page = await ctx.newPage();
+          // alert 를 띄우는 관공서 페이지가 있다 — 안 받으면 스크립트가 통째로 멈춘다
+          const armDialog = (pg: any) => pg.on('dialog', (d: any) => d.dismiss().catch(() => {}));
+          armDialog(page);
+
+          for (const [i, url] of unknownUrls.entries()) {
+            let deepPage: any = { ok: false, status: 0, html: '', finalUrl: url, errorCode: '' };
+            try {
+              let res: any = null;
+              try {
+                res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+              } catch (e: any) {
+                // 리다이렉트 경합은 오류로 오지만 페이지는 떠 있다 — 현재 상태를 읽는다
+                if (!/interrupted|Navigation/i.test(String(e?.message))) throw e;
+              }
+              await page.waitForTimeout(1800);
+              const got = await page.evaluate(() => ({
+                html: document.documentElement ? document.documentElement.outerHTML : '',
+                href: location.href,
+              }));
+              deepPage = { ok: true, status: res ? res.status() : 200, html: got.html, finalUrl: got.href || url };
+            } catch (e: any) {
+              const msg = String(e?.message || e);
+              deepPage.errorCode = /ERR_NAME_NOT_RESOLVED/.test(msg) ? 'ENOTFOUND' : msg.slice(0, 60);
+              if (page.isClosed()) { page = await ctx.newPage(); armDialog(page); }
+            }
+            cache.set(url, classifyCtaLink(url, deepPage));
+            try { evt.sender.send('cta-audit-progress', { done: i + 1, total: unknownUrls.length, phase: 'deep' }); } catch {}
+          }
+        } finally { await browser.close().catch(() => {}); }
+
+        // 다시 분류된 결과로 각 글의 판정을 새로 만든다
+        for (let i = 0; i < reports.length; i += 1) {
+          const fresh = reports[i].checks.map((c: any) => cache.get(c.url) || c);
+          reports[i] = summarizePost({
+            postId: reports[i].postId, title: reports[i].title, link: reports[i].link, checks: fresh,
+          });
+        }
+      }
+    }
+
     const summary = summarizeAudit(reports);
-    console.log(`[CTA-AUDIT] ${describeAudit(summary)}`);
+    console.log(`[CTA-AUDIT] ${payload?.deep ? '(정밀) ' : ''}${describeAudit(summary)}`);
     // 급한 것부터 — 죽은 링크가 있는 글이 맨 위
     const order = ['dead', 'document', 'none', 'home', 'unknown', 'action'];
     reports.sort((a, b) => order.indexOf(a.worst) - order.indexOf(b.worst));

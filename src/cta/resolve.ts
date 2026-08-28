@@ -101,6 +101,30 @@ function hostMatchesCategory(category: string, h: string, url: string): boolean 
   }
 }
 
+/**
+ * 이 낱말만으로는 목적지를 정할 수 없다 — 어느 기관에나 붙는 말이다. (v3.8.573)
+ *
+ * ## 실제로 난 사고 (2026-08-28, 사장님 발견)
+ * "2026년 헬스장 PT 환불 위약금 10% 방어 및 소비자원 피해구제" 글의 CTA 가
+ * **SRT 승차권 조회**로 나갔다.
+ *
+ * 카탈로그의 `SRT 예매` 항목이 이랬다:
+ *     tags: ["srt","예매","좌석","발권","환불","취소",...], weight: 8
+ * 헬스장 **환불** 글이 `환불`·`취소` 두 태그에 걸려 +6, 거기에 weight 8.
+ * 정작 맞는 목적지인 `한국소비자원`(tags 에 피해구제·환불, weight 없음)을 이겼다.
+ *
+ * ## 고치는 방식
+ * 태그를 지우지 않는다 — SRT 글에서 "환불"은 여전히 쓸모 있는 신호다.
+ * 대신 **범용어만으로는 hasDirectSignal 을 세우지 못하게** 한다.
+ * 기관을 특정하는 신호(브랜드명·고유 용어)가 하나라도 있어야 후보가 된다.
+ * 점수는 그대로 준다 — 순위를 다툴 때는 여전히 의미가 있기 때문이다.
+ */
+const GENERIC_TAGS = new Set([
+  '환불', '취소', '교환', '해지', '변경', '신청', '접수', '조회', '발급', '납부',
+  '가입', '등록', '문의', '상담', '안내', '정보', '혜택', '지원', '할인', '여행',
+  '예매', '예약', '기간', '비용', '가격', '방법', '기준', '대상', '서류',
+]);
+
 function scoreOfficialCandidate(
   it: CTALink,
   q: string,
@@ -112,20 +136,23 @@ function scoreOfficialCandidate(
   const prefer = new Set((input.preferHosts ?? []).map(x => x.toLowerCase()));
   let score = 0;
   let hasDirectSignal = false;
+  /** 범용어는 점수만 주고 "이 기관이 맞다"는 근거로는 세지 않는다 */
+  const mark = (tag: string) => { if (!GENERIC_TAGS.has(tag)) hasDirectSignal = true; };
 
   for (const t of it.tags || []) {
     const T = norm(String(t));
     if (!T) continue;
 
-    if (q.includes(T)) { score += 3; hasDirectSignal = true; }
-    if (T.length >= 2 && T.includes(q)) { score += 2; hasDirectSignal = true; }
+    if (q.includes(T)) { score += 3; mark(T); }
+    if (T.length >= 2 && T.includes(q)) { score += 2; mark(T); }
+    // 검색어가 태그와 통째로 같으면 그 자체가 특정 신호다 (범용어여도 인정한다)
     if (T === q) { score += 5; hasDirectSignal = true; }
 
     for (const expQ of expandedQueries) {
       const expQNorm = norm(expQ);
       if (expQNorm && expQNorm !== q && expQNorm.includes(T)) {
         score += 2;
-        hasDirectSignal = true;
+        mark(T);
       }
     }
   }
