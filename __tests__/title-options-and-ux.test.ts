@@ -76,12 +76,17 @@ describe('② 발행 완료 후 필드 초기화', () => {
   });
 });
 
-describe('③ 카드뉴스 발행 글 목록 썸네일', () => {
+describe('③ 카드뉴스 — 고른 글을 썸네일로 알아본다', () => {
   const cn = read('electron/ui/modules/cardnews.js');
 
+  /**
+   * v3.8.569: 인라인 목록이 발행글 모달로 바뀌면서 렌더 위치가 옮겨졌다.
+   * 지키려는 것은 그대로다 — **제목만 있으면 어떤 글인지 못 알아본다**(v3.8.506 사용자 보고).
+   * 이제는 목록이 아니라 "고른 글" 카드에 썸네일이 붙는다.
+   */
   it('썸네일 추출과 렌더가 실제로 있다', () => {
     expect(cn).toContain('function extractThumb');
-    expect(cn).toMatch(/extractThumb\(p\)/);
+    expect(cn).toMatch(/extractThumb\(post\)/);
     expect(cn).toMatch(/object-fit:\s*cover/);
   });
 });

@@ -910,15 +910,23 @@ async function extTrafficKakaoAutoPost() {
   const useCardnews = document.getElementById('kakaoUseCardnews');
   const cardAssets = _getKakaoCardnewsAssets();
   if (cardAssets && (!useCardnews || useCardnews.checked)) {
-    cards = cardAssets.files.map((file, i) => ({
-      imagePath: file,
-      title: String((cardAssets.plan[i] && cardAssets.plan[i].title) || '').slice(0, 30) || `카드 ${i + 1}`,
-      body: '',
-    }));
-    const lastCard = cards[cards.length - 1];
-    lastCard.body = text.slice(0, 600);
-    lastCard.buttonLabel = '전체 글 보기';
-    lastCard.buttonUrl = link || cardAssets.postUrl;
+    /**
+     * v3.8.569 — 카드마다 제목과 내용을 싣는다.
+     *
+     * 예전엔 `body: ''` 로 만들고 마지막 장에만 본문을 넣었다. 그래서 카카오 카드뷰의
+     * "내용" 칸이 마지막 장 빼고 전부 비어서 나갔다(사장님 지적). 카드뉴스 문안(plan)에
+     * 장마다 body 가 이미 있는데 그걸 안 쓰고 버리고 있었다.
+     */
+    const planAt = (i) => (Array.isArray(cardAssets.plan) && cardAssets.plan[i]) || {};
+    cards = cardAssets.files.map((file, i) => {
+      const isLast = i === cardAssets.files.length - 1;
+      const title = String(planAt(i).title || '').slice(0, 30) || `카드 ${i + 1}`;
+      // 마지막 장은 링크 버튼이 붙는 자리라 비면 허전하다 — 문안이 없으면 소식 본문으로 채운다
+      const body = String(planAt(i).body || (isLast ? text : '')).slice(0, 600);
+      return isLast
+        ? { imagePath: file, title, body, buttonLabel: '전체 글 보기', buttonUrl: link || cardAssets.postUrl }
+        : { imagePath: file, title, body };
+    });
   }
   _flashToast(cards ? `🚀 카드뉴스 소식 자동 발행 중 (${cards.length}장) — 장당 15초쯤 걸립니다` : '🚀 자동 발행 중 — 30초쯤 걸립니다. 창을 닫지 마세요');
   const res = await window.electronAPI.invoke('kakao-channel-autopost', { channelId, text, link, cards }).catch((e) => ({ ok: false, error: e && e.message }));

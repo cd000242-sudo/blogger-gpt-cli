@@ -5,11 +5,7 @@
 // 인스타·카카오는 자동 업로드 API 가 승인제라 v1 은 "업로드 직전 상태"(PNG+캡션+Alt)까지 만든다.
 import { addLog } from './core.js';
 
-const PLATFORMS = [
-  { key: 'blogger', label: '블로그스팟', channel: 'blogger-list-posts' },
-  { key: 'wordpress', label: '워드프레스', channel: 'wordpress-list-posts' },
-  { key: 'tistory', label: '티스토리', channel: 'tistory-list-posts' },
-];
+// v3.8.569: 플랫폼별 목록 API 는 더 쓰지 않는다 — 발행글 모달이 플랫폼 구분 없이 한 곳에 모아준다.
 
 // 이미지 소스 — main 의 card-image.ts CARD_IMAGE_ENGINES 와 값이 같아야 한다
 const ENGINES = [
@@ -32,7 +28,7 @@ const MODES = [
 ];
 
 let state = {
-  posts: [], selected: null, busy: false, lastDir: '',
+  selected: null, busy: false, lastDir: '',
   plan: [], backdrops: [], engine: 'gptimage2', mode: 'backdrop', keyword: '',
 };
 
@@ -81,10 +77,14 @@ export function initCardnews() {
       .cn-btn:active:not(:disabled) { transform:translateY(1px); }
       .cn-post { transition:background-color .15s; }
       .cn-post:hover { background:rgba(148,163,184,.06); }
-      #cnPostList::-webkit-scrollbar { width:8px; }
-      #cnPostList::-webkit-scrollbar-thumb { background:#334155; border-radius:4px; }
-      #cnPostList::-webkit-scrollbar-thumb:hover { background:#475569; }
-      #cnPostList::-webkit-scrollbar-track { background:transparent; }
+      /* v3.8.569: 라이트박스 좌우 넘김 — 화살표는 사진 위에 떠 있어야 손이 안 움직인다 */
+      .cn-lb-nav { position:fixed; top:50%; transform:translateY(-50%); width:52px; height:52px;
+        border-radius:50%; border:1px solid rgba(148,163,184,.28); background:rgba(15,23,42,.72);
+        color:#e2e8f0; font-size:22px; font-weight:800; cursor:pointer; display:flex;
+        align-items:center; justify-content:center; transition:background .15s, transform .15s; }
+      .cn-lb-nav:hover { background:rgba(99,102,241,.55); transform:translateY(-50%) scale(1.08); }
+      .cn-lb-nav[disabled] { opacity:.25; cursor:default; }
+      .cn-lb-nav[disabled]:hover { background:rgba(15,23,42,.72); transform:translateY(-50%); }
     `;
     document.head.appendChild(st);
   }
@@ -97,10 +97,9 @@ export function initCardnews() {
         훅 첫 장·저장 유도 마지막 장·Alt 는 2026 인스타 알고리즘(리서브·저장·Alt 분석) 대응입니다.
       </div>
       <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;">
-        <select id="cnPlatform" style="padding: 10px 12px; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; font-size: 13px; font-weight: 700;">
-          ${PLATFORMS.map((p) => `<option value="${p.key}">${p.label}</option>`).join('')}
-        </select>
-        <button id="cnLoadBtn" class="cn-btn" style="padding: 10px 16px; background: #334155; color: #e2e8f0; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">📋 발행 글 불러오기</button>
+        <!-- v3.8.569: 인라인 목록 대신 거미줄·외부유입과 같은 발행글 모달을 쓴다 (사장님 지적).
+             플랫폼 고르는 칸도 없앴다 — 모달은 어느 플랫폼 글이든 한 곳에 모아 보여준다. -->
+        <button id="cnLoadBtn" class="cn-btn" style="padding: 10px 16px; background: #334155; color: #e2e8f0; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">📚 발행한 글 선택</button>
         <button id="cnMakeBtn" disabled class="cn-btn" style="padding: 10px 16px; background: linear-gradient(135deg,#6366f1,#8b5cf6); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer; opacity: 0.5;">🃏 카드뉴스 만들기</button>
         <button id="cnOpenBtn" class="cn-btn" style="display:none; padding: 10px 16px; background: #10b981; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer;">📁 폴더 열기</button>
       </div>
@@ -133,11 +132,12 @@ export function initCardnews() {
         </div>
         <div id="cnPhase" style="font-size:11.5px; color:#94a3b8;"></div>
       </div>
-      <div id="cnPostList" style="display: none; max-height: 260px; overflow-y: auto; border: 1px solid rgba(148,163,184,0.15); border-radius: 10px; margin-bottom: 12px;"></div>
+      <!-- v3.8.569: 고른 글이 무엇인지 남겨둔다 — 모달은 닫히므로 여기 안 보이면 뭘 고른지 알 수 없다 -->
+      <div id="cnSource" style="display: none; margin-bottom: 12px;"></div>
       <div id="cnResult" style="display: none;"></div>
     </div>`;
 
-  panel.querySelector('#cnLoadBtn').addEventListener('click', loadPosts);
+  panel.querySelector('#cnLoadBtn').addEventListener('click', openPostPicker);
   panel.querySelector('#cnMakeBtn').addEventListener('click', createCards);
   panel.querySelector('#cnOpenBtn').addEventListener('click', () => {
     if (state.lastDir) window.blogger?.cardnewsOpenDir?.({ dir: state.lastDir });
@@ -149,6 +149,8 @@ export function initCardnews() {
   // 진행 상황 구독 — 만드는 동안 어디까지 왔는지 보여준다
   window.blogger?.onCardnewsProgress?.((p) => renderProgress(p));
   window.cnOpenLightbox = openLightbox; // 순차 미리보기 onclick 에서 재사용 (v3.8.517)
+  // v3.8.569: 발행글 모달이 고른 글을 여기로 돌려준다. 배선이 없으면 모달이 조용히 아무것도 안 한다.
+  window.cardnewsSetSource = cardnewsSetSource;
 }
 
 /**
@@ -289,67 +291,69 @@ function setStatus(msg) {
   if (el) el.textContent = msg || '';
 }
 
-async function loadPosts() {
+/**
+ * v3.8.569 — 발행한 글 선택. 거미줄·외부유입이 쓰는 그 모달을 그대로 연다.
+ * 예전엔 플랫폼을 고르고 API 를 따로 때려 인라인 목록을 뿌렸다. 같은 일을 두 벌로 하던 셈이다.
+ */
+function openPostPicker() {
   if (state.busy) return;
-  state.busy = true;
-  setStatus('발행 글을 불러오는 중…');
-  try {
-    const key = document.getElementById('cnPlatform')?.value || 'blogger';
-    const platform = PLATFORMS.find((p) => p.key === key) || PLATFORMS[0];
-    // 글목록 탭과 같은 소스 — 플랫폼 연결 정보(payload)도 같은 헬퍼를 쓴다
-    const payload = (await window.__buildPublishedPlatformPayload?.(key)) || {};
-    const res = await window.electronAPI.invoke(platform.channel, { maxResults: 20, payload });
-    if (!res?.ok) throw new Error(res?.error || '목록 조회 실패');
-
-    state.posts = (res.items || []).filter((p) => p && p.title);
-    state.selected = null;
-    renderPostList();
-    setStatus(state.posts.length ? `${platform.label} 최근 글 ${state.posts.length}개 — 카드로 만들 글을 고르세요` : '발행된 글이 없습니다');
-  } catch (err) {
-    setStatus(`❌ ${err?.message || err}`);
-  } finally {
-    state.busy = false;
+  if (typeof window.openPublishedPostsModal !== 'function') {
+    setStatus('❌ 발행글 목록을 열 수 없습니다 — 앱을 다시 켠 뒤 시도해주세요.');
+    return;
   }
+  window.openPublishedPostsModal({ mode: 'cardnews' });
 }
 
 /** 단축링크 탭과 같은 규칙 — 대표이미지가 없으면 본문 첫 이미지를 쓴다 */
 function extractThumb(post) {
-  const direct = String(post?.imageUrl || '').trim();
+  const direct = String(post?.imageUrl || post?.thumbnail || '').trim();
   if (direct) return direct;
-  const m = String(post?.content || '').match(/<img[^>]+src=["']([^"']+)["']/i);
+  const m = String(post?.content || post?.html || '').match(/<img[^>]+src=["']([^"']+)["']/i);
   return m ? m[1] : '';
 }
 
-function renderPostList() {
-  const list = document.getElementById('cnPostList');
+/**
+ * 모달이 돌려준 글을 받는다.
+ *
+ * ⚠️ 필드 이름이 다르다. 발행글 목록은 본문을 `html` 로 들고 있고(외부유입도 같은 객체를 쓴다),
+ *    카드뉴스의 createCards 는 `content` 를 읽는다. 여기서 맞춰주지 않으면
+ *    "본문을 불러오지 못했습니다" 로 조용히 막힌다.
+ */
+function cardnewsSetSource(post) {
+  if (!post) return;
+  const body = String(post.content || post.html || post.summary || post.excerpt || '').trim();
+  state.selected = { ...post, content: body };
+  renderSource();
   const makeBtn = document.getElementById('cnMakeBtn');
-  if (!list) return;
-  list.style.display = state.posts.length ? '' : 'none';
-  // v3.8.506: 제목만 나열하면 어떤 글인지 못 알아본다 — 썸네일을 같이 보여준다 (사용자 보고)
-  list.innerHTML = state.posts.map((p, i) => {
-    const thumb = extractThumb(p);
-    return `
-    <div class="cn-post" data-idx="${i}" style="display: flex; align-items: center; gap: 11px; padding: 9px 13px; border-bottom: 1px solid rgba(148,163,184,0.08); cursor: pointer;">
-      <div style="width: 64px; height: 42px; flex-shrink: 0; border-radius: 7px; overflow: hidden; background: #0f172a; display: flex; align-items: center; justify-content: center;">
+  if (makeBtn) { makeBtn.disabled = !body; makeBtn.style.opacity = body ? '1' : '0.5'; }
+  setStatus(body
+    ? `선택됨: ${post.title || '제목 없음'}`
+    : '❌ 이 글은 본문이 저장돼 있지 않습니다 — 글목록 탭에서 한 번 연 뒤 다시 선택해주세요.');
+}
+
+/** 고른 글을 카드로 남긴다 — 모달이 닫히면 뭘 골랐는지 알 방법이 없다 */
+function renderSource() {
+  const box = document.getElementById('cnSource');
+  if (!box) return;
+  const post = state.selected;
+  if (!post) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  const thumb = extractThumb(post);
+  box.style.display = '';
+  box.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 12px; padding: 11px 13px; background: rgba(99,102,241,0.10); border: 1px solid rgba(99,102,241,0.28); border-radius: 11px;">
+      <div style="width: 68px; height: 46px; flex-shrink: 0; border-radius: 8px; overflow: hidden; background: #0f172a; display: flex; align-items: center; justify-content: center;">
         ${thumb
           ? `<img src="${escapeText(thumb)}" alt="" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`
-          : '<span style="font-size: 17px;">📝</span>'}
+          : '<span style="font-size: 18px;">📝</span>'}
       </div>
       <div style="flex: 1; min-width: 0;">
-        <div style="font-size: 12.5px; font-weight: 700; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeText(p.title)}</div>
-        <div style="font-size: 11px; color: #64748b; margin-top: 3px;">${escapeText((p.published || '').slice(0, 10))}</div>
+        <div style="font-size: 10.5px; font-weight: 800; color: #a5b4fc; letter-spacing: .3px; margin-bottom: 3px;">카드로 만들 글</div>
+        <div style="font-size: 13px; font-weight: 800; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeText(post.title || '제목 없음')}</div>
+        <div style="font-size: 11px; color: #64748b; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeText(post.url || '')}</div>
       </div>
+      <button id="cnChangeBtn" class="cn-btn" style="flex-shrink: 0; padding: 7px 13px; background: #334155; color: #e2e8f0; border: none; border-radius: 8px; font-size: 12px; font-weight: 800; cursor: pointer;">글 바꾸기</button>
     </div>`;
-  }).join('');
-  list.querySelectorAll('.cn-post').forEach((el) => {
-    el.addEventListener('click', () => {
-      state.selected = state.posts[Number(el.dataset.idx)] || null;
-      list.querySelectorAll('.cn-post').forEach((n) => { n.style.background = ''; });
-      el.style.background = 'rgba(99,102,241,0.18)';
-      if (makeBtn) { makeBtn.disabled = !state.selected; makeBtn.style.opacity = state.selected ? '1' : '0.5'; }
-      setStatus(state.selected ? `선택됨: ${state.selected.title}` : '');
-    });
-  });
+  box.querySelector('#cnChangeBtn')?.addEventListener('click', openPostPicker);
 }
 
 async function createCards() {
@@ -439,23 +443,78 @@ function renderResult(res) {
   });
 }
 
-/** 미리보기 확대 — 카드 글자·숫자를 눈으로 검수하려면 실물 크기가 필요하다 */
+/**
+ * 지금 화면에 떠 있는 카드 이미지 전부 — 라이트박스에서 좌우로 넘길 목록이다.
+ * 결과 카드가 있으면 그걸 쓰고, 만드는 중이면 라이브 스트립을 쓴다.
+ */
+function galleryImages() {
+  const done = document.querySelectorAll('#cnResult [data-img]');
+  const live = document.querySelectorAll('#cnLive .cn-live-img');
+  const nodes = done.length ? done : live;
+  return Array.from(nodes).map((n) => n.src).filter(Boolean);
+}
+
+/**
+ * 미리보기 확대 — 카드 글자·숫자를 눈으로 검수하려면 실물 크기가 필요하다.
+ * v3.8.569: 한 장씩 닫았다 여는 게 아니라 ←/→ 로 넘긴다 (사장님 요청).
+ *   인자는 예전대로 src 하나 — 호출부(카드 클릭·라이브 미리보기)를 안 고쳐도 된다.
+ */
 function openLightbox(src) {
   const prev = document.getElementById('cnLightbox');
   if (prev) prev.remove();
+
+  const images = galleryImages();
+  // 목록에 없으면(스트립이 갱신 중이라거나) 그 한 장만 보여준다 — 빈 화면보다 낫다
+  let idx = images.indexOf(src);
+  const list = idx >= 0 ? images : [src];
+  if (idx < 0) idx = 0;
+
   const overlay = document.createElement('div');
   overlay.id = 'cnLightbox';
   overlay.style.cssText = 'position:fixed; inset:0; z-index:99999; background:rgba(2,6,23,0.9);'
-    + ' display:flex; align-items:center; justify-content:center; cursor:zoom-out; padding:28px;';
+    + ' display:flex; align-items:center; justify-content:center; padding:28px;';
   overlay.innerHTML = `
-    <img src="${src}" style="max-width:min(92vw,760px); max-height:92vh; border-radius:12px;
-      box-shadow:0 20px 60px rgba(0,0,0,0.6);" />
-    <div style="position:fixed; top:16px; right:22px; color:#94a3b8; font-size:13px; font-weight:700;">클릭 또는 ESC 로 닫기</div>`;
+    <img id="cnLbImg" src="${list[idx]}" style="max-width:min(92vw,760px); max-height:92vh; border-radius:12px;
+      box-shadow:0 20px 60px rgba(0,0,0,0.6); cursor:zoom-out;" />
+    <button id="cnLbPrev" class="cn-lb-nav" style="left:22px;" aria-label="이전 카드">‹</button>
+    <button id="cnLbNext" class="cn-lb-nav" style="right:22px;" aria-label="다음 카드">›</button>
+    <div id="cnLbCount" style="position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+      padding:6px 14px; border-radius:999px; background:rgba(15,23,42,.78); border:1px solid rgba(148,163,184,.22);
+      color:#e2e8f0; font-size:12.5px; font-weight:800; font-variant-numeric:tabular-nums;"></div>
+    <div style="position:fixed; top:16px; right:22px; color:#94a3b8; font-size:13px; font-weight:700;">← → 로 넘기기 · ESC 로 닫기</div>`;
+
+  const imgEl = overlay.querySelector('#cnLbImg');
+  const prevBtn = overlay.querySelector('#cnLbPrev');
+  const nextBtn = overlay.querySelector('#cnLbNext');
+  const countEl = overlay.querySelector('#cnLbCount');
+
+  const show = (next) => {
+    idx = Math.max(0, Math.min(list.length - 1, next));
+    imgEl.src = list[idx];
+    countEl.textContent = `${idx + 1} / ${list.length}`;
+    prevBtn.disabled = idx === 0;
+    nextBtn.disabled = idx === list.length - 1;
+    // 한 장뿐이면 화살표는 자리만 차지한다
+    const solo = list.length < 2 ? 'none' : '';
+    prevBtn.style.display = solo;
+    nextBtn.style.display = solo;
+  };
+
   const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  overlay.addEventListener('click', close);
+  const onKey = (e) => {
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft') show(idx - 1);
+    else if (e.key === 'ArrowRight') show(idx + 1);
+  };
+
+  prevBtn.addEventListener('click', (e) => { e.stopPropagation(); show(idx - 1); });
+  nextBtn.addEventListener('click', (e) => { e.stopPropagation(); show(idx + 1); });
+  imgEl.addEventListener('click', close);
+  // 배경(빈 곳)을 눌렀을 때만 닫는다 — 화살표를 눌러 닫히면 넘길 수가 없다
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', onKey);
   document.body.appendChild(overlay);
+  show(idx);
 }
 
 const KIND_LABEL = { hook: '훅 (첫 장)', body: '본문', save: '저장 유도', cta: '클릭 유도' };

@@ -636,7 +636,7 @@ function deleteSelectedPublishedPosts() {
   const removed = deletePublishedPostsByUrls(urlsToDelete);
   alert(`✅ ${removed}개 글이 목록에서 삭제되었습니다.`);
   // 모달 새로고침
-  openPublishedPostsModal({ mode: _modalMode === 'external-traffic' ? 'external-traffic' : 'spider-web' });
+  openPublishedPostsModal({ mode: _modalMode }); // v3.8.569: 현재 모드 그대로 (카드뉴스 포함)
 }
 
 /**
@@ -648,7 +648,7 @@ function deletePublishedPostByIndex(index) {
   if (!confirm(`이 글을 발행 글 목록에서 삭제할까요?\n\n· "${(post.title || '').substring(0, 50)}"\n· 발행된 실제 글은 그대로 유지됩니다 (목록 기록만 삭제)`)) return;
   const removed = deletePublishedPostsByUrls([post.url]);
   if (removed > 0) {
-    openPublishedPostsModal({ mode: _modalMode === 'external-traffic' ? 'external-traffic' : 'spider-web' });
+    openPublishedPostsModal({ mode: _modalMode }); // v3.8.569: 현재 모드 그대로 (카드뉴스 포함)
   } else {
     alert('⚠️ 삭제 실패 — 글을 찾을 수 없습니다.');
   }
@@ -674,15 +674,34 @@ const escapeHtml = (s) => String(s == null ? '' : s)
 // v3.8.2: 모달 mode 정식 통합
 //   - 'spider-web' (기본): 다중 선택(최대 10개) + 거미줄 URL 입력칸 채우기
 //   - 'external-traffic': 단일 선택 + 외부유입 탭으로 자동 복귀
-// 양쪽 탭에서 동일한 modal DOM을 공유하되 mode에 따라 UI·버튼·동작 분기.
+//   - 'cardnews' (v3.8.569): 단일 선택 + 카드뉴스 탭으로 자동 복귀
+// 세 탭에서 동일한 modal DOM을 공유하되 mode에 따라 UI·버튼·동작 분기.
+
+// 단일 선택 모드별 설정 — 새 모드를 붙일 때 여기 한 줄만 추가하면 된다.
+// (예전엔 isExtTraffic 불리언 하나로 갈라서 세 번째 모드를 넣을 자리가 없었다)
+const SINGLE_PICK_MODES = {
+  'external-traffic': {
+    title: '📖 외부유입 — 원본 글 1개 선택',
+    banner: (n) => `📖 외부유입 모드 — 총 ${n}개. 글 1개를 클릭하면 외부유입 변환 탭으로 자동 복귀합니다.`,
+    handler: 'extTrafficPickSingleFromModal',
+  },
+  cardnews: {
+    title: '🃏 카드뉴스 — 카드로 만들 글 1개 선택',
+    banner: (n) => `🃏 카드뉴스 모드 — 총 ${n}개. 글 1개를 클릭하면 카드뉴스 탭으로 자동 복귀합니다.`,
+    handler: 'cardnewsPickSingleFromModal',
+  },
+};
+
 let _modalMode = 'spider-web';
 let _modalSinglePick = false;
 
 function openPublishedPostsModal(opts) {
   // v3.8.2: opts.mode로 분기. 백워드: window._extTrafficSinglePickMode 플래그 호환.
-  const isExtTraffic = !!(opts && opts.mode === 'external-traffic') || !!window._extTrafficSinglePickMode;
-  _modalMode = isExtTraffic ? 'external-traffic' : 'spider-web';
-  _modalSinglePick = isExtTraffic; // external-traffic은 단일 선택
+  const asked = String((opts && opts.mode) || '');
+  const mode = SINGLE_PICK_MODES[asked] ? asked
+    : (window._extTrafficSinglePickMode ? 'external-traffic' : 'spider-web');
+  _modalMode = mode;
+  _modalSinglePick = !!SINGLE_PICK_MODES[mode]; // 단일 선택 모드인가
 
   modalPosts = getPublishedPosts();
   const modal = document.getElementById('publishedPostsModal');
@@ -706,7 +725,7 @@ function openPublishedPostsModal(opts) {
   // 헤더 텍스트도 mode에 따라
   const titleEl = document.getElementById('sw-pubmodal-title');
   if (titleEl) {
-    titleEl.textContent = isExtTraffic ? '📖 외부유입 — 원본 글 1개 선택' : '📚 발행한 글 목록';
+    titleEl.textContent = SINGLE_PICK_MODES[mode]?.title || '📚 발행한 글 목록';
   }
 
   console.log('[PUB-MODAL] mode:', _modalMode, '글:', modalPosts.length, '개');
@@ -743,7 +762,7 @@ function openPublishedPostsModal(opts) {
     // v3.8.2: 상단 안내 배너 mode 분기
     // v3.8.27: 일괄 삭제 버튼 추가 (spider-web 모드)
     const topBanner = _modalSinglePick
-      ? `<div style="margin-bottom: 14px; padding: 12px 16px; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; color: #c7d2fe; font-weight: 700;">📖 외부유입 모드 — 총 ${modalPosts.length}개. 글 1개를 클릭하면 외부유입 변환 탭으로 자동 복귀합니다.</div>`
+      ? `<div style="margin-bottom: 14px; padding: 12px 16px; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; color: #c7d2fe; font-weight: 700;">${escapeHtml(SINGLE_PICK_MODES[_modalMode].banner(modalPosts.length))}</div>`
       : `<div style="margin-bottom: 14px; padding: 12px 16px; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; color: #c7d2fe; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
         <div style="font-weight: 700;">총 ${modalPosts.length}개 · <span id="pubModalSelectedCount" style="color: #fbbf24;">0</span>개 선택 (최대 10)</div>
         <div style="display: flex; gap: 8px;">
@@ -793,7 +812,7 @@ function openPublishedPostsModal(opts) {
           // v3.8.2: single-pick 모드에서는 카드 자체 클릭 = 즉시 선택+모달 닫기
           if (_modalSinglePick) {
             return `
-            <div data-pubidx="${index}" data-puburl="${safeUrl}" onclick="extTrafficPickSingleFromModal(${index})" style="display: flex; gap: 12px; align-items: stretch; padding: 14px 16px; background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(148, 163, 184, 0.15); border-radius: 12px; cursor: pointer; transition: background 0.15s, border-color 0.15s, transform 0.15s;" onmouseover="this.style.background='rgba(99, 102, 241, 0.18)'; this.style.borderColor='rgba(99, 102, 241, 0.5)'; this.style.transform='translateY(-1px)';" onmouseout="this.style.background='rgba(30, 41, 59, 0.6)'; this.style.borderColor='rgba(148, 163, 184, 0.15)'; this.style.transform='translateY(0)';">
+            <div data-pubidx="${index}" data-puburl="${safeUrl}" onclick="${SINGLE_PICK_MODES[_modalMode].handler}(${index})" style="display: flex; gap: 12px; align-items: stretch; padding: 14px 16px; background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(148, 163, 184, 0.15); border-radius: 12px; cursor: pointer; transition: background 0.15s, border-color 0.15s, transform 0.15s;" onmouseover="this.style.background='rgba(99, 102, 241, 0.18)'; this.style.borderColor='rgba(99, 102, 241, 0.5)'; this.style.transform='translateY(-1px)';" onmouseout="this.style.background='rgba(30, 41, 59, 0.6)'; this.style.borderColor='rgba(148, 163, 184, 0.15)'; this.style.transform='translateY(0)';">
               <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center;">
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
                   <span style="padding: 2px 8px; background: ${platformColor}; color: white; border-radius: 6px; font-size: 10px; font-weight: 700;">${platformLabel}</span>
@@ -877,6 +896,28 @@ function extTrafficPickSingleFromModal(index) {
   closePublishedPostsModal();
 }
 window.extTrafficPickSingleFromModal = extTrafficPickSingleFromModal;
+
+/**
+ * v3.8.569 — 카드뉴스 탭의 글 선택. 거미줄·외부유입과 같은 모달을 쓴다.
+ * 예전엔 카드뉴스만 자기 목록을 따로 불러와 인라인으로 뿌렸다(사장님 지적).
+ */
+function cardnewsPickSingleFromModal(index) {
+  const post = modalPosts[index];
+  if (!post) {
+    console.warn('[PUB-MODAL] 카드뉴스 글 못 찾음:', index);
+    return;
+  }
+  console.log('[PUB-MODAL] 카드뉴스 선택:', post.title);
+  if (typeof window.cardnewsSetSource === 'function') {
+    window.cardnewsSetSource(post);
+  } else {
+    // 배선이 끊기면 조용히 아무 일도 안 일어난다 — 이 저장소에서 5번 반복된 실수라 소리내어 알린다
+    console.error('[PUB-MODAL] window.cardnewsSetSource 가 없습니다 — 카드뉴스 탭 미배선');
+    alert('❌ 카드뉴스 탭이 준비되지 않았습니다. 카드뉴스 탭을 한 번 연 뒤 다시 시도해주세요.');
+  }
+  closePublishedPostsModal();
+}
+window.cardnewsPickSingleFromModal = cardnewsPickSingleFromModal;
 
 // v3.8.2: 누락 썸네일 백그라운드 fetch (v3.8.7: 진행 모달 그리드도 동시 갱신)
 async function _enrichMissingThumbnails(posts) {
