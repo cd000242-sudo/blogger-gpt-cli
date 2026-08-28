@@ -4242,6 +4242,25 @@ ${quoted}
       supplementalCtas = [];
     }
 
+    /**
+     * 🚨 v3.8.568 — **CTA 가 0개로 끝나면 크게 알린다.**
+     *
+     * 사장님 실물 검수: 펀드 설명서 글에 CTA 가 하나도 없었다.
+     * 위 v3.8.418 주석은 "sectionCta 로 충분" 을 전제로 보충 검색을 껐는데,
+     * v3.8.557 게이트가 행동 화면을 못 찾으면 sectionCta 도 0개가 된다 —
+     * **두 변경이 서로를 몰라서** 아무 버튼 없는 글이 조용히 나갔다.
+     *
+     * v3.8.568 이 후보 범위를 넓혔지만(글이 지목한 기관이면 민간도 통과),
+     * 그래도 0개인 경우는 남는다. 그때 **조용히 넘어가지 않는 것**이 핵심이다 —
+     * 로그가 없으면 다음에도 발행글을 눈으로 봐야만 알 수 있다.
+     */
+    if (contentMode !== 'adsense' && renderedCtaUrls.size === 0 && supplementalCtas.length === 0) {
+      const warning = 'CTA 후보가 하나도 없습니다 — 이 글은 버튼 없이 나갑니다. '
+        + '독자가 다음에 할 일이 있는 글이라면 대기열에서 CTA를 직접 넣어 주세요.';
+      console.warn(`[MAX-MODE] 🚨 ${warning}`);
+      onLog?.(`⚠️ ${warning}`);
+    }
+
     // 🔥 실행 플랜 섹션 제거됨 (사용자 요청)
 
     // 🧹 Summary Table 셀 sanitization

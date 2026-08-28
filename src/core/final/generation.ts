@@ -2607,6 +2607,32 @@ async function searchOfficialSite(keyword: string, contentMode?: string, skipAct
      * 이제 **근거를 댈 수 있는 도메인만** 받는다(등록된 공식 사이트·공공기관·브랜드 일치).
      * 근거가 없으면 CTA 를 넣지 않는다 - 남의 링크를 사장님 글에 싣는 것보다 낫다.
      */
+    /**
+     * 🏢 v3.8.568 — **글이 지목한 기관을 후보 판정 앞으로 끌어온다.**
+     *
+     * 사장님 실물 검수: 펀드 설명서 글에 CTA 가 하나도 없었다.
+     * 원인은 judgeCtaHost 가 카탈로그·관공서·키워드브랜드 셋만 인정해서
+     * 미래에셋·씨티은행·신한투자증권 같은 **독자가 실제로 가야 할 곳이 전부
+     * unknown-host 로 잘린 것**이었다(2026-08-28 웹문서 10건 실측).
+     *
+     * 같은 기관 목록이 아래 행동화면 판정(resolveActionLink)에서 이미 쓰이고 있었다.
+     * 계산이 루프 **뒤**에 있어서 정작 후보를 거르는 자리에서는 못 썼을 뿐이다.
+     * 여기서 한 번 만들어 두 곳이 같은 기준을 쓰게 한다.
+     */
+    const namedAgencies = (() => {
+      try {
+        const ctx = analyzeArticleContext({ keyword, content: articleText || '', intent: actionIntent });
+        return Array.from(new Set([
+          ...(smartTarget?.site ? [String(smartTarget.site)] : []),
+          ...ctx.agencies,
+        ]));
+      } catch (e) {
+        console.warn('[CTA] ⚠️ 기관 추출 실패 — 기존 기준으로만 판정:', (e as Error)?.message);
+        return [] as string[];
+      }
+    })();
+    if (namedAgencies.length) console.log(`[CTA] 🏢 글이 지목한 기관: ${namedAgencies.join(', ')}`);
+
     const candidates: { url: string; title: string; trusted: boolean }[] = [];
     for (const item of data.items) {
       const link = item.link;
@@ -2620,7 +2646,7 @@ async function searchOfficialSite(keyword: string, contentMode?: string, skipAct
         console.log(`[CTA] 📄 문서 파일이라 행동 화면 후보에서 제외: ${link}`);
         continue;
       }
-      const verdict = judgeCtaHost(link, keyword);
+      const verdict = judgeCtaHost(link, keyword, namedAgencies, item.title);
       if (!verdict.ok) {
         console.warn(`[CTA] 🚫 ${describeHostVerdict(verdict)}: ${link}`);
         continue;
@@ -2657,12 +2683,12 @@ async function searchOfficialSite(keyword: string, contentMode?: string, skipAct
     if (alive.length) {
       if (actionIntent) {
         try {
-          const ctx = analyzeArticleContext({ keyword, content: articleText || '', intent: actionIntent });
-          // v3.8.557: 라우터가 정한 기관도 기준에 넣는다 — 본문에 이름이 덜 나온 글에서 특히 크다
-          const gateAgencies = Array.from(new Set([
-            ...(smartTarget?.site ? [String(smartTarget.site)] : []),
-            ...ctx.agencies,
-          ]));
+          /**
+           * v3.8.557: 라우터가 정한 기관도 기준에 넣는다 — 본문에 이름이 덜 나온 글에서 특히 크다
+           * v3.8.568: 위(후보 판정)에서 이미 같은 목록을 만들었다. 두 번 계산하면
+           *           두 곳의 기준이 갈라질 수 있으므로 그대로 쓴다.
+           */
+          const gateAgencies = namedAgencies;
           const picked = await resolveActionLink({
             keyword,
             intent: actionIntent,

@@ -35,6 +35,44 @@ function getCatalogHosts(): Set<string> {
   return hosts;
 }
 
+/**
+ * 🚧 v3.8.568 — 트래픽이 새는 곳. **기관 도메인이어도 여기 걸리면 막는다.**
+ *
+ * 사장님: "타 블로그나 SNS 에 트래픽을 유발하거나 광고 클릭을 유발시킬 수 있는 요소로
+ *          연동되면 안 돼. 허브글을 따로 넣은 게 아니기 때문에 그런 거거든."
+ *
+ * 맞다. 허브글이 없으면 **나간 독자가 돌아오지 않는다.** 남의 블로그로 보내는 버튼은
+ * 광고 수익도 없이 트래픽만 잃는다.
+ * (애드센스 광고를 눌러 다른 블로그로 가는 건 별개다 — 그건 그 블로그가 광고주다.)
+ *
+ * ⚠️ 이 검사가 agency-match 보다 **먼저** 돌아야 한다. 기업 공식 블로그가
+ *    blog.naver.com 에 있는 경우 기관명은 맞지만 목적지로는 부적합하다.
+ */
+const USER_GENERATED_PATTERNS: RegExp[] = [
+  // 블로그 플랫폼
+  /(^|\.)blog\.naver\.com$/i, /(^|\.)blog\.me$/i, /(^|\.)tistory\.com$/i,
+  /(^|\.)blog\.daum\.net$/i, /(^|\.)egloos\.com$/i, /(^|\.)blogspot\./i,
+  /(^|\.)wordpress\.com$/i, /(^|\.)medium\.com$/i, /(^|\.)brunch\.co\.kr$/i,
+  /(^|\.)velog\.io$/i, /(^|\.)substack\.com$/i, /(^|\.)note\.com$/i,
+  /(^|\.)postype\.com$/i,
+  // 카페·커뮤니티·Q&A
+  /(^|\.)cafe\.naver\.com$/i, /(^|\.)cafe\.daum\.net$/i, /(^|\.)band\.us$/i,
+  /(^|\.)kin\.naver\.com$/i, /(^|\.)reddit\.com$/i, /(^|\.)quora\.com$/i,
+  /(^|\.)clien\.net$/i, /(^|\.)dcinside\.com$/i, /(^|\.)fmkorea\.com$/i,
+  // 위키
+  /(^|\.)namu\.wiki$/i, /(^|\.)wikipedia\.org$/i, /(^|\.)wikiwand\.com$/i,
+  /(^|\.)fandom\.com$/i,
+  // SNS·영상
+  /(^|\.)youtube\.com$/i, /(^|\.)youtu\.be$/i, /(^|\.)facebook\.com$/i,
+  /(^|\.)instagram\.com$/i, /(^|\.)twitter\.com$/i, /(^|\.)x\.com$/i,
+  /(^|\.)threads\.net$/i, /(^|\.)tiktok\.com$/i, /(^|\.)linkedin\.com$/i,
+  /(^|\.)pinterest\./i, /(^|\.)tumblr\.com$/i,
+];
+
+function isUserGenerated(host: string): boolean {
+  return USER_GENERATED_PATTERNS.some((p) => p.test(host));
+}
+
 /** 링크 단축·중계·집계처럼 최종 목적지를 감추는 도메인 */
 const REDIRECTOR_PATTERNS = [
   /(^|\.)bit\.ly$/i, /(^|\.)t\.co$/i, /(^|\.)tinyurl\.com$/i, /(^|\.)shorturl\.at$/i,
@@ -77,17 +115,86 @@ function matchesKeywordBrand(host: string, keyword: string): boolean {
   return tokens.some((token) => host.includes(token));
 }
 
+/**
+ * 🏢 v3.8.568 — **글이 지목한 기관이면 민간 도메인도 받는다.**
+ *
+ * ## 왜 필요한가 (사장님 실물 검수)
+ * leadernam.com 의 "9·30부터 바뀌는 펀드 설명서" 글에 **CTA 가 하나도 없었다.**
+ * 사장님: "이 글에 어떤 부분이 독자가 원하고, 그걸 굳이 또 검색해서 갈 필요 없이
+ *          우리가 링크를 주면 된다 — 그게 왜 안 되어 있냐."
+ *
+ * 맞는 지적이었다. 그 글에도 독자가 할 일은 분명하다(내 펀드 설명서가 바뀌는지 확인).
+ * 목적지가 없는 게 아니라 **우리가 못 찾은 것**이었다.
+ *
+ * 실측(2026-08-28, "펀드 투자설명서 확인 신청" 웹문서 10건):
+ *   miraeasset.com · imfnsec.com · citibank.co.kr · shinhansec.com  → 전부 unknown-host 로 탈락
+ *   통과한 것: kofia.or.kr(교육 페이지) · itp.or.kr(무관한 hwp) · fsc.go.kr(보도자료)
+ * 독자가 실제로 가야 할 판매사·증권사가 전부 잘리고, 남은 것 중엔 행동 화면이 없어
+ * v3.8.557 게이트가 정직하게 'none' 을 줬다. 그리고 v3.8.418 이 보충 검색을 이미 꺼둔 탓에
+ * 뒤를 받을 것도 없었다 — **세 변경이 서로를 모른 채 겹쳐 CTA 가 0개가 됐다.**
+ *
+ * ## 원칙은 그대로다
+ * "막을 것을 고르는" 방식으로 되돌아가지 않는다(코레일 글이 스팸 도메인으로 나간 그 사고).
+ * 근거를 대는 방식은 유지하고 **근거의 종류를 하나 늘린다** — 본문이 지목한 기관.
+ * 본문에 없는 회사는 여전히 못 들어온다.
+ */
+/**
+ * ⚠️ 한글 기관명은 도메인과 절대 안 맞는다.
+ *    `analyzeArticleContext` 는 "미래에셋증권" 을 주는데 도메인은 `miraeasset.com` 이다.
+ *    한글→로마자 매핑표는 회사마다 제각각이라(미래에셋=miraeasset, 신한=shinhan,
+ *    KB증권=kbsec) 유지가 안 된다.
+ *
+ *    대신 **검색 결과 제목**을 쓴다. 네이버 웹문서가 돌려주는 제목은 한글이라
+ *    "미래에셋증권" 이 그대로 들어 있다. 변환이 필요 없고 훨씬 정확하다.
+ *    (제목만으로 통과시켜도 안전한 이유: 블로그·SNS 는 이미 앞에서 막았고,
+ *     그다음 v3.8.557 행동화면 게이트가 품질을 한 번 더 거른다)
+ */
+function matchesNamedAgency(host: string, agencies: string[], title: string): boolean {
+  if (!agencies.length) return false;
+  const normalizedTitle = String(title || '').toLowerCase().replace(/\s+/g, '');
+  const normalizedHost = host.replace(/[^a-z0-9]/g, '');
+
+  return agencies.some((raw) => {
+    const agency = String(raw || '').trim().toLowerCase();
+    if (agency.length < 2) return false;
+
+    // ① 기관을 주소로 넘긴 경우 — 호스트끼리 비교
+    const asHost = hostOf(agency) || (agency.includes('.') ? agency.split('/')[0] : '');
+    if (asHost && asHost.includes('.')) {
+      return host === asHost || host.endsWith(`.${asHost}`);
+    }
+
+    // ② 영문 기관명이 도메인에 들어 있는 경우 (miraeasset → securities.miraeasset.com)
+    const token = agency.replace(/[^a-z0-9]/g, '');
+    if (token.length >= 4 && normalizedHost.includes(token)) return true;
+
+    // ③ 한글 기관명은 **검색 결과 제목**으로 맞춘다
+    const koreanName = agency.replace(/\s+/g, '');
+    return koreanName.length >= 2
+      && /[가-힣]/.test(koreanName)
+      && normalizedTitle.includes(koreanName);
+  });
+}
+
 export interface HostTrustResult {
   ok: boolean;
   /** 왜 통과·거절했는지 — 로그로 남겨야 다음에 원인을 찾는다 */
-  reason: 'catalog' | 'institutional' | 'brand-match' | 'redirector' | 'unknown-host' | 'malformed';
+  reason: 'catalog' | 'institutional' | 'brand-match' | 'agency-match'
+    | 'redirector' | 'user-generated' | 'unknown-host' | 'malformed';
 }
 
 /**
  * 이 주소를 CTA 로 내보내도 되는가.
  * 근거를 못 대면 거절한다 — 낯선 도메인을 사장님 글에 싣지 않는다.
  */
-export function judgeCtaHost(url: string, keyword: string): HostTrustResult {
+export function judgeCtaHost(
+  url: string,
+  keyword: string,
+  /** v3.8.568 — 본문이 지목한 기관들. 있으면 민간 도메인도 통과시킨다 */
+  agencies: string[] = [],
+  /** 검색 결과 제목 — 한글 기관명은 도메인이 아니라 여기서 맞춘다 */
+  title = '',
+): HostTrustResult {
   const host = hostOf(url);
   if (!host) return { ok: false, reason: 'malformed' };
 
@@ -96,9 +203,17 @@ export function judgeCtaHost(url: string, keyword: string): HostTrustResult {
     return { ok: false, reason: 'redirector' };
   }
 
+  /**
+   * ⚠️ 통과 판정보다 **먼저** 본다.
+   * 기업 공식 블로그가 blog.naver.com 에 있으면 기관명은 맞지만 보내면 안 된다.
+   * 허브글이 없어 나간 트래픽이 돌아오지 않기 때문이다.
+   */
+  if (isUserGenerated(host)) return { ok: false, reason: 'user-generated' };
+
   if (isCatalogHost(host)) return { ok: true, reason: 'catalog' };
   if (isInstitutional(host)) return { ok: true, reason: 'institutional' };
   if (matchesKeywordBrand(host, keyword)) return { ok: true, reason: 'brand-match' };
+  if (matchesNamedAgency(host, agencies, title)) return { ok: true, reason: 'agency-match' };
 
   return { ok: false, reason: 'unknown-host' };
 }
@@ -109,7 +224,9 @@ export function describeHostVerdict(result: HostTrustResult): string {
     case 'catalog': return '등록된 공식 사이트';
     case 'institutional': return '공공·기관 도메인';
     case 'brand-match': return '키워드 브랜드와 일치';
+    case 'agency-match': return '글이 지목한 기관과 일치';
     case 'redirector': return '링크 중계·단축 주소라 제외';
+    case 'user-generated': return '블로그·SNS·커뮤니티라 제외 (트래픽이 새고 돌아오지 않는다)';
     case 'unknown-host': return '근거를 확인할 수 없는 도메인이라 제외';
     default: return '주소 형식이 올바르지 않아 제외';
   }
