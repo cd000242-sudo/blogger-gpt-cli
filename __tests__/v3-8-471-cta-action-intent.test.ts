@@ -114,7 +114,19 @@ describe('③ 발행 경로에 실제로 배선돼 있다', () => {
     // v3.8.557: 행동을 스마트 라우터의 action 문장에서도 읽는다(키워드에 행동어가 없는 글).
     //   재귀 차단 불변식은 그대로 — skipActionIntent 면 두 경로 다 null 이어야 한다.
     expect(generation).toContain("const actionIntent = (contentMode === 'shopping' || skipActionIntent)");
-    expect(generation).toContain("(detectActionIntent(keyword) || (skipActionIntent ? null : detectActionIntent(smartActionText)))");
+    /**
+     * v3.8.571: 근거가 셋으로 늘었다(제목 → 라우터 action → 본문).
+     * 표현식을 통째로 비교하면 근거가 늘 때마다 깨지므로 **불변식만** 본다:
+     *   재귀를 끊는 것은 맨 앞 삼항의 skipActionIntent 다 — 그게 true 면 무엇을 더 보든 null.
+     * (예전엔 안쪽에도 `skipActionIntent ? null :` 가 겹쳐 있었는데, 바깥 삼항이
+     *  이미 막고 있어 실제로는 닿지 않는 코드였다.)
+     */
+    const expr = generation.slice(
+      generation.indexOf("const actionIntent = (contentMode === 'shopping' || skipActionIntent)"),
+    ).split(';')[0];
+    expect(expr).toContain('? null');                                  // skip 이면 곧바로 null
+    expect(expr).toContain('detectActionIntent(keyword)');             // 제목
+    expect(expr).toContain('detectActionIntentFromArticle(');          // 본문 (v3.8.571)
     // v3.8.501: 글 맥락(articleText)이 뒤에 붙었다. 재귀를 끝내는 건 skipActionIntent=true 다 —
     // 그 자리가 true 인지만 본다. 뒤에 인자가 더 붙어도 종료 보장은 그대로다.
     // v3.8.555: CSE 인자 두 개가 빠져 자리 번호가 앞으로 당겨졌다(불변식은 동일).

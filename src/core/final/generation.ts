@@ -201,13 +201,15 @@ async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000,
 }
 import { validateCtaUrl } from '../../cta/validate-cta-url';
 import { callGeminiWithGrounding, callGeminiWithRetry, resolveSectionTimeoutMs } from './gemini-engine';
-import { detectActionIntent, buildActionQuery } from '../../cta/action-intent';
+import { detectActionIntent, detectActionIntentFromArticle, buildActionQuery } from '../../cta/action-intent';
 import type { ActionIntent } from '../../cta/action-intent';
 import { analyzeArticleContext, resolveActionLink } from '../../cta/action-link-harness';
 import { gateCtaDestination, isDocumentUrl } from '../../cta/destination-gate';
 import { collectActionVenues, resolveActionVenues, venueButtonText } from '../../cta/action-venues';
 import { judgeCtaHost, describeHostVerdict } from '../../cta/host-trust';
 import { buildOfficialCtaCandidates } from '../../cta/inference-candidates';
+// v3.8.570: 버튼과 훅을 한 자리에서 만든다 — 예전엔 옆줄에서 서로 다른 것을 말했다
+import { buildCtaCopy } from '../../cta/cta-copy';
 import { dropEmptyFaqItems } from './empty-block-guard';
 import { buildArchetypeGuide } from './title-archetypes';
 import { FinalCrawledPost, FinalTableData, FinalCTAData, FAQItem } from './types';
@@ -2536,10 +2538,19 @@ async function searchOfficialSite(keyword: string, contentMode?: string, skipAct
      * PDF 든 그대로 채택됐다. 스마트 라우터가 "무엇을 하러 가는지"(action)를 이미 정해 두므로
      * 그 문장에서도 행동을 읽는다. ("근로장려금" → 라우터 action "근로장려금 신청" → 신청)
      */
+    /**
+     * v3.8.571 — 세 번째 근거로 **본문**을 본다.
+     *
+     * 제목·라우터에서 행동을 못 읽으면 검색어가 `"{제목} 공식 사이트"` 가 되고
+     * 홈페이지를 달라고 했으니 홈페이지가 온다. 실측에서 CTA 의 40% 가 그렇게 홈으로 갔다.
+     * 본문에는 대개 "어디서 무엇을 한다"가 적혀 있으므로 그것을 마지막 근거로 쓴다.
+     */
     const smartActionText = String((smartTargetIn as any)?.action || '');
     const actionIntent = (contentMode === 'shopping' || skipActionIntent)
       ? null
-      : (detectActionIntent(keyword) || (skipActionIntent ? null : detectActionIntent(smartActionText)));
+      : (detectActionIntent(keyword)
+        || detectActionIntent(smartActionText)
+        || detectActionIntentFromArticle(articleText || ''));
 
     /**
      * 🧭 v3.8.538 — 목적지를 AI 가 먼저 정한다 (사장님: "어떤 글이던지 스마트하게").
@@ -3263,14 +3274,19 @@ JSON만 출력:
             if (gate.severity === 'demote') {
               // 기관은 맞는데 행동 화면이 아니다 — 더 나은 걸 못 찾았을 때만 쓴다
               const weakDoc = detectDocumentCta(ctaData.url);
+              // v3.8.570: 최후 폴백도 목적지 기준으로 — 예전엔 글 제목을 갖다 썼다
+              const weakCopy = buildCtaCopy({
+                url: ctaData.url,
+                doc: weakDoc.isDoc ? { buttonText: weakDoc.btnText, hookingMessage: weakDoc.hookText } : null,
+              });
               weakCta = {
                 url: ctaData.url,
                 buttonText: weakDoc.isDoc
                   ? weakDoc.btnText
-                  : sanitizeCtaText(String(ctaData.buttonText || '')) || `🔗 ${keyword} 공식 사이트`,
+                  : sanitizeCtaText(String(ctaData.buttonText || '')) || weakCopy.buttonText,
                 hookingMessage: weakDoc.isDoc
                   ? weakDoc.hookText
-                  : sanitizeCtaText(String(ctaData.hookingMessage || '')) || `${keyword} 공식 화면에서 확인하세요.`,
+                  : sanitizeCtaText(String(ctaData.hookingMessage || '')) || weakCopy.hookingMessage,
                 why: gate.reasons.join(' · '),
               };
             }
@@ -3280,14 +3296,16 @@ JSON만 출력:
             // 📥 파일 다운로드 URL 감지 — AI가 반환한 텍스트보다 우선 (AI가 "사이트 바로가기"로 잘못 생성하는 케이스 방지)
             const doc = detectDocumentCta(ctaData.url);
             // 🎯 모드별 기본 버튼/훅 텍스트
+            // v3.8.570: 일반 모드 기본 문구를 목적지에서 만든다 (쇼핑·내부·재작성은 성격이 달라 그대로)
+            const modeCopy = buildCtaCopy({ url: ctaData.url });
             const modeDefaultButton = contentMode === 'shopping' ? `🛒 ${keyword} 최저가 확인`
               : contentMode === 'internal' ? `📚 ${keyword} 자세히 알아보기`
               : contentMode === 'paraphrasing' ? `🔍 ${keyword} 원문 확인하기`
-              : `🔗 ${keyword} 바로가기`;
+              : modeCopy.buttonText;
             const modeDefaultHook = contentMode === 'shopping' ? `실제 구매자들이 선택한 가격과 후기를 확인하세요!`
               : contentMode === 'internal' ? `더 깊이 있는 정보는 공식 자료에서 확인하세요`
               : contentMode === 'paraphrasing' ? `주제의 원 출처와 추가 자료를 살펴보세요`
-              : `${keyword}에 대해 더 알아보세요!`;
+              : modeCopy.hookingMessage;
             /**
              * ✍️ v3.8.542 — 문구 출처 우선순위 (사장님: "제목 그대로 하지말고 본문에서")
              *   1) 문서 URL → 다운로드 문구 (기존 규칙 유지, 최우선)
@@ -3364,16 +3382,24 @@ JSON만 출력:
     const cseSmartTarget = await ensureSmartTarget();
     const officialLink = await searchOfficialSite(keyword, contentMode, false, articleText, cseSmartTarget);
     if (officialLink) {
-      const shortKeyword = keyword.length > 15 ? keyword.split(/\s+/).slice(0, 2).join(' ') : keyword;
-      let btnText = `🔗 ${shortKeyword} 공식 사이트`;
-      let hookText = `${shortKeyword}에 대해 더 알아보세요!`;
+      // v3.8.570: 여기 있던 btnText/hookText 는 선언만 되고 쓰이지 않는 죽은 코드였다.
+      //   (아래 isCseValid 블록이 btnText2/hookText2 를 따로 만들어 쓴다)
+      //   하필 그게 제목을 잘라 쓰는 그 템플릿이라 같이 걷어냈다.
       // 🔀 하이브리드 검증
       const isCseValid = await hybridValidateCta(officialLink.url, keyword, 5000, contentMode);
       if (isCseValid) {
-        const shortKeyword2 = keyword.length > 15 ? keyword.split(/\s+/).slice(0, 2).join(' ') : keyword;
         const docCse = detectDocumentCta(officialLink.url);
-        let btnText2 = docCse.isDoc ? docCse.btnText : `🔗 ${shortKeyword2} 공식 사이트`;
-        let hookText2 = docCse.isDoc ? docCse.hookText : `${shortKeyword2}에 대해 더 알아보세요!`;
+        /**
+         * v3.8.570 — 기본 문구를 목적지 기준으로 바꿨다.
+         * 예전엔 `🔗 {제목 앞 두 단어} 공식 사이트` / `{제목 앞 두 단어}에 대해 더 알아보세요!` 였다.
+         * 제목을 잘라 쓰는 방식이라 "절차 관련 공식 정보를 확인하세요" 같은 조각이 나왔다(실물 5307).
+         */
+        const cseCopy = buildCtaCopy({
+          url: officialLink.url,
+          doc: docCse.isDoc ? { buttonText: docCse.btnText, hookingMessage: docCse.hookText } : null,
+        });
+        let btnText2 = cseCopy.buttonText;
+        let hookText2 = cseCopy.hookingMessage;
 
         // 🧭 v3.8.538: AI 가 정한 목적지면 버튼 문구도 그 상황에 맞게
         //   ("토지이음에서 용도지역 조회" — 키워드 정규식의 범용 문구보다 구체적)
@@ -3401,18 +3427,23 @@ JSON만 출력:
               btnText2 = '🛒 상품 정보 보기';
               hookText2 = '가격·스펙·후기까지 한눈에 확인하세요!';
             }
-          } else if (keyword.match(/신청|접수|등록|발급/)) {
-            btnText2 = '🚀 바로 신청하기';
-            hookText2 = '지금 바로 신청을 진행해보세요!';
-          } else if (keyword.match(/조회|확인|검색|계산/)) {
-            btnText2 = '🔍 바로 조회하기';
-            hookText2 = '간편하게 결과를 확인하세요.';
-          } else if (keyword.match(/예약|예매/)) {
-            btnText2 = '📅 바로 예약하기';
-            hookText2 = '매진되기 전에 빠르게 예약하세요!';
-          } else if (keyword.match(/보조금|지원금|지원사업|보조/)) {
-            btnText2 = '🚀 지원사업 신청하기';
-            hookText2 = '지금 바로 지원사업을 확인하고 신청하세요!';
+          } else {
+            /**
+             * v3.8.570 — 행동은 알겠는데 **어디서** 하는지를 안 말하던 자리.
+             * "🚀 바로 신청하기" / "지금 바로 신청을 진행해보세요!" — 목적지가 없다.
+             * 사장님 요구대로 목적지 이름을 넣는다: "위택스에서 신청" / "신청은 위택스에서…".
+             * 이름을 못 찾으면 buildCtaCopy 가 알아서 행동만 쓰는 문구로 내려간다.
+             */
+            const actionWord = keyword.match(/신청|접수|등록|발급/) ? '신청'
+              : keyword.match(/조회|확인|검색|계산/) ? '조회'
+              : keyword.match(/예약|예매/) ? '예약'
+              : keyword.match(/보조금|지원금|지원사업|보조/) ? '지원금 신청'
+              : '';
+            if (actionWord) {
+              const actionCopy = buildCtaCopy({ url: officialLink.url, action: actionWord });
+              btnText2 = actionCopy.buttonText;
+              hookText2 = actionCopy.hookingMessage;
+            }
           }
         }
 
@@ -3471,14 +3502,19 @@ JSON만 출력:
         const isCrawledValid = await hybridValidateCta(post.url || '', keyword, 5000, contentMode);
         if (isCrawledValid) {
           const docCrawled = detectDocumentCta(post.url || '');
+          // v3.8.570: 쇼핑·내부 모드는 성격이 달라 그대로 두고, 공식 사이트만 목적지 이름을 쓴다
+          const crawledCopy = buildCtaCopy({
+            url: post.url || '',
+            doc: docCrawled.isDoc ? { buttonText: docCrawled.btnText, hookingMessage: docCrawled.hookText } : null,
+          });
           const dlBtn = docCrawled.isDoc ? docCrawled.btnText
             : contentMode === 'shopping' ? '🛒 상품 페이지 보기'
             : contentMode === 'internal' ? '📚 공식 자료 보기'
-            : '🔗 공식 사이트 바로가기';
+            : crawledCopy.buttonText;
           const dlHook = docCrawled.isDoc ? docCrawled.hookText
             : contentMode === 'shopping' ? '가격과 실구매 후기를 확인하세요!'
             : contentMode === 'internal' ? '신뢰할 수 있는 공식 자료를 확인하세요'
-            : '정확한 정보는 공식 사이트에서 확인하세요!';
+            : crawledCopy.hookingMessage;
           safeCTAs.push({
             hookingMessage: dlHook,
             buttonText: dlBtn,
@@ -3510,8 +3546,18 @@ JSON만 출력:
       const catalogValid = await hybridValidateCta(catalogLink.url, keyword, 5000, contentMode);
       if (catalogValid) {
         const docCatalog = detectDocumentCta(catalogLink.url);
-        const btnText = docCatalog.isDoc ? docCatalog.btnText : `🔗 ${catalogLink.name} 바로가기`;
-        const hookText = docCatalog.isDoc ? docCatalog.hookText : `${keyword} 관련 공식 정보를 확인하세요.`;
+        /**
+         * v3.8.570 — 여기가 "따로 놀던" 자리다.
+         * 버튼은 catalogLink.name(목적지)을, 훅은 keyword(글 제목)를 말하고 있었다.
+         * 이제 둘 다 목적지에서 나온다.
+         */
+        const copy = buildCtaCopy({
+          url: catalogLink.url,
+          siteName: catalogLink.name,
+          doc: docCatalog.isDoc ? { buttonText: docCatalog.btnText, hookingMessage: docCatalog.hookText } : null,
+        });
+        const btnText = copy.buttonText;
+        const hookText = copy.hookingMessage;
         safeCTAs.push({
           hookingMessage: hookText,
           buttonText: btnText,
@@ -3686,15 +3732,21 @@ JSON만 출력:
     if (matched) {
       const intent = detectIntent(keyword);
       const fallbackUrl = intent === 'action' ? matched.actionUrl : (matched.infoUrl || matched.actionUrl);
+      /**
+       * v3.8.570 — 이 표(OFFICIAL_FALLBACK_SITES)에는 주소만 있고 **사이트 이름이 없다.**
+       * 그래서 예전엔 훅도 버튼도 글 제목을 갖다 썼다("🔗 {제목} 공식 사이트").
+       * 이제 주소에서 이름을 찾아 쓴다 — 못 찾으면 무난한 문구로 내려간다.
+       */
+      const copy = buildCtaCopy({ url: fallbackUrl });
       safeCTAs.push({
-        hookingMessage: `${keyword} 관련 공식 사이트에서 정확한 정보를 확인하세요`,
-        buttonText: `🔗 ${keyword} 공식 사이트`,
+        hookingMessage: copy.hookingMessage,
+        buttonText: copy.buttonText,
         url: fallbackUrl,
         position: 1,
         type: 'link',
         design: 'button',
-        text: `🔗 ${keyword} 공식 사이트`,
-        hook: `${keyword} 관련 공식 사이트에서 정확한 정보를 확인하세요`,
+        text: copy.buttonText,
+        hook: copy.hookingMessage,
         searchFallback: false,
       });
       console.log(`[CTA] 🎯 공식 사이트 매핑 fallback (${intent}): ${fallbackUrl}`);

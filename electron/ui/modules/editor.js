@@ -190,6 +190,8 @@ function ensureEditorModal() {
       <!-- 💰 v3.8.482: 수동 광고 자리. 자동 광고는 위치를 못 고르므로 직접 찍는다. -->
       <select id="veAdUnitSelect" style="${BTN_BASE}background:#0f172a;color:#e2e8f0;border:1px solid #475569;max-width:150px;" title="넣을 광고 단위를 고르세요"></select>
       <button id="veInsertAdBtn" style="${BTN_BASE}background:#7c3aed;color:#ede9fe;" title="커서 위치에 광고 자리를 넣습니다 (발행 시 실제 광고 코드로 바뀝니다)">💰 광고</button>
+      <!-- 🔘 v3.8.570: 사장님 "미리보기 및 수정에 버튼생성이있으면 좋겠는데" -->
+      <button id="veInsertCtaBtn" style="${BTN_BASE}background:#0ea5e9;color:#e0f2fe;" title="커서 위치에 CTA 버튼을 넣습니다 (주소를 넣으면 문구는 자동으로 채워집니다)">🔘 버튼</button>
 
       <span style="${DIVIDER}"></span>
       <span style="${GROUP_LABEL}">되돌리기</span>
@@ -319,7 +321,7 @@ function ensureEditorModal() {
   const toolbar = modalRefs.overlay.querySelector('#veToolbar');
   if (toolbar) {
     toolbar.addEventListener('mousedown', (e) => {
-      if (e.target?.closest?.('#veInsertImageBtn, #veInsertAdBtn')) e.preventDefault();
+      if (e.target?.closest?.('#veInsertImageBtn, #veInsertAdBtn, #veInsertCtaBtn')) e.preventDefault();
     });
   }
 
@@ -371,6 +373,43 @@ function ensureEditorModal() {
     const doc = getFrameDoc();
     if (doc) insertImagesAtCaret(doc);
   });
+
+  /**
+   * 🔘 v3.8.570 — 커서 위치에 CTA 버튼을 넣는다.
+   *
+   * 사장님: "생성된 글목록에서 미리보기 및 수정에 버튼생성이있으면 좋겠는데"
+   *
+   * HTML 은 여기서 안 만든다. 발행 때 쓰는 renderFinalCtaBlock 을 IPC 로 부른다 —
+   * UI 에 한 벌 더 적어 두면 생성된 버튼과 손으로 넣은 버튼이 서로 달라진다.
+   */
+  const ctaBtn = modalRefs.overlay.querySelector('#veInsertCtaBtn');
+  if (ctaBtn) {
+    ctaBtn.addEventListener('click', async () => {
+      const doc = getFrameDoc();
+      if (!doc) return;
+      const picked = await askCtaDetails();
+      if (!picked) return;
+      const res = await window.electronAPI.invoke('cta-render-block', picked).catch((e) => ({ ok: false, error: e?.message }));
+      if (!res?.ok) {
+        setStatus(`❌ 버튼을 만들지 못했습니다: ${res?.error || '알 수 없는 오류'}`);
+        return;
+      }
+      const atCaret = insertHtmlAtCaret(doc, `<div class="bgpt-cta-new">${res.html}</div>`);
+      // 광고 넣기와 같은 이유 — 글 중간이면 화면 밖이라 넣고도 안 보인다
+      try {
+        const fresh = doc.querySelectorAll('.bgpt-cta-new');
+        const target = fresh[fresh.length - 1];
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => {
+          // 감싼 div 는 표시용일 뿐이라 벗겨 낸다 — 발행 HTML 에 군더더기를 남기지 않는다
+          fresh.forEach((el) => { el.replaceWith(...el.childNodes); });
+        }, 2000);
+      } catch { /* 스크롤 실패가 삽입을 되돌릴 이유는 없다 */ }
+      setStatus(atCaret
+        ? `버튼을 커서 위치에 넣었습니다 — ${res.buttonText}`
+        : `버튼을 글 끝에 넣었습니다(커서 위치를 찾지 못했습니다) — ${res.buttonText}`);
+    });
+  }
 
   /**
    * ✍️ v3.8.440 — 서식 도구 배선.
@@ -427,6 +466,101 @@ function ensureEditorModal() {
 
 function setStatus(text) {
   if (modalRefs?.status) modalRefs.status.textContent = text || '';
+}
+
+/**
+ * 🔘 v3.8.570 — 넣을 버튼의 주소와 문구를 묻는다.
+ *
+ * 주소를 넣으면 문구는 **자동으로 채워진다**(wetax.go.kr → "위택스 바로가기").
+ * 문구를 직접 적으면 그게 이긴다 — 자동은 빈칸을 메우는 역할이다.
+ *
+ * 취소하면 null 을 돌려준다. prompt() 를 안 쓰는 이유는 세 칸을 한 번에 받아야 하고,
+ * 주소를 넣는 즉시 제안 문구를 보여줘야 하기 때문이다.
+ */
+function askCtaDetails() {
+  return new Promise((resolve) => {
+    const prev = document.getElementById('veCtaDialog');
+    if (prev) prev.remove();
+
+    const wrap = document.createElement('div');
+    wrap.id = 'veCtaDialog';
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(2,6,23,.72);'
+      + 'display:flex;align-items:center;justify-content:center;padding:24px;';
+    const field = 'width:100%;padding:10px 12px;border:1px solid #475569;border-radius:9px;'
+      + 'background:#0f172a;color:#f1f5f9;font-size:13.5px;box-sizing:border-box;';
+    wrap.innerHTML = `
+      <div style="width:min(94vw,520px);background:#1e293b;border:1px solid #334155;border-radius:14px;padding:22px;box-shadow:0 24px 64px rgba(0,0,0,.55);">
+        <div style="font-size:15px;font-weight:800;color:#e2e8f0;margin-bottom:4px;">🔘 버튼 넣기</div>
+        <div style="font-size:12px;color:#94a3b8;margin-bottom:16px;">주소를 넣으면 문구는 자동으로 채워집니다. 직접 적으면 적은 것이 우선입니다.</div>
+
+        <label style="display:block;font-size:12px;font-weight:800;color:#cbd5e1;margin-bottom:5px;">보낼 주소 <span style="color:#f87171;">*</span></label>
+        <input id="veCtaUrl" type="url" placeholder="https://www.wetax.go.kr/" style="${field}" />
+        <div id="veCtaSite" style="font-size:11.5px;color:#38bdf8;margin:6px 0 14px;min-height:16px;"></div>
+
+        <label style="display:block;font-size:12px;font-weight:800;color:#cbd5e1;margin-bottom:5px;">버튼 문구</label>
+        <input id="veCtaBtnText" type="text" placeholder="(비우면 자동)" style="${field}" />
+
+        <label style="display:block;font-size:12px;font-weight:800;color:#cbd5e1;margin:14px 0 5px;">버튼 위 한 줄</label>
+        <input id="veCtaHook" type="text" placeholder="(비우면 자동)" style="${field}" />
+
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px;">
+          <button id="veCtaCancel" style="padding:9px 16px;border:1px solid rgba(255,255,255,.14);border-radius:9px;background:rgba(255,255,255,.06);color:#cbd5e1;font-size:13px;font-weight:700;cursor:pointer;">취소</button>
+          <button id="veCtaOk" style="padding:9px 20px;border:none;border-radius:9px;background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;font-size:13px;font-weight:800;cursor:pointer;">넣기</button>
+        </div>
+      </div>`;
+
+    const urlInput = wrap.querySelector('#veCtaUrl');
+    const siteHint = wrap.querySelector('#veCtaSite');
+    const btnInput = wrap.querySelector('#veCtaBtnText');
+    const hookInput = wrap.querySelector('#veCtaHook');
+
+    const close = (value) => {
+      document.removeEventListener('keydown', onKey);
+      wrap.remove();
+      resolve(value);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') close(null);
+      else if (e.key === 'Enter' && e.target !== btnInput && e.target !== hookInput) submit();
+    };
+    const submit = () => {
+      const url = String(urlInput.value || '').trim();
+      if (!/^https?:\/\//i.test(url)) {
+        siteHint.textContent = '⚠️ http:// 또는 https:// 로 시작하는 주소를 넣어주세요.';
+        siteHint.style.color = '#f87171';
+        urlInput.focus();
+        return;
+      }
+      close({
+        url,
+        buttonText: String(btnInput.value || '').trim(),
+        hook: String(hookInput.value || '').trim(),
+      });
+    };
+
+    // 주소를 넣는 즉시 어디로 가는지 알려주고 문구를 채운다 (빈칸일 때만)
+    let suggestTimer = null;
+    urlInput.addEventListener('input', () => {
+      clearTimeout(suggestTimer);
+      suggestTimer = setTimeout(async () => {
+        const url = String(urlInput.value || '').trim();
+        if (!/^https?:\/\//i.test(url)) { siteHint.textContent = ''; return; }
+        const res = await window.electronAPI.invoke('cta-suggest-copy', { url }).catch(() => null);
+        if (!res?.ok) { siteHint.textContent = ''; return; }
+        siteHint.style.color = '#38bdf8';
+        siteHint.textContent = res.siteName ? `🧭 ${res.siteName} 로 보냅니다` : '🧭 아는 기관이 아니라 무난한 문구로 나갑니다';
+        if (!btnInput.value.trim()) btnInput.placeholder = res.buttonText;
+        if (!hookInput.value.trim()) hookInput.placeholder = res.hookingMessage;
+      }, 350);
+    });
+
+    wrap.querySelector('#veCtaOk').addEventListener('click', submit);
+    wrap.querySelector('#veCtaCancel').addEventListener('click', () => close(null));
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) close(null); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(wrap);
+    urlInput.focus();
+  });
 }
 
 /**

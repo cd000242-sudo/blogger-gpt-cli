@@ -13387,6 +13387,54 @@ ipcMain.handle('kakao-channel-autopost', async (_evt, payload: any) => {
   }
 });
 
+/**
+ * 🔘 v3.8.570 — 편집기에서 손으로 CTA 버튼을 넣는다.
+ *
+ * 사장님: "생성된 글목록에서 미리보기 및 수정에 버튼생성이있으면 좋겠는데"
+ *
+ * ⚠️ HTML 을 UI 쪽에 한 벌 더 적지 않는다. 발행 때 쓰는 renderFinalCtaBlock 을
+ *    그대로 호출한다 — 두 벌이면 스타일이 갈라지고, 갈라지면 결국 따로 논다.
+ *    문구도 같은 이유로 buildCtaCopy 를 쓴다(주소만 주면 "위택스 바로가기"가 나온다).
+ */
+ipcMain.handle('cta-render-block', async (_evt, payload: any) => {
+  try {
+    const url = String(payload?.url || '').trim();
+    if (!/^https?:\/\//i.test(url)) {
+      return { ok: false, error: 'CTA 주소는 http:// 또는 https:// 로 시작해야 합니다.' };
+    }
+    const { buildCtaCopy, siteNameFromUrl } = require('../src/cta/cta-copy');
+    const { renderFinalCtaBlock } = require('../src/core/final/orchestration');
+
+    const auto = buildCtaCopy({ url, action: String(payload?.action || '').trim() || undefined });
+    // 사장님이 직접 적은 문구가 있으면 그게 이긴다 — 자동 문구는 빈칸을 채울 뿐이다
+    const buttonText = String(payload?.buttonText || '').trim() || auto.buttonText;
+    const hook = String(payload?.hook || '').trim() || auto.hookingMessage;
+
+    return {
+      ok: true,
+      html: renderFinalCtaBlock({ hook, buttonText, url, badge: String(payload?.badge || '').trim() || undefined }),
+      siteName: siteNameFromUrl(url),
+      buttonText,
+      hook,
+    };
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 300) };
+  }
+});
+
+/** 주소만 보고 문구를 제안한다 — 편집기에서 주소를 붙여넣는 순간 채워 준다 */
+ipcMain.handle('cta-suggest-copy', async (_evt, payload: any) => {
+  try {
+    const url = String(payload?.url || '').trim();
+    if (!/^https?:\/\//i.test(url)) return { ok: false, error: '주소 형식이 아닙니다' };
+    const { buildCtaCopy, siteNameFromUrl } = require('../src/cta/cta-copy');
+    const copy = buildCtaCopy({ url, action: String(payload?.action || '').trim() || undefined });
+    return { ok: true, siteName: siteNameFromUrl(url), ...copy };
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  }
+});
+
 ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload: any) => {
   try {
     // v3.8.38: 무료 체험은 글포스팅만 허용 — 외부유입 변환 차단

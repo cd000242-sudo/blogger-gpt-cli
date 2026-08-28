@@ -112,8 +112,16 @@ describe('배선', () => {
     expect(editorSource).toContain('collapseAdBlocks(rawBodyHtml)');
   });
 
+  /**
+   * v3.8.571: 가드 목록에 CTA 버튼(#veInsertCtaBtn)이 더해졌다.
+   * 지키려는 것은 그대로다 — **삽입 계열 버튼은 전부** 커서 유실 가드를 받아야 한다.
+   * 문자열을 통째로 비교하면 버튼이 늘 때마다 깨지므로, 셋이 다 들었는지만 본다.
+   */
   it('광고 버튼도 커서 유실 가드를 받는다', () => {
-    expect(editorSource).toContain("closest?.('#veInsertImageBtn, #veInsertAdBtn')");
+    const guard = (editorSource.match(/closest\?\.\('([^']*veInsert[^']*)'\)/) || [])[1] || '';
+    expect(guard).toContain('#veInsertImageBtn');
+    expect(guard).toContain('#veInsertAdBtn');
+    expect(guard).toContain('#veInsertCtaBtn');
   });
 
   it('커서 삽입 헬퍼를 이미지와 공유한다 (되돌리기도 함께)', () => {

@@ -83,6 +83,47 @@ export function detectActionIntent(keyword: string): ActionIntent | null {
   }
 }
 
+/**
+ * v3.8.571 — 제목에 행동어가 없으면 **본문**에서 읽는다.
+ *
+ * ## 왜
+ * 실측(2026-08-28, leadernam.com 253편): CTA 가 기관 **홈으로만** 가는 글이 40%.
+ * 근본 원인이 여기였다. detectActionIntent 는 제목만 봤고, 제목에 행동어가 없으면
+ * null 이 된다. null 이면 검색어가 `"{제목} 공식 사이트"` 가 되고,
+ * **홈페이지를 달라고 했으니 홈페이지가 온다.**
+ *
+ * 예: "실업급여 부정수급이 아닌데 반환 통보를 받았다면"
+ *     제목에 행동어 없음 → null → 고용24 **홈**
+ *     그런데 본문에는 이렇게 적혀 있었다:
+ *     "고용24에서 온라인 심사청구서를 **제출**해 소명할 수 있습니다"
+ *
+ * ## 첫 일치가 아니라 최다 일치를 쓴다
+ * 본문은 길어서 온갖 낱말이 섞인다. 처음 걸리는 것을 집으면 지나가는 말에 끌려간다.
+ * 세어 보고 가장 많이 나온 행동을, 그것도 **문턱을 넘을 때만** 쓴다.
+ */
+const ARTICLE_MIN_HITS = 3;
+
+export function detectActionIntentFromArticle(articleText: string): ActionIntent | null {
+  try {
+    const text = String(articleText || '').replace(/<[^>]+>/g, ' ').slice(0, 12000);
+    if (text.length < 200) return null;
+    if (SHOPPING_LIKE.test(text.slice(0, 400))) return null;
+
+    const counts = new Map<ActionIntent, number>();
+    for (const { intent, words } of EXPLICIT) {
+      const re = new RegExp(words.source, 'g');
+      const n = (text.match(re) || []).length;
+      if (n) counts.set(intent, (counts.get(intent) || 0) + n);
+    }
+    if (!counts.size) return null;
+
+    const [best, hits] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]!;
+    return hits >= ARTICLE_MIN_HITS ? best : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 행동별로 실제 그 화면에 붙는 말 — 기관 사이트가 버튼에 쓰는 표현을 따라간다 */
 const QUERY_SUFFIX: Record<ActionIntent, string> = {
   신청: '온라인 신청 바로가기',

@@ -61,6 +61,53 @@ function textOf(html: string): string {
     .replace(/<style[\s\S]*?<\/style>/gi, ' ');
 }
 
+/**
+ * v3.8.571 — 200 을 주면서 "그런 페이지 없다"고 말하는 화면.
+ *
+ * ## 실측 근거 (2026-08-28)
+ * 발행된 글에 이 주소가 버젓이 박혀 있었다:
+ *   https://www.fss.or.kr/fss/cv/cnslt/disptMain.do?menuNo=200004
+ *   → HTTP 200, 제목 "금융감독원 통합홈페이지- 에러페이지", 본문 82자
+ *     "페이지가 없거나 잘못된 경로 입니다."
+ *
+ * 상태코드만 보는 검증은 이걸 못 잡는다. 홈 판정도 못 잡는다(경로가 있으니까).
+ * 기관 검사도 못 잡는다 — **에러 페이지에도 기관 이름이 적혀 있다.**
+ * 그래서 기관 검사보다 **먼저** 물어야 한다.
+ *
+ * ## demote 가 아니라 reject 인 이유
+ * 홈은 최소한 진짜 목적지다("다시 찾아라"일 뿐). 에러 페이지는 목적지가 아니다.
+ * 미뤄 뒀다가 나중에 쓰면 독자가 빈 화면을 본다. 버튼이 없는 편이 낫다.
+ */
+/** 이것만으로 확정 — 다른 뜻으로 쓰일 일이 없는 제목 */
+const ERROR_TITLE_STRONG = /에러\s*페이지|오류\s*페이지|error\s*page|page\s*not\s*found|404\s*(error|not)/i;
+
+/**
+ * 홀로 선 "Error"·"오류" — 실측 제목이 이랬다("정책브리핑 - Error", "페이지 오류").
+ * 다만 "오류 신고", "에러 코드 안내" 같은 멀쩡한 페이지도 있으므로
+ * **본문이 짧을 때만** 에러로 본다.
+ */
+const ERROR_TITLE_WEAK = /(^|[\s\-–—|·:])(에러|오류|error)([\s\-–—|·:]|$)/i;
+
+const ERROR_PAGE_TEXT =
+  /페이지가 없거나|잘못된 경로|페이지를 찾을 수 없|요청하신 (페이지|자료|주소)|존재하지 않는 (페이지|주소)|삭제되었거나|서비스가 종료|일시적인 오류|Not Found|Bad Request|Access Denied|Forbidden/i;
+
+/** 에러 화면은 짧다 — 실측 82자. 긴 페이지를 같은 낱말로 떨어뜨리면 멀쩡한 걸 버린다 */
+const SHORT_BODY = 500;
+
+export function looksLikeErrorPage(title: string, text: string): boolean {
+  const t = String(title || '');
+  const body = String(text || '').replace(/\s+/g, ' ').trim();
+  if (ERROR_TITLE_STRONG.test(t)) return true;
+  if (body.length >= SHORT_BODY) return false;   // 내용이 있으면 에러가 아니다
+  return ERROR_TITLE_WEAK.test(t) || ERROR_PAGE_TEXT.test(body);
+}
+
+/** <title> 만 뽑는다 — 에러 판정은 제목이 가장 정확했다 */
+function titleOf(html: string): string {
+  const m = String(html || '').match(/<title[^>]*>([\s\S]{0,200}?)<\/title>/i);
+  return String(m?.[1] || '').replace(/\s+/g, ' ').trim();
+}
+
 /** 이 글이 지목한 기관과 같은 곳인가 — 주소로도, 페이지 글자로도 본다 */
 function agencyHit(url: string, text: string, agencies: string[]): string | null {
   for (const agency of agencies) {
@@ -126,6 +173,20 @@ export async function gateCtaDestination(input: {
   }
 
   const text = textOf(page.html);
+
+  /**
+   * ①-b 살아있는 척하는 에러 페이지 — 기관 검사보다 먼저 묻는다.
+   *   에러 화면에도 기관 이름이 박혀 있어 뒤에 두면 통과해버린다(실측 사례가 그랬다).
+   */
+  if (looksLikeErrorPage(titleOf(page.html), text)) {
+    return {
+      ok: false,
+      severity: 'reject',
+      score: 0,
+      reasons: ['HTTP 200 이지만 "없는 페이지" 화면 — 눌러도 아무것도 못 한다'],
+    };
+  }
+
   const hitAgency = agencies.length ? agencyHit(finalUrl, text, agencies) : null;
 
   // ② 기관 오배송 — 글이 지목한 기관이 있는데 그 흔적이 어디에도 없다

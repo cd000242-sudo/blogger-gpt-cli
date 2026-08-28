@@ -18,6 +18,8 @@ import { runImageGenerationQueued } from '../image-generation-queue';
 import '../content-modes/register-all'; // 5개 모드 플러그인 자동 등록
 import { generateContentFromUrl, generateContentFromUrls } from '../url-content-generator';
 import { validateCtaUrl, validateCtaUrlFormat } from '../../cta/validate-cta-url';
+// v3.8.570: 버튼·훅을 같은 자리에서 만들고, 제목을 되풀이하는 훅은 나가기 전에 걸러 낸다
+import { buildCtaCopy, hookEchoesTitle } from '../../cta/cta-copy';
 import { findRelatedPosts, insertInternalLinks } from '../internal-links';
 import { analyzeKeywordDemand } from '../keyword-demand';
 import { analyzeKeywordAngle, composeTitleDirective } from '../keyword-angle';
@@ -200,17 +202,38 @@ function pickRenderableCta<T extends { url: string; searchFallback?: boolean }>(
   });
 }
 
+/**
+ * CTA 하나를 렌더 가능한 모양으로.
+ *
+ * v3.8.570 — 여기가 **모든 CTA 가 지나는 마지막 문**이다. 그래서 그물을 여기 친다.
+ *
+ * CTA 를 만드는 경로가 12개나 되고 그중 몇은 훅에 글 제목을 그대로 박았다.
+ *   실물: "오피스텔 이미 샀다면, 8·26 취득세 감면안 소급되나요? 관련 공식 사이트에서…"
+ *         "절차 관련 공식 정보를 확인하세요👇"   ← 긴 제목이 잘려 남은 조각
+ * 경로를 하나씩 쫓는 대신 나가기 직전에 걸러 낸다. 새 경로가 생겨도 못 빠져나간다.
+ *
+ * 제목을 되풀이하면 버튼과 같은 목적지를 말하는 문장으로 바꿔 끼운다 —
+ * 사장님 말대로 "wetax 면 위택스 바로가기" 꼴로 버튼과 훅이 한 몸이 된다.
+ */
 function toRenderableCtaCandidate(
   cta: FinalCTAData,
   fallbackHook: string,
   fallbackButton: string,
   label?: string,
+  articleTitle?: string,
 ): RenderableCtaCandidate {
-  const candidate: RenderableCtaCandidate = {
-    hookingMessage: cta.hookingMessage || fallbackHook,
-    buttonText: cta.buttonText || fallbackButton,
-    url: cta.url,
-  };
+  let hookingMessage = cta.hookingMessage || fallbackHook;
+  let buttonText = cta.buttonText || fallbackButton;
+
+  if (articleTitle && hookEchoesTitle(hookingMessage, articleTitle)) {
+    const repaired = buildCtaCopy({ url: cta.url });
+    console.log(`[CTA] 🧹 훅이 제목을 되풀이해 목적지 문구로 교체: "${hookingMessage.slice(0, 40)}…" → "${repaired.hookingMessage}"`);
+    hookingMessage = repaired.hookingMessage;
+    // 버튼도 제목을 쓰고 있었다면 같이 맞춘다 — 둘이 따로 놀면 안 된다
+    if (hookEchoesTitle(buttonText, articleTitle)) buttonText = repaired.buttonText;
+  }
+
+  const candidate: RenderableCtaCandidate = { hookingMessage, buttonText, url: cta.url };
   if (label) candidate.label = label;
   if (cta.searchFallback === true) candidate.searchFallback = true;
   return candidate;
@@ -229,7 +252,12 @@ function escapeHtmlAttr(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-function renderFinalCtaBlock(input: {
+/**
+ * v3.8.570 — export 로 연다.
+ * 편집기에서 손으로 넣는 버튼도 **이 함수**를 거치게 하기 위해서다.
+ * UI 쪽에 HTML 을 한 벌 더 적어 두면 스타일이 갈라지고, 갈라지면 결국 따로 논다.
+ */
+export function renderFinalCtaBlock(input: {
   badge?: string;
   hook?: string;
   buttonText?: string;
@@ -4344,7 +4372,11 @@ ${quoted}
       console.log('[MAX-MODE] 🛒 쇼핑 글 상단 CTA(텍스트 버튼) 생략 — 이미지 포함 카드가 같은 자리를 대신한다');
     } else {
       const topCandidates: RenderableCtaCandidate[] = [
-        ...ctas.map(c => toRenderableCtaCandidate(c, `${keyword} 핵심 정보 바로가기`, '자세히 보기', '핵심')),
+        // v3.8.570: 폴백 문구도 목적지에서 만든다 — 예전 폴백은 글 제목을 앞에 붙인 문장이었다
+        ...ctas.map((c) => {
+          const fb = buildCtaCopy({ url: c.url });
+          return toRenderableCtaCandidate(c, fb.hookingMessage, fb.buttonText, '핵심', keyword);
+        }),
         ...supplementalCtas
       ];
       const topCta = pickRenderableCta(topCandidates, renderedCtaUrls);
@@ -4462,7 +4494,10 @@ ${conclusionHTML}
       console.log('[MAX-MODE] 🛒 쇼핑 글 — 하단 CTA 생략 (구매 버튼은 insertCtaCards 가 글 끝에 이미 배치)');
     } else if (contentMode !== 'adsense') {
       const finalCandidates: RenderableCtaCandidate[] = [
-        ...ctas.map(c => toRenderableCtaCandidate(c, `${keyword} 핵심 정보 바로가기`, '자세히 보기')),
+        ...ctas.map((c) => {
+          const fb = buildCtaCopy({ url: c.url });
+          return toRenderableCtaCandidate(c, fb.hookingMessage, fb.buttonText, undefined, keyword);
+        }),
         ...supplementalCtas
       ];
       const finalCta = pickRenderableCta(finalCandidates, renderedCtaUrls);
