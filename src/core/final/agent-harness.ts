@@ -28,6 +28,9 @@ import { isDiscoverMode, buildDiscoverTitleDirective, buildDiscoverBodyBlock, fi
 import { buildModeStructureBlock } from './agent-mode-structure';
 import { buildResearchDirective } from './agent-research';
 import { buildOperatorBrief, MODE_LABELS } from './agent-operator';
+// v3.8.577: API 경로와 같은 눈으로 본다 — 둘 다 무료 로컬 연산이라 에이전트 모드에 써도 된다
+import { findStructureIssues } from './structure-guard';
+import { hasAdTracking, isUserGeneratedUrl } from '../../cta/host-trust';
 
 export interface AgentHarnessInput {
   keyword: string;
@@ -173,6 +176,40 @@ export interface AgentArticleReport {
   emptyBlocks: number;
   /** 디스커버 정책에 걸리는 제목 표현 — 검색 모드에서는 늘 빈 배열 */
   titleViolations: string[];
+  /** v3.8.577 — 열거 구멍·앞 잘린 문단·과한 단정 */
+  structureIssues: number;
+  /** v3.8.577 — 광고 랜딩·타 블로그로 나가는 링크 */
+  badLinks: number;
+}
+
+/**
+ * v3.8.577 — 에이전트가 만든 링크를 본다.
+ *
+ * ## 왜 필요한가
+ * API 경로는 `judgeCtaHost` 가 목적지를 거른다. 그런데 **에이전트 모드는 그 관문을 안 탄다** —
+ * 지시서에 "CTA: …" 한 줄만 주고 링크는 에이전트가 알아서 고른다.
+ * 그래서 API 쪽에서 막은 것들이 이쪽으로 그대로 새어 나간다:
+ *   · 광고 랜딩(utm_·n_ad·gclid) — 광고주 예산을 태우고 캠페인이 끝나면 죽는다
+ *   · 블로그·카페 — 사장님 규칙: 타 블로그로 트래픽을 보내지 않는다(허브글이 없다)
+ *
+ * 전부 **무료 로컬 연산**이다. 에이전트 모드는 구독 CLI 를 쓰려고 고른 모드라
+ * 후처리에서 유료 API 를 부르면 안 된다.
+ */
+function findBadOutboundLinks(html: string, ownHost = 'leadernam.com'): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const m of String(html || '').matchAll(/<a\s[^>]*href="(https?:\/\/[^"]+)"/gi)) {
+    const url = String(m[1]).replace(/&amp;/g, '&');
+    let host = '';
+    try { host = new URL(url).hostname.toLowerCase(); } catch { continue; }
+    if (host.replace(/^www\./, '').endsWith(ownHost)) continue;
+    if (seen.has(url)) continue;
+    seen.add(url);
+
+    if (hasAdTracking(url)) out.push(`광고 랜딩 링크: ${host}`);
+    else if (isUserGeneratedUrl(url)) out.push(`블로그·카페 링크: ${host}`);
+  }
+  return [...new Set(out)];
 }
 
 export interface AgentArticleOptions {
@@ -241,7 +278,30 @@ export function postProcessAgentArticle(html: string, options?: AgentArticleOpti
     }
   } catch { /* 진단 실패는 무시한다 */ }
 
-  return { html: out, warnings, valuePromises, emptyBlocks, titleViolations };
+  /**
+   * v3.8.577 — 구조 검사. **API 경로와 같은 눈**으로 본다.
+   * 열거 구멍("2·3·4세대는 있는데 1세대가 없다")·앞 잘린 문단·과한 단정.
+   * AI 를 부르지 않는 로컬 연산이라 에이전트 모드 원칙(유료 호출 금지)에 어긋나지 않는다.
+   */
+  let structureIssues = 0;
+  try {
+    const issues = findStructureIssues(out);
+    structureIssues = issues.length;
+    issues.forEach((i) => warnings.push(i.detail));
+  } catch { /* 진단 실패는 무시한다 */ }
+
+  /**
+   * v3.8.577 — 링크 검사.
+   * 에이전트는 judgeCtaHost 관문을 안 타므로 광고 랜딩·타 블로그가 그대로 나갈 수 있다.
+   */
+  let badLinks = 0;
+  try {
+    const bad = findBadOutboundLinks(out);
+    badLinks = bad.length;
+    bad.forEach((b) => warnings.push(`${b} — 광고 랜딩은 광고주 예산을 태우고, 타 블로그는 트래픽이 새어 안 돌아옵니다`));
+  } catch { /* 진단 실패는 무시한다 */ }
+
+  return { html: out, warnings, valuePromises, emptyBlocks, titleViolations, structureIssues, badLinks };
 }
 
 /** 에이전트가 만든 FAQ 배열에도 같은 규칙을 적용한다 */

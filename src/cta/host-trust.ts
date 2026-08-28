@@ -69,8 +69,21 @@ const USER_GENERATED_PATTERNS: RegExp[] = [
   /(^|\.)pinterest\./i, /(^|\.)tumblr\.com$/i,
 ];
 
-function isUserGenerated(host: string): boolean {
+/**
+ * 블로그·카페·커뮤니티·SNS 인가.
+ *
+ * v3.8.576 — export 로 연다. CTA 목적지 판정뿐 아니라 **근거 수집**에서도 같은 기준이 필요하다.
+ * 사장님: "블로그로 하면 그 블로그가 잘못된 정보면 그대로 통과가 되어버리니까."
+ * 두 곳이 다른 목록을 쓰면 한쪽만 막히고 다른 쪽으로 새어 들어온다.
+ */
+export function isUserGenerated(host: string): boolean {
   return USER_GENERATED_PATTERNS.some((p) => p.test(host));
+}
+
+/** 주소에서 호스트를 뽑아 블로그·커뮤니티인지 본다 (근거 수집에서 쓴다) */
+export function isUserGeneratedUrl(url: string): boolean {
+  const host = hostOf(url);
+  return host ? isUserGenerated(host) : false;
 }
 
 /** 링크 단축·중계·집계처럼 최종 목적지를 감추는 도메인 */
@@ -101,8 +114,61 @@ function isCatalogHost(host: string): boolean {
 }
 
 /** 기관·공공 도메인인가 */
+/**
+ * v3.8.574 — 도메인 **자체**가 접미사인 경우도 받는다.
+ *
+ * hostOf 가 `www.` 를 떼기 때문에 `www.gov.kr` → `gov.kr` 이 되는데,
+ * `'gov.kr'.endsWith('.gov.kr')` 는 false 다. 그래서 **정부24가 공공기관으로 안 잡혔다.**
+ * 지금까지는 카탈로그(isCatalogHost)가 가려 주고 있어서 안 드러났다.
+ */
 function isInstitutional(host: string): boolean {
-  return INSTITUTIONAL_SUFFIXES.some((suffix) => host.endsWith(suffix));
+  return INSTITUTIONAL_SUFFIXES.some((suffix) => host.endsWith(suffix) || host === suffix.slice(1));
+}
+
+/**
+ * 광고 추적 파라미터가 붙은 주소 — **광고 랜딩 페이지**다. (v3.8.574)
+ *
+ * ## 실제 사고 (2026-08-28, 사장님이 LLM 비평으로 발견)
+ * "도수치료 실비보험 청구 거절" 글의 CTA 가 이랬다:
+ *   https://www.lawthedream.com/insurance?utm_source=naver&utm_medium=cpc
+ *     &n_media=27758&n_query=보험사부지급&n_rank=1&n_ad_group=grp-...
+ * 사설 법률업체의 **네이버 파워링크 광고 랜딩**인데 배지는 "공식 권장" 이었다.
+ *
+ * 세 가지가 동시에 잘못이다:
+ *   1. 사설 업체를 공식이라고 표기했다 — 독자를 속인다
+ *   2. 광고 랜딩으로 보내면 **광고주 예산을 태운다** (클릭당 과금)
+ *   3. 광고 URL 은 캠페인이 끝나면 죽는다 — 링크가 썩는다
+ *
+ * 검색 결과에 광고 슬롯이 섞여 들어온 것이므로, 파라미터를 떼어내는 게 아니라
+ * **후보에서 버린다.** 광고에서 온 주소는 애초에 유기적 공식 결과가 아니다.
+ */
+const AD_TRACKING_PARAMS =
+  /[?&](utm_[a-z_]+|gclid|fbclid|msclkid|yclid|n_ad|n_ad_group|n_media|n_query|n_rank|n_campaign|NaPm|trackid|track_id|affiliate_id|aff_id|clickid)=/i;
+
+export function hasAdTracking(url: string): boolean {
+  return AD_TRACKING_PARAMS.test(String(url || ''));
+}
+
+/**
+ * 이 주소를 "공식"이라고 불러도 되는가 — **배지 문구를 정할 때** 쓴다.
+ *
+ * 통과(judgeCtaHost.ok)와는 다른 질문이다. 민간 도메인도 글이 지목한 기관이면
+ * CTA 로 쓸 수 있지만(v3.8.568), 그렇다고 "공식 권장"을 붙이면 거짓말이 된다.
+ * 현대차·KB손해보험 다이렉트에 "공식 권장"이 붙어 있었다(실측 11편).
+ */
+export function isOfficialDestination(url: string): boolean {
+  const host = hostOf(url);
+  if (!host) return false;
+  if (hasAdTracking(url)) return false;
+  /**
+   * ⚠️ 카탈로그(isCatalogHost)는 쓰지 않는다.
+   * 거기엔 백화점·항공사·렌터카 같은 **상업 사이트가 섞여 있다**(현대차가 공식으로 통과했다).
+   * 공공기관 도메인만 공식으로 친다.
+   *
+   * 코레일·SRT 처럼 실제 공기업인데 .com/.kr 을 쓰는 곳은 "참고 링크"로 내려간다.
+   * 덜 주장하는 것은 안전하지만, 과하게 주장하는 것이 지금 고치는 바로 그 버그다.
+   */
+  return isInstitutional(host);
 }
 
 /**
@@ -180,7 +246,7 @@ export interface HostTrustResult {
   ok: boolean;
   /** 왜 통과·거절했는지 — 로그로 남겨야 다음에 원인을 찾는다 */
   reason: 'catalog' | 'institutional' | 'brand-match' | 'agency-match'
-    | 'redirector' | 'user-generated' | 'unknown-host' | 'malformed';
+    | 'redirector' | 'user-generated' | 'ad-tracking' | 'unknown-host' | 'malformed';
 }
 
 /**
@@ -210,6 +276,12 @@ export function judgeCtaHost(
    */
   if (isUserGenerated(host)) return { ok: false, reason: 'user-generated' };
 
+  /**
+   * ⚠️ 통과 판정보다 **먼저** 본다.
+   * 기관 도메인이어도 광고 랜딩이면 버린다 — 광고주 예산을 태우고 캠페인이 끝나면 죽는다.
+   */
+  if (hasAdTracking(raw)) return { ok: false, reason: 'ad-tracking' };
+
   if (isCatalogHost(host)) return { ok: true, reason: 'catalog' };
   if (isInstitutional(host)) return { ok: true, reason: 'institutional' };
   if (matchesKeywordBrand(host, keyword)) return { ok: true, reason: 'brand-match' };
@@ -227,6 +299,7 @@ export function describeHostVerdict(result: HostTrustResult): string {
     case 'agency-match': return '글이 지목한 기관과 일치';
     case 'redirector': return '링크 중계·단축 주소라 제외';
     case 'user-generated': return '블로그·SNS·커뮤니티라 제외 (트래픽이 새고 돌아오지 않는다)';
+    case 'ad-tracking': return '광고 랜딩 주소라 제외 (광고주 예산을 태우고 캠페인이 끝나면 죽는다)';
     case 'unknown-host': return '근거를 확인할 수 없는 도메인이라 제외';
     default: return '주소 형식이 올바르지 않아 제외';
   }

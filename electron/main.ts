@@ -9957,7 +9957,25 @@ function readAgentJobResult(jobDir: string, stdout: string, lastMessagePath: str
 
     const report = harness.postProcessAgentArticle(content, { contentMode: jobContentMode, title });
     content = report.html;
-    for (const w of report.warnings) console.warn('[AGENT-RESULT] 품질 경고:', w);
+    /**
+     * v3.8.577 — 경고를 **화면에도** 올린다.
+     *
+     * 예전엔 console.warn 으로만 나갔다. 개발자 도구를 열지 않으면 아무도 못 본다 —
+     * 알리기만 하는 검사인데 알림이 안 보이면 검사가 없는 것과 같다.
+     * readAgentJobResult 에는 sender 가 없으므로 다른 곳(SPIDER-STEP)과 같은 방식으로
+     * 열린 창 전부에 log-line 을 보낸다.
+     */
+    const shout = (line: string) => {
+      console.warn('[AGENT-RESULT] 품질 경고:', line);
+      try {
+        const { BrowserWindow: BW } = require('electron');
+        BW.getAllWindows().forEach((w: any) => {
+          try { if (!w.isDestroyed()) w.webContents.send('log-line', `⚠️ [에이전트 품질] ${line}`); } catch { /* 창 하나 실패가 나머지를 막지 않는다 */ }
+        });
+      } catch { /* 창이 없으면 콘솔로 남긴 것으로 충분하다 */ }
+    };
+    for (const w of report.warnings) shout(w);
+    if (report.warnings.length === 0) console.log('[AGENT-RESULT] 품질 검사 통과 (구조·링크·빈 블록)');
   } catch (harnessErr) {
     console.warn('[AGENT-RESULT] 후처리 스킵:', harnessErr);
   }

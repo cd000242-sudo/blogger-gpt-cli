@@ -267,7 +267,14 @@ describe('쇼핑 글에는 공식 사이트 CTA 를 넣지 않는다', () => {
   });
 
   it('다른 모드는 그대로 넣는다 (동작을 깨지 않는다)', () => {
-    expect(orch).toContain("badge: sectionCta.searchFallback ? '직접 확인' : '공식 권장'");
+    /**
+     * v3.8.574 — 배지가 **목적지를 보고** 붙는다.
+     * 예전엔 검색 폴백만 아니면 무조건 '공식 권장'이라 현대차·사설 법률업체에까지
+     * 그 배지가 붙었다(실측 11편). 민간 도메인도 CTA 로는 쓸 수 있지만
+     * 공식이라 부르면 독자를 속이는 것이다.
+     */
+    expect(orch).toContain("badge: sectionCta.searchFallback ? '직접 확인'");
+    expect(orch).toContain("isOfficialDestination(sectionCta.url) ? '공식 권장' : '참고 링크'");
   });
 
   it('왜 빼는지 근거가 적혀 있다', () => {

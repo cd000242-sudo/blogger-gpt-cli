@@ -20,6 +20,8 @@ import { generateContentFromUrl, generateContentFromUrls } from '../url-content-
 import { validateCtaUrl, validateCtaUrlFormat } from '../../cta/validate-cta-url';
 // v3.8.570: 버튼·훅을 같은 자리에서 만들고, 제목을 되풀이하는 훅은 나가기 전에 걸러 낸다
 import { buildCtaCopy, hookEchoesTitle } from '../../cta/cta-copy';
+// v3.8.574: "공식 권장" 배지는 진짜 공공기관일 때만 — 민간에 붙이면 독자를 속인다
+import { isOfficialDestination } from '../../cta/host-trust';
 import { findRelatedPosts, insertInternalLinks } from '../internal-links';
 import { analyzeKeywordDemand } from '../keyword-demand';
 import { analyzeKeywordAngle, composeTitleDirective } from '../keyword-angle';
@@ -37,6 +39,11 @@ import {
 } from './experience-block';
 import { extractLivedSignals, buildLivedVoiceBlock, HUMAN_VOICE_RULES } from './lived-voice';
 import { guardFacts, buildGroundingReference } from './fact-guard';
+// v3.8.574: AI 를 부르지 않는 구조 검사 — 열거 구멍·앞 잘린 문단·과한 단정
+import { findStructureIssues, describeStructureIssues } from './structure-guard';
+// v3.8.575: 이미 쓰는 네이버 키로 근거를 넓히고 낡음을 본다 (추가 비용 없음)
+import { fetchGrounding, describeGrounding, checkFreshness, describeFreshness } from './naver-grounding';
+import { naverSearch } from '../naver-search-client';
 import { findEmptyBlocks, describeEmptyBlocks, isSummaryRenderable } from './empty-block-guard';
 import { buildAnswerBlock } from './answer-block';
 import { buildAudienceBlock } from './audience-block';
@@ -1079,7 +1086,21 @@ export async function generateUltimateMaxModeArticleFinal(
             crawler.crawlFromNaverWeb(crawlerConfig).catch((e: any) => { console.warn('[CRAWL] 웹문서 실패:', e.message); return []; }),
             crawler.crawlGoogleSuggest(crawlerConfig).catch((e: any) => { console.warn('[CRAWL] Suggest 실패:', e.message); return []; }),
           ]);
-          crawledFromAPI.push(...blogResults, ...kinResults, ...newsResults, ...webResults, ...suggestResults);
+          /**
+           * v3.8.576 — **순서가 곧 우선순위다.**
+           *
+           * 사장님: "크롤링할 때도 우선순위를 최신 기사를 먼저 해줘.
+           *          블로그로 하면 그 블로그가 잘못된 정보면 그대로 통과가 되어버리니까."
+           *
+           * 정확히 그렇다. 근거 장부(buildGroundingReference)는 12,000자에서 **잘린다.**
+           * 예전엔 블로그가 맨 앞이라 앞자리를 다 차지하고 뉴스·기관 문서가 잘려나갔다.
+           * 그러면 틀린 블로그가 fact-guard 의 근거가 되어 **틀린 수치를 보증해 준다.**
+           *
+           * 새 순서: 뉴스(최신) → 웹문서(기관) → 블로그 → 지식인 → 자동완성
+           * 지식인·자동완성은 "독자가 무엇을 궁금해하는가"를 얻는 자리라 뒤에 두어도 된다
+           * (사실 근거가 아니라 질문 소재다).
+           */
+          crawledFromAPI.push(...newsResults, ...webResults, ...blogResults, ...kinResults, ...suggestResults);
           const officialWeb = webResults.filter((r: any) => String(r?.source) === 'naver-web-official').length;
           onLog?.(`   ✅ 블로그 ${blogResults.length} + 지식인 ${kinResults.length} + 뉴스 ${newsResults.length} + 웹문서 ${webResults.length}(기관 ${officialWeb}) + 자동완성 ${suggestResults.length} = 총 ${crawledFromAPI.length}개`);
         } else {
@@ -2228,8 +2249,36 @@ ${quoted}
      * 알맹이 있는 두 문장이 사라지고 제일 두루뭉실한 문장만 남았다.
      * 글이 밋밋했던 건 모델이 아니라 이 후처리 탓이었다.
      */
+    /**
+     * v3.8.575 — 근거 장부를 네이버 검색으로 넓힌다.
+     *
+     * 장부가 얇으면 fact-guard 가 **맞는 문장까지 지운다**(실측: 62자 문단이 24자가 됐다).
+     * 검색 결과의 제목·요약에는 금액·기한·비율이 그대로 들어 있어서, 보태면
+     * 진짜 지어낸 수치만 남는다.
+     *
+     * 그라운딩·퍼플렉시티는 비싸서 못 쓴다. 네이버 키는 CTA 목적지 찾을 때 이미 쓰는
+     * 것이라 추가 비용이 사실상 없다 — 무료에 가깝게 쓰게 하는 것이 이 앱의 차별점이다.
+     *
+     * 실패하면 빈 문자열이 와서 예전과 똑같이 동작한다.
+     */
+    let naverGrounding = '';
+    try {
+      const g = await fetchGrounding(keyword, naverSearch as any);
+      naverGrounding = g.text;
+      /**
+       * 근거가 얼마나 단단한지 **항상** 남긴다.
+       * 못 찾았으면 조용히 넘어가지 않고 "사람이 확인하라"고 말한다 —
+       * 장부가 얇으면 fact-guard 가 맞는 문장까지 지우기 때문이다.
+       */
+      const summary = describeGrounding(g);
+      console.log(`[GROUNDING] ${summary}`);
+      if (g.newsCount + g.webCount === 0 || g.newsCount === 0) onLog?.(`⚠️ ${summary}`);
+    } catch (groundErr: any) {
+      console.warn('[GROUNDING] 스킵:', String(groundErr?.message || groundErr).slice(0, 100));
+    }
+
     const groundingReference = buildGroundingReference({
-      factContext: factEvidence.context,
+      factContext: [factEvidence.context, naverGrounding].filter(Boolean).join('\n'),
       crawledPosts: crawledPosts as any,
       officialBlock,
       productData: (payload as any).coupangEnrichment || (payload as any).affiliateProducts,
@@ -3962,7 +4011,16 @@ ${quoted}
           console.log(`[MAX-MODE] ℹ️ 중복 CTA URL 생략: ${sectionCta.url}`);
         } else {
           html += renderFinalCtaBlock({
-            badge: sectionCta.searchFallback ? '직접 확인' : '공식 권장',
+            /**
+             * v3.8.574 — 배지가 목적지를 보고 붙는다.
+             *
+             * 예전엔 검색 폴백만 아니면 무조건 "공식 권장" 이었다. 그래서 현대차·KB손보
+             * 다이렉트·사설 법률업체에까지 "공식 권장"이 붙었다(실측 11편).
+             * 민간 도메인도 글이 지목한 기관이면 CTA 로 쓸 수 있지만(v3.8.568),
+             * 그렇다고 공식이라 부르면 독자를 속이는 것이다.
+             */
+            badge: sectionCta.searchFallback ? '직접 확인'
+              : isOfficialDestination(sectionCta.url) ? '공식 권장' : '참고 링크',
             hook: sectionCta.hookingMessage,
             buttonText: sectionCta.buttonText,
             url: sectionCta.url,
@@ -5243,6 +5301,54 @@ ${conclusionHTML}
       html = guarded.html;
     } catch (factGuardErr: any) {
       console.warn('[FACT-GUARD] 스킵:', String(factGuardErr?.message || factGuardErr).slice(0, 120));
+    }
+
+    /**
+     * v3.8.574 — 돈 안 드는 구조 검사.
+     *
+     * 사장님이 발행된 글을 LLM 에게 비평시켜 찾아낸 결함들을 **AI 없이** 잡는다:
+     *   · 열거의 구멍 — "2·3·4세대는 있는데 1세대가 없다"
+     *   · 앞이 잘린 문단 — 소제목 첫 문단이 "반면"으로 시작
+     *   · YMYL 과한 단정 — "절대·무조건·반드시"가 겹겹이
+     *
+     * 그라운딩·퍼플렉시티는 비싸서 못 쓴다. **무료에 가깝게 쓰게 하는 것**이 이 앱의
+     * 차별점이므로, 코드로 잡을 수 있는 것은 코드가 잡는다(호출 0회, 비용 0원).
+     *
+     * 막지 않고 **알리기만** 한다 — 판단은 사람이 한다.
+     */
+    try {
+      const structureIssues = findStructureIssues(html);
+      if (structureIssues.length) {
+        const summary = describeStructureIssues(structureIssues);
+        console.warn(`[STRUCTURE] ${summary}`);
+        onLog?.(`⚠️ ${summary}`);
+      } else {
+        console.log('[STRUCTURE] 구조 검사 통과');
+      }
+    } catch (structureErr: any) {
+      console.warn('[STRUCTURE] 스킵:', String(structureErr?.message || structureErr).slice(0, 120));
+    }
+
+    /**
+     * v3.8.575 — 낡은 글인지 본다 (네이버 뉴스, 추가 비용 없음).
+     *
+     * "2026년" 을 제목에 박았는데 2026년에 뭐가 바뀌었는지 확인한 흔적이 없던 글이 있었다.
+     * 제도가 바뀌었으면 그 글은 **정확하게 낡은 글**이 된다.
+     * 최근 뉴스에 개편·시행·폐지 신호가 있는데 본문이 안 다루면 알린다. 막지는 않는다.
+     */
+    try {
+      const freshness = await checkFreshness({
+        keyword,
+        articleText: html,
+        naverSearch: naverSearch as any,
+      });
+      if (freshness) {
+        const msg = describeFreshness(freshness);
+        console.warn(`[FRESHNESS] ${msg}`);
+        onLog?.(`⚠️ ${msg}`);
+      }
+    } catch (freshErr: any) {
+      console.warn('[FRESHNESS] 스킵:', String(freshErr?.message || freshErr).slice(0, 120));
     }
 
     /**

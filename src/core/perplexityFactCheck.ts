@@ -232,22 +232,74 @@ export async function fetchFactContext(
     }
   }
 
-  // auto 모드는 이름 그대로 마지막 Naver 검색까지 순서대로 모두 시도합니다.
+  /**
+   * auto 모드의 마지막 단계 — **무료 네이버 근거**.
+   *
+   * ## v3.8.578 이전에 무슨 일이 있었나 (실측)
+   * 퍼플렉시티 쿼터가 떨어진 날("You exceeded your current quota", 401) 로그가 이랬다:
+   *   [FACT-CHECK] Perplexity 실패 → Naver 폴백
+   *   [FACT-CHECK] 📝 팩트체크 건너뜀 (API 연결 불가)   ← 거짓말이다
+   * API 는 멀쩡했다. `callNaverFactCheck` 가 **블로그**를, 그것도
+   *   "해외 항공권 취소 수수료 면제 2026 최신 변경사항 공식"
+   * 처럼 말을 덧붙인 쿼리로 찾아서 **0건**이 나왔고, 0건이면 null 을 돌려주는데
+   * 위에서 그걸 "연결 불가"로 뭉뚱그려 찍었다. 같은 키워드로 뉴스·웹문서를 찾으면
+   * 그 순간에도 **20건**이 있었다(뉴스 10 · 기관/기업 문서 10). 즉 있는 근거를
+   * 못 쓰고 "없다"고 조용히 넘어간 것이다.
+   *
+   * ## 그래서 순서를 바꾼다
+   *   1. 뉴스(최신순) + 기관·기업 웹문서  ← 새 기본. 블로그·카페는 아예 안 본다
+   *   2. 그래도 0건이면 그때만 블로그 (weak 로 표시)
+   *   3. 그것도 0건이면 **없다고 정확히 말한다** — "API 연결 불가"가 아니라
+   *
+   * 블로그를 뒤로 미루는 이유는 사장님 지적 그대로다: 틀린 블로그는 틀린 수치를
+   * **보증해 준다.** 근거로 쓰면 없느니만 못하다.
+   */
   if (requestedMode === 'auto' && hasNaverKey) {
     const naverClientId = (env['naverClientId'] || env['NAVER_CLIENT_ID'] || env['naverCustomerId'] || '').trim();
     const naverClientSecret = (env['naverClientSecret'] || env['NAVER_CLIENT_SECRET'] || env['naverSecretKey'] || '').trim();
+    const creds = { payload: { naverClientId, naverClientSecret }, timeoutMs: 10000 };
+
+    try {
+      const { fetchGrounding, describeGrounding } = require('./final/naver-grounding');
+      const g = await fetchGrounding(
+        keyword,
+        (type: any, params: any) => naverSearch(type, params, creds),
+      );
+      if (g.text) {
+        console.log(`[FACT-CHECK] ✅ ${describeGrounding(g)}`);
+        return {
+          context: `[네이버 뉴스·기관 문서 근거 — "${keyword}"]\n${g.text}`,
+          provider: 'Naver News+Web',
+          success: true,
+          /**
+           * 'weak' 로 둔다 — 등급을 낮게 부르는 게 아니라 **실제 동작이 그게 맞다.**
+           * fact-integrity 는 'strong' 을 sourceUrls 까지 있는 인용 가능한 근거로만 쓰고
+           * (hasCitableEvidence), 그 외에는 근거 본문이 200자를 넘으면 본문 대조로 검증한다.
+           * 여기 근거는 뉴스·기관 문서 수십 건이라 늘 200자를 넘으므로 검증에 그대로 쓰인다.
+           * URL 없이 'strong' 을 붙이면 이름만 올라가고 동작은 같아 헷갈리기만 한다.
+           */
+          trustLevel: 'weak',
+        };
+      }
+      console.log('[FACT-CHECK] ⚠️ 뉴스·기관 문서 0건 → 블로그까지 확인');
+    } catch (e: any) {
+      console.log(`[FACT-CHECK] ⚠️ 뉴스·기관 근거 수집 실패: ${e.message?.slice(0, 80)}`);
+    }
+
     try {
       const result = await callNaverFactCheck(naverClientId, naverClientSecret, keyword);
       if (result) {
         console.log(`[FACT-CHECK] ✅ 최종 Naver 폴백 완료 (${result.length}자, 보조 근거)`);
         return { context: result, provider: 'Naver Blog Search', success: true, trustLevel: 'weak' };
       }
+      console.log('[FACT-CHECK] 📭 네이버에 이 주제의 자료가 없습니다 (뉴스·기관·블로그 모두 0건)');
     } catch (e: any) {
       console.log(`[FACT-CHECK] ⚠️ 최종 Naver 폴백 실패: ${e.message?.slice(0, 80)}`);
     }
+    return { context: '', provider: 'none', success: false, trustLevel: 'none' };
   }
 
-  // 모두 실패
+  // 여기까지 왔으면 쓸 수 있는 창구가 정말로 없다
   console.log(`[FACT-CHECK] 📝 팩트체크 건너뜀 (API 연결 불가)`);
   return { context: '', provider: 'none', success: false, trustLevel: 'none' };
 }
