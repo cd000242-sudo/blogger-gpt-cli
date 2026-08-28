@@ -13422,6 +13422,79 @@ ipcMain.handle('cta-render-block', async (_evt, payload: any) => {
   }
 });
 
+/**
+ * 🩺 v3.8.572 — 이미 발행한 글의 CTA 를 다시 본다.
+ *
+ * 링크는 썩는다. 실측(2026-08-28 leadernam.com): CTA 366개 중 31개가 죽어 있었고,
+ * 워크넷은 고용24 로 통합되며 통째로 404 가 됐다. 발행 직전 게이트는 그때 한 번만 보므로
+ * **나간 뒤에 다시 보는 눈**이 따로 있어야 한다.
+ *
+ * AI 를 부르지 않는다 — 페이지를 받아 분류만 한다(비용 0).
+ */
+ipcMain.handle('cta-audit-run', async (evt, payload: any) => {
+  try {
+    const {
+      extractCtaUrls, classifyCtaLink, summarizePost, summarizeAudit, describeAudit,
+    } = require('../src/cta/cta-audit');
+
+    const posts: any[] = Array.isArray(payload?.posts) ? payload.posts : [];
+    if (!posts.length) return { ok: false, error: '검사할 글이 없습니다 — 글목록을 먼저 불러와 주세요' };
+    const ownHost = String(payload?.ownHost || '').trim();
+    const limit = Math.min(Number(payload?.limit) || posts.length, 300);
+
+    /** 리다이렉트를 따라가고, 못 받으면 ok:false — 죽었다고 단정하는 건 분류기가 한다 */
+    const fetchPage = async (url: string) => {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 15000);
+      try {
+        const res = await fetch(url, {
+          redirect: 'follow',
+          signal: ctl.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36' },
+        });
+        const html = await res.text().catch(() => '');
+        return { ok: true, status: res.status, html, finalUrl: res.url || url };
+      } catch (e: any) {
+        /**
+         * ⚠️ 실패 원인을 반드시 넘긴다. 관공서 사이트는 인증서 체인이 불완전한 곳이 많아
+         *    node 에서만 실패하고 브라우저에서는 멀쩡히 열린다(실측: efine.go.kr, kinfa.or.kr).
+         *    원인 없이 넘기면 살아있는 사이트를 죽었다고 보고하게 된다.
+         */
+        const code = String(e?.cause?.code || e?.code || e?.message || '').slice(0, 60);
+        return { ok: false, status: 0, html: '', finalUrl: url, errorCode: code };
+      } finally { clearTimeout(timer); }
+    };
+
+    // 같은 주소를 여러 글이 쓰므로 한 번만 받는다 (실측에서 366개 중 절반이 중복이었다)
+    const cache = new Map<string, any>();
+    const reports: any[] = [];
+    let done = 0;
+
+    for (const post of posts.slice(0, limit)) {
+      const urls: string[] = extractCtaUrls(String(post?.content || ''), ownHost);
+      const checks: any[] = [];
+      for (const url of urls) {
+        if (!cache.has(url)) cache.set(url, classifyCtaLink(url, await fetchPage(url)));
+        checks.push(cache.get(url));
+      }
+      reports.push(summarizePost({
+        postId: post?.id, title: String(post?.title || ''), link: String(post?.link || ''), checks,
+      }));
+      done += 1;
+      try { evt.sender.send('cta-audit-progress', { done, total: Math.min(posts.length, limit) }); } catch {}
+    }
+
+    const summary = summarizeAudit(reports);
+    console.log(`[CTA-AUDIT] ${describeAudit(summary)}`);
+    // 급한 것부터 — 죽은 링크가 있는 글이 맨 위
+    const order = ['dead', 'document', 'none', 'home', 'unknown', 'action'];
+    reports.sort((a, b) => order.indexOf(a.worst) - order.indexOf(b.worst));
+    return { ok: true, summary, headline: describeAudit(summary), reports };
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 300) };
+  }
+});
+
 /** 주소만 보고 문구를 제안한다 — 편집기에서 주소를 붙여넣는 순간 채워 준다 */
 ipcMain.handle('cta-suggest-copy', async (_evt, payload: any) => {
   try {
