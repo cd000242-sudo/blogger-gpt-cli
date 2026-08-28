@@ -8,6 +8,18 @@
 import axios from 'axios';
 // v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
 import { naverSearch } from '../naver-search-client';
+// v3.8.565 (E2): 출력 언어 규칙은 language-rules 한 곳에서만 만든다.
+//   llm-caller 의 시스템 프롬프트와 이 본문 규칙이 서로 다른 언어를 지시하면 모델이 흔들린다.
+import { outputLanguageRule, getActiveLanguage } from './language-rules';
+// v3.8.566~567 (E2): 영어 프롬프트는 통째로 별도 파일이다 (한국어 경로를 안 건드리려고).
+//   생성기마다 프롬프트가 따로라 하나씩 갈아야 한다 — 본문·제목 순으로 진행 중.
+import {
+  buildEnglishBodyPrompt,
+  buildEnglishTitlePrompt,
+  buildEnglishSummaryTablePrompt,
+  buildEnglishH2Prompt,
+  buildEnglishFaqPrompt,
+} from './prompt-en';
 import { getGeminiApiKey, getPerplexityApiKey } from '../llm';
 import { validateCtaUrlWithAi } from '../../cta/validate-cta-ai';
 import { resolveOfficialLink } from '../../cta/resolve';
@@ -465,6 +477,34 @@ export async function generateH1TitleFinal(
     : buildArchetypeGuide(currentYear);
 
   const todayH1 = new Date().toISOString().slice(0, 10);
+
+  /**
+   * 🌐 v3.8.567 (E2) — 영어면 제목 프롬프트도 통째로 바꾼다.
+   *
+   * v3.8.566 에서 본문 껍데기만 영어로 갈았더니 본문은 영어 프롬프트를 받는데
+   * 제목은 여전히 한국어 프롬프트를 받아 "How to cook Shin Ramyun properly 비건" 처럼
+   * **영어 제목에 한국어가 붙어 나왔다.** 생성기마다 프롬프트가 따로라 하나씩 갈라야 한다.
+   *
+   * 아래 한국어 프롬프트는 한 글자도 건드리지 않는다 — 문자열만 고른다.
+   */
+  if (getActiveLanguage() === 'en') {
+    const enTitlePrompt = buildEnglishTitlePrompt({
+      keyword,
+      currentYear,
+      userQuestions: demandSignals?.userQuestions,
+      searchQueries: demandSignals?.searchQueries,
+      titleReference,
+    });
+    const enResponse = await callGeminiWithRetry(enTitlePrompt);
+    const enTitle = (enResponse.trim().split('\n')[0] || enResponse.trim())
+      .replace(/^["'\d.)\s-]+/, '')
+      .replace(/["']+$/, '')
+      .trim();
+    if (enTitle) return enTitle;
+    // 비었으면 아래 한국어 경로로 떨어진다 (조용히 빈 제목이 나가지 않게)
+    console.warn('[TITLE] 영어 제목이 비어 한국어 경로로 되돌립니다');
+  }
+
   const prompt = `당신은 대한민국 최고의 바이럴 마케터입니다.
 현재: ${currentYear}년 ${currentMonth}월 (오늘: ${todayH1})
 
@@ -1168,7 +1208,17 @@ export async function generateH2TitlesFinal(
     console.log(`[H2-OUTLINE] 🎯 키워드 한정자 감지: "${scope.qualifier}" → 스코프 제한 적용`);
   }
 
-  const prompt = `
+  // v3.8.567 (E2): 영어면 소제목 프롬프트도 통째로 바꾼다. 아래 한국어판은 그대로 둔다.
+  const prompt = getActiveLanguage() === 'en'
+    ? buildEnglishH2Prompt({
+      keyword,
+      targetCount,
+      currentYear,
+      scopeBlock,
+      intentBlock,
+      subheadingReference,
+    })
+    : `
 키워드: ${keyword}
 ${scopeBlock}${topicProfileBlock}${intentBlock}
 ${subheadingReference}
@@ -1485,9 +1535,70 @@ ${draftContent ? '위의 ===== 원본 초안 ===== 을 기반으로 완전히 �
 🚫 **SEO 모드 금지**: 구매 명령형 CTA ("지금 사세요"), 과장 표현 ("최고", "무조건"), 개인 경험 허위 서술
 ` : '';
 
+  /**
+   * 🌍 v3.8.566 (E2) — 해외(영어권) 모드 블록.
+   *
+   * 다른 모드 블록과 달리 **영어로 쓴다.** 이 블록은 "이후 모든 일반 지시보다 우선"이라
+   * 한국어로 쓰면 영어 껍데기를 씌워도 본문이 한국어로 나온다 — 실제로 겪었다.
+   * 세부 규칙은 모드 플러그인(overseas-mode.ts)이 섹션마다 넣고,
+   * 여기서는 **글 전체에 걸리는 지시**만 둔다.
+   */
+  const overseasModePromptBlock = contentMode === 'overseas' ? `
+
+🌍🌍🌍 [OVERSEAS MODE — Korean subject, English reader] 🌍🌍🌍
+
+🎯 **Goal: be the page an English speaker keeps open because nobody else has this.**
+
+🔴 **Core rules**
+1. **Write from the source.** You are in Korea; the competing pages are not.
+   Use what only that gives you — real sales rankings, official Korean figures,
+   the price here versus abroad, where to buy it outside Korea.
+2. **Compare, do not describe.** Lead with the verdict, then a table or ranked list.
+   English readers of this subject arrive wanting to choose, not to learn definitions.
+3. **Never sound translated.** This is the highest priority and it is not negotiable —
+   see the anti-translation rules below. A page that reads translated is dead on arrival.
+4. **Assume no Korean knowledge.** Gloss every Korean term on first use.
+   Give both units (metric, then US). Never leave won unconverted.
+
+🚫 **Forbidden in this mode**
+- Any Korean, Chinese, or Japanese character anywhere in the output
+- Claiming first-hand experience that was not supplied
+- Korean-market framing the reader cannot act on ("available at any convenience store")
+` : '';
+
   const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
-  const prompt = `
+  /**
+   * 🌐 v3.8.566 (E2) — 영어면 껍데기를 **통째로** 바꾼다.
+   *
+   * v3.8.565 에서 언어 규칙 한 줄만 영어로 바꿔 실제로 돌려 봤더니 본문에 한글이 6,752자
+   * 남았다. 이 템플릿이 한글 67% 라서, 영어 한 줄로는 프롬프트가 쓰인 언어를 못 이긴다.
+   *
+   * 아래 한국어 템플릿 안에 `lang === 'en' ? … : …` 를 오십 군데 끼워 넣지 **않는다.**
+   * 그러면 수백 편이 나가고 있는 한국어 경로가 같이 위험해진다.
+   * 영어판은 prompt-en.ts 에 통째로 두고 여기서는 **문자열만 고른다** —
+   * 아래 한국어 문장은 한 글자도 바뀌지 않고, 이후 파싱·재시도 코드도 그대로 공유한다.
+   */
+  const minCharsPerH3 = (contentMode === 'shopping' || contentMode === 'adsense' || contentMode === 'paraphrasing')
+    ? 800 : 600;
+
+  const prompt = getActiveLanguage() === 'en'
+    ? buildEnglishBodyPrompt({
+      keyword,
+      todayStr,
+      h2List,
+      h2Count: h2Titles.length,
+      contentReference,
+      draftReference,
+      // ⚠️ overseas 블록을 반드시 포함해야 한다. 이게 빠지면 영어 껍데기에
+      //    한국어 모드 블록만 들어가고, 그 블록이 "일반 지시보다 우선"이라 본문이 한국어가 된다.
+      modePromptBlock: `${externalModePromptBlock}${internalModePromptBlock}${adsenseModePromptBlock}`
+        + `${shoppingModePromptBlock}${paraphrasingModePromptBlock}${discoverModePromptBlock}`
+        + `${overseasModePromptBlock}`,
+      sectionGuideBlock: sectionGuideBlock || '',
+      minCharsPerH3,
+    })
+    : `
 🎯 키워드: ${keyword}
 
 📅 오늘 날짜: ${todayStr}
@@ -1498,7 +1609,7 @@ ${draftContent ? '위의 ===== 원본 초안 ===== 을 기반으로 완전히 �
    시점이 꼭 필요한 경우(한정 행사 등)에만 자연스럽게 문장 안에 녹이세요.
    예) ❌ "8월 3일 기준 가격은 29,900원입니다."
        ✅ "지금은 29,900원인데, 세일이 끝나면 오를 수 있어요."
-⚠️ 언어 규칙: 반드시 한국어 한글과 영문/숫자만 사용하세요. 중국어 한자(漢字), 일본어는 절대 사용 금지!
+${outputLanguageRule()}
 
 📌 구성해야 할 요소:
 1. 글 전체의 서론 (Introduction)
@@ -2073,7 +2184,16 @@ export async function generateFAQFinal(
   const faqGroundingBlock = groundedText.length > 200
     ? `\n===== 백그라운드 (독자 앞에서 언급 금지) =====\n${groundedText}\n=====\n\nFAQ는 위 컨텍스트와 H2 제목에서만 파생하세요. 컨텍스트에 없는 숫자/금액/기간/마감일/기관명/URL은 만들지 마세요.\n🚫 답변에 "본문 근거", "제공된 자료", "본문에 나와 있지 않다" 같은 메타 표현 금지 — 독자는 이 컨텍스트를 모릅니다.\n`
     : '\n컨텍스트가 부족합니다. 키워드와 H2 제목에서 자연스럽게 파생되는 질문만 만들고, 확인되지 않은 수치는 쓰지 말고 일반 원칙+공식 확인 안내로 서술하세요.\n🚫 "본문 근거가 없어요" 같은 메타 표현 금지.\n';
-  const prompt = `
+  // v3.8.567 (E2): 영어면 FAQ 프롬프트도 통째로 바꾼다. 아래 한국어판은 그대로 둔다.
+  const prompt = getActiveLanguage() === 'en'
+    ? buildEnglishFaqPrompt({
+      keyword,
+      h2Titles,
+      todayStr: faqToday,
+      scopeBlock: faqScopeBlock,
+      groundingBlock: faqGroundingBlock,
+    })
+    : `
 키워드: ${keyword}
 ${faqScopeBlock}📅 오늘 날짜: ${faqToday}
 
@@ -3580,7 +3700,10 @@ export async function generateSummaryTableFinal(allContent: string): Promise<Fin
     .replace(/\s+/g, ' ')
     .trim();
 
-  const prompt = `
+  // v3.8.567 (E2): 영어면 요약표 프롬프트도 통째로 바꾼다. 아래 한국어판은 그대로 둔다.
+  const prompt = getActiveLanguage() === 'en'
+    ? buildEnglishSummaryTablePrompt(cleanedContent, tableToday)
+    : `
 📅 오늘: ${tableToday}
 전체 내용 (순수 텍스트):
 

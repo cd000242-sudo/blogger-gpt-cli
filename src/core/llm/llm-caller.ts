@@ -7,6 +7,9 @@ import axios, { AxiosError } from 'axios';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getApiKey } from './api-keys';
 import { findTier } from './pricing';
+// v3.8.565 (E2): 출력 언어는 language-rules 가 단독으로 정한다.
+//   본문 프롬프트(generation.ts)와 여기가 서로 다른 언어를 지시하면 모델이 흔들린다.
+import { systemLanguageLine } from '../final/language-rules';
 import {
   getTextProviderMaxRetries,
   waitAfterProviderBackoff,
@@ -38,13 +41,24 @@ interface LLMProviderConfig {
   extractText: (data: ChatCompletionResponse | ClaudeResponse) => string;
 }
 
-const KOREAN_BLOG_FACTUAL_SYSTEM = [
-  'Write publishable Korean blog content and always respond in Korean.',
+/**
+ * 시스템 프롬프트 — 언어 줄만 갈리고 나머지 사실성 규칙은 언어와 무관하다. (v3.8.565 · E2)
+ *
+ * ⚠️ 상수가 아니라 **함수**여야 한다. 모듈이 처음 읽힐 때 값이 굳으면
+ *    그 시점의 언어(대개 기본값 한국어)가 프로세스 내내 남는다 —
+ *    연속발행에서 영어 글을 만들어도 "always respond in Korean" 이 계속 나간다.
+ */
+const FACTUAL_SYSTEM_TAIL = [
   'Preserve the requested structure and supplied evidence.',
   'Treat dates, amounts, eligibility, schedules, statistics, organization names, and URLs as factual claims.',
   'Use an exact factual claim only when it appears in supplied evidence; never combine unrelated facts into a new claim.',
   'Never invent a source, citation, URL, or plausible-looking value. When evidence is missing, use a neutral official-verification note instead of guessing.',
 ].join(' ');
+
+/** 호출할 때마다 현재 언어로 조립한다 — 굳혀 두면 언어가 안 바뀐다 */
+function factualSystemPrompt(): string {
+  return `${systemLanguageLine()} ${FACTUAL_SYSTEM_TAIL}`;
+}
 
 function getGenerationTemperature(prompt: string): number {
   return /\[FACT EVIDENCE|FACT INTEGRITY|Verified source URLs|grounding response/i.test(prompt) ? 0.28 : 0.52;
@@ -78,7 +92,7 @@ function buildOpenAIChatBody(model: string, prompt: string): Record<string, unkn
   const body: Record<string, unknown> = {
     model,
     messages: [
-      { role: 'system', content: KOREAN_BLOG_FACTUAL_SYSTEM },
+      { role: 'system', content: factualSystemPrompt() },
       { role: 'user', content: prompt },
     ],
   };
@@ -109,7 +123,7 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
     buildBody: (model, prompt) => ({
       model,
       messages: [
-        { role: 'system', content: KOREAN_BLOG_FACTUAL_SYSTEM },
+        { role: 'system', content: factualSystemPrompt() },
         { role: 'user', content: prompt },
       ],
       max_tokens: resolveLlmMaxTokens(),
@@ -151,7 +165,7 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
       model,
       max_tokens: resolveLlmMaxTokens(),
       messages: [{ role: 'user', content: prompt }],
-      system: KOREAN_BLOG_FACTUAL_SYSTEM,
+      system: factualSystemPrompt(),
       temperature: getGenerationTemperature(prompt),
     }),
     extractText: (data) => {

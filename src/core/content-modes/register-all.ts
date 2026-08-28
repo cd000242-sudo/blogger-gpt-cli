@@ -6,3 +6,5 @@ import './external/external-mode';
 import './internal/internal-mode';
 import './shopping/shopping-mode';
 import './paraphrasing/paraphrasing-mode';
+// v3.8.566 (E2): 해외(영어권) 모드. 기존 모드 프롬프트가 전부 한국어라 영어 글이 안 나왔다.
+import './overseas/overseas-mode';

@@ -332,6 +332,32 @@ export async function generateUltimateMaxModeArticleFinal(
   } catch (e) {
     console.warn('[orchestration] setActiveToneStyle 실패:', (e as any)?.message);
   }
+
+  /**
+   * 🌐 v3.8.565 (E2) — 출력 언어를 글 단위로 설정한다.
+   *
+   * 말투와 같은 이유로 모듈 상태다(llm-caller 의 provider 설정이 `(model, prompt)` 만 받는다).
+   * **글마다 반드시 다시 설정해야 한다** — 안 하면 앞 글의 언어가 남는다.
+   * 연속발행에서 한국어 글 다음에 영어 글이 오는 경우가 실제로 있다.
+   * 값이 없으면 'ko' 로 떨어지므로 기존 동작이 그대로다.
+   */
+  try {
+    const { setActiveLanguage } = require('./language-rules');
+    /**
+     * 🌍 v3.8.566 — **overseas 모드는 영어를 강제한다.**
+     *
+     * 모드와 언어가 어긋나면 최악이다. overseas 모드 블록은 영어로 쓰여 있고
+     * "일반 지시보다 우선"인데, 언어가 ko 면 껍데기는 한국어라 상반된 지시가 동시에 간다.
+     * 사용자가 language 를 따로 고르지 않아도 모드만으로 뜻이 분명하므로 여기서 맞춘다.
+     */
+    const requested = (payload as any)?.contentMode === 'overseas'
+      ? 'en'
+      : (payload as any)?.language;
+    const lang = setActiveLanguage(requested);
+    if (lang !== 'ko') onLog?.(`[PROGRESS] 5% - 🌐 출력 언어: ${lang}`);
+  } catch (e) {
+    console.warn('[orchestration] setActiveLanguage 실패:', (e as any)?.message);
+  }
   const queueImageToken = typeof payload?.queueImageToken === 'string' ? payload.queueImageToken : '';
 
   // v3.8.397: 쇼핑 모드 차단 해제.

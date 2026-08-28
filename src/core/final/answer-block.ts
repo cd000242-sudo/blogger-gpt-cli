@@ -75,6 +75,44 @@ export function sanitizeAnswerText(raw: unknown, maxLen: number): string {
   return trimToSentence(text, maxLen);
 }
 
+/**
+ * 근거로 쓸 수 없는 답을 걸러낸다 (v3.8.564).
+ *
+ * ## 왜 필요한가 — 실측으로 발각
+ * 2026-08-27 "신라면 맛있게 끓이는 법" 을 실제로 생성해 보니 결론 블록에 이게 나갔다:
+ *
+ *     근거: 기관명과 기준 시점 본문 미기재
+ *
+ * `generation.ts` 가 모델에게 `basis: 그 답의 근거가 되는 기관 이름과 기준 시점` 을 요구하는데,
+ * 레시피처럼 **인용할 기관이 애초에 없는 주제**에서는 모델이 빈 값 대신
+ * **지시문을 그대로 되돌려준다.** 그리고 이 블록은 길이만 다듬고 내용은 안 봤다.
+ *
+ * 세금·환급 글에서는 기관이 늘 있어서 안 드러났지만, 음식·취미처럼 기관 근거가 없는
+ * 주제로 넓히는 순간 **모든 글에 이 문구가 박힌다.**
+ *
+ * ## 지우는 편이 낫다
+ * 근거가 없으면 근거 줄을 **아예 안 만든다.** "없음" 이라고 쓰면 독자에게
+ * 근거가 필요한 글인데 못 댔다는 인상만 준다 — 레시피에는 원래 필요 없는 줄이다.
+ */
+const BASIS_NON_ANSWERS = [
+  '미기재', '없음', '해당없음', '해당 없음', '미상', '불명', '불명확', '확인불가', '확인 불가',
+  '알수없음', '알 수 없음', '미제공', '제공되지', '명시되지', '기재되지', '언급되지',
+  'n/a', 'na', 'none', 'unknown', 'not specified', 'not available', 'not mentioned',
+];
+/** 프롬프트의 필드 설명이 그대로 돌아온 경우 */
+const BASIS_ECHOES = ['기관 이름', '기관명', '기준 시점', '조사명'];
+
+export function usableBasis(raw: string): string {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const low = s.toLowerCase().replace(/\s+/g, ' ');
+  if (BASIS_NON_ANSWERS.some((w) => low.includes(w))) return '';
+  if (BASIS_ECHOES.some((w) => low.includes(w))) return '';
+  // 구두점·기호만 남은 경우("· -" 같은 껍데기)
+  if (!/[0-9A-Za-z가-힣]/.test(s)) return '';
+  return s;
+}
+
 export interface AnswerBlockInput {
   keyword: string;
   /** v3.8.562 — 'ko' | 'en'. 없으면 한국어(기존 동작) */
@@ -101,7 +139,7 @@ export function buildAnswerBlock(input: AnswerBlockInput): string {
     || (keyword ? strings.answerQuestionFallback(keyword) : '');
   if (!question) return '';
 
-  const basis = sanitizeAnswerText(input.basis, MAX_BASIS_LEN);
+  const basis = usableBasis(sanitizeAnswerText(input.basis, MAX_BASIS_LEN));
 
   const q = escapeHtml(question);
   const a = escapeHtml(answer);
