@@ -246,7 +246,24 @@ export interface HostTrustResult {
   ok: boolean;
   /** 왜 통과·거절했는지 — 로그로 남겨야 다음에 원인을 찾는다 */
   reason: 'catalog' | 'institutional' | 'brand-match' | 'agency-match'
-    | 'redirector' | 'user-generated' | 'ad-tracking' | 'unknown-host' | 'malformed';
+    | 'redirector' | 'user-generated' | 'ad-tracking' | 'commerce'
+    | 'unknown-host' | 'malformed';
+}
+
+/**
+ * 쇼핑몰인가. (v3.8.591)
+ *
+ * `cta/resolve.ts` 의 shopping 분류가 쓰던 것과 같은 목록이다.
+ * 정보글에서는 이 도메인들을 CTA 로 쓰지 않는다 — 위 judgeCtaHost 주석 참고.
+ */
+const COMMERCE_HOSTS = /(coupang|shopping\.naver|smartstore|11st|gmarket|auction|ssg\.com|lotteon|lottemart|lotteimall|danawa|musinsa|oliveyoung|kurly|wemakeprice|tmon|daiso|emart|homeplus|interpark|aliexpress|temu|amazon)/i;
+
+export function isCommerceHost(host: string): boolean {
+  return COMMERCE_HOSTS.test(String(host || '').toLowerCase());
+}
+
+export function isCommerceUrl(url: string): boolean {
+  return isCommerceHost(hostOf(url));
 }
 
 /**
@@ -260,6 +277,8 @@ export function judgeCtaHost(
   agencies: string[] = [],
   /** 검색 결과 제목 — 한글 기관명은 도메인이 아니라 여기서 맞춘다 */
   title = '',
+  /** v3.8.591 — 쇼핑·제휴 모드에서만 커머스를 허용한다 */
+  options?: { allowCommerce?: boolean },
 ): HostTrustResult {
   const host = hostOf(url);
   if (!host) return { ok: false, reason: 'malformed' };
@@ -282,6 +301,29 @@ export function judgeCtaHost(
    */
   if (hasAdTracking(raw)) return { ok: false, reason: 'ad-tracking' };
 
+  /**
+   * ⚠️ 카탈로그 통과보다 **먼저** 본다. (v3.8.591)
+   *
+   * ## 실제 사고 (발행글 5432)
+   * "2026년 9월 추석 대비 지자체 10% 할인가맹점" — 지역화폐 정보글인데
+   * CTA 가 **롯데온 쇼핑몰**로 나갔다("참고 링크 🔗 롯데 선물세트 바로가기").
+   *
+   * 원인: 카탈로그에 `롯데 선물세트 / lotteon.com` 이 태그 `명절·추석·선물세트`,
+   * weight 10 으로 등록돼 있다. 추석 글이라 그대로 뽑혔고
+   * `judgeCtaHost` 는 카탈로그면 무조건 통과시켰다.
+   *   judgeCtaHost('https://www.lotteon.com') → { ok: true, reason: 'catalog' }
+   *
+   * 카탈로그는 **쇼핑 모드를 위해** 커머스를 품고 있다. 그건 그 모드에선 맞다.
+   * 하지만 정보글에 쇼핑몰 링크가 제휴 표기도 없이 박히면 독자를 오해시킨다.
+   * v3.8.574 에서 "공식 권장" 배지는 기관만 받도록 고쳤는데,
+   * **목적지 자체를 거르는 이 관문은 그대로였다** — 라벨만 바꿔 같은 링크가 나갔다.
+   *
+   * 그래서 커머스는 `allowCommerce` 를 켠 경우(쇼핑·제휴 모드)에만 통과시킨다.
+   */
+  if (isCommerceHost(host) && !options?.allowCommerce) {
+    return { ok: false, reason: 'commerce' };
+  }
+
   if (isCatalogHost(host)) return { ok: true, reason: 'catalog' };
   if (isInstitutional(host)) return { ok: true, reason: 'institutional' };
   if (matchesKeywordBrand(host, keyword)) return { ok: true, reason: 'brand-match' };
@@ -294,6 +336,7 @@ export function judgeCtaHost(
 export function describeHostVerdict(result: HostTrustResult): string {
   switch (result.reason) {
     case 'catalog': return '등록된 공식 사이트';
+    case 'commerce': return '쇼핑몰 — 정보글에는 쓰지 않습니다';
     case 'institutional': return '공공·기관 도메인';
     case 'brand-match': return '키워드 브랜드와 일치';
     case 'agency-match': return '글이 지목한 기관과 일치';

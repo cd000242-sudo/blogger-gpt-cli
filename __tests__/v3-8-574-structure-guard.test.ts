@@ -144,3 +144,92 @@ describe('⑤ 배선 — 발행 경로에서 실제로 부른다', () => {
     expect(src).not.toMatch(/callGemini|callLLM|openai|fetch\(/i);
   });
 });
+
+/**
+ * v3.8.592 — 표 무결성 · 소제목이 약속한 내용
+ *
+ * ## 실측 사고 (발행글 5432)
+ *   · 표2 `4,3,3,3` · 표3 `4,4,3,4` — 행마다 칸 수가 달라 표가 밀렸다
+ *   · 섹션 5 제목이 "9월 대출규제 전 소비계획 점검"인데 본문에 그 얘기가 없었다
+ *     (크롤에 섞인 9월 대출규제 뉴스가 제목으로만 승격)
+ *
+ * 발행글 5364 에서도 같은 병이 나왔다:
+ *   "방문판매법 계속거래 규정의 이해" — 본문에 방문판매법이 한 번도 안 나온다
+ */
+describe('⑥ 표가 깨졌는지 본다 (v3.8.592)', () => {
+  const { findBrokenTables } = require('../src/core/final/structure-guard');
+  const row = (n: number) => `<tr>${'<td>값</td>'.repeat(n)}</tr>`;
+
+  test('⭐ 실측 그 표 — 칸 수가 행마다 다르다', () => {
+    const html = `<table>${row(4)}${row(3)}${row(3)}${row(3)}</table>`;
+    const found = findBrokenTables(html);
+    expect(found).toHaveLength(1);
+    expect(found[0].detail).toContain('4,3,3,3');
+  });
+
+  test('칸 수가 같으면 넘어간다', () => {
+    expect(findBrokenTables(`<table>${row(3)}${row(3)}${row(3)}</table>`)).toHaveLength(0);
+  });
+
+  test('행이 하나뿐이면 비교할 게 없다', () => {
+    expect(findBrokenTables(`<table>${row(3)}</table>`)).toHaveLength(0);
+  });
+
+  test('표가 여러 개면 각각 본다', () => {
+    const html = `<table>${row(3)}${row(3)}</table><table>${row(4)}${row(2)}</table>`;
+    expect(findBrokenTables(html)).toHaveLength(1);
+  });
+
+  test('th 로 된 머리행도 센다', () => {
+    const html = '<table><tr><th>a</th><th>b</th><th>c</th></tr>' + row(2) + '</table>';
+    expect(findBrokenTables(html)).toHaveLength(1);
+  });
+});
+
+describe('⑦ 소제목이 약속한 내용이 본문에 있는가 (v3.8.592)', () => {
+  const { findUnfulfilledHeadings } = require('../src/core/final/structure-guard');
+  const body = (t: string) => `<p>${t.repeat(1)}${'내용을 채웁니다. '.repeat(12)}</p>`;
+
+  test('⭐ 실측 그 소제목 — 방문판매법을 달고 본문엔 없다', () => {
+    const html = '<h2>방문판매법 계속거래 규정의 이해</h2>' + body('환불 절차를 설명합니다.');
+    const found = findUnfulfilledHeadings(html);
+    expect(found).toHaveLength(1);
+    expect(found[0].detail).toContain('방문판매법');
+  });
+
+  test('본문이 다루면 넘어간다', () => {
+    const html = '<h2>방문판매법 계속거래 규정의 이해</h2>' + body('방문판매법에 따른 계속거래 규정을 봅니다.');
+    expect(findUnfulfilledHeadings(html)).toHaveLength(0);
+  });
+
+  /** 실측 오탐 — 조사가 붙은 어절을 핵심 명사로 집었다 */
+  test('조사가 붙은 어절은 명사로 세지 않는다', () => {
+    // detail 에는 소제목 원문도 인용되므로, **빠진 낱말 목록**만 떼어 본다
+    const missingWords = (h: string) => findUnfulfilledHeadings(`<h2>${h}</h2>${body('다른 이야기를 씁니다.')}`)
+      .map((i: any) => /약속한 내용\(([^)]*)\)/.exec(i.detail)?.[1] || '')
+      .join(', ');
+
+    expect(missingWords('등록 정보부터 대조하기')).not.toContain('정보부터');
+    expect(missingWords('누락은 연결에서 생겨요')).not.toContain('연결에서');
+    expect(missingWords('소견서나 진료확인서 제출')).not.toContain('소견서나');
+    // 진짜 명사는 그대로 잡는다 — 조사 거르기가 검사를 무디게 만들면 안 된다
+    expect(missingWords('소견서나 진료확인서 제출')).toContain('진료확인서');
+  });
+
+  /** 우리가 넣는 틀 제목은 내용을 약속하지 않는다 */
+  test('틀 제목은 검사하지 않는다', () => {
+    for (const h of ['성급한 분들을 위한 핵심 요약', '📌 전체 읽어보기 절차', '자주 묻는 질문 (FAQ)']) {
+      expect(findUnfulfilledHeadings(`<h2>${h}</h2>${body('아무 내용')}`)).toHaveLength(0);
+    }
+  });
+
+  test('본문이 거의 없으면 다른 검사에 맡긴다', () => {
+    expect(findUnfulfilledHeadings('<h2>방문판매법 규정</h2><p>짧음</p>')).toHaveLength(0);
+  });
+
+  test('깨진 값에 던지지 않는다', () => {
+    for (const bad of ['', null, undefined, '<h2>']) {
+      expect(() => findUnfulfilledHeadings(bad as any)).not.toThrow();
+    }
+  });
+});

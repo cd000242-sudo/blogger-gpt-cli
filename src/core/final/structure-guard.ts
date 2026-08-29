@@ -19,7 +19,8 @@
  * 검수 때문에 발행이 멈추는 일은 만들지 않는다. 찾은 것은 **보고만** 한다.
  */
 
-export type StructureIssueKind = 'enumeration-gap' | 'dangling-connective' | 'overclaim';
+export type StructureIssueKind = 'enumeration-gap' | 'dangling-connective' | 'overclaim'
+  | 'broken-table' | 'unfulfilled-heading' | 'subjectless-definition';
 
 export interface StructureIssue {
   kind: StructureIssueKind;
@@ -149,14 +150,159 @@ export function findStructureIssues(html: string): StructureIssue[] {
       ...findEnumerationGaps(html),
       ...findDanglingConnectives(html),
       ...findOverclaims(html),
+      ...findBrokenTables(html),
+      ...findUnfulfilledHeadings(html),
+      ...findSubjectlessDefinitions(html),
     ];
   } catch {
     return [];
   }
 }
 
+/**
+ * ④ 표 무결성 — 행마다 칸 수가 다르면 표가 깨져 보인다. (v3.8.592)
+ *
+ * 실측(발행글 5432): 표2 가 `4,3,3,3` · 표3 이 `4,4,3,4` 였다.
+ * 지류 온누리 행에서 열이 하나 비어 표가 밀렸다.
+ * 사람은 한눈에 알아보지만 지금까지 아무 검사도 이걸 안 봤다.
+ */
+export function findBrokenTables(html: string): StructureIssue[] {
+  const out: StructureIssue[] = [];
+  const src = String(html || '');
+  let tableIndex = 0;
+
+  for (const t of src.matchAll(/<table[\s\S]*?<\/table>/gi)) {
+    tableIndex += 1;
+    const counts = [...(t[0].matchAll(/<tr[\s\S]*?<\/tr>/gi))]
+      .map((r) => [...(r[0].matchAll(/<t[dh]\b/gi))].length)
+      .filter((n) => n > 0);
+    if (counts.length < 2) continue;
+
+    const widest = Math.max(...counts);
+    const short = counts.filter((n) => n < widest).length;
+    if (short === 0) continue;
+
+    out.push({
+      kind: 'broken-table',
+      detail: `${tableIndex}번째 표의 칸 수가 행마다 다릅니다 (${counts.join(',')}) — ${short}개 행에서 칸이 빕니다`,
+      paragraphIndex: tableIndex,
+    });
+  }
+  return out;
+}
+
+/**
+ * ⑤ 소제목이 약속한 것을 본문이 다루는가. (v3.8.592)
+ *
+ * 실측(발행글 5432): 섹션 5 제목이 "9월 대출규제 전 소비계획 점검"인데
+ * 본문에 대출규제 이야기가 없었다. 크롤에 섞인 9월 대출규제 뉴스가 제목으로만 올라온 것이다.
+ * 제목이 약속하고 안 지키면 독자는 속은 셈이고, 검색엔진도 제목·본문 불일치를 본다.
+ *
+ * 소제목의 **핵심 명사**가 그 섹션 본문에 한 번도 안 나오면 알린다.
+ * 흔한 말(확인·정리·방법)은 세지 않는다 — 그건 어느 제목에나 있다.
+ */
+const HEADING_STOPWORDS = new Set([
+  '확인', '점검', '정리', '방법', '기준', '조건', '비교', '준비', '순서', '항목',
+  '이해하기', '알아보기', '살펴보기', '요약', '핵심', '전체', '먼저', '다음',
+  '경우', '내용', '부분', '사항', '가지', '단계', '절차', '결제', '직전',
+]);
+
+/**
+ * 우리가 넣는 **틀 제목**은 검사하지 않는다.
+ * "성급한 분들을 위한 핵심 요약"·"전체 읽어보기 절차"는 내용을 약속하는 제목이 아니다.
+ * 실측에서 이 둘이 오탐으로 잡혔다.
+ */
+const TEMPLATE_HEADINGS = /(핵심\s*요약|읽어보기|자주\s*묻는|FAQ|목차|한눈에)/i;
+
+/**
+ * 조사·어미가 붙은 어절은 명사가 아니다.
+ * 실측 오탐: "성급한"·"분들을"·"읽어보기"를 핵심 명사로 집었다.
+ */
+const HEADING_TAIL = /(을|를|이|가|은|는|의|에|로|으로|과|와|한|된|할|들|하기|보기|기의|부터|에서|까지|마다|조차|이나|라도|처럼|보다|에게|한테|으로는|에서는|나|든|든지|랑)$/;
+
+export function findUnfulfilledHeadings(html: string): StructureIssue[] {
+  const out: StructureIssue[] = [];
+  const src = String(html || '');
+  let sectionIndex = 0;
+
+  for (const m of src.matchAll(/<h[23][^>]*>([\s\S]*?)<\/h[23]>([\s\S]*?)(?=<h[23][^>]*>|$)/gi)) {
+    sectionIndex += 1;
+    const heading = textOf(m[1] as string).replace(/^[\d.\-\s]+/, '').trim();
+    const body = textOf(m[2] as string);
+    if (!heading || body.length < 80) continue;   // 본문이 거의 없으면 다른 검사가 잡는다
+    if (TEMPLATE_HEADINGS.test(heading)) continue;
+
+    /**
+     * **네 글자 이상**의 낱말만 본다.
+     * 실측 사고가 "대출규제"(4자)였고, 세 글자까지 열면 조사 섞인 토막이 걸린다.
+     * 그리고 하나라도 빠지면 알린다 — 예전엔 "전부 빠졌을 때만" 이라 정작
+     * 그 사고(제목에 대출규제·소비계획이 있고 소비계획만 본문에 있던 경우)를 놓쳤다.
+     */
+    const nouns = (heading.match(/[가-힣]{2,12}/g) || [])
+      .filter((w) => w.length >= 4)
+      .filter((w) => !HEADING_STOPWORDS.has(w))
+      .filter((w) => !HEADING_TAIL.test(w));
+    if (nouns.length === 0) continue;
+
+    const missing = nouns.filter((w) => !body.includes(w));
+    if (missing.length === 0) continue;
+
+    out.push({
+      kind: 'unfulfilled-heading',
+      detail: `${sectionIndex}번째 소제목 "${heading.slice(0, 30)}"이(가) 약속한 내용(${missing.join(', ')})이 본문에 없습니다`,
+      paragraphIndex: sectionIndex,
+    });
+  }
+  return out;
+}
+
+/**
+ * ⑥ 주어 없는 정의문 — "…곳을 뜻합니다" (무엇이?) (v3.8.592)
+ *
+ * ## 실측 사고 (발행글 5432, 소제목 "2-1. 상품권과 가맹점 구분")
+ *   "각 지자체가 판매하는 지역사랑상품권을 쓸 수 있는 가맹점 가운데,
+ *    해당 지자체의 할인 판매 조건이 붙은 상품권으로 결제 가능한 곳을 뜻합니다."
+ * 무엇이 그런 곳인지가 문장에 없다. 소제목이 "지자체 할인가맹점"이니 그 말이 주어여야 하는데,
+ * 정의를 하면서 **정의 대상의 이름을 한 번도 대지 않았다.**
+ *
+ * ## 어떻게 가리나 — 처음 시도는 실패했다
+ * "문장에 은/는 이 있는가"로 봤더니 **놓쳤다.** 위 문장의 "판매**하는**" 이
+ * 주어 표지로 잡혔기 때문이다. 한국어 관형형 어미(하는·되는·붙은)가 전부 걸린다.
+ *
+ * 그래서 성질을 바꿔 본다 — **정의문은 주어를 맨 앞에 댄다.**
+ *   ✅ "지역사랑상품권**은** …을 뜻합니다"      (1번째 어절)
+ *   ✅ "우리나라에서 지역사랑상품권**은** …"     (2번째 어절)
+ *   ❌ "각 / 지자체가 / 판매하는 …"             (앞 두 어절에 표지 없음)
+ *
+ * 실측: 정상 정의문 5개 통과 · 사고 문장 2개 적발 · 발행글 4편에서 오탐 0건.
+ */
+const DEFINITION_END = /(뜻합니다|말합니다|의미합니다|가리킵니다|뜻해요|말해요|의미해요)[.。]?\s*$/;
+const SUBJECT_MARK = /(은|는|이란|란|이라|라)$/;
+
+function namesItsSubject(sentence: string): boolean {
+  return String(sentence).trim().split(/\s+/).slice(0, 2).some((w) => SUBJECT_MARK.test(w));
+}
+
+export function findSubjectlessDefinitions(html: string): StructureIssue[] {
+  const out: StructureIssue[] = [];
+  const sentences = textOf(html)
+    .split(/(?<=[.!?])\s+|(?<=[다요])\.\s*/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 12);
+
+  for (const s of sentences) {
+    if (!DEFINITION_END.test(s)) continue;
+    if (namesItsSubject(s)) continue;
+    out.push({
+      kind: 'subjectless-definition',
+      detail: `정의문에 주어가 없습니다 — 무엇을 설명하는지 밝히세요: "${s.slice(0, 50)}…"`,
+    });
+  }
+  return out;
+}
+
 /** 로그 한 줄 — 발행 로그에 그대로 찍는다 */
 export function describeStructureIssues(issues: StructureIssue[]): string {
-  if (!issues.length) return '구조 검사 통과 — 열거 누락·앞 잘린 문단·과한 단정 없음';
+  if (!issues.length) return '구조 검사 통과 — 열거 누락·앞 잘린 문단·과한 단정·표·소제목 이상 없음';
   return `구조 검사 ${issues.length}건:\n` + issues.map((i) => `  · ${i.detail}`).join('\n');
 }

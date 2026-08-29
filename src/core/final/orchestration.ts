@@ -43,8 +43,16 @@ import { guardFacts, buildGroundingReference } from './fact-guard';
 import { findStructureIssues, describeStructureIssues } from './structure-guard';
 // v3.8.575: 이미 쓰는 네이버 키로 근거를 넓히고 낡음을 본다 (추가 비용 없음)
 import { fetchGrounding, describeGrounding, checkFreshness, describeFreshness } from './naver-grounding';
+// v3.8.587: 고유명사의 뜻을 모델이 지어내지 않게 — 먼저 검색해 정체를 알려 준다
+import { checkEntities, buildEntityBlock, describeEntities } from './entity-check';
+// v3.8.588: 제도가 올해 바뀌었는지 쓰기 전에 물어본다 (작년 체계로 쓰는 사고 방지)
+import { checkReform, buildReformBlock, describeReform } from './reform-check';
+// v3.8.589: 제목이 물으면 본문이 답하게 — 쓰기 전 지시 + 쓴 뒤 검사
+import { isQuestionTitle, buildAnswerDirective, auditTitleAnswer, describeAnswerAudit } from './title-answer-gate';
+// v3.8.591: 근거에 있는 핵심 수치를 빠뜨렸는지 본다 (지어내기 말고 '빠뜨리기')
+import { findMissingKeyFacts, describeMissingKeyFacts, hasMissingKeyFacts, buildKeyFactDirective } from './key-fact-gate';
 import { naverSearch } from '../naver-search-client';
-import { findEmptyBlocks, describeEmptyBlocks, isSummaryRenderable } from './empty-block-guard';
+import { findEmptyBlocks, describeEmptyBlocks, removeEmptyFaqBlocks, isSummaryRenderable } from './empty-block-guard';
 import { buildAnswerBlock } from './answer-block';
 import { buildAudienceBlock } from './audience-block';
 import { dropValuelessSections } from './value-promise';
@@ -2251,6 +2259,21 @@ ${quoted}
     if (ledgerDensity < LEDGER_FACT_DENSITY_MIN) {
       thinReasons.push(`팩트 밀도 ${ledgerDensity} < ${LEDGER_FACT_DENSITY_MIN}`);
     }
+    /**
+     * 제목이 질문이면 **권위 있는 출처가 더 필요하다**. (v3.8.589)
+     *
+     * 규칙을 묻는 질문("가능한지"·"얼마인지")의 답은 대개 고시·지침에 있는데,
+     * 그건 hwp·pdf 첨부라 우리가 못 읽는다(실측: 기관 검색 결과 18건 중 15건이 첨부파일).
+     * 무료 근거만으로 밀어붙이면 실측 사고처럼 **답 대신 주변 얘기로 공전한다**
+     * (발행글 5429: "단정하기 어려워요" + 서류 정리 6섹션).
+     *
+     * 퍼플렉시티는 자체 인덱스로 그 원문을 읽는다 — 실측에서 소비자분쟁해결기준의
+     * 조항과 "권고 기준일 뿐 강제 규범이 아니다"까지 정리해 왔다.
+     * PDF 파서를 새로 들이는 것보다 이미 있는 창구를 쓰는 편이 확실하다.
+     */
+    if (isQuestionTitle(keyword) && authoritative < 3) {
+      thinReasons.push(`제목이 질문인데 권위 출처 ${authoritative}건`);
+    }
 
     const freeEvidenceThin = thinReasons.length > 0;
     const shouldPayForFacts = userChosePaid || freeEvidenceThin;
@@ -2413,9 +2436,46 @@ ${quoted}
       onLog?.(`[PROGRESS] 44% - 📚 근거 장부 확장: ${groundingReference.length}자 (크롤링 본문 포함)`);
     }
 
+    /**
+     * 🔍 v3.8.587 — 키워드 속 고유명사의 **정체를 먼저 확인해서 알려 준다.**
+     *
+     * 발행글 5429 에서 "비즈스캔"을 모델이 임의로 재정의하고 그 위에 글을 세웠다
+     * (본문 30회). 실제로는 정책자금·정부지원사업을 진단하는 민간 서비스다.
+     * 날조가 아니라 **모르는 채로 뜻을 만든 것**이라 문장도 수치도 멀쩡해 보인다.
+     *
+     * 네이버 웹문서 검색이라 무료다. 실패하면 조용히 빈 값이라 예전과 같이 동작한다.
+     */
+    let entityBlock = '';
+    let reformFinding: any = null;
+    try {
+      const findings = await checkEntities(keyword, naverSearch as any);
+      entityBlock = buildEntityBlock(findings);
+      reformFinding = await checkReform(findings.map((f) => f.token), new Date().getFullYear(), naverSearch as any);
+      if (findings.length) {
+        console.log(`[ENTITY] ${describeEntities(findings)}`);
+        const unknown = findings.filter((f) => !f.found).map((f) => f.token);
+        if (unknown.length) {
+          onLog?.(`[PROGRESS] 44% - ⛔ 실체가 확인되지 않는 이름: ${unknown.join(', ')} — 뜻을 지어내지 않도록 지시합니다`);
+        }
+      }
+      console.log(`[REFORM] ${describeReform(reformFinding)}`);
+      if (reformFinding) {
+        onLog?.(`[PROGRESS] 44% - 🔄 ${reformFinding.institution} 올해 개편 자료 ${reformFinding.snippets.length}건 확보 — 작년 체계로 쓰지 않도록 지시합니다`);
+      }
+    } catch (entityErr: any) {
+      console.warn('[ENTITY] 스킵:', String(entityErr?.message || entityErr).slice(0, 100));
+    }
+    const reformBlock = buildReformBlock(reformFinding, new Date().getFullYear());
+    const answerDirective = buildAnswerDirective(keyword);
+    const keyFactDirective = buildKeyFactDirective(keyword);
+
     // Always inject the hard evidence policy. A failed search must never mean unrestricted generation.
     factEnrichedContents = [
       buildFactIntegrityPrompt(keyword, factEvidence),
+      ...(entityBlock ? [entityBlock] : []),
+      ...(reformBlock ? [reformBlock] : []),
+      ...(answerDirective ? [answerDirective] : []),
+      ...(keyFactDirective ? [keyFactDirective] : []),
       // 장부에 이미 들어간 것은 다시 넣지 않는다 (장부가 소스를 못 품은 경우에만 붙인다)
       ...(officialBlock && !ledgerCoversSources ? [officialBlock] : []),
       ...(factEvidence.context ? [`[FACT EVIDENCE - ${factEvidence.provider}]\n${factEvidence.context}`] : []),
@@ -5453,6 +5513,56 @@ ${conclusionHTML}
     }
 
     /**
+     * v3.8.589 — 제목이 물었으면 **앞부분에서 답했는지** 본다. (호출 0회)
+     *
+     * 실측 사고: 제목이 "사업소득 있으면 가능한지"인데 본문의 답이
+     * "단정하기 어려워요, 서류를 명의별로 분리 보관하세요"였고
+     * 남은 여섯 섹션이 전부 파일명·서류 정리였다.
+     * 지어낸 건 없어서 fact-guard 도 실속 게이트도 통과한다 — 이 검사만 잡는다.
+     *
+     * 여기서도 막지 않는다. 다시 쓰면 본문급 호출이 하나 더 붙어 비용이 두 배가 된다.
+     */
+    try {
+      const plain = String(html || '')
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&[a-z#0-9]+;/gi, ' ');
+      // h1 = 실제로 나간 제목. 없으면 키워드로 본다(키워드가 곧 질문인 경우가 많다)
+      const audit = auditTitleAnswer({ title: h1 || keyword, bodyText: plain });
+      const line = describeAnswerAudit(audit);
+      console.log(`[ANSWER] ${line}`);
+      if (audit.asked && !audit.answered) onLog?.(line);
+    } catch (answerErr: any) {
+      console.warn('[ANSWER] 스킵:', String(answerErr?.message || answerErr).slice(0, 120));
+    }
+
+    /**
+     * v3.8.591 — 근거에 있는 **핵심 수치를 빠뜨렸는지** 본다. (호출 0회)
+     *
+     * 기존 검사는 전부 "지어내기"를 본다. fact-guard 는 근거에 **없는** 수치를 찾고,
+     * 실속 게이트는 팩트 **밀도**만 재서 다른 숫자로 채우면 통과한다
+     * (실측: 할인율이 통째로 빠진 글이 팩트 74개로 91점을 받았다).
+     * **빠뜨리기**를 보는 눈이 없었다.
+     */
+    try {
+      const plainBody = String(html || '')
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ');
+      const missing = findMissingKeyFacts({
+        keyword,
+        evidenceText: [factEvidence.context, naverGrounding].filter(Boolean).join('\n'),
+        bodyText: plainBody,
+      });
+      const line = describeMissingKeyFacts(missing);
+      console.log(`[KEY-FACT] ${line}`);
+      if (hasMissingKeyFacts(missing)) onLog?.(`⚠️ ${line}`);
+    } catch (keyFactErr: any) {
+      console.warn('[KEY-FACT] 스킵:', String(keyFactErr?.message || keyFactErr).slice(0, 120));
+    }
+
+    /**
      * v3.8.575 — 낡은 글인지 본다 (네이버 뉴스, 추가 비용 없음).
      *
      * "2026년" 을 제목에 박았는데 2026년에 뭐가 바뀌었는지 확인한 흔적이 없던 글이 있었다.
@@ -5483,6 +5593,29 @@ ${conclusionHTML}
      * 여기서 막는 건 글자가 아예 없는 소제목·답변 없는 FAQ 처럼 **눈에 띄게 깨진** 경우뿐이고,
      * 렌더러들이 이미 빈 블록을 안 그리므로 여기까지 오는 일 자체가 드물다. 안전망이다.
      */
+    /**
+     * v3.8.590 — **고칠 수 있으면 고치고, 못 고칠 때만 막는다.**
+     *
+     * 실제 발행 실패(2026-08-29):
+     *   "발행 실패: 빈 블록이 남아 발행을 중단했습니다 (FAQ 답변 1개)"
+     * FAQ 답변 하나 때문에 100초 걸려 만들고 생성비까지 치른 글이 통째로 버려졌다.
+     * 나머지는 멀쩡했다. 안전망이 글을 지키는 게 아니라 글을 죽이고 있었다.
+     *
+     * 빈 FAQ 는 그 항목만 지우면 글이 성립한다 — 이미 `dropEmptyFaqItems` 로
+     * 에이전트 경로에서 하던 일인데 이 경로에만 안 붙어 있었다.
+     * 빈 소제목은 다르다. 섹션이 통째로 비었다는 뜻이라 지우면 뼈대가 무너진다.
+     * 그때는 예전처럼 막는다 — 사장님이 그러라고 넣은 안전망이다.
+     */
+    const beforeRepair = findEmptyBlocks(html);
+    if (beforeRepair.length > 0) {
+      const repaired = removeEmptyFaqBlocks(html);
+      if (repaired.removed > 0) {
+        html = repaired.html;
+        onLog?.(`[PROGRESS] 97% - 🩹 답변이 빈 FAQ ${repaired.removed}개를 지웠습니다 (발행은 계속합니다)`);
+        console.log(`[EMPTY-BLOCK] FAQ ${repaired.removed}개 제거 후 계속`);
+      }
+    }
+
     const emptyBlocks = findEmptyBlocks(html);
     if (emptyBlocks.length > 0) {
       const detail = describeEmptyBlocks(emptyBlocks);

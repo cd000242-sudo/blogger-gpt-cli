@@ -111,6 +111,39 @@ export function findEmptyBlocks(html: string): EmptyBlock[] {
   }
 }
 
+/**
+ * 답변이 빈 FAQ 아코디언을 **HTML 에서 통째로 걷어낸다**. (v3.8.590)
+ *
+ * ## 왜 — 실제 발행 실패 (2026-08-29)
+ *   "발행 실패: 빈 블록이 남아 발행을 중단했습니다 (FAQ 답변 1개)"
+ * FAQ 답변 하나가 비었다고 **글 전체가 버려졌다.** 100초 걸려 만들고
+ * 본문 생성비까지 치른 글이다. 나머지는 멀쩡했다.
+ *
+ * 빈 FAQ 는 **고칠 수 있는 결함**이다. 그 항목만 지우면 글은 성립한다.
+ * 반쪽 FAQ 를 그냥 두면 구조화 데이터로도 나가 검색엔진이 빈 답변을 읽으므로
+ * 지우는 게 맞고, 그렇다고 글을 통째로 버릴 이유는 없다.
+ *
+ * 빈 소제목(heading)은 다르다. 그건 섹션이 통째로 비었다는 뜻이라 지워도
+ * 글의 뼈대가 무너진다 — 그때는 예전처럼 막는다.
+ */
+export function removeEmptyFaqBlocks(html: string): { html: string; removed: number } {
+  try {
+    const source = String(html || '');
+    let removed = 0;
+    const out = source.replace(/<details\b[^>]*>([\s\S]*?)<\/details>/gi, (whole, body: string) => {
+      const answer = String(body || '').replace(/<summary\b[^>]*>[\s\S]*?<\/summary>/gi, '');
+      if (isBlank(answer) && !CONTENT_BEARING.test(answer)) {
+        removed += 1;
+        return '';
+      }
+      return whole;
+    });
+    return { html: removed > 0 ? out : source, removed };
+  } catch {
+    return { html: String(html || ''), removed: 0 };   // 고치다 글을 깨뜨리지 않는다
+  }
+}
+
 /** 에러 메시지용 — 무엇이 비었는지 사람이 읽을 수 있게 */
 export function describeEmptyBlocks(blocks: EmptyBlock[]): string {
   const label: Record<EmptyBlock['kind'], string> = {

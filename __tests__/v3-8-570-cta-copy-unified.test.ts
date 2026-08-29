@@ -95,10 +95,18 @@ describe('② 버튼과 훅이 같은 목적지를 말한다', () => {
     expect(copy.hookingMessage).toBe('PDF 를 받아 확인하세요.');
   });
 
+  /**
+   * v3.8.586 정정 — 훅이 "확인하세요"로 끝나면 안 된다.
+   *
+   * 그 문구가 실속 게이트의 **회피(deferral)** 로 잡힌다. 실제 발행글에서
+   * "워크넷 공식 사이트에서 바로 확인하세요."가 섹션 한복판에 박혀 있었고,
+   * 독자에겐 문맥 없는 명령문이었다. 지금은 **거기 무엇이 있는지**를 말한다.
+   */
   test('아무것도 모르면 무난한 문구 — 빈 값이나 깨진 문장은 안 나온다', () => {
     const copy = buildCtaCopy({ url: 'https://unknown-site.example/x' });
     expect(copy.buttonText).toBe('🔗 공식 사이트 바로가기');
-    expect(copy.hookingMessage).toBe('공식 사이트에서 바로 확인하세요.');
+    expect(copy.hookingMessage).toBe('운영 기관의 원문 안내로 이어집니다.');
+    expect(copy.hookingMessage).not.toContain('확인하세요');
   });
 
   /** 이게 핵심 불변식이다 — 어떤 입력이든 훅에 글 제목이 안 들어간다 */

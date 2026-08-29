@@ -160,21 +160,37 @@ export function buildCtaCopy(input: CtaCopyInput): CtaCopy {
       hookingMessage: `${withTopicParticle(action)} ${site}에서 바로 하실 수 있습니다.`,
     };
   }
+  /**
+   * v3.8.586 — "확인하세요"를 훅에서 뺀다.
+   *
+   * ## 왜 (발행글 5429 실측)
+   * 섹션 3 한복판에 이 문장이 뜬금없이 박혀 있었다:
+   *   "워크넷 공식 사이트에서 바로 확인하세요."
+   * 독자에겐 문맥 없는 명령문이고, 실속 게이트에는 **회피(deferral)** 로 잡힌다.
+   * DEFERRAL_PATTERNS 의 `공식\s*사이트[^.]{0,25}확인` 에 정확히 걸린다.
+   *
+   * v3.8.584 에서 CTA 의 `microcopy` 는 고쳤는데 **`hookingMessage` 를 놓쳤다.**
+   * 같은 병이 필드만 바꿔 남아 있었다 — 한쪽만 고치면 이렇게 된다.
+   *
+   * ## 어떻게
+   * "네가 가서 확인해라"가 아니라 **거기 무엇이 있는지**를 말한다.
+   * 훅은 버튼 위 한 줄이므로, 링크의 값을 알려 주는 편이 클릭 이유도 분명해진다.
+   */
   if (site) {
     return {
       buttonText: `🔗 ${site} 바로가기`,
-      hookingMessage: `${site} 공식 사이트에서 바로 확인하세요.`,
+      hookingMessage: `${site}에 원문 안내가 있습니다.`,
     };
   }
   if (action) {
     return {
       buttonText: `🚀 ${action} 바로가기`.slice(0, 30),
-      hookingMessage: `${action}, 공식 사이트에서 바로 진행하세요.`,
+      hookingMessage: `${withTopicParticle(action)} 아래에서 이어서 하실 수 있습니다.`,
     };
   }
   return {
     buttonText: '🔗 공식 사이트 바로가기',
-    hookingMessage: '공식 사이트에서 바로 확인하세요.',
+    hookingMessage: '운영 기관의 원문 안내로 이어집니다.',
   };
 }
 
