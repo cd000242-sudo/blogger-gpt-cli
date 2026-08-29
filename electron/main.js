@@ -9244,9 +9244,34 @@ function extractHtmlFromAgentText(text) {
     const raw = String(text || '').trim();
     if (!raw)
         return '';
-    const marker = raw.match(/ARTICLE_HTML_BEGIN\s*([\s\S]*?)\s*ARTICLE_HTML_END/i);
-    if (marker?.[1])
-        return stripMarkdownFence(marker[1]);
+    /**
+     * 🩹 v3.8.599 — **마커를 말로 언급한 것**을 본문으로 회수하던 버그.
+     *
+     * 실측 사고(2026-08-29, 발행글 5441 "월급 300만 원, 95년생·85년생 국민연금 수령액"):
+     * 워드프레스에 나간 본문이 문자 그대로 `and` 한 단어였다. 원문은 32KB 였다.
+     *
+     * 에이전트가 파일을 못 써서(Write·Bash·PowerShell 전부 차단) 지시서의 폴백대로
+     * 마커 사이에 본문을 출력했는데, 그 **직전에 지시문을 인용**했다:
+     *   …("If file writing is blocked, print between ARTICLE_HTML_BEGIN and ARTICLE_HTML_END …")
+     * 예전 정규식은 첫 BEGIN 과 첫 END 를 잡으므로 그 사이의 " and " 가 본문이 됐다.
+     * 뒤이어 나오는 진짜 블록은 쳐다보지도 않았다.
+     *
+     * 그래서 이제 **모든 BEGIN…END 쌍을 모아 가장 본문다운 것**을 고른다.
+     * 기준은 길이가 아니라 "HTML 태그가 있는가" 를 먼저 본다 — 인용문은 태그가 없다.
+     */
+    const candidates = [];
+    const markerRe = /ARTICLE_HTML_BEGIN\s*([\s\S]*?)\s*ARTICLE_HTML_END/gi;
+    for (let m = markerRe.exec(raw); m; m = markerRe.exec(raw)) {
+        const body = stripMarkdownFence(String(m[1] || '')).trim();
+        if (body)
+            candidates.push(body);
+    }
+    const taggedCandidates = candidates.filter((c) => /<(?:article|h1|h2|h3|p|section|div|ul|table)\b/i.test(c));
+    if (taggedCandidates.length > 0) {
+        return taggedCandidates.reduce((a, b) => (b.length > a.length ? b : a));
+    }
+    // 태그가 없는 마커 내용은 본문이 아니라 **말**일 가능성이 크다(위 사고의 " and ").
+    // 아래 다른 회수 경로를 먼저 태우고, 전부 실패했을 때만 마지막에 쓴다.
     const article = raw.match(/<article\b[\s\S]*?<\/article>/i);
     if (article?.[0])
         return article[0].trim();
@@ -9261,6 +9286,10 @@ function extractHtmlFromAgentText(text) {
     }
     if (/<(?:article|h1|h2|p|section|div)\b/i.test(raw))
         return stripMarkdownFence(raw);
+    // 여기까지 왔으면 HTML 을 못 찾았다. 마커 안에 있던 태그 없는 말이라도 있으면 그걸 돌려준다
+    // (호출부가 길이를 보고 발행을 막는다 — v3.8.599 최소 길이 가드).
+    if (candidates.length > 0)
+        return candidates.reduce((a, b) => (b.length > a.length ? b : a));
     return '';
 }
 function extractAgentTextValue(value) {
@@ -10734,7 +10763,23 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
             console.warn('[AGENT-SHOPPING] 부착 스킵:', String(attachErr?.message || attachErr).slice(0, 120));
         }
         const usage = parseAgentRunUsage(profile.provider, run.stdout);
-        const hasContent = !!String(result.content || '').trim();
+        /**
+         * 🛟 v3.8.599 — **빈 글이 나가는 일을 여기서 막는다.**
+         *
+         * 실측 사고(발행글 5441): 본문이 `and` 한 단어인 글이 워드프레스에 그대로 나갔다.
+         * 회수 단계가 잘못된 것을 집어 왔는데, `hasContent` 가 "빈 문자열이 아니면 통과" 라
+         * 세 글자짜리도 산출물로 인정됐다. 지시서는 8,000~14,000자를 요구한다 —
+         * 200자 미만이 정상인 경우는 없다.
+         *
+         * 여기서 막으면 사용자는 실패를 보고 다시 돌릴 수 있다. 빈 글이 발행되면
+         * 그 사실조차 모른 채 사이트에 남는다 — 훨씬 나쁘다.
+         */
+        const contentText = String(result.content || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        const MIN_ARTICLE_TEXT = 200;
+        const hasContent = contentText.length >= MIN_ARTICLE_TEXT;
+        if (String(result.content || '').trim() && !hasContent) {
+            console.error(`[AGENT-RESULT] ❌ 본문이 ${contentText.length}자뿐입니다 — 발행하지 않습니다: ${JSON.stringify(contentText.slice(0, 80))}`);
+        }
         // v3.8.415: 사용자가 중지시켜서 산출물이 비었을 뿐인데 "실패"로 보고하면
         //   빨간 에러 문구("로그인 상태를 확인해주세요")가 뜨고 사용자는 뭔가 고장난 줄 안다.
         if (!hasContent && run.canceled) {
@@ -10742,7 +10787,17 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
             return { ok: false, canceled: true, jobId, jobDir, error: '작업을 중지했습니다.' };
         }
         if (!hasContent) {
-            const errorMessage = buildAgentFailureMessage(profile, run);
+            // v3.8.599: 짧은 본문은 "산출물 없음" 이 아니라 **회수 실패**다 — 그대로 말해 준다
+            const errorMessage = contentText.length > 0
+                ? [
+                    `에이전트가 돌려준 본문이 ${contentText.length}자뿐이라 발행하지 않았습니다.`,
+                    '',
+                    `회수된 내용: ${JSON.stringify(contentText.slice(0, 60))}`,
+                    '',
+                    '📌 에이전트가 파일 대신 화면으로만 답했을 때 생기는 문제입니다.',
+                    '   같은 작업을 다시 실행하면 대부분 정상적으로 나옵니다.',
+                ].join('\n')
+                : buildAgentFailureMessage(profile, run);
             // v3.8.382: 실행 중 드러난 인증 실패를 응답에 실어 보낸다.
             //   사전 점검(codex login status)은 로컬 auth 파일만 읽으므로 서버측 토큰 무효화를 감지할 수 없다.
             //   실제 실행에서만 드러나므로, 여기서 authRequired를 분류해 UI가 재로그인 안내를 띄우고
