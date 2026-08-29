@@ -365,6 +365,8 @@ function renderList() {
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
           <button class="ppEditBtn" data-index="${i}" style="padding:9px 16px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:9px;font-weight:800;font-size:12px;cursor:pointer;">✏️ 미리보기·수정</button>
+          <button class="ppRegenBtn" data-index="${i}" title="같은 주소 그대로 본문만 새로 만들어 덮어씁니다 (색인 유지)" style="padding:9px 12px;background:#334155;color:#86efac;border:none;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;">🔄 글 다시 생성</button>
+          <button class="ppRegenImgBtn" data-index="${i}" title="글자는 그대로 두고 AI 이미지만 다시 만듭니다" style="padding:9px 12px;background:#334155;color:#fcd34d;border:none;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;">🖼️ 이미지 다시 생성</button>
           <button class="ppOpenBtn" data-index="${i}" style="padding:9px 12px;background:#334155;color:#93c5fd;border:none;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;">🔗 글 열기</button>
           ${getPlatform(state.active).deleteChannel
             ? `<button class="ppDeleteBtn" data-index="${i}" title="블로그에서 이 글을 삭제합니다" style="padding:9px 12px;background:#334155;color:#fca5a5;border:none;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;">🗑️ 삭제</button>`
@@ -378,7 +380,21 @@ function renderList() {
     card.addEventListener('click', (e) => {
       if (e.target.closest('.ppOpenBtn')) return;   // 링크 버튼은 별도 처리
       if (e.target.closest('.ppDeleteBtn')) return; // 삭제 버튼도 카드 클릭으로 새지 않게
+      if (e.target.closest('.ppRegenBtn')) return;     // v3.8.600
+      if (e.target.closest('.ppRegenImgBtn')) return;  // v3.8.600
       openEditorFor(Number(card.getAttribute('data-index')));
+    });
+  });
+  list.querySelectorAll('.ppRegenBtn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      regeneratePostAt(Number(e.currentTarget.getAttribute('data-index')), 'article');
+    });
+  });
+  list.querySelectorAll('.ppRegenImgBtn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      regeneratePostAt(Number(e.currentTarget.getAttribute('data-index')), 'images');
     });
   });
   list.querySelectorAll('.ppDeleteBtn').forEach((btn) => {
@@ -407,6 +423,68 @@ function renderList() {
  * 목록 순서가 바뀌었는데 인덱스로만 지우면 엉뚱한 글이 날아간다 —
  * 그래서 확인 문구에 제목을 넣고, 지운 뒤에는 그 항목만 화면에서 뺀다.
  */
+/**
+ * 🔄 v3.8.600 — 발행된 글을 제자리에서 다시 만든다.
+ *
+ * 사장님: "지금처럼 글이 안 나온 상태로 발행이 됐다면 다시 글 생성하고 이미지 넣고
+ *          수정발행이 가능해야 되니까요"
+ *
+ * **같은 주소를 유지한다.** 새로 발행하면 색인이 초기화되고 301 을 걸어야 한다.
+ */
+async function regeneratePostAt(index, mode) {
+  const platform = getPlatform(state.active);
+  const item = activeState().items[index];
+  if (!item) return;
+
+  const postId = String(item.postId || item.id || '').trim();
+  if (!postId) {
+    alert('이 글의 ID를 찾지 못해 다시 생성할 수 없습니다. 새로고침 후 다시 시도해주세요.');
+    return;
+  }
+
+  const what = mode === 'images'
+    ? '글자는 그대로 두고 AI 이미지만 다시 만듭니다.'
+    : '본문을 통째로 새로 만들어 덮어씁니다. 지금 본문은 사라집니다.';
+  const ok = confirm(
+    `아래 글을 다시 만들까요?\n\n"${item.title || '(제목 없음)'}"\n\n${what}\n`
+    + '\n· 주소(URL)와 제목은 그대로라 검색 색인이 유지됩니다.'
+    + '\n· 새로 만든 것이 지금보다 나쁘면 덮지 않고 멈춥니다.',
+  );
+  if (!ok) return;
+
+  const statusEl = document.getElementById('ppStatus');
+  const label = mode === 'images' ? '🖼️ 이미지를 다시 만드는 중…' : '🔄 본문을 다시 만드는 중…';
+  if (statusEl) statusEl.textContent = `${label} (몇 분 걸립니다)`;
+
+  const buttons = document.querySelectorAll('.ppRegenBtn, .ppRegenImgBtn');
+  buttons.forEach((b) => { b.disabled = true; b.style.opacity = '0.5'; });
+
+  try {
+    const payload = await buildPlatformPayload(platform.key);
+    const res = await window.electronAPI.invoke('regenerate-published-post', {
+      platform: platform.key,
+      postId,
+      title: item.title || '',
+      mode,
+      ...(payload ? { payload } : {}),
+    });
+    if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
+
+    if (statusEl) {
+      statusEl.textContent = mode === 'images'
+        ? `✅ 이미지를 다시 만들어 같은 주소에 반영했습니다 (본문 ${res.length}자)`
+        : `✅ 본문을 다시 만들어 같은 주소에 반영했습니다 (${res.length}자)`;
+    }
+    window.addLog?.(`✅ "${item.title}" 다시 생성 완료 — 주소 그대로 반영`, 'success');
+  } catch (err) {
+    const message = err?.message || String(err);
+    if (statusEl) statusEl.textContent = `❌ 다시 생성 실패: ${message}`;
+    alert(`다시 생성하지 못했습니다.\n\n${message}\n\n기존 글은 그대로 있습니다.`);
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; b.style.opacity = '1'; });
+  }
+}
+
 async function deletePostAt(index) {
   const platform = getPlatform(state.active);
   const item = activeState().items[index];

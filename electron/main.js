@@ -4030,6 +4030,107 @@ electron_1.ipcMain.handle('blogger-update-post', async (_evt, args) => {
         return { ok: false, error: error.message || String(error) };
     }
 });
+/**
+ * 🔄 v3.8.600 — 발행된 글을 **제자리에서** 다시 만든다.
+ *
+ * 사장님: "지금처럼 글이 안 나온 상태로 발행이 됐다면 다시 글 생성하고 이미지 넣고
+ *          수정발행이 가능해야 되니까요"
+ *
+ * 실제로 본문이 `and` 한 단어인 글이 나갔다(발행글 5441). 그때 할 수 있는 게 삭제뿐이면
+ * 그 글의 색인·유입이 통째로 날아간다. 같은 postId 의 본문만 갈아끼우면
+ * **주소·슬러그가 그대로**라 색인이 유지된다 (사장님 확정: "A로 해줘").
+ *
+ * mode='article' → 본문을 새로 생성해 덮는다. 제목은 **건드리지 않는다**(주소가 제목에서 왔다).
+ * mode='images'  → 글자는 그대로 두고 이미지만 다시 만들어 주소를 갈아끼운다.
+ *
+ * 안전장치: 새로 만든 것이 기존보다 나쁘면 덮지 않는다 (post-regenerate.judgeRegenerated).
+ */
+electron_1.ipcMain.handle('regenerate-published-post', async (_evt, args) => {
+    const send = (line) => {
+        try {
+            if (_evt.sender && !_evt.sender.isDestroyed())
+                _evt.sender.send('log-line', line);
+        }
+        catch { /* noop */ }
+    };
+    try {
+        const mode = args?.mode === 'images' ? 'images' : 'article';
+        const postId = String(args?.postId || '').trim();
+        if (!postId)
+            return { ok: false, error: 'postId 가 없습니다.' };
+        const regen = require('../dist/core/final/post-regenerate');
+        const envData = (0, env_1.loadEnvFromFile)();
+        const creds = loadPlatformCredsFromEnv(envData, { platform: args?.platform });
+        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const adapter = buildPlatformAdapter(creds, axios);
+        const current = await adapter.getPost(postId);
+        if (!current)
+            return { ok: false, error: '글을 찾을 수 없습니다.' };
+        const previousHtml = String(current.content || '');
+        // 제목은 사용자가 화면에서 본 것을 우선한다(목록이 최신이다). 없으면 원문 제목.
+        const title = String(args?.title || current.title || '').trim();
+        let nextHtml = '';
+        if (mode === 'article') {
+            send(`[PROGRESS] 5% - 🔄 "${title.slice(0, 30)}" 본문을 다시 만듭니다 (주소 유지)`);
+            const { generateUltimateMaxModeArticleFinal } = require('../dist/core/ultimate-final-functions');
+            const payload = {
+                ...(args?.payload || {}),
+                topic: title,
+                keyword: title,
+                platform: creds.platform,
+                targetPlatform: creds.platform,
+            };
+            const generated = await generateUltimateMaxModeArticleFinal(payload, envData, send);
+            nextHtml = String(generated?.html || '');
+        }
+        else {
+            const images = regen.findPostImages(previousHtml);
+            send(`[PROGRESS] 5% - 🖼️ ${regen.describeRegenerationPlan('images', images)}`);
+            if (images.length === 0)
+                return { ok: false, error: '이 글에는 다시 만들 이미지가 없습니다.' };
+            const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
+            const { uploadBase64ToImageHost } = require('../dist/core/final/image-helpers');
+            const engine = String(args?.payload?.h2ImageSource || args?.payload?.imageSource || envData['IMAGE_SOURCE'] || 'imagefx');
+            const replacements = new Map();
+            for (const image of images) {
+                const prompt = regen.buildImagePromptFor(title, image.sectionTitle);
+                send(`[PROGRESS] ${10 + Math.floor((image.index / images.length) * 80)}% - 🖼️ ${image.index + 1}/${images.length} "${prompt.slice(0, 40)}"`);
+                try {
+                    const made = await dispatchH2ImageGeneration(engine, prompt, title, send, undefined, { allowFreeTrialPublishing: true });
+                    const raw = String(made?.dataUrl || made?.url || '');
+                    if (!made?.ok || !raw) {
+                        send(`   ⚠️ ${image.index + 1}번째 이미지 실패 — 기존 것을 그대로 둡니다`);
+                        continue;
+                    }
+                    const hosted = raw.startsWith('data:') ? await uploadBase64ToImageHost(raw, 'regen') : raw;
+                    if (hosted)
+                        replacements.set(image.index, hosted);
+                }
+                catch (imageError) {
+                    send(`   ⚠️ ${image.index + 1}번째 이미지 예외: ${String(imageError?.message || imageError).slice(0, 80)}`);
+                }
+            }
+            if (replacements.size === 0)
+                return { ok: false, error: '이미지를 하나도 만들지 못했습니다. 이미지 엔진 로그인을 확인해주세요.' };
+            nextHtml = regen.replaceImageSrcs(previousHtml, replacements);
+            send(`[PROGRESS] 92% - 🖼️ ${replacements.size}/${images.length}장 교체`);
+        }
+        const verdict = regen.judgeRegenerated(nextHtml, previousHtml);
+        if (!verdict.ok) {
+            send(`❌ ${verdict.reason} — 기존 글을 그대로 둡니다`);
+            return { ok: false, error: `${verdict.reason}. 기존 글은 건드리지 않았습니다.` };
+        }
+        send('[PROGRESS] 95% - 💾 같은 주소에 수정 발행 중...');
+        await adapter.updatePost(postId, { content: nextHtml });
+        send(`[PROGRESS] 100% - ✅ 수정 발행 완료 (${verdict.length}자)`);
+        return { ok: true, mode, length: verdict.length, url: current.url || '' };
+    }
+    catch (error) {
+        const message = error?.message || String(error);
+        send(`❌ 다시 생성 실패: ${message}`);
+        return { ok: false, error: message };
+    }
+});
 electron_1.ipcMain.handle('wordpress-list-posts', async (_evt, args) => {
     try {
         const wordpressPosts = require('../dist/wordpress/wordpress-posts');

@@ -1,0 +1,89 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "electron/ui/modules/cardnews.js"
+        ],
+        "createdAt": "2026-08-19T03:24:11.090Z",
+        "reason": "L281 is a regex literal for extracting thumbnails from post HTML (extractThumb), not a rendered img tag — static analyzer misread"
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "electron/ui/modules/posting.js"
+        ],
+        "createdAt": "2026-08-22T12:23:42.377Z",
+        "reason": "L1331 is a regex literal that DETECTS broken <img src> in generated HTML (brokenImgs diagnostic counter, v3.8.102) — not an img tag. Pre-existing code, untouched by this session's edits."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/core/index.ts"
+        ],
+        "createdAt": "2026-08-22T13:02:52.731Z",
+        "reason": "These border-left rules are CSS for the GENERATED BLOG ARTICLE body (callout/quote boxes inside published posts), not app UI chrome. Left-border callouts are a standard published-article convention, and this styling is the product's tuned output. Pre-existing lines, untouched by this session's edit at L1284."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "electron/ui/modules/posting.js"
+        ],
+        "createdAt": "2026-08-22T13:13:22.299Z",
+        "reason": "user confirmed: sajangnim said '은은하게 바꿔 빨간테두리 그대로두고' — keep the red left border, only soften it. Done in v3.8.551 (3px solid #ef4444 -> 2px solid rgba(239,68,68,0.5)). The remaining accent is the user's explicit design decision."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "__tests__/v3-8-552-usage-tour.test.ts"
+        ],
+        "createdAt": "2026-08-22T13:28:22.804Z",
+        "reason": "False positive: L159 is a negative test assertion — expect(posting).not.toContain('border-left:3px solid #ef4444') — asserting the OLD style is gone. The literal exists only inside the assertion string, not as shipped CSS."
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "src/core/final/prompt-en.ts"
+        ],
+        "createdAt": "2026-08-27T22:55:13.948Z",
+        "reason": "Claude 판단: 이 파일은 LLM 프롬프트 텍스트다. 문제의 <img> 는 '이 태그를 생성하지 말라'는 금지 목록의 일부이지 렌더되는 마크업이 아니다."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/core/url-content-generator.ts"
+        ],
+        "createdAt": "2026-08-29T10:14:24.425Z",
+        "reason": "measured by assistant: WP strips the <style> block at publish time - live post leadernam.com/subsidy/local-business/la1826... has class=url-gen-content but 0 CSS rules for .url-gen-*, so the border never renders. Dead style in a fallback template; cleanup tracked separately."
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "src/core/final/post-regenerate.ts"
+        ],
+        "createdAt": "2026-08-29T13:26:36.499Z",
+        "reason": "measured by assistant: file is an HTML *parser* (regex + comments describing <img> tags), it renders no markup. No <img> is emitted anywhere in this module."
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "electron/ui/modules/published-posts.js"
+        ],
+        "createdAt": "2026-08-29T13:27:25.327Z",
+        "reason": "measured by assistant: L132 is a regex that PARSES <img src> out of post content to pick a thumbnail; it emits no markup. The card render already guards with a ternary so no empty-src img ships."
+      }
+    ]
+  }
+}
