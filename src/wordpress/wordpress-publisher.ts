@@ -309,9 +309,9 @@ function preCleanupWordPressBody(html: string): string {
 
   const highlightInsideText = (text: string): string => {
     return text
-      .replace(/(\d{1,3}(?:,\d{3})*\s*(?:만원|원|억|달러|USD))(?![^<]*>)/g, '<strong>$1</strong>')
-      .replace(/(\d{1,3}(?:\.\d+)?\s*%)(?![^<]*>)/g, '<strong>$1</strong>')
-      .replace(/((?:최대\s*|약\s*)?\d{1,3}\s*(?:년|개월|일|시간|분))(?![^<]*>)/g, '<strong>$1</strong>')
+      .replace(/(?<![\d,.])(\d{1,3}(?:,\d{3})*\s*(?:만원|원|억|달러|USD))(?![^<]*>)/g, '<strong>$1</strong>')
+      .replace(/(?<![\d,.])(\d{1,3}(?:\.\d+)?\s*%)(?![^<]*>)/g, '<strong>$1</strong>')
+      .replace(/(?<![\d,.])((?:최대\s*|약\s*)?\d{1,4}\s*(?:년|개월|일|시간|분))(?![^<]*>)/g, '<strong>$1</strong>')
       .replace(/(20\d{2}년\s*\d{1,2}월\s*\d{1,2}일)(?![^<]*>)/g, '<strong>$1</strong>');
   };
   cleaned = cleaned.replace(/<(p|li)([^>]*)>([\s\S]*?)<\/\1>/gi, (match, tag, attrs, inner) => {
