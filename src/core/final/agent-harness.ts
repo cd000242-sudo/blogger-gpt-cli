@@ -26,6 +26,7 @@ import { findEmptyBlocks, describeEmptyBlocks, dropEmptyFaqItems } from './empty
 import { findValuePromises } from './value-promise';
 import { isDiscoverMode, buildDiscoverTitleDirective, buildDiscoverBodyBlock, findDiscoverTitleViolations, findDiscoverHeadingIssues } from './discover-mode';
 import { buildModeStructureBlock } from './agent-mode-structure';
+import { findUnkeptTitleClaims, stripUnkeptClaims, describeUnkeptClaims } from './title-claim-check';
 import { buildResearchDirective } from './agent-research';
 import { buildOperatorBrief, MODE_LABELS } from './agent-operator';
 // v3.8.577: API 경로와 같은 눈으로 본다 — 둘 다 무료 로컬 연산이라 에이전트 모드에 써도 된다
@@ -140,6 +141,8 @@ function buildTitleRules(input: AgentHarnessInput): string {
     '3. 40자 이내. 이모지·특수문자로 끝맺지 않습니다.',
     `4. ${currentYear}년 기준으로 씁니다. 지난 연도 조건을 쓰지 않습니다.`,
     '5. 키워드는 제목 앞쪽에 자연스럽게 한 번만 넣습니다. 두 번 반복하지 않습니다.',
+    '6. **제목에 개수를 약속하지 마세요** ("용어 20개", "방법 7가지"). 글이 실제로 그만큼 담을 때만 쓸 수 있습니다.',
+    '   금액·기간·비율도 근거로 확인된 값만 씁니다. 확인 못 했으면 숫자 없이 씁니다.',
     '',
     questions.length
       ? [
@@ -211,11 +214,24 @@ export function buildAgentHarnessRules(input: AgentHarnessInput): string {
  * 추가 API 호출은 하지 않는다 — 에이전트 모드는 구독 CLI 를 쓰려고 고른 것이므로
  * 여기서 유료 호출을 끼워 넣으면 그 선택을 뒤집는 셈이다.
  */
-export function normalizeAgentTitle(rawTitle: string, keyword: string): string {
+export function normalizeAgentTitle(rawTitle: string, keyword: string, bodyText = ''): string {
   try {
     const base = String(rawTitle || '').trim();
     if (!base) return '';
-    const cleaned = enforceTitleLength(dedupeKeywordInTitle(stripTitleCliches(base), keyword), 40);
+    let cleaned = enforceTitleLength(dedupeKeywordInTitle(stripTitleCliches(base), keyword), 40);
+
+    /**
+     * v3.8.594 — 제목이 약속한 수치를 본문이 갖고 있는지 본다. (무료 로컬 연산)
+     * API 경로에만 달아 두면 에이전트 모드로 같은 제목이 그대로 나간다.
+     */
+    if (bodyText) {
+      const unkept = findUnkeptTitleClaims({ title: cleaned, bodyText, keyword });
+      if (unkept.length > 0) {
+        console.log(`[AGENT-TITLE] ${describeUnkeptClaims(unkept)}`);
+        cleaned = stripUnkeptClaims(cleaned, unkept);
+      }
+    }
+
     return cleaned.trim();
   } catch {
     return String(rawTitle || '').trim();

@@ -4401,6 +4401,24 @@ export function initCodexWorkshop() {
   window.verifyActiveAgentLogin = verifyActiveAgentLogin;
   window.verifyAgentExecutionReadiness = verifyAgentExecutionReadiness;
   window.getAgentImageSettingsMode = getAgentImageSettingsMode;
+  /**
+   * v3.8.598 — 텍스트 엔진 선택기에서 에이전트를 직접 켤 수 있게 연다.
+   *
+   * 사장님 지적: "AI 모델 드롭다운 배지에 에이전트는 없네요."
+   * 상단 배지는 "Claude Code Agent" 로 **표시**되는데 정작 엔진 선택기에서는
+   * 고를 수가 없었다 — 표시와 선택이 어긋나 있었다.
+   *
+   * localStorage 를 직접 쓰게 하지 않고 이 두 함수를 연다.
+   * setExecutionMode 에는 라이선스 게이트(isMaxAgentAllowed)와 저장·배지 갱신이
+   * 함께 들어 있어, 우회하면 그 검사가 통째로 빠진다.
+   */
+  window.setAgentExecutionMode = setExecutionMode;
+  window.setAgentProvider = setAgentProvider;
+  window.getAgentExecutionState = () => ({
+    mode: state.executionMode === 'agent' ? 'agent' : 'api',
+    provider: state.activeAgentProvider === 'claude' ? 'claude' : 'codex',
+  });
+
   window.refreshAgentModeSettings = () => {
     ensureAgentSettingsSection();
     return refreshAgentSettingsAndVerify(state.activeAgentProvider);

@@ -20,6 +20,11 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { loadEnvFromFile } from '../env';
 import { isYouTubeUrl, fetchYouTubeSource, toCrawlContent } from './youtube-source';
 import { callGeminiWithRetry } from './final/gemini-engine';
+import { normalizeNaverBlogUrl, looksLikeBlogNameTitle } from './final/naver-blog-url';
+import { fetchNaverBlogPost, parseNaverBlogUrl } from './final/naver-blog-source';
+import { recoverTopicFromContent, describeCrawlFailure } from './final/url-topic-recovery';
+import { buildNaverBlogDeps } from './final/naver-blog-deps';
+import { buildUpgradeBrief, URL_UPGRADE_RULES, URL_UPGRADE_TITLE_RULES } from './final/url-upgrade';
 
 const URL_GEN_AXIOS_TIMEOUT_MS = Number(process.env['URL_GEN_AXIOS_TIMEOUT_MS'] || 8000);
 const URL_GEN_PUPPETEER_TIMEOUT_MS = Number(process.env['URL_GEN_PUPPETEER_TIMEOUT_MS'] || 15000);
@@ -243,9 +248,36 @@ export async function deepCrawlUrl(url: string): Promise<UrlCrawlResult> {
     };
   }
 
+  /**
+   * 🔗 v3.8.595 — 네이버 블로그는 **전용 수집기**로 읽는다.
+   *
+   * 데스크톱 주소는 프레임 껍데기라 제목이 블로그 이름("la1826님의블로그")이고
+   * 본문은 iframe 안에 있는데, 아래 추출은 iframe 을 지운 뒤에 돈다.
+   * 그래서 글 주제가 블로그 주인 별명이 된 발행 사고가 났다.
+   * 이제 모바일 → PostView → RSS → 검색 API 네 갈래를 차례로 탄다
+   * (naver-blog-source 머리말 — 넷 다 실측 확인).
+   */
+  const naverPost = await fetchNaverBlogPost(url, buildNaverBlogDeps((m) => console.log(`[URL-GEN] ${m}`)));
+  if (naverPost?.title) {
+    return {
+      url,
+      title: naverPost.title,
+      content: naverPost.content,
+      subheadings: [],
+      metaDescription: naverPost.content.slice(0, 300),
+      keywords: naverPost.title.split(/\s+/).filter(Boolean).slice(0, 6),
+      images: [],
+    };
+  }
+
+  const fetchUrl = normalizeNaverBlogUrl(url);
+  if (fetchUrl !== url) {
+    console.log(`[URL-GEN] 🔗 네이버 블로그 — 본문이 보이는 주소로 바꿔 읽습니다: ${fetchUrl}`);
+  }
+
   let html = '';
   try {
-    const response = await axios.get(url, {
+    const response = await axios.get(fetchUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -260,8 +292,8 @@ export async function deepCrawlUrl(url: string): Promise<UrlCrawlResult> {
   } catch (axiosError) {
     const message = axiosError instanceof Error ? axiosError.message : String(axiosError);
     if (URL_GEN_ENABLE_BROWSER_FALLBACK) {
-      console.warn(`[URL-GEN] ⚠️ Axios 크롤링 실패, 브라우저 폴백 사용: ${url} — ${message}`);
-      html = await crawlWithPuppeteer(url);
+      console.warn(`[URL-GEN] ⚠️ Axios 크롤링 실패, 브라우저 폴백 사용: ${fetchUrl} — ${message}`);
+      html = await crawlWithPuppeteer(fetchUrl);
     } else {
       console.warn(`[URL-GEN] ⚠️ 빠른 크롤링 실패, 브라우저 폴백 생략: ${url} — ${message}`);
       html = '';
@@ -312,6 +344,15 @@ export async function deepCrawlUrl(url: string): Promise<UrlCrawlResult> {
         break;
       }
     }
+  }
+
+  /**
+   * 🚫 v3.8.595 — 제목이 **글 제목이 아니라 블로그 이름**이면 주제로 쓰지 않는다.
+   * 별명을 주제로 삼으면 글 전체가 그 사람 블로그 소개가 된다 (실측 사고).
+   */
+  if (looksLikeBlogNameTitle(title)) {
+    console.warn(`[URL-GEN] 🚫 제목이 글 제목이 아니라 블로그 이름입니다: "${title}" — 주제로 쓰지 않습니다`);
+    title = '';
   }
 
   // 메타 설명 추출
@@ -396,30 +437,23 @@ export async function deepCrawlUrl(url: string): Promise<UrlCrawlResult> {
  * URL 콘텐츠를 참고하여 완전히 새로운 제목 생성
  */
 async function generateNewTitle(crawledData: UrlCrawlResult): Promise<string> {
+  // v3.8.596: "완전히 다른 제목"을 시키던 규칙을 상위호환 규칙으로 갈았다 (url-upgrade 머리말)
   const prompt = `당신은 SEO 전문 블로그 작가입니다.
 
-다음 참고 자료를 바탕으로, 완전히 새로운 블로그 제목을 생성하세요.
+${buildUpgradeBrief(crawledData, 1500)}
 
-[참고 자료]
-- 원본 제목: ${crawledData.title}
-- 주요 내용: ${crawledData.content.substring(0, 1500)}
-- 키워드: ${crawledData.keywords.join(', ')}
+${URL_UPGRADE_TITLE_RULES}
 
-[요구사항]
-1. 원본 제목과 완전히 다른 새로운 제목 생성
-2. SEO에 최적화된 제목 (50-70자)
-3. 호기심을 자극하는 클릭 유도 제목
-4. 숫자나 연도 활용 권장 (2025년 등)
-5. 절대로 원본 제목을 그대로 복사하지 마세요
-
-새로운 제목만 출력하세요 (따옴표 없이):`;
+제목만 출력하세요 (따옴표 없이):`;
 
   try {
     const text = await callGeminiWithRetry(prompt);
     return text.trim().replace(/^["']|["']$/g, '').trim();
   } catch (error: any) {
     console.error('[URL-GEN] 제목 생성 실패:', error.message);
-    return `${crawledData.title} - 2025년 완벽 가이드`;
+    // v3.8.596: "- 2025년 완벽 가이드" 를 붙이던 폴백을 없앴다.
+    //   연도가 박혀 있었고("2025"), 앱이 다른 곳에서는 금지어로 걷어내는 상투어였다.
+    return crawledData.title;
   }
 }
 
@@ -427,25 +461,21 @@ async function generateNewTitle(crawledData: UrlCrawlResult): Promise<string> {
  * 완전히 새로운 H2 소제목 5개 생성
  */
 async function generateNewH2Titles(crawledData: UrlCrawlResult, keyword: string): Promise<string[]> {
+  // v3.8.596: "완전히 다른 소제목"이 아니라 **원문을 덮고 더 채우는** 소제목으로 바꿨다
   const prompt = `당신은 블로그 콘텐츠 구조 전문가입니다.
-
-다음 참고 자료를 바탕으로, 완전히 새로운 H2 소제목 5개를 생성하세요.
 
 [주제/키워드]
 ${keyword || crawledData.title}
 
-[참고 소제목]
-${crawledData.subheadings.slice(0, 10).join('\n')}
+${buildUpgradeBrief(crawledData, 2000)}
 
-[참고 내용]
-${crawledData.content.substring(0, 2000)}
+${URL_UPGRADE_RULES}
 
-[요구사항]
-1. 참고 소제목과 완전히 다른 새로운 소제목 5개 생성
-2. 논리적 흐름 (서론 → 개념 → 방법 → 사례 → 결론)
-3. 각 소제목은 20-40자
-4. 독자의 궁금증을 해결하는 구조
-5. 절대로 참고 소제목을 그대로 복사하지 마세요
+[소제목 규칙]
+- 5개를 만듭니다. 각 20~40자.
+- 앞쪽 소제목이 **원문이 다룬 항목을 덮어야** 합니다 (빠뜨리면 상위호환이 아닙니다).
+- 뒤쪽 소제목에 **원문이 답하지 않은 것**을 넣습니다.
+- 소제목만 읽어도 무엇을 알려주는 글인지 알 수 있어야 합니다.
 
 JSON 배열로 출력하세요:
 ["소제목1", "소제목2", "소제목3", "소제목4", "소제목5"]`;
@@ -465,15 +495,28 @@ JSON 배열로 출력하세요:
     console.error('[URL-GEN] H2 생성 실패:', error.message);
   }
 
-  // 폴백
+  /**
+   * 폴백 (v3.8.596)
+   *
+   * 예전 폴백은 "핵심 개념 정리 · 중요한 이유 **5가지** · 총정리" 였다.
+   * 앱이 다른 곳에서는 금지어로 걷어내는 상투어이고, "5가지"는 글이 지킬 수 없는
+   * **개수 약속**이다(v3.8.594 가 제목에서 도려내는 바로 그것).
+   *
+   * 상위호환이 목표이므로, 원문이 다룬 항목이 있으면 그것을 먼저 덮는다.
+   */
   const topic = keyword || crawledData.title;
+  const fromSource = (crawledData.subheadings || [])
+    .map((s) => String(s || '').trim())
+    .filter((s) => s.length >= 4 && s.length <= 40)
+    .slice(0, 3);
+
   return [
-    `${topic}란 무엇인가? 핵심 개념 정리`,
-    `${topic}가 중요한 이유 5가지`,
-    `${topic} 실전 활용 방법 가이드`,
-    `${topic} 성공 사례와 팁`,
-    `${topic} 총정리 및 시작하기`,
-  ];
+    ...fromSource,
+    `${topic} 신청 전에 확인할 것`,
+    `${topic} 어디서 어떻게 하나`,
+    `${topic} 자주 막히는 지점`,
+    `${topic} 다음 단계`,
+  ].slice(0, 5);
 }
 
 /**
@@ -564,8 +607,8 @@ JSON 배열로 태그만 출력:
     console.error('[URL-GEN] 태그 생성 실패:', error.message);
   }
 
-  // 폴백
-  return [keyword || crawledData.title, '정보', '가이드', '2025'];
+  // 폴백 — v3.8.596: 박아 둔 연도('2025')를 뺐다. 해가 바뀌면 그대로 틀린 태그가 된다.
+  return [keyword || crawledData.title, '정보', '가이드'];
 }
 
 /**
@@ -586,31 +629,19 @@ async function generateCompleteArticleFast(
   const h2Count = Math.max(3, Math.min(6, URL_GEN_TARGET_H2));
   const h3Count = Math.max(2, Math.min(3, URL_GEN_H3_PER_H2));
 
+  // v3.8.596: "완전히 새로운 글"이 아니라 **원문의 상위호환**을 시킨다 (url-upgrade 머리말)
   const prompt = `당신은 SEO 블로그 작가이자 편집자입니다.
-
-아래 URL에서 추출한 참고 자료를 바탕으로, 원문을 복사하지 않고 완전히 새로운 블로그 글을 작성하세요.
 
 [주제/키워드]
 ${keyword || crawledData.title}
 
-[원본 URL]
-${crawledData.url}
+${buildUpgradeBrief({ ...crawledData, content: context }, URL_GEN_CONTEXT_CHARS)}
 
-[원본 제목]
-${crawledData.title}
-
-[원본 메타 설명]
-${crawledData.metaDescription || '(없음)'}
-
-[원본 소제목 참고]
-${crawledData.subheadings.slice(0, 12).join('\n') || '(없음)'}
-
-[원본 본문 참고]
-${context}
+${URL_UPGRADE_RULES}
 
 [작성 규칙]
-1. 원문 제목과 문장을 그대로 복사하지 말고, 새 관점과 새 문장으로 재작성하세요.
-2. title은 50~70자 SEO 제목으로 작성하세요.
+1. 위 상위호환 규칙이 아래 형식 규칙보다 우선합니다.
+2. title 은 25~40자. 원문과 같은 검색 의도를 더 분명하게 잡으세요.
 3. h2Sections는 정확히 ${h2Count}개 생성하세요.
 4. 각 H2마다 h3Sections를 정확히 ${h3Count}개 생성하세요.
 5. 각 H3 content는 350~550자, 실용적이고 구체적으로 작성하세요.
@@ -702,8 +733,28 @@ export async function generateContentFromUrl(
   const crawledData = await deepCrawlUrl(url);
   log(`[PROGRESS] 15% - ✅ URL 분석 완료: "${crawledData.title.substring(0, 30)}..."`);
 
+  /**
+   * 🔁 v3.8.597 — 제목을 못 뽑았어도 **본문이 있으면 주제를 되찾는다.**
+   *
+   * v3.8.595 에서 여기서 그냥 멈추게 해 두고 "글 하나의 주소를 넣어 주세요" 라고 띄웠다.
+   * 사장님 지적대로 그건 사용자 탓으로 돌리는 문구다 — 사용자는 당연히 글 주소를 넣는다.
+   * 제목을 못 뽑았으면 우리 수집이 실패한 것이고, 본문이 있다면 주제는 그 안에 있다.
+   */
+  let recoveredTopic = '';
+  if (!keyword && !String(crawledData.title || '').trim()) {
+    log('[PROGRESS] 16% - 🔁 제목을 못 읽어 본문에서 주제를 되찾는 중...');
+    recoveredTopic = await recoverTopicFromContent(crawledData.content, (p) => callGeminiWithRetry(p));
+    if (recoveredTopic) {
+      log(`[PROGRESS] 17% - ✅ 본문에서 주제 확보: "${recoveredTopic}"`);
+    } else {
+      throw new Error(describeCrawlFailure(url, !!parseNaverBlogUrl(url)));
+    }
+  }
+
   // 키워드가 없으면 제목에서 추출
-  const effectiveKeyword = keyword || crawledData.title.split(' ').slice(0, 3).join(' ');
+  const effectiveKeyword = keyword
+    || recoveredTopic
+    || crawledData.title.split(' ').slice(0, 3).join(' ');
 
   try {
     const fastArticle = await generateCompleteArticleFast(crawledData, effectiveKeyword, onLog);
@@ -821,8 +872,20 @@ export async function generateContentFromUrls(
     images: crawledDataList.flatMap(d => d.images).slice(0, 10),
   };
 
+  // v3.8.597: 단일 URL 경로와 같다 — 제목이 없어도 본문이 있으면 주제를 되찾는다
+  let mergedTopic = '';
+  if (!keyword && !String(mergedData.title || '').trim()) {
+    log('[PROGRESS] 16% - 🔁 제목을 못 읽어 본문에서 주제를 되찾는 중...');
+    mergedTopic = await recoverTopicFromContent(mergedData.content, (p) => callGeminiWithRetry(p));
+    if (mergedTopic) {
+      log(`[PROGRESS] 17% - ✅ 본문에서 주제 확보: "${mergedTopic}"`);
+    } else {
+      throw new Error(describeCrawlFailure(firstUrl, !!parseNaverBlogUrl(firstUrl)));
+    }
+  }
+
   // 병합된 데이터로 콘텐츠 생성
-  const effectiveKeyword = keyword || mergedData.title.split(' ').slice(0, 3).join(' ');
+  const effectiveKeyword = keyword || mergedTopic || mergedData.title.split(' ').slice(0, 3).join(' ');
 
   try {
     const fastArticle = await generateCompleteArticleFast(mergedData, effectiveKeyword, onLog);

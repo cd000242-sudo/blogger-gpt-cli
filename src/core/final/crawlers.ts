@@ -11,6 +11,9 @@ import { loadEnvFromFile } from '../../env';
 import { MassCrawlingSystem, MassCrawledItem } from '../mass-crawler';
 import { getShoppingCrawler } from './image-helpers';
 import { FINAL_CONFIG, FinalCrawledPost } from './types';
+import { normalizeNaverBlogUrl, looksLikeBlogNameTitle } from './naver-blog-url';
+import { fetchNaverBlogPost } from './naver-blog-source';
+import { buildNaverBlogDeps } from './naver-blog-deps';
 
 // ============================================
 // 🛒 쇼핑 URL 관련 함수
@@ -423,7 +426,27 @@ export async function crawlSingleUrlFast(url: string): Promise<FinalCrawledPost 
       return await extractNaverShoppingInfo(url);
     }
 
-    const response = await axios.get(url, {
+    /**
+     * 🔗 v3.8.595 — 네이버 블로그는 전용 수집기로 읽는다.
+     *   데스크톱 주소는 프레임 껍데기라 제목이 블로그 이름이고 본문은 iframe 안에 있는데,
+     *   아래에서 iframe 을 지우고 추출한다.
+     *   모바일 → PostView → RSS → 검색 API 네 갈래 (naver-blog-source 머리말).
+     */
+    const naverPost = await fetchNaverBlogPost(url, buildNaverBlogDeps((m) => console.log(`[URL크롤링] ${m}`)));
+    if (naverPost?.title) {
+      return {
+        title: naverPost.title,
+        url,
+        content: naverPost.content,
+        subheadings: [],
+        source: 'external',
+      };
+    }
+
+    const fetchUrl = normalizeNaverBlogUrl(url);
+    if (fetchUrl !== url) console.log(`[URL크롤링] 🔗 네이버 블로그 — 모바일 주소로 읽습니다: ${fetchUrl}`);
+
+    const response = await axios.get(fetchUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -471,9 +494,17 @@ export async function crawlSingleUrlFast(url: string): Promise<FinalCrawledPost 
       }
     }
 
+    // 🚫 v3.8.595: 제목이 글 제목이 아니라 블로그 이름이면 주제로 쓰지 않는다
+    if (looksLikeBlogNameTitle(title)) {
+      console.warn(`[URL크롤링] 🚫 제목이 블로그 이름입니다: "${title}" — 비웁니다`);
+      title = '';
+    }
+
     // 🔥 본문 추출 (다양한 뉴스사이트 지원)
     let content = '';
     const contentSelectors = [
+      // v3.8.595: 네이버 블로그·티스토리 — 모바일 주소로 읽으면 본문이 여기 있다
+      '.se-main-container', '#postViewArea', '.post-view', '.article-view',
       // 뉴스 포털 특화
       '.article_body', '.news_content', '#article_content', '.article_txt',
       '[itemprop="articleBody"]', '.news_view', '.view_txt',

@@ -1,3 +1,5 @@
+import { containsValueToken, normalizeForMatch } from './number-token';
+
 export type FactTrustLevel = 'strong' | 'weak' | 'none';
 
 export interface FactEvidence {
@@ -57,7 +59,9 @@ const VALUE_PATTERNS = [
   /20\d{2}\s*년/g,
   /\d{1,2}\s*월\s*\d{1,2}\s*일/g,
   /\d{4}-\d{1,2}-\d{1,2}/g,
-  /\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:만원|원|억(?:\s*원)?|%|퍼센트|명|건|개|개월|주|시간|일|세|회)/g,
+  // v3.8.594: 긴 단위를 먼저 놓는다. `개|개월` 순서라 "120개월"에서 "120개"가 뽑혔고,
+  //   그 잘린 값이 다른 글의 "20개"를 확인해 주는 근거로 쓰였다 (number-token 머리말 참고).
+  /\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:만원|원|억(?:\s*원)?|%|퍼센트|명|건|개월|개|주|시간|일|세|회)/g,
 ];
 
 function toPlainText(value: string): string {
@@ -142,10 +146,20 @@ function isSupportedToken(value: string, evidence: FactEvidence, evidenceIsStron
   const normalizedValue = normalize(value);
   if (!normalizedValue) return true;
   if (isSystemKnownYearToken(normalizedValue)) return true;
-  const topicText = normalize(evidence.topic || '');
-  if (topicText && topicText.includes(normalizedValue)) return true;
-  const contextText = normalize(evidence.context || '');
-  if (!contextText.includes(normalizedValue)) return false;
+  /**
+   * v3.8.594: 부분 문자열이 아니라 **그 수치로** 들어 있는지 본다.
+   *   예전 includes 대조는 "120개월" 안의 "20개"를 확인된 값으로 통과시켰다.
+   *
+   * 수치는 공백을 살린 정규화로 본다 — 공백을 지우면 "S10 3년"이 "s103년"이 되어
+   * 멀쩡한 값이 남의 숫자 꼬리로 몰린다. 기관명은 예전대로 공백 없는 대조를 쓴다.
+   */
+  const isNumeric = /^\d/.test(normalizedValue);
+  const has = (haystack: string): boolean =>
+    isNumeric ? containsValueToken(haystack, normalizedValue) : haystack.includes(normalizedValue);
+  const topicText = isNumeric ? normalizeForMatch(evidence.topic || '') : normalize(evidence.topic || '');
+  if (topicText && has(topicText)) return true;
+  const contextText = isNumeric ? normalizeForMatch(evidence.context || '') : normalize(evidence.context || '');
+  if (!has(contextText)) return false;
   return evidenceIsStrong || contextText.length >= SUBSTANTIAL_CONTEXT_MIN_LENGTH;
 }
 

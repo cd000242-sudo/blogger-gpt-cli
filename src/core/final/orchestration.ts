@@ -49,6 +49,7 @@ import { checkEntities, buildEntityBlock, describeEntities } from './entity-chec
 import { checkReform, buildReformBlock, describeReform } from './reform-check';
 // v3.8.589: 제목이 물으면 본문이 답하게 — 쓰기 전 지시 + 쓴 뒤 검사
 import { isQuestionTitle, buildAnswerDirective, auditTitleAnswer, describeAnswerAudit } from './title-answer-gate';
+import { findUnkeptTitleClaims, stripUnkeptClaims, describeUnkeptClaims } from './title-claim-check';
 // v3.8.591: 근거에 있는 핵심 수치를 빠뜨렸는지 본다 (지어내기 말고 '빠뜨리기')
 import { findMissingKeyFacts, describeMissingKeyFacts, hasMissingKeyFacts, buildKeyFactDirective } from './key-fact-gate';
 import { naverSearch } from '../naver-search-client';
@@ -1245,6 +1246,27 @@ export async function generateUltimateMaxModeArticleFinal(
       );
     };
 
+    /**
+     * 📅 v3.8.594 — 연도를 **제목 맨 앞으로** 옮긴다.
+     *
+     * 제목 프롬프트는 "연도를 쓴다면 `2026년 {키워드} …` 처럼 맨 앞에" 라고 지시하는데,
+     * 그 규칙이 프롬프트에만 있어서 실측 제목이
+     * `혁신성장촉진자금 비즈스캔 2026년 신청때 …` 처럼 연도를 가운데 두고 나왔다.
+     * repairTitleYear 는 홑 `년` 토큰을 채울 뿐 자리를 옮기지 않는다.
+     *
+     * 이미 연도로 시작하거나 연도가 없으면 손대지 않는다.
+     */
+    const frontTitleYear = (title: string): string => {
+      const value = String(title || '').trim();
+      if (!value || /^20\d{2}년/.test(value)) return value;
+      const matched = /(?:^|\s)(20\d{2}년)\s+/.exec(value);
+      if (!matched) return value;
+      const rest = (value.slice(0, matched.index) + ' ' + value.slice(matched.index + matched[0].length))
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      return rest ? `${matched[1]} ${rest}` : value;
+    };
+
     // 🔎 키워드 수요 실측 게이트 (v3.8.383, 관측 전용 — 발행을 절대 막지 않는다)
     //    검색광고 자격증명이 등록된 적이 없어 앱의 "검색량"은 문서수×0.3 추정 폴백이었다
     //    (naver-datalab-api.ts getBlogSearchFallback — 경쟁도를 수요로 오인시키는 거꾸로 된 신호).
@@ -1338,8 +1360,12 @@ export async function generateUltimateMaxModeArticleFinal(
         demandSignals,
         // v3.8.478: 디스커버 모드는 제목 규칙이 다르다 (쿼리 없음 + 클릭베이트 감점)
         contentMode,
+        // v3.8.594: "키워드 맨 앞" 옵션을 **모델에게** 알려 준다 (예전엔 사후 문자열 재조립뿐이었다)
+        !!payload.keywordFront,
       );
       h1 = repairTitleYear(h1);
+      // v3.8.594: 연도는 맨 앞에. 단 "키워드 맨 앞" 옵션이 켜져 있으면 그 옵션이 이긴다.
+      if (!payload.keywordFront) h1 = frontTitleYear(h1);
 
       /**
        * 🔎 v3.8.478 — 디스커버 정책 위반어 검사.
@@ -1356,11 +1382,19 @@ export async function generateUltimateMaxModeArticleFinal(
         }
       } catch { /* 진단이 발행을 막으면 안 된다 */ }
 
-      // 📌 키워드를 제목 맨앞에 배치
+      /**
+       * 📌 키워드를 제목 맨앞에 배치
+       *
+       * v3.8.594: 아래 문자열 재조립은 이제 **폴백**이다. 옵션은 프롬프트로 이미 전달했고,
+       * 모델이 그 말을 들었으면(= 키워드로 시작하면) 손대지 않는다.
+       * 재조립이 남긴 이음매가 `혁신성장촉진자금 비즈스캔 2026년 신청때 …` 같은
+       * 어색한 제목의 원인이었다 — 모델이 지은 문장을 자르면 문장이 아니게 된다.
+       */
       if (payload.keywordFront) {
         // 이미 키워드로 시작하는지 확인 (대소문자 무시)
         const alreadyStarts = h1.toLowerCase().startsWith(keyword.toLowerCase());
         if (!alreadyStarts) {
+          onLog?.('[PROGRESS] 30% - 📌 제목이 키워드로 시작하지 않아 재조립합니다 (폴백)');
           // 기존 제목에서 키워드를 제거 (대소문자 무시, 전체 단어 매칭)
           const escapedKw = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           let h1WithoutKeyword = h1
@@ -3064,6 +3098,43 @@ ${quoted}
       if (sanitizedH1 && sanitizedH1 !== h1) {
         onLog?.(`[PROGRESS] 74% - [FACT] 제목의 근거 미확인 값만 정리했습니다: "${sanitizedH1}"`);
         h1 = sanitizedH1;
+      }
+
+      /**
+       * 🔎 v3.8.594 — 제목이 약속한 수치를 **본문이 갖고 있는지** 본다. (호출 0회)
+       *
+       * 근거 장부에 있어도 **이 글에 없으면 못 지킨 약속**이다.
+       * 실측: 제목이 "IT 용어 20개"를 약속했는데 본문의 용어는 4개였고
+       * "20개"는 본문에 0회 나왔다. 제목이 본문보다 먼저 만들어지고
+       * 그 재료가 남의 인기 제목이라 생기는 사고다 (title-claim-check 머리말).
+       */
+      try {
+        const bodyForTitle = [
+          allSectionsObj.introduction,
+          allSectionsObj.conclusion,
+          ...(allSectionsObj.sections || []).flatMap((s: any) => [
+            s?.h2,
+            ...(s?.h3Sections || []).flatMap((h3: any) => [
+              h3?.h3,
+              h3?.content,
+              ...((h3?.tables || []).flatMap((t: any) => [...(t?.headers || []), ...((t?.rows || []).flat())])),
+            ]),
+          ]),
+        ].filter(Boolean).join(' ');
+
+        const unkept = findUnkeptTitleClaims({ title: h1, bodyText: bodyForTitle, keyword });
+        console.log(`[TITLE-CLAIM] ${describeUnkeptClaims(unkept)}`);
+        if (unkept.length > 0) {
+          const trimmed = stripUnkeptClaims(h1, unkept);
+          if (trimmed !== h1) {
+            onLog?.(`[PROGRESS] 74% - ✂️ ${describeUnkeptClaims(unkept)} → 제목에서 덜어냈습니다: "${trimmed}"`);
+            h1 = trimmed;
+          } else {
+            onLog?.(`⚠️ ${describeUnkeptClaims(unkept)} (덜어내면 제목이 너무 짧아 그대로 둡니다)`);
+          }
+        }
+      } catch (claimErr: any) {
+        console.warn('[TITLE-CLAIM] 스킵:', String(claimErr?.message || claimErr).slice(0, 120));
       }
     }
 

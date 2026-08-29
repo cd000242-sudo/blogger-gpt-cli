@@ -1018,6 +1018,41 @@
                     </label>
                   </div>
                 </div>
+
+                <!--
+                  🤖 에이전트 그룹 (v3.8.598)
+                  위 카드들은 API 모델이고 이 두 개는 **구독 CLI** 다. 저장되는 곳도 다르다
+                  (API 모델 = primaryGeminiTextModel · 에이전트 = leadernamExecutionMode).
+                  그래서 라디오를 같이 쓰지 않고, 클릭하면 codex-workshop 의 setExecutionMode 를 부른다
+                  — 거기에 라이선스 검사와 저장·배지 갱신이 함께 들어 있다.
+                -->
+                <div style="margin-top: 14px; padding-top: 14px; border-top: 1px dashed rgba(255,255,255,0.12);">
+                  <div style="font-size: 11px; font-weight: 800; color: rgba(255,255,255,0.55); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">🤖 에이전트 (구독 · API 요금 없음)</div>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+                    <div class="agent-card" data-agent-provider="claude" role="button" tabindex="0"
+                      style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(249,115,22,0.45); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="font-weight: 800; color: white; font-size: 13px;">🟠 Claude Code Agent</span>
+                        <span style="background: linear-gradient(135deg,#fb923c,#ea580c); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">구독</span>
+                      </div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">Claude Code 구독으로 실행 · 이미지는 별도 엔진</div>
+                      <div style="font-size: 12px; color: #fdba74; font-weight: 800;">구독 사용량 차감</div>
+                    </div>
+
+                    <div class="agent-card" data-agent-provider="codex" role="button" tabindex="0"
+                      style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(56,189,248,0.45); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="font-weight: 800; color: white; font-size: 13px;">🧠 Codex Agent</span>
+                        <span style="background: linear-gradient(135deg,#38bdf8,#0284c7); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">구독</span>
+                      </div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">ChatGPT Codex 구독으로 실행 · 이미지는 별도 엔진</div>
+                      <div style="font-size: 12px; color: #7dd3fc; font-weight: 800;">구독 사용량 차감</div>
+                    </div>
+                  </div>
+                  <p id="agentPickerHint" style="margin: 10px 0 0 0; font-size: 11px; color: rgba(255,255,255,0.45); line-height: 1.5;">
+                    에이전트를 고르면 위 API 모델 대신 구독 CLI 가 글을 씁니다. 로그인이 풀려 있으면 설정 → Agent 계정에서 재로그인하세요.
+                  </p>
+                </div>
               </div>
 
               <script>
@@ -1035,11 +1070,76 @@
                     return 'gemini';
                   }
 
+                  /**
+                   * v3.8.598 — 에이전트 카드. API 모델 카드와 **서로 배타적**이다.
+                   * 실행 모드는 codex-workshop 이 들고 있으므로 그쪽 함수로만 바꾼다.
+                   */
+                  const agentCards = document.querySelectorAll('#textEnginePicker .agent-card');
+
+                  function readAgentState() {
+                    if (typeof window.getAgentExecutionState === 'function') {
+                      try { return window.getAgentExecutionState(); } catch (e) { /* 아래 폴백 */ }
+                    }
+                    // codex-workshop 이 아직 안 붙었을 때의 표시용 폴백 (쓰기는 하지 않는다)
+                    const read = (key, fallback) => {
+                      try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
+                      catch (e) { return localStorage.getItem(key) || fallback; }
+                    };
+                    return {
+                      mode: read('leadernamExecutionMode', 'api') === 'agent' ? 'agent' : 'api',
+                      provider: read('leadernamActiveAgentProvider', 'codex') === 'claude' ? 'claude' : 'codex',
+                    };
+                  }
+
+                  function paintAgentCards() {
+                    const { mode, provider } = readAgentState();
+                    agentCards.forEach(card => {
+                      const active = mode === 'agent' && card.dataset.agentProvider === provider;
+                      card.style.background = active
+                        ? 'linear-gradient(135deg, rgba(249,115,22,0.18), rgba(56,189,248,0.12))'
+                        : 'rgba(15,23,42,0.55)';
+                      card.style.boxShadow = active ? '0 0 0 2px rgba(249,115,22,0.55), 0 8px 24px rgba(249,115,22,0.18)' : 'none';
+                      card.style.transform = active ? 'translateY(-1px)' : 'translateY(0)';
+                    });
+                    if (mode === 'agent' && currentBadge) {
+                      currentBadge.textContent = '현재: ' + (provider === 'claude' ? 'Claude Code Agent' : 'Codex Agent') + ' · 구독 사용량';
+                    }
+                    return mode;
+                  }
+
+                  function chooseAgent(provider) {
+                    if (typeof window.setAgentProvider !== 'function' || typeof window.setAgentExecutionMode !== 'function') {
+                      // 조용히 삼키면 "눌렀는데 아무 일도 안 남" 이 된다 — 말해 준다
+                      alert('에이전트 설정을 아직 불러오지 못했습니다. 설정 → Agent 계정을 한 번 연 뒤 다시 시도해주세요.');
+                      return;
+                    }
+                    window.setAgentProvider(provider);
+                    window.setAgentExecutionMode('agent');
+                    paintAgentCards();
+                    refreshTierUI();
+                  }
+
+                  agentCards.forEach(card => {
+                    const pick = () => chooseAgent(card.dataset.agentProvider);
+                    card.addEventListener('click', pick);
+                    card.addEventListener('keydown', (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
+                    });
+                    card.addEventListener('mouseenter', () => {
+                      const { mode, provider } = readAgentState();
+                      if (!(mode === 'agent' && card.dataset.agentProvider === provider)) {
+                        card.style.background = 'rgba(30,41,59,0.7)';
+                      }
+                    });
+                    card.addEventListener('mouseleave', paintAgentCards);
+                  });
+
                   function refreshTierUI() {
+                    const agentMode = paintAgentCards() === 'agent';
                     tierCards.forEach(card => {
                       const input = card.querySelector('input[type="radio"]');
                       if (!input) return;
-                      if (input.checked) {
+                      if (input.checked && !agentMode) {
                         card.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.18), rgba(56,189,248,0.12))';
                         card.style.boxShadow = '0 0 0 2px rgba(139,92,246,0.55), 0 8px 24px rgba(139,92,246,0.18)';
                         card.style.transform = 'translateY(-1px)';
@@ -1069,6 +1169,10 @@
                       const input = card.querySelector('input[type="radio"]');
                       if (input) {
                         input.checked = true;
+                        // v3.8.598: API 모델을 고르면 에이전트 모드는 꺼진다 (둘은 배타적이다)
+                        if (readAgentState().mode === 'agent' && typeof window.setAgentExecutionMode === 'function') {
+                          window.setAgentExecutionMode('api');
+                        }
                         refreshTierUI();
                       }
                     });

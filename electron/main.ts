@@ -9945,7 +9945,7 @@ function readAgentJobResult(jobDir: string, stdout: string, lastMessagePath: str
   try {
     const harness = require('../dist/core/final/agent-harness');
     const keywordForTitle = String(metadata?.keyword || metadata?.topic || '').trim();
-    const normalized = harness.normalizeAgentTitle(title, keywordForTitle);
+    const normalized = harness.normalizeAgentTitle(title, keywordForTitle, content);
     if (normalized && normalized !== title) {
       console.log(`[AGENT-RESULT] 제목 정리: "${title}" -> "${normalized}"`);
       title = normalized;
@@ -10082,6 +10082,34 @@ function buildAgentFailureMessage(profile: AgentProfile, run: { stdout: string; 
       '  3) 상위 요금제로 올리면 주간 한도가 늘어납니다',
     ].join('\n');
   }
+  /**
+   * 🔑 v3.8.598 — **로그아웃도 "산출물을 찾지 못했습니다" 로 나가고 있었다.**
+   *
+   * 실측(2026-08-29, jobDir …-비즈스캔-b88ct): result 폴더가 비어 있었고,
+   * 세션 기록의 마지막 응답이 딱 한 줄이었다:
+   *     "Not logged in · Please run /login"
+   * 에이전트는 실행됐고 즉시 로그아웃으로 끝났는데, 위 인증 분기가 전부
+   * `provider === 'codex'` 로 막혀 있어 **claude 프로필은 어디에도 걸리지 않았다.**
+   * 그래서 사장님 화면에는 원인과 무관한 "산출물을 찾지 못했습니다" 만 떴다.
+   *
+   * 아래 조건은 호출부가 `authRequired` 를 정하는 조건과 **같은 정규식**이다 —
+   * 하나로 묶어 두어야 "재로그인 필요" 표시와 안내 문구가 어긋나지 않는다.
+   */
+  if (AGENT_AUTH_REQUIRED_RE.test(combined)) {
+    const cliName = profile.provider === 'codex' ? 'Codex' : 'Claude Code';
+    return [
+      `${cliName} 로그인이 풀렸습니다. 글은 생성되지 않았습니다.`,
+      '',
+      '📌 앱 버그가 아니라 Agent CLI 의 로그인 세션이 만료된 상태입니다.',
+      `   (${cliName} 가 "Not logged in · Please run /login" 로 즉시 종료했습니다)`,
+      '',
+      '🛠 해결:',
+      '  1) 설정 → Agent 계정 → "재로그인" 을 눌러 로그인을 다시 하세요',
+      '  2) 로그인 후 같은 작업을 다시 실행하면 됩니다',
+      '  3) 급하면 글 생성 엔진을 Gemini / OpenAI / Claude API 로 바꿔서 진행하세요',
+    ].join('\n');
+  }
+
   if (processError) {
     return `${profile.provider === 'codex' ? 'Codex' : 'Claude Code'} 오류: ${processError}`;
   }

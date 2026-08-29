@@ -8859,6 +8859,8 @@ function buildAgentJobInstructions(request, profile) {
                     keyword: topic,
                     currentYear: new Date().getFullYear(),
                     demandQuestions: getAgentDemandQuestions(payload),
+                    // v3.8.583: 무료 근거 장부. 위 쇼핑 블록과 같은 방식으로 payload 에 실려 온다.
+                    evidence: String(payload?.agentEvidenceBlock || ''),
                     // v3.8.486: 디스커버 모드면 제목·본문 규칙이 피드 기준으로 통째로 바뀐다.
                     //   이걸 안 넘기면 디스커버로 돌려도 검색용 규칙이 나간다.
                     contentMode: String(payload?.contentMode || ''),
@@ -9487,7 +9489,7 @@ function readAgentJobResult(jobDir, stdout, lastMessagePath) {
     try {
         const harness = require('../dist/core/final/agent-harness');
         const keywordForTitle = String(metadata?.keyword || metadata?.topic || '').trim();
-        const normalized = harness.normalizeAgentTitle(title, keywordForTitle);
+        const normalized = harness.normalizeAgentTitle(title, keywordForTitle, content);
         if (normalized && normalized !== title) {
             console.log(`[AGENT-RESULT] 제목 정리: "${title}" -> "${normalized}"`);
             title = normalized;
@@ -9501,8 +9503,32 @@ function readAgentJobResult(jobDir, stdout, lastMessagePath) {
         catch { /* 없으면 검색 모드로 본다 */ }
         const report = harness.postProcessAgentArticle(content, { contentMode: jobContentMode, title });
         content = report.html;
+        /**
+         * v3.8.577 — 경고를 **화면에도** 올린다.
+         *
+         * 예전엔 console.warn 으로만 나갔다. 개발자 도구를 열지 않으면 아무도 못 본다 —
+         * 알리기만 하는 검사인데 알림이 안 보이면 검사가 없는 것과 같다.
+         * readAgentJobResult 에는 sender 가 없으므로 다른 곳(SPIDER-STEP)과 같은 방식으로
+         * 열린 창 전부에 log-line 을 보낸다.
+         */
+        const shout = (line) => {
+            console.warn('[AGENT-RESULT] 품질 경고:', line);
+            try {
+                const { BrowserWindow: BW } = require('electron');
+                BW.getAllWindows().forEach((w) => {
+                    try {
+                        if (!w.isDestroyed())
+                            w.webContents.send('log-line', `⚠️ [에이전트 품질] ${line}`);
+                    }
+                    catch { /* 창 하나 실패가 나머지를 막지 않는다 */ }
+                });
+            }
+            catch { /* 창이 없으면 콘솔로 남긴 것으로 충분하다 */ }
+        };
         for (const w of report.warnings)
-            console.warn('[AGENT-RESULT] 품질 경고:', w);
+            shout(w);
+        if (report.warnings.length === 0)
+            console.log('[AGENT-RESULT] 품질 검사 통과 (구조·링크·빈 블록)');
     }
     catch (harnessErr) {
         console.warn('[AGENT-RESULT] 후처리 스킵:', harnessErr);
@@ -9605,6 +9631,33 @@ function buildAgentFailureMessage(profile, run) {
             '  2) 글 생성 엔진을 Gemini / OpenAI / Claude API 로 바꿔서 진행',
             '     — 이 엔진들은 Claude Code 구독과 **별개 사용량 풀**입니다',
             '  3) 상위 요금제로 올리면 주간 한도가 늘어납니다',
+        ].join('\n');
+    }
+    /**
+     * 🔑 v3.8.598 — **로그아웃도 "산출물을 찾지 못했습니다" 로 나가고 있었다.**
+     *
+     * 실측(2026-08-29, jobDir …-비즈스캔-b88ct): result 폴더가 비어 있었고,
+     * 세션 기록의 마지막 응답이 딱 한 줄이었다:
+     *     "Not logged in · Please run /login"
+     * 에이전트는 실행됐고 즉시 로그아웃으로 끝났는데, 위 인증 분기가 전부
+     * `provider === 'codex'` 로 막혀 있어 **claude 프로필은 어디에도 걸리지 않았다.**
+     * 그래서 사장님 화면에는 원인과 무관한 "산출물을 찾지 못했습니다" 만 떴다.
+     *
+     * 아래 조건은 호출부가 `authRequired` 를 정하는 조건과 **같은 정규식**이다 —
+     * 하나로 묶어 두어야 "재로그인 필요" 표시와 안내 문구가 어긋나지 않는다.
+     */
+    if (AGENT_AUTH_REQUIRED_RE.test(combined)) {
+        const cliName = profile.provider === 'codex' ? 'Codex' : 'Claude Code';
+        return [
+            `${cliName} 로그인이 풀렸습니다. 글은 생성되지 않았습니다.`,
+            '',
+            '📌 앱 버그가 아니라 Agent CLI 의 로그인 세션이 만료된 상태입니다.',
+            `   (${cliName} 가 "Not logged in · Please run /login" 로 즉시 종료했습니다)`,
+            '',
+            '🛠 해결:',
+            '  1) 설정 → Agent 계정 → "재로그인" 을 눌러 로그인을 다시 하세요',
+            '  2) 로그인 후 같은 작업을 다시 실행하면 됩니다',
+            '  3) 급하면 글 생성 엔진을 Gemini / OpenAI / Claude API 로 바꿔서 진행하세요',
         ].join('\n');
     }
     if (processError) {
@@ -10625,6 +10678,37 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
         }
         catch (shoppingErr) {
             console.warn('[AGENT-SHOPPING] 준비 스킵:', String(shoppingErr?.message || shoppingErr).slice(0, 120));
+        }
+        /**
+         * v3.8.583 — 에이전트에게도 **무료 근거 장부**를 넘긴다.
+         *
+         * 에이전트 모드는 orchestration 을 타지 않아 크롤링·네이버 근거·팩트체크가
+         * 하나도 넘어가지 않았다(넘어가던 건 키워드·연도·수요질문·모드뿐).
+         * 에이전트가 스스로 검색은 하지만 우리가 만든 검증은 하나도 안 걸린 자료다.
+         *
+         * 네이버 근거는 공짜이고 구독 CLI 도 공짜라, 합치면 **₩0 에 검증까지** 된다.
+         * 실패하면 조용히 넘어간다 — 근거가 없어도 예전처럼 동작해야 한다.
+         */
+        try {
+            const agentKeyword = String(request?.payload?.topic || request?.payload?.keyword || '').trim();
+            if (agentKeyword) {
+                const { fetchGrounding, describeGrounding } = require('../dist/core/final/naver-grounding');
+                const { naverSearch } = require('../dist/core/naver-search-client');
+                const g = await fetchGrounding(agentKeyword, (type, params) => naverSearch(type, params, { payload: request?.payload || {}, timeoutMs: 10000 }));
+                if (g?.text) {
+                    console.log(`[AGENT-GROUNDING] ${describeGrounding(g)}`);
+                    request.payload = {
+                        ...(request?.payload || {}),
+                        agentEvidenceBlock: g.text,
+                    };
+                }
+                else {
+                    console.log('[AGENT-GROUNDING] 근거 0건 — 에이전트가 스스로 찾습니다');
+                }
+            }
+        }
+        catch (groundErr) {
+            console.warn('[AGENT-GROUNDING] 준비 스킵:', String(groundErr?.message || groundErr).slice(0, 120));
         }
         writeAgentJobFiles(jobDir, request || {}, profile);
         const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
@@ -12668,6 +12752,198 @@ electron_1.ipcMain.handle('kakao-channel-autopost', async (_evt, payload) => {
     }
     catch (error) {
         return { ok: false, error: String(error?.message || error).slice(0, 300) };
+    }
+});
+/**
+ * 🔘 v3.8.570 — 편집기에서 손으로 CTA 버튼을 넣는다.
+ *
+ * 사장님: "생성된 글목록에서 미리보기 및 수정에 버튼생성이있으면 좋겠는데"
+ *
+ * ⚠️ HTML 을 UI 쪽에 한 벌 더 적지 않는다. 발행 때 쓰는 renderFinalCtaBlock 을
+ *    그대로 호출한다 — 두 벌이면 스타일이 갈라지고, 갈라지면 결국 따로 논다.
+ *    문구도 같은 이유로 buildCtaCopy 를 쓴다(주소만 주면 "위택스 바로가기"가 나온다).
+ */
+electron_1.ipcMain.handle('cta-render-block', async (_evt, payload) => {
+    try {
+        const url = String(payload?.url || '').trim();
+        if (!/^https?:\/\//i.test(url)) {
+            return { ok: false, error: 'CTA 주소는 http:// 또는 https:// 로 시작해야 합니다.' };
+        }
+        const { buildCtaCopy, siteNameFromUrl } = require('../src/cta/cta-copy');
+        const { renderFinalCtaBlock } = require('../src/core/final/orchestration');
+        const auto = buildCtaCopy({ url, action: String(payload?.action || '').trim() || undefined });
+        // 사장님이 직접 적은 문구가 있으면 그게 이긴다 — 자동 문구는 빈칸을 채울 뿐이다
+        const buttonText = String(payload?.buttonText || '').trim() || auto.buttonText;
+        const hook = String(payload?.hook || '').trim() || auto.hookingMessage;
+        return {
+            ok: true,
+            html: renderFinalCtaBlock({ hook, buttonText, url, badge: String(payload?.badge || '').trim() || undefined }),
+            siteName: siteNameFromUrl(url),
+            buttonText,
+            hook,
+        };
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 300) };
+    }
+});
+/**
+ * 🩺 v3.8.572 — 이미 발행한 글의 CTA 를 다시 본다.
+ *
+ * 링크는 썩는다. 실측(2026-08-28 leadernam.com): CTA 366개 중 31개가 죽어 있었고,
+ * 워크넷은 고용24 로 통합되며 통째로 404 가 됐다. 발행 직전 게이트는 그때 한 번만 보므로
+ * **나간 뒤에 다시 보는 눈**이 따로 있어야 한다.
+ *
+ * AI 를 부르지 않는다 — 페이지를 받아 분류만 한다(비용 0).
+ */
+electron_1.ipcMain.handle('cta-audit-run', async (evt, payload) => {
+    try {
+        const { extractCtaUrls, classifyCtaLink, summarizePost, summarizeAudit, describeAudit, } = require('../src/cta/cta-audit');
+        const posts = Array.isArray(payload?.posts) ? payload.posts : [];
+        if (!posts.length)
+            return { ok: false, error: '검사할 글이 없습니다 — 글목록을 먼저 불러와 주세요' };
+        const ownHost = String(payload?.ownHost || '').trim();
+        const limit = Math.min(Number(payload?.limit) || posts.length, 300);
+        /** 리다이렉트를 따라가고, 못 받으면 ok:false — 죽었다고 단정하는 건 분류기가 한다 */
+        const fetchPage = async (url) => {
+            const ctl = new AbortController();
+            const timer = setTimeout(() => ctl.abort(), 15000);
+            try {
+                const res = await fetch(url, {
+                    redirect: 'follow',
+                    signal: ctl.signal,
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36' },
+                });
+                const html = await res.text().catch(() => '');
+                return { ok: true, status: res.status, html, finalUrl: res.url || url };
+            }
+            catch (e) {
+                /**
+                 * ⚠️ 실패 원인을 반드시 넘긴다. 관공서 사이트는 인증서 체인이 불완전한 곳이 많아
+                 *    node 에서만 실패하고 브라우저에서는 멀쩡히 열린다(실측: efine.go.kr, kinfa.or.kr).
+                 *    원인 없이 넘기면 살아있는 사이트를 죽었다고 보고하게 된다.
+                 */
+                const code = String(e?.cause?.code || e?.code || e?.message || '').slice(0, 60);
+                return { ok: false, status: 0, html: '', finalUrl: url, errorCode: code };
+            }
+            finally {
+                clearTimeout(timer);
+            }
+        };
+        // 같은 주소를 여러 글이 쓰므로 한 번만 받는다 (실측에서 366개 중 절반이 중복이었다)
+        const cache = new Map();
+        const reports = [];
+        let done = 0;
+        for (const post of posts.slice(0, limit)) {
+            const urls = extractCtaUrls(String(post?.content || ''), ownHost);
+            const checks = [];
+            for (const url of urls) {
+                if (!cache.has(url))
+                    cache.set(url, classifyCtaLink(url, await fetchPage(url)));
+                checks.push(cache.get(url));
+            }
+            reports.push(summarizePost({
+                postId: post?.id, title: String(post?.title || ''), link: String(post?.link || ''), checks,
+            }));
+            done += 1;
+            try {
+                evt.sender.send('cta-audit-progress', { done, total: Math.min(posts.length, limit) });
+            }
+            catch { }
+        }
+        /**
+         * 🔬 정밀 검사 (payload.deep) — HTTP 로 판정 못 한 것만 **브라우저로** 다시 본다.
+         *
+         * 왜 필요한가: 관공서 화면은 스크립트로 그리고 인증서 체인이 불완전한 곳이 많아
+         * HTTP 만으로는 본문이 비거나 연결이 실패한다. 실측에서 미확인 54개 중 **35개가 갈렸다**
+         * (행동화면 22 · 홈 13). 이게 없으면 절반 넘는 CTA 가 영영 "미확인"으로 남는다.
+         *
+         * 느리다(1개당 3~5초). 그래서 기본은 꺼 두고 필요할 때만 켠다.
+         */
+        if (payload?.deep) {
+            const unknownUrls = Array.from(new Set(reports.flatMap((r) => r.checks.filter((c) => c.verdict === 'unknown').map((c) => c.url))));
+            if (unknownUrls.length) {
+                const { chromium } = require('playwright');
+                const browser = await chromium.launch({ headless: true });
+                try {
+                    const ctx = await browser.newContext({
+                        viewport: { width: 1366, height: 900 },
+                        ignoreHTTPSErrors: true, // 인증서 체인이 불완전한 관공서 사이트 때문에 반드시 필요하다
+                        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+                    });
+                    let page = await ctx.newPage();
+                    // alert 를 띄우는 관공서 페이지가 있다 — 안 받으면 스크립트가 통째로 멈춘다
+                    const armDialog = (pg) => pg.on('dialog', (d) => d.dismiss().catch(() => { }));
+                    armDialog(page);
+                    for (const [i, url] of unknownUrls.entries()) {
+                        let deepPage = { ok: false, status: 0, html: '', finalUrl: url, errorCode: '' };
+                        try {
+                            let res = null;
+                            try {
+                                res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                            }
+                            catch (e) {
+                                // 리다이렉트 경합은 오류로 오지만 페이지는 떠 있다 — 현재 상태를 읽는다
+                                if (!/interrupted|Navigation/i.test(String(e?.message)))
+                                    throw e;
+                            }
+                            await page.waitForTimeout(1800);
+                            const got = await page.evaluate(() => ({
+                                html: document.documentElement ? document.documentElement.outerHTML : '',
+                                href: location.href,
+                            }));
+                            deepPage = { ok: true, status: res ? res.status() : 200, html: got.html, finalUrl: got.href || url };
+                        }
+                        catch (e) {
+                            const msg = String(e?.message || e);
+                            deepPage.errorCode = /ERR_NAME_NOT_RESOLVED/.test(msg) ? 'ENOTFOUND' : msg.slice(0, 60);
+                            if (page.isClosed()) {
+                                page = await ctx.newPage();
+                                armDialog(page);
+                            }
+                        }
+                        cache.set(url, classifyCtaLink(url, deepPage));
+                        try {
+                            evt.sender.send('cta-audit-progress', { done: i + 1, total: unknownUrls.length, phase: 'deep' });
+                        }
+                        catch { }
+                    }
+                }
+                finally {
+                    await browser.close().catch(() => { });
+                }
+                // 다시 분류된 결과로 각 글의 판정을 새로 만든다
+                for (let i = 0; i < reports.length; i += 1) {
+                    const fresh = reports[i].checks.map((c) => cache.get(c.url) || c);
+                    reports[i] = summarizePost({
+                        postId: reports[i].postId, title: reports[i].title, link: reports[i].link, checks: fresh,
+                    });
+                }
+            }
+        }
+        const summary = summarizeAudit(reports);
+        console.log(`[CTA-AUDIT] ${payload?.deep ? '(정밀) ' : ''}${describeAudit(summary)}`);
+        // 급한 것부터 — 죽은 링크가 있는 글이 맨 위
+        const order = ['dead', 'document', 'none', 'home', 'unknown', 'action'];
+        reports.sort((a, b) => order.indexOf(a.worst) - order.indexOf(b.worst));
+        return { ok: true, summary, headline: describeAudit(summary), reports };
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 300) };
+    }
+});
+/** 주소만 보고 문구를 제안한다 — 편집기에서 주소를 붙여넣는 순간 채워 준다 */
+electron_1.ipcMain.handle('cta-suggest-copy', async (_evt, payload) => {
+    try {
+        const url = String(payload?.url || '').trim();
+        if (!/^https?:\/\//i.test(url))
+            return { ok: false, error: '주소 형식이 아닙니다' };
+        const { buildCtaCopy, siteNameFromUrl } = require('../src/cta/cta-copy');
+        const copy = buildCtaCopy({ url, action: String(payload?.action || '').trim() || undefined });
+        return { ok: true, siteName: siteNameFromUrl(url), ...copy };
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 200) };
     }
 });
 electron_1.ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payload) => {
