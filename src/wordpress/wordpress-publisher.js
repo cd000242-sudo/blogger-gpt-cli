@@ -2441,7 +2441,17 @@ async function publishToWordPress(options, onLog) {
         const styledContent = applyWordPressInlineStyles(contentToStyle);
         onLog?.('✅ WordPress 클린 모던 스킨 적용 완료');
         onLog?.('[WP] 포스트 생성 중...');
-        const contentForWp = neutralizeWpAutop(styledContent);
+        let contentBeforeAutop = styledContent;
+        try {
+            const { stripHeadOnlyTags } = require('../core/final/head-tag-strip');
+            const cleaned = stripHeadOnlyTags(styledContent);
+            if (cleaned.removed > 0) {
+                contentBeforeAutop = cleaned.html;
+                console.log(`[WP-PUBLISH] 🧹 본문에 섞인 head 태그 ${cleaned.removed}개 제거`);
+            }
+        }
+        catch { }
+        const contentForWp = neutralizeWpAutop(contentBeforeAutop);
         console.log(`[WP-PUBLISH] 🩹 wpautop 방지: 줄바꿈 정리 (${styledContent.length} → ${contentForWp.length}자)`);
         const postData = {
             title: options.title,

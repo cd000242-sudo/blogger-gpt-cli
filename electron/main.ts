@@ -1656,7 +1656,16 @@ URL: ${item.url}
          <li><strong>핵심 수치 2:</strong> [구체적 숫자 + 단위]</li>
          <li><strong>핵심 수치 3:</strong> [구체적 숫자 + 단위]</li>
        </ul>
+       <div style="margin:14px 0 0;padding-top:12px;border-top:1px solid rgba(146,64,14,0.18);font-size:13px;color:#78350f;text-align:center;">
+         📌 근거 · <a href="[가장 핵심이 되는 공식 출처 URL 1개]" rel="nofollow noopener" target="_blank" style="color:#92400e;font-weight:800;text-decoration:underline;">[기관·매체 이름]</a> · 확인 [YYYY.MM.DD]
+       </div>
      </div>
+     - 🔗 **근거 줄은 반드시 넣습니다** (v3.8.609, 사장님 요청: "관련공식 원문 보기가 제일아래말고 핵심 요약쪽에 있는게 훨씬 클릭률이좋지않니?")
+       · 맞는 지적이라 **위에는 한 줄, 아래에는 카드 목록**으로 나눴습니다.
+       · 위에 카드 목록을 통째로 올리면 답만 확인하고 본문을 안 읽고 나갑니다 —
+         그래서 위에는 **가장 핵심 출처 1개만** 한 줄로 둡니다.
+       · 링크는 본문에서 실제로 인용한 1차 출처여야 합니다. 지어내지 마세요.
+       · 25-B 카드 박스는 지금처럼 본문 마지막에 그대로 둡니다 (중복 아님 — 역할이 다릅니다).
      - 정의형 직답 패턴 예: "청년내일저축계좌는 만 19~34세 저소득 청년의 자산 형성을 돕는 정부 매칭 적금 제도로, 월 10만원 저축 시 정부가 매월 30만원을 추가 지원해 3년 만기 시 1,440만원 + 이자를 받습니다."
      - 핵심 수치 3개는 검색 의도 직답 (금액·기간·자격 등)
      - 🚨 이 TL;DR 박스는 AI Overview/Perplexity가 첫 단락에서 답변을 추출하므로 **절대 누락 금지**
@@ -11485,6 +11494,27 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
       }
     } catch (attachErr: any) {
       console.warn('[AGENT-SHOPPING] 부착 스킵:', String(attachErr?.message || attachErr).slice(0, 120));
+    }
+
+    /**
+     * 🧹 v3.8.609 — 본문에 섞여 온 `<head>` 태그를 걷어낸다.
+     *
+     * 사장님: "실제글에서는 핵심요약위에 왜 빈공간이 생기는거니"
+     * 에이전트가 `<meta name="description">` 같은 SEO 태그 12개를 **본문에** 적어 넣었고,
+     * 워드프레스가 그걸 `<p>` 로 감싸며 사이사이에 `<br />` 를 넣어 **빈 줄로 쌓였다.**
+     * 메타는 head 소관이고 워드프레스는 Yoast 가 이미 넣는다 — 본문에 있으면 중복이다.
+     *
+     * 스킨을 입히기 **전에** 지운다. 안 그러면 지워진 자리에 스킨 클래스가 붙는다.
+     */
+    try {
+      const { stripHeadOnlyTags } = require('../dist/core/final/head-tag-strip');
+      const cleaned = stripHeadOnlyTags(result.content);
+      if (cleaned.removed > 0) {
+        result.content = cleaned.html;
+        console.log(`[AGENT-CLEAN] 🧹 본문에 섞인 head 태그 ${cleaned.removed}개 제거 (제목 아래 빈 공간의 원인)`);
+      }
+    } catch (cleanErr: any) {
+      console.warn('[AGENT-CLEAN] 스킵:', String(cleanErr?.message || cleanErr).slice(0, 120));
     }
 
     /**

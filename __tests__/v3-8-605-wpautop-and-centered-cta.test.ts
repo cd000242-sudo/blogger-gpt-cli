@@ -71,7 +71,9 @@ describe('② 발행 경로가 반드시 그 함수를 지난다', () => {
   const publisher = read('src/wordpress/wordpress-publisher.ts');
 
   test('포스트 본문에 적용된다', () => {
-    expect(publisher).toContain('const contentForWp = neutralizeWpAutop(styledContent)');
+    // v3.8.609 에서 앞단에 head 태그 제거가 붙으며 입력 변수명이 바뀌었다.
+    // 변수명이 아니라 **동작**을 본다 — 발행되는 본문이 이 함수를 거쳤는가.
+    expect(publisher).toMatch(/const contentForWp = neutralizeWpAutop\(\w+\)/);
     expect(publisher).toContain('content: contentForWp');
   });
 

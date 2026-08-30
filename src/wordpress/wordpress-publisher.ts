@@ -2884,7 +2884,22 @@ export async function publishToWordPress(
      * v3.8.605: wpautop 이 문단을 끼워 넣지 못하게 줄바꿈을 없앤다.
      * 스타일 파이프라인을 건너뛰는 에이전트 글(bgpt-wp-ready)도 **여기는 반드시 지난다.**
      */
-    const contentForWp = neutralizeWpAutop(styledContent);
+    /**
+     * v3.8.609: 본문에 섞인 <head> 태그를 걷는다 (제목 아래 빈 공간의 원인).
+     * 에이전트 경로에서 이미 걷지만, 다른 경로로 들어와도 막히게 여기서 한 번 더 본다.
+     */
+    let contentBeforeAutop = styledContent;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { stripHeadOnlyTags } = require('../core/final/head-tag-strip');
+      const cleaned = stripHeadOnlyTags(styledContent);
+      if (cleaned.removed > 0) {
+        contentBeforeAutop = cleaned.html;
+        console.log(`[WP-PUBLISH] 🧹 본문에 섞인 head 태그 ${cleaned.removed}개 제거`);
+      }
+    } catch { /* 못 걷어도 발행은 진행한다 */ }
+
+    const contentForWp = neutralizeWpAutop(contentBeforeAutop);
     console.log(`[WP-PUBLISH] 🩹 wpautop 방지: 줄바꿈 정리 (${styledContent.length} → ${contentForWp.length}자)`);
 
     const postData: any = {
