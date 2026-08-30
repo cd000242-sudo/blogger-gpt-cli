@@ -7344,17 +7344,17 @@ async function updateAiModelStatus() {
     };
 
     const executionMode = readJsonStorage('leadernamExecutionMode', 'api');
-    const agentProvider = readJsonStorage('leadernamActiveAgentProvider', 'codex') === 'claude' ? 'claude' : 'codex';
+    const agentProviderRaw = readJsonStorage('leadernamActiveAgentProvider', 'codex');
+    const agentProvider = ['codex', 'claude', 'gemini'].includes(agentProviderRaw) ? agentProviderRaw : 'codex';
     try { window.applyAgentImageSettingsVisibility?.(); } catch {}
     if (executionMode === 'agent') {
-      const info = agentProvider === 'claude'
-        ? {
-            label: 'Claude Code Agent',
-            short: 'Claude Code',
-            emoji: '🟠',
-            color: '#f97316',
-            note: '이미지 생성은 별도 엔진',
-          }
+      // v3.8.608: Gemini CLI 추가
+      const AGENT_BADGES = {
+        claude: { label: 'Claude Code Agent', short: 'Claude Code', emoji: '🟠', color: '#f97316', note: '이미지 생성은 별도 엔진' },
+        gemini: { label: 'Gemini CLI Agent', short: 'Gemini CLI', emoji: '💎', color: '#4285f4', note: '이미지 생성은 별도 엔진' },
+      };
+      const info = AGENT_BADGES[agentProvider]
+        ? AGENT_BADGES[agentProvider]
         : {
             label: 'Codex Agent',
             short: 'Codex',

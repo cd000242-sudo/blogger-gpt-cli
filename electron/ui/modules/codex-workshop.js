@@ -18,6 +18,23 @@ const SETTINGS_PROFILE_REFRESH_ID = 'agentModeSettingsRefresh';
 const SETTINGS_PROFILE_COMMAND_ID = 'agentModeSettingsLoginCommand';
 const AGENT_RUN_STATUS_ID = 'codexAgentRunStatus';
 const RUN_AGENT_JOB_BTN_ID = 'runCodexAgentJobBtn';
+/**
+ * 🤖 v3.8.608 — 에이전트 제공자 정규화.
+ *
+ * 예전엔 곳곳에서 `p === 'claude' ? 'claude' : 'codex'` 로 적었다(이 파일에만 16곳).
+ * 그 꼴은 **세 번째 제공자를 조용히 codex 로 떨어뜨린다** — 골라도 안 바뀌고 에러도 없다.
+ * 표를 하나 두고 전부 여기를 지나게 한다.
+ */
+const AGENT_PROVIDER_IDS = ['codex', 'claude', 'gemini'];
+const AGENT_PROVIDER_LABELS = { codex: 'Codex', claude: 'Claude Code', gemini: 'Gemini CLI' };
+function normalizeAgentProviderId(value) {
+  const raw = String(value || '').toLowerCase();
+  return AGENT_PROVIDER_IDS.includes(raw) ? raw : 'codex';
+}
+function agentProviderLabel(value) {
+  return AGENT_PROVIDER_LABELS[normalizeAgentProviderId(value)];
+}
+
 const EXECUTION_MODE_KEY = 'leadernamExecutionMode';
 const ACTIVE_AGENT_PROVIDER_KEY = 'leadernamActiveAgentProvider';
 const ACTIVE_AGENT_PROFILE_IDS_KEY = 'leadernamActiveAgentProfileIds';
@@ -242,7 +259,7 @@ function loadExecutionPrefs() {
   const storage = getStorage();
   const savedMode = storage?.getSync?.(EXECUTION_MODE_KEY, true);
   const mode = savedMode === 'agent' ? 'agent' : 'api';
-  const agentProvider = storage?.getSync?.(ACTIVE_AGENT_PROVIDER_KEY, true) === 'claude' ? 'claude' : 'codex';
+  const agentProvider = normalizeAgentProviderId(storage?.getSync?.(ACTIVE_AGENT_PROVIDER_KEY, true));
   const apiTextProvider = String(storage?.getSync?.(ACTIVE_API_TEXT_PROVIDER_KEY, true) || 'gemini');
   const apiImageProvider = String(storage?.getSync?.(ACTIVE_API_IMAGE_PROVIDER_KEY, true) || 'stability');
   const savedProfileIds = storage?.getSync?.(ACTIVE_AGENT_PROFILE_IDS_KEY, true) || {};
@@ -284,26 +301,26 @@ function getSavedAgentProfileIdMap() {
 }
 
 function getActiveAgentProfileId(provider) {
-  const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
+  const normalizedProvider = normalizeAgentProviderId(provider);
   const currentMap = state.activeAgentProfileIds || {};
   const selectedId = (currentMap?.[normalizedProvider] || '').toString().trim();
   return selectedId;
 }
 
 function getAgentProfilesByProvider(provider) {
-  const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
+  const normalizedProvider = normalizeAgentProviderId(provider);
   const profiles = Array.isArray(state.agentStatus?.profiles) ? state.agentStatus.profiles : [];
   return profiles.filter((profile) => profile.provider === normalizedProvider);
 }
 
 function getProfileById(provider, profileId) {
-  const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
+  const normalizedProvider = normalizeAgentProviderId(provider);
   if (!profileId) return null;
   return getAgentProfilesByProvider(normalizedProvider).find((profile) => profile.id === profileId) || null;
 }
 
 function getActiveAgentProfile(provider) {
-  const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
+  const normalizedProvider = normalizeAgentProviderId(provider);
   const selectedId = getActiveAgentProfileId(normalizedProvider);
   const selectedProfile = getProfileById(normalizedProvider, selectedId);
   const profiles = getAgentProfilesByProvider(normalizedProvider);
@@ -311,7 +328,7 @@ function getActiveAgentProfile(provider) {
 }
 
 function setActiveAgentProfile(provider, profileId) {
-  const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
+  const normalizedProvider = normalizeAgentProviderId(provider);
   const map = normalizeAgentProfileSelectionMap({
     ...state.activeAgentProfileIds,
     ...getSavedAgentProfileIdMap(),
@@ -329,7 +346,7 @@ function setActiveAgentProfile(provider, profileId) {
 }
 
 function getSelectedProfileByUi(provider) {
-  const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
+  const normalizedProvider = normalizeAgentProviderId(provider);
   const modalProfileId = $(AGENT_PROFILE_SELECT_ID)?.value?.trim() || '';
   const settingsProfileId = $(SETTINGS_PROFILE_SELECT_ID)?.value?.trim() || '';
   const selectedId = modalProfileId || settingsProfileId;
@@ -337,7 +354,7 @@ function getSelectedProfileByUi(provider) {
 }
 
 function syncAgentProfileSelectValues(provider, profileId = '') {
-  const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
+  const normalizedProvider = normalizeAgentProviderId(provider);
   const profile = getProfileById(normalizedProvider, profileId || getActiveAgentProfileId(normalizedProvider)) || null;
   if (!profile) return;
 
@@ -658,8 +675,8 @@ async function verifyAgentExecutionReadiness(options = {}) {
 
   state.executionReadinessPending = true;
   renderAgentExecutionReadiness();
-  const provider = state.activeAgentProvider === 'claude' ? 'claude' : 'codex';
-  const label = provider === 'claude' ? 'Claude Code' : 'Codex';
+  const provider = normalizeAgentProviderId(state.activeAgentProvider);
+  const label = agentProviderLabel(provider);
   const checks = [];
   try {
     const login = options.agentResult || await verifyActiveAgentLogin({ showStatus: false });
@@ -865,7 +882,7 @@ function saveUsageState(usageState) {
 function getUsageSummary(provider = 'codex') {
   const settings = loadUsageSettings();
   const usageState = loadUsageState(settings);
-  const key = provider === 'claude' ? 'claude' : 'codex';
+  const key = normalizeAgentProviderId(provider);
   const limit = Math.max(1, Number(settings.limits[key] || DEFAULT_USAGE_LIMITS[key]));
   const used = Math.max(0, Number(usageState.used[key] || 0));
   const remaining = Math.max(0, limit - used);
@@ -876,7 +893,7 @@ function getUsageSummary(provider = 'codex') {
 function recordAgentUsage(provider, jobId = '', usage = null) {
   const settings = loadUsageSettings();
   const usageState = loadUsageState(settings);
-  const key = provider === 'claude' ? 'claude' : 'codex';
+  const key = normalizeAgentProviderId(provider);
   usageState.used[key] = Math.max(0, Number(usageState.used[key] || 0)) + 1;
   usageState.jobs = [
     ...(Array.isArray(usageState.jobs) ? usageState.jobs : []),
@@ -981,11 +998,11 @@ function renderEntryStatus() {
   }
 
   if (isMaxAgentAllowed(status)) {
-    const provider = prefs.agentProvider === 'claude' ? 'claude' : 'codex';
+    const provider = normalizeAgentProviderId(prefs.agentProvider);
     const profile = getProviderProfile(provider);
     const ready = isAgentProfileReady(profile);
     statusEl.className = `codex-workshop-status ${ready ? 'is-ready' : 'is-muted'}`;
-    statusEl.textContent = `${provider === 'claude' ? 'Claude Code' : 'Codex'} Agent 모드 · ${ready ? '로그인 완료' : getProviderLoginLabel(provider, profile)} · ${status.currentName || '3개월 이상'}`;
+    statusEl.textContent = `${agentProviderLabel(provider)} Agent 모드 · ${ready ? '로그인 완료' : getProviderLoginLabel(provider, profile)} · ${status.currentName || '3개월 이상'}`;
     button.textContent = ready ? `${provider === 'claude' ? 'Claude' : 'Codex'} 작업실 열기` : 'Agent 로그인 필요';
     button.disabled = false;
     return;
@@ -1006,7 +1023,7 @@ function getToolInstalledLabel(tool) {
 
 function renderUsageCard(provider) {
   const summary = getUsageSummary(provider);
-  const label = provider === 'claude' ? 'Claude Code' : 'Codex';
+  const label = agentProviderLabel(provider);
   const percent = usagePercent(summary);
   const nextResetText = formatRemainingTime(summary.nextResetAt - Date.now());
   return `
@@ -1308,7 +1325,7 @@ function renderAgentProviderPanel() {
   const detail = $('agentProviderDetail');
   if (!detail) return;
 
-  const provider = state.activeAgentProvider === 'claude' ? 'claude' : 'codex';
+  const provider = normalizeAgentProviderId(state.activeAgentProvider);
   const meta = AGENT_PROVIDER_META[provider];
   const profile = getProviderProfile(provider);
   const tool = state.agentStatus?.tools?.[provider];
@@ -1680,7 +1697,7 @@ function setExecutionMode(mode) {
 }
 
 function setAgentProvider(provider) {
-  state.activeAgentProvider = provider === 'claude' ? 'claude' : 'codex';
+  state.activeAgentProvider = normalizeAgentProviderId(provider);
   state.executionReadiness = null;
   state.articleTask = '';
   state.imageTask = '';
@@ -2055,8 +2072,8 @@ ${references.length ? references.map((url, index) => `  ${index + 1}. ${url}`).j
 function buildCodexImageTask(payload = {}) {
   const topic = getTopic(payload);
   const platform = normalizePlatformName(payload.targetPlatform || payload.platform);
-  const provider = state.activeAgentProvider === 'claude' ? 'claude' : 'codex';
-  const agentLabel = provider === 'claude' ? 'Claude Code' : 'Codex';
+  const provider = normalizeAgentProviderId(state.activeAgentProvider);
+  const agentLabel = agentProviderLabel(provider);
   const imagePolicy = getPayloadImagePolicy(payload);
   const thumbnailTextIncluded = payload.thumbnailTextIncluded !== false && payload.thumbnailIncludeText !== false;
   const references = getReferenceLines(payload);
@@ -3349,7 +3366,7 @@ async function createAgentProfile(provider) {
     const payload = {
       provider,
       authMode: 'subscription',
-      label: provider === 'claude' ? 'Claude 구독 계정' : 'Codex 구독 계정',
+      label: `${agentProviderLabel(provider)} 구독 계정`,
     };
     const result = typeof api?.createAgentProfile === 'function'
       ? await api.createAgentProfile(payload)
@@ -3421,7 +3438,7 @@ function getAgentLoginResultType(result = {}) {
 }
 
 function getAgentLoginResultMessage(provider, result = {}) {
-  const label = provider === 'claude' ? 'Claude Code' : 'Codex';
+  const label = agentProviderLabel(provider);
   if (result?.ready) {
     return result.message || `${label} 로그인 세션이 실제 실행으로 확인되었습니다.`;
   }
@@ -3435,11 +3452,11 @@ function getAgentLoginResultMessage(provider, result = {}) {
 }
 
 async function checkAgentLoginStatus(provider = state.activeAgentProvider, profileId = '', options = {}) {
-  const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
+  const normalizedProvider = normalizeAgentProviderId(provider);
   const api = getBridgeApi();
   const payload = { id: profileId || undefined, provider: normalizedProvider, verify: options.verify === true };
   if (options.showStatus) {
-    setSettingsStatus(`${normalizedProvider === 'claude' ? 'Claude Code' : 'Codex'} 로그인 세션을 실제 실행으로 확인하는 중입니다...`);
+    setSettingsStatus(`${agentProviderLabel(normalizedProvider)} 로그인 세션을 실제 실행으로 확인하는 중입니다...`);
   }
   const result = typeof api?.checkAgentLogin === 'function'
     ? await api.checkAgentLogin(payload)
@@ -3457,9 +3474,9 @@ async function verifyActiveAgentLogin(options = {}) {
   loadExecutionPrefs();
   await loadAgentModeStatus(true);
   const profile = getSelectedAgentProfile();
-  const provider = profile?.provider === 'claude' ? 'claude' : 'codex';
+  const provider = profile?.normalizeAgentProviderId(provider);
   if (!profile) {
-    const message = `${provider === 'claude' ? 'Claude Code' : 'Codex'} 로그인 계정을 찾지 못했습니다. 환경설정에서 로그인 창 열기로 구독 계정을 먼저 연결해주세요.`;
+    const message = `${agentProviderLabel(provider)} 로그인 계정을 찾지 못했습니다. 환경설정에서 로그인 창 열기로 구독 계정을 먼저 연결해주세요.`;
     if (options.showStatus) {
       setSettingsStatus(message, 'error');
       addLog(message, 'warning');
@@ -3473,15 +3490,15 @@ async function verifyActiveAgentLogin(options = {}) {
 }
 
 async function refreshAgentSettingsAndVerify(provider = state.activeAgentProvider, profileId = '') {
-  const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
+  const normalizedProvider = normalizeAgentProviderId(provider);
   const selectedProfileId = profileId || $('agentModeSettingsProfileSelect')?.value || getActiveAgentProfileId(normalizedProvider);
-  setSettingsStatus(`${normalizedProvider === 'claude' ? 'Claude Code' : 'Codex'} 로그인, 이미지, 발행 연동을 실제로 확인합니다...`);
+  setSettingsStatus(`${agentProviderLabel(normalizedProvider)} 로그인, 이미지, 발행 연동을 실제로 확인합니다...`);
   await loadAgentModeStatus(true);
   const profile = selectedProfileId
     ? getProfileById(normalizedProvider, selectedProfileId)
     : getProviderProfile(normalizedProvider);
   if (!profile) {
-    const message = `${normalizedProvider === 'claude' ? 'Claude Code' : 'Codex'} 로그인 계정이 없습니다. 먼저 로그인 계정 추가하기 또는 로그인 창 열기를 눌러주세요.`;
+    const message = `${agentProviderLabel(normalizedProvider)} 로그인 계정이 없습니다. 먼저 로그인 계정 추가하기 또는 로그인 창 열기를 눌러주세요.`;
     setSettingsStatus(message, 'error');
     addLog(message, 'warning');
     return verifyAgentExecutionReadiness({ showStatus: true });
@@ -3491,8 +3508,8 @@ async function refreshAgentSettingsAndVerify(provider = state.activeAgentProvide
 }
 
 function startAgentLoginPolling(provider = state.activeAgentProvider, profileId = '') {
-  const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
-  const label = normalizedProvider === 'claude' ? 'Claude Code' : 'Codex';
+  const normalizedProvider = normalizeAgentProviderId(provider);
+  const label = agentProviderLabel(normalizedProvider);
   stopAgentLoginPolling();
   state.loginPollStartedAt = Date.now();
 
@@ -3520,8 +3537,8 @@ function startAgentLoginPolling(provider = state.activeAgentProvider, profileId 
 }
 
 async function installAgentTool(provider = state.activeAgentProvider, triggerButton = null) {
-  const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
-  const label = normalizedProvider === 'claude' ? 'Claude Code' : 'Codex';
+  const normalizedProvider = normalizeAgentProviderId(provider);
+  const label = agentProviderLabel(normalizedProvider);
   const api = getBridgeApi();
   const previousText = triggerButton?.textContent || '';
 
@@ -3619,9 +3636,9 @@ async function startAgentLogin(provider = state.activeAgentProvider, profileId =
     return;
   }
 
-  const normalizedProvider = provider === 'claude' ? 'claude' : 'codex';
+  const normalizedProvider = normalizeAgentProviderId(provider);
   const tool = status?.tools?.[normalizedProvider];
-  const label = normalizedProvider === 'claude' ? 'Claude Code' : 'Codex';
+  const label = agentProviderLabel(normalizedProvider);
   if (!tool?.installed) {
     setSettingsStatus(`${label} 설치가 먼저 필요합니다. 설치 버튼으로 설치/확인을 끝낸 뒤 로그인 창을 열어주세요.`, 'error');
     return;
@@ -3711,12 +3728,12 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
     throw new Error('Agent 계정 준비에 실패했습니다. 먼저 로그인 창 열기로 구독 계정 로그인을 진행해주세요.');
   }
   if (!isAgentProfileReady(profile)) {
-    const providerLabel = state.activeAgentProvider === 'claude' ? 'Claude Code' : 'Codex';
+    const providerLabel = agentProviderLabel(state.activeAgentProvider);
     setSettingsStatus(`${providerLabel} 로그인 완료가 필요합니다. 로그인 성공이 자동으로 감지됩니다.`, 'error');
     throw new Error(`${providerLabel} 로그인이 아직 완료되지 않았습니다. 로그인 창 열기를 누른 뒤 완료될 때까지 기다려주세요.`);
   }
 
-  const providerLabelForCheck = profile.provider === 'claude' ? 'Claude Code' : 'Codex';
+  const providerLabelForCheck = agentProviderLabel(profile.provider);
   if (source === 'posting') {
     updateAgentProgress(28, `${providerLabelForCheck} 로그인 세션을 실제 실행으로 확인합니다.`);
   }
@@ -3726,7 +3743,7 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   }
 
   if (source === 'posting') {
-    updateAgentProgress(30, `${profile.provider === 'claude' ? 'Claude Code' : 'Codex'} 로그인 상태를 확인했습니다.`);
+    updateAgentProgress(30, `${agentProviderLabel(profile.provider)} 로그인 상태를 확인했습니다.`);
   }
 
   const payload = inputPayload || state.payload || await createPreviewPayload();
@@ -3745,7 +3762,7 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
     updateAgentProgress(38, 'Agent 글 생성 지시서와 API 이미지 프롬프트 지시서를 준비했습니다.');
   }
 
-  const providerLabel = profile.provider === 'claude' ? 'Claude Code' : 'Codex';
+  const providerLabel = agentProviderLabel(profile.provider);
   if (button) {
     button.disabled = true;
     button.textContent = 'Agent 생성 중...';
@@ -3904,7 +3921,7 @@ async function runAgentJobFromModal() {
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = `${state.activeAgentProvider === 'claude' ? 'Claude Code' : 'Codex'}로 생성`;
+      button.textContent = `${agentProviderLabel(state.activeAgentProvider)}로 생성`;
     }
   }
 }
@@ -4144,7 +4161,7 @@ async function enhanceCodexAgentImages(html, payload = {}, title = '') {
   if (policy === 'none') return { content: html, thumbnailUrl: '' };
 
   const provider = state.activeAgentProvider || 'codex';
-  const providerLabel = provider === 'claude' ? 'Claude Code' : 'Codex';
+  const providerLabel = agentProviderLabel(provider);
   addLog(`🎨 ${providerLabel} Agent는 글만 생성합니다. 이미지는 Orbit 이미지 엔진/API로 생성합니다.`, 'info');
   return await enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload, title);
 }
@@ -4333,7 +4350,7 @@ export async function openCodexWorkshopPanel() {
     state.imageTask = buildCodexImageTask(payload);
     setModalValues();
     renderAgentStatusPanel();
-    const providerLabel = state.activeAgentProvider === 'claude' ? 'Claude Code' : 'Codex';
+    const providerLabel = agentProviderLabel(state.activeAgentProvider);
     const titleEl = $('codexWorkshopTitle');
     const subtitleEl = $('codexWorkshopSubtitle');
     if (titleEl) titleEl.textContent = `${providerLabel} 작업실`;
@@ -4416,7 +4433,7 @@ export function initCodexWorkshop() {
   window.setAgentProvider = setAgentProvider;
   window.getAgentExecutionState = () => ({
     mode: state.executionMode === 'agent' ? 'agent' : 'api',
-    provider: state.activeAgentProvider === 'claude' ? 'claude' : 'codex',
+    provider: normalizeAgentProviderId(state.activeAgentProvider),
   });
 
   window.refreshAgentModeSettings = () => {

@@ -270,11 +270,13 @@ function buildModelPop(pop) {
   let agentProvider = 'codex';
   try { agentProvider = JSON.parse(localStorage.getItem('leadernamActiveAgentProvider') || '"codex"'); }
   catch { agentProvider = localStorage.getItem('leadernamActiveAgentProvider') || 'codex'; }
-  agentProvider = agentProvider === 'claude' ? 'claude' : 'codex';
+  agentProvider = ['codex','claude','gemini'].includes(agentProvider) ? agentProvider : 'codex';
 
+  // v3.8.608: Gemini CLI 추가. 안티그래비티는 IDE 창을 여는 런처라 헤드리스가 안 된다(실측).
   const AGENTS = [
     { id: 'claude', label: '🟠 Claude Code Agent', note: '구독' },
     { id: 'codex', label: '🧠 Codex Agent', note: '구독' },
+    { id: 'gemini', label: '💎 Gemini CLI Agent', note: '구독' },
   ];
 
   const cur = document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value || '';
@@ -302,7 +304,7 @@ function buildModelPop(pop) {
       window.setAgentExecutionMode('agent');   // 라이선스 게이트가 여기 들어 있다
       try { window.updateAiModelStatus?.(); } catch { /* 배지 갱신 실패는 발행과 무관 */ }
       closeAllPops();
-      addLog(`🤖 글 생성을 ${provider === 'claude' ? 'Claude Code' : 'Codex'} 에이전트로 바꿨습니다 (구독 사용량)`, 'info');
+      addLog(`🤖 글 생성을 ${({ claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' })[provider] || provider} 에이전트로 바꿨습니다 (구독 사용량)`, 'info');
     });
   });
 

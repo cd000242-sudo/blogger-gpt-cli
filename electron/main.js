@@ -7841,6 +7841,36 @@ electron_1.ipcMain.handle('is-developer-mode', async () => {
 electron_1.ipcMain.handle('is-packaged', async () => {
     return { ok: true, isPackaged: electron_1.app.isPackaged };
 });
+/**
+ * 🤖 v3.8.608 — 에이전트 제공자 표.
+ *
+ * 사장님: "안티그래비티는없네요?" → 안티그래비티는 **IDE 창을 여는 런처**라
+ * 헤드리스로 못 돌린다(실측: `antigravity-ide chat` 옵션이 전부 --maximize/--new-window).
+ * 대신 이미 깔려 있는 **Gemini CLI** 를 세 번째로 붙인다 (사장님 선택: "1").
+ *
+ * 실측(2026-08-30, gemini 0.51.0):
+ *   · `-p/--prompt`            헤드리스 실행
+ *   · `--approval-mode yolo`   도구 승인 자동 — 이게 없으면 파일을 못 쓴다
+ *                              (claude 에서 Write·Bash 가 막혀 본문이 `and` 로 나간 사고와 같은 자리)
+ *   · `-o json`                결과를 JSON 으로
+ *   · `GEMINI_CLI_HOME`        프로필 격리 (`|| ~/.gemini` — 번들에서 확인)
+ *
+ * 갈래가 main.ts 42곳에 흩어져 있어 `provider === 'codex' ? A : B` 꼴이 많았다.
+ * 세 번째가 들어오면 그 삼항은 전부 **조용히 claude 로 떨어진다.** 그래서 표로 모은다.
+ */
+const AGENT_PROVIDERS = {
+    codex: { binary: 'codex', label: 'Codex', envVar: 'CODEX_HOME', accountFallback: 'Codex 구독 계정' },
+    claude: { binary: 'claude', label: 'Claude Code', envVar: 'CLAUDE_CONFIG_DIR', accountFallback: 'Claude 구독 계정' },
+    gemini: { binary: 'gemini', label: 'Gemini CLI', envVar: 'GEMINI_CLI_HOME', accountFallback: 'Gemini 구독 계정' },
+};
+/** 제공자 정보 — 모르는 값이 와도 codex 로 떨어뜨리지 않고 표에서 찾는다 */
+function agentProviderInfo(provider) {
+    return AGENT_PROVIDERS[provider] || AGENT_PROVIDERS.codex;
+}
+/** 사람에게 보여줄 이름 (에러 문구·로그 공통) */
+function agentProviderLabel(provider) {
+    return agentProviderInfo(provider).label;
+}
 const AGENT_MODE_REQUIRED_FEATURE = 'maxAgentMode';
 const AGENT_MODE_REQUIRED_TIER = 'standard';
 const AGENT_MODE_REQUIRED_NAME = '스탠다드 (3개월)';
@@ -7933,14 +7963,16 @@ function getCodexModelAttemptOrder() {
     return result;
 }
 function normalizeAgentProvider(value) {
-    return String(value || '').toLowerCase() === 'claude' ? 'claude' : 'codex';
+    // v3.8.608: 표에 있는 값만 인정한다. 모르는 값은 codex 로.
+    const raw = String(value || '').toLowerCase();
+    return (raw in AGENT_PROVIDERS ? raw : 'codex');
 }
 function createAgentProfileId(provider) {
     const random = Math.random().toString(36).slice(2, 8);
     return `${provider}-${Date.now().toString(36)}-${random}`;
 }
 function sanitizeAgentLabel(value, provider) {
-    const fallback = provider === 'codex' ? 'Codex 구독 계정' : 'Claude 구독 계정';
+    const fallback = agentProviderInfo(provider).accountFallback;
     const label = String(value || '').trim().replace(/\s+/g, ' ').slice(0, 60);
     return label || fallback;
 }
@@ -7958,7 +7990,7 @@ function normalizeAgentProfile(raw) {
         label: sanitizeAgentLabel(raw.label, provider),
         authMode: raw.authMode === 'api' ? 'api' : 'subscription',
         profileDir,
-        envVar: provider === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR',
+        envVar: agentProviderInfo(provider).envVar,
         status: raw.status === 'ready' || raw.status === 'needs-login' ? raw.status : 'unknown',
         createdAt: String(raw.createdAt || new Date().toISOString()),
         updatedAt: String(raw.updatedAt || new Date().toISOString()),
@@ -8386,7 +8418,7 @@ function buildAgentJobInstructions(request, profile) {
         '',
         '## Agent 이미지 처리 규칙',
         [
-            `- ${profile.provider === 'codex' ? 'Codex' : 'Claude Code'} Agent는 텍스트 글만 생성합니다.`,
+            `- ${agentProviderLabel(profile.provider)} Agent는 텍스트 글만 생성합니다.`,
             '- 실제 썸네일/본문 이미지는 Agent 실행 후 Orbit 앱의 이미지 엔진/API가 생성합니다.',
             '- image_gen, pollinations.ai, 외부 이미지 URL, 로컬 PNG/JPG/WebP 파일 생성, `<img>` 태그 삽입을 모두 금지합니다.',
             '- article.html에는 이미지 자리표시자, figure, caption, 이미지 실패 문구를 넣지 않습니다.',
@@ -9011,12 +9043,8 @@ function buildAgentRunEnv(profile) {
         delete env.ANTHROPIC_VERTEX_PROJECT_ID;
         delete env.CLAUDE_CODE_OAUTH_TOKEN;
     }
-    if (profile.provider === 'codex') {
-        env.CODEX_HOME = profile.profileDir;
-    }
-    else {
-        env.CLAUDE_CONFIG_DIR = profile.profileDir;
-    }
+    // v3.8.608: 제공자마다 다른 격리 변수를 표에서 찾는다 (gemini = GEMINI_CLI_HOME)
+    env[agentProviderInfo(profile.provider).envVar] = profile.profileDir;
     // v3.8.241: Claude Code 네이티브 설치 경로 (~/.local/bin)를 PATH에 자동 주입
     // 공식 설치기가 PATH를 등록하지 않은 케이스에서도 claude.exe가 자식 프로세스(node, sh 등)를 찾을 수 있도록
     if (profile.provider === 'claude') {
@@ -9079,6 +9107,24 @@ function buildAgentRunCommand(profile, jobDir, lastMessagePath, model = getCodex
             command: resolveAgentBinaryCommand(profile.provider),
             args: finalArgs,
         };
+    }
+    /**
+     * 🤖 v3.8.608 — Gemini CLI (실측 0.51.0)
+     *   -p               헤드리스
+     *   --approval-mode yolo  도구 승인 자동. **이게 없으면 파일을 못 쓴다** —
+     *                    claude 에서 Write·Bash 가 막혀 본문이 `and` 로 나갔던 그 자리다.
+     *   -o json          결과를 JSON 으로 (usage 파싱용)
+     */
+    if (profile.provider === 'gemini') {
+        const geminiArgs = [
+            '--approval-mode', 'yolo',
+            '--output-format', 'json',
+            '--include-directories', jobDir,
+        ];
+        if (model)
+            geminiArgs.unshift('-m', model);
+        geminiArgs.push('-p', prompt);
+        return { command: resolveAgentBinaryCommand(profile.provider), args: geminiArgs };
     }
     return {
         command: resolveAgentBinaryCommand(profile.provider),
@@ -9785,7 +9831,7 @@ function buildAgentFailureMessage(profile, run) {
      * 하나로 묶어 두어야 "재로그인 필요" 표시와 안내 문구가 어긋나지 않는다.
      */
     if (AGENT_AUTH_REQUIRED_RE.test(combined)) {
-        const cliName = profile.provider === 'codex' ? 'Codex' : 'Claude Code';
+        const cliName = agentProviderLabel(profile.provider);
         return [
             `${cliName} 로그인이 풀렸습니다. 글은 생성되지 않았습니다.`,
             '',
@@ -9799,7 +9845,7 @@ function buildAgentFailureMessage(profile, run) {
         ].join('\n');
     }
     if (processError) {
-        return `${profile.provider === 'codex' ? 'Codex' : 'Claude Code'} 오류: ${processError}`;
+        return `${agentProviderLabel(profile.provider)} 오류: ${processError}`;
     }
     return 'Agent 산출물을 찾지 못했습니다.';
 }
@@ -10261,7 +10307,7 @@ function getAgentBinaryCandidates(binaryName) {
     });
 }
 function resolveAgentBinaryCommand(provider) {
-    const binaryName = provider === 'claude' ? 'claude' : 'codex';
+    const binaryName = agentProviderInfo(provider).binary;
     return getAgentBinaryCandidates(binaryName)[0] || binaryName;
 }
 function buildAgentLoginVerifyCommand(profile) {
@@ -10593,7 +10639,8 @@ electron_1.ipcMain.handle('agent-mode:create-profile', async (_evt, args) => {
             label: sanitizeAgentLabel(args?.label, provider),
             authMode: args?.authMode === 'api' ? 'api' : 'subscription',
             profileDir,
-            envVar: provider === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR',
+            // v3.8.608: 새 프로필을 만들 때도 표에서 격리 변수를 찾는다 (gemini = GEMINI_CLI_HOME)
+            envVar: agentProviderInfo(provider).envVar,
             status: 'needs-login',
             createdAt: now,
             updatedAt: now,
