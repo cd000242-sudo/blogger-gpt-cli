@@ -159,6 +159,17 @@ export function isContextuallySafeCtaUrl(url: string, keyword: string, contentMo
     if (/google\.com\/search|search\.naver\.com|search\.daum\.net|bing\.com\/search|m\.search/i.test(full)) return false;
     if (/blog\.naver|tistory|brunch|velog|medium\.com|blogspot|wordpress\.com/i.test(full)) return false;
     if (/\/error\/|\/error\.html|notfound|404|err(code|msg|cd)=/i.test(full)) return false;
+    /**
+     * 📎 v3.8.615 — 첨부파일 내려받기 주소는 CTA 가 될 수 없다.
+     *
+     * 실측(발행글 5451): 네이버 검색이 준 후보가 전부
+     *   fss.or.kr/fss/cmmn/file/fileDown.do?atchFileId=…  (2MB 첨부)
+     * 였다. 눌러도 화면이 안 열리고 파일만 떨어진다 — 독자가 "행동"할 수 없다.
+     * 게다가 검증 단계가 2MB 를 통째로 받아 시간만 버린다.
+     * (문서 CTA 자체를 막는 게 아니다 — detectDocumentCta 가 다루는 pdf·hwp 링크는 그대로다.
+     *  여기서 막는 건 **다운로드 엔드포인트**다.)
+     */
+    if (/\/file(down|Down)\.do|atchfileid=|\/cmmn\/file\/|downloadfile\.do|filedownload\.do/i.test(full)) return false;
   } catch {
     return false;
   }
@@ -3759,14 +3770,55 @@ JSON만 출력:
       { keywords: ['변호사시험', '로스쿨시험'], actionUrl: 'https://www.moj.go.kr/moj/index.do' },
       { keywords: ['수능', '대학수학능력', '수능일정'], actionUrl: 'https://www.suneung.re.kr/' },
       { keywords: ['토익', 'TOEIC', '토플', 'TOEFL', '오픽', 'OPIC', 'JLPT'], actionUrl: 'https://exam.toeic.co.kr/' },
+      /**
+       * 🏛️ v3.8.615 — 감독·분쟁 기관을 더한다.
+       *
+       * 실측(발행글 5451 "기한이익상실 통지"): 스마트 라우터가 **금융감독원을 확신 0.95**로
+       * 짚었는데, 이 표에 금감원이 없어 매칭이 안 됐고 CTA 가 통째로 생략됐다.
+       * 검색 결과는 2MB 짜리 첨부파일(fileDown.do)뿐이라 전부 탈락한 상태였다.
+       */
+      { keywords: ['금융감독원', '금감원', '기한이익상실', '대출 통지', '불완전판매'], actionUrl: 'https://www.fss.or.kr/fss/main/main.do' },
+      { keywords: ['금융분쟁조정', '금융민원'], actionUrl: 'https://www.fcsc.kr/' },
+      { keywords: ['예금보험공사', '예금자보호'], actionUrl: 'https://www.kdic.or.kr/' },
+      { keywords: ['한국소비자원', '소비자분쟁', '피해구제'], actionUrl: 'https://www.kca.go.kr/' },
+      { keywords: ['국민권익위', '권익위'], actionUrl: 'https://www.acrc.go.kr/' },
+      { keywords: ['개인정보보호위원회', '개인정보 침해'], actionUrl: 'https://www.privacy.go.kr/' },
+      { keywords: ['국세청'], actionUrl: 'https://www.hometax.go.kr/' },
+      { keywords: ['근로복지공단'], actionUrl: 'https://www.comwel.or.kr/' },
+      { keywords: ['중소벤처기업부', '소상공인시장진흥공단', '소진공', '정책자금'], actionUrl: 'https://ols.semas.or.kr/' },
+      { keywords: ['보건복지부', '복지 상담'], actionUrl: 'https://www.bokjiro.go.kr/' },
+      { keywords: ['고용노동부', '임금체불', '진정'], actionUrl: 'https://minwon.moel.go.kr/' },
     ];
+
+    /**
+     * 🧭 v3.8.615 — 라우터가 짚은 기관을 **버리지 않는다.**
+     *
+     * 예전 매칭은 글 키워드만 봤다(`lowerKw.includes(kw)`). 그래서
+     * "기한이익상실 통지" 처럼 기관 이름이 제목에 없는 글은 표를 못 탔다.
+     * 이제 세 가지를 차례로 본다: 글 키워드 → 라우터가 정한 기관 → 본문이 지목한 기관.
+     * 확신 0.95 로 찾아 둔 답을 쓰지 않고 빈손으로 끝내는 건 낭비다.
+     */
+    const findFallbackSite = (haystacks: string[]) => {
+      for (const raw of haystacks) {
+        const hay = String(raw || '').toLowerCase();
+        if (!hay) continue;
+        const hit = OFFICIAL_FALLBACK_SITES.find((s) => s.keywords.some((kw) => hay.includes(kw.toLowerCase())));
+        if (hit) return { hit, via: raw };
+      }
+      return null;
+    };
     const detectIntent = (text: string): 'action' | 'info' => {
       const t = String(text || '').toLowerCase();
       return /(신청|가입|등록|발급|접수|신고|예매|예약|구매|결제|로그인)/.test(t) ? 'action' : 'info';
     };
-    const lowerKw = String(keyword || '').toLowerCase();
-    const matched = OFFICIAL_FALLBACK_SITES.find((s) => s.keywords.some((kw) => lowerKw.includes(kw.toLowerCase())));
+    // v3.8.615: 라우터 목적지·본문 기관까지 본다 (위 findFallbackSite 머리말 참고)
+    const routerSite = (await ensureSmartTarget())?.site || '';
+    const found = findFallbackSite([keyword, routerSite, ...ctaArticleAgencies]);
+    const matched = found?.hit;
     if (matched) {
+      if (found && found.via !== keyword) {
+        console.log(`[CTA] 🧭 라우터·본문이 지목한 기관으로 폴백 매칭: "${found.via}"`);
+      }
       const intent = detectIntent(keyword);
       const fallbackUrl = intent === 'action' ? matched.actionUrl : (matched.infoUrl || matched.actionUrl);
       /**
