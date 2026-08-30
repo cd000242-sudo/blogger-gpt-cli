@@ -11152,15 +11152,23 @@ ipcMain.handle('sync-license-with-server', async (_evt, { serverUrl, userId, pas
 ipcMain.handle('agent-mode:get-status', async () => {
   try {
     const access = await getAgentModeAccessStatus();
-    const [codex, claude] = await Promise.all([
-      detectAgentBinary('codex'),
-      detectAgentBinary('claude'),
-    ]);
+    /**
+     * v3.8.612 — 제공자 표를 돌며 감지한다.
+     *
+     * 예전엔 codex·claude 둘만 손으로 감지했다. 그래서 v3.8.608 에서 Gemini 를 넣고도
+     * 설정 화면은 **항상 "미설치"** 로 보였다 — 실제로는 깔려 있는데도.
+     * (사장님: "제미나이 cli가 배찌에는 연동되고 추가한것같은데 환경설정에는왜없니")
+     */
+    const providerIds = Object.keys(AGENT_PROVIDERS) as AgentModeProvider[];
+    const detected = await Promise.all(
+      providerIds.map((id) => detectAgentBinary(AGENT_PROVIDERS[id].binary)),
+    );
+    const tools = Object.fromEntries(providerIds.map((id, i) => [id, detected[i]]));
 
     return {
       ok: true,
       ...access,
-      tools: { codex, claude },
+      tools,
       profiles: refreshAgentProfileStatuses().map(toAgentProfileView),
     };
   } catch (error) {

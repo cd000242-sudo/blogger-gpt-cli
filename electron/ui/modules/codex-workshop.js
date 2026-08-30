@@ -235,6 +235,25 @@ const AGENT_PROVIDER_META = {
     measuredStatus: 'Claude Pro/Max는 5시간 세션 기준으로 리셋되지만 메시지 길이, 모델, 기능, 현재 용량에 따라 달라져 남은 개수를 외부 앱에서 정확히 계산할 수 없습니다.',
     estimateText: '남은 글/이미지 개수는 표시하지 않습니다. 대신 공식 플랜 화면과 Claude Code 로그인 상태, 이 앱의 작업 기록만 분리해서 보여줍니다.',
   },
+  /**
+   * 💎 v3.8.612 — Gemini CLI.
+   *
+   * 사장님: "제미나이 cli가 배찌에는 연동되고 추가한것같은데 환경설정에는왜없니"
+   * 맞는 지적이다. v3.8.608 에서 배지·엔진 선택기에는 넣었는데 **이 표를 안 고쳤다.**
+   * 이 표가 없으면 계정을 추가할 화면 자체가 안 그려져서, 골라도 로그인을 할 수 없다.
+   */
+  gemini: {
+    id: 'gemini',
+    label: 'Gemini CLI',
+    title: 'Gemini CLI 구독 Agent',
+    profileButton: 'Gemini 계정 준비',
+    upgradeUrl: 'https://one.google.com/about/google-ai-plans/',
+    planUrl: 'https://one.google.com/about/google-ai-plans/',
+    analyticsUrl: 'https://aistudio.google.com/usage',
+    docsUrl: 'https://github.com/google-gemini/gemini-cli',
+    measuredStatus: 'Google AI 구독(무료·Pro·Ultra)은 분당·일일 요청 한도로 운영되며, 남은 요청 수를 외부 앱에서 실시간으로 읽을 방법이 없습니다.',
+    estimateText: '남은 글/이미지 개수는 표시하지 않습니다. 로그인 상태와 이 앱의 작업 기록만 보여줍니다.',
+  },
 };
 
 function openExternalUrl(url) {
@@ -945,17 +964,20 @@ async function loadAgentModeStatus(force = false) {
           message: result?.error || 'Agent Mode 상태를 확인하지 못했습니다.',
         };
 
-    const codexTool = state.agentStatus?.tools?.codex;
+    /**
+     * v3.8.612 — 고른 제공자가 안 깔려 있으면 **깔려 있는 아무 쪽**으로 옮긴다.
+     * 예전엔 claude → codex 한 방향만 봐서, gemini 를 골랐는데 안 깔려 있으면
+     * 그대로 머물러 실행할 때야 실패했다.
+     */
     const activeTool = state.agentStatus?.tools?.[state.activeAgentProvider];
-    if (
-      state.activeAgentProvider === 'claude'
-      && codexTool?.installed
-      && codexTool.usable !== false
-      && (!activeTool?.installed || activeTool.usable === false)
-    ) {
-      state.activeAgentProvider = 'codex';
-      saveExecutionPrefs();
-      refreshGlobalAiModelBadge();
+    const usable = (t) => !!t?.installed && t.usable !== false;
+    if (!usable(activeTool)) {
+      const fallback = AGENT_PROVIDER_IDS.find((id) => usable(state.agentStatus?.tools?.[id]));
+      if (fallback && fallback !== state.activeAgentProvider) {
+        state.activeAgentProvider = fallback;
+        saveExecutionPrefs();
+        refreshGlobalAiModelBadge();
+      }
     }
   } catch (error) {
     state.agentStatus = {
@@ -1188,21 +1210,21 @@ function renderSettingsProfileSelect() {
   }
 }
 
+/**
+ * v3.8.612 — 설치 상태 카드를 **표를 돌며** 그린다.
+ *
+ * 예전엔 codex·claude 두 줄을 손으로 적어 두었다. 제공자가 늘어도 화면은 그대로였다
+ * — 사장님이 "환경설정에는 왜 없니" 라고 하신 자리 중 하나다.
+ */
 function renderToolCards(status = state.agentStatus) {
-  const codexTool = status?.tools?.codex;
-  const claudeTool = status?.tools?.claude;
   const row = $('agentModeToolStatus');
   if (!row) return;
-  row.innerHTML = `
+  row.innerHTML = AGENT_PROVIDER_IDS.map((id) => `
     <div class="agent-mode-mini-card">
-      <strong>Codex CLI</strong>
-      <span>${escapeHtml(getToolInstalledLabel(codexTool))}</span>
+      <strong>${escapeHtml(AGENT_PROVIDER_META[id]?.label || id)}</strong>
+      <span>${escapeHtml(getToolInstalledLabel(status?.tools?.[id]))}</span>
     </div>
-    <div class="agent-mode-mini-card">
-      <strong>Claude Code</strong>
-      <span>${escapeHtml(getToolInstalledLabel(claudeTool))}</span>
-    </div>
-  `;
+  `).join('');
 }
 
 function renderModeButtons() {
@@ -1275,11 +1297,17 @@ function renderApiProviderCards() {
   });
 }
 
+/**
+ * v3.8.612 — 활성 탭 표시도 표를 돈다.
+ * 예전엔 옛 id(agentProviderTabCodex/Claude)를 손으로 찾았다 —
+ * 그대로 두면 Gemini 탭은 눌러도 강조가 안 붙어 "골라지지 않는 것처럼" 보인다.
+ */
 function renderAgentProviderTabs() {
-  const codex = $('agentProviderTabCodex');
-  const claude = $('agentProviderTabClaude');
-  if (codex) codex.className = `agent-provider-tab ${state.activeAgentProvider === 'codex' ? 'is-active' : ''}`;
-  if (claude) claude.className = `agent-provider-tab ${state.activeAgentProvider === 'claude' ? 'is-active' : ''}`;
+  const active = normalizeAgentProviderId(state.activeAgentProvider);
+  document.querySelectorAll('[data-agent-provider-tab]').forEach((tab) => {
+    const id = tab.getAttribute('data-agent-provider-tab');
+    tab.className = `agent-provider-tab ${id === active ? 'is-active' : ''}`;
+  });
 }
 
 function renderAgentImageSettingsPanel(provider) {
@@ -1885,12 +1913,12 @@ function ensureAgentSettingsSection() {
       <div class="agent-mode-execution-panel" id="agentExecutionPanel">
         <div class="agent-mode-panel-title">
           <strong>Agent 구독형</strong>
-          <span>3개월 이상 코드에서 Codex 또는 Claude Code 구독 계정으로 실행합니다. API 키 입력칸은 꺼집니다.</span>
+          <span>3개월 이상 코드에서 Codex · Claude Code · Gemini CLI 구독 계정으로 실행합니다. API 키 입력칸은 꺼집니다.</span>
         </div>
         <div class="agent-mode-tool-row" id="agentModeToolStatus"></div>
+        <!-- v3.8.612: 탭도 표를 돌며 그린다. 손으로 적어 두면 제공자가 늘어도 화면은 그대로다 -->
         <div class="agent-provider-tabs">
-          <button type="button" id="agentProviderTabCodex" class="agent-provider-tab">Codex</button>
-          <button type="button" id="agentProviderTabClaude" class="agent-provider-tab">Claude Code</button>
+          ${AGENT_PROVIDER_IDS.map((id) => `<button type="button" id="agentProviderTab-${id}" data-agent-provider-tab="${id}" class="agent-provider-tab">${escapeHtml(AGENT_PROVIDER_META[id]?.label || id)}</button>`).join('')}
         </div>
         <div id="agentProviderDetail"></div>
         <div class="agent-mode-control-grid" style="margin-top:10px; margin-bottom:2px;">
@@ -1928,8 +1956,10 @@ function ensureAgentSettingsSection() {
   $('executionModeAgentBtn')?.addEventListener('click', () => setExecutionMode('agent'));
   $('apiTextProviderSelect')?.addEventListener('change', (event) => setApiProvider('text', event.target?.value));
   $('apiImageProviderSelect')?.addEventListener('change', (event) => setApiProvider('image', event.target?.value));
-  $('agentProviderTabCodex')?.addEventListener('click', () => setAgentProvider('codex'));
-  $('agentProviderTabClaude')?.addEventListener('click', () => setAgentProvider('claude'));
+  // v3.8.612: 탭이 표에서 그려지므로 배선도 표를 돈다
+  document.querySelectorAll('[data-agent-provider-tab]').forEach((tab) => {
+    tab.addEventListener('click', () => setAgentProvider(tab.getAttribute('data-agent-provider-tab')));
+  });
   $('agentModeSettingsProfileSelect')?.addEventListener('change', () => {
     const profile = getSelectedProfileByUi(state.activeAgentProvider);
     if (profile) {
@@ -3331,8 +3361,9 @@ function renderAgentStatusPanel() {
     return;
   }
 
-  const codexTool = renderToolStatus(status.tools?.codex, 'Codex');
-  const claudeTool = renderToolStatus(status.tools?.claude, 'Claude');
+  // v3.8.612: 제공자 표를 돌며 감지 결과를 그린다 (손으로 두 줄 적어 두면 세 번째가 안 보인다)
+  const toolLines = AGENT_PROVIDER_IDS.map((id) =>
+    renderToolStatus(status.tools?.[id], AGENT_PROVIDER_META[id]?.label || id));
   const modeLabel = isMaxAgentAllowed(status) ? 'Max Agent Mode' : 'API 키 모드';
   const modeClass = isMaxAgentAllowed(status) ? 'is-ready' : 'is-locked';
 
@@ -3346,8 +3377,7 @@ function renderAgentStatusPanel() {
       </div>
       <div class="codex-workshop-agent-card">
         <strong>도구 감지</strong>
-        <span>${escapeHtml(codexTool)}</span>
-        <span>${escapeHtml(claudeTool)}</span>
+        ${toolLines.map((line) => `<span>${escapeHtml(line)}</span>`).join('')}
       </div>
     </div>
   `;
@@ -3474,7 +3504,8 @@ async function verifyActiveAgentLogin(options = {}) {
   loadExecutionPrefs();
   await loadAgentModeStatus(true);
   const profile = getSelectedAgentProfile();
-  const provider = profile?.normalizeAgentProviderId(provider);
+  // v3.8.612: 자기 자신을 참조하던 줄을 되돌린다 (아래 주석 참고)
+  const provider = normalizeAgentProviderId(profile?.provider);
   if (!profile) {
     const message = `${agentProviderLabel(provider)} 로그인 계정을 찾지 못했습니다. 환경설정에서 로그인 창 열기로 구독 계정을 먼저 연결해주세요.`;
     if (options.showStatus) {

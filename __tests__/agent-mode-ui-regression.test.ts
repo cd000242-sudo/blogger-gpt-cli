@@ -43,8 +43,13 @@ describe('agent mode settings UI regression guard', () => {
 
     expect(workshop).toContain('id="executionModeApiBtn"');
     expect(workshop).toContain('id="executionModeAgentBtn"');
-    expect(workshop).toContain('id="agentProviderTabCodex"');
-    expect(workshop).toContain('id="agentProviderTabClaude"');
+    /**
+     * v3.8.612: 제공자 탭이 손으로 적은 두 개에서 **표 기반**으로 바뀌었다
+     * (Gemini CLI 추가). 검사도 "탭이 있는가" 를 보게 바꾼다 —
+     * 특정 id 를 요구하면 제공자를 늘릴 때마다 이 테스트가 막는다.
+     */
+    expect(workshop).toContain('data-agent-provider-tab');
+    expect(workshop).toContain("AGENT_PROVIDER_IDS = ['codex', 'claude', 'gemini']");
     expect(workshop).toContain('data-agent-add-account=');
     expect(workshop).toContain('로그인 계정 추가하기');
     expect(workshop).toContain('await startAgentLogin(selectedProvider, profile.id)');

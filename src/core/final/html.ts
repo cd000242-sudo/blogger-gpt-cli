@@ -1528,6 +1528,30 @@ article.hentry {
   border-radius: 0 !important;
   box-shadow: none !important;
 }
+
+/* ═══════════════════════════════════════════════
+   🛡️ v3.8.611 — 로그인한 나에게는 광고를 보이지 않는다
+   ═══════════════════════════════════════════════
+   사장님 실제 사고: 본인 광고를 클릭해 게재가 일시정지됐다(~9/21).
+   두 번째 적발은 계정 자체가 위험하다.
+
+   운영자는 발행 확인하러 자기 사이트를 하루에도 몇 번씩 연다.
+   그 화면에 광고가 있으면 언젠가 눌린다 — 그리고 본인 노출은 **어차피 수익이 0**이다.
+   즉 가려서 잃는 것이 없고, 안 가리면 계정을 잃는다.
+
+   워드프레스는 로그인 사용자에게 <body class="logged-in"> 을 붙인다(코어 body_class).
+   방문자에게는 이 규칙이 아예 걸리지 않으므로 **광고 수익에는 영향이 없다.**
+   애드센스도 운영자 본인 노출 차단을 권장한다 — 정책 위반이 아니다.
+
+   ⚠️ 이 규칙은 **본문 안** 광고만 가린다. 앵커·전면 광고까지 막으려면
+      워드프레스 [외모 → 사용자 정의 → 추가 CSS] 에 같은 규칙을 넣어야 한다.
+   ═══════════════════════════════════════════════ */
+body.logged-in .bgpt-content .adsbygoogle,
+body.logged-in .bgpt-content ins.adsbygoogle,
+body.logged-in .bgpt-content .bgpt-ad,
+body.logged-in .bgpt-content [data-bgpt-ad-unit] {
+  display: none !important;
+}
 </style>
 `;
 }
