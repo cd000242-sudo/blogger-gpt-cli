@@ -66,6 +66,40 @@ export function breakLongLine(sentence: string, maxLineChars: number): string {
  * `<a href="...">` 안의 마침표(예: 도메인)에서 자르면 링크가 두 동강 난다.
  * 그래서 `<` 와 `>` 를 세어 태그 안인지 보고, 태그 밖일 때만 경계로 인정한다.
  */
+/**
+ * 🔤 v3.8.601 — 마침표라고 다 문장 끝이 아니다.
+ *
+ * 사장님: "문단정리가 마침표로 문장을 마무리했다면 줄바꿈을 해줘.
+ *          그리고 만약 소수점이나 따옴표라면 줄바꿈을 하면 안 되고 유연하게 대처하도록 해"
+ *
+ * 예전 규칙은 "마침표 + 뒤가 공백 + 앞 글자가 종결형이나 **숫자**" 였다.
+ * 소수점(3.5)은 뒤가 공백이 아니라 이미 안전했지만, 숫자를 허용한 탓에 두 가지가 깨졌다:
+ *   · 날짜 `2026. 8. 30. 기준` → "2026." / "8." / "30." 로 세 조각
+ *   · 번호 `1. 첫째 항목`      → "1." 이 혼자 한 줄
+ * 그리고 따옴표는 아예 보지 않아 인용 안에서 잘렸다:
+ *   · `그는 "안 됩니다. 확인하세요" 라고 했다` → 인용문 한가운데서 줄바꿈
+ *
+ * 그래서 숫자 뒤 마침표는 **뒤에 오는 말**을 보고 판단하고, 따옴표는 깊이를 세어 그 안에서는 자르지 않는다.
+ */
+const QUOTE_OPEN: Record<string, string> = {
+  '「': '」', '『': '』', '“': '”', '‘': '’', '（': '）',
+  '"': '"', "'": "'",
+};
+
+/**
+ * 숫자로 끝난 마침표가 **문장 끝**인가.
+ *
+ * 뒤에 숫자가 이어지면 날짜·번호의 일부다 (2026. 8. 30. / 1. 2. 3.).
+ * 마침표 앞이 통째로 숫자뿐인 토막이어도 번호 매기기다 (줄 첫머리의 "1.").
+ */
+export function endsSentenceAfterDigit(tail: string, source: string, dotIndex: number): boolean {
+  const after = source.slice(dotIndex + 1).replace(/^\s+/, '');
+  if (/^\d/.test(after)) return false;                       // 2026. 8. 30.
+  const lastToken = tail.slice(0, -1).split(/[\s>]/).pop() || '';
+  if (/^\d+$/.test(lastToken) && lastToken.length <= 2) return false;  // 줄머리 "1." "12."
+  return true;
+}
+
 export function splitSentencesSafe(inner: string): string[] {
   const s = String(inner || '');
   if (!s) return [];
@@ -74,6 +108,7 @@ export function splitSentencesSafe(inner: string): string[] {
   let buf = '';
   let inTag = false;
   let depth = 0;              // 열린 인라인 태그 깊이
+  const quote: string[] = []; // 열린 따옴표 — 그 안에서는 자르지 않는다
 
   for (let i = 0; i < s.length; i += 1) {
     const ch = s[i]!;
@@ -91,20 +126,30 @@ export function splitSentencesSafe(inner: string): string[] {
     }
     if (inTag || depth > 0) continue;      // 태그 안 · 인라인 태그 안에서는 안 자른다
 
-    // 문장 끝인가 — 뒤가 공백이거나 끝이어야 한다(소수점·약어 오검출 방지)
-    const isEnd = (ch === '.' || ch === '!' || ch === '?')
-      && /[다요죠까함음됨\)\]"'」』]$|[!?]$/.test(buf.slice(-2, -1) + ch === '..' ? buf.slice(-2) : buf.trimEnd().slice(-2, -1) + ch);
+    /**
+     * 🔤 v3.8.601: 따옴표 안에서는 자르지 않는다.
+     *
+     * 곧은 따옴표(" ')는 짝이 없으면 **열지 않는다.** 짝 없는 아포스트로피 하나에
+     * 문단 전체가 인용 안으로 빨려 들어가 줄바꿈이 통째로 사라지는 걸 막는다.
+     */
+    if (quote.length > 0 && ch === quote[quote.length - 1]) { quote.pop(); continue; }
+    if (QUOTE_OPEN[ch]) {
+      const closer = QUOTE_OPEN[ch]!;
+      if (closer !== ch || s.indexOf(ch, i + 1) !== -1) quote.push(closer);
+      continue;
+    }
+
     const next = s[i + 1];
     if ((ch === '.' || ch === '!' || ch === '?') && (next === undefined || /\s/.test(next))) {
+      if (quote.length > 0) continue;                 // 인용 안 — 아직 문장이 안 끝났다
       // 한국어 종결(…다. …요.) 또는 물음표·느낌표
       const tail = buf.trimEnd();
       const prev = tail.slice(-2, -1);
-      if (ch !== '.' || /[다요죠까함음됨\)\]"'」』0-9]/.test(prev)) {
-        out.push(buf.trim());
-        buf = '';
-      }
+      if (ch === '.' && !/[다요죠까함음됨\)\]"'」』0-9]/.test(prev)) continue;
+      if (ch === '.' && /[0-9]/.test(prev) && !endsSentenceAfterDigit(tail, s, i)) continue;
+      out.push(buf.trim());
+      buf = '';
     }
-    void isEnd;
   }
   if (buf.trim()) out.push(buf.trim());
   return out.filter(Boolean);

@@ -214,6 +214,18 @@ function ensureEditorModal() {
         <select id="veTargetPlatform" style="${BTN_BASE}background:#0f172a;color:#e2e8f0;border:1px solid #475569;max-width:150px;" title="이 글을 어느 블로그에 올릴지 고릅니다"></select>
       </span>
 
+      <!--
+        🔄 v3.8.603 — 다시 만들기를 **여기에도** 둔다.
+        사장님: "다시 글 생성하는 건 왜 미리보기·수정에 안 뜨나요?"
+        맞는 지적이다. 글이 깨진 것은 미리보기에서 보게 되는데, 고치려면 창을 닫고
+        목록으로 돌아가야 했다. 이미 발행된 글일 때만 보인다(대기열·파일에는 postId 가 없다).
+      -->
+      <span id="veRegenWrap" style="display:none;align-items:center;gap:6px;">
+        <span style="${DIVIDER}"></span>
+        <button id="veRegenBtn" style="${BTN_BASE}background:#134e4a;color:#a7f3d0;border:1px solid #115e59;" title="같은 주소 그대로 본문만 새로 만들어 덮어씁니다">🔄 글 다시 생성</button>
+        <button id="veRegenImgBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="글자는 그대로 두고 AI 이미지만 다시 만듭니다">🖼️ 이미지 다시 생성</button>
+      </span>
+
       <span style="${DIVIDER}"></span>
       <button id="veSaveBtn" style="${BTN_BASE}background:linear-gradient(135deg,#10b981,#059669);color:#fff;box-shadow:0 2px 8px rgba(16,185,129,0.4);font-weight:800;">✅ 저장</button>
       <button id="veCancelBtn" style="${BTN_BASE}background:transparent;color:#94a3b8;border:1px solid #475569;">✕ 닫기</button>
@@ -277,12 +289,63 @@ function ensureEditorModal() {
     saveAsBtn: overlay.querySelector('#veSaveAsBtn'),
     targetPlatformWrap: overlay.querySelector('#veTargetPlatformWrap'),
     targetPlatform: overlay.querySelector('#veTargetPlatform'),
+    regenWrap: overlay.querySelector('#veRegenWrap'),          // v3.8.603
+    regenBtn: overlay.querySelector('#veRegenBtn'),
+    regenImgBtn: overlay.querySelector('#veRegenImgBtn'),
     saveBtn: overlay.querySelector('#veSaveBtn'),
     cancelBtn: overlay.querySelector('#veCancelBtn'),
     status: overlay.querySelector('#veStatus'),
   };
 
   modalRefs.cancelBtn.addEventListener('click', () => requestClose());
+
+  /**
+   * 🔄 v3.8.603 — 편집기에서 바로 다시 만든다.
+   *
+   * 사장님: "다시 글 생성하는 건 왜 미리보기·수정에 안 뜨나요?"
+   * 목록 카드와 **같은 채널**을 부른다 — 두 벌로 만들면 한쪽만 고쳐지고 어긋난다.
+   * 끝나면 새 본문을 편집기에 다시 실어 준다. 창을 닫았다 열 필요가 없다.
+   */
+  async function runEditorRegenerate(mode) {
+    if (!session || !session.postId) return;
+    const what = mode === 'images'
+      ? '글자는 그대로 두고 AI 이미지만 다시 만듭니다.'
+      : '본문을 통째로 새로 만들어 덮어씁니다. 지금 본문은 사라집니다.';
+    if (!confirm(`${what}\n\n· 주소(URL)와 제목은 그대로라 검색 색인이 유지됩니다.\n· 새로 만든 것이 지금보다 나쁘면 덮지 않고 멈춥니다.\n· 편집 중이던 내용은 저장되지 않습니다.`)) return;
+
+    const buttons = [modalRefs.regenBtn, modalRefs.regenImgBtn].filter(Boolean);
+    buttons.forEach((b) => { b.disabled = true; b.style.opacity = '0.5'; });
+    setStatus(mode === 'images' ? '🖼️ 이미지를 다시 만드는 중… (몇 분 걸립니다)' : '🔄 본문을 다시 만드는 중… (몇 분 걸립니다)');
+
+    try {
+      const res = await window.electronAPI.invoke('regenerate-published-post', {
+        platform: normalizeEditorPlatform(session.originalPlatform),
+        postId: session.postId,
+        title: modalRefs.titleInput.value || session.originalTitle || '',
+        mode,
+      });
+      if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
+
+      // 갈아끼운 본문을 편집기에 다시 싣는다 — 눈으로 바로 확인하시라고
+      if (res.html) {
+        const parts = splitDocument(res.html);
+        session.styles = parts.styles;
+        session.isFullDocument = parts.isFullDocument;
+        session.originalHeadHtml = parts.headHtml;
+        session.originalHtml = res.html;
+        loadIntoFrame(parts.bodyHtml);
+      }
+      setStatus(`✅ 다시 만들어 같은 주소에 반영했습니다 (${res.length}자). 새로고침하면 목록에도 반영됩니다.`);
+    } catch (err) {
+      setStatus(`❌ 다시 생성 실패: ${err?.message || err}`);
+      alert(`다시 생성하지 못했습니다.\n\n${err?.message || err}\n\n기존 글은 그대로 있습니다.`);
+    } finally {
+      buttons.forEach((b) => { b.disabled = false; b.style.opacity = '1'; });
+    }
+  }
+  modalRefs.regenBtn?.addEventListener('click', () => runEditorRegenerate('article'));
+  modalRefs.regenImgBtn?.addEventListener('click', () => runEditorRegenerate('images'));
+
   modalRefs.revertBtn.addEventListener('click', () => {
     if (!session) return;
     if (!confirm('모든 편집을 취소하고 원본으로 되돌릴까요?')) return;
@@ -888,6 +951,14 @@ export async function openVisualEditor(source) {
     refs.titleInput.style.display = kind === 'file' ? 'none' : '';
     refs.hostImagesLabel.style.display = kind === 'file' ? 'inline-flex' : 'none';
     refs.saveAsBtn.style.display = kind === 'file' ? '' : 'none';
+
+    /**
+     * 🔄 v3.8.603 — 다시 만들기는 **이미 발행된 글에서만** 보인다.
+     * 대기열·파일에는 갈아끼울 postId 가 없다.
+     */
+    if (refs.regenWrap) {
+      refs.regenWrap.style.display = getPublishedSource(kind) && postId ? 'inline-flex' : 'none';
+    }
 
     // 🎯 v3.8.556: 발행할 곳 드롭다운 채우기 + 표시
     if (session.platformPickable) {

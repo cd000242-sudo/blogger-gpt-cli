@@ -125,3 +125,31 @@ describe('화면과 백엔드가 실제로 이어져 있다 (조용한 미배선
     expect(main).toContain('기존 글은 건드리지 않았습니다');
   });
 });
+
+/**
+ * v3.8.603 — 사장님: "다시 글 생성하는 건 왜 미리보기·수정에 안 뜨나요?"
+ * 목록 카드에만 있고 편집기에는 없었다. 글이 깨진 건 미리보기에서 보게 되는데
+ * 고치려면 창을 닫고 목록으로 돌아가야 했다.
+ */
+describe('편집기에서도 다시 만들 수 있다', () => {
+  const editor = read('electron/ui/modules/editor.js');
+  const main = read('electron/main.ts');
+
+  test('편집기 도구줄에 버튼 두 개가 있다', () => {
+    expect(editor).toContain('id="veRegenBtn"');
+    expect(editor).toContain('id="veRegenImgBtn"');
+  });
+
+  test('목록과 같은 채널을 부른다 (두 벌로 만들지 않는다)', () => {
+    expect(editor).toContain("invoke('regenerate-published-post'");
+  });
+
+  test('이미 발행된 글에서만 보인다 — 대기열·파일에는 postId 가 없다', () => {
+    expect(editor).toMatch(/regenWrap[\s\S]{0,120}getPublishedSource\(kind\) && postId/);
+  });
+
+  test('편집기가 읽는 html 을 백엔드가 실제로 돌려준다 (조용한 미배선 방지)', () => {
+    expect(editor).toContain('res.html');
+    expect(main).toContain('html: nextHtml');
+  });
+});

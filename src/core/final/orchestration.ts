@@ -4084,7 +4084,16 @@ ${quoted}
 
       // 💰 H2 — 인라인 !important는 Blogger 테마 override 방지 필수 (CSS만으로는 부족)
       // 여백(Margin) 최적화: H2 직후 약간의 공백을 두어 자동광고가 붙기 좋게 설계
-      html += `\n<h2 id="section-${idx}" style="font-size:26px !important;font-weight:800 !important;color:#111 !important;-webkit-text-fill-color:#111 !important;margin:60px 0 24px !important;padding:0 0 14px 16px !important;border-bottom:2px solid #111 !important;border-left:6px solid #FF6B35 !important;letter-spacing:-0.03em !important;line-height:1.4 !important;word-break:keep-all !important;">${h2Number} ${cleanH2}</h2>\n`;
+      /**
+       * 🖋️ v3.8.602 — 제목의 인라인 스타일을 걷는다.
+       *
+       * 여기 박혀 있던 `border-left:6px solid #FF6B35`(주황 세로줄)와
+       * `border-bottom:2px solid #111` 이 「먹과 놋쇠」의 정체였다 — 그리고 전부
+       * `!important` 라서 **스타일시트가 무슨 말을 해도 이겼다.**
+       * 모양은 이제 generateCSSFinal 의 `.bgpt-content h2` 가 정한다.
+       * 그래야 다음에 스킨을 바꿀 때 예전 글도 다시 생성만 하면 따라온다.
+       */
+      html += `\n<h2 id="section-${idx}">${h2Number} ${cleanH2}</h2>\n`;
 
       // 🖼️ 섹션 이미지 — 플랫, 그림자 없음 (썸네일과 독립적으로 1번 섹션부터 렌더)
       // v3.5.55부터 adsense 첫 섹션에도 이미지 정상 삽입 (author_intro 섹션 제거됨)

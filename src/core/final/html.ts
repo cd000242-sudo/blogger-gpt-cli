@@ -150,8 +150,43 @@ const EYE_COMFORT_PALETTES: EyeComfortPalette[] = [
   },
 ];
 
+/**
+ * 🖋️ v3.8.602 — 「먹과 놋쇠」 고정 팔레트.
+ *
+ * 사장님 승인: "합격 승인" (목업 2안 — 한지빛 바탕 · 먹청 판 하나 · 놋쇠 실선)
+ *
+ * ## 왜 고정인가
+ * 예전에는 글마다 7개 팔레트 중 **하나를 무작위로** 골랐다. 그래서 어제 글은 초록,
+ * 오늘 글은 파랑이었다. 그게 "글마다 모양이 다르다"의 진짜 원인이고,
+ * 브랜드가 안 잡히는 이유다. 고급스러움은 화려함이 아니라 **한결같음**에서 나온다.
+ *
+ * 색은 여섯 개로 제한한다 — 더 늘리면 조화가 아니라 소음이 된다.
+ * 깊은 색(먹청)은 답 상자 한 곳에만 쓰고, 금색은 면이 아니라 **선**으로만 쓴다.
+ */
+const INK_AND_BRASS: EyeComfortPalette = {
+  name: '먹과 놋쇠',
+  primary: '#0C453F',           // 먹청 — 답 상자·강조
+  primaryLight: '#F2F0EA',      // 표 머리·연한 바탕
+  ctaAccent: '#0C453F',
+  ctaHover: '#0A3A35',
+  gradientStart: '#FAF9F6',     // 한지빛
+  gradientEnd: '#F2F0EA',
+  heading1: '#16181A',          // 먹 — 제목
+  heading2Border: '#A98A4B',    // 놋쇠 — 선
+  tocBtnHoverBorder: '#A98A4B',
+  tocNumberText: '#A98A4B',
+  ctaBoxBg: 'linear-gradient(160deg,#0C453F 0%,#0A3A35 100%)',
+  ctaBorder: '#A98A4B',
+  ctaBadgeBg: '#0A3A35',
+  ctaNoteText: '#C2A063',
+  ctaButtonStart: '#A98A4B',
+  ctaButtonEnd: '#8F7239',
+  ctaShadow: 'rgba(12,69,63,0.28)',
+};
+
 function pickEyeComfortPalette(): EyeComfortPalette {
-  return EYE_COMFORT_PALETTES[Math.floor(Math.random() * EYE_COMFORT_PALETTES.length)] || EYE_COMFORT_PALETTES[0]!;
+  // v3.8.602: 무작위 선택을 멈춘다. 글마다 색이 바뀌면 사이트가 하나로 안 보인다.
+  return INK_AND_BRASS;
 }
 
 export function generateCSSFinal(platform?: string, contentMode?: string): string {
@@ -1327,6 +1362,171 @@ article.hentry {
 }
 .next-episode-card .next-reason {
   font-size: 14px !important; color: ${theme.ctaHover};
+}
+
+/* ═══════════════════════════════════════════════
+   🖋️ 먹과 놋쇠 — v3.8.602 (사장님 승인 목업 2안)
+   ═══════════════════════════════════════════════
+   맨 뒤에 둔다. 위 규칙과 같은 특정도면 나중 것이 이긴다.
+   위쪽이 !important 를 쓴 자리만 여기서도 !important 로 맞선다.
+
+   원칙 세 가지
+     · 깊은 색은 **답 한 곳에만**. 전체를 화려하게 하면 아무것도 안 도드라진다.
+     · 금색은 면이 아니라 **선**으로. 면으로 칠하면 촌스러워진다.
+     · 숫자는 얼굴을 달리한다. 이 사이트는 숫자가 곧 답이다.
+   ═══════════════════════════════════════════════ */
+@import url("https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
+
+.bgpt-content {
+  --ink-paper: #FAF9F6;
+  --ink-hair: #E0DCD3;
+  --ink-brass: #A98A4B;
+  --ink-deep: #0C453F;
+  --ink-body: #3B4247;
+  font-family: "IBM Plex Sans KR", Pretendard, -apple-system, "Malgun Gothic", sans-serif;
+  color: var(--ink-body);
+  word-break: keep-all;
+}
+
+/* 제목 — 주황 세로줄과 검은 밑줄을 걷고 명조로 세운다 */
+.bgpt-content h2 {
+  font-family: "Gowun Batang", serif !important;
+  font-weight: 700 !important;
+  font-size: 30px !important;
+  line-height: 1.36 !important;
+  letter-spacing: -0.01em !important;
+  color: ${theme.heading1} !important;
+  -webkit-text-fill-color: ${theme.heading1} !important;
+  margin: 56px 0 18px !important;
+  padding: 18px 0 0 !important;
+  border-left: 0 !important;
+  border-bottom: 0 !important;
+  border-top: 1px solid var(--ink-brass) !important;
+  background: none !important;
+}
+.bgpt-content h3 {
+  font-family: "Gowun Batang", serif !important;
+  font-weight: 700 !important;
+  color: ${theme.heading1} !important;
+  -webkit-text-fill-color: ${theme.heading1} !important;
+  border-left: 0 !important;
+  padding-left: 0 !important;
+}
+
+/* 본문 — 가는 획으로 길게 읽어도 눈이 덜 아프게 */
+.bgpt-content p {
+  font-weight: 300 !important;
+  font-size: 17px !important;
+  line-height: 1.92 !important;
+  color: var(--ink-body) !important;
+  -webkit-text-fill-color: var(--ink-body) !important;
+}
+.bgpt-content p strong,
+.bgpt-content li strong {
+  font-weight: 600 !important;
+  color: ${theme.heading1} !important;
+  -webkit-text-fill-color: ${theme.heading1} !important;
+  background: none !important;
+}
+
+/* 표 — 머리는 놋쇠 선 하나로. 채우지 않는다 */
+.bgpt-content table { border-collapse: collapse !important; }
+.bgpt-content th,
+.bgpt-content .rt-th {
+  background: none !important;
+  color: var(--ink-brass) !important;
+  -webkit-text-fill-color: var(--ink-brass) !important;
+  font-family: "IBM Plex Mono", monospace !important;
+  font-weight: 400 !important;
+  font-size: 11px !important;
+  letter-spacing: 0.16em !important;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--ink-brass) !important;
+  padding: 0 16px 11px !important;
+}
+.bgpt-content td {
+  font-weight: 300 !important;
+  border-bottom: 1px solid var(--ink-hair) !important;
+  padding: 15px 16px !important;
+}
+/* 값 칸은 자릿수를 맞춘다 */
+.bgpt-content td:last-child {
+  font-family: "IBM Plex Mono", monospace !important;
+  font-variant-numeric: tabular-nums;
+  color: ${theme.heading1} !important;
+  -webkit-text-fill-color: ${theme.heading1} !important;
+  font-weight: 500 !important;
+}
+
+/* 답 상자 — 이 글에서 유일하게 깊은 색을 쓰는 자리 */
+.bgpt-content .tldr-answer-box {
+  background: ${theme.ctaBoxBg} !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 34px 36px !important;
+  position: relative;
+  color: #F3F1EA !important;
+}
+.bgpt-content .tldr-answer-box::after {
+  content: "";
+  position: absolute; left: 36px; right: 36px; top: 0; height: 2px;
+  background: linear-gradient(90deg, #C2A063, var(--ink-brass) 45%, transparent);
+}
+.bgpt-content .tldr-answer-box p,
+.bgpt-content .tldr-answer-box strong {
+  font-family: "Gowun Batang", serif !important;
+  font-size: 22px !important;
+  line-height: 1.62 !important;
+  font-weight: 400 !important;
+  color: #F3F1EA !important;
+  -webkit-text-fill-color: #F3F1EA !important;
+}
+
+/* 목차 — 버튼 더미가 아니라 차례로 */
+.bgpt-content .toc-grid-container {
+  background: none !important;
+  border: 0 !important;
+  border-top: 1px solid var(--ink-hair) !important;
+  border-radius: 0 !important;
+  padding: 8px 0 0 !important;
+}
+.bgpt-content .toc-btn {
+  background: none !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--ink-hair) !important;
+  border-radius: 0 !important;
+  padding: 11px 2px !important;
+  font-weight: 400 !important;
+}
+.bgpt-content .toc-number {
+  background: none !important;
+  color: var(--ink-brass) !important;
+  -webkit-text-fill-color: var(--ink-brass) !important;
+  font-family: "IBM Plex Mono", monospace !important;
+  font-size: 11px !important;
+  width: auto !important; height: auto !important;
+  border-radius: 0 !important;
+}
+
+/* 인용 — 사람이 한 말은 사람처럼 */
+.bgpt-content blockquote {
+  font-family: "Gowun Batang", serif !important;
+  font-size: 20px !important;
+  line-height: 1.72 !important;
+  color: ${theme.heading1} !important;
+  -webkit-text-fill-color: ${theme.heading1} !important;
+  background: none !important;
+  border: 0 !important;
+  border-left: 2px solid var(--ink-brass) !important;
+  border-radius: 0 !important;
+  padding: 2px 0 2px 26px !important;
+  margin: 32px 0 !important;
+}
+
+/* 이미지 — 둥근 모서리와 그림자를 걷는다 */
+.bgpt-content img {
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 </style>
 `;

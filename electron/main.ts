@@ -4307,7 +4307,8 @@ ipcMain.handle('regenerate-published-post', async (_evt, args: {
     send('[PROGRESS] 95% - 💾 같은 주소에 수정 발행 중...');
     await adapter.updatePost(postId, { content: nextHtml });
     send(`[PROGRESS] 100% - ✅ 수정 발행 완료 (${verdict.length}자)`);
-    return { ok: true, mode, length: verdict.length, url: current.url || '' };
+    // v3.8.603: 편집기가 새 본문을 바로 다시 싣는다 — 창을 닫았다 열 필요가 없게
+    return { ok: true, mode, length: verdict.length, url: current.url || '', html: nextHtml };
   } catch (error: any) {
     const message = error?.message || String(error);
     send(`❌ 다시 생성 실패: ${message}`);
