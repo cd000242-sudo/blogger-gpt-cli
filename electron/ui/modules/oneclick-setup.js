@@ -1137,13 +1137,75 @@ function waitForDemo(ms, runId) {
   });
 }
 
+/**
+ * 🎯 v3.8.610 — 가야 할 곳을 **보이게 만든 다음** 간다.
+ *
+ * 사장님: "사용법 클릭하면 선택해야 하는 곳으로 바로 가야 되는데 위치 좌표만 가거든"
+ *
+ * 예전엔 곧장 scrollIntoView 만 했다. 그런데 그 입력칸이
+ *   · 닫힌 설정 모달 안이거나
+ *   · 지금 안 보이는 탭 안이거나
+ *   · 접힌 아코디언(details) 안이면
+ * 브라우저는 **"있었을 자리"로 스크롤할 뿐** 화면에는 아무것도 안 나타난다.
+ * 그게 "좌표만 간다" 의 정체다.
+ *
+ * 그래서 순서를 바꾼다: 조상을 먼저 펼치고 → 탭을 맞추고 → 그다음 스크롤·포커스한다.
+ * 마지막에 잠깐 테두리를 씌워 **어디를 골라야 하는지 눈에 보이게** 한다.
+ */
+function revealOneclickControl(el) {
+  // ① 설정 모달 안이면 모달을 연다
+  const modal = el.closest('.settings-modal, [id$="Modal"]');
+  if (modal && getComputedStyle(modal).display === 'none') {
+    if (typeof window.openSettingsModal === 'function') {
+      try { window.openSettingsModal(); } catch { /* 못 열면 아래에서 직접 편다 */ }
+    }
+    if (getComputedStyle(modal).display === 'none') modal.style.display = 'flex';
+  }
+
+  // ② 안 보이는 탭 안이면 그 탭으로 옮긴다
+  const tabPane = el.closest('[data-tab], .tab-content, .tab-pane');
+  const tabName = tabPane?.dataset?.tab || tabPane?.id?.replace(/^tab-?/, '');
+  if (tabName && tabPane && getComputedStyle(tabPane).display === 'none' && typeof window.showTab === 'function') {
+    try { window.showTab(tabName); } catch { /* 실패해도 아래 단계는 계속한다 */ }
+  }
+
+  // ③ 접혀 있는 것들을 편다 (details·hidden·display:none 조상)
+  for (let node = el; node && node !== document.body; node = node.parentElement) {
+    if (node.tagName === 'DETAILS') node.open = true;
+    if (node.hasAttribute?.('hidden')) node.removeAttribute('hidden');
+    if (node.style && node.style.display === 'none') node.style.display = '';
+  }
+}
+
+/** 어디를 골라야 하는지 잠깐 표시한다 — 스크롤만 하면 사람 눈은 못 따라간다 */
+function highlightOneclickControl(el) {
+  const prev = { outline: el.style.outline, offset: el.style.outlineOffset, radius: el.style.borderRadius };
+  el.style.outline = '3px solid #f59e0b';
+  el.style.outlineOffset = '3px';
+  el.style.borderRadius = el.style.borderRadius || '8px';
+  setTimeout(() => {
+    el.style.outline = prev.outline;
+    el.style.outlineOffset = prev.offset;
+    el.style.borderRadius = prev.radius;
+  }, 2600);
+}
+
 function focusOneclickControl(id) {
   const el = document.getElementById(id);
-  if (!el) return false;
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  setTimeout(() => {
-    try { el.focus?.(); } catch {}
-  }, 250);
+  if (!el) {
+    // 없는 id 로 조용히 넘어가면 "눌렀는데 아무 일도 안 남" 이 된다
+    console.warn('[ONECLICK] 이동할 대상을 찾지 못했습니다:', id);
+    return false;
+  }
+
+  revealOneclickControl(el);
+
+  // 펼친 직후에는 아직 배치가 안 끝나 좌표가 틀린다 — 한 프레임 뒤에 스크롤한다
+  requestAnimationFrame(() => {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    highlightOneclickControl(el);
+    setTimeout(() => { try { el.focus?.({ preventScroll: true }); } catch { /* 포커스 실패는 무시 */ } }, 250);
+  });
   return true;
 }
 
@@ -1345,21 +1407,21 @@ async function startOneclickAccountAddFlow(platformId = 'blogspot', kind = 'conn
   showToast(`${modeName}를 시작합니다. 브라우저 창을 닫지 말고, 오른쪽 가이드 순서대로 진행해주세요.`, 'info', 7000);
 
   if (kind === 'setup') {
-    document.getElementById(`oneclick-card-${normalized}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    focusOneclickControl(`oneclick-card-${normalized}`);
     ensureLiveGuidePanel('setup', normalized);
     await startSetup(normalized, { accountAddMode: true, forceFirstRun: true });
     return;
   }
 
   if (kind === 'connect') {
-    document.getElementById(`oneclick-connect-card-${runtimePlatformId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    focusOneclickControl(`oneclick-connect-card-${runtimePlatformId}`);
     ensureLiveGuidePanel('connect', runtimePlatformId);
     await startPlatformConnect(runtimePlatformId, { accountAddMode: true, forceFirstRun: true });
     return;
   }
 
   if (kind === 'blogger-blog-id') {
-    document.getElementById('oneclick-blogger-oauth-helper')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    focusOneclickControl('oneclick-blogger-oauth-helper');
     ensureLiveGuidePanel('blogger-blog-id', 'blogger-blog-id');
     await startBloggerBlogIdExtract({ accountAddMode: true });
   }
@@ -1400,19 +1462,19 @@ function renderBeginnerPathCard() {
         </button>
       </div>
       <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;">
-        <button type="button" onclick="document.getElementById('oneclick-card-blogspot')?.scrollIntoView({ behavior: 'smooth', block: 'center' })"
+        <button type="button" onclick="focusOneclickControl('oneclick-card-blogspot')"
           style="text-align:left; padding:14px; background:rgba(249,115,22,0.12); border:1px solid rgba(249,115,22,0.28); border-radius:12px; color:#fff7ed; cursor:pointer;">
           <div style="color:#fdba74; font-size:11px; font-weight:900; margin-bottom:6px;">STEP 1</div>
           <div style="font-size:14px; font-weight:900;">새 블로그/사이트 준비</div>
           <div style="margin-top:5px; font-size:11px; color:#fed7aa; line-height:1.45;">블로그스팟은 이름과 주소를 정하고, 워드프레스는 사이트 준비를 확인합니다.</div>
         </button>
-        <button type="button" onclick="document.getElementById('oneclick-connect-card-blogger')?.scrollIntoView({ behavior: 'smooth', block: 'center' })"
+        <button type="button" onclick="focusOneclickControl('oneclick-connect-card-blogger')"
           style="text-align:left; padding:14px; background:rgba(139,92,246,0.12); border:1px solid rgba(139,92,246,0.30); border-radius:12px; color:#f5f3ff; cursor:pointer;">
           <div style="color:#c4b5fd; font-size:11px; font-weight:900; margin-bottom:6px;">STEP 2</div>
           <div style="font-size:14px; font-weight:900;">계정 추가 / 앱 연동</div>
           <div style="margin-top:5px; font-size:11px; color:#ddd6fe; line-height:1.45;">OAuth, 테스트 사용자, Blog ID, App Password를 가이드와 함께 연결합니다.</div>
         </button>
-        <button type="button" onclick="document.getElementById('oneclick-webmaster-url')?.scrollIntoView({ behavior: 'smooth', block: 'center' })"
+        <button type="button" onclick="focusOneclickControl('oneclick-webmaster-url')"
           style="text-align:left; padding:14px; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.30); border-radius:12px; color:#fffbeb; cursor:pointer;">
           <div style="color:#fde68a; font-size:11px; font-weight:900; margin-bottom:6px;">STEP 3</div>
           <div style="font-size:14px; font-weight:900;">검색 등록 / 최종 세팅</div>
@@ -3190,7 +3252,7 @@ function openBloggerPlatformFields(focusId = 'blogId') {
 
   setTimeout(() => {
     const target = document.getElementById(focusId) || document.getElementById('blogId');
-    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (target) { revealOneclickControl(target); target.scrollIntoView({ behavior: 'smooth', block: 'center' }); highlightOneclickControl(target); }
     target?.focus();
   }, 150);
 
@@ -3258,7 +3320,7 @@ function isBloggerOAuthPrecheckConfirmed() {
 
 function blockBloggerOAuthUntilTestUserConfirmed() {
   const checkbox = document.getElementById('oneclick-oauth-test-user-confirm');
-  checkbox?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (checkbox) { revealOneclickControl(checkbox); checkbox.scrollIntoView({ behavior: 'smooth', block: 'center' }); highlightOneclickControl(checkbox); }
   if (checkbox) {
     const wrap = checkbox.closest('label');
     if (wrap) {
