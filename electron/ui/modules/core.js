@@ -1461,3 +1461,55 @@ export function successLog(step, message, data = null) {
 
   addLog(`[${step}] 성공: ${message}`, 'success');
 }
+
+/**
+ * 🔔 v3.8.614 — 화면을 막지 않는 알림.
+ *
+ * ## 왜 만들었나 — 사장님 실제 사고
+ * "지금 앱이 굳었어 멈추고 아무반응이없어"
+ * 실측 결과 앱은 멀쩡했다(Responding=True · CPU 정상). **숨어 있던 alert() 창**이
+ * 렌더러를 통째로 멈춰 세우고 있었고, 창이 뒤에 있어 보이지도 않았다.
+ * IDOK 를 보내 닫자마자 앱이 살아났다.
+ *
+ * `alert()` 는 Electron 에서 세 가지가 동시에 나쁘다:
+ *   · 렌더러가 완전히 멈춘다 (클릭·입력·진행 중이던 발행까지)
+ *   · 창이 뒤로 가면 안 보인다 → 사용자에겐 "굳었다" 로 보인다
+ *   · 문구가 비면 빈 상자만 뜬다 (이번이 그 경우였다)
+ *
+ * 그래서 안내는 **로그 + 화면 위 토스트**로 한다. 둘 다 흐름을 멈추지 않는다.
+ */
+export function notifyUser(message, type = 'info') {
+  const text = String(message || '').trim();
+  if (!text) return;                     // 빈 알림은 만들지 않는다 (빈 상자의 재발 방지)
+
+  try { addLog(text, type === 'error' ? 'error' : type === 'warning' ? 'warning' : 'info'); } catch { /* 로그 실패는 알림을 막지 않는다 */ }
+
+  try {
+    let host = document.getElementById('bgptToastHost');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'bgptToastHost';
+      host.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:2147483600;display:flex;flex-direction:column;gap:8px;max-width:380px;pointer-events:none;';
+      document.body.appendChild(host);
+    }
+    const colors = {
+      error: { bg: '#7f1d1d', fg: '#fecaca', bd: '#b91c1c' },
+      warning: { bg: '#78350f', fg: '#fde68a', bd: '#b45309' },
+      success: { bg: '#064e3b', fg: '#a7f3d0', bd: '#047857' },
+      info: { bg: '#0f172a', fg: '#e2e8f0', bd: '#334155' },
+    };
+    const c = colors[type] || colors.info;
+    const toast = document.createElement('div');
+    toast.style.cssText = `pointer-events:auto;background:${c.bg};color:${c.fg};border:1px solid ${c.bd};border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.6;box-shadow:0 10px 30px rgba(0,0,0,.35);white-space:pre-wrap;word-break:keep-all;cursor:pointer;`;
+    toast.textContent = text;
+    toast.title = '눌러서 닫기';
+    toast.addEventListener('click', () => toast.remove());
+    host.appendChild(toast);
+    setTimeout(() => toast.remove(), type === 'error' ? 12000 : 7000);
+  } catch (err) {
+    // 토스트를 못 띄워도 로그에는 남았다 — 여기서 alert 로 되돌아가지 않는다
+    console.warn('[NOTIFY] 토스트 표시 실패:', err);
+  }
+}
+
+try { if (typeof window !== 'undefined') window.notifyUser = notifyUser; } catch { /* noop */ }

@@ -14,7 +14,7 @@
 //     ⚠️ settings.js 의 전체 saveSettings() 는 여기서 절대 부르지 않는다 —
 //     모달을 안 연 상태에선 다른 필드가 비어 있어 위험하다.
 import { updatePlatformStatus } from './settings.js';
-import { addLog, getStorageManager } from './core.js';
+import { addLog, getStorageManager, notifyUser } from './core.js';
 
 /**
  * v3.8.544 — .env 저장만으로는 화면도 재시작도 안 따라온다.
@@ -119,6 +119,19 @@ export function initHeaderBadges() {
 
   wireBadge(platformBadge, buildPlatformPop);
   wireBadge(modelBadge, buildModelPop);
+
+  /**
+   * ⚙️ v3.8.613 — 실행 모드 배지 (에이전트 / API).
+   * 사장님: "배찌를 하나더 만들어서 에이전트모드랑 API모드 둘중하나 선택할수있게"
+   * 이 배지가 고른 모드에 따라 위 'AI 모델' 배지가 보여주는 목록이 달라진다.
+   */
+  const execBadge = document.getElementById('executionModeStatus');
+  if (execBadge) {
+    wireBadge(execBadge, buildExecutionModePop);
+    renderExecutionModeBadge();
+  } else {
+    console.warn('[HEADER-BADGE] ⚠️ executionModeStatus 배지를 찾지 못했습니다');
+  }
 
   document.addEventListener('click', (e) => {
     // v3.8.544: 팝오버가 body 로 나갔으므로 배지 밖 클릭 판정에 .hb-pop 도 포함해야 한다.
@@ -247,6 +260,90 @@ function buildPlatformPop(pop) {
 
 // ─── AI 모델 ─────────────────────────────────────────────────
 
+/** 지금 실행 모드 — 저장소가 진실이고, 없으면 API */
+function currentExecutionMode() {
+  try { return JSON.parse(localStorage.getItem('leadernamExecutionMode') || '"api"') === 'agent' ? 'agent' : 'api'; }
+  catch { return localStorage.getItem('leadernamExecutionMode') === 'agent' ? 'agent' : 'api'; }
+}
+
+function currentAgentProvider() {
+  let raw = 'codex';
+  try { raw = JSON.parse(localStorage.getItem('leadernamActiveAgentProvider') || '"codex"'); }
+  catch { raw = localStorage.getItem('leadernamActiveAgentProvider') || 'codex'; }
+  return ['codex', 'claude', 'gemini'].includes(raw) ? raw : 'codex';
+}
+
+const AGENT_LABELS = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' };
+
+/** 실행 배지 글자를 지금 상태에 맞춘다 */
+export function renderExecutionModeBadge() {
+  const el = document.getElementById('executionModeStatus');
+  if (!el) return;
+  const agent = currentExecutionMode() === 'agent';
+  el.textContent = agent ? `에이전트 · ${AGENT_LABELS[currentAgentProvider()]}` : 'API 키';
+  el.style.color = agent ? '#a7f3d0' : '#bfdbfe';
+}
+
+/**
+ * ⚙️ v3.8.613 — 실행 모드 고르기.
+ *
+ * 에이전트를 고르면 **연결부터 확인한다.** 사장님 요구:
+ *   "에이전트는 연결됫는지 확인먼저하고 연동이안되어있다면 환경설정을 열어줘"
+ * 로그인이 안 된 채로 모드만 바뀌면 발행을 눌러야 실패를 알게 된다 — 그전에 잡는다.
+ */
+function buildExecutionModePop(pop) {
+  const mode = currentExecutionMode();
+  pop.innerHTML = `<div class="hb-t">글을 무엇으로 쓸지 고릅니다</div>
+    <div class="hb-opt${mode === 'api' ? ' sel' : ''}" data-hb-exec="api"><span class="hb-dot"></span>🔑 API 키 모드</div>
+    <div class="hb-opt${mode === 'agent' ? ' sel' : ''}" data-hb-exec="agent"><span class="hb-dot"></span>🤖 에이전트 모드 (구독)</div>
+    <div class="hb-note">고른 쪽만 'AI 모델' 목록에 나옵니다.</div>`;
+
+  pop.querySelectorAll('[data-hb-exec]').forEach((opt) => {
+    opt.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const next = opt.dataset.hbExec;
+      closeAllPops();
+
+      if (next === 'api') {
+        if (typeof window.setAgentExecutionMode === 'function') window.setAgentExecutionMode('api');
+        renderExecutionModeBadge();
+        try { await window.updateAiModelStatus?.(); } catch { /* 표시 갱신 실패는 발행과 무관 */ }
+        addLog('🔑 글 생성을 API 키 모드로 바꿨습니다', 'info');
+        return;
+      }
+
+      if (typeof window.setAgentExecutionMode !== 'function') {
+        notifyUser('에이전트 설정을 아직 불러오지 못했습니다. 설정 → Agent 계정을 한 번 연 뒤 다시 시도해주세요.', 'warning');
+        return;
+      }
+
+      // 🔌 연결 확인이 먼저다
+      addLog('🔌 에이전트 연결 상태를 확인하는 중...', 'info');
+      let ready = false;
+      try {
+        const result = await window.verifyAgentExecutionReadiness?.({ showStatus: false });
+        ready = !!(result?.ok ?? result?.ready);
+      } catch (err) {
+        console.warn('[HEADER-BADGE] 에이전트 연결 확인 실패:', err);
+      }
+
+      if (!ready) {
+        addLog('⚠️ 에이전트가 연결되지 않았습니다 — 환경설정을 엽니다', 'warning');
+        try { window.openSettingsModal?.(); } catch { /* 못 열면 아래 안내로 */ }
+        try { await window.refreshAgentModeSettings?.(); } catch { /* 설정 갱신 실패는 무시 */ }
+        notifyUser('에이전트가 아직 연결되지 않았습니다.
+환경설정 → Agent 계정에서 로그인한 뒤 다시 선택해주세요.', 'warning');
+        return;
+      }
+
+      window.setAgentExecutionMode('agent');
+      renderExecutionModeBadge();
+      try { await window.updateAiModelStatus?.(); } catch { /* 표시 갱신 실패는 발행과 무관 */ }
+      addLog(`🤖 글 생성을 에이전트 모드(${AGENT_LABELS[currentAgentProvider()]})로 바꿨습니다`, 'success');
+    });
+  });
+}
+
 function buildModelPop(pop) {
   const radios = modelRadios();
   if (!radios.length) {
@@ -280,16 +377,25 @@ function buildModelPop(pop) {
   ];
 
   const cur = document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value || '';
-  pop.innerHTML = `<div class="hb-t">글 생성 AI 모델 — 환경설정의 선택과 같은 자리입니다</div>`
-    + radios.map((r) => `
-      <div class="hb-opt${!agentMode && r.value === cur ? ' sel' : ''}" data-hb-model="${r.value}">
-        <span class="hb-dot"></span>${modelLabel(r)}
-      </div>`).join('')
-    + `<div class="hb-t" style="margin-top:6px;">에이전트 — 구독으로 실행 (API 요금 없음)</div>`
-    + AGENTS.map((a) => `
-      <div class="hb-opt${agentMode && a.id === agentProvider ? ' sel' : ''}" data-hb-agent="${a.id}">
-        <span class="hb-dot"></span>${a.label}
-      </div>`).join('');
+
+  /**
+   * ⚙️ v3.8.613 — **고른 실행 모드의 목록만** 보여준다.
+   * 사장님: "에이전트를 선택하면 에이전트만 보여주고 API면 API만보여줘"
+   * 예전엔 둘을 한 목록에 섞어 놔서, 지금 무엇으로 쓰는지가 흐릿했다.
+   */
+  pop.innerHTML = agentMode
+    ? `<div class="hb-t">에이전트 — 구독으로 실행 (API 요금 없음)</div>`
+      + AGENTS.map((a) => `
+        <div class="hb-opt${a.id === agentProvider ? ' sel' : ''}" data-hb-agent="${a.id}">
+          <span class="hb-dot"></span>${a.label}
+        </div>`).join('')
+      + `<div class="hb-note">API 모델로 바꾸려면 왼쪽 '실행' 배지에서 API 키 모드를 고르세요.</div>`
+    : `<div class="hb-t">글 생성 AI 모델 — 환경설정의 선택과 같은 자리입니다</div>`
+      + radios.map((r) => `
+        <div class="hb-opt${r.value === cur ? ' sel' : ''}" data-hb-model="${r.value}">
+          <span class="hb-dot"></span>${modelLabel(r)}
+        </div>`).join('')
+      + `<div class="hb-note">에이전트로 쓰려면 왼쪽 '실행' 배지에서 에이전트 모드를 고르세요.</div>`;
 
   pop.querySelectorAll('[data-hb-agent]').forEach((opt) => {
     opt.addEventListener('click', (e) => {
@@ -297,11 +403,12 @@ function buildModelPop(pop) {
       const provider = opt.dataset.hbAgent;
       if (typeof window.setAgentProvider !== 'function' || typeof window.setAgentExecutionMode !== 'function') {
         // 조용히 삼키면 "눌렀는데 아무 일도 안 남" 이 된다
-        alert('에이전트 설정을 아직 불러오지 못했습니다. 설정 → Agent 계정을 한 번 연 뒤 다시 시도해주세요.');
+        notifyUser('에이전트 설정을 아직 불러오지 못했습니다. 설정 → Agent 계정을 한 번 연 뒤 다시 시도해주세요.', 'warning');
         return;
       }
       window.setAgentProvider(provider);
       window.setAgentExecutionMode('agent');   // 라이선스 게이트가 여기 들어 있다
+      renderExecutionModeBadge();   // v3.8.613: 실행 배지도 같이 따라온다
       try { window.updateAiModelStatus?.(); } catch { /* 배지 갱신 실패는 발행과 무관 */ }
       closeAllPops();
       addLog(`🤖 글 생성을 ${({ claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' })[provider] || provider} 에이전트로 바꿨습니다 (구독 사용량)`, 'info');
@@ -325,6 +432,7 @@ function buildModelPop(pop) {
        */
       if (agentMode && typeof window.setAgentExecutionMode === 'function') {
         window.setAgentExecutionMode('api');
+        renderExecutionModeBadge();   // v3.8.613
       }
       // ② 재시작·env 폴백 경로를 위해 부분 저장 — 엔진 파생은 saveSettings 와 같은 규칙
       const engine = deriveEngine(value);

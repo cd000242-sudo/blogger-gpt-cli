@@ -338,7 +338,9 @@ function ensureEditorModal() {
       setStatus(`✅ 다시 만들어 같은 주소에 반영했습니다 (${res.length}자). 새로고침하면 목록에도 반영됩니다.`);
     } catch (err) {
       setStatus(`❌ 다시 생성 실패: ${err?.message || err}`);
-      alert(`다시 생성하지 못했습니다.\n\n${err?.message || err}\n\n기존 글은 그대로 있습니다.`);
+      window.notifyUser?.(`다시 생성하지 못했습니다.
+${err?.message || err}
+기존 글은 그대로 있습니다.`, 'error');
     } finally {
       buttons.forEach((b) => { b.disabled = false; b.style.opacity = '1'; });
     }

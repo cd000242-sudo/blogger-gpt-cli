@@ -398,7 +398,15 @@ function applyWordPressInlineStyles(html) {
                 return match;
             });
         }
-        styledHtml = styledHtml.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+        const keptSkinBlocks = [];
+        styledHtml = styledHtml.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (block, inner) => {
+            if (/\.bgpt-content\b/.test(inner))
+                keptSkinBlocks.push(block);
+            return '';
+        });
+        if (keptSkinBlocks.length > 0) {
+            console.log(`[WP-PUBLISH] 🖋️ 본문 스킨 <style> ${keptSkinBlocks.length}개 보관 — 퍼블리셔 CSS 뒤에 다시 싣습니다`);
+        }
         styledHtml = styledHtml.replace(/<(div|section|aside|figure|figcaption|span)\b([^>]*)>/gi, (match, tag, attrs = '') => {
             const className = getClassNameFromAttrs(attrs);
             let style = '';
@@ -1469,7 +1477,8 @@ function applyWordPressInlineStyles(html) {
         catch (error) {
             console.warn(`[WP-PUBLISH] ⚠️ 인라인 style 접기 실패 (원본 유지): ${String(error?.message || error).slice(0, 80)}`);
         }
-        const wrappedContent = `${themeFriendlyCSS}${foldedCSS}<div class="wp-styled-content bgpt-wp-ready" data-bgpt-wp-ready="true" style="${containerStyle}">${styledHtml}</div>`;
+        const skinCSS = keptSkinBlocks.join('\n');
+        const wrappedContent = `${themeFriendlyCSS}${foldedCSS}${skinCSS}<div class="wp-styled-content bgpt-wp-ready" data-bgpt-wp-ready="true" style="${containerStyle}">${styledHtml}</div>`;
         styledHtml = `<!-- wp:html -->
 ${wrappedContent}
 <!-- /wp:html -->`;

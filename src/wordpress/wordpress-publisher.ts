@@ -525,7 +525,31 @@ export function applyWordPressInlineStyles(html: string): string {
 
     // v3.8.83: 전체 +2px 가독성 강화 (사용자 요청)
     // H2 - 틸 악센트, 26px (was 24px)
-    styledHtml = styledHtml.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+    /**
+     * 🖋️ v3.8.613 — 스킨 `<style>` 은 **지우되 되살린다.**
+     *
+     * 사장님: "에이전트로 글발행한스킨과 API로 글발행한 스킨이 다르네요"
+     *
+     * 실측(발행글 5451, API 경로): 「먹과 놋쇠」의 핵심이 통째로 없었다.
+     *   Gowun Batang 0 · @import 0 · .bgpt-content h2 0 · tabular-nums 0
+     *   (색 #0C453F 만 8개 — 인라인으로 박힌 것이 접혀 살아남았을 뿐이다)
+     *
+     * 이 줄이 범인이다. 여기서 본문의 <style> 을 **전부 지우고** 아래에서 퍼블리셔 CSS 로
+     * 갈아끼운다. 에이전트 경로는 이 함수를 건너뛰므로(bgpt-wp-ready 가드) 스킨이 살아남았고,
+     * API 경로만 옷을 벗은 채 나갔다 — 두 경로가 달라 보인 이유가 이것이다.
+     *
+     * 그렇다고 지우지 않을 수는 없다: 옛 글의 낡은 스킨이 섞이면 퍼블리셔 CSS 와 충돌한다.
+     * 그래서 **우리 스킨만 골라 보관했다가** 퍼블리셔 CSS 뒤에 다시 붙인다(나중 규칙이 이긴다).
+     */
+    const keptSkinBlocks: string[] = [];
+    styledHtml = styledHtml.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (block, inner: string) => {
+      // 우리 스킨의 표식 — generateCSSFinal 이 항상 넣는 선택자
+      if (/\.bgpt-content\b/.test(inner)) keptSkinBlocks.push(block);
+      return '';
+    });
+    if (keptSkinBlocks.length > 0) {
+      console.log(`[WP-PUBLISH] 🖋️ 본문 스킨 <style> ${keptSkinBlocks.length}개 보관 — 퍼블리셔 CSS 뒤에 다시 싣습니다`);
+    }
 
     styledHtml = styledHtml.replace(/<(div|section|aside|figure|figcaption|span)\b([^>]*)>/gi, (match, tag, attrs = '') => {
       const className = getClassNameFromAttrs(attrs);
@@ -1629,7 +1653,12 @@ export function applyWordPressInlineStyles(html: string): string {
       console.warn(`[WP-PUBLISH] ⚠️ 인라인 style 접기 실패 (원본 유지): ${String(error?.message || error).slice(0, 80)}`);
     }
 
-    const wrappedContent = `${themeFriendlyCSS}${foldedCSS}<div class="wp-styled-content bgpt-wp-ready" data-bgpt-wp-ready="true" style="${containerStyle}">${styledHtml}</div>`;
+    /**
+     * v3.8.613: 보관해 둔 스킨을 **퍼블리셔 CSS 뒤에** 싣는다.
+     * 같은 특정도면 나중 규칙이 이기므로, 스킨이 퍼블리셔 기본값을 덮는다.
+     */
+    const skinCSS = keptSkinBlocks.join('\n');
+    const wrappedContent = `${themeFriendlyCSS}${foldedCSS}${skinCSS}<div class="wp-styled-content bgpt-wp-ready" data-bgpt-wp-ready="true" style="${containerStyle}">${styledHtml}</div>`;
 
     // Gutenberg HTML 블록
     styledHtml = `<!-- wp:html -->

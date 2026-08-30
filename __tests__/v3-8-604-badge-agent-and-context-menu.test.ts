@@ -40,9 +40,13 @@ describe('① 배지 드롭다운에서 에이전트를 고른다', () => {
   });
 
   test('지금 무엇이 켜져 있는지 표시된다', () => {
-    // 에이전트 모드면 해당 에이전트에, 아니면 고른 API 모델에 선택 표시
-    expect(badges).toMatch(/agentMode && a\.id === agentProvider \? ' sel' : ''/);
-    expect(badges).toMatch(/!agentMode && r\.value === cur \? ' sel' : ''/);
+    /**
+     * v3.8.613 에서 목록이 **모드별로 갈렸다** (에이전트면 에이전트만, API면 API만).
+     * 그래서 선택 표시 조건에서 agentMode 검사가 빠졌다 — 이미 그 모드의 목록이기 때문이다.
+     * 검사도 "지금 고른 것에 표시가 붙는가" 만 본다.
+     */
+    expect(badges).toMatch(/a\.id === agentProvider \? ' sel' : ''/);
+    expect(badges).toMatch(/r\.value === cur \? ' sel' : ''/);
   });
 
   test('함수가 없으면 조용히 넘어가지 않고 알린다', () => {

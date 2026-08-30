@@ -438,7 +438,7 @@ async function regeneratePostAt(index, mode) {
 
   const postId = String(item.postId || item.id || '').trim();
   if (!postId) {
-    alert('이 글의 ID를 찾지 못해 다시 생성할 수 없습니다. 새로고침 후 다시 시도해주세요.');
+    window.notifyUser?.('이 글의 ID를 찾지 못해 다시 생성할 수 없습니다. 새로고침 후 다시 시도해주세요.', 'warning');
     return;
   }
 
@@ -479,7 +479,9 @@ async function regeneratePostAt(index, mode) {
   } catch (err) {
     const message = err?.message || String(err);
     if (statusEl) statusEl.textContent = `❌ 다시 생성 실패: ${message}`;
-    alert(`다시 생성하지 못했습니다.\n\n${message}\n\n기존 글은 그대로 있습니다.`);
+    window.notifyUser?.(`다시 생성하지 못했습니다.
+${message}
+기존 글은 그대로 있습니다.`, 'error');
   } finally {
     buttons.forEach((b) => { b.disabled = false; b.style.opacity = '1'; });
   }
@@ -492,7 +494,7 @@ async function deletePostAt(index) {
 
   const postId = String(item.postId || item.id || '').trim();
   if (!postId) {
-    alert('이 글의 ID를 찾지 못해 삭제할 수 없습니다. 새로고침 후 다시 시도해주세요.');
+    window.notifyUser?.('이 글의 ID를 찾지 못해 삭제할 수 없습니다. 새로고침 후 다시 시도해주세요.', 'warning');
     return;
   }
 
@@ -522,7 +524,7 @@ async function deletePostAt(index) {
     const msg = err?.message || String(err);
     if (statusEl) statusEl.textContent = `⚠️ 삭제 실패: ${msg}`;
     addLog(`⚠️ ${platform.label} 글 삭제 실패: ${msg}`);
-    alert(`삭제하지 못했습니다.\n\n${msg}`);
+    window.notifyUser?.(`삭제하지 못했습니다.\n\n${msg}`, 'error');
   }
 }
 
@@ -546,7 +548,7 @@ async function openEditorFor(index) {
       if (!res?.ok) {
         const msg = res?.error || '알 수 없는 오류';
         if (statusEl) statusEl.innerHTML = res?.needsAuth ? platform.authHint : `❌ 본문을 불러오지 못했습니다: ${esc(msg)}`;
-        alert(`❌ 본문을 불러오지 못했습니다\n\n${msg}`);
+        window.notifyUser?.(`❌ 본문을 불러오지 못했습니다\n\n${msg}`, 'error');
         return;
       }
       html = String(res.content || '');
@@ -554,13 +556,13 @@ async function openEditorFor(index) {
       if (statusEl) statusEl.textContent = `${platform.label} · 본문을 불러왔습니다.`;
     } catch (err) {
       console.error('[POSTS-TAB] 본문 로드 실패:', err);
-      alert('본문을 불러오지 못했습니다: ' + (err?.message || err));
+      window.notifyUser?.('본문을 불러오지 못했습니다: ' + (err?.message || err), 'error');
       return;
     }
   }
 
   if (!html.trim()) {
-    alert('이 글의 본문을 불러오지 못했습니다. 🔄 새로고침 후 다시 시도해주세요.');
+    window.notifyUser?.('이 글의 본문을 불러오지 못했습니다. 🔄 새로고침 후 다시 시도해주세요.', 'error');
     return;
   }
 
