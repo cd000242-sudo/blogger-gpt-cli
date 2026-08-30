@@ -9097,8 +9097,14 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
     '     <div style="background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border:1px solid #fde68a;border-left:4px solid #f59e0b;border-radius:14px;padding:22px 26px;margin:28px 0;box-shadow:0 3px 10px rgba(245,158,11,0.10);">',
     '       <div style="font-size:13px;font-weight:800;color:#92400e;letter-spacing:0.03em;margin-bottom:8px;">📍 [상황 라벨 — "정확한 조건 확인", "공식 자료에서 한 번 더", "신청 페이지 안내" 등 정보 톤]</div>',
     '       <div style="font-size:16px;color:#1f2937;line-height:1.72;margin-bottom:16px;">[자연스러운 안내 1~2줄 — 글 본문 흐름 톤 그대로. 광고 호객 X]</div>',
-    '       <a href="[검증 URL]" rel="nofollow noopener" target="_blank" style="display:inline-block;padding:11px 22px;background:#f59e0b;color:#ffffff;border-radius:10px;font-weight:800;text-decoration:none;font-size:15px;box-shadow:0 3px 8px rgba(245,158,11,0.28);">[동사형 버튼 텍스트] →</a>',
-    '       <span style="display:inline-block;margin-left:12px;font-size:13px;color:#92400e;font-weight:600;">📌 [출처/안내 — "공식 사이트", "원문 보기", "관련 글" 등]</span>',
+    // 🎯 v3.8.605 — 버튼을 가운데로. 사장님: "CTA는 센터로 와야되고"
+    //   예전엔 버튼이 왼쪽에 붙고 그 옆에 안내 문구가 margin-left 로 매달려 있어,
+    //   화면이 좁아지면 문구가 아래로 흘러내리며 어긋나 보였다.
+    //   이제 버튼을 가운데 두고 안내는 그 아래 줄에 가운데로 놓는다.
+    '       <div style="text-align:center;margin-top:4px;">',
+    '         <a href="[검증 URL]" rel="nofollow noopener" target="_blank" style="display:inline-block;padding:13px 30px;background:#f59e0b;color:#ffffff;border-radius:10px;font-weight:800;text-decoration:none;font-size:15px;box-shadow:0 3px 8px rgba(245,158,11,0.28);">[동사형 버튼 텍스트] →</a>',
+    '         <div style="margin-top:10px;font-size:13px;color:#92400e;font-weight:600;">📌 [출처/안내 — "공식 사이트", "원문 보기", "관련 글" 등]</div>',
+    '       </div>',
     '     </div>',
     '     ```',
     '     - 색상 검증: 박스 배경 베이지(#fffbeb~#fef3c7) ≠ 본문 회색(#1f2937) ≠ 라벨 갈색(#92400e) ≠ 버튼 흰색(#ffffff) on 오렌지(#f59e0b)',
@@ -9123,12 +9129,13 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
     '     **반드시 아래 HTML 그대로 박기 (출처별 URL/제목/매체 교체)**:',
     '     ```html',
     '     <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:24px 26px;margin:36px 0 24px;box-shadow:0 4px 12px rgba(0,0,0,0.05);">',
-    '       <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #f3f4f6;">',
-    '         <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:linear-gradient(135deg,#1e293b,#334155);color:#fbbf24;border-radius:9px;font-size:16px;">📚</span>',
-    '         <div>',
-    '           <div style="font-size:16px;font-weight:900;color:#0f172a;letter-spacing:-0.01em;">관련 1차 자료 · 원문 보기</div>',
-    '           <div style="font-size:12px;color:#6b7280;margin-top:2px;">검증된 출처에서 직접 확인하실 수 있습니다</div>',
-    '         </div>',
+    // 🎯 v3.8.605 — 머리말을 가운데로. 사장님: "마지막 공식 확인처 직접보기도 센터로 깔끔하게"
+    //   flex 로 아이콘과 제목을 가로로 붙여 두었더니, 워드프레스가 그 사이에 문단을 끼워 넣으면
+    //   줄이 갈라지며 무너졌다. 세로로 쌓고 가운데 정렬하면 그런 일이 안 생긴다.
+    '       <div style="text-align:center;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid #f3f4f6;">',
+    '         <div style="display:inline-block;width:34px;height:34px;line-height:34px;background:linear-gradient(135deg,#1e293b,#334155);color:#fbbf24;border-radius:9px;font-size:17px;margin-bottom:10px;">📚</div>',
+    '         <div style="font-size:16px;font-weight:900;color:#0f172a;letter-spacing:-0.01em;">관련 1차 자료 · 원문 보기</div>',
+    '         <div style="font-size:12px;color:#6b7280;margin-top:4px;">검증된 출처에서 직접 확인하실 수 있습니다</div>',
     '       </div>',
     '       <div style="display:flex;flex-direction:column;gap:10px;">',
     '         <a href="[URL1]" rel="nofollow noopener" target="_blank" style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;background:#fafafa;border:1px solid #e5e7eb;border-radius:11px;text-decoration:none;">',
@@ -11418,6 +11425,30 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
     } catch (attachErr: any) {
       console.warn('[AGENT-SHOPPING] 부착 스킵:', String(attachErr?.message || attachErr).slice(0, 120));
     }
+
+    /**
+     * 🖋️ v3.8.606 — 에이전트 글에도 같은 스킨을 입힌다.
+     *
+     * 사장님: "응 에이전트 글도 같은 스킨 입혀줘"
+     * 에이전트는 orchestration 을 안 타서 스킨 <style> 이 실리지 않았다
+     * (실측 발행글 5445: style 블록 0개 · bgpt-content 없음).
+     * 그래서 API 모드 글만 「먹과 놋쇠」였고 에이전트 글은 예전 얼굴이었다.
+     */
+    try {
+      const { applyOrbitSkinToAgentHtml } = require('../dist/core/final/agent-skin');
+      const { generateCSSFinal } = require('../dist/core/final/html');
+      const platformForSkin = String((request?.payload as any)?.platform || 'wordpress');
+      const skinned = applyOrbitSkinToAgentHtml(result.content, generateCSSFinal(platformForSkin));
+      if (skinned.applied) {
+        result.content = skinned.html;
+        console.log(`[AGENT-SKIN] 🖋️ ${skinned.reason}`);
+      } else {
+        console.log(`[AGENT-SKIN] 건너뜀 — ${skinned.reason}`);
+      }
+    } catch (skinErr: any) {
+      // 스킨을 못 입혀도 글은 나가야 한다
+      console.warn('[AGENT-SKIN] 스킵:', String(skinErr?.message || skinErr).slice(0, 120));
+    }
     const usage = parseAgentRunUsage(profile.provider, run.stdout);
 
     /**
@@ -12647,6 +12678,41 @@ function restoreMainWindowFocus(): void {
   }
 }
 
+/**
+ * 🖱️ v3.8.604 — 오른쪽 클릭 메뉴 (복사·붙여넣기).
+ *
+ * 창마다 따로 붙여야 한다 — webContents 단위 이벤트다.
+ * 실패해도 앱이 죽지 않게 감싼다: 메뉴가 없다고 발행이 막히면 안 된다.
+ */
+function attachContextMenu(contents: Electron.WebContents): void {
+  try {
+    contents.on('context-menu', (_event, props) => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { Menu } = require('electron');
+      const items: Electron.MenuItemConstructorOptions[] = [];
+      const canEdit = !!props.isEditable;
+      const hasSelection = !!String(props.selectionText || '').trim();
+
+      if (canEdit) {
+        items.push(
+          { role: 'cut', label: '잘라내기', enabled: hasSelection },
+          { role: 'copy', label: '복사', enabled: hasSelection },
+          { role: 'paste', label: '붙여넣기' },
+          { type: 'separator' },
+          { role: 'selectAll', label: '전체 선택' },
+        );
+      } else if (hasSelection) {
+        items.push({ role: 'copy', label: '복사' });
+      }
+
+      if (items.length === 0) return;   // 빈 메뉴를 띄우지 않는다
+      Menu.buildFromTemplate(items).popup({ window: BrowserWindow.fromWebContents(contents) || undefined });
+    });
+  } catch (error: any) {
+    console.warn('[CONTEXT-MENU] 붙이지 못했습니다:', String(error?.message || error).slice(0, 120));
+  }
+}
+
 function createWindow() {
   console.log('[APP] 메인 윈도우 생성 중...');
 
@@ -12697,6 +12763,19 @@ function createWindow() {
       }
     });
   });
+
+  /**
+   * 🖱️ v3.8.604 — 오른쪽 클릭으로 복사·붙여넣기.
+   *
+   * 사장님: "필드에 우측마우스 클릭하면 복사 붙혀넣기도 가능하게해줘"
+   *
+   * Electron 은 기본 컨텍스트 메뉴가 **없다.** 브라우저에서 되던 것이 앱에서 안 되니
+   * 고장으로 보인다 — API 키처럼 긴 문자열을 붙여넣는 화면이 많아 더 그렇다.
+   * (Ctrl+V 는 되지만 그걸 모르면 방법이 없다.)
+   *
+   * 입력칸이면 잘라내기·복사·붙여넣기·전체 선택을, 글자를 끌어 놓았으면 복사만 띄운다.
+   */
+  attachContextMenu(mainWindow.webContents);
 
   // 메인 윈도우를 main-login에 전달 (라이선스 체크용)
   setMainWindow(mainWindow);

@@ -4,6 +4,7 @@ exports.WordPressPublisher = void 0;
 exports.stripBodyThumbnailBox = stripBodyThumbnailBox;
 exports.wrapSectionsInCards = wrapSectionsInCards;
 exports.foldRepeatedInlineStyles = foldRepeatedInlineStyles;
+exports.neutralizeWpAutop = neutralizeWpAutop;
 exports.applyWordPressInlineStyles = applyWordPressInlineStyles;
 exports.publishToWordPress = publishToWordPress;
 const wordpress_api_1 = require("./wordpress-api");
@@ -334,6 +335,18 @@ function foldRepeatedInlineStyles(html, minRepeat = 3) {
     const out = replaced.replace(/ BGPTV(\d+) /g, (_all, i) => vault[Number(i)] ?? '');
     const css = `<style>\n/* v3.8.388: 반복 인라인 style ${chosen.size}종 → 클래스 (HTML ${(savedBytes / 1024).toFixed(1)}KB 축소) */\n${rules.join('\n')}\n</style>\n`;
     return { html: out, css, folded: foldedCount, savedBytes };
+}
+function neutralizeWpAutop(html) {
+    const src = String(html || '');
+    if (!src || !/\r?\n/.test(src))
+        return src;
+    const kept = [];
+    const guarded = src.replace(/<(pre|textarea|code)\b[\s\S]*?<\/\1>/gi, (block) => {
+        kept.push(block);
+        return ` WPKEEP${kept.length - 1} `;
+    });
+    const flattened = guarded.replace(/[ \t]*\r?\n[ \t]*/g, ' ').replace(/ {2,}/g, ' ');
+    return flattened.replace(/ WPKEEP(\d+) /g, (_m, i) => kept[Number(i)] || '');
 }
 function applyWordPressInlineStyles(html) {
     if (!html)
@@ -2428,9 +2441,11 @@ async function publishToWordPress(options, onLog) {
         const styledContent = applyWordPressInlineStyles(contentToStyle);
         onLog?.('✅ WordPress 클린 모던 스킨 적용 완료');
         onLog?.('[WP] 포스트 생성 중...');
+        const contentForWp = neutralizeWpAutop(styledContent);
+        console.log(`[WP-PUBLISH] 🩹 wpautop 방지: 줄바꿈 정리 (${styledContent.length} → ${contentForWp.length}자)`);
         const postData = {
             title: options.title,
-            content: styledContent,
+            content: contentForWp,
             status: postStatus,
             categories: options.categories || [],
             tags: tagIds

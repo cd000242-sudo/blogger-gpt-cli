@@ -417,6 +417,46 @@ export function foldRepeatedInlineStyles(
   return { html: out, css, folded: foldedCount, savedBytes };
 }
 
+/**
+ * 🩹 v3.8.605 — 워드프레스 wpautop 이 본문을 갈라놓는 것을 막는다.
+ *
+ * ## 실측 사고 (발행글 5445 "청년미래적금 8·28 기여금 확대")
+ * 사장님: "먼가 어색하고 엉성해"
+ * 실제로 어색한 게 아니라 **마크업이 깨져 있었다.** 발행된 본문에서
+ *   `<p>` 열림 34개 · `</p>` 닫힘 57개 → **짝 없는 `</p>` 23개**
+ *   `<span …>📚</span></p>` 처럼 flex 컨테이너 한가운데 `</p>` 가 끼어 있었다.
+ *
+ * ## 왜 생기나
+ * 워드프레스는 저장할 때 wpautop 을 돌려 **빈 줄마다 `<p>` 를 끼워 넣는다.**
+ * 우리 HTML 은 블록 태그 사이에 줄바꿈이 있어 그 자리마다 문단이 열리고,
+ * 다음 블록 태그를 만나면 강제로 닫히며 고아 `</p>` 가 남는다.
+ * flex/grid 자식 사이에 그 `</p>` 가 끼면 정렬이 통째로 어긋난다.
+ *
+ * ## 왜 에이전트 글에서만 심했나
+ * `applyWordPressInlineStyles` 는 `bgpt-wp-ready` 가 붙어 있으면 **통째로 건너뛴다.**
+ * 에이전트 출력이 바로 그 클래스라, 손질 한 번 없이 wpautop 앞에 놓였다.
+ *
+ * ## 처방
+ * 줄바꿈을 **한 칸 공백으로** 바꾼다. wpautop 은 줄바꿈이 없으면 아무 일도 하지 않는다.
+ * 공백으로 바꾸는 이유는 낱말이 붙지 않게 하기 위해서다(`가</b>\n<b>나` → `가 나`).
+ * `<pre>`·`<textarea>`·`<code>` 안은 줄바꿈이 곧 내용이므로 건드리지 않는다.
+ */
+export function neutralizeWpAutop(html: string): string {
+  const src = String(html || '');
+  if (!src || !/\r?\n/.test(src)) return src;
+
+  // 줄바꿈이 내용인 곳은 통째로 빼 두었다가 되돌린다
+  const kept: string[] = [];
+  const guarded = src.replace(/<(pre|textarea|code)\b[\s\S]*?<\/\1>/gi, (block) => {
+    kept.push(block);
+    return ` WPKEEP${kept.length - 1} `;
+  });
+
+  const flattened = guarded.replace(/[ \t]*\r?\n[ \t]*/g, ' ').replace(/ {2,}/g, ' ');
+
+  return flattened.replace(/ WPKEEP(\d+) /g, (_m, i) => kept[Number(i)] || '');
+}
+
 export function applyWordPressInlineStyles(html: string): string {
   if (!html) return html;
   if (/\bdata-bgpt-wp-ready\s*=\s*["']true["']|\bbgpt-wp-ready\b/i.test(html)) return html;
@@ -2840,9 +2880,16 @@ export async function publishToWordPress(
 
     // 포스트 생성
     onLog?.('[WP] 포스트 생성 중...');
+    /**
+     * v3.8.605: wpautop 이 문단을 끼워 넣지 못하게 줄바꿈을 없앤다.
+     * 스타일 파이프라인을 건너뛰는 에이전트 글(bgpt-wp-ready)도 **여기는 반드시 지난다.**
+     */
+    const contentForWp = neutralizeWpAutop(styledContent);
+    console.log(`[WP-PUBLISH] 🩹 wpautop 방지: 줄바꿈 정리 (${styledContent.length} → ${contentForWp.length}자)`);
+
     const postData: any = {
       title: options.title,
-      content: styledContent, // 🔥 스타일 적용된 콘텐츠
+      content: contentForWp, // 🔥 스타일 적용 + wpautop 방지
       status: postStatus,
       categories: options.categories || [],
       tags: tagIds // 🔧 태그 ID 배열 추가

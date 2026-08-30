@@ -257,13 +257,54 @@ function buildModelPop(pop) {
   let agentMode = false;
   try { agentMode = JSON.parse(localStorage.getItem('leadernamExecutionMode') || '"api"') === 'agent'; } catch { agentMode = localStorage.getItem('leadernamExecutionMode') === 'agent'; }
 
+  /**
+   * 🤖 v3.8.604 — 에이전트를 **이 목록에** 넣는다.
+   *
+   * 사장님: "배찌에 AI 모델에는 에이전트가 왜없냐고 선택할수있게 드롭다운을 추가해주고 배선해줘야할꺼아냐"
+   *
+   * 배지는 에이전트일 때 "Claude Code Agent" 라고 **표시는** 했는데, 정작 이 드롭다운에는
+   * API 모델만 있어서 고를 수가 없었다. 표시와 선택이 어긋나 있었다.
+   * 실행 모드는 codex-workshop 이 들고 있으므로 localStorage 를 직접 쓰지 않고 그쪽 함수를 부른다
+   * — 거기에 라이선스 게이트가 들어 있어 우회하면 검사가 통째로 빠진다.
+   */
+  let agentProvider = 'codex';
+  try { agentProvider = JSON.parse(localStorage.getItem('leadernamActiveAgentProvider') || '"codex"'); }
+  catch { agentProvider = localStorage.getItem('leadernamActiveAgentProvider') || 'codex'; }
+  agentProvider = agentProvider === 'claude' ? 'claude' : 'codex';
+
+  const AGENTS = [
+    { id: 'claude', label: '🟠 Claude Code Agent', note: '구독' },
+    { id: 'codex', label: '🧠 Codex Agent', note: '구독' },
+  ];
+
   const cur = document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value || '';
   pop.innerHTML = `<div class="hb-t">글 생성 AI 모델 — 환경설정의 선택과 같은 자리입니다</div>`
-    + (agentMode ? '<div class="hb-note">⚠️ 지금은 에이전트 모드로 실행 중이라, 여기서 고른 API 모델은 에이전트 모드를 끈 뒤 적용됩니다.</div>' : '')
     + radios.map((r) => `
-      <div class="hb-opt${r.value === cur ? ' sel' : ''}" data-hb-model="${r.value}">
+      <div class="hb-opt${!agentMode && r.value === cur ? ' sel' : ''}" data-hb-model="${r.value}">
         <span class="hb-dot"></span>${modelLabel(r)}
+      </div>`).join('')
+    + `<div class="hb-t" style="margin-top:6px;">에이전트 — 구독으로 실행 (API 요금 없음)</div>`
+    + AGENTS.map((a) => `
+      <div class="hb-opt${agentMode && a.id === agentProvider ? ' sel' : ''}" data-hb-agent="${a.id}">
+        <span class="hb-dot"></span>${a.label}
       </div>`).join('');
+
+  pop.querySelectorAll('[data-hb-agent]').forEach((opt) => {
+    opt.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const provider = opt.dataset.hbAgent;
+      if (typeof window.setAgentProvider !== 'function' || typeof window.setAgentExecutionMode !== 'function') {
+        // 조용히 삼키면 "눌렀는데 아무 일도 안 남" 이 된다
+        alert('에이전트 설정을 아직 불러오지 못했습니다. 설정 → Agent 계정을 한 번 연 뒤 다시 시도해주세요.');
+        return;
+      }
+      window.setAgentProvider(provider);
+      window.setAgentExecutionMode('agent');   // 라이선스 게이트가 여기 들어 있다
+      try { window.updateAiModelStatus?.(); } catch { /* 배지 갱신 실패는 발행과 무관 */ }
+      closeAllPops();
+      addLog(`🤖 글 생성을 ${provider === 'claude' ? 'Claude Code' : 'Codex'} 에이전트로 바꿨습니다 (구독 사용량)`, 'info');
+    });
+  });
 
   pop.querySelectorAll('[data-hb-model]').forEach((opt) => {
     opt.addEventListener('click', async (e) => {
@@ -275,6 +316,14 @@ function buildModelPop(pop) {
       radio.checked = true;
       // change 를 bubbles 로 — script.js 의 문서 리스너가 배지를 갱신한다
       radio.dispatchEvent(new Event('change', { bubbles: true }));
+      /**
+       * v3.8.604: API 모델을 골랐으면 에이전트 모드는 끈다 — 둘은 배타적이다.
+       * 예전엔 "에이전트를 끈 뒤 적용됩니다" 라는 안내만 띄웠는데, 그러면 사용자는
+       * 골라 놓고도 왜 안 바뀌는지 모른 채 에이전트로 계속 발행한다.
+       */
+      if (agentMode && typeof window.setAgentExecutionMode === 'function') {
+        window.setAgentExecutionMode('api');
+      }
       // ② 재시작·env 폴백 경로를 위해 부분 저장 — 엔진 파생은 saveSettings 와 같은 규칙
       const engine = deriveEngine(value);
       // bloggerSettings 가 우선 소스라 여기도 같이 써야 재시작 후에도 남는다
