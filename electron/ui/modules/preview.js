@@ -4,6 +4,29 @@ import { showTab, setRunning } from './ui.js';
 import { isLicenseValid } from './settings.js';
 import { createPreviewPayload } from './posting.js';
 
+/**
+ * 미리보기를 **실제 발행 화면과 같은 치수**로 맞춘다. (v3.8.618)
+ *
+ * 사장님: "넓이가 안 맞네. 실제 발행되는 넓이와 구조를 맞춰줘. 미리보기랑 좀 다르네"
+ *
+ * 맞는 지적이었다. 미리보기 래퍼에는 **폭 제한이 아예 없어서** 모달이 주는 만큼
+ * 끝까지 늘어났다. 발행된 글은 테마가 정한 칼럼 안에 들어가므로 줄바꿈 위치가
+ * 통째로 달라진다 — 미리보기에서 두 줄이던 문단이 발행하면 세 줄이 된다.
+ *
+ * ## 아래 값은 전부 실측이다 (2026-08-31, 발행글 5455, 뷰포트 1440)
+ * leadernam.com 은 GeneratePress 테마이고, Playwright 로 렌더해서 잰 값이다.
+ *   .entry-content  폭 1128px
+ *   p               17.5px / 줄간격 32.375px / 아래 여백 23.625px
+ *   h2              26px / 900 / 위 40px 아래 16px
+ *   h3              19px / 800 / 위 28px 아래 10px
+ *   목록            15px / 줄간격 27px
+ *
+ * ⚠️ 테마나 컨테이너 폭을 바꾸면 이 값도 다시 재야 한다.
+ *    재는 방법은 `docs/` 가 아니라 여기 적어 둔다 — 고칠 사람이 보는 자리가 여기다.
+ *    Playwright 로 글 하나를 열고 `.entry-content` 의 getBoundingClientRect().width 를 읽으면 된다.
+ */
+const PUBLISHED_CONTENT_WIDTH = 1128;
+
 // 미리보기 생성 함수
 export async function generatePreview() {
   console.log('[NEW-PREVIEW] 미리보기 함수 시작');
@@ -637,14 +660,47 @@ export function displayPreviewInModal() {
           padding: ${isPublishReadyContent ? '0' : '40px'} !important;
           border-radius: ${isPublishReadyContent ? '0' : '16px'} !important;
           box-shadow: ${isPublishReadyContent ? 'none' : '0 8px 32px rgba(0, 0, 0, 0.1)'} !important;
-          margin: ${isPublishReadyContent ? '0' : '20px 0'} !important;
+          margin: ${isPublishReadyContent ? '0 auto' : '20px auto'} !important;
           min-height: ${isPublishReadyContent ? '0' : '500px'} !important;
+          max-width: ${PUBLISHED_CONTENT_WIDTH}px !important;
           font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
         ">
           <style>
             /* 🎨 프리미엄 스킨 미리보기 스타일 */
             .preview-content-wrapper * {
               box-sizing: border-box !important;
+            }
+
+            /* ── 실제 발행 화면과 같은 치수 (v3.8.618, 전부 실측) ──────────
+               발행글 5455 를 Playwright 로 렌더해 잰 값이다. 이 값이 안 맞으면
+               미리보기에서 두 줄이던 문단이 발행하면 세 줄이 된다.
+               위 PUBLISHED_CONTENT_WIDTH 주석에 재는 방법을 적어 뒀다. */
+            .preview-content-wrapper p {
+              font-size: 17.5px !important;
+              line-height: 32.375px !important;
+              margin: 0 0 23.625px 0 !important;
+            }
+            .preview-content-wrapper h2 {
+              font-size: 26px !important;
+              font-weight: 900 !important;
+              line-height: 36.4px !important;
+              margin: 40px 0 16px 0 !important;
+            }
+            .preview-content-wrapper h3 {
+              font-size: 19px !important;
+              font-weight: 800 !important;
+              line-height: 25.65px !important;
+              margin: 28px 0 10px 0 !important;
+            }
+            .preview-content-wrapper ul,
+            .preview-content-wrapper ol,
+            .preview-content-wrapper li {
+              font-size: 15px !important;
+              line-height: 27px !important;
+            }
+            .preview-content-wrapper table {
+              font-size: 17.5px !important;
+              line-height: 32.375px !important;
             }
             
             /* H1 - 메인 제목 */

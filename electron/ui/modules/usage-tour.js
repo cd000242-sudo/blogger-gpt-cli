@@ -77,6 +77,30 @@ function ensureStyles() {
     .ut-hole { position:fixed; border-radius:10px; pointer-events:none;
       box-shadow:0 0 0 9999px rgba(2,6,23,.62);
       outline:2px solid rgba(129,140,248,.95); outline-offset:0; }
+
+    /* ── 단계가 바뀔 때 한 번: 어두워졌다가 다시 밝아진다 (v3.8.617) ──
+       사장님: "어두워졋다가 자연스럽게 다시 밝아져야됩니다"
+
+       눈이 새 위치를 찾게 만드는 신호다. 화면을 한 번 더 눌러 덮었다가
+       원래 밝기로 풀면, 시선이 뚫린 구멍으로 끌려간다.
+
+       ⚠️ 이 애니메이션은 **한 번만**(0.42s) 돈다. 9999px 그림자는 매 프레임
+       화면 전체를 다시 칠하므로 무한 반복으로 두면 앱이 무거워진다.
+       계속 "여기를 보라"고 말하는 일은 transform 만 쓰는 .ut-ring 이 맡는다. */
+    .ut-hole.ut-reveal { animation:ut-reveal .42s cubic-bezier(.22,.61,.36,1) 1; }
+    @keyframes ut-reveal {
+      0%   { box-shadow:0 0 0 9999px rgba(2,6,23,.88); outline-color:rgba(129,140,248,0); }
+      55%  { box-shadow:0 0 0 9999px rgba(2,6,23,.74); outline-color:rgba(129,140,248,1); }
+      100% { box-shadow:0 0 0 9999px rgba(2,6,23,.62); outline-color:rgba(129,140,248,.95); }
+    }
+
+    /* 대상 자체도 같이 밝아진다 — 구멍만 밝아지면 "무엇"이 아니라 "어디"만 보인다 */
+    .ut-lit.ut-reveal { animation:ut-lit-reveal .42s cubic-bezier(.22,.61,.36,1) 1; }
+    @keyframes ut-lit-reveal {
+      0%   { box-shadow:0 0 0 0 rgba(99,102,241,0) !important; filter:brightness(.82); }
+      55%  { box-shadow:0 0 0 12px rgba(99,102,241,.34) !important; filter:brightness(1.18); }
+      100% { box-shadow:0 0 0 6px rgba(99,102,241,.22) !important; filter:brightness(1); }
+    }
     .ut-ring { position:fixed; border-radius:12px; pointer-events:none;
       border:2px solid rgba(129,140,248,.75);
       animation:ut-ring 1.6s ease-out infinite; }
@@ -93,6 +117,8 @@ function ensureStyles() {
 
     @media (prefers-reduced-motion: reduce) {
       .ut-tip-arrow, .ut-ring { animation:none; }
+      /* 밝아지는 연출도 끈다 — 다만 최종 상태는 CSS 기본값이라 그대로 보인다 */
+      .ut-hole.ut-reveal, .ut-lit.ut-reveal { animation:none; }
     }
   `;
   document.head.appendChild(st);
@@ -251,9 +277,31 @@ function hideSpot() {
   try { if (typeof spotEl.hidePopover === 'function' && spotEl.matches(':popover-open')) spotEl.hidePopover(); } catch { /* 이미 닫힘 */ }
 }
 
+function runAutoNextCleanups() {
+  autoNextCleanups.forEach((off) => { try { off(); } catch { /* 이미 떨어짐 */ } });
+  autoNextCleanups = [];
+}
+
 function clearHighlights() {
-  document.querySelectorAll('.ut-lit').forEach((el) => el.classList.remove('ut-lit'));
+  runAutoNextCleanups();
+  document.querySelectorAll('.ut-lit').forEach((el) => el.classList.remove('ut-lit', 'ut-reveal'));
   hideSpot();
+}
+
+/**
+ * "어두워졌다 밝아지는" 연출을 **다시** 돌린다. (v3.8.617)
+ *
+ * CSS 애니메이션은 클래스가 이미 붙어 있으면 다시 재생되지 않는다.
+ * 그래서 떼고 → 강제로 레이아웃을 한 번 읽고(리플로) → 다시 붙인다.
+ * `void el.offsetWidth` 가 그 리플로다 — 이게 없으면 브라우저가 두 변경을
+ * 한 프레임에 합쳐 버려서 아무 일도 안 일어난다.
+ */
+function replayReveal(elements) {
+  elements.filter(Boolean).forEach((el) => {
+    el.classList.remove('ut-reveal');
+    void el.offsetWidth;
+    el.classList.add('ut-reveal');
+  });
 }
 
 function escapeHtml(s) {
@@ -335,19 +383,42 @@ export function maybeShowPlatformCoach() {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * 설정 모달로 간다. **이미 그 자리면 아무것도 하지 않는다.** (v3.8.617)
+ *
+ * 사장님: "다음 누르면 너무 느리고"
+ *
+ * 설정 안의 단계가 다섯이라 [다음]을 누를 때마다 모달을 다시 열고
+ * `220 + 140 + 160 = 520ms` 를 **고정으로 기다렸다.** 이미 열려 있고 탭도 맞는데도.
+ * 그 520ms 가 곧 "느리다"였다.
+ *
+ * 이제 바뀐 것이 있을 때만 기다린다. 같은 자리에서 다음 단계로 갈 때는 0ms 다.
+ */
 async function goSettingsModal() {
+  const modal = document.getElementById('settingsModal');
+  const modalOpen = !!modal && modal.style.display !== 'none';
+
   // openSettingsModal 은 async 다 — 기다리지 않으면 아직 안 그려진 칸을 가리키게 된다
-  if (typeof window.openSettingsModal === 'function') { await window.openSettingsModal(); await wait(220); }
+  if (!modalOpen && typeof window.openSettingsModal === 'function') {
+    await window.openSettingsModal();
+    await wait(220);
+  }
+
   // API 키 탭이 기본이지만, 사용자가 다른 탭을 보고 있었을 수 있다
-  if (typeof window.switchSettingsTab === 'function') {
+  const apiTab = document.getElementById('tab-api-keys');
+  const apiTabShown = !!apiTab && apiTab.style.display !== 'none' && !apiTab.hidden;
+  if (!apiTabShown && typeof window.switchSettingsTab === 'function') {
     try { window.switchSettingsTab('api-keys'); await wait(140); } catch { /* 탭 전환 실패는 치명 아님 */ }
   }
+
   /**
    * API/Agent 선택 버튼(#executionModeApiBtn)은 index.html 에 없다 —
    * codex-workshop 이 #tab-api-keys 안에 **런타임으로** 그린다.
    * 이걸 안 부르면 그 단계가 "대상 없음"으로 건너뛰어진다 (조용한 미배선).
+   * 이미 그려져 있으면 다시 부르지 않는다.
    */
-  if (typeof window.ensureAgentModeSettingsReady === 'function') {
+  if (!document.getElementById('executionModeApiBtn')
+    && typeof window.ensureAgentModeSettingsReady === 'function') {
     try { await window.ensureAgentModeSettingsReady(); await wait(160); }
     catch (err) { console.warn('[USAGE-TOUR] 실행 방식 섹션 준비 실패:', err); }
   }
@@ -379,12 +450,12 @@ async function goDetailTab(tab) {
  */
 const STEPS = [
   {
-    before: null, sel: ['#nav-settings'],
+    before: null, sel: ['#nav-settings'], autoNext: true,
     title: '왼쪽 맨 아래 [설정]으로 들어갑니다',
     body: '모든 준비는 여기서 합니다. 한 번만 해두면 다음부터는 바로 글만 쓰면 됩니다.',
   },
   {
-    before: goSettingsModal, sel: ['#executionModeApiBtn', '#executionModeAgentBtn'],
+    before: goSettingsModal, sel: ['#executionModeApiBtn', '#executionModeAgentBtn'], autoNext: true,
     title: 'API 키 모드와 Agent 모드 중 하나를 고릅니다',
     body: '처음이라면 <b>API 키 모드</b>가 간단합니다. 제미나이를 충전해서 쓰는 방식입니다.',
   },
@@ -411,7 +482,7 @@ const STEPS = [
     tip: '💡 싼 걸 원하시면 <b>프로디아</b>를 추천합니다.',
   },
   {
-    before: goPostingTab, sel: ['#nav-auto'],
+    before: goPostingTab, sel: ['#nav-auto'], autoNext: true,
     title: '이제 왼쪽 [글포스팅] 탭으로 갑니다',
     body: '준비가 끝났습니다. 여기서부터가 실제로 글을 만드는 자리입니다.',
   },
@@ -480,6 +551,8 @@ const STEPS = [
 
 let tourIndex = 0;
 let tourActive = false;
+/** 대상 클릭으로 자동 진행할 때 걸어 둔 리스너들 — 단계가 바뀌면 반드시 뗀다 */
+let autoNextCleanups = [];
 
 export async function showUsageTour(startAt = 0) {
   if (stepping) return;   // 헤더 버튼 연타로 두 번 시작되지 않게
@@ -494,6 +567,7 @@ export async function showUsageTour(startAt = 0) {
 
 function endTour(reason = 'done') {
   tourActive = false;
+  runAutoNextCleanups();
   stepping = false;
   stopTracking();
   clearHighlights();
@@ -591,6 +665,30 @@ async function renderStep() {
     </div>`;
 
   targets.forEach((t) => t.classList.add('ut-lit'));
+
+  /**
+   * 대상을 누르면 **알아서 다음으로 넘어간다.** (v3.8.617)
+   *
+   * 사장님: "설정 유도하고 들어갔으면 밝아지면서 다음으로 자동으로 넘어가야죠"
+   *
+   * 맞는 말이다. [설정]을 누르라고 해놓고 눌러도 가만히 있으면,
+   * 시킨 대로 했는데 아무 일도 안 일어나는 셈이라 [다음]을 또 눌러야 한다.
+   *
+   * ⚠️ 입력칸에는 걸지 않는다. API 키 칸은 **눌러서 타이핑하는 자리**라
+   *    누르자마자 넘어가면 키를 넣을 새가 없다. 그 단계는 [다음]으로 넘어간다.
+   *    그래서 단계마다 `autoNext` 를 명시한 것만 이 배선을 받는다.
+   */
+  if (s.autoNext) {
+    targets.forEach((t) => {
+      const onHit = () => {
+        t.removeEventListener('click', onHit);
+        // 누른 화면이 그려질 틈을 준 뒤 넘어간다 — 즉시 넘기면 눌린 티가 안 난다
+        setTimeout(() => { if (tourActive) step(+1); }, 260);
+      };
+      t.addEventListener('click', onHit, { once: true });
+      autoNextCleanups.push(() => t.removeEventListener('click', onHit));
+    });
+  }
   /**
    * v3.8.563 — behavior:'smooth' 를 걷어냈다.
    * 부드러운 스크롤은 끝날 때까지 좌표가 계속 움직여서, 그 사이 잡은 위치가 틀어진다.
@@ -603,6 +701,12 @@ async function renderStep() {
   // 레이아웃이 확정된 다음 프레임에 좌표를 잡는다 (고정 대기 대신)
   await nextFrame();
   placeNear(targets);
+
+  /**
+   * 좌표가 확정된 **뒤**에 연출을 돌린다.
+   * 먼저 돌리면 구멍이 옛 자리에서 밝아졌다가 툭 옮겨 간다.
+   */
+  replayReveal([spotEl?.querySelector(".ut-hole"), ...targets]);
 
   pop.querySelector('[data-ut-next]')?.addEventListener('click', () => step(+1));
   pop.querySelector('[data-ut-prev]')?.addEventListener('click', () => step(-1));

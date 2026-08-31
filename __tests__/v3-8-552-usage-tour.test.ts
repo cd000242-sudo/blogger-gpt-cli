@@ -176,3 +176,106 @@ describe('③④ 같이 처리한 두 건', () => {
     expect(posting).not.toContain('border-left:3px solid #ef4444');
   });
 });
+
+/**
+ * v3.8.617 — 어두워졌다 밝아지고, 누르면 알아서 넘어간다
+ *
+ * ## 사장님 지적 (실사용)
+ *   "설정 유도하고 들어갔으면 밝아지면서 다음으로 자동으로 넘어가야죠"
+ *   "다음 누르면 너무 느리고"
+ *   "어두워졌다가 자연스럽게 다시 밝아져야 됩니다"
+ *   "API 키 넣을 때는 필드로 가서 필드로 위치좌표해서 애니메이션으로"
+ *
+ * ## 왜 느렸나 (원인)
+ * 설정 안의 단계가 다섯인데 [다음]마다 `goSettingsModal` 이 모달을 다시 열고
+ * `220 + 140 + 160 = 520ms` 를 **고정으로 기다렸다.** 이미 열려 있고 탭도 맞는데도.
+ */
+describe('v3.8.617 — 연출과 자동 진행', () => {
+  const src = read('electron/ui/modules/usage-tour.js');
+
+  describe('① 어두워졌다가 다시 밝아진다', () => {
+    it('구멍과 대상이 각각 밝아지는 연출을 갖는다', () => {
+      expect(src).toContain('@keyframes ut-reveal');
+      expect(src).toContain('@keyframes ut-lit-reveal');
+    });
+
+    /** 클래스가 이미 붙어 있으면 CSS 애니메이션은 다시 재생되지 않는다 */
+    it('단계마다 다시 재생되게 리플로를 강제한다', () => {
+      expect(src).toContain('void el.offsetWidth');
+    });
+
+    /** 먼저 돌리면 구멍이 옛 자리에서 밝아졌다가 툭 옮겨 간다 */
+    it('좌표를 확정한 뒤에 연출을 돌린다', () => {
+      expect(src.indexOf('placeNear(targets);')).toBeLessThan(src.indexOf('replayReveal(['));
+    });
+
+    /** 9999px 그림자는 매 프레임 화면 전체를 다시 칠한다 — 무한 반복이면 앱이 무거워진다 */
+    it('한 번만 돈다 (무한 반복이 아니다)', () => {
+      const m = /\.ut-hole\.ut-reveal\s*\{\s*animation:[^;]*;/.exec(src);
+      expect(m).not.toBeNull();
+      expect(m![0]).not.toContain('infinite');
+      expect(m![0]).toMatch(/\s1\s*;/);
+    });
+
+    it('모션을 줄인 환경에서는 끈다', () => {
+      // 길이로 자르지 않는다 — 위아래가 바뀌면 검사 범위가 어긋난다
+      expect(braceBlock(src, 'prefers-reduced-motion')).toContain('ut-reveal');
+    });
+  });
+
+  describe('② 누르면 알아서 다음으로', () => {
+    it('대상 클릭으로 진행하는 배선이 있다', () => {
+      expect(src).toContain('if (s.autoNext)');
+      expect(src).toContain("addEventListener('click', onHit, { once: true })");
+    });
+
+    /** 시킨 대로 눌렀는데 가만히 있으면 [다음]을 또 눌러야 한다 */
+    it('설정·모드·글포스팅 탭처럼 "누르는" 단계에 붙어 있다', () => {
+      expect(src).toContain("sel: ['#nav-settings'], autoNext: true");
+      expect(src).toContain("'#executionModeAgentBtn'], autoNext: true");
+      expect(src).toContain("sel: ['#nav-auto'], autoNext: true");
+    });
+
+    /**
+     * ⭐ API 키 칸은 **눌러서 타이핑하는 자리**다.
+     * 누르자마자 넘어가면 키를 넣을 새가 없다 — 여긴 [다음]으로 넘어간다.
+     */
+    it('입력칸 단계에는 붙이지 않는다', () => {
+      const keyStep = blockBetween(src, "sel: ['#geminiKey']", '},');
+      expect(keyStep).not.toContain('autoNext');
+      const hubStep = blockBetween(src, "sel: ['#naverApiHubKeyId', '#naverApiHubKey']", '},');
+      expect(hubStep).not.toContain('autoNext');
+    });
+
+    it('단계가 바뀌면 리스너를 뗀다 (쌓이면 두 칸씩 건너뛴다)', () => {
+      expect(src).toContain('runAutoNextCleanups');
+      const clear = blockBetween(src, 'function clearHighlights()', '}');
+      expect(clear).toContain('runAutoNextCleanups()');
+    });
+
+    it('투어가 끝날 때도 뗀다', () => {
+      const end = blockBetween(src, "function endTour(reason = 'done')", 'stopTracking');
+      expect(end).toContain('runAutoNextCleanups()');
+    });
+  });
+
+  describe('③ 같은 자리면 기다리지 않는다', () => {
+    it('모달이 이미 열려 있으면 다시 열지 않는다', () => {
+      const go = blockBetween(src, 'async function goSettingsModal()', 'async function closeSettingsModal');
+      expect(go).toContain('const modalOpen =');
+      expect(go).toContain('if (!modalOpen');
+    });
+
+    it('탭이 이미 맞으면 전환하지 않는다', () => {
+      const go = blockBetween(src, 'async function goSettingsModal()', 'async function closeSettingsModal');
+      expect(go).toContain('apiTabShown');
+      expect(go).toContain('if (!apiTabShown');
+    });
+
+    /** 이미 그려져 있는데 다시 부르면 160ms 를 또 기다린다 */
+    it('실행 방식 섹션이 이미 있으면 다시 준비하지 않는다', () => {
+      const go = blockBetween(src, 'async function goSettingsModal()', 'async function closeSettingsModal');
+      expect(go).toContain("!document.getElementById('executionModeApiBtn')");
+    });
+  });
+});
