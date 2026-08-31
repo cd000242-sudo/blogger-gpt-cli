@@ -1,0 +1,21 @@
+{
+  "domain": "leadernam.com",
+  "takenAt": "2026-08-31T10:16:25.769Z",
+  "records": {
+    "leadernam.com": {
+      "A": [
+        "161.35.46.236"
+      ],
+      "NS": [
+        "ns.gabia.co.kr",
+        "ns1.gabia.co.kr",
+        "ns.gabia.net"
+      ]
+    },
+    "www.leadernam.com": {
+      "A": [
+        "161.35.46.236"
+      ]
+    }
+  }
+}
