@@ -1,0 +1,322 @@
+{
+  "measuredAt": "2026-08-31T09:40:54.712Z",
+  "runs": 3,
+  "targets": {
+    "홈/desktop": {
+      "ttfb": 1014,
+      "fcp": 1412,
+      "lcp": 1412,
+      "cls": 0.5216,
+      "connectMs": 252,
+      "tlsMs": 255,
+      "totalKB": 1017,
+      "requests": 54,
+      "samples": 3,
+      "byHost": {
+        "cdn.jsdelivr.net": {
+          "count": 19,
+          "KB": 453
+        },
+        "pagead2.googlesyndication.com": {
+          "count": 6,
+          "KB": 268
+        },
+        "www.googletagmanager.com": {
+          "count": 1,
+          "KB": 187
+        },
+        "leadernam.com": {
+          "count": 9,
+          "KB": 71
+        },
+        "ep1.adtrafficquality.google": {
+          "count": 2,
+          "KB": 13
+        },
+        "ep2.adtrafficquality.google": {
+          "count": 3,
+          "KB": 13
+        },
+        "googleads.g.doubleclick.net": {
+          "count": 3,
+          "KB": 7
+        },
+        "": {
+          "count": 1,
+          "KB": 1
+        },
+        "www.google.co.kr": {
+          "count": 2,
+          "KB": 0
+        },
+        "pixel.wp.com": {
+          "count": 1,
+          "KB": 0
+        },
+        "www.google.com": {
+          "count": 4,
+          "KB": 0
+        },
+        "stats.wp.com": {
+          "count": 1,
+          "KB": 0
+        },
+        "stats.g.doubleclick.net": {
+          "count": 1,
+          "KB": 0
+        },
+        "analytics.google.com": {
+          "count": 1,
+          "KB": 0
+        },
+        "ad.doubleclick.net": {
+          "count": 1,
+          "KB": 0
+        },
+        "s.w.org": {
+          "count": 1,
+          "KB": 0
+        }
+      }
+    },
+    "홈/mobile": {
+      "ttfb": 1010,
+      "fcp": 1412,
+      "lcp": 1412,
+      "cls": 0,
+      "connectMs": 251,
+      "tlsMs": 255,
+      "totalKB": 985,
+      "requests": 54,
+      "samples": 3,
+      "byHost": {
+        "cdn.jsdelivr.net": {
+          "count": 19,
+          "KB": 453
+        },
+        "pagead2.googlesyndication.com": {
+          "count": 4,
+          "KB": 240
+        },
+        "www.googletagmanager.com": {
+          "count": 1,
+          "KB": 187
+        },
+        "leadernam.com": {
+          "count": 9,
+          "KB": 71
+        },
+        "ep1.adtrafficquality.google": {
+          "count": 2,
+          "KB": 13
+        },
+        "ep2.adtrafficquality.google": {
+          "count": 3,
+          "KB": 13
+        },
+        "googleads.g.doubleclick.net": {
+          "count": 3,
+          "KB": 6
+        },
+        "": {
+          "count": 1,
+          "KB": 1
+        },
+        "www.google.co.kr": {
+          "count": 2,
+          "KB": 0
+        },
+        "pixel.wp.com": {
+          "count": 1,
+          "KB": 0
+        },
+        "www.google.com": {
+          "count": 4,
+          "KB": 0
+        },
+        "stats.wp.com": {
+          "count": 1,
+          "KB": 0
+        },
+        "analytics.google.com": {
+          "count": 1,
+          "KB": 0
+        },
+        "stats.g.doubleclick.net": {
+          "count": 1,
+          "KB": 0
+        },
+        "ad.doubleclick.net": {
+          "count": 1,
+          "KB": 0
+        },
+        "s.w.org": {
+          "count": 1,
+          "KB": 0
+        }
+      }
+    },
+    "글/desktop": {
+      "ttfb": 1001,
+      "fcp": 1476,
+      "lcp": 1868,
+      "cls": 0.0022,
+      "connectMs": 249,
+      "tlsMs": 252,
+      "totalKB": 1066,
+      "requests": 62,
+      "samples": 3,
+      "byHost": {
+        "cdn.jsdelivr.net": {
+          "count": 19,
+          "KB": 477
+        },
+        "pagead2.googlesyndication.com": {
+          "count": 4,
+          "KB": 268
+        },
+        "www.googletagmanager.com": {
+          "count": 1,
+          "KB": 187
+        },
+        "leadernam.com": {
+          "count": 8,
+          "KB": 59
+        },
+        "i0.wp.com": {
+          "count": 1,
+          "KB": 39
+        },
+        "ep1.adtrafficquality.google": {
+          "count": 2,
+          "KB": 13
+        },
+        "ep2.adtrafficquality.google": {
+          "count": 3,
+          "KB": 13
+        },
+        "googleads.g.doubleclick.net": {
+          "count": 3,
+          "KB": 7
+        },
+        "s.w.org": {
+          "count": 9,
+          "KB": 1
+        },
+        "": {
+          "count": 1,
+          "KB": 1
+        },
+        "www.google.co.kr": {
+          "count": 2,
+          "KB": 0
+        },
+        "pixel.wp.com": {
+          "count": 1,
+          "KB": 0
+        },
+        "www.google.com": {
+          "count": 4,
+          "KB": 0
+        },
+        "stats.wp.com": {
+          "count": 1,
+          "KB": 0
+        },
+        "stats.g.doubleclick.net": {
+          "count": 1,
+          "KB": 0
+        },
+        "analytics.google.com": {
+          "count": 1,
+          "KB": 0
+        },
+        "ad.doubleclick.net": {
+          "count": 1,
+          "KB": 0
+        }
+      }
+    },
+    "글/mobile": {
+      "ttfb": 1021,
+      "fcp": 1484,
+      "lcp": 1864,
+      "cls": 0,
+      "connectMs": 257,
+      "tlsMs": 253,
+      "totalKB": 1037,
+      "requests": 62,
+      "samples": 3,
+      "byHost": {
+        "cdn.jsdelivr.net": {
+          "count": 19,
+          "KB": 477
+        },
+        "pagead2.googlesyndication.com": {
+          "count": 4,
+          "KB": 242
+        },
+        "www.googletagmanager.com": {
+          "count": 1,
+          "KB": 187
+        },
+        "leadernam.com": {
+          "count": 8,
+          "KB": 59
+        },
+        "i0.wp.com": {
+          "count": 1,
+          "KB": 39
+        },
+        "ep1.adtrafficquality.google": {
+          "count": 2,
+          "KB": 14
+        },
+        "ep2.adtrafficquality.google": {
+          "count": 3,
+          "KB": 13
+        },
+        "googleads.g.doubleclick.net": {
+          "count": 3,
+          "KB": 7
+        },
+        "s.w.org": {
+          "count": 9,
+          "KB": 1
+        },
+        "": {
+          "count": 1,
+          "KB": 1
+        },
+        "www.google.co.kr": {
+          "count": 2,
+          "KB": 0
+        },
+        "pixel.wp.com": {
+          "count": 1,
+          "KB": 0
+        },
+        "www.google.com": {
+          "count": 4,
+          "KB": 0
+        },
+        "stats.wp.com": {
+          "count": 1,
+          "KB": 0
+        },
+        "stats.g.doubleclick.net": {
+          "count": 1,
+          "KB": 0
+        },
+        "ad.doubleclick.net": {
+          "count": 1,
+          "KB": 0
+        },
+        "analytics.google.com": {
+          "count": 1,
+          "KB": 0
+        }
+      }
+    }
+  }
+}

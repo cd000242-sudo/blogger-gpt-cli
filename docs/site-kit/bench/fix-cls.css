@@ -1,0 +1,38 @@
+/* ═══ 화면 밀림(CLS) 잡기 — 워드프레스 › 외모 › 사용자 정의하기 › 추가 CSS 의 맨 끝에 붙인다 ═══
+
+   무슨 일이 있었나 (2026-08-31 실측):
+     Pretendard 가 1,934ms 에 도착한다. 그 전까지는 맑은 고딕으로 그려지는데,
+     맑은 고딕은 한글이 Pretendard 보다 약 15% 넓다(실측 86.6% · 85.6%).
+     그래서 메뉴 7개가 892px 대신 960px 을 먹고 두 줄로 접힌다.
+     폰트가 도착하는 순간 한 줄로 펴지면서 헤더가 60px 줄고, 페이지 전체가 위로 튄다.
+     → CLS 0.52 (구글 기준 0.1 이하가 합격)
+
+   무엇을 하는가:
+     대체글꼴을 Pretendard 와 같은 너비로 눌러 둔다. 그러면 폰트가 오기 전에도
+     메뉴가 한 줄에 들어가고, 도착해도 줄바꿈이 바뀌지 않는다 — 튈 일이 없다.
+
+   왜 86% 인가: 짐작이 아니라 실제 배치로 잰 값이다.
+     "보험금·지원금·환급, 돈 돌려받는 기준"  Pretendard 1444px / 맑은고딕 1667px → 86.6%
+     "국민연금 수령액"                    Pretendard  628px / 맑은고딕  734px → 85.6%
+
+   검증: docs/site-kit/bench/fix-verify.js
+     폰트를 2.5초 늦춘 상태에서 CLS 0.5295 → 0.0005
+*/
+
+@font-face {
+  font-family: "Pretendard Fallback";
+  src: local("Malgun Gothic"), local("Apple SD Gothic Neo"), local("Noto Sans KR");
+  size-adjust: 86%;
+  ascent-override: 92%;
+  descent-override: 24%;
+  line-gap-override: 0%;
+}
+
+body,
+.main-navigation a,
+.main-title,
+.site-description,
+.entry-content {
+  font-family: "Pretendard Variable", Pretendard, "Pretendard Fallback",
+               "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+}

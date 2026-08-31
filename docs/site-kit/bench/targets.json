@@ -1,0 +1,9 @@
+{
+  "ownHost": "leadernam.com",
+  "runs": 3,
+  "devices": ["desktop", "mobile"],
+  "urls": [
+    { "name": "홈", "url": "https://leadernam.com/" },
+    { "name": "글", "url": "https://leadernam.com/subsidy/%ea%b5%ad%eb%af%bc%ec%97%b0%ea%b8%88-9%ec%9b%94-%ec%9e%90%eb%8f%99%ec%a7%80%ea%b8%89-%ec%84%b8%eb%ac%b4%ec%84%9c-%ed%99%95%ec%9d%b8%ec%84%9c-%eb%83%88%eb%8a%94%eb%8d%b0-%ea%b8%88%ec%95%a1%ec%9d%b4/" }
+  ]
+}
