@@ -331,8 +331,9 @@ function buildExecutionModePop(pop) {
         addLog('⚠️ 에이전트가 연결되지 않았습니다 — 환경설정을 엽니다', 'warning');
         try { window.openSettingsModal?.(); } catch { /* 못 열면 아래 안내로 */ }
         try { await window.refreshAgentModeSettings?.(); } catch { /* 설정 갱신 실패는 무시 */ }
-        notifyUser('에이전트가 아직 연결되지 않았습니다.
-환경설정 → Agent 계정에서 로그인한 뒤 다시 선택해주세요.', 'warning');
+        // 여러 줄 안내는 백틱으로 — 작은따옴표는 줄바꿈을 품지 못한다(앱 전체가 안 뜬다)
+        notifyUser(`에이전트가 아직 연결되지 않았습니다.
+환경설정 → Agent 계정에서 로그인한 뒤 다시 선택해주세요.`, 'warning');
         return;
       }
 
