@@ -35,9 +35,25 @@ import type { PageFetcher } from './action-link-harness';
 const DOCUMENT_EXT =
   /\.(pdf|ppt|pptx|pps|ppsx|key|hwp|hwpx|xlsx|xls|ods|csv|tsv|zip|rar|7z|docx|doc|odt|rtf|pages|numbers)(\?|#|$)/i;
 
-/** 주소가 문서 파일을 가리키는가 */
+/**
+ * 📎 v3.8.619 — 확장자가 없어도 **내려받기 주소**는 있다.
+ *
+ * 사장님 실물 검수: "공식 사이트 바로가기라 되어 있으면서 PDF 파일이 다운로드되는데?"
+ * 실제로 발행글의 CTA 가 이 주소였다:
+ *   https://eiec.kdi.re.kr/policy/callDownload.do?num=264303&filenum=3
+ * 눌러 보면 `Content-Disposition: attachment; filename="R2503531-2.pdf"` 가 돌아온다.
+ * 확장자 검사만 하던 예전 규칙은 `.pdf` 가 주소에 없으니 그냥 통과시켰다.
+ *
+ * 한국 공공기관 CMS 는 파일을 대부분 이런 꼴로 내보낸다 — 경로나 질의문자열에
+ * download / fileDown / atchFile 같은 말이 들어간다. 그 꼴을 문서로 본다.
+ * 버튼에 "바로가기"라 써 놓고 파일이 떨어지면 그건 약속을 어긴 것이다.
+ */
+const DOWNLOAD_ENDPOINT = /(?:call)?down(?:load)?\.do|file_?down(?:load)?|filedown\b|\/download\b|getfile|atchfile|attachfile|fileid=|filesn=|filenum=|cmd=download/i;
+
+/** 주소가 문서 파일(또는 내려받기 주소)을 가리키는가 */
 export function isDocumentUrl(url: string): boolean {
-  return DOCUMENT_EXT.test(String(url || ''));
+  const value = String(url || '');
+  return DOCUMENT_EXT.test(value) || DOWNLOAD_ENDPOINT.test(value);
 }
 
 /** 채택 기준 — action-link-harness 와 같은 눈금을 쓴다(두 경로가 다르게 재면 안 된다) */

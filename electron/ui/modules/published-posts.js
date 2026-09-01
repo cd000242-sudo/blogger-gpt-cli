@@ -365,6 +365,7 @@ function renderList() {
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
           <button class="ppEditBtn" data-index="${i}" style="padding:9px 16px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:9px;font-weight:800;font-size:12px;cursor:pointer;">✏️ 미리보기·수정</button>
+          <button class="ppCritiqueBtn" data-index="${i}" title="이 글을 비평해 고칠 점을 찾고, 고른 항목만 고쳐서 같은 주소에 다시 올립니다" style="padding:9px 12px;background:#334155;color:#c4b5fd;border:none;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;">🩺 비평·개선</button>
           <button class="ppRegenBtn" data-index="${i}" title="같은 주소 그대로 본문만 새로 만들어 덮어씁니다 (색인 유지)" style="padding:9px 12px;background:#334155;color:#86efac;border:none;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;">🔄 글 다시 생성</button>
           <button class="ppRegenImgBtn" data-index="${i}" title="글자는 그대로 두고 AI 이미지만 다시 만듭니다" style="padding:9px 12px;background:#334155;color:#fcd34d;border:none;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;">🖼️ 이미지 다시 생성</button>
           <button class="ppOpenBtn" data-index="${i}" style="padding:9px 12px;background:#334155;color:#93c5fd;border:none;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;">🔗 글 열기</button>
@@ -382,7 +383,14 @@ function renderList() {
       if (e.target.closest('.ppDeleteBtn')) return; // 삭제 버튼도 카드 클릭으로 새지 않게
       if (e.target.closest('.ppRegenBtn')) return;     // v3.8.600
       if (e.target.closest('.ppRegenImgBtn')) return;  // v3.8.600
+      if (e.target.closest('.ppCritiqueBtn')) return;  // v3.8.619
       openEditorFor(Number(card.getAttribute('data-index')));
+    });
+  });
+  list.querySelectorAll('.ppCritiqueBtn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      critiquePostAt(Number(e.currentTarget.getAttribute('data-index')));
     });
   });
   list.querySelectorAll('.ppRegenBtn').forEach((btn) => {
@@ -423,6 +431,74 @@ function renderList() {
  * 목록 순서가 바뀌었는데 인덱스로만 지우면 엉뚱한 글이 날아간다 —
  * 그래서 확인 문구에 제목을 넣고, 지운 뒤에는 그 항목만 화면에서 뺀다.
  */
+/**
+ * 🩺 v3.8.619 — 발행된 글을 비평하고, 고른 지적만 고쳐서 같은 주소에 다시 올린다.
+ *
+ * 사장님: "그냥 다시 발행하는 게 아니라 글을 비평해보고 개선점을 확인해서 다시 발행하도록"
+ *
+ * '글 다시 생성'과 나눈 이유: 저쪽은 **망가진 글을 되살리는** 용도라 통째로 새로 쓴다.
+ * 이쪽은 **멀쩡한 글을 더 낫게** 만드는 용도라, 문제 구간만 고치고 이미지·링크는 지킨다.
+ *
+ * 두 단계다 — ① 비평(블로그를 건드리지 않음) → ② 사장님이 고른 항목만 수정발행.
+ */
+async function critiquePostAt(index) {
+  const platform = getPlatform(state.active);
+  const item = activeState().items[index];
+  if (!item) return;
+
+  const postId = String(item.postId || item.id || '').trim();
+  if (!postId) {
+    window.notifyUser?.('이 글의 ID를 찾지 못해 비평할 수 없습니다. 새로고침 후 다시 시도해주세요.', 'warning');
+    return;
+  }
+
+  const statusEl = document.getElementById('ppStatus');
+  if (statusEl) statusEl.textContent = '🩺 글을 읽고 비평하는 중… (1~2분 걸립니다)';
+
+  const buttons = document.querySelectorAll('.ppCritiqueBtn');
+  buttons.forEach((b) => { b.disabled = true; b.style.opacity = '0.5'; });
+
+  try {
+    const payload = await buildPlatformPayload(platform.key);
+    const critique = await window.electronAPI.invoke('critique-published-post', {
+      platform: platform.key,
+      postId,
+      title: item.title || '',
+      ...(payload ? { payload } : {}),
+    });
+    if (!critique?.ok) throw new Error(critique?.error || '알 수 없는 오류');
+
+    if (statusEl) statusEl.textContent = `🩺 비평 완료 — ${critique.summary}`;
+    addLog(`🩺 "${item.title}" 비평 완료 — ${critique.summary}`);
+
+    const { showCritiqueModal } = await import('./post-critique-modal.js');
+    showCritiqueModal(critique, async (issues) => {
+      if (statusEl) statusEl.textContent = `✍️ 고른 ${issues.length}건을 반영해 고쳐 쓰는 중… (몇 분 걸립니다)`;
+      const res = await window.electronAPI.invoke('apply-post-improvement', {
+        platform: platform.key,
+        postId,
+        title: item.title || '',
+        issues,
+        ...(payload ? { payload } : {}),
+      });
+      if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
+
+      const skippedNote = res.skipped?.length ? ` (그대로 둔 구간 ${res.skipped.length}개)` : '';
+      if (statusEl) statusEl.textContent = `✅ ${res.revised}개 구간을 고쳐 같은 주소에 반영했습니다 (${res.length}자)${skippedNote}`;
+      addLog(`✅ "${item.title}" 개선 발행 완료 — ${res.revised}개 구간 수정, 주소 그대로`, 'success');
+      if (res.skipped?.length) {
+        res.skipped.forEach((line) => addLog(`   ↪️ 그대로 둔 구간 — ${line}`));
+      }
+    });
+  } catch (err) {
+    const message = err?.message || String(err);
+    if (statusEl) statusEl.textContent = `❌ 비평 실패: ${message}`;
+    window.notifyUser?.(`비평하지 못했습니다.\n${message}\n기존 글은 그대로 있습니다.`, 'error');
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; b.style.opacity = '1'; });
+  }
+}
+
 /**
  * 🔄 v3.8.600 — 발행된 글을 제자리에서 다시 만든다.
  *

@@ -82,10 +82,60 @@ function normalize(value: string): string {
     .toLowerCase();
 }
 
+/**
+ * 🔢 v3.8.619 — 마침표라고 다 문장 끝이 아니다.
+ *
+ * ## 실사고 (leadernam.com 발행글, 2026-09-01)
+ * 발행된 본문에 이런 문장이 그대로 나갔다:
+ *   · "인상률은 3. 봉급표상 기존 봉급액에 1. 039를 곱하는 방식"
+ *   · "한국은행의 … 평균인 연 4."
+ *
+ * 원인은 여기였다. `split(/[.!?]+/)` 이 **소수점을 문장 끝으로** 봤다.
+ *   "연 4.35%였습니다" → ["연 4", "35%였습니다"]
+ * 앞조각 "연 4" 는 수치가 없어 통과하고, 뒷조각의 "35%" 는 근거 장부에 없어
+ * 문장째 삭제된다. 그래서 **반토막 "연 4." 만 남았다.**
+ *
+ * 숫자를 지키자는 검사가 숫자를 부순 셈이다. 근거가 없으면 그 값이 든 문장을
+ * **통째로** 지워야지, 소수점 뒤만 잘라 "연 4." 를 남기면 그건 틀린 정보다.
+ *
+ * ## 판정 규칙
+ * 마침표 앞뒤가 모두 숫자면 문장 끝이 아니다 — 소수점(4.35)·배수(1.039)·
+ * 날짜(2026. 8. 30.)가 모두 여기 걸린다. 그 외에는 예전대로 문장 끝이다.
+ */
+function isSentenceEndingDot(source: string, index: number): boolean {
+  const before = source.slice(0, index).replace(/\s+$/, '').slice(-1);
+  const after = source.slice(index + 1).replace(/^\s+/, '').slice(0, 1);
+  return !(/\d/.test(before) && /\d/.test(after));
+}
+
+/** 문장 단위로 자른다 — 종결부호를 문장에 붙인 채로 돌려준다 */
+export function splitSentencesForFactCheck(value: string): string[] {
+  const source = toPlainText(value);
+  const out: string[] = [];
+  let buffer = '';
+
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i]!;
+    buffer += ch;
+    if (ch !== '.' && ch !== '!' && ch !== '?' && ch !== '\n') continue;
+    if (ch === '.' && !isSentenceEndingDot(source, i)) continue;
+
+    // "?!" 처럼 이어진 종결부호는 같은 문장에 붙인다
+    while (i + 1 < source.length && /[.!?]/.test(source[i + 1]!)) {
+      buffer += source[i + 1]!;
+      i += 1;
+    }
+    out.push(buffer);
+    buffer = '';
+  }
+  if (buffer) out.push(buffer);
+
+  return out.map((sentence) => sentence.trim()).filter(Boolean);
+}
+
 function splitSentences(value: string): string[] {
-  return toPlainText(value)
-    .split(/(?:[.!?]+|\n+)/)
-    .map((sentence) => sentence.trim())
+  return splitSentencesForFactCheck(value)
+    .map((sentence) => sentence.replace(/[.!?]+$/, '').trim())
     .filter((sentence) => sentence.length >= 4);
 }
 
@@ -219,6 +269,40 @@ function sanitizeHeadingText(block: string, evidence: FactEvidence, fallback: st
   return value.replace(/\s{2,}/g, ' ').replace(/^[\s,·\-:]+|[\s,·\-:]+$/g, '').trim() || fallback;
 }
 
+/**
+ * 🔗 v3.8.619 — 링크가 든 블록은 **태그를 살린 채** 값만 도려낸다.
+ *
+ * ## 실사고 (leadernam.com 발행글 2편, 2026-09-01)
+ * 두 글 모두 바깥으로 나가는 링크가 **0개**로 발행됐다. CTA 가 부정확한 게 아니라
+ * 아예 없어진 것이다. 사장님: "CTA가 정확하면 좋겠는데 여전히 불안정해".
+ *
+ * 원인은 이 파일이었다. 근거 미확인 문장이 든 문단은 `keepVerifiedSentences` 로 넘어가는데,
+ * 그 함수는 `toPlainText` 로 **태그를 통째로 지운 뒤** 문장을 고른다.
+ * 그래서 살아남은 문장에서도 `<a href>` 가 사라지고, 아무 문장도 못 살리면 문단째 지워진다.
+ * CTA 는 대개 수치("최대 5,000만원")를 끼고 있어서 이 경로에 가장 잘 걸린다.
+ *
+ * ## 처방
+ * 블록 안에 링크가 있으면 문장 단위로 버리지 않는다. 태그 밖의 글자에서만
+ * 근거 미확인 값을 지우고 나머지는 그대로 둔다 — 링크는 무슨 일이 있어도 남긴다.
+ * (태그 안을 건드리면 href 의 연도·숫자가 잘려 링크가 깨진다. 그래서 태그 밖만 손댄다.)
+ */
+function stripUnsafeValuesPreservingMarkup(html: string, evidence: FactEvidence): string {
+  return String(html || '').replace(/(<[^>]*>)|([^<]+)/g, (_all, tag: string, text: string) => {
+    if (tag) return tag;                       // 태그 안은 절대 건드리지 않는다
+    let value = String(text || '');
+    for (const pattern of VALUE_PATTERNS) {
+      value = value.replace(pattern, (match) => (isSupportedToken(match, evidence) ? match : ''));
+    }
+    value = value.replace(INSTITUTION_PATTERN, (match) => (isSupportedToken(match, evidence) ? match : ''));
+    return value.replace(/\s{2,}/g, ' ');
+  });
+}
+
+/** 이 블록이 링크를 품고 있는가 — 품고 있으면 통째로 버릴 수 없다 */
+function hasAnchor(html: string): boolean {
+  return /<a\b[^>]*href\s*=/i.test(String(html || ''));
+}
+
 // 태그 없는 평문 제목 전용 진입점 — 어떤 입력에도 빈 문자열을 반환하지 않는다.
 export function sanitizeFactUnsafeHeading(heading: string, evidence: FactEvidence, fallback: string): string {
   const source = String(heading || '').replace(FACT_META_BOILERPLATE_PATTERN, '').replace(/\s{2,}/g, ' ').trim();
@@ -233,19 +317,33 @@ export function sanitizeFactUnsafeHtml(html: string, evidence: FactEvidence): st
   const withoutMetaBoilerplate = String(html || '').replace(FACT_META_BOILERPLATE_PATTERN, '').replace(/\s{2,}/g, ' ').trim();
   if (inspectFactIntegrity(withoutMetaBoilerplate, evidence).status === 'passed') return withoutMetaBoilerplate;
 
-  const keepVerifiedSentences = (block: string): string => {
-    const sentences = toPlainText(block).match(/[^.!?\n]+[.!?]?/g) || [];
-    return sentences
-      .map((sentence) => sentence.trim())
-      .filter((sentence) => sentence && inspectFactIntegrity(sentence, evidence).status === 'passed')
-      .join(' ')
-      .trim();
-  };
+  const keepVerifiedSentences = (block: string): string => splitSentencesForFactCheck(block)
+    .filter((sentence) => inspectFactIntegrity(sentence, evidence).status === 'passed')
+    .join(' ')
+    .trim();
 
+  /**
+   * 🧱 v3.8.619 — 표의 칸은 **지워도 자리는 남긴다.**
+   *
+   * 실사고: 4칸짜리 표의 한 줄이 `<td>` 2개로 나가 열이 통째로 밀렸다.
+   * "연 4." | "고정형 조건을 검토하는 사람" — 마지막 열의 설명이 2번 열 자리에 앉았다.
+   * 값이 빈 표는 "모른다"고 말하지만, **어긋난 표는 거짓말을 한다.**
+   * 그래서 칸의 내용은 비울지언정 `<td>` 태그 자체는 절대 지우지 않는다.
+   */
   const tagged = withoutMetaBoilerplate.replace(
-    /<(p|li|blockquote|td|h[1-6])(\b[^>]*)>([\s\S]*?)<\/\1>/gi,
+    /<(p|li|blockquote|td|th|h[1-6])(\b[^>]*)>([\s\S]*?)<\/\1>/gi,
     (_match, tag: string, attrs: string, inner: string) => {
       if (inspectFactIntegrity(inner, evidence).status === 'passed') return `<${tag}${attrs}>${inner}</${tag}>`;
+
+      const isCell = /^(td|th)$/i.test(tag);
+      if (isCell) return `<${tag}${attrs}></${tag}>`;   // 칸은 비우되 자리는 지킨다
+
+      // 링크가 든 블록은 통째로 버리지 않는다 — CTA 가 이 경로에서 사라졌다
+      if (hasAnchor(inner)) {
+        const kept = stripUnsafeValuesPreservingMarkup(inner, evidence);
+        return `<${tag}${attrs}>${kept}</${tag}>`;
+      }
+
       const cleaned = /^h[1-6]$/i.test(tag) ? sanitizeHeadingText(inner, evidence, '핵심 정보') : keepVerifiedSentences(inner);
       return cleaned ? `<${tag}${attrs}>${cleaned}</${tag}>` : '';
     },
@@ -253,6 +351,14 @@ export function sanitizeFactUnsafeHtml(html: string, evidence: FactEvidence): st
 
   if (inspectFactIntegrity(tagged, evidence).status === 'passed') return tagged;
   if (!/<[a-z][^>]*>/i.test(tagged)) return keepVerifiedSentences(tagged);
+  /**
+   * v3.8.619 — 마지막 관문에서도 링크는 지킨다.
+   *
+   * 블록 단위로 정리하고도 검사가 안 끝나면 예전에는 `''` 를 돌려 **전부** 버렸다.
+   * 그 한 줄이 CTA 를 통째로 지운 마지막 경로다. 링크가 살아 있다면
+   * 이미 값은 도려낸 상태이므로 그 결과를 쓴다 — 빈 글보다 낫다.
+   */
+  if (hasAnchor(tagged)) return stripUnsafeValuesPreservingMarkup(tagged, evidence);
   return '';
 }
 

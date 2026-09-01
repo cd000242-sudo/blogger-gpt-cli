@@ -4325,6 +4325,229 @@ ipcMain.handle('regenerate-published-post', async (_evt, args: {
   }
 });
 
+/**
+ * 🩺 v3.8.619 — 발행된 글을 **비평**한다. (발행하지 않는다)
+ *
+ * 사장님: "그냥 다시 발행하는 게 아니라 글을 비평해보고 개선점을 확인해서 다시 발행하도록"
+ *
+ * 두 단계로 나눈 이유는 사장님이 **무엇을 고칠지 보고 고르게** 하기 위해서다.
+ * 이 핸들러는 읽고 판단만 한다 — 블로그는 건드리지 않는다.
+ */
+ipcMain.handle('critique-published-post', async (_evt, args: {
+  platform?: string;
+  postId?: string;
+  title?: string;
+  payload?: any;
+}) => {
+  const send = (line: string) => {
+    try { if (_evt.sender && !_evt.sender.isDestroyed()) _evt.sender.send('log-line', line); } catch { /* noop */ }
+  };
+
+  try {
+    const postId = String(args?.postId || '').trim();
+    if (!postId) return { ok: false, error: 'postId 가 없습니다.' };
+
+    const critique = require('../dist/core/final/post-critique');
+    const envData = loadEnvFromFile() as any;
+    const creds = loadPlatformCredsFromEnv(envData, { platform: args?.platform as any });
+    const axios = (await import('axios')).default;
+    const adapter = buildPlatformAdapter(creds, axios);
+
+    send('[PROGRESS] 10% - 🩺 발행된 글을 읽는 중…');
+    const current = await adapter.getPost(postId);
+    if (!current) return { ok: false, error: '글을 찾을 수 없습니다.' };
+
+    const html = String(current.content || '');
+    const title = String(args?.title || current.title || '').trim();
+    if (!html.trim()) return { ok: false, error: '본문을 불러오지 못했습니다.' };
+
+    // ① 경쟁글 — 없으면 없는 대로 간다. 검색이 막혔다고 비평을 멈추지 않는다.
+    send('[PROGRESS] 25% - 🔍 같은 키워드 상위 글을 확인하는 중…');
+    let competitors: { title: string; summary: string }[] = [];
+    try {
+      const { naverSearch } = require('../dist/core/naver-search-client');
+      const found = await naverSearch('blog', { query: title, display: 5, sort: 'sim' }, {
+        payload: args?.payload,
+        timeoutMs: 8000,
+      });
+      if (found?.ok) {
+        competitors = (found.items || [])
+          .map((item: any) => ({
+            title: String(item?.title || '').replace(/<[^>]+>/g, '').trim(),
+            summary: String(item?.description || '').replace(/<[^>]+>/g, '').trim(),
+          }))
+          .filter((c: any) => c.title);
+      } else if (found?.error) {
+        send(`   ℹ️ 경쟁글 조회 건너뜀: ${String(found.error).slice(0, 60)}`);
+      }
+    } catch (searchError: any) {
+      send(`   ℹ️ 경쟁글 조회 건너뜀: ${String(searchError?.message || searchError).slice(0, 60)}`);
+    }
+
+    // ② 코드 진단 — AI 호출 0회
+    send('[PROGRESS] 45% - 📏 게이트로 본문을 재는 중…');
+    const codeIssues = critique.diagnosePost({ title, html, competitors });
+
+    // ③ AI 비평 — 코드가 못 보는 것(검색 의도·구간 순서·전환)만 더 찾는다.
+    //    실패해도 코드 진단만으로 리포트를 낸다. 비평이 안 됐다고 화면이 비면 안 된다.
+    send('[PROGRESS] 65% - 🧐 편집장 관점으로 비평하는 중…');
+    let aiIssues: any[] = [];
+    try {
+      const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
+      const sectionCount = critique.splitSections(html).length;
+      const raw = await callGeminiWithRetry(
+        critique.buildCritiquePrompt({ title, html, codeIssues, competitors }),
+        1,
+        { timeoutMs: 120000 },
+      );
+      aiIssues = critique.parseCritiqueIssues(raw, sectionCount);
+    } catch (critiqueError: any) {
+      send(`   ⚠️ AI 비평 실패 — 코드 진단만으로 리포트를 냅니다: ${String(critiqueError?.message || critiqueError).slice(0, 80)}`);
+    }
+
+    const issues = [...codeIssues, ...aiIssues];
+    const sections = critique.splitSections(html).map((s: any) => ({
+      index: s.index,
+      heading: s.heading,
+      chars: String(s.html || '').replace(/<[^>]+>/g, '').trim().length,
+    }));
+
+    send(`[PROGRESS] 100% - 🩺 비평 완료 — ${critique.summarizeCritique(issues)}`);
+    return {
+      ok: true,
+      title,
+      url: current.url || '',
+      score: critique.scoreIssues(issues),
+      summary: critique.summarizeCritique(issues),
+      issues,
+      sections,
+      competitorCount: competitors.length,
+    };
+  } catch (error: any) {
+    const message = error?.message || String(error);
+    send(`❌ 비평 실패: ${message}`);
+    return { ok: false, error: message };
+  }
+});
+
+/**
+ * ✍️ v3.8.619 — 사장님이 고른 지적만 반영해 **문제 구간만** 다시 쓰고 같은 주소에 올린다.
+ *
+ * 통째로 새로 쓰지 않는 이유는 이미지·내부링크·CTA·표를 살리기 위해서다.
+ * 한 구간이라도 규칙(이미지·링크·H2·분량)을 어기면 그 구간은 원본을 그대로 둔다.
+ * 마지막에 글 전체를 한 번 더 재고, 퇴보했으면 **발행하지 않는다.**
+ */
+ipcMain.handle('apply-post-improvement', async (_evt, args: {
+  platform?: string;
+  postId?: string;
+  title?: string;
+  issues?: any[];
+  payload?: any;
+}) => {
+  const send = (line: string) => {
+    try { if (_evt.sender && !_evt.sender.isDestroyed()) _evt.sender.send('log-line', line); } catch { /* noop */ }
+  };
+
+  try {
+    const postId = String(args?.postId || '').trim();
+    if (!postId) return { ok: false, error: 'postId 가 없습니다.' };
+    const selected = Array.isArray(args?.issues) ? args!.issues! : [];
+    if (selected.length === 0) return { ok: false, error: '고를 개선 항목이 없습니다.' };
+
+    const critique = require('../dist/core/final/post-critique');
+    const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
+    const envData = loadEnvFromFile() as any;
+    const creds = loadPlatformCredsFromEnv(envData, { platform: args?.platform as any });
+    const axios = (await import('axios')).default;
+    const adapter = buildPlatformAdapter(creds, axios);
+
+    // 비평 시점 이후 사장님이 손으로 고쳤을 수 있다 — 발행 직전의 것을 다시 읽는다.
+    send('[PROGRESS] 5% - 📄 최신 본문을 다시 읽는 중…');
+    const current = await adapter.getPost(postId);
+    if (!current) return { ok: false, error: '글을 찾을 수 없습니다.' };
+    const previousHtml = String(current.content || '');
+    const title = String(args?.title || current.title || '').trim();
+
+    const sections = critique.splitSections(previousHtml);
+    const { bySection, wholePost } = critique.groupIssuesBySection(selected);
+
+    // 구간별 지적이 없고 글 전체 지적만 있으면, 가장 얇은 구간부터 손본다.
+    const targets: number[] = bySection.size > 0
+      ? [...bySection.keys()].sort((a: number, b: number) => a - b)
+      : sections
+        .filter((s: any) => s.index > 0)
+        .sort((a: any, b: any) => String(a.html).length - String(b.html).length)
+        .slice(0, 2)
+        .map((s: any) => s.index);
+
+    if (targets.length === 0) return { ok: false, error: '고칠 구간을 정하지 못했습니다.' };
+
+    const revisions: { index: number; html: string }[] = [];
+    const skipped: string[] = [];
+
+    for (let i = 0; i < targets.length; i += 1) {
+      const index = targets[i]!;
+      const section = sections.find((s: any) => s.index === index);
+      if (!section) continue;
+
+      const percent = 10 + Math.floor((i / targets.length) * 75);
+      send(`[PROGRESS] ${percent}% - ✍️ ${i + 1}/${targets.length} "${String(section.heading).slice(0, 26)}" 구간을 고치는 중…`);
+
+      try {
+        const raw = await callGeminiWithRetry(
+          critique.buildSectionRevisionPrompt({
+            title,
+            section,
+            issues: bySection.get(index) || [],
+            wholePostIssues: wholePost,
+          }),
+          1,
+          { timeoutMs: 180000 },
+        );
+        const verdict = critique.acceptRevisedSection(raw, section);
+        if (verdict.accepted) {
+          revisions.push({ index, html: verdict.html });
+        } else {
+          skipped.push(`${section.heading}: ${verdict.reason}`);
+          send(`   ⚠️ "${String(section.heading).slice(0, 20)}" 구간은 그대로 둡니다 — ${verdict.reason}`);
+        }
+      } catch (sectionError: any) {
+        const reason = String(sectionError?.message || sectionError).slice(0, 80);
+        skipped.push(`${section.heading}: ${reason}`);
+        send(`   ⚠️ "${String(section.heading).slice(0, 20)}" 구간 실패 — 원본을 그대로 둡니다 (${reason})`);
+      }
+    }
+
+    if (revisions.length === 0) {
+      return { ok: false, error: `고쳐 쓴 구간이 하나도 없습니다. 기존 글은 그대로입니다.\n${skipped.join('\n')}` };
+    }
+
+    const nextHtml = critique.applySectionRevisions(previousHtml, revisions);
+    const verdict = critique.judgeImproved(nextHtml, previousHtml);
+    if (!verdict.ok) {
+      send(`❌ ${verdict.reason} — 기존 글을 그대로 둡니다`);
+      return { ok: false, error: `${verdict.reason}. 기존 글은 건드리지 않았습니다.` };
+    }
+
+    send('[PROGRESS] 92% - 💾 같은 주소에 수정 발행 중...');
+    await adapter.updatePost(postId, { content: nextHtml });
+    send(`[PROGRESS] 100% - ✅ 개선 발행 완료 (${revisions.length}개 구간 · ${verdict.length}자)`);
+
+    return {
+      ok: true,
+      revised: revisions.length,
+      skipped,
+      length: verdict.length,
+      url: current.url || '',
+      html: nextHtml,
+    };
+  } catch (error: any) {
+    const message = error?.message || String(error);
+    send(`❌ 개선 발행 실패: ${message}`);
+    return { ok: false, error: message };
+  }
+});
+
 ipcMain.handle('wordpress-list-posts', async (_evt, args?: { maxResults?: number; pageToken?: string }) => {
   try {
     const wordpressPosts = require('../dist/wordpress/wordpress-posts');

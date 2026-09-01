@@ -53,7 +53,8 @@ import { findUnkeptTitleClaims, stripUnkeptClaims, describeUnkeptClaims } from '
 // v3.8.591: 근거에 있는 핵심 수치를 빠뜨렸는지 본다 (지어내기 말고 '빠뜨리기')
 import { findMissingKeyFacts, describeMissingKeyFacts, hasMissingKeyFacts, buildKeyFactDirective } from './key-fact-gate';
 import { naverSearch } from '../naver-search-client';
-import { findEmptyBlocks, describeEmptyBlocks, removeEmptyFaqBlocks, isSummaryRenderable } from './empty-block-guard';
+import { findEmptyBlocks, describeEmptyBlocks, removeEmptyFaqBlocks, isSummaryRenderable, dropValuelessRows } from './empty-block-guard';
+import { normalizeTableNotation } from './table-notation';
 import { buildAnswerBlock } from './answer-block';
 import { buildAudienceBlock } from './audience-block';
 import { dropValuelessSections } from './value-promise';
@@ -3096,7 +3097,19 @@ ${quoted}
     if (!payload.useKeywordAsTitle) {
       const sanitizedH1 = sanitizeFactUnsafeHeading(h1, factEvidence, keyword);
       if (sanitizedH1 && sanitizedH1 !== h1) {
-        onLog?.(`[PROGRESS] 74% - [FACT] 제목의 근거 미확인 값만 정리했습니다: "${sanitizedH1}"`);
+        /**
+         * ⚠️ v3.8.619 — 제목이 통째로 키워드가 되는 건 **조용히 넘어갈 일이 아니다.**
+         *
+         * 사장님 실물 검수: "제목이 키워드 그대로 나와". 이 자리에서 폴백이 걸리면
+         * 발행글 제목이 검색어 그 자체가 된다 — 클릭이 안 되는 제목이다.
+         * 예전에는 "정리했습니다" 한 줄로 뭉뚱그려 로그에 남아 알아채지 못했다.
+         * 값만 도려낸 것과 제목을 통째로 버린 것은 다른 사건이므로 다르게 말한다.
+         */
+        if (sanitizedH1 === keyword) {
+          onLog?.(`[PROGRESS] 74% - ⚠️ [FACT] 제목을 통째로 버리고 키워드로 되돌렸습니다 — 근거 장부에 없는 값이 제목에 있었습니다: "${h1}"`);
+        } else {
+          onLog?.(`[PROGRESS] 74% - [FACT] 제목의 근거 미확인 값만 정리했습니다: "${sanitizedH1}"`);
+        }
         h1 = sanitizedH1;
       }
 
@@ -4631,11 +4644,13 @@ ${quoted}
         .trim()
         .slice(0, 120);                      // 너무 긴 셀 컷
     };
-    const cleanedRows = (summaryTable.rows || [])
-      .map(row => row.map(sanitizeSummaryCell))
-      // 전체 셀이 빈 줄 제거
-      .filter(row => row.some(c => c.length > 0));
-    const cleanedHeaders = (summaryTable.headers || []).map(sanitizeSummaryCell);
+    // v3.8.619 — 표 셀의 "곱하기"는 곱셈 기호로 (사장님: "한글 그대로 적지 말고 X로 표기")
+    const summaryCell = (raw: unknown): string => normalizeTableNotation(sanitizeSummaryCell(raw));
+    // v3.8.619 — 항목만 있고 값이 빈 줄은 버린다 (실사고: "공통 인상률 | (빈칸)")
+    const cleanedRows = dropValuelessRows(
+      (summaryTable.rows || []).map(row => row.map(summaryCell)),
+    );
+    const cleanedHeaders = (summaryTable.headers || []).map(summaryCell);
     const escapeSummaryAttr = (raw: unknown): string => String(raw ?? '')
       .replace(/&/g, '&amp;')
       .replace(/"/g, '&quot;')

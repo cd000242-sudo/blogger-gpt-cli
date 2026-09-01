@@ -1,0 +1,163 @@
+// 🩺 post-critique-modal.js — 발행된 글의 비평 리포트를 보여주고, 고칠 항목을 고르게 한다. (v3.8.619)
+//
+// 사장님: "그냥 다시 발행하는 게 아니라 글을 비평해보고 개선점을 확인해서 다시 발행하도록"
+//
+// 이 화면이 있는 이유는 하나다 — **무엇을 고칠지 사람이 보고 정한다.**
+// AI 가 알아서 다 바꿔버리면, 잘 쓴 문단이 지워져도 알아챌 수가 없다(과거 실수).
+// 그래서 체크한 항목만 고치고, 체크를 안 하면 그 구간은 손대지 않는다.
+
+const SEVERITY = {
+  high: { label: '반드시', bg: 'rgba(239,68,68,0.10)', border: 'rgba(239,68,68,0.35)', fg: '#fca5a5' },
+  medium: { label: '권장', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.30)', fg: '#fcd34d' },
+  low: { label: '참고', bg: 'rgba(148,163,184,0.08)', border: 'rgba(148,163,184,0.25)', fg: '#cbd5f5' },
+};
+
+const AREA_LABEL = {
+  substance: '알맹이',
+  answer: '검색 의도',
+  quality: '품질 기준',
+  cta: '전환',
+  competitor: '경쟁글 대비',
+  structure: '구성',
+};
+
+const esc = (value) => String(value == null ? '' : value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
+function scoreColor(score) {
+  if (score >= 80) return '#22c55e';
+  if (score >= 55) return '#f59e0b';
+  return '#ef4444';
+}
+
+/** 이 지적이 어느 구간의 것인지 사람이 읽을 수 있게 */
+function sectionLabel(issue, sections) {
+  if (!Number.isInteger(issue.sectionIndex) || issue.sectionIndex < 0) return '글 전체';
+  const found = (sections || []).find((s) => s.index === issue.sectionIndex);
+  if (!found) return '글 전체';
+  return found.index === 0 ? '도입부' : `${found.index}. ${found.heading}`;
+}
+
+function issueCard(issue, index, sections) {
+  const tone = SEVERITY[issue.severity] || SEVERITY.low;
+  // 반드시 고칠 것만 미리 체크해 둔다 — 참고 항목까지 켜두면 사장님이 다 끄게 된다.
+  const checked = issue.severity === 'high' ? 'checked' : '';
+  return `
+    <label style="display:flex;gap:12px;align-items:flex-start;padding:13px 14px;background:${tone.bg};border:1px solid ${tone.border};border-radius:11px;margin-bottom:9px;cursor:pointer;">
+      <input type="checkbox" class="pcIssue" data-index="${index}" ${checked}
+        style="margin-top:3px;width:17px;height:17px;accent-color:#6366f1;cursor:pointer;flex-shrink:0;">
+      <div style="flex:1;min-width:0;">
+        <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:5px;">
+          <span style="padding:2px 8px;border-radius:999px;background:rgba(15,23,42,0.55);color:${tone.fg};font-size:10.5px;font-weight:800;">${tone.label}</span>
+          <span style="padding:2px 8px;border-radius:999px;background:rgba(99,102,241,0.15);color:#a5b4fc;font-size:10.5px;font-weight:700;">${esc(AREA_LABEL[issue.area] || '구성')}</span>
+          <span style="color:#64748b;font-size:11px;">${esc(sectionLabel(issue, sections))}</span>
+          ${issue.origin === 'ai' ? '<span style="color:#64748b;font-size:11px;">· AI 비평</span>' : ''}
+        </div>
+        <div style="font-weight:800;color:#f1f5f9;font-size:13.5px;line-height:1.45;">${esc(issue.title)}</div>
+        ${issue.detail ? `<div style="color:#cbd5f5;font-size:12px;line-height:1.6;margin-top:5px;">${esc(issue.detail)}</div>` : ''}
+        ${issue.evidence ? `<div style="margin-top:7px;padding:8px 11px;background:rgba(15,23,42,0.5);border-radius:6px;color:#94a3b8;font-size:11.5px;line-height:1.55;">"${esc(issue.evidence)}"</div>` : ''}
+        ${issue.fix ? `<div style="margin-top:7px;color:#86efac;font-size:12px;line-height:1.55;">→ ${esc(issue.fix)}</div>` : ''}
+      </div>
+    </label>
+  `;
+}
+
+/**
+ * 비평 리포트를 띄운다.
+ *
+ * @param {object} critique - critique-published-post 핸들러 응답
+ * @param {(issues:any[]) => Promise<void>} onApply - 고른 항목으로 수정발행
+ */
+export function showCritiqueModal(critique, onApply) {
+  const existing = document.getElementById('postCritiqueModal');
+  if (existing) existing.remove();
+
+  const issues = Array.isArray(critique?.issues) ? critique.issues : [];
+  const sections = Array.isArray(critique?.sections) ? critique.sections : [];
+  const score = Number(critique?.score ?? 0);
+
+  const overlay = document.createElement('div');
+  overlay.id = 'postCritiqueModal';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483630;background:rgba(2,6,23,0.78);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px;';
+
+  const clean = issues.length === 0;
+  overlay.innerHTML = `
+    <div style="width:min(760px,100%);max-height:88vh;display:flex;flex-direction:column;background:#0f172a;border:1px solid #334155;border-radius:18px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,0.55);">
+      <div style="padding:20px 24px;border-bottom:1px solid #1e293b;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="font-size:22px;">🩺</div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:900;color:#f1f5f9;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(critique?.title || '비평 결과')}</div>
+            <div style="color:#94a3b8;font-size:12px;margin-top:3px;">${esc(critique?.summary || '')}${critique?.competitorCount ? ` · 경쟁글 ${critique.competitorCount}편 대조` : ' · 경쟁글 대조 없음'}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-size:26px;font-weight:900;color:${scoreColor(score)};line-height:1;">${score}</div>
+            <div style="font-size:10.5px;color:#64748b;margin-top:2px;">점</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="pcBody" style="flex:1;overflow-y:auto;padding:18px 24px;">
+        ${clean
+          ? '<div style="padding:26px;text-align:center;color:#bbf7d0;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:12px;">✅ 고칠 점을 찾지 못했습니다.<div style="color:#94a3b8;font-size:12px;margin-top:8px;">게이트 진단과 AI 비평 모두 통과했습니다.</div></div>'
+          : `<div style="color:#94a3b8;font-size:12px;margin-bottom:12px;">고칠 항목만 체크하세요. <b style="color:#e2e8f0;">체크한 지적이 붙은 구간만</b> 다시 씁니다 — 나머지 구간·이미지·링크는 그대로 둡니다.</div>
+             ${issues.map((issue, i) => issueCard(issue, i, sections)).join('')}`}
+      </div>
+
+      <div style="padding:16px 24px;border-top:1px solid #1e293b;display:flex;gap:10px;align-items:center;">
+        <div id="pcHint" style="flex:1;color:#64748b;font-size:11.5px;line-height:1.5;">주소(URL)와 제목은 그대로라 검색 색인이 유지됩니다.</div>
+        <button id="pcCancel" style="padding:10px 18px;background:#1e293b;color:#cbd5f5;border:1px solid #334155;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;">닫기</button>
+        ${clean ? '' : '<button id="pcApply" style="padding:10px 20px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;">✍️ 선택한 항목 수정발행</button>'}
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('#pcCancel')?.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  const applyBtn = overlay.querySelector('#pcApply');
+  const hint = overlay.querySelector('#pcHint');
+  const selected = () => [...overlay.querySelectorAll('.pcIssue')]
+    .filter((box) => box.checked)
+    .map((box) => issues[Number(box.getAttribute('data-index'))])
+    .filter(Boolean);
+
+  const syncButton = () => {
+    if (!applyBtn) return;
+    const n = selected().length;
+    applyBtn.textContent = n ? `✍️ ${n}건 수정발행` : '✍️ 항목을 골라주세요';
+    applyBtn.disabled = n === 0;
+    applyBtn.style.opacity = n === 0 ? '0.5' : '1';
+    applyBtn.style.cursor = n === 0 ? 'not-allowed' : 'pointer';
+  };
+  overlay.querySelectorAll('.pcIssue').forEach((box) => box.addEventListener('change', syncButton));
+  syncButton();
+
+  applyBtn?.addEventListener('click', async () => {
+    const picked = selected();
+    if (picked.length === 0) return;
+
+    applyBtn.disabled = true;
+    applyBtn.style.opacity = '0.6';
+    applyBtn.textContent = '✍️ 고쳐 쓰는 중… (몇 분 걸립니다)';
+    if (hint) hint.textContent = '문제 구간만 다시 씁니다. 규칙을 어긴 구간은 원본을 그대로 둡니다.';
+
+    try {
+      await onApply(picked);
+      close();
+    } catch (err) {
+      if (hint) hint.innerHTML = `<span style="color:#fca5a5;">❌ ${esc(err?.message || err)}</span>`;
+      applyBtn.disabled = false;
+      applyBtn.style.opacity = '1';
+      syncButton();
+    }
+  });
+}
+
+window.showCritiqueModal = showCritiqueModal;

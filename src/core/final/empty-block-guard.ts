@@ -50,6 +50,29 @@ export function dropEmptyFaqItems<T extends FaqLike>(faqs: T[]): T[] {
 const MAX_EMPTY_CELL_RATIO = 0.5;
 
 /**
+ * 🕳️ v3.8.619 — 항목만 있고 값이 빈 줄은 버린다.
+ *
+ * 사장님 실물 검수: "표도 공란이 있는데 의도한 거면 이해하겠지만 문맥상 누락인 것 같아"
+ * 실제로 발행글의 요약표에 `공통 인상률 | (빈칸)` 줄이 그대로 나갔다.
+ *
+ * 읽는 사람에게 빈 값은 "없다"가 아니라 **"만들다 만 표"** 로 읽힌다.
+ * 항목 이름은 첫 칸이고 나머지가 값이다 — 값이 하나도 없으면 그 줄은 아무 말도 하지 않는다.
+ * (전부 빈 줄만 걸러 내던 예전 규칙은 첫 칸이 차 있으면 통과시켰다. 그게 이 사고다.)
+ */
+export function dropValuelessRows(rows: string[][]): string[][] {
+  try {
+    if (!Array.isArray(rows)) return [];
+    return rows.filter((row) => {
+      if (!Array.isArray(row) || row.length === 0) return false;
+      if (row.length === 1) return !isBlank(row[0] as string);
+      return row.slice(1).some((cell) => !isBlank(cell as string));
+    });
+  } catch {
+    return Array.isArray(rows) ? rows : [];
+  }
+}
+
+/**
  * 요약표를 그릴 만한지 판단한다.
  * 셀 하나쯤 비는 건 통과시킨다 — 지나치게 엄하면 멀쩡한 표가 통째로 사라진다.
  */
