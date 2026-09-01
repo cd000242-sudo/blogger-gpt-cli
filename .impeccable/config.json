@@ -83,6 +83,15 @@
         ],
         "createdAt": "2026-08-29T13:27:25.327Z",
         "reason": "measured by assistant: L132 is a regex that PARSES <img src> out of post content to pick a thumbnail; it emits no markup. The card render already guards with a ternary so no empty-src img ships."
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "src/core/final/post-critique.ts"
+        ],
+        "createdAt": "2026-09-01T21:34:39.391Z",
+        "reason": "이 파일은 렌더링되는 마크업이 아니라 판정 로직이다: L134 는 이미지 개수를 세는 정규식 IMG_RE, L469 는 AI 에게 '<img> 태그를 그대로 두라'고 지시하는 프롬프트 문자열. 화면에 나가는 <img> 가 없어 깨진 이미지가 생길 수 없다. 세션 내 4회 반복 오탐."
       }
     ]
   }

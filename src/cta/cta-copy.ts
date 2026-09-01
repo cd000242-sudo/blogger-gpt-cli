@@ -74,7 +74,7 @@ const HOST_TO_NAME: Map<string, string> = (() => {
  * ⚠️ 여기 없는 호스트는 이름 없이 무난한 문구로 내려간다. 그게 지어내는 것보다 낫다 —
  *    "○○ 바로가기"의 ○○ 가 틀리면 독자를 엉뚱한 곳으로 부르는 셈이다.
  */
-const EXTRA_HOST_NAMES: Record<string, string> = {
+export const EXTRA_HOST_NAMES: Record<string, string> = {
   'work24.go.kr': '고용24',
   'hometax.go.kr': '국세청 홈택스',
   'wetax.go.kr': '위택스',
@@ -93,6 +93,34 @@ const EXTRA_HOST_NAMES: Record<string, string> = {
   'iros.go.kr': '인터넷등기소',
   'scourt.go.kr': '대법원',
   'easylaw.go.kr': '찾기쉬운 생활법령정보',
+
+  /**
+   * v3.8.619 — 금융·정책 글에서 매번 폴백으로 떨어지던 곳들.
+   *
+   * 실측: 발행글의 CTA 버튼이 "🔗 공식 사이트 바로가기" 로 나갔다. 목적지가 어디인지
+   * 한 글자도 말하지 않는 문구다. 원인은 이 사전에 그 기관이 없어서였다
+   * (fss.or.kr 은 있어서 "🔗 금융감독원 바로가기" 로 제대로 나온다).
+   *
+   * 이름은 전부 **해당 사이트에 직접 접속해 <title> 로 확인**했다(2026-09-02).
+   * 그러다 두 곳이 개편된 것을 알았다 — 추측했으면 틀린 이름을 내보낼 뻔했다:
+   *   · kostat.go.kr 은 통계청이 아니라 **국가데이터처**
+   *   · me.go.kr 은 환경부가 아니라 **기후에너지환경부**
+   */
+  'fsc.go.kr': '금융위원회',
+  'mpm.go.kr': '인사혁신처',
+  // KDI 본원(kdi.re.kr)이 아니라 경제교육·정보센터가 실제 자리다 — 응답 확인 완료
+  'eiec.kdi.re.kr': 'KDI 경제교육·정보센터',
+  'bok.or.kr': '한국은행',
+  'kostat.go.kr': '국가데이터처',
+  'kosis.kr': '국가통계포털',
+  'moel.go.kr': '고용노동부',
+  'nts.go.kr': '국세청',
+  'hf.go.kr': '한국주택금융공사',
+  'lh.or.kr': '한국토지주택공사',
+  'mois.go.kr': '행정안전부',
+  'mfds.go.kr': '식품의약품안전처',
+  'data.go.kr': '공공데이터포털',
+  'me.go.kr': '기후에너지환경부',
 };
 
 /**
@@ -129,6 +157,19 @@ function withTopicParticle(word: string): string {
   const code = last.charCodeAt(0);
   if (code < 0xac00 || code > 0xd7a3) return `${word},`;
   return (code - 0xac00) % 28 === 0 ? `${word}는` : `${word}은`;
+}
+
+/**
+ * 받침에 따라 이/가를 고른다.
+ *
+ * 실측에서 "정부기관가 안내하는 원문입니다" 가 나왔다. 조사 하나가 틀리면
+ * 읽는 사람은 그 문장을 쓴 사람이 사람이 아니라는 걸 바로 안다.
+ */
+function withSubjectParticle(word: string): string {
+  const last = word.trim().slice(-1);
+  const code = last.charCodeAt(0);
+  if (code < 0xac00 || code > 0xd7a3) return `${word},`;
+  return (code - 0xac00) % 28 === 0 ? `${word}가` : `${word}이`;
 }
 
 /** 앞뒤 군더더기와 이모지를 털어 낸다 — 버튼 이모지는 우리가 붙인다 */
@@ -188,10 +229,44 @@ export function buildCtaCopy(input: CtaCopyInput): CtaCopy {
       hookingMessage: `${withTopicParticle(action)} 아래에서 이어서 하실 수 있습니다.`,
     };
   }
+  /**
+   * v3.8.619 — 이름을 몰라도 **도메인은 성격을 말해 준다.**
+   *
+   * 실측 사고: 버튼이 "🔗 공식 사이트 바로가기", 훅이 "운영 기관의 원문 안내로 이어집니다"
+   * 로 나갔다. 둘 다 목적지에 대해 아무것도 알려주지 않아 누를 이유가 생기지 않는다.
+   *
+   * 기관 이름은 지어내면 안 되지만(엉뚱한 곳으로 부르는 셈이다), `.go.kr` 이 정부기관이고
+   * `.or.kr` 이 공공기관이라는 건 **지어낸 것이 아니라 주소가 가진 사실**이다.
+   * 이름 대신 그 사실만 써도 "공식 사이트"보다는 클릭할 이유가 분명해진다.
+   */
+  const kind = officialKindOf(input.url || '');
+  if (kind) {
+    return {
+      buttonText: `🔗 ${kind} 원문 확인하기`,
+      hookingMessage: `${withSubjectParticle(kind)} 안내하는 원문입니다.`,
+    };
+  }
+
   return {
     buttonText: '🔗 공식 사이트 바로가기',
     hookingMessage: '운영 기관의 원문 안내로 이어집니다.',
   };
+}
+
+/**
+ * 주소만 보고 알 수 있는 기관 성격.
+ *
+ * 이름은 모르지만 도메인 규칙은 확실하다 — 한국 인터넷주소자원 관리 규정상
+ * `go.kr` 은 정부기관, `or.kr` 은 비영리·공공기관, `re.kr` 은 연구기관에만 준다.
+ * 확실하지 않은 것(`co.kr`·일반 도메인)에는 아무 말도 붙이지 않는다.
+ */
+export function officialKindOf(url: string): string {
+  const host = hostOf(url);
+  if (!host) return '';
+  if (/\.go\.kr$/.test(host)) return '정부기관';
+  if (/\.or\.kr$/.test(host)) return '공공기관';
+  if (/\.re\.kr$/.test(host)) return '연구기관';
+  return '';
 }
 
 /**

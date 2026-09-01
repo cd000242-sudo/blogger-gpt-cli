@@ -26,6 +26,7 @@
 import { scanSubstance, stripToPlainText, SUBSTANCE_THRESHOLDS } from './substance-gate';
 import { scanContentQuality } from './quality-gate';
 import { auditTitleAnswer } from './title-answer-gate';
+import { findRepeatedClaims } from './redundancy-guard';
 
 export type CritiqueArea = 'substance' | 'answer' | 'quality' | 'cta' | 'competitor' | 'structure';
 export type CritiqueSeverity = 'high' | 'medium' | 'low';
@@ -303,7 +304,23 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
     });
   }
 
-  // ⑤ 경쟁글 대조 — 상위 글들이 다루는데 내 글엔 없는 것
+  // ⑤ 되풀이 — 같은 주장을 몇 번이나 다시 말했는가
+  const repeats = findRepeatedClaims(html).filter((r) => r.occurrence > 2);
+  if (repeats.length > 0) {
+    const worst = repeats.reduce((a, b) => (b.occurrence > a.occurrence ? b : a));
+    push({
+      id: 'redundancy-repeat',
+      area: 'structure',
+      severity: 'medium',
+      title: '같은 말을 너무 여러 번 합니다',
+      detail: `같은 주장이 최대 ${worst.occurrence}회 되풀이됩니다(3회 이상 ${repeats.length}건). 훑어 읽는 독자를 위해 두 번까지는 괜찮지만, 그 이상은 읽는 사람이 "아까 봤는데"라고 느낍니다.`,
+      evidence: worst.repeat,
+      fix: '세 번째부터의 되풀이를 빼거나, 같은 사실을 다른 각도(예시·수치·절차)로 바꿔 말합니다.',
+      sectionIndex: locateSection(sections, worst.repeat),
+    });
+  }
+
+  // ⑥ 경쟁글 대조 — 상위 글들이 다루는데 내 글엔 없는 것
   const gaps = findCompetitorGaps(bodyText, input.competitors || []);
   if (gaps.length >= 3) {
     push({

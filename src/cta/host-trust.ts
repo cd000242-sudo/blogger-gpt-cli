@@ -55,6 +55,21 @@ const USER_GENERATED_PATTERNS: RegExp[] = [
   /(^|\.)wordpress\.com$/i, /(^|\.)medium\.com$/i, /(^|\.)brunch\.co\.kr$/i,
   /(^|\.)velog\.io$/i, /(^|\.)substack\.com$/i, /(^|\.)note\.com$/i,
   /(^|\.)postype\.com$/i,
+  /**
+   * v3.8.619 — 실측으로 뚫려 있던 곳들.
+   *
+   * 사장님: "내 글 보러 왔는데 다른 블로그로 링크 타고 가버리면
+   *          그 블로그 주인한테 광고 수익을 주는 꼴이라고"
+   *
+   * 위 목록을 그대로 두고 재보니 네이버 포스트·인플루언서·스팀잇이 통과했다.
+   * 셋 다 개인이 글을 올려 수익을 얻는 자리라 성격이 블로그와 같다.
+   */
+  /(^|\.)post\.naver\.com$/i,      // 네이버 포스트
+  /(^|\.)in\.naver\.com$/i,        // 네이버 인플루언서 홈
+  /(^|\.)m\.blog\.naver\.com$/i,   // 모바일 주소로 들어오는 경우
+  /(^|\.)steemit\.com$/i,
+  /(^|\.)xtory\.co\.kr$/i,
+  /(^|\.)story\.kakao\.com$/i,
   // 카페·커뮤니티·Q&A
   /(^|\.)cafe\.naver\.com$/i, /(^|\.)cafe\.daum\.net$/i, /(^|\.)band\.us$/i,
   /(^|\.)kin\.naver\.com$/i, /(^|\.)reddit\.com$/i, /(^|\.)quora\.com$/i,
@@ -84,6 +99,27 @@ export function isUserGenerated(host: string): boolean {
 export function isUserGeneratedUrl(url: string): boolean {
   const host = hostOf(url);
   return host ? isUserGenerated(host) : false;
+}
+
+/**
+ * **남의 블로그인가.** CTA 목적지의 마지막 금지선이다. (v3.8.619)
+ *
+ * 사장님: "내 글 보러 왔는데 다른 블로그로 링크 타고 가버리면
+ *          그 블로그 주인한테 광고 수익을 주는 꼴이라고"
+ *
+ * 맞는 말이고, 트래픽만 잃는 게 아니라 **남의 수익을 만들어 주는** 일이다.
+ * 그래서 블로그·커뮤니티·SNS 는 목적지가 될 수 없다 — 딱 하나, **내 블로그**만 예외다.
+ * 내 글로 보내는 건 나가는 게 아니라 더 머무는 것이다.
+ *
+ * 같은 호스트인지로만 판단한다. 경로가 달라도 내 도메인이면 내 글이다.
+ */
+export function isForeignBlogUrl(url: string, ownBlogUrl?: string): boolean {
+  const host = hostOf(url);
+  if (!host) return false;
+  if (!isUserGenerated(host)) return false;
+
+  const own = hostOf(String(ownBlogUrl || ''));
+  return own ? host !== own : true;
 }
 
 /** 링크 단축·중계·집계처럼 최종 목적지를 감추는 도메인 */
@@ -121,6 +157,15 @@ function isCatalogHost(host: string): boolean {
  * `'gov.kr'.endsWith('.gov.kr')` 는 false 다. 그래서 **정부24가 공공기관으로 안 잡혔다.**
  * 지금까지는 카탈로그(isCatalogHost)가 가려 주고 있어서 안 드러났다.
  */
+/**
+ * v3.8.616: 밖에서도 쓴다 — 공공 주제 글에서 CTA 가 기관 도메인인지 마지막에 검산한다.
+ * (사장님: "어떤주제이던지 자동으로 잘묶어줘야되")
+ */
+export function isInstitutionalHost(url: string): boolean {
+  try { return isInstitutional(new URL(url).hostname.replace(/^www./, '')); }
+  catch { return false; }
+}
+
 function isInstitutional(host: string): boolean {
   return INSTITUTIONAL_SUFFIXES.some((suffix) => host.endsWith(suffix) || host === suffix.slice(1));
 }

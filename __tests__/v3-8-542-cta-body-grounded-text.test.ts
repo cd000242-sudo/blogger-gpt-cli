@@ -166,8 +166,13 @@ describe('④ 배선과 비용 — 본문은 늘 싣고, 라우터는 필요할 
     expect(genSrc).toContain('onLog?: (message: string) => void');
     expect(genSrc).toContain('🧭 CTA 목적지 판정');
     expect(genSrc).toContain('💰 CTA 문구:');
-    expect(read('src/core/final/orchestration.ts')).toContain(
-      'generateCTAsFinal(keyword, crawledPosts, sections, contentMode, officialSources, onLog)',
+    /**
+     * v3.8.619 — 인자가 하나 늘었다(blogUrl). 호출문 전체를 글자로 고정해 두면
+     * 인자가 늘 때마다 이 테스트가 깨진다. 지키려던 것은 "onLog 가 실제로 넘어가는가"이므로
+     * 그 부분만 본다. 새로 늘어난 인자의 배선은 v3-8-619-cta-fallback-chain 이 따로 지킨다.
+     */
+    expect(read('src/core/final/orchestration.ts')).toMatch(
+      /generateCTAsFinal\(keyword, crawledPosts, sections, contentMode, officialSources, onLog[,)]/,
     );
   });
 });

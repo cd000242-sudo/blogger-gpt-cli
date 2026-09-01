@@ -240,7 +240,24 @@ export function normalizeParagraphs(html: string, opts: NormalizeOptions = {}): 
       //   바로 다음 본문 문단과 강제로 합쳐졌다.
       //   실제 발행글에서 확인: "이 포스팅은 쿠팡 파트너스... 제공받습니다.<br>스마트폰 저장 공간은..."
       //   — 대가성 문구와 본문 첫 문장이 한 문단으로 뭉쳐 있었다.
-      if (/affiliate-disclosure|coupang-disclosure|data-orbit-cta/i.test(attrs)) {
+      /**
+       * 🔗 v3.8.619 — CTA 조각(`cta-`)을 통째로 보호 목록에 넣는다.
+       *
+       * ## 실사고 (leadernam.com 발행글)
+       * CTA 박스가 이렇게 나가야 하는데
+       *   <div class="cta-box"><span class="cta-badge">…</span>
+       *     <p class="cta-hook"><strong>훅</strong></p>
+       *     <div class="cta-action-stack"><a class="cta-btn">…</a></div></div>
+       * 실제 발행본은 박스에 **배지와 버튼만** 남고, 본문 한복판에
+       *   <p class="cta-hook">운영 기관의 원문 안내로 이어집니다. 주담대 한도는 연소득에…</p>
+       * 이 굵은 글씨로 박혀 있었다. 훅과 본문 첫 문장이 뭉친 것이다.
+       *
+       * 원인은 여기였다. 훅은 한 줄이라 60자가 안 돼 "짧은 문단"으로 잡혀 `carry` 에 실리고,
+       * 다음 문단과 합쳐지면서 **박스 밖으로 밀려난다.** 위 주석의 쿠팡 고지문 사고와 같은 병이다.
+       * 그때는 클래스 이름 하나를 더 적어 막았는데, 그러면 새 클래스가 생길 때마다 또 뚫린다.
+       * 그래서 이름을 나열하는 대신 **`cta-` 로 시작하는 조각 전부**를 손대지 않는다.
+       */
+      if (/affiliate-disclosure|coupang-disclosure|data-orbit-cta|\bcta-/i.test(attrs)) {
         if (carry) { out += `<p${carry.attrs}>${carry.inner}</p>`; carry = null; }
         out += full;
         continue;

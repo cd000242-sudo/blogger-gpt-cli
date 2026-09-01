@@ -113,7 +113,7 @@ describe('④ 배선 — 배지가 목적지를 보고 붙는다', () => {
   });
 
   test('목적지를 보고 배지를 정한다', () => {
-    expect(orch).toContain("import { isOfficialDestination } from '../../cta/host-trust'");
+    expect(orch).toMatch(/isOfficialDestination[^;]*from '\.\.\/\.\.\/cta\/host-trust'/);
     expect(orch).toContain('isOfficialDestination(sectionCta.url)');
     // 공식이 아니면 정직한 다른 문구를 쓴다 (배지를 아예 없애면 박스가 허전해진다)
     expect(orch).toContain("'참고 링크'");

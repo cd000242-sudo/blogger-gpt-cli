@@ -21,7 +21,7 @@ import { validateCtaUrl, validateCtaUrlFormat } from '../../cta/validate-cta-url
 // v3.8.570: 버튼·훅을 같은 자리에서 만들고, 제목을 되풀이하는 훅은 나가기 전에 걸러 낸다
 import { buildCtaCopy, hookEchoesTitle } from '../../cta/cta-copy';
 // v3.8.574: "공식 권장" 배지는 진짜 공공기관일 때만 — 민간에 붙이면 독자를 속인다
-import { isOfficialDestination } from '../../cta/host-trust';
+import { isOfficialDestination, isForeignBlogUrl } from '../../cta/host-trust';
 import { findRelatedPosts, insertInternalLinks } from '../internal-links';
 import { analyzeKeywordDemand } from '../keyword-demand';
 import { analyzeKeywordAngle, composeTitleDirective } from '../keyword-angle';
@@ -166,9 +166,20 @@ type RenderableCtaCandidate = {
   searchFallback?: boolean;
 };
 
-function isCtaUrlShapeSafe(url?: string): boolean {
+function isCtaUrlShapeSafe(url?: string, ownBlogUrl?: string): boolean {
   const value = String(url || '').trim();
   if (!value) return false;
+  /**
+   * 🚫 v3.8.619 — **남의 블로그로는 절대 보내지 않는다.**
+   *
+   * 사장님: "내 글 보러 왔는데 다른 블로그로 링크 타고 가버리면
+   *          그 블로그 주인한테 광고 수익을 주는 꼴이라고"
+   *
+   * 트래픽을 잃는 데서 끝나는 게 아니라 **남의 수익을 만들어 주는** 일이다.
+   * 여기가 모든 CTA 가 반드시 지나는 자리라, 위쪽 경로가 무엇을 뽑아 오든 여기서 막힌다.
+   * 예외는 하나 — 내 블로그. 그건 나가는 게 아니라 더 머무는 것이다.
+   */
+  if (isForeignBlogUrl(value, ownBlogUrl)) return false;
   const formatCheck = validateCtaUrlFormat(value);
   if (!formatCheck.isValid) return false;
   const lower = value.toLowerCase();
@@ -184,10 +195,10 @@ function isSearchFallbackUrl(url?: string): boolean {
     /google\.com\/search|search\.naver\.com|search\.daum\.net|bing\.com\/search/i.test(value);
 }
 
-function isRenderableCta(item?: { url?: string; searchFallback?: boolean }): boolean {
+function isRenderableCta(item?: { url?: string; searchFallback?: boolean }, ownBlogUrl?: string): boolean {
   if (!item) return false;
   if (item.searchFallback === true) return isSearchFallbackUrl(item.url);
-  return isCtaUrlShapeSafe(item.url);
+  return isCtaUrlShapeSafe(item.url, ownBlogUrl);
 }
 
 function normalizeCtaUrlKey(url?: string): string {
@@ -211,9 +222,10 @@ function markRenderedCta(usedUrls: Set<string>, url?: string): void {
 function pickRenderableCta<T extends { url: string; searchFallback?: boolean }>(
   items: T[],
   usedUrls?: Set<string>,
+  ownBlogUrl?: string,
 ): T | undefined {
   return items.find(item => {
-    if (!isRenderableCta(item)) return false;
+    if (!isRenderableCta(item, ownBlogUrl)) return false;
     const key = normalizeCtaUrlKey(item.url);
     return !key || !usedUrls?.has(key);
   });
@@ -3240,6 +3252,18 @@ ${quoted}
     onLog?.('[PROGRESS] 70% - 💰 CTA 버튼 생성 중...');
     let ctas: FinalCTAData[] = [];
 
+    /**
+     * 🏠 v3.8.619 — 내 블로그 주소. 아래 두 곳에서 함께 쓴다.
+     *
+     *   ① generateCTAsFinal 에 넘겨 — 밖에 보낼 곳이 없을 때 **내 관련 글**로 CTA 를 만든다
+     *   ② CTA 렌더 관문(isRenderableCta)에 넘겨 — **남의 블로그**를 걸러낸다
+     *
+     * 사장님: "내 글 보러 왔는데 다른 블로그로 링크 타고 가버리면
+     *          그 블로그 주인한테 광고 수익을 주는 꼴이라고"
+     * 그래서 "내 것인가"를 판정하려면 이 값이 렌더 시점까지 살아 있어야 한다.
+     */
+    let ctaBlogUrl = '';
+
     // 🔥 수동 CTA가 있으면 우선 사용 (애드센스 모드에서는 수동 CTA도 차단)
     if (contentMode !== 'adsense' && payload.manualCtas && Object.keys(payload.manualCtas).length > 0) {
       // 📥 문서 URL이면 빈 텍스트를 다운로드 버튼으로 자동 채움
@@ -3285,7 +3309,11 @@ ${quoted}
     if (ctas.length === 0) {
       // v3.8.542: onLog 를 넘긴다 — CTA 단계가 화면에 아무 말도 안 해서
       //   라우터가 돌았는지 안 돌았는지 확인할 방법이 없었다.
-      ctas = await generateCTAsFinal(keyword, crawledPosts, sections, contentMode, officialSources, onLog);
+      ctaBlogUrl = String(
+        (payload as any).blogUrl || (payload as any).wordpressSiteUrl || (payload as any).siteUrl || (payload as any).url ||
+        loadEnvFromFile()['WORDPRESS_SITE_URL'] || ''
+      ).trim().replace(/\/+$/, '');
+      ctas = await generateCTAsFinal(keyword, crawledPosts, sections, contentMode, officialSources, onLog, ctaBlogUrl);
     }
 
     // CTA 배치
@@ -4263,7 +4291,7 @@ ${quoted}
       if (sectionCta && isShoppingArticle) {
         console.log('[MAX-MODE] 🛒 쇼핑 글 — 공식 사이트 CTA 생략 (제휴 링크만 노출)');
       } else if (sectionCta) {
-        if (!isRenderableCta(sectionCta)) {
+        if (!isRenderableCta(sectionCta, ctaBlogUrl)) {
           console.log(`[MAX-MODE] ⚠️ CTA URL 무효 → 렌더링 생략: ${sectionCta.url}`);
         } else if (renderedCtaUrls.has(normalizeCtaUrlKey(sectionCta.url))) {
           console.log(`[MAX-MODE] ℹ️ 중복 CTA URL 생략: ${sectionCta.url}`);
@@ -4715,7 +4743,7 @@ ${quoted}
         }),
         ...supplementalCtas
       ];
-      const topCta = pickRenderableCta(topCandidates, renderedCtaUrls);
+      const topCta = pickRenderableCta(topCandidates, renderedCtaUrls, ctaBlogUrl);
 
       if (topCta) {
         topCtaHtml = renderFinalCtaBlock({
@@ -4836,7 +4864,7 @@ ${conclusionHTML}
         }),
         ...supplementalCtas
       ];
-      const finalCta = pickRenderableCta(finalCandidates, renderedCtaUrls);
+      const finalCta = pickRenderableCta(finalCandidates, renderedCtaUrls, ctaBlogUrl);
 
       /**
        * 🏦 v3.8.558 — 같은 행동을 할 수 있는 창구가 여러 곳이면 버튼도 여러 개.
@@ -5701,6 +5729,30 @@ ${conclusionHTML}
      * 빈 소제목은 다르다. 섹션이 통째로 비었다는 뜻이라 지우면 뼈대가 무너진다.
      * 그때는 예전처럼 막는다 — 사장님이 그러라고 넣은 안전망이다.
      */
+    /**
+     * 🔁 v3.8.619 — 같은 주장을 세 번째부터 덜어낸다.
+     *
+     * 사장님 지적: "의도적으로 반복시킨 건 SEO 때문인 거니?"
+     * SEO 규칙 때문이 아니었다. 상단 답변블록·요약표·도입부·본문 구간·FAQ 가
+     * 각각 따로 생성되면서 저마다 핵심 사실을 다시 말한 것이다 (실측 8회).
+     *
+     * 여기서 하는 이유: 모든 블록이 합쳐진 **뒤라야** 블록 사이의 되풀이가 보인다.
+     * 빈 블록 검사보다 먼저 두어, 덜어낸 결과가 빈 블록을 만들지 않았는지 함께 걸리게 한다.
+     */
+    try {
+      const { dedupeRepeatedClaims, describeRedundancy } = require('./redundancy-guard');
+      const deduped = dedupeRepeatedClaims(html);
+      if (deduped.removed > 0) {
+        html = deduped.html;
+        onLog?.(`[PROGRESS] 96% - 🔁 ${describeRedundancy(deduped.report, deduped.removed)}`);
+      } else if (deduped.skipped) {
+        onLog?.(`[PROGRESS] 96% - ℹ️ 되풀이 정리를 건너뜁니다 — ${deduped.skipped}`);
+      }
+    } catch (redundancyError: any) {
+      // 되풀이 정리는 있으면 좋은 것이지 발행을 막을 일이 아니다
+      console.warn('[REDUNDANCY] 건너뜀:', redundancyError?.message || redundancyError);
+    }
+
     const beforeRepair = findEmptyBlocks(html);
     if (beforeRepair.length > 0) {
       const repaired = removeEmptyFaqBlocks(html);

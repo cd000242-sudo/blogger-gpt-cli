@@ -8,6 +8,7 @@
 import axios from 'axios';
 // v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
 import { naverSearch } from '../naver-search-client';
+import { isInstitutionalHost } from '../../cta/host-trust';
 // v3.8.565 (E2): 출력 언어 규칙은 language-rules 한 곳에서만 만든다.
 //   llm-caller 의 시스템 프롬프트와 이 본문 규칙이 서로 다른 언어를 지시하면 모델이 흔들린다.
 import { outputLanguageRule, getActiveLanguage } from './language-rules';
@@ -3029,6 +3030,226 @@ type SmartCtaTargetLike = {
   searchQuery: string;
 };
 
+const ACTION_DESTINATIONS: Array<{
+  keywords: string[];
+  /** 신청·접수처럼 "하러 가는" 화면 */
+  apply?: string;
+  /** 조회·확인처럼 "보러 가는" 화면 */
+  check?: string;
+  /** 버튼에 쓸 행동 이름 (예: "홈택스에서 근로장려금 신청") */
+  label: string;
+}> = [
+  { keywords: ['근로장려금', '자녀장려금', '반기신청'], apply: 'https://www.hometax.go.kr/websquare/websquare.wq?w2xPath=/ui/pp/index_pp.xml', check: 'https://www.hometax.go.kr/websquare/websquare.wq?w2xPath=/ui/pp/index_pp.xml', label: '홈택스' },
+  { keywords: ['연말정산', '종합소득세', '부가세', '환급금', '경정청구'], apply: 'https://www.hometax.go.kr/websquare/websquare.wq?w2xPath=/ui/pp/index_pp.xml', label: '홈택스' },
+  { keywords: ['실업급여', '구직급여', '국민취업지원', '고용보험'], apply: 'https://www.work24.go.kr/cm/main.do', label: '고용24' },
+  { keywords: ['기초생활', '긴급복지', '차상위', '복지 신청', '복지급여'], apply: 'https://www.bokjiro.go.kr/ssis-tbu/index.do', label: '복지로' },
+  { keywords: ['지원금', '보조금', '혜택', '받을 수 있', '대상자 조회'], check: 'https://plus.gov.kr/portal/benefitV2/', label: '정부24 혜택알리미' },
+  { keywords: ['국민연금', '예상연금', '노령연금'], check: 'https://www.nps.or.kr/', label: '국민연금공단' },
+  { keywords: ['건강보험', '보험료 조회'], check: 'https://www.nhis.or.kr/', label: '국민건강보험' },
+];
+
+/** 홈처럼 보이는 주소인가 — 경로가 없거나 main 뿐이면 행동 화면이 아니다 */
+const looksLikeHomeUrl = (url: string): boolean => {
+  try {
+    const p = new URL(url).pathname.replace(/\/+$/, '');
+    return p === '' || /^\/(main|index)(\.\w+)?$/i.test(p) || /\/main\/main\.do$/i.test(p);
+  } catch { return false; }
+};
+
+/**
+ * 🔁 v3.8.616 — **홈으로 정해졌으면 마지막에 갈아끼운다.**
+ *
+ * 앞단계(AI 추론·검색)가 기관 홈을 먼저 채택해 버리면 아래 행동 표까지 오지도 않는다.
+ * 실측: "근로장려금 신청방법" → 정부24 홈(gov.kr), "실업급여 신청 조건" → 복지로 홈.
+ * 둘 다 "어디서 신청하나" 에 답하지 못한다 — 독자는 거기서 또 헤맨다.
+ *
+ * 그래서 돌려주기 직전에 한 번 더 본다: 홈이면 그 주제의 행동 화면으로 바꾼다.
+ * 행동 화면이 없으면 그대로 둔다(홈이라도 없는 것보단 낫다) — 대신 로그로 남긴다.
+ */
+/**
+ * 🔎 v3.8.616 — **표에 없는 주제도 자동으로 묶는다.**
+ *
+ * 사장님: "어떤주제이던지 자동으로 잘묶어줘야되"
+ *
+ * 손으로 적은 표는 아무리 늘려도 모든 주제를 못 덮는다. 그래서 표는 **빠른 길**로만 두고,
+ * 표에 없으면 **그 기관 도메인 안에서 행동 화면을 찾아온다.**
+ *   · 검색어는 "{기관} {행동}" — 라우터가 이미 둘 다 정해 놨다
+ *   · 같은 호스트이면서 경로가 있는 결과만 (홈·첨부파일 제외)
+ * 실패하면 조용히 빈 값 — 홈이라도 남는 게 없는 것보단 낫다.
+ */
+/**
+ * 🏛️ v3.8.616 — 이 글이 **공공·행정 주제**인가.
+ *
+ * 사장님 실측 사고: "자동차 과태료 조회" → 롯데렌터카, "전세보증금 반환보증" → 부동산114.
+ * 카탈로그의 넓은 태그(자동차·부동산)가 상업 사이트를 뽑았고, judgeCtaHost 는
+ * 카탈로그면 통과시킨다. 공공 주제 글에 쇼핑몰·중개 사이트를 물리면 홈보다 나쁘다.
+ *
+ * 그래서 주제가 공공이면 **기관 도메인만** 쓴다. 판정은 넓게 잡되(놓치는 쪽이 손해),
+ * 쇼핑 모드는 애초에 이 경로를 안 탄다.
+ */
+function looksPublicTopic(keyword: string, agencies: string[]): boolean {
+  const text = [keyword, ...(agencies || [])].join(' ');
+  return /신청|접수|지원금|보조금|장려금|급여|수당|과태료|범칙금|세금|환급|공제|연금|보험료|증명서|발급|민원|등록|면허|보증|청약|보훈|복지|국세|지방세|고용|산재|건강보험|정부|공단|공사|청|부|위원회/.test(text);
+}
+
+/**
+ * 🏛️ v3.8.616 — **기관 행동 화면을 새로 찾아온다.**
+ *
+ * 오배송된 상업 주소(롯데렌터카·부동산114) 안에서 찾으면 당연히 못 찾는다.
+ * 그 호스트를 버리고, 라우터가 짚은 기관 + 독자가 친 말로 다시 검색해
+ * **기관 도메인이면서 홈이 아닌** 첫 결과를 쓴다. 어떤 주제든 같은 방식으로 돈다.
+ */
+/** v3.8.616 — 주소에서 기관 이름을 얻는다. 모르면 빈 값(그때는 라우터 이름을 쓴다) */
+function agencyLabelFromUrl(url: string): string {
+  const MAP: Array<[RegExp, string]> = [
+    [/passport.go.kr/i, '여권안내'], [/efine.go.kr/i, '경찰청 이파인'],
+    [/hometax.go.kr/i, '홈택스'], [/wetax.go.kr/i, '위택스'],
+    [/work24.go.kr|ei.go.kr/i, '고용24'], [/bokjiro.go.kr/i, '복지로'],
+    [/gov.kr/i, '정부24'], [/nps.or.kr/i, '국민연금공단'], [/nhis.or.kr/i, '국민건강보험'],
+    [/khug.or.kr|hug.or.kr/i, 'HUG 주택도시보증공사'], [/housing.seoul.go.kr|i-sh.co.kr/i, 'SH 서울주택도시공사'],
+    [/lh.or.kr/i, 'LH'], [/fss.or.kr/i, '금융감독원'], [/kca.go.kr/i, '한국소비자원'],
+    [/semas.or.kr/i, '소상공인시장진흥공단'], [/koroad.or.kr/i, '도로교통공단'],
+    [/molit.go.kr/i, '국토교통부'], [/moel.go.kr/i, '고용노동부'], [/nts.go.kr/i, '국세청'],
+  ];
+  for (const [re, name] of MAP) if (re.test(url)) return name;
+  return '';
+}
+
+async function findInstitutionalActionPage(keyword: string, siteName: string, doing: string): Promise<{ url: string; title: string } | null> {
+  const queries = [
+    [siteName, keyword, doing].filter(Boolean).join(' '),
+    [keyword, doing].filter(Boolean).join(' '),
+  ].filter((q) => q.trim());
+
+  for (const query of queries) {
+    try {
+      const res = await naverSearch('webkr', { query, display: 10 });
+      if (!res.ok) continue;
+      for (const item of res.items || []) {
+        const link = String((item as any)?.link || '');
+        if (!link || !isInstitutionalHost(link)) continue;
+        if (/\/file(down|Down)\.do|atchfileid=|\/cmmn\/file\//i.test(link)) continue;
+        if (looksLikeHomeUrl(link)) continue;
+        const title = String((item as any)?.title || '').replace(/<[^>]*>/g, '').trim();
+        return { url: link, title };
+      }
+    } catch { /* 다음 검색어로 */ }
+  }
+  return null;
+}
+
+async function findActionPageOnSite(homeUrl: string, siteName: string, doing: string): Promise<string> {
+  let host = '';
+  try { host = new URL(homeUrl).hostname.replace(/^www\./, ''); } catch { return ''; }
+  if (!host) return '';
+
+  const query = [siteName, doing].filter(Boolean).join(' ').trim() || siteName;
+  try {
+    const res = await naverSearch('webkr', { query, display: 10 });
+    if (!res.ok) return '';
+    for (const item of res.items || []) {
+      const link = String((item as any)?.link || '');
+      if (!link) continue;
+      let u: URL;
+      try { u = new URL(link); } catch { continue; }
+      if (!u.hostname.replace(/^www\./, '').endsWith(host)) continue;         // 같은 기관만
+      if (/\/file(down|Down)\.do|atchfileid=|\/cmmn\/file\//i.test(link)) continue;  // 첨부파일 제외
+      const path = u.pathname.replace(/\/+$/, '');
+      if (!path || /^\/(main|index)(\.\w+)?$/i.test(path)) continue;          // 홈 제외
+      return link;
+    }
+  } catch { /* 검색 실패는 조용히 — 홈으로 남는다 */ }
+  return '';
+}
+
+export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, routerSite: string, ctaArticleAgencies: string[]): Promise<FinalCTAData[]> {
+  /**
+   * v3.8.616: **키워드가 먼저다.**
+   *
+   * 예전엔 키워드·라우터·본문 기관을 한 덩어리로 붙여 놓고 아무거나 먼저 맞으면 썼다.
+   * 그래서 "실업급여 신청 조건" 글인데 본문에 홈택스가 스쳤다는 이유로 홈택스로 갔다(실측).
+   * 독자가 친 말이 가장 강한 신호다 — 키워드 → 라우터 → 본문 순으로 본다.
+   */
+  const findByPriority = () => {
+    for (const source of [keyword, routerSite, ctaArticleAgencies.join(' ')]) {
+      const hay = String(source || '').toLowerCase();
+      if (!hay) continue;
+      const hit = ACTION_DESTINATIONS.find((d) => d.keywords.some((kw) => hay.includes(kw.toLowerCase())));
+      if (hit) return hit;
+    }
+    return undefined;
+  };
+  const wantsCheckNow = (() => {
+    const i = detectActionIntent(keyword);
+    return i === '조회' || i === '발급';
+  })();
+  const doing = wantsCheckNow ? '조회' : (detectActionIntent(keyword) || '신청');
+
+  const out: FinalCTAData[] = [];
+  const publicTopic = looksPublicTopic(keyword, ctaArticleAgencies);
+
+  for (const cta of list) {
+    if (!cta?.url) { out.push(cta); continue; }
+    /**
+     * v3.8.616: 바꿔야 하는 경우는 두 가지다.
+     *   ① 홈 주소   — "어디서 하나" 에 답하지 못한다
+     *   ② 공공 주제인데 기관 도메인이 아님 — 상업 사이트 오배송 (실측: 렌터카·부동산114)
+     */
+    const isHome = looksLikeHomeUrl(cta.url);
+    const wrongHost = publicTopic && !isInstitutionalHost(cta.url);
+    if (!isHome && !wrongHost) { out.push(cta); continue; }
+    if (wrongHost) console.warn(`[CTA] 🏢 공공 주제인데 기관 도메인이 아닙니다 — 교체를 시도합니다: ${cta.url}`);
+
+    // ① 표에 있으면 그게 가장 빠르고 정확하다
+    const hit = findByPriority();
+    let better = hit ? (wantsCheckNow ? (hit.check || hit.apply) : (hit.apply || hit.check)) : '';
+    let label = hit?.label || '';
+
+    // ② 표에 없으면 그 기관 안에서 행동 화면을 찾아온다 (어떤 주제든 자동으로)
+    if ((!better || better === cta.url) && wrongHost) {
+      // 상업 오배송 — 그 호스트를 버리고 기관을 새로 찾는다
+      const picked = await findInstitutionalActionPage(keyword, routerSite || ctaArticleAgencies[0] || '', doing);
+      if (picked) {
+        better = picked.url;
+        /**
+         * v3.8.616: 라벨은 **찾은 곳**에서 만든다.
+         * 라우터가 "HUG" 라 했는데 실제로 찾은 화면이 SH 면, 버튼에 HUG 라 쓰면 거짓말이 된다
+         * (실측: "전세보증금 반환보증" → housing.seoul.go.kr 인데 라벨은 HUG 였다).
+         */
+        label = agencyLabelFromUrl(picked.url) || routerSite || ctaArticleAgencies[0] || '공식 사이트';
+        console.log(`[CTA] 🏛️ 기관 행동 화면으로 교체: ${picked.url} (${label})`);
+      }
+    }
+
+    if (!better || better === cta.url) {
+      const siteName = routerSite || label || '';
+      const found = await findActionPageOnSite(cta.url, siteName, doing);
+      if (found) {
+        better = found;
+        label = siteName || '공식 사이트';
+        console.log(`[CTA] 🔎 기관 안에서 행동 화면을 찾았습니다: ${found}`);
+      }
+    }
+
+    if (!better || better === cta.url) {
+      if (wrongHost) {
+        // 공공 주제에 상업 사이트를 물리느니 버튼을 빼는 게 낫다 (독자를 오해시킨다)
+        console.warn(`[CTA] 🚫 공공 주제 오배송을 대체하지 못해 CTA 를 뺍니다: ${cta.url}`);
+        continue;
+      }
+      console.warn(`[CTA] 🏠 행동 화면을 못 찾아 홈으로 남깁니다 — 주제: "${keyword}": ${cta.url}`);
+      out.push(cta);
+      continue;
+    }
+
+    const buttonText = `🔗 ${label}에서 ${doing}하기`;
+    const hook = `${keyword} — ${label}에서 바로 ${doing}할 수 있습니다.`;
+    console.log(`[CTA] 🔁 홈 → 행동 화면 교체(${doing}): ${cta.url} → ${better}`);
+    out.push({ ...cta, url: better, buttonText, text: buttonText, hookingMessage: hook, hook });
+  }
+  return out;
+}
+
 export async function generateCTAsFinal(
   keyword: string,
   crawledPosts: FinalCrawledPost[],
@@ -3045,6 +3266,13 @@ export async function generateCTAsFinal(
    * 안 돌았는지 사장님이 확인할 방법이 없었다. 조용한 미배선과 구분이 안 된다.
    */
   onLog?: (message: string) => void,
+  /**
+   * 🏠 v3.8.619 — 내 블로그 주소.
+   *
+   * 밖에서 보낼 공식 목적지를 못 찾는 주제가 있다(맛집·일상처럼 기관이 없는 글).
+   * 그때 마지막으로 기댈 곳은 **내 블로그의 관련 글**이다. 이 값이 없으면 그 길도 막힌다.
+   */
+  blogUrl?: string,
 ): Promise<FinalCTAData[]> {
   // 🛡️ 애드센스 모드: CTA 완전 차단
   if (contentMode === 'adsense') {
@@ -3791,6 +4019,25 @@ JSON만 출력:
     ];
 
     /**
+     * 🎯 v3.8.616 — **홈으로 보내지 않는다.**
+     *
+     * 사장님: "행동을 유발시키려면 CTA가 제대로되어있어야되 그냥 홈으로 보내면안된다고…
+     *          근로장려금 신청방법이나 사람들이 왜 검색을 하겠냐고 그 신청을 어디서 하는지
+     *          모르니까 검색을 하는 거 아냐"
+     *
+     * 정확한 지적이다. v3.8.615 는 CTA 를 만들긴 했는데 **기관 홈**으로 보냈다 —
+     * "어디서 신청하나" 를 알고 싶어 온 사람에게 홈을 주면 다시 헤매게 된다.
+     *
+     * 그래서 **행동별 목적지**를 둔다. 개별 서비스 딥링크는 박지 않는다 —
+     * 실측(2026-08-31)에서 정부24 개별 서비스 주소(rcvfvrSvc/dtlEx/…)는 오류 페이지였다.
+     * 대신 **서비스 단위 행동 화면**은 살아 있고 안정적이다:
+     *   · plus.gov.kr/portal/benefitV2/          혜택알리미 — 내가 받을 수 있는지 조회 (69KB, 200)
+     *   · hometax.go.kr/…/index_pp.xml           홈택스 — 신청·환급 (200)
+     *   · work24.go.kr/cm/main.do                고용24 — 실업급여·국민취업지원 (367KB, 200)
+     *   · bokjiro.go.kr/ssis-tbu/index.do        복지로 — 복지 신청 (92KB, 200)
+     */
+
+    /**
      * 🧭 v3.8.615 — 라우터가 짚은 기관을 **버리지 않는다.**
      *
      * 예전 매칭은 글 키워드만 봤다(`lowerKw.includes(kw)`). 그래서
@@ -3813,6 +4060,38 @@ JSON만 출력:
     };
     // v3.8.615: 라우터 목적지·본문 기관까지 본다 (위 findFallbackSite 머리말 참고)
     const routerSite = (await ensureSmartTarget())?.site || '';
+
+    /**
+     * 🎯 v3.8.616 — 행동 화면이 있으면 **그쪽이 먼저다.**
+     *
+     * 독자는 "어디서 신청하나" 를 몰라서 검색한다. 기관 홈을 주면 다시 헤맨다.
+     * 신청 의도면 신청 화면, 조회 의도면 조회 화면으로 보낸다.
+     */
+    const actionIntentForCta = detectActionIntent(keyword);
+    const wantsCheck = actionIntentForCta === '조회' || actionIntentForCta === '발급';
+    const haystack = [keyword, routerSite, ...ctaArticleAgencies].join(' ').toLowerCase();
+    const actionHit = ACTION_DESTINATIONS.find((d) => d.keywords.some((kw) => haystack.includes(kw.toLowerCase())));
+    const actionUrl = actionHit ? (wantsCheck ? (actionHit.check || actionHit.apply) : (actionHit.apply || actionHit.check)) : '';
+
+    if (actionUrl) {
+      const doing = wantsCheck ? '조회' : (actionIntentForCta || '신청');
+      const buttonText = `🔗 ${actionHit!.label}에서 ${doing}하기`;
+      safeCTAs.push({
+        hookingMessage: `${keyword} — ${actionHit!.label}에서 바로 ${doing}할 수 있습니다.`,
+        buttonText,
+        url: actionUrl,
+        position: 1,
+        type: 'link',
+        design: 'button',
+        text: buttonText,
+        hook: `${keyword} — ${actionHit!.label}에서 바로 ${doing}할 수 있습니다.`,
+        searchFallback: false,
+      });
+      console.log(`[CTA] 🎯 행동 화면으로 연결(${doing}): ${actionUrl}`);
+      onLog?.(`[PROGRESS] 70% - 🎯 CTA: ${actionHit!.label} ${doing} 화면`);
+      return await upgradeHomeCtas(safeCTAs, keyword, routerSite, ctaArticleAgencies);
+    }
+
     const found = findFallbackSite([keyword, routerSite, ...ctaArticleAgencies]);
     const matched = found?.hit;
     if (matched) {
@@ -3821,6 +4100,15 @@ JSON만 출력:
       }
       const intent = detectIntent(keyword);
       const fallbackUrl = intent === 'action' ? matched.actionUrl : (matched.infoUrl || matched.actionUrl);
+      /**
+       * v3.8.616: 홈으로 떨어지면 **눈에 보이게** 남긴다.
+       * "그냥 홈으로 보내면 안 된다"(사장님)는 지적의 뿌리가 이 조용한 폴백이었다.
+       * 로그가 있어야 어떤 주제에 행동 화면이 없는지 모아 표를 채울 수 있다.
+       */
+      if (looksLikeHomeUrl(fallbackUrl)) {
+        console.warn(`[CTA] 🏠 행동 화면을 못 찾아 기관 홈으로 갑니다 — ACTION_DESTINATIONS 에 "${keyword}" 항목 추가가 필요합니다: ${fallbackUrl}`);
+        onLog?.(`[PROGRESS] 70% - 🏠 CTA 가 기관 홈으로 갑니다 (행동 화면 미등록: ${keyword})`);
+      }
       /**
        * v3.8.570 — 이 표(OFFICIAL_FALLBACK_SITES)에는 주소만 있고 **사이트 이름이 없다.**
        * 그래서 예전엔 훅도 버튼도 글 제목을 갖다 썼다("🔗 {제목} 공식 사이트").
@@ -3840,13 +4128,165 @@ JSON만 출력:
       });
       console.log(`[CTA] 🎯 공식 사이트 매핑 fallback (${intent}): ${fallbackUrl}`);
     } else {
-      // 매핑도 없으면 — CTA 자체 안 만듦. 본문 텍스트로만 안내.
-      //   구글 검색 URL X (자기 트래픽 보호)
-      console.log(`[CTA] ⚠️ 공식 사이트 매핑도 없음 — CTA 생략 (구글 검색 fallback 차단)`);
+      /**
+       * 🔗 v3.8.619 — 여기서 그냥 포기하면 **버튼이 0개인 글**이 나간다.
+       *
+       * 사장님 요구: "어떤 주제로 글을 쓰든지 자동으로 완벽하게 버튼이 생기고 링크가 걸려야 돼요"
+       *
+       * 실측(2027년 공무원 봉급 글): CTA 버튼 0개로 발행됐다. 그런데 목적지를 몰라서가 아니었다 —
+       * 스마트 라우터는 이미 "인사혁신처"를 확신 0.6 이상으로 지목해 두고 있었다.
+       * 그 이름을 **주소로 바꾸는 길이 없어서** 통째로 버린 것이다.
+       *
+       * 이름 사전(카탈로그 + 호스트 이름표)을 역방향으로 뒤지면 주소가 나온다.
+       * 둘 다 "이 주소는 이 기관"이라고 이미 확인해 둔 값이라 지어내는 게 아니다.
+       * 그래도 못 찾으면 예전처럼 CTA 를 만들지 않는다 — 도메인을 조합해 추측하지 않는다.
+       */
+      const smart = await ensureSmartTarget();
+      let namedUrl = smart?.site
+        ? (() => {
+          try {
+            const { resolveOfficialUrlByName } = require('../../cta/name-to-url');
+            return resolveOfficialUrlByName(smart.site) as { name: string; url: string; source: string } | null;
+          } catch { return null; }
+        })()
+        : null;
+
+      /**
+       * 🔎 v3.8.619 — 사전에 없으면 **검색으로 주소를 알아낸다.**
+       *
+       * 이름 사전은 230곳이다. 넓지만 한국의 기관은 그보다 훨씬 많다.
+       * 사전에 없다는 이유로 버튼을 안 만들면 "어떤 주제든 자동으로"가 안 된다.
+       *
+       * 검색 결과 페이지를 버튼에 걸지는 않는다 — 검색은 **주소를 알아내는 수단**이다.
+       * 물어온 결과 중 공공기관 도메인이면서 광고·문서·블로그가 아닌 것만 고른다.
+       * 사전에서 찾았으면 부르지 않으므로, 추가 비용은 사전에 없는 주제에서만 든다.
+       */
+      if (!namedUrl && smart?.site) {
+        try {
+          const { findOfficialUrlBySearch } = require('../../cta/official-site-search');
+          const { naverSearch } = require('../../core/naver-search-client');
+          const found = await findOfficialUrlBySearch(smart.site, async (query: string) => {
+            const res = await naverSearch('webkr', { query, display: 10 }, { timeoutMs: 8000 });
+            return res?.ok ? (res.items || []) : [];
+          });
+          if (found) {
+            namedUrl = { name: found.name, url: found.url, source: 'search' };
+            console.log(`[CTA] 🔎 검색으로 공식 주소 확인: "${found.name}" → ${found.url} (${found.reason})`);
+          } else {
+            console.log(`[CTA] 🔎 검색으로도 공식 주소를 못 찾았습니다: "${smart.site}"`);
+          }
+        } catch (searchError: any) {
+          console.log(`[CTA] 🔎 검색 폴백 건너뜀: ${String(searchError?.message || searchError).slice(0, 60)}`);
+        }
+      }
+
+      /**
+       * 이름을 찾았다고 끝이 아니다 — **살아 있는 주소인지 확인한다.**
+       *
+       * 실측: 이름표에 있던 `minwon.molit.go.kr`(국토교통부 민원)은 응답이 없다.
+       * 죽은 주소를 버튼에 걸면 "버튼이 없는 것"보다 나쁘다. 독자가 눌렀는데 아무것도 없으면
+       * 그 글 전체의 신뢰가 깎인다. 그래서 한 번 두드려 보고, 안 열리면 만들지 않는다.
+       */
+      let namedUrlAlive = !!namedUrl;
+      if (namedUrl) {
+        try {
+          const { validateCtaUrl } = require('../../cta/validate-cta-url');
+          const verdict = await validateCtaUrl(namedUrl.url, { timeout: 6000 });
+          namedUrlAlive = verdict?.isValid !== false;
+          if (!namedUrlAlive) {
+            console.warn(`[CTA] 🚧 해석한 주소가 살아 있지 않습니다 — 버튼을 만들지 않습니다: ${namedUrl.url} (${verdict?.reason || '응답 없음'})`);
+          }
+        } catch (validateError: any) {
+          // 검증기가 못 돌면 예전대로 진행한다 — 검증 실패가 발행을 막을 이유는 없다
+          console.log(`[CTA] 주소 검증 건너뜀: ${String(validateError?.message || validateError).slice(0, 60)}`);
+        }
+      }
+
+      if (namedUrl && namedUrlAlive) {
+        const copy = buildCtaCopy({ url: namedUrl.url, siteName: namedUrl.name, action: smart?.action || '' });
+        safeCTAs.push({
+          hookingMessage: smart?.hookMessage || copy.hookingMessage,
+          buttonText: copy.buttonText,
+          url: namedUrl.url,
+          position: 1,
+          type: 'link',
+          design: 'button',
+          text: copy.buttonText,
+          hook: smart?.hookMessage || copy.hookingMessage,
+          searchFallback: false,
+        });
+        console.log(`[CTA] 🧭 라우터가 지목한 기관 이름을 주소로 해석: "${namedUrl.name}" → ${namedUrl.url} (${namedUrl.source})`);
+        onLog?.(`[PROGRESS] 70% - 🧭 CTA: ${namedUrl.name}`);
+      } else {
+        /**
+         * 🏠 v3.8.619 — 밖에 보낼 곳이 없으면 **내 글로 보낸다.**
+         *
+         * 사장님 물음: "남은 구멍 하나는 방법이 없나"
+         *
+         * 있다. 지금까지 목적지를 **바깥에서만** 찾았다. 그런데 맛집·일상처럼
+         * 기관이 아예 없는 주제도 있고, 그런 글이라고 독자를 그냥 내보낼 이유는 없다.
+         * 다 읽은 사람에게 가장 자연스러운 다음 행동은 **관련된 다음 글**이다.
+         *
+         * 이 목적지는 세 가지가 다르다:
+         *   · 죽지 않는다 — 내 사이트다
+         *   · 트래픽이 밖으로 새지 않는다 — 오히려 회유가 는다
+         *   · 지어낼 일이 없다 — 실제로 있는 글만 온다
+         *
+         * 관련 글조차 없으면(새 블로그) 그때는 정말로 만들지 않는다.
+         */
+        let internalCta: { title: string; url: string } | null = null;
+        if (blogUrl) {
+          try {
+            const { findRelatedPosts } = require('../internal-links');
+            const related = await findRelatedPosts(blogUrl, keyword, 3);
+            /**
+             * 반드시 **내 도메인**이어야 한다.
+             *
+             * 사장님: "다른 블로그 보내지면 절대 안 돼."
+             * 관련 글 검색은 내 블로그를 대상으로 돌지만, 검색 결과에 다른 주소가 섞여 들어오면
+             * 그 순간 남의 블로그로 보내는 버튼이 된다. 여기서 호스트를 대조해 못 새게 막는다.
+             */
+            const ownHost = (() => { try { return new URL(blogUrl).hostname.replace(/^www\./, ''); } catch { return ''; } })();
+            const sameHost = (url: string) => {
+              try { return new URL(url).hostname.replace(/^www\./, '') === ownHost; } catch { return false; }
+            };
+            const top = (related || []).find((item: any) => item?.url && item?.title && sameHost(String(item.url)));
+            if (top) internalCta = { title: String(top.title), url: String(top.url) };
+          } catch (internalError: any) {
+            console.log(`[CTA] 🏠 관련 글 조회 건너뜀: ${String(internalError?.message || internalError).slice(0, 60)}`);
+          }
+        }
+
+        if (internalCta) {
+          const buttonText = '📖 이어서 읽기';
+          const hook = `${internalCta.title.slice(0, 40)} — 이 글과 이어지는 내용입니다.`;
+          safeCTAs.push({
+            hookingMessage: hook,
+            buttonText,
+            url: internalCta.url,
+            position: 1,
+            type: 'link',
+            design: 'button',
+            text: buttonText,
+            hook,
+            searchFallback: false,
+          });
+          console.log(`[CTA] 🏠 밖에 보낼 곳이 없어 내 관련 글로 연결: "${internalCta.title}" → ${internalCta.url}`);
+          onLog?.(`[PROGRESS] 70% - 🏠 CTA: 관련 글 "${internalCta.title.slice(0, 24)}"`);
+        } else {
+          // 여기까지 왔으면 정말로 보낼 곳이 없다. 구글 검색 URL 은 쓰지 않는다(자기 트래픽 보호).
+          console.log(`[CTA] ⚠️ 공식 사이트도 관련 글도 없음 — CTA 생략 (라우터 지목: "${smart?.site || '없음'}", 블로그: ${blogUrl || '미지정'})`);
+          onLog?.(`[PROGRESS] 70% - ⚠️ CTA 를 만들지 못했습니다 (목적지 미확인: ${keyword})`);
+        }
+      }
     }
   }
 
-  return safeCTAs;
+  /**
+   * v3.8.616: 마지막 관문 — 홈 주소면 행동 화면으로 갈아끼운다.
+   * 라우터는 이미 물어봤으면 캐시에서 즉시 돌아온다(ensureSmartTarget 이 한 번만 부른다).
+   */
+  return await upgradeHomeCtas(safeCTAs, keyword, (await ensureSmartTarget())?.site || '', ctaArticleAgencies);
 }
 
 export async function generateSummaryTableFinal(allContent: string): Promise<FinalTableData> {
