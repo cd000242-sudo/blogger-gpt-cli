@@ -456,6 +456,26 @@ export function parseCritiqueIssues(raw: string, sectionCount: number): Critique
 // 구간 다시 쓰기
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * v3.8.623 — **빼는 수정**인가.
+ *
+ * 되풀이·얼버무림·상투구는 빼는 게 답인데, 그 위에 "분량을 줄이지 마세요"를 얹어 두면
+ * 모델은 뺀 자리를 새 문장으로 메운다. 그 문장이 다음 비평에서 또 잡혔다.
+ * 빼는 수정은 짧아지는 게 정상이므로 분량 바닥을 따로 둔다.
+ */
+const CUTTING_IDS = new Set(['redundancy-repeat', 'substance-vague', 'substance-cliche']);
+const CUTTING_WORDS = /되풀이|반복|중복|군더더기|장황|늘어지|얼버무|상투|회피/;
+
+export function isCuttingIssue(issue: Pick<CritiqueIssue, 'id' | 'title' | 'fix'>): boolean {
+  if (CUTTING_IDS.has(String(issue?.id || ''))) return true;
+  return CUTTING_WORDS.test(`${issue?.title || ''} ${issue?.fix || ''}`);
+}
+
+/** 구간 분량 바닥 — 채우는 수정 90%, 빼는 수정 60%(그 아래는 통째 삭제다) */
+const SECTION_FLOOR = { keep: 0.9, cut: 0.6 } as const;
+/** 글 전체 바닥 — 빼는 구간이 몇 개여도 전체가 25% 넘게 빠지면 뭔가 잘못됐다 */
+const POST_FLOOR = { keep: 0.9, cut: 0.75 } as const;
+
 /** 이 구간을 어떻게 고칠지 — 고를 항목이 붙은 구간에 대해서만 부른다 */
 export function buildSectionRevisionPrompt(input: {
   title: string;
@@ -463,9 +483,13 @@ export function buildSectionRevisionPrompt(input: {
   issues: CritiqueIssue[];
   wholePostIssues: CritiqueIssue[];
 }): string {
-  const list = [...input.issues, ...input.wholePostIssues]
+  const all = [...input.issues, ...input.wholePostIssues];
+  const list = all
     .map((issue, i) => `${i + 1}. [${issue.severity}] ${issue.title}\n   왜: ${issue.detail}\n   ${issue.evidence ? `근거: "${clip(issue.evidence, 160)}"\n   ` : ''}고칠 방향: ${issue.fix}`)
     .join('\n');
+  const lengthRule = all.some(isCuttingIssue)
+    ? '· 이번 수정은 **빼는 것**이 목적입니다. 되풀이·얼버무림·군더더기를 빼서 짧아지는 것은 좋습니다. 빈자리를 새 문장으로 메우지 마세요 — 메우면 같은 지적이 또 나옵니다. 단, 지금 분량의 60% 아래로는 줄이지 마세요.'
+    : '· 분량을 줄이지 마세요. 지금보다 짧아지면 안 됩니다.';
 
   return [
     `당신은 "${input.title}" 글을 고치는 편집자입니다.`,
@@ -481,7 +505,7 @@ export function buildSectionRevisionPrompt(input: {
     '· 원본에 있는 <img> 태그는 **속성까지 그대로** 유지하세요. 지우거나 주소를 바꾸지 마세요.',
     '· 원본에 있는 <a href> 링크도 그대로 유지하세요.',
     `· 첫 줄의 <h2> 소제목은 그대로 두세요. 검색 색인이 걸려 있습니다.`,
-    '· 분량을 줄이지 마세요. 지금보다 짧아지면 안 됩니다.',
+    lengthRule,
     '· **모르는 수치는 지어내지 마세요.** 근거가 없으면 그 문장을 삭제하고, 대신 확실한 것을 씁니다.',
     '· 새 이미지를 넣지 마세요.',
     '',
@@ -496,7 +520,11 @@ export function buildSectionRevisionPrompt(input: {
  * 하나라도 어긋나면 **원본을 그대로 쓴다.** 고치려다 이미지와 링크를 날리는 것이
  * 안 고치는 것보다 나쁘다.
  */
-export function acceptRevisedSection(raw: string, original: PostSection): { html: string; accepted: boolean; reason: string } {
+export function acceptRevisedSection(
+  raw: string,
+  original: PostSection,
+  opts: { cutting?: boolean } = {},
+): { html: string; accepted: boolean; reason: string } {
   const cleaned = String(raw || '')
     .replace(/```[a-z]*\s*/gi, '')
     .replace(/```/g, '')
@@ -506,8 +534,12 @@ export function acceptRevisedSection(raw: string, original: PostSection): { html
 
   const beforeText = textOf(original.html);
   const afterText = textOf(cleaned);
-  if (afterText.length < beforeText.length * 0.9) {
-    return { html: original.html, accepted: false, reason: `분량이 줄었습니다 (${beforeText.length}자 → ${afterText.length}자)` };
+  const floor = opts.cutting ? SECTION_FLOOR.cut : SECTION_FLOOR.keep;
+  if (afterText.length < beforeText.length * floor) {
+    const reason = opts.cutting
+      ? `너무 많이 줄었습니다 (${beforeText.length}자 → ${afterText.length}자, 바닥 60%)`
+      : `분량이 줄었습니다 (${beforeText.length}자 → ${afterText.length}자)`;
+    return { html: original.html, accepted: false, reason };
   }
   if (countTag(cleaned, IMG_RE) < countTag(original.html, IMG_RE)) {
     return { html: original.html, accepted: false, reason: '이미지가 사라졌습니다' };
@@ -525,14 +557,20 @@ export function acceptRevisedSection(raw: string, original: PostSection): { html
  * 완성된 새 본문을 발행해도 되는가 — 마지막 관문.
  * `post-regenerate.judgeRegenerated` 가 "되살릴 값어치"를 본다면, 이쪽은 "퇴보하지 않았는가"를 본다.
  */
-export function judgeImproved(nextHtml: string, previousHtml: string): { ok: boolean; reason: string; length: number } {
+export function judgeImproved(
+  nextHtml: string,
+  previousHtml: string,
+  opts: { cutting?: boolean } = {},
+): { ok: boolean; reason: string; length: number } {
   const before = textOf(previousHtml);
   const after = textOf(nextHtml);
   const length = after.length;
 
   if (length < 200) return { ok: false, reason: `새 본문이 ${length}자뿐입니다`, length };
-  if (length < before.length * 0.9) {
-    return { ok: false, reason: `새 본문(${length}자)이 기존(${before.length}자)보다 10% 넘게 짧습니다`, length };
+  const floor = opts.cutting ? POST_FLOOR.cut : POST_FLOOR.keep;
+  if (length < before.length * floor) {
+    const pct = Math.round((1 - floor) * 100);
+    return { ok: false, reason: `새 본문(${length}자)이 기존(${before.length}자)보다 ${pct}% 넘게 짧습니다`, length };
   }
   if (countTag(nextHtml, IMG_RE) < countTag(previousHtml, IMG_RE)) {
     return { ok: false, reason: '이미지가 줄었습니다', length };

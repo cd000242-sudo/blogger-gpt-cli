@@ -4542,6 +4542,10 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
       const percent = 10 + Math.floor((i / targets.length) * 75);
       send(`[PROGRESS] ${percent}% - ✍️ ${i + 1}/${targets.length} "${String(section.heading).slice(0, 26)}" 구간을 고치는 중…`);
 
+      // v3.8.623 — 되풀이·얼버무림처럼 빼는 게 답인 지적이 붙었으면 이 구간은 짧아져도 된다
+      const sectionIssues = [...(bySection.get(index) || []), ...wholePost];
+      const cutting = sectionIssues.some((it: any) => critique.isCuttingIssue(it));
+
       try {
         const raw = await callGeminiWithRetry(
           critique.buildSectionRevisionPrompt({
@@ -4553,7 +4557,7 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
           1,
           { timeoutMs: 180000 },
         );
-        const verdict = critique.acceptRevisedSection(raw, section);
+        const verdict = critique.acceptRevisedSection(raw, section, { cutting });
         if (verdict.accepted) {
           revisions.push({ index, html: verdict.html });
           revisedDetail.push({
@@ -4561,7 +4565,7 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
             heading: String(section.heading || ''),
             before: plain(section.html),
             after: plain(verdict.html),
-            issues: [...(bySection.get(index) || []), ...wholePost].map((it: any) => String(it?.title || '')).filter(Boolean),
+            issues: sectionIssues.map((it: any) => String(it?.title || '')).filter(Boolean),
           });
         } else {
           skipped.push(`${section.heading}: ${verdict.reason}`);
@@ -4579,7 +4583,9 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
     }
 
     const nextHtml = critique.applySectionRevisions(previousHtml, revisions);
-    const verdict = critique.judgeImproved(nextHtml, previousHtml);
+    const verdict = critique.judgeImproved(nextHtml, previousHtml, {
+      cutting: selected.some((it: any) => critique.isCuttingIssue(it)),
+    });
     if (!verdict.ok) {
       send(`❌ ${verdict.reason} — 기존 글을 그대로 둡니다`);
       return { ok: false, error: `${verdict.reason}. 기존 글은 건드리지 않았습니다.` };
