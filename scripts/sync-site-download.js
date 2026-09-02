@@ -40,6 +40,39 @@ const GAS_URL = process.env.LEADERSPRO_GAS_URL
 /** 제품 키 — 관리자 EDITOR_PRODUCT_DEFS 기준 (naver / leword / orbit) */
 const PRODUCT_ID = 'orbit';
 const CHOICE = 'windows';
+
+/**
+ * 갱신할 다운로드 칸들. (v3.8.620)
+ *
+ * 왜 늘렸나: 사장님 검수에서 사이트의 **Mac 칸이 v3.8.221 에 멈춰 있는 것**이 나왔다.
+ *   Windows  3.8.620 · exe        ← 이 스크립트가 갱신하던 유일한 칸
+ *   Mac      3.8.221 · arm64 dmg  ← 399 버전 뒤처짐
+ *
+ * 맥 빌드가 안 된 게 아니었다. `.github/workflows/mac-release.yml` 이 릴리스마다
+ * macOS 러너에서 돌아 dmg/zip 을 그 릴리스에 이미 붙이고 있었다(v3.8.620도 5분 만에 성공).
+ * **사이트만 안 따라간 것**이다 — 스크립트가 windows 한 칸만 알고 있었다.
+ *
+ * 릴리스에 그 파일이 실제로 있을 때만 갱신한다. 없는 파일을 가리키면 404 가 된다.
+ */
+const CHOICES = [
+  { key: 'windows',   label: 'Windows',    file: (v) => `LEADERNAM-Orbit-${v}.exe`,            detail: (v) => `${v} · exe` },
+  { key: 'mac-arm',   label: 'Mac M1-M4',  file: (v) => `LEADERNAM-Orbit-${v}-arm64.dmg`,      detail: (v) => `${v} · arm64 dmg` },
+  { key: 'mac-intel', label: 'Mac Intel',  file: (v) => `LEADERNAM-Orbit-${v}-x64.dmg`,        detail: (v) => `${v} · x64 dmg` },
+];
+
+/** 이 릴리스에 실제로 올라간 파일 이름들 — 없는 파일은 가리키지 않는다 */
+async function releaseAssetNames() {
+  try {
+    const { execSync } = require('node:child_process');
+    const raw = execSync(
+      `gh release view ${tag} --repo ${owner}/${repo} --json assets -q "[.assets[].name]"`,
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    return new Set(JSON.parse(raw));
+  } catch {
+    return null;   // gh 를 못 쓰면 예전처럼 windows 만 갱신한다
+  }
+}
 const EXE_NAME = `LEADERNAM-Orbit-${version}.exe`;
 const DOWNLOAD_URL = `https://github.com/${owner}/${repo}/releases/download/${tag}/${EXE_NAME}`;
 
@@ -140,13 +173,33 @@ async function main() {
   const product = content?.downloads?.[PRODUCT_ID];
   if (!product) throw new Error(`downloads.${PRODUCT_ID} 를 찾지 못했습니다`);
 
+  const assets = await releaseAssetNames();
+
+  /**
+   * 갱신할 칸을 고른다 — 사이트에 그 칸이 있고, 릴리스에 그 파일이 실제로 있을 때만.
+   * (assets 를 못 읽었으면 예전 동작대로 windows 만 본다)
+   */
+  const targets = CHOICES.filter((c) => {
+    if (!product.downloads?.[c.key]) return false;
+    if (!assets) return c.key === CHOICE;
+    return assets.has(c.file(version));
+  });
+
+  if (targets.length === 0) {
+    console.log('   ⏭️ 갱신할 다운로드 칸이 없습니다 (릴리스에 해당 파일 없음)');
+    return;
+  }
+
   const before = {
     version: product.version || '',
     detail: product.downloads?.[CHOICE]?.detail || '',
     url: product.downloads?.[CHOICE]?.url || '',
   };
 
-  if (before.url === DOWNLOAD_URL) {
+  const allCurrent = targets.every(
+    (c) => product.downloads?.[c.key]?.url === `https://github.com/${owner}/${repo}/releases/download/${tag}/${c.file(version)}`,
+  );
+  if (allCurrent) {
     console.log(`   ✅ 이미 최신입니다 (${version}) — 변경 없음`);
     return;
   }
@@ -163,9 +216,12 @@ async function main() {
 
   console.log(`   version : ${before.version}`);
   console.log(`           → ${nextVersionLabel}`);
-  console.log(`   detail  : ${before.detail}  →  ${nextDetail}`);
-  console.log(`   url     : ${before.url.slice(0, 78)}`);
-  console.log(`           → ${DOWNLOAD_URL.slice(0, 78)}`);
+  for (const c of targets) {
+    const prev = product.downloads?.[c.key] || {};
+    console.log(`   [${c.key}] ${prev.detail || '(없음)'}  →  ${c.detail(version)}`);
+    console.log(`            ${String(prev.url || '').slice(0, 74)}`);
+    console.log(`         →  ${`https://github.com/${owner}/${repo}/releases/download/${tag}/${c.file(version)}`.slice(0, 74)}`);
+  }
 
   if (DRY) {
     console.log('   (dry-run — 저장하지 않음)');
@@ -183,12 +239,14 @@ async function main() {
   // 원본 객체를 그대로 두고 필요한 필드만 교체 — 다른 사이트 설정을 건드리지 않는다
   product.version = nextVersionLabel;
   product.downloads = product.downloads || {};
-  product.downloads[CHOICE] = {
-    ...(product.downloads[CHOICE] || {}),
-    label: product.downloads[CHOICE]?.label || 'Windows',
-    detail: nextDetail,
-    url: DOWNLOAD_URL,
-  };
+  for (const c of targets) {
+    product.downloads[c.key] = {
+      ...(product.downloads[c.key] || {}),
+      label: product.downloads[c.key]?.label || c.label,
+      detail: c.detail(version),
+      url: `https://github.com/${owner}/${repo}/releases/download/${tag}/${c.file(version)}`,
+    };
+  }
   content.updatedAt = new Date().toISOString();
 
   await gasSave(content, token);
