@@ -4411,19 +4411,25 @@ ipcMain.handle('critique-published-post', async (_evt, args: {
 
     // ③ AI 비평 — 코드가 못 보는 것(검색 의도·구간 순서·전환)만 더 찾는다.
     //    실패해도 코드 진단만으로 리포트를 낸다. 비평이 안 됐다고 화면이 비면 안 된다.
-    send('[PROGRESS] 65% - 🧐 편집장 관점으로 비평하는 중…');
+    //    v3.8.624 — 코드 진단이 0건이면 아예 부르지 않는다. 억지로 찾게 하면 지어낸 지적만 나온다.
     let aiIssues: any[] = [];
-    try {
-      const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
-      const sectionCount = critique.splitSections(html).length;
-      const raw = await callGeminiWithRetry(
-        critique.buildCritiquePrompt({ title, html, codeIssues, competitors, resolved: alreadyFixed }),
-        1,
-        { timeoutMs: 120000 },
-      );
-      aiIssues = critique.parseCritiqueIssues(raw, sectionCount);
-    } catch (critiqueError: any) {
-      send(`   ⚠️ AI 비평 실패 — 코드 진단만으로 리포트를 냅니다: ${String(critiqueError?.message || critiqueError).slice(0, 80)}`);
+    const decision = critique.shouldCallAiCritique(codeIssues);
+    if (!decision.call) {
+      send(`[PROGRESS] 65% - ✅ ${decision.reason}`);
+    } else {
+      send('[PROGRESS] 65% - 🧐 편집장 관점으로 비평하는 중…');
+      try {
+        const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
+        const sectionCount = critique.splitSections(html).length;
+        const raw = await callGeminiWithRetry(
+          critique.buildCritiquePrompt({ title, html, codeIssues, competitors, resolved: alreadyFixed }),
+          1,
+          { timeoutMs: 120000 },
+        );
+        aiIssues = critique.parseCritiqueIssues(raw, sectionCount);
+      } catch (critiqueError: any) {
+        send(`   ⚠️ AI 비평 실패 — 코드 진단만으로 리포트를 냅니다: ${String(critiqueError?.message || critiqueError).slice(0, 80)}`);
+      }
     }
 
     const rawIssues = [...codeIssues, ...aiIssues];
@@ -4451,18 +4457,20 @@ ipcMain.handle('critique-published-post', async (_evt, args: {
       send(`   ℹ️ 비평 이력 저장 건너뜀: ${String(historyError?.message || historyError).slice(0, 60)}`);
     }
 
-    send(`[PROGRESS] 100% - 🩺 비평 완료 — ${critique.summarizeCritique(issues)}`);
+    const summary = critique.summarizeCritique(issues, { aiSkipped: !decision.call });
+    send(`[PROGRESS] 100% - 🩺 비평 완료 — ${summary}`);
     return {
       ok: true,
       title,
       url: current.url || '',
       score,
-      summary: critique.summarizeCritique(issues),
+      summary,
       issues,
       sections,
       competitorCount: competitors.length,
       roundCount: postHistory.rounds.length + 1,
       resolvedCount: alreadyFixed.length,
+      aiSkipped: !decision.call,
     };
   } catch (error: any) {
     const message = error?.message || String(error);

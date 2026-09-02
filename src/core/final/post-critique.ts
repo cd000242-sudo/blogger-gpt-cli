@@ -345,10 +345,29 @@ export function scoreIssues(issues: CritiqueIssue[]): number {
   return Math.max(0, Math.min(100, 100 - penalty));
 }
 
-export function summarizeCritique(issues: CritiqueIssue[]): string {
-  if (issues.length === 0) return '✅ 코드 진단·비평 모두 고칠 점을 찾지 못했습니다.';
+export function summarizeCritique(issues: CritiqueIssue[], opts: { aiSkipped?: boolean } = {}): string {
+  if (issues.length === 0) {
+    return opts.aiSkipped
+      ? '✅ 코드 진단 0건 — 게이트를 전부 통과해 AI 비평은 부르지 않았습니다 (API 호출 0회).'
+      : '✅ 코드 진단·비평 모두 고칠 점을 찾지 못했습니다.';
+  }
   const high = issues.filter((i) => i.severity === 'high').length;
   return `총 ${issues.length}건 (반드시 고칠 것 ${high}건) · 점수 ${scoreIssues(issues)}점`;
+}
+
+/**
+ * v3.8.624 — AI 비평을 부를 것인가.
+ *
+ * 머리말에 "코드 진단이 깨끗하면 AI 비평 호출도 의미가 없다"고 적어 두고도 늘 한 번 불렀다.
+ * 찾을 게 없는 글에 "더 찾아라"를 시키면 지어낸 지적이 나오고, 사장님 키 비용만 든다.
+ * 진단 0건이면 호출 0회로 끝낸다.
+ */
+export function shouldCallAiCritique(codeIssues: CritiqueIssue[]): { call: boolean; reason: string } {
+  const count = Array.isArray(codeIssues) ? codeIssues.length : 0;
+  if (count === 0) {
+    return { call: false, reason: '코드 진단 0건 — 게이트를 전부 통과한 글이라 AI 비평을 부르지 않습니다 (API 호출 0회)' };
+  }
+  return { call: true, reason: '' };
 }
 
 // ─────────────────────────────────────────────────────────────

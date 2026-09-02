@@ -172,7 +172,9 @@ export function showCritiqueModal(critique, onApply, onRecritique) {
 
       <div id="pcBody" style="flex:1;overflow-y:auto;padding:18px 24px;">
         ${clean
-          ? '<div style="padding:26px;text-align:center;color:#bbf7d0;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:12px;">✅ 고칠 점을 찾지 못했습니다.<div style="color:#94a3b8;font-size:12px;margin-top:8px;">게이트 진단과 AI 비평 모두 통과했습니다.</div></div>'
+          ? `<div style="padding:26px;text-align:center;color:#bbf7d0;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:12px;">✅ 고칠 점을 찾지 못했습니다.<div style="color:#94a3b8;font-size:12px;margin-top:8px;">${critique?.aiSkipped
+              ? '게이트 진단을 전부 통과해 AI 비평은 부르지 않았습니다 — API 호출 0회.'
+              : '게이트 진단과 AI 비평 모두 통과했습니다.'}</div></div>`
           : `<div style="color:#94a3b8;font-size:12px;margin-bottom:12px;">고칠 항목만 체크하세요. <b style="color:#e2e8f0;">체크한 지적이 붙은 구간만</b> 다시 씁니다 — 나머지 구간·이미지·링크는 그대로 둡니다.</div>
              ${issues.map((issue, i) => issueCard(issue, i, sections)).join('')}`}
       </div>
