@@ -363,6 +363,14 @@ export function buildCritiquePrompt(input: {
   html: string;
   codeIssues: CritiqueIssue[];
   competitors?: CompetitorPost[];
+  /**
+   * v3.8.622 — 지난 비평에서 지적하고 **이미 고쳐서 발행한** 문제들.
+   *
+   * 이걸 안 주면 AI 는 매번 백지에서 본다. 고친 문제를 말만 바꿔 다시 지적하고,
+   * 사장님은 "분명 고쳤는데 왜 또 나오냐"를 겪는다. 코드 진단은 다시 재면 사라지지만
+   * AI 지적은 재는 잣대가 없어서 **알려주지 않으면 사라지지 않는다.**
+   */
+  resolved?: string[];
 }): string {
   const sections = splitSections(input.html);
   const map = sections
@@ -385,12 +393,16 @@ export function buildCritiquePrompt(input: {
     '',
     `# 코드가 이미 찾은 문제\n${found}`,
     '',
+    ...(( input.resolved || []).length
+      ? [`# 지난 비평에서 지적하고 이미 고친 것 (다시 말하지 마세요)\n${(input.resolved || []).slice(0, 20).map((t) => `· ${t}`).join('\n')}`, '']
+      : []),
     `# 같은 키워드 검색 상위 글\n${rivals}`,
     '',
     `# 본문\n${clip(input.html, 24000)}`,
     '',
     '# 지시',
-    '1. 위에 **없는** 문제만 새로 찾으세요. 코드가 이미 찾은 것을 되풀이하지 마세요.',
+    '1. 위에 **없는** 문제만 새로 찾으세요. 코드가 이미 찾은 것, 이미 고친 것을 되풀이하지 마세요.',
+    '1-1. **찾을 게 없으면 [] 를 내세요.** 억지로 채우지 마세요 — 이 글은 이미 여러 번 고쳤을 수 있습니다.',
     '2. 다음 관점으로만 보세요:',
     '   · 검색 의도 — 이 제목으로 들어온 사람이 원한 답이 실제로 있는가',
     '   · 구간 순서 — 궁금한 순서대로 놓였는가, 뒤에 묻힌 답은 없는가',

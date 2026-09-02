@@ -12,6 +12,20 @@ const SEVERITY = {
   low: { label: '참고', bg: 'rgba(148,163,184,0.08)', border: 'rgba(148,163,184,0.25)', fg: '#cbd5f5' },
 };
 
+/**
+ * 🕰️ v3.8.622 — 이 지적이 **왜 지금 나왔는가**.
+ *
+ * 사장님: "새롭게 나온 것들은 왜 나왔는지 수긍이 될 거 아냐"
+ * 전에는 회차마다 백지에서 시작해 같은 문제가 이름만 바꿔 다시 나왔고,
+ * 화면에는 그게 처음인지 되풀이인지 표시할 방법이 없었다.
+ */
+const STATUS = {
+  new: { label: '새 지적', bg: 'rgba(99,102,241,0.18)', fg: '#c7d2fe' },
+  again: { label: '지난번에도', bg: 'rgba(245,158,11,0.16)', fg: '#fcd34d' },
+  regressed: { label: '고쳤는데 또', bg: 'rgba(239,68,68,0.18)', fg: '#fca5a5' },
+  'side-effect': { label: '개선이 남긴 것', bg: 'rgba(168,85,247,0.18)', fg: '#e9d5ff' },
+};
+
 const AREA_LABEL = {
   substance: '알맹이',
   answer: '검색 의도',
@@ -43,6 +57,7 @@ function sectionLabel(issue, sections) {
 
 function issueCard(issue, index, sections) {
   const tone = SEVERITY[issue.severity] || SEVERITY.low;
+  const status = STATUS[issue.status];
   // 반드시 고칠 것만 미리 체크해 둔다 — 참고 항목까지 켜두면 사장님이 다 끄게 된다.
   const checked = issue.severity === 'high' ? 'checked' : '';
   return `
@@ -55,7 +70,9 @@ function issueCard(issue, index, sections) {
           <span style="padding:2px 8px;border-radius:999px;background:rgba(99,102,241,0.15);color:#a5b4fc;font-size:10.5px;font-weight:700;">${esc(AREA_LABEL[issue.area] || '구성')}</span>
           <span style="color:#64748b;font-size:11px;">${esc(sectionLabel(issue, sections))}</span>
           ${issue.origin === 'ai' ? '<span style="color:#64748b;font-size:11px;">· AI 비평</span>' : ''}
+          ${status ? `<span style="padding:2px 8px;border-radius:999px;background:${status.bg};color:${status.fg};font-size:10.5px;font-weight:800;">${status.label}</span>` : ''}
         </div>
+        ${issue.statusNote ? `<div style="color:#7c8aa5;font-size:11px;line-height:1.5;margin-bottom:5px;">🕰️ ${esc(issue.statusNote)}</div>` : ''}
         <div style="font-weight:800;color:#f1f5f9;font-size:13.5px;line-height:1.45;">${esc(issue.title)}</div>
         ${issue.detail ? `<div style="color:#cbd5f5;font-size:12px;line-height:1.6;margin-top:5px;">${esc(issue.detail)}</div>` : ''}
         ${issue.evidence ? `<div style="margin-top:7px;padding:8px 11px;background:rgba(15,23,42,0.5);border-radius:6px;color:#94a3b8;font-size:11.5px;line-height:1.55;">"${esc(issue.evidence)}"</div>` : ''}
@@ -66,18 +83,71 @@ function issueCard(issue, index, sections) {
 }
 
 /**
+ * ✅ v3.8.622 — 수정발행이 끝나면 **모달을 닫지 않고 결과를 보여준다.**
+ *
+ * 사장님: "고쳤으면 결과도 모달에 보여줘야"
+ * 전에는 성공하자마자 모달을 닫고 상태줄에 한 줄만 남겼다. 그래서 무슨 구간이
+ * 얼마나 바뀌었는지, 어떤 구간이 왜 그대로 남았는지 알 수가 없었고,
+ * 다음 비평에서 새 지적이 나와도 이어 붙일 근거가 없었다.
+ */
+function resultView(res, picked) {
+  const revised = Array.isArray(res?.revisedDetail) ? res.revisedDetail : [];
+  const skipped = Array.isArray(res?.skipped) ? res.skipped : [];
+  const before = Number(res?.before || 0);
+  const after = Number(res?.length || 0);
+  const delta = after - before;
+
+  const rows = revised.map((r) => `
+    <div style="padding:12px 14px;background:rgba(34,197,94,0.07);border:1px solid rgba(34,197,94,0.28);border-radius:10px;margin-bottom:9px;">
+      <div style="font-weight:800;color:#e2e8f0;font-size:13px;">${r.index === 0 ? '도입부' : `${r.index}. ${esc(r.heading)}`}</div>
+      <div style="color:#86efac;font-size:11.5px;margin-top:4px;">${r.before}자 → ${r.after}자 (${r.after - r.before >= 0 ? '+' : ''}${r.after - r.before})</div>
+      ${r.issues?.length ? `<div style="color:#94a3b8;font-size:11.5px;line-height:1.55;margin-top:5px;">반영: ${esc(r.issues.join(' · '))}</div>` : ''}
+    </div>`).join('');
+
+  const skippedRows = skipped.length ? `
+    <div style="margin-top:14px;color:#94a3b8;font-size:12px;font-weight:700;">그대로 둔 구간 ${skipped.length}개</div>
+    <div style="color:#7c8aa5;font-size:11.5px;line-height:1.7;margin-top:5px;">
+      ${skipped.map((line) => `· ${esc(line)}`).join('<br>')}
+    </div>
+    <div style="margin-top:7px;color:#7c8aa5;font-size:11px;line-height:1.55;">
+      규칙(이미지·링크·소제목 유지, 분량 유지)을 어긴 결과는 버리고 원본을 그대로 둡니다.
+      <b style="color:#cbd5f5;">이 구간의 지적은 다음 비평에도 그대로 나옵니다.</b>
+    </div>` : '';
+
+  return `
+    <div style="padding:16px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:12px;margin-bottom:16px;">
+      <div style="color:#bbf7d0;font-weight:800;font-size:14px;">✅ ${revised.length}개 구간을 고쳐 같은 주소에 반영했습니다</div>
+      <div style="color:#94a3b8;font-size:12px;margin-top:6px;line-height:1.6;">
+        고른 지적 ${picked.length}건 · 본문 ${before}자 → ${after}자 (${delta >= 0 ? '+' : ''}${delta})<br>
+        주소와 제목은 그대로라 검색 색인이 유지됩니다.
+      </div>
+    </div>
+    ${rows}
+    ${skippedRows}
+    <div style="margin-top:16px;padding:12px 14px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;color:#a5b4fc;font-size:11.5px;line-height:1.65;">
+      🕰️ 이번에 고친 항목은 기록해 뒀습니다. 다시 비평하면 각 지적 옆에
+      <b>새 지적 / 지난번에도 / 고쳤는데 또 / 개선이 남긴 것</b> 중 하나가 붙어,
+      그게 왜 지금 나왔는지 알 수 있습니다.
+    </div>
+  `;
+}
+
+/**
  * 비평 리포트를 띄운다.
  *
  * @param {object} critique - critique-published-post 핸들러 응답
- * @param {(issues:any[]) => Promise<void>} onApply - 고른 항목으로 수정발행
+ * @param {(issues:any[]) => Promise<any>} onApply - 고른 항목으로 수정발행. **결과 객체를 돌려줘야 한다.**
+ * @param {() => Promise<void>} [onRecritique] - 결과 화면에서 '다시 비평' 을 눌렀을 때
  */
-export function showCritiqueModal(critique, onApply) {
+export function showCritiqueModal(critique, onApply, onRecritique) {
   const existing = document.getElementById('postCritiqueModal');
   if (existing) existing.remove();
 
   const issues = Array.isArray(critique?.issues) ? critique.issues : [];
   const sections = Array.isArray(critique?.sections) ? critique.sections : [];
   const score = Number(critique?.score ?? 0);
+  const round = Number(critique?.roundCount || 1);
+  const resolvedCount = Number(critique?.resolvedCount || 0);
 
   const overlay = document.createElement('div');
   overlay.id = 'postCritiqueModal';
@@ -91,7 +161,7 @@ export function showCritiqueModal(critique, onApply) {
           <div style="font-size:22px;">🩺</div>
           <div style="flex:1;min-width:0;">
             <div style="font-weight:900;color:#f1f5f9;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(critique?.title || '비평 결과')}</div>
-            <div style="color:#94a3b8;font-size:12px;margin-top:3px;">${esc(critique?.summary || '')}${critique?.competitorCount ? ` · 경쟁글 ${critique.competitorCount}편 대조` : ' · 경쟁글 대조 없음'}</div>
+            <div style="color:#94a3b8;font-size:12px;margin-top:3px;">${esc(critique?.summary || '')}${critique?.competitorCount ? ` · 경쟁글 ${critique.competitorCount}편 대조` : ' · 경쟁글 대조 없음'}${round > 1 ? ` · ${round}번째 비평` : ''}${resolvedCount ? ` · 이미 고친 ${resolvedCount}건 제외` : ''}</div>
           </div>
           <div style="text-align:right;flex-shrink:0;">
             <div style="font-size:26px;font-weight:900;color:${scoreColor(score)};line-height:1;">${score}</div>
@@ -107,7 +177,7 @@ export function showCritiqueModal(critique, onApply) {
              ${issues.map((issue, i) => issueCard(issue, i, sections)).join('')}`}
       </div>
 
-      <div style="padding:16px 24px;border-top:1px solid #1e293b;display:flex;gap:10px;align-items:center;">
+      <div id="pcFooter" style="padding:16px 24px;border-top:1px solid #1e293b;display:flex;gap:10px;align-items:center;">
         <div id="pcHint" style="flex:1;color:#64748b;font-size:11.5px;line-height:1.5;">주소(URL)와 제목은 그대로라 검색 색인이 유지됩니다.</div>
         <button id="pcCancel" style="padding:10px 18px;background:#1e293b;color:#cbd5f5;border:1px solid #334155;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;">닫기</button>
         ${clean ? '' : '<button id="pcApply" style="padding:10px 20px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;">✍️ 선택한 항목 수정발행</button>'}
@@ -149,8 +219,23 @@ export function showCritiqueModal(critique, onApply) {
     if (hint) hint.textContent = '문제 구간만 다시 씁니다. 규칙을 어긴 구간은 원본을 그대로 둡니다.';
 
     try {
-      await onApply(picked);
-      close();
+      const res = await onApply(picked);
+
+      // 결과 화면으로 갈아끼운다 — 닫지 않는다. 무엇이 바뀌었는지 보고 나가셔야 한다.
+      const body = overlay.querySelector('#pcBody');
+      const footer = overlay.querySelector('#pcFooter');
+      if (body) body.innerHTML = resultView(res || {}, picked);
+      if (footer) {
+        footer.innerHTML = `
+          <div style="flex:1;color:#64748b;font-size:11.5px;line-height:1.5;">고친 내용은 이미 블로그에 반영됐습니다.</div>
+          ${onRecritique ? '<button id="pcAgain" style="padding:10px 18px;background:#1e293b;color:#cbd5f5;border:1px solid #334155;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;">🩺 다시 비평</button>' : ''}
+          <button id="pcDone" style="padding:10px 20px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;">닫기</button>`;
+        footer.querySelector('#pcDone')?.addEventListener('click', close);
+        footer.querySelector('#pcAgain')?.addEventListener('click', async () => {
+          close();
+          try { await onRecritique(); } catch { /* 실패는 호출한 쪽이 알린다 */ }
+        });
+      }
     } catch (err) {
       if (hint) hint.innerHTML = `<span style="color:#fca5a5;">❌ ${esc(err?.message || err)}</span>`;
       applyBtn.disabled = false;

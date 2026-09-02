@@ -263,6 +263,23 @@ export function normalizeParagraphs(html: string, opts: NormalizeOptions = {}): 
         continue;
       }
 
+      /**
+       * 📦 v3.8.621 — 답변블록은 **합치지는 말되 나누기는 한다.**
+       *
+       * 사장님 실물 검수: 요약 박스가 이렇게 나갔다.
+       *   "소상공인 무료 보험 대상과 조건 대상은 경남 경북 … 소상공인입니다. 지역별 …"
+       * **질문 라벨과 답변이 한 문단**으로 뭉쳤다(옛 동작 실측: merged 1건).
+       *
+       * 그렇다고 이 블록을 통째로 건너뛰면 반대가 된다 — 답변 세 문장이 한 덩어리로 남는다.
+       * 답변블록은 훑어보는 자리라 문장이 나뉘어야 하고, 질문 라벨이 답변에 붙으면 안 된다.
+       * 그래서 나누기는 그대로 두고, **짧다고 다음 문단에 얹는 일만** 막는다.
+       */
+      const isAnswerBlock = /\banswer-first/i.test(attrs);
+      if (isAnswerBlock && carry) {
+        out += `<p${carry.attrs}>${carry.inner}</p>`;
+        carry = null;
+      }
+
       let workInner = inner;
       let workAttrs = attrs;
       if (carry) {
@@ -274,7 +291,8 @@ export function normalizeParagraphs(html: string, opts: NormalizeOptions = {}): 
       }
 
       const len = visibleLength(workInner);
-      if (len > 0 && len < minChars) {
+      // 답변블록은 짧아도 들고 가지 않는다 — 질문 라벨이 다음 답변 문단에 붙어 버린다
+      if (!isAnswerBlock && len > 0 && len < minChars) {
         carry = { attrs: workAttrs, inner: workInner };   // 다음 문단과 합치려고 들고 간다
         continue;
       }

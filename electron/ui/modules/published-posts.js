@@ -489,7 +489,9 @@ async function critiquePostAt(index) {
       if (res.skipped?.length) {
         res.skipped.forEach((line) => addLog(`   ↪️ 그대로 둔 구간 — ${line}`));
       }
-    });
+      // v3.8.622 — 결과를 돌려줘야 모달이 "무엇이 어떻게 바뀌었는지" 화면을 그린다
+      return res;
+    }, () => critiquePostAt(index));
   } catch (err) {
     const message = err?.message || String(err);
     if (statusEl) statusEl.textContent = `❌ 비평 실패: ${message}`;

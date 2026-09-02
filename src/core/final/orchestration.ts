@@ -121,7 +121,20 @@ import {
 
 const FINAL_CTA_BOX_STYLE = 'margin:32px auto !important;padding:26px 24px !important;background:var(--rv-cta-bg,linear-gradient(135deg,#e0f2fe 0%,#dbeafe 100%)) !important;border:1px solid var(--rv-cta-border,#93c5fd) !important;border-radius:10px !important;text-align:center !important;display:flex !important;flex-direction:column !important;align-items:center !important;gap:12px !important;box-sizing:border-box !important;max-width:100% !important;';
 const FINAL_CTA_BADGE_STYLE = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;padding:5px 12px !important;background:var(--rv-cta-badge-bg,#eff6ff) !important;color:var(--rv-cta-note,#0369a1) !important;-webkit-text-fill-color:var(--rv-cta-note,#0369a1) !important;border:1px solid var(--rv-cta-border,#bae6fd) !important;border-radius:999px !important;font-size:12px !important;font-weight:800 !important;line-height:1.2 !important;margin:0 !important;';
-const FINAL_CTA_HOOK_STYLE = 'margin:0 !important;color:#0f172a !important;-webkit-text-fill-color:#0f172a !important;font-size:16px !important;font-weight:700 !important;line-height:1.55 !important;word-break:keep-all !important;max-width:92% !important;';
+/**
+ * 🖍️ v3.8.621 — 훅은 **배경이 무엇이든 읽혀야 한다.**
+ *
+ * 사장님 실물 검수: 진한 초록 CTA 박스에 훅이 거의 안 보였다.
+ * "배경색상과 텍스트색상은 대비가 되어야지, 아니면 텍스트가 보이도록 형광펜을 칠해주던지"
+ *
+ * 원인: 배지(`--rv-cta-note`)와 마이크로카피는 스킨 변수를 쓰는데 **훅만 색을 박아 뒀다**
+ * (`color:#0f172a`). 기본 배경이 연한 하늘색이라 그때는 맞았지만, 스킨이 `--rv-cta-bg` 를
+ * 어두운 색으로 바꾸면 검은 글씨가 그대로 남아 묻힌다.
+ *
+ * 그래서 훅에 **자기 바탕**을 준다. 형광펜처럼 밝은 칩 위에 진한 글씨를 얹으면
+ * 박스 배경이 밝든 어둡든 대비가 유지된다. 스킨이 원하면 두 변수로 갈아끼울 수 있다.
+ */
+const FINAL_CTA_HOOK_STYLE = 'display:inline-block !important;margin:0 !important;padding:8px 14px !important;background:var(--rv-cta-hook-bg,rgba(255,255,255,0.94)) !important;color:var(--rv-cta-hook,#0f172a) !important;-webkit-text-fill-color:var(--rv-cta-hook,#0f172a) !important;border-radius:8px !important;font-size:16px !important;font-weight:700 !important;line-height:1.55 !important;word-break:keep-all !important;max-width:92% !important;box-decoration-break:clone !important;-webkit-box-decoration-break:clone !important;';
 const FINAL_CTA_BUTTON_STYLE = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;min-width:220px !important;max-width:100% !important;min-height:48px !important;margin:2px auto 0 !important;padding:14px 28px !important;background:linear-gradient(135deg,var(--rv-cta-button-start,#0891b2) 0%,var(--rv-cta-button-end,#0284c7) 100%) !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;border:0 !important;border-radius:8px !important;text-decoration:none !important;font-size:16px !important;font-weight:800 !important;line-height:1.35 !important;box-shadow:0 8px 18px var(--rv-cta-shadow,rgba(2,132,199,0.24)) !important;box-sizing:border-box !important;white-space:normal !important;word-break:keep-all !important;';
 const FINAL_CTA_MICROCOPY_STYLE = 'display:block !important;width:100% !important;margin:0 !important;color:var(--rv-cta-note,#0369a1) !important;-webkit-text-fill-color:var(--rv-cta-note,#0369a1) !important;font-size:12px !important;font-weight:600 !important;line-height:1.5 !important;opacity:.86 !important;text-align:center !important;';
 const FINAL_CTA_ACTION_STACK_STYLE = 'display:flex !important;flex-direction:column !important;align-items:center !important;justify-content:center !important;gap:8px !important;width:100% !important;max-width:100% !important;margin:0 auto !important;text-align:center !important;';
@@ -4296,6 +4309,23 @@ ${quoted}
         } else if (renderedCtaUrls.has(normalizeCtaUrlKey(sectionCta.url))) {
           console.log(`[MAX-MODE] ℹ️ 중복 CTA URL 생략: ${sectionCta.url}`);
         } else {
+          /**
+           * 🧹 v3.8.621 — 섹션 CTA 도 훅 관문을 통과시킨다.
+           *
+           * 사장님 실물 검수: 훅이 글 제목 그대로였다.
+           *   "9월 1일 시작된 무료 상생보험, 7개 지역 아니면 대상이 아닙니다 — 금융위원회에서 …"
+           *
+           * 차단기(hookEchoesTitle)는 멀쩡히 동작한다(이 문장으로 재보면 true).
+           * 그런데 이 경로만 관문을 **안 타고** hookingMessage 를 그대로 썼다.
+           * "모든 CTA 가 지나는 마지막 문"이라던 toRenderableCtaCandidate 를 여기가 비켜 간 것이다.
+           */
+          const sectionCandidate = toRenderableCtaCandidate(
+            sectionCta,
+            sectionCta.hookingMessage || '',
+            sectionCta.buttonText || '',
+            undefined,
+            h1 || keyword,
+          );
           html += renderFinalCtaBlock({
             /**
              * v3.8.574 — 배지가 목적지를 보고 붙는다.
@@ -4307,8 +4337,8 @@ ${quoted}
              */
             badge: sectionCta.searchFallback ? '직접 확인'
               : isOfficialDestination(sectionCta.url) ? '공식 권장' : '참고 링크',
-            hook: sectionCta.hookingMessage,
-            buttonText: sectionCta.buttonText,
+            hook: sectionCandidate.hookingMessage,
+            buttonText: sectionCandidate.buttonText,
             url: sectionCta.url,
             /**
              * v3.8.584 — 앱이 스스로 감점당하던 문구를 고친다.
@@ -4739,7 +4769,7 @@ ${quoted}
         // v3.8.570: 폴백 문구도 목적지에서 만든다 — 예전 폴백은 글 제목을 앞에 붙인 문장이었다
         ...ctas.map((c) => {
           const fb = buildCtaCopy({ url: c.url });
-          return toRenderableCtaCandidate(c, fb.hookingMessage, fb.buttonText, '핵심', keyword);
+          return toRenderableCtaCandidate(c, fb.hookingMessage, fb.buttonText, '핵심', h1 || keyword);
         }),
         ...supplementalCtas
       ];
@@ -4860,7 +4890,7 @@ ${conclusionHTML}
       const finalCandidates: RenderableCtaCandidate[] = [
         ...ctas.map((c) => {
           const fb = buildCtaCopy({ url: c.url });
-          return toRenderableCtaCandidate(c, fb.hookingMessage, fb.buttonText, undefined, keyword);
+          return toRenderableCtaCandidate(c, fb.hookingMessage, fb.buttonText, undefined, h1 || keyword);
         }),
         ...supplementalCtas
       ];

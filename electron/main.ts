@@ -4333,6 +4333,15 @@ ipcMain.handle('regenerate-published-post', async (_evt, args: {
  * 두 단계로 나눈 이유는 사장님이 **무엇을 고칠지 보고 고르게** 하기 위해서다.
  * 이 핸들러는 읽고 판단만 한다 — 블로그는 건드리지 않는다.
  */
+/**
+ * 🗂️ v3.8.622 — 비평 이력이 사는 곳.
+ *
+ * 사장님: "새롭게 나온 것들은 왜 나왔는지 수긍이 될 거 아냐"
+ * 그러려면 지난 회차를 기억해야 한다. 글 본문 옆이 아니라 앱 데이터 폴더에 둔다 —
+ * 블로그 본문에 넣으면 발행글이 더러워지고, 플랫폼을 옮기면 사라진다.
+ */
+const critiqueHistoryPath = (): string => path.join(app.getPath('userData'), 'critique-history.json');
+
 ipcMain.handle('critique-published-post', async (_evt, args: {
   platform?: string;
   postId?: string;
@@ -4348,6 +4357,7 @@ ipcMain.handle('critique-published-post', async (_evt, args: {
     if (!postId) return { ok: false, error: 'postId 가 없습니다.' };
 
     const critique = require('../dist/core/final/post-critique');
+    const history = require('../dist/core/final/critique-history');
     const envData = loadEnvFromFile() as any;
     const creds = loadPlatformCredsFromEnv(envData, { platform: args?.platform as any });
     const axios = (await import('axios')).default;
@@ -4388,6 +4398,17 @@ ipcMain.handle('critique-published-post', async (_evt, args: {
     send('[PROGRESS] 45% - 📏 게이트로 본문을 재는 중…');
     const codeIssues = critique.diagnosePost({ title, html, competitors });
 
+    /**
+     * v3.8.622 — 지난 회차를 꺼낸다. 없으면 없는 대로 간다(첫 비평).
+     * 이미 고친 지적은 AI 에게 알려줘서 **말만 바꿔 다시 지적하는 일**을 막는다.
+     */
+    const historyFile = history.loadHistoryFile(critiqueHistoryPath());
+    const postHistory = history.historyOf(historyFile, postId);
+    const alreadyFixed: string[] = history.resolvedTitles(postHistory);
+    if (postHistory.rounds.length > 0) {
+      send(`   📒 지난 비평 ${postHistory.rounds.length}회 기록을 참고합니다${alreadyFixed.length ? ` (이미 고친 지적 ${alreadyFixed.length}건은 제외)` : ''}`);
+    }
+
     // ③ AI 비평 — 코드가 못 보는 것(검색 의도·구간 순서·전환)만 더 찾는다.
     //    실패해도 코드 진단만으로 리포트를 낸다. 비평이 안 됐다고 화면이 비면 안 된다.
     send('[PROGRESS] 65% - 🧐 편집장 관점으로 비평하는 중…');
@@ -4396,7 +4417,7 @@ ipcMain.handle('critique-published-post', async (_evt, args: {
       const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
       const sectionCount = critique.splitSections(html).length;
       const raw = await callGeminiWithRetry(
-        critique.buildCritiquePrompt({ title, html, codeIssues, competitors }),
+        critique.buildCritiquePrompt({ title, html, codeIssues, competitors, resolved: alreadyFixed }),
         1,
         { timeoutMs: 120000 },
       );
@@ -4405,23 +4426,43 @@ ipcMain.handle('critique-published-post', async (_evt, args: {
       send(`   ⚠️ AI 비평 실패 — 코드 진단만으로 리포트를 냅니다: ${String(critiqueError?.message || critiqueError).slice(0, 80)}`);
     }
 
-    const issues = [...codeIssues, ...aiIssues];
+    const rawIssues = [...codeIssues, ...aiIssues];
     const sections = critique.splitSections(html).map((s: any) => ({
       index: s.index,
       heading: s.heading,
       chars: String(s.html || '').replace(/<[^>]+>/g, '').trim().length,
     }));
 
+    /**
+     * v3.8.622 — 지적마다 **왜 지금 나왔는지**를 붙인다.
+     * 처음 나온 것 · 지난번에도 나왔는데 안 고른 것 · 고쳤는데 또 나온 것 ·
+     * 직전 개선으로 다시 쓴 구간에서 새로 생긴 것.
+     */
+    const issues = history.annotateIssues(rawIssues, postHistory);
+    const score = critique.scoreIssues(issues);
+
+    // 이번 회차를 남긴다. 기록에 실패해도 비평 결과는 그대로 보여준다.
+    try {
+      history.saveHistoryFile(
+        critiqueHistoryPath(),
+        history.recordRaised(historyFile, postId, { score, issues }),
+      );
+    } catch (historyError: any) {
+      send(`   ℹ️ 비평 이력 저장 건너뜀: ${String(historyError?.message || historyError).slice(0, 60)}`);
+    }
+
     send(`[PROGRESS] 100% - 🩺 비평 완료 — ${critique.summarizeCritique(issues)}`);
     return {
       ok: true,
       title,
       url: current.url || '',
-      score: critique.scoreIssues(issues),
+      score,
       summary: critique.summarizeCritique(issues),
       issues,
       sections,
       competitorCount: competitors.length,
+      roundCount: postHistory.rounds.length + 1,
+      resolvedCount: alreadyFixed.length,
     };
   } catch (error: any) {
     const message = error?.message || String(error);
@@ -4455,6 +4496,7 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
     if (selected.length === 0) return { ok: false, error: '고를 개선 항목이 없습니다.' };
 
     const critique = require('../dist/core/final/post-critique');
+    const history = require('../dist/core/final/critique-history');
     const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
     const envData = loadEnvFromFile() as any;
     const creds = loadPlatformCredsFromEnv(envData, { platform: args?.platform as any });
@@ -4484,6 +4526,13 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
 
     const revisions: { index: number; html: string }[] = [];
     const skipped: string[] = [];
+    /**
+     * v3.8.622 — 무엇을 어떻게 고쳤는지 **모달에 그대로 보여주려고** 모은다.
+     * 사장님: "고쳤으면 결과도 모달에 보여줘야"
+     * 로그 한 줄로 흘려보내면 다음 비평에서 새 지적이 왜 나왔는지 이어 붙일 수가 없다.
+     */
+    const revisedDetail: { index: number; heading: string; before: number; after: number; issues: string[] }[] = [];
+    const plain = (value: string): number => String(value || '').replace(/<[^>]+>/g, '').trim().length;
 
     for (let i = 0; i < targets.length; i += 1) {
       const index = targets[i]!;
@@ -4507,6 +4556,13 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
         const verdict = critique.acceptRevisedSection(raw, section);
         if (verdict.accepted) {
           revisions.push({ index, html: verdict.html });
+          revisedDetail.push({
+            index,
+            heading: String(section.heading || ''),
+            before: plain(section.html),
+            after: plain(verdict.html),
+            issues: [...(bySection.get(index) || []), ...wholePost].map((it: any) => String(it?.title || '')).filter(Boolean),
+          });
         } else {
           skipped.push(`${section.heading}: ${verdict.reason}`);
           send(`   ⚠️ "${String(section.heading).slice(0, 20)}" 구간은 그대로 둡니다 — ${verdict.reason}`);
@@ -4533,11 +4589,30 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
     await adapter.updatePost(postId, { content: nextHtml });
     send(`[PROGRESS] 100% - ✅ 개선 발행 완료 (${revisions.length}개 구간 · ${verdict.length}자)`);
 
+    /**
+     * v3.8.622 — 무엇을 고쳤는지 이력에 남긴다.
+     *
+     * 이 기록이 없으면 다음 비평이 다시 백지에서 시작한다. 고른 지적은 AI 프롬프트에서
+     * 제외되고, 다시 쓴 구간 번호는 "그 구간에서 새로 생긴 지적"을 알아보는 근거가 된다.
+     */
+    try {
+      const file = history.loadHistoryFile(critiqueHistoryPath());
+      history.saveHistoryFile(critiqueHistoryPath(), history.recordApplied(file, postId, {
+        issues: selected,
+        revisedSections: revisions.map((r) => r.index),
+        skipped,
+      }));
+    } catch (historyError: any) {
+      send(`   ℹ️ 개선 이력 저장 건너뜀: ${String(historyError?.message || historyError).slice(0, 60)}`);
+    }
+
     return {
       ok: true,
       revised: revisions.length,
+      revisedDetail,
       skipped,
       length: verdict.length,
+      before: (String(previousHtml || '').replace(/<[^>]+>/g, '').trim().length),
       url: current.url || '',
       html: nextHtml,
     };
@@ -11756,6 +11831,31 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
      * (실측 발행글 5445: style 블록 0개 · bgpt-content 없음).
      * 그래서 API 모드 글만 「먹과 놋쇠」였고 에이전트 글은 예전 얼굴이었다.
      */
+    /**
+     * 📖 v3.8.621 — 에이전트 글에도 **문단 정리**를 붙인다.
+     *
+     * 사장님: "이건 이런 식으로 문단정리가 되어야 되고, 에이전트 모드로 했을 때도 마찬가지야"
+     *
+     * 확인해 보니 `normalizeParagraphs` 는 orchestration 한 곳에서만 돌고 있었다.
+     * 에이전트는 그 경로를 안 타므로(스킨도 같은 이유로 v3.8.606 에 따로 붙였다)
+     * 긴 문단이 그대로 나가고 답변블록의 질문·답변도 정리되지 않는다.
+     *
+     * 스킨보다 **먼저** 돌린다 — 스킨이 감싼 뒤에 손대면 래퍼 안쪽 구조가 흔들린다.
+     * 실패해도 글은 나가야 하므로 어떤 예외도 발행을 막지 않는다.
+     */
+    try {
+      const { normalizeParagraphs } = require('../dist/core/final/paragraph-normalizer');
+      const norm = normalizeParagraphs(String(result.content || ''));
+      if (norm.split > 0 || norm.merged > 0) {
+        result.content = norm.html;
+        console.log(`[AGENT-PARA] 📖 문단 정리: 긴 문단 ${norm.split}번 나누고 짧은 문단 ${norm.merged}번 합침`);
+      } else {
+        console.log('[AGENT-PARA] 문단 정리: 손댈 곳 없음');
+      }
+    } catch (paraErr: any) {
+      console.warn('[AGENT-PARA] 스킵:', String(paraErr?.message || paraErr).slice(0, 120));
+    }
+
     try {
       const { applyOrbitSkinToAgentHtml } = require('../dist/core/final/agent-skin');
       const { generateCSSFinal } = require('../dist/core/final/html');
