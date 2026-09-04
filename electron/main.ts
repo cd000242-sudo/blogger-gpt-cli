@@ -12396,6 +12396,78 @@ async function callTrialGas(payload: Record<string, unknown>): Promise<any> {
   }
 }
 
+/*
+ * ── 유료 라이선스 휴대폰 본인인증 (2026-09-04) ────────────────────────────
+ *
+ * 본인 증명은 로그인 세션(userId + sessionToken)으로 한다 — 앱에 관리자 토큰을
+ * 심을 수 없다. 무료 체험자는 세션이 없어 창이 뜨지 않는다.
+ * 사장님 결정: 유료는 강제하지 않는다([나중에 하기]), 한 번 마치면 다시 안 묻는다.
+ */
+async function callLicensePhoneGas(action: string, payload: Record<string, unknown>): Promise<any> {
+  const { getSessionManager } = require('../dist/utils/session-manager');
+  const sessionManager = getSessionManager();
+  const userId = sessionManager.getUserId();
+  const sessionToken = sessionManager.getSessionToken();
+  if (!userId || !sessionToken) {
+    return { ok: false, error: '로그인 정보가 없습니다. 다시 로그인해 주세요.' };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TRIAL_GAS_TIMEOUT_MS);
+  try {
+    const response = await fetch(TRIAL_GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action, userId, sessionToken, ...payload }),
+      signal: controller.signal,
+    });
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+ipcMain.handle('license:phoneStatus', async () => {
+  try {
+    const { getSessionManager } = require('../dist/utils/session-manager');
+    const sessionManager = getSessionManager();
+    if (!sessionManager.getUserId() || !sessionManager.getSessionToken()) return { needed: false };
+    const licenseManager = getLicenseManager();
+    return { needed: licenseManager.isPhoneVerified() !== true };
+  } catch (e: any) {
+    console.error('[AUTH] license:phoneStatus 실패:', e);
+    return { needed: false };
+  }
+});
+
+ipcMain.handle('license:phoneRequestCode', async (_evt, args?: { phone?: string }) => {
+  try {
+    const phone = String(args?.phone || '').trim().replace(/[-\s]/g, '');
+    if (!/^01[0-9]{8,9}$/.test(phone)) {
+      return { ok: false, message: '올바른 전화번호를 입력하세요. (예: 01012345678)' };
+    }
+    const result = await callLicensePhoneGas('license-phone-request-code', { phone });
+    if (result?.ok !== true) return { ok: false, message: result?.error || '인증번호 발송에 실패했습니다.' };
+    return { ok: true };
+  } catch (e: any) {
+    console.error('[AUTH] license:phoneRequestCode 실패:', e);
+    return { ok: false, message: '인증번호 발송에 실패했습니다. 인터넷 연결을 확인하세요.' };
+  }
+});
+
+ipcMain.handle('license:phoneConfirm', async (_evt, args?: { phone?: string; authCode?: string }) => {
+  try {
+    const phone = String(args?.phone || '').trim().replace(/[-\s]/g, '');
+    const authCode = String(args?.authCode || '').trim();
+    const result = await callLicensePhoneGas('license-phone-confirm', { phone, authCode });
+    if (result?.ok !== true) return { ok: false, message: result?.error || '인증에 실패했습니다.' };
+    getLicenseManager().markPhoneVerified();
+    return { ok: true };
+  } catch (e: any) {
+    console.error('[AUTH] license:phoneConfirm 실패:', e);
+    return { ok: false, message: '본인인증에 실패했습니다. 인터넷 연결을 확인하세요.' };
+  }
+});
+
 // [인증하기] — 등록 없이 자격만 확인 (차단·기기중복·기존체험 여부)
 ipcMain.handle('auth:trial-verify', async (_event, userInfo?: { nickname?: string; phone?: string }) => {
   try {

@@ -765,6 +765,39 @@
     </div>
   </div>
 
+  <!-- [2026-09-04] 유료 라이선스 휴대폰 본인인증 — 로그인 직후 1회.
+       비밀번호를 잊었을 때 본인을 확인할 유일한 수단이라 번호를 받아 둔다.
+       사장님 결정: 강제하지 않는다([나중에 하기]). 한 번 마치면 다시 뜨지 않는다. -->
+  <div id="phoneVerifyBackdrop" style="display: none; position: fixed; inset: 0; background: rgba(2,6,23,0.75); z-index: 1002; align-items: center; justify-content: center;">
+    <div style="background: #0f172a; border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; padding: 28px; width: min(420px, 92vw); box-shadow: 0 20px 60px rgba(0,0,0,0.5);">
+      <h2 style="margin: 0 0 6px; color: white; font-size: 20px;">📱 휴대폰 본인인증</h2>
+      <p style="margin: 0 0 20px; color: rgba(255,255,255,0.55); font-size: 13px;">비밀번호를 잊으셨을 때 본인 확인에 쓰입니다. 최초 1회만 하면 다시 묻지 않습니다.</p>
+
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600; margin-bottom: 6px;">전화번호 <span style="color: #ef4444;">*</span></label>
+        <input type="tel" id="phoneVerifyInput" placeholder="01012345678" maxlength="13" inputmode="numeric"
+          style="width: 100%; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; background: rgba(255,255,255,0.06); color: white; font-size: 14px; box-sizing: border-box;">
+      </div>
+
+      <button type="button" id="phoneVerifySendBtn" onclick="phoneVerifySend()"
+        style="width: 100%; padding: 12px; margin-bottom: 10px; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; border-radius: 10px; color: white; font-size: 14px; font-weight: 700; cursor: pointer;">📩 인증번호 받기</button>
+
+      <div id="phoneVerifyCodeRow" style="display: none; margin-bottom: 10px;">
+        <label style="display: block; color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600; margin-bottom: 6px;">인증번호 <span style="color: #ef4444;">*</span></label>
+        <input type="text" id="phoneVerifyCode" placeholder="문자로 받은 6자리" maxlength="6" inputmode="numeric" autocomplete="one-time-code"
+          style="width: 100%; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; background: rgba(255,255,255,0.06); color: white; font-size: 14px; box-sizing: border-box;">
+      </div>
+
+      <div id="phoneVerifyMsg" style="display: none; font-size: 13px; font-weight: 600; margin-bottom: 12px; line-height: 1.5;"></div>
+
+      <button type="button" id="phoneVerifyConfirmBtn" onclick="phoneVerifyConfirm()"
+        style="display: none; width: 100%; padding: 12px; margin-bottom: 8px; background: linear-gradient(135deg, #10b981, #059669); border: none; border-radius: 10px; color: white; font-size: 14px; font-weight: 700; cursor: pointer;">✅ 인증 완료</button>
+
+      <button type="button" id="phoneVerifyLaterBtn" onclick="phoneVerifyLater()"
+        style="width: 100%; padding: 10px; background: transparent; border: none; color: rgba(255,255,255,0.4); font-size: 13px; cursor: pointer;">나중에 하기</button>
+    </div>
+  </div>
+
   <!-- ✅ [2026-08-21] 무료 체험 2단계 인증 모달 — 닉네임·폰번호 → 인증하기 → 인증완료 -->
   <div id="trialModalBackdrop" style="display: none; position: fixed; inset: 0; background: rgba(2,6,23,0.75); z-index: 1000; align-items: center; justify-content: center;">
     <div style="background: #0f172a; border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; padding: 28px; width: min(420px, 92vw); box-shadow: 0 20px 60px rgba(0,0,0,0.5);">
@@ -957,6 +990,94 @@
       }
     }
 
+
+    /*
+     * [2026-09-04] 로그인 성공 → (미인증이면) 휴대폰 본인인증 1회 → 메인 창.
+     *
+     * 유료 사용자에게만 뜬다 — 무료 체험자는 세션이 없어 needed:false 다.
+     * 강제하지 않는다: [나중에 하기]를 누르면 그대로 들어간다(사장님 결정).
+     * 인증을 마치면 다음부터는 뜨지 않는다.
+     */
+    let phoneVerifyResolve = null;
+
+    async function finishLogin() {
+      try {
+        const status = await ipcApi.invoke('license:phoneStatus');
+        if (status && status.needed === true) {
+          await new Promise((resolve) => {
+            phoneVerifyResolve = resolve;
+            const backdrop = document.getElementById('phoneVerifyBackdrop');
+            if (!backdrop) { resolve(); return; }
+            backdrop.style.display = 'flex';
+            phoneVerifyMsg('');
+          });
+        }
+      } catch (e) {
+        console.warn('[LOGIN] 본인인증 확인 실패 — 그냥 진행합니다:', e);
+      }
+      return ipcApi.invoke('login-success-signal');
+    }
+
+    function phoneVerifyMsg(text, isError) {
+      const el = document.getElementById('phoneVerifyMsg');
+      if (!el) return;
+      el.style.display = text ? 'block' : 'none';
+      el.style.color = isError ? '#f87171' : '#34d399';
+      el.textContent = text;
+    }
+
+    function phoneVerifyLater() {
+      const backdrop = document.getElementById('phoneVerifyBackdrop');
+      if (backdrop) backdrop.style.display = 'none';
+      if (phoneVerifyResolve) { const r = phoneVerifyResolve; phoneVerifyResolve = null; r(); }
+    }
+
+    async function phoneVerifySend() {
+      const phone = (document.getElementById('phoneVerifyInput')?.value || '').trim().replace(/[-\s]/g, '');
+      const btn = document.getElementById('phoneVerifySendBtn');
+      if (!/^01[0-9]{8,9}$/.test(phone)) { phoneVerifyMsg('올바른 전화번호를 입력하세요. (예: 01012345678)', true); return; }
+      if (btn) { btn.disabled = true; btn.textContent = '📩 보내는 중...'; }
+      try {
+        const r = await ipcApi.invoke('license:phoneRequestCode', { phone });
+        if (!r || r.ok !== true) {
+          phoneVerifyMsg((r && r.message) || '인증번호 발송에 실패했습니다.', true);
+          if (btn) { btn.disabled = false; btn.textContent = '📩 인증번호 받기'; }
+          return;
+        }
+        const codeRow = document.getElementById('phoneVerifyCodeRow');
+        if (codeRow) codeRow.style.display = 'block';
+        const confirmBtn = document.getElementById('phoneVerifyConfirmBtn');
+        if (confirmBtn) confirmBtn.style.display = 'block';
+        document.getElementById('phoneVerifyCode')?.focus();
+        if (btn) { btn.disabled = false; btn.textContent = '📩 인증번호 다시 받기'; }
+        phoneVerifyMsg('📩 인증번호를 보냈습니다 — 문자로 받은 6자리를 입력하세요.', false);
+      } catch (e) {
+        phoneVerifyMsg('발송 오류: ' + e.message, true);
+        if (btn) { btn.disabled = false; btn.textContent = '📩 인증번호 받기'; }
+      }
+    }
+
+    async function phoneVerifyConfirm() {
+      const phone = (document.getElementById('phoneVerifyInput')?.value || '').trim().replace(/[-\s]/g, '');
+      const authCode = (document.getElementById('phoneVerifyCode')?.value || '').trim();
+      const btn = document.getElementById('phoneVerifyConfirmBtn');
+      if (!/^\d{6}$/.test(authCode)) { phoneVerifyMsg('문자로 받은 인증번호 6자리를 입력하세요.', true); return; }
+      if (btn) { btn.disabled = true; btn.textContent = '확인 중...'; }
+      try {
+        const r = await ipcApi.invoke('license:phoneConfirm', { phone, authCode });
+        if (!r || r.ok !== true) {
+          phoneVerifyMsg((r && r.message) || '인증에 실패했습니다.', true);
+          if (btn) { btn.disabled = false; btn.textContent = '✅ 인증 완료'; }
+          return;
+        }
+        phoneVerifyMsg('✅ 본인인증이 완료되었습니다.', false);
+        setTimeout(phoneVerifyLater, 800); // 창을 닫고 로그인을 계속한다
+      } catch (e) {
+        phoneVerifyMsg('오류: ' + e.message, true);
+        if (btn) { btn.disabled = false; btn.textContent = '✅ 인증 완료'; }
+      }
+    }
+
     /*
      * [📩 인증번호 받기] — 서버가 문자를 보낸다 (2026-09-04).
      * 발송에 성공했을 때만 입력칸을 연다. 실패(잔액·통신사 차단 등)하면 칸을 열어
@@ -1096,7 +1217,7 @@
       
       modal.style.cursor = 'pointer';
       modal.onclick = () => {
-        if (ipcApi) ipcApi.invoke('login-success-signal');
+        if (ipcApi) finishLogin();
       };
     }
     
@@ -1129,7 +1250,7 @@
             }
           }
           showSuccess('자동 로그인 성공!');
-          setTimeout(() => { ipcApi.invoke('login-success-signal'); }, 500);
+          setTimeout(() => { finishLogin(); }, 500);
           return true;
         }
 
@@ -1141,7 +1262,7 @@
           if (expiresDate > new Date()) {
             console.warn('[AUTO-LOGIN] strict 검증 실패하지만 만료일 유효 — 진입 허용 (msg:', status.message, ')');
             showSuccess('자동 로그인 성공 (호환 모드)');
-            setTimeout(() => { ipcApi.invoke('login-success-signal'); }, 500);
+            setTimeout(() => { finishLogin(); }, 500);
             return true;
           }
         }
@@ -1288,7 +1409,7 @@
           showWelcomeSuccess(userId, welcomeMsg);
           
           setTimeout(() => {
-            ipcApi.invoke('login-success-signal');
+            finishLogin();
           }, 10000);
         } else {
           hideWelcomeModal();

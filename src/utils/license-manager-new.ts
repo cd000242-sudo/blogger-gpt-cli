@@ -46,6 +46,13 @@ export interface LicenseData {
   activatedAt: number;
   deviceId: string;
   patchFileHash?: string; // 영구제 패치 파일 해시
+  /*
+   * [2026-09-04] 휴대폰 본인인증을 마쳤는가.
+   * 비밀번호를 잊었을 때 본인을 확인할 유일한 수단이라 계정에 번호가 붙어 있어야
+   * 한다. 사장님 결정: 유료는 강제하지 않는다([나중에 하기]) — 대신 한 번 마치면
+   * 다시 묻지 않는다. 값의 출처는 서버 로그인 응답(phoneVerified)이다.
+   */
+  phoneVerified?: boolean;
 }
 
 export interface LicenseAuthResult {
@@ -284,7 +291,8 @@ export class LicenseManager {
           serverLicenseType: licenseType,
           activatedAt: Date.now(),
           deviceId,
-          ...(data.expiresAt && { expiresAt: new Date(data.expiresAt).getTime() })
+          ...(data.expiresAt && { expiresAt: new Date(data.expiresAt).getTime() }),
+          phoneVerified: data.phoneVerified === true
         };
 
         fs.writeFileSync(this.licensePath, JSON.stringify(licenseData, null, 2), 'utf8');
@@ -613,6 +621,29 @@ export class LicenseManager {
   /**
    * 라이선스 상태 확인
    */
+  /** 이 계정이 휴대폰 본인인증을 마쳤는가. 라이선스 파일이 없으면 false. */
+  isPhoneVerified(): boolean {
+    try {
+      if (!fs.existsSync(this.licensePath)) return false;
+      const data: LicenseData = JSON.parse(fs.readFileSync(this.licensePath, 'utf8'));
+      return data.phoneVerified === true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** 인증을 마쳤다고 로컬에 적는다 — 다음 실행에서 서버를 기다리지 않고 건너뛴다. */
+  markPhoneVerified(): void {
+    try {
+      if (!fs.existsSync(this.licensePath)) return;
+      const data: LicenseData = JSON.parse(fs.readFileSync(this.licensePath, 'utf8'));
+      data.phoneVerified = true;
+      fs.writeFileSync(this.licensePath, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+      console.warn('[AUTH] 본인인증 기록 실패:', e);
+    }
+  }
+
   getLicenseStatus(): { valid: boolean; message: string; licenseData?: LicenseData } {
     try {
       if (!fs.existsSync(this.licensePath)) {
