@@ -46,6 +46,12 @@ export interface AgentHarnessInput {
    * 없으면 예전과 똑같이 동작한다 — 에이전트가 스스로 찾아 쓴다.
    */
   evidence?: string;
+  /**
+   * 속보 판정 (v3.8.633). 있으면 '같은 이름의 옛 사건' 못박음을 싣는다.
+   * 에이전트는 orchestration 을 안 타므로 여기서 따로 받아야 한다 —
+   * 안 그러면 API 로 발행하면 잡히고 에이전트로 발행하면 또 작년 사건이 나온다.
+   */
+  breakingEvent?: any;
 }
 
 /**
@@ -174,6 +180,17 @@ export function buildAgentHarnessRules(input: AgentHarnessInput): string {
      * 에이전트는 스스로 웹을 검색할 수 있는데 지시서에 그 말이 한 줄도 없었다.
      * 주제만 던지면 모델이 아는 것만으로 쓴다 — 그게 "누구나 아는 내용" 의 원인이다.
      */
+    /**
+     * v3.8.633 — 속보면 사건 구분을 **검색 지시보다 먼저** 알린다.
+     * 무엇을 찾을지가 달라지기 때문이다 — 같은 이름의 옛 사건을 피해야 한다.
+     */
+    (() => {
+      try {
+        if (!input.breakingEvent?.isBreaking) return '';
+        const { buildBreakingDirective } = require('./breaking-news-guard');
+        return buildBreakingDirective(input.breakingEvent, input.keyword);
+      } catch { return ''; }
+    })(),
     buildResearchDirective(input),
     /**
      * v3.8.583 — 앱이 모은 근거를 **검색 지시 바로 뒤에** 놓는다.

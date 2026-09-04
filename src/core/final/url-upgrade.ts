@@ -33,14 +33,39 @@ export interface UpgradeSource {
   subheadings: string[];
   url: string;
   metaDescription?: string;
+  /** 원문 작성일 (v3.8.633) — 없으면 날짜 줄을 안 붙인다 */
+  publishDate?: string;
 }
 
 /** 원문에서 프롬프트에 실을 만큼만 잘라 온다 */
+/**
+ * 기사 날짜를 사람이 읽는 꼴로. 못 읽으면 빈 문자열.
+ *
+ * v3.8.633 — 날짜를 안 실어 주면 모델이 **언제 일인지 모른 채** 쓴다.
+ * 사장님 사고: 「티빙 개인정보 유출」이 터진 날 기사를 넣었는데
+ * 작년 사건 내용이 섞여 나왔다. 원문에 날짜가 있었는데 지시서에는 없었다.
+ */
+function briefDate(raw: unknown): string {
+  const t = Date.parse(String(raw || ''));
+  if (!Number.isFinite(t)) return '';
+  const d = new Date(t);
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
+}
+
 export function buildUpgradeBrief(source: UpgradeSource, contentChars = 6000): string {
   const lines: string[] = [
     '[원문 — 우리가 이겨야 할 글]',
     `제목: ${String(source.title || '').trim() || '(없음)'}`,
   ];
+
+  const when = briefDate((source as any).publishDate);
+  if (when) {
+    lines.push(
+      `원문 작성일: ${when}`,
+      '⚠️ **이 글은 위 날짜의 일을 다룹니다.** 같은 이름의 과거 사건이 떠오르더라도',
+      '   그 내용을 섞지 마세요. 원문에 없는 수치·피해 규모는 쓰지 않습니다.',
+    );
+  }
   const subs = (source.subheadings || []).filter(Boolean).slice(0, 15);
   if (subs.length) {
     lines.push('원문이 다룬 항목:', ...subs.map((s) => `  · ${s}`));

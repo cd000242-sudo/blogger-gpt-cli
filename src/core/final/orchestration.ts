@@ -135,6 +135,20 @@ const FINAL_CTA_BADGE_STYLE = 'display:inline-flex !important;align-items:center
  * 그래서 훅에 **자기 바탕**을 준다. 형광펜처럼 밝은 칩 위에 진한 글씨를 얹으면
  * 박스 배경이 밝든 어둡든 대비가 유지된다. 스킨이 원하면 두 변수로 갈아끼울 수 있다.
  */
+/**
+ * 📒 발행 장부가 있는 곳 (v3.8.632).
+ *
+ * orchestration 은 Electron 을 모른다(테스트에서도 돈다). 그래서 앱이 넣어 준
+ * 경로를 먼저 보고, 없으면 사용자 폴더에 둔다. 어느 쪽도 실패하면 장부를
+ * 안 쓰고 넘어간다 — 기록 때문에 발행이 막히면 안 된다.
+ */
+function ledgerPath(): string {
+  const injected = process.env['PUBLISH_LEDGER_PATH'];
+  if (injected) return injected;
+  const home = process.env['APPDATA'] || process.env['HOME'] || process.cwd();
+  return require('path').join(home, 'blogger-gpt-cli', 'publish-ledger.json');
+}
+
 const FINAL_CTA_HOOK_STYLE = 'display:inline-block !important;margin:0 !important;padding:8px 14px !important;background:var(--rv-cta-hook-bg,rgba(255,255,255,0.94)) !important;color:var(--rv-cta-hook,#0f172a) !important;-webkit-text-fill-color:var(--rv-cta-hook,#0f172a) !important;border-radius:8px !important;font-size:16px !important;font-weight:700 !important;line-height:1.55 !important;word-break:keep-all !important;max-width:92% !important;box-decoration-break:clone !important;-webkit-box-decoration-break:clone !important;';
 const FINAL_CTA_BUTTON_STYLE = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;min-width:220px !important;max-width:100% !important;min-height:48px !important;margin:2px auto 0 !important;padding:14px 28px !important;background:linear-gradient(135deg,var(--rv-cta-button-start,#0891b2) 0%,var(--rv-cta-button-end,#0284c7) 100%) !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;border:0 !important;border-radius:8px !important;text-decoration:none !important;font-size:16px !important;font-weight:800 !important;line-height:1.35 !important;box-shadow:0 8px 18px var(--rv-cta-shadow,rgba(2,132,199,0.24)) !important;box-sizing:border-box !important;white-space:normal !important;word-break:keep-all !important;';
 const FINAL_CTA_MICROCOPY_STYLE = 'display:block !important;width:100% !important;margin:0 !important;color:var(--rv-cta-note,#0369a1) !important;-webkit-text-fill-color:var(--rv-cta-note,#0369a1) !important;font-size:12px !important;font-weight:600 !important;line-height:1.5 !important;opacity:.86 !important;text-align:center !important;';
@@ -566,12 +580,28 @@ export async function generateUltimateMaxModeArticleFinal(
   //   "강제 해제"가 아니라 "대기자 타임아웃"인 이유는 engine-lock.ts 상단 주석 참조.
   let releaseLock: () => void = () => { /* no-op until assigned */ };
   releaseLock = await acquireEngineLock('generateUltimateMaxModeArticleFinal');
+
   const previousTextModel = process.env['PRIMARY_TEXT_MODEL'] || '';
   const startTime = Date.now();
   // v3.8.380(R5): 락 획득 직후 곧바로 try 진입 — 기존에는 락을 쥔 채 try 밖에서 ~80줄이 실행되어
   //   거기서 예외가 나면 finally(releaseLock)가 없어 영구 데드락이었다 (engine-lock.test.ts가 고정).
   //   아래 블록 들여쓰기는 diff·앵커 안정성을 위해 유지한다.
   try {
+  /**
+   * 🧹 v3.8.633 — 지난 발행의 판정을 지운다.
+   *
+   * 속보 판정·자기중복·자가수정 결과를 globalThis 에 두고 뒤에서 읽는데,
+   * 지우지 않으면 **다음 글에 그대로 묻어간다.** 속보 글 하나 쓰고 평범한 글을
+   * 쓰면 그 글에도 속보 못박음이 붙고, 장부에는 남의 중복 수치가 적힌다.
+   * 조용히 틀리는 종류라 반드시 첫머리에서 비운다.
+   *
+   * try 안에 두는 이유: 락을 쥔 채 try 밖에서 무언가 하면 거기서 난 예외는
+   * finally(releaseLock)를 못 만나 영구 데드락이 된다 (engine-lock.test.ts).
+   */
+  (globalThis as any).__lastBreakingEvent = null;
+  (globalThis as any).__lastSelfOverlap = null;
+  (globalThis as any).__lastPreflight = null;
+
   // 🎯 사용자 선택 AI 엔진을 런타임에 반영
   // 🔥 우선순위 수정: provider(드롭다운, 최신 UI)가 primaryGeminiTextModel(라디오, 모달)보다 우선
   const providerModelMap: Record<string, string> = {
@@ -2233,6 +2263,11 @@ ${quoted}
     try {
       const g = await fetchGrounding(keyword, naverSearch as any);
       naverGrounding = g.text;
+      /**
+       * v3.8.633 — 속보 판정을 **반환값에서** 받는다.
+       * 전역만 믿으면 근거 수집이 다른 경로로 돌 때 지난 판정이 묻어간다.
+       */
+      if ((g as any).breakingEvent) (globalThis as any).__lastBreakingEvent = (g as any).breakingEvent;
       groundingStats = g;
       const summary = describeGrounding(g);
       console.log(`[GROUNDING] ${summary}`);
@@ -2530,9 +2565,27 @@ ${quoted}
     const answerDirective = buildAnswerDirective(keyword);
     const keyFactDirective = buildKeyFactDirective(keyword);
 
+    /**
+     * ⏱️ v3.8.633 — 지금 터진 일이면 못박음을 싣는다.
+     *
+     * "최신 정보를 써라" 로는 안 된다 — 모델은 자기가 최신을 쓰고 있다고 믿는다.
+     * **같은 이름의 다른 사건이 있다**는 사실을 알려 줘야 구분한다.
+     * (사장님 실제 사고: 티빙 유출이 터진 10분 뒤에 작년 사건이 나왔다.)
+     */
+    let breakingDirective = '';
+    try {
+      const event = (globalThis as any).__lastBreakingEvent;
+      if (event?.isBreaking) {
+        const { buildBreakingDirective } = require('./breaking-news-guard');
+        breakingDirective = buildBreakingDirective(event, keyword);
+        onLog?.(`⏱️ ${event.note}`);
+      }
+    } catch { /* 못박음이 없어도 글은 나간다 */ }
+
     // Always inject the hard evidence policy. A failed search must never mean unrestricted generation.
     factEnrichedContents = [
       buildFactIntegrityPrompt(keyword, factEvidence),
+      ...(breakingDirective ? [breakingDirective] : []),
       ...(entityBlock ? [entityBlock] : []),
       ...(reformBlock ? [reformBlock] : []),
       ...(answerDirective ? [answerDirective] : []),
@@ -2855,6 +2908,14 @@ ${quoted}
         ].join('\n');
         const { measureSelfOverlap, formatSelfOverlapLog } = await import('../self-overlap');
         const report = await measureSelfOverlap(overlapSiteUrl, keyword, bodyForOverlap);
+        // v3.8.632: 장부에 남기려고 붙잡아 둔다 — 로그로 흘려보내면 17일 뒤에 못 본다
+        try {
+          const hits = (report as any)?.hits || [];
+          (globalThis as any).__lastSelfOverlap = {
+            max: hits.length ? Math.max(...hits.map((h: any) => Number(h.similarity) || 0)) : 0,
+            count: hits.length,
+          };
+        } catch { /* 관측 실패는 발행에 영향 없다 */ }
         const line = formatSelfOverlapLog(report);
         if (line) {
           onLog?.(line);
@@ -5823,7 +5884,7 @@ ${conclusionHTML}
     try {
       const { fixBeforePublish } = require('./pre-publish-fix');
       const outcome = await fixBeforePublish(
-        { title: h1 || keyword, html },
+        { title: h1 || keyword, html, reportSlot: (payload as any)?.cpcReportSlot },
         (prompt: string) => callGeminiWithRetry(prompt, 1, { timeoutMs: 120000 }),
         onLog,
       );
@@ -5831,9 +5892,47 @@ ${conclusionHTML}
         html = outcome.html;
         onLog?.(`[PROGRESS] 97% - 🩺 발행 전 자가 수정 — 구간 ${outcome.revised}개를 다시 썼습니다 (호출 ${outcome.calls}회)`);
       }
+      // v3.8.632: 장부에 남긴다 — 자가 수정이 줄어드는지가 첫 생성이 좋아졌다는 신호다
+      (globalThis as any).__lastPreflight = { revised: outcome.revised, calls: outcome.calls };
     } catch (preflightError: any) {
       // 자가 수정 실패가 발행을 막지는 않는다
       console.warn('[PREFLIGHT] 건너뜀:', String(preflightError?.message || preflightError).slice(0, 120));
+    }
+
+    /**
+     * 📒 v3.8.632 — 이번 발행의 측정값을 장부에 남긴다.
+     *
+     * 하네스 점수도 자기중복도 지금은 로그로 흘러가 버린다. 17일 뒤에
+     * "품질이 올랐나", "중복이 늘었나" 를 물으면 답할 수가 없다.
+     * 한 편의 수치는 못 믿지만 51편을 모으면 뜻이 생긴다.
+     */
+    try {
+      const { auditArticle } = require('./article-audit');
+      const { appendLedgerEntry } = require('./publish-ledger');
+      const audited = auditArticle(html);
+      const kinds: Record<string, number> = {};
+      for (const i of audited.issues) kinds[i.kind] = (kinds[i.kind] || 0) + 1;
+      const overlap = (globalThis as any).__lastSelfOverlap || {};
+      const pre = (globalThis as any).__lastPreflight || {};
+      const slot = (payload as any)?.cpcReportSlot;
+      appendLedgerEntry(ledgerPath(), {
+        at: new Date().toISOString(),
+        url: '',
+        title: String(h1 || keyword || ''),
+        keyword: String(keyword || ''),
+        auditScore: audited.score,
+        auditKinds: kinds,
+        selfOverlapMax: Number(overlap.max) || 0,
+        selfOverlapHits: Number(overlap.count) || 0,
+        preflightRevised: Number(pre.revised) || 0,
+        preflightCalls: Number(pre.calls) || 0,
+        reportSlot: slot ? String(slot.slot || '') : '',
+        reportGrade: slot ? String(slot.grade || '') : '',
+      });
+      onLog?.(`[PROGRESS] 98% - 📒 품질 ${audited.score}점 · 중복 ${((Number(overlap.max)||0)).toFixed(2)} 를 장부에 남겼습니다`);
+    } catch (ledgerError: any) {
+      // 장부는 있으면 좋은 것이지 발행 조건이 아니다
+      console.warn('[LEDGER] 건너뜀:', String(ledgerError?.message || ledgerError).slice(0, 100));
     }
 
     const beforeRepair = findEmptyBlocks(html);

@@ -194,3 +194,55 @@ export function buildReportDirective(slot: CpcSlot, urls: string[] = []): string
   lines.push('');
   return lines.join('\n');
 }
+
+/* ────────────────────────────────────────────────────────────────
+ * 리포트가 시킨 것을 글이 지켰는가
+ *
+ * 실측 2026-09-04: 리포트가 롱테일 3개와 확인 항목 5개를 적어 줬는데
+ * 발행된 글에는 **2개만** 들어갔다. 지시를 주는 것만으로는 부족하다 —
+ * 지켰는지 재야 한다.
+ * ──────────────────────────────────────────────────────────────── */
+
+export interface ReportCompliance {
+  /** 본문에서 확인된 롱테일 */
+  coveredLongtails: string[];
+  /** 빠진 롱테일 */
+  missingLongtails: string[];
+  /** 확인하라고 했는데 흔적이 없는 항목 */
+  missingChecks: string[];
+}
+
+/** 지시문에서 실제로 찾아볼 낱말을 뽑는다 — 조사·수식어를 걷어낸 명사 위주 */
+function keyTerms(instruction: string): string[] {
+  return String(instruction || '')
+    .replace(/[「」'"(),.·\-—…★]/g, ' ')
+    .split(/\s+/)
+    .map((w) => w.replace(/(?:을|를|이|가|은|는|의|에|로|으로|와|과|도|만|까지|부터)$/, ''))
+    .filter((w) => w.length >= 2 && !/^(확인할|확인|반드시|본문에|넣을|것|경우|여부|지점|위해|대한|따른|그리고|하는|되는|있는)$/.test(w))
+    .slice(0, 6);
+}
+
+/**
+ * 지시 하나가 본문에 반영됐는지 — 핵심 낱말의 과반이 보이면 다뤘다고 본다.
+ *
+ * 완전 일치를 요구하면 표현만 바꿔 써도 "빠뜨렸다"가 된다.
+ * 반대로 한 낱말만 봐도 되면 스치듯 언급한 것을 다뤘다고 오인한다.
+ * 과반이 절충점이다.
+ */
+export function instructionCovered(instruction: string, bodyText: string): boolean {
+  const terms = keyTerms(instruction);
+  if (terms.length === 0) return true;   // 판정할 근거가 없으면 통과시킨다
+  const body = String(bodyText || '');
+  const hits = terms.filter((t) => body.includes(t)).length;
+  return hits * 2 >= terms.length;
+}
+
+export function checkReportCompliance(slot: CpcSlot, bodyText: string): ReportCompliance {
+  const covered: string[] = [];
+  const missing: string[] = [];
+  for (const t of slot?.longtails || []) {
+    (instructionCovered(t, bodyText) ? covered : missing).push(t);
+  }
+  const missingChecks = (slot?.mustCheck || []).filter((c) => !instructionCovered(c, bodyText));
+  return { coveredLongtails: covered, missingLongtails: missing, missingChecks };
+}

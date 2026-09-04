@@ -201,3 +201,60 @@ export function extractEmbeddedArticle(html: string): EmbeddedArticle {
   }
   return EMPTY;
 }
+
+/**
+ * 📅 기사 작성일 꺼내기 (v3.8.633)
+ *
+ * ## 왜 여기인가
+ * 본문과 **같은 이유**로 날짜도 사라진다. deepCrawlUrl 은 `<script>` 를 지운 뒤에
+ * 날짜를 찾으므로 JSON-LD 의 `datePublished` 에는 닿지 못하고, 남은 건
+ * `article:published_time` 과 `<time datetime>` 두 갈래뿐이다.
+ *
+ * 날짜를 못 읽으면 v3.8.633 의 URL 모드 경고("이 글은 위 날짜의 일을 다룹니다")가
+ * **조용히 안 붙는다.** 그러면 사고를 낸 바로 그 조선일보 기사에서 고친 게
+ * 아무 일도 안 하는 셈이 된다 — 고쳤다고 믿는데 동작하지 않는 상태다.
+ *
+ * 그래서 스크립트를 지우기 전에, 원문 HTML 에서 넓게 찾는다.
+ * 못 찾으면 빈 문자열 — 없는 날짜를 지어내지 않는다.
+ */
+const DATE_META_KEYS = [
+  'article:published_time',
+  'og:article:published_time',
+  'datepublished',
+  'sailthru.date',
+  'dc.date.issued',
+  'dc.date',
+  'pubdate',
+  'date',
+];
+
+export function extractPublishDate(html: string): string {
+  const source = String(html || '');
+  if (!source) return '';
+
+  const ok = (value: string): string =>
+    Number.isFinite(Date.parse(value.trim())) ? value.trim() : '';
+
+  // ① JSON-LD·Fusion JSON 안의 datePublished — 스크립트를 지우면 사라지는 갈래
+  const jsonMatch = source.match(/"datePublished"\s*:\s*"([^"]{4,40})"/i);
+  if (jsonMatch?.[1]) {
+    const found = ok(jsonMatch[1]);
+    if (found) return found;
+  }
+
+  // ② meta 태그 — 속성 순서가 매체마다 달라 통째로 훑는다
+  const metas = source.match(/<meta\b[^>]*>/gi) || [];
+  for (const key of DATE_META_KEYS) {
+    for (const tag of metas) {
+      const nameMatch = tag.match(/(?:property|name|itemprop)\s*=\s*["']([^"']+)["']/i);
+      if (nameMatch?.[1]?.trim().toLowerCase() !== key) continue;
+      const contentMatch = tag.match(/content\s*=\s*["']([^"']+)["']/i);
+      const found = ok(contentMatch?.[1] || '');
+      if (found) return found;
+    }
+  }
+
+  // ③ <time datetime="..."> — 스크립트 제거 후에도 남지만 여기서 같이 본다
+  const timeMatch = source.match(/<time\b[^>]*\bdatetime\s*=\s*["']([^"']+)["']/i);
+  return ok(timeMatch?.[1] || '');
+}

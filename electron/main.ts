@@ -4343,6 +4343,75 @@ ipcMain.handle('regenerate-published-post', async (_evt, args: {
 const critiqueHistoryPath = (): string => path.join(app.getPath('userData'), 'critique-history.json');
 
 /**
+ * 📥 v3.8.631 — 매일 만들어지는 고CPC 키워드 리포트를 읽는다.
+ *
+ * 사장님: "매일마다 생성하니까 읽게해주고 … 자동으로 생성되는걸감지해서 가져오게끔"
+ *         "문제는 이걸 사용자가 다볼수있게하고싶지는않아 이건 내꺼라서"
+ *
+ * ## 사생활 — 코드에 흔적을 남기지 않는다
+ * 폴더 경로를 여기 적지 않는다. `config.json` 의 `cpcReportDir` 에서만 읽고,
+ * 그 값이 없으면 **이 기능은 아예 켜지지 않는다.** 설정하지 않은 사용자에게는
+ * 없는 기능과 같다. 실행파일(asar)은 누구나 열 수 있으므로, 코드에 경로나
+ * 계정을 적으면 그 순간 공개된다.
+ *
+ * ## 시각이 아니라 파일을 본다
+ * 클로드코드 할당량이 막히면 리포트가 몇 시간 뒤에 만들어진다. 그래서
+ * "매일 9시에 읽는다" 는 못 쓴다 — 폴더에 **새 파일이 나타났는지**만 본다.
+ */
+const cpcReportStatePath = (): string => path.join(app.getPath('userData'), 'cpc-report-state.json');
+
+function cpcReportDir(): string {
+  try {
+    const configPath = path.join(app.getPath('userData'), 'config.json');
+    if (!fs.existsSync(configPath)) return '';
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    return String(config?.cpcReportDir || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+ipcMain.handle('keywords:latest-report', async () => {
+  try {
+    const dir = cpcReportDir();
+    if (!dir) return { ok: false, enabled: false, message: '' };
+
+    const { loadLatestReport } = require('../dist/core/keywords/report-source');
+    const { usableSlots } = require('../dist/core/keywords/cpc-report');
+    const result = loadLatestReport(dir, cpcReportStatePath());
+    if (!result.report) return { ok: false, enabled: true, message: result.note };
+
+    return {
+      ok: true,
+      enabled: true,
+      date: result.report.date,
+      isNew: result.isNew,
+      fileName: result.found?.fileName || '',
+      message: result.note,
+      slots: usableSlots(result.report),
+      urls: result.report.urls,
+    };
+  } catch (error: any) {
+    return { ok: false, enabled: true, message: String(error?.message || error).slice(0, 160) };
+  }
+});
+
+/** 이 리포트를 썼다고 기록한다 — 같은 것을 두 번 쓰지 않기 위해서다 */
+ipcMain.handle('keywords:mark-report-used', async () => {
+  try {
+    const dir = cpcReportDir();
+    if (!dir) return { ok: false };
+    const { findLatestReport, writeImportState } = require('../dist/core/keywords/report-source');
+    const found = findLatestReport(dir);
+    if (!found) return { ok: false };
+    writeImportState(cpcReportStatePath(), found);
+    return { ok: true, fileName: found.fileName };
+  } catch {
+    return { ok: false };
+  }
+});
+
+/**
  * 🤖 v3.8.629 — 에이전트 CLI 에 **짧은 글 작업 하나**를 시키고 답만 받는다.
  *
  * 사장님: "에이전트로하면 더 좋은데 왜 활용을 못할까 완벽히 연동시켜줘"

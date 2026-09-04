@@ -25,7 +25,7 @@ import { fetchNaverBlogPost, parseNaverBlogUrl } from './final/naver-blog-source
 import { recoverTopicFromContent, describeCrawlFailure } from './final/url-topic-recovery';
 import { buildNaverBlogDeps } from './final/naver-blog-deps';
 import { buildUpgradeBrief, URL_UPGRADE_RULES, URL_UPGRADE_TITLE_RULES } from './final/url-upgrade';
-import { extractEmbeddedArticle } from './crawlers/embedded-article-body';
+import { extractEmbeddedArticle, extractPublishDate } from './crawlers/embedded-article-body';
 
 /**
  * 이 밑이면 본문을 못 읽은 것으로 본다 (v3.8.627).
@@ -334,6 +334,13 @@ export async function deepCrawlUrl(url: string): Promise<UrlCrawlResult> {
     console.log(`[URL-GEN] 📰 스크립트 안에서 본문을 찾았습니다 (${embedded.source}): ${embedded.content.length}자`);
   }
 
+  /**
+   * 날짜도 같은 이유로 스크립트 안에 있다 (v3.8.633). 여기서 미리 뽑아 두지 않으면
+   * JSON-LD 의 datePublished 는 아래 remove 와 함께 사라지고, 그러면 URL 모드의
+   * "이 글은 위 날짜의 일을 다룹니다" 경고가 조용히 안 붙는다.
+   */
+  const embeddedDate = extractPublishDate(html);
+
   const $ = cheerio.load(html);
 
   // 불필요한 요소 제거
@@ -445,7 +452,8 @@ export async function deepCrawlUrl(url: string): Promise<UrlCrawlResult> {
   const author = $('meta[name="author"]').attr('content') ||
     $('[class*="author"]').first().text().trim() || '';
   const publishDate = $('meta[property="article:published_time"]').attr('content') ||
-    $('time').first().attr('datetime') || '';
+    $('time').first().attr('datetime') ||
+    embeddedDate || '';
 
   /**
    * 🚨 v3.8.627 — 본문이 없으면 성공이라고 찍지 않는다.

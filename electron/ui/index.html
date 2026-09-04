@@ -3069,6 +3069,29 @@
 
           <!-- v3.8.551: "오늘의 리더남 황금키워드" 대형 배너 삭제 (사장님 지시).
                헤더의 [황금키워드 보러가기] 버튼과 관리자 편집기는 그대로 둔다. -->
+
+          <!--
+            v3.8.631 — 오늘의 고CPC 키워드 리포트.
+
+            황금키워드 배너가 있던 자리다. 사장님 전용이며, **설정이 있어야만 나타난다.**
+            (config.json 의 cpcReportDir). 설정이 없는 사용자에게는 이 카드가 아예
+            그려지지 않으므로 기능이 없는 것과 같다.
+          -->
+          <div id="cpcReportCard" style="display: none; background: linear-gradient(160deg, #0f172a 0%, #172554 100%); border-radius: 16px; border: 1px solid rgba(96,165,250,0.22); padding: 16px 18px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px;">
+              <h3 style="color: #e0f2fe; font-size: 14px; font-weight: 800; margin: 0; display: flex; align-items: center; gap: 7px;">
+                📥 오늘의 고CPC 키워드
+                <span id="cpcReportDate" style="color: #93c5fd; font-size: 12px; font-weight: 600;"></span>
+                <span id="cpcReportNew" style="display: none; background: #2563eb; color: white; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 999px;">NEW</span>
+              </h3>
+              <button type="button" onclick="loadCpcReport(true)"
+                style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; color: #cbd5e1; font-size: 11px; font-weight: 700; padding: 5px 10px; cursor: pointer;">
+                다시 불러오기
+              </button>
+            </div>
+            <div id="cpcReportSlots" style="display: flex; flex-direction: column; gap: 10px;"></div>
+            <div id="cpcReportNote" style="color: #64748b; font-size: 11px; margin-top: 8px;"></div>
+          </div>
           <!-- v3.8.350: 통계 카드 별도 행 삭제 → 스케줄 헤더 안 왼쪽으로 이동 (아래 스케줄 카드 참고) -->
 
           <!-- 3. 메인 수평 레이아웃 (최근발행 좌측, 캘린더 우측) -->
@@ -8848,6 +8871,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (typeof renderGoldenKeyword === 'function') renderGoldenKeyword();
     // 캐시/로컬로 먼저 그린 뒤, 원격 배포본이 도착하면 다시 그린다 (빈 화면 대기 없음)
     if (typeof refreshGoldenKeywordFromRemote === 'function') refreshGoldenKeywordFromRemote();
+    // v3.8.631: 오늘의 고CPC 키워드 리포트 (설정이 있는 PC 에서만 보인다)
+    if (typeof loadCpcReport === 'function') loadCpcReport(false);
 
     // v3.8.348: 관리자 편집 버튼 이벤트 백업 바인딩 (onclick 반응 없는 문제 fix)
     var editBtn = document.getElementById('golden-keyword-edit-btn');
@@ -8920,6 +8945,130 @@ function renderRecentPosts() {
   }
 }
 window.renderRecentPosts = renderRecentPosts;
+
+/**
+ * v3.8.631 — 오늘의 고CPC 키워드 리포트를 메인 탭에 띄운다.
+ *
+ * 사장님: "리더남 황금키워드 라고해서 메인탭 달력윗공간에 배치했던거기억나니?
+ *         그것처럼 나만볼수있게 거기로 자동으로 불러오게끔"
+ *
+ * **설정이 있어야만 보인다.** config.json 의 cpcReportDir 가 없으면 IPC 가
+ * enabled:false 를 돌려주고, 카드는 숨긴 채로 둔다. 다른 사용자에게는 없는 기능이다.
+ * 비밀번호를 묻지 않는 이유는, 그 폴더가 없는 사람에게는 보여줄 내용 자체가
+ * 없기 때문이다 — 잠글 문이 아니라 아예 방이 없다.
+ */
+function renderCpcSlot(slot) {
+  var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  }); };
+  var longtails = (slot.longtails || []).map(function (t) {
+    return '<li style="margin: 2px 0;">' + esc(t) + '</li>';
+  }).join('');
+  var checks = (slot.mustCheck || []).map(function (t) {
+    return '<li style="margin: 2px 0;">' + esc(t) + '</li>';
+  }).join('');
+
+  return [
+    '<div style="background: rgba(15,23,42,0.55); border: 1px solid rgba(148,163,184,0.14); border-radius: 12px; padding: 12px 14px;">',
+    '  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px;">',
+    '    <span style="background: #1d4ed8; color: white; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 6px;">슬롯 ' + esc(slot.slot) + '</span>',
+    slot.grade ? '    <span style="color: #93c5fd; font-size: 11px; font-weight: 700;">' + esc(slot.grade) + '</span>' : '',
+    slot.track ? '    <span style="color: #64748b; font-size: 11px;">' + esc(slot.track) + '</span>' : '',
+    '  </div>',
+    // 키워드와 확정 제목은 다른 것이다 — 키워드는 소재, 제목은 검색 경쟁을 재고 고른 문장
+    slot.keyword ? '  <div style="display:flex; gap:6px; margin-bottom:5px;"><span style="color:#64748b; font-size:11px; font-weight:700; flex-shrink:0;">키워드</span><span style="color:#cbd5e1; font-size:12px; line-height:1.5;">' + esc(slot.keyword) + '</span></div>' : '',
+    slot.title ? '  <div style="display:flex; gap:6px; margin-bottom:8px;"><span style="color:#93c5fd; font-size:11px; font-weight:700; flex-shrink:0;">확정 제목</span><span style="color:#f1f5f9; font-size:13px; font-weight:700; line-height:1.5;">' + esc(slot.title) + '</span></div>' : '',
+    longtails ? '  <div style="color: #94a3b8; font-size: 11px; font-weight: 700; margin-bottom: 3px;">롱테일 파생 키워드 <span style="color:#64748b; font-weight:600;">— 각각 한 구간으로</span></div><ul style="color: #cbd5e1; font-size: 11px; margin: 0 0 8px; padding-left: 16px; line-height: 1.6;">' + longtails + '</ul>' : '',
+    checks ? '  <div style="color: #fbbf24; font-size: 11px; font-weight: 700; margin-bottom: 3px;">발행 전 확인</div><ul style="color: #cbd5e1; font-size: 11px; margin: 0 0 8px; padding-left: 16px; line-height: 1.6;">' + checks + '</ul>' : '',
+    '  <button type="button" onclick="useCpcSlot(' + esc(JSON.stringify(JSON.stringify(slot))) + ')"',
+    '    style="background: linear-gradient(135deg,#2563eb,#1d4ed8); border: none; border-radius: 8px; color: white; font-size: 12px; font-weight: 800; padding: 7px 14px; cursor: pointer;">',
+    '    이 키워드로 발행 준비',
+    '  </button>',
+    '</div>',
+  ].filter(Boolean).join('\n');
+}
+
+async function loadCpcReport(manual) {
+  var card = document.getElementById('cpcReportCard');
+  if (!card) return;
+  var api = window.electronAPI || window.electron || window.blogger;
+  if (!api || !api.invoke) return;
+
+  try {
+    var r = await api.invoke('keywords:latest-report');
+    if (!r || !r.enabled) { card.style.display = 'none'; return; }   // 설정이 없으면 없는 기능이다
+
+    card.style.display = 'block';
+    var dateEl = document.getElementById('cpcReportDate');
+    var newEl = document.getElementById('cpcReportNew');
+    var slotsEl = document.getElementById('cpcReportSlots');
+    var noteEl = document.getElementById('cpcReportNote');
+
+    if (dateEl) dateEl.textContent = r.date || '';
+    if (newEl) newEl.style.display = r.isNew ? 'inline-block' : 'none';
+    if (noteEl) noteEl.textContent = r.message || '';
+
+    if (!r.ok || !r.slots || r.slots.length === 0) {
+      if (slotsEl) slotsEl.innerHTML = '<div style="color:#64748b; font-size:12px;">오늘 쓸 슬롯이 없습니다.</div>';
+      return;
+    }
+    if (slotsEl) slotsEl.innerHTML = r.slots.map(renderCpcSlot).join('\n');
+  } catch (e) {
+    console.warn('[CPC-REPORT] 불러오기 실패:', e);
+    if (manual) alert('리포트를 불러오지 못했습니다: ' + (e && e.message ? e.message : e));
+  }
+}
+
+/**
+ * 고른 슬롯을 발행 입력에 채운다.
+ *
+ * **키워드와 제목을 각각 넣는다.** 둘은 다른 것이다 —
+ * 키워드는 소재이고, 확정 제목은 검색 경쟁을 재고 고른 문장이다.
+ * 예전처럼 제목을 키워드 칸에 넣으면 제목이 다시 지어지면서
+ * 리포트가 고른 제목이 버려진다.
+ */
+function useCpcSlot(slotJson) {
+  var slot;
+  try { slot = JSON.parse(slotJson); } catch { return; }
+
+  // 리포트가 정한 설계도(롱테일·확인항목)를 발행 payload 가 집어 갈 수 있게 남긴다
+  window.__cpcReportSlot = slot;
+
+  // ① 키워드 칸 — 소재
+  var keywordInput = document.getElementById('keywordInput') || document.getElementById('keyword');
+  if (keywordInput && (slot.keyword || slot.title)) {
+    keywordInput.value = slot.keyword || slot.title;
+    keywordInput.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // ② 제목 칸 — 확정 제목을 그대로 쓰도록 직접입력을 켠다
+  if (slot.title) {
+    var customCheck = document.getElementById('useCustomTitle');
+    var customInput = document.getElementById('customTitle');
+    if (customCheck && !customCheck.checked) {
+      customCheck.checked = true;
+      customCheck.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (customInput) {
+      customInput.value = slot.title;
+      customInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+
+  if (typeof showTab === 'function') { try { showTab('posting'); } catch {} }
+  if (keywordInput) keywordInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  var api = window.electronAPI || window.electron || window.blogger;
+  if (api && api.invoke) api.invoke('keywords:mark-report-used').catch(function () {});
+
+  if (typeof addLog === 'function') {
+    addLog('📥 리포트에서 가져왔습니다 — 키워드: ' + (slot.keyword || '').slice(0, 40)
+      + ' / 제목: ' + (slot.title || '(자동)').slice(0, 40)
+      + ' / 다뤄야 할 구간 ' + ((slot.longtails || []).length) + '개', 'info');
+  }
+}
+window.loadCpcReport = loadCpcReport;
+window.useCpcSlot = useCpcSlot;
 
 // v3.8.347: 오늘의 리더남 황금키워드 (관리자 편집 — 키워드+추천제목 구조화)
 var GOLDEN_KEYWORD_STORAGE_KEY = 'goldenKeywordReport';

@@ -61,6 +61,7 @@ const AI_FIXABLE = new Set([
   'cross-section-echo',
   'unfulfilled-heading',
   'title-unanswered',
+  'report-longtail-missing',
 ]);
 
 export interface PreflightFinding {
@@ -80,7 +81,7 @@ export interface PreflightReport {
 /**
  * 발행 직전에 무엇이 문제인지 코드로만 찾는다. **AI 호출 0회.**
  */
-export function inspectBeforePublish(input: { title: string; html: string }): PreflightReport {
+export function inspectBeforePublish(input: { title: string; html: string; reportSlot?: any }): PreflightReport {
   const html = String(input.html || '');
   const title = String(input.title || '').trim();
   const sections = splitSections(html);
@@ -118,7 +119,40 @@ export function inspectBeforePublish(input: { title: string; html: string }): Pr
     }
   } catch { /* 구조 검사 실패는 넘어간다 */ }
 
-  // ③ 제목이 물었는데 본문이 답했는가
+  /**
+   * ③ v3.8.631 — 키워드 리포트가 시킨 것을 지켰는가.
+   *
+   * 실측 2026-09-04: 리포트가 롱테일 3개·확인 항목 5개를 적어 줬는데
+   * 발행글에는 2개만 들어갔다. 빠진 롱테일 자리를 같은 원칙의 되풀이로 메웠고,
+   * 그게 "같은 말 다섯 번" 과 "근거 조항 0건" 의 원인이었다.
+   * 지시를 주는 것만으로는 부족하다 — 지켰는지 재고, 안 지켰으면 채워야 한다.
+   */
+  if (input.reportSlot) {
+    try {
+      const { checkReportCompliance } = require('../keywords/cpc-report');
+      const plain = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+      const c = checkReportCompliance(input.reportSlot, plain);
+      for (const missing of c.missingLongtails) {
+        push({
+          kind: 'report-longtail-missing',
+          title: `리포트가 지정한 구간이 빠졌습니다: ${missing}`,
+          evidence: '이 내용을 다루지 않으면 남은 구간이 같은 원칙을 되풀이하게 됩니다. 그게 독자가 나가는 이유입니다.',
+          sectionIndex: -1,
+        });
+      }
+      for (const missing of c.missingChecks) {
+        // 확인 항목은 사람이 원문을 봐야 하는 것이 많다 — 알리기만 한다
+        advisory.push({
+          kind: 'report-check-missing',
+          title: `리포트의 확인 항목이 본문에 안 보입니다: ${missing}`,
+          evidence: '확인하지 못했으면 그 내용을 쓰지 않는 편이 낫습니다. 지어내면 안 됩니다.',
+          sectionIndex: -1,
+        });
+      }
+    } catch { /* 리포트가 없거나 형식이 다르면 넘어간다 */ }
+  }
+
+  // ④ 제목이 물었는데 본문이 답했는가
   try {
     if (isQuestionTitle(title)) {
       const plain = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
@@ -161,6 +195,7 @@ const FIX_HINTS: Record<string, string> = {
   'unverified-first': '"최초 폭로" 를 "이번에 공개한 내용" 으로 바꿉니다.',
   'cross-section-echo': '앞 구간과 겹치는 문장을 지우고, 이 구간에서만 할 수 있는 이야기로 채웁니다. 없으면 짧게 두세요 — 늘리려고 같은 말을 반복하지 않습니다.',
   'unfulfilled-heading': '소제목이 약속한 내용을 근거에서 찾아 넣습니다. 근거에 없으면 소제목을 본문에 맞게 바꿉니다. 없는 사실을 지어내지 않습니다.',
+  'report-longtail-missing': '이 내용을 다루는 구간을 만듭니다. 근거에서 확인된 것만 씁니다 — 채우려고 지어내지 않습니다. 대신 같은 말을 되풀이하던 문장은 지웁니다.',
   'title-unanswered': '첫 문단에서 제목의 질문에 곧바로 답합니다. 조건이 갈리면 "A면 된다 / B면 안 된다" 로 나눠 적습니다. 근거에 답이 없으면 "확인되지 않았다" 고 밝힙니다.',
 };
 
@@ -194,12 +229,12 @@ export interface FixOutcome {
  * 그래야 사장님이 고른 엔진이 그대로 쓰인다.
  */
 export async function fixBeforePublish(
-  input: { title: string; html: string },
+  input: { title: string; html: string; reportSlot?: any },
   callModel: (prompt: string) => Promise<string>,
   onLog?: (line: string) => void,
 ): Promise<FixOutcome> {
   const html = String(input.html || '');
-  const report = inspectBeforePublish({ title: input.title, html });
+  const report = inspectBeforePublish({ title: input.title, html, reportSlot: input.reportSlot });
 
   for (const a of report.advisory) onLog?.(`   ℹ️ ${a.title}`);
 

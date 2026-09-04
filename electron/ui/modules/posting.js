@@ -953,12 +953,39 @@ export async function runPosting() {
             savedSettingsForPost.wordpressSiteUrl ||
             document.getElementById('wordpressSiteUrl')?.value ||
             '';
+          /**
+           * v3.8.632 — 나중에 RPM 을 이어붙일 수 있게 **출처를 남긴다.**
+           *
+           * 사장님: "어떤 키워드가 RPM이 높은지는 글을 써봐야할수있으니까"
+           *
+           * 맞는 말이라서 문제가 생긴다 — RPM 은 애드센스가 주는데(9/21 복구),
+           * 그때 받은 수치를 **어느 글의 것인지** 이어붙이려면 지금 기록이 있어야 한다.
+           * url·제목만 남기면 "이 글이 어느 줄기였는지" 를 영영 알 수 없고,
+           * 정지 기간에 쓴 글들이 통째로 못 쓰는 표본이 된다.
+           *
+           * 그래서 키워드와 리포트 슬롯(등급·추정 CPC·트랙)을 함께 남긴다.
+           * RPM 이 들어오면 **줄기 단위로** 묶어서 볼 수 있다 —
+           * 한 편의 RPM 은 표본이 하나라 못 믿지만, 같은 줄기 다섯 편은 믿을 수 있다.
+           */
+          const reportSlotForStore = (window.__cpcReportSlot && typeof window.__cpcReportSlot === 'object')
+            ? window.__cpcReportSlot
+            : null;
+
           stored[dateKey].push({
             title: result.title || keywordValue || '제목없음',
             url: result.url,
             platform: platformName,
             time: d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
             timestamp: d.getTime(),
+
+            // ── RPM 되먹임용 출처 (v3.8.632) ──
+            keyword: keywordValue || '',
+            // 이 자리에서 직접 읽는다 — 다른 함수의 변수를 빌려 쓰면 범위가 어긋나 터진다
+            contentMode: String(result.contentMode || document.getElementById('contentMode')?.value || ''),
+            reportSlot: reportSlotForStore ? String(reportSlotForStore.slot || '') : '',
+            reportGrade: reportSlotForStore ? String(reportSlotForStore.grade || '') : '',
+            reportKeyword: reportSlotForStore ? String(reportSlotForStore.keyword || '') : '',
+            reportTrack: reportSlotForStore ? String(reportSlotForStore.track || '') : '',
             thumbnail: thumbForStore,
             postId: postId ? String(postId) : '',
             id: postId ? String(postId) : '',
@@ -2096,6 +2123,16 @@ export async function createPayload(options = {}) {
   const dynamicMaxChars = charBasisSections * 1500;
 
   const payload = {
+    /**
+     * v3.8.631 — 오늘의 고CPC 리포트에서 고른 슬롯.
+     *
+     * 리포트에는 확정 제목·롱테일 파생·발행 전 확인이 들어 있다. 실측(2026-09-04)에서
+     * 이걸 안 쓰고 쓴 글은 롱테일 3개 중 1개만 다뤘고, 빈자리를 같은 원칙의 되풀이로
+     * 메웠다. 그게 "같은 말 다섯 번" 의 원인이었다.
+     * 없으면 undefined 로 나가고 예전과 똑같이 동작한다.
+     */
+    cpcReportSlot: window.__cpcReportSlot || undefined,
+
     // 핵심 필드
     provider,
     primaryGeminiTextModel: primaryGeminiTextModelValue,

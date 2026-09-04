@@ -113,6 +113,13 @@ export interface GroundingResult {
   blogCount: number;
   /** 순위가 낮아 안 받은 블로그 수 — 왜 근거가 이만큼인지 설명할 수 있어야 한다 */
   skippedBlogs: number;
+  /**
+   * 속보 판정 (v3.8.633). 없으면 속보가 아니거나 판정을 못 한 것이다.
+   *
+   * **반환값으로 넘긴다.** 전역(globalThis)에만 두면 이 함수가 orchestration
+   * 밖에서 불릴 때 지난 판정이 그대로 쓰인다 — 조용히 틀리는 종류다.
+   */
+  breakingEvent?: any;
 }
 
 /**
@@ -247,6 +254,7 @@ export async function fetchGrounding(
   const empty: GroundingResult = {
     text: '', newsCount: 0, webCount: 0, officialCount: 0, blogCount: 0, skippedBlogs: 0,
   };
+  let breakingEvent: any = null;
   const query = String(keyword || '').trim();
   if (!query) return empty;
   const display = options.display ?? 10;
@@ -339,7 +347,34 @@ export async function fetchGrounding(
 
     const webItems: any[] = web?.ok && Array.isArray(web.items) ? web.items : [];
 
-    const newsItems = usable(news?.ok ? news.items : []);
+    let newsItems = usable(news?.ok ? news.items : []);
+
+    /**
+     * ⏱️ v3.8.633 — 지금 터진 일이면 **같은 이름의 옛 사건 자료를 걷어낸다.**
+     *
+     * 사장님 실제 사고(2026-09-04): 「티빙 개인정보 유출」이 터진 지 10분 만에
+     * 글을 돌렸더니 작년 티빙 유출 사건 내용이 나왔다. 옛 글은 색인이 쌓여
+     * 검색에서 더 위에 잡히고, 터진 직후엔 새 글이 거의 없기 때문이다.
+     *
+     * 속보가 아니면 아무것도 하지 않는다 — 평범한 주제에서 옛 자료를 걷어내면
+     * 근거가 텅 비어 오히려 글이 얕아진다.
+     */
+    let breakingNote = '';
+    try {
+      const guard = require('./breaking-news-guard');
+      const event = guard.detectBreakingEvent(newsItems);
+      if (event.isBreaking && event.olderCount > 0) {
+        const cut = guard.dropPreEventSources(newsItems, event);
+        newsItems = cut.kept;
+        breakingNote = cut.skippedReason ? (event.note + ' — ' + cut.skippedReason) : event.note;
+        breakingEvent = event;
+        (globalThis as any).__lastBreakingEvent = event;
+      } else if (event.isBreaking) {
+        breakingEvent = event;
+        (globalThis as any).__lastBreakingEvent = event;
+      }
+    } catch { /* 판정 실패는 근거 수집을 막지 않는다 */ }
+    if (breakingNote) console.log('[BREAKING] ' + breakingNote);
     /**
      * 웹문서 갈래에서는 블로그를 뺀다 — 여기 섞이면 순위를 알 수 없어서다.
      * 블로그는 아래에서 **정확도순 상위 몇 건만** 따로 받는다(v3.8.581).
@@ -439,7 +474,30 @@ export async function fetchGrounding(
       (it) => !seenLinks.has(String(it?.link || '')),
     );
     // 순위(신뢰) 위에 주제 일치(관련)를 한 겹 더 얹는다 — 위 matchesTopic 주석 참고
-    const blogAll = blogSeen.filter((it) => matchesTopic(snippet(it, ''), query));
+    let blogAll = blogSeen.filter((it) => matchesTopic(snippet(it, ''), query));
+
+    /**
+     * ⏱️ v3.8.633 — 속보면 블로그에서도 옛 사건 글을 걷어낸다.
+     *
+     * 「티빙」 사고에서 작년 사건이 잡힌 곳이 바로 여기다. 뉴스만 걸러서는
+     * 소용이 없다 — 블로그가 근거의 대부분을 차지하고, 옛 글일수록 색인이
+     * 쌓여 정확도순 상위에 있기 때문이다.
+     * 네이버 블로그는 postdate(YYYYMMDD)를 주므로 날짜로 가를 수 있다.
+     */
+    try {
+      const event = (globalThis as any).__lastBreakingEvent;
+      if (event?.isBreaking) {
+        const guard = require('./breaking-news-guard');
+        const cut = guard.dropPreEventSources(blogAll, event);
+        if (cut.dropped > 0) {
+          console.log('[BREAKING] 블로그에서 옛 사건 글 ' + cut.dropped + '건을 걷어냈습니다');
+          blogAll = cut.kept;
+        } else if (cut.skippedReason) {
+          // 걷어내면 근거가 비므로 그대로 두고 못박음만 싣는다
+          console.log('[BREAKING] 블로그 ' + cut.skippedReason);
+        }
+      }
+    } catch { /* 판정 실패는 근거 수집을 막지 않는다 */ }
     const blogTop = blogAll.slice(0, BLOG_MAX);
     const blogParts = await enrich(blogTop, '블로그', budgetLeft);
 
@@ -451,6 +509,7 @@ export async function fetchGrounding(
       officialCount: officialParts.length,
       blogCount: blogParts.length,
       skippedBlogs: Math.max(0, blogSeen.length - blogTop.length),
+      breakingEvent,
     };
   } catch {
     return empty;
