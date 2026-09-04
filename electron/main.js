@@ -11300,6 +11300,29 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
         const run = await runAgentProcess(profile, jobDir, lastMessagePath);
         const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
         /**
+         * 🩺 v3.8.630 — 에이전트 글도 발행 전에 자가 수정한다.
+         *
+         * 사장님: "api와 에이전트 둘다 LLM보다 훨씬 양질의 글을 줘야되"
+         *
+         * 에이전트 모드는 orchestration 을 안 탄다. API 쪽에만 넣으면 에이전트 글은
+         * 검사만 받고 그대로 나간다 — 이 저장소가 여러 번 겪은 함정이다.
+         *
+         * 고치는 것도 **같은 에이전트 CLI** 로 시킨다. 구독이라 비용이 0이고,
+         * 여기서 유료 API 를 끼워 넣으면 에이전트 모드를 고른 뜻을 뒤집는 셈이다.
+         * 찾은 게 없으면 CLI 도 안 부른다.
+         */
+        try {
+            const { fixBeforePublish } = require('../dist/core/final/pre-publish-fix');
+            const outcome = await fixBeforePublish({ title: result.title, html: result.content }, (prompt) => runAgentTextTask(profile.provider, prompt, (l) => console.log(`[AGENT-PREFLIGHT] ${l}`)), (line) => console.log(`[AGENT-PREFLIGHT] ${line}`));
+            if (outcome.revised > 0) {
+                result.content = outcome.html;
+                console.log(`[AGENT-PREFLIGHT] 🩺 구간 ${outcome.revised}개를 다시 썼습니다 (호출 ${outcome.calls}회 · 구독이라 비용 0)`);
+            }
+        }
+        catch (preflightErr) {
+            console.warn('[AGENT-PREFLIGHT] 건너뜀:', preflightErr);
+        }
+        /**
          * v3.8.488 - 쇼핑 글이면 상품 위젯·대가성 문구를 앱이 붙인다.
          *
          * 에이전트에게는 "상품 링크를 직접 만들지 마라" 고 막아뒀다 - 지어낸 제휴링크는

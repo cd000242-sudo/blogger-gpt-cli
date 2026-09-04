@@ -10606,6 +10606,7 @@ function readAgentJobResult(jobDir: string, stdout: string, lastMessagePath: str
     };
     for (const w of report.warnings) shout(w);
     if (report.warnings.length === 0) console.log('[AGENT-RESULT] 품질 검사 통과 (구조·링크·빈 블록)');
+
   } catch (harnessErr) {
     console.warn('[AGENT-RESULT] 후처리 스킵:', harnessErr);
   }
@@ -11904,6 +11905,33 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
     const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
     const run = await runAgentProcess(profile, jobDir, lastMessagePath);
     const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
+
+    /**
+     * 🩺 v3.8.630 — 에이전트 글도 발행 전에 자가 수정한다.
+     *
+     * 사장님: "api와 에이전트 둘다 LLM보다 훨씬 양질의 글을 줘야되"
+     *
+     * 에이전트 모드는 orchestration 을 안 탄다. API 쪽에만 넣으면 에이전트 글은
+     * 검사만 받고 그대로 나간다 — 이 저장소가 여러 번 겪은 함정이다.
+     *
+     * 고치는 것도 **같은 에이전트 CLI** 로 시킨다. 구독이라 비용이 0이고,
+     * 여기서 유료 API 를 끼워 넣으면 에이전트 모드를 고른 뜻을 뒤집는 셈이다.
+     * 찾은 게 없으면 CLI 도 안 부른다.
+     */
+    try {
+      const { fixBeforePublish } = require('../dist/core/final/pre-publish-fix');
+      const outcome = await fixBeforePublish(
+        { title: result.title, html: result.content },
+        (prompt: string) => runAgentTextTask(profile.provider, prompt, (l: string) => console.log(`[AGENT-PREFLIGHT] ${l}`)),
+        (line: string) => console.log(`[AGENT-PREFLIGHT] ${line}`),
+      );
+      if (outcome.revised > 0) {
+        result.content = outcome.html;
+        console.log(`[AGENT-PREFLIGHT] 🩺 구간 ${outcome.revised}개를 다시 썼습니다 (호출 ${outcome.calls}회 · 구독이라 비용 0)`);
+      }
+    } catch (preflightErr) {
+      console.warn('[AGENT-PREFLIGHT] 건너뜀:', preflightErr);
+    }
 
     /**
      * v3.8.488 - 쇼핑 글이면 상품 위젯·대가성 문구를 앱이 붙인다.

@@ -5807,6 +5807,35 @@ ${conclusionHTML}
       console.warn('[AUTO-REPAIR] 건너뜀:', String(repairError?.message || repairError).slice(0, 120));
     }
 
+    /**
+     * 🩺 v3.8.630 — 발행 전 자가 수정. 코드가 찾고, AI 가 문제 구간만 다시 쓴다.
+     *
+     * 사장님: "애초에 비평이나 개선을 하려고 버튼을 누르면 개선할게없을정도로
+     *         글이 발행되어야한다고"
+     *
+     * auto-repair 가 기계적으로 되돌릴 수 있는 것을 이미 고쳤다. 여기서는
+     * 판단이 필요한 것을 다룬다 — 확정형 범죄 표현, 소제목이 안 지킨 약속,
+     * 제목이 물었는데 없는 답, 구간끼리 같은 말.
+     *
+     * **찾은 게 없으면 AI 를 안 부른다(호출 0회).** 고칠 구간에도 상한이 있어
+     * 결함이 열 개여도 호출은 최대 두 번이다 — 비용이 결함 수에 비례하면 안 된다.
+     */
+    try {
+      const { fixBeforePublish } = require('./pre-publish-fix');
+      const outcome = await fixBeforePublish(
+        { title: h1 || keyword, html },
+        (prompt: string) => callGeminiWithRetry(prompt, 1, { timeoutMs: 120000 }),
+        onLog,
+      );
+      if (outcome.revised > 0) {
+        html = outcome.html;
+        onLog?.(`[PROGRESS] 97% - 🩺 발행 전 자가 수정 — 구간 ${outcome.revised}개를 다시 썼습니다 (호출 ${outcome.calls}회)`);
+      }
+    } catch (preflightError: any) {
+      // 자가 수정 실패가 발행을 막지는 않는다
+      console.warn('[PREFLIGHT] 건너뜀:', String(preflightError?.message || preflightError).slice(0, 120));
+    }
+
     const beforeRepair = findEmptyBlocks(html);
     if (beforeRepair.length > 0) {
       const repaired = removeEmptyFaqBlocks(html);
