@@ -52,8 +52,9 @@ describe('v3.8.625 free-trial phone verification', () => {
     expect(login).toContain("if (trialCodeRequired && !/^\\d{6}$/.test(authCode))");
   });
 
-  test('package version is 3.8.625 so the server gate opens for this build', () => {
-    const pkg = JSON.parse(read('package.json'));
-    expect(pkg.version).toBe('3.8.625');
+  test('package version is at least 3.8.625 — the version the server gate opens for', () => {
+    const [major, minor, patch] = JSON.parse(read('package.json')).version.split('.').map(Number);
+    const rank = major * 1_000_000 + minor * 1_000 + patch;
+    expect(rank).toBeGreaterThanOrEqual(3 * 1_000_000 + 8 * 1_000 + 625);
   });
 });
