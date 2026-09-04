@@ -665,6 +665,20 @@
         🆓 발행 3회 무료체험하기
       </button>
 
+      <!-- [2026-09-04] 이미 체험 중인 분들이 본인인증을 스스로 열 수 있는 문.
+           재입장은 모달을 건너뛰기 때문에, 서버가 인증번호를 요구하면 눌러야 할
+           버튼이 화면에 없었다. 자동 복구(NEED_CODE)도 넣었지만 손으로도 열 수 있어야 한다. -->
+      <button id="trialVerifyEntryBtn" onclick="openVerifyForExisting()" style="
+        width: 100%; padding: 11px; margin-top: -14px; margin-bottom: 24px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.16); border-radius: 12px;
+        color: rgba(255,255,255,0.82); font-size: 13px; font-weight: 600; cursor: pointer;
+        transition: background 0.2s ease;
+      " onmouseover="this.style.background='rgba(255,255,255,0.12)'"
+         onmouseout="this.style.background='rgba(255,255,255,0.06)'">
+        📱 이미 체험 중이신가요? 본인인증하기
+      </button>
+
       <div style="text-align: center; margin-bottom: 20px; position: relative;">
         <div style="border-top: 1px solid rgba(255,255,255,0.1); position: absolute; top: 50%; left: 0; right: 0;"></div>
         <span style="background: rgba(2,6,23,0.8); padding: 0 12px; color: rgba(255,255,255,0.3); font-size: 12px; position: relative;">또는 라이선스 로그인</span>
@@ -908,6 +922,48 @@
       if (btn) { btn.disabled = false; btn.innerHTML = '🆓 발행 3회 무료체험하기'; }
     }
 
+    /*
+     * [2026-09-04] 모달을 열고 아는 값을 채운 뒤, 채워졌으면 자격확인까지 대신 눌러 준다.
+     * 자격확인이 통과해야 [📩 인증번호 받기] 가 화면에 나타나기 때문이다.
+     * 자동 복구(NEED_CODE)와 [본인인증하기] 버튼이 같은 길을 쓰도록 한 곳에 모았다.
+     */
+    function openTrialModalPrefilled(nickname, phone, message) {
+      openTrialModal();
+      const nickEl = document.getElementById('trialNickname');
+      const phoneEl = document.getElementById('trialPhone');
+      if (nickEl && nickname) nickEl.value = nickname;
+      if (phoneEl && phone) phoneEl.value = phone;
+      if (message) trialModalMsg(message, false);
+      // 값이 온전할 때만 대신 누른다. 비어 있으면 사용자가 채우게 둔다.
+      const okNick = !!nickEl && nickEl.value.trim().length >= 2;
+      const okPhone = !!phoneEl && /^01[0-9]{8,9}$/.test(phoneEl.value.trim());
+      if (okNick && okPhone) trialVerify();
+    }
+
+    /*
+     * [📱 이미 체험 중이신가요? 본인인증하기]
+     * 재입장이 막힌 분들이 스스로 인증 창을 열 수 있는 문. 저장된 정보가 있으면 채워 주고,
+     * 없으면 빈 모달을 열어 직접 입력하게 한다 — 어느 쪽이든 막다른 길은 만들지 않는다.
+     */
+    async function openVerifyForExisting() {
+      const btn = document.getElementById('trialVerifyEntryBtn');
+      if (btn) { btn.disabled = true; btn.textContent = '📱 불러오는 중...'; }
+      let stored = null;
+      try {
+        stored = await ipcApi.invoke('auth:trial-stored-info');
+      } catch (e) {
+        console.error('저장된 체험 정보 조회 실패:', e);
+      }
+      if (btn) { btn.disabled = false; btn.textContent = '📱 이미 체험 중이신가요? 본인인증하기'; }
+      openTrialModalPrefilled(
+        stored && stored.nickname,
+        stored && stored.phone,
+        stored && stored.hasInfo
+          ? '저장된 정보로 자격을 확인합니다 — 잠시 뒤 [📩 인증번호 받기] 를 눌러 문자를 받으세요.'
+          : '체험할 때 쓰신 닉네임과 전화번호를 입력한 뒤 [인증하기] 를 눌러주세요.'
+      );
+    }
+
     async function startFreeTrial() {
       const btn = document.getElementById('freeTrialBtn');
       if (btn) {
@@ -920,6 +976,18 @@
         if (result && result.ok === true) return; // 창 전환은 메인 프로세스가 한다
         if (result && result.code === 'NEED_INFO') {
           openTrialModal();
+          return;
+        }
+        /*
+         * [2026-09-04] 기존 체험자가 "인증하기 버튼이 어디 있냐" 고 물어보던 자리.
+         *
+         * 재입장은 모달을 건너뛰므로 인증번호를 넣을 칸이 없다. 서버가 인증번호를
+         * 요구하면 여기서 모달을 열고 저장된 닉네임·폰번호를 채운 뒤, 자격확인을
+         * 대신 눌러 준다 — 그러면 [📩 인증번호 받기] 가 화면에 나타난다.
+         * 예전에는 경고창만 띄우고 끝나서 눌러야 할 버튼 자체가 없었다.
+         */
+        if (result && result.code === 'NEED_CODE') {
+          openTrialModalPrefilled(result.nickname, result.phone, result.message || '본인인증이 필요합니다 — 인증번호를 받아주세요.');
           return;
         }
         if (result && result.code === 'EXPIRED') {

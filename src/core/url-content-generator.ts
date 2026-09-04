@@ -25,6 +25,14 @@ import { fetchNaverBlogPost, parseNaverBlogUrl } from './final/naver-blog-source
 import { recoverTopicFromContent, describeCrawlFailure } from './final/url-topic-recovery';
 import { buildNaverBlogDeps } from './final/naver-blog-deps';
 import { buildUpgradeBrief, URL_UPGRADE_RULES, URL_UPGRADE_TITLE_RULES } from './final/url-upgrade';
+import { extractEmbeddedArticle } from './crawlers/embedded-article-body';
+
+/**
+ * 이 밑이면 본문을 못 읽은 것으로 본다 (v3.8.627).
+ * 조선일보 실측에서 0자였고, 껍데기만 긁히면 보통 수십 자에 그친다.
+ * 200자면 기사 첫 문단도 안 되는 분량이라 글을 쓸 재료가 못 된다.
+ */
+export const EMPTY_BODY_THRESHOLD = 200;
 
 const URL_GEN_AXIOS_TIMEOUT_MS = Number(process.env['URL_GEN_AXIOS_TIMEOUT_MS'] || 8000);
 const URL_GEN_PUPPETEER_TIMEOUT_MS = Number(process.env['URL_GEN_PUPPETEER_TIMEOUT_MS'] || 15000);
@@ -313,6 +321,19 @@ export async function deepCrawlUrl(url: string): Promise<UrlCrawlResult> {
     };
   }
 
+  /**
+   * 📰 v3.8.627 — 스크립트를 지우기 **전에** 그 안의 기사 본문을 먼저 꺼낸다.
+   *
+   * 조선일보 같은 Arc Publishing 매체는 HTML 에 제목만 있고 본문은
+   * `Fusion.globalContent` JSON 안에 있다. 바로 아래 `$('script...').remove()` 가
+   * 그 상자를 열기도 전에 버려서, 본문 0자로 글을 쓰게 했다(사장님 제보 재현).
+   * 순서가 전부다 — 이 줄이 remove 아래로 내려가면 다시 0자가 된다.
+   */
+  const embedded = extractEmbeddedArticle(html);
+  if (embedded.content) {
+    console.log(`[URL-GEN] 📰 스크립트 안에서 본문을 찾았습니다 (${embedded.source}): ${embedded.content.length}자`);
+  }
+
   const $ = cheerio.load(html);
 
   // 불필요한 요소 제거
@@ -399,6 +420,18 @@ export async function deepCrawlUrl(url: string): Promise<UrlCrawlResult> {
     }
   }
 
+  /**
+   * 📰 v3.8.627 — 스크립트 안에서 찾은 본문이 더 길면 그것을 쓴다.
+   * HTML 쪽이 껍데기(메뉴·저작권 문구)만 긁어 왔을 때 이 자리에서 뒤집힌다.
+   */
+  if (embedded.content.length > content.length) {
+    console.log(`[URL-GEN] 📰 본문을 교체합니다: HTML ${content.length}자 → ${embedded.source} ${embedded.content.length}자`);
+    content = embedded.content;
+  }
+  if (!title && embedded.title) {
+    title = embedded.title;
+  }
+
   // 이미지 URL 추출
   const images: string[] = [];
   $('img').each((_i, elem) => {
@@ -414,7 +447,20 @@ export async function deepCrawlUrl(url: string): Promise<UrlCrawlResult> {
   const publishDate = $('meta[property="article:published_time"]').attr('content') ||
     $('time').first().attr('datetime') || '';
 
-  console.log(`[URL-GEN] ✅ 크롤링 완료: 제목="${title.substring(0, 30)}...", 본문=${content.length}자, H2/H3=${subheadings.length}개`);
+  /**
+   * 🚨 v3.8.627 — 본문이 없으면 성공이라고 찍지 않는다.
+   *
+   * 예전에는 본문 0자에도 `✅ 크롤링 완료` 를 찍고 그대로 넘어갔다. 그러면 모델이
+   * 제목 한 줄만 들고 2천 자를 쓰게 되고, 결과는 통째로 지어낸 글이 된다
+   * (사장님 표현으로 "개판"). 실패는 실패라고 말해야 다음 사람이 원인을 찾는다.
+   */
+  if (content.length < EMPTY_BODY_THRESHOLD) {
+    console.warn(
+      `[URL-GEN] 🚨 본문을 못 읽었습니다 (${content.length}자) — 제목만으로는 글을 쓸 수 없습니다: ${url}`
+    );
+  } else {
+    console.log(`[URL-GEN] ✅ 크롤링 완료: 제목="${title.substring(0, 30)}...", 본문=${content.length}자, H2/H3=${subheadings.length}개`);
+  }
 
   return {
     url,
@@ -749,6 +795,21 @@ export async function generateContentFromUrl(
     } else {
       throw new Error(describeCrawlFailure(url, !!parseNaverBlogUrl(url)));
     }
+  }
+
+  /**
+   * 🚨 v3.8.627 — 본문이 없으면 글을 짓지 않는다.
+   *
+   * 사장님 제보: 조선일보 기사 주소로 뽑았더니 "개판". 재현해 보니 본문 0자였다.
+   * 제목 한 줄로 2천 자를 쓰라고 시키면 모델은 지어낼 수밖에 없고, 그 글에는
+   * 사실이 하나도 안 들어간다. 빈손으로 쓴 글을 내보내는 것보다 못 읽었다고
+   * 말하는 편이 낫다 — 사장님이 다른 주소를 넣으면 되기 때문이다.
+   *
+   * (품질 게이트로 발행을 막는 것과 다르다. 여기는 재료 자체가 없는 경우다.)
+   */
+  if (String(crawledData.content || '').trim().length < EMPTY_BODY_THRESHOLD) {
+    log(`[PROGRESS] 16% - 🚨 본문을 못 읽었습니다 (${String(crawledData.content || '').length}자)`);
+    throw new Error(describeCrawlFailure(url, !!parseNaverBlogUrl(url)));
   }
 
   // 키워드가 없으면 제목에서 추출

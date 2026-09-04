@@ -12529,6 +12529,27 @@ ipcMain.handle('auth:trial-request-code', async (_event, userInfo?: { nickname?:
   }
 });
 
+/*
+ * [📱 본인인증하기] 가 모달을 채우려고 부른다 (2026-09-04).
+ *
+ * 이미 체험 중인 분은 닉네임·폰번호가 기기에 저장돼 있다. 인증 창을 열 때 다시
+ * 물어보면 기억에 의존하게 되고, 처음 등록한 것과 한 글자라도 다르면 서버의
+ * '한 번호 한 이름' 검사에 걸린다. 그래서 저장된 값을 그대로 돌려준다.
+ * 인증번호나 라이선스 같은 비밀은 여기서 나가지 않는다 — 화면을 채울 값만.
+ */
+ipcMain.handle('auth:trial-stored-info', async () => {
+  try {
+    const { loadTrialState } = require('./auth-utils');
+    const stored = loadTrialState();
+    const nickname = String(stored?.nickname || '').trim();
+    const phone = String(stored?.phone || '').trim();
+    return { ok: true, hasInfo: nickname.length >= 2 && /^01[0-9]{8,9}$/.test(phone), nickname, phone };
+  } catch (e: any) {
+    console.error('[AUTH] trial-stored-info 실패:', e);
+    return { ok: false, hasInfo: false, nickname: '', phone: '' };
+  }
+});
+
 // [인증완료] / 재입장 — 서버 등록 후 체험 시작. 인자 없으면 저장된 체험 상태로 재입장.
 ipcMain.handle('auth:free-trial', async (_event, userInfo?: { nickname?: string; phone?: string; authCode?: string }) => {
   try {
@@ -12553,7 +12574,33 @@ ipcMain.handle('auth:free-trial', async (_event, userInfo?: { nickname?: string;
       return { ok: false, message: '서버 연결에 실패했습니다. 인터넷 연결을 확인한 뒤 다시 시도하세요.' };
     }
     if (result.ok !== true) {
-      return { ok: false, message: result.error || '체험 등록에 실패했습니다.' };
+      /*
+       * [2026-09-04] 기존 체험자가 인증번호 없이 막히던 구멍.
+       *
+       * 재입장은 저장된 닉네임·폰번호로 모달을 건너뛰고 곧장 활성화를 부른다.
+       * 그래서 authCode 가 빈 값으로 나간다. v3.8.625 에서 서버가 문자 인증을
+       * 켜자 서버는 "[인증하기]를 다시 눌러 인증번호를 받아주세요" 로 거절했는데,
+       * 화면은 경고창만 띄우고 모달을 안 열었다 — 서버가 누르라는 그 버튼이
+       * 화면 어디에도 없었다. 처음 체험하는 사람은 NEED_INFO 로 모달이 열려
+       * 멀쩡했고, **기존 체험자만** 통째로 막혔다.
+       *
+       * 이제 "인증번호가 필요하다" 는 거절을 따로 알려, 화면이 모달을 열고
+       * 저장된 값을 채워 인증 흐름으로 이어가게 한다.
+       */
+      const serverMessage = String(result.error || '');
+      const needsCode = result.smsRequired === true
+        || result.needCode === true
+        || /인증번호|인증\s*코드/.test(serverMessage);
+      if (needsCode) {
+        return {
+          ok: false,
+          code: 'NEED_CODE',
+          message: serverMessage || '본인인증이 필요합니다. 인증번호를 받아주세요.',
+          nickname,
+          phone,
+        };
+      }
+      return { ok: false, message: serverMessage || '체험 등록에 실패했습니다.' };
     }
 
     // 30일의 닻 — 서버 최초 등록일과 로컬 저장분 중 더 이른 날짜.

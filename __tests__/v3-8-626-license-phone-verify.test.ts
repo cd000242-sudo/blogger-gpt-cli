@@ -50,8 +50,10 @@ describe('v3.8.626 paid license phone verification', () => {
     expect(login.match(/finishLogin\(\)/g)?.length).toBeGreaterThanOrEqual(5);
   });
 
-  test('package version is 3.8.626', () => {
-    const pkg = JSON.parse(read('package.json'));
-    expect(pkg.version).toBe('3.8.626');
+  // 하한선으로 본다 — 정확히 못박으면 버전을 올릴 때마다 깨진다 (6b2a891 에서 625 가 겪은 것과 같은 문제).
+  test('package version is at least 3.8.626 — the version this feature shipped in', () => {
+    const [major, minor, patch] = JSON.parse(read('package.json')).version.split('.').map(Number);
+    const rank = major * 1_000_000 + minor * 1_000 + patch;
+    expect(rank).toBeGreaterThanOrEqual(3 * 1_000_000 + 8 * 1_000 + 626);
   });
 });
