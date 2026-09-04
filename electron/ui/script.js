@@ -7426,11 +7426,12 @@ async function updateAiModelStatus() {
     const MODEL_DISPLAY = {
       // Gemini (2026 최신 라벨)
       'gemini-2.5-flash-lite': { label: 'Gemini 3.1 Flash-Lite', short: 'Gemini Lite', emoji: '⚡', color: '#10b981' },
-      'gemini-2.5-flash': { label: 'Gemini 3.6 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
+      'gemini-2.5-flash': { label: 'Gemini 3.8 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
       'gemini-2.5-pro': { label: 'Gemini 3.5 Flash', short: 'Gemini Flash', emoji: '💎', color: '#10b981' },
       'gemini-3.1-flash-lite': { label: 'Gemini 3.1 Flash-Lite', short: 'Gemini Lite', emoji: '⚡', color: '#10b981' },
       'gemini-3.5-flash': { label: 'Gemini 3.5 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
       'gemini-3.6-flash': { label: 'Gemini 3.6 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
+      'gemini-3.8-flash': { label: 'Gemini 3.8 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
       // OpenAI GPT-5.6 시리즈
       'openai-gpt4o-mini': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
       'openai-gpt41-mini': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
@@ -7442,10 +7443,11 @@ async function updateAiModelStatus() {
       // Claude (Fable 5 / Sonnet 5 / Haiku 4.5)
       'claude-haiku': { label: 'Claude Haiku 4.5', short: 'Claude Haiku', emoji: '⚡', color: '#f97316' },
       'claude-sonnet': { label: 'Claude Sonnet 5', short: 'Claude Sonnet', emoji: '🟠', color: '#f97316' },
-      'claude-opus': { label: 'Claude Fable 5', short: 'Claude Fable', emoji: '💎', color: '#f97316' },
+      'claude-opus': { label: 'Claude Fable 5.1', short: 'Claude Fable', emoji: '💎', color: '#f97316' },
       'claude-haiku-4-5-20251001': { label: 'Claude Haiku 4.5', short: 'Claude Haiku', emoji: '⚡', color: '#f97316' },
       'claude-sonnet-5': { label: 'Claude Sonnet 5', short: 'Claude Sonnet', emoji: '🟠', color: '#f97316' },
       'claude-fable-5': { label: 'Claude Fable 5', short: 'Claude Fable', emoji: '💎', color: '#f97316' },
+      'claude-fable-5-1': { label: 'Claude Fable 5.1', short: 'Claude Fable', emoji: '💎', color: '#f97316' },
       'claude-opus-4-8': { label: 'Claude Opus 4.8', short: 'Claude Opus', emoji: '💎', color: '#f97316' },
       // Perplexity
       'perplexity-sonar': { label: 'Perplexity Sonar Pro', short: 'Perplexity', emoji: '🔮', color: '#3b82f6' },

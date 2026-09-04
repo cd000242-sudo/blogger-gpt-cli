@@ -1,0 +1,120 @@
+{
+  "hrefs": [
+    "https://the-edit.co.kr/87752",
+    "https://the-edit.co.kr/86953",
+    "https://the-edit.co.kr/87760",
+    "https://the-edit.co.kr/87646",
+    "https://the-edit.co.kr/87497",
+    "https://the-edit.co.kr/87620",
+    "https://the-edit.co.kr/87290",
+    "https://the-edit.co.kr/87536",
+    "https://the-edit.co.kr/87437",
+    "https://the-edit.co.kr/87538",
+    "https://the-edit.co.kr/86796",
+    "https://the-edit.co.kr/86494",
+    "https://the-edit.co.kr/87446",
+    "https://the-edit.co.kr/87393",
+    "https://the-edit.co.kr/87368",
+    "https://the-edit.co.kr/87342",
+    "https://the-edit.co.kr/87340",
+    "https://the-edit.co.kr/87312",
+    "https://the-edit.co.kr/85664",
+    "https://the-edit.co.kr/87062"
+  ],
+  "articleUrl": "https://the-edit.co.kr/87752",
+  "article": {
+    "url": "https://the-edit.co.kr/87752",
+    "title": "[book] 인간관계는 손절인가 익절인가 4 - 디에디트",
+    "containerSelector": "DIV.single-content",
+    "h1Text": "[book] 인간관계는 손절인가 익절인가 4",
+    "counts": {
+      "h1": 1,
+      "h2": 5,
+      "h3": 0,
+      "paragraphs": 25,
+      "img": 5,
+      "imgAlt": 1,
+      "figure": 5,
+      "figcaption": 0,
+      "internalLinks": 52,
+      "outboundLinks": 5
+    },
+    "typo": {
+      "h1": {
+        "fontFamily": "Pretendard, sans-serif",
+        "fontSize": "72px",
+        "fontWeight": "800",
+        "lineHeight": "82.8px",
+        "letterSpacing": "-0.5px",
+        "color": "rgb(0, 0, 0)"
+      },
+      "h2": {
+        "fontFamily": "Pretendard, sans-serif",
+        "fontSize": "25px",
+        "fontWeight": "800",
+        "lineHeight": "37.5px",
+        "letterSpacing": "-0.5px",
+        "color": "rgb(0, 0, 0)"
+      },
+      "h3": null,
+      "p": {
+        "fontFamily": "Pretendard, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "300",
+        "lineHeight": "28px",
+        "letterSpacing": "-0.2px",
+        "color": "rgb(0, 0, 0)"
+      },
+      "figcaption": null,
+      "strong": {
+        "fontFamily": "Pretendard, sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "800",
+        "lineHeight": "28px",
+        "letterSpacing": "-0.2px",
+        "color": "rgb(0, 0, 0)"
+      }
+    },
+    "contentBox": {
+      "width": 800,
+      "x": 320,
+      "maxWidth": "none",
+      "padLeft": "0px",
+      "padRight": "0px",
+      "marginLeft": "0px"
+    },
+    "firstImageWidth": 800,
+    "paraGaps": [
+      30,
+      188,
+      592,
+      30,
+      30,
+      30,
+      241,
+      568,
+      30
+    ],
+    "pageBg": "rgb(251, 252, 246)",
+    "charCount": 4777,
+    "canonical": "https://the-edit.co.kr/87752",
+    "metaDesc": "베스트셀러보다 더 재미있는 책 추천 시리즈",
+    "jsonLd": [
+      [
+        [
+          "NewsMediaOrganization",
+          "Organization"
+        ],
+        "WebSite",
+        "ImageObject",
+        "BreadcrumbList",
+        "WebPage",
+        "Person",
+        "Article"
+      ]
+    ],
+    "relatedBlock": true,
+    "shareBlock": false,
+    "authorBlock": true
+  }
+}

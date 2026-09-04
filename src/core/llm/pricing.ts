@@ -109,18 +109,30 @@ export const TIER_MODELS: readonly TierModel[] = [
    * ⚠️ `value` 는 사용자 저장 설정 키다. 옛 이름(gemini-2.5-*)을 그대로 둬야
    *    기존 사용자의 선택이 안 깨진다. 바뀌는 것은 modelId·title·가격뿐이다.
    */
+  /**
+   * v3.8.628 — Gemini 3.8 Flash 도입 (사장님: "제미나이 3.8플래쉬가 나왔어").
+   *
+   * v3.8.483 이 3.5→3.6 을 올렸던 방식 그대로, `value` 키는 그대로 두고
+   * modelId·title 만 올린다. 그래야 기존 사용자의 저장된 선택이 안 깨진다.
+   *
+   * ⚠️ **단가를 지어내지 않는다.** 3.8 의 공식 가격표를 아직 확인하지 못했으므로
+   *    usdPer1M 을 비워 둔다(이 파일 규칙: "확인된 모델만 채운다"). 그러면
+   *    costKrw 선언값이 그대로 표시된다 — 3.6 과 같은 값으로 두었다.
+   *    공식 가격이 확인되면 usdPer1M 을 채우고 costKrw 를 계산값으로 바꾼다.
+   *
+   * ⚠️ 모델 id 는 이 저장소의 명명 규칙(gemini-3.6-flash)을 따라 지었다.
+   *    실제 id 가 다르면 **fallback 체인이 3.6 으로 받아준다** — 조용히 죽지 않는다.
+   */
   {
     value: 'gemini-2.5-flash',
-    title: 'Gemini 3.6 Flash',
+    title: 'Gemini 3.8 Flash',
     tier: '균형',
     description: '최신 · 품질·속도·가격 균형 · 일반 블로그 글에 최적',
-    // 실단가에서 계산된 값(₩57). 예전 선언값 80 은 실제보다 비싸게 잡혀 있었다.
     costKrw: 57,
     provider: 'gemini',
-    modelId: 'gemini-3.6-flash',
-    fallback: ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'],
+    modelId: 'gemini-3.8-flash',
+    fallback: ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'],
     default: true,
-    usdPer1M: { input: 1.50, output: 7.50, source: 'Gemini API 공식 가격표 2026-08-11 (Standard)' },
   },
   {
     value: 'gemini-2.5-pro',
@@ -197,15 +209,20 @@ export const TIER_MODELS: readonly TierModel[] = [
     modelId: 'claude-sonnet-5',
     fallback: ['claude-sonnet-5', 'claude-haiku-4-5-20251001'],
   },
+  /**
+   * v3.8.628 — Fable 5.1 로 올린다 (사장님: "페이블 5.1 업데이트했고").
+   * 앞선 것들과 같은 원칙: `value` 는 저장 설정 키라 그대로, modelId·title 만 올린다.
+   * 단가는 확인 전이므로 usdPer1M 없이 선언값을 유지한다.
+   */
   {
     value: 'claude-opus',
-    title: 'Claude Fable 5',
+    title: 'Claude Fable 5.1',
     tier: '프리미엄',
-    description: 'Claude Fable 5 · 최상급 추론 · 프리미엄 글쓰기',
+    description: 'Claude Fable 5.1 · 최상급 추론 · 프리미엄 글쓰기',
     costKrw: 735,
     provider: 'claude',
-    modelId: 'claude-fable-5',
-    fallback: ['claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-5'],
+    modelId: 'claude-fable-5-1',
+    fallback: ['claude-fable-5-1', 'claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-5'],
   },
 
   // ─── Perplexity ───────────────────────────

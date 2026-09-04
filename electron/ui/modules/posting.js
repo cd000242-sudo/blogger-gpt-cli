@@ -567,6 +567,10 @@ export async function runPosting() {
     }
   };
 
+
+  // v3.8.628: 발행이 끝나지 않았으면 90초 대기를 되돌린다 (사장님: 중지 후 재발행이 막힘)
+  const releaseGap = (why) => { try { window._releasePublishGap && window._releasePublishGap(why); } catch {} };
+
   // v3.8.80: API 한도 보호 — 직전 발행 후 90초 미만이면 자동 대기 또는 중단
   if (typeof window._enforcePublishGap === 'function') {
     let okGap = false;
@@ -1032,10 +1036,12 @@ export async function runPosting() {
       //   run-post 핸들러가 그 예외를 잡아 canceled:true 결과로 '반환'하기 때문에
       //   여기서는 throw 가 아니라 result.ok===false 분기로 들어온다.
       //   "❌ 블로그 발행 실패"로 보이면 사용자가 다시 시도해야 하는 줄 안다 — 그게 아니다.
+      releaseGap('사용자 중지');
       addLog('🛑 작업을 중지했습니다.', 'info');
       hideProgressModal();
       resetArticleStateAfterPublish('중지');
     } else {
+      releaseGap('발행 실패');
       const errorMessage = result?.error || '알 수 없는 오류';
 
       // v3.7.11: PAYMENT_REQUIRED → 결제 유도 모달 (다른 에러 처리 우회)
@@ -1089,6 +1095,7 @@ export async function runPosting() {
     // v3.8.415: Agent 모드는 취소를 throw 로 알린다(codex-workshop.js 의 canceledErr).
     //   여기서 못 걸러내면 "❌ 발행 오류: 작업을 중지했습니다" 라는 앞뒤가 안 맞는 토스트가 뜬다.
     if (error?.canceled) {
+      releaseGap('사용자 중지(에이전트)');
       setFinalResult({ ok: false, published: false, canceled: true, error: '작업을 중지했습니다.' });
       addLog('🛑 작업을 중지했습니다.', 'info');
       hideProgressModal();

@@ -52,9 +52,14 @@ describe('① 화면 라벨이 백엔드 표와 일치한다', () => {
     expect(mismatches).toEqual([]);
   });
 
-  it('⭐⭐ 사장님이 겪은 그 항목 — 3.6 을 골랐는데 3.5 로 뜨던 것', () => {
-    expect(uiLabels['gemini-2.5-flash']).toContain('3.6');
-    expect(uiLabels['gemini-2.5-flash']).not.toContain('3.5');
+  // v3.8.628 — 버전 숫자를 베껴 쓰지 않는다. 기준(pricing.ts)이 정한 이름과 같은지만 본다.
+  it('⭐⭐ 사장님이 겪은 그 항목 — 고른 모델과 다른 이름이 뜨던 것', () => {
+    const tier = TIER_MODELS.find((t) => t.value === 'gemini-2.5-flash');
+    expect(tier).toBeTruthy();
+    expect(uiLabels['gemini-2.5-flash']).toBe(tier!.title);
+    // 다른 티어의 이름이 섞여 들어오면 안 된다 (3.6 자리에 3.5 가 뜨던 사고)
+    const 남의이름 = TIER_MODELS.filter((t) => t.provider === 'gemini' && t.value !== 'gemini-2.5-flash').map((t) => t.title);
+    expect(남의이름).not.toContain(uiLabels['gemini-2.5-flash']);
   });
 
   it('⭐⭐ 없어진 모델을 계속 보여주지 않는다 (3.1 Pro Preview 는 v3.8.483 에서 제거됐다)', () => {
@@ -81,11 +86,22 @@ describe('② 로그가 실제 모델을 보여준다', () => {
     expect(line).toContain('describeModelForLog');
   });
 
+  /**
+   * v3.8.628 — 모델 이름을 여기에 베껴 쓰지 않는다.
+   *
+   * 이 테스트의 취지가 "라벨은 pricing.ts 한 곳에서만 정한다" 인데,
+   * 정작 이 검사가 'Gemini 3.6 Flash' 를 베껴 두어 모델을 올릴 때마다 깨졌다
+   * (3.6 → 3.8 올리면서 실제로 깨짐). 기준에서 읽어 비교한다.
+   */
   it('⭐⭐ 사람이 읽는 이름과 실제 모델 id 를 함께 찍는다', () => {
     const { describeModelForLog } = require('../src/core/llm/pricing');
+    const tier = TIER_MODELS.find((t) => t.value === 'gemini-2.5-flash');
+    expect(tier).toBeTruthy();
     const text = describeModelForLog('gemini-2.5-flash');
-    expect(text).toContain('Gemini 3.6 Flash');
-    expect(text).toContain('gemini-3.6-flash');
+    expect(text).toContain(tier!.title);
+    expect(text).toContain(tier!.modelId);
+    // 설정 키만 찍으면 2.5 를 쓰는 줄 안다 — 그게 이 검사의 이유다
+    expect(text).not.toBe('gemini-2.5-flash');
   });
 
   it('⭐ 모르는 값이면 받은 값을 그대로 보여준다 (빈 로그보다 낫다)', () => {

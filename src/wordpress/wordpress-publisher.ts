@@ -650,7 +650,16 @@ export function applyWordPressInlineStyles(html: string): string {
       const className = classMatch?.[2] || '';
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
       if (/\b(?:cta-hook|cta-responsive-text)\b/i.test(className)) {
-        const ctaHookStyle = `margin: 0 !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-size: 16px !important; font-weight: 700 !important; line-height: 1.55 !important; word-break: keep-all !important; max-width: 92% !important;`;
+        /**
+         * v3.8.628 — 흰 알약 배경을 되살린다.
+         *
+         * 사장님 실물 검수: CTA 카드의 훅 문구가 배경에 묻혀 안 보였다.
+         * orchestration 의 FINAL_CTA_HOOK_STYLE 은 흰 알약(배경+여백+둥근모서리)을
+         * 주는데, 여기서 style 을 통째로 다시 쓰면서 **배경만 빠뜨렸다.**
+         * 그러면 진한 남색 글자(#0f172a)가 진한 초록 카드 위에 얹혀 안 읽힌다.
+         * 알약을 씌우면 카드 바탕색이 무엇이든 항상 읽힌다.
+         */
+        const ctaHookStyle = `display: inline-block !important; margin: 0 !important; padding: 8px 14px !important; background: #ffffff !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; border-radius: 8px !important; font-size: 16px !important; font-weight: 700 !important; line-height: 1.55 !important; word-break: keep-all !important; max-width: 92% !important; box-decoration-break: clone !important; -webkit-box-decoration-break: clone !important;`;
         return `<p${cleanAttrs ? ' ' + cleanAttrs : ''} style="${ctaHookStyle}">`;
       }
       if (/\bwp-info-box-text\b/i.test(className)) {
@@ -677,6 +686,19 @@ export function applyWordPressInlineStyles(html: string): string {
       }
       return `<strong${cleanAttrs ? ' ' + cleanAttrs : ''} style="color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-weight: 700 !important;">`;
     });
+
+    /**
+     * v3.8.628 — 훅 알약 안의 <strong> 만 형광펜을 벗긴다.
+     *
+     * 위 <strong> 규칙은 글 전체에 형광펜(아래 40% 색띠)을 긋는다. 본문에서는
+     * 강조로 보이지만, 흰 알약 안에서는 **취소선처럼** 보였다(사장님 실물 검수).
+     * 알약이 이미 대비를 책임지므로 여기서는 색과 배경을 물려받게 둔다.
+     * 반드시 <strong> 규칙 **뒤에** 와야 한다 — 앞에 두면 곧바로 덮인다.
+     */
+    styledHtml = styledHtml.replace(
+      /(<p[^>]*class=["'][^"']*\bcta-hook\b[^"']*["'][^>]*>)\s*<strong\b[^>]*>/gi,
+      '$1<strong style="color: inherit !important; -webkit-text-fill-color: inherit !important; background: none !important; font-weight: 800 !important;">'
+    );
 
     styledHtml = styledHtml.replace(/<b\b([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();

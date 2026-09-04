@@ -512,7 +512,7 @@ function applyWordPressInlineStyles(html) {
             const className = classMatch?.[2] || '';
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
             if (/\b(?:cta-hook|cta-responsive-text)\b/i.test(className)) {
-                const ctaHookStyle = `margin: 0 !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-size: 16px !important; font-weight: 700 !important; line-height: 1.55 !important; word-break: keep-all !important; max-width: 92% !important;`;
+                const ctaHookStyle = `display: inline-block !important; margin: 0 !important; padding: 8px 14px !important; background: #ffffff !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; border-radius: 8px !important; font-size: 16px !important; font-weight: 700 !important; line-height: 1.55 !important; word-break: keep-all !important; max-width: 92% !important; box-decoration-break: clone !important; -webkit-box-decoration-break: clone !important;`;
                 return `<p${cleanAttrs ? ' ' + cleanAttrs : ''} style="${ctaHookStyle}">`;
             }
             if (/\bwp-info-box-text\b/i.test(className)) {
@@ -537,6 +537,7 @@ function applyWordPressInlineStyles(html) {
             }
             return `<strong${cleanAttrs ? ' ' + cleanAttrs : ''} style="color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; font-weight: 700 !important;">`;
         });
+        styledHtml = styledHtml.replace(/(<p[^>]*class=["'][^"']*\bcta-hook\b[^"']*["'][^>]*>)\s*<strong\b[^>]*>/gi, '$1<strong style="color: inherit !important; -webkit-text-fill-color: inherit !important; background: none !important; font-weight: 800 !important;">');
         styledHtml = styledHtml.replace(/<b\b([^>]*)>/gi, (match, attrs) => {
             const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
             if (usesFinalPreviewSkin) {

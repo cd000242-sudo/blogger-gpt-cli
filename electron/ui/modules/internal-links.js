@@ -2110,6 +2110,18 @@ function _swScrollToPreview() {
 //   localStorage 'lastPublishStartAt'에 직전 발행 시작 시각 저장.
 //   90초 미만이면 사용자 안내 + 자동 대기 (취소 가능).
 //   거미줄 + 일반 글포스팅 양쪽 동일 키 공유 → 어느 모드 발행이든 다음 발행은 90초 후.
+/**
+ * 🔓 v3.8.628 — 직전 값을 기억해 둔다. 발행이 엎어지면 되돌리기 위해서다.
+ *
+ * 사장님 보고: "발행을 하고나서 내가 실수를해서 다시발행하려고 중지를 해서 중단되거나
+ * 오류로 중단이됫어. 그러고 다시 제대로된키워드나 url을 넣고 바로발행버튼누르니까
+ * 100초있다가 발행해야된다고 락이걸리네"
+ *
+ * 시각을 **시작할 때** 찍는데 실패해도 지우지 않아서, 한 글자도 못 쓰고 멈춘 시도가
+ * 다음 시도를 90초 막았다. 실수를 바로잡으려는 사람을 벌주는 셈이다.
+ */
+let _publishGapPrevValue = null;
+
 async function _enforcePublishGap(minSec) {
   const minMs = (minSec || 90) * 1000;
   const lastAt = parseInt(localStorage.getItem('lastPublishStartAt') || '0', 10);
@@ -2123,11 +2135,34 @@ async function _enforcePublishGap(minSec) {
     // 안내 + 대기
     await new Promise((resolve) => setTimeout(resolve, waitMs));
   }
-  // 발행 시작 시각 기록
+  // 되돌릴 수 있게 직전 값을 남기고 발행 시작 시각을 기록한다
+  _publishGapPrevValue = localStorage.getItem('lastPublishStartAt');
   try { localStorage.setItem('lastPublishStartAt', String(Date.now())); } catch {}
   return true;
 }
 window._enforcePublishGap = _enforcePublishGap;
+
+/**
+ * 🔓 이번 시도를 "없던 일"로 되돌린다 — 중지·오류로 끝났을 때만 부른다.
+ *
+ * 지우지 않고 **직전 값으로 되돌리는** 이유: 진짜 마지막 발행 시각은 살려야
+ * 한다. 5초 전에 성공한 발행이 있었다면 그 보호는 그대로 유지된다.
+ * 이번 시도만 없던 것으로 친다.
+ */
+function _releasePublishGap(reason) {
+  try {
+    if (_publishGapPrevValue === null || _publishGapPrevValue === undefined) {
+      localStorage.removeItem('lastPublishStartAt');
+    } else {
+      localStorage.setItem('lastPublishStartAt', _publishGapPrevValue);
+    }
+    _publishGapPrevValue = null;
+    console.log('[PUBLISH-GAP] 🔓 대기 해제 — ' + (reason || '발행이 끝나지 않음'));
+  } catch (e) {
+    console.warn('[PUBLISH-GAP] 해제 실패(무시):', e);
+  }
+}
+window._releasePublishGap = _releasePublishGap;
 
 async function _syncSpiderBacklinksToSources(hubPost, sourcePosts, publishPayload) {
   const hubUrl = _normalizePostUrl(hubPost?.url || '');
@@ -2206,6 +2241,8 @@ async function generateAndPublishSpiderWeb() {
   const okGap = await _enforcePublishGap(90);
   if (!okGap) return;
 
+  // v3.8.628: 거미줄이 도중에 엎어지면 90초 대기를 되돌린다 — 다시 시도할 수 있어야 한다
+  let _spiderPublished = false;
   try {
     updateSelectedPostsFromInputs();
     // v3.8.28: 입력 URL 정규화 — wp-admin URL은 공개 URL로 변환해 거미줄 CTA에 사용
@@ -2569,11 +2606,15 @@ async function generateAndPublishSpiderWeb() {
       backlinkSync,
     });
 
+    _spiderPublished = true;
     _swFinishSuccess(publishedUrl);
 
   } catch (error) {
     console.error('[SPIDER-WEB] generateAndPublishSpiderWeb 실패:', error);
     _swFinishError(error?.message || '알 수 없는 오류');
+  } finally {
+    // 발행까지 못 간 시도는 90초 대기를 물려주지 않는다
+    if (!_spiderPublished) _releasePublishGap('거미줄이 끝나지 않음');
   }
 }
 

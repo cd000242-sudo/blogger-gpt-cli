@@ -25,6 +25,7 @@ import {
  *   최신순으로 둔다 — 앞이 먼저 시도된다.
  */
 const GEMINI_BASE_MODELS = [
+  'gemini-3.8-flash',
   'gemini-3.6-flash',
   'gemini-3.5-flash',
   'gemini-3.1-flash-lite',

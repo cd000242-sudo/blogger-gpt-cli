@@ -95,6 +95,35 @@ function createLoginWindow(parent) {
             },
             show: false // 준비될 때까지 숨김
         });
+        /**
+         * 🖱️ v3.8.604 — 로그인 창에도 오른쪽 클릭 복사·붙여넣기.
+         *
+         * 사장님: "필드에 우측마우스 클릭하면 복사 붙혀넣기도 가능하게해줘"
+         * 여기가 **라이선스 키를 붙여넣는 자리**라 메인 창보다 더 필요하다.
+         * Electron 은 기본 컨텍스트 메뉴가 없어서 오른쪽 클릭이 아무 반응도 없었다.
+         */
+        try {
+            loginWindow.webContents.on('context-menu', (_e, props) => {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { Menu } = require('electron');
+                const hasSelection = !!String(props.selectionText || '').trim();
+                const items = props.isEditable
+                    ? [
+                        { role: 'cut', label: '잘라내기', enabled: hasSelection },
+                        { role: 'copy', label: '복사', enabled: hasSelection },
+                        { role: 'paste', label: '붙여넣기' },
+                        { type: 'separator' },
+                        { role: 'selectAll', label: '전체 선택' },
+                    ]
+                    : hasSelection ? [{ role: 'copy', label: '복사' }] : [];
+                if (items.length === 0)
+                    return;
+                Menu.buildFromTemplate(items).popup({ window: loginWindow || undefined });
+            });
+        }
+        catch (e) {
+            console.warn('[LOGIN] 오른쪽 클릭 메뉴 붙이기 생략:', e);
+        }
         // 🔥 업데이터에 로그인 창 참조 연결 (업데이트 발견 시 자동 숨김)
         try {
             const { setUpdaterLoginWindow } = require('./updater');

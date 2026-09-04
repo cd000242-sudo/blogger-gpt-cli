@@ -1,0 +1,606 @@
+{
+  "sampledLinks": [],
+  "gsapScroll": [
+    {
+      "scrollY": 0,
+      "els": [
+        {
+          "sel": "SECTION.home-list",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 0,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.pin-spacer",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 0,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.loop-home-featured",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "opacity": "1",
+          "position": "fixed",
+          "willChange": "auto",
+          "top": 0,
+          "h": 900
+        },
+        {
+          "sel": "DIV.home-list-scroll.home-list-mid",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 0,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.home-list-scroll-list-mid",
+          "transform": "none",
+          "opacity": "1",
+          "position": "static",
+          "willChange": "auto",
+          "top": 0,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 64,
+          "h": 577
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 689,
+          "h": 577
+        },
+        {
+          "sel": "DIV.home-list-scroll.home-list-long",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 0,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.home-list-scroll-list-long",
+          "transform": "matrix(1, 0, 0, 1, 0, -0.0003)",
+          "opacity": "1",
+          "position": "absolute",
+          "willChange": "auto",
+          "top": 0,
+          "h": 1458
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 192,
+          "h": 577
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 817,
+          "h": 577
+        },
+        {
+          "sel": "SECTION.home-list",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 1378,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.pin-spacer",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 1378,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.loop-home-featured",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 1378,
+          "h": 900
+        }
+      ]
+    },
+    {
+      "scrollY": 600,
+      "els": [
+        {
+          "sel": "SECTION.home-list",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -600,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.pin-spacer",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -600,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.loop-home-featured",
+          "transform": "matrix(1, 0, 0, 1, 0, 478.001)",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -122,
+          "h": 900
+        },
+        {
+          "sel": "DIV.home-list-scroll.home-list-mid",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -600,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.home-list-scroll-list-mid",
+          "transform": "none",
+          "opacity": "1",
+          "position": "static",
+          "willChange": "auto",
+          "top": -600,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -536,
+          "h": 577
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 89,
+          "h": 577
+        },
+        {
+          "sel": "DIV.home-list-scroll.home-list-long",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -600,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.home-list-scroll-list-long",
+          "transform": "matrix(1, 0, 0, 1, 0, -80)",
+          "opacity": "1",
+          "position": "absolute",
+          "willChange": "auto",
+          "top": -680,
+          "h": 1458
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -488,
+          "h": 577
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 137,
+          "h": 577
+        },
+        {
+          "sel": "SECTION.home-list",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 778,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.pin-spacer",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 778,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.loop-home-featured",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": 778,
+          "h": 900
+        }
+      ]
+    },
+    {
+      "scrollY": 1400,
+      "els": [
+        {
+          "sel": "SECTION.home-list",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -1400,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.pin-spacer",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -1400,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.loop-home-featured",
+          "transform": "matrix(1, 0, 0, 1, 0, 478.001)",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -922,
+          "h": 900
+        },
+        {
+          "sel": "DIV.home-list-scroll.home-list-mid",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -1400,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.home-list-scroll-list-mid",
+          "transform": "none",
+          "opacity": "1",
+          "position": "static",
+          "willChange": "auto",
+          "top": -1400,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -1336,
+          "h": 577
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -711,
+          "h": 577
+        },
+        {
+          "sel": "DIV.home-list-scroll.home-list-long",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -1400,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.home-list-scroll-list-long",
+          "transform": "matrix(1, 0, 0, 1, 0, -80)",
+          "opacity": "1",
+          "position": "absolute",
+          "willChange": "auto",
+          "top": -1480,
+          "h": 1458
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -1288,
+          "h": 577
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -663,
+          "h": 577
+        },
+        {
+          "sel": "SECTION.home-list",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -22,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.pin-spacer",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -22,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.loop-home-featured",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "opacity": "1",
+          "position": "fixed",
+          "willChange": "auto",
+          "top": 0,
+          "h": 900
+        }
+      ]
+    },
+    {
+      "scrollY": 2200,
+      "els": [
+        {
+          "sel": "SECTION.home-list",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -2200,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.pin-spacer",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -2200,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.loop-home-featured",
+          "transform": "matrix(1, 0, 0, 1, 0, 478.001)",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -1722,
+          "h": 900
+        },
+        {
+          "sel": "DIV.home-list-scroll.home-list-mid",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -2200,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.home-list-scroll-list-mid",
+          "transform": "none",
+          "opacity": "1",
+          "position": "static",
+          "willChange": "auto",
+          "top": -2200,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -2136,
+          "h": 577
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -1511,
+          "h": 577
+        },
+        {
+          "sel": "DIV.home-list-scroll.home-list-long",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -2200,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.home-list-scroll-list-long",
+          "transform": "matrix(1, 0, 0, 1, 0, -80)",
+          "opacity": "1",
+          "position": "absolute",
+          "willChange": "auto",
+          "top": -2280,
+          "h": 1458
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -2088,
+          "h": 577
+        },
+        {
+          "sel": "DIV.loop",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -1463,
+          "h": 577
+        },
+        {
+          "sel": "SECTION.home-list",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -822,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.pin-spacer",
+          "transform": "none",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -822,
+          "h": 1378
+        },
+        {
+          "sel": "DIV.loop-home-featured",
+          "transform": "matrix(1, 0, 0, 1, 0, 478)",
+          "opacity": "1",
+          "position": "relative",
+          "willChange": "auto",
+          "top": -344,
+          "h": 900
+        }
+      ]
+    }
+  ],
+  "scrollTriggers": {
+    "available": true,
+    "gsapVersion": "3.5.1",
+    "count": 4,
+    "list": [
+      {
+        "trigger": "DIV.loop-home-featured",
+        "start": -0.001,
+        "end": 478,
+        "pin": true,
+        "scrub": true,
+        "toggleActions": "play"
+      },
+      {
+        "trigger": "DIV.loop-home-featured",
+        "start": 1378,
+        "end": 1856,
+        "pin": true,
+        "scrub": true,
+        "toggleActions": "play"
+      },
+      {
+        "trigger": "DIV.loop-home-featured",
+        "start": 2756,
+        "end": 3234,
+        "pin": true,
+        "scrub": true,
+        "toggleActions": "play"
+      },
+      {
+        "trigger": "DIV.loop-home-featured",
+        "start": 2756,
+        "end": 3234,
+        "pin": true,
+        "scrub": true,
+        "toggleActions": "play"
+      }
+    ]
+  },
+  "panel": {
+    "before": {
+      "transform": "matrix(1, 0, 0, 1, 734.391, 0)",
+      "transition": "transform 0.5s",
+      "width": "734.391px",
+      "background": "rgb(251, 252, 246)",
+      "visibility": "visible",
+      "zIndex": "9999"
+    },
+    "after": {
+      "transform": "matrix(1, 0, 0, 1, 0, 0)",
+      "width": "734.391px",
+      "background": "rgb(251, 252, 246)",
+      "visibility": "visible",
+      "x": 706,
+      "classes": "home blog wp-embed-responsive wp-theme-theedit-data open"
+    },
+    "burgerFound": true,
+    "shot": true
+  },
+  "articleUrl": null,
+  "cardHover": {
+    "found": true,
+    "before": {
+      "transform": "none",
+      "width": 318,
+      "height": 397,
+      "transition": "width, height, transform 0.7s",
+      "filter": "none"
+    },
+    "after": {
+      "transform": "matrix(1.09933, 0.0383894, -0.0383894, 1.09933, 0, 0)",
+      "width": 365,
+      "height": 449,
+      "transition": "width, height, transform 0.7s",
+      "filter": "none"
+    }
+  }
+}

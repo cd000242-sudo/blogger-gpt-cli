@@ -15,6 +15,7 @@ type Input = {
  *   3.6 Flash 가 Stable 이면서 3.5 보다 출력이 싸다($7.50 vs $9.00).
  */
 const TEXT_MODELS = [
+  'gemini-3.8-flash',
   'gemini-3.6-flash',
   'gemini-3.5-flash',
   'gemini-3.1-flash-lite',

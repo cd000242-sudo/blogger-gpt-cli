@@ -1,0 +1,189 @@
+{
+  "cardBadge": {
+    "found": true,
+    "text": "CULTURE",
+    "selector": "H5.",
+    "typo": {
+      "fontSize": "18px",
+      "fontWeight": "800",
+      "lineHeight": "18px",
+      "letterSpacing": "1px",
+      "color": "rgb(255, 255, 255)",
+      "textTransform": "none"
+    },
+    "background": "rgba(0, 0, 0, 0)",
+    "padding": "0px",
+    "borderRadius": "0px",
+    "position": "static",
+    "left": "auto",
+    "bottom": "auto",
+    "top": "auto",
+    "textShadow": "none",
+    "mixBlendMode": "normal",
+    "zIndex": "auto",
+    "rect": {
+      "w": 88,
+      "h": 18
+    },
+    "offsetFromParent": {
+      "left": 0,
+      "bottom": 0
+    },
+    "parent": "DIV.meta",
+    "offsetFromImage": {
+      "left": 16,
+      "bottom": 16,
+      "imageW": 318,
+      "imageH": 397,
+      "imageOverflow": "hidden"
+    }
+  },
+  "featuredKicker": {
+    "found": true,
+    "text": "LIFE",
+    "selector": "H4.meta",
+    "typo": {
+      "fontSize": "20px",
+      "fontWeight": "800",
+      "lineHeight": "30px",
+      "letterSpacing": "1px",
+      "color": "rgb(255, 255, 255)",
+      "textTransform": "none"
+    },
+    "background": "rgba(0, 0, 0, 0)",
+    "padding": "0px",
+    "borderRadius": "0px",
+    "position": "static",
+    "left": "auto",
+    "bottom": "auto",
+    "top": "auto",
+    "textShadow": "none",
+    "mixBlendMode": "normal",
+    "zIndex": "auto",
+    "rect": {
+      "w": 437,
+      "h": 30
+    },
+    "offsetFromParent": {
+      "left": 48,
+      "bottom": 209
+    },
+    "parent": "DIV.desc",
+    "offsetFromImage": null
+  },
+  "author": {
+    "found": true,
+    "selector": "A.author",
+    "rect": {
+      "w": 60,
+      "h": 80
+    },
+    "borderRadius": "0px",
+    "typo": {
+      "fontSize": "16px",
+      "fontWeight": "500",
+      "lineHeight": "24px",
+      "letterSpacing": "normal",
+      "color": "rgb(0, 0, 0)",
+      "textTransform": "none"
+    }
+  },
+  "categoryUrl": "https://the-edit.co.kr/category/tech",
+  "category": {
+    "url": "https://the-edit.co.kr/category/tech",
+    "title": "TECH - 디에디트",
+    "h1": {
+      "fontSize": "64px",
+      "fontWeight": "800",
+      "lineHeight": "96px",
+      "letterSpacing": "-0.5px",
+      "color": "rgb(0, 0, 0)",
+      "textTransform": "uppercase"
+    },
+    "h1Text": "TECH",
+    "counts": {
+      "h1": 1,
+      "cards": 20,
+      "img": 44,
+      "imgAlt": 2
+    },
+    "columnXs": [
+      72,
+      402,
+      732,
+      1062
+    ],
+    "columnCount": 4,
+    "cardGeom": [
+      {
+        "x": 72,
+        "y": 415,
+        "w": 306,
+        "h": 562
+      },
+      {
+        "x": 402,
+        "y": 415,
+        "w": 306,
+        "h": 562
+      },
+      {
+        "x": 732,
+        "y": 415,
+        "w": 306,
+        "h": 562
+      },
+      {
+        "x": 1062,
+        "y": 415,
+        "w": 306,
+        "h": 562
+      },
+      {
+        "x": 72,
+        "y": 1025,
+        "w": 306,
+        "h": 562
+      },
+      {
+        "x": 402,
+        "y": 1025,
+        "w": 306,
+        "h": 562
+      },
+      {
+        "x": 732,
+        "y": 1025,
+        "w": 306,
+        "h": 562
+      },
+      {
+        "x": 1062,
+        "y": 1025,
+        "w": 306,
+        "h": 562
+      }
+    ],
+    "cardW": 306,
+    "gutter": 24,
+    "bodyBg": "rgb(251, 252, 246)",
+    "pagination": true,
+    "metaDesc": null,
+    "canonical": "https://the-edit.co.kr/category/tech"
+  },
+  "footer": {
+    "found": true,
+    "background": "rgb(0, 0, 0)",
+    "padding": "32px 48px",
+    "height": 64,
+    "linkTypo": {
+      "fontSize": "18px",
+      "fontWeight": "800",
+      "lineHeight": "31.5px",
+      "letterSpacing": "-0.2px",
+      "color": "rgb(255, 255, 255)",
+      "textTransform": "uppercase"
+    },
+    "linkCount": 8
+  }
+}

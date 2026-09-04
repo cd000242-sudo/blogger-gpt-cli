@@ -1,0 +1,289 @@
+{
+  "url": "https://the-edit.co.kr/",
+  "viewport": {
+    "w": 1440,
+    "h": 900
+  },
+  "cardGeom": [
+    {
+      "i": 0,
+      "sel": "DIV.loop",
+      "x": 749,
+      "y": 64,
+      "w": 318,
+      "h": 577
+    },
+    {
+      "i": 1,
+      "sel": "DIV.loop",
+      "x": 749,
+      "y": 689,
+      "w": 318,
+      "h": 577
+    },
+    {
+      "i": 2,
+      "sel": "DIV.loop",
+      "x": 1093,
+      "y": 192,
+      "w": 318,
+      "h": 577
+    },
+    {
+      "i": 3,
+      "sel": "DIV.loop",
+      "x": 1093,
+      "y": 817,
+      "w": 318,
+      "h": 577
+    },
+    {
+      "i": 4,
+      "sel": "DIV.loop",
+      "x": 373,
+      "y": 1442,
+      "w": 318,
+      "h": 577
+    },
+    {
+      "i": 5,
+      "sel": "DIV.loop",
+      "x": 373,
+      "y": 2067,
+      "w": 318,
+      "h": 577
+    },
+    {
+      "i": 6,
+      "sel": "DIV.loop",
+      "x": 29,
+      "y": 1570,
+      "w": 318,
+      "h": 577
+    },
+    {
+      "i": 7,
+      "sel": "DIV.loop",
+      "x": 29,
+      "y": 2195,
+      "w": 318,
+      "h": 577
+    }
+  ],
+  "wrapStyle": {
+    "sel": "DIV.home-list-scroll-list-mid",
+    "x": 749,
+    "y": 0,
+    "w": 318,
+    "h": 1378,
+    "display": "block",
+    "gridTemplateColumns": "none",
+    "columnGap": "normal",
+    "rowGap": "normal",
+    "gap": "normal",
+    "flexWrap": "nowrap",
+    "columnCount": "auto",
+    "alignItems": "normal",
+    "paddingLeft": "0px",
+    "paddingRight": "0px"
+  },
+  "columnXs": [
+    29,
+    373,
+    749,
+    1093
+  ],
+  "columnCount": 4,
+  "cardParts": {
+    "title": {
+      "sel": "H3.title",
+      "typo": {
+        "fontSize": "28.8px",
+        "fontWeight": "800",
+        "lineHeight": "36px",
+        "letterSpacing": "-1px",
+        "color": "rgb(0, 0, 0)",
+        "fontStyle": "normal"
+      },
+      "rect": {
+        "x": 749,
+        "y": 477,
+        "w": 318,
+        "h": 72
+      }
+    },
+    "titleLink": {
+      "typo": {
+        "fontSize": "28.8px",
+        "fontWeight": "800",
+        "lineHeight": "36px",
+        "letterSpacing": "-1px",
+        "color": "rgb(0, 0, 0)",
+        "fontStyle": "normal"
+      }
+    },
+    "sub": {
+      "sel": "P.excerpt",
+      "typo": {
+        "fontSize": "15px",
+        "fontWeight": "500",
+        "lineHeight": "22.5px",
+        "letterSpacing": "-0.2px",
+        "color": "rgb(0, 0, 0)",
+        "fontStyle": "normal"
+      }
+    },
+    "image": {
+      "sel": "A.image",
+      "rect": {
+        "x": 749,
+        "y": 64,
+        "w": 318,
+        "h": 397
+      },
+      "overflow": "hidden"
+    },
+    "img": {
+      "rect": {
+        "x": 749,
+        "y": 64,
+        "w": 318,
+        "h": 397
+      }
+    },
+    "badge": {
+      "sel": "A.image",
+      "text": "CULTURE",
+      "typo": {
+        "fontSize": "16px",
+        "fontWeight": "500",
+        "lineHeight": "24px",
+        "letterSpacing": "normal",
+        "color": "rgb(0, 0, 0)",
+        "fontStyle": "normal"
+      },
+      "rect": {
+        "x": 749,
+        "y": 64,
+        "w": 318,
+        "h": 397
+      },
+      "bg": "rgba(0, 0, 0, 0)",
+      "padding": "0px 0px 397.422px",
+      "position": "relative",
+      "radius": "0px",
+      "mixBlend": "normal"
+    },
+    "time": {
+      "typo": null
+    },
+    "avatar": {
+      "rect": {
+        "x": 1012,
+        "y": 561,
+        "w": 50,
+        "h": 50
+      },
+      "radius": "0px"
+    }
+  },
+  "featParts": {
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 720,
+      "h": 900
+    },
+    "overflow": "hidden",
+    "bg": "rgba(0, 0, 0, 0)",
+    "kicker": null,
+    "title": {
+      "fontSize": "52px",
+      "fontWeight": "800",
+      "lineHeight": "65px",
+      "letterSpacing": "-0.5px",
+      "color": "rgb(255, 255, 255)",
+      "fontStyle": "normal"
+    },
+    "titleRect": {
+      "x": 48,
+      "y": 627,
+      "w": 437,
+      "h": 130
+    },
+    "sub": {
+      "fontSize": "18px",
+      "fontWeight": "500",
+      "lineHeight": "27px",
+      "letterSpacing": "-0.2px",
+      "color": "rgb(255, 255, 255)",
+      "fontStyle": "normal"
+    },
+    "time": null,
+    "after": {
+      "content": "\"\"",
+      "background": "rgba(0, 0, 0, 0)",
+      "opacity": "1",
+      "transform": "none",
+      "inset": "0px"
+    },
+    "avatar": {
+      "rect": {
+        "x": 600,
+        "y": 730,
+        "w": 72,
+        "h": 72
+      },
+      "radius": "0px"
+    },
+    "imgRect": {
+      "x": 0,
+      "y": 0,
+      "w": 720,
+      "h": 900
+    }
+  },
+  "clipInfo": {
+    "overflow": "hidden",
+    "overflowX": "hidden",
+    "position": "relative",
+    "h": 397
+  },
+  "listHeightBefore": 5945,
+  "panel": {
+    "width": "734.391px",
+    "bg": "rgb(251, 252, 246)",
+    "linkTypo": {
+      "fontSize": "16px",
+      "fontWeight": "500",
+      "lineHeight": "24px",
+      "letterSpacing": "normal",
+      "color": "rgb(0, 0, 0)",
+      "fontStyle": "normal"
+    },
+    "padding": "0px"
+  },
+  "pushTest": {
+    "before": {
+      "docH": 5945,
+      "wrapH": 1378,
+      "card0": 577,
+      "card1": 689,
+      "img0": {
+        "w": 318,
+        "h": 397
+      }
+    },
+    "after": {
+      "docH": 5945,
+      "wrapH": 1378,
+      "card0": 577,
+      "card1": 689,
+      "img0": {
+        "w": 365,
+        "h": 449
+      }
+    },
+    "결론": "형제를 밀지 않는다 — 부모가 자른다(레이아웃 불변)"
+  }
+}

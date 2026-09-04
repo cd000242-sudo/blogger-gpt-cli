@@ -1,0 +1,597 @@
+{
+  "https://leadernam.com/": {
+    "wallClockLoadMs": 2342,
+    "vitals": {
+      "lcp": 1516,
+      "lcpUrl": "P",
+      "cls": 0.5102,
+      "fcp": 1516,
+      "ttfb": 814,
+      "domContentLoaded": 1787,
+      "loadEvent": 2339,
+      "transferKB": 71
+    },
+    "totalRequests": 54,
+    "totalKB": 946,
+    "byHost": {
+      "cdn.jsdelivr.net": {
+        "count": 19,
+        "KB": 453
+      },
+      "pagead2.googlesyndication.com": {
+        "count": 4,
+        "KB": 271
+      },
+      "www.googletagmanager.com": {
+        "count": 1,
+        "KB": 187
+      },
+      "ep1.adtrafficquality.google": {
+        "count": 2,
+        "KB": 13
+      },
+      "ep2.adtrafficquality.google": {
+        "count": 3,
+        "KB": 13
+      },
+      "googleads.g.doubleclick.net": {
+        "count": 3,
+        "KB": 7
+      },
+      "": {
+        "count": 1,
+        "KB": 1
+      },
+      "leadernam.com": {
+        "count": 9,
+        "KB": 0
+      },
+      "www.google.co.kr": {
+        "count": 2,
+        "KB": 0
+      },
+      "pixel.wp.com": {
+        "count": 1,
+        "KB": 0
+      },
+      "www.google.com": {
+        "count": 4,
+        "KB": 0
+      },
+      "stats.wp.com": {
+        "count": 1,
+        "KB": 0
+      },
+      "analytics.google.com": {
+        "count": 1,
+        "KB": 0
+      },
+      "stats.g.doubleclick.net": {
+        "count": 1,
+        "KB": 0
+      },
+      "ad.doubleclick.net": {
+        "count": 1,
+        "KB": 0
+      },
+      "s.w.org": {
+        "count": 1,
+        "KB": 0
+      }
+    },
+    "renderBlocking": {
+      "syncScriptCount": 0,
+      "stylesheetCount": 1,
+      "syncScripts": [],
+      "stylesheets": [
+        "https://leadernam.com/wp-content/boost-cache/static/6d715718b5.min.css"
+      ]
+    },
+    "heaviest": [
+      {
+        "KB": 187,
+        "type": "script",
+        "cache": "private, max-age=900",
+        "url": "https://www.googletagmanager.com/gtag/js?id=GT-5RF9N3LB"
+      },
+      {
+        "KB": 184,
+        "type": "script",
+        "cache": "public, immutable, max-age=1209600",
+        "url": "https://pagead2.googlesyndication.com/pagead/managed/js/adsense/m202608260101/show_ads_impl.js?bust=122880742"
+      },
+      {
+        "KB": 65,
+        "type": "script",
+        "cache": "private, max-age=3600, stale-while-revalidate=3600",
+        "url": "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4008574892672964"
+      },
+      {
+        "KB": 37,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 28,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 28,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 26,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 26,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 26,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 26,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 26,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 25,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 25,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 25,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 25,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 24,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 24,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 22,
+        "type": "script",
+        "cache": "public, max-age=31536000",
+        "url": "https://pagead2.googlesyndication.com/bg/FuJtfeOhw-B3t1LjFl21M-YKqgyzyTdQm0Cbm-qvzyY.js"
+      },
+      {
+        "KB": 21,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 20,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      }
+    ],
+    "noCache": [
+      {
+        "type": "document",
+        "cache": "max-age=0, s-maxage=2592000",
+        "url": "https://leadernam.com/"
+      },
+      {
+        "type": "script",
+        "cache": "(없음)",
+        "url": "blob:https://leadernam.com/2503958b-6d50-4e7b-8124-6f47781f4f76"
+      },
+      {
+        "type": "image",
+        "cache": "no-cache",
+        "url": "https://pixel.wp.com/g.gif?v=ext&blog=242288788&post=5125&tz=9&srv=leadernam.com&j=1%3A16.1.1&host=leadernam.c"
+      },
+      {
+        "type": "image",
+        "cache": "no-cache, no-store, must-revalidate",
+        "url": "https://www.google.co.kr/ads/ga-audiences?v=1&t=sr&slf_rd=1&_r=4&tid=G-KN52HJ76K3&cid=1143103452.1788168839&gt"
+      },
+      {
+        "type": "fetch",
+        "cache": "(없음)",
+        "url": "https://www.google.com/rmkt/collect/16956895738/?random=1788168838531&cv=11&fst=1788168838531&fmt=8&bg=ffffff&"
+      },
+      {
+        "type": "script",
+        "cache": "no-cache, must-revalidate",
+        "url": "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/16956895738/?random=1788168838531&cv=11&fst=1"
+      },
+      {
+        "type": "fetch",
+        "cache": "no-cache, no-store, must-revalidate",
+        "url": "https://analytics.google.com/g/collect?v=2&tid=G-KN52HJ76K3&gtm=45Pe68q1v9209501131za200zd9209501131&_p=178816"
+      },
+      {
+        "type": "ping",
+        "cache": "no-cache, no-store, must-revalidate",
+        "url": "https://stats.g.doubleclick.net/g/collect?v=2&tid=G-KN52HJ76K3&cid=1143103452.1788168839&gtm=45Pe68q1v92095011"
+      },
+      {
+        "type": "fetch",
+        "cache": "(없음)",
+        "url": "https://ad.doubleclick.net/ccm/s/collect?auid=464258305.1788168839&gtm=45Pe68q1v9209501131za200zd9209501131xec"
+      },
+      {
+        "type": "fetch",
+        "cache": "(없음)",
+        "url": "https://www.google.com/ccm/collect?rcb=7&frm=0&apvc=1&auid=464258305.1788168839&dt=%EB%B3%B4%ED%97%98%EA%B8%88"
+      },
+      {
+        "type": "image",
+        "cache": "no-cache, no-store, must-revalidate",
+        "url": "https://www.google.com/pagead/1p-user-list/16956895738/?random=1788168838531&cv=11&fst=1788166800000&bg=ffffff"
+      },
+      {
+        "type": "image",
+        "cache": "no-cache, no-store, must-revalidate",
+        "url": "https://www.google.co.kr/pagead/1p-user-list/16956895738/?random=1788168838531&cv=11&fst=1788166800000&bg=ffff"
+      },
+      {
+        "type": "xhr",
+        "cache": "(없음)",
+        "url": "https://ep1.adtrafficquality.google/getconfig/sodar?sv=200&tid=gda&tv=r20260825&st=env&sjk=4236837039809283"
+      },
+      {
+        "type": "image",
+        "cache": "(없음)",
+        "url": "https://pagead2.googlesyndication.com/pagead/sodar?id=sodar2&v=255&li=gda_r20260825&jk=4236837039809283&rc="
+      },
+      {
+        "type": "image",
+        "cache": "(없음)",
+        "url": "https://ep2.adtrafficquality.google/generate_204?b_LrFg"
+      },
+      {
+        "type": "fetch",
+        "cache": "max-age=0, s-maxage=2592000",
+        "url": "https://leadernam.com/wp-json/wp/v2/categories?per_page=100&_fields=id,parent,count"
+      },
+      {
+        "type": "image",
+        "cache": "(없음)",
+        "url": "https://ep1.adtrafficquality.google/pagead/sodar?id=sodar2&v=255&t=2&li=gda_r20260825&jk=4236837039809283&bg=!"
+      }
+    ]
+  },
+  "https://leadernam.com/subsidy/%ea%b5%ad%eb%af%bc%ec%97%b0%ea%b8%88-9%ec%9b%94-%ec%9e%90%eb%8f%99%ec%a7%80%ea%b8%89-%ec%84%b8%eb%ac%b4%ec%84%9c-%ed%99%95%ec%9d%b8%ec%84%9c-%eb%83%88%eb%8a%94%eb%8d%b0-%ea%b8%88%ec%95%a1%ec%9d%b4/": {
+    "wallClockLoadMs": 2199,
+    "vitals": {
+      "lcp": 1908,
+      "lcpUrl": "https://i0.wp.com/leadernam.com/wp-content/uploads/2026/08/1788160178523-thumbnail.webp?w=1200&ssl=1",
+      "cls": 0.0022,
+      "fcp": 1468,
+      "ttfb": 982,
+      "domContentLoaded": 1496,
+      "loadEvent": 2196,
+      "transferKB": 59
+    },
+    "totalRequests": 62,
+    "totalKB": 1069,
+    "byHost": {
+      "cdn.jsdelivr.net": {
+        "count": 19,
+        "KB": 477
+      },
+      "pagead2.googlesyndication.com": {
+        "count": 4,
+        "KB": 271
+      },
+      "www.googletagmanager.com": {
+        "count": 1,
+        "KB": 187
+      },
+      "leadernam.com": {
+        "count": 8,
+        "KB": 59
+      },
+      "i0.wp.com": {
+        "count": 1,
+        "KB": 39
+      },
+      "ep1.adtrafficquality.google": {
+        "count": 2,
+        "KB": 13
+      },
+      "ep2.adtrafficquality.google": {
+        "count": 3,
+        "KB": 13
+      },
+      "googleads.g.doubleclick.net": {
+        "count": 3,
+        "KB": 7
+      },
+      "s.w.org": {
+        "count": 9,
+        "KB": 1
+      },
+      "": {
+        "count": 1,
+        "KB": 1
+      },
+      "www.google.co.kr": {
+        "count": 2,
+        "KB": 0
+      },
+      "pixel.wp.com": {
+        "count": 1,
+        "KB": 0
+      },
+      "www.google.com": {
+        "count": 4,
+        "KB": 0
+      },
+      "stats.wp.com": {
+        "count": 1,
+        "KB": 0
+      },
+      "analytics.google.com": {
+        "count": 1,
+        "KB": 0
+      },
+      "stats.g.doubleclick.net": {
+        "count": 1,
+        "KB": 0
+      },
+      "ad.doubleclick.net": {
+        "count": 1,
+        "KB": 0
+      }
+    },
+    "renderBlocking": {
+      "syncScriptCount": 0,
+      "stylesheetCount": 1,
+      "syncScripts": [],
+      "stylesheets": [
+        "https://leadernam.com/wp-content/boost-cache/static/6d715718b5.min.css"
+      ]
+    },
+    "heaviest": [
+      {
+        "KB": 187,
+        "type": "script",
+        "cache": "private, max-age=900",
+        "url": "https://www.googletagmanager.com/gtag/js?id=GT-5RF9N3LB"
+      },
+      {
+        "KB": 182,
+        "type": "script",
+        "cache": "public, immutable, max-age=1209600",
+        "url": "https://pagead2.googlesyndication.com/pagead/managed/js/adsense/m202608250101/show_ads_impl.js"
+      },
+      {
+        "KB": 65,
+        "type": "script",
+        "cache": "private, max-age=3600, stale-while-revalidate=3600",
+        "url": "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4008574892672964"
+      },
+      {
+        "KB": 59,
+        "type": "document",
+        "cache": "max-age=0, s-maxage=2592000",
+        "url": "https://leadernam.com/subsidy/%ea%b5%ad%eb%af%bc%ec%97%b0%ea%b8%88-9%ec%9b%94-%ec%9e%90%eb%8f%99%ec%a7%80%ea%b8%89-%ec%84%b8%eb%ac"
+      },
+      {
+        "KB": 39,
+        "type": "image",
+        "cache": "public, max-age=63115200",
+        "url": "https://i0.wp.com/leadernam.com/wp-content/uploads/2026/08/1788160178523-thumbnail.webp?w=1200&ssl=1"
+      },
+      {
+        "KB": 37,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 35,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 32,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 28,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 26,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 26,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 26,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 26,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 25,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 25,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 25,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 25,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 24,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 24,
+        "type": "font",
+        "cache": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2-dynamic-subset/PretendardVar"
+      },
+      {
+        "KB": 24,
+        "type": "script",
+        "cache": "public, max-age=31536000",
+        "url": "https://pagead2.googlesyndication.com/bg/Z0-sq31v_JBEgmJW8-FYB2KrISnq-t0-0gJVMBsbc9w.js"
+      }
+    ],
+    "noCache": [
+      {
+        "type": "document",
+        "cache": "max-age=0, s-maxage=2592000",
+        "url": "https://leadernam.com/subsidy/%ea%b5%ad%eb%af%bc%ec%97%b0%ea%b8%88-9%ec%9b%94-%ec%9e%90%eb%8f%99%ec%a7%80%ea%b"
+      },
+      {
+        "type": "script",
+        "cache": "(없음)",
+        "url": "blob:https://leadernam.com/81f1d2fa-15ac-418b-b564-149429ce1510"
+      },
+      {
+        "type": "image",
+        "cache": "no-cache",
+        "url": "https://pixel.wp.com/g.gif?v=ext&blog=242288788&post=5455&tz=9&srv=leadernam.com&j=1%3A16.1.1&host=leadernam.c"
+      },
+      {
+        "type": "image",
+        "cache": "no-cache, no-store, must-revalidate",
+        "url": "https://www.google.co.kr/ads/ga-audiences?v=1&t=sr&slf_rd=1&_r=4&tid=G-KN52HJ76K3&cid=626846500.1788168844&gtm"
+      },
+      {
+        "type": "fetch",
+        "cache": "(없음)",
+        "url": "https://www.google.com/rmkt/collect/16956895738/?random=1788168844151&cv=11&fst=1788168844151&fmt=8&bg=ffffff&"
+      },
+      {
+        "type": "script",
+        "cache": "no-cache, must-revalidate",
+        "url": "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/16956895738/?random=1788168844151&cv=11&fst=1"
+      },
+      {
+        "type": "fetch",
+        "cache": "no-cache, no-store, must-revalidate",
+        "url": "https://analytics.google.com/g/collect?v=2&tid=G-KN52HJ76K3&gtm=45Pe68q1v9209501131za200zd9209501131&_p=178816"
+      },
+      {
+        "type": "fetch",
+        "cache": "(없음)",
+        "url": "https://www.google.com/ccm/collect?rcb=15&frm=0&apvc=1&auid=828090465.1788168844&dt=%EA%B5%AD%EB%AF%BC%EC%97%B"
+      },
+      {
+        "type": "ping",
+        "cache": "no-cache, no-store, must-revalidate",
+        "url": "https://stats.g.doubleclick.net/g/collect?v=2&tid=G-KN52HJ76K3&cid=626846500.1788168844&gtm=45Pe68q1v920950113"
+      },
+      {
+        "type": "fetch",
+        "cache": "(없음)",
+        "url": "https://ad.doubleclick.net/ccm/s/collect?auid=828090465.1788168844&gtm=45Pe68q1v9209501131za200zd9209501131xec"
+      },
+      {
+        "type": "image",
+        "cache": "no-cache, no-store, must-revalidate",
+        "url": "https://www.google.com/pagead/1p-user-list/16956895738/?random=1788168844151&cv=11&fst=1788166800000&bg=ffffff"
+      },
+      {
+        "type": "image",
+        "cache": "no-cache, no-store, must-revalidate",
+        "url": "https://www.google.co.kr/pagead/1p-user-list/16956895738/?random=1788168844151&cv=11&fst=1788166800000&bg=ffff"
+      },
+      {
+        "type": "xhr",
+        "cache": "(없음)",
+        "url": "https://ep1.adtrafficquality.google/getconfig/sodar?sv=200&tid=gda&tv=r20260825&st=env&sjk=7042629042711990"
+      },
+      {
+        "type": "image",
+        "cache": "(없음)",
+        "url": "https://pagead2.googlesyndication.com/pagead/sodar?id=sodar2&v=255&li=gda_r20260825&jk=7042629042711990&rc="
+      },
+      {
+        "type": "image",
+        "cache": "(없음)",
+        "url": "https://ep2.adtrafficquality.google/generate_204?scXb9A"
+      },
+      {
+        "type": "image",
+        "cache": "(없음)",
+        "url": "https://ep1.adtrafficquality.google/pagead/sodar?id=sodar2&v=255&t=2&li=gda_r20260825&jk=7042629042711990&bg=!"
+      }
+    ]
+  }
+}

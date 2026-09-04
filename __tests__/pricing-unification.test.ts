@@ -85,7 +85,8 @@ describe('표시 문자열 — 화면마다 포맷이 갈리지 않게 한 곳�
     // 현재 최고가(Fable 5 = ₩735)는 세 자리라 구분자가 없다.
     // 단가가 오르거나 산식이 바뀌어 네 자리가 됐을 때를 위한 포맷 검증.
     // exactOptionalPropertyTypes — usdPer1M 은 undefined 대입이 아니라 키 자체를 뺀다
-    const { usdPer1M, ...base } = TIER_MODELS.find(t => t.title === 'Claude Fable 5')!;
+    // v3.8.628 — 모델 이름을 베껴 쓰지 않는다. 이름이 바뀔 때마다 깨졌다(Fable 5 → 5.1).
+    const { usdPer1M, ...base } = TIER_MODELS.find(t => t.value === 'claude-opus')!;
     void usdPer1M;
     expect(formatTierCost({ ...base, costKrw: 1234 })).toBe('~₩1,234/글');
   });
@@ -109,12 +110,23 @@ describe('렌더러로 넘기는 금액표', () => {
     });
   });
 
+  /**
+   * v3.8.628 — 특정 모델 이름 대신 **규칙**을 검사한다.
+   *
+   * 예전에는 "Gemini 3.6 Flash 는 계산값" 처럼 이름을 박아 두어, 모델을 올릴 때마다
+   * 깨졌다. 정작 지켜야 할 것은 이름이 아니라 이 규칙이다 —
+   * **공식 단가(usdPer1M)를 아는 모델만 계산값(derived)이고, 모르는 모델은 선언값이다.**
+   * 모르는 단가를 지어내지 않겠다는 pricing.ts 의 원칙이 여기서 지켜진다.
+   */
   it('계산값인지 선언값인지 구분해 알려준다', () => {
-    expect(table.find(r => r.title === 'GPT-5.6 Luna')?.derived).toBe(true);
-    // v3.8.483: Gemini 도 공식 단가를 넣어 이제 계산값이다.
-    //   단가를 아직 모르는 모델(Claude 등)만 선언값으로 남는다.
-    expect(table.find(r => r.title === 'Gemini 3.6 Flash')?.derived).toBe(true);
-    expect(table.find(r => r.title === 'Claude Sonnet 5')?.derived).toBe(false);
+    for (const tier of TIER_MODELS) {
+      const row = table.find(r => r.value === tier.value);
+      expect(row).toBeTruthy();
+      expect(row!.derived).toBe(Boolean(tier.usdPer1M));
+    }
+    // 규칙이 실제로 양쪽을 다 만들어 내는지 — 한쪽만 있으면 검사가 무의미하다
+    expect(table.some(r => r.derived)).toBe(true);
+    expect(table.some(r => !r.derived)).toBe(true);
   });
 
   it('findTier 가 UI value 와 modelId 양쪽으로 찾는다', () => {

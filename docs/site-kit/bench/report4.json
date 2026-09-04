@@ -1,0 +1,295 @@
+{
+  "home": {
+    "backgrounds": [
+      {
+        "v": "rgb(0, 0, 0)",
+        "n": 6,
+        "where": [
+          "DIV.home-list-sticky",
+          "DIV.home-list-sticky",
+          "DIV.home-list-sticky",
+          "DIV.home-list-sticky"
+        ]
+      },
+      {
+        "v": "rgb(251, 252, 246)",
+        "n": 4,
+        "where": [
+          "BODY.home",
+          "DIV.panel",
+          "SECTION.home-list",
+          "DIV.hide"
+        ]
+      },
+      {
+        "v": "rgb(196, 255, 48)",
+        "n": 1,
+        "where": [
+          "SECTION.home-list"
+        ]
+      }
+    ],
+    "textColors": [
+      {
+        "v": "rgb(0, 0, 0)",
+        "n": 122
+      },
+      {
+        "v": "rgb(255, 255, 255)",
+        "n": 10
+      }
+    ],
+    "rootVars": {
+      "--v-spacing": "10vh",
+      "--swiper-theme-color": "#007aff",
+      "--vh": "900px",
+      "--color-light": "#fbfcf6",
+      "--vw": "1440px",
+      "--h-gutter": "3.3vw",
+      "--wp--preset--font-size--huge": "42px",
+      "--wp--preset--font-size--normal": "16px",
+      "--swiper-navigation-size": "44px",
+      "--doc-height": "500px"
+    }
+  },
+  "badges": [
+    {
+      "cls": "menu-item menu-item-type-taxonomy menu-item-object",
+      "text": "TECH",
+      "bg": "rgba(0, 0, 0, 0)",
+      "color": "rgb(0, 0, 0)",
+      "fontSize": "16px",
+      "fontWeight": "300",
+      "padding": "0px",
+      "radius": "0px",
+      "letterSpacing": "-0.2px"
+    },
+    {
+      "cls": "menu-item menu-item-type-taxonomy menu-item-object",
+      "text": "전체",
+      "bg": "rgba(0, 0, 0, 0)",
+      "color": "rgb(0, 0, 0)",
+      "fontSize": "16px",
+      "fontWeight": "300",
+      "padding": "0px",
+      "radius": "0px",
+      "letterSpacing": "-0.2px"
+    },
+    {
+      "cls": "menu-item menu-item-type-taxonomy menu-item-object",
+      "text": "뉴스",
+      "bg": "rgba(0, 0, 0, 0)",
+      "color": "rgb(0, 0, 0)",
+      "fontSize": "16px",
+      "fontWeight": "300",
+      "padding": "0px",
+      "radius": "0px",
+      "letterSpacing": "-0.2px"
+    },
+    {
+      "cls": "menu-item menu-item-type-taxonomy menu-item-object",
+      "text": "리뷰",
+      "bg": "rgba(0, 0, 0, 0)",
+      "color": "rgb(0, 0, 0)",
+      "fontSize": "16px",
+      "fontWeight": "300",
+      "padding": "0px",
+      "radius": "0px",
+      "letterSpacing": "-0.2px"
+    },
+    {
+      "cls": "menu-item menu-item-type-taxonomy menu-item-object",
+      "text": "앱",
+      "bg": "rgba(0, 0, 0, 0)",
+      "color": "rgb(0, 0, 0)",
+      "fontSize": "16px",
+      "fontWeight": "300",
+      "padding": "0px",
+      "radius": "0px",
+      "letterSpacing": "-0.2px"
+    },
+    {
+      "cls": "menu-item menu-item-type-taxonomy menu-item-object",
+      "text": "EAT",
+      "bg": "rgba(0, 0, 0, 0)",
+      "color": "rgb(0, 0, 0)",
+      "fontSize": "16px",
+      "fontWeight": "300",
+      "padding": "0px",
+      "radius": "0px",
+      "letterSpacing": "-0.2px"
+    },
+    {
+      "cls": "menu-item menu-item-type-taxonomy menu-item-object",
+      "text": "전체",
+      "bg": "rgba(0, 0, 0, 0)",
+      "color": "rgb(0, 0, 0)",
+      "fontSize": "16px",
+      "fontWeight": "300",
+      "padding": "0px",
+      "radius": "0px",
+      "letterSpacing": "-0.2px"
+    },
+    {
+      "cls": "menu-item menu-item-type-taxonomy menu-item-object",
+      "text": "술",
+      "bg": "rgba(0, 0, 0, 0)",
+      "color": "rgb(0, 0, 0)",
+      "fontSize": "16px",
+      "fontWeight": "300",
+      "padding": "0px",
+      "radius": "0px",
+      "letterSpacing": "-0.2px"
+    }
+  ],
+  "article": {
+    "backgrounds": [
+      {
+        "v": "rgb(0, 0, 0)",
+        "n": 6,
+        "where": [
+          "HR.wp-block-separator",
+          "HR.wp-block-separator",
+          "HR.wp-block-separator",
+          "HR.wp-block-separator"
+        ]
+      },
+      {
+        "v": "rgb(251, 252, 246)",
+        "n": 4,
+        "where": [
+          "BODY.wp-singular",
+          "DIV.panel",
+          "MAIN",
+          "DIV.hide"
+        ]
+      },
+      {
+        "v": "rgb(158, 183, 88)",
+        "n": 2,
+        "where": [
+          "DIV.single-header",
+          "DIV.desc"
+        ]
+      }
+    ],
+    "textColors": [
+      {
+        "v": "rgb(0, 0, 0)",
+        "n": 104
+      },
+      {
+        "v": "rgb(6, 147, 227)",
+        "n": 1
+      },
+      {
+        "v": "rgb(123, 220, 181)",
+        "n": 1
+      },
+      {
+        "v": "rgb(255, 105, 0)",
+        "n": 1
+      },
+      {
+        "v": "rgb(252, 185, 0)",
+        "n": 1
+      }
+    ],
+    "rootVars": {
+      "--wp-admin-theme-color-darker-20": "#005a87",
+      "--wp--preset--font-size--large": "36px",
+      "--wp--preset--shadow--outlined": "6px 6px 0px -3px rgb(255, 255, 255),6px 6px rgb(0, 0, 0)",
+      "--wp--preset--gradient--light-green-cyan-to-vivid-green-cyan": "linear-gradient(135deg,rgb(122, 220, 180) 0%,rgb(0, 208, 130) 100%)",
+      "--wp--preset--color--vivid-purple": "#9b51e0",
+      "--wp--preset--gradient--blush-light-purple": "linear-gradient(135deg,rgb(255, 206, 236) 0%,rgb(152, 150, 240) 100%)",
+      "--v-spacing": "10vh",
+      "--wp-bound-block-color": "#7a00df",
+      "--wp--preset--gradient--electric-grass": "linear-gradient(135deg,rgb(202, 248, 128) 0%,rgb(113, 206, 126) 100%)",
+      "--wp--preset--gradient--blush-bordeaux": "linear-gradient(135deg,rgb(254, 205, 165) 0%,rgb(254, 45, 45) 50%,rgb(107, 0, 62) 100%)",
+      "--wp--preset--shadow--deep": "12px 12px 50px rgba(0, 0, 0, .4)",
+      "--wp--preset--spacing--40": "1rem",
+      "--wp-admin-theme-color-darker-20--rgb": "0,90,135",
+      "--wp-admin-theme-color--rgb": "0,124,186",
+      "--wp--preset--color--luminous-vivid-orange": "#ff6900",
+      "--wp--preset--gradient--vivid-cyan-blue-to-vivid-purple": "linear-gradient(135deg,rgb(6, 147, 227) 0%,rgb(155, 81, 224) 100%)",
+      "--swiper-theme-color": "#007aff",
+      "--vh": "900px",
+      "--wp--preset--color--vivid-cyan-blue": "#0693e3",
+      "--wp--preset--shadow--natural": "6px 6px 9px rgba(0, 0, 0, .2)",
+      "--wp-admin-theme-color-darker-10--rgb": "0,107,160.5",
+      "--wp--preset--spacing--30": "0.67rem",
+      "--wp--preset--spacing--50": "1.5rem",
+      "--wp--preset--color--pale-cyan-blue": "#8ed1fc",
+      "--wp--preset--gradient--luminous-dusk": "linear-gradient(135deg,rgb(255, 203, 112) 0%,rgb(199, 81, 192) 50%,rgb(65, 88, 208) 100%)",
+      "--wp--preset--gradient--luminous-vivid-amber-to-luminous-vivid-orange": "linear-gradient(135deg,rgb(252, 185, 0) 0%,rgb(255, 105, 0) 100%)",
+      "--wp--preset--color--vivid-red": "#cf2e2e",
+      "--wp--preset--shadow--crisp": "6px 6px 0px rgb(0, 0, 0)",
+      "--wp--preset--aspect-ratio--square": "1",
+      "--wp--preset--spacing--80": "5.06rem",
+      "--wp--preset--font-size--medium": "20px",
+      "--wp--preset--color--black": "#000000",
+      "--wp--preset--gradient--luminous-vivid-orange-to-vivid-red": "linear-gradient(135deg,rgb(255, 105, 0) 0%,rgb(207, 46, 46) 100%)",
+      "--color-light": "#fbfcf6",
+      "--wp--preset--gradient--cool-to-warm-spectrum": "linear-gradient(135deg,rgb(74, 234, 220) 0%,rgb(151, 120, 209) 20%,rgb(207, 42, 186) 40%,rgb(238, 44, 130) 60%,rgb(251, 105, 98) 80%,rgb(254, 248, 76) 100%)",
+      "--vw": "1440px",
+      "--wp--preset--gradient--midnight": "linear-gradient(135deg,rgb(2, 3, 129) 0%,rgb(40, 116, 252) 100%)",
+      "--wp--preset--aspect-ratio--16-9": "16/9",
+      "--wp--preset--color--pale-pink": "#f78da7",
+      "--wp-block-synced-color--rgb": "122,0,223",
+      "--h-gutter": "3.3vw",
+      "--wp--preset--color--cyan-bluish-gray": "#abb8c3",
+      "--wp--preset--spacing--60": "2.25rem",
+      "--wp--preset--color--vivid-green-cyan": "#00d084",
+      "--wp-editor-canvas-background": "#ddd",
+      "--wp-admin-theme-color": "#007cba",
+      "--wp--preset--aspect-ratio--3-2": "3/2",
+      "--wp--preset--aspect-ratio--2-3": "2/3",
+      "--wp--preset--font-size--x-large": "42px",
+      "--wp--preset--font-size--huge": "42px",
+      "--wp--preset--font-size--normal": "16px",
+      "--wp--preset--aspect-ratio--4-3": "4/3",
+      "--wp--preset--font-size--small": "13px",
+      "--wp--preset--spacing--70": "3.38rem",
+      "--swiper-navigation-size": "44px",
+      "--doc-height": "500px",
+      "--wp--preset--color--luminous-vivid-amber": "#fcb900",
+      "--wp-block-synced-color": "#7a00df",
+      "--wp--preset--aspect-ratio--9-16": "9/16",
+      "--wp--preset--color--light-green-cyan": "#7bdcb5",
+      "--wp-admin-border-width-focus": "2px",
+      "--wp--preset--shadow--sharp": "6px 6px 0px rgba(0, 0, 0, .2)",
+      "--wp--preset--gradient--pale-ocean": "linear-gradient(135deg,rgb(255, 245, 203) 0%,rgb(182, 227, 212) 50%,rgb(51, 167, 181) 100%)",
+      "--wp--preset--color--white": "#ffffff",
+      "--wp--preset--aspect-ratio--3-4": "3/4",
+      "--wp-admin-theme-color-darker-10": "#006ba1",
+      "--wp--preset--spacing--20": "0.44rem",
+      "--wp--preset--gradient--very-light-gray-to-cyan-bluish-gray": "linear-gradient(135deg,rgb(238, 238, 238) 0%,rgb(169, 184, 195) 100%)"
+    }
+  },
+  "articleMobile": {
+    "h1": {
+      "fontSize": "36px",
+      "fontWeight": "800",
+      "lineHeight": "50.4px",
+      "letterSpacing": "-0.5px"
+    },
+    "h2": {
+      "fontSize": "25px",
+      "fontWeight": "800",
+      "lineHeight": "37.5px",
+      "letterSpacing": "-0.5px"
+    },
+    "p": {
+      "fontSize": "16px",
+      "fontWeight": "300",
+      "lineHeight": "28px",
+      "letterSpacing": "-0.25px"
+    },
+    "contentWidth": 390,
+    "contentX": 0,
+    "imgWidth": 390,
+    "horizontalScroll": false,
+    "scrollW": 390,
+    "clientW": 390
+  }
+}

@@ -27,6 +27,7 @@ import { scanSubstance, stripToPlainText, SUBSTANCE_THRESHOLDS } from './substan
 import { scanContentQuality } from './quality-gate';
 import { auditTitleAnswer } from './title-answer-gate';
 import { findRepeatedClaims } from './redundancy-guard';
+import { auditArticle, type AuditKind } from './article-audit';
 
 export type CritiqueArea = 'substance' | 'answer' | 'quality' | 'cta' | 'competitor' | 'structure';
 export type CritiqueSeverity = 'high' | 'medium' | 'low';
@@ -332,6 +333,62 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
       evidence: gaps.join(', '),
       fix: '빠진 주제 중 이 글의 검색 의도에 맞는 것만 골라 구간을 보태거나 기존 구간에 녹입니다. 억지로 다 넣지 않습니다.',
       sectionIndex: -1,
+    });
+  }
+
+  /**
+   * ⑨ v3.8.628 — 글 품질 하네스가 잡는 것들.
+   *
+   * 사장님이 발행글 하나를 짚으며 "글이 개판이면 이탈률이 어마어마해서 안 된다" 고 했다.
+   * 손으로 읽어 결함 여섯을 찾았는데 위 ①~⑧ 이 **하나도 못 잡았다**:
+   *   붙은 문장 6건 · 구간끼리 같은 말 · 낱말 도배 · 법 조문 0건 · 말투 섞임 · 제목 손상
+   * 그래서 비평이 "두루뭉실" 했다. 재는 눈이 없으면 할 말도 없다.
+   *
+   * 하네스는 AI 를 부르지 않는다 — 비용 0, 매번 같은 답.
+   */
+  const audit = auditArticle(html);
+  const AUDIT_META: Record<AuditKind, { area: CritiqueArea; severity: CritiqueSeverity; fix: string }> = {
+    'glued-sentence': {
+      area: 'quality', severity: 'medium',
+      fix: '마침표 뒤에 공백이나 문단 나눔을 넣습니다. 목록을 문단으로 합칠 때 생기는 자국입니다.',
+    },
+    'cross-section-echo': {
+      area: 'structure', severity: 'high',
+      fix: '뒤 구간에서 앞과 겹치는 문장을 지우고, 그 자리에 그 구간에서만 할 수 있는 이야기를 넣습니다. 같은 말을 두 번 읽으면 독자는 나갑니다.',
+    },
+    'term-flood': {
+      area: 'quality', severity: 'medium',
+      fix: '같은 낱말을 반복하는 대신 구체 사례·수치·다른 표현으로 바꿉니다. 낱말이 아니라 내용을 늘려야 합니다.',
+    },
+    'unfulfilled-heading': {
+      area: 'structure', severity: 'high',
+      fix: '소제목이 약속한 것을 본문에 넣거나, 본문에 있는 것으로 소제목을 바꿉니다.',
+    },
+    'no-legal-basis': {
+      area: 'substance', severity: 'high',
+      fix: '근거 조항·고시 번호·판례 번호를 찾아 넣습니다. 못 찾으면 그 주장을 빼는 편이 낫습니다 — 확인할 수 없는 글은 인용도 안 됩니다.',
+    },
+    'tone-mix': {
+      area: 'quality', severity: 'low',
+      fix: '해요체와 합니다체 중 하나로 통일합니다.',
+    },
+    'broken-title': {
+      area: 'structure', severity: 'medium',
+      fix: '잘려 나간 앞부분을 되살립니다. 제목을 만드는 쪽에서 잘린 것이라면 그쪽을 고쳐야 합니다.',
+    },
+  };
+
+  for (const found of audit.issues) {
+    const meta = AUDIT_META[found.kind];
+    push({
+      id: `audit-${found.kind}-${issues.length}`,
+      area: meta.area,
+      severity: meta.severity,
+      title: found.title,
+      detail: found.evidence,
+      evidence: found.evidence,
+      fix: meta.fix,
+      sectionIndex: locateSection(sections, found.evidence.split('\n')[0] || ''),
     });
   }
 
