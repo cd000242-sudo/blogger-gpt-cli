@@ -4342,6 +4342,86 @@ ipcMain.handle('regenerate-published-post', async (_evt, args: {
  */
 const critiqueHistoryPath = (): string => path.join(app.getPath('userData'), 'critique-history.json');
 
+/**
+ * 🤖 v3.8.629 — 에이전트 CLI 에 **짧은 글 작업 하나**를 시키고 답만 받는다.
+ *
+ * 사장님: "에이전트로하면 더 좋은데 왜 활용을 못할까 완벽히 연동시켜줘"
+ *
+ * 발행용 경로(runAgentProcess)는 작업 폴더를 만들고 article.html·metadata.json 을
+ * 파일로 받아 오는 구조다. 비평은 그럴 필요가 없다 — 프롬프트 하나 주고 텍스트
+ * 하나를 받으면 된다. 그래서 같은 CLI 를 **훨씬 가볍게** 부른다.
+ *
+ * 구독 CLI 라 **API 비용이 0**이다. 비평처럼 자주 누르는 기능일수록 값어치가 크다.
+ */
+async function runAgentTextTask(
+  providerId: string,
+  prompt: string,
+  log: (line: string) => void,
+): Promise<string> {
+  const profiles = loadAgentProfiles();
+  const profile = profiles.find((p) => p.provider === providerId && p.status === 'ready')
+    || profiles.find((p) => p.provider === providerId);
+  if (!profile) {
+    throw new Error(`에이전트 "${providerId}" 로그인이 없습니다. 환경설정 → Agent 계정에서 로그인해 주세요.`);
+  }
+
+  const command = resolveAgentBinaryCommand(profile.provider);
+  const args = profile.provider === 'gemini'
+    ? ['--approval-mode', 'yolo', '-p', prompt]
+    : profile.provider === 'codex'
+      ? ['exec', '--skip-git-repo-check', prompt]
+      // claude 계열 — 도구를 안 쓰므로 턴을 크게 줄 이유가 없다
+      : ['-p', '--permission-mode', 'dontAsk', '--max-turns', '4', prompt];
+
+  const { spawn } = require('child_process') as typeof import('child_process');
+  const isWindows = process.platform === 'win32';
+  const useShell = isWindows && (!path.extname(command) || /\.(cmd|bat)$/i.test(command));
+
+  return new Promise<string>((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    const child = spawn(
+      useShell ? buildShellCommandLine(command, args) : command,
+      useShell ? [] : args,
+      {
+        cwd: app.getPath('userData'),
+        env: buildAgentRunEnv(profile),
+        shell: useShell,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      },
+    );
+    // 발행 취소와 같은 목록에 넣어 [중지] 가 이 프로세스도 죽일 수 있게 한다
+    activeAgentChildren.add(child);
+
+    // 비평은 글 한 편을 읽고 답하는 일이라 5분이면 넉넉하다 (발행은 25분)
+    const timer = setTimeout(() => {
+      log('   ⏱️ 에이전트 비평이 5분을 넘겨 중단합니다');
+      try { child.kill(); } catch { /* 이미 죽음 */ }
+    }, 5 * 60 * 1000);
+
+    child.stdout?.on('data', (c: Buffer) => { stdout = (stdout + String(c)).slice(-200000); });
+    child.stderr?.on('data', (c: Buffer) => { stderr = (stderr + String(c)).slice(-40000); });
+
+    child.on('error', (err: Error) => {
+      clearTimeout(timer);
+      activeAgentChildren.delete(child);
+      reject(new Error(`에이전트 실행 실패: ${err.message}`));
+    });
+
+    child.on('close', (code: number | null) => {
+      clearTimeout(timer);
+      activeAgentChildren.delete(child);
+      const text = stdout.trim();
+      if (!text) {
+        reject(new Error(`에이전트가 답을 주지 않았습니다 (종료 ${code}). ${stderr.slice(0, 120)}`));
+        return;
+      }
+      resolve(text);
+    });
+  });
+}
+
 ipcMain.handle('critique-published-post', async (_evt, args: {
   platform?: string;
   postId?: string;
@@ -4418,14 +4498,42 @@ ipcMain.handle('critique-published-post', async (_evt, args: {
       send(`[PROGRESS] 65% - ✅ ${decision.reason}`);
     } else {
       send('[PROGRESS] 65% - 🧐 편집장 관점으로 비평하는 중…');
+      /**
+       * v3.8.628 — 사장님이 화면에서 고른 엔진으로 부른다.
+       *
+       * 사장님: "비평 개선버튼 누르면 openapi 만 반응하고 다른 api를 선택하면 안되네?
+       *         그리고 에이전트로하면 더 좋은데 왜 활용을 못할까"
+       *
+       * 원인 둘:
+       *  ① 글 생성은 payload 에서 엔진을 읽어 PRIMARY_TEXT_MODEL 에 심고 부르는데,
+       *     비평은 그 단계를 건너뛰어 직전에 남은 값이나 기본값으로 갔다.
+       *  ② 에이전트 모드는 아예 경로가 없었다 — 구독 CLI 라 비용이 0인데도 못 썼다.
+       *
+       * 이제 ①은 engine-selection 이 정하고(생성과 같은 규칙), ②는 에이전트 CLI 로 보낸다.
+       * 환경 변수는 부르고 나서 **반드시 되돌린다** — 안 그러면 다음 발행이 엉뚱한
+       * 모델로 나간다.
+       */
+      const prompt = critique.buildCritiquePrompt({ title, html, codeIssues, competitors, resolved: alreadyFixed });
+      const sectionCount = critique.splitSections(html).length;
+      const useAgent = args?.payload?.executionMode === 'agent' && !!args?.payload?.agentProvider;
+
       try {
-        const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
-        const sectionCount = critique.splitSections(html).length;
-        const raw = await callGeminiWithRetry(
-          critique.buildCritiquePrompt({ title, html, codeIssues, competitors, resolved: alreadyFixed }),
-          1,
-          { timeoutMs: 120000 },
-        );
+        let raw = '';
+        if (useAgent) {
+          send(`   🤖 에이전트(${args.payload.agentProvider})로 비평합니다 — API 비용 0`);
+          raw = await runAgentTextTask(args.payload.agentProvider, prompt, send);
+        } else {
+          const { chooseTextModel, applyEngineChoice } = require('../dist/core/final/engine-selection');
+          const choice = chooseTextModel(args?.payload, { currentEnv: process.env['PRIMARY_TEXT_MODEL'] });
+          const restore = applyEngineChoice(choice);
+          send(`   🎯 비평 엔진: ${choice.reason}`);
+          try {
+            const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
+            raw = await callGeminiWithRetry(prompt, 1, { timeoutMs: 120000 });
+          } finally {
+            restore();
+          }
+        }
         aiIssues = critique.parseCritiqueIssues(raw, sectionCount);
       } catch (critiqueError: any) {
         send(`   ⚠️ AI 비평 실패 — 코드 진단만으로 리포트를 냅니다: ${String(critiqueError?.message || critiqueError).slice(0, 80)}`);

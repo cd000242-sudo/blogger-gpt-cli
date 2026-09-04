@@ -17,6 +17,7 @@
  * 복사해두면 한쪽만 고쳐지고 엔진에 따라 품질이 조용히 갈린다.
  */
 import { HUMAN_VOICE_RULES } from './lived-voice';
+import { autoRepairBeforePublish, describeRepairs } from './auto-repair';
 import { SUBSTANCE_FIRST_PASS_RULES, FRESHNESS_RULES } from './substance-rules';
 import { DECISION_SUPPORT_RULES } from './decision-support';
 import { NO_EXPERIENCE_GUARD } from './experience-block';
@@ -306,6 +307,21 @@ export function postProcessAgentArticle(html: string, options?: AgentArticleOpti
     out = out.replace(/<figcaption\b[^>]*>[\s\S]*?<\/figcaption>/gi, '');
     if (out !== before) warnings.push('이미지 캡션을 제거했습니다 (소제목 중복 방지)');
   } catch { /* 못 지워도 발행은 계속한다 */ }
+
+  /**
+   * 🔧 v3.8.629 — 에이전트 글에도 같은 자동 수정을 건다.
+   *
+   * 에이전트 모드는 orchestration 을 안 탄다(별도 경로). 그래서 API 쪽에 넣은
+   * 게이트가 이쪽에는 자동으로 안 들어온다 — 이 저장소가 여러 번 겪은 함정이다.
+   * 사장님 요구가 "api와 에이전트 둘다" 이므로 같은 자를 여기서도 댄다.
+   */
+  try {
+    const repaired = autoRepairBeforePublish(out);
+    if (repaired.repairs.length > 0) {
+      out = repaired.html;
+      warnings.push(describeRepairs(repaired));
+    }
+  } catch { /* 자동 수정 실패가 발행을 막지는 않는다 */ }
 
   let valuePromises = 0;
   try {

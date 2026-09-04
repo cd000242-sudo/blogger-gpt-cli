@@ -376,6 +376,48 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
       area: 'structure', severity: 'medium',
       fix: '잘려 나간 앞부분을 되살립니다. 제목을 만드는 쪽에서 잘린 것이라면 그쪽을 고쳐야 합니다.',
     },
+
+    /**
+     * v3.8.629 — 사건·분쟁 글의 법적 위험 (사장님 지시 10개 항목).
+     * 이건 품질이 아니라 **위험**이다. 확정형으로 쓴 문장 하나가 명예훼손이 된다.
+     * 그래서 severity 를 높게 잡는다 — 다른 지적보다 먼저 고쳐야 한다.
+     */
+    'asserted-crime': {
+      area: 'substance', severity: 'high',
+      fix: '"횡령했다" 를 "횡령 혐의를 주장했다" 로 바꿉니다. 수사·판결 전 사건은 반드시 "주장했다·밝혔다·언급했다" 형태로 씁니다.',
+    },
+    'legal-overreach': {
+      area: 'substance', severity: 'high',
+      fix: '"사기죄가 적용됐다" 를 "사기죄를 거론했다" 로 낮춥니다. 당사자가 죄명을 말한 것과 그 혐의가 적용된 것은 다릅니다.',
+    },
+    'unsourced-reading': {
+      area: 'substance', severity: 'medium',
+      fix: '누가 그렇게 말했는지 밝히거나, 출처가 없으면 그 문장을 지웁니다. "~로 보인다" 는 글쓴이 추측입니다.',
+    },
+    'money-confusion': {
+      area: 'substance', severity: 'high',
+      fix: '전체 피해 주장액과 증거 자료 속 금액을 각각 무엇인지 밝혀 적습니다. 관계가 확인되지 않았다면 한 문장에서 잇지 않습니다.',
+    },
+    'settlement-stretch': {
+      area: 'substance', severity: 'medium',
+      fix: '사과·인정 요구를 "합의 가능성" 으로 넓히지 않습니다. "대화 또는 관계 회복의 여지를 남겼다" 정도로 씁니다.',
+    },
+    'unverified-first': {
+      area: 'substance', severity: 'medium',
+      fix: '과거 기록을 확인하지 않았다면 "이번에 공개한 내용", "이번 SNS 글에서 밝힌 내용" 으로 바꿉니다.',
+    },
+    'personal-voice': {
+      area: 'quality', severity: 'low',
+      fix: '"제 기준으로는", "아무튼" 같은 표현을 지웁니다. 정보성 글의 문체를 유지합니다.',
+    },
+    'hedge-repeat': {
+      area: 'quality', severity: 'medium',
+      fix: '같은 단서를 문단마다 붙이지 않습니다. 한 번 분명히 밝히고, 그 뒤로는 서술을 주장형으로 유지하면 됩니다.',
+    },
+    'bloated-conclusion': {
+      area: 'structure', severity: 'medium',
+      fix: '마지막 문단은 핵심 숫자와 현재 상태만 2~4문장으로 줄입니다. 본문을 다시 말하지 않습니다.',
+    },
   };
 
   for (const found of audit.issues) {

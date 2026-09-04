@@ -54,6 +54,7 @@ import { findUnkeptTitleClaims, stripUnkeptClaims, describeUnkeptClaims } from '
 import { findMissingKeyFacts, describeMissingKeyFacts, hasMissingKeyFacts, buildKeyFactDirective } from './key-fact-gate';
 import { naverSearch } from '../naver-search-client';
 import { findEmptyBlocks, describeEmptyBlocks, removeEmptyFaqBlocks, isSummaryRenderable, dropValuelessRows } from './empty-block-guard';
+import { autoRepairBeforePublish, describeRepairs } from './auto-repair';
 import { normalizeTableNotation } from './table-notation';
 import { buildAnswerBlock } from './answer-block';
 import { buildAudienceBlock } from './audience-block';
@@ -5781,6 +5782,29 @@ ${conclusionHTML}
     } catch (redundancyError: any) {
       // 되풀이 정리는 있으면 좋은 것이지 발행을 막을 일이 아니다
       console.warn('[REDUNDANCY] 건너뜀:', redundancyError?.message || redundancyError);
+    }
+
+    /**
+     * 🔧 v3.8.629 — 발행 직전 자동 수정. (AI 호출 0회)
+     *
+     * 사장님: "애초에 비평이나 개선을 하려고 버튼을 누르면 개선할게없을정도로
+     *         글이 발행되어야한다고"
+     *
+     * 여기 있는 게이트들이 지금까지 전부 **알리기만** 했다. 그래서 실측한 발행글에
+     * 마침표 뒤에 붙은 문장 6건이 그대로 나갔다 — 아무도 안 고쳤기 때문이다.
+     * 뜻을 바꾸지 않고 되돌릴 수 있는 것은 여기서 고치고 나간다.
+     */
+    try {
+      const repaired = autoRepairBeforePublish(html);
+      if (repaired.repairs.length > 0) {
+        html = repaired.html;
+        const line = describeRepairs(repaired);
+        console.log(`[AUTO-REPAIR] ${line}`);
+        onLog?.(`[PROGRESS] 96% - 🔧 ${line}`);
+      }
+    } catch (repairError: any) {
+      // 자동 수정은 있으면 좋은 것이지 발행을 막을 일이 아니다
+      console.warn('[AUTO-REPAIR] 건너뜀:', String(repairError?.message || repairError).slice(0, 120));
     }
 
     const beforeRepair = findEmptyBlocks(html);

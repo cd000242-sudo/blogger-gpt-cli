@@ -27,6 +27,8 @@
  * AI 를 부르지 않는다. 전부 코드로 잰다 — 비용 0, 매번 같은 답.
  */
 
+import { auditClaimSafety } from './claim-safety';
+
 export type AuditKind =
   | 'glued-sentence'      // ① 마침표 뒤 공백 없음
   | 'cross-section-echo'  // ② 섹션끼리 같은 말
@@ -34,7 +36,17 @@ export type AuditKind =
   | 'unfulfilled-heading' // ③ 소제목이 약속을 안 지킴
   | 'no-legal-basis'      // ④ 근거 조항 없음
   | 'tone-mix'            // ⑤ 말투 섞임
-  | 'broken-title';       // ⑥ 제목·목차 손상
+  | 'broken-title'        // ⑥ 제목·목차 손상
+  // ── v3.8.629 주장·사실 구분 (claim-safety.ts) — 사장님 지시 10개 항목 ──
+  | 'asserted-crime'      // 판결 전인데 확정형으로 씀
+  | 'legal-overreach'     // 거론한 혐의를 적용된 것처럼
+  | 'unsourced-reading'   // 출처 없는 해석
+  | 'money-confusion'     // 성격이 다른 금액을 뒤섞음
+  | 'settlement-stretch'  // 사과 요구를 합의로 확대
+  | 'unverified-first'    // 확인 안 된 '최초' 표현
+  | 'personal-voice'      // 작성자 개인 의견
+  | 'hedge-repeat'        // 같은 단서를 문단마다
+  | 'bloated-conclusion'; // 결론이 본문 재탕
 
 export interface AuditIssue {
   kind: AuditKind;
@@ -292,6 +304,7 @@ export function auditArticle(html: string, headings: string[] = []): AuditReport
     : [...String(html || '').matchAll(/<h[23][^>]*>([\s\S]*?)<\/h[23]>/gi)].map((m) => toPlainText(m[1] || ''));
 
   const tone = findToneMix(text);
+  const paragraphs = text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
   const issues: AuditIssue[] = [
     ...findGluedSentences(text),
     ...findCrossSectionEchoes(sections),
@@ -299,6 +312,8 @@ export function auditArticle(html: string, headings: string[] = []): AuditReport
     ...findMissingLegalBasis(text),
     ...tone.issues,
     ...findBrokenTitles(heads),
+    // v3.8.629 — 사건·분쟁 글의 법적 위험. 확정형 한 문장이 명예훼손이 된다.
+    ...auditClaimSafety(text, paragraphs),
   ];
 
   const score = Math.max(0, 100 - issues.reduce((sum, i) => sum + i.penalty, 0));
@@ -329,6 +344,15 @@ export function summarizeAudit(report: AuditReport): string {
     'no-legal-basis': '근거 없음',
     'tone-mix': '말투 섞임',
     'broken-title': '제목 손상',
+    'asserted-crime': '확정형 범죄표현',
+    'legal-overreach': '혐의 확대',
+    'unsourced-reading': '출처 없는 해석',
+    'money-confusion': '금액 혼동',
+    'settlement-stretch': '합의 확대',
+    'unverified-first': '미확인 최초표현',
+    'personal-voice': '개인 의견',
+    'hedge-repeat': '단서 되풀이',
+    'bloated-conclusion': '결론 재탕',
   };
   const parts = [...byKind.entries()].map(([k, n]) => `${이름[k]} ${n}`);
   return `${report.score}점 — ${parts.join(' · ')}`;

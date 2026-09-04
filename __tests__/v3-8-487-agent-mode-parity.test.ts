@@ -180,8 +180,23 @@ describe('⑤ 읽고, 찾고, 계획하고, 쓴다', () => {
     expect(briefIdx).toBeLessThan(rulesIdx);
   });
 
+  /**
+   * v3.8.629 — **글 작성용** 호출만 본다.
+   *
+   * 예전에는 main.ts 전체에서 첫 번째 --max-turns 를 집었다. 그런데 비평처럼
+   * 도구를 안 쓰는 짧은 작업도 같은 CLI 를 부르게 되면서(runAgentTextTask),
+   * 그쪽의 작은 값이 먼저 걸려 검사가 깨졌다.
+   *
+   * 지켜야 할 것은 "모든 호출이 20턴 이상"이 아니라 **"글을 쓰는 호출이
+   * 검색·계획까지 할 만큼 넉넉한가"** 이다. 그래서 명령을 만드는 함수 안만 본다.
+   */
   it('⭐⭐ 검색+계획을 하려면 턴이 충분해야 한다 (모자라면 글이 잘린 채 회수된다)', () => {
-    const m = mainTs.match(/'--max-turns',\s*'(\d+)'/);
+    const from = mainTs.indexOf('function buildAgentRunCommand');
+    expect(from).toBeGreaterThan(-1);
+    const to = mainTs.indexOf('\nfunction ', from + 1);
+    const block = mainTs.slice(from, to === -1 ? mainTs.length : to);
+
+    const m = block.match(/'--max-turns',\s*'(\d+)'/);
     expect(m).not.toBeNull();
     expect(Number(m![1])).toBeGreaterThanOrEqual(20);
   });
