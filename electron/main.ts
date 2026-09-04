@@ -12371,9 +12371,18 @@ ipcMain.handle('app:getVersion', () => {
 const TRIAL_GAS_URL = process.env.LICENSE_SERVER_URL
   || 'https://script.google.com/macros/s/AKfycbxBOGkjVj4p-6XZ4SEFYKhW3FBmo5gt7Fv6djWhB1TljnDDmx_qlfZ4YdlJNohzIZ8NJw/exec';
 
+/*
+ * [2026-09-04] 체험 호출은 30초를 기다린다.
+ *
+ * GAS 는 콜드 스타트가 실측 13~38초고, 인증번호 발송은 그 위에 솔라피 왕복이 더
+ * 붙는다. 10초로 끊으면 문자는 정상 발송됐는데 앱만 먼저 포기해 "발송 실패"로
+ * 보이고, 사용자는 재요청해서 1시간 5회 제한만 깎아먹는다. (리더 앱도 30초.)
+ */
+const TRIAL_GAS_TIMEOUT_MS = 30000;
+
 async function callTrialGas(payload: Record<string, unknown>): Promise<any> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), TRIAL_GAS_TIMEOUT_MS);
   try {
     const response = await fetch(TRIAL_GAS_URL, {
       method: 'POST',
@@ -12404,14 +12413,47 @@ ipcMain.handle('auth:trial-verify', async (_event, userInfo?: { nickname?: strin
     if (result.ok !== true) {
       return { ok: false, message: result.error || '인증에 실패했습니다.' };
     }
+    /*
+     * [2026-09-04] 서버의 인증 요구 신호를 **그대로** 넘긴다.
+     * 여기서 떼먹는 바람에 화면이 인증번호 칸을 열 방법이 없었고,
+     * 서버가 문자 인증을 켠 뒤로 체험 등록이 전부 거부됐다.
+     */
     return {
       ok: true,
       status: result.status === 'existing' ? 'existing' : 'new',
       registeredAt: typeof result.registeredAt === 'string' ? result.registeredAt : '',
+      smsRequired: result.smsRequired === true,
+      phoneVerified: result.phoneVerified === true,
+      codeSent: result.codeSent === true,
     };
   } catch (e: any) {
     console.error('[AUTH] trial-verify 실패:', e);
     return { ok: false, message: '인증에 실패했습니다. 인터넷 연결을 확인하세요.' };
+  }
+});
+
+/*
+ * [📩 인증번호 받기] — 서버가 문자를 보내게 한다 (2026-09-04).
+ * 발송·레이트리밋(번호당 1시간 5회)은 전부 서버가 맡는다. 닉네임을 함께 보내야
+ * 서버의 '한 번호 한 이름' 검사가 발송 **전에** 걸러 문자비가 새지 않는다.
+ */
+ipcMain.handle('auth:trial-request-code', async (_event, userInfo?: { nickname?: string; phone?: string }) => {
+  try {
+    const nickname = String(userInfo?.nickname || '').trim();
+    const phone = String(userInfo?.phone || '').trim().replace(/[-\s]/g, '');
+    if (!/^01[0-9]{8,9}$/.test(phone)) {
+      return { ok: false, message: '올바른 전화번호를 입력하세요. (예: 01012345678)' };
+    }
+    const { getDeviceId } = require('./auth-utils');
+    const deviceId = await getDeviceId();
+    const result = await callTrialGas({ action: 'trial-request-code', email: '', nickname, phone, deviceId });
+    if (result.ok !== true) {
+      return { ok: false, message: result.error || '인증번호 발송에 실패했습니다.' };
+    }
+    return { ok: true, channel: typeof result.channel === 'string' ? result.channel : 'sms' };
+  } catch (e: any) {
+    console.error('[AUTH] trial-request-code 실패:', e);
+    return { ok: false, message: '인증번호 발송에 실패했습니다. 인터넷 연결을 확인하세요.' };
   }
 });
 

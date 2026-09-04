@@ -788,7 +788,12 @@
       <button type="button" id="trialVerifyBtn" onclick="trialVerify()"
         style="width: 100%; padding: 12px; margin-bottom: 10px; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; border-radius: 10px; color: white; font-size: 14px; font-weight: 700; cursor: pointer;">🔎 인증하기</button>
 
-      <!-- [2026-08-21] 문자/알림톡 인증번호 — 서버가 발송(codeSent)했을 때만 나타난다 -->
+      <!-- [2026-09-04] 인증번호 발송 — 서버가 인증을 요구할 때(smsRequired)만 나타난다.
+           [인증하기]는 자격만 보고, 문자는 이 버튼이 보낸다(리더 앱과 같은 2단계). -->
+      <button type="button" id="trialSendCodeBtn" onclick="trialSendCode()"
+        style="display: none; width: 100%; padding: 12px; margin-bottom: 10px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; color: white; font-size: 14px; font-weight: 700; cursor: pointer;">📩 인증번호 받기</button>
+
+      <!-- [2026-08-21] 문자/알림톡 인증번호 — 인증번호를 실제로 보냈을 때만 나타난다 -->
       <div id="trialCodeRow" style="display: none; margin-bottom: 10px;">
         <label style="display: block; color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600; margin-bottom: 6px;">인증번호 <span style="color: #ef4444;">*</span></label>
         <input type="text" id="trialAuthCode" placeholder="문자/카톡으로 받은 6자리" maxlength="6" inputmode="numeric" autocomplete="one-time-code"
@@ -850,6 +855,8 @@
       if (vbtn) { vbtn.disabled = false; vbtn.textContent = '🔎 인증하기'; }
       const codeRow = document.getElementById('trialCodeRow');
       if (codeRow) codeRow.style.display = 'none';
+      const sendBtn = document.getElementById('trialSendCodeBtn');
+      if (sendBtn) { sendBtn.style.display = 'none'; sendBtn.disabled = false; sendBtn.textContent = '📩 인증번호 받기'; }
       const codeInput = document.getElementById('trialAuthCode');
       if (codeInput) codeInput.value = '';
       trialModalMsg('');
@@ -912,7 +919,16 @@
         trialVerified = true;
         setTrialCompleteEnabled(true);
         if (vbtn) vbtn.textContent = '🔎 인증됨';
-        // [2026-08-21] 서버가 인증번호를 발송했으면(솔라피 설정 시) 입력칸을 연다.
+        /*
+         * [2026-09-04] 서버가 인증번호를 요구하면(smsRequired) [📩 인증번호 받기]를 띄운다.
+         * 이미 인증을 마친 번호(phoneVerified)는 요구하지 않는다 — 본인인증은 번호당 한 번.
+         * codeSent 는 [인증하기]가 문자까지 보내던 구버전 서버 호환 경로다.
+         */
+        if (result.smsRequired === true) {
+          trialCodeRequired = true;
+          const sendBtn = document.getElementById('trialSendCodeBtn');
+          if (sendBtn) sendBtn.style.display = 'block';
+        }
         if (result.codeSent) {
           trialCodeRequired = true;
           const codeRow = document.getElementById('trialCodeRow');
@@ -929,15 +945,44 @@
             openPricingPage(); // 사장님 지시: 기간 다 되면 결제창 바로
             return;
           }
-          trialModalMsg(`⚠️ 이미 인증한 번호입니다 (1번호당 1회 인증). 기존 체험을 이어서 진행합니다 — 남은 기간 D-${daysLeft}${trialCodeRequired ? ' · 인증번호를 입력하세요' : ''}`, false);
+          trialModalMsg(`⚠️ 이미 인증한 번호입니다 (1번호당 1회 인증). 기존 체험을 이어서 진행합니다 — 남은 기간 D-${daysLeft}${trialCodeRequired ? ' · [📩 인증번호 받기] 로 본인인증을 해주세요' : ''}`, false);
         } else {
           trialModalMsg(trialCodeRequired
-            ? '📩 인증번호를 보냈습니다 — 문자/카톡으로 받은 6자리를 입력하고 [인증완료]를 누르세요.'
+            ? '✅ 자격이 확인됐습니다 — [📩 인증번호 받기] 를 눌러 문자를 받으세요.'
             : '✅ 인증되었습니다 — 아래 [인증완료] 버튼을 눌러 체험을 시작하세요.', false);
         }
       } catch (e) {
         trialModalMsg('인증 오류: ' + e.message, true);
         if (vbtn) { vbtn.disabled = false; vbtn.textContent = '🔎 인증하기'; }
+      }
+    }
+
+    /*
+     * [📩 인증번호 받기] — 서버가 문자를 보낸다 (2026-09-04).
+     * 발송에 성공했을 때만 입력칸을 연다. 실패(잔액·통신사 차단 등)하면 칸을 열어
+     * 봐야 넣을 번호가 없다. 재요청은 번호당 1시간 5회까지 서버가 센다.
+     */
+    async function trialSendCode() {
+      const nickname = (document.getElementById('trialNickname')?.value || '').trim();
+      const phone = (document.getElementById('trialPhone')?.value || '').trim().replace(/[-\s]/g, '');
+      const sendBtn = document.getElementById('trialSendCodeBtn');
+      if (!/^01[0-9]{8,9}$/.test(phone)) { trialModalMsg('올바른 전화번호를 입력하세요. (예: 01012345678)', true); return; }
+      if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '📩 보내는 중...'; }
+      try {
+        const result = await ipcApi.invoke('auth:trial-request-code', { nickname, phone });
+        if (!result || result.ok !== true) {
+          trialModalMsg((result && result.message) || '인증번호 발송에 실패했습니다.', true);
+          if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '📩 인증번호 받기'; }
+          return;
+        }
+        const codeRow = document.getElementById('trialCodeRow');
+        if (codeRow) codeRow.style.display = 'block';
+        document.getElementById('trialAuthCode')?.focus();
+        if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '📩 인증번호 다시 받기'; }
+        trialModalMsg('📩 인증번호를 보냈습니다 — 문자로 받은 6자리를 입력하고 [인증완료]를 누르세요.', false);
+      } catch (e) {
+        trialModalMsg('발송 오류: ' + e.message, true);
+        if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '📩 인증번호 받기'; }
       }
     }
 
