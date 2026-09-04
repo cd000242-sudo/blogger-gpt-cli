@@ -28,9 +28,25 @@ const MANUAL = process.argv.includes('--manual-login');
 const HEADED = MANUAL || process.argv.includes('--headed');
 const MANUAL_WAIT_MS = 10 * 60 * 1000; // 사람이 로그인할 시간 10분
 
-const BEGIN = '/* ▼▼ CLS-FIX-LEADERNAM 시작 — 자동 삽입, 이 표식은 지우지 마세요 ▼▼ */';
-const END = '/* ▲▲ CLS-FIX-LEADERNAM 끝 ▲▲ */';
-const FIX = fs.readFileSync(path.join(__dirname, 'fix-cls.css'), 'utf8');
+/**
+ * 어느 처방을 붙일 것인가 (2026-09-05).
+ *
+ * 처음엔 CLS 처방 전용이었는데 처방이 둘로 늘었다. 표식을 처방별로 나누지 않으면
+ * 나중에 붙이는 것이 앞에 붙인 것을 통째로 덮어리는 사고가 난다.
+ *   node apply-css.js --manual-login                 → CLS 처방
+ *   node apply-css.js --manual-login --fix=mobile-header → 모바일 헤더 정리
+ */
+const FIX_NAME = (process.argv.find((a) => a.startsWith('--fix=')) || '--fix=cls').slice(6);
+const FIX_FILES = { cls: 'fix-cls.css', 'mobile-header': 'fix-mobile-header.css' };
+const FIX_TAGS = { cls: 'CLS-FIX-LEADERNAM', 'mobile-header': 'MOBILE-HEADER-FIX' };
+if (!FIX_FILES[FIX_NAME]) {
+  console.error('모르는 처방입니다: ' + FIX_NAME + ' (가능: ' + Object.keys(FIX_FILES).join(', ') + ')');
+  process.exit(1);
+}
+const TAG = FIX_TAGS[FIX_NAME];
+const BEGIN = '/* ▼▼ ' + TAG + ' 시작 — 자동 삽입, 이 표식은 지우지 마세요 ▼▼ */';
+const END = '/* ▲▲ ' + TAG + ' 끝 ▲▲ */';
+const FIX = fs.readFileSync(path.join(__dirname, FIX_FILES[FIX_NAME]), 'utf8');
 const BLOCK = '\n\n' + BEGIN + '\n' + FIX.trim() + '\n' + END + '\n';
 
 const BACKUP_DIR = path.join(__dirname, 'backups');

@@ -428,8 +428,8 @@ export async function handleMetricsCallback(code: string): Promise<{ success: bo
  * 자동 로그인 설정 저장 IPC 핸들러
  */
 export function setupAutoLoginHandlers() {
-  ipcMain.handle('save-auto-login-config', async (_evt, enabled: boolean, userId?: string) => {
-    saveAutoLoginConfig(enabled, userId);
+  ipcMain.handle('save-auto-login-config', async (_evt, enabled: boolean, userId?: string, password?: string) => {
+    saveAutoLoginConfig(enabled, userId, password);
     return { success: true };
   });
 

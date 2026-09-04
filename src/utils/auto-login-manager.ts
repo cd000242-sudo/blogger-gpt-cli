@@ -62,19 +62,16 @@ export async function tryAutoLogin(): Promise<AutoLoginResult> {
         }
       }
 
-      // 자동 로그인 설정 확인 — 활성화되어 있으면 바로 진입
-      const autoConfig = loadAutoLoginConfig();
-      if (autoConfig.enabled) {
-        console.log('[AUTO-LOGIN] ✅ 라이선스 유효 + 자동 로그인 활성화 → 바로 진입');
-        return {
-          success: true,
-          shouldShowLoginWindow: false,
-          message: '자동 로그인 성공',
-          licenseData: status.licenseData
-        };
-      }
-
-      // 자동 로그인 비활성화 시 로그인 창 표시
+      /**
+       * v3.8.636 — 라이선스가 유효해도 **로그인 창은 띄운다.**
+       *
+       * 사장님: "앱을 시작하면 로그인이 자동으로 되는게아니라
+       *          아이디 비밀번호만 자동으로 입력되어있어야지"
+       *
+       * 예전에는 설정이 켜져 있으면 창을 건너뛰고 바로 들어갔다. 그러면
+       * 새 버전 알림도 못 보고, 로그인된 계정이 뭐지도 모른 채 진입한다.
+       * 이제 아이디·비밀번호만 채워 두고 [로그인]은 사람이 누른다.
+       */
       return {
         success: false,
         shouldShowLoginWindow: true,
@@ -102,16 +99,69 @@ export async function tryAutoLogin(): Promise<AutoLoginResult> {
 /**
  * 자동 로그인 설정 저장
  */
-export function saveAutoLoginConfig(enabled: boolean, userId?: string): void {
+/**
+ * 비밀번호를 OS 금고(Windows DPAPI · macOS Keychain)로 잠그고 푸는다 (v3.8.636).
+ *
+ * 파일에 그대로 적으면 auto-login.json 을 여는 순간 비밀번호가 드러난다.
+ * 잠금장치를 못 쓰는 환경이면 **저장하지 않는다** — 약하게 저장하느니
+ * 안 채워지는 편이 낫다(아이디는 그대로 채워진다).
+ */
+function lockPassword(plain: string): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { safeStorage } = require('electron');
+    if (!safeStorage || !safeStorage.isEncryptionAvailable()) return '';
+    return safeStorage.encryptString(plain).toString('base64');
+  } catch {
+    return '';
+  }
+}
+
+function unlockPassword(sealed: string): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { safeStorage } = require('electron');
+    if (!safeStorage || !safeStorage.isEncryptionAvailable()) return '';
+    return safeStorage.decryptString(Buffer.from(sealed, 'base64'));
+  } catch {
+    // 다른 PC·다른 계정에서 복사해 온 파일은 못 푸는다. 그럄 비워 둔다
+    return '';
+  }
+}
+
+/**
+ * 설정 저장.
+ *
+ * password 를 안 주면 **이미 저장된 것을 그대로 둔다** —
+ * 예전 호출부(2인자)가 남아 있어서, 안 그러면 어느 한 곳이
+ * 조용히 비밀번호를 지워 버린다.
+ */
+export function saveAutoLoginConfig(enabled: boolean, userId?: string, password?: string): void {
   try {
     const configPath = getAutoLoginConfigPath();
+
+    let sealed = '';
+    if (enabled) {
+      if (typeof password === 'string' && password) {
+        sealed = lockPassword(password);
+      } else {
+        try {
+          const before = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+          sealed = String(before?.pw || '');
+        } catch {
+          sealed = '';
+        }
+      }
+    }
+
     const config = {
       enabled,
       userId: enabled ? userId : undefined,
+      pw: sealed || undefined,
       savedAt: Date.now()
     };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-    console.log('[AUTO-LOGIN] 자동 로그인 설정 저장:', enabled);
+    console.log('[AUTO-LOGIN] 설정 저장:', enabled, '| 비밀번호 보관:', sealed ? '예' : '아니오');
   } catch (error: any) {
     console.error('[AUTO-LOGIN] 설정 저장 실패:', error);
   }
@@ -120,14 +170,19 @@ export function saveAutoLoginConfig(enabled: boolean, userId?: string): void {
 /**
  * 자동 로그인 설정 로드
  */
-export function loadAutoLoginConfig(): { enabled: boolean; userId?: string } {
+export function loadAutoLoginConfig(): {
+  enabled: boolean;
+  userId?: string | undefined;
+  password?: string | undefined;
+} {
   try {
     const configPath = getAutoLoginConfigPath();
     if (fs.existsSync(configPath)) {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       return {
         enabled: config.enabled === true,
-        userId: config.userId
+        userId: config.userId,
+        password: config.pw ? unlockPassword(String(config.pw)) : undefined
       };
     }
   } catch (error: any) {

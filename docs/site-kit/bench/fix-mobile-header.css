@@ -1,0 +1,21 @@
+/* 모바일 헤더 정리 (2026-09-05)
+ *
+ * 문제: 흰 헤더 오른쪽에 파란 상자가 떠 있고, 그 위에 금색 선이 토막으로 남는다.
+ * 원인: 토글 감싸개에 파란 배경 + 금색 border-top 이 그대로 걸려 있다.
+ *       (데스크톱에서는 파란 내비 바 위 금색 장식선이라 의도된 모양이다)
+ * 데스크톱은 건드리지 않는다 — 768px 아래에서만.
+ */
+@media (max-width: 768px) {
+  #mobile-menu-control-wrapper {
+    background: transparent !important;
+    border-top: 0 !important;
+  }
+  #mobile-menu-control-wrapper .menu-bar-item > a,
+  #mobile-menu-control-wrapper .menu-toggle {
+    color: #1352c4 !important;
+  }
+  /* 메뉴가 닫혀 있을 때만 — 열면 파란 배경이 그대로 필요하다 */
+  #site-navigation:not(.toggled) {
+    background: transparent !important;
+  }
+}

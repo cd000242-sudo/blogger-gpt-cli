@@ -439,8 +439,8 @@ async function handleMetricsCallback(code) {
  * 자동 로그인 설정 저장 IPC 핸들러
  */
 function setupAutoLoginHandlers() {
-    electron_1.ipcMain.handle('save-auto-login-config', async (_evt, enabled, userId) => {
-        (0, auto_login_manager_1.saveAutoLoginConfig)(enabled, userId);
+    electron_1.ipcMain.handle('save-auto-login-config', async (_evt, enabled, userId, password) => {
+        (0, auto_login_manager_1.saveAutoLoginConfig)(enabled, userId, password);
         return { success: true };
     });
     electron_1.ipcMain.handle('load-auto-login-config', async () => {

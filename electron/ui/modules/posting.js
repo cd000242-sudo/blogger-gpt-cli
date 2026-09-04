@@ -994,6 +994,8 @@ export async function runPosting() {
             wordpressSiteUrl: wpSiteUrlForStore ? String(wpSiteUrlForStore) : '',
           });
           localStorage.setItem('publishedPosts', JSON.stringify(stored));
+            // v3.8.635: 방금 쓴 키워드는 리포트 카드에서 바로 접힌다
+            try { if (window.loadCpcReport) window.loadCpcReport(false); } catch (e) {}
           // 달력이 열려 있으면 갱신
           if (typeof window.renderCalendar === 'function') {
             try { window.renderCalendar(); } catch {}
@@ -1540,6 +1542,14 @@ export async function publishToPlatform() {
             const postId = result.postId || result.id || result.post_id || '';
             stored[dateKey].push({
               title: result.title || titleToPublish || '제목없음',
+              // v3.8.635: 이 경로에도 키워드를 남긴다. 없으면 "이미 쓴 키워드" 판단에서
+              //   빠져 리포트 카드에 다시 뜨고, 달력에도 제목만 남는다
+              keyword: String(
+                publishPayload.keyword ||
+                document.getElementById('keywordInput')?.value ||
+                document.getElementById('keyword')?.value ||
+                ''
+              ).trim(),
               url: result.url,
               platform: platformName,
               time: d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
@@ -1552,6 +1562,8 @@ export async function publishToPlatform() {
               wordpressSiteUrl: publishPayload.wordpressSiteUrl || publishPayload.siteUrl || '',
             });
             localStorage.setItem('publishedPosts', JSON.stringify(stored));
+            // v3.8.635: 방금 쓴 키워드는 리포트 카드에서 바로 접힌다
+            try { if (window.loadCpcReport) window.loadCpcReport(false); } catch (e) {}
           } catch (e) {
             console.warn('[PUBLISH-TRACK] 재발행 경로 저장 실패:', e?.message);
           }

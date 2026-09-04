@@ -47,7 +47,10 @@ describe('v3.8.626 paid license phone verification', () => {
     expect(login).toContain("invoke('license:phoneConfirm'");
     // finishLogin 안의 정상 호출 1개만 남아야 한다.
     expect(login.match(/invoke\('login-success-signal'\)/g)?.length).toBe(1);
-    expect(login.match(/finishLogin\(\)/g)?.length).toBeGreaterThanOrEqual(5);
+    // v3.8.636: 자동 진입 경로를 없애면서 호출 지점이 2곳(환영 모달 클릭·10초 뒤)으로 줄었다.
+    //   숫자는 하한선으로만 본다 — 진짜 방어선은 바로 위의 login-success-signal 1개다.
+    //   그게 1개인 한, 본인인증을 건너뛰고 앱에 들어가는 길은 없다.
+    expect(login.match(/finishLogin\(\)/g)?.length).toBeGreaterThanOrEqual(3);
   });
 
   // 하한선으로 본다 — 정확히 못박으면 버전을 올릴 때마다 깨진다 (6b2a891 에서 625 가 겪은 것과 같은 문제).

@@ -42,6 +42,28 @@ export function saveWorkRecord(date, record) {
 }
 
 // 날짜 키 포맷팅
+/**
+ * 그날 올린 것들의 이름표 (v3.8.635).
+ *
+ * 키워드를 앞세우고, 키워드가 안 적힌 옛 기록은 제목으로 대신한다.
+ * 같은 키워드를 두 번 올렸으면 한 번만 센다.
+ * 고르는 순서는 src/core/keywords/published-match.ts 의 dayKeywords 와 같다 —
+ * 한쪽만 고치면 카드에선 숨겨졌는데 달력엔 남는 어긋난 상태가 된다.
+ */
+export function publishedDayLabels(records) {
+  const out = [];
+  const seen = new Set();
+  (records || []).forEach((rec) => {
+    const label = String((rec && (rec.keyword || rec.reportKeyword || rec.title)) || '').trim();
+    if (!label) return;
+    const key = label.toLowerCase().replace(/\s+/g, '');
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(label);
+  });
+  return out;
+}
+
 export function formatDateKey(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -202,11 +224,14 @@ export function renderCalendar() {
     }
 
     // v3.7.5: 🔵 발행한 포스팅 (최대 1건 + 카운트)
+    // v3.8.635: 제목이 아니라 **키워드**를 앞세운다. 달력에서 알고 싶은 것은
+    //   "무슨 제목으로 썼나" 가 아니라 "이 주제를 언제 썼나" 이기 때문이다.
+    //   고르는 순서는 published-match.ts 의 dayKeywords 와 같다 (keyword → reportKeyword → title).
     if (hasPublished) {
-      const p = dayPublished[0];
-      const txt = (p.title || '').substring(0, 5);
+      const labels = publishedDayLabels(dayPublished);
+      const txt = (labels[0] || '').substring(0, 5);
       cellHtml += `<div style="font-size: 8px; color: #60a5fa; line-height: 1.15; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">📤${txt}</div>`;
-      if (dayPublished.length > 1) cellHtml += `<div style="font-size: 7px; color: #60a5fa; opacity: 0.7;">+${dayPublished.length - 1}건</div>`;
+      if (labels.length > 1) cellHtml += `<div style="font-size: 7px; color: #60a5fa; opacity: 0.7;">+${labels.length - 1}건</div>`;
     }
 
     // v3.7.5: 💭 메모 표식 (한 줄, 4자)
@@ -221,7 +246,13 @@ export function renderCalendar() {
     let tip = [];
     if (hasWork) { tip.push('📝 작업기록:'); records.forEach(r => tip.push(`  · ${r.content || ''}`)); }
     if (hasSchedule) { tip.push('📌 예약:'); daySchedules.forEach(s => tip.push(`  · ${s.topic || ''} (${s.time || ''})`)); }
-    if (hasPublished) { tip.push('📤 발행한 글:'); dayPublished.forEach(p => tip.push(`  · ${p.title || ''} (${p.platform || ''}, ${p.time || ''})`)); }
+    if (hasPublished) {
+      tip.push('📤 이 날 올린 키워드:');
+      dayPublished.forEach(p => {
+        const label = p.keyword || p.reportKeyword || p.title || '';
+        tip.push(`  · ${label} (${p.platform || ''}, ${p.time || ''})`);
+      });
+    }
     if (hasMemo) { tip.push('💭 메모: ' + dayMemo.slice(0, 80)); }
     if (tip.length) dayElement.title = tip.join('\n');
 
@@ -305,7 +336,10 @@ export function showWorkDiary(date) {
           <span style="font-size: 16px;">📤</span>
           <div style="flex: 1; min-width: 0;">
             <div style="color: #dbeafe; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(p.title || '')}">
-              ${escapeHtml(p.title || '제목없음')}
+              ${escapeHtml(p.keyword || p.reportKeyword || p.title || '제목없음')}
+            </div>
+            <div style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ${escapeHtml((p.keyword || p.reportKeyword) ? (p.title || '') : '')}
             </div>
             <div style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 2px;">
               ${escapeHtml(p.platform || '')} · ${escapeHtml(p.time || '')}

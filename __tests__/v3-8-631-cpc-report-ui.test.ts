@@ -101,7 +101,8 @@ describe('v3.8.631 리포트 카드와 발행 연결', () => {
     });
 
     test('같은 리포트를 두 번 쓰지 않게 기록한다', () => {
-      expect(fn).toContain("invoke('keywords:mark-report-used')");
+      // v3.8.635: 드라이브 파일 id 를 같이 넘긴다 — 어느 리포트를 썼는지로 새 것을 가른다
+      expect(fn).toContain("invoke('keywords:mark-report-used'");
     });
 
     test('무엇을 가져왔는지 로그로 남긴다 — 조용히 채우지 않는다', () => {

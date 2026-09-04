@@ -35,10 +35,20 @@ let loginWindowRef = null;
 /** 로그인 창 참조 설정 (main에서 호출) */
 function setUpdaterLoginWindow(win) {
     loginWindowRef = win;
-    // Race Condition 방지: 업데이트 진행 중인데 인증창이 나중에 설정된 경우 → 즉시 숨김
+    /**
+     * v3.8.636 — 숨기지 않고 **알린다.**
+     *
+     * 업데이트가 이미 돌고 있는데 인증창이 뒤늦게 뜨는 경우다. 예전에는 그 창을
+     * 곧바로 숨겼는데, 그러면 사장님 눈에는 앱이 안 뜨는 것으로 보인다.
+     * 창은 그대로 두고 진행 상황을 알려 준다 — 알림이 화면을 덮으므로
+     * 그 사이에 로그인이 눌리지도 않는다.
+     */
     if (isUpdateInProgress && loginWindowRef && !loginWindowRef.isDestroyed()) {
-        loginWindowRef.hide();
-        console.log('[Updater] 인증창 즉시 숨김 (업데이트가 이미 진행 중)');
+        try {
+            loginWindowRef.webContents.send('auto-update-event', { type: 'available', version: '' });
+            console.log('[Updater] 인증창에 업데이트 진행 알림 전달');
+        }
+        catch { /* 아직 로드 전이면 다음 progress 이벤트가 다시 알린다 */ }
     }
 }
 /** 업데이트 진행 중 여부 */
@@ -134,10 +144,21 @@ function initAutoUpdaterEarly() {
         // v3.7.6: 별도 progressWindow 생성 제거 — 메인 앱/인증창의 자체 progress UI가 표시하므로 중복 회피
         //   (createProgressWindow가 만든 BrowserWindow가 메인 modal과 겹쳐서 사용자 경험 저하)
         // createProgressWindow(info.version);
-        // 로그인 창 숨기기
-        if (loginWindowRef && !loginWindowRef.isDestroyed()) {
-            loginWindowRef.hide();
-        }
+        /**
+         * v3.8.636 — "새 버전 감지" 를 **창들에게 알린다.**
+         *
+         * 사장님: "새버전을 감지했습니다가 로그인 인증 창에서도 떠야되고"
+         *
+         * 예전에는 여기서 아무 창에도 알리지 않고 로그인 창을 숨기기만 했다.
+         * 그래서 progress 가 오기 전까지는 아무 데도 표시가 없었고, 인증 단계에서는
+         * 화면이 그냥 사라져 앱이 멈춘 것처럼 보였다.
+         * 이제 알림을 보내고 창은 그대로 둔다 — 알림 자체가 화면을 덮는다.
+         */
+        electron_1.BrowserWindow.getAllWindows().forEach((w) => {
+            if (!w.isDestroyed()) {
+                w.webContents.send('auto-update-event', { type: 'available', version: info.version });
+            }
+        });
         if (updateCheckResolve) {
             updateCheckResolve(true);
             updateCheckResolve = null;

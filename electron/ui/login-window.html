@@ -748,7 +748,7 @@
         <label class="checkbox-group">
           <input type="checkbox" class="checkbox-input" id="autoLogin" checked>
           <span class="checkbox-custom"></span>
-          <span class="checkbox-label">자동 로그인 유지</span>
+          <span class="checkbox-label">아이디·비밀번호 기억</span>
         </label>
         
         <button type="submit" class="login-btn" id="loginButton">
@@ -1296,52 +1296,13 @@
       modal.style.cursor = 'default';
     }
     
-    // 자동 로그인 체크
-    // v3.5.98: 옛 형식 license.json (deviceId/licenseType 필드 누락)에서 매번 자동 로그인 실패하던 문제 fix.
-    //   기존: strict 검증(license-status-new)이 valid=true일 때만 통과
-    //   변경: strict 실패해도 license 파일 존재 + 만료 전이면 자동 진입 허용 (auto-login.json 사용자 의도 우선)
-    //   실제 발행/API 호출 시점엔 별도 라이선스 검증이 동작하므로 보안 우회 아님.
-    async function checkAutoLoginOnLoad() {
-      if (!ipcApi) return false;
-
-      try {
-        const status = await ipcApi.invoke('license-status-new');
-        console.log('[AUTO-LOGIN] license-status-new 결과:', status);
-
-        // 1차 — strict 검증 통과 (정상 시나리오)
-        if (status && status.valid === true) {
-          if (status.type === 'temporary' && status.expiresAt) {
-            const expiresDate = new Date(status.expiresAt);
-            if (expiresDate <= new Date()) {
-              showError('라이선스가 만료되었습니다. 코드를 다시 등록해주세요.');
-              return false;
-            }
-          }
-          showSuccess('자동 로그인 성공!');
-          setTimeout(() => { finishLogin(); }, 500);
-          return true;
-        }
-
-        // 2차 (v3.5.98 완화) — strict 실패해도 만료일 자체가 미래이면 통과
-        //   옛 형식 license.json (deviceId/licenseType 누락) 호환용
-        //   expiresAt이 있고 미래라면 라이선스는 살아있는 것으로 간주
-        if (status && status.expiresAt) {
-          const expiresDate = new Date(status.expiresAt);
-          if (expiresDate > new Date()) {
-            console.warn('[AUTO-LOGIN] strict 검증 실패하지만 만료일 유효 — 진입 허용 (msg:', status.message, ')');
-            showSuccess('자동 로그인 성공 (호환 모드)');
-            setTimeout(() => { finishLogin(); }, 500);
-            return true;
-          }
-        }
-
-        console.warn('[AUTO-LOGIN] 자동 로그인 실패 — 사유:', status?.message || '알 수 없음');
-      } catch (error) {
-        console.error('자동 로그인 확인 실패:', error);
-      }
-
-      return false;
-    }
+    /*
+     * v3.8.636 — 시작할 때 자동으로 진입하던 함수를 걷어냈다.
+     *
+     * 사장님 요청으로 이제 아이디·비밀번호만 채우고 [로그인]은 사람이 누른다.
+     * 함수만 남겨 두면 다음에 누가 다시 불러서 같은 문제가 되살아난다.
+     * 라이선스 검증은 [로그인]을 누를 때 license-authenticate 가 그대로 한다.
+     */
     
     // 앱 시작 시
     window.addEventListener('DOMContentLoaded', async () => {
@@ -1357,32 +1318,83 @@
         if (verEl && ver) verEl.textContent = 'v' + ver;
       } catch {}
 
-      // 업데이트 이벤트 수신 — 업데이트 시 인증창 숨기기
+      /*
+       * 새 버전 알림 — 인증창에서도 보여 준다 (v3.8.636).
+       *
+       * 사장님: "새버전을 감지했습니다가 로그인 인증 창에서도 떠야되고"
+       *
+       * 예전에는 로그인 카드를 **아무 말 없이 숨기기만** 했다. 그러면 화면이 텅 비어서
+       * 앱이 멈춘 것처럼 보인다. 메인창과 같은 모양으로 진행을 보여 준다.
+       */
       try {
         if (ipcApi.on) {
+          var upModal = null, upBar = null, upStatus = null, upTitle = null;
+
+          var ensureUpdateModal = function () {
+            if (upModal) return;
+            upModal = document.createElement('div');
+            upModal.id = 'loginUpdateModal';
+            upModal.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.72);'
+              + 'backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;';
+            upModal.innerHTML =
+              '<div style="background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:20px;padding:32px;'
+              + 'width:90%;max-width:400px;box-shadow:0 25px 60px rgba(0,0,0,0.5);'
+              + 'border:1px solid rgba(255,255,255,0.1);text-align:center;">'
+              + '<h2 id="loginUpdateTitle" style="color:#fff;font-size:20px;font-weight:800;margin:0 0 8px;">새 버전 감지!</h2>'
+              + '<p id="loginUpdateStatus" style="color:rgba(255,255,255,0.7);font-size:13px;margin:0 0 18px;">업데이트를 다운로드하고 있어요...</p>'
+              + '<div style="background:rgba(255,255,255,0.1);border-radius:10px;height:12px;overflow:hidden;">'
+              + '<div id="loginUpdateBar" style="height:100%;width:0%;background:linear-gradient(90deg,#6366f1,#a855f7);'
+              + 'border-radius:10px;transition:width 0.3s ease;"></div></div></div>';
+            document.body.appendChild(upModal);
+            upBar = document.getElementById('loginUpdateBar');
+            upStatus = document.getElementById('loginUpdateStatus');
+            upTitle = document.getElementById('loginUpdateTitle');
+          };
+
           ipcApi.on('auto-update-event', function(data) {
-            var loginCard = document.querySelector('.login-card');
+            if (!data) return;
             if (data.type === 'available') {
-              // 업데이트 발견 → 인증창 숨기기
-              if (loginCard) loginCard.style.display = 'none';
+              ensureUpdateModal();
+              if (upTitle) upTitle.textContent = '새 버전 v' + (data.version || '') + ' 감지!';
+              if (upStatus) upStatus.textContent = '다운로드 중... 잠시만 기다려주세요';
+            }
+            if (data.type === 'progress') {
+              ensureUpdateModal();
+              if (upBar) upBar.style.width = (data.percent || 0) + '%';
+              if (upStatus) upStatus.textContent = '다운로드 중... ' + (data.percent || 0) + '%';
+            }
+            if (data.type === 'downloaded') {
+              ensureUpdateModal();
+              if (upBar) upBar.style.width = '100%';
+              if (upTitle) upTitle.textContent = 'v' + (data.version || '') + ' 준비 완료';
+              if (upStatus) upStatus.textContent = '곧 설치 화면이 열립니다... (앱 자동 종료)';
             }
           });
         }
-      } catch {}
+      } catch (e) {
+        console.warn('[UPDATE] 인증창 업데이트 알림 배선 실패:', e);
+      }
 
+      /*
+       * v3.8.636 — 채우기만 하고 누르지는 않는다.
+       *
+       * 사장님: "앱을 시작하면 로그인이 자동으로 되는게아니라
+       *          아이디 비밀번호만 자동으로 입력되어있어야지"
+       *
+       * 예전에는 여기서 바로 finishLogin() 까지 갔다. 그러면 새 버전 알림도
+       * 못 보고 지나간다. 마지막 한 번은 사람이 누른다.
+       */
       try {
         const config = await ipcApi.invoke('load-auto-login-config');
-
-        if (config && config.enabled) {
-          const autoLoginSuccess = await checkAutoLoginOnLoad();
-          if (autoLoginSuccess) return;
-        }
-
-        if (config && config.userId) {
-          userIdInput.value = config.userId;
+        if (config && config.userId) userIdInput.value = config.userId;
+        if (config && config.password) passwordInput.value = config.password;
+        if (autoLoginCheckbox) autoLoginCheckbox.checked = !!(config && config.enabled);
+        // 둘 다 차 있으면 바로 누를 수 있게 단추로 초점을 옮긴다
+        if (userIdInput.value && passwordInput.value) {
+          try { loginButton.focus(); } catch (e) {}
         }
       } catch (error) {
-        console.error('자동 로그인 확인 실패:', error);
+        console.error('저장된 로그인 정보 불러오기 실패:', error);
       }
     });
     
@@ -1434,7 +1446,8 @@
           console.log('[AUTO-LOGIN] 저장 시도 - autoLogin:', autoLogin, 'userId:', userId);
           try {
             if (autoLogin) {
-              const saveResult = await ipcApi.invoke('save-auto-login-config', true, userId);
+              // v3.8.636: 비밀번호까지 보관한다 (OS 금고로 잠가서 다음 실행 때 칸에 채워 넣는다)
+              const saveResult = await ipcApi.invoke('save-auto-login-config', true, userId, password);
               console.log('[AUTO-LOGIN] save IPC 결과:', saveResult);
 
               // 검증: 실제로 파일 저장됐는지 확인
