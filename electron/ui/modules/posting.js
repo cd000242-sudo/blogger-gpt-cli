@@ -1657,7 +1657,9 @@ window.__getTitleOptions = getTitleOptions;
 
 /** 기본값 상수 */
 const PAYLOAD_DEFAULTS = {
-  provider: 'gemini',
+  // v3.8.646: 기본값이 gemini 였다. 사장님 Gemini 키는 유출 차단 상태라
+  //   이 기본값을 타는 순간 글이 통째로 실패한다. 죽은 엔진을 기본값으로 두지 않는다.
+  provider: 'openai',
   titleMode: 'auto',
   contentMode: 'external',
   toneStyle: 'professional',

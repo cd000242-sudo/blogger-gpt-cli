@@ -91,7 +91,14 @@ function longtailCoverage(text, longtails) {
     const keyword = slot.keyword || slot.title;
     console.log(`\n② [${i + 1}/${jobs.length}] 생성: ${keyword}`);
     const started = Date.now();
+    globalThis.__llmUsage = { calls: 0, input: 0, output: 0, byModel: {} };
     try {
+      /**
+       * 엔진을 글마다 다시 못박는다.
+       * payload.provider 만으로는 두 번째 글에서 기본값(Gemini)으로 샜다 —
+       * 그 키는 유출 차단이라 그대로 실패한다. 앞 글이 남긴 상태에 기대지 않는다.
+       */
+      process.env.PRIMARY_TEXT_MODEL = 'openai-gpt41';
       const payload = {
         // orchestration 은 payload.topic 을 읽는다 — keyword 로 넣으면 빈 검색어가 나간다
         topic: keyword,
@@ -111,6 +118,15 @@ function longtailCoverage(text, longtails) {
         if (/리포트 설계도|속보|자가 수정|장부/.test(m)) console.log('     ' + m.slice(0, 110));
       });
 
+      /**
+       * 자가 수정이 돌았는지는 로그가 아니라 orchestration 이 남긴 값에서 읽는다.
+       * (예전엔 onLog 에서 [PROGRESS] 를 전부 버려서 "안 돌았다" 고 오판했다 —
+       *  자가 수정 메시지가 하필 [PROGRESS] 97% 로 나간다.)
+       */
+      const pf = globalThis.__lastPreflight || {};
+      const u = globalThis.__llmUsage || { calls: 0, input: 0, output: 0 };
+      // gpt-5.6-terra 공식 단가: 입력 $2 / 출력 $12 per 1M (pricing.ts)
+      const usd = (u.input / 1e6) * 2 + (u.output / 1e6) * 12;
       const html = res.html || '';
       const text = toPlainText(html);
       const audit = auditArticle(html);
@@ -126,6 +142,8 @@ function longtailCoverage(text, longtails) {
         중복: kinds['cross-section-echo'] || 0,
         과정노출: findProcessLeak(text).length,
         롱테일: (() => { const c = longtailCoverage(text, slot.longtails); return `${c.hit}/${c.total}`; })(),
+        호출: u.calls,
+        비용: '$' + usd.toFixed(3),
         초: Math.round((Date.now() - started) / 1000),
       });
       fs.writeFileSync(path.join(OUT_DIR, `${i + 1}-${keyword.slice(0, 20).replace(/[^가-힣a-zA-Z0-9]/g, '_')}.html`), html, 'utf-8');

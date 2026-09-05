@@ -142,11 +142,9 @@ const FINAL_CTA_BADGE_STYLE = 'display:inline-flex !important;align-items:center
  * 경로를 먼저 보고, 없으면 사용자 폴더에 둔다. 어느 쪽도 실패하면 장부를
  * 안 쓰고 넘어간다 — 기록 때문에 발행이 막히면 안 된다.
  */
+/** v3.8.651: 경로는 publish-ledger.ts 한 곳에서만 정한다 — 둘로 두면 서로 다른 파일을 본다 */
 function ledgerPath(): string {
-  const injected = process.env['PUBLISH_LEDGER_PATH'];
-  if (injected) return injected;
-  const home = process.env['APPDATA'] || process.env['HOME'] || process.cwd();
-  return require('path').join(home, 'blogger-gpt-cli', 'publish-ledger.json');
+  return require('./publish-ledger').defaultLedgerPath();
 }
 
 const FINAL_CTA_HOOK_STYLE = 'display:inline-block !important;margin:0 !important;padding:8px 14px !important;background:var(--rv-cta-hook-bg,rgba(255,255,255,0.94)) !important;color:var(--rv-cta-hook,#0f172a) !important;-webkit-text-fill-color:var(--rv-cta-hook,#0f172a) !important;border-radius:8px !important;font-size:16px !important;font-weight:700 !important;line-height:1.55 !important;word-break:keep-all !important;max-width:92% !important;box-decoration-break:clone !important;-webkit-box-decoration-break:clone !important;';
@@ -562,7 +560,23 @@ export async function generateUltimateMaxModeArticleFinal(
 
   // 🏆 AdSense 승인률 강화 — adsense 모드면 모두 자동 ON (사용자가 토글하지 않아도 됨)
   if (payload?.contentMode === 'adsense') {
-    payload.llmRotation = payload.llmRotation !== false; // 명시적 false 아니면 ON
+    /**
+     * 🎲 v3.8.646 — 로테이션은 **켜 달라고 해야 켜진다.**
+     *
+     * 예전에는 "명시적 false 아니면 ON" 이었다. 그런데 payload 를 새로 조립하는
+     * 경로(다중계정·재생성)는 이 값을 안 싣는다 → undefined → 자동 ON →
+     * **발행마다 엔진이 무작위로 바뀐다.** 후보는 "키가 env 에 있으면" 들어가는데,
+     * 그 키가 살아 있는지는 안 본다. 사장님 Gemini 키는 유출 차단 상태라
+     * 그쪽이 뽑히는 순간 글이 통째로 실패한다.
+     *
+     * 실측 2026-09-05 (10편): 4편이 엔진 때문에 죽었다(Gemini 3 · Claude 1).
+     * 같은 키워드가 어떤 실행은 성공하고 어떤 실행은 실패했다 — 제비뽑기였다.
+     *
+     * 화면(posting.js)은 이미 llmRotation:false 를 보내고 있었다. 즉 단일 발행에서는
+     * 진작부터 꺼져 있었고, **payload 를 다시 만드는 경로에서만 몰래 켜져** 있었다.
+     * 그 어긋남을 없앤다 — 켜려면 llmRotation:true 를 실어 보내면 된다.
+     */
+    payload.llmRotation = payload.llmRotation === true;
     payload.adsenseScoreGate = payload.adsenseScoreGate !== false;
     const requestedAdsenseMinScore = Number(payload.adsenseMinScore);
     payload.adsenseMinScore = Number.isFinite(requestedAdsenseMinScore)
@@ -598,6 +612,8 @@ export async function generateUltimateMaxModeArticleFinal(
    * try 안에 두는 이유: 락을 쥔 채 try 밖에서 무언가 하면 거기서 난 예외는
    * finally(releaseLock)를 못 만나 영구 데드락이 된다 (engine-lock.test.ts).
    */
+  // v3.8.650: 비용 장부도 글마다 비운다 — 안 비우면 앞 글 비용이 묻어간다
+  try { require('../llm/usage-cost').resetUsage(); } catch { /* 비용 기록이 발행을 막지 않는다 */ }
   (globalThis as any).__lastBreakingEvent = null;
   (globalThis as any).__lastSelfOverlap = null;
   (globalThis as any).__lastPreflight = null;
@@ -3306,6 +3322,32 @@ ${quoted}
 
     // 4.5. 🔥 FAQ 생성 (별도 API 호출 — Schema.org FAQPage 포함)
     let faqs = await generateFAQFinal(keyword, h2Titles, onLog, articleTextForAux);
+
+    /**
+     * v3.8.645 — 본문이 이미 한 말을 되풀이하는 FAQ 는 버린다.
+     *
+     * FAQ 생성기는 본문을 **근거로** 받는다. 그러니 본문을 다시 쓰는 게 기본 동작이고,
+     * 프롬프트로 "겹치지 마라" 고 해서는 안 지켜진다(실측: 새 글에서도 구간 반복 5건,
+     * 그중 셋이 FAQ ↔ 본문). 만든 뒤에 재서 걸러야 한다.
+     *
+     * 다만 다 버리지는 않는다 — FAQ 가 두 개 아래로 줄면 그 자리가 더 허전하다.
+     */
+    try {
+      const { findEchoedFaqs, toPlainText: plain } = require('./article-audit');
+      const echoed = findEchoedFaqs(faqs, plain(articleTextForAux || ''));
+      if (echoed.length) {
+        const kept = faqs.filter((_: any, i: number) => !echoed.includes(i));
+        if (kept.length >= 2) {
+          onLog?.(`[PROGRESS] 67% - 🔁 본문과 겹치는 FAQ ${echoed.length}개를 뺐습니다 (${faqs.length} → ${kept.length})`);
+          faqs = kept;
+        } else {
+          onLog?.(`[PROGRESS] 67% - 🔁 겹치는 FAQ 가 ${echoed.length}개지만 남는 게 ${kept.length}개뿐이라 그대로 둡니다`);
+        }
+      }
+    } catch (echoErr) {
+      console.warn('[FAQ] 중복 검사 스킵:', (echoErr as Error)?.message);
+    }
+
     const faqText = faqs.map((item) => `${item.question} ${item.answer}`).join('\n');
     if (inspectFactIntegrity(faqText, factEvidence).status === 'blocked') {
       onLog?.('[PROGRESS] 68% - [FACT] FAQ의 근거 없는 정확한 정보를 정리합니다.');
@@ -5891,6 +5933,26 @@ ${conclusionHTML}
     }
 
     /**
+     * 🔁 v3.8.648 — 앞에서 한 말을 뒤에서 또 하면 그 문장을 지운다.
+     *
+     * 실측 10편에서 점수를 가르는 건 사실상 중복 하나였다(지적 41건 전부).
+     * 그런데 AI 자가 수정은 호출 상한이 2구간이라(비용 고정) 5~6건 중 대부분이 남았다.
+     * 중복 제거는 판단이 아니라 삭제라서 AI 가 필요 없다 — 여기서 기계로 끝낸다.
+     * 그러면 AI 는 판단이 필요한 것(확정형 표현·빈 소제목)에만 두 번을 쓴다.
+     */
+    try {
+      const { removeEchoedSentences } = require('./auto-repair');
+      const deduped = removeEchoedSentences(html);
+      if (deduped.count > 0) {
+        html = deduped.html;
+        console.log(`[AUTO-REPAIR] 🔁 앞과 겹치는 문장 ${deduped.count}개를 지웠습니다`);
+        onLog?.(`[PROGRESS] 96% - 🔁 앞과 겹치는 문장 ${deduped.count}개를 지웠습니다`);
+      }
+    } catch (echoError: any) {
+      console.warn('[AUTO-REPAIR] 중복 제거 건너뜀:', String(echoError?.message || echoError).slice(0, 120));
+    }
+
+    /**
      * 🩺 v3.8.630 — 발행 전 자가 수정. 코드가 찾고, AI 가 문제 구간만 다시 쓴다.
      *
      * 사장님: "애초에 비평이나 개선을 하려고 버튼을 누르면 개선할게없을정도로
@@ -5937,6 +5999,22 @@ ${conclusionHTML}
       const overlap = (globalThis as any).__lastSelfOverlap || {};
       const pre = (globalThis as any).__lastPreflight || {};
       const slot = (payload as any)?.cpcReportSlot;
+
+      /**
+       * v3.8.650 — 이 글에 얼마 들었는지 남긴다.
+       * 사장님: "한편당 얼마니" — 그동안 답할 수가 없었다. 이제 장부에 숫자로 남는다.
+       */
+      let costUsd: number | undefined;
+      try {
+        const { estimateCost, describeCost } = require('../llm/usage-cost');
+        const cost = estimateCost();
+        if (cost.calls > 0 || cost.failedCalls > 0) {
+          costUsd = cost.usd;
+          const line = describeCost(cost);
+          console.log(`[COST] ${line}`);
+          onLog?.(`[PROGRESS] 98% - 💰 이 글 비용: ${line}`);
+        }
+      } catch { /* 비용 계산 실패가 발행을 막지 않는다 */ }
       appendLedgerEntry(ledgerPath(), {
         at: new Date().toISOString(),
         url: '',
@@ -5950,6 +6028,7 @@ ${conclusionHTML}
         preflightCalls: Number(pre.calls) || 0,
         reportSlot: slot ? String(slot.slot || '') : '',
         reportGrade: slot ? String(slot.grade || '') : '',
+        ...(costUsd != null ? { costUsd } : {}),
       });
       onLog?.(`[PROGRESS] 98% - 📒 품질 ${audited.score}점 · 중복 ${((Number(overlap.max)||0)).toFixed(2)} 를 장부에 남겼습니다`);
     } catch (ledgerError: any) {

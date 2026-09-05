@@ -45,7 +45,7 @@ import { findUnfulfilledHeadings } from './structure-guard';
 import { auditTitleAnswer, isQuestionTitle } from './title-answer-gate';
 
 /** 한 번 발행에 다시 쓸 구간의 최대 개수 — 비용 상한 */
-export const MAX_SECTIONS = 2;
+export const MAX_SECTIONS = 1;
 
 /**
  * 이 종류만 AI 에게 맡긴다.

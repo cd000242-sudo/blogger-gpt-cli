@@ -46,6 +46,8 @@ export interface LedgerEntry {
   /** 리포트에서 온 것이면 슬롯·등급 */
   reportSlot?: string;
   reportGrade?: string;
+  /** 이 글을 만드는 데 든 API 비용 (USD) — v3.8.650 */
+  costUsd?: number;
   /** 나중에 애드센스에서 채운다 */
   rpm?: number;
   pageviews?: number;
@@ -53,6 +55,20 @@ export interface LedgerEntry {
 
 /** 장부가 너무 커지지 않게 — 하루 10편이면 100일치 */
 const MAX_ENTRIES = 1000;
+
+/**
+ * 장부 파일 위치 (v3.8.651).
+ *
+ * 예전에는 orchestration 안에만 있어서, 다른 파일이 장부를 건드리려면 같은 계산을
+ * 한 벌 더 써야 했다 — 한쪽만 바뀌면 **서로 다른 파일**을 보게 된다.
+ * 경로는 여기 한 곳에서만 정한다.
+ */
+export function defaultLedgerPath(): string {
+  const injected = process.env['PUBLISH_LEDGER_PATH'];
+  if (injected) return injected;
+  const home = process.env['APPDATA'] || process.env['HOME'] || process.cwd();
+  return path.join(home, 'blogger-gpt-cli', 'publish-ledger.json');
+}
 
 export function appendLedgerEntry(ledgerPath: string, entry: LedgerEntry): boolean {
   try {
@@ -71,6 +87,45 @@ export function appendLedgerEntry(ledgerPath: string, entry: LedgerEntry): boole
     fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });
     fs.writeFileSync(ledgerPath, JSON.stringify(entries, null, 2), 'utf-8');
     return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 🔗 발행이 끝난 뒤 그 줄에 주소를 채운다 (v3.8.651).
+ *
+ * ## 왜 나중에 채우나
+ * 장부는 **생성이 끝날 때** 쓰인다. 발행은 그 다음이라 그 시점엔 주소를 모른다.
+ * 그래서 url 이 늘 비어 있었다.
+ *
+ * ## 왜 주소가 필요한가
+ * 사장님: "생성된 글목록에 글 rpm 값도 보이게 가능하겠네?"
+ * 애드센스는 **페이지 주소별**로 RPM 을 준다. 글목록은 이미 주소를 들고 있으니
+ * RPM 표시 자체는 장부 없이도 된다 — 다만 **편당 비용**(costUsd)은 장부에 있다.
+ * "250원 써서 얼마 벌었나" 를 보려면 둘을 이어야 하고, 그 열쇠가 주소다.
+ * 제목으로 잇는 것도 되지만 제목은 나중에 고쳐진다(오늘 실제로 한 편 고쳤다).
+ *
+ * 가장 최근 줄부터 거슬러 보며 **주소가 아직 빈 줄** 중 제목이 맞는 것을 채운다.
+ * 같은 제목으로 여러 번 발행했어도 방금 것이 잡힌다.
+ */
+export function attachUrlToLedger(ledgerPath: string, title: string, url: string): boolean {
+  const cleanUrl = String(url || '').trim();
+  const cleanTitle = String(title || '').trim();
+  if (!cleanUrl || !cleanTitle) return false;
+
+  try {
+    const entries = readLedger(ledgerPath);
+    if (entries.length === 0) return false;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i]!;
+      if (e.url) continue;                       // 이미 채워진 줄은 건너뛴다
+      if (String(e.title || '').trim() !== cleanTitle) continue;
+      e.url = cleanUrl;
+      fs.writeFileSync(ledgerPath, JSON.stringify(entries, null, 2), 'utf-8');
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }

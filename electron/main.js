@@ -6477,6 +6477,22 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
                 if (publishResult && publishResult.ok) {
                     onLog('[PROGRESS] 100% - ✅ 발행 완료!');
                     console.log('[RUN-POST] ✅ 발행 성공:', publishResult.url);
+                    /**
+                     * 🔗 v3.8.651 — 장부의 그 줄에 주소를 채운다.
+                     *
+                     * 장부는 생성이 끝날 때 쓰이므로 그때는 주소를 모른다. 여기가 처음 아는 자리다.
+                     * 9/21 에 애드센스가 풀리면 페이지 주소로 RPM 을 붙일 수 있고,
+                     * 그때 **오늘 쌓은 줄들도 같이** 이어진다 — 지금 안 채우면 그 글들은 영영 못 맞춘다.
+                     */
+                    try {
+                        const { attachUrlToLedger, defaultLedgerPath } = require('../dist/core/final/publish-ledger');
+                        const ok = attachUrlToLedger(defaultLedgerPath(), String(result?.title || payload?.topic || ''), String(publishResult.url || ''));
+                        if (ok)
+                            console.log('[LEDGER] 🔗 발행 주소를 장부에 남겼습니다');
+                    }
+                    catch (ledgerErr) {
+                        console.warn('[LEDGER] 주소 기록 건너뜀:', String(ledgerErr?.message || ledgerErr).slice(0, 120));
+                    }
                     if (freeTrialPublish) {
                         try {
                             const { isConfirmedPublishedPost, recordFreeTrialPublishCompletion } = require('./auth-utils');

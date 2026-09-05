@@ -150,9 +150,14 @@ function notifyGroundingEvidence(listener: ((sourceUrls: string[]) => void) | un
 function buildGeminiChain(): string[] {
   const tierValue = process.env['PRIMARY_TEXT_MODEL'] || resolveDefaultTierValue();
   const tier = findTier(tierValue);
+  /**
+   * v3.8.647 — 고른 모델 하나만. 폴백 없음.
+   * 사장님: "폴백없어 실패로그띄우면서 충전을 하거나 다른 모델로하라고 안내가나와야정상이야"
+   * 조용히 다른 모델로 넘어가면 키가 죽은 것도, 다른 모델이 쓴 것도 모르고 지나간다.
+   */
   const selected = tier && tier.provider === 'gemini'
-    ? unique([tier.modelId, ...tier.fallback, ...GEMINI_BASE_MODELS])
-    : unique(['gemini-3.6-flash', 'gemini-3.5-flash', ...GEMINI_BASE_MODELS]);
+    ? [tier.modelId]
+    : [GEMINI_BASE_MODELS[0] || 'gemini-3.5-flash'];
 
   /**
    * v3.8.483 — Preview 모델을 폴백 체인에서 걷어낸다.
@@ -358,10 +363,22 @@ function buildUserError(provider: Provider, info: FailureInfo, attempts: number,
       break;
   }
 
+  /**
+   * v3.8.647 — 폴백이 없으니 **다음 수를 반드시 알려 준다.**
+   *
+   * 사장님: "폴백없어 실패로그띄우면서 충전을 하거나 다른 모델로하라고 안내가나와야정상이야"
+   *
+   * 예전에는 조용히 다른 모델로 넘어가서 이 안내가 눈에 띌 일이 없었다.
+   * 이제 여기서 멈추므로, 무엇을 하면 되는지가 마지막 줄에 있어야 한다.
+   */
+  const nextStep = '고른 엔진으로만 씁니다(자동 대체 없음). '
+    + '위 해결책을 적용하시거나, 환경설정에서 **다른 AI 모델을 선택**한 뒤 다시 시도해 주세요.';
+
   return new Error(
     `${prefix} (${attempts}회 시도)\n` +
     `원인: ${reason}\n` +
     `해결: ${fix}\n` +
+    `다음: ${nextStep}\n` +
     `세부: ${detail}${marker}`
   );
 }

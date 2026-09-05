@@ -196,19 +196,24 @@ type ProviderFailureKind =
  * 사용자 선택 티어가 해당 provider에 속하면, 그 모델을 1순위로 폴백 체인 재구성.
  * 아니면 기본 PROVIDERS[provider].models 그대로 사용.
  */
+/**
+ * 🚫 v3.8.647 — 폴백을 걷어낸다. **고른 모델 하나만 쓴다.**
+ *
+ * 사장님: "폴백없어 실패로그띄우면서 충전을 하거나 다른 모델로하라고 안내가나와야정상이야"
+ *
+ * 예전에는 고른 모델이 실패하면 같은 provider 의 다른 모델로 조용히 넘어갔다.
+ * 그러면 사장님은 고른 모델로 글이 써진 줄 아는데 실제로는 다른 모델이 썼다 —
+ * 품질도 단가도 다르고, 무엇보다 **키가 죽은 걸 모르고 지나간다.**
+ * 실패는 실패로 알리고, 충전하거나 모델을 바꾸는 판단은 사람이 한다.
+ *
+ * 재시도(같은 모델 N회)는 남긴다 — 일시적인 네트워크 오류까지 실패로 볼 이유는 없다.
+ */
 function resolveModelChain(provider: keyof typeof PROVIDERS): string[] {
   const baseModels = PROVIDERS[provider]!.models;
   const tier = findTier(process.env['PRIMARY_TEXT_MODEL']);
-  if (!tier || tier.provider !== provider) {
-    return [...baseModels];
-  }
-  // 티어 폴백 체인 + 베이스 모델 (중복 제거)
-  const seen = new Set<string>();
-  const chain: string[] = [];
-  [...tier.fallback, ...baseModels].forEach(m => {
-    if (!seen.has(m)) { seen.add(m); chain.push(m); }
-  });
-  return chain;
+  if (tier && tier.provider === provider) return [tier.modelId];
+  // 고른 모델이 없으면 그 provider 의 대표 모델 하나만 — 이건 폴백이 아니라 기본값이다
+  return baseModels.slice(0, 1);
 }
 
 function extractErrorMessage(error: unknown): string {
@@ -324,6 +329,31 @@ export async function callLLM(
           }
         );
 
+        /**
+         * 💰 v3.8.650 — 토큰 사용량을 기록한다.
+         *
+         * 사장님: "한편당 얼마니 10편하면 5달러면 충분해?"
+         * 그동안 한 편에 얼마인지 **아무도 몰랐다.** provider 응답에 usage 가
+         * 들어오는데 그냥 버리고 있었다. 여기서 모아 두면 발행 한 편의 실제 비용을
+         * 추측이 아니라 숫자로 말할 수 있다.
+         */
+        try {
+          const usage: any = (response.data as any)?.usage;
+          if (usage) {
+            const g: any = globalThis as any;
+            if (!g.__llmUsage) g.__llmUsage = { calls: 0, input: 0, output: 0, byModel: {} };
+            const inTok = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0;
+            const outTok = Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0;
+            g.__llmUsage.calls += 1;
+            g.__llmUsage.input += inTok;
+            g.__llmUsage.output += outTok;
+            const key = `${config.provider}/${model}`;
+            const slot = g.__llmUsage.byModel[key] || { calls: 0, input: 0, output: 0 };
+            slot.calls += 1; slot.input += inTok; slot.output += outTok;
+            g.__llmUsage.byModel[key] = slot;
+          }
+        } catch { /* 기록 실패가 생성을 막지 않는다 */ }
+
         const text = config.extractText(response.data);
         if (text) {
           return text;
@@ -335,6 +365,19 @@ export async function callLLM(
         if (cancelToken && ((error as any)?.code === 'ERR_CANCELED' || cancelToken.isCancellation?.(error) || cancelToken.isCanceled?.())) {
           throw new cancelToken.CanceledError(`${config.name} 호출 중`);
         }
+        /**
+         * 실패한 호출도 **입력 토큰은 이미 썼다** (v3.8.650).
+         * 세지 않으면 "편당 얼마" 가 실제보다 싸 보인다 — 실측 2026-09-05 에
+         * 10편 중 4편이 엔진 문제로 죽었는데 그 비용이 장부에서 빠져 있었다.
+         * 응답이 없어 정확한 토큰 수를 모르므로, 프롬프트 길이로 어림한다.
+         */
+        try {
+          const g: any = globalThis as any;
+          if (!g.__llmUsage) g.__llmUsage = { calls: 0, input: 0, output: 0, failedCalls: 0, byModel: {} };
+          g.__llmUsage.failedCalls = (g.__llmUsage.failedCalls || 0) + 1;
+          g.__llmUsage.input += Math.ceil(String(prompt || '').length / 2);   // 한글 대략 2자당 1토큰
+        } catch { /* 기록 실패가 오류 처리를 막지 않는다 */ }
+
         const errorMsg = extractErrorMessage(error);
         const kind = classifyProviderFailure(config, error);
         lastError = buildProviderError(config, kind, model, totalAttempts, errorMsg);

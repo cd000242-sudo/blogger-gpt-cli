@@ -158,6 +158,37 @@ function wordSet(sentence: string): Set<string> {
   return new Set(sentence.replace(/[^가-힣a-zA-Z0-9%\s]/g, ' ').split(/\s+/).filter((w) => w.length > 1));
 }
 
+/**
+ * 본문이 이미 한 말을 되풀이하는 FAQ 를 걸러낸다 (v3.8.645).
+ *
+ * 실측 2026-09-05: 새로 생성한 글에서도 구간 반복 5건이 그대로 남았고,
+ * 그중 셋이 **FAQ ↔ 본문** 이었다:
+ *   본문: 개인사업자 신용대출 갈아타기 신청은 영업일 9:00부터 16:00 사이에 할 수 있어요.
+ *   FAQ : 개인사업자 신용대출 갈아타기 신청은 영업일 9:00부터 16:00까지 가능해요.
+ *
+ * 원인은 모델이 아니라 구조다 — FAQ 생성기가 **본문을 근거로** 받는다.
+ * 근거로 준 글을 다시 쓰지 말라고만 해서는 안 지켜진다. 그래서 만든 뒤에 잰다.
+ *
+ * 지우지 않고 **표시만** 한다 — 판단은 부르는 쪽이 한다.
+ * (FAQ 가 5개인데 3개를 지우면 그 자리가 더 허전하다.)
+ */
+export function findEchoedFaqs(
+  faqs: { question?: string; answer?: string }[],
+  bodyText: string,
+): number[] {
+  const bodySentences = sentencesOf(String(bodyText || ''))
+    .filter((s) => s.length >= MIN_SENTENCE_CHARS);
+  const hit: number[] = [];
+  (faqs || []).forEach((f, i) => {
+    const answer = String(f?.answer || '').trim();
+    if (answer.length < MIN_SENTENCE_CHARS) return;
+    for (const part of sentencesOf(answer)) {
+      if (bodySentences.some((b) => similarity(part, b) >= SAME_MEANING_RATIO)) { hit.push(i); return; }
+    }
+  });
+  return hit;
+}
+
 function similarity(a: string, b: string): number {
   const A = wordSet(a);
   const B = wordSet(b);
@@ -222,8 +253,30 @@ export function findCrossSectionEchoes(sections: AuditSection[]): AuditIssue[] {
 const FLOOD_PER_1000 = 2.4;
 const FLOOD_MIN_HITS = 12;
 
-export function findTermFloods(text: string, sentenceCount: number): AuditIssue[] {
+/**
+ * 주제어는 기준을 달리한다 (v3.8.649).
+ *
+ * 「영암 농촌기본수당 월출페이」 글에서 "월출페이"·"영암군"·"실거주" 를 안 쓸 수는 없다.
+ * 그런데 일반 낱말과 같은 잣대(2.4회/1000자)로 재니 **주제어를 썼다는 이유로** 감점됐다.
+ * 검색에서도 주제어를 빼면 손해다.
+ *
+ * 그래도 상한은 둔다 — 실측에서 "월출페이" 는 70번(7.5회/1000자)이었고,
+ * 그건 주제어라도 과하다. 소제목에 나오는 말은 6.0 까지 봐준다.
+ */
+const FLOOD_PER_1000_TOPIC = 6.0;
+
+export function findTermFloods(
+  text: string,
+  sentenceCount: number,
+  headings: string[] = [],
+): AuditIssue[] {
   if (text.length < 1500) return [];
+  const topic = new Set<string>();
+  for (const h of headings) {
+    for (const w of String(h || '').replace(/[^가-힣\s]/g, ' ').split(/\s+/)) {
+      if (w.length >= 3) topic.add(w);
+    }
+  }
   const counts = new Map<string, number>();
   for (const w of text.replace(/[^가-힣\s]/g, ' ').split(/\s+/)) {
     if (w.length < 3) continue;
@@ -232,7 +285,8 @@ export function findTermFloods(text: string, sentenceCount: number): AuditIssue[
   const out: AuditIssue[] = [];
   for (const [word, n] of [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)) {
     const per1000 = (n / text.length) * 1000;
-    if (n >= FLOOD_MIN_HITS && per1000 >= FLOOD_PER_1000) {
+    const limit = topic.has(word) ? FLOOD_PER_1000_TOPIC : FLOOD_PER_1000;
+    if (n >= FLOOD_MIN_HITS && per1000 >= limit) {
       out.push({
         kind: 'term-flood',
         title: `"${word}" 가 ${n}번 나옵니다 (1,000자당 ${per1000.toFixed(1)}회)`,
@@ -247,8 +301,32 @@ export function findTermFloods(text: string, sentenceCount: number): AuditIssue[
 /* ────────────────────────────────────────────────────────────────
  * ④ 근거 조항 — 제도를 말하면서 조문·문서번호가 하나도 없으면 인용도 신뢰도 못 얻는다
  * ──────────────────────────────────────────────────────────────── */
-const LEGAL_REF = /제\s?\d+\s?조(?:의\s?\d+)?|법률\s?제\s?\d+\s?호|[가-힣]{2,10}령\s?제\s?\d+\s?조|고시\s?제?\s?\d{4}-\d+|\d{4}[가-힣]{1,3}\d{3,}/g;
-const INSTITUTIONAL = /(?:법|지침|고시|시행령|시행규칙|판례|대법원|헌법재판소)/;
+/**
+ * 근거로 인정하는 표기 (v3.8.649).
+ *
+ * 예전에는 법·시행령·고시·판례 번호만 근거로 봤다. 그런데 실측 10편 중 9편이
+ * **지자체 지원금** 글이었고, 그런 제도의 근거는 법 조항이 아니라
+ * **군 공고·조례·시행 공고**다. 「임실군 공고 제2026-123호」를 근거로 안 쳐서
+ * 멀쩡한 글이 매번 10점씩 깎였다.
+ *
+ * 근거를 넓히는 것이지 무르게 하는 게 아니다 — 여전히 **번호가 붙은 문서**만 인정한다.
+ * "공식 홈페이지 참고" 같은 말은 근거가 아니다.
+ */
+const LEGAL_REF = /제\s?\d+\s?조(?:의\s?\d+)?|법률\s?제\s?\d+\s?호|[가-힣]{2,10}령\s?제\s?\d+\s?조|(?:고시|공고|훈령|예규)\s?제?\s?\d{4}\s?-\s?\d+\s?호?|[가-힣]{2,12}\s?조례(?:\s?제\s?\d+\s?조)?|\d{4}[가-힣]{1,3}\d{3,}/g;
+/**
+ * "이건 제도를 설명하는 글인가" 판정 (v3.8.649).
+ *
+ * ⚠️ 예전에는 맨 `법` 한 글자를 봤다. 그래서 **"확인하는 법"·"신청 방법"·"불법 주정차"**
+ * 같은 말에 걸려, 법을 한 번도 언급하지 않은 지원금 안내 글이 제도 글로 판정됐고
+ * 근거 조항이 없다고 매번 10점씩 깎였다(실측 2026-09-05: 6편 중 6편).
+ *
+ * 이제 **법령 이름을 실제로 부른 경우**만 제도 글로 본다:
+ *   · 법률·시행령·시행규칙·고시·훈령·예규·조례·지침·판례·대법원·헌법재판소
+ *   · 「노동조합법 제37조」 처럼 ○○법 + 조문
+ * 「방법」·「사용법」은 앞이 한 글자거나 조문이 없어 걸리지 않는다.
+ */
+const INSTITUTIONAL =
+  /법률|시행령|시행규칙|고시|훈령|예규|조례|지침|판례|대법원|헌법재판소|[가-힣]{2,8}법\s?제\s?\d+\s?조/;
 
 export function findMissingLegalBasis(text: string): AuditIssue[] {
   const refs = text.match(LEGAL_REF) || [];
@@ -364,7 +442,7 @@ export function auditArticle(html: string, headings: string[] = []): AuditReport
   const issues: AuditIssue[] = [
     ...findGluedSentences(text),
     ...findCrossSectionEchoes(sections),
-    ...findTermFloods(text, sentences.length),
+    ...findTermFloods(text, sentences.length, heads),
     ...findMissingLegalBasis(text),
     ...findProcessLeak(text),
     ...tone.issues,

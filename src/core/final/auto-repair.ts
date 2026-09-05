@@ -92,6 +92,139 @@ function textLength(html: string): number {
  * 손댄 뒤 본문이 눈에 띄게 줄었으면(3% 넘게) 되돌린다 — 치환이 잘못 걸려
  * 문장을 먹은 경우다. 이 저장소는 그런 사고를 겪은 적이 있다.
  */
+/**
+ * 🔁 앞에서 이미 한 말을 뒤에서 다시 하면 **그 문장을 지운다** (v3.8.648).
+ *
+ * ## 왜 기계로 하나
+ * 실측 2026-09-05 (10편): 점수를 가르는 건 사실상 중복 하나였다.
+ *   지적 41건 중 cross-section-echo 41 · 84점 글만 중복 0
+ * 발행 전 자가 수정(AI)이 이걸 맡고 있었지만 **호출 상한이 2구간**이라
+ * (사장님 요구: 비용 고정) 5~6건 중 대부분이 그대로 남았다.
+ *
+ * 중복 제거는 **판단이 아니라 삭제**다. AI 를 부를 이유가 없다.
+ * 기계로 하면 비용 0, 그리고 실행마다 결과가 흔들리지 않는다
+ * (같은 글이 어떤 실행은 중복 1, 어떤 실행은 5 였다).
+ *
+ * ## 지나치게 지우지 않도록
+ *   · 문단이 절반 넘게 사라지면 그 문단은 건드리지 않는다
+ *   · 지우는 문장 수에 상한을 둔다
+ *   · 다 지운 뒤 본문이 8% 넘게 줄었으면 통째로 되돌린다
+ * 근거 장부 사고(잘 쓴 문장이 지워져 글이 얕아진 일)를 되풀이하지 않기 위해서다.
+ */
+const ECHO_MIN_CHARS = 18;
+const ECHO_RATIO = 0.55;
+const ECHO_MAX_DELETIONS = 8;
+const ECHO_MAX_SHRINK = 0.92;
+
+function echoWordSet(sentence: string): Set<string> {
+  return new Set(
+    sentence.replace(/[^가-힣a-zA-Z0-9%\s]/g, ' ').split(/\s+/).filter((w) => w.length > 1),
+  );
+}
+
+function echoSimilarity(a: string, b: string): number {
+  const A = echoWordSet(a);
+  const B = echoWordSet(b);
+  if (A.size < 6 || B.size < 6) return 0;
+  let shared = 0;
+  for (const w of A) if (B.has(w)) shared++;
+  const union = A.size + B.size - shared;
+  return union === 0 ? 0 : shared / union;
+}
+
+export function removeEchoedSentences(html: string): { html: string; count: number } {
+  const source = String(html || '');
+  if (!source.trim()) return { html: source, count: 0 };
+
+  const seen: string[] = [];
+  let deleted = 0;
+
+  /**
+   * <p> 만 보다가 놓친 자리들 (실측 2026-09-05):
+   *   "성급한 분들을 위한 핵심 요약" · "자주 묻는 질문(FAQ)" 이 본문과 겹치는데
+   *   그 내용이 <li> 안에 있어서 하나도 못 걸렀다.
+   * 목록 항목도 같은 자로 잰다.
+   */
+  const out = source.replace(/<(p|li)\b[^>]*>([\s\S]*?)<\/\1>/gi, (whole, _tag, inner) => {
+    if (deleted >= ECHO_MAX_DELETIONS) return whole;
+    // 태그가 섞인 문단은 건드리지 않는다 — 링크·강조를 잘라먹을 수 있다
+    // <li> 를 함께 보므로 ul/ol 자체는 막지 않는다. 링크·이미지·표만 건너뛴다
+    if (/<(?:img|a|table)\b/i.test(inner)) return whole;
+
+    /**
+     * ⚠️ <br> 를 경계로 먼저 자른다 (실측 2026-09-05).
+     *
+     * 생성된 글은 한 문단 안에서 문장을 `…입니다.<br>온라인 접수는…` 처럼 잇는다.
+     * 태그만 지우면 `입니다.온라인` 이 되어 **마침표 뒤 공백** 규칙에 안 걸리고,
+     * 문단 전체가 한 문장으로 읽혀 중복을 하나도 못 잡았다.
+     * (toPlainText 가 blockquote 를 빠뜨려 없는 결함을 만들던 것과 같은 계열이다.)
+     */
+    const segments = String(inner).split(/<br\s*\/?>/i);
+    const plain = String(inner).replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '');
+    const parts = segments
+      .map((seg) => seg.replace(/<[^>]+>/g, '').trim())
+      .filter(Boolean)
+      .flatMap((seg) => seg.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean));
+    if (parts.length === 0) return whole;
+
+    const kept: string[] = [];
+    for (const part of parts) {
+      const isEcho = part.length >= ECHO_MIN_CHARS
+        && deleted < ECHO_MAX_DELETIONS
+        && seen.some((s) => echoSimilarity(part, s) >= ECHO_RATIO);
+      if (isEcho) { deleted++; continue; }
+      kept.push(part);
+      if (part.length >= ECHO_MIN_CHARS) seen.push(part);
+    }
+
+    if (kept.length === parts.length) return whole;
+
+    /**
+     * 문단이 통째로 겹치는 경우가 실제로 가장 많다 (실측 2026-09-05):
+     *   앞 구간: "신청 기간은 9월 7일부터 10월 30일까지입니다."
+     *   뒤 구간: "하반기 신청 기간은 9월 7일부터 10월 30일까지입니다."
+     * 한 문장짜리 문단이라 "빈 문단이 되면 되돌린다" 규칙에 걸려 하나도 못 지웠다.
+     * 짧은 문단이 통째로 되풀이면 그 문단을 없앤다 — 남겨봐야 같은 말을 두 번 읽는다.
+     */
+    const keptText = kept.join(' ');
+    if (kept.length === 0) {
+      if (plain.length <= 200) return '';   // 짧고 전부 겹침 → 문단째 제거
+      deleted -= parts.length;
+      for (const part of parts) if (part.length >= ECHO_MIN_CHARS) seen.push(part);
+      return whole;
+    }
+    /**
+     * 남는 게 알맹이 있는 문장 하나는 돼야 한다.
+     *
+     * 예전에는 "절반 넘게 사라지면 되돌린다" 였는데, 두 문장짜리 문단에서
+     * 하나가 중복이면 그것만으로 50% 라 **정당한 제거가 전부 막혔다**.
+     * 분량 보호는 아래 전체 8% 상한이 이미 한다 — 여기서 두 번 막을 이유가 없다.
+     */
+    if (keptText.length < ECHO_MIN_CHARS) {
+      deleted -= (parts.length - kept.length);
+      for (const part of parts) if (part.length >= ECHO_MIN_CHARS && !seen.includes(part)) seen.push(part);
+      return whole;
+    }
+    // 원래 <br> 로 이어져 있던 글이니 그 모양으로 되돌려 놓는다
+    return whole.replace(inner, kept.join('<br>'));
+  });
+
+  if (deleted === 0) return { html: source, count: 0 };
+
+  /**
+   * 분량 상한은 **판단할 만큼 긴 글에서만** 본다.
+   *
+   * 표본이 짧으면 문장 하나만 지워도 비율이 커진다 — 150자짜리에서 27자를 지우면
+   * 18% 다. 정상 동작인데 안전장치가 막는다.
+   * (autoRepairBeforePublish 가 72자 표본에서 겪은 것과 같은 함정이다.)
+   */
+  const before = textLength(source);
+  if (before >= 500 && textLength(out) < before * ECHO_MAX_SHRINK) {
+    return { html: source, count: 0 };
+  }
+  return { html: out, count: deleted };
+}
+
 export function autoRepairBeforePublish(html: string): RepairResult {
   const source = String(html || '');
   if (!source.trim()) return { html: source, repairs: [] };
