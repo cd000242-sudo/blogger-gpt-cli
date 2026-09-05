@@ -3657,6 +3657,16 @@ ${quoted}
         sections.splice(0, sections.length, ...keptSections);
         if (aligned) h2Titles = keptTitles;
       }
+      /**
+       * v3.8.661 — 모델이 "9·3 노동부 지침" 의 "9·" 를 번호로 알고 뗀 소제목("3 노동부 지침과 …")을 되돌린다.
+       * 목차와 본문 h2 가 모두 h2Titles 를 쓰므로 여기 한 곳이면 된다.
+       */
+      try {
+        const { restoreDatePrefix } = require('./title-promise-headings');
+        const restored = h2Titles.map((t) => restoreDatePrefix(t, String(h1 || '')));
+        restored.forEach((t, i) => { if (t !== h2Titles[i]) onLog?.(`[PROGRESS] 78% - 🎯 소제목 날짜 접두어 복원: "${h2Titles[i]}" → "${t}"`); });
+        h2Titles = restored;
+      } catch { /* 보정 실패는 넘어간다 */ }
     }
     html += generateTOCFinal(h2Titles);
 

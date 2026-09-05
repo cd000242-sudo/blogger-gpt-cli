@@ -60,6 +60,16 @@ export function repairSplitNumbers(html: string): { html: string; count: number 
   return { html: fixed, count };
 }
 
+/**
+ * 문장 끝의 꺾쇠 찌꺼기 (v3.8.661). 실측: "…적용될 예정이기 때문입니다></p>" — 모델이 흘린 '>' 하나가 그대로 찍혔다.
+ * 한글·마침표 바로 뒤에 '>' 가 오고 그 뒤가 태그 경계면 글자가 아니라 찌꺼기다. 태그 안은 건드리지 않는다.
+ */
+export function repairStrayBrackets(html: string): { html: string; count: number } {
+  let count = 0;
+  const fixed = String(html || '').replace(/([가-힣.。!?])\s*>(?=\s*(?:<\/p>|<\/li>|<br\s*\/?>|\n|$))/g, (_m, ch) => { count += 1; return ch; });
+  return { html: fixed, count };
+}
+
 /** 문장이 끝난 줄인가 — 마침표류, 또는 마침표 없이 끝난 한국어 종결어미 (v3.8.659) */
 const SENTENCE_TERMINAL = /[.!?…。」』)\]]\s*$|(?:니다|습니다|해요|예요|에요|어요|아요|여요|네요|세요|돼요|봐요|줘요|와요|져요|나요|까요|죠|다|요)\s*$/;
 
@@ -299,6 +309,13 @@ export function autoRepairBeforePublish(html: string): RepairResult {
   if (splitNums.count > 0) {
     working = splitNums.html;
     repairs.push({ kind: 'split-number', count: splitNums.count, note: '쉼표에서 갈린 숫자를 붙였습니다' });
+  }
+
+  // v3.8.661 — 문장 끝에 붙은 꺾쇠 찌꺼기 ("때문입니다></p>")
+  const stray = repairStrayBrackets(working);
+  if (stray.count > 0) {
+    working = stray.html;
+    repairs.push({ kind: 'stray-bracket', count: stray.count, note: '문장 끝의 꺾쇠 찌꺼기를 지웠습니다' });
   }
 
   const filler = repairPersonalFiller(working);

@@ -54,6 +54,8 @@ export type AuditKind =
   | 'no-stance'            // 필자의 1인칭 판단이 한 문장도 없음 (v3.8.660)
   | 'title-thread-lost'    // 제목 낱말이 한 번도 안 나오는 절이 둘 이상 — 제목의 공감이 끊김 (v3.8.660)
   | 'intro-promise-unkept' // 서론이 약속한 것이 마무리에 없음 — 도입의 문제를 끝까지 못 붙잡음 (v3.8.660)
+  | 'stance-shallow'       // 판단 문장에 조건·행동이 없음 — "…쪽입니다" 는 관점이 아니다 (v3.8.662)
+  | 'table-template'       // 표가 절마다 같은 틀 — 양식이 보인다 (v3.8.662)
   | 'tone-mix'            // ⑤ 말투 섞임
   | 'broken-title'        // ⑥ 제목·목차 손상
   // ── v3.8.629 주장·사실 구분 (claim-safety.ts) — 사장님 지시 10개 항목 ──
@@ -462,7 +464,8 @@ export function findEmptySections(html: string): AuditIssue[] {
  */
 export function findInlineFaq(html: string): AuditIssue[] {
   const out: AuditIssue[] = [];
-  for (const m of String(html || '').matchAll(/<h3[^>]*>([\s\S]*?)<\/h3>/gi)) {
+  const src = String(html || '');
+  for (const m of src.matchAll(/<h3[^>]*>([\s\S]*?)<\/h3>/gi)) {
     const heading = toPlainText(m[1] || '').trim();
     if (/자주\s*묻는|FAQ|질문과?\s*답|Q\s*&\s*A/i.test(heading)) {
       out.push({
@@ -471,8 +474,25 @@ export function findInlineFaq(html: string): AuditIssue[] {
         evidence: 'FAQ 는 글 끝에 따로 붙습니다. 절 안의 질문 목록은 물음표도 서식도 없이 답과 붙어 읽히고, 같은 질문이 두 번 나옵니다.',
         penalty: 6,
       });
-      break;
+      return out;
     }
+  }
+  /**
+   * v3.8.661 — 소제목 없이 평문으로 늘어놓은 Q/A ("부결되면 기존 대출은 유지되나요?" 한 줄, 답 한 줄…).
+   * 진짜 FAQ h2 앞의 본문에서 물음표로만 끝나는 짧은 문단이 셋 이상이면 본문이 FAQ 를 흉내 낸 것이다.
+   */
+  const faqAt = src.search(/<h2[^>]*>[^<]*(?:자주\s*묻는|FAQ)/i);
+  const body = faqAt >= 0 ? src.slice(0, faqAt) : src;
+  const questionParas = [...body.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
+    .map((m) => toPlainText(m[1] || '').trim())
+    .filter((t) => t.length >= 8 && t.length <= 70 && /[?？]$/.test(t) && !/[.。]/.test(t));
+  if (questionParas.length >= 3) {
+    out.push({
+      kind: 'inline-faq',
+      title: `본문에 질문만 있는 문단이 ${questionParas.length}개입니다 — 절 안에 FAQ 를 흉내 냈습니다: "${questionParas[0]!.slice(0, 30)}"`,
+      evidence: 'FAQ 는 글 끝에 하나입니다. 절 안의 질문·답 목록은 서식 없이 읽히고 같은 질문이 두 번 나옵니다. 절은 설명과 판단으로 채웁니다.',
+      penalty: 6,
+    });
   }
   return out;
 }
@@ -634,6 +654,8 @@ export function summarizeAudit(report: AuditReport): string {
     'no-stance': '필자 판단 없음',
     'title-thread-lost': '제목과 끊긴 절',
     'intro-promise-unkept': '서론 약속 불이행',
+    'stance-shallow': '얕은 판단',
+    'table-template': '표 양식 반복',
     'tone-mix': '말투 섞임',
     'broken-title': '제목 손상',
     'asserted-crime': '확정형 범죄표현',

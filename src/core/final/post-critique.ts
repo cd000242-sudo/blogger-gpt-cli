@@ -473,6 +473,15 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
       area: 'answer', severity: 'medium',
       fix: '결론 첫 문장에서 서론이 던진 질문에 답합니다. 서론이 약속한 항목을 마무리에서 하나씩 받아 닫습니다.',
     },
+    // v3.8.662 — 깊이와 목소리
+    'stance-shallow': {
+      area: 'substance', severity: 'high',
+      fix: '판단 문장을 조건 + 행동 + 이유로 다시 씁니다. "경남 사업자라면 10월 안내를 기다리지 말고 지금 손해보험 공고부터 읽으세요. 신용생명보험은 대출이 있을 때만 의미가 있기 때문입니다." 처럼.',
+    },
+    'table-template': {
+      area: 'structure', severity: 'low',
+      fix: '수치·조건 비교가 없는 절의 표를 문단으로 풀고, 표는 글 전체 3개 이하로 둡니다. "누구에게 맞는지" 열을 습관처럼 붙이지 않습니다.',
+    },
   };
 
   for (const found of audit.issues) {

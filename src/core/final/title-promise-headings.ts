@@ -38,6 +38,7 @@ export function buildTitlePromiseBlock(title: string): string {
     '본문 어딘가에 낱말이 흩어져 있는 것으로는 안 됩니다 — 소제목만 훑고 못 찾으면 나갑니다.',
     ...promises.map((p, i) => `   ${i + 1}) ${p}`),
     '나머지 소제목은 다른 각도로 채웁니다. 같은 조각을 두 소제목이 나눠 맡지 않습니다.',
+    '조각이 "9·3 지침" 처럼 날짜 숫자로 시작하면 그 숫자는 번호가 아니라 날짜입니다 — 소제목에 그대로 둡니다.',
     '',
   ].join('\n');
 }
@@ -49,6 +50,23 @@ export function promiseToHeading(promise: string, keyword: string): string {
   const hasKeyword = kw.some((w) => p.includes(w));
   const heading = hasKeyword ? p : `${keyword} ${p}`.trim();
   return heading.length > 40 ? p : heading;
+}
+
+/**
+ * 날짜 접두어 되돌리기 (v3.8.661).
+ * 제목에 "9·3 노동부 지침" 이 있으면 모델은 소제목을 "3 노동부 지침과 …" 로 돌려준다 —
+ * "번호/접두어 없이" 규칙을 "9·" 에 적용해 떼 버린다(실측 3회, 코드 쪽 정규식은 무관했다).
+ * 소제목이 숫자+공백+한글로 시작하고, 제목에 "N·그숫자" 꼴이 있으면 그 접두어를 되살린다.
+ */
+export function restoreDatePrefix(heading: string, title: string): string {
+  const h = String(heading || '').trim();
+  const m = h.match(/^(\d{1,2})\s+([가-힣])/);
+  if (!m) return h;
+  const day = m[1]!;
+  const re = new RegExp(`(\\d{1,2})[·・.](${day})(?=\\s|$)`);
+  const t = String(title || '').match(re);
+  if (!t) return h;
+  return `${t[1]}·${day}${h.slice(day.length)}`;
 }
 
 export interface EnsureResult {

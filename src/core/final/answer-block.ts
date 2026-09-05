@@ -189,7 +189,9 @@ export function buildAnswerBlock(input: AnswerBlockInput): string {
   const keyword = String(input.keyword || '').trim();
   // v3.8.658 실측: 질문 자리에 "[2] 확인 필요: 관리종목 지정 시점" 같은 리포트 점검 항목이 그대로 왔다
   const rawQuestion = sanitizeAnswerText(input.question, MAX_QUESTION_LEN);
-  const questionLooksLikeNote = /^\[\d+\]|확인\s*필요|^근거\s*[:：]|^출처\s*[:：]/.test(rawQuestion);
+  // v3.8.661 실측: 질문 자리에 60자 넘는 서술문("고용노동부 … 보지 않았습니다.")이 왔다 — 질문이 아니면 키워드 질문으로
+  const questionLooksLikeNote = /^\[\d+\]|확인\s*필요|^근거\s*[:：]|^출처\s*[:：]/.test(rawQuestion)
+    || (rawQuestion.length > 60 && !/[?？]\s*$/.test(rawQuestion));
   const question = (rawQuestion && !questionLooksLikeNote ? rawQuestion : '')
     || (keyword ? strings.answerQuestionFallback(keyword) : '');
   if (!question) return '';
