@@ -10272,6 +10272,9 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
           //   해당 블록은 만들어만 놓고 한 번도 안 도는 죽은 코드가 된다.
           reportSlot: (payload as any)?.cpcReportSlot,
           reportUrls: (payload as any)?.cpcReportUrls || [],
+          // v3.8.660 — 화면의 「내 경험 메모」(육하원칙 객체). 에이전트는 orchestration 을 안 타므로 여기서 따로 넘긴다
+          experience: (payload as any)?.experience,
+          authorExperience: (payload as any)?.authorExperience,
           breakingEvent: (payload as any)?.agentBreakingEvent,
         });
       } catch (harnessErr) {

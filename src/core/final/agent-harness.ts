@@ -55,6 +55,10 @@ export interface AgentHarnessInput {
   /** 오늘의 리포트가 이 글에 준 설계도 (v3.8.638) */
   reportSlot?: any;
   reportUrls?: string[];
+  /** 화면의 「내 경험 메모」(육하원칙 객체, payload.experience) — API 경로와 같은 experience-block 으로 넣는다 (v3.8.660) */
+  experience?: unknown;
+  /** 자유 문장 경험 메모 — 육하원칙 객체가 없을 때의 대안 (v3.8.660) */
+  authorExperience?: string;
 }
 
 /**
@@ -229,8 +233,23 @@ export function buildAgentHarnessRules(input: AgentHarnessInput): string {
     SUBSTANCE_FIRST_PASS_RULES,
     HUMAN_VOICE_RULES,
     DECISION_SUPPORT_RULES,
+    // v3.8.660 — 도입의 질문을 끝까지 붙잡는 구성과 필자의 관점. API 경로(generation.ts)와 같은 원본
+    require('./narrative-flow').NARRATIVE_FLOW_RULES,
+    /**
+     * v3.8.660 — 경험은 사람이 적은 메모에서만.
+     * 화면의 「내 경험 메모」는 API 경로(orchestration 43%)만 읽고 있었다 — 에이전트 모드로 발행하면 메모가 버려졌다.
+     * 같은 experience-block 을 쓴다. 메모가 없으면 검색자의 실제 질문으로 상황을 세우고, "겪은 척 금지" 가드를 단다.
+     */
+    ...(() => {
+      const eb = require('./experience-block');
+      const nf = require('./narrative-flow');
+      const formMemo = eb.normalizeExperience(input.experience);
+      if (eb.hasExperience(formMemo)) return [eb.buildExperienceBlock(formMemo)];
+      const freeMemo = nf.buildAuthorExperienceBlock(input.authorExperience);
+      if (freeMemo) return [freeMemo];
+      return [nf.buildRealSituationBlock(input.demandQuestions), NO_EXPERIENCE_GUARD];
+    })(),
     FRESHNESS_RULES,
-    NO_EXPERIENCE_GUARD,
     /**
      * 쇼핑 글에서 에이전트가 만든 상품 링크는 100% 죽은 링크다.
      * 실제 제휴링크는 글을 받은 뒤 앱이 쿠팡 파트너스로 만들어 붙인다.

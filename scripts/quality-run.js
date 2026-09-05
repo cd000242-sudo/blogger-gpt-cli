@@ -172,6 +172,9 @@ function longtailCoverage(text, longtails) {
         FAQ딴답: kinds['faq-answer-mismatch'] || 0,
         빈약절: kinds['thin-section'] || 0,
         답노출: audit.stats.answerExposure,
+        // v3.8.660 — 흐름·관점: 1인칭 판단 문장 수, 회피 표현 1,000자당 횟수
+        관점: audit.stats.firstPersonStance,
+        회피: audit.stats.deferralPer1000,
         글자: text.length,
         팩트밀도: factDensity(text).per1000,
         말투: `${audit.stats.politeEndings}:${audit.stats.formalEndings}`,

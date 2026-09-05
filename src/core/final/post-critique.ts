@@ -456,6 +456,23 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
       area: 'structure', severity: 'medium',
       fix: '절 안의 질문·답 목록을 뺍니다. 그 절에서만 할 수 있는 설명으로 채우고, 질문은 글 끝 FAQ 에만 둡니다.',
     },
+    // v3.8.660 — 흐름·관점
+    'deferral-flood': {
+      area: 'substance', severity: 'high',
+      fix: '"확인하세요·문의하세요·따라 다릅니다" 로 닫은 절마다 필자의 판단 한 문장으로 바꿉니다. 조건이 갈리면 "A면 X, B면 Y" 로 적습니다.',
+    },
+    'no-stance': {
+      area: 'substance', severity: 'high',
+      fix: '절마다 "저는 이 경우 A 쪽으로 봅니다. 이유는 …" 같은 근거 붙은 판단 문장을 넣습니다. 결론 첫 문장은 서론의 질문에 답합니다.',
+    },
+    'title-thread-lost': {
+      area: 'answer', severity: 'medium',
+      fix: '제목이 약속한 상황의 독자에게 그 절이 무엇을 주는지 첫 문장에서 잇습니다. 잇지 못하는 절은 제목과 관계없는 절이니 뺍니다.',
+    },
+    'intro-promise-unkept': {
+      area: 'answer', severity: 'medium',
+      fix: '결론 첫 문장에서 서론이 던진 질문에 답합니다. 서론이 약속한 항목을 마무리에서 하나씩 받아 닫습니다.',
+    },
   };
 
   for (const found of audit.issues) {

@@ -50,6 +50,10 @@ export type AuditKind =
   | 'replacement-artifact' // 코드 치환 찌꺼기("그래서$1")가 본문에 남음 (v3.8.656)
   | 'empty-section'        // 소제목만 있고 본문이 아예 없는 절 (v3.8.658 실측: 5편 중 2편의 마지막 절)
   | 'inline-faq'           // 본문 절 안에 또 FAQ 를 만듦 — 진짜 FAQ 와 질문이 두 번 나온다 (v3.8.659)
+  | 'deferral-flood'       // "확인하세요·문의하세요·따라 다릅니다" 가 넘침 — 판단 대신 회피 (v3.8.660)
+  | 'no-stance'            // 필자의 1인칭 판단이 한 문장도 없음 (v3.8.660)
+  | 'title-thread-lost'    // 제목 낱말이 한 번도 안 나오는 절이 둘 이상 — 제목의 공감이 끊김 (v3.8.660)
+  | 'intro-promise-unkept' // 서론이 약속한 것이 마무리에 없음 — 도입의 문제를 끝까지 못 붙잡음 (v3.8.660)
   | 'tone-mix'            // ⑤ 말투 섞임
   | 'broken-title'        // ⑥ 제목·목차 손상
   // ── v3.8.629 주장·사실 구분 (claim-safety.ts) — 사장님 지시 10개 항목 ──
@@ -87,6 +91,12 @@ export interface AuditReport {
     answerExposure: number | null;
     /** 가장 빈약한 h2 절 / 중간값 — 감점은 1/3 아래일 때만 (v3.8.654) */
     minSectionRatio: number | null;
+    /** v3.8.660 — 회피 표현 1,000자당 횟수 */
+    deferralPer1000: number;
+    /** v3.8.660 — 1인칭 판단 문장 수 ("저는 … 봅니다") */
+    firstPersonStance: number;
+    /** v3.8.660 — 제목 낱말이 한 번도 안 나오는 h2 절 수 */
+    sectionsOffTitle: number;
   };
 }
 
@@ -555,6 +565,9 @@ export function auditArticle(
   const title = String(opts.title || (String(html || '').match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) || [])[1] || '');
   const answerBox = toPlainText((String(html || '').match(/answer-first-a[^>]*>([\s\S]*?)<\/p>/i) || [])[1] || '');
   const thin = findThinSections(sections);
+  // v3.8.660 — 흐름·관점: 회피 밀도 · 1인칭 판단 · 제목 낱말이 끊긴 절 · 서론 약속↔마무리 (호출 0)
+  const flow: { issues: AuditIssue[]; stats: { deferralPer1000: number; firstPersonStance: number; sectionsOffTitle: number } } =
+    require('./narrative-flow').findFlowGaps(html, toPlainText, { title: toPlainText(title) });
 
   const tone = findToneMix(text);
   const paragraphs = text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
@@ -567,6 +580,7 @@ export function auditArticle(
     ...findReplacementArtifacts(text),
     ...findEmptySections(html),
     ...findInlineFaq(html),
+    ...flow.issues,
     ...tone.issues,
     ...findBrokenTitles(heads),
     // v3.8.629 — 사건·분쟁 글의 법적 위험. 확정형 한 문장이 명예훼손이 된다.
@@ -591,6 +605,9 @@ export function auditArticle(
       // v3.8.654 — 감점 없는 수치 둘. 어느 쪽이 돈이 되는지는 실측(RPM)으로 정한다.
       answerExposure: answerExposureRatio(html, toPlainText),
       minSectionRatio: thin.minRatio,
+      deferralPer1000: flow.stats.deferralPer1000,
+      firstPersonStance: flow.stats.firstPersonStance,
+      sectionsOffTitle: flow.stats.sectionsOffTitle,
     },
   };
 }
@@ -613,6 +630,10 @@ export function summarizeAudit(report: AuditReport): string {
     'replacement-artifact': '치환 찌꺼기',
     'empty-section': '빈 절',
     'inline-faq': '본문 속 FAQ',
+    'deferral-flood': '회피 표현 과다',
+    'no-stance': '필자 판단 없음',
+    'title-thread-lost': '제목과 끊긴 절',
+    'intro-promise-unkept': '서론 약속 불이행',
     'tone-mix': '말투 섞임',
     'broken-title': '제목 손상',
     'asserted-crime': '확정형 범죄표현',

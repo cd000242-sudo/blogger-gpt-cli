@@ -28,6 +28,8 @@ import { resolveOfficialLink } from '../../cta/resolve';
 // (v3.8.376 실측: 자동 재생성은 편당 호출 +1 인데 점수가 되레 하락해 결과가 버려졌다)
 import { SUBSTANCE_FIRST_PASS_RULES, FRESHNESS_RULES } from './substance-rules';
 import { DECISION_SUPPORT_RULES } from './decision-support';
+// v3.8.660 — 도입의 질문을 끝까지 붙잡는 구성과 필자의 관점 (에이전트 경로와 같은 원본)
+import { NARRATIVE_FLOW_RULES } from './narrative-flow';
 // v3.8.529: StoryScope(COLM 2026) — 문체가 아니라 구조로 AI 티를 지운다.
 //   발행글 실측(2026-08-19)에서 곁가지 0건·지시형 종결이 그대로 새고 있었다.
 import { STORYSCOPE_STRUCTURE_RULES, STORYSCOPE_FAQ_ENDING_RULE } from './storyscope-rules';
@@ -1701,7 +1703,7 @@ ${contentMode === 'paraphrasing' && draftContent ? '' : draftReference}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${externalModePromptBlock}${internalModePromptBlock}${adsenseModePromptBlock}${shoppingModePromptBlock}${paraphrasingModePromptBlock}${discoverModePromptBlock}${sectionGuideBlock || ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}${STORYSCOPE_STRUCTURE_RULES}
+${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}${STORYSCOPE_STRUCTURE_RULES}${NARRATIVE_FLOW_RULES}
 
 🔴🔴🔴 [10억 점 ${
   contentMode === 'adsense' ? '전문 정보/E-E-A-T'

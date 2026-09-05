@@ -2791,6 +2791,30 @@ ${quoted}
 
     const overallScope = detectKeywordScope(keyword);
     let scopedSectionBlock = modeResult.sectionPromptBlock || '';
+    /**
+     * v3.8.660 — 제목을 절 프롬프트에 박는다.
+     * 사장님: "제목의 공감을 본문이 끝까지 이어받아야 해". 절 생성 호출은 제목을 모른 채 키워드와
+     * 소제목만 받았다 — 그래서 절마다 처음부터 설명을 시작했고 제목이 약속한 독자의 상황이 끊겼다.
+     */
+    if (String(h1 || '').trim()) {
+      scopedSectionBlock = `${scopedSectionBlock}\n\n📌 [이 글의 제목] "${String(h1).trim()}"\n서론은 이 제목이 약속한 독자의 상황을 받아 질문 하나로 끝내고, 모든 절이 그 상황의 그 독자에게 말합니다. 제목의 공감을 본문이 끝까지 이어받습니다.\n`;
+    }
+    /**
+     * v3.8.660 — 경험은 사람이 적은 것만 쓴다.
+     * 화면의 「🧑 내 경험 메모」는 v3.8.4xx 부터 있었는데 **읽는 쪽이 없었다** (조용한 미배선 7번째).
+     * 사장님: "이런 곤란한 상황 속에서 경험을 넣는 걸 원한다 — AI 는 못 만들지만 우리는 만들 수 있게."
+     * 메모가 있으면 1인칭 체험으로 녹이고, 없으면 검색자의 실제 질문으로 상황을 세운다. 체험을 지어내지는 않는다.
+     */
+    try {
+      const { buildAuthorExperienceBlock, buildRealSituationBlock } = require('./narrative-flow');
+      // 화면의 육하원칙 메모(payload.experience)는 아래 43% 단계가 experience-block 으로 넣는다 — 여기서 겹치지 않는다
+      const hasFormMemo = hasExperience(normalizeExperience((payload as any)?.experience));
+      const memoBlock = hasFormMemo ? '' : buildAuthorExperienceBlock((payload as any)?.authorExperience);
+      const situationBlock = (hasFormMemo || memoBlock) ? '' : buildRealSituationBlock(demandSignals?.userQuestions);
+      if (memoBlock) onLog?.('[PROGRESS] 41% - 🙋 내 경험 메모를 본문에 녹입니다 (1인칭 체험은 이 메모에서만)');
+      if (situationBlock) onLog?.('[PROGRESS] 41% - 📥 경험 메모가 없어 검색자의 실제 질문으로 상황을 세웁니다 (체험은 지어내지 않음)');
+      scopedSectionBlock = `${scopedSectionBlock}${memoBlock}${situationBlock}`;
+    } catch { /* 흐름 블록이 없어도 생성은 계속된다 */ }
     if (overallScope) {
       const scopePrepend = `\n🎯🎯🎯 **글 전체 스코프 한정 — 절대 위반 금지!**\n키워드 "${keyword}"가 "${overallScope.qualifier}"으로 끝납니다. ${overallScope.instruction}\n\n⚠️ 아래 섹션별 지시 중 "${overallScope.qualifier}" 외 주제(예: 신청방법/조건/대상자/혜택 등)가 언급되어도 그 부분은 "${overallScope.qualifier}" 관점으로 재해석해서 작성하세요. 모든 H3·본문 단락·결론·CTA·FAQ는 오직 "${overallScope.qualifier}"만 다룹니다.\n위반 시 즉시 실격 — 본문 어디에도 한정자 외 측면을 H3 제목/단락 주제로 만들면 안 됩니다.\n`;
       scopedSectionBlock = `${scopePrepend}${scopedSectionBlock}`;
