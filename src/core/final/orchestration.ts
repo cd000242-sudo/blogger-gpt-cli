@@ -2822,7 +2822,7 @@ ${quoted}
      */
     try {
       const { buildRepeatedFactsBlock } = require('./depth-voice');
-      const factsBlock = buildRepeatedFactsBlock([factEvidence.context, naverGrounding].filter(Boolean).join('\n'));
+      const factsBlock = buildRepeatedFactsBlock([factEvidence.context, naverGrounding].filter(Boolean).join('\n'), { keyword, title: String(h1 || '') });
       if (factsBlock) {
         scopedSectionBlock = `${scopedSectionBlock}${factsBlock}`;
         onLog?.(`[PROGRESS] 41% - 🔢 자료가 되풀이하는 수치 ${(factsBlock.match(/\n   · /g) || []).length}개를 본문 지시에 넣었습니다`);
@@ -3670,6 +3670,30 @@ ${quoted}
         sections.splice(0, sections.length, ...keptSections);
         if (aligned) h2Titles = keptTitles;
       }
+      /**
+       * v3.8.663 — 표는 글 전체 3개까지. 프롬프트로 "최대 3개" 를 시켜도 4~6개가 왔다(실측 5편 전부).
+       * 숫자가 가장 적은 표부터 뺀다 — 표를 빼도 글이 성립하도록 이미 시켜 두었다(표는 보조).
+       */
+      try {
+        const MAX_TABLES = 3;
+        const all: Array<{ si: number; hi: number; ti: number; digits: number }> = [];
+        sections.forEach((section: any, si: number) => {
+          (section.h3Sections || []).forEach((h: any, hi: number) => {
+            (h?.tables || []).forEach((t: any, ti: number) => {
+              const text = [...(t?.headers || []), ...((t?.rows || []).flat())].join(' ');
+              all.push({ si, hi, ti, digits: (String(text).match(/\d/g) || []).length });
+            });
+          });
+        });
+        if (all.length > MAX_TABLES) {
+          const drop = [...all].sort((a, b) => a.digits - b.digits).slice(0, all.length - MAX_TABLES);
+          for (const d of drop) {
+            const h = (sections[d.si] as any).h3Sections[d.hi];
+            h.tables = (h.tables || []).filter((_t: any, i: number) => i !== d.ti);
+          }
+          onLog?.(`[PROGRESS] 78% - 📊 표 ${all.length}개 중 숫자가 적은 ${drop.length}개를 뺐습니다 (글 전체 ${MAX_TABLES}개까지)`);
+        }
+      } catch { /* 표 정리 실패는 넘어간다 */ }
       /**
        * v3.8.661 — 모델이 "9·3 노동부 지침" 의 "9·" 를 번호로 알고 뗀 소제목("3 노동부 지침과 …")을 되돌린다.
        * 목차와 본문 h2 가 모두 h2Titles 를 쓰므로 여기 한 곳이면 된다.

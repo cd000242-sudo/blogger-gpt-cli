@@ -468,6 +468,21 @@ export function findEmptySections(html: string): AuditIssue[] {
 export function findInlineFaq(html: string): AuditIssue[] {
   const out: AuditIssue[] = [];
   const src = String(html || '');
+  /**
+   * v3.8.663 실측: h2 "4. 은행 심사 거절 뒤 자주 묻는 질문" — 본문 절 제목에 FAQ 를 박고 그 아래 Q/A 를 늘어놓았다.
+   * 진짜 FAQ 블록의 h2 는 "자주 묻는 질문 (FAQ)" 뿐이다. FAQ 낱말이 든 h2 에 다른 낱말이 더 붙어 있으면 본문이 흉내 낸 것이다.
+   */
+  for (const m of src.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi)) {
+    const heading = toPlainText(m[1] || '').replace(/^\d+[.)]\s*/, '').trim();
+    if (/자주\s*묻는|FAQ/i.test(heading) && heading.replace(/자주\s*묻는\s*질문|\(?FAQ\)?|\s/gi, '').length >= 2) {
+      return [{
+        kind: 'inline-faq',
+        title: `본문 절 제목에 FAQ 를 넣었습니다: "${heading.slice(0, 30)}"`,
+        evidence: 'FAQ 는 글 끝에 하나입니다. 절 제목에 "자주 묻는 질문" 을 달고 Q/A 를 늘어놓으면 같은 질문이 두 번 나오고 절의 역할이 사라집니다.',
+        penalty: 6,
+      }];
+    }
+  }
   for (const m of src.matchAll(/<h3[^>]*>([\s\S]*?)<\/h3>/gi)) {
     const heading = toPlainText(m[1] || '').trim();
     if (/자주\s*묻는|FAQ|질문과?\s*답|Q\s*&\s*A/i.test(heading)) {
@@ -486,9 +501,10 @@ export function findInlineFaq(html: string): AuditIssue[] {
    */
   const faqAt = src.search(/<h2[^>]*>[^<]*(?:자주\s*묻는|FAQ)/i);
   const body = faqAt >= 0 ? src.slice(0, faqAt) : src;
+  // 질문만 있는 문단, 또는 "…나요? 답…" 처럼 질문으로 시작하는 문단 (v3.8.663)
   const questionParas = [...body.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
     .map((m) => toPlainText(m[1] || '').trim())
-    .filter((t) => t.length >= 8 && t.length <= 70 && /[?？]$/.test(t) && !/[.。]/.test(t));
+    .filter((t) => t.length >= 6 && /^[^.。]{6,70}[?？](?:\s|$)/.test(t));
   if (questionParas.length >= 3) {
     out.push({
       kind: 'inline-faq',

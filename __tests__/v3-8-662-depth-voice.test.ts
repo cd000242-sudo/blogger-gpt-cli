@@ -84,7 +84,7 @@ describe('v3.8.662 깊이와 목소리', () => {
     expect(DEPTH_VOICE_RULES).toContain('표는 글 전체에 최대 3개');
     expect(read('src/core/final/generation.ts')).toContain('${DEPTH_VOICE_RULES}');
     expect(read('src/core/final/agent-harness.ts')).toContain("require('./depth-voice').DEPTH_VOICE_RULES");
-    expect(read('src/core/final/agent-harness.ts')).toContain('buildRepeatedFactsBlock(input.evidence)');
+    expect(read('src/core/final/agent-harness.ts')).toContain('buildRepeatedFactsBlock(input.evidence, {');
     const o = read('src/core/final/orchestration.ts');
     expect(o).toContain('buildRepeatedFactsBlock([factEvidence.context, naverGrounding]');
     const p = read('src/core/final/pre-publish-fix.ts');
