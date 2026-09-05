@@ -24,11 +24,21 @@
  * 앱이 고장 났는지 리포트가 아직 안 나왔는지 알 수가 없다.
  */
 
-/** 리포트 이름 규칙 — 앞에 날짜가 붙는다 */
-const REPORT_NAME_RE = /^(\d{4}-\d{2}-\d{2})\s*고CPC\s*키워드\s*리포트/;
+/**
+ * 리포트 이름 규칙 — 앞에 날짜, 뒤에 「키워드 리포트」.
+ *
+ * v3.8.643: 가운데 말은 못박지 않는다. 사장님이 생성기를 올리면서 이름이 바뀌었다.
+ *   「2026-09-04 **고CPC** 키워드 리포트」
+ *   「2026-09-05 **네이버 상위노출** 키워드 리포트 (v5 시범)」
+ * 「고CPC」로 못박아 뒀더니 새 리포트를 아예 못 찾았다.
+ */
+const REPORT_NAME_RE = /^(\d{4}-\d{2}-\d{2})\s*[^\n]*키워드\s*리포트/;
 
-/** 드라이브 검색에 쓸 이름 조각 */
-export const REPORT_NAME_HINT = '고CPC 키워드 리포트';
+/** 드라이브 검색에 쓸 이름 조각 — 넓게 찾고, 고르는 건 아래에서 한다 */
+export const REPORT_NAME_HINT = '키워드 리포트';
+
+/** 같은 날 여러 개면 이걸 먼저 쓴다 (v3.8.644 — 사장님이 쓰기로 한 리포트) */
+export const PREFERRED_NAME = /네이버\s*상위노출/;
 
 const DOC_MIME = 'application/vnd.google-apps.document';
 const MD_MIME = 'text/markdown';
@@ -112,6 +122,11 @@ function isMarkdownBackup(file: DriveFile): boolean {
  * 이름에 날짜가 없는 파일(장부·아카이브 등)은 아예 후보에서 뺀다 —
  * 같은 폴더에 매일 열 몇 개가 같이 쌓이기 때문이다.
  */
+/** 「… (원문 md 백업)」에서 앞의 본 이름만 */
+function baseName(name: string): string {
+  return String(name || '').replace(/\s*\(원문\s*md\s*백업\)\s*$/, '').trim();
+}
+
 export function pickBestReport(files: DriveFile[]): DriveFile | null {
   const dated = (files || [])
     .map((f) => ({ file: f, date: reportDateOf(f.name) }))
@@ -119,8 +134,43 @@ export function pickBestReport(files: DriveFile[]): DriveFile | null {
   if (dated.length === 0) return null;
 
   const newest = dated.reduce((a, b) => (b.date > a.date ? b : a)).date;
-  const sameDay = dated.filter((x) => x.date === newest).map((x) => x.file);
-  return sameDay.find(isMarkdownBackup) || sameDay[0] || null;
+  const allSameDay = dated.filter((x) => x.date === newest).map((x) => x.file);
+
+  /**
+   * v3.8.644 — 「네이버 상위노출」 리포트를 먼저 본다.
+   *
+   * 사장님: "이제 네이버 상위노출 키워드 리포트를 찾으면되"
+   *
+   * 이름으로 고른다. 시각으로만 고르면 어느 날 옛 리포트가 더 늦게 올라오는
+   * 순간 조용히 그쪽으로 넘어간다 — 사장님은 왜 옛 키워드가 뜨는지 모른다.
+   * 다만 못박지는 않는다. 그날 새 리포트가 없으면 있는 것이라도 보여 주는 편이
+   * 화면이 텅 비는 것보다 낫다.
+   */
+  const preferred = allSameDay.filter((f) => PREFERRED_NAME.test(f.name || ''));
+  const sameDay = preferred.length ? preferred : allSameDay;
+
+  /**
+   * v3.8.643 — 같은 날 리포트가 둘 이상일 수 있다.
+   *
+   * 실측 2026-09-05: 01:03 「고CPC 키워드 리포트」, 05:30 「네이버 상위노출 키워드 리포트 (v5 시범)」.
+   * 사장님이 생성기를 올린 날은 옛 리포트와 새 리포트가 같은 날에 나란히 있는다.
+   * **가장 최근에 올라온 것**이 사장님이 쓰려는 것이다.
+   *
+   * 그리고 그 리포트의 md 원문이 따로 있으면 그쪽을 쓴다 — 다른 리포트의
+   * md 원문을 집으면 더 오래된 것으로 되돌아간다(예전 규칙의 구멍이었다).
+   */
+  const newestFirst = [...sameDay].sort(
+    (a, b) => String(b.modifiedTime || '').localeCompare(String(a.modifiedTime || '')),
+  );
+  const head = newestFirst[0];
+  if (!head) return null;
+
+  const twin = newestFirst.find(
+    (f) => f !== head && isMarkdownBackup(f) && baseName(f.name) === baseName(head.name),
+  );
+  return twin || (isMarkdownBackup(head) ? head : newestFirst.find(
+    (f) => isMarkdownBackup(f) && baseName(f.name) === baseName(head.name),
+  ) || head);
 }
 
 /** 드라이브에서 리포트 후보를 찾는다 */

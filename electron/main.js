@@ -4376,6 +4376,18 @@ async function loadReportFromDrive(published) {
     if (!found) {
         return { ok: false, enabled: true, message: '오늘 리포트가 아직 드라이브에 없습니다' };
     }
+    /**
+     * v3.8.642 — 못 읽었을 때야말로 **원문을 남겨야 한다.**
+     *
+     * 예전에는 파싱에 성공한 뒤에만 저장해서, 정작 서식이 바뀌어 실패한 날에는
+     * 무엇을 받았는지 확인할 길이 없었다(2026-09-05 실측: 구글 문서 내보내기가
+     * `## 슬롯 A` 로 나오는데 파서는 `#` 하나만 받아 슬롯 0개가 됐다).
+     * 실패한 파일이 곧 증거다 — 먼저 적어 둔다.
+     */
+    try {
+        fs.writeFileSync(cpcReportCachePath(), found.markdown, 'utf-8');
+    }
+    catch { /* 기록 실패가 표시를 막지 않는다 */ }
     const report = parseCpcReport(found.markdown);
     const slots = usableSlots(report);
     if (!slots.length) {
@@ -4386,10 +4398,6 @@ async function loadReportFromDrive(published) {
             message: `리포트를 받았지만 항목을 읽지 못했습니다 (${found.name})`,
         };
     }
-    try {
-        fs.writeFileSync(cpcReportCachePath(), found.markdown, 'utf-8');
-    }
-    catch { /* 기록 실패가 표시를 막지 않는다 */ }
     const split = splitByPublished(slots, published);
     // 어제 것을 오늘 것으로 착각하지 않게, 마지막으로 쓴 파일 id 와 비교한다
     let lastId = '';

@@ -147,7 +147,9 @@ describe('v3.8.634 드라이브에서 리포트 가져오기', () => {
       await listReportFiles('AT', f.impl);
       // URLSearchParams 는 공백을 + 로 적는다 (드라이브가 받는 표준 꼴)
       const asked = decodeURIComponent(f.calls[0]!).replace(/\+/g, ' ');
-      expect(asked).toContain('고CPC 키워드 리포트');
+      // v3.8.643: 가운데 말을 못박지 않는다 — 「고CPC」 로 두었더니
+      //   「네이버 상위노출 키워드 리포트」 를 아예 못 찾았다. 고르는 건 pickBestReport 가 한다.
+      expect(asked).toContain('키워드 리포트');
       expect(asked).toContain('trashed = false');
       expect(f.calls[0]).toContain('orderBy=modifiedTime+desc');
     });

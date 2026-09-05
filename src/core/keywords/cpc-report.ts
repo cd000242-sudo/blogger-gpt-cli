@@ -56,7 +56,20 @@ export interface CpcReport {
 }
 
 /** "# 슬롯 A - ..." 로 시작하는 덩어리로 자른다 */
-const SLOT_HEAD = /^#\s*슬롯\s*([A-Z])\s*[-–—]?\s*(.*)$/gm;
+/**
+ * 슬롯 제목. **제목 단계를 못박지 않는다** (v3.8.642).
+ *
+ * 실측 2026-09-05: 같은 리포트가 날마다 다른 단계로 나온다.
+ *   09-04 (md 원문 백업):    `# 슬롯 A - 시의성·디스커버형 (워드프레스)`
+ *   09-05 (구글 문서 내보내기): `## 슬롯 A — 시의성·디스커버형 / 워드프레스`
+ *
+ * `#` 하나만 받다가 09-05 리포트를 **슬롯 0개**로 읽었다. 화면에는
+ * "리포트를 받았지만 항목을 읽지 못했습니다" 만 떴다 — 사장님이 그걸 보고
+ * "이미 쓴 키워드는 어디서 보냐" 고 물으셨다. 볼 게 아예 없었다.
+ *
+ * 이름 뒤 구분자도 매체마다 다르다(`-` `–` `—` `:` 없음). 전부 받는다.
+ */
+const SLOT_HEAD = /^#{1,6}\s*슬롯\s*([A-Z])\b\s*[-–—:：]?\s*(.*)$/gm;
 
 /** 마크다운 강조·목록 기호를 걷어 사람이 읽는 한 줄로 */
 function clean(line: string): string {
@@ -100,9 +113,64 @@ function valueOf(block: string, label: string): string {
 function confirmedTitle(block: string): string {
   const m = block.match(/확정[^:：\n]*[:：][^「」\n]*「([^」]+)」/);
   if (m) return clean(m[1]!);
+  /**
+   * v3.8.643 — 콜론 없이 백틱으로 오는 꼴도 받는다.
+   * v5 리포트 실측: **확정 제목 (44자)** `환경개선부담금 면제 대상 자동 적용 여부와…`
+   */
+  const tick = block.match(/확정\s*제목[^\n`]*`([^`\n]+)`/);
+  if (tick) return clean(tick[1]!);
   // 낫표가 없는 경우 — 콜론 뒤 전부
   const alt = block.match(/^\s*[-*•]?\s*\*{0,2}확정\b[^:：\n]*[:：]\s*(.+)$/m);
   return alt ? clean(alt[1]!).replace(/^「|」$/g, '') : '';
+}
+
+/**
+ * 번호 항목 꼴 리포트 (v3.8.643).
+ *
+ * 사장님이 리포트 생성기를 올리면서 서식이 통째로 바뀌었다 —
+ * 「2026-09-05 네이버 상위노출 키워드 리포트 (v5 시범)」에는 **슬롯이 없다.**
+ *   ## 1. 환경개선부담금 면제 — 자동차·세금 / 최우선
+ *   **확정 제목 (44자)** `…`
+ *   **롱테일 파생**  (번호 목록)
+ *   **발행 전 확인**: …
+ *
+ * 슬롯 꼴을 못 찾았을 때만 이쪽을 본다 — 둘 다 시도하면 한 리포트에서
+ * 항목이 두 벌로 늘어난다.
+ */
+const NUMBERED_HEAD = /^#{1,6}\s*(\d{1,2})\s*[.)]\s*(.+)$/gm;
+
+function parseNumberedItems(src: string): CpcSlot[] {
+  const heads: { at: number; no: string; text: string }[] = [];
+  NUMBERED_HEAD.lastIndex = 0;
+  for (let m = NUMBERED_HEAD.exec(src); m; m = NUMBERED_HEAD.exec(src)) {
+    heads.push({ at: m.index, no: m[1]!, text: clean(m[2] || '') });
+  }
+  if (heads.length === 0) return [];
+
+  return heads.map((head, i) => {
+    const to = i + 1 < heads.length ? heads[i + 1]!.at : src.length;
+    const block = src.slice(head.at, to);
+    // "환경개선부담금 면제 — 자동차·세금 / 최우선" → 키워드는 구분자 앞
+    const keyword = head.text.split(/\s[-–—]\s/)[0]!.trim();
+    const label = head.text.slice(keyword.length).replace(/^\s*[-–—]\s*/, '').trim();
+    return {
+      slot: head.no,
+      label,
+      keyword,
+      title: confirmedTitle(block),
+      grade: valueOf(block, '등급'),
+      longtails: itemsUnder(block, /\*{0,2}롱테일\s*파생/),
+      // v5 는 목록이 아니라 한 줄로 온다: **발행 전 확인**: …
+      mustCheck: (() => {
+        const list = itemsUnder(block, /\*{0,2}발행\s*전\s*확인/);
+        if (list.length) return list;
+        const one = block.match(/\*{0,2}발행\s*전\s*확인\*{0,2}\s*[:：]\s*(.+)$/m);
+        return one ? [clean(one[1]!)] : [];
+      })(),
+      track: (block.match(/배정\s*트랙\s*[:：]\s*([^\n*]+)/) || [])[1]?.trim() || '',
+      empty: /미확보|배정 불가/.test(block.split('\n').slice(0, 3).join(' ')),
+    };
+  });
 }
 
 /**
@@ -145,6 +213,9 @@ export function parseCpcReport(markdown: string): CpcReport {
   const urls = [...new Set(
     (src.match(/https?:\/\/[^\s<>()「」\]]+/g) || []).map((u) => u.replace(/[.,]+$/, '')),
   )];
+
+  // 슬롯 꼴이 아니면 번호 항목 꼴로 다시 본다 (v3.8.643 — v5 리포트)
+  if (slots.length === 0) return { date, slots: parseNumberedItems(src), urls };
 
   return { date, slots, urls };
 }
