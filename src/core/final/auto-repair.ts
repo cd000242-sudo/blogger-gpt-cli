@@ -50,10 +50,29 @@ function outsideTags(html: string, fix: (text: string) => { text: string; count:
   return { html: out, count: total };
 }
 
+/**
+ * 숫자 안의 쉼표에서 줄이 갈린 것 (v3.8.657). 실측: "5,<br>\n087대, 약 2억2천만원"
+ * 모델이 절 단위로 <br> 을 넣다가 천 단위 쉼표를 절 경계로 봤다. 기계로 붙인다.
+ */
+export function repairSplitNumbers(html: string): { html: string; count: number } {
+  let count = 0;
+  const fixed = String(html || '').replace(/(\d),\s*<br\s*\/?>\s*(?=\d{3}(?!\d))/gi, (_m, d) => { count += 1; return `${d},`; });
+  return { html: fixed, count };
+}
+
+/** 본문에 그대로 적힌 주소 — 마침표 뒤에 공백을 넣으면 주소가 깨진다 (실측: "www. globalepic. co. kr") */
+const BARE_URL = /(?:https?:\/\/|www\.)[^\s<]+/g;
+
 export function repairGluedSentences(html: string): { html: string; count: number } {
   return outsideTags(html, (text) => {
     let count = 0;
-    const fixed = text.replace(GLUED, (m) => { count += 1; return m + ' '; });
+    // v3.8.657 — 주소 조각은 건너뛰고 나머지 글에만 적용한다
+    const fixed = text.split(BARE_URL).length === 1
+      ? text.replace(GLUED, (m) => { count += 1; return m + ' '; })
+      : text.replace(/((?:https?:\/\/|www\.)[^\s<]+)|([^]*?)(?=(?:https?:\/\/|www\.)[^\s<]+|$)/g, (_w, url, plain) => {
+        if (url) return url;
+        return String(plain || '').replace(GLUED, (m) => { count += 1; return m + ' '; });
+      });
     return { text: fixed, count };
   });
 }
@@ -176,15 +195,27 @@ export function removeEchoedSentences(html: string): { html: string; count: numb
       .flatMap((seg) => seg.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean));
     if (parts.length === 0) return whole;
 
+    /**
+     * 첫 문장은 지키고, "첫째·둘째" 같은 번호 문장도 지킨다 (v3.8.657).
+     * 실측: 절의 첫 문장("신규 전입자는 7월 1일 이후 전입…")이 지워져 절이 "이때 기준이…" 로
+     * 시작했고, 마무리의 "둘째" 문단이 통째로 사라져 "첫째, … 셋째, …" 만 남았다.
+     * 첫 문장은 그 문단의 주장이고, 번호 문장은 빠지면 열거가 깨진다.
+     * 문단이 한 문장뿐이고 통째로 겹치는 경우(아래)는 여전히 문단째 뺀다 — 번호 문장만 빼고.
+     */
+    const ORDINAL = /^(?:첫째|둘째|셋째|넷째|다섯째|여섯째|마지막으로)[,\s]/;
     const kept: string[] = [];
-    for (const part of parts) {
-      const isEcho = part.length >= ECHO_MIN_CHARS
+    for (let pi = 0; pi < parts.length; pi++) {
+      const part = parts[pi]!;
+      const protectedSentence = (pi === 0 && parts.length > 1) || ORDINAL.test(part);
+      const isEcho = !protectedSentence
+        && part.length >= ECHO_MIN_CHARS
         && deleted < ECHO_MAX_DELETIONS
         && seen.some((s) => echoSimilarity(part, s) >= ECHO_RATIO);
       if (isEcho) { deleted++; continue; }
       kept.push(part);
       if (part.length >= ECHO_MIN_CHARS) seen.push(part);
     }
+    if (parts.length === 1 && ORDINAL.test(parts[0]!)) return whole;
 
     if (kept.length === parts.length) return whole;
 
@@ -246,6 +277,13 @@ export function autoRepairBeforePublish(html: string): RepairResult {
   if (glued.count > 0) {
     working = glued.html;
     repairs.push({ kind: 'glued-sentence', count: glued.count, note: '마침표 뒤에 공백을 넣었습니다' });
+  }
+
+  // v3.8.657 — 천 단위 쉼표에서 갈린 숫자를 붙인다 ("5,<br>087대")
+  const splitNums = repairSplitNumbers(working);
+  if (splitNums.count > 0) {
+    working = splitNums.html;
+    repairs.push({ kind: 'split-number', count: splitNums.count, note: '쉼표에서 갈린 숫자를 붙였습니다' });
   }
 
   const filler = repairPersonalFiller(working);

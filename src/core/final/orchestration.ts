@@ -4325,6 +4325,14 @@ ${quoted}
         .replace(/^소제목[:\s]*/gi, '')
         .replace(/^\d+[.\):\s]+/g, '')
         .trim();
+      /**
+       * v3.8.657 — 본문 소제목은 **계획된 h2Titles 를 쓴다.**
+       * 실측: 목차는 "5. 공식 안내 확인과 문의 전 준비할 정보" 인데 본문 h2 는 모델이 돌려준
+       * "과 문의 전 준비할 정보" 였다. 목차와 본문이 어긋나면 독자가 길을 잃고,
+       * 제목 약속을 맡긴 소제목(v3.8.655)도 본문에선 사라진다. 계획이 곧 본문이어야 한다.
+       */
+      const plannedH2 = String(h2Titles[idx] || '').replace(/^\d+[.\):\s]+/g, '').trim();
+      if (plannedH2) cleanH2 = plannedH2;
       // 🛡️ 빈 제목 폴백 (h2Titles 배열에서 복구)
       if (!cleanH2 && h2Titles[idx]) {
         cleanH2 = h2Titles[idx]!.replace(/^\d+[.\):\s]+/g, '').trim();
