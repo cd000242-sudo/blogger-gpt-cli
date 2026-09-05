@@ -1163,6 +1163,8 @@ export async function generateH2TitlesFinal(
   subheadings: string[],
   maxCount?: number,
   demandSignals?: { userQuestions?: string[]; searchQueries?: string[] },
+  /** v3.8.655 — 제목이 정해져 있으면 그 약속 조각을 맡을 소제목을 요구하는 블록 */
+  titlePromiseBlock?: string,
 ): Promise<string[]> {
   // 빈도 분석
   const freq = new Map<string, number>();
@@ -1285,7 +1287,7 @@ export async function generateH2TitlesFinal(
       keyword,
       targetCount,
       currentYear,
-      scopeBlock,
+      scopeBlock: `${scopeBlock}${titlePromiseBlock || ''}`,
       intentBlock,
       subheadingReference,
     })
@@ -1293,7 +1295,7 @@ export async function generateH2TitlesFinal(
 키워드: ${keyword}
 ${scopeBlock}${topicProfileBlock}${intentBlock}
 ${subheadingReference}
-
+${titlePromiseBlock || ''}
 🔴🔴🔴 **핵심 규칙 - 중복 금지 & 다양성 확보!**:
 1. 각 H2는 완전히 다른 주제/관점을 다뤄야 함
 2. 같은 내용을 다르게 표현하지 마세요 (예: "방법", "하는 법" 1개만)

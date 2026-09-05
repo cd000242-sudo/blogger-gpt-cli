@@ -426,6 +426,22 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
       area: 'structure', severity: 'medium',
       fix: '마지막 문단은 핵심 숫자와 현재 상태만 2~4문장으로 줄입니다. 본문을 다시 말하지 않습니다.',
     },
+    /**
+     * v3.8.654 — 독자가 나가는 자리. 100점 글을 읽고 만든 검사 셋.
+     * 사장님: "글내용이 중요해 사람들이 읽고 이탈하면 절대안된다고"
+     */
+    'title-promise-unkept': {
+      area: 'answer', severity: 'high',
+      fix: '제목이 약속한 조각마다 그것에 답하는 소제목을 하나씩 둡니다. 답을 모르면 제목에서 그 약속을 뺍니다 — 약속하고 안 지키는 것이 가장 나쁩니다.',
+    },
+    'faq-answer-mismatch': {
+      area: 'answer', severity: 'medium',
+      fix: '질문이 묻는 것에 첫 문장에서 바로 답합니다. 질문의 핵심 낱말이 답에 있어야 합니다. 답을 모르면 그 질문을 뺍니다.',
+    },
+    'thin-section': {
+      area: 'structure', severity: 'medium',
+      fix: '그 절에서만 할 수 있는 이야기를 채우거나, 이웃 절과 합칩니다. 소제목만 있고 내용이 없는 절은 독자가 나가는 자리이고 광고가 붙을 자리도 안 됩니다.',
+    },
   };
 
   for (const found of audit.issues) {

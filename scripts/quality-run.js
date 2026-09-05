@@ -116,7 +116,7 @@ function longtailCoverage(text, longtails) {
       };
       const res = await generateUltimateMaxModeArticleFinal(payload, env, (m) => {
         if (/PROGRESS/.test(m)) return;
-        if (/리포트 설계도|속보|자가 수정|장부/.test(m)) console.log('     ' + m.slice(0, 110));
+        if (/리포트 설계도|속보|자가 수정|장부|소제목 교체|정해 둔 제목/.test(m)) console.log('     ' + m.slice(0, 140));
       });
 
       /**
@@ -130,13 +130,20 @@ function longtailCoverage(text, longtails) {
       const usd = (u.input / 1e6) * 2 + (u.output / 1e6) * 12;
       const html = res.html || '';
       const text = toPlainText(html);
-      const audit = auditArticle(html);
+      // v3.8.655 — 제목을 넘겨야 「제목 약속 불이행」을 본다 (본문에 h1 이 없다)
+      const finalTitle = String(res.title || slot.title || '');
+      const audit = auditArticle(html, [], { title: finalTitle });
       const kinds = {};
       audit.issues.forEach((x) => { kinds[x.kind] = (kinds[x.kind] || 0) + 1; });
 
       rows.push({
         키워드: keyword.slice(0, 22),
+        title: finalTitle,
         점수: audit.score,
+        제목약속: kinds['title-promise-unkept'] || 0,
+        FAQ딴답: kinds['faq-answer-mismatch'] || 0,
+        빈약절: kinds['thin-section'] || 0,
+        답노출: audit.stats.answerExposure,
         글자: text.length,
         팩트밀도: factDensity(text).per1000,
         말투: `${audit.stats.politeEndings}:${audit.stats.formalEndings}`,

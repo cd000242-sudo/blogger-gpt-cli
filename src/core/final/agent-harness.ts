@@ -153,6 +153,8 @@ function buildTitleRules(input: AgentHarnessInput): string {
     '5. 키워드는 제목 앞쪽에 자연스럽게 한 번만 넣습니다. 두 번 반복하지 않습니다.',
     '6. **제목에 개수를 약속하지 마세요** ("용어 20개", "방법 7가지"). 글이 실제로 그만큼 담을 때만 쓸 수 있습니다.',
     '   금액·기간·비율도 근거로 확인된 값만 씁니다. 확인 못 했으면 숫자 없이 씁니다.',
+    '7. **제목이 약속한 조각마다 그것을 맡는 소제목(H2)을 하나씩 둡니다.** 「A 여부와 B 방법」이면 A 를 답하는 절, B 를 설명하는 절이 따로 있어야 합니다.',
+    '   본문 어딘가에 낱말이 흩어져 있는 것으로는 안 됩니다 — 독자는 소제목만 훑고 못 찾으면 나갑니다.',
     '',
     questions.length
       ? [
@@ -204,7 +206,9 @@ export function buildAgentHarnessRules(input: AgentHarnessInput): string {
         const slot = (input as any).reportSlot;
         if (!slot || !(slot.keyword || slot.title)) return '';
         const { buildReportDirective } = require('../keywords/cpc-report');
-        return buildReportDirective(slot, (input as any).reportUrls || []);
+        // v3.8.655 — 리포트가 제목을 확정했으면 그 약속 조각을 맡을 소제목을 요구한다 (API 경로와 같은 블록)
+        const { buildTitlePromiseBlock } = require('./title-promise-headings');
+        return buildReportDirective(slot, (input as any).reportUrls || []) + buildTitlePromiseBlock(String(slot.title || ''));
       } catch { return ''; }
     })(),
     buildResearchDirective(input),

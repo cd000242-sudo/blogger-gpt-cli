@@ -1596,7 +1596,8 @@ export async function generateUltimateMaxModeArticleFinal(
       const internalScope = detectKeywordScope(keyword);
       const fallbackTitles = generateIntentAwareFallbackH2Titles(keyword, 5, internalScope);
       try {
-        const llmTitles = await generateH2TitlesFinal(keyword, subheadings, 5, demandSignals);
+        const { buildTitlePromiseBlock: promiseBlockFor } = require('./title-promise-headings');
+        const llmTitles = await generateH2TitlesFinal(keyword, subheadings, 5, demandSignals, promiseBlockFor(String(h1 || '')));
         if (Array.isArray(llmTitles) && llmTitles.length >= 5) {
           h2Titles = llmTitles.slice(0, 5);
           onLog?.(`[PROGRESS] 38% - 🧠 LLM 기반 구체 H2 5개 생성: ${h2Titles.join(' / ')}`);
@@ -1662,7 +1663,21 @@ export async function generateUltimateMaxModeArticleFinal(
       if (maxH2Count) {
         onLog?.(`[PROGRESS] 35% - 🔢 소제목 최대 ${maxH2Count}개로 제한 (사용자 지정)`);
       }
-      h2Titles = await generateH2TitlesFinal(keyword, subheadings, maxH2Count, demandSignals);
+      /**
+       * v3.8.655 — 제목은 이미 정해져 있다(위 30%). 제목이 약속한 조각마다 그것을 맡는
+       * 소제목을 요구하고, 모델이 안 맡았으면 코드가 가장 동떨어진 소제목 하나를 바꾼다.
+       * 실측(v3.8.654): 「자동 적용 여부와 신청 방법」을 맡은 절이 없어 100점 글이 88점.
+       * 둘 다 호출 0회 — 첫 생성에서 지켜야 비용이 안 는다.
+       */
+      const { buildTitlePromiseBlock, ensureTitlePromiseHeadings } = require('./title-promise-headings');
+      h2Titles = await generateH2TitlesFinal(keyword, subheadings, maxH2Count, demandSignals, buildTitlePromiseBlock(String(h1 || '')));
+      const promised = ensureTitlePromiseHeadings(String(h1 || ''), h2Titles, keyword);
+      if (promised.replaced.length > 0) {
+        h2Titles = promised.h2Titles;
+        for (const { from, to } of promised.replaced) {
+          onLog?.(`[PROGRESS] 40% - 🎯 제목이 약속한 것을 맡도록 소제목 교체: "${from}" → "${to}"`);
+        }
+      }
       onLog?.(`[PROGRESS] 40% - ✅ 소제목 ${h2Titles.length}개 완료`
         + (maxH2Count ? '' : ' (재료에 맞춰 자동 결정)'));
     }

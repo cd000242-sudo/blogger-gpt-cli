@@ -61,6 +61,7 @@ const AI_FIXABLE = new Set([
   'cross-section-echo',
   'unfulfilled-heading',
   'title-unanswered',
+  'title-promise-unkept',
   'report-longtail-missing',
 ]);
 
@@ -93,7 +94,8 @@ export function inspectBeforePublish(input: { title: string; html: string; repor
   // ① 글 품질 하네스 + 주장·사실 구분
   let audited: AuditIssue[] = [];
   try {
-    audited = auditArticle(html).issues;
+    // v3.8.655 — 제목을 넘겨야 「제목 약속 불이행」을 본다 (본문에 h1 이 없는 경우가 많다)
+    audited = auditArticle(html, [], { title }).issues;
   } catch { /* 검사 실패가 발행을 막지 않는다 */ }
   for (const issue of audited) {
     push({
@@ -196,6 +198,7 @@ const FIX_HINTS: Record<string, string> = {
   'cross-section-echo': '앞 구간과 겹치는 문장을 지우고, 이 구간에서만 할 수 있는 이야기로 채웁니다. 없으면 짧게 두세요 — 늘리려고 같은 말을 반복하지 않습니다.',
   'unfulfilled-heading': '소제목이 약속한 내용을 근거에서 찾아 넣습니다. 근거에 없으면 소제목을 본문에 맞게 바꿉니다. 없는 사실을 지어내지 않습니다.',
   'report-longtail-missing': '이 내용을 다루는 구간을 만듭니다. 근거에서 확인된 것만 씁니다 — 채우려고 지어내지 않습니다. 대신 같은 말을 되풀이하던 문장은 지웁니다.',
+  'title-promise-unkept': '제목이 약속한 조각(예: "자동 적용 여부", "신청 방법")마다 이 구간에서 한 문단씩 정면으로 답합니다. 근거에 답이 없으면 "확인되지 않았다" 고 밝힙니다. 지어내지 않습니다.',
   'title-unanswered': '첫 문단에서 제목의 질문에 곧바로 답합니다. 조건이 갈리면 "A면 된다 / B면 안 된다" 로 나눠 적습니다. 근거에 답이 없으면 "확인되지 않았다" 고 밝힙니다.',
 };
 

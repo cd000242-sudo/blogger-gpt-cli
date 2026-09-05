@@ -28,6 +28,13 @@
  */
 
 import { auditClaimSafety } from './claim-safety';
+import {
+  findUnkeptTitlePromises,
+  extractFaqPairs,
+  findFaqMismatches,
+  findThinSections,
+  answerExposureRatio,
+} from './reader-retention';
 
 export type AuditKind =
   | 'glued-sentence'      // ① 마침표 뒤 공백 없음
@@ -36,6 +43,10 @@ export type AuditKind =
   | 'unfulfilled-heading' // ③ 소제목이 약속을 안 지킴
   | 'no-legal-basis'      // ④ 근거 조항 없음
   | 'writing-process-leak' // ④-2 글 쓰는 과정이 독자에게 새어 나감 (v3.8.641)
+  // ── v3.8.654 독자가 나가는 자리 (reader-retention.ts) — 100점 글을 읽고 만든 것 ──
+  | 'title-promise-unkept' // 제목이 약속한 조각을 어느 소제목도 안 맡음
+  | 'faq-answer-mismatch'  // FAQ 답이 질문과 어긋남
+  | 'thin-section'         // 소제목만 있고 내용이 빈약한 절
   | 'tone-mix'            // ⑤ 말투 섞임
   | 'broken-title'        // ⑥ 제목·목차 손상
   // ── v3.8.629 주장·사실 구분 (claim-safety.ts) — 사장님 지시 10개 항목 ──
@@ -69,6 +80,10 @@ export interface AuditReport {
     legalRefs: number;
     politeEndings: number;
     formalEndings: number;
+    /** 첫 화면(결론 박스·요약표)에 이미 나온 본문 수치 사실의 비율 — 감점 없음 (v3.8.654) */
+    answerExposure: number | null;
+    /** 가장 빈약한 h2 절 / 중간값 — 감점은 1/3 아래일 때만 (v3.8.654) */
+    minSectionRatio: number | null;
   };
 }
 
@@ -429,13 +444,26 @@ export function findBrokenTitles(headings: string[]): AuditIssue[] {
 /* ──────────────────────────────────────────────────────────────── */
 
 /** 100점에서 깎는다 — 무엇 때문에 깎였는지 되짚을 수 있어야 한다. */
-export function auditArticle(html: string, headings: string[] = []): AuditReport {
+export function auditArticle(
+  html: string,
+  headings: string[] = [],
+  opts: { title?: string } = {},
+): AuditReport {
   const text = toPlainText(html);
   const sections = splitAuditSections(html);
   const sentences = sentencesOf(text);
   const heads = headings.length
     ? headings
     : [...String(html || '').matchAll(/<h[23][^>]*>([\s\S]*?)<\/h[23]>/gi)].map((m) => toPlainText(m[1] || ''));
+
+  /**
+   * v3.8.654 — 제목과 결론 박스는 "독자가 처음 보는 약속" 이다.
+   * 제목은 부르는 쪽이 주면 그것을, 없으면 본문의 <h1> 을 쓴다.
+   * (발행 HTML 에는 h1 이 없을 수 있다 — 그때는 제목 검사를 건너뛴다. 없는 제목을 지어내지 않는다.)
+   */
+  const title = String(opts.title || (String(html || '').match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) || [])[1] || '');
+  const answerBox = toPlainText((String(html || '').match(/answer-first-a[^>]*>([\s\S]*?)<\/p>/i) || [])[1] || '');
+  const thin = findThinSections(sections);
 
   const tone = findToneMix(text);
   const paragraphs = text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
@@ -449,6 +477,10 @@ export function auditArticle(html: string, headings: string[] = []): AuditReport
     ...findBrokenTitles(heads),
     // v3.8.629 — 사건·분쟁 글의 법적 위험. 확정형 한 문장이 명예훼손이 된다.
     ...auditClaimSafety(text, paragraphs),
+    // v3.8.654 — 독자가 나가는 자리. 100점 글을 읽고 나서 만든 것.
+    ...(title ? findUnkeptTitlePromises(toPlainText(title), heads, answerBox) : []),
+    ...findFaqMismatches(extractFaqPairs(text)),
+    ...thin.issues,
   ];
 
   const score = Math.max(0, 100 - issues.reduce((sum, i) => sum + i.penalty, 0));
@@ -462,6 +494,9 @@ export function auditArticle(html: string, headings: string[] = []): AuditReport
       legalRefs: (text.match(LEGAL_REF) || []).length,
       politeEndings: tone.polite,
       formalEndings: tone.formal,
+      // v3.8.654 — 감점 없는 수치 둘. 어느 쪽이 돈이 되는지는 실측(RPM)으로 정한다.
+      answerExposure: answerExposureRatio(html, toPlainText),
+      minSectionRatio: thin.minRatio,
     },
   };
 }
@@ -478,6 +513,9 @@ export function summarizeAudit(report: AuditReport): string {
     'unfulfilled-heading': '빈 소제목',
     'no-legal-basis': '근거 없음',
     'writing-process-leak': '작성 과정 노출',
+    'title-promise-unkept': '제목 약속 불이행',
+    'faq-answer-mismatch': 'FAQ 딴 답',
+    'thin-section': '빈약한 절',
     'tone-mix': '말투 섞임',
     'broken-title': '제목 손상',
     'asserted-crime': '확정형 범죄표현',
