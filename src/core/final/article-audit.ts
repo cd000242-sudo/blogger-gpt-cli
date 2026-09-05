@@ -47,6 +47,7 @@ export type AuditKind =
   | 'title-promise-unkept' // 제목이 약속한 조각을 어느 소제목도 안 맡음
   | 'faq-answer-mismatch'  // FAQ 답이 질문과 어긋남
   | 'thin-section'         // 소제목만 있고 내용이 빈약한 절
+  | 'replacement-artifact' // 코드 치환 찌꺼기("그래서$1")가 본문에 남음 (v3.8.656)
   | 'tone-mix'            // ⑤ 말투 섞임
   | 'broken-title'        // ⑥ 제목·목차 손상
   // ── v3.8.629 주장·사실 구분 (claim-safety.ts) — 사장님 지시 10개 항목 ──
@@ -376,6 +377,25 @@ const PROCESS_LEAK = [
   /확인할\s*(?:수\s*있는\s*)?근거가\s*(?:없|부족)/,
 ];
 
+/**
+ * v3.8.656 — 코드가 남긴 치환 찌꺼기.
+ * 실측: 애드센스 후처리가 콜백 안에서 '그래서$1' 을 그대로 돌려줘 3편 중 2편에 "그래서$1경유차" 가 박혔다.
+ * 하네스 96점 글에도 있을 수 있는 종류다 — 사람 눈에는 한 줄이면 보이는데 어느 검사도 안 봤다.
+ */
+const REPLACEMENT_ARTIFACT = /[가-힣a-zA-Z]\$\d|\$\{[^}]*\}|\bundefined\b|\[object Object\]|\bNaN\b/;
+
+export function findReplacementArtifacts(text: string): AuditIssue[] {
+  const m = REPLACEMENT_ARTIFACT.exec(text);
+  if (!m) return [];
+  const at = m.index;
+  return [{
+    kind: 'replacement-artifact',
+    title: `코드 치환 찌꺼기가 본문에 남았습니다: "${text.slice(Math.max(0, at - 6), at + 12).trim()}"`,
+    evidence: '"$1"·"undefined" 같은 것은 글이 아니라 프로그램 오류입니다. 독자는 이걸 보는 순간 기계가 쓴 글로 판단합니다.',
+    penalty: 6,
+  }];
+}
+
 export function findProcessLeak(text: string): AuditIssue[] {
   const issues: AuditIssue[] = [];
   for (const re of PROCESS_LEAK) {
@@ -473,6 +493,7 @@ export function auditArticle(
     ...findTermFloods(text, sentences.length, heads),
     ...findMissingLegalBasis(text),
     ...findProcessLeak(text),
+    ...findReplacementArtifacts(text),
     ...tone.issues,
     ...findBrokenTitles(heads),
     // v3.8.629 — 사건·분쟁 글의 법적 위험. 확정형 한 문장이 명예훼손이 된다.
@@ -516,6 +537,7 @@ export function summarizeAudit(report: AuditReport): string {
     'title-promise-unkept': '제목 약속 불이행',
     'faq-answer-mismatch': 'FAQ 딴 답',
     'thin-section': '빈약한 절',
+    'replacement-artifact': '치환 찌꺼기',
     'tone-mix': '말투 섞임',
     'broken-title': '제목 손상',
     'asserted-crime': '확정형 범죄표현',

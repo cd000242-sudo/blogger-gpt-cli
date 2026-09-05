@@ -253,7 +253,13 @@ export function postProcessForApproval(html: string): {
             matchIdx++;
             if (matchIdx >= 2) {
                 replacedCount++;
-                return replacements[(matchIdx - 2) % replacements.length]!;
+                /**
+                 * v3.8.656 — 콜백이 돌려주는 문자열에서는 `$1` 이 치환되지 않는다.
+                 * 실측(2026-09-05): 애드센스 글마다 "그래서$1경유차…" 가 그대로 발행됐다.
+                 * 잡힌 뒤 구분자(쉼표·공백)를 직접 끼운다.
+                 */
+                const tail = String(args[1] ?? '');
+                return replacements[(matchIdx - 2) % replacements.length]!.replace('$1', tail);
             }
             return args[0];
         });

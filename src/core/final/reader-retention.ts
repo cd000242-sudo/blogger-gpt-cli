@@ -130,10 +130,11 @@ const FAQ_Q_STOP = new Set([
   '하나요', '되나요', '있나요', '인가요', '할까요', '될까요', '어떻게', '무엇', '언제', '어디', '왜',
   '제가', '저는', '경우', '것', '수', '등', '때', '요', '해야', '하면', '되면', '같으면',
   '따로', '그냥', '바로', '먼저', '다시', '아직', '지금', '이미', '정말', '혹시',
+  '이후', '이전', '전에', '후에', '함께', '모두', '전부', '한번', '여러', '어떤',
 ]);
 
 /** 질문 낱말 끝의 서술 어미 — "계산하나요" 는 "계산" 이고 "달았는데" 는 낱말이 아니다 */
-const FAQ_VERB_END = /(하나요|되나요|인가요|일까요|할까요|될까요|있나요|없나요|하는데|되는데|았는데|었는데|였는데|인데|합니까|됩니까|해야|하면|되면|했어요|됐어요|었어요|았어요|어요|아요|해요)$/;
+const FAQ_VERB_END = /(하나요|되나요|인가요|일까요|할까요|될까요|있나요|없나요|다른가요|같은가요|하는데|되는데|했는데|됐는데|았는데|었는데|였는데|인데|합니까|됩니까|해야|하면|되면|우면|으면|했어요|됐어요|었어요|았어요|어요|아요|해요|했고|하고)$/;
 
 function questionWords(q: string): string[] {
   return q
@@ -163,6 +164,13 @@ function answerHas(answer: string, word: string): boolean {
  * 실측(어제 평가): "연체 이력" 을 물었는데 "현재 연체 중" 기준으로 답했다 —
  * 낱말로는 잡히지 않는 어긋남도 있으니 이 검사는 **거친 그물**이다. 거친 것부터 잡는다.
  */
+/**
+ * 답을 피하는 말. (v3.8.656)
+ * 낱말이 안 겹치는 것만으로 잡으면 **바꿔 말한 정답**("어떤 자료를 준비하나요" → "고지서·차량등록증·납부 기록")
+ * 을 딴 답이라 한다 — 실측 4건 중 2건이 그랬다. 낱말도 안 겹치고 **피하는 말까지 있을 때만** 딴 답이다.
+ */
+const FAQ_DODGE = /확인할\s*수\s*있어요|문의할\s*수\s*있어요|문의하세요|확인하세요|확인해\s*봐야|달라질\s*수\s*있|단정하기\s*어려|판단하기(?:는)?\s*어려|안내되지\s*않았|일률적으로|살펴봐야\s*해요|확인하는\s*편이/;
+
 export function findFaqMismatches(pairs: FaqPair[]): AuditIssue[] {
   const out: AuditIssue[] = [];
   for (const { question, answer } of pairs) {
@@ -170,7 +178,7 @@ export function findFaqMismatches(pairs: FaqPair[]): AuditIssue[] {
     if (words.length < 2) continue;
     const a = normalize(answer);
     const hit = words.filter((w) => answerHas(a, w)).length;
-    if (hit / words.length < 0.5) {
+    if (hit / words.length < 0.5 && FAQ_DODGE.test(answer)) {
       out.push({
         kind: 'faq-answer-mismatch',
         title: `FAQ 답이 질문과 어긋납니다: "${question.slice(0, 40)}"`,

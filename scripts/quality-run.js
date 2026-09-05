@@ -115,6 +115,8 @@ function longtailCoverage(text, longtails) {
         skipImages: true,
       };
       const res = await generateUltimateMaxModeArticleFinal(payload, env, (m) => {
+        // 🎯 는 v3.8.655/656 의 제목 약속 로그 — [PROGRESS] 로 나가지만 봐야 한다
+        if (/🎯/.test(m)) { console.log('     ' + m.replace(/^\[PROGRESS\]\s*\d+%\s*-\s*/, '').slice(0, 140)); return; }
         if (/PROGRESS/.test(m)) return;
         if (/리포트 설계도|속보|자가 수정|장부|소제목 교체|정해 둔 제목/.test(m)) console.log('     ' + m.slice(0, 140));
       });

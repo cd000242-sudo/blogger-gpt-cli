@@ -1550,8 +1550,14 @@ export async function generateUltimateMaxModeArticleFinal(
       const roles = (modeResult as any).sectionRoles as Array<{ title: string; role: string; contentFocus: string }> | undefined;
       if (Array.isArray(roles) && roles.length === h2Titles.length) {
         onLog?.(`[PROGRESS] 37% - ✍️ ${contentMode} 모드 소제목을 키워드에 맞게 재생성 중...`);
+        /**
+         * v3.8.656 — 애드센스 모드는 **이 분기**로 온다. v3.8.655 는 아래 두 LLM 분기에만
+         * 달아서 실측 3편 중 2편이 그대로 제목 약속 불이행이었다(조용한 미배선).
+         * 프롬프트 한 겹 + 코드 보증 한 겹, 역할(index)은 그대로 둔다.
+         */
+        const { buildTitlePromiseBlock: promiseBlockForRoles, ensureTitlePromiseHeadings: ensureForRoles } = require('./title-promise-headings');
         try {
-          const rewritten = await generateSectionTitlesFromRoles(keyword, roles, demandSignals);
+          const rewritten = await generateSectionTitlesFromRoles(keyword, roles, demandSignals, promiseBlockForRoles(String(h1 || '')));
           if (Array.isArray(rewritten) && rewritten.length === h2Titles.length) {
             const changed = rewritten.filter((t, i) => t !== h2Titles![i]).length;
             h2Titles = rewritten;
@@ -1559,6 +1565,13 @@ export async function generateUltimateMaxModeArticleFinal(
           }
         } catch (titleErr: any) {
           console.warn('[MODE] 섹션 제목 재생성 실패 — 템플릿 유지:', titleErr?.message || titleErr);
+        }
+        const promisedRoles = ensureForRoles(String(h1 || ''), h2Titles, keyword);
+        if (promisedRoles.replaced.length > 0) {
+          h2Titles = promisedRoles.h2Titles;
+          for (const { from, to } of promisedRoles.replaced) {
+            onLog?.(`[PROGRESS] 40% - 🎯 제목이 약속한 것을 맡도록 소제목 교체: "${from}" → "${to}"`);
+          }
         }
       }
       onLog?.(`[PROGRESS] 40% - ✅ ${contentMode} 모드: ${h2Titles.length}개 섹션 구조 적용`);
@@ -2320,6 +2333,35 @@ ${quoted}
       if (g.newsCount + g.webCount === 0 || g.newsCount === 0) onLog?.(`⚠️ ${summary}`);
     } catch (groundErr: any) {
       console.warn('[GROUNDING] 스킵:', String(groundErr?.message || groundErr).slice(0, 100));
+    }
+
+    /**
+     * v3.8.656 — 제목이 약속한 조각을 **검색어로** 더 찾는다. (무료, LLM 호출 0)
+     *
+     * 실측(2026-09-05, 환경개선부담금): 제목은 「자동 적용 여부와 신청 방법」을 약속했는데
+     * 키워드 하나로 모은 장부에는 그 답이 없었다. 모델은 지어내지 않았고(옳다) 대신
+     * "확인하세요·문의하세요" 를 서른 번 썼다. 독자는 답을 못 얻고 나간다.
+     * 소제목을 약속에 맞춰도 근거가 없으면 절이 비니, 근거부터 약속 조각으로 모은다.
+     *
+     * 장부는 12,000자에서 잘리므로 약속 근거를 **앞에** 둔다 — 제목이 묻는 것이 먼저다.
+     */
+    try {
+      const { titlePromises } = require('./reader-retention');
+      const kwNorm = String(keyword || '').replace(/\s+/g, '');
+      const chunks: string[] = titlePromises(String(h1 || ''))
+        .filter((p: string) => p.replace(/\s+/g, '') !== kwNorm && !kwNorm.includes(p.replace(/\s+/g, '')))
+        .slice(0, 2);
+      const extra: string[] = [];
+      for (const chunk of chunks) {
+        const q = chunk.replace(/\s+/g, '').includes(kwNorm) ? chunk : `${keyword} ${chunk}`;
+        const pg = await fetchGrounding(q, naverSearch as any, { display: 5 });
+        if (!pg.text) continue;
+        extra.push(`[제목 약속 근거: ${chunk}]\n${pg.text.slice(0, 2000)}`);
+        onLog?.(`[PROGRESS] 45% - 🎯 제목 약속 근거 추가: "${chunk}" (뉴스 ${pg.newsCount} · 기관 ${pg.officialCount} · 웹 ${pg.webCount})`);
+      }
+      if (extra.length > 0) naverGrounding = [...extra, naverGrounding].filter(Boolean).join('\n\n');
+    } catch (promiseErr: any) {
+      console.warn('[GROUNDING] 제목 약속 근거 스킵:', String(promiseErr?.message || promiseErr).slice(0, 100));
     }
 
     /**

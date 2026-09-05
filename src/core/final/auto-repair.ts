@@ -145,8 +145,17 @@ export function removeEchoedSentences(html: string): { html: string; count: numb
    *   그 내용이 <li> 안에 있어서 하나도 못 걸렀다.
    * 목록 항목도 같은 자로 잰다.
    */
-  const out = source.replace(/<(p|li)\b[^>]*>([\s\S]*?)<\/\1>/gi, (whole, _tag, inner) => {
+  /**
+   * FAQ 는 건드리지 않는다 (v3.8.656).
+   * 실측: FAQ 답의 첫 문장("기존 거주자는 10월 8일까지 신청할 수 있어요")이 본문과 겹친다고
+   * 지워져 답이 "다만 실제 접수는…" 으로 시작했다. FAQ 는 본문을 되묻는 자리라 겹치는 게 정상이고,
+   * 첫 문장이 곧 답이다. 그걸 지우면 질문에 답이 없어진다.
+   */
+  const faqStart = source.search(/자주\s*묻는\s*질문|<h2[^>]*>\s*FAQ/i);
+
+  const out = source.replace(/<(p|li)\b[^>]*>([\s\S]*?)<\/\1>/gi, (whole, _tag, inner, offset) => {
     if (deleted >= ECHO_MAX_DELETIONS) return whole;
+    if (faqStart !== -1 && typeof offset === 'number' && offset >= faqStart) return whole;
     // 태그가 섞인 문단은 건드리지 않는다 — 링크·강조를 잘라먹을 수 있다
     // <li> 를 함께 보므로 ul/ol 자체는 막지 않는다. 링크·이미지·표만 건너뛴다
     if (/<(?:img|a|table)\b/i.test(inner)) return whole;

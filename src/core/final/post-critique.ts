@@ -442,6 +442,10 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
       area: 'structure', severity: 'medium',
       fix: '그 절에서만 할 수 있는 이야기를 채우거나, 이웃 절과 합칩니다. 소제목만 있고 내용이 없는 절은 독자가 나가는 자리이고 광고가 붙을 자리도 안 됩니다.',
     },
+    'replacement-artifact': {
+      area: 'structure', severity: 'high',
+      fix: '"$1"·"undefined" 같은 찌꺼기를 지우고 문장을 잇습니다. 글이 아니라 프로그램 오류이므로 원인 코드도 고쳐야 합니다.',
+    },
   };
 
   for (const found of audit.issues) {

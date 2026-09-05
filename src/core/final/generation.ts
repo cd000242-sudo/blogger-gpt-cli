@@ -1071,6 +1071,8 @@ export async function generateSectionTitlesFromRoles(
   keyword: string,
   sections: Array<{ title: string; role?: string; contentFocus?: string }>,
   demandSignals?: { userQuestions?: string[]; searchQueries?: string[] },
+  /** v3.8.656 — 제목이 정해져 있으면 그 약속 조각을 맡을 소제목을 요구하는 블록 (애드센스 모드가 이 길로 온다) */
+  titlePromiseBlock?: string,
 ): Promise<string[]> {
   const fallback = sections.map((s) => String(s?.title || '').replace(/\[주제\]/g, keyword).trim());
   if (!Array.isArray(sections) || sections.length === 0) return fallback;
@@ -1094,8 +1096,9 @@ export async function generateSectionTitlesFromRoles(
   }).join('\n\n');
 
   const prompt = `키워드: "${keyword}"
-${demandBlock}
+${demandBlock}${titlePromiseBlock || ''}
 아래는 이 글의 섹션 구조다. 각 섹션의 **역할은 절대 바꾸지 말고**, 제목 문자열만 이 키워드에 딱 맞게 새로 지어라.
+${titlePromiseBlock ? '제목의 약속 조각은 역할이 맞는 섹션에 배정해 제목으로 드러나게 하라. 약속 조각 하나당 섹션 하나다.\n' : ''}
 
 ${roleList}
 

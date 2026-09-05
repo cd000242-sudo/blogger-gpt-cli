@@ -97,6 +97,8 @@ export function sanitizeAnswerText(raw: unknown, maxLen: number): string {
 const BASIS_NON_ANSWERS = [
   '미기재', '없음', '해당없음', '해당 없음', '미상', '불명', '불명확', '확인불가', '확인 불가',
   '알수없음', '알 수 없음', '미제공', '제공되지', '명시되지', '기재되지', '언급되지',
+  // v3.8.656 실측: "근거: 공식 확인 필요 2026 09 05" 가 첫 화면에 그대로 찍혔다 — 메모지 근거가 아니다
+  '확인 필요', '확인필요', '미확인', '추후 확인', '검증 필요',
   'n/a', 'na', 'none', 'unknown', 'not specified', 'not available', 'not mentioned',
 ];
 /** 프롬프트의 필드 설명이 그대로 돌아온 경우 */
@@ -140,7 +142,8 @@ export interface AnswerBlockInput {
  * 이미 부호가 있으면 건드리지 않는다.
  */
 // 합니다체는 전부 「…니다」 로 끝나니 그 하나면 된다. 해요체는 축약형(돼요·봐요·줘요·와요)이 따로 있다.
-const SENTENCE_END = /(니다|해요|예요|에요|어요|아요|여요|네요|세요|돼요|봐요|줘요|와요|져요|나요|까요|죠)(?=\s+[가-힣])/g;
+// v3.8.656 — 다음 문장이 숫자·영문으로 시작해도 마침표를 찍는다 (실측: "신청할 수 있습니다 10월8일까지")
+const SENTENCE_END = /(니다|해요|예요|에요|어요|아요|여요|네요|세요|돼요|봐요|줘요|와요|져요|나요|까요|죠)(?=\s+[가-힣0-9A-Za-z])/g;
 
 export function restoreSentencePeriods(text: string): string {
   return String(text || '').replace(SENTENCE_END, '$1.');

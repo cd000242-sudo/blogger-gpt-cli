@@ -80,7 +80,7 @@ describe('v3.8.654 독자가 나가는 자리', () => {
       '자주 묻는 질문 (FAQ)', '', 'Q.', '배출가스저감장치를 달았는데 면제 기간은 언제부터 계산하나요?', '▼',
       '저감장치 부착 차량은 3년 면제 조건으로 안내돼 있어요. 면제 기간은 장치 부착일부터 계산합니다.', '',
       'Q.', '중고차 매매상에 넘긴 상품용 차량도 제가 부담해야 하나요?', '▼',
-      '날씨가 좋으면 산책을 가세요.', '',
+      '고지 내역을 먼저 확인해 봐야 해요. 지방자치단체에 문의할 수 있어요.', '',
       '이 글은 2026년 9월에 작성했습니다.',
     ].join('\n');
 
@@ -88,7 +88,24 @@ describe('v3.8.654 독자가 나가는 자리', () => {
       const pairs = extractFaqPairs(평문);
       expect(pairs).toHaveLength(2);
       expect(pairs[0]!.question).toContain('면제 기간');
-      expect(pairs[1]!.answer).toContain('산책');
+      expect(pairs[1]!.answer).toContain('문의할 수 있어요');
+    });
+
+    /** v3.8.656 — 바꿔 말한 정답은 딴 답이 아니다 (실측 오탐 8번) */
+    test('낱말이 안 겹쳐도 피하는 말이 없으면 정답으로 본다', () => {
+      const pairs = [{
+        question: '환경개선부담금 금액이 예상과 다르면 어떤 자료를 먼저 준비하나요?',
+        answer: '고지서의 차량번호와 부과 기간을 먼저 봐요. 차량등록증, 매매 자료, 이미 낸 경우 납부 기록을 함께 정리해요.',
+      }];
+      expect(findFaqMismatches(pairs)).toHaveLength(0);
+    });
+
+    test('낱말이 안 겹치고 피하는 말이 있으면 딴 답이다', () => {
+      const pairs = [{
+        question: '임실형 농어촌 기본소득을 지금도 신청할 수 있나요?',
+        answer: '현재 접수 가능 여부는 주소지 관할 읍면사무소에서 확인할 수 있어요.',
+      }];
+      expect(findFaqMismatches(pairs)).toHaveLength(1);
     });
 
     test('딴 답을 잡는다', () => {

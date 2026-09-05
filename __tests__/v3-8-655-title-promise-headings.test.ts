@@ -85,6 +85,19 @@ describe('v3.8.655 제목 약속 → 소제목', () => {
       expect(o).toContain('buildTitlePromiseBlock(');
     });
 
+    /**
+     * v3.8.656 — 애드센스 모드는 플러그인 분기(generateSectionTitlesFromRoles)로 온다.
+     * 655 는 두 LLM 분기에만 달아서 실측 3편 중 2편이 그대로였다. 세 분기 전부 확인한다.
+     */
+    test('애드센스(플러그인) 분기에도 블록과 코드 보증이 있다', () => {
+      const g = read('src/core/final/generation.ts');
+      const sig = g.slice(g.indexOf('export async function generateSectionTitlesFromRoles'));
+      expect(sig.slice(0, 600)).toContain('titlePromiseBlock');
+      const o = read('src/core/final/orchestration.ts');
+      expect(o).toMatch(/generateSectionTitlesFromRoles\(keyword, roles, demandSignals, \w+\(String\(h1/);
+      expect((o.match(/ensureTitlePromiseHeadings|ensureForRoles\(/g) || []).length).toBeGreaterThanOrEqual(2);
+    });
+
     test('에이전트 경로: 지시서에 같은 규칙이 있다', () => {
       const a = read('src/core/final/agent-harness.ts');
       expect(a).toContain('buildTitlePromiseBlock(');
