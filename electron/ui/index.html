@@ -8981,7 +8981,11 @@ function renderCpcSlot(slot) {
     slot.keyword ? '  <div style="display:flex; gap:6px; margin-bottom:5px;"><span style="color:#64748b; font-size:11px; font-weight:700; flex-shrink:0;">키워드</span><span style="color:#cbd5e1; font-size:12px; line-height:1.5;">' + esc(slot.keyword) + '</span></div>' : '',
     slot.title ? '  <div style="display:flex; gap:6px; margin-bottom:8px;"><span style="color:#93c5fd; font-size:11px; font-weight:700; flex-shrink:0;">확정 제목</span><span style="color:#f1f5f9; font-size:13px; font-weight:700; line-height:1.5;">' + esc(slot.title) + '</span></div>' : '',
     longtails ? '  <div style="color: #94a3b8; font-size: 11px; font-weight: 700; margin-bottom: 3px;">롱테일 파생 키워드 <span style="color:#64748b; font-weight:600;">— 각각 한 구간으로</span></div><ul style="color: #cbd5e1; font-size: 11px; margin: 0 0 8px; padding-left: 16px; line-height: 1.6;">' + longtails + '</ul>' : '',
-    checks ? '  <div style="color: #fbbf24; font-size: 11px; font-weight: 700; margin-bottom: 3px;">발행 전 확인</div><ul style="color: #cbd5e1; font-size: 11px; margin: 0 0 8px; padding-left: 16px; line-height: 1.6;">' + checks + '</ul>' : '',
+    // v3.8.638: 확인 항목은 접어 둔다.
+    //   사장님: "발행전 확인은 굳이볼필요가없자나 자동으로 발행이되는데 개입을 못하는데말이야"
+    //   맞는 말이라서, 보여 주는 대신 **앱이 프롬프트로 지키게** 했다(buildReportDirective).
+    //   그래도 지웠다고는 안 한다 — 무엇을 지키는 중인지는 열어 볼 수 있어야 한다.
+    checks ? '  <details style="margin-bottom:8px;"><summary style="color:#64748b; font-size:11px; font-weight:700; cursor:pointer;">앱이 지킬 확인 항목 ' + (slot.mustCheck || []).length + '개</summary><ul style="color:#94a3b8; font-size:11px; margin:5px 0 0; padding-left:16px; line-height:1.6;">' + checks + '</ul></details>' : '',
     '  <button type="button" onclick="useCpcSlot(' + esc(JSON.stringify(JSON.stringify(slot))) + ')"',
     '    style="background: linear-gradient(135deg,#2563eb,#1d4ed8); border: none; border-radius: 8px; color: white; font-size: 12px; font-weight: 800; padding: 7px 14px; cursor: pointer;">',
     '    이 키워드로 발행 준비',
@@ -9018,6 +9022,21 @@ function cpcPublishedDigest() {
   }
 }
 
+/**
+ * 리포트가 못 채운 슬롯을 알려 준다 (v3.8.637).
+ *
+ * 사장님: "구글드라이브는 슬롯 A 랑 B는 건너뛰고 C만 나오네....?"
+ *
+ * 버그가 아니라 리포트가 스스로 「슬롯 B: 미확보」 라고 적은 날이었다.
+ * 그런데 화면이 말없이 빼 버리니 앱이 건너뛴 것으로 보였다.
+ */
+function renderCpcMissing(missing) {
+  if (!missing || !missing.length) return '';
+  return '<div style="margin-top:8px; font-size:11px; color:#64748b;">'
+    + '슬롯 ' + missing.join('·') + ' — 리포트가 오늘 소재를 확보하지 못했습니다'
+    + '</div>';
+}
+
 /** 이미 쓴 키워드 — 지우지 않고 접어 둔다. "그거 언제 썼더라" 를 물을 수 있어야 한다 */
 function renderCpcDoneSlots(done) {
   if (!done || !done.length) return '';
@@ -9047,6 +9066,8 @@ async function loadCpcReport(manual) {
 
     card.style.display = 'block';
     window.__cpcDriveFileId = r.driveFileId || '';
+    // v3.8.638: 리포트가 준 참고 주소를 발행 payload 가 집어 갈 수 있게 남긴다
+    window.__cpcReportUrls = Array.isArray(r.urls) ? r.urls : [];
 
     // 아직 드라이브를 연결 안 했다 — 한 번만 누르면 그 뒤로는 앱이 알아서 가져온다
     var slotsBox = document.getElementById('cpcReportSlots');
@@ -9081,12 +9102,14 @@ async function loadCpcReport(manual) {
         slotsEl.innerHTML =
           '<div style="color:#64748b; font-size:12px;">'
           + (allDone ? '오늘 리포트의 키워드는 모두 발행했습니다.' : '오늘 쓸 슬롯이 없습니다.')
-          + '</div>' + renderCpcDoneSlots(r.doneSlots);
+          + '</div>' + renderCpcMissing(r.missingSlots) + renderCpcDoneSlots(r.doneSlots);
       }
       return;
     }
     if (slotsEl) {
-      slotsEl.innerHTML = r.slots.map(renderCpcSlot).join('\n') + renderCpcDoneSlots(r.doneSlots);
+      slotsEl.innerHTML = r.slots.map(renderCpcSlot).join('\n')
+        + renderCpcMissing(r.missingSlots)
+        + renderCpcDoneSlots(r.doneSlots);
     }
   } catch (e) {
     console.warn('[CPC-REPORT] 불러오기 실패:', e);

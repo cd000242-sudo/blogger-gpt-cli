@@ -2144,6 +2144,8 @@ export async function createPayload(options = {}) {
      * 없으면 undefined 로 나가고 예전과 똑같이 동작한다.
      */
     cpcReportSlot: window.__cpcReportSlot || undefined,
+    // v3.8.638: 리포트가 같이 준 참고 주소. 설계도 지시문이 이걸 읽는다
+    cpcReportUrls: window.__cpcReportUrls || undefined,
 
     // 핵심 필드
     provider,

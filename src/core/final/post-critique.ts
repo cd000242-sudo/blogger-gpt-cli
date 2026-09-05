@@ -352,6 +352,14 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
       area: 'quality', severity: 'medium',
       fix: '마침표 뒤에 공백이나 문단 나눔을 넣습니다. 목록을 문단으로 합칠 때 생기는 자국입니다.',
     },
+    /**
+     * v3.8.641 — 독자가 읽을 글에 "내가 받은 자료에는 없더라" 가 들어갔다.
+     * 반드시 고쳐야 한다: 쓸모가 없고, AI 가 쓴 티가 가장 크게 나는 자리다.
+     */
+    'writing-process-leak': {
+      area: 'substance', severity: 'high',
+      fix: '그 문장을 지웁니다. 자료가 없으면 그 항목 자체를 빼세요 — 소제목을 두고 "근거가 없다"고 적으면 글이 비어 보입니다. 필요하면 그 자리에 확인된 내용을 채웁니다.',
+    },
     'cross-section-echo': {
       area: 'structure', severity: 'high',
       fix: '뒤 구간에서 앞과 겹치는 문장을 지우고, 그 자리에 그 구간에서만 할 수 있는 이야기를 넣습니다. 같은 말을 두 번 읽으면 독자는 나갑니다.',

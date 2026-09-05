@@ -759,7 +759,9 @@ export function applyWordPressInlineStyles(html: string): string {
     // 인용구
     styledHtml = styledHtml.replace(/<blockquote\b([^>]*)>/gi, (match, attrs) => {
       const cleanAttrs = attrs.replace(/style\s*=\s*["'][^"']*["']/gi, '').trim();
-      return `<blockquote${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 28px 0 !important; padding: 20px 24px !important; background: #f8fafc !important; border-left: 4px solid #94a3b8 !important; border-radius: 0 6px 6px 0 !important; font-style: normal !important; font-size: 15.5px !important; line-height: 1.72 !important; color: #334155 !important;">`;
+      // v3.8.639: 왼쪽 줄 하나로는 박스로 안 보인다 — 네 변을 둘러 그린다
+      //   (v3.8.419 에서 미리보기에 같은 결정을 했는데 발행본에는 안 들어가 있었다)
+      return `<blockquote${cleanAttrs ? ' ' + cleanAttrs : ''} style="margin: 32px 0 !important; padding: 22px 26px !important; background: #f8fafc !important; border: 3px solid #1a1a1a !important; border-radius: 12px !important; font-style: normal !important; font-size: 15.5px !important; line-height: 1.72 !important; color: #334155 !important;">`;
     });
 
     // 링크 - 시안 악센트
@@ -1407,6 +1409,9 @@ export function applyWordPressInlineStyles(html: string): string {
     isolation: isolate !important;
     contain: none !important;
     overflow: visible !important;
+    /* v3.8.639: 표도 박스다. 바깥만 굵게 두르고 안쪽 줄은 옅게 둔다 */
+    border: 2px solid #1a1a1a !important;
+    border-radius: 12px !important;
   }
   .wp-styled-content .ad-safe-zone[data-ad-region="no-ad"] {
     /* AdSense 크롤러 시그널: 이 블록 내부에는 광고 삽입 불가 */
@@ -1475,8 +1480,10 @@ export function applyWordPressInlineStyles(html: string): string {
     margin: 0 0 26px !important;
     padding: 20px 22px !important;
     background: #f6faf9 !important;
-    border: 1px solid #cfe3de !important;
-    border-radius: 10px !important;
+    /* v3.8.639: 테두리가 배경과 거의 같은 색이라 박스가 안 보였다.
+       사장님: "박스는 테두리가 뚜렷하게 보여야 더 깔끔하게 보일듯한데" */
+    border: 2px solid #0d9488 !important;
+    border-radius: 12px !important;
     box-sizing: border-box !important;
     max-width: 100% !important;
   }
@@ -1518,8 +1525,9 @@ export function applyWordPressInlineStyles(html: string): string {
     margin: 28px 0 8px !important;
     padding: 18px 20px !important;
     background: #f8fafc !important;
-    border: 1px solid #e2e8f0 !important;
-    border-radius: 10px !important;
+    /* v3.8.639: 옅은 회색 테두리는 배경에 묻힌다 — 경계를 분명히 */
+    border: 2px solid #1a1a1a !important;
+    border-radius: 12px !important;
     box-sizing: border-box !important;
     max-width: 100% !important;
   }

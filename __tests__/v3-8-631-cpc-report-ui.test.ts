@@ -67,9 +67,15 @@ describe('v3.8.631 리포트 카드와 발행 연결', () => {
       expect(render).toContain('slot.longtails');
     });
 
-    test('발행 전 확인 항목도 보여준다', () => {
-      expect(render).toContain('발행 전 확인');
+    /**
+     * v3.8.638: 펼쳐 놓지 않고 접는다.
+     *   사장님: "발행전 확인은 굳이볼필요가없자나 자동으로 발행이되는데 개입을 못하는데말이야"
+     *   대신 앱이 프롬프트로 지킨다(buildReportDirective). 무엇을 지키는 중인지는 열어 볼 수 있어야 하므로 지우지는 않는다.
+     */
+    test('확인 항목은 접어서 보여준다', () => {
+      expect(render).toContain('앱이 지킬 확인 항목');
       expect(render).toContain('slot.mustCheck');
+      expect(render).toContain('<details');
     });
 
     test('리포트 글자를 그대로 넣지 않는다 — HTML 을 이스케이프한다', () => {

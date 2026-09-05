@@ -155,6 +155,25 @@ export function usableSlots(report: CpcReport): CpcSlot[] {
 }
 
 /**
+ * 리포트가 **채우지 못한** 슬롯 이름들 (v3.8.637).
+ *
+ * 사장님: "구글드라이브는 슬롯 A 랑 B는 건너뛰고 C만 나오네....?"
+ *
+ * 실제로는 버그가 아니었다 — 2026-09-04 리포트가 스스로 이렇게 적었다:
+ *   `# 슬롯 B - 시의성·분쟁형 (티스토리): **미확보**`
+ *   "슬롯 확보 현황: A 1 / B 0 / C 1 = 오늘 2편"
+ * 그런데 화면은 그 슬롯을 **말없이 빼 버려서** 건너뛴 것처럼 보였다.
+ *
+ * 없는 것을 지어내지 않되, 없다는 사실은 말해 준다.
+ */
+export function missingSlots(report: CpcReport): string[] {
+  return (report?.slots || [])
+    .filter((s) => !(s.keyword || s.title))
+    .map((s) => String(s.slot || '').trim())
+    .filter(Boolean);
+}
+
+/**
  * 리포트를 프롬프트에 실을 지시문으로 만든다.
  *
  * "참고하라" 고만 하면 모델은 요약하고 버린다(근거 장부에서 겪은 것과 같다).

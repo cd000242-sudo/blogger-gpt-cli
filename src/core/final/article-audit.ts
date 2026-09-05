@@ -35,6 +35,7 @@ export type AuditKind =
   | 'term-flood'          // ② 한 낱말이 과하게 반복
   | 'unfulfilled-heading' // ③ 소제목이 약속을 안 지킴
   | 'no-legal-basis'      // ④ 근거 조항 없음
+  | 'writing-process-leak' // ④-2 글 쓰는 과정이 독자에게 새어 나감 (v3.8.641)
   | 'tone-mix'            // ⑤ 말투 섞임
   | 'broken-title'        // ⑥ 제목·목차 손상
   // ── v3.8.629 주장·사실 구분 (claim-safety.ts) — 사장님 지시 10개 항목 ──
@@ -71,12 +72,30 @@ export interface AuditReport {
   };
 }
 
-/** 태그를 걷어 평문으로. 문단 경계는 줄바꿈으로 남긴다. */
+/**
+ * 태그를 걷어 평문으로. 문단 경계는 줄바꿈으로 남긴다.
+ *
+ * ⚠️ 블록 태그를 하나라도 빠뜨리면 **없는 결함이 보인다** (v3.8.640).
+ *
+ * 실측 2026-09-05: 발행글 비평이 "마침표 뒤에 공백 없이 다음 문장이 붙었다" 를
+ * 4건 지적했다. 원문을 열어 보니 `...보세요.</blockquote><p>이미...` 였다 —
+ * 목록에 blockquote 가 없어서 두 문단이 한 줄로 이어졌고, 그걸 붙은 문장으로 읽었다.
+ * 브라우저가 그린 글자(innerText)로 재니 **0건**이었다. 독자는 본 적이 없는 결함이다.
+ *
+ * 사장님이 이 지적을 믿고 "수정발행" 을 눌렀다면 멀쩡한 문단을 AI 가 다시 썼을 것이다.
+ * 그래서 여는 태그·닫는 태그 양쪽 모두를 경계로 본다.
+ */
+const BLOCK_TAGS =
+  'p|li|ul|ol|dl|dt|dd|h[1-6]|td|th|tr|thead|tbody|tfoot|table|div|section|article|aside|'
+  + 'blockquote|figure|figcaption|header|footer|main|nav|pre|details|summary|form|fieldset';
+
 export function toPlainText(html: string): string {
   return String(html || '')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<\/(p|li|h[1-6]|td|th|tr|div)>/gi, '\n')
+    .replace(new RegExp(`</(?:${BLOCK_TAGS})>`, 'gi'), '\n')
+    .replace(new RegExp(`<(?:${BLOCK_TAGS})(?:\\s[^>]*)?>`, 'gi'), '\n')
+    .replace(/<hr\s*\/?>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
@@ -244,6 +263,43 @@ export function findMissingLegalBasis(text: string): AuditIssue[] {
 }
 
 /* ────────────────────────────────────────────────────────────────
+ * ④-2 작성 과정이 새어 나왔다 (v3.8.641)
+ *
+ * 발행글에 이게 그대로 나갔다(2026-09-05 실측):
+ *   "제공된 근거에는 각 상품의 전산심사 기준과 부결 사유가 제시돼 있지 않으므로…"
+ *
+ * 평가: "독자에게 설명하는 글에서 갑자기 AI 가 자료의 한계를 보고하는 느낌"
+ *
+ * 읽는 사람에게는 아무 쓸모가 없는 문장이고, AI 가 쓴 티가 가장 크게 나는 자리다.
+ * 자료가 없으면 **그 항목을 빼야지**, 없다고 알리면 안 된다.
+ *
+ * 오탐이 나기 어려운 표현만 넣는다 — 사람이 쓴 글에는 이런 말이 안 나온다.
+ * ──────────────────────────────────────────────────────────────── */
+const PROCESS_LEAK = [
+  /(?:제공된|주어진)\s*(?:참고\s*)?(?:근거|자료|데이터|정보|출처)/,
+  /(?:근거|자료)\s*장부에는?/,
+  /본문\s*근거만으로는/,
+  /검색\s*결과에는?\s*[^.。<]{0,60}없/,
+  /확인할\s*(?:수\s*있는\s*)?근거가\s*(?:없|부족)/,
+];
+
+export function findProcessLeak(text: string): AuditIssue[] {
+  const issues: AuditIssue[] = [];
+  for (const re of PROCESS_LEAK) {
+    const m = re.exec(text);
+    if (!m) continue;
+    const at = m.index;
+    issues.push({
+      kind: 'writing-process-leak',
+      title: '글 쓰는 과정이 독자에게 새어 나왔습니다',
+      evidence: `"${text.slice(at, at + 60).trim()}…" — 자료가 부족하면 그 항목을 빼야지, 부족하다고 독자에게 알리면 안 됩니다. 소제목을 만들어 놓고 "확인할 근거가 없다"고 적으면 내용이 비어 보입니다.`,
+      penalty: 12,
+    });
+  }
+  return issues;
+}
+
+/* ────────────────────────────────────────────────────────────────
  * ⑤ 말투 섞임 — 해요체와 합니다체가 한 글 안에서 오간다
  *
  * 둘 중 하나로 정해야 한다. 어느 쪽이 옳다는 게 아니라 섞이면 번역투로 읽힌다.
@@ -310,6 +366,7 @@ export function auditArticle(html: string, headings: string[] = []): AuditReport
     ...findCrossSectionEchoes(sections),
     ...findTermFloods(text, sentences.length),
     ...findMissingLegalBasis(text),
+    ...findProcessLeak(text),
     ...tone.issues,
     ...findBrokenTitles(heads),
     // v3.8.629 — 사건·분쟁 글의 법적 위험. 확정형 한 문장이 명예훼손이 된다.
@@ -342,6 +399,7 @@ export function summarizeAudit(report: AuditReport): string {
     'term-flood': '낱말 도배',
     'unfulfilled-heading': '빈 소제목',
     'no-legal-basis': '근거 없음',
+    'writing-process-leak': '작성 과정 노출',
     'tone-mix': '말투 섞임',
     'broken-title': '제목 손상',
     'asserted-crime': '확정형 범죄표현',

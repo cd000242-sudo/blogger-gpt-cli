@@ -2582,9 +2582,31 @@ ${quoted}
       }
     } catch { /* 못박음이 없어도 글은 나간다 */ }
 
+    /**
+     * 📥 v3.8.638 — 리포트가 준 설계도를 **글 쓰기 전에** 넣는다.
+     *
+     * 사장님: "발행전 확인은 굳이볼필요가없자나 자동으로 발행이되는데 개입을 못하는데말이야
+     *          … 이건 앱이 자동으로 인식하게끔 하는게맞는거아니니?"
+     *
+     * 맞는 지적이었고, 실제로 안 되고 있었다. buildReportDirective 는 만들어만 놓고
+     * **아무 데서도 부르지 않았다.** 리포트의 롱테일·확인 항목은 발행 뒤 pre-publish-fix 가
+     * "안 지켰다" 고 지적할 때만 쓰였다 — 시키지도 않고 나무란 셈이다.
+     * (실측 2026-09-04: 리포트가 준 9개 중 2개만 글에 들어갔다.)
+     */
+    let reportDirective = '';
+    try {
+      const slot = (payload as any)?.cpcReportSlot;
+      if (slot && (slot.keyword || slot.title)) {
+        const { buildReportDirective } = require('../keywords/cpc-report');
+        reportDirective = buildReportDirective(slot, (payload as any)?.cpcReportUrls || []);
+        onLog?.(`📥 리포트 설계도 반영: 슬롯 ${slot.slot || '?'} · 구간 ${(slot.longtails || []).length}개 · 확인 ${(slot.mustCheck || []).length}개`);
+      }
+    } catch { /* 리포트가 없으면 평소대로 쓴다 */ }
+
     // Always inject the hard evidence policy. A failed search must never mean unrestricted generation.
     factEnrichedContents = [
       buildFactIntegrityPrompt(keyword, factEvidence),
+      ...(reportDirective ? [reportDirective] : []),
       ...(breakingDirective ? [breakingDirective] : []),
       ...(entityBlock ? [entityBlock] : []),
       ...(reformBlock ? [reformBlock] : []),

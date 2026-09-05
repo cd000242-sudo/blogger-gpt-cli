@@ -52,6 +52,9 @@ export interface AgentHarnessInput {
    * 안 그러면 API 로 발행하면 잡히고 에이전트로 발행하면 또 작년 사건이 나온다.
    */
   breakingEvent?: any;
+  /** 오늘의 리포트가 이 글에 준 설계도 (v3.8.638) */
+  reportSlot?: any;
+  reportUrls?: string[];
 }
 
 /**
@@ -189,6 +192,19 @@ export function buildAgentHarnessRules(input: AgentHarnessInput): string {
         if (!input.breakingEvent?.isBreaking) return '';
         const { buildBreakingDirective } = require('./breaking-news-guard');
         return buildBreakingDirective(input.breakingEvent, input.keyword);
+      } catch { return ''; }
+    })(),
+    /**
+     * v3.8.638 — 리포트 설계도. 에이전트는 orchestration 을 안 타므로
+     * 여기 따로 넣지 않으면 API 경로만 리포트를 지키고 이쪽은 안 지킨다.
+     * 검색 지시보다 앞에 둔다 — 무엇을 찾을지가 이걸로 정해진다.
+     */
+    (() => {
+      try {
+        const slot = (input as any).reportSlot;
+        if (!slot || !(slot.keyword || slot.title)) return '';
+        const { buildReportDirective } = require('../keywords/cpc-report');
+        return buildReportDirective(slot, (input as any).reportUrls || []);
       } catch { return ''; }
     })(),
     buildResearchDirective(input),

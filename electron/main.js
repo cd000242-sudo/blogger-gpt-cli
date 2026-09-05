@@ -4371,7 +4371,7 @@ async function loadReportFromDrive(published) {
     if (!creds)
         return { ok: false, enabled: isReportOwner(), needsConnect: true, message: '' };
     const { fetchLatestDriveReport } = require('../dist/core/keywords/drive-report');
-    const { parseCpcReport, usableSlots } = require('../dist/core/keywords/cpc-report');
+    const { parseCpcReport, usableSlots, missingSlots } = require('../dist/core/keywords/cpc-report');
     const found = await fetchLatestDriveReport(creds);
     if (!found) {
         return { ok: false, enabled: true, message: '오늘 리포트가 아직 드라이브에 없습니다' };
@@ -4408,6 +4408,8 @@ async function loadReportFromDrive(published) {
         message: '',
         slots: split.slots,
         doneSlots: split.doneSlots,
+        // 리포트가 못 채운 슬롯 — 말없이 빼면 "건너뛰었다" 로 보인다 (v3.8.637)
+        missingSlots: missingSlots(report),
         urls: report.urls,
     };
 }
@@ -4439,7 +4441,7 @@ electron_1.ipcMain.handle('keywords:latest-report', async (_evt, args) => {
         if (!dir)
             return { ok: false, enabled: false, message: '' };
         const { loadLatestReport } = require('../dist/core/keywords/report-source');
-        const { usableSlots } = require('../dist/core/keywords/cpc-report');
+        const { usableSlots, missingSlots } = require('../dist/core/keywords/cpc-report');
         const result = loadLatestReport(dir, cpcReportStatePath());
         if (!result.report)
             return { ok: false, enabled: true, message: result.note };
@@ -4453,6 +4455,7 @@ electron_1.ipcMain.handle('keywords:latest-report', async (_evt, args) => {
             message: result.note,
             slots: folderSplit.slots,
             doneSlots: folderSplit.doneSlots,
+            missingSlots: missingSlots(result.report),
             urls: result.report.urls,
         };
     }
@@ -9733,6 +9736,11 @@ function buildAgentJobInstructions(request, profile) {
                     // v3.8.486: 디스커버 모드면 제목·본문 규칙이 피드 기준으로 통째로 바뀐다.
                     //   이걸 안 넘기면 디스커버로 돌려도 검색용 규칙이 나간다.
                     contentMode: String(payload?.contentMode || ''),
+                    // v3.8.638: 리포트 설계도와 속보 판정. 이 두 줄이 없으면 하네스 안의
+                    //   해당 블록은 만들어만 놓고 한 번도 안 도는 죽은 코드가 된다.
+                    reportSlot: payload?.cpcReportSlot,
+                    reportUrls: payload?.cpcReportUrls || [],
+                    breakingEvent: payload?.agentBreakingEvent,
                 });
             }
             catch (harnessErr) {
@@ -11614,6 +11622,20 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
                 const { fetchGrounding, describeGrounding } = require('../dist/core/final/naver-grounding');
                 const { naverSearch } = require('../dist/core/naver-search-client');
                 const g = await fetchGrounding(agentKeyword, (type, params) => naverSearch(type, params, { payload: request?.payload || {}, timeoutMs: 10000 }));
+                /**
+                 * v3.8.638 — 속보 판정을 지시서까지 들고 간다.
+                 *
+                 * v3.8.633 이 하네스 안에 못박음을 넣어 뒀는데, 정작 **아무도
+                 * breakingEvent 를 넘기지 않아** 에이전트 경로에서는 한 번도 동작하지 않았다.
+                 * 이 저장소의 단골 사고(조용한 미배선)를 또 낸 것이다.
+                 */
+                if (g?.breakingEvent?.isBreaking) {
+                    request.payload = {
+                        ...(request?.payload || {}),
+                        agentBreakingEvent: g.breakingEvent,
+                    };
+                    console.log(`[AGENT-GROUNDING] ⏱️ ${g.breakingEvent.note}`);
+                }
                 if (g?.text) {
                     console.log(`[AGENT-GROUNDING] ${describeGrounding(g)}`);
                     request.payload = {

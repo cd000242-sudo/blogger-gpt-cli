@@ -21,6 +21,7 @@ import * as path from 'path';
 import { buildAgentHarnessRules, normalizeAgentTitle, postProcessAgentArticle } from '../src/core/final/agent-harness';
 import { getTitleArchetypes, buildArchetypeGuide } from '../src/core/final/title-archetypes';
 import { HUMAN_VOICE_RULES } from '../src/core/final/lived-voice';
+import { blockBetween } from './helpers/source-block';
 
 const root = path.join(__dirname, '..');
 const read = (p: string) => fs.readFileSync(path.join(root, p), 'utf-8');
@@ -174,9 +175,12 @@ describe('⑤ 실제로 배선돼 있다 (모듈만 만들고 안 부르면 무�
     expect(mainTs).toContain('postProcessAgentArticle(');
   });
 
+  /**
+   * 길이로 자르면 인자를 몇 줄 더할 때마다 깨진다 (v3.8.641 에서 실제로 깨졌다).
+   * 경계로 자른다 — 주입 블록 시작부터 그 catch 까지.
+   */
   it('⭐⭐ 주입이 실패해도 에이전트 실행은 계속된다', () => {
-    const idx = mainTs.indexOf('buildAgentHarnessRules(');
-    const block = mainTs.slice(idx - 400, idx + 600);
+    const block = blockBetween(mainTs, 'buildAgentHarnessRules(', "return '';");
     expect(block).toContain('catch');
   });
 

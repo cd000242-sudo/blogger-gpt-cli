@@ -124,6 +124,32 @@ export interface AnswerBlockInput {
 }
 
 /**
+ * 문장마다 줄을 바꾼다 (v3.8.639).
+ *
+ * 사장님이 발행된 글을 편집기에서 **손으로** 이렇게 고쳐 놓으셨다.
+ * 결론 박스는 훑어보는 자리라 한 덩어리로 붙어 있으면 눈이 미끄러진다.
+ * 문장이 끊겨 있으면 "대상은 이것 / 제외는 이것 / 심사는 이것" 이 한눈에 들어온다.
+ *
+ * **이스케이프가 끝난 뒤에** 부른다 — 먼저 넣으면 <br> 이 그대로 글자가 된다.
+ *
+ * 안 끊는 자리:
+ *   · 숫자 사이의 점 (3.5%, 2026. 9. 4.)
+ *   · 끊고 나서 조각이 너무 짧으면 (한두 단어짜리 줄은 더 지저분하다)
+ */
+const MIN_SENTENCE_CHARS = 10;
+
+export function breakSentences(escaped: string): string {
+  const parts = String(escaped || '')
+    .split(/(?<=[.!?])\s+(?=[^\s\d])/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (parts.length < 2) return escaped;
+  if (parts.some((s) => s.length < MIN_SENTENCE_CHARS)) return escaped;
+  return parts.join('<br>');
+}
+
+/**
  * 결론 블록 HTML. 쓸 만한 답이 없으면 **빈 문자열을 돌려준다** —
  * 억지로 채우면 "위 본문을 참고해주세요" 같은 빈 말이 글 맨 위에 박힌다.
  */
@@ -142,7 +168,8 @@ export function buildAnswerBlock(input: AnswerBlockInput): string {
   const basis = usableBasis(sanitizeAnswerText(input.basis, MAX_BASIS_LEN));
 
   const q = escapeHtml(question);
-  const a = escapeHtml(answer);
+  // v3.8.639: 문장마다 줄바꿈. 이스케이프 뒤에 넣어야 <br> 이 태그로 산다
+  const a = breakSentences(escapeHtml(answer));
   const b = basis ? escapeHtml(basis) : '';
 
   /**
