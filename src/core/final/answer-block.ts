@@ -179,6 +179,42 @@ export function breakSentences(escaped: string): string {
  * 결론 블록 HTML. 쓸 만한 답이 없으면 **빈 문자열을 돌려준다** —
  * 억지로 채우면 "위 본문을 참고해주세요" 같은 빈 말이 글 맨 위에 박힌다.
  */
+/** 질문 자리에 온 것이 질문인가 — 아니면 키워드 질문으로 (v3.8.661 실측: 60자 넘는 서술문 "고용노동부 … 보지 않았습니다." 가 왔다) */
+function pickQuestion(rawInput: unknown, keyword: string, strings: { answerQuestionFallback: (k: string) => string }): string {
+  const rawQuestion = sanitizeAnswerText(rawInput, MAX_QUESTION_LEN);
+  const looksLikeNote = /^\[\d+\]|확인\s*필요|^근거\s*[:：]|^출처\s*[:：]/.test(rawQuestion)
+    || (rawQuestion.length > 60 && !/[?？]\s*$/.test(rawQuestion));
+  return (rawQuestion && !looksLikeNote ? rawQuestion : '') || (keyword ? strings.answerQuestionFallback(keyword) : '');
+}
+
+const ANSWER_SECTION_RE = /<section class="answer-first"[^>]*>[\s\S]*?<\/section>/i;
+const ANSWER_Q_STYLE = 'margin:0 0 10px;font-size:15px;font-weight:800;color:var(--rv-answer-accent,#0f766e);-webkit-text-fill-color:var(--rv-answer-accent,#0f766e);line-height:1.5;word-break:keep-all;';
+
+/**
+ * v3.8.664 — 답변 블록의 질문 줄을 지킨다.
+ * 실측(햇살론15 글): 발행 직전 html 에서 <p class="answer-first-q"> 가 사라지고 그 자리에 결론의 댓글 문장이
+ * 이름 없는 <p> 로 들어와 있었다. 어느 단계가 바꿨든 여기서 되돌린다 — 블록 안의 이름 없는 <p> 는 빼고, 질문 줄이 없으면 만들어 넣는다.
+ */
+export function restoreAnswerBlockQuestion(
+  html: string,
+  input: { question?: unknown; keyword?: unknown; language?: unknown },
+): { html: string; changed: boolean } {
+  const src = String(html || '');
+  const block = src.match(ANSWER_SECTION_RE);
+  if (!block) return { html: src, changed: false };
+  const before = block[0];
+  let after = before.replace(/\s*<p>[\s\S]*?<\/p>/gi, '');
+  if (!/class="answer-first-q"/i.test(after)) {
+    const strings = blockStrings(normalizeBlockLanguage(input.language));
+    const question = pickQuestion(input.question, String(input.keyword || '').trim(), strings);
+    if (!question) return { html: src, changed: false };
+    const line = `<p class="answer-first-q" style="${ANSWER_Q_STYLE}">${escapeHtml(question)}</p>\n  `;
+    after = after.replace(/<p[^>]*class="answer-first-a"/i, (m) => `${line}${m}`);
+  }
+  if (after === before) return { html: src, changed: false };
+  return { html: src.replace(before, () => after), changed: true };
+}
+
 export function buildAnswerBlock(input: AnswerBlockInput): string {
   const answer = sanitizeAnswerText(input.answer, MAX_ANSWER_LEN);
   if (answer.length < MIN_ANSWER_LEN) return '';
@@ -188,12 +224,7 @@ export function buildAnswerBlock(input: AnswerBlockInput): string {
 
   const keyword = String(input.keyword || '').trim();
   // v3.8.658 실측: 질문 자리에 "[2] 확인 필요: 관리종목 지정 시점" 같은 리포트 점검 항목이 그대로 왔다
-  const rawQuestion = sanitizeAnswerText(input.question, MAX_QUESTION_LEN);
-  // v3.8.661 실측: 질문 자리에 60자 넘는 서술문("고용노동부 … 보지 않았습니다.")이 왔다 — 질문이 아니면 키워드 질문으로
-  const questionLooksLikeNote = /^\[\d+\]|확인\s*필요|^근거\s*[:：]|^출처\s*[:：]/.test(rawQuestion)
-    || (rawQuestion.length > 60 && !/[?？]\s*$/.test(rawQuestion));
-  const question = (rawQuestion && !questionLooksLikeNote ? rawQuestion : '')
-    || (keyword ? strings.answerQuestionFallback(keyword) : '');
+  const question = pickQuestion(input.question, keyword, strings);
   if (!question) return '';
 
   const basis = usableBasis(sanitizeAnswerText(input.basis, MAX_BASIS_LEN));

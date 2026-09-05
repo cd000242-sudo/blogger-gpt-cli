@@ -102,7 +102,8 @@ describe('v3.8.629 주장·사실 구분', () => {
     });
 
     test('작성자 개인 의견을 잡는다', () => {
-      expect(findPersonalVoice('제 기준으로는 이렇습니다.')).toHaveLength(1);
+      // v3.8.664: "제 기준으로는" 은 판단의 말머리다 — 660 부터 요구하는 것을 깎으면 안 된다
+      expect(findPersonalVoice('제 기준으로는 이렇습니다.')).toHaveLength(0);
       expect(findPersonalVoice('아무튼 정리하면 이렇다.')).toHaveLength(1);
       expect(findPersonalVoice('정리하면 이렇습니다.')).toHaveLength(0);
     });

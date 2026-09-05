@@ -3019,7 +3019,7 @@ ${quoted}
 - 한 문단은 **2~3문장, 120자 이내**로 끊으세요. 지금까지는 200자를 넘겨 읽기 부담스러웠습니다.
 - 한 가지 생각이 끝나면 문단을 바꾸세요. 관련 있다고 이어 붙이지 마세요.
 - 섹션마다 **목록(<ul><li>)을 최소 한 번** 쓰세요. 나열할 내용은 문장으로 늘어놓지 말고 목록으로.
-- 숫자·조건·비교가 3개 이상이면 **표(<table>)**로 정리하세요.
+- **표(<table>)는 글 전체에 최대 3개** — 수치·조건을 실제로 비교하는 절에서만. 절마다 표를 넣지 마세요 (v3.8.664: 넘치면 코드가 숫자 적은 표부터 목록으로 바꿉니다).
 - 핵심 문장은 <strong>으로 감싸 훑어보는 독자가 건질 수 있게 하세요.
 - 전체 분량은 줄이지 마세요. **같은 내용을 더 잘게 나누는 것**입니다.
 `;
@@ -3692,6 +3692,19 @@ ${quoted}
             h.tables = (h.tables || []).filter((_t: any, i: number) => i !== d.ti);
           }
           onLog?.(`[PROGRESS] 78% - 📊 표 ${all.length}개 중 숫자가 적은 ${drop.length}개를 뺐습니다 (글 전체 ${MAX_TABLES}개까지)`);
+        }
+        /**
+         * v3.8.664 — 위 상한은 JSON 표(h3Sec.tables)만 셌는데, 모델은 표를 content 안에 <table> 로 넣는다
+         * (실측 5편 전부: JSON 표 0, 본문 표 3~4 → 상한이 한 번도 안 걸렸다). 본문 표를 세고 넘치면 숫자 적은 것부터 목록으로 바꾼다.
+         */
+        const { capInlineTables } = require('./table-cap');
+        const jsonLeft = Math.min(all.length, MAX_TABLES);
+        const slots: Array<{ si: number; hi: number }> = [];
+        sections.forEach((section: any, si: number) => (section.h3Sections || []).forEach((_h: any, hi: number) => slots.push({ si, hi })));
+        const capped = capInlineTables(slots.map(({ si, hi }) => String((sections[si] as any).h3Sections[hi]?.content || '')), Math.max(0, MAX_TABLES - jsonLeft));
+        if (capped.demoted > 0) {
+          slots.forEach(({ si, hi }, i) => { (sections[si] as any).h3Sections[hi].content = capped.contents[i]; });
+          onLog?.(`[PROGRESS] 78% - 📊 본문 표 ${capped.total}개 중 숫자가 적은 ${capped.demoted}개를 목록으로 바꿨습니다 (글 전체 ${MAX_TABLES}개까지)`);
         }
       } catch { /* 표 정리 실패는 넘어간다 */ }
       /**
@@ -6162,6 +6175,19 @@ ${conclusionHTML}
       // 자가 수정 실패가 발행을 막지는 않는다
       console.warn('[PREFLIGHT] 건너뜀:', String(preflightError?.message || preflightError).slice(0, 120));
     }
+
+    /**
+     * v3.8.664 — 답변 블록의 질문 줄을 지킨다. 실측(햇살론15 글): 발행 직전 html 에서 <p class="answer-first-q"> 가 사라지고
+     * 그 자리에 결론의 댓글 문장이 이름 없는 <p> 로 들어와 있었다. 어느 단계가 바꿨든 여기서 되돌린다.
+     */
+    try {
+      const { restoreAnswerBlockQuestion } = require('./answer-block');
+      const restored = restoreAnswerBlockQuestion(html, { question: summaryTable?.question, keyword, language: (payload as any)?.language });
+      if (restored.changed) {
+        html = restored.html;
+        onLog?.('[PROGRESS] 97% - 🧷 답변 블록의 질문 줄을 되살렸습니다');
+      }
+    } catch { /* 지키기 실패가 발행을 막지는 않는다 */ }
 
     /**
      * 📒 v3.8.632 — 이번 발행의 측정값을 장부에 남긴다.

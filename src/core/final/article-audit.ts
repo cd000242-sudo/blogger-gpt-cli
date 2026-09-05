@@ -474,7 +474,9 @@ export function findInlineFaq(html: string): AuditIssue[] {
    */
   for (const m of src.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi)) {
     const heading = toPlainText(m[1] || '').replace(/^\d+[.)]\s*/, '').trim();
-    if (/자주\s*묻는|FAQ/i.test(heading) && heading.replace(/자주\s*묻는\s*질문|\(?FAQ\)?|\s/gi, '').length >= 2) {
+    // v3.8.664: "신용대출 대환 가능성 질문과 답변" — FAQ 낱말 없이 문답형으로 지은 절 제목도 잡는다
+    const qaHeading = /질문과?\s*답|Q\s*&\s*A|문답|질의\s*응답/i.test(heading);
+    if (qaHeading || (/자주\s*묻는|FAQ/i.test(heading) && heading.replace(/자주\s*묻는\s*질문|\(?FAQ\)?|\s/gi, '').length >= 2)) {
       return [{
         kind: 'inline-faq',
         title: `본문 절 제목에 FAQ 를 넣었습니다: "${heading.slice(0, 30)}"`,
@@ -504,7 +506,8 @@ export function findInlineFaq(html: string): AuditIssue[] {
   // 질문만 있는 문단, 또는 "…나요? 답…" 처럼 질문으로 시작하는 문단 (v3.8.663)
   const questionParas = [...body.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
     .map((m) => toPlainText(m[1] || '').trim())
-    .filter((t) => t.length >= 6 && /^[^.。]{6,70}[?？](?:\s|$)/.test(t));
+    // v3.8.664: "보증번호가 나오면 대출은 확정인가요. 서민금융진흥원 안내상 …" — 물음표 대신 마침표로 닫은 질문도 센다
+    .filter((t) => t.length >= 6 && /^[^.。?？]{6,70}(?:[?？]|(?:나요|가요|까요|은가요|인가요|을까요|는지요|ㄴ가요)\s*[.。])(?:\s|$)/.test(t));
   if (questionParas.length >= 3) {
     out.push({
       kind: 'inline-faq',

@@ -31,6 +31,8 @@ export const DEPTH_VOICE_RULES = `
    표가 없는 절은 문단으로 씁니다 — 표 대신 사례 한 단락이 더 깊습니다. (넘치면 코드가 숫자가 적은 표부터 뺍니다.)
    **분량은 전체 6,000~9,000자.** H2 하나에 H3 는 하나가 기본입니다. 같은 절을 H3 둘로 쪼개 같은 말을 두 번 하지 마세요 — 12,000자 글은 되풀이가 만든 길이입니다.
 5. **곁가지 절 금지.** 제목이 부른 독자에게 필요 없는 절(국내 코스닥 보유자 글의 나스닥 절, 햇살론 글의 특정 지역 센터 절)은 검색어에 딸려 온 것입니다. 그 절은 제목의 독자에게 무엇을 주는지 첫 문장에서 잇지 못하면 뺍니다.
+6. **같은 목록은 한 번만.** 지역·대상·조건 나열("경남, 경북, 광주, 전남, 제주, 충북")은 글 전체에서 한 번만 전부 적고, 뒤에서는 "위 6개 지역" 처럼 가리킵니다.
+   같은 목록이 절마다 나오면 독자는 같은 글을 다섯 번 읽습니다 (v3.8.664 실측: 한 글에 지역 목록 10번).
 `;
 
 /* ────────────────────────────────────────────────────────────────
@@ -113,8 +115,13 @@ export function buildRepeatedFactsBlock(evidenceText: string, opts: { keyword?: 
 /** 판단 문장 — 1인칭 말머리 또는 판단 어미 (narrative-flow 의 FIRST_PERSON_STANCE 와 같은 눈) */
 // v3.8.663 실측: 모델은 "판단이 타당합니다 / 편이 낫습니다 / 쪽이 맞습니다 / 더 직접적입니다" 로도 판단을 닫는다 — 그것도 판단이다
 const STANCE_ANY = /제\s*(?:판단|생각|의견|결론)(?:은|으로는?|엔|에는|이|을)|저는\s|제가\s*보기(?:엔|에는)|저라면|맞다고\s*봅니다|(?:으로|로)\s*봅니다|쪽입니다|쪽으로\s*봅니다|(?:쪽|편|것|판단|순서|방식|기록)(?:이|은)\s*(?:더\s*)?(?:맞습니다|낫습니다|타당합니다|합리적입니다|자연스럽습니다|현실적입니다|직접적입니다|안전합니다|정확합니다)|권합니다|권하지\s*않습니다|먼저라는\s*쪽|여기서는\s[^.]{0,80}?(?:맞습니다|낫습니다|타당합니다|봅니다)/;
-const CONDITION = /(?:라면|이라면|이면|면\s|경우|때는|때에는|일수록|있다면|없다면|받았다면|않았다면|중이라면|전이라면|뒤라면|이상|미만|까지는|부터는|나왔다면|없으면|있으면|거절됐다면|부결됐다면)/;
-const ACTION = /(?:신청|접수|내세요|내는|제출|확인|읽|보세요|보는|기다리|미루|먼저|나중|택|고르|바꾸|바꿔|넣|빼|줄이|늘리|묻|문의|정리|대조|분리|나누|피하|말고|하지\s*않|않는|권하|권합|보류|서두르|멈추|시작|짚|검토|비교)/;
+// v3.8.664 실측: "…경우에는 …두는 편이 낫습니다" 가 얕다고 세어졌다 — 행동 낱말이 좁았고("두는" 없음), 이유는 안 봤다
+const CONDITION = /(?:라면|이라면|이면|면\s|경우|때는|때에는|일수록|있다면|없다면|받았다면|않았다면|중이라면|전이라면|뒤라면|이상|미만|까지는|부터는|나왔다면|없으면|있으면|거절됐다면|부결됐다면|이때|이런\s*경우|그런\s*경우|그렇다면|그럴\s*때|아니라면|아닌데|이라도|더라도|있는데|없는데)/;
+const ACTION = /(?:신청|접수|내세요|내는|제출|확인|읽|보세요|보는|기다리|미루|먼저|나중|택|고르|바꾸|바꿔|넣|빼|줄이|늘리|묻|문의|정리|대조|분리|나누|피하|말고|하지\s*않|않는|권하|권합|보류|서두르|멈추|시작|짚|검토|비교|두는|두세요|두지|적는|적어|적으|남기|쓰는|쓰지|쓰세요|살피|살펴|찾|맞추|챙기|고치|정정|기록|보관|구분|가르)/;
+/** 이유 — 조건이 없어도 "…때문에 …하는 편이 낫습니다" 는 근거 있는 판단이다 (v3.8.664) */
+const REASON = /(?:때문|이유|므로|니까|어서\s|아서\s|해서\s|탓에|덕분에|근거로)/;
+/** "그래서·따라서" 로 시작하는 판단은 근거가 앞 문장에 있다 */
+const LEADS_WITH_CONSEQUENCE = /^(?:그래서|따라서|그러므로|그렇다면|그러니|이\s*때문에|결국)/;
 
 export interface StanceStats { total: number; sharp: number; shallow: string[] }
 
@@ -132,7 +139,10 @@ export function measureStances(plainText: string): StanceStats {
     if (!STANCE_ANY.test(s)) continue;
     total += 1;
     const pair = `${s} ${sentences[i + 1] || ''}`;
-    if (CONDITION.test(pair) && ACTION.test(pair)) sharp += 1;
+    // v3.8.664: 조건 **또는 이유** + 행동. "그래서 …" 로 시작하면 근거는 앞 문장에 있다
+    const grounds = LEADS_WITH_CONSEQUENCE.test(s) ? `${sentences[i - 1] || ''} ${pair}` : pair;
+    const grounded = CONDITION.test(grounds) || REASON.test(grounds);
+    if (grounded && ACTION.test(pair)) sharp += 1;
     else shallow.push(s.slice(0, 70));
   }
   return { total, sharp, shallow };
@@ -155,7 +165,8 @@ export function findShallowStances(plainText: string): AuditIssue[] {
 
 export function findTableTemplate(html: string, sectionCount: number): AuditIssue[] {
   const src = String(html || '');
-  const tables = [...src.matchAll(/<table[\s\S]*?<\/table>/gi)].map((m) => m[0]);
+  // v3.8.664: 핵심 요약표(summary-table)는 본문 표가 아니다 — 세지 않는다
+  const tables = [...src.matchAll(/<table[\s\S]*?<\/table>/gi)].map((m) => m[0]).filter((t) => !/summary-table/i.test(t.slice(0, 200)));
   if (tables.length === 0) return [];
   const lastHeaders = tables.map((t) => {
     const ths = [...t.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/gi)].map((h) => h[1]!.replace(/<[^>]+>/g, '').trim());

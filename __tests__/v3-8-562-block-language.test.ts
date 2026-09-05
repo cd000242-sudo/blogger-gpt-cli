@@ -154,7 +154,8 @@ describe('⑥ 발행 경로에 실제로 걸려 있다', () => {
   });
 
   it('⭐⭐ orchestration 이 payload 의 언어를 두 블록에 모두 넘긴다', () => {
-    expect((orchestration.match(/language: \(payload as any\)\?\.language/g) || []).length).toBe(2);
+    // v3.8.664: 세 번째는 발행 직전 답변 블록 질문 줄 복원(restoreAnswerBlockQuestion) — 같은 언어를 넘겨야 한다
+    expect((orchestration.match(/language: \(payload as any\)\?\.language/g) || []).length).toBe(3);
   });
 
   it('⭐ 영어 발행의 나머지 항목은 아직 안 됐다 (E5 만 끝났다는 사실을 기록해 둔다)', () => {

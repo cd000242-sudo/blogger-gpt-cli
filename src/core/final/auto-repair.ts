@@ -97,7 +97,8 @@ export function repairGluedSentences(html: string): { html: string; count: numbe
  * 문장 전체가 의견인 경우("제 생각에는 이게 맞아요")는 지우면 뜻이 사라지므로
  * 여기서 다루지 않는다 — 앞머리에 붙은 군더더기만 뗀다.
  * ──────────────────────────────────────────────────────────────── */
-const FILLER = /(?:^|(?<=[.!?]\s)|(?<=>))\s*(?:아무튼|제\s*기준으로는|개인적으로는|솔직히\s*말해)\s*/g;
+// v3.8.664: "제 기준으로는·개인적으로는" 은 판단의 말머리라 떼지 않는다 — 떼면 판단이 근거 없는 단정으로 남는다
+const FILLER = /(?:^|(?<=[.!?]\s)|(?<=>))\s*(?:아무튼|솔직히\s*말해)\s*/g;
 
 export function repairPersonalFiller(html: string): { html: string; count: number } {
   return outsideTags(html, (text) => {

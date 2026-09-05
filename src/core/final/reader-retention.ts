@@ -53,7 +53,8 @@ export function titlePromises(title: string): string[] {
   return String(title || '')
     .split(PROMISE_SPLIT)
     .map((s) => s.trim())
-    .filter((s) => s.length >= 4 && promiseWords(s).length > 0);
+    // v3.8.664: 문턱 4자 → 2자. "신용대출·주담대·전세대출" 의 "주담대"(3자)가 조각에서 빠져 소제목도 안 생기고 검사도 안 봤다
+    .filter((s) => s.length >= 2 && promiseWords(s).length > 0);
 }
 
 function normalize(text: string): string {

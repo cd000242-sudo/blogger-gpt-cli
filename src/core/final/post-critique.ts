@@ -703,6 +703,15 @@ export function buildSectionRevisionPrompt(input: {
  * 하나라도 어긋나면 **원본을 그대로 쓴다.** 고치려다 이미지와 링크를 날리는 것이
  * 안 고치는 것보다 나쁘다.
  */
+/**
+ * v3.8.664 — 답변 블록(answer-first)의 질문·답 본문. 도입부 구간을 다시 쓸 때 이것이 바뀌면 원본을 지킨다.
+ * 실측(햇살론15 글): 발행본에서 <p class="answer-first-q"> 가 사라지고 그 자리에 결론의 댓글 문장이 <p> 로 들어와 있었다.
+ */
+const ANSWER_PART_RE = /<p[^>]*class="answer-first-(?:q|a)"[^>]*>([\s\S]*?)<\/p>/gi;
+export function answerBlockText(html: string): string {
+  return [...String(html || '').matchAll(ANSWER_PART_RE)].map((m) => textOf(m[1] || '')).join(' | ');
+}
+
 export function acceptRevisedSection(
   raw: string,
   original: PostSection,
@@ -729,6 +738,11 @@ export function acceptRevisedSection(
   }
   if (countTag(cleaned, LINK_RE) < countTag(original.html, LINK_RE)) {
     return { html: original.html, accepted: false, reason: '링크가 사라졌습니다' };
+  }
+  // v3.8.664 — 답변 블록(질문·답)은 다시 쓰는 대상이 아니다
+  const answerBefore = answerBlockText(original.html);
+  if (answerBefore && answerBlockText(cleaned) !== answerBefore) {
+    return { html: original.html, accepted: false, reason: '답변 블록이 바뀌었습니다' };
   }
   /**
    * v3.8.658 — 글자로 적힌 주소가 그대로 남았는가.

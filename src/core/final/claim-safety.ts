@@ -90,7 +90,12 @@ export function findUnsourcedReadings(text: string): AuditIssue[] {
 }
 
 /* ③ 작성자 개인 의견 — 정보성 글의 문체를 흐린다 */
-const PERSONAL_VOICE = /제\s*기준으로는|제가\s*보기에는|개인적으로는|아무튼|솔직히\s*말해|제\s*생각에는/g;
+/*
+ * v3.8.664: "제가 보기에는 · 제 생각에는 · 제 기준으로는 · 개인적으로는" 은 뺀다.
+ * 660 부터 절마다 필자의 판단을 요구하는데, 이 검사가 그 말머리를 -5 로 깎고 있었다(상생보험 글 실측 59점).
+ * 남는 것은 판단이 아니라 군더더기뿐이다.
+ */
+const PERSONAL_VOICE = /아무튼|솔직히\s*말해/g;
 
 export function findPersonalVoice(text: string): AuditIssue[] {
   return collect(text, PERSONAL_VOICE, (hit, at) => ({
