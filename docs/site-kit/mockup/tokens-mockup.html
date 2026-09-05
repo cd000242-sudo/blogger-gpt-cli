@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 블로그 목업 — 실측 토큰 + 전기 보라</title>
+<!--
+  the-edit.co.kr 을 흉내 낸 페이지가 아니다.
+  거기서 "재서 뽑은 숫자"에 우리 색(전기 보라)을 얹으면 어떻게 보이는지 확인하는 목업이다.
+  로고·이름·글은 전부 플레이스홀더다. 저쪽 브랜드는 하나도 쓰지 않는다.
+
+  숫자 출처: docs/site-kit/01-design-spec-the-edit.md  (measure.js ~ measure5.js 실측)
+  ⓘ 버튼을 누르면 각 값이 어디서 나왔는지 화면에 표시된다.
+-->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   토큰 — 구조는 실측, 색만 AI 블로그용으로 교체
+   ═══════════════════════════════════════════════════════════════ */
+:root{
+  /* 색 — 실측 구조(브랜드1 + 바탕1 + 흑백)를 그대로 두고 색상만 바꿨다.
+     회색 계열은 두지 않는다. 흐림은 font-weight:300 으로 만든다. */
+  --brand:#5B4BFF;          /* 전기 보라 — 큰 면적 한 곳(목록 섹션)에만 */
+  --bg:#F6F5FB;             /* 아주 옅은 보라기 바탕 */
+  --ink:#0B0A1A;            /* 먹 */
+  --ink-invert:#FFFFFF;
+
+  /* 간격 — px 가 아니라 뷰포트 비례 (실측 --v-spacing:10vh / --h-gutter:3.3vw) */
+  --v-spacing:10vh;
+  --h-gutter:3.3vw;
+
+  /* 홈 카드 그리드 — measure5 실측 (1440 기준) */
+  --card-w:318px;           /* 카드 폭 */
+  --card-img-h:397px;       /* 카드 이미지 높이 → 비율 318/397 */
+  --grid-gutter:26px;       /* 열 사이 */
+  --grid-row-gap:48px;      /* 같은 열 카드 사이 */
+  --grid-stagger:128px;     /* 둘째 열이 내려간 거리 */
+  --edge:29px;              /* 바깥 여백 */
+
+  /* 대표글 핀 지속 거리 — 실측 478px (ScrollTrigger start~end) */
+  --pin-run:478px;
+
+  /* 카테고리 목록 그리드 — measure6 실측. 홈과 **다르다** (4열·가지런) */
+  --cat-cols:4;
+  --cat-card-w:306px;
+  --cat-gutter:24px;
+  --cat-edge:72px;          /* 첫 열 x = 72 */
+
+  /* 본문 */
+  --content-w:800px;
+  --para-gap:30px;
+
+  /* 헤더 */
+  --header-h:130px;
+  --header-h-mobile:80px;
+
+  /* 움직임 — 전부 실측값 */
+  --ease-out:cubic-bezier(0.165,0.84,0.44,1);
+  --t-fast:0.2s;   /* 색 · 헤더 */
+  --t-mid:0.5s;    /* 패널 · 대표글 이미지 */
+  --t-slow:0.7s;   /* 카드 hover */
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:Pretendard,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  background:var(--bg); color:var(--ink);
+  font-size:16px; line-height:24px; font-weight:500;
+  overflow-x:hidden;
+}
+img{max-width:100%;display:block}
+a{color:inherit;text-decoration:none;transition:color var(--t-fast)}
+
+/* ── 헤더 ──────────────────────────────────────────────────────
+   실측: fixed · 130px(모바일 80) · 배경 투명 · 그림자 0 · 테두리 0
+         스크롤↓ top:-130px(.nav-up) / 스크롤↑ top:0(.nav-down)
+         transform 이 아니라 top 을 움직인다 · transition: top 0.2s ease-in-out
+   ※ 이전 판에서 mix-blend-mode:difference 를 썼다가 로고가 깨졌다. 걷어냈다. */
+header{
+  position:fixed; top:0; left:0; right:0; z-index:900;
+  height:var(--header-h);
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 var(--edge);
+  background:transparent; box-shadow:none; border:0;
+  transition:top var(--t-fast) ease-in-out;
+}
+header.nav-up{top:calc(-1 * var(--header-h))}
+header.nav-down{top:0}
+.wordmark{
+  font-size:32px; font-weight:800; letter-spacing:-1.4px;
+  color:var(--ink-invert);
+  display:flex; align-items:center; gap:9px;
+}
+.wordmark .dot{
+  width:13px;height:13px;border-radius:50%;
+  background:var(--ink-invert);
+  box-shadow:0 0 0 4px rgba(255,255,255,.22);
+}
+.burger{
+  width:36px;height:26px;border:0;background:none;cursor:pointer;padding:0;
+  display:flex;flex-direction:column;justify-content:space-between;
+}
+.burger span{display:block;height:2px;background:var(--ink-invert);border-radius:2px;
+  transition:transform var(--t-fast),opacity var(--t-fast)}
+body.open .burger span:nth-child(1){transform:translateY(12px) rotate(45deg)}
+body.open .burger span:nth-child(2){opacity:0}
+body.open .burger span:nth-child(3){transform:translateY(-12px) rotate(-45deg)}
+/* 패널(z-index 9999)이 헤더를 덮어 닫기 버튼이 사라졌었다.
+   열렸을 때만 헤더를 위로 올리고, 밝은 패널 위에서 보이도록 X 를 먹색으로 바꾼다. */
+body.open header{z-index:10001}
+body.open .burger span{background:var(--ink)}
+
+/* ── 패널 : 실측 폭 734px = 51vw · translateX(100%→0) · 0.5s ──── */
+.panel{
+  position:fixed; top:0; right:0; bottom:0; z-index:9999;
+  width:51vw; background:var(--bg); color:var(--ink);
+  transform:translateX(100%); transition:transform var(--t-mid);
+  padding:var(--header-h) var(--h-gutter) 0;
+  display:flex; flex-direction:column; justify-content:center; gap:20px;
+}
+body.open .panel{transform:translateX(0)}
+.panel a{font-size:40px;font-weight:800;letter-spacing:-1.4px;transition:color .3s}
+.panel a:hover{color:var(--brand)}
+.panel .hint{font-weight:300;font-size:14px;line-height:22px;margin-top:14px}
+.scrim{position:fixed;inset:0;background:rgba(11,10,26,.45);opacity:0;pointer-events:none;
+  transition:opacity var(--t-mid);z-index:9000}
+body.open .scrim{opacity:1;pointer-events:auto}
+
+/* ═══ 홈 ═══════════════════════════════════════════════════════
+   실측 그리드(1440): 열 x = 29 / 373 / 749 / 1093, 폭 318, 거터 26,
+   중앙 간격 58, 세로 간격 48, 둘째 열 128px 아래로 엇갈림.
+   대표글은 GSAP ScrollTrigger 로 pin+scrub — 여기선 sticky 로 근사한다. */
+.strip{display:grid;grid-template-columns:1fr 1fr;background:var(--brand)}
+.strip--flip .featured-col{order:2}
+.strip--flip .list-col{order:1}
+
+/* 핀 지속 거리를 실측(478px)에 맞춘다.
+   sticky 는 "감싼 기둥이 남아 있는 동안" 붙어 있으므로,
+   기둥을 화면 한 칸 + 478px 로 두면 정확히 478px 만큼 고정된다.
+   (GSAP 은 fixed↔translateY 로 같은 일을 한다 — §6-⑤ 정정 참고) */
+.featured-col{position:relative;height:calc(100vh + var(--pin-run))}
+.featured{
+  position:sticky; top:0; height:100vh;
+  display:flex; flex-direction:column; justify-content:flex-end;
+  padding:var(--header-h) var(--edge) calc(var(--edge) * 2);
+  overflow:hidden;
+}
+.featured .bg{position:absolute;inset:0;z-index:0}
+/* 실측: .loop-home-featured::after → opacity 0.4s, transform 0.4s cubic-bezier(.165,.84,.44,1) */
+.featured::after{
+  content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(to top,rgba(11,10,26,.72) 0%,rgba(11,10,26,.28) 42%,rgba(11,10,26,0) 72%);
+  opacity:.85;transform:translateY(0);
+  transition:opacity .4s,transform .4s var(--ease-out);
+}
+.featured:hover::after{opacity:1;transform:translateY(-6px)}
+.featured .desc{position:relative;z-index:2;max-width:560px}
+.featured .kicker{
+  font-size:15px;font-weight:800;letter-spacing:1.4px;color:var(--ink-invert);
+  margin:0 0 16px;display:flex;align-items:center;gap:10px;
+}
+.featured .kicker::before{content:"";width:26px;height:2px;background:var(--ink-invert)}
+/* 실측 홈 대표글 제목: 52px / 65px / 800 / -0.5px / #fff  (모바일 36 / 46.8) */
+.featured h2{
+  font-size:52px;line-height:65px;font-weight:800;letter-spacing:-.5px;
+  color:var(--ink-invert);margin:0 0 18px;word-break:keep-all;transition:color .3s;
+}
+.featured h2 a{transition:color var(--t-fast)}
+.featured h2 a:hover{text-decoration:underline;text-underline-offset:8px}
+.featured .sub{font-size:16px;line-height:24px;font-weight:500;color:var(--ink-invert);
+  margin:0 0 14px;transition:color .3s;opacity:.94}
+.featured .meta{display:flex;align-items:center;gap:14px;color:var(--ink-invert);
+  font-size:15px;font-weight:500}
+.featured .avatar{width:56px;height:56px;border-radius:50%;overflow:hidden}
+
+/* ── 카드 목록 : 2열 · 둘째 열 128px 엇갈림 ──────────────────── */
+.list-col{padding:var(--header-h) var(--edge) var(--v-spacing)}
+/* 열을 각각 독립 컨테이너로 둔다.
+   실측 DOM 이 그렇게 돼 있고(.home-list-scroll-list-mid, 폭 318),
+   grid + margin-top 으로 엇갈림을 주면 행 높이가 밀려 같은 열 간격이 48→176 이 된다. */
+.cards{display:flex;gap:var(--grid-gutter);align-items:flex-start}
+.cards .col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:var(--grid-row-gap)}
+.cards .col:nth-child(2){margin-top:var(--grid-stagger)}
+
+.card{color:var(--ink-invert)}
+/* 이미지 프레임 — 318×397 고정. 실측상 부모가 자른다(레이아웃 불변) */
+.card .thumb{position:relative;overflow:hidden;aspect-ratio:318/397}
+.card .thumb .img{
+  position:absolute;inset:0;
+  transition:transform var(--t-slow);
+}
+/* 실측: hover → scale(1.10) rotate(2deg), 0.7초.
+   경계상자가 318×397 → 365×449 로 읽히는 건 전부 이 transform 때문이다.
+   width/height 는 실제로 변하지 않는다(형제를 밀지 않는 것으로 확인). */
+.card:hover .thumb .img{transform:scale(1.10) rotate(2deg)}
+/* 배지 — measure6 실측으로 바로잡음.
+   짐작으로 만들었던 값 세 개가 틀렸다: bottom 14→16, 글자 15→18px, 자간 .8→1px.
+   그리고 **원본에는 text-shadow 가 없다.** 흰 글자만 이미지 위에 얹는다
+   (그래서 대표 이미지를 어두운 걸로 고르는 편집 규칙이 사실상 따라붙는다). */
+.card .badge{
+  position:absolute;left:16px;bottom:16px;z-index:2;
+  color:var(--ink-invert);font-size:18px;line-height:18px;font-weight:800;letter-spacing:1px;
+}
+/* 실측 카드 제목: 28.8px / 36px / 800 / -1px  (measure5 에서 바로잡음) */
+.card h3{
+  font-size:28.8px;line-height:36px;font-weight:800;letter-spacing:-1px;
+  margin:18px 0 10px;word-break:keep-all;transition:color .5s;
+}
+.card:hover h3{text-decoration:underline;text-underline-offset:6px}
+.card .sub{font-size:16px;line-height:24px;font-weight:300;margin:0 0 16px;opacity:.92}
+.card .meta{display:flex;align-items:center;justify-content:space-between;
+  font-size:15px;font-weight:500}
+.card .who{display:flex;align-items:center;gap:10px}
+.card .who .avatar{width:44px;height:44px;border-radius:50%;overflow:hidden}
+
+/* ═══ 카테고리 목록 ═══════════════════════════════════════════
+   measure6 실측: 홈의 2열 지그재그가 아니라 **가지런한 4열**이다.
+   열 x = 72 / 402 / 732 / 1062 · 폭 306 · 거터 24 · 엇갈림 없음
+   화려한 건 홈뿐이고 목록은 정직한 격자다 — 여기에 지그재그를 깔면 원본과 달라진다. */
+.archive{background:var(--bg);padding:var(--header-h) var(--cat-edge) var(--v-spacing)}
+/* 실측 h1: 64px / 96px / 800 / -0.5px / uppercase / 검정 (홈엔 h1 이 0개인데 여기엔 1개) */
+.archive h1{
+  font-size:64px;line-height:96px;font-weight:800;letter-spacing:-.5px;
+  text-transform:uppercase;color:var(--ink);margin:0 0 var(--v-spacing);
+}
+.archive .cat-grid{
+  display:grid;
+  grid-template-columns:repeat(var(--cat-cols),minmax(0,1fr));
+  gap:calc(var(--v-spacing) * .6) var(--cat-gutter);
+  align-items:start;
+}
+.archive .card{color:var(--ink)}          /* 목록은 바탕이 밝다 — 글자는 먹 */
+.archive .card:hover h3{text-decoration:underline;text-underline-offset:6px}
+.archive .pager{display:flex;justify-content:center;gap:10px;margin-top:var(--v-spacing)}
+.archive .pager span,.archive .pager a{
+  min-width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;
+  font-size:16px;font-weight:800;border:1px solid var(--ink);border-radius:8px;
+  transition:background var(--t-fast),color var(--t-fast);
+}
+.archive .pager .on{background:var(--ink);color:var(--ink-invert)}
+.archive .pager a:hover{background:var(--brand);color:var(--ink-invert);border-color:var(--brand)}
+
+/* ═══ 글 페이지 ═══════════════════════════════════════════════ */
+/* 글 페이지 헤더 색은 **글마다 다르다** (실측 §2-1).
+   측정한 글의 .single-header 배경은 rgb(158,183,88) 로, 브랜드색도 바탕색도 아니었다.
+   대표 이미지에서 뽑은 색을 글마다 따로 넣는 구조다.
+   여기서는 --post-accent 한 칸으로 두어 "발행 때 채워 넣는 자리"임을 드러낸다.
+   ⚠️ 이 값을 만들려면 발행 파이프가 대표 이미지에서 대표색을 추출해야 한다 — 아직 없다. */
+.single{background:var(--bg);--post-accent:#4E3FD4}
+.single-header{
+  display:grid;grid-template-columns:1fr 1fr;min-height:100vh;
+  background:var(--post-accent);color:var(--ink-invert);
+}
+.single-header .hero{position:relative;overflow:hidden}
+.single-header .desc{
+  padding:var(--header-h) var(--edge) var(--edge);
+  display:flex;flex-direction:column;justify-content:center;
+}
+.single-header .kicker{font-size:15px;font-weight:800;letter-spacing:1.4px;margin:0 0 24px;
+  display:flex;align-items:center;gap:10px}
+.single-header .kicker::before{content:"";width:26px;height:2px;background:currentColor}
+/* 실측 글 h1: 72px / 82.8px / 800 / -0.5px  (모바일 36 / 50.4) */
+.single-header h1{
+  font-size:72px;line-height:82.8px;font-weight:800;letter-spacing:-.5px;
+  margin:0 0 28px;word-break:keep-all;
+}
+.single-header .sub{font-size:16px;line-height:24px;font-weight:800;margin:0 0 20px}
+.single-header .meta{display:flex;align-items:center;gap:14px;font-size:16px;font-weight:500}
+.single-header .avatar{width:56px;height:56px;border-radius:50%;overflow:hidden}
+
+/* 본문 : 800px 고정폭 중앙. max-width 가 아니라 고정이다 */
+.single-content{width:var(--content-w);margin:0 auto;padding:var(--v-spacing) 0;position:relative}
+/* 실측 본문 p: 16px / 28px / weight 300 / -0.2px — 데스크톱·모바일 동일 */
+.single-content p{font-size:16px;line-height:28px;font-weight:300;letter-spacing:-.2px;margin:0}
+.single-content p + p{margin-top:var(--para-gap)}
+.single-content strong{font-weight:800}   /* 색을 바꾸지 않는다 — 굵기만으로 강조 */
+/* 실측 글 h2: 25px / 37.5px / 800 / -0.5px */
+.single-content h2{font-size:25px;line-height:37.5px;font-weight:800;letter-spacing:-.5px;
+  margin:calc(var(--para-gap) * 2) 0 var(--para-gap)}
+.single-content figure{margin:calc(var(--para-gap) * 1.6) 0}
+.single-content figure .img{width:100%;aspect-ratio:16/10}
+.single-content figcaption{font-size:14px;font-weight:300;line-height:22px;margin-top:12px;opacity:.8}
+.single-content hr{border:0;border-top:1px solid var(--ink);margin:calc(var(--para-gap) * 2) 0}
+/* 인용 강조 — 좌측 액센트 바를 쓰지 않는다.
+   v3.8.561 에서 결론 블록의 좌측 바를 걷어낸 것과 같은 이유이고,
+   실측 원칙(위계는 굵기와 크기로, 색은 안 바꾼다)에도 그게 맞다.
+   여백을 크게 줘서 "여기서 한 번 쉬어 간다"는 신호만 만든다. */
+.single-content .pull{
+  font-size:28px;line-height:42px;font-weight:800;letter-spacing:-.5px;
+  margin:calc(var(--para-gap) * 2.2) 0;
+  word-break:keep-all;
+}
+
+footer{background:var(--ink);color:var(--ink-invert);padding:32px var(--edge);
+  font-size:15px;font-weight:300;display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+footer a{transition:color .3s}
+footer a:hover{color:var(--brand)}
+
+/* ── 가짜 사진 ────────────────────────────────────────────────
+   외부 이미지를 쓰지 않는다(오프라인에서도 그대로 열려야 한다).
+   단색 그라디언트만 쓰면 "이미지가 안 뜬 빈 박스"로 읽혀서,
+   빛의 초점(radial)과 결(repeating)을 겹쳐 사진처럼 깊이를 준다. */
+.img{background:#cfcada;position:relative;overflow:hidden}
+.ph-a{background:
+  radial-gradient(120% 80% at 22% 18%,rgba(255,255,255,.30),transparent 55%),
+  repeating-linear-gradient(38deg,rgba(255,255,255,.09) 0 18px,transparent 18px 64px),
+  linear-gradient(155deg,#4A3AE8 0%,#2B1F86 48%,#140F33 100%)}
+.ph-b{background:
+  radial-gradient(90% 70% at 74% 24%,rgba(255,255,255,.85),transparent 58%),
+  radial-gradient(70% 60% at 18% 88%,rgba(91,75,255,.34),transparent 62%),
+  linear-gradient(152deg,#EDEAF9 0%,#C6BEE4 55%,#9C92C8 100%)}
+.ph-c{background:
+  radial-gradient(80% 66% at 30% 26%,rgba(255,255,255,.60),transparent 56%),
+  radial-gradient(90% 80% at 88% 92%,rgba(36,26,107,.42),transparent 60%),
+  linear-gradient(148deg,#DED3F4 0%,#A796D8 52%,#6E5CAE 100%)}
+.ph-d{background:
+  radial-gradient(70% 55% at 68% 22%,rgba(124,107,255,.65),transparent 60%),
+  radial-gradient(90% 70% at 12% 96%,rgba(255,255,255,.16),transparent 58%),
+  linear-gradient(150deg,#241C4A 0%,#120E28 60%,#0B0A1A 100%)}
+.ph-e{background:
+  radial-gradient(85% 70% at 26% 20%,rgba(255,255,255,.40),transparent 58%),
+  repeating-linear-gradient(-18deg,rgba(255,255,255,.07) 0 14px,transparent 14px 48px),
+  linear-gradient(150deg,#8B7CFF 0%,#5B4BFF 46%,#2A1E9E 100%)}
+.ph-f{background:
+  radial-gradient(80% 62% at 76% 30%,rgba(255,255,255,.72),transparent 58%),
+  radial-gradient(70% 70% at 22% 90%,rgba(91,75,255,.26),transparent 60%),
+  linear-gradient(150deg,#DCE2F8 0%,#AEB8DE 54%,#7A87BC 100%)}
+.ph-g{background:
+  radial-gradient(110% 75% at 78% 14%,rgba(255,255,255,.26),transparent 56%),
+  repeating-linear-gradient(-24deg,rgba(255,255,255,.08) 0 15px,transparent 15px 52px),
+  linear-gradient(150deg,#6555FF 0%,#3A2BA8 50%,#1A1240 100%)}
+
+/* ── 반응형 : 실측상 줄이는 건 제목뿐. h2·본문은 그대로 ──────── */
+@media (max-width:900px){
+  :root{--header-h:80px;--h-gutter:5.5vw;--edge:5.5vw;--grid-stagger:0px;
+        --cat-cols:1;--cat-edge:5.5vw;--pin-run:0px}
+  .archive h1{font-size:36px;line-height:50.4px}   /* 제목만 줄인다 — 본문·h2 는 그대로 */
+  .featured-col{height:auto}
+  .strip,.single-header{grid-template-columns:1fr}
+  .strip--flip .featured-col{order:1}
+  .strip--flip .list-col{order:2}
+  .featured{position:relative;height:78vh}
+  .list-col{padding-top:var(--v-spacing)}
+  .cards{flex-direction:column;gap:var(--v-spacing)}
+  .cards .col{gap:var(--v-spacing)}
+  .cards .col:nth-child(2){margin-top:0}
+  .featured h2{font-size:36px;line-height:46.8px}       /* 실측 모바일 */
+  .single-header h1{font-size:36px;line-height:50.4px}  /* 실측 모바일 */
+  .single-content{width:100%}
+  .single-content p,.single-content h2,.single-content hr,
+  .single-content .pull,.single-content figcaption{padding:0 var(--edge)}
+  .single-content .pull{margin-left:var(--edge);margin-right:var(--edge);padding-left:18px}
+  .panel{width:100vw}
+  .wordmark{font-size:25px}
+}
+
+/* ═══ 검수용 오버레이 — 목업에만 있다. 실제 사이트엔 안 들어간다 ═══ */
+/* 본문을 가리지 않도록 평소엔 반투명으로 물러나 있다가, 다가가면 또렷해진다 */
+.tools{position:fixed;right:16px;bottom:16px;z-index:10000;display:flex;gap:8px;flex-wrap:wrap;
+  justify-content:flex-end;max-width:60vw;
+  opacity:.32;transition:opacity var(--t-fast)}
+.tools:hover,.tools:focus-within{opacity:1}
+.tools button{
+  font-family:inherit;font-size:12px;font-weight:700;border:2px solid var(--ink);
+  background:var(--ink-invert);color:var(--ink);
+  padding:8px 13px;border-radius:999px;cursor:pointer;box-shadow:0 2px 0 var(--ink);
+  transition:background var(--t-fast),color var(--t-fast);
+}
+.tools button[aria-pressed="true"]{background:var(--brand);color:var(--ink-invert);border-color:var(--brand)}
+.note{
+  position:absolute;z-index:8000;font-size:11px;font-weight:700;line-height:1.4;
+  background:var(--ink);color:#9FE8FF;padding:5px 8px;border-radius:4px;
+  pointer-events:none;white-space:pre;display:none;max-width:none;
+}
+body.annotate .note{display:block}
+body.annotate .card,body.annotate .featured,body.annotate .single-content,body.annotate header{
+  outline:1px dashed rgba(255,255,255,.5)}
+body.annotate .single-content{outline-color:rgba(11,10,26,.4)}
+</style>
+</head>
+<body class="nav-down">
+
+<div class="scrim" data-close></div>
+
+<header id="hdr">
+  <div class="wordmark"><span class="dot"></span>sitekit</div>
+  <button class="burger" id="burger" aria-label="메뉴"><span></span><span></span><span></span></button>
+  <div class="note" style="top:100%;left:var(--edge)">header · fixed · 130px(모바일 80) · 배경 투명 · 그림자 없음
+스크롤↓ top:-130px(.nav-up) / 스크롤↑ top:0(.nav-down) · transition: top 0.2s ease-in-out</div>
+</header>
+
+<nav class="panel" id="panel">
+  <a href="#">모델 이야기</a>
+  <a href="#">도구 리뷰</a>
+  <a href="#">프롬프트</a>
+  <a href="#">업계 소식</a>
+  <p class="hint">패널 폭 51vw(실측 734px) · translateX(100%→0) · 0.5s<br>화면 전체를 덮지 않는다 — 절반만 덮는 게 실측값이다</p>
+</nav>
+
+<!-- ═══ 홈 · 첫 구간 : 대표글 왼쪽 + 카드 2열 오른쪽 ═══ -->
+<section class="strip" id="home">
+  <div class="featured-col">
+    <article class="featured">
+      <div class="bg img ph-a"></div>
+      <div class="desc">
+        <p class="kicker">MODEL</p>
+        <h2><a href="#">긴 맥락을 넣으면 정말<br>더 잘 답할까</a></h2>
+        <p class="sub">128k를 다 채운 쪽이 항상 이기지는 않았다</p>
+        <div class="meta"><span class="avatar img ph-d"></span><span>박성현</span><time>2026. 08. 27</time></div>
+      </div>
+      <div class="note" style="top:calc(var(--header-h) + 10px);left:var(--edge)">대표글 · sticky 근사
+실제는 GSAP ScrollTrigger pin:true + scrub:true · 구간 478px
+제목 52px/65px/800/-0.5px (모바일 36/46.8)
+::after opacity 0.4s + transform 0.4s cubic-bezier(.165,.84,.44,1)</div>
+      </article>
+  </div>
+
+  <div class="list-col">
+    <div class="cards">
+      <div class="col">
+        <article class="card">
+          <div class="thumb"><div class="img ph-b"></div><span class="badge">TOOL</span>
+            <div class="note" style="top:10px;left:10px">카드 이미지 프레임 318×397 고정
+hover → scale(1.10) rotate(2deg) · 0.7초
+경계상자 365×449 는 전부 이 transform 때문이다
+(width/height 는 안 변한다 — 형제를 밀지 않음)</div>
+          </div>
+          <h3>회의록 요약, 결국 어떤 도구가 남았나</h3>
+          <p class="sub">여섯 개를 두 달 굴려 보고 두 개만 남겼다</p>
+          <div class="meta"><time>2026. 08. 25</time><span class="who"><span>이도현</span><span class="avatar img ph-d"></span></span></div>
+        </article>
+        <article class="card">
+          <div class="thumb"><div class="img ph-f"></div><span class="badge">NEWS</span>
+            <div class="note" style="top:-34px;left:0">같은 열 세로 간격 48px (실측)</div>
+          </div>
+          <h3>로컬 모델이 노트북에서 쓸 만해진 시점</h3>
+          <p class="sub">16GB로 버티는 선이 어디까지인지</p>
+          <div class="meta"><time>2026. 08. 20</time><span class="who"><span>박성현</span><span class="avatar img ph-e"></span></span></div>
+        </article>
+      </div>
+      <div class="col">
+        <article class="card">
+          <div class="thumb"><div class="img ph-c"></div><span class="badge">PROMPT</span>
+            <div class="note" style="top:-40px;left:0">둘째 열은 128px 아래로 엇갈린다 (실측)
+열 폭 318 · 거터 26</div>
+          </div>
+          <h3>프롬프트를 길게 쓸수록 나빠지는 순간</h3>
+          <p class="sub">예시를 늘렸더니 오히려 형식만 베꼈다</p>
+          <div class="meta"><time>2026. 08. 22</time><span class="who"><span>김서연</span><span class="avatar img ph-b"></span></span></div>
+        </article>
+        <article class="card">
+          <div class="thumb"><div class="img ph-e"></div><span class="badge">TOOL</span></div>
+          <h3>코드 리뷰를 맡겨 봤다, 놓친 것들</h3>
+          <p class="sub">잘 잡는 버그와 절대 못 잡는 버그가 갈렸다</p>
+          <div class="meta"><time>2026. 08. 18</time><span class="who"><span>정민우</span><span class="avatar img ph-c"></span></span></div>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 홈 · 둘째 구간 : 좌우가 뒤바뀐다 (실측상 대표글이 3번 핀된다) ═══ -->
+<section class="strip strip--flip">
+  <div class="featured-col">
+    <article class="featured">
+      <div class="bg img ph-g"></div>
+      <div class="desc">
+        <p class="kicker">PROMPT</p>
+        <h2><a href="#">시키는 말투가 결과를<br>얼마나 바꾸는가</a></h2>
+        <p class="sub">같은 요청을 네 가지 말투로 200번 돌려 봤다</p>
+        <div class="meta"><span class="avatar img ph-b"></span><span>김서연</span><time>2026. 08. 24</time></div>
+      </div>
+      <div class="note" style="top:calc(var(--header-h) + 10px);left:var(--edge)">실측: 대표글이 3번 핀된다
+구간 -0.001~478 / 1378~1856 / 2756~3234
+좌우가 번갈아 바뀐다</div>
+    </article>
+  </div>
+  <div class="list-col">
+    <div class="cards">
+      <div class="col">
+        <article class="card">
+          <div class="thumb"><div class="img ph-d"></div><span class="badge">MODEL</span></div>
+          <h3>같은 질문을 100번 물으면 몇 번 흔들리나</h3>
+          <p class="sub">온도를 0으로 놔도 완전히 같지는 않았다</p>
+          <div class="meta"><time>2026. 08. 16</time><span class="who"><span>이도현</span><span class="avatar img ph-f"></span></span></div>
+        </article>
+        <article class="card">
+          <div class="thumb"><div class="img ph-c"></div><span class="badge">TOOL</span></div>
+          <h3>번역 품질을 사람이 못 이기는 구간</h3>
+          <p class="sub">그리고 여전히 사람이 이기는 구간</p>
+          <div class="meta"><time>2026. 08. 09</time><span class="who"><span>김서연</span><span class="avatar img ph-e"></span></span></div>
+        </article>
+      </div>
+      <div class="col">
+        <article class="card">
+          <div class="thumb"><div class="img ph-b"></div><span class="badge">NEWS</span></div>
+          <h3>API 값이 또 내렸다, 이번엔 무엇이 달라지나</h3>
+          <p class="sub">싸져서 가능해진 일과 여전히 안 되는 일</p>
+          <div class="meta"><time>2026. 08. 12</time><span class="who"><span>정민우</span><span class="avatar img ph-a"></span></span></div>
+        </article>
+        <article class="card">
+          <div class="thumb"><div class="img ph-f"></div><span class="badge">PROMPT</span></div>
+          <h3>표로 달라고 했더니 표만 예뻐졌다</h3>
+          <p class="sub">형식을 지정하면 내용이 얇아지는 문제</p>
+          <div class="meta"><time>2026. 08. 06</time><span class="who"><span>박성현</span><span class="avatar img ph-d"></span></span></div>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 카테고리 목록 ═══ -->
+<section class="archive" id="archive">
+  <h1>Model</h1>
+  <div class="note" style="top:calc(var(--header-h) + 8px);left:var(--cat-edge)">카테고리 목록은 홈과 그리드가 다르다 (실측)
+4열 · 폭 306 · 거터 24 · 엇갈림 없음 (홈은 2열 318/26/128)
+h1 64px/96px/800/uppercase — 홈엔 h1 이 0개인데 여기엔 1개</div>
+  <div class="cat-grid">
+    <article class="card">
+      <div class="thumb"><div class="img ph-b"></div><span class="badge">MODEL</span></div>
+      <h3>긴 맥락을 넣으면 정말 더 잘 답할까</h3>
+      <p class="sub">128k를 다 채운 쪽이 항상 이기지는 않았다</p>
+      <div class="meta"><time>2026. 08. 27</time><span class="who"><span>박성현</span><span class="avatar img ph-d"></span></span></div>
+    </article>
+    <article class="card">
+      <div class="thumb"><div class="img ph-c"></div><span class="badge">MODEL</span></div>
+      <h3>같은 질문을 100번 물으면 몇 번 흔들리나</h3>
+      <p class="sub">온도를 0으로 놔도 완전히 같지는 않았다</p>
+      <div class="meta"><time>2026. 08. 16</time><span class="who"><span>이도현</span><span class="avatar img ph-f"></span></span></div>
+    </article>
+    <article class="card">
+      <div class="thumb"><div class="img ph-f"></div><span class="badge">MODEL</span></div>
+      <h3>로컬 모델이 노트북에서 쓸 만해진 시점</h3>
+      <p class="sub">16GB로 버티는 선이 어디까지인지</p>
+      <div class="meta"><time>2026. 08. 20</time><span class="who"><span>박성현</span><span class="avatar img ph-e"></span></span></div>
+    </article>
+    <article class="card">
+      <div class="thumb"><div class="img ph-e"></div><span class="badge">MODEL</span></div>
+      <h3>작은 모델로 충분한 일과 아닌 일</h3>
+      <p class="sub">분류는 되고 판단은 아직 안 된다</p>
+      <div class="meta"><time>2026. 08. 11</time><span class="who"><span>정민우</span><span class="avatar img ph-c"></span></span></div>
+    </article>
+    <article class="card">
+      <div class="thumb"><div class="img ph-d"></div><span class="badge">MODEL</span></div>
+      <h3>토큰 값을 반으로 줄인 세 가지</h3>
+      <p class="sub">프롬프트를 줄인 게 제일 컸다</p>
+      <div class="meta"><time>2026. 08. 05</time><span class="who"><span>김서연</span><span class="avatar img ph-b"></span></span></div>
+    </article>
+    <article class="card">
+      <div class="thumb"><div class="img ph-g"></div><span class="badge">MODEL</span></div>
+      <h3>같은 프롬프트, 다른 모델 여섯</h3>
+      <p class="sub">값과 품질이 비례하지 않는 구간이 있다</p>
+      <div class="meta"><time>2026. 07. 30</time><span class="who"><span>이도현</span><span class="avatar img ph-a"></span></span></div>
+    </article>
+    <article class="card">
+      <div class="thumb"><div class="img ph-a"></div><span class="badge">MODEL</span></div>
+      <h3>모델을 갈아탈 때 깨지는 것들</h3>
+      <p class="sub">출력 형식이 조용히 달라진다</p>
+      <div class="meta"><time>2026. 07. 24</time><span class="who"><span>박성현</span><span class="avatar img ph-f"></span></span></div>
+    </article>
+    <article class="card">
+      <div class="thumb"><div class="img ph-b"></div><span class="badge">MODEL</span></div>
+      <h3>추론 시간을 늘리면 답이 좋아질까</h3>
+      <p class="sub">문제 종류에 따라 갈렸다</p>
+      <div class="meta"><time>2026. 07. 18</time><span class="who"><span>김서연</span><span class="avatar img ph-d"></span></span></div>
+    </article>
+  </div>
+  <nav class="pager">
+    <span class="on">1</span><a href="#">2</a><a href="#">3</a><a href="#">›</a>
+  </nav>
+</section>
+
+<!-- ═══ 글 페이지 ═══ -->
+<article class="single" id="single">
+  <div class="single-header">
+    <div class="hero img ph-a"></div>
+    <div class="desc">
+      <p class="kicker">MODEL</p>
+      <h1>긴 맥락을 넣으면<br>정말 더 잘 답할까</h1>
+      <p class="sub">128k를 다 채운 쪽이 항상 이기지는 않았다</p>
+      <div class="meta"><span class="avatar img ph-d"></span><span>박성현</span><time>2026. 08. 27</time></div>
+      <div class="note" style="bottom:var(--edge);left:var(--edge)">글 제목 72px/82.8px/800/-0.5px (모바일 36/50.4)
+실측 원본은 헤더 배경이 글마다 다르다 — 대표 이미지에서 뽑은 색</div>
+    </div>
+  </div>
+
+  <div class="single-content">
+    <p>맥락 창이 넓어졌다는 말을 들을 때마다 같은 의문이 들었다. 넣을 수 있는 것과 넣어서 좋은 것은 다르지 않나. 그래서 같은 질문을 두 가지 방식으로 던져 봤다. 한 번은 필요한 문단만, 한 번은 문서 전체를.</p>
+    <p>결과는 <strong>절반만 예상대로</strong>였다. 사실을 찾아오는 일은 전체를 넣은 쪽이 나았다. 그런데 판단을 요구하는 질문에서는 오히려 뒤집혔다.</p>
+    <div class="note" style="left:-300px;top:0">본문 컬럼 800px 고정 (max-width 아님)
+p: 16px / 28px / weight 300 / -0.2px — 데스크톱·모바일 동일
+문단 간격 30px · strong 은 800, 색은 안 바꾼다</div>
+
+    <figure><div class="img ph-b"></div><figcaption>같은 질문 240회. 위가 필요한 문단만, 아래가 문서 전체.</figcaption></figure>
+
+    <h2>사실 찾기와 판단하기는 다른 일이었다</h2>
+    <p>"이 조항이 몇 조냐"는 질문에는 전체를 넣은 쪽이 거의 틀리지 않았다. 반면 "이 계약이 우리에게 불리하냐"는 질문에서는 근거를 여기저기서 주워 와 이어 붙이는 답이 늘었다.</p>
+    <p class="pull">넣을 수 있다는 것과 넣어서 좋다는 것은 다른 문제다.</p>
+    <p>말이 되게 들리지만 확인해 보면 두 문단이 서로 다른 계약서에서 왔다. 넓은 창이 오히려 <strong>섞기 좋은 재료</strong>를 늘려 준 셈이다.</p>
+
+    <h2>그래서 어떻게 쓰기로 했나</h2>
+    <p>두 단계로 나눴다. 먼저 전체를 넣고 "어디를 봐야 하는지"만 묻는다. 그다음 그 부분만 잘라 넣고 판단을 묻는다. 호출이 두 번이라 비용은 늘지만, 되묻는 횟수가 줄어 결과적으로는 비슷했다.</p>
+    <p>기준은 하나로 정했다. <strong>답이 틀렸을 때 그 이유를 내가 추적할 수 있는가.</strong> 전체를 통째로 넣으면 그게 안 된다.</p>
+    <figure><div class="img ph-c"></div><figcaption>두 단계로 나눈 뒤. 되묻는 횟수가 40% 줄었다.</figcaption></figure>
+    <hr>
+    <p>다음 편에서는 잘라 넣을 부분을 고르는 방법을 적어 보려고 한다.</p>
+  </div>
+</article>
+
+<footer>
+  <span>sitekit — 실측 토큰 + 전기 보라 목업</span>
+  <span><a href="#">소개</a> · <a href="#">문의</a> · <a href="#">개인정보처리방침</a></span>
+</footer>
+
+<div class="tools">
+  <button id="btn-annotate" aria-pressed="false">ⓘ 실측값</button>
+  <button id="btn-mobile" aria-pressed="false">📱 모바일</button>
+  <button id="btn-top">↑ 맨 위</button>
+</div>
+
+<script>
+/* 헤더 숨김/복귀 — 실측 그대로: 내리면 nav-up, 올리면 nav-down */
+(function(){
+  var last = 0, hdr = document.getElementById('hdr'), THRESH = 5;
+  window.addEventListener('scroll', function(){
+    var y = window.scrollY;
+    if (Math.abs(y - last) < THRESH) return;
+    if (y > last && y > 130) { hdr.classList.add('nav-up'); hdr.classList.remove('nav-down'); }
+    else { hdr.classList.remove('nav-up'); hdr.classList.add('nav-down'); }
+    last = y;
+  }, { passive: true });
+})();
+
+/* 패널 — translateX(100%→0), body.open */
+(function(){
+  document.getElementById('burger').addEventListener('click', function(){
+    document.body.classList.toggle('open');
+  });
+  document.querySelector('[data-close]').addEventListener('click', function(){
+    document.body.classList.remove('open');
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') document.body.classList.remove('open');
+  });
+})();
+
+/* 검수 도구 */
+(function(){
+  var a = document.getElementById('btn-annotate'), m = document.getElementById('btn-mobile');
+  a.addEventListener('click', function(){
+    a.setAttribute('aria-pressed', String(document.body.classList.toggle('annotate')));
+  });
+  m.addEventListener('click', function(){
+    var on = !document.body.classList.contains('mobilepreview');
+    document.body.classList.toggle('mobilepreview', on);
+    m.setAttribute('aria-pressed', String(on));
+    document.querySelectorAll('.strip, .archive, .single, footer').forEach(function(el){
+      el.style.maxWidth = on ? '390px' : '';
+      el.style.margin = on ? '0 auto' : '';
+      el.style.boxShadow = on ? '0 0 0 100vmax rgba(11,10,26,.6)' : '';
+      el.style.overflowX = on ? 'hidden' : '';
+    });
+  });
+  document.getElementById('btn-top').addEventListener('click', function(){
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+})();
+</script>
+</body>
+</html>

@@ -186,8 +186,23 @@ describe('v3.8.632 발행 장부', () => {
       expect(tail).toContain('발행 조건이 아니다');
     });
 
-    test('경로를 앱이 넣어 줄 수 있다 — orchestration 은 Electron 을 모른다', () => {
-      expect(orch).toContain("process.env['PUBLISH_LEDGER_PATH']");
+    /**
+     * v3.8.651: 경로 계산이 publish-ledger.ts 한 곳으로 옮겨졌다.
+     * (앱도 발행 뒤 주소를 채우려고 같은 경로가 필요한데, 두 벌로 두면
+     *  한쪽만 바뀌었을 때 **서로 다른 파일**을 보게 된다.)
+     * 지켜야 할 것은 문자열의 위치가 아니라 두 가지다:
+     *   ① 앱이 환경변수로 경로를 넣어 줄 수 있다
+     *   ② 경로를 정하는 곳이 **하나뿐이다** (두 벌이면 서로 다른 파일을 본다)
+     *
+     * 원래 이 검사 제목은 "orchestration 은 Electron 을 모른다" 였는데,
+     * 실제로는 이 파일이 electron 을 참조한다(창에 로그를 보낸다). 사실이 아닌 것을
+     * 검사에 박지 않는다 — 이 검사가 그걸 잡아 줬다.
+     */
+    test('경로를 앱이 넣어 줄 수 있고, 정하는 곳은 하나다', () => {
+      expect(read('src/core/final/publish-ledger.ts')).toContain("process.env['PUBLISH_LEDGER_PATH']");
+      expect(orch).toContain("require('./publish-ledger').defaultLedgerPath()");
+      // orchestration 이 경로를 스스로 다시 계산하지 않는다
+      expect(orch).not.toContain("join(home, 'blogger-gpt-cli'");
     });
   });
 });
