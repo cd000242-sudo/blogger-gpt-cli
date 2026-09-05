@@ -79,6 +79,8 @@ function clean(line: string): string {
     .replace(/^\s*\d+[.)]\s*/, '')
     .replace(/^\s*★\s*/, '')
     .replace(/\\\[|\\\]/g, '')
+    // v3.8.658 — 구글 문서 내보내기가 기호를 역슬래시로 감싼다: `\-` `\+` `\>`
+    .replace(/\\([-+.>()])/g, '$1')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -106,7 +108,31 @@ function itemsUnder(block: string, headingPattern: RegExp): string[] {
 function valueOf(block: string, label: string): string {
   const re = new RegExp('^\\s*\\*{0,2}' + label + '\\*{0,2}\\s*[:：]\\s*(.+)$', 'm');
   const m = block.match(re);
-  return m ? clean(m[1]!) : '';
+  if (!m) return '';
+  /**
+   * v3.8.658 — 한 줄에 굵은 값이 둘 이상 오는 꼴을 끊는다.
+   * 실측(2026-09-05 고CPC): `**키워드: 상장유지 … 경우** **등급: 통과 (슬롯 A 게이트 …)**`
+   * clean() 이 `**` 를 통째로 지워 등급 문장까지 키워드가 됐다 — 그 키워드로 글이 나갔다.
+   * 값이 `**…**` 로 시작하면 그 안만, 아니면 첫 `**` 앞까지만 값이다.
+   */
+  const raw = String(m[1] || '').trim();
+  const lead = raw.match(/^\*\*([^*]+)\*\*/);
+  const cut = lead ? lead[1]! : (raw.includes('**') ? raw.slice(0, raw.indexOf('**')) : raw);
+  return clean(cut);
+}
+
+/**
+ * 옛 형식(고CPC)의 "키워드 - 각도" 를 나눈다 (v3.8.658).
+ * `상장유지 시가총액 기준 6개월 유예 - 내 종목이 코넥스 이전 대상인지와 정리매매로 가는 경우`
+ * 앞은 검색어, 전체는 제목감이다. 확정 제목이 따로 없을 때만 쓴다.
+ */
+export function splitKeywordAngle(keyword: string, title: string): { keyword: string; title: string } {
+  const k = String(keyword || '').trim();
+  if (!/\s[-–—]\s/.test(k)) return { keyword: k, title };
+  const head = k.split(/\s[-–—]\s/)[0]!.trim();
+  if (head.length < 2) return { keyword: k, title };
+  // 검색어는 늘 앞부분이다. 제목은 확정된 것이 있으면 그것, 없으면 전체 문구
+  return { keyword: head, title: title || k };
 }
 
 /** 확정 제목 — "**확정 (46자):** 「...」" 꼴에서 낫표 안을 꺼낸다 */
@@ -197,11 +223,15 @@ export function parseCpcReport(markdown: string): CpcReport {
     const block = src.slice(head.at, to);
     const 미확보 = /미확보|배정 불가|슬롯 [A-Z][^\n]*미확보/.test(block.split('\n').slice(0, 3).join(' '));
 
+    const kt = splitKeywordAngle(
+      valueOf(block, '키워드') || clean((block.match(/^##\s*키워드\s*[:：]\s*(.+)$/m) || [])[1] || ''),
+      confirmedTitle(block),
+    );
     return {
       slot: head.slot,
       label: head.label.replace(/[:：].*$/, '').trim(),
-      keyword: valueOf(block, '키워드') || clean((block.match(/^##\s*키워드\s*[:：]\s*(.+)$/m) || [])[1] || ''),
-      title: confirmedTitle(block),
+      keyword: kt.keyword,
+      title: kt.title,
       grade: valueOf(block, '등급'),
       longtails: itemsUnder(block, /^#{2,6}\s*롱테일\s*파생/),
       mustCheck: itemsUnder(block, /^#{2,6}\s*발행\s*전\s*확인\s*필요/),
@@ -222,7 +252,9 @@ export function parseCpcReport(markdown: string): CpcReport {
 
 /** 오늘 쓸 슬롯만 — 미확보는 뺀다 */
 export function usableSlots(report: CpcReport): CpcSlot[] {
-  return report.slots.filter((s) => !s.empty && (s.keyword || s.title));
+  return report.slots.filter((s) => !s.empty && (s.keyword || s.title))
+    // v3.8.658 — 파싱이 어긋난 키워드로는 글을 만들지 않는다 (등급 문장·80자 넘는 키워드는 키워드가 아니다)
+    .filter((s) => !/등급\s*[:：]|게이트/.test(s.keyword) && s.keyword.length <= 80);
 }
 
 /**

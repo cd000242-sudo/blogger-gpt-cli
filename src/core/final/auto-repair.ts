@@ -60,6 +60,9 @@ export function repairSplitNumbers(html: string): { html: string; count: number 
   return { html: fixed, count };
 }
 
+/** 문장이 끝난 줄인가 — 마침표류, 또는 마침표 없이 끝난 한국어 종결어미 (v3.8.659) */
+const SENTENCE_TERMINAL = /[.!?…。」』)\]]\s*$|(?:니다|습니다|해요|예요|에요|어요|아요|여요|네요|세요|돼요|봐요|줘요|와요|져요|나요|까요|죠|다|요)\s*$/;
+
 /** 본문에 그대로 적힌 주소 — 마침표 뒤에 공백을 넣으면 주소가 깨진다 (실측: "www. globalepic. co. kr") */
 const BARE_URL = /(?:https?:\/\/|www\.)[^\s<]+/g;
 
@@ -189,10 +192,22 @@ export function removeEchoedSentences(html: string): { html: string; count: numb
      */
     const segments = String(inner).split(/<br\s*\/?>/i);
     const plain = String(inner).replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '');
-    const parts = segments
+    const rawParts = segments
       .map((seg) => seg.replace(/<[^>]+>/g, '').trim())
       .filter(Boolean)
       .flatMap((seg) => seg.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean));
+    /**
+     * 쉼표로 끝나는 줄은 문장이 아니라 조각이다 (v3.8.659).
+     * 모델은 절 단위로 <br> 을 넣는다: "…늦춘 것이지,<br>모든 기업의 상장유지를 보장하는 게 아닙니다."
+     * 조각을 따로 재면 뒷조각만 겹친다고 지워져 "늦춘 것이지," 가 덩그러니 남았다(실측 2편).
+     * 문장이 끝나지 않은 조각은 다음 조각과 한 문장으로 묶어서 잰다 — 지워도 문장째 지워진다.
+     */
+    const parts: string[] = [];
+    for (const p of rawParts) {
+      const prev = parts[parts.length - 1];
+      if (prev !== undefined && !SENTENCE_TERMINAL.test(prev)) parts[parts.length - 1] = `${prev} ${p}`;
+      else parts.push(p);
+    }
     if (parts.length === 0) return whole;
 
     /**

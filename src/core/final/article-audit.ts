@@ -48,6 +48,8 @@ export type AuditKind =
   | 'faq-answer-mismatch'  // FAQ 답이 질문과 어긋남
   | 'thin-section'         // 소제목만 있고 내용이 빈약한 절
   | 'replacement-artifact' // 코드 치환 찌꺼기("그래서$1")가 본문에 남음 (v3.8.656)
+  | 'empty-section'        // 소제목만 있고 본문이 아예 없는 절 (v3.8.658 실측: 5편 중 2편의 마지막 절)
+  | 'inline-faq'           // 본문 절 안에 또 FAQ 를 만듦 — 진짜 FAQ 와 질문이 두 번 나온다 (v3.8.659)
   | 'tone-mix'            // ⑤ 말투 섞임
   | 'broken-title'        // ⑥ 제목·목차 손상
   // ── v3.8.629 주장·사실 구분 (claim-safety.ts) — 사장님 지시 10개 항목 ──
@@ -233,8 +235,13 @@ export function splitAuditSections(html: string): AuditSection[] {
   return out;
 }
 
-export function findCrossSectionEchoes(sections: AuditSection[]): AuditIssue[] {
+/** 되풀이가 정상인 구간 — 목차는 소제목을 열거하고, 요약·FAQ·마무리는 본문을 되묻는다 (v3.8.658) */
+const RECAP_HEADING = /자주\s*묻는|FAQ|핵심\s*요약|요약|목차|읽어보기|한눈에/i;
+
+export function findCrossSectionEchoes(allSections: AuditSection[]): AuditIssue[] {
   const out: AuditIssue[] = [];
+  // v3.8.658 실측: 도입부가 목차와, 본문이 FAQ 뒤 마무리와 "같은 말" 로 잡혀 -8 씩 깎였다. 그건 설계다.
+  const sections = allSections.filter((s) => !RECAP_HEADING.test(s.heading || ''));
   for (let i = 0; i < sections.length && out.length < MAX_ECHO_REPORTED; i++) {
     for (let j = i + 1; j < sections.length && out.length < MAX_ECHO_REPORTED; j++) {
       const earlier = sentencesOf(sections[i]!.text).filter((s) => s.length >= MIN_SENTENCE_CHARS);
@@ -328,7 +335,13 @@ export function findTermFloods(
  * 근거를 넓히는 것이지 무르게 하는 게 아니다 — 여전히 **번호가 붙은 문서**만 인정한다.
  * "공식 홈페이지 참고" 같은 말은 근거가 아니다.
  */
-const LEGAL_REF = /제\s?\d+\s?조(?:의\s?\d+)?|법률\s?제\s?\d+\s?호|[가-힣]{2,10}령\s?제\s?\d+\s?조|(?:고시|공고|훈령|예규)\s?제?\s?\d{4}\s?-\s?\d+\s?호?|[가-힣]{2,12}\s?조례(?:\s?제\s?\d+\s?조)?|\d{4}[가-힣]{1,3}\d{3,}/g;
+/**
+ * v3.8.658 — 이름 붙은 법·지침도 근거다.
+ * 실측(성과급 글): 「경영성과급 등 노동쟁의 대상 시행지침」과 노동조합 및 노동관계조정법을 인용했는데
+ * 조문 번호가 없다고 -10. 낫표로 묶인 문서명, 「○○법」+조사(상·에 따라), 시행지침·해석지침을 인정한다.
+ * 맨 `법` 한 글자 오탐(방법·불법)은 여전히 막는다 — 법 앞에 한글 2자 이상 + 뒤에 조사가 있어야 한다.
+ */
+const LEGAL_REF = /제\s?\d+\s?조(?:의\s?\d+)?|법률\s?제\s?\d+\s?호|[가-힣]{2,10}령\s?제\s?\d+\s?조|(?:고시|공고|훈령|예규)\s?제?\s?\d{4}\s?-\s?\d+\s?호?|[가-힣]{2,12}\s?조례(?:\s?제\s?\d+\s?조)?|\d{4}[가-힣]{1,3}\d{3,}|「[^」\n]{2,40}(?:법|령|규칙|지침|고시|조례|기준)」|[가-힣]{2,20}법(?=\s*(?:상|에\s*따|에\s*의|이\s*정|[을를은는의과와]\s))|(?:시행|해석|행정)\s?지침/g;
 /**
  * "이건 제도를 설명하는 글인가" 판정 (v3.8.649).
  *
@@ -375,6 +388,10 @@ const PROCESS_LEAK = [
   /본문\s*근거만으로는/,
   /검색\s*결과에는?\s*[^.。<]{0,60}없/,
   /확인할\s*(?:수\s*있는\s*)?근거가\s*(?:없|부족)/,
+  // v3.8.658 실측: "이미지 설명문은 고지서 차량 번호와 … 적으면 됩니다" — 캡션 지시가 본문에 새어 나왔다
+  /이미지\s*설명문(?:은|을|에는)?/,
+  /(?:대체|alt)\s*텍스트(?:는|를|에는)?\s*[^.。<]{0,40}(?:적|넣|쓰)/,
+  /화면을\s*남긴다면/,
 ];
 
 /**
@@ -394,6 +411,60 @@ export function findReplacementArtifacts(text: string): AuditIssue[] {
     evidence: '"$1"·"undefined" 같은 것은 글이 아니라 프로그램 오류입니다. 독자는 이걸 보는 순간 기계가 쓴 글로 판단합니다.',
     penalty: 6,
   }];
+}
+
+/**
+ * v3.8.658 — 소제목만 있고 본문이 없는 절.
+ * 실측: 5편 중 2편이 "5. 공식 안내 경로 / 5-1. …" 아래 `<div class="content"></div>` 로 비어 있었다.
+ * splitAuditSections 는 글자 0인 구간을 버려서 thin-section 이 못 봤다 — 없는 절은 빈약한 절보다 나쁘다.
+ * h2 바로 뒤에 h3 가 오는 건 정상(h2 는 껍데기)이라, h3 절과 "h3 없는 h2 절" 만 본다.
+ */
+export function findEmptySections(html: string): AuditIssue[] {
+  const parts = String(html || '').split(/(?=<h[23]\b)/i);
+  const out: AuditIssue[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const m = parts[i]!.match(/<h([23])[^>]*>([\s\S]*?)<\/h\1>/i);
+    if (!m) continue;
+    const level = m[1];
+    const heading = toPlainText(m[2] || '').trim();
+    if (!heading || RECAP_HEADING.test(heading)) continue;
+    const next = parts[i + 1] || '';
+    if (level === '2' && /^<h3\b/i.test(next.trim())) continue;
+    const text = toPlainText(parts[i]!.replace(/<h[23][^>]*>[\s\S]*?<\/h[23]>/i, '')).replace(/\s+/g, '');
+    if (text.length < 20) {
+      out.push({
+        kind: 'empty-section',
+        title: `절이 비어 있습니다: "${heading.slice(0, 30)}"`,
+        evidence: '소제목만 있고 본문이 없습니다. 목차에서 이 절을 보고 온 독자는 여기서 나갑니다. 채우거나 절을 빼야 합니다.',
+        penalty: 8,
+      });
+      if (out.length >= 3) break;
+    }
+  }
+  return out;
+}
+
+/**
+ * v3.8.659 — 본문 절 안의 FAQ.
+ * 실측(대출 갈아타기 글): "5-2. 부결 뒤 자주 묻는 질문" 이라는 h3 아래 질문·답을 평문으로 늘어놓고,
+ * 그 밑에 진짜 FAQ 블록이 또 붙었다. 질문이 물음표도 없이 답과 붙어 "…되나요 DSR은…" 로 읽힌다.
+ * FAQ 는 글 끝에 하나다. h3 에 FAQ 가 있으면 본문이 FAQ 를 흉내 낸 것이다.
+ */
+export function findInlineFaq(html: string): AuditIssue[] {
+  const out: AuditIssue[] = [];
+  for (const m of String(html || '').matchAll(/<h3[^>]*>([\s\S]*?)<\/h3>/gi)) {
+    const heading = toPlainText(m[1] || '').trim();
+    if (/자주\s*묻는|FAQ|질문과?\s*답|Q\s*&\s*A/i.test(heading)) {
+      out.push({
+        kind: 'inline-faq',
+        title: `본문 절 안에 FAQ 를 또 만들었습니다: "${heading.slice(0, 30)}"`,
+        evidence: 'FAQ 는 글 끝에 따로 붙습니다. 절 안의 질문 목록은 물음표도 서식도 없이 답과 붙어 읽히고, 같은 질문이 두 번 나옵니다.',
+        penalty: 6,
+      });
+      break;
+    }
+  }
+  return out;
 }
 
 export function findProcessLeak(text: string): AuditIssue[] {
@@ -494,6 +565,8 @@ export function auditArticle(
     ...findMissingLegalBasis(text),
     ...findProcessLeak(text),
     ...findReplacementArtifacts(text),
+    ...findEmptySections(html),
+    ...findInlineFaq(html),
     ...tone.issues,
     ...findBrokenTitles(heads),
     // v3.8.629 — 사건·분쟁 글의 법적 위험. 확정형 한 문장이 명예훼손이 된다.
@@ -538,6 +611,8 @@ export function summarizeAudit(report: AuditReport): string {
     'faq-answer-mismatch': 'FAQ 딴 답',
     'thin-section': '빈약한 절',
     'replacement-artifact': '치환 찌꺼기',
+    'empty-section': '빈 절',
+    'inline-faq': '본문 속 FAQ',
     'tone-mix': '말투 섞임',
     'broken-title': '제목 손상',
     'asserted-crime': '확정형 범죄표현',

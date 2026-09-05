@@ -26,7 +26,8 @@
 import type { AuditIssue, AuditSection } from './article-audit';
 
 /** 제목을 약속 조각으로 나눌 때 쓰는 구분자 */
-const PROMISE_SPLIT = /\s*(?:,|·|・|와\s|과\s|및\s|—|-|:|\|)\s*/;
+// v3.8.658 — "9·3 지침"·"2026-09-04"·"9:30" 처럼 숫자 사이의 구분자는 조각 경계가 아니다 (실측: "3 노동부 지침" 조각)
+const PROMISE_SPLIT = /\s*(?:,|(?<!\d)[·・](?!\d)|와\s|과\s|및\s|—|(?<!\d)-(?!\d)|(?<!\d):(?!\d)|\|)\s*/;
 
 /** 약속 조각에서 뜻 없는 낱말 — 이것만 남으면 조각이 아니다 */
 const PROMISE_STOP = new Set([
@@ -178,7 +179,10 @@ export function findFaqMismatches(pairs: FaqPair[]): AuditIssue[] {
     if (words.length < 2) continue;
     const a = normalize(answer);
     const hit = words.filter((w) => answerHas(a, w)).length;
-    if (hit / words.length < 0.5 && FAQ_DODGE.test(answer)) {
+    // v3.8.659 — 피하는 말은 **첫 문장**에서만 본다. 답을 한 뒤 "…에서 확인할 수 있어요" 로 맺는 건 피하는 게 아니다
+    // (실측 오탐: "경남은 10월부터 가입이 열리는 지역이에요. … 함께 확인할 수 있어요.")
+    const firstSentence = String(answer || '').split(/(?<=[.!?])\s+|(?<=요)\s+(?=[가-힣])/)[0] || answer;
+    if (hit / words.length < 0.5 && FAQ_DODGE.test(firstSentence)) {
       out.push({
         kind: 'faq-answer-mismatch',
         title: `FAQ 답이 질문과 어긋납니다: "${question.slice(0, 40)}"`,

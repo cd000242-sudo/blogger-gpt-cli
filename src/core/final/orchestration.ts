@@ -3605,6 +3605,35 @@ ${quoted}
 
     // 워드프레스와 블로그스팟 모두 백서 템플릿의 목차 모듈을 사용
     html += `<!-- TOP_SUMMARY_CTA_PLACEHOLDER -->`;
+    /**
+     * v3.8.658 — 빈 절은 목차에도 본문에도 싣지 않는다.
+     * 실측(서로 다른 키워드 5편): 2편의 마지막 절이 `<h2>…</h2><h3>…</h3><div class="content"></div>` 로 나갔다.
+     * 65% 단계의 빈 소제목 수리를 지나고도 남았거나 그 뒤 단계에서 비워진 것이다 — 원인이 무엇이든
+     * 소제목만 있는 절을 발행하면 목차를 보고 온 독자가 그 자리에서 나간다. 여기서 마지막으로 거른다.
+     * 목차(h2Titles)와 본문(sections)은 같은 순서라 함께 줄인다. 전부 비면 손대지 않는다.
+     */
+    {
+      const bodyLen = (s: any) => String(s || '').replace(/<[^>]+>/g, '').replace(/\s+/g, '').length;
+      let removedH3 = 0;
+      const keptSections: any[] = [];
+      const keptTitles: string[] = [];
+      const aligned = h2Titles.length === sections.length;
+      sections.forEach((section: any, idx: number) => {
+        const h3s = (section.h3Sections || []).filter((h: any) => {
+          const ok = bodyLen(h?.content) >= 30 || (h?.tables || []).length > 0;
+          if (!ok) removedH3 += 1;
+          return ok;
+        });
+        if (h3s.length === 0) return;
+        keptSections.push({ ...section, h3Sections: h3s });
+        keptTitles.push(aligned ? h2Titles[idx]! : String(section.h2 || h2Titles[idx] || ''));
+      });
+      if (keptSections.length > 0 && (removedH3 > 0 || keptSections.length !== sections.length)) {
+        onLog?.(`[PROGRESS] 78% - ⚠️ 본문이 빈 절을 뺐습니다 (소제목 ${removedH3}개, 절 ${sections.length - keptSections.length}개)`);
+        sections.splice(0, sections.length, ...keptSections);
+        if (aligned) h2Titles = keptTitles;
+      }
+    }
     html += generateTOCFinal(h2Titles);
 
     // 🖼️ H2 섹션별 이미지 생성 
@@ -4323,7 +4352,7 @@ ${quoted}
       let cleanH2 = (section.h2 || '')
         .replace(/^[hH]2[:\-\s]*/gi, '')
         .replace(/^소제목[:\s]*/gi, '')
-        .replace(/^\d+[.\):\s]+/g, '')
+        .replace(/^\d+(?:[.):]\s*(?!\d)|\s+)/g, '')
         .trim();
       /**
        * v3.8.657 — 본문 소제목은 **계획된 h2Titles 를 쓴다.**
@@ -4331,11 +4360,11 @@ ${quoted}
        * "과 문의 전 준비할 정보" 였다. 목차와 본문이 어긋나면 독자가 길을 잃고,
        * 제목 약속을 맡긴 소제목(v3.8.655)도 본문에선 사라진다. 계획이 곧 본문이어야 한다.
        */
-      const plannedH2 = String(h2Titles[idx] || '').replace(/^\d+[.\):\s]+/g, '').trim();
+      const plannedH2 = String(h2Titles[idx] || '').replace(/^\d+(?:[.):]\s*(?!\d)|\s+)/g, '').trim();
       if (plannedH2) cleanH2 = plannedH2;
       // 🛡️ 빈 제목 폴백 (h2Titles 배열에서 복구)
       if (!cleanH2 && h2Titles[idx]) {
-        cleanH2 = h2Titles[idx]!.replace(/^\d+[.\):\s]+/g, '').trim();
+        cleanH2 = h2Titles[idx]!.replace(/^\d+(?:[.):]\s*(?!\d)|\s+)/g, '').trim();
       }
       if (!cleanH2) {
         cleanH2 = `섹션 ${idx + 1}`;
@@ -4427,7 +4456,7 @@ ${quoted}
         const cleanH3 = h3Sec.h3
           .replace(/^[hH]3[:\-\s]*/gi, '')
           .replace(/^소제목[:\s]*/gi, '')
-          .replace(/^\d+[.\):\s]+/g, '')
+          .replace(/^\d+(?:[.):]\s*(?!\d)|\s+)/g, '')
           .trim();
         const h3Number = `${idx + 1}-${h3Idx + 1}.`;
 

@@ -78,12 +78,37 @@ function longtailCoverage(text, longtails) {
   });
   if (!found) { console.log('   리포트를 못 찾았습니다'); process.exit(1); }
   const report = parseCpcReport(found.markdown);
-  const slots = usableSlots(report);
+  let slots = usableSlots(report);
   console.log(`   ${found.name} — 항목 ${slots.length}개`);
+
+  /**
+   * v3.8.658 — 셋째 인자 'all': 최근 리포트 여러 장의 항목을 합쳐 **서로 다른 키워드**로 잰다.
+   * 리포트 한 장은 항목이 2~3개뿐이라 5편을 돌리면 같은 키워드가 되풀이됐다(실측).
+   * 같은 키워드만 반복하면 그 키워드 경로만 검증된다.
+   */
+  if (String(process.argv[4] || '') === 'all') {
+    const { getAccessToken, listReportFiles, downloadReport } = require('../dist/core/keywords/drive-report');
+    const token = await getAccessToken({ clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET, refreshToken: env.GOOGLE_DRIVE_REFRESH_TOKEN });
+    const files = (await listReportFiles(token)).filter((f) => !/백업/.test(f.name || '')).slice(0, 8);
+    const seen = new Set(slots.map((s) => s.keyword));
+    for (const f of files) {
+      if (f.id === found.id) continue;
+      try {
+        for (const s of usableSlots(parseCpcReport(await downloadReport(token, f)))) {
+          if (seen.has(s.keyword)) continue;
+          seen.add(s.keyword);
+          slots.push(s);
+        }
+      } catch { /* 형식이 다른 옛 리포트는 건너뛴다 */ }
+    }
+    console.log(`   리포트 ${files.length + 1}장 합침 — 서로 다른 키워드 ${slots.length}개`);
+  }
 
   // 리포트 항목이 모자라면 그 항목들을 돌려 쓴다 (같은 설계도로 여러 편을 재는 셈)
   const jobs = [];
-  for (let i = 0; i < COUNT; i++) jobs.push(slots[i % slots.length]);
+  // v3.8.658 — 둘째 인자로 시작 슬롯을 고른다: `node scripts/quality-run.js 5 3` → 4~8번째 항목
+  const OFFSET = Math.max(0, Number(process.argv[3] || 0));
+  for (let i = 0; i < COUNT; i++) jobs.push(slots[(i + OFFSET) % slots.length]);
 
   const rows = [];
   for (let i = 0; i < jobs.length; i++) {
@@ -116,7 +141,8 @@ function longtailCoverage(text, longtails) {
       };
       const res = await generateUltimateMaxModeArticleFinal(payload, env, (m) => {
         // 🎯 는 v3.8.655/656 의 제목 약속 로그 — [PROGRESS] 로 나가지만 봐야 한다
-        if (/🎯/.test(m)) { console.log('     ' + m.replace(/^\[PROGRESS\]\s*\d+%\s*-\s*/, '').slice(0, 140)); return; }
+        // 🎯 는 제목 약속 로그, ⚠️ 는 빈 소제목·보강 폐기·자가 수정 같은 고장 로그 — [PROGRESS] 로 나가지만 봐야 한다
+        if (/🎯|⚠️|빈 소제목|보강|폐기|자가 수정|제외했습니다/.test(m)) { console.log('     ' + m.replace(/^\[PROGRESS\]\s*\d+%\s*-\s*/, '').slice(0, 160)); return; }
         if (/PROGRESS/.test(m)) return;
         if (/리포트 설계도|속보|자가 수정|장부|소제목 교체|정해 둔 제목/.test(m)) console.log('     ' + m.slice(0, 140));
       });

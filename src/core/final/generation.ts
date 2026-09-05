@@ -661,7 +661,7 @@ ${keywordFront ? `- 📌 **제목은 반드시 "${keyword}" 로 시작합니다.
     // 🛡️ v3.5.83: 기호와 번호를 분리. 기존 통합 패턴이 "2026년..." 시작 제목에서
     //   "2026"을 prefix로 잘못 제거하던 버그 수정. 번호는 구분자(. ) ] :)와 함께 있을 때만 제거.
     .replace(/^[\*\-]+\s*/g, '')           // 기호 prefix 제거 (* -)
-    .replace(/^\d+[.\):\]]+\s*/g, '')      // 번호 prefix 제거 (1. 2) 3] 4:) — 구분자 필수
+    .replace(/^\d+[.\):\]]+\s*(?!\d)/g, '')      // 번호 prefix 제거 (1. 2) 3] 4:) — 구분자 필수. "9.3 지침" 은 번호가 아니다 (v3.8.659)
     .replace(/["']/g, '')
     .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '')  // 한자 제거
     .trim();
@@ -1128,7 +1128,7 @@ JSON 배열만 출력 (${sections.length}개 문자열):`;
     const parsed = JSON.parse(json);
     if (!Array.isArray(parsed)) return fallback;
     const titles = parsed
-      .map((t: any) => String(t || '').replace(/[一-鿿㐀-䶿]/g, '').replace(/^\d+[.):\s]+/, '').trim())
+      .map((t: any) => String(t || '').replace(/[一-鿿㐀-䶿]/g, '').replace(/^\d+(?:[.):]\s*(?!\d)|\s+)/, '').trim())
       .filter((t: string) => t.length > 0);
     // 개수가 안 맞으면 구조가 깨지므로 폴백 (섹션별 본문 지시와 1:1 대응 필요)
     if (titles.length !== sections.length) {
@@ -1176,7 +1176,7 @@ export async function generateH2TitlesFinal(
       .replace(/^[hH]2[:\-\s]*/gi, '')  // h2:, H2-, H2 등
       .replace(/^[hH]3[:\-\s]*/gi, '')  // h3:, H3- 등
       .replace(/^H2-?\d+[:\s]*/gi, '')  // H2-1:, H21: 등
-      .replace(/^\d+[.\):\s]+/g, '')    // 1., 2), 3: 등
+      .replace(/^\d+(?:[.):]\s*(?!\d)|\s+)/g, '')    // 1., 2), 3: 등
       .replace(/^소제목[:\s]*/gi, '')   // 소제목: 등
       .replace(/^제목[:\s]*/gi, '')     // 제목: 등
       .trim();
@@ -1332,7 +1332,7 @@ JSON만(${targetCount}개 문자열 배열):
       .replace(/^[hH]2[:\-\s]*/gi, '')
       .replace(/^[hH]3[:\-\s]*/gi, '')
       .replace(/^H2-?\d+[:\s]*/gi, '')
-      .replace(/^\d+[.\):\s]+/g, '')
+      .replace(/^\d+(?:[.):]\s*(?!\d)|\s+)/g, '')
       .replace(/^소제목[:\s]*/gi, '')
       .replace(/^제목[:\s]*/gi, '')
       .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '')
@@ -1367,7 +1367,7 @@ JSON만 반환:`;
           .replace(/^[hH]2[:\-\s]*/gi, '')
           .replace(/^[hH]3[:\-\s]*/gi, '')
           .replace(/^H2-?\d+[:\s]*/gi, '')
-          .replace(/^\d+[.\):\s]+/g, '')
+          .replace(/^\d+(?:[.):]\s*(?!\d)|\s+)/g, '')
           .replace(/^소제목[:\s]*/gi, '')
           .replace(/^제목[:\s]*/gi, '')
           .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '')
@@ -1421,7 +1421,7 @@ H2 소제목: ${h2}
 
     const titles = parsed
       .slice(0, 3)
-      .map((t) => String(t).replace(/^#+\s*/, '').replace(/^\d+[.\):\s]+/, '').replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '').trim())
+      .map((t) => String(t).replace(/^#+\s*/, '').replace(/^\d+(?:[.):]\s*(?!\d)|\s+)/, '').replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '').trim())
       .filter((t) => t.length > 0);
 
     if (titles.length < 3) return fallback;
@@ -1717,6 +1717,8 @@ ${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}${STORYS
 - **시각적 여백 (Breathing Space)**: 단락(Paragraph)은 최대 3~4문장 단위로 무조건 줄바꿈(<p>)을 넣어 텍스트 벽(Wall of Text) 현상을 완벽히 방지하세요.
 - **소분류 활용**: 글 중간중간 글머리 기호(<ul>, <li>)나 숫자 리스트를 적어도 1회 이상 섞어서 가독성을 극대화하세요.
 - **핵심 정보 선배치 (두괄식)**: 각 H3 섹션의 첫 문단에서 가장 중요한 결론/인사이트를 먼저 때리고 시작하세요.
+- **FAQ 는 본문에 넣지 않습니다 (v3.8.659)**: 절 안에 "자주 묻는 질문" 소제목이나 Q/A 목록을 만들지 마세요. FAQ 는 글 끝에 따로 붙습니다. 절 안에 또 넣으면 같은 질문이 두 번 나옵니다.
+- **되풀이 금지 (v3.8.658)**: 앞 절에서 이미 쓴 사실·수치·절차를 뒤 절의 첫 문장에서 다시 쓰지 마세요. 각 절의 첫 문장은 **그 절에서만 할 수 있는 말**이어야 합니다. 요약표에 이미 있는 수치를 절마다 반복하지 말고, 같은 확인 순서("차량번호와 부과 기간을 대조")를 절마다 다시 쓰지 마세요. 독자는 같은 말을 두 번째 읽는 순간 나갑니다.
 
 [2. '진짜 사람' 같은 극사실적 어조(Ultra-Human Tone)]
 - **완벽한 구어체 전환**: 기계 번역투, AI 특유의 장황한 설명체("중요한 사실입니다", "다양한 이점이 있습니다") 철저히 배제.

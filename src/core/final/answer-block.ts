@@ -187,7 +187,10 @@ export function buildAnswerBlock(input: AnswerBlockInput): string {
   const strings = blockStrings(normalizeBlockLanguage(input.language));
 
   const keyword = String(input.keyword || '').trim();
-  const question = sanitizeAnswerText(input.question, MAX_QUESTION_LEN)
+  // v3.8.658 실측: 질문 자리에 "[2] 확인 필요: 관리종목 지정 시점" 같은 리포트 점검 항목이 그대로 왔다
+  const rawQuestion = sanitizeAnswerText(input.question, MAX_QUESTION_LEN);
+  const questionLooksLikeNote = /^\[\d+\]|확인\s*필요|^근거\s*[:：]|^출처\s*[:：]/.test(rawQuestion);
+  const question = (rawQuestion && !questionLooksLikeNote ? rawQuestion : '')
     || (keyword ? strings.answerQuestionFallback(keyword) : '');
   if (!question) return '';
 

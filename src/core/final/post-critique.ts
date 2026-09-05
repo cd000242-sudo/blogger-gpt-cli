@@ -134,6 +134,8 @@ export function locateSection(sections: PostSection[], needle: string): number {
 const countTag = (html: string, re: RegExp): number => (String(html || '').match(re) || []).length;
 const IMG_RE = /<img\b[^>]*>/gi;
 const LINK_RE = /<a\b[^>]*href\s*=/gi;
+/** 본문에 글자로 적힌 주소 (v3.8.658) — 고쳐 쓴 뒤에도 그대로 있어야 한다 */
+const BARE_URL_RE = /(?:https?:\/\/|www\.)[^\s<"'）)]+/g;
 
 /** 한국어 낱말 후보 — 경쟁글 대조에 쓴다 */
 function keywordsOf(text: string): Set<string> {
@@ -446,6 +448,14 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
       area: 'structure', severity: 'high',
       fix: '"$1"·"undefined" 같은 찌꺼기를 지우고 문장을 잇습니다. 글이 아니라 프로그램 오류이므로 원인 코드도 고쳐야 합니다.',
     },
+    'empty-section': {
+      area: 'structure', severity: 'high',
+      fix: '소제목이 약속한 내용을 근거에서 찾아 채웁니다. 근거에 없으면 그 절과 목차 항목을 함께 뺍니다. 빈 절을 두고 발행하지 않습니다.',
+    },
+    'inline-faq': {
+      area: 'structure', severity: 'medium',
+      fix: '절 안의 질문·답 목록을 뺍니다. 그 절에서만 할 수 있는 설명으로 채우고, 질문은 글 끝 FAQ 에만 둡니다.',
+    },
   };
 
   for (const found of audit.issues) {
@@ -650,6 +660,7 @@ export function buildSectionRevisionPrompt(input: {
     '# 규칙 (어기면 그 결과는 버려집니다)',
     '· 원본에 있는 <img> 태그는 **속성까지 그대로** 유지하세요. 지우거나 주소를 바꾸지 마세요.',
     '· 원본에 있는 <a href> 링크도 그대로 유지하세요.',
+    '· 본문에 글자로 적힌 주소(https://… , www.…)는 **한 글자도 바꾸지 마세요.** 마침표·물음표 뒤에 공백을 넣지 마세요 — 주소가 깨집니다.',
     `· 첫 줄의 <h2> 소제목은 그대로 두세요. 검색 색인이 걸려 있습니다.`,
     lengthRule,
     '· **모르는 수치는 지어내지 마세요.** 근거가 없으면 그 문장을 삭제하고, 대신 확실한 것을 씁니다.',
@@ -692,6 +703,22 @@ export function acceptRevisedSection(
   }
   if (countTag(cleaned, LINK_RE) < countTag(original.html, LINK_RE)) {
     return { html: original.html, accepted: false, reason: '링크가 사라졌습니다' };
+  }
+  /**
+   * v3.8.658 — 글자로 적힌 주소가 그대로 남았는가.
+   * 실측 5편 중 4편: "https://www. seoul. co. kr", "kdi. re. kr/…do?\n\nnum=" — 모델이 고쳐 쓰면서
+   * 마침표·물음표 뒤에 공백을 넣어 주소를 깨뜨렸다. <a href> 만 세던 검사는 이걸 못 봤다.
+   */
+  const urlsBefore = String(original.html || '').match(BARE_URL_RE) || [];
+  if (urlsBefore.length > 0) {
+    const flat = cleaned.replace(/\s+/g, '');
+    const lost = urlsBefore.filter((u) => !flat.includes(u.replace(/\s+/g, '')));
+    if (lost.length > 0) {
+      return { html: original.html, accepted: false, reason: `주소가 바뀌었습니다 (${lost[0]!.slice(0, 40)}…)` };
+    }
+    if (/(?:https?:\/\/|www)\.?\s+[a-z0-9-]+\.\s+[a-z]/i.test(cleaned)) {
+      return { html: original.html, accepted: false, reason: '주소 안에 공백이 들어갔습니다' };
+    }
   }
   if (original.index > 0 && !/<h2\b/i.test(cleaned)) {
     return { html: original.html, accepted: false, reason: '소제목(H2)이 사라졌습니다' };
