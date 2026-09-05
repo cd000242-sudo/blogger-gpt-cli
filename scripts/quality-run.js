@@ -105,8 +105,9 @@ function longtailCoverage(text, longtails) {
         keyword,
         // 앱과 같은 엔진. 안 정하면 기본값 Gemini 로 가는데 그 키는 차단돼 있다
         provider: 'openai',
-        customTitle: slot.title || '',
-        useCustomTitle: !!slot.title,
+        // 화면(posting.js getTitleOptions)과 같은 이름으로 — customTitle 은 아무도 안 읽는다
+        titleMode: slot.title ? 'custom' : 'auto',
+        title: slot.title || null,
         contentMode: 'adsense',
         platform: 'wordpress',
         cpcReportSlot: slot,
