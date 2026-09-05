@@ -1369,7 +1369,22 @@ export async function generateUltimateMaxModeArticleFinal(
     } catch { /* 관측 전용 — 어떤 실패도 발행 흐름에 영향을 주지 않는다 */ }
 
     let h1: string;
-    if (payload.useKeywordAsTitle) {
+    /**
+     * ✍️ v3.8.653 — 사람이 정한 제목이 있으면 **그것을 쓴다.**
+     *
+     * 여기 분기가 둘뿐이었다: 키워드를 제목으로 쓰거나, AI 가 새로 짓거나.
+     * 화면은 `titleMode:'custom'` + `title` 을 보내고 있었는데 **읽는 쪽이 없었다.**
+     *
+     * 그래서 리포트가 검색 경쟁을 재서 고른 **확정 제목이 매번 버려졌다**
+     * (실측 2026-09-05: 10편 전부 다른 제목이 생성됐다).
+     * 리포트에 들인 공이 통째로 사라지는 자리였고, 제목과 본문 범위가 어긋나는
+     * 원인이기도 하다 — 제목 보고 들어온 사람이 다른 글을 만나면 그대로 나간다.
+     */
+    const fixedTitle = String((payload as any)?.title || '').trim();
+    if (payload.titleMode === 'custom' && fixedTitle) {
+      h1 = fixedTitle;
+      onLog?.(`[PROGRESS] 30% - ✍️ 정해 둔 제목을 그대로 씁니다: "${h1}"`);
+    } else if (payload.useKeywordAsTitle) {
       // ✅ 키워드를 제목 그대로 사용
       h1 = keyword;
       onLog?.(`[PROGRESS] 30% - 🎯 키워드를 제목으로 사용: "${h1}"`);

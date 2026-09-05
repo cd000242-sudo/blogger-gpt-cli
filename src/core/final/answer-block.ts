@@ -124,6 +124,29 @@ export interface AnswerBlockInput {
 }
 
 /**
+ * 빠진 마침표를 되살린다 (v3.8.653).
+ *
+ * 실측 2026-09-05, 생성된 10편 중 4편의 결론 박스가 이랬다:
+ *   "…경유차를 대상으로 제시했습니다 국가유공자 중증 장애인 … 면제 대상입니다 …"
+ *
+ * 요약을 JSON 으로 받는데 프롬프트가 "2~4문장" 이라고만 하고 문장부호를 요구하지
+ * 않는다. 그래서 모델이 마침표 없이 이어 붙인다. 읽는 사람은 한 덩어리로 만난다.
+ *
+ * 더 나쁜 건 **v3.8.639 의 문단정리가 무력화된다**는 것이다 —
+ * 문장마다 줄을 바꾸려면 문장 끝을 알아야 하는데, 마침표가 없으면 못 찾는다.
+ * 사장님이 편집기에서 손으로 하던 그 일이 4편에서 그대로 안 됐다.
+ *
+ * 한국어 종결어미는 애매하지 않다. 어미 뒤에 공백 + 한글이 오면 문장이 끝난 것이다.
+ * 이미 부호가 있으면 건드리지 않는다.
+ */
+// 합니다체는 전부 「…니다」 로 끝나니 그 하나면 된다. 해요체는 축약형(돼요·봐요·줘요·와요)이 따로 있다.
+const SENTENCE_END = /(니다|해요|예요|에요|어요|아요|여요|네요|세요|돼요|봐요|줘요|와요|져요|나요|까요|죠)(?=\s+[가-힣])/g;
+
+export function restoreSentencePeriods(text: string): string {
+  return String(text || '').replace(SENTENCE_END, '$1.');
+}
+
+/**
  * 문장마다 줄을 바꾼다 (v3.8.639).
  *
  * 사장님이 발행된 글을 편집기에서 **손으로** 이렇게 고쳐 놓으셨다.
@@ -168,8 +191,9 @@ export function buildAnswerBlock(input: AnswerBlockInput): string {
   const basis = usableBasis(sanitizeAnswerText(input.basis, MAX_BASIS_LEN));
 
   const q = escapeHtml(question);
+  // v3.8.653: 빠진 마침표를 먼저 되살린다 — 없으면 아래 줄바꿈이 문장 끝을 못 찾는다
   // v3.8.639: 문장마다 줄바꿈. 이스케이프 뒤에 넣어야 <br> 이 태그로 산다
-  const a = breakSentences(escapeHtml(answer));
+  const a = breakSentences(restoreSentencePeriods(escapeHtml(answer)));
   const b = basis ? escapeHtml(basis) : '';
 
   /**
