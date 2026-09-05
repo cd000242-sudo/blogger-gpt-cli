@@ -85,8 +85,12 @@ export function buildRealSituationBlock(questions: unknown): string {
 /** 절을 닫는 데 쓰이는 회피 표현 — 많을수록 판단이 없다 */
 export const DEFERRAL = /확인하세요|문의하세요|확인해\s*보세요|확인할\s*수\s*있(?:어요|습니다)|문의할\s*수\s*있(?:어요|습니다)|확인해야\s*(?:합니다|해요)|살펴야\s*(?:합니다|해요)|확인하는\s*편이|따라\s*다릅니다|달라질\s*수\s*있(?:습니다|어요)|단정하기\s*어렵|판단하기\s*어렵|단정할\s*수\s*없/g;
 
-/** 필자의 판단 — 1인칭으로 입장을 밝힌 문장 */
-export const FIRST_PERSON_STANCE = /제\s*(?:판단|생각|의견|결론)(?:은|으로는?|엔|에는|이|을)|저는\s[^.\n]{0,60}?(?:봅니다|판단합니다|권합니다|생각합니다|말하겠습니다|보고\s*있습니다|권하지\s*않습니다)|제가\s*보기(?:엔|에는)|저라면/g;
+/**
+ * 필자의 판단 — 1인칭으로 입장을 밝혔거나, 판단 어미로 닫은 문장.
+ * v3.8.662 실측: 말머리를 바꾸라고 하자 모델이 "…쪽입니다 / …편이 맞습니다 / …맞다고 봅니다 / 권하지 않습니다" 로
+ * 판단을 적었는데 1인칭만 세던 검사가 다섯 편 전부 "판단 0" 이라 했다. 판단 어미도 판단이다.
+ */
+export const FIRST_PERSON_STANCE = /제\s*(?:판단|생각|의견|결론)(?:은|으로는?|엔|에는|이|을)|저는\s[^.\n]{0,60}?(?:봅니다|판단합니다|권합니다|생각합니다|말하겠습니다|보고\s*있습니다|권하지\s*않습니다|쪽입니다|편입니다)|제가\s*보기(?:엔|에는)|저라면|맞다고\s*봅니다|(?:으로|로)\s*봅니다|쪽입니다|쪽으로\s*봅니다|편이\s*맞습니다|것이\s*맞습니다|권합니다|권하지\s*않습니다|먼저라는\s*쪽/g;
 
 /**
  * 회피 밀도 상한 (1,000자당). 실측 보정(2026-09-06, 흐름 규칙 이전 5편): 0.37 · 0.77 · 0.86 · 1.01 · 1.88.
@@ -142,7 +146,9 @@ export function findFlowGaps(
     });
   }
 
-  const firstPersonStance = (bodyOnly.match(FIRST_PERSON_STANCE) || []).length;
+  // 문장 단위로 센다 — "제 판단은 … 쪽입니다" 는 표현이 둘이어도 판단은 하나다 (v3.8.662)
+  const stanceRe = new RegExp(FIRST_PERSON_STANCE.source);
+  const firstPersonStance = bodyOnly.split(/(?<=[.!?])\s+/).filter((s) => stanceRe.test(s)).length;
   if (firstPersonStance === 0 && len >= 2000) {
     issues.push({
       kind: 'no-stance',
@@ -180,7 +186,11 @@ export function findFlowGaps(
   const firstH2 = src.search(/<h2\b/i);
   const intro = firstH2 > 0 ? toPlain(src.slice(0, firstH2)) : '';
   const promise = intro.split(/(?<=[.!?])\s+/).find((s) => /이\s*글(?:은|에서는)|정리합니다|살펴봅니다|다룹니다|설명합니다|짚어\s*봅니다/.test(s)) || '';
-  const promiseWords = [...new Set(words(promise))].filter((w) => !/^(글|이번|정리|살펴|설명)/.test(w));
+  // v3.8.662 — 약속 낱말은 **본문에 두 번 이상 나오는 주제어**만 센다. "대신·초점·특정" 같은 서술 낱말은 마무리에 안 나와도 약속 불이행이 아니다
+  const bodyFlat = plain.replace(/\s+/g, '');
+  const promiseWords = [...new Set(words(promise))]
+    .filter((w) => !/^(글|이번|정리|살펴|설명|대신|초점|특정|상황|구분|경우|여부|가능성|따지|어디|무엇|어떻게|먼저|함께)/.test(w))
+    .filter((w) => bodyFlat.split(w).length - 1 >= 2);
   if (promiseWords.length >= 3) {
     const tail = plain.replace(/※[\s\S]*$/, '');
     // 마무리 = FAQ 이후. FAQ 가 없으면 끝에서 1,500자

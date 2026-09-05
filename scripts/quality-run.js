@@ -174,6 +174,8 @@ function longtailCoverage(text, longtails) {
         답노출: audit.stats.answerExposure,
         // v3.8.660 — 흐름·관점: 1인칭 판단 문장 수, 회피 표현 1,000자당 횟수
         관점: audit.stats.firstPersonStance,
+        // v3.8.662 — 조건·행동을 갖춘 판단 / 전체 판단
+        판단조건: `${audit.stats.sharpStances}/${audit.stats.totalStances}`,
         회피: audit.stats.deferralPer1000,
         글자: text.length,
         팩트밀도: factDensity(text).per1000,

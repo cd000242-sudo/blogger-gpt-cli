@@ -99,6 +99,9 @@ export interface AuditReport {
     firstPersonStance: number;
     /** v3.8.660 — 제목 낱말이 한 번도 안 나오는 h2 절 수 */
     sectionsOffTitle: number;
+    /** v3.8.662 — 조건·행동을 갖춘 판단 수 / 전체 판단 수 */
+    sharpStances: number;
+    totalStances: number;
   };
 }
 
@@ -588,6 +591,10 @@ export function auditArticle(
   // v3.8.660 — 흐름·관점: 회피 밀도 · 1인칭 판단 · 제목 낱말이 끊긴 절 · 서론 약속↔마무리 (호출 0)
   const flow: { issues: AuditIssue[]; stats: { deferralPer1000: number; firstPersonStance: number; sectionsOffTitle: number } } =
     require('./narrative-flow').findFlowGaps(html, toPlainText, { title: toPlainText(title) });
+  // v3.8.662 — 깊이와 목소리: 조건·행동 없는 판단, 절마다 같은 틀의 표
+  const depth = require('./depth-voice');
+  const stanceStats: { total: number; sharp: number } = depth.measureStances(text);
+  const depthIssues: AuditIssue[] = [...depth.findShallowStances(text), ...depth.findTableTemplate(html, sections.filter((s) => s.heading).length)];
 
   const tone = findToneMix(text);
   const paragraphs = text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
@@ -601,6 +608,7 @@ export function auditArticle(
     ...findEmptySections(html),
     ...findInlineFaq(html),
     ...flow.issues,
+    ...depthIssues,
     ...tone.issues,
     ...findBrokenTitles(heads),
     // v3.8.629 — 사건·분쟁 글의 법적 위험. 확정형 한 문장이 명예훼손이 된다.
@@ -628,6 +636,8 @@ export function auditArticle(
       deferralPer1000: flow.stats.deferralPer1000,
       firstPersonStance: flow.stats.firstPersonStance,
       sectionsOffTitle: flow.stats.sectionsOffTitle,
+      sharpStances: stanceStats.sharp,
+      totalStances: stanceStats.total,
     },
   };
 }

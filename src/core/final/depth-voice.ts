@@ -95,23 +95,29 @@ export function buildRepeatedFactsBlock(evidenceText: string): string {
  * ① 얕은 판단 — 조건도 행동도 없는 "…쪽입니다"
  * ──────────────────────────────────────────────────────────────── */
 
-const STANCE_HEAD = /제\s*(?:판단|생각|의견|결론)(?:은|으로는?|엔|에는|이|을)|저는\s|제가\s*보기(?:엔|에는)|저라면/g;
-const CONDITION = /(?:라면|이라면|이면|면\s|경우|때는|때에는|일수록|있다면|없다면|받았다면|않았다면|중이라면|전이라면|뒤라면|이상|미만|까지는|부터는)/;
-const ACTION = /(?:신청|접수|내세요|내는|제출|확인|읽|보세요|보는|기다리|미루|먼저|나중|택|고르|바꾸|바꿔|넣|빼|줄이|늘리|묻|문의|정리|대조|분리|나누|피하|말고|하지\s*않|않는|권하|권합|보류|서두르|멈추|시작)/;
+/** 판단 문장 — 1인칭 말머리 또는 판단 어미 (narrative-flow 의 FIRST_PERSON_STANCE 와 같은 눈) */
+const STANCE_ANY = /제\s*(?:판단|생각|의견|결론)(?:은|으로는?|엔|에는|이|을)|저는\s|제가\s*보기(?:엔|에는)|저라면|맞다고\s*봅니다|(?:으로|로)\s*봅니다|쪽입니다|쪽으로\s*봅니다|편이\s*맞습니다|것이\s*맞습니다|권합니다|권하지\s*않습니다|먼저라는\s*쪽/;
+const CONDITION = /(?:라면|이라면|이면|면\s|경우|때는|때에는|일수록|있다면|없다면|받았다면|않았다면|중이라면|전이라면|뒤라면|이상|미만|까지는|부터는|나왔다면|없으면|있으면|거절됐다면|부결됐다면)/;
+const ACTION = /(?:신청|접수|내세요|내는|제출|확인|읽|보세요|보는|기다리|미루|먼저|나중|택|고르|바꾸|바꿔|넣|빼|줄이|늘리|묻|문의|정리|대조|분리|나누|피하|말고|하지\s*않|않는|권하|권합|보류|서두르|멈추|시작|짚|검토|비교)/;
 
 export interface StanceStats { total: number; sharp: number; shallow: string[] }
 
-/** 1인칭 판단 문장 가운데 조건·행동을 갖춘 것을 센다. 판단 문장 = 말머리부터 200자 (이유 문장까지) */
+/**
+ * 판단 문장 가운데 조건·행동을 갖춘 것을 센다.
+ * 판단 문장 = 판단 표현이 든 문장 + 바로 다음 문장(이유). 문장 단위로 잰다 — 200자 창은 앞 문장을 끌어들여 오탐이 났다.
+ */
 export function measureStances(plainText: string): StanceStats {
-  const text = String(plainText || '').replace(/\s+/g, ' ');
+  const sentences = String(plainText || '').replace(/\s+/g, ' ').split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
   const shallow: string[] = [];
   let total = 0;
   let sharp = 0;
-  for (const m of text.matchAll(STANCE_HEAD)) {
+  for (let i = 0; i < sentences.length; i++) {
+    const s = sentences[i]!;
+    if (!STANCE_ANY.test(s)) continue;
     total += 1;
-    const window = text.slice(m.index || 0, (m.index || 0) + 200);
-    if (CONDITION.test(window) && ACTION.test(window)) sharp += 1;
-    else shallow.push(window.slice(0, 70));
+    const pair = `${s} ${sentences[i + 1] || ''}`;
+    if (CONDITION.test(pair) && ACTION.test(pair)) sharp += 1;
+    else shallow.push(s.slice(0, 70));
   }
   return { total, sharp, shallow };
 }

@@ -235,6 +235,9 @@ export function buildAgentHarnessRules(input: AgentHarnessInput): string {
     DECISION_SUPPORT_RULES,
     // v3.8.660 — 도입의 질문을 끝까지 붙잡는 구성과 필자의 관점. API 경로(generation.ts)와 같은 원본
     require('./narrative-flow').NARRATIVE_FLOW_RULES,
+    // v3.8.662 — 깊이와 목소리: 판단 = 조건+행동, 자료가 되풀이하는 수치를 문장째, 표 3개 이하, 곁가지 절 금지
+    require('./depth-voice').DEPTH_VOICE_RULES,
+    require('./depth-voice').buildRepeatedFactsBlock(input.evidence),
     /**
      * v3.8.660 — 경험은 사람이 적은 메모에서만.
      * 화면의 「내 경험 메모」는 API 경로(orchestration 43%)만 읽고 있었다 — 에이전트 모드로 발행하면 메모가 버려졌다.

@@ -2815,6 +2815,19 @@ ${quoted}
       if (situationBlock) onLog?.('[PROGRESS] 41% - 📥 경험 메모가 없어 검색자의 실제 질문으로 상황을 세웁니다 (체험은 지어내지 않음)');
       scopedSectionBlock = `${scopedSectionBlock}${memoBlock}${situationBlock}`;
     } catch { /* 흐름 블록이 없어도 생성은 계속된다 */ }
+    /**
+     * v3.8.662 — 자료가 되풀이하는 수치를 생성 **전**에 문장째 넘긴다.
+     * 실측: 생성 로그마다 "[KEY-FACT] 자료가 되풀이하는데 본문에 없음: 14.7%, 5%, 120만원…" 이 6개씩 찍혔다.
+     * 그 검사는 생성 뒤에만 돌았다 — 자료의 깊이를 글이 버리는 걸 세기만 했다. 여기서 미리 준다 (호출 0).
+     */
+    try {
+      const { buildRepeatedFactsBlock } = require('./depth-voice');
+      const factsBlock = buildRepeatedFactsBlock([factEvidence.context, naverGrounding].filter(Boolean).join('\n'));
+      if (factsBlock) {
+        scopedSectionBlock = `${scopedSectionBlock}${factsBlock}`;
+        onLog?.(`[PROGRESS] 41% - 🔢 자료가 되풀이하는 수치 ${(factsBlock.match(/\n   · /g) || []).length}개를 본문 지시에 넣었습니다`);
+      }
+    } catch { /* 수치 블록이 없어도 생성은 계속된다 */ }
     if (overallScope) {
       const scopePrepend = `\n🎯🎯🎯 **글 전체 스코프 한정 — 절대 위반 금지!**\n키워드 "${keyword}"가 "${overallScope.qualifier}"으로 끝납니다. ${overallScope.instruction}\n\n⚠️ 아래 섹션별 지시 중 "${overallScope.qualifier}" 외 주제(예: 신청방법/조건/대상자/혜택 등)가 언급되어도 그 부분은 "${overallScope.qualifier}" 관점으로 재해석해서 작성하세요. 모든 H3·본문 단락·결론·CTA·FAQ는 오직 "${overallScope.qualifier}"만 다룹니다.\n위반 시 즉시 실격 — 본문 어디에도 한정자 외 측면을 H3 제목/단락 주제로 만들면 안 됩니다.\n`;
       scopedSectionBlock = `${scopePrepend}${scopedSectionBlock}`;

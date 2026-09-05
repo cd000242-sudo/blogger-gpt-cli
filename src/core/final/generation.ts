@@ -30,6 +30,8 @@ import { SUBSTANCE_FIRST_PASS_RULES, FRESHNESS_RULES } from './substance-rules';
 import { DECISION_SUPPORT_RULES } from './decision-support';
 // v3.8.660 — 도입의 질문을 끝까지 붙잡는 구성과 필자의 관점 (에이전트 경로와 같은 원본)
 import { NARRATIVE_FLOW_RULES } from './narrative-flow';
+// v3.8.662 — 깊이와 목소리: 판단 = 조건+행동, 자료 수치 그대로, 표 3개 이하, 곁가지 절 금지
+import { DEPTH_VOICE_RULES } from './depth-voice';
 // v3.8.529: StoryScope(COLM 2026) — 문체가 아니라 구조로 AI 티를 지운다.
 //   발행글 실측(2026-08-19)에서 곁가지 0건·지시형 종결이 그대로 새고 있었다.
 import { STORYSCOPE_STRUCTURE_RULES, STORYSCOPE_FAQ_ENDING_RULE } from './storyscope-rules';
@@ -1115,6 +1117,8 @@ ${roleList}
 7. 띄어쓰기를 반드시 지켜라. 상품명·모델명·숫자가 여러 단어로 이어져도
    "갤럭시Z플립8자급제구매전단점점검" 처럼 단어를 붙여 쓰지 말고 "갤럭시 Z 플립8 자급제 구매 전 단점 점검"
    처럼 띄어 써라.
+9. 🔴 곁가지 금지 (v3.8.662): 제목이 부른 독자에게 필요 없는 섹션 제목은 짓지 마라. 검색어에 딸려 온 다른 시장·다른 지역·다른 제도 이야기는
+   제목의 독자가 처한 상황에서 한 걸음씩 답으로 나아가는 제목으로 바꿔라.
 8. ⚠️ **키워드를 모든 제목에 넣지 마라.** 키워드(또는 상품명) 전체를 넣는 제목은
    ${sections.length}개 중 **최대 2개**까지다. 나머지는 그 키워드를 이미 아는 독자가
    그 다음으로 궁금해할 것을 제목으로 삼아라 — 같은 이름이 소제목마다 반복되면
@@ -1321,6 +1325,7 @@ ${titlePromiseBlock || ''}
 6. 이미 마감된 사업/이벤트/일정은 소제목에 포함 금지. 현재 진행 중이거나 미래 일정만!
 7. 한글과 영문/숫자만 사용. 중국어 한자(漢字) 절대 금지!
 8. 내부일관성 보일러플레이트 금지: "무엇이고 왜 중요할까", "자격·조건·핵심 정보", "실전 사례와 단계별 적용법", "핵심 포인트 한 줄 정리", "함께 보면 좋은 관련 정보" 같은 고정 템플릿을 그대로 쓰지 말 것!
+9. 🔴 곁가지 금지 (v3.8.662): 제목이 부른 독자에게 필요 없는 소제목은 만들지 마세요. 국내 코스닥 보유자 글에 "나스닥 상장폐지 조건", 햇살론 글에 "강원 센터" 처럼 검색어에 딸려 온 주제는 뺍니다. 모든 소제목은 제목의 독자가 처한 상황에서 한 걸음씩 답으로 나아가야 합니다.
 
 JSON만(${targetCount}개 문자열 배열):
 `;
@@ -1703,7 +1708,7 @@ ${contentMode === 'paraphrasing' && draftContent ? '' : draftReference}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${externalModePromptBlock}${internalModePromptBlock}${adsenseModePromptBlock}${shoppingModePromptBlock}${paraphrasingModePromptBlock}${discoverModePromptBlock}${sectionGuideBlock || ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}${STORYSCOPE_STRUCTURE_RULES}${NARRATIVE_FLOW_RULES}
+${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}${STORYSCOPE_STRUCTURE_RULES}${NARRATIVE_FLOW_RULES}${DEPTH_VOICE_RULES}
 
 🔴🔴🔴 [10억 점 ${
   contentMode === 'adsense' ? '전문 정보/E-E-A-T'
