@@ -294,7 +294,8 @@ export function findCrossSectionEchoes(allSections: AuditSection[]): AuditIssue[
  * 1,000자당 몇 번 나오는지로 본다. 문장 쪼개는 방식이 바뀌어도 안 흔들린다.
  * 실측: 성과급 글 10,321자에 '기업이익' 31회 = 1,000자당 3.0회.
  */
-const FLOOD_PER_1000 = 2.4;
+// v3.8.682: 2.4 는 27편 중 15편을 잡았다 — "사업자등록 4.3", "손해보험 2.7" 은 그 글의 주제다. 소제목·제목 낱말이 아니어도 3.5 까지는 둔다
+const FLOOD_PER_1000 = 3.5;
 const FLOOD_MIN_HITS = 12;
 
 /**
@@ -326,6 +327,8 @@ export function findTermFloods(
     if (w.length < 3) continue;
     // v3.8.677 실측: 친근한 말투 글에서 "있어요" 21번이 낱말 되풀이로 잡혔다 — 종결 어미는 낱말이 아니다
     if (/(?:있어요|없어요|해요|돼요|이에요|예요|거든요|합니다|입니다|습니다|됩니다|때문이에요|때문입니다|않아요|않습니다)$/.test(w)) continue;
+    // v3.8.682 27편 전수: "서민금융진흥원 25번", "금융회사 40번", "국세청 21번" — 기관·회사 이름은 그 글의 주인공이라 되풀이가 아니다
+    if (/(?:진흥원|공단|공사|거래소|위원회|은행|회사|센터|관리원|구청|시청|공단|국세청|기관)$/.test(w)) continue;
     counts.set(w, (counts.get(w) || 0) + 1);
   }
   const out: AuditIssue[] = [];

@@ -256,11 +256,21 @@ export function findFlowGaps(
         // v3.8.676: "최근 3개월", "월 20만원" 같은 수치 구절은 기준이지 절차가 아니다 — 절마다 나오는 것이 맞다 (라이브 실측 오탐)
         // v3.8.677: 법령 이름("양육비 이행확보 및 지원에 관한 법률")은 절마다 불러도 되풀이가 아니다 — 이름을 지우고 센다
         const withoutLaws = s.text.replace(/[가-힣·]+(?:\s+[가-힣·]+){0,6}\s*(?:에\s*관한\s*법률|법률|시행령|시행규칙)/g, ' ');
-        const toks = words(withoutLaws).filter((w) => w.length >= 2 && !STOP.has(w) && !titleSet.has(w) && !/\d/.test(w) && !/(?:니다|어요|아요|해요|예요|이에요|다|요|죠)$/.test(w));
-        for (let i = 0; i + 1 < toks.length; i += 1) {
-          const key = `${toks[i]} ${toks[i + 1]}`;
-          if (!bigramSections.has(key)) bigramSections.set(key, new Set());
-          bigramSections.get(key)!.add(si);
+        /**
+         * v3.8.682 — 27편 전수 조사에서 22편이 걸렸다. "경남 경북", "회사 공시", "기업 이익", "서민금융진흥원 금융상품" — 절차가 아니라
+         * 주제 명사가 절마다 나온 것이다. 이 검사의 목적은 "고지서와 등록원부 대조하세요" 같은 **확인 절차 문장**의 되풀이다.
+         * 그래서 확인·대조·점검 같은 절차 동사가 든 문장의 구절만 세고, 기관 이름 같은 고유명사는 뺀다.
+         */
+        const PROCEDURE_VERB = /(?:확인|대조|점검|검토|문의|제출|접수|조회|비교|준비|살펴|읽어|챙기|갖추|맞춰|대보|따져)/;
+        const PROPER_NOUN = /(?:진흥원|공단|공사|거래소|위원회|은행|보험|회사|센터|관리원|구청|시청|공시|기관|국세청|금융감독원)$/;   // "등록원부" 같은 일반 명사는 남긴다
+        const procedureSentences = withoutLaws.split(/(?<=[.!?])\s+/).filter((sent) => PROCEDURE_VERB.test(sent));
+        for (const sent of procedureSentences) {
+          const toks = words(sent).filter((w) => w.length >= 2 && !STOP.has(w) && !titleSet.has(w) && !/\d/.test(w) && !PROPER_NOUN.test(w) && !/(?:니다|어요|아요|해요|예요|이에요|다|요|죠)$/.test(w));
+          for (let i = 0; i + 1 < toks.length; i += 1) {
+            const key = `${toks[i]} ${toks[i + 1]}`;
+            if (!bigramSections.has(key)) bigramSections.set(key, new Set());
+            bigramSections.get(key)!.add(si);
+          }
         }
       });
       const need = Math.max(3, Math.ceil(sections.length * 0.7));
