@@ -2368,7 +2368,9 @@ ${quoted}
     //   모델이 그 내용을 지어내 인용한다(실측: 사이트 wp-json 주소와 무관한 양육비 기사를 "출처" 로 적었다)
     let relevantReportUrls: string[] = [];
     try {
-      const reportUrls: string[] = Array.isArray((payload as any)?.cpcReportUrls) ? (payload as any).cpcReportUrls : [];
+      // v3.8.669: v5 리포트는 항목마다 "출처 기사 URL" 을 준다 — 그것이 제목의 진짜 출처라 맨 앞에 둔다
+      const slotUrls: string[] = Array.isArray((payload as any)?.cpcReportSlot?.urls) ? (payload as any).cpcReportSlot.urls : [];
+      const reportUrls: string[] = [...slotUrls, ...(Array.isArray((payload as any)?.cpcReportUrls) ? (payload as any).cpcReportUrls : [])];
       if (reportUrls.length > 0) {
         const { fetchReportSourceBodies, buildReportSourcesBlock } = require('./report-sources');
         const { fetchPageBody } = require('../crawlers/official-page-body');

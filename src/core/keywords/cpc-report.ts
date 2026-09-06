@@ -45,6 +45,8 @@ export interface CpcSlot {
   track: string;
   /** 미확보 슬롯이면 true — 오늘은 이 슬롯을 안 쓴다 */
   empty: boolean;
+  /** 항목별 출처 기사 URL (v5 2회차 서식, v3.8.669). 없으면 비어 있다 */
+  urls?: string[];
 }
 
 export interface CpcReport {
@@ -104,9 +106,9 @@ function itemsUnder(block: string, headingPattern: RegExp): string[] {
   return out;
 }
 
-/** 한 줄짜리 값 — "**등급: A (종합 10)**" 같은 것 */
+/** 한 줄짜리 값 — "**등급: A (종합 10)**" 같은 것. v3.8.669: "- 등급: 통과" 처럼 목록 기호 뒤에 오는 꼴도 받는다 */
 function valueOf(block: string, label: string): string {
-  const re = new RegExp('^\\s*\\*{0,2}' + label + '\\*{0,2}\\s*[:：]\\s*(.+)$', 'm');
+  const re = new RegExp('^\\s*(?:[-*•]\\s*)?\\*{0,2}' + label + '\\*{0,2}\\s*[:：]\\s*(.+)$', 'm');
   const m = block.match(re);
   if (!m) return '';
   /**
@@ -145,6 +147,13 @@ function confirmedTitle(block: string): string {
    */
   const tick = block.match(/확정\s*제목[^\n`]*`([^`\n]+)`/);
   if (tick) return clean(tick[1]!);
+  /**
+   * v3.8.669 — 소제목 아래 줄에 낫표로 오는 꼴 (2026-09-06 v5 2회차 실측):
+   *   ### 확정 제목
+   *   **「양육비 선지급 탈락 사유 … 이의신청 기한」 (42자)**
+   */
+  const below = block.match(/확정\s*제목[^\n]*\n[\s\S]{0,60}?「([^」\n]+)」/);
+  if (below) return clean(below[1]!);
   // 낫표가 없는 경우 — 콜론 뒤 전부
   const alt = block.match(/^\s*[-*•]?\s*\*{0,2}확정\b[^:：\n]*[:：]\s*(.+)$/m);
   return alt ? clean(alt[1]!).replace(/^「|」$/g, '') : '';
@@ -163,13 +172,24 @@ function confirmedTitle(block: string): string {
  * 슬롯 꼴을 못 찾았을 때만 이쪽을 본다 — 둘 다 시도하면 한 리포트에서
  * 항목이 두 벌로 늘어난다.
  */
-const NUMBERED_HEAD = /^#{1,6}\s*(\d{1,2})\s*[.)]\s*(.+)$/gm;
+// v3.8.669 — "### [1] 키워드 - 각도" (v5 2회차, 2026-09-06 실측) 도 항목이다. 탈락 후보 "### (가)" 는 아니다.
+const NUMBERED_HEAD = /^#{1,6}\s*(?:\[(\d{1,2})\]|(\d{1,2})\s*[.)])\s*(.+)$/gm;
+
+/** 항목 안의 "- URL: [https://…](…)" 또는 "- URL: https://…" — 이 서식에서는 항목마다 출처 기사가 있다 (v3.8.669) */
+function itemUrls(block: string): string[] {
+  const out: string[] = [];
+  for (const m of block.matchAll(/^\s*[-*•]?\s*\*{0,2}URL\*{0,2}\s*[:：]\s*(?:\[[^\]]*\]\()?(https?:\/\/[^\s)\]]+)/gim)) {
+    const u = String(m[1] || '').replace(/\\([&%#?=_])/g, '$1').replace(/[.,]+$/, '');
+    if (u && !out.includes(u)) out.push(u);
+  }
+  return out;
+}
 
 function parseNumberedItems(src: string): CpcSlot[] {
   const heads: { at: number; no: string; text: string }[] = [];
   NUMBERED_HEAD.lastIndex = 0;
   for (let m = NUMBERED_HEAD.exec(src); m; m = NUMBERED_HEAD.exec(src)) {
-    heads.push({ at: m.index, no: m[1]!, text: clean(m[2] || '') });
+    heads.push({ at: m.index, no: (m[1] || m[2])!, text: clean(m[3] || '') });
   }
   if (heads.length === 0) return [];
 
@@ -185,6 +205,7 @@ function parseNumberedItems(src: string): CpcSlot[] {
       keyword,
       title: confirmedTitle(block),
       grade: valueOf(block, '등급'),
+      urls: itemUrls(block),
       longtails: itemsUnder(block, /\*{0,2}롱테일\s*파생/),
       // v5 는 목록이 아니라 한 줄로 온다: **발행 전 확인**: …
       mustCheck: (() => {

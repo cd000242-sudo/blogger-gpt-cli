@@ -12275,7 +12275,8 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
           const agentTitle = String((request?.payload as any)?.cpcReportSlot?.title || request?.title || '');
           const pgr = await fetchPromiseGrounding(agentTitle, agentKeyword, agentSearch, fetchGrounding, { maxChunks: 2, charsPerChunk: 2000, display: 5 });
           const rs = await fetchReportSourceBodies(
-            (request?.payload as any)?.cpcReportUrls || [],
+            // v3.8.669: 항목별 "출처 기사 URL"(v5 리포트)을 리포트 전체 주소보다 앞에
+            [...((request?.payload as any)?.cpcReportSlot?.urls || []), ...((request?.payload as any)?.cpcReportUrls || [])],
             { keyword: agentKeyword, title: agentTitle },
             (u: string) => fetchPageBody(u, 2600),
           );
