@@ -271,22 +271,13 @@ export function shouldApplyCasualTransform(): boolean {
  * v3.8.374: 기존에는 '습니다.' → '어요.' 로 무조건 치환해서 "좋습니다." → "좋어요." 같은
  *   비문이 실제 발행 글에 나갔다 (2026-07-08 발행글에서 "좋어요" 실측 확인).
  */
-function politeToCasualEnding(stemChar: string): string {
-  const code = stemChar.charCodeAt(0) - 0xac00;
-  if (code < 0 || code > 11171) return '어요';
-  const jungseong = Math.floor(code / 28) % 21;
-  // 0=ㅏ, 2=ㅑ, 8=ㅗ, 12=ㅛ → 양성모음
-  return (jungseong === 0 || jungseong === 2 || jungseong === 8 || jungseong === 12) ? '아요' : '어요';
-}
-
+/**
+ * v3.8.676 — 활용 규칙은 haeyo.ts 에. 실측 결함: "낫습니다→낫아요", "페이지입니다→페이지이에요", "큽니다·됩니다·다릅니다" 는 안 바뀜.
+ * 모르는 어간은 그대로 둔다 — 틀린 해요체보다 남은 합니다체 한 문장이 낫다.
+ */
 export function applyCasualTransform(text: string): string {
   if (!shouldApplyCasualTransform()) return text;
-  return text
-    .replace(/입니다\./g, '이에요.')
-    .replace(/합니다\./g, '해요.')
-    // '습니다.' 는 어간 모음에 따라 '아요./어요.' 로 갈린다 (있습니다→있어요, 좋습니다→좋아요)
-    .replace(/([가-힣])습니다\./g, (_m, stem: string) => `${stem}${politeToCasualEnding(stem)}.`)
-    .replace(/습니다\./g, '어요.');
+  return require('./haeyo').toHaeyo(text);
 }
 
 // v3.8.361: AI가 결과 본문에 프롬프트 메타 표현을 그대로 뱉는 문제 후처리 sanitize

@@ -118,10 +118,21 @@ export function findUnkeptTitlePromises(
   const unkept = promises.filter((p) => {
     const words = promiseWords(p).filter((w) => !(PROMISE_JUNK.test(w) && w.length <= 3));
     if (words.length === 0) return false;
-    return !carriers.some((c) => {
+    const keptByOne = carriers.some((c) => {
       const hit = words.filter((w) => c.includes(normalize(w))).length;
       return hit / words.length >= 0.6;
     });
+    if (keptByOne) return false;
+    /**
+     * v3.8.676 실측: 제목 "양육비 선지급 탈락 사유 소득기준 폐지 후에도 남는 신청 요건" 은 구분자가 없어 조각 하나가 낱말 9개다.
+     * "1. 소득기준 폐지 후 남는 신청 요건" + "4. 탈락으로 보는 주요 확인 항목" 이 나눠 맡았는데 한 소제목 기준(5/9)으로는 불이행이었다.
+     * 긴 조각(낱말 7개 이상)은 소제목들이 **합쳐서** 70% 를 덮으면 지킨 것으로 본다.
+     */
+    if (words.length >= 7) {
+      const union = words.filter((w) => carriers.some((c) => c.includes(normalize(w)))).length;
+      return union / words.length < 0.7;
+    }
+    return true;
   });
 
   if (unkept.length === 0) return [];

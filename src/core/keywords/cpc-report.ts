@@ -379,6 +379,12 @@ export function buildReportDirective(slot: CpcSlot, urls: string[] = []): string
     lines.push('', '**검색창에 실제로 올라온 말** — 독자의 상황과 어휘입니다. 서론에 인용해도 됩니다. 지어내지 않습니다.');
     for (const q of quotes) lines.push(`   · "${q.slice(0, 140)}"`);
   }
+  // v3.8.676 — 리포트가 법령 이름을 줬는데 본문이 한 번도 안 부르면 "근거 조항 0건" 으로 깎인다 (라이브 실측 -10)
+  const laws = (slot.properNouns || []).map((n) => String(n)).filter((n) => /법률|법\b|시행령|시행규칙|조례|고시/.test(n));
+  if (laws.length) {
+    lines.push('', '**근거 법령** — 제도를 설명하는 절에서 한 번은 정식 명칭으로 부릅니다(조항 번호는 확인된 것만).');
+    for (const l of laws.slice(0, 3)) lines.push(`   · ${l.slice(0, 120)}`);
+  }
   if (slot.mustCheck.length) {
     lines.push('', '**발행 전 반드시 확인하고 본문에 반영할 것**');
     lines.push('   확인 못 한 것은 쓰지 않습니다. 지어내면 안 됩니다.');
