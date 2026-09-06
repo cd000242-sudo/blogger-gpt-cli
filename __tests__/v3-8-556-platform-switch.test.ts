@@ -173,7 +173,7 @@ describe('⑤ 글목록 — 다른 플랫폼을 고르면 수정이 아니라 �
   });
 
   it('대상 플랫폼의 접속 설정을 같은 소스에서 실어 보낸다 (글목록과 어긋나면 인증 실패가 난다)', () => {
-    expect(cross).toContain('window.__buildPublishedPlatformPayload?.(target)');
+    expect(cross).toContain('platformPayloadFor(target)');
   });
 
   it('⭐ 원본을 지우지 않는다 (사장님 확정: 원본 유지 · 새 글)', () => {

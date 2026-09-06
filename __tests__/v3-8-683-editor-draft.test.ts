@@ -99,6 +99,11 @@ describe('v3.8.683 편집기 초안 — 붙여넣기 서식 · 비평 · 수정 
     expect(e).toContain("platformPickable: kind === 'republish' || kind === 'file' || kind === 'paste'");
     expect(e).toContain("(session.kind === 'file' || session.kind === 'paste') && !saveAs && selectedEditorPlatform()");
     expect(read('electron/ui/modules/editor-paste.js')).toContain("invoke('normalize-editor-paste'");
+    // v3.8.684 — 글목록 탭을 안 열어도 플랫폼 설정을 읽는다 (배선 점검에서 찾은 구멍)
+    expect(read('electron/ui/modules/published-posts.js')).toContain('export async function buildPlatformPayload(platformKey)');
+    expect(e).toContain('async function platformPayloadFor(target)');
+    expect(e).not.toContain('window.__buildPublishedPlatformPayload?.(');
+    expect((e.match(/platformPayloadFor\(/g) || []).length).toBeGreaterThanOrEqual(4);
     expect(read('electron/ui/modules/main.js')).toContain('window.openPasteEditor');
     expect(read('electron/ui/index.html')).toContain('window.openPasteEditor && window.openPasteEditor()');
   });

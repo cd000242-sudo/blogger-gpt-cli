@@ -53,6 +53,22 @@ function selectedEditorPlatform() {
   return normalizeEditorPlatform(modalRefs?.targetPlatform?.value || session.originalPlatform);
 }
 
+/**
+ * 🔌 v3.8.684 — 발행 플랫폼 설정(티스토리 블로그 이름·워드프레스 계정)을 가져온다.
+ * 배선 점검에서 찾은 구멍: `window.__buildPublishedPlatformPayload` 는 글목록 탭을 한 번 열어야 생긴다.
+ * 붙여넣기·파일 글을 바로 발행하면 그 탭을 안 열었을 수 있으니, 없으면 모듈을 직접 불러 같은 함수를 쓴다.
+ */
+async function platformPayloadFor(target) {
+  try {
+    if (typeof window.__buildPublishedPlatformPayload === 'function') return (await window.__buildPublishedPlatformPayload(target)) || {};
+    const mod = await import('./published-posts.js');
+    return (await mod.buildPlatformPayload?.(target)) || {};
+  } catch (err) {
+    console.warn('[EDITOR] 플랫폼 설정을 못 읽었습니다:', err?.message || err);
+    return {};
+  }
+}
+
 /** 이미 발행된 글인데 다른 플랫폼을 골랐나 — 그렇다면 수정이 아니라 새 발행이다 */
 function isCrossPlatformPublish() {
   if (!session || !getPublishedSource(session.kind)) return false;
@@ -372,7 +388,7 @@ ${err?.message || err}
   const lockDraftButtons = (locked) => draftButtons().forEach((b) => { b.disabled = locked; b.style.opacity = locked ? '0.5' : '1'; });
   const editorPayload = async () => {
     const target = selectedEditorPlatform() || normalizeEditorPlatform(session?.originalPlatform);
-    const base = (await window.__buildPublishedPlatformPayload?.(target)) || {};
+    const base = await platformPayloadFor(target);
     return { ...base, platform: target, targetPlatform: target, blogPlatform: target };
   };
   modalRefs.critiqueBtn?.addEventListener('click', async () => {
@@ -1225,7 +1241,7 @@ async function saveCurrentSession(saveAs) {
         thumbnailUrl: computeThumbnailUrl(),
         payload: {
           // published-posts.js 의 플랫폼 키와 같은 값을 넘긴다 (blogspot/wordpress/tistory)
-          ...(await window.__buildPublishedPlatformPayload?.(target) || {}),
+          ...(await platformPayloadFor(target)),
           platform: target,
           targetPlatform: target,
           blogPlatform: target,
@@ -1255,7 +1271,7 @@ async function saveCurrentSession(saveAs) {
         title,
         content: html,
         // 티스토리는 블로그 주소(화면 설정)가 있어야 편집기 URL을 만들 수 있다 — 목록 조회와 같은 소스를 쓴다
-        payload: await window.__buildPublishedPlatformPayload?.(session.kind),
+        payload: await platformPayloadFor(session.kind),
       });
       if (res?.ok) {
         addLog(`🚀 ${published.label} 수정발행 완료: ${res.url || title}`, 'success');
@@ -1284,7 +1300,7 @@ async function saveCurrentSession(saveAs) {
         content: html,
         thumbnailUrl: computeThumbnailUrl(),
         payload: {
-          ...(await window.__buildPublishedPlatformPayload?.(target) || {}),
+          ...(await platformPayloadFor(target)),
           platform: target,
           targetPlatform: target,
           blogPlatform: target,

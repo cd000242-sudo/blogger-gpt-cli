@@ -73,6 +73,6 @@ describe('생성된 글목록 자격증명 회귀 가드', () => {
     const payloadCalls = source.match(/buildPlatformPayload\(platform\.key\)/g) || [];
     expect(payloadCalls.length).toBeGreaterThanOrEqual(3);
     expect(source).toContain('window.__buildPublishedPlatformPayload = (platformKey) => buildPlatformPayload(platformKey);');
-    expect(editor).toContain('payload: await window.__buildPublishedPlatformPayload?.(session.kind),');
+    expect(editor).toContain('payload: await platformPayloadFor(session.kind),');
   });
 });

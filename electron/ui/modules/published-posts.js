@@ -72,7 +72,8 @@ function compact(obj) {
  *
  * 값을 못 찾으면 undefined 를 돌려 기존의 .env 폴백을 그대로 살린다.
  */
-async function buildPlatformPayload(platformKey) {
+// v3.8.684 — 편집기(editor.js)가 글목록 탭을 열지 않은 상태에서도 쓸 수 있게 내보낸다
+export async function buildPlatformPayload(platformKey) {
   try {
     const settings = await loadSettings() || {};
 
