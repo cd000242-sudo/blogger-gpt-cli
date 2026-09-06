@@ -69,7 +69,10 @@ export type AuditKind =
   | 'hedge-repeat'        // 같은 단서를 문단마다
   | 'bloated-conclusion'  // 결론이 본문 재탕
   | 'promise-deferred'    // 제목 약속을 맡은 절이 답 대신 "확인하세요" 로만 (v3.8.670)
-  | 'procedure-repeat';   // 같은 확인 절차 구절이 절마다 (v3.8.670)
+  | 'procedure-repeat'    // 같은 확인 절차 구절이 절마다 (v3.8.670)
+  | 'intro-question-missing'   // 서론이 질문 없이 끝남 (v3.8.671, 알리기만)
+  | 'section-closer-checklist' // 절이 점검 목록으로 닫힘 (v3.8.671, 알리기만)
+  | 'conclusion-not-answering';// 결론이 도입의 질문에 답하지 않음 (v3.8.671, 알리기만)
 
 export interface AuditIssue {
   kind: AuditKind;
@@ -692,6 +695,9 @@ export function summarizeAudit(report: AuditReport): string {
     'table-template': '표 양식 반복',
     'promise-deferred': '약속 절이 확인만 시킴',
     'procedure-repeat': '같은 확인 절차 반복',
+    'intro-question-missing': '서론에 질문 없음',
+    'section-closer-checklist': '절이 점검 목록으로 닫힘',
+    'conclusion-not-answering': '결론이 질문에 답 안 함',
     'tone-mix': '말투 섞임',
     'broken-title': '제목 손상',
     'asserted-crime': '확정형 범죄표현',

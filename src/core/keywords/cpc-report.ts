@@ -47,6 +47,17 @@ export interface CpcSlot {
   empty: boolean;
   /** 항목별 출처 기사 URL (v5 2회차 서식, v3.8.669). 없으면 비어 있다 */
   urls?: string[];
+  /**
+   * v3.8.671 — 리포트가 찾아 놓은 **독자의 의문**. 그동안 파서가 한 글자도 안 읽어 설계도에 못 실렸다.
+   *   clickReasons  : "기사가 알려주지 않은 것 — 이것이 클릭 이유다" 번호 목록. 독자가 검색창에 친 진짜 문제
+   *   readerReasons : "③ 내 글을 보러 올 이유" 목록. 절이 답할 의문
+   *   realQuestions : "실물 QnA" 지식iN 인용. 서론의 상황과 독자의 어휘
+   *   properNouns   : "기사 본문에서 뽑은 고유명사". 근거 명칭
+   */
+  clickReasons?: string[];
+  readerReasons?: string[];
+  realQuestions?: string[];
+  properNouns?: string[];
 }
 
 export interface CpcReport {
@@ -91,7 +102,7 @@ function clean(line: string): string {
  * `##### 제목` 같은 소제목 아래의 목록 항목을 모은다.
  * 다음 소제목(#)이 나오면 멈춘다 — 고정 길이로 자르면 다음 절을 먹는다.
  */
-function itemsUnder(block: string, headingPattern: RegExp): string[] {
+function itemsUnder(block: string, headingPattern: RegExp, opts: { stopAtBold?: boolean } = {}): string[] {
   const lines = block.split('\n');
   const start = lines.findIndex((l) => headingPattern.test(l));
   if (start === -1) return [];
@@ -99,11 +110,30 @@ function itemsUnder(block: string, headingPattern: RegExp): string[] {
   for (let i = start + 1; i < lines.length; i++) {
     const line = lines[i]!;
     if (/^#{1,6}\s/.test(line)) break;                  // 다음 절
+    // v3.8.671: 굵은 줄로 시작하는 소제목("**실물 QnA**", "**롱테일 파생 3개**")도 절의 경계다 — 안 멈추면 다음 목록을 먹는다
+    if (opts.stopAtBold && /^\*\*/.test(line)) break;
     if (!/^\s*(?:[-*•]|\d+[.)])\s+/.test(line)) continue; // 목록 항목만
     const text = clean(line);
     if (text) out.push(text);
   }
   return out;
+}
+
+/**
+ * v3.8.671 — 리포트가 찾아 놓은 독자의 의문 네 블록.
+ * 실측(2026-09-06 리포트 항목 [1]): 클릭 이유 5 · 보러 올 이유 4 · 실물 QnA 4 · 고유명사 8.
+ * 각 블록은 굵은 줄 소제목 아래 목록이고, 다음 굵은 줄이나 `###` 에서 끝난다.
+ */
+function readerBlocks(block: string): Pick<CpcSlot, 'clickReasons' | 'readerReasons' | 'realQuestions' | 'properNouns'> {
+  const bold = { stopAtBold: true };
+  const trim = (list: string[], max: number) => list.map((t) => t.slice(0, 200)).filter(Boolean).slice(0, max);
+  return {
+    clickReasons: trim(itemsUnder(block, /^\*{0,2}기사가\s*알려주지\s*않은\s*것/, bold), 6),
+    readerReasons: trim(itemsUnder(block, /^\*{0,2}[①②③]?\s*내\s*글을\s*보러\s*올\s*이유/, bold), 5),
+    // "- **493576559** "질문…" - "답…"" → 번호를 떼고 인용만 남긴다
+    realQuestions: trim(itemsUnder(block, /^\*{0,2}실물\s*QnA/, bold).map((t) => t.replace(/^\d{6,}\s*/, '')), 4),
+    properNouns: trim(itemsUnder(block, /^\*{0,2}기사\s*본문에서\s*뽑은\s*고유명사/, bold), 10),
+  };
 }
 
 /** 한 줄짜리 값 — "**등급: A (종합 10)**" 같은 것. v3.8.669: "- 등급: 통과" 처럼 목록 기호 뒤에 오는 꼴도 받는다 */
@@ -216,6 +246,7 @@ function parseNumberedItems(src: string): CpcSlot[] {
       })(),
       track: (block.match(/배정\s*트랙\s*[:：]\s*([^\n*]+)/) || [])[1]?.trim() || '',
       empty: /미확보|배정 불가/.test(block.split('\n').slice(0, 3).join(' ')),
+      ...readerBlocks(block),
     };
   });
 }
@@ -258,6 +289,7 @@ export function parseCpcReport(markdown: string): CpcReport {
       mustCheck: itemsUnder(block, /^#{2,6}\s*발행\s*전\s*확인\s*필요/),
       track: (block.match(/배정\s*트랙\s*[:：]\s*([^\n*]+)/) || [])[1]?.trim() || '',
       empty: 미확보,
+      ...readerBlocks(block),
     };
   });
 
@@ -326,6 +358,27 @@ export function buildReportDirective(slot: CpcSlot, urls: string[] = []): string
     for (const t of slot.longtails) lines.push(`   · ${t}`);
   }
 
+  /**
+   * v3.8.671 — 리포트가 찾아 놓은 독자의 의문을 설계도에 싣는다.
+   * 실측: 사장님 발행글과 라이브 1편 모두 서론에 질문이 없고 절이 "확인하세요" 로 닫혔다.
+   * 독자가 무엇을 궁금해하는지는 리포트가 이미 적어 뒀는데 파서가 버려서 모델이 몰랐다.
+   */
+  const clicks = slot.clickReasons || [];
+  const reasons = slot.readerReasons || [];
+  const quotes = slot.realQuestions || [];
+  if (clicks.length) {
+    lines.push('', '**이 글이 답할 독자의 의문 — 기사가 알려주지 않은 것, 그래서 검색하는 것입니다.**');
+    lines.push('   서론은 1번으로 독자의 문제를 세우고 질문 하나로 끝냅니다. 절마다 아래 의문 하나에 답하고, 결론은 그 질문에 답을 줍니다.');
+    clicks.forEach((c, i) => lines.push(`   ${i + 1}. ${c}`));
+  }
+  if (reasons.length) {
+    lines.push('', '**독자가 내 글을 보러 올 이유** — 소제목이 이것을 맡습니다.');
+    for (const r of reasons) lines.push(`   · ${r}`);
+  }
+  if (quotes.length) {
+    lines.push('', '**검색창에 실제로 올라온 말** — 독자의 상황과 어휘입니다. 서론에 인용해도 됩니다. 지어내지 않습니다.');
+    for (const q of quotes) lines.push(`   · "${q.slice(0, 140)}"`);
+  }
   if (slot.mustCheck.length) {
     lines.push('', '**발행 전 반드시 확인하고 본문에 반영할 것**');
     lines.push('   확인 못 한 것은 쓰지 않습니다. 지어내면 안 됩니다.');

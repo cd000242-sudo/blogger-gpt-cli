@@ -337,7 +337,8 @@ export function repairGluedNumbers(html: string): { html: string; count: number 
  * 받침 없는 낱말 뒤의 "은" (v3.8.668).
  * 실측(두 편): "국세청 9월 4일 발표은", "금융위원회 9월 1일 발표은" — 모델의 조사 오류. 받침 없는 명사 몇 개만 좁게 고친다.
  */
-const WRONG_EUN = /(발표|안내|자료|제도|절차|경우|여부|결과|구조|기관|보도|기준|조사|근거|사례|제출|접수|신청|조회)은(?=\s|[,.])/g;
+// v3.8.671: 받침 있는 명사(기준·기관·제출·신청)를 잘못 넣어 "기준은" 을 "기준는" 으로 망가뜨렸다 (라이브 실측). 받침 없는 명사만 둔다.
+const WRONG_EUN = /(발표|안내|자료|제도|절차|경우|여부|결과|구조|보도|조사|근거|사례|접수|조회)은(?=\s|[,.])/g;
 export function repairParticles(html: string): { html: string; count: number } {
   return outsideTags(html, (text) => {
     let count = 0;

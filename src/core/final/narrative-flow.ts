@@ -134,7 +134,7 @@ export interface FlowStats {
 export function findFlowGaps(
   html: string,
   toPlain: (h: string) => string,
-  opts: { title?: string } = {},
+  opts: { title?: string; question?: string } = {},
 ): { issues: AuditIssue[]; stats: FlowStats } {
   const src = String(html || '');
   const plain = toPlain(src);
@@ -268,6 +268,105 @@ export function findFlowGaps(
           title: `같은 확인 절차 구절이 절마다 나옵니다: ${repeated.slice(0, 3).map((k) => `"${k}"`).join(', ')}`,
           evidence: `절 ${sections.length}개 중 ${need}개 이상에 같은 구절이 있습니다. 확인 순서는 한 절에 두고, 나머지 절은 대상별 조건·신청 경로·서류로 채워야 합니다.`,
           penalty: 6,
+        });
+      }
+    }
+  } catch { /* 새 검사가 실패해도 점수 계산은 계속 */ }
+
+  /**
+   * v3.8.671 — 도입의 문제를 끝까지 붙잡았는가. 세 검사 모두 **알리기만 한다(감점 0)**.
+   * 26편 산출물로 분포를 본 뒤(scripts/flow-calibrate.js) 673 에서 감점과 자가 수정 대상을 켠다 — 검사기부터 검증.
+   * 실측(라이브 1편, 주택연금): 서론이 "확인하는 것이 출발점이에요" 로 끝나 질문이 없고, 절 5/5 가 "점검하세요" 로 닫히고,
+   * 결론이 서론의 상황에 답하지 않았다. 셋 다 기존 검사(낱말 대조)는 통과시켰다.
+   */
+  try {
+    const depth = require('./depth-voice');
+    const sentencesOf = (t: string) => t.split(/(?<=[.!?。？])\s+/).map((s) => s.trim()).filter((s) => s.length >= 8);
+    /**
+     * 질문은 물음표로만 오지 않는다 — 26편 보정: "결국 자동인가, 신청해야 하는가." / "…대상인지, …대상인지가 가장 먼저 풀어야 할 질문입니다"
+     * 같은 간접 의문이 6편이었다. 다만 "이 글은 …하는지를 정리합니다" 는 글의 범위 설명이지 독자에게 던진 질문이 아니다.
+     */
+    const SCOPE_STATEMENT = /^이\s*글(?:은|에서는)|정리합니다|정리해요|다룹니다|다뤄요|살펴봅니다|살펴봐요|초점을\s*맞춥니다|설명합니다|설명해요/;
+    const isQuestion = (s: string) => !SCOPE_STATEMENT.test(s) && (
+      /[?？]$/.test(s)
+      || /(?:까요|나요|냐고요|는지요|을까|ㄹ까|가요|일까)[.!]?$/.test(s)
+      || /(?:인가|는가|은가|ㄴ가|일까)(?=[,.!?\s가]|입니다|이에요|예요)/.test(s)
+      || /(?:인지|는지|을지|ㄹ지)\s*(?:부터|가|를|입니다|이에요|예요)/.test(s)
+      || /(?:풀어야\s*할|먼저\s*답할|답해야\s*할|남는)\s*질문/.test(s)
+    );
+    // 독자의 처지를 가르는 조건 — depth-voice 의 CONDITION 은 "정리하면" 의 "면" 까지 받아 여기서는 넓다
+    const READER_CONDITION = /(?:라면|다면|이면|경우|때는|때에는|이상|미만|사람은|사람이|분은|분이|가구는|사업자는|사업자가|차량은|독자라면)/;
+    const parts = src.split(/(?=<h2\b)/i).slice(1);
+
+    // ① 서론 — 답 상자(class 있는 <p>)와 요약 상자를 뺀 맨 <p> 의 마지막 두 문단. 마지막 세 문장에 질문이 있어야 한다
+    const firstH2At = src.search(/<h2\b/i);
+    if (firstH2At > 0) {
+      const paras = [...src.slice(0, firstH2At).matchAll(/<p(?![^>]*\bclass=)[^>]*>([\s\S]*?)<\/p>/gi)]
+        .map((m) => toPlain(m[1] || '').replace(/\s+/g, ' ').trim())
+        .filter((t) => t.length >= 30);
+      if (paras.length >= 2) {
+        const tail = sentencesOf(paras.slice(-2).join(' ')).slice(-3);
+        if (tail.length > 0 && !tail.some(isQuestion)) {
+          issues.push({
+            kind: 'intro-question-missing',
+            title: `서론이 질문 없이 끝납니다: "${tail[tail.length - 1]!.slice(0, 50)}"`,
+            evidence: '도입에서 독자의 문제를 질문 하나로 세워야 절과 결론이 붙잡을 것이 생깁니다. "확인하는 것이 출발점이에요" 같은 지시로 끝나면 붙잡을 문제가 없습니다.',
+            penalty: 0,
+          });
+        }
+      }
+    }
+
+    // ② 절의 마지막 문장 — "점검하세요·확인한 뒤·순서대로 정리" 로 닫히고 이유가 없으면 필자의 반응이 아니라 목록이다
+    const CHECKLIST_CLOSER = /(?:점검|확인|살펴|정리|대조|검토|비교|파악)(?:하는\s*(?:것이|편이)|해야|하세요|해\s*보세요|하시|한\s*뒤|하면)|먼저\s*잡으세요|순서대로\s*(?:정리|확인|점검)|함께\s*(?:점검|살펴)|한\s*번에\s*점검/;
+    const reasonRe: RegExp = depth.REASON;
+    const closers: string[] = [];
+    let checked = 0;
+    let total = 0;
+    for (const part of parts) {
+      const heading = toPlain((part.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i) || [])[1] || '').trim();
+      if (!heading || /자주\s*묻는|FAQ|요약|목차|읽어보기/i.test(heading)) continue;
+      const bodyHtml = part.replace(/<h2[\s\S]*?<\/h2>/i, '').replace(/<table[\s\S]*?<\/table>/gi, ' ').replace(/<a\b[\s\S]*?<\/a>/gi, ' ');
+      const ss = sentencesOf(toPlain(bodyHtml).replace(/\s+/g, ' ')).filter((s) => !/🔗|바로가기/.test(s));
+      if (ss.length < 3) continue;
+      total += 1;
+      const last = ss[ss.length - 1]!;
+      // "만기가 가까운 경우라면 새 대출 승인만 기다리지 말고 …" 는 조건부 판단이다 — 보정에서 목록으로 잘못 봤다
+      if (CHECKLIST_CLOSER.test(last) && !READER_CONDITION.test(last) && !reasonRe.test(ss.slice(-2).join(' '))) {
+        checked += 1;
+        closers.push(`${heading.slice(0, 18)}: "${last.slice(0, 40)}"`);
+      }
+    }
+    if (total >= 2 && checked >= Math.max(2, Math.ceil(total * 0.6))) {
+      issues.push({
+        kind: 'section-closer-checklist',
+        title: `절 ${total}개 중 ${checked}개가 점검 목록으로 닫힙니다: ${closers.slice(0, 2).join(' / ')}`,
+        evidence: '절의 마지막은 필자의 반응이어야 합니다 — 조건(누가·어떤 경우) + 행동 + 이유. "점검하세요·확인한 뒤 진행하세요" 는 반응이 아니라 목록입니다.',
+        penalty: 0,
+      });
+    }
+
+    // ③ 결론(FAQ 앞 1,200자) — 도입의 질문(없으면 제목)의 핵심 낱말 둘과 판단이 한 문장에 있어야 답한 것이다
+    const question = String(opts.question || '').trim();
+    // 제목의 날짜·숫자("8월", "31일")는 답의 낱말이 아니다 — 보정에서 이것 때문에 답한 결론을 두 편 놓쳤다
+    const keyWords = [...new Set(words(toPlain(question || title)))].filter((w) => w.length >= 2 && !STOP.has(w) && !/^\d/.test(w));
+    if (keyWords.length >= 2 && parts.length >= 2) {
+      const tailText = plain.replace(/※[\s\S]*$/, '');
+      const faqAt = tailText.search(/자주\s*묻는\s*질문|FAQ/i);
+      const end = faqAt >= 0 ? faqAt : tailText.length;
+      const endSentences = sentencesOf(tailText.slice(Math.max(0, end - 1200), end).replace(/\s+/g, ' '));
+      const stanceRe = new RegExp(FIRST_PERSON_STANCE.source);
+      const actRe: RegExp = depth.ACTION;
+      // "줄일 수 있어요" 가 판단으로 잡히지 않게 "있어요·있습니다" 는 뺀다
+      const VERDICT_END = /(?:돼요|됩니다|안\s*돼요|되지\s*않(?:아요|습니다)|없어요|없습니다|아니에요|아닙니다|가능해요|가능합니다|불가능(?:해요|합니다)|대상이에요|대상입니다)[.!?]?$/;
+      const answered = endSentences.some((s) => keyWords.some((w) => s.includes(w))
+        && (stanceRe.test(s) || (READER_CONDITION.test(s) && actRe.test(s)) || VERDICT_END.test(s)));
+      if (!answered) {
+        issues.push({
+          kind: 'conclusion-not-answering',
+          title: `결론이 도입의 문제에 답하지 않습니다 (핵심 낱말: ${keyWords.slice(0, 4).join('·')})`,
+          evidence: '마무리는 서론이 세운 질문을 한 번 되받고 답을 줍니다 — "A 라면 된다 / B 라면 안 된다". "순서대로 정리하면 혼선을 줄일 수 있어요" 는 답이 아닙니다.',
+          penalty: 0,
         });
       }
     }

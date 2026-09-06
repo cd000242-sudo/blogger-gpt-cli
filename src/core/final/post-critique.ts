@@ -486,6 +486,19 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
       area: 'substance', severity: 'medium',
       fix: '같은 확인 절차는 한 절에만 두고, 다른 절에서는 그 절만의 조건·대상·서류를 씁니다.',
     },
+    // v3.8.671 — 흐름 검사 3종. 아직 알리기만 한다(감점 0, 자가 수정 대상 아님). 673 에서 보정 뒤 켠다.
+    'intro-question-missing': {
+      area: 'structure', severity: 'medium',
+      fix: '서론의 마지막 문장을 독자의 문제를 세우는 질문 하나로 바꿉니다. 지시("확인하는 것이 출발점")로 끝내지 않습니다.',
+    },
+    'section-closer-checklist': {
+      area: 'substance', severity: 'medium',
+      fix: '절의 마지막 문단을 필자의 반응으로 바꿉니다 — 조건(누가·어떤 경우) + 행동 + 이유. 점검 목록으로 닫지 않습니다.',
+    },
+    'conclusion-not-answering': {
+      area: 'structure', severity: 'medium',
+      fix: '마무리에서 서론의 질문을 한 번 되받고 답을 줍니다 — "A 라면 된다 / B 라면 안 된다".',
+    },
     'table-template': {
       area: 'structure', severity: 'low',
       fix: '수치·조건 비교가 없는 절의 표를 문단으로 풀고, 표는 글 전체 3개 이하로 둡니다. "누구에게 맞는지" 열을 습관처럼 붙이지 않습니다.',

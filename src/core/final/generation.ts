@@ -2182,11 +2182,8 @@ JSON만 출력:
             .replace(/<h1[^>]*>[\s\S]*?<\/h1>/gi, '')
             .replace(/<h2[^>]*>[\s\S]*?<\/h2>/gi, '')
             // v3.8.364: 강제 반말 치환은 friendly/casual/conversational 톤에서만 (v3.8.356 fix 확장)
-            .replace(/입니다\./g, shouldApplyCasualTransform() ? '이에요.' : '입니다.')
-            .replace(/습니다\./g, shouldApplyCasualTransform() ? '어요.' : '습니다.')
-            .replace(/합니다\./g, shouldApplyCasualTransform() ? '해요.' : '합니다.')
-            .replace(/있습니다\./g, shouldApplyCasualTransform() ? '있어요.' : '있습니다.')
-            .replace(/없습니다\./g, shouldApplyCasualTransform() ? '없어요.' : '없습니다.')
+            // v3.8.671: "습니다.→어요." 무조건 치환이 "좋습니다→좋어요" 를 만들었다(라이브 실측). 어간 모음을 보는 applyCasualTransform 하나로 통일
+            .replace(/^[\s\S]*$/, (whole: string) => applyCasualTransform(whole))
             // 🔥 AI티 나는 이모지 접두어 제거
             .replace(/🔥후킹:\s*/g, '')
             .replace(/💡핵심:\s*/g, '')
