@@ -63,6 +63,33 @@ function keyOf(s: string): string {
   return s.replace(/[^가-힣0-9A-Za-z]/g, '').slice(0, 10);
 }
 
+/**
+ * v3.8.678 — 앞머리가 달라도 뜻이 겹치면 같은 의문이다.
+ * 실측(양육비 글): "대상에서 빠지는 경우 - 집행권원 부재, 미지급 기간 미충족" 과
+ * "소득기준이 없어져도 탈락하는 나머지 요건 - 집행권원 없으면 신청 자체가 불가" 를 두 절에 따로 배정했고,
+ * 그 두 절이 같은 말(집행권원·미지급 기록)을 되풀이했다(cross-section-echo -24).
+ * 낱말(조사 뗀 명사) 겹침이 40% 이상이면 같은 의문으로 본다.
+ */
+const ASK_STOP = new Set(['경우', '지점', '방법', '절차', '기준', '요건', '여부', '대상', '이유', '내용', '문제', '상황', '다음', '이후', '이전', '관련', '대한', '위한']);
+export function askNouns(s: string): Set<string> {
+  return new Set(String(s || '')
+    .replace(/[^가-힣0-9A-Za-z\s]/g, ' ')
+    .split(/\s+/)
+    .map((w) => w.replace(/(?:에서|으로|이라도|라도|은|는|이|가|을|를|의|에|로|와|과|도|만|까지|부터)$/, ''))
+    .filter((w) => w.length >= 2 && !ASK_STOP.has(w)));
+}
+export function similarAsk(a: string, b: string, ignore: Set<string> = new Set()): boolean {
+  // 키워드 낱말(양육비·선지급)은 어느 의문에나 있으니 겹침으로 세지 않는다
+  const A = new Set([...askNouns(a)].filter((w) => !ignore.has(w)));
+  const B = new Set([...askNouns(b)].filter((w) => !ignore.has(w)));
+  if (A.size === 0 || B.size === 0) return false;
+  let both = 0;
+  for (const w of A) if (B.has(w)) both += 1;
+  const jaccard = both / (A.size + B.size - both);
+  // 실측: "집행권원·미지급·기간" 셋을 나눠 가진 두 재료가 두 절에서 같은 말을 했다 — 내용 낱말 셋이면 같은 의문
+  return both >= 3 || jaccard >= 0.4 || (both >= 2 && both >= Math.min(A.size, B.size) * 0.6);
+}
+
 function isAuxHeading(h2: string): boolean {
   return /자주\s*묻는|FAQ|요약|목차|읽어보기|마무리|결론/i.test(h2);
 }
@@ -86,9 +113,11 @@ export function buildThread(input: ThreadInput): Thread {
   // 절이 답할 의문 — 보러 올 이유가 절의 재료로 가장 알맞다(리포트가 그렇게 이름 붙였다). 그다음 클릭 이유, 롱테일
   const pool: string[] = [];
   const seen = new Set<string>();
+  const keywordNouns = askNouns(input.keyword);
   for (const cand of [...list(slot.readerReasons), ...clicks, ...list(slot.longtails)]) {
     const k = keyOf(cand);
     if (!k || seen.has(k)) continue;
+    if (pool.some((p) => similarAsk(p, cand, keywordNouns))) continue;   // v3.8.678 뜻이 겹치는 의문은 한 번만
     seen.add(k);
     pool.push(cand.slice(0, MAX_ASK));
   }
@@ -135,6 +164,7 @@ export function buildThreadBlock(thread: Thread, opts: { title?: string; h2Title
   }
   lines.push(
     '· 절의 마지막 문단은 **필자의 반응**입니다: 조건(누가·어떤 경우) + 행동(무엇을 먼저) + 이유(자료의 어느 사실 때문인지). "확인하세요·점검하세요·순서대로 정리하세요" 목록으로 닫지 않습니다.',
+    '· 핵심 기준(수치·요건·확인 순서)은 그것을 맡은 절 **한 곳**에서만 풀고, 다른 절에서는 한 구절로 가리키기만 합니다("앞서 본 3개월 기준"). 같은 문장을 두 절에 쓰지 않습니다 — 되풀이는 독자가 나가는 자리입니다.',
     '· 결론은 서론의 질문을 한 문장으로 되받고 답을 줍니다 — "A 라면 된다 / B 라면 안 된다". 제목의 공감을 본문이 끝까지 이어받습니다.',
   );
   if (pairs.length) {

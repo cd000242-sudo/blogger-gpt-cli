@@ -72,7 +72,8 @@ export type AuditKind =
   | 'procedure-repeat'    // 같은 확인 절차 구절이 절마다 (v3.8.670)
   | 'intro-question-missing'   // 서론이 질문 없이 끝남 (v3.8.671, 알리기만)
   | 'section-closer-checklist' // 절이 점검 목록으로 닫힘 (v3.8.671, 알리기만)
-  | 'conclusion-not-answering';// 결론이 도입의 질문에 답하지 않음 (v3.8.671, 알리기만)
+  | 'conclusion-not-answering' // 결론이 도입의 질문에 답하지 않음 (v3.8.671, 알리기만)
+  | 'answer-box-hedged';       // 답 상자가 판정문이 아니라 볼 것 목록 (v3.8.678)
 
 export interface AuditIssue {
   kind: AuditKind;
@@ -387,6 +388,26 @@ const INSTITUTIONAL =
 // 뒤에 조사("법률이에요", "시행령에")가 붙어도 이름이다. "법률상·법률적" 은 이름이 아니다
 const STATUTE_NAME = /[가-힣]{2,}(?:\s+[가-힣·]{1,}){0,6}\s*(?:에\s*관한\s*(?:법률|특별법)|법률|법\s*시행령|법\s*시행규칙|특별법|기본법|보호법|관리법|지원법|촉진법)(?![상적])/;
 
+/**
+ * v3.8.678 — 답 상자가 판정문인가. 제목을 보고 온 독자가 첫 화면에서 보는 세 줄이다.
+ * 실측(라이브 세 편): "…적은지 봐요", "…함께 확인해요", "…기록이 중요해요" — 볼 것 목록이라 답이 아니었다.
+ * orchestration 이 절의 판단 문장으로 다시 조립하므로 여기 걸리는 건 조립 재료조차 없던 글이다.
+ */
+export function findHedgedAnswerBox(answerBoxText: string): AuditIssue[] {
+  const text = String(answerBoxText || '').trim();
+  if (text.length < 20) return [];
+  try {
+    const { isVerdictAnswer } = require('./answer-verdict');
+    if (isVerdictAnswer(text)) return [];
+  } catch { return []; }
+  return [{
+    kind: 'answer-box-hedged',
+    title: `답 상자가 판정문이 아닙니다: "${text.slice(0, 50)}"`,
+    evidence: `${text.slice(0, 60)}\n제목을 보고 온 독자가 첫 화면에서 보는 세 줄입니다. "A 라면 됩니다 / B 라면 안 됩니다" 로 자기 경우의 답을 줘야 합니다. "봐요·확인하세요·중요해요" 는 답이 아닙니다.`,
+    penalty: 4,
+  }];
+}
+
 export function findMissingLegalBasis(text: string): AuditIssue[] {
   const refs = text.match(LEGAL_REF) || [];
   if (refs.length > 0) return [];
@@ -662,6 +683,7 @@ export function auditArticle(
     ...auditClaimSafety(text, paragraphs),
     // v3.8.654 — 독자가 나가는 자리. 100점 글을 읽고 나서 만든 것.
     ...(title ? findUnkeptTitlePromises(toPlainText(title), heads, answerBox) : []),
+    ...findHedgedAnswerBox(answerBox),
     ...findFaqMismatches(extractFaqPairs(text)),
     ...thin.issues,
   ];
@@ -718,6 +740,7 @@ export function summarizeAudit(report: AuditReport): string {
     'intro-question-missing': '서론에 질문 없음',
     'section-closer-checklist': '절이 점검 목록으로 닫힘',
     'conclusion-not-answering': '결론이 질문에 답 안 함',
+    'answer-box-hedged': '답 상자가 볼 것 목록',
     'tone-mix': '말투 섞임',
     'broken-title': '제목 손상',
     'asserted-crime': '확정형 범죄표현',

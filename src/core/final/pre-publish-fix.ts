@@ -226,15 +226,24 @@ const FIX_HINTS: Record<string, string> = {
 };
 
 /** 어느 구간을 고칠지 — 결함이 많은 구간부터, 상한까지만 */
+/**
+ * v3.8.678 — 절끼리 되풀이(cross-section-echo)가 둘 이상이면 구간 둘까지 고친다.
+ * 실측(677 라이브): 되풀이 세 쌍(-24)이 한 글의 가장 큰 결함이었는데 상한 1 이라 한 구간만 고쳤다.
+ * 호출이 한 번 늘 수 있다(편당 최대 +1, 약 2센트). 사장님 원칙 "리터치 없이" 가 "호출 상한" 보다 앞선다.
+ */
+export const MAX_SECTIONS_FOR_ECHO = 2;
+
 export function pickSections(findings: PreflightFinding[], sectionCount: number): number[] {
   const tally = new Map<number, number>();
   for (const f of findings) {
     const idx = f.sectionIndex >= 0 && f.sectionIndex < sectionCount ? f.sectionIndex : 0;
     tally.set(idx, (tally.get(idx) || 0) + 1);
   }
+  const echoes = findings.filter((f) => f.kind === 'cross-section-echo').length;
+  const limit = echoes >= 2 ? MAX_SECTIONS_FOR_ECHO : MAX_SECTIONS;
   return [...tally.entries()]
     .sort((a, b) => b[1] - a[1] || a[0] - b[0])
-    .slice(0, MAX_SECTIONS)
+    .slice(0, limit)
     .map(([idx]) => idx);
 }
 

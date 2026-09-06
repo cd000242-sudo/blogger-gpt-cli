@@ -73,7 +73,7 @@ describe('v3.8.673 보강 호출이 실 위반을 고친다 · 흐름 검사 감
     const idx = fixable.filter((f) => f.kind === 'section-closer-checklist').map((f) => f.sectionIndex);
     expect(new Set(idx).size).toBe(3);                 // 절마다 다른 구간을 가리킨다
     expect(idx.every((i) => i >= 0 && i < sections.length)).toBe(true);
-    // 결함이 가장 많은 구간 하나를 고른다 — 상한 1 은 그대로 (비용 고정)
-    expect(pickSections(r.fixable, sections.length)).toHaveLength(1);
+    // 결함이 가장 많은 구간부터 — 상한 1, 절끼리 되풀이가 둘 이상이면 2 (v3.8.678; 이 본보기는 절 본문이 번호만 달라 되풀이로 잡힌다)
+    expect(pickSections(r.fixable, sections.length).length).toBeLessThanOrEqual(2);
   });
 });

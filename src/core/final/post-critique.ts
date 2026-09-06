@@ -495,6 +495,10 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
       area: 'substance', severity: 'medium',
       fix: '절의 마지막 문단을 필자의 반응으로 바꿉니다 — 조건(누가·어떤 경우) + 행동 + 이유. 점검 목록으로 닫지 않습니다.',
     },
+    'answer-box-hedged': {
+      area: 'substance', severity: 'high',
+      fix: '답 상자의 답을 판정문으로 바꿉니다 — "A 라면 됩니다 / B 라면 안 됩니다". 본문 절의 마지막 판단 문장을 그대로 가져와도 됩니다.',
+    },
     'conclusion-not-answering': {
       area: 'structure', severity: 'medium',
       fix: '마무리에서 서론의 질문을 한 번 되받고 답을 줍니다 — "A 라면 된다 / B 라면 안 된다".',

@@ -5187,10 +5187,25 @@ ${introductionHTML}
      * 답이 없으면 빈 문자열이라 예전 순서 그대로 나간다(억지로 만들지 않는다).
      * 요약표 호출에서 필드만 더 받아 오므로 AI 호출은 늘지 않는다.
      */
+    /**
+     * v3.8.678 — 답 상자는 판정문이어야 한다. 실측(라이브 세 편): "…적은지 봐요", "…함께 확인해요", "…기록이 중요해요" — 볼 것 목록이었다.
+     * 요약 답이 판정문이 아니면 절의 판단 문장(takeaway)으로 다시 조립한다. 호출 0회.
+     */
+    let verdictAnswer = String(summaryTable.answer || '');
+    try {
+      const { ensureVerdictAnswer } = require('./answer-verdict');
+      const v = ensureVerdictAnswer(verdictAnswer, (allSectionsObj.sections || []) as any[]);
+      if (v.rebuilt) {
+        verdictAnswer = v.answer;
+        onLog?.(`[PROGRESS] 90% - 🧭 답 상자를 절의 판단 문장으로 다시 조립했습니다 (${v.reason})`);
+      } else if (v.reason.includes('원래 답 유지')) {
+        onLog?.(`[PROGRESS] 90% - ℹ️ 답 상자가 판정문이 아닙니다 — ${v.reason}`);
+      }
+    } catch { /* 조립 실패면 요약 답 그대로 */ }
     const answerBlockHtml = buildAnswerBlock({
       keyword,
       question: summaryTable.question,
-      answer: summaryTable.answer,
+      answer: verdictAnswer,
       basis: summaryTable.basis,
       // v3.8.562: 발행 언어. payload 에 없으면 한국어로 떨어진다(기존 동작 그대로)
       language: (payload as any)?.language,
