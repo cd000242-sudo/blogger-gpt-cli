@@ -67,8 +67,9 @@ describe('v3.8.670 사장님 설정으로 읽기', () => {
   test('말투 한 벌 — FAQ·답변 상자·다시 쓴 구간·글 전체 치환이 말투 설정을 따른다', () => {
     const g = read('src/core/final/generation.ts');
     expect(g).toContain('export function shouldApplyCasualTransform');
-    expect(g).toContain("shouldApplyCasualTransform() ? '\"~해요\", \"~거든요\" 친근한 말투' : '본문과 같은 합니다체");
-    expect(g).toContain("shouldApplyCasualTransform() ? '해요체(\"~해요\", \"~이에요\")' : '합니다체(\"~합니다\", \"~입니다\")'}로 쓰고 문장마다 마침표");
+    // v3.8.674: 말투 등록부의 어미 한 줄(toneEndingRule)로 통일 — 다섯 말투가 각자 다른 어미를 받는다
+    expect(g).toContain('5. ${toneEndingRule()} — 본문과 같은 말투');
+    expect(g).toContain('${toneEndingRule()}로 쓰고 문장마다 마침표');
     expect(read('src/core/final/post-critique.ts')).toContain('말투는 원본 구간과 같게');
     const o = read('src/core/final/orchestration.ts');
     expect(o).toContain('말투를 글 전체에 맞췄습니다');
@@ -83,17 +84,18 @@ describe('v3.8.670 사장님 설정으로 읽기', () => {
     expect(p).toContain("'procedure-repeat',");
   });
 
-  test('말투 지시 — 친근·대화 말투는 "선생님이 사람에게 존댓말로 설명" 이고 물음표·느낌표를 허용한다', () => {
+  test('말투 지시 — 친근한은 "선생님이 사람에게 존댓말로 설명" 이고 물음표·느낌표를 허용한다 (v3.8.674: 다섯 말투가 각자 다르다)', () => {
+    const s = getToneInstruction('friendly');
+    expect(s).toContain('선생님이 앞에 앉은 한 사람에게');
+    expect(s).toContain('물음표와 느낌표를 써도 됩니다');
+    expect(s).toContain('"~합니다" 로 끝나는 문장이 글 어디에도 없어야');
     for (const t of ['friendly', 'casual', 'conversational']) {
-      const s = getToneInstruction(t);
-      expect(s).toContain('선생님이 앞에 앉은 한 사람에게');
-      expect(s).toContain('물음표와 느낌표를 써도 됩니다');
-      expect(s).toContain('"~합니다" 로 끝나는 문장이 글 어디에도 없어야');
-      expect(s).not.toContain('저도 처음엔 그랬는데요".');   // 지어낸 경험담 예시는 더 이상 권하지 않는다
+      expect(getToneInstruction(t)).not.toContain('저도 처음엔 그랬는데요".');   // 지어낸 경험담 예시는 더 이상 권하지 않는다
+      expect(getToneInstruction(t)).toContain('지어낸 체험담');
     }
     expect(getToneInstruction('formal')).toContain('격식체');
-    expect(getToneInstruction('friendly')).toContain('많이들 헷갈리세요');
-    expect(getToneInstruction('casual')).toContain('반말은 쓰지 않습니다');
+    expect(getToneInstruction('casual')).toContain('반말은 아닙니다');
+    expect(getToneInstruction('conversational')).toContain('합니다체 바탕');
   });
 
   test('되묻고 바로 설명하는 문단은 FAQ 흉내가 아니다 — 짧은 질문·답 줄은 여전히 잡는다', () => {

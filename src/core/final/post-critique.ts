@@ -711,7 +711,7 @@ export function buildSectionRevisionPrompt(input: {
     `· 첫 줄의 <h2> 소제목은 그대로 두세요. 검색 색인이 걸려 있습니다.`,
     lengthRule,
     // v3.8.670 실측: 다시 쓴 구간이 합니다체로 돌아와 해요체 본문 한가운데 섬이 됐다
-    `· 말투는 원본 구간과 같게 — ${require('./generation').shouldApplyCasualTransform() ? '해요체("~해요", "~이에요")' : '합니다체("~합니다", "~입니다")'}. 강조 문장(<strong>, <blockquote>)도 같은 말투로 씁니다.`,
+    `· 말투는 원본 구간과 같게 — ${require('./generation').toneEndingRule()}. 강조 문장(<strong>, <blockquote>)도 같은 말투로 씁니다.`,
     '· **모르는 수치는 지어내지 마세요.** 근거가 없으면 그 문장을 삭제하고, 대신 확실한 것을 씁니다.',
     '· 새 이미지를 넣지 마세요.',
     '',

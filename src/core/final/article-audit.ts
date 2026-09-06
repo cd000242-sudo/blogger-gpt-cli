@@ -557,7 +557,10 @@ export function findToneMix(text: string): { issues: AuditIssue[]; polite: numbe
   const total = polite + formal;
   if (total < 20) return { issues: [], polite, formal };
   const minorityShare = Math.min(polite, formal) / total;
-  if (minorityShare < TONE_MIX_MIN) return { issues: [], polite, formal };
+  // v3.8.674 — 대화체는 합니다체 바탕에 공감 어미를 섞는 것이 설계다(리더남 대본). 그 말투면 허용선을 올린다
+  let allowance = TONE_MIX_MIN;
+  try { allowance = require('./tone-registry').toneMixAllowance(require('./generation').getActiveToneStyle()); } catch { /* 등록부가 없으면 기본 */ }
+  if (minorityShare < allowance) return { issues: [], polite, formal };
   return {
     issues: [{
       kind: 'tone-mix',

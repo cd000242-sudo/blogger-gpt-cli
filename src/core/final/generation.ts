@@ -248,8 +248,16 @@ export function getActiveToneStyle(): ToneStyle {
 function toneInstructionBlock(): string {
   return getToneInstruction(activeToneStyle);
 }
+/** 어미 한 줄 — FAQ·요약·보강·자가 수정 프롬프트가 "본문과 같은 말투" 를 말할 때 (v3.8.674, tone-registry) */
+export function toneEndingRule(): string {
+  return require('./tone-registry').toneEndings(activeToneStyle);
+}
+export function toneForbiddenRule(): string {
+  return require('./tone-registry').toneForbidden(activeToneStyle);
+}
 export function shouldApplyCasualTransform(): boolean {
-  return activeToneStyle === 'friendly' || activeToneStyle === 'casual' || activeToneStyle === 'conversational';
+  // v3.8.674: 대화체는 합니다체 바탕(리더남 대본 말투)이라 해요체 치환을 걸면 안 된다 — 친근한·캐주얼만
+  return require('./tone-registry').tonePrefersHaeyo(activeToneStyle);
 }
 /**
  * 어간의 마지막 모음이 양성(ㅏ/ㅑ/ㅗ/ㅛ)이면 '아요', 아니면 '어요'.
@@ -1501,7 +1509,7 @@ export async function generateAllSectionsFinal(
 - 불릿 포인트와 표로 가독성 극대화
 
 🔥 **톤 규칙**:
-- ${shouldApplyCasualTransform() ? '"~해요", "~거든요" 친근하면서도 전문적인 말투' : '"~합니다", "~입니다" 합니다체 — 전문적이되 쉽게 (v3.8.673: 말투 설정을 따른다)'}
+- 어미: ${toneEndingRule()} (v3.8.674: 드롭다운 말투 설정 그대로)
 - 전체 글에서 동일한 깊이와 용어 일관성 유지
 
 ` : '';
@@ -1791,7 +1799,7 @@ ${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}${STORYS
 
 🚫 [금지 사항] - 필수 준수!
 - 150자 이하의 빈약한 문단
-- ${shouldApplyCasualTransform() ? '"~입니다", "~합니다" 딱딱한 말투 (→ "~해요", "~거든요"로)' : '"~해요", "~거든요" 반말투 (이 글은 합니다체 — v3.8.673: 말투 설정을 따른다)'}
+- ${toneForbiddenRule()}
 - 근거 없는 과장 ("최고", "완벽", "무조건")
 - 🔴🔴🔴 절대금지: "다음은", "다음 장에서", "넘어가서", "굳혀볼게요" 등 섹션 연결 문구!
 - 각 블록은 독립적으로 완결되어야 함 - 다른 섹션 언급 금지!
@@ -2035,7 +2043,7 @@ ${lowQuality ? '2) 각 H3의 content를 **600~1000자**로 확장 (현재 너무
   5. [데이터 전달형]: 정확한 수치와 팩트를 중심으로 한 신뢰감 있는 전개.
 
 📝 톤 규칙:
-- ${shouldApplyCasualTransform() ? '"~해요", "~거든요" 친근한 말투 — 선생님이 앞에 앉은 한 사람에게 존댓말로 설명하듯' : '"~합니다", "~입니다" 합니다체 — 본문과 같은 말투 (v3.8.673: 보강이 말투를 바꾸지 않는다)'}
+- ${toneEndingRule()} — 본문과 같은 말투 (v3.8.673: 보강이 말투를 바꾸지 않는다)
 - 전문성이 느껴지면서 친근한 톤
 - 체류시간 5분 이상 유지할 수 있는 흡인력
 
@@ -2329,7 +2337,7 @@ ${faqGroundingBlock}
 5. 🚫 **본문에 이미 있는 문장을 다시 쓰지 마세요.** 본문이 답한 것을 말만 바꿔 되풀이하면
    독자는 같은 글을 두 번 읽는 셈이라 그 자리에서 나갑니다. 본문이 **다루지 않은 빈칸**
    (예외 상황, 헷갈리기 쉬운 구분, 다음 단계)을 채우는 질문만 만드세요.
-5. ${shouldApplyCasualTransform() ? '"~해요", "~거든요" 친근한 말투' : '본문과 같은 합니다체 ("~합니다", "~입니다"). 해요체 금지 — 한 글에 두 말투가 섞이면 번역투로 읽힙니다 (v3.8.670)'}
+5. ${toneEndingRule()} — 본문과 같은 말투. 한 글에 두 말투가 섞이면 번역투로 읽힙니다 (v3.8.670 · v3.8.674 등록부)
 6. 이미 마감된 사업/이벤트/일정은 답변에 포함 금지. 현재 진행 중이거나 미래 일정만!
 7. 한글과 영문/숫자만 사용. 중국어 한자(漢字) 절대 금지!
 8. 🔴 추측/허위 데이터 절대 금지! 단, 확인할 수 없다고 "공식 사이트에서 확인하세요"로 답을 때우는 것도 금지입니다.
@@ -4409,7 +4417,7 @@ ${cleanedContent.slice(0, 2000)}
 글 맨 위에 그대로 실려서 **이것만 읽고도 답이 되는** 자리다.
 - question: 독자가 실제로 검색했을 법한 질문 한 줄 (40자 이내, 물음표 없이도 됨)
 - answer: 그 질문의 **답**. 2~4문장, 본문에 있는 숫자·조건을 그대로 쓴다.
-  ${shouldApplyCasualTransform() ? '해요체("~해요", "~이에요")' : '합니다체("~합니다", "~입니다")'}로 쓰고 문장마다 마침표를 찍는다. 본문과 같은 말투다 (v3.8.670).
+  ${toneEndingRule()}로 쓰고 문장마다 마침표를 찍는다. 본문과 같은 말투다 (v3.8.670 · v3.8.674 등록부).
   "…함께 낸다 법인은 대상이 아니며…" 처럼 마침표 없는 해라체 덩어리는 금지 (v3.8.668 실측).
   "아래에서 알아보겠습니다" 같은 예고 금지 — 여기서 답을 끝낸다.
 - basis: 그 답의 근거가 되는 기관 이름과 기준 시점 (예: "국세청 · 2026-08 기준")

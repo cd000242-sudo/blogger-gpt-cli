@@ -25,7 +25,7 @@ describe('v3.8.673 보강 호출이 실 위반을 고친다 · 흐름 검사 감
     expect(g).toContain('reasons.push(`실 위반 증가(${threadBefore.length}→${threadAfter.length})`)');
     expect(g).toContain('else if (!lowQuality && threadAfter.length >= threadBefore.length) reasons.push(`실 위반 그대로(${threadBefore.length})`)');
     // 보강 프롬프트의 말투가 설정을 따른다 — "~해요" 고정이 합니다체 글에 해요체를 섞고 있었다
-    expect(g).toContain("shouldApplyCasualTransform() ? '\"~해요\", \"~거든요\" 친근한 말투");
+    expect(g).toContain('- ${toneEndingRule()} — 본문과 같은 말투 (v3.8.673: 보강이 말투를 바꾸지 않는다)');   // v3.8.674 등록부
     expect(g).not.toContain('📝 톤 규칙:\n- "~해요", "~거든요" 친근한 말투\n');
   });
 
@@ -40,8 +40,9 @@ describe('v3.8.673 보강 호출이 실 위반을 고친다 · 흐름 검사 감
     const { getToneInstruction: maxMode } = require('../src/core/max-mode/tone-text-utils');
     const { getToneInstruction: builder } = require('../src/core/content-modes/base-prompt-builder');
     const { LEADERNAM_VOICE_RULES, VOICE_HABITS } = require('../src/core/final/voice-profile');
+    // v3.8.674: "선생님이 한 사람에게" 는 친근한의 표지다. 대본 본보기는 친근·캐주얼·대화체 셋에 실린다
+    expect(maxMode('friendly')).toContain('선생님이 앞에 앉은 한 사람에게');
     for (const t of ['friendly', 'casual', 'conversational']) {
-      expect(maxMode(t)).toContain('선생님이 앞에 앉은 한 사람에게');
       expect(maxMode(t)).toContain('리더남 대본에서 뽑은 본보기');
       expect(builder(t)).toContain(LEADERNAM_VOICE_RULES);
     }

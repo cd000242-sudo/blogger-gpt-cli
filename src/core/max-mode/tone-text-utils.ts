@@ -20,12 +20,11 @@ export function getToneInstruction(toneStyle?: string): string {
    * 실측: v3.8.670 에서 그쪽만 고쳤는데 본문 생성(generation.ts)은 **이 파일**을 읽고 있었다 — 조용한 미배선 7번째.
    * 같은 뜻의 지시가 두 벌이면 한쪽만 고쳐진다. 여기서는 그쪽을 부른다.
    */
-  if (toneStyle === 'friendly' || toneStyle === 'casual' || toneStyle === 'conversational') {
-    try {
-      const rich = require('../content-modes/base-prompt-builder').getToneInstruction(toneStyle);
-      if (rich) return `\n${rich}`;
-    } catch { /* 없으면 아래 한 줄로 */ }
-  }
+  // v3.8.674 — 다섯 말투 전부 tone-registry(유일한 정의)에서. 아래 한 줄 표는 등록부를 못 읽을 때의 마지막 보루다
+  try {
+    const rich = require('../final/tone-registry').getToneInstruction(toneStyle);
+    if (rich) return `\n${rich}`;
+  } catch { /* 없으면 아래 한 줄로 */ }
   return toneInstructions[toneStyle] || toneInstructions['professional']!;
 }
 
