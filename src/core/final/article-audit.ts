@@ -669,7 +669,8 @@ export function auditArticle(
   const issues: AuditIssue[] = [
     ...findGluedSentences(text),
     ...findCrossSectionEchoes(sections),
-    ...findTermFloods(text, sentences.length, heads),
+    // v3.8.680 — 제목의 낱말도 주제어다. 실측: 키워드 "선지급" 31번이 일반 낱말 상한으로 -6 (소제목엔 "선지급제" 만 있었다)
+    ...findTermFloods(text, sentences.length, title ? [...heads, toPlainText(title)] : heads),
     ...findMissingLegalBasis(text),
     ...findProcessLeak(text),
     ...findReplacementArtifacts(text),
