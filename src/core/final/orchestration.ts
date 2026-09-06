@@ -6136,6 +6136,19 @@ ${conclusionHTML}
      * 뜻을 바꾸지 않고 되돌릴 수 있는 것은 여기서 고치고 나간다.
      */
     try {
+      /**
+       * v3.8.670 — 말투를 글 전체에 한 번 맞춘다.
+       * 실측(발행글, 말투 "친근한"): 본문은 해요체인데 답변 상자·요약·강조 문장·다시 쓴 구간이 합니다체로 남아
+       * "확인해야 합니다" 와 "확인해야 해요" 가 한 글에 섞였다. 친근한 말투면 태그 밖 글자에만 치환을 건다(태그·주소는 안 건드린다).
+       */
+      try {
+        const { applyCasualTransform, shouldApplyCasualTransform } = require('./generation');
+        if (shouldApplyCasualTransform()) {
+          const before = html;
+          html = html.replace(/>([^<]+)</g, (_m: string, text: string) => `>${applyCasualTransform(text)}<`);
+          if (html !== before) onLog?.('[PROGRESS] 96% - 🎭 말투를 글 전체에 맞췄습니다 (해요체)');
+        }
+      } catch { /* 말투 맞추기 실패는 넘어간다 */ }
       const repaired = autoRepairBeforePublish(html);
       if (repaired.repairs.length > 0) {
         html = repaired.html;

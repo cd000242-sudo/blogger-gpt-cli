@@ -39,6 +39,10 @@ export const NARRATIVE_FLOW_RULES = `
    핵심 요약을 붙이더라도 첫 문장은 답이어야 합니다.
 6. 금지: 절마다 같은 확인 절차를 되풀이하는 것 · "…에 따라 다릅니다" 로 끝나는 절 · 판단 없이 자료 이름만 나열하는 절.
    (근거 없는 훈계 "~이 중요합니다" 와 근거 붙은 판단 "저는 …로 봅니다. 이유는 …" 은 다릅니다. 앞은 금지, 뒤는 필수.)
+   **제목이 약속한 절은 대상별 답으로 씁니다** (v3.8.670 실측: "자동 적용 여부" 절이 "대조하세요·문의하세요" 로만 끝났습니다).
+   "별도 신청 없이 반영되는 사람은 …, 직접 신청해야 하는 사람은 …, 면제인데 고지서가 왔으면 …" 처럼 갈라 적고,
+   자료에 없는 조건은 "자료에서 확인되지 않는다" 한 문장으로 밝힌 뒤 공식 확인처를 하나만 적습니다.
+   확인 절차("고지서와 등록원부 대조")는 한 절에만 둡니다 — 다른 절은 그 절만의 조건·대상·서류를 씁니다.
 7. **경험은 두 가지뿐입니다.** ① 아래에 [작성자가 직접 겪은 일] 또는 [필자의 실제 경험] 메모가 있으면 그것을 서론이나 가장 맞는 절에 1인칭 체험으로 녹입니다 —
    메모에 없는 일을 겪은 것처럼 보태지 않습니다. ② 메모가 없으면 [검색자가 실제로 올린 질문]을 인용해 "이런 상황이 실제로 있습니다" 로
    곤란한 상황을 세우고, 필자는 그 상황에 **판단으로** 반응합니다. 겪지 않은 체험을 지어내는 것은 어느 경우에도 안 됩니다.
@@ -84,14 +88,16 @@ export function buildRealSituationBlock(questions: unknown): string {
 }
 
 /** 절을 닫는 데 쓰이는 회피 표현 — 많을수록 판단이 없다 */
-export const DEFERRAL = /확인하세요|문의하세요|확인해\s*보세요|확인할\s*수\s*있(?:어요|습니다)|문의할\s*수\s*있(?:어요|습니다)|확인해야\s*(?:합니다|해요)|살펴야\s*(?:합니다|해요)|확인하는\s*편이|따라\s*다릅니다|달라질\s*수\s*있(?:습니다|어요)|단정하기\s*어렵|판단하기\s*어렵|단정할\s*수\s*없/g;
+// v3.8.670 실측(발행글, 해요체): "대조하세요·대조해요·문의하는 것이 우선이에요·검토해요·봐야 해요" 가 한 편에 40번인데 검사가 못 셌다 — 해요체·명령형까지 센다
+export const DEFERRAL = /확인하세요|문의하세요|확인해\s*보세요|문의해\s*보세요|확인할\s*수\s*있(?:어요|습니다)|문의할\s*수\s*있(?:어요|습니다)|확인해야\s*(?:합니다|해요)|살펴야\s*(?:합니다|해요)|(?:봐야|살펴봐야|따져봐야|대조해야|검토해야)\s*(?:합니다|해요)|(?:확인|문의|대조|검토|비교)(?:해요|하세요)(?=[.\s])|(?:확인|문의)하는\s*(?:편이|것이\s*우선|방식이)|따라\s*다(?:릅니다|라요)|달라질\s*수\s*있(?:습니다|어요)|단정하기\s*어렵|판단하기\s*어렵|단정할\s*수\s*없/g;
 
 /**
  * 필자의 판단 — 1인칭으로 입장을 밝혔거나, 판단 어미로 닫은 문장.
  * v3.8.662 실측: 말머리를 바꾸라고 하자 모델이 "…쪽입니다 / …편이 맞습니다 / …맞다고 봅니다 / 권하지 않습니다" 로
  * 판단을 적었는데 1인칭만 세던 검사가 다섯 편 전부 "판단 0" 이라 했다. 판단 어미도 판단이다.
  */
-export const FIRST_PERSON_STANCE = /제\s*(?:판단|생각|의견|결론)(?:은|으로는?|엔|에는|이|을)|저는\s[^.\n]{0,60}?(?:봅니다|판단합니다|권합니다|생각합니다|말하겠습니다|보고\s*있습니다|권하지\s*않습니다|쪽입니다|편입니다)|제가\s*보기(?:엔|에는)|저라면|맞다고\s*봅니다|(?:으로|로)\s*봅니다|쪽입니다|쪽으로\s*봅니다|(?:쪽|편|것|판단|순서|방식|기록)(?:이|은)\s*(?:더\s*)?(?:맞습니다|낫습니다|타당합니다|합리적입니다|자연스럽습니다|현실적입니다|직접적입니다|안전합니다|정확합니다)|권합니다|권하지\s*않습니다|먼저라는\s*쪽|여기서는\s[^.\n]{0,80}?(?:맞습니다|낫습니다|타당합니다|봅니다)/g;
+// v3.8.670: 해요체 판단("맞다고 봐요·쪽이 맞아요·현실적이에요·권해요")도 센다 — depth-voice 의 STANCE_ANY 와 같은 눈
+export const FIRST_PERSON_STANCE = /제\s*(?:판단|생각|의견|결론)(?:은|으로는?|엔|에는|이|을)|저는\s[^.\n]{0,60}?(?:봅니다|봐요|판단합니다|권합니다|권해요|생각합니다|생각해요|말하겠습니다|보고\s*있습니다|권하지\s*않(?:습니다|아요)|쪽입니다|쪽이에요|편입니다|편이에요)|제가\s*보기(?:엔|에는)|저라면|(?:맞다고|않다고|맞지\s*않다고)\s*(?:봅니다|봐요)|(?:으로|로)\s*(?:봅니다|봐요)|쪽(?:입니다|이에요)|쪽으로\s*(?:봅니다|봐요)|(?:쪽|편|것|판단|순서|방식|기록)(?:이|은)\s*(?:더\s*)?(?:맞습니다|낫습니다|타당합니다|합리적입니다|자연스럽습니다|현실적입니다|직접적입니다|안전합니다|정확합니다|맞아요|나아요|낫겠어요|타당해요|합리적이에요|자연스러워요|현실적이에요|직접적이에요|안전해요|정확해요|좋아요)|권합니다|권해요|권하지\s*(?:않습니다|않아요)|먼저라는\s*쪽|여기서는\s[^.\n]{0,80}?(?:맞습니다|낫습니다|타당합니다|봅니다|맞아요|나아요|봐요)/g;
 
 /**
  * 회피 밀도 상한 (1,000자당). 실측 보정(2026-09-06, 흐름 규칙 이전 5편): 0.37 · 0.77 · 0.86 · 1.01 · 1.88.
@@ -207,6 +213,65 @@ export function findFlowGaps(
       });
     }
   }
+
+  /**
+   * v3.8.670 — 사장님 발행글 비평 두 가지 (환경개선부담금):
+   *  ① 제목이 약속한 "자동 적용 여부" 절이 답 대신 "대조하세요·문의하세요" 로만 끝났다 (promise-deferred)
+   *  ② "고지서와 등록원부 대조", "차량번호와 부과 기간 확인" 이 거의 모든 절에 나왔다 (procedure-repeat)
+   * 둘 다 소제목 검사·되풀이 검사가 못 보던 것이다 — 소제목은 약속을 맡았고, 문장은 서로 달라 겹침이 아니었다.
+   */
+  try {
+    const { titlePromises } = require('./reader-retention');
+    const { measureStances } = require('./depth-voice');
+    const sections = src.split(/(?=<h2\b)/i).slice(1)
+      .map((part) => ({
+        heading: toPlain((part.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i) || [])[1] || '').trim(),
+        text: toPlain(part.replace(/<h2[^>]*>[\s\S]*?<\/h2>/i, '')).replace(/\s+/g, ' '),
+      }))
+      .filter((s) => s.heading && !/자주\s*묻는|FAQ|요약|목차|읽어보기/i.test(s.heading));
+    const flat = (t: string) => t.replace(/\s+/g, '');
+    if (title && sections.length >= 3) {
+      for (const p of titlePromises(title) as string[]) {
+        const pw = words(p).filter((w) => w.length >= 2);
+        if (pw.length === 0) continue;
+        const carrier = sections.find((s) => pw.filter((w) => flat(s.heading).includes(w)).length / pw.length >= 0.6);
+        if (!carrier) continue;
+        const deferrals = (carrier.text.match(new RegExp(DEFERRAL.source, 'g')) || []).length;
+        const sharp = measureStances(carrier.text).sharp;
+        if (deferrals >= 2 && sharp === 0) {
+          issues.push({
+            kind: 'promise-deferred',
+            title: `제목이 약속한 "${p}" 절이 답 대신 확인만 시킵니다 (확인·문의 ${deferrals}번, 조건 있는 판단 0)`,
+            evidence: `절 "${carrier.heading.slice(0, 30)}": 독자는 "나는 자동인가, 신청해야 하는가" 를 들으러 왔는데 "대조하세요·문의하세요" 만 받습니다. 대상별로 답을 적어야 합니다.`,
+            penalty: 8,
+          });
+        }
+      }
+    }
+    if (sections.length >= 4) {
+      const titleSet = new Set(titleWords);
+      const bigramSections = new Map<string, Set<number>>();
+      sections.forEach((s, si) => {
+        // 용언(…합니다·…해요·…다)은 구절의 뼈대가 아니다 — 명사끼리 붙은 구절만 센다
+        const toks = words(s.text).filter((w) => w.length >= 2 && !STOP.has(w) && !titleSet.has(w) && !/(?:니다|어요|아요|해요|예요|이에요|다|요|죠)$/.test(w));
+        for (let i = 0; i + 1 < toks.length; i += 1) {
+          const key = `${toks[i]} ${toks[i + 1]}`;
+          if (!bigramSections.has(key)) bigramSections.set(key, new Set());
+          bigramSections.get(key)!.add(si);
+        }
+      });
+      const need = Math.max(3, Math.ceil(sections.length * 0.7));
+      const repeated = [...bigramSections.entries()].filter(([, set]) => set.size >= need).map(([k]) => k);
+      if (repeated.length >= 2) {
+        issues.push({
+          kind: 'procedure-repeat',
+          title: `같은 확인 절차 구절이 절마다 나옵니다: ${repeated.slice(0, 3).map((k) => `"${k}"`).join(', ')}`,
+          evidence: `절 ${sections.length}개 중 ${need}개 이상에 같은 구절이 있습니다. 확인 순서는 한 절에 두고, 나머지 절은 대상별 조건·신청 경로·서류로 채워야 합니다.`,
+          penalty: 6,
+        });
+      }
+    }
+  } catch { /* 새 검사가 실패해도 점수 계산은 계속 */ }
 
   return { issues, stats: { deferralPer1000, firstPersonStance, sectionsOffTitle } };
 }

@@ -478,6 +478,14 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
       area: 'substance', severity: 'high',
       fix: '판단 문장을 조건 + 행동 + 이유로 다시 씁니다. "경남 사업자라면 10월 안내를 기다리지 말고 지금 손해보험 공고부터 읽으세요. 신용생명보험은 대출이 있을 때만 의미가 있기 때문입니다." 처럼.',
     },
+    'promise-deferred': {
+      area: 'substance', severity: 'high',
+      fix: '제목이 약속한 절은 대상별 답으로 씁니다 — "별도 신청 없이 반영되는 사람 / 직접 신청해야 하는 사람 / 면제인데 고지서가 온 사람". "확인하세요" 로 끝내지 않습니다.',
+    },
+    'procedure-repeat': {
+      area: 'substance', severity: 'medium',
+      fix: '같은 확인 절차는 한 절에만 두고, 다른 절에서는 그 절만의 조건·대상·서류를 씁니다.',
+    },
     'table-template': {
       area: 'structure', severity: 'low',
       fix: '수치·조건 비교가 없는 절의 표를 문단으로 풀고, 표는 글 전체 3개 이하로 둡니다. "누구에게 맞는지" 열을 습관처럼 붙이지 않습니다.',
@@ -689,6 +697,8 @@ export function buildSectionRevisionPrompt(input: {
     '· 본문에 글자로 적힌 주소(https://… , www.…)는 **한 글자도 바꾸지 마세요.** 마침표·물음표 뒤에 공백을 넣지 마세요 — 주소가 깨집니다.',
     `· 첫 줄의 <h2> 소제목은 그대로 두세요. 검색 색인이 걸려 있습니다.`,
     lengthRule,
+    // v3.8.670 실측: 다시 쓴 구간이 합니다체로 돌아와 해요체 본문 한가운데 섬이 됐다
+    `· 말투는 원본 구간과 같게 — ${require('./generation').shouldApplyCasualTransform() ? '해요체("~해요", "~이에요")' : '합니다체("~합니다", "~입니다")'}. 강조 문장(<strong>, <blockquote>)도 같은 말투로 씁니다.`,
     '· **모르는 수치는 지어내지 마세요.** 근거가 없으면 그 문장을 삭제하고, 대신 확실한 것을 씁니다.',
     '· 새 이미지를 넣지 마세요.',
     '',

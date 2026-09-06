@@ -24,7 +24,8 @@ describe('v3.8.668 덩어리 답 · 키워드 꼬리표 · 조사 오류', () =>
     // 마침표 없이 합니다체로만 끝나도 문장이다 (restoreSentencePeriods 가 마침표를 되살린다)
     const polite = '음식점 개인사업자는 관할 시 군 구청에 두 신청서를 함께 냅니다 법인과 유흥주점업은 구청 원스톱 대상이 아닙니다';
     expect(buildAnswerBlock({ keyword: 'k', question: 'q', answer: polite, basis: '' })).toContain('냅니다.<br>');
-    expect(read('src/core/final/generation.ts')).toContain('합니다체로 쓰고 문장마다 마침표를 찍는다');
+    // v3.8.670: 말투 설정을 따르되, 마침표 규칙은 그대로
+    expect(read('src/core/final/generation.ts')).toContain('로 쓰고 문장마다 마침표를 찍는다. 본문과 같은 말투다');
   });
 
   test('② 키워드 앞 꼬리표를 뗀다', () => {

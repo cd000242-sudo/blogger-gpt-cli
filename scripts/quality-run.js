@@ -108,6 +108,15 @@ function longtailCoverage(text, longtails) {
   const jobs = [];
   // v3.8.658 — 둘째 인자로 시작 슬롯을 고른다: `node scripts/quality-run.js 5 3` → 4~8번째 항목
   const OFFSET = Math.max(0, Number(process.argv[3] || 0));
+  /**
+   * v3.8.670 — 사장님 설정대로 잰다. 지금까지는 애드센스 모드·전문적 말투로만 돌려서
+   * 사장님이 실제로 쓰는 모드(CTA 있음)·말투(친근한)를 한 편도 안 읽었다.
+   *   node scripts/quality-run.js 1 12 all --mode external --tone friendly
+   */
+  const flag = (name, fallback) => { const i = process.argv.indexOf(name); return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback; };
+  const MODE = flag('--mode', 'adsense');
+  const TONE = flag('--tone', 'professional');
+  console.log(`   모드 ${MODE} · 말투 ${TONE}`);
   for (let i = 0; i < COUNT; i++) jobs.push(slots[(i + OFFSET) % slots.length]);
 
   const rows = [];
@@ -133,7 +142,8 @@ function longtailCoverage(text, longtails) {
         // 화면(posting.js getTitleOptions)과 같은 이름으로 — customTitle 은 아무도 안 읽는다
         titleMode: slot.title ? 'custom' : 'auto',
         title: slot.title || null,
-        contentMode: 'adsense',
+        contentMode: MODE,
+        toneStyle: TONE,
         platform: 'wordpress',
         cpcReportSlot: slot,
         cpcReportUrls: report.urls || [],

@@ -67,7 +67,9 @@ export type AuditKind =
   | 'unverified-first'    // 확인 안 된 '최초' 표현
   | 'personal-voice'      // 작성자 개인 의견
   | 'hedge-repeat'        // 같은 단서를 문단마다
-  | 'bloated-conclusion'; // 결론이 본문 재탕
+  | 'bloated-conclusion'  // 결론이 본문 재탕
+  | 'promise-deferred'    // 제목 약속을 맡은 절이 답 대신 "확인하세요" 로만 (v3.8.670)
+  | 'procedure-repeat';   // 같은 확인 절차 구절이 절마다 (v3.8.670)
 
 export interface AuditIssue {
   kind: AuditKind;
@@ -507,7 +509,10 @@ export function findInlineFaq(html: string): AuditIssue[] {
   const questionParas = [...body.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
     .map((m) => toPlainText(m[1] || '').trim())
     // v3.8.664: "보증번호가 나오면 대출은 확정인가요. 서민금융진흥원 안내상 …" — 물음표 대신 마침표로 닫은 질문도 센다
-    .filter((t) => t.length >= 6 && /^[^.。?？]{6,70}(?:[?？]|(?:나요|가요|까요|은가요|인가요|을까요|는지요|ㄴ가요)\s*[.。])(?:\s|$)/.test(t));
+    .filter((t) => t.length >= 6 && /^[^.。?？]{6,70}(?:[?？]|(?:나요|가요|까요|은가요|인가요|을까요|는지요|ㄴ가요)\s*[.。])(?:\s|$)/.test(t))
+    // v3.8.670: 대화 말투는 되묻고 바로 설명한다 ("그럼 자동으로 빠지냐고요? 아니에요. 왜냐하면 …" 세 문장 이상).
+    // 질문 한 줄, 또는 질문 뒤에 답 한 문장만 붙은 문단이 FAQ 흉내다. 되물은 뒤 세 문장 이상 풀어 가는 문단은 설명이다.
+    .filter((t) => (t.match(/[.!?。？](?=\s|$)/g) || []).length <= 2);
   if (questionParas.length >= 3) {
     out.push({
       kind: 'inline-faq',
@@ -685,6 +690,8 @@ export function summarizeAudit(report: AuditReport): string {
     'intro-promise-unkept': '서론 약속 불이행',
     'stance-shallow': '얕은 판단',
     'table-template': '표 양식 반복',
+    'promise-deferred': '약속 절이 확인만 시킴',
+    'procedure-repeat': '같은 확인 절차 반복',
     'tone-mix': '말투 섞임',
     'broken-title': '제목 손상',
     'asserted-crime': '확정형 범죄표현',

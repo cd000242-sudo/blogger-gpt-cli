@@ -247,7 +247,7 @@ export function getActiveToneStyle(): ToneStyle {
 function toneInstructionBlock(): string {
   return getToneInstruction(activeToneStyle);
 }
-function shouldApplyCasualTransform(): boolean {
+export function shouldApplyCasualTransform(): boolean {
   return activeToneStyle === 'friendly' || activeToneStyle === 'casual' || activeToneStyle === 'conversational';
 }
 /**
@@ -2299,7 +2299,7 @@ ${faqGroundingBlock}
 5. 🚫 **본문에 이미 있는 문장을 다시 쓰지 마세요.** 본문이 답한 것을 말만 바꿔 되풀이하면
    독자는 같은 글을 두 번 읽는 셈이라 그 자리에서 나갑니다. 본문이 **다루지 않은 빈칸**
    (예외 상황, 헷갈리기 쉬운 구분, 다음 단계)을 채우는 질문만 만드세요.
-5. "~해요", "~거든요" 친근한 말투
+5. ${shouldApplyCasualTransform() ? '"~해요", "~거든요" 친근한 말투' : '본문과 같은 합니다체 ("~합니다", "~입니다"). 해요체 금지 — 한 글에 두 말투가 섞이면 번역투로 읽힙니다 (v3.8.670)'}
 6. 이미 마감된 사업/이벤트/일정은 답변에 포함 금지. 현재 진행 중이거나 미래 일정만!
 7. 한글과 영문/숫자만 사용. 중국어 한자(漢字) 절대 금지!
 8. 🔴 추측/허위 데이터 절대 금지! 단, 확인할 수 없다고 "공식 사이트에서 확인하세요"로 답을 때우는 것도 금지입니다.
@@ -4379,7 +4379,8 @@ ${cleanedContent.slice(0, 2000)}
 글 맨 위에 그대로 실려서 **이것만 읽고도 답이 되는** 자리다.
 - question: 독자가 실제로 검색했을 법한 질문 한 줄 (40자 이내, 물음표 없이도 됨)
 - answer: 그 질문의 **답**. 2~4문장, 본문에 있는 숫자·조건을 그대로 쓴다.
-  합니다체로 쓰고 문장마다 마침표를 찍는다. "…함께 낸다 법인은 대상이 아니며…" 처럼 마침표 없는 해라체 덩어리는 금지 (v3.8.668 실측).
+  ${shouldApplyCasualTransform() ? '해요체("~해요", "~이에요")' : '합니다체("~합니다", "~입니다")'}로 쓰고 문장마다 마침표를 찍는다. 본문과 같은 말투다 (v3.8.670).
+  "…함께 낸다 법인은 대상이 아니며…" 처럼 마침표 없는 해라체 덩어리는 금지 (v3.8.668 실측).
   "아래에서 알아보겠습니다" 같은 예고 금지 — 여기서 답을 끝낸다.
 - basis: 그 답의 근거가 되는 기관 이름과 기준 시점 (예: "국세청 · 2026-08 기준")
 본문에 답이 없으면 answer 를 빈 문자열로 두세요. 지어내지 마세요.
