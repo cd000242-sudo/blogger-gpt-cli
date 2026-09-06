@@ -310,7 +310,10 @@ export function buildReportDirective(slot: CpcSlot, urls: string[] = []): string
   }
 
   if (urls.length) {
-    lines.push('', '**출처 — 여기부터 읽고 씁니다.** 숫자와 명칭은 여기서 그대로 옮깁니다.');
+    // v3.8.667: 여기 오는 주소는 실제로 본문을 긁어 근거 장부에 실은 것만이다(orchestration·main.ts 가 걸러 넘긴다).
+    //   안 읽은 주소를 나열하면 모델이 그 내용을 지어내 인용한다 — 실측: 사이트 wp-json 주소와 무관한 양육비 기사를 "출처" 로 적었다.
+    lines.push('', '**출처 — 이 주소들의 본문은 위 근거 장부에 실려 있습니다.** 숫자와 명칭은 장부에서 그대로 옮깁니다.');
+    lines.push('   주소를 본문에 인용할 때는 장부에 실린 내용 범위에서만 설명합니다. 읽지 않은 주소의 내용을 지어내지 않습니다.');
     for (const u of urls.slice(0, 12)) lines.push(`   · ${u}`);
   }
 

@@ -2364,6 +2364,9 @@ ${quoted}
      * 실측(663·664): 제목이 "9·4 서민금융 복합지원센터" 를 약속했는데 그날 소식이 본문에 없었다.
      * 제목이 만들어진 그 페이지를 긁어 넣되, 제목·키워드 낱말이 둘 이상 든 본문만 고른다(다른 슬롯 소식 차단).
      */
+    // v3.8.667: 지시서(buildReportDirective)에는 실제로 읽었고 이 글과 관련된 주소만 넘긴다 — 안 읽은 주소를 나열하면
+    //   모델이 그 내용을 지어내 인용한다(실측: 사이트 wp-json 주소와 무관한 양육비 기사를 "출처" 로 적었다)
+    let relevantReportUrls: string[] = [];
     try {
       const reportUrls: string[] = Array.isArray((payload as any)?.cpcReportUrls) ? (payload as any).cpcReportUrls : [];
       if (reportUrls.length > 0) {
@@ -2371,6 +2374,7 @@ ${quoted}
         const { fetchPageBody } = require('../crawlers/official-page-body');
         const rs = await fetchReportSourceBodies(reportUrls, { keyword, title: String(h1 || '') }, (u: string) => fetchPageBody(u, 2600));
         if (rs.used.length > 0) {
+          relevantReportUrls = rs.used.map((b: { url: string }) => b.url);
           naverGrounding = [buildReportSourcesBlock(rs), naverGrounding].filter(Boolean).join('\n\n');
           onLog?.(`[PROGRESS] 45% - 🎯 리포트 출처 본문 ${rs.used.length}건을 근거 맨 앞에 넣었습니다 (관련 없어 뺀 것 ${rs.skipped}건 · 못 긁은 것 ${rs.failed}건)`);
         } else {
@@ -2703,7 +2707,7 @@ ${quoted}
       const slot = (payload as any)?.cpcReportSlot;
       if (slot && (slot.keyword || slot.title)) {
         const { buildReportDirective } = require('../keywords/cpc-report');
-        reportDirective = buildReportDirective(slot, (payload as any)?.cpcReportUrls || []);
+        reportDirective = buildReportDirective(slot, relevantReportUrls);
         onLog?.(`📥 리포트 설계도 반영: 슬롯 ${slot.slot || '?'} · 구간 ${(slot.longtails || []).length}개 · 확인 ${(slot.mustCheck || []).length}개`);
       }
     } catch { /* 리포트가 없으면 평소대로 쓴다 */ }

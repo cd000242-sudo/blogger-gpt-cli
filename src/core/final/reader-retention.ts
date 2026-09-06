@@ -34,6 +34,8 @@ const PROMISE_STOP = new Set([
   '여부', '방법', '기준', '절차', '조건', '대상', '정리', '총정리', '안내', '확인', '가이드',
   '완벽', '최신', '년', '월', '일', '및', '그리고', '때', '경우', '것', '수', '등', '더',
 ]);
+/** 용언 조각 — "가도·따로다·갈리는" 은 약속의 낱말이 아니다 (v3.8.667) */
+const PROMISE_JUNK = /(?:하는|되는|가는|오는|리는|이는|던|할|될|된|한|다|도)$/;
 
 /** 약속 조각 하나를 낱말 집합으로 (2자 이상 한글·숫자, 정지어 제외) */
 function promiseWords(chunk: string): string[] {
@@ -108,8 +110,13 @@ export function findUnkeptTitlePromises(
   if (promises.length < 2) return [];   // 조각이 하나뿐이면 제목 전체가 주제다 — 재지 않는다
 
   const carriers = [...headings, answerBoxText].map(normalize).filter(Boolean);
+  /**
+   * v3.8.667 실측: 소제목 "9·4 복합지원센터도 보증심사는 따로" 가 약속 "9·4 서민금융 복합지원센터로 가도 보증심사는 따로다" 를
+   * 맡았는데 "가도·따로다" 같은 용언 조각까지 낱말로 세어 40% 로 판정했다. 그래서 코드가 다른 소제목을 같은 약속으로 또 바꿨고
+   * 한 글에 같은 절이 둘 생겼다. 용언 조각은 빼고 센다.
+   */
   const unkept = promises.filter((p) => {
-    const words = promiseWords(p);
+    const words = promiseWords(p).filter((w) => !(PROMISE_JUNK.test(w) && w.length <= 3));
     if (words.length === 0) return false;
     return !carriers.some((c) => {
       const hit = words.filter((w) => c.includes(normalize(w))).length;

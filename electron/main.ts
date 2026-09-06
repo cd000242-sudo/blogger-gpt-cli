@@ -12280,6 +12280,9 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
             (u: string) => fetchPageBody(u, 2600),
           );
           agentEvidence = [rs.used.length ? buildReportSourcesBlock(rs) : '', ...pgr.blocks, agentEvidence].filter(Boolean).join('\n\n');
+          // v3.8.667: 지시서의 출처 목록에는 실제로 읽었고 이 글과 관련된 주소만 남긴다 —
+          //   안 읽은 주소를 나열하면 모델이 그 내용을 지어내 인용한다(실측: 사이트 wp-json 주소를 출처로 적었다)
+          (request as any).payload = { ...(request?.payload || {}), cpcReportUrls: rs.used.map((b: { url: string }) => b.url) };
           console.log(`[AGENT-GROUNDING] 리포트 출처 본문 ${rs.used.length}건 · 제목 약속 근거 ${pgr.blocks.length}건`);
         } catch (extraErr: any) {
           console.warn('[AGENT-GROUNDING] 출처·약속 근거 스킵:', String(extraErr?.message || extraErr).slice(0, 120));
