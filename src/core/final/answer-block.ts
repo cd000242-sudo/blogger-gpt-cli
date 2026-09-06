@@ -226,8 +226,23 @@ export function restoreAnswerBlockQuestion(
 /** 문장 표시가 하나라도 있는가 — 마침표·물음표, 또는 합니다체·해요체 종결 */
 const HAS_SENTENCE = /[.!?]|(?:니다|해요|예요|에요|어요|아요|여요|네요|세요|돼요|봐요|줘요|와요|져요|나요|까요|죠)(?=\s|$)/;
 
+/**
+ * v3.8.675 — 답 상자의 회피 문장을 뺀다. 실측(양육비 글): "양육비이행관리원 이행확보 절차도 함께 확인해요." 가 답 셋 중 하나였다.
+ * 첫 화면의 답은 답이어야 한다. 남는 문장이 둘 이상이고 길이가 되면 회피 문장만 지운다 — 전부 회피면 상자를 안 만든다.
+ */
+export function dropDeferralSentences(answer: string): string {
+  let deferral: RegExp;
+  try { deferral = new RegExp(require('./narrative-flow').DEFERRAL.source); } catch { return answer; }
+  const sentences = String(answer || '').split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+  if (sentences.length < 2) return answer;
+  const kept = sentences.filter((s) => !deferral.test(s));
+  if (kept.length === sentences.length) return answer;
+  if (kept.length === 0) return '';
+  return kept.join(' ');
+}
+
 export function buildAnswerBlock(input: AnswerBlockInput): string {
-  const answer = sanitizeAnswerText(input.answer, MAX_ANSWER_LEN);
+  const answer = dropDeferralSentences(sanitizeAnswerText(input.answer, MAX_ANSWER_LEN));
   if (answer.length < MIN_ANSWER_LEN) return '';
   /**
    * v3.8.668 실측(영업신고 글): 답이 "…두 신청서를 함께 낸다 법인과 유흥주점업은 …따로 따른다" 처럼

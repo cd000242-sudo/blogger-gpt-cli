@@ -173,6 +173,8 @@ export function analyzeArticleContext(input: {
   for (const m of text.matchAll(AGENCY_PATTERN)) {
     const name = (m[0] || '').trim();
     if (name.length < 2) continue;
+    // v3.8.675 — "계속됐는지처" 처럼 용언 꼬리에 "처·부·청" 이 붙은 것은 기관이 아니다 (실측: 주택연금 글의 지목 기관에 섞였다)
+    if (/됐|했|는지|인지|으로|에서|하는|되는|하면|되면|까지|부터/.test(name)) continue;
     counts.set(name, (counts.get(name) || 0) + 1);
   }
   const agencies = [...counts.entries()]

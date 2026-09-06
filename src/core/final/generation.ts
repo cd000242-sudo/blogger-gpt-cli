@@ -185,9 +185,16 @@ export function isContextuallySafeCtaUrl(url: string, keyword: string, contentMo
 
   const keywordCategories = inferCtaKeywordCategories(keyword, contentMode);
   const specificUrlCategories = [...urlCategories].filter(c => c !== 'public');
-  const categoriesToMatch = specificUrlCategories.length > 0 ? specificUrlCategories : [...urlCategories];
+  /**
+   * v3.8.675 — 정부·공공 도메인(.go.kr/.or.kr)만 걸리고 다른 분류가 없으면 통과다.
+   * 실측(주택연금 승계 글): 행동 화면 판정이 8점으로 고른 hf.go.kr 페이지를 이 검사가
+   * "주제-링크 불일치" 로 막았다 — 키워드에 "신청·등록·민원" 같은 낱말이 없다는 이유로.
+   * 그 뒤 카탈로그 폴백이 국토교통부 홈을 골라 엉뚱한 기관 CTA 가 나갔다.
+   * 이 검사의 목적은 "보험 글에 삼성화재 홈" 같은 분류 어긋남이지, 공공기관을 막는 것이 아니다.
+   */
+  if (specificUrlCategories.length === 0) return true;
 
-  return categoriesToMatch.some(c => keywordCategories.has(c));
+  return specificUrlCategories.some(c => keywordCategories.has(c));
 }
 
 async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000, contentMode?: string): Promise<boolean> {
@@ -3896,7 +3903,18 @@ JSON만 출력:
       query: keyword,
       intent: inferCtaIntent(keyword),
     });
-    if (catalogLink) {
+    /**
+     * v3.8.675 — 카탈로그가 고른 기관이 글이 지목한 기관과 다르면 붙이지 않는다.
+     * 실측(주택연금 승계 글): 본문은 한국주택금융공사를 지목했는데 카탈로그가 "주택" 낱말로 국토교통부 홈을 골랐다.
+     * 엉뚱한 기관 버튼은 없는 버튼보다 나쁘다 — 독자가 눌러도 답이 없고, 사장님이 손으로 고쳐야 한다.
+     */
+    const catalogAgency = catalogLink ? (() => { try { return require('./official-sources').resolveAgency(catalogLink.url) as string; } catch { return ''; } })() : '';
+    const catalogAgencyMismatch = Boolean(catalogLink && catalogAgency && ctaArticleAgencies.length > 0
+      && !ctaArticleAgencies.some((a) => a.includes(catalogAgency) || catalogAgency.includes(a)));
+    if (catalogLink && catalogAgencyMismatch) {
+      console.log(`[CTA] 🚫 카탈로그 기관 불일치로 미부착: ${catalogAgency} ≠ 글이 지목한 ${ctaArticleAgencies.join('·')} (${catalogLink.url})`);
+    }
+    if (catalogLink && !catalogAgencyMismatch) {
       const catalogValid = await hybridValidateCta(catalogLink.url, keyword, 5000, contentMode);
       if (catalogValid) {
         const docCatalog = detectDocumentCta(catalogLink.url);
