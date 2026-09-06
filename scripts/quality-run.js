@@ -153,7 +153,8 @@ function longtailCoverage(text, longtails) {
         // 🎯 는 v3.8.655/656 의 제목 약속 로그 — [PROGRESS] 로 나가지만 봐야 한다
         // 🎯 는 제목 약속 로그, ⚠️ 는 빈 소제목·보강 폐기·자가 수정 같은 고장 로그 — [PROGRESS] 로 나가지만 봐야 한다
         // 🧵 는 v3.8.672 의 실 로그(질문·의문 배정·위반) — 안 보이면 "실이 안 돌았다" 고 오판한다 (v3.8.673 실측)
-        if (/🎯|⚠️|🧵|빈 소제목|보강|폐기|자가 수정|제외했습니다/.test(m)) { console.log('     ' + m.replace(/^\[PROGRESS\]\s*\d+%\s*-\s*/, '').slice(0, 200)); return; }
+        // 🧭 는 v3.8.678 답 상자 조립 로그
+        if (/🎯|⚠️|🧵|🧭|빈 소제목|보강|폐기|자가 수정|자가 검수|제외했습니다/.test(m)) { console.log('     ' + m.replace(/^\[PROGRESS\]\s*\d+%\s*-\s*/, '').slice(0, 200)); return; }
         if (/PROGRESS/.test(m)) return;
         if (/리포트 설계도|속보|자가 수정|장부|소제목 교체|정해 둔 제목/.test(m)) console.log('     ' + m.slice(0, 140));
       });

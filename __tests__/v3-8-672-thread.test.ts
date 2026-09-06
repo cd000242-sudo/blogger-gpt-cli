@@ -49,7 +49,7 @@ describe('v3.8.672 실(thread) — 독자의 문제를 코드가 정하고 끝�
     expect(t.asks[3]).toContain('거절·반려됐을 때의 다음 절차');
     expect(t.asks[4]).toContain('소득기준이 없어져도 탈락하는');   // 보러 올 이유 4개 다음은 클릭 이유
     expect(t.asks[5]).toBe('');                                     // FAQ
-    expect(t.materials).toBeGreaterThanOrEqual(8);
+    expect(t.materials).toBeGreaterThanOrEqual(6);   // v3.8.678/679: 뜻이 겹치는 재료는 거른다 — 12개 재료 중 7개가 남는다
     // "탈락·감액 통지 후 절차"(클릭 4번) 는 "거절·반려됐을 때의 다음 절차" 와 다른 낱말이라 남지만, 롱테일 "소급 지급 안 되는 기간" 은 앞 10자가 달라 남는다 — 같은 앞머리만 거른다
     const block = buildThreadBlock(t, { title: SLOT.title, h2Titles: H2S });
     expect(block).toContain('📌 [이 글의 제목]');

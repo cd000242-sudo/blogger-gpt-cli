@@ -87,8 +87,20 @@ export function similarAsk(a: string, b: string, ignore: Set<string> = new Set()
   for (const w of A) if (B.has(w)) both += 1;
   const jaccard = both / (A.size + B.size - both);
   // 실측: "집행권원·미지급·기간" 셋을 나눠 가진 두 재료가 두 절에서 같은 말을 했다 — 내용 낱말 셋이면 같은 의문
-  return both >= 3 || jaccard >= 0.4 || (both >= 2 && both >= Math.min(A.size, B.size) * 0.6);
+  if (both >= 3 || jaccard >= 0.4 || (both >= 2 && both >= Math.min(A.size, B.size) * 0.6)) return true;
+  /**
+   * 앞머리끼리 본다 — "기한·소급 제약" 과 "소급이 안 되는 구간" 은 설명 낱말이 달라도 같은 의문이다(오늘 리포트 실측).
+   * 앞머리는 짧으니(낱말 넷 이하) 흔하지 않은 낱말 하나만 겹쳐도 같은 것으로 본다.
+   */
+  const headOf = (s: string) => new Set([...askNouns(String(s || '').split(/\s[-–—:]\s/)[0]!)].filter((w) => !ignore.has(w) && !ASK_GENERIC.has(w)));
+  const HA = headOf(a); const HB = headOf(b);
+  if (HA.size > 0 && HA.size <= 4 && HB.size > 0 && HB.size <= 4) {
+    for (const w of HA) if (HB.has(w)) return true;
+  }
+  return false;
 }
+/** 앞머리 대조에서 셈하지 않는 흔한 낱말 — 이것만 겹치면 다른 의문일 수 있다 ("신청 방법" vs "신청 기한") */
+const ASK_GENERIC = new Set(['신청', '확인', '통지', '서류', '기록', '자료', '지원', '지급', '기한', '조건', '항목', '갈리는', '빠지는', '되는', '없는', '있는', '다음', '때의', '뒤의']);
 
 function isAuxHeading(h2: string): boolean {
   return /자주\s*묻는|FAQ|요약|목차|읽어보기|마무리|결론/i.test(h2);
