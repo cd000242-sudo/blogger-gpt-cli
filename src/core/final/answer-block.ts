@@ -223,9 +223,17 @@ export function restoreAnswerBlockQuestion(
   return { html: src.replace(before, () => after), changed: true };
 }
 
+/** 문장 표시가 하나라도 있는가 — 마침표·물음표, 또는 합니다체·해요체 종결 */
+const HAS_SENTENCE = /[.!?]|(?:니다|해요|예요|에요|어요|아요|여요|네요|세요|돼요|봐요|줘요|와요|져요|나요|까요|죠)(?=\s|$)/;
+
 export function buildAnswerBlock(input: AnswerBlockInput): string {
   const answer = sanitizeAnswerText(input.answer, MAX_ANSWER_LEN);
   if (answer.length < MIN_ANSWER_LEN) return '';
+  /**
+   * v3.8.668 실측(영업신고 글): 답이 "…두 신청서를 함께 낸다 법인과 유흥주점업은 …따로 따른다" 처럼
+   * 마침표 없는 해라체 한 덩어리로 왔다. 줄도 못 바꾸고 말투도 본문과 어긋난다 — 문장 표시가 없으면 답이 아니라 덩어리다.
+   */
+  if (!HAS_SENTENCE.test(answer)) return '';
 
   // v3.8.562: 문구를 언어별 표에서 가져온다. language 를 안 주면 예전처럼 한국어다
   const strings = blockStrings(normalizeBlockLanguage(input.language));

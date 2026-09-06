@@ -333,6 +333,19 @@ export function repairGluedNumbers(html: string): { html: string; count: number 
   });
 }
 
+/**
+ * 받침 없는 낱말 뒤의 "은" (v3.8.668).
+ * 실측(두 편): "국세청 9월 4일 발표은", "금융위원회 9월 1일 발표은" — 모델의 조사 오류. 받침 없는 명사 몇 개만 좁게 고친다.
+ */
+const WRONG_EUN = /(발표|안내|자료|제도|절차|경우|여부|결과|구조|기관|보도|기준|조사|근거|사례|제출|접수|신청|조회)은(?=\s|[,.])/g;
+export function repairParticles(html: string): { html: string; count: number } {
+  return outsideTags(html, (text) => {
+    let count = 0;
+    const fixed = text.replace(WRONG_EUN, (_whole, noun: string) => { count += 1; return `${noun}는`; });
+    return { text: fixed, count };
+  });
+}
+
 export function autoRepairBeforePublish(html: string): RepairResult {
   const source = String(html || '');
   if (!source.trim()) return { html: source, repairs: [] };
@@ -377,6 +390,13 @@ export function autoRepairBeforePublish(html: string): RepairResult {
   if (gluedNums.count > 0) {
     working = gluedNums.html;
     repairs.push({ kind: 'glued-number', count: gluedNums.count, note: '단위 붙은 숫자 앞에 공백을 넣었습니다' });
+  }
+
+  // v3.8.668 — "발표은" 처럼 받침 없는 명사 뒤의 조사
+  const particles = repairParticles(working);
+  if (particles.count > 0) {
+    working = particles.html;
+    repairs.push({ kind: 'particle', count: particles.count, note: '조사 "은/는" 을 바로잡았습니다' });
   }
 
   /**

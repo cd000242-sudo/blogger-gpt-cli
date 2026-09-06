@@ -255,7 +255,9 @@ export function parseCpcReport(markdown: string): CpcReport {
 export function usableSlots(report: CpcReport): CpcSlot[] {
   return report.slots.filter((s) => !s.empty && (s.keyword || s.title))
     // v3.8.658 — 파싱이 어긋난 키워드로는 글을 만들지 않는다 (등급 문장·80자 넘는 키워드는 키워드가 아니다)
-    .filter((s) => !/등급\s*[:：]|게이트/.test(s.keyword) && s.keyword.length <= 80);
+    .filter((s) => !/등급\s*[:：]|게이트/.test(s.keyword) && s.keyword.length <= 80)
+    // v3.8.668 실측: 키워드 앞의 "[업데이트]" 꼬리표가 FAQ 질문에 그대로 박혔다 — 꼬리표는 리포트 작성자의 표시이지 검색어가 아니다
+    .map((s) => ({ ...s, keyword: s.keyword.replace(/^\s*(?:\[[^\]]{1,12}\]\s*)+/, '').trim() || s.keyword }));
 }
 
 /**
