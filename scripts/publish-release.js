@@ -21,6 +21,23 @@ const repo = publishCfg?.repo || 'blogger-gpt-cli';
 
 console.log(`\n🚀 [publish-release] ${tag} 릴리즈 공개 처리 중...`);
 
+/**
+ * v3.8.685 — 릴리스 태그를 **이 커밋**에 찍는다. (2026-09-06 자동 업데이트 사고)
+ * 푸시하지 않은 채 릴리스를 만들면 깃허브가 태그를 원격 master(옛 커밋, package.json 3.8.620)에 찍는다.
+ * 그 태그를 체크아웃하는 맥 빌드 워크플로(.github/workflows/mac-release.yml)가 3.8.620 을 읽어
+ * 5분 뒤 "v3.8.620" 릴리스를 새로 만들었고, 깃허브의 latest 는 마지막에 published 된 것이라 620 이 최신이 됐다.
+ * → 설치된 앱(668)이 "내가 더 새 버전" 이라 판단해 자동 업데이트를 멈췄다.
+ * 그래서 릴리스를 만지기 전에 master 를 밀어 올리고, gh 로 태그를 만들 땐 HEAD 커밋을 명시한다.
+ */
+let headSha = '';
+try {
+  headSha = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+  execSync('git push origin HEAD:master', { stdio: ['ignore', 'pipe', 'pipe'] });
+  console.log(`⬆️ [publish-release] master 푸시 완료 (${headSha.slice(0, 7)})`);
+} catch (pushErr) {
+  console.warn(`⚠️ [publish-release] master 푸시 실패 — 태그가 원격 master 에 찍히면 맥 워크플로가 옛 버전을 낼 수 있습니다: ${String(pushErr?.message || pushErr).slice(0, 120)}`);
+}
+
 try {
   // 릴리즈 존재 여부 + draft 상태 확인
   let releaseExists = true;
@@ -51,8 +68,9 @@ try {
       throw new Error(`release 파일 부족: ${uploadFiles.length}/3 (재빌드 필요: npm run build && electron-builder --win)`);
     }
     const filesArg = uploadFiles.map(p => `"${p}"`).join(' ');
+    const targetArg = headSha ? ` --target ${headSha}` : '';
     execSync(
-      `gh release create ${tag} ${filesArg} --repo ${owner}/${repo} --title "${version}" --notes "v${version} 자동 업로드 (GH_TOKEN 없이 gh CLI fallback)"`,
+      `gh release create ${tag} ${filesArg} --repo ${owner}/${repo}${targetArg} --title "${version}" --notes "v${version} 자동 업로드 (GH_TOKEN 없이 gh CLI fallback)"`,
       { stdio: 'inherit' }
     );
     console.log(`✅ [publish-release] ${tag} gh CLI로 릴리스 생성 완료 (3개 파일 업로드)`);
