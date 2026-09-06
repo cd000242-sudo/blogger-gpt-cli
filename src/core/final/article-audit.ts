@@ -323,6 +323,8 @@ export function findTermFloods(
   const counts = new Map<string, number>();
   for (const w of text.replace(/[^가-힣\s]/g, ' ').split(/\s+/)) {
     if (w.length < 3) continue;
+    // v3.8.677 실측: 친근한 말투 글에서 "있어요" 21번이 낱말 되풀이로 잡혔다 — 종결 어미는 낱말이 아니다
+    if (/(?:있어요|없어요|해요|돼요|이에요|예요|거든요|합니다|입니다|습니다|됩니다|때문이에요|때문입니다|않아요|않습니다)$/.test(w)) continue;
     counts.set(w, (counts.get(w) || 0) + 1);
   }
   const out: AuditIssue[] = [];
@@ -377,9 +379,18 @@ const LEGAL_REF = /제\s?\d+\s?조(?:의\s?\d+)?|법률\s?제\s?\d+\s?호|[가-�
 const INSTITUTIONAL =
   /법률|시행령|시행규칙|고시|훈령|예규|조례|지침|판례|대법원|헌법재판소|[가-힣]{2,8}법\s?제\s?\d+\s?조/;
 
+/**
+ * v3.8.677 — 법령의 **정식 명칭**("양육비 이행확보 및 지원에 관한 법률", "소득세법 시행령")도 근거다.
+ * 실측: 리포트가 준 법률 이름을 본문이 세 번 불렀는데 "제○조" 가 없다고 -10 이었다. 조항 번호는 확인된 것만 쓰라고 했으니
+ * 번호를 요구하면 지어내라는 말이 된다. 이름을 불렀으면 독자가 찾을 수 있다.
+ */
+// 뒤에 조사("법률이에요", "시행령에")가 붙어도 이름이다. "법률상·법률적" 은 이름이 아니다
+const STATUTE_NAME = /[가-힣]{2,}(?:\s+[가-힣·]{1,}){0,6}\s*(?:에\s*관한\s*(?:법률|특별법)|법률|법\s*시행령|법\s*시행규칙|특별법|기본법|보호법|관리법|지원법|촉진법)(?![상적])/;
+
 export function findMissingLegalBasis(text: string): AuditIssue[] {
   const refs = text.match(LEGAL_REF) || [];
   if (refs.length > 0) return [];
+  if (STATUTE_NAME.test(text)) return [];
   if (!INSTITUTIONAL.test(text)) return []; // 제도 글이 아니면 요구하지 않는다
   return [{
     kind: 'no-legal-basis',
@@ -533,6 +544,12 @@ export function findProcessLeak(text: string): AuditIssue[] {
     const m = re.exec(text);
     if (!m) continue;
     const at = m.index;
+    /**
+     * v3.8.677 실측: "양육비이행관리원이 지급 약속을 확인할 근거가 없기 때문이에요" — 독자의 상황(기관이 확인할 근거)이지
+     * 글쓴이의 자료 부족이 아니다. 앞 40자에 기관·회사·법원 같은 제3자 주어가 있으면 새어 나온 과정이 아니다.
+     */
+    const before = text.slice(Math.max(0, at - 40), at);
+    if (/(?:기관|공단|공사|관리원|위원회|법원|은행|회사|보험사|담당자|심사|센터|지자체|시청|구청|주민센터)(?:이|가|은|는|에서|도)\s*[^.。]*$/.test(before)) continue;
     issues.push({
       kind: 'writing-process-leak',
       title: '글 쓰는 과정이 독자에게 새어 나왔습니다',

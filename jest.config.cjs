@@ -23,8 +23,14 @@ module.exports = {
   ],
   modulePathIgnorePatterns: ['<rootDir>/backups/', '<rootDir>/dist/'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
+  /**
+   * 🧠 v3.8.677 — 워커 하나가 1.9GB 를 물고 있었다 (--logHeapUsage 실측, 18개 스위트 전부 1,940MB 안팎).
+   * ts-jest 가 파일마다 프로젝트 전체 타입 프로그램을 워커 안에 들고 검사하기 때문이다. 워커 3개면 6GB —
+   * 사장님이 캡컷을 켠 채로 돌리자 exit 134 로 두 번 죽고 IDE 세션까지 재시작됐다.
+   * 타입 검사는 게이트 전에 `tsc --noEmit` 이 따로 한다. 여기서는 변환만 한다(isolatedModules).
+   */
   transform: {
-    '^.+\\.tsx?$': 'ts-jest',
+    '^.+\\.tsx?$': ['ts-jest', { isolatedModules: true, diagnostics: false }],
   },
   moduleNameMapper: {
     // src/ 내의 .js 대신 .ts를 강제 로드 (단, external-traffic는 JS 통일이라 예외)

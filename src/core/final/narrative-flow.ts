@@ -254,7 +254,9 @@ export function findFlowGaps(
       sections.forEach((s, si) => {
         // 용언(…합니다·…해요·…다)은 구절의 뼈대가 아니다 — 명사끼리 붙은 구절만 센다
         // v3.8.676: "최근 3개월", "월 20만원" 같은 수치 구절은 기준이지 절차가 아니다 — 절마다 나오는 것이 맞다 (라이브 실측 오탐)
-        const toks = words(s.text).filter((w) => w.length >= 2 && !STOP.has(w) && !titleSet.has(w) && !/\d/.test(w) && !/(?:니다|어요|아요|해요|예요|이에요|다|요|죠)$/.test(w));
+        // v3.8.677: 법령 이름("양육비 이행확보 및 지원에 관한 법률")은 절마다 불러도 되풀이가 아니다 — 이름을 지우고 센다
+        const withoutLaws = s.text.replace(/[가-힣·]+(?:\s+[가-힣·]+){0,6}\s*(?:에\s*관한\s*법률|법률|시행령|시행규칙)/g, ' ');
+        const toks = words(withoutLaws).filter((w) => w.length >= 2 && !STOP.has(w) && !titleSet.has(w) && !/\d/.test(w) && !/(?:니다|어요|아요|해요|예요|이에요|다|요|죠)$/.test(w));
         for (let i = 0; i + 1 < toks.length; i += 1) {
           const key = `${toks[i]} ${toks[i + 1]}`;
           if (!bigramSections.has(key)) bigramSections.set(key, new Set());

@@ -71,6 +71,8 @@ export function sanitizeAnswerText(raw: unknown, maxLen: number): string {
     .replace(/&nbsp;/g, ' ')
     .replace(CJK, '')
     .replace(/\s+/g, ' ')
+    // v3.8.677 실측: "충족해야 해요.최근 3개월 …" — 마침표 뒤에 공백이 없으면 줄도 못 바꾸고 한 덩어리로 읽힌다
+    .replace(/([.!?])(?=[가-힣A-Za-z])/g, '$1 ')
     .trim();
   return trimToSentence(text, maxLen);
 }

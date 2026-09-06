@@ -339,6 +339,15 @@ export function repairGluedNumbers(html: string): { html: string; count: number 
  */
 // v3.8.671: 받침 있는 명사(기준·기관·제출·신청)를 잘못 넣어 "기준은" 을 "기준는" 으로 망가뜨렸다 (라이브 실측). 받침 없는 명사만 둔다.
 const WRONG_EUN = /(발표|안내|자료|제도|절차|경우|여부|결과|구조|보도|조사|근거|사례|접수|조회)은(?=\s|[,.])/g;
+/** 본문 글자에 남은 JSON 이스케이프 — `\"` `\'` (v3.8.677). 태그 안(속성값)은 건드리지 않는다 */
+export function repairEscapedQuotes(html: string): { html: string; count: number } {
+  return outsideTags(html, (text) => {
+    let count = 0;
+    const fixed = text.replace(/\\(["'“”‘’])/g, (_m, q: string) => { count += 1; return q; });
+    return { text: fixed, count };
+  });
+}
+
 export function repairParticles(html: string): { html: string; count: number } {
   return outsideTags(html, (text) => {
     let count = 0;
@@ -362,6 +371,12 @@ export function autoRepairBeforePublish(html: string): RepairResult {
   }
 
   // v3.8.657 — 천 단위 쉼표에서 갈린 숫자를 붙인다 ("5,<br>087대")
+  // v3.8.677 실측: 서론의 독자 속말 따옴표가 `\"소득기준이 없어지면 …\"` 로 나갔다 — 모델의 JSON 이스케이프가 본문에 남았다
+  const escaped = repairEscapedQuotes(working);
+  if (escaped.count > 0) {
+    working = escaped.html;
+    repairs.push({ kind: 'escaped-quote', count: escaped.count, note: '따옴표 앞 역슬래시를 지웠습니다' });
+  }
   const splitNums = repairSplitNumbers(working);
   if (splitNums.count > 0) {
     working = splitNums.html;
