@@ -229,10 +229,16 @@ export function removeEchoedSentences(html: string): { html: string; count: numb
      * 문단이 한 문장뿐이고 통째로 겹치는 경우(아래)는 여전히 문단째 뺀다 — 번호 문장만 빼고.
      */
     const ORDINAL = /^(?:첫째|둘째|셋째|넷째|다섯째|여섯째|마지막으로)[,\s]/;
+    /**
+     * v3.8.665 실측(대출 갈아타기 글): 앞 문장을 되풀이라고 지웠더니 "이 안내에서 읽을 점은…" 이 허공을 가리켰다.
+     * 다음 문장이 지시어("이 안내·그 기준·위 내용")로 시작하면 그 앞 문장은 지우지 않는다.
+     */
+    const REFERS_BACK = /^(?:이|그|위|해당|같은)\s*(?:안내|자료|기준|내용|구분|문구|조건|수치|숫자|표|목록|절차|방식|판단|사례|보도|발표|지침|규정|문서|사실|점|경우|말|설명|결과|기록|보도자료)/;
     const kept: string[] = [];
     for (let pi = 0; pi < parts.length; pi++) {
       const part = parts[pi]!;
-      const protectedSentence = (pi === 0 && parts.length > 1) || ORDINAL.test(part);
+      const nextRefersBack = pi + 1 < parts.length && REFERS_BACK.test(parts[pi + 1]!);
+      const protectedSentence = (pi === 0 && parts.length > 1) || ORDINAL.test(part) || nextRefersBack;
       const isEcho = !protectedSentence
         && part.length >= ECHO_MIN_CHARS
         && deleted < ECHO_MAX_DELETIONS
@@ -291,6 +297,42 @@ export function removeEchoedSentences(html: string): { html: string; count: numb
   return { html: out, count: deleted };
 }
 
+/**
+ * 상대 시점 → 연도 (v3.8.665).
+ * 실측(v3.8.664 상장유지 글): 자료가 "내년 7월" 이라 하니 모델도 "다음 해 7월" 로 썼다 — 답변 블록·요약표까지.
+ * 독자는 내년에도 이 글을 읽는다. **달이 붙은** 상대 시점만 바꾼다("다음 해" 홀로는 뜻이 둘이라 두지 않는다).
+ */
+const RELATIVE_YEAR = /(올해|금년|이번\s*해|내년|다음\s*해|다음해|작년|지난해)\s*(\d{1,2})월/g;
+export function repairRelativeYear(html: string, now: Date = new Date()): { html: string; count: number } {
+  const year = now.getFullYear();
+  const offset = (word: string): number => (/^(?:내년|다음)/.test(word) ? 1 : /^(?:작년|지난해)/.test(word) ? -1 : 0);
+  return outsideTags(html, (text) => {
+    let count = 0;
+    const fixed = text.replace(RELATIVE_YEAR, (_whole, word: string, month: string) => {
+      count += 1;
+      return `${year + offset(word)}년 ${month}월`;
+    });
+    return { text: fixed, count };
+  });
+}
+
+/**
+ * 단위 붙은 숫자 앞 띄어쓰기 (v3.8.665).
+ * 실측(v3.8.664 상장유지 글 FAQ): "200억원과300억원 또는300억원과500억원", "최근3개년도 중2개년도" — 663 에는 공백이 있었다.
+ * 단위가 붙은 숫자 앞에만 공백을 넣는다. "제2회·제1조" 는 두고, 단위 없는 "코스피200" 도 둔다.
+ */
+const GLUED_NUMBER = /((?!제)[가-힣])(\d[\d,]*(?:\.\d+)?(?:억원|만원|천원|원|개년도|개년|개월|년|일|명|건|대|%|퍼센트|회|배|호|곳|가지|시간|분))/g;
+export function repairGluedNumbers(html: string): { html: string; count: number } {
+  return outsideTags(html, (text) => {
+    let count = 0;
+    const fixed = text.replace(GLUED_NUMBER, (_whole, before: string, num: string) => {
+      count += 1;
+      return `${before} ${num}`;
+    });
+    return { text: fixed, count };
+  });
+}
+
 export function autoRepairBeforePublish(html: string): RepairResult {
   const source = String(html || '');
   if (!source.trim()) return { html: source, repairs: [] };
@@ -323,6 +365,18 @@ export function autoRepairBeforePublish(html: string): RepairResult {
   if (filler.count > 0) {
     working = filler.html;
     repairs.push({ kind: 'personal-voice', count: filler.count, note: '글쓴이 군더더기를 뗐습니다' });
+  }
+
+  // v3.8.665 — "다음 해 7월" 을 연도로, "200억원과300억원" 의 숫자 앞 공백을
+  const relYear = repairRelativeYear(working);
+  if (relYear.count > 0) {
+    working = relYear.html;
+    repairs.push({ kind: 'relative-year', count: relYear.count, note: '상대 시점을 연도로 바꿨습니다' });
+  }
+  const gluedNums = repairGluedNumbers(working);
+  if (gluedNums.count > 0) {
+    working = gluedNums.html;
+    repairs.push({ kind: 'glued-number', count: gluedNums.count, note: '단위 붙은 숫자 앞에 공백을 넣었습니다' });
   }
 
   /**

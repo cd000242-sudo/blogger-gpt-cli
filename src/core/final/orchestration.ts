@@ -2346,22 +2346,39 @@ ${quoted}
      * 장부는 12,000자에서 잘리므로 약속 근거를 **앞에** 둔다 — 제목이 묻는 것이 먼저다.
      */
     try {
-      const { titlePromises } = require('./reader-retention');
-      const kwNorm = String(keyword || '').replace(/\s+/g, '');
-      const chunks: string[] = titlePromises(String(h1 || ''))
-        .filter((p: string) => p.replace(/\s+/g, '') !== kwNorm && !kwNorm.includes(p.replace(/\s+/g, '')))
-        .slice(0, 2);
-      const extra: string[] = [];
-      for (const chunk of chunks) {
-        const q = chunk.replace(/\s+/g, '').includes(kwNorm) ? chunk : `${keyword} ${chunk}`;
-        const pg = await fetchGrounding(q, naverSearch as any, { display: 5 });
-        if (!pg.text) continue;
-        extra.push(`[제목 약속 근거: ${chunk}]\n${pg.text.slice(0, 2000)}`);
-        onLog?.(`[PROGRESS] 45% - 🎯 제목 약속 근거 추가: "${chunk}" (뉴스 ${pg.newsCount} · 기관 ${pg.officialCount} · 웹 ${pg.webCount})`);
+      // v3.8.665: 조각을 통째로 검색하면 뉴스 0건 — 낱말 셋으로 먼저 찾는다. 에이전트 경로(main.ts)와 같은 함수다
+      const { fetchPromiseGrounding } = require('./promise-grounding');
+      const pgr = await fetchPromiseGrounding(String(h1 || ''), keyword, naverSearch as any, fetchGrounding, { maxChunks: 2, charsPerChunk: 2000, display: 5 });
+      for (const c of pgr.chunks) {
+        onLog?.(`[PROGRESS] 45% - 🎯 제목 약속 근거 추가: "${c.chunk}" ← 검색 "${c.query}" (뉴스 ${c.newsCount} · 기관 ${c.officialCount} · 웹 ${c.webCount})`);
       }
+      const extra: string[] = pgr.blocks;
       if (extra.length > 0) naverGrounding = [...extra, naverGrounding].filter(Boolean).join('\n\n');
     } catch (promiseErr: any) {
       console.warn('[GROUNDING] 제목 약속 근거 스킵:', String(promiseErr?.message || promiseErr).slice(0, 100));
+    }
+
+    /**
+     * v3.8.665 — 리포트 출처 본문을 근거 **맨 앞에** 둔다.
+     * 출처 주소는 지금까지 프롬프트에 글자로만 실렸다(buildReportDirective) — 모델은 주소를 못 연다.
+     * 실측(663·664): 제목이 "9·4 서민금융 복합지원센터" 를 약속했는데 그날 소식이 본문에 없었다.
+     * 제목이 만들어진 그 페이지를 긁어 넣되, 제목·키워드 낱말이 둘 이상 든 본문만 고른다(다른 슬롯 소식 차단).
+     */
+    try {
+      const reportUrls: string[] = Array.isArray((payload as any)?.cpcReportUrls) ? (payload as any).cpcReportUrls : [];
+      if (reportUrls.length > 0) {
+        const { fetchReportSourceBodies, buildReportSourcesBlock } = require('./report-sources');
+        const { fetchPageBody } = require('../crawlers/official-page-body');
+        const rs = await fetchReportSourceBodies(reportUrls, { keyword, title: String(h1 || '') }, (u: string) => fetchPageBody(u, 2600));
+        if (rs.used.length > 0) {
+          naverGrounding = [buildReportSourcesBlock(rs), naverGrounding].filter(Boolean).join('\n\n');
+          onLog?.(`[PROGRESS] 45% - 🎯 리포트 출처 본문 ${rs.used.length}건을 근거 맨 앞에 넣었습니다 (관련 없어 뺀 것 ${rs.skipped}건 · 못 긁은 것 ${rs.failed}건)`);
+        } else {
+          onLog?.(`[PROGRESS] 45% - ⚠️ 리포트 출처 ${reportUrls.length}건 중 이 글과 관련된 본문이 없습니다 (뺀 것 ${rs.skipped}건 · 못 긁은 것 ${rs.failed}건)`);
+        }
+      }
+    } catch (sourceErr: any) {
+      console.warn('[GROUNDING] 리포트 출처 본문 스킵:', String(sourceErr?.message || sourceErr).slice(0, 100));
     }
 
     /**

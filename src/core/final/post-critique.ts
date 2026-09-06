@@ -745,6 +745,16 @@ export function acceptRevisedSection(
     return { html: original.html, accepted: false, reason: '답변 블록이 바뀌었습니다' };
   }
   /**
+   * v3.8.665 — 숫자 앞 띄어쓰기가 뭉개지면 원본 유지.
+   * 실측(v3.8.664 상장유지 글 FAQ): "200억원과300억원 또는300억원과500억원" — 663 에는 공백이 있었고, 다시 쓴 뒤 사라졌다.
+   * 발행 직전 auto-repair 는 이 단계보다 앞에 돌아서 여기서 생긴 것은 못 고친다.
+   */
+  const gluedBefore = (beforeText.match(/[가-힣]\d/g) || []).length;
+  const gluedAfter = (afterText.match(/[가-힣]\d/g) || []).length;
+  if (gluedAfter - gluedBefore >= 3) {
+    return { html: original.html, accepted: false, reason: `숫자 앞 띄어쓰기가 뭉개졌습니다 (${gluedBefore}→${gluedAfter}곳)` };
+  }
+  /**
    * v3.8.658 — 글자로 적힌 주소가 그대로 남았는가.
    * 실측 5편 중 4편: "https://www. seoul. co. kr", "kdi. re. kr/…do?\n\nnum=" — 모델이 고쳐 쓰면서
    * 마침표·물음표 뒤에 공백을 넣어 주소를 깨뜨렸다. <a href> 만 세던 검사는 이걸 못 봤다.

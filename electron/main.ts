@@ -12260,8 +12260,30 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
       if (agentKeyword) {
         const { fetchGrounding, describeGrounding } = require('../dist/core/final/naver-grounding');
         const { naverSearch } = require('../dist/core/naver-search-client');
-        const g = await fetchGrounding(agentKeyword, (type: any, params: any) =>
-          naverSearch(type, params, { payload: request?.payload || {}, timeoutMs: 10000 }));
+        const agentSearch = (type: any, params: any) =>
+          naverSearch(type, params, { payload: request?.payload || {}, timeoutMs: 10000 });
+        const g = await fetchGrounding(agentKeyword, agentSearch);
+        /**
+         * v3.8.665 — 리포트 출처 본문 + 제목 약속 근거를 에이전트에게도 넘긴다.
+         * orchestration(API 경로)과 **같은 두 함수**를 쓴다 — 여기만 빠지면 또 "조용한 미배선" 이다.
+         */
+        let agentEvidence = String(g?.text || '');
+        try {
+          const { fetchPromiseGrounding } = require('../dist/core/final/promise-grounding');
+          const { fetchReportSourceBodies, buildReportSourcesBlock } = require('../dist/core/final/report-sources');
+          const { fetchPageBody } = require('../dist/core/crawlers/official-page-body');
+          const agentTitle = String((request?.payload as any)?.cpcReportSlot?.title || request?.title || '');
+          const pgr = await fetchPromiseGrounding(agentTitle, agentKeyword, agentSearch, fetchGrounding, { maxChunks: 2, charsPerChunk: 2000, display: 5 });
+          const rs = await fetchReportSourceBodies(
+            (request?.payload as any)?.cpcReportUrls || [],
+            { keyword: agentKeyword, title: agentTitle },
+            (u: string) => fetchPageBody(u, 2600),
+          );
+          agentEvidence = [rs.used.length ? buildReportSourcesBlock(rs) : '', ...pgr.blocks, agentEvidence].filter(Boolean).join('\n\n');
+          console.log(`[AGENT-GROUNDING] 리포트 출처 본문 ${rs.used.length}건 · 제목 약속 근거 ${pgr.blocks.length}건`);
+        } catch (extraErr: any) {
+          console.warn('[AGENT-GROUNDING] 출처·약속 근거 스킵:', String(extraErr?.message || extraErr).slice(0, 120));
+        }
         /**
          * v3.8.638 — 속보 판정을 지시서까지 들고 간다.
          *
@@ -12276,11 +12298,11 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
           };
           console.log(`[AGENT-GROUNDING] ⏱️ ${g.breakingEvent.note}`);
         }
-        if (g?.text) {
+        if (agentEvidence) {
           console.log(`[AGENT-GROUNDING] ${describeGrounding(g)}`);
           (request as any).payload = {
             ...(request?.payload || {}),
-            agentEvidenceBlock: g.text,
+            agentEvidenceBlock: agentEvidence,
           };
         } else {
           console.log('[AGENT-GROUNDING] 근거 0건 — 에이전트가 스스로 찾습니다');

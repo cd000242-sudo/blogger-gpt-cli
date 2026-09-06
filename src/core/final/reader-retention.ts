@@ -57,6 +57,25 @@ export function titlePromises(title: string): string[] {
     .filter((s) => s.length >= 2 && promiseWords(s).length > 0);
 }
 
+/**
+ * 약속 조각을 **검색어**로 (v3.8.665).
+ * 실측: "9·4 서민금융 복합지원센터로 가도 보증심사는 따로다" 를 통째로 검색하니 뉴스 0건.
+ * 긴 낱말 셋(복합지원센터·서민금융·보증심사)과 날짜("9월 4일")로 찾으면 그날 기사가 잡힌다.
+ * 키워드에 이미 있는 낱말은 뺀다 — 조각은 키워드가 못 찾은 것을 찾는 자리다.
+ */
+const QUERY_SUFFIX = /(인지|일까|까지|부터|처럼|에서|에게|으로|이면|라면|여도|이라도)$/;
+export function promiseQuery(chunk: string, keyword: string): string {
+  const kw = new Set(promiseWords(keyword));
+  const words = promiseWords(chunk)
+    .map((w) => w.replace(QUERY_SUFFIX, ''))
+    .filter((w) => w.length >= 2 && !kw.has(w) && !PROMISE_STOP.has(w));
+  const picked = new Set([...words].sort((a, b) => b.length - a.length).slice(0, 3));
+  const ordered = words.filter((w) => picked.has(w));
+  const date = String(chunk || '').match(/(?<!\d)(\d{1,2})[·・.](\d{1,2})(?!\d)/);
+  const dateText = date ? `${date[1]}월 ${date[2]}일` : '';
+  return [...ordered, dateText].filter(Boolean).join(' ').trim();
+}
+
 function normalize(text: string): string {
   return String(text || '').replace(/[\s ]+/g, '');
 }
