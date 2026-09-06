@@ -53,9 +53,17 @@ describe('GPT-5.6 가격 인하 반영 (2026-07-30)', () => {
     expect(tierCostKrw(terra)).toBe(81);
   });
 
-  it('Sol — 인하 대상 아님 ($5/$30 유지)', () => {
+  // v3.8.686: 2026-08-21 프로모션가 $4/$20 (11-21 까지). 끝나면 $5/$30 으로 되돌리고 이 기대값도 함께 바꾼다.
+  it('Sol — 2026-08-21 프로모션가 ($4/$20 · 11-21까지)', () => {
     const sol = byTitle('GPT-5.6 Sol');
-    expect(sol.usdPer1M).toEqual(expect.objectContaining({ input: 5, output: 30 }));
+    expect(sol.usdPer1M).toEqual(expect.objectContaining({ input: 4, output: 20 }));
+    expect(tierCostKrw(sol)).toBe(153);
+  });
+
+  it('GPT-6 Astra — 출시가 $10/$50, Sol 보다 비싸고 Fable 5.1 과 같은 값', () => {
+    const astra = byTitle('GPT-6 Astra');
+    expect(astra.usdPer1M).toEqual(expect.objectContaining({ input: 10, output: 50 }));
+    expect(tierCostKrw(astra)).toBeGreaterThan(tierCostKrw(byTitle('GPT-5.6 Sol')));
   });
 
   it('Luna 가 Terra 보다 싸다 — 인하 후에도 티어 순서가 유지된다', () => {

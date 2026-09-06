@@ -145,7 +145,8 @@ describe('② 18단계 따라하기', () => {
   });
 
   it('사장님이 주신 순서의 핵심 문구가 그대로 들어 있다', () => {
-    ['제미나이 3.6 플래시', '장당 90원', '프로디아', '서비스 선택', '단일 일관 모드',
+    // v3.8.686: 추천 모델이 제미나이 3.6 → 지피티 5.6 테라 (사장님: "지피티 5.6 테라를 추천한다해")
+    ['지피티 5.6 테라', '장당 90원', '프로디아', '서비스 선택', '단일 일관 모드',
       '키워드를 제목으로', '엔진 고정 모드', '팩트체크', '반자동 발행', '돈 많이 버시길']
       .forEach((phrase) => expect(tour).toContain(phrase));
   });
@@ -209,9 +210,9 @@ describe('v3.8.617 — 연출과 자동 진행', () => {
       expect(src.indexOf('placeNear(targets);')).toBeLessThan(src.indexOf('replayReveal(['));
     });
 
-    /** 9999px 그림자는 매 프레임 화면 전체를 다시 칠한다 — 무한 반복이면 앱이 무거워진다 */
+    /** v3.8.686: 연출은 구멍(box-shadow)이 아니라 막(.ut-veil)의 opacity 로 돈다 — 그래도 한 번만 */
     it('한 번만 돈다 (무한 반복이 아니다)', () => {
-      const m = /\.ut-hole\.ut-reveal\s*\{\s*animation:[^;]*;/.exec(src);
+      const m = /\.ut-veil\.ut-reveal\s*\{\s*animation:[^;]*;/.exec(src);
       expect(m).not.toBeNull();
       expect(m![0]).not.toContain('infinite');
       expect(m![0]).toMatch(/\s1\s*;/);
@@ -241,7 +242,8 @@ describe('v3.8.617 — 연출과 자동 진행', () => {
      * 누르자마자 넘어가면 키를 넣을 새가 없다 — 여긴 [다음]으로 넘어간다.
      */
     it('입력칸 단계에는 붙이지 않는다', () => {
-      const keyStep = blockBetween(src, "sel: ['#geminiKey']", '},');
+      // v3.8.686: 키 칸이 제미나이 → OpenAI (추천 모델이 테라라서)
+      const keyStep = blockBetween(src, "sel: ['#openaiKey']", '},');
       expect(keyStep).not.toContain('autoNext');
       const hubStep = blockBetween(src, "sel: ['#naverApiHubKeyId', '#naverApiHubKey']", '},');
       expect(hubStep).not.toContain('autoNext');

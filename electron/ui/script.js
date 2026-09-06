@@ -7441,6 +7441,9 @@ async function updateAiModelStatus() {
       'gpt-5.6-luna': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
       'gpt-5.6-terra': { label: 'OpenAI GPT-5.6 Terra', short: 'GPT-5.6 Terra', emoji: '🟢', color: '#a855f7' },
       'gpt-5.6-sol': { label: 'OpenAI GPT-5.6 Sol', short: 'GPT-5.6 Sol', emoji: '💎', color: '#a855f7' },
+      // v3.8.686 — GPT-6 Astra (2026-09-03 출시)
+      'openai-gpt6-astra': { label: 'OpenAI GPT-6 Astra', short: 'GPT-6 Astra', emoji: '🌌', color: '#a855f7' },
+      'gpt-6-astra': { label: 'OpenAI GPT-6 Astra', short: 'GPT-6 Astra', emoji: '🌌', color: '#a855f7' },
       // Claude (Fable 5 / Sonnet 5 / Haiku 4.5)
       'claude-haiku': { label: 'Claude Haiku 4.5', short: 'Claude Haiku', emoji: '⚡', color: '#f97316' },
       'claude-sonnet': { label: 'Claude Sonnet 5', short: 'Claude Sonnet', emoji: '🟠', color: '#f97316' },

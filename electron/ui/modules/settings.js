@@ -150,6 +150,9 @@ export async function saveSettings() {
     // 칸만 만들고 여기서 안 담으면 조용히 무시된다 (이 저장소의 단골 사고).
     naverApiHubKeyId: document.getElementById('naverApiHubKeyId')?.value || '',
     naverApiHubKey: document.getElementById('naverApiHubKey')?.value || '',
+    // v3.8.686 — 개발자센터 옛 키도 화면에서 받는다(2027-06-30 까지 예비). 예전엔 숨김 카드라 아무도 못 넣었다.
+    naverClientId: document.getElementById('naverClientId')?.value || '',
+    naverClientSecret: document.getElementById('naverClientSecret')?.value || '',
     blogId: document.getElementById('blogId')?.value || '',
     googleClientId: document.getElementById('googleClientId')?.value || '',
     googleClientSecret: document.getElementById('googleClientSecret')?.value || '',
@@ -752,6 +755,9 @@ export async function loadSettingsContent(options = {}) {
         // v3.8.526 — 저장했으면 다시 열었을 때도 보여야 한다 (안 채우면 빈 칸으로 보여 또 입력하게 된다)
         'naverApiHubKeyId': pickSettingValue(mergedSettings, ['naverApiHubKeyId', 'NAVER_API_HUB_KEY_ID', 'naverHubKeyId']),
         'naverApiHubKey': pickSettingValue(mergedSettings, ['naverApiHubKey', 'NAVER_API_HUB_KEY', 'naverHubKey']),
+        // v3.8.686 — 옛 키도 다시 열었을 때 보여야 한다
+        'naverClientId': pickSettingValue(mergedSettings, ['naverClientId', 'NAVER_CLIENT_ID']),
+        'naverClientSecret': pickSettingValue(mergedSettings, ['naverClientSecret', 'NAVER_CLIENT_SECRET']),
         'blogId': pickSettingValue(mergedSettings, ['blogId', 'bloggerId', 'BLOG_ID', 'BLOGGER_ID', 'GOOGLE_BLOG_ID', 'BLOGGER_BLOG_ID']),
         'googleClientId': pickSettingValue(mergedSettings, ['googleClientId', 'clientId', 'GOOGLE_CLIENT_ID', 'BLOGGER_CLIENT_ID']),
         'googleClientSecret': pickSettingValue(mergedSettings, ['googleClientSecret', 'clientSecret', 'GOOGLE_CLIENT_SECRET', 'BLOGGER_CLIENT_SECRET']),

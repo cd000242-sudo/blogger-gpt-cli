@@ -58,6 +58,8 @@ export function routeTextToVision(textKey: string): VisionRouting {
     case 'openai-gpt4o':
     case 'gpt-5.6-terra':
     case 'gpt-5.6-sol':
+    case 'openai-gpt6-astra':
+    case 'gpt-6-astra':
     case 'openai':
       return { provider: 'openai-41', model: VISION_MODELS.OPENAI_41, vendor: 'openai', fellBack: false };
     case 'openai-gpt4o-mini':

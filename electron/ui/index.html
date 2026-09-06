@@ -853,7 +853,7 @@
 
               <!-- 🔥 API 키 발급받기 버튼 -->
               <div style="margin-bottom: 24px;">
-                <button onclick="openApiKeyGuideModal()"
+                <button id="apiKeyGuideBtn" onclick="openApiKeyGuideModal()"
                   style="width: 100%; padding: 18px 24px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 6px 25px rgba(16, 185, 129, 0.4); transition: all 0.3s ease;"
                   onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 10px 35px rgba(16, 185, 129, 0.5)';"
                   onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 25px rgba(16, 185, 129, 0.4)';">
@@ -938,37 +938,50 @@
                 <div style="margin-bottom: 14px;">
                   <div style="font-size: 11px; font-weight: 800; color: rgba(255,255,255,0.55); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">🧠 OpenAI</div>
                   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
-                    <label class="tier-card" data-tier="가성비" data-cost="12"
+                    <!-- v3.8.686: 라벨·data-cost 를 pricing.ts 계산값과 맞췄다 (루나 80% 인하 · 솔 프로모션가 · 아스트라 추가).
+                         런타임엔 pricing-sync 가 덮어쓰지만, IPC 가 실패하면 이 값이 그대로 보인다. -->
+                    <label class="tier-card" data-tier="가성비" data-cost="8"
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(16,185,129,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="openai-gpt4o-mini" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                         <span style="font-weight: 800; color: white; font-size: 13px;">💰 GPT-5.6 Luna</span>
                         <span style="background: linear-gradient(135deg,#34d399,#059669); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">가성비</span>
                       </div>
-                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">GPT-5.6 Luna · 초저비용 · 빠른 속도</div>
-                      <div style="font-size: 12px; color: #6ee7b7; font-weight: 800;">~₩35/글</div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">GPT-5.6 Luna · 초저비용(2026-07 80% 인하) · 빠른 속도</div>
+                      <div style="font-size: 12px; color: #6ee7b7; font-weight: 800;">~₩8/글</div>
                     </label>
 
-                    <label class="tier-card" data-tier="균형" data-cost="30"
+                    <label id="tierCardTerra" class="tier-card" data-tier="균형" data-cost="81"
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(139,92,246,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="openai-gpt41" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                         <span style="font-weight: 800; color: white; font-size: 13px;">⚖️ GPT-5.6 Terra</span>
-                        <span style="background: linear-gradient(135deg,#a78bfa,#7c3aed); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">균형</span>
+                        <span style="background: linear-gradient(135deg,#a78bfa,#7c3aed); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">균형 · 추천</span>
                       </div>
                       <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">GPT-5.6 Terra · 품질/가격 균형 · 일반 글에 최적</div>
-                      <div style="font-size: 12px; color: #c4b5fd; font-weight: 800;">~₩61/글</div>
+                      <div style="font-size: 12px; color: #c4b5fd; font-weight: 800;">~₩81/글</div>
                     </label>
 
-                    <label class="tier-card" data-tier="프리미엄" data-cost="60"
+                    <label class="tier-card" data-tier="프리미엄" data-cost="153"
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(245,158,11,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="openai-gpt4o" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                         <span style="font-weight: 800; color: white; font-size: 13px;">🚀 GPT-5.6 Sol</span>
+                        <span style="background: linear-gradient(135deg,#fbbf24,#d97706); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">프리미엄</span>
+                      </div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">GPT-5.6 Sol · 강력한 추론 · 2026-11-21까지 프로모션가</div>
+                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩153/글</div>
+                    </label>
+
+                    <label class="tier-card" data-tier="프리미엄" data-cost="382"
+                      style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(245,158,11,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
+                      <input type="radio" name="primaryGeminiTextModel" value="openai-gpt6-astra" style="display:none;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span style="font-weight: 800; color: white; font-size: 13px;">🌌 GPT-6 Astra</span>
                         <span style="background: linear-gradient(135deg,#fbbf24,#d97706); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">최신 플래그십</span>
                       </div>
-                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">OpenAI 최신 플래그십 · 강력한 추론 · 정확한 지시 이행</div>
-                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩600/글</div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">GPT-6 Astra · 2026-09 출시 · 최상급 추론 · 고비용</div>
+                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩382/글</div>
                     </label>
                   </div>
                 </div>
@@ -985,7 +998,7 @@
                         <span style="background: linear-gradient(135deg,#c084fc,#9333ea); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">가성비</span>
                       </div>
                       <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">빠른 응답 · 자연스러운 한국어 · 창의적</div>
-                      <div style="font-size: 12px; color: #d8b4fe; font-weight: 800;">~₩220/글</div>
+                      <div style="font-size: 12px; color: #d8b4fe; font-weight: 800;">~₩39/글</div>
                     </label>
 
                     <label class="tier-card" data-tier="균형" data-cost="63"
@@ -996,7 +1009,7 @@
                         <span style="background: linear-gradient(135deg,#c084fc,#9333ea); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">균형</span>
                       </div>
                       <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">균형 잡힌 품질 · 안정적 한국어</div>
-                      <div style="font-size: 12px; color: #d8b4fe; font-weight: 800;">~₩840/글</div>
+                      <div style="font-size: 12px; color: #d8b4fe; font-weight: 800;">~₩63/글</div>
                     </label>
 
                     <label class="tier-card" data-tier="프리미엄" data-cost="735"
@@ -1007,7 +1020,7 @@
                         <span style="background: linear-gradient(135deg,#fbbf24,#d97706); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">최고 품질</span>
                       </div>
                       <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">최상급 추론 · 완벽한 글쓰기</div>
-                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩4,200/글</div>
+                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩735/글</div>
                     </label>
                   </div>
                 </div>
@@ -1016,7 +1029,7 @@
                 <div>
                   <div style="font-size: 11px; font-weight: 800; color: rgba(255,255,255,0.55); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">🔮 Perplexity</div>
                   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
-                    <label class="tier-card" data-tier="실시간" data-cost="15"
+                    <label class="tier-card" data-tier="실시간" data-cost="40"
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(56,189,248,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="perplexity-sonar" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
@@ -1024,7 +1037,7 @@
                         <span style="background: linear-gradient(135deg,#38bdf8,#0284c7); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">실시간 검색</span>
                       </div>
                       <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">최신 웹 정보 기반 실시간 검색 + AI 분석</div>
-                      <div style="font-size: 12px; color: #7dd3fc; font-weight: 800;">~₩70/글 (팩트체크)</div>
+                      <div style="font-size: 12px; color: #7dd3fc; font-weight: 800;">~₩40/글 (팩트체크)</div>
                     </label>
                   </div>
                 </div>
@@ -1489,6 +1502,82 @@
 
                   <!-- v3.8.555: Google CSE 키·ID 칸 삭제 (신규 발급 불가 · 2027-01-01 종료) -->
                 </div>
+              </div>
+
+              <!--
+                🔎 네이버 검색 API — v3.8.686: 숨김 카드(글포스팅 페이지의 display:none 블록)에서 설정 모달 맨 아래로 옮겼다.
+                사장님: "네이버 API HUB 필드가 누락되어 있네 … 곧 서비스 종료되니까 네이버 API HUB 로 자연스럽게 인계되게끔"
+                · 2026-06-25 NAVER API HUB 출시. 개발자센터 옛 키는 2027-06-30 까지만 산다.
+                · HUB 키를 넣으면 그 즉시 HUB 로 나간다(naver-search-client.ts 가 HUB 우선). 비워두면 옛 키로 나간다.
+                · 옛 키가 401/403 으로 막히면 HUB 키로 자동으로 넘어간다(v3.8.527 failover). 두 벌을 같이 넣어 두면 끊기지 않는다.
+              -->
+              <div id="naverSearchApiSection"
+                style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.6), rgba(15, 23, 42, 0.6)); border: 1px solid rgba(34,197,94,0.25); border-radius: 20px; padding: 24px; margin-bottom: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;">
+                  <div style="display: flex; align-items: center; gap: 14px;">
+                    <span style="font-size: 28px;">🔎</span>
+                    <div>
+                      <h4 style="margin: 0; font-size: 18px; font-weight: 800; color: white; letter-spacing: -0.3px;">네이버 검색 API (NAVER API HUB)</h4>
+                      <p style="margin: 4px 0 0 0; font-size: 13px; color: rgba(255,255,255,0.6);">검색 자료·데이터랩을 모아 글의 근거로 씁니다 · 한 벌로 크롤링·데이터랩이 다 돌아갑니다</p>
+                    </div>
+                  </div>
+                  <button type="button" onclick="window.openNaverApiPage && window.openNaverApiPage()"
+                    style="padding: 10px 16px; background: linear-gradient(135deg, #22c55e, #16a34a); border: none; border-radius: 10px; color: white; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;">🔑 API HUB 에서 발급받기</button>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                  <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(251,191,36,0.35); display: flex; flex-direction: column; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                      <span style="font-size: 18px;">🟢</span>
+                      <label style="font-weight: 700; color: rgba(255,255,255,0.9); font-size: 14px;">API HUB Client ID <span
+                          style="background: rgba(251,191,36,0.18); color: #fde68a; padding: 2px 8px; border-radius: 20px; font-size: 11px; margin-left: 6px; font-weight: 600;">권장 · 신규 발급</span></label>
+                    </div>
+                    <input type="text" id="naverApiHubKeyId" placeholder="네이버클라우드 콘솔 → AI·NAVER API → Client ID"
+                      style="width: 100%; padding: 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box; transition: all 0.3s;"
+                      onfocus="this.style.borderColor='rgba(251, 191, 36, 0.5)'; this.style.background='rgba(0,0,0,0.4)'; this.style.boxShadow='0 0 0 3px rgba(251, 191, 36, 0.15)';"
+                      onblur="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(0,0,0,0.2)'; this.style.boxShadow='none';">
+                  </div>
+
+                  <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(251,191,36,0.35); display: flex; flex-direction: column; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                      <span style="font-size: 18px;">🟢</span>
+                      <label style="font-weight: 700; color: rgba(255,255,255,0.9); font-size: 14px;">API HUB Client Secret</label>
+                    </div>
+                    <div style="position: relative; width: 100%;">
+                      <input type="password" id="naverApiHubKey" placeholder="네이버클라우드 Client Secret"
+                        style="width: 100%; padding: 14px 44px 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box; transition: all 0.3s;"
+                        onfocus="this.style.borderColor='rgba(251, 191, 36, 0.5)'; this.style.background='rgba(0,0,0,0.4)'; this.style.boxShadow='0 0 0 3px rgba(251, 191, 36, 0.15)';"
+                        onblur="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(0,0,0,0.2)'; this.style.boxShadow='none';">
+                      <button onclick="togglePasswordVisibility(this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: rgba(255,255,255,0.4); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px; transition: all 0.2s;" onmouseover="this.style.color='white'; this.style.background='rgba(255,255,255,0.1)';" onmouseout="this.style.color='rgba(255,255,255,0.4)'; this.style.background='transparent';"><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path><circle cx='12' cy='12' r='3'></circle></svg></button>
+                    </div>
+                  </div>
+                </div>
+
+                <details style="margin-top: 12px;">
+                  <summary style="cursor: pointer; color: rgba(255,255,255,0.65); font-size: 12px; font-weight: 700;">개발자센터 옛 키 (2027-06-30 종료 · 예비용) — 아직 쓰고 있다면 여기에</summary>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+                    <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 10px;">
+                      <label style="font-weight: 700; color: rgba(255,255,255,0.8); font-size: 13px;">Naver Client ID (개발자센터)</label>
+                      <input type="text" id="naverClientId" placeholder="abc123def456..."
+                        style="width: 100%; padding: 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box;">
+                    </div>
+                    <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 10px;">
+                      <label style="font-weight: 700; color: rgba(255,255,255,0.8); font-size: 13px;">Naver Client Secret (개발자센터)</label>
+                      <div style="position: relative; width: 100%;">
+                        <input type="password" id="naverClientSecret" placeholder="XYZ123..."
+                          style="width: 100%; padding: 14px 44px 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box;">
+                        <button onclick="togglePasswordVisibility(this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: rgba(255,255,255,0.4); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px; transition: all 0.2s;" onmouseover="this.style.color='white'; this.style.background='rgba(255,255,255,0.1)';" onmouseout="this.style.color='rgba(255,255,255,0.4)'; this.style.background='transparent';"><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path><circle cx='12' cy='12' r='3'></circle></svg></button>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+
+                <small style="display: block; margin-top: 10px; color: rgba(255,255,255,0.6); font-size: 11.5px; line-height: 1.7;">
+                  <span style="color:#f87171;">⚠️ Application 등록 시 <b>서비스 선택</b>에서 <b>검색(웹검색·블로그·뉴스·지식iN)</b>과
+                  <b>Search Trend(데이터랩)</b>를 전부 체크하세요.</span> 체크 안 한 서비스는 키가 맞아도 429로 거절됩니다.<br>
+                  HUB 키를 넣으면 <b>바로 그 키로 동작</b>합니다. 옛 키는 2027-06-30까지만 살고, 막히면 HUB 키로 자동으로 넘어갑니다.
+                  쇼핑·책·전문자료 검색은 2026-07-31 종료돼 대체가 없습니다.
+                </small>
               </div>
 
               <!-- 🔥 DOM 충돌 방지: hidden fallback은 visible 입력과 다른 ID 사용 -->
@@ -2284,10 +2373,10 @@
               onmouseover="this.style.background='rgba(16, 185, 129, 0.2)';" onmouseout="this.style.background='rgba(16, 185, 129, 0.1)';">📖
               초보자 가이드</button>
             <div style="display: flex; gap: 12px;">
-              <button onclick="closeSettingsModal()"
+              <button id="settingsCancelBtn" onclick="closeSettingsModal()"
                 style="padding: 12px 24px; background: rgba(255,255,255,0.05); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s;"
                 onmouseover="this.style.background='rgba(255,255,255,0.1)';" onmouseout="this.style.background='rgba(255,255,255,0.05)';">취소</button>
-              <button onclick="saveSettings()"
+              <button id="settingsSaveBtn" onclick="saveSettings()"
                 style="padding: 12px 32px; background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4); transition: all 0.2s;"
                 onmouseover="this.style.boxShadow='0 6px 16px rgba(139, 92, 246, 0.6)'; this.style.transform='translateY(-1px)';" onmouseout="this.style.boxShadow='0 4px 12px rgba(139, 92, 246, 0.4)'; this.style.transform='none';">💾
                 저장</button>
@@ -5433,64 +5522,8 @@ https://toss.im/_m/XXXXXXX"
               <!-- v3.8.555: Google CSE 설정 칸 삭제 — 신규 발급 불가 + 2027-01-01 종료.
                    검색 근거는 네이버 검색/웹문서가 전담합니다(아래 Naver API 설정). -->
 
-              <!-- Naver API 설정 -->
-              <div style="border-top: 2px solid rgba(255, 255, 255, 0.2); padding-top: 20px; margin-top: 20px;">
-                <h3
-                  style="color: white; font-size: 18px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="11" cy="11" r="8"></circle>
-                    <path d="M21 21l-4.35-4.35"></path>
-                  </svg>
-                  네이버 검색 설정
-                </h3>
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                  <div class="form-group">
-                    <label class="form-label" style="color: rgba(255, 255, 255, 0.9); font-weight: 600;">Naver
-                      Client
-                      ID</label>
-                    <input type="text" id="naverClientId" class="form-input" placeholder="abc123def456..."
-                      style="background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); color: white; backdrop-filter: blur(10px);">
-                  </div>
-
-                  <div class="form-group">
-                    <label class="form-label" style="color: rgba(255, 255, 255, 0.9); font-weight: 600;">Naver
-                      Client
-                      Secret</label>
-                    <input type="text" id="naverClientSecret" class="form-input" placeholder="XYZ123..."
-                      style="background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); color: white; backdrop-filter: blur(10px);">
-                  </div>
-                </div>
-
-                <!--
-                  v3.8.526 — NAVER API HUB (네이버클라우드) 키.
-                  2026-06-25 개편으로 신규 발급은 API HUB 다. 여기에 넣으면 그 즉시 HUB 로 나가고,
-                  비워두면 위의 기존 키로 나간다(이관 유예 2027-06-30). 사용자는 키만 넣으면 된다.
-                -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px;">
-                  <div class="form-group">
-                    <label class="form-label" style="color: rgba(255, 255, 255, 0.9); font-weight: 600;">API HUB Client ID
-                      <span style="color:#fbbf24; font-size:11px; font-weight:700;">신규 발급</span></label>
-                    <input type="text" id="naverApiHubKeyId" class="form-input" placeholder="네이버클라우드 Client ID"
-                      style="background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(251,191,36,0.45); color: white; backdrop-filter: blur(10px);">
-                  </div>
-
-                  <div class="form-group">
-                    <label class="form-label" style="color: rgba(255, 255, 255, 0.9); font-weight: 600;">API HUB Client Secret</label>
-                    <input type="text" id="naverApiHubKey" class="form-input" placeholder="네이버클라우드 Client Secret"
-                      style="background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(251,191,36,0.45); color: white; backdrop-filter: blur(10px);">
-                  </div>
-                </div>
-
-                <small class="form-text" style="color: rgba(255, 255, 255, 0.7); margin-top: 8px; display: block;">
-                  네이버 검색 API 한 벌로 크롤링·데이터랩이 모두 돌아갑니다.<br>
-                  <span style="color:#fbbf24;">2026년 개편</span> — 신규 발급은 네이버클라우드 <b>NAVER API HUB</b>(콘솔 → AI·NAVER API)입니다.<br>
-                  <span style="color:#f87171;">⚠️ Application 등록 시 <b>서비스 선택</b>에서 <b>검색(웹검색·블로그·뉴스·지식iN)</b>과
-                  <b>Search Trend(데이터랩)</b>를 전부 체크하세요.</span> 체크 안 한 서비스는 키가 맞아도 429로 거절됩니다.<br>
-                  HUB 키를 넣으면 <b>바로 그 키로 동작</b>하고, 비워두면 기존 키로 동작합니다(2027-06-30까지).
-                  쇼핑·책·전문자료 검색은 2026-07-31 종료돼 대체가 없습니다.
-                </small>
-              </div>
+              <!-- v3.8.686: 네이버 검색 API 칸(개발자센터 옛 키 + API HUB 키)은 설정 모달 > API 키 탭 맨 아래(#naverSearchApiSection)로 옮겼다.
+                   여기 숨김 카드에 있던 동안은 화면에 보이지 않아 아무도 넣을 수 없었고, 투어 5단계가 0×0 칸을 가리켰다. -->
 
             </div>
           </div>

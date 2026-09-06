@@ -177,13 +177,29 @@ export const TIER_MODELS: readonly TierModel[] = [
     value: 'openai-gpt4o',
     title: 'GPT-5.6 Sol',
     tier: '프리미엄',
-    // 2026-07-30 인하 대상 아님 — $5/$30 유지
-    description: 'OpenAI 최신 플래그십 · 강력한 추론 · 정확한 지시 이행',
-    costKrw: 202,
+    // 2026-08-21 프로모션: $5/$30 → $4/$20 (11-21 까지). 끝나면 $5/$30 으로 되돌려야 한다.
+    description: 'GPT-5.6 Sol · 강력한 추론 · 2026-11-21까지 프로모션가',
+    costKrw: 153,
     provider: 'openai',
     modelId: 'gpt-5.6-sol',
     fallback: ['gpt-5.6-sol', 'gpt-5.6-terra'],
-    usdPer1M: { input: 5, output: 30, source: 'OpenAI 공식 블로그 2026-07-30 (인하 대상 아님, $5/$30 유지)' },
+    usdPer1M: { input: 4, output: 20, source: 'OpenAI 2026-08-21 프로모션가 (입력 $4 / 출력 $20 · 11-21까지, 이전 $5/$30)' },
+  },
+  /**
+   * v3.8.686 — GPT-6 Astra (2026-09-03 출시. 사장님: "지피티6 아스트라 나왔고 비용표 업데이트해").
+   * 재활용할 옛 키가 없어 새 value 키다. 출시가 $10/$50 는 Sol 프로모션가의 2.5배이자
+   * Fable 5.1 과 같은 값 — 글 1편(호출 1회) ₩382. 기본 추천은 여전히 Terra 다.
+   */
+  {
+    value: 'openai-gpt6-astra',
+    title: 'GPT-6 Astra',
+    tier: '프리미엄',
+    description: 'GPT-6 Astra · OpenAI 최신 플래그십 · 최상급 추론 · 고비용',
+    costKrw: 382,
+    provider: 'openai',
+    modelId: 'gpt-6-astra',
+    fallback: ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra'],
+    usdPer1M: { input: 10, output: 50, source: 'OpenAI 2026-09-03 출시가 (입력 $10 / 출력 $50 · 캐시 입력 $1)' },
   },
 
   // ─── Claude (2026-04 기준 최신 ID로 교정) ───────────────────────────────
