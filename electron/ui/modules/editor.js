@@ -2,7 +2,7 @@
 // 소스: appstate(생성 직후) / republish(재발행 대기열) / file(외부 HTML/TXT)
 //       + 생성된 글목록 탭의 발행된 글(blogger / wordpress / tistory) 수정발행
 import { getAppState, addLog, getTextLength } from './core.js';
-import { initImageEditing, detachImageEditing, hostPendingImages, undoImageOp, hasImageOps, insertImagesAtCaret, insertHtmlAtCaret } from './editor-images.js';
+import { initImageEditing, detachImageEditing, hostPendingImages, undoImageOp, hasImageOps, insertImagesAtCaret, insertHtmlAtCaret, findCaretBlock } from './editor-images.js';
 import { loadAdUnits, makeAdSlotHtml, expandAdSlots, collapseAdBlocks, AD_SLOT_STYLE } from './ad-slots.js';
 
 // 생성된 글목록 탭에서 넘어온 "이미 발행된 글" 소스 — 저장 = 해당 플랫폼에 수정발행
@@ -76,6 +76,9 @@ function refreshSaveButtonLabel(isSemiAuto = false) {
     : published ? (isCrossPlatformPublish()
       ? `🚀 ${editorPlatformLabel(selectedEditorPlatform())}에 새 글 발행`
       : '🚀 수정발행하기')
+    // v3.8.683 — 파일·붙여넣기 글은 발행할 곳을 골라 새 글로 낸다. "파일에 저장" 은 '다른 이름으로' 버튼이 맡는다
+    : (kind === 'file' || kind === 'paste') && selectedEditorPlatform()
+      ? `🚀 ${editorPlatformLabel(selectedEditorPlatform())}에 새 글 발행`
     : '✅ 파일에 저장';
 }
 
@@ -226,6 +229,14 @@ function ensureEditorModal() {
         <button id="veRegenImgBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="글자는 그대로 두고 AI 이미지만 다시 만듭니다">🖼️ 이미지 다시 생성</button>
       </span>
 
+      <!-- ✏️ v3.8.683 — 어디서 온 글이든(붙여넣기·파일·발행글) 비평→수정, 썸네일, 영역 이미지 -->
+      <span id="veDraftWrap" style="display:inline-flex;align-items:center;gap:6px;">
+        <span style="${DIVIDER}"></span>
+        <button id="veCritiqueBtn" style="${BTN_BASE}background:#3b0764;color:#e9d5ff;border:1px solid #6b21a8;" title="지금 편집기의 글을 비평합니다. 항목을 고르고 '수정하기'를 누르면 그 구간만 고쳐 편집기에 다시 싣습니다 (발행은 저장 버튼)">🩺 비평·개선</button>
+        <button id="veThumbBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="제목으로 썸네일 이미지를 만들어 글 맨 위에 넣습니다">🖼️ 썸네일 생성</button>
+        <button id="veSectionImgBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="커서가 있는 소제목 영역에 맞는 이미지를 만들어 그 자리에 넣습니다 (본문을 먼저 클릭해 영역을 고르세요)">🖼️ 이 영역 이미지</button>
+      </span>
+
       <span style="${DIVIDER}"></span>
       <button id="veSaveBtn" style="${BTN_BASE}background:linear-gradient(135deg,#10b981,#059669);color:#fff;box-shadow:0 2px 8px rgba(16,185,129,0.4);font-weight:800;">✅ 저장</button>
       <button id="veCancelBtn" style="${BTN_BASE}background:transparent;color:#94a3b8;border:1px solid #475569;">✕ 닫기</button>
@@ -292,6 +303,10 @@ function ensureEditorModal() {
     regenWrap: overlay.querySelector('#veRegenWrap'),          // v3.8.603
     regenBtn: overlay.querySelector('#veRegenBtn'),
     regenImgBtn: overlay.querySelector('#veRegenImgBtn'),
+    draftWrap: overlay.querySelector('#veDraftWrap'),           // v3.8.683
+    critiqueBtn: overlay.querySelector('#veCritiqueBtn'),
+    thumbBtn: overlay.querySelector('#veThumbBtn'),
+    sectionImgBtn: overlay.querySelector('#veSectionImgBtn'),
     saveBtn: overlay.querySelector('#veSaveBtn'),
     cancelBtn: overlay.querySelector('#veCancelBtn'),
     status: overlay.querySelector('#veStatus'),
@@ -347,6 +362,108 @@ ${err?.message || err}
   }
   modalRefs.regenBtn?.addEventListener('click', () => runEditorRegenerate('article'));
   modalRefs.regenImgBtn?.addEventListener('click', () => runEditorRegenerate('images'));
+
+  /**
+   * ✏️ v3.8.683 — 편집기 안의 글을 그대로 비평하고, 고른 지적만 고쳐서 편집기에 다시 싣는다. 발행은 저장 버튼이 한다.
+   * 사장님: "비평 개선 버튼 구현해서 누르면 비평할 부분 알려주고 수정하기 버튼 누르면 알아서 그 위치가 수정 개선되게."
+   * postId 가 없어도 된다 — 붙여넣기·파일 글도 같은 버튼이다. 발행된 글은 postId 로 비평 이력을 남기는 기존 경로가 따로 있다.
+   */
+  const draftButtons = () => [modalRefs.critiqueBtn, modalRefs.thumbBtn, modalRefs.sectionImgBtn].filter(Boolean);
+  const lockDraftButtons = (locked) => draftButtons().forEach((b) => { b.disabled = locked; b.style.opacity = locked ? '0.5' : '1'; });
+  const editorPayload = async () => {
+    const target = selectedEditorPlatform() || normalizeEditorPlatform(session?.originalPlatform);
+    const base = (await window.__buildPublishedPlatformPayload?.(target)) || {};
+    return { ...base, platform: target, targetPlatform: target, blogPlatform: target };
+  };
+  modalRefs.critiqueBtn?.addEventListener('click', async () => {
+    if (!session) return;
+    const title = modalRefs.titleInput.value.trim() || session.originalTitle || '';
+    lockDraftButtons(true);
+    setStatus('🩺 편집기의 글을 읽고 비평하는 중… (1~2분)');
+    try {
+      const payload = await editorPayload();
+      const critique = await window.electronAPI.invoke('critique-editor-html', { title, html: serializeEditor(), payload });
+      if (!critique?.ok) throw new Error(critique?.error || '알 수 없는 오류');
+      setStatus(`🩺 비평 완료 — ${critique.summary}`);
+      const { showCritiqueModal } = await import('./post-critique-modal.js');
+      showCritiqueModal(critique, async (issues) => {
+        setStatus(`✍️ 고른 ${issues.length}건을 반영해 고쳐 쓰는 중… (몇 분 걸립니다)`);
+        const res = await window.electronAPI.invoke('improve-editor-html', { title, html: serializeEditor(), issues, payload });
+        if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
+        if (res.html && res.revised > 0) {
+          const parts = splitDocument(res.html);
+          loadIntoFrame(parts.bodyHtml);
+          setStatus(`✅ ${res.revised}개 구간을 고쳐 편집기에 실었습니다 (${res.length}자). 확인 뒤 저장 버튼으로 발행하세요.`);
+        } else {
+          setStatus('ℹ️ 고친 구간이 없습니다 — 다시 쓴 결과가 원본보다 낫지 않아 그대로 뒀습니다.');
+        }
+        return { ...res, url: '' };
+      }, () => modalRefs.critiqueBtn.click());
+    } catch (err) {
+      setStatus(`❌ 비평 실패: ${err?.message || err}`);
+      window.notifyUser?.(`비평하지 못했습니다.\n${err?.message || err}\n글은 그대로 있습니다.`, 'error');
+    } finally {
+      lockDraftButtons(false);
+    }
+  });
+
+  /** 커서가 있는 소제목 영역 — 커서 블록에서 위로 올라가 첫 h2 를 찾는다 */
+  function sectionTitleAtCaret(doc) {
+    let block = findCaretBlock(doc);
+    let hops = 0;
+    while (block && hops < 200) {
+      if (/^H2$/i.test(block.tagName)) return { h2: block, title: (block.textContent || '').trim() };
+      block = block.previousElementSibling || block.parentElement;
+      hops += 1;
+    }
+    return null;
+  }
+
+  async function generateEditorImage(kind) {
+    if (!session) return;
+    const doc = getFrameDoc();
+    if (!doc) return;
+    const title = modalRefs.titleInput.value.trim() || session.originalTitle || '';
+    if (!title) { setStatus('제목 칸을 먼저 채워 주세요 — 이미지 프롬프트는 제목으로 만듭니다.'); return; }
+    let sectionTitle = '';
+    let anchor = null;
+    if (kind === 'section') {
+      const found = sectionTitleAtCaret(doc);
+      if (!found) { setStatus('본문에서 이미지를 넣을 소제목 영역을 먼저 클릭해 주세요.'); return; }
+      sectionTitle = found.title;
+      anchor = found.h2;
+    }
+    lockDraftButtons(true);
+    setStatus(kind === 'section' ? `🖼️ "${sectionTitle.slice(0, 24)}" 영역 이미지를 만드는 중… (1~2분)` : '🖼️ 썸네일을 만드는 중… (1~2분)');
+    try {
+      const payload = await editorPayload();
+      const res = await window.electronAPI.invoke('generate-editor-image', { title, sectionTitle, kind, payload });
+      if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
+      const wrap = doc.createElement('div');
+      wrap.innerHTML = res.html;
+      const node = wrap.firstElementChild;
+      if (kind === 'section' && anchor) {
+        anchor.insertAdjacentElement('afterend', node);
+      } else {
+        const container = doc.querySelector('.content, article, main, body') || doc.body;
+        // 이미 썸네일(첫 separator 이미지)이 있으면 바꿔 끼운다
+        const existing = doc.querySelector('div.separator img');
+        if (existing && existing.closest('div.separator') && existing.closest('div.separator').parentElement === container) {
+          existing.closest('div.separator').replaceWith(node);
+        } else {
+          container.insertBefore(node, container.firstChild);
+        }
+      }
+      try { node.scrollIntoView({ block: 'center' }); } catch { /* noop */ }
+      setStatus(kind === 'section' ? `✅ "${sectionTitle.slice(0, 24)}" 영역에 이미지를 넣었습니다.` : '✅ 썸네일을 글 맨 위에 넣었습니다 (저장 시 썸네일로 씁니다).');
+    } catch (err) {
+      setStatus(`❌ 이미지 생성 실패: ${err?.message || err}`);
+    } finally {
+      lockDraftButtons(false);
+    }
+  }
+  modalRefs.thumbBtn?.addEventListener('click', () => generateEditorImage('thumbnail'));
+  modalRefs.sectionImgBtn?.addEventListener('click', () => generateEditorImage('section'));
 
   modalRefs.revertBtn.addEventListener('click', () => {
     if (!session) return;
@@ -911,7 +1028,14 @@ export async function openVisualEditor(source) {
       }
       filePath = res.filePath;
       html = res.content;
-      title = '';
+      // v3.8.683 — 파일의 첫 h1 을 제목으로 (발행할 때 필요하다)
+      const h1 = String(html).match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+      title = h1 ? h1[1].replace(/<[^>]+>/g, '').trim() : '';
+    } else if (kind === 'paste') {
+      // 📋 v3.8.683 — 붙여넣기(editor-paste.js 가 normalize-editor-paste 로 서식을 맞춰 넘긴다)
+      html = String(source.html || '');
+      title = String(source.title || '');
+      if (!html.trim()) { alert('붙여 넣은 내용이 비어 있습니다.'); return; }
     } else if (getPublishedSource(kind)) {
       // 생성된 글목록 탭: 발행된 글을 불러와 수정 후 해당 플랫폼에 업데이트(수정발행)
       postId = source.postId;
@@ -945,14 +1069,16 @@ export async function openVisualEditor(source) {
       //   생성 직후(appstate)는 글포스팅 화면의 플랫폼 라디오가 정하고,
       //   파일(file)은 발행이 아니라 저장이라 고를 것이 없다.
       originalPlatform,
-      platformPickable: kind === 'republish' || !!getPublishedSource(kind),
+      // v3.8.683 — 파일·붙여넣기 글도 발행할 곳을 고른다 (사장님: "파일에 저장이 아니라 플랫폼을 선택해서 발행")
+      platformPickable: kind === 'republish' || kind === 'file' || kind === 'paste' || !!getPublishedSource(kind),
     };
 
     const refs = ensureEditorModal();
     refs.titleInput.value = title;
-    refs.titleInput.style.display = kind === 'file' ? 'none' : '';
-    refs.hostImagesLabel.style.display = kind === 'file' ? 'inline-flex' : 'none';
-    refs.saveAsBtn.style.display = kind === 'file' ? '' : 'none';
+    refs.titleInput.style.display = '';   // v3.8.683: 파일 글도 제목이 있어야 발행한다
+    refs.hostImagesLabel.style.display = kind === 'file' || kind === 'paste' ? 'inline-flex' : 'none';
+    refs.saveAsBtn.style.display = kind === 'file' || kind === 'paste' ? '' : 'none';
+    if (refs.saveAsBtn) refs.saveAsBtn.textContent = kind === 'paste' ? '💾 파일로 저장' : '💾 다른 이름으로';
 
     /**
      * 🔄 v3.8.603 — 다시 만들기는 **이미 발행된 글에서만** 보인다.
@@ -967,7 +1093,9 @@ export async function openVisualEditor(source) {
       refs.targetPlatform.innerHTML = EDITOR_PLATFORMS
         .map((p) => `<option value="${p.key}">${p.label}</option>`)
         .join('');
-      refs.targetPlatform.value = normalizeEditorPlatform(originalPlatform);
+      // v3.8.683 — 파일·붙여넣기는 원래 플랫폼이 없다: 글포스팅 화면에서 고른 플랫폼을 따라간다
+      const fallbackPlatform = originalPlatform || document.querySelector('input[name="blogPlatform"]:checked')?.value || 'blogspot';
+      refs.targetPlatform.value = normalizeEditorPlatform(fallbackPlatform);
       refs.targetPlatformWrap.style.display = 'inline-flex';
     } else {
       refs.targetPlatformWrap.style.display = 'none';
@@ -1138,7 +1266,40 @@ async function saveCurrentSession(saveAs) {
         alert(`❌ ${published.label} 수정발행 실패\n\n` + (res?.error || '알 수 없는 오류'));
         setStatus('수정발행에 실패했습니다.');
       }
-    } else if (session.kind === 'file') {
+    } else if ((session.kind === 'file' || session.kind === 'paste') && !saveAs && selectedEditorPlatform()) {
+      /**
+       * 🚀 v3.8.683 — 파일·붙여넣기 글을 고른 플랫폼에 **새 글**로 발행한다.
+       * 사장님: "파일에 저장이 아니라 블로그 플랫폼을 선택해서 발행이 가능하게 해 줘야지."
+       * 다른 플랫폼 새 발행(v3.8.556)과 같은 채널(publish-content)을 쓴다 — 두 벌로 만들지 않는다.
+       */
+      const target = selectedEditorPlatform();
+      const targetLabel = editorPlatformLabel(target);
+      if (!title) { alert('제목을 입력해 주세요. 발행에는 제목이 필요합니다.'); setStatus('제목이 비어 발행하지 않았습니다.'); return; }
+      const slowNotice = target === 'tistory' ? '\n\n티스토리는 브라우저로 편집기를 조작하므로 1분 정도 걸릴 수 있습니다.' : '';
+      if (!confirm(`${targetLabel}에 새 글로 발행할까요?\n\n"${title}"${slowNotice}`)) { setStatus('발행이 취소되었습니다.'); return; }
+      setStatus(`🚀 ${targetLabel}에 새 글 발행 중…`);
+      const res = await window.electronAPI.invoke('publish-content', {
+        platform: target,
+        title,
+        content: html,
+        thumbnailUrl: computeThumbnailUrl(),
+        payload: {
+          ...(await window.__buildPublishedPlatformPayload?.(target) || {}),
+          platform: target,
+          targetPlatform: target,
+          blogPlatform: target,
+        },
+      });
+      if (res?.ok || res?.url) {
+        addLog(`🚀 ${targetLabel} 새 글 발행 완료: ${res.url || title}`, 'success');
+        window.__refreshPublishedPosts?.();
+        alert(`✅ ${targetLabel}에 새 글로 발행했습니다!\n${res.url || ''}`);
+        hideModalAfterSave();
+      } else {
+        alert(`❌ ${targetLabel} 발행 실패\n\n` + (res?.error || '알 수 없는 오류'));
+        setStatus('발행에 실패했습니다.');
+      }
+    } else if (session.kind === 'file' || session.kind === 'paste') {
       const res = await window.electronAPI.invoke('save-html-file', {
         filePath: saveAs ? undefined : (session.filePath || undefined),
         content: html,

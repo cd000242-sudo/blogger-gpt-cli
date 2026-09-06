@@ -4771,6 +4771,128 @@ async function runAgentTextTask(
   });
 }
 
+/**
+ * ✏️ v3.8.683 — 편집기 초안(붙여넣기·파일·발행글 어느 것이든) 을 postId 없이 다룬다.
+ *
+ * 사장님: "수동으로 LLM 으로 생성한 글이나 HTML 을 넣고 미리보기로 보면서 수정도 가능하며 이미지도 추가해서 발행.
+ *          비평·개선 버튼 → 비평할 부분 알려주고 → 수정하기 → 그 위치가 수정. 이미지 생성 — 썸네일 따로, 소제목은 영역 골라서."
+ * 판단은 dist/core/final/editor-draft 에, 여기는 엔진 고르기와 전달만.
+ */
+async function callEditorModel(payload: any, prompt: string, send: (line: string) => void, timeoutMs = 120000): Promise<string> {
+  const useAgent = payload?.executionMode === 'agent' && !!payload?.agentProvider;
+  if (useAgent) {
+    send(`   🤖 에이전트(${payload.agentProvider})로 처리합니다 — API 비용 0`);
+    return runAgentTextTask(payload.agentProvider, prompt, send);
+  }
+  const { chooseTextModel, applyEngineChoice } = require('../dist/core/final/engine-selection');
+  const choice = chooseTextModel(payload, { currentEnv: process.env['PRIMARY_TEXT_MODEL'] });
+  const restore = applyEngineChoice(choice);
+  send(`   🎯 엔진: ${choice.reason}`);
+  try {
+    const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
+    return await callGeminiWithRetry(prompt, 1, { timeoutMs });
+  } finally {
+    restore();
+  }
+}
+
+ipcMain.handle('normalize-editor-paste', async (_evt, args: { text?: string }) => {
+  try {
+    const { normalizePastedContent } = require('../dist/core/final/editor-draft');
+    const r = normalizePastedContent(String(args?.text || ''));
+    if (!r.html.trim()) return { ok: false, error: '붙여 넣은 내용이 비어 있습니다.' };
+    return { ok: true, html: r.html, title: r.title };
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
+ipcMain.handle('critique-editor-html', async (_evt, args: { title?: string; html?: string; payload?: any }) => {
+  const send = (line: string) => { try { if (_evt.sender && !_evt.sender.isDestroyed()) _evt.sender.send('log-line', line); } catch { /* noop */ } };
+  try {
+    const html = String(args?.html || '');
+    const title = String(args?.title || '').trim();
+    if (!html.trim()) return { ok: false, error: '본문이 비어 있습니다.' };
+    const { critiqueDraft } = require('../dist/core/final/editor-draft');
+    send('[PROGRESS] 25% - 🔍 같은 키워드 상위 글을 확인하는 중…');
+    let competitors: { title: string; summary: string }[] = [];
+    if (title) {
+      try {
+        const { naverSearch } = require('../dist/core/naver-search-client');
+        const found = await naverSearch('blog', { query: title, display: 5, sort: 'sim' }, { payload: args?.payload, timeoutMs: 8000 });
+        if (found?.ok) {
+          competitors = (found.items || [])
+            .map((item: any) => ({ title: String(item?.title || '').replace(/<[^>]+>/g, '').trim(), summary: String(item?.description || '').replace(/<[^>]+>/g, '').trim() }))
+            .filter((c: any) => c.title);
+        }
+      } catch (searchError: any) {
+        send(`   ℹ️ 경쟁글 조회 건너뜀: ${String(searchError?.message || searchError).slice(0, 60)}`);
+      }
+    }
+    send('[PROGRESS] 45% - 📏 게이트로 본문을 재는 중…');
+    const result = await critiqueDraft({
+      title, html, competitors,
+      callModel: (prompt: string) => { send('[PROGRESS] 65% - 🧐 편집장 관점으로 비평하는 중…'); return callEditorModel(args?.payload, prompt, send); },
+      log: send,
+    });
+    send(`[PROGRESS] 100% - 🩺 비평 완료 — ${result.summary}`);
+    return { ...result, url: '' };
+  } catch (error: any) {
+    const message = error?.message || String(error);
+    send(`❌ 비평 실패: ${message}`);
+    return { ok: false, error: message };
+  }
+});
+
+ipcMain.handle('improve-editor-html', async (_evt, args: { title?: string; html?: string; issues?: any[]; payload?: any }) => {
+  const send = (line: string) => { try { if (_evt.sender && !_evt.sender.isDestroyed()) _evt.sender.send('log-line', line); } catch { /* noop */ } };
+  try {
+    const html = String(args?.html || '');
+    const issues = Array.isArray(args?.issues) ? args!.issues! : [];
+    if (!html.trim()) return { ok: false, error: '본문이 비어 있습니다.' };
+    if (issues.length === 0) return { ok: false, error: '고를 개선 항목이 없습니다.' };
+    const { improveDraft } = require('../dist/core/final/editor-draft');
+    const result = await improveDraft({
+      title: String(args?.title || ''), html, issues,
+      callModel: (prompt: string) => callEditorModel(args?.payload, prompt, send, 180000),
+      log: send,
+    });
+    send(`[PROGRESS] 100% - ✅ ${result.revised}개 구간을 고쳤습니다 (편집기에만 반영, 발행은 저장 버튼)`);
+    return result;
+  } catch (error: any) {
+    const message = error?.message || String(error);
+    send(`❌ 개선 실패: ${message}`);
+    return { ok: false, error: message };
+  }
+});
+
+ipcMain.handle('generate-editor-image', async (_evt, args: { title?: string; sectionTitle?: string; kind?: 'thumbnail' | 'section'; payload?: any }) => {
+  const send = (line: string) => { try { if (_evt.sender && !_evt.sender.isDestroyed()) _evt.sender.send('log-line', line); } catch { /* noop */ } };
+  try {
+    const title = String(args?.title || '').trim();
+    if (!title) return { ok: false, error: '제목이 있어야 이미지 프롬프트를 만듭니다. 제목 칸을 채워 주세요.' };
+    const { buildDraftImagePrompt, imageBlockHtml } = require('../dist/core/final/editor-draft');
+    const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
+    const { uploadBase64ToImageHost } = require('../dist/core/final/image-helpers');
+    const envData = loadEnvFromFile() as any;
+    const engine = String(args?.payload?.h2ImageSource || args?.payload?.imageSource || envData['IMAGE_SOURCE'] || 'imagefx');
+    const sectionTitle = args?.kind === 'section' ? String(args?.sectionTitle || '').trim() : '';
+    const prompt = buildDraftImagePrompt(title, sectionTitle || null);
+    send(`[PROGRESS] 10% - 🖼️ ${args?.kind === 'section' ? `"${sectionTitle.slice(0, 30)}" 영역` : '썸네일'} 이미지 생성 (${engine})`);
+    const made = await dispatchH2ImageGeneration(engine, prompt, title, send, undefined, { allowFreeTrialPublishing: true });
+    const raw = String(made?.dataUrl || made?.url || '');
+    if (!made?.ok || !raw) return { ok: false, error: made?.error || '이미지를 만들지 못했습니다. 이미지 엔진 로그인을 확인해 주세요.' };
+    const hosted = raw.startsWith('data:') ? await uploadBase64ToImageHost(raw, 'editor') : raw;
+    if (!hosted) return { ok: false, error: '이미지 업로드에 실패했습니다.' };
+    send('[PROGRESS] 100% - ✅ 이미지 준비 완료');
+    return { ok: true, url: hosted, html: imageBlockHtml(hosted, sectionTitle || title), prompt };
+  } catch (error: any) {
+    const message = error?.message || String(error);
+    send(`❌ 이미지 생성 실패: ${message}`);
+    return { ok: false, error: message };
+  }
+});
+
 ipcMain.handle('critique-published-post', async (_evt, args: {
   platform?: string;
   postId?: string;

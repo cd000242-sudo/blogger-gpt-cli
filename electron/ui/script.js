@@ -2693,8 +2693,9 @@ function _ensureFolderImageMapperModal() {
           <div class="fim-section-list" id="fimSectionList"></div>
           <div class="fim-options">
             <strong style="color:#fde68a;font-size:12px;">이미지가 부족하거나 비워둔 소제목 처리</strong>
-            <label class="fim-radio"><input type="radio" name="fimMissingPolicy" value="ai" checked> 선택한 AI 이미지 엔진으로 부족분 생성</label>
-            <label class="fim-radio"><input type="radio" name="fimMissingPolicy" value="blank"> 공란으로 두기</label>
+            <!-- v3.8.683 — 폴더 이미지를 배치했으면 AI 이미지는 기본적으로 꺼져 있어야 한다 (사장님). 부족분 AI 생성은 골라야 켜진다 -->
+            <label class="fim-radio"><input type="radio" name="fimMissingPolicy" value="blank" checked> 공란으로 두기 (AI 이미지 안 만듦)</label>
+            <label class="fim-radio"><input type="radio" name="fimMissingPolicy" value="ai"> 선택한 AI 이미지 엔진으로 부족분 생성</label>
           </div>
           <div class="fim-notice" id="fimNotice"></div>
         </aside>

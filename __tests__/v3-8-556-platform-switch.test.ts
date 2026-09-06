@@ -132,8 +132,8 @@ describe('④ 편집기 — 미리보기 수정 화면의 발행할 곳 드롭�
     expect(open).toContain("refs.targetPlatformWrap.style.display = 'inline-flex'");
   });
 
-  it('대기열 글과 발행된 글에서만 보인다 (생성 직후·파일 편집은 고를 것이 없다)', () => {
-    expect(editor).toContain("platformPickable: kind === 'republish' || !!getPublishedSource(kind)");
+  it('대기열·발행된 글에 보이고, v3.8.683 부터 파일·붙여넣기 글에도 보인다 (생성 직후만 글포스팅 라디오가 정한다)', () => {
+    expect(editor).toContain("platformPickable: kind === 'republish' || kind === 'file' || kind === 'paste' || !!getPublishedSource(kind)");
   });
 
   it('바꾸면 그 자리에서 버튼 문구가 바뀐다 — 누르기 전에 새 발행임을 알아야 한다', () => {
@@ -185,7 +185,8 @@ describe('⑤ 글목록 — 다른 플랫폼을 고르면 수정이 아니라 �
   });
 
   it('같은 플랫폼이면 예전처럼 수정발행이다 (회귀 방지)', () => {
-    const same = blockBetween(editor, '} else if (getPublishedSource(session.kind)) {', "} else if (session.kind === 'file')");
+    // v3.8.683: 파일·붙여넣기 글의 플랫폼 발행 분기가 그 뒤에 온다
+    const same = blockBetween(editor, '} else if (getPublishedSource(session.kind)) {', "} else if ((session.kind === 'file' || session.kind === 'paste') && !saveAs && selectedEditorPlatform())");
     expect(same).toContain('published.updateChannel');
     expect(same).toContain('수정발행할까요?');
   });

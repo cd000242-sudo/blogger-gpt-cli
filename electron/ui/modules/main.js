@@ -117,6 +117,11 @@ function installDeferredGlobalWrappers() {
     return mod.openVisualEditor?.(...args);
   };
   window.openHtmlFileEditor = async () => window.openVisualEditor({ kind: 'file' });
+  // 📋 v3.8.683 — 붙여넣기로 편집기 열기 (LLM 으로 만든 글·HTML)
+  window.openPasteEditor = async () => {
+    const mod = await loadDeferredModule('editor-paste', () => import('./editor-paste.js'));
+    return mod.openPasteEditor?.();
+  };
   window.__initPublishedPostsTab = async (...args) => {
     const mod = await loadDeferredModule('published-posts', () => import('./published-posts.js'));
     return mod.initPublishedPostsTab?.(...args);
