@@ -30,7 +30,7 @@ import { SUBSTANCE_FIRST_PASS_RULES, FRESHNESS_RULES } from './substance-rules';
 import { DECISION_SUPPORT_RULES } from './decision-support';
 // v3.8.660 — 도입의 질문을 끝까지 붙잡는 구성과 필자의 관점 (에이전트 경로와 같은 원본)
 import { NARRATIVE_FLOW_RULES } from './narrative-flow';
-import { THREAD_JSON_FIELDS, attachTakeaways } from './thread';   // v3.8.672 실
+import { THREAD_JSON_FIELDS, attachTakeaways, threadViolations } from './thread';   // v3.8.672 실 · v3.8.673 보강 트리거
 // v3.8.662 — 깊이와 목소리: 판단 = 조건+행동, 자료 수치 그대로, 표 3개 이하, 곁가지 절 금지
 import { DEPTH_VOICE_RULES } from './depth-voice';
 // v3.8.529: StoryScope(COLM 2026) — 문체가 아니라 구조로 AI 티를 지운다.
@@ -1453,7 +1453,9 @@ export async function generateAllSectionsFinal(
   contentMode?: string,
   draftContent?: string,
   sectionGuideBlock?: string,
-  skipQualityBoost?: boolean
+  skipQualityBoost?: boolean,
+  /** v3.8.673 — 실. 있으면 품질 보강 호출이 실 위반(서론 질문·절 반응·결론 답)도 고친다. 호출 상한은 그대로 1회 */
+  thread?: import('./thread').Thread | undefined,
 ): Promise<{
   introduction: string;
   conclusion: string;
@@ -1499,7 +1501,7 @@ export async function generateAllSectionsFinal(
 - 불릿 포인트와 표로 가독성 극대화
 
 🔥 **톤 규칙**:
-- "~해요", "~거든요" 친근하면서도 전문적인 말투
+- ${shouldApplyCasualTransform() ? '"~해요", "~거든요" 친근하면서도 전문적인 말투' : '"~합니다", "~입니다" 합니다체 — 전문적이되 쉽게 (v3.8.673: 말투 설정을 따른다)'}
 - 전체 글에서 동일한 깊이와 용어 일관성 유지
 
 ` : '';
@@ -1700,6 +1702,7 @@ ${draftContent ? '위의 ===== 원본 초안 ===== 을 기반으로 완전히 �
    예) ❌ "8월 3일 기준 가격은 29,900원입니다."
        ✅ "지금은 29,900원인데, 세일이 끝나면 오를 수 있어요."
 ${outputLanguageRule()}
+${toneInstructionBlock()}
 
 📌 구성해야 할 요소:
 1. 글 전체의 서론 (Introduction)
@@ -1788,7 +1791,7 @@ ${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}${STORYS
 
 🚫 [금지 사항] - 필수 준수!
 - 150자 이하의 빈약한 문단
-- "~입니다", "~합니다" 딱딱한 말투 (→ "~해요", "~거든요"로)
+- ${shouldApplyCasualTransform() ? '"~입니다", "~합니다" 딱딱한 말투 (→ "~해요", "~거든요"로)' : '"~해요", "~거든요" 반말투 (이 글은 합니다체 — v3.8.673: 말투 설정을 따른다)'}
 - 근거 없는 과장 ("최고", "완벽", "무조건")
 - 🔴🔴🔴 절대금지: "다음은", "다음 장에서", "넘어가서", "굳혀볼게요" 등 섹션 연결 문구!
 - 각 블록은 독립적으로 완결되어야 함 - 다른 섹션 언급 금지!
@@ -1998,18 +2001,26 @@ JSON만 출력 (설명/마크다운 금지):
     if (skipBoost) {
       onLog?.('[PROGRESS] 65% - ⚡ 빠른 모드: 본문 품질 보강 스킵');
     }
+    /**
+     * v3.8.673 — 보강 호출이 실 위반도 고친다 (설계 P4). 트리거는 "저품질 30% 이상" 또는 "실 위반 1건 이상".
+     * 호출 상한은 그대로 1회 — 늘어나는 것은 보강이 도는 편의 비율뿐이다. 실 위반만으로 돌 때는 분량을 늘리라고 하지 않는다.
+     */
+    const threadBefore: string[] = thread ? threadViolations(allSectionsObj, thread) : [];
+    const lowQuality = lowQualityRatio >= 0.30;
     // 🔥 30% 이상 저품질이면 보강 (빠른 모드는 스킵)
-    if (!skipBoost && lowQualityRatio >= 0.30) {
-      onLog?.('[PROGRESS] 65% - 🔁 본문 품질 보강 중 (1회 호출)...');
+    if (!skipBoost && (lowQuality || threadBefore.length > 0)) {
+      onLog?.(`[PROGRESS] 65% - 🔁 본문 품질 보강 중 (1회 호출) — ${lowQuality ? `저품질 ${Math.round(lowQualityRatio * 100)}%` : ''}${lowQuality && threadBefore.length ? ' · ' : ''}${threadBefore.length ? `실 위반 ${threadBefore.length}건` : ''}`);
+      const threadFixBlock = thread && threadBefore.length
+        ? `\n🧵 [실 위반 — 반드시 고칠 것]\n독자의 문제: 「${thread.question}」\n${threadBefore.map((v, i) => `${i + 1}) ${v}`).join('\n')}\n- 서론의 마지막 문장은 이 문제를 독자에게 묻는 질문 한 문장(물음표)으로.\n- 절마다 "takeaway" 에 필자의 반응 한 문장: 조건(누가·어떤 경우) + 행동 + 이유. "확인하세요·점검하세요" 목록은 반응이 아닙니다.\n- "conclusion" 은 서론의 질문을 한 문장으로 되받고 답을 줍니다 — "A 라면 된다 / B 라면 안 된다".\n- 위반이 없는 절과 문장은 그대로 둡니다. 새 수치를 지어내지 않습니다.\n`
+        : '';
       const improvePrompt = `
 키워드: ${keyword}
-아래 JSON은 블로그 본문 초안입니다. **품질이 낮아서 보강이 필요합니다!**
+아래 JSON은 블로그 본문 초안입니다. **${lowQuality ? '품질이 낮아서 보강이 필요합니다!' : '흐름(실)이 끊겨 손질이 필요합니다.'}**
 
 🔴🔴🔴 필수 보강 규칙 🔴🔴🔴
 1) JSON 구조(객체/필드명)는 그대로 유지
-2) 각 H3의 content를 **600~1000자**로 확장 (현재 너무 짧음!)
-3) 각 content는 **<p> 태그 5개** 필수
-4) 중복 표현/반복 멘트 완전 제거
+${lowQuality ? '2) 각 H3의 content를 **600~1000자**로 확장 (현재 너무 짧음!)\n3) 각 content는 **<p> 태그 5개** 필수' : '2) 분량은 지금 그대로(±10%). 늘리려고 같은 말을 되풀이하지 않습니다\n3) 고치라는 곳 말고는 문장을 바꾸지 않습니다'}
+4) 중복 표현/반복 멘트 완전 제거${threadFixBlock}
 5) 숫자/통계는 참고 크롤링 데이터 또는 기존 JSON에 있는 값만 사용! 출처 불명 숫자 만들기 금지!
 6) 직접 경험하지 않은 것을 경험한 것처럼 쓰지 마세요
 7) 한글과 영문/숫자만 사용. 중국어 한자(漢字) 절대 금지!
@@ -2024,7 +2035,7 @@ JSON만 출력 (설명/마크다운 금지):
   5. [데이터 전달형]: 정확한 수치와 팩트를 중심으로 한 신뢰감 있는 전개.
 
 📝 톤 규칙:
-- "~해요", "~거든요" 친근한 말투
+- ${shouldApplyCasualTransform() ? '"~해요", "~거든요" 친근한 말투 — 선생님이 앞에 앉은 한 사람에게 존댓말로 설명하듯' : '"~합니다", "~입니다" 합니다체 — 본문과 같은 말투 (v3.8.673: 보강이 말투를 바꾸지 않는다)'}
 - 전문성이 느껴지면서 친근한 톤
 - 체류시간 5분 이상 유지할 수 있는 흡인력
 
@@ -2036,7 +2047,7 @@ ${reference.slice(0, 8000)}
 ${JSON.stringify(allSectionsObj)}
 =====
 
-🚨 주의: 각 H3 content가 600자 미만이면 실패입니다! 중요 문장에 <strong> 및 <mark> 태그를 적극 활용하세요.
+${lowQuality ? '🚨 주의: 각 H3 content가 600자 미만이면 실패입니다! 중요 문장에 <strong> 및 <mark> 태그를 적극 활용하세요.' : '🚨 주의: 고치라는 곳만 고칩니다. 분량이 20% 이상 줄거나 늘면 실패입니다.'}
 
 JSON만 출력:
 `;
@@ -2079,6 +2090,13 @@ JSON만 출력:
         // 총 분량이 원본의 80% 미만이면 "보강"이 아니라 손실이다
         if (beforeLen > 0 && afterLen < beforeLen * 0.8) {
           reasons.push(`총 분량 감소(${beforeLen}자→${afterLen}자)`);
+        }
+        // v3.8.673 — 실 위반이 늘었으면 받지 않는다. 실 위반만으로 불렀는데 하나도 안 줄었으면 받을 이유가 없다
+        if (thread) {
+          const threadAfter = threadViolations(candidate, thread);
+          if (threadAfter.length > threadBefore.length) reasons.push(`실 위반 증가(${threadBefore.length}→${threadAfter.length})`);
+          else if (!lowQuality && threadAfter.length >= threadBefore.length) reasons.push(`실 위반 그대로(${threadBefore.length})`);
+          else if (threadBefore.length) onLog?.(`[PROGRESS] 65% - 🧵 보강으로 실 위반 ${threadBefore.length}→${threadAfter.length}건`);
         }
 
         if (reasons.length > 0) {

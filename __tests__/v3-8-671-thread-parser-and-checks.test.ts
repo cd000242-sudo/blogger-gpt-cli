@@ -161,13 +161,18 @@ describe('v3.8.671 실 설계 1차 — 파서 · 기계 수리 · 흐름 검사(
     expect(kinds).toContain('intro-question-missing');
     expect(kinds).toContain('section-closer-checklist');
     expect(kinds).toContain('conclusion-not-answering');
-    for (const i of r.issues.filter((x) => /intro-question|section-closer|conclusion-not/.test(x.kind))) expect(i.penalty).toBe(0);
-    expect(r.issues.find((i) => i.kind === 'section-closer-checklist')!.title).toMatch(/절 4개 중 4개/);
-    // 하네스에 실려 있고 점수는 안 깎는다
+    // v3.8.673: 26편 보정 뒤 감점을 켰다 — 서론 6, 절 닫음은 절마다 2, 결론은 낱말 대조라 아직 0
+    expect(r.issues.find((i) => i.kind === 'intro-question-missing')!.penalty).toBe(6);
+    const closers = r.issues.filter((i) => i.kind === 'section-closer-checklist');
+    expect(closers).toHaveLength(4);
+    for (const c of closers) { expect(c.penalty).toBe(2); expect(c.title).toMatch(/\(4\/4절\)/); }
+    expect(closers[0]!.evidence.split('\n')[0]).toContain('한 번에 점검하는 것이 안전해요');   // 자가 수정이 이 문장으로 절을 찾는다
+    expect(r.issues.find((i) => i.kind === 'conclusion-not-answering')!.penalty).toBe(0);
+    // 하네스에 실려 있고, 서론을 질문으로 고치면 그만큼(6) 점수가 오른다 (v3.8.673)
     const a = auditArticle(html, [], { title: TITLE });
     expect(a.issues.map((i) => i.kind)).toContain('intro-question-missing');
     expect(auditArticle(html.replace('먼저 가입 방식과 배우자 등록 내용을 확인하는 것이 출발점이에요.', '그렇다면 배우자는 언제 승계를 잃고, 무엇을 먼저 해야 할까요?'), [], { title: TITLE }).score)
-      .toBe(a.score);
+      .toBe(a.score + 6);
   });
 
   test('P5 붙잡은 글 — 서론이 질문으로 끝나고, 절이 필자의 반응으로 닫히고, 결론이 답하면 셋 다 안 잡는다', () => {
@@ -186,9 +191,10 @@ describe('v3.8.671 실 설계 1차 — 파서 · 기계 수리 · 흐름 검사(
     expect(kinds).not.toContain('conclusion-not-answering');
   });
 
-  test('P5 셋은 자가 수정 대상이 아니다(673 에서 보정 뒤에) — 알리기만', () => {
+  test('P5 — 673 에서 보정 뒤 서론·절 닫음은 자가 수정 대상, 결론 검사는 낱말 대조라 아직 알리기만', () => {
     const p = read('src/core/final/pre-publish-fix.ts');
-    for (const k of ['intro-question-missing', 'section-closer-checklist', 'conclusion-not-answering']) expect(p).not.toContain(`'${k}',`);
+    for (const k of ['intro-question-missing', 'section-closer-checklist']) expect(p).toContain(`'${k}',`);
+    expect(p).not.toContain("'conclusion-not-answering',");
     expect(fs.existsSync(path.join(__dirname, '..', 'scripts', 'flow-calibrate.js'))).toBe(true);
   });
 });

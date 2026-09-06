@@ -310,8 +310,11 @@ export function findFlowGaps(
           issues.push({
             kind: 'intro-question-missing',
             title: `서론이 질문 없이 끝납니다: "${tail[tail.length - 1]!.slice(0, 50)}"`,
-            evidence: '도입에서 독자의 문제를 질문 하나로 세워야 절과 결론이 붙잡을 것이 생깁니다. "확인하는 것이 출발점이에요" 같은 지시로 끝나면 붙잡을 문제가 없습니다.',
-            penalty: 0,
+            // 근거 첫 줄에 서론 문장을 둔다 — 자가 수정이 이 문장으로 0번 구간(도입)을 찾는다
+            // 따옴표 없이 — locateSection 은 첫 40자를 본문에서 그대로 찾는다
+            evidence: `${tail[tail.length - 1]!.slice(0, 60)}\n도입에서 독자의 문제를 질문 하나로 세워야 절과 결론이 붙잡을 것이 생깁니다. "확인하는 것이 출발점이에요" 같은 지시로 끝나면 붙잡을 문제가 없습니다.`,
+            // v3.8.673 — 26편 보정(5/26, 전부 진짜) 뒤 감점을 켠다
+            penalty: 6,
           });
         }
       }
@@ -320,8 +323,7 @@ export function findFlowGaps(
     // ② 절의 마지막 문장 — "점검하세요·확인한 뒤·순서대로 정리" 로 닫히고 이유가 없으면 필자의 반응이 아니라 목록이다
     const CHECKLIST_CLOSER = /(?:점검|확인|살펴|정리|대조|검토|비교|파악)(?:하는\s*(?:것이|편이)|해야|하세요|해\s*보세요|하시|한\s*뒤|하면)|먼저\s*잡으세요|순서대로\s*(?:정리|확인|점검)|함께\s*(?:점검|살펴)|한\s*번에\s*점검/;
     const reasonRe: RegExp = depth.REASON;
-    const closers: string[] = [];
-    let checked = 0;
+    const closers: Array<{ heading: string; last: string }> = [];
     let total = 0;
     for (const part of parts) {
       const heading = toPlain((part.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i) || [])[1] || '').trim();
@@ -333,17 +335,22 @@ export function findFlowGaps(
       const last = ss[ss.length - 1]!;
       // "만기가 가까운 경우라면 새 대출 승인만 기다리지 말고 …" 는 조건부 판단이다 — 보정에서 목록으로 잘못 봤다
       if (CHECKLIST_CLOSER.test(last) && !READER_CONDITION.test(last) && !reasonRe.test(ss.slice(-2).join(' '))) {
-        checked += 1;
-        closers.push(`${heading.slice(0, 18)}: "${last.slice(0, 40)}"`);
+        closers.push({ heading, last });
       }
     }
-    if (total >= 2 && checked >= Math.max(2, Math.ceil(total * 0.6))) {
-      issues.push({
-        kind: 'section-closer-checklist',
-        title: `절 ${total}개 중 ${checked}개가 점검 목록으로 닫힙니다: ${closers.slice(0, 2).join(' / ')}`,
-        evidence: '절의 마지막은 필자의 반응이어야 합니다 — 조건(누가·어떤 경우) + 행동 + 이유. "점검하세요·확인한 뒤 진행하세요" 는 반응이 아니라 목록입니다.',
-        penalty: 0,
-      });
+    /**
+     * v3.8.673 — 절의 60% 이상이 목록으로 닫힐 때만 잡되, 절마다 한 건씩 낸다(감점 2). 근거 첫 줄이 그 절의 마지막 문장이라
+     * 자가 수정이 절을 찾을 수 있다. 26편 보정: 1/26(라이브 1편, 4/5 절).
+     */
+    if (total >= 2 && closers.length >= Math.max(2, Math.ceil(total * 0.6))) {
+      for (const c of closers) {
+        issues.push({
+          kind: 'section-closer-checklist',
+          title: `절 「${c.heading.slice(0, 24)}」이 점검 목록으로 닫힙니다 (${closers.length}/${total}절): "${c.last.slice(0, 40)}"`,
+          evidence: `${c.last.slice(0, 60)}\n절의 마지막은 필자의 반응이어야 합니다 — 조건(누가·어떤 경우) + 행동 + 이유. "점검하세요·확인한 뒤 진행하세요" 는 반응이 아니라 목록입니다.`,
+          penalty: 2,
+        });
+      }
     }
 
     // ③ 결론(FAQ 앞 1,200자) — 도입의 질문(없으면 제목)의 핵심 낱말 둘과 판단이 한 문장에 있어야 답한 것이다

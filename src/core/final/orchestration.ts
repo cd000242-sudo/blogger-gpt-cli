@@ -3079,6 +3079,7 @@ ${quoted}
       draftContent,
       scopedSectionBlock,
       skipQualityBoost,
+      articleThread,   // v3.8.673 — 보강 호출이 실 위반도 고친다
     );
 
     // 🧬 v3.8.390: 자기중복 관측 — **차단하지 않는다.** 재고만 하고 발행은 그대로 진행한다.
@@ -3155,6 +3156,7 @@ ${quoted}
             draftContent,
             stricterPromptBlock,
             skipQualityBoost,
+            articleThread,
           );
           report = computeSimilarity(allSectionsObj);
           onLog?.(`[PROGRESS] 70% - 🔄 페러프레이징 2차 검증: ${report.message}`);
@@ -3205,6 +3207,7 @@ ${quoted}
             draftContent,
             stricterBlock,
             skipQualityBoost,
+            articleThread,
           );
           const retriedCount = (retried.sections || []).length;
           if (retriedCount >= modeTargets.min) {
@@ -3262,7 +3265,7 @@ ${quoted}
           `- 잘림 절대 금지 — 모든 섹션 끝까지 완성\n`;
         try {
           const retried = await generateAllSectionsFinal(
-            keyword, h2Titles, factEnrichedContents, onLog, contentMode, draftContent, richerBlock, skipQualityBoost,
+            keyword, h2Titles, factEnrichedContents, onLog, contentMode, draftContent, richerBlock, skipQualityBoost, articleThread,
           );
           const retriedLen = sumPlain(retried);
           if (retriedLen > plainLen) {
@@ -3329,7 +3332,7 @@ ${quoted}
         const substanceBlock = scopedSectionBlock + buildSubstanceRetryBlock(substanceReport);
         try {
           const retried = await generateAllSectionsFinal(
-            keyword, h2Titles, factEnrichedContents, onLog, contentMode, draftContent, substanceBlock, skipQualityBoost,
+            keyword, h2Titles, factEnrichedContents, onLog, contentMode, draftContent, substanceBlock, skipQualityBoost, articleThread,
           );
           const retriedReport = scanSubstance({ contentHtml: collectBodyHtml(retried) });
           if (retriedReport.score > substanceReport.score) {
