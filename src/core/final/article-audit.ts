@@ -598,7 +598,7 @@ export function findBrokenTitles(headings: string[]): AuditIssue[] {
 export function auditArticle(
   html: string,
   headings: string[] = [],
-  opts: { title?: string } = {},
+  opts: { title?: string; question?: string | undefined } = {},
 ): AuditReport {
   const text = toPlainText(html);
   const sections = splitAuditSections(html);
@@ -617,7 +617,7 @@ export function auditArticle(
   const thin = findThinSections(sections);
   // v3.8.660 — 흐름·관점: 회피 밀도 · 1인칭 판단 · 제목 낱말이 끊긴 절 · 서론 약속↔마무리 (호출 0)
   const flow: { issues: AuditIssue[]; stats: { deferralPer1000: number; firstPersonStance: number; sectionsOffTitle: number } } =
-    require('./narrative-flow').findFlowGaps(html, toPlainText, { title: toPlainText(title) });
+    require('./narrative-flow').findFlowGaps(html, toPlainText, { title: toPlainText(title), question: opts.question });
   // v3.8.662 — 깊이와 목소리: 조건·행동 없는 판단, 절마다 같은 틀의 표
   const depth = require('./depth-voice');
   const stanceStats: { total: number; sharp: number } = depth.measureStances(text);

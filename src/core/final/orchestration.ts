@@ -2819,8 +2819,31 @@ ${quoted}
      * 사장님: "제목의 공감을 본문이 끝까지 이어받아야 해". 절 생성 호출은 제목을 모른 채 키워드와
      * 소제목만 받았다 — 그래서 절마다 처음부터 설명을 시작했고 제목이 약속한 독자의 상황이 끊겼다.
      */
-    if (String(h1 || '').trim()) {
-      scopedSectionBlock = `${scopedSectionBlock}\n\n📌 [이 글의 제목] "${String(h1).trim()}"\n서론은 이 제목이 약속한 독자의 상황을 받아 질문 하나로 끝내고, 모든 절이 그 상황의 그 독자에게 말합니다. 제목의 공감을 본문이 끝까지 이어받습니다.\n`;
+    /**
+     * v3.8.672 — 실(thread). 660 의 📌 제목 블록("서론은 … 질문 하나로 끝내고")을 **대신**한다.
+     * 그 한 줄은 질문이 무엇인지 코드가 정하지 않아 라이브 1편에서 서론이 질문 없이 끝났다.
+     * 이제 코드가 글 쓰기 전에 독자의 문제(리포트 클릭 이유 → 실물 QnA → 지식iN → 제목 약속)와
+     * 절마다 답할 의문을 정해 넘긴다. 호출 0. 설계 docs/thread-design-671.md P2·P3.
+     */
+    let articleThread: import('./thread').Thread | undefined;
+    try {
+      const { buildThread, buildThreadBlock, describeThreadSource } = require('./thread');
+      articleThread = buildThread({
+        title: String(h1 || ''),
+        keyword,
+        slot: (payload as any)?.cpcReportSlot,
+        userQuestions: demandSignals?.userQuestions,
+        h2Titles,
+      });
+      if (articleThread) {
+        scopedSectionBlock = `${scopedSectionBlock}\n${buildThreadBlock(articleThread, { title: String(h1 || ''), h2Titles })}`;
+        onLog?.(`[PROGRESS] 41% - 🧵 실: 「${articleThread.question.slice(0, 40)}」 (${describeThreadSource(articleThread.source)}) · 절 ${articleThread.asks.filter(Boolean).length}/${h2Titles.length}개에 의문 배정`);
+      }
+    } catch (threadErr: any) {
+      console.warn('[THREAD] 실 만들기 실패 — 제목 블록만 싣습니다:', String(threadErr?.message || threadErr).slice(0, 80));
+      if (String(h1 || '').trim()) {
+        scopedSectionBlock = `${scopedSectionBlock}\n\n📌 [이 글의 제목] "${String(h1).trim()}"\n서론은 이 제목이 약속한 독자의 상황을 받아 질문 하나로 끝내고, 모든 절이 그 상황의 그 독자에게 말합니다. 제목의 공감을 본문이 끝까지 이어받습니다.\n`;
+      }
     }
     /**
      * v3.8.660 — 경험은 사람이 적은 것만 쓴다.
@@ -3430,6 +3453,20 @@ ${quoted}
       }
     }
 
+    /**
+     * v3.8.672 — 실 위반을 센다 (호출 0). 673 에서 품질 보강 트리거와 자가 수정 재료로 쓴다. 지금은 로그와 장부용.
+     */
+    try {
+      if (articleThread) {
+        const { threadViolations } = require('./thread');
+        const violations: string[] = threadViolations(allSectionsObj, articleThread);
+        (globalThis as any).__lastThreadViolations = violations;
+        const answered = (allSectionsObj.sections || []).filter((s: any) => String(s?.answersTo || '').trim()).length;
+        onLog?.(violations.length
+          ? `[PROGRESS] 74% - 🧵 실 위반 ${violations.length}건: ${violations.slice(0, 3).join(' · ')} (answersTo ${answered}/${(allSectionsObj.sections || []).length})`
+          : `[PROGRESS] 74% - 🧵 실 위반 0건 (answersTo ${answered}/${(allSectionsObj.sections || []).length})`);
+      }
+    } catch { /* 세기 실패가 발행을 막지 않는다 */ }
     const introductionHTML = allSectionsObj.introduction;
     const conclusionHTML = allSectionsObj.conclusion;
     const articleTextForAux = [
@@ -6197,7 +6234,7 @@ ${conclusionHTML}
     try {
       const { fixBeforePublish } = require('./pre-publish-fix');
       const outcome = await fixBeforePublish(
-        { title: h1 || keyword, html, reportSlot: (payload as any)?.cpcReportSlot },
+        { title: h1 || keyword, html, reportSlot: (payload as any)?.cpcReportSlot, question: articleThread?.question },
         (prompt: string) => callGeminiWithRetry(prompt, 1, { timeoutMs: 120000 }),
         onLog,
       );
@@ -6237,7 +6274,8 @@ ${conclusionHTML}
     try {
       const { auditArticle } = require('./article-audit');
       const { appendLedgerEntry } = require('./publish-ledger');
-      const audited = auditArticle(html);
+      // v3.8.672 — 제목과 실의 질문을 넘겨야 흐름 검사가 같은 눈으로 본다
+      const audited = auditArticle(html, [], { title: String(h1 || keyword || ''), question: articleThread?.question });
       const kinds: Record<string, number> = {};
       for (const i of audited.issues) kinds[i.kind] = (kinds[i.kind] || 0) + 1;
       const overlap = (globalThis as any).__lastSelfOverlap || {};

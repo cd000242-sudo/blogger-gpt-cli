@@ -215,6 +215,23 @@ export function buildAgentHarnessRules(input: AgentHarnessInput): string {
         return buildReportDirective(slot, (input as any).reportUrls || []) + buildTitlePromiseBlock(String(slot.title || ''));
       } catch { return ''; }
     })(),
+    /**
+     * v3.8.672 — 실(thread). API 경로(orchestration)와 같은 buildThread·buildThreadBlock 을 쓴다.
+     * 에이전트는 소제목을 스스로 정하므로 절 ↔ 의문 표 대신 의문 목록만 싣는다.
+     */
+    (() => {
+      try {
+        const { buildThread, buildThreadBlock } = require('./thread');
+        const slot = (input as any).reportSlot;
+        const thread = buildThread({
+          title: String(slot?.title || ''),
+          keyword: input.keyword,
+          slot,
+          userQuestions: input.demandQuestions,
+        });
+        return buildThreadBlock(thread, { title: String(slot?.title || '') });
+      } catch { return ''; }
+    })(),
     buildResearchDirective(input),
     /**
      * v3.8.583 — 앱이 모은 근거를 **검색 지시 바로 뒤에** 놓는다.

@@ -30,6 +30,7 @@ import { SUBSTANCE_FIRST_PASS_RULES, FRESHNESS_RULES } from './substance-rules';
 import { DECISION_SUPPORT_RULES } from './decision-support';
 // v3.8.660 — 도입의 질문을 끝까지 붙잡는 구성과 필자의 관점 (에이전트 경로와 같은 원본)
 import { NARRATIVE_FLOW_RULES } from './narrative-flow';
+import { THREAD_JSON_FIELDS, attachTakeaways } from './thread';   // v3.8.672 실
 // v3.8.662 — 깊이와 목소리: 판단 = 조건+행동, 자료 수치 그대로, 표 3개 이하, 곁가지 절 금지
 import { DEPTH_VOICE_RULES } from './depth-voice';
 // v3.8.529: StoryScope(COLM 2026) — 문체가 아니라 구조로 AI 티를 지운다.
@@ -1458,6 +1459,9 @@ export async function generateAllSectionsFinal(
   conclusion: string;
   sections: Array<{
     h2: string;
+    /** v3.8.672 실 — 이 절이 답한 독자의 의문 / 필자의 반응. 모델이 안 채우면 빈 문자열 */
+    answersTo?: string;
+    takeaway?: string;
     h3Sections: Array<{
       h3: string;
       content: string;
@@ -1803,6 +1807,7 @@ JSON 형식 (이 구조 정확히 따르기!):
   "sections": [
     {
       "h2": "첫 번째 H2 제목",
+      ${THREAD_JSON_FIELDS}
       "h3Sections": [
         {"h3": "10~15자 H3 제목", "content": "<p>위 다채로운 본문 포맷 중 하나를 선택해 충분한 분량으로 작성</p>...", "tables": []}
       ]
@@ -2170,10 +2175,13 @@ JSON만 출력:
     }
 
     // 결과 정규화 및 에디팅 톤 변환
-    return {
+    const normalized = {
       introduction: allSectionsObj.introduction || '',
       conclusion: allSectionsObj.conclusion || '',
       sections: (allSectionsObj.sections || []).map((sec, idx) => ({
+        // v3.8.672 — 실 칸. 코드가 문자열로 검사한다(thread.ts). 없으면 빈 문자열
+        answersTo: String((sec as any).answersTo || '').replace(/<[^>]+>/g, '').trim(),
+        takeaway: String((sec as any).takeaway || '').trim(),
         h2: (h2Titles[idx] || sec.h2 || '').replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, ''),
         h3Sections: (sec.h3Sections || []).map((h3Sec, h3Idx) => ({
           h3: ((h3Sec.h3 || '').replace(/[\u4E00-\u9FFF\u3400-\u4DBF]/g, '').trim() || `\uD575\uC2EC \uC815\uB9AC ${h3Idx + 1}`),
@@ -2224,6 +2232,13 @@ JSON만 출력:
         }))
       }))
     };
+    /**
+     * v3.8.672 — takeaway(필자의 반응)를 절 끝에 <p> 로 붙인다. 본문에 같은 문장이 이미 있으면 안 붙인다.
+     * 말투는 본문과 같은 치환을 거친다.
+     */
+    const withTakeaways = attachTakeaways(normalized.sections, (t) => applyCasualTransform(t));
+    if (withTakeaways.attached > 0) onLog?.(`[PROGRESS] 66% - 🧵 절 ${withTakeaways.attached}개에 필자의 반응(takeaway)을 붙였습니다`);
+    return { ...normalized, sections: withTakeaways.sections };
 
   } catch (e) {
     // 🚨 LLM 실패 시 폴백을 사용하면 H2 N개가 모두 동일 보일러플레이트로 채워져

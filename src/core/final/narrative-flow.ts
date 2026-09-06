@@ -134,7 +134,7 @@ export interface FlowStats {
 export function findFlowGaps(
   html: string,
   toPlain: (h: string) => string,
-  opts: { title?: string; question?: string } = {},
+  opts: { title?: string; question?: string | undefined } = {},
 ): { issues: AuditIssue[]; stats: FlowStats } {
   const src = String(html || '');
   const plain = toPlain(src);
@@ -349,7 +349,10 @@ export function findFlowGaps(
     // ③ 결론(FAQ 앞 1,200자) — 도입의 질문(없으면 제목)의 핵심 낱말 둘과 판단이 한 문장에 있어야 답한 것이다
     const question = String(opts.question || '').trim();
     // 제목의 날짜·숫자("8월", "31일")는 답의 낱말이 아니다 — 보정에서 이것 때문에 답한 결론을 두 편 놓쳤다
-    const keyWords = [...new Set(words(toPlain(question || title)))].filter((w) => w.length >= 2 && !STOP.has(w) && !/^\d/.test(w));
+    // 용언 꼬리를 뗀다 — "탈락하는" 과 "탈락이에요" 는 같은 낱말이다 (672 실측)
+    // words() 가 조사 "는" 을 먼저 떼어 "탈락하는" 은 "탈락하" 로 온다 — 그래서 "하·되" 홑글자 꼬리도 뗀다
+    const keyWords = [...new Set(words(toPlain(question || title)).map((w) => w.replace(/(?:하는|되는|하면|되면|어져도|어져|해도|하고|되고|하는지|되는지|하|되)$/, '')))]
+      .filter((w) => w.length >= 2 && !STOP.has(w) && !/^\d/.test(w));
     if (keyWords.length >= 2 && parts.length >= 2) {
       const tailText = plain.replace(/※[\s\S]*$/, '');
       const faqAt = tailText.search(/자주\s*묻는\s*질문|FAQ/i);
@@ -358,7 +361,7 @@ export function findFlowGaps(
       const stanceRe = new RegExp(FIRST_PERSON_STANCE.source);
       const actRe: RegExp = depth.ACTION;
       // "줄일 수 있어요" 가 판단으로 잡히지 않게 "있어요·있습니다" 는 뺀다
-      const VERDICT_END = /(?:돼요|됩니다|안\s*돼요|되지\s*않(?:아요|습니다)|없어요|없습니다|아니에요|아닙니다|가능해요|가능합니다|불가능(?:해요|합니다)|대상이에요|대상입니다)[.!?]?$/;
+      const VERDICT_END = /(?:돼요|됩니다|안\s*돼요|되지\s*않(?:아요|습니다)|없어요|없습니다|아니에요|아닙니다|가능해요|가능합니다|불가능(?:해요|합니다)|(?:탈락|면제|대상|제외|가능|불가|승계|지급|부과|환급|거절|승인|통과|종료|중단|유지)(?:이에요|입니다|예요|돼요|됩니다|이\s*아니에요|가\s*아니에요|이\s*아닙니다|가\s*아닙니다))[.!?]?$/;
       const answered = endSentences.some((s) => keyWords.some((w) => s.includes(w))
         && (stanceRe.test(s) || (READER_CONDITION.test(s) && actRe.test(s)) || VERDICT_END.test(s)));
       if (!answered) {

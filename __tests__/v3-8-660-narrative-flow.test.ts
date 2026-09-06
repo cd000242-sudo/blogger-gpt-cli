@@ -108,7 +108,9 @@ describe('v3.8.660 흐름·관점', () => {
     expect(NARRATIVE_FLOW_RULES).toContain('필자의 판단 한 문장으로 닫습니다');
     expect(read('src/core/final/generation.ts')).toContain('${NARRATIVE_FLOW_RULES}');
     // 제목이 절 프롬프트에 실린다 — "제목의 공감을 본문이 끝까지 이어받아야 해"
-    expect(read('src/core/final/orchestration.ts')).toContain('📌 [이 글의 제목]');
+    // v3.8.672: 제목 블록은 실(thread) 블록 안으로 들어갔다 — orchestration 은 실을 만들고, 문구는 thread.ts 가 가진다
+    expect(read('src/core/final/thread.ts')).toContain('📌 [이 글의 제목]');
+    expect(read('src/core/final/orchestration.ts')).toContain('buildThreadBlock(articleThread');
     expect(read('src/core/final/agent-harness.ts')).toContain("require('./narrative-flow').NARRATIVE_FLOW_RULES");
     const s = read('src/core/final/storyscope-rules.ts');
     expect(s).toContain('근거 붙은 필자의 판단');

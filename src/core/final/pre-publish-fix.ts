@@ -91,7 +91,7 @@ export interface PreflightReport {
 /**
  * 발행 직전에 무엇이 문제인지 코드로만 찾는다. **AI 호출 0회.**
  */
-export function inspectBeforePublish(input: { title: string; html: string; reportSlot?: any }): PreflightReport {
+export function inspectBeforePublish(input: { title: string; html: string; reportSlot?: any; question?: string | undefined }): PreflightReport {
   const html = String(input.html || '');
   const title = String(input.title || '').trim();
   const sections = splitSections(html);
@@ -104,7 +104,8 @@ export function inspectBeforePublish(input: { title: string; html: string; repor
   let audited: AuditIssue[] = [];
   try {
     // v3.8.655 — 제목을 넘겨야 「제목 약속 불이행」을 본다 (본문에 h1 이 없는 경우가 많다)
-    audited = auditArticle(html, [], { title }).issues;
+    // v3.8.672 — 실의 질문을 넘기면 「결론이 질문에 답 안 함」이 제목 대신 그 질문으로 본다
+    audited = auditArticle(html, [], { title, question: input.question }).issues;
   } catch { /* 검사 실패가 발행을 막지 않는다 */ }
   for (const issue of audited) {
     push({
@@ -248,12 +249,12 @@ export interface FixOutcome {
  * 그래야 사장님이 고른 엔진이 그대로 쓰인다.
  */
 export async function fixBeforePublish(
-  input: { title: string; html: string; reportSlot?: any },
+  input: { title: string; html: string; reportSlot?: any; question?: string | undefined },
   callModel: (prompt: string) => Promise<string>,
   onLog?: (line: string) => void,
 ): Promise<FixOutcome> {
   const html = String(input.html || '');
-  const report = inspectBeforePublish({ title: input.title, html, reportSlot: input.reportSlot });
+  const report = inspectBeforePublish({ title: input.title, html, reportSlot: input.reportSlot, question: input.question });
 
   for (const a of report.advisory) onLog?.(`   ℹ️ ${a.title}`);
 
