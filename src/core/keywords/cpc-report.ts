@@ -240,8 +240,9 @@ export function parseCpcReport(markdown: string): CpcReport {
     };
   });
 
+  // v3.8.666 실측: 구글 문서 내보내기가 주소 안의 & 도 `\&` 로 감싼다 — 그대로 부르면 400 이 온다
   const urls = [...new Set(
-    (src.match(/https?:\/\/[^\s<>()「」\]]+/g) || []).map((u) => u.replace(/[.,]+$/, '')),
+    (src.match(/https?:\/\/[^\s<>()「」\]]+/g) || []).map((u) => u.replace(/\\([&%#?=_])/g, '$1').replace(/[.,]+$/, '')),
   )];
 
   // 슬롯 꼴이 아니면 번호 항목 꼴로 다시 본다 (v3.8.643 — v5 리포트)

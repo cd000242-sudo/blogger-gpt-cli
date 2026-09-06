@@ -233,7 +233,7 @@ export function removeEchoedSentences(html: string): { html: string; count: numb
      * v3.8.665 실측(대출 갈아타기 글): 앞 문장을 되풀이라고 지웠더니 "이 안내에서 읽을 점은…" 이 허공을 가리켰다.
      * 다음 문장이 지시어("이 안내·그 기준·위 내용")로 시작하면 그 앞 문장은 지우지 않는다.
      */
-    const REFERS_BACK = /^(?:이|그|위|해당|같은)\s*(?:안내|자료|기준|내용|구분|문구|조건|수치|숫자|표|목록|절차|방식|판단|사례|보도|발표|지침|규정|문서|사실|점|경우|말|설명|결과|기록|보도자료)/;
+    const REFERS_BACK: RegExp = require('./refers-back').REFERS_BACK;   // v3.8.666: fact-integrity 와 같은 눈
     const kept: string[] = [];
     for (let pi = 0; pi < parts.length; pi++) {
       const part = parts[pi]!;

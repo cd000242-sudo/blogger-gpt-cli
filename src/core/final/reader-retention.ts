@@ -64,15 +64,27 @@ export function titlePromises(title: string): string[] {
  * 키워드에 이미 있는 낱말은 뺀다 — 조각은 키워드가 못 찾은 것을 찾는 자리다.
  */
 const QUERY_SUFFIX = /(인지|일까|까지|부터|처럼|에서|에게|으로|이면|라면|여도|이라도)$/;
+/** 검색어로 쓰면 아무거나 잡히는 낱말 — v3.8.665 실측: "지역", "부결 사유", "신청 경로 갈리" 로 검색해 엉뚱한 뉴스 5건씩 */
+const QUERY_GENERIC = new Set(['지역', '지점', '사유', '방법', '경우', '여부', '기준', '확인', '방식', '경로', '신청', '대상', '내용', '정리', '판단']);
+/** 용언 조각 — "갈리는·가는·따로다" 는 낱말이 아니다 */
+const VERB_TAIL = /(?:하는|되는|가는|오는|리는|이는|던|할|될|된|한|다)$/;
 export function promiseQuery(chunk: string, keyword: string): string {
   const kw = new Set(promiseWords(keyword));
-  const words = promiseWords(chunk)
-    .map((w) => w.replace(QUERY_SUFFIX, ''))
-    .filter((w) => w.length >= 2 && !kw.has(w) && !PROMISE_STOP.has(w));
+  const words: string[] = [];
+  for (const raw of String(chunk || '').replace(/[^가-힣0-9\s]/g, ' ').split(/\s+/)) {
+    if (!raw) continue;
+    const w = raw.replace(/(은|는|이|가|을|를|의|에|로|와|과|도)$/, '').replace(QUERY_SUFFIX, '');
+    if (VERB_TAIL.test(raw) && w.length <= 3) continue;
+    if (w.length < 2 || kw.has(w) || PROMISE_STOP.has(w) || QUERY_GENERIC.has(w) || words.includes(w)) continue;
+    words.push(w);
+  }
   const picked = new Set([...words].sort((a, b) => b.length - a.length).slice(0, 3));
   const ordered = words.filter((w) => picked.has(w));
   const date = String(chunk || '').match(/(?<!\d)(\d{1,2})[·・.](\d{1,2})(?!\d)/);
   const dateText = date ? `${date[1]}월 ${date[2]}일` : '';
+  // v3.8.666: 낱말이 약하면(4자 넘는 고유명사도, 둘 이상도, 날짜도 없으면) 빈 문자열 — 호출부가 예전 검색어(키워드+조각)로 돈다
+  const strong = ordered.some((w) => w.length >= 4) || ordered.length >= 2 || !!dateText;
+  if (!strong) return '';
   return [...ordered, dateText].filter(Boolean).join(' ').trim();
 }
 

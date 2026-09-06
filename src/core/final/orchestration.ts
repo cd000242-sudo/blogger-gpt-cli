@@ -6202,7 +6202,9 @@ ${conclusionHTML}
       const restored = restoreAnswerBlockQuestion(html, { question: summaryTable?.question, keyword, language: (payload as any)?.language });
       if (restored.changed) {
         html = restored.html;
-        onLog?.('[PROGRESS] 97% - 🧷 답변 블록의 질문 줄을 되살렸습니다');
+        onLog?.(restored.removed
+          ? '[PROGRESS] 97% - 🧷 답변 블록의 답이 비어 블록을 뺐습니다 (사실검증이 답 문단을 지웠습니다)'
+          : '[PROGRESS] 97% - 🧷 답변 블록의 질문 줄을 되살렸습니다');
       }
     } catch { /* 지키기 실패가 발행을 막지는 않는다 */ }
 

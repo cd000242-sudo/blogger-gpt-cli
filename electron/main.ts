@@ -12319,6 +12319,35 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
     const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
 
     /**
+     * v3.8.666 — 호출 0회짜리 후처리를 에이전트 글에도 건다. 사장님: "지금 수정하는 건 에이전트 모드도 적용되는 거지?"
+     * API 경로의 본문 표 상한·되풀이 삭제·auto-repair(마침표 뒤 공백, 숫자 앞 공백, 상대 시점→연도)를 그대로 —
+     * 여기만 빠지면 또 "조용한 미배선" 이다. 실패해도 발행을 막지 않는다.
+     */
+    try {
+      const { autoRepairBeforePublish, removeEchoedSentences, describeRepairs } = require('../dist/core/final/auto-repair');
+      const { capInlineTables } = require('../dist/core/final/table-cap');
+      let polished = String(result.content || '');
+      const capped = capInlineTables([polished], 3);
+      if (capped.demoted > 0) {
+        polished = capped.contents[0] || polished;
+        console.log(`[AGENT-POLISH] 📊 본문 표 ${capped.total}개 중 숫자가 적은 ${capped.demoted}개를 목록으로 바꿨습니다`);
+      }
+      const echo = removeEchoedSentences(polished);
+      if (echo.count > 0) {
+        polished = echo.html;
+        console.log(`[AGENT-POLISH] 🔁 앞과 겹치는 문장 ${echo.count}개를 지웠습니다`);
+      }
+      const repaired = autoRepairBeforePublish(polished);
+      if (repaired.repairs.length > 0) {
+        polished = repaired.html;
+        console.log(`[AGENT-POLISH] 🔧 ${describeRepairs(repaired)}`);
+      }
+      if (polished !== result.content) result.content = polished;
+    } catch (polishErr: any) {
+      console.warn('[AGENT-POLISH] 건너뜀:', String(polishErr?.message || polishErr).slice(0, 120));
+    }
+
+    /**
      * 🩺 v3.8.630 — 에이전트 글도 발행 전에 자가 수정한다.
      *
      * 사장님: "api와 에이전트 둘다 LLM보다 훨씬 양질의 글을 줘야되"

@@ -198,11 +198,19 @@ const ANSWER_Q_STYLE = 'margin:0 0 10px;font-size:15px;font-weight:800;color:var
 export function restoreAnswerBlockQuestion(
   html: string,
   input: { question?: unknown; keyword?: unknown; language?: unknown },
-): { html: string; changed: boolean } {
+): { html: string; changed: boolean; removed?: boolean } {
   const src = String(html || '');
   const block = src.match(ANSWER_SECTION_RE);
   if (!block) return { html: src, changed: false };
   const before = block[0];
+  /**
+   * v3.8.666 실측(상생보험 글): 사실검증이 답 문단을 통째로 비웠다(<p class="answer-first-a"></p>).
+   * 빈 답을 글 맨 위에 두느니 블록을 뺀다 — 예전 순서(서론부터)로 나간다.
+   */
+  const answerInner = (before.match(/<p[^>]*class="answer-first-a"[^>]*>([\s\S]*?)<\/p>/i) || [])[1] || '';
+  if (answerInner.replace(/<[^>]+>/g, '').replace(/&nbsp;|\s/g, '').length < 10) {
+    return { html: src.replace(before, () => ''), changed: true, removed: true };
+  }
   let after = before.replace(/\s*<p>[\s\S]*?<\/p>/gi, '');
   if (!/class="answer-first-q"/i.test(after)) {
     const strings = blockStrings(normalizeBlockLanguage(input.language));

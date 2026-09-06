@@ -313,14 +313,41 @@ export function sanitizeFactUnsafeHeading(heading: string, evidence: FactEvidenc
   return inspectFactIntegrity(cleaned, evidence).status === 'passed' ? cleaned : fallback;
 }
 
+/**
+ * v3.8.666 — 주소는 문장이 아니다.
+ * 실측(v3.8.665, 두 편): "https://www.mt.co.kr/policy/…" 가 "www. mt. co. kr" 로 나갔다 — 아래 문장 분리가 주소 안의
+ * 마침표에서 끊고 공백으로 이었다. 자가 수정 경로는 v3.8.658 에 막았지만 이 경로는 그대로였다.
+ * 주소를 자리표로 바꿔 두고 검사한 뒤 되돌린다. 주소 안의 숫자(2026/09/06)도 수치로 세지 않게 된다.
+ */
+const URL_TOKEN = /(?:https?:\/\/|www\.)[^\s<>"']+/g;
+const URL_SLOT = /␂U(\d+)␂/g;
 export function sanitizeFactUnsafeHtml(html: string, evidence: FactEvidence): string {
+  const urls: string[] = [];
+  const masked = String(html || '').replace(URL_TOKEN, (u) => { urls.push(u); return `␂U${urls.length - 1}␂`; });
+  const out = sanitizeFactUnsafeHtmlMasked(masked, evidence);
+  return urls.length === 0 ? out : out.replace(URL_SLOT, (_m, i: string) => urls[Number(i)] ?? '');
+}
+
+function sanitizeFactUnsafeHtmlMasked(html: string, evidence: FactEvidence): string {
   const withoutMetaBoilerplate = String(html || '').replace(FACT_META_BOILERPLATE_PATTERN, '').replace(/\s{2,}/g, ' ').trim();
   if (inspectFactIntegrity(withoutMetaBoilerplate, evidence).status === 'passed') return withoutMetaBoilerplate;
 
-  const keepVerifiedSentences = (block: string): string => splitSentencesForFactCheck(block)
-    .filter((sentence) => inspectFactIntegrity(sentence, evidence).status === 'passed')
-    .join(' ')
-    .trim();
+  /**
+   * v3.8.666 — 지운 문장 뒤에 "다만 이 수치는…", "두 내용은…" 처럼 앞을 가리키는 문장이 남으면 그것도 뺀다.
+   * 실측(v3.8.665, 세 자리): 근거 없는 문장을 지운 자리 뒤에 지시어 문장이 허공을 가리킨 채 남았다. 되풀이 삭제와 같은 눈이다.
+   */
+  const { startsWithBackReference } = require('./refers-back');
+  const keepVerifiedSentences = (block: string): string => {
+    const kept: string[] = [];
+    let droppedPrev = false;
+    for (const sentence of splitSentencesForFactCheck(block)) {
+      const ok = inspectFactIntegrity(sentence, evidence).status === 'passed';
+      if (!ok || (droppedPrev && startsWithBackReference(sentence))) { droppedPrev = true; continue; }
+      droppedPrev = false;
+      kept.push(sentence);
+    }
+    return kept.join(' ').trim();
+  };
 
   /**
    * 🧱 v3.8.619 — 표의 칸은 **지워도 자리는 남긴다.**

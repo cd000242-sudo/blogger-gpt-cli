@@ -203,6 +203,8 @@ export function applyFactRepairs(html: string, repairs: FactRepair[]): string {
       const body = String(r?.html || '').trim();
       if (!Number.isInteger(idx) || idx < 0 || idx >= paragraphs.length) continue;  // 엉뚱한 번호는 무시
       if (!body) continue;                                                          // 빈 교체본은 무시 — 구멍이 생긴다
+      // v3.8.666 실측: 태그만 남은 교체본(<p class="answer-first-a"></p>)이 답변 블록을 비웠다 — 글자가 없으면 교체본이 아니다
+      if (!body.replace(/<[^>]+>/g, '').replace(/&nbsp;|\s/g, '').trim()) continue;
       byIndex.set(idx, /^<[a-zA-Z]/.test(body) ? body : `<p>${body}</p>`);
     }
     if (byIndex.size === 0) return html;
