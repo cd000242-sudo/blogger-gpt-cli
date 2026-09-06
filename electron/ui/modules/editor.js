@@ -205,19 +205,26 @@ function ensureEditorModal() {
         [넣기] [되돌리기] [내보내기] [마무리] 로 묶고, 묶음 사이에 구분선을 둔다.
       -->
       <span style="${GROUP_LABEL}">넣기</span>
-      <button id="veInsertImageBtn" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="커서 위치(또는 글 끝)에 내 PC 이미지를 넣습니다">🖼️ 이미지</button>
+      <button id="veInsertImageBtn" class="ve-visual-only" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="커서 위치(또는 글 끝)에 내 PC 이미지를 넣습니다">🖼️ 이미지</button>
       <!-- 💰 v3.8.482: 수동 광고 자리. 자동 광고는 위치를 못 고르므로 직접 찍는다. -->
-      <select id="veAdUnitSelect" style="${BTN_BASE}background:#0f172a;color:#e2e8f0;border:1px solid #475569;max-width:150px;" title="넣을 광고 단위를 고르세요"></select>
-      <button id="veInsertAdBtn" style="${BTN_BASE}background:#7c3aed;color:#ede9fe;" title="커서 위치에 광고 자리를 넣습니다 (발행 시 실제 광고 코드로 바뀝니다)">💰 광고</button>
+      <select id="veAdUnitSelect" class="ve-visual-only" style="${BTN_BASE}background:#0f172a;color:#e2e8f0;border:1px solid #475569;max-width:150px;" title="넣을 광고 단위를 고르세요"></select>
+      <button id="veInsertAdBtn" class="ve-visual-only" style="${BTN_BASE}background:#7c3aed;color:#ede9fe;" title="커서 위치에 광고 자리를 넣습니다 (발행 시 실제 광고 코드로 바뀝니다)">💰 광고</button>
       <!-- 🔘 v3.8.570: 사장님 "미리보기 및 수정에 버튼생성이있으면 좋겠는데" -->
-      <button id="veInsertCtaBtn" style="${BTN_BASE}background:#0ea5e9;color:#e0f2fe;" title="커서 위치에 CTA 버튼을 넣습니다 (주소를 넣으면 문구는 자동으로 채워집니다)">🔘 버튼</button>
+      <button id="veInsertCtaBtn" class="ve-visual-only" style="${BTN_BASE}background:#0ea5e9;color:#e0f2fe;" title="커서 위치에 CTA 버튼을 넣습니다 (주소를 넣으면 문구는 자동으로 채워집니다)">🔘 버튼</button>
 
       <span style="${DIVIDER}"></span>
       <span style="${GROUP_LABEL}">되돌리기</span>
-      <button id="veUndoImageOpBtn" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="방금 한 이미지·링크·광고 작업을 한 단계 되돌립니다 (글자 수정은 Ctrl+Z)">↩️ 되돌리기</button>
+      <button id="veUndoImageOpBtn" class="ve-visual-only" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="방금 한 이미지·링크·광고 작업을 한 단계 되돌립니다 (글자 수정은 Ctrl+Z)">↩️ 되돌리기</button>
       <button id="veRevertBtn" style="${BTN_BASE}background:#334155;color:#fbbf24;" title="편집을 모두 버리고 처음 상태로 돌아갑니다">🔄 처음으로</button>
 
       <span style="${DIVIDER}"></span>
+      <!--
+        </> v3.8.687 — HTML 코드 보기·편집.
+        사장님: "혹시 HTML코드로는 못보니?? HTML코드를 수정해야하는경우 아무것도못하자나 표도 못넣고.."
+        미리보기(iframe)와 같은 자리에 코드 칸을 바꿔 끼운다. 코드를 고친 뒤 [미리보기로] 를 누르거나
+        그대로 [저장] 하면 프레임에 반영된다. 코드 모드에서는 프레임에만 먹는 도구(서식·이미지·비평)를 잠근다.
+      -->
+      <button id="veSourceBtn" class="ve-source-toggle" style="${BTN_BASE}background:#0f172a;color:#93c5fd;border:1px solid #475569;" title="HTML 코드를 직접 보고 고칩니다 (표·특수 태그). 다시 누르면 미리보기로 돌아오며 고친 코드가 반영됩니다">&lt;/&gt; HTML 편집</button>
       <button id="veCopyHtmlBtn" style="${BTN_BASE}background:#334155;color:#93c5fd;" title="편집된 HTML을 클립보드로 복사합니다">📋 HTML</button>
       <button id="veSaveAsBtn" style="display:none;${BTN_BASE}background:#334155;color:#e2e8f0;">💾 다른 이름으로</button>
 
@@ -239,14 +246,14 @@ function ensureEditorModal() {
         맞는 지적이다. 글이 깨진 것은 미리보기에서 보게 되는데, 고치려면 창을 닫고
         목록으로 돌아가야 했다. 이미 발행된 글일 때만 보인다(대기열·파일에는 postId 가 없다).
       -->
-      <span id="veRegenWrap" style="display:none;align-items:center;gap:6px;">
+      <span id="veRegenWrap" class="ve-visual-only" style="display:none;align-items:center;gap:6px;">
         <span style="${DIVIDER}"></span>
         <button id="veRegenBtn" style="${BTN_BASE}background:#134e4a;color:#a7f3d0;border:1px solid #115e59;" title="같은 주소 그대로 본문만 새로 만들어 덮어씁니다">🔄 글 다시 생성</button>
         <button id="veRegenImgBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="글자는 그대로 두고 AI 이미지만 다시 만듭니다">🖼️ 이미지 다시 생성</button>
       </span>
 
       <!-- ✏️ v3.8.683 — 어디서 온 글이든(붙여넣기·파일·발행글) 비평→수정, 썸네일, 영역 이미지 -->
-      <span id="veDraftWrap" style="display:inline-flex;align-items:center;gap:6px;">
+      <span id="veDraftWrap" class="ve-visual-only" style="display:inline-flex;align-items:center;gap:6px;">
         <span style="${DIVIDER}"></span>
         <button id="veCritiqueBtn" style="${BTN_BASE}background:#3b0764;color:#e9d5ff;border:1px solid #6b21a8;" title="지금 편집기의 글을 비평합니다. 항목을 고르고 '수정하기'를 누르면 그 구간만 고쳐 편집기에 다시 싣습니다 (발행은 저장 버튼)">🩺 비평·개선</button>
         <button id="veThumbBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="제목으로 썸네일 이미지를 만들어 글 맨 위에 넣습니다">🖼️ 썸네일 생성</button>
@@ -260,7 +267,7 @@ function ensureEditorModal() {
            사용자 요구: "링크삽입하는게 없고 글자크기나 하이라이트 그리고 박스추가 등등
              기능이 많이 빠져있어 추가해줘"
            본문에서 글자를 드래그해 고른 뒤 누르면 적용된다. -->
-      <div id="veFormatBar" style="width:100%;display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:#0f172a;border:1px solid #334155;border-radius:9px;padding:8px 10px;">
+      <div id="veFormatBar" class="ve-visual-only" style="width:100%;display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:#0f172a;border:1px solid #334155;border-radius:9px;padding:8px 10px;">
         <span style="color:#64748b;font-size:11px;font-weight:700;margin-right:2px;">선택한 글자에 적용 →</span>
         <button data-vefmt="bold" style="${BTN_BASE}background:#334155;color:#e2e8f0;font-weight:900;" title="굵게">B</button>
         <button data-vefmt="italic" style="${BTN_BASE}background:#334155;color:#e2e8f0;font-style:italic;" title="기울임">I</button>
@@ -285,6 +292,8 @@ function ensureEditorModal() {
         <button data-vefmt="ul" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="글머리 목록">• 목록</button>
         <button data-vefmt="ol" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="번호 목록">1. 목록</button>
         <button data-vefmt="hr" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="구분선">─ 구분선</button>
+        <!-- 📊 v3.8.687: 사장님 "표도 못넣고" — 커서가 있는 문단 아래에 표를 넣는다. 칸은 본문처럼 바로 클릭해 고친다. -->
+        <button data-vefmt="table" style="${BTN_BASE}background:#1e3a5f;color:#bfdbfe;" title="커서가 있는 문단 아래에 표를 넣습니다 (행x열을 물어봅니다 · 첫 줄은 머리글)">📊 표</button>
       </div>
       <div id="veHintBar" style="width:100%;display:flex;gap:6px 18px;flex-wrap:wrap;background:#0f172a;border:1px solid #334155;border-radius:9px;padding:8px 14px;color:#cbd5e1;font-size:12px;line-height:1.5;">
         <span>✍️ <b style="color:#f1f5f9;">글자</b> 클릭 → 바로 수정 (Ctrl+Z 되돌리기)</span>
@@ -292,12 +301,21 @@ function ensureEditorModal() {
         <span>🔗 <b style="color:#f1f5f9;">버튼·링크</b> 클릭 → 주소 수정·삭제</span>
         <span>➕ <b style="color:#f1f5f9;">이미지 추가</b> → 문단에 마우스 올리면 ＋ 버튼</span>
         <span>✍️ <b style="color:#f1f5f9;">서식</b> → 글자를 드래그해 고른 뒤 위 도구 클릭</span>
+        <span>&lt;/&gt; <b style="color:#f1f5f9;">HTML 편집</b> → 코드로 직접 고치기 (표·특수 태그) · 📊 표 버튼으로 표 넣기</span>
       </div>
       <span id="veStatus" style="width:100%;color:#94a3b8;font-size:12px;min-height:14px;"></span>
     </div>
     <div id="veBody" style="flex:1;position:relative;overflow:hidden;">
       <iframe id="veFrame" sandbox="allow-same-origin" style="width:100%;height:100%;border:0;background:#fff;display:block;"></iframe>
+      <!-- </> v3.8.687: 코드 편집 칸 — 미리보기와 같은 자리를 번갈아 쓴다 -->
+      <textarea id="veSourceArea" spellcheck="false" wrap="off" placeholder="HTML 코드"
+        style="display:none;width:100%;height:100%;border:0;box-sizing:border-box;padding:18px 20px;background:#0b1220;color:#e2e8f0;font-family:Consolas,'Cascadia Mono','D2Coding',monospace;font-size:13px;line-height:1.55;resize:none;outline:none;overflow:auto;tab-size:2;"></textarea>
     </div>
+    <style data-bgpt-editor-ui="1">
+      /* 코드 모드에서는 프레임에만 먹는 도구를 잠근다 — 눌러도 아무 일이 없으면 고장으로 보인다 */
+      #visualEditorOverlay.ve-source .ve-visual-only { opacity:.35; pointer-events:none; }
+      #visualEditorOverlay.ve-source .ve-source-toggle { background:#1d4ed8 !important; color:#dbeafe !important; }
+    </style>
   `;
   document.body.appendChild(overlay);
 
@@ -313,6 +331,8 @@ function ensureEditorModal() {
     undoImageOpBtn: overlay.querySelector('#veUndoImageOpBtn'),
     revertBtn: overlay.querySelector('#veRevertBtn'),
     copyHtmlBtn: overlay.querySelector('#veCopyHtmlBtn'),
+    sourceBtn: overlay.querySelector('#veSourceBtn'),           // v3.8.687
+    sourceArea: overlay.querySelector('#veSourceArea'),
     saveAsBtn: overlay.querySelector('#veSaveAsBtn'),
     targetPlatformWrap: overlay.querySelector('#veTargetPlatformWrap'),
     targetPlatform: overlay.querySelector('#veTargetPlatform'),
@@ -492,8 +512,13 @@ ${err?.message || err}
     modalRefs.titleInput.value = session.originalTitle || '';
     setStatus('원본으로 되돌렸습니다.');
   });
+  modalRefs.sourceBtn.addEventListener('click', () => {
+    if (!session) return;
+    setSourceMode(!session.sourceMode);
+  });
   modalRefs.copyHtmlBtn.addEventListener('click', async () => {
     try {
+      applySourceToFrame();   // 코드 모드에서 고친 것도 복사에 들어가야 한다
       const doc = getFrameDoc();
       const pending = doc ? doc.querySelectorAll('img[data-bgpt-user-image][src^="data:"]').length : 0;
       if (pending > 0 && !confirm(`아직 업로드되지 않은 내 PC 이미지 ${pending}장이 base64로 포함됩니다. 그대로 복사할까요?`)) return;
@@ -890,6 +915,27 @@ function applyFormat(doc, kind) {
         setStatus('구분선을 넣었습니다');
         return;
       }
+      /**
+       * 📊 v3.8.687 — 표 넣기. 사장님: "표도 못넣고.."
+       * 커서가 있는 문단 **아래**에 넣는다(구분선과 같은 자리 규칙). 칸은 본문처럼 클릭해 고친다.
+       * 플랫폼 스킨이 표 CSS 를 안 실어 주는 일이 많아 테두리·여백을 인라인으로 박는다.
+       */
+      case 'table': {
+        if (!sel?.anchorNode) { setStatus('표를 넣을 위치(문단)를 먼저 클릭하세요.'); return; }
+        const size = String(window.prompt('표 크기를 입력하세요 (행x열 · 첫 줄은 머리글)', '3x3') || '').trim();
+        if (!size) return;
+        const m = size.match(/^(\d{1,2})\s*[x×*]\s*(\d{1,2})$/i);
+        if (!m) { setStatus('표 크기는 "3x3" 처럼 적어 주세요.'); return; }
+        const rows = Math.min(20, Math.max(1, Number(m[1])));
+        const cols = Math.min(10, Math.max(1, Number(m[2])));
+        const el = sel.anchorNode.nodeType === Node.ELEMENT_NODE ? sel.anchorNode : sel.anchorNode.parentElement;
+        const block = el?.closest?.('p,h1,h2,h3,h4,li,blockquote,div,table') || doc.body.lastElementChild;
+        const table = doc.createRange().createContextualFragment(buildTableHtml(rows, cols)).firstElementChild;
+        if (block && block !== doc.body) block.insertAdjacentElement('afterend', table);
+        else doc.body.appendChild(table);
+        setStatus(`${rows}행 ${cols}열 표를 넣었습니다 — 칸을 클릭해 내용을 적으세요`);
+        return;
+      }
       default: return;
     }
   } catch (err) {
@@ -916,6 +962,86 @@ function refreshAdUnitOptions(select) {
 function protectSeparators(doc) {
   // 썸네일 separator는 타이핑/백스페이스로 파손되지 않게 보호 (이미지 툴바로만 관리)
   doc.querySelectorAll('div.separator').forEach((el) => el.setAttribute('contenteditable', 'false'));
+}
+
+/** 📊 v3.8.687 — 인라인 스타일 표 (첫 줄 머리글). 발행 플랫폼 스킨에 기대지 않는다. */
+export function buildTableHtml(rows, cols) {
+  const th = '<th style="border:1px solid #cbd5e1;background:#f1f5f9;padding:10px 12px;text-align:left;font-weight:700;">항목</th>';
+  const td = '<td style="border:1px solid #e2e8f0;padding:10px 12px;">내용</td>';
+  const head = `<thead><tr>${th.repeat(cols)}</tr></thead>`;
+  const bodyRows = Math.max(0, rows - 1);
+  const body = bodyRows ? `<tbody>${`<tr>${td.repeat(cols)}</tr>`.repeat(bodyRows)}</tbody>` : '';
+  return `<table style="width:100%;border-collapse:collapse;margin:18px 0;font-size:15px;line-height:1.6;">${head}${body}</table>`;
+}
+
+// ─────────────────────────────────────────────
+// </> HTML 코드 모드 (v3.8.687)
+// ─────────────────────────────────────────────
+
+/**
+ * 코드 칸에 보여 줄 HTML. 프레임 본문에서 편집기 흔적만 걷어낸 것이다.
+ * 광고 자리표시자·이미지 data: 주소는 **그대로** 둔다 — 저장 때 serializeEditor 가 처리한다.
+ * 블록 태그 앞에서 줄을 바꿔 읽기 쉽게 한다(태그 사이 공백은 렌더링에 영향이 없다).
+ */
+export function htmlForSourceView(bodyInnerHtml) {
+  return String(bodyInnerHtml || '')
+    .replace(/>\s*<(\/?)(p|h[1-6]|div|table|thead|tbody|tr|ul|ol|li|blockquote|figure|figcaption|hr|section|article|br)\b/gi, '>\n<$1$2')
+    .trim();
+}
+
+function cleanedBodyHtml() {
+  const doc = getFrameDoc();
+  if (!doc) return '';
+  const body = doc.body.cloneNode(true);
+  body.removeAttribute('contenteditable');
+  body.querySelectorAll('[contenteditable]').forEach((el) => el.removeAttribute('contenteditable'));
+  body.querySelectorAll('.ve-img-selected, .ve-link-selected').forEach((el) => {
+    el.classList.remove('ve-img-selected', 've-link-selected');
+    if (!el.getAttribute('class')) el.removeAttribute('class');
+  });
+  body.querySelectorAll('[data-bgpt-editor], [data-bgpt-editor-ui]').forEach((el) => el.remove());
+  return body.innerHTML;
+}
+
+/**
+ * 코드 칸의 내용을 프레임에 싣는다. 코드가 안 바뀌었으면 아무것도 하지 않는다.
+ * loadIntoFrame 은 baseline 을 새로 잡으므로 **원래 baseline 을 되돌려** 둔다 —
+ * 안 그러면 코드로 고친 뒤 "저장하지 않은 편집" 경고가 안 뜬다.
+ */
+function applySourceToFrame() {
+  if (!session?.sourceMode || !modalRefs?.sourceArea) return false;
+  const src = modalRefs.sourceArea.value;
+  if (src === session.sourceLoaded) return false;
+  const keep = session.baseline;
+  loadIntoFrame(src);
+  session.baseline = keep;
+  session.sourceLoaded = src;
+  return true;
+}
+
+function setSourceMode(on) {
+  const refs = modalRefs;
+  if (!session || !refs?.sourceArea) return;
+  if (on) {
+    const src = htmlForSourceView(cleanedBodyHtml());
+    refs.sourceArea.value = src;
+    session.sourceLoaded = src;
+    session.sourceMode = true;
+    refs.overlay.classList.add('ve-source');
+    refs.frame.style.display = 'none';
+    refs.sourceArea.style.display = 'block';
+    refs.sourceBtn.textContent = '👁 미리보기로';
+    setStatus('HTML 코드를 직접 고칩니다. 표는 <table>, 소제목은 <h2> 로 적으면 됩니다. [미리보기로]를 누르거나 그대로 [저장]하면 반영됩니다.');
+    try { refs.sourceArea.focus(); } catch { /* noop */ }
+    return;
+  }
+  const applied = applySourceToFrame();
+  session.sourceMode = false;
+  refs.overlay.classList.remove('ve-source');
+  refs.sourceArea.style.display = 'none';
+  refs.frame.style.display = 'block';
+  refs.sourceBtn.innerHTML = '&lt;/&gt; HTML 편집';
+  setStatus(applied ? '고친 HTML 코드를 미리보기에 반영했습니다.' : '미리보기로 돌아왔습니다.');
 }
 
 function loadIntoFrame(rawBodyHtml) {
@@ -978,7 +1104,9 @@ function isDirty() {
   if (!session) return false;
   const titleChanged = (modalRefs.titleInput.value.trim() !== (session.originalTitle || '').trim())
     && modalRefs.titleInput.style.display !== 'none';
-  return titleChanged || serializeEditor() !== session.baseline;
+  // v3.8.687 — 코드 칸에서 고친 것도 "저장 안 한 편집"이다
+  const sourceChanged = !!session.sourceMode && modalRefs.sourceArea.value !== session.sourceLoaded;
+  return titleChanged || sourceChanged || serializeEditor() !== session.baseline;
 }
 
 function requestClose() {
@@ -990,6 +1118,12 @@ function requestClose() {
 function hideModal() {
   detachImageEditing();
   if (modalRefs) {
+    // v3.8.687 — 코드 모드로 닫았어도 다음에 열면 미리보기부터
+    modalRefs.overlay.classList.remove('ve-source');
+    modalRefs.sourceArea.style.display = 'none';
+    modalRefs.sourceArea.value = '';
+    modalRefs.frame.style.display = 'block';
+    modalRefs.sourceBtn.innerHTML = '&lt;/&gt; HTML 편집';
     modalRefs.overlay.style.display = 'none';
     const doc = getFrameDoc();
     if (doc) { try { doc.open(); doc.write('<!doctype html><html><body></body></html>'); doc.close(); } catch { /* noop */ } }
@@ -1142,6 +1276,8 @@ async function saveCurrentSession(saveAs) {
   refs.saveBtn.disabled = true;
   refs.saveAsBtn.disabled = true;
   try {
+    // v3.8.687 — 코드 모드에서 바로 저장하면 고친 코드를 먼저 프레임에 싣는다 (저장은 프레임만 읽는다)
+    if (session.sourceMode) setSourceMode(false);
     const shouldHost = session.kind !== 'file' || refs.hostImagesChk.checked;
     if (shouldHost) {
       const result = await hostPendingImages(doc, setStatus);
