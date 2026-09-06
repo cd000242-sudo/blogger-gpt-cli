@@ -51,6 +51,32 @@ describe('v3.8.678 확실한 답 — 답 상자 판정문 · 의문 겹침 · �
     expect(ensureVerdictAnswer('요건을 따로 봐요.', [{ takeaway: '' }]).reason).toContain('원래 답 유지');
   });
 
+  test('v3.8.681 — 제목이 약속한 조각마다 한 문장씩 먼저 고른다 (679 실측: "남는 요건" 이 첫 화면에 없었다)', () => {
+    const { promiseCoverage } = require('../src/core/final/answer-verdict');
+    const promises = ['양육비 선지급 탈락 사유 소득기준 폐지 후에도 남는 신청 요건', '이의신청 기한'];
+    // 679 라이브의 실제 소제목과 절 닫음 문장
+    const sections = [
+      { h2: '1. 소득기준 폐지후 남는 신청요건', takeaway: '18세 이하 자녀를 키우는 한부모라면 소득 변화만 기다리지 말고 집행권원과 미지급 기록부터 갖춰야 해요. 양육비이행관리원이 보는 출발점이 양육비 채무의 확인이기 때문이에요.' },
+      { h2: '2. 이의신청 기한과 탈락후 대응', takeaway: '통지 사유가 서류 누락이나 판단 오류라면 통지서에 적힌 기한 안에 이의신청으로 다투는 편이 맞아요.' },
+      { h2: '3. 양육비 선지급제의 지원 구조 이해', takeaway: '신청을 미룬 달의 미지급분까지 받으려는 사람이라면 신청 시점을 늦추지 않는 편이 맞아요.' },
+      { h2: '4. 한부모 지원금과 선지급제 차이', takeaway: '기초생활수급을 받고 있는 사람이라면 신청 전에 행정복지센터에 같은 자료를 들고 가는 편이 맞아요.' },
+    ];
+    // 679 가 실제로 조립한 답 — 이의신청·소급·수급만 있고 "남는 요건" 이 없다
+    const before = '통지 사유가 서류 누락이나 판단 오류라면 통지서에 적힌 기한 안에 이의신청으로 다투는 편이 맞아요. 신청을 미룬 달의 미지급분까지 받으려는 사람이라면 신청 시점을 늦추지 않는 편이 맞아요. 기초생활수급을 받고 있는 사람이라면 신청 전에 행정복지센터에 같은 자료를 들고 가는 편이 맞아요.';
+    expect(promiseCoverage(before, promises, sections)).toBe(1);
+    const a = buildVerdictAnswer(sections, 400, promises);
+    expect(a.startsWith('18세 이하 자녀를 키우는 한부모라면')).toBe(true);   // 첫 조각(남는 요건)을 맡은 1절의 판정문이 맨 앞
+    expect(a).toContain('이의신청으로 다투는 편이 맞아요');                 // 둘째 조각(이의신청 기한)
+    expect(promiseCoverage(a, promises, sections)).toBe(2);              // 조각 낱말이 아니라 맡은 소제목의 판정문으로 센다
+    // 요약 답이 판정문이어도 제목 조각을 덜 다루면 조립본으로 바꾼다
+    const r = ensureVerdictAnswer(before, sections, promises);
+    expect(r.rebuilt).toBe(true);
+    expect(r.reason).toContain('제목 조각 1/2개만');
+    // 요약 답이 조각을 다 다루면 그대로
+    const full = '집행권원과 미지급 기록, 자녀 연령이 남는 요건이라 이게 없으면 소득기준이 없어져도 탈락이에요. 이의신청은 통지서에 적힌 기한 안이에요.';
+    expect(ensureVerdictAnswer(full, sections, promises).rebuilt).toBe(false);
+  });
+
   test('감사 — 답 상자가 볼 것 목록이면 잡는다(-4), 판정문이면 안 잡는다', () => {
     expect(findHedgedAnswerBox('대상 자녀는 18세 이하예요. 월 20만원보다 적은지 봐요. 절차도 함께 확인해요.')).toHaveLength(1);
     expect(findHedgedAnswerBox('집행권원이 없으면 탈락이에요. 있으면 3개월 기록만 있으면 돼요.')).toHaveLength(0);
@@ -66,6 +92,12 @@ describe('v3.8.678 확실한 답 — 답 상자 판정문 · 의문 겹침 · �
     expect(o.indexOf('ensureVerdictAnswer(verdictAnswer')).toBeLessThan(o.indexOf('const answerBlockHtml = buildAnswerBlock({'));
     const g = read('src/core/final/generation.ts');
     expect(g).toContain('**판정문으로 쓴다** (v3.8.678)');
+    // v3.8.681 — 생성 단계에서 한 번에: 요약 호출이 제목과 약속 조각을 받아 조각마다 판정문 한 문장씩
+    expect(g).toContain('export async function generateSummaryTableFinal(allContent: string, opts: { title?: string | undefined; promises?: string[] | undefined } = {})');
+    expect(g).toContain('**answer 는 조각마다 판정문 한 문장씩**');
+    expect(g).toContain('${promiseBlock}');
+    expect(o).toContain("titlePromises(String(h1 || '')) as string[]");
+    expect(o.indexOf('generateSummaryTableFinal(articleTextForAux, {')).toBeGreaterThan(0);
     expect(read('src/core/final/post-critique.ts')).toContain("'answer-box-hedged': {");
   });
 

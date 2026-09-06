@@ -3657,7 +3657,11 @@ ${quoted}
     }
 
     // 6. 요약표
-    let summaryTable = await generateSummaryTableFinal(articleTextForAux);
+    // v3.8.681 — 제목과 제목이 약속한 조각을 넘긴다: 답 상자를 생성 단계에서 조각마다 판정문으로
+    let summaryTable = await generateSummaryTableFinal(articleTextForAux, {
+      title: String(h1 || ''),
+      promises: (() => { try { return require('./reader-retention').titlePromises(String(h1 || '')) as string[]; } catch { return []; } })(),
+    });
     const summaryFactText = [...(summaryTable.headers || []), ...(summaryTable.rows || []).flat()].join(' ');
     if (inspectFactIntegrity(summaryFactText, factEvidence).status === 'blocked') {
       summaryTable = {
@@ -5194,7 +5198,9 @@ ${introductionHTML}
     let verdictAnswer = String(summaryTable.answer || '');
     try {
       const { ensureVerdictAnswer } = require('./answer-verdict');
-      const v = ensureVerdictAnswer(verdictAnswer, (allSectionsObj.sections || []) as any[]);
+      // v3.8.681 — 제목이 약속한 조각마다 한 문장씩. 실측(679): "남는 신청 요건" 이 첫 화면에 없었다
+      const { titlePromises } = require('./reader-retention');
+      const v = ensureVerdictAnswer(verdictAnswer, (allSectionsObj.sections || []) as any[], titlePromises(String(h1 || '')));
       if (v.rebuilt) {
         verdictAnswer = v.answer;
         onLog?.(`[PROGRESS] 90% - 🧭 답 상자를 절의 판단 문장으로 다시 조립했습니다 (${v.reason})`);
