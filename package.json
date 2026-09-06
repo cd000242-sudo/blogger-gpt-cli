@@ -58,7 +58,8 @@
     "test:watch": "jest -c jest.fast.cjs --watch",
     "test:guard": "jest -c jest.fast.cjs --testPathPattern \"(guard|roundtrip|reentrancy|persistence|503|prefill)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "release:work": "npm run build && electron-builder --win --publish never && node scripts/publish-release.js && node scripts/sync-site-download.js && node scripts/clean-release-folder.js",
+    "release:work": "npm run build && electron-builder --win --publish never && node scripts/publish-release.js && node scripts/sync-site-download.js && node scripts/clean-release-folder.js && node scripts/prune-releases.js",
+    "prune:releases": "node scripts/prune-releases.js",
     "test:quiet": "node scripts/quiet-run.js npx jest"
   },
   "dependencies": {
