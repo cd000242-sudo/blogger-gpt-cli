@@ -22,9 +22,9 @@ export const TISTORY_SELECTORS = {
   login: {
     kakaoLoginButtons: [
       'a[href*="kakao"]',
-      'button:has-text("\\uCE74\\uCE74\\uC624")',
-      'a:has-text("\\uCE74\\uCE74\\uC624")',
-      'text=\\uCE74\\uCE74\\uC624\\uACC4\\uC815\\uC73C\\uB85C \\uB85C\\uADF8\\uC778',
+      'button:has-text("카카오")',
+      'a:has-text("카카오")',
+      'text=카카오계정으로 로그인',
     ],
   },
   home: {
@@ -36,22 +36,22 @@ export const TISTORY_SELECTORS = {
   editor: {
     introModalCloseButtons: [
       '.layer_post_intro .btn_close',
-      '.layer_post_intro button:has-text("\\uB2EB\\uAE30")',
-      'button:has-text("\\uB2EB\\uAE30")',
-      'button[aria-label="\\uB2EB\\uAE30"]',
+      '.layer_post_intro button:has-text("닫기")',
+      'button:has-text("닫기")',
+      'button[aria-label="닫기"]',
     ],
     titleInputs: [
       'textarea#post-title-inp',
       '#post-title-inp',
-      'textarea[placeholder*="\\uC81C\\uBAA9"]',
-      'input[placeholder*="\\uC81C\\uBAA9"]',
-      '[contenteditable="true"][data-placeholder*="\\uC81C\\uBAA9"]',
+      'textarea[placeholder*="제목"]',
+      'input[placeholder*="제목"]',
+      '[contenteditable="true"][data-placeholder*="제목"]',
     ],
     modeButtons: [
       '#editor-mode-layer-btn-open',
       '[data-button-type="mode"]',
-      'button:has-text("\\uAE30\\uBCF8\\uBAA8\\uB4DC")',
-      'button:has-text("\\uB9C8\\uD06C\\uB2E4\\uC6B4")',
+      'button:has-text("기본모드")',
+      'button:has-text("마크다운")',
       'button:has-text("HTML")',
       '.editor-mode button',
     ],
@@ -106,13 +106,29 @@ export const TISTORY_SELECTORS = {
     categoryTriggers: [
       'button#category-btn',
       '[data-category-trigger]',
-      'button:has-text("\\uCE74\\uD14C\\uACE0\\uB9AC")',
+      'button:has-text("카테고리")',
       '.category button',
     ],
+    /**
+     * 🏷️ v3.8.704 — 후보를 넓힌다.
+     *
+     * 사장님: "발행 실패: Tistory tag input was not found or tags could not be added."
+     *
+     * 예전엔 셋뿐이었고 그중 한글 placeholder 규칙은 **이스케이프가 깨져 있었다**
+     * (`태그` 가 글자 그대로 들어가 CSS 가 한글로 읽지 못했다 — 이 파일 60곳이 그랬다).
+     * 사실상 `input#tagText` 하나로 버티고 있었고, 티스토리가 그 id 를 바꾸면 발행이 멈춘다.
+     */
     tagInputs: [
       'input#tagText',
-      'input[placeholder*="\\uD0DC\\uADF8"]',
+      'input[name="tag"]',
+      'input[name="tagText"]',
+      'input[placeholder*="태그"]',
+      'input[aria-label*="태그"]',
       '.tag_post input',
+      '.inp_tag input',
+      '.box_tag input[type="text"]',
+      '#tagInput',
+      '[data-testid="tag-input"]',
     ],
     tempSaveButtons: [
       '#temp-save-btn',
@@ -124,8 +140,8 @@ export const TISTORY_SELECTORS = {
       'button[class*="save"]',
       '.btn_save',
       '.btn-draft',
-      'button:has-text("\\uC784\\uC2DC\\uC800\\uC7A5")',
-      'button:has-text("\\uC800\\uC7A5")',
+      'button:has-text("임시저장")',
+      'button:has-text("저장")',
       'button#temp-save-btn',
     ],
     publishButtons: [
@@ -136,10 +152,10 @@ export const TISTORY_SELECTORS = {
       '#publish-btn',
       '.layer_publish #publish-btn',
       'button#publish-btn',
-      '.layer_publish button:has-text("\\uBC1C\\uD589")',
-      '.layer_publish button:has-text("\\uACF5\\uAC1C \\uBC1C\\uD589")',
-      'button:has-text("\\uACF5\\uAC1C \\uBC1C\\uD589")',
-      'button:has-text("\\uBC1C\\uD589")',
+      '.layer_publish button:has-text("발행")',
+      '.layer_publish button:has-text("공개 발행")',
+      'button:has-text("공개 발행")',
+      'button:has-text("발행")',
     ],
     // 기존 글 수정발행 시 확인 버튼 — 새 글은 "발행", 수정은 "수정"으로 라벨이 바뀐다
     updateConfirmButtons: [

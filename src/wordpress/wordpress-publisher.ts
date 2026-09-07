@@ -3053,14 +3053,37 @@ export async function publishToWordPress(
        * 공유 버튼이 블로그 홈을 가리켰다. 독자가 공유해도 그 글이 아니라 홈이 퍼진다.
        * 실패해도 홈 주소가 남아 링크는 살아있으므로 발행을 막지 않는다.
        */
+      /**
+       * 🔗 v3.8.703 — **가공 전 본문에 치환하고 있었다.**
+       *
+       * 사장님: "글 마지막에 카카오 네이버 x 페이스북 버튼있자나 이거 연동안되있니??
+       *          바로안가진다고 난리네"
+       *
+       * 실측(2026-09-07, 발행글 4개 버튼 전부): 공유 주소가 `https://leadernam.com` —
+       * 글이 아니라 **블로그 홈**이었다. 독자가 공유하면 그 글이 아니라 홈이 퍼진다.
+       *
+       * v3.8.484 가 치환 코드를 넣긴 했는데 **대상이 틀렸다.**
+       * 실제로 발행되는 본문은 `contentForWp`(스타일 적용 + wpautop 방지를 거친 것)인데
+       * 치환은 `options.content`(가공 **전**)에 했다. 그래서 둘이 달라
+       *   · 치환 결과를 올리면 스타일이 빠진 옛 본문으로 글이 덮이거나
+       *   · 애초에 모양이 달라 정규식이 어긋난다
+       * 어느 쪽이든 공유 버튼은 홈 주소로 남았다.
+       *
+       * 이제 **실제로 올라간 그 본문**(contentForWp)에 치환한다.
+       * 실패하면 한 번 더 시도하고, 그래도 안 되면 그렇다고 로그에 남긴다 —
+       * 조용히 넘어가면 오늘처럼 몇 달을 모른 채 지나간다.
+       */
       try {
         const { applyShareUrl } = require('../core/final/share-url');
-        const patched = applyShareUrl(options.content, postUrl);
-        if (patched !== options.content) {
-          const shareResult = await wpApi.updatePostContent(post.id, patched);
+        const patched = applyShareUrl(contentForWp, postUrl);
+        if (patched !== contentForWp) {
+          let shareResult = await wpApi.updatePostContent(post.id, patched);
+          if (!shareResult.success) shareResult = await wpApi.updatePostContent(post.id, patched);
           onLog?.(shareResult.success
-            ? '🔗 공유 버튼 URL을 실제 글 주소로 갱신했습니다.'
-            : '⚠️ 공유 버튼 URL 갱신에 실패했습니다 (홈 주소가 유지됩니다).');
+            ? '🔗 공유 버튼을 실제 글 주소로 갱신했습니다.'
+            : '⚠️ 공유 버튼 갱신에 두 번 실패했습니다 — 공유 시 블로그 홈이 퍼집니다.');
+        } else {
+          onLog?.('ℹ️ 공유 버튼에서 바꿀 주소를 찾지 못했습니다 (본문 모양이 예상과 다릅니다).');
         }
       } catch (shareErr: any) {
         console.warn('[WP] 공유 URL 치환 스킵:', String(shareErr?.message || shareErr).slice(0, 100));

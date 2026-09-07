@@ -1362,7 +1362,32 @@ async function fillTags(page: any, tags: string[], onLog?: (message: string) => 
 
   const locator = await firstUsableLocator(page, TISTORY_SELECTORS.editor.tagInputs, 2500);
   if (!locator) {
-    log(onLog, 'Tag input was not found. Skipping tags.');
+    /**
+     * 🔎 v3.8.704 — 못 찾았으면 **화면에 무엇이 있었는지** 남긴다.
+     *
+     * 예전에는 "못 찾았다" 한 줄이 전부였다. 티스토리가 화면을 바꾸면 그 다음에 할 수 있는 게
+     * 없다 — 다시 재현해서 브라우저를 띄워 봐야 한다. 그때 봐야 할 것을 지금 적어 둔다.
+     */
+    try {
+      const seen = await page.evaluate(() => {
+        const boxes = Array.from(document.querySelectorAll('input[type="text"], input:not([type]), textarea'));
+        return boxes.slice(0, 12).map((el) => {
+          const e = el as HTMLInputElement;
+          const rect = e.getBoundingClientRect();
+          return [
+            e.tagName.toLowerCase(),
+            e.id ? `#${e.id}` : '',
+            e.name ? `[name=${e.name}]` : '',
+            e.placeholder ? `ph="${e.placeholder}"` : '',
+            e.className ? `.${String(e.className).split(/\s+/).slice(0, 2).join('.')}` : '',
+            rect.width > 0 && rect.height > 0 ? '' : '(안 보임)',
+          ].filter(Boolean).join(' ');
+        });
+      });
+      log(onLog, `Tag input was not found. 화면의 입력칸 ${seen.length}개: ${seen.join(' | ')}`);
+    } catch {
+      log(onLog, 'Tag input was not found. Skipping tags.');
+    }
     return 0;
   }
 
@@ -1854,9 +1879,24 @@ export async function publishToTistory(
     await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'body_fill');
 
     await selectCategory(page, config.defaultCategory, onLog);
+    /**
+     * 🏷️ v3.8.704 — **태그를 못 넣었다고 글을 버리지 않는다.**
+     *
+     * 사장님: "발행 실패: Tistory tag input was not found or tags could not be added. 이건 왜이래??"
+     *
+     * 예전에는 여기서 던져서 **발행 전체가 실패**했다. 글은 다 써 놓고, 이미 본문·제목·
+     * 카테고리까지 채워 놓은 상태에서 태그 칸 하나 때문에 통째로 버리는 셈이다.
+     * 티스토리는 공개 API 가 없어 화면을 긁는 방식이라, 저쪽이 화면을 조금만 바꿔도 이렇게 된다
+     * (실측: 이 파일의 한글 선택자 60곳이 이스케이프가 깨져 죽어 있었다).
+     *
+     * 태그는 **부가 정보**다. 글이 나가는 것이 먼저다.
+     * 대신 조용히 넘기지 않는다 — 못 넣었다고 로그에 남기고, 결과에도 실어 보낸다.
+     */
     const addedTags = await fillTags(page, tags, onLog);
     if (tags.length > 0 && addedTags === 0) {
-      throw new Error('Tistory tag input was not found or tags could not be added.');
+      log(onLog, `⚠️ 태그 ${tags.length}개를 넣지 못했습니다 — 글은 그대로 발행합니다. (티스토리에서 직접 추가해 주세요)`);
+    } else if (tags.length > addedTags && addedTags > 0) {
+      log(onLog, `⚠️ 태그 ${tags.length}개 중 ${addedTags}개만 들어갔습니다.`);
     }
     await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'before_publish');
 
@@ -1869,6 +1909,9 @@ export async function publishToTistory(
     const successResult: TistoryPublishResult = {
       ok: true,
       url: publishResult.url || TISTORY_URLS.write(config.blogName),
+      // v3.8.704: 태그가 몇 개 들어갔는지 함께 돌려준다 — 화면이 조용히 넘어가지 않게
+      tagsRequested: tags.length,
+      tagsAdded: addedTags,
     };
     if (publishResult.postId) successResult.postId = publishResult.postId;
     shouldHideAfterUse = true;

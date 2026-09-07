@@ -5261,8 +5261,25 @@ ${conclusionHTML}
     const shareTitle = encodeURIComponent(h1);
     // 기본값 = 블로그 홈 URL(인코딩). 발행 직후 publisher가 실제 글 URL로 치환한다.
     // 치환에 실패하더라도 홈 URL이 남아 링크가 깨지지 않는다.
+    /**
+     * 🏠 v3.8.703 — **자기 블로그를 가리키게 한다.**
+     *
+     * 사장님 실물 검수: 티스토리 글(leadernam.tistory.com/316)의 공유 버튼 4개가 전부
+     * `https://leadernam.com` — **워드프레스 사이트**를 가리켰다. 티스토리 글을 공유하면
+     * 엉뚱한 사이트가 퍼진다. 순서가 `blogUrl → wordpressSiteUrl → siteUrl` 이라
+     * 티스토리로 발행해도 워드프레스 주소가 먼저 잡혔기 때문이다.
+     *
+     * 이제 발행할 플랫폼의 주소를 먼저 본다. 글 주소로의 치환은 발행 뒤에 따로 하지만,
+     * 치환이 실패하더라도 **최소한 같은 블로그의 홈**이 남는다.
+     */
+    const tistoryBlogName = String((payload as any).tistoryBlogName || '').trim();
+    const tistoryHome = tistoryBlogName
+      ? (/^https?:\/\//i.test(tistoryBlogName) ? tistoryBlogName : `https://${tistoryBlogName}.tistory.com`)
+      : '';
     const shareHomeUrl = String(
-      payload.blogUrl || payload.wordpressSiteUrl || payload.siteUrl || ''
+      (/tistory/i.test(String(platform || '')) && tistoryHome)
+        ? tistoryHome
+        : (payload.blogUrl || payload.wordpressSiteUrl || payload.siteUrl || '')
     ).trim().replace(/\/+$/, '');
     const shareUrlValue = encodeURIComponent(shareHomeUrl || 'https://www.google.com');
     html += `
