@@ -2995,8 +2995,21 @@ export function buildCtaArticleContext(
     .join(', ');
 
   const outline = outlineParts.join('\n').slice(0, 1200);
-  // 문단마다 앞부분만 고르게 걷는다 — 첫 섹션만 길게 읽으면 글 전체를 못 본다
-  const excerpt = excerptParts.map((p) => p.slice(0, 400)).join('\n').slice(0, 3000);
+  /**
+   * 📖 v3.8.688 — 400자/3000자 → 1200자/12000자. **CTA 도 글을 정독한다.**
+   *
+   * 사장님: "CTA 추가하기 전에 글을 한번 정독시키면 안 되?"
+   *
+   * 실측(2026-09-07, 하지정맥류 실손 입원 거절 글 · 본문 7,500자):
+   *   CTA 가 받던 재료는 문단당 앞 400자·총 3000자였다. 글의 절반도 못 봤고,
+   *   하필 잘려 나간 뒷부분에 이 글의 핵심("수술이 입원으로 인정되는 기준")이 있었다.
+   *   그래서 모델은 앞머리의 "실손보험 거절"만 읽고 금융감독원 민원으로 보냈다.
+   *
+   * 호출 수는 그대로다 — 부르는 횟수가 아니라 **주는 재료**를 늘린 것이다.
+   * 상한을 둔 이유는 프롬프트가 무한정 길어지면 안 되기 때문이고,
+   * 12,000자는 이 블로그 글 대부분(7,000~10,000자)을 통째로 담는 크기다.
+   */
+  const excerpt = excerptParts.map((p) => p.slice(0, 1200)).join('\n').slice(0, 12000);
   const combined = [outline, excerpt, agencies ? `확인된 기관: ${agencies}` : ''].filter(Boolean).join('\n');
 
   return { outline, excerpt, agencies, combined };

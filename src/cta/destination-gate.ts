@@ -118,6 +118,57 @@ export function looksLikeErrorPage(title: string, text: string): boolean {
   return ERROR_TITLE_WEAK.test(t) || ERROR_PAGE_TEXT.test(body);
 }
 
+/**
+ * 🔒 v3.8.688 — **조회 벽**. 제목은 "신청"인데 실물은 접수번호를 묻는 화면이다.
+ *
+ * ## 실측 근거 (2026-09-07)
+ * 사장님 실물 검수: 하지정맥류 실손 입원 거절 글의 CTA 가 이 주소였다.
+ *   https://www.fss.or.kr/fss/cvpl/ombdsmnDstrss/listCertification.do?menuNo=201100&viewType=MINWONBODY
+ *   → HTTP 200, 제목 "금융감독원 **민원신청**", 본문은 이렇다:
+ *     "민원접수번호 · 주민등록번호 · 성명 · 비밀번호 · 가상키패드 ·
+ *      접수하신 민원에 대한 결과를 확인할 수 있습니다"
+ *
+ * 신청 화면이 아니라 **이미 접수한 건의 결과를 여는 인증 화면**이다.
+ * 글을 읽고 온 독자에게는 넣을 접수번호가 없다 — 눌러도 아무것도 못 한다.
+ *
+ * ## 기존 검사가 왜 다 통과시켰나
+ *   · 에러 페이지 아님 (멀쩡한 화면이다)
+ *   · 기관 일치     (금융감독원 맞다)
+ *   · 홈 아님        (경로가 깊다)
+ *   · 행동 채점 +3   (**제목에 "민원신청"이 있다**) +2(입력 양식) +2(기관) = 7점
+ * 채점기는 글자를 세므로 "제목은 신청, 실물은 조회"인 화면을 구별할 수 없다.
+ *
+ * ## 무엇을 신호로 삼나 — "독자가 갖고 있을 리 없는 번호"
+ * 접수번호·처리번호를 **입력하라고 요구하는 것**만 본다. 로그인·인증서 요구는
+ * 신호가 아니다(진짜 신청 화면도 그렇다 — LOGIN_WALL 주석 참고).
+ * 좁게 잡는 이유: 넓게 잡으면 멀쩡한 조회 서비스(자격득실확인서 등)까지 버린다.
+ */
+const LOOKUP_WALL_MARKERS: RegExp[] = [
+  /(민원|접수|신청|처리|상담|진정)\s*접수번호/,
+  /접수번호[^가-힣]{0,6}(비밀번호|주민)/,
+  /가상\s*키패드/,
+  /비밀번호\s*(생성|찾기)/,
+  /접수(하신|한)\s*(민원|신청|건)에\s*대한\s*(결과|처리)/,
+];
+
+/** 진짜 신청 화면에만 붙는 말 — 이게 있으면 조회 벽으로 보지 않는다 */
+const REAL_APPLY_MARKERS = /신청하기|신청서\s*작성|온라인\s*신청|접수하기|작성\s*하기/;
+
+/** 마커 하나로는 단정하지 않는다 — 두 개 이상 겹칠 때만 조회 벽이다 */
+const LOOKUP_WALL_MIN_HITS = 2;
+
+/**
+ * 접수번호를 요구하는 조회·인증 화면인가.
+ *
+ * @param text  페이지 본문(태그를 벗긴 것도, 안 벗긴 것도 상관없다 — 한글만 본다)
+ */
+export function looksLikeLookupWall(text: string): boolean {
+  const body = String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  if (REAL_APPLY_MARKERS.test(body)) return false;
+  const hits = LOOKUP_WALL_MARKERS.filter((re) => re.test(body)).length;
+  return hits >= LOOKUP_WALL_MIN_HITS;
+}
+
 /** <title> 만 뽑는다 — 에러 판정은 제목이 가장 정확했다 */
 function titleOf(html: string): string {
   const m = String(html || '').match(/<title[^>]*>([\s\S]{0,200}?)<\/title>/i);
@@ -203,6 +254,22 @@ export async function gateCtaDestination(input: {
     };
   }
 
+  /**
+   * ①-c 🔒 v3.8.688 조회 벽 — 기관 검사보다 먼저 묻는다(에러 페이지와 같은 이유).
+   *
+   * demote 인 이유: 기관은 맞다. 그 기관 안에 진짜 신청 화면이 따로 있을 수 있으니
+   * 검색에 한 번 더 기회를 준다. 그래도 못 찾으면 홈이 이 화면보다 낫다 —
+   * 홈은 "다시 찾아라"이지만 이 화면은 "없는 번호를 넣어라"다.
+   */
+  if (looksLikeLookupWall(text)) {
+    return {
+      ok: false,
+      severity: 'demote',
+      score: 0,
+      reasons: ['접수번호를 넣어야 열리는 조회·인증 화면 — 글을 읽고 온 독자에게는 그 번호가 없다'],
+    };
+  }
+
   const hitAgency = agencies.length ? agencyHit(finalUrl, text, agencies) : null;
 
   // ② 기관 오배송 — 글이 지목한 기관이 있는데 그 흔적이 어디에도 없다
@@ -263,6 +330,25 @@ export async function gateCtaDestination(input: {
     agencies,
   });
 
+  /**
+   * 🎯 v3.8.688 — 주제어가 **하나도** 없으면 'action' 으로 올리지 않는다.
+   *
+   * 실측(하지정맥류 실손 글)에서 이 구멍으로 금감원 민원조회 화면이 통과했다.
+   *   주제어 0 + 행동 문구 3 + 기관 2 = 5점 → 문턱(4)을 넘는다.
+   * 즉 **이 글과 아무 상관 없는 페이지도 "그 기관의 신청 화면"이기만 하면 통과했다.**
+   * 채점표에서 주제어는 3점짜리 항목일 뿐이라 나머지 둘로 메워지기 때문이다.
+   *
+   * 버리지 않고 guide 로 낮춘다 — 기관은 맞으니 최후 후보로는 남긴다.
+   * (홈이면 앞의 ③-a 에서 이미 걸러졌으므로 여기 오는 건 깊은 주소다.)
+   */
+  if (scored.score >= ACTION_THRESHOLD && !scored.hasKeyword) {
+    return {
+      ok: true,
+      stage: 'guide',
+      score: scored.score,
+      reasons: [...scored.reasons, '이 글의 주제어가 페이지에 하나도 없음 — 행동 화면으로 단정하지 않는다'],
+    };
+  }
   if (scored.score >= ACTION_THRESHOLD) {
     return { ok: true, stage: 'action', score: scored.score, reasons: scored.reasons };
   }

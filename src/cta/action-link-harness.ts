@@ -301,6 +301,17 @@ export async function resolveActionLink(input: {
     if (!best || s.score > best.s.score) best = { url: finalUrl, s };
   }
 
+  /**
+   * 🎯 v3.8.688 — 주제어가 하나도 없으면 'action' 이라고 말하지 않는다.
+   * destination-gate 와 같은 규칙이다(두 경로가 다르게 재면 안 된다는 원칙).
+   * 근거는 그쪽 주석에 적어 뒀다 — 주제어 0 + 행동 3 + 기관 2 = 5점으로 문턱을 넘는 구멍.
+   */
+  if (best && best.s.score >= ACTION_THRESHOLD && !best.s.hasKeyword && !best.s.looksLikeHome) {
+    return {
+      url: best.url, stage: 'guide', score: best.s.score,
+      reasons: [...best.s.reasons, '이 글의 주제어가 페이지에 하나도 없음 — 행동 화면으로 단정하지 않는다'],
+    };
+  }
   if (best && best.s.score >= ACTION_THRESHOLD) {
     return { url: best.url, stage: 'action', score: best.s.score, reasons: best.s.reasons };
   }
