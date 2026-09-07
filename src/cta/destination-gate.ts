@@ -28,7 +28,7 @@
  * (목적지 "판단"은 이미 앞단에서 AI 가 한다 — 여기는 그 판단의 검산이다.)
  */
 import type { ActionIntent } from './action-intent';
-import { scoreActionPage, looksLikeHomeUrl, hostMatches, keywordTokens } from './action-link-harness';
+import { scoreActionPage, looksLikeHomeUrl, hostMatches, keywordTokens, looksLikeListingPage } from './action-link-harness';
 import type { PageFetcher } from './action-link-harness';
 
 /** 문서·압축 파일 확장자 — 브라우저가 열어도 "행동"은 못 하는 것들 */
@@ -270,6 +270,22 @@ export async function gateCtaDestination(input: {
     };
   }
 
+  /**
+   * ①-d 📋 v3.8.694 목록·보도자료 — 읽을 거리이지 할 거리가 아니다.
+   *
+   * 실측에서 CTA 후보로 임실군 게시판 목록과 고용노동부 보도자료가 뽑혔다.
+   * demote 인 이유는 홈과 같다 — 기관은 맞으니 더 나은 화면을 먼저 찾아보고,
+   * 끝내 못 찾으면 그때 쓴다(버튼이 아예 없는 것보다는 낫다).
+   */
+  if (looksLikeListingPage(finalUrl, titleOf(page.html), text)) {
+    return {
+      ok: false,
+      severity: 'demote',
+      score: 0,
+      reasons: ['게시판 목록·보도자료 화면 — 읽을 수는 있어도 그 자리에서 할 수 있는 일이 없다'],
+    };
+  }
+
   const hitAgency = agencies.length ? agencyHit(finalUrl, text, agencies) : null;
 
   // ② 기관 오배송 — 글이 지목한 기관이 있는데 그 흔적이 어디에도 없다
@@ -313,11 +329,23 @@ export async function gateCtaDestination(input: {
         reasons: ['기관 홈이고 이 글의 주제어도 없음 — 더 가까운 화면을 먼저 찾는다'],
       };
     }
+    /**
+     * 🎯 v3.8.694 — 행동을 못 읽은 글에서 **아무 딥링크나 'action' 이 되던 구멍.**
+     *
+     * 실측(2026-09-07): 노동부 파업 지침 글의 CTA 후보로 **보도자료**
+     * (`moel.go.kr/news/enews/report/enewsView.do?news_seq=…`)가 뽑혔고,
+     * 판정은 `action` 인데 **점수는 0점**이었다. 홈만 아니면 무엇이든 action 이었기 때문이다.
+     *
+     * 'action' 은 "여기서 그 일이 된다"는 약속이다. 행동을 읽지 못했고 주제어도 없으면
+     * 그 약속을 할 근거가 하나도 없다 — guide(안내 화면)까지가 정직하다.
+     */
     return {
       ok: true,
-      stage: home ? 'guide' : 'action',
+      stage: (home || !hasKeyword) ? 'guide' : 'action',
       score: hasKeyword ? 2 : 0,
-      reasons: [hasKeyword ? `주제어 ${hitTokens}/${tokens.length} 일치` : '주제어 확인 못 함(행동 없는 글)'],
+      reasons: [hasKeyword
+        ? `주제어 ${hitTokens}/${tokens.length} 일치`
+        : '행동도 주제어도 못 읽음 — 행동 화면이라고 말할 근거가 없다'],
     };
   }
 

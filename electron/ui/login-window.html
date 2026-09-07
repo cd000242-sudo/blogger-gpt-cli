@@ -105,21 +105,17 @@
       75% { transform: translate(20px, 10px) scale(1.02); }
     }
     
-    /* 그리드 패턴 */
+    /*
+      v3.8.694: 격자선 배경을 걷어냈다.
+      50px 로 타일링한 hairline 격자는 캔버스·지도·도면처럼 **격자가 뜻을 갖는 화면**에서만
+      쓸모가 있다. 로그인 화면에서는 아무 정보도 주지 않으면서 배경만 어수선하게 만든다.
+      대신 아주 옅은 중앙 광원 하나로 카드가 놓인 자리를 만든다(색은 배경과 같은 계열).
+    */
     .grid-pattern {
       position: absolute;
       width: 100%;
       height: 100%;
-      background-image: 
-        linear-gradient(rgba(99, 102, 241, 0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(99, 102, 241, 0.03) 1px, transparent 1px);
-      background-size: 50px 50px;
-      animation: gridMove 20s linear infinite;
-    }
-    
-    @keyframes gridMove {
-      0% { transform: perspective(500px) rotateX(60deg) translateY(0); }
-      100% { transform: perspective(500px) rotateX(60deg) translateY(50px); }
+      background: radial-gradient(ellipse 70% 55% at 50% 42%, rgba(148, 163, 184, 0.06), transparent 70%);
     }
     
     /* 메인 컨테이너 */
@@ -143,10 +139,12 @@
       padding: 36px 40px;
       width: 100%;
       max-width: 440px;
-      box-shadow: 
+      /* v3.8.694: 보라색 후광(0 0 100px) 제거 — 중성 그림자로 높이만 준다.
+         색 있는 무편향 글로우는 화면을 붕 뜨게 만들고, 카드의 경계를 흐린다. */
+      box-shadow:
         0 0 0 1px rgba(255, 255, 255, 0.05) inset,
-        0 25px 50px -12px rgba(0, 0, 0, 0.5),
-        0 0 100px rgba(99, 102, 241, 0.1);
+        0 25px 50px -12px rgba(0, 0, 0, 0.55),
+        0 8px 20px -8px rgba(0, 0, 0, 0.4);
       animation: cardAppear 0.8s cubic-bezier(0.16, 1, 0.3, 1);
       position: relative;
       overflow: hidden;
@@ -190,7 +188,7 @@
       justify-content: center;
       font-size: 36px;
       box-shadow: 
-        0 10px 40px rgba(99, 102, 241, 0.4),
+        0 10px 28px -8px rgba(0, 0, 0, 0.55),
         0 0 0 1px rgba(255,255,255,0.1) inset;
       animation: logoFloat 3s ease-in-out infinite;
       position: relative;
@@ -397,7 +395,7 @@
     .login-btn:hover {
       transform: translateY(-2px);
       box-shadow: 
-        0 10px 40px rgba(99, 102, 241, 0.4),
+        0 10px 28px -8px rgba(0, 0, 0, 0.55),
         0 0 0 1px rgba(255,255,255,0.1) inset;
     }
     
@@ -539,12 +537,13 @@
     .welcome-icon {
       font-size: 72px;
       margin-bottom: 24px;
-      animation: welcomeBounce 1s ease infinite;
+      animation: welcomeFloat 3.2s cubic-bezier(0.33, 1, 0.68, 1) infinite;
     }
     
-    @keyframes welcomeBounce {
+    /* v3.8.694: 통통 튀는 bounce → 부드럽게 오르내리는 부유. 실제 물체는 감속한다. */
+    @keyframes welcomeFloat {
       0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-10px); }
+      50% { transform: translateY(-8px); }
     }
     
     .welcome-title {
@@ -582,7 +581,7 @@
       display: none;
       align-items: center;
       justify-content: center;
-      animation: checkmarkPop 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      animation: checkmarkPop 0.42s cubic-bezier(0.16, 1, 0.3, 1);
     }
     
     .welcome-checkmark::after {
@@ -592,10 +591,10 @@
       font-weight: 700;
     }
     
+    /* v3.8.694: 1.2 로 튀었다 돌아오는 elastic 대신 한 번에 감속해 자리잡는다 */
     @keyframes checkmarkPop {
-      0% { transform: scale(0); }
-      50% { transform: scale(1.2); }
-      100% { transform: scale(1); }
+      0% { transform: scale(0.6); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
     }
     
     /* 파티클 효과 */
@@ -668,10 +667,10 @@
         background: linear-gradient(135deg, #10b981 0%, #059669 100%);
         border: none; border-radius: 14px; color: white;
         font-size: 16px; font-weight: 700; cursor: pointer;
-        box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
+        box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.45);
         transition: all 0.3s ease; display: flex;
         align-items: center; justify-content: center; gap: 8px;
-      " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 12px 32px rgba(16,185,129,0.4)'"
+      " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 12px 26px -8px rgba(0,0,0,0.5)'"
          onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 8px 24px rgba(16,185,129,0.3)'">
         🆓 발행 3회 무료체험하기
       </button>
@@ -1400,8 +1399,8 @@
               + '<h2 id="loginUpdateTitle" style="color:#fff;font-size:20px;font-weight:800;margin:0 0 8px;">새 버전 감지!</h2>'
               + '<p id="loginUpdateStatus" style="color:rgba(255,255,255,0.7);font-size:13px;margin:0 0 18px;">업데이트를 다운로드하고 있어요...</p>'
               + '<div style="background:rgba(255,255,255,0.1);border-radius:10px;height:12px;overflow:hidden;">'
-              + '<div id="loginUpdateBar" style="height:100%;width:0%;background:linear-gradient(90deg,#6366f1,#a855f7);'
-              + 'border-radius:10px;transition:width 0.3s ease;"></div></div></div>';
+              + '<div id="loginUpdateBar" style="height:100%;width:100%;transform:scaleX(0);transform-origin:left center;background:linear-gradient(90deg,#6366f1,#a855f7);'
+              + 'border-radius:10px;transition:transform 0.3s ease;"></div></div></div>';
             document.body.appendChild(upModal);
             upBar = document.getElementById('loginUpdateBar');
             upStatus = document.getElementById('loginUpdateStatus');
@@ -1417,12 +1416,12 @@
             }
             if (data.type === 'progress') {
               ensureUpdateModal();
-              if (upBar) upBar.style.width = (data.percent || 0) + '%';
+              if (upBar) upBar.style.transform = 'scaleX(' + Math.max(0, Math.min(100, data.percent || 0)) / 100 + ')';
               if (upStatus) upStatus.textContent = '다운로드 중... ' + (data.percent || 0) + '%';
             }
             if (data.type === 'downloaded') {
               ensureUpdateModal();
-              if (upBar) upBar.style.width = '100%';
+              if (upBar) upBar.style.transform = 'scaleX(1)';
               if (upTitle) upTitle.textContent = 'v' + (data.version || '') + ' 준비 완료';
               if (upStatus) upStatus.textContent = '곧 설치 화면이 열립니다... (앱 자동 종료)';
             }

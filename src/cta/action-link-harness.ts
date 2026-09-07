@@ -70,6 +70,64 @@ const ACTION_MARKERS: Record<ActionIntent, RegExp> = {
 const FORM_MARKERS = /<form[\s>]|type=["']submit["']|<button[^>]*>(?:[^<]*?)(신청|접수|조회|발급|예매|예약|납부|가입)/i;
 
 /**
+ * 🔎 v3.8.694 — **거의 모든 공공 사이트에는 검색창이 있다.**
+ *
+ * 실측(2026-09-07)에서 안내문·게시판 목록·보도자료가 나란히 "행동 화면(action)"으로
+ * 뽑혔다. 셋 다 신청 문구는 하나도 없는데 `<form>` 하나로 +2점을 받았고,
+ * 그 form 은 전부 **사이트 검색창**이었다.
+ *
+ *   생활법령 해설      신청 문구 없음 · form 있음 → +2
+ *   임실군 게시판 목록  신청 문구 없음 · form 있음 → +2
+ *   고용노동부 보도자료  신청 문구 없음 · form 있음 → +2
+ *
+ * 검색창은 "여기서 그 일을 할 수 있다"는 증거가 아니다. 검색창밖에 없으면 점수를 주지 않는다.
+ */
+const SEARCH_FORM_HINT = /(name|id|class|placeholder)\s*=\s*["'][^"']*(search|srch|query|keyword|kwd|q)[^"']*["']|type\s*=\s*["']search["']/i;
+
+/** 검색창 말고 진짜 입력 양식이 있는가 */
+function hasRealForm(html: string): boolean {
+  if (!FORM_MARKERS.test(html)) return false;
+  const forms = String(html).match(/<form[\s\S]{0,1200}?<\/form>/gi) || [];
+  // <form> 을 못 찾았는데 submit 버튼 문구가 잡힌 경우는 그대로 인정한다(버튼에 "신청" 등이 적혔다)
+  if (forms.length === 0) return true;
+  return forms.some((f) => !SEARCH_FORM_HINT.test(f));
+}
+
+/**
+ * 📋 v3.8.694 — **목록·보도자료 화면은 행동 화면이 아니다.**
+ *
+ * 실측에서 뽑힌 것들: `imsil.go.kr/board/list.imsil?…`(군정소식 목록),
+ * `moel.go.kr/news/enews/report/enewsView.do?…`(보도자료).
+ * 읽을 거리는 되지만 그 자리에서 신청·조회를 할 수는 없다 — 홈과 같은 성격이다.
+ *
+ * ## 주소만으로 단정하지 않는다 — 실측이 그러지 말라고 했다
+ * 이 저장소가 직접 고른 **금융감독원 민원신청** 화면의 주소가
+ * `fss.or.kr/fss/bbs/B0000313/list.do?menuNo=201099` 다. `bbs`·`list.do` 가 둘 다 있다.
+ * 주소만 봤으면 맞는 목적지를 버렸을 것이다.
+ *
+ * 그래서 **주소 + (제목 또는 본문)** 이 함께 말할 때만 목록으로 본다. 실측 대조(2026-09-07):
+ *   고용노동부 보도자료   제목 "고용노동부"(단서 없음) · 본문에 "보도자료" 5회
+ *   금감원 민원신청       제목 "금융감독원 민원신청"   · 본문에 "보도자료" 0회
+ * 제목이 기관명뿐인 화면이 흔해서 본문까지 봐야 갈린다.
+ */
+/**
+ * 경로 조각(`/news/`)만 보면 **리다이렉트에 흔들린다.** 실측: 정책브리핑 보도자료가
+ * `korea.kr/news/pressReleaseView.do` → `korea.kr/briefing/pressReleaseView.do` 로 옮겨가
+ * `/news/` 가 사라졌다. 그래서 경로와 함께 **화면 이름**(…View.do·…List.do)도 본다 —
+ * 이쪽은 리다이렉트해도 잘 안 바뀐다.
+ */
+const LISTING_URL = /\/(?:board|bbs|news|notice|press|briefing)\b|\/list\b|list\.do|pressRelease\w*|enewsView|articleView|\bboardId=/i;
+const LISTING_TITLE = /목록\s*페이지|목록$|보도\s*자료|보도\s*참고|공지\s*사항|게시판/;
+/** 본문에 이 말이 여러 번 나오면 읽을 거리다 — 한 번은 메뉴에도 있으니 세어 본다 */
+const LISTING_BODY = /보도\s*자료|보도\s*참고자료|배포\s*일시|보도\s*시점/g;
+
+export function looksLikeListingPage(url: string, title: string, text = ''): boolean {
+  if (!LISTING_URL.test(String(url || ''))) return false;
+  if (LISTING_TITLE.test(String(title || ''))) return true;
+  return (String(text || '').match(LISTING_BODY) || []).length >= 3;
+}
+
+/**
  * 로그인 벽 — 감점하지 않는다.
  *
  * 처음엔 감점했는데 틀린 판단이었다. 정부·공공 서비스의 진짜 신청 화면은
@@ -281,7 +339,8 @@ export function scoreActionPage(input: {
 
   const marker = ACTION_MARKERS[input.intent];
   const hasActionText = marker ? marker.test(text) : false;
-  const hasForm = FORM_MARKERS.test(html);
+  // v3.8.694: 검색창 하나로 "행동 화면" 점수를 받던 구멍을 막는다
+  const hasForm = hasRealForm(html);
   const hasActionElement = hasActionText || hasForm;
 
   const looksHome = looksLikeHomeUrl(input.url);

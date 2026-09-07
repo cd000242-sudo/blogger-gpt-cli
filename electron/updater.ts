@@ -87,7 +87,7 @@ body { margin:0; padding:24px; background:linear-gradient(135deg,#1e1b4b,#312e81
 h2 { margin:0 0 4px 0; font-size:18px; font-weight:800; }
 .ver { font-size:12px; color:rgba(255,255,255,0.5); margin-bottom:16px; }
 .bar-bg { background:rgba(255,255,255,0.1); border-radius:8px; height:10px; overflow:hidden; margin-bottom:8px; }
-.bar { height:100%; width:0%; background:linear-gradient(90deg,#6366f1,#a855f7); border-radius:8px; transition:width 0.3s; }
+.bar { height:100%; width:100%; transform:scaleX(0); transform-origin:left center; background:linear-gradient(90deg,#6366f1,#a855f7); border-radius:8px; transition:transform 0.3s; }
 .info { font-size:12px; color:rgba(255,255,255,0.6); display:flex; justify-content:space-between; }
 </style></head><body>
 <h2>🔄 업데이트 다운로드 중</h2>
@@ -104,7 +104,7 @@ function updateProgress(percent: number, speed?: number): void {
   const pct = Math.round(percent);
   const speedText = speed ? `${(speed / 1024 / 1024).toFixed(1)} MB/s` : '';
   progressWindow.webContents.executeJavaScript(`
-    document.getElementById('bar').style.width='${pct}%';
+    document.getElementById('bar').style.transform='scaleX(${(pct / 100).toFixed(3)})';
     document.getElementById('pct').textContent='${pct}%';
     document.getElementById('speed').textContent='${speedText}';
   `).catch(() => {});
@@ -216,18 +216,49 @@ export function initAutoUpdaterEarly(): void {
       try { loginWindowRef.close(); } catch {}
     }
 
-    // 2초 뒤 자동 quitAndInstall — confirm 다이얼로그 없이 NSIS installer 바로 띄움
+    /**
+     * 🔇 v3.8.694 — **조용히 깔아 보고, 안 되면 그때 마법사를 띄운다.**
+     *
+     * 사장님: "자동으로 업데이트가 되면 마법사가 뜰필요없고 안되는상황이면
+     *          자동으로 마법사가뜨도록해"
+     *
+     * ## 예전에는 왜 마법사부터 띄웠나 (v3.7.6)
+     * 그때 사장님 요청은 "앱 종료는 자동, NSIS 화면만 띄워줘" 였다. 그런데 이 앱은
+     * `oneClick:false · allowToChangeInstallationDirectory:true` 라 마법사의 **기본
+     * 설치 위치가 앱이 실제로 있는 곳과 다르다.** 2026-09-07 실측:
+     *   앱 실제 위치   C:\Program Files\Blog Automation Premium\LEADERNAM Orbit\
+     *   마법사 기본값  %LOCALAPPDATA%\Programs\LEADERNAM Orbit\   ← 빈 폴더로 남아 있었다
+     * 그래서 "설치했다는데 앱은 그대로" 가 됐다.
+     *
+     * ## 지금 순서
+     * ① isSilent=true 로 조용한 설치를 건다. /S 는 **레지스트리에 기억된 기존 설치 위치**로
+     *    들어가므로 위치가 어긋나지 않고, 클릭할 것도 없다.
+     * ② 그 호출이 던지거나, 6초가 지나도 앱이 살아 있으면 조용한 설치가 안 먹은 것이다
+     *    → 그때 마법사(isSilent=false)를 띄운다. 아무것도 안 하는 것보다 낫다.
+     *
+     * 성공하면 ①에서 앱이 종료되므로 ②는 실행되지 않는다.
+     */
     setTimeout(() => {
-      console.log('[Updater] 자동 재시작 → NSIS installer');
+      let silentFailed = false;
       try {
-        // isSilent=false → NSIS GUI 띄움 / isForceRunAfter=true → 설치 후 자동 실행
-        // isUpdateInProgress는 호출 직전까지 true 유지해야 close 핸들러가 confirm 다이얼로그를 skip한다.
-        updater.quitAndInstall(false, true);
+        console.log('[Updater] 자동 재시작 → 조용한 설치 시도');
+        updater.quitAndInstall(true, true);
       } catch (e: any) {
-        // quitAndInstall 실패 시에만 플래그 해제 (앱 계속 사용 가능)
-        isUpdateInProgress = false;
-        console.error('[Updater] quitAndInstall 실패:', e.message);
+        silentFailed = true;
+        console.error('[Updater] 조용한 설치 실패:', e?.message);
       }
+
+      // 여기서 앱이 아직 살아 있으면 조용한 설치가 시작되지 않은 것이다
+      setTimeout(() => {
+        if (!silentFailed) console.log('[Updater] 6초가 지나도 종료되지 않음 — 마법사로 물러섬');
+        try {
+          updater.quitAndInstall(false, true);
+        } catch (e2: any) {
+          // 둘 다 실패 — 앱은 계속 쓸 수 있게 두고 플래그만 푼다
+          isUpdateInProgress = false;
+          console.error('[Updater] 마법사 설치도 실패:', e2?.message);
+        }
+      }, 6000);
     }, 2000);
   });
 
