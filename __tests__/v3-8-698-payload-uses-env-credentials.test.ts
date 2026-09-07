@@ -79,3 +79,42 @@ describe('③ 왜 payload 가 이기는지 — 그 사실이 코드에 남아 �
     expect(posts).toContain('wordpressPassword: settings.wordpressPassword');
   });
 });
+
+describe('④ 에이전트 모드도 같은 정본을 본다 (별도 경로 함정)', () => {
+  const agent = read('electron/ui/modules/codex-workshop.js');
+
+  test('⭐ .env 를 함께 읽는 래퍼가 있다', () => {
+    expect(agent).toContain('async function readAgentSettingsWithEnv()');
+    expect(agent).toContain('window.blogger?.getEnv?.()');
+  });
+
+  test('⭐ localStorage 직접 읽기는 그 래퍼 안에서만 쓴다', () => {
+    // "에이전트 모드는 orchestration 을 안 탄다 — 규칙 고쳐도 그쪽엔 안 걸린다"(기존 교훈)
+    // 정의 줄(`function readAgentStoredSettings()`)은 빼고 **호출**만 센다
+    const calls = (agent.match(/(?<!function )readAgentStoredSettings\(\)/g) || []).length;
+    expect(calls).toBe(1);
+  });
+
+  test('⭐ 플랫폼 설정과 API 키 둘 다 .env 를 본다', () => {
+    expect(agent).toContain('const settings = await readAgentSettingsWithEnv();');
+    expect((agent.match(/await readAgentSettingsWithEnv\(\)/g) || []).length).toBe(2);
+  });
+
+  test('⭐ 플랫폼은 저장값 우선을 지킨다 (배지 선택이 되돌아가면 안 된다)', () => {
+    const fn = blockBetween(agent, 'async function readAgentSettingsWithEnv', 'async function getAgentPlatformConfig');
+    expect(fn).toContain('if (platform) merged.platform = platform;');
+  });
+
+  test('.env 를 못 읽어도 예전처럼 동작한다', () => {
+    const fn = blockBetween(agent, 'async function readAgentSettingsWithEnv', 'async function getAgentPlatformConfig');
+    expect(fn).toContain('return stored;');
+  });
+
+  test('⭐ 비동기로 바뀐 호출부에 await 가 빠지지 않았다', () => {
+    expect(agent).toContain('const config = await getAgentPlatformConfig();');
+    expect(agent).toContain('if (!config) config = await getAgentPlatformConfig();');
+    expect(agent).toContain('await readAgentImageApiKey(meta.keyId)');
+    // 기본 인자로 Promise 를 넘기면 config 가 Promise 가 된다 — 그 꼴이 남아 있으면 안 된다
+    expect(agent).not.toContain('config = getAgentPlatformConfig())');
+  });
+});

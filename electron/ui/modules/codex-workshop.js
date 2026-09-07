@@ -474,6 +474,41 @@ function readAgentStoredSettings() {
   }
 }
 
+/**
+ * 🔑 v3.8.698 — **에이전트 모드도 `.env` 를 정본으로 본다.**
+ *
+ * 사장님: "❌ 다시 생성 실패: Request failed with status code 401"
+ *
+ * 그 401 의 원인은 localStorage 의 낡은 비밀번호였다(실측: .env 는 200, localStorage 는 401).
+ * 일반 경로는 loadSettings 가 `.env` 를 덮어쓰게 고쳤는데, **에이전트 모드는 여기서
+ * localStorage 를 직접 읽어** 그 수정이 닿지 않는다 — 이 저장소가 이미 아는 함정이다
+ * ("에이전트 모드는 orchestration 을 안 탄다. 규칙 고쳐도 그쪽엔 안 걸린다").
+ *
+ * `.env` 는 대문자_스네이크로 오고 저장값은 카멜이라 **키가 달라 서로 덮이지 않는다.**
+ * 그래서 카멜 별칭을 만들어 준다(settings.js 의 camelizeEnvKeys 와 같은 규칙).
+ * 빈 값은 덮지 않는다 — 없는 것과 지운 것은 다르다.
+ */
+async function readAgentSettingsWithEnv() {
+  const stored = readAgentStoredSettings();
+  try {
+    const res = await window.blogger?.getEnv?.();
+    const env = (res && res.ok && res.data) ? res.data : {};
+    const aliased = {};
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined || value === null || String(value).trim() === '') continue;
+      if (!/^[A-Z][A-Z0-9_]*$/.test(key)) continue;
+      aliased[key.toLowerCase().replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase())] = value;
+    }
+    // 플랫폼은 예전대로 저장값이 먼저다 — 배지로 고른 선택이 되돌아가면 안 된다
+    const platform = stored.platform;
+    const merged = { ...stored, ...env, ...aliased };
+    if (platform) merged.platform = platform; else delete merged.platform;
+    return merged;
+  } catch {
+    return stored;   // .env 를 못 읽어도 예전처럼 동작한다
+  }
+}
+
 function readAgentSettingValue(id, settings = {}, aliases = []) {
   const fromUi = String($(id)?.value || '').trim();
   if (fromUi) return fromUi;
@@ -484,8 +519,9 @@ function readAgentSettingValue(id, settings = {}, aliases = []) {
   return '';
 }
 
-function getAgentPlatformConfig() {
-  const settings = readAgentStoredSettings();
+async function getAgentPlatformConfig() {
+  // v3.8.698: localStorage 만 보면 낡은 비밀번호로 401 이 난다 — .env 를 정본으로 함께 본다
+  const settings = await readAgentSettingsWithEnv();
   const selected = document.querySelector('input[name="platform"]:checked')?.value
     || settings.platform
     || 'blogger';
@@ -542,7 +578,8 @@ function getAgentImageEngineMeta(engine = '') {
   return { kind: 'unknown', label: `${engine || '선택한'} 이미지 엔진`, action: 'image-settings' };
 }
 
-function readAgentImageApiKey(keyId = '') {
+// v3.8.698: API 키도 .env 를 정본으로 본다 — 자격증명과 같은 이유다(낡은 값이 이기면 안 된다)
+async function readAgentImageApiKey(keyId = '') {
   const aliases = {
     openaiKey: ['openaiApiKey', 'OPENAI_API_KEY'],
     geminiKey: ['geminiApiKey', 'GEMINI_API_KEY', 'GOOGLE_API_KEY'],
@@ -551,7 +588,7 @@ function readAgentImageApiKey(keyId = '') {
     leonardoKey: ['leonardoApiKey', 'LEONARDO_API_KEY'],
     stabilityApiKey: ['stabilityKey', 'STABILITY_API_KEY'],
   };
-  const settings = readAgentStoredSettings();
+  const settings = await readAgentSettingsWithEnv();
   return readAgentSettingValue(keyId, settings, [keyId === 'openaiKey' ? 'openaiKeyHidden' : '', ...(aliases[keyId] || [])].filter(Boolean));
 }
 
@@ -603,7 +640,7 @@ async function verifyAgentImageIntegration(engine) {
     }
   }
   if (meta.kind === 'api') {
-    const hasKey = !!readAgentImageApiKey(meta.keyId);
+    const hasKey = !!(await readAgentImageApiKey(meta.keyId));
     return createAgentReadinessCheck(
       `image:${normalized}`,
       meta.label,
@@ -618,7 +655,9 @@ async function verifyAgentImageIntegration(engine) {
   return createAgentReadinessCheck(`image:${normalized}`, meta.label, false, '이 이미지 엔진의 연동 방식을 확인하지 못했습니다. 이미지 설정을 확인해주세요.', meta.action);
 }
 
-async function verifyAgentPlatformIntegration(platform, config = getAgentPlatformConfig()) {
+// v3.8.698: 기본값이 Promise 가 되면 안 된다 — 안 넘겼을 때만 여기서 기다린다
+async function verifyAgentPlatformIntegration(platform, config = null) {
+  if (!config) config = await getAgentPlatformConfig();
   const normalized = normalizeAgentIntegrationPlatform(platform);
   const bridge = getBridgeApi();
   if (normalized === 'blogger') {
@@ -716,7 +755,7 @@ async function verifyAgentExecutionReadiness(options = {}) {
       }
     }
 
-    const config = getAgentPlatformConfig();
+    const config = await getAgentPlatformConfig();
     const requestedPlatforms = Array.isArray(options.platforms) && options.platforms.length
       ? options.platforms
       : [config.platform];
