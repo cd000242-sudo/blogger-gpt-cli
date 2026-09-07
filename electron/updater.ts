@@ -294,6 +294,75 @@ export function registerUpdaterHandlers(): void {
     return app.getVersion();
   });
 
+  /**
+   * 🔁 v3.8.692 — **최신 버전으로 재시작** (로그인 인증창의 수동 버튼)
+   *
+   * 사장님: "자동업데이트가 안되면 로그인인증창에 제일 최신버전으로 재시작하기 버튼생성하고
+   *          누르면 자동 업데이트하고 재시작되게하면되지않니"
+   *
+   * ## 왜 버튼만으로는 부족했나 — 여기가 핵심이다
+   * 기존 `updater:install` 은 `quitAndInstall()` 을 **인자 없이** 불렀다.
+   * 그러면 isSilent=false 라서 NSIS **설치 마법사 창**이 뜨고 사람이 클릭해야 끝난다.
+   * 게다가 이 앱은 `oneClick:false · allowToChangeInstallationDirectory:true` 라
+   * 마법사의 기본 설치 위치가 **지금 앱이 있는 곳과 다르다**(실측: 앱은
+   * `C:\Program Files\Blog Automation Premium\...`, 마법사 기본값은 `%LOCALAPPDATA%\Programs\...`
+   * — 그 폴더가 빈 채로 남아 있었다). 그래서 "설치했다는데 앱은 그대로"가 됐다.
+   *
+   * 그래서 여기서는 `quitAndInstall(true, true)` 를 쓴다.
+   *   isSilent=true       → NSIS 를 /S 로 돌린다. 조용히 깔리고, **레지스트리에 기억된
+   *                         기존 설치 위치**로 들어간다(마법사 기본값이 아니라).
+   *   isForceRunAfter=true → 설치 후 앱을 자동으로 다시 띄운다.
+   *
+   * 이미 최신이면 아무것도 하지 않고 그렇다고 알려 준다 — 조용히 끝내면
+   * 사장님은 버튼이 먹었는지 알 수 없다.
+   */
+  ipcMain.handle('updater:restart-to-latest', async () => {
+    const updater = getAutoUpdater();
+    if (!updater) return { ok: false, error: '이 빌드에서는 자동 업데이트를 쓸 수 없습니다 (개발 모드).' };
+
+    const current = app.getVersion();
+    try {
+      const result = await updater.checkForUpdates();
+      const latest = String(result?.updateInfo?.version || '');
+      if (!latest || latest === current) {
+        return { ok: true, upToDate: true, current, latest: latest || current };
+      }
+
+      /**
+       * 내려받기를 기다린다. autoDownload=true 라 이미 받고 있을 수 있으므로
+       * **두 경우 다** 처리한다: 이미 끝났으면 곧바로, 아니면 이벤트를 기다린다.
+       * 5분을 넘기면 포기하고 이유를 돌려준다 — 무한정 도는 버튼은 고장과 구별이 안 된다.
+       */
+      await new Promise<void>((resolve, reject) => {
+        const done = () => { cleanup(); resolve(); };
+        const fail = (e: any) => { cleanup(); reject(e instanceof Error ? e : new Error(String(e?.message || e))); };
+        const timer = setTimeout(() => fail(new Error('내려받기가 5분을 넘겨 중단했습니다.')), 5 * 60 * 1000);
+        const cleanup = () => {
+          clearTimeout(timer);
+          updater.removeListener('update-downloaded', done);
+          updater.removeListener('error', fail);
+        };
+        updater.once('update-downloaded', done);
+        updater.once('error', fail);
+        try { updater.downloadUpdate(); } catch (e) { /* 이미 받는 중이면 여기서 던진다 — 이벤트를 계속 기다린다 */ }
+      });
+
+      isUpdateInProgress = true;
+      // 조용히 설치하고 자동 재시작 — 위 주석의 두 인자가 이 기능의 전부다
+      setTimeout(() => {
+        try {
+          updater.quitAndInstall(true, true);
+        } catch (e: any) {
+          isUpdateInProgress = false;
+          console.error('[Updater] 수동 재시작 설치 실패:', e?.message);
+        }
+      }, 300);
+      return { ok: true, upToDate: false, current, latest, installing: true };
+    } catch (error: any) {
+      return { ok: false, current, error: String(error?.message || error).slice(0, 200) };
+    }
+  });
+
   // 기존 호환
   ipcMain.handle('auto-update:install', () => {
     const updater = getAutoUpdater();

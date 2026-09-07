@@ -649,6 +649,17 @@
         <h1 class="logo-title">LEADERNAM Orbit</h1>
         <p class="logo-subtitle">Premium License</p>
         <p id="loginVersionText" style="color: rgba(255,255,255,0.3); font-size: 11px; margin-top: 8px; letter-spacing: 1px;">v--</p>
+        <!--
+          🔁 v3.8.692 — 사장님: "자동업데이트가 안되면 로그인인증창에 제일 최신버전으로
+          재시작하기 버튼생성하고 누르면 자동 업데이트하고 재시작되게하면되지않니"
+          자동 경로가 막혔을 때 손으로 빠져나갈 길. 설치는 조용히(/S) 하므로
+          설치 마법사 창이 뜨지 않고, 기존 설치 위치 그대로 갱신된다.
+        -->
+        <button id="loginUpdateNowBtn" type="button"
+          style="margin-top:10px;padding:7px 14px;border:1px solid rgba(255,255,255,0.18);border-radius:999px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.72);font-size:11.5px;font-weight:700;cursor:pointer;letter-spacing:0.2px;">
+          🔁 최신 버전으로 재시작
+        </button>
+        <p id="loginUpdateNowMsg" style="display:none;color:rgba(255,255,255,0.55);font-size:11px;margin-top:7px;line-height:1.5;"></p>
       </div>
 
       <!-- 무료 체험 버튼 -->
@@ -1316,6 +1327,52 @@
         const ver = await ipcApi.invoke('updater:getVersion');
         const verEl = document.getElementById('loginVersionText');
         if (verEl && ver) verEl.textContent = 'v' + ver;
+      } catch {}
+
+      /**
+       * 🔁 v3.8.692 — 최신 버전으로 재시작 (수동 탈출구)
+       *
+       * 자동 경로는 NSIS 마법사를 띄우고 사람이 클릭해야 끝난다. 게다가 마법사의 기본
+       * 설치 위치가 지금 앱이 있는 곳과 달라서 "설치했다는데 앱은 그대로"가 됐다.
+       * 이 버튼은 조용한 설치(/S)로 가므로 기존 설치 위치 그대로 갱신되고 바로 재시작된다.
+       *
+       * 결과를 반드시 화면에 적는다 — 눌렀는데 아무 말이 없으면 고장과 구별이 안 된다.
+       */
+      try {
+        const upBtn = document.getElementById('loginUpdateNowBtn');
+        const upMsg = document.getElementById('loginUpdateNowMsg');
+        const say = function (text, color) {
+          if (!upMsg) return;
+          upMsg.style.display = 'block';
+          upMsg.style.color = color || 'rgba(255,255,255,0.55)';
+          upMsg.textContent = text;
+        };
+        if (upBtn) {
+          upBtn.addEventListener('click', async function () {
+            upBtn.disabled = true;
+            upBtn.style.opacity = '0.55';
+            upBtn.textContent = '⏳ 확인 중…';
+            say('최신 버전을 확인하고 있습니다. 창을 닫지 마세요.');
+            try {
+              const r = await ipcApi.invoke('updater:restart-to-latest');
+              if (!r || !r.ok) {
+                say('업데이트하지 못했습니다 — ' + ((r && r.error) || '알 수 없는 오류'), '#fca5a5');
+              } else if (r.upToDate) {
+                say('이미 최신 버전입니다 (v' + r.current + ').', '#86efac');
+              } else {
+                // 여기까지 왔으면 곧 앱이 꺼지고 새 버전으로 다시 뜬다
+                upBtn.textContent = '⏳ 설치 중…';
+                say('v' + r.latest + ' 를 설치하고 다시 시작합니다. 잠시만 기다려 주세요.', '#93c5fd');
+                return;   // 버튼을 되살리지 않는다 — 곧 종료된다
+              }
+            } catch (e) {
+              say('업데이트하지 못했습니다 — ' + ((e && e.message) || e), '#fca5a5');
+            }
+            upBtn.disabled = false;
+            upBtn.style.opacity = '1';
+            upBtn.textContent = '🔁 최신 버전으로 재시작';
+          });
+        }
       } catch {}
 
       /*
