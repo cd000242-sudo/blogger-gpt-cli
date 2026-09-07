@@ -5747,9 +5747,29 @@ ${conclusionHTML}
       html = html.replace('<!-- EEAT_META_PLACEHOLDER -->', '');
     }
 
+    /**
+     * 🚫 v3.8.695 — **티스토리에는 JSON-LD 를 본문에 넣지 않는다.**
+     *
+     * 사장님 실물 검수: "티스토리는 스크립트가 미리보기에 노출되어있고 삭제도 안돼"
+     *
+     * 티스토리 편집기는 본문의 `<script>` 를 실행하지 않고 **보이는 블록으로 바꿔 버린다**
+     * (화면에 "SCRIPT" 라는 딱지와 JSON 원문이 그대로 뜬다). 독자에게도 그렇게 보이고,
+     * 편집기에서 지우려 해도 일반 요소가 아니라 지워지지 않는다.
+     *
+     * 게다가 이게 **썸네일 중복의 원인이기도 했다** — 스키마 태그가 본문 맨 앞에 붙는 바람에
+     * 티스토리 퍼블리셔의 썸네일 중복 제거(`^\s*<div class="bgpt-thumbnail-box">`)가
+     * 앵커를 잃고 못 지웠다. 그래서 대표이미지와 본문 첫 이미지가 나란히 두 번 나왔다.
+     *
+     * 워드프레스·블로거는 본문 `<script>` 가 정상 동작하므로 예전 그대로 둔다.
+     * 티스토리 구조화 데이터는 스킨(head)의 몫이라 글마다 넣을 자리가 애초에 없다.
+     */
+    const skipBodyJsonLd = /tistory/i.test(String(platform || ''));
+
     // 🛡️ Schema.org JSON-LD 풀팩 자동 삽입 (Article + Person + Organization + WebSite + BreadcrumbList)
     //    구글 검색·AdSense가 신뢰도 평가에 직접 사용. 글 한 편당 1개 <script>로 통합 그래프 출력.
-    try {
+    if (skipBodyJsonLd) {
+      onLog?.('[PROGRESS] 98% - 🛡️ 티스토리 — JSON-LD 는 본문에 넣지 않습니다 (편집기가 글자로 노출시킴)');
+    } else try {
       const authorInfo = (payload as any).adsenseAuthorInfo || {};
       const env = loadEnvFromFile();
       // ⚠️ 위 2421줄과 동일한 env 키 함정. WP_URL 은 .env 에 없다 — WORDPRESS_SITE_URL 이 실제 키다.

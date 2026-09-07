@@ -299,19 +299,46 @@ function stripLeadingTemporaryImage(html: string): string {
   );
 }
 
+/**
+ * 🖼️ v3.8.695 — **맨 앞에 있다고 가정하지 않는다.**
+ *
+ * 사장님 실물 검수: "썸네일 두번나오고"
+ *
+ * 예전 규칙은 전부 `^\s*` 로 **본문 맨 앞**을 붙잡았다. 그런데 발행 직전에
+ * Schema.org JSON-LD `<script>` 가 본문 앞에 끼어들면서(orchestration) 앵커가 빗나갔고,
+ * 그때부터 대표이미지와 본문 첫 이미지가 나란히 두 번 나왔다.
+ *
+ * 이제 앵커 대신 **앞부분(도입 영역)에서 처음 나오는 것 하나**를 지운다.
+ * 글 중간의 같은 이미지는 건드리지 않는다 — 본문에서 다시 쓰는 경우가 있고,
+ * 중복은 언제나 맨 위에서 생기기 때문이다.
+ */
+const THUMBNAIL_SCAN_HEAD = 4000;
+
+/** 앞부분에서 정규식에 처음 걸리는 것 하나만 지운다(뒤쪽 본문은 그대로 둔다) */
+function dropFirstInHead(html: string, pattern: RegExp): string {
+  const head = html.slice(0, THUMBNAIL_SCAN_HEAD);
+  const match = head.match(pattern);
+  if (!match || match.index === undefined) return html;
+  return html.slice(0, match.index) + html.slice(match.index + match[0].length);
+}
+
 function stripGeneratedThumbnailHero(html: string, thumbnailUrl: string): string {
   let nextHtml = stripLeadingTemporaryImage(html);
-  nextHtml = nextHtml.replace(
-    /^\s*<div\b[^>]*class=["'][^"']*\bbgpt-thumbnail-box\b[^"']*["'][\s\S]*?<\/div>\s*/i,
-    '',
+  nextHtml = dropFirstInHead(
+    nextHtml,
+    /<div\b[^>]*class=["'][^"']*\bbgpt-thumbnail-box\b[^"']*["'][\s\S]*?<\/div>\s*/i,
   );
 
   const source = normalizeTistoryPublishedImageUrl(thumbnailUrl);
   if (source) {
     const escapedSource = escapeRegExp(source);
-    nextHtml = nextHtml.replace(
-      new RegExp(`^\\s*(?:<p[^>]*>\\s*)?<img\\b[^>]*\\bsrc=["']${escapedSource}["'][^>]*>\\s*(?:<\\/p>\\s*)?`, 'i'),
-      '',
+    // 감싼 태그(p·div.separator·figure)가 있어도 그 이미지 하나를 걷어낸다
+    nextHtml = dropFirstInHead(
+      nextHtml,
+      new RegExp(
+        `(?:<(?:p|div|figure)\\b[^>]*>\\s*)?<img\\b[^>]*\\bsrc=["']${escapedSource}["'][^>]*>\\s*(?:<\\/(?:p|div|figure)>\\s*)?`,
+        'i',
+      ),
     );
   }
   return nextHtml.trimStart();

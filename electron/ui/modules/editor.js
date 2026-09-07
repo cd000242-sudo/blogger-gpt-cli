@@ -150,7 +150,25 @@ export function serializeEditor() {
     if (!el.getAttribute('class')) el.removeAttribute('class');
   });
   body.querySelectorAll('[data-bgpt-editor], [data-bgpt-editor-ui]').forEach((el) => el.remove());
-  body.querySelectorAll('script').forEach((el) => el.remove());
+  /**
+   * 🏷️ v3.8.695 — **구조화 데이터(JSON-LD)는 지우지 않는다.**
+   *
+   * 사장님 실물 검수(티스토리): "스크립트가 미리보기에 노출되어있고 삭제도 안돼"
+   * 그걸 보다가 더 큰 것을 찾았다 — 여기서 `<script>` 를 통째로 지우는 바람에
+   * **편집기로 한 번 저장할 때마다 그 글의 JSON-LD 가 통째로 날아갔다.**
+   * 검색엔진이 읽는 구조화 데이터라 사라져도 화면에는 아무 표시가 없다(조용한 손실).
+   *
+   * 실행되는 스크립트는 여전히 지운다 — 편집기가 남의 코드를 실어 나르면 안 된다.
+   * `application/ld+json` 은 실행되지 않는 **데이터**라 남겨도 안전하다.
+   */
+  body.querySelectorAll('script').forEach((el) => {
+    const type = String(el.getAttribute('type') || '').toLowerCase();
+    if (type === 'application/ld+json') {
+      el.removeAttribute('data-bgpt-hidden');   // 미리보기용 표시는 벗겨서 내보낸다
+      return;
+    }
+    el.remove();
+  });
 
   /**
    * 💰 v3.8.482 — 광고 자리를 실제 코드로 바꾼다.
@@ -1044,7 +1062,8 @@ function applyFormat(doc, kind) {
       case 'hl-pink': return void (wrap('<mark style="background:#fbcfe8;padding:1px 3px;border-radius:3px;">', '</mark>') && setStatus('형광펜(분홍) 적용'));
       case 'color-red': return void (wrap('<span style="color:#dc2626;font-weight:700;">', '</span>') && setStatus('빨간 글자 적용'));
       case 'quote':
-        return void (wrapBlock('border-left:5px solid #94a3b8;background:#f8fafc;padding:12px 18px;margin:18px 0;color:#334155;')
+        // v3.8.695: 5px 굵은 괘선 → 2px 옅은 선. 인용 표기는 지키되 눈에 덜 튀게.
+        return void (wrapBlock('border-left:2px solid #cbd5e1;background:#f8fafc;padding:12px 18px;margin:18px 0;color:#334155;')
           && setStatus('인용문으로 감쌌습니다'));
       case 'box-gray':
         return void (wrapBlock('border:3px solid #cbd5e1;background:#f8fafc;border-radius:12px;padding:16px 18px;margin:18px 0;')
@@ -1397,6 +1416,14 @@ function loadIntoFrame(rawBodyHtml) {
       img{cursor:pointer;}
       .ve-img-selected{outline:3px solid #6366f1!important;outline-offset:2px;}
       .ve-link-selected{outline:2px dashed #f59e0b!important;outline-offset:3px;}
+      /*
+        🏷️ v3.8.695 — 구조화 데이터(JSON-LD)를 미리보기에서 숨긴다.
+        사장님: "티스토리는 스크립트가 미리보기에 노출되어있고 삭제도 안돼"
+        contenteditable 안에서는 브라우저가 script 내용을 **편집 가능한 글자**로 그린다.
+        독자 화면에는 없는 것이니 여기서도 없어야 하고, 지우려 애쓸 필요도 없어야 한다.
+        (저장할 때는 serializeEditor 가 그대로 되살려 내보낸다 — 지우지 않는다.)
+      */
+      script{display:none!important;}
       ${AD_SLOT_STYLE}
       ${needsFallbackStyle ? "body{font-family:'Noto Sans KR','Malgun Gothic',sans-serif;max-width:860px;margin:0 auto;line-height:1.8;color:#1f2937;} body img{max-width:100%;height:auto;}" : ''}
     </style>
