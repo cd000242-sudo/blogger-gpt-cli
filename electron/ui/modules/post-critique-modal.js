@@ -90,7 +90,7 @@ function issueCard(issue, index, sections) {
  * 얼마나 바뀌었는지, 어떤 구간이 왜 그대로 남았는지 알 수가 없었고,
  * 다음 비평에서 새 지적이 나와도 이어 붙일 근거가 없었다.
  */
-function resultView(res, picked) {
+function resultView(res, picked, editorMode = false) {
   const revised = Array.isArray(res?.revisedDetail) ? res.revisedDetail : [];
   const skipped = Array.isArray(res?.skipped) ? res.skipped : [];
   const before = Number(res?.before || 0);
@@ -110,16 +110,20 @@ function resultView(res, picked) {
       ${skipped.map((line) => `· ${esc(line)}`).join('<br>')}
     </div>
     <div style="margin-top:7px;color:#7c8aa5;font-size:11px;line-height:1.55;">
-      규칙(이미지·링크·소제목 유지, 분량 유지)을 어긴 결과는 버리고 원본을 그대로 둡니다.
-      <b style="color:#cbd5f5;">이 구간의 지적은 다음 비평에도 그대로 나옵니다.</b>
+      규칙(이미지·링크·소제목 유지, 분량 유지)을 지키게 <b style="color:#cbd5f5;">두 번</b> 시켰는데도
+      어겨서, 원본을 지켰습니다. 이 구간의 지적은 다음 비평에도 나옵니다.
     </div>` : '';
 
   return `
     <div style="padding:16px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:12px;margin-bottom:16px;">
-      <div style="color:#bbf7d0;font-weight:800;font-size:14px;">✅ ${revised.length}개 구간을 고쳐 같은 주소에 반영했습니다</div>
+      <div style="color:#bbf7d0;font-weight:800;font-size:14px;">${editorMode
+        ? `✅ ${revised.length}개 구간을 고쳐 편집기에 실었습니다`
+        : `✅ ${revised.length}개 구간을 고쳐 같은 주소에 반영했습니다`}</div>
       <div style="color:#94a3b8;font-size:12px;margin-top:6px;line-height:1.6;">
         고른 지적 ${picked.length}건 · 본문 ${before}자 → ${after}자 (${delta >= 0 ? '+' : ''}${delta})<br>
-        주소와 제목은 그대로라 검색 색인이 유지됩니다.
+        ${editorMode
+          ? '<b style="color:#cbd5f5;">아직 발행되지 않았습니다.</b> 확인 뒤 저장 버튼을 눌러야 블로그에 올라갑니다.'
+          : '주소와 제목은 그대로라 검색 색인이 유지됩니다.'}
       </div>
     </div>
     ${rows}
@@ -136,10 +140,23 @@ function resultView(res, picked) {
  * 비평 리포트를 띄운다.
  *
  * @param {object} critique - critique-published-post 핸들러 응답
- * @param {(issues:any[]) => Promise<any>} onApply - 고른 항목으로 수정발행. **결과 객체를 돌려줘야 한다.**
+ * @param {(issues:any[]) => Promise<any>} onApply - 고른 항목을 반영. **결과 객체를 돌려줘야 한다.**
  * @param {() => Promise<void>} [onRecritique] - 결과 화면에서 '다시 비평' 을 눌렀을 때
+ * @param {{mode?: 'publish'|'editor'}} [opts]
+ *   ✍️ v3.8.693 — **이 모달은 두 곳에서 쓰인다. 하는 일이 다르다.**
+ *
+ *   사장님: "수정발행이아니라 수정만하게하라니까?? 수정발행하기는 전부다 고치고나서
+ *            내가 마지막에 누를꺼야"
+ *
+ *   publish(글목록 탭) : 고치고 **바로 그 글에 반영 발행**한다.
+ *   editor(미리보기·수정): 편집기에 다시 실을 뿐이다. **발행은 저장 버튼이 한다.**
+ *
+ *   그런데 문구는 두 경우 모두 "수정발행" 이었고, 끝나면 "이미 블로그에 반영됐습니다"
+ *   라고까지 말했다 — 편집기에서는 **사실이 아니다.** 모드에 따라 말을 바꾼다.
  */
-export function showCritiqueModal(critique, onApply, onRecritique) {
+export function showCritiqueModal(critique, onApply, onRecritique, opts = {}) {
+  const editorMode = opts?.mode === 'editor';
+  const applyVerb = editorMode ? '수정' : '수정발행';
   const existing = document.getElementById('postCritiqueModal');
   if (existing) existing.remove();
 
@@ -180,9 +197,9 @@ export function showCritiqueModal(critique, onApply, onRecritique) {
       </div>
 
       <div id="pcFooter" style="padding:16px 24px;border-top:1px solid #1e293b;display:flex;gap:10px;align-items:center;">
-        <div id="pcHint" style="flex:1;color:#64748b;font-size:11.5px;line-height:1.5;">주소(URL)와 제목은 그대로라 검색 색인이 유지됩니다.</div>
+        <div id="pcHint" style="flex:1;color:#64748b;font-size:11.5px;line-height:1.5;">${editorMode ? '고른 항목만 고쳐 편집기에 다시 싣습니다. 발행은 저장 버튼으로 직접 하세요.' : '주소(URL)와 제목은 그대로라 검색 색인이 유지됩니다.'}</div>
         <button id="pcCancel" style="padding:10px 18px;background:#1e293b;color:#cbd5f5;border:1px solid #334155;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;">닫기</button>
-        ${clean ? '' : '<button id="pcApply" style="padding:10px 20px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;">✍️ 선택한 항목 수정발행</button>'}
+        ${clean ? '' : `<button id="pcApply" style="padding:10px 20px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;">✍️ 선택한 항목 ${applyVerb}</button>`}
       </div>
     </div>
   `;
@@ -203,7 +220,7 @@ export function showCritiqueModal(critique, onApply, onRecritique) {
   const syncButton = () => {
     if (!applyBtn) return;
     const n = selected().length;
-    applyBtn.textContent = n ? `✍️ ${n}건 수정발행` : '✍️ 항목을 골라주세요';
+    applyBtn.textContent = n ? `✍️ ${n}건 ${applyVerb}` : '✍️ 항목을 골라주세요';
     applyBtn.disabled = n === 0;
     applyBtn.style.opacity = n === 0 ? '0.5' : '1';
     applyBtn.style.cursor = n === 0 ? 'not-allowed' : 'pointer';
@@ -226,10 +243,10 @@ export function showCritiqueModal(critique, onApply, onRecritique) {
       // 결과 화면으로 갈아끼운다 — 닫지 않는다. 무엇이 바뀌었는지 보고 나가셔야 한다.
       const body = overlay.querySelector('#pcBody');
       const footer = overlay.querySelector('#pcFooter');
-      if (body) body.innerHTML = resultView(res || {}, picked);
+      if (body) body.innerHTML = resultView(res || {}, picked, editorMode);
       if (footer) {
         footer.innerHTML = `
-          <div style="flex:1;color:#64748b;font-size:11.5px;line-height:1.5;">고친 내용은 이미 블로그에 반영됐습니다.</div>
+          <div style="flex:1;color:#64748b;font-size:11.5px;line-height:1.5;">${editorMode ? '편집기에 반영했습니다. 확인 뒤 저장 버튼으로 발행하세요.' : '고친 내용은 이미 블로그에 반영됐습니다.'}</div>
           ${onRecritique ? '<button id="pcAgain" style="padding:10px 18px;background:#1e293b;color:#cbd5f5;border:1px solid #334155;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;">🩺 다시 비평</button>' : ''}
           <button id="pcDone" style="padding:10px 20px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;">닫기</button>`;
         footer.querySelector('#pcDone')?.addEventListener('click', close);

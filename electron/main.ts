@@ -4807,7 +4807,8 @@ ipcMain.handle('normalize-editor-paste', async (_evt, args: { text?: string }) =
   }
 });
 
-ipcMain.handle('critique-editor-html', async (_evt, args: { title?: string; html?: string; payload?: any }) => {
+// v3.8.693: resolved — 편집기가 기억한 "이미 고친 지적". 안 넘기면 같은 말이 또 나온다.
+ipcMain.handle('critique-editor-html', async (_evt, args: { title?: string; html?: string; payload?: any; resolved?: string[] }) => {
   const send = (line: string) => { try { if (_evt.sender && !_evt.sender.isDestroyed()) _evt.sender.send('log-line', line); } catch { /* noop */ } };
   try {
     const html = String(args?.html || '');
@@ -4832,6 +4833,7 @@ ipcMain.handle('critique-editor-html', async (_evt, args: { title?: string; html
     send('[PROGRESS] 45% - 📏 게이트로 본문을 재는 중…');
     const result = await critiqueDraft({
       title, html, competitors,
+      resolved: Array.isArray(args?.resolved) ? args!.resolved!.map(String) : [],
       callModel: (prompt: string) => { send('[PROGRESS] 65% - 🧐 편집장 관점으로 비평하는 중…'); return callEditorModel(args?.payload, prompt, send); },
       log: send,
     });

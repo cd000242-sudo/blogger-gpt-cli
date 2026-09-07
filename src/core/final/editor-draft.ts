@@ -134,6 +134,18 @@ export async function critiqueDraft(input: {
   competitors?: CompetitorPost[];
   /** AI 비평 한 번. 없으면 코드 진단만 */
   callModel?: (prompt: string) => Promise<string>;
+  /**
+   * 🧾 v3.8.693 — **이미 고친 지적들.** 이걸 안 넘기면 같은 말이 또 나온다.
+   *
+   * 사장님: "고치고 다시 비평누르면 똑같은 지적이 또뜨는데 이러면 처음 수정할떄
+   *          수정한이유가 없자나 이것도 비용이청구되는데"
+   *
+   * 발행글 비평 경로에는 critique-history 가 있었는데 **편집기 경로에는 없었다.**
+   * 매번 백지에서 비평하니 방금 고친 것도 그대로 다시 지적했다.
+   * buildCritiquePrompt 는 예전부터 `resolved` 를 받아 "다시 말하지 마세요" 라고
+   * 프롬프트에 넣어 준다 — 그 통로를 편집기도 쓰게 한다.
+   */
+  resolved?: string[];
   log?: (line: string) => void;
 }): Promise<DraftCritique> {
   const title = String(input.title || '').trim();
@@ -144,7 +156,9 @@ export async function critiqueDraft(input: {
   const decision = shouldCallAiCritique(codeIssues);
   if (decision.call && input.callModel) {
     try {
-      const raw = await input.callModel(buildCritiquePrompt({ title, html, codeIssues, competitors, resolved: [] }));
+      const resolved = (input.resolved || []).map((t) => String(t || '').trim()).filter(Boolean);
+      if (resolved.length) input.log?.(`   🧾 이미 고친 ${resolved.length}건은 다시 지적하지 않도록 알려줍니다`);
+      const raw = await input.callModel(buildCritiquePrompt({ title, html, codeIssues, competitors, resolved }));
       aiIssues = parseCritiqueIssues(raw, splitSections(html).length);
     } catch (error: any) {
       input.log?.(`   ⚠️ AI 비평 실패 — 코드 진단만으로 리포트를 냅니다: ${String(error?.message || error).slice(0, 80)}`);
@@ -206,13 +220,43 @@ export async function improveDraft(input: {
     const sectionIssues = [...(bySection.get(index) || []), ...wholePost];
     const cutting = sectionIssues.some((it) => isCuttingIssue(it));
     try {
-      const raw = await input.callModel(buildSectionRevisionPrompt({ title, section, issues: bySection.get(index) || [], wholePostIssues: wholePost }));
-      const verdict = acceptRevisedSection(raw, section, { cutting });
+      const basePrompt = buildSectionRevisionPrompt({ title, section, issues: bySection.get(index) || [], wholePostIssues: wholePost });
+      let raw = await input.callModel(basePrompt);
+      let verdict = acceptRevisedSection(raw, section, { cutting });
+
+      /**
+       * 🔁 v3.8.693 — 규칙을 어겼으면 **한 번 더 시킨다. 어긴 이유를 알려주고.**
+       *
+       * 사장님: "비평개선해서 고치고 다시 비평누르면 똑같은 지적이 또뜨는데 …
+       *          한번 수정할떄 확실하게 수정되게하라고"
+       *
+       * 예전에는 한 번 시켜 보고 규칙(분량·이미지·링크·주소 유지)을 어기면 **그냥 포기**하고
+       * 원본을 그대로 뒀다. 그러면 그 구간의 지적은 다음 비평에 **반드시 또 나온다** —
+       * 고쳐진 게 없으니까. 사장님이 겪은 무한루프가 이것이다.
+       *
+       * 모델은 무엇을 어겼는지 모른 채 한 번에 끝내야 했다. 어긴 이유를 붙여 다시 시키면
+       * 대개 두 번째에 통과한다. 추가 호출은 **실패했을 때만** 1회다(성공하면 0회).
+       */
+      if (!verdict.accepted) {
+        input.log?.(`   ↻ "${String(section.heading).slice(0, 20)}" 1차 거절(${verdict.reason}) — 이유를 알려주고 한 번 더`);
+        const retryPrompt = `${basePrompt}
+
+# ⚠️ 방금 쓴 답이 반려됐습니다 — 이유: ${verdict.reason}
+다시 쓰되 이번에는 아래를 반드시 지키세요.
+· 원문의 이미지(<img>)와 링크(<a>)를 하나도 빼지 마세요. 개수가 줄면 또 반려됩니다.
+· 분량을 원문보다 줄이지 마세요. 지적을 반영하되 문장을 덜어내지 말고 고쳐 쓰세요.
+· 본문에 글자로 적힌 주소(https://…)는 공백 없이 그대로 두세요.
+· 소제목(<h2>·<h3>)과 답변 블록은 원문 그대로 두세요.`;
+        raw = await input.callModel(retryPrompt);
+        verdict = acceptRevisedSection(raw, section, { cutting });
+      }
+
       if (verdict.accepted) {
         revisions.push({ index, html: verdict.html });
         revisedDetail.push({ index, heading: String(section.heading || ''), before: plain(section.html), after: plain(verdict.html), issues: sectionIssues.map((it) => String(it?.title || '')).filter(Boolean) });
       } else {
-        skipped.push(`${section.heading}: ${verdict.reason}`);
+        // 두 번 다 어겼다 — 여기서 멈춘다. 세 번째는 값어치보다 비용이 크다.
+        skipped.push(`${section.heading}: ${verdict.reason} (2회 시도)`);
       }
     } catch (error: any) {
       skipped.push(`${section.heading}: ${String(error?.message || error).slice(0, 80)}`);

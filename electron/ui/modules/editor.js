@@ -458,7 +458,17 @@ ${err?.message || err}
     setStatus('🩺 편집기의 글을 읽고 비평하는 중… (1~2분)');
     try {
       const payload = await editorPayload();
-      const critique = await window.electronAPI.invoke('critique-editor-html', { title, html: serializeEditor(), payload });
+      /**
+       * 🧾 v3.8.693 — 이 편집기에서 **이미 고친 지적**을 함께 보낸다.
+       *
+       * 사장님: "고치고 다시 비평누르면 똑같은 지적이 또뜨는데 … 이것도 비용이 청구되는데"
+       * 안 보내면 비평이 매번 백지에서 시작해 방금 고친 것을 또 지적한다.
+       * session 에 쌓아 두므로 편집기를 닫을 때까지 유지된다.
+       */
+      session.resolvedIssues = Array.isArray(session.resolvedIssues) ? session.resolvedIssues : [];
+      const critique = await window.electronAPI.invoke('critique-editor-html', {
+        title, html: serializeEditor(), payload, resolved: session.resolvedIssues,
+      });
       if (!critique?.ok) throw new Error(critique?.error || '알 수 없는 오류');
       setStatus(`🩺 비평 완료 — ${critique.summary}`);
       const { showCritiqueModal } = await import('./post-critique-modal.js');
@@ -469,12 +479,16 @@ ${err?.message || err}
         if (res.html && res.revised > 0) {
           const parts = splitDocument(res.html);
           loadIntoFrame(parts.bodyHtml);
-          setStatus(`✅ ${res.revised}개 구간을 고쳐 편집기에 실었습니다 (${res.length}자). 확인 뒤 저장 버튼으로 발행하세요.`);
+          // 실제로 고쳐진 구간의 지적만 기억한다 — 그대로 둔 구간은 다시 지적돼야 맞다
+          const applied = (res.revisedDetail || []).flatMap((d) => d.issues || []);
+          session.resolvedIssues = [...new Set([...session.resolvedIssues, ...applied])].slice(-40);
+          setStatus(`✅ ${res.revised}개 구간을 고쳐 편집기에 실었습니다 (${res.length}자). 발행하려면 저장 버튼을 누르세요.`);
         } else {
           setStatus('ℹ️ 고친 구간이 없습니다 — 다시 쓴 결과가 원본보다 낫지 않아 그대로 뒀습니다.');
         }
-        return { ...res, url: '' };
-      }, () => modalRefs.critiqueBtn.click());
+        // v3.8.693: mode 를 붙여 모달이 "수정발행" 이 아니라 "수정" 이라고 말하게 한다
+        return { ...res, url: '', mode: 'editor' };
+      }, () => modalRefs.critiqueBtn.click(), { mode: 'editor' });
     } catch (err) {
       setStatus(`❌ 비평 실패: ${err?.message || err}`);
       window.notifyUser?.(`비평하지 못했습니다.\n${err?.message || err}\n글은 그대로 있습니다.`, 'error');
