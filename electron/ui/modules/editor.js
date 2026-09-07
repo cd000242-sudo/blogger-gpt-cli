@@ -283,6 +283,13 @@ function ensureEditorModal() {
         <span style="${DIVIDER}"></span>
         <button id="veCritiqueBtn" style="${BTN_BASE}background:#3b0764;color:#e9d5ff;border:1px solid #6b21a8;" title="지금 편집기의 글을 비평합니다. 항목을 고르고 '수정하기'를 누르면 그 구간만 고쳐 편집기에 다시 싣습니다 (발행은 저장 버튼)">🩺 비평·개선</button>
         <button id="veThumbBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="제목으로 썸네일 이미지를 만들어 글 맨 위에 넣습니다">🖼️ 썸네일 생성</button>
+        <!--
+          🖼️ v3.8.696 — 사장님: "이미지를 삽입은 있는데 썸네일 삽입은없네..??"
+          [🖼️ 이미지]는 커서 자리에 넣을 뿐 썸네일이 되지 않는다(<p> 로 들어가서
+          썸네일 판정(div.separator img)에 안 걸린다). 내 PC 사진을 대표 이미지로
+          쓰려면 별도의 자리가 필요하다.
+        -->
+        <button id="veThumbInsertBtn" style="${BTN_BASE}background:#334155;color:#fcd34d;border:1px solid #475569;" title="내 PC 이미지를 골라 글 맨 위 썸네일(대표 이미지)로 넣습니다. 이미 있으면 바꿔 끼웁니다">🖼️ 썸네일 넣기</button>
         <button id="veSectionImgBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="커서가 있는 소제목 영역에 맞는 이미지를 만들어 그 자리에 넣습니다 (본문을 먼저 클릭해 영역을 고르세요)">🖼️ 이 영역 이미지</button>
         <!--
           🔗 v3.8.688 — 사장님: "글 다시 생성이랑 이미지 다시 생성 옆에 CTA 다시 생성을 추가해"
@@ -386,6 +393,7 @@ function ensureEditorModal() {
     draftWrap: overlay.querySelector('#veDraftWrap'),           // v3.8.683
     critiqueBtn: overlay.querySelector('#veCritiqueBtn'),
     thumbBtn: overlay.querySelector('#veThumbBtn'),
+    thumbInsertBtn: overlay.querySelector('#veThumbInsertBtn'),   // v3.8.696
     sectionImgBtn: overlay.querySelector('#veSectionImgBtn'),
     regenCtaBtn: overlay.querySelector('#veRegenCtaBtn'),       // v3.8.688
     textEngine: overlay.querySelector('#veTextEngine'),          // v3.8.691
@@ -663,6 +671,50 @@ ${err?.message || err}
       lockDraftButtons(false);
     }
   }
+
+  /**
+   * 🖼️ v3.8.696 — 내 PC 이미지를 **썸네일(대표 이미지)** 로 넣는다.
+   *
+   * 사장님: "이미지를 삽입은 있는데 썸네일 삽입은없네..??"
+   *
+   * [🖼️ 이미지] 와 무엇이 다른가 — 그건 커서 자리에 `<p>` 로 넣는다. 그런데 썸네일 판정은
+   * `div.separator img`(computeThumbnailUrl) 이라 `<p>` 로 넣으면 **대표 이미지가 되지 않는다.**
+   * 여기서는 발행기가 썸네일로 집는 모양 그대로 만들어 글 맨 위에 놓는다.
+   * 이미 썸네일이 있으면 바꿔 끼운다 — 두 장이 되면 위에 나란히 보인다(티스토리 실측).
+   */
+  modalRefs.thumbInsertBtn?.addEventListener('click', async () => {
+    const doc = getFrameDoc();
+    if (!doc || !session) return;
+    try {
+      const res = await window.electronAPI.invoke('select-image-files', { multi: false });
+      if (!res?.ok || !res.files?.length) return;
+      const dataUrl = res.files[0]?.dataUrl || '';
+      if (!dataUrl) { setStatus('이미지를 읽지 못했습니다.'); return; }
+
+      // 발행기가 썸네일로 집는 모양(div.separator > img)과 같아야 한다
+      const alt = (modalRefs.titleInput.value || session.originalTitle || '').replace(/"/g, '&quot;');
+      const block = `<div class="separator" style="clear:both;text-align:center;margin:18px 0;">`
+        + `<img src="${dataUrl}" data-bgpt-user-image="1" alt="${alt}" style="max-width:100%;height:auto;border-radius:12px;" /></div>`;
+
+      const wrap = doc.createElement('div');
+      wrap.innerHTML = block;
+      const node = wrap.firstElementChild;
+
+      const container = doc.querySelector('.content, article, main, body') || doc.body;
+      const existing = doc.querySelector('div.separator img');
+      const existingBox = existing?.closest('div.separator');
+      if (existingBox && existingBox.parentElement === container) {
+        existingBox.replaceWith(node);
+        setStatus('✅ 썸네일을 바꿨습니다. 저장하면 대표 이미지로 올라갑니다.');
+      } else {
+        container.insertBefore(node, container.firstChild);
+        setStatus('✅ 썸네일을 글 맨 위에 넣었습니다. 저장하면 대표 이미지로 올라갑니다.');
+      }
+      try { node.scrollIntoView({ block: 'center' }); } catch { /* 스크롤 실패가 삽입을 되돌릴 이유는 없다 */ }
+    } catch (err) {
+      setStatus(`❌ 썸네일을 넣지 못했습니다: ${err?.message || err}`);
+    }
+  });
 
   modalRefs.thumbBtn?.addEventListener('click', () => generateEditorImage('thumbnail'));
   modalRefs.sectionImgBtn?.addEventListener('click', () => generateEditorImage('section'));

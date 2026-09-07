@@ -175,9 +175,19 @@ export function initPublishedPostsTab() {
               블로그에서 직접 삭제/수정한 글은 🔄 새로고침하면 그대로 반영됩니다.
             </p>
           </div>
-          <button id="ppRefreshBtn" style="padding:11px 18px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:10px;font-weight:900;font-size:13px;cursor:pointer;box-shadow:0 4px 14px rgba(99,102,241,0.3);white-space:nowrap;">
-            🔄 새로고침
-          </button>
+          <div style="display:flex;gap:8px;flex-shrink:0;">
+            <!--
+              🔧 v3.8.696 — 사장님: "일괄 점검 교체 도구 만들고"
+              발행된 글의 CTA 를 한 번에 훑고, 고를 것만 골라 주소를 갈아끼운다.
+              점검 채널(cta-audit-run)은 v3.8.572 에 이미 있었는데 **버튼이 없어 아무도 못 썼다.**
+            -->
+            <button id="ppCtaAuditBtn" style="padding:11px 16px;background:#0f172a;color:#93c5fd;border:1px solid #334155;border-radius:10px;font-weight:800;font-size:13px;cursor:pointer;white-space:nowrap;" title="발행된 글의 CTA 주소를 전부 열어 죽었는지·홈인지·문서파일인지 확인합니다 (AI 호출 없음)">
+              🔧 CTA 일괄 점검
+            </button>
+            <button id="ppRefreshBtn" style="padding:11px 18px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:10px;font-weight:900;font-size:13px;cursor:pointer;white-space:nowrap;">
+              🔄 새로고침
+            </button>
+          </div>
         </div>
         <div id="ppTabs" style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 10px;">${renderTabs()}</div>
         <div id="ppNotice" style="display:none;font-size:12px;color:#cbd5e1;background:#0f172a;border:1px solid #334155;border-radius:10px;padding:10px 14px;margin-bottom:10px;line-height:1.6;"></div>
@@ -191,6 +201,7 @@ export function initPublishedPostsTab() {
       </div>
     `;
     tab.querySelector('#ppRefreshBtn').addEventListener('click', () => refreshPosts());
+    tab.querySelector('#ppCtaAuditBtn').addEventListener('click', () => runCtaAudit());   // 🔧 v3.8.696
     tab.querySelector('#ppMoreBtn').addEventListener('click', () => loadPosts({ append: true }));
     tab.querySelector('#ppTabs').addEventListener('click', (e) => {
       const btn = e.target.closest('.ppTabBtn');
@@ -652,4 +663,51 @@ async function openEditorFor(index) {
     title,
     html,
   });
+}
+
+/**
+ * 🔧 v3.8.696 — CTA 일괄 점검. 사장님: "일괄 점검 교체 도구 만들고"
+ *
+ * 점검은 AI 를 부르지 않는다 — 페이지를 열어 분류만 한다(비용 0).
+ * 결과 화면에서 고른 것만 교체하고, 화면은 cta-audit-modal.js 가 그린다.
+ * 목록에 본문이 없는 플랫폼(티스토리)은 CTA 를 못 세므로 그렇다고 알려 준다.
+ */
+async function runCtaAudit() {
+  const st = activeState();
+  const items = st.items || [];
+  if (!items.length) {
+    window.notifyUser?.('먼저 글 목록을 불러와 주세요.', 'warning');
+    return;
+  }
+  const platform = getPlatform(state.active);
+  if (!platform.listHasContent) {
+    window.notifyUser?.(`${platform.label}는 목록에 본문이 없어 일괄 점검을 할 수 없습니다.\n글을 열어 편집기의 [🔗 CTA 다시 생성]을 써 주세요.`, 'warning');
+    return;
+  }
+
+  const btn = document.getElementById('ppCtaAuditBtn');
+  const statusEl = document.getElementById('ppStatus');
+  const setLine = (text) => { if (statusEl) statusEl.textContent = text; };
+
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.55'; btn.textContent = '⏳ 점검 중…'; }
+  setLine(`🔧 ${items.length}편의 CTA 주소를 열어보는 중… (AI 호출 없음, 몇 분 걸립니다)`);
+  try {
+    const posts = items.map((item) => ({
+      postId: item.id, title: item.title, link: item.url, content: item.content || '',
+    }));
+    let ownHost = '';
+    try { ownHost = new URL(String(items[0]?.url || '')).hostname.replace(/^www\./, ''); } catch { ownHost = ''; }
+
+    const res = await window.electronAPI.invoke('cta-audit-run', { posts, ownHost });
+    if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
+
+    const { showCtaAuditModal } = await import('./cta-audit-modal.js');
+    showCtaAuditModal(res, { platform: state.active, onRepaired: () => refreshPosts() });
+    setLine(`🔧 점검 완료 — ${res.headline || ''}`);
+  } catch (err) {
+    setLine(`❌ CTA 점검 실패: ${err?.message || err}`);
+    window.notifyUser?.(`CTA 를 점검하지 못했습니다.\n${err?.message || err}`, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = '🔧 CTA 일괄 점검'; }
+  }
 }

@@ -15165,6 +15165,136 @@ ipcMain.handle('cta-regenerate', async (_evt, payload: any) => {
 });
 
 /**
+ * 🔧 v3.8.696 — **점검 결과를 받아 한 번에 고친다.**
+ *
+ * 사장님: "일괄 점검 교체 도구 만들고"
+ *
+ * v3.8.688~695 에서 고친 것은 전부 앞으로 만들어질 CTA 다. 이미 나가 있는 글은 그대로다
+ * (실측: 183편 중 죽은 링크 14개·기관 홈/문서파일 48개). 글마다 편집기를 여는 건 100편이 넘는다.
+ *
+ * ## 규칙
+ * ① 목적지는 cta/regenerate 가 찾는다 — 게이트(조회 벽·목록·문서·홈)를 그대로 통과해야 한다.
+ * ② **주소만** 갈아끼운다. 버튼 문구·박스·본문은 건드리지 않는다.
+ * ③ 못 찾으면 그 글은 **건너뛴다.** 나쁜 주소를 다른 나쁜 주소로 바꾸지 않고,
+ *    버튼을 지우지도 않는다(버튼이 사라지면 광고 수익도 사라진다).
+ * ④ 바뀐 게 없으면 발행하지 않는다 — 의미 없는 수정 이력을 남기지 않는다.
+ *
+ * 한 글씩 진행 상황을 보낸다. 수십 편을 도는 동안 화면이 조용하면 멈춘 것과 구별이 안 된다.
+ */
+ipcMain.handle('cta-bulk-repair', async (evt, payload: any) => {
+  const send = (line: string) => {
+    try { if (evt.sender && !evt.sender.isDestroyed()) evt.sender.send('log-line', line); } catch { /* noop */ }
+  };
+  try {
+    const targets: any[] = Array.isArray(payload?.targets) ? payload.targets : [];
+    if (!targets.length) return { ok: false, error: '고칠 대상이 없습니다.' };
+    const platform = String(payload?.platform || 'wordpress');
+    const dryRun = Boolean(payload?.dryRun);
+
+    const { regenerateCta } = require('../dist/cta/regenerate');
+    const { applyCtaUrlSwaps } = require('../dist/cta/bulk-repair');
+    const { resolveSmartCtaTarget } = require('../dist/cta/smart-cta');
+    const { naverSearch } = require('../dist/core/naver-search-client');
+    const envData = loadEnvFromFile() as any;
+    const creds = loadPlatformCredsFromEnv(envData, { platform: platform as any });
+    const axios = (await import('axios')).default;
+    const adapter = buildPlatformAdapter(creds, axios);
+
+    const search = async (query: string) => {
+      const res = await naverSearch('webkr', { query, display: 10 });
+      if (!res?.ok) return [];
+      return (res.items || []).map((it: any) => ({
+        url: String(it.link || ''),
+        title: String(it.title || '').replace(/<[^>]*>/g, ''),
+      }));
+    };
+    const fetchPage = async (url: string) => {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 10000);
+      try {
+        const res = await fetch(url, {
+          redirect: 'follow', signal: ctl.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+            'Accept-Language': 'ko-KR,ko;q=0.9',
+          },
+        });
+        if (!res.ok) return { ok: false, html: '' };
+        return { ok: true, html: (await res.text()).slice(0, 200_000), finalUrl: res.url || url };
+      } catch {
+        return { ok: false, html: '' };
+      } finally { clearTimeout(timer); }
+    };
+
+    // 같은 글에 여러 개가 걸렸으면 한 번만 열고 한 번만 발행한다
+    const byPost = new Map<string, any[]>();
+    for (const t of targets) {
+      const key = String(t?.postId || '');
+      if (!key) continue;
+      byPost.set(key, [...(byPost.get(key) || []), t]);
+    }
+
+    const results: any[] = [];
+    let done = 0;
+    for (const [postId, items] of byPost) {
+      done += 1;
+      const title = String(items[0]?.title || '');
+      send(`[PROGRESS] ${Math.floor((done / byPost.size) * 90)}% - 🔧 ${done}/${byPost.size} "${title.slice(0, 26)}"`);
+      try {
+        const current = await adapter.getPost(postId);
+        if (!current) { results.push({ postId, title, ok: false, reason: '글을 찾지 못했습니다' }); continue; }
+        const html = String(current.content || '');
+        const articleText = html
+          .replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+          .replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+
+        let smartTarget: any = null;
+        try {
+          smartTarget = await resolveSmartCtaTarget({ keyword: title, articleHint: articleText.slice(0, 12000) });
+        } catch { smartTarget = null; }
+
+        const swaps: any[] = [];
+        const skipped: string[] = [];
+        for (const item of items) {
+          const found = await regenerateCta({
+            keyword: title, articleText, smartTarget, search, fetchPage,
+            skipUrls: items.map((x: any) => String(x.url || '')),
+          });
+          if (found?.ok && found.picked?.url) swaps.push({ from: String(item.url || ''), to: found.picked.url });
+          else skipped.push(`${String(item.url || '').slice(0, 50)} — 대체 목적지를 못 찾음`);
+        }
+
+        if (!swaps.length) {
+          results.push({ postId, title, ok: false, reason: '대체 목적지를 못 찾아 그대로 뒀습니다', skipped });
+          send('   ⏭️ 대체 목적지를 못 찾아 건너뜁니다 (기존 버튼 유지)');
+          continue;
+        }
+
+        const applied = applyCtaUrlSwaps(html, swaps);
+        if (applied.changed === 0) {
+          results.push({ postId, title, ok: false, reason: '본문에서 그 주소를 못 찾았습니다', missing: applied.missing });
+          continue;
+        }
+        if (!dryRun) await adapter.updatePost(postId, { content: applied.html });
+        results.push({
+          postId, title, ok: true, changed: applied.changed, dryRun,
+          swaps: swaps.map((s: any) => ({ from: s.from, to: s.to })), skipped,
+        });
+        send(`   ${dryRun ? '🧪 (시험)' : '✅'} ${applied.changed}개 주소 교체`);
+      } catch (postError: any) {
+        results.push({ postId, title, ok: false, reason: String(postError?.message || postError).slice(0, 120) });
+      }
+    }
+
+    const fixed = results.filter((r) => r.ok).length;
+    send(`[PROGRESS] 100% - 🔧 ${fixed}/${byPost.size}편 교체 완료${dryRun ? ' (시험 실행 — 발행하지 않음)' : ''}`);
+    return { ok: true, dryRun, posts: byPost.size, fixed, results };
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 300) };
+  }
+});
+
+/**
  * 🩺 v3.8.572 — 이미 발행한 글의 CTA 를 다시 본다.
  *
  * 링크는 썩는다. 실측(2026-08-28 leadernam.com): CTA 366개 중 31개가 죽어 있었고,
