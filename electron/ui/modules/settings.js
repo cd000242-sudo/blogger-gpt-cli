@@ -79,6 +79,39 @@ async function loadEnvSettingsForRecovery() {
   return {};
 }
 
+/**
+ * 🔑 v3.8.690 — `.env` 키를 카멜케이스 별칭으로도 만들어 준다.
+ *
+ * ## 왜 필요한가 — 실측 사고 (2026-09-07)
+ * 워드프레스 비밀번호가 두 곳에 **서로 다른 값**으로 있었다.
+ *   localStorage(bloggerSettings) : wordpressPassword  … 옛 값 (인증 실패)
+ *   userData/.env                 : WORDPRESS_PASSWORD … 현재 값 (인증 성공)
+ *
+ * 병합 코드의 주석은 예전부터 "env가 우선"이라고 말했다. 그런데 실제로는 안 그랬다 —
+ * `get-env`(main.ts) 가 `.env` 를 **날것 그대로**(대문자_스네이크) 돌려주기 때문에
+ * `{...saved, ...env}` 스프레드에서 두 값이 **다른 키라 충돌하지 않고 둘 다 살아남았다.**
+ * 그리고 값을 고르는 pickSettingValue 목록이 카멜케이스를 먼저 보므로
+ * **옛 localStorage 값이 이겼다.**
+ *
+ * 결과: 환경설정을 열면 칸에 옛 비밀번호가 채워지고, 저장을 누르면 그게 `.env` 를
+ * 덮어써서 **워드프레스 발행이 통째로 멈춘다.** 지금 발행이 되는 이유는 모달을 아직
+ * 안 열어서 payload 가 비고 `.env` 로 넘어가기 때문일 뿐이다 — 시한폭탄이었다.
+ *
+ * 별칭을 만들어 주면 스프레드가 주석대로 동작한다. 키를 손으로 나열하지 않는다 —
+ * 그러면 새 설정이 생길 때마다 같은 사고가 되풀이된다(이 저장소가 겪은 keyMap 함정).
+ */
+function camelizeEnvKeys(env = {}) {
+  const out = {};
+  for (const [key, value] of Object.entries(env || {})) {
+    // 빈 값으로 멀쩡한 저장값을 덮지 않는다 — 없는 것과 지운 것은 다르다
+    if (value === undefined || value === null || String(value).trim() === '') continue;
+    // 이미 카멜인 키는 건드리지 않는다 (대문자_스네이크만 별칭을 만든다)
+    if (!/^[A-Z][A-Z0-9_]*$/.test(key)) continue;
+    out[key.toLowerCase().replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase())] = value;
+  }
+  return out;
+}
+
 function restoreBloggerAliases(settings = {}, env = {}) {
   const restored = { ...settings };
   if (!restored.blogId) restored.blogId = pickSettingValue(env, ['blogId', 'bloggerId', 'BLOG_ID', 'BLOGGER_ID', 'GOOGLE_BLOG_ID', 'BLOGGER_BLOG_ID']);
@@ -704,7 +737,8 @@ export async function loadSettingsContent(options = {}) {
   }
 
   // 설정 병합 (env가 우선, 단 플랫폼은 savedSettings 우선)
-  const mergedSettings = { ...savedSettings, ...envSettings };
+  // 대문자 키도 그대로 남긴다 — 아래 pickSettingValue 목록들이 그걸 읽는다
+  const mergedSettings = { ...savedSettings, ...envSettings, ...camelizeEnvKeys(envSettings) };
   const resolvedPlatform = resolvePlatformValue(savedSettings, envSettings, 'wordpress');   // v3.8.548
   Object.assign(mergedSettings, restoreBloggerAliases(mergedSettings, envSettings));
 

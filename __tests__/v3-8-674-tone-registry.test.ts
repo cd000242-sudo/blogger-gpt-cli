@@ -69,7 +69,9 @@ describe('v3.8.674 말투 등록부 — 다섯 말투가 이름대로 다르다'
     expect(g).not.toContain("shouldApplyCasualTransform() ? '");   // 어미 분기가 등록부 한 줄로 바뀌었다
     expect(read('src/core/final/post-critique.ts')).toContain("require('./generation').toneEndingRule()");
     const m = read('electron/main.ts');
-    expect(m).toContain("require('../src/core/final/tone-registry')");
+    // v3.8.690 — src/ → dist/. src 에는 .ts 만 있어 이 채널은 로드에 실패하고 있었다
+    //   (문자열만 맞춰 보면 죽은 기능도 통과한다 — v3-8-690 테스트에 파일 존재 검사를 뒀다)
+    expect(m).toContain("require('../dist/core/final/tone-registry')");
     expect((m.match(/\.\.\.registryBlock,/g) || []).length).toBe(5);
     expect(m).not.toContain('"저도 처음엔 헷갈렸어요"');   // 지어낸 체험을 시키던 줄이 사라졌다
   });

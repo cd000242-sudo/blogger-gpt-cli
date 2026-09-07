@@ -9145,7 +9145,7 @@ function emitPublishSuccess(payload: { url?: string; platform?: string; title?: 
      */
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { requestIndexingForUrl } = require('../src/core/indexing/index-request');
+      const { requestIndexingForUrl } = require('../dist/core/indexing/index-request');
       void requestIndexingForUrl(
         { url, platform },
         {
@@ -9688,7 +9688,7 @@ function describeToneStyle(toneStyle: string): string[] {
    */
   const registryBlock = (() => {
     try {
-      const reg = require('../src/core/final/tone-registry');
+      const reg = require('../dist/core/final/tone-registry');
       return String(reg.getToneInstruction(normalized) || '').split('\n').map((l: string) => `     ${l}`);
     } catch { return [] as string[]; }
   })();
@@ -13683,7 +13683,7 @@ function resolveBacklinkPostId(post: SpiderBacklinkSourcePost, platform: SpiderB
 async function updateWordPressSpiderBacklink(post: SpiderBacklinkSourcePost, hub: SpiderBacklinkHub, settings: Record<string, any>) {
   // v3.8.539: 처방 번역까지 함께 — GET 실패 경로가 아래 require 보다 앞서 참조하면 TDZ 라 첫머리에 둔다
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { applySpiderHubBacklinks, describeBacklinkFailure } = require('../src/core/spiderweb/hub-backlinks');
+  const { applySpiderHubBacklinks, describeBacklinkFailure } = require('../dist/core/spiderweb/hub-backlinks');
   const env = loadEnvFromFile() as any;
   const postId = resolveBacklinkPostId(post, 'wordpress');
   if (!postId) throw new Error('WordPress postId가 없어 기존 글을 수정할 수 없습니다.');
@@ -13871,7 +13871,7 @@ async function updateBloggerSpiderBacklink(post: SpiderBacklinkSourcePost, hub: 
 
   // v3.8.539: 상단·중간·하단 3위치 — 로직은 src/core/spiderweb/hub-backlinks.ts (하네스 대상)
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { applySpiderHubBacklinks, describeBacklinkFailure } = require('../src/core/spiderweb/hub-backlinks');
+  const { applySpiderHubBacklinks, describeBacklinkFailure } = require('../dist/core/spiderweb/hub-backlinks');
   const patch = applySpiderHubBacklinks(currentHtml, hub, pickSpiderEyeComfortPalette(`${hub.title || ''}|${hub.url || ''}`));
   if (patch.action === 'unchanged') {
     return { action: 'unchanged', url: current.url || post.url || '' };

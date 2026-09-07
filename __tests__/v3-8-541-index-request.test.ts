@@ -124,7 +124,8 @@ describe('⑥ 배선 — 전 경로 단일 깔때기', () => {
     // 고정 길이 슬라이스 금지(source-block-helper 메타 규칙) — 경계로 자른다.
     // braceBlock 은 매개변수 타입의 { 를 물어 서명에서 끝난다 — 다음 핸들러 앵커까지.
     const fnBody = blockBetween(mainTs, 'function emitPublishSuccess', "ipcMain.handle('is-developer-mode'");
-    expect(fnBody).toContain("require('../src/core/indexing/index-request')");
+    // v3.8.690 — src/ → dist/ (같은 경위는 v3-8-674-tone-registry.test.ts 주석 참고)
+    expect(fnBody).toContain("require('../dist/core/indexing/index-request')");
     expect(fnBody).toContain('void requestIndexingForUrl');
   });
 
