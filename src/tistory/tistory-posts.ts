@@ -197,6 +197,37 @@ async function scrapeManagePosts(page: any): Promise<{ items: ScrapedPost[]; max
         if (thumb) break;
       }
 
+      /**
+       * 🖼️ v3.8.702 — `<img>` 가 없으면 **배경 이미지**를 본다.
+       *
+       * 사장님: "생성된 글목록에서 티스토리는 왜 글에 썸네일이미지가 안떠있고"
+       *
+       * 한국 관리자 화면은 목록 썸네일을 `<img>` 대신
+       * `style="background-image:url(...)"` 로 그리는 곳이 많다. 그러면 위 img 훑기가
+       * 빈손으로 끝나고 목록에 썸네일이 하나도 안 뜬다.
+       * 인라인 style 과 계산된 style 을 둘 다 본다 — 클래스로만 준 경우가 있다.
+       */
+      if (!thumb) {
+        const nodes = [row, ...Array.from(row.querySelectorAll('*'))] as HTMLElement[];
+        for (const node of nodes) {
+          let raw = '';
+          try {
+            raw = String(node.getAttribute && node.getAttribute('style') || '');
+            if (!/background/i.test(raw) && node.style) raw = String(node.style.backgroundImage || '');
+            if (!/url\(/i.test(raw) && typeof getComputedStyle === 'function') {
+              raw = String(getComputedStyle(node).backgroundImage || '');
+            }
+          } catch { raw = ''; }
+          const found = /url\(\s*['"]?([^'")]+)['"]?\s*\)/i.exec(raw);
+          if (!found) continue;
+          let url = String(found[1] || '').trim();
+          if (!url || /^data:/i.test(url) || /^about:blank$/i.test(url)) continue;
+          if (url.slice(0, 2) === '//') url = `https:${url}`;
+          thumb = url;
+          break;
+        }
+      }
+
       // 글 행의 최소 증거 — 제목·발행일·글주소 중 하나도 없으면 목록 행이 아니다
       if (!title && !dateMatch && !entryHref) return;
 

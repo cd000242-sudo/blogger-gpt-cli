@@ -238,9 +238,56 @@ export async function improveDraft(input: {
   const previousHtml = String(input.html || '');
   const sections = splitSections(previousHtml);
   const { bySection, wholePost } = groupIssuesBySection(input.issues || []);
-  const targets: number[] = bySection.size > 0
-    ? [...bySection.keys()].sort((a, b) => a - b)
-    : sections.filter((s) => s.index > 0).sort((a, b) => String(a.html).length - String(b.html).length).slice(0, 2).map((s) => s.index);
+  /**
+   * 🎯 v3.8.702 — **"글 전체" 지적이 한 구간에만 딸려 들어가던 문제.**
+   *
+   * 사장님: "지적이 7개라서 7건 모두수정 발행버튼눌렀으면 전부 수정해야되는거아니니?
+   *          1개구간만 수정했다뜨고 그대로인데?"
+   *
+   * 예전 규칙은 `bySection.size > 0` 이면 **구간 번호가 붙은 지적만** 대상으로 삼았다.
+   * 고른 7건 중 6건이 "글 전체"(sectionIndex < 0)이고 1건만 구간 지정이면
+   * 대상은 그 한 구간뿐이고, 나머지 6건은 그 구간에 딸려 들어갈 뿐 **본문 나머지에는 닿지 않았다.**
+   * 화면에는 "1개 구간 수정"이라고 뜨는데 사장님은 7건을 고른 상태다 — 어긋난다.
+   *
+   * 글 전체 지적에도 **어디가 문제인지 단서가 있다** — 진단이 붙여 준 근거 문장(evidence)이다.
+   * 그 문장이 들어 있는 구간을 찾아 함께 대상에 넣는다. 근거가 없는 지적은 어쩔 수 없이
+   * 예전처럼 대표 구간에 맡긴다.
+   *
+   * 상한을 두는 이유는 비용이다(구간마다 모델을 부른다). 근거가 많이 걸린 구간부터 채운다.
+   */
+  const MAX_TARGETS = 6;
+  const stripText = (v: unknown) => String(v ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const evidenceHits = new Map<number, number>();
+  for (const issue of wholePost) {
+    const evidence = stripText((issue as any)?.evidence).slice(0, 60);
+    if (evidence.length < 12) continue;   // 너무 짧으면 아무 구간에나 걸린다
+    for (const section of sections) {
+      if (section.index <= 0) continue;
+      if (stripText(section.html).includes(evidence)) {
+        evidenceHits.set(section.index, (evidenceHits.get(section.index) || 0) + 1);
+      }
+    }
+  }
+
+  const fromEvidence = [...evidenceHits.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([index]) => index);
+
+  let targets: number[] = [...new Set([...bySection.keys(), ...fromEvidence])].sort((a, b) => a - b);
+  if (targets.length === 0) {
+    targets = sections.filter((s) => s.index > 0)
+      .sort((a, b) => String(a.html).length - String(b.html).length)
+      .slice(0, 2).map((s) => s.index);
+  }
+  if (targets.length > MAX_TARGETS) {
+    // 구간 지정 지적을 먼저 지키고, 남는 자리를 근거가 많이 걸린 구간으로 채운다
+    const named = [...bySection.keys()];
+    const rest = fromEvidence.filter((i) => !named.includes(i));
+    targets = [...new Set([...named, ...rest])].slice(0, MAX_TARGETS).sort((a, b) => a - b);
+  }
+  input.log?.(`   🎯 고친 지적 ${(input.issues || []).length}건 → 손볼 구간 ${targets.length}개`
+    + `${wholePost.length ? ` (글 전체 지적 ${wholePost.length}건은 근거 문장이 있는 구간으로 내려보냅니다)` : ''}`);
   const plain = (v: string) => String(v || '').replace(/<[^>]+>/g, '').trim().length;
   const revisions: { index: number; html: string }[] = [];
   const skipped: string[] = [];

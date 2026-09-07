@@ -122,9 +122,16 @@ describe('④ 자동 업데이트 — 조용히 깔고, 안 되면 마법사', (
     expect(head.indexOf('quitAndInstall(true, true)')).toBeLessThan(head.indexOf('quitAndInstall(false, true)'));
   });
 
-  test('⭐ 성공하면 마법사가 뜨지 않는다 — 폴백은 시간이 지난 뒤에만', () => {
-    // 조용한 설치가 되면 앱이 종료되므로 6초 뒤 타이머는 실행되지 않는다
-    expect(auto.slice(0, 3500)).toContain('}, 6000);');
+  test('⭐ 성공하면 폴백이 뜨지 않는다 — 시간이 지난 뒤에만', () => {
+    /**
+     * 조용한 설치가 되면 그 전에 앱이 종료되므로 뒤 타이머는 실행되지 않는다.
+     * v3.8.702 에서 대기 시간이 6초 → 8초로 늘고, 폴백이 마법사에서
+     * **[지금 재시작]/[나중에] 대화상자**로 바뀌었다(사장님: "그게 안먹히면 버튼두개를 띄우라고").
+     * 그래서 여기서는 초 단위를 박아 두지 않고 **폴백이 나중에 온다는 것**만 본다.
+     */
+    const head = auto.slice(0, 4000);
+    expect(head.indexOf('quitAndInstall(true, true)')).toBeLessThan(head.indexOf('setTimeout(async () =>'));
+    expect(head).toMatch(/\}, \d{4}\);/);
   });
 
   test('둘 다 실패하면 앱을 계속 쓸 수 있게 둔다', () => {

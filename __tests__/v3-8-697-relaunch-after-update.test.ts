@@ -91,8 +91,22 @@ describe('② 두 설치 경로 모두에 붙어 있다', () => {
   test('설치 전에 등록한다 — 앱이 죽은 뒤에는 아무것도 띄울 수 없다', () => {
     // 두 경로 모두 quitAndInstall 보다 앞서야 한다 (위 두 테스트가 순서를 본다)
     // 정의 줄(`function scheduleRelaunchWatchdog(): void`)은 빼고 **호출**만 센다
-    const calls = (updater.match(/(?<!function )scheduleRelaunchWatchdog\(\)(?!:)/g) || []).length;
-    expect(calls).toBe(2);
+    /**
+     * v3.8.702 에서 호출부가 셋이 됐다 — **설치를 거는 자리마다 하나씩** 붙어야 한다:
+     *   ① 자동 경로의 조용한 설치
+     *   ② 그게 안 먹혔을 때 [지금 재시작] 을 고른 경우
+     *   ③ 로그인창의 수동 버튼
+     * 숫자를 박아 두는 대신 "설치를 거는 곳보다 적지 않다"를 본다 —
+     * 빠뜨리면 그 경로만 앱이 안 돌아온다.
+     */
+    // 주석에도 quitAndInstall 이 나온다 — 주석을 걷어내고 **실제 호출**만 본다
+    const code = updater.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const sites = [...code.matchAll(/updater\.quitAndInstall\(/g)].map((m) => m.index || 0);
+    expect(sites.length).toBeGreaterThanOrEqual(3);
+
+    // 설치를 거는 자리마다 바로 앞에 감시자가 있어야 한다 — 빠뜨리면 그 경로만 앱이 안 돌아온다
+    const missing = sites.filter((at) => !code.slice(Math.max(0, at - 700), at).includes('scheduleRelaunchWatchdog()'));
+    expect(missing).toEqual([]);
   });
 });
 

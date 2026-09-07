@@ -178,7 +178,19 @@ export function initAutoUpdaterEarly(): void {
   if (!updater) return;
 
   updater.autoDownload = true;
-  updater.autoInstallOnAppQuit = true;
+  /**
+   * 🚫 v3.8.702 — **끈다. 설치가 두 번 일어나고 있었다.**
+   *
+   * 사장님: "여전히 다시안뜨고 키면 버튼두개가뜨거든 재시작하기랑 계속하기"
+   *
+   * 실측(2026-09-07): 설치본은 이미 3.8.701 인데 업데이트 캐시(`lba-updater/pending`)에
+   * **3.8.701 설치기가 그대로 남아** 있었다. 우리가 quitAndInstall 로 직접 설치를 끝냈는데
+   * 이 옵션 때문에 **앱이 꺼질 때 같은 설치기가 또 돈다.** 그 두 번째 설치가
+   * "앱이 실행 중입니다 — 재시작/계속" 같은 창을 띄운다.
+   *
+   * 설치 시점은 우리가 정한다(update-downloaded 에서 한 번). 그러니 이 자동 설치는 필요 없다.
+   */
+  updater.autoInstallOnAppQuit = false;
   // 🔥 코드 서명 검증 비활성화: publisherName 설정 없으면 검증 스킵됨
   // 파일 무결성은 latest.yml의 SHA-512로 여전히 검증됨
   try {
@@ -302,17 +314,43 @@ export function initAutoUpdaterEarly(): void {
         console.error('[Updater] 조용한 설치 실패:', e?.message);
       }
 
-      // 여기서 앱이 아직 살아 있으면 조용한 설치가 시작되지 않은 것이다
-      setTimeout(() => {
-        if (!silentFailed) console.log('[Updater] 6초가 지나도 종료되지 않음 — 마법사로 물러섬');
+      /**
+       * 🙋 v3.8.702 — 조용한 설치가 안 먹히면 **사장님께 묻는다.**
+       *
+       * 사장님: "그두개가 떳으면 그걸로만가던지 아니면 … 깔끔하게 업데이트되고 다시 앱을
+       *          띄우던데 둘중하나만해줄래?? 그게 안먹히면 버튼두개를 띄우라고"
+       *
+       * 기본은 **조용한 설치 + 자동 재시작** 하나다. 그게 안 되면 마법사를 몰래 띄우지 않고
+       * 우리 대화상자로 **[지금 재시작] / [나중에]** 를 묻는다 — 어디서 온 창인지 알 수 있고,
+       * 사장님이 하던 일을 끊을지 직접 정한다.
+       *
+       * 8초를 기다리는 이유: 조용한 설치가 성공하면 그 전에 앱이 종료되므로 이 창은 뜨지 않는다.
+       */
+      setTimeout(async () => {
+        if (!silentFailed) console.log('[Updater] 8초가 지나도 종료되지 않음 — 사장님께 묻는다');
         try {
+          const answer = await dialog.showMessageBox({
+            type: 'info',
+            buttons: ['지금 재시작', '나중에'],
+            defaultId: 0,
+            cancelId: 1,
+            title: '업데이트 준비 완료',
+            message: `새 버전 v${info.version} 이 준비됐습니다.`,
+            detail: '자동 설치가 되지 않아 직접 여쭙니다.\n[지금 재시작] 을 누르면 설치 화면이 뜨고, 끝나면 앱이 다시 열립니다.',
+          });
+          if (answer.response !== 0) {
+            isUpdateInProgress = false;   // 하던 일을 계속하신다 — 다음 실행 때 다시 묻는다
+            console.log('[Updater] 사장님이 "나중에"를 고르셨습니다');
+            return;
+          }
+          scheduleRelaunchWatchdog();
           updater.quitAndInstall(false, true);
         } catch (e2: any) {
-          // 둘 다 실패 — 앱은 계속 쓸 수 있게 두고 플래그만 푼다
+          // 묻지도 못했다 — 앱은 계속 쓸 수 있게 두고 플래그만 푼다
           isUpdateInProgress = false;
-          console.error('[Updater] 마법사 설치도 실패:', e2?.message);
+          console.error('[Updater] 설치 확인 창 실패:', e2?.message);
         }
-      }, 6000);
+      }, 8000);
     }, 2000);
   });
 
@@ -369,9 +407,10 @@ export function registerUpdaterHandlers(): void {
     return { success: true };
   });
 
+  // v3.8.702: 옛 호환 채널이라도 설치를 걸면 앱이 다시 떠야 한다 — 감시자를 함께 건다
   ipcMain.handle('updater:install', () => {
     const updater = getAutoUpdater();
-    if (updater) updater.quitAndInstall();
+    if (updater) { scheduleRelaunchWatchdog(); updater.quitAndInstall(); }
     return { success: true };
   });
 
@@ -449,9 +488,9 @@ export function registerUpdaterHandlers(): void {
     }
   });
 
-  // 기존 호환
+  // 기존 호환 (v3.8.702: 여기도 감시자를 건다 — 빠뜨리면 이 경로만 앱이 안 돌아온다)
   ipcMain.handle('auto-update:install', () => {
     const updater = getAutoUpdater();
-    if (updater) updater.quitAndInstall();
+    if (updater) { scheduleRelaunchWatchdog(); updater.quitAndInstall(); }
   });
 }
