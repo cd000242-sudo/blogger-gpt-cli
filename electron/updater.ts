@@ -66,6 +66,58 @@ export function waitForUpdateCheck(): Promise<boolean> {
   });
 }
 
+/**
+ * 🔁 v3.8.697 — **설치가 끝나면 앱을 다시 띄운다.**
+ *
+ * 사장님: "새버전감지 모달뜨면서 업데이트 되고 꺼지자나? 그럼 다시 켜지도록해줘야지 꺼지고 끝이네"
+ *
+ * ## 실측으로 확인한 것 (2026-09-07)
+ * `quitAndInstall(true, true)` 의 조용한 설치는 **성공했다** — 설치본이 3.8.687 → 3.8.696 으로
+ * 바뀌었고 마법사도 뜨지 않았다. 그런데 두 번째 인자 `isForceRunAfter` 가 일을 하지 않아
+ * **앱이 꺼진 채로 끝났다.** (전자는 v3.8.694 가 고친 것, 후자가 남은 문제다.)
+ *
+ * electron-updater 에 기대지 않고 **밖에서 지켜보는 감시자**를 띄운다.
+ * 앱은 곧 죽으므로 이 프로세스는 반드시 detached 여야 한다 — 안 그러면 같이 죽는다.
+ *
+ * ## 두 번 켜지지 않게
+ * 먼저 프로세스가 살아 있는지 본다. `--force-run` 이 어쩌다 동작한 기기에서는
+ * 감시자가 아무것도 하지 않고 조용히 끝난다.
+ *
+ * 설치 중에는 exe 가 잠겨 있어 실행이 실패할 수 있다 — 그래서 한 번이 아니라 되풀이한다.
+ */
+function scheduleRelaunchWatchdog(): void {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  try {
+    const { spawn } = require('child_process');
+    const exePath = process.execPath;
+    // 실행 파일 이름에서 확장자를 뗀 것이 프로세스 이름이다 ("LEADERNAM Orbit")
+    const processName = String(exePath.split(/[\\/]/).pop() || '').replace(/\.exe$/i, '');
+    const psExe = exePath.replace(/'/g, "''");
+    const psName = processName.replace(/'/g, "''");
+
+    const script = [
+      // 설치기가 파일을 바꿔 끼울 시간을 준다
+      'Start-Sleep -Seconds 12',
+      'for ($i = 0; $i -lt 30; $i++) {',
+      //   이미 떠 있으면(--force-run 이 동작한 기기) 아무것도 하지 않는다
+      `  if (Get-Process -Name '${psName}' -ErrorAction SilentlyContinue) { exit }`,
+      `  try { Start-Process -FilePath '${psExe}'; exit } catch { Start-Sleep -Seconds 4 }`,
+      '}',
+    ].join('\n');
+
+    const child = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', script],
+      { detached: true, stdio: 'ignore', windowsHide: true },
+    );
+    child.unref();
+    console.log('[Updater] 재시작 감시자 등록 — 설치 뒤 앱을 다시 띄웁니다');
+  } catch (e: any) {
+    // 감시자를 못 띄워도 설치 자체는 진행한다 — 최악이라도 사장님이 손으로 켜면 된다
+    console.error('[Updater] 재시작 감시자 등록 실패:', e?.message);
+  }
+}
+
 /** 프로그레스 창 생성 */
 function createProgressWindow(version: string): void {
   if (progressWindow && !progressWindow.isDestroyed()) return;
@@ -242,6 +294,8 @@ export function initAutoUpdaterEarly(): void {
       let silentFailed = false;
       try {
         console.log('[Updater] 자동 재시작 → 조용한 설치 시도');
+        // v3.8.697: isForceRunAfter 가 실측에서 일을 안 했다 — 밖에서 지켜보다 다시 띄운다
+        scheduleRelaunchWatchdog();
         updater.quitAndInstall(true, true);
       } catch (e: any) {
         silentFailed = true;
@@ -382,6 +436,7 @@ export function registerUpdaterHandlers(): void {
       // 조용히 설치하고 자동 재시작 — 위 주석의 두 인자가 이 기능의 전부다
       setTimeout(() => {
         try {
+          scheduleRelaunchWatchdog();   // v3.8.697: 다시 켜지는 것까지 책임진다
           updater.quitAndInstall(true, true);
         } catch (e: any) {
           isUpdateInProgress = false;
