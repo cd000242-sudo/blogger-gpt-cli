@@ -15032,8 +15032,8 @@ ipcMain.handle('cta-render-block', async (_evt, payload: any) => {
     if (!/^https?:\/\//i.test(url)) {
       return { ok: false, error: 'CTA 주소는 http:// 또는 https:// 로 시작해야 합니다.' };
     }
-    const { buildCtaCopy, siteNameFromUrl } = require('../src/cta/cta-copy');
-    const { renderFinalCtaBlock } = require('../src/core/final/orchestration');
+    const { buildCtaCopy, siteNameFromUrl } = require('../dist/cta/cta-copy');
+    const { renderFinalCtaBlock } = require('../dist/core/final/orchestration');
 
     const auto = buildCtaCopy({ url, action: String(payload?.action || '').trim() || undefined });
     // 사장님이 직접 적은 문구가 있으면 그게 이긴다 — 자동 문구는 빈칸을 채울 뿐이다
@@ -15053,6 +15053,116 @@ ipcMain.handle('cta-render-block', async (_evt, payload: any) => {
 });
 
 /**
+ * 🔗 v3.8.688 — 편집기의 글을 **다시 읽고** CTA 를 새로 정한다.
+ *
+ * 사장님: "미리보기 수정에서도 글 다시 생성이랑 이미지 다시 생성 옆에 CTA 다시 생성을 추가해"
+ *
+ * 실측 사고가 계기다 — 하지정맥류 실손 글의 버튼이 금융감독원 민원조회 화면으로 나갔다.
+ * 본문은 멀쩡한데 버튼 하나 때문에 글을 통째로 다시 만드는 건 낭비다.
+ *
+ * ⚠️ 여기는 **재료만 넣어 주는 자리**다. 판단은 src/cta/regenerate.ts 에 있고
+ *    목적지 이름은 AI(smart-cta)가 정한다 — 기관 목록을 코드에 박지 않는다.
+ *    (사장님: "하드코딩시키지말고 그때그때 추론해서 판단해서 넣게해야지")
+ *
+ * 못 찾으면 ok:false 를 돌려주고 **기존 버튼을 건드리지 않는다.** 틀린 버튼보다
+ * 나쁜 건 버튼이 사라지는 것이다.
+ */
+ipcMain.handle('cta-regenerate', async (_evt, payload: any) => {
+  try {
+    const title = String(payload?.title || '').trim();
+    const html = String(payload?.html || '');
+    if (!html.trim()) return { ok: false, error: '편집기에 글이 없습니다.' };
+
+    /**
+     * 📖 본문을 **통째로** 넘긴다 — 이게 이번 사고의 핵심이었다.
+     * 발행 경로의 CTA 는 문단당 400자만 보다가 글의 뒷부분(핵심)을 놓쳤다.
+     * 여기는 편집기에 있는 글 전체를 그대로 읽는다.
+     */
+    const articleText = html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&[a-z#0-9]+;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const { regenerateCta } = require('../dist/cta/regenerate');
+    const { resolveSmartCtaTarget } = require('../dist/cta/smart-cta');
+    const { buildCtaCopy } = require('../dist/cta/cta-copy');
+    const { renderFinalCtaBlock } = require('../dist/core/final/orchestration');
+    const { naverSearch } = require('../dist/core/naver-search-client');
+
+    // ① AI 는 **이름**만 정한다 (URL 을 뱉게 하면 그럴듯한 죽은 링크를 지어낸다)
+    let smartTarget: any = null;
+    try {
+      smartTarget = await resolveSmartCtaTarget({
+        keyword: title,
+        articleHint: articleText.slice(0, 12000),   // 정독 — 발행 경로와 같은 크기
+      });
+    } catch { smartTarget = null; }
+
+    // ② 검색으로 실주소를 찾고, ③ 게이트로 검산한다
+    const result = await regenerateCta({
+      keyword: title,
+      articleText,
+      smartTarget,
+      skipUrls: Array.isArray(payload?.currentUrls) ? payload.currentUrls.map(String) : [],
+      search: async (query: string) => {
+        const res = await naverSearch('webkr', { query, display: 10 });
+        if (!res?.ok) return [];
+        return (res.items || []).map((it: any) => ({
+          url: String(it.link || ''),
+          title: String(it.title || '').replace(/<[^>]*>/g, ''),
+        }));
+      },
+      fetchPage: async (url: string) => {
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 8000);
+        try {
+          const res = await fetch(url, {
+            redirect: 'follow',
+            signal: ctl.signal,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+              'Accept-Language': 'ko-KR,ko;q=0.9',
+            },
+          });
+          if (!res.ok) return { ok: false, html: '' };
+          const body = (await res.text()).slice(0, 200_000);
+          return { ok: true, html: body, finalUrl: res.url || url };
+        } catch {
+          return { ok: false, html: '' };
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+    });
+
+    if (!result.ok || !result.picked) {
+      return { ok: false, error: result.log[result.log.length - 1] || 'CTA 후보를 찾지 못했습니다.', log: result.log };
+    }
+
+    // ④ 문구 — AI 가 지은 게 있으면 그걸 쓰고, 없으면 목적지에서 뽑는다 (v3.8.570 과 같은 규칙)
+    const auto = buildCtaCopy({ url: result.picked.url, action: smartTarget?.action || '' });
+    const buttonText = String(smartTarget?.buttonLabel || '').trim() || auto.buttonText;
+    const hook = String(smartTarget?.hookMessage || '').trim() || auto.hookingMessage;
+
+    return {
+      ok: true,
+      html: renderFinalCtaBlock({ hook, buttonText, url: result.picked.url }),
+      url: result.picked.url,
+      buttonText,
+      hook,
+      stage: result.picked.stage,
+      score: result.picked.score,
+      log: result.log,
+    };
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 300) };
+  }
+});
+
+/**
  * 🩺 v3.8.572 — 이미 발행한 글의 CTA 를 다시 본다.
  *
  * 링크는 썩는다. 실측(2026-08-28 leadernam.com): CTA 366개 중 31개가 죽어 있었고,
@@ -15065,7 +15175,7 @@ ipcMain.handle('cta-audit-run', async (evt, payload: any) => {
   try {
     const {
       extractCtaUrls, classifyCtaLink, summarizePost, summarizeAudit, describeAudit,
-    } = require('../src/cta/cta-audit');
+    } = require('../dist/cta/cta-audit');
 
     const posts: any[] = Array.isArray(payload?.posts) ? payload.posts : [];
     if (!posts.length) return { ok: false, error: '검사할 글이 없습니다 — 글목록을 먼저 불러와 주세요' };
@@ -15194,7 +15304,7 @@ ipcMain.handle('cta-suggest-copy', async (_evt, payload: any) => {
   try {
     const url = String(payload?.url || '').trim();
     if (!/^https?:\/\//i.test(url)) return { ok: false, error: '주소 형식이 아닙니다' };
-    const { buildCtaCopy, siteNameFromUrl } = require('../src/cta/cta-copy');
+    const { buildCtaCopy, siteNameFromUrl } = require('../dist/cta/cta-copy');
     const copy = buildCtaCopy({ url, action: String(payload?.action || '').trim() || undefined });
     return { ok: true, siteName: siteNameFromUrl(url), ...copy };
   } catch (error: any) {

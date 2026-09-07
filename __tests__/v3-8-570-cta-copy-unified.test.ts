@@ -203,8 +203,15 @@ describe('⑤ 편집기에서 손으로 버튼 넣기', () => {
 
   test('IPC 가 같은 렌더러·같은 문구 창구를 쓴다', () => {
     const handler = blockBetween(main, "ipcMain.handle('cta-render-block'", "ipcMain.handle('cta-suggest-copy'");
-    expect(handler).toContain("require('../src/core/final/orchestration')");
-    expect(handler).toContain("require('../src/cta/cta-copy')");
+    /**
+     * v3.8.689 — `src/` → `dist/`. 이 테스트는 **깨진 주소를 정답으로 굳히고 있었다.**
+     * 실측: `src/cta/` 에는 `.ts` 만 있어서 이 핸들러는 출시 이후 줄곧
+     * "Cannot find module" 로 죽어 있었다(🔘 버튼이 눌러도 안 되던 이유).
+     * 문자열만 맞춰 보면 죽은 기능도 통과한다 — 그래서 v3.8.688b 에
+     * "그 .js 가 실제로 있는가"를 파일로 확인하는 테스트를 따로 뒀다.
+     */
+    expect(handler).toContain("require('../dist/core/final/orchestration')");
+    expect(handler).toContain("require('../dist/cta/cta-copy')");
     expect(handler).toContain('renderFinalCtaBlock({');
     // 손으로 적은 문구가 자동 문구를 이긴다
     expect(handler).toContain("String(payload?.buttonText || '').trim() || auto.buttonText");

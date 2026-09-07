@@ -258,6 +258,11 @@ function ensureEditorModal() {
         <button id="veCritiqueBtn" style="${BTN_BASE}background:#3b0764;color:#e9d5ff;border:1px solid #6b21a8;" title="지금 편집기의 글을 비평합니다. 항목을 고르고 '수정하기'를 누르면 그 구간만 고쳐 편집기에 다시 싣습니다 (발행은 저장 버튼)">🩺 비평·개선</button>
         <button id="veThumbBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="제목으로 썸네일 이미지를 만들어 글 맨 위에 넣습니다">🖼️ 썸네일 생성</button>
         <button id="veSectionImgBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="커서가 있는 소제목 영역에 맞는 이미지를 만들어 그 자리에 넣습니다 (본문을 먼저 클릭해 영역을 고르세요)">🖼️ 이 영역 이미지</button>
+        <!--
+          🔗 v3.8.688 — 사장님: "글 다시 생성이랑 이미지 다시 생성 옆에 CTA 다시 생성을 추가해"
+          발행글 전용인 veRegenWrap 이 아니라 여기 둔다 — 붙여넣기·대기열 글에도 버튼은 필요하다.
+        -->
+        <button id="veRegenCtaBtn" style="${BTN_BASE}background:#075985;color:#bae6fd;border:1px solid #0369a1;" title="글을 다시 읽고 CTA 버튼의 목적지를 새로 찾습니다. 못 찾으면 지금 버튼을 그대로 둡니다">🔗 CTA 다시 생성</button>
       </span>
 
       <span style="${DIVIDER}"></span>
@@ -343,6 +348,7 @@ function ensureEditorModal() {
     critiqueBtn: overlay.querySelector('#veCritiqueBtn'),
     thumbBtn: overlay.querySelector('#veThumbBtn'),
     sectionImgBtn: overlay.querySelector('#veSectionImgBtn'),
+    regenCtaBtn: overlay.querySelector('#veRegenCtaBtn'),       // v3.8.688
     saveBtn: overlay.querySelector('#veSaveBtn'),
     cancelBtn: overlay.querySelector('#veCancelBtn'),
     status: overlay.querySelector('#veStatus'),
@@ -404,7 +410,7 @@ ${err?.message || err}
    * 사장님: "비평 개선 버튼 구현해서 누르면 비평할 부분 알려주고 수정하기 버튼 누르면 알아서 그 위치가 수정 개선되게."
    * postId 가 없어도 된다 — 붙여넣기·파일 글도 같은 버튼이다. 발행된 글은 postId 로 비평 이력을 남기는 기존 경로가 따로 있다.
    */
-  const draftButtons = () => [modalRefs.critiqueBtn, modalRefs.thumbBtn, modalRefs.sectionImgBtn].filter(Boolean);
+  const draftButtons = () => [modalRefs.critiqueBtn, modalRefs.thumbBtn, modalRefs.sectionImgBtn, modalRefs.regenCtaBtn].filter(Boolean);
   const lockDraftButtons = (locked) => draftButtons().forEach((b) => { b.disabled = locked; b.style.opacity = locked ? '0.5' : '1'; });
   const editorPayload = async () => {
     const target = selectedEditorPlatform() || normalizeEditorPlatform(session?.originalPlatform);
@@ -438,6 +444,69 @@ ${err?.message || err}
     } catch (err) {
       setStatus(`❌ 비평 실패: ${err?.message || err}`);
       window.notifyUser?.(`비평하지 못했습니다.\n${err?.message || err}\n글은 그대로 있습니다.`, 'error');
+    } finally {
+      lockDraftButtons(false);
+    }
+  });
+
+  /**
+   * 🔗 v3.8.688 — 글을 다시 읽고 CTA 목적지를 새로 찾는다.
+   *
+   * 사장님: "글 다시 생성이랑 이미지 다시 생성 옆에 CTA 다시 생성을 추가해"
+   *
+   * 계기가 된 실측 사고: 하지정맥류 실손 입원 거절 글의 버튼이 "금융감독원에서 신청하기"인데
+   * 주소는 민원 **조회** 인증 화면(민원접수번호·가상키패드)이었다. 본문은 멀쩡했으므로
+   * 글을 통째로 다시 만들 이유가 없다 — 버튼만 다시 정한다.
+   *
+   * ⚠️ 못 찾으면 **기존 버튼을 그대로 둔다.** 틀린 버튼보다 나쁜 건 버튼이 사라지는 것이다.
+   */
+  modalRefs.regenCtaBtn?.addEventListener('click', async () => {
+    if (!session) return;
+    const doc = getFrameDoc();
+    if (!doc) return;
+    const title = modalRefs.titleInput.value.trim() || session.originalTitle || '';
+
+    // 지금 글에 있는 CTA — 같은 곳을 다시 고르면 "다시 생성"이 아니다
+    const existing = [...doc.querySelectorAll('.cta-box, .cta-responsive-box')];
+    const currentUrls = existing
+      .map((el) => el.querySelector('a')?.getAttribute('href') || '')
+      .filter(Boolean);
+
+    lockDraftButtons(true);
+    setStatus(existing.length
+      ? '🔗 글을 다시 읽고 CTA 목적지를 찾는 중… (30초~1분)'
+      : '🔗 이 글에 맞는 CTA 목적지를 찾는 중… (30초~1분)');
+
+    try {
+      const res = await window.electronAPI.invoke('cta-regenerate', { title, html: serializeEditor(), currentUrls });
+      if (!res?.ok) {
+        // 실패는 조용히 넘기지 않는다 — 왜 못 찾았는지 그대로 보여 준다
+        setStatus(`ℹ️ 새 CTA 를 찾지 못했습니다 — ${res?.error || '알 수 없는 이유'} (기존 버튼은 그대로 둡니다)`);
+        return;
+      }
+
+      const wrap = doc.createElement('div');
+      wrap.innerHTML = res.html;
+      const block = wrap.firstElementChild;
+      if (!block) throw new Error('CTA 블록을 만들지 못했습니다.');
+
+      if (existing.length) {
+        // 첫 CTA 를 갈아끼우고 나머지는 그대로 둔다 (창구 버튼 묶음을 지우지 않기 위해)
+        existing[0].replaceWith(block);
+      } else {
+        // 버튼이 없던 글이면 커서 자리에, 커서가 없으면 글 끝에
+        const atCaret = insertHtmlAtCaret(doc, res.html);
+        if (!atCaret) doc.body.appendChild(block);
+      }
+
+      const target = doc.querySelector(`a[href="${res.url}"]`)?.closest('.cta-box') || block;
+      try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch { /* 스크롤 실패가 교체를 되돌릴 이유는 없다 */ }
+
+      const where = res.stage === 'action' ? '그 일을 하는 화면' : '제도 안내 화면';
+      setStatus(`✅ CTA 를 바꿨습니다 — ${res.buttonText} (${where}, ${res.score}점). 확인 뒤 저장 버튼을 누르세요.`);
+    } catch (err) {
+      setStatus(`❌ CTA 다시 생성 실패: ${err?.message || err}`);
+      window.notifyUser?.(`CTA 를 다시 만들지 못했습니다.\n${err?.message || err}\n기존 버튼은 그대로 있습니다.`, 'error');
     } finally {
       lockDraftButtons(false);
     }

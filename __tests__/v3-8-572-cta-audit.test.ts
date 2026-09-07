@@ -154,7 +154,9 @@ describe('④ 배선 — 앱에서 부를 수 있어야 도구다', () => {
   });
 
   test('모듈을 실제로 쓴다 (만들고 안 부르면 죽은 코드다)', () => {
-    expect(main).toContain("require('../src/cta/cta-audit')");
+    // v3.8.689 — `src/` → `dist/`. src 에는 .ts 만 있어 이 채널도 로드에 실패하고 있었다
+    //   (자세한 경위는 v3-8-570-cta-copy-unified.test.ts 의 같은 자리 주석).
+    expect(main).toContain("require('../dist/cta/cta-audit')");
     expect(main).toContain('extractCtaUrls');
     expect(main).toContain('classifyCtaLink');
     expect(main).toContain('summarizeAudit');
