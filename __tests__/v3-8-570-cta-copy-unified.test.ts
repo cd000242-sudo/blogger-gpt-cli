@@ -234,7 +234,12 @@ describe('⑤ 편집기에서 손으로 버튼 넣기', () => {
    * 선택이 풀려 글 끝에 붙는다(v3.8.482 에서 이미 겪은 문제).
    */
   test('커서 위치를 잃지 않게 mousedown 가드에 들어 있다', () => {
-    expect(editor).toContain("'#veInsertImageBtn, #veInsertAdBtn, #veInsertCtaBtn'");
+    /**
+     * v3.8.691 — 목록을 통째로 비교하지 않는다. 커서를 쓰는 버튼이 늘어날 때마다
+     * (영역 이미지 등) 이 단언이 깨지는데, 정작 확인해야 할 것은 **CTA 버튼이 들어 있는가** 다.
+     */
+    const guard = editor.slice(editor.indexOf("toolbar.addEventListener('mousedown'"));
+    expect(guard.slice(0, 400)).toContain('#veInsertCtaBtn');
   });
 
   test('입력 모달이 주소·버튼문구·훅 세 가지를 돌려준다', () => {

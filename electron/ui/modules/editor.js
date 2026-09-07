@@ -100,6 +100,14 @@ function refreshSaveButtonLabel(isSemiAuto = false) {
 
 let session = null;
 let modalRefs = null;
+/**
+ * v3.8.691 — 모달을 지을 때 채워 넣는다. **모듈 최상위에 두는 이유**는
+ * 이미지 도구막대의 [🎨 다시 생성] 이 loadIntoFrame(최상위)에서 배선되기 때문이다.
+ * 클로저 안에만 두면 그쪽에서 못 부른다 — 두 벌로 만들면 잠금·엔진 선택이 갈라진다.
+ */
+let draftButtons = () => [];
+let lockDraftButtons = () => {};
+let editorPayload = async () => ({});
 
 // ─────────────────────────────────────────────
 // HTML 분해/조립
@@ -249,7 +257,7 @@ function ensureEditorModal() {
       <span id="veRegenWrap" class="ve-visual-only" style="display:none;align-items:center;gap:6px;">
         <span style="${DIVIDER}"></span>
         <button id="veRegenBtn" style="${BTN_BASE}background:#134e4a;color:#a7f3d0;border:1px solid #115e59;" title="같은 주소 그대로 본문만 새로 만들어 덮어씁니다">🔄 글 다시 생성</button>
-        <button id="veRegenImgBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="글자는 그대로 두고 AI 이미지만 다시 만듭니다">🖼️ 이미지 다시 생성</button>
+        <button id="veRegenImgBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="글자는 그대로 두고 이 글의 AI 이미지를 모두 다시 만듭니다 (한 장만 바꾸려면 본문에서 그 이미지를 클릭하세요)">🖼️ 이미지 다시 생성</button>
       </span>
 
       <!-- ✏️ v3.8.683 — 어디서 온 글이든(붙여넣기·파일·발행글) 비평→수정, 썸네일, 영역 이미지 -->
@@ -263,6 +271,19 @@ function ensureEditorModal() {
           발행글 전용인 veRegenWrap 이 아니라 여기 둔다 — 붙여넣기·대기열 글에도 버튼은 필요하다.
         -->
         <button id="veRegenCtaBtn" style="${BTN_BASE}background:#075985;color:#bae6fd;border:1px solid #0369a1;" title="글을 다시 읽고 CTA 버튼의 목적지를 새로 찾습니다. 못 찾으면 지금 버튼을 그대로 둡니다">🔗 CTA 다시 생성</button>
+      </span>
+
+      <!--
+        🧠 v3.8.691 — 엔진을 **여기서** 고른다.
+        사장님: "이미지생성이되면 여기에서 AI엔진을 글/이미지 엔진을 선택 가능하게 해줘야지"
+        선택지는 본 화면의 셀렉트에서 복제한다 — 목록을 두 벌로 적으면 갈라진다.
+        비워 두면 본 화면에서 고른 값을 그대로 쓴다(예전과 같은 동작).
+      -->
+      <span id="veEngineWrap" class="ve-visual-only" style="display:inline-flex;align-items:center;gap:6px;">
+        <span style="${DIVIDER}"></span>
+        <span style="${GROUP_LABEL}">엔진</span>
+        <select id="veTextEngine" style="${BTN_BASE}background:#0f172a;color:#e2e8f0;border:1px solid #475569;max-width:150px;" title="이 편집기에서 글을 만들 때 쓸 AI (비평·개선, CTA 문구)"></select>
+        <select id="veImageEngine" style="${BTN_BASE}background:#0f172a;color:#e2e8f0;border:1px solid #475569;max-width:210px;" title="이 편집기에서 이미지를 만들 때 쓸 엔진 (썸네일, 영역 이미지, 이미지별 다시 생성)"></select>
       </span>
 
       <span style="${DIVIDER}"></span>
@@ -349,6 +370,8 @@ function ensureEditorModal() {
     thumbBtn: overlay.querySelector('#veThumbBtn'),
     sectionImgBtn: overlay.querySelector('#veSectionImgBtn'),
     regenCtaBtn: overlay.querySelector('#veRegenCtaBtn'),       // v3.8.688
+    textEngine: overlay.querySelector('#veTextEngine'),          // v3.8.691
+    imageEngine: overlay.querySelector('#veImageEngine'),        // v3.8.691
     saveBtn: overlay.querySelector('#veSaveBtn'),
     cancelBtn: overlay.querySelector('#veCancelBtn'),
     status: overlay.querySelector('#veStatus'),
@@ -410,12 +433,23 @@ ${err?.message || err}
    * 사장님: "비평 개선 버튼 구현해서 누르면 비평할 부분 알려주고 수정하기 버튼 누르면 알아서 그 위치가 수정 개선되게."
    * postId 가 없어도 된다 — 붙여넣기·파일 글도 같은 버튼이다. 발행된 글은 postId 로 비평 이력을 남기는 기존 경로가 따로 있다.
    */
-  const draftButtons = () => [modalRefs.critiqueBtn, modalRefs.thumbBtn, modalRefs.sectionImgBtn, modalRefs.regenCtaBtn].filter(Boolean);
-  const lockDraftButtons = (locked) => draftButtons().forEach((b) => { b.disabled = locked; b.style.opacity = locked ? '0.5' : '1'; });
-  const editorPayload = async () => {
+  draftButtons = () => [modalRefs.critiqueBtn, modalRefs.thumbBtn, modalRefs.sectionImgBtn, modalRefs.regenCtaBtn].filter(Boolean);
+  lockDraftButtons = (locked) => draftButtons().forEach((b) => { b.disabled = locked; b.style.opacity = locked ? '0.5' : '1'; });
+  editorPayload = async () => {
     const target = selectedEditorPlatform() || normalizeEditorPlatform(session?.originalPlatform);
     const base = await platformPayloadFor(target);
-    return { ...base, platform: target, targetPlatform: target, blogPlatform: target };
+    /**
+     * 🧠 v3.8.691 — 편집기에서 고른 엔진을 실어 보낸다.
+     * 비워 두면(=본 화면 값 그대로) 아무것도 덮지 않는다 — 예전 동작이 유지된다.
+     */
+    const textEngine = modalRefs.textEngine?.value || '';
+    const imageEngine = modalRefs.imageEngine?.value || '';
+    return {
+      ...base,
+      platform: target, targetPlatform: target, blogPlatform: target,
+      ...(textEngine ? { generationEngine: textEngine, provider: textEngine } : {}),
+      ...(imageEngine ? { h2ImageSource: imageEngine, imageSource: imageEngine } : {}),
+    };
   };
   modalRefs.critiqueBtn?.addEventListener('click', async () => {
     if (!session) return;
@@ -532,6 +566,7 @@ ${err?.message || err}
     if (!title) { setStatus('제목 칸을 먼저 채워 주세요 — 이미지 프롬프트는 제목으로 만듭니다.'); return; }
     let sectionTitle = '';
     let anchor = null;
+    let placedAtCaret = false;
     if (kind === 'section') {
       const found = sectionTitleAtCaret(doc);
       if (!found) { setStatus('본문에서 이미지를 넣을 소제목 영역을 먼저 클릭해 주세요.'); return; }
@@ -547,8 +582,23 @@ ${err?.message || err}
       const wrap = doc.createElement('div');
       wrap.innerHTML = res.html;
       const node = wrap.firstElementChild;
-      if (kind === 'section' && anchor) {
-        anchor.insertAdjacentElement('afterend', node);
+      if (kind === 'section') {
+        /**
+         * 🖼️ v3.8.691 — **커서 자리에** 넣는다.
+         *
+         * 사장님: "[이 영역 이미지]는 마우스커서 위치에 정확하게 이미지가 생성이 되어야 돼"
+         *
+         * 예전에는 `anchor.insertAdjacentElement('afterend')` 로 **소제목(H2) 바로 뒤**에
+         * 꽂았다. 그래서 소제목 영역 한가운데를 클릭해도 이미지는 늘 그 영역 맨 위로 갔다.
+         * 커서는 프롬프트를 지을 소제목을 고르는 데만 쓰이고, 넣는 자리는 무시된 것이다.
+         *
+         * 광고·CTA·내 PC 이미지가 쓰는 insertHtmlAtCaret 을 그대로 쓴다 —
+         * 커서 → 마지막 커서 → 마우스가 지나간 블록 → 화면 한가운데 순으로 물러나므로
+         * "넣고 보니 딴 데 있다"가 없다. 되돌리기 스택도 그쪽과 공유된다.
+         */
+        // 넣은 자리를 다시 찾으려고 표시를 달아 둔다 — 문자열로 넣으면 node 참조가 끊긴다
+        placedAtCaret = insertHtmlAtCaret(doc, `<span class="bgpt-img-mark" hidden></span>${res.html}`);
+        if (!placedAtCaret && anchor) anchor.insertAdjacentElement('afterend', node);
       } else {
         const container = doc.querySelector('.content, article, main, body') || doc.body;
         // 이미 썸네일(첫 separator 이미지)이 있으면 바꿔 끼운다
@@ -559,14 +609,29 @@ ${err?.message || err}
           container.insertBefore(node, container.firstChild);
         }
       }
-      try { node.scrollIntoView({ block: 'center' }); } catch { /* noop */ }
-      setStatus(kind === 'section' ? `✅ "${sectionTitle.slice(0, 24)}" 영역에 이미지를 넣었습니다.` : '✅ 썸네일을 글 맨 위에 넣었습니다 (저장 시 썸네일로 씁니다).');
+      // 커서 삽입은 문자열로 들어갔으니 표시를 따라가 실물을 찾는다 (표시는 곧 지운다)
+      let placed = node;
+      if (kind === 'section') {
+        const marks = doc.querySelectorAll('.bgpt-img-mark');
+        const mark = marks[marks.length - 1];
+        if (mark) {
+          placed = mark.nextElementSibling || placed;
+          mark.remove();
+        }
+      }
+      try { placed?.scrollIntoView({ block: 'center' }); } catch { /* 스크롤 실패가 삽입을 되돌릴 이유는 없다 */ }
+      setStatus(kind === 'section'
+        ? (placedAtCaret
+          ? `✅ "${sectionTitle.slice(0, 24)}" 이미지를 커서 위치에 넣었습니다.`
+          : `✅ "${sectionTitle.slice(0, 24)}" 이미지를 소제목 아래에 넣었습니다(커서 위치를 찾지 못했습니다).`)
+        : '✅ 썸네일을 글 맨 위에 넣었습니다 (저장 시 썸네일로 씁니다).');
     } catch (err) {
       setStatus(`❌ 이미지 생성 실패: ${err?.message || err}`);
     } finally {
       lockDraftButtons(false);
     }
   }
+
   modalRefs.thumbBtn?.addEventListener('click', () => generateEditorImage('thumbnail'));
   modalRefs.sectionImgBtn?.addEventListener('click', () => generateEditorImage('section'));
 
@@ -613,7 +678,8 @@ ${err?.message || err}
   const toolbar = modalRefs.overlay.querySelector('#veToolbar');
   if (toolbar) {
     toolbar.addEventListener('mousedown', (e) => {
-      if (e.target?.closest?.('#veInsertImageBtn, #veInsertAdBtn, #veInsertCtaBtn')) e.preventDefault();
+      // v3.8.691 — 영역 이미지도 커서 자리에 넣으므로 같은 가드가 필요하다(안 걸면 선택이 풀린다)
+      if (e.target?.closest?.('#veInsertImageBtn, #veInsertAdBtn, #veInsertCtaBtn, #veSectionImgBtn')) e.preventDefault();
     });
   }
 
@@ -769,6 +835,56 @@ function setStatus(text) {
  * 취소하면 null 을 돌려준다. prompt() 를 안 쓰는 이유는 세 칸을 한 번에 받아야 하고,
  * 주소를 넣는 즉시 제안 문구를 보여줘야 하기 때문이다.
  */
+/**
+ * ⌨️ v3.8.691 — 한 줄 입력을 받는다. **`window.prompt()` 대신 쓴다.**
+ *
+ * 사장님: "표 버튼 클릭해도 아무반응이없는데..??"
+ *
+ * 원인은 표 코드가 아니라 `window.prompt()` 였다 — **Electron 은 prompt() 를 지원하지 않는다**
+ * (alert·confirm 은 되지만 prompt 만 빠져 있다). 그래서 창이 안 뜨고, 예외가 바깥
+ * try/catch 에 잡혀 상태줄에만 한 줄 남았다. 사장님 눈에는 "아무 반응 없음"이다.
+ *
+ * 같은 이유로 서식 바의 **🔗 링크** 버튼도 함께 죽어 있었다 — 둘 다 이 함수로 바꾼다.
+ * 취소하면 null 을 돌려준다(빈 문자열과 구별해야 호출부가 조용히 넘어가지 않는다).
+ */
+function askOneLine({ title, hint = '', label, value = '', placeholder = '' }) {
+  return new Promise((resolve) => {
+    const prev = document.getElementById('veAskDialog');
+    if (prev) prev.remove();
+
+    const wrap = document.createElement('div');
+    wrap.id = 'veAskDialog';
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(2,6,23,.72);'
+      + 'display:flex;align-items:center;justify-content:center;padding:24px;';
+    wrap.innerHTML = `
+      <div style="width:min(94vw,440px);background:#1e293b;border:1px solid #334155;border-radius:14px;padding:22px;box-shadow:0 24px 64px rgba(0,0,0,.55);">
+        <div style="font-size:15px;font-weight:800;color:#e2e8f0;margin-bottom:4px;">${title}</div>
+        ${hint ? `<div style="font-size:12px;color:#94a3b8;margin-bottom:16px;">${hint}</div>` : '<div style="height:10px;"></div>'}
+        <label style="display:block;font-size:12px;font-weight:800;color:#cbd5e1;margin-bottom:5px;">${label}</label>
+        <input id="veAskInput" type="text" style="width:100%;padding:10px 12px;border:1px solid #475569;border-radius:9px;background:#0f172a;color:#f1f5f9;font-size:13.5px;box-sizing:border-box;" />
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px;">
+          <button id="veAskCancel" style="padding:9px 16px;border:1px solid rgba(255,255,255,.14);border-radius:9px;background:rgba(255,255,255,.06);color:#cbd5e1;font-size:13px;font-weight:700;cursor:pointer;">취소</button>
+          <button id="veAskOk" style="padding:9px 18px;border:none;border-radius:9px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;font-size:13px;font-weight:800;cursor:pointer;">확인</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+
+    const input = wrap.querySelector('#veAskInput');
+    input.value = value;
+    input.placeholder = placeholder;
+    const close = (result) => { wrap.remove(); document.removeEventListener('keydown', onKey); resolve(result); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') close(null);
+      if (e.key === 'Enter' && document.activeElement === input) { e.preventDefault(); close(input.value.trim()); }
+    };
+    document.addEventListener('keydown', onKey);
+    wrap.querySelector('#veAskCancel').addEventListener('click', () => close(null));
+    wrap.querySelector('#veAskOk').addEventListener('click', () => close(input.value.trim()));
+    wrap.addEventListener('mousedown', (e) => { if (e.target === wrap) close(null); });
+    setTimeout(() => { input.focus(); input.select(); }, 0);
+  });
+}
+
 function askCtaDetails() {
   return new Promise((resolve) => {
     const prev = document.getElementById('veCtaDialog');
@@ -937,13 +1053,35 @@ function applyFormat(doc, kind) {
       }
       case 'link': {
         if (!hasText) { setStatus('링크를 걸 글자를 먼저 선택하세요.'); return; }
-        const url = String(window.prompt('연결할 주소를 입력하세요 (https:// 로 시작)', 'https://') || '').trim();
-        if (!url) return;
-        if (!/^https?:\/\//i.test(url)) { setStatus('주소는 http:// 또는 https:// 로 시작해야 합니다.'); return; }
-        const safe = url.replace(/"/g, '&quot;');
-        // 외부 링크는 rel 을 붙인다 — 제휴 링크일 수 있으므로 sponsored 도 함께
-        wrap(`<a href="${safe}" target="_blank" rel="sponsored nofollow noopener">`, '</a>');
-        setStatus('링크를 걸었습니다');
+        /**
+         * v3.8.691 — prompt() 는 Electron 에서 안 뜬다. 대화상자를 여는 동안 선택이 풀리므로
+         * **범위를 먼저 붙잡아 뒀다가** 닫힌 뒤 되살린다(안 그러면 엉뚱한 곳에 링크가 걸린다).
+         */
+        const keep = sel.getRangeAt(0).cloneRange();
+        askOneLine({
+          title: '🔗 링크 걸기',
+          hint: '선택한 글자에 연결할 주소를 넣으세요.',
+          label: '주소',
+          value: 'https://',
+          placeholder: 'https://www.example.go.kr/',
+        }).then((url) => {
+          if (!url) return;
+          if (!/^https?:\/\//i.test(url)) { setStatus('주소는 http:// 또는 https:// 로 시작해야 합니다.'); return; }
+          const s = doc.getSelection();
+          s.removeAllRanges();
+          s.addRange(keep);
+          const safe = url.replace(/"/g, '&quot;');
+          // 외부 링크는 rel 을 붙인다 — 제휴 링크일 수 있으므로 sponsored 도 함께
+          const range = s.getRangeAt(0);
+          const holder = doc.createElement('div');
+          holder.appendChild(range.cloneContents());
+          range.deleteContents();
+          range.insertNode(doc.createRange().createContextualFragment(
+            `<a href="${safe}" target="_blank" rel="sponsored nofollow noopener">${holder.innerHTML}</a>`,
+          ));
+          s.removeAllRanges();
+          setStatus('링크를 걸었습니다');
+        });
         return;
       }
       case 'unlink': {
@@ -991,18 +1129,30 @@ function applyFormat(doc, kind) {
        */
       case 'table': {
         if (!sel?.anchorNode) { setStatus('표를 넣을 위치(문단)를 먼저 클릭하세요.'); return; }
-        const size = String(window.prompt('표 크기를 입력하세요 (행x열 · 첫 줄은 머리글)', '3x3') || '').trim();
-        if (!size) return;
-        const m = size.match(/^(\d{1,2})\s*[x×*]\s*(\d{1,2})$/i);
-        if (!m) { setStatus('표 크기는 "3x3" 처럼 적어 주세요.'); return; }
-        const rows = Math.min(20, Math.max(1, Number(m[1])));
-        const cols = Math.min(10, Math.max(1, Number(m[2])));
+        /**
+         * v3.8.691 — prompt() 가 Electron 에서 안 떠서 이 버튼이 통째로 죽어 있었다.
+         * 넣을 자리(block)는 **대화상자를 열기 전에** 잡아 둔다 — 열고 나면 선택이 풀린다.
+         */
         const el = sel.anchorNode.nodeType === Node.ELEMENT_NODE ? sel.anchorNode : sel.anchorNode.parentElement;
         const block = el?.closest?.('p,h1,h2,h3,h4,li,blockquote,div,table') || doc.body.lastElementChild;
-        const table = doc.createRange().createContextualFragment(buildTableHtml(rows, cols)).firstElementChild;
-        if (block && block !== doc.body) block.insertAdjacentElement('afterend', table);
-        else doc.body.appendChild(table);
-        setStatus(`${rows}행 ${cols}열 표를 넣었습니다 — 칸을 클릭해 내용을 적으세요`);
+        askOneLine({
+          title: '📊 표 넣기',
+          hint: '커서가 있는 문단 아래에 넣습니다. 첫 줄은 머리글이 됩니다.',
+          label: '표 크기 (행x열)',
+          value: '3x3',
+          placeholder: '3x3',
+        }).then((size) => {
+          if (!size) return;
+          const m = size.match(/^(\d{1,2})\s*[x×*]\s*(\d{1,2})$/i);
+          if (!m) { setStatus('표 크기는 "3x3" 처럼 적어 주세요.'); return; }
+          const rows = Math.min(20, Math.max(1, Number(m[1])));
+          const cols = Math.min(10, Math.max(1, Number(m[2])));
+          const table = doc.createRange().createContextualFragment(buildTableHtml(rows, cols)).firstElementChild;
+          if (block && block !== doc.body) block.insertAdjacentElement('afterend', table);
+          else doc.body.appendChild(table);
+          try { table.scrollIntoView({ block: 'center' }); } catch { /* 스크롤 실패가 삽입을 되돌릴 이유는 없다 */ }
+          setStatus(`${rows}행 ${cols}열 표를 넣었습니다 — 칸을 클릭해 내용을 적으세요`);
+        });
         return;
       }
       default: return;
@@ -1017,6 +1167,39 @@ function applyFormat(doc, kind) {
  * 💰 v3.8.482 — 등록된 광고 단위를 드롭다운에 채운다.
  *   편집기를 열 때마다 다시 읽는다 — 설정에서 방금 추가한 광고가 바로 보여야 한다.
  */
+/**
+ * 🧠 v3.8.691 — 본 화면의 엔진 셀렉트를 편집기로 **복제**한다.
+ *
+ * 목록을 여기에 다시 적지 않는 이유: 본 화면에 엔진이 추가되면 편집기 목록만 뒤처지고,
+ * 사장님은 "왜 여기엔 그게 없지?" 를 겪는다. 원본을 그대로 베끼면 그 일이 없다.
+ * 원본이 아직 안 그려졌으면(편집기를 먼저 여는 경로) 조용히 칸을 숨긴다.
+ */
+function cloneEngineOptions(target, sourceId) {
+  if (!target) return false;
+  const source = document.getElementById(sourceId);
+  if (!source || source.options.length === 0) return false;
+  target.innerHTML = '';
+  for (const opt of source.options) {
+    const copy = document.createElement('option');
+    copy.value = opt.value;
+    copy.textContent = opt.textContent;
+    copy.disabled = opt.disabled;
+    target.appendChild(copy);
+  }
+  target.value = source.value;   // 본 화면에서 고른 것으로 시작한다
+  return true;
+}
+
+function refreshEditorEngineOptions(refs) {
+  const okText = cloneEngineOptions(refs?.textEngine, 'generationEngine');
+  const okImage = cloneEngineOptions(refs?.imageEngine, 'h2ImageSource');
+  const wrap = refs?.overlay?.querySelector?.('#veEngineWrap');
+  // 둘 다 못 베꼈으면 빈 칸을 보여주느니 숨긴다 — 유령 기본값을 payload 에 싣지 않는다
+  if (wrap) wrap.style.display = (okText || okImage) ? 'inline-flex' : 'none';
+  if (refs?.textEngine) refs.textEngine.style.display = okText ? '' : 'none';
+  if (refs?.imageEngine) refs.imageEngine.style.display = okImage ? '' : 'none';
+}
+
 function refreshAdUnitOptions(select) {
   if (!select) return;
   const units = loadAdUnits();
@@ -1113,6 +1296,54 @@ function setSourceMode(on) {
   setStatus(applied ? '고친 HTML 코드를 미리보기에 반영했습니다.' : '미리보기로 돌아왔습니다.');
 }
 
+/**
+ * 🎨 v3.8.691 — 고른 이미지 **한 장만** 다시 만든다.
+ *
+ * 사장님: "이미지를 클릭하면 교체랑 삭제 버튼이뜨는데 다시생성버튼도 뜨게해줘"
+ *
+ * [이미지 다시 생성](위 도구막대)은 글의 **모든** 이미지를 바꾼다. 이건 그 반대다 —
+ * 한 장만 마음에 안 들 때 나머지를 건드리지 않고 그 자리만 새로 만든다.
+ * 무엇을 그릴지는 그 이미지 **바로 앞의 소제목**에서 가져온다(발행 때와 같은 규칙).
+ */
+async function regenerateOneImage(img) {
+  if (!session || !img) return;
+  const doc = getFrameDoc();
+  if (!doc) return;
+  const title = modalRefs.titleInput.value.trim() || session.originalTitle || '';
+  if (!title) { setStatus('제목 칸을 먼저 채워 주세요 — 이미지 프롬프트는 제목으로 만듭니다.'); return; }
+
+  // 이 이미지 앞의 가장 가까운 소제목 — 없으면 제목만으로 만든다
+  let sectionTitle = '';
+  for (let el = img; el; el = el.previousElementSibling || el.parentElement) {
+    const h = el.previousElementSibling?.matches?.('h2,h3') ? el.previousElementSibling
+      : el.matches?.('h2,h3') ? el : null;
+    if (h) { sectionTitle = (h.textContent || '').trim(); break; }
+    if (el === doc.body) break;
+  }
+
+  lockDraftButtons(true);
+  setStatus(`🎨 이 이미지를 다시 만드는 중… (1~2분)${sectionTitle ? ` — "${sectionTitle.slice(0, 20)}"` : ''}`);
+  try {
+    const payload = await editorPayload();
+    const res = await window.electronAPI.invoke('generate-editor-image', { title, sectionTitle, kind: 'section', payload });
+    if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
+    // 새로 만든 블록에서 img 주소만 꺼내 **그 자리 이미지의 src 만** 바꾼다.
+    // 블록을 통째로 갈아끼우면 발행기가 넣어 둔 클래스·스타일이 사라져 글 모양이 바뀐다.
+    const holder = doc.createElement('div');
+    holder.innerHTML = res.html;
+    const src = holder.querySelector('img')?.getAttribute('src') || '';
+    if (!src) throw new Error('만들어진 이미지 주소를 찾지 못했습니다.');
+    img.setAttribute('src', src);
+    img.removeAttribute('srcset');
+    try { img.scrollIntoView({ block: 'center' }); } catch { /* 스크롤 실패가 교체를 되돌릴 이유는 없다 */ }
+    setStatus('✅ 이 이미지를 다시 만들었습니다. (↩️ 되돌리기로 복구 가능)');
+  } catch (err) {
+    setStatus(`❌ 이미지 다시 생성 실패: ${err?.message || err}`);
+  } finally {
+    lockDraftButtons(false);
+  }
+}
+
 function loadIntoFrame(rawBodyHtml) {
   const refs = ensureEditorModal();
   detachImageEditing();
@@ -1164,7 +1395,11 @@ function loadIntoFrame(rawBodyHtml) {
   doc.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') requestClose();
   });
-  initImageEditing(refs.frame, doc, { setStatus, onAfterRestore: () => protectSeparators(doc) });
+  initImageEditing(refs.frame, doc, {
+    setStatus,
+    onAfterRestore: () => protectSeparators(doc),
+    onRegenerateImage: (img) => regenerateOneImage(img),   // 🎨 v3.8.691
+  });
   session.baseline = serializeEditor();
   try { doc.body.focus(); } catch { /* noop */ }
 }
@@ -1323,6 +1558,7 @@ export async function openVisualEditor(source) {
     // v3.8.357: 반자동 발행 모드에서는 저장 + 즉시 발행
     const isSemiAuto = kind === 'appstate' && !!window.__semiAutoMode;
     refreshSaveButtonLabel(isSemiAuto);
+    refreshEditorEngineOptions(refs);   // v3.8.691: 열 때마다 본 화면 목록을 다시 베낀다
     setStatus(kind === 'file' ? `편집 중: ${filePath}` : '아래 화면은 블로그에 보이는 실제 모습입니다. 고치고 싶은 곳을 클릭하세요.');
     refs.overlay.style.display = 'flex';
     loadIntoFrame(parts.bodyHtml);

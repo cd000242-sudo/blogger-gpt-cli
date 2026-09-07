@@ -14,7 +14,15 @@ function makeImageBlockHtml(dataUrl) {
 // 초기화 / 해제
 // ─────────────────────────────────────────────
 
-export function initImageEditing(frame, doc, { setStatus, onAfterRestore }) {
+/**
+ * @param {object} opts
+ * @param {(img: HTMLImageElement) => void} [opts.onRegenerateImage]
+ *   🎨 v3.8.691 — 고른 이미지 **한 장만** AI 로 다시 만든다.
+ *   사장님: "이미지를 클릭하면 교체랑 삭제 버튼이뜨는데 다시생성버튼도 뜨게해줘"
+ *   생성은 IPC·엔진 선택을 쥐고 있는 editor.js 가 한다 — 이 모듈은 눌렸다고 알려만 준다
+ *   (여기서 직접 부르면 이미지 편집 모듈이 생성 파이프라인까지 알게 된다).
+ */
+export function initImageEditing(frame, doc, { setStatus, onAfterRestore, onRegenerateImage }) {
   detachImageEditing();
 
   const veBody = frame.parentElement;
@@ -25,12 +33,21 @@ export function initImageEditing(frame, doc, { setStatus, onAfterRestore }) {
     imgToolbar.id = 'veImgToolbar';
     imgToolbar.style.cssText = 'position:absolute;display:none;z-index:10;gap:6px;background:#1e293b;border-radius:10px;padding:6px;box-shadow:0 6px 20px rgba(0,0,0,0.35);';
     imgToolbar.innerHTML = `
-      <button id="veImgReplaceBtn" style="padding:7px 12px;border:none;border-radius:7px;background:#334155;color:#e2e8f0;font-weight:700;font-size:12px;cursor:pointer;">🔄 교체</button>
+      <button id="veImgReplaceBtn" style="padding:7px 12px;border:none;border-radius:7px;background:#334155;color:#e2e8f0;font-weight:700;font-size:12px;cursor:pointer;" title="내 PC 이미지로 바꿉니다">🔄 교체</button>
+      <button id="veImgRegenBtn" style="padding:7px 12px;border:none;border-radius:7px;background:#3f3016;color:#fcd34d;font-weight:700;font-size:12px;cursor:pointer;" title="이 이미지 한 장만 AI 로 다시 만듭니다">🎨 다시 생성</button>
       <button id="veImgDeleteBtn" style="padding:7px 12px;border:none;border-radius:7px;background:#7f1d1d;color:#fecaca;font-weight:700;font-size:12px;cursor:pointer;">🗑 삭제</button>
     `;
     veBody.appendChild(imgToolbar);
     imgToolbar.querySelector('#veImgReplaceBtn').addEventListener('click', () => replaceSelectedImage());
     imgToolbar.querySelector('#veImgDeleteBtn').addEventListener('click', () => deleteSelectedImage());
+    // 🎨 v3.8.691 — 고른 이미지 한 장만 다시 만든다 (생성은 editor.js 가 한다)
+    imgToolbar.querySelector('#veImgRegenBtn').addEventListener('click', () => {
+      const img = state?.selectedImg;
+      if (!img) return;
+      // 되돌리기 스택은 **여기서** 쌓는다 — 교체·삭제와 같은 ↩️ 버튼으로 되돌아가야 한다
+      pushImageOp();
+      state.onRegenerateImage?.(img);
+    });
   }
 
   let insertMarker = veBody.querySelector('#veInsertMarker');
@@ -72,7 +89,7 @@ export function initImageEditing(frame, doc, { setStatus, onAfterRestore }) {
   }
 
   state = {
-    frame, doc, setStatus, onAfterRestore,
+    frame, doc, setStatus, onAfterRestore, onRegenerateImage,
     imgToolbar, insertMarker, linkToolbar,
     selectedImg: null, selectedLink: null, hoverBlock: null,
     // v3.8.440: 마지막으로 커서가 있던 블록을 기억한다 (아래 주석 참고)
