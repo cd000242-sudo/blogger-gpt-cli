@@ -144,6 +144,33 @@ export async function loadSettings() {
 
   const envSettings = await loadEnvSettingsForRecovery();
   const originalPlatform = settings.platform;
+
+  /**
+   * 🔑 v3.8.698 — **`.env` 값이 이긴다. 여기서도.**
+   *
+   * 사장님: "❌ 다시 생성 실패: Request failed with status code 401"
+   *
+   * v3.8.690 은 **설정 화면 표시**만 고쳤다. 그런데 발행·재생성이 쓰는 payload 는
+   * 이 함수(loadSettings)를 통해 만들어지고, 여기는 **localStorage 만 보고 있었다.**
+   * 그래서 낡은 비밀번호가 payload 에 실렸고, wordpress-posts 의 우선순위가
+   * `payload → env` 라서 그 낡은 값이 이겼다.
+   *
+   * 실측(2026-09-07): 같은 계정으로
+   *   .env 비밀번호        → HTTP 200
+   *   localStorage 비밀번호 → HTTP 401   ← payload 에 실리던 값
+   *
+   * 두 저장소가 갈리는 일 자체는 막을 수 없다(설정을 한쪽에만 쓴 경로가 과거에 있었다).
+   * 그러니 **읽는 쪽에서 정본을 정한다** — `.env` 가 정본이다(main 프로세스가 그걸로 인증한다).
+   * 빈 값은 덮지 않는다: 없는 것과 지운 것은 다르다(camelizeEnvKeys 가 걸러 준다).
+   */
+  settings = { ...settings, ...camelizeEnvKeys(envSettings) };
+  /**
+   * ⚠️ 플랫폼만은 예외다 — 저장값이 먼저다(v3.8.548 · resolvePlatformValue).
+   * 위 병합이 `.env` 의 PLATFORM 으로 덮으면 사장님이 배지로 고른 선택이 되돌아간다
+   * (v3.8.534 에서 실제로 겪은 "배지로 수정 안 된다"). 자격증명만 정본을 따른다.
+   */
+  if (originalPlatform) settings.platform = originalPlatform;
+  else delete settings.platform;
   settings = restoreBloggerAliases(settings, envSettings);
   // v3.8.548: 아무 단서도 없을 때의 기본값을 WordPress 로 (사장님 지시).
   //   저장값·.env·연동 설정 유무가 먼저 판정되므로, 이 값은 첫 실행에서만 쓰인다.
