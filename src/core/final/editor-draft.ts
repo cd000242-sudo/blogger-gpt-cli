@@ -192,6 +192,39 @@ export interface DraftImprovement {
   length: number;
   skipped: string[];
   revisedDetail: Array<{ index: number; heading: string; before: number; after: number; issues: string[] }>;
+  /**
+   * ✅ v3.8.700 — **고친 뒤 실제로 사라진 지적.** 이것만 "해결됐다"고 말한다.
+   * 사장님: "지적한걸 수정하고 다시비평을했는데 또 똑같은 지적이 나오면 어쩌란거냐고"
+   */
+  actuallyFixed: string[];
+  /** 고쳤는데도 **아직 남아 있는** 지적 — 숨기지 않고 그대로 돌려준다 */
+  stillPresent: string[];
+}
+
+/**
+ * 🔁 v3.8.700 — 고른 지적이 **정말 사라졌는지 코드 진단으로 다시 잰다.**
+ *
+ * ## 왜 필요한가 — v3.8.693 이 절반만 고쳤다
+ * 그때 넣은 `resolved`("이미 고쳤으니 다시 말하지 마세요")는 **AI 비평 프롬프트에만** 들어간다.
+ * 그런데 사장님이 되풀이해 본 지적 네 건은 전부 **코드 진단**이었다:
+ *   "…과 …이 같은 말을 합니다"           (article-audit)
+ *   "제도를 설명하면서 근거 조항이 한 건도 없습니다" (article-audit)
+ *   "출처 인용에 연도·조사명 동반 부족"      (quality-gate)
+ *   "FAQ 답이 질문과 어긋납니다"            (reader-retention)
+ * 코드 진단은 **새 본문을 다시 재서** 그대로 다시 터진다 — 프롬프트로 입막음이 안 된다.
+ *
+ * 진짜 구멍은 따로 있었다: **고친 뒤 정말 고쳐졌는지 아무도 확인하지 않았다.**
+ * 여기서 다시 재고, 아직 남은 것은 숨기지 않고 그대로 알린다.
+ */
+function measureRemaining(title: string, html: string, wanted: string[]): string[] {
+  if (!wanted.length) return [];
+  try {
+    const now = diagnosePost({ title, html, competitors: [] }).map((issue) => String(issue?.title || ''));
+    return wanted.filter((t) => now.includes(t));
+  } catch {
+    // 재는 데 실패하면 "고쳤다"고 단정하지 않는다 — 모른다고 두는 편이 정직하다
+    return wanted;
+  }
 }
 
 export async function improveDraft(input: {
@@ -262,8 +295,65 @@ export async function improveDraft(input: {
       skipped.push(`${section.heading}: ${String(error?.message || error).slice(0, 80)}`);
     }
   }
-  const html = revisions.length ? applySectionRevisions(previousHtml, revisions) : previousHtml;
-  return { ok: true, html, revised: revisions.length, length: plain(html), skipped, revisedDetail };
+  let html = revisions.length ? applySectionRevisions(previousHtml, revisions) : previousHtml;
+
+  /**
+   * ✅ v3.8.700 — **고쳤다고 말하기 전에 다시 잰다.**
+   *
+   * 사장님: "지적한걸 수정하고 다시비평을했는데 또 똑같은 지적이 나오면 어쩌란거냐고
+   *          이거 고치랫는데 왜안고치냐 한번고칠때 완벽히 고쳐야되는거아니니?"
+   *
+   * 코드 진단은 프롬프트로 입막음이 안 된다(measureRemaining 주석 참고).
+   * 그러니 고친 본문을 다시 재서, 아직 남은 지적이 있으면 **그 구간만 한 번 더** 고친다.
+   * 이번에는 "이 지적이 아직 남아 있다"는 사실과 진단이 준 처방을 함께 준다 —
+   * 무엇이 부족한지 모른 채 다시 쓰면 같은 결과가 나온다.
+   */
+  const wanted = [...new Set((input.issues || []).map((it) => String(it?.title || '')).filter(Boolean))];
+  let stillPresent = measureRemaining(title, html, wanted);
+
+  if (stillPresent.length && revisions.length) {
+    input.log?.(`[PROGRESS] 88% - 🔁 아직 남은 지적 ${stillPresent.length}건 — 그 구간만 한 번 더 고칩니다`);
+    const stuck = (input.issues || []).filter((it) => stillPresent.includes(String(it?.title || '')));
+    const retryTargets = [...new Set(stuck
+      .map((it) => (Number.isInteger(it?.sectionIndex) && it.sectionIndex >= 0 ? it.sectionIndex : null))
+      .filter((v): v is number => v !== null))];
+
+    const freshSections = splitSections(html);
+    const extra: { index: number; html: string }[] = [];
+    for (const index of retryTargets) {
+      const section = freshSections.find((s) => s.index === index);
+      if (!section) continue;
+      const sectionStuck = stuck.filter((it) => it.sectionIndex === index);
+      const prompt = `${buildSectionRevisionPrompt({ title, section, issues: sectionStuck, wholePostIssues: [] })}
+
+# ⚠️ 이 지적들은 방금 고쳤는데도 **그대로 남아 있습니다**
+${sectionStuck.map((it) => `· ${it.title}\n  처방: ${String(it.fix || '').slice(0, 160)}`).join('\n')}
+말을 바꾸는 것으로는 안 됩니다. 지적이 가리키는 **그 부분을 실제로 손보세요**
+(겹치는 문장은 지우고, 근거를 못 찾으면 그 주장을 빼고, 답이 어긋나면 답을 다시 쓰세요).`;
+      try {
+        const raw = await input.callModel(prompt);
+        const verdict = acceptRevisedSection(raw, section, { cutting: sectionStuck.some((it) => isCuttingIssue(it)) });
+        if (verdict.accepted) extra.push({ index, html: verdict.html });
+        else skipped.push(`${section.heading}: 재시도도 규칙 위반(${verdict.reason})`);
+      } catch (error: any) {
+        skipped.push(`${section.heading}: 재시도 실패(${String(error?.message || error).slice(0, 60)})`);
+      }
+    }
+    if (extra.length) {
+      html = applySectionRevisions(html, extra);
+      stillPresent = measureRemaining(title, html, wanted);
+    }
+  }
+
+  const actuallyFixed = wanted.filter((t) => !stillPresent.includes(t));
+  if (stillPresent.length) {
+    input.log?.(`   ⚠️ 두 번 고쳤는데도 남은 지적 ${stillPresent.length}건 — 화면에 그대로 알립니다`);
+  }
+
+  return {
+    ok: true, html, revised: revisions.length, length: plain(html), skipped, revisedDetail,
+    actuallyFixed, stillPresent,
+  };
 }
 
 /* ────────────────────────────────────────────────────────────────

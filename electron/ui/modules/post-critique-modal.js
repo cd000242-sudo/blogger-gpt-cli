@@ -104,6 +104,28 @@ function resultView(res, picked, editorMode = false) {
       ${r.issues?.length ? `<div style="color:#94a3b8;font-size:11.5px;line-height:1.55;margin-top:5px;">반영: ${esc(r.issues.join(' · '))}</div>` : ''}
     </div>`).join('');
 
+  /**
+   * ⚠️ v3.8.700 — **두 번 고쳐도 남은 지적은 숨기지 않는다.**
+   *
+   * 사장님: "지적한걸 수정하고 다시비평을했는데 또 똑같은 지적이 나오면 어쩌란거냐고"
+   * 되풀이의 절반은 "고쳤다"고 말해 놓고 실제로는 안 고쳐진 것이었다.
+   * 이제 고친 뒤 다시 재서, 남은 것은 **여기서 미리 말한다** — 다음 비평에서 처음 보는 것처럼
+   * 나오면 사장님은 같은 실망을 두 번 한다.
+   */
+  const stillPresent = Array.isArray(res?.stillPresent) ? res.stillPresent : [];
+  const stillRows = stillPresent.length ? `
+    <div style="margin-top:14px;padding:12px 14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.30);border-radius:10px;">
+      <div style="color:#fca5a5;font-size:12.5px;font-weight:800;">두 번 고쳤는데도 남은 지적 ${stillPresent.length}건</div>
+      <div style="color:#cbd5e1;font-size:11.5px;line-height:1.7;margin-top:6px;">
+        ${stillPresent.map((t) => `· ${esc(t)}`).join('<br>')}
+      </div>
+      <div style="margin-top:7px;color:#94a3b8;font-size:11px;line-height:1.55;">
+        글자를 바꾸는 것으로는 풀리지 않는 것들입니다 — 근거 조항처럼 <b style="color:#cbd5f5;">없는 사실을 지어낼 수 없거나</b>,
+        구조를 손봐야 하는 지적입니다. 직접 고치시거나, 그 주장을 빼는 편이 낫습니다.
+        <b style="color:#cbd5f5;">다음 비평에도 그대로 나옵니다.</b>
+      </div>
+    </div>` : '';
+
   const skippedRows = skipped.length ? `
     <div style="margin-top:14px;color:#94a3b8;font-size:12px;font-weight:700;">그대로 둔 구간 ${skipped.length}개</div>
     <div style="color:#7c8aa5;font-size:11.5px;line-height:1.7;margin-top:5px;">
@@ -127,6 +149,7 @@ function resultView(res, picked, editorMode = false) {
       </div>
     </div>
     ${rows}
+    ${stillRows}
     ${skippedRows}
     <div style="margin-top:16px;padding:12px 14px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;color:#a5b4fc;font-size:11.5px;line-height:1.65;">
       🕰️ 이번에 고친 항목은 기록해 뒀습니다. 다시 비평하면 각 지적 옆에

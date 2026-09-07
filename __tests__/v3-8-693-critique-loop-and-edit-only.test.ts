@@ -57,10 +57,27 @@ describe('① 한 번 고칠 때 확실하게 — 거절되면 이유를 알려�
     expect(second).toBeGreaterThan(guard);
   });
 
-  test('⭐ 세 번은 하지 않는다 — 값어치보다 비용이 크다', () => {
+  /**
+   * v3.8.700 에서 호출 자리가 하나 늘었다 — **비용이 느는 변경이라 의도를 여기 못 박는다.**
+   *
+   * 사장님 요구가 둘이고 서로 당긴다:
+   *   "이것도 비용이 청구되는데"      → 적게 부를 것
+   *   "한번 수정할때 확실하게"        → 정말 고쳐질 것
+   *
+   * 그래서 **필요할 때만** 는다. 사다리는 정확히 세 칸이고 네 칸째는 없다:
+   *   ① 첫 시도                       (늘 1회)
+   *   ② 규칙 위반이면 이유를 주고 재시도 (실패했을 때만)
+   *   ③ 지적이 아직 남았으면 그 구간만  (남았을 때만, 구간 단위)
+   * 잘 고쳐지면 ②③ 은 돌지 않으므로 평소 비용은 예전과 같다.
+   */
+  test('⭐ 사다리는 세 칸까지다 — 네 번째는 없다', () => {
     expect(fn).toContain('(2회 시도)');
-    // callModel 호출은 정확히 두 군데뿐
-    expect((fn.match(/await input\.callModel\(/g) || []).length).toBe(2);
+    expect((fn.match(/await input\.callModel\(/g) || []).length).toBe(3);
+  });
+
+  test('⭐ ②③ 은 조건이 맞을 때만 돈다 — 평소 비용은 그대로다', () => {
+    expect(fn).toContain('if (!verdict.accepted) {');          // ② 규칙 위반일 때만
+    expect(fn).toContain('if (stillPresent.length && revisions.length) {');   // ③ 남았을 때만
   });
 });
 

@@ -505,10 +505,22 @@ ${err?.message || err}
         if (res.html && res.revised > 0) {
           const parts = splitDocument(res.html);
           loadIntoFrame(parts.bodyHtml);
-          // 실제로 고쳐진 구간의 지적만 기억한다 — 그대로 둔 구간은 다시 지적돼야 맞다
-          const applied = (res.revisedDetail || []).flatMap((d) => d.issues || []);
-          session.resolvedIssues = [...new Set([...session.resolvedIssues, ...applied])].slice(-40);
-          setStatus(`✅ ${res.revised}개 구간을 고쳐 편집기에 실었습니다 (${res.length}자). 발행하려면 저장 버튼을 누르세요.`);
+          /**
+           * ✅ v3.8.700 — **다시 재서 정말 사라진 것만** 기억한다.
+           *
+           * 예전에는 "고친 구간의 지적"을 전부 해결로 쳤다. 그런데 코드 진단은 새 본문을
+           * 다시 재므로, 글자만 바뀌고 문제가 남으면 다음 비평에 또 나온다.
+           * 그걸 해결로 기억하면 "다시 말하지 마세요"에 넣어 **눈만 가리는 꼴**이 된다.
+           */
+          const fixed = Array.isArray(res.actuallyFixed)
+            ? res.actuallyFixed
+            : (res.revisedDetail || []).flatMap((d) => d.issues || []);
+          session.resolvedIssues = [...new Set([...session.resolvedIssues, ...fixed])].slice(-40);
+
+          const left = Array.isArray(res.stillPresent) ? res.stillPresent.length : 0;
+          setStatus(left
+            ? `✅ ${res.revised}개 구간을 고쳤습니다 (${res.length}자) — 다만 ${left}건은 두 번 고쳐도 남아 있습니다. 창에 무엇인지 적었습니다.`
+            : `✅ ${res.revised}개 구간을 고쳐 편집기에 실었습니다 (${res.length}자). 발행하려면 저장 버튼을 누르세요.`);
         } else {
           setStatus('ℹ️ 고친 구간이 없습니다 — 다시 쓴 결과가 원본보다 낫지 않아 그대로 뒀습니다.');
         }

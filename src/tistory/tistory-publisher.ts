@@ -312,6 +312,10 @@ function stripLeadingTemporaryImage(html: string): string {
  * 글 중간의 같은 이미지는 건드리지 않는다 — 본문에서 다시 쓰는 경우가 있고,
  * 중복은 언제나 맨 위에서 생기기 때문이다.
  */
+/**
+ * 앞부분만 훑는 창. **맨몸 `<img>` 처럼 헷갈릴 수 있는 것에만** 쓴다 —
+ * 글 중간에서 같은 이미지를 다시 쓰는 경우가 있어 통째로 지우면 안 되기 때문이다.
+ */
 const THUMBNAIL_SCAN_HEAD = 4000;
 
 /** 앞부분에서 정규식에 처음 걸리는 것 하나만 지운다(뒤쪽 본문은 그대로 둔다) */
@@ -322,9 +326,39 @@ function dropFirstInHead(html: string, pattern: RegExp): string {
   return html.slice(0, match.index) + html.slice(match.index + match[0].length);
 }
 
+/** 문서 어디에 있든 처음 걸리는 것 하나만 지운다 */
+function dropFirst(html: string, pattern: RegExp): string {
+  const match = html.match(pattern);
+  if (!match || match.index === undefined) return html;
+  return html.slice(0, match.index) + html.slice(match.index + match[0].length);
+}
+
+/**
+ * 🏷️ v3.8.700 — 티스토리 본문에서 **구조화 데이터(JSON-LD)를 전부 걷어낸다.**
+ *
+ * 사장님 실물 검수: 편집기 미리보기에 "SCRIPT" 덩어리가 그대로 보였다.
+ * 티스토리 편집기는 본문의 `<script>` 를 실행하지 않고 **보이는 블록으로 바꿔 버려서**
+ * 독자에게도 보이고 지워지지도 않는다.
+ *
+ * v3.8.695 는 orchestration 한 곳만 막았는데 **발행처가 여럿이었다.**
+ * 실측(leadernam.tistory.com/316): 본문에 JSON-LD 가 **2개** 남아 있었다
+ * (orchestration 의 Article 그래프 + generation 의 FAQ 스키마).
+ * 그래서 만드는 쪽을 하나씩 쫓지 않고 **나가기 직전에 한 번에** 걷어낸다 —
+ * 새 발행처가 생겨도 여기서 걸린다.
+ */
+function stripBodyJsonLd(html: string): string {
+  return String(html || '').replace(/<script\b[^>]*type=["']application\/ld\+json["'][\s\S]*?<\/script>\s*/gi, '');
+}
+
 function stripGeneratedThumbnailHero(html: string, thumbnailUrl: string): string {
   let nextHtml = stripLeadingTemporaryImage(html);
-  nextHtml = dropFirstInHead(
+  /**
+   * v3.8.700 — 앞부분 4000자만 보던 것을 **문서 전체**로 넓혔다.
+   * 실측(316번 글): 앞에 붙은 JSON-LD 가 워낙 커서 썸네일 박스가 **43,221자** 지점에 있었다.
+   * 창 안에 안 들어와 못 지웠고, 그래서 대표이미지와 본문 이미지가 두 번 나왔다.
+   * `bgpt-thumbnail-box` 는 우리가 붙인 이름이라 글 어디에 있든 그것 하나뿐이다 — 안전하다.
+   */
+  nextHtml = dropFirst(
     nextHtml,
     /<div\b[^>]*class=["'][^"']*\bbgpt-thumbnail-box\b[^"']*["'][\s\S]*?<\/div>\s*/i,
   );
@@ -1188,6 +1222,13 @@ export function buildTistoryFinalHtml(html: string, thumbnailUrl: string, upload
   // v3.8.299 보험: publish-content를 우회한 경로(직접 publishToTistory 호출)도 대비 — 본문 H1 통째 제거
   if (typeof html === 'string') {
     html = html.replace(/<h1[^>]*>[\s\S]*?<\/h1>/gi, '');
+    /**
+     * 🏷️ v3.8.700 — 구조화 데이터는 **나가기 직전에** 걷어낸다.
+     * 발행처가 여럿이라(orchestration Article + generation FAQ) 만드는 쪽을 하나씩 막는 것으로는
+     * 새는 곳이 남는다. 실측 316번 글에 2개가 남아 있었다.
+     * 여기가 티스토리로 나가는 마지막 관문이므로, 어느 경로로 왔든 여기서 걸린다.
+     */
+    html = stripBodyJsonLd(html);
   }
 
   const uploadedSource = String(uploadedThumbnailBlock || '').match(/<img\b[^>]*\bsrc=["']([^"']+)["']/i)?.[1] || '';
