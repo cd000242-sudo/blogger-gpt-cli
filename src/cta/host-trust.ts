@@ -18,7 +18,7 @@
 import { OFFICIAL_CATALOG } from './official-catalog';
 
 /** 기관·공공 도메인 — 여기 속하면 출처가 분명하다 */
-const INSTITUTIONAL_SUFFIXES = ['.go.kr', '.or.kr', '.ac.kr', '.re.kr', '.gov', '.edu', '.mil', '.gov.kr'];
+const INSTITUTIONAL_SUFFIXES = ['.go.kr', '.or.kr', '.ac.kr', '.re.kr', '.mil.kr', '.gov', '.edu', '.mil', '.gov.kr'];
 
 /** 카탈로그에 등록된 공식 사이트 호스트 (188개) */
 let catalogHosts: Set<string> | null = null;
@@ -290,7 +290,7 @@ function matchesNamedAgency(host: string, agencies: string[], title: string): bo
 export interface HostTrustResult {
   ok: boolean;
   /** 왜 통과·거절했는지 — 로그로 남겨야 다음에 원인을 찾는다 */
-  reason: 'catalog' | 'institutional' | 'brand-match' | 'agency-match'
+  reason: 'catalog' | 'institutional' | 'brand-match' | 'agency-match' | 'registry'
     | 'redirector' | 'user-generated' | 'ad-tracking' | 'commerce'
     | 'unknown-host' | 'malformed';
 }
@@ -311,6 +311,40 @@ export function isCommerceUrl(url: string): boolean {
   return isCommerceHost(hostOf(url));
 }
 
+/** 한국식 2단계 공용 접미 — 이 앞의 한 마디까지가 "등기 도메인"이다 (kotsa.or.kr · scourt.go.kr) */
+const KR_SECOND_LEVEL = /^(go|or|co|re|ac|ne|pe|hs|ms|es|sc|kg|mil)$/;
+
+/**
+ * v3.8.706 — 등기 도메인(apex). main.kotsa.or.kr · www.kotsa.or.kr 은 같은 집(kotsa.or.kr)이다.
+ *
+ * 레지스트리가 검색 1등으로 배운 호스트가 하위 도메인(ta.ksd.or.kr)일 때, www.ksd.or.kr 의 신청 화면을
+ * "다른 기관"으로 내치지 않게 — 호스트 비교는 전부 이 단위로 한다.
+ */
+export function apexHost(hostOrUrl: string): string {
+  let host = String(hostOrUrl || '').toLowerCase().trim();
+  if (/^https?:\/\//.test(host)) {
+    try { host = new URL(host).hostname.toLowerCase(); } catch { return ''; }
+  }
+  host = host.replace(/^www\./, '').replace(/\/.*$/, '');
+  const labels = host.split('.').filter(Boolean);
+  if (labels.length <= 2) return host;
+  const keep = labels[labels.length - 1] === 'kr' && KR_SECOND_LEVEL.test(labels[labels.length - 2]!) ? 3 : 2;
+  return labels.slice(-keep).join('.');
+}
+
+/** 두 호스트(또는 주소)가 같은 등기 도메인인가 */
+export function sameSite(a: string, b: string): boolean {
+  const x = apexHost(a);
+  const y = apexHost(b);
+  return !!x && !!y && x === y;
+}
+
+/** 레지스트리가 확인한 호스트와 같은 집인가 — fine.fss.or.kr 은 fss.or.kr 에 속한다 */
+function isTrustedByRegistry(host: string, trustedHosts?: string[]): boolean {
+  if (!trustedHosts || trustedHosts.length === 0) return false;
+  return trustedHosts.some((t) => sameSite(host, String(t || '')));
+}
+
 /**
  * 이 주소를 CTA 로 내보내도 되는가.
  * 근거를 못 대면 거절한다 — 낯선 도메인을 사장님 글에 싣지 않는다.
@@ -323,7 +357,15 @@ export function judgeCtaHost(
   /** 검색 결과 제목 — 한글 기관명은 도메인이 아니라 여기서 맞춘다 */
   title = '',
   /** v3.8.591 — 쇼핑·제휴 모드에서만 커머스를 허용한다 */
-  options?: { allowCommerce?: boolean },
+  options?: {
+    allowCommerce?: boolean;
+    /**
+     * v3.8.706 — 기관 레지스트리(agency-registry)가 **실측으로 확인한** 호스트.
+     * 비짓제주(visitjeju.net)처럼 .go.kr 이 아닌 공공 포털이 여기로 통과한다.
+     * 이 파일은 레지스트리를 import 하지 않는다(레지스트리가 이 파일을 쓴다 — 순환 금지).
+     */
+    trustedHosts?: string[];
+  },
 ): HostTrustResult {
   const host = hostOf(url);
   if (!host) return { ok: false, reason: 'malformed' };
@@ -369,6 +411,7 @@ export function judgeCtaHost(
     return { ok: false, reason: 'commerce' };
   }
 
+  if (isTrustedByRegistry(host, options?.trustedHosts)) return { ok: true, reason: 'registry' };
   if (isCatalogHost(host)) return { ok: true, reason: 'catalog' };
   if (isInstitutional(host)) return { ok: true, reason: 'institutional' };
   if (matchesKeywordBrand(host, keyword)) return { ok: true, reason: 'brand-match' };
@@ -385,6 +428,7 @@ export function describeHostVerdict(result: HostTrustResult): string {
     case 'institutional': return '공공·기관 도메인';
     case 'brand-match': return '키워드 브랜드와 일치';
     case 'agency-match': return '글이 지목한 기관과 일치';
+    case 'registry': return '기관 레지스트리가 확인한 공식 호스트';
     case 'redirector': return '링크 중계·단축 주소라 제외';
     case 'user-generated': return '블로그·SNS·커뮤니티라 제외 (트래픽이 새고 돌아오지 않는다)';
     case 'ad-tracking': return '광고 랜딩 주소라 제외 (광고주 예산을 태우고 캠페인이 끝나면 죽는다)';

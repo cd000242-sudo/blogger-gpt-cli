@@ -15089,18 +15089,23 @@ ipcMain.handle('cta-regenerate', async (_evt, payload: any) => {
       .trim();
 
     const { regenerateCta } = require('../dist/cta/regenerate');
-    const { resolveSmartCtaTarget } = require('../dist/cta/smart-cta');
+    const { resolveSmartCtaDecision } = require('../dist/cta/smart-cta');
     const { buildCtaCopy } = require('../dist/cta/cta-copy');
+    const { createCtaPageFetcher } = require('../dist/cta/page-fetcher');
     const { renderFinalCtaBlock } = require('../dist/core/final/orchestration');
     const { naverSearch } = require('../dist/core/naver-search-client');
 
     // ① AI 는 **이름**만 정한다 (URL 을 뱉게 하면 그럴듯한 죽은 링크를 지어낸다)
+    //    v3.8.706: "없음"도 정식 판정이다 — 레시피·취미 글엔 기관 버튼을 만들지 않는다.
     let smartTarget: any = null;
+    let noDestination = false;
     try {
-      smartTarget = await resolveSmartCtaTarget({
+      const decision = await resolveSmartCtaDecision({
         keyword: title,
         articleHint: articleText.slice(0, 12000),   // 정독 — 발행 경로와 같은 크기
       });
+      smartTarget = decision?.target || null;
+      noDestination = !!decision?.none;
     } catch { smartTarget = null; }
 
     // ② 검색으로 실주소를 찾고, ③ 게이트로 검산한다
@@ -15108,6 +15113,7 @@ ipcMain.handle('cta-regenerate', async (_evt, payload: any) => {
       keyword: title,
       articleText,
       smartTarget,
+      noDestination,
       skipUrls: Array.isArray(payload?.currentUrls) ? payload.currentUrls.map(String) : [],
       search: async (query: string) => {
         const res = await naverSearch('webkr', { query, display: 10 });
@@ -15117,29 +15123,13 @@ ipcMain.handle('cta-regenerate', async (_evt, payload: any) => {
           title: String(it.title || '').replace(/<[^>]*>/g, ''),
         }));
       },
-      fetchPage: async (url: string) => {
-        const ctl = new AbortController();
-        const timer = setTimeout(() => ctl.abort(), 8000);
-        try {
-          const res = await fetch(url, {
-            redirect: 'follow',
-            signal: ctl.signal,
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
-              'Accept-Language': 'ko-KR,ko;q=0.9',
-            },
-          });
-          if (!res.ok) return { ok: false, html: '' };
-          const body = (await res.text()).slice(0, 200_000);
-          return { ok: true, html: body, finalUrl: res.url || url };
-        } catch {
-          return { ok: false, html: '' };
-        } finally {
-          clearTimeout(timer);
-        }
-      },
+      // v3.8.706 — 크로미움으로 연다(page-fetcher). 맨 fetch 는 국토교통부·이파인 같은 쿠키 리다이렉트 홈을 못 열었다
+      fetchPage: createCtaPageFetcher({ timeoutMs: 8000 }),
     });
 
+    if (result.none) {
+      return { ok: false, none: true, error: '이 주제는 갈 기관이 없다고 판정했습니다 — 외부 버튼을 붙이지 않는 편이 낫습니다.', log: result.log };
+    }
     if (!result.ok || !result.picked) {
       return { ok: false, error: result.log[result.log.length - 1] || 'CTA 후보를 찾지 못했습니다.', log: result.log };
     }
@@ -15193,7 +15183,7 @@ ipcMain.handle('cta-bulk-repair', async (evt, payload: any) => {
 
     const { regenerateCta } = require('../dist/cta/regenerate');
     const { applyCtaUrlSwaps } = require('../dist/cta/bulk-repair');
-    const { resolveSmartCtaTarget } = require('../dist/cta/smart-cta');
+    const { resolveSmartCtaDecision } = require('../dist/cta/smart-cta');
     const { naverSearch } = require('../dist/core/naver-search-client');
     const envData = loadEnvFromFile() as any;
     const creds = loadPlatformCredsFromEnv(envData, { platform: platform as any });
@@ -15208,23 +15198,9 @@ ipcMain.handle('cta-bulk-repair', async (evt, payload: any) => {
         title: String(it.title || '').replace(/<[^>]*>/g, ''),
       }));
     };
-    const fetchPage = async (url: string) => {
-      const ctl = new AbortController();
-      const timer = setTimeout(() => ctl.abort(), 10000);
-      try {
-        const res = await fetch(url, {
-          redirect: 'follow', signal: ctl.signal,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
-            'Accept-Language': 'ko-KR,ko;q=0.9',
-          },
-        });
-        if (!res.ok) return { ok: false, html: '' };
-        return { ok: true, html: (await res.text()).slice(0, 200_000), finalUrl: res.url || url };
-      } catch {
-        return { ok: false, html: '' };
-      } finally { clearTimeout(timer); }
-    };
+    // v3.8.706 — 크로미움으로 연다(page-fetcher). 맨 fetch 는 쿠키 리다이렉트·인증서 체인 홈을 못 열었다
+    const { createCtaPageFetcher } = require('../dist/cta/page-fetcher');
+    const fetchPage = createCtaPageFetcher({ timeoutMs: 10000 });
 
     // 같은 글에 여러 개가 걸렸으면 한 번만 열고 한 번만 발행한다
     const byPost = new Map<string, any[]>();
@@ -15249,15 +15225,25 @@ ipcMain.handle('cta-bulk-repair', async (evt, payload: any) => {
           .replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim();
 
         let smartTarget: any = null;
+        let noDestination = false;
         try {
-          smartTarget = await resolveSmartCtaTarget({ keyword: title, articleHint: articleText.slice(0, 12000) });
+          const decision = await resolveSmartCtaDecision({ keyword: title, articleHint: articleText.slice(0, 12000) });
+          smartTarget = decision?.target || null;
+          noDestination = !!decision?.none;
         } catch { smartTarget = null; }
+
+        // v3.8.706: "없음" 판정이면 대체 목적지를 찾지 않는다 — 다른 엉뚱한 기관으로 바꿔 끼우는 것이 더 나쁘다
+        if (noDestination) {
+          results.push({ postId, title, ok: false, none: true, reason: '이 주제는 갈 기관이 없다고 판정 — 그대로 뒀습니다' });
+          send('   ⛔ 갈 기관이 없는 주제 — 건너뜁니다 (기존 버튼 유지)');
+          continue;
+        }
 
         const swaps: any[] = [];
         const skipped: string[] = [];
         for (const item of items) {
           const found = await regenerateCta({
-            keyword: title, articleText, smartTarget, search, fetchPage,
+            keyword: title, articleText, smartTarget, noDestination, search, fetchPage,
             skipUrls: items.map((x: any) => String(x.url || '')),
           });
           if (found?.ok && found.picked?.url) swaps.push({ from: String(item.url || ''), to: found.picked.url });
@@ -15315,26 +15301,15 @@ ipcMain.handle('cta-audit-run', async (evt, payload: any) => {
     const limit = Math.min(Number(payload?.limit) || posts.length, 300);
 
     /** 리다이렉트를 따라가고, 못 받으면 ok:false — 죽었다고 단정하는 건 분류기가 한다 */
+    const { fetchCtaPage } = require('../dist/cta/page-fetcher');
     const fetchPage = async (url: string) => {
-      const ctl = new AbortController();
-      const timer = setTimeout(() => ctl.abort(), 15000);
-      try {
-        const res = await fetch(url, {
-          redirect: 'follow',
-          signal: ctl.signal,
-          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36' },
-        });
-        const html = await res.text().catch(() => '');
-        return { ok: true, status: res.status, html, finalUrl: res.url || url };
-      } catch (e: any) {
-        /**
-         * ⚠️ 실패 원인을 반드시 넘긴다. 관공서 사이트는 인증서 체인이 불완전한 곳이 많아
-         *    node 에서만 실패하고 브라우저에서는 멀쩡히 열린다(실측: efine.go.kr, kinfa.or.kr).
-         *    원인 없이 넘기면 살아있는 사이트를 죽었다고 보고하게 된다.
-         */
-        const code = String(e?.cause?.code || e?.code || e?.message || '').slice(0, 60);
-        return { ok: false, status: 0, html: '', finalUrl: url, errorCode: code };
-      } finally { clearTimeout(timer); }
+      /**
+       * v3.8.706 — 크로미움(page-fetcher)으로 연다. 관공서 사이트는 인증서 체인이 불완전하거나 쿠키 리다이렉트를 돌려
+       * 맨 fetch 로는 못 열고 브라우저에서는 멀쩡했다(실측: efine.go.kr, molit.go.kr, kinfa.or.kr).
+       * 분류기 계약: ok = 요청이 끝까지 갔는가(4xx 도 true). 실패 원인(errorCode)은 반드시 넘긴다 — 없으면 죽음을 가릴 수 없다.
+       */
+      const r = await fetchCtaPage(url, { timeoutMs: 15000, maxChars: Number.MAX_SAFE_INTEGER, keepErrorBody: true });
+      return { ok: r.status > 0, status: r.status, html: r.html, finalUrl: r.finalUrl || url, errorCode: r.errorCode };
     };
 
     // 같은 주소를 여러 글이 쓰므로 한 번만 받는다 (실측에서 366개 중 절반이 중복이었다)

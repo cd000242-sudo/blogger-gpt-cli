@@ -274,7 +274,8 @@ describe('발행 흐름 배선 — 만들고 아무도 안 부르면 조용히 �
 
   it('후보를 열어볼 수단(fetchPage)을 넘긴다 — 안 넘기면 채점을 못 한다', () => {
     expect(gen).toContain('fetchPage: fetchPageForCta');
-    expect(gen).toContain('async function fetchPageForCta');
+    // v3.8.706 — 여는 일은 page-fetcher(크로미움·쿠키 리다이렉트) 한 곳으로 모였다
+    expect(gen).toContain('const fetchPageForCta = createCtaPageFetcher(');
   });
 
   it('글 맥락을 실제로 전달한다 — 안 넘기면 기관 판정이 조용히 무효다', () => {

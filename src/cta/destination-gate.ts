@@ -28,7 +28,10 @@
  * (목적지 "판단"은 이미 앞단에서 AI 가 한다 — 여기는 그 판단의 검산이다.)
  */
 import type { ActionIntent } from './action-intent';
-import { scoreActionPage, looksLikeHomeUrl, hostMatches, keywordTokens, looksLikeListingPage } from './action-link-harness';
+import {
+  scoreActionPage, looksLikeHomeUrl, hostMatches, keywordTokens, looksLikeListingPage,
+  missingMustHave, onPreferredHost,
+} from './action-link-harness';
 import type { PageFetcher } from './action-link-harness';
 
 /** 문서·압축 파일 확장자 — 브라우저가 열어도 "행동"은 못 하는 것들 */
@@ -198,6 +201,10 @@ export async function gateCtaDestination(input: {
   intent: ActionIntent | null;
   agencies?: string[];
   fetchPage: PageFetcher;
+  /** v3.8.706 — 그 화면에 꼭 있어야 하는 낱말(AI smart-cta 가 정함). 없으면 action 으로 올리지 않는다 */
+  mustHave?: string[] | undefined;
+  /** v3.8.706 — 지목 기관의 호스트(레지스트리가 확인). 다른 호스트면 action 으로 올리지 않는다 */
+  preferredHost?: string | undefined;
 }): Promise<GateVerdict> {
   const url = String(input.url || '').trim();
   if (!/^https?:\/\//i.test(url)) {
@@ -240,6 +247,24 @@ export async function gateCtaDestination(input: {
   }
 
   const text = textOf(page.html);
+
+  /**
+   * v3.8.706 — action 을 guide 로 낮추는 두 가지 이유. 버리지는 않는다(기관은 맞을 수 있다).
+   *   · 지목 기관 호스트가 아니다 (정부24 라 해놓고 금천구청 페이지 — ①)
+   *   · 꼭 있어야 하는 낱말이 없다 (월세 세액공제 → 교육비 세액공제 페이지 — ②)
+   */
+  const capReasons: string[] = [];
+  if (onPreferredHost(finalUrl, input.preferredHost) === false) {
+    capReasons.push(`지목 기관(${input.preferredHost}) 의 호스트가 아님 — 행동 화면으로 올리지 않는다`);
+  }
+  const missing = missingMustHave(`${titleOf(page.html)} ${text}`, input.mustHave);
+  if (missing && missing.length > 0) {
+    capReasons.push(`꼭 있어야 하는 낱말이 없음(${missing.join(', ')}) — 같은 기관의 다른 제도 화면일 수 있다`);
+  }
+  const capped = (verdict: GateVerdict): GateVerdict => {
+    if (!verdict.ok || verdict.stage !== 'action' || capReasons.length === 0) return verdict;
+    return { ok: true, stage: 'guide', score: verdict.score, reasons: [...verdict.reasons, ...capReasons] };
+  };
 
   /**
    * ①-b 살아있는 척하는 에러 페이지 — 기관 검사보다 먼저 묻는다.
@@ -339,14 +364,14 @@ export async function gateCtaDestination(input: {
      * 'action' 은 "여기서 그 일이 된다"는 약속이다. 행동을 읽지 못했고 주제어도 없으면
      * 그 약속을 할 근거가 하나도 없다 — guide(안내 화면)까지가 정직하다.
      */
-    return {
+    return capped({
       ok: true,
       stage: (home || !hasKeyword) ? 'guide' : 'action',
       score: hasKeyword ? 2 : 0,
       reasons: [hasKeyword
         ? `주제어 ${hitTokens}/${tokens.length} 일치`
         : '행동도 주제어도 못 읽음 — 행동 화면이라고 말할 근거가 없다'],
-    };
+    });
   }
 
   // ③ 행동 화면인가 — 기존 채점기를 그대로 쓴다(두 경로가 같은 눈금을 쓰게)
@@ -377,8 +402,21 @@ export async function gateCtaDestination(input: {
       reasons: [...scored.reasons, '이 글의 주제어가 페이지에 하나도 없음 — 행동 화면으로 단정하지 않는다'],
     };
   }
+  /**
+   * v3.8.706 — 행동 요소(행동 문구·입력 양식·로그인 벽)가 **하나도** 없으면 action 이 아니다.
+   * 주제어 3 + 기관 2 = 5점으로, 제도를 설명만 하는 안내 페이지가 문턱(4)을 넘어 action 이 되던 구멍.
+   * 'action' 은 "여기서 그 일이 된다"는 약속이다 — 설명 페이지는 guide 까지가 정직하다.
+   */
+  if (scored.score >= ACTION_THRESHOLD && !scored.hasActionElement && !scored.loginWalled) {
+    return {
+      ok: true,
+      stage: 'guide',
+      score: scored.score,
+      reasons: [...scored.reasons, `${input.intent} 을(를) 하는 요소(버튼·양식)가 없음 — 안내 화면으로 본다`],
+    };
+  }
   if (scored.score >= ACTION_THRESHOLD) {
-    return { ok: true, stage: 'action', score: scored.score, reasons: scored.reasons };
+    return capped({ ok: true, stage: 'action', score: scored.score, reasons: scored.reasons });
   }
   if (scored.score >= GUIDE_THRESHOLD && !home) {
     // 신청 화면은 아니어도 그 제도를 설명하는 페이지 — 홈보다 한 걸음 가깝다

@@ -227,10 +227,12 @@ import { validateCtaUrl } from '../../cta/validate-cta-url';
 import { callGeminiWithGrounding, callGeminiWithRetry, resolveSectionTimeoutMs } from './gemini-engine';
 import { detectActionIntent, detectActionIntentFromArticle, buildActionQuery } from '../../cta/action-intent';
 import type { ActionIntent } from '../../cta/action-intent';
-import { analyzeArticleContext, resolveActionLink } from '../../cta/action-link-harness';
+import { analyzeArticleContext, resolveActionLink, keywordTokens } from '../../cta/action-link-harness';
 import { gateCtaDestination, isDocumentUrl } from '../../cta/destination-gate';
 import { collectActionVenues, resolveActionVenues, venueButtonText } from '../../cta/action-venues';
 import { judgeCtaHost, describeHostVerdict } from '../../cta/host-trust';
+import { createCtaPageFetcher } from '../../cta/page-fetcher';
+import { resolveAgencyHost } from '../../cta/agency-registry';
 import { buildOfficialCtaCandidates } from '../../cta/inference-candidates';
 // v3.8.570: 버튼과 훅을 한 자리에서 만든다 — 예전엔 옆줄에서 서로 다른 것을 말했다
 import { buildCtaCopy } from '../../cta/cta-copy';
@@ -2620,30 +2622,57 @@ HTML만:
 const CTA_PAGE_TIMEOUT_MS = 4000;
 const CTA_PAGE_MAX_CHARS = 200_000;
 
-async function fetchPageForCta(url: string): Promise<{ ok: boolean; html: string; finalUrl?: string }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CTA_PAGE_TIMEOUT_MS);
+/**
+ * v3.8.706 — 여는 방법은 page-fetcher 하나다. 관공서 홈 13곳(국토교통부·이파인·외교부…)이 쿠키 리다이렉트·인증서 체인 때문에
+ * 맨 fetch 로는 안 열려 "행동 화면 없음"으로 guide 까지 내려가던 실측. Electron 안에서는 크로미움(net.fetch)으로 연다.
+ */
+const fetchPageForCta = createCtaPageFetcher({ timeoutMs: CTA_PAGE_TIMEOUT_MS, maxChars: CTA_PAGE_MAX_CHARS });
+
+/** 레지스트리가 쓰는 검색기 — CTA 후보 검색과 같은 네이버 웹문서다 */
+async function searchWebForCta(query: string): Promise<Array<{ url: string; title: string }>> {
+  const res = await naverSearch('webkr', { query, display: 10 });
+  if (!res.ok) return [];
+  return res.items.map((it: any) => ({
+    url: String(it.link || ''),
+    title: String(it.title || '').replace(/<[^>]*>/g, ''),
+  }));
+}
+
+/**
+ * v3.8.706 — AI 가 정한 기관 **이름**을 실제 호스트로 바꾼다 (agency-registry).
+ *
+ * 실측(2026-09-07): "정부24" 라고 맞게 정해 놓고 금천구청 페이지로, "동물보호관리시스템" 이라
+ * 정해 놓고 부산시청 페이지로 나갔다 — 후보가 그 기관 호스트인지 아무도 안 봤다.
+ * 사전(시드+학습)에 있으면 0회, 없으면 검색 1~2회 뒤 배운다. 못 찾으면 null — 예전 기준 그대로.
+ */
+async function resolveCtaAgencyHost(name: string): Promise<{ host: string; url: string } | null> {
+  const trimmed = String(name || '').trim();
+  if (trimmed.length < 2) return null;
   try {
-    const res = await fetch(url, {
-      redirect: 'follow',
-      signal: controller.signal,
-      headers: {
-        // 기관 사이트는 봇 UA 를 막는 곳이 있어 일반 브라우저처럼 요청한다
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
-        'Accept-Language': 'ko-KR,ko;q=0.9',
-      },
+    const entry = await resolveAgencyHost({
+      name: trimmed,
+      search: searchWebForCta,
+      fetchPage: fetchPageForCta,
+      onLog: (m) => console.log(`[CTA] 🏛️ ${m}`),
     });
-    if (!res.ok) return { ok: false, html: '' };
-    const html = (await res.text()).slice(0, CTA_PAGE_MAX_CHARS);
-    return { ok: true, html, finalUrl: res.url || url };
-  } catch {
-    return { ok: false, html: '' };
-  } finally {
-    clearTimeout(timer);
+    return entry ? { host: entry.host, url: entry.url } : null;
+  } catch (e) {
+    console.warn('[CTA] ⚠️ 기관 호스트 해석 실패 — 기관 기준 없이 판정:', (e as Error)?.message);
+    return null;
   }
 }
 
-async function searchOfficialSite(keyword: string, contentMode?: string, skipActionIntent?: boolean, articleText?: string, smartTargetIn?: { site: string; action: string; buttonLabel: string; hookMessage?: string; searchQuery: string } | null): Promise<{ url: string; title: string; smartLabel?: string } | null> {
+function isOnCtaHost(url: string, host: string | undefined): boolean {
+  if (!host) return false;
+  try {
+    const h = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    return h === host || h.endsWith(`.${host}`);
+  } catch {
+    return false;
+  }
+}
+
+async function searchOfficialSite(keyword: string, contentMode?: string, skipActionIntent?: boolean, articleText?: string, smartTargetIn?: { site: string; action: string; buttonLabel: string; hookMessage?: string; searchQuery: string; mustHave?: string[] } | null): Promise<{ url: string; title: string; smartLabel?: string } | null> {
   try {
     /**
      * v3.8.471 — 홈페이지가 아니라 "행동하는 화면" 을 찾는다.
@@ -2711,13 +2740,63 @@ async function searchOfficialSite(keyword: string, contentMode?: string, skipAct
     }
 
     // CSE 의 items 모양에 맞춰 둔다 (link/title) — 아래 로직을 건드리지 않기 위해
-    const data = {
-      items: searchRes.items.map((it: any) => ({
-        link: it.link,
-        title: String(it.title || '').replace(/<[^>]*>/g, ''),
-        snippet: String(it.description || '').replace(/<[^>]*>/g, ''),
-      })),
-    };
+    const baseItems = searchRes.items.map((it: any) => ({
+      link: String(it.link || ''),
+      title: String(it.title || '').replace(/<[^>]*>/g, ''),
+      snippet: String(it.description || '').replace(/<[^>]*>/g, ''),
+    }));
+
+    /**
+     * v3.8.706 — AI 가 정한 기관의 **실제 호스트**. 이 아래의 세 자리가 이 값을 쓴다:
+     *   후보 판정(trustedHosts) · 후보 순서(기관 호스트 먼저) · 행동 화면 채점(preferredHost)
+     * 기관 호스트의 후보가 검색 결과에 하나도 없으면 `"${기관} ${주제어}"` 로 한 번 더 찾는다.
+     */
+    const siteAgency = (contentMode !== 'shopping' && smartTarget?.site)
+      ? await resolveCtaAgencyHost(smartTarget.site)
+      : null;
+    if (smartTarget?.site) {
+      console.log(siteAgency
+        ? `[CTA] 🏛️ 지목 기관 호스트: ${smartTarget.site} → ${siteAgency.host}`
+        : `[CTA] 🏛️ 지목 기관 호스트를 모름: ${smartTarget.site}`);
+    }
+    /**
+     * 서비스 이름("금융민원센터")은 사전이 못 풀어도 글이 지목한 기관("금융감독원")은 풀린다 — 2026-09-08 실측(편집기 경로와 같은 후퇴).
+     * 글의 기관 이름은 아래 namedAgencies 가 같은 함수로 뽑는다; 여기서는 앞의 둘만 사전에 물어본다.
+     * AI 가 목적지를 정한 글(site 있음)에서만 — 정하지 않은 글은 예전 기준 그대로.
+     */
+    const articleAgency = (smartTarget?.site && !siteAgency && contentMode !== 'shopping')
+      ? await (async () => {
+        try {
+          const names = analyzeArticleContext({ keyword, content: articleText || '', intent: actionIntent }).agencies.slice(0, 2);
+          for (const name of names) {
+            const entry = await resolveCtaAgencyHost(name);
+            if (entry) {
+              console.log(`[CTA] 🏛️ 글이 지목한 기관을 기준으로: ${name} → ${entry.host}`);
+              return { ...entry, name };
+            }
+          }
+        } catch { /* 기관 추출 실패는 아래 namedAgencies 가 따로 알린다 */ }
+        return null;
+      })()
+      : null;
+    const preferredAgency = siteAgency || articleAgency;
+    const preferredName = siteAgency ? String(smartTarget?.site || '') : String(articleAgency?.name || '');
+    if (smartTarget?.site && !preferredAgency) console.log('[CTA] 🏛️ 기관 기준 없이 판정');
+    const extraItems: typeof baseItems = [];
+    if (preferredAgency && !baseItems.some((it) => isOnCtaHost(it.link, preferredAgency.host))) {
+      const topic = keywordTokens(keyword).slice(0, 2).join(' ');
+      const secondQuery = `${preferredName} ${topic}`.trim();
+      if (secondQuery !== query) {
+        console.log(`[CTA] 🔍 기관 호스트 후보가 없어 다시 검색: "${secondQuery}"`);
+        const more = await searchWebForCta(secondQuery);
+        const known = new Set(baseItems.map((it) => it.link));
+        extraItems.push(...more
+          .filter((r) => r.url && !known.has(r.url) && isOnCtaHost(r.url, preferredAgency.host))
+          .map((r) => ({ link: r.url, title: r.title, snippet: '' })));
+      }
+    }
+    const data = { items: [...baseItems, ...extraItems] };
+    const trustedHosts = preferredAgency ? [preferredAgency.host] : [];
 
     // 🎯 모드별 신뢰 도메인
     const trustedDomains = contentMode === 'shopping'
@@ -2782,7 +2861,7 @@ async function searchOfficialSite(keyword: string, contentMode?: string, skipAct
         console.log(`[CTA] 📄 문서 파일이라 행동 화면 후보에서 제외: ${link}`);
         continue;
       }
-      const verdict = judgeCtaHost(link, keyword, namedAgencies, item.title);
+      const verdict = judgeCtaHost(link, keyword, namedAgencies, item.title, { trustedHosts });
       if (!verdict.ok) {
         console.warn(`[CTA] 🚫 ${describeHostVerdict(verdict)}: ${link}`);
         continue;
@@ -2791,10 +2870,13 @@ async function searchOfficialSite(keyword: string, contentMode?: string, skipAct
         url: link,
         title: item.title,
         // 등록된 공식 사이트를 가장 먼저 본다
-        trusted: verdict.reason === 'catalog' || trustedDomains.some(d => link.includes(d)),
+        trusted: verdict.reason === 'catalog' || verdict.reason === 'registry' || trustedDomains.some(d => link.includes(d)),
       });
     }
-    candidates.sort((a, b) => Number(b.trusted) - Number(a.trusted));
+    // v3.8.706: 지목 기관 호스트가 그 다음 기준(trusted)보다 앞선다 — 순서가 곧 결과다(생존 확인·채점 수가 정해져 있다)
+    const rankOf = (c: { url: string; trusted: boolean }) =>
+      (isOnCtaHost(c.url, preferredAgency?.host) ? 2 : 0) + (c.trusted ? 1 : 0);
+    candidates.sort((a, b) => rankOf(b) - rankOf(a));
 
     // 살아있는 후보만 남긴다 (죽은 주소는 하네스에 넣어도 소용없다)
     const alive: { url: string; title: string }[] = [];
@@ -2831,7 +2913,10 @@ async function searchOfficialSite(keyword: string, contentMode?: string, skipAct
             agencies: gateAgencies,
             candidates: alive,
             fetchPage: fetchPageForCta,
-            fallbackUrl: alive[0]!.url,
+            // v3.8.706: 물러설 곳은 지목 기관의 홈 — 다른 기관 딥링크보다 그 기관 홈이 맞다
+            fallbackUrl: preferredAgency?.url || alive[0]!.url,
+            preferredHost: preferredAgency?.host,
+            mustHave: smartTarget?.mustHave,
           });
           /**
            * v3.8.557 — 하네스가 "넣지 말라"(stage='none')고 하면 넣지 않는다.
@@ -2844,7 +2929,9 @@ async function searchOfficialSite(keyword: string, contentMode?: string, skipAct
             console.warn(`[CTA] 🚫 행동 화면 판정 결과 CTA 미부착: ${picked.reasons.join(' · ')}`);
             return null;
           }
-          const chosen = alive.find((a) => a.url === picked.url) || alive[0]!;
+          const chosen = alive.find((a) => a.url === picked.url)
+            || (preferredAgency && picked.url === preferredAgency.url ? { url: preferredAgency.url, title: preferredName } : null)
+            || alive[0]!;
           const label = picked.stage === 'action' ? '행동 화면'
             : picked.stage === 'guide' ? '제도 안내' : '기관 홈';
           console.log(`[CTA] ✅ ${label} 채택(${picked.score}점): ${picked.url || chosen.url}`);
@@ -3117,6 +3204,8 @@ type SmartCtaTargetLike = {
   buttonLabel: string;
   hookMessage?: string;
   searchQuery: string;
+  /** v3.8.706 — 행동 화면에 꼭 보여야 하는 낱말(AI 가 정함). 같은 기관의 다른 제도 화면을 거른다. */
+  mustHave?: string[];
 };
 
 const ACTION_DESTINATIONS: Array<{
@@ -3426,17 +3515,21 @@ export async function generateCTAsFinal(
    */
   let smartTargetResolved = false;
   let smartTarget: SmartCtaTargetLike | null = null;
+  /** v3.8.706 — 라우터가 "이 주제는 갈 곳이 없다"고 판정했는지. 레시피·취미 글에 기관 버튼을 붙이지 않는다. */
+  let smartTargetNone = false;
   const ensureSmartTarget = async (): Promise<SmartCtaTargetLike | null> => {
     if (smartTargetResolved) return smartTarget;
     smartTargetResolved = true;
     if (contentMode === 'shopping') return null;
     try {
-      const { resolveSmartCtaTarget } = require('../../cta/smart-cta');
-      smartTarget = await resolveSmartCtaTarget({
+      const { resolveSmartCtaDecision } = require('../../cta/smart-cta');
+      const decision = await resolveSmartCtaDecision({
         keyword,
         contentMode,
         articleHint: articleContext.combined.slice(0, 2000),
       });
+      smartTarget = decision?.target || null;
+      smartTargetNone = !!decision?.none;
     } catch (e: any) {
       console.log(`[CTA] 🧭 스마트 라우터 후퇴: ${String(e?.message || e).slice(0, 80)}`);
       smartTarget = null;
@@ -3444,7 +3537,9 @@ export async function generateCTAsFinal(
     onLog?.(
       smartTarget
         ? `[PROGRESS] 70% - 🧭 CTA 목적지 판정: ${smartTarget.site} · ${smartTarget.action}`
-        : '[PROGRESS] 70% - 🧭 CTA 목적지 판정 실패 — 기존 검색 경로로',
+        : smartTargetNone
+          ? '[PROGRESS] 70% - 🧭 CTA 목적지 판정: 없음 — 이 주제는 갈 기관이 없어 외부 버튼을 붙이지 않는다'
+          : '[PROGRESS] 70% - 🧭 CTA 목적지 판정 실패 — 기존 검색 경로로',
     );
     return smartTarget;
   };
@@ -3623,15 +3718,31 @@ JSON만 출력:
             ...ctaArticleAgencies,
             ...(typeof (ctaData as any)?.agency === 'string' ? [String((ctaData as any).agency)] : []),
           ];
-          const gate = isValid
-            ? await gateCtaDestination({
-                url: ctaData.url,
-                keyword,
-                intent: gateIntent,
-                agencies: gateAgencies,
-                fetchPage: fetchPageForCta,
-              })
-            : null;
+          /**
+           * v3.8.706 — AI 가 URL 과 함께 낸 기관 이름(agency)을 레지스트리로 풀어 본다.
+           * 이름은 "정부24"인데 URL 이 다른 호스트면 그 URL 은 지어낸 것일 확률이 높다 —
+           * demote 로 내려 2단계(검색)가 그 기관 호스트에서 먼저 찾게 한다. reject 는 아니다(마지막엔 쓴다).
+           */
+          const aiAgencyName = typeof (ctaData as any)?.agency === 'string' ? String((ctaData as any).agency) : '';
+          const aiAgency = isValid && aiAgencyName ? await resolveCtaAgencyHost(aiAgencyName) : null;
+          const offAgencyHost = !!aiAgency && !isOnCtaHost(ctaData.url, aiAgency.host);
+          const gate = !isValid
+            ? null
+            : offAgencyHost
+              ? {
+                  ok: false as const,
+                  severity: 'demote' as const,
+                  score: 0,
+                  reasons: [`AI 가 지목한 기관(${aiAgencyName} → ${aiAgency!.host})의 호스트가 아닌 주소 — 그 기관에서 먼저 찾는다`],
+                }
+              : await gateCtaDestination({
+                  url: ctaData.url,
+                  keyword,
+                  intent: gateIntent,
+                  agencies: gateAgencies,
+                  fetchPage: fetchPageForCta,
+                  preferredHost: aiAgency?.host,
+                });
 
           if (gate && !gate.ok) {
             console.warn(`[CTA] 🚧 1단계 목적지 기각(${gate.severity}): ${ctaData.url}`);
@@ -3733,8 +3844,19 @@ JSON만 출력:
     console.log(`[CTA] ⚠️ 1단계(추론) CTA 실패: ${groundingErr.message?.substring(0, 100)}`);
   }
 
-  // 🔥 2단계: 1단계 추론 실패 시 검색 폴백 (v3.8.555: CSE → 네이버 웹문서)
+  /**
+   * v3.8.706 — 라우터가 "없음"이라 하면(김치찌개 끓이는 법·여행 코스처럼 할 일이 없는 주제)
+   * 아래 검색·크롤·카탈로그·매핑 폴백을 전부 건너뛴다. 억지로 붙인 식품안전나라 버튼은 없는 버튼보다 나쁘다.
+   */
+  let ctaNone = false;
   if (safeCTAs.length === 0) {
+    await ensureSmartTarget();
+    ctaNone = smartTargetNone;
+    if (ctaNone) console.log(`[CTA] ⛔ 목적지 없음 판정("${keyword}") — 검색·매핑 폴백을 건너뛴다`);
+  }
+
+  // 🔥 2단계: 1단계 추론 실패 시 검색 폴백 (v3.8.555: CSE → 네이버 웹문서)
+  if (safeCTAs.length === 0 && !ctaNone) {
     console.log('[CTA] 폴백: 네이버 웹문서로 공식 사이트 검색...');
     /**
      * v3.8.501 — 글 맥락을 함께 넘긴다.
@@ -3837,7 +3959,7 @@ JSON만 출력:
    * 순서를 이렇게 둔 이유: 이 주소는 **이 글을 읽고 고른 것**이라, 아래 3~5단계의
    * 범용 매핑(복지로 홈 같은 것)보다 주제에 가깝다. 다만 행동 화면을 이기지는 못한다.
    */
-  if (safeCTAs.length === 0 && weakCta) {
+  if (safeCTAs.length === 0 && !ctaNone && weakCta) {
     safeCTAs.push({
       hookingMessage: weakCta.hookingMessage,
       buttonText: weakCta.buttonText,
@@ -3852,7 +3974,7 @@ JSON만 출력:
   }
 
   // 🔥 3단계: 크롤링 데이터에서 공식 링크 탐색 (모드별 도메인 우선순위)
-  if (safeCTAs.length === 0 && crawledPosts.length > 0) {
+  if (safeCTAs.length === 0 && !ctaNone && crawledPosts.length > 0) {
     // 🎯 모드별 신뢰 도메인
     const officialDomains = contentMode === 'shopping'
       ? ['coupang.com', 'smartstore.naver.com', 'shopping.naver.com', '11st.co.kr', 'gmarket.co.kr', 'danawa.com', 'apple.com', 'samsung.com', 'lg.com']
@@ -3900,7 +4022,7 @@ JSON만 출력:
   }
 
   // 🔥 4단계: 키워드 맞춤형 공식 서비스 CTA
-  if (safeCTAs.length === 0) {
+  if (safeCTAs.length === 0 && !ctaNone) {
     console.log(`[CTA] ⚠️ 모든 검색 실패. 키워드 맞춤형 공식 서비스 매핑 시도...`);
 
     const catalogLink = resolveOfficialLink({
@@ -4045,7 +4167,7 @@ JSON만 출력:
     }
   }
 
-  if (safeCTAs.length === 0) {
+  if (safeCTAs.length === 0 && !ctaNone) {
     // v3.8.175: 구글 검색 fallback 완전 제거
     //   사용자 핵심 지적: '구글 검색으로 연동되버리면 내글을 보는 이유가없자나'
     //   → 자기 트래픽 죽이지 않도록 공식 사이트 매핑 → 매핑 없으면 CTA 자체 안 생성

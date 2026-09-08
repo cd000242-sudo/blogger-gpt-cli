@@ -11,11 +11,24 @@
  *   ② 목적지를 코드에 박지 않는다 — AI 가 이름을 정하고, 검색이 주소를 찾고, 게이트가 검산한다.
  */
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { regenerateCta } from '../src/cta/regenerate';
+import { configureAgencyRegistry, learnAgency } from '../src/cta/agency-registry';
 
 const root = path.join(__dirname, '..');
 const read = (p: string) => fs.readFileSync(path.join(root, p), 'utf-8');
+
+// 기관 사전이 검색·학습을 하므로 사장님의 실제 학습 파일(~/.blogger-gpt)에 시험 값이 섞이지 않게 tmp 를 쓴다
+let tmpDir = '';
+beforeAll(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cta-regen-'));
+  configureAgencyRegistry({ storePath: path.join(tmpDir, 'registry.json') });
+});
+afterAll(() => {
+  configureAgencyRegistry({ storePath: null });
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
 
 /** 실측한 금감원 민원조회 화면 (v3.8.688 테스트와 같은 자료) */
 const 조회벽 = '<html><title>금융감독원 민원신청</title><body>'
@@ -190,7 +203,8 @@ describe('배선 — 만들고 아무도 안 부르면 조용히 무효다', () 
   test('메인이 판단 모듈과 AI 목적지를 실제로 부른다', () => {
     expect(main).toContain("require('../dist/cta/regenerate')");
     expect(main).toContain('regenerateCta({');
-    expect(main).toContain('resolveSmartCtaTarget({');
+    // v3.8.706: "없음"도 판정이라 Decision 을 부른다 (target 만 받던 resolveSmartCtaTarget 은 여기서 안 쓴다)
+    expect(main).toContain('resolveSmartCtaDecision({');
   });
 
   test('⭐ 본문을 통째로 넘긴다 — 이번 사고의 원인이 발췌였다', () => {

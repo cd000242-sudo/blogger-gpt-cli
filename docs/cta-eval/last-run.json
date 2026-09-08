@@ -1,0 +1,613 @@
+{
+  "ranAt": "2026-09-08T01:34:04.534Z",
+  "tag": "probe",
+  "rows": [
+    {
+      "keyword": "하지정맥류 실손 입원 거절 9월 9일 새 심사기준",
+      "tags": [
+        "probe",
+        "insurance"
+      ],
+      "expect": [
+        "fss.or.kr",
+        "fine.fss.or.kr"
+      ],
+      "aiSite": "금융민원센터",
+      "aiLabel": "금융민원센터에서 분쟁조정",
+      "mustHave": [
+        "분쟁조정"
+      ],
+      "intent": null,
+      "agencies": [
+        "금융감독원"
+      ],
+      "query": "금융민원센터 분쟁조정 신청",
+      "picked": {
+        "url": "https://www.fss.or.kr/fss/main/contents.do?menuNo=201179",
+        "stage": "guide",
+        "score": 0,
+        "title": "금융민원신청 안내 | 금융·민원·상담 | 민원·상담·정보공개청구",
+        "reasons": [
+          "행동도 주제어도 못 읽음 — 행동 화면이라고 말할 근거가 없다"
+        ]
+      },
+      "log": [
+        "이 글의 행동: 못 읽음 · 지목한 기관: 금융감독원",
+        "기관 주소를 못 찾음: 금융민원센터 — 제목에 이름이 있는 결과가 없다",
+        "지목 기관 호스트를 모름: 금융민원센터",
+        "글이 지목한 기관을 기준으로: 금융감독원 → fss.or.kr (seed) — 약한 기준",
+        "검색어: 금융민원센터 분쟁조정 신청",
+        "제외 https://www.fcsc.kr/ — unknown-host",
+        "제외 https://www.kakaopaysec.com/portal/minwonjubsu/dynamicPage.do — unknown-host",
+        "✓ https://www.fss.or.kr/fss/main/contents.do?menuNo=201179 — guide 0점 (지목 기관 호스트)",
+        "✓ https://www.fss.or.kr/fss/minwon/search.jsp — guide 0점 (지목 기관 호스트)"
+      ],
+      "ms": 6830,
+      "grade": "ok"
+    },
+    {
+      "keyword": "연말정산 월세 세액공제 조건과 신청 방법",
+      "tags": [
+        "probe",
+        "tax"
+      ],
+      "expect": [
+        "hometax.go.kr",
+        "nts.go.kr"
+      ],
+      "aiSite": "홈택스",
+      "aiLabel": "홈택스에서 월세 입력",
+      "mustHave": [
+        "월세",
+        "세액공제"
+      ],
+      "intent": "신청",
+      "agencies": [
+        "홈택스"
+      ],
+      "query": "홈택스 월세 세액공제 입력",
+      "picked": {
+        "url": "https://mob.tbys.hometax.go.kr/jsonAction.do?actionId=ATEYSEAA001M01",
+        "stage": "guide",
+        "score": 5,
+        "title": "연말정산 간편계산기",
+        "reasons": [
+          "주제어 2/4 일치",
+          "행동 요소 없음",
+          "글이 지목한 기관과 일치(홈택스)",
+          "신청 을(를) 하는 요소(버튼·양식)가 없음 — 안내 화면으로 본다"
+        ]
+      },
+      "log": [
+        "이 글의 행동: 신청 · 지목한 기관: 홈택스",
+        "지목 기관 호스트: 홈택스 → hometax.go.kr (seed)",
+        "검색어: 홈택스 월세 세액공제 입력",
+        "제외 https://www.koreatax.org/tax/taxpayers/work/tax_sangdam_04.php3?s_code=9224 — unknown-host",
+        "제외 https://www.findsemusa.com/service/consult/consultView.do?qidx=34764 — unknown-host",
+        "제외 https://tools.devcomma.com/calculators/annual-rent-tax-credit — unknown-host",
+        "✓ https://hometax.go.kr/websquare/websquare_cdn.html?w2xPath=/ui/pp/index_pp.xml — guide 2점 (지목 기관 호스트)",
+        "✓ https://mob.tbys.hometax.go.kr/jsonAction.do?actionId=ATEYSEAA001M01 — guide 5점 (지목 기관 호스트)"
+      ],
+      "ms": 2299,
+      "grade": "weak"
+    },
+    {
+      "keyword": "국민연금 임의가입 조건과 월 납부액",
+      "tags": [
+        "probe",
+        "pension"
+      ],
+      "expect": [
+        "nps.or.kr"
+      ],
+      "aiSite": "국민연금 전자민원",
+      "aiLabel": "국민연금 전자민원에서 신청",
+      "mustHave": [
+        "임의가입자 가입·탈퇴"
+      ],
+      "intent": "납부",
+      "agencies": [
+        "국민연금공단"
+      ],
+      "query": "국민연금 전자민원 임의가입 신청",
+      "picked": {
+        "url": "https://www.nps.or.kr/elctcvlcpt/comm/getOHAC0000M3.do?menuId=MN24000938",
+        "stage": "guide",
+        "score": 7,
+        "title": "전자민원 &gt; 개인 &gt; 신고 · 신청",
+        "reasons": [
+          "주제어 2/4 일치",
+          "입력 양식 있음",
+          "글이 지목한 기관과 일치(국민연금공단)",
+          "꼭 있어야 하는 낱말이 없음(임의가입자 가입·탈퇴) — 같은 기관의 다른 제도 화면일 수 있다"
+        ]
+      },
+      "log": [
+        "이 글의 행동: 납부 · 지목한 기관: 국민연금공단",
+        "지목 기관 호스트: 국민연금 전자민원 → nps.or.kr (catalog)",
+        "검색어: 국민연금 전자민원 임의가입 신청",
+        "✓ https://www.nps.or.kr/elctcvlcpt/comm/getOHAC0000M3.do?menuId=MN24000938 — guide 7점 (지목 기관 호스트)",
+        "✓ https://www.nps.or.kr/elctcvlcpt/comm/getOHAC0000M5.do?menuId=MN24001068 — guide 7점 (지목 기관 호스트)",
+        "✓ https://nps.or.kr/elctcvlcpt/comm/getOHAC0000M3.do?menuId=MN24001727 — guide 7점 (지목 기관 호스트)",
+        "✓ https://www.nps.or.kr/pnsinfo/ntpsklg/getOHAF0029M0.do — guide 7점 (지목 기관 호스트)"
+      ],
+      "ms": 6476,
+      "grade": "ok"
+    },
+    {
+      "keyword": "자동차 과태료 조회 및 납부 방법",
+      "tags": [
+        "probe",
+        "fine"
+      ],
+      "expect": [
+        "efine.go.kr",
+        "wetax.go.kr",
+        "police.go.kr"
+      ],
+      "aiSite": "이파인",
+      "aiLabel": "이파인에서 과태료 조회",
+      "mustHave": [
+        "교통범칙금·과태료",
+        "미납과태료"
+      ],
+      "intent": "조회",
+      "agencies": [
+        "경찰청",
+        "위택스"
+      ],
+      "query": "이파인 과태료 조회·납부",
+      "picked": {
+        "url": "https://www.efine.go.kr/notification/faq/notificationFaqDetail.do?mid=0000021630",
+        "stage": "guide",
+        "score": 9,
+        "title": "법인사업자(차량)의 과태료 확인 방법 안내",
+        "reasons": [
+          "주제어 1/2 일치",
+          "행동 문구 발견(조회)",
+          "글이 지목한 기관과 일치(경찰청)",
+          "로그인 후 이용 가능한 해당 서비스 화면",
+          "꼭 있어야 하는 낱말이 없음(교통범칙금·과태료) — 같은 기관의 다른 제도 화면일 수 있다"
+        ]
+      },
+      "log": [
+        "이 글의 행동: 조회 · 지목한 기관: 경찰청, 위택스",
+        "지목 기관 호스트: 이파인 → efine.go.kr (seed)",
+        "검색어: 이파인 과태료 조회·납부",
+        "✓ https://www.efine.go.kr/notification/help/helpPop.do?contentType=910200 — guide 6점 (지목 기관 호스트)",
+        "✓ https://www.efine.go.kr/notification/faq/notificationFaqList.do?subMenuLv=050200 — guide 5점 (지목 기관 호스트)",
+        "✗ https://www.efine.go.kr/ — 글이 지목한 기관(경찰청, 위택스)과 다른 곳의 홈 — 오배송",
+        "✓ https://www.efine.go.kr/notification/faq/notificationFaqDetail.do?mid=0000021630 — guide 9점 (지목 기관 호스트)",
+        "✗ https://www.efine.go.kr:9096/ — 글이 지목한 기관(경찰청, 위택스)과 다른 곳의 홈 — 오배송"
+      ],
+      "ms": 3705,
+      "grade": "ok"
+    },
+    {
+      "keyword": "청년도약계좌 가입 조건 2026",
+      "tags": [
+        "probe",
+        "finance"
+      ],
+      "expect": [
+        "kinfa.or.kr",
+        "ylaccount.kinfa.or.kr",
+        "fsc.go.kr"
+      ],
+      "aiSite": "서민금융진흥원",
+      "aiLabel": "서민금융진흥원에서 확인",
+      "mustHave": [
+        "청년도약계좌"
+      ],
+      "intent": "가입",
+      "agencies": [],
+      "query": "서민금융진흥원 가입 요건 확인",
+      "picked": {
+        "url": "https://www.kinfa.or.kr/financialProduct/youthFutureSavings.do",
+        "stage": "guide",
+        "score": 3,
+        "title": "청년미래적금 &gt; 자산형성 &gt; 금융상품",
+        "reasons": [
+          "주제어 2/2 일치",
+          "행동 요소 없음"
+        ]
+      },
+      "log": [
+        "이 글의 행동: 가입 · 지목한 기관: 없음",
+        "지목 기관 호스트: 서민금융진흥원 → kinfa.or.kr (seed)",
+        "검색어: 서민금융진흥원 가입 요건 확인",
+        "제외 https://namu.wiki/w/%EC%84%9C%EB%AF%BC%EA%B8%88%EC%9C%B5%EC%A7%84%ED%9D%A5%EC%9B%90 — user-generated",
+        "✓ https://www.kinfa.or.kr/financialProduct/youthFutureSavings.do — guide 3점 (지목 기관 호스트)",
+        "✓ https://www.kinfa.or.kr/financialProduct/youthLeapAccount.do — guide 3점 (지목 기관 호스트)",
+        "✓ https://www.kinfa.or.kr/fill4young/financeCommercial/youthLongAsset.do — guide 3점 (지목 기관 호스트)",
+        "✓ https://www.kinfa.or.kr/financialProduct/smileDreamSavings.do — guide 3점 (지목 기관 호스트)",
+        "✗ https://www.kinfa.or.kr/ — 기관 홈 주소 — 가입 을(를) 하는 화면을 먼저 찾는다",
+        "✓ https://www.kinfa.or.kr/financialProduct/hessalLoanCard.do — guide 3점 (지목 기관 호스트)",
+        "열어 볼 수 있는 후보 수(6)를 다 썼습니다."
+      ],
+      "ms": 6875,
+      "grade": "ok"
+    },
+    {
+      "keyword": "어린이집 입소 대기 신청 방법과 순위",
+      "tags": [
+        "probe",
+        "childcare"
+      ],
+      "expect": [
+        "childcare.go.kr"
+      ],
+      "aiSite": "아이사랑",
+      "aiLabel": "아이사랑에서 입소 대기 신청",
+      "mustHave": [
+        "입소대기",
+        "어린이집"
+      ],
+      "intent": "신청",
+      "agencies": [],
+      "query": "아이사랑 입소 대기 신청",
+      "picked": {
+        "url": "https://central.childcare.go.kr/lcentral/d1_40000/d1_40007.jsp",
+        "stage": "action",
+        "score": 6,
+        "title": "어린이집 입소 대기 신청",
+        "reasons": [
+          "주제어 3/4 일치",
+          "행동 문구 발견(신청)"
+        ]
+      },
+      "log": [
+        "이 글의 행동: 신청 · 지목한 기관: 없음",
+        "지목 기관 호스트: 아이사랑 → childcare.go.kr (seed)",
+        "검색어: 아이사랑 입소 대기 신청",
+        "✓ https://central.childcare.go.kr/lcentral/d1_40000/d1_40007.jsp — action 6점 (지목 기관 호스트)"
+      ],
+      "ms": 2151,
+      "grade": "ok"
+    },
+    {
+      "keyword": "반려견 등록 안 하면 과태료 얼마",
+      "tags": [
+        "probe",
+        "pet"
+      ],
+      "expect": [
+        "animal.go.kr"
+      ],
+      "aiSite": "국가동물보호정보시스템",
+      "aiLabel": "국가동물보호정보시스템에서 등록처 찾기",
+      "mustHave": [
+        "동물등록",
+        "등록대행업체"
+      ],
+      "intent": "납부",
+      "agencies": [],
+      "query": "국가동물보호정보시스템 등록대행업체 찾기",
+      "picked": {
+        "url": "https://www.animal.go.kr/",
+        "stage": "guide",
+        "score": 1,
+        "title": "국가동물보호정보시스템",
+        "reasons": [
+          "지목 기관(국가동물보호정보시스템) 홈 — 그 안에서 납부 화면을 못 찾아 홈으로 보냅니다"
+        ]
+      },
+      "log": [
+        "이 글의 행동: 납부 · 지목한 기관: 없음",
+        "지목 기관 호스트: 국가동물보호정보시스템 → animal.go.kr (learned)",
+        "검색어: 국가동물보호정보시스템 등록대행업체 찾기",
+        "✗ https://www.animal.go.kr/front/awtis/record/recordAgencyList.do?menuNo=2000000002 — 게시판 목록·보도자료 화면 — 읽을 수는 있어도 그 자리에서 할 수 있는 일이 없다",
+        "✗ https://www.animal.go.kr/front/awtis/shop/hospitalList.do?menuNo=6000000002 — 주제어가 페이지에 없음",
+        "✗ https://www.animal.go.kr/ — 기관 홈 주소 — 납부 을(를) 하는 화면을 먼저 찾는다",
+        "✗ https://www.animal.go.kr/front/awtis/record/recordConfirmList.do?menuNo=2000000011 — 주제어가 페이지에 없음",
+        "✗ https://www.animal.go.kr/portal_rnl/index.jsp — 기관 홈 주소 — 납부 을(를) 하는 화면을 먼저 찾는다",
+        "✗ https://www.animal.go.kr/portal_rnl/map/record_agency.jsp — 기관 홈 주소 — 납부 을(를) 하는 화면을 먼저 찾는다",
+        "열어 볼 수 있는 후보 수(6)를 다 썼습니다.",
+        "↳ 기관 홈으로: https://www.animal.go.kr/"
+      ],
+      "ms": 12468,
+      "grade": "ok"
+    },
+    {
+      "keyword": "전세 계약 만료 후 보증금 반환 안될 때 대처법",
+      "tags": [
+        "probe",
+        "housing"
+      ],
+      "expect": [
+        "scourt.go.kr",
+        "khug.or.kr",
+        "easylaw.go.kr",
+        "epost.go.kr"
+      ],
+      "aiSite": "대한민국 법원 전자소송",
+      "aiLabel": "전자소송에서 임차권등기명령",
+      "mustHave": [
+        "임차권등기명령"
+      ],
+      "intent": null,
+      "agencies": [],
+      "query": "대한민국 법원 전자소송 임차권등기명령 신청",
+      "picked": {
+        "url": "https://ecfs.scourt.go.kr/psp/index.on?m=PSPA13M02",
+        "stage": "guide",
+        "score": 0,
+        "title": "민사신청 - 서류제출",
+        "reasons": [
+          "행동도 주제어도 못 읽음 — 행동 화면이라고 말할 근거가 없다"
+        ]
+      },
+      "log": [
+        "이 글의 행동: 못 읽음 · 지목한 기관: 없음",
+        "지목 기관 호스트: 대한민국 법원 전자소송 → scourt.go.kr (seed)",
+        "검색어: 대한민국 법원 전자소송 임차권등기명령 신청",
+        "제외 https://namu.wiki/w/%EC%9E%84%EC%B0%A8%EA%B6%8C%EB%93%B1%EA%B8%B0%EB%AA%85%EB%A0%B9 — user-generated",
+        "✓ https://ecfs.scourt.go.kr/psp/index.on?m=PSPA13M02 — guide 0점 (지목 기관 호스트)",
+        "✓ https://incheon.scourt.go.kr/dcboard/new/DcNewsViewAction.work?seqnum=208&gubun=47 — guide 0점 (지목 기관 호스트)",
+        "✗ https://ecfs.scourt.go.kr/ — 기관 홈이고 이 글의 주제어도 없음 — 더 가까운 화면을 먼저 찾는다",
+        "✓ https://www.scourt.go.kr/portal/main.jsp — guide 0점 (지목 기관 호스트)",
+        "✓ https://incheon.scourt.go.kr/icfaq/new/IcFaqView.work?seqnum=503 — guide 0점 (지목 기관 호스트)",
+        "✓ https://www.scourt.go.kr/work2025/workingh.html — guide 0점 (지목 기관 호스트)"
+      ],
+      "ms": 5547,
+      "grade": "ok"
+    },
+    {
+      "keyword": "여권 재발급 온라인 신청 방법",
+      "tags": [
+        "probe",
+        "passport"
+      ],
+      "expect": [
+        "gov.kr",
+        "passport.go.kr"
+      ],
+      "aiSite": "정부24",
+      "aiLabel": "정부24에서 재발급 신청",
+      "mustHave": [
+        "여권 재발급"
+      ],
+      "intent": "발급",
+      "agencies": [
+        "정부24"
+      ],
+      "query": "정부24 여권 재발급 신청",
+      "picked": {
+        "url": "https://www.gov.kr/portal/service/serviceInfo/126200000030",
+        "stage": "action",
+        "score": 9,
+        "title": "여권 재발급",
+        "reasons": [
+          "주제어 2/2 일치",
+          "행동 문구 발견(발급)",
+          "글이 지목한 기관과 일치(정부24)",
+          "로그인 후 이용 가능한 해당 서비스 화면"
+        ]
+      },
+      "log": [
+        "이 글의 행동: 발급 · 지목한 기관: 정부24",
+        "지목 기관 호스트: 정부24 → plus.gov.kr (seed)",
+        "검색어: 정부24 여권 재발급 신청",
+        "✓ https://www.gov.kr/portal/service/serviceInfo/126200000030 — action 9점 (지목 기관 호스트)"
+      ],
+      "ms": 1964,
+      "grade": "ok"
+    },
+    {
+      "keyword": "실업급여 수급 조건과 신청 절차",
+      "tags": [
+        "probe",
+        "employment"
+      ],
+      "expect": [
+        "work24.go.kr",
+        "work.go.kr",
+        "ei.go.kr"
+      ],
+      "aiSite": "워크넷",
+      "aiLabel": "워크넷에서 구직신청",
+      "mustHave": [
+        "구직신청"
+      ],
+      "intent": "신청",
+      "agencies": [
+        "워크넷"
+      ],
+      "query": "워크넷 구직신청하기",
+      "picked": {
+        "url": "https://www.work24.go.kr/cm/c/f/1100/selecSystInfo.do?systClId=SC00000205&systId=SI00000447",
+        "stage": "action",
+        "score": 8,
+        "title": "고용정책 상세_제도안내 | 고용정책 목록 | 정책/제도 | 고객센터&gt;구직자 취업지....",
+        "reasons": [
+          "주제어 2/4 일치",
+          "입력 양식 있음",
+          "글이 지목한 기관과 일치(워크넷)",
+          "로그인 후 이용 가능한 해당 서비스 화면"
+        ]
+      },
+      "log": [
+        "이 글의 행동: 신청 · 지목한 기관: 워크넷",
+        "지목 기관 호스트: 워크넷 → work24.go.kr (seed)",
+        "검색어: 워크넷 구직신청하기",
+        "✓ https://www.work24.go.kr/cm/c/f/1100/selecSystInfo.do?systClId=SC00000205&systId=SI00000447 — action 8점 (지목 기관 호스트)"
+      ],
+      "ms": 5228,
+      "grade": "ok"
+    },
+    {
+      "keyword": "아이폰 배터리 교체 비용과 예약 방법",
+      "tags": [
+        "probe",
+        "consumer"
+      ],
+      "expect": [
+        "apple.com",
+        "support.apple.com"
+      ],
+      "aiSite": "Apple 지원",
+      "aiLabel": "Apple 지원에서 예약",
+      "mustHave": [
+        "배터리",
+        "서비스 예약"
+      ],
+      "intent": "예약",
+      "agencies": [],
+      "query": "Apple 지원 배터리 교체 예약",
+      "picked": {
+        "url": "https://support.apple.com/ko-kr/contact",
+        "stage": "guide",
+        "score": 6,
+        "title": "문의하기 - 공식 Apple 지원(대한민국)",
+        "reasons": [
+          "주제어 2/4 일치",
+          "행동 문구 발견(예약)",
+          "꼭 있어야 하는 낱말이 없음(서비스 예약) — 같은 기관의 다른 제도 화면일 수 있다"
+        ]
+      },
+      "log": [
+        "이 글의 행동: 예약 · 지목한 기관: 없음",
+        "지목 기관 호스트: Apple 지원 → support.apple.com (learned)",
+        "검색어: Apple 지원 배터리 교체 예약",
+        "✓ https://support.apple.com/ko-kr/iphone/repair/battery-replacement?services=service — guide 5점 (지목 기관 호스트)",
+        "✓ https://support.apple.com/ko-kr/iphone/repair?services=service — guide 5점 (지목 기관 호스트)",
+        "✓ https://support.apple.com/ko-kr/ipad/repair?services=service — guide 5점 (지목 기관 호스트)",
+        "✓ https://support.apple.com/ko-kr/airpods/repair?services=service — guide 5점 (지목 기관 호스트)",
+        "✓ https://support.apple.com/ko-kr/109519 — guide 2점 (지목 기관 호스트)",
+        "✓ https://support.apple.com/ko-kr/contact — guide 6점 (지목 기관 호스트)",
+        "열어 볼 수 있는 후보 수(6)를 다 썼습니다."
+      ],
+      "ms": 2137,
+      "grade": "ok"
+    },
+    {
+      "keyword": "김치찌개 맛있게 끓이는 법",
+      "tags": [
+        "probe",
+        "none"
+      ],
+      "expect": [
+        "none"
+      ],
+      "aiSite": "(없음 판정)",
+      "aiLabel": "",
+      "mustHave": [],
+      "intent": null,
+      "agencies": [],
+      "query": "",
+      "picked": null,
+      "log": [
+        "이 글의 행동: 못 읽음 · 지목한 기관: 없음",
+        "AI 판정: 이 글에는 독자가 바로 할 행동이 없습니다 — 외부 버튼을 붙이지 않습니다."
+      ],
+      "ms": 1609,
+      "grade": "ok"
+    },
+    {
+      "keyword": "제주도 3박4일 여행 코스 추천",
+      "tags": [
+        "probe",
+        "travel"
+      ],
+      "expect": [
+        "visitjeju.net",
+        "ijto.or.kr",
+        "none"
+      ],
+      "aiSite": "(없음 판정)",
+      "aiLabel": "",
+      "mustHave": [],
+      "intent": null,
+      "agencies": [],
+      "query": "",
+      "picked": null,
+      "log": [
+        "이 글의 행동: 못 읽음 · 지목한 기관: 없음",
+        "AI 판정: 이 글에는 독자가 바로 할 행동이 없습니다 — 외부 버튼을 붙이지 않습니다."
+      ],
+      "ms": 3351,
+      "grade": "ok"
+    },
+    {
+      "keyword": "층간소음 신고 방법과 해결 절차",
+      "tags": [
+        "probe",
+        "noise"
+      ],
+      "expect": [
+        "noiseinfo.or.kr",
+        "ecc.me.go.kr"
+      ],
+      "aiSite": "층간소음 이웃사이센터",
+      "aiLabel": "이웃사이센터에서 상담 신청",
+      "mustHave": [
+        "층간소음 이웃사이센터",
+        "상담신청"
+      ],
+      "intent": null,
+      "agencies": [
+        "환경분쟁조정위원회"
+      ],
+      "query": "층간소음 이웃사이센터 상담 신청하기",
+      "picked": {
+        "url": "https://floor.noiseinfo.or.kr/floornoise/home/main.do",
+        "stage": "action",
+        "score": 2,
+        "title": "층간소음 이웃사이센터",
+        "reasons": [
+          "주제어 2/4 일치"
+        ]
+      },
+      "log": [
+        "이 글의 행동: 못 읽음 · 지목한 기관: 환경분쟁조정위원회",
+        "지목 기관 호스트: 층간소음 이웃사이센터 → noiseinfo.or.kr (seed)",
+        "검색어: 층간소음 이웃사이센터 상담 신청하기",
+        "✓ https://floor.noiseinfo.or.kr/floornoise/home/main.do — action 2점 (지목 기관 호스트)"
+      ],
+      "ms": 5316,
+      "grade": "ok"
+    },
+    {
+      "keyword": "통신비 미환급금 조회 방법",
+      "tags": [
+        "probe",
+        "telecom"
+      ],
+      "expect": [
+        "smartchoice.or.kr"
+      ],
+      "aiSite": "스마트초이스",
+      "aiLabel": "스마트초이스에서 조회",
+      "mustHave": [
+        "통신 미환급액 조회"
+      ],
+      "intent": "조회",
+      "agencies": [],
+      "query": "스마트초이스 미환급금 조회",
+      "picked": {
+        "url": "http://www.smartchoice.or.kr/smc/service/refund.do",
+        "stage": "guide",
+        "score": 3,
+        "title": "통신 미환급액 조회 &gt; 통신 미환급액 조회 &gt; 환급/혜택",
+        "reasons": [
+          "주제어가 페이지에 없음",
+          "행동 문구 발견(조회)"
+        ]
+      },
+      "log": [
+        "이 글의 행동: 조회 · 지목한 기관: 없음",
+        "지목 기관 호스트: 스마트초이스 → smartchoice.or.kr (seed)",
+        "검색어: 스마트초이스 미환급금 조회",
+        "✓ http://www.smartchoice.or.kr/smc/service/refund.do — guide 3점 (지목 기관 호스트)",
+        "✗ https://www.smartchoice.or.kr/ — 기관 홈 주소 — 조회 을(를) 하는 화면을 먼저 찾는다",
+        "✓ http://www.smartchoice.or.kr/smc/service/refund01.do — guide 3점 (지목 기관 호스트)",
+        "✓ http://www.smartchoice.or.kr/smc/service/tvrefund.do — guide 3점 (지목 기관 호스트)",
+        "✓ http://www.smartchoice.or.kr/smc/service/refund_05.do — guide 3점 (지목 기관 호스트)",
+        "✓ https://www.smartchoice.or.kr/smc/service/refund02.do — guide 3점 (지목 기관 호스트)",
+        "열어 볼 수 있는 후보 수(6)를 다 썼습니다."
+      ],
+      "ms": 3569,
+      "grade": "ok"
+    }
+  ]
+}

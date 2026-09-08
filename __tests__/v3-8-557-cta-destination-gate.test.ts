@@ -182,8 +182,9 @@ describe('⑥ 발행 경로에 실제로 걸려 있다', () => {
     expect(generation).toContain("if (gate.severity === 'demote')");
     expect(generation).toContain('weakCta = {');
     // 2단계까지 실패했을 때만 쓴다
-    expect(generation).toContain('if (safeCTAs.length === 0 && weakCta)');
-    const weakIdx = generation.indexOf('if (safeCTAs.length === 0 && weakCta)');
+    // v3.8.706: "없음" 판정(ctaNone)이면 약한 후보도 되살리지 않는다
+    expect(generation).toContain('if (safeCTAs.length === 0 && !ctaNone && weakCta)');
+    const weakIdx = generation.indexOf('if (safeCTAs.length === 0 && !ctaNone && weakCta)');
     const stage3Idx = generation.indexOf('3단계: 크롤링 데이터에서 공식 링크 탐색');
     expect(weakIdx).toBeGreaterThan(-1);
     // 범용 매핑(3~5단계)보다는 앞이다 — 이 글을 읽고 고른 주소가 더 가깝다

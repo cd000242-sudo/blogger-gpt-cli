@@ -166,15 +166,20 @@ describe('④ 배선 — 앱에서 부를 수 있어야 도구다', () => {
     expect(main).toContain('const cache = new Map<string, any>()');
   });
 
-  test('리다이렉트를 따라가고 시간 제한을 둔다', () => {
-    expect(main).toContain("redirect: 'follow'");
-    expect(main).toContain('AbortController');
+  /** v3.8.706 — 여는 일은 page-fetcher 한 곳으로 모였다(크로미움·쿠키 리다이렉트). 검사기는 그것을 keepErrorBody 로 부른다 */
+  test('리다이렉트를 따라가고 시간 제한을 둔다 — page-fetcher 를 쓴다', () => {
+    const fetcher = read('src/cta/page-fetcher.ts');
+    expect(main).toContain("require('../dist/cta/page-fetcher')");
+    expect(main).toContain('fetchCtaPage(url, { timeoutMs: 15000, maxChars: Number.MAX_SAFE_INTEGER, keepErrorBody: true })');
+    expect(fetcher).toContain("redirect: 'manual'");
+    expect(fetcher).toContain('AbortController');
   });
 
   /** 원인을 안 넘기면 분류기가 TLS 실패와 DNS 실패를 구분할 수 없다 */
   test('실패 원인을 분류기에 넘긴다', () => {
-    expect(main).toContain('errorCode: code');
-    expect(main).toContain('e?.cause?.code');
+    const fetcher = read('src/cta/page-fetcher.ts');
+    expect(main).toContain('errorCode: r.errorCode');
+    expect(fetcher).toContain('e?.cause?.code');
   });
 
   test('급한 것부터 보여준다', () => {

@@ -22,6 +22,7 @@
  * 페이지를 받아 글자를 세는 일이다. 비용이 0원이고 결과가 항상 같아 테스트가 된다.
  */
 import type { ActionIntent } from './action-intent';
+import { sameSite } from './host-trust';
 
 /** ③ 확인 단계에서 매기는 점수 (양수=행동 화면답다, 음수=아니다) */
 export interface ActionPageScore {
@@ -367,6 +368,40 @@ export function scoreActionPage(input: {
   return { score, reasons, hasKeyword, hasActionElement, looksLikeHome: looksHome, loginWalled };
 }
 
+/** 공백을 지운 뒤 비교 — "임의 가입" 과 "임의가입" 은 같은 말이다 */
+function squash(value: string): string {
+  return String(value || '').replace(/\s+/g, '').toLowerCase();
+}
+
+/**
+ * v3.8.706 — AI 가 정한 "그 화면에 꼭 있어야 하는 낱말"(mustHave) 이 몇 개 빠졌나.
+ * 1~2개면 전부, 3개 이상이면 하나까지 빠져도 봐준다(표기 차이). 빠진 낱말을 돌려준다.
+ * mustHave 가 없으면 null — "검사할 것이 없음"과 "전부 있음"([])을 구별한다.
+ *
+ * 실측(2026-09-07): 월세 세액공제 글이 홈택스 **교육비** 세액공제 페이지로, 청년도약계좌 글이
+ * **청년미래적금** 페이지로 갔다. 주제어 판정이 "토큰 절반"이라 같은 기관의 옆 제도가 통과했다.
+ * destination-gate 와 resolveActionLink 가 **같은 함수**를 쓴다 — 두 경로가 다르게 재면 안 된다.
+ */
+export function missingMustHave(text: string, mustHave: string[] | undefined): string[] | null {
+  const words = (mustHave || []).map((w) => String(w || '').trim()).filter((w) => w.length >= 2).slice(0, 3);
+  if (words.length === 0) return null;
+  const hay = squash(text);
+  const missing = words.filter((w) => !hay.includes(squash(w)));
+  const allowedMissing = words.length >= 3 ? 1 : 0;
+  return missing.length > allowedMissing ? missing : [];
+}
+
+/**
+ * v3.8.706 — 이 주소가 지목 기관의 호스트(또는 하위 도메인)인가.
+ * preferredHost 가 없으면 null — "기준 없음"과 "다른 호스트"(false)를 구별한다.
+ */
+export function onPreferredHost(url: string, preferredHost: string | undefined): boolean | null {
+  const target = String(preferredHost || '').trim();
+  if (!target) return null;
+  // 등기 도메인 단위로 본다 — 레지스트리가 ta.ksd.or.kr 로 배웠어도 www.ksd.or.kr 은 같은 집이다
+  return sameSite(url, target);
+}
+
 /** 페이지를 받아오는 함수 — 테스트에서 갈아끼울 수 있게 밖에서 넣는다 */
 export type PageFetcher = (url: string) => Promise<{ ok: boolean; html: string; finalUrl?: string }>;
 
@@ -393,6 +428,13 @@ export async function resolveActionLink(input: {
   agencies?: string[];
   /** 아무것도 통과 못 했을 때 쓸 기관 홈 (기존 흐름이 고른 값) */
   fallbackUrl?: string;
+  /**
+   * v3.8.706 — 지목 기관의 호스트(agency-registry 가 확인). 그 호스트의 후보를 먼저 열고
+   * 채점에서 앞세운다. 다른 호스트는 action 으로 올리지 않는다(정부24 → 금천구청 사고).
+   */
+  preferredHost?: string | undefined;
+  /** v3.8.706 — 목적지 화면에 꼭 있어야 하는 낱말. 없으면 action 으로 올리지 않는다 */
+  mustHave?: string[] | undefined;
 }): Promise<ActionLinkResult> {
   const fallback = String(input.fallbackUrl || '').trim();
   const none: ActionLinkResult = { url: '', stage: 'none', score: 0, reasons: ['후보 없음'] };
@@ -405,13 +447,18 @@ export async function resolveActionLink(input: {
   }
 
   const seen = new Set<string>();
-  const probes = input.candidates
+  const unique = input.candidates
     .map((c) => String(c?.url || '').trim())
     .filter((u) => /^https?:\/\//i.test(u))
-    .filter((u) => (seen.has(u) ? false : (seen.add(u), true)))
-    .slice(0, MAX_PROBE);
+    .filter((u) => (seen.has(u) ? false : (seen.add(u), true)));
+  // 기관 호스트 먼저 — 열어 볼 수 있는 수가 정해져 있으니 순서가 곧 결과다
+  const probes = [
+    ...unique.filter((u) => onPreferredHost(u, input.preferredHost) === true),
+    ...unique.filter((u) => onPreferredHost(u, input.preferredHost) !== true),
+  ].slice(0, MAX_PROBE);
 
-  let best: { url: string; s: ActionPageScore } | null = null;
+  /** 채점 + v3.8.706 의 두 상한(다른 호스트 · 필수어 없음) */
+  let best: { url: string; s: ActionPageScore; rank: number; caps: string[] } | null = null;
   for (const url of probes) {
     let page: { ok: boolean; html: string; finalUrl?: string };
     try {
@@ -427,7 +474,21 @@ export async function resolveActionLink(input: {
       url: finalUrl, html: page.html, keyword: input.keyword,
       intent: input.intent, agencies: input.agencies || [],
     });
-    if (!best || s.score > best.s.score) best = { url: finalUrl, s };
+    const caps: string[] = [];
+    const onHost = onPreferredHost(finalUrl, input.preferredHost);
+    if (onHost === false) caps.push(`지목 기관(${input.preferredHost}) 의 호스트가 아님 — 행동 화면으로 올리지 않는다`);
+    const missing = missingMustHave(page.html.replace(/<[^>]+>/g, ' '), input.mustHave);
+    if (missing && missing.length > 0) caps.push(`꼭 있어야 하는 낱말이 없음(${missing.join(', ')}) — 같은 기관의 다른 제도 화면일 수 있다`);
+    // 순위는 기관 호스트에 +3 — 점수(stage 판정)는 그대로 둔다
+    const rank = s.score + (onHost === true ? 3 : 0) - (caps.length > 0 ? 2 : 0);
+    if (!best || rank > best.rank) best = { url: finalUrl, s, rank, caps };
+  }
+
+  if (best && best.caps.length > 0 && best.s.score >= ACTION_THRESHOLD && !best.s.looksLikeHome) {
+    return {
+      url: best.url, stage: 'guide', score: best.s.score,
+      reasons: [...best.s.reasons, ...best.caps],
+    };
   }
 
   /**
@@ -460,6 +521,7 @@ export async function resolveActionLink(input: {
     const agencies = (input.agencies || []).filter(Boolean);
     const mismatched = agencies.length > 0
       && looksLikeHomeUrl(fallback)
+      && onPreferredHost(fallback, input.preferredHost) !== true   // v3.8.706 레지스트리가 확인한 기관 홈은 오배송이 아니다
       && !agencies.some((agency) => hostMatches(fallback, agency));
     if (mismatched) {
       return {

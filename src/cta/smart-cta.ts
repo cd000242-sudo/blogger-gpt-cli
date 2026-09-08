@@ -16,6 +16,12 @@
  *   타임아웃(15초)·파싱 실패·낮은 확신 → null → 기존 경로(행동 의도 정규식 +
  *   카탈로그) 그대로. 발행은 절대 막히지 않고, 비용 상한은 발행당 소형 1콜이다.
  *
+ * ## v3.8.706 — "없음"은 정식 판정이다
+ *   레시피·여행 코스처럼 **다음 행동이 없는 글**에서 AI 가 억지로 기관을 지목했다
+ *   (김치찌개 → 식품안전나라 게시글). "없음"을 실패(null)와 구별해 돌려준다 —
+ *   `resolveSmartCtaDecision().none` 이 true 면 호출자는 외부 CTA 를 넣지 않는다.
+ *   함께 `mustHave`(그 화면에 꼭 있어야 하는 낱말)를 받아 게이트가 옆 제도 화면을 걸러 낸다.
+ *
  * 배경 사고: "토지거래허가" 글 CTA 가 중고나라로 (v3.8.537) — 정규식·카탈로그
  * 방식은 분야마다 두더지 잡기가 된다. 목적지 결정을 언어 이해로 올린다.
  */
@@ -33,9 +39,22 @@ export interface SmartCtaTarget {
   hookMessage: string;
   /** 기존 CSE 파이프에 넣을 검색어 */
   searchQuery: string;
+  /**
+   * v3.8.706 — 목적지 화면에 꼭 있어야 하는 낱말 1~3개 (예: ["월세", "세액공제"]).
+   * AI 가 주지 않으면 필드 자체가 없다 — 기존 호출자·테스트의 모양을 바꾸지 않는다.
+   */
+  mustHave?: string[];
 }
 
-const CACHE = new Map<string, { value: SmartCtaTarget | null; expireAt: number }>();
+/** v3.8.706 — AI 판정 전체. target 이 null 이면서 none 이 false 면 "실패(후퇴)", true 면 "이 글엔 CTA 없음" */
+export interface SmartCtaDecision {
+  target: SmartCtaTarget | null;
+  /** AI 가 "다음 행동이 없는 글"이라고 판정했다 — 외부 CTA 를 넣지 않는다 */
+  none: boolean;
+  confidence: number;
+}
+
+const CACHE = new Map<string, { value: SmartCtaDecision; expireAt: number }>();
 const TTL_MS = 30 * 60 * 1000;
 
 /** 테스트용 — 캐시를 비운다 */
@@ -58,16 +77,39 @@ function cleanText(s: unknown, maxLen: number): string {
   return String(s ?? '').replace(/\s+/g, ' ').replace(/["'`]/g, '').trim().slice(0, maxLen);
 }
 
+function cleanMustHave(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((w) => cleanText(w, 20))
+    .filter((w) => w.length >= 2 && !looksLikeUrl(w))
+    .slice(0, 3);
+}
+
+const FAILED: SmartCtaDecision = { target: null, none: false, confidence: 0 };
+
+/**
+ * 기존 호출자용 — 목적지만 돌려준다. "없음"도 실패도 null.
+ * 둘을 구별해야 하면 resolveSmartCtaDecision 을 쓴다.
+ */
 export async function resolveSmartCtaTarget(input: {
   keyword: string;
   contentMode?: string;
   /** 본문/소제목 요약 — 글이 실제로 다루는 상황을 반영한다 */
   articleHint?: string;
 }): Promise<SmartCtaTarget | null> {
+  const decision = await resolveSmartCtaDecision(input);
+  return decision.target;
+}
+
+export async function resolveSmartCtaDecision(input: {
+  keyword: string;
+  contentMode?: string;
+  articleHint?: string;
+}): Promise<SmartCtaDecision> {
   const keyword = String(input.keyword || '').trim();
-  if (!keyword) return null;
+  if (!keyword) return FAILED;
   // 쇼핑모드는 전용 구매 CTA 로직이 이미 있다 — 여기 끼어들면 상품 링크가 기관으로 바뀐다
-  if (String(input.contentMode || '') === 'shopping') return null;
+  if (String(input.contentMode || '') === 'shopping') return FAILED;
 
   const cacheKey = keyword.toLowerCase();
   const hit = CACHE.get(cacheKey);
@@ -90,11 +132,18 @@ ${hint ? `글 내용 요약(소제목 포함):\n${hint}\n` : ''}
    글에서 독자가 막히는 지점을 짚고, 그 사이트에서 무엇이 풀리는지 한 문장(40자 이내)으로 쓴다.
    ❌ "○○에 대해 더 알아보세요" 같은 아무 글에나 붙는 문장 금지.
    ✅ "계약 잔여기간부터 확인해야 퇴거 시점을 계산할 수 있습니다"
+7. 독자가 **바로 할 행동이 없는 글**(레시피, 취미, 여행 코스 감상, 단순 상식·역사 설명)이면
+   억지로 기관을 붙이지 말고 site 에 "없음"을 써라. 그게 정답이다.
+   ❌ 김치찌개 끓이는 법 → 식품안전나라   ❌ 제주 여행 코스 → 제주관광공사 (예약·신청할 것이 없다)
+8. site 는 법인명보다 **독자가 실제로 들어가 쓰는 서비스 이름**으로 써라.
+   ✅ 이파인(경찰청 과태료), 아이사랑(어린이집 입소), 위택스, 홈택스, 워크넷, 스마트초이스   ❌ 경찰청, 보건복지부, 국세청
+9. mustHave 는 **그 목적지 화면에 반드시 적혀 있어야 하는 낱말** 1~3개다 — 이 낱말이 없는 페이지는
+   같은 기관의 다른 제도 화면이다. 제도·상품·서비스의 고유 이름을 쓴다 (예: ["월세", "세액공제"], ["청년도약계좌"]).
 
 JSON 만 출력:
-{"site":"기관명","action":"행동(15자 이내)","buttonLabel":"버튼 문구","hookMessage":"후킹 한 문장","confidence":0.0~1.0}`;
+{"site":"기관명 또는 없음","action":"행동(15자 이내)","buttonLabel":"버튼 문구","hookMessage":"후킹 한 문장","mustHave":["낱말"],"confidence":0.0~1.0}`;
 
-  let value: SmartCtaTarget | null = null;
+  let value: SmartCtaDecision = FAILED;
   try {
     // v3.8.536 의 짧은 타임아웃 옵션 재사용 — CTA 하나에 본문급 예산을 쓰지 않는다
     const raw = await callGeminiWithRetry(prompt, 1, { timeoutMs: 15_000 });
@@ -103,31 +152,39 @@ JSON 만 출력:
     const action = cleanText(json?.action, 20);
     const buttonLabel = cleanText(json?.buttonLabel, 22);
     const hookMessage = cleanText(json?.hookMessage, 60);
+    const mustHave = cleanMustHave(json?.mustHave);
     const confidence = Number(json?.confidence);
 
-    const invalid = !site
-      || site === '없음'
-      || looksLikeUrl(site)
-      || looksLikeUrl(buttonLabel)
-      || looksLikeUrl(hookMessage)
-      || !(confidence >= 0.6);
-    if (!invalid) {
-      value = {
-        site,
-        action: action || '공식 확인',
-        buttonLabel: buttonLabel || `${site} 바로가기`,
-        // 본문 근거 문장을 못 만들었으면 비워 둔다 — 호출자가 자기 폴백을 쓰게 (지어내지 않는다)
-        hookMessage,
-        searchQuery: action ? `${site} ${action}` : `${site} 공식 사이트`,
-      };
-      console.log(`[SMART-CTA] 🧭 목적지: ${site} / ${action} (확신 ${confidence})${hookMessage ? ` · 훅 "${hookMessage}"` : ''}`);
+    if (site === '없음') {
+      // 정식 판정 — 이 글에는 외부 CTA 를 넣지 않는다 (확신은 참고만)
+      value = { target: null, none: true, confidence: Number.isFinite(confidence) ? confidence : 1 };
+      console.log(`[SMART-CTA] 🧭 판정: 이 글엔 다음 행동이 없음 (확신 ${confidence})`);
     } else {
-      console.log(`[SMART-CTA] 후보 기각 (site="${site}", confidence=${confidence}) — 기존 경로로`);
+      const invalid = !site
+        || looksLikeUrl(site)
+        || looksLikeUrl(buttonLabel)
+        || looksLikeUrl(hookMessage)
+        || !(confidence >= 0.6);
+      if (!invalid) {
+        const target: SmartCtaTarget = {
+          site,
+          action: action || '공식 확인',
+          buttonLabel: buttonLabel || `${site} 바로가기`,
+          // 본문 근거 문장을 못 만들었으면 비워 둔다 — 호출자가 자기 폴백을 쓰게 (지어내지 않는다)
+          hookMessage,
+          searchQuery: action ? `${site} ${action}` : `${site} 공식 사이트`,
+          ...(mustHave.length > 0 ? { mustHave } : {}),
+        };
+        value = { target, none: false, confidence };
+        console.log(`[SMART-CTA] 🧭 목적지: ${site} / ${action} (확신 ${confidence})${hookMessage ? ` · 훅 "${hookMessage}"` : ''}${mustHave.length ? ` · 필수어 ${mustHave.join('·')}` : ''}`);
+      } else {
+        console.log(`[SMART-CTA] 후보 기각 (site="${site}", confidence=${confidence}) — 기존 경로로`);
+      }
     }
   } catch (e: any) {
     // 실패는 기능이 아니라 후퇴다 — 발행을 막지 않는다
     console.log(`[SMART-CTA] 조용한 후퇴: ${String(e?.message || e).slice(0, 80)}`);
-    value = null;
+    value = FAILED;
   }
 
   CACHE.set(cacheKey, { value, expireAt: Date.now() + TTL_MS });

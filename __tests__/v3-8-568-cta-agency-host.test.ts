@@ -152,12 +152,12 @@ describe('④ 호출부 배선', () => {
   );
 
   it('⭐⭐ 후보 판정에 기관 목록을 넘긴다 (안 넘기면 이 수정이 무동작이다)', () => {
-    expect(generation).toContain('judgeCtaHost(link, keyword, namedAgencies, item.title)');
+    expect(generation).toContain('judgeCtaHost(link, keyword, namedAgencies, item.title, { trustedHosts })');
   });
 
   it('⭐⭐ 기관 목록을 후보 루프보다 먼저 만든다', () => {
     const decl = generation.indexOf('const namedAgencies');
-    const use = generation.indexOf('judgeCtaHost(link, keyword, namedAgencies, item.title)');
+    const use = generation.indexOf('judgeCtaHost(link, keyword, namedAgencies, item.title, { trustedHosts })');
     expect(decl).toBeGreaterThan(-1);
     expect(decl).toBeLessThan(use);
   });
