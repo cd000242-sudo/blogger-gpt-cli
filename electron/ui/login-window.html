@@ -1441,8 +1441,14 @@
               ensureUpdateModal();
               if (upBar) upBar.style.transform = 'scaleX(1)';
               // v3.8.705: 이제 마법사를 띄우지 않고 조용히 깔고 다시 뜬다(v3.8.702·697)
+              // v3.8.707: 이 창은 더 이상 닫히지 않는다 — 설치가 앱을 끌 때까지 이 안내가 보인다.
+              //   모든 사용자용(Program Files) 설치본은 Windows 권한 확인창이 한 번 뜬다.
               if (upTitle) upTitle.textContent = 'v' + (data.version || '') + ' 설치 중';
-              if (upStatus) upStatus.textContent = '설치가 끝나면 앱이 자동으로 다시 열립니다. 잠시만 기다려 주세요.';
+              if (upStatus) upStatus.textContent = '잠시 뒤 앱이 닫히고 설치가 시작됩니다. Windows 권한 확인창이 뜨면 \'예\'를 눌러 주세요. 끝나면 앱이 자동으로 다시 열립니다.';
+            }
+            if (data.type === 'postponed') {
+              // [나중에] — 모달을 걷고 로그인을 계속한다
+              if (upModal) { upModal.remove(); upModal = null; upBar = null; upStatus = null; upTitle = null; }
             }
           });
         }

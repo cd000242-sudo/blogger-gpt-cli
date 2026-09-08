@@ -74,46 +74,49 @@ describe('① 감시자가 앱을 다시 띄운다', () => {
   });
 });
 
-describe('② 두 설치 경로 모두에 붙어 있다', () => {
+/**
+ * v3.8.707 부터 설치를 거는 길은 `installDownloadedUpdateNow` 하나로 모였다.
+ * 감시자는 그 안에서 quitAndInstall 바로 앞에 선다 — 경로마다 붙이다 빠뜨리는 일이 없다.
+ */
+describe('② 설치를 거는 모든 경로가 한 함수를 탄다', () => {
+  // 주석에도 함수 이름이 나온다 — 주석을 걷어내고 **실제 호출**만 본다
+  const code = updater.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  test('⭐ quitAndInstall 은 한 곳에서만 부르고, 바로 앞에 감시자가 있다', () => {
+    const sites = [...code.matchAll(/updater\.quitAndInstall\(/g)].map((m) => m.index || 0);
+    expect(sites).toHaveLength(1);
+    const before = code.slice(Math.max(0, sites[0] - 700), sites[0]);
+    expect(before).toContain('scheduleRelaunchWatchdog()');
+    expect(before).toContain('export function installDownloadedUpdateNow(');
+  });
+
   test('⭐ 자동 경로(다운로드 완료 → 설치)', () => {
-    const auto = updater.slice(updater.indexOf("updater.on('update-downloaded'"));
+    const auto = code.slice(code.indexOf("updater.on('update-downloaded'"));
     const head = auto.slice(0, auto.indexOf("updater.on('error'"));
-    expect(head).toContain('scheduleRelaunchWatchdog()');
-    expect(head.indexOf('scheduleRelaunchWatchdog()')).toBeLessThan(head.indexOf('quitAndInstall(true, true)'));
+    expect(head).toContain('installDownloadedUpdateNow(');
   });
 
   test('⭐ 수동 경로(로그인창 [최신 버전으로 재시작])', () => {
-    const manual = updater.slice(updater.indexOf("ipcMain.handle('updater:restart-to-latest'"));
-    expect(manual).toContain('scheduleRelaunchWatchdog()');
-    expect(manual.indexOf('scheduleRelaunchWatchdog()')).toBeLessThan(manual.indexOf('quitAndInstall(true, true)'));
+    const manual = code.slice(code.indexOf("ipcMain.handle('updater:restart-to-latest'"));
+    expect(manual).toContain('installDownloadedUpdateNow(');
+    expect(manual).not.toContain('quitAndInstall(');
   });
 
-  test('설치 전에 등록한다 — 앱이 죽은 뒤에는 아무것도 띄울 수 없다', () => {
-    // 두 경로 모두 quitAndInstall 보다 앞서야 한다 (위 두 테스트가 순서를 본다)
-    // 정의 줄(`function scheduleRelaunchWatchdog(): void`)은 빼고 **호출**만 센다
-    /**
-     * v3.8.702 에서 호출부가 셋이 됐다 — **설치를 거는 자리마다 하나씩** 붙어야 한다:
-     *   ① 자동 경로의 조용한 설치
-     *   ② 그게 안 먹혔을 때 [지금 재시작] 을 고른 경우
-     *   ③ 로그인창의 수동 버튼
-     * 숫자를 박아 두는 대신 "설치를 거는 곳보다 적지 않다"를 본다 —
-     * 빠뜨리면 그 경로만 앱이 안 돌아온다.
-     */
-    // 주석에도 quitAndInstall 이 나온다 — 주석을 걷어내고 **실제 호출**만 본다
-    const code = updater.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    const sites = [...code.matchAll(/updater\.quitAndInstall\(/g)].map((m) => m.index || 0);
-    expect(sites.length).toBeGreaterThanOrEqual(3);
-
-    // 설치를 거는 자리마다 바로 앞에 감시자가 있어야 한다 — 빠뜨리면 그 경로만 앱이 안 돌아온다
-    const missing = sites.filter((at) => !code.slice(Math.max(0, at - 700), at).includes('scheduleRelaunchWatchdog()'));
-    expect(missing).toEqual([]);
+  test('옛 채널 둘도 같은 길', () => {
+    for (const ch of ["ipcMain.handle('updater:install'", "ipcMain.handle('auto-update:install'"]) {
+      const at = code.indexOf(ch);
+      expect(at).toBeGreaterThan(-1);
+      // 그 핸들러의 다음 ipcMain 등록 전까지가 본문이다
+      const end = code.indexOf('ipcMain.', at + ch.length);
+      expect(code.slice(at, end)).toContain('installDownloadedUpdateNow(');
+    }
   });
 });
 
 describe('③ 조용한 설치는 그대로 유지한다 (v3.8.694 가 고친 것)', () => {
-  test('조용한 설치를 먼저 걸고, 안 되면 마법사로 물러선다', () => {
-    const auto = updater.slice(updater.indexOf("updater.on('update-downloaded'"));
-    const head = auto.slice(0, auto.indexOf("updater.on('error'"));
-    expect(head.indexOf('quitAndInstall(true, true)')).toBeLessThan(head.indexOf('quitAndInstall(false, true)'));
+  test('언제나 조용한 설치(/S) — 마법사는 기본 위치가 어긋나 쓰지 않는다', () => {
+    const code = updater.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(code).toContain('quitAndInstall(true, true)');
+    expect(code).not.toContain('quitAndInstall(false, true)');
   });
 });

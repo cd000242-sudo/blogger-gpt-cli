@@ -14313,6 +14313,18 @@ app.whenReady().then(async () => {
 // 모든 창이 닫히면 앱 종료 (macOS 제외)
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    /**
+     * v3.8.707 — 마지막 창이 닫힐 때 **받아 둔 업데이트가 있으면 설치부터** 한다.
+     *
+     * 인증창은 유일한 창이라 닫히는 순간 여기로 와서 앱이 끝났고, updater 가 2초 뒤에
+     * 걸어 둔 설치는 오지 않았다("자동업데이트가 안되고 로그인인증창에서 자꾸 꺼지는데").
+     * 메인 창도 마찬가지다 — 내려받는 중에 창을 닫으면 그냥 끝났다.
+     * 설치가 걸리면 quitAndInstall 이 스스로 app.quit() 한다.
+     */
+    try {
+      const { installDownloadedUpdateNow } = require('./updater');
+      if (installDownloadedUpdateNow('마지막 창이 닫힘')) return;
+    } catch { /* 개발 모드 등 — 그냥 끝낸다 */ }
     app.quit();
   }
 });

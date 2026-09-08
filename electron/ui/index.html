@@ -8768,10 +8768,15 @@ async function submitToIndexNow(siteUrl) {
       if (modal) modal.style.display = 'flex';
       if (progressBar) progressBar.style.width = '100%';
       var title = document.getElementById('updateTitle');
-      if (title) title.textContent = '✅ v' + data.version + ' 준비 완료';
-      if (statusText) statusText.textContent = '곧 자동으로 설치 화면이 열립니다... (앱 자동 종료)';
+      if (title) title.textContent = 'v' + data.version + ' 설치 중';
+      // v3.8.707: 마법사가 아니라 조용한 설치(v3.8.694) — 안내문이 실제 순서를 말한다
+      if (statusText) statusText.textContent = '잠시 뒤 앱이 닫히고 설치가 시작됩니다. Windows 권한 확인창이 뜨면 \'예\'를 눌러 주세요. 끝나면 앱이 자동으로 다시 열립니다.';
       var btns = document.getElementById('updateButtons');
       if (btns) btns.style.display = 'none'; // 사용자 선택 X — 자동 진행
+    }
+    if (data.type === 'postponed') {
+      // [나중에] — 모달을 걷고 하던 일을 계속한다
+      if (modal) modal.style.display = 'none';
     }
   });
 })();

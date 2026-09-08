@@ -108,18 +108,21 @@ describe('③ 행동을 못 읽었으면 "행동 화면" 이라 말하지 않는
   });
 });
 
-describe('④ 자동 업데이트 — 조용히 깔고, 안 되면 마법사', () => {
+describe('④ 자동 업데이트 — 조용히 깔고, 안 되면 묻는다', () => {
   const updater = read('electron/updater.ts');
-  const auto = updater.slice(updater.indexOf("updater.on('update-downloaded'"));
+  // v3.8.707: 설치는 installDownloadedUpdateNow 한 곳, 폴백은 askThenInstall 한 곳으로 모였다
+  const code = updater.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const auto = code.slice(code.indexOf("updater.on('update-downloaded'"), code.indexOf("updater.on('error'"));
+  const install = code.slice(code.indexOf('export function installDownloadedUpdateNow('), code.indexOf('async function askThenInstall('));
 
   test('⭐ 먼저 조용한 설치를 건다', () => {
-    expect(auto.slice(0, 3500)).toContain('quitAndInstall(true, true)');
+    expect(auto).toContain("installDownloadedUpdateNow('다운로드 완료 2초 뒤')");
+    expect(install).toContain('quitAndInstall(true, true)');
   });
 
-  test('⭐ 안 되면 마법사로 물러선다', () => {
-    const head = auto.slice(0, 3500);
-    expect(head).toContain('quitAndInstall(false, true)');
-    expect(head.indexOf('quitAndInstall(true, true)')).toBeLessThan(head.indexOf('quitAndInstall(false, true)'));
+  test('⭐ 안 되면 마법사가 아니라 [지금 재시작]/[나중에] 로 묻는다 (v3.8.702)', () => {
+    expect(auto).toContain('askThenInstall(');
+    expect(code).not.toContain('quitAndInstall(false, true)');
   });
 
   test('⭐ 성공하면 폴백이 뜨지 않는다 — 시간이 지난 뒤에만', () => {
@@ -129,13 +132,15 @@ describe('④ 자동 업데이트 — 조용히 깔고, 안 되면 마법사', (
      * **[지금 재시작]/[나중에] 대화상자**로 바뀌었다(사장님: "그게 안먹히면 버튼두개를 띄우라고").
      * 그래서 여기서는 초 단위를 박아 두지 않고 **폴백이 나중에 온다는 것**만 본다.
      */
-    const head = auto.slice(0, 4000);
-    expect(head.indexOf('quitAndInstall(true, true)')).toBeLessThan(head.indexOf('setTimeout(async () =>'));
-    expect(head).toMatch(/\}, \d{4}\);/);
+    const first = auto.indexOf("installDownloadedUpdateNow('다운로드 완료 2초 뒤')");
+    expect(first).toBeGreaterThan(-1);
+    expect(auto.indexOf('askThenInstall(', first)).toBeGreaterThan(first);
+    expect(auto).toMatch(/\}, \d{4}\);/);
   });
 
   test('둘 다 실패하면 앱을 계속 쓸 수 있게 둔다', () => {
-    expect(auto.slice(0, 3500)).toContain('isUpdateInProgress = false');
+    const ask = code.slice(code.indexOf('async function askThenInstall('), code.indexOf("ipcMain.handle('updater:restart-to-latest'"));
+    expect(ask).toContain('isUpdateInProgress = false');
   });
 });
 

@@ -34,13 +34,16 @@ describe('① 백엔드 — 조용히 설치하고 다시 띄운다', () => {
   });
 
   test('⭐ quitAndInstall(true, true) — 마법사를 띄우지 않고 기존 위치에 깐다', () => {
-    expect(handler.slice(0, 3000)).toContain('quitAndInstall(true, true)');
+    // v3.8.707: 설치는 installDownloadedUpdateNow 한 곳으로 모였고, 그 안이 (true, true) 다
+    expect(handler.slice(0, 3000)).toContain('installDownloadedUpdateNow(');
+    const fn = updater.slice(updater.indexOf('export function installDownloadedUpdateNow('), updater.indexOf('async function askThenInstall('));
+    expect(fn).toContain('quitAndInstall(true, true)');
   });
 
   test('⭐ 이미 최신이면 설치하지 않고 그렇다고 알려 준다 (조용히 끝내지 않는다)', () => {
     const head = handler.slice(0, 3000);
     expect(head).toContain('upToDate: true');
-    expect(head.indexOf('upToDate: true')).toBeLessThan(head.indexOf('quitAndInstall'));
+    expect(head.indexOf('upToDate: true')).toBeLessThan(head.indexOf('installDownloadedUpdateNow('));
   });
 
   test('⭐ 내려받기를 기다린다 — 안 기다리고 설치하면 아무 일도 안 일어난다', () => {
@@ -99,8 +102,11 @@ describe('③ 왜 필요했는지가 설정에 남아 있다', () => {
     expect(pkg.build.nsis.allowToChangeInstallationDirectory).toBe(true);
   });
 
-  test('자동 경로는 사장님이 예전에 고른 대로 마법사를 그대로 띄운다 (v3.7.6 결정)', () => {
-    // 임의로 바꾸지 않았다는 것을 못 박아 둔다 — 바꾸려면 사장님 확인이 먼저다
-    expect(updater).toContain('quitAndInstall(false, true)');
+  test('자동 경로도 마법사를 띄우지 않는다 (v3.8.694 사장님 결정 · v3.8.707 한 함수로)', () => {
+    // v3.7.6 의 "마법사 그대로" 는 v3.8.694 에서 사장님이 뒤집었다("자동으로 업데이트가 되면 마법사가 뜰필요없고").
+    // 마법사는 기본 설치 위치가 어긋나 엉뚱한 곳에 깔린 전례가 있어 어느 경로에서도 쓰지 않는다.
+    const code = updater.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(code).not.toContain('quitAndInstall(false, true)');
+    expect(code).not.toMatch(/updater\.quitAndInstall\(\)/);
   });
 });

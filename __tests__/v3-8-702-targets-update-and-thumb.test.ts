@@ -63,27 +63,32 @@ describe('② 업데이트 — 설치는 한 번, 안 되면 묻는다', () => {
     expect(updater).not.toContain('updater.autoInstallOnAppQuit = true;');
   });
 
+  // v3.8.707: 설치는 installDownloadedUpdateNow, 묻기는 askThenInstall 로 각각 한 곳에 모였다
+  const install = blockBetween(updater, 'export function installDownloadedUpdateNow(', 'async function askThenInstall(');
+  const ask = blockBetween(updater, 'async function askThenInstall(', '/** 초기화 (앱 시작 시 호출) */');
+
   test('⭐ 기본은 조용한 설치 하나다', () => {
     const auto = blockBetween(updater, "updater.on('update-downloaded'", "updater.on('error'");
-    expect(auto).toContain('quitAndInstall(true, true)');
-    expect(auto).toContain('scheduleRelaunchWatchdog()');
+    expect(auto).toContain("installDownloadedUpdateNow('다운로드 완료 2초 뒤')");
+    expect(install).toContain('quitAndInstall(true, true)');
+    expect(install).toContain('scheduleRelaunchWatchdog()');
   });
 
   test('⭐ 안 먹히면 마법사를 몰래 띄우지 않고 버튼 두 개로 묻는다', () => {
-    const auto = blockBetween(updater, "updater.on('update-downloaded'", "updater.on('error'");
-    expect(auto).toContain("buttons: ['지금 재시작', '나중에']");
-    expect(auto).toContain('dialog.showMessageBox');
+    expect(ask).toContain("buttons: ['지금 재시작', '나중에']");
+    expect(ask).toContain('dialog.showMessageBox');
   });
 
   test('⭐ "나중에" 를 고르면 하던 일을 계속한다', () => {
-    const auto = blockBetween(updater, "updater.on('update-downloaded'", "updater.on('error'");
-    expect(auto).toContain('if (answer.response !== 0)');
-    expect(auto).toContain('isUpdateInProgress = false;');
+    expect(ask).toContain('if (answer.response !== 0)');
+    expect(ask).toContain('isUpdateInProgress = false;');
   });
 
   test('조용한 설치가 성공하면 그 창은 뜨지 않는다 (그 전에 앱이 종료된다)', () => {
     const auto = blockBetween(updater, "updater.on('update-downloaded'", "updater.on('error'");
-    expect(auto.indexOf('quitAndInstall(true, true)')).toBeLessThan(auto.indexOf('dialog.showMessageBox'));
+    const first = auto.indexOf("installDownloadedUpdateNow('다운로드 완료 2초 뒤')");
+    expect(first).toBeGreaterThan(-1);
+    expect(auto.indexOf('askThenInstall(', first)).toBeGreaterThan(first);
     expect(auto).toContain('}, 8000);');
   });
 });
