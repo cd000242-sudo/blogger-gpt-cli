@@ -96,6 +96,12 @@ export const TISTORY_SELECTORS = {
       '[class*="image" i]',
       '[class*="photo" i]',
     ],
+    // v3.8.708 첨부 버튼이 연 메뉴에서 "사진" 항목 (실측 id: #attach-image)
+    imageMenuItems: [
+      '#attach-image',
+      '.mce-menu-item[id*="image" i]',
+      '[role="menuitem"][id*="image" i]',
+    ],
     imageFileInputs: [
       'input[type="file"][accept*="image"]',
       'input[type="file"][accept*="png"]',

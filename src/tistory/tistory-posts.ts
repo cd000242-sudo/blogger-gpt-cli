@@ -222,6 +222,8 @@ async function scrapeManagePosts(page: any): Promise<{ items: ScrapedPost[]; max
           if (!found) continue;
           let url = String(found[1] || '').trim();
           if (!url || /^data:/i.test(url) || /^about:blank$/i.test(url)) continue;
+          // v3.8.708 관리 화면 아이콘 스프라이트(tistory_admin/…/ico_tistory_*.png)가 모든 행에 잡혀 목록 썸네일이 전부 깨졌다
+          if (/tistory_admin|ico_tistory|sprite/i.test(url)) continue;
           if (url.slice(0, 2) === '//') url = `https:${url}`;
           thumb = url;
           break;
@@ -259,6 +261,63 @@ async function scrapeManagePosts(page: any): Promise<{ items: ScrapedPost[]; max
 
     return { items: Array.from(found.values()), maxPage, diagnostics };
   }, PICK_LAZY_IMAGE_SOURCE);
+}
+
+/**
+ * 🖼️ v3.8.708 — 목록 썸네일은 **글 페이지의 og:image** 에서 가져온다.
+ *
+ * 사장님: "생성된 글목록은 티스토리 썸네일이 깨져서 보이네...?"
+ *
+ * 실측(2026-09-07): 관리 화면(/manage/posts, posts.json)에는 썸네일 필드가 아예 없다.
+ * v3.8.702 의 배경 이미지 폴백은 관리 화면 아이콘 스프라이트를 모든 행에 실었고, 그게 "깨진 썸네일"이었다.
+ * 대표 이미지가 확실히 있는 곳은 글 페이지의 `og:image`(= 공유 버튼의 data-thumbnail-url)뿐이라
+ * 숨은 브라우저 안에서 같은 출처로 fetch 한다(비공개 글도 로그인 쿠키로 읽힌다).
+ */
+export function extractTistoryEntryThumbnail(html: string): string {
+  const source = String(html || '');
+  const candidates = [
+    source.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1],
+    source.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)?.[1],
+    source.match(/\bdata-thumbnail-url=["']([^"']+)["']/i)?.[1],
+  ];
+  for (const raw of candidates) {
+    const url = String(raw || '').replace(/&amp;/g, '&').trim();
+    if (!url || !/^https?:\/\//i.test(url)) continue;
+    if (/tistory_admin|ico_tistory|sprite/i.test(url)) continue;
+    return url;
+  }
+  return '';
+}
+
+const ENTRY_THUMBNAIL_FETCH_TIMEOUT_MS = 12_000;
+
+async function fetchTistoryEntryThumbnails(page: any, blogName: string, postIds: string[]): Promise<Record<string, string>> {
+  if (postIds.length === 0) return {};
+  const urls = postIds.map((id) => ({ id, url: TISTORY_URLS.entry(blogName, id) }));
+  const fetched: Record<string, string> = await Promise.race([
+    page.evaluate(async (targets: Array<{ id: string; url: string }>) => {
+      const result: Record<string, string> = {};
+      const readHead = async (target: { id: string; url: string }) => {
+        try {
+          const response = await fetch(target.url, { credentials: 'include' });
+          const html = await response.text();
+          result[target.id] = html.slice(0, 200_000);
+        } catch {
+          result[target.id] = '';
+        }
+      };
+      // 한 번에 5개씩 — 열다섯 페이지를 동시에 당기면 티스토리가 느려진다
+      for (let index = 0; index < targets.length; index += 5) {
+        await Promise.all(targets.slice(index, index + 5).map(readHead));
+      }
+      return result;
+    }, urls),
+    new Promise<Record<string, string>>((resolve) => setTimeout(() => resolve({}), ENTRY_THUMBNAIL_FETCH_TIMEOUT_MS)),
+  ]).catch(() => ({} as Record<string, string>));
+
+  return Object.fromEntries(
+    Object.entries(fetched).map(([id, html]) => [id, extractTistoryEntryThumbnail(html)]),
+  );
 }
 
 /**
@@ -315,6 +374,10 @@ export async function listTistoryPosts(options: {
 
     const maxResults = Math.max(Number(options.maxResults) || scraped.items.length || 0, 0);
     const sliced = maxResults > 0 ? scraped.items.slice(0, maxResults) : scraped.items;
+    // v3.8.708 관리 화면엔 썸네일이 없다 — 글 페이지의 og:image 를 읽어 채운다
+    const entryThumbnails = await fetchTistoryEntryThumbnails(pageRef, session.config.blogName, sliced.map((post) => post.id));
+    const thumbnailCount = Object.values(entryThumbnails).filter(Boolean).length;
+    log(`글 페이지 og:image 로 썸네일 ${thumbnailCount}/${sliced.length}개 확보`);
     const items: PublishedPostItem[] = sliced.map((post) => ({
       id: post.id,
       title: post.title || '(제목 없음)',
@@ -322,7 +385,7 @@ export async function listTistoryPosts(options: {
       published: normalizeTistoryDate(post.published),
       updated: '',
       content: '',
-      imageUrl: post.thumb,
+      imageUrl: entryThumbnails[post.id] || post.thumb,
     }));
 
     log(`목록 ${items.length}개 확보 (page ${pageNo}/${scraped.maxPage})`);

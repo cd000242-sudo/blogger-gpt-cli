@@ -111,7 +111,7 @@ describe('③ 티스토리 목록 썸네일 — 배경 이미지도 본다', () 
     expect(fn).toContain("url.slice(0, 2) === '//'");
   });
 
-  test('찾은 값은 예전 경로 그대로 목록에 실린다', () => {
-    expect(tistoryPosts).toContain('imageUrl: post.thumb');
+  test('찾은 값은 예전 경로 그대로 목록에 실린다 (v3.8.708 부터는 글 페이지 og:image 가 우선)', () => {
+    expect(tistoryPosts).toContain('imageUrl: entryThumbnails[post.id] || post.thumb');
   });
 });

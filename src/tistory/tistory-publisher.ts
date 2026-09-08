@@ -292,6 +292,39 @@ function escapeHtmlAttribute(value: string): string {
     .replace(/>/g, '&gt;');
 }
 
+function unescapeHtmlAttribute(value: string): string {
+  return String(value || '')
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+/**
+ * 🖼️ v3.8.708 — 업로드한 사진을 티스토리 **첨부 표기**로 바꾼다.
+ *
+ * 실측(2026-09-07): 편집기가 HTML 모드에서 자기가 올린 사진을 이렇게 적는다.
+ *   [##_Image|kage@<dna 이하 경로>|CDM|1.3|{"originWidth":1200,"originHeight":670,"style":"alignCenter","filename":"x.webp"}_##]
+ * 이 표기라야 티스토리가 "첨부된 사진"으로 알아보고 대표·목록 썸네일에 쓴다.
+ * kakaocdn 주소가 아니면(외부 주소) 빈 문자열 — 호출 쪽이 보통 `<img>` 로 간다.
+ */
+export function buildTistoryAttachedImageMarkup(block: string): string {
+  const source = unescapeHtmlAttribute(String(block || '').match(/<img\b[^>]*\bsrc=["']([^"']+)["']/i)?.[1] || '');
+  const kagePath = source.match(/^https:\/\/blog\.kakaocdn\.net\/dna\/(.+)$/i)?.[1] || '';
+  if (!kagePath) return '';
+  const attr = (name: string) => unescapeHtmlAttribute(String(block).match(new RegExp(`\\b${name}=["']([^"']*)["']`, 'i'))?.[1] || '');
+  const originWidth = Number(attr('data-origin-width')) || 0;
+  const originHeight = Number(attr('data-origin-height')) || 0;
+  const filename = attr('data-filename') || decodeURIComponent((kagePath.split('?')[0] || '').split('/').pop() || 'image');
+  const meta = JSON.stringify({
+    ...(originWidth ? { originWidth } : {}),
+    ...(originHeight ? { originHeight } : {}),
+    style: 'alignCenter',
+    filename,
+  });
+  return `[##_Image|kage@${kagePath.replace(/&amp;/g, '&').replace(/&/g, '&amp;')}|CDM|1.3|${meta}_##]`;
+}
+
 function stripLeadingTemporaryImage(html: string): string {
   return String(html || '').replace(
     /^\s*(?:<p\b[^>]*>\s*)?<img\b[^>]*\bsrc=["'](?:blob:|data:image\/|javascript:)[^"']*["'][^>]*>\s*(?:<\/p>\s*)?/i,
@@ -452,14 +485,34 @@ export async function clickFirst(page: any, selectors: string[], timeoutMs = SHO
   }
 }
 
+/**
+ * 🖼️ v3.8.708 — 글쓰기 화면의 "저장된 글이 있습니다. 이어서 작성하시겠습니까?" 확인창.
+ *
+ * 사장님: "제목부분에 썸네일이미지가 대표이미지로 선택되서 보여야되는데 안보여"
+ *
+ * 실측(2026-09-07): 이 confirm 을 승낙하면 티스토리가 **옛 임시저장 글과 그 첨부파일**을
+ * 편집기에 불러온다. 본문은 우리가 통째로 덮어써도 첨부 목록은 남아서, 옛 첨부가
+ * 그 글의 대표 이미지(og:image)로 잡혔다 — 317번 글의 대표가 본문에 없는 엉뚱한 그림이던 이유.
+ * 이 확인창만 거절하고 나머지(작성 모드 변경 등)는 전처럼 승낙한다.
+ */
+export function isTistoryDraftContinueDialog(message: string): boolean {
+  const text = String(message || '');
+  return /저장된\s*글/.test(text) && /이어서/.test(text);
+}
+
 export function attachTistoryDialogMonitor(page: any, onLog?: (message: string) => void): TistoryDialogMonitor {
   const messages: string[] = [];
   const handler = async (dialog: any) => {
     const message = String(typeof dialog?.message === 'function' ? dialog.message() : '').trim();
+    const declineDraft = isTistoryDraftContinueDialog(message);
     if (message) {
       messages.push(message);
       while (messages.length > 20) messages.shift();
-      log(onLog, `Browser dialog detected and accepted: ${message.slice(0, 160)}`);
+      log(onLog, `Browser dialog detected and ${declineDraft ? 'dismissed (old draft not loaded)' : 'accepted'}: ${message.slice(0, 160)}`);
+    }
+    if (declineDraft) {
+      await dialog.dismiss().catch(() => null);
+      return;
     }
     await dialog.accept().catch(() => null);
   };
@@ -969,14 +1022,36 @@ export async function fillHtmlEditor(page: any, html: string): Promise<boolean> 
   return false;
 }
 
-async function getPageImageSources(page: any): Promise<string[]> {
+/**
+ * 🖼️ v3.8.708 — 편집기 본문은 **iframe** 안에 있다.
+ *
+ * 실측(2026-09-07): 업로드된 사진은 두 번째 프레임(TinyMCE 본문)에
+ * `<figure data-ke-type="image"><img src="https://blog.kakaocdn.net/dna/…?credential=…">` 로 들어온다.
+ * 예전 코드는 메인 프레임의 img 만 봐서 업로드가 됐어도 "영구 주소를 확인하지 못했다"고 포기했다.
+ * 그래서 이미지를 보는 함수는 전부 **모든 프레임**을 훑는다.
+ */
+function listPageFrames(page: any): any[] {
   try {
-    return await page.evaluate(() => Array.from(document.querySelectorAll('img'))
-      .map((img) => (img as HTMLImageElement).currentSrc || (img as HTMLImageElement).src || '')
-      .filter(Boolean));
+    const frames = typeof page?.frames === 'function' ? page.frames() : [];
+    return Array.isArray(frames) && frames.length > 0 ? frames : [page];
   } catch {
-    return [];
+    return [page];
   }
+}
+
+async function getPageImageSources(page: any): Promise<string[]> {
+  const sources: string[] = [];
+  for (const frame of listPageFrames(page)) {
+    try {
+      const found: string[] = await frame.evaluate(() => Array.from(document.querySelectorAll('img'))
+        .map((img) => (img as HTMLImageElement).currentSrc || (img as HTMLImageElement).src || '')
+        .filter(Boolean));
+      sources.push(...found);
+    } catch {
+      continue;
+    }
+  }
+  return sources;
 }
 
 async function setThumbnailFileInput(page: any, filePath: string): Promise<boolean> {
@@ -1013,13 +1088,21 @@ async function clickImageUploadControl(page: any): Promise<boolean> {
         String(htmlElement.className || ''),
       ].join(' ').replace(/\s+/g, ' ').trim();
     };
+    /**
+     * v3.8.708 실측: 첨부 아이콘 `i.mce-i-image` 의 가장 가까운 button(`#attach-layer-btn`)은 **폭 0** 이고
+     * 그 바깥 `div.mce-btn[aria-label="첨부"]` 가 실제로 보이는 컨트롤이다. 첫 조상만 보고 "안 보인다"로
+     * 넘기면 메뉴가 안 열린다 — 보이는 조상이 나올 때까지 올라간다.
+     */
     const clickNode = (node: HTMLElement): boolean => {
-      const clickable = (
-        node.matches('button,a,label,[role="button"],.mce-btn,.toolbar-item,[tabindex]')
-          ? node
-          : node.closest('button,a,label,[role="button"],.mce-btn,.toolbar-item,[tabindex]') as HTMLElement | null
-      ) || node;
-      if (!visible(clickable)) return false;
+      const clickableSelector = 'button,a,label,[role="button"],.mce-btn,.toolbar-item,[tabindex]';
+      const candidates: HTMLElement[] = [node];
+      let cursor: HTMLElement | null = node.parentElement;
+      for (let depth = 0; cursor && depth < 5; depth += 1) {
+        if (cursor.matches(clickableSelector)) candidates.push(cursor);
+        cursor = cursor.parentElement;
+      }
+      const clickable = candidates.find(visible);
+      if (!clickable) return false;
       clickable.click();
       return true;
     };
@@ -1051,113 +1134,205 @@ async function clickImageUploadControl(page: any): Promise<boolean> {
   }, TISTORY_SELECTORS.editor.imageUploadButtons).catch(() => false);
 }
 
+/**
+ * 🖼️ v3.8.708 — 첨부 버튼은 **메뉴를 열 뿐** 파일 선택창을 띄우지 않는다.
+ *
+ * 실측(2026-09-07): 툴바의 첨부(`#attach-layer-btn`, 아이콘 `.mce-i-image`)를 누르면
+ * 사진(`#attach-image`)·파일·사진 슬라이드 메뉴가 열리고, **사진**을 눌러야 filechooser 가 뜬다.
+ * 예전 코드는 첫 단계에서 멈춰 6초를 기다리다 "업로드 버튼을 찾지 못했다"로 끝났다 —
+ * 썸네일이 한 번도 올라간 적이 없던 이유. 메뉴 항목 id 가 바뀌어도 되게 글자(사진/이미지)로도 찾는다.
+ */
+async function clickImageMenuItem(page: any): Promise<boolean> {
+  return page.evaluate((selectors: string[]) => {
+    const visible = (element: Element | null): element is HTMLElement => {
+      if (!element) return false;
+      const rect = (element as HTMLElement).getBoundingClientRect();
+      const style = window.getComputedStyle(element as HTMLElement);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    };
+    for (const selector of selectors) {
+      const node = Array.from(document.querySelectorAll(selector)).find(visible) as HTMLElement | undefined;
+      if (node) {
+        node.click();
+        return true;
+      }
+    }
+    const items = Array.from(document.querySelectorAll('.mce-menu-item, [role="menuitem"], .mce-floatpanel button, .mce-floatpanel a')) as HTMLElement[];
+    for (const item of items) {
+      if (!visible(item)) continue;
+      const text = String(item.innerText || item.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!/^(사진|이미지|그림|image|photo)$/i.test(text)) continue;
+      item.click();
+      return true;
+    }
+    return false;
+  }, TISTORY_SELECTORS.editor.imageMenuItems).catch(() => false);
+}
+
+type UploadedImageInfo = {
+  src: string;
+  alt: string;
+  originWidth: number;
+  originHeight: number;
+  filename: string;
+  score: number;
+};
+
+/** 프레임 하나에서 "이번에 새로 생긴 본문 이미지" 후보를 고른다 (브라우저 안에서 실행). */
+const FIND_UPLOADED_IMAGE = (previous: string[]): UploadedImageInfo | null => {
+  const sourceSet = new Set(previous);
+  const visible = (element: Element | null): boolean => {
+    if (!element) return false;
+    const rect = (element as HTMLElement).getBoundingClientRect();
+    const style = window.getComputedStyle(element as HTMLElement);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+  };
+  const scoreImage = (img: HTMLImageElement): number => {
+    const src = img.currentSrc || img.src || '';
+    if (!src || sourceSet.has(src)) return -1;
+    if (!/^https:\/\//i.test(src)) return -1;
+    if (/data:image\/svg|favicon|profile|avatar|emoji|emoticon|icon/i.test(src)) return -1;
+    const rect = img.getBoundingClientRect();
+    if (rect.width < 80 || rect.height < 60) return -1;
+    const inEditorFigure = !!img.closest('figure[data-ke-type^="image"]');
+    const inEditableArea = !!img.closest('[contenteditable="true"],.contents_style,.editor-content,.tt_article_useless_p_margin,figure');
+    const onTistoryHost = /tistory|kakaocdn|daumcdn/i.test(src);
+    // 본문(편집 영역)에 들어온 것도 아니고 티스토리 저장소 주소도 아니면 "이번 업로드"가 아니다
+    // — 관리 화면 어딘가에 새로 뜬 그림을 대표로 잡는 사고를 막는다
+    if (!inEditorFigure && !inEditableArea && !onTistoryHost) return -1;
+    let score = rect.width * rect.height;
+    if (inEditorFigure) score += 200000;
+    if (inEditableArea) score += 100000;
+    if (onTistoryHost) score += 50000;
+    return score;
+  };
+  const images = Array.from(document.querySelectorAll('img')) as HTMLImageElement[];
+  const best = images
+    .map((img) => ({ img, score: scoreImage(img) }))
+    .filter((entry) => entry.score >= 0 && visible(entry.img))
+    .sort((a, b) => b.score - a.score)[0];
+  if (!best) return null;
+  const target = best.img;
+  return {
+    src: target.currentSrc || target.src || '',
+    alt: target.alt || '',
+    originWidth: Number(target.getAttribute('data-origin-width')) || target.naturalWidth || 0,
+    originHeight: Number(target.getAttribute('data-origin-height')) || target.naturalHeight || 0,
+    filename: target.getAttribute('data-filename') || '',
+    score: best.score,
+  };
+};
+
+async function findUploadedImageAcrossFrames(page: any, previousSources: string[]): Promise<UploadedImageInfo | null> {
+  let best: UploadedImageInfo | null = null;
+  for (const frame of listPageFrames(page)) {
+    const found: UploadedImageInfo | null = await frame.evaluate(FIND_UPLOADED_IMAGE, previousSources).catch(() => null);
+    if (found && /^https:\/\//i.test(found.src) && (!best || found.score > best.score)) best = found;
+  }
+  return best;
+}
+
+/**
+ * 업로드된 이미지를 본문 첫 블록으로 쓸 HTML 로 만든다.
+ * 크기·파일명은 data 속성으로 실어 두어 buildTistoryFinalHtml 이 티스토리 첨부 표기로 바꿀 수 있게 한다.
+ */
+export function buildUploadedThumbnailBlock(info: { src: string; alt?: string; originWidth?: number; originHeight?: number; filename?: string }, altText: string): string {
+  const source = normalizeTistoryPublishedImageUrl(info?.src || '');
+  if (!source) return '';
+  const attrs = [
+    `src="${escapeHtmlAttribute(source)}"`,
+    `alt="${escapeHtmlAttribute(info.alt || altText)}"`,
+    info.originWidth ? `data-origin-width="${Math.round(info.originWidth)}"` : '',
+    info.originHeight ? `data-origin-height="${Math.round(info.originHeight)}"` : '',
+    info.filename ? `data-filename="${escapeHtmlAttribute(info.filename)}"` : '',
+    'loading="lazy"',
+  ].filter(Boolean).join(' ');
+  return `<p><img ${attrs} /></p>`;
+}
+
 async function captureUploadedThumbnailBlock(
   page: any,
   previousSources: string[],
   title: string,
 ): Promise<string> {
-  try {
-    await page.waitForFunction((previous: string[]) => {
-      const sourceSet = new Set(previous);
-      const isContentImage = (img: HTMLImageElement) => {
-        const src = img.currentSrc || img.src || '';
-        if (!src || sourceSet.has(src)) return false;
-        if (!/^https:\/\//i.test(src)) return false;
-        if (/data:image\/svg|favicon|profile|avatar|emoji|emoticon|icon/i.test(src)) return false;
-        const rect = img.getBoundingClientRect();
-        return rect.width >= 80 && rect.height >= 60;
-      };
-      return Array.from(document.querySelectorAll('img')).some((node) => isContentImage(node as HTMLImageElement));
-    }, previousSources, { timeout: THUMBNAIL_UPLOAD_TIMEOUT_MS });
-  } catch {
-    return '';
+  const deadline = Date.now() + THUMBNAIL_UPLOAD_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const found = await findUploadedImageAcrossFrames(page, previousSources);
+    if (found) return buildUploadedThumbnailBlock(found, title);
+    await page.waitForTimeout(500).catch(() => null);
   }
+  return '';
+}
+/**
+ * 🖼️ v3.8.708 — 대표 이미지 배지는 **글자가 없고, 진짜 클릭이 있어야 나타난다.**
+ *
+ * 실측(2026-09-08, kImage 플러그인, 비공개 318번 글로 확인):
+ *   - 본문은 `iframe#editor-tistory_ifr` 안에 있고, `window.tinymce` 는 메인 문서에 **노출되지 않는다**
+ *     (iframe 쪽 tinymce 는 editors 가 비어 있는 껍데기). 그래서 `activeEditor.selection.select()` 길은
+ *     항상 `no-editor` 로 끝났다.
+ *   - 본문 iframe 의 `figure[data-ke-type="image"] img` 를 **마우스로** 누르면(selectionchange) 메인 문서에
+ *     `div.mce-represent-image-btn` 이 나타나고, 그걸 누르면 `active` 가 붙으며 티스토리가 대표로 지정한다.
+ *     같은 배지를 다시 누르면 해제(토글)라 이미 active 면 건드리지 않는다.
+ *   - 예전 코드는 "대표/썸네일" 글자를 찾았는데 배지엔 글자가 없어 매번 빈손이었다.
+ */
+const EDITOR_FRAME_SELECTOR = 'iframe#editor-tistory_ifr, iframe[id$="_ifr"]';
 
-  return page.evaluate(({ previous, altText }: { previous: string[]; altText: string }) => {
-    const sourceSet = new Set(previous);
-    const visible = (element: Element | null): element is HTMLElement => {
-      if (!element) return false;
-      const htmlElement = element as HTMLElement;
-      const rect = htmlElement.getBoundingClientRect();
-      const style = window.getComputedStyle(htmlElement);
-      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
-    };
-    const scoreImage = (img: HTMLImageElement): number => {
-      const src = img.currentSrc || img.src || '';
-      if (!src || sourceSet.has(src)) return -1;
-      if (!/^https:\/\//i.test(src)) return -1;
-      if (/data:image\/svg|favicon|profile|avatar|emoji|emoticon|icon/i.test(src)) return -1;
-      const rect = img.getBoundingClientRect();
-      if (rect.width < 80 || rect.height < 60) return -1;
-      let score = rect.width * rect.height;
-      if (img.closest('[contenteditable="true"],.contents_style,.editor-content,.tt_article_useless_p_margin,figure')) {
-        score += 100000;
-      }
-      if (/tistory|kakaocdn|daumcdn|blog.kakaocdn/i.test(src)) score += 50000;
-      return score;
-    };
-
-    const images = Array.from(document.querySelectorAll('img')) as HTMLImageElement[];
-    const sorted = images
-      .map((img) => ({ img, score: scoreImage(img) }))
-      .filter((entry) => entry.score >= 0 && visible(entry.img))
-      .sort((a, b) => b.score - a.score);
-    const target = sorted[0]?.img;
-    if (!target) return '';
-
-    const source = target.currentSrc || target.src || '';
-    if (!/^https:\/\//i.test(source)) return '';
-    const escapeAttribute = (value: string) => String(value || '')
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    const imageAlt = escapeAttribute(target.alt || altText);
-    return `<p><img src="${escapeAttribute(source)}" alt="${imageAlt}" loading="lazy" /></p>`;
-  }, { previous: previousSources, altText: title }).catch(() => '');
+async function clickUploadedImageInEditorFrame(page: any, uploadedSource: string): Promise<string> {
+  if (typeof page.frameLocator !== 'function') return 'no-frame-locator';
+  const frame = page.frameLocator(EDITOR_FRAME_SELECTOR).first();
+  const candidates = [
+    uploadedSource ? frame.locator(`figure[data-ke-type^="image"] img[src="${uploadedSource.replace(/"/g, '\\"')}"]`) : null,
+    frame.locator('figure[data-ke-type^="image"] img'),
+    frame.locator('img'),
+  ].filter(Boolean);
+  for (const locator of candidates) {
+    try {
+      if ((await locator.count()) <= 0) continue;
+      await locator.first().click({ force: true, timeout: 5000 });
+      return 'clicked';
+    } catch {
+      continue;
+    }
+  }
+  return 'no-image';
 }
 
-async function trySetUploadedImageAsRepresentative(page: any, onLog?: (message: string) => void): Promise<boolean> {
-  const marked = await page.evaluate(() => {
-    const visible = (element: Element | null): element is HTMLElement => {
-      if (!element) return false;
-      const htmlElement = element as HTMLElement;
-      const rect = htmlElement.getBoundingClientRect();
-      const style = window.getComputedStyle(htmlElement);
-      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
-    };
-    const textOf = (element: Element | null): string => {
-      if (!element) return '';
-      const htmlElement = element as HTMLElement;
-      return [
-        htmlElement.innerText || htmlElement.textContent || '',
-        htmlElement.getAttribute('aria-label') || '',
-        htmlElement.getAttribute('title') || '',
-        htmlElement.id || '',
-        String(htmlElement.className || ''),
-      ].join(' ').replace(/\s+/g, ' ').trim();
-    };
-    const candidates = Array.from(document.querySelectorAll('button,a,label,[role="button"],input[type="checkbox"],span')) as HTMLElement[];
-    for (const node of candidates) {
-      if (!visible(node)) continue;
-      const haystack = textOf(node);
-      if (!/(대표|대표\s*이미지|썸네일|thumbnail|cover)/i.test(haystack)) continue;
-      if (/(해제|remove|delete|삭제)/i.test(haystack)) continue;
-      const root = node.closest('figure,.imageblock,.imagegridblock,.attached,.attach,.thumbnail,.layer,.mce-container,div') as HTMLElement | null;
-      if (root && !root.querySelector('img') && !/(대표|썸네일|thumbnail|cover)/i.test(textOf(root))) continue;
-      const clickable = (
-        node.matches('button,a,label,[role="button"],input')
-          ? node
-          : node.closest('button,a,label,[role="button"],input') as HTMLElement | null
-      ) || node;
-      clickable.click();
-      return true;
-    }
-    return false;
-  }).catch(() => false);
+async function clickRepresentativeBadge(page: any): Promise<string> {
+  for (const frame of listPageFrames(page)) {
+    const state: string = await frame.evaluate(() => {
+      const badge = Array.from(document.querySelectorAll('.mce-represent-image-btn'))
+        .find((node) => (node as HTMLElement).getBoundingClientRect().width > 0) as HTMLElement | undefined;
+      if (!badge) return 'missing';
+      if (badge.classList.contains('active')) return 'already-active';
+      badge.click();
+      return badge.classList.contains('active') ? 'activated' : 'clicked-not-active';
+    }).catch(() => 'missing');
+    if (state !== 'missing') return state;
+  }
+  return 'missing';
+}
 
-  if (marked) log(onLog, 'Representative thumbnail control was selected.');
-  return marked;
+async function trySetUploadedImageAsRepresentative(
+  page: any,
+  uploadedSource: string,
+  onLog?: (message: string) => void,
+): Promise<boolean> {
+  const selected = await clickUploadedImageInEditorFrame(page, uploadedSource).catch((error: any) => `error:${error?.message || error}`);
+  if (selected !== 'clicked') {
+    log(onLog, `⚠️ 대표이미지 지정 — 본문 이미지를 선택하지 못했습니다 (${selected})`);
+    return false;
+  }
+
+  // 배지는 selectionchange 뒤에 그려진다 — 잠깐씩 다시 본다
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await page.waitForTimeout(400).catch(() => null);
+    const state = await clickRepresentativeBadge(page);
+    if (state === 'missing') continue;
+    log(onLog, `대표이미지 배지: ${state}`);
+    return state === 'already-active' || state === 'activated';
+  }
+  log(onLog, '⚠️ 대표이미지 배지(.mce-represent-image-btn)가 화면에 나타나지 않았습니다');
+  return false;
 }
 
 async function uploadThumbnailThroughTistoryEditor(
@@ -1175,8 +1350,14 @@ async function uploadThumbnailThroughTistoryEditor(
     let uploaded = await setThumbnailFileInput(page, prepared.filePath);
 
     if (!uploaded) {
-      const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 6000 }).catch(() => null);
+      const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null);
       const clicked = await clickImageUploadControl(page);
+      // v3.8.708 첨부 버튼은 메뉴만 연다 — 메뉴의 "사진"까지 눌러야 파일 선택창이 뜬다
+      if (clicked) {
+        await page.waitForTimeout(500).catch(() => null);
+        const menuClicked = await clickImageMenuItem(page);
+        log(onLog, menuClicked ? '첨부 메뉴 → 사진 선택' : '첨부 메뉴에서 사진 항목을 찾지 못했습니다 (파일 선택창을 그대로 기다립니다)');
+      }
       const chooser = clicked ? await fileChooserPromise : null;
       if (chooser) {
         await chooser.setFiles(prepared.filePath);
@@ -1207,7 +1388,8 @@ async function uploadThumbnailThroughTistoryEditor(
      * 그래서 "og:image 는 있는데 블로그 목록 썸네일은 비어 있다"는 상태의 원인을
      * 로그만 봐서는 알 수 없었다. 실패해도 발행은 계속한다 — 알리기만 한다.
      */
-    const marked = await trySetUploadedImageAsRepresentative(page, onLog).catch(() => false);
+    const uploadedSource = imageBlock.match(/<img\b[^>]*\bsrc=["']([^"']+)["']/i)?.[1] || '';
+    const marked = await trySetUploadedImageAsRepresentative(page, unescapeHtmlAttribute(uploadedSource), onLog).catch(() => false);
     if (!marked) {
       log(onLog, '⚠️ 대표이미지 지정 컨트롤을 찾지 못했습니다 — 블로그 목록 썸네일이 비어 보일 수 있습니다 (본문 이미지는 정상)');
     }
@@ -1235,7 +1417,9 @@ export function buildTistoryFinalHtml(html: string, thumbnailUrl: string, upload
   const permanentUploadedSource = normalizeTistoryPublishedImageUrl(uploadedSource);
   if (permanentUploadedSource) {
     const bodyWithoutGeneratedThumbnail = stripGeneratedThumbnailHero(html, thumbnailUrl);
-    return `${buildTistoryImageFallback(permanentUploadedSource, title)}\n${bodyWithoutGeneratedThumbnail}`.trim();
+    // v3.8.708 첨부 표기가 만들어지면 그걸 쓴다 — 티스토리가 대표·목록 썸네일로 알아보는 형태
+    const lead = buildTistoryAttachedImageMarkup(uploadedThumbnailBlock) || buildTistoryImageFallback(permanentUploadedSource, title);
+    return `${lead}\n${bodyWithoutGeneratedThumbnail}`.trim();
   }
 
   // v3.8.355: 대표 이미지 보장 강화
@@ -1761,18 +1945,105 @@ async function configureScheduledPublish(
   log(onLog, `Scheduled publish time selected: ${target.dateTimeText}`);
 }
 
+const PUBLISH_NAVIGATION_WAIT_MS = 4500;
+const PUBLISH_NAVIGATION_RETRY_WAIT_MS = 8000;
+
+/** 발행 뒤 편집 화면(/manage/newpost)을 벗어날 때까지 기다린다. 벗어나면 true. */
+async function waitForPublishNavigation(page: any, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const currentUrl = String(typeof page.url === 'function' ? page.url() : '');
+    if (currentUrl && !/manage\/newpost/i.test(currentUrl)) return true;
+    await page.waitForTimeout(300).catch(() => null);
+  }
+  return false;
+}
+
+/** 발행 확인 버튼이 아직 보이고 살아 있을 때만 DOM 클릭 — 넘어가는 중이면 아무것도 안 한다. */
+async function clickPublishConfirmByDom(page: any): Promise<boolean> {
+  const plainSelectors = TISTORY_SELECTORS.editor.publishConfirmButtons.filter((selector) => !selector.includes(':has-text'));
+  return page.evaluate((selectors: string[]) => {
+    for (const selector of selectors) {
+      const button = document.querySelector(selector) as HTMLButtonElement | null;
+      if (!button) continue;
+      const rect = button.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0 || button.disabled) continue;
+      button.click();
+      return true;
+    }
+    return false;
+  }, plainSelectors).catch(() => false);
+}
+
+type TistoryManageListItem = { id?: unknown; title?: unknown };
+
+/** 관리 화면 posts.json 한 페이지 (제목 검색어 있으면 그 결과). 실패하면 빈 배열. */
+async function fetchTistoryManageList(page: any, blogName: string, searchKeyword = ''): Promise<TistoryManageListItem[]> {
+  if (!blogName) return [];
+  const endpoint = `https://${blogName}.tistory.com/manage/posts.json?category=-3&page=1&searchKeyword=${encodeURIComponent(searchKeyword)}&searchType=title&visibility=all`;
+  return page.evaluate(async (url: string) => {
+    const response = await fetch(url, { credentials: 'include' });
+    if (!response.ok) return [];
+    const json = await response.json();
+    return Array.isArray(json?.items) ? json.items : [];
+  }, endpoint).catch(() => []);
+}
+
+/** 발행 직전 목록의 가장 큰 글 id — 발행 뒤 "이보다 큰 id" 만 새 글로 인정한다. */
+async function snapshotNewestTistoryPostId(page: any, blogName: string): Promise<number> {
+  const items = await fetchTistoryManageList(page, blogName);
+  return items.reduce((max, item) => {
+    const id = Number(String(item?.id || '').trim());
+    return Number.isFinite(id) && id > max ? id : max;
+  }, 0);
+}
+
+const RESOLVE_PUBLISHED_POST_ATTEMPTS = 5;
+const RESOLVE_PUBLISHED_POST_INTERVAL_MS = 1500;
+
+/**
+ * 🔗 v3.8.708 — 발행 뒤 티스토리는 글 페이지가 아니라 **글 목록(/manage/posts/)** 으로 보낸다.
+ * 예전엔 그 목록 주소를 "발행 주소"로 돌려줘 앱의 발행 기록·CTA 점검이 글 id 없이 남았다.
+ * 관리 화면 posts.json 을 제목으로 검색해 방금 나간 글의 id 를 찾는다 (못 찾으면 예전처럼 둔다).
+ *
+ * 실측(2026-09-08): 목록은 발행 직후 1~2초 늦게 갱신된다 — 같은 제목의 옛 글(321)을 새 글(322)로
+ * 잘못 잡은 적이 있다. 그래서 발행 전에 찍어 둔 가장 큰 id 보다 큰 것만 인정하고, 몇 번 다시 본다.
+ */
+async function resolvePublishedPostByTitle(
+  page: any,
+  blogName: string,
+  title: string,
+  newestIdBefore = 0,
+): Promise<{ url: string; postId: string } | null> {
+  const wanted = String(title || '').replace(/\s+/g, ' ').trim();
+  if (!wanted || !blogName) return null;
+  for (let attempt = 0; attempt < RESOLVE_PUBLISHED_POST_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) await page.waitForTimeout(RESOLVE_PUBLISHED_POST_INTERVAL_MS).catch(() => null);
+    const items = await fetchTistoryManageList(page, blogName, wanted);
+    const fresh = items.filter((item) => Number(String(item?.id || '').trim()) > newestIdBefore);
+    // 제목이 정확히 같은 새 글만 — 새 글이 하나뿐이면 그것. 엉뚱한 옛 글을 "방금 발행한 글"로 기록하지 않는다
+    const match = fresh.find((item) => String(item?.title || '').replace(/\s+/g, ' ').trim() === wanted)
+      || (fresh.length === 1 ? fresh[0] : undefined);
+    const postId = String(match?.id || '').trim();
+    if (/^\d+$/.test(postId)) return { url: `https://${blogName}.tistory.com/${postId}`, postId };
+  }
+  return null;
+}
+
 async function finishPublish(
   page: any,
   config: TistoryConfig,
   postingMode: TistoryPostingMode,
   scheduleDate: Date | null | undefined,
   onLog?: (message: string) => void,
+  title = '',
 ): Promise<{ url?: string; postId?: string }> {
   if (config.dryRun) {
     log(onLog, 'Dry run enabled. Leaving the editor open without publishing.');
     return {};
   }
 
+  let newestIdBefore = 0;
   if (postingMode === 'draft') {
     const saved = await clickFirst(page, TISTORY_SELECTORS.editor.tempSaveButtons, 4000);
     if (!saved) throw new Error('Tistory draft/temp-save button was not found.');
@@ -1788,9 +2059,25 @@ async function finishPublish(
     if (postingMode === 'schedule' && normalizedScheduleDate) {
       await configureScheduledPublish(page, normalizedScheduleDate, onLog);
     }
+    newestIdBefore = await snapshotNewestTistoryPostId(page, config.blogName);
     const confirmed = await clickFirst(page, TISTORY_SELECTORS.editor.publishConfirmButtons, 5000);
     if (!confirmed) throw new Error('Tistory publish confirmation button was not found.');
-    await page.waitForTimeout(3000).catch(() => null);
+    /**
+     * 🖱️ v3.8.708 — 발행 확인 버튼의 좌표 클릭이 **빗나간다.**
+     *
+     * 실측(2026-09-08, 비공개 시험 발행 5회): humanClick(좌표 클릭)은 4회 반응이 없었고 결과를
+     * 묻지 않으므로 빗나가도 true 다. 그래서 "발행 완료 (주소 미확인)" 로 조용히 끝나고 글은 없었다.
+     * 화면이 넘어가지 않았고 발행 버튼이 아직 그대로 보이면 DOM 클릭으로 **한 번만** 더 누른다
+     * — 이미 넘어가는 중이면 버튼이 없으니 이중 발행은 나지 않는다.
+     */
+    const navigated = await waitForPublishNavigation(page, PUBLISH_NAVIGATION_WAIT_MS);
+    if (!navigated) {
+      const retried = await clickPublishConfirmByDom(page);
+      if (retried) {
+        log(onLog, '발행 버튼 첫 클릭에 반응이 없어 한 번 더 눌렀습니다.');
+        await waitForPublishNavigation(page, PUBLISH_NAVIGATION_RETRY_WAIT_MS);
+      }
+    }
   }
 
   const currentUrl = String(typeof page.url === 'function' ? page.url() : '');
@@ -1798,6 +2085,14 @@ async function finishPublish(
   const result: { url?: string; postId?: string } = {};
   if (currentUrl && !/manage\/newpost/i.test(currentUrl)) result.url = currentUrl;
   if (postIdMatch?.[1]) result.postId = postIdMatch[1];
+  if (postingMode !== 'draft' && !result.postId) {
+    const resolved = await resolvePublishedPostByTitle(page, config.blogName, title, newestIdBefore);
+    if (resolved) {
+      result.url = resolved.url;
+      result.postId = resolved.postId;
+      log(onLog, `발행된 글 주소 확인: ${resolved.url}`);
+    }
+  }
   return result;
 }
 
@@ -1900,7 +2195,7 @@ export async function publishToTistory(
     }
     await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'before_publish');
 
-    const publishResult = await finishPublish(page, config, postingMode, scheduleDate, onLog);
+    const publishResult = await finishPublish(page, config, postingMode, scheduleDate, onLog, title);
     await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'after_publish');
     if (!publishResult.url && postingMode !== 'draft') {
       log(onLog, 'Publish completed but final URL was not detected. Returning editor URL as fallback.');

@@ -33,7 +33,8 @@ describe('Tistory thumbnail publish regression', () => {
     );
 
     expect(html).not.toContain('blob:');
-    expect(html).toContain('https://blog.kakaocdn.net/dna/example/image.jpg');
+    // v3.8.708: kakaocdn 업로드 주소는 티스토리 첨부 표기([##_Image|kage@…]) 로 나간다
+    expect(html).toContain('[##_Image|kage@example/image.jpg|CDM|1.3|');
     expect(html).toContain('Body text');
   });
 

@@ -15221,6 +15221,10 @@ ipcMain.handle('cta-bulk-repair', async (evt, payload: any) => {
       if (!key) continue;
       byPost.set(key, [...(byPost.get(key) || []), t]);
     }
+    // v3.8.708 대상은 있는데 글 id 가 하나도 없으면 배선 사고다 — 조용히 0편 성공으로 끝내지 않는다
+    if (byPost.size === 0) {
+      return { ok: false, error: `고칠 대상 ${targets.length}건에 글 id(postId)가 없습니다 — 점검 결과 배선 오류입니다. 개발자에게 알려주세요.` };
+    }
 
     const results: any[] = [];
     let done = 0;
@@ -15336,8 +15340,13 @@ ipcMain.handle('cta-audit-run', async (evt, payload: any) => {
         if (!cache.has(url)) cache.set(url, classifyCtaLink(url, await fetchPage(url)));
         checks.push(cache.get(url));
       }
+      /**
+       * 🔗 v3.8.708 — 렌더러(published-posts.js)는 `postId` 로 보낸다. `post?.id` 만 읽던 탓에
+       * 리포트마다 postId 가 비었고, cta-bulk-repair 는 postId 없는 대상을 조용히 버려
+       * "수정하기"가 0편 고치고 성공으로 끝났다. 사장님: "수정하기누르니까 하나도 못고치네"
+       */
       reports.push(summarizePost({
-        postId: post?.id, title: String(post?.title || ''), link: String(post?.link || ''), checks,
+        postId: post?.postId ?? post?.id, title: String(post?.title || ''), link: String(post?.link || ''), checks,
       }));
       done += 1;
       try { evt.sender.send('cta-audit-progress', { done, total: Math.min(posts.length, limit) }); } catch {}

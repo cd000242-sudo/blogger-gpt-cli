@@ -102,7 +102,8 @@ describe('③ 티스토리 썸네일 실패가 사용자에게 보인다', () =>
   });
 
   it('⭐⭐ 대표이미지 지정 실패를 알린다 (예전엔 반환값을 버렸다)', () => {
-    expect(publisher).toContain('const marked = await trySetUploadedImageAsRepresentative(page, onLog)');
+    // v3.8.708 부터 올린 이미지 주소를 함께 넘긴다
+    expect(publisher).toContain('const marked = await trySetUploadedImageAsRepresentative(page, unescapeHtmlAttribute(uploadedSource), onLog)');
     expect(publisher).toContain('대표이미지 지정 컨트롤을 찾지 못했습니다');
   });
 
