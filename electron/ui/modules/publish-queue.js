@@ -605,6 +605,8 @@ const QUEUE_LABELS = {
     'dropshot-nanobanana-pro': '리더스 무제한',
     gptimage1: 'GPT 이미지 1',
     gptimage2: '덕트테이프',
+    gptimage25flare: 'GPT 이미지 2.5 플레어',
+    gptimage25sunburst: 'GPT 이미지 2.5 선버스트',
     prodia: 'Prodia',
     deepinfra: 'DeepInfra',
     leonardo: 'Leonardo',

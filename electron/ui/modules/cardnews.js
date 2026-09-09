@@ -9,6 +9,8 @@ import { addLog } from './core.js';
 
 // 이미지 소스 — main 의 card-image.ts CARD_IMAGE_ENGINES 와 값이 같아야 한다
 const ENGINES = [
+  { value: 'gptimage25flare', label: 'GPT 이미지 2.5 플레어', note: '2026-09 신형 · 품질↑ 속도↑ · 장당 과금(2의 2배)' },
+  { value: 'gptimage25sunburst', label: 'GPT 이미지 2.5 선버스트', note: '프리미엄 · 편집 정밀 · 느림 · 장당 과금(2의 2배)' },
   { value: 'gptimage2', label: 'GPT 이미지 2 (덕테이프)', note: '글자 렌더링 최상 · 장당 과금' },
   { value: 'dropshot-nanobanana-pro', label: 'dropshot 나노바나나 프로 무제한', note: '비용 0 · 장당 30~60초 · 보드 무제한 토글 ON 필요' },
   { value: 'nanobanana2', label: '나노바나나2', note: 'Gemini 3.1 Flash · 빠름 · 장당 과금' },
@@ -17,7 +19,7 @@ const ENGINES = [
   { value: 'none', label: '이미지 없이 (그라데이션)', note: '비용 0 · 즉시' },
 ];
 /** full 모드가 의미 있는 엔진 — 나머지는 골라도 배경 모드로 내려간다 */
-const TEXT_CAPABLE = new Set(['gptimage2', 'dropshot-nanobanana-pro']);
+const TEXT_CAPABLE = new Set(['gptimage2', 'gptimage25flare', 'gptimage25sunburst', 'dropshot-nanobanana-pro']);
 
 const MODES = [
   { value: 'backdrop', label: '배경만 AI + 글자는 앱이 얹기', note: '숫자가 안 틀리고 7장 톤이 통일됩니다 (권장)' },

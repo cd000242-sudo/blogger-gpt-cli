@@ -2019,7 +2019,7 @@ CRITICAL RULES:
 
 export type GptImageOptions = {
   apiKey: string;
-  modelId: 'gpt-image-1' | 'gpt-image-2';
+  modelId: 'gpt-image-1' | 'gpt-image-2' | 'gpt-image-2.5-flare' | 'gpt-image-2.5-sunburst';
   /**
    * v3.8.407: 참고 이미지(i2i). 있으면 images/edits 로 부른다.
    * GPT Image 는 edits 엔드포인트에서 입력 이미지를 받는다 — generations 는 못 받는다.

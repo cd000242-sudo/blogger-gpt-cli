@@ -29,6 +29,8 @@ export type CardImageMode = 'none' | 'backdrop' | 'full' | 'product';
 
 /** UI 드롭다운에 그대로 쓰는 목록. value 는 imageDispatcher 의 엔진명과 같아야 한다. */
 export const CARD_IMAGE_ENGINES: Array<{ value: string; label: string; note: string; textCapable: boolean }> = [
+  { value: 'gptimage25flare', label: 'GPT 이미지 2.5 플레어', note: '2026-09 신형 · 품질↑ 속도↑ · 장당 과금(2의 2배)', textCapable: true },
+  { value: 'gptimage25sunburst', label: 'GPT 이미지 2.5 선버스트', note: '프리미엄 · 편집 제어 정밀 · 느림 · 장당 과금(2의 2배)', textCapable: true },
   { value: 'gptimage2', label: 'GPT 이미지 2 (덕테이프)', note: '글자 렌더링 가장 좋음 · 장당 과금', textCapable: true },
   { value: 'dropshot-nanobanana-pro', label: 'dropshot 나노바나나 프로 무제한', note: '비용 0 · 장당 30~60초 · 보드 무제한 토글 필요', textCapable: true },
   { value: 'nanobanana2', label: '나노바나나2', note: 'Gemini 3.1 Flash · 빠름 · 장당 과금', textCapable: false },

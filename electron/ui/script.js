@@ -1426,12 +1426,12 @@ function handleH2ImageSourceChange() {
   // v3.5.88 — GPT 이미지 1/2(덕테이프) 선택 시 인증 안내 토글
   const notice = document.getElementById('h2ImageVerifyNotice');
   if (notice) {
-    notice.style.display = (selectedSource === 'gptimage1' || selectedSource === 'gptimage2') ? 'block' : 'none';
+    notice.style.display = /^gptimage/.test(selectedSource || '') ? 'block' : 'none';
   }
-  // v3.5.89 — GPT 이미지 선택 시 quality 라디오 표시
+  // v3.5.89 — GPT 이미지 선택 시 quality 라디오 표시 (v3.8.709: 2.5 플레어·선버스트 포함)
   const qualityWrap = document.getElementById('gptImageQualityWrap');
   if (qualityWrap) {
-    qualityWrap.style.display = (selectedSource === 'gptimage1' || selectedSource === 'gptimage2') ? 'block' : 'none';
+    qualityWrap.style.display = /^gptimage/.test(selectedSource || '') ? 'block' : 'none';
   }
   const h2LeonardoWrap = document.getElementById('h2LeonardoModelWrap');
   if (h2LeonardoWrap) {
@@ -1458,6 +1458,8 @@ function handleH2ImageSourceChange() {
         case 'dalle':
         case 'gptimage1':
         case 'gptimage2':
+        case 'gptimage25flare':
+        case 'gptimage25sunburst':
           label.style.background = 'rgba(139, 92, 246, 0.2)';
           break;
         case 'pexels':
@@ -1489,13 +1491,13 @@ function handleH2ImageSourceChange() {
 function handleThumbnailTypeChange(value) {
   const notice = document.getElementById('thumbnailVerifyNotice');
   if (notice) {
-    notice.style.display = (value === 'gptimage1' || value === 'gptimage2') ? 'block' : 'none';
+    notice.style.display = /^gptimage/.test(value || '') ? 'block' : 'none';
   }
   // v3.5.89 — h2 quality 라디오를 썸네일 선택과도 연동 (같은 OPENAI quality 값을 공유)
   const qualityWrap = document.getElementById('gptImageQualityWrap');
   if (qualityWrap) {
     const h2Source = document.getElementById('h2ImageSource')?.value;
-    const isGpt = (v) => v === 'gptimage1' || v === 'gptimage2';
+    const isGpt = (v) => /^gptimage/.test(v || '');
     qualityWrap.style.display = (isGpt(value) || isGpt(h2Source)) ? 'block' : 'none';
   }
   const thumbTypeLeonardoWrap = document.getElementById('thumbnailTypeLeonardoModelWrap');
@@ -1852,6 +1854,9 @@ const BATCH_IMAGE_ENGINE_COST = {
   'nanobanana': 52, 'nanobanana2': 90, 'nanobananapro': 178,
   'gptimage1-low': 15, 'gptimage1-medium': 56, 'gptimage1-high': 222,
   'gptimage2-low': 15, 'gptimage2-medium': 56, 'gptimage2-high': 222,
+  // v3.8.709: GPT 이미지 2.5 (2026-09-08 출시) — 토큰 단가가 gpt-image-2의 정확히 2배
+  'gptimage25flare-low': 30, 'gptimage25flare-medium': 112, 'gptimage25flare-high': 444,
+  'gptimage25sunburst-low': 30, 'gptimage25sunburst-medium': 112, 'gptimage25sunburst-high': 444,
   'prodia': 1, 'deepinfra': 16,
 };
 
@@ -1890,7 +1895,7 @@ window.updateBatchImageCost = function () {
   // quality 라디오 wrap 표시/숨김
   const qualityWrap = document.getElementById('batchGptQualityWrap');
   if (qualityWrap) {
-    qualityWrap.style.display = (engine === 'gptimage1' || engine === 'gptimage2') ? 'block' : 'none';
+    qualityWrap.style.display = /^gptimage/.test(engine) ? 'block' : 'none';
   }
 
   // v3.6.4: Dropshot 선택 시 로그인 상태 카드 보이기 + 자동 확인 트리거
@@ -1943,7 +1948,7 @@ window.updateBatchImageCost = function () {
   if (compatCard && compatBody) {
     // ✅ 한국어 OK: nanobanana 3종 + gptimage2 (덕테이프) + flow + imagefx + dropshot
     // ⚠️ 자동 영어 변환: prodia / deepinfra / gptimage1 (FLUX/DALL-E 계열은 영어 위주)
-    const koreanOk = ['nanobanana', 'nanobanana2', 'nanobananapro', 'gptimage2', 'flow', 'imagefx'];
+    const koreanOk = ['nanobanana', 'nanobanana2', 'nanobananapro', 'gptimage2', 'gptimage25flare', 'gptimage25sunburst', 'flow', 'imagefx'];
     const isKoreanOk = koreanOk.includes(engine) || /^dropshot/.test(engine);
     if (isKoreanOk) {
       compatCard.style.background = 'rgba(34, 197, 94, 0.10)';
@@ -1970,7 +1975,7 @@ window.updateBatchImageCost = function () {
     }
   }
 
-  const unitCost = (engine === 'gptimage1' || engine === 'gptimage2')
+  const unitCost = /^gptimage/.test(engine)
     ? (BATCH_IMAGE_ENGINE_COST[`${engine}-${quality}`] ?? 0)
     : (BATCH_IMAGE_ENGINE_COST[engine] ?? 0);
   const totalCost = unitCost * count;
@@ -3257,6 +3262,13 @@ const IMAGE_ENGINE_COST_KRW_PER_IMAGE = {
   'gptimage2': 56,                               // medium 기본
   'gptimage2-low': 15,
   'gptimage2-high': 222,
+  // v3.8.709: GPT 이미지 2.5 (2026-09-08 출시) — 토큰 단가가 gpt-image-2의 정확히 2배
+  'gptimage25flare': 112,                        // medium 기본 ($0.084)
+  'gptimage25flare-low': 30,                     // $0.022
+  'gptimage25flare-high': 444,                   // $0.334
+  'gptimage25sunburst': 112,                     // medium 기본 ($0.084)
+  'gptimage25sunburst-low': 30,
+  'gptimage25sunburst-high': 444,
   'prodia': 1,                                   // $0.001 (≈1.3원)
   'deepinfra': 16,                               // $0.012
   'crawled': 0,
@@ -3271,7 +3283,7 @@ function getCurrentImageEngineCost() {
   const quality = (typeof getGptImageQuality === 'function' ? getGptImageQuality() : 'medium');
 
   const resolveCost = (engine) => {
-    if (engine === 'gptimage1' || engine === 'gptimage2') {
+    if (/^gptimage/.test(engine)) {
       return IMAGE_ENGINE_COST_KRW_PER_IMAGE[`${engine}-${quality}`] ?? IMAGE_ENGINE_COST_KRW_PER_IMAGE[engine] ?? 0;
     }
     return IMAGE_ENGINE_COST_KRW_PER_IMAGE[engine] ?? 0;

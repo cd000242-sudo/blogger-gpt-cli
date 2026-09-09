@@ -40,12 +40,16 @@ export interface ImageResult {
 //     - nanobananapro    = gemini-3-pro-image-preview    (Pro 모델, 비용 高)
 //     - gptimage1        = OpenAI gpt-image-1
 //     - gptimage2        = OpenAI gpt-image-2 (덕테이프) — 신분증 인증 필수
+//     - gptimage25flare  = OpenAI gpt-image-2.5-flare (2026-09-08 출시, 기본 추천 — gpt-image-2 대비 품질↑·지연 50%↓)
+//     - gptimage25sunburst = OpenAI gpt-image-2.5-sunburst (프리미엄 — 편집 제어 정밀, 생성 느림)
 export const SUPPORTED_IMAGE_ENGINES = [
   'nanobanana',
   'nanobanana2',
   'nanobananapro',
   'gptimage1',
   'gptimage2',
+  'gptimage25flare',
+  'gptimage25sunburst',
   'prodia',       // v3.5.90: Prodia FLUX schnell (가성비 챔피언, ≈$0.001/장)
   'deepinfra',
   'leonardo',
@@ -89,6 +93,15 @@ export function normalizeImageEngine(raw: string | undefined | null): ImageEngin
     'duct-tape': 'gptimage2',
     '덕트테이프': 'gptimage2',
     '덕테이프': 'gptimage2',
+    // GPT 이미지 2.5 별칭 (v3.8.709) — 무접미사는 OpenAI 기본 추천인 flare 로
+    'gpt-image-2.5': 'gptimage25flare',
+    'gptimage25': 'gptimage25flare',
+    'gpt-image-2.5-flare': 'gptimage25flare',
+    'flare': 'gptimage25flare',
+    '플레어': 'gptimage25flare',
+    'gpt-image-2.5-sunburst': 'gptimage25sunburst',
+    'sunburst': 'gptimage25sunburst',
+    '선버스트': 'gptimage25sunburst',
     // 기타 alias
     'flux': 'deepinfra',
     'flux-schnell': 'prodia',     // FLUX schnell 기본 라우트 → Prodia
@@ -422,6 +435,8 @@ const TEXT_CAPABLE_IMAGE_ENGINES = new Set<string>([
   'dropshot',
   'dropshot-nanobanana-pro',
   'gptimage2',
+  'gptimage25flare',
+  'gptimage25sunburst',
 ]);
 
 function engineAllowsImageText(engine: string): boolean {
@@ -456,6 +471,8 @@ function engineKeyAvailable(engine: string, env: Record<string, string>): boolea
       return getLeonardoApiKey(env).length >= 10;
     case 'gptimage1':
     case 'gptimage2':
+    case 'gptimage25flare':
+    case 'gptimage25sunburst':
       return (env['openaiKey'] || env['OPENAI_API_KEY'] || '').trim().length >= 10;
     // v3.6.0: Dropshot (UI 자동화 — API 키 불필요, 계정 로그인 기반)
     case 'dropshot-nanobanana-pro':
@@ -1089,7 +1106,8 @@ async function _tryEngineInternal(
   //   기본값 인물 사진으로 채우고, 받은 게 문장이라 그걸 그리려 한 것이다.
   //   inferImagePrompt 의 섹션 이미지 지시에는 'Pure visual — text-free' 가 이미 들어 있다.
   const skipInference = engine === 'nanobanana' || engine === 'nanobanana2'
-    || engine === 'nanobananapro' || engine === 'gptimage2' || engine === 'flow';
+    || engine === 'nanobananapro' || engine === 'gptimage2'
+    || engine === 'gptimage25flare' || engine === 'gptimage25sunburst' || engine === 'flow';
   if (!skipInference) {
     try {
       const inference = await inferImagePrompt(prompt, keyword, promptIsThumbnail, contentMode);
@@ -1157,7 +1175,9 @@ async function _tryEngineInternal(
     //   v3.5.88: gpt-image-1 / gpt-image-2(덕테이프) 정식 라우트.
     //   인증 미완료 시 OPENAI_VERIFICATION_REQUIRED 코드 → UI가 인증 페이지로 안내.
     case 'gptimage1':
-    case 'gptimage2': {
+    case 'gptimage2':
+    case 'gptimage25flare':
+    case 'gptimage25sunburst': {
       const openaiKey = (env['openaiKey'] || env['OPENAI_API_KEY'] || '').trim();
       if (!openaiKey || openaiKey.length < 10) {
         return { ok: false, dataUrl: '', source: '', error: 'OpenAI API 키 없음 (OPENAI_API_KEY 설정 필요)' };
@@ -1165,8 +1185,11 @@ async function _tryEngineInternal(
       const gptMap = {
         'gptimage1': { id: 'gpt-image-1' as const, label: 'GPT Image 1' },
         'gptimage2': { id: 'gpt-image-2' as const, label: 'GPT Image 2 (덕테이프)' },
+        // v3.8.709: 2026-09-08 출시 — flare(기본 추천·빠름) / sunburst(프리미엄·느림), 가격은 gpt-image-2의 2배
+        'gptimage25flare': { id: 'gpt-image-2.5-flare' as const, label: 'GPT Image 2.5 플레어' },
+        'gptimage25sunburst': { id: 'gpt-image-2.5-sunburst' as const, label: 'GPT Image 2.5 선버스트' },
       };
-      const g = gptMap[engine as 'gptimage1' | 'gptimage2'];
+      const g = gptMap[engine as 'gptimage1' | 'gptimage2' | 'gptimage25flare' | 'gptimage25sunburst'];
       const gptQuality = extra?.gptImageQuality ?? 'medium';
       let detail = '사유 미상';
       try {
