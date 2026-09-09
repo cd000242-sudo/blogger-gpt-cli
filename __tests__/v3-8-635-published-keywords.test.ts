@@ -153,45 +153,21 @@ describe('v3.8.635 이미 쓴 키워드', () => {
     const cal = read('electron/ui/modules/calendar.js');
     const posting = read('electron/ui/modules/posting.js');
 
-    /** 판단이 화면마다 따로 있으면 "카드엔 숨겨졌는데 달력엔 없는" 상태가 된다 */
-    test('판단은 한 곳(published-match)에서만 한다', () => {
-      expect(main).toContain("require('../dist/core/keywords/published-match')");
+    /**
+     * v3.8.711: 고CPC 카드·IPC 삭제 (사장님 지시) — 메인의 published 필터 배선(splitByPublished)은
+     * 핸들러와 함께 내렸다. published-match 모듈과 달력·발행기록 배선은 그대로다.
+     * 여기서는 **반쯤 남은 배선이 없는지**만 잰다.
+     */
+    test('카드 배선이 메인·화면 어디에도 남아 있지 않다', () => {
+      expect(main).not.toContain('splitByPublished(');
+      expect(main).not.toContain("require('../dist/core/keywords/published-match')");
       expect(ui).not.toContain('splitSlotsByPublished');
+      expect(ui).not.toContain('function cpcPublishedDigest(');
     });
 
-    test('발행 기록을 화면이 넘겨준다 — 메인은 localStorage 를 못 본다', () => {
-      expect(ui).toContain('function cpcPublishedDigest()');
-      expect(ui).toContain("api.invoke('keywords:latest-report', { published: cpcPublishedDigest() })");
-      expect(main).toContain('args?.published');
-    });
-
-    /** 썸네일이 data URL 로 들어 있어 통째로 넘기면 IPC 가 무거워진다 */
-    test('넘길 때 판단에 필요한 것만 추린다', () => {
-      const digest = blockBetween(ui, 'function cpcPublishedDigest()', 'function renderCpcDoneSlots');
-      expect(digest).toContain('keyword:');
-      expect(digest).toContain('title:');
-      expect(digest).not.toContain('thumbnail');
-    });
-
-    test('드라이브 경로·폴더 경로 둘 다 거른다', () => {
-      expect(main).toContain('splitByPublished(slots, published)');
-      expect(main).toContain('splitByPublished(usableSlots(result.report), published)');
-    });
-
-    test('쓴 키워드는 접어서 보여 준다 — 지우지 않는다', () => {
-      expect(ui).toContain('function renderCpcDoneSlots');
-      expect(ui).toContain('이미 쓴 키워드 ');
-      expect(ui).toContain('<details');
-    });
-
-    /** 다 썼는데 "슬롯이 없습니다" 라고 하면 리포트가 안 온 줄 안다 */
-    test('다 써서 빈 것과 리포트가 없어서 빈 것을 구분해 말한다', () => {
-      expect(ui).toContain('모두 발행했습니다');
-    });
-
-    test('발행 직후 카드가 다시 그려진다 — 방금 쓴 키워드가 남아 있으면 안 된다', () => {
-      const hits = posting.split('window.loadCpcReport(false)').length - 1;
-      expect(hits).toBe(2);   // 일반 발행 · 재발행 두 경로 모두
+    /** v3.8.711: 카드 삭제와 함께 발행 후 카드 재호출도 걷어냈다 — 반쯤 남은 배선 금지 */
+    test('발행 경로에 죽은 loadCpcReport 호출이 남아 있지 않다', () => {
+      expect(posting).not.toContain('window.loadCpcReport(false)');
     });
 
     /** 이 경로에 키워드를 안 남기면 판단에서 빠져 리포트에 다시 뜬다 */

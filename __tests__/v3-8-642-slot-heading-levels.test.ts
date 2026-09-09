@@ -107,14 +107,13 @@ describe('v3.8.642 슬롯 제목 단계를 못박지 않는다', () => {
     });
   });
 
-  describe('못 읽었을 때 증거를 남긴다', () => {
-    const main = read('electron/main.ts');
-
-    /** 실패한 날에 원문이 없으면 원인을 찾을 수가 없다 — 오늘 실제로 그랬다 */
-    test('파싱 실패보다 먼저 원문을 저장한다', () => {
-      const fn = blockBetween(main, 'async function loadReportFromDrive', 'ipcMain.handle(');
-      expect(fn.indexOf('writeFileSync(cpcReportCachePath()'))
-        .toBeLessThan(fn.indexOf('항목을 읽지 못했습니다'));
+  /*
+   * v3.8.711: 「파싱 실패보다 먼저 원문을 저장한다」 검사는 loadReportFromDrive 가
+   * 고CPC 기능 삭제(사장님 지시)로 사라지며 함께 내렸다. 파서 단위 검사(위)는 유지한다.
+   */
+  describe('v3.8.711 드라이브 읽기 배선이 내려갔다', () => {
+    test('메인에 loadReportFromDrive 가 남아 있지 않다', () => {
+      expect(read('electron/main.ts')).not.toContain('async function loadReportFromDrive');
     });
   });
 });

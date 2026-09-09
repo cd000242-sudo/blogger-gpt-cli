@@ -805,6 +805,13 @@ async function initializeApp() {
       debugLog('MAIN', '글 생성 엔진 복원 건너뜀', { error: e?.message });
     }
 
+    // 6-0-b. v3.8.711: 앱을 열면 글 생성 엔진부터 고른다 (사장님 지시).
+    //   복원된 값이 미리 선택돼 있으니 평소엔 [이 엔진으로 시작] 한 번이면 끝난다.
+    if (typeof window.showEngineStartupGate === 'function') {
+      window.showEngineStartupGate();
+      debugLog('MAIN', '글 생성 엔진 시작 게이트 표시');
+    }
+
     // 6-1. v3.8.411: 지난번에 고른 소제목 이미지 엔진 복원
     //   저장이 없어서 앱을 껐다 켜면 HTML 기본값(nanobanana2)으로 조용히 돌아갔다.
     //   사용자는 "지피티 이미지 2로 선택했는데 나노바나나2로 폴백됐다"고 겪었다.

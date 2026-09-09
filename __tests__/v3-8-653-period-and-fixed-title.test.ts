@@ -81,12 +81,8 @@ describe('v3.8.653 마침표 복구 · 확정 제목', () => {
       expect(posting).toContain('titleMode: titleModeValue,');
     });
 
-    test('리포트 슬롯을 고르면 그 제목이 custom 으로 들어간다', () => {
-      const ui = read('electron/ui/index.html');
-      const fn = blockBetween(ui, 'function useCpcSlot(', 'window.loadCpcReport =');
-      expect(fn).toContain("getElementById('useCustomTitle')");
-      expect(fn).toContain("getElementById('customTitle')");
-    });
+    // v3.8.711: 고CPC 카드 삭제로 useCpcSlot 이 없어졌다 — 「리포트 슬롯 → custom 제목」 검사는
+    // 카드를 되살릴 때 함께 되살린다. custom 분기 자체(orchestration·posting)는 위·아래 테스트가 지킨다.
 
     test('제목이 비면 custom 이라도 예전 길로 간다 — 빈 제목을 내보내지 않는다', () => {
       const block = blockBetween(orch, 'const fixedTitle', 'AI 자동 생성');

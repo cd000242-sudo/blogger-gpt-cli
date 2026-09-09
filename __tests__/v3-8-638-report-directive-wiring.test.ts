@@ -106,18 +106,13 @@ describe('v3.8.638 리포트 설계도 배선', () => {
     });
   });
 
-  describe('화면 — 사람이 못 하는 일을 시키지 않는다', () => {
-    const ui = read('electron/ui/index.html');
-    const posting = read('electron/ui/modules/posting.js');
-
-    /** 자동 발행이라 사장님이 손댈 수 없다. 펼쳐 볼 수는 있게 남긴다 */
-    test('확인 항목을 접어 둔다', () => {
-      expect(ui).toContain('앱이 지킬 확인 항목');
-      expect(ui).not.toContain('>발행 전 확인</div>');
-    });
-
-    test('참고 주소가 발행까지 흘러간다', () => {
-      expect(ui).toContain('window.__cpcReportUrls');
+  /*
+   * v3.8.711: 고CPC 카드 삭제 (사장님 지시) — 「확인 항목 접기」 화면 검사는 카드와 함께 내렸다.
+   * payload 사슬(cpcReportUrls)은 남아 있다 — 카드를 되살리면 그대로 다시 흐른다.
+   */
+  describe('화면 — 카드는 내렸지만 payload 사슬은 남아 있다 (v3.8.711)', () => {
+    test('발행 payload 가 리포트 주소 칸을 여전히 싣는다', () => {
+      const posting = read('electron/ui/modules/posting.js');
       expect(posting).toContain('cpcReportUrls: window.__cpcReportUrls');
     });
   });

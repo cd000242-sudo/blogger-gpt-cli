@@ -2,6 +2,7 @@
 // 목록은 항상 각 플랫폼에서 직접 가져오므로 새로고침 시 블로그에서 삭제/수동수정한 내용이 그대로 반영된다.
 import { addLog } from './core.js';
 import { loadSettings } from './settings.js';
+import { openRegenModal, engineOverrides, startRegenTask } from './regen-modal.js';
 
 const PAGE_SIZE = 20;
 
@@ -532,34 +533,55 @@ async function regeneratePostAt(index, mode) {
     return;
   }
 
-  const what = mode === 'images'
-    ? '글자는 그대로 두고 AI 이미지만 다시 만듭니다.'
-    : '본문을 통째로 새로 만들어 덮어씁니다. 지금 본문은 사라집니다.';
-  const ok = confirm(
-    `아래 글을 다시 만들까요?\n\n"${item.title || '(제목 없음)'}"\n\n${what}\n`
-    + '\n· 주소(URL)와 제목은 그대로라 검색 색인이 유지됩니다.'
-    + '\n· 새로 만든 것이 지금보다 나쁘면 덮지 않고 멈춥니다.',
-  );
-  if (!ok) return;
+  /**
+   * 🔄 v3.8.710 — confirm() 한 줄 대신 재생성 모달을 띄운다.
+   * 사장님: "글 다시생성하기버튼누르면 재생성 모달이뜨면좋겠는데"
+   * 모드(본문/이미지)와 엔진을 모달에서 바꿀 수 있다. 편집기와 같은 모달을 쓴다.
+   */
+  const choice = await openRegenModal({ title: item.title || '', mode });
+  if (!choice) return;
+  mode = choice.mode;
+
+  /**
+   * 🧾 v3.8.711 — 화면을 붙들지 않는다.
+   * 사장님: "다른작업도 가능하게 모달이 프로세서로 깔끔하게 뜨게해주세요"
+   * 오른쪽 아래 진행 카드가 [PROGRESS] 로그를 보여주고, 목록·다른 탭에서 계속 일해도 된다.
+   */
+  const task = startRegenTask({ title: item.title || '', mode });
+  if (!task) {
+    window.notifyUser?.('이미 다른 다시 생성 작업이 진행 중입니다. 끝난 뒤 다시 눌러 주세요.', 'warning');
+    return;
+  }
 
   const statusEl = document.getElementById('ppStatus');
   const label = mode === 'images' ? '🖼️ 이미지를 다시 만드는 중…' : '🔄 본문을 다시 만드는 중…';
-  if (statusEl) statusEl.textContent = `${label} (몇 분 걸립니다)`;
+  if (statusEl) statusEl.textContent = `${label} 다른 작업을 하셔도 됩니다 (진행률은 오른쪽 아래 카드)`;
 
   const buttons = document.querySelectorAll('.ppRegenBtn, .ppRegenImgBtn');
   buttons.forEach((b) => { b.disabled = true; b.style.opacity = '0.5'; });
 
   try {
-    const payload = await buildPlatformPayload(platform.key);
+    const base = await buildPlatformPayload(platform.key);
+    // 모달에서 고른 엔진이 본 화면 payload 를 덮는다 — 안 골랐으면 그대로
+    const payload = { ...(base || {}), ...engineOverrides(choice) };
     const res = await window.electronAPI.invoke('regenerate-published-post', {
       platform: platform.key,
       postId,
       title: item.title || '',
       mode,
-      ...(payload ? { payload } : {}),
+      ...(Object.keys(payload).length ? { payload } : {}),
     });
+    // ⏹ v3.8.711: 사용자 중지는 실패가 아니다 — 카드가 다르게 말한다
+    if (res?.canceled) {
+      task.stop(res?.error || '사용자가 중지했습니다 — 기존 글은 그대로 있습니다.');
+      if (statusEl) statusEl.textContent = '⏹ 다시 생성을 중지했습니다 — 기존 글은 그대로 있습니다.';
+      return;
+    }
     if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
 
+    task.done(mode === 'images'
+      ? `이미지를 다시 만들어 같은 주소에 반영했습니다 (본문 ${res.length}자)`
+      : `같은 주소에 반영했습니다 (${res.length}자)`);
     if (statusEl) {
       statusEl.textContent = mode === 'images'
         ? `✅ 이미지를 다시 만들어 같은 주소에 반영했습니다 (본문 ${res.length}자)`
@@ -568,6 +590,7 @@ async function regeneratePostAt(index, mode) {
     window.addLog?.(`✅ "${item.title}" 다시 생성 완료 — 주소 그대로 반영`, 'success');
   } catch (err) {
     const message = err?.message || String(err);
+    task.fail(String(message).slice(0, 200));
     if (statusEl) statusEl.textContent = `❌ 다시 생성 실패: ${message}`;
     window.notifyUser?.(`다시 생성하지 못했습니다.
 ${message}

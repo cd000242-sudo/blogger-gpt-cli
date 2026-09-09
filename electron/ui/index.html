@@ -1209,6 +1209,11 @@
                         if (readAgentState().mode === 'agent' && typeof window.setAgentExecutionMode === 'function') {
                           window.setAgentExecutionMode('api');
                         }
+                        // v3.8.711: 누르는 순간 저장 — [저장] 버튼을 안 거치면 재시작(업데이트)마다
+                        // 기본값으로 되돌아가던 사고의 수리 (사장님: "왜자꾸 기본값이 3.1플래쉬로")
+                        if (typeof window.persistTextModelChoice === 'function') {
+                          window.persistTextModelChoice(input.value);
+                        }
                         refreshTierUI();
                       }
                     });
@@ -3162,26 +3167,30 @@
                헤더의 [황금키워드 보러가기] 버튼과 관리자 편집기는 그대로 둔다. -->
 
           <!--
-            v3.8.631 — 오늘의 고CPC 키워드 리포트.
-
-            황금키워드 배너가 있던 자리다. 사장님 전용이며, **설정이 있어야만 나타난다.**
-            (config.json 의 cpcReportDir). 설정이 없는 사용자에게는 이 카드가 아예
-            그려지지 않으므로 기능이 없는 것과 같다.
+            v3.8.711 — 「오늘의 고CPC 키워드」 카드 삭제 (사장님: "고단가 CPC 그자리 없애버리고 다른거넣거나 비워두자").
+            같은 자리에 사이트(LEWORD) 「오늘의 글감」 카드가 들어왔다 (사장님: "LEWORD를 보면 오늘의
+            글감이 있어 여기서 3개만 가져오게가능할까 키워드 더보기 누르면 사이트로 이동하게끔").
+            데이터는 leaderspro.kr GAS 콘텐츠의 keywordBriefing — 사이트에 공개된 것 그대로라 잠글 문이 없다.
           -->
-          <div id="cpcReportCard" style="display: none; background: linear-gradient(160deg, #0f172a 0%, #172554 100%); border-radius: 16px; border: 1px solid rgba(96,165,250,0.22); padding: 16px 18px;">
+          <div id="keywordBriefingCard" style="display: none; background: linear-gradient(160deg, #0f172a 0%, #1e2a17 100%); border-radius: 16px; border: 1px solid rgba(163,230,53,0.22); padding: 16px 18px;">
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px;">
-              <h3 style="color: #e0f2fe; font-size: 14px; font-weight: 800; margin: 0; display: flex; align-items: center; gap: 7px;">
-                📥 오늘의 고CPC 키워드
-                <span id="cpcReportDate" style="color: #93c5fd; font-size: 12px; font-weight: 600;"></span>
-                <span id="cpcReportNew" style="display: none; background: #2563eb; color: white; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 999px;">NEW</span>
+              <h3 style="color: #ecfccb; font-size: 14px; font-weight: 800; margin: 0; display: flex; align-items: center; gap: 7px;">
+                📝 오늘의 글감
+                <span style="color:#a3e635; font-size:10px; font-weight:800; background:rgba(163,230,53,0.12); border:1px solid rgba(163,230,53,0.3); padding:2px 7px; border-radius:999px;">LEWORD</span>
+                <span id="keywordBriefingDate" style="color: #86a15f; font-size: 11px; font-weight: 600;"></span>
               </h3>
-              <button type="button" onclick="loadCpcReport(true)"
-                style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; color: #cbd5e1; font-size: 11px; font-weight: 700; padding: 5px 10px; cursor: pointer;">
-                다시 불러오기
-              </button>
+              <div style="display:flex; gap:6px;">
+                <button type="button" onclick="loadKeywordBriefing(true)"
+                  style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; color: #cbd5e1; font-size: 11px; font-weight: 700; padding: 5px 10px; cursor: pointer;">
+                  다시 불러오기
+                </button>
+                <button type="button" onclick="window.blogger && window.blogger.openExternal('https://leaderspro.kr/leword')"
+                  style="background: linear-gradient(135deg,#65a30d,#4d7c0f); border: none; border-radius: 8px; color: white; font-size: 11px; font-weight: 800; padding: 5px 12px; cursor: pointer;">
+                  키워드 더보기 →
+                </button>
+              </div>
             </div>
-            <div id="cpcReportSlots" style="display: flex; flex-direction: column; gap: 10px;"></div>
-            <div id="cpcReportNote" style="color: #64748b; font-size: 11px; margin-top: 8px;"></div>
+            <div id="keywordBriefingRows" style="display: flex; gap: 10px;"></div>
           </div>
           <!-- v3.8.350: 통계 카드 별도 행 삭제 → 스케줄 헤더 안 왼쪽으로 이동 (아래 스케줄 카드 참고) -->
 
@@ -8928,10 +8937,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (typeof renderGoldenKeyword === 'function') renderGoldenKeyword();
     // 캐시/로컬로 먼저 그린 뒤, 원격 배포본이 도착하면 다시 그린다 (빈 화면 대기 없음)
     if (typeof refreshGoldenKeywordFromRemote === 'function') refreshGoldenKeywordFromRemote();
-    // v3.8.631: 오늘의 고CPC 키워드 리포트 (설정이 있는 PC 에서만 보인다)
-    // v3.8.634: 드라이브에서 직접 가져오고, 리포트가 늦게 만들어져도 30분마다 다시 본다
-    if (typeof loadCpcReport === 'function') loadCpcReport(false);
-    if (typeof startCpcReportWatch === 'function') startCpcReportWatch();
+    // v3.8.711: 고CPC 카드 삭제 → 같은 자리의 「오늘의 글감」(사이트 LEWORD) 카드를 불러온다
+    if (typeof loadKeywordBriefing === 'function') loadKeywordBriefing(false);
 
     // v3.8.348: 관리자 편집 버튼 이벤트 백업 바인딩 (onclick 반응 없는 문제 fix)
     var editBtn = document.getElementById('golden-keyword-edit-btn');
@@ -9005,259 +9012,178 @@ function renderRecentPosts() {
 }
 window.renderRecentPosts = renderRecentPosts;
 
-/**
- * v3.8.631 — 오늘의 고CPC 키워드 리포트를 메인 탭에 띄운다.
- *
- * 사장님: "리더남 황금키워드 라고해서 메인탭 달력윗공간에 배치했던거기억나니?
- *         그것처럼 나만볼수있게 거기로 자동으로 불러오게끔"
- *
- * **설정이 있어야만 보인다.** config.json 의 cpcReportDir 가 없으면 IPC 가
- * enabled:false 를 돌려주고, 카드는 숨긴 채로 둔다. 다른 사용자에게는 없는 기능이다.
- * 비밀번호를 묻지 않는 이유는, 그 폴더가 없는 사람에게는 보여줄 내용 자체가
- * 없기 때문이다 — 잠글 문이 아니라 아예 방이 없다.
+/*
+ * v3.8.711 — 「오늘의 고CPC 키워드」 UI 삭제 (사장님 지시). 같은 자리에 아래
+ * 「오늘의 글감」(사이트 LEWORD keywordBriefing) 카드가 들어왔다.
  */
-function renderCpcSlot(slot) {
+
+/**
+ * 📝 v3.8.711 — 사이트(LEWORD) 오늘의 글감 카드.
+ *
+ * 사장님: "LEWORD를 보면 오늘의 글감이 있어 여기서 3개만 가져오게가능할까
+ *          키워드 더보기 누르면 사이트로 이동하게끔"
+ *
+ * 기회지수 상위 3개를 보여주고, 글감을 클릭하면 발행 키워드 칸에 채운다.
+ * 못 가져오면 카드를 숨긴 채 둔다 — 다만 캐시가 있으면 어제 것이라도 보여 준다(메인이 판단).
+ */
+function renderKeywordBriefingRow(row) {
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
   }); };
-  var longtails = (slot.longtails || []).map(function (t) {
-    return '<li style="margin: 2px 0;">' + esc(t) + '</li>';
-  }).join('');
-  var checks = (slot.mustCheck || []).map(function (t) {
-    return '<li style="margin: 2px 0;">' + esc(t) + '</li>';
-  }).join('');
-
-  return [
-    '<div style="background: rgba(15,23,42,0.55); border: 1px solid rgba(148,163,184,0.14); border-radius: 12px; padding: 12px 14px;">',
-    '  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px;">',
-    '    <span style="background: #1d4ed8; color: white; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 6px;">슬롯 ' + esc(slot.slot) + '</span>',
-    slot.grade ? '    <span style="color: #93c5fd; font-size: 11px; font-weight: 700;">' + esc(slot.grade) + '</span>' : '',
-    slot.track ? '    <span style="color: #64748b; font-size: 11px;">' + esc(slot.track) + '</span>' : '',
-    '  </div>',
-    // 키워드와 확정 제목은 다른 것이다 — 키워드는 소재, 제목은 검색 경쟁을 재고 고른 문장
-    slot.keyword ? '  <div style="display:flex; gap:6px; margin-bottom:5px;"><span style="color:#64748b; font-size:11px; font-weight:700; flex-shrink:0;">키워드</span><span style="color:#cbd5e1; font-size:12px; line-height:1.5;">' + esc(slot.keyword) + '</span></div>' : '',
-    slot.title ? '  <div style="display:flex; gap:6px; margin-bottom:8px;"><span style="color:#93c5fd; font-size:11px; font-weight:700; flex-shrink:0;">확정 제목</span><span style="color:#f1f5f9; font-size:13px; font-weight:700; line-height:1.5;">' + esc(slot.title) + '</span></div>' : '',
-    longtails ? '  <div style="color: #94a3b8; font-size: 11px; font-weight: 700; margin-bottom: 3px;">롱테일 파생 키워드 <span style="color:#64748b; font-weight:600;">— 각각 한 구간으로</span></div><ul style="color: #cbd5e1; font-size: 11px; margin: 0 0 8px; padding-left: 16px; line-height: 1.6;">' + longtails + '</ul>' : '',
-    // v3.8.638: 확인 항목은 접어 둔다.
-    //   사장님: "발행전 확인은 굳이볼필요가없자나 자동으로 발행이되는데 개입을 못하는데말이야"
-    //   맞는 말이라서, 보여 주는 대신 **앱이 프롬프트로 지키게** 했다(buildReportDirective).
-    //   그래도 지웠다고는 안 한다 — 무엇을 지키는 중인지는 열어 볼 수 있어야 한다.
-    checks ? '  <details style="margin-bottom:8px;"><summary style="color:#64748b; font-size:11px; font-weight:700; cursor:pointer;">앱이 지킬 확인 항목 ' + (slot.mustCheck || []).length + '개</summary><ul style="color:#94a3b8; font-size:11px; margin:5px 0 0; padding-left:16px; line-height:1.6;">' + checks + '</ul></details>' : '',
-    '  <button type="button" onclick="useCpcSlot(' + esc(JSON.stringify(JSON.stringify(slot))) + ')"',
-    '    style="background: linear-gradient(135deg,#2563eb,#1d4ed8); border: none; border-radius: 8px; color: white; font-size: 12px; font-weight: 800; padding: 7px 14px; cursor: pointer;">',
-    '    이 키워드로 발행 준비',
-    '  </button>',
-    '</div>',
-  ].filter(Boolean).join('\n');
+  var nf = function (n) { return Number(n || 0).toLocaleString(); };
+  return '<button type="button" onclick="useBriefingKeyword(' + esc(JSON.stringify(JSON.stringify(row.keyword))) + ')"'
+    + ' title="클릭하면 이 키워드로 발행을 준비합니다"'
+    + ' style="flex:1; min-width:0; text-align:left; background:rgba(15,23,42,0.55); border:1px solid rgba(163,230,53,0.16); border-radius:12px; padding:11px 13px; cursor:pointer;">'
+    + '<div style="color:#f1f5f9; font-size:13px; font-weight:700; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(row.keyword) + '</div>'
+    + '<div style="color:#86a15f; font-size:11px; margin-top:5px;">'
+    + '기회지수 <b style="color:#a3e635;">' + nf(Math.round(row.opportunity)) + '</b>'
+    + ' · 검색 ' + nf(row.searchVolume) + ' · 문서 ' + nf(row.documentCount)
+    + '</div>'
+    + '</button>';
 }
 
-/**
- * 발행 기록에서 **판단에 필요한 것만** 뽑아 메인에 넘긴다 (v3.8.635).
- *
- * publishedPosts 에는 썸네일이 data URL 로 들어 있을 수 있어서(최대 200KB)
- * 통째로 넘기면 IPC 가 무거워진다. 키워드·제목만 있으면 판단은 된다.
- */
-function cpcPublishedDigest() {
-  try {
-    var all = JSON.parse(localStorage.getItem('publishedPosts') || '{}');
-    var out = {};
-    Object.keys(all).forEach(function (dateKey) {
-      var list = all[dateKey];
-      if (!Array.isArray(list)) return;
-      out[dateKey] = list.map(function (p) {
-        return {
-          keyword: p && p.keyword ? String(p.keyword) : '',
-          reportKeyword: p && p.reportKeyword ? String(p.reportKeyword) : '',
-          title: p && p.title ? String(p.title) : '',
-        };
-      });
-    });
-    return out;
-  } catch (e) {
-    console.warn('[CPC-REPORT] 발행 기록을 읽지 못했습니다:', e);
-    return {};
+/** 글감 클릭 → 발행 키워드 칸에 채우고 발행 탭으로 */
+function useBriefingKeyword(keywordJson) {
+  var keyword;
+  try { keyword = JSON.parse(keywordJson); } catch { return; }
+  var input = document.getElementById('keywordInput') || document.getElementById('keyword');
+  if (input && keyword) {
+    input.value = keyword;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
   }
+  if (typeof showTab === 'function') { try { showTab('posting'); } catch {} }
+  if (input) input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (typeof addLog === 'function') addLog('📝 오늘의 글감에서 가져왔습니다 — ' + String(keyword).slice(0, 40), 'info');
 }
 
-/**
- * 리포트가 못 채운 슬롯을 알려 준다 (v3.8.637).
- *
- * 사장님: "구글드라이브는 슬롯 A 랑 B는 건너뛰고 C만 나오네....?"
- *
- * 버그가 아니라 리포트가 스스로 「슬롯 B: 미확보」 라고 적은 날이었다.
- * 그런데 화면이 말없이 빼 버리니 앱이 건너뛴 것으로 보였다.
- */
-function renderCpcMissing(missing) {
-  if (!missing || !missing.length) return '';
-  return '<div style="margin-top:8px; font-size:11px; color:#64748b;">'
-    + '슬롯 ' + missing.join('·') + ' — 리포트가 오늘 소재를 확보하지 못했습니다'
-    + '</div>';
-}
-
-/** 이미 쓴 키워드 — 지우지 않고 접어 둔다. "그거 언제 썼더라" 를 물을 수 있어야 한다 */
-function renderCpcDoneSlots(done) {
-  if (!done || !done.length) return '';
-  var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
-    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
-  }); };
-  var items = done.map(function (s) {
-    return '<li style="margin:3px 0; color:#64748b; text-decoration: line-through;">'
-      + esc(s.keyword || s.title || '') + '</li>';
-  }).join('');
-  return '<details style="margin-top:10px;">'
-    + '<summary style="cursor:pointer; color:#64748b; font-size:11px; font-weight:700;">'
-    + '이미 쓴 키워드 ' + done.length + '개</summary>'
-    + '<ul style="margin:6px 0 0; padding-left:18px; font-size:11px; line-height:1.6;">' + items + '</ul>'
-    + '</details>';
-}
-
-async function loadCpcReport(manual) {
-  var card = document.getElementById('cpcReportCard');
+async function loadKeywordBriefing(manual) {
+  var card = document.getElementById('keywordBriefingCard');
   if (!card) return;
   var api = window.electronAPI || window.electron || window.blogger;
   if (!api || !api.invoke) return;
 
   try {
-    var r = await api.invoke('keywords:latest-report', { published: cpcPublishedDigest() });
-    if (!r || !r.enabled) { card.style.display = 'none'; return; }   // 설정이 없으면 없는 기능이다
-
+    var r = await api.invoke('site:keyword-briefing');
+    if (!r || !r.ok || !Array.isArray(r.rows) || r.rows.length === 0) {
+      // 캐시조차 없다 — 자리를 비워 둔다. 수동으로 눌렀을 때만 이유를 말한다
+      if (manual) alert('오늘의 글감을 불러오지 못했습니다: ' + ((r && r.error) || '알 수 없는 이유'));
+      return;
+    }
     card.style.display = 'block';
-    window.__cpcDriveFileId = r.driveFileId || '';
-    // v3.8.638: 리포트가 준 참고 주소를 발행 payload 가 집어 갈 수 있게 남긴다
-    window.__cpcReportUrls = Array.isArray(r.urls) ? r.urls : [];
-
-    // 아직 드라이브를 연결 안 했다 — 한 번만 누르면 그 뒤로는 앱이 알아서 가져온다
-    var slotsBox = document.getElementById('cpcReportSlots');
-    if (r.needsConnect) {
-      var dateHead = document.getElementById('cpcReportDate');
-      if (dateHead) dateHead.textContent = '';
-      if (slotsBox) {
-        slotsBox.innerHTML =
-          '<div style="font-size:12px; color:#475569; line-height:1.7;">'
-          + '구글 드라이브를 한 번 연결하면 매일 리포트를 자동으로 가져옵니다.'
-          + '</div>'
-          + '<button type="button" onclick="connectCpcDrive()" '
-          + 'style="margin-top:8px; padding:7px 14px; border:0; border-radius:8px; '
-          + 'background:#2563eb; color:#fff; font-size:12px; cursor:pointer;">'
-          + '구글 드라이브 연결</button>';
-      }
-      return;
+    var dateEl = document.getElementById('keywordBriefingDate');
+    if (dateEl) {
+      var day = String(r.updatedAt || '').slice(0, 10);
+      dateEl.textContent = (day ? day : '') + (r.stale ? ' (오프라인 캐시)' : '');
     }
-    var dateEl = document.getElementById('cpcReportDate');
-    var newEl = document.getElementById('cpcReportNew');
-    var slotsEl = document.getElementById('cpcReportSlots');
-    var noteEl = document.getElementById('cpcReportNote');
-
-    if (dateEl) dateEl.textContent = r.date || '';
-    if (newEl) newEl.style.display = r.isNew ? 'inline-block' : 'none';
-    if (noteEl) noteEl.textContent = r.message || '';
-
-    if (!r.ok || !r.slots || r.slots.length === 0) {
-      // 다 써서 빈 것과 리포트가 없어서 빈 것은 다른 일이다
-      var allDone = r.ok && r.doneSlots && r.doneSlots.length > 0;
-      if (slotsEl) {
-        slotsEl.innerHTML =
-          '<div style="color:#64748b; font-size:12px;">'
-          + (allDone ? '오늘 리포트의 키워드는 모두 발행했습니다.' : '오늘 쓸 슬롯이 없습니다.')
-          + '</div>' + renderCpcMissing(r.missingSlots) + renderCpcDoneSlots(r.doneSlots);
-      }
-      return;
-    }
-    if (slotsEl) {
-      slotsEl.innerHTML = r.slots.map(renderCpcSlot).join('\n')
-        + renderCpcMissing(r.missingSlots)
-        + renderCpcDoneSlots(r.doneSlots);
-    }
+    var rowsEl = document.getElementById('keywordBriefingRows');
+    if (rowsEl) rowsEl.innerHTML = r.rows.map(renderKeywordBriefingRow).join('\n');
   } catch (e) {
-    console.warn('[CPC-REPORT] 불러오기 실패:', e);
-    if (manual) alert('리포트를 불러오지 못했습니다: ' + (e && e.message ? e.message : e));
+    console.warn('[KEYWORD-BRIEFING] 불러오기 실패:', e);
+    if (manual) alert('오늘의 글감을 불러오지 못했습니다: ' + (e && e.message ? e.message : e));
   }
 }
+window.loadKeywordBriefing = loadKeywordBriefing;
+window.useBriefingKeyword = useBriefingKeyword;
 
 /**
- * 고른 슬롯을 발행 입력에 채운다.
+ * 🧠 v3.8.711 — 앱을 열면 **글 생성 엔진부터 고르게** 하는 시작 게이트.
  *
- * **키워드와 제목을 각각 넣는다.** 둘은 다른 것이다 —
- * 키워드는 소재이고, 확정 제목은 검색 경쟁을 재고 고른 문장이다.
- * 예전처럼 제목을 키워드 칸에 넣으면 제목이 다시 지어지면서
- * 리포트가 고른 제목이 버려진다.
+ * 사장님: "앱을 열면 먼저 글생성엔진부터 선택하도록 하랫는데 그거안되있자나"
+ *
+ * 기본값인 줄 모르고 발행해 엉뚱한 엔진으로 나가는 사고를 입구에서 막는다.
+ * 선택지는 환경설정의 실제 라디오(primaryGeminiTextModel)와 에이전트 상태에서
+ * **그대로 읽어** 그린다 — 목록을 두 벌 적으면 한쪽만 갱신되고 갈라진다.
+ * 고르면 즉시 저장(persistTextModelChoice)까지 된다.
  */
-function useCpcSlot(slotJson) {
-  var slot;
-  try { slot = JSON.parse(slotJson); } catch { return; }
-
-  // 리포트가 정한 설계도(롱테일·확인항목)를 발행 payload 가 집어 갈 수 있게 남긴다
-  window.__cpcReportSlot = slot;
-
-  // ① 키워드 칸 — 소재
-  var keywordInput = document.getElementById('keywordInput') || document.getElementById('keyword');
-  if (keywordInput && (slot.keyword || slot.title)) {
-    keywordInput.value = slot.keyword || slot.title;
-    keywordInput.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-
-  // ② 제목 칸 — 확정 제목을 그대로 쓰도록 직접입력을 켠다
-  if (slot.title) {
-    var customCheck = document.getElementById('useCustomTitle');
-    var customInput = document.getElementById('customTitle');
-    if (customCheck && !customCheck.checked) {
-      customCheck.checked = true;
-      customCheck.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    if (customInput) {
-      customInput.value = slot.title;
-      customInput.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-  }
-
-  if (typeof showTab === 'function') { try { showTab('posting'); } catch {} }
-  if (keywordInput) keywordInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-  var api = window.electronAPI || window.electron || window.blogger;
-  if (api && api.invoke) {
-    api.invoke('keywords:mark-report-used', { driveFileId: window.__cpcDriveFileId || '' })
-      .catch(function () {});
-  }
-
-  if (typeof addLog === 'function') {
-    addLog('📥 리포트에서 가져왔습니다 — 키워드: ' + (slot.keyword || '').slice(0, 40)
-      + ' / 제목: ' + (slot.title || '(자동)').slice(0, 40)
-      + ' / 다뤄야 할 구간 ' + ((slot.longtails || []).length) + '개', 'info');
-  }
-}
-/** 드라이브 연결 — 브라우저에서 동의 한 번. 그 뒤로는 앱이 알아서 가져온다 */
-async function connectCpcDrive() {
-  var api = window.electronAPI || window.electron || window.blogger;
-  if (!api || !api.invoke) return;
+function showEngineStartupGate() {
   try {
-    var r = await api.invoke('drive:connect');
-    if (r && r.ok) {
-      if (typeof addLog === 'function') addLog('☁️ 구글 드라이브 연결 완료 — 리포트를 가져옵니다', 'success');
-      await loadCpcReport(true);
-    } else {
-      alert('드라이브 연결 실패: ' + ((r && r.error) || '알 수 없는 이유'));
-    }
+    if (document.getElementById('engineGateOverlay')) return;
+    var radios = Array.from(document.querySelectorAll('input[name="primaryGeminiTextModel"]'));
+    if (!radios.length) return;   // 라디오가 없으면(레이아웃 변경 등) 조용히 넘어간다 — 발행은 막지 않는다
+
+    var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    }); };
+
+    // 에이전트 상태 — codex-workshop 이 아직 안 붙었으면 localStorage 폴백(표시용)
+    var agentMode = 'api';
+    var agentProvider = 'codex';
+    try {
+      if (typeof window.getAgentExecutionState === 'function') {
+        var st = window.getAgentExecutionState();
+        agentMode = st.mode === 'agent' ? 'agent' : 'api';
+        agentProvider = st.provider === 'claude' ? 'claude' : 'codex';
+      } else {
+        agentMode = JSON.parse(localStorage.getItem('leadernamExecutionMode') || '"api"') === 'agent' ? 'agent' : 'api';
+        agentProvider = JSON.parse(localStorage.getItem('leadernamActiveAgentProvider') || '"codex"') === 'claude' ? 'claude' : 'codex';
+      }
+    } catch (e) { /* 표시용 — 못 읽어도 API 목록은 뜬다 */ }
+
+    var apiRows = radios.map(function (r) {
+      var card = r.closest('.tier-card');
+      var labelText = card ? (card.querySelector('span')?.textContent || r.value) : r.value;
+      var cost = card && card.dataset.cost ? ' · ~₩' + card.dataset.cost + '/글' : '';
+      var checked = (agentMode !== 'agent' && r.checked) ? ' checked' : '';
+      return '<label style="display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid rgba(148,163,184,0.18); border-radius:10px; cursor:pointer; background:rgba(15,23,42,0.6);">'
+        + '<input type="radio" name="engineGateChoice" value="api:' + esc(r.value) + '"' + checked + ' style="accent-color:#8b5cf6;">'
+        + '<span style="color:#e2e8f0; font-size:13px; font-weight:700;">' + esc(labelText) + '</span>'
+        + '<span style="margin-left:auto; color:#94a3b8; font-size:11px;">' + esc(cost.replace(' · ', '')) + '</span>'
+        + '</label>';
+    }).join('');
+
+    var agentRows = ['codex', 'claude'].map(function (p) {
+      var checked = (agentMode === 'agent' && agentProvider === p) ? ' checked' : '';
+      var label = p === 'claude' ? '🤖 Claude Code Agent' : '🤖 Codex Agent';
+      return '<label style="display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid rgba(249,115,22,0.3); border-radius:10px; cursor:pointer; background:rgba(15,23,42,0.6);">'
+        + '<input type="radio" name="engineGateChoice" value="agent:' + p + '"' + checked + ' style="accent-color:#f97316;">'
+        + '<span style="color:#fed7aa; font-size:13px; font-weight:700;">' + label + '</span>'
+        + '<span style="margin-left:auto; color:#fdba74; font-size:11px;">구독 사용량 · API 비용 0</span>'
+        + '</label>';
+    }).join('');
+
+    var overlay = document.createElement('div');
+    overlay.id = 'engineGateOverlay';
+    overlay.style.cssText = 'position:fixed; inset:0; z-index:100005; background:rgba(2,6,23,0.82); display:flex; align-items:center; justify-content:center; padding:20px;';
+    overlay.innerHTML =
+      '<div style="width:min(480px,94vw); max-height:88vh; overflow:auto; background:#1e293b; border:1px solid #334155; border-radius:14px; padding:22px 24px; box-shadow:0 20px 60px rgba(0,0,0,.5);">'
+      + '<div style="color:#f1f5f9; font-size:16px; font-weight:800;">🧠 글 생성 엔진을 먼저 골라 주세요</div>'
+      + '<div style="margin-top:5px; color:#94a3b8; font-size:12px; line-height:1.6;">오늘 발행에 쓸 엔진입니다. 고르면 저장되고, 나중에 환경설정에서 언제든 바꿀 수 있습니다.</div>'
+      + '<div style="margin-top:14px; color:#64748b; font-size:11px; font-weight:800;">구독 에이전트 (설치·로그인 필요)</div>'
+      + '<div style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">' + agentRows + '</div>'
+      + '<div style="margin-top:12px; color:#64748b; font-size:11px; font-weight:800;">API 모델 (키 필요 · 호출당 과금)</div>'
+      + '<div style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">' + apiRows + '</div>'
+      + '<div style="margin-top:16px; display:flex; justify-content:flex-end;">'
+      + '<button id="engineGateStart" style="padding:10px 20px; border:0; border-radius:9px; background:linear-gradient(135deg,#8b5cf6,#6d28d9); color:#fff; font-size:13px; font-weight:800; cursor:pointer;">이 엔진으로 시작</button>'
+      + '</div></div>';
+    document.body.appendChild(overlay);
+
+    document.getElementById('engineGateStart').addEventListener('click', function () {
+      var picked = document.querySelector('input[name="engineGateChoice"]:checked');
+      if (!picked) { alert('엔진을 하나 골라 주세요.'); return; }
+      var parts = String(picked.value).split(':');
+      if (parts[0] === 'agent') {
+        if (typeof window.setAgentProvider === 'function' && typeof window.setAgentExecutionMode === 'function') {
+          window.setAgentProvider(parts[1]);
+          window.setAgentExecutionMode('agent');
+        } else {
+          alert('에이전트 설정을 아직 불러오지 못했습니다. 환경설정 → Agent 계정에서 로그인 상태를 확인해 주세요.');
+        }
+      } else {
+        var value = parts.slice(1).join(':');
+        radios.forEach(function (r) { r.checked = (r.value === value); });
+        if (typeof window.setAgentExecutionMode === 'function' && agentMode === 'agent') window.setAgentExecutionMode('api');
+        if (typeof window.persistTextModelChoice === 'function') window.persistTextModelChoice(value);
+      }
+      if (typeof window.refreshTierCards === 'function') { try { window.refreshTierCards(); } catch (e) {} }
+      overlay.remove();
+      if (typeof addLog === 'function') addLog('🧠 오늘의 글 생성 엔진: ' + (parts[0] === 'agent' ? parts[1] + ' 에이전트' : parts.slice(1).join(':')), 'info');
+    });
   } catch (e) {
-    alert('드라이브 연결 실패: ' + (e && e.message ? e.message : e));
+    console.warn('[ENGINE-GATE] 시작 게이트 실패 — 발행은 막지 않는다:', e);
+    try { document.getElementById('engineGateOverlay')?.remove(); } catch (e2) { /* noop */ }
   }
 }
-
-/**
- * 리포트는 만들어지는 시각이 들쭉날쭉하다 (클로드코드 할당량이 풀리는 때에 달렸다).
- * 그래서 시각을 정해 두지 않고 **주기적으로 드라이브를 다시 본다.**
- * 30분마다 한 번이면 API 를 괴롭히지 않으면서 늦어도 30분 안에 뜬다.
- */
-function startCpcReportWatch() {
-  if (window.__cpcWatchTimer) return;
-  window.__cpcWatchTimer = setInterval(function () {
-    loadCpcReport(false).catch(function () {});
-  }, 30 * 60 * 1000);
-}
-
-window.loadCpcReport = loadCpcReport;
-window.useCpcSlot = useCpcSlot;
-window.connectCpcDrive = connectCpcDrive;
-window.startCpcReportWatch = startCpcReportWatch;
+window.showEngineStartupGate = showEngineStartupGate;
 
 // v3.8.347: 오늘의 리더남 황금키워드 (관리자 편집 — 키워드+추천제목 구조화)
 var GOLDEN_KEYWORD_STORAGE_KEY = 'goldenKeywordReport';

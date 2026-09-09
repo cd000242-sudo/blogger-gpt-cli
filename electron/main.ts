@@ -4249,6 +4249,13 @@ ipcMain.handle('regenerate-published-post', async (_evt, args: {
     try { if (_evt.sender && !_evt.sender.isDestroyed()) _evt.sender.send('log-line', line); } catch { /* noop */ }
   };
 
+  /**
+   * 🛑 v3.8.711 — 재생성도 "도는 작업"으로 등록한다.
+   * 사장님: "추론중인데 중지가안되냐" — beginRun() 없이 돌면 currentRunId 가 0 이라
+   * cancel-task 가 "진행 중인 작업이 없습니다"로 무시된다. publish(v3.8.414)·
+   * run-post(v3.8.53x)에서 두 번 겪은 것과 같은 계열의 세 번째 사고다.
+   */
+  try { require('../dist/core/cancel-token').beginRun(); } catch { /* noop */ }
   try {
     const mode = args?.mode === 'images' ? 'images' : 'article';
     const postId = String(args?.postId || '').trim();
@@ -4321,8 +4328,15 @@ ipcMain.handle('regenerate-published-post', async (_evt, args: {
     return { ok: true, mode, length: verdict.length, url: current.url || '', html: nextHtml };
   } catch (error: any) {
     const message = error?.message || String(error);
+    // 사용자 중지는 실패가 아니다 — 화면이 다르게 말해야 한다
+    if (error?.canceled || /중지되었습니다/.test(message)) {
+      send('⏹️ 다시 생성이 중지되었습니다 — 기존 글은 그대로 있습니다');
+      return { ok: false, canceled: true, error: '사용자가 중지했습니다. 기존 글은 그대로 있습니다.' };
+    }
     send(`❌ 다시 생성 실패: ${message}`);
     return { ok: false, error: message };
+  } finally {
+    try { require('../dist/core/cancel-token').endRun(); } catch { /* noop */ }
   }
 });
 
@@ -4343,353 +4357,71 @@ ipcMain.handle('regenerate-published-post', async (_evt, args: {
  */
 const critiqueHistoryPath = (): string => path.join(app.getPath('userData'), 'critique-history.json');
 
-/**
- * 📥 v3.8.631 — 매일 만들어지는 고CPC 키워드 리포트를 읽는다.
- *
- * 사장님: "매일마다 생성하니까 읽게해주고 … 자동으로 생성되는걸감지해서 가져오게끔"
- *         "문제는 이걸 사용자가 다볼수있게하고싶지는않아 이건 내꺼라서"
- *
- * ## 사생활 — 코드에 흔적을 남기지 않는다
- * 폴더 경로를 여기 적지 않는다. `config.json` 의 `cpcReportDir` 에서만 읽고,
- * 그 값이 없으면 **이 기능은 아예 켜지지 않는다.** 설정하지 않은 사용자에게는
- * 없는 기능과 같다. 실행파일(asar)은 누구나 열 수 있으므로, 코드에 경로나
- * 계정을 적으면 그 순간 공개된다.
- *
- * ## 시각이 아니라 파일을 본다
- * 클로드코드 할당량이 막히면 리포트가 몇 시간 뒤에 만들어진다. 그래서
- * "매일 9시에 읽는다" 는 못 쓴다 — 폴더에 **새 파일이 나타났는지**만 본다.
- */
-const cpcReportStatePath = (): string => path.join(app.getPath('userData'), 'cpc-report-state.json');
-
-function cpcReportDir(): string {
-  try {
-    const configPath = path.join(app.getPath('userData'), 'config.json');
-    if (!fs.existsSync(configPath)) return '';
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    return String(config?.cpcReportDir || '').trim();
-  } catch {
-    return '';
-  }
-}
-
-/**
- * ☁️ v3.8.634 — 드라이브에서 직접 읽는다.
- *
- * 사장님: "너가 읽고 자동으로 뜨게해줘야지 내가 수동으로 할꺼면
- *          그냥 드라이브열고 보는게낫지"
- *
- * v3.8.631 은 폴더 경로를 설정에 적고 파일을 갖다 놓아야 읽었다. 그건 심부름이지
- * 자동화가 아니다. 리포트는 매일 드라이브에 만들어지므로 앱이 거기서 가져온다.
- * 폴더 방식은 드라이브가 안 될 때를 위한 뒷문으로만 남긴다.
+/*
+ * 📥 v3.8.711 — 고CPC 키워드 리포트 기능 삭제 (사장님: "고단가 CPC 그자리 없애버리고 다른거넣거나 비워두자").
+ * v3.8.631~708 에 걸쳐 있던 카드 UI·IPC(keywords:latest-report / keywords:mark-report-used /
+ * drive:connect / drive:report-status)와 드라이브 읽기 헬퍼를 걷어냈다.
+ * src/core/keywords/ 의 파서·매칭 모듈과 발행 payload 사슬(cpcReportSlot)은 남겨 뒀다 —
+ * 되살리려면 git 히스토리에서 이 자리의 핸들러와 화면 카드를 가져오면 된다.
  */
 
 /**
- * 이 기능을 볼 수 있는 사람인지. 사장님 것이라 다른 사용자에게는 **버튼조차** 안 보인다.
+ * 📝 v3.8.711 — 사이트(LEWORD)의 「오늘의 글감」을 가져온다.
  *
- * 계정을 코드에 적으면 asar 를 여는 순간 공개되므로 해시만 둔다.
- * 되돌릴 수 없고, 맞는 사람에게만 조용히 켜진다.
- */
-const OWNER_KEY_SHA256 = 'e376393291329606e9b30b159125ca32bb2bc665b4bdcf5aacd4ee1eedf0d4ea';
-
-function userEnvValue(key: string): string {
-  try {
-    const envPath = path.join(app.getPath('userData'), '.env');
-    if (!fs.existsSync(envPath)) return '';
-    const line = fs
-      .readFileSync(envPath, 'utf-8')
-      .split(/\r?\n/)
-      .find((l) => l.startsWith(key + '='));
-    return line ? line.slice(key.length + 1).trim() : '';
-  } catch {
-    return '';
-  }
-}
-
-function googleClientId(): string {
-  return userEnvValue('GOOGLE_CLIENT_ID') || userEnvValue('BLOGGER_CLIENT_ID');
-}
-
-function isReportOwner(): boolean {
-  const id = googleClientId();
-  if (!id) return false;
-  return require('crypto').createHash('sha256').update(id).digest('hex') === OWNER_KEY_SHA256;
-}
-
-function driveCreds(): { clientId: string; clientSecret: string; refreshToken: string } | null {
-  const clientId = googleClientId();
-  const clientSecret = userEnvValue('GOOGLE_CLIENT_SECRET') || userEnvValue('BLOGGER_CLIENT_SECRET');
-  const refreshToken = userEnvValue('GOOGLE_DRIVE_REFRESH_TOKEN');
-  if (!clientId || !clientSecret || !refreshToken) return null;
-  return { clientId, clientSecret, refreshToken };
-}
-
-/** 드라이브 리프레시 토큰을 userData/.env 에 남긴다 (블로거 토큰과 같은 자리) */
-function saveDriveRefreshToken(token: string): void {
-  const envPath = path.join(app.getPath('userData'), '.env');
-  fs.mkdirSync(path.dirname(envPath), { recursive: true });
-  const before = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
-  const lines = before.split(/\r?\n/).filter((l) => !l.startsWith('GOOGLE_DRIVE_REFRESH_TOKEN='));
-  lines.push(`GOOGLE_DRIVE_REFRESH_TOKEN=${token}`);
-  fs.writeFileSync(envPath, lines.filter(Boolean).join('\n') + '\n', 'utf-8');
-}
-
-/** 화면이 물어본다: 이 사람에게 보여 줄 기능인가, 이미 연결돼 있나 */
-ipcMain.handle('drive:report-status', async () => {
-  const owner = isReportOwner();
-  return { ok: true, owner, connected: owner && !!driveCreds() };
-});
-
-/**
- * 드라이브 읽기 권한을 한 번 받아 둔다. 그 뒤로는 앱이 알아서 가져온다.
+ * 사장님: "내사이트에 내 앱이니까 연동도가능하지않을까" →
+ *         "LEWORD를 보면 오늘의 글감이 있어 여기서 3개만 가져오게가능할까
+ *          키워드 더보기 누르면 사이트로 이동하게끔"
  *
- * 블로거 인증과 **따로** 받는다. 기존 토큰에 스코프를 얹으면 재동의가 필요하고,
- * 거기서 실패하면 발행까지 같이 죽는다 — 잘 되는 것을 건드리지 않는다.
+ * leaderspro.kr 콘텐츠는 GAS 가 JSON 으로 준다(릴리스 스크립트가 쓰는 것과 같은 통로,
+ * 읽기는 토큰 불필요 — 사이트에 공개된 내용 그대로다). content.keywordBriefing.rows 에서
+ * 기회지수 상위 3개만 추린다. GAS 콜드 스타트가 수십 초라(실측) 성공본을 캐시해 두고,
+ * 못 가져온 날은 캐시라도 보여 준다 — 화면이 그냥 비면 고장으로 보인다.
  */
-ipcMain.handle('drive:connect', async () => {
-  if (!isReportOwner()) return { ok: false, error: '사용할 수 없는 기능입니다' };
+const keywordBriefingCachePath = (): string => path.join(app.getPath('userData'), 'keyword-briefing-cache.json');
+const LEADERSPRO_GAS_URL = process.env.LEADERSPRO_GAS_URL
+  || 'https://script.google.com/macros/s/AKfycbxBOGkjVj4p-6XZ4SEFYKhW3FBmo5gt7Fv6djWhB1TljnDDmx_qlfZ4YdlJNohzIZ8NJw/exec';
 
-  const clientId = googleClientId();
-  const clientSecret = userEnvValue('GOOGLE_CLIENT_SECRET') || userEnvValue('BLOGGER_CLIENT_SECRET');
-  if (!clientId || !clientSecret) {
-    return { ok: false, error: '구글 클라이언트 ID·시크릿이 없습니다 (블로거 연동을 먼저 마쳐 주세요)' };
-  }
-
-  const redirectUri = 'http://localhost:8889/callback';
-  const scope = 'https://www.googleapis.com/auth/drive.readonly';
-  const authUrl =
-    'https://accounts.google.com/o/oauth2/v2/auth?' +
-    `client_id=${encodeURIComponent(clientId)}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    '&response_type=code' +
-    `&scope=${encodeURIComponent(scope)}` +
-    '&access_type=offline&prompt=consent';
-
-  const http = require('http');
-  const urlLib = require('url');
-
-  return new Promise((resolve) => {
-    let settled = false;
-    const done = (result: any) => {
-      if (settled) return;
-      settled = true;
-      try { server.close(); } catch { /* 이미 닫혔다 */ }
-      resolve(result);
-    };
-
-    const server = http.createServer(async (req: any, res: any) => {
-      const parsed = urlLib.parse(req.url, true);
-      if (parsed.pathname !== '/callback') { res.writeHead(404); res.end(); return; }
-
-      const code = parsed.query.code;
-      if (!code) {
-        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end('<h1>인증이 취소되었습니다</h1>');
-        done({ ok: false, error: '인증이 취소되었습니다' });
-        return;
-      }
-
-      try {
-        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            client_id: clientId,
-            client_secret: clientSecret,
-            code: String(code),
-            grant_type: 'authorization_code',
-            redirect_uri: redirectUri,
-          }).toString(),
-        });
-        const tokenData: any = await tokenRes.json();
-        if (!tokenData?.refresh_token) {
-          throw new Error(tokenData?.error_description || '리프레시 토큰을 받지 못했습니다');
-        }
-        saveDriveRefreshToken(String(tokenData.refresh_token));
-
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(
-          '<!DOCTYPE html><html><head><meta charset="utf-8"><title>연결 완료</title></head>' +
-          '<body style="font-family:sans-serif;text-align:center;padding:50px;background:#0f172a;color:#fff">' +
-          '<h1>✅ 드라이브 연결 완료</h1><p>이 창을 닫고 앱으로 돌아가세요.</p>' +
-          '<script>setTimeout(function(){window.close()},1500)</script></body></html>',
-        );
-        console.log('[DRIVE] ✅ 드라이브 읽기 권한 저장 완료');
-        done({ ok: true });
-      } catch (error: any) {
-        res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end('<h1>연결 실패</h1>');
-        done({ ok: false, error: String(error?.message || error).slice(0, 200) });
-      }
-    });
-
-    server.listen(8889, () => {
-      const { shell } = require('electron');
-      shell.openExternal(authUrl);
-    });
-    server.on('error', (e: any) => done({ ok: false, error: `콜백 서버를 열지 못했습니다: ${e?.message || e}` }));
-
-    // 사람이 브라우저에서 손을 놓으면 영원히 안 끝난다 — 5분이면 충분하다
-    setTimeout(() => done({ ok: false, error: '인증 시간이 초과되었습니다 (5분)' }), 5 * 60 * 1000);
-  });
-});
-
-/** 드라이브에서 가져온 리포트를 앱 데이터에 남긴다 — 오프라인이어도 어제 것은 보인다 */
-const cpcReportCachePath = (): string => path.join(app.getPath('userData'), 'cpc-report-cache.md');
-
-/**
- * 드라이브에서 오늘치를 가져온다. 못 가져오면 이유를 돌려준다 (조용히 비우지 않는다).
- */
-/**
- * 이미 발행한 키워드를 슬롯에서 걷어낸다 (v3.8.635).
- *
- * 사장님: "발행됫으면 자연스럽게 발행된키워드는 숨겨지게"
- *
- * 판단은 published-match.ts 하나에만 둔다. 화면마다 따로 판단하면
- * "카드에선 숨겨졌는데 달력엔 없는" 어긋난 상태가 생긴다.
- * 지우지 않고 나눈다 — "그거 언제 썼더라" 를 물을 수 있어야 한다.
- */
-function splitByPublished(slots: any[], published: any): { slots: any[]; doneSlots: any[] } {
-  try {
-    const { splitSlotsByPublished } = require('../dist/core/keywords/published-match');
-    const { todo, done } = splitSlotsByPublished(slots || [], published || {});
-    return { slots: todo, doneSlots: done };
-  } catch (error: any) {
-    // 가르지 못하면 다 보여 준다 — 안 보여 주는 쪽이 더 나쁘다
-    console.warn('[CPC-REPORT] 발행 여부 판단 실패:', error?.message || error);
-    return { slots: slots || [], doneSlots: [] };
-  }
-}
-
-async function loadReportFromDrive(published?: any): Promise<any> {
-  const creds = driveCreds();
-  if (!creds) return { ok: false, enabled: isReportOwner(), needsConnect: true, message: '' };
-
-  const { fetchLatestDriveReport } = require('../dist/core/keywords/drive-report');
-  const { parseCpcReport, usableSlots, missingSlots } = require('../dist/core/keywords/cpc-report');
-
-  const found = await fetchLatestDriveReport(creds);
-  if (!found) {
-    return { ok: false, enabled: true, message: '오늘 리포트가 아직 드라이브에 없습니다' };
-  }
-
-  /**
-   * v3.8.642 — 못 읽었을 때야말로 **원문을 남겨야 한다.**
-   *
-   * 예전에는 파싱에 성공한 뒤에만 저장해서, 정작 서식이 바뀌어 실패한 날에는
-   * 무엇을 받았는지 확인할 길이 없었다(2026-09-05 실측: 구글 문서 내보내기가
-   * `## 슬롯 A` 로 나오는데 파서는 `#` 하나만 받아 슬롯 0개가 됐다).
-   * 실패한 파일이 곧 증거다 — 먼저 적어 둔다.
-   */
-  try { fs.writeFileSync(cpcReportCachePath(), found.markdown, 'utf-8'); } catch { /* 기록 실패가 표시를 막지 않는다 */ }
-
-  const report = parseCpcReport(found.markdown);
-  const slots = usableSlots(report);
-  if (!slots.length) {
-    // 파일은 왔는데 못 읽었다 — 서식이 바뀐 것이다. 화면이 이 말을 해 줘야 한다
-    return {
-      ok: false,
-      enabled: true,
-      message: `리포트를 받았지만 항목을 읽지 못했습니다 (${found.name})`,
-    };
-  }
-
-  const split = splitByPublished(slots, published);
-
-  // 어제 것을 오늘 것으로 착각하지 않게, 마지막으로 쓴 파일 id 와 비교한다
-  let lastId = '';
-  try { lastId = JSON.parse(fs.readFileSync(cpcReportStatePath(), 'utf-8'))?.driveFileId || ''; } catch { /* 처음이다 */ }
-
-  return {
-    ok: true,
-    enabled: true,
-    source: 'drive',
-    date: found.date || report.date,
-    isNew: found.id !== lastId,
-    fileName: found.name,
-    driveFileId: found.id,
-    message: '',
-    slots: split.slots,
-    doneSlots: split.doneSlots,
-    // 리포트가 못 채운 슬롯 — 말없이 빼면 "건너뛰었다" 로 보인다 (v3.8.637)
-    missingSlots: missingSlots(report),
-    urls: report.urls,
+ipcMain.handle('site:keyword-briefing', async () => {
+  const readCache = (): any => {
+    try { return JSON.parse(fs.readFileSync(keywordBriefingCachePath(), 'utf-8')); } catch { return null; }
   };
-}
-
-ipcMain.handle('keywords:latest-report', async (_evt, args?: { published?: any }) => {
   try {
-    // 화면이 가진 발행 기록을 받아서 이미 쓴 키워드를 걸러낸다 (v3.8.635)
-    // 발행 기록은 렌더러의 localStorage 에 있어서 메인이 혼자 볼 수가 없다
-    const published = args?.published || {};
+    const res = await fetch(`${LEADERSPRO_GAS_URL}?action=site-content&ts=${Date.now()}`, {
+      redirect: 'follow',
+      signal: AbortSignal.timeout(60000),
+    } as any);
+    const data: any = await res.json();
+    const briefing = data?.content?.keywordBriefing;
+    const all = Array.isArray(briefing?.rows) ? briefing.rows : [];
+    if (!all.length) throw new Error('사이트에 오늘의 글감이 없습니다');
 
-    // ① 드라이브 (기본) — 사장님이 아무것도 안 해도 여기서 온다
-    if (driveCreds()) {
-      try {
-        const viaDrive = await loadReportFromDrive(published);
-        if (viaDrive.ok || !cpcReportDir()) return viaDrive;
-      } catch (error: any) {
-        // 드라이브가 막혔으면 폴더로 내려가되, 폴더도 없으면 이유를 말한다
-        const why = String(error?.message || error).slice(0, 200);
-        console.warn('[CPC-REPORT] 드라이브 읽기 실패:', why);
-        if (!cpcReportDir()) return { ok: false, enabled: true, message: why };
-      }
-    } else if (isReportOwner() && !cpcReportDir()) {
-      return { ok: false, enabled: true, needsConnect: true, message: '' };
-    }
+    // 기회지수(검색량/문서수) 상위 3개 — 원본 순서가 완전 정렬이 아니라(실측) 여기서 정렬한다
+    const rows = [...all]
+      .map((r: any) => ({
+        keyword: String(r?.keyword || '').trim(),
+        searchVolume: Number(r?.searchVolume || 0),
+        documentCount: Number(r?.documentCount || 0),
+        opportunity: Number(r?.opportunity || 0),
+      }))
+      .filter((r) => r.keyword)
+      .sort((a, b) => b.opportunity - a.opportunity)
+      .slice(0, 3);
 
-    // ② 폴더 (뒷문) — 드라이브가 안 될 때만
-    const dir = cpcReportDir();
-    if (!dir) return { ok: false, enabled: false, message: '' };
-
-    const { loadLatestReport } = require('../dist/core/keywords/report-source');
-    const { usableSlots, missingSlots } = require('../dist/core/keywords/cpc-report');
-    const result = loadLatestReport(dir, cpcReportStatePath());
-    if (!result.report) return { ok: false, enabled: true, message: result.note };
-
-    const folderSplit = splitByPublished(usableSlots(result.report), published);
-    return {
+    const result = {
       ok: true,
-      enabled: true,
-      date: result.report.date,
-      isNew: result.isNew,
-      fileName: result.found?.fileName || '',
-      message: result.note,
-      slots: folderSplit.slots,
-      doneSlots: folderSplit.doneSlots,
-      missingSlots: missingSlots(result.report),
-      urls: result.report.urls,
+      title: String(briefing?.title || '키워드 브리핑'),
+      updatedAt: String(data?.content?.updatedAt || ''),
+      rows,
     };
+    try { fs.writeFileSync(keywordBriefingCachePath(), JSON.stringify(result), 'utf-8'); } catch { /* 캐시 실패가 표시를 막지 않는다 */ }
+    return result;
   } catch (error: any) {
-    return { ok: false, enabled: true, message: String(error?.message || error).slice(0, 160) };
+    const cached = readCache();
+    if (cached?.rows?.length) return { ...cached, stale: true };   // 오프라인이어도 어제 것은 보인다
+    return { ok: false, error: String(error?.message || error).slice(0, 160) };
   }
 });
 
-/** 이 리포트를 썼다고 기록한다 — 같은 것을 두 번 쓰지 않기 위해서다 */
-ipcMain.handle('keywords:mark-report-used', async (_evt, args?: { driveFileId?: string }) => {
-  try {
-    // 드라이브에서 온 것이면 파일 id 를 적는다 — 다음에 "새 리포트" 인지 이걸로 가른다
-    const driveFileId = String(args?.driveFileId || '').trim();
-    if (driveFileId) {
-      let state: any = {};
-      try { state = JSON.parse(fs.readFileSync(cpcReportStatePath(), 'utf-8')) || {}; } catch { /* 처음이다 */ }
-      state.driveFileId = driveFileId;
-      state.usedAt = new Date().toISOString();
-      fs.mkdirSync(path.dirname(cpcReportStatePath()), { recursive: true });
-      fs.writeFileSync(cpcReportStatePath(), JSON.stringify(state, null, 2), 'utf-8');
-      return { ok: true, driveFileId };
-    }
-
-    const dir = cpcReportDir();
-    if (!dir) return { ok: false };
-    const { findLatestReport, writeImportState } = require('../dist/core/keywords/report-source');
-    const found = findLatestReport(dir);
-    if (!found) return { ok: false };
-    writeImportState(cpcReportStatePath(), found);
-    return { ok: true, fileName: found.fileName };
-  } catch {
-    return { ok: false };
-  }
-});
 
 /**
  * 🤖 v3.8.629 — 에이전트 CLI 에 **짧은 글 작업 하나**를 시키고 답만 받는다.

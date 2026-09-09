@@ -186,60 +186,32 @@ describe('v3.8.634 드라이브에서 리포트 가져오기', () => {
     });
   });
 
-  describe('앱에 배선돼 있다', () => {
+  /*
+   * v3.8.711: 고CPC 카드·IPC 삭제 (사장님: "고단가 CPC 그자리 없애버리고 다른거넣거나 비워두자").
+   * 위의 드라이브 읽기 모듈(src/core/keywords/drive-report.ts) 단위 검사는 모듈이 남아 있는 동안
+   * 유지한다 — 되살릴 때 그대로 쓴다. 앱 배선 검사는 배선과 함께 내렸고, 여기서는
+   * **반쯤 남은 배선(조용한 고장의 씨앗)이 없는지**와 계정이 코드에 새지 않았는지만 잰다.
+   */
+  describe('v3.8.711 앱 배선이 깨끗이 내려갔다', () => {
     const main = read('electron/main.ts');
     const ui = read('electron/ui/index.html');
 
-    test('드라이브를 먼저 본다 — 폴더는 뒷문이다', () => {
-      const handler = blockBetween(main, "ipcMain.handle('keywords:latest-report'", 'mark-report-used');
-      expect(handler.indexOf('loadReportFromDrive')).toBeGreaterThan(0);
-      expect(handler.indexOf('loadReportFromDrive')).toBeLessThan(handler.indexOf('loadLatestReport'));
+    test('메인에 드라이브 리포트 IPC·헬퍼가 없다', () => {
+      expect(main).not.toContain("ipcMain.handle('drive:connect'");
+      expect(main).not.toContain("ipcMain.handle('keywords:latest-report'");
+      expect(main).not.toContain('loadReportFromDrive');
+      expect(main).not.toContain('GOOGLE_DRIVE_REFRESH_TOKEN');
     });
 
-    test('연결 흐름이 실제로 있다 (없는 채널을 부르면 조용히 죽는다)', () => {
-      expect(main).toContain("ipcMain.handle('drive:connect'");
-      expect(ui).toContain("api.invoke('drive:connect')");
-      expect(ui).toContain('function connectCpcDrive()');
-      expect(ui).toContain('window.connectCpcDrive = connectCpcDrive');
+    test('화면에 카드 배선이 없다', () => {
+      expect(ui).not.toContain('function connectCpcDrive(');
+      expect(ui).not.toContain('function startCpcReportWatch(');
+      expect(ui).not.toContain('window.__cpcDriveFileId');
     });
 
-    test('드라이브 읽기 권한만 받는다 — 쓰기 권한은 요구하지 않는다', () => {
-      expect(main).toContain('auth/drive.readonly');
-      expect(main).not.toContain("scope = 'https://www.googleapis.com/auth/drive'");
-    });
-
-    /** 블로거 토큰에 스코프를 얹었다가 실패하면 발행까지 같이 죽는다 */
-    test('블로거 인증과 따로 저장한다', () => {
-      expect(main).toContain('GOOGLE_DRIVE_REFRESH_TOKEN');
-      const connect = blockBetween(main, "ipcMain.handle('drive:connect'", "ipcMain.handle('keywords:latest-report'");
-      expect(connect).not.toContain('saveBloggerOAuthArtifacts');
-    });
-
-    /** 사장님 것이라 다른 사용자에게는 버튼조차 보이면 안 된다 */
-    test('주인만 켜진다 — 계정은 코드에 적지 않고 해시로 잠근다', () => {
-      expect(main).toContain('OWNER_KEY_SHA256');
-      expect(main).toContain('function isReportOwner()');
-      expect(main).toMatch(/OWNER_KEY_SHA256 = '[0-9a-f]{64}'/);
-      // 계정·경로가 그대로 박혀 있으면 asar 를 여는 순간 공개된다
+    test('계정·경로가 코드에 박혀 있지 않다 — asar 는 누구나 연다', () => {
       expect(main).not.toContain('cd000242@gmail.com');
-    });
-
-    test('리포트가 늦게 만들어져도 다시 본다 — 시각이 아니라 파일을 본다', () => {
-      expect(ui).toContain('function startCpcReportWatch()');
-      expect(ui).toContain('30 * 60 * 1000');
-      expect(ui).toContain('startCpcReportWatch();');
-    });
-
-    /** 같은 리포트를 두 번 쓰지 않으려면 어느 파일을 썼는지 남겨야 한다 */
-    test('쓴 리포트를 드라이브 파일 id 로 기록한다', () => {
-      expect(main).toContain('driveFileId');
-      expect(ui).toContain('window.__cpcDriveFileId');
-    });
-
-    /** 화면이 그냥 비면 앱 고장인지 리포트가 안 나온 건지 알 수가 없다 */
-    test('못 가져온 이유를 화면에 돌려준다', () => {
-      expect(main).toContain('오늘 리포트가 아직 드라이브에 없습니다');
-      expect(main).toContain('항목을 읽지 못했습니다');
+      expect(main).not.toMatch(/drive\.google\.com|folders\/[A-Za-z0-9_-]{20,}/);
     });
   });
 });

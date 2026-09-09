@@ -995,7 +995,7 @@ export async function runPosting() {
           });
           localStorage.setItem('publishedPosts', JSON.stringify(stored));
             // v3.8.635: 방금 쓴 키워드는 리포트 카드에서 바로 접힌다
-            try { if (window.loadCpcReport) window.loadCpcReport(false); } catch (e) {}
+            // v3.8.711: 고CPC 카드 삭제 — loadCpcReport 재호출 제거 (카드가 없으니 다시 그릴 것도 없다)
           // 달력이 열려 있으면 갱신
           if (typeof window.renderCalendar === 'function') {
             try { window.renderCalendar(); } catch {}
@@ -1563,7 +1563,7 @@ export async function publishToPlatform() {
             });
             localStorage.setItem('publishedPosts', JSON.stringify(stored));
             // v3.8.635: 방금 쓴 키워드는 리포트 카드에서 바로 접힌다
-            try { if (window.loadCpcReport) window.loadCpcReport(false); } catch (e) {}
+            // v3.8.711: 고CPC 카드 삭제 — loadCpcReport 재호출 제거 (카드가 없으니 다시 그릴 것도 없다)
           } catch (e) {
             console.warn('[PUBLISH-TRACK] 재발행 경로 저장 실패:', e?.message);
           }

@@ -713,6 +713,35 @@ export function isLicenseValid() {
  *
  * @returns 라디오를 찾아 적용했으면 true
  */
+/**
+ * 🧠 v3.8.711 — 글 생성 엔진 선택을 **누르는 순간 저장**한다.
+ *
+ * 사장님: "엔진 왜자꾸 기본값이 3.1플래쉬로되있냐고" (업데이트 후마다 리셋)
+ *
+ * 원인: 티어 카드 클릭은 라디오 체크 + 화면 갱신만 하고, 저장은 환경설정
+ * [저장] 버튼을 눌러야만 됐다. 저장 버튼을 안 거친 선택은 재시작(자동 업데이트
+ * 재시작 포함)마다 증발하고, applyTextModelRadio 가 옛 저장값/기본값으로 되돌린다.
+ * "고른 값이 저장은 되는 줄 알았는데 안 되던" 유형 — 이 저장소의 단골 사고다.
+ *
+ * 카드 하나 고른 것 때문에 환경설정 전체 saveSettings() 를 돌리면 모달이 안 열린
+ * 상태의 빈 입력값들이 저장을 덮으므로, **이 키 하나만** 병합 저장한다.
+ */
+export async function persistTextModelChoice(tierValue) {
+  try {
+    const value = String(tierValue || '').trim();
+    if (!value) return;
+    const storage = getStorageManager();
+    const saved = (await storage.get('bloggerSettings', true)) || {};
+    if (saved.primaryGeminiTextModel === value) return;
+    await storage.set('bloggerSettings', { ...saved, primaryGeminiTextModel: value }, true);
+    console.log('[SETTINGS] 🧠 글 생성 엔진 즉시 저장:', value);
+  } catch (e) {
+    console.warn('[SETTINGS] 글 생성 엔진 즉시 저장 실패:', e?.message || e);
+  }
+}
+// index.html 의 티어 픽커는 모듈이 아니라 인라인 스크립트다 — window 로 손을 내민다
+window.persistTextModelChoice = persistTextModelChoice;
+
 export function applyTextModelRadio(settings) {
   const savedTier = settings?.primaryGeminiTextModel || 'gemini-2.5-flash';
   const radios = document.querySelectorAll('input[name="primaryGeminiTextModel"]');

@@ -4,6 +4,7 @@
 import { getAppState, addLog, getTextLength } from './core.js';
 import { initImageEditing, detachImageEditing, hostPendingImages, undoImageOp, hasImageOps, insertImagesAtCaret, insertHtmlAtCaret, findCaretBlock } from './editor-images.js';
 import { loadAdUnits, makeAdSlotHtml, expandAdSlots, collapseAdBlocks, AD_SLOT_STYLE } from './ad-slots.js';
+import { openRegenModal, engineOverrides, startRegenTask } from './regen-modal.js';
 
 // 생성된 글목록 탭에서 넘어온 "이미 발행된 글" 소스 — 저장 = 해당 플랫폼에 수정발행
 const PUBLISHED_POST_SOURCES = {
@@ -414,36 +415,80 @@ function ensureEditorModal() {
    */
   async function runEditorRegenerate(mode) {
     if (!session || !session.postId) return;
-    const what = mode === 'images'
-      ? '글자는 그대로 두고 AI 이미지만 다시 만듭니다.'
-      : '본문을 통째로 새로 만들어 덮어씁니다. 지금 본문은 사라집니다.';
-    if (!confirm(`${what}\n\n· 주소(URL)와 제목은 그대로라 검색 색인이 유지됩니다.\n· 새로 만든 것이 지금보다 나쁘면 덮지 않고 멈춥니다.\n· 편집 중이던 내용은 저장되지 않습니다.`)) return;
+    /**
+     * 🔄 v3.8.710 — confirm() 한 줄 대신 재생성 모달을 띄운다.
+     * 사장님: "글 다시생성하기버튼누르면 재생성 모달이뜨면좋겠는데"
+     * 모드(본문/이미지)와 엔진을 모달에서 바꿀 수 있다 — 엔진 초기값은 편집기 툴바에서 고른 것.
+     */
+    const choice = await openRegenModal({
+      title: modalRefs.titleInput.value || session.originalTitle || '',
+      mode,
+      extraNote: '편집 중이던 내용은 저장되지 않습니다.',
+      defaults: {
+        textEngine: modalRefs.textEngine?.value || '',
+        imageEngine: modalRefs.imageEngine?.value || '',
+      },
+    });
+    if (!choice) return;
+    mode = choice.mode;
+
+    /**
+     * 🧾 v3.8.711 — 화면을 붙들지 않는다.
+     * 사장님: "다른작업도 가능하게 모달이 프로세서로 깔끔하게 뜨게해주세요"
+     * 오른쪽 아래 진행 카드가 [PROGRESS] 로그를 보여주고, 편집기를 닫고
+     * 다른 탭에서 일해도 된다. 끝났을 때 이 글이 아직 열려 있으면 새 본문을 다시 싣는다.
+     */
+    const title = modalRefs.titleInput.value || session.originalTitle || '';
+    const task = startRegenTask({ title, mode });
+    if (!task) {
+      setStatus('⏳ 이미 다른 다시 생성 작업이 진행 중입니다. 끝난 뒤 다시 눌러 주세요.');
+      return;
+    }
+    const targetPostId = session.postId;
 
     const buttons = [modalRefs.regenBtn, modalRefs.regenImgBtn].filter(Boolean);
     buttons.forEach((b) => { b.disabled = true; b.style.opacity = '0.5'; });
-    setStatus(mode === 'images' ? '🖼️ 이미지를 다시 만드는 중… (몇 분 걸립니다)' : '🔄 본문을 다시 만드는 중… (몇 분 걸립니다)');
+    setStatus(mode === 'images'
+      ? '🖼️ 이미지를 다시 만드는 중… 다른 작업을 하셔도 됩니다 (진행률은 오른쪽 아래 카드)'
+      : '🔄 본문을 다시 만드는 중… 다른 작업을 하셔도 됩니다 (진행률은 오른쪽 아래 카드)');
 
     try {
+      const overrides = engineOverrides(choice);
       const res = await window.electronAPI.invoke('regenerate-published-post', {
         platform: normalizeEditorPlatform(session.originalPlatform),
-        postId: session.postId,
-        title: modalRefs.titleInput.value || session.originalTitle || '',
+        postId: targetPostId,
+        title,
         mode,
+        // 모달에서 엔진을 골랐을 때만 payload 로 덮는다 — 비우면 예전 동작 그대로
+        ...(Object.keys(overrides).length ? { payload: overrides } : {}),
       });
+      // ⏹ v3.8.711: 사용자 중지는 실패가 아니다 — 카드가 다르게 말한다
+      if (res?.canceled) {
+        task.stop(res?.error || '사용자가 중지했습니다 — 기존 글은 그대로 있습니다.');
+        setStatus('⏹ 다시 생성을 중지했습니다 — 기존 글은 그대로 있습니다.');
+        return;
+      }
       if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
 
-      // 갈아끼운 본문을 편집기에 다시 싣는다 — 눈으로 바로 확인하시라고
-      if (res.html) {
+      task.done(`같은 주소에 반영했습니다 (${res.length}자)`);
+      addLog(`✅ "${title}" 다시 생성 완료 — 주소 그대로 반영`, 'success');
+
+      // 갈아끼운 본문을 편집기에 다시 싣는다 — 단, **같은 글이 아직 열려 있을 때만**.
+      // 그 사이 다른 글을 열었거나 편집기를 닫았으면 카드와 로그로만 알린다.
+      if (res.html && session && session.postId === targetPostId) {
         const parts = splitDocument(res.html);
         session.styles = parts.styles;
         session.isFullDocument = parts.isFullDocument;
         session.originalHeadHtml = parts.headHtml;
         session.originalHtml = res.html;
         loadIntoFrame(parts.bodyHtml);
+        setStatus(`✅ 다시 만들어 같은 주소에 반영했습니다 (${res.length}자). 새로고침하면 목록에도 반영됩니다.`);
       }
-      setStatus(`✅ 다시 만들어 같은 주소에 반영했습니다 (${res.length}자). 새로고침하면 목록에도 반영됩니다.`);
     } catch (err) {
-      setStatus(`❌ 다시 생성 실패: ${err?.message || err}`);
+      task.fail(String(err?.message || err).slice(0, 200));
+      if (session && session.postId === targetPostId) {
+        setStatus(`❌ 다시 생성 실패: ${err?.message || err}`);
+      }
       window.notifyUser?.(`다시 생성하지 못했습니다.
 ${err?.message || err}
 기존 글은 그대로 있습니다.`, 'error');

@@ -46,7 +46,7 @@ const KNOWN_ORPHANS = [
   'blogger-auth-expiring-soon',
   'check-api-keys',
   'check-feature-access',
-  'drive:report-status',
+  // 'drive:report-status' — v3.8.711 고CPC 기능 삭제로 핸들러째 사라짐 (기준선에서 제거)
   'generate-internal-consistency-title',
   'get-license-tier',
   'golden-keyword:token-status',

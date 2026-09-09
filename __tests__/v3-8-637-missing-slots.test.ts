@@ -65,29 +65,17 @@ describe('v3.8.637 못 채운 슬롯을 말해 준다', () => {
     });
   });
 
-  describe('화면까지 이어져 있다', () => {
-    const main = read('electron/main.ts');
-    const ui = read('electron/ui/index.html');
-
-    /** 드라이브·폴더 둘 중 한쪽만 배선하면 그쪽 경로에서만 조용해진다 */
-    test('두 경로 모두 못 채운 슬롯을 실어 보낸다', () => {
-      expect(main).toContain('missingSlots: missingSlots(report)');
-      expect(main).toContain('missingSlots: missingSlots(result.report)');
-    });
-
-    test('불러오는 곳에서 함수를 꺼낸다 (없는 이름을 부르면 조용히 죽는다)', () => {
-      expect(main).toContain('usableSlots, missingSlots }');
-    });
-
-    test('화면이 이유를 적는다', () => {
-      expect(ui).toContain('function renderCpcMissing');
-      expect(ui).toContain('소재를 확보하지 못했습니다');
-    });
-
-    /** 슬롯이 하나도 없는 날에도 이유는 보여야 한다 */
-    test('빈 날에도 이유를 붙인다', () => {
-      const calls = ui.split('renderCpcMissing(r.missingSlots)').length - 1;
-      expect(calls).toBe(2);
+  /*
+   * v3.8.711: 고CPC 카드·IPC 삭제 (사장님 지시) — 「화면까지 이어져 있다」 검사는 화면과 함께 내렸다.
+   * 위의 파서(missingSlots) 단위 검사는 모듈이 남아 있는 동안 유지한다. 반쯤 남은 배선만 잡는다.
+   */
+  describe('v3.8.711 화면·메인 배선이 깨끗이 내려갔다', () => {
+    test('메인·화면 어디에도 리포트 카드 배선이 남아 있지 않다', () => {
+      const main = read('electron/main.ts');
+      const ui = read('electron/ui/index.html');
+      expect(main).not.toContain("ipcMain.handle('keywords:latest-report'");
+      expect(ui).not.toContain('function renderCpcMissing');
+      expect(ui).not.toContain('renderCpcMissing(r.missingSlots)');
     });
   });
 });

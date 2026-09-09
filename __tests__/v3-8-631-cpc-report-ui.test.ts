@@ -18,106 +18,51 @@ function blockBetween(source: string, startMarker: string, endMarker: string): s
 /*
  * v3.8.631 — 고CPC 리포트를 메인 탭에 띄우고, 고른 슬롯을 발행 입력으로 옮긴다.
  *
- * 사장님: "리더남 황금키워드 라고해서 메인탭 달력윗공간에 배치했던거기억나니?
- *         그것처럼 나만볼수있게 거기로 자동으로 불러오게끔"
- *         "키워드랑 확정제목을 들고오고 롱테일 파생 키워드도 같이 보여주면 더욱금상첨화"
+ * v3.8.711 — **카드 UI 삭제.** 사장님: "고단가 CPC 그자리 없애버리고 다른거넣거나 비워두자"
+ *   리포트 서식이 회차마다 바뀌어 파서가 운영 섹션을 슬롯으로 오인하는 일이 반복됐다(09-09 실측).
+ *   화면(카드·슬롯 렌더·발행 준비 버튼)은 걷어냈고, 백엔드 IPC 와 발행 payload 사슬은 남겼다 —
+ *   되살릴 때 화면만 다시 붙이면 되는 구조다. 이 테스트는 이제 그 경계를 지킨다:
+ *   ① UI 가 정말 없어졌는가  ② 백엔드·payload 사슬은 다치지 않았는가.
  */
-describe('v3.8.631 리포트 카드와 발행 연결', () => {
+describe('v3.8.631→711 고CPC 리포트 — UI 삭제 후 경계', () => {
   const html = read('electron/ui/index.html');
   const posting = read('electron/ui/modules/posting.js');
   const main = read('electron/main.ts');
 
-  describe('사장님만 보인다 — 잠글 문이 아니라 방이 없다', () => {
-    test('카드는 기본이 숨김이다', () => {
-      const card = blockBetween(html, 'id="cpcReportCard"', '</div>');
-      expect(card).toContain('display: none');
+  describe('v3.8.711 카드가 정말 없어졌다 — 반쯤 남은 UI 는 조용한 고장이 된다', () => {
+    test('카드·슬롯 렌더·발행 준비 배선이 화면에 없다', () => {
+      expect(html).not.toContain('id="cpcReportCard"');
+      expect(html).not.toContain('function renderCpcSlot(');
+      expect(html).not.toContain('function loadCpcReport(');
+      expect(html).not.toContain('function useCpcSlot(');
+      expect(html).not.toContain('function connectCpcDrive(');
+      expect(html).not.toContain('function cpcPublishedDigest(');
     });
 
-    test('설정이 없으면 IPC 가 enabled:false 를 준다', () => {
-      const handler = blockBetween(main, "ipcMain.handle('keywords:latest-report'", "ipcMain.handle('keywords:mark-report-used'");
-      expect(handler).toContain('if (!dir) return { ok: false, enabled: false');
-    });
-
-    test('폴더 경로를 코드에 적지 않는다 — 실행파일은 누구나 열 수 있다', () => {
-      const handler = blockBetween(main, 'function cpcReportDir()', "ipcMain.handle('keywords:latest-report'");
-      // 설정에서만 읽는다
-      expect(handler).toContain('config?.cpcReportDir');
-      // 경로처럼 보이는 상수가 박혀 있으면 안 된다
-      expect(handler).not.toMatch(/["'][A-Z]:[\\/]/);
-      expect(handler).not.toMatch(/drive\.google\.com|folders\/[A-Za-z0-9_-]{20,}/);
-    });
-
-    test('화면도 enabled 가 아니면 카드를 숨긴 채 둔다', () => {
-      const fn = blockBetween(html, 'async function loadCpcReport(', 'function useCpcSlot(');
-      expect(fn).toContain("card.style.display = 'none'");
-      expect(fn).toContain('!r.enabled');
+    test('앱이 뜰 때 부르지도, 30분 감시도 하지 않는다', () => {
+      expect(html).not.toContain('loadCpcReport(false)');
+      expect(html).not.toContain('startCpcReportWatch()');
     });
   });
 
-  describe('카드가 보여주는 것', () => {
-    const render = blockBetween(html, 'function renderCpcSlot(', 'async function loadCpcReport(');
-
-    test('키워드와 확정 제목을 따로 보여준다 — 둘은 다른 것이다', () => {
-      expect(render).toContain('>키워드<');
-      expect(render).toContain('>확정 제목<');
+  describe('백엔드 IPC 도 함께 내렸다 — 부르는 곳 없는 채널은 두지 않는다 (v3.8.701 가드)', () => {
+    test('네 채널 전부 등록이 없다', () => {
+      expect(main).not.toContain("ipcMain.handle('keywords:latest-report'");
+      expect(main).not.toContain("ipcMain.handle('keywords:mark-report-used'");
+      expect(main).not.toContain("ipcMain.handle('drive:connect'");
+      expect(main).not.toContain("ipcMain.handle('drive:report-status'");
     });
 
-    test('롱테일 파생 키워드를 보여준다', () => {
-      expect(render).toContain('롱테일 파생 키워드');
-      expect(render).toContain('slot.longtails');
-    });
-
-    /**
-     * v3.8.638: 펼쳐 놓지 않고 접는다.
-     *   사장님: "발행전 확인은 굳이볼필요가없자나 자동으로 발행이되는데 개입을 못하는데말이야"
-     *   대신 앱이 프롬프트로 지킨다(buildReportDirective). 무엇을 지키는 중인지는 열어 볼 수 있어야 하므로 지우지는 않는다.
-     */
-    test('확인 항목은 접어서 보여준다', () => {
-      expect(render).toContain('앱이 지킬 확인 항목');
-      expect(render).toContain('slot.mustCheck');
-      expect(render).toContain('<details');
-    });
-
-    test('리포트 글자를 그대로 넣지 않는다 — HTML 을 이스케이프한다', () => {
-      expect(render).toContain('esc(');
-      expect(render).toMatch(/replace\(\/\[&<>"\]\/g/);
+    test('헬퍼도 고아로 남지 않았다', () => {
+      expect(main).not.toContain('function cpcReportDir()');
+      expect(main).not.toContain('function driveCreds()');
+      expect(main).not.toContain('function isReportOwner()');
+      expect(main).not.toContain('OWNER_KEY_SHA256');
     });
   });
 
-  describe('고른 슬롯이 제자리로 들어간다', () => {
-    const fn = blockBetween(html, 'function useCpcSlot(', 'window.loadCpcReport =');
-
-    test('키워드는 키워드 칸으로', () => {
-      expect(fn).toContain("getElementById('keywordInput')");
-      expect(fn).toContain('keywordInput.value = slot.keyword');
-    });
-
-    /**
-     * 제목을 키워드 칸에 넣으면 앱이 제목을 **다시 지어내면서** 리포트가 고른
-     * 제목이 버려진다. 직접입력을 켜야 그 제목 그대로 나간다.
-     */
-    test('확정 제목은 제목 직접입력 칸으로, 체크까지 켠다', () => {
-      expect(fn).toContain("getElementById('useCustomTitle')");
-      expect(fn).toContain('customCheck.checked = true');
-      expect(fn).toContain('customInput.value = slot.title');
-    });
-
-    test('설계도를 payload 가 집어 갈 수 있게 남긴다', () => {
-      expect(fn).toContain('window.__cpcReportSlot = slot');
-    });
-
-    test('같은 리포트를 두 번 쓰지 않게 기록한다', () => {
-      // v3.8.635: 드라이브 파일 id 를 같이 넘긴다 — 어느 리포트를 썼는지로 새 것을 가른다
-      expect(fn).toContain("invoke('keywords:mark-report-used'");
-    });
-
-    test('무엇을 가져왔는지 로그로 남긴다 — 조용히 채우지 않는다', () => {
-      expect(fn).toContain('리포트에서 가져왔습니다');
-    });
-  });
-
-  describe('설계도가 발행까지 이어진다', () => {
-    test('payload 가 슬롯을 싣는다', () => {
+  describe('설계도 payload 사슬도 남아 있다 — UI 만 없을 뿐이다', () => {
+    test('payload 가 슬롯을 싣는다 (지금은 항상 undefined — 카드가 없으니 채울 곳이 없다)', () => {
       expect(posting).toContain('cpcReportSlot: window.__cpcReportSlot || undefined');
     });
 
@@ -134,20 +79,6 @@ describe('v3.8.631 리포트 카드와 발행 연결', () => {
       expect(pre).toContain("kind: 'report-check-missing'");
       const check = blockBetween(pre, "kind: 'report-check-missing'", '} catch');
       expect(check).toContain('지어내면 안 됩니다');
-    });
-  });
-
-  describe('황금키워드와 같은 자리에서 자동으로 뜬다', () => {
-    test('메인 탭 달력 위 — 황금키워드 배너가 있던 자리', () => {
-      const at = html.indexOf('id="cpcReportCard"');
-      const banner = html.indexOf('오늘의 리더남 황금키워드" 대형 배너 삭제');
-      const calendar = html.indexOf('메인 수평 레이아웃');
-      expect(at).toBeGreaterThan(banner);
-      expect(at).toBeLessThan(calendar);
-    });
-
-    test('앱이 뜰 때 황금키워드와 함께 불러온다', () => {
-      expect(html).toContain('if (typeof loadCpcReport === \'function\') loadCpcReport(false);');
     });
   });
 });
