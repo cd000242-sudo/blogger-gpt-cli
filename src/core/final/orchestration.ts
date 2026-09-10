@@ -388,7 +388,20 @@ function normalizeArticleBodySpacing(content: string): string {
     return nextAttrs;
   };
 
-  return String(content || '')
+  /**
+   * v3.8.714 — 문장 한가운데서 갈린 줄을 먼저 붙인다.
+   * 실측(경기도 산후조리비 글): `<br>` 53개 중 18개가 "…기간이며,<br>사업 종료일을…" 처럼
+   * 절 중간이었다. 모델이 절 단위로 줄을 나눈 탓인데, 읽는 사람은 호흡이 끊긴다.
+   * 표 셀의 "…입니다." 도 여기서 명사구로 되돌린다(안전한 경우만).
+   */
+  const { joinMidSentenceBreaks, tidyTableCells } = require('./br-joiner');
+  const joinedResult = joinMidSentenceBreaks(String(content || ''));
+  const tidiedResult = tidyTableCells(joinedResult.html);
+  if (joinedResult.joined || tidiedResult.tidied) {
+    console.log(`[BODY] ✂️ 문장 중간 줄바꿈 ${joinedResult.joined}곳 붙임 · 표 셀 ${tidiedResult.tidied}곳 명사구로`);
+  }
+
+  return String(tidiedResult.html || '')
     .replace(/<!--\s*\/?wp:[\s\S]*?-->/gi, '')
     .replace(/<p\b[^>]*>\s*(?:&nbsp;|\s|<br\s*\/?>)*\s*<\/p>/gi, '')
     .replace(/<div\b[^>]*(?:height\s*:|min-height\s*:|clear\s*:|margin\s*:)[^>]*>\s*(?:&nbsp;|\s|<br\s*\/?>)*<\/div>/gi, '')

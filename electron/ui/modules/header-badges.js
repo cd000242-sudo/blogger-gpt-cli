@@ -384,12 +384,34 @@ function buildModelPop(pop) {
    * 사장님: "에이전트를 선택하면 에이전트만 보여주고 API면 API만보여줘"
    * 예전엔 둘을 한 목록에 섞어 놔서, 지금 무엇으로 쓰는지가 흐릿했다.
    */
+  /**
+   * 🤖 v3.8.714 — 에이전트를 고른 다음, **그 안에서 모델까지** 고른다.
+   *
+   * 사장님: "에이전트 내에 모델선택이 가능하자나 페이블이나 오푸스 소넷 등등 …
+   *          코덱스도 이번에 아스트라나온것처럼"
+   *
+   * 목록은 메인이 준다(dist/core/agent-models) — 화면이 따로 적으면 한쪽만 늙는다.
+   * 고른 에이전트 밑에만 펼친다. 셋 다 펼치면 목록이 길어 무엇을 쓰는지 흐려진다.
+   */
+  const curModel = (() => {
+    try { return String(window.getAgentModel?.(agentProvider) || ''); } catch { return ''; }
+  })();
+  const modelRows = (provider) => {
+    const list = AGENT_MODEL_CATALOG?.[provider];
+    if (!list || !list.length) return '';
+    return list.map((m) => `
+        <div class="hb-opt hb-sub${(m.value || '') === curModel ? ' sel' : ''}" data-hb-agent-model="${m.value}"
+             style="padding-left:26px; font-size:12px;" title="${(m.note || '').replace(/"/g, '&quot;')}">
+          <span class="hb-dot"></span>${m.label}
+        </div>`).join('');
+  };
+
   pop.innerHTML = agentMode
     ? `<div class="hb-t">에이전트 — 구독으로 실행 (API 요금 없음)</div>`
       + AGENTS.map((a) => `
         <div class="hb-opt${a.id === agentProvider ? ' sel' : ''}" data-hb-agent="${a.id}">
           <span class="hb-dot"></span>${a.label}
-        </div>`).join('')
+        </div>` + (a.id === agentProvider ? modelRows(a.id) : '')).join('')
       + `<div class="hb-note">API 모델로 바꾸려면 왼쪽 '실행' 배지에서 API 키 모드를 고르세요.</div>`
     : `<div class="hb-t">글 생성 AI 모델 — 환경설정의 선택과 같은 자리입니다</div>`
       + radios.map((r) => `
@@ -397,6 +419,20 @@ function buildModelPop(pop) {
           <span class="hb-dot"></span>${modelLabel(r)}
         </div>`).join('')
       + `<div class="hb-note">에이전트로 쓰려면 왼쪽 '실행' 배지에서 에이전트 모드를 고르세요.</div>`;
+
+  // v3.8.714: 에이전트 안의 모델 선택
+  pop.querySelectorAll('[data-hb-agent-model]').forEach((opt) => {
+    opt.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (typeof window.setAgentModel !== 'function') {
+        notifyUser('에이전트 설정을 아직 불러오지 못했습니다. 설정 → Agent 계정을 한 번 연 뒤 다시 시도해주세요.', 'warning');
+        return;
+      }
+      window.setAgentModel(agentProvider, opt.dataset.hbAgentModel || '');
+      try { window.updateAiModelStatus?.(); } catch { /* 배지 갱신 실패는 발행과 무관 */ }
+      closeAllPops();
+    });
+  });
 
   pop.querySelectorAll('[data-hb-agent]').forEach((opt) => {
     opt.addEventListener('click', (e) => {

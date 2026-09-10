@@ -1443,6 +1443,76 @@
               </div>
 
               <!-- 키워드/검색 API (선택) -->
+              <!-- v3.8.714: 네이버 API HUB 를 API 키 탭 맨 아래에서 네이버 키 섹션 위로 올린다 (사장님: "네이버 api 허브는 왜 에이전트 맨 아래에있니...?"). HUB 가 지금 표준이고 옛 개발자센터 키는 2027-06-30 종료다 — 표준을 먼저 보여준다. -->
+              <div id="naverSearchApiSection"
+                style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.6), rgba(15, 23, 42, 0.6)); border: 1px solid rgba(34,197,94,0.25); border-radius: 20px; padding: 24px; margin-bottom: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;">
+                  <div style="display: flex; align-items: center; gap: 14px;">
+                    <span style="font-size: 28px;">🔎</span>
+                    <div>
+                      <h4 style="margin: 0; font-size: 18px; font-weight: 800; color: white; letter-spacing: -0.3px;">네이버 검색 API (NAVER API HUB)</h4>
+                      <p style="margin: 4px 0 0 0; font-size: 13px; color: rgba(255,255,255,0.6);">검색 자료·데이터랩을 모아 글의 근거로 씁니다 · 한 벌로 크롤링·데이터랩이 다 돌아갑니다</p>
+                    </div>
+                  </div>
+                  <button type="button" onclick="window.openNaverApiPage && window.openNaverApiPage()"
+                    style="padding: 10px 16px; background: linear-gradient(135deg, #22c55e, #16a34a); border: none; border-radius: 10px; color: white; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;">🔑 API HUB 에서 발급받기</button>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                  <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(251,191,36,0.35); display: flex; flex-direction: column; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                      <span style="font-size: 18px;">🟢</span>
+                      <label style="font-weight: 700; color: rgba(255,255,255,0.9); font-size: 14px;">API HUB Client ID <span
+                          style="background: rgba(251,191,36,0.18); color: #fde68a; padding: 2px 8px; border-radius: 20px; font-size: 11px; margin-left: 6px; font-weight: 600;">권장 · 신규 발급</span></label>
+                    </div>
+                    <input type="text" id="naverApiHubKeyId" placeholder="네이버클라우드 콘솔 → AI·NAVER API → Client ID"
+                      style="width: 100%; padding: 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box; transition: all 0.3s;"
+                      onfocus="this.style.borderColor='rgba(251, 191, 36, 0.5)'; this.style.background='rgba(0,0,0,0.4)'; this.style.boxShadow='0 0 0 3px rgba(251, 191, 36, 0.15)';"
+                      onblur="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(0,0,0,0.2)'; this.style.boxShadow='none';">
+                  </div>
+
+                  <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(251,191,36,0.35); display: flex; flex-direction: column; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                      <span style="font-size: 18px;">🟢</span>
+                      <label style="font-weight: 700; color: rgba(255,255,255,0.9); font-size: 14px;">API HUB Client Secret</label>
+                    </div>
+                    <div style="position: relative; width: 100%;">
+                      <input type="password" id="naverApiHubKey" placeholder="네이버클라우드 Client Secret"
+                        style="width: 100%; padding: 14px 44px 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box; transition: all 0.3s;"
+                        onfocus="this.style.borderColor='rgba(251, 191, 36, 0.5)'; this.style.background='rgba(0,0,0,0.4)'; this.style.boxShadow='0 0 0 3px rgba(251, 191, 36, 0.15)';"
+                        onblur="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(0,0,0,0.2)'; this.style.boxShadow='none';">
+                      <button onclick="togglePasswordVisibility(this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: rgba(255,255,255,0.4); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px; transition: all 0.2s;" onmouseover="this.style.color='white'; this.style.background='rgba(255,255,255,0.1)';" onmouseout="this.style.color='rgba(255,255,255,0.4)'; this.style.background='transparent';"><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path><circle cx='12' cy='12' r='3'></circle></svg></button>
+                    </div>
+                  </div>
+                </div>
+
+                <details style="margin-top: 12px;">
+                  <summary style="cursor: pointer; color: rgba(255,255,255,0.65); font-size: 12px; font-weight: 700;">개발자센터 옛 키 (2027-06-30 종료 · 예비용) — 아직 쓰고 있다면 여기에</summary>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+                    <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 10px;">
+                      <label style="font-weight: 700; color: rgba(255,255,255,0.8); font-size: 13px;">Naver Client ID (개발자센터)</label>
+                      <input type="text" id="naverClientId" placeholder="abc123def456..."
+                        style="width: 100%; padding: 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box;">
+                    </div>
+                    <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 10px;">
+                      <label style="font-weight: 700; color: rgba(255,255,255,0.8); font-size: 13px;">Naver Client Secret (개발자센터)</label>
+                      <div style="position: relative; width: 100%;">
+                        <input type="password" id="naverClientSecret" placeholder="XYZ123..."
+                          style="width: 100%; padding: 14px 44px 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box;">
+                        <button onclick="togglePasswordVisibility(this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: rgba(255,255,255,0.4); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px; transition: all 0.2s;" onmouseover="this.style.color='white'; this.style.background='rgba(255,255,255,0.1)';" onmouseout="this.style.color='rgba(255,255,255,0.4)'; this.style.background='transparent';"><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path><circle cx='12' cy='12' r='3'></circle></svg></button>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+
+                <small style="display: block; margin-top: 10px; color: rgba(255,255,255,0.6); font-size: 11.5px; line-height: 1.7;">
+                  <span style="color:#f87171;">⚠️ Application 등록 시 <b>서비스 선택</b>에서 <b>검색(웹검색·블로그·뉴스·지식iN)</b>과
+                  <b>Search Trend(데이터랩)</b>를 전부 체크하세요.</span> 체크 안 한 서비스는 키가 맞아도 429로 거절됩니다.<br>
+                  HUB 키를 넣으면 <b>바로 그 키로 동작</b>합니다. 옛 키는 2027-06-30까지만 살고, 막히면 HUB 키로 자동으로 넘어갑니다.
+                  쇼핑·책·전문자료 검색은 2026-07-31 종료돼 대체가 없습니다.
+                </small>
+              </div>
+
               <div
                 style="background: rgba(30, 41, 59, 0.4); border-top: 1px solid rgba(255,255,255,0.12); border-left: 1px solid rgba(255,255,255,0.06); border-right: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 24px; margin-bottom: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
                 <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
@@ -1518,74 +1588,6 @@
                 · HUB 키를 넣으면 그 즉시 HUB 로 나간다(naver-search-client.ts 가 HUB 우선). 비워두면 옛 키로 나간다.
                 · 옛 키가 401/403 으로 막히면 HUB 키로 자동으로 넘어간다(v3.8.527 failover). 두 벌을 같이 넣어 두면 끊기지 않는다.
               -->
-              <div id="naverSearchApiSection"
-                style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.6), rgba(15, 23, 42, 0.6)); border: 1px solid rgba(34,197,94,0.25); border-radius: 20px; padding: 24px; margin-bottom: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;">
-                  <div style="display: flex; align-items: center; gap: 14px;">
-                    <span style="font-size: 28px;">🔎</span>
-                    <div>
-                      <h4 style="margin: 0; font-size: 18px; font-weight: 800; color: white; letter-spacing: -0.3px;">네이버 검색 API (NAVER API HUB)</h4>
-                      <p style="margin: 4px 0 0 0; font-size: 13px; color: rgba(255,255,255,0.6);">검색 자료·데이터랩을 모아 글의 근거로 씁니다 · 한 벌로 크롤링·데이터랩이 다 돌아갑니다</p>
-                    </div>
-                  </div>
-                  <button type="button" onclick="window.openNaverApiPage && window.openNaverApiPage()"
-                    style="padding: 10px 16px; background: linear-gradient(135deg, #22c55e, #16a34a); border: none; border-radius: 10px; color: white; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;">🔑 API HUB 에서 발급받기</button>
-                </div>
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                  <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(251,191,36,0.35); display: flex; flex-direction: column; gap: 10px;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                      <span style="font-size: 18px;">🟢</span>
-                      <label style="font-weight: 700; color: rgba(255,255,255,0.9); font-size: 14px;">API HUB Client ID <span
-                          style="background: rgba(251,191,36,0.18); color: #fde68a; padding: 2px 8px; border-radius: 20px; font-size: 11px; margin-left: 6px; font-weight: 600;">권장 · 신규 발급</span></label>
-                    </div>
-                    <input type="text" id="naverApiHubKeyId" placeholder="네이버클라우드 콘솔 → AI·NAVER API → Client ID"
-                      style="width: 100%; padding: 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box; transition: all 0.3s;"
-                      onfocus="this.style.borderColor='rgba(251, 191, 36, 0.5)'; this.style.background='rgba(0,0,0,0.4)'; this.style.boxShadow='0 0 0 3px rgba(251, 191, 36, 0.15)';"
-                      onblur="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(0,0,0,0.2)'; this.style.boxShadow='none';">
-                  </div>
-
-                  <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(251,191,36,0.35); display: flex; flex-direction: column; gap: 10px;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                      <span style="font-size: 18px;">🟢</span>
-                      <label style="font-weight: 700; color: rgba(255,255,255,0.9); font-size: 14px;">API HUB Client Secret</label>
-                    </div>
-                    <div style="position: relative; width: 100%;">
-                      <input type="password" id="naverApiHubKey" placeholder="네이버클라우드 Client Secret"
-                        style="width: 100%; padding: 14px 44px 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box; transition: all 0.3s;"
-                        onfocus="this.style.borderColor='rgba(251, 191, 36, 0.5)'; this.style.background='rgba(0,0,0,0.4)'; this.style.boxShadow='0 0 0 3px rgba(251, 191, 36, 0.15)';"
-                        onblur="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(0,0,0,0.2)'; this.style.boxShadow='none';">
-                      <button onclick="togglePasswordVisibility(this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: rgba(255,255,255,0.4); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px; transition: all 0.2s;" onmouseover="this.style.color='white'; this.style.background='rgba(255,255,255,0.1)';" onmouseout="this.style.color='rgba(255,255,255,0.4)'; this.style.background='transparent';"><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path><circle cx='12' cy='12' r='3'></circle></svg></button>
-                    </div>
-                  </div>
-                </div>
-
-                <details style="margin-top: 12px;">
-                  <summary style="cursor: pointer; color: rgba(255,255,255,0.65); font-size: 12px; font-weight: 700;">개발자센터 옛 키 (2027-06-30 종료 · 예비용) — 아직 쓰고 있다면 여기에</summary>
-                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
-                    <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 10px;">
-                      <label style="font-weight: 700; color: rgba(255,255,255,0.8); font-size: 13px;">Naver Client ID (개발자센터)</label>
-                      <input type="text" id="naverClientId" placeholder="abc123def456..."
-                        style="width: 100%; padding: 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box;">
-                    </div>
-                    <div style="background: rgba(15, 23, 42, 0.4); border-radius: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 10px;">
-                      <label style="font-weight: 700; color: rgba(255,255,255,0.8); font-size: 13px;">Naver Client Secret (개발자센터)</label>
-                      <div style="position: relative; width: 100%;">
-                        <input type="password" id="naverClientSecret" placeholder="XYZ123..."
-                          style="width: 100%; padding: 14px 44px 14px 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; color: white; background: rgba(0,0,0,0.2); box-sizing: border-box;">
-                        <button onclick="togglePasswordVisibility(this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: rgba(255,255,255,0.4); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px; transition: all 0.2s;" onmouseover="this.style.color='white'; this.style.background='rgba(255,255,255,0.1)';" onmouseout="this.style.color='rgba(255,255,255,0.4)'; this.style.background='transparent';"><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path><circle cx='12' cy='12' r='3'></circle></svg></button>
-                      </div>
-                    </div>
-                  </div>
-                </details>
-
-                <small style="display: block; margin-top: 10px; color: rgba(255,255,255,0.6); font-size: 11.5px; line-height: 1.7;">
-                  <span style="color:#f87171;">⚠️ Application 등록 시 <b>서비스 선택</b>에서 <b>검색(웹검색·블로그·뉴스·지식iN)</b>과
-                  <b>Search Trend(데이터랩)</b>를 전부 체크하세요.</span> 체크 안 한 서비스는 키가 맞아도 429로 거절됩니다.<br>
-                  HUB 키를 넣으면 <b>바로 그 키로 동작</b>합니다. 옛 키는 2027-06-30까지만 살고, 막히면 HUB 키로 자동으로 넘어갑니다.
-                  쇼핑·책·전문자료 검색은 2026-07-31 종료돼 대체가 없습니다.
-                </small>
-              </div>
 
               <!-- 🔥 DOM 충돌 방지: hidden fallback은 visible 입력과 다른 ID 사용 -->
               <input type="hidden" id="openaiKeyHidden" value="">
@@ -3176,7 +3178,7 @@
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px;">
               <h3 style="color: #ecfccb; font-size: 14px; font-weight: 800; margin: 0; display: flex; align-items: center; gap: 7px;">
                 📝 오늘의 글감
-                <span style="color:#a3e635; font-size:10px; font-weight:800; background:rgba(163,230,53,0.12); border:1px solid rgba(163,230,53,0.3); padding:2px 7px; border-radius:999px;">LEWORD</span>
+                <span style="color:#a3e635; font-size:10px; font-weight:800; background:rgba(163,230,53,0.12); border:1px solid rgba(163,230,53,0.3); padding:2px 7px; border-radius:999px;">LEWORD 글감</span>
                 <span id="keywordBriefingDate" style="color: #86a15f; font-size: 11px; font-weight: 600;"></span>
               </h3>
               <div style="display:flex; gap:6px;">
@@ -3184,7 +3186,7 @@
                   style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; color: #cbd5e1; font-size: 11px; font-weight: 700; padding: 5px 10px; cursor: pointer;">
                   다시 불러오기
                 </button>
-                <button type="button" onclick="window.blogger && window.blogger.openExternal('https://leaderspro.kr/leword')"
+                <button type="button" onclick="window.blogger && window.blogger.openExternal('https://leaderspro.kr/leword?tab=briefs')"
                   style="background: linear-gradient(135deg,#65a30d,#4d7c0f); border: none; border-radius: 8px; color: white; font-size: 11px; font-weight: 800; padding: 5px 12px; cursor: pointer;">
                   키워드 더보기 →
                 </button>
@@ -8938,7 +8940,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // 캐시/로컬로 먼저 그린 뒤, 원격 배포본이 도착하면 다시 그린다 (빈 화면 대기 없음)
     if (typeof refreshGoldenKeywordFromRemote === 'function') refreshGoldenKeywordFromRemote();
     // v3.8.711: 고CPC 카드 삭제 → 같은 자리의 「오늘의 글감」(사이트 LEWORD) 카드를 불러온다
+    // v3.8.714: 아침·오후 리포트를 놓치지 않게 30분마다 다시 본다
     if (typeof loadKeywordBriefing === 'function') loadKeywordBriefing(false);
+    if (typeof startKeywordBriefingWatch === 'function') startKeywordBriefingWatch();
 
     // v3.8.348: 관리자 편집 버튼 이벤트 백업 바인딩 (onclick 반응 없는 문제 fix)
     var editBtn = document.getElementById('golden-keyword-edit-btn');
@@ -9026,19 +9030,40 @@ window.renderRecentPosts = renderRecentPosts;
  * 기회지수 상위 3개를 보여주고, 글감을 클릭하면 발행 키워드 칸에 채운다.
  * 못 가져오면 카드를 숨긴 채 둔다 — 다만 캐시가 있으면 어제 것이라도 보여 준다(메인이 판단).
  */
+/**
+ * v3.8.714 — 발행 시각을 **우리 시간으로** 적는다.
+ * 그전엔 ISO 문자열을 그대로 잘라 써서 UTC 가 나왔다(실측: 화면 07:30 = 실제 16:30).
+ * 아침 회차인지 오후 회차인지를 보려고 넣은 표시인데, 9시간 어긋나면 거꾸로 읽힌다.
+ */
+function fmtBriefingTime(iso) {
+  try {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso || '').slice(0, 16);
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+      + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  } catch (e) {
+    return String(iso || '').slice(0, 16);
+  }
+}
+
 function renderKeywordBriefingRow(row) {
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
   }); };
-  var nf = function (n) { return Number(n || 0).toLocaleString(); };
+  /**
+   * v3.8.714 — 사이트의 「오늘의 글감」 브리프를 그대로 보여준다.
+   * 제목이 곧 글감이고, ★ 와 NOW/NEXT/ALWAYS 가 사장님이 먼저 보는 값이다.
+   */
+  var TIMING = { NOW: '지금', NEXT: '예정', ALWAYS: '지속' };
+  var meta = (row.star ? '<b style="color:#fbbf24;">★</b> ' : '')
+    + (TIMING[row.timing] ? '<b style="color:#a3e635;">' + TIMING[row.timing] + '</b>' : '')
+    + (row.intent ? ' · ' + esc(row.intent) : '');
   return '<button type="button" onclick="useBriefingKeyword(' + esc(JSON.stringify(JSON.stringify(row.keyword))) + ')"'
-    + ' title="클릭하면 이 키워드로 발행을 준비합니다"'
+    + ' title="' + esc(row.intent || row.keyword) + '\n클릭하면 이 글감으로 발행을 준비합니다"'
     + ' style="flex:1; min-width:0; text-align:left; background:rgba(15,23,42,0.55); border:1px solid rgba(163,230,53,0.16); border-radius:12px; padding:11px 13px; cursor:pointer;">'
-    + '<div style="color:#f1f5f9; font-size:13px; font-weight:700; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(row.keyword) + '</div>'
-    + '<div style="color:#86a15f; font-size:11px; margin-top:5px;">'
-    + '기회지수 <b style="color:#a3e635;">' + nf(Math.round(row.opportunity)) + '</b>'
-    + ' · 검색 ' + nf(row.searchVolume) + ' · 문서 ' + nf(row.documentCount)
-    + '</div>'
+    + '<div style="color:#f1f5f9; font-size:13px; font-weight:700; line-height:1.45; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">' + esc(row.keyword) + '</div>'
+    + '<div style="color:#86a15f; font-size:11px; margin-top:5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + meta + '</div>'
     + '</button>';
 }
 
@@ -9051,7 +9076,8 @@ function useBriefingKeyword(keywordJson) {
     input.value = keyword;
     input.dispatchEvent(new Event('input', { bubbles: true }));
   }
-  if (typeof showTab === 'function') { try { showTab('posting'); } catch {} }
+  // v3.8.714: 「글포스팅」 탭의 id 는 'settings' 다. 'posting' 은 없는 탭이라 빈 화면으로 갔다(실측).
+  if (typeof showTab === 'function') { try { showTab('settings'); } catch {} }
   if (input) input.scrollIntoView({ behavior: 'smooth', block: 'center' });
   if (typeof addLog === 'function') addLog('📝 오늘의 글감에서 가져왔습니다 — ' + String(keyword).slice(0, 40), 'info');
 }
@@ -9062,6 +9088,30 @@ async function loadKeywordBriefing(manual) {
   var api = window.electronAPI || window.electron || window.blogger;
   if (!api || !api.invoke) return;
 
+  /**
+   * v3.8.714 — **저장해 둔 회차를 먼저 그린다.**
+   *
+   * 실측: 사이트(GAS) 응답이 9.8초 걸렸고, 그동안 이 카드는 통째로 숨어 있었다.
+   * 데이터는 멀쩡한데 보여줄 게 없던 시간이 길어서 "안 바뀐다"로 보였다.
+   * 그래서 캐시로 즉시 채우고, 네트워크 결과가 오면 그때 갈아끼운다.
+   */
+  var dateEl0 = document.getElementById('keywordBriefingDate');
+  try {
+    var cached = await api.invoke('site:keyword-briefing-cached');
+    if (cached && cached.rows && cached.rows.length) {
+      card.style.display = 'block';
+      var rowsEl0 = document.getElementById('keywordBriefingRows');
+      if (rowsEl0) rowsEl0.innerHTML = cached.rows.map(renderKeywordBriefingRow).join('\n');
+      if (dateEl0) {
+        dateEl0.textContent = fmtBriefingTime(cached.updatedAt) + ' 발행 · 확인 중…';
+        dateEl0.style.color = '#86a15f';
+      }
+    }
+  } catch (e) { /* 캐시가 없으면 아래 네트워크 결과를 기다린다 */ }
+
+  // 손으로 누른 것은 반응이 보여야 한다 — 아무 일도 안 난 것처럼 보이면 또 누른다
+  if (manual && dateEl0) { dateEl0.textContent = '사이트에서 확인 중…'; dateEl0.style.color = '#a3e635'; }
+
   try {
     var r = await api.invoke('site:keyword-briefing');
     if (!r || !r.ok || !Array.isArray(r.rows) || r.rows.length === 0) {
@@ -9070,19 +9120,77 @@ async function loadKeywordBriefing(manual) {
       return;
     }
     card.style.display = 'block';
+
+    /**
+     * v3.8.714 — 사장님: "아침이면 아침 오후면 오후 30분 주기로 감시하고 업데이트 반영해줘"
+     *
+     * 사이트(leaderspro.kr/leword?tab=briefs)가 읽는 것과 **같은 데이터**다(번들 실측).
+     * 그래서 새로 고치기만 하면 되고, 바뀌었을 때 그 사실이 보여야 한다 —
+     * 조용히 갈아치우면 사장님은 아침 글감을 보고 있는지 오후 글감을 보고 있는지 모른다.
+     */
+    var fingerprint = String(r.updatedAt || '') + '|' + r.rows.map(function (x) { return x.keyword; }).join('|');
+    var changed = !!window.__briefingFingerprint && window.__briefingFingerprint !== fingerprint;
+    window.__briefingFingerprint = fingerprint;
+    window.__briefingCheckedAt = Date.now();
+
     var dateEl = document.getElementById('keywordBriefingDate');
     if (dateEl) {
-      var day = String(r.updatedAt || '').slice(0, 10);
-      dateEl.textContent = (day ? day : '') + (r.stale ? ' (오프라인 캐시)' : '');
+      /**
+       * v3.8.714 — **발행 시각과 확인 시각을 같이** 적는다.
+       *
+       * 사장님: "오늘의 글감 하나도 안 바꼇는데?" — 그때 앱은 이미 새 글감을 받아
+       * 그리고 있었다(실측: 캐시에 오늘 06:11 회차 저장). 화면에 "언제 확인했는지" 가
+       * 없으니 감시가 도는지 멈췄는지 알 방법이 없었던 것이다.
+       * 사이트가 아직 새 회차를 안 올린 날에도 "앱은 방금 봤다"가 보여야 한다.
+       */
+      var stamp = fmtBriefingTime(r.updatedAt);
+      var checkedAt = new Date().toTimeString().slice(0, 5);                  // HH:MM
+      // v3.8.714: 회차(아침·오후·저녁)를 먼저 적는다 — 사장님이 보려던 게 이것이다
+      dateEl.textContent = (r.slot ? r.slot + ' 회차 · ' : '') + stamp
+        + (r.total ? ' · 전체 ' + r.total + '건' : '')
+        + (r.stale ? ' · 오프라인 캐시' : ' · ' + checkedAt + ' 확인')
+        + (changed ? ' · 방금 갱신됨' : '');
+      dateEl.style.color = changed ? '#a3e635' : '#86a15f';
+      dateEl.title = '30분마다 자동으로 다시 봅니다. 사이트가 새 회차를 올리면 여기 시각이 바뀝니다.';
     }
     var rowsEl = document.getElementById('keywordBriefingRows');
     if (rowsEl) rowsEl.innerHTML = r.rows.map(renderKeywordBriefingRow).join('\n');
+    if (changed && typeof addLog === 'function') {
+      addLog('📝 오늘의 글감이 갱신됐습니다 — ' + r.rows.map(function (x) { return x.keyword; }).join(', ').slice(0, 80), 'info');
+    }
   } catch (e) {
     console.warn('[KEYWORD-BRIEFING] 불러오기 실패:', e);
     if (manual) alert('오늘의 글감을 불러오지 못했습니다: ' + (e && e.message ? e.message : e));
   }
 }
 window.loadKeywordBriefing = loadKeywordBriefing;
+
+/**
+ * 30분마다 사이트를 다시 본다 (v3.8.714).
+ *
+ * 리포트는 아침·오후로 나뉘어 올라오고 시각이 들쭉날쭉하다. 시각을 못박는 대신
+ * **주기적으로 다시 보는** 쪽이 맞다(고CPC 카드에서 쓰던 방식과 같은 이유).
+ * 거기에 창을 다시 켤 때도 한 번 본다 — 노트북을 덮었다 열면 몇 시간이 지나 있다.
+ */
+function startKeywordBriefingWatch() {
+  if (window.__briefingWatchTimer) return;
+  /**
+   * v3.8.714 — 글감은 하루 세 회차(아침·오후·저녁)로 올라온다.
+   * 사장님 지시대로 30분마다 본다 — 회차가 바뀌면 늦어도 30분 안에 화면이 따라온다.
+   * (원본이 588KB 라 더 자주 받을 이유도 없다. 창을 다시 볼 때도 한 번 확인한다.)
+   */
+  window.__briefingWatchTimer = setInterval(function () {
+    loadKeywordBriefing(false).catch(function () {});
+  }, 30 * 60 * 1000);
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) return;
+    // 창을 다시 볼 때마다 부르면 낭비다 — 마지막 확인이 10분 넘었을 때만
+    var since = Date.now() - (window.__briefingCheckedAt || 0);
+    if (since > 10 * 60 * 1000) loadKeywordBriefing(false).catch(function () {});
+  });
+}
+window.startKeywordBriefingWatch = startKeywordBriefingWatch;
 window.useBriefingKeyword = useBriefingKeyword;
 
 /**
@@ -9198,7 +9306,11 @@ function showEngineStartupGate() {
       { id: 'codex', name: 'Codex Agent' },
       { id: 'claude', name: 'Claude Code Agent' },
     ].map(function (a) {
-      return optHtml('agent:' + a.id, '🤖 ' + a.name, '비용 0', agentMode === 'agent' && agentProvider === a.id, 'eg-agent');
+      return optHtml('agent:' + a.id, '🤖 ' + a.name, '비용 0', agentMode === 'agent' && agentProvider === a.id, 'eg-agent')
+        // v3.8.714: 에이전트 안에서 모델까지 고른다 (페이블·오푸스·소넷 / 아스트라 등)
+        + '<select class="eg-model" data-agent="' + a.id + '" title="이 에이전트가 쓸 모델"'
+        + ' style="grid-column:span 1; width:100%; padding:7px 9px; border:1px solid rgba(148,163,184,.2);'
+        + ' border-radius:9px; background:rgba(15,23,42,.6); color:#cbd5e1; font-size:11.5px; font-weight:700;"></select>';
     }).join('');
 
     // 브랜드별로 묶는다. 순서는 화면(환경설정)에 나온 순서를 그대로 따른다
@@ -9257,6 +9369,29 @@ function showEngineStartupGate() {
     };
     overlay.addEventListener('change', paintPick);
     paintPick();
+
+    /**
+     * v3.8.714 — 에이전트별 모델 목록을 메인에서 받아 채운다.
+     * 목록을 여기 적지 않는다 — 화면마다 적으면 새 모델이 나올 때 한쪽만 늙는다.
+     */
+    (window.electronAPI && window.electronAPI.invoke ? window.electronAPI.invoke('agent:models') : Promise.resolve(null))
+      .then(function (res) {
+        overlay.querySelectorAll('.eg-model').forEach(function (sel) {
+          var provider = sel.getAttribute('data-agent');
+          var list = (res && res.models && res.models[provider]) || [];
+          if (!list.length) { sel.style.display = 'none'; return; }
+          var current = '';
+          try { current = String(window.getAgentModel ? window.getAgentModel(provider) : ''); } catch (e) { /* 기본값 */ }
+          sel.innerHTML = list.map(function (m) {
+            return '<option value="' + esc(m.value) + '"' + (m.value === current ? ' selected' : '') + '>'
+              + esc(m.label) + '</option>';
+          }).join('');
+          sel.addEventListener('change', function () {
+            try { window.setAgentModel && window.setAgentModel(provider, sel.value); } catch (e) { /* 저장 실패해도 고른 값은 아래에서 쓴다 */ }
+          });
+        });
+      })
+      .catch(function () { overlay.querySelectorAll('.eg-model').forEach(function (s) { s.style.display = 'none'; }); });
     // 지난번에 고른 것이 목록 아래쪽이면 안 보인다 — 스크롤해서 보여 준다
     try { overlay.querySelector('.eg-opt.is-on')?.scrollIntoView({ block: 'center' }); } catch (e) { /* noop */ }
     overlay.addEventListener('keydown', function (e) {

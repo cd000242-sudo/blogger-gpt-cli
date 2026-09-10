@@ -7,6 +7,7 @@ import axios, { AxiosError } from 'axios';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getApiKey } from './api-keys';
 import { findTier } from './pricing';
+import { applyOpenAiTokenParams } from './openai-params';
 // v3.8.565 (E2): 출력 언어는 language-rules 가 단독으로 정한다.
 //   본문 프롬프트(generation.ts)와 여기가 서로 다른 언어를 지시하면 모델이 흔들린다.
 import { systemLanguageLine } from '../final/language-rules';
@@ -97,14 +98,18 @@ function buildOpenAIChatBody(model: string, prompt: string): Record<string, unkn
     ],
   };
 
-  if (/^gpt-5/i.test(model)) {
-    body['max_completion_tokens'] = resolveLlmMaxTokens();
-    if (/^gpt-5\.6/i.test(model)) body['reasoning_effort'] = 'medium';
-  } else {
-    body['max_tokens'] = resolveLlmMaxTokens();
-    body['temperature'] = getGenerationTemperature(prompt);
-  }
-  return body;
+  /**
+   * v3.8.714 — 규칙을 openai-params 한 곳에서 정한다.
+   * 예전엔 `/^gpt-5/` 만 새 규칙을 썼다 → **gpt-6-astra** 가 옛 취급을 받아
+   * max_tokens·temperature 를 보냈고 HTTP 400 으로 발행이 통째로 실패했다(사장님 실측).
+   */
+  return applyOpenAiTokenParams(
+    body,
+    model,
+    resolveLlmMaxTokens(),
+    getGenerationTemperature(prompt),
+    { reasoningEffort: 'medium' },
+  );
 }
 
 const PROVIDERS: Record<string, LLMProviderConfig> = {

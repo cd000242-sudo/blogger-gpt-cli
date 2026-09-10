@@ -141,7 +141,7 @@ describe('③ 완전자동발행 순서', () => {
 });
 
 // ══════════════════════════════════════════════════════════
-describe('④ 네이버 API HUB 칸 — 설정 모달 API 키 탭 맨 아래', () => {
+describe('④ 네이버 API HUB 칸 — 설정 모달 API 키 탭 (v3.8.714: 네이버 키 섹션 위로)', () => {
   const apiTab = blockBetween(html, 'id="tab-api-keys"', 'id="tab-platform"');
 
   it('⭐ HUB 칸이 API 키 탭 안에 있고, 숨김 카드에는 더 이상 없다', () => {
@@ -151,11 +151,19 @@ describe('④ 네이버 API HUB 칸 — 설정 모달 API 키 탭 맨 아래', (
     expect((html.match(/id="naverClientId"/g) || []).length).toBe(1);
   });
 
-  it('맨 아래다 — 다른 키 카드들보다 뒤', () => {
+  /*
+   * v3.8.714 — 사장님: "네이버 api 허브는 왜 에이전트 맨 아래에있니...?"
+   *
+   * v3.8.686 은 이 칸을 API 키 탭 **맨 아래**에 뒀다. 그런데 HUB 는 곁다리가 아니라
+   * 지금의 표준이고(개발자센터 옛 키는 2027-06-30 종료), 같은 네이버 키인
+   * 「키워드 분석 / 이미지 검색 API」 와 떨어져 맨 밑에 홀로 있으니 곁다리로 보였다.
+   * 그래서 네이버 키 섹션 **바로 위**로 올렸다 — 표준을 먼저 보여준다.
+   */
+  it('네이버 키 섹션 위에 있다 — 곁다리가 아니라 표준이다', () => {
     const hub = apiTab.indexOf('id="naverApiHubKeyId"');
-    expect(hub).toBeGreaterThan(apiTab.indexOf('id="openaiKey"'));
-    expect(hub).toBeGreaterThan(apiTab.indexOf('id="naverCustomerId"'));
-    expect(hub).toBeGreaterThan(apiTab.indexOf('id="naverLoginBtn"'));
+    expect(hub).toBeGreaterThan(apiTab.indexOf('id="openaiKey"'));      // AI 키들 뒤
+    expect(hub).toBeLessThan(apiTab.indexOf('id="naverCustomerId"'));   // 옛 네이버 키 앞
+    expect(hub).toBeLessThan(apiTab.indexOf('id="naverLoginBtn"'));
   });
 
   it('⭐ 옛 키도 같이 받고 저장·복원된다 (HUB 로 이관하는 동안 끊기지 않게)', () => {

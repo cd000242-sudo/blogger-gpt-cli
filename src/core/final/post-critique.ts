@@ -29,7 +29,8 @@ import { auditTitleAnswer } from './title-answer-gate';
 import { findRepeatedClaims } from './redundancy-guard';
 import { auditArticle, type AuditKind } from './article-audit';
 
-export type CritiqueArea = 'substance' | 'answer' | 'quality' | 'cta' | 'competitor' | 'structure';
+/** v3.8.714: 'style' — 문장 중간 줄바꿈·표 서술형·훈계조처럼 **읽는 맛**을 깎는 것들 */
+export type CritiqueArea = 'substance' | 'answer' | 'quality' | 'cta' | 'competitor' | 'structure' | 'style';
 export type CritiqueSeverity = 'high' | 'medium' | 'low';
 
 export interface CritiqueIssue {
@@ -523,6 +524,84 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
     });
   }
 
+  /* ────────────────────────────────────────────────────────────
+   * v3.8.714 — 사람이 30초면 보는 결함을 기계도 보게 한다.
+   *
+   * 사장님이 발행글을 읽고 잡아낸 것들인데, 비평은 "출처 0회"·"반복 구절"만 말하고
+   * 정작 눈에 걸리는 이 셋은 한 번도 짚지 않았다. AI 에 맡기지 않고 여기서 센다 —
+   * 세는 일은 코드가 확실하고 공짜다.
+   * ──────────────────────────────────────────────────────────── */
+
+  // ① 문장 한가운데서 갈린 줄 (실측: 한 편에 18곳)
+  const midBreaks: string[] = [];
+  for (const m of html.matchAll(/([^<>]{6,60}?)<br\s*\/?>/gi)) {
+    const tail = String(m[1] || '').trim();
+    if (/(?:,|이며|하며|하고|이고|지만|이지|것이지|면서|않고|없이|이나|거나|는데|은데|아서|어서|라서)\s*$/.test(tail)) {
+      midBreaks.push(tail.slice(-40));
+    }
+  }
+  if (midBreaks.length >= 3) {
+    push({
+      id: 'style-mid-sentence-break',
+      area: 'style',
+      severity: midBreaks.length >= 10 ? 'high' : 'medium',
+      title: '문장 한가운데서 줄이 갈립니다',
+      detail: `${midBreaks.length}곳에서 쉼표·연결어미 뒤에 줄바꿈이 들어갔습니다. 읽는 사람은 "왜 여기서 끊기지?" 하며 호흡이 끊깁니다.`,
+      evidence: midBreaks.slice(0, 3).map((s) => `…${s} ⏎`).join('\n'),
+      fix: '한 문장은 한 줄로 둡니다. 줄바꿈은 문장이 끝난 자리에만 넣습니다.',
+      sectionIndex: locateSection(sections, midBreaks[0] || ''),
+    });
+  }
+
+  // ② 표 셀이 문장으로 끝남 — 표는 명사로 끊어야 눈이 훑는다
+  const verbCells: string[] = [];
+  for (const m of html.matchAll(/<t[dh][^>]*>([\s\S]{2,80}?)<\/t[dh]>/gi)) {
+    const cell = String(m[1] || '').replace(/<[^>]+>/g, '').trim();
+    if (/(입니다|합니다|됩니다|합니다만)\.?$/.test(cell)) verbCells.push(cell);
+  }
+  if (verbCells.length >= 2) {
+    push({
+      id: 'style-table-sentence',
+      area: 'style',
+      severity: 'medium',
+      title: '표 안이 문장으로 끝납니다',
+      detail: `표 셀 ${verbCells.length}칸이 "~입니다/~합니다"로 끝납니다. 표는 명사로 끊어야 눈이 훑고, 서술형이 들어가면 표가 아니라 문단이 됩니다.`,
+      evidence: verbCells.slice(0, 3).join(' · '),
+      fix: '표 셀은 명사구로 적습니다. "경기민원24입니다." → "경기민원24", "본인이 신청합니다." → "본인 신청".',
+      sectionIndex: locateSection(sections, verbCells[0] || ''),
+    });
+  }
+
+  // ③ 훈계조 — "~해서는 안 됩니다" 가 반복되면 독자를 가르치는 글이 된다
+  const scolding = bodyText.match(/[^.!?\n]{5,60}?(?:해서는 안 됩니다|하면 안 됩니다|해서는 안 된다)/g) || [];
+  if (scolding.length >= 3) {
+    push({
+      id: 'style-scolding',
+      area: 'style',
+      severity: 'medium',
+      title: '독자를 가르치는 말투가 반복됩니다',
+      detail: `"~해서는 안 됩니다" 류가 ${scolding.length}번 나옵니다. 사장님 말투(합니다체 + 공감)와 반대로 읽힙니다.`,
+      evidence: scolding.slice(0, 3).map((s) => s.trim()).join('\n'),
+      fix: '금지문 대신 사실로 적습니다. "…생각해서는 안 됩니다" → "9월 30일이 지나면 접수가 안 됩니다".',
+      sectionIndex: locateSection(sections, scolding[0]?.trim() || ''),
+    });
+  }
+
+  // ④ 글이 자기 구조를 설명하는 문장 — 독자가 궁금한 건 목차가 아니다
+  const meta = bodyText.match(/[^.!?\n]{5,60}?(?:나누어 살펴봅니다|살펴보겠습니다|구분할 필요가 있습니다|정리해 보겠습니다|알아보겠습니다|순서입니다)/g) || [];
+  if (meta.length >= 2) {
+    push({
+      id: 'style-meta-sentence',
+      area: 'style',
+      severity: 'low',
+      title: '글이 자기 구조를 설명합니다',
+      detail: `"나누어 살펴봅니다" 같은 안내 문장이 ${meta.length}번 나옵니다. 독자가 궁금한 것은 목차가 아니라 답입니다.`,
+      evidence: meta.slice(0, 3).map((s) => s.trim()).join('\n'),
+      fix: '구조를 설명하는 문장을 지우고 그 자리에 답이나 숫자를 넣습니다.',
+      sectionIndex: locateSection(sections, meta[0]?.trim() || ''),
+    });
+  }
+
   return issues;
 }
 
@@ -744,10 +823,20 @@ export function acceptRevisedSection(
   original: PostSection,
   opts: { cutting?: boolean } = {},
 ): { html: string; accepted: boolean; reason: string } {
-  const cleaned = String(raw || '')
+  /**
+   * v3.8.714 — 고쳐 온 구간에도 **같은 정리**를 건다.
+   *
+   * 사장님: "수정하고 또 비평하면 또 지적이 나오면 수정발행하는 의미가없자나"
+   *
+   * 맞는 말이다. 문장 중간 줄바꿈·표 서술형은 모델이 고쳐 오면서 다시 넣기 쉬운 것들이라,
+   * 생성 경로에서만 정리하면 수정발행 뒤에 또 지적이 뜬다. 여기서도 같은 손질을 한다.
+   */
+  const { joinMidSentenceBreaks, tidyTableCells } = require('./br-joiner');
+  const stripped = String(raw || '')
     .replace(/```[a-z]*\s*/gi, '')
     .replace(/```/g, '')
     .trim();
+  const cleaned = tidyTableCells(joinMidSentenceBreaks(stripped).html).html.trim();
 
   if (!cleaned) return { html: original.html, accepted: false, reason: '빈 응답' };
 

@@ -37,6 +37,8 @@ function agentProviderLabel(value) {
 
 const EXECUTION_MODE_KEY = 'leadernamExecutionMode';
 const ACTIVE_AGENT_PROVIDER_KEY = 'leadernamActiveAgentProvider';
+/** v3.8.714: 에이전트별로 고른 모델 { claude: 'claude-fable-5', codex: 'gpt-6-astra' } */
+const AGENT_MODELS_KEY = 'leadernamAgentModels';
 const ACTIVE_AGENT_PROFILE_IDS_KEY = 'leadernamActiveAgentProfileIds';
 const ACTIVE_API_TEXT_PROVIDER_KEY = 'leadernamActiveApiTextProvider';
 const ACTIVE_API_IMAGE_PROVIDER_KEY = 'leadernamActiveApiImageProvider';
@@ -288,13 +290,41 @@ function loadExecutionPrefs() {
   state.activeApiTextProvider = API_TEXT_PROVIDERS.some((item) => item.id === apiTextProvider) ? apiTextProvider : 'gemini';
   state.activeApiImageProvider = API_IMAGE_PROVIDERS.some((item) => item.id === apiImageProvider) ? apiImageProvider : 'stability';
   state.activeAgentProfileIds = normalizeAgentProfileSelectionMap(savedProfileIds);
+  // v3.8.714: 에이전트 안에서 고른 모델 (예: claude→Fable 5, codex→GPT-6 Astra)
+  state.agentModels = (() => {
+    const saved = storage?.getSync?.(AGENT_MODELS_KEY, true) || {};
+    return (saved && typeof saved === 'object') ? saved : {};
+  })();
   return {
     mode: state.executionMode,
     agentProvider: state.activeAgentProvider,
     apiTextProvider: state.activeApiTextProvider,
     apiImageProvider: state.activeApiImageProvider,
     activeAgentProfileIds: state.activeAgentProfileIds,
+    agentModels: state.agentModels,
+    agentModel: String(state.agentModels?.[state.activeAgentProvider] || ''),
   };
+}
+
+/**
+ * 🤖 v3.8.714 — 에이전트 안에서 모델을 고른다.
+ *
+ * 사장님: "에이전트 내에 모델선택이 가능하자나 페이블이나 오푸스 소넷 등등 … 코덱스도 이번에 아스트라나온것처럼"
+ *
+ * 목록은 메인(dist/core/agent-models)이 준다 — 화면이 따로 적으면 한쪽만 늙는다.
+ * 저장은 여기 한 곳(prefs)에서만 하고, 발행 payload·비서가 이 값을 읽어 간다.
+ */
+function getAgentModel(provider) {
+  const id = normalizeAgentProviderId(provider || state.activeAgentProvider);
+  return String(state.agentModels?.[id] || '');
+}
+
+function setAgentModel(provider, model) {
+  const id = normalizeAgentProviderId(provider || state.activeAgentProvider);
+  state.agentModels = { ...(state.agentModels || {}), [id]: String(model || '') };
+  getStorage()?.setSync?.(AGENT_MODELS_KEY, state.agentModels, true);
+  renderAgentSettingsSection();
+  refreshGlobalAiModelBadge();
 }
 
 function saveExecutionPrefs() {
@@ -304,6 +334,7 @@ function saveExecutionPrefs() {
   storage?.setSync?.(ACTIVE_API_TEXT_PROVIDER_KEY, state.activeApiTextProvider, true);
   storage?.setSync?.(ACTIVE_API_IMAGE_PROVIDER_KEY, state.activeApiImageProvider, true);
   storage?.setSync?.(ACTIVE_AGENT_PROFILE_IDS_KEY, state.activeAgentProfileIds, true);
+  storage?.setSync?.(AGENT_MODELS_KEY, state.agentModels || {}, true);
 }
 
 function normalizeAgentProfileSelectionMap(raw) {
@@ -1069,8 +1100,14 @@ function renderEntryStatus() {
     return;
   }
 
+  /**
+   * v3.8.714 — 아직 확인 못 한 것과 등급이 모자란 것은 다른 일이다.
+   * 무제한(영구) 사용자에게 "3개월부터" 라고 하면 앱이 라이선스를 못 읽은 것처럼 보인다.
+   */
   statusEl.className = 'codex-workshop-status is-locked';
-  statusEl.textContent = `API 키 모드 · Max Agent는 ${status.requiredName || '3개월 이상'}부터`;
+  statusEl.textContent = (!status || status.ok !== true)
+    ? '라이선스 확인 중… 잠시 뒤 다시 눌러 주세요'
+    : `API 키 모드 · Agent 모드는 ${status.requiredName || '스탠다드'}부터 (현재 ${status.currentName || '확인 안 됨'})`;
   button.textContent = 'Max 안내 보기';
   button.disabled = true;
 }
@@ -1412,7 +1449,10 @@ function renderAgentProviderPanel() {
           <strong>${escapeHtml(meta.title)}</strong>
           <span>${escapeHtml(`${meta.label} ${toolLabel} · ${loginLabel}`)}</span>
         </div>
-        <span class="agent-mode-pill ${allowed && ready ? 'is-ready' : 'is-locked'}">${allowed ? loginLabel : '3개월 이상 필요'}</span>
+        <!-- v3.8.714: 확인 전이면 "확인 중" — 무제한 사용자에게 "3개월 이상 필요"는 거짓말이다 -->
+        <span class="agent-mode-pill ${allowed && ready ? 'is-ready' : 'is-locked'}">${
+          allowed ? loginLabel : (state.agentStatus?.ok === true ? '등급 부족' : '확인 중…')
+        }</span>
       </div>
 
       <div class="agent-mode-provider-layout">
@@ -1745,11 +1785,39 @@ function renderAgentExecutionReadiness() {
   });
 }
 
-function setExecutionMode(mode) {
+/**
+ * 왜 막혔는지 사실대로 말한다 (v3.8.714).
+ *
+ * 사장님: "에이전트 모드는 3개월 이상 코드에서 사용할 수 있습니다 떠있는데 난 영구제인데 왜뜨냐"
+ *
+ * 실측 — 백엔드는 `tier: unlimited · 무제한 · allowed: true` 로 제대로 답하고 있었다.
+ * 화면이 **상태를 받아오기 전에** 막으면서, 이유를 모른 채 "3개월 이상" 이라고 말한 것이다.
+ * 확인을 못 했으면 못 했다고 하고, 등급이 모자라면 지금 등급을 같이 보여준다.
+ */
+function agentBlockedMessage(status) {
+  if (!status || status.ok !== true) {
+    return '라이선스 상태를 아직 확인하지 못했습니다. 잠시 뒤 다시 시도해 주세요.';
+  }
+  return status.message
+    || `Agent 모드는 ${status.requiredName || '스탠다드'} 이상 코드에서 열립니다. (현재 등급: ${status.currentName || '확인 안 됨'})`;
+}
+
+async function setExecutionMode(mode) {
   const nextMode = mode === 'agent' ? 'agent' : 'api';
-  if (nextMode === 'agent' && !isMaxAgentAllowed(state.agentStatus)) {
-    alert(state.agentStatus?.message || 'Agent 모드는 3개월 이상 코드에서 사용할 수 있습니다.');
-    state.executionMode = 'api';
+  if (nextMode === 'agent') {
+    // v3.8.714: 상태를 안 받아 온 채로 막지 않는다 — 무제한(영구) 사용자가 "3개월 이상" 안내를 받았다
+    let status = state.agentStatus;
+    if (!status || status.ok !== true) status = await loadAgentModeStatus(true);
+    if (!isMaxAgentAllowed(status)) {
+      alert(agentBlockedMessage(status));
+      state.executionMode = 'api';
+      saveExecutionPrefs();
+      applyExecutionModeToApp();
+      renderAgentSettingsSection();
+      refreshGlobalAiModelBadge();
+      return;
+    }
+    state.executionMode = nextMode;
   } else {
     state.executionMode = nextMode;
   }
@@ -4504,7 +4572,12 @@ export function initCodexWorkshop() {
   window.getAgentExecutionState = () => ({
     mode: state.executionMode === 'agent' ? 'agent' : 'api',
     provider: normalizeAgentProviderId(state.activeAgentProvider),
+    // v3.8.714: 에이전트 안에서 고른 모델 — 비서·시작 게이트·발행 payload 가 읽는다
+    model: getAgentModel(state.activeAgentProvider),
+    models: { ...(state.agentModels || {}) },
   });
+  window.getAgentModel = getAgentModel;
+  window.setAgentModel = setAgentModel;
 
   window.refreshAgentModeSettings = () => {
     ensureAgentSettingsSection();

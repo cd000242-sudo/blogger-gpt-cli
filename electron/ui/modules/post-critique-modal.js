@@ -33,6 +33,8 @@ const AREA_LABEL = {
   cta: '전환',
   competitor: '경쟁글 대비',
   structure: '구성',
+  // v3.8.714: 읽는 맛 — 문장 중간 줄바꿈·표 서술형·훈계조처럼 사람이 30초면 보는 것들
+  style: '문장·표기',
 };
 
 const esc = (value) => String(value == null ? '' : value)

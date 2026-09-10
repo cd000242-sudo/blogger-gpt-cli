@@ -68,6 +68,31 @@ const PROVIDER_NAMES: Record<Provider, string> = {
   perplexity: 'Perplexity',
 };
 
+/**
+ * 지금 **화면에서 고를 수 있는** 모델 이름을 안내에 넣는다 (v3.8.714).
+ *
+ * 사장님: 발행 실패 창에 "환경 설정에서 Gemini 2.5 Flash 또는 Flash-Lite를 선택해 주세요"
+ * 라고 떴다. 그 이름은 지금 화면 어디에도 없다 — 사용자는 없는 걸 찾아다니게 된다.
+ *
+ * 이름을 여기 적지 않고 **가격표(pricing)** 에서 읽는다. 화면의 엔진 카드도 같은 표를 읽으니
+ * 모델이 개편돼도 안내와 화면이 어긋나지 않는다. 실패한 제공자 것은 빼고 권한다.
+ */
+function suggestPickableModels(failedProvider: Provider): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { getPricingTable } = require('../llm/pricing');
+    const rows: Array<{ title: string; provider: string; costKrw: number }> = getPricingTable() || [];
+    const others = rows
+      .filter((r) => r.provider !== failedProvider && r.title)
+      .sort((a, b) => (a.costKrw || 0) - (b.costKrw || 0))
+      .slice(0, 3)
+      .map((r) => r.title);
+    return others.length ? `예: ${others.join(' · ')}` : '';
+  } catch {
+    return '';
+  }
+}
+
 const BILLING_URLS: Record<Provider, string> = {
   gemini: 'https://aistudio.google.com/plan_billing',
   openai: 'https://platform.openai.com/settings/organization/billing',
@@ -347,7 +372,7 @@ function buildUserError(provider: Provider, info: FailureInfo, attempts: number,
       break;
     case 'model':
       reason = `${providerName} 모델을 사용할 수 없습니다.`;
-      fix = '환경 설정에서 Gemini 2.5 Flash 또는 Flash-Lite를 선택해 주세요.';
+      fix = `환경설정 → AI 텍스트 엔진에서 다른 모델을 골라 주세요. ${suggestPickableModels(provider)}`;
       break;
     case 'network':
       reason = `${providerName} 서버에 연결하지 못했습니다.`;
@@ -359,7 +384,7 @@ function buildUserError(provider: Provider, info: FailureInfo, attempts: number,
       break;
     default:
       reason = `${providerName}에서 알 수 없는 오류가 발생했습니다.`;
-      fix = '다른 텍스트 엔진을 선택하거나 API 키 상태를 확인해 주세요.';
+      fix = `API 키 상태를 확인하거나, 환경설정 → AI 텍스트 엔진에서 다른 모델을 골라 주세요. ${suggestPickableModels(provider)}`;
       break;
   }
 

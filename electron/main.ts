@@ -4422,6 +4422,25 @@ function loadAssistantKnowledge(): string {
 }
 
 /**
+ * 설정된 글 엔진을 **사람이 화면에서 보는 이름**으로 (v3.8.714).
+ * 실측: 비서가 "OpenAI GPT-4.1" 이라고 답했는데 화면에는 그런 이름이 없었다.
+ * 내부 id(openai-gpt41)를 그대로 넘긴 탓이다 — 실제 모델은 GPT-5.6 Terra 다.
+ */
+function assistantTextEngineLabel(env: any): string {
+  const raw = String(
+    process.env['PRIMARY_TEXT_MODEL'] || env?.['PRIMARY_TEXT_MODEL'] || env?.['primaryGeminiTextModel'] || '',
+  ).trim();
+  if (!raw) return '(설정값 없음)';
+  try {
+    const { findTier } = require('../dist/core/llm/pricing');
+    const tier = findTier(raw);
+    return tier?.title ? `${tier.title} (실제 모델 ${tier.modelId})` : raw;
+  } catch {
+    return raw;
+  }
+}
+
+/**
  * 앱이 스스로 보고하는 상태. **키 값은 절대 싣지 않는다 — 있다/없다만.**
  * 로그 꼬리는 마스킹을 거친다(src/core/assistant/redact).
  */
@@ -4443,8 +4462,13 @@ function collectAssistantDiagnostics(): any {
       packaged: app.isPackaged,
     },
     engine: {
-      // 어떤 엔진으로 글을 만들도록 설정돼 있는가
-      text: String(process.env['PRIMARY_TEXT_MODEL'] || env['PRIMARY_TEXT_MODEL'] || env['primaryGeminiTextModel'] || '(설정값 없음)'),
+      // 어떤 엔진으로 글을 만들도록 설정돼 있는가.
+      //
+      // v3.8.714 — **화면에 보이는 이름**을 준다. 내부 id 에는 옛 이름이 남아 있어서
+      //   (openai-gpt41 → 실제로는 GPT-5.6 Terra) 그대로 넘기면 비서가 "GPT-4.1" 이라고
+      //   답한다(실측). 사용자는 화면에서 그 이름을 못 찾고 앱이 틀린 줄 안다.
+      //   라벨의 단일 출처는 pricing 표다 — 화면도 같은 표를 읽는다.
+      text: assistantTextEngineLabel(env),
       provider: String(env['AI_PROVIDER'] || env['aiProvider'] || '(자동)'),
       image: String(env['IMAGE_SOURCE'] || env['imageSource'] || '(화면 선택값)'),
       loggedInAgents: agents,
@@ -4455,15 +4479,33 @@ function collectAssistantDiagnostics(): any {
       claude: filled('claudeKey', 'CLAUDE_API_KEY', 'ANTHROPIC_API_KEY'),
       perplexity: filled('perplexityKey', 'PERPLEXITY_API_KEY'),
     },
+    /**
+     * v3.8.714 — 네이버는 여기 넣지 않는다.
+     * 사장님: "네이버 미연결은 원래 연결이 안되어있고 독립앱이따로있는데 설명을 왜해주는거냐"
+     * 네이버 발행은 별도 앱이 맡는다. 목록에 두면 비서가 "네이버가 연결 안 됐다"고
+     * 굳이 설명해서, 고칠 것도 없는 걸 고치라고 하는 꼴이 된다.
+     */
     blogs: {
       wordpress: filled('wordpressSiteUrl') && filled('wordpressUsername') && filled('wordpressPassword'),
       blogger: filled('blogId') && filled('bloggerRefreshToken'),
       tistory: filled('tistoryBlogName', 'TISTORY_BLOG_NAME'),
-      naver: filled('naverId', 'NAVER_ID'),
     },
     recentLog: redactLogLines(assistantLogRing, { maxLines: 90, maxChars: 240 }),
   });
 }
+
+/**
+ * 🤖 v3.8.714 — 에이전트 안에서 고를 수 있는 모델 목록.
+ * 화면이 목록을 따로 적지 않게 **메인이 준다** — 두 벌이면 한쪽만 늙는다.
+ */
+ipcMain.handle('agent:models', async () => {
+  try {
+    const { AGENT_MODELS, agentModelsFor } = require('../dist/core/agent-models');
+    return { ok: true, models: AGENT_MODELS, claude: agentModelsFor('claude'), codex: agentModelsFor('codex') };
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 160) };
+  }
+});
 
 ipcMain.handle('assistant:diagnostics', async () => {
   try { return { ok: true, diagnostics: collectAssistantDiagnostics() }; }
@@ -4471,15 +4513,114 @@ ipcMain.handle('assistant:diagnostics', async () => {
 });
 
 /**
- * 비서에게 묻는다.
+ * 비서에게 묻는다. **에이전트 전용이다.**
  *
- * 엔진 순서: 로그인된 에이전트(claude → codex → gemini) → API 키 → 없음.
- * 에이전트를 먼저 쓰는 이유는 **비용이 0**이기 때문이다. 이 앱 사용자는 대개 LLM 구독으로
- * 글을 만들고 있으므로, 비서 때문에 따로 과금될 이유가 없다.
+ * 사장님: "비서는 무조건 에이전트로만 움직이게해줘 코덱스나 클로드코드 안티그래비티"
+ *
+ * API 폴백을 두지 않는 이유 — 비서는 사용자가 막혔을 때 **여러 번** 부르는 기능이다.
+ * 조용히 API 로 떨어지면 도움을 받을수록 요금이 붙고, 사용자는 그걸 모른 채 쓴다.
+ * 구독 에이전트는 이미 내고 있는 요금 안에서 돌아 추가 비용이 0이다.
+ * 그래서 에이전트가 없으면 답하지 않고 **로그인하라고 말한다** — 그게 정직하다.
  */
-ipcMain.handle('assistant:ask', async (_evt, args?: { question?: string; history?: any[] }) => {
+const ASSISTANT_AGENT_ORDER = ['claude', 'codex', 'gemini'] as const;
+
+/**
+ * 비서의 정체성 (v3.8.714). 클로드 코드의 기본 시스템 프롬프트를 **대체**한다.
+ *
+ * 실측 사고: 이게 없으니 "작업 디렉터리에서 앱 코드를 아직 확인하지 않았습니다",
+ * "코드 작업을 도와드릴까요" 라고 답했다 — 사용자에게는 무슨 소린지 모를 말이다.
+ * 짧게 쓴다. 길면 윈도우 명령줄에서 따옴표가 꼬인다.
+ */
+const ASSISTANT_SYSTEM_PROMPT = [
+  '당신은 블로그 자동화 앱 "LEADERNAM Orbit" 안에 들어 있는 사용자 비서입니다.',
+  '코딩 에이전트가 아닙니다. 작업 디렉터리·파일·코드·터미널을 절대 언급하지 말고, 파일을 읽으려 하지 마세요.',
+  '앱의 기능과 지금 상태는 사용자 메시지에 담긴 「앱 매뉴얼」과 「지금 이 앱의 상태」 안에서만 말합니다.',
+  '그 밖의 일(글감·제목 제안, 문장 다듬기, 발행 계획, 블로그 운영 상담)은 비서답게 아는 대로 도와주세요.',
+  '항상 한국어로, 결론부터, 간결하게 답합니다. 여러 단계가 필요한 일은 한 번에 하나씩 물어보며 진행하세요.',
+].join(' ');
+
+/** 사장님 지정 (v3.8.714): 비서는 페이블로, 막히면 오푸스 5 로 */
+const ASSISTANT_MODEL = 'claude-fable-5';
+const ASSISTANT_FALLBACK_MODEL = 'claude-opus-5';
+
+/**
+ * 그 모델이 지금 못 쓰는 상태인가.
+ *
+ * 실측(2026-09-10) — 페이블 한도가 찼을 때 CLI 는 `--fallback-model` 을 줘도
+ * **자동으로 넘어가지 않았다.** 종료코드 1 과 함께 이렇게 끝난다:
+ *   "You've reached your Fable 5 limit. Switch to another model, …"
+ * 그래서 폴백을 우리가 직접 한다. 플래그는 과부하(529)용으로 남겨 둔다.
+ */
+function isModelUnavailableError(message: unknown): boolean {
+  return /limit|한도|quota|overload|unavailable|switch to another model|rate.?limit|\b429\b|\b529\b/i
+    .test(String(message ?? ''));
+}
+
+/**
+ * 비서용 claude 호출 — 고른 모델로 시도하고, 못 쓰면 다음 모델로 (v3.8.714).
+ *
+ * 사장님이 화면에서 모델을 골랐으면 그것부터 쓴다. 안 골랐으면 지정값(페이블 → 오푸스 5).
+ * 고른 모델이 한도에 막혔을 때도 손 놓지 않고 다음 후보로 넘어간다 — 실측으로 확인한
+ * 그 상황(페이블 한도)에서 비서가 통째로 죽으면 안 된다.
+ */
+async function askAssistantViaClaude(prompt: string, chosenModel?: string): Promise<{ text: string; model: string }> {
+  let lastError: any;
+  const candidates = [...new Set(
+    [String(chosenModel || '').trim(), ASSISTANT_MODEL, ASSISTANT_FALLBACK_MODEL].filter(Boolean),
+  )];
+  for (const model of candidates) {
+    try {
+      const text = await runAgentTextTask(
+        'claude',
+        prompt,
+        () => { /* 비서 답은 작업 로그로 흘리지 않는다 */ },
+        {
+          systemPrompt: ASSISTANT_SYSTEM_PROMPT,
+          model,
+          // 과부하일 때를 위한 CLI 자체 폴백 (한도에는 안 먹는다 — 위 주석 참고)
+          ...(model === ASSISTANT_MODEL ? { fallbackModel: ASSISTANT_FALLBACK_MODEL } : {}),
+          noTools: true,
+        },
+      );
+      return { text, model };
+    } catch (error: any) {
+      lastError = error;
+      if (!isModelUnavailableError(error?.message || error)) throw error;
+      console.warn(`[ASSISTANT] ${model} 못 씀 → 다음 모델로:`, String(error?.message || error).slice(0, 100));
+    }
+  }
+  throw lastError;
+}
+
+ipcMain.handle('assistant:ask', async (_evt, args?: { question?: string; history?: any[]; preferred?: string; model?: string }) => {
   const question = String(args?.question || '').trim();
   if (!question) return { ok: false, error: '질문이 비어 있습니다.' };
+
+  // 로그인된 에이전트가 하나도 없으면 여기서 끝난다 — API 로 몰래 넘어가지 않는다
+  const ready = (() => {
+    try { return loadAgentProfiles().filter((p) => p.status === 'ready'); } catch { return []; }
+  })();
+  if (!ready.length) {
+    return {
+      ok: false,
+      needsAgent: true,
+      error: 'AI 비서는 구독 에이전트로만 동작합니다. 환경설정 → Agent 계정에서 Codex 또는 Claude Code 에 로그인해 주세요.',
+    };
+  }
+
+  /**
+   * 비서 패널에서 고른 에이전트를 **1순위로** 쓴다 (v3.8.714).
+   * 사장님: "ai 비서 옆에 배찌도 코덱스로 할지 클로드코드로할지 선택가능하게해야지"
+   *
+   * 안 골랐으면 클로드 코드부터 — 시스템 프롬프트로 역할을 갈아끼울 수 있는 것이 지금은
+   * claude 뿐이라 답이 가장 비서답다. 고른 것이 실패하면 나머지로 이어서 시도한다.
+   */
+  const order = [...new Set([
+    String(args?.preferred || '').trim(),
+    ...ASSISTANT_AGENT_ORDER,
+  ])].filter((p): p is (typeof ASSISTANT_AGENT_ORDER)[number] => (
+    (ASSISTANT_AGENT_ORDER as readonly string[]).includes(p)
+  ));
 
   try {
     const { buildAssistantPrompt, cleanAssistantAnswer } = require('../dist/core/assistant/prompt');
@@ -4490,40 +4631,54 @@ ipcMain.handle('assistant:ask', async (_evt, args?: { question?: string; history
       question,
     });
 
-    // ① 로그인된 에이전트 — 구독 할당량, 추가 비용 0
-    const ready = (() => {
-      try { return loadAgentProfiles().filter((p) => p.status === 'ready'); } catch { return []; }
-    })();
-    for (const provider of ['claude', 'codex', 'gemini'] as const) {
+    let lastError = '';
+    for (const provider of order) {
       if (!ready.some((p) => p.provider === provider)) continue;
       try {
-        const raw = await runAgentTextTask(provider, prompt, () => { /* 비서 답은 로그로 흘리지 않는다 */ });
-        const answer = cleanAssistantAnswer(raw);
-        if (answer) return { ok: true, answer, engine: provider, engineLabel: `${provider} 에이전트 · 구독 사용량`, free: true };
+        // 역할은 claude 에서만 시스템 프롬프트로 갈아끼운다. 모델은 셋 다 고를 수 있다(v3.8.714).
+        const { normalizeAgentModel } = require('../dist/core/agent-models');
+        const picked = normalizeAgentModel(provider, args?.model);
+        const run = provider === 'claude'
+          ? await askAssistantViaClaude(prompt, picked)
+          : {
+            text: await runAgentTextTask(provider, prompt, () => { /* 조용히 */ }, picked ? { model: picked } : undefined),
+            model: picked,
+          };
+        const answer = cleanAssistantAnswer(run.text);
+        if (answer) {
+          const modelShort = run.model.replace(/^claude-/, '').replace(/-5$/, ' 5');
+          return {
+            ok: true,
+            answer,
+            engine: provider,
+            engineLabel: `${agentProviderLabel(provider)}${modelShort ? ' · ' + modelShort : ''} · 구독 사용량`,
+            model: run.model,
+            free: true,
+          };
+        }
+        lastError = `${agentProviderLabel(provider)} 가 빈 답을 돌려줬습니다`;
       } catch (agentError: any) {
-        console.warn('[ASSISTANT] 에이전트 실패 → 다음 후보:', String(agentError?.message || agentError).slice(0, 120));
+        lastError = String(agentError?.message || agentError);
+        console.warn('[ASSISTANT] 에이전트 실패 → 다음 후보:', lastError.slice(0, 120));
       }
     }
 
-    // ② API 키 — 글 생성과 같은 엔진 선택 규칙을 따른다
-    const { chooseTextModel, applyEngineChoice } = require('../dist/core/final/engine-selection');
-    const choice = chooseTextModel({}, { currentEnv: process.env['PRIMARY_TEXT_MODEL'] });
-    const restore = applyEngineChoice(choice);
-    try {
-      const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
-      const answer = cleanAssistantAnswer(await callGeminiWithRetry(prompt, 1, { timeoutMs: 90000 }));
-      if (answer) return { ok: true, answer, engine: 'api', engineLabel: choice.reason || 'API 모델', free: false };
-      return { ok: false, error: '답을 받지 못했습니다. 잠시 뒤 다시 물어봐 주세요.' };
-    } finally {
-      restore();
+    /**
+     * 로그인 표시는 'ready' 인데 실제 토큰이 만료된 경우가 있다 (v3.8.714 실측:
+     * codex "Failed to refresh token"). 원문 오류를 그대로 보여주면 사용자는
+     * 무슨 소린지 모른다 — 다시 로그인하라고 말해 준다.
+     */
+    if (AGENT_AUTH_REQUIRED_RE.test(lastError)) {
+      return {
+        ok: false,
+        needsAgent: true,
+        error: '에이전트 로그인이 만료됐습니다. 환경설정 → Agent 계정에서 다시 로그인해 주세요.',
+      };
     }
+    // 그 외 실패는 이유를 그대로 돌려준다(조용히 비우지 않는다)
+    return { ok: false, error: (lastError || '에이전트가 답하지 못했습니다.').slice(0, 200) };
   } catch (error: any) {
-    const message = String(error?.message || error);
-    // 키도 에이전트도 없는 상태 — 화면이 안내로 바꿔 준다
-    if (/API 키|api key|no api key|없습니다/i.test(message)) {
-      return { ok: false, needsEngine: true, error: message.slice(0, 200) };
-    }
-    return { ok: false, error: message.slice(0, 200) };
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
   }
 });
 
@@ -4543,43 +4698,90 @@ const keywordBriefingCachePath = (): string => path.join(app.getPath('userData')
 const LEADERSPRO_GAS_URL = process.env.LEADERSPRO_GAS_URL
   || 'https://script.google.com/macros/s/AKfycbxBOGkjVj4p-6XZ4SEFYKhW3FBmo5gt7Fv6djWhB1TljnDDmx_qlfZ4YdlJNohzIZ8NJw/exec';
 
+/**
+ * 저장해 둔 회차를 **즉시** 준다 (v3.8.714).
+ *
+ * 사장님: "오늘의 글감 하나도 안 바꼇는데?" — 실측해 보니 사이트(GAS) 응답이 9.8초 걸렸고,
+ * 그동안 화면은 카드를 통째로 숨기고 있었다. 데이터는 멀쩡한데 **보여줄 게 없던 시간**이
+ * 길었던 것이다. 그래서 캐시를 먼저 그리고, 네트워크 결과가 오면 그때 갈아끼운다.
+ */
+ipcMain.handle('site:keyword-briefing-cached', async () => {
+  try {
+    const cached = JSON.parse(fs.readFileSync(keywordBriefingCachePath(), 'utf-8'));
+    if (!Array.isArray(cached?.rows) || !cached.rows.length) return { ok: false };
+    return { ...cached, stale: true };
+  } catch {
+    return { ok: false };
+  }
+});
+
+/** 「오늘의 글감」 원본 — 사이트의 글감 보드가 읽는 그 파일 (아침·오후·저녁 회차) */
+const LEWORD_TOPIC_BRIEFS_URL = 'https://leaderspro.kr/data/topic-briefs.json';
+
 ipcMain.handle('site:keyword-briefing', async () => {
   const readCache = (): any => {
     try { return JSON.parse(fs.readFileSync(keywordBriefingCachePath(), 'utf-8')); } catch { return null; }
   };
   try {
-    const res = await fetch(`${LEADERSPRO_GAS_URL}?action=site-content&ts=${Date.now()}`, {
+    /**
+     * 📝 v3.8.714 — **진짜 「오늘의 글감」**을 가져온다.
+     *
+     * 두 번 헛짚었다. 사장님이 두 번 다 잡아 줬다:
+     *   1차 GAS 의 keywordBriefing → "부방장 **황금키워드**" 보드였다
+     *   2차 Worker 의 realtime-issues → "**실시간 검색어**" 였다
+     *
+     * 사이트를 직접 열어 확인한 결과(Playwright), /leword?tab=briefs 의 「✎ 오늘의 글감」은
+     * 화면에 🔒 가 걸린 회원 보드이고, 그 데이터는 **정적 파일** 하나에서 온다:
+     *   https://leaderspro.kr/data/topic-briefs.json  (LewordPage 청크의 fetch 로 확인)
+     *
+     * 구조도 사장님 말 그대로다 — `rounds` 가 **아침 · 오후 · 저녁** 회차로 나뉘고,
+     * 회차마다 글감 70여 건이 title·timing(NOW/NEXT/ALWAYS)·star 와 함께 들어 있다.
+     */
+    const res = await fetch(LEWORD_TOPIC_BRIEFS_URL + '?ts=' + Date.now(), {
       redirect: 'follow',
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(30000),
     } as any);
     const data: any = await res.json();
-    const briefing = data?.content?.keywordBriefing;
-    const all = Array.isArray(briefing?.rows) ? briefing.rows : [];
-    if (!all.length) throw new Error('사이트에 오늘의 글감이 없습니다');
+    const rounds = Array.isArray(data?.rounds) && data.rounds.length
+      ? data.rounds
+      : [{ slot: data?.slot, builtAt: data?.builtAt, briefs: data?.briefs }];
+    const latest = rounds[rounds.length - 1] || {};
+    const briefs = Array.isArray(latest?.briefs) ? latest.briefs : [];
+    if (!briefs.length) throw new Error('사이트에 오늘의 글감이 아직 없습니다');
 
-    // 기회지수(검색량/문서수) 상위 3개 — 원본 순서가 완전 정렬이 아니라(실측) 여기서 정렬한다
-    const rows = [...all]
-      .map((r: any) => ({
-        keyword: String(r?.keyword || '').trim(),
-        searchVolume: Number(r?.searchVolume || 0),
-        documentCount: Number(r?.documentCount || 0),
-        opportunity: Number(r?.opportunity || 0),
+    /**
+     * 70여 건 중 셋만 고른다.
+     *   ★(star) 붙은 것 먼저 → 지금 쓸 것(NOW) 먼저 → 그다음 파일 순서.
+     * 사이트가 이미 중요도 순으로 담아 두므로 그 순서를 크게 흔들지 않는다.
+     */
+    const score = (b: any) => (b?.star ? 2 : 0) + (String(b?.timing) === 'NOW' ? 1 : 0);
+    const rows = briefs
+      .map((b: any, i: number) => ({
+        // 발행 키워드로 쓸 값은 제목이다 — coreKeyword 는 너무 짧아 글 한 편이 안 나온다
+        keyword: String(b?.title || '').trim(),
+        coreKeyword: String(b?.coreKeyword || '').trim(),
+        timing: String(b?.timing || ''),
+        star: !!b?.star,
+        intent: String(b?.primaryIntent || '').trim(),
+        order: i,
       }))
-      .filter((r) => r.keyword)
-      .sort((a, b) => b.opportunity - a.opportunity)
+      .filter((r: any) => r.keyword)
+      .sort((a: any, b: any) => (score(b) - score(a)) || (a.order - b.order))
       .slice(0, 3);
 
     const result = {
       ok: true,
-      title: String(briefing?.title || '키워드 브리핑'),
-      updatedAt: String(data?.content?.updatedAt || ''),
+      title: '오늘의 글감',
+      slot: String(latest?.slot || ''),          // 아침 · 오후 · 저녁
+      total: briefs.length,
+      updatedAt: String(latest?.builtAt || data?.builtAt || new Date().toISOString()),
       rows,
     };
     try { fs.writeFileSync(keywordBriefingCachePath(), JSON.stringify(result), 'utf-8'); } catch { /* 캐시 실패가 표시를 막지 않는다 */ }
     return result;
   } catch (error: any) {
     const cached = readCache();
-    if (cached?.rows?.length) return { ...cached, stale: true };   // 오프라인이어도 어제 것은 보인다
+    if (cached?.rows?.length) return { ...cached, stale: true };   // 오프라인이어도 직전 것은 보인다
     return { ok: false, error: String(error?.message || error).slice(0, 160) };
   }
 });
@@ -4596,10 +4798,50 @@ ipcMain.handle('site:keyword-briefing', async () => {
  *
  * 구독 CLI 라 **API 비용이 0**이다. 비평처럼 자주 누르는 기능일수록 값어치가 크다.
  */
+/**
+ * v3.8.714 — 부르는 쪽이 **역할과 모델을 정할 수 있게** 한다.
+ *
+ * 사장님 실측: 비서에게 물었더니 "현재 작업 디렉터리에서 앱 코드나 설정을 아직
+ * 확인하지 않았습니다 / 코드 작업을 도와드릴까요" 라고 답했다. 클로드 코드의
+ * **기본 정체성(코딩 에이전트)** 이 우리 프롬프트를 눌러 버린 것이다.
+ * `--system-prompt` 로 그 정체성을 통째로 갈아끼워야 비서로 말한다.
+ * 기존 호출부(비평 등)는 opts 를 안 주므로 동작이 그대로다.
+ */
+type AgentTextTaskOptions = {
+  /** 기본 시스템 프롬프트를 대체한다 (claude 전용) */
+  systemPrompt?: string;
+  /** 쓸 모델 — 사장님 지정: 비서는 페이블 */
+  model?: string;
+  /** 그 모델이 막히면 쓸 모델 — 사장님 지정: 오푸스 5 */
+  fallbackModel?: string;
+  /** 파일·터미널을 못 만지게 잠근다 (비서는 읽기 전용이다) */
+  noTools?: boolean;
+  /** 프롬프트를 명령줄이 아니라 표준입력으로 넘긴다 (긴 프롬프트) */
+  promptViaStdin?: boolean;
+};
+
+/**
+ * 윈도우 명령줄 한계 (v3.8.714).
+ *
+ * 실측 2026-09-10 — 비서 프롬프트(매뉴얼+상태+로그)로 명령줄이 9,237자가 되자
+ * `종료코드 1 / "지정된 명령줄이 너무 깁니다"` 로 죽었다. cmd.exe 한계는 8,191자다.
+ * 같은 프롬프트를 **표준입력**으로 주면 명령줄 87자, 종료코드 0 으로 정상 동작한다.
+ * (코덱스가 "Reading additional input from stdin…" 이라고 한 것도 프롬프트 인자가
+ *  사라졌다는 신호였다.)
+ *
+ * 그래서 길면 자동으로 표준입력으로 넘긴다 — 비서뿐 아니라 긴 글을 다루는
+ * 비평 경로도 같은 구멍에 빠져 있었다.
+ */
+const AGENT_CMDLINE_SAFE_LIMIT = 7000;
+
+/** 비서가 절대 쓰면 안 되는 도구들 — 1단계는 읽기 전용이다 */
+const ASSISTANT_BLOCKED_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'Task'];
+
 async function runAgentTextTask(
   providerId: string,
   prompt: string,
   log: (line: string) => void,
+  opts?: AgentTextTaskOptions,
 ): Promise<string> {
   const profiles = loadAgentProfiles();
   const profile = profiles.find((p) => p.provider === providerId && p.status === 'ready')
@@ -4609,16 +4851,40 @@ async function runAgentTextTask(
   }
 
   const command = resolveAgentBinaryCommand(profile.provider);
-  const args = profile.provider === 'gemini'
-    ? ['--approval-mode', 'yolo', '-p', prompt]
+  /** 프롬프트를 뺀 나머지 인자 — 프롬프트는 아래에서 명령줄이나 표준입력으로 붙인다 */
+  // v3.8.714: codex·gemini 도 -m 으로 모델을 받는다(실측). claude 는 --model.
+  const modelArgs = opts?.model ? ['-m', opts.model] : [];
+  const baseArgs = profile.provider === 'gemini'
+    ? ['--approval-mode', 'yolo', ...modelArgs, '-p']
     : profile.provider === 'codex'
-      ? ['exec', '--skip-git-repo-check', prompt]
+      ? ['exec', '--skip-git-repo-check', ...modelArgs]
       // claude 계열 — 도구를 안 쓰므로 턴을 크게 줄 이유가 없다
-      : ['-p', '--permission-mode', 'dontAsk', '--max-turns', '4', prompt];
+      : [
+        '-p',
+        '--permission-mode', 'dontAsk',
+        ...(opts?.systemPrompt ? ['--system-prompt', opts.systemPrompt] : []),
+        ...(opts?.model ? ['--model', opts.model] : []),
+        ...(opts?.fallbackModel ? ['--fallback-model', opts.fallbackModel] : []),
+        ...(opts?.noTools ? ['--disallowed-tools', ...ASSISTANT_BLOCKED_TOOLS] : []),
+        '--max-turns', opts?.noTools ? '1' : '4',
+      ];
 
   const { spawn } = require('child_process') as typeof import('child_process');
   const isWindows = process.platform === 'win32';
   const useShell = isWindows && (!path.extname(command) || /\.(cmd|bat)$/i.test(command));
+
+  /**
+   * 프롬프트를 명령줄에 실을 것인가, 표준입력으로 흘릴 것인가 (v3.8.714).
+   * 명령줄이 길면 윈도우가 통째로 거부한다 — 실측 9,237자에서 "명령줄이 너무 깁니다".
+   * 셋 다 표준입력으로 프롬프트를 받는다(codex 는 스스로 그렇게 말한다).
+   */
+  const withPrompt = [...baseArgs, prompt];
+  const commandLineLength = buildShellCommandLine(command, withPrompt).length;
+  const useStdin = opts?.promptViaStdin === true || commandLineLength > AGENT_CMDLINE_SAFE_LIMIT;
+  const args = useStdin ? baseArgs : withPrompt;
+  if (useStdin && commandLineLength > AGENT_CMDLINE_SAFE_LIMIT) {
+    console.log(`[AGENT] 프롬프트가 길어 표준입력으로 넘깁니다 (명령줄 ${commandLineLength}자)`);
+  }
 
   return new Promise<string>((resolve, reject) => {
     let stdout = '';
@@ -4630,10 +4896,18 @@ async function runAgentTextTask(
         cwd: app.getPath('userData'),
         env: buildAgentRunEnv(profile),
         shell: useShell,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: [useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
         windowsHide: true,
       },
     );
+    if (useStdin) {
+      try {
+        child.stdin?.write(prompt);
+        child.stdin?.end();
+      } catch (stdinError: any) {
+        console.warn('[AGENT] 표준입력 쓰기 실패:', stdinError?.message || stdinError);
+      }
+    }
     // 발행 취소와 같은 목록에 넣어 [중지] 가 이 프로세스도 죽일 수 있게 한다
     activeAgentChildren.add(child);
 
@@ -10437,6 +10711,8 @@ function buildAgentRunCommand(
     args: [
       '-p',
       '--permission-mode', 'dontAsk',
+      // v3.8.714: 사장님이 고른 모델(페이블·오푸스·소넷)을 그대로 쓴다. 안 골랐으면 CLI 설정 그대로.
+      ...(model ? ['--model', model] : []),
       // v3.8.487: 검색 -> 계획 -> 집필 -> 자가검토까지 하려면 12턴은 빠듯하다.
       //   턴이 모자라면 글이 중간에 잘린 채 회수된다.
       '--max-turns', '24',
@@ -10555,7 +10831,7 @@ function cancelActiveAgentProcesses(): number {
   return count;
 }
 
-async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessagePath: string): Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean; canceled?: boolean }> {
+async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessagePath: string, chosenModel?: string): Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean; canceled?: boolean }> {
   const runOnce = (model: string | null): Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean; canceled?: boolean }> => {
     return new Promise((resolve) => {
       const { spawn } = require('child_process') as typeof import('child_process');
@@ -10646,11 +10922,23 @@ async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessag
     });
   };
 
+  /**
+   * v3.8.714 — 화면에서 고른 모델을 그대로 쓴다.
+   * 안 골랐으면 예전과 같다(claude·gemini 는 CLI 설정, codex 는 후보 순서대로).
+   */
+  const picked = (() => {
+    try { return require('../dist/core/agent-models').normalizeAgentModel(profile.provider, chosenModel); }
+    catch { return ''; }
+  })();
+
   if (profile.provider !== 'codex') {
-    return runOnce(null);
+    return runOnce(picked || null);
   }
 
-  const attempts = getCodexModelAttemptOrder();
+  // 고른 모델이 있으면 그것부터 — 실패하면 기존 후보 순서로 이어서 시도한다
+  const attempts = picked
+    ? [picked, ...getCodexModelAttemptOrder().filter((m) => m !== picked)]
+    : getCodexModelAttemptOrder();
   let upgraded = false;
   let lastRun: { exitCode: number | null; stdout: string; stderr: string; timedOut: boolean; canceled?: boolean } = {
     exitCode: null,
@@ -12348,7 +12636,8 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
     writeAgentJobFiles(jobDir, request || {}, profile);
 
     const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
-    const run = await runAgentProcess(profile, jobDir, lastMessagePath);
+    // v3.8.714: 화면에서 고른 에이전트 모델을 그대로 쓴다 (payload 에 실려 온다)
+    const run = await runAgentProcess(profile, jobDir, lastMessagePath, (request?.payload as any)?.agentModel);
     const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
 
     /**
