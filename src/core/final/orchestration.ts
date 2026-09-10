@@ -2625,8 +2625,28 @@ ${quoted}
      *
      * 실패하면 빈 문자열이 와서 예전과 똑같이 동작한다.
      */
+    /**
+     * v3.8.714 — 리포트(오늘의 글감)가 적어 준 사실도 근거로 싣는다.
+     *
+     * 사장님 실측: 발행글에 **금액이 한 번도 안 나왔다.** 리포트는 "출생아 1인당 50만원
+     * 지역화폐" 를 적어 줬는데 장부에 없으니 근거 없는 수치로 판정돼 문장째 지워졌다.
+     * 리포트는 [확인]/[추정] 을 구분해 적는 자료다 — 근거로 인정한다.
+     */
+    const reportBriefFacts = (() => {
+      const slot = (payload as any)?.cpcReportSlot;
+      if (!slot) return '';
+      return [
+        slot.keyword, slot.title, slot.intent, slot.value,
+        ...(Array.isArray(slot.facts) ? slot.facts : []),
+        ...(Array.isArray(slot.mustCheck) ? slot.mustCheck : []),
+        ...(Array.isArray(slot.properNouns) ? slot.properNouns : []),
+        ...(Array.isArray(slot.longtails) ? slot.longtails : []),
+      ].filter(Boolean).map(String).join('\n').slice(0, 6000);
+    })();
+
     const groundingReference = buildGroundingReference({
       factContext: [factEvidence.context, naverGrounding].filter(Boolean).join('\n'),
+      briefFacts: reportBriefFacts,
       crawledPosts: crawledPosts as any,
       officialBlock,
       productData: (payload as any).coupangEnrichment || (payload as any).affiliateProducts,

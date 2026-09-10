@@ -55,6 +55,7 @@ const RULES = [
   '  [ACTION:fill_keyword:키워드]      그 키워드로 발행 준비 (키워드가 정해졌을 때)',
   '  [ACTION:open_schedule]           예약 화면 열기',
   '  [ACTION:open_settings]           환경설정 열기 (플랫폼 연결·API 키·에이전트 로그인)',
+  '  [ACTION:critique_latest]         최근 발행글을 비평하고 고칠 것을 보여주기 (글 품질 이야기가 나오면)',
   '  [ACTION:open_published]          생성된 글 목록 열기',
   '  [ACTION:refresh_briefing]        오늘의 글감 새로 가져오기',
 ].join('\n');

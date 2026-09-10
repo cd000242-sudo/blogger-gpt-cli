@@ -11,11 +11,16 @@
  */
 
 const PRESETS = [
+  '최근 발행글 비평해줘',
   '발행이 실패했어요',
   '이미지가 안 나와요',
   '지금 설정 좀 점검해줘',
-  '이 앱 어떻게 쓰는 거예요?',
 ];
+
+/** 프리셋 중 **행동으로 바로 가는 것** — AI 를 부르지 않고 그 자리에서 실행한다 */
+const DIRECT_PRESETS = {
+  '최근 발행글 비평해줘': 'critique_latest',
+};
 
 /** 세션 대화 — 새로고침·재시작하면 사라진다 */
 let history = [];
@@ -100,6 +105,14 @@ const ACTIONS = {
   open_published: { label: '📋 생성된글목록 열기', run: () => window.showTab?.('published-posts') },
   open_schedule: { label: '📅 예약 화면 열기', run: () => window.showTab?.('schedule') },
   refresh_briefing: { label: '📝 오늘의 글감 새로고침', run: () => window.loadKeywordBriefing?.(true) },
+  /**
+   * 🩺 v3.8.714 — 사장님: "비서로 비평 개선이 가능하게 해주고"
+   *
+   * 목록 화면까지 가서 카드를 찾는 대신 비서에게 시킨다.
+   * 비평 → 지적을 대화에 뿌리고 → [이대로 고치기] 버튼을 준다.
+   * 고치는 것은 사장님이 누른 뒤에만 — 글이 저절로 바뀌면 안 된다.
+   */
+  critique_latest: { label: '🩺 최근 발행글 비평하기', run: () => runCritiqueLatest() },
   fill_keyword: {
     label: (v) => `✍️ "${String(v).slice(0, 20)}" 로 발행 준비`,
     run: (v) => {
@@ -113,6 +126,100 @@ const ACTIONS = {
     },
   },
 };
+
+/**
+ * 최근 발행글을 비평하고, 그 결과를 대화에 뿌린다 (v3.8.714).
+ * 이미 있는 채널(assistant:latest-post → critique-published-post → improve-published-post)을
+ * 그대로 쓴다 — 비평 로직을 여기 다시 쓰면 목록 화면과 어긋난다.
+ */
+async function runCritiqueLatest() {
+  if (busy) return;
+  busy = true;
+  const thinking = addMsg('bot', '<span class="as-dots"><i></i><i></i><i></i></span> 최근 발행글을 찾아 비평하는 중… (1~2분)');
+  try {
+    const api = window.electronAPI;
+    const platform = (() => {
+      try { return String(document.querySelector('input[name="platform"]:checked')?.value || 'wordpress'); }
+      catch { return 'wordpress'; }
+    })();
+
+    const latest = await api.invoke('assistant:latest-post', { platform });
+    if (!latest?.ok) {
+      thinking.innerHTML = '최근 발행글을 찾지 못했습니다.<br><span style="color:#94a3b8;">' + esc(latest?.error || '') + '</span>';
+      return;
+    }
+    thinking.innerHTML = '<span class="as-dots"><i></i><i></i><i></i></span> "' + esc(String(latest.title).slice(0, 30)) + '" 을 읽고 비평하는 중…';
+
+    const res = await api.invoke('critique-published-post', {
+      platform: latest.platform, postId: latest.postId, title: latest.title,
+    });
+    if (!res?.ok) {
+      thinking.innerHTML = '비평하지 못했습니다.<br><span style="color:#94a3b8;">' + esc(res?.error || '') + '</span>';
+      return;
+    }
+
+    const issues = Array.isArray(res.issues) ? res.issues : [];
+    if (!issues.length) {
+      thinking.innerHTML = '<b>' + esc(String(latest.title).slice(0, 40)) + '</b><br>고칠 것을 찾지 못했습니다. 점수 ' + esc(String(res.score ?? '')) + '점.';
+      return;
+    }
+
+    // 심각한 것부터 — 사장님이 위에서부터 읽는다
+    const rank = { high: 0, medium: 1, low: 2 };
+    const sorted = [...issues].sort((a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3));
+    thinking.innerHTML = '<b>' + esc(String(latest.title).slice(0, 40)) + '</b> — 점수 ' + esc(String(res.score ?? '')) + '점 · 지적 ' + issues.length + '건<br><br>'
+      + sorted.slice(0, 6).map((i) => {
+        const mark = i.severity === 'high' ? '🔴' : (i.severity === 'medium' ? '🟡' : '⚪');
+        const evidence = String(i.evidence || '').slice(0, 70);
+        return mark + ' <b>' + esc(i.title || '') + '</b>'
+          + (evidence ? '<br><span style="color:#94a3b8;">' + esc(evidence) + '</span>' : '');
+      }).join('<br>');
+
+    // 고치는 것은 누른 뒤에만
+    const wrap = document.createElement('div');
+    wrap.className = 'as-actions';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'as-act';
+    btn.textContent = `🛠 이대로 고치기 (${sorted.length}건)`;
+    btn.addEventListener('click', () => applyCritiqueFixes(latest, sorted, btn));
+    wrap.appendChild(btn);
+    thinking.appendChild(wrap);
+  } catch (err) {
+    thinking.innerHTML = '비평하지 못했습니다.<br><span style="color:#94a3b8;">' + esc(err?.message || err) + '</span>';
+  } finally {
+    busy = false;
+    const body = bodyEl();
+    if (body) body.scrollTop = body.scrollHeight;
+  }
+}
+
+/** 고른 지적을 적용해 같은 주소에 수정 발행한다 */
+async function applyCritiqueFixes(latest, issues, btn) {
+  if (busy) return;
+  busy = true;
+  btn.disabled = true;
+  btn.textContent = '고치는 중… (몇 분)';
+  const note = addMsg('bot', '<span class="as-dots"><i></i><i></i><i></i></span> 지적한 구간만 고쳐 같은 주소에 반영하는 중…');
+  try {
+    // 목록 화면이 쓰는 그 채널을 그대로 쓴다 (v3.8.714) — 두 벌로 만들면 한쪽만 고쳐진다
+    const res = await window.electronAPI.invoke('apply-post-improvement', {
+      platform: latest.platform, postId: latest.postId, title: latest.title, issues,
+    });
+    note.innerHTML = res?.ok
+      ? '✅ ' + esc(String(res.revised ?? 0)) + '개 구간을 고쳐 <b>같은 주소</b>에 반영했습니다 (' + esc(String(res.length ?? 0)) + '자).<br>'
+        + '<span style="color:#94a3b8;">주소가 그대로라 검색 색인은 유지됩니다. 다시 비평해 남은 것을 볼 수 있습니다.</span>'
+      : '고치지 못했습니다.<br><span style="color:#94a3b8;">' + esc(res?.error || '') + '</span>';
+  } catch (err) {
+    note.innerHTML = '고치지 못했습니다.<br><span style="color:#94a3b8;">' + esc(err?.message || err) + '</span>';
+  } finally {
+    busy = false;
+    btn.textContent = '🛠 이대로 고치기';
+    btn.disabled = false;
+    const body = bodyEl();
+    if (body) body.scrollTop = body.scrollHeight;
+  }
+}
 
 /** 답에서 [ACTION:...] 줄을 떼어낸다 — 본문에는 안 보이고 버튼으로만 나간다 */
 function splitActions(text) {
@@ -375,7 +482,16 @@ export function openAssistant() {
   // 서랍이라 바깥 클릭으로 닫지 않는다 — 뒤 화면을 만지려고 누른 것이지 닫으려는 게 아니다
   overlay.querySelector('.as-send').addEventListener('click', () => ask(input.value));
   overlay.querySelectorAll('.as-preset').forEach((btn) => {
-    btn.addEventListener('click', () => ask(btn.textContent));
+    btn.addEventListener('click', () => {
+      // v3.8.714: 비평처럼 **행동이 정해진** 프리셋은 AI 를 거치지 않고 바로 실행한다
+      const direct = DIRECT_PRESETS[btn.textContent];
+      if (direct && ACTIONS[direct]) {
+        addMsg('me', esc(btn.textContent));
+        ACTIONS[direct].run();
+        return;
+      }
+      ask(btn.textContent);
+    });
   });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(input.value); }

@@ -244,6 +244,30 @@ describe('v3.8.713 AI 비서', () => {
       expect(ui).toContain('setAssistantAgent(readyAgents[0].provider)');
     });
 
+    /*
+     * v3.8.714 — 사장님: "비서로 비평 개선이 가능하게 해주고"
+     * 비평·개선 로직을 여기 다시 쓰지 않는다 — 목록 화면이 쓰는 채널을 그대로 부른다.
+     */
+    test('비서가 최근 발행글을 비평하고, 고치기까지 이어진다', () => {
+      expect(ui).toContain('critique_latest');
+      expect(ui).toContain('function runCritiqueLatest');
+      expect(ui).toContain("invoke('assistant:latest-post'");
+      expect(ui).toContain("invoke('critique-published-post'");
+      // 개선은 목록 화면과 **같은 채널**로 (없는 채널을 부르면 조용히 죽는다)
+      expect(ui).toContain("invoke('apply-post-improvement'");
+      expect(read('electron/ui/modules/published-posts.js')).toContain("invoke('apply-post-improvement'");
+      expect(main).toContain("ipcMain.handle('assistant:latest-post'");
+      expect(main).toContain("ipcMain.handle('apply-post-improvement'");
+    });
+
+    test('고치기는 사장님이 누른 뒤에만 — 글이 저절로 바뀌면 안 된다', () => {
+      const fn = braceBlock(ui, 'async function runCritiqueLatest');
+      expect(fn).toContain('이대로 고치기');
+      expect(fn).toContain("addEventListener('click'");
+      // 비평 함수가 개선을 자기 손으로 부르지 않는다
+      expect(fn).not.toContain("invoke('apply-post-improvement'");
+    });
+
     test('행동은 버튼으로만 — 비서가 혼자 실행하지 않는다', () => {
       expect(ui).toContain('splitActions');
       expect(ui).toContain("addEventListener('click'");

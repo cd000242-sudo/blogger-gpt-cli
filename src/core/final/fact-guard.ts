@@ -57,6 +57,17 @@ const MAX_REFERENCE_CHARS = 60000;
 export interface GroundingSources {
   /** 팩트체크(퍼플렉시티/네이버) 요약 */
   factContext?: string;
+  /**
+   * 오늘의 글감·리포트가 적어 준 사실 (v3.8.714).
+   *
+   * 사장님 실측(경기도 산후조리비 글): 본문에 **금액이 한 번도 안 나왔다.**
+   * 리포트는 "출생아 1인당 50만원 지역화폐" 를 적어 줬는데, 그 글감 브리프가
+   * 근거 장부에 안 실려서 근거 없는 수치로 판정돼 **문장째 지워진** 것이다.
+   * 독자가 가장 먼저 찾는 숫자가 빠지면 글의 값어치가 통째로 깎인다.
+   *
+   * 리포트는 [확인]/[추정] 을 구분해 적는 자료이므로 근거로 인정한다.
+   */
+  briefFacts?: string;
   /** 실제로 글을 쓸 때 참고한 크롤링 본문 */
   crawledPosts?: Array<{ title?: string; content?: string }>;
   /** 공공기관 근거 블록 */
@@ -79,6 +90,9 @@ export function buildGroundingReference(input: GroundingSources): string {
     const parts: string[] = [];
 
     if (input?.factContext) parts.push(String(input.factContext));
+    // v3.8.714: 리포트가 적어 준 사실을 **맨 앞에** 둔다 — 상한(60,000자)에 밀려 잘리면
+    //   금액이 또 근거 없음으로 판정돼 지워진다. 짧고 밀도가 높은 자료라 앞자리 값을 한다.
+    if (input?.briefFacts) parts.unshift(String(input.briefFacts));
     if (input?.officialBlock) parts.push(String(input.officialBlock));
 
     for (const post of input?.crawledPosts || []) {

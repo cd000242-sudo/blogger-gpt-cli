@@ -4498,6 +4498,40 @@ function collectAssistantDiagnostics(): any {
  * 🤖 v3.8.714 — 에이전트 안에서 고를 수 있는 모델 목록.
  * 화면이 목록을 따로 적지 않게 **메인이 준다** — 두 벌이면 한쪽만 늙는다.
  */
+/**
+ * 🩺 v3.8.714 — 비서가 **최근 발행글을 비평**한다.
+ *
+ * 사장님: "비서로 비평 개선이 가능하게 해주고"
+ *
+ * 목록 화면까지 가서 카드를 찾아 누르는 대신, 비서에게 "최근 글 비평해줘" 하면 된다.
+ * 비평·개선 자체는 이미 있는 채널(critique-published-post / improve-published-post)을
+ * 그대로 부른다 — 두 벌로 만들면 한쪽만 고쳐지고 어긋난다.
+ */
+ipcMain.handle('assistant:latest-post', async (_evt, args?: { platform?: string }) => {
+  const platform = String(args?.platform || '').trim() || 'wordpress';
+  try {
+    const envData = loadEnvFromFile() as any;
+    const creds = loadPlatformCredsFromEnv(envData, { platform: platform as any });
+    const axios = (await import('axios')).default;
+    const adapter = buildPlatformAdapter(creds, axios);
+    // 본문은 안 받는다 — 비평은 뒤이어 부르는 채널이 제 손으로 읽는다
+    const posts = await adapter.listPosts({ fetchBodies: false, maxResults: 5 });
+    if (!Array.isArray(posts) || !posts.length) {
+      return { ok: false, error: `${platform} 에서 최근 글을 찾지 못했습니다. 발행한 글이 있는지 확인해 주세요.` };
+    }
+    const first: any = posts[0];
+    return {
+      ok: true,
+      platform,
+      postId: String(first?.postId || first?.id || ''),
+      title: String(first?.title || ''),
+      url: String(first?.url || ''),
+    };
+  } catch (error: any) {
+    return { ok: false, error: String(error?.message || error).slice(0, 160) };
+  }
+});
+
 ipcMain.handle('agent:models', async () => {
   try {
     const { AGENT_MODELS, agentModelsFor } = require('../dist/core/agent-models');
