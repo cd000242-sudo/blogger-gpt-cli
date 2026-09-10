@@ -9119,43 +9119,149 @@ function showEngineStartupGate() {
       }
     } catch (e) { /* 표시용 — 못 읽어도 API 목록은 뜬다 */ }
 
-    var apiRows = radios.map(function (r) {
-      var card = r.closest('.tier-card');
-      var labelText = card ? (card.querySelector('span')?.textContent || r.value) : r.value;
-      var cost = card && card.dataset.cost ? ' · ~₩' + card.dataset.cost + '/글' : '';
-      var checked = (agentMode !== 'agent' && r.checked) ? ' checked' : '';
-      return '<label style="display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid rgba(148,163,184,0.18); border-radius:10px; cursor:pointer; background:rgba(15,23,42,0.6);">'
-        + '<input type="radio" name="engineGateChoice" value="api:' + esc(r.value) + '"' + checked + ' style="accent-color:#8b5cf6;">'
-        + '<span style="color:#e2e8f0; font-size:13px; font-weight:700;">' + esc(labelText) + '</span>'
-        + '<span style="margin-left:auto; color:#94a3b8; font-size:11px;">' + esc(cost.replace(' · ', '')) + '</span>'
+    /**
+     * v3.8.712 — 스타일을 **전역 CSS에서 격리**한다.
+     *
+     * 첫 판(v3.8.711)은 인라인 style 만 썼는데, 앱 전역 스타일시트가 label/span 의
+     * 레이아웃 속성을 덮어 이름·가격이 줄바꿈되고 라디오와 글자가 따로 놀았다(실측 스크린샷).
+     * 인라인은 한 속성만 이기고, 내가 안 적은 속성은 전역이 가져간다 —
+     * 그래서 #id 로 못박은 규칙에 **레이아웃 속성을 전부 명시**한다.
+     */
+    var GATE_CSS = [
+      '#engineGateOverlay, #engineGateOverlay * { box-sizing:border-box; }',
+      // color-scheme:dark — 네이티브 라디오가 다크 테마로 그려진다(흰 원 대신 얇은 테두리)
+      '#engineGateOverlay { position:fixed; inset:0; z-index:100005; display:flex; align-items:center; justify-content:center; padding:24px; color-scheme:dark;',
+      '  background:rgba(2,6,23,.78); backdrop-filter:blur(3px); font-family:-apple-system,"Segoe UI",Roboto,sans-serif; }',
+      '#engineGateOverlay .eg-card { display:flex; flex-direction:column; width:min(720px,94vw); max-height:86vh; overflow:hidden;',
+      '  background:linear-gradient(160deg,#111c33 0%,#0b1324 100%); border:1px solid rgba(148,163,184,.22); border-radius:18px; box-shadow:0 28px 80px rgba(0,0,0,.55); }',
+      '#engineGateOverlay .eg-head { flex:0 0 auto; padding:22px 24px 14px; }',
+      '#engineGateOverlay .eg-title { margin:0; font-size:17px; font-weight:800; color:#f1f5f9; line-height:1.35; }',
+      '#engineGateOverlay .eg-sub { margin:6px 0 0; font-size:12.5px; color:#94a3b8; line-height:1.55; }',
+      '#engineGateOverlay .eg-body { flex:1 1 auto; min-height:0; overflow-y:auto; padding:2px 24px 18px; }',
+      '#engineGateOverlay .eg-body::-webkit-scrollbar { width:9px; }',
+      '#engineGateOverlay .eg-body::-webkit-scrollbar-thumb { background:rgba(148,163,184,.28); border-radius:9px; border:2px solid transparent; background-clip:content-box; }',
+      '#engineGateOverlay .eg-sec { display:flex; align-items:center; gap:8px; margin:16px 0 9px; }',
+      '#engineGateOverlay .eg-sec-t { font-size:11.5px; font-weight:800; color:#cbd5e1; letter-spacing:.2px; white-space:nowrap; }',
+      '#engineGateOverlay .eg-sec-n { font-size:11px; color:#64748b; white-space:nowrap; }',
+      '#engineGateOverlay .eg-sec-line { flex:1 1 auto; height:1px; background:rgba(148,163,184,.14); }',
+      '#engineGateOverlay .eg-brand { margin:12px 0 7px; font-size:10.5px; font-weight:800; color:#64748b; letter-spacing:.6px; text-transform:uppercase; }',
+      '#engineGateOverlay .eg-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }',
+      '#engineGateOverlay .eg-opt { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:10px;',
+      '  width:100%; min-width:0; margin:0; padding:11px 13px; text-align:left; cursor:pointer;',
+      '  border:1px solid rgba(148,163,184,.16); border-radius:12px; background:rgba(15,23,42,.55); transition:border-color .15s,background .15s; }',
+      '#engineGateOverlay .eg-opt:hover { border-color:rgba(148,163,184,.4); background:rgba(30,41,59,.7); }',
+      '#engineGateOverlay .eg-opt input { flex:0 0 auto; width:15px; height:15px; margin:0; accent-color:#8b5cf6; cursor:pointer; }',
+      '#engineGateOverlay .eg-name { flex:1 1 auto; min-width:0; margin:0; font-size:13px; font-weight:700; color:#e2e8f0;',
+      '  line-height:1.35; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }',
+      '#engineGateOverlay .eg-cost { flex:0 0 auto; margin:0; font-size:11px; font-weight:700; color:#8fa3bd; white-space:nowrap; letter-spacing:-.2px; }',
+      '#engineGateOverlay .eg-opt.is-on { border-color:rgba(139,92,246,.75); background:linear-gradient(135deg,rgba(139,92,246,.2),rgba(56,189,248,.07)); box-shadow:0 0 0 1px rgba(139,92,246,.3); }',
+      '#engineGateOverlay .eg-agent { border-color:rgba(249,115,22,.3); }',
+      '#engineGateOverlay .eg-agent input { accent-color:#f97316; }',
+      '#engineGateOverlay .eg-agent .eg-name { color:#fed7aa; }',
+      '#engineGateOverlay .eg-agent .eg-cost { color:#fdba74; }',
+      '#engineGateOverlay .eg-agent.is-on { border-color:rgba(249,115,22,.85); background:linear-gradient(135deg,rgba(249,115,22,.22),rgba(56,189,248,.05)); box-shadow:0 0 0 1px rgba(249,115,22,.35); }',
+      '#engineGateOverlay .eg-foot { flex:0 0 auto; display:flex; flex-direction:row; align-items:center; justify-content:space-between; gap:14px;',
+      '  padding:14px 24px; border-top:1px solid rgba(148,163,184,.14); background:rgba(2,6,23,.3); }',
+      '#engineGateOverlay .eg-pick { flex:1 1 auto; min-width:0; font-size:12px; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }',
+      '#engineGateOverlay .eg-pick b { color:#e2e8f0; font-weight:800; }',
+      '#engineGateOverlay .eg-go { flex:0 0 auto; padding:11px 22px; margin:0; border:0; border-radius:11px; cursor:pointer;',
+      '  background:linear-gradient(135deg,#8b5cf6,#6d28d9); color:#fff; font-size:13px; font-weight:800; box-shadow:0 6px 18px rgba(139,92,246,.35); }',
+      '#engineGateOverlay .eg-go:hover { filter:brightness(1.08); }',
+      '@media (max-width:620px) { #engineGateOverlay .eg-grid { grid-template-columns:1fr; } }',
+    ].join('\n');
+
+    if (!document.getElementById('engineGateStyle')) {
+      var st0 = document.createElement('style');
+      st0.id = 'engineGateStyle';
+      st0.textContent = GATE_CSS;
+      document.head.appendChild(st0);
+    }
+
+    /** 모델 값에서 제조사를 읽는다 — 목록이 길어 브랜드로 묶어야 눈이 쉰다 */
+    var brandOf = function (v) {
+      if (/^gemini-/i.test(v)) return 'Google Gemini';
+      if (/^(openai-|gpt-|o\d)/i.test(v)) return 'OpenAI';
+      if (/^claude-/i.test(v)) return 'Anthropic Claude';
+      if (/perplexity/i.test(v)) return 'Perplexity';
+      return '기타';
+    };
+
+    var optHtml = function (value, name, cost, checked, extraClass) {
+      return '<label class="eg-opt' + (extraClass ? ' ' + extraClass : '') + (checked ? ' is-on' : '') + '" title="' + esc(name) + '">'
+        + '<input type="radio" name="engineGateChoice" value="' + esc(value) + '"' + (checked ? ' checked' : '') + '>'
+        + '<span class="eg-name">' + esc(name) + '</span>'
+        + '<span class="eg-cost">' + esc(cost) + '</span>'
         + '</label>';
+    };
+
+    var agentRows = [
+      { id: 'codex', name: 'Codex Agent' },
+      { id: 'claude', name: 'Claude Code Agent' },
+    ].map(function (a) {
+      return optHtml('agent:' + a.id, '🤖 ' + a.name, '비용 0', agentMode === 'agent' && agentProvider === a.id, 'eg-agent');
     }).join('');
 
-    var agentRows = ['codex', 'claude'].map(function (p) {
-      var checked = (agentMode === 'agent' && agentProvider === p) ? ' checked' : '';
-      var label = p === 'claude' ? '🤖 Claude Code Agent' : '🤖 Codex Agent';
-      return '<label style="display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid rgba(249,115,22,0.3); border-radius:10px; cursor:pointer; background:rgba(15,23,42,0.6);">'
-        + '<input type="radio" name="engineGateChoice" value="agent:' + p + '"' + checked + ' style="accent-color:#f97316;">'
-        + '<span style="color:#fed7aa; font-size:13px; font-weight:700;">' + label + '</span>'
-        + '<span style="margin-left:auto; color:#fdba74; font-size:11px;">구독 사용량 · API 비용 0</span>'
-        + '</label>';
+    // 브랜드별로 묶는다. 순서는 화면(환경설정)에 나온 순서를 그대로 따른다
+    var groups = [];
+    radios.forEach(function (r) {
+      var card = r.closest('.tier-card');
+      var name = card ? String(card.querySelector('span')?.textContent || r.value).trim() : r.value;
+      var cost = card && card.dataset.cost ? '~₩' + Number(card.dataset.cost).toLocaleString('ko-KR') + '/글' : '';
+      var brand = brandOf(r.value);
+      var g = groups.find(function (x) { return x.brand === brand; });
+      if (!g) { g = { brand: brand, rows: [] }; groups.push(g); }
+      g.rows.push(optHtml('api:' + r.value, name, cost, agentMode !== 'agent' && r.checked));
+    });
+
+    var apiHtml = groups.map(function (g) {
+      return '<div class="eg-brand">' + esc(g.brand) + '</div><div class="eg-grid">' + g.rows.join('') + '</div>';
     }).join('');
+
+    var sectionHead = function (title, note) {
+      return '<div class="eg-sec"><span class="eg-sec-t">' + esc(title) + '</span>'
+        + '<span class="eg-sec-line"></span><span class="eg-sec-n">' + esc(note) + '</span></div>';
+    };
 
     var overlay = document.createElement('div');
     overlay.id = 'engineGateOverlay';
-    overlay.style.cssText = 'position:fixed; inset:0; z-index:100005; background:rgba(2,6,23,0.82); display:flex; align-items:center; justify-content:center; padding:20px;';
     overlay.innerHTML =
-      '<div style="width:min(480px,94vw); max-height:88vh; overflow:auto; background:#1e293b; border:1px solid #334155; border-radius:14px; padding:22px 24px; box-shadow:0 20px 60px rgba(0,0,0,.5);">'
-      + '<div style="color:#f1f5f9; font-size:16px; font-weight:800;">🧠 글 생성 엔진을 먼저 골라 주세요</div>'
-      + '<div style="margin-top:5px; color:#94a3b8; font-size:12px; line-height:1.6;">오늘 발행에 쓸 엔진입니다. 고르면 저장되고, 나중에 환경설정에서 언제든 바꿀 수 있습니다.</div>'
-      + '<div style="margin-top:14px; color:#64748b; font-size:11px; font-weight:800;">구독 에이전트 (설치·로그인 필요)</div>'
-      + '<div style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">' + agentRows + '</div>'
-      + '<div style="margin-top:12px; color:#64748b; font-size:11px; font-weight:800;">API 모델 (키 필요 · 호출당 과금)</div>'
-      + '<div style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">' + apiRows + '</div>'
-      + '<div style="margin-top:16px; display:flex; justify-content:flex-end;">'
-      + '<button id="engineGateStart" style="padding:10px 20px; border:0; border-radius:9px; background:linear-gradient(135deg,#8b5cf6,#6d28d9); color:#fff; font-size:13px; font-weight:800; cursor:pointer;">이 엔진으로 시작</button>'
+      '<div class="eg-card" role="dialog" aria-modal="true" aria-label="글 생성 엔진 선택">'
+      + '<div class="eg-head">'
+      + '<h2 class="eg-title">🧠 오늘 쓸 글 생성 엔진을 골라 주세요</h2>'
+      + '<p class="eg-sub">고르면 바로 저장됩니다. 나중에 환경설정에서 언제든 바꿀 수 있습니다.</p>'
+      + '</div>'
+      + '<div class="eg-body">'
+      + sectionHead('구독 에이전트', '설치·로그인 필요 · 구독 사용량으로 돌아 API 비용 0')
+      + '<div class="eg-grid">' + agentRows + '</div>'
+      + sectionHead('API 모델', 'API 키 필요 · 호출당 과금')
+      + apiHtml
+      + '</div>'
+      + '<div class="eg-foot">'
+      + '<div class="eg-pick" id="engineGatePick"></div>'
+      + '<button type="button" class="eg-go" id="engineGateStart">이 엔진으로 시작 →</button>'
       + '</div></div>';
     document.body.appendChild(overlay);
+
+    // 선택 표시(테두리)와 하단 요약을 한 곳에서 갱신한다 — 두 벌로 그리면 어긋난다
+    var pickEl = overlay.querySelector('#engineGatePick');
+    var paintPick = function () {
+      overlay.querySelectorAll('.eg-opt').forEach(function (el) {
+        el.classList.toggle('is-on', !!el.querySelector('input')?.checked);
+      });
+      var on = overlay.querySelector('.eg-opt.is-on');
+      if (!pickEl) return;
+      pickEl.innerHTML = on
+        ? '선택: <b>' + esc(on.querySelector('.eg-name')?.textContent || '') + '</b> '
+          + esc(on.querySelector('.eg-cost')?.textContent || '')
+        : '<span style="color:#f87171;">엔진을 하나 골라 주세요</span>';
+    };
+    overlay.addEventListener('change', paintPick);
+    paintPick();
+    // 지난번에 고른 것이 목록 아래쪽이면 안 보인다 — 스크롤해서 보여 준다
+    try { overlay.querySelector('.eg-opt.is-on')?.scrollIntoView({ block: 'center' }); } catch (e) { /* noop */ }
+    overlay.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); overlay.querySelector('#engineGateStart')?.click(); }
+    });
 
     document.getElementById('engineGateStart').addEventListener('click', function () {
       var picked = document.querySelector('input[name="engineGateChoice"]:checked');

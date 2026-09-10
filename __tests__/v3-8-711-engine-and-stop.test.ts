@@ -79,5 +79,24 @@ describe('v3.8.711 중지·엔진 기본값 수리', () => {
       // 에이전트도 고를 수 있다 — 구독 사용자에게는 그쪽이 기본이다
       expect(gate).toContain("setAgentExecutionMode('agent')");
     });
+
+    /*
+     * v3.8.712 — 사장님: "UI신경좀 써줄래...?" (스크린샷: 이름·가격이 줄바꿈되고
+     * 라디오와 글자가 따로 놀았다). 인라인 style 만 쓰면 내가 안 적은 레이아웃 속성을
+     * 전역 CSS 가 가져간다. #id 로 못박은 스타일 블록에 전부 명시해 격리했다.
+     * 실측(Playwright, 720px 카드): 13행 전부 nameLines=1 · radioOffset=14 · rowH=42.
+     */
+    test('게이트 스타일이 전역 CSS 에서 격리돼 있다 — 줄바꿈·정렬 붕괴 재발 방지', () => {
+      const gate = braceBlock(ui, 'function showEngineStartupGate');
+      expect(gate).toContain("id = 'engineGateStyle'");
+      // 레이아웃을 결정하는 속성은 전부 #id 규칙에 적혀 있어야 한다
+      expect(gate).toContain('#engineGateOverlay .eg-name');
+      expect(gate).toMatch(/\.eg-name \{[^}]*white-space:nowrap/);
+      expect(gate).toMatch(/\.eg-name \{[^}]*min-width:0/);
+      expect(gate).toMatch(/\.eg-cost \{[^}]*white-space:nowrap/);
+      expect(gate).toMatch(/\.eg-opt \{[^}]*justify-content:flex-start/);
+      // 2열 그리드는 minmax(0,1fr) 이라야 칸이 내용에 밀려 넘치지 않는다
+      expect(gate).toContain('grid-template-columns:repeat(2,minmax(0,1fr))');
+    });
   });
 });
