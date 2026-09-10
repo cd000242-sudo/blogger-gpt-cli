@@ -4365,6 +4365,168 @@ const critiqueHistoryPath = (): string => path.join(app.getPath('userData'), 'cr
  * 되살리려면 git 히스토리에서 이 자리의 핸들러와 화면 카드를 가져오면 된다.
  */
 
+/* ═══════════════════════════════════════════════════════════════
+ * 🤖 v3.8.713 — AI 비서 (1단계: 진단 비서)
+ *
+ * 사장님: "에이전트 자체가 붙으면어떠니?? … 내앱 내부를 훤히알고 바이브코딩으로
+ *          직접 만든 에이전트가 비서가되면 사용자들의 문제점도 알수있자나"
+ *         "사용자들이 문제가있거나 궁금증이있다면 나한테 묻는거나 다름이없어지지"
+ *
+ * 사용자가 앱에서 막혔을 때, **앱의 실제 상태를 보고** 답하는 비서.
+ * 엔진은 로그인된 에이전트 CLI 를 먼저 쓴다 — 구독 할당량으로 돌아 추가 비용이 0이다.
+ * 없으면 API 키로 떨어지고, 둘 다 없으면 그 사실을 화면에 말한다.
+ *
+ * 1단계는 **읽기 전용**이다. 비서는 명령을 실행하지 않고, 화면에서 누를 것만 알려준다.
+ * 설계서: docs/assistant-agent-plan.md
+ * ═══════════════════════════════════════════════════════════════ */
+
+/** 최근 로그를 들고 있는다 — 비서가 "무슨 일이 있었는지" 볼 유일한 창이다 */
+const ASSISTANT_LOG_MAX = 200;
+const assistantLogRing: string[] = [];
+
+function rememberAssistantLog(args: unknown[]): void {
+  try {
+    const line = args
+      .map((a) => {
+        if (typeof a === 'string') return a;
+        try { return JSON.stringify(a); } catch { return String(a); }
+      })
+      .join(' ')
+      .trim();
+    if (!line) return;
+    assistantLogRing.push((new Date().toTimeString().slice(0, 8) + ' ' + line).slice(0, 500));
+    if (assistantLogRing.length > ASSISTANT_LOG_MAX) {
+      assistantLogRing.splice(0, assistantLogRing.length - ASSISTANT_LOG_MAX);
+    }
+  } catch { /* 로그 수집 실패가 앱을 막지 않는다 */ }
+}
+
+// console 을 한 번 감싸 기록만 더한다. 원래 출력은 그대로 나간다.
+(() => {
+  try {
+    (['log', 'warn', 'error'] as const).forEach((name) => {
+      const original = console[name].bind(console);
+      console[name] = (...args: unknown[]) => { rememberAssistantLog(args); original(...args); };
+    });
+  } catch { /* 감싸기 실패해도 앱은 돈다 — 비서만 로그를 못 본다 */ }
+})();
+
+/** 비서에게 동봉된 매뉴얼. 없으면 빈 문자열 — 비서는 "모른다"고 답하게 된다 */
+function loadAssistantKnowledge(): string {
+  try {
+    return fs.readFileSync(path.join(__dirname, 'assets', 'assistant-knowledge.md'), 'utf-8');
+  } catch (error: any) {
+    console.warn('[ASSISTANT] 매뉴얼을 읽지 못했습니다:', error?.message || error);
+    return '';
+  }
+}
+
+/**
+ * 앱이 스스로 보고하는 상태. **키 값은 절대 싣지 않는다 — 있다/없다만.**
+ * 로그 꼬리는 마스킹을 거친다(src/core/assistant/redact).
+ */
+function collectAssistantDiagnostics(): any {
+  const env: any = (() => { try { return loadEnvFromFile() || {}; } catch { return {}; } })();
+  const filled = (...names: string[]) => names.some((n) => String(env[n] || '').trim().length >= 8);
+
+  const agents = (() => {
+    try { return loadAgentProfiles().map((p) => ({ provider: p.provider, status: p.status })); }
+    catch { return []; }
+  })();
+
+  const { redactLogLines, redactDeep } = require('../dist/core/assistant/redact');
+
+  return redactDeep({
+    app: {
+      version: app.getVersion(),
+      os: process.platform === 'win32' ? 'Windows' : process.platform === 'darwin' ? 'Mac' : process.platform,
+      packaged: app.isPackaged,
+    },
+    engine: {
+      // 어떤 엔진으로 글을 만들도록 설정돼 있는가
+      text: String(process.env['PRIMARY_TEXT_MODEL'] || env['PRIMARY_TEXT_MODEL'] || env['primaryGeminiTextModel'] || '(설정값 없음)'),
+      provider: String(env['AI_PROVIDER'] || env['aiProvider'] || '(자동)'),
+      image: String(env['IMAGE_SOURCE'] || env['imageSource'] || '(화면 선택값)'),
+      loggedInAgents: agents,
+    },
+    apiKeys: {
+      openai: filled('openaiKey', 'OPENAI_API_KEY'),
+      gemini: filled('geminiKey', 'GEMINI_API_KEY'),
+      claude: filled('claudeKey', 'CLAUDE_API_KEY', 'ANTHROPIC_API_KEY'),
+      perplexity: filled('perplexityKey', 'PERPLEXITY_API_KEY'),
+    },
+    blogs: {
+      wordpress: filled('wordpressSiteUrl') && filled('wordpressUsername') && filled('wordpressPassword'),
+      blogger: filled('blogId') && filled('bloggerRefreshToken'),
+      tistory: filled('tistoryBlogName', 'TISTORY_BLOG_NAME'),
+      naver: filled('naverId', 'NAVER_ID'),
+    },
+    recentLog: redactLogLines(assistantLogRing, { maxLines: 90, maxChars: 240 }),
+  });
+}
+
+ipcMain.handle('assistant:diagnostics', async () => {
+  try { return { ok: true, diagnostics: collectAssistantDiagnostics() }; }
+  catch (error: any) { return { ok: false, error: String(error?.message || error).slice(0, 200) }; }
+});
+
+/**
+ * 비서에게 묻는다.
+ *
+ * 엔진 순서: 로그인된 에이전트(claude → codex → gemini) → API 키 → 없음.
+ * 에이전트를 먼저 쓰는 이유는 **비용이 0**이기 때문이다. 이 앱 사용자는 대개 LLM 구독으로
+ * 글을 만들고 있으므로, 비서 때문에 따로 과금될 이유가 없다.
+ */
+ipcMain.handle('assistant:ask', async (_evt, args?: { question?: string; history?: any[] }) => {
+  const question = String(args?.question || '').trim();
+  if (!question) return { ok: false, error: '질문이 비어 있습니다.' };
+
+  try {
+    const { buildAssistantPrompt, cleanAssistantAnswer } = require('../dist/core/assistant/prompt');
+    const prompt = buildAssistantPrompt({
+      knowledge: loadAssistantKnowledge(),
+      diagnostics: collectAssistantDiagnostics(),
+      history: Array.isArray(args?.history) ? args!.history : [],
+      question,
+    });
+
+    // ① 로그인된 에이전트 — 구독 할당량, 추가 비용 0
+    const ready = (() => {
+      try { return loadAgentProfiles().filter((p) => p.status === 'ready'); } catch { return []; }
+    })();
+    for (const provider of ['claude', 'codex', 'gemini'] as const) {
+      if (!ready.some((p) => p.provider === provider)) continue;
+      try {
+        const raw = await runAgentTextTask(provider, prompt, () => { /* 비서 답은 로그로 흘리지 않는다 */ });
+        const answer = cleanAssistantAnswer(raw);
+        if (answer) return { ok: true, answer, engine: provider, engineLabel: `${provider} 에이전트 · 구독 사용량`, free: true };
+      } catch (agentError: any) {
+        console.warn('[ASSISTANT] 에이전트 실패 → 다음 후보:', String(agentError?.message || agentError).slice(0, 120));
+      }
+    }
+
+    // ② API 키 — 글 생성과 같은 엔진 선택 규칙을 따른다
+    const { chooseTextModel, applyEngineChoice } = require('../dist/core/final/engine-selection');
+    const choice = chooseTextModel({}, { currentEnv: process.env['PRIMARY_TEXT_MODEL'] });
+    const restore = applyEngineChoice(choice);
+    try {
+      const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
+      const answer = cleanAssistantAnswer(await callGeminiWithRetry(prompt, 1, { timeoutMs: 90000 }));
+      if (answer) return { ok: true, answer, engine: 'api', engineLabel: choice.reason || 'API 모델', free: false };
+      return { ok: false, error: '답을 받지 못했습니다. 잠시 뒤 다시 물어봐 주세요.' };
+    } finally {
+      restore();
+    }
+  } catch (error: any) {
+    const message = String(error?.message || error);
+    // 키도 에이전트도 없는 상태 — 화면이 안내로 바꿔 준다
+    if (/API 키|api key|no api key|없습니다/i.test(message)) {
+      return { ok: false, needsEngine: true, error: message.slice(0, 200) };
+    }
+    return { ok: false, error: message.slice(0, 200) };
+  }
+});
+
 /**
  * 📝 v3.8.711 — 사이트(LEWORD)의 「오늘의 글감」을 가져온다.
  *

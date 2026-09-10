@@ -21,6 +21,7 @@ import { initPostingPresets } from './posting-presets.js';
 import { initHeaderBadges } from './header-badges.js';
 // v3.8.39: initKeywordDiscover 제거 — LEWORD 외부 앱으로 대체.
 import { initContentStubs } from './content-stubs.js';
+import { initAssistant } from './assistant.js';
 
 window.__bgptUseModuleProgressListener = true;
 
@@ -780,6 +781,10 @@ async function initializeApp() {
     // 5.8. 콘텐츠변환 stub 함수 등록
     initContentStubs();
     debugLog('MAIN', '콘텐츠변환 stub 등록 완료');
+
+    // 5.8-b. v3.8.713: AI 비서 — 사이드바 [🤖 AI 비서] 가 window.openAssistant 를 부른다
+    initAssistant();
+    debugLog('MAIN', 'AI 비서 등록 완료');
 
     // 5.9. 원클릭 세팅 초기화
     scheduleDeferredStartupModules();

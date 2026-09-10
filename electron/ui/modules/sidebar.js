@@ -27,6 +27,8 @@ export function initSidebar() {
     ];
 
     const toolItems = [
+        // 🤖 v3.8.713 — 앱을 만든 사람을 대신하는 비서. 로그인된 에이전트로 답해 추가 비용 0.
+        { id: 'nav-assistant', icon: '🤖', label: 'AI 비서', action: () => window.openAssistant?.() },
         { id: 'nav-multi', icon: '👥', label: '다중계정', action: () => window.openMultiAccountModal?.() },
         { id: 'nav-settings', icon: '⚙️', label: '설정', action: () => window.openSettingsModal?.() },
     ];
