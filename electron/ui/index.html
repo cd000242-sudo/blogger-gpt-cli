@@ -4664,6 +4664,23 @@
                       </details>
                     </div>
 
+                    <!-- 📝 v3.8.718: 이 글에만 적용할 요청사항.
+                         경험 메모가 "무엇을 겪었나"라면 이건 "어떻게 써달라"다.
+                         비워두면 이전과 완전히 동일하게 동작한다. -->
+                    <div class="acc-field">
+                      <label class="acc-label">📝 이 글 요청사항 <span style="font-weight:600; font-size:11px; color:rgba(255,255,255,0.5);">(선택 · 이번 글에만 적용)</span></label>
+                      <textarea id="userRequestNote" rows="4" placeholder="이 글을 어떻게 써야 하는지 적으세요. 예)
+단순 나열 말고, 갑자기 이혼 통보받은 사람이 끝까지 읽게 써주세요.
+재산 처분·계좌 이동 확인법, 집 나가기 전 주의점, 양육권 성급한 결정 금지를 꼭 포함.
+뻔한 소제목 반복 금지."
+                        style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.05); color:#fff; font-size:12px; line-height:1.6; resize:vertical;"></textarea>
+                      <small style="color: rgba(255,255,255,0.55); font-size: 11px; margin-top: 6px; display: block;">
+                        💡 포함할 내용·피할 표현·읽는 사람을 적으면 그대로 반영됩니다.
+                        다만 <b>사실 확인·분량·말투 같은 기본 규칙은 이 요청보다 우선</b>합니다 — 없는 사실을 쓰라는 요청은 따르지 않습니다.
+                      </small>
+                      <div id="userRequestWarn" style="display:none; margin-top:8px; padding:8px 10px; border-radius:8px; background:rgba(251,191,36,0.12); border:1px solid rgba(251,191,36,0.35); color:#fcd34d; font-size:11px; line-height:1.6;"></div>
+                    </div>
+
                     <div class="acc-field">
                       <label class="acc-label">🎯 제목 옵션</label>
                       <!-- v3.8.506: 셀렉트 없이 여기서 전부 결정. 아무것도 안 켜면 모드별 최적화 자동 생성(기본). -->

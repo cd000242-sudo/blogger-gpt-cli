@@ -2206,6 +2206,18 @@ export async function createPayload(options = {}) {
     //   비우면 undefined → 백엔드가 "겪은 척 하지 말라" 안전장치를 대신 넣는다.
     experience: collectExperienceInput(),
 
+    /**
+     * 📝 v3.8.718: 이 글에만 적용할 작성자 요청사항.
+     *
+     * 사장님: "실제 발행할 때도 API 한테 요청사항을 적어주는 기능도 추가하면 어떠니?"
+     * 경험 메모가 "무엇을 겪었나"라면 이건 "어떻게 써달라"다.
+     *
+     * ⚠️ createPayload() 한 곳에서만 만든다 — 단일·큐·예약이 전부 이 함수를 지난다.
+     *    화면마다 따로 조립하면 "단일은 되는데 예약은 무시됨"이 조용히 생긴다.
+     * 비우면 undefined → 이전과 완전히 동일하게 동작한다.
+     */
+    userRequest: (document.getElementById('userRequestNote')?.value?.trim() || undefined),
+
     // 🔗 v3.8.396: 제휴 링크 (쇼핑모드 전용). 비우면 undefined → 이전과 동일 동작.
     //   ⚠️ 원본 그대로 넘긴다 — 링크 변조는 제휴 계약 위반이다.
     affiliateLinks: (() => {
@@ -2349,6 +2361,51 @@ export async function createPayloadFromForm() {
 /** @deprecated createPayload({ previewOnly: true }) 사용 권장 */
 export async function createPreviewPayload() {
   return await createPayload({ previewOnly: true, platformOverride: 'preview' });
+}
+
+/**
+ * 📝 v3.8.718 — 요청사항이 시스템 규칙과 부딪히면 **발행 전에** 알려준다.
+ *
+ * 막지는 않는다. "소제목 빼줘" 같은 요청은 어차피 규칙이 이기는데,
+ * 그걸 모르고 넣으면 사장님은 "요청을 무시했다"고 느낀다 — 알고 넣는 것과는 다르다.
+ *
+ * 판정 규칙은 main(dist/core/final/user-request)이 갖는다. 화면이 따로 적으면 한쪽만 늙는다.
+ */
+function setupUserRequestWarning() {
+  const input = document.getElementById('userRequestNote');
+  const warn = document.getElementById('userRequestWarn');
+  if (!input || !warn) return;
+
+  let timer = null;
+  const check = async () => {
+    const text = input.value.trim();
+    if (!text) { warn.style.display = 'none'; warn.innerHTML = ''; return; }
+    try {
+      const res = await window.electronAPI?.invoke?.('user-request:check', { text });
+      const conflicts = res?.ok ? (res.conflicts || []) : [];
+      if (conflicts.length === 0) { warn.style.display = 'none'; warn.innerHTML = ''; return; }
+      warn.innerHTML = '⚠️ 아래 항목은 기본 규칙이 우선합니다 (요청 자체는 그대로 반영됩니다)<br>'
+        + conflicts.map((c) => `· ${String(c.message || '').replace(/</g, '&lt;')}`).join('<br>');
+      warn.style.display = 'block';
+    } catch {
+      // 검사에 실패해도 발행은 막지 않는다
+      warn.style.display = 'none';
+    }
+  };
+
+  input.addEventListener('input', () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(check, 600);
+  });
+  input.addEventListener('blur', check);
+}
+
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupUserRequestWarning);
+  } else {
+    setupUserRequestWarning();
+  }
 }
 
 // ─── 헬퍼 ───

@@ -106,6 +106,16 @@ const PLATFORMS = [
     promptUser: (src) => `원본 블로그: "${src.title}"\n원본 URL: ${src.url}\n\n쇼츠 3가지를 출력하세요:\n[Script 30~60초] Hook 3초 + Body 20~40초 + CTA 3초\n[Description] ≤500자, 끝에 🔗 전체 글: ${src.url}\n[Pinned Comment] ≤280자, 끝에 ${src.url}`,
   },
   {
+    // 📹 v3.8.718 — 블로그 글 한 편을 8~12분 롱폼 대본으로. 쇼츠와 구조가 다르다(챕터·타임스탬프)
+    id: 'youtube-longform',
+    label: '유튜브 롱폼 대본',
+    icon: '📹',
+    openUrl: 'https://studio.youtube.com/',
+    color: '#ff0000',
+    promptSystem: `당신은 블로그 글을 유튜브 롱폼 영상 대본으로 바꾸는 영상 작가입니다. 8~12분 분량, 오프닝 30초 + 챕터 5~8개 + 마무리 + CTA + 타임스탬프를 출력합니다. 입으로 말하는 문장으로 쓰고, 원문에 없는 금액·기한·요건·판례는 만들지 않습니다.`,
+    promptUser: (src) => `원본 블로그: "${src.title}"\n원본 URL: ${src.url}\n\n롱폼 대본을 출력하세요:\n[제목]\n[오프닝 30초] 어떤 상황인 사람에게 필요한지 + 끝까지 보면 무엇을 판단할 수 있는지\n[챕터 1~8] 각 챕터: 제목 → 말하는 대본 → 다음 챕터로 넘어갈 한 문장\n[마무리] 핵심 3줄\n[CTA] 상담·문의 유도 (강요 금지)\n[타임스탬프] 00:00부터 챕터 수만큼\n[Description] 끝에 🔗 전체 글: ${src.url}\n[Pinned Comment] 끝에 ${src.url}`,
+  },
+  {
     id: 'tiktok',
     label: '틱톡 스크립트',
     icon: '🎵',
@@ -1400,6 +1410,18 @@ const EXT_STRUCTURED_PLATFORM_UI = {
     candidateLabel: '첫 3초 훅 후보',
     copyLabel: '최종 쇼츠 스크립트',
     copyFields: ['videoTitle', 'first3SecHook', 'bodyScript', { key: 'onScreenCaptions', numbered: true }, 'commentPrompt', { key: 'pinnedComment', appendSourceUrl: true }, { key: 'description', appendSourceUrl: true }, { key: 'hashtags', style: 'inline' }],
+    appendSourceUrl: false,
+  },
+  'youtube-longform': {
+    extraKey: 'youtubeLongform',
+    title: '유튜브 롱폼 A/B/C 결과',
+    accent: '#ff0000',
+    candidateKey: 'openingCandidates',
+    selectedKey: 'opening',
+    scoreKey: 'openingScore',
+    candidateLabel: '오프닝 30초 후보',
+    copyLabel: '최종 롱폼 대본',
+    copyFields: ['videoTitle', 'opening', { key: 'chapters', numbered: true }, 'closing', 'ctaScript', { key: 'timestamps', numbered: true }, { key: 'description', appendSourceUrl: true }, { key: 'pinnedComment', appendSourceUrl: true }, { key: 'hashtags', style: 'inline' }],
     appendSourceUrl: false,
   },
   tiktok: {
@@ -2751,7 +2773,7 @@ function _flashToast(message) {
 //   v2 IPC에서 동적으로 로드. 실패 시 fallback set 사용.
 let _V2_CHANNELS = new Set([
   'instagram', 'threads', 'x', 'facebook', 'pinterest', 'naver-blog',
-  'naver-cafe', 'kakao-openchat', 'youtube-shorts', 'tiktok',
+  'naver-cafe', 'kakao-openchat', 'youtube-shorts', 'youtube-longform', 'tiktok',
 ]);
 let _v2ChannelsLoaded = false;
 let _v2ChannelMeta = {};  // id → {confidence, riskTier, category, ...}

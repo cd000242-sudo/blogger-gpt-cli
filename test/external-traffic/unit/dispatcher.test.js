@@ -8,9 +8,10 @@ const dispatcher = require('../../../src/core/external-traffic');
 describe('listChannels', () => {
   // v3.8.123 local-board, v3.8.2xx kakao-channel 추가로 34 → 36
   // v3.8.544 naver-premium-content 추가로 36 → 37 (사장님 요청)
-  test('전체 채널 등록 (MVP 6 + 확장 31 = 37)', () => {
+  // v3.8.718 youtube-longform 추가로 37 → 38 (손님 요청: 블로그 → 유튜브 롱폼 재생성 루틴)
+  test('전체 채널 등록 (MVP 6 + 확장 32 = 38)', () => {
     const list = dispatcher.listChannels();
-    expect(list.length).toBe(37);
+    expect(list.length).toBe(38);
     const ids = list.map((c) => c.id);
     // 채널 id 중복 등록 방지 (개수만 세면 중복이 숨는다)
     expect(new Set(ids).size).toBe(ids.length);
@@ -21,7 +22,7 @@ describe('listChannels', () => {
       'naver-cafe', 'naver-band', 'naver-jisik-in',
       'dcinside', 'fmkorea', 'theqoo', 'arcalive',
       'mlbpark', 'bobaedream', 'orbi',
-      'youtube-shorts', 'tiktok',
+      'youtube-shorts', 'youtube-longform', 'tiktok',
       'kakao-openchat', 'telegram-channel',
       'reddit-korea', 'github-discussions', 'medium',
     ]));

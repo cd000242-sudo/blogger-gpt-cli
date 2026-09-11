@@ -219,6 +219,17 @@ const PLATFORM_PROFILES = {
     disclosure: 'cluster',
     edge: '완주율 60% 이상이 기본, 80%면 알고리즘이 공격 배포 — 첫 3초에 결론을 선공개하고 핵심 3개를 리듬감 있게, 마지막 문장이 첫 문장으로 되감기는 루프 구조로 재시청을 만든다. 링크는 고정댓글로.',
   },
+  'youtube-longform': {
+    name: '유튜브 롱폼',
+    purpose: '평균 시청 지속시간, 챕터 이탈 방지, 상담·문의 전환',
+    format: '8분에서 12분 영상 대본 (챕터 5~8개 + 타임스탬프)',
+    tone: '말로 설명하듯 또박또박한 구어체, 한 문장 한 호흡',
+    avoid: '블로그 문장 그대로 읽기, 목차만 나열, 원문에 없는 단정',
+    variants: { A: '설명형', B: '사례형', C: '실수형' },
+    output: '영상 제목, 오프닝 30초, 챕터별 대본, 마무리, CTA 멘트, 타임스탬프, 설명란, 고정댓글, 해시태그',
+    disclosure: 'cluster',
+    edge: '롱폼은 훅 하나로 못 끈다 — 챕터마다 다음으로 넘어갈 이유를 한 문장씩 남겨야 이탈이 멈춘다. 오프닝 30초에서 "끝까지 보면 무엇을 판단할 수 있는지"를 약속하고, 타임스탬프로 되돌아올 길을 열어 둔다. 상담 유도는 마지막에 한 번만.',
+  },
   tiktok: {
     name: '틱톡',
     purpose: '첫 2초 시청 유지, 댓글, 저장, 완시율',
@@ -424,6 +435,7 @@ function buildPlatformAngles(primary, category) {
     facebook: `${primary}를 가족·지인에게 공유하기 쉬운 생활정보로 정리`,
     'kakao-openchat': `${primary}를 단톡방 공지처럼 짧게 안내`,
     'youtube-shorts': `${primary}를 첫 3초 훅과 30초 대본으로 변환`,
+    'youtube-longform': `${primary}를 오프닝 30초와 챕터 5~8개의 롱폼 대본으로 변환`,
     tiktok: `${primary}를 첫 2초 훅과 빠른 컷 자막으로 변환`,
     pinterest: `${primary}를 저장 가능한 핀 제목과 이미지 문구로 변환`,
     category,
@@ -882,6 +894,19 @@ function inspectPlatformMix(platformId, text) {
   if (platformId === 'youtube-shorts' && cleanText(text).length > 800 && !/(첫 3초|멘트|자막|고정댓글|스크립트|대본|#)/.test(text)) {
     violations.push('유튜브 쇼츠 결과가 영상 대본 구조로 보이지 않습니다.');
   }
+  /**
+   * v3.8.718 — 롱폼은 **짧으면** 실패다(쇼츠와 반대).
+   * 챕터와 타임스탬프가 없으면 그냥 긴 글을 읽은 것이지 영상 대본이 아니다.
+   */
+  if (platformId === 'youtube-longform') {
+    const bodyLength = cleanText(text).length;
+    if (bodyLength < 1200) {
+      violations.push('유튜브 롱폼 결과가 8~12분 대본이라기엔 너무 짧습니다.');
+    }
+    if (!/(00:|0\d:\d\d|타임스탬프|챕터)/.test(text)) {
+      violations.push('유튜브 롱폼 결과에 챕터 또는 타임스탬프가 없습니다.');
+    }
+  }
   if (platformId === 'tiktok' && cleanText(text).length > 1300) {
     violations.push('틱톡 결과가 쇼츠처럼 길고 무거워졌습니다.');
   }
@@ -1019,6 +1044,7 @@ const EXTRA_KEY_BY_PLATFORM = {
   facebook: 'facebook',
   'kakao-openchat': 'kakaoOpenChat',
   'youtube-shorts': 'youtubeShorts',
+  'youtube-longform': 'youtubeLongform',
   tiktok: 'tiktok',
   pinterest: 'pinterest',
 };

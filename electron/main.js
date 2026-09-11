@@ -4362,6 +4362,26 @@ electron_1.ipcMain.handle('assistant:latest-post', async (_evt, args) => {
         return { ok: false, error: String(error?.message || error).slice(0, 160) };
     }
 });
+/**
+ * 📝 v3.8.718 — 요청사항이 시스템 규칙과 부딪히는지 화면이 물어본다.
+ * 판정은 user-request 한 곳이 한다 — 화면이 따로 적으면 한쪽만 늙는다.
+ */
+electron_1.ipcMain.handle('user-request:check', async (_evt, args) => {
+    try {
+        const { detectRequestConflicts, normalizeUserRequest } = require('../dist/core/final/user-request');
+        const normalized = normalizeUserRequest(args?.text);
+        return {
+            ok: true,
+            conflicts: detectRequestConflicts(normalized.text),
+            truncated: normalized.truncated,
+            removed: normalized.removed,
+            length: normalized.text.length,
+        };
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 160) };
+    }
+});
 electron_1.ipcMain.handle('agent:models', async () => {
     try {
         const { AGENT_MODELS, agentModelsFor } = require('../dist/core/agent-models');
@@ -10133,6 +10153,25 @@ function buildAgentJobInstructions(request, profile) {
             }
             catch (harnessErr) {
                 console.warn('[AGENT] 공용 규칙 주입 실패(지시서는 계속 진행):', harnessErr);
+                return '';
+            }
+        })(),
+        /**
+         * 📝 v3.8.718 — 화면의 「이 글 요청사항」. 에이전트는 orchestration 을 안 타므로 여기서 따로 넘긴다.
+         *
+         * **지시서 맨 끝**에 둔다. 규칙이 다 선 다음에 와야 "참고" 자격이 유지된다 —
+         * 위쪽에 끼우면 요청 문장이 규칙을 덮어쓰는 것처럼 읽힌다.
+         */
+        (() => {
+            try {
+                const { buildUserRequestBlock, describeUserRequest } = require('../dist/core/final/user-request');
+                const block = buildUserRequestBlock(payload?.userRequest);
+                if (block)
+                    console.log(`[AGENT] 📝 ${describeUserRequest(payload?.userRequest)}`);
+                return block;
+            }
+            catch (reqErr) {
+                console.warn('[AGENT] 작성자 요청 주입 스킵:', reqErr?.message || reqErr);
                 return '';
             }
         })(),

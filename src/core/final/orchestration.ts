@@ -3013,6 +3013,25 @@ ${quoted}
       }
 
       /**
+       * 📝 v3.8.718 — 이 글에만 적용할 **작성자 요청사항**.
+       *
+       * 사장님: "실제 발행할 때도 API 한테 요청사항을 적어주는 기능도 추가하면 어떠니?"
+       * 경험 메모가 "무엇을 겪었나"라면 이건 "어떻게 써달라"다.
+       * 경험 블록 **뒤에** 붙인다 — 규칙과 재료가 다 자리잡은 다음에 와야 참고 자격이 유지된다.
+       */
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { buildUserRequestBlock, describeUserRequest } = require('./user-request');
+        const requestBlock = buildUserRequestBlock((payload as any).userRequest);
+        if (requestBlock) {
+          scopedSectionBlock += requestBlock;
+          onLog?.(`[PROGRESS] 43% - 📝 ${describeUserRequest((payload as any).userRequest)}`);
+        }
+      } catch (reqErr) {
+        console.warn('[USER-REQUEST] 주입 스킵:', (reqErr as Error)?.message || reqErr);
+      }
+
+      /**
        * 🗣️ v3.8.470 — **겪은 사람의 말투는 어떤 경우에도 넣는다.**
        *
        * 사용자 요구: "이게 어떤 모드든 이런 식으로 나와야 되".

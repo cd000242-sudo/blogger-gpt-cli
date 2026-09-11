@@ -40,8 +40,10 @@ const DDANZI = require('./prompts/specialized/ddanzi');
 const COOK82 = require('./prompts/specialized/82cook');
 const LOCAL_BOARD = require('./prompts/specialized/local-board');
 
-// Video (2)
+// Video (3)
 const YOUTUBE_SHORTS = require('./prompts/video/youtube-shorts');
+// v3.8.718: 블로그 글 → 8~12분 롱폼 대본. 쇼츠는 분량이 아니라 구조가 다르다(챕터·타임스탬프)
+const YOUTUBE_LONGFORM = require('./prompts/video/youtube-longform');
 const TIKTOK = require('./prompts/video/tiktok');
 
 // Messenger (3)
@@ -94,8 +96,9 @@ const CHANNEL_REGISTRY = {
   [DDANZI.id]: DDANZI,
   [COOK82.id]: COOK82,
   [LOCAL_BOARD.id]: LOCAL_BOARD,
-  // Video 2
+  // Video 3
   [YOUTUBE_SHORTS.id]: YOUTUBE_SHORTS,
+  [YOUTUBE_LONGFORM.id]: YOUTUBE_LONGFORM,
   [TIKTOK.id]: TIKTOK,
   // Messenger 3
   [KAKAO_OPENCHAT.id]: KAKAO_OPENCHAT,
@@ -238,6 +241,7 @@ function processResponse(channelId, rawText) {
     facebook: ['facebook', 'Facebook'],
     'kakao-openchat': ['kakaoOpenChat', 'Kakao OpenChat'],
     'youtube-shorts': ['youtubeShorts', 'YouTube Shorts'],
+    'youtube-longform': ['youtubeLongform', 'YouTube Longform'],
     tiktok: ['tiktok', 'TikTok'],
     pinterest: ['pinterest', 'Pinterest'],
   };
