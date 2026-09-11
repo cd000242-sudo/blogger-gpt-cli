@@ -18,6 +18,7 @@
  * 2번이 실제로 걸리는 일은 거의 없다. 안전망이다.
  */
 import * as fs from 'fs';
+import { blockBetween } from './helpers/source-block';
 import * as path from 'path';
 import { dropEmptyFaqItems, isSummaryRenderable, findEmptyBlocks } from '../src/core/final/empty-block-guard';
 import { buildFAQHtml } from '../src/core/final/generation';
@@ -133,8 +134,17 @@ describe('④ 발행 경로에 배선돼 있다', () => {
   });
 
   it('⭐⭐ 빈 블록이 남아 있으면 발행을 멈춘다 (사장님: "발행 중단")', () => {
-    const idx = orchestration.indexOf('findEmptyBlocks(');
-    const block = orchestration.slice(idx - 400, idx + 900);
+    /**
+     * v3.8.719 — 고정 길이 창(±400/900자)으로 보던 검사를 **구간**으로 바꾼다.
+     * 그 사이에 코드 한 블록만 끼어도(실제로 빈 상자 제거가 들어왔다) 창 밖으로 밀려
+     * 멀쩡한 배선이 실패로 잡혔다. 잡아야 할 것은 거리가 아니라 "마지막 검사 뒤에 중단이 온다"다.
+     */
+    const block = blockBetween(
+      orchestration,
+      'const emptyBlocks = findEmptyBlocks(html)',
+      '깨진 글을 올리는 것보다 안 올리는 편이 낫습니다',
+    );
     expect(block).toContain('throw new Error');
+    expect(block).toContain('발행을 중단');
   });
 });

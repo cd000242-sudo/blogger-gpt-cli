@@ -53,7 +53,7 @@ import { findUnkeptTitleClaims, stripUnkeptClaims, describeUnkeptClaims } from '
 // v3.8.591: 근거에 있는 핵심 수치를 빠뜨렸는지 본다 (지어내기 말고 '빠뜨리기')
 import { findMissingKeyFacts, describeMissingKeyFacts, hasMissingKeyFacts, buildKeyFactDirective } from './key-fact-gate';
 import { naverSearch } from '../naver-search-client';
-import { findEmptyBlocks, describeEmptyBlocks, removeEmptyFaqBlocks, isSummaryRenderable, dropValuelessRows } from './empty-block-guard';
+import { findEmptyBlocks, describeEmptyBlocks, removeEmptyFaqBlocks, removeEmptyDecorativeBoxes, isSummaryRenderable, dropValuelessRows } from './empty-block-guard';
 import { autoRepairBeforePublish, describeRepairs } from './auto-repair';
 import { normalizeTableNotation } from './table-notation';
 import { buildAnswerBlock } from './answer-block';
@@ -331,6 +331,36 @@ export function renderFinalCtaBlock(input: {
    */
   extraButtons?: Array<{ text: string; url: string }>;
 }): string {
+  /**
+   * 🚧 v3.8.719 — **목적지를 여기서 마지막으로 검사한다.**
+   *
+   * 사장님 실물 검수(발행글 5710, 변호사 손님용): 버튼이 "🔗 공식 사이트 바로가기 —
+   * 운영 주체가 직접 안내하는 페이지"라고 써 놓고 `postmate.waffle-gl.org/link/detail/...`
+   * 로 갔다. 공식 기관이 아니라 정체불명의 링크 중계 사이트다.
+   *
+   * 판정기(host-trust)는 멀쩡했다 — 그 주소를 넣으면 `{ok:false, reason:'redirector'}` 가 나온다.
+   * 문제는 **이 글을 만든 경로가 판정기를 안 불렀다**는 것이다. 오늘 아침 wpautop 건과 같은 모양이다.
+   *
+   * 그래서 문구를 고치는 자리(toRenderableCtaCandidate)가 아니라 **HTML 이 만들어지는 이 자리**에
+   * 검사를 둔다. 경로가 12개든 새로 생기든 버튼은 반드시 여기를 지난다.
+   *
+   * 통과 못 하면 **CTA 를 아예 안 그린다.** 남의 사이트로 보내는 버튼보다 버튼이 없는 편이 낫다 —
+   * 특히 "공식 사이트"라고 적힌 버튼이면 틀렸을 때 잃는 것이 신뢰다.
+   * 제휴 링크(rel 에 sponsored)는 애초에 기관 링크가 아니므로 이 검사에서 제외한다.
+   */
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { ctaDestinationAllowed, describeHostVerdict } = require('../../cta/host-trust');
+    const gate = ctaDestinationAllowed(input.url, input.rel);
+    if (!gate.allowed) {
+      console.warn(`[CTA] 🚧 믿을 수 없는 목적지라 버튼을 넣지 않습니다 — ${describeHostVerdict({ ok: false, reason: gate.reason })} (${String(input.url).slice(0, 80)})`);
+      return '';
+    }
+  } catch (judgeErr) {
+    // 판정기를 못 불러와도 발행은 계속한다 (예전과 동일 동작)
+    console.warn('[CTA] 목적지 검사 건너뜀:', (judgeErr as Error)?.message || judgeErr);
+  }
+
   const badge = input.badge ? escapeHtmlText(sanitizeCtaText(input.badge)) : '';
   const hook = escapeHtmlText(sanitizeCtaText(input.hook || ''));
   const buttonText = escapeHtmlText(sanitizeCtaText(input.buttonText || 'Details'));
@@ -6438,6 +6468,22 @@ ${conclusionHTML}
         html = repaired.html;
         onLog?.(`[PROGRESS] 97% - 🩹 답변이 빈 FAQ ${repaired.removed}개를 지웠습니다 (발행은 계속합니다)`);
         console.log(`[EMPTY-BLOCK] FAQ ${repaired.removed}개 제거 후 계속`);
+      }
+    }
+
+    /**
+     * 🫙 v3.8.719 — 테두리만 남은 빈 상자를 걷는다.
+     *
+     * 사장님 실물 검수(발행글 5710): "이거 공란도" — 빈 `<blockquote>` 4개가 그대로 나갔다.
+     * FAQ 와 달리 findEmptyBlocks 가 애초에 세지 않는 종류라, 위 조건 안에 두면 안 돈다.
+     * **조건 없이 매번 돌린다** — 지울 게 없으면 아무 일도 안 일어난다.
+     */
+    {
+      const boxes = removeEmptyDecorativeBoxes(html);
+      if (boxes.removed > 0) {
+        html = boxes.html;
+        onLog?.(`[PROGRESS] 97% - 🫙 내용이 빈 상자 ${boxes.removed}개를 지웠습니다`);
+        console.log(`[EMPTY-BLOCK] 빈 장식 상자 ${boxes.removed}개 제거`);
       }
     }
 

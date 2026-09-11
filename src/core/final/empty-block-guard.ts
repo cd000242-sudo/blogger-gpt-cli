@@ -167,6 +167,46 @@ export function removeEmptyFaqBlocks(html: string): { html: string; removed: num
   }
 }
 
+/**
+ * 🫙 v3.8.719 — **테두리만 남은 빈 상자**를 걷어낸다.
+ *
+ * 사장님(실물 검수, 발행글 5710): "이거 공란도" — 본문 중간에 테두리만 있는 빈 상자.
+ * 정체는 `<blockquote class="bgpt-s11"></blockquote>` 였고 한 글에 **4개**가 있었다.
+ *
+ * 이 파일의 가드는 그때까지 소제목·FAQ·표 셀 셋만 봤다. blockquote 는 목록에 없어
+ * 그냥 통과했다 — 코드는 있는데 이 종류는 안 걸리는, 이 저장소가 여러 번 겪은 모양이다.
+ *
+ * 소제목과 달리 **지워도 글의 뼈대가 안 무너진다.** 인용·강조 상자는 본문을 보조하는
+ * 장식이라, 내용이 비었으면 그 자리는 없는 편이 낫다(FAQ 를 지우는 것과 같은 판단).
+ *
+ * ⚠️ 안에 이미지·표·아이프레임이 있으면 글자가 없어도 빈 것이 아니다 —
+ *    CONTENT_BEARING 이 그걸 지킨다.
+ */
+const DECORATIVE_BOX_TAGS = ['blockquote', 'aside', 'figcaption'] as const;
+
+export function removeEmptyDecorativeBoxes(html: string): { html: string; removed: number } {
+  try {
+    const source = String(html || '');
+    let removed = 0;
+    let out = source;
+
+    for (const tag of DECORATIVE_BOX_TAGS) {
+      const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
+      out = out.replace(re, (whole, body: string) => {
+        if (isBlank(body) && !CONTENT_BEARING.test(String(body || ''))) {
+          removed += 1;
+          return '';
+        }
+        return whole;
+      });
+    }
+
+    return { html: removed > 0 ? out : source, removed };
+  } catch {
+    return { html: String(html || ''), removed: 0 };   // 고치다 글을 깨뜨리지 않는다
+  }
+}
+
 /** 에러 메시지용 — 무엇이 비었는지 사람이 읽을 수 있게 */
 export function describeEmptyBlocks(blocks: EmptyBlock[]): string {
   const label: Record<EmptyBlock['kind'], string> = {

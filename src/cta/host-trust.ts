@@ -420,6 +420,49 @@ export function judgeCtaHost(
   return { ok: false, reason: 'unknown-host' };
 }
 
+/**
+ * 🚧 v3.8.719 — CTA 버튼을 **그려도 되는가**. HTML 을 만드는 자리가 마지막으로 묻는다.
+ *
+ * ## 왜 여기까지 왔나 (실물 사고 — 발행글 5710, 변호사 손님용)
+ * 버튼이 "🔗 공식 사이트 바로가기 — 운영 주체가 직접 안내하는 페이지"라고 적힌 채
+ * `postmate.waffle-gl.org/link/detail/...` 로 나갔다. 정체불명의 링크 중계 사이트다.
+ *
+ * judgeCtaHost 는 그 주소를 넣으면 `{ok:false, reason:'redirector'}` 를 정확히 돌려준다.
+ * **판정기가 아니라 배선이 고장나 있었다** — 그 글을 만든 경로가 판정기를 안 불렀다.
+ *
+ * 그래서 판단을 여기 한 줄짜리 함수로 내놓고, 렌더러가 이것만 부르게 한다.
+ * 렌더러(orchestration)는 ESM 의존성 때문에 테스트가 못 읽으므로, 판단이 그 안에 있으면
+ * **아무도 검증할 수 없다.** 판단은 검증 가능한 자리에 있어야 한다.
+ *
+ * 제휴 링크는 애초에 기관 링크가 아니다 — rel 에 sponsored 가 있으면 검사 대상에서 뺀다.
+ * 그러지 않으면 쇼핑 CTA 가 통째로 죽는다.
+ */
+/**
+ * 이 마지막 관문에서 **막을 이유**. 좁게 고른 것이 핵심이다.
+ *
+ * 렌더러는 키워드도 기관 목록도 모른다. 그래서 `unknown-host`(근거를 못 찾음)까지 막으면
+ * 앞 단계가 문맥을 보고 정당하게 고른 민간 공식 사이트(예: 키워드 브랜드와 일치한 korail.com)
+ * 까지 조용히 사라진다 — 버그 하나 고치려다 멀쩡한 CTA 를 죽이는 셈이다.
+ *
+ * 여기서는 **문맥과 무관하게 언제나 틀린 것**만 막는다.
+ */
+const ALWAYS_WRONG_REASONS = new Set(['redirector', 'user-generated', 'ad-tracking', 'invalid']);
+
+export function ctaDestinationAllowed(
+  url: string | undefined,
+  rel?: string,
+): { allowed: boolean; reason: string } {
+  const target = String(url || '').trim();
+  if (!target || target === '#') return { allowed: true, reason: 'no-url' };
+  if (/sponsored/i.test(String(rel || ''))) return { allowed: true, reason: 'sponsored' };
+
+  // 키워드·기관 문맥은 이 자리에 없다 — 빈 값으로 물어 도메인 자체만 본다
+  const verdict = judgeCtaHost(target, '', [], '');
+  if (verdict.ok) return { allowed: true, reason: verdict.reason };
+  if (ALWAYS_WRONG_REASONS.has(verdict.reason)) return { allowed: false, reason: verdict.reason };
+  return { allowed: true, reason: verdict.reason };
+}
+
 /** 로그용 한 줄 설명 */
 export function describeHostVerdict(result: HostTrustResult): string {
   switch (result.reason) {
