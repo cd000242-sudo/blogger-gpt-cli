@@ -12859,6 +12859,27 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
       console.warn('[AGENT-PARA] 스킵:', String(paraErr?.message || paraErr).slice(0, 120));
     }
 
+    /**
+     * 🗣️ v3.8.720 — 에이전트 글에도 사람 말투 어미를 섞는다.
+     *
+     * 에이전트는 orchestration 을 안 타므로 여기서 따로 부른다 — 스킨·문단 정리와 같은 이유다.
+     * 문단 정리 뒤, 스킨 앞이 자리다.
+     */
+    try {
+      const toneStyle = String((request?.payload as any)?.toneStyle || '');
+      const isEnglish = /overseas|english/i.test(String((request?.payload as any)?.contentMode || ''));
+      if (toneStyle !== 'formal' && !isEnglish) {
+        const { softenHtmlVoice } = require('../dist/core/final/voice-softener');
+        const voiced = softenHtmlVoice(String(result.content || ''), 2);
+        if (voiced.changed > 0) {
+          result.content = voiced.html;
+          console.log(`[AGENT-VOICE] 🗣️ 문장 ${voiced.changed}개에 사람 말투 어미를 섞었습니다`);
+        }
+      }
+    } catch (voiceErr: any) {
+      console.warn('[AGENT-VOICE] 스킵:', String(voiceErr?.message || voiceErr).slice(0, 120));
+    }
+
     try {
       const { applyOrbitSkinToAgentHtml } = require('../dist/core/final/agent-skin');
       const { generateCSSFinal } = require('../dist/core/final/html');

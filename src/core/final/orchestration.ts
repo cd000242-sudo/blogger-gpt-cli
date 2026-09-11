@@ -5001,6 +5001,30 @@ ${quoted}
         onLog?.(`[PROGRESS] 92% - ⚠️ 문단 정리 건너뜀: ${String(normErr?.message || normErr).slice(0, 60)}`);
       }
 
+      /**
+       * 🗣️ v3.8.720 — 문장 끝을 사람 말투로 섞는다.
+       *
+       * 사장님: "말투를 좀 더 자연스럽게 사람처럼 나오게 해줘. ~합니다 ~입니다 ~습니다만
+       *          쓰는 게 아니라 ~하죠 ~하는 이유죠 등등 있잖아"
+       *
+       * 문단 정리 **뒤**에 둔다 — 문단이 갈린 뒤라야 "문단의 첫 문장은 건드리지 않는다"가 뜻대로 돈다.
+       * 격식 말투를 고른 경우와 해외(영문) 모드는 건너뛴다. 그쪽은 어미를 흔들면 안 된다.
+       */
+      try {
+        const toneStyle = String((payload as any)?.toneStyle || '');
+        const isEnglish = /overseas|english/i.test(String((payload as any)?.contentMode || ''));
+        if (toneStyle !== 'formal' && !isEnglish) {
+          const { softenHtmlVoice } = await import('./voice-softener');
+          const voiced = softenHtmlVoice(html, 2);
+          if (voiced.changed > 0) {
+            html = voiced.html;
+            onLog?.(`[PROGRESS] 92% - 🗣️ 문장 ${voiced.changed}개에 사람 말투 어미를 섞었습니다 (~죠 · ~거든요)`);
+          }
+        }
+      } catch (voiceErr: any) {
+        onLog?.(`[PROGRESS] 92% - ⚠️ 말투 섞기 건너뜀: ${String(voiceErr?.message || voiceErr).slice(0, 60)}`);
+      }
+
       // 🛒 v3.8.404 — **눈에 보이는 구매 버튼**을 심는다.
       //   실측(2026-08-02): 발행글에 이미지 링크는 8개 있었는데 구매 버튼은 0개였다.
       //   버튼이 없으면 독자는 "이미지를 눌러야 한다"는 걸 모른다.
