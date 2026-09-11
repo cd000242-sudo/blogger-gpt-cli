@@ -45,6 +45,7 @@ const axios_1 = __importStar(require("axios"));
 const generative_ai_1 = require("@google/generative-ai");
 const api_keys_1 = require("./api-keys");
 const pricing_1 = require("./pricing");
+const openai_params_1 = require("./openai-params");
 // v3.8.565 (E2): 출력 언어는 language-rules 가 단독으로 정한다.
 //   본문 프롬프트(generation.ts)와 여기가 서로 다른 언어를 지시하면 모델이 흔들린다.
 const language_rules_1 = require("../final/language-rules");
@@ -101,16 +102,12 @@ function buildOpenAIChatBody(model, prompt) {
             { role: 'user', content: prompt },
         ],
     };
-    if (/^gpt-5/i.test(model)) {
-        body['max_completion_tokens'] = resolveLlmMaxTokens();
-        if (/^gpt-5\.6/i.test(model))
-            body['reasoning_effort'] = 'medium';
-    }
-    else {
-        body['max_tokens'] = resolveLlmMaxTokens();
-        body['temperature'] = getGenerationTemperature(prompt);
-    }
-    return body;
+    /**
+     * v3.8.714 — 규칙을 openai-params 한 곳에서 정한다.
+     * 예전엔 `/^gpt-5/` 만 새 규칙을 썼다 → **gpt-6-astra** 가 옛 취급을 받아
+     * max_tokens·temperature 를 보냈고 HTTP 400 으로 발행이 통째로 실패했다(사장님 실측).
+     */
+    return (0, openai_params_1.applyOpenAiTokenParams)(body, model, resolveLlmMaxTokens(), getGenerationTemperature(prompt), { reasoningEffort: 'medium' });
 }
 const PROVIDERS = {
     perplexity: {
@@ -207,6 +204,65 @@ function resolveModelChain(provider) {
     // 고른 모델이 없으면 그 provider 의 대표 모델 하나만 — 이건 폴백이 아니라 기본값이다
     return baseModels.slice(0, 1);
 }
+/**
+ * ⏱️ v3.8.717 — **제한시간을 모델에 맞춘다.**
+ *
+ * 사장님 실측(2026-09-11): `timeout of 90000ms exceeded` 로 발행이 두 번 다 실패.
+ * 90초는 추론 모델이 한국어 장문을 끝내기에 짧다 — OpenAI 가 붐비는 시간대면 더 그렇다.
+ * 빠른 모델까지 같이 늘리면 진짜 장애일 때 사용자가 4분을 기다리므로, **느린 모델만** 늘린다.
+ *
+ * 제한시간은 "여기까지 기다린다"이지 "여기까지 쓴다"가 아니다 — 늘려도 비용은 그대로다.
+ * 잘려서 다시 만드는 쪽이 비싸다.
+ */
+const SLOW_REASONING_MODEL = /astra|sol\b|^o\d|fable|opus/i;
+const SLOW_MODEL_TIMEOUT_MS = 240000;
+function resolveCallTimeout(config, model) {
+    const override = Number(process.env['LLM_TIMEOUT_MS'] || '');
+    if (Number.isFinite(override) && override >= 10000)
+        return Math.floor(override);
+    return SLOW_REASONING_MODEL.test(model) ? Math.max(config.timeout, SLOW_MODEL_TIMEOUT_MS) : config.timeout;
+}
+/**
+ * 🐢→🐇 v3.8.717 — **시간초과일 때만** 같은 회사의 빠른 모델로 한 번 내려간다.
+ *
+ * 사장님: "제한시간에 맞춰 늘려주고 2번도 같이해"
+ *
+ * v3.8.647 이 폴백을 걷어낸 이유는 살아 있다 — 키가 죽은 걸 모르고 지나가면 안 된다.
+ * 그래서 **인증·결제·쿼터·레이트리밋은 그대로 즉시 실패**시키고, 시간초과 하나만 예외로 둔다.
+ * 시간초과는 키 문제가 아니라 "이 모델이 이 시간엔 느리다"는 뜻이라, 사람이 할 판단이 없다.
+ *
+ * 두 가지를 지킨다:
+ *   · **다른 회사로는 절대 안 넘어간다** — 고른 엔진 안에서만 움직인다
+ *   · 한 번만 내려간다. 그리고 로그·장부에 어느 모델이 실제로 썼는지 남긴다(조용한 대체 금지)
+ */
+const FASTER_SIBLING = {
+    openai: {
+        'gpt-6-astra': 'gpt-5.6-luna',
+        'gpt-5.6-sol': 'gpt-5.6-luna',
+        'gpt-5.6-terra': 'gpt-5.6-luna',
+    },
+    claude: {
+        'claude-fable-5': 'claude-sonnet-5',
+        'claude-fable-5-1': 'claude-sonnet-5',
+        'claude-opus-5': 'claude-sonnet-5',
+    },
+    perplexity: {
+        'sonar-pro': 'sonar',
+    },
+};
+function fasterSiblingOf(provider, model) {
+    return FASTER_SIBLING[provider]?.[model] || null;
+}
+/** 대체가 일어났다는 사실을 남긴다 — 장부와 로그가 모르면 그게 '조용한 대체'다 */
+function recordDowngrade(provider, from, to) {
+    try {
+        const g = globalThis;
+        if (!g.__llmDowngrades)
+            g.__llmDowngrades = [];
+        g.__llmDowngrades.push({ provider, from, to, at: Date.now() });
+    }
+    catch { /* 기록 실패가 생성을 막지 않는다 */ }
+}
 function extractErrorMessage(error) {
     if (error instanceof axios_1.AxiosError) {
         const data = error.response?.data;
@@ -259,7 +315,7 @@ function buildProviderError(config, kind, model, attempts, rawMessage) {
         quota: '결제 잔액이 있어도 분당/일일/토큰 한도 또는 프로젝트 쿼터에 걸릴 수 있습니다.',
         rate_limit: '짧은 시간에 요청이 몰렸습니다. 앱이 자동 대기 후 재시도했지만 provider 제한이 계속 반환되었습니다.',
         model: '현재 선택된 모델을 사용할 수 없습니다. 같은 provider의 다른 모델로 변경해 주세요.',
-        timeout: '응답 시간이 제한을 넘었습니다. 더 빠른 모델이나 짧은 글 길이로 다시 시도해 주세요.',
+        timeout: '응답 시간이 제한을 넘었습니다(같은 엔진의 빠른 모델로 한 번 더 시도한 뒤에도 실패). provider 가 붐비는 시간일 수 있습니다 — 잠시 후 다시 시도하거나 글 길이를 줄여 보세요.',
         network: '네트워크, VPN, 방화벽 또는 provider 일시 장애를 확인해 주세요.',
         empty: 'provider가 빈 응답을 반환했습니다.',
         unknown: 'provider에서 분류되지 않은 오류가 반환되었습니다.',
@@ -291,15 +347,26 @@ async function callLLM(provider, prompt) {
     }
     catch { /* 취소 기능 없이 진행 */ }
     const cancelSignal = cancelToken?.getCancelSignal?.() || undefined;
-    for (const model of modelChain) {
+    /**
+     * v3.8.717 — 체인을 **큐**로 든다. 시간초과일 때 같은 회사의 빠른 모델을 뒤에 한 번 붙이기 위해서다.
+     * 붙이지 않으면 예전과 똑같이 고른 모델 하나만 돈다.
+     */
+    const queue = [...modelChain];
+    const tried = new Set();
+    let downgraded = false;
+    while (queue.length > 0) {
+        const model = queue.shift();
+        tried.add(model);
+        let lastKind = null;
         for (let attempt = 0; attempt < maxRetries; attempt++) {
             totalAttempts++;
             try {
                 await (0, provider_throttle_1.waitForTextProviderTurn)(config.provider, `${config.name}/${model}`);
-                console.log(`[LLM] ${config.name} ${model} attempt ${attempt + 1}/${maxRetries}`);
+                const callTimeout = resolveCallTimeout(config, model);
+                console.log(`[LLM] ${config.name} ${model} attempt ${attempt + 1}/${maxRetries} (제한 ${Math.round(callTimeout / 1000)}초)`);
                 const response = await axios_1.default.post(config.endpoint, config.buildBody(model, prompt), {
                     headers: config.buildHeaders(apiKey),
-                    timeout: config.timeout,
+                    timeout: callTimeout,
                     // v3.8.536: 중지 순간 요청 자체가 끊긴다 (신호 없으면 undefined — 평소와 동일)
                     ...(cancelSignal ? { signal: cancelSignal } : {}),
                 });
@@ -359,6 +426,7 @@ async function callLLM(provider, prompt) {
                 catch { /* 기록 실패가 오류 처리를 막지 않는다 */ }
                 const errorMsg = extractErrorMessage(error);
                 const kind = classifyProviderFailure(config, error);
+                lastKind = kind;
                 lastError = buildProviderError(config, kind, model, totalAttempts, errorMsg);
                 console.warn(`[LLM] ${config.name} ${model} 실패 (${kind}): ${errorMsg.slice(0, 140)}`);
                 if (kind === 'rate_limit' && attempt < maxRetries - 1) {
@@ -376,6 +444,20 @@ async function callLLM(provider, prompt) {
                     throw lastError;
                 }
                 break;
+            }
+        }
+        /**
+         * v3.8.717 — 재시도를 다 쓰고도 **시간초과**로 끝났으면, 같은 회사의 빠른 모델로 한 번만 내려간다.
+         * 시간초과 외의 실패(모델 없음·빈 응답 등)는 예전 그대로 여기서 끝난다.
+         */
+        if (lastKind === 'timeout' && !downgraded) {
+            const faster = fasterSiblingOf(provider, model);
+            if (faster && !tried.has(faster)) {
+                downgraded = true;
+                recordDowngrade(provider, model, faster);
+                const note = `⏱️ ${config.name} ${model} 이(가) 제한시간을 넘겼습니다 → 같은 엔진의 빠른 모델 ${faster} 로 한 번 더 시도합니다 (다른 엔진으로 넘어가지 않습니다).`;
+                console.warn(`[LLM] ${note}`);
+                queue.push(faster);
             }
         }
     }

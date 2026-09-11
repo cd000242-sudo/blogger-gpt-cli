@@ -198,6 +198,31 @@ export class LicenseManager {
                 return serverResult;
               }
             } catch { /* 서버 실패 → 아래 폴백 */ }
+
+            /**
+             * 🔓 v3.8.717 — **서버가 느리다고 영구제 사용자를 잠그지 않는다.**
+             *
+             * 사장님 사고(2026-09-11): 손님 앞에서 "서버 인증에 실패했습니다" 로 앱에 못 들어갔다.
+             * 실측하니 라이선스 서버(구글 앱스 스크립트) 응답이 **145초**까지 늘어져 있었고
+             * 앱 제한시간은 15초였다. 서버는 살아 있는데 늦었을 뿐이다.
+             *
+             * 여기 도달했다는 것은 이미 **아이디 · 비밀번호(bcrypt) · deviceId 세 가지가 모두
+             * 일치**한 상태다(위 if 조건). 거기에 license.patch 파일까지 있으면 이 기기에서
+             * 정상 등록된 영구제 라이선스다 — validateLicense 가 v3.6.8 부터 쓰는 판정과 같다.
+             *
+             * 서버는 확인용이지 관문이 아니다. 서버가 응답하면 그 결과를 쓰고(위),
+             * 응답이 없으면 로컬 일관성으로 들여보낸다. 위조는 이 경로로 못 들어온다 —
+             * deviceId 가 다르면 애초에 이 블록에 오지 못한다.
+             */
+            if (fs.existsSync(this.patchFilePath)) {
+              console.warn('[AUTH] 서버 응답 없음 → 로컬 일관성(아이디·비밀번호·deviceId·patch)으로 통과');
+              return {
+                success: true,
+                message: '로그인 성공 (영구제 · 서버 응답이 없어 이 기기의 등록 정보로 확인했습니다)',
+                licenseData: existingLicense
+              };
+            }
+
             return {
               success: false,
               message: '서버 인증에 실패했습니다. 인터넷 연결을 확인하거나 라이선스 코드를 다시 입력해주세요.'
@@ -269,7 +294,9 @@ export class LicenseManager {
         userId,
         userPassword: password,
         deviceId
-      }, { timeout: 15000, headers: { 'Content-Type': 'application/json' } });
+        // v3.8.717: 15초 → 45초. 실측(2026-09-11) 앱스 스크립트가 느릴 때 145초까지 갔다.
+        //   무한정 기다리면 로그인 창이 멈춘 것처럼 보이므로 45초에서 끊고 로컬 확인으로 넘긴다.
+      }, { timeout: 45000, headers: { 'Content-Type': 'application/json' } });
 
       const data = response.data;
       if (isMaintenanceResponse(data)) {
