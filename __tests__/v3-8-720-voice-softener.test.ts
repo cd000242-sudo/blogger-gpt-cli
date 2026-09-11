@@ -139,9 +139,14 @@ describe('⑦ 발행 경로 양쪽에 배선돼 있다', () => {
     expect(main).toMatch(/result\.content = voiced\.html/);
   });
 
-  it('⭐⭐ 격식 말투와 영문 모드는 건너뛴다', () => {
+  it('⭐⭐ 말투가 허락한 경우에만 돈다 (v3.8.721 에서 판단을 등록부로 옮겼다)', () => {
+    /**
+     * v3.8.720 은 "formal 만 빼고 전부"였다. 그런데 그때 「전문적」 프롬프트는 "~죠" 를 금지하고 있어서
+     * 프롬프트와 후처리가 싸웠다 — 글이 34%만 섞인 채 들쭉날쭉해진 원인이다(v3.8.721 에서 바로잡음).
+     */
     for (const src of [read('src/core/final/orchestration.ts'), read('electron/main.ts')]) {
-      expect(src).toMatch(/toneStyle !== 'formal' && !isEnglish/);
+      expect(src).toContain('toneAllowsVoiceSoftening(toneStyle)');
+      expect(src).toMatch(/!isEnglish/);
     }
   });
 });

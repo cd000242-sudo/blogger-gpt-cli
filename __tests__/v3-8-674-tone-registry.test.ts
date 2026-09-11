@@ -28,7 +28,8 @@ describe('v3.8.674 말투 등록부 — 다섯 말투가 이름대로 다르다'
   });
 
   test('이름에 맞는 표지 — 전문적은 되묻기 금지, 격식은 대상 명칭, 친근은 선생님, 대화체는 리더남 대본, 캐주얼은 편한 말버릇', () => {
-    expect(getToneInstruction('professional')).toContain('감정어·감탄·되묻기');
+    // v3.8.721 — 막는 것은 **되묻기**로 좁혔다. 서술형 "~죠." 는 쓴다(말투를 한 목소리로 만들기 위해).
+    expect(getToneInstruction('professional')).toContain('되묻기("~죠?", "어떠신가요?")');
     expect(getToneInstruction('professional')).not.toContain(LEADERNAM_VOICE_RULES);
     expect(getToneInstruction('formal')).toContain('"신청인", "가입자", "보호자"');
     expect(getToneInstruction('formal')).toContain('물음표·느낌표를 쓰지 않습니다');

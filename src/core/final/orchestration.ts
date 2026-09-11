@@ -5013,7 +5013,13 @@ ${quoted}
       try {
         const toneStyle = String((payload as any)?.toneStyle || '');
         const isEnglish = /overseas|english/i.test(String((payload as any)?.contentMode || ''));
-        if (toneStyle !== 'formal' && !isEnglish) {
+        /**
+         * v3.8.721 — **말투가 허락한 경우에만** 돈다.
+         * 예전엔 formal 만 빼고 전부 돌렸는데, 해요체(친근·캐주얼)는 어미 체계가 달라 섞으면 깨지고
+         * 무엇보다 프롬프트가 금지한 어미를 후처리가 넣으면 규칙이 둘로 갈린다(v3.8.720 사고).
+         */
+        const { toneAllowsVoiceSoftening } = await import('./tone-registry');
+        if (toneAllowsVoiceSoftening(toneStyle) && !isEnglish) {
           const { softenHtmlVoice } = await import('./voice-softener');
           const voiced = softenHtmlVoice(html, 2);
           if (voiced.changed > 0) {

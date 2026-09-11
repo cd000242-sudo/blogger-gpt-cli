@@ -12868,7 +12868,9 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
     try {
       const toneStyle = String((request?.payload as any)?.toneStyle || '');
       const isEnglish = /overseas|english/i.test(String((request?.payload as any)?.contentMode || ''));
-      if (toneStyle !== 'formal' && !isEnglish) {
+      // v3.8.721 — 말투가 허락한 경우에만 (프롬프트가 금지한 어미를 후처리가 넣으면 규칙이 둘로 갈린다)
+      const { toneAllowsVoiceSoftening } = require('../dist/core/final/tone-registry');
+      if (toneAllowsVoiceSoftening(toneStyle) && !isEnglish) {
         const { softenHtmlVoice } = require('../dist/core/final/voice-softener');
         const voiced = softenHtmlVoice(String(result.content || ''), 2);
         if (voiced.changed > 0) {
